@@ -24,6 +24,15 @@ def _build_provider(settings, model: str) -> BaseProvider:
     """Auto-detect provider from available API keys."""
     providers: list[BaseProvider] = []
 
+    if settings.deepseek_api_key:
+        providers.append(
+            OpenAIProvider(
+                api_key=settings.deepseek_api_key,
+                model=model,
+                base_url=settings.deepseek_base_url or "https://api.deepseek.com/v1",
+            )
+        )
+
     if settings.openai_api_key:
         providers.append(
             OpenAIProvider(api_key=settings.openai_api_key, model=model, base_url=settings.openai_base_url)
@@ -37,7 +46,7 @@ def _build_provider(settings, model: str) -> BaseProvider:
     if not providers:
         click.echo(
             "Error: No API key configured. "
-            "Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env or environment.",
+            "Set DEEPSEEK_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
             err=True,
         )
         raise SystemExit(1)

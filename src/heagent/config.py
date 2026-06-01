@@ -24,10 +24,12 @@ class Settings(BaseSettings):
     # API Keys — optional, validated at Provider usage time
     openai_api_key: str | None = None
     anthropic_api_key: str | None = None
+    deepseek_api_key: str | None = None
 
     # Base URLs — for OpenAI-compatible APIs (e.g. 智谱AI)
     openai_base_url: str | None = None
     anthropic_base_url: str | None = None
+    deepseek_base_url: str | None = None
 
     # Multi-key pools — comma-separated in env, stored as str for env parsing
     openai_api_keys: str = ""
