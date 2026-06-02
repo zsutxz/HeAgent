@@ -10,6 +10,7 @@ from heagent.agent.loop import AgentLoop, AgentState
 from heagent.agent.middleware import Request, compose
 from heagent.config import reset_settings
 from heagent.exceptions import BudgetExceeded, SafetyViolation
+from heagent.memory.skills import SkillStore
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
@@ -265,3 +266,182 @@ class TestAgentState:
         assert s.max_iterations == 50
         assert s.messages == []
         assert s.results == []
+
+
+class TestSkillInjection:
+    """技能内容注入系统提示词的测试。"""
+
+    @pytest.mark.asyncio
+    async def test_no_skills_no_system(self) -> None:
+        """无 skills 无 system → 无 SYSTEM 消息（向后兼容）。"""
+        provider = StubProvider([_final("ok")])
+        loop = AgentLoop(provider, max_iterations=10)
+        result = await loop.run("test")
+        assert result == "ok"
+
+    @pytest.mark.asyncio
+    async def test_skills_injected_into_system(self, tmp_path) -> None:
+        """匹配的技能内容出现在 <skills> 标签中。"""
+        captured: list[Message] = []
+
+        class CaptureProvider:
+            async def send(self, messages, *, tools=None):
+                captured.extend(messages)
+                return _final("done")
+
+            async def stream(self, messages, *, tools=None):
+                yield await self.send(messages, tools=tools)
+
+            def get_metadata(self):
+                return ProviderMetadata(name="capture", model="capture")
+
+        skills = SkillStore(base_dir=str(tmp_path / "skills"))
+        skills.save("test_skill", "A test skill", "testing pattern", ["step1", "step2"])
+
+        loop = AgentLoop(CaptureProvider(), max_iterations=10, skills=skills)
+        await loop.run("testing")  # prompt 包含 pattern 关键词 "testing"
+
+        system_msgs = [m for m in captured if m.role == Role.SYSTEM]
+        assert len(system_msgs) == 1
+        assert "<skills>" in system_msgs[0].content
+        assert "</skills>" in system_msgs[0].content
+        assert "test_skill" in system_msgs[0].content
+
+    @pytest.mark.asyncio
+    async def test_skills_and_system_combined(self, tmp_path) -> None:
+        """用户 system + 匹配的 skills 共存在同一条 SYSTEM 消息中。"""
+        captured: list[Message] = []
+
+        class CaptureProvider:
+            async def send(self, messages, *, tools=None):
+                captured.extend(messages)
+                return _final("done")
+
+            async def stream(self, messages, *, tools=None):
+                yield await self.send(messages, tools=tools)
+
+            def get_metadata(self):
+                return ProviderMetadata(name="capture", model="capture")
+
+        skills = SkillStore(base_dir=str(tmp_path / "skills"))
+        skills.save("skill_a", "desc", "pattern matching test", ["step"])
+
+        loop = AgentLoop(CaptureProvider(), max_iterations=10, skills=skills)
+        await loop.run("pattern test", system="You are helpful.")
+
+        system_msgs = [m for m in captured if m.role == Role.SYSTEM]
+        assert len(system_msgs) == 1
+        assert system_msgs[0].content.startswith("You are helpful.")
+        assert "<skills>" in system_msgs[0].content
+
+    @pytest.mark.asyncio
+    async def test_empty_skills_no_injection(self, tmp_path) -> None:
+        """空 SkillStore → 不注入 <skills> 标签。"""
+        captured: list[Message] = []
+
+        class CaptureProvider:
+            async def send(self, messages, *, tools=None):
+                captured.extend(messages)
+                return _final("done")
+
+            async def stream(self, messages, *, tools=None):
+                yield await self.send(messages, tools=tools)
+
+            def get_metadata(self):
+                return ProviderMetadata(name="capture", model="capture")
+
+        skills = SkillStore(base_dir=str(tmp_path / "skills"))  # 空，无技能文件
+
+        loop = AgentLoop(CaptureProvider(), max_iterations=10, skills=skills)
+        await loop.run("test", system="base prompt")
+
+        system_msgs = [m for m in captured if m.role == Role.SYSTEM]
+        assert len(system_msgs) == 1
+        assert "<skills>" not in system_msgs[0].content
+        assert system_msgs[0].content == "base prompt"
+
+    @pytest.mark.asyncio
+    async def test_skills_only_no_user_system(self, tmp_path) -> None:
+        """只有 skills 没有 user system → skills 成为系统消息。"""
+        captured: list[Message] = []
+
+        class CaptureProvider:
+            async def send(self, messages, *, tools=None):
+                captured.extend(messages)
+                return _final("done")
+
+            async def stream(self, messages, *, tools=None):
+                yield await self.send(messages, tools=tools)
+
+            def get_metadata(self):
+                return ProviderMetadata(name="capture", model="capture")
+
+        skills = SkillStore(base_dir=str(tmp_path / "skills"))
+        skills.save("only_skill", "desc", "only pat", ["s1"])
+
+        loop = AgentLoop(CaptureProvider(), max_iterations=10, skills=skills)
+        await loop.run("only")  # prompt 匹配 pattern 关键词
+
+        system_msgs = [m for m in captured if m.role == Role.SYSTEM]
+        assert len(system_msgs) == 1
+        assert "<skills>" in system_msgs[0].content
+
+    @pytest.mark.asyncio
+    async def test_auto_invoke_no_match(self, tmp_path) -> None:
+        """有技能但 prompt 不匹配 → 注入"无匹配"提示。"""
+        captured: list[Message] = []
+
+        class CaptureProvider:
+            async def send(self, messages, *, tools=None):
+                captured.extend(messages)
+                return _final("done")
+
+            async def stream(self, messages, *, tools=None):
+                yield await self.send(messages, tools=tools)
+
+            def get_metadata(self):
+                return ProviderMetadata(name="capture", model="capture")
+
+        skills = SkillStore(base_dir=str(tmp_path / "skills"))
+        skills.save("deploy_skill", "Deploy app", "deploy production release", ["push", "deploy"])
+
+        loop = AgentLoop(CaptureProvider(), max_iterations=10, skills=skills)
+        await loop.run("what is the weather today")
+
+        system_msgs = [m for m in captured if m.role == Role.SYSTEM]
+        assert len(system_msgs) == 1
+        assert "No skills matched" in system_msgs[0].content
+        assert "deploy_skill" not in system_msgs[0].content
+
+    @pytest.mark.asyncio
+    async def test_auto_invoke_max_limit(self, tmp_path) -> None:
+        """多个匹配技能只注入 skill_max_auto_invoke 个。"""
+        captured: list[Message] = []
+
+        class CaptureProvider:
+            async def send(self, messages, *, tools=None):
+                captured.extend(messages)
+                return _final("done")
+
+            async def stream(self, messages, *, tools=None):
+                yield await self.send(messages, tools=tools)
+
+            def get_metadata(self):
+                return ProviderMetadata(name="capture", model="capture")
+
+        skills = SkillStore(base_dir=str(tmp_path / "skills"))
+        # 5 个技能共享关键词 "deploy"
+        for i in range(5):
+            skills.save(f"skill_{i}", f"Skill {i}", "deploy step", [f"step_{i}"])
+
+        loop = AgentLoop(CaptureProvider(), max_iterations=10, skills=skills)
+        await loop.run("deploy")
+
+        system_msgs = [m for m in captured if m.role == Role.SYSTEM]
+        assert len(system_msgs) == 1
+        content = system_msgs[0].content
+        # 默认 skill_max_auto_invoke=3，不应出现全部 5 个
+        for i in range(3):
+            assert f"skill_{i}" in content
+        assert "skill_3" not in content
+        assert "skill_4" not in content

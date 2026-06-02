@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     retry_base_delay: float = Field(default=1.0, ge=0.0)  # 重试基础延迟（秒）
     retry_max_delay: float = Field(default=30.0, ge=0.0)  # 重试最大延迟（秒）
 
+    # ---- 技能系统参数 ----
+    skill_match_threshold: float = Field(default=0.3, ge=0.0, le=1.0)  # 自动调用关键词匹配阈值
+    skill_max_auto_invoke: int = Field(default=3, ge=0)                # 每轮最多自动注入技能数
+
     @property
     def openai_key_pool(self) -> list[str]:
         """解析逗号分隔的 OpenAI 多密钥池。"""

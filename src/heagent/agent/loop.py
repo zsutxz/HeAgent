@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from heagent.agent.middleware import MiddlewareFn, Request, compose
 from heagent.config import get_settings
 from heagent.exceptions import BudgetExceeded, SafetyViolation, ToolError
+from heagent.memory.skills import SkillStore
 from heagent.providers.base import BaseProvider
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
@@ -57,13 +58,20 @@ class AgentLoop:
         guard: SafetyGuard | None = None,
         middlewares: list[MiddlewareFn] | None = None,
         max_iterations: int | None = None,
+        skills: SkillStore | None = None,
     ) -> None:
         self.provider = provider                      # LLM 提供者（OpenAI/Anthropic/Chain）
         self.registry = registry or ToolRegistry.get()  # 工具注册中心（默认全局单例）
         self.guard = guard or SafetyGuard()            # 安全防护（默认黑名单模式）
         self.middlewares = middlewares or []            # 中间件链（可选）
+        self.skills = skills                           # 技能存储（可选，注入到系统提示词）
         settings = get_settings()
         self.max_iterations = max_iterations or settings.max_iterations
+
+        # 技能工具激活：将 SkillStore 注入工具模块，使 LLM 可通过工具管理技能
+        if self.skills:
+            from heagent.tools.builtins.skills import configure_skill_tools
+            configure_skill_tools(self.skills)
 
     async def run(self, prompt: str, *, system: str | None = None) -> str:
         """运行 Agent 循环，直到 LLM 产出最终文本答案。
@@ -78,9 +86,10 @@ class AgentLoop:
         """
         state = AgentState(max_iterations=self.max_iterations)
 
-        # 构建初始消息：系统提示（可选）+ 用户输入
-        if system:
-            state.messages.append(Message(role=Role.SYSTEM, content=system))
+        # 构建初始消息：系统提示（含技能注入，可选）+ 用户输入
+        system_content = self._build_system(system, prompt=prompt)
+        if system_content:
+            state.messages.append(Message(role=Role.SYSTEM, content=system_content))
         state.messages.append(Message(role=Role.USER, content=prompt))
 
         # ---- 核心循环：Provider → Tool 执行 → Provider → ... ----
@@ -111,6 +120,52 @@ class AgentLoop:
                 state.messages.append(
                     Message(role=Role.TOOL, content=tr.content, tool_call_id=tr.tool_call_id)
                 )
+
+    def _build_system(self, user_system: str | None, prompt: str = "") -> str | None:
+        """将用户系统提示词与按需匹配的技能内容组合为最终的系统消息。
+
+        自动调用逻辑：根据用户 prompt 关键词匹配技能 pattern，仅注入相关技能。
+        有技能但无匹配时注入简短使用说明；空存储不注入。
+        """
+        parts: list[str] = []
+        if user_system:
+            parts.append(user_system)
+        if self.skills:
+            settings = get_settings()
+            matched = self.skills.matching_skills(
+                prompt,
+                threshold=settings.skill_match_threshold,
+            )[: settings.skill_max_auto_invoke]
+
+            if matched:
+                # 有匹配：注入相关技能内容
+                contents = []
+                for name in matched:
+                    raw = self.skills.load(name)
+                    if raw:
+                        contents.append(raw)
+                if contents:
+                    block = "\n\n---\n\n".join(contents)
+                    parts.append(
+                        f"<skills>\n"
+                        f"The following skills are relevant to the user's request:\n\n"
+                        f"{block}\n\n"
+                        f"You can use skill_list to see all skills, "
+                        f"skill_create to add new ones, or skill_update to modify.\n"
+                        f"</skills>"
+                    )
+                    logger.debug("Auto-invoked %d skill(s): %s", len(matched), matched)
+            elif self.skills.list_skills():
+                # 有技能但无匹配：注入使用说明
+                parts.append(
+                    "<skills>\n"
+                    "No skills matched the current request. "
+                    "You can use skill_create to save reusable patterns, "
+                    "skill_list to browse existing skills, or skill_update to refine them.\n"
+                    "</skills>"
+                )
+            # 空存储 → 不注入任何技能内容
+        return "\n\n".join(parts) if parts else None
 
     async def _call_provider(self, state: AgentState) -> ProviderResponse:
         """通过中间件链（或直接）调用 Provider。

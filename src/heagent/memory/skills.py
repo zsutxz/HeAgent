@@ -2,14 +2,25 @@
 
 存储路径：.heagent/skills/{name}.md
 每个技能文件包含：名称、描述、创建时间、模式描述、步骤列表。
-
-当前状态：已实现但未接入 AgentLoop。
+支持解析、部分更新和基于关键词匹配的自动调用。
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+
+
+@dataclass
+class SkillContent:
+    """解析后的技能结构化字段。"""
+
+    name: str
+    description: str
+    pattern: str
+    steps: list[str]
+    created: str
 
 
 class SkillStore:
@@ -76,3 +87,91 @@ class SkillStore:
         if not self._base.exists():
             return []
         return [p.read_text(encoding="utf-8") for p in sorted(self._base.glob("*.md"))]
+
+    def parse(self, name: str) -> SkillContent | None:
+        """将技能 Markdown 文件解析为结构化字段。不存在返回 None。"""
+        raw = self.load(name)
+        if raw is None:
+            return None
+        return self._parse_markdown(name, raw)
+
+    def update(
+        self,
+        name: str,
+        *,
+        description: str | None = None,
+        pattern: str | None = None,
+        steps: list[str] | None = None,
+    ) -> str | None:
+        """部分更新已有技能。仅覆盖非 None 字段，其余保持原样。返回文件路径或 None。"""
+        existing = self.parse(name)
+        if existing is None:
+            return None
+        return self.save(
+            name,
+            description if description is not None else existing.description,
+            pattern if pattern is not None else existing.pattern,
+            steps if steps is not None else existing.steps,
+        )
+
+    def matching_skills(self, prompt: str, threshold: float = 0.3) -> list[str]:
+        """返回与用户提示词关键词重叠的技能名称（按相关度降序）。
+
+        匹配算法：prompt 词集 ∩ pattern 词集 / pattern 词集长度 ≥ threshold。
+        """
+        if not prompt.strip():
+            return []
+        prompt_words = set(prompt.lower().split())
+        matches: list[tuple[float, str]] = []
+        for name in self.list_skills():
+            parsed = self.parse(name)
+            if parsed is None:
+                continue
+            pattern_words = set(parsed.pattern.lower().split())
+            if not pattern_words:
+                continue
+            overlap = len(prompt_words & pattern_words)
+            ratio = overlap / len(pattern_words)
+            if ratio >= threshold:
+                matches.append((ratio, name))
+        matches.sort(key=lambda x: x[0], reverse=True)
+        return [name for _, name in matches]
+
+    @staticmethod
+    def _parse_markdown(name: str, content: str) -> SkillContent:
+        """解析技能 Markdown 内容为结构化字段。
+
+        容错处理：缺失字段默认为空字符串/空列表，不抛异常。
+        """
+        lines = content.strip().splitlines()
+        description = ""
+        created = ""
+        pattern_lines: list[str] = []
+        steps: list[str] = []
+        section = ""
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("- **Description:**"):
+                description = stripped.split("**Description:**", 1)[1].strip()
+            elif stripped.startswith("- **Created:**"):
+                created = stripped.split("**Created:**", 1)[1].strip()
+            elif stripped == "## Pattern":
+                section = "pattern"
+            elif stripped == "## Steps":
+                section = "steps"
+            elif section == "pattern" and stripped:
+                pattern_lines.append(stripped)
+            elif section == "steps" and stripped:
+                # 去掉 "1. step text" 前缀 → "step text"
+                dot_pos = stripped.find(". ")
+                if dot_pos >= 0 and stripped[:dot_pos].isdigit():
+                    steps.append(stripped[dot_pos + 2 :])
+                else:
+                    steps.append(stripped)
+        return SkillContent(
+            name=name,
+            description=description,
+            pattern="\n".join(pattern_lines),
+            steps=steps,
+            created=created,
+        )

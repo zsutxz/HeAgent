@@ -19,6 +19,7 @@ import heagent.tools.builtins  # noqa: F401 — 导入即触发 @tool 注册
 from heagent.agent.loop import AgentLoop
 from heagent.config import get_settings, reset_settings
 from heagent.exceptions import BudgetExceeded, HeAgentError
+from heagent.memory.skills import SkillStore
 from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.chain import ProviderChain
 from heagent.providers.openai import OpenAIProvider
@@ -80,7 +81,8 @@ async def _run_single(
     max_iterations: int,
 ) -> None:
     """单次模式：执行一个 prompt 并打印结果。"""
-    loop = AgentLoop(provider, max_iterations=max_iterations)
+    skills = SkillStore()
+    loop = AgentLoop(provider, max_iterations=max_iterations, skills=skills)
     result = await loop.run(prompt, system=system)
     click.echo(result)
 
@@ -91,7 +93,8 @@ async def _run_chat(
     max_iterations: int,
 ) -> None:
     """交互模式：REPL 聊天循环，直到用户输入空行或 Ctrl+C。"""
-    loop = AgentLoop(provider, max_iterations=max_iterations)
+    skills = SkillStore()
+    loop = AgentLoop(provider, max_iterations=max_iterations, skills=skills)
     click.echo("HeAgent interactive mode. Type your message, or press Enter to exit.")
 
     while True:
@@ -132,6 +135,7 @@ def main(prompt: str | None, model: str | None, system: str | None, max_iteratio
         format="%(levelname)s [%(name)s] %(message)s",
         stream=sys.stderr,  # 日志输出到 stderr，不干扰 stdout 的答案输出
     )
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # 屏蔽 httpx 请求日志
 
     settings = get_settings()
     resolved_model = model or settings.default_model
