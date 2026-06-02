@@ -1,13 +1,21 @@
-"""技能存储 — 将可复用的操作模式提炼为独立的 Markdown 文件。
+"""技能存储 — 将可复用的操作模式提炼为标准目录结构。
 
-存储路径：.heagent/skills/{name}.md
-每个技能文件包含：名称、描述、创建时间、模式描述、步骤列表。
+存储路径：.heagent/skills/{name}/SKILL.md
+每个技能是一个目录，SKILL.md 为必需文件，使用 YAML frontmatter 定义元数据。
 支持解析、部分更新和基于关键词匹配的自动调用。
+
+目录结构（参考 hermes-agent）：
+  skills/<name>/
+  ├── SKILL.md           # 必须 — 技能定义（frontmatter + markdown 正文）
+  ├── references/        # 可选 — 参考文档
+  ├── templates/         # 可选 — 模板文件
+  └── scripts/           # 可选 — 可执行脚本
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
@@ -21,79 +29,125 @@ class SkillContent:
     pattern: str
     steps: list[str]
     created: str
+    tags: list[str] = field(default_factory=list)
 
 
 class SkillStore:
-    """技能存储管理器，支持 CRUD 操作。"""
+    """技能存储管理器，支持 CRUD 操作。
+
+    每个技能以目录形式存储，SKILL.md 为入口文件。
+    """
 
     def __init__(self, base_dir: str = ".heagent/skills") -> None:
         self._base = Path(base_dir)
 
-    def save(self, name: str, description: str, pattern: str, steps: list[str]) -> str:
-        """保存一个技能为 Markdown 文件。
+    # ---- 路径工具 ----
 
-        参数：
-            name: 技能名称（空格替换为下划线，斜杠替换为连字符）
-            description: 技能描述
-            pattern: 模式描述（何时使用此技能）
-            steps: 执行步骤列表
-        返回：
-            保存的文件路径
-        """
-        self._base.mkdir(parents=True, exist_ok=True)
+    def _skill_dir(self, name: str) -> Path:
+        """技能目录路径。"""
         safe = name.replace(" ", "_").replace("/", "-")
-        path = self._base / f"{safe}.md"
-        lines = [
-            f"# {name}",
-            "",
-            f"- **Description:** {description}",
-            f"- **Created:** {datetime.now().isoformat()}",
-            "",
-            "## Pattern",
-            pattern,
-            "",
-            "## Steps",
+        return self._base / safe
+
+    def _skill_md(self, name: str) -> Path:
+        """SKILL.md 文件路径。"""
+        return self._skill_dir(name) / "SKILL.md"
+
+    @staticmethod
+    def _validate_name(name: str) -> str:
+        """校验技能名称：仅允许英文、数字、下划线和连字符。"""
+        safe = name.replace(" ", "_").replace("/", "-")
+        if not safe.isascii() or not all(c.isalnum() or c in "_-" for c in safe):
+            raise ValueError(
+                f"Skill name must be English alphanumeric with _ or -, got: '{name}'"
+            )
+        return safe
+
+    # ---- CRUD ----
+
+    def save(self, name: str, description: str, pattern: str, steps: list[str], *, tags: list[str] | None = None) -> str:
+        """保存一个技能为标准目录结构。
+
+        创建 skills/<name>/SKILL.md，包含 YAML frontmatter 和 Markdown 正文。
+        返回 SKILL.md 的路径。
+        """
+        safe = self._validate_name(name)
+        skill_dir = self._base / safe
+        skill_dir.mkdir(parents=True, exist_ok=True)
+
+        now = datetime.now().isoformat()
+        tag_str = ", ".join(tags) if tags else ""
+        # frontmatter
+        fm_lines = [
+            "---",
+            f"name: {safe}",
+            f"description: \"{description}\"",
+            f"created: {now}",
         ]
+        if tag_str:
+            fm_lines.append(f"tags: [{tag_str}]")
+        fm_lines.append("---")
+        fm_lines.append("")
+
+        # 正文
+        body_lines = [f"# {safe}", ""]
+        if pattern:
+            body_lines.append("## Pattern")
+            body_lines.append(pattern)
+            body_lines.append("")
+        body_lines.append("## Steps")
         for i, step in enumerate(steps, 1):
-            lines.append(f"{i}. {step}")
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        return str(path)
+            body_lines.append(f"{i}. {step}")
+        body_lines.append("")
+
+        content = "\n".join(fm_lines) + "\n" + "\n".join(body_lines)
+        md_path = skill_dir / "SKILL.md"
+        md_path.write_text(content, encoding="utf-8")
+        return str(md_path)
 
     def load(self, name: str) -> str | None:
-        """按名称加载技能文件内容。不存在返回 None。"""
-        safe = name.replace(" ", "_").replace("/", "-")
-        path = self._base / f"{safe}.md"
+        """按名称加载 SKILL.md 内容。不存在返回 None。"""
+        path = self._skill_md(name)
         if path.exists():
             return path.read_text(encoding="utf-8")
         return None
 
     def list_skills(self) -> list[str]:
-        """返回所有已存储的技能名称（按名称排序）。"""
+        """返回所有已存储的技能名称（目录名，按名称排序）。"""
         if not self._base.exists():
             return []
-        return sorted(p.stem for p in self._base.glob("*.md"))
+        return sorted(
+            d.name for d in self._base.iterdir()
+            if d.is_dir() and (d / "SKILL.md").exists()
+        )
 
-    def delete(self, name: str) -> bool:
-        """删除指定技能文件。返回是否成功删除。"""
-        safe = name.replace(" ", "_").replace("/", "-")
-        path = self._base / f"{safe}.md"
-        if path.exists():
-            path.unlink()
+    def delete(self, name: bool | str) -> bool:
+        """删除指定技能目录。返回是否成功删除。"""
+        skill_dir = self._skill_dir(name)
+        if skill_dir.is_dir():
+            import shutil
+            shutil.rmtree(skill_dir)
             return True
         return False
 
     def all_skills_content(self) -> list[str]:
-        """返回所有技能文件的完整内容（可用于注入系统提示词）。"""
+        """返回所有技能 SKILL.md 的完整内容（用于注入系统提示词）。"""
         if not self._base.exists():
             return []
-        return [p.read_text(encoding="utf-8") for p in sorted(self._base.glob("*.md"))]
+        contents: list[str] = []
+        for name in self.list_skills():
+            raw = self.load(name)
+            if raw:
+                contents.append(raw)
+        return contents
+
+    # ---- 解析与更新 ----
 
     def parse(self, name: str) -> SkillContent | None:
-        """将技能 Markdown 文件解析为结构化字段。不存在返回 None。"""
+        """将 SKILL.md 解析为结构化字段。不存在返回 None。"""
         raw = self.load(name)
         if raw is None:
             return None
-        return self._parse_markdown(name, raw)
+        return self._parse_skill_md(name, raw)
 
     def update(
         self,
@@ -102,8 +156,9 @@ class SkillStore:
         description: str | None = None,
         pattern: str | None = None,
         steps: list[str] | None = None,
+        tags: list[str] | None = None,
     ) -> str | None:
-        """部分更新已有技能。仅覆盖非 None 字段，其余保持原样。返回文件路径或 None。"""
+        """部分更新已有技能。仅覆盖非 None 字段，其余保持原样。返回 SKILL.md 路径或 None。"""
         existing = self.parse(name)
         if existing is None:
             return None
@@ -112,7 +167,10 @@ class SkillStore:
             description if description is not None else existing.description,
             pattern if pattern is not None else existing.pattern,
             steps if steps is not None else existing.steps,
+            tags=tags if tags is not None else existing.tags,
         )
+
+    # ---- 匹配 ----
 
     def matching_skills(self, prompt: str, threshold: float = 0.3) -> list[str]:
         """返回与用户提示词关键词重叠的技能名称（按相关度降序）。
@@ -127,7 +185,9 @@ class SkillStore:
             parsed = self.parse(name)
             if parsed is None:
                 continue
-            pattern_words = set(parsed.pattern.lower().split())
+            # pattern + tags 都参与匹配
+            match_text = f"{parsed.pattern} {' '.join(parsed.tags)}"
+            pattern_words = set(match_text.lower().split())
             if not pattern_words:
                 continue
             overlap = len(prompt_words & pattern_words)
@@ -137,41 +197,60 @@ class SkillStore:
         matches.sort(key=lambda x: x[0], reverse=True)
         return [name for _, name in matches]
 
+    # ---- 解析器 ----
+
     @staticmethod
-    def _parse_markdown(name: str, content: str) -> SkillContent:
-        """解析技能 Markdown 内容为结构化字段。
+    def _parse_skill_md(name: str, content: str) -> SkillContent:
+        """解析 SKILL.md（YAML frontmatter + Markdown 正文）为结构化字段。
 
         容错处理：缺失字段默认为空字符串/空列表，不抛异常。
         """
-        lines = content.strip().splitlines()
         description = ""
         created = ""
+        tags: list[str] = []
         pattern_lines: list[str] = []
         steps: list[str] = []
+
+        # 分离 frontmatter 和正文
+        body = content
+        fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+        if fm_match:
+            fm_text = fm_match.group(1)
+            body = content[fm_match.end():]
+            # 简单解析 frontmatter（不引入 yaml 依赖）
+            for line in fm_text.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("description:"):
+                    description = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+                elif stripped.startswith("created:"):
+                    created = stripped.split(":", 1)[1].strip()
+                elif stripped.startswith("tags:"):
+                    tag_part = stripped.split(":", 1)[1].strip()
+                    if tag_part.startswith("[") and tag_part.endswith("]"):
+                        tags = [t.strip() for t in tag_part[1:-1].split(",") if t.strip()]
+
+        # 解析正文
         section = ""
-        for line in lines:
+        for line in body.splitlines():
             stripped = line.strip()
-            if stripped.startswith("- **Description:**"):
-                description = stripped.split("**Description:**", 1)[1].strip()
-            elif stripped.startswith("- **Created:**"):
-                created = stripped.split("**Created:**", 1)[1].strip()
-            elif stripped == "## Pattern":
+            if stripped == "## Pattern":
                 section = "pattern"
             elif stripped == "## Steps":
                 section = "steps"
             elif section == "pattern" and stripped:
                 pattern_lines.append(stripped)
             elif section == "steps" and stripped:
-                # 去掉 "1. step text" 前缀 → "step text"
                 dot_pos = stripped.find(". ")
                 if dot_pos >= 0 and stripped[:dot_pos].isdigit():
-                    steps.append(stripped[dot_pos + 2 :])
+                    steps.append(stripped[dot_pos + 2:])
                 else:
                     steps.append(stripped)
+
         return SkillContent(
             name=name,
             description=description,
             pattern="\n".join(pattern_lines),
             steps=steps,
             created=created,
+            tags=tags,
         )

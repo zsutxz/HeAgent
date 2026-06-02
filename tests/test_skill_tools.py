@@ -51,6 +51,11 @@ class TestSkillCreate:
         result = await skill_create("x", "d", "p", "s")
         assert "not configured" in result
 
+    @pytest.mark.asyncio
+    async def test_create_chinese_name_rejected(self, skill_store: SkillStore) -> None:
+        result = await skill_create("生产环境部署", "desc", "pat", "step1")
+        assert "English" in result or "english" in result.lower() or "Error" in result
+
 
 # ---- skill_update ----
 
