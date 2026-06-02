@@ -1,4 +1,10 @@
-"""Fact memory — persistent MEMORY.md for cross-session recall."""
+"""事实记忆 — 持久化的事实存储，支持跨会话召回。
+
+存储格式：.heagent/memory/MEMORY.md（Markdown 列表）
+去重策略：新事实与已有事实进行关键词交集比较，重叠率 > 70% 视为重复。
+
+当前状态：已实现但未接入 AgentLoop。
+"""
 
 from __future__ import annotations
 
@@ -6,32 +12,41 @@ from pathlib import Path
 
 
 class FactStore:
-    """Append-only fact memory with keyword deduplication."""
+    """追加式事实记忆存储，带关键词去重。"""
 
     def __init__(self, path: str = ".heagent/memory/MEMORY.md") -> None:
         self._path = Path(path)
 
     def add(self, fact: str) -> bool:
-        """Add a fact. Returns True if added, False if duplicate."""
+        """添加一条事实。
+
+        去重逻辑：将新事实与所有已有事实进行单词集合交集比较，
+        重叠率（交集/新事实词数）超过 70% 则视为重复，拒绝添加。
+        返回 True 表示添加成功，False 表示重复。
+        """
         existing = self._load_facts()
-        fact_words = set(fact.lower().split())
+        fact_words = set(fact.lower().split())  # 新事实的单词集合
         for ef in existing:
-            overlap = fact_words & set(ef.lower().split())
-            if len(overlap) / max(len(fact_words), 1) > 0.7:
+            overlap = fact_words & set(ef.lower().split())  # 关键词交集
+            if len(overlap) / max(len(fact_words), 1) > 0.7:  # 70% 阈值
                 return False
+        # 追加写入（不覆盖已有内容）
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with open(self._path, "a", encoding="utf-8") as f:
             f.write(f"- {fact}\n")
         return True
 
     def load(self) -> list[str]:
+        """加载所有已存储的事实列表。"""
         return self._load_facts()
 
     def clear(self) -> None:
+        """清除所有事实（删除文件）。"""
         if self._path.exists():
             self._path.unlink()
 
     def _load_facts(self) -> list[str]:
+        """从 MEMORY.md 解析所有 `- ` 开头的行。"""
         if not self._path.exists():
             return []
         lines = self._path.read_text(encoding="utf-8").strip().splitlines()

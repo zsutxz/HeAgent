@@ -1,4 +1,8 @@
-"""OpenAI-compatible provider implementation."""
+"""OpenAI 兼容 Provider — 支持 OpenAI 及所有兼容 API（DeepSeek、智谱 AI 等）。
+
+通过自定义 base_url 接入任何 OpenAI 兼容的 LLM 服务。
+消息格式转换：HeAgent Message ↔ OpenAI API message dict。
+"""
 
 from __future__ import annotations
 
@@ -12,10 +16,17 @@ from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall,
 
 
 def _to_openai_messages(messages: list[Message]) -> list[dict[str, object]]:
-    """Convert HeAgent Messages to OpenAI API message dicts."""
+    """将 HeAgent Message 列表转换为 OpenAI API 的消息格式。
+
+    处理规则：
+    - 基本字段：role, content
+    - ASSISTANT 消息可能包含 tool_calls → 转为 OpenAI function calling 格式
+    - TOOL 消息需要 tool_call_id 和 name 字段
+    """
     result: list[dict[str, object]] = []
     for msg in messages:
         d: dict[str, object] = {"role": msg.role.value, "content": msg.content}
+        # 转换工具调用（ASSISTANT 角色携带的 tool_calls）
         if msg.tool_calls:
             d["tool_calls"] = [
                 {
@@ -25,6 +36,7 @@ def _to_openai_messages(messages: list[Message]) -> list[dict[str, object]]:
                 }
                 for tc in msg.tool_calls
             ]
+        # 工具执行结果需要关联的调用 ID 和工具名
         if msg.tool_call_id:
             d["tool_call_id"] = msg.tool_call_id
         if msg.name:
@@ -34,7 +46,7 @@ def _to_openai_messages(messages: list[Message]) -> list[dict[str, object]]:
 
 
 def _to_openai_tools(tools: list[ToolSchema]) -> list[dict[str, object]]:
-    """Convert HeAgent ToolSchema to OpenAI tools format."""
+    """将 HeAgent ToolSchema 转换为 OpenAI function calling 的 tools 格式。"""
     return [
         {
             "type": "function",
@@ -45,7 +57,11 @@ def _to_openai_tools(tools: list[ToolSchema]) -> list[dict[str, object]]:
 
 
 def _parse_tool_calls(raw: list[object]) -> list[ToolCall]:
-    """Parse OpenAI tool_calls to HeAgent ToolCall list."""
+    """解析 OpenAI API 返回的 tool_calls 为 HeAgent ToolCall 列表。
+
+    OpenAI 返回的对象有 function.name / function.arguments (JSON string)，
+    需要反序列化为 dict。
+    """
     result: list[ToolCall] = []
     for tc in raw:
         tc_id = getattr(tc, "id", "")
@@ -63,7 +79,11 @@ def _parse_tool_calls(raw: list[object]) -> list[ToolCall]:
 
 
 class OpenAIProvider:
-    """Provider for OpenAI and compatible APIs."""
+    """OpenAI 及兼容 API 的 Provider 实现。
+
+    通过 base_url 参数可接入 DeepSeek、智谱 AI 等兼容服务。
+    使用 openai AsyncOpenAI 客户端实现异步调用。
+    """
 
     def __init__(
         self,
@@ -80,6 +100,7 @@ class OpenAIProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> ProviderResponse:
+        """单次调用 LLM，返回完整响应。"""
         kwargs: dict[str, object] = {
             "model": self._model,
             "messages": _to_openai_messages(messages),
@@ -91,6 +112,7 @@ class OpenAIProvider:
 
         choice = resp.choices[0]
         message = choice.message
+        # 解析工具调用（LLM 判断需要调用工具时返回）
         tool_calls = _parse_tool_calls(message.tool_calls) if message.tool_calls else []
 
         usage = TokenUsage(
@@ -113,6 +135,7 @@ class OpenAIProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> AsyncIterator[ProviderResponse]:
+        """流式调用 LLM，逐步返回响应片段。"""
         kwargs: dict[str, object] = {
             "model": self._model,
             "messages": _to_openai_messages(messages),
@@ -140,6 +163,7 @@ class OpenAIProvider:
             )
 
     def get_metadata(self) -> ProviderMetadata:
+        """返回 Provider 能力描述。"""
         return ProviderMetadata(
             name="openai",
             model=self._model,

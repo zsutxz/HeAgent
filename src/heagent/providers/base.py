@@ -1,4 +1,8 @@
-"""BaseProvider protocol and ProviderMetadata for LLM provider abstraction."""
+"""BaseProvider 协议 — LLM Provider 的统一接口定义。
+
+使用 typing.Protocol 实现结构化子类型（鸭子类型），
+Provider 无需继承此类，只需实现 send/stream/get_metadata 三个方法即可。
+"""
 
 from __future__ import annotations
 
@@ -11,21 +15,21 @@ from heagent.types import Message, ProviderResponse, ToolSchema
 
 
 class ProviderMetadata(BaseModel):
-    """Metadata describing a provider's capabilities."""
+    """Provider 能力描述元数据。"""
 
-    name: str
-    model: str
-    supports_streaming: bool = False
-    supports_tools: bool = False
+    name: str                     # Provider 名称（如 openai, anthropic）
+    model: str                    # 当前使用的模型名称
+    supports_streaming: bool = False  # 是否支持流式输出
+    supports_tools: bool = False      # 是否支持 function calling
 
 
 @runtime_checkable
 class BaseProvider(Protocol):
-    """Unified protocol for LLM providers.
+    """LLM Provider 统一协议。
 
-    Any provider (OpenAI, Anthropic, etc.) must implement these methods
-    to integrate with the HeAgent framework. No inheritance needed —
-    structural subtyping via Protocol.
+    所有 Provider（OpenAI/Anthropic/Chain）必须实现这三个方法。
+    通过 @runtime_checkable 支持 isinstance() 检查。
+    无需继承——只要实现了这些方法即被视为合法 Provider。
     """
 
     async def send(
@@ -33,13 +37,19 @@ class BaseProvider(Protocol):
         messages: list[Message],
         *,
         tools: list[ToolSchema] | None = None,
-    ) -> ProviderResponse: ...
+    ) -> ProviderResponse:
+        """单次调用 LLM，返回完整响应。"""
+        ...
 
     async def stream(
         self,
         messages: list[Message],
         *,
         tools: list[ToolSchema] | None = None,
-    ) -> AsyncIterator[ProviderResponse]: ...
+    ) -> AsyncIterator[ProviderResponse]:
+        """流式调用 LLM，逐步返回响应片段。"""
+        ...
 
-    def get_metadata(self) -> ProviderMetadata: ...
+    def get_metadata(self) -> ProviderMetadata:
+        """返回 Provider 的能力描述。"""
+        ...

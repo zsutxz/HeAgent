@@ -1,4 +1,11 @@
-"""HeAgent CLI — interactive and single-shot agent execution."""
+"""HeAgent CLI — 交互式和单次执行的命令行入口。
+
+使用方式：
+  python -m heagent "你的问题"     # 单次模式：执行后输出答案并退出
+  python -m heagent                 # 交互模式：进入 REPL 聊天循环
+
+Provider 自动检测顺序：DEEPSEEK_API_KEY → OPENAI_API_KEY → ANTHROPIC_API_KEY
+"""
 
 from __future__ import annotations
 
@@ -8,7 +15,7 @@ import sys
 
 import click
 
-import heagent.tools.builtins  # noqa: F401 — trigger @tool registration
+import heagent.tools.builtins  # noqa: F401 — 导入即触发 @tool 注册
 from heagent.agent.loop import AgentLoop
 from heagent.config import get_settings, reset_settings
 from heagent.exceptions import BudgetExceeded, HeAgentError
@@ -21,9 +28,14 @@ logger = logging.getLogger(__name__)
 
 
 def _build_provider(settings, model: str) -> BaseProvider:
-    """Auto-detect provider from available API keys."""
+    """根据可用的 API Key 自动检测并构建 Provider。
+
+    优先级：DeepSeek > OpenAI > Anthropic。
+    多个 Key 同时存在时，用 ProviderChain 包装实现自动回退。
+    """
     providers: list[BaseProvider] = []
 
+    # DeepSeek（优先检测，使用 OpenAI 兼容接口）
     if settings.deepseek_api_key:
         providers.append(
             OpenAIProvider(
@@ -33,16 +45,19 @@ def _build_provider(settings, model: str) -> BaseProvider:
             )
         )
 
+    # OpenAI
     if settings.openai_api_key:
         providers.append(
             OpenAIProvider(api_key=settings.openai_api_key, model=model, base_url=settings.openai_base_url)
         )
 
+    # Anthropic
     if settings.anthropic_api_key:
         providers.append(
             AnthropicProvider(api_key=settings.anthropic_api_key, model=model, base_url=settings.anthropic_base_url)
         )
 
+    # 无可用 Key → 报错退出
     if not providers:
         click.echo(
             "Error: No API key configured. "
@@ -51,6 +66,7 @@ def _build_provider(settings, model: str) -> BaseProvider:
         )
         raise SystemExit(1)
 
+    # 单个 Provider 直接返回，多个用 Chain 包装
     if len(providers) == 1:
         return providers[0]
 
@@ -63,7 +79,7 @@ async def _run_single(
     system: str | None,
     max_iterations: int,
 ) -> None:
-    """Execute a single prompt and print the result."""
+    """单次模式：执行一个 prompt 并打印结果。"""
     loop = AgentLoop(provider, max_iterations=max_iterations)
     result = await loop.run(prompt, system=system)
     click.echo(result)
@@ -74,7 +90,7 @@ async def _run_chat(
     system: str | None,
     max_iterations: int,
 ) -> None:
-    """Run an interactive chat loop."""
+    """交互模式：REPL 聊天循环，直到用户输入空行或 Ctrl+C。"""
     loop = AgentLoop(provider, max_iterations=max_iterations)
     click.echo("HeAgent interactive mode. Type your message, or press Enter to exit.")
 
@@ -107,14 +123,14 @@ def main(prompt: str | None, model: str | None, system: str | None, max_iteratio
 
     Run with a PROMPT for single-shot mode, or without for interactive chat.
     """
-    # Fix Windows console encoding for CJK output
+    # Windows 控制台中文编码修复
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s [%(name)s] %(message)s",
-        stream=sys.stderr,
+        stream=sys.stderr,  # 日志输出到 stderr，不干扰 stdout 的答案输出
     )
 
     settings = get_settings()
@@ -123,6 +139,7 @@ def main(prompt: str | None, model: str | None, system: str | None, max_iteratio
 
     provider = _build_provider(settings, resolved_model)
 
+    # 根据 prompt 参数决定运行模式
     if prompt:
         asyncio.run(_run_single(prompt, provider, system, resolved_iterations))
     else:

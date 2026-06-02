@@ -1,4 +1,8 @@
-"""Shell command execution tool."""
+"""Shell 命令执行工具。
+
+通过 asyncio.create_subprocess_shell 异步执行命令，
+捕获 stdout/stderr 并设置超时保护。
+"""
 
 from __future__ import annotations
 
@@ -17,6 +21,7 @@ async def shell(command: str, timeout: int = 120) -> str:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        # 组装结果：退出码 + stdout + stderr
         result = f"exit_code={proc.returncode}\n"
         if stdout:
             result += f"stdout:\n{stdout.decode('utf-8', errors='replace')}"
