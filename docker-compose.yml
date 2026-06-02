@@ -1,0 +1,64 @@
+# ============================================================
+# HeAgent 生产部署 docker-compose 配置
+# 使用方式:
+#   docker-compose up -d                     # 启动交互服务
+#   docker-compose run --rm heagent "你的问题"  # 单次执行
+# ============================================================
+
+version: "3.9"
+
+services:
+  heagent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: heagent
+    restart: unless-stopped
+
+    # 环境变量（生产环境切勿硬编码密钥！）
+    # 建议: 创建 .env.production 文件，或在 CI/CD 中注入
+    env_file:
+      - .env.production
+    environment:
+      # 运行时数据持久化目录
+      - HEAGENT_DATA_DIR=/data/heagent
+      # 日志级别（生产环境建议 WARNING 减少日志量）
+      - LOG_LEVEL=WARNING
+      # 服务模式：api / chat（默认为交互式 chat）
+      - MODE=chat
+
+    volumes:
+      # 持久化运行时数据（技能、记忆、会话等）
+      - heagent_data:/data/heagent
+      # （可选）绑定宿主 .env 文件，避免每次重建
+      - ./.env.production:/app/.env:ro
+
+    ports:
+      # 如果未来提供 HTTP API 可映射端口
+      - "8080:8080"
+
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+    # 安全配置
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  heagent_data:
+    driver: local
