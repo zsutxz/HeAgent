@@ -82,6 +82,7 @@ exceptions  types  config
 | 交互模式 | 不传参数，进入 REPL 聊天循环 |
 | Provider 构建 | 自动检测 `DEEPSEEK_API_KEY` → `OPENAI_API_KEY` → `ANTHROPIC_API_KEY` |
 | 工具注册 | 导入 `heagent.tools.builtins` 触发 `@tool` 注册 |
+| 技能系统 | 创建 `SkillStore` 实例传入 `AgentLoop`，自动匹配并注入相关技能到系统提示词 |
 
 ### 4.2 Agent 核心 (`agent/`)
 
@@ -92,6 +93,7 @@ exceptions  types  config
 | `AgentState` | 单次运行的可变状态（消息列表、迭代计数、结果） |
 | `AgentLoop` | 核心编排器，循环调用 Provider → 执行 Tool → 直到获得文本回答 |
 | `run(prompt)` | 入口方法，构建初始消息后进入循环 |
+| `_build_system()` | 构建系统提示词，含技能自动匹配与注入 |
 | `_call_provider()` | 通过 Middleware 链调用 Provider |
 | `_execute_tools()` | `asyncio.gather()` 并行执行所有 tool_calls |
 | `_execute_one()` | 安全检查 → Registry 查找 → 执行 handler |
@@ -198,7 +200,9 @@ SafetyGuard
 
 仅对 `shell` 工具生效，违反时抛出 `SafetyViolation`。
 
-#### builtins/ — 5 个内置工具
+#### builtins/ — 9 个内置工具
+
+**基础工具（5 个）：**
 
 | 工具 | 文件 | 功能 |
 |------|------|------|
@@ -207,6 +211,17 @@ SafetyGuard
 | `file_write` | `file.py` | 写入文件 |
 | `file_search` | `search.py` | 按文件名搜索 |
 | `content_search` | `search.py` | 按内容搜索文件 |
+
+**技能管理工具（4 个，`skills.py`）：**
+
+| 工具 | 功能 |
+|------|------|
+| `skill_create` | 创建新技能（SKILL.md + 目录结构） |
+| `skill_update` | 更新已有技能内容 |
+| `skill_list` | 列出所有已注册技能 |
+| `skill_delete` | 删除指定技能 |
+
+技能工具在 `AgentLoop` 接收 `SkillStore` 时通过 `configure_skill_tools()` 激活。
 
 ### 4.5 共享类型 (`types.py`)
 
@@ -249,6 +264,8 @@ HeAgentError (base)
 | `compression_threshold` | 0.8 | 上下文压缩触发阈值 |
 | `shell_timeout` | 120 | Shell 命令超时（秒） |
 | `retry_max_attempts` | 3 | 最大重试次数 |
+| `skill_match_threshold` | 0.3 | 技能关键词匹配阈值（0.0–1.0） |
+| `skill_max_auto_invoke` | 3 | 最多自动注入技能数 |
 
 ---
 
@@ -260,11 +277,16 @@ HeAgentError (base)
 |------|------|------|
 | 上下文压缩 | `context/compressor.py` | Token 用量 ≥ 阈值时，通过 LLM 摘要旧消息 |
 | 会话持久化 | `context/session.py` | JSON 文件存储/恢复对话历史 |
-| 技能记忆 | `memory/skills.py` | `.heagent/skills/*.md` 可复用操作模式 |
 | 事实记忆 | `memory/facts.py` | `.heagent/memory/MEMORY.md` 70% 关键词去重 |
 | 用户画像 | `memory/profile.py` | `.heagent/user/USER.md` 分节更新 |
 | 重试中间件 | `providers/retry.py` | 已实现但未作为 Middleware 接入 |
 | 密钥轮换 | `openai_key_pool` | Settings 支持多 Key 池，但 ProviderChain 不轮换 Key |
+
+### 已接入模块
+
+| 模块 | 文件 | 说明 |
+|------|------|------|
+| 技能系统 | `memory/skills.py` | `.heagent/skills/<name>/SKILL.md`（HermesAgent 标准目录结构），已接入 `AgentLoop` |
 
 ---
 
@@ -295,11 +317,12 @@ src/heagent/
 │   ├── decorator.py         # @tool 装饰器
 │   ├── registry.py          # ToolRegistry 单例
 │   ├── safety.py            # SafetyGuard 安全防护
-│   └── builtins/            # 内置工具
+│   └── builtins/            # 内置工具（9 个）
 │       ├── __init__.py      # 触发注册
 │       ├── shell.py         # shell 命令执行
 │       ├── file.py          # 文件读写
-│       └── search.py        # 文件/内容搜索
+│       ├── search.py        # 文件/内容搜索
+│       └── skills.py        # 技能管理（create/update/list/delete）
 │
 ├── context/                 # 上下文管理
 │   ├── compressor.py        # 消息压缩
@@ -307,7 +330,7 @@ src/heagent/
 │
 └── memory/                  # 记忆系统
     ├── facts.py             # 事实存储 + 去重
-    ├── skills.py            # 技能存储
+    ├── skills.py            # 技能存储（HermesAgent 目录结构）
     └── profile.py           # 用户画像
 ```
 
@@ -324,14 +347,19 @@ __main__.py → cli.main()
   ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry
   ├── get_settings() → 读取 DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
   ├── _build_provider() → OpenAIProvider / AnthropicProvider / ProviderChain
+  ├── SkillStore() → 创建技能存储实例
   │
   ▼
 asyncio.run(_run_single())
   │
   ▼
-AgentLoop(provider).run(prompt)
+AgentLoop(provider, skills=skills).run(prompt)
   │
   ├── 构建 Message(USER, prompt) 加入 state.messages
+  │
+  ├── _build_system() → 匹配技能 + 构建系统提示词
+  │     ├── SkillStore.match(prompt) → 按关键词交集 / pattern 长度 ≥ threshold
+  │     └── 注入 ≤ skill_max_auto_invoke 个匹配技能到系统提示词
   │
   ▼ 循环开始 ─────────────────────────────
   │
