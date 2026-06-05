@@ -266,6 +266,15 @@ class AgentLoop:
         """
         tools = self.registry.enabled_schemas()  # 获取所有已启用的工具 Schema
 
+        # 发送前：估算 token 数（用于日志和预算管理）
+        from heagent.context.tokens import count_tokens
+        estimated = count_tokens(state.messages)
+        logger.debug(
+            "Calling provider: %d messages, ~%d tokens estimated",
+            len(state.messages),
+            estimated,
+        )
+
         # 内层 handler：实际调用 Provider
         async def handler(req: Request) -> ProviderResponse:
             return await self.provider.send(
@@ -276,10 +285,21 @@ class AgentLoop:
         # 有中间件 → 构建链式调用
         if self.middlewares:
             chain = compose(self.middlewares, handler)
-            return await chain(Request(messages=state.messages, tools=tools))
+            response = await chain(Request(messages=state.messages, tools=tools))
+        else:
+            # 无中间件 → 直接调用
+            response = await handler(Request(messages=state.messages, tools=tools))
 
-        # 无中间件 → 直接调用
-        return await handler(Request(messages=state.messages, tools=tools))
+        # 发送后：对比实际 token 数
+        if response.usage and response.usage.total_tokens > 0:
+            logger.debug(
+                "Provider response: %d actual tokens (estimated: %d, delta: %+d)",
+                response.usage.total_tokens,
+                estimated,
+                response.usage.total_tokens - estimated,
+            )
+
+        return response
 
     async def _execute_tools(
         self, calls: list[ToolCall], state: AgentState
