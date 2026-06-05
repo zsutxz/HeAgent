@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     default_model: str = "gpt-4o"                    # 默认模型名称
     max_iterations: int = Field(default=50, ge=1)     # Agent 循环最大迭代次数
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)  # 上下文压缩触发阈值
+    max_context_tokens: int = Field(default=128000, ge=1)  # 模型上下文窗口大小（用于压缩判断）
     shell_timeout: int = Field(default=120, ge=1)     # Shell 命令超时时间（秒）
 
     # ---- 重试策略参数 ----

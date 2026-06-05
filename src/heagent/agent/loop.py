@@ -13,15 +13,22 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from heagent.agent.middleware import MiddlewareFn, Request, compose
 from heagent.config import get_settings
-from heagent.exceptions import BudgetExceeded, SafetyViolation, ToolError
-from heagent.memory.skills import SkillStore
-from heagent.providers.base import BaseProvider
+from heagent.exceptions import BudgetExceeded, SafetyViolation
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
 from heagent.types import Message, ProviderResponse, Role, ToolCall, ToolResult
+
+if TYPE_CHECKING:
+    from heagent.context.compressor import ContextCompressor
+    from heagent.context.session import SessionStore
+    from heagent.memory.facts import FactStore
+    from heagent.memory.profile import ProfileStore
+    from heagent.memory.skills import SkillStore
+    from heagent.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -59,12 +66,20 @@ class AgentLoop:
         middlewares: list[MiddlewareFn] | None = None,
         max_iterations: int | None = None,
         skills: SkillStore | None = None,
+        facts: FactStore | None = None,
+        profile: ProfileStore | None = None,
+        session: SessionStore | None = None,
+        compressor: ContextCompressor | None = None,
     ) -> None:
         self.provider = provider                      # LLM 提供者（OpenAI/Anthropic/Chain）
         self.registry = registry or ToolRegistry.get()  # 工具注册中心（默认全局单例）
         self.guard = guard or SafetyGuard()            # 安全防护（默认黑名单模式）
         self.middlewares = middlewares or []            # 中间件链（可选）
         self.skills = skills                           # 技能存储（可选，注入到系统提示词）
+        self.facts = facts                             # 事实记忆（可选，注入到系统提示词）
+        self.profile = profile                         # 用户画像（可选，注入到系统提示词）
+        self.session = session                         # 会话存储（可选，持久化对话历史）
+        self.compressor = compressor                   # 上下文压缩器（可选，防止 token 超限）
         settings = get_settings()
         self.max_iterations = max_iterations or settings.max_iterations
 
@@ -73,12 +88,24 @@ class AgentLoop:
             from heagent.tools.builtins.skills import configure_skill_tools
             configure_skill_tools(self.skills)
 
-    async def run(self, prompt: str, *, system: str | None = None) -> str:
+        # 记忆工具激活：将 FactStore/ProfileStore 注入工具模块
+        if facts or profile:
+            from heagent.tools.builtins.memory import configure_memory_tools
+            configure_memory_tools(facts=facts, profile=profile)
+
+    async def run(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        session_id: str | None = None,
+    ) -> str:
         """运行 Agent 循环，直到 LLM 产出最终文本答案。
 
         参数：
             prompt: 用户输入的提示文本
             system: 可选的系统提示词（影响 LLM 行为）
+            session_id: 可选的会话 ID，启用会话持久化
         返回：
             LLM 最终的文本回答（不含 tool_calls 的响应）
         异常：
@@ -86,40 +113,78 @@ class AgentLoop:
         """
         state = AgentState(max_iterations=self.max_iterations)
 
-        # 构建初始消息：系统提示（含技能注入，可选）+ 用户输入
+        # 会话恢复：加载历史消息（不含旧的系统消息，由 _build_system 重新生成）
+        if self.session and session_id:
+            prior = self.session.load(session_id)
+            if prior:
+                # 仅恢复非系统消息（系统提示词由 _build_system 动态构建）
+                state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
+                logger.info(
+                    "Restored %d messages from session '%s'",
+                    len(prior),
+                    session_id,
+                )
+
+        # 构建初始消息：系统提示（含技能/记忆注入，可选）+ 用户输入
         system_content = self._build_system(system, prompt=prompt)
         if system_content:
             state.messages.append(Message(role=Role.SYSTEM, content=system_content))
         state.messages.append(Message(role=Role.USER, content=prompt))
 
-        # ---- 核心循环：Provider → Tool 执行 → Provider → ... ----
-        while True:
-            state.iteration += 1
-            # 迭代预算检查
-            if state.iteration > state.max_iterations:
-                raise BudgetExceeded(
-                    f"Exceeded {state.max_iterations} iterations without final answer"
-                )
+        try:
+            # ---- 核心循环：Provider → Tool 执行 → Provider → ... ----
+            while True:
+                state.iteration += 1
+                # 迭代预算检查
+                if state.iteration > state.max_iterations:
+                    raise BudgetExceeded(
+                        f"Exceeded {state.max_iterations} iterations without final answer"
+                    )
 
-            # 步骤 1：调用 Provider 获取 LLM 响应
-            response = await self._call_provider(state)
-            # 将助手回复追加到对话历史
-            state.messages.append(
-                Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
-            )
+                # 步骤 1：调用 Provider 获取 LLM 响应
+                response = await self._call_provider(state)
 
-            # 步骤 2：判断是否包含工具调用
-            if not response.tool_calls:
-                # 无工具调用 → LLM 已产出最终文本答案
-                return response.content
+                # 上下文压缩：token 用量超阈值时自动摘要旧消息
+                if self.compressor and response.usage:
+                    settings = get_settings()
+                    compressed = await self.compressor.compress(
+                        state.messages,
+                        token_count=response.usage.total_tokens,
+                        max_tokens=settings.max_context_tokens,
+                    )
+                    if compressed is not state.messages:
+                        before = len(state.messages)
+                        state.messages = compressed
+                        logger.info(
+                            "Context compressed: %d → %d messages",
+                            before,
+                            len(state.messages),
+                        )
 
-            # 步骤 3：并行执行所有工具调用
-            tool_results = await self._execute_tools(response.tool_calls, state)
-            # 将工具结果追加到对话历史，供下一轮 LLM 参考
-            for tr in tool_results:
+                # 将助手回复追加到对话历史
                 state.messages.append(
-                    Message(role=Role.TOOL, content=tr.content, tool_call_id=tr.tool_call_id)
+                    Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
                 )
+
+                # 步骤 2：判断是否包含工具调用
+                if not response.tool_calls:
+                    # 无工具调用 → LLM 已产出最终文本答案
+                    break
+
+                # 步骤 3：并行执行所有工具调用
+                tool_results = await self._execute_tools(response.tool_calls, state)
+                # 将工具结果追加到对话历史，供下一轮 LLM 参考
+                for tr in tool_results:
+                    state.messages.append(
+                        Message(role=Role.TOOL, content=tr.content, tool_call_id=tr.tool_call_id)
+                    )
+        finally:
+            # 会话保存：无论正常结束还是异常，都尝试持久化已积累的消息
+            if self.session and session_id:
+                self.session.save(session_id, state.messages)
+                logger.info("Saved %d messages to session '%s'", len(state.messages), session_id)
+
+        return response.content
 
     def _build_system(self, user_system: str | None, prompt: str = "") -> str | None:
         """将用户系统提示词与按需匹配的技能内容组合为最终的系统消息。
@@ -165,6 +230,32 @@ class AgentLoop:
                     "</skills>"
                 )
             # 空存储 → 不注入任何技能内容
+
+        # 事实记忆注入：将跨会话记忆加载到系统提示词
+        if self.facts:
+            facts_list = self.facts.load()
+            if facts_list:
+                items = "\n".join(f"- {f}" for f in facts_list)
+                parts.append(
+                    f"<memory>\n"
+                    f"The following facts are remembered from previous conversations:\n\n"
+                    f"{items}\n"
+                    f"</memory>"
+                )
+                logger.debug("Injected %d fact(s) into system prompt", len(facts_list))
+
+        # 用户画像注入：将用户偏好加载到系统提示词
+        if self.profile:
+            profile_text = self.profile.load()
+            if profile_text:
+                parts.append(
+                    f"<profile>\n"
+                    f"User profile (adapt your responses accordingly):\n\n"
+                    f"{profile_text}\n"
+                    f"</profile>"
+                )
+                logger.debug("Injected user profile into system prompt")
+
         return "\n\n".join(parts) if parts else None
 
     async def _call_provider(self, state: AgentState) -> ProviderResponse:

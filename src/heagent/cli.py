@@ -12,18 +12,27 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import uuid
+from typing import TYPE_CHECKING
 
 import click
 
 import heagent.tools.builtins  # noqa: F401 — 导入即触发 @tool 注册
 from heagent.agent.loop import AgentLoop
-from heagent.config import get_settings, reset_settings
+from heagent.agent.middleware import make_retry_middleware
+from heagent.config import get_settings
+from heagent.context.compressor import ContextCompressor
+from heagent.context.session import SessionStore
 from heagent.exceptions import BudgetExceeded, HeAgentError
+from heagent.memory.facts import FactStore
+from heagent.memory.profile import ProfileStore
 from heagent.memory.skills import SkillStore
 from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.chain import ProviderChain
 from heagent.providers.openai import OpenAIProvider
-from heagent.providers.base import BaseProvider
+
+if TYPE_CHECKING:
+    from heagent.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +90,28 @@ async def _run_single(
     max_iterations: int,
 ) -> None:
     """单次模式：执行一个 prompt 并打印结果。"""
+    settings = get_settings()
+
+    # 初始化模块
     skills = SkillStore()
-    loop = AgentLoop(provider, max_iterations=max_iterations, skills=skills)
+    facts = FactStore()
+    profile = ProfileStore()
+    compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
+    retry_mw = make_retry_middleware(
+        max_attempts=settings.retry_max_attempts,
+        base_delay=settings.retry_base_delay,
+        max_delay=settings.retry_max_delay,
+    )
+
+    loop = AgentLoop(
+        provider,
+        max_iterations=max_iterations,
+        middlewares=[retry_mw],
+        skills=skills,
+        facts=facts,
+        profile=profile,
+        compressor=compressor,
+    )
     result = await loop.run(prompt, system=system)
     click.echo(result)
 
@@ -93,9 +122,32 @@ async def _run_chat(
     max_iterations: int,
 ) -> None:
     """交互模式：REPL 聊天循环，直到用户输入空行或 Ctrl+C。"""
+    settings = get_settings()
+    session_id = uuid.uuid4().hex[:8]  # 每次交互会话一个固定 ID
+
+    # 初始化模块
     skills = SkillStore()
-    loop = AgentLoop(provider, max_iterations=max_iterations, skills=skills)
-    click.echo("HeAgent interactive mode. Type your message, or press Enter to exit.")
+    facts = FactStore()
+    profile = ProfileStore()
+    session = SessionStore()
+    compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
+    retry_mw = make_retry_middleware(
+        max_attempts=settings.retry_max_attempts,
+        base_delay=settings.retry_base_delay,
+        max_delay=settings.retry_max_delay,
+    )
+
+    loop = AgentLoop(
+        provider,
+        max_iterations=max_iterations,
+        middlewares=[retry_mw],
+        skills=skills,
+        facts=facts,
+        profile=profile,
+        session=session,
+        compressor=compressor,
+    )
+    click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
     while True:
         try:
@@ -108,7 +160,7 @@ async def _run_chat(
             break
 
         try:
-            result = await loop.run(user_input, system=system)
+            result = await loop.run(user_input, system=system, session_id=session_id)
             click.echo(f"\n{result}\n")
         except BudgetExceeded as e:
             click.echo(f"[budget exceeded] {e.message}", err=True)

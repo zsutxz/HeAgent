@@ -9,9 +9,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Protocol
+import logging
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Protocol
 
-from heagent.types import Message, ProviderResponse
+from heagent.providers.retry import retry_with_backoff
+
+if TYPE_CHECKING:
+    from heagent.types import Message
+
+logger = logging.getLogger(__name__)
 
 # 中间件函数类型：(请求, 下一步函数) -> 任意结果
 MiddlewareFn = Callable[["Request", "NextFn"], Any]
@@ -66,3 +73,23 @@ def compose(middlewares: list[MiddlewareFn], handler: Callable[[Request], Any]) 
         return next_fn
 
     return build(0)  # 从第一个中间件开始
+
+
+def make_retry_middleware(
+    *,
+    max_attempts: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+) -> MiddlewareFn:
+    """创建重试中间件，对 TRANSIENT 错误自动指数退避重试。
+
+    参数从 Settings.retry_* 读取，在 cli.py 中构造后注入 AgentLoop.middlewares。
+    """
+    async def retry_middleware(request: Request, next_fn: NextFn) -> Any:
+        return await retry_with_backoff(
+            lambda: next_fn(request),
+            max_attempts=max_attempts,
+            base_delay=base_delay,
+            max_delay=max_delay,
+        )
+    return retry_middleware

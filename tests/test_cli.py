@@ -21,6 +21,7 @@ class TestCLI:
     """CLI command tests using click.testing.CliRunner."""
 
     def test_no_api_key_shows_error(self, monkeypatch, clean_settings, tmp_path):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         # Point to empty dir so pydantic-settings finds no .env file
