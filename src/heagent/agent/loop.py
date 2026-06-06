@@ -121,7 +121,7 @@ class AgentLoop:
             if prior:
                 # 仅恢复非系统消息（系统提示词由 _build_system 动态构建）
                 state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
-                logger.info(
+                logger.debug(
                     "Restored %d messages from session '%s'",
                     len(prior),
                     session_id,
@@ -192,7 +192,7 @@ class AgentLoop:
             # 会话保存：无论正常结束还是异常，都尝试持久化已积累的消息
             if self.session and session_id:
                 self.session.save(session_id, state.messages)
-                logger.info("Saved %d messages to session '%s'", len(state.messages), session_id)
+                logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
             # 保存累计 token 用量供调用方读取
             self.last_usage = accumulated
 
