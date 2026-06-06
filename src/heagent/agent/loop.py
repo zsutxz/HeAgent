@@ -20,7 +20,7 @@ from heagent.config import get_settings
 from heagent.exceptions import BudgetExceeded, SafetyViolation
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
-from heagent.types import Message, ProviderResponse, Role, ToolCall, ToolResult
+from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolResult
 
 if TYPE_CHECKING:
     from heagent.context.compressor import ContextCompressor
@@ -80,6 +80,7 @@ class AgentLoop:
         self.profile = profile                         # 用户画像（可选，注入到系统提示词）
         self.session = session                         # 会话存储（可选，持久化对话历史）
         self.compressor = compressor                   # 上下文压缩器（可选，防止 token 超限）
+        self.last_usage: TokenUsage | None = None      # 最近一次 run() 的累计 token 用量
         settings = get_settings()
         self.max_iterations = max_iterations or settings.max_iterations
 
@@ -112,6 +113,7 @@ class AgentLoop:
             BudgetExceeded: 超过最大迭代次数
         """
         state = AgentState(max_iterations=self.max_iterations)
+        accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
         # 会话恢复：加载历史消息（不含旧的系统消息，由 _build_system 重新生成）
         if self.session and session_id:
@@ -143,6 +145,14 @@ class AgentLoop:
 
                 # 步骤 1：调用 Provider 获取 LLM 响应
                 response = await self._call_provider(state)
+
+                # 累计 token 用量
+                if response.usage:
+                    accumulated = TokenUsage(
+                        prompt_tokens=accumulated.prompt_tokens + response.usage.prompt_tokens,
+                        completion_tokens=accumulated.completion_tokens + response.usage.completion_tokens,
+                        total_tokens=accumulated.total_tokens + response.usage.total_tokens,
+                    )
 
                 # 上下文压缩：token 用量超阈值时自动摘要旧消息
                 if self.compressor and response.usage:
@@ -183,6 +193,8 @@ class AgentLoop:
             if self.session and session_id:
                 self.session.save(session_id, state.messages)
                 logger.info("Saved %d messages to session '%s'", len(state.messages), session_id)
+            # 保存累计 token 用量供调用方读取
+            self.last_usage = accumulated
 
         return response.content
 

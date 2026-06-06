@@ -37,6 +37,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _print_usage(usage: object | None) -> None:
+    """在回答后显示 token 消耗统计。"""
+    if usage is None or not hasattr(usage, "total_tokens") or usage.total_tokens == 0:
+        return
+    click.echo(
+        f"  [tokens: {usage.prompt_tokens} in + "
+        f"{usage.completion_tokens} out = "
+        f"{usage.total_tokens} total]",
+        err=True,
+    )
+
+
 def _build_provider(settings, model: str) -> BaseProvider:
     """根据可用的 API Key 自动检测并构建 Provider。
 
@@ -114,6 +126,7 @@ async def _run_single(
     )
     result = await loop.run(prompt, system=system)
     click.echo(result)
+    _print_usage(loop.last_usage)
 
 
 async def _run_chat(
@@ -162,6 +175,7 @@ async def _run_chat(
         try:
             result = await loop.run(user_input, system=system, session_id=session_id)
             click.echo(f"\n{result}\n")
+            _print_usage(loop.last_usage)
         except BudgetExceeded as e:
             click.echo(f"[budget exceeded] {e.message}", err=True)
         except HeAgentError as e:
