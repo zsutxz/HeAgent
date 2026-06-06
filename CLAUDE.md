@@ -71,7 +71,7 @@ exceptions  types  config
 3. **中间件管道**：`(Request, NextFn) -> Response` 链式组合，在 `middleware.py` 中实现。注入到 `AgentLoop._call_provider` 的调用路径中。
 4. **异常层级**：所有异常继承 `HeAgentError` → `ProviderError` / `ToolError` / `SafetyViolation` / `BudgetExceeded`。禁止抛出裸 `Exception`。
 5. **配置**：`pydantic-settings` 的 `Settings` 类，从 `.env` + 环境变量加载。通过 `get_settings()` 获取单例。测试中用 `reset_settings()` 重置。
-6. **记忆持久化**：`.heagent/` 目录（skills/、memory/、user/）以 Markdown 文件存储。V1 使用关键词匹配去重。
+6. **记忆持久化**：`.heagent/` 目录（skills/、memory/、user/）以 Markdown 文件存储。V1 使用关键词匹配去重。技能采用 HermesAgent 标准目录结构：`skills/<name>/SKILL.md`（必需）+ 可选的 `templates/`、`references/` 子目录。SKILL.md 使用 YAML frontmatter + 扁平编号步骤（`## Steps` 下每步单行）。
 7. **重试机制**：`providers/retry.py` 中的 `retry_with_backoff()` 将错误分类为 `RATE_LIMITED | AUTH_FAILED | TRANSIENT | NON_TRANSIENT`。仅对 `TRANSIENT` 错误进行指数退避 + 抖动重试。
 
 ### 模块速查
@@ -94,7 +94,7 @@ exceptions  types  config
 | `agent/sub.py` | 子 Agent 隔离 | `SubAgent` — 独立 loop+上下文，`run_parallel()` 通过 `asyncio.gather` 并行 |
 | `context/compressor.py` | 上下文窗口压缩 | `ContextCompressor` — token 使用率 ≥ 阈值时摘要旧消息 |
 | `context/session.py` | 会话持久化 | `SessionStore` — `.heagent/sessions/` 下的 JSON 文件 |
-| `memory/skills.py` | 技能存储 | `SkillStore` — `.heagent/skills/*.md` |
+| `memory/skills.py` | 技能存储 | `SkillStore` — `.heagent/skills/<name>/SKILL.md`，HermesAgent 标准目录结构（可选 templates/、references/） |
 | `memory/facts.py` | 事实存储（含去重） | `FactStore` — `.heagent/memory/MEMORY.md`，70% 关键词重叠去重 |
 | `memory/profile.py` | 用户档案分区 | `ProfileStore` — `.heagent/user/USER.md`，按 section 更新 |
 
@@ -108,7 +108,16 @@ exceptions  types  config
 
 ### CLI 入口
 
-`cli.py` 根据可用 API Key（`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`）自动检测 provider。模块级导入 `heagent.tools.builtins` 触发 `@tool` 注册。单次执行模式（带 PROMPT 参数）和交互式聊天模式（无参数），均通过 `asyncio.run()` 桥接。
+`cli.py` 根据可用 API Key（`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`）自动检测 provider。模块级导入 `heagent.tools.builtins` 触发 `@tool` 注册。单次执行模式（带 PROMPT 参数）和交互式聊天模式（无参数），均通过 `asyncio.run()` 桥接。CLI 创建 `SkillStore` 并传入 `AgentLoop`，启动技能自动匹配。
+
+### 技能系统
+
+技能存储在 `.heagent/skills/<name>/SKILL.md`，遵循 HermesAgent 标准目录结构：
+- `SKILL.md` — 必需，YAML frontmatter（name/description/created/tags）+ Markdown 正文（`## Pattern` 触发关键词 + `## Steps` 扁平编号步骤）
+- `templates/` — 可选，输出模板文件
+- `references/` — 可选，参考文档
+
+匹配算法：用户提示词词集 ∩ 技能 pattern+tags 词集 / pattern 词集长度 ≥ `skill_match_threshold`（默认 0.3）。匹配的技能内容注入系统提示词，最多 `skill_max_auto_invoke`（默认 3）个。
 
 ## 代码规范
 
@@ -125,6 +134,7 @@ exceptions  types  config
 
 ### 已知缺口（已实现但未接入）
 
-- `ContextCompressor`、`SessionStore`、`SkillStore`、`FactStore`、`ProfileStore` 已完整实现但未被 `AgentLoop` 调用。接入它们是自然的下一步。
+- ~~`SkillStore`~~ — **已接入**。`AgentLoop` 通过 `skills` 参数接收 `SkillStore`，`_build_system()` 自动匹配并注入相关技能到系统提示词，同时注册 `skill_create`/`skill_update`/`skill_list`/`skill_delete` 四个工具。
+- `ContextCompressor`、`SessionStore`、`FactStore`、`ProfileStore` 已完整实现但未被 `AgentLoop` 调用。接入它们是自然的下一步。
 - `Settings` 支持多密钥池（`openai_key_pool`、`anthropic_key_pool`），但 `ProviderChain` 仅在 provider 间切换，不做密钥轮换。
 - `providers/retry.py` 中的 `retry_with_backoff()` 是独立函数，未作为中间件接入。

@@ -9,7 +9,7 @@
 - **声明式工具注册** — `@tool` 装饰器零样板注册，自动生成 JSON Schema
 - **并行工具执行** — `asyncio.gather` 并发调用独立工具
 - **安全护栏** — 危险命令拦截，黑名单/白名单模式
-- **自学习记忆** — 技能提取、事实记忆（去重）、用户画像
+- **自学习记忆** — 技能提取与自动匹配、事实记忆（去重）、用户画像
 - **上下文压缩** — 超阈值自动摘要，保留近期对话
 - **子 Agent 并行** — 隔离上下文的子任务委派与并发执行
 - **CLI + Python API** — 命令行和编程两种使用方式
@@ -137,9 +137,9 @@ src/heagent/
 │   ├── registry.py      #   ToolRegistry 单例
 │   ├── decorator.py     #   @tool 装饰器
 │   ├── safety.py        #   安全护栏
-│   └── builtins/        #   内置工具: shell, file, search
+│   └── builtins/        #   内置工具: shell, file, search, skills
 ├── memory/              # 自学习记忆
-│   ├── skills.py        #   技能提取
+│   ├── skills.py        #   技能存储（HermesAgent 标准目录结构）
 │   ├── facts.py         #   事实记忆（去重）
 │   └── profile.py       #   用户画像
 ├── context/             # 上下文管理
