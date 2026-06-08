@@ -97,6 +97,11 @@ exceptions  types  config
 | `memory/skills.py` | 技能存储 | `SkillStore` — `.heagent/skills/<name>/SKILL.md`，HermesAgent 标准目录结构（可选 templates/、references/） |
 | `memory/facts.py` | 事实存储（含去重） | `FactStore` — `.heagent/memory/MEMORY.md`，70% 关键词重叠去重 |
 | `memory/profile.py` | 用户档案分区 | `ProfileStore` — `.heagent/user/USER.md`，按 section 更新 |
+| `memory/soul.py` | 人格系统 | `SoulStore` — 全局 `~/.heagent/SOUL.md` + 项目 `.heagent/SOUL.md` |
+| `context/loader.py` | 上下文文件扫描 | `load_context_files()` — 按 .heagent/CONTEXT.md > AGENTS.md > CLAUDE.md 优先级 |
+| `context/tokens.py` | Token 估算 | `count_tokens()` — CJK 感知启发式估算器 |
+| `cron/jobs.py` | 定时任务模型 | `CronJob(BaseModel)` + `JobStore` — `.heagent/cron/jobs.json` |
+| `cron/scheduler.py` | 后台调度器 | `CronScheduler` — asyncio 后台，手写 cron 解析，构造函数注入 provider+stores |
 
 ### 共享类型（`types.py`）
 
@@ -130,11 +135,31 @@ exceptions  types  config
 
 ## 项目状态
 
-全部 5 个 epic 已完成（19 个 FR 已实现）。详见 `docs/sprint-status.yaml`。
+全部 10 个 epic 已完成（24 个 FR 已实现）。详见 `docs/sprint-status.yaml`。
 
-### 已知缺口（已实现但未接入）
+### 自学习闭环（Epic 6-10，新增）
 
-- ~~`SkillStore`~~ — **已接入**。`AgentLoop` 通过 `skills` 参数接收 `SkillStore`，`_build_system()` 自动匹配并注入相关技能到系统提示词，同时注册 `skill_create`/`skill_update`/`skill_list`/`skill_delete` 四个工具。
-- `ContextCompressor`、`SessionStore`、`FactStore`、`ProfileStore` 已完整实现但未被 `AgentLoop` 调用。接入它们是自然的下一步。
+| 模块 | 用途 | 关键类/函数 |
+|------|------|------------|
+| `context/loader.py` | 上下文文件扫描 | `load_context_files()` — 扫描 .heagent/CONTEXT.md、AGENTS.md、CLAUDE.md |
+| `memory/soul.py` | 人格系统 | `SoulStore` — 全局+项目两级 SOUL.md，项目级覆盖全局级 |
+| `cron/jobs.py` | 定时任务模型 | `CronJob(BaseModel)` + `JobStore` — `.heagent/cron/jobs.json` 持久化 |
+| `cron/scheduler.py` | 后台调度器 | `CronScheduler` — asyncio 后台任务，手写 5-field cron 解析 |
+| `tools/builtins/cron.py` | Cron 工具 | `cron_add`、`cron_list`、`cron_remove` |
+
+### 系统提示词注入顺序
+
+`_build_system()` 按以下顺序组装系统提示词：
+1. `<identity>` — SOUL.md 人格（最顶层）
+2. 用户 system 字符串
+3. `<project-context>` — 上下文文件
+4. `<skills>` — 自动匹配的技能
+5. `<memory-nudge>` — 记忆保存提醒
+6. `<memory>` — 事实记忆
+7. `<profile>` — 用户画像
+
+### 已知缺口
+
 - `Settings` 支持多密钥池（`openai_key_pool`、`anthropic_key_pool`），但 `ProviderChain` 仅在 provider 间切换，不做密钥轮换。
-- `providers/retry.py` 中的 `retry_with_backoff()` 是独立函数，未作为中间件接入。
+- `providers/retry.py` 中的 `retry_with_backoff()` 已作为中间件接入（通过 `make_retry_middleware()`）。
+- Cron 表达式解析器 V1 不支持范围表达式（如 `1-5`）。

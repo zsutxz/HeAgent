@@ -25,9 +25,11 @@ from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall,
 if TYPE_CHECKING:
     from heagent.context.compressor import ContextCompressor
     from heagent.context.session import SessionStore
+    from heagent.cron.jobs import JobStore
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
     from heagent.memory.skills import SkillStore
+    from heagent.memory.soul import SoulStore
     from heagent.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
@@ -70,6 +72,9 @@ class AgentLoop:
         profile: ProfileStore | None = None,
         session: SessionStore | None = None,
         compressor: ContextCompressor | None = None,
+        context_dir: str | None = None,
+        soul: SoulStore | None = None,
+        cron_store: JobStore | None = None,
     ) -> None:
         self.provider = provider                      # LLM 提供者（OpenAI/Anthropic/Chain）
         self.registry = registry or ToolRegistry.get()  # 工具注册中心（默认全局单例）
@@ -80,6 +85,9 @@ class AgentLoop:
         self.profile = profile                         # 用户画像（可选，注入到系统提示词）
         self.session = session                         # 会话存储（可选，持久化对话历史）
         self.compressor = compressor                   # 上下文压缩器（可选，防止 token 超限）
+        self.context_dir = context_dir                 # 上下文文件扫描目录（可选）
+        self.soul = soul                               # 人格加载器（可选，注入为 identity 层）
+        self.cron_store = cron_store                   # Cron 任务存储（可选）
         self.last_usage: TokenUsage | None = None      # 最近一次 run() 的累计 token 用量
         settings = get_settings()
         self.max_iterations = max_iterations or settings.max_iterations
@@ -93,6 +101,11 @@ class AgentLoop:
         if facts or profile:
             from heagent.tools.builtins.memory import configure_memory_tools
             configure_memory_tools(facts=facts, profile=profile)
+
+        # Cron 工具激活：将 JobStore 注入工具模块
+        if self.cron_store:
+            from heagent.tools.builtins.cron import configure_cron_tools
+            configure_cron_tools(self.cron_store)
 
     async def run(
         self,
@@ -207,6 +220,24 @@ class AgentLoop:
         parts: list[str] = []
         if user_system:
             parts.append(user_system)
+
+        # SOUL.md 人格注入（identity 层 — 系统提示词最顶层）
+        if self.soul:
+            soul_content = self.soul.load()
+            if soul_content:
+                parts.insert(0, f"<identity>\n{soul_content}\n</identity>")
+                logger.debug("Injected SOUL.md personality into system prompt")
+
+        # 项目上下文文件注入：扫描 CWD 下的上下文文件
+        if self.context_dir:
+            settings = get_settings()
+            if settings.context_files_enabled:
+                from heagent.context.loader import load_context_files
+                context = load_context_files(self.context_dir)
+                if context:
+                    parts.append(f"<project-context>\n{context}\n</project-context>")
+                    logger.debug("Injected project context files into system prompt")
+
         if self.skills:
             settings = get_settings()
             matched = self.skills.matching_skills(
@@ -215,6 +246,9 @@ class AgentLoop:
             )[: settings.skill_max_auto_invoke]
 
             if matched:
+                # 使用追踪：记录每个匹配技能的使用
+                for skill_name in matched:
+                    self.skills.record_usage(skill_name)
                 # 有匹配：注入相关技能内容
                 contents = []
                 for name in matched:
@@ -255,6 +289,15 @@ class AgentLoop:
                     f"</memory>"
                 )
                 logger.debug("Injected %d fact(s) into system prompt", len(facts_list))
+
+        # 记忆提醒注入：鼓励 Agent 主动保存重要信息
+        if self.facts and get_settings().memory_nudge_enabled:
+            parts.append(
+                "<memory-nudge>\n"
+                "After completing a complex task or learning something important, "
+                "consider using fact_add to save key insights for future sessions.\n"
+                "</memory-nudge>"
+            )
 
         # 用户画像注入：将用户偏好加载到系统提示词
         if self.profile:

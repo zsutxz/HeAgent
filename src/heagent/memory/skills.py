@@ -15,8 +15,9 @@
 from __future__ import annotations
 
 import re
+import shutil
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 
@@ -30,6 +31,8 @@ class SkillContent:
     steps: list[str]
     created: str
     tags: list[str] = field(default_factory=list)
+    usage_count: int = 0
+    last_used: str = ""
 
 
 class SkillStore:
@@ -64,7 +67,7 @@ class SkillStore:
 
     # ---- CRUD ----
 
-    def save(self, name: str, description: str, pattern: str, steps: list[str], *, tags: list[str] | None = None) -> str:
+    def save(self, name: str, description: str, pattern: str, steps: list[str], *, tags: list[str] | None = None, usage_count: int = 0, last_used: str = "") -> str:
         """保存一个技能为标准目录结构。
 
         创建 skills/<name>/SKILL.md，包含 YAML frontmatter 和 Markdown 正文。
@@ -85,6 +88,9 @@ class SkillStore:
         ]
         if tag_str:
             fm_lines.append(f"tags: [{tag_str}]")
+        fm_lines.append(f"usage_count: {usage_count}")
+        if last_used:
+            fm_lines.append(f'last_used: "{last_used}"')
         fm_lines.append("---")
         fm_lines.append("")
 
@@ -168,7 +174,53 @@ class SkillStore:
             pattern if pattern is not None else existing.pattern,
             steps if steps is not None else existing.steps,
             tags=tags if tags is not None else existing.tags,
+            usage_count=existing.usage_count,
+            last_used=existing.last_used,
         )
+
+    # ---- 使用追踪与策展 ----
+
+    def record_usage(self, name: str) -> None:
+        """递增技能使用计数并更新最后使用时间。"""
+        existing = self.parse(name)
+        if existing is None:
+            return
+        now = datetime.now().isoformat()
+        self.save(
+            name, existing.description, existing.pattern, existing.steps,
+            tags=existing.tags or None,
+            usage_count=existing.usage_count + 1,
+            last_used=now,
+        )
+
+    def stale_skills(self, days: int = 30) -> list[str]:
+        """返回超过 N 天未使用的技能名称列表。"""
+        cutoff = datetime.now() - timedelta(days=days)
+        stale: list[str] = []
+        for name in self.list_skills():
+            parsed = self.parse(name)
+            if parsed is None:
+                continue
+            if parsed.usage_count == 0:
+                stale.append(name)
+            elif parsed.last_used:
+                try:
+                    last = datetime.fromisoformat(parsed.last_used)
+                    if last < cutoff:
+                        stale.append(name)
+                except ValueError:
+                    pass
+        return stale
+
+    def archive(self, name: str) -> bool:
+        """将技能目录移动到 .heagent/skills/.archive/。"""
+        src = self._skill_dir(name)
+        if not src.is_dir():
+            return False
+        archive_dir = self._base / ".archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(src), str(archive_dir / name))
+        return True
 
     # ---- 匹配 ----
 
@@ -210,6 +262,8 @@ class SkillStore:
         tags: list[str] = []
         pattern_lines: list[str] = []
         steps: list[str] = []
+        usage_count: int = 0
+        last_used: str = ""
 
         # 分离 frontmatter 和正文
         body = content
@@ -228,6 +282,13 @@ class SkillStore:
                     tag_part = stripped.split(":", 1)[1].strip()
                     if tag_part.startswith("[") and tag_part.endswith("]"):
                         tags = [t.strip() for t in tag_part[1:-1].split(",") if t.strip()]
+                elif stripped.startswith("usage_count:"):
+                    try:
+                        usage_count = int(stripped.split(":", 1)[1].strip())
+                    except ValueError:
+                        pass
+                elif stripped.startswith("last_used:"):
+                    last_used = stripped.split(":", 1)[1].strip().strip('"').strip("'")
 
         # 解析正文
         section = ""
@@ -253,4 +314,6 @@ class SkillStore:
             steps=steps,
             created=created,
             tags=tags,
+            usage_count=usage_count,
+            last_used=last_used,
         )

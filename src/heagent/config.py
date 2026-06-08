@@ -61,6 +61,19 @@ class Settings(BaseSettings):
     skill_match_threshold: float = Field(default=0.3, ge=0.0, le=1.0)  # 自动调用关键词匹配阈值
     skill_max_auto_invoke: int = Field(default=3, ge=0)                # 每轮最多自动注入技能数
 
+    # ---- 上下文文件参数 ----
+    context_files_enabled: bool = Field(default=True)                   # 是否自动加载项目上下文文件
+
+    # ---- 记忆提醒参数 ----
+    memory_nudge_enabled: bool = Field(default=True)                    # 是否注入记忆保存提醒
+
+    # ---- 技能策展参数 ----
+    skill_curator_stale_days: int = Field(default=30, ge=1)            # 多少天未使用视为过期
+
+    # ---- Cron 调度参数 ----
+    cron_enabled: bool = Field(default=True)                            # 是否启用 cron 调度
+    cron_tick_seconds: int = Field(default=60, ge=10)                   # 调度器检查间隔（秒）
+
     @property
     def openai_key_pool(self) -> list[str]:
         """解析逗号分隔的 OpenAI 多密钥池。"""

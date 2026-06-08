@@ -122,3 +122,44 @@ async def skill_delete(name: str) -> str:
     if _skill_store.delete(name):
         return f"Skill '{name}' deleted."
     return f"Error: skill '{name}' not found."
+
+
+@tool
+async def skill_curate(days: str = "30") -> str:
+    """查看过期技能。列出超过 N 天未使用的技能（含使用次数和最后使用时间）。
+    用于保持技能库整洁，配合 skill_archive 归档不再需要的技能。
+
+    参数：
+        days: 多少天未使用视为过期（默认 30）
+    """
+    if _skill_store is None:
+        return "Error: skill tools not configured."
+    try:
+        stale_days = int(days)
+    except ValueError:
+        return "Error: days must be a number."
+    stale = _skill_store.stale_skills(days=stale_days)
+    if not stale:
+        return f"No stale skills found (all used within {stale_days} days)."
+    lines: list[str] = [f"Found {len(stale)} stale skill(s) (unused for {stale_days}+ days):\n"]
+    for name in stale:
+        parsed = _skill_store.parse(name)
+        if parsed:
+            lines.append(f"- {name}: used {parsed.usage_count}x, last: {parsed.last_used or 'never'}")
+        else:
+            lines.append(f"- {name}: (parse error)")
+    return "\n".join(lines)
+
+
+@tool
+async def skill_archive(name: str) -> str:
+    """归档一个不再需要的技能。归档后技能不会出现在匹配和列表中，但可从 .archive/ 恢复。
+
+    参数：
+        name: 要归档的技能名称
+    """
+    if _skill_store is None:
+        return "Error: skill tools not configured."
+    if _skill_store.archive(name):
+        return f"Skill '{name}' archived to .heagent/skills/.archive/"
+    return f"Error: skill '{name}' not found."

@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-05-27
+# last_updated: 2026-06-08
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -28,7 +28,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-05-26
+last_updated: 2026-06-08
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -75,3 +75,39 @@ development_status:
   5-1-sub-agent-generation: done
   5-2-parallel-orchestration: done
   epic-5-retrospective: optional
+
+  # Epic 6: Context Files 自动加载 (FR-20)
+  epic-6: done
+  6-1-context-file-scanner: done
+  6-2-agentloop-context-files: done
+  6-3-cli-integration-config: done
+  epic-6-retrospective: optional
+
+  # Epic 7: SOUL.md 人格系统 (FR-21)
+  epic-7: done
+  7-1-soulstore-personality-loader: done
+  7-2-agentloop-soul-integration: done
+  7-3-cli-personality-option: done
+  epic-7-retrospective: optional
+
+  # Epic 8: Memory Nudge 记忆提醒 (FR-22)
+  epic-8: done
+  8-1-memory-nudge-injection: done
+  epic-8-retrospective: optional
+
+  # Epic 9: Skill Curator 技能策展 (FR-23)
+  epic-9: done
+  9-1-skill-usage-tracking: done
+  9-2-stale-skill-detection-archive: done
+  9-3-agentloop-usage-tracking: done
+  9-4-skill-curator-tools: done
+  epic-9-retrospective: optional
+
+  # Epic 10: Cron 定时调度 (FR-24)
+  epic-10: done
+  10-1-cronjob-model-persistence: done
+  10-2-cron-expression-parser: done
+  10-3-asyncio-background-scheduler: done
+  10-4-cron-management-tools: done
+  10-5-cli-scheduler-lifecycle: done
+  epic-10-retrospective: optional

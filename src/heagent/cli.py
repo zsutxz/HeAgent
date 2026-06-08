@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import uuid
 from typing import TYPE_CHECKING
@@ -23,10 +24,13 @@ from heagent.agent.middleware import make_retry_middleware
 from heagent.config import get_settings
 from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
+from heagent.cron.jobs import JobStore
+from heagent.cron.scheduler import CronScheduler
 from heagent.exceptions import BudgetExceeded, HeAgentError
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.memory.skills import SkillStore
+from heagent.memory.soul import SoulStore
 from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.chain import ProviderChain
 from heagent.providers.openai import OpenAIProvider
@@ -95,11 +99,19 @@ def _build_provider(settings, model: str) -> BaseProvider:
     return ProviderChain(providers)
 
 
+def _build_soul(soul_path: str | None = None) -> SoulStore | None:
+    """构建 SoulStore。指定路径时使用该路径，否则使用默认两级路径。"""
+    if soul_path:
+        return SoulStore(global_path=soul_path, project_path=soul_path)
+    return SoulStore()
+
+
 async def _run_single(
     prompt: str,
     provider: BaseProvider,
     system: str | None,
     max_iterations: int,
+    soul_path: str | None = None,
 ) -> None:
     """单次模式：执行一个 prompt 并打印结果。"""
     settings = get_settings()
@@ -108,6 +120,8 @@ async def _run_single(
     skills = SkillStore()
     facts = FactStore()
     profile = ProfileStore()
+    soul = _build_soul(soul_path)
+    cron_store = JobStore() if settings.cron_enabled else None
     compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
     retry_mw = make_retry_middleware(
         max_attempts=settings.retry_max_attempts,
@@ -123,6 +137,9 @@ async def _run_single(
         facts=facts,
         profile=profile,
         compressor=compressor,
+        context_dir=os.getcwd(),
+        soul=soul,
+        cron_store=cron_store,
     )
     result = await loop.run(prompt, system=system)
     click.echo(result)
@@ -133,6 +150,7 @@ async def _run_chat(
     provider: BaseProvider,
     system: str | None,
     max_iterations: int,
+    soul_path: str | None = None,
 ) -> None:
     """交互模式：REPL 聊天循环，直到用户输入空行或 Ctrl+C。"""
     settings = get_settings()
@@ -142,13 +160,24 @@ async def _run_chat(
     skills = SkillStore()
     facts = FactStore()
     profile = ProfileStore()
+    soul = _build_soul(soul_path)
     session = SessionStore()
+    cron_store = JobStore() if settings.cron_enabled else None
     compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
     retry_mw = make_retry_middleware(
         max_attempts=settings.retry_max_attempts,
         base_delay=settings.retry_base_delay,
         max_delay=settings.retry_max_delay,
     )
+
+    # Cron 调度器（交互模式专用）
+    scheduler: CronScheduler | None = None
+    if settings.cron_enabled and cron_store:
+        scheduler = CronScheduler(
+            cron_store, provider,
+            tick_seconds=settings.cron_tick_seconds,
+            skills=skills, facts=facts, profile=profile, compressor=compressor,
+        )
 
     loop = AgentLoop(
         provider,
@@ -159,27 +188,36 @@ async def _run_chat(
         profile=profile,
         session=session,
         compressor=compressor,
+        context_dir=os.getcwd(),
+        soul=soul,
+        cron_store=cron_store,
     )
     click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
-    while True:
-        try:
-            user_input = input("> ")
-        except (KeyboardInterrupt, EOFError):
-            click.echo("\nBye!")
-            break
+    try:
+        if scheduler:
+            await scheduler.start()
+        while True:
+            try:
+                user_input = input("> ")
+            except (KeyboardInterrupt, EOFError):
+                click.echo("\nBye!")
+                break
 
-        if not user_input.strip():
-            break
+            if not user_input.strip():
+                break
 
-        try:
-            result = await loop.run(user_input, system=system, session_id=session_id)
-            click.echo(f"\n{result}\n")
-            _print_usage(loop.last_usage)
-        except BudgetExceeded as e:
-            click.echo(f"[budget exceeded] {e.message}", err=True)
-        except HeAgentError as e:
-            click.echo(f"[error] {e.message}", err=True)
+            try:
+                result = await loop.run(user_input, system=system, session_id=session_id)
+                click.echo(f"\n{result}\n")
+                _print_usage(loop.last_usage)
+            except BudgetExceeded as e:
+                click.echo(f"[budget exceeded] {e.message}", err=True)
+            except HeAgentError as e:
+                click.echo(f"[error] {e.message}", err=True)
+    finally:
+        if scheduler:
+            await scheduler.stop()
 
 
 @click.command()
@@ -187,7 +225,8 @@ async def _run_chat(
 @click.option("--model", default=None, help="Model name (default: from settings or gpt-4o)")
 @click.option("--system", default=None, help="System prompt")
 @click.option("--max-iterations", type=int, default=None, help="Max agent loop iterations")
-def main(prompt: str | None, model: str | None, system: str | None, max_iterations: int | None) -> None:
+@click.option("--soul", default=None, help="Path to custom SOUL.md personality file")
+def main(prompt: str | None, model: str | None, system: str | None, max_iterations: int | None, soul: str | None) -> None:
     """HeAgent — self-improving AI agent.
 
     Run with a PROMPT for single-shot mode, or without for interactive chat.
@@ -211,6 +250,6 @@ def main(prompt: str | None, model: str | None, system: str | None, max_iteratio
 
     # 根据 prompt 参数决定运行模式
     if prompt:
-        asyncio.run(_run_single(prompt, provider, system, resolved_iterations))
+        asyncio.run(_run_single(prompt, provider, system, resolved_iterations, soul_path=soul))
     else:
-        asyncio.run(_run_chat(provider, system, resolved_iterations))
+        asyncio.run(_run_chat(provider, system, resolved_iterations, soul_path=soul))
