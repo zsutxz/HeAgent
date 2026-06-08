@@ -85,22 +85,25 @@ class CronScheduler:
     async def _execute_job(self, job: CronJob) -> None:
         """创建独立 AgentLoop 执行任务。"""
         logger.info("Executing cron job '%s': %s", job.id, job.prompt[:50])
+        success = False
         try:
             from heagent.agent.loop import AgentLoop
 
             loop = AgentLoop(self._provider, **self._loop_kwargs)  # type: ignore[arg-type]
             await loop.run(job.prompt)
+            success = True
         except Exception:
             logger.exception("Cron job '%s' execution failed", job.id)
 
-        # 更新最后运行时间
-        from heagent.cron.jobs import _iso_now
-        self._store.update(job.id, last_run=_iso_now())
+        if success:
+            # 仅成功时更新最后运行时间
+            from heagent.cron.jobs import _iso_now
+            self._store.update(job.id, last_run=_iso_now())
 
-        # 一次性任务执行后删除
-        if not job.recurring:
-            self._store.remove(job.id)
-            logger.info("One-shot cron job '%s' removed after execution", job.id)
+            # 一次性任务成功后删除
+            if not job.recurring:
+                self._store.remove(job.id)
+                logger.info("One-shot cron job '%s' removed after execution", job.id)
 
     @staticmethod
     def _matches(cron_expr: str, dt: datetime) -> bool:
@@ -113,7 +116,6 @@ class CronScheduler:
         if len(parts) != 5:
             return False
 
-        values = (dt.minute, dt.hour, dt.day, dt.month, dt.weekday())
         # weekday: Python 0=Mon, cron 0=Sun — 转换
         cron_weekday = (dt.weekday() + 1) % 7
         cron_values = (dt.minute, dt.hour, dt.day, dt.month, cron_weekday)
@@ -131,7 +133,7 @@ def _field_matches(expr: str, value: int) -> bool:
             return True
         if part.startswith("*/"):
             step = int(part[2:])
-            if value % step == 0:
+            if step > 0 and value % step == 0:
                 return True
         elif part.isdigit():
             if value == int(part):

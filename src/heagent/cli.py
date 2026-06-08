@@ -176,7 +176,8 @@ async def _run_chat(
         scheduler = CronScheduler(
             cron_store, provider,
             tick_seconds=settings.cron_tick_seconds,
-            skills=skills, facts=facts, profile=profile, compressor=compressor,
+            skills=skills, facts=facts, profile=profile,
+            compressor=compressor, soul=soul, cron_store=cron_store,
         )
 
     loop = AgentLoop(

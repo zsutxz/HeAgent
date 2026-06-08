@@ -130,7 +130,6 @@ class SkillStore:
         """删除指定技能目录。返回是否成功删除。"""
         skill_dir = self._skill_dir(name)
         if skill_dir.is_dir():
-            import shutil
             shutil.rmtree(skill_dir)
             return True
         return False
