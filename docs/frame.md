@@ -20,7 +20,7 @@ AgentLoop.run(prompt)
   ▼
 ┌──────────── Agent Loop 循环 ────────────┐
 │                                          │
-│  Middleware Pipeline (可选)               │
+│  Middleware Pipeline (retry 等)           │
 │       │                                  │
 │       ▼                                  │
 │  Provider.send(messages, tools)          │
@@ -43,12 +43,14 @@ AgentLoop.run(prompt)
 │              │                           │
 │         ToolResult[] → 追加到消息列表     │
 │              │                           │
+│         ContextCompressor（可选）         │
+│              │                           │
 │              └──→ 回到循环顶部            │
 │                                          │
 └──────────────────────────────────────────┘
   │
   ▼
-最终文本答案 → 输出给用户
+最终文本答案 + Token 统计 → 输出给用户
 ```
 
 ---
@@ -60,7 +62,7 @@ exceptions  types  config
     ↑          ↑       ↑
     └─ providers ─┴── tools ─┴── context ── agent
                             ↑              ↑
-                        memory ─────────────┘
+                        memory ───── cron ──┘
 ```
 
 **依赖规则：**
@@ -82,7 +84,10 @@ exceptions  types  config
 | 交互模式 | 不传参数，进入 REPL 聊天循环 |
 | Provider 构建 | 自动检测 `DEEPSEEK_API_KEY` → `OPENAI_API_KEY` → `ANTHROPIC_API_KEY` |
 | 工具注册 | 导入 `heagent.tools.builtins` 触发 `@tool` 注册 |
-| 技能系统 | 创建 `SkillStore` 实例传入 `AgentLoop`，自动匹配并注入相关技能到系统提示词 |
+| 模块初始化 | 自动创建 SkillStore、FactStore、ProfileStore、SoulStore、SessionStore、ContextCompressor、JobStore |
+| Cron 调度 | 交互模式下启动 CronScheduler 后台任务 |
+| 重试中间件 | 通过 `make_retry_middleware()` 接入 AgentLoop |
+| Token 统计 | 每次回答后显示 `[tokens: N in + M out = T total]` |
 
 ### 4.2 Agent 核心 (`agent/`)
 
@@ -93,10 +98,41 @@ exceptions  types  config
 | `AgentState` | 单次运行的可变状态（消息列表、迭代计数、结果） |
 | `AgentLoop` | 核心编排器，循环调用 Provider → 执行 Tool → 直到获得文本回答 |
 | `run(prompt)` | 入口方法，构建初始消息后进入循环 |
-| `_build_system()` | 构建系统提示词，含技能自动匹配与注入 |
-| `_call_provider()` | 通过 Middleware 链调用 Provider |
+| `_build_system()` | 构建系统提示词（含人格/上下文/技能/记忆注入，见下方注入顺序） |
+| `_call_provider()` | 通过 Middleware 链调用 Provider，含 Token 估算对比 |
 | `_execute_tools()` | `asyncio.gather()` 并行执行所有 tool_calls |
 | `_execute_one()` | 安全检查 → Registry 查找 → 执行 handler |
+| `last_usage` | 最近一次 `run()` 的累计 `TokenUsage` |
+
+**`AgentLoop.__init__()` 参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `provider` | `BaseProvider` | LLM 提供者（必需） |
+| `registry` | `ToolRegistry` | 工具注册中心（默认全局单例） |
+| `guard` | `SafetyGuard` | 安全防护（默认黑名单模式） |
+| `middlewares` | `list[MiddlewareFn]` | 中间件链 |
+| `max_iterations` | `int` | 最大迭代次数 |
+| `skills` | `SkillStore` | 技能存储（激活技能工具） |
+| `facts` | `FactStore` | 事实记忆（激活记忆工具） |
+| `profile` | `ProfileStore` | 用户画像（激活画像工具） |
+| `session` | `SessionStore` | 会话持久化 |
+| `compressor` | `ContextCompressor` | 上下文压缩器 |
+| `context_dir` | `str` | 上下文文件扫描目录 |
+| `soul` | `SoulStore` | 人格加载器 |
+| `cron_store` | `JobStore` | Cron 任务存储（激活 Cron 工具） |
+
+**系统提示词注入顺序（`_build_system()`）：**
+
+```
+1. <identity>        — SOUL.md 人格（最顶层）
+2. 用户 system 字符串
+3. <project-context> — 上下文文件（CONTEXT.md > AGENTS.md > CLAUDE.md）
+4. <skills>          — 自动匹配的技能
+5. <memory-nudge>    — 记忆保存提醒
+6. <memory>          — 事实记忆
+7. <profile>         — 用户画像
+```
 
 #### middleware.py — 中间件管道
 
@@ -106,6 +142,9 @@ MiddlewareFn = Callable[[Request, NextFn], Any]
 
 # 组合函数：递归构建中间件链
 compose(middlewares, handler) -> NextFn
+
+# 工厂函数：创建重试中间件
+make_retry_middleware(max_attempts, base_delay, max_delay) -> MiddlewareFn
 ```
 
 每个中间件接收 `(Request, NextFn)`，可拦截、修改或短路请求/响应。
@@ -159,6 +198,8 @@ ProviderChain([deepseek, openai, anthropic])
   AUTH_FAILED (401/403) → 不重试
   TRANSIENT (5xx, 网络错误) → 指数退避 + 随机抖动重试
   NON_TRANSIENT (其他) → 不重试
+
+通过 make_retry_middleware() 作为 Middleware 接入 AgentLoop
 ```
 
 ### 4.4 Tool 系统 (`tools/`)
@@ -200,7 +241,7 @@ SafetyGuard
 
 仅对 `shell` 工具生效，违反时抛出 `SafetyViolation`。
 
-#### builtins/ — 9 个内置工具
+#### builtins/ — 14 个内置工具
 
 **基础工具（5 个）：**
 
@@ -221,9 +262,85 @@ SafetyGuard
 | `skill_list` | 列出所有已注册技能 |
 | `skill_delete` | 删除指定技能 |
 
-技能工具在 `AgentLoop` 接收 `SkillStore` 时通过 `configure_skill_tools()` 激活。
+**记忆管理工具（2 个，`memory.py`）：**
 
-### 4.5 共享类型 (`types.py`)
+| 工具 | 功能 |
+|------|------|
+| `fact_add` | 保存一条事实到长期记忆 |
+| `profile_update` | 更新用户画像的指定部分 |
+
+**Cron 管理工具（3 个，`cron.py`）：**
+
+| 工具 | 功能 |
+|------|------|
+| `cron_add` | 创建定时任务（cron 表达式） |
+| `cron_list` | 列出所有已调度任务 |
+| `cron_remove` | 删除指定任务 |
+
+技能工具在 `AgentLoop` 接收 `SkillStore` 时激活；记忆工具在接收 `FactStore`/`ProfileStore` 时激活；Cron 工具在接收 `JobStore` 时激活。
+
+### 4.5 上下文管理 (`context/`)
+
+#### loader.py — 上下文文件扫描
+
+| 函数 | 说明 |
+|------|------|
+| `load_context_files(cwd)` | 扫描 `.heagent/CONTEXT.md` > `AGENTS.md` > `CLAUDE.md`，按优先级合并 |
+
+#### tokens.py — Token 估算
+
+| 函数 | 说明 |
+|------|------|
+| `count_tokens(messages)` | CJK 感知启发式估算，无需外部依赖（tiktoken 等） |
+
+估算策略：CJK 字符 ~1 token/字符，其他 ~4 字符/token，每条消息 +3 结构开销。
+
+#### compressor.py — 上下文压缩
+
+Token 用量 ≥ `compression_threshold` 时，通过 LLM 摘要旧消息，防止上下文窗口溢出。
+
+#### session.py — 会话持久化
+
+`.heagent/sessions/` 下的 JSON 文件存储/恢复对话历史。交互模式下通过 `session_id` 自动保存/恢复。
+
+### 4.6 记忆系统 (`memory/`)
+
+#### facts.py — 事实存储
+
+`.heagent/memory/MEMORY.md`，70% 关键词重叠去重。通过 `fact_add` 工具由 LLM 自主保存。
+
+#### skills.py — 技能存储
+
+`.heagent/skills/<name>/SKILL.md`，HermesAgent 标准目录结构（可选 `templates/`、`references/`）。匹配算法：用户提示词词集 ∩ 技能 pattern+tags 词集 / pattern 词集长度 ≥ `skill_match_threshold`。
+
+#### profile.py — 用户画像
+
+`.heagent/user/USER.md`，按 section 更新。通过 `profile_update` 工具由 LLM 自主维护。
+
+#### soul.py — 人格系统
+
+两级 SOUL.md 加载：全局 `~/.heagent/SOUL.md` + 项目 `.heagent/SOUL.md`。项目级存在时覆盖全局级，不做合并。
+
+### 4.7 Cron 调度 (`cron/`)
+
+#### jobs.py — 任务模型与持久化
+
+| 组件 | 说明 |
+|------|------|
+| `CronJob` | Pydantic 模型（id, prompt, cron, recurring, created, last_run, enabled） |
+| `JobStore` | `.heagent/cron/jobs.json` JSON 持久化，提供 CRUD + 工厂方法 |
+
+#### scheduler.py — 后台调度器
+
+| 组件 | 说明 |
+|------|------|
+| `CronScheduler` | asyncio 后台任务，每 `cron_tick_seconds` 秒检查到期任务 |
+| 手写 cron 解析 | 5-field（分 时 日 月 星期），支持 `*`、`*/N`、具体值、逗号列表 |
+| 构造函数注入 | provider + stores，执行时创建独立 AgentLoop |
+
+一次性任务（`recurring=False`）成功后自动删除。
+
+### 4.8 共享类型 (`types.py`)
 
 所有模块间数据流通过 Pydantic 模型传递，**禁止**跨模块传递原始 dict。
 
@@ -237,7 +354,7 @@ SafetyGuard
 | `ProviderResponse` | Provider 返回（content, tool_calls, usage, model） |
 | `TokenUsage` | Token 使用量（prompt, completion, total） |
 
-### 4.6 异常体系 (`exceptions.py`)
+### 4.9 异常体系 (`exceptions.py`)
 
 ```
 HeAgentError (base)
@@ -249,7 +366,7 @@ HeAgentError (base)
 
 **禁止**抛出裸 `Exception`。
 
-### 4.7 配置管理 (`config.py`)
+### 4.10 配置管理 (`config.py`)
 
 - `pydantic-settings` 的 `Settings` 类，从 `.env` + 环境变量加载
 - `get_settings()` 单例访问，`reset_settings()` 用于测试重置
@@ -259,34 +376,35 @@ HeAgentError (base)
 | `deepseek_api_key` | None | DeepSeek API Key（优先） |
 | `openai_api_key` | None | OpenAI API Key |
 | `anthropic_api_key` | None | Anthropic API Key |
+| `deepseek_base_url` | None | DeepSeek API 基础 URL |
+| `openai_base_url` | None | OpenAI 兼容服务 URL |
+| `anthropic_base_url` | None | Anthropic 代理地址 |
+| `openai_api_keys` | "" | OpenAI 多密钥池（逗号分隔） |
+| `anthropic_api_keys` | "" | Anthropic 多密钥池（逗号分隔） |
 | `default_model` | `gpt-4o` | 默认模型 |
 | `max_iterations` | 50 | Agent 循环最大迭代次数 |
+| `max_context_tokens` | 128000 | 模型上下文窗口大小 |
 | `compression_threshold` | 0.8 | 上下文压缩触发阈值 |
 | `shell_timeout` | 120 | Shell 命令超时（秒） |
 | `retry_max_attempts` | 3 | 最大重试次数 |
+| `retry_base_delay` | 1.0 | 重试基础延迟（秒） |
+| `retry_max_delay` | 30.0 | 重试最大延迟（秒） |
 | `skill_match_threshold` | 0.3 | 技能关键词匹配阈值（0.0–1.0） |
 | `skill_max_auto_invoke` | 3 | 最多自动注入技能数 |
+| `context_files_enabled` | True | 是否自动加载项目上下文文件 |
+| `memory_nudge_enabled` | True | 是否注入记忆保存提醒 |
+| `skill_curator_stale_days` | 30 | 技能过期天数 |
+| `cron_enabled` | True | 是否启用 cron 调度 |
+| `cron_tick_seconds` | 60 | 调度器检查间隔（秒） |
 
 ---
 
-## 五、已实现但未接入的模块
+## 五、已知缺口
 
-以下模块功能完整，但尚未被 `AgentLoop` 调用：
-
-| 模块 | 文件 | 说明 |
-|------|------|------|
-| 上下文压缩 | `context/compressor.py` | Token 用量 ≥ 阈值时，通过 LLM 摘要旧消息 |
-| 会话持久化 | `context/session.py` | JSON 文件存储/恢复对话历史 |
-| 事实记忆 | `memory/facts.py` | `.heagent/memory/MEMORY.md` 70% 关键词去重 |
-| 用户画像 | `memory/profile.py` | `.heagent/user/USER.md` 分节更新 |
-| 重试中间件 | `providers/retry.py` | 已实现但未作为 Middleware 接入 |
-| 密钥轮换 | `openai_key_pool` | Settings 支持多 Key 池，但 ProviderChain 不轮换 Key |
-
-### 已接入模块
-
-| 模块 | 文件 | 说明 |
-|------|------|------|
-| 技能系统 | `memory/skills.py` | `.heagent/skills/<name>/SKILL.md`（HermesAgent 标准目录结构），已接入 `AgentLoop` |
+| 缺口 | 说明 |
+|------|------|
+| 密钥轮换 | `Settings` 支持多密钥池（`openai_key_pool`、`anthropic_key_pool`），但 `ProviderChain` 仅在 provider 间切换，不做密钥轮换 |
+| Cron 范围表达式 | V1 解析器不支持范围表达式（如 `1-5`） |
 
 ---
 
@@ -303,7 +421,7 @@ src/heagent/
 │
 ├── agent/                   # 顶层编排
 │   ├── loop.py              # AgentLoop 核心循环
-│   ├── middleware.py        # 中间件组合
+│   ├── middleware.py        # 中间件组合 + make_retry_middleware
 │   └── sub.py               # 子 Agent（并行任务）
 │
 ├── providers/               # LLM Provider（互不依赖）
@@ -311,27 +429,36 @@ src/heagent/
 │   ├── openai.py            # OpenAI 兼容（含 DeepSeek）
 │   ├── anthropic.py         # Anthropic
 │   ├── chain.py             # ProviderChain 回退链
-│   └── retry.py             # 重试策略（standalone）
+│   └── retry.py             # 重试策略 + make_retry_middleware
 │
 ├── tools/                   # 工具系统
 │   ├── decorator.py         # @tool 装饰器
 │   ├── registry.py          # ToolRegistry 单例
 │   ├── safety.py            # SafetyGuard 安全防护
-│   └── builtins/            # 内置工具（9 个）
+│   └── builtins/            # 内置工具（14 个）
 │       ├── __init__.py      # 触发注册
 │       ├── shell.py         # shell 命令执行
 │       ├── file.py          # 文件读写
 │       ├── search.py        # 文件/内容搜索
-│       └── skills.py        # 技能管理（create/update/list/delete）
+│       ├── skills.py        # 技能管理（create/update/list/delete）
+│       ├── memory.py        # 记忆管理（fact_add/profile_update）
+│       └── cron.py          # Cron 管理（add/list/remove）
 │
 ├── context/                 # 上下文管理
+│   ├── loader.py            # 上下文文件扫描（CONTEXT.md > AGENTS.md > CLAUDE.md）
+│   ├── tokens.py            # CJK 感知 Token 估算
 │   ├── compressor.py        # 消息压缩
 │   └── session.py           # 会话持久化
 │
-└── memory/                  # 记忆系统
-    ├── facts.py             # 事实存储 + 去重
-    ├── skills.py            # 技能存储（HermesAgent 目录结构）
-    └── profile.py           # 用户画像
+├── memory/                  # 记忆系统
+│   ├── facts.py             # 事实存储 + 去重
+│   ├── skills.py            # 技能存储（HermesAgent 目录结构）
+│   ├── profile.py           # 用户画像
+│   └── soul.py              # 人格系统（全局/项目两级）
+│
+└── cron/                    # 定时调度
+    ├── jobs.py              # CronJob 模型 + JobStore 持久化
+    └── scheduler.py         # CronScheduler 后台调度器
 ```
 
 ---
@@ -344,28 +471,47 @@ python -m heagent "your prompt"
   ▼
 __main__.py → cli.main()
   │
-  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry
+  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（14 个工具）
   ├── get_settings() → 读取 DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
   ├── _build_provider() → OpenAIProvider / AnthropicProvider / ProviderChain
-  ├── SkillStore() → 创建技能存储实例
   │
   ▼
 asyncio.run(_run_single())
   │
+  ├── 初始化模块
+  │     ├── SkillStore()          → 技能存储
+  │     ├── FactStore()           → 事实记忆
+  │     ├── ProfileStore()        → 用户画像
+  │     ├── SoulStore()           → 人格加载器
+  │     ├── ContextCompressor()   → 上下文压缩器
+  │     ├── JobStore()            → Cron 任务存储
+  │     └── make_retry_middleware() → 重试中间件
+  │
   ▼
-AgentLoop(provider, skills=skills).run(prompt)
+AgentLoop(provider, skills, facts, profile, compressor, soul, cron_store, ...).run(prompt)
   │
   ├── 构建 Message(USER, prompt) 加入 state.messages
   │
-  ├── _build_system() → 匹配技能 + 构建系统提示词
-  │     ├── SkillStore.match(prompt) → 按关键词交集 / pattern 长度 ≥ threshold
-  │     └── 注入 ≤ skill_max_auto_invoke 个匹配技能到系统提示词
+  ├── _build_system() → 按注入顺序构建系统提示词
+  │     ├── <identity>            — SOUL.md 人格
+  │     ├── 用户 system 字符串
+  │     ├── <project-context>     — CONTEXT.md / AGENTS.md / CLAUDE.md
+  │     ├── <skills>              — SkillStore.match() 自动匹配 ≤ skill_max_auto_invoke 个
+  │     ├── <memory-nudge>        — 记忆保存提醒
+  │     ├── <memory>              — 事实记忆列表
+  │     └── <profile>             — 用户画像
   │
   ▼ 循环开始 ─────────────────────────────
   │
   ├── _call_provider(state)
-  │     ├── compose(middlewares, provider.send)  # 中间件链
-  │     └── ProviderResponse(tool_calls=[])
+  │     ├── count_tokens(state.messages)        # Token 估算（日志）
+  │     ├── compose([retry_mw], provider.send)  # 中间件链
+  │     ├── ProviderResponse(tool_calls=[...])
+  │     └── 日志：估算 vs 实际 Token 对比
+  │
+  ├── 累计 TokenUsage 到 accumulated
+  │
+  ├── ContextCompressor.check()  # Token ≥ 阈值时压缩旧消息
   │
   ├── 有 tool_calls？
   │     ├── YES → _execute_tools(calls, state)
@@ -376,7 +522,35 @@ AgentLoop(provider, skills=skills).run(prompt)
   │     │
   │     └── NO → 返回 response.content（最终答案）
   │
+  ├── finally:
+  │     ├── SessionStore.save()    # 持久化对话（有 session_id 时）
+  │     └── self.last_usage = accumulated
+  │
   └── iteration >= max_iterations → BudgetExceeded
+  │
+  ▼
+click.echo(result)
+_print_usage(loop.last_usage)  # [tokens: N in + M out = T total]
+```
+
+**交互模式额外流程：**
+
+```
+python -m heagent
+  │
+  ├── _run_chat() 代替 _run_single()
+  │     ├── SessionStore() → 生成 session_id
+  │     ├── CronScheduler(job_store, provider, ...) → 后台调度
+  │     │
+  │     ├── scheduler.start()  → 后台 tick 循环
+  │     │     └── 每 cron_tick_seconds 秒 → 检查到期 CronJob → 创建独立 AgentLoop 执行
+  │     │
+  │     └── REPL: while True
+  │           ├── input("> ")
+  │           ├── loop.run(input, session_id=session_id)  # 会话自动保存/恢复
+  │           └── finally: scheduler.stop()
+  │
+  └── 一次性 Cron 任务成功后自动从 JobStore 删除
 ```
 
 ---
