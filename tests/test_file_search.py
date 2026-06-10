@@ -31,6 +31,18 @@ class TestFileRead:
         result = await file_read(str(p))
         assert result == "hello world"
 
+    async def test_read_outside_workspace_blocked(self, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
+        workspace = tmp_path / "workspace"  # type: ignore[operator]
+        outside = tmp_path / "outside"  # type: ignore[operator]
+        workspace.mkdir()
+        outside.mkdir()
+        secret = outside / "secret.txt"
+        secret.write_text("secret", encoding="utf-8")
+
+        monkeypatch.chdir(workspace)
+        result = await file_read(str(secret))
+        assert "Path escapes current workspace" in result
+
     async def test_read_missing_file(self, tmp_path: object) -> None:
         result = await file_read(str(tmp_path / "missing.txt"))  # type: ignore[operator]
         assert "Error: file not found" in result
@@ -47,6 +59,17 @@ class TestFileWrite:
         result = await file_write(str(p), "test content")
         assert "OK" in result
         assert p.read_text(encoding="utf-8") == "test content"
+
+    async def test_write_outside_workspace_blocked(self, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
+        workspace = tmp_path / "workspace"  # type: ignore[operator]
+        outside = tmp_path / "outside"  # type: ignore[operator]
+        workspace.mkdir()
+        outside.mkdir()
+
+        monkeypatch.chdir(workspace)
+        result = await file_write(str(outside / "new.txt"), "blocked")
+        assert "Path escapes current workspace" in result
+        assert not (outside / "new.txt").exists()
 
     async def test_write_creates_parent_dirs(self, tmp_path: object) -> None:
         p = tmp_path / "sub" / "dir" / "file.txt"  # type: ignore[operator]
@@ -77,6 +100,17 @@ class TestFileSearch:
         result = await file_search("*.xyz", str(tmp_path))  # type: ignore[operator]
         assert "No files matching" in result
 
+    async def test_search_outside_workspace_blocked(self, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
+        workspace = tmp_path / "workspace"  # type: ignore[operator]
+        outside = tmp_path / "outside"  # type: ignore[operator]
+        workspace.mkdir()
+        outside.mkdir()
+        (outside / "secret.txt").write_text("", encoding="utf-8")
+
+        monkeypatch.chdir(workspace)
+        result = await file_search("*.txt", str(outside))
+        assert "Path escapes current workspace" in result
+
     async def test_max_results(self, tmp_path: object) -> None:
         d = tmp_path  # type: ignore[operator]
         for i in range(30):
@@ -104,3 +138,14 @@ class TestContentSearch:
     async def test_invalid_regex(self, tmp_path: object) -> None:
         result = await content_search("[invalid", str(tmp_path), "*.txt")  # type: ignore[operator]
         assert "Error: invalid regex" in result
+
+    async def test_content_search_outside_workspace_blocked(self, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
+        workspace = tmp_path / "workspace"  # type: ignore[operator]
+        outside = tmp_path / "outside"  # type: ignore[operator]
+        workspace.mkdir()
+        outside.mkdir()
+        (outside / "secret.txt").write_text("classified", encoding="utf-8")
+
+        monkeypatch.chdir(workspace)
+        result = await content_search("classified", str(outside), "*.txt")
+        assert "Path escapes current workspace" in result
