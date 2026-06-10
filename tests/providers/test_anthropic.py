@@ -10,7 +10,7 @@ import pytest
 
 from heagent.providers.anthropic import AnthropicProvider, _extract_system, _parse_tool_use_blocks, _to_anthropic_messages
 from heagent.providers.base import BaseProvider
-from heagent.types import Message, Role, ToolSchema
+from heagent.types import Message, Role, ToolCall, ToolSchema
 
 
 def _mock_usage(inp: int = 10, out: int = 5) -> SimpleNamespace:
@@ -40,6 +40,46 @@ class TestHelpers:
     def test_to_anthropic_messages(self) -> None:
         result = _to_anthropic_messages([Message(role=Role.USER, content="hello")])
         assert result == [{"role": "user", "content": "hello"}]
+
+    def test_to_anthropic_messages_with_tool_use_and_result_blocks(self) -> None:
+        result = _to_anthropic_messages([
+            Message(
+                role=Role.ASSISTANT,
+                content="Checking",
+                tool_calls=[ToolCall(id="tu_1", name="run", arguments={"cmd": "ls"})],
+            ),
+            Message(role=Role.TOOL, content="done", tool_call_id="tu_1"),
+        ])
+        assert result == [
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "Checking"},
+                    {"type": "tool_use", "id": "tu_1", "name": "run", "input": {"cmd": "ls"}},
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "tu_1", "content": "done"},
+                ],
+            },
+        ]
+
+    def test_to_anthropic_messages_groups_consecutive_tool_results(self) -> None:
+        result = _to_anthropic_messages([
+            Message(role=Role.TOOL, content="one", tool_call_id="tu_1"),
+            Message(role=Role.TOOL, content="two", tool_call_id="tu_2"),
+        ])
+        assert result == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "tu_1", "content": "one"},
+                    {"type": "tool_result", "tool_use_id": "tu_2", "content": "two"},
+                ],
+            }
+        ]
 
     def test_parse_tool_use_blocks(self) -> None:
         blocks = [_mock_tool_block(), _mock_text_block()]
