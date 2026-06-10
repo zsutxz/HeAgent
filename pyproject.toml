@@ -30,6 +30,9 @@ heagent = "heagent.cli:main"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "no_auto_workspace: do not auto-set workspace root in path safety tests",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/heagent"]

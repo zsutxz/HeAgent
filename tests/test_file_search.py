@@ -2,11 +2,26 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Generator
+
 import pytest
 
 from heagent.tools.builtins.file import file_read, file_write
 from heagent.tools.builtins.search import content_search, file_search
+from heagent.tools.path_safety import reset_workspace_root, set_workspace_root
 from heagent.tools.registry import ToolRegistry
+
+
+@pytest.fixture(autouse=True)
+def _workspace(request: pytest.FixtureRequest, tmp_path: Path) -> Generator[None, None, None]:
+    """Set workspace to tmp_path for each test (unless marked no_auto_workspace)."""
+    if "no_auto_workspace" in request.keywords:
+        yield
+        return
+    set_workspace_root(tmp_path.resolve())
+    yield
+    reset_workspace_root()
 
 
 class TestFileToolsRegistration:
@@ -31,16 +46,18 @@ class TestFileRead:
         result = await file_read(str(p))
         assert result == "hello world"
 
-    async def test_read_outside_workspace_blocked(self, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
-        workspace = tmp_path / "workspace"  # type: ignore[operator]
-        outside = tmp_path / "outside"  # type: ignore[operator]
+    @pytest.mark.no_auto_workspace
+    async def test_read_outside_workspace_blocked(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "workspace"
+        outside = tmp_path / "outside"
         workspace.mkdir()
         outside.mkdir()
         secret = outside / "secret.txt"
         secret.write_text("secret", encoding="utf-8")
 
-        monkeypatch.chdir(workspace)
+        set_workspace_root(workspace.resolve())
         result = await file_read(str(secret))
+        reset_workspace_root()
         assert "Path escapes current workspace" in result
 
     async def test_read_missing_file(self, tmp_path: object) -> None:
@@ -60,14 +77,16 @@ class TestFileWrite:
         assert "OK" in result
         assert p.read_text(encoding="utf-8") == "test content"
 
-    async def test_write_outside_workspace_blocked(self, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
-        workspace = tmp_path / "workspace"  # type: ignore[operator]
-        outside = tmp_path / "outside"  # type: ignore[operator]
+    @pytest.mark.no_auto_workspace
+    async def test_write_outside_workspace_blocked(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "workspace"
+        outside = tmp_path / "outside"
         workspace.mkdir()
         outside.mkdir()
 
-        monkeypatch.chdir(workspace)
+        set_workspace_root(workspace.resolve())
         result = await file_write(str(outside / "new.txt"), "blocked")
+        reset_workspace_root()
         assert "Path escapes current workspace" in result
         assert not (outside / "new.txt").exists()
 
@@ -100,15 +119,17 @@ class TestFileSearch:
         result = await file_search("*.xyz", str(tmp_path))  # type: ignore[operator]
         assert "No files matching" in result
 
-    async def test_search_outside_workspace_blocked(self, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
-        workspace = tmp_path / "workspace"  # type: ignore[operator]
-        outside = tmp_path / "outside"  # type: ignore[operator]
+    @pytest.mark.no_auto_workspace
+    async def test_search_outside_workspace_blocked(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "workspace"
+        outside = tmp_path / "outside"
         workspace.mkdir()
         outside.mkdir()
         (outside / "secret.txt").write_text("", encoding="utf-8")
 
-        monkeypatch.chdir(workspace)
+        set_workspace_root(workspace.resolve())
         result = await file_search("*.txt", str(outside))
+        reset_workspace_root()
         assert "Path escapes current workspace" in result
 
     async def test_max_results(self, tmp_path: object) -> None:
@@ -139,13 +160,15 @@ class TestContentSearch:
         result = await content_search("[invalid", str(tmp_path), "*.txt")  # type: ignore[operator]
         assert "Error: invalid regex" in result
 
-    async def test_content_search_outside_workspace_blocked(self, tmp_path: object, monkeypatch: pytest.MonkeyPatch) -> None:
-        workspace = tmp_path / "workspace"  # type: ignore[operator]
-        outside = tmp_path / "outside"  # type: ignore[operator]
+    @pytest.mark.no_auto_workspace
+    async def test_content_search_outside_workspace_blocked(self, tmp_path: Path) -> None:
+        workspace = tmp_path / "workspace"
+        outside = tmp_path / "outside"
         workspace.mkdir()
         outside.mkdir()
         (outside / "secret.txt").write_text("classified", encoding="utf-8")
 
-        monkeypatch.chdir(workspace)
+        set_workspace_root(workspace.resolve())
         result = await content_search("classified", str(outside), "*.txt")
+        reset_workspace_root()
         assert "Path escapes current workspace" in result

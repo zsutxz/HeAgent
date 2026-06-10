@@ -22,8 +22,9 @@ def _clean_settings() -> Any:
 
 
 class TestDefaults:
-    def test_default_model(self) -> None:
-        s = Settings()
+    def test_default_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("DEFAULT_MODEL", raising=False)
+        s = Settings(_env_file=None)
         assert s.default_model == "gpt-4o"
 
     def test_default_max_iterations(self) -> None:
@@ -47,7 +48,7 @@ class TestDefaults:
     def test_default_single_api_keys_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-        s = Settings()
+        s = Settings(_env_file=None)
         assert s.openai_api_key is None
         assert s.anthropic_api_key is None
 
