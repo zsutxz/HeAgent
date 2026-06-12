@@ -1,0 +1,146 @@
+"""Tests for KeyRotatingProvider — 密钥池轮换。"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+
+import pytest
+
+from heagent.exceptions import ProviderError
+from heagent.providers.base import ProviderMetadata
+from heagent.providers.key_rotation import KeyRotatingProvider
+from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
+
+
+def _make_provider(
+    name: str,
+    content: str = "ok",
+    *,
+    fail_with: ProviderError | None = None,
+) -> object:
+    """创建模拟 Provider，可配置失败行为。"""
+
+    class FakeProvider:
+        _name = name
+        _content = content
+        _fail_with = fail_with
+
+        async def send(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> ProviderResponse:
+            if self._fail_with:
+                raise self._fail_with
+            return ProviderResponse(
+                content=self._content,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                model=self._name,
+                finish_reason="stop",
+            )
+
+        async def stream(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> AsyncIterator[ProviderResponse]:
+            if self._fail_with:
+                raise self._fail_with
+            yield ProviderResponse(
+                content=self._content,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                model=self._name,
+                finish_reason="stop",
+            )
+
+        def get_metadata(self) -> ProviderMetadata:
+            return ProviderMetadata(name=self._name, model=self._name, supports_streaming=True, supports_tools=True)
+
+    return FakeProvider()
+
+
+class TestKeyRotatingProvider:
+    def test_requires_at_least_one(self) -> None:
+        with pytest.raises(ValueError, match="at least one"):
+            KeyRotatingProvider([])
+
+    async def test_send_uses_first_key(self) -> None:
+        rp = KeyRotatingProvider([_make_provider("a", "hello")])
+        resp = await rp.send([Message(role=Role.USER, content="hi")])
+        assert resp.content == "hello"
+
+    async def test_send_rotates_on_429(self) -> None:
+        rp = KeyRotatingProvider([
+            _make_provider("a", fail_with=ProviderError("rate limited", status_code=429)),
+            _make_provider("b", "fallback"),
+        ])
+        resp = await rp.send([Message(role=Role.USER, content="hi")])
+        assert resp.content == "fallback"
+
+    async def test_send_rotates_on_401(self) -> None:
+        rp = KeyRotatingProvider([
+            _make_provider("a", fail_with=ProviderError("auth failed", status_code=401)),
+            _make_provider("b", "ok"),
+        ])
+        resp = await rp.send([Message(role=Role.USER, content="hi")])
+        assert resp.content == "ok"
+
+    async def test_send_raises_non_rotation_error(self) -> None:
+        rp = KeyRotatingProvider([
+            _make_provider("a", fail_with=ProviderError("server error", status_code=500)),
+            _make_provider("b", "unused"),
+        ])
+        with pytest.raises(ProviderError, match="server error"):
+            await rp.send([Message(role=Role.USER, content="hi")])
+
+    async def test_send_all_keys_exhausted(self) -> None:
+        rp = KeyRotatingProvider([
+            _make_provider("a", fail_with=ProviderError("rate", status_code=429)),
+            _make_provider("b", fail_with=ProviderError("rate", status_code=429)),
+        ])
+        with pytest.raises(ProviderError, match="rate"):
+            await rp.send([Message(role=Role.USER, content="hi")])
+
+    async def test_send_resets_index_after_exhaustion(self) -> None:
+        """密钥池耗尽后，索引应恢复到起始位置。"""
+        rp = KeyRotatingProvider([
+            _make_provider("a", fail_with=ProviderError("rate", status_code=429)),
+            _make_provider("b", fail_with=ProviderError("rate", status_code=429)),
+        ])
+        with pytest.raises(ProviderError):
+            await rp.send([Message(role=Role.USER, content="hi")])
+        # 索引应恢复到 0
+        assert rp._current_index == 0
+
+    async def test_stream_uses_first_key(self) -> None:
+        rp = KeyRotatingProvider([_make_provider("a", "chunk")])
+        chunks = [c async for c in rp.stream([Message(role=Role.USER, content="hi")])]
+        assert chunks[0].content == "chunk"
+
+    async def test_stream_rotates_on_429(self) -> None:
+        rp = KeyRotatingProvider([
+            _make_provider("a", fail_with=ProviderError("rate", status_code=429)),
+            _make_provider("b", "stream-ok"),
+        ])
+        chunks = [c async for c in rp.stream([Message(role=Role.USER, content="hi")])]
+        assert chunks[0].content == "stream-ok"
+
+    async def test_stream_all_keys_exhausted(self) -> None:
+        rp = KeyRotatingProvider([
+            _make_provider("a", fail_with=ProviderError("rate", status_code=429)),
+            _make_provider("b", fail_with=ProviderError("rate", status_code=429)),
+        ])
+        with pytest.raises(ProviderError, match="All keys exhausted"):
+            async for _ in rp.stream([Message(role=Role.USER, content="hi")]):
+                pass
+
+    def test_metadata_includes_keypool(self) -> None:
+        rp = KeyRotatingProvider([_make_provider("openai")])
+        meta = rp.get_metadata()
+        assert "+keypool" in meta.name
+        assert meta.supports_streaming is True
+
+    def test_current_property(self) -> None:
+        rp = KeyRotatingProvider([_make_provider("a"), _make_provider("b")])
+        assert rp.current.get_metadata().name == "a"
+
+    async def test_rotation_by_message_keyword(self) -> None:
+        """通过错误消息中的关键词触发轮换（无 status_code）。"""
+        rp = KeyRotatingProvider([
+            _make_provider("a", fail_with=ProviderError("Rate limit exceeded")),
+            _make_provider("b", "ok"),
+        ])
+        resp = await rp.send([Message(role=Role.USER, content="hi")])
+        assert resp.content == "ok"

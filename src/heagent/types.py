@@ -102,3 +102,20 @@ class ToolSchema(BaseModel):
     name: str
     description: str
     parameters: dict[str, object]
+
+
+class StreamEvent(BaseModel):
+    """流式输出事件 — run_stream() 逐步 yield 的事件类型。
+
+    type: 事件类型
+      - "text": LLM 生成的文本片段
+      - "tool_call": 工具开始执行
+      - "tool_result": 工具执行完成
+      - "done": 最终完成，携带完整回答
+    """
+
+    type: str  # "text" | "tool_call" | "tool_result" | "done"
+    text: str = ""
+    tool_name: str = ""
+    tool_result_content: str = ""
+    final_answer: str = ""

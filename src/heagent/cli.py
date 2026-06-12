@@ -33,7 +33,9 @@ from heagent.memory.skills import SkillStore
 from heagent.memory.soul import SoulStore
 from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.chain import ProviderChain
+from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
+from heagent.tools.builtins.subagent import configure_subagent_tools
 
 if TYPE_CHECKING:
     from heagent.providers.base import BaseProvider
@@ -58,6 +60,7 @@ def _build_provider(settings, model: str) -> BaseProvider:
 
     优先级：DeepSeek > OpenAI > Anthropic。
     多个 Key 同时存在时，用 ProviderChain 包装实现自动回退。
+    单 Provider 多 Key 时，用 KeyRotatingProvider 实现密钥轮换。
     """
     providers: list[BaseProvider] = []
 
@@ -71,17 +74,15 @@ def _build_provider(settings, model: str) -> BaseProvider:
             )
         )
 
-    # OpenAI
-    if settings.openai_api_key:
-        providers.append(
-            OpenAIProvider(api_key=settings.openai_api_key, model=model, base_url=settings.openai_base_url)
-        )
+    # OpenAI（支持多密钥池轮换）
+    openai_providers = _build_openai_providers(settings, model)
+    if openai_providers:
+        providers.append(openai_providers)
 
-    # Anthropic
-    if settings.anthropic_api_key:
-        providers.append(
-            AnthropicProvider(api_key=settings.anthropic_api_key, model=model, base_url=settings.anthropic_base_url)
-        )
+    # Anthropic（支持多密钥池轮换）
+    anthropic_providers = _build_anthropic_providers(settings, model)
+    if anthropic_providers:
+        providers.append(anthropic_providers)
 
     # 无可用 Key → 报错退出
     if not providers:
@@ -97,6 +98,49 @@ def _build_provider(settings, model: str) -> BaseProvider:
         return providers[0]
 
     return ProviderChain(providers)
+
+
+def _build_openai_providers(settings, model: str) -> BaseProvider | None:
+    """构建 OpenAI Provider（含密钥池轮换）。"""
+    # 主 key + 密钥池合并
+    keys: list[str] = []
+    if settings.openai_api_key:
+        keys.append(settings.openai_api_key)
+    for k in settings.openai_key_pool:
+        if k not in keys:
+            keys.append(k)
+
+    if not keys:
+        return None
+
+    provider_list = [
+        OpenAIProvider(api_key=k, model=model, base_url=settings.openai_base_url)
+        for k in keys
+    ]
+    if len(provider_list) == 1:
+        return provider_list[0]
+    return KeyRotatingProvider(provider_list)
+
+
+def _build_anthropic_providers(settings, model: str) -> BaseProvider | None:
+    """构建 Anthropic Provider（含密钥池轮换）。"""
+    keys: list[str] = []
+    if settings.anthropic_api_key:
+        keys.append(settings.anthropic_api_key)
+    for k in settings.anthropic_key_pool:
+        if k not in keys:
+            keys.append(k)
+
+    if not keys:
+        return None
+
+    provider_list = [
+        AnthropicProvider(api_key=k, model=model, base_url=settings.anthropic_base_url)
+        for k in keys
+    ]
+    if len(provider_list) == 1:
+        return provider_list[0]
+    return KeyRotatingProvider(provider_list)
 
 
 def _build_soul(soul_path: str | None = None) -> SoulStore | None:
@@ -128,6 +172,8 @@ async def _run_single(
         base_delay=settings.retry_base_delay,
         max_delay=settings.retry_max_delay,
     )
+
+    configure_subagent_tools(provider)
 
     loop = AgentLoop(
         provider,
@@ -180,6 +226,8 @@ async def _run_chat(
             compressor=compressor, soul=soul, cron_store=cron_store,
         )
 
+    configure_subagent_tools(provider)
+
     loop = AgentLoop(
         provider,
         max_iterations=max_iterations,
@@ -209,8 +257,17 @@ async def _run_chat(
                 break
 
             try:
-                result = await loop.run(user_input, system=system, session_id=session_id)
-                click.echo(f"\n{result}\n")
+                final_answer = ""
+                async for event in loop.run_stream(user_input, system=system, session_id=session_id):
+                    if event.type == "text":
+                        click.echo(event.text, nl=False)
+                    elif event.type == "tool_call":
+                        click.echo(f"\n[calling {event.tool_name}...]", nl=False)
+                    elif event.type == "tool_result":
+                        click.echo(f" [done]", nl=False)
+                    elif event.type == "done":
+                        final_answer = event.final_answer
+                click.echo("\n")
                 _print_usage(loop.last_usage)
             except BudgetExceeded as e:
                 click.echo(f"[budget exceeded] {e.message}", err=True)

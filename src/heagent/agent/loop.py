@@ -20,7 +20,7 @@ from heagent.config import get_settings
 from heagent.exceptions import BudgetExceeded, SafetyViolation
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolResult
+from heagent.types import Message, ProviderResponse, Role, StreamEvent, TokenUsage, ToolCall, ToolResult
 
 if TYPE_CHECKING:
     from heagent.context.compressor import ContextCompressor
@@ -210,6 +210,123 @@ class AgentLoop:
             self.last_usage = accumulated
 
         return response.content
+
+    async def run_stream(
+        self,
+        prompt: str,
+        *,
+        system: str | None = None,
+        session_id: str | None = None,
+    ):
+        """流式运行 Agent 循环，逐步 yield StreamEvent。
+
+        与 run() 相同的核心循环，但文本响应通过流式输出逐块返回。
+        遇到 tool_calls 时，执行工具并继续流式下一轮。
+
+        参数同 run()。yield StreamEvent 事件流。
+        """
+        from collections.abc import AsyncIterator
+
+        state = AgentState(max_iterations=self.max_iterations)
+        accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+
+        if self.session and session_id:
+            prior = self.session.load(session_id)
+            if prior:
+                state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
+
+        system_content = self._build_system(system, prompt=prompt)
+        if system_content:
+            state.messages.append(Message(role=Role.SYSTEM, content=system_content))
+        state.messages.append(Message(role=Role.USER, content=prompt))
+
+        try:
+            while True:
+                state.iteration += 1
+                if state.iteration > state.max_iterations:
+                    raise BudgetExceeded(
+                        f"Exceeded {self.max_iterations} iterations without final answer"
+                    )
+
+                tools = self.registry.enabled_schemas()
+                full_content = ""
+                chunk_usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+                model = ""
+                finish_reason = ""
+
+                # 流式迭代 provider 输出，逐块 yield 文本事件
+                async for chunk in self.provider.stream(state.messages, tools=tools or None):  # type: ignore[attr-defined]
+                    if chunk.content:
+                        full_content += chunk.content
+                        yield StreamEvent(type="text", text=chunk.content)
+                    if chunk.usage and chunk.usage.total_tokens > 0:
+                        chunk_usage = chunk.usage
+                    if chunk.model:
+                        model = chunk.model
+                    if chunk.finish_reason:
+                        finish_reason = chunk.finish_reason
+
+                accumulated = TokenUsage(
+                    prompt_tokens=accumulated.prompt_tokens + chunk_usage.prompt_tokens,
+                    completion_tokens=accumulated.completion_tokens + chunk_usage.completion_tokens,
+                    total_tokens=accumulated.total_tokens + chunk_usage.total_tokens,
+                )
+
+                response = ProviderResponse(
+                    content=full_content,
+                    tool_calls=[],
+                    usage=chunk_usage,
+                    model=model,
+                    finish_reason=finish_reason or "stop",
+                )
+
+                # 上下文压缩
+                if self.compressor and response.usage:
+                    settings = get_settings()
+                    compressed = await self.compressor.compress(
+                        state.messages,
+                        token_count=response.usage.total_tokens,
+                        max_tokens=settings.max_context_tokens,
+                    )
+                    if compressed is not state.messages:
+                        before = len(state.messages)
+                        state.messages = compressed
+                        logger.info("Context compressed: %d -> %d messages", before, len(state.messages))
+
+                state.messages.append(
+                    Message(role=Role.ASSISTANT, content=response.content)
+                )
+
+                # 流式模式下的 tool_calls：回退到非流式获取完整 tool_calls
+                # （多数 Provider 在 stream 模式不返回 tool_calls）
+                # 若需要 tool_calls，用 send() 重试这一轮
+                if not response.tool_calls and finish_reason == "tool_calls":
+                    response = await self._call_provider(state)
+                    state.messages[-1] = Message(
+                        role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None
+                    )
+                    accumulated = TokenUsage(
+                        prompt_tokens=accumulated.prompt_tokens + response.usage.prompt_tokens,
+                        completion_tokens=accumulated.completion_tokens + response.usage.completion_tokens,
+                        total_tokens=accumulated.total_tokens + response.usage.total_tokens,
+                    )
+
+                if not response.tool_calls:
+                    yield StreamEvent(type="done", final_answer=response.content)
+                    break
+
+                # 执行工具调用
+                tool_results = await self._execute_tools(response.tool_calls, state)
+                for tc, tr in zip(response.tool_calls, tool_results):
+                    yield StreamEvent(type="tool_call", tool_name=tc.name)
+                    yield StreamEvent(type="tool_result", tool_result_content=tr.content)
+                    state.messages.append(
+                        Message(role=Role.TOOL, content=tr.content, tool_call_id=tr.tool_call_id)
+                    )
+        finally:
+            if self.session and session_id:
+                self.session.save(session_id, state.messages)
+            self.last_usage = accumulated
 
     def _build_system(self, user_system: str | None, prompt: str = "") -> str | None:
         """将用户系统提示词与按需匹配的技能内容组合为最终的系统消息。

@@ -16,6 +16,10 @@ class HeAgentError(Exception):
 class ProviderError(HeAgentError):
     """Provider 调用失败：API 错误、限流、认证失败等。"""
 
+    def __init__(self, message: str = "", *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
 
 class ToolError(HeAgentError):
     """工具执行失败：运行时错误、参数异常等。"""
