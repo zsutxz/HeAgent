@@ -5,7 +5,16 @@ from __future__ import annotations
 import pytest
 
 from heagent.exceptions import ProviderError
-from heagent.providers.retry import ErrorCategory, classify_error, retry_with_backoff
+from heagent.providers.retry import ErrorCategory, classify_error, classify_exception, retry_with_backoff
+
+
+class _FakeSdkError(Exception):
+    """模拟 OpenAI/Anthropic SDK 的 APIStatusError：带 status_code 与 message。"""
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
 
 
 class TestClassifyError:
@@ -34,6 +43,32 @@ class TestClassifyError:
         e = ProviderError("Bad request")
         e.status_code = 400
         assert classify_error(e) == ErrorCategory.NON_TRANSIENT
+
+
+class TestClassifyException:
+    """classify_exception 对原始 SDK 异常（非 ProviderError）的分类。"""
+
+    def test_rate_limited_429(self) -> None:
+        assert classify_exception(_FakeSdkError("rate limited", 429)) == ErrorCategory.RATE_LIMITED
+
+    def test_auth_failed_401(self) -> None:
+        assert classify_exception(_FakeSdkError("unauthorized", 401)) == ErrorCategory.AUTH_FAILED
+
+    def test_transient_503(self) -> None:
+        assert classify_exception(_FakeSdkError("overloaded", 503)) == ErrorCategory.TRANSIENT
+
+    def test_client_error_400_non_transient(self) -> None:
+        assert classify_exception(_FakeSdkError("bad request", 400)) == ErrorCategory.NON_TRANSIENT
+
+    def test_unprocessable_422_non_transient(self) -> None:
+        assert classify_exception(_FakeSdkError("unprocessable", 422)) == ErrorCategory.NON_TRANSIENT
+
+    def test_bare_exception_non_transient(self) -> None:
+        """无状态码、无可识别关键词的异常默认归为 NON_TRANSIENT（不盲目回退）。"""
+        assert classify_exception(RuntimeError("boom")) == ErrorCategory.NON_TRANSIENT
+
+    def test_timeout_message_transient(self) -> None:
+        assert classify_exception(RuntimeError("connection timeout")) == ErrorCategory.TRANSIENT
 
 
 class TestRetryWithBackoff:

@@ -17,6 +17,21 @@ def _mock_usage(inp: int = 10, out: int = 5) -> SimpleNamespace:
     return SimpleNamespace(input_tokens=inp, output_tokens=out)
 
 
+def _mock_usage_cached(
+    inp: int = 5,
+    out: int = 3,
+    cache_read: int = 0,
+    cache_create: int = 0,
+) -> SimpleNamespace:
+    """带提示词缓存统计的 usage mock（模拟 Anthropic 缓存命中响应）。"""
+    return SimpleNamespace(
+        input_tokens=inp,
+        output_tokens=out,
+        cache_read_input_tokens=cache_read,
+        cache_creation_input_tokens=cache_create,
+    )
+
+
 def _mock_text_block(text: str = "hi") -> SimpleNamespace:
     return SimpleNamespace(type="text", text=text)
 
@@ -115,6 +130,60 @@ class TestSend:
         resp = await p.send([Message(role=Role.USER, content="run ls")], tools=tools)
         assert resp.finish_reason == "tool_use"
         assert len(resp.tool_calls) == 1
+
+    @patch("heagent.providers.anthropic.AsyncAnthropic")
+    async def test_send_caches_system_prompt(self, mock_cls: MagicMock) -> None:
+        """启用缓存时，system 应包装为带 cache_control 的块列表（FR-3）。"""
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(return_value=_mock_response([_mock_text_block("ok")]))
+        p = AnthropicProvider(api_key="sk-test")  # prompt_caching 默认 True
+        await p.send([
+            Message(role=Role.SYSTEM, content="You are helpful"),
+            Message(role=Role.USER, content="hi"),
+        ])
+        _, kwargs = mock_client.messages.create.call_args
+        assert isinstance(kwargs["system"], list)
+        assert kwargs["system"][-1]["cache_control"] == {"type": "ephemeral"}
+        assert kwargs["system"][-1]["text"] == "You are helpful"
+
+    @patch("heagent.providers.anthropic.AsyncAnthropic")
+    async def test_send_no_cache_when_disabled(self, mock_cls: MagicMock) -> None:
+        """禁用缓存时，system 保持纯字符串（兼容不支持 cache_control 的代理）。"""
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(return_value=_mock_response([_mock_text_block("ok")]))
+        p = AnthropicProvider(api_key="sk-test", prompt_caching=False)
+        await p.send([
+            Message(role=Role.SYSTEM, content="You are helpful"),
+            Message(role=Role.USER, content="hi"),
+        ])
+        _, kwargs = mock_client.messages.create.call_args
+        assert kwargs["system"] == "You are helpful"
+
+    @patch("heagent.providers.anthropic.AsyncAnthropic")
+    async def test_send_omits_system_when_empty(self, mock_cls: MagicMock) -> None:
+        """无 system 消息时不发送 system 字段。"""
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(return_value=_mock_response([_mock_text_block("ok")]))
+        p = AnthropicProvider(api_key="sk-test")
+        await p.send([Message(role=Role.USER, content="hi")])
+        _, kwargs = mock_client.messages.create.call_args
+        assert "system" not in kwargs
+
+    @patch("heagent.providers.anthropic.AsyncAnthropic")
+    async def test_send_usage_includes_cache_tokens(self, mock_cls: MagicMock) -> None:
+        """缓存命中时，prompt_tokens 应计入 cache_read/creation tokens（成本准确性）。"""
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.messages.create = AsyncMock(
+            return_value=_mock_response(usage=_mock_usage_cached(inp=5, out=3, cache_read=100, cache_create=8))
+        )
+        p = AnthropicProvider(api_key="sk-test")
+        resp = await p.send([Message(role=Role.USER, content="hi")])
+        # prompt_tokens = 非缓存输入(5) + 缓存写入(8) + 缓存读取(100) = 113
+        assert resp.usage.prompt_tokens == 113
 
 
 class TestStream:

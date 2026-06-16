@@ -9,10 +9,25 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator
 
+from heagent.exceptions import ProviderError
 from heagent.providers.base import BaseProvider, ProviderMetadata
+from heagent.providers.retry import ErrorCategory, classify_exception
 from heagent.types import Message, ProviderResponse, ToolSchema
 
 logger = logging.getLogger(__name__)
+
+
+def _wrap_error(error: Exception) -> ProviderError:
+    """将任意异常（含原始 SDK 异常）包装为 ProviderError，保留状态码与原始 cause。
+
+    使回退链抛出的始终是 HeAgentError 体系内的异常，供上层中间件分类重试、
+    供 CLI 统一捕获，避免裸 SDK 异常穿透导致未处理崩溃。
+    """
+    status = getattr(error, "status_code", None)
+    if status is None:
+        status = getattr(error, "status", None)
+    message = getattr(error, "message", None) or str(error)
+    return ProviderError(message, status_code=status)
 
 
 class ProviderChain:
@@ -60,8 +75,9 @@ class ProviderChain:
     async def send(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> ProviderResponse:
         """依次尝试每个 Provider，直到成功或全部失败。
 
-        遍历逻辑：当前 Provider 失败 → _advance() 切换下一个 → 重试
-        全部失败后恢复原始索引，避免后续请求跳过主 Provider。
+        回退精度（FR-4）：仅对 RATE_LIMITED / AUTH_FAILED / TRANSIENT 错误回退；
+        NON_TRANSIENT（400/422 等客户端错误）立即抛出——切换 Provider 不会让坏请求变好，
+        回退只会浪费配额并掩盖真实问题。回退链抛出的异常统一包装为 ProviderError。
         """
         last_error: Exception | None = None
         start = self._current_index  # 记录起始索引，失败后恢复
@@ -70,19 +86,29 @@ class ProviderChain:
             try:
                 return await self.current.send(messages, tools=tools)
             except Exception as e:
+                category = classify_exception(e)
+                logger.warning(
+                    "Provider %s failed (%s): %s",
+                    self.current.get_metadata().name, category.value, e,
+                )
+                # 客户端错误 → 不回退，立即抛出
+                if category == ErrorCategory.NON_TRANSIENT:
+                    self._current_index = start
+                    raise _wrap_error(e) from e
                 last_error = e
-                logger.warning("Provider %s failed: %s", self.current.get_metadata().name, e)
                 if not self._advance():
                     break
 
-        # 恢复原始索引，下一次调用重新从主 Provider 开始
+        # 所有 Provider 均失败（均为可回退错误）→ 恢复索引，抛出最后的错误
         self._current_index = start
-        raise last_error or RuntimeError("All providers failed")
+        if last_error is not None:
+            raise _wrap_error(last_error) from last_error
+        raise RuntimeError("All providers failed")
 
     async def stream(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> AsyncIterator[ProviderResponse]:
         """流式调用的故障转移版本。
 
-        与 send() 逻辑相同，但处理 AsyncIterator 返回类型。
+        与 send() 回退精度逻辑相同（FR-4），但处理 AsyncIterator 返回类型。
         """
         start = self._current_index
         for _ in range(len(self._providers)):
@@ -91,11 +117,18 @@ class ProviderChain:
                     yield chunk
                 return
             except Exception as e:
-                logger.warning("Provider %s stream failed: %s", self.current.get_metadata().name, e)
+                category = classify_exception(e)
+                logger.warning(
+                    "Provider %s stream failed (%s): %s",
+                    self.current.get_metadata().name, category.value, e,
+                )
+                if category == ErrorCategory.NON_TRANSIENT:
+                    self._current_index = start
+                    raise _wrap_error(e) from e
                 if not self._advance():
                     break
         self._current_index = start
-        raise RuntimeError("All providers failed for stream")
+        raise ProviderError("All providers failed for stream")
 
     def get_metadata(self) -> ProviderMetadata:
         """返回当前活跃 Provider 的能力描述。"""

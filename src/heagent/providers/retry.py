@@ -28,13 +28,12 @@ class ErrorCategory(str, Enum):
     NON_TRANSIENT = "non_transient"  # 非临时错误 → 不重试
 
 
-def classify_error(error: ProviderError) -> ErrorCategory:
-    """根据状态码和错误信息分类 Provider 错误。
+def _classify(status: int | None, message: str) -> ErrorCategory:
+    """根据状态码和消息文本分类错误的纯函数（供 classify_error/classify_exception 共享）。
 
-    分类优先级：429 > 401 > 5xx > 其他
+    分类优先级：429 > 401 > 5xx > 其他（默认 NON_TRANSIENT）
     """
-    msg = error.message.lower()
-    status = getattr(error, "status_code", None)
+    msg = message.lower()
 
     # 限流：429 状态码或消息中包含 rate/429
     if status == 429 or "rate" in msg or "429" in msg:
@@ -47,6 +46,36 @@ def classify_error(error: ProviderError) -> ErrorCategory:
         return ErrorCategory.TRANSIENT
     # 默认归为非临时错误
     return ErrorCategory.NON_TRANSIENT
+
+
+def _extract_status_message(error: Exception) -> tuple[int | None, str]:
+    """从任意异常中 duck-type 提取状态码与消息。
+
+    兼容 HeAgent ProviderError（.status_code/.message）与 OpenAI/Anthropic SDK 的
+    APIStatusError（.status_code/.message），以及任意 Exception（str()）。
+    """
+    status = getattr(error, "status_code", None)
+    if status is None:
+        status = getattr(error, "status", None)
+    message = getattr(error, "message", None) or str(error)
+    return status, message
+
+
+def classify_error(error: ProviderError) -> ErrorCategory:
+    """根据状态码和错误信息分类 Provider 错误。
+
+    分类优先级：429 > 401 > 5xx > 其他
+    """
+    return _classify(getattr(error, "status_code", None), getattr(error, "message", "") or str(error))
+
+
+def classify_exception(error: Exception) -> ErrorCategory:
+    """对任意异常（含原始 SDK 异常，非 ProviderError）进行分类。
+
+    供 ProviderChain 决定是否回退：仅 RATE_LIMITED/AUTH_FAILED/TRANSIENT 可回退，
+    NON_TRANSIENT（400/422 等客户端错误）不应回退——切换 Provider 不会令坏请求变好。
+    """
+    return _classify(*_extract_status_message(error))
 
 
 async def retry_with_backoff(

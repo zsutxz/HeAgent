@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 
 from anthropic import AsyncAnthropic
 
 from heagent.providers.base import ProviderMetadata
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
+
+logger = logging.getLogger(__name__)
 
 
 def _to_anthropic_messages(messages: list[Message]) -> list[dict[str, object]]:
@@ -68,6 +71,50 @@ def _extract_system(messages: list[Message]) -> str:
     return "\n".join(parts) if parts else ""
 
 
+def _build_system_param(system: str, *, caching: bool) -> list[dict[str, object]] | str | None:
+    """构建 Anthropic system 参数，可选注入提示词缓存断点。
+
+    Anthropic 的提示词缓存通过 cache_control: {"type": "ephemeral"} 标记缓存断点，
+    标记位置之前（含）的稳定内容（system prompt、工具定义等）在后续请求中复用，
+    显著降低重复输入的 token 成本（缓存读 ~0.1x，写 ~1.25x）。
+
+    返回：
+        None — 无 system 内容，调用方应省略 system 字段
+        str — 禁用缓存时的纯字符串（兼容不支持 cache_control 的代理）
+        list — 启用缓存时的块列表，末块带 cache_control 断点
+    """
+    if not system:
+        return None
+    if not caching:
+        return system
+    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+
+def _build_usage(usage: object) -> TokenUsage:
+    """从 Anthropic usage 构建 TokenUsage，计入提示词缓存的读写 token。
+
+    Anthropic 启用缓存后，usage 拆分为三部分：
+      - input_tokens: 未命中缓存的输入
+      - cache_creation_input_tokens: 写入缓存的输入
+      - cache_read_input_tokens: 从缓存读取的输入
+    三者之和才是真实输入量。若不合并，缓存命中时 prompt_tokens 会大幅低估。
+    """
+    inp = getattr(usage, "input_tokens", 0) or 0
+    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
+    cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
+    out = getattr(usage, "output_tokens", 0) or 0
+    prompt = inp + cache_read + cache_create
+    if cache_read or cache_create:
+        logger.debug(
+            "Anthropic prompt cache: %d read, %d created", cache_read, cache_create
+        )
+    return TokenUsage(
+        prompt_tokens=prompt,
+        completion_tokens=out,
+        total_tokens=prompt + out,
+    )
+
+
 def _to_anthropic_tools(tools: list[ToolSchema]) -> list[dict[str, object]]:
     """Convert HeAgent tools into Anthropic's tool schema format."""
     return [
@@ -101,9 +148,11 @@ class AnthropicProvider:
         model: str = "claude-sonnet-4-6",
         max_tokens: int = 4096,
         base_url: str | None = None,
+        prompt_caching: bool = True,
     ) -> None:
         self._model = model
         self._max_tokens = max_tokens
+        self._prompt_caching = prompt_caching
         self._client = AsyncAnthropic(api_key=api_key, base_url=base_url)
 
     async def send(
@@ -118,9 +167,11 @@ class AnthropicProvider:
             "max_tokens": self._max_tokens,
             "messages": _to_anthropic_messages(messages),
         }
-        system = _extract_system(messages)
-        if system:
-            kwargs["system"] = system
+        system_param = _build_system_param(
+            _extract_system(messages), caching=self._prompt_caching
+        )
+        if system_param is not None:
+            kwargs["system"] = system_param
         if tools:
             kwargs["tools"] = _to_anthropic_tools(tools)
 
@@ -131,11 +182,7 @@ class AnthropicProvider:
             if getattr(block, "type", None) == "text":
                 text_parts.append(getattr(block, "text", ""))
         tool_calls = _parse_tool_use_blocks(resp.content)
-        usage = TokenUsage(
-            prompt_tokens=resp.usage.input_tokens,
-            completion_tokens=resp.usage.output_tokens,
-            total_tokens=resp.usage.input_tokens + resp.usage.output_tokens,
-        )
+        usage = _build_usage(resp.usage)
         return ProviderResponse(
             content="".join(text_parts),
             tool_calls=tool_calls,
@@ -156,9 +203,11 @@ class AnthropicProvider:
             "max_tokens": self._max_tokens,
             "messages": _to_anthropic_messages(messages),
         }
-        system = _extract_system(messages)
-        if system:
-            kwargs["system"] = system
+        system_param = _build_system_param(
+            _extract_system(messages), caching=self._prompt_caching
+        )
+        if system_param is not None:
+            kwargs["system"] = system_param
         if tools:
             kwargs["tools"] = _to_anthropic_tools(tools)
 

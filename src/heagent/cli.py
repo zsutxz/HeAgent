@@ -135,7 +135,12 @@ def _build_anthropic_providers(settings, model: str) -> BaseProvider | None:
         return None
 
     provider_list = [
-        AnthropicProvider(api_key=k, model=model, base_url=settings.anthropic_base_url)
+        AnthropicProvider(
+            api_key=k,
+            model=model,
+            base_url=settings.anthropic_base_url,
+            prompt_caching=settings.anthropic_prompt_caching,
+        )
         for k in keys
     ]
     if len(provider_list) == 1:

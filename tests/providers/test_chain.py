@@ -12,21 +12,38 @@ from heagent.providers.chain import ProviderChain
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
 
 
-def _make_provider(name: str, content: str = "ok", *, fail: bool = False, fail_stream: bool = False) -> object:
+def _make_provider(
+    name: str,
+    content: str = "ok",
+    *,
+    fail: bool = False,
+    fail_stream: bool = False,
+    fail_status: int = 503,
+) -> object:
+    """构造测试用 FakeProvider。
+
+    fail_status 决定失败错误的分类：503（默认）= TRANSIENT 会触发回退；
+    400/422 = NON_TRANSIENT 不应回退。send_calls/stream_calls 记录调用次数。
+    """
     class FakeProvider:
         _name = name
         _content = content
         _fail = fail
         _fail_stream = fail_stream
+        _fail_status = fail_status
+        send_calls = 0
+        stream_calls = 0
 
         async def send(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> ProviderResponse:
+            self.send_calls += 1
             if self._fail:
-                raise ProviderError(f"{self._name} send failed")
+                raise ProviderError(f"{self._name} send failed", status_code=self._fail_status)
             return ProviderResponse(content=self._content, usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2), model=self._name, finish_reason="stop")
 
         async def stream(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> AsyncIterator[ProviderResponse]:
+            self.stream_calls += 1
             if self._fail_stream:
-                raise ProviderError(f"{self._name} stream failed")
+                raise ProviderError(f"{self._name} stream failed", status_code=self._fail_status)
             yield ProviderResponse(content=self._content, usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2), model=self._name, finish_reason="stop")
 
         def get_metadata(self) -> ProviderMetadata:
@@ -59,6 +76,31 @@ class TestChain:
         with pytest.raises(ProviderError):
             await chain.send([Message(role=Role.USER, content="hi")])
 
+    async def test_send_no_fallback_on_client_error(self) -> None:
+        """NON_TRANSIENT（400/422 等客户端错误）不应回退到下一个 Provider（FR-4 精度）。"""
+        a = _make_provider("a", fail=True, fail_status=400)
+        b = _make_provider("b", "should-not-reach")
+        chain = ProviderChain([a, b])
+        with pytest.raises(ProviderError, match="a send failed") as exc_info:
+            await chain.send([Message(role=Role.USER, content="hi")])
+        # b 未被调用（send_calls == 0），且错误状态码保留
+        assert b.send_calls == 0
+        assert exc_info.value.status_code == 400
+        # 索引重置回主 Provider，下一次请求从 a 开始
+        assert chain.current.get_metadata().name == "a"
+
+    async def test_send_falls_back_on_rate_limit(self) -> None:
+        """RATE_LIMITED（429）应回退到下一个 Provider。"""
+        chain = ProviderChain([_make_provider("a", fail=True, fail_status=429), _make_provider("b", "fallback")])
+        resp = await chain.send([Message(role=Role.USER, content="hi")])
+        assert resp.content == "fallback"
+
+    async def test_send_falls_back_on_auth_error(self) -> None:
+        """AUTH_FAILED（401）跨 Provider 回退（不同 Provider 各自的有效密钥）。"""
+        chain = ProviderChain([_make_provider("a", fail=True, fail_status=401), _make_provider("b", "fallback")])
+        resp = await chain.send([Message(role=Role.USER, content="hi")])
+        assert resp.content == "fallback"
+
     async def test_stream_uses_current(self) -> None:
         chain = ProviderChain([_make_provider("a", "chunk")])
         chunks = [c async for c in chain.stream([Message(role=Role.USER, content="hi")])]
@@ -68,6 +110,16 @@ class TestChain:
         chain = ProviderChain([_make_provider("a", fail_stream=True), _make_provider("b", "stream-ok")])
         chunks = [c async for c in chain.stream([Message(role=Role.USER, content="hi")])]
         assert chunks[0].content == "stream-ok"
+
+    async def test_stream_no_fallback_on_client_error(self) -> None:
+        """流式模式同样不对 NON_TRANSIENT（400）回退。"""
+        a = _make_provider("a", fail_stream=True, fail_status=400)
+        b = _make_provider("b", "should-not-reach")
+        chain = ProviderChain([a, b])
+        with pytest.raises(ProviderError, match="a stream failed"):
+            async for _ in chain.stream([Message(role=Role.USER, content="hi")]):
+                pass
+        assert b.stream_calls == 0
 
     def test_reset(self) -> None:
         chain = ProviderChain([_make_provider("a"), _make_provider("b")])

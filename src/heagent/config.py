@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     openai_base_url: str | None = None     # OpenAI 兼容服务（如智谱 AI）
     anthropic_base_url: str | None = None  # Anthropic 代理地址
 
+    # ---- Anthropic 提示词缓存（FR-3） ----
+    # 对 system prompt 注入 cache_control 断点，降低重复输入成本。
+    # 使用不支持 cache_control 的 Anthropic 代理时应关闭。
+    anthropic_prompt_caching: bool = True
+
     # ---- 多密钥池（逗号分隔存储，运行时解析为列表） ----
     openai_api_keys: str = ""
     anthropic_api_keys: str = ""
