@@ -6,10 +6,9 @@ import asyncio
 
 import pytest
 
-from heagent.agent.sub import SubAgent, SubAgentResult, run_parallel
+from heagent.agent.sub import SubAgent, run_parallel
 from heagent.providers.base import ProviderMetadata
-from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, Role, TokenUsage
+from heagent.types import Message, ProviderResponse, TokenUsage
 
 
 class StubProvider:

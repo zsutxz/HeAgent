@@ -12,7 +12,7 @@ import json
 import time
 from pathlib import Path
 
-from heagent.types import Message, Role
+from heagent.types import Message
 
 
 class SessionStore:

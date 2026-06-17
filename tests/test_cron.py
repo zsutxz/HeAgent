@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 from pathlib import Path
 
 import pytest
 
-from heagent.cron.jobs import CronJob, JobStore
+from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
 from heagent.tools.builtins.cron import (
     configure_cron_tools,
@@ -17,7 +16,6 @@ from heagent.tools.builtins.cron import (
     cron_remove,
     reset_cron_tools,
 )
-
 
 # ---- JobStore 测试 ----
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 
 from heagent.providers.base import BaseProvider
-from heagent.types import Message, ProviderResponse, Role, TokenUsage
+from heagent.types import Message, ProviderResponse, Role
 
 logger = logging.getLogger(__name__)
 

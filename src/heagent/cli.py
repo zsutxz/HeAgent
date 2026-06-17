@@ -269,9 +269,9 @@ async def _run_chat(
                     elif event.type == "tool_call":
                         click.echo(f"\n[calling {event.tool_name}...]", nl=False)
                     elif event.type == "tool_result":
-                        click.echo(f" [done]", nl=False)
+                        click.echo(" [done]", nl=False)
                     elif event.type == "done":
-                        final_answer = event.final_answer
+                        pass
                 click.echo("\n")
                 _print_usage(loop.last_usage)
             except BudgetExceeded as e:

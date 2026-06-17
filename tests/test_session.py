@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from heagent.context.session import SessionStore
 from heagent.types import Message, Role, ToolCall
 

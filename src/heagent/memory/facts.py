@@ -50,4 +50,4 @@ class FactStore:
         if not self._path.exists():
             return []
         lines = self._path.read_text(encoding="utf-8").strip().splitlines()
-        return [l[2:] for l in lines if l.startswith("- ")]
+        return [line[2:] for line in lines if line.startswith("- ")]

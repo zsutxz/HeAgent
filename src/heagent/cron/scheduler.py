@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 from heagent.cron.jobs import CronJob, JobStore
 
 if TYPE_CHECKING:
-    from heagent.agent.loop import AgentLoop
     from heagent.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
@@ -120,7 +119,7 @@ class CronScheduler:
         cron_weekday = (dt.weekday() + 1) % 7
         cron_values = (dt.minute, dt.hour, dt.day, dt.month, cron_weekday)
 
-        for field_expr, actual in zip(parts, cron_values):
+        for field_expr, actual in zip(parts, cron_values, strict=True):
             if not _field_matches(field_expr, actual):
                 return False
         return True

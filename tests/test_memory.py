@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import pytest
-
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.memory.skills import SkillStore

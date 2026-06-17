@@ -6,9 +6,12 @@ from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-from heagent.providers.anthropic import AnthropicProvider, _extract_system, _parse_tool_use_blocks, _to_anthropic_messages
+from heagent.providers.anthropic import (
+    AnthropicProvider,
+    _extract_system,
+    _parse_tool_use_blocks,
+    _to_anthropic_messages,
+)
 from heagent.providers.base import BaseProvider
 from heagent.types import Message, Role, ToolCall, ToolSchema
 

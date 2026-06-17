@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
 
 import pytest
 
@@ -16,10 +15,7 @@ from heagent.tools.builtins.subagent import (
     task_parallel,
 )
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, Role, TokenUsage
-
-if TYPE_CHECKING:
-    from heagent.tools.decorator import ToolSchema
+from heagent.types import Message, ProviderResponse, TokenUsage
 
 
 class _StubProvider:
@@ -130,6 +126,7 @@ class TestToolRegistration:
         # @tool 在 import 时注册，但 autouse fixture 清理了 registry。
         # 重新导入触发注册验证。
         import importlib
+
         import heagent.tools.builtins.subagent as _sa
         importlib.reload(_sa)
         registry = ToolRegistry.get()
@@ -140,6 +137,7 @@ class TestToolRegistration:
     def test_task_parallel_registered(self) -> None:
         """task_parallel 应通过 @tool 注册到 ToolRegistry。"""
         import importlib
+
         import heagent.tools.builtins.subagent as _sa
         importlib.reload(_sa)
         registry = ToolRegistry.get()

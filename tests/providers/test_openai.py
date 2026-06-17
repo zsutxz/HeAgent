@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
 
 from heagent.providers.base import BaseProvider
 from heagent.providers.openai import OpenAIProvider, _parse_tool_calls, _to_openai_messages, _to_openai_tools

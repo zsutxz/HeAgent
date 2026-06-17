@@ -60,22 +60,22 @@ class TestPublicAPI:
     """Verify flat public API imports work."""
 
     def test_top_level_imports(self):
-        from heagent import Agent, AnthropicProvider, OpenAIProvider, ProviderChain, Settings, get_settings, tool
+        from heagent import Agent, Settings, tool
 
         assert Agent is not None
         assert callable(tool)
         assert Settings is not None
 
     def test_agent_is_agentloop_alias(self):
-        from heagent.agent.loop import AgentLoop
         from heagent import Agent
+        from heagent.agent.loop import AgentLoop
 
         assert Agent is AgentLoop
 
     def test_submodule_exports(self):
-        from heagent.providers import AnthropicProvider, OpenAIProvider, ProviderChain
         from heagent.agent import AgentLoop, SubAgent, compose
-        from heagent.tools import ToolRegistry, SafetyGuard, tool
+        from heagent.providers import AnthropicProvider, OpenAIProvider, ProviderChain
+        from heagent.tools import SafetyGuard, ToolRegistry, tool
 
         assert all(cls is not None for cls in [AnthropicProvider, OpenAIProvider, ProviderChain, AgentLoop, SubAgent, ToolRegistry, SafetyGuard])
         assert callable(tool)

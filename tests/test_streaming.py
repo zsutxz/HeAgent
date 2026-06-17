@@ -9,7 +9,7 @@ import pytest
 from heagent.agent.loop import AgentLoop
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, Role, StreamEvent, TokenUsage, ToolCall, ToolResult
+from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall
 
 
 class StreamStubProvider:

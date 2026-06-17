@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from openai import AsyncOpenAI
 
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
+from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall, ToolSchema
 
 
 def _to_openai_messages(messages: list[Message]) -> list[dict[str, object]]:

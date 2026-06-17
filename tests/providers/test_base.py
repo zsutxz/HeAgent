@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 
-import pytest
-
 from heagent.providers.base import BaseProvider, ProviderMetadata
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
-
 
 # --- ProviderMetadata ---
 

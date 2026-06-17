@@ -9,18 +9,16 @@ import pytest
 from heagent.agent.loop import AgentLoop, AgentState
 from heagent.agent.middleware import Request, compose
 from heagent.config import reset_settings
-from heagent.exceptions import BudgetExceeded, SafetyViolation
+from heagent.exceptions import BudgetExceeded
 from heagent.memory.skills import SkillStore
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
-from heagent.tools.safety import SafetyGuard
 from heagent.types import (
     Message,
     ProviderResponse,
     Role,
     TokenUsage,
     ToolCall,
-    ToolResult,
     ToolSchema,
 )
 

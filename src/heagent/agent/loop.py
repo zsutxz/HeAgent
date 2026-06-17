@@ -225,7 +225,6 @@ class AgentLoop:
 
         参数同 run()。yield StreamEvent 事件流。
         """
-        from collections.abc import AsyncIterator
 
         state = AgentState(max_iterations=self.max_iterations)
         accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
@@ -317,7 +316,7 @@ class AgentLoop:
 
                 # 执行工具调用
                 tool_results = await self._execute_tools(response.tool_calls, state)
-                for tc, tr in zip(response.tool_calls, tool_results):
+                for tc, tr in zip(response.tool_calls, tool_results, strict=True):
                     yield StreamEvent(type="tool_call", tool_name=tc.name)
                     yield StreamEvent(type="tool_result", tool_result_content=tr.content)
                     state.messages.append(

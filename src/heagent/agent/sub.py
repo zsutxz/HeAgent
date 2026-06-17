@@ -7,13 +7,12 @@ SubAgent 拥有独立的 AgentLoop + 对话上下文，
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from heagent.agent.loop import AgentLoop
 from heagent.providers.base import BaseProvider
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
-from heagent.types import Message, Role
 
 
 @dataclass
@@ -79,5 +78,5 @@ async def run_parallel(agents: list[SubAgent], tasks: list[str]) -> list[SubAgen
     所有子任务同时开始，全部完成后返回结果列表。
     agents[i] 执行 tasks[i]，两者长度必须一致。
     """
-    coros = [a.run(t) for a, t in zip(agents, tasks)]
+    coros = [a.run(t) for a, t in zip(agents, tasks, strict=True)]
     return list(await asyncio.gather(*coros, return_exceptions=False))

@@ -28,5 +28,5 @@ async def shell(command: str, timeout: int = 120) -> str:
         if stderr:
             result += f"stderr:\n{stderr.decode('utf-8', errors='replace')}"
         return result
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return f"exit_code=-1\nstderr: Command timed out after {timeout}s"
