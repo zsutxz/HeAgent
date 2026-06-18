@@ -18,18 +18,21 @@ def _make_provider(
     *,
     fail: bool = False,
     fail_stream: bool = False,
+    fail_stream_mid: bool = False,
     fail_status: int = 503,
 ) -> object:
     """构造测试用 FakeProvider。
 
     fail_status 决定失败错误的分类：503（默认）= TRANSIENT 会触发回退；
     400/422 = NON_TRANSIENT 不应回退。send_calls/stream_calls 记录调用次数。
+    fail_stream_mid：在 yield 首个 chunk 之后再抛异常，模拟流中途断开。
     """
     class FakeProvider:
         _name = name
         _content = content
         _fail = fail
         _fail_stream = fail_stream
+        _fail_stream_mid = fail_stream_mid
         _fail_status = fail_status
         send_calls = 0
         stream_calls = 0
@@ -45,6 +48,8 @@ def _make_provider(
             if self._fail_stream:
                 raise ProviderError(f"{self._name} stream failed", status_code=self._fail_status)
             yield ProviderResponse(content=self._content, usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2), model=self._name, finish_reason="stop")
+            if self._fail_stream_mid:
+                raise ProviderError(f"{self._name} stream broke mid-flight", status_code=self._fail_status)
 
         def get_metadata(self) -> ProviderMetadata:
             return ProviderMetadata(name=self._name, model=self._name)
@@ -120,6 +125,22 @@ class TestChain:
             async for _ in chain.stream([Message(role=Role.USER, content="hi")]):
                 pass
         assert b.stream_calls == 0
+
+    async def test_stream_no_fallback_after_delivery(self) -> None:
+        """已向下游交付 chunk 后的流中途失败不应回退——否则下一 Provider 从头重放导致重复输出。"""
+        a = _make_provider("a", "partial", fail_stream_mid=True, fail_status=503)
+        b = _make_provider("b", "should-not-reach")
+        chain = ProviderChain([a, b])
+        collected: list[str] = []
+        with pytest.raises(ProviderError, match="a stream broke mid-flight"):
+            async for chunk in chain.stream([Message(role=Role.USER, content="hi")]):
+                collected.append(chunk.content)
+        # 消费者收到了首个（也是唯一的）chunk
+        assert collected == ["partial"]
+        # b 未被回退调用
+        assert b.stream_calls == 0
+        # 索引复位回主 Provider
+        assert chain.current.get_metadata().name == "a"
 
     def test_reset(self) -> None:
         chain = ProviderChain([_make_provider("a"), _make_provider("b")])

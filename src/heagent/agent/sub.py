@@ -99,10 +99,16 @@ class SubAgent:
         )
         try:
             output = await loop.run(task)
-            return SubAgentResult(task=task, output=output, success=True)
+            return SubAgentResult(
+                task=task, output=output, success=True,
+                iterations=loop.last_iteration or 0,
+            )
         except Exception as e:
             # 异常不向外抛出，包装为失败结果
-            return SubAgentResult(task=task, output=str(e), success=False)
+            return SubAgentResult(
+                task=task, output=str(e), success=False,
+                iterations=loop.last_iteration or 0,
+            )
 
 
 async def run_parallel(agents: list[SubAgent], tasks: list[str]) -> list[SubAgentResult]:

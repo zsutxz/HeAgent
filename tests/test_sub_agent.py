@@ -47,6 +47,13 @@ class TestSubAgent:
         assert not r.success
         assert "API down" in r.output
 
+    async def test_run_reports_iteration_count(self) -> None:
+        """成功完成时 iterations 应反映实际迭代次数，而非恒为默认 0。"""
+        r = await SubAgent(StubProvider("result"), max_iterations=5).run("task")
+        assert r.success
+        # StubProvider 一轮即产出文本答案 → 迭代计数为 1
+        assert r.iterations == 1
+
     async def test_separate_context(self) -> None:
         r1, r2 = await asyncio.gather(
             SubAgent(StubProvider("a1"), max_iterations=3).run("t1"),
