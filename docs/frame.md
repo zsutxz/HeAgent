@@ -53,6 +53,11 @@ AgentLoop.run(prompt)
 最终文本答案 + Token 统计 → 输出给用户
 ```
 
+> **流式路径**：`AgentLoop.run_stream()` 走相同的 Provider→Tool 循环，但文本经
+> `provider.stream()` 逐块 yield 为 `StreamEvent`（`text` / `tool_call` / `tool_result` / `done`）。
+> 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时回退 `send()`
+> 重取该轮调用，再并行执行工具并继续流式下一轮。
+
 ---
 
 ## 三、模块依赖关系 (DAG)
@@ -98,6 +103,7 @@ exceptions  types  config
 | `AgentState` | 单次运行的可变状态（消息列表、迭代计数、结果） |
 | `AgentLoop` | 核心编排器，循环调用 Provider → 执行 Tool → 直到获得文本回答 |
 | `run(prompt)` | 入口方法，构建初始消息后进入循环 |
+| `run_stream(prompt)` | 流式入口，逐步 yield `StreamEvent`（`text`/`tool_call`/`tool_result`/`done`）；命中 `tool_calls` 时回退 `send()` 重取该轮调用 |
 | `_build_system()` | 构建系统提示词（含人格/上下文/技能/记忆注入，见下方注入顺序） |
 | `_call_provider()` | 通过 Middleware 链调用 Provider，含 Token 估算对比 |
 | `_execute_tools()` | `asyncio.gather()` 并行执行所有 tool_calls |
@@ -177,29 +183,60 @@ class BaseProvider(Protocol):
 
 #### anthropic.py — Anthropic Provider
 
-- 提取系统消息（Anthropic API 约定）
+- 提取系统消息（`_extract_system()` 合并为 Anthropic 顶层 `system` 字段）
 - 消息/工具调用格式转换：HeAgent ↔ Anthropic API
+- **提示词缓存（FR-3）**：`_build_system_param()` 在 system prompt 末块注入
+  `cache_control: {"type": "ephemeral"}` 断点，后续请求复用稳定的 system/tools 内容以降低成本。
+  由 `anthropic_prompt_caching` 开关控制（默认开启；使用不支持 cache_control 的代理时应关闭）
 
-#### chain.py — Provider 回退链
+#### chain.py — Provider 回退链（**外层**）
+
+有序 Provider 列表，失败时自动切换下一个。**回退精度（FR-4）**：仅对
+`RATE_LIMITED` / `AUTH_FAILED` / `TRANSIENT` 错误回退；`NON_TRANSIENT`（400/422 等客户端错误）
+立即抛出——切换 Provider 不会让坏请求变好，回退只会浪费配额并掩盖真实问题。
+所有抛出异常经 `_wrap_error()` 统一包装为 `ProviderError`（保留状态码与原始 cause），
+避免裸 SDK 异常穿透到 CLI。
 
 ```
-ProviderChain([deepseek, openai, anthropic])
+ProviderChain([deepseek, KeyRotatingProvider([openai×N]), KeyRotatingProvider([anthropic×N])])
   │
-  ├── 尝试 deepseek → 成功？返回
-  ├── 失败 → 尝试 openai → 成功？返回
-  └── 失败 → 尝试 anthropic → 成功？返回 / 全部失败则重置索引
+  ├── 当前 Provider → 失败(可回退) → _advance() 切下一个 Provider
+  ├── 任一 NON_TRANSIENT → 立即抛出 ProviderError（不回退）
+  └── 全部失败 → _current_index 恢复到起始位，抛出最后的 ProviderError
 ```
 
-#### retry.py — 重试策略
+#### key_rotation.py — 密钥池轮换（**中层**）
+
+同一 Provider 类型的多实例包装（每个实例使用不同 API Key）。`429/401/403`
+（或消息含 rate/auth/forbidden 关键词）时自动切换到下一个密钥重试；密钥池全部耗尽后
+恢复原索引并抛出异常，交由上层 `ProviderChain` 回退到其他 Provider 类型。
+`get_metadata()` 名称带 `+keypool` 后缀以便日志区分。`send()`/`stream()` 双路支持轮换。
+
+#### retry.py — 错误分类与重试（**内层** + 共享分类器）
+
+`classify_exception()` / `classify_error()` 将错误分为四类，供三层共用：
 
 ```
-错误分类：
-  RATE_LIMITED (429) → 不重试
-  AUTH_FAILED (401/403) → 不重试
-  TRANSIENT (5xx, 网络错误) → 指数退避 + 随机抖动重试
-  NON_TRANSIENT (其他) → 不重试
+错误分类（优先级：429 > 401 > 5xx > 其他）：
+  RATE_LIMITED (429)      → ProviderChain 回退 / KeyRotating 轮换；retry 中间件不重试
+  AUTH_FAILED (401/403)   → ProviderChain 回退 / KeyRotating 轮换；retry 中间件不重试
+  TRANSIENT (5xx/超时/过载) → retry 中间件指数退避 + 随机抖动重试；也触发 ProviderChain 回退
+  NON_TRANSIENT (400/422) → 各层均不重试/不回退，立即抛出
+```
 
-通过 make_retry_middleware() 作为 Middleware 接入 AgentLoop
+`retry_with_backoff()` 仅对 `TRANSIENT` 错误重试；`make_retry_middleware()` 将其包装为
+Middleware 接入 `AgentLoop.middlewares`。
+
+**三层故障转移组装**（cli.py `_build_provider()`）——由内到外依次接管可恢复错误：
+
+```
+AgentLoop
+  ├─ provider = ProviderChain([                    # 外层：跨 Provider 类型回退（NON_TRANSIENT 不回退）
+  │     deepseek,                                   #   单 key
+  │     KeyRotatingProvider([openai sk1, sk2, ...]),# 中层：同 Provider 多 key 轮换（429/401 触发）
+  │     KeyRotatingProvider([anthropic k1, k2, ...])# 中层
+  │   ])
+  └─ middlewares = [make_retry_middleware()]         # 内层：仅 TRANSIENT 指数退避重试
 ```
 
 ### 4.4 Tool 系统 (`tools/`)
@@ -241,7 +278,14 @@ SafetyGuard
 
 仅对 `shell` 工具生效，违反时抛出 `SafetyViolation`。
 
-#### builtins/ — 14 个内置工具
+#### path_safety.py — 工作区路径校验（文件工具）
+
+文件类工具（`file_read` / `file_write` / `file_search` / `content_search`）写入前调用
+`resolve_workspace_path(path)`，解析后若逃逸出当前工作区根（含 `../` 越界、绝对路径指向外部），
+抛出 `WorkspacePathError`。`workspace_root()` 默认取 `Path.cwd()`，`set_workspace_root()`
+提供测试可注入的覆盖入口（无需 monkeypatch cwd）。
+
+#### builtins/ — 18 个内置工具
 
 **基础工具（5 个）：**
 
@@ -253,14 +297,16 @@ SafetyGuard
 | `file_search` | `search.py` | 按文件名搜索 |
 | `content_search` | `search.py` | 按内容搜索文件 |
 
-**技能管理工具（4 个，`skills.py`）：**
+**技能管理工具（6 个，`skills.py`）：**
 
 | 工具 | 功能 |
 |------|------|
 | `skill_create` | 创建新技能（SKILL.md + 目录结构） |
-| `skill_update` | 更新已有技能内容 |
+| `skill_update` | 更新已有技能内容（仅改非空字段） |
 | `skill_list` | 列出所有已注册技能 |
 | `skill_delete` | 删除指定技能 |
+| `skill_curate` | 列出超 N 天未使用的过期技能（含使用次数/最后使用时间） |
+| `skill_archive` | 归档技能到 `.archive/`（不参与匹配/列出，可恢复） |
 
 **记忆管理工具（2 个，`memory.py`）：**
 
@@ -277,7 +323,16 @@ SafetyGuard
 | `cron_list` | 列出所有已调度任务 |
 | `cron_remove` | 删除指定任务 |
 
-技能工具在 `AgentLoop` 接收 `SkillStore` 时激活；记忆工具在接收 `FactStore`/`ProfileStore` 时激活；Cron 工具在接收 `JobStore` 时激活。
+**子 Agent 委派工具（2 个，`subagent.py`）：**
+
+| 工具 | 功能 |
+|------|------|
+| `task_delegate` | 将单个任务委派给隔离的子 Agent（独立上下文+迭代预算）执行 |
+| `task_parallel` | 并行执行多个子任务（`tasks_json` 传 JSON 数组，`run_parallel()` 汇总） |
+
+技能工具在 `AgentLoop` 接收 `SkillStore` 时激活；记忆工具在接收 `FactStore`/`ProfileStore` 时激活；
+Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 cli.py 调用 `configure_subagent_tools(provider)`
+注入 Provider/Registry/Guard 激活（单次与交互模式均激活）。未注入时工具返回错误提示，不抛异常。
 
 ### 4.5 上下文管理 (`context/`)
 
@@ -379,6 +434,7 @@ HeAgentError (base)
 | `deepseek_base_url` | None | DeepSeek API 基础 URL |
 | `openai_base_url` | None | OpenAI 兼容服务 URL |
 | `anthropic_base_url` | None | Anthropic 代理地址 |
+| `anthropic_prompt_caching` | True | Anthropic 提示词缓存（注入 cache_control 断点，FR-3；不兼容代理时关闭） |
 | `openai_api_keys` | "" | OpenAI 多密钥池（逗号分隔） |
 | `anthropic_api_keys` | "" | Anthropic 多密钥池（逗号分隔） |
 | `default_model` | `gpt-4o` | 默认模型 |
@@ -403,7 +459,7 @@ HeAgentError (base)
 
 | 缺口 | 说明 |
 |------|------|
-| 密钥轮换 | `Settings` 支持多密钥池（`openai_key_pool`、`anthropic_key_pool`），但 `ProviderChain` 仅在 provider 间切换，不做密钥轮换 |
+| 流式 tool_calls 回退 | `run_stream()` 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时需回退 `send()` 重取该轮调用 |
 | Cron 范围表达式 | V1 解析器不支持范围表达式（如 `1-5`） |
 
 ---
@@ -427,22 +483,25 @@ src/heagent/
 ├── providers/               # LLM Provider（互不依赖）
 │   ├── base.py              # BaseProvider Protocol
 │   ├── openai.py            # OpenAI 兼容（含 DeepSeek）
-│   ├── anthropic.py         # Anthropic
-│   ├── chain.py             # ProviderChain 回退链
-│   └── retry.py             # 重试策略 + make_retry_middleware
+│   ├── anthropic.py         # Anthropic（含提示词缓存 FR-3）
+│   ├── chain.py             # ProviderChain 回退链（外层，FR-4 回退精度）
+│   ├── key_rotation.py      # KeyRotatingProvider 密钥池轮换（中层）
+│   └── retry.py             # 错误分类 + make_retry_middleware（内层）
 │
 ├── tools/                   # 工具系统
 │   ├── decorator.py         # @tool 装饰器
 │   ├── registry.py          # ToolRegistry 单例
-│   ├── safety.py            # SafetyGuard 安全防护
-│   └── builtins/            # 内置工具（14 个）
+│   ├── safety.py            # SafetyGuard（shell 命令安全）
+│   ├── path_safety.py       # 工作区路径校验（文件工具）
+│   └── builtins/            # 内置工具（18 个）
 │       ├── __init__.py      # 触发注册
 │       ├── shell.py         # shell 命令执行
 │       ├── file.py          # 文件读写
 │       ├── search.py        # 文件/内容搜索
-│       ├── skills.py        # 技能管理（create/update/list/delete）
+│       ├── skills.py        # 技能管理（create/update/list/delete/curate/archive）
 │       ├── memory.py        # 记忆管理（fact_add/profile_update）
-│       └── cron.py          # Cron 管理（add/list/remove）
+│       ├── cron.py          # Cron 管理（add/list/remove）
+│       └── subagent.py      # 子 Agent 委派（task_delegate/task_parallel）
 │
 ├── context/                 # 上下文管理
 │   ├── loader.py            # 上下文文件扫描（CONTEXT.md > AGENTS.md > CLAUDE.md）
@@ -471,7 +530,7 @@ python -m heagent "your prompt"
   ▼
 __main__.py → cli.main()
   │
-  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（14 个工具）
+  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（18 个工具）
   ├── get_settings() → 读取 DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
   ├── _build_provider() → OpenAIProvider / AnthropicProvider / ProviderChain
   │
@@ -547,7 +606,8 @@ python -m heagent
   │     │
   │     └── REPL: while True
   │           ├── input("> ")
-  │           ├── loop.run(input, session_id=session_id)  # 会话自动保存/恢复
+  │           ├── loop.run_stream(input, session_id=session_id, system=system)  # 流式 yield StreamEvent
+  │           │     └── 命中 tool_calls 时回退 send() 重取该轮调用
   │           └── finally: scheduler.stop()
   │
   └── 一次性 Cron 任务成功后自动从 JobStore 删除
