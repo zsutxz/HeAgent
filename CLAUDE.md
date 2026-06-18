@@ -60,9 +60,9 @@ exceptions  types  config
 ```
 
 - `agent/` 是顶层编排器——依赖所有其他模块。
-- `providers/` 和 `tools/` 相互独立。
-- `exceptions.py` 和 `types.py` 是叶子模块，无内部依赖。
-- 新增 provider 或 tool 禁止从 `agent/` 导入。
+- `providers/` 与 `tools/` 相互独立；但 `tools/builtins/` 内的 `memory`、`skills` 工具依赖 `memory/` 模块，`subagent` 工具例外地直接 `import heagent.agent.sub`。
+- `exceptions.py`、`types.py`、`config.py` 是叶子模块，无内部依赖。
+- 新增 provider 或 tool 默认禁止从 `agent/` 导入（`subagent` builtin 是既有例外）。
 
 ### 关键设计决策
 
@@ -84,11 +84,13 @@ exceptions  types  config
 | `providers/base.py` | Provider 协议 | `BaseProvider(Protocol)` — `send()`、`stream()`、`get_metadata()` |
 | `providers/openai.py` | OpenAI 兼容 provider | `OpenAIProvider` — 支持自定义 `base_url`（DeepSeek、zhipu 等） |
 | `providers/anthropic.py` | Anthropic provider | `AnthropicProvider` — 按 Anthropic API 约定提取 system 消息 |
-| `providers/chain.py` | 降级链 | `ProviderChain` — 失败时切换下一个 provider，用尽后重置 |
+| `providers/chain.py` | 降级链 | `ProviderChain` — 失败时切换下一个 provider，用尽后复位主 provider |
+| `providers/key_rotation.py` | 密钥池轮换 | `KeyRotatingProvider` — 同一 provider 多密钥，429/401 时切换下一个 key，全部耗尽后抛出交由 `ProviderChain` 回退 |
 | `tools/decorator.py` | `@tool` 装饰器 | 内省签名 + docstring → `ToolSchema`，Python 类型 → JSON Schema 映射 |
 | `tools/registry.py` | 进程级工具注册表 | `ToolRegistry.get()` 单例，支持按工具启用/禁用 |
 | `tools/safety.py` | Shell 命令安全守卫 | `SafetyGuard` — BLACKLIST/WHITELIST 模式，12 个危险模式（rm -rf、fork bomb 等） |
-| `tools/builtins/` | 5 个内置工具 | `shell`、`file_read`、`file_write`、`file_search`、`content_search` |
+| `tools/builtins/` | 内置工具（7 个模块） | `shell`；`file.py`→`file_read`/`file_write`；`search.py`→`file_search`/`content_search`；`cron.py`→`cron_add`/`cron_list`/`cron_remove`；`memory.py`→`fact_add`/`profile_update`；`skills.py`→`skill_create`/`skill_update`/`skill_list`/`skill_delete`/`skill_curate`/`skill_archive`；`subagent.py`→`task_delegate`/`task_parallel` |
+| `tools/path_safety.py` | 工作区路径校验 | `resolve_workspace_path()` — 禁止路径逃逸出工作区根（`WorkspacePathError`），`file`/`search` builtin 共用 |
 | `agent/loop.py` | 核心 Agent 循环 | `AgentLoop` — 迭代 provider→tool_calls→execute→loop 直到文本回答 |
 | `agent/middleware.py` | 中间件组合 | `compose()` 构建递归 `(Request, NextFn) → Response` 链 |
 | `agent/sub.py` | 子 Agent 隔离 | `SubAgent` — 独立 loop+上下文，`run_parallel()` 通过 `asyncio.gather` 并行 |
@@ -113,7 +115,7 @@ exceptions  types  config
 
 ### CLI 入口
 
-`cli.py` 根据可用 API Key（`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`）自动检测 provider。模块级导入 `heagent.tools.builtins` 触发 `@tool` 注册。单次执行模式（带 PROMPT 参数）和交互式聊天模式（无参数），均通过 `asyncio.run()` 桥接。CLI 创建 `SkillStore` 并传入 `AgentLoop`，启动技能自动匹配。
+`cli.py` 按优先级自动检测 provider：`DEEPSEEK_API_KEY` → `OPENAI_API_KEY` → `ANTHROPIC_API_KEY`（DeepSeek 走 OpenAI 兼容接口）。多 provider 共存时用 `ProviderChain` 包装做回退；同一 provider 配置了密钥池（`*_key_pool`）时用 `KeyRotatingProvider` 在 429/401 时轮换密钥。模块级导入 `heagent.tools.builtins` 触发 `@tool` 注册，`configure_subagent_tools()` 注入子 Agent 工具依赖。单次执行模式（带 PROMPT 参数）和交互式聊天模式（无参数），均通过 `asyncio.run()` 桥接。CLI 创建 `SkillStore`/`FactStore`/`ProfileStore`/`SoulStore` 等记忆模块并注入 `AgentLoop`，启动技能自动匹配。
 
 ### 技能系统
 
@@ -160,6 +162,6 @@ exceptions  types  config
 
 ### 已知缺口
 
-- `Settings` 支持多密钥池（`openai_key_pool`、`anthropic_key_pool`），但 `ProviderChain` 仅在 provider 间切换，不做密钥轮换。
-- `providers/retry.py` 中的 `retry_with_backoff()` 已作为中间件接入（通过 `make_retry_middleware()`）。
-- Cron 表达式解析器 V1 不支持范围表达式（如 `1-5`）。
+- 密钥轮换（`KeyRotatingProvider`，单 provider 多密钥）与 provider 回退（`ProviderChain`，provider 间）是两层独立机制；前者仅在 `cli.py` 装配，库代码直接构造 `AgentLoop` 时需自行包装。
+- `providers/retry.py` 的 `retry_with_backoff()` 经 `make_retry_middleware()` 包装为中间件，由 `cli.py` 注入 `AgentLoop`。
+- Cron 表达式解析器 V1 不支持范围表达式（如 `1-5`，`scheduler.py` 中显式跳过）。
