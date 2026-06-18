@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 
 from anthropic import AsyncAnthropic
 
@@ -123,7 +123,7 @@ def _to_anthropic_tools(tools: list[ToolSchema]) -> list[dict[str, object]]:
     ]
 
 
-def _parse_tool_use_blocks(blocks: list[object]) -> list[ToolCall]:
+def _parse_tool_use_blocks(blocks: Sequence[object]) -> list[ToolCall]:
     """Parse Anthropic tool_use blocks into HeAgent tool calls."""
     result: list[ToolCall] = []
     for block in blocks:
@@ -224,6 +224,17 @@ class AnthropicProvider:
                     model=self._model,
                     finish_reason="",
                 )
+            # 文本块流尽后用 get_final_message() 取完整响应，补发一个最终 chunk：
+            # 携带真实 usage（驱动 token 累计与压缩触发）、tool_calls（流式工具调用）、
+            # finish_reason。文本已在上方逐块 yield，此处 content="" 避免重复输出。
+            final = await stream.get_final_message()
+            yield ProviderResponse(
+                content="",
+                tool_calls=_parse_tool_use_blocks(final.content),
+                usage=_build_usage(final.usage),
+                model=getattr(final, "model", self._model),
+                finish_reason=final.stop_reason or "end_turn",
+            )
 
     def get_metadata(self) -> ProviderMetadata:
         """Return provider capability metadata."""

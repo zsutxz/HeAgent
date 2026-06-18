@@ -252,6 +252,7 @@ class AgentLoop:
 
                 tools = self.registry.enabled_schemas()
                 full_content = ""
+                tool_calls: list[ToolCall] = []
                 chunk_usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
                 model = ""
                 finish_reason = ""
@@ -261,6 +262,9 @@ class AgentLoop:
                     if chunk.content:
                         full_content += chunk.content
                         yield StreamEvent(type="text", text=chunk.content)
+                    # 收集流式 chunk 中的 tool_calls（Anthropic 经最终 chunk 携带）
+                    if chunk.tool_calls:
+                        tool_calls.extend(chunk.tool_calls)
                     if chunk.usage and chunk.usage.total_tokens > 0:
                         chunk_usage = chunk.usage
                     if chunk.model:
@@ -276,7 +280,7 @@ class AgentLoop:
 
                 response = ProviderResponse(
                     content=full_content,
-                    tool_calls=[],
+                    tool_calls=tool_calls,
                     usage=chunk_usage,
                     model=model,
                     finish_reason=finish_reason or "stop",
@@ -296,7 +300,7 @@ class AgentLoop:
                         logger.info("Context compressed: %d -> %d messages", before, len(state.messages))
 
                 state.messages.append(
-                    Message(role=Role.ASSISTANT, content=response.content)
+                    Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
                 )
 
                 # 流式模式下的 tool_calls：回退到非流式获取完整 tool_calls
