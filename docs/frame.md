@@ -109,6 +109,7 @@ exceptions  types  config
 | `_execute_tools()` | `asyncio.gather()` 并行执行所有 tool_calls |
 | `_execute_one()` | 安全检查 → Registry 查找 → 执行 handler |
 | `last_usage` | 最近一次 `run()` 的累计 `TokenUsage` |
+| `last_iteration` | 最近一次 `run()`/`run_stream()` 的迭代次数 |
 
 **`AgentLoop.__init__()` 参数：**
 
