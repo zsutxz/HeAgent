@@ -123,6 +123,8 @@ async def task_parallel(tasks_json: str) -> str:
 
     if not isinstance(tasks, list) or not tasks:
         return "Error: tasks_json must be a non-empty JSON array."
+    if not all(isinstance(t, str) for t in tasks):
+        return "Error: tasks_json must be an array of strings."
 
     agents = [
         SubAgent(

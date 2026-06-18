@@ -110,6 +110,12 @@ class TestTaskParallel:
         result = await task_parallel('"hello"')
         assert "non-empty" in result
 
+    async def test_not_all_strings(self) -> None:
+        """元素含非字符串时应拒绝，避免把 int 等传入 SubAgent。"""
+        configure_subagent_tools(_StubProvider())
+        result = await task_parallel(json.dumps(["ok", 123]))
+        assert "array of strings" in result
+
     async def test_parallel_execution(self) -> None:
         provider = _StubProvider("done")
         configure_subagent_tools(provider)
