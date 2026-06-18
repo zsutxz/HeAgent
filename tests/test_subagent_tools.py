@@ -119,6 +119,49 @@ class TestTaskParallel:
         assert "[1]" in result
         assert "[2]" in result
 
+    async def test_threads_context_components_into_subagent(self) -> None:
+        """configure_subagent_tools 接收的 6 个上下文参数应转发到构造的 SubAgent。"""
+        import heagent.tools.builtins.subagent as _sa_mod
+
+        # 用最简单的真实对象作为 marker —— SubAgent 会原样存储
+        from heagent.memory.facts import FactStore
+        from heagent.memory.soul import SoulStore
+
+        soul = SoulStore(
+            global_path="/nonexistent/global.md",
+            project_path="/nonexistent/project.md",
+        )
+        facts = FactStore(path="/nonexistent/facts.md")
+
+        provider = _StubProvider("ok")
+        configure_subagent_tools(
+            provider,
+            soul=soul,
+            facts=facts,
+        )
+
+        # 捕获 SubAgent 构造时传入的 kwargs
+        captured: dict[str, object] = {}
+        original_subagent_init = _sa_mod.SubAgent.__init__
+
+        def spy_init(self_sa, provider_arg, **kwargs):
+            for key in ("soul", "facts", "skills", "profile", "compressor", "context_dir"):
+                captured[key] = kwargs.get(key)
+            return original_subagent_init(self_sa, provider_arg, **kwargs)
+
+        _sa_mod.SubAgent.__init__ = spy_init
+        try:
+            await task_delegate("any task")
+        finally:
+            _sa_mod.SubAgent.__init__ = original_subagent_init
+
+        assert captured["soul"] is soul
+        assert captured["facts"] is facts
+        assert captured["skills"] is None
+        assert captured["profile"] is None
+        assert captured["compressor"] is None
+        assert captured["context_dir"] is None
+
 
 class TestToolRegistration:
     def test_task_delegate_registered(self) -> None:
