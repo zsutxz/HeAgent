@@ -84,7 +84,9 @@ class ProviderChain:
 
         for _ in range(len(self._providers)):
             try:
-                return await self.current.send(messages, tools=tools)
+                resp = await self.current.send(messages, tools=tools)
+                self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
+                return resp
             except Exception as e:
                 category = classify_exception(e)
                 logger.warning(
@@ -119,6 +121,7 @@ class ProviderChain:
                 async for chunk in self.current.stream(messages, tools=tools):  # type: ignore[attr-defined]
                     delivered = True  # 已从当前 Provider 取得 chunk，回退将产生重复输出
                     yield chunk
+                self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
                 return
             except Exception as e:
                 # 已交付部分输出 → 不可回退（重放会重复），直接抛出并复位索引

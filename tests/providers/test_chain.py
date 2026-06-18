@@ -106,6 +106,13 @@ class TestChain:
         resp = await chain.send([Message(role=Role.USER, content="hi")])
         assert resp.content == "fallback"
 
+    async def test_send_resets_to_primary_after_fallback(self) -> None:
+        """回退到次 Provider 成功后，索引应复位到主 Provider（不粘性旁路）。"""
+        chain = ProviderChain([_make_provider("a", fail=True, fail_status=429), _make_provider("b", "fallback")])
+        resp = await chain.send([Message(role=Role.USER, content="hi")])
+        assert resp.content == "fallback"
+        assert chain.current.get_metadata().name == "a"
+
     async def test_stream_uses_current(self) -> None:
         chain = ProviderChain([_make_provider("a", "chunk")])
         chunks = [c async for c in chain.stream([Message(role=Role.USER, content="hi")])]
@@ -140,6 +147,13 @@ class TestChain:
         # b 未被回退调用
         assert b.stream_calls == 0
         # 索引复位回主 Provider
+        assert chain.current.get_metadata().name == "a"
+
+    async def test_stream_resets_to_primary_after_fallback(self) -> None:
+        """流式回退成功后同样复位到主 Provider。"""
+        chain = ProviderChain([_make_provider("a", fail_stream=True), _make_provider("b", "stream-ok")])
+        chunks = [c async for c in chain.stream([Message(role=Role.USER, content="hi")])]
+        assert chunks[0].content == "stream-ok"
         assert chain.current.get_metadata().name == "a"
 
     def test_reset(self) -> None:
