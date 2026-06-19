@@ -202,11 +202,31 @@ class TestStream:
         mock_mgr.__aenter__ = AsyncMock(return_value=mock_mgr)
         mock_mgr.__aexit__ = AsyncMock(return_value=False)
         mock_mgr.text_stream = AsyncIteratorStub(["Hello", " World"])
+        # 文本流尽后，stream() 调 get_final_message() 补发最终 chunk（usage/tool_calls/finish_reason）
+        mock_mgr.get_final_message = AsyncMock(
+            return_value=_mock_response(
+                [_mock_tool_block(tid="tu_1", name="run", inp={"cmd": "ls"})],
+                stop="tool_use",
+                usage=_mock_usage(inp=20, out=8),
+            )
+        )
         mock_client.messages.stream = MagicMock(return_value=mock_mgr)
 
         p = AnthropicProvider(api_key="sk-test")
         chunks = [c async for c in p.stream([Message(role=Role.USER, content="hi")])]
-        assert len(chunks) == 2
+        # 2 个文本块 + 1 个最终 chunk
+        assert len(chunks) == 3
+        assert chunks[0].content == "Hello"
+        assert chunks[1].content == " World"
+        final_chunk = chunks[-1]
+        # 最终 chunk 补发真实 usage（修复流式 usage=0 / 压缩永不触发）
+        assert final_chunk.content == ""
+        assert final_chunk.usage.prompt_tokens == 20
+        assert final_chunk.usage.completion_tokens == 8
+        assert final_chunk.finish_reason == "tool_use"
+        # 最终 chunk 携带 tool_calls（修复流式工具调用丢失）
+        assert len(final_chunk.tool_calls) == 1
+        assert final_chunk.tool_calls[0].name == "run"
 
 
 class AsyncIteratorStub:

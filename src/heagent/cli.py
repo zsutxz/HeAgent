@@ -178,7 +178,15 @@ async def _run_single(
         max_delay=settings.retry_max_delay,
     )
 
-    configure_subagent_tools(provider)
+    configure_subagent_tools(
+        provider,
+        skills=skills,
+        facts=facts,
+        profile=profile,
+        compressor=compressor,
+        context_dir=os.getcwd(),
+        soul=soul,
+    )
 
     loop = AgentLoop(
         provider,
@@ -231,7 +239,15 @@ async def _run_chat(
             compressor=compressor, soul=soul, cron_store=cron_store,
         )
 
-    configure_subagent_tools(provider)
+    configure_subagent_tools(
+        provider,
+        skills=skills,
+        facts=facts,
+        profile=profile,
+        compressor=compressor,
+        context_dir=os.getcwd(),
+        soul=soul,
+    )
 
     loop = AgentLoop(
         provider,

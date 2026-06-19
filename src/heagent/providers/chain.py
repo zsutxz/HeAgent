@@ -84,7 +84,9 @@ class ProviderChain:
 
         for _ in range(len(self._providers)):
             try:
-                return await self.current.send(messages, tools=tools)
+                resp = await self.current.send(messages, tools=tools)
+                self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
+                return resp
             except Exception as e:
                 category = classify_exception(e)
                 logger.warning(
@@ -108,15 +110,24 @@ class ProviderChain:
     async def stream(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> AsyncIterator[ProviderResponse]:
         """流式调用的故障转移版本。
 
-        与 send() 回退精度逻辑相同（FR-4），但处理 AsyncIterator 返回类型。
+        与 send() 回退精度逻辑相同（FR-4），但追加一条约束：一旦已向下游交付
+        过任何 chunk，后续异常不再回退——否则下一个 Provider 会从头重放，导致
+        消费者收到重复前缀。仅在首个 chunk 之前的失败才按 FR-4 回退。
         """
         start = self._current_index
         for _ in range(len(self._providers)):
+            delivered = False
             try:
                 async for chunk in self.current.stream(messages, tools=tools):  # type: ignore[attr-defined]
+                    delivered = True  # 已从当前 Provider 取得 chunk，回退将产生重复输出
                     yield chunk
+                self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
                 return
             except Exception as e:
+                # 已交付部分输出 → 不可回退（重放会重复），直接抛出并复位索引
+                if delivered:
+                    self._current_index = start
+                    raise _wrap_error(e) from e
                 category = classify_exception(e)
                 logger.warning(
                     "Provider %s stream failed (%s): %s",

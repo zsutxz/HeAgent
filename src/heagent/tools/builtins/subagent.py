@@ -1,6 +1,8 @@
 """Sub-Agent 委派工具 — 供 LLM 将任务委派给隔离的子 Agent。
 
-通过 configure_subagent_tools(provider, registry, guard) 注入依赖。
+通过 configure_subagent_tools(provider, registry, guard,
+skills, facts, profile, compressor, context_dir, soul) 注入依赖。
+父级上下文组件会被转发到子 Agent，确保子 Agent 继承父级人格/记忆/技能。
 未配置时所有工具返回错误提示，不会抛异常。
 """
 
@@ -13,6 +15,11 @@ from heagent.agent.sub import SubAgent, run_parallel
 from heagent.tools.decorator import tool
 
 if TYPE_CHECKING:
+    from heagent.context.compressor import ContextCompressor
+    from heagent.memory.facts import FactStore
+    from heagent.memory.profile import ProfileStore
+    from heagent.memory.skills import SkillStore
+    from heagent.memory.soul import SoulStore
     from heagent.providers.base import BaseProvider
     from heagent.tools.registry import ToolRegistry
     from heagent.tools.safety import SafetyGuard
@@ -20,6 +27,12 @@ if TYPE_CHECKING:
 _provider: BaseProvider | None = None
 _registry: ToolRegistry | None = None
 _guard: SafetyGuard | None = None
+_skills: SkillStore | None = None
+_facts: FactStore | None = None
+_profile: ProfileStore | None = None
+_compressor: ContextCompressor | None = None
+_context_dir: str | None = None
+_soul: SoulStore | None = None
 
 
 def configure_subagent_tools(
@@ -27,20 +40,40 @@ def configure_subagent_tools(
     *,
     registry: ToolRegistry | None = None,
     guard: SafetyGuard | None = None,
+    skills: SkillStore | None = None,
+    facts: FactStore | None = None,
+    profile: ProfileStore | None = None,
+    compressor: ContextCompressor | None = None,
+    context_dir: str | None = None,
+    soul: SoulStore | None = None,
 ) -> None:
-    """注入 Provider 和 Registry，激活 sub-agent 工具。"""
+    """注入 Provider/Registry 及父级上下文组件，激活 sub-agent 工具。"""
     global _provider, _registry, _guard
+    global _skills, _facts, _profile, _compressor, _context_dir, _soul
     _provider = provider
     _registry = registry
     _guard = guard
+    _skills = skills
+    _facts = facts
+    _profile = profile
+    _compressor = compressor
+    _context_dir = context_dir
+    _soul = soul
 
 
 def reset_subagent_tools() -> None:
     """重置模块级依赖（测试清理用）。"""
     global _provider, _registry, _guard
+    global _skills, _facts, _profile, _compressor, _context_dir, _soul
     _provider = None
     _registry = None
     _guard = None
+    _skills = None
+    _facts = None
+    _profile = None
+    _compressor = None
+    _context_dir = None
+    _soul = None
 
 
 @tool
@@ -59,6 +92,12 @@ async def task_delegate(task: str) -> str:
         _provider,
         registry=_registry,
         guard=_guard,
+        skills=_skills,
+        facts=_facts,
+        profile=_profile,
+        compressor=_compressor,
+        context_dir=_context_dir,
+        soul=_soul,
     )
     result = await agent.run(task)
     if result.success:
@@ -84,9 +123,21 @@ async def task_parallel(tasks_json: str) -> str:
 
     if not isinstance(tasks, list) or not tasks:
         return "Error: tasks_json must be a non-empty JSON array."
+    if not all(isinstance(t, str) for t in tasks):
+        return "Error: tasks_json must be an array of strings."
 
     agents = [
-        SubAgent(_provider, registry=_registry, guard=_guard)
+        SubAgent(
+            _provider,
+            registry=_registry,
+            guard=_guard,
+            skills=_skills,
+            facts=_facts,
+            profile=_profile,
+            compressor=_compressor,
+            context_dir=_context_dir,
+            soul=_soul,
+        )
         for _ in tasks
     ]
     results = await run_parallel(agents, tasks)
