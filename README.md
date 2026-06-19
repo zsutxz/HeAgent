@@ -2,6 +2,15 @@
 
 自学习 AI Agent 核心框架。受 NousResearch Hermes Agent 启发，提取自主 Agent 的核心设计模式——学习循环、多模型适配、工具编排、记忆系统——用清晰、模块化的代码重新实现。
 
+## ⚠️ 安全声明（运行前务必阅读）
+
+HeAgent 会**执行 shell 命令、读写文件、调用外部 API**。当前的 `SafetyGuard`（黑名单/白名单命令过滤）**不是真正的安全边界**——它无法可靠抵御 prompt injection 与工具滥用：命令黑名单可被轻易绕过、工具返回内容会无围栏地进入 LLM 上下文。因此：
+
+- **不可在不可信内容或不可信 LLM 输出下裸跑** HeAgent。若需处理外部文件、网页、用户上传或第三方模型响应，**必须配套 OS 级隔离**（容器 / firejail / 沙箱虚拟机），并收紧文件系统与网络权限。
+- 不要在宿主机家目录、生产服务器或多租户环境中以默认配置直接运行未沙箱化的实例。
+
+详见 `docs/qa.md` 第三节安全评估。此声明是诚实的使用边界，而非 `SafetyGuard` 已被加固的承诺。
+
 ## 特性
 
 - **多模型支持** — OpenAI、Anthropic、DeepSeek、智谱AI 等 OpenAI/Anthropic 兼容接口
@@ -23,19 +32,22 @@ pip install -e ".[dev]"
 
 ## 配置
 
-在项目根目录创建 `.env` 文件：
+在项目根目录创建 `.env` 文件，至少配置一家 Provider 的密钥：
 
 ```bash
-# OpenAI 或兼容接口（DeepSeek、智谱AI 等）
-OPENAI_API_KEY=sk-...
-OPENAI_BASE_URL=https://api.deepseek.com/v1   # 可选，默认 OpenAI 官方
+# DeepSeek（CLI 优先检测，走 OpenAI 兼容接口）
+DEEPSEEK_API_KEY=sk-...
 DEFAULT_MODEL=deepseek-chat                     # 可选，默认 gpt-4o
+
+# OpenAI 或其它兼容接口（智谱AI 等）
+# OPENAI_API_KEY=sk-...
+# OPENAI_BASE_URL=https://open.bigmodel.cn/api/paas/v4   # 可选，默认 OpenAI 官方
 
 # Anthropic 或兼容接口（智谱AI Anthropic 兼容）
 # ANTHROPIC_API_KEY=...
 # ANTHROPIC_BASE_URL=https://open.bigmodel.cn/api/anthropic
 
-# 多 key 轮换（逗号分隔）
+# 多 key 轮换（逗号分隔）—— 同一 Provider 配多个 key，限流/认证错误时自动切换
 # OPENAI_API_KEYS=sk-aaa,sk-bbb,sk-ccc
 ```
 
@@ -43,10 +55,14 @@ DEFAULT_MODEL=deepseek-chat                     # 可选，默认 gpt-4o
 
 | 环境变量 | 默认值 | 说明 |
 |---------|--------|------|
-| `OPENAI_API_KEY` | — | OpenAI API 密钥 |
-| `ANTHROPIC_API_KEY` | — | Anthropic API 密钥 |
-| `OPENAI_BASE_URL` | — | 自定义 OpenAI 兼容端点 |
-| `ANTHROPIC_BASE_URL` | — | 自定义 Anthropic 端点 |
+| `DEEPSEEK_API_KEY` | — | DeepSeek 密钥（CLI 优先检测） |
+| `OPENAI_API_KEY` | — | OpenAI / 兼容接口密钥 |
+| `ANTHROPIC_API_KEY` | — | Anthropic 密钥 |
+| `OPENAI_API_KEYS` | — | OpenAI 多 key 池，逗号分隔 |
+| `ANTHROPIC_API_KEYS` | — | Anthropic 多 key 池，逗号分隔 |
+| `DEEPSEEK_BASE_URL` | `https://api.deepseek.com/v1` | DeepSeek 端点 |
+| `OPENAI_BASE_URL` | OpenAI 官方 | 自定义 OpenAI 兼容端点 |
+| `ANTHROPIC_BASE_URL` | Anthropic 官方 | 自定义 Anthropic 端点 |
 | `DEFAULT_MODEL` | `gpt-4o` | 默认模型名 |
 | `MAX_ITERATIONS` | `50` | Agent 最大循环次数 |
 | `COMPRESSION_THRESHOLD` | `0.8` | 上下文压缩触发阈值 |
@@ -121,7 +137,7 @@ for r in results:
 
 ```
 src/heagent/
-├── __init__.py          # 公共 API: Agent, tool, Settings, Providers
+├── __init__.py          # 公共 API: Agent (=AgentLoop 别名), tool, Settings, Providers
 ├── __main__.py          # python -m heagent 入口
 ├── cli.py               # Click CLI
 ├── config.py            # pydantic-settings 配置
@@ -131,30 +147,38 @@ src/heagent/
 │   ├── base.py          #   BaseProvider Protocol
 │   ├── openai.py        #   OpenAI / 兼容接口
 │   ├── anthropic.py     #   Anthropic Claude
-│   ├── chain.py         #   ProviderChain 兜底链
+│   ├── chain.py         #   ProviderChain 跨 Provider 兜底
+│   ├── key_rotation.py  #   KeyRotatingProvider 同 Provider 多 key 轮换
 │   └── retry.py         #   错误分类 + 指数退避
 ├── tools/               # 工具系统
 │   ├── registry.py      #   ToolRegistry 单例
 │   ├── decorator.py     #   @tool 装饰器
-│   ├── safety.py        #   安全护栏
-│   └── builtins/        #   内置工具: shell, file, search, skills
+│   ├── safety.py        #   命令安全护栏
+│   ├── path_safety.py   #   工作区路径围栏
+│   └── builtins/        #   内置工具: shell, file, search, cron, memory, skills, subagent
 ├── memory/              # 自学习记忆
 │   ├── skills.py        #   技能存储（HermesAgent 标准目录结构）
 │   ├── facts.py         #   事实记忆（去重）
-│   └── profile.py       #   用户画像
+│   ├── profile.py       #   用户画像
+│   └── soul.py          #   人格（SOUL.md，全局+项目两级）
 ├── context/             # 上下文管理
 │   ├── session.py       #   会话持久化
-│   └── compressor.py    #   LLM 摘要压缩
+│   ├── compressor.py    #   LLM 摘要压缩
+│   ├── loader.py        #   上下文文件扫描
+│   └── tokens.py        #   token 估算
+├── cron/                # 定时任务
+│   ├── jobs.py          #   JobStore 持久化
+│   └── scheduler.py     #   asyncio 后台调度
 └── agent/               # Agent 核心
     ├── loop.py          #   AgentLoop (LLM ↔ tool 循环)
-    ├── middleware.py     #   中间件管道
+    ├── middleware.py     #   中间件管道（重试等）
     └── sub.py           #   子 Agent + 并行执行
 ```
 
 ## 测试
 
 ```bash
-pytest                    # 运行全部 203 个测试
+pytest                    # 运行全部测试
 pytest tests/test_cli.py  # 仅 CLI 测试
 ```
 
@@ -162,6 +186,7 @@ pytest tests/test_cli.py  # 仅 CLI 测试
 
 - Python >= 3.11
 - pydantic >= 2.13
+- pydantic-settings >= 2.0
 - openai >= 2.37
 - anthropic >= 0.104
 - click >= 8.0

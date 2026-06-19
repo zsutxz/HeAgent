@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ 安全声明
+
+HeAgent 执行 shell / 读写文件 / 调外部 API。`SafetyGuard` **不是真正的安全边界**（黑名单可绕过、工具返回内容无围栏进入上下文、prompt injection 无隔离）。**不可在不可信内容或不可信 LLM 输出下裸跑**——必须配 OS 级沙箱（容器/firejail）。修改安全相关代码时勿将其当作有效边界；完整性评估见 `docs/qa.md` §3。
+
 ## 构建与测试命令
 
 ```bash
@@ -72,7 +76,7 @@ exceptions  types  config
 4. **异常层级**：所有异常继承 `HeAgentError` → `ProviderError` / `ToolError` / `SafetyViolation` / `BudgetExceeded`。禁止抛出裸 `Exception`。
 5. **配置**：`pydantic-settings` 的 `Settings` 类，从 `.env` + 环境变量加载。通过 `get_settings()` 获取单例。测试中用 `reset_settings()` 重置。
 6. **记忆持久化**：`.heagent/` 目录（skills/、memory/、user/）以 Markdown 文件存储。V1 使用关键词匹配去重。技能采用 HermesAgent 标准目录结构：`skills/<name>/SKILL.md`（必需）+ 可选的 `templates/`、`references/` 子目录。SKILL.md 使用 YAML frontmatter + 扁平编号步骤（`## Steps` 下每步单行）。
-7. **重试机制**：`providers/retry.py` 中的 `retry_with_backoff()` 将错误分类为 `RATE_LIMITED | AUTH_FAILED | TRANSIENT | NON_TRANSIENT`。仅对 `TRANSIENT` 错误进行指数退避 + 抖动重试。
+7. **重试机制**：`providers/retry.py` 中的 `retry_with_backoff()` 将错误分类为 `RATE_LIMITED | AUTH_FAILED | TRANSIENT | NON_TRANSIENT`。仅对 `TRANSIENT` 错误进行指数退避 + 抖动重试。通过 `middleware.make_retry_middleware()` 包装，在 `cli.py` 注入为 `AgentLoop.middlewares`。
 
 ### 模块速查
 
@@ -88,7 +92,9 @@ exceptions  types  config
 | `tools/decorator.py` | `@tool` 装饰器 | 内省签名 + docstring → `ToolSchema`，Python 类型 → JSON Schema 映射 |
 | `tools/registry.py` | 进程级工具注册表 | `ToolRegistry.get()` 单例，支持按工具启用/禁用 |
 | `tools/safety.py` | Shell 命令安全守卫 | `SafetyGuard` — BLACKLIST/WHITELIST 模式，12 个危险模式（rm -rf、fork bomb 等） |
-| `tools/builtins/` | 5 个内置工具 | `shell`、`file_read`、`file_write`、`file_search`、`content_search` |
+| `tools/builtins/` | 内置工具（7 模块 / 18 工具） | `shell`、`file_read`、`file_write`、`file_search`、`content_search`（基础 5）+ `cron_*`、`fact_add`/`profile_update`、`skill_*`、`task_delegate`/`task_parallel` |
+| `tools/path_safety.py` | 工作区路径围栏 | `resolve_workspace_path()` — 阻止 file 工具路径逃逸出 CWD（非真正安全边界，见文首声明） |
+| `providers/key_rotation.py` | 同 Provider 多密钥轮换 | `KeyRotatingProvider` — 429/401/403 时切换下一个密钥，密钥池耗尽才向上抛出 |
 | `agent/loop.py` | 核心 Agent 循环 | `AgentLoop` — 迭代 provider→tool_calls→execute→loop 直到文本回答 |
 | `agent/middleware.py` | 中间件组合 | `compose()` 构建递归 `(Request, NextFn) → Response` 链 |
 | `agent/sub.py` | 子 Agent 隔离 | `SubAgent` — 独立 loop+上下文，`run_parallel()` 通过 `asyncio.gather` 并行 |
@@ -113,7 +119,9 @@ exceptions  types  config
 
 ### CLI 入口
 
-`cli.py` 根据可用 API Key（`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`）自动检测 provider。模块级导入 `heagent.tools.builtins` 触发 `@tool` 注册。单次执行模式（带 PROMPT 参数）和交互式聊天模式（无参数），均通过 `asyncio.run()` 桥接。CLI 创建 `SkillStore` 并传入 `AgentLoop`，启动技能自动匹配。
+`cli.py` 按优先级 **DeepSeek (`DEEPSEEK_API_KEY`) → OpenAI → Anthropic** 自动检测 provider。模块级导入 `heagent.tools.builtins` 触发 `@tool` 注册。单次执行模式（带 PROMPT 参数）和交互式聊天模式（无参数），均通过 `asyncio.run()` 桥接。CLI 创建 `SkillStore` / `FactStore` / `ProfileStore` / `SoulStore` 并传入 `AgentLoop`，注入 `make_retry_middleware()` 到 `middlewares`，并通过 `configure_subagent_tools()` 装配子 Agent 工具。
+
+Provider 装配见 `cli._build_provider()`：DeepSeek 用 OpenAI 兼容接口（`base_url=api.deepseek.com/v1`）；同一 provider 的主 key + `*_key_pool` 合并去重后，多于 1 个时用 `KeyRotatingProvider` 包装；多个 provider 用 `ProviderChain` 包装。
 
 ### 技能系统
 
@@ -150,16 +158,22 @@ exceptions  types  config
 ### 系统提示词注入顺序
 
 `_build_system()` 按以下顺序组装系统提示词：
-1. `<identity>` — SOUL.md 人格（最顶层）
+1. `<identity>` — SOUL.md 人格（最顶层，`insert(0, ...)`）
 2. 用户 system 字符串
 3. `<project-context>` — 上下文文件
 4. `<skills>` — 自动匹配的技能
-5. `<memory-nudge>` — 记忆保存提醒
-6. `<memory>` — 事实记忆
+5. `<memory>` — 事实记忆
+6. `<memory-nudge>` — 记忆保存提醒
 7. `<profile>` — 用户画像
+
+### Provider 容错分层（FR-4）
+
+三层独立容错，由 `cli.py` 组装，从内到外依次触发：
+1. **重试（同一次调用内）**：`retry_with_backoff` 中间件仅对 `TRANSIENT`（5xx/超时/连接）做指数退避重试。
+2. **密钥轮换（同一 Provider）**：`KeyRotatingProvider` 在 429/401/403 时切换同类型的下一个密钥；密钥池耗尽才向上抛出。
+3. **跨 Provider 回退**：`ProviderChain` 在不同 provider 间切换。回退精度——仅 `RATE_LIMITED`/`AUTH_FAILED`/`TRANSIENT` 回退；`NON_TRANSIENT`（400/422 等客户端错误）立即抛出不回退。成功后复位到主 Provider（不粘性旁路）。流式版多一条约束：一旦已向下游交付过 chunk，后续异常不再回退（避免重放导致重复前缀）。
 
 ### 已知缺口
 
-- `Settings` 支持多密钥池（`openai_key_pool`、`anthropic_key_pool`），但 `ProviderChain` 仅在 provider 间切换，不做密钥轮换。
-- `providers/retry.py` 中的 `retry_with_backoff()` 已作为中间件接入（通过 `make_retry_middleware()`）。
 - Cron 表达式解析器 V1 不支持范围表达式（如 `1-5`）。
+- `SafetyGuard` 与 `path_safety` 均非真正安全边界——见文首安全声明。
