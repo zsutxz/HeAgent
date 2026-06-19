@@ -16,12 +16,12 @@ from pydantic import BaseModel
 class CronJob(BaseModel):
     """定时任务定义。"""
 
-    id: str                          # 唯一标识符
-    prompt: str                      # 要执行的任务提示词
-    cron: str                        # 5-field cron 表达式
-    recurring: bool = True           # True=循环，False=一次性
-    created: str                     # ISO 时间戳
-    last_run: str | None = None      # 上次执行时间
+    id: str  # 唯一标识符
+    prompt: str  # 要执行的任务提示词
+    cron: str  # 5-field cron 表达式
+    recurring: bool = True  # True=循环，False=一次性
+    created: str  # ISO 时间戳
+    last_run: str | None = None  # 上次执行时间
     enabled: bool = True
 
 

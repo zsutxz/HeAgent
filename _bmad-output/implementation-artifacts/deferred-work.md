@@ -32,3 +32,5 @@ Findings deferred during quick-dev (out of the originating story's frozen scope,
 **Severity:** LOW — 仅影响「所有 provider 流式全失败」这一罕见路径的错误信息精度，不影响回退/重试/正常流式。
 **Frozen scope note:** 本次「P0 技术债收尾」范围聚焦双层重包与测试耦合，未覆盖流式 backstop 的 last_error 跟踪（涉及 stream 循环行为改动 + 需回归测试）。
 **Suggested fix (future story):** 在 `stream` 循环中跟踪 `last_error`（仿 `send`），末尾 `if last_error is not None: _raise_provider_error(last_error)`，使流式 backstop 与 send 对称、保留状态码与 cause。
+
+**Resolution (2026-06-20):** 已修复。`stream` 循环现跟踪 `last_error`，末尾 `if last_error is not None: _raise_provider_error(last_error)`，与 `send` 对称，保留状态码与 cause。回归测试 `tests/providers/test_chain.py::test_stream_all_fail_preserves_last_error_status` 断言全失败时末次错误的 status_code 保留。此项关闭。

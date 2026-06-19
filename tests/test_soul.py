@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from heagent.memory.soul import SoulStore
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestSoulStore:

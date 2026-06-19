@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -16,6 +16,9 @@ from heagent.tools.builtins.subagent import (
 )
 from heagent.tools.registry import ToolRegistry
 from heagent.types import Message, ProviderResponse, TokenUsage
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 class _StubProvider:
@@ -177,6 +180,7 @@ class TestToolRegistration:
         import importlib
 
         import heagent.tools.builtins.subagent as _sa
+
         importlib.reload(_sa)
         registry = ToolRegistry.get()
         schema = registry.get_schema("task_delegate")
@@ -188,6 +192,7 @@ class TestToolRegistration:
         import importlib
 
         import heagent.tools.builtins.subagent as _sa
+
         importlib.reload(_sa)
         registry = ToolRegistry.get()
         schema = registry.get_schema("task_parallel")

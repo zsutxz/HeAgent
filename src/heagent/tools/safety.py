@@ -10,13 +10,16 @@
 from __future__ import annotations
 
 import re
-from enum import Enum
+from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from heagent.exceptions import SafetyViolation
-from heagent.types import ToolCall
+
+if TYPE_CHECKING:
+    from heagent.types import ToolCall
 
 
-class SafetyMode(str, Enum):
+class SafetyMode(StrEnum):
     """安全检查模式。"""
 
     BLACKLIST = "blacklist"  # 黑名单模式：拦截匹配的命令（默认）
@@ -28,17 +31,17 @@ _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE)
     for p in [
         r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|.*-rf\b)",  # rm -rf / rm -f
-        r"\bformat\s+[a-zA-Z]:",                         # format C:
-        r"\bdd\s+if=",                                   # dd 磁盘操作
-        r"\bmkfs\b",                                     # 格式化文件系统
-        r"\bshutdown\b",                                 # 关机
-        r"\breboot\b",                                   # 重启
-        r"\bdel\s+/[sS]",                                # del /s 递归删除 (Windows)
-        r"\brmdir\s+/[sS]",                              # rmdir /s 递归删除 (Windows)
-        r":\(\)\{.*;\}",                                 # fork bomb (:(){ :|:& };:)
-        r">\s*/dev/sd",                                  # 直接写入磁盘设备
-        r"\bchmod\s+(-R\s+)?000\b",                      # chmod 000 移除所有权限
-        r"\bchown\s+(-R\s+)?root\b",                     # chown root 提权
+        r"\bformat\s+[a-zA-Z]:",  # format C:
+        r"\bdd\s+if=",  # dd 磁盘操作
+        r"\bmkfs\b",  # 格式化文件系统
+        r"\bshutdown\b",  # 关机
+        r"\breboot\b",  # 重启
+        r"\bdel\s+/[sS]",  # del /s 递归删除 (Windows)
+        r"\brmdir\s+/[sS]",  # rmdir /s 递归删除 (Windows)
+        r":\(\)\{.*;\}",  # fork bomb (:(){ :|:& };:)
+        r">\s*/dev/sd",  # 直接写入磁盘设备
+        r"\bchmod\s+(-R\s+)?000\b",  # chmod 000 移除所有权限
+        r"\bchown\s+(-R\s+)?root\b",  # chown root 提权
     ]
 ]
 
@@ -52,9 +55,9 @@ class SafetyGuard:
         blocked_commands: list[str] | None = None,
         allowed_commands: list[str] | None = None,
     ) -> None:
-        self.mode = mode                                    # 安全模式
-        self._blocked: list[str] = blocked_commands or []   # 用户自定义黑名单规则
-        self._allowed: list[str] = allowed_commands or []   # 用户自定义白名单规则
+        self.mode = mode  # 安全模式
+        self._blocked: list[str] = blocked_commands or []  # 用户自定义黑名单规则
+        self._allowed: list[str] = allowed_commands or []  # 用户自定义白名单规则
         self._blocked_compiled = [re.compile(p, re.IGNORECASE) for p in self._blocked]
         self._allowed_compiled = [re.compile(p, re.IGNORECASE) for p in self._allowed]
         self._violation_log: list[str] = []  # 违规记录，用于审计
@@ -89,14 +92,15 @@ class SafetyGuard:
                     msg = f"Blocked by blacklist: {command}"
                     self._violation_log.append(msg)
                     raise SafetyViolation(msg)
-        elif self.mode == SafetyMode.WHITELIST:
-            # 白名单模式：不在白名单中即拦截
-            if self._allowed_compiled:
-                allowed = any(pat.search(command) for pat in self._allowed_compiled)
-                if not allowed:
-                    msg = f"Blocked (not in whitelist): {command}"
-                    self._violation_log.append(msg)
-                    raise SafetyViolation(msg)
+        elif (
+            self.mode == SafetyMode.WHITELIST
+            and self._allowed_compiled
+            and not any(pat.search(command) for pat in self._allowed_compiled)
+        ):
+            # 白名单模式：不在白名单中即拦截（空白名单不拦截任何命令）
+            msg = f"Blocked (not in whitelist): {command}"
+            self._violation_log.append(msg)
+            raise SafetyViolation(msg)
 
     @property
     def violations(self) -> list[str]:

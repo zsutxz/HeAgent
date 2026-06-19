@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Sequence
+from typing import TYPE_CHECKING
 
 from anthropic import AsyncAnthropic
 
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.retry import wrap_provider_error
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -106,9 +109,7 @@ def _build_usage(usage: object) -> TokenUsage:
     out = getattr(usage, "output_tokens", 0) or 0
     prompt = inp + cache_read + cache_create
     if cache_read or cache_create:
-        logger.debug(
-            "Anthropic prompt cache: %d read, %d created", cache_read, cache_create
-        )
+        logger.debug("Anthropic prompt cache: %d read, %d created", cache_read, cache_create)
     return TokenUsage(
         prompt_tokens=prompt,
         completion_tokens=out,
@@ -118,10 +119,7 @@ def _build_usage(usage: object) -> TokenUsage:
 
 def _to_anthropic_tools(tools: list[ToolSchema]) -> list[dict[str, object]]:
     """Convert HeAgent tools into Anthropic's tool schema format."""
-    return [
-        {"name": t.name, "description": t.description, "input_schema": t.parameters}
-        for t in tools
-    ]
+    return [{"name": t.name, "description": t.description, "input_schema": t.parameters} for t in tools]
 
 
 def _parse_tool_use_blocks(blocks: Sequence[object]) -> list[ToolCall]:
@@ -168,16 +166,14 @@ class AnthropicProvider:
             "max_tokens": self._max_tokens,
             "messages": _to_anthropic_messages(messages),
         }
-        system_param = _build_system_param(
-            _extract_system(messages), caching=self._prompt_caching
-        )
+        system_param = _build_system_param(_extract_system(messages), caching=self._prompt_caching)
         if system_param is not None:
             kwargs["system"] = system_param
         if tools:
             kwargs["tools"] = _to_anthropic_tools(tools)
 
         try:
-            resp = await self._client.messages.create(**kwargs)  # type: ignore[arg-type]
+            resp = await self._client.messages.create(**kwargs)  # type: ignore[call-overload]
         except Exception as e:
             # 统一包装 SDK 异常（RateLimitError/APITimeoutError 等）为 ProviderError，
             # 使下游 KeyRotatingProvider/retry/Chain 始终面对 HeAgent 体系异常。
@@ -209,9 +205,7 @@ class AnthropicProvider:
             "max_tokens": self._max_tokens,
             "messages": _to_anthropic_messages(messages),
         }
-        system_param = _build_system_param(
-            _extract_system(messages), caching=self._prompt_caching
-        )
+        system_param = _build_system_param(_extract_system(messages), caching=self._prompt_caching)
         if system_param is not None:
             kwargs["system"] = system_param
         if tools:

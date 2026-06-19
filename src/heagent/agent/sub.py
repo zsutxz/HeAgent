@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from heagent.agent.loop import AgentLoop
-from heagent.providers.base import BaseProvider
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
 
@@ -21,6 +20,7 @@ if TYPE_CHECKING:
     from heagent.memory.profile import ProfileStore
     from heagent.memory.skills import SkillStore
     from heagent.memory.soul import SoulStore
+    from heagent.providers.base import BaseProvider
 
 
 @dataclass
@@ -101,13 +101,17 @@ class SubAgent:
         try:
             output = await loop.run(task)
             return SubAgentResult(
-                task=task, output=output, success=True,
+                task=task,
+                output=output,
+                success=True,
                 iterations=loop.last_iteration or 0,
             )
         except Exception as e:
             # 异常不向外抛出，包装为失败结果
             return SubAgentResult(
-                task=task, output=str(e), success=False,
+                task=task,
+                output=str(e),
+                success=False,
                 iterations=loop.last_iteration or 0,
             )
 

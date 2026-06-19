@@ -7,13 +7,16 @@
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from openai import AsyncOpenAI
 
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.retry import wrap_provider_error
 from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall, ToolSchema
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 def _to_openai_messages(messages: list[Message]) -> list[dict[str, object]]:

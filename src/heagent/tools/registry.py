@@ -10,7 +10,10 @@ ToolRegistry 维护三组数据：
 
 from __future__ import annotations
 
-from heagent.types import ToolSchema
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from heagent.types import ToolSchema
 
 
 class ToolRegistry:
@@ -25,9 +28,9 @@ class ToolRegistry:
     _instance: ToolRegistry | None = None  # 单例缓存
 
     def __init__(self) -> None:
-        self._tools: dict[str, ToolSchema] = {}     # 工具 Schema 注册表
-        self._handlers: dict[str, object] = {}       # 工具执行函数注册表
-        self._disabled: set[str] = set()             # 已禁用工具集合
+        self._tools: dict[str, ToolSchema] = {}  # 工具 Schema 注册表
+        self._handlers: dict[str, object] = {}  # 工具执行函数注册表
+        self._disabled: set[str] = set()  # 已禁用工具集合
 
     @classmethod
     def get(cls) -> ToolRegistry:

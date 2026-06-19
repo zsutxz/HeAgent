@@ -18,33 +18,39 @@ def _other_call() -> ToolCall:
 
 
 class TestDangerousPatterns:
-    @pytest.mark.parametrize("cmd", [
-        "rm -rf /",
-        "rm -fr /home",
-        "format C:",
-        "dd if=/dev/zero of=/dev/sda",
-        "mkfs.ext4 /dev/sda1",
-        "shutdown now",
-        "reboot",
-        "del /s /q C:\\Windows",
-        "rmdir /s /q C:\\temp",
-        "chmod 000 /etc/passwd",
-        "chmod -R 000 /",
-        "chown root /etc/shadow",
-        "chown -R root /",
-    ])
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "rm -rf /",
+            "rm -fr /home",
+            "format C:",
+            "dd if=/dev/zero of=/dev/sda",
+            "mkfs.ext4 /dev/sda1",
+            "shutdown now",
+            "reboot",
+            "del /s /q C:\\Windows",
+            "rmdir /s /q C:\\temp",
+            "chmod 000 /etc/passwd",
+            "chmod -R 000 /",
+            "chown root /etc/shadow",
+            "chown -R root /",
+        ],
+    )
     def test_blocks_dangerous_commands(self, cmd: str) -> None:
         guard = SafetyGuard()
         with pytest.raises(SafetyViolation):
             guard.check(_shell_call(cmd))
 
-    @pytest.mark.parametrize("cmd", [
-        "echo hello",
-        "ls -la",
-        "cat file.txt",
-        "git status",
-        "python script.py",
-    ])
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "echo hello",
+            "ls -la",
+            "cat file.txt",
+            "git status",
+            "python script.py",
+        ],
+    )
     def test_allows_safe_commands(self, cmd: str) -> None:
         guard = SafetyGuard()
         guard.check(_shell_call(cmd))  # should not raise

@@ -58,8 +58,7 @@ async def cron_list() -> str:
         status = "enabled" if job.enabled else "disabled"
         recur = "recurring" if job.recurring else "one-shot"
         lines.append(
-            f"- [{job.id}] '{job.prompt[:40]}' "
-            f"| {job.cron} | {recur} | {status} | last: {job.last_run or 'never'}"
+            f"- [{job.id}] '{job.prompt[:40]}' | {job.cron} | {recur} | {status} | last: {job.last_run or 'never'}"
         )
     return "\n".join(lines)
 

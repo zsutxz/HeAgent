@@ -123,19 +123,23 @@ class TestAgentLoop:
             ToolSchema(name="echo", description="echo", parameters={"type": "object", "properties": {}}),
             lambda text="default": text,
         )
-        provider = StubProvider([
-            _tool_resp([_tc("1", "echo", {"text": "ping"})]),
-            _final("pong"),
-        ])
+        provider = StubProvider(
+            [
+                _tool_resp([_tc("1", "echo", {"text": "ping"})]),
+                _final("pong"),
+            ]
+        )
         result = await AgentLoop(provider, registry=fresh_registry, max_iterations=10).run("test")
         assert result == "pong"
 
     @pytest.mark.asyncio
     async def test_unknown_tool(self, fresh_registry: ToolRegistry) -> None:
-        provider = StubProvider([
-            _tool_resp([_tc("1", "nonexistent", {})]),
-            _final("handled"),
-        ])
+        provider = StubProvider(
+            [
+                _tool_resp([_tc("1", "nonexistent", {})]),
+                _final("handled"),
+            ]
+        )
         result = await AgentLoop(provider, registry=fresh_registry, max_iterations=10).run("test")
         assert result == "handled"
 
@@ -152,10 +156,12 @@ class TestAgentLoop:
             ToolSchema(name="shell", description="shell", parameters={"type": "object", "properties": {}}),
             lambda command="": "ok",
         )
-        provider = StubProvider([
-            _tool_resp([_tc("1", "shell", {"command": "rm -rf /"})]),
-            _final("blocked"),
-        ])
+        provider = StubProvider(
+            [
+                _tool_resp([_tc("1", "shell", {"command": "rm -rf /"})]),
+                _final("blocked"),
+            ]
+        )
         result = await AgentLoop(provider, registry=fresh_registry, max_iterations=10).run("danger")
         assert result == "blocked"
 
@@ -175,10 +181,12 @@ class TestAgentLoop:
             ToolSchema(name="aecho", description="async echo", parameters={"type": "object", "properties": {}}),
             async_echo,
         )
-        provider = StubProvider([
-            _tool_resp([_tc("1", "aecho", {"text": "hi"})]),
-            _final("done"),
-        ])
+        provider = StubProvider(
+            [
+                _tool_resp([_tc("1", "aecho", {"text": "hi"})]),
+                _final("done"),
+            ]
+        )
         result = await AgentLoop(provider, registry=fresh_registry, max_iterations=10).run("test")
         assert result == "done"
 
@@ -198,13 +206,17 @@ class TestParallelExecution:
             ToolSchema(name="slow", description="slow", parameters={"type": "object", "properties": {}}),
             slow_tool,
         )
-        provider = StubProvider([
-            _tool_resp([
-                _tc("1", "slow", {"name": "a"}),
-                _tc("2", "slow", {"name": "b"}),
-            ]),
-            _final("all done"),
-        ])
+        provider = StubProvider(
+            [
+                _tool_resp(
+                    [
+                        _tc("1", "slow", {"name": "a"}),
+                        _tc("2", "slow", {"name": "b"}),
+                    ]
+                ),
+                _final("all done"),
+            ]
+        )
         result = await AgentLoop(provider, registry=fresh_registry, max_iterations=10).run("parallel")
         assert result == "all done"
         assert call_order[0].endswith("-start")
@@ -226,13 +238,17 @@ class TestParallelExecution:
             ToolSchema(name="bad", description="bad", parameters={"type": "object", "properties": {}}),
             bad_tool,
         )
-        provider = StubProvider([
-            _tool_resp([
-                _tc("1", "good", {}),
-                _tc("2", "bad", {}),
-            ]),
-            _final("recovered"),
-        ])
+        provider = StubProvider(
+            [
+                _tool_resp(
+                    [
+                        _tc("1", "good", {}),
+                        _tc("2", "bad", {}),
+                    ]
+                ),
+                _final("recovered"),
+            ]
+        )
         result = await AgentLoop(provider, registry=fresh_registry, max_iterations=10).run("mixed")
         assert result == "recovered"
 
@@ -246,13 +262,17 @@ class TestParallelExecution:
             ToolSchema(name="safe", description="safe", parameters={"type": "object", "properties": {}}),
             lambda: "safe-result",
         )
-        provider = StubProvider([
-            _tool_resp([
-                _tc("1", "shell", {"command": "rm -rf /"}),
-                _tc("2", "safe", {}),
-            ]),
-            _final("done"),
-        ])
+        provider = StubProvider(
+            [
+                _tool_resp(
+                    [
+                        _tc("1", "shell", {"command": "rm -rf /"}),
+                        _tc("2", "safe", {}),
+                    ]
+                ),
+                _final("done"),
+            ]
+        )
         result = await AgentLoop(provider, registry=fresh_registry, max_iterations=10).run("mixed safety")
         assert result == "done"
 

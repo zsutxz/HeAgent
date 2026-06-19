@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 from heagent.agent.middleware import MiddlewareFn, Request, compose
 from heagent.config import get_settings
@@ -23,6 +23,8 @@ from heagent.tools.safety import SafetyGuard
 from heagent.types import Message, ProviderResponse, Role, StreamEvent, TokenUsage, ToolCall, ToolResult
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable
+
     from heagent.context.compressor import ContextCompressor
     from heagent.context.session import SessionStore
     from heagent.cron.jobs import JobStore
@@ -76,36 +78,39 @@ class AgentLoop:
         soul: SoulStore | None = None,
         cron_store: JobStore | None = None,
     ) -> None:
-        self.provider = provider                      # LLM 提供者（OpenAI/Anthropic/Chain）
+        self.provider = provider  # LLM 提供者（OpenAI/Anthropic/Chain）
         self.registry = registry or ToolRegistry.get()  # 工具注册中心（默认全局单例）
-        self.guard = guard or SafetyGuard()            # 安全防护（默认黑名单模式）
-        self.middlewares = middlewares or []            # 中间件链（可选）
-        self.skills = skills                           # 技能存储（可选，注入到系统提示词）
-        self.facts = facts                             # 事实记忆（可选，注入到系统提示词）
-        self.profile = profile                         # 用户画像（可选，注入到系统提示词）
-        self.session = session                         # 会话存储（可选，持久化对话历史）
-        self.compressor = compressor                   # 上下文压缩器（可选，防止 token 超限）
-        self.context_dir = context_dir                 # 上下文文件扫描目录（可选）
-        self.soul = soul                               # 人格加载器（可选，注入为 identity 层）
-        self.cron_store = cron_store                   # Cron 任务存储（可选）
-        self.last_usage: TokenUsage | None = None      # 最近一次 run() 的累计 token 用量
-        self.last_iteration: int | None = None         # 最近一次 run()/run_stream() 的迭代次数
+        self.guard = guard or SafetyGuard()  # 安全防护（默认黑名单模式）
+        self.middlewares = middlewares or []  # 中间件链（可选）
+        self.skills = skills  # 技能存储（可选，注入到系统提示词）
+        self.facts = facts  # 事实记忆（可选，注入到系统提示词）
+        self.profile = profile  # 用户画像（可选，注入到系统提示词）
+        self.session = session  # 会话存储（可选，持久化对话历史）
+        self.compressor = compressor  # 上下文压缩器（可选，防止 token 超限）
+        self.context_dir = context_dir  # 上下文文件扫描目录（可选）
+        self.soul = soul  # 人格加载器（可选，注入为 identity 层）
+        self.cron_store = cron_store  # Cron 任务存储（可选）
+        self.last_usage: TokenUsage | None = None  # 最近一次 run() 的累计 token 用量
+        self.last_iteration: int | None = None  # 最近一次 run()/run_stream() 的迭代次数
         settings = get_settings()
         self.max_iterations = max_iterations or settings.max_iterations
 
         # 技能工具激活：将 SkillStore 注入工具模块，使 LLM 可通过工具管理技能
         if self.skills:
             from heagent.tools.builtins.skills import configure_skill_tools
+
             configure_skill_tools(self.skills)
 
         # 记忆工具激活：将 FactStore/ProfileStore 注入工具模块
         if facts or profile:
             from heagent.tools.builtins.memory import configure_memory_tools
+
             configure_memory_tools(facts=facts, profile=profile)
 
         # Cron 工具激活：将 JobStore 注入工具模块
         if self.cron_store:
             from heagent.tools.builtins.cron import configure_cron_tools
+
             configure_cron_tools(self.cron_store)
 
     async def run(
@@ -153,9 +158,7 @@ class AgentLoop:
                 state.iteration += 1
                 # 迭代预算检查
                 if state.iteration > state.max_iterations:
-                    raise BudgetExceeded(
-                        f"Exceeded {state.max_iterations} iterations without final answer"
-                    )
+                    raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
 
                 # 步骤 1：调用 Provider 获取 LLM 响应
                 response = await self._call_provider(state)
@@ -199,9 +202,7 @@ class AgentLoop:
                 tool_results = await self._execute_tools(response.tool_calls, state)
                 # 将工具结果追加到对话历史，供下一轮 LLM 参考
                 for tr in tool_results:
-                    state.messages.append(
-                        Message(role=Role.TOOL, content=tr.content, tool_call_id=tr.tool_call_id)
-                    )
+                    state.messages.append(Message(role=Role.TOOL, content=tr.content, tool_call_id=tr.tool_call_id))
         finally:
             # 会话保存：无论正常结束还是异常，都尝试持久化已积累的消息
             if self.session and session_id:
@@ -220,7 +221,7 @@ class AgentLoop:
         *,
         system: str | None = None,
         session_id: str | None = None,
-    ):
+    ) -> AsyncIterator[StreamEvent]:
         """流式运行 Agent 循环，逐步 yield StreamEvent。
 
         与 run() 相同的核心循环，但文本响应通过流式输出逐块返回。
@@ -246,9 +247,7 @@ class AgentLoop:
             while True:
                 state.iteration += 1
                 if state.iteration > state.max_iterations:
-                    raise BudgetExceeded(
-                        f"Exceeded {self.max_iterations} iterations without final answer"
-                    )
+                    raise BudgetExceeded(f"Exceeded {self.max_iterations} iterations without final answer")
 
                 tools = self.registry.enabled_schemas()
                 full_content = ""
@@ -258,7 +257,7 @@ class AgentLoop:
                 finish_reason = ""
 
                 # 流式迭代 provider 输出，逐块 yield 文本事件
-                async for chunk in self.provider.stream(state.messages, tools=tools or None):  # type: ignore[attr-defined]
+                async for chunk in self.provider.stream(state.messages, tools=tools or None):
                     if chunk.content:
                         full_content += chunk.content
                         yield StreamEvent(type="text", text=chunk.content)
@@ -326,9 +325,7 @@ class AgentLoop:
                 for tc, tr in zip(response.tool_calls, tool_results, strict=True):
                     yield StreamEvent(type="tool_call", tool_name=tc.name)
                     yield StreamEvent(type="tool_result", tool_result_content=tr.content)
-                    state.messages.append(
-                        Message(role=Role.TOOL, content=tr.content, tool_call_id=tr.tool_call_id)
-                    )
+                    state.messages.append(Message(role=Role.TOOL, content=tr.content, tool_call_id=tr.tool_call_id))
         finally:
             if self.session and session_id:
                 self.session.save(session_id, state.messages)
@@ -357,6 +354,7 @@ class AgentLoop:
             settings = get_settings()
             if settings.context_files_enabled:
                 from heagent.context.loader import load_context_files
+
                 context = load_context_files(self.context_dir)
                 if context:
                     parts.append(f"<project-context>\n{context}\n</project-context>")
@@ -407,10 +405,7 @@ class AgentLoop:
             if facts_list:
                 items = "\n".join(f"- {f}" for f in facts_list)
                 parts.append(
-                    f"<memory>\n"
-                    f"The following facts are remembered from previous conversations:\n\n"
-                    f"{items}\n"
-                    f"</memory>"
+                    f"<memory>\nThe following facts are remembered from previous conversations:\n\n{items}\n</memory>"
                 )
                 logger.debug("Injected %d fact(s) into system prompt", len(facts_list))
 
@@ -428,10 +423,7 @@ class AgentLoop:
             profile_text = self.profile.load()
             if profile_text:
                 parts.append(
-                    f"<profile>\n"
-                    f"User profile (adapt your responses accordingly):\n\n"
-                    f"{profile_text}\n"
-                    f"</profile>"
+                    f"<profile>\nUser profile (adapt your responses accordingly):\n\n{profile_text}\n</profile>"
                 )
                 logger.debug("Injected user profile into system prompt")
 
@@ -447,6 +439,7 @@ class AgentLoop:
 
         # 发送前：估算 token 数（用于日志和预算管理）
         from heagent.context.tokens import count_tokens
+
         estimated = count_tokens(state.messages)
         logger.debug(
             "Calling provider: %d messages, ~%d tokens estimated",
@@ -464,7 +457,7 @@ class AgentLoop:
         # 有中间件 → 构建链式调用
         if self.middlewares:
             chain = compose(self.middlewares, handler)
-            response = await chain(Request(messages=state.messages, tools=tools))
+            response = cast("ProviderResponse", await chain(Request(messages=state.messages, tools=tools)))
         else:
             # 无中间件 → 直接调用
             response = await handler(Request(messages=state.messages, tools=tools))
@@ -480,9 +473,7 @@ class AgentLoop:
 
         return response
 
-    async def _execute_tools(
-        self, calls: list[ToolCall], state: AgentState
-    ) -> list[ToolResult]:
+    async def _execute_tools(self, calls: list[ToolCall], state: AgentState) -> list[ToolResult]:
         """并行执行多个工具调用。
 
         使用 asyncio.gather 实现并发，所有工具同时执行，
@@ -527,6 +518,7 @@ class AgentLoop:
         - 异步函数 → await handler(**arguments)
         - 同步函数 → handler(**arguments)
         """
-        if asyncio.iscoroutinefunction(handler):
-            return await handler(**call.arguments)
-        return handler(**call.arguments)
+        fn = cast("Callable[..., Any]", handler)
+        if asyncio.iscoroutinefunction(fn):
+            return await fn(**call.arguments)
+        return fn(**call.arguments)

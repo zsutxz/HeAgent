@@ -12,6 +12,7 @@ from heagent.cli import main
 def clean_settings():
     """Reset settings singleton for tests that need it."""
     from heagent.config import reset_settings
+
     reset_settings()
     yield
     reset_settings()
@@ -77,7 +78,18 @@ class TestPublicAPI:
         from heagent.providers import AnthropicProvider, OpenAIProvider, ProviderChain
         from heagent.tools import SafetyGuard, ToolRegistry, tool
 
-        assert all(cls is not None for cls in [AnthropicProvider, OpenAIProvider, ProviderChain, AgentLoop, SubAgent, ToolRegistry, SafetyGuard])
+        assert all(
+            cls is not None
+            for cls in [
+                AnthropicProvider,
+                OpenAIProvider,
+                ProviderChain,
+                AgentLoop,
+                SubAgent,
+                ToolRegistry,
+                SafetyGuard,
+            ]
+        )
         assert callable(tool)
         assert callable(compose)
 

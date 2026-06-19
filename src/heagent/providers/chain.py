@@ -7,13 +7,16 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
 from heagent.exceptions import ProviderError
-from heagent.providers.base import BaseProvider, ProviderMetadata
 from heagent.providers.retry import ErrorCategory, classify_exception, wrap_provider_error
-from heagent.types import Message, ProviderResponse, ToolSchema
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from heagent.providers.base import BaseProvider, ProviderMetadata
+    from heagent.types import Message, ProviderResponse, ToolSchema
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +68,9 @@ class ProviderChain:
         if self._current_index < len(self._providers) - 1:
             old = self._current_index
             self._current_index += 1
-            logger.info("Fallback: %s -> %s", self._providers[old].get_metadata().name, self.current.get_metadata().name)
+            logger.info(
+                "Fallback: %s -> %s", self._providers[old].get_metadata().name, self.current.get_metadata().name
+            )
             return True
         return False
 
@@ -92,7 +97,9 @@ class ProviderChain:
                 category = classify_exception(e)
                 logger.warning(
                     "Provider %s failed (%s): %s",
-                    self.current.get_metadata().name, category.value, e,
+                    self.current.get_metadata().name,
+                    category.value,
+                    e,
                 )
                 # 客户端错误 → 不回退，立即抛出
                 if category == ErrorCategory.NON_TRANSIENT:
@@ -110,7 +117,9 @@ class ProviderChain:
         # 仍以 ProviderError 兜底以遵守「禁止裸 Exception」契约。
         raise ProviderError("All providers failed")
 
-    async def stream(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> AsyncIterator[ProviderResponse]:
+    async def stream(
+        self, messages: list[Message], *, tools: list[ToolSchema] | None = None
+    ) -> AsyncIterator[ProviderResponse]:
         """流式调用的故障转移版本。
 
         与 send() 回退精度逻辑相同（FR-4），但追加一条约束：一旦已向下游交付
@@ -118,10 +127,11 @@ class ProviderChain:
         消费者收到重复前缀。仅在首个 chunk 之前的失败才按 FR-4 回退。
         """
         start = self._current_index
+        last_error: Exception | None = None
         for _ in range(len(self._providers)):
             delivered = False
             try:
-                async for chunk in self.current.stream(messages, tools=tools):  # type: ignore[attr-defined]
+                async for chunk in self.current.stream(messages, tools=tools):
                     delivered = True  # 已从当前 Provider 取得 chunk，回退将产生重复输出
                     yield chunk
                 self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
@@ -134,14 +144,20 @@ class ProviderChain:
                 category = classify_exception(e)
                 logger.warning(
                     "Provider %s stream failed (%s): %s",
-                    self.current.get_metadata().name, category.value, e,
+                    self.current.get_metadata().name,
+                    category.value,
+                    e,
                 )
                 if category == ErrorCategory.NON_TRANSIENT:
                     self._current_index = start
                     _raise_provider_error(e)
+                last_error = e
                 if not self._advance():
                     break
         self._current_index = start
+        if last_error is not None:
+            _raise_provider_error(last_error)
+        # 理论不可达：见 send() 同款注释。
         raise ProviderError("All providers failed for stream")
 
     def get_metadata(self) -> ProviderMetadata:

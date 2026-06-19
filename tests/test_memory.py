@@ -102,9 +102,9 @@ class TestSkillStore:
 
     def test_matching_skills_sorted_by_relevance(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
-        s.save("low", "Low", "a b c d e f g", ["step"])     # 1/7 ≈ 0.14
-        s.save("high", "High", "a b c", ["step"])            # 3/3 = 1.0
-        s.save("mid", "Mid", "a b c d e", ["step"])          # 3/5 = 0.6
+        s.save("low", "Low", "a b c d e f g", ["step"])  # 1/7 ≈ 0.14
+        s.save("high", "High", "a b c", ["step"])  # 3/3 = 1.0
+        s.save("mid", "Mid", "a b c d e", ["step"])  # 3/5 = 0.6
         matched = s.matching_skills("a b c", threshold=0.1)
         assert matched == ["high", "mid", "low"]
 

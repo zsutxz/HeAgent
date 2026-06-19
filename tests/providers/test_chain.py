@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -10,6 +10,9 @@ from heagent.exceptions import ProviderError
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.chain import ProviderChain
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 def _make_provider(
@@ -27,6 +30,7 @@ def _make_provider(
     400/422 = NON_TRANSIENT 不应回退。send_calls/stream_calls 记录调用次数。
     fail_stream_mid：在 yield 首个 chunk 之后再抛异常，模拟流中途断开。
     """
+
     class FakeProvider:
         _name = name
         _content = content
@@ -41,13 +45,25 @@ def _make_provider(
             self.send_calls += 1
             if self._fail:
                 raise ProviderError(f"{self._name} send failed", status_code=self._fail_status)
-            return ProviderResponse(content=self._content, usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2), model=self._name, finish_reason="stop")
+            return ProviderResponse(
+                content=self._content,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                model=self._name,
+                finish_reason="stop",
+            )
 
-        async def stream(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> AsyncIterator[ProviderResponse]:
+        async def stream(
+            self, messages: list[Message], *, tools: list[ToolSchema] | None = None
+        ) -> AsyncIterator[ProviderResponse]:
             self.stream_calls += 1
             if self._fail_stream:
                 raise ProviderError(f"{self._name} stream failed", status_code=self._fail_status)
-            yield ProviderResponse(content=self._content, usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2), model=self._name, finish_reason="stop")
+            yield ProviderResponse(
+                content=self._content,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                model=self._name,
+                finish_reason="stop",
+            )
             if self._fail_stream_mid:
                 raise ProviderError(f"{self._name} stream broke mid-flight", status_code=self._fail_status)
 
@@ -190,3 +206,15 @@ class TestChain:
                 pass
         assert exc_info.value.status_code == 400
         assert not isinstance(exc_info.value.__cause__, ProviderError)
+
+    async def test_stream_all_fail_preserves_last_error_status(self) -> None:
+        """流式全部失败时，backstop 应委托最后错误（与 send 对称），保留状态码而非无上下文兜底。"""
+        chain = ProviderChain([
+            _make_provider("a", fail_stream=True, fail_status=503),
+            _make_provider("b", fail_stream=True, fail_status=503),
+        ])
+        with pytest.raises(ProviderError) as exc_info:
+            async for _ in chain.stream([Message(role=Role.USER, content="hi")]):
+                pass
+        # 末次错误（503 TRANSIENT，回退耗尽）的状态码保留，而非 None
+        assert exc_info.value.status_code == 503

@@ -44,6 +44,7 @@ class TestSubAgent:
         class Fail(StubProvider):
             async def send(self, messages: list[Message], **kw: object) -> ProviderResponse:
                 raise RuntimeError("API down")
+
         r = await SubAgent(Fail(), max_iterations=2).run("fail")
         assert not r.success
         assert "API down" in r.output
@@ -160,9 +161,9 @@ class TestParallel:
         class Fail(StubProvider):
             async def send(self, messages: list[Message], **kw: object) -> ProviderResponse:
                 raise ValueError("boom")
+
         results = await run_parallel(
-            [SubAgent(StubProvider("ok"), max_iterations=5),
-             SubAgent(Fail(), max_iterations=5)],
+            [SubAgent(StubProvider("ok"), max_iterations=5), SubAgent(Fail(), max_iterations=5)],
             ["good", "bad"],
         )
         assert results[0].success
@@ -182,8 +183,11 @@ class TestParallel:
         """
         store = SkillStore(str(tmp_path / "skills"))
         store.save(
-            "grepsearch", "search files with grep", "grep search files",
-            ["run grep"], tags=["search"],
+            "grepsearch",
+            "search files with grep",
+            "grep search files",
+            ["run grep"],
+            tags=["search"],
         )
         n = 8
         agents = [SubAgent(StubProvider(f"r{i}"), max_iterations=5, skills=store) for i in range(n)]

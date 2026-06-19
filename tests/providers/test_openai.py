@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,23 +14,46 @@ from heagent.providers.openai import OpenAIProvider, _parse_tool_calls, _to_open
 from heagent.providers.retry import retry_with_backoff
 from heagent.types import Message, Role, ToolSchema
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
 
 def _mock_usage(p: int = 10, c: int = 5, t: int = 15) -> SimpleNamespace:
     return SimpleNamespace(prompt_tokens=p, completion_tokens=c, total_tokens=t)
 
 
-def _mock_choice(content: str = "hello", finish_reason: str = "stop", tool_calls: list[object] | None = None) -> SimpleNamespace:
+def _mock_choice(
+    content: str = "hello", finish_reason: str = "stop", tool_calls: list[object] | None = None
+) -> SimpleNamespace:
     return SimpleNamespace(message=SimpleNamespace(content=content, tool_calls=tool_calls), finish_reason=finish_reason)
 
 
-def _mock_response(content: str = "hello", model: str = "gpt-4o", finish_reason: str = "stop", tool_calls: list[object] | None = None, usage: object | None = None) -> SimpleNamespace:
-    return SimpleNamespace(choices=[_mock_choice(content, finish_reason, tool_calls)], model=model, usage=usage or _mock_usage())
+def _mock_response(
+    content: str = "hello",
+    model: str = "gpt-4o",
+    finish_reason: str = "stop",
+    tool_calls: list[object] | None = None,
+    usage: object | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        choices=[_mock_choice(content, finish_reason, tool_calls)], model=model, usage=usage or _mock_usage()
+    )
 
 
-def _mock_chunk(content: str = "hi", model: str = "gpt-4o", finish_reason: str = "", has_choices: bool = True, usage: object | None = None) -> SimpleNamespace:
+def _mock_chunk(
+    content: str = "hi",
+    model: str = "gpt-4o",
+    finish_reason: str = "",
+    has_choices: bool = True,
+    usage: object | None = None,
+) -> SimpleNamespace:
     if not has_choices:
         return SimpleNamespace(choices=[], model=model, usage=usage)
-    return SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content=content), finish_reason=finish_reason)], model=model, usage=usage)
+    return SimpleNamespace(
+        choices=[SimpleNamespace(delta=SimpleNamespace(content=content), finish_reason=finish_reason)],
+        model=model,
+        usage=usage,
+    )
 
 
 def _mock_tool_call(tc_id: str = "call_1", name: str = "run", arguments: str = '{"cmd":"ls"}') -> SimpleNamespace:
@@ -172,9 +195,7 @@ class TestErrorWrapping:
         mock_client = AsyncMock()
         mock_cls.return_value = mock_client
         sdk_err = _FakeSdkError("overloaded", 503)
-        mock_client.chat.completions.create = AsyncMock(
-            side_effect=[sdk_err, sdk_err, _mock_response("ok")]
-        )
+        mock_client.chat.completions.create = AsyncMock(side_effect=[sdk_err, sdk_err, _mock_response("ok")])
 
         p = OpenAIProvider(api_key="sk-test")
         calls = {"n": 0}

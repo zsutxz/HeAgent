@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -17,6 +17,9 @@ from heagent.providers.anthropic import (
 )
 from heagent.providers.base import BaseProvider
 from heagent.types import Message, Role, ToolCall, ToolSchema
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 def _mock_usage(inp: int = 10, out: int = 5) -> SimpleNamespace:
@@ -46,8 +49,15 @@ def _mock_tool_block(tid: str = "tu_1", name: str = "run", inp: dict | None = No
     return SimpleNamespace(type="tool_use", id=tid, name=name, input=inp or {"cmd": "ls"})
 
 
-def _mock_response(content: list[object] | None = None, model: str = "claude-sonnet-4-6", stop: str = "end_turn", usage: object | None = None) -> SimpleNamespace:
-    return SimpleNamespace(content=content or [_mock_text_block()], model=model, stop_reason=stop, usage=usage or _mock_usage())
+def _mock_response(
+    content: list[object] | None = None,
+    model: str = "claude-sonnet-4-6",
+    stop: str = "end_turn",
+    usage: object | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        content=content or [_mock_text_block()], model=model, stop_reason=stop, usage=usage or _mock_usage()
+    )
 
 
 class TestHelpers:
@@ -63,14 +73,16 @@ class TestHelpers:
         assert result == [{"role": "user", "content": "hello"}]
 
     def test_to_anthropic_messages_with_tool_use_and_result_blocks(self) -> None:
-        result = _to_anthropic_messages([
-            Message(
-                role=Role.ASSISTANT,
-                content="Checking",
-                tool_calls=[ToolCall(id="tu_1", name="run", arguments={"cmd": "ls"})],
-            ),
-            Message(role=Role.TOOL, content="done", tool_call_id="tu_1"),
-        ])
+        result = _to_anthropic_messages(
+            [
+                Message(
+                    role=Role.ASSISTANT,
+                    content="Checking",
+                    tool_calls=[ToolCall(id="tu_1", name="run", arguments={"cmd": "ls"})],
+                ),
+                Message(role=Role.TOOL, content="done", tool_call_id="tu_1"),
+            ]
+        )
         assert result == [
             {
                 "role": "assistant",
@@ -88,10 +100,12 @@ class TestHelpers:
         ]
 
     def test_to_anthropic_messages_groups_consecutive_tool_results(self) -> None:
-        result = _to_anthropic_messages([
-            Message(role=Role.TOOL, content="one", tool_call_id="tu_1"),
-            Message(role=Role.TOOL, content="two", tool_call_id="tu_2"),
-        ])
+        result = _to_anthropic_messages(
+            [
+                Message(role=Role.TOOL, content="one", tool_call_id="tu_1"),
+                Message(role=Role.TOOL, content="two", tool_call_id="tu_2"),
+            ]
+        )
         assert result == [
             {
                 "role": "user",
@@ -144,10 +158,12 @@ class TestSend:
         mock_cls.return_value = mock_client
         mock_client.messages.create = AsyncMock(return_value=_mock_response([_mock_text_block("ok")]))
         p = AnthropicProvider(api_key="sk-test")  # prompt_caching 默认 True
-        await p.send([
-            Message(role=Role.SYSTEM, content="You are helpful"),
-            Message(role=Role.USER, content="hi"),
-        ])
+        await p.send(
+            [
+                Message(role=Role.SYSTEM, content="You are helpful"),
+                Message(role=Role.USER, content="hi"),
+            ]
+        )
         _, kwargs = mock_client.messages.create.call_args
         assert isinstance(kwargs["system"], list)
         assert kwargs["system"][-1]["cache_control"] == {"type": "ephemeral"}
@@ -160,10 +176,12 @@ class TestSend:
         mock_cls.return_value = mock_client
         mock_client.messages.create = AsyncMock(return_value=_mock_response([_mock_text_block("ok")]))
         p = AnthropicProvider(api_key="sk-test", prompt_caching=False)
-        await p.send([
-            Message(role=Role.SYSTEM, content="You are helpful"),
-            Message(role=Role.USER, content="hi"),
-        ])
+        await p.send(
+            [
+                Message(role=Role.SYSTEM, content="You are helpful"),
+                Message(role=Role.USER, content="hi"),
+            ]
+        )
         _, kwargs = mock_client.messages.create.call_args
         assert kwargs["system"] == "You are helpful"
 

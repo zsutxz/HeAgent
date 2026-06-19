@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -60,14 +61,22 @@ class SkillStore:
         """校验技能名称：仅允许英文、数字、下划线和连字符。"""
         safe = name.replace(" ", "_").replace("/", "-")
         if not safe.isascii() or not all(c.isalnum() or c in "_-" for c in safe):
-            raise ValueError(
-                f"Skill name must be English alphanumeric with _ or -, got: '{name}'"
-            )
+            raise ValueError(f"Skill name must be English alphanumeric with _ or -, got: '{name}'")
         return safe
 
     # ---- CRUD ----
 
-    def save(self, name: str, description: str, pattern: str, steps: list[str], *, tags: list[str] | None = None, usage_count: int = 0, last_used: str = "") -> str:
+    def save(
+        self,
+        name: str,
+        description: str,
+        pattern: str,
+        steps: list[str],
+        *,
+        tags: list[str] | None = None,
+        usage_count: int = 0,
+        last_used: str = "",
+    ) -> str:
         """保存一个技能为标准目录结构。
 
         创建 skills/<name>/SKILL.md，包含 YAML frontmatter 和 Markdown 正文。
@@ -83,7 +92,7 @@ class SkillStore:
         fm_lines = [
             "---",
             f"name: {safe}",
-            f"description: \"{description}\"",
+            f'description: "{description}"',
             f"created: {now}",
         ]
         if tag_str:
@@ -121,12 +130,9 @@ class SkillStore:
         """返回所有已存储的技能名称（目录名，按名称排序）。"""
         if not self._base.exists():
             return []
-        return sorted(
-            d.name for d in self._base.iterdir()
-            if d.is_dir() and (d / "SKILL.md").exists()
-        )
+        return sorted(d.name for d in self._base.iterdir() if d.is_dir() and (d / "SKILL.md").exists())
 
-    def delete(self, name: bool | str) -> bool:
+    def delete(self, name: str) -> bool:
         """删除指定技能目录。返回是否成功删除。"""
         skill_dir = self._skill_dir(name)
         if skill_dir.is_dir():
@@ -186,7 +192,10 @@ class SkillStore:
             return
         now = datetime.now().isoformat()
         self.save(
-            name, existing.description, existing.pattern, existing.steps,
+            name,
+            existing.description,
+            existing.pattern,
+            existing.steps,
             tags=existing.tags or None,
             usage_count=existing.usage_count + 1,
             last_used=now,
@@ -269,7 +278,7 @@ class SkillStore:
         fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
         if fm_match:
             fm_text = fm_match.group(1)
-            body = content[fm_match.end():]
+            body = content[fm_match.end() :]
             # 简单解析 frontmatter（不引入 yaml 依赖）
             for line in fm_text.splitlines():
                 stripped = line.strip()
@@ -282,10 +291,8 @@ class SkillStore:
                     if tag_part.startswith("[") and tag_part.endswith("]"):
                         tags = [t.strip() for t in tag_part[1:-1].split(",") if t.strip()]
                 elif stripped.startswith("usage_count:"):
-                    try:
+                    with contextlib.suppress(ValueError):
                         usage_count = int(stripped.split(":", 1)[1].strip())
-                    except ValueError:
-                        pass
                 elif stripped.startswith("last_used:"):
                     last_used = stripped.split(":", 1)[1].strip().strip('"').strip("'")
 
@@ -302,7 +309,7 @@ class SkillStore:
             elif section == "steps" and stripped:
                 dot_pos = stripped.find(". ")
                 if dot_pos >= 0 and stripped[:dot_pos].isdigit():
-                    steps.append(stripped[dot_pos + 2:])
+                    steps.append(stripped[dot_pos + 2 :])
                 else:
                     steps.append(stripped)
 

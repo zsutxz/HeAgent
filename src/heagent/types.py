@@ -6,26 +6,26 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pydantic import BaseModel
 
 
-class Role(str, Enum):
+class Role(StrEnum):
     """对话消息角色枚举。"""
 
-    USER = "user"          # 用户输入
+    USER = "user"  # 用户输入
     ASSISTANT = "assistant"  # LLM 助手回复
-    SYSTEM = "system"      # 系统提示词
-    TOOL = "tool"          # 工具执行结果
+    SYSTEM = "system"  # 系统提示词
+    TOOL = "tool"  # 工具执行结果
 
 
 class TokenUsage(BaseModel):
     """Token 使用量统计，从 Provider 响应中提取。"""
 
-    prompt_tokens: int       # 输入 Token 数
-    completion_tokens: int   # 输出 Token 数
-    total_tokens: int        # 总 Token 数
+    prompt_tokens: int  # 输入 Token 数
+    completion_tokens: int  # 输出 Token 数
+    total_tokens: int  # 总 Token 数
 
 
 class ToolCall(BaseModel):

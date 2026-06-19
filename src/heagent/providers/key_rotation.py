@@ -7,11 +7,15 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from heagent.exceptions import ProviderError
 from heagent.providers.base import BaseProvider, ProviderMetadata
-from heagent.types import Message, ProviderResponse, ToolSchema
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from heagent.types import Message, ProviderResponse, ToolSchema
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +51,10 @@ class KeyRotatingProvider:
             self._current_index += 1
             logger.info(
                 "Key rotation: %s (#%d) -> %s (#%d)",
-                self._providers[old].get_metadata().name, old,
-                self.current.get_metadata().name, self._current_index,
+                self._providers[old].get_metadata().name,
+                old,
+                self.current.get_metadata().name,
+                self._current_index,
             )
             return True
         return False
@@ -81,7 +87,9 @@ class KeyRotatingProvider:
                     raise
                 last_error = e
                 logger.warning(
-                    "Key #%d failed (rotatable): %s", self._current_index, e,
+                    "Key #%d failed (rotatable): %s",
+                    self._current_index,
+                    e,
                 )
                 if not self._advance():
                     break
@@ -100,14 +108,16 @@ class KeyRotatingProvider:
         start = self._current_index
         for _ in range(len(self._providers)):
             try:
-                async for chunk in self.current.stream(messages, tools=tools):  # type: ignore[attr-defined]
+                async for chunk in self.current.stream(messages, tools=tools):
                     yield chunk
                 return
             except Exception as e:
                 if not self._is_rotation_error(e):
                     raise
                 logger.warning(
-                    "Key #%d stream failed (rotatable): %s", self._current_index, e,
+                    "Key #%d stream failed (rotatable): %s",
+                    self._current_index,
+                    e,
                 )
                 if not self._advance():
                     break

@@ -13,18 +13,21 @@ from __future__ import annotations
 
 import asyncio
 import random
-from collections.abc import Awaitable, Callable
-from enum import Enum
+from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from heagent.exceptions import ProviderError
 
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
-class ErrorCategory(str, Enum):
+
+class ErrorCategory(StrEnum):
     """错误分类枚举。"""
 
-    RATE_LIMITED = "rate_limited"    # 限流错误（429）
-    AUTH_FAILED = "auth_failed"      # 认证失败（401/403）
-    TRANSIENT = "transient"          # 临时错误（5xx/超时）→ 可重试
+    RATE_LIMITED = "rate_limited"  # 限流错误（429）
+    AUTH_FAILED = "auth_failed"  # 认证失败（401/403）
+    TRANSIENT = "transient"  # 临时错误（5xx/超时）→ 可重试
     NON_TRANSIENT = "non_transient"  # 非临时错误 → 不重试
 
 
@@ -138,7 +141,7 @@ async def retry_with_backoff(
             last_error = e
             # 最后一次不等待，直接进入下一次循环抛出
             if attempt < max_attempts - 1:
-                delay = min(base_delay * (2 ** attempt) + random.uniform(0, 1), max_delay)
+                delay = min(base_delay * (2**attempt) + random.uniform(0, 1), max_delay)
                 await asyncio.sleep(delay)
 
     raise last_error or ProviderError("Retry exhausted")

@@ -35,12 +35,12 @@ class TestShellExecution:
         assert "hello" in result
 
     async def test_exit_code(self) -> None:
-        result = await shell(f"{_PY} -c \"exit(42)\"")
+        result = await shell(f'{_PY} -c "exit(42)"')
         assert "exit_code=42" in result
 
     async def test_stderr(self) -> None:
         result = await shell(
-            f'{_PY} -c "import sys; print(\'err\', file=sys.stderr)"',
+            f"{_PY} -c \"import sys; print('err', file=sys.stderr)\"",
         )
         assert "exit_code=0" in result
         assert "err" in result

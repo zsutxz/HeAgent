@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -10,6 +10,9 @@ from heagent.agent.loop import AgentLoop
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
 from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 class StreamStubProvider:
@@ -47,7 +50,9 @@ class StreamStubProvider:
             is_last = i == len(self._chunks) - 1
             yield ProviderResponse(
                 content=chunk,
-                usage=self._stream_usage if is_last else TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+                usage=self._stream_usage
+                if is_last
+                else TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
                 model="stub",
                 finish_reason=self._stream_finish_reason if is_last else "",
             )

@@ -21,7 +21,7 @@ import click
 import heagent.tools.builtins  # noqa: F401 — 导入即触发 @tool 注册
 from heagent.agent.loop import AgentLoop
 from heagent.agent.middleware import make_retry_middleware
-from heagent.config import get_settings
+from heagent.config import Settings, get_settings
 from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
 from heagent.cron.jobs import JobStore
@@ -39,23 +39,22 @@ from heagent.tools.builtins.subagent import configure_subagent_tools
 
 if TYPE_CHECKING:
     from heagent.providers.base import BaseProvider
+    from heagent.types import TokenUsage
 
 logger = logging.getLogger(__name__)
 
 
-def _print_usage(usage: object | None) -> None:
+def _print_usage(usage: TokenUsage | None) -> None:
     """在回答后显示 token 消耗统计。"""
-    if usage is None or not hasattr(usage, "total_tokens") or usage.total_tokens == 0:
+    if usage is None or usage.total_tokens == 0:
         return
     click.echo(
-        f"  [tokens: {usage.prompt_tokens} in + "
-        f"{usage.completion_tokens} out = "
-        f"{usage.total_tokens} total]",
+        f"  [tokens: {usage.prompt_tokens} in + {usage.completion_tokens} out = {usage.total_tokens} total]",
         err=True,
     )
 
 
-def _build_provider(settings, model: str) -> BaseProvider:
+def _build_provider(settings: Settings, model: str) -> BaseProvider:
     """根据可用的 API Key 自动检测并构建 Provider。
 
     优先级：DeepSeek > OpenAI > Anthropic。
@@ -87,8 +86,7 @@ def _build_provider(settings, model: str) -> BaseProvider:
     # 无可用 Key → 报错退出
     if not providers:
         click.echo(
-            "Error: No API key configured. "
-            "Set DEEPSEEK_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
+            "Error: No API key configured. Set DEEPSEEK_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
             err=True,
         )
         raise SystemExit(1)
@@ -100,7 +98,7 @@ def _build_provider(settings, model: str) -> BaseProvider:
     return ProviderChain(providers)
 
 
-def _build_openai_providers(settings, model: str) -> BaseProvider | None:
+def _build_openai_providers(settings: Settings, model: str) -> BaseProvider | None:
     """构建 OpenAI Provider（含密钥池轮换）。"""
     # 主 key + 密钥池合并
     keys: list[str] = []
@@ -113,16 +111,15 @@ def _build_openai_providers(settings, model: str) -> BaseProvider | None:
     if not keys:
         return None
 
-    provider_list = [
-        OpenAIProvider(api_key=k, model=model, base_url=settings.openai_base_url)
-        for k in keys
+    provider_list: list[BaseProvider] = [
+        OpenAIProvider(api_key=k, model=model, base_url=settings.openai_base_url) for k in keys
     ]
     if len(provider_list) == 1:
         return provider_list[0]
     return KeyRotatingProvider(provider_list)
 
 
-def _build_anthropic_providers(settings, model: str) -> BaseProvider | None:
+def _build_anthropic_providers(settings: Settings, model: str) -> BaseProvider | None:
     """构建 Anthropic Provider（含密钥池轮换）。"""
     keys: list[str] = []
     if settings.anthropic_api_key:
@@ -134,7 +131,7 @@ def _build_anthropic_providers(settings, model: str) -> BaseProvider | None:
     if not keys:
         return None
 
-    provider_list = [
+    provider_list: list[BaseProvider] = [
         AnthropicProvider(
             api_key=k,
             model=model,
@@ -233,10 +230,15 @@ async def _run_chat(
     scheduler: CronScheduler | None = None
     if settings.cron_enabled and cron_store:
         scheduler = CronScheduler(
-            cron_store, provider,
+            cron_store,
+            provider,
             tick_seconds=settings.cron_tick_seconds,
-            skills=skills, facts=facts, profile=profile,
-            compressor=compressor, soul=soul, cron_store=cron_store,
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            compressor=compressor,
+            soul=soul,
+            cron_store=cron_store,
         )
 
     configure_subagent_tools(
@@ -278,7 +280,6 @@ async def _run_chat(
                 break
 
             try:
-                final_answer = ""
                 async for event in loop.run_stream(user_input, system=system, session_id=session_id):
                     if event.type == "text":
                         click.echo(event.text, nl=False)
@@ -305,7 +306,13 @@ async def _run_chat(
 @click.option("--system", default=None, help="System prompt")
 @click.option("--max-iterations", type=int, default=None, help="Max agent loop iterations")
 @click.option("--soul", default=None, help="Path to custom SOUL.md personality file")
-def main(prompt: str | None, model: str | None, system: str | None, max_iterations: int | None, soul: str | None) -> None:
+def main(
+    prompt: str | None,
+    model: str | None,
+    system: str | None,
+    max_iterations: int | None,
+    soul: str | None,
+) -> None:
     """HeAgent — self-improving AI agent.
 
     Run with a PROMPT for single-shot mode, or without for interactive chat.
