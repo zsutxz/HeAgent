@@ -83,8 +83,8 @@ Greet the user and offer to show available capabilities.
 
 ## Capabilities
 
-{Succinct routing table — each capability routes to a progressive disclosure file in ./references/:}
+{Succinct routing table — each capability routes to a progressive disclosure file in references/:}
 
 | Capability        | Route                               |
 | ----------------- | ----------------------------------- |
-| {Capability Name} | Load `./references/{capability}.md` |
+| {Capability Name} | Load `references/{capability}.md` |
