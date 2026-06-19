@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 from openai import AsyncOpenAI
 
 from heagent.providers.base import ProviderMetadata
+from heagent.providers.retry import wrap_provider_error
 from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall, ToolSchema
 
 
@@ -108,7 +109,12 @@ class OpenAIProvider:
         if tools:
             kwargs["tools"] = _to_openai_tools(tools)
 
-        resp = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
+        try:
+            resp = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
+        except Exception as e:
+            # 统一包装 SDK 异常（RateLimitError/APITimeoutError 等）为 ProviderError，
+            # 使下游 KeyRotatingProvider/retry/Chain 始终面对 HeAgent 体系异常。
+            raise wrap_provider_error(e) from e
 
         choice = resp.choices[0]
         message = choice.message
@@ -144,23 +150,26 @@ class OpenAIProvider:
         if tools:
             kwargs["tools"] = _to_openai_tools(tools)
 
-        stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
-        async for chunk in stream:
-            if not chunk.choices:
-                continue
-            delta = chunk.choices[0].delta
-            usage = TokenUsage(
-                prompt_tokens=chunk.usage.prompt_tokens if chunk.usage else 0,
-                completion_tokens=chunk.usage.completion_tokens if chunk.usage else 0,
-                total_tokens=chunk.usage.total_tokens if chunk.usage else 0,
-            )
-            yield ProviderResponse(
-                content=delta.content or "",
-                tool_calls=[],
-                usage=usage,
-                model=chunk.model,
-                finish_reason=chunk.choices[0].finish_reason or "",
-            )
+        try:
+            stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
+            async for chunk in stream:
+                if not chunk.choices:
+                    continue
+                delta = chunk.choices[0].delta
+                usage = TokenUsage(
+                    prompt_tokens=chunk.usage.prompt_tokens if chunk.usage else 0,
+                    completion_tokens=chunk.usage.completion_tokens if chunk.usage else 0,
+                    total_tokens=chunk.usage.total_tokens if chunk.usage else 0,
+                )
+                yield ProviderResponse(
+                    content=delta.content or "",
+                    tool_calls=[],
+                    usage=usage,
+                    model=chunk.model,
+                    finish_reason=chunk.choices[0].finish_reason or "",
+                )
+        except Exception as e:
+            raise wrap_provider_error(e) from e
 
     def get_metadata(self) -> ProviderMetadata:
         """返回 Provider 能力描述。"""

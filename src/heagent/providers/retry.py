@@ -41,8 +41,18 @@ def _classify(status: int | None, message: str) -> ErrorCategory:
     # 认证失败：401 状态码或消息中包含 auth/401
     if status == 401 or "auth" in msg or "401" in msg:
         return ErrorCategory.AUTH_FAILED
-    # 临时错误：5xx 状态码或超时/过载关键词
-    if status in (503, 502, 500) or "timeout" in msg or "503" in msg or "overload" in msg:
+    # 临时错误：5xx 状态码或超时/连接/过载关键词。
+    # OpenAI SDK 的 APITimeoutError.message="Request timed out."（含 "timed out" 不含 "timeout"）、
+    # APIConnectionError.message="Connection error."——须同时覆盖，否则单 provider 配置下这类典型
+    # 瞬时错误会被误判为 NON_TRANSIENT 而不重试、ProviderChain 也不回退（违反 spec I/O 矩阵）。
+    if (
+        status in (503, 502, 500)
+        or "timeout" in msg
+        or "timed out" in msg
+        or "connection" in msg
+        or "503" in msg
+        or "overload" in msg
+    ):
         return ErrorCategory.TRANSIENT
     # 默认归为非临时错误
     return ErrorCategory.NON_TRANSIENT
@@ -59,6 +69,21 @@ def _extract_status_message(error: Exception) -> tuple[int | None, str]:
         status = getattr(error, "status", None)
     message = getattr(error, "message", None) or str(error)
     return status, message
+
+
+def wrap_provider_error(error: Exception) -> ProviderError:
+    """将任意异常（含原始 SDK 异常）包装为 ProviderError，保留状态码。
+
+    供 provider 源头（OpenAI/Anthropic）统一包装 SDK 抛出的 APIStatusError /
+    APIConnectionError / APITimeoutError 等异常，使下游 KeyRotatingProvider /
+    retry 中间件 / ProviderChain 始终面对 HeAgentError 体系内的异常——避免裸 SDK
+    异常穿透导致密钥轮换/retry 死代码与非框架异常崩溃。
+
+    状态码与消息提取复用 _extract_status_message（duck-type status_code/status/
+    message），保证 chain._wrap_error 与 provider 包装行为一致（DRY 单一来源）。
+    """
+    status, message = _extract_status_message(error)
+    return ProviderError(message, status_code=status)
 
 
 def classify_error(error: ProviderError) -> ErrorCategory:

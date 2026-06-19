@@ -6,6 +6,9 @@ from collections.abc import AsyncIterator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from heagent.exceptions import ProviderError
 from heagent.providers.anthropic import (
     AnthropicProvider,
     _extract_system,
@@ -243,6 +246,46 @@ class AsyncIteratorStub:
         val = self._items[self._i]
         self._i += 1
         return val
+
+
+class _FakeSdkError(Exception):
+    """模拟 anthropic SDK 的 APIStatusError：带 status_code 与 message（非 ProviderError）。"""
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+class TestErrorWrapping:
+    @patch("heagent.providers.anthropic.AsyncAnthropic")
+    async def test_send_wraps_sdk_error(self, mock_cls: MagicMock) -> None:
+        """真实 SDK 异常（AuthenticationError 风格）应被包装为 ProviderError，保留 cause。"""
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        sdk_err = _FakeSdkError("unauthorized", 401)
+        mock_client.messages.create = AsyncMock(side_effect=sdk_err)
+
+        p = AnthropicProvider(api_key="sk-test")
+        with pytest.raises(ProviderError) as exc_info:
+            await p.send([Message(role=Role.USER, content="hi")])
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.__cause__ is sdk_err
+
+    @patch("heagent.providers.anthropic.AsyncAnthropic")
+    async def test_stream_wraps_sdk_error(self, mock_cls: MagicMock) -> None:
+        """流式 SDK 异常（在 async with 之前/之中抛出）同样包装为 ProviderError。"""
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        sdk_err = _FakeSdkError("overloaded", 503)
+        # messages.stream() 调用即抛 → 落在 try 块内被包装
+        mock_client.messages.stream = MagicMock(side_effect=sdk_err)
+
+        p = AnthropicProvider(api_key="sk-test")
+        with pytest.raises(ProviderError) as exc_info:
+            async for _ in p.stream([Message(role=Role.USER, content="hi")]):
+                pass
+        assert exc_info.value.status_code == 503
 
 
 class TestMetadata:

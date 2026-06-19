@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from heagent.exceptions import ProviderError
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.key_rotation import KeyRotatingProvider
+from heagent.providers.openai import OpenAIProvider
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
 
 
@@ -144,3 +147,55 @@ class TestKeyRotatingProvider:
         ])
         resp = await rp.send([Message(role=Role.USER, content="hi")])
         assert resp.content == "ok"
+
+
+class _FakeSdkError(Exception):
+    """模拟 openai SDK 的 APIStatusError：带 status_code 与 message（非 ProviderError）。"""
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+def _ok_openai_response(content: str = "ok") -> SimpleNamespace:
+    """构造 OpenAIProvider.send 能正常解析的成功响应。"""
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content, tool_calls=None),
+                finish_reason="stop",
+            )
+        ],
+        model="gpt-4o",
+        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+    )
+
+
+class TestRotationWithRealProvider:
+    """用真实 OpenAIProvider（mock SDK 抛原始异常）验证密钥轮换在生产行为下生效。"""
+
+    @patch("heagent.providers.openai.AsyncOpenAI")
+    async def test_rotates_on_real_sdk_429(self, mock_cls: MagicMock) -> None:
+        """真实 OpenAIProvider 抛 SDK 风格 429 时，KeyRotatingProvider 应轮换到下一 key。
+
+        修复前：openai.send 抛原始 _FakeSdkError（非 ProviderError）→ _is_rotation_error
+        判定 False → 立即 re-raise，不轮换（密钥轮换在生产路径下是死代码）。
+        修复后：openai.send 包装为 ProviderError(status_code=429) → 轮换生效。
+        """
+        client_a = AsyncMock()
+        client_a.chat.completions.create = AsyncMock(
+            side_effect=_FakeSdkError("rate limited", 429)
+        )
+        client_b = AsyncMock()
+        client_b.chat.completions.create = AsyncMock(return_value=_ok_openai_response("from-key-b"))
+        # 每次 OpenAIProvider(...) 构造消耗一个 mock client
+        mock_cls.side_effect = [client_a, client_b]
+
+        p_a = OpenAIProvider(api_key="sk-a")
+        p_b = OpenAIProvider(api_key="sk-b")
+        rp = KeyRotatingProvider([p_a, p_b])
+
+        resp = await rp.send([Message(role=Role.USER, content="hi")])
+        assert resp.content == "from-key-b"  # 轮换到 B 后成功
+        assert rp._current_index == 1

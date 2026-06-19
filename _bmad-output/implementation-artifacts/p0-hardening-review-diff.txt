@@ -1,0 +1,491 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 1a05513..f207ecb 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -2,6 +2,10 @@
+ 
+ This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+ 
++## ⚠️ 安全声明
++
++HeAgent 执行 shell / 读写文件 / 调外部 API。`SafetyGuard` **不是真正的安全边界**（黑名单可绕过、工具返回内容无围栏进入上下文、prompt injection 无隔离）。**不可在不可信内容或不可信 LLM 输出下裸跑**——必须配 OS 级沙箱（容器/firejail）。修改安全相关代码时勿将其当作有效边界；完整性评估见 `docs/qa.md` §3。
++
+ ## 构建与测试命令
+ 
+ ```bash
+diff --git a/README.md b/README.md
+index 7bee86f..6cc2b60 100644
+--- a/README.md
++++ b/README.md
+@@ -2,6 +2,15 @@
+ 
+ 自学习 AI Agent 核心框架。受 NousResearch Hermes Agent 启发，提取自主 Agent 的核心设计模式——学习循环、多模型适配、工具编排、记忆系统——用清晰、模块化的代码重新实现。
+ 
++## ⚠️ 安全声明（运行前务必阅读）
++
++HeAgent 会**执行 shell 命令、读写文件、调用外部 API**。当前的 `SafetyGuard`（黑名单/白名单命令过滤）**不是真正的安全边界**——它无法可靠抵御 prompt injection 与工具滥用：命令黑名单可被轻易绕过、工具返回内容会无围栏地进入 LLM 上下文。因此：
++
++- **不可在不可信内容或不可信 LLM 输出下裸跑** HeAgent。若需处理外部文件、网页、用户上传或第三方模型响应，**必须配套 OS 级隔离**（容器 / firejail / 沙箱虚拟机），并收紧文件系统与网络权限。
++- 不要在宿主机家目录、生产服务器或多租户环境中以默认配置直接运行未沙箱化的实例。
++
++详见 `docs/qa.md` 第三节安全评估。此声明是诚实的使用边界，而非 `SafetyGuard` 已被加固的承诺。
++
+ ## 特性
+ 
+ - **多模型支持** — OpenAI、Anthropic、DeepSeek、智谱AI 等 OpenAI/Anthropic 兼容接口
+diff --git a/src/heagent/providers/anthropic.py b/src/heagent/providers/anthropic.py
+index 18daf39..135e719 100644
+--- a/src/heagent/providers/anthropic.py
++++ b/src/heagent/providers/anthropic.py
+@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator, Sequence
+ from anthropic import AsyncAnthropic
+ 
+ from heagent.providers.base import ProviderMetadata
++from heagent.providers.retry import wrap_provider_error
+ from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
+ 
+ logger = logging.getLogger(__name__)
+@@ -175,7 +176,12 @@ class AnthropicProvider:
+         if tools:
+             kwargs["tools"] = _to_anthropic_tools(tools)
+ 
+-        resp = await self._client.messages.create(**kwargs)  # type: ignore[arg-type]
++        try:
++            resp = await self._client.messages.create(**kwargs)  # type: ignore[arg-type]
++        except Exception as e:
++            # 统一包装 SDK 异常（RateLimitError/APITimeoutError 等）为 ProviderError，
++            # 使下游 KeyRotatingProvider/retry/Chain 始终面对 HeAgent 体系异常。
++            raise wrap_provider_error(e) from e
+ 
+         text_parts: list[str] = []
+         for block in resp.content:
+@@ -211,30 +217,33 @@ class AnthropicProvider:
+         if tools:
+             kwargs["tools"] = _to_anthropic_tools(tools)
+ 
+-        async with self._client.messages.stream(**kwargs) as stream:  # type: ignore[arg-type]
+-            async for text in stream.text_stream:
++        try:
++            async with self._client.messages.stream(**kwargs) as stream:  # type: ignore[arg-type]
++                async for text in stream.text_stream:
++                    yield ProviderResponse(
++                        content=text,
++                        tool_calls=[],
++                        usage=TokenUsage(
++                            prompt_tokens=0,
++                            completion_tokens=0,
++                            total_tokens=0,
++                        ),
++                        model=self._model,
++                        finish_reason="",
++                    )
++                # 文本块流尽后用 get_final_message() 取完整响应，补发一个最终 chunk：
++                # 携带真实 usage（驱动 token 累计与压缩触发）、tool_calls（流式工具调用）、
++                # finish_reason。文本已在上方逐块 yield，此处 content="" 避免重复输出。
++                final = await stream.get_final_message()
+                 yield ProviderResponse(
+-                    content=text,
+-                    tool_calls=[],
+-                    usage=TokenUsage(
+-                        prompt_tokens=0,
+-                        completion_tokens=0,
+-                        total_tokens=0,
+-                    ),
+-                    model=self._model,
+-                    finish_reason="",
++                    content="",
++                    tool_calls=_parse_tool_use_blocks(final.content),
++                    usage=_build_usage(final.usage),
++                    model=getattr(final, "model", self._model),
++                    finish_reason=final.stop_reason or "end_turn",
+                 )
+-            # 文本块流尽后用 get_final_message() 取完整响应，补发一个最终 chunk：
+-            # 携带真实 usage（驱动 token 累计与压缩触发）、tool_calls（流式工具调用）、
+-            # finish_reason。文本已在上方逐块 yield，此处 content="" 避免重复输出。
+-            final = await stream.get_final_message()
+-            yield ProviderResponse(
+-                content="",
+-                tool_calls=_parse_tool_use_blocks(final.content),
+-                usage=_build_usage(final.usage),
+-                model=getattr(final, "model", self._model),
+-                finish_reason=final.stop_reason or "end_turn",
+-            )
++        except Exception as e:
++            raise wrap_provider_error(e) from e
+ 
+     def get_metadata(self) -> ProviderMetadata:
+         """Return provider capability metadata."""
+diff --git a/src/heagent/providers/chain.py b/src/heagent/providers/chain.py
+index 08c36f5..9a944e1 100644
+--- a/src/heagent/providers/chain.py
++++ b/src/heagent/providers/chain.py
+@@ -11,23 +11,19 @@ from collections.abc import AsyncIterator
+ 
+ from heagent.exceptions import ProviderError
+ from heagent.providers.base import BaseProvider, ProviderMetadata
+-from heagent.providers.retry import ErrorCategory, classify_exception
++from heagent.providers.retry import ErrorCategory, classify_exception, wrap_provider_error
+ from heagent.types import Message, ProviderResponse, ToolSchema
+ 
+ logger = logging.getLogger(__name__)
+ 
+ 
+ def _wrap_error(error: Exception) -> ProviderError:
+-    """将任意异常（含原始 SDK 异常）包装为 ProviderError，保留状态码与原始 cause。
++    """将任意异常包装为 ProviderError（委托 retry.wrap_provider_error，DRY）。
+ 
+     使回退链抛出的始终是 HeAgentError 体系内的异常，供上层中间件分类重试、
+     供 CLI 统一捕获，避免裸 SDK 异常穿透导致未处理崩溃。
+     """
+-    status = getattr(error, "status_code", None)
+-    if status is None:
+-        status = getattr(error, "status", None)
+-    message = getattr(error, "message", None) or str(error)
+-    return ProviderError(message, status_code=status)
++    return wrap_provider_error(error)
+ 
+ 
+ class ProviderChain:
+diff --git a/src/heagent/providers/openai.py b/src/heagent/providers/openai.py
+index 0b5c521..20e8422 100644
+--- a/src/heagent/providers/openai.py
++++ b/src/heagent/providers/openai.py
+@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
+ from openai import AsyncOpenAI
+ 
+ from heagent.providers.base import ProviderMetadata
++from heagent.providers.retry import wrap_provider_error
+ from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall, ToolSchema
+ 
+ 
+@@ -108,7 +109,12 @@ class OpenAIProvider:
+         if tools:
+             kwargs["tools"] = _to_openai_tools(tools)
+ 
+-        resp = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
++        try:
++            resp = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
++        except Exception as e:
++            # 统一包装 SDK 异常（RateLimitError/APITimeoutError 等）为 ProviderError，
++            # 使下游 KeyRotatingProvider/retry/Chain 始终面对 HeAgent 体系异常。
++            raise wrap_provider_error(e) from e
+ 
+         choice = resp.choices[0]
+         message = choice.message
+@@ -144,23 +150,26 @@ class OpenAIProvider:
+         if tools:
+             kwargs["tools"] = _to_openai_tools(tools)
+ 
+-        stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
+-        async for chunk in stream:
+-            if not chunk.choices:
+-                continue
+-            delta = chunk.choices[0].delta
+-            usage = TokenUsage(
+-                prompt_tokens=chunk.usage.prompt_tokens if chunk.usage else 0,
+-                completion_tokens=chunk.usage.completion_tokens if chunk.usage else 0,
+-                total_tokens=chunk.usage.total_tokens if chunk.usage else 0,
+-            )
+-            yield ProviderResponse(
+-                content=delta.content or "",
+-                tool_calls=[],
+-                usage=usage,
+-                model=chunk.model,
+-                finish_reason=chunk.choices[0].finish_reason or "",
+-            )
++        try:
++            stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
++            async for chunk in stream:
++                if not chunk.choices:
++                    continue
++                delta = chunk.choices[0].delta
++                usage = TokenUsage(
++                    prompt_tokens=chunk.usage.prompt_tokens if chunk.usage else 0,
++                    completion_tokens=chunk.usage.completion_tokens if chunk.usage else 0,
++                    total_tokens=chunk.usage.total_tokens if chunk.usage else 0,
++                )
++                yield ProviderResponse(
++                    content=delta.content or "",
++                    tool_calls=[],
++                    usage=usage,
++                    model=chunk.model,
++                    finish_reason=chunk.choices[0].finish_reason or "",
++                )
++        except Exception as e:
++            raise wrap_provider_error(e) from e
+ 
+     def get_metadata(self) -> ProviderMetadata:
+         """返回 Provider 能力描述。"""
+diff --git a/src/heagent/providers/retry.py b/src/heagent/providers/retry.py
+index 3a7ddee..2f9169e 100644
+--- a/src/heagent/providers/retry.py
++++ b/src/heagent/providers/retry.py
+@@ -61,6 +61,21 @@ def _extract_status_message(error: Exception) -> tuple[int | None, str]:
+     return status, message
+ 
+ 
++def wrap_provider_error(error: Exception) -> ProviderError:
++    """将任意异常（含原始 SDK 异常）包装为 ProviderError，保留状态码。
++
++    供 provider 源头（OpenAI/Anthropic）统一包装 SDK 抛出的 APIStatusError /
++    APIConnectionError / APITimeoutError 等异常，使下游 KeyRotatingProvider /
++    retry 中间件 / ProviderChain 始终面对 HeAgentError 体系内的异常——避免裸 SDK
++    异常穿透导致密钥轮换/retry 死代码与非框架异常崩溃。
++
++    状态码与消息提取复用 _extract_status_message（duck-type status_code/status/
++    message），保证 chain._wrap_error 与 provider 包装行为一致（DRY 单一来源）。
++    """
++    status, message = _extract_status_message(error)
++    return ProviderError(message, status_code=status)
++
++
+ def classify_error(error: ProviderError) -> ErrorCategory:
+     """根据状态码和错误信息分类 Provider 错误。
+ 
+diff --git a/tests/providers/test_anthropic.py b/tests/providers/test_anthropic.py
+index 66278e4..0d2f37f 100644
+--- a/tests/providers/test_anthropic.py
++++ b/tests/providers/test_anthropic.py
+@@ -6,6 +6,9 @@ from collections.abc import AsyncIterator
+ from types import SimpleNamespace
+ from unittest.mock import AsyncMock, MagicMock, patch
+ 
++import pytest
++
++from heagent.exceptions import ProviderError
+ from heagent.providers.anthropic import (
+     AnthropicProvider,
+     _extract_system,
+@@ -245,6 +248,46 @@ class AsyncIteratorStub:
+         return val
+ 
+ 
++class _FakeSdkError(Exception):
++    """模拟 anthropic SDK 的 APIStatusError：带 status_code 与 message（非 ProviderError）。"""
++
++    def __init__(self, message: str, status_code: int) -> None:
++        super().__init__(message)
++        self.message = message
++        self.status_code = status_code
++
++
++class TestErrorWrapping:
++    @patch("heagent.providers.anthropic.AsyncAnthropic")
++    async def test_send_wraps_sdk_error(self, mock_cls: MagicMock) -> None:
++        """真实 SDK 异常（AuthenticationError 风格）应被包装为 ProviderError，保留 cause。"""
++        mock_client = AsyncMock()
++        mock_cls.return_value = mock_client
++        sdk_err = _FakeSdkError("unauthorized", 401)
++        mock_client.messages.create = AsyncMock(side_effect=sdk_err)
++
++        p = AnthropicProvider(api_key="sk-test")
++        with pytest.raises(ProviderError) as exc_info:
++            await p.send([Message(role=Role.USER, content="hi")])
++        assert exc_info.value.status_code == 401
++        assert exc_info.value.__cause__ is sdk_err
++
++    @patch("heagent.providers.anthropic.AsyncAnthropic")
++    async def test_stream_wraps_sdk_error(self, mock_cls: MagicMock) -> None:
++        """流式 SDK 异常（在 async with 之前/之中抛出）同样包装为 ProviderError。"""
++        mock_client = AsyncMock()
++        mock_cls.return_value = mock_client
++        sdk_err = _FakeSdkError("overloaded", 503)
++        # messages.stream() 调用即抛 → 落在 try 块内被包装
++        mock_client.messages.stream = MagicMock(side_effect=sdk_err)
++
++        p = AnthropicProvider(api_key="sk-test")
++        with pytest.raises(ProviderError) as exc_info:
++            async for _ in p.stream([Message(role=Role.USER, content="hi")]):
++                pass
++        assert exc_info.value.status_code == 503
++
++
+ class TestMetadata:
+     def test_metadata(self) -> None:
+         p = AnthropicProvider(api_key="sk-test")
+diff --git a/tests/providers/test_key_rotation.py b/tests/providers/test_key_rotation.py
+index ca6e8de..61d1877 100644
+--- a/tests/providers/test_key_rotation.py
++++ b/tests/providers/test_key_rotation.py
+@@ -3,12 +3,15 @@
+ from __future__ import annotations
+ 
+ from collections.abc import AsyncIterator
++from types import SimpleNamespace
++from unittest.mock import AsyncMock, MagicMock, patch
+ 
+ import pytest
+ 
+ from heagent.exceptions import ProviderError
+ from heagent.providers.base import ProviderMetadata
+ from heagent.providers.key_rotation import KeyRotatingProvider
++from heagent.providers.openai import OpenAIProvider
+ from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
+ 
+ 
+@@ -144,3 +147,55 @@ class TestKeyRotatingProvider:
+         ])
+         resp = await rp.send([Message(role=Role.USER, content="hi")])
+         assert resp.content == "ok"
++
++
++class _FakeSdkError(Exception):
++    """模拟 openai SDK 的 APIStatusError：带 status_code 与 message（非 ProviderError）。"""
++
++    def __init__(self, message: str, status_code: int) -> None:
++        super().__init__(message)
++        self.message = message
++        self.status_code = status_code
++
++
++def _ok_openai_response(content: str = "ok") -> SimpleNamespace:
++    """构造 OpenAIProvider.send 能正常解析的成功响应。"""
++    return SimpleNamespace(
++        choices=[
++            SimpleNamespace(
++                message=SimpleNamespace(content=content, tool_calls=None),
++                finish_reason="stop",
++            )
++        ],
++        model="gpt-4o",
++        usage=SimpleNamespace(prompt_tokens=1, completion_tokens=1, total_tokens=2),
++    )
++
++
++class TestRotationWithRealProvider:
++    """用真实 OpenAIProvider（mock SDK 抛原始异常）验证密钥轮换在生产行为下生效。"""
++
++    @patch("heagent.providers.openai.AsyncOpenAI")
++    async def test_rotates_on_real_sdk_429(self, mock_cls: MagicMock) -> None:
++        """真实 OpenAIProvider 抛 SDK 风格 429 时，KeyRotatingProvider 应轮换到下一 key。
++
++        修复前：openai.send 抛原始 _FakeSdkError（非 ProviderError）→ _is_rotation_error
++        判定 False → 立即 re-raise，不轮换（密钥轮换在生产路径下是死代码）。
++        修复后：openai.send 包装为 ProviderError(status_code=429) → 轮换生效。
++        """
++        client_a = AsyncMock()
++        client_a.chat.completions.create = AsyncMock(
++            side_effect=_FakeSdkError("rate limited", 429)
++        )
++        client_b = AsyncMock()
++        client_b.chat.completions.create = AsyncMock(return_value=_ok_openai_response("from-key-b"))
++        # 每次 OpenAIProvider(...) 构造消耗一个 mock client
++        mock_cls.side_effect = [client_a, client_b]
++
++        p_a = OpenAIProvider(api_key="sk-a")
++        p_b = OpenAIProvider(api_key="sk-b")
++        rp = KeyRotatingProvider([p_a, p_b])
++
++        resp = await rp.send([Message(role=Role.USER, content="hi")])
++        assert resp.content == "from-key-b"  # 轮换到 B 后成功
++        assert rp._current_index == 1
+diff --git a/tests/providers/test_openai.py b/tests/providers/test_openai.py
+index 49bed38..9183024 100644
+--- a/tests/providers/test_openai.py
++++ b/tests/providers/test_openai.py
+@@ -6,8 +6,12 @@ from collections.abc import AsyncIterator
+ from types import SimpleNamespace
+ from unittest.mock import AsyncMock, MagicMock, patch
+ 
++import pytest
++
++from heagent.exceptions import ProviderError
+ from heagent.providers.base import BaseProvider
+ from heagent.providers.openai import OpenAIProvider, _parse_tool_calls, _to_openai_messages, _to_openai_tools
++from heagent.providers.retry import retry_with_backoff
+ from heagent.types import Message, Role, ToolSchema
+ 
+ 
+@@ -123,6 +127,67 @@ class TestStream:
+         assert chunks[0].content == "Hello"
+ 
+ 
++class _FakeSdkError(Exception):
++    """模拟 openai SDK 的 APIStatusError：带 status_code 与 message（非 ProviderError）。"""
++
++    def __init__(self, message: str, status_code: int) -> None:
++        super().__init__(message)
++        self.message = message
++        self.status_code = status_code
++
++
++class TestErrorWrapping:
++    @patch("heagent.providers.openai.AsyncOpenAI")
++    async def test_send_wraps_sdk_error(self, mock_cls: MagicMock) -> None:
++        """真实 SDK 异常（RateLimitError 风格）应被包装为 ProviderError，保留 cause。"""
++        mock_client = AsyncMock()
++        mock_cls.return_value = mock_client
++        sdk_err = _FakeSdkError("Rate limit exceeded", 429)
++        mock_client.chat.completions.create = AsyncMock(side_effect=sdk_err)
++
++        p = OpenAIProvider(api_key="sk-test")
++        with pytest.raises(ProviderError) as exc_info:
++            await p.send([Message(role=Role.USER, content="hi")])
++        assert exc_info.value.status_code == 429
++        assert exc_info.value.__cause__ is sdk_err
++
++    @patch("heagent.providers.openai.AsyncOpenAI")
++    async def test_stream_wraps_sdk_error(self, mock_cls: MagicMock) -> None:
++        """流式 SDK 异常同样包装为 ProviderError。"""
++        mock_client = AsyncMock()
++        mock_cls.return_value = mock_client
++        sdk_err = _FakeSdkError("overloaded", 503)
++        mock_client.chat.completions.create = AsyncMock(side_effect=sdk_err)
++
++        p = OpenAIProvider(api_key="sk-test")
++        with pytest.raises(ProviderError) as exc_info:
++            async for _ in p.stream([Message(role=Role.USER, content="hi")]):
++                pass
++        assert exc_info.value.status_code == 503
++
++    @patch("heagent.providers.openai.AsyncOpenAI")
++    async def test_retry_retries_through_wrapped_provider(self, mock_cls: MagicMock) -> None:
++        """单 provider 配置：provider 把 SDK TRANSIENT(503) 包装成 ProviderError，
++        retry_with_backoff 据此重试。修复前 retry 接不到原始 SDK 异常=死代码。"""
++        mock_client = AsyncMock()
++        mock_cls.return_value = mock_client
++        sdk_err = _FakeSdkError("overloaded", 503)
++        mock_client.chat.completions.create = AsyncMock(
++            side_effect=[sdk_err, sdk_err, _mock_response("ok")]
++        )
++
++        p = OpenAIProvider(api_key="sk-test")
++        calls = {"n": 0}
++
++        async def call() -> object:
++            calls["n"] += 1
++            return await p.send([Message(role=Role.USER, content="hi")])
++
++        result = await retry_with_backoff(call, base_delay=0.01, max_delay=0.02)
++        assert calls["n"] == 3
++        assert result.content == "ok"
++
++
+ class TestMetadata:
+     def test_metadata(self) -> None:
+         p = OpenAIProvider(api_key="sk-test", model="gpt-4o")
+diff --git a/tests/providers/test_retry.py b/tests/providers/test_retry.py
+index 294a7c5..623e361 100644
+--- a/tests/providers/test_retry.py
++++ b/tests/providers/test_retry.py
+@@ -130,5 +130,20 @@ class TestRetryWithBackoff:
+             await retry_with_backoff(always_fail, max_attempts=2, base_delay=0.01)
+ 
+ 
++class TestRetryContract:
++    async def test_bare_sdk_error_not_retried(self) -> None:
++        """retry_with_backoff 只捕获 ProviderError；fn 直接抛原始 SDK 风格异常（未包装）
++        时不重试、立即抛出。这界定了：异常包装必须发生在 provider 源头（wrap_provider_error）。"""
++        calls = {"n": 0}
++
++        async def fn() -> object:
++            calls["n"] += 1
++            raise _FakeSdkError("overloaded", 503)  # 非 ProviderError
++
++        with pytest.raises(_FakeSdkError):
++            await retry_with_backoff(fn, base_delay=0.01)
++        assert calls["n"] == 1  # 未重试
++
++
+ async def _async_ok(val: str) -> str:
+     return val

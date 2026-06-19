@@ -11,23 +11,19 @@ from collections.abc import AsyncIterator
 
 from heagent.exceptions import ProviderError
 from heagent.providers.base import BaseProvider, ProviderMetadata
-from heagent.providers.retry import ErrorCategory, classify_exception
+from heagent.providers.retry import ErrorCategory, classify_exception, wrap_provider_error
 from heagent.types import Message, ProviderResponse, ToolSchema
 
 logger = logging.getLogger(__name__)
 
 
 def _wrap_error(error: Exception) -> ProviderError:
-    """将任意异常（含原始 SDK 异常）包装为 ProviderError，保留状态码与原始 cause。
+    """将任意异常包装为 ProviderError（委托 retry.wrap_provider_error，DRY）。
 
     使回退链抛出的始终是 HeAgentError 体系内的异常，供上层中间件分类重试、
     供 CLI 统一捕获，避免裸 SDK 异常穿透导致未处理崩溃。
     """
-    status = getattr(error, "status_code", None)
-    if status is None:
-        status = getattr(error, "status", None)
-    message = getattr(error, "message", None) or str(error)
-    return ProviderError(message, status_code=status)
+    return wrap_provider_error(error)
 
 
 class ProviderChain:
