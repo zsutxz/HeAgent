@@ -80,7 +80,7 @@ def wrap_provider_error(error: Exception) -> ProviderError:
     异常穿透导致密钥轮换/retry 死代码与非框架异常崩溃。
 
     状态码与消息提取复用 _extract_status_message（duck-type status_code/status/
-    message），保证 chain._wrap_error 与 provider 包装行为一致（DRY 单一来源）。
+    message），保证 chain._raise_provider_error 与 provider 包装行为一致（DRY 单一来源）。
     """
     status, message = _extract_status_message(error)
     return ProviderError(message, status_code=status)

@@ -27,8 +27,9 @@ class TestDefaults:
         s = Settings(_env_file=None)
         assert s.default_model == "gpt-4o"
 
-    def test_default_max_iterations(self) -> None:
-        s = Settings()
+    def test_default_max_iterations(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("MAX_ITERATIONS", raising=False)
+        s = Settings(_env_file=None)
         assert s.max_iterations == 50
 
     def test_default_compression_threshold(self) -> None:

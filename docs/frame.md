@@ -195,8 +195,8 @@ class BaseProvider(Protocol):
 有序 Provider 列表，失败时自动切换下一个。**回退精度（FR-4）**：仅对
 `RATE_LIMITED` / `AUTH_FAILED` / `TRANSIENT` 错误回退；`NON_TRANSIENT`（400/422 等客户端错误）
 立即抛出——切换 Provider 不会让坏请求变好，回退只会浪费配额并掩盖真实问题。
-所有抛出异常经 `_wrap_error()` 统一包装为 `ProviderError`（保留状态码与原始 cause），
-避免裸 SDK 异常穿透到 CLI。
+所有抛出异常经 `_raise_provider_error()` 统一为 `ProviderError`（已是 ProviderError 则原样
+抛出保留既有 cause 链，否则包装并保留原始 cause 与状态码），避免裸 SDK 异常穿透到 CLI。
 
 ```
 ProviderChain([deepseek, KeyRotatingProvider([openai×N]), KeyRotatingProvider([anthropic×N])])

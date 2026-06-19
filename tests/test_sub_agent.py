@@ -8,6 +8,7 @@ import pytest
 
 from heagent.agent.sub import SubAgent, run_parallel
 from heagent.memory.facts import FactStore
+from heagent.memory.skills import SkillStore
 from heagent.memory.soul import SoulStore
 from heagent.providers.base import ProviderMetadata
 from heagent.types import Message, ProviderResponse, TokenUsage
@@ -169,3 +170,24 @@ class TestParallel:
 
     async def test_empty(self) -> None:
         assert await run_parallel([], []) == []
+
+    async def test_parallel_shared_skillstore_no_lost_usage_update(self, tmp_path) -> None:
+        """回归：多个并行 SubAgent 共享同一 SkillStore 时，record_usage 不丢失更新。
+
+        deferred-work 曾记录此为写竞态（2026-06-18），但经核实不成立：SkillStore.record_usage
+        是无 await 的同步原子段（parse→+1→save→write_text），单线程 asyncio 下两个协程的调用
+        必然串行执行（A 完整写完后才轮到 B），不存在丢失更新或交错写入。此测试锁定该不变量——
+        若未来 SkillStore 方法 async 化引入真正的 await 交错，usage_count 将不再等于并发数，
+        测试变红以提醒重新评估并发安全。
+        """
+        store = SkillStore(str(tmp_path / "skills"))
+        store.save(
+            "grepsearch", "search files with grep", "grep search files",
+            ["run grep"], tags=["search"],
+        )
+        n = 8
+        agents = [SubAgent(StubProvider(f"r{i}"), max_iterations=5, skills=store) for i in range(n)]
+        await run_parallel(agents, ["use grep to search files"] * n)
+        parsed = store.parse("grepsearch")
+        assert parsed is not None
+        assert parsed.usage_count == n
