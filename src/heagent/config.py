@@ -79,6 +79,10 @@ class Settings(BaseSettings):
     cron_enabled: bool = Field(default=True)  # 是否启用 cron 调度
     cron_tick_seconds: int = Field(default=60, ge=10)  # 调度器检查间隔（秒）
 
+    # ---- MCP Client 参数（FR-7 门控；无 .mcp.json 时纯内置模式） ----
+    mcp_enabled: bool = Field(default=True)  # 是否启用 MCP server 连接
+    mcp_config_path: str = Field(default=".mcp.json")  # 声明式 MCP server 配置路径（项目根）
+
     @property
     def openai_key_pool(self) -> list[str]:
         """解析逗号分隔的 OpenAI 多密钥池。"""

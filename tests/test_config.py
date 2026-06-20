@@ -63,6 +63,14 @@ class TestDefaults:
         assert s.openai_key_pool == []
         assert s.anthropic_key_pool == []
 
+    def test_default_mcp_enabled(self) -> None:
+        s = Settings()
+        assert s.mcp_enabled is True
+
+    def test_default_mcp_config_path(self) -> None:
+        s = Settings()
+        assert s.mcp_config_path == ".mcp.json"
+
 
 # --- Environment variable loading ---
 
@@ -87,6 +95,16 @@ class TestEnvLoading:
         monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
         s = Settings()
         assert s.default_model == "claude-sonnet-4-6"
+
+    def test_mcp_enabled_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MCP_ENABLED", "false")
+        s = Settings()
+        assert s.mcp_enabled is False
+
+    def test_mcp_config_path_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MCP_CONFIG_PATH", "/custom/.mcp.json")
+        s = Settings()
+        assert s.mcp_config_path == "/custom/.mcp.json"
 
 
 # --- Multi-key parsing ---
