@@ -22,3 +22,6 @@ venv/
 .idea/
 .vscode/
 *.swp
+
+# Claude Code
+.session-resume/
