@@ -4,7 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## ⚠️ 安全声明
 
-HeAgent 执行 shell / 读写文件 / 调外部 API。`SafetyGuard` **不是真正的安全边界**（黑名单可绕过、工具返回内容无围栏进入上下文、prompt injection 无隔离）。**不可在不可信内容或不可信 LLM 输出下裸跑**——必须配 OS 级沙箱（容器/firejail）。修改安全相关代码时勿将其当作有效边界；完整性评估见 `docs/qa.md` §3。
+HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP server**（其进程、命令、HTTP transport 均由 `.mcp.json` 声明，可能来自任意第三方）。`SafetyGuard` **不是真正的安全边界**（命令黑名单可绕过、工具返回内容无围栏进入上下文、prompt injection 无隔离）。**不可在不可信内容或不可信 LLM 输出下裸跑**——必须配 OS 级沙箱（容器/firejail）。修改安全相关代码时勿将其当作有效边界；完整性评估见 `docs/qa.md` §3。
+
+**MCP 特定风险（FR-10/11，与上述立场同构，不制造「接 MCP 更安全」假象）：**
+
+- **外部 MCP server = 不可信代码**：stdio server 会拉起任意本地子进程，HTTP server 会连任意远程端点；V1 `SafetyGuard` **不**扩展到 MCP 工具调用（架构决策 deferred，见 architecture DP-4）。
+- **MCP 工具输出无隔离进入 LLM 上下文**：server 返回内容（含远端响应）直接并入对话，prompt injection 无围栏——视为与内置工具返回**同等不可信**。
+- **同等约束**：MCP 工具走与内置工具一致的 `ToolError` 语义，但**不**享受额外的预校验或返回内容复核。
+- **须 OS 级沙箱兜底**：连 MCP server 时同样必须在沙箱内运行，并对子进程 / 出站网络施加最小权限。
+
+**后续（deferred / future，V1 未做）：** 运行时断连工具的自动 unregister（当前仅调用降级 `ToolError`，见 architecture FR-3）、`SafetyGuard` 扩展到 MCP（敏感工具确认 / 返回内容复核）、Resources/Prompts 原语、写操作。
 
 ## 构建与测试命令
 
@@ -67,6 +76,7 @@ exceptions  types  config
 - `providers/` 和 `tools/` 相互独立。
 - `exceptions.py` 和 `types.py` 是叶子模块，无内部依赖。
 - 新增 provider 或 tool 禁止从 `agent/` 导入。
+- `tools/mcp/` 是 `tools/` 下的 MCP 适配子层：依赖 `types`（`ToolSchema`）/ `exceptions`（`ToolError`）/ `tools.registry`（`ToolRegistry.register()`），**禁止**从 `agent/` 导入（`AgentLoop` 零改动，仅经 registry 注入工具）。
 
 ### 关键设计决策
 
@@ -94,6 +104,9 @@ exceptions  types  config
 | `tools/safety.py` | Shell 命令安全守卫 | `SafetyGuard` — BLACKLIST/WHITELIST 模式，12 个危险模式（rm -rf、fork bomb 等） |
 | `tools/builtins/` | 内置工具（7 模块 / 18 工具） | `shell`、`file_read`、`file_write`、`file_search`、`content_search`（基础 5）+ `cron_*`、`fact_add`/`profile_update`、`skill_*`、`task_delegate`/`task_parallel` |
 | `tools/path_safety.py` | 工作区路径围栏 | `resolve_workspace_path()` — 阻止 file 工具路径逃逸出 CWD（非真正安全边界，见文首声明） |
+| `tools/mcp/config.py` | 声明式 MCP server 配置 | `MCPConfig`、`StdioServerConfig`、`HttpServerConfig`、`load_mcp_config()` — `.mcp.json` + `${ENV}` 插值（fail-fast） |
+| `tools/mcp/mapping.py` | MCP 工具映射/桥接 | `mcp_tool_to_schema()`（namespace `<server>__<tool>`）、`bridge_result()`（`isError`→`ToolError`） |
+| `tools/mcp/manager.py` | MCP server 连接生命周期 | `MCPClientManager` — async ctx mgr，并发连接+发现+注册、失败/超时隔离、`AsyncExitStack` 退出清理 |
 | `providers/key_rotation.py` | 同 Provider 多密钥轮换 | `KeyRotatingProvider` — 429/401/403 时切换下一个密钥，密钥池耗尽才向上抛出 |
 | `agent/loop.py` | 核心 Agent 循环 | `AgentLoop` — 迭代 provider→tool_calls→execute→loop 直到文本回答 |
 | `agent/middleware.py` | 中间件组合 | `compose()` 构建递归 `(Request, NextFn) → Response` 链 |
@@ -177,3 +190,4 @@ Provider 装配见 `cli._build_provider()`：DeepSeek 用 OpenAI 兼容接口（
 
 - Cron 表达式解析器 V1 不支持范围表达式（如 `1-5`）。
 - `SafetyGuard` 与 `path_safety` 均非真正安全边界——见文首安全声明。
+- MCP V1 边界与范围：`SafetyGuard` 未覆盖 MCP 工具（deferred，DP-4）；运行时断连工具不自动 unregister（仅调用降级 `ToolError`，FR-3）；仅接 Tools 原语（Resources/Prompts、写操作 deferred）。

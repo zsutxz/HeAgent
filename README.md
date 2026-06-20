@@ -68,6 +68,8 @@ DEFAULT_MODEL=deepseek-chat                     # 可选，默认 gpt-4o
 | `COMPRESSION_THRESHOLD` | `0.8` | 上下文压缩触发阈值 |
 | `SHELL_TIMEOUT` | `120` | Shell 命令超时（秒） |
 | `RETRY_MAX_ATTEMPTS` | `3` | 瞬态错误最大重试次数 |
+| `MCP_ENABLED` | `true` | 是否启用 MCP server 连接（门控，置 `false` 完全跳过） |
+| `MCP_CONFIG_PATH` | `.mcp.json` | 声明式 MCP server 配置路径（项目根） |
 
 ## 使用
 
@@ -133,6 +135,25 @@ for r in results:
     print(r.task, r.success, r.output)
 ```
 
+### MCP 工具接入
+
+HeAgent 可连接任意 [MCP server](https://modelcontextprotocol.io)，把其工具自动发现并注册为与内置工具等价的工具（命名空间化为 `<server>__<tool>`，如 `github__list_issues`）。支持 **stdio**（本地子进程）与 **Streamable HTTP**（远程）两种 transport。
+
+**启用方式：**
+
+1. 在项目根放一份 `.mcp.json`（可从 `.mcp.json.example` 复制改）。无此文件或 `mcpServers` 为空时，以纯内置工具模式运行（不报错、不阻断）。
+2. 鉴权凭据走**环境变量**，配置中用 `${VAR}` 引用——加载时一次性插值，密钥绝不落明文；引用未设变量会 fail-fast。例如 `${GITHUB_TOKEN}`。
+3. 默认 `MCP_ENABLED=true`；想完全关闭连接可设 `MCP_ENABLED=false`（即使存在 `.mcp.json` 也跳过）。
+
+```bash
+# 从示例复制（含 GitHub 远程 + stdio filesystem 两个样例）
+cp .mcp.json.example .mcp.json
+export GITHUB_TOKEN=ghp_xxx        # 走环境变量，不要写进 .mcp.json
+python -m heagent "这个 repo 有哪些 open issue"
+```
+
+> ⚠️ **沙箱警示：** 外部 MCP server 是**不可信代码**（stdio 会拉起任意子进程、HTTP 会连任意端点），其工具返回内容无隔离地进入 LLM 上下文。连接 MCP server 时同样必须在 OS 级沙箱（容器 / firejail）内运行，并收紧子进程与出站网络权限。V1 的 `SafetyGuard` **不**覆盖 MCP 工具——详见上方「安全声明」与 `CLAUDE.md`。
+
 ## 项目结构
 
 ```
@@ -155,6 +176,7 @@ src/heagent/
 │   ├── decorator.py     #   @tool 装饰器
 │   ├── safety.py        #   命令安全护栏
 │   ├── path_safety.py   #   工作区路径围栏
+│   ├── mcp/             #   MCP 适配层: config / mapping / manager (外部 MCP server)
 │   └── builtins/        #   内置工具: shell, file, search, cron, memory, skills, subagent
 ├── memory/              # 自学习记忆
 │   ├── skills.py        #   技能存储（HermesAgent 标准目录结构）

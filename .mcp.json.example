@@ -1,0 +1,18 @@
+{
+  "_comment": "HeAgent MCP server 配置示例。复制为 .mcp.json 放项目根。${VAR} 在加载时从环境变量一次性插值（引用未设变量即 fail-fast，密钥绝不落明文）。无此文件或 mcpServers 为空 = 纯内置工具模式（FR-7）。详见 README「MCP 工具接入」与 CLAUDE.md 安全声明。",
+  "mcpServers": {
+    "github": {
+      "url": "https://api.githubcopilot.com/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_TOKEN}"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "."],
+      "env": {
+        "NODE_NO_WARNINGS": "1"
+      }
+    }
+  }
+}
