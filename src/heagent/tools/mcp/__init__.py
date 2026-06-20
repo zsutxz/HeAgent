@@ -14,4 +14,16 @@ DAG 约束：本层仅从 ``types`` / ``exceptions`` / ``tools.registry`` 导入
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from heagent.tools.mcp.config import (
+    HttpServerConfig,
+    MCPConfig,
+    StdioServerConfig,
+    load_mcp_config,
+)
+
+__all__ = [
+    "HttpServerConfig",
+    "MCPConfig",
+    "StdioServerConfig",
+    "load_mcp_config",
+]
