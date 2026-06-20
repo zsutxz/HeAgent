@@ -12,10 +12,12 @@
 - 环境变量 ``GITHUB_TOKEN`` 为**有效**的 GitHub PAT（当前若无效，成功路径测试 skip）；
 - 真实出站网络可达 ``https://api.githubcopilot.com/mcp/``。
 
-工具名以 GitHub MCP server 实际暴露为准；PRD 预期为 ``list_issues`` / ``search_code``
-（namespace 化为 ``github__list_issues`` / ``github__search_code``），真实工具名待
-有效 token 连接后据实校正。``test_auth_failure_isolated`` 不需有效 token，验证
-鉴权失败隔离（FR-3 / Story 2.1 AC6）+ manager HTTP 退出不崩（per-server task 修复）。
+**已据实校正（2026-06-20 有效 token 连官方远程 server 实测）**：GitHub MCP server 实际
+暴露 ``github__list_issues`` / ``github__search_code``，与 PRD/epics FR-9 预期命名**完全
+一致**；参数 schema：``list_issues(owner, repo, [perPage, state, ...])``、
+``search_code(query, [perPage, ...])``。故测试锁定真实工具名而非模糊匹配——server 若改名
+应让 E2E 响亮失败。``test_auth_failure_isolated`` 不需有效 token，验证鉴权失败隔离
+（FR-3 / Story 2.1 AC6）+ manager HTTP 退出不崩（per-server task 修复）。
 """
 
 from __future__ import annotations
@@ -60,53 +62,53 @@ async def connected_github() -> ToolRegistry:
         await mgr.__aexit__(None, None, None)
 
 
-def _find_tool(reg: ToolRegistry, keyword: str) -> str | None:
-    for n in reg.list_names():
-        if n.startswith("github__") and keyword in n.lower():
-            return n
-    return None
+# 真实工具名（2026-06-20 有效 token 连 GitHub 官方远程 MCP server 实测确认），
+# 与 PRD/epics FR-9 预期命名一致。锁定真实名而非模糊匹配——server 改名应让 E2E 响亮失败。
+LIST_ISSUES_TOOL = "github__list_issues"
+SEARCH_CODE_TOOL = "github__search_code"
 
 
 async def test_github_tools_discovered_and_namespaced(connected_github: ToolRegistry) -> None:
-    """GitHub server 工具被发现并 namespace 化（github__<tool>，FR-4/6）。"""
-    names = [n for n in connected_github.list_names() if n.startswith("github__")]
-    assert len(names) > 0
-    assert all(n.startswith("github__") for n in names)
+    """GitHub server 工具被发现并 namespace 化（github__<tool>，FR-4/6）。
+
+    强于「任意 github__ 工具存在」：断言 PRD 预期的两个只读工具确实注入。
+    """
+    names = {n for n in connected_github.list_names() if n.startswith("github__")}
+    assert names, "应至少发现一个 github__ 工具"
+    assert LIST_ISSUES_TOOL in names, f"{LIST_ISSUES_TOOL} 未发现（server 工具集变更？）"
+    assert SEARCH_CODE_TOOL in names, f"{SEARCH_CODE_TOOL} 未发现（server 工具集变更？）"
 
 
 async def test_list_issues(connected_github: ToolRegistry) -> None:
-    """list_issues 返回含 issue 字段（FR-9）。工具名 / 参数以 server 实际为准。"""
-    name = _find_tool(connected_github, "issue")
-    if name is None:
-        pytest.skip("GitHub MCP server 未暴露 issues 相关工具（工具名待有效 token 校正）")
-    handler = connected_github.get_handler(name)
+    """github__list_issues(owner, repo) 返回含 issue 字段（FR-9）。
+
+    参数 schema 实测：required=(owner, repo)，可选 perPage/state/labels 等。
+    """
+    handler = connected_github.get_handler(LIST_ISSUES_TOOL)
     assert handler is not None
-    # 参数 schema 以 server 实际为准；尝试常见 owner/repo 命名，不符则 skip
-    for args in ({"owner": "modelcontextprotocol", "repo": "python-sdk"}, {"q": "is:issue is:open"}):
-        try:
-            out = await handler(**args)  # type: ignore[arg-type]
-            assert out, "list_issues 应返回非空文本"
-            return
-        except Exception:  # noqa: BLE001 - 参数不符 → 试下一组
-            continue
-    pytest.skip("无法用候选参数调用 list_issues（工具参数 schema 未覆盖）")
+    out = await handler(  # type: ignore[arg-type]
+        owner="modelcontextprotocol", repo="python-sdk", perPage=5, state="open"
+    )
+    assert out, "list_issues 应返回非空文本"
+    lowered = str(out).lower()
+    assert any(k in lowered for k in ("number", "title", "issue", "nodeid", "html_url")), (
+        "list_issues 返回应含 issue 字段（number/title/...）"
+    )
 
 
 async def test_search_code(connected_github: ToolRegistry) -> None:
-    """search_code 返回含文件路径（FR-9）。工具名 / 参数以 server 实际为准。"""
-    name = _find_tool(connected_github, "search") or _find_tool(connected_github, "code")
-    if name is None:
-        pytest.skip("GitHub MCP server 未暴露 code search 相关工具")
-    handler = connected_github.get_handler(name)
+    """github__search_code(query) 返回含文件路径（FR-9）。
+
+    参数 schema 实测：required=(query)，返回命中代码的 path/html_url。
+    """
+    handler = connected_github.get_handler(SEARCH_CODE_TOOL)
     assert handler is not None
-    for args in ({"q": "retry"}, {"query": "retry"}):
-        try:
-            out = await handler(**args)  # type: ignore[arg-type]
-            assert out
-            return
-        except Exception:  # noqa: BLE001
-            continue
-    pytest.skip("无法调用 search_code（参数 schema 未覆盖）")
+    out = await handler(query="retry language:python", perPage=5)  # type: ignore[arg-type]
+    assert out, "search_code 应返回非空文本"
+    lowered = str(out).lower()
+    assert any(k in lowered for k in ("path", "html_url", "repository", "name")), (
+        "search_code 返回应含文件路径（path/html_url/...）"
+    )
 
 
 async def test_auth_failure_isolated() -> None:
