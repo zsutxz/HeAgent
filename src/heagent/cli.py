@@ -10,6 +10,7 @@ Provider 自动检测顺序：DEEPSEEK_API_KEY → OPENAI_API_KEY → ANTHROPIC_
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import sys
@@ -36,8 +37,12 @@ from heagent.providers.chain import ProviderChain
 from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
 from heagent.tools.builtins.subagent import configure_subagent_tools
+from heagent.tools.mcp import MCPClientManager, load_mcp_config
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+    from typing import Any
+
     from heagent.providers.base import BaseProvider
     from heagent.types import TokenUsage
 
@@ -152,54 +157,73 @@ def _build_soul(soul_path: str | None = None) -> SoulStore | None:
     return SoulStore()
 
 
+def _mcp_lifecycle(settings: Settings) -> AbstractAsyncContextManager[Any]:
+    """根据 Settings 门控构建 MCP 生命周期上下文（同步构建，async 进入）。
+
+    - ``mcp_enabled=False`` → no-op（完全跳过加载与连接）；
+    - 无文件 / 空 mcpServers → no-op（纯内置模式，FR-7）；
+    - 有效配置 → ``MCPClientManager``（进入时并发连接+发现+注册，退出时卸载+回收）；
+    - 配置错误（未设 ``${ENV}`` 等）→ raise ``ToolError``（fail-fast，FR-8）。
+    """
+    if not settings.mcp_enabled:
+        logger.info("MCP 已禁用（mcp_enabled=False）→ 跳过加载与连接")
+        return contextlib.nullcontext()
+    config = load_mcp_config(settings.mcp_config_path)
+    if config.is_empty:
+        return contextlib.nullcontext()
+    return MCPClientManager(config)
+
+
 async def _run_single(
     prompt: str,
     provider: BaseProvider,
     system: str | None,
     max_iterations: int,
     soul_path: str | None = None,
+    mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
 ) -> None:
     """单次模式：执行一个 prompt 并打印结果。"""
     settings = get_settings()
 
-    # 初始化模块
-    skills = SkillStore()
-    facts = FactStore()
-    profile = ProfileStore()
-    soul = _build_soul(soul_path)
-    cron_store = JobStore() if settings.cron_enabled else None
-    compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
-    retry_mw = make_retry_middleware(
-        max_attempts=settings.retry_max_attempts,
-        base_delay=settings.retry_base_delay,
-        max_delay=settings.retry_max_delay,
-    )
+    async with mcp_ctx or contextlib.nullcontext():
+        # 初始化模块
+        skills = SkillStore()
+        facts = FactStore()
+        profile = ProfileStore()
+        soul = _build_soul(soul_path)
+        cron_store = JobStore() if settings.cron_enabled else None
+        compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
+        retry_mw = make_retry_middleware(
+            max_attempts=settings.retry_max_attempts,
+            base_delay=settings.retry_base_delay,
+            max_delay=settings.retry_max_delay,
+        )
 
-    configure_subagent_tools(
-        provider,
-        skills=skills,
-        facts=facts,
-        profile=profile,
-        compressor=compressor,
-        context_dir=os.getcwd(),
-        soul=soul,
-    )
+        configure_subagent_tools(
+            provider,
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            compressor=compressor,
+            context_dir=os.getcwd(),
+            soul=soul,
+        )
 
-    loop = AgentLoop(
-        provider,
-        max_iterations=max_iterations,
-        middlewares=[retry_mw],
-        skills=skills,
-        facts=facts,
-        profile=profile,
-        compressor=compressor,
-        context_dir=os.getcwd(),
-        soul=soul,
-        cron_store=cron_store,
-    )
-    result = await loop.run(prompt, system=system)
-    click.echo(result)
-    _print_usage(loop.last_usage)
+        loop = AgentLoop(
+            provider,
+            max_iterations=max_iterations,
+            middlewares=[retry_mw],
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            compressor=compressor,
+            context_dir=os.getcwd(),
+            soul=soul,
+            cron_store=cron_store,
+        )
+        result = await loop.run(prompt, system=system)
+        click.echo(result)
+        _print_usage(loop.last_usage)
 
 
 async def _run_chat(
@@ -207,97 +231,99 @@ async def _run_chat(
     system: str | None,
     max_iterations: int,
     soul_path: str | None = None,
+    mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
 ) -> None:
     """交互模式：REPL 聊天循环，直到用户输入空行或 Ctrl+C。"""
     settings = get_settings()
     session_id = uuid.uuid4().hex[:8]  # 每次交互会话一个固定 ID
 
-    # 初始化模块
-    skills = SkillStore()
-    facts = FactStore()
-    profile = ProfileStore()
-    soul = _build_soul(soul_path)
-    session = SessionStore()
-    cron_store = JobStore() if settings.cron_enabled else None
-    compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
-    retry_mw = make_retry_middleware(
-        max_attempts=settings.retry_max_attempts,
-        base_delay=settings.retry_base_delay,
-        max_delay=settings.retry_max_delay,
-    )
+    async with mcp_ctx or contextlib.nullcontext():
+        # 初始化模块
+        skills = SkillStore()
+        facts = FactStore()
+        profile = ProfileStore()
+        soul = _build_soul(soul_path)
+        session = SessionStore()
+        cron_store = JobStore() if settings.cron_enabled else None
+        compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
+        retry_mw = make_retry_middleware(
+            max_attempts=settings.retry_max_attempts,
+            base_delay=settings.retry_base_delay,
+            max_delay=settings.retry_max_delay,
+        )
 
-    # Cron 调度器（交互模式专用）
-    scheduler: CronScheduler | None = None
-    if settings.cron_enabled and cron_store:
-        scheduler = CronScheduler(
-            cron_store,
+        # Cron 调度器（交互模式专用）
+        scheduler: CronScheduler | None = None
+        if settings.cron_enabled and cron_store:
+            scheduler = CronScheduler(
+                cron_store,
+                provider,
+                tick_seconds=settings.cron_tick_seconds,
+                skills=skills,
+                facts=facts,
+                profile=profile,
+                compressor=compressor,
+                soul=soul,
+                cron_store=cron_store,
+            )
+
+        configure_subagent_tools(
             provider,
-            tick_seconds=settings.cron_tick_seconds,
             skills=skills,
             facts=facts,
             profile=profile,
             compressor=compressor,
+            context_dir=os.getcwd(),
+            soul=soul,
+        )
+
+        loop = AgentLoop(
+            provider,
+            max_iterations=max_iterations,
+            middlewares=[retry_mw],
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            session=session,
+            compressor=compressor,
+            context_dir=os.getcwd(),
             soul=soul,
             cron_store=cron_store,
         )
+        click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
-    configure_subagent_tools(
-        provider,
-        skills=skills,
-        facts=facts,
-        profile=profile,
-        compressor=compressor,
-        context_dir=os.getcwd(),
-        soul=soul,
-    )
+        try:
+            if scheduler:
+                await scheduler.start()
+            while True:
+                try:
+                    user_input = input("> ")
+                except (KeyboardInterrupt, EOFError):
+                    click.echo("\nBye!")
+                    break
 
-    loop = AgentLoop(
-        provider,
-        max_iterations=max_iterations,
-        middlewares=[retry_mw],
-        skills=skills,
-        facts=facts,
-        profile=profile,
-        session=session,
-        compressor=compressor,
-        context_dir=os.getcwd(),
-        soul=soul,
-        cron_store=cron_store,
-    )
-    click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
+                if not user_input.strip():
+                    break
 
-    try:
-        if scheduler:
-            await scheduler.start()
-        while True:
-            try:
-                user_input = input("> ")
-            except (KeyboardInterrupt, EOFError):
-                click.echo("\nBye!")
-                break
-
-            if not user_input.strip():
-                break
-
-            try:
-                async for event in loop.run_stream(user_input, system=system, session_id=session_id):
-                    if event.type == "text":
-                        click.echo(event.text, nl=False)
-                    elif event.type == "tool_call":
-                        click.echo(f"\n[calling {event.tool_name}...]", nl=False)
-                    elif event.type == "tool_result":
-                        click.echo(" [done]", nl=False)
-                    elif event.type == "done":
-                        pass
-                click.echo("\n")
-                _print_usage(loop.last_usage)
-            except BudgetExceeded as e:
-                click.echo(f"[budget exceeded] {e.message}", err=True)
-            except HeAgentError as e:
-                click.echo(f"[error] {e.message}", err=True)
-    finally:
-        if scheduler:
-            await scheduler.stop()
+                try:
+                    async for event in loop.run_stream(user_input, system=system, session_id=session_id):
+                        if event.type == "text":
+                            click.echo(event.text, nl=False)
+                        elif event.type == "tool_call":
+                            click.echo(f"\n[calling {event.tool_name}...]", nl=False)
+                        elif event.type == "tool_result":
+                            click.echo(" [done]", nl=False)
+                        elif event.type == "done":
+                            pass
+                    click.echo("\n")
+                    _print_usage(loop.last_usage)
+                except BudgetExceeded as e:
+                    click.echo(f"[budget exceeded] {e.message}", err=True)
+                except HeAgentError as e:
+                    click.echo(f"[error] {e.message}", err=True)
+        finally:
+            if scheduler:
+                await scheduler.stop()
 
 
 @click.command()
@@ -334,8 +360,15 @@ def main(
 
     provider = _build_provider(settings, resolved_model)
 
+    # MCP 生命周期（门控）；配置错误 fail-fast 友好报告（FR-8）
+    try:
+        mcp_ctx = _mcp_lifecycle(settings)
+    except HeAgentError as e:
+        click.echo(f"[mcp config error] {e.message}", err=True)
+        raise SystemExit(1) from None
+
     # 根据 prompt 参数决定运行模式
     if prompt:
-        asyncio.run(_run_single(prompt, provider, system, resolved_iterations, soul_path=soul))
+        asyncio.run(_run_single(prompt, provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx))
     else:
-        asyncio.run(_run_chat(provider, system, resolved_iterations, soul_path=soul))
+        asyncio.run(_run_chat(provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx))
