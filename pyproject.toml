@@ -31,8 +31,12 @@ heagent = "heagent.cli:main"
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# 默认排除 integration：真实外部依赖 E2E（需凭据/网络）不进全绿基线；
+# 显式运行：pytest -m integration
+addopts = ["-m", "not integration"]
 markers = [
     "no_auto_workspace: do not auto-set workspace root in path safety tests",
+    "integration: 真实外部依赖 E2E（需凭据/网络，默认不进基线；显式 `pytest -m integration` 运行）",
 ]
 
 [tool.hatch.build.targets.wheel]
