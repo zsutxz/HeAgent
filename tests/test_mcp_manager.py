@@ -1,13 +1,18 @@
 """Story 1.4 — MCPClientManager 连接生命周期（FR-1~5）。Stub，无网络。
 
-_open_session 被 monkeypatch 为返回预设 StubSession，避免真实 transport / 子进程；
+``_transport_and_session`` 被 monkeypatch 为 yield 预设 StubSession 的
+@asynccontextmanager，避免真实 transport / 子进程；
 每个测试用独立的 ``ToolRegistry()`` 实例（不碰进程单例，零回归）。
 覆盖并发连接 / 单 server 隔离 / 超时 / 发现注册 / namespace 冲突 / handler 桥接 / 卸载。
+
+真实 transport 路径（含 anyio cancel scope 跨 task 回归防护）见
+``test_mcp_manager_http.py``（本地 in-process MCP server）。
 """
 
 from __future__ import annotations
 
 import asyncio
+from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
@@ -34,7 +39,9 @@ class StubSession:
         list_raises: Exception | None = None,
     ) -> None:
         self._tools = tools
-        self._call_result = call_result or CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
+        self._call_result = call_result or CallToolResult(
+            content=[TextContent(type="text", text="ok")], isError=False
+        )
         self.list_raises = list_raises
         self.initialized = False
 
@@ -59,16 +66,16 @@ def _tool(name: str, desc: str = "d") -> Tool:
     return Tool(name=name, description=desc, inputSchema={"type": "object"})
 
 
-def _patch_open_session(monkeypatch: pytest.MonkeyPatch, sessions: dict[str, StubSession]) -> None:
-    """让 _open_session 返回预设 StubSession（按 server 原始名分派）。"""
+def _patch_transport(monkeypatch: pytest.MonkeyPatch, sessions: dict[str, StubSession]) -> None:
+    """让 _transport_and_session yield 预设 StubSession（按 server 原始名分派）。"""
 
-    async def fake_open_session(self: MCPClientManager, name: str, cfg: Any) -> StubSession:
+    @asynccontextmanager
+    async def fake_transport(self: MCPClientManager, name: str, cfg: Any) -> Any:
         s = sessions[name]
-        self._sessions[name] = s
         await s.initialize()
-        return s
+        yield s
 
-    monkeypatch.setattr(MCPClientManager, "_open_session", fake_open_session)
+    monkeypatch.setattr(MCPClientManager, "_transport_and_session", fake_transport)
 
 
 # --- 连接 + 发现 + 注册（FR-1/2/4）---
@@ -85,7 +92,7 @@ async def test_connect_discovers_and_registers_stdio_and_http(monkeypatch: pytes
         "local": StubSession([_tool("run"), _tool("build")]),
         "github": StubSession([_tool("list_issues")]),
     }
-    _patch_open_session(monkeypatch, sessions)
+    _patch_transport(monkeypatch, sessions)
     reg = ToolRegistry()
     async with MCPClientManager(cfg, registry=reg):
         names = reg.list_names()
@@ -95,11 +102,12 @@ async def test_connect_discovers_and_registers_stdio_and_http(monkeypatch: pytes
 async def test_empty_config_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     opened: list[str] = []
 
-    async def spy(self: MCPClientManager, name: str, cfg: Any) -> StubSession:
+    @asynccontextmanager
+    async def spy(self: MCPClientManager, name: str, cfg: Any) -> Any:
         opened.append(name)
-        return StubSession([])
+        yield StubSession([])
 
-    monkeypatch.setattr(MCPClientManager, "_open_session", spy)
+    monkeypatch.setattr(MCPClientManager, "_transport_and_session", spy)
     reg = ToolRegistry()
     async with MCPClientManager(MCPConfig(), registry=reg):
         pass
@@ -115,7 +123,7 @@ async def test_single_server_failure_isolated(monkeypatch: pytest.MonkeyPatch) -
         "bad": StubSession([], list_raises=RuntimeError("conn refused")),
         "good": StubSession([_tool("run")]),
     }
-    _patch_open_session(monkeypatch, sessions)
+    _patch_transport(monkeypatch, sessions)
     reg = ToolRegistry()
     async with MCPClientManager(
         MCPConfig(
@@ -132,11 +140,12 @@ async def test_single_server_failure_isolated(monkeypatch: pytest.MonkeyPatch) -
 
 
 async def test_connect_timeout_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def slow_open(self: MCPClientManager, name: str, cfg: Any) -> StubSession:
+    @asynccontextmanager
+    async def slow_transport(self: MCPClientManager, name: str, cfg: Any) -> Any:
         await asyncio.sleep(0.3)
-        return StubSession([])
+        yield StubSession([])
 
-    monkeypatch.setattr(MCPClientManager, "_open_session", slow_open)
+    monkeypatch.setattr(MCPClientManager, "_transport_and_session", slow_transport)
     reg = ToolRegistry()
     async with MCPClientManager(
         MCPConfig(servers={"s": StdioServerConfig(command="x")}),
@@ -154,7 +163,7 @@ async def test_namespace_collision_deduped(monkeypatch: pytest.MonkeyPatch) -> N
         "GitHub MCP": StubSession([_tool("list")]),
         "github-mcp": StubSession([_tool("list")]),
     }
-    _patch_open_session(monkeypatch, sessions)
+    _patch_transport(monkeypatch, sessions)
     reg = ToolRegistry()
     async with MCPClientManager(
         MCPConfig(
@@ -175,7 +184,7 @@ async def test_namespace_collision_deduped(monkeypatch: pytest.MonkeyPatch) -> N
 async def test_handler_returns_bridged_text(monkeypatch: pytest.MonkeyPatch) -> None:
     result = CallToolResult(content=[TextContent(type="text", text="done")], isError=False)
     sessions = {"s": StubSession([_tool("run")], call_result=result)}
-    _patch_open_session(monkeypatch, sessions)
+    _patch_transport(monkeypatch, sessions)
     reg = ToolRegistry()
     async with MCPClientManager(MCPConfig(servers={"s": StdioServerConfig(command="x")}), registry=reg):
         handler = reg.get_handler("s__run")
@@ -187,7 +196,7 @@ async def test_handler_returns_bridged_text(monkeypatch: pytest.MonkeyPatch) -> 
 async def test_handler_iserror_raises_toolerror(monkeypatch: pytest.MonkeyPatch) -> None:
     result = CallToolResult(content=[TextContent(type="text", text="boom")], isError=True)
     sessions = {"s": StubSession([_tool("run")], call_result=result)}
-    _patch_open_session(monkeypatch, sessions)
+    _patch_transport(monkeypatch, sessions)
     reg = ToolRegistry()
     async with MCPClientManager(MCPConfig(servers={"s": StdioServerConfig(command="x")}), registry=reg):
         handler = reg.get_handler("s__run")
@@ -201,7 +210,7 @@ async def test_handler_iserror_raises_toolerror(monkeypatch: pytest.MonkeyPatch)
 
 async def test_unregister_all_on_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     sessions = {"s": StubSession([_tool("run")])}
-    _patch_open_session(monkeypatch, sessions)
+    _patch_transport(monkeypatch, sessions)
     reg = ToolRegistry()
     async with MCPClientManager(MCPConfig(servers={"s": StdioServerConfig(command="x")}), registry=reg):
         assert "s__run" in reg.list_names()
