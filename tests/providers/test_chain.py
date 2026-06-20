@@ -209,10 +209,12 @@ class TestChain:
 
     async def test_stream_all_fail_preserves_last_error_status(self) -> None:
         """流式全部失败时，backstop 应委托最后错误（与 send 对称），保留状态码而非无上下文兜底。"""
-        chain = ProviderChain([
-            _make_provider("a", fail_stream=True, fail_status=503),
-            _make_provider("b", fail_stream=True, fail_status=503),
-        ])
+        chain = ProviderChain(
+            [
+                _make_provider("a", fail_stream=True, fail_status=503),
+                _make_provider("b", fail_stream=True, fail_status=503),
+            ]
+        )
         with pytest.raises(ProviderError) as exc_info:
             async for _ in chain.stream([Message(role=Role.USER, content="hi")]):
                 pass
