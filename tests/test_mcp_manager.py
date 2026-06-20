@@ -39,9 +39,7 @@ class StubSession:
         list_raises: Exception | None = None,
     ) -> None:
         self._tools = tools
-        self._call_result = call_result or CallToolResult(
-            content=[TextContent(type="text", text="ok")], isError=False
-        )
+        self._call_result = call_result or CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
         self.list_raises = list_raises
         self.initialized = False
 
