@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -114,7 +115,7 @@ class StreamEvent(BaseModel):
       - "done": 最终完成，携带完整回答
     """
 
-    type: str  # "text" | "tool_call" | "tool_result" | "done"
+    type: Literal["text", "tool_call", "tool_result", "done"]
     text: str = ""
     tool_name: str = ""
     tool_result_content: str = ""

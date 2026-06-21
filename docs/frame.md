@@ -132,12 +132,12 @@ exceptions  types  config
 **系统提示词注入顺序（`_build_system()`）：**
 
 ```
-1. <identity>        — SOUL.md 人格（最顶层）
+1. <identity>        — SOUL.md 人格（最顶层，insert(0) 插到最前）
 2. 用户 system 字符串
 3. <project-context> — 上下文文件（CONTEXT.md > AGENTS.md > CLAUDE.md）
 4. <skills>          — 自动匹配的技能
-5. <memory-nudge>    — 记忆保存提醒
-6. <memory>          — 事实记忆
+5. <memory>          — 事实记忆
+6. <memory-nudge>    — 记忆保存提醒
 7. <profile>         — 用户画像
 ```
 
@@ -456,12 +456,33 @@ HeAgentError (base)
 
 ---
 
+### 4.11 MCP 集成 (`tools/mcp/`)
+
+**架构：** async ctx mgr 生命周期，连接时发现+注册到 ToolRegistry，退出时 unregister+优雅关闭。
+
+| 模块 | 说明 |
+|------|------|
+| `config.py` | `MCPConfig`、`StdioServerConfig`、`HttpServerConfig` + `load_mcp_config()`（`.mcp.json` + `${ENV}` 插值，fail-fast） |
+| `mapping.py` | `mcp_tool_to_schema()`（namespace `<server>__<tool>`）、`bridge_result()`（`isError`→`ToolError`） |
+| `manager.py` | `MCPClientManager` — 并发连接+发现+注册，单 server 失败/超时隔离（工具不注入，不崩溃 agent） |
+
+**V1 边界：**
+- `SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）
+- MCP 工具返回内容直接进入 LLM 上下文，prompt injection 无隔离
+- 仅接 Tools 原语，Resources/Prompts、写操作 deferred
+- 运行时断连后工具不自动 unregister，调用降级为 `ToolError`
+
+---
+
 ## 五、已知缺口
 
 | 缺口 | 说明 |
 |------|------|
-| 流式 tool_calls 回退 | `run_stream()` 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时需回退 `send()` 重取该轮调用 |
+| 流式 tool_calls 回退 | `run_stream()` 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时回退 `send()` 重取该轮调用（已知设计权衡） |
 | Cron 范围表达式 | V1 解析器不支持范围表达式（如 `1-5`） |
+| MCP SafetyGuard 覆盖 | V1 `SafetyGuard` 未覆盖 MCP 工具调用（deferred DP-4） |
+| MCP 运行时断连 | 运行时断连的工具不自动 unregister，调用降级为 `ToolError` |
+| CLI 事件循环阻塞 | 交互模式 `input()` 为同步调用，阻塞 asyncio 事件循环（单用户 CLI 影响可接受） |
 
 ---
 

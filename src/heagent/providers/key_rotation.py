@@ -107,11 +107,17 @@ class KeyRotatingProvider:
         """流式调用的密钥轮换版本。"""
         start = self._current_index
         for _ in range(len(self._providers)):
+            delivered = False
             try:
                 async for chunk in self.current.stream(messages, tools=tools):
+                    delivered = True
                     yield chunk
                 return
             except Exception as e:
+                if delivered:
+                    # 已下发部分输出，重放会产生重复前缀，直接抛出
+                    self._current_index = start
+                    raise
                 if not self._is_rotation_error(e):
                     raise
                 logger.warning(

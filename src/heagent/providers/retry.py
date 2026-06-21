@@ -5,8 +5,6 @@
   - AUTH_FAILED (401/403): 认证失败，不重试（需修正密钥）
   - TRANSIENT (5xx/超时): 临时错误，使用指数退避 + 随机抖动重试
   - NON_TRANSIENT (其他): 非临时错误，不重试
-
-当前为独立函数，未来可作为 Middleware 接入 AgentLoop。
 """
 
 from __future__ import annotations

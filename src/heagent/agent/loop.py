@@ -247,7 +247,7 @@ class AgentLoop:
             while True:
                 state.iteration += 1
                 if state.iteration > state.max_iterations:
-                    raise BudgetExceeded(f"Exceeded {self.max_iterations} iterations without final answer")
+                    raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
 
                 tools = self.registry.enabled_schemas()
                 full_content = ""
