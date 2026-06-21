@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from heagent.exceptions import ProviderError
 from heagent.providers.base import BaseProvider, ProviderMetadata
+from heagent.providers.retry import wrap_provider_error
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -115,9 +116,11 @@ class KeyRotatingProvider:
                 return
             except Exception as e:
                 if delivered:
-                    # 已下发部分输出，重放会产生重复前缀，直接抛出
+                    # 已下发部分输出，重放会产生重复前缀，直接抛出（包装为 ProviderError 保证上层分类一致）
                     self._current_index = start
-                    raise
+                    if isinstance(e, ProviderError):
+                        raise
+                    raise wrap_provider_error(e) from e
                 if not self._is_rotation_error(e):
                     raise
                 logger.warning(
