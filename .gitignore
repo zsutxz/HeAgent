@@ -25,3 +25,4 @@ venv/
 
 # Claude Code
 .session-resume/
+docs/stock/
