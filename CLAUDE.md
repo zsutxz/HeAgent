@@ -44,6 +44,20 @@ python -m heagent "你的提示词"
 python -m heagent
 ```
 
+## 文档布局
+
+`docs/` 目录约定（新增文档请遵循）：
+
+| 路径 | 用途 |
+|------|------|
+| `frame.md` | 活的中文架构总览，随代码更新（人类可读叙事） |
+| `sprint-status.yaml` | 活的进度跟踪；story 落点 `docs/_bmad-output/implementation-artifacts/` |
+| `planning/` | 主线规划集（2026-05-23，epic 1-10 已完成）：`architecture/`·`brief/`·`prd/`·`epics.md`·`stories/`——冻结决策记录，不再编辑 |
+| `_bmad-output/` | BMad 周期产出（`planning-artifacts/` + `implementation-artifacts/`），含 2026-06-20 MCP 周期。**保持原位，勿移动/重组** |
+| `stock/` | 运行时股票报告输出，已 gitignore |
+
+> 架构权威来源：本 `CLAUDE.md`（最全、在维护）。`frame.md` 为中文总览，`planning/architecture/` 为规划期冻结记录。
+
 ## 架构
 
 HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编排 LLM ↔ 工具执行循环。所有 I/O 都是 `async/await`；CLI 入口通过 `asyncio.run()` 桥接。
