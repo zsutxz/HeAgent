@@ -1,8 +1,8 @@
 ---
 stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 inputDocuments:
-  - HeAgent/docs/planning/brief/brief.md
-  - HeAgent/docs/planning/prd/prd.md
+  - _bmad-output/baseline/brief.md
+  - _bmad-output/baseline/prd.md
 workflowType: 'architecture'
 lastStep: 8
 status: 'complete'

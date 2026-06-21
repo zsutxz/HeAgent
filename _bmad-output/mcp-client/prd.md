@@ -7,7 +7,7 @@ updated: 2026-06-20
 
 # HeAgent MCP Client 集成 — 产品需求文档（PRD）
 
-> 输入：产品 brief（`docs/_bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/brief.md`）。本文把 brief 展开为可被架构 / epics 消费的需求。技术实现细节见同目录 `addendum.md`（MCP 协议 / SDK / 各框架模式）。
+> 输入：产品 brief（`_bmad-output/mcp-client/brief.md`）。本文把 brief 展开为可被架构 / epics 消费的需求。技术实现细节见同目录 `brief-addendum.md`（MCP 协议 / SDK / 各框架模式）。
 
 ## 1. 背景与目标
 

@@ -46,17 +46,17 @@ python -m heagent
 
 ## 文档布局
 
-`docs/` 目录约定（新增文档请遵循）：
+文档分两处：`docs/`（活的中文叙事 + 运行时输出）与仓库根 `_bmad-output/`（BMad 规划/实现制品，按周期分组，文件名与目录名均不带日期）：
 
 | 路径 | 用途 |
 |------|------|
-| `frame.md` | 活的中文架构总览，随代码更新（人类可读叙事） |
-| `sprint-status.yaml` | 活的进度跟踪；story 落点 `docs/_bmad-output/implementation-artifacts/` |
-| `planning/` | Epic 主线全集 1-13：`epics.md`(1-5)·`epics-self-learning.md`(6-10)·`epics-mcp-client.md`(11-13) + 05-23 基线 `architecture/`·`brief/`·`prd/`·`stories/`。冻结决策记录，不再编辑 |
-| `_bmad-output/` | BMad 周期产出：各周期 `architecture/`·`brief/`·`prd/`（如 06-20 MCP）+ `implementation-artifacts/` + 归档 `epics-integration.md`。epics 已统一至 `planning/`；**周期 arch/brief/prd 保持原位** |
-| `stock/` | 运行时股票报告输出，已 gitignore |
+| `docs/frame.md` | 活的中文架构总览，随代码更新（人类可读叙事） |
+| `docs/stock/` | 运行时股票报告输出，已 gitignore |
+| `_bmad-output/baseline/` | 主线规划周期（epics 1-10，冻结决策记录）：`architecture.md`·`brief.md`·`prd.md`·`epics.md`·`epics-self-learning.md`·`sprint-status.yaml` + `stories/` |
+| `_bmad-output/mcp-client/` | MCP 集成周期（epics 11-13）：`architecture.md`·`brief.md`(+`brief-addendum.md`)·`prd.md`(+`prd-review-rubric.md`)·`epics-mcp-client.md`·`epics-integration.md`。同周期扁平存放，附文件以前缀区分；各 `*-decision-log.md` 为阶段决策审计 |
+| `_bmad-output/implementation-artifacts/` | story 实现 spec（`spec-*`·`epic-5-context`·`deferred-work` 等），跨周期扁平 |
 
-> 架构权威来源：本 `CLAUDE.md`（最全、在维护）。`frame.md` 为中文总览，`planning/architecture/` 为规划期冻结记录。
+> 架构权威来源：本 `CLAUDE.md`（最全、在维护）。`docs/frame.md` 为中文总览，`_bmad-output/baseline/architecture.md` 为规划期冻结记录。
 
 ## 架构
 
@@ -170,7 +170,7 @@ Provider 装配见 `cli._build_provider()`：DeepSeek 用 OpenAI 兼容接口（
 
 ## 项目状态
 
-全部 10 个 epic 已完成（24 个 FR 已实现）。详见 `docs/sprint-status.yaml`。
+全部 10 个 epic 已完成（24 个 FR 已实现）。详见 `_bmad-output/baseline/sprint-status.yaml`。
 
 ### 自学习闭环（Epic 6-10，新增）
 

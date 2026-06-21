@@ -1,9 +1,9 @@
 ---
 stepsCompleted: [1, 2]
 inputDocuments:
-  - HeAgent/docs/planning/prd/prd.md
-  - HeAgent/docs/planning/architecture/architecture.md
-  - HeAgent/docs/frame.md
+  - _bmad-output/baseline/prd.md
+  - _bmad-output/baseline/architecture.md
+  - docs/frame.md
   - HeAgent/src/heagent/agent/loop.py
   - HeAgent/src/heagent/memory/skills.py
   - HeAgent/src/heagent/cli.py

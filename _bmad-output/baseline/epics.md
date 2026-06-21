@@ -3,8 +3,8 @@ stepsCompleted: [1, 2, 3, 4]
 status: complete
 completedAt: '2026-05-26'
 inputDocuments:
-  - HeAgent/docs/planning/prd/prd.md
-  - HeAgent/docs/planning/architecture/architecture.md
+  - _bmad-output/baseline/prd.md
+  - _bmad-output/baseline/architecture.md
 ---
 
 # HeAgent - Epic Breakdown

@@ -5,9 +5,9 @@ completedAt: '2026-06-03'
 startedAt: '2026-06-03'
 validation: passed
 inputDocuments:
-  - docs/planning/prd/prd.md
-  - docs/planning/architecture/architecture.md
-  - docs/planning/epics.md
+  - _bmad-output/baseline/prd.md
+  - _bmad-output/baseline/architecture.md
+  - _bmad-output/baseline/epics.md
 project_name: 'HeAgent'
 user_name: 'tan'
 date: '2026-06-03'
@@ -15,7 +15,7 @@ date: '2026-06-03'
 
 # HeAgent - Epic 6: AgentLoop 全模块集成
 
-> ⚠️ **编号冲突注记（归档于 2026-06-21）**：本文档成于 2026-06-03，自称 "Epic 6"。其后自学习周期（`epics-self-learning.md`，2026-06-08）重新占用了 **Epic 6 = "Context Files 自动加载"**，并被 `docs/sprint-status.yaml` 采纳为正式编号。本文 INT-1~5（压缩/会话/事实/画像/重试接入 AgentLoop）**内容已全部实现**（见 `CLAUDE.md` 模块速查），但未进入 sprint-status 编号序列——视作「Epic 1-5 之后的集成补丁」，保留作历史归档，不再作为活动 epic 编号。
+> ⚠️ **编号冲突注记（归档于 2026-06-21）**：本文档成于 2026-06-03，自称 "Epic 6"。其后自学习周期（`epics-self-learning.md`，2026-06-08）重新占用了 **Epic 6 = "Context Files 自动加载"**，并被 `_bmad-output/baseline/sprint-status.yaml` 采纳为正式编号。本文 INT-1~5（压缩/会话/事实/画像/重试接入 AgentLoop）**内容已全部实现**（见 `CLAUDE.md` 模块速查），但未进入 sprint-status 编号序列——视作「Epic 1-5 之后的集成补丁」，保留作历史归档，不再作为活动 epic 编号。
 
 ## Overview
 

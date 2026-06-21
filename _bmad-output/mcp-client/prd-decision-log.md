@@ -1,6 +1,6 @@
 # Decision Log — HeAgent MCP Client 集成 PRD
 
-> PRD 决策审计记录。继承自 brief 的 D1-D7（见 `../../briefs/brief-heagent-2026-06-20/.decision-log.md`）；本文件记录 PRD 阶段新增决策与 review 改动。
+> PRD 决策审计记录。继承自 brief 的 D1-D7（见 `brief-decision-log.md`）；本文件记录 PRD 阶段新增决策与 review 改动。
 
 ## 继承自 Brief（D1-D7）
 
@@ -51,7 +51,7 @@
 
 ## 2026-06-20 · Finalize
 
-- **Reviewer gate**：跑 validation rubric walker（`review-rubric.md`，verdict「需修复后通过」）+ 综合 editorial。
+- **Reviewer gate**：跑 validation rubric walker（`prd-review-rubric.md`，verdict「需修复后通过」）+ 综合 editorial。
 - **采纳并 apply**：§8 标题修正（`[ASSUMPTION]` 残留矛盾）、FR-9 schema 锚点 + V1 边界化、FR-3 区分连接失败 vs 运行时断连、FR-2 工具发现时序约束（eager/lazy 交架构定）、FR-7 无配置时行为、NFR-2 覆盖率基线、NFR-4 可测阈值、NFR-3 成功标准句。
 - **未采纳（低优先，不阻塞）**：R3 用词口语化、§6 与 FR-7 冗余、§1 目标句拆分等纯文字优化。
 - **结果**：`prd.md` `status: final`，无 phase-blocker，可进架构（`bmad-create-architecture`）。

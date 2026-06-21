@@ -2,13 +2,13 @@
 stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 lastStep: 8
 inputDocuments:
-  - docs/_bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/brief.md
-  - docs/_bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/addendum.md
-  - docs/_bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/.decision-log.md
-  - docs/_bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/prd.md
-  - docs/_bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/.decision-log.md
-  - docs/_bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/review-rubric.md
-  - docs/planning/architecture/architecture.md
+  - _bmad-output/mcp-client/brief.md
+  - _bmad-output/mcp-client/brief-addendum.md
+  - _bmad-output/mcp-client/brief-decision-log.md
+  - _bmad-output/mcp-client/prd.md
+  - _bmad-output/mcp-client/prd-decision-log.md
+  - _bmad-output/mcp-client/prd-review-rubric.md
+  - _bmad-output/baseline/architecture.md
   - CLAUDE.md
 workflowType: 'architecture'
 project_name: 'HeAgent'
@@ -22,7 +22,7 @@ completedAt: '2026-06-20'
 
 _本文档通过分步协作逐步构建。各架构决策章节随我们逐步推进而追加。_
 
-> **作用域**：本文是 MCP Client 集成（新增 epic）的架构决策，不是 HeAgent 整体架构重写。既有架构基线见 `docs/planning/architecture/architecture.md`；本文聚焦「如何把 MCP client 适配层干净地嵌入既有 DAG / `ToolRegistry` / `AgentLoop`」。
+> **作用域**：本文是 MCP Client 集成（新增 epic）的架构决策，不是 HeAgent 整体架构重写。既有架构基线见 `_bmad-output/baseline/architecture.md`；本文聚焦「如何把 MCP client 适配层干净地嵌入既有 DAG / `ToolRegistry` / `AgentLoop`」。
 
 ## Project Context Analysis
 
