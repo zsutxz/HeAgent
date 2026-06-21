@@ -267,6 +267,8 @@ def shell(command: str) -> str:
 | `register(schema, handler)` | 注册工具 |
 | `get_handler(name)` | 查找执行函数 |
 | `enable(name)` / `disable(name)` | 启用/禁用工具 |
+| `unregister(name)` | 注销工具（MCP 退出时清理注册） |
+| `get_schema(name)` | 查询工具 Schema（存在性检查） |
 | `enabled_schemas()` | 返回所有已启用的 ToolSchema |
 
 #### safety.py — 安全防护
@@ -453,6 +455,8 @@ HeAgentError (base)
 | `skill_curator_stale_days` | 30 | 技能过期天数 |
 | `cron_enabled` | True | 是否启用 cron 调度 |
 | `cron_tick_seconds` | 60 | 调度器检查间隔（秒） |
+| `mcp_enabled` | True | 是否启用 MCP server 连接（门控，False 则跳过加载） |
+| `mcp_config_path` | `.mcp.json` | MCP server 声明式配置文件路径 |
 
 ---
 
@@ -515,6 +519,10 @@ src/heagent/
 │   ├── registry.py          # ToolRegistry 单例
 │   ├── safety.py            # SafetyGuard（shell 命令安全）
 │   ├── path_safety.py       # 工作区路径校验（文件工具）
+│   ├── mcp/                 # MCP 适配层
+│   │   ├── config.py        # MCPConfig + load_mcp_config（.mcp.json + ${ENV} 插值）
+│   │   ├── mapping.py       # mcp_tool_to_schema + bridge_result
+│   │   └── manager.py       # MCPClientManager（连接生命周期 + 工具注册）
 │   └── builtins/            # 内置工具（18 个）
 │       ├── __init__.py      # 触发注册
 │       ├── shell.py         # shell 命令执行
