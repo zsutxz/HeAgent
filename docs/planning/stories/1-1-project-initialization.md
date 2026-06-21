@@ -66,9 +66,9 @@ So that 我有一个可运行的、符合 Python 最佳实践的包骨架。
 - 不添加 architecture.md 中未列出的依赖
 
 ### References
-- [Source: HeAgent/docs/architecture-HeAgent-2026-05-23/architecture.md#Complete Project Directory Structure]
-- [Source: HeAgent/docs/architecture-HeAgent-2026-05-23/architecture.md#依赖版本锁定]
-- [Source: HeAgent/docs/prd-HeAgent-2026-05-23/prd.md#6. MVP 范围]
+- [Source: HeAgent/docs/planning/architecture/architecture.md#Complete Project Directory Structure]
+- [Source: HeAgent/docs/planning/architecture/architecture.md#依赖版本锁定]
+- [Source: HeAgent/docs/planning/prd/prd.md#6. MVP 范围]
 
 ## Dev Agent Record
 

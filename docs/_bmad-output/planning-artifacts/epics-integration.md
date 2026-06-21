@@ -5,8 +5,8 @@ completedAt: '2026-06-03'
 startedAt: '2026-06-03'
 validation: passed
 inputDocuments:
-  - docs/prd-HeAgent-2026-05-23/prd.md
-  - docs/architecture-HeAgent-2026-05-23/architecture.md
+  - docs/planning/prd/prd.md
+  - docs/planning/architecture/architecture.md
   - docs/planning/epics.md
 project_name: 'HeAgent'
 user_name: 'tan'

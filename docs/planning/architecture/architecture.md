@@ -1,8 +1,8 @@
 ---
 stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 inputDocuments:
-  - HeAgent/docs/brief-HeAgent-2026-05-23/brief.md
-  - HeAgent/docs/prd-HeAgent-2026-05-23/prd.md
+  - HeAgent/docs/planning/brief/brief.md
+  - HeAgent/docs/planning/prd/prd.md
 workflowType: 'architecture'
 lastStep: 8
 status: 'complete'

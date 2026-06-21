@@ -1,8 +1,8 @@
 ---
 stepsCompleted: [1, 2]
 inputDocuments:
-  - HeAgent/docs/prd-HeAgent-2026-05-23/prd.md
-  - HeAgent/docs/architecture-HeAgent-2026-05-23/architecture.md
+  - HeAgent/docs/planning/prd/prd.md
+  - HeAgent/docs/planning/architecture/architecture.md
   - HeAgent/docs/frame.md
   - HeAgent/src/heagent/agent/loop.py
   - HeAgent/src/heagent/memory/skills.py

@@ -11,7 +11,7 @@ updated: 2026-05-23
 
 本文档定义 HeAgent（自改进 AI Agent 核心框架）的产品需求。面向读者：作者本人（开发者 + PM）和下游 BMAD 工作流（架构设计、Epic 拆分）。FR 全局编号，便于架构和 Story 引用。
 
-上游输入：[产品简报](../brief-HeAgent-2026-05-23/brief.md)。
+上游输入：[产品简报](../brief/brief.md)。
 
 ## 1. 愿景
 
