@@ -5,7 +5,6 @@ created: '2026-06-19'
 status: 'done'
 baseline_commit: '8680b9d'
 context:
-  - '{project-root}/docs/qa.md'
   - '{project-root}/CLAUDE.md'
 ---
 
@@ -152,7 +151,7 @@ def wrap_provider_error(error: Exception) -> ProviderError:
 - README 顶部「安全声明」——不可信环境须配 OS 沙箱，SafetyGuard 非真正边界。
   [`README.md:5`](../../README.md#L5)
 
-- CLAUDE.md 同等声明，指向 `docs/qa.md` §3。
+- CLAUDE.md 同等声明（SafetyGuard 非真正边界，须 OS 级沙箱）。
   [`CLAUDE.md:5`](../../CLAUDE.md#L5)
 
 **测试：真实 SDK 异常证明死代码已修**
