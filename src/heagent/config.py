@@ -32,13 +32,13 @@ class Settings(BaseSettings):
     )
 
     # ---- API 密钥（可选，在 Provider 使用时校验） ----
-    deepseek_api_key: str | None = None    # DeepSeek API Key（优先检测）
-    openai_api_key: str | None = None      # OpenAI API Key
-    anthropic_api_key: str | None = None   # Anthropic API Key
+    deepseek_api_key: str | None = None  # DeepSeek API Key（优先检测）
+    openai_api_key: str | None = None  # OpenAI API Key
+    anthropic_api_key: str | None = None  # Anthropic API Key
 
     # ---- API 基础 URL（用于 OpenAI 兼容的第三方服务） ----
-    deepseek_base_url: str | None = None   # DeepSeek 默认 https://api.deepseek.com/v1
-    openai_base_url: str | None = None     # OpenAI 兼容服务（如智谱 AI）
+    deepseek_base_url: str | None = None  # DeepSeek 默认 https://api.deepseek.com/v1
+    openai_base_url: str | None = None  # OpenAI 兼容服务（如智谱 AI）
     anthropic_base_url: str | None = None  # Anthropic 代理地址
 
     # ---- Anthropic 提示词缓存（FR-3） ----
@@ -51,33 +51,37 @@ class Settings(BaseSettings):
     anthropic_api_keys: str = ""
 
     # ---- 框架运行参数 ----
-    default_model: str = "gpt-4o"                    # 默认模型名称
-    max_iterations: int = Field(default=50, ge=1)     # Agent 循环最大迭代次数
+    default_model: str = "gpt-4o"  # 默认模型名称
+    max_iterations: int = Field(default=50, ge=1)  # Agent 循环最大迭代次数
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)  # 上下文压缩触发阈值
     max_context_tokens: int = Field(default=128000, ge=1)  # 模型上下文窗口大小（用于压缩判断）
-    shell_timeout: int = Field(default=120, ge=1)     # Shell 命令超时时间（秒）
+    shell_timeout: int = Field(default=120, ge=1)  # Shell 命令超时时间（秒）
 
     # ---- 重试策略参数 ----
-    retry_max_attempts: int = Field(default=3, ge=1)   # 最大重试次数
+    retry_max_attempts: int = Field(default=3, ge=1)  # 最大重试次数
     retry_base_delay: float = Field(default=1.0, ge=0.0)  # 重试基础延迟（秒）
     retry_max_delay: float = Field(default=30.0, ge=0.0)  # 重试最大延迟（秒）
 
     # ---- 技能系统参数 ----
     skill_match_threshold: float = Field(default=0.3, ge=0.0, le=1.0)  # 自动调用关键词匹配阈值
-    skill_max_auto_invoke: int = Field(default=3, ge=0)                # 每轮最多自动注入技能数
+    skill_max_auto_invoke: int = Field(default=3, ge=0)  # 每轮最多自动注入技能数
 
     # ---- 上下文文件参数 ----
-    context_files_enabled: bool = Field(default=True)                   # 是否自动加载项目上下文文件
+    context_files_enabled: bool = Field(default=True)  # 是否自动加载项目上下文文件
 
     # ---- 记忆提醒参数 ----
-    memory_nudge_enabled: bool = Field(default=True)                    # 是否注入记忆保存提醒
+    memory_nudge_enabled: bool = Field(default=True)  # 是否注入记忆保存提醒
 
     # ---- 技能策展参数 ----
-    skill_curator_stale_days: int = Field(default=30, ge=1)            # 多少天未使用视为过期
+    skill_curator_stale_days: int = Field(default=30, ge=1)  # 多少天未使用视为过期
 
     # ---- Cron 调度参数 ----
-    cron_enabled: bool = Field(default=True)                            # 是否启用 cron 调度
-    cron_tick_seconds: int = Field(default=60, ge=10)                   # 调度器检查间隔（秒）
+    cron_enabled: bool = Field(default=True)  # 是否启用 cron 调度
+    cron_tick_seconds: int = Field(default=60, ge=10)  # 调度器检查间隔（秒）
+
+    # ---- MCP Client 参数（FR-7 门控；无 .mcp.json 时纯内置模式） ----
+    mcp_enabled: bool = Field(default=True)  # 是否启用 MCP server 连接
+    mcp_config_path: str = Field(default=".mcp.json")  # 声明式 MCP server 配置路径（项目根）
 
     @property
     def openai_key_pool(self) -> list[str]:

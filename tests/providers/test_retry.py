@@ -70,6 +70,14 @@ class TestClassifyException:
     def test_timeout_message_transient(self) -> None:
         assert classify_exception(RuntimeError("connection timeout")) == ErrorCategory.TRANSIENT
 
+    def test_openai_timeout_phrase_transient(self) -> None:
+        """OpenAI SDK APITimeoutError.message='Request timed out.'（无 status_code）应判为 TRANSIENT。"""
+        assert classify_exception(RuntimeError("Request timed out.")) == ErrorCategory.TRANSIENT
+
+    def test_connection_error_transient(self) -> None:
+        """APIConnectionError.message='Connection error.' 应判为 TRANSIENT。"""
+        assert classify_exception(RuntimeError("Connection error.")) == ErrorCategory.TRANSIENT
+
 
 class TestRetryWithBackoff:
     async def test_success_no_retry(self) -> None:
@@ -128,6 +136,21 @@ class TestRetryWithBackoff:
 
         with pytest.raises(ProviderError, match="timeout"):
             await retry_with_backoff(always_fail, max_attempts=2, base_delay=0.01)
+
+
+class TestRetryContract:
+    async def test_bare_sdk_error_not_retried(self) -> None:
+        """retry_with_backoff 只捕获 ProviderError；fn 直接抛原始 SDK 风格异常（未包装）
+        时不重试、立即抛出。这界定了：异常包装必须发生在 provider 源头（wrap_provider_error）。"""
+        calls = {"n": 0}
+
+        async def fn() -> object:
+            calls["n"] += 1
+            raise _FakeSdkError("overloaded", 503)  # 非 ProviderError
+
+        with pytest.raises(_FakeSdkError):
+            await retry_with_backoff(fn, base_delay=0.01)
+        assert calls["n"] == 1  # 未重试
 
 
 async def _async_ok(val: str) -> str:

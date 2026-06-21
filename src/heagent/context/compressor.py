@@ -13,9 +13,12 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-from heagent.providers.base import BaseProvider
 from heagent.types import Message, ProviderResponse, Role
+
+if TYPE_CHECKING:
+    from heagent.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +36,8 @@ class ContextCompressor:
         self,
         provider: BaseProvider,
         *,
-        threshold: float = 0.8,   # 触发压缩的 Token 使用率阈值
-        keep_recent: int = 4,     # 保留最近 N 条消息不参与压缩
+        threshold: float = 0.8,  # 触发压缩的 Token 使用率阈值
+        keep_recent: int = 4,  # 保留最近 N 条消息不参与压缩
     ) -> None:
         self.provider = provider
         self.threshold = threshold

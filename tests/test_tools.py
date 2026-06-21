@@ -106,7 +106,10 @@ class TestToolRegistry:
     def test_register_and_get(self) -> None:
         reg = ToolRegistry.get()
         schema = ToolSchema(name="test", description="test", parameters={"type": "object", "properties": {}})
-        handler = lambda: None
+
+        def handler() -> None:
+            return None
+
         reg.register(schema, handler)
 
         assert reg.get_schema("test") is schema

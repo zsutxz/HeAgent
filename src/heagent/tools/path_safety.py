@@ -37,7 +37,5 @@ def resolve_workspace_path(path: str) -> Path:
     candidate = raw if raw.is_absolute() else root / raw
     resolved = candidate.resolve(strict=False)
     if not resolved.is_relative_to(root):
-        raise WorkspacePathError(
-            f"Path escapes current workspace: {path} (workspace: {root})"
-        )
+        raise WorkspacePathError(f"Path escapes current workspace: {path} (workspace: {root})")
     return resolved

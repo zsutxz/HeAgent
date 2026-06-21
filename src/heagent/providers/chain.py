@@ -7,27 +7,31 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, NoReturn
 
 from heagent.exceptions import ProviderError
-from heagent.providers.base import BaseProvider, ProviderMetadata
-from heagent.providers.retry import ErrorCategory, classify_exception
-from heagent.types import Message, ProviderResponse, ToolSchema
+from heagent.providers.retry import ErrorCategory, classify_exception, wrap_provider_error
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from heagent.providers.base import BaseProvider, ProviderMetadata
+    from heagent.types import Message, ProviderResponse, ToolSchema
 
 logger = logging.getLogger(__name__)
 
 
-def _wrap_error(error: Exception) -> ProviderError:
-    """将任意异常（含原始 SDK 异常）包装为 ProviderError，保留状态码与原始 cause。
+def _raise_provider_error(error: Exception) -> NoReturn:
+    """抛出统一的 ProviderError，保证回退链抛出的始终是 HeAgentError 体系内的异常。
 
-    使回退链抛出的始终是 HeAgentError 体系内的异常，供上层中间件分类重试、
-    供 CLI 统一捕获，避免裸 SDK 异常穿透导致未处理崩溃。
+    已是 ProviderError（P0-2 后 provider 源头已把 SDK 异常包装为此类型）则原样抛出——
+    保留其既有 cause 链，避免二次包装产生 ProviderError→ProviderError→原始 SDK 的冗余链；
+    否则把 SDK/未知异常包装为 ProviderError，并以原始异常为 cause，供上层中间件分类重试、
+    CLI 统一捕获，避免裸 SDK 异常穿透导致未处理崩溃。
     """
-    status = getattr(error, "status_code", None)
-    if status is None:
-        status = getattr(error, "status", None)
-    message = getattr(error, "message", None) or str(error)
-    return ProviderError(message, status_code=status)
+    if isinstance(error, ProviderError):
+        raise error
+    raise wrap_provider_error(error) from error
 
 
 class ProviderChain:
@@ -64,7 +68,9 @@ class ProviderChain:
         if self._current_index < len(self._providers) - 1:
             old = self._current_index
             self._current_index += 1
-            logger.info("Fallback: %s -> %s", self._providers[old].get_metadata().name, self.current.get_metadata().name)
+            logger.info(
+                "Fallback: %s -> %s", self._providers[old].get_metadata().name, self.current.get_metadata().name
+            )
             return True
         return False
 
@@ -91,12 +97,14 @@ class ProviderChain:
                 category = classify_exception(e)
                 logger.warning(
                     "Provider %s failed (%s): %s",
-                    self.current.get_metadata().name, category.value, e,
+                    self.current.get_metadata().name,
+                    category.value,
+                    e,
                 )
                 # 客户端错误 → 不回退，立即抛出
                 if category == ErrorCategory.NON_TRANSIENT:
                     self._current_index = start
-                    raise _wrap_error(e) from e
+                    _raise_provider_error(e)
                 last_error = e
                 if not self._advance():
                     break
@@ -104,10 +112,14 @@ class ProviderChain:
         # 所有 Provider 均失败（均为可回退错误）→ 恢复索引，抛出最后的错误
         self._current_index = start
         if last_error is not None:
-            raise _wrap_error(last_error) from last_error
-        raise RuntimeError("All providers failed")
+            _raise_provider_error(last_error)
+        # 理论不可达：providers 非空（__init__ 保证）且任意迭代要么 return 要么设 last_error。
+        # 仍以 ProviderError 兜底以遵守「禁止裸 Exception」契约。
+        raise ProviderError("All providers failed")
 
-    async def stream(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> AsyncIterator[ProviderResponse]:
+    async def stream(
+        self, messages: list[Message], *, tools: list[ToolSchema] | None = None
+    ) -> AsyncIterator[ProviderResponse]:
         """流式调用的故障转移版本。
 
         与 send() 回退精度逻辑相同（FR-4），但追加一条约束：一旦已向下游交付
@@ -115,10 +127,11 @@ class ProviderChain:
         消费者收到重复前缀。仅在首个 chunk 之前的失败才按 FR-4 回退。
         """
         start = self._current_index
+        last_error: Exception | None = None
         for _ in range(len(self._providers)):
             delivered = False
             try:
-                async for chunk in self.current.stream(messages, tools=tools):  # type: ignore[attr-defined]
+                async for chunk in self.current.stream(messages, tools=tools):
                     delivered = True  # 已从当前 Provider 取得 chunk，回退将产生重复输出
                     yield chunk
                 self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
@@ -127,18 +140,24 @@ class ProviderChain:
                 # 已交付部分输出 → 不可回退（重放会重复），直接抛出并复位索引
                 if delivered:
                     self._current_index = start
-                    raise _wrap_error(e) from e
+                    _raise_provider_error(e)
                 category = classify_exception(e)
                 logger.warning(
                     "Provider %s stream failed (%s): %s",
-                    self.current.get_metadata().name, category.value, e,
+                    self.current.get_metadata().name,
+                    category.value,
+                    e,
                 )
                 if category == ErrorCategory.NON_TRANSIENT:
                     self._current_index = start
-                    raise _wrap_error(e) from e
+                    _raise_provider_error(e)
+                last_error = e
                 if not self._advance():
                     break
         self._current_index = start
+        if last_error is not None:
+            _raise_provider_error(last_error)
+        # 理论不可达：见 send() 同款注释。
         raise ProviderError("All providers failed for stream")
 
     def get_metadata(self) -> ProviderMetadata:

@@ -66,14 +66,14 @@ def _estimate_text_tokens(text: str) -> int:
         cp = ord(ch)
         # CJK 统一表意文字 + 扩展区 + CJK 兼容 + 假名 + 韩文
         if (
-            0x4E00 <= cp <= 0x9FFF          # CJK 统一表意文字
-            or 0x3400 <= cp <= 0x4DBF       # CJK 扩展 A
-            or 0x20000 <= cp <= 0x2A6DF     # CJK 扩展 B
-            or 0x2A700 <= cp <= 0x2B73F     # CJK 扩展 C
-            or 0xF900 <= cp <= 0xFAFF       # CJK 兼容表意文字
-            or 0x3040 <= cp <= 0x309F       # 平假名
-            or 0x30A0 <= cp <= 0x30FF       # 片假名
-            or 0xAC00 <= cp <= 0xD7AF       # 韩文音节
+            0x4E00 <= cp <= 0x9FFF  # CJK 统一表意文字
+            or 0x3400 <= cp <= 0x4DBF  # CJK 扩展 A
+            or 0x20000 <= cp <= 0x2A6DF  # CJK 扩展 B
+            or 0x2A700 <= cp <= 0x2B73F  # CJK 扩展 C
+            or 0xF900 <= cp <= 0xFAFF  # CJK 兼容表意文字
+            or 0x3040 <= cp <= 0x309F  # 平假名
+            or 0x30A0 <= cp <= 0x30FF  # 片假名
+            or 0xAC00 <= cp <= 0xD7AF  # 韩文音节
         ):
             cjk_count += 1
         else:

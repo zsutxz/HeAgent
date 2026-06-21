@@ -30,6 +30,8 @@ Always prefer Python's standard library over external dependencies. The stdlib i
 
 Only pull in external dependencies when the stdlib genuinely cannot do the job (e.g., `tiktoken` for accurate token counting, `pyyaml` for YAML parsing, `jsonschema` for schema validation). **External dependencies must be confirmed with the user during the build process** — they add install-time cost, supply-chain surface, and require `uv` to be available.
 
+When a script does rely on a non-stdlib dependency, give it a graceful fallback for when the import is unavailable. `count_tokens.py` is the model: it uses `tiktoken` when present and a chars-over-four estimate when absent, so the script still produces a usable answer rather than crashing.
+
 ## PEP 723 Inline Metadata (Required)
 
 Every Python script MUST include a PEP 723 metadata block. For scripts with external dependencies, use the `uv run` shebang:

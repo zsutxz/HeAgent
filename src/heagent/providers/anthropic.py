@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Sequence
+from typing import TYPE_CHECKING
 
 from anthropic import AsyncAnthropic
 
 from heagent.providers.base import ProviderMetadata
+from heagent.providers.retry import wrap_provider_error
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -105,9 +109,7 @@ def _build_usage(usage: object) -> TokenUsage:
     out = getattr(usage, "output_tokens", 0) or 0
     prompt = inp + cache_read + cache_create
     if cache_read or cache_create:
-        logger.debug(
-            "Anthropic prompt cache: %d read, %d created", cache_read, cache_create
-        )
+        logger.debug("Anthropic prompt cache: %d read, %d created", cache_read, cache_create)
     return TokenUsage(
         prompt_tokens=prompt,
         completion_tokens=out,
@@ -117,10 +119,7 @@ def _build_usage(usage: object) -> TokenUsage:
 
 def _to_anthropic_tools(tools: list[ToolSchema]) -> list[dict[str, object]]:
     """Convert HeAgent tools into Anthropic's tool schema format."""
-    return [
-        {"name": t.name, "description": t.description, "input_schema": t.parameters}
-        for t in tools
-    ]
+    return [{"name": t.name, "description": t.description, "input_schema": t.parameters} for t in tools]
 
 
 def _parse_tool_use_blocks(blocks: Sequence[object]) -> list[ToolCall]:
@@ -167,15 +166,18 @@ class AnthropicProvider:
             "max_tokens": self._max_tokens,
             "messages": _to_anthropic_messages(messages),
         }
-        system_param = _build_system_param(
-            _extract_system(messages), caching=self._prompt_caching
-        )
+        system_param = _build_system_param(_extract_system(messages), caching=self._prompt_caching)
         if system_param is not None:
             kwargs["system"] = system_param
         if tools:
             kwargs["tools"] = _to_anthropic_tools(tools)
 
-        resp = await self._client.messages.create(**kwargs)  # type: ignore[arg-type]
+        try:
+            resp = await self._client.messages.create(**kwargs)  # type: ignore[call-overload]
+        except Exception as e:
+            # 统一包装 SDK 异常（RateLimitError/APITimeoutError 等）为 ProviderError，
+            # 使下游 KeyRotatingProvider/retry/Chain 始终面对 HeAgent 体系异常。
+            raise wrap_provider_error(e) from e
 
         text_parts: list[str] = []
         for block in resp.content:
@@ -203,38 +205,39 @@ class AnthropicProvider:
             "max_tokens": self._max_tokens,
             "messages": _to_anthropic_messages(messages),
         }
-        system_param = _build_system_param(
-            _extract_system(messages), caching=self._prompt_caching
-        )
+        system_param = _build_system_param(_extract_system(messages), caching=self._prompt_caching)
         if system_param is not None:
             kwargs["system"] = system_param
         if tools:
             kwargs["tools"] = _to_anthropic_tools(tools)
 
-        async with self._client.messages.stream(**kwargs) as stream:  # type: ignore[arg-type]
-            async for text in stream.text_stream:
+        try:
+            async with self._client.messages.stream(**kwargs) as stream:  # type: ignore[arg-type]
+                async for text in stream.text_stream:
+                    yield ProviderResponse(
+                        content=text,
+                        tool_calls=[],
+                        usage=TokenUsage(
+                            prompt_tokens=0,
+                            completion_tokens=0,
+                            total_tokens=0,
+                        ),
+                        model=self._model,
+                        finish_reason="",
+                    )
+                # 文本块流尽后用 get_final_message() 取完整响应，补发一个最终 chunk：
+                # 携带真实 usage（驱动 token 累计与压缩触发）、tool_calls（流式工具调用）、
+                # finish_reason。文本已在上方逐块 yield，此处 content="" 避免重复输出。
+                final = await stream.get_final_message()
                 yield ProviderResponse(
-                    content=text,
-                    tool_calls=[],
-                    usage=TokenUsage(
-                        prompt_tokens=0,
-                        completion_tokens=0,
-                        total_tokens=0,
-                    ),
-                    model=self._model,
-                    finish_reason="",
+                    content="",
+                    tool_calls=_parse_tool_use_blocks(final.content),
+                    usage=_build_usage(final.usage),
+                    model=getattr(final, "model", self._model),
+                    finish_reason=final.stop_reason or "end_turn",
                 )
-            # 文本块流尽后用 get_final_message() 取完整响应，补发一个最终 chunk：
-            # 携带真实 usage（驱动 token 累计与压缩触发）、tool_calls（流式工具调用）、
-            # finish_reason。文本已在上方逐块 yield，此处 content="" 避免重复输出。
-            final = await stream.get_final_message()
-            yield ProviderResponse(
-                content="",
-                tool_calls=_parse_tool_use_blocks(final.content),
-                usage=_build_usage(final.usage),
-                model=getattr(final, "model", self._model),
-                finish_reason=final.stop_reason or "end_turn",
-            )
+        except Exception as e:
+            raise wrap_provider_error(e) from e
 
     def get_metadata(self) -> ProviderMetadata:
         """Return provider capability metadata."""

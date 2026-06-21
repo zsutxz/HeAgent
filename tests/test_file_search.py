@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -11,6 +10,10 @@ from heagent.tools.builtins.file import file_read, file_write
 from heagent.tools.builtins.search import content_search, file_search
 from heagent.tools.path_safety import reset_workspace_root, set_workspace_root
 from heagent.tools.registry import ToolRegistry
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
+    from pathlib import Path
 
 
 @pytest.fixture(autouse=True)

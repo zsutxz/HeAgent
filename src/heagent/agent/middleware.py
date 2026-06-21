@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from heagent.providers.retry import retry_with_backoff
 
 if TYPE_CHECKING:
-    from heagent.types import Message
+    from heagent.types import Message, ToolSchema
 
 logger = logging.getLogger(__name__)
 
@@ -32,18 +32,16 @@ class Request:
     def __init__(
         self,
         messages: list[Message],
-        tools: list[object] | None = None,
+        tools: list[ToolSchema] | None = None,
         metadata: dict[str, object] | None = None,
     ) -> None:
-        self.messages = messages       # 对话消息列表
-        self.tools = tools or []       # 已启用的工具 Schema 列表
-        self.metadata = metadata or {} # 附加元数据（供中间件传递信息）
+        self.messages = messages  # 对话消息列表
+        self.tools = tools or []  # 已启用的工具 Schema 列表
+        self.metadata = metadata or {}  # 附加元数据（供中间件传递信息）
 
 
-class NextFn(Protocol):
-    """下一步函数的类型签名，调用即委托给下一层中间件。"""
-
-    def __call__(self, request: Request) -> Any: ...
+# 下一步函数的类型签名，调用即委托给下一层中间件
+NextFn = Callable[[Request], Any]
 
 
 def compose(middlewares: list[MiddlewareFn], handler: Callable[[Request], Any]) -> NextFn:
@@ -85,6 +83,7 @@ def make_retry_middleware(
 
     参数从 Settings.retry_* 读取，在 cli.py 中构造后注入 AgentLoop.middlewares。
     """
+
     async def retry_middleware(request: Request, next_fn: NextFn) -> Any:
         return await retry_with_backoff(
             lambda: next_fn(request),
@@ -92,4 +91,5 @@ def make_retry_middleware(
             base_delay=base_delay,
             max_delay=max_delay,
         )
+
     return retry_middleware

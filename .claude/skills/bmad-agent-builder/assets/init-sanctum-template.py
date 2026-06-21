@@ -10,6 +10,12 @@ and auto-generates CAPABILITIES.md from capability prompt frontmatter.
 After this script runs, the sanctum is fully self-contained — the agent does
 not depend on the skill bundle location for normal operation.
 
+This initializes the agent's runtime sanctum memory, not build-time config. It
+reads config.yaml and config.user.yaml strictly to substitute values into the
+sanctum templates, and it never writes or authors any config file. Build-time
+customization is owned by customize.toml, a separate surface this script never
+touches.
+
 Usage:
     python3 init-sanctum.py <project-root> <skill-path>
 
@@ -154,7 +160,7 @@ def generate_capabilities_md(capabilities: list[dict], evolvable: bool) -> str:
             'Tell me "I want you to be able to do X" and we\'ll create it together.',
             "I'll write the prompt, save it to `capabilities/`, and register it here.",
             "Next session, I'll know how.",
-            "Load `./references/capability-authoring.md` for the full creation framework.",
+            "Load `references/capability-authoring.md` for the full creation framework.",
         ])
 
     lines.extend([
@@ -199,8 +205,8 @@ def main():
     sanctum_refs = sanctum_path / "references"
     sanctum_scripts = sanctum_path / "scripts"
 
-    # Fully qualified path for CAPABILITIES.md references
-    sanctum_refs_path = "./references"
+    # Relative path for CAPABILITIES.md references (agent loads from within sanctum)
+    sanctum_refs_path = "references"
 
     # Check if sanctum already exists
     if sanctum_path.exists():

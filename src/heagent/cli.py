@@ -10,6 +10,7 @@ Provider 自动检测顺序：DEEPSEEK_API_KEY → OPENAI_API_KEY → ANTHROPIC_
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import sys
@@ -21,7 +22,7 @@ import click
 import heagent.tools.builtins  # noqa: F401 — 导入即触发 @tool 注册
 from heagent.agent.loop import AgentLoop
 from heagent.agent.middleware import make_retry_middleware
-from heagent.config import get_settings
+from heagent.config import Settings, get_settings
 from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
 from heagent.cron.jobs import JobStore
@@ -36,26 +37,29 @@ from heagent.providers.chain import ProviderChain
 from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
 from heagent.tools.builtins.subagent import configure_subagent_tools
+from heagent.tools.mcp import MCPClientManager, load_mcp_config
 
 if TYPE_CHECKING:
+    from contextlib import AbstractAsyncContextManager
+    from typing import Any
+
     from heagent.providers.base import BaseProvider
+    from heagent.types import TokenUsage
 
 logger = logging.getLogger(__name__)
 
 
-def _print_usage(usage: object | None) -> None:
+def _print_usage(usage: TokenUsage | None) -> None:
     """在回答后显示 token 消耗统计。"""
-    if usage is None or not hasattr(usage, "total_tokens") or usage.total_tokens == 0:
+    if usage is None or usage.total_tokens == 0:
         return
     click.echo(
-        f"  [tokens: {usage.prompt_tokens} in + "
-        f"{usage.completion_tokens} out = "
-        f"{usage.total_tokens} total]",
+        f"  [tokens: {usage.prompt_tokens} in + {usage.completion_tokens} out = {usage.total_tokens} total]",
         err=True,
     )
 
 
-def _build_provider(settings, model: str) -> BaseProvider:
+def _build_provider(settings: Settings, model: str) -> BaseProvider:
     """根据可用的 API Key 自动检测并构建 Provider。
 
     优先级：DeepSeek > OpenAI > Anthropic。
@@ -87,8 +91,7 @@ def _build_provider(settings, model: str) -> BaseProvider:
     # 无可用 Key → 报错退出
     if not providers:
         click.echo(
-            "Error: No API key configured. "
-            "Set DEEPSEEK_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
+            "Error: No API key configured. Set DEEPSEEK_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
             err=True,
         )
         raise SystemExit(1)
@@ -100,7 +103,7 @@ def _build_provider(settings, model: str) -> BaseProvider:
     return ProviderChain(providers)
 
 
-def _build_openai_providers(settings, model: str) -> BaseProvider | None:
+def _build_openai_providers(settings: Settings, model: str) -> BaseProvider | None:
     """构建 OpenAI Provider（含密钥池轮换）。"""
     # 主 key + 密钥池合并
     keys: list[str] = []
@@ -113,16 +116,15 @@ def _build_openai_providers(settings, model: str) -> BaseProvider | None:
     if not keys:
         return None
 
-    provider_list = [
-        OpenAIProvider(api_key=k, model=model, base_url=settings.openai_base_url)
-        for k in keys
+    provider_list: list[BaseProvider] = [
+        OpenAIProvider(api_key=k, model=model, base_url=settings.openai_base_url) for k in keys
     ]
     if len(provider_list) == 1:
         return provider_list[0]
     return KeyRotatingProvider(provider_list)
 
 
-def _build_anthropic_providers(settings, model: str) -> BaseProvider | None:
+def _build_anthropic_providers(settings: Settings, model: str) -> BaseProvider | None:
     """构建 Anthropic Provider（含密钥池轮换）。"""
     keys: list[str] = []
     if settings.anthropic_api_key:
@@ -134,7 +136,7 @@ def _build_anthropic_providers(settings, model: str) -> BaseProvider | None:
     if not keys:
         return None
 
-    provider_list = [
+    provider_list: list[BaseProvider] = [
         AnthropicProvider(
             api_key=k,
             model=model,
@@ -155,54 +157,73 @@ def _build_soul(soul_path: str | None = None) -> SoulStore | None:
     return SoulStore()
 
 
+def _mcp_lifecycle(settings: Settings) -> AbstractAsyncContextManager[Any]:
+    """根据 Settings 门控构建 MCP 生命周期上下文（同步构建，async 进入）。
+
+    - ``mcp_enabled=False`` → no-op（完全跳过加载与连接）；
+    - 无文件 / 空 mcpServers → no-op（纯内置模式，FR-7）；
+    - 有效配置 → ``MCPClientManager``（进入时并发连接+发现+注册，退出时卸载+回收）；
+    - 配置错误（未设 ``${ENV}`` 等）→ raise ``ToolError``（fail-fast，FR-8）。
+    """
+    if not settings.mcp_enabled:
+        logger.info("MCP 已禁用（mcp_enabled=False）→ 跳过加载与连接")
+        return contextlib.nullcontext()
+    config = load_mcp_config(settings.mcp_config_path)
+    if config.is_empty:
+        return contextlib.nullcontext()
+    return MCPClientManager(config)
+
+
 async def _run_single(
     prompt: str,
     provider: BaseProvider,
     system: str | None,
     max_iterations: int,
     soul_path: str | None = None,
+    mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
 ) -> None:
     """单次模式：执行一个 prompt 并打印结果。"""
     settings = get_settings()
 
-    # 初始化模块
-    skills = SkillStore()
-    facts = FactStore()
-    profile = ProfileStore()
-    soul = _build_soul(soul_path)
-    cron_store = JobStore() if settings.cron_enabled else None
-    compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
-    retry_mw = make_retry_middleware(
-        max_attempts=settings.retry_max_attempts,
-        base_delay=settings.retry_base_delay,
-        max_delay=settings.retry_max_delay,
-    )
+    async with mcp_ctx or contextlib.nullcontext():
+        # 初始化模块
+        skills = SkillStore()
+        facts = FactStore()
+        profile = ProfileStore()
+        soul = _build_soul(soul_path)
+        cron_store = JobStore() if settings.cron_enabled else None
+        compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
+        retry_mw = make_retry_middleware(
+            max_attempts=settings.retry_max_attempts,
+            base_delay=settings.retry_base_delay,
+            max_delay=settings.retry_max_delay,
+        )
 
-    configure_subagent_tools(
-        provider,
-        skills=skills,
-        facts=facts,
-        profile=profile,
-        compressor=compressor,
-        context_dir=os.getcwd(),
-        soul=soul,
-    )
+        configure_subagent_tools(
+            provider,
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            compressor=compressor,
+            context_dir=os.getcwd(),
+            soul=soul,
+        )
 
-    loop = AgentLoop(
-        provider,
-        max_iterations=max_iterations,
-        middlewares=[retry_mw],
-        skills=skills,
-        facts=facts,
-        profile=profile,
-        compressor=compressor,
-        context_dir=os.getcwd(),
-        soul=soul,
-        cron_store=cron_store,
-    )
-    result = await loop.run(prompt, system=system)
-    click.echo(result)
-    _print_usage(loop.last_usage)
+        loop = AgentLoop(
+            provider,
+            max_iterations=max_iterations,
+            middlewares=[retry_mw],
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            compressor=compressor,
+            context_dir=os.getcwd(),
+            soul=soul,
+            cron_store=cron_store,
+        )
+        result = await loop.run(prompt, system=system)
+        click.echo(result)
+        _print_usage(loop.last_usage)
 
 
 async def _run_chat(
@@ -210,93 +231,99 @@ async def _run_chat(
     system: str | None,
     max_iterations: int,
     soul_path: str | None = None,
+    mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
 ) -> None:
     """交互模式：REPL 聊天循环，直到用户输入空行或 Ctrl+C。"""
     settings = get_settings()
     session_id = uuid.uuid4().hex[:8]  # 每次交互会话一个固定 ID
 
-    # 初始化模块
-    skills = SkillStore()
-    facts = FactStore()
-    profile = ProfileStore()
-    soul = _build_soul(soul_path)
-    session = SessionStore()
-    cron_store = JobStore() if settings.cron_enabled else None
-    compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
-    retry_mw = make_retry_middleware(
-        max_attempts=settings.retry_max_attempts,
-        base_delay=settings.retry_base_delay,
-        max_delay=settings.retry_max_delay,
-    )
-
-    # Cron 调度器（交互模式专用）
-    scheduler: CronScheduler | None = None
-    if settings.cron_enabled and cron_store:
-        scheduler = CronScheduler(
-            cron_store, provider,
-            tick_seconds=settings.cron_tick_seconds,
-            skills=skills, facts=facts, profile=profile,
-            compressor=compressor, soul=soul, cron_store=cron_store,
+    async with mcp_ctx or contextlib.nullcontext():
+        # 初始化模块
+        skills = SkillStore()
+        facts = FactStore()
+        profile = ProfileStore()
+        soul = _build_soul(soul_path)
+        session = SessionStore()
+        cron_store = JobStore() if settings.cron_enabled else None
+        compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
+        retry_mw = make_retry_middleware(
+            max_attempts=settings.retry_max_attempts,
+            base_delay=settings.retry_base_delay,
+            max_delay=settings.retry_max_delay,
         )
 
-    configure_subagent_tools(
-        provider,
-        skills=skills,
-        facts=facts,
-        profile=profile,
-        compressor=compressor,
-        context_dir=os.getcwd(),
-        soul=soul,
-    )
+        # Cron 调度器（交互模式专用）
+        scheduler: CronScheduler | None = None
+        if settings.cron_enabled and cron_store:
+            scheduler = CronScheduler(
+                cron_store,
+                provider,
+                tick_seconds=settings.cron_tick_seconds,
+                skills=skills,
+                facts=facts,
+                profile=profile,
+                compressor=compressor,
+                soul=soul,
+                cron_store=cron_store,
+            )
 
-    loop = AgentLoop(
-        provider,
-        max_iterations=max_iterations,
-        middlewares=[retry_mw],
-        skills=skills,
-        facts=facts,
-        profile=profile,
-        session=session,
-        compressor=compressor,
-        context_dir=os.getcwd(),
-        soul=soul,
-        cron_store=cron_store,
-    )
-    click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
+        configure_subagent_tools(
+            provider,
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            compressor=compressor,
+            context_dir=os.getcwd(),
+            soul=soul,
+        )
 
-    try:
-        if scheduler:
-            await scheduler.start()
-        while True:
-            try:
-                user_input = input("> ")
-            except (KeyboardInterrupt, EOFError):
-                click.echo("\nBye!")
-                break
+        loop = AgentLoop(
+            provider,
+            max_iterations=max_iterations,
+            middlewares=[retry_mw],
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            session=session,
+            compressor=compressor,
+            context_dir=os.getcwd(),
+            soul=soul,
+            cron_store=cron_store,
+        )
+        click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
-            if not user_input.strip():
-                break
+        try:
+            if scheduler:
+                await scheduler.start()
+            while True:
+                try:
+                    user_input = input("> ")
+                except (KeyboardInterrupt, EOFError):
+                    click.echo("\nBye!")
+                    break
 
-            try:
-                final_answer = ""
-                async for event in loop.run_stream(user_input, system=system, session_id=session_id):
-                    if event.type == "text":
-                        click.echo(event.text, nl=False)
-                    elif event.type == "tool_call":
-                        click.echo(f"\n[calling {event.tool_name}...]", nl=False)
-                    elif event.type == "tool_result":
-                        click.echo(" [done]", nl=False)
-                    elif event.type == "done":
-                        pass
-                click.echo("\n")
-                _print_usage(loop.last_usage)
-            except BudgetExceeded as e:
-                click.echo(f"[budget exceeded] {e.message}", err=True)
-            except HeAgentError as e:
-                click.echo(f"[error] {e.message}", err=True)
-    finally:
-        if scheduler:
-            await scheduler.stop()
+                if not user_input.strip():
+                    break
+
+                try:
+                    async for event in loop.run_stream(user_input, system=system, session_id=session_id):
+                        if event.type == "text":
+                            click.echo(event.text, nl=False)
+                        elif event.type == "tool_call":
+                            click.echo(f"\n[calling {event.tool_name}...]", nl=False)
+                        elif event.type == "tool_result":
+                            click.echo(" [done]", nl=False)
+                        elif event.type == "done":
+                            pass
+                    click.echo("\n")
+                    _print_usage(loop.last_usage)
+                except BudgetExceeded as e:
+                    click.echo(f"[budget exceeded] {e.message}", err=True)
+                except HeAgentError as e:
+                    click.echo(f"[error] {e.message}", err=True)
+        finally:
+            if scheduler:
+                await scheduler.stop()
 
 
 @click.command()
@@ -305,7 +332,13 @@ async def _run_chat(
 @click.option("--system", default=None, help="System prompt")
 @click.option("--max-iterations", type=int, default=None, help="Max agent loop iterations")
 @click.option("--soul", default=None, help="Path to custom SOUL.md personality file")
-def main(prompt: str | None, model: str | None, system: str | None, max_iterations: int | None, soul: str | None) -> None:
+def main(
+    prompt: str | None,
+    model: str | None,
+    system: str | None,
+    max_iterations: int | None,
+    soul: str | None,
+) -> None:
     """HeAgent — self-improving AI agent.
 
     Run with a PROMPT for single-shot mode, or without for interactive chat.
@@ -327,8 +360,15 @@ def main(prompt: str | None, model: str | None, system: str | None, max_iteratio
 
     provider = _build_provider(settings, resolved_model)
 
+    # MCP 生命周期（门控）；配置错误 fail-fast 友好报告（FR-8）
+    try:
+        mcp_ctx = _mcp_lifecycle(settings)
+    except HeAgentError as e:
+        click.echo(f"[mcp config error] {e.message}", err=True)
+        raise SystemExit(1) from None
+
     # 根据 prompt 参数决定运行模式
     if prompt:
-        asyncio.run(_run_single(prompt, provider, system, resolved_iterations, soul_path=soul))
+        asyncio.run(_run_single(prompt, provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx))
     else:
-        asyncio.run(_run_chat(provider, system, resolved_iterations, soul_path=soul))
+        asyncio.run(_run_chat(provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx))

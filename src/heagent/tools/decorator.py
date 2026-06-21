@@ -20,10 +20,13 @@
 from __future__ import annotations
 
 import inspect
-from typing import get_type_hints
+from typing import TYPE_CHECKING, Any, get_type_hints
 
 from heagent.tools.registry import ToolRegistry
 from heagent.types import ToolSchema
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Python 类型 → JSON Schema 类型 的映射表
 _TYPE_MAP: dict[type, str] = {
@@ -35,12 +38,12 @@ _TYPE_MAP: dict[type, str] = {
 
 
 def tool(
-    func: object | None = None,
+    func: Callable[..., Any] | None = None,
     *,
     name: str | None = None,
     description: str | None = None,
     enabled: bool = True,
-) -> object:
+) -> Callable[..., Any]:
     """将函数注册为 Agent 可调用的工具。
 
     支持两种使用方式：
@@ -54,17 +57,15 @@ def tool(
         enabled: 是否启用（False 则注册但不可用）
     """
 
-    def _register(fn: object) -> object:
-        fn_obj = fn  # type: ignore[arg-type]
-
+    def _register(fn: Callable[..., Any]) -> Callable[..., Any]:
         # 确定工具名称：显式指定 > 函数名
-        tool_name = name or fn_obj.__name__
+        tool_name = name or fn.__name__
         # 确定工具描述：显式指定 > docstring 首行
-        tool_desc = description or (fn_obj.__doc__ or "").strip().split("\n")[0]
+        tool_desc = description or (fn.__doc__ or "").strip().split("\n")[0]
 
         # 从函数签名提取类型提示
-        hints = get_type_hints(fn_obj)
-        sig = inspect.signature(fn_obj)
+        hints = get_type_hints(fn)
+        sig = inspect.signature(fn)
 
         # 构建 JSON Schema 的 properties 和 required
         properties: dict[str, object] = {}
@@ -91,7 +92,7 @@ def tool(
         # 创建 Schema 并注册到全局 Registry
         schema = ToolSchema(name=tool_name, description=tool_desc, parameters=parameters)
         registry = ToolRegistry.get()
-        registry.register(schema, fn_obj)
+        registry.register(schema, fn)
         if not enabled:
             registry.disable(tool_name)  # 注册但不启用
         return fn

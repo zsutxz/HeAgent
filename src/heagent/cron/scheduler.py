@@ -7,13 +7,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from heagent.cron.jobs import CronJob, JobStore
-
 if TYPE_CHECKING:
+    from heagent.cron.jobs import CronJob, JobStore
     from heagent.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class CronScheduler:
         self._provider = provider
         self._tick_seconds = tick_seconds
         self._loop_kwargs = loop_kwargs
-        self._task: asyncio.Task | None = None
+        self._task: asyncio.Task[None] | None = None
         self._running = False
 
     async def start(self) -> None:
@@ -53,10 +53,8 @@ class CronScheduler:
         self._running = False
         if self._task and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         logger.info("Cron scheduler stopped")
 
     # ---- 内部方法 ----
@@ -97,6 +95,7 @@ class CronScheduler:
         if success:
             # 仅成功时更新最后运行时间
             from heagent.cron.jobs import _iso_now
+
             self._store.update(job.id, last_run=_iso_now())
 
             # 一次性任务成功后删除
@@ -119,10 +118,7 @@ class CronScheduler:
         cron_weekday = (dt.weekday() + 1) % 7
         cron_values = (dt.minute, dt.hour, dt.day, dt.month, cron_weekday)
 
-        for field_expr, actual in zip(parts, cron_values, strict=True):
-            if not _field_matches(field_expr, actual):
-                return False
-        return True
+        return all(_field_matches(field_expr, actual) for field_expr, actual in zip(parts, cron_values, strict=True))
 
 
 def _field_matches(expr: str, value: int) -> bool:

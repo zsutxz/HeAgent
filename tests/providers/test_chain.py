@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -10,6 +10,9 @@ from heagent.exceptions import ProviderError
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.chain import ProviderChain
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 def _make_provider(
@@ -27,6 +30,7 @@ def _make_provider(
     400/422 = NON_TRANSIENT 不应回退。send_calls/stream_calls 记录调用次数。
     fail_stream_mid：在 yield 首个 chunk 之后再抛异常，模拟流中途断开。
     """
+
     class FakeProvider:
         _name = name
         _content = content
@@ -41,13 +45,25 @@ def _make_provider(
             self.send_calls += 1
             if self._fail:
                 raise ProviderError(f"{self._name} send failed", status_code=self._fail_status)
-            return ProviderResponse(content=self._content, usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2), model=self._name, finish_reason="stop")
+            return ProviderResponse(
+                content=self._content,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                model=self._name,
+                finish_reason="stop",
+            )
 
-        async def stream(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> AsyncIterator[ProviderResponse]:
+        async def stream(
+            self, messages: list[Message], *, tools: list[ToolSchema] | None = None
+        ) -> AsyncIterator[ProviderResponse]:
             self.stream_calls += 1
             if self._fail_stream:
                 raise ProviderError(f"{self._name} stream failed", status_code=self._fail_status)
-            yield ProviderResponse(content=self._content, usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2), model=self._name, finish_reason="stop")
+            yield ProviderResponse(
+                content=self._content,
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                model=self._name,
+                finish_reason="stop",
+            )
             if self._fail_stream_mid:
                 raise ProviderError(f"{self._name} stream broke mid-flight", status_code=self._fail_status)
 
@@ -167,3 +183,40 @@ class TestChain:
         p = _make_provider("a")
         chain = ProviderChain([p])
         assert len(chain.providers) == 1
+
+    async def test_send_no_double_wrap_on_inner_provider_error(self) -> None:
+        """内层 provider 已抛 ProviderError（P0-2 源头包装后的形态）时，chain 不应二次包装。
+
+        回归：抛出的异常 __cause__ 不应是又一个 ProviderError——那是双层包装的标志。
+        修复后内层 ProviderError 原样上抛，__cause__ 保持为内层既有 cause（None 或原始 SDK 异常）。
+        """
+        a = _make_provider("a", fail=True, fail_status=400)
+        chain = ProviderChain([a])
+        with pytest.raises(ProviderError, match="a send failed") as exc_info:
+            await chain.send([Message(role=Role.USER, content="hi")])
+        assert exc_info.value.status_code == 400
+        assert not isinstance(exc_info.value.__cause__, ProviderError)
+
+    async def test_stream_no_double_wrap_on_inner_provider_error(self) -> None:
+        """流式同理：内层 ProviderError 不被 chain 二次包装（__cause__ 非另一个 ProviderError）。"""
+        a = _make_provider("a", fail_stream=True, fail_status=400)
+        chain = ProviderChain([a])
+        with pytest.raises(ProviderError, match="a stream failed") as exc_info:
+            async for _ in chain.stream([Message(role=Role.USER, content="hi")]):
+                pass
+        assert exc_info.value.status_code == 400
+        assert not isinstance(exc_info.value.__cause__, ProviderError)
+
+    async def test_stream_all_fail_preserves_last_error_status(self) -> None:
+        """流式全部失败时，backstop 应委托最后错误（与 send 对称），保留状态码而非无上下文兜底。"""
+        chain = ProviderChain(
+            [
+                _make_provider("a", fail_stream=True, fail_status=503),
+                _make_provider("b", fail_stream=True, fail_status=503),
+            ]
+        )
+        with pytest.raises(ProviderError) as exc_info:
+            async for _ in chain.stream([Message(role=Role.USER, content="hi")]):
+                pass
+        # 末次错误（503 TRANSIENT，回退耗尽）的状态码保留，而非 None
+        assert exc_info.value.status_code == 503

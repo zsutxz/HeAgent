@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from heagent.exceptions import ProviderError
 from heagent.providers.anthropic import (
     AnthropicProvider,
     _extract_system,
@@ -14,6 +17,9 @@ from heagent.providers.anthropic import (
 )
 from heagent.providers.base import BaseProvider
 from heagent.types import Message, Role, ToolCall, ToolSchema
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 def _mock_usage(inp: int = 10, out: int = 5) -> SimpleNamespace:
@@ -43,8 +49,15 @@ def _mock_tool_block(tid: str = "tu_1", name: str = "run", inp: dict | None = No
     return SimpleNamespace(type="tool_use", id=tid, name=name, input=inp or {"cmd": "ls"})
 
 
-def _mock_response(content: list[object] | None = None, model: str = "claude-sonnet-4-6", stop: str = "end_turn", usage: object | None = None) -> SimpleNamespace:
-    return SimpleNamespace(content=content or [_mock_text_block()], model=model, stop_reason=stop, usage=usage or _mock_usage())
+def _mock_response(
+    content: list[object] | None = None,
+    model: str = "claude-sonnet-4-6",
+    stop: str = "end_turn",
+    usage: object | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        content=content or [_mock_text_block()], model=model, stop_reason=stop, usage=usage or _mock_usage()
+    )
 
 
 class TestHelpers:
@@ -60,14 +73,16 @@ class TestHelpers:
         assert result == [{"role": "user", "content": "hello"}]
 
     def test_to_anthropic_messages_with_tool_use_and_result_blocks(self) -> None:
-        result = _to_anthropic_messages([
-            Message(
-                role=Role.ASSISTANT,
-                content="Checking",
-                tool_calls=[ToolCall(id="tu_1", name="run", arguments={"cmd": "ls"})],
-            ),
-            Message(role=Role.TOOL, content="done", tool_call_id="tu_1"),
-        ])
+        result = _to_anthropic_messages(
+            [
+                Message(
+                    role=Role.ASSISTANT,
+                    content="Checking",
+                    tool_calls=[ToolCall(id="tu_1", name="run", arguments={"cmd": "ls"})],
+                ),
+                Message(role=Role.TOOL, content="done", tool_call_id="tu_1"),
+            ]
+        )
         assert result == [
             {
                 "role": "assistant",
@@ -85,10 +100,12 @@ class TestHelpers:
         ]
 
     def test_to_anthropic_messages_groups_consecutive_tool_results(self) -> None:
-        result = _to_anthropic_messages([
-            Message(role=Role.TOOL, content="one", tool_call_id="tu_1"),
-            Message(role=Role.TOOL, content="two", tool_call_id="tu_2"),
-        ])
+        result = _to_anthropic_messages(
+            [
+                Message(role=Role.TOOL, content="one", tool_call_id="tu_1"),
+                Message(role=Role.TOOL, content="two", tool_call_id="tu_2"),
+            ]
+        )
         assert result == [
             {
                 "role": "user",
@@ -141,10 +158,12 @@ class TestSend:
         mock_cls.return_value = mock_client
         mock_client.messages.create = AsyncMock(return_value=_mock_response([_mock_text_block("ok")]))
         p = AnthropicProvider(api_key="sk-test")  # prompt_caching 默认 True
-        await p.send([
-            Message(role=Role.SYSTEM, content="You are helpful"),
-            Message(role=Role.USER, content="hi"),
-        ])
+        await p.send(
+            [
+                Message(role=Role.SYSTEM, content="You are helpful"),
+                Message(role=Role.USER, content="hi"),
+            ]
+        )
         _, kwargs = mock_client.messages.create.call_args
         assert isinstance(kwargs["system"], list)
         assert kwargs["system"][-1]["cache_control"] == {"type": "ephemeral"}
@@ -157,10 +176,12 @@ class TestSend:
         mock_cls.return_value = mock_client
         mock_client.messages.create = AsyncMock(return_value=_mock_response([_mock_text_block("ok")]))
         p = AnthropicProvider(api_key="sk-test", prompt_caching=False)
-        await p.send([
-            Message(role=Role.SYSTEM, content="You are helpful"),
-            Message(role=Role.USER, content="hi"),
-        ])
+        await p.send(
+            [
+                Message(role=Role.SYSTEM, content="You are helpful"),
+                Message(role=Role.USER, content="hi"),
+            ]
+        )
         _, kwargs = mock_client.messages.create.call_args
         assert kwargs["system"] == "You are helpful"
 
@@ -243,6 +264,46 @@ class AsyncIteratorStub:
         val = self._items[self._i]
         self._i += 1
         return val
+
+
+class _FakeSdkError(Exception):
+    """模拟 anthropic SDK 的 APIStatusError：带 status_code 与 message（非 ProviderError）。"""
+
+    def __init__(self, message: str, status_code: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+
+
+class TestErrorWrapping:
+    @patch("heagent.providers.anthropic.AsyncAnthropic")
+    async def test_send_wraps_sdk_error(self, mock_cls: MagicMock) -> None:
+        """真实 SDK 异常（AuthenticationError 风格）应被包装为 ProviderError，保留 cause。"""
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        sdk_err = _FakeSdkError("unauthorized", 401)
+        mock_client.messages.create = AsyncMock(side_effect=sdk_err)
+
+        p = AnthropicProvider(api_key="sk-test")
+        with pytest.raises(ProviderError) as exc_info:
+            await p.send([Message(role=Role.USER, content="hi")])
+        assert exc_info.value.status_code == 401
+        assert exc_info.value.__cause__ is sdk_err
+
+    @patch("heagent.providers.anthropic.AsyncAnthropic")
+    async def test_stream_wraps_sdk_error(self, mock_cls: MagicMock) -> None:
+        """流式 SDK 异常（在 async with 之前/之中抛出）同样包装为 ProviderError。"""
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        sdk_err = _FakeSdkError("overloaded", 503)
+        # messages.stream() 调用即抛 → 落在 try 块内被包装
+        mock_client.messages.stream = MagicMock(side_effect=sdk_err)
+
+        p = AnthropicProvider(api_key="sk-test")
+        with pytest.raises(ProviderError) as exc_info:
+            async for _ in p.stream([Message(role=Role.USER, content="hi")]):
+                pass
+        assert exc_info.value.status_code == 503
 
 
 class TestMetadata:
