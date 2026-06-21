@@ -3,7 +3,7 @@
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
-# story_location: _bmad-output/implementation-artifacts
+# story_location: _bmad-output/implementation
 
 # STATUS DEFINITIONS:
 # ==================
@@ -32,7 +32,7 @@ last_updated: 2026-06-08
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
-story_location: _bmad-output/implementation-artifacts
+story_location: _bmad-output/implementation
 
 development_status:
   # Epic 1: 项目基础设施与 LLM 通信 (FR-1~5, FR-19)
