@@ -54,7 +54,7 @@ python -m heagent
 | `docs/stock/` | 运行时股票报告输出，已 gitignore |
 | `_bmad-output/baseline/` | 主线规划周期（epics 1-10，冻结决策记录）：`architecture.md`·`brief.md`·`prd.md`·`epics.md`·`epics-self-learning.md`·`sprint-status.yaml` + `stories/` |
 | `_bmad-output/mcp-client/` | MCP 集成周期（epics 11-13）：`architecture.md`·`brief.md`(+`brief-addendum.md`)·`prd.md`(+`prd-review-rubric.md`)·`epics-mcp-client.md`·`epics-integration.md`。同周期扁平存放，附文件以前缀区分；各 `*-decision-log.md` 为阶段决策审计 |
-| `_bmad-output/implementation-artifacts/` | story 实现 spec（`spec-*`·`epic-5-context`·`deferred-work` 等），跨周期扁平 |
+| `_bmad-output/implementation/` | story 实现 spec（`spec-*`·`epic-5-context`·`deferred-work` 等），跨周期扁平 |
 
 > 架构权威来源：本 `CLAUDE.md`（最全、在维护）。`docs/frame.md` 为中文总览，`_bmad-output/baseline/architecture.md` 为规划期冻结记录。
 
