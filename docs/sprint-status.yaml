@@ -117,7 +117,7 @@ development_status:
   # （MCP 周期自称 Epic 1-3 会撞主线 epic-1/2/3，故延续主线编号至 11-13；
   #   且 sprint-status skill 校验 story key 须匹配 epic-N pattern，不能用 mcp- 前缀）
   # story 无独立 N-M 文件，直接基于 epics-mcp-client.md 的 AC 实现；
-  # 详见 docs/_bmad-output/planning-artifacts/epics-mcp-client.md
+  # 详见 docs/planning/epics-mcp-client.md
   epic-11: done  # MCP 工具桥接（FR-1~8）
   11-1-mcp-dep-skeleton: done
   11-2-mcp-config-env-interpolation: done

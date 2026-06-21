@@ -17,7 +17,7 @@ inputDocuments:
 
 本文档提供 **HeAgent MCP Client 集成** 的完整 epic 与 story 拆分，把 PRD（FR-1~11 / NFR-1~7）+ Architecture（决策 A-H / 实现序列）的需求分解为可实现的 story。
 
-> 输入：PRD `prds/prd-heagent-2026-06-20/prd.md`、Architecture `architecture-heagent-2026-06-20/architecture.md`。技术型 PRD，无 UX 设计。
+> 输入：PRD `docs/_bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/prd.md`、Architecture `docs/_bmad-output/planning-artifacts/architecture-heagent-2026-06-20/architecture.md`。技术型 PRD，无 UX 设计。
 
 ## Requirements Inventory
 

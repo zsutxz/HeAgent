@@ -52,8 +52,8 @@ python -m heagent
 |------|------|
 | `frame.md` | 活的中文架构总览，随代码更新（人类可读叙事） |
 | `sprint-status.yaml` | 活的进度跟踪；story 落点 `docs/_bmad-output/implementation-artifacts/` |
-| `planning/` | 主线规划集（2026-05-23，epic 1-10 已完成）：`architecture/`·`brief/`·`prd/`·`epics.md`·`stories/`——冻结决策记录，不再编辑 |
-| `_bmad-output/` | BMad 周期产出（`planning-artifacts/` + `implementation-artifacts/`），含 2026-06-20 MCP 周期。**保持原位，勿移动/重组** |
+| `planning/` | Epic 主线全集 1-13：`epics.md`(1-5)·`epics-self-learning.md`(6-10)·`epics-mcp-client.md`(11-13) + 05-23 基线 `architecture/`·`brief/`·`prd/`·`stories/`。冻结决策记录，不再编辑 |
+| `_bmad-output/` | BMad 周期产出：各周期 `architecture/`·`brief/`·`prd/`（如 06-20 MCP）+ `implementation-artifacts/` + 归档 `epics-integration.md`。epics 已统一至 `planning/`；**周期 arch/brief/prd 保持原位** |
 | `stock/` | 运行时股票报告输出，已 gitignore |
 
 > 架构权威来源：本 `CLAUDE.md`（最全、在维护）。`frame.md` 为中文总览，`planning/architecture/` 为规划期冻结记录。
