@@ -15,6 +15,8 @@ date: '2026-06-03'
 
 # HeAgent - Epic 6: AgentLoop 全模块集成
 
+> ⚠️ **编号冲突注记（归档于 2026-06-21）**：本文档成于 2026-06-03，自称 "Epic 6"。其后自学习周期（`epics-self-learning.md`，2026-06-08）重新占用了 **Epic 6 = "Context Files 自动加载"**，并被 `docs/sprint-status.yaml` 采纳为正式编号。本文 INT-1~5（压缩/会话/事实/画像/重试接入 AgentLoop）**内容已全部实现**（见 `CLAUDE.md` 模块速查），但未进入 sprint-status 编号序列——视作「Epic 1-5 之后的集成补丁」，保留作历史归档，不再作为活动 epic 编号。
+
 ## Overview
 
 将已实现但未接入 AgentLoop 的 5 个模块集成到核心循环中，使 Agent 具备完整的记忆、会话恢复、长对话压缩和自动重试能力。

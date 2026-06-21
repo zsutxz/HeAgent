@@ -2,12 +2,12 @@
 stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 lastStep: 8
 inputDocuments:
-  - _bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/brief.md
-  - _bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/addendum.md
-  - _bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/.decision-log.md
-  - _bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/prd.md
-  - _bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/.decision-log.md
-  - _bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/review-rubric.md
+  - docs/_bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/brief.md
+  - docs/_bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/addendum.md
+  - docs/_bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/.decision-log.md
+  - docs/_bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/prd.md
+  - docs/_bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/.decision-log.md
+  - docs/_bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/review-rubric.md
   - docs/architecture-HeAgent-2026-05-23/architecture.md
   - CLAUDE.md
 workflowType: 'architecture'

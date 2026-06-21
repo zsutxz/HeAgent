@@ -5,10 +5,10 @@ status: complete
 completedAt: 2026-06-20
 resumeState: "epics 工作流全部完成（step-1~4 通过）。8 stories（Epic1×5 / Epic2×1 / Epic3×2）已写入并经 step-4 终验通过。文档就绪，进入实现阶段：Epic 1 Story 1.1 起按架构实现序列（pyproject 加 mcp>=1.28,<2 → tools/mcp/ 骨架 → config → mapping → manager → cli 装配 → GitHub E2E）。"
 inputDocuments:
-  - _bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/prd.md
-  - _bmad-output/planning-artifacts/architecture-heagent-2026-06-20/architecture.md
-  - _bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/brief.md
-  - _bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/addendum.md
+  - docs/_bmad-output/planning-artifacts/prds/prd-heagent-2026-06-20/prd.md
+  - docs/_bmad-output/planning-artifacts/architecture-heagent-2026-06-20/architecture.md
+  - docs/_bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/brief.md
+  - docs/_bmad-output/planning-artifacts/briefs/brief-heagent-2026-06-20/addendum.md
 ---
 
 # HeAgent MCP Client 集成 - Epic Breakdown
