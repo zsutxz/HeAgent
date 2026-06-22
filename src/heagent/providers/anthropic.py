@@ -154,13 +154,12 @@ class AnthropicProvider:
         self._prompt_caching = prompt_caching
         self._client = AsyncAnthropic(api_key=api_key, base_url=base_url)
 
-    async def send(
+    def _build_kwargs(
         self,
         messages: list[Message],
-        *,
-        tools: list[ToolSchema] | None = None,
-    ) -> ProviderResponse:
-        """Send a single Anthropic Messages API request."""
+        tools: list[ToolSchema] | None,
+    ) -> dict[str, object]:
+        """组装 Anthropic Messages API 请求参数（model/max_tokens/messages/system/tools）。"""
         kwargs: dict[str, object] = {
             "model": self._model,
             "max_tokens": self._max_tokens,
@@ -171,6 +170,16 @@ class AnthropicProvider:
             kwargs["system"] = system_param
         if tools:
             kwargs["tools"] = _to_anthropic_tools(tools)
+        return kwargs
+
+    async def send(
+        self,
+        messages: list[Message],
+        *,
+        tools: list[ToolSchema] | None = None,
+    ) -> ProviderResponse:
+        """Send a single Anthropic Messages API request."""
+        kwargs = self._build_kwargs(messages, tools)
 
         try:
             resp = await self._client.messages.create(**kwargs)  # type: ignore[call-overload]
@@ -200,16 +209,7 @@ class AnthropicProvider:
         tools: list[ToolSchema] | None = None,
     ) -> AsyncIterator[ProviderResponse]:
         """Stream an Anthropic Messages API request."""
-        kwargs: dict[str, object] = {
-            "model": self._model,
-            "max_tokens": self._max_tokens,
-            "messages": _to_anthropic_messages(messages),
-        }
-        system_param = _build_system_param(_extract_system(messages), caching=self._prompt_caching)
-        if system_param is not None:
-            kwargs["system"] = system_param
-        if tools:
-            kwargs["tools"] = _to_anthropic_tools(tools)
+        kwargs = self._build_kwargs(messages, tools)
 
         try:
             async with self._client.messages.stream(**kwargs) as stream:  # type: ignore[arg-type]

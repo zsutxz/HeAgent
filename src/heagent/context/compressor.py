@@ -7,7 +7,7 @@
 
 触发条件：token_count / max_tokens >= threshold（默认 80%）
 
-当前状态：已实现但未接入 AgentLoop。
+已接入 AgentLoop：每轮响应后按 token 使用率检查，超阈值时摘要旧消息释放空间。
 """
 
 from __future__ import annotations

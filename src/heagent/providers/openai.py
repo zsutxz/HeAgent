@@ -82,6 +82,15 @@ def _parse_tool_calls(raw: list[object]) -> list[ToolCall]:
     return result
 
 
+def _build_usage(usage: object) -> TokenUsage:
+    """从 OpenAI usage 对象构建 TokenUsage（usage 为 None 时归零）。"""
+    return TokenUsage(
+        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+        total_tokens=getattr(usage, "total_tokens", 0) or 0,
+    )
+
+
 class OpenAIProvider:
     """OpenAI 及兼容 API 的 Provider 实现。
 
@@ -98,6 +107,24 @@ class OpenAIProvider:
         self._model = model
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
+    def _build_kwargs(
+        self,
+        messages: list[Message],
+        tools: list[ToolSchema] | None,
+        *,
+        stream: bool = False,
+    ) -> dict[str, object]:
+        """组装 OpenAI Chat Completions 请求参数（stream 时追加 stream=True）。"""
+        kwargs: dict[str, object] = {
+            "model": self._model,
+            "messages": _to_openai_messages(messages),
+        }
+        if stream:
+            kwargs["stream"] = True
+        if tools:
+            kwargs["tools"] = _to_openai_tools(tools)
+        return kwargs
+
     async def send(
         self,
         messages: list[Message],
@@ -105,12 +132,7 @@ class OpenAIProvider:
         tools: list[ToolSchema] | None = None,
     ) -> ProviderResponse:
         """单次调用 LLM，返回完整响应。"""
-        kwargs: dict[str, object] = {
-            "model": self._model,
-            "messages": _to_openai_messages(messages),
-        }
-        if tools:
-            kwargs["tools"] = _to_openai_tools(tools)
+        kwargs = self._build_kwargs(messages, tools)
 
         try:
             resp = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
@@ -124,16 +146,10 @@ class OpenAIProvider:
         # 解析工具调用（LLM 判断需要调用工具时返回）
         tool_calls = _parse_tool_calls(message.tool_calls) if message.tool_calls else []
 
-        usage = TokenUsage(
-            prompt_tokens=resp.usage.prompt_tokens if resp.usage else 0,
-            completion_tokens=resp.usage.completion_tokens if resp.usage else 0,
-            total_tokens=resp.usage.total_tokens if resp.usage else 0,
-        )
-
         return ProviderResponse(
             content=message.content or "",
             tool_calls=tool_calls,
-            usage=usage,
+            usage=_build_usage(resp.usage),
             model=resp.model,
             finish_reason=choice.finish_reason or "stop",
         )
@@ -145,13 +161,7 @@ class OpenAIProvider:
         tools: list[ToolSchema] | None = None,
     ) -> AsyncIterator[ProviderResponse]:
         """流式调用 LLM，逐步返回响应片段。"""
-        kwargs: dict[str, object] = {
-            "model": self._model,
-            "messages": _to_openai_messages(messages),
-            "stream": True,
-        }
-        if tools:
-            kwargs["tools"] = _to_openai_tools(tools)
+        kwargs = self._build_kwargs(messages, tools, stream=True)
 
         try:
             stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
@@ -159,15 +169,10 @@ class OpenAIProvider:
                 if not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
-                usage = TokenUsage(
-                    prompt_tokens=chunk.usage.prompt_tokens if chunk.usage else 0,
-                    completion_tokens=chunk.usage.completion_tokens if chunk.usage else 0,
-                    total_tokens=chunk.usage.total_tokens if chunk.usage else 0,
-                )
                 yield ProviderResponse(
                     content=delta.content or "",
                     tool_calls=[],
-                    usage=usage,
+                    usage=_build_usage(chunk.usage),
                     model=chunk.model,
                     finish_reason=chunk.choices[0].finish_reason or "",
                 )
