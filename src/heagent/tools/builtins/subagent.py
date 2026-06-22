@@ -126,21 +126,20 @@ async def task_parallel(tasks_json: str) -> str:
     if not all(isinstance(t, str) for t in tasks):
         return "Error: tasks_json must be an array of strings."
 
-    agents = [
-        SubAgent(
-            _provider,
-            registry=_registry,
-            guard=_guard,
-            skills=_skills,
-            facts=_facts,
-            profile=_profile,
-            compressor=_compressor,
-            context_dir=_context_dir,
-            soul=_soul,
-        )
-        for _ in tasks
-    ]
-    results = await run_parallel(agents, tasks)
+    # 复用单一无状态 SubAgent 转发器：SubAgent.run() 每次新建独立 AgentLoop，
+    # 实例本身无运行态，故多任务并发调用同一实例安全（隔离靠 run() 内的新 AgentLoop）。
+    agent = SubAgent(
+        _provider,
+        registry=_registry,
+        guard=_guard,
+        skills=_skills,
+        facts=_facts,
+        profile=_profile,
+        compressor=_compressor,
+        context_dir=_context_dir,
+        soul=_soul,
+    )
+    results = await run_parallel([agent] * len(tasks), tasks)
 
     lines: list[str] = []
     for i, r in enumerate(results):

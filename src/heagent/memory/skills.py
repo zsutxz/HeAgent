@@ -48,9 +48,8 @@ class SkillStore:
     # ---- 路径工具 ----
 
     def _skill_dir(self, name: str) -> Path:
-        """技能目录路径。"""
-        safe = name.replace(" ", "_").replace("/", "-")
-        return self._base / safe
+        """技能目录路径（名称规范化复用 _validate_name，保证 save/delete/load 路径一致）。"""
+        return self._base / self._validate_name(name)
 
     def _skill_md(self, name: str) -> Path:
         """SKILL.md 文件路径。"""
@@ -120,8 +119,11 @@ class SkillStore:
         return str(md_path)
 
     def load(self, name: str) -> str | None:
-        """按名称加载 SKILL.md 内容。不存在返回 None。"""
-        path = self._skill_md(name)
+        """按名称加载 SKILL.md 内容。不存在或名称非法返回 None。"""
+        try:
+            path = self._skill_md(name)
+        except ValueError:
+            return None
         if path.exists():
             return path.read_text(encoding="utf-8")
         return None
@@ -134,7 +136,10 @@ class SkillStore:
 
     def delete(self, name: str) -> bool:
         """删除指定技能目录。返回是否成功删除。"""
-        skill_dir = self._skill_dir(name)
+        try:
+            skill_dir = self._skill_dir(name)
+        except ValueError:
+            return False
         if skill_dir.is_dir():
             shutil.rmtree(skill_dir)
             return True
@@ -222,7 +227,10 @@ class SkillStore:
 
     def archive(self, name: str) -> bool:
         """将技能目录移动到 .heagent/skills/.archive/。"""
-        src = self._skill_dir(name)
+        try:
+            src = self._skill_dir(name)
+        except ValueError:
+            return False
         if not src.is_dir():
             return False
         archive_dir = self._base / ".archive"
@@ -232,7 +240,7 @@ class SkillStore:
 
     # ---- 匹配 ----
 
-    def matching_skills(self, prompt: str, threshold: float = 0.3) -> list[str]:
+    def matching_skills(self, prompt: str, threshold: float) -> list[str]:
         """返回与用户提示词关键词重叠的技能名称（按相关度降序）。
 
         匹配算法：prompt 词集 ∩ pattern 词集 / pattern 词集长度 ≥ threshold。

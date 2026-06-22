@@ -165,11 +165,7 @@ class AgentLoop:
 
                 # 累计 token 用量
                 if response.usage:
-                    accumulated = TokenUsage(
-                        prompt_tokens=accumulated.prompt_tokens + response.usage.prompt_tokens,
-                        completion_tokens=accumulated.completion_tokens + response.usage.completion_tokens,
-                        total_tokens=accumulated.total_tokens + response.usage.total_tokens,
-                    )
+                    accumulated = self._add_usage(accumulated, response.usage)
 
                 # 上下文压缩：token 用量超阈值时自动摘要旧消息
                 if self.compressor and response.usage:
@@ -271,11 +267,7 @@ class AgentLoop:
                     if chunk.finish_reason:
                         finish_reason = chunk.finish_reason
 
-                accumulated = TokenUsage(
-                    prompt_tokens=accumulated.prompt_tokens + chunk_usage.prompt_tokens,
-                    completion_tokens=accumulated.completion_tokens + chunk_usage.completion_tokens,
-                    total_tokens=accumulated.total_tokens + chunk_usage.total_tokens,
-                )
+                accumulated = self._add_usage(accumulated, chunk_usage)
 
                 response = ProviderResponse(
                     content=full_content,
@@ -302,19 +294,14 @@ class AgentLoop:
                     Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
                 )
 
-                # 流式模式下的 tool_calls：回退到非流式获取完整 tool_calls
-                # （多数 Provider 在 stream 模式不返回 tool_calls）
-                # 若需要 tool_calls，用 send() 重试这一轮
+                # 流式 tool_calls 回退：部分 Provider（如 OpenAI）stream 不在 chunk 中返回
+                # tool_calls，但 finish_reason=tool_calls 指示有工具调用——回退 send() 取完整 tool_calls。
                 if not response.tool_calls and finish_reason == "tool_calls":
                     response = await self._call_provider(state)
                     state.messages[-1] = Message(
                         role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None
                     )
-                    accumulated = TokenUsage(
-                        prompt_tokens=accumulated.prompt_tokens + response.usage.prompt_tokens,
-                        completion_tokens=accumulated.completion_tokens + response.usage.completion_tokens,
-                        total_tokens=accumulated.total_tokens + response.usage.total_tokens,
-                    )
+                    accumulated = self._add_usage(accumulated, response.usage)
 
                 if not response.tool_calls:
                     yield StreamEvent(type="done", final_answer=response.content)
@@ -331,6 +318,15 @@ class AgentLoop:
                 self.session.save(session_id, state.messages)
             self.last_usage = accumulated
             self.last_iteration = state.iteration
+
+    @staticmethod
+    def _add_usage(a: TokenUsage, b: TokenUsage) -> TokenUsage:
+        """累加两份 token 用量。"""
+        return TokenUsage(
+            prompt_tokens=a.prompt_tokens + b.prompt_tokens,
+            completion_tokens=a.completion_tokens + b.completion_tokens,
+            total_tokens=a.total_tokens + b.total_tokens,
+        )
 
     def _build_system(self, user_system: str | None, prompt: str = "") -> str | None:
         """将用户系统提示词与按需匹配的技能内容组合为最终的系统消息。

@@ -88,11 +88,11 @@ def wrap_provider_error(error: Exception) -> ProviderError:
 
 
 def classify_error(error: ProviderError) -> ErrorCategory:
-    """根据状态码和错误信息分类 Provider 错误。
+    """分类 Provider 错误（委托 classify_exception，保留独立签名供类型 narrowing 与测试引用）。
 
     分类优先级：429 > 401 > 5xx > 其他
     """
-    return _classify(getattr(error, "status_code", None), getattr(error, "message", "") or str(error))
+    return classify_exception(error)
 
 
 def classify_exception(error: Exception) -> ErrorCategory:

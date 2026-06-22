@@ -78,7 +78,7 @@ class TestSkillStore:
     def test_matching_skills_basic(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("deploy", "Deploy", "deploy to production", ["step"])
-        matched = s.matching_skills("deploy the app to production")
+        matched = s.matching_skills("deploy the app to production", threshold=0.3)
         assert "deploy" in matched
 
     def test_matching_skills_threshold(self, tmp_path: object) -> None:
@@ -92,13 +92,13 @@ class TestSkillStore:
     def test_matching_skills_no_match(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("deploy", "Deploy", "deploy production", ["step"])
-        assert s.matching_skills("weather forecast") == []
+        assert s.matching_skills("weather forecast", threshold=0.3) == []
 
     def test_matching_skills_empty_prompt(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("deploy", "Deploy", "deploy production", ["step"])
-        assert s.matching_skills("") == []
-        assert s.matching_skills("   ") == []
+        assert s.matching_skills("", threshold=0.3) == []
+        assert s.matching_skills("   ", threshold=0.3) == []
 
     def test_matching_skills_sorted_by_relevance(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
