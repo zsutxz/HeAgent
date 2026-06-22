@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 from heagent.exceptions import SafetyViolation
 
@@ -62,6 +62,11 @@ class SafetyGuard:
         self._allowed_compiled = [re.compile(p, re.IGNORECASE) for p in self._allowed]
         self._violation_log: list[str] = []  # 违规记录，用于审计
 
+    def _block(self, msg: str) -> NoReturn:
+        """记录违规并抛出 SafetyViolation。"""
+        self._violation_log.append(msg)
+        raise SafetyViolation(msg)
+
     def check(self, call: ToolCall) -> None:
         """检查工具调用是否安全，不安全则抛出 SafetyViolation。
 
@@ -80,27 +85,21 @@ class SafetyGuard:
         # 第一层：内置危险模式检查
         for pat in _DANGEROUS_PATTERNS:
             if pat.search(command):
-                msg = f"Blocked dangerous command: {command}"
-                self._violation_log.append(msg)
-                raise SafetyViolation(msg)
+                self._block(f"Blocked dangerous command: {command}")
 
         # 第二层：用户自定义规则
         if self.mode == SafetyMode.BLACKLIST:
             # 黑名单模式：匹配任一规则即拦截
             for pat in self._blocked_compiled:
                 if pat.search(command):
-                    msg = f"Blocked by blacklist: {command}"
-                    self._violation_log.append(msg)
-                    raise SafetyViolation(msg)
+                    self._block(f"Blocked by blacklist: {command}")
         elif (
             self.mode == SafetyMode.WHITELIST
             and self._allowed_compiled
             and not any(pat.search(command) for pat in self._allowed_compiled)
         ):
             # 白名单模式：不在白名单中即拦截（空白名单不拦截任何命令）
-            msg = f"Blocked (not in whitelist): {command}"
-            self._violation_log.append(msg)
-            raise SafetyViolation(msg)
+            self._block(f"Blocked (not in whitelist): {command}")
 
     @property
     def violations(self) -> list[str]:

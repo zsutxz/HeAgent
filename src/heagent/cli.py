@@ -40,6 +40,7 @@ from heagent.tools.builtins.subagent import configure_subagent_tools
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from contextlib import AbstractAsyncContextManager
     from typing import Any
 
@@ -103,51 +104,45 @@ def _build_provider(settings: Settings, model: str) -> BaseProvider:
     return ProviderChain(providers)
 
 
-def _build_openai_providers(settings: Settings, model: str) -> BaseProvider | None:
-    """构建 OpenAI Provider（含密钥池轮换）。"""
-    # 主 key + 密钥池合并
+def _build_key_rotated(
+    primary_key: str | None,
+    pool: list[str],
+    factory: Callable[[str], BaseProvider],
+) -> BaseProvider | None:
+    """主 key + 密钥池去重合并；单 key 直返，多 key 包 KeyRotatingProvider。"""
     keys: list[str] = []
-    if settings.openai_api_key:
-        keys.append(settings.openai_api_key)
-    for k in settings.openai_key_pool:
+    if primary_key:
+        keys.append(primary_key)
+    for k in pool:
         if k not in keys:
             keys.append(k)
-
     if not keys:
         return None
+    providers = [factory(k) for k in keys]
+    return providers[0] if len(providers) == 1 else KeyRotatingProvider(providers)
 
-    provider_list: list[BaseProvider] = [
-        OpenAIProvider(api_key=k, model=model, base_url=settings.openai_base_url) for k in keys
-    ]
-    if len(provider_list) == 1:
-        return provider_list[0]
-    return KeyRotatingProvider(provider_list)
+
+def _build_openai_providers(settings: Settings, model: str) -> BaseProvider | None:
+    """构建 OpenAI Provider（含密钥池轮换）。"""
+    return _build_key_rotated(
+        settings.openai_api_key,
+        settings.openai_key_pool,
+        lambda k: OpenAIProvider(api_key=k, model=model, base_url=settings.openai_base_url),
+    )
 
 
 def _build_anthropic_providers(settings: Settings, model: str) -> BaseProvider | None:
     """构建 Anthropic Provider（含密钥池轮换）。"""
-    keys: list[str] = []
-    if settings.anthropic_api_key:
-        keys.append(settings.anthropic_api_key)
-    for k in settings.anthropic_key_pool:
-        if k not in keys:
-            keys.append(k)
-
-    if not keys:
-        return None
-
-    provider_list: list[BaseProvider] = [
-        AnthropicProvider(
+    return _build_key_rotated(
+        settings.anthropic_api_key,
+        settings.anthropic_key_pool,
+        lambda k: AnthropicProvider(
             api_key=k,
             model=model,
             base_url=settings.anthropic_base_url,
             prompt_caching=settings.anthropic_prompt_caching,
-        )
-        for k in keys
-    ]
-    if len(provider_list) == 1:
-        return provider_list[0]
-    return KeyRotatingProvider(provider_list)
+        ),
+    )
 
 
 def _build_soul(soul_path: str | None = None) -> SoulStore | None:
@@ -174,6 +169,71 @@ def _mcp_lifecycle(settings: Settings) -> AbstractAsyncContextManager[Any]:
     return MCPClientManager(config)
 
 
+def _build_loop(
+    settings: Settings,
+    provider: BaseProvider,
+    max_iterations: int,
+    soul_path: str | None,
+    *,
+    session: SessionStore | None = None,
+) -> tuple[AgentLoop, CronScheduler | None]:
+    """构建 stores/compressor/retry/subagent 配置 + AgentLoop。
+
+    交互模式传 session（启用持久化）并同时装配 CronScheduler；
+    单次模式 session=None，返回的 scheduler 恒为 None。
+    """
+    skills = SkillStore()
+    facts = FactStore()
+    profile = ProfileStore()
+    soul = _build_soul(soul_path)
+    cron_store = JobStore() if settings.cron_enabled else None
+    compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
+    retry_mw = make_retry_middleware(
+        max_attempts=settings.retry_max_attempts,
+        base_delay=settings.retry_base_delay,
+        max_delay=settings.retry_max_delay,
+    )
+
+    scheduler: CronScheduler | None = None
+    if session is not None and settings.cron_enabled and cron_store:
+        scheduler = CronScheduler(
+            cron_store,
+            provider,
+            tick_seconds=settings.cron_tick_seconds,
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            compressor=compressor,
+            soul=soul,
+            cron_store=cron_store,
+        )
+
+    configure_subagent_tools(
+        provider,
+        skills=skills,
+        facts=facts,
+        profile=profile,
+        compressor=compressor,
+        context_dir=os.getcwd(),
+        soul=soul,
+    )
+
+    loop = AgentLoop(
+        provider,
+        max_iterations=max_iterations,
+        middlewares=[retry_mw],
+        skills=skills,
+        facts=facts,
+        profile=profile,
+        session=session,
+        compressor=compressor,
+        context_dir=os.getcwd(),
+        soul=soul,
+        cron_store=cron_store,
+    )
+    return loop, scheduler
+
+
 async def _run_single(
     prompt: str,
     provider: BaseProvider,
@@ -186,41 +246,7 @@ async def _run_single(
     settings = get_settings()
 
     async with mcp_ctx or contextlib.nullcontext():
-        # 初始化模块
-        skills = SkillStore()
-        facts = FactStore()
-        profile = ProfileStore()
-        soul = _build_soul(soul_path)
-        cron_store = JobStore() if settings.cron_enabled else None
-        compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
-        retry_mw = make_retry_middleware(
-            max_attempts=settings.retry_max_attempts,
-            base_delay=settings.retry_base_delay,
-            max_delay=settings.retry_max_delay,
-        )
-
-        configure_subagent_tools(
-            provider,
-            skills=skills,
-            facts=facts,
-            profile=profile,
-            compressor=compressor,
-            context_dir=os.getcwd(),
-            soul=soul,
-        )
-
-        loop = AgentLoop(
-            provider,
-            max_iterations=max_iterations,
-            middlewares=[retry_mw],
-            skills=skills,
-            facts=facts,
-            profile=profile,
-            compressor=compressor,
-            context_dir=os.getcwd(),
-            soul=soul,
-            cron_store=cron_store,
-        )
+        loop, _ = _build_loop(settings, provider, max_iterations, soul_path)
         result = await loop.run(prompt, system=system)
         click.echo(result)
         _print_usage(loop.last_usage)
@@ -238,58 +264,8 @@ async def _run_chat(
     session_id = uuid.uuid4().hex[:8]  # 每次交互会话一个固定 ID
 
     async with mcp_ctx or contextlib.nullcontext():
-        # 初始化模块
-        skills = SkillStore()
-        facts = FactStore()
-        profile = ProfileStore()
-        soul = _build_soul(soul_path)
         session = SessionStore()
-        cron_store = JobStore() if settings.cron_enabled else None
-        compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
-        retry_mw = make_retry_middleware(
-            max_attempts=settings.retry_max_attempts,
-            base_delay=settings.retry_base_delay,
-            max_delay=settings.retry_max_delay,
-        )
-
-        # Cron 调度器（交互模式专用）
-        scheduler: CronScheduler | None = None
-        if settings.cron_enabled and cron_store:
-            scheduler = CronScheduler(
-                cron_store,
-                provider,
-                tick_seconds=settings.cron_tick_seconds,
-                skills=skills,
-                facts=facts,
-                profile=profile,
-                compressor=compressor,
-                soul=soul,
-                cron_store=cron_store,
-            )
-
-        configure_subagent_tools(
-            provider,
-            skills=skills,
-            facts=facts,
-            profile=profile,
-            compressor=compressor,
-            context_dir=os.getcwd(),
-            soul=soul,
-        )
-
-        loop = AgentLoop(
-            provider,
-            max_iterations=max_iterations,
-            middlewares=[retry_mw],
-            skills=skills,
-            facts=facts,
-            profile=profile,
-            session=session,
-            compressor=compressor,
-            context_dir=os.getcwd(),
-            soul=soul,
-            cron_store=cron_store,
-        )
+        loop, scheduler = _build_loop(settings, provider, max_iterations, soul_path, session=session)
         click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
         try:

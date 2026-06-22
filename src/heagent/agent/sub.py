@@ -124,4 +124,4 @@ async def run_parallel(agents: list[SubAgent], tasks: list[str]) -> list[SubAgen
     agents[i] 执行 tasks[i]，两者长度必须一致。
     """
     coros = [a.run(t) for a, t in zip(agents, tasks, strict=True)]
-    return list(await asyncio.gather(*coros, return_exceptions=False))
+    return await asyncio.gather(*coros)
