@@ -103,10 +103,10 @@ def _build_usage(usage: object) -> TokenUsage:
       - cache_read_input_tokens: 从缓存读取的输入
     三者之和才是真实输入量。若不合并，缓存命中时 prompt_tokens 会大幅低估。
     """
-    inp = getattr(usage, "input_tokens", 0) or 0
-    cache_read = getattr(usage, "cache_read_input_tokens", 0) or 0
-    cache_create = getattr(usage, "cache_creation_input_tokens", 0) or 0
-    out = getattr(usage, "output_tokens", 0) or 0
+    inp = getattr(usage, "input_tokens", None) or 0
+    cache_read = getattr(usage, "cache_read_input_tokens", None) or 0
+    cache_create = getattr(usage, "cache_creation_input_tokens", None) or 0
+    out = getattr(usage, "output_tokens", None) or 0
     prompt = inp + cache_read + cache_create
     if cache_read or cache_create:
         logger.debug("Anthropic prompt cache: %d read, %d created", cache_read, cache_create)
@@ -115,6 +115,9 @@ def _build_usage(usage: object) -> TokenUsage:
         completion_tokens=out,
         total_tokens=prompt + out,
     )
+
+
+_ZERO_USAGE = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
 
 
 def _to_anthropic_tools(tools: list[ToolSchema]) -> list[dict[str, object]]:
@@ -217,11 +220,7 @@ class AnthropicProvider:
                     yield ProviderResponse(
                         content=text,
                         tool_calls=[],
-                        usage=TokenUsage(
-                            prompt_tokens=0,
-                            completion_tokens=0,
-                            total_tokens=0,
-                        ),
+                        usage=_ZERO_USAGE,
                         model=self._model,
                         finish_reason="",
                     )
