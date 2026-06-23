@@ -76,8 +76,8 @@ python -m heagent                   # 交互模式
 
 ### 3. 性能调优
 
-- [ ] 根据业务量调整 `MAX_ITERATIONS`（默认 20）
-- [ ] 设置合理的 `MAX_TOKENS` 防止上下文爆满
+- [ ] 根据业务量调整 `MAX_ITERATIONS`（默认 50）
+- [ ] 设置合理的 `MAX_CONTEXT_TOKENS` 防止上下文爆满
 - [ ] Docker 资源限制建议：CPU 1-2 核，内存 1-2 GB
 
 ### 4. 数据持久化
