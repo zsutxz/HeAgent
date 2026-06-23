@@ -85,9 +85,9 @@ def _parse_tool_calls(raw: list[object]) -> list[ToolCall]:
 def _build_usage(usage: object) -> TokenUsage:
     """从 OpenAI usage 对象构建 TokenUsage（usage 为 None 时归零）。"""
     return TokenUsage(
-        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
-        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
-        total_tokens=getattr(usage, "total_tokens", 0) or 0,
+        prompt_tokens=getattr(usage, "prompt_tokens", None) or 0,
+        completion_tokens=getattr(usage, "completion_tokens", None) or 0,
+        total_tokens=getattr(usage, "total_tokens", None) or 0,
     )
 
 
@@ -111,16 +111,12 @@ class OpenAIProvider:
         self,
         messages: list[Message],
         tools: list[ToolSchema] | None,
-        *,
-        stream: bool = False,
     ) -> dict[str, object]:
-        """组装 OpenAI Chat Completions 请求参数（stream 时追加 stream=True）。"""
+        """组装 OpenAI Chat Completions 请求参数。"""
         kwargs: dict[str, object] = {
             "model": self._model,
             "messages": _to_openai_messages(messages),
         }
-        if stream:
-            kwargs["stream"] = True
         if tools:
             kwargs["tools"] = _to_openai_tools(tools)
         return kwargs
@@ -161,12 +157,23 @@ class OpenAIProvider:
         tools: list[ToolSchema] | None = None,
     ) -> AsyncIterator[ProviderResponse]:
         """流式调用 LLM，逐步返回响应片段。"""
-        kwargs = self._build_kwargs(messages, tools, stream=True)
+        kwargs = self._build_kwargs(messages, tools)
+        kwargs["stream"] = True
+        kwargs["stream_options"] = {"include_usage": True}
 
         try:
             stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
             async for chunk in stream:
                 if not chunk.choices:
+                    # usage-bearing sentinel chunk sent by OpenAI at end of stream
+                    if chunk.usage:
+                        yield ProviderResponse(
+                            content="",
+                            tool_calls=[],
+                            usage=_build_usage(chunk.usage),
+                            model=chunk.model,
+                            finish_reason="",
+                        )
                     continue
                 delta = chunk.choices[0].delta
                 yield ProviderResponse(
