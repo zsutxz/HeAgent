@@ -1,12 +1,8 @@
-"""HeAgent 异常层级体系。
-
-所有框架异常继承自 HeAgentError，禁止抛出裸 Exception。
-层级设计使调用方可按粒度捕获：ProviderError/ToolError/SafetyViolation/BudgetExceeded。
-"""
+"""HeAgent exception hierarchy."""
 
 
 class HeAgentError(Exception):
-    """框架异常基类，所有自定义异常的父类。"""
+    """Base class for framework-defined exceptions."""
 
     def __init__(self, message: str = "") -> None:
         self.message = message
@@ -14,7 +10,7 @@ class HeAgentError(Exception):
 
 
 class ProviderError(HeAgentError):
-    """Provider 调用失败：API 错误、限流、认证失败等。"""
+    """Provider request failed."""
 
     def __init__(self, message: str = "", *, status_code: int | None = None) -> None:
         super().__init__(message)
@@ -22,12 +18,16 @@ class ProviderError(HeAgentError):
 
 
 class ToolError(HeAgentError):
-    """工具执行失败：运行时错误、参数异常等。"""
+    """Tool execution failed."""
 
 
 class SafetyViolation(HeAgentError):
-    """安全违规：工具调用被 SafetyGuard 拦截（危险命令等）。"""
+    """Safety guard blocked a tool call."""
 
 
 class BudgetExceeded(HeAgentError):
-    """预算超限：迭代次数或 Token 用量超出设定的上限。"""
+    """Iteration or token budget exceeded."""
+
+
+class PolicyViolation(HeAgentError):
+    """Engine policy denied a tool call before execution."""

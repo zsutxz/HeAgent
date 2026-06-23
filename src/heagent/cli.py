@@ -1,11 +1,4 @@
-"""HeAgent CLI — 交互式和单次执行的命令行入口。
-
-使用方式：
-  python -m heagent "你的问题"     # 单次模式：执行后输出答案并退出
-  python -m heagent                 # 交互模式：进入 REPL 聊天循环
-
-Provider 自动检测顺序：DEEPSEEK_API_KEY → OPENAI_API_KEY → ANTHROPIC_API_KEY
-"""
+"""Command-line entrypoint for HeAgent."""
 
 from __future__ import annotations
 
@@ -19,7 +12,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-import heagent.tools.builtins  # noqa: F401 — 导入即触发 @tool 注册
+import heagent.tools.builtins  # noqa: F401
 from heagent.agent.loop import AgentLoop
 from heagent.agent.middleware import make_retry_middleware
 from heagent.config import Settings, get_settings
@@ -27,6 +20,7 @@ from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
 from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
+from heagent.engine import EngineContainer
 from heagent.exceptions import BudgetExceeded, HeAgentError
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
@@ -36,7 +30,6 @@ from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.chain import ProviderChain
 from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
-from heagent.tools.builtins.subagent import configure_subagent_tools
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
 
 if TYPE_CHECKING:
@@ -51,7 +44,7 @@ logger = logging.getLogger(__name__)
 
 
 def _print_usage(usage: TokenUsage | None) -> None:
-    """在回答后显示 token 消耗统计。"""
+    """Print token usage to stderr after a run."""
     if usage is None or usage.total_tokens == 0:
         return
     click.echo(
@@ -61,15 +54,9 @@ def _print_usage(usage: TokenUsage | None) -> None:
 
 
 def _build_provider(settings: Settings, model: str) -> BaseProvider:
-    """根据可用的 API Key 自动检测并构建 Provider。
-
-    优先级：DeepSeek > OpenAI > Anthropic。
-    多个 Key 同时存在时，用 ProviderChain 包装实现自动回退。
-    单 Provider 多 Key 时，用 KeyRotatingProvider 实现密钥轮换。
-    """
+    """Build the best available provider chain from configured credentials."""
     providers: list[BaseProvider] = []
 
-    # DeepSeek（优先检测，使用 OpenAI 兼容接口）
     if settings.deepseek_api_key:
         providers.append(
             OpenAIProvider(
@@ -79,17 +66,14 @@ def _build_provider(settings: Settings, model: str) -> BaseProvider:
             )
         )
 
-    # OpenAI（支持多密钥池轮换）
-    openai_providers = _build_openai_providers(settings, model)
-    if openai_providers:
-        providers.append(openai_providers)
+    openai_provider = _build_openai_providers(settings, model)
+    if openai_provider:
+        providers.append(openai_provider)
 
-    # Anthropic（支持多密钥池轮换）
-    anthropic_providers = _build_anthropic_providers(settings, model)
-    if anthropic_providers:
-        providers.append(anthropic_providers)
+    anthropic_provider = _build_anthropic_providers(settings, model)
+    if anthropic_provider:
+        providers.append(anthropic_provider)
 
-    # 无可用 Key → 报错退出
     if not providers:
         click.echo(
             "Error: No API key configured. Set DEEPSEEK_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
@@ -97,11 +81,7 @@ def _build_provider(settings: Settings, model: str) -> BaseProvider:
         )
         raise SystemExit(1)
 
-    # 单个 Provider 直接返回，多个用 Chain 包装
-    if len(providers) == 1:
-        return providers[0]
-
-    return ProviderChain(providers)
+    return providers[0] if len(providers) == 1 else ProviderChain(providers)
 
 
 def _build_key_rotated(
@@ -109,35 +89,35 @@ def _build_key_rotated(
     pool: list[str],
     factory: Callable[[str], BaseProvider],
 ) -> BaseProvider | None:
-    """主 key + 密钥池去重合并；单 key 直返，多 key 包 KeyRotatingProvider。"""
+    """Build one provider or a key-rotating provider pool."""
     keys: list[str] = []
     if primary_key:
         keys.append(primary_key)
-    for k in pool:
-        if k not in keys:
-            keys.append(k)
+    for key in pool:
+        if key not in keys:
+            keys.append(key)
     if not keys:
         return None
-    providers = [factory(k) for k in keys]
+    providers = [factory(key) for key in keys]
     return providers[0] if len(providers) == 1 else KeyRotatingProvider(providers)
 
 
 def _build_openai_providers(settings: Settings, model: str) -> BaseProvider | None:
-    """构建 OpenAI Provider（含密钥池轮换）。"""
+    """Build the OpenAI-compatible provider stack."""
     return _build_key_rotated(
         settings.openai_api_key,
         settings.openai_key_pool,
-        lambda k: OpenAIProvider(api_key=k, model=model, base_url=settings.openai_base_url),
+        lambda key: OpenAIProvider(api_key=key, model=model, base_url=settings.openai_base_url),
     )
 
 
 def _build_anthropic_providers(settings: Settings, model: str) -> BaseProvider | None:
-    """构建 Anthropic Provider（含密钥池轮换）。"""
+    """Build the Anthropic provider stack."""
     return _build_key_rotated(
         settings.anthropic_api_key,
         settings.anthropic_key_pool,
-        lambda k: AnthropicProvider(
-            api_key=k,
+        lambda key: AnthropicProvider(
+            api_key=key,
             model=model,
             base_url=settings.anthropic_base_url,
             prompt_caching=settings.anthropic_prompt_caching,
@@ -146,22 +126,16 @@ def _build_anthropic_providers(settings: Settings, model: str) -> BaseProvider |
 
 
 def _build_soul(soul_path: str | None = None) -> SoulStore | None:
-    """构建 SoulStore。指定路径时使用该路径，否则使用默认两级路径。"""
+    """Build the SOUL store from an optional custom path."""
     if soul_path:
         return SoulStore(global_path=soul_path, project_path=soul_path)
     return SoulStore()
 
 
 def _mcp_lifecycle(settings: Settings) -> AbstractAsyncContextManager[Any]:
-    """根据 Settings 门控构建 MCP 生命周期上下文（同步构建，async 进入）。
-
-    - ``mcp_enabled=False`` → no-op（完全跳过加载与连接）；
-    - 无文件 / 空 mcpServers → no-op（纯内置模式，FR-7）；
-    - 有效配置 → ``MCPClientManager``（进入时并发连接+发现+注册，退出时卸载+回收）；
-    - 配置错误（未设 ``${ENV}`` 等）→ raise ``ToolError``（fail-fast，FR-8）。
-    """
+    """Return the MCP lifecycle context manager based on current settings."""
     if not settings.mcp_enabled:
-        logger.info("MCP 已禁用（mcp_enabled=False）→ 跳过加载与连接")
+        logger.info("MCP disabled via settings")
         return contextlib.nullcontext()
     config = load_mcp_config(settings.mcp_config_path)
     if config.is_empty:
@@ -176,18 +150,16 @@ def _build_loop(
     soul_path: str | None,
     *,
     session: SessionStore | None = None,
+    engine: EngineContainer | None = None,
 ) -> tuple[AgentLoop, CronScheduler | None]:
-    """构建 stores/compressor/retry/subagent 配置 + AgentLoop。
-
-    交互模式传 session（启用持久化）并同时装配 CronScheduler；
-    单次模式 session=None，返回的 scheduler 恒为 None。
-    """
+    """Build the loop runtime and optional cron scheduler."""
     skills = SkillStore()
     facts = FactStore()
     profile = ProfileStore()
     soul = _build_soul(soul_path)
     cron_store = JobStore() if settings.cron_enabled else None
     compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
+    engine = engine or EngineContainer.default(workspace_root=os.getcwd())
     retry_mw = make_retry_middleware(
         max_attempts=settings.retry_max_attempts,
         base_delay=settings.retry_base_delay,
@@ -200,6 +172,7 @@ def _build_loop(
             cron_store,
             provider,
             tick_seconds=settings.cron_tick_seconds,
+            engine=engine,
             skills=skills,
             facts=facts,
             profile=profile,
@@ -207,16 +180,6 @@ def _build_loop(
             soul=soul,
             cron_store=cron_store,
         )
-
-    configure_subagent_tools(
-        provider,
-        skills=skills,
-        facts=facts,
-        profile=profile,
-        compressor=compressor,
-        context_dir=os.getcwd(),
-        soul=soul,
-    )
 
     loop = AgentLoop(
         provider,
@@ -230,6 +193,7 @@ def _build_loop(
         context_dir=os.getcwd(),
         soul=soul,
         cron_store=cron_store,
+        engine=engine,
     )
     return loop, scheduler
 
@@ -242,11 +206,12 @@ async def _run_single(
     soul_path: str | None = None,
     mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
 ) -> None:
-    """单次模式：执行一个 prompt 并打印结果。"""
+    """Run a single prompt and print the result."""
     settings = get_settings()
+    engine = EngineContainer.default(workspace_root=os.getcwd())
 
     async with mcp_ctx or contextlib.nullcontext():
-        loop, _ = _build_loop(settings, provider, max_iterations, soul_path)
+        loop, _ = _build_loop(settings, provider, max_iterations, soul_path, engine=engine)
         result = await loop.run(prompt, system=system)
         click.echo(result)
         _print_usage(loop.last_usage)
@@ -259,13 +224,14 @@ async def _run_chat(
     soul_path: str | None = None,
     mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
 ) -> None:
-    """交互模式：REPL 聊天循环，直到用户输入空行或 Ctrl+C。"""
+    """Run interactive chat mode."""
     settings = get_settings()
-    session_id = uuid.uuid4().hex[:8]  # 每次交互会话一个固定 ID
+    session_id = uuid.uuid4().hex[:8]
+    engine = EngineContainer.default(workspace_root=os.getcwd())
 
     async with mcp_ctx or contextlib.nullcontext():
         session = SessionStore()
-        loop, scheduler = _build_loop(settings, provider, max_iterations, soul_path, session=session)
+        loop, scheduler = _build_loop(settings, provider, max_iterations, soul_path, session=session, engine=engine)
         click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
         try:
@@ -289,14 +255,12 @@ async def _run_chat(
                             click.echo(f"\n[calling {event.tool_name}...]", nl=False)
                         elif event.type == "tool_result":
                             click.echo(" [done]", nl=False)
-                        elif event.type == "done":
-                            pass
                     click.echo("\n")
                     _print_usage(loop.last_usage)
-                except BudgetExceeded as e:
-                    click.echo(f"[budget exceeded] {e.message}", err=True)
-                except HeAgentError as e:
-                    click.echo(f"[error] {e.message}", err=True)
+                except BudgetExceeded as exc:
+                    click.echo(f"[budget exceeded] {exc.message}", err=True)
+                except HeAgentError as exc:
+                    click.echo(f"[error] {exc.message}", err=True)
         finally:
             if scheduler:
                 await scheduler.stop()
@@ -315,35 +279,28 @@ def main(
     max_iterations: int | None,
     soul: str | None,
 ) -> None:
-    """HeAgent — self-improving AI agent.
-
-    Run with a PROMPT for single-shot mode, or without for interactive chat.
-    """
-    # Windows 控制台中文编码修复
+    """Run HeAgent in single-shot or interactive mode."""
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s [%(name)s] %(message)s",
-        stream=sys.stderr,  # 日志输出到 stderr，不干扰 stdout 的答案输出
+        stream=sys.stderr,
     )
-    logging.getLogger("httpx").setLevel(logging.WARNING)  # 屏蔽 httpx 请求日志
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     settings = get_settings()
     resolved_model = model or settings.default_model
     resolved_iterations = max_iterations or settings.max_iterations
-
     provider = _build_provider(settings, resolved_model)
 
-    # MCP 生命周期（门控）；配置错误 fail-fast 友好报告（FR-8）
     try:
         mcp_ctx = _mcp_lifecycle(settings)
-    except HeAgentError as e:
-        click.echo(f"[mcp config error] {e.message}", err=True)
+    except HeAgentError as exc:
+        click.echo(f"[mcp config error] {exc.message}", err=True)
         raise SystemExit(1) from None
 
-    # 根据 prompt 参数决定运行模式
     if prompt:
         asyncio.run(_run_single(prompt, provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx))
     else:

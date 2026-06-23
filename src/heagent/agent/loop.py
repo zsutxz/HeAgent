@@ -1,23 +1,17 @@
-"""Agent 核心循环 — LLM ↔ 工具执行的迭代周期。
-
-核心流程：
-  1. 用户输入 → 构建初始消息
-  2. 调用 Provider 获取 LLM 响应
-  3. 若响应包含 tool_calls → 安全检查 → 并行执行 → 结果追加到消息 → 回到步骤 2
-  4. 若响应无 tool_calls → 返回文本作为最终答案
-  5. 超过最大迭代次数 → 抛出 BudgetExceeded
-"""
+"""Core agent loop: provider call, tool execution, and iteration control."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
 from heagent.agent.middleware import MiddlewareFn, Request, compose
 from heagent.config import get_settings
-from heagent.exceptions import BudgetExceeded, SafetyViolation
+from heagent.engine import EngineContainer, RunContext, RunStatus
+from heagent.exceptions import BudgetExceeded
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
 from heagent.types import Message, ProviderResponse, Role, StreamEvent, TokenUsage, ToolCall, ToolResult
@@ -39,13 +33,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class AgentState:
-    """单次 Agent 运行的可变状态。
-
-    messages: 对话历史，随循环不断追加（USER → ASSISTANT → TOOL → ...）
-    iteration: 当前迭代计数，用于预算控制
-    max_iterations: 最大允许迭代次数
-    results: 所有已执行的 ToolResult 累积记录
-    """
+    """Mutable state for one loop execution."""
 
     messages: list[Message] = field(default_factory=list)
     iteration: int = 0
@@ -54,12 +42,7 @@ class AgentState:
 
 
 class AgentLoop:
-    """核心编排器：驱动 LLM ↔ 工具执行的迭代循环。
-
-    典型使用：
-        loop = AgentLoop(provider)
-        answer = await loop.run("帮我创建一个文件")
-    """
+    """Iterative provider/tool loop with lightweight runtime governance."""
 
     def __init__(
         self,
@@ -77,41 +60,29 @@ class AgentLoop:
         context_dir: str | None = None,
         soul: SoulStore | None = None,
         cron_store: JobStore | None = None,
+        engine: EngineContainer | None = None,
+        run_context: RunContext | None = None,
     ) -> None:
-        self.provider = provider  # LLM 提供者（OpenAI/Anthropic/Chain）
-        self.registry = registry or ToolRegistry.get()  # 工具注册中心（默认全局单例）
-        self.guard = guard or SafetyGuard()  # 安全防护（默认黑名单模式）
-        self.middlewares = middlewares or []  # 中间件链（可选）
-        self.skills = skills  # 技能存储（可选，注入到系统提示词）
-        self.facts = facts  # 事实记忆（可选，注入到系统提示词）
-        self.profile = profile  # 用户画像（可选，注入到系统提示词）
-        self.session = session  # 会话存储（可选，持久化对话历史）
-        self.compressor = compressor  # 上下文压缩器（可选，防止 token 超限）
-        self.context_dir = context_dir  # 上下文文件扫描目录（可选）
-        self.soul = soul  # 人格加载器（可选，注入为 identity 层）
-        self.cron_store = cron_store  # Cron 任务存储（可选）
-        self.last_usage: TokenUsage | None = None  # 最近一次 run() 的累计 token 用量
-        self.last_iteration: int | None = None  # 最近一次 run()/run_stream() 的迭代次数
+        self.provider = provider
+        self.registry = registry or ToolRegistry.get()
+        self.guard = guard or SafetyGuard()
+        self.middlewares = middlewares or []
+        self.skills = skills
+        self.facts = facts
+        self.profile = profile
+        self.session = session
+        self.compressor = compressor
+        self.context_dir = context_dir
+        self.soul = soul
+        self.cron_store = cron_store
+        self.engine = engine or EngineContainer.default(workspace_root=context_dir)
+        self._run_context_template = run_context
+        self.last_run_context: RunContext | None = None
+        self.last_usage: TokenUsage | None = None
+        self.last_iteration: int | None = None
+
         settings = get_settings()
         self.max_iterations = max_iterations or settings.max_iterations
-
-        # 技能工具激活：将 SkillStore 注入工具模块，使 LLM 可通过工具管理技能
-        if self.skills:
-            from heagent.tools.builtins.skills import configure_skill_tools
-
-            configure_skill_tools(self.skills)
-
-        # 记忆工具激活：将 FactStore/ProfileStore 注入工具模块
-        if facts or profile:
-            from heagent.tools.builtins.memory import configure_memory_tools
-
-            configure_memory_tools(facts=facts, profile=profile)
-
-        # Cron 工具激活：将 JobStore 注入工具模块
-        if self.cron_store:
-            from heagent.tools.builtins.cron import configure_cron_tools
-
-            configure_cron_tools(self.cron_store)
 
     async def run(
         self,
@@ -120,96 +91,109 @@ class AgentLoop:
         system: str | None = None,
         session_id: str | None = None,
     ) -> str:
-        """运行 Agent 循环，直到 LLM 产出最终文本答案。
-
-        参数：
-            prompt: 用户输入的提示文本
-            system: 可选的系统提示词（影响 LLM 行为）
-            session_id: 可选的会话 ID，启用会话持久化
-        返回：
-            LLM 最终的文本回答（不含 tool_calls 的响应）
-        异常：
-            BudgetExceeded: 超过最大迭代次数
-        """
+        """Run until the provider returns a final non-tool response."""
         state = AgentState(max_iterations=self.max_iterations)
         accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        response: ProviderResponse | None = None
+        run_context = self._ensure_run_context(session_id=session_id)
 
-        # 会话恢复：加载历史消息（不含旧的系统消息，由 _build_system 重新生成）
         if self.session and session_id:
             prior = self.session.load(session_id)
             if prior:
-                # 仅恢复非系统消息（系统提示词由 _build_system 动态构建）
                 state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
-                logger.debug(
-                    "Restored %d messages from session '%s'",
-                    len(prior),
-                    session_id,
-                )
+                logger.debug("Restored %d messages from session '%s'", len(prior), session_id)
 
-        # 构建初始消息：系统提示（含技能/记忆注入，可选）+ 用户输入
         system_content = self._build_system(system, prompt=prompt)
         if system_content:
             state.messages.append(Message(role=Role.SYSTEM, content=system_content))
         state.messages.append(Message(role=Role.USER, content=prompt))
 
-        try:
-            # ---- 核心循环：Provider → Tool 执行 → Provider → ... ----
-            while True:
-                state.iteration += 1
-                # 迭代预算检查
-                if state.iteration > state.max_iterations:
-                    raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
+        self._start_run_record(run_context, prompt=prompt, system=system_content)
+        self._emit("run_started", run_context=run_context, details={"session_id": session_id or ""})
 
-                # 步骤 1：调用 Provider 获取 LLM 响应
-                response = await self._call_provider(state)
+        with self._runtime_scope(run_context):
+            try:
+                while True:
+                    state.iteration += 1
+                    run_context.touch(iteration=state.iteration)
+                    self._emit("iteration_started", run_context=run_context)
 
-                # 累计 token 用量
-                if response.usage:
-                    accumulated = self._add_usage(accumulated, response.usage)
+                    if state.iteration > state.max_iterations:
+                        raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
 
-                # 上下文压缩：token 用量超阈值时自动摘要旧消息
-                if self.compressor and response.usage:
-                    settings = get_settings()
-                    compressed = await self.compressor.compress(
-                        state.messages,
-                        token_count=response.usage.total_tokens,
-                        max_tokens=settings.max_context_tokens,
-                    )
-                    if compressed is not state.messages:
-                        before = len(state.messages)
-                        state.messages = compressed
-                        logger.info(
-                            "Context compressed: %d → %d messages",
-                            before,
-                            len(state.messages),
+                    response = await self._call_provider(state, run_context=run_context)
+                    if response.usage:
+                        accumulated = self._add_usage(accumulated, response.usage)
+
+                    if self.compressor and response.usage:
+                        settings = get_settings()
+                        compressed = await self.compressor.compress(
+                            state.messages,
+                            token_count=response.usage.total_tokens,
+                            max_tokens=settings.max_context_tokens,
                         )
+                        if compressed is not state.messages:
+                            before = len(state.messages)
+                            state.messages = compressed
+                            logger.info("Context compressed: %d -> %d messages", before, len(state.messages))
+                            self._emit(
+                                "context_compressed",
+                                run_context=run_context,
+                                details={"before": before, "after": len(state.messages)},
+                            )
 
-                # 将助手回复追加到对话历史
-                state.messages.append(
-                    Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
+                    state.messages.append(
+                        Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
+                    )
+                    self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+
+                    if not response.tool_calls:
+                        break
+
+                    tool_results = await self._execute_tools(response.tool_calls, state, run_context=run_context)
+                    for tool_result in tool_results:
+                        state.messages.append(
+                            Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
+                        )
+                    self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+
+                final_answer = response.content if response is not None else ""
+                run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
+                self._checkpoint(
+                    run_context,
+                    prompt=prompt,
+                    system=system_content,
+                    state=state,
+                    final_answer=final_answer,
                 )
-
-                # 步骤 2：判断是否包含工具调用
-                if not response.tool_calls:
-                    # 无工具调用 → LLM 已产出最终文本答案
-                    break
-
-                # 步骤 3：并行执行所有工具调用
-                tool_results = await self._execute_tools(response.tool_calls, state)
-                # 将工具结果追加到对话历史，供下一轮 LLM 参考
-                for tr in tool_results:
-                    state.messages.append(Message(role=Role.TOOL, content=tr.content, tool_call_id=tr.tool_call_id))
-        finally:
-            # 会话保存：无论正常结束还是异常，都尝试持久化已积累的消息
-            if self.session and session_id:
-                self.session.save(session_id, state.messages)
-                logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
-            # 保存累计 token 用量供调用方读取
-            self.last_usage = accumulated
-            # 保存迭代次数供调用方读取（如 SubAgent 报告）
-            self.last_iteration = state.iteration
-
-        return response.content
+                self._emit(
+                    "run_completed",
+                    run_context=run_context,
+                    details={"answer_length": len(final_answer)},
+                )
+                return final_answer
+            except Exception as exc:
+                run_context.touch(status=RunStatus.FAILED, iteration=state.iteration)
+                self._checkpoint(
+                    run_context,
+                    prompt=prompt,
+                    system=system_content,
+                    state=state,
+                    error=str(exc),
+                )
+                self._emit(
+                    "run_failed",
+                    run_context=run_context,
+                    details={"error": str(exc)},
+                )
+                raise
+            finally:
+                if self.session and session_id:
+                    self.session.save(session_id, state.messages)
+                    logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
+                self.last_usage = accumulated
+                self.last_iteration = state.iteration
+                self.last_run_context = run_context
 
     async def run_stream(
         self,
@@ -218,16 +202,10 @@ class AgentLoop:
         system: str | None = None,
         session_id: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        """流式运行 Agent 循环，逐步 yield StreamEvent。
-
-        与 run() 相同的核心循环，但文本响应通过流式输出逐块返回。
-        遇到 tool_calls 时，执行工具并继续流式下一轮。
-
-        参数同 run()。yield StreamEvent 事件流。
-        """
-
+        """Run the loop and yield streamed text/tool events."""
         state = AgentState(max_iterations=self.max_iterations)
         accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        run_context = self._ensure_run_context(session_id=session_id)
 
         if self.session and session_id:
             prior = self.session.load(session_id)
@@ -239,89 +217,130 @@ class AgentLoop:
             state.messages.append(Message(role=Role.SYSTEM, content=system_content))
         state.messages.append(Message(role=Role.USER, content=prompt))
 
-        try:
-            while True:
-                state.iteration += 1
-                if state.iteration > state.max_iterations:
-                    raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
+        self._start_run_record(run_context, prompt=prompt, system=system_content)
+        self._emit("run_started", run_context=run_context, details={"stream": True})
 
-                tools = self.registry.enabled_schemas()
-                full_content = ""
-                tool_calls: list[ToolCall] = []
-                chunk_usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-                model = ""
-                finish_reason = ""
+        with self._runtime_scope(run_context):
+            try:
+                while True:
+                    state.iteration += 1
+                    run_context.touch(iteration=state.iteration)
+                    self._emit("iteration_started", run_context=run_context)
 
-                # 流式迭代 provider 输出，逐块 yield 文本事件
-                async for chunk in self.provider.stream(state.messages, tools=tools or None):
-                    if chunk.content:
-                        full_content += chunk.content
-                        yield StreamEvent(type="text", text=chunk.content)
-                    # 收集流式 chunk 中的 tool_calls（Anthropic 经最终 chunk 携带）
-                    if chunk.tool_calls:
-                        tool_calls.extend(chunk.tool_calls)
-                    if chunk.usage and chunk.usage.total_tokens > 0:
-                        chunk_usage = chunk.usage
-                    if chunk.model:
-                        model = chunk.model
-                    if chunk.finish_reason:
-                        finish_reason = chunk.finish_reason
+                    if state.iteration > state.max_iterations:
+                        raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
 
-                accumulated = self._add_usage(accumulated, chunk_usage)
+                    tools = self.registry.enabled_schemas()
+                    full_content = ""
+                    tool_calls: list[ToolCall] = []
+                    chunk_usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+                    model = ""
+                    finish_reason = ""
 
-                response = ProviderResponse(
-                    content=full_content,
-                    tool_calls=tool_calls,
-                    usage=chunk_usage,
-                    model=model,
-                    finish_reason=finish_reason or "stop",
-                )
+                    async for chunk in self.provider.stream(state.messages, tools=tools or None):
+                        if chunk.content:
+                            full_content += chunk.content
+                            yield StreamEvent(type="text", text=chunk.content)
+                        if chunk.tool_calls:
+                            tool_calls.extend(chunk.tool_calls)
+                        if chunk.usage and chunk.usage.total_tokens > 0:
+                            chunk_usage = chunk.usage
+                        if chunk.model:
+                            model = chunk.model
+                        if chunk.finish_reason:
+                            finish_reason = chunk.finish_reason
 
-                # 上下文压缩
-                if self.compressor and response.usage:
-                    settings = get_settings()
-                    compressed = await self.compressor.compress(
-                        state.messages,
-                        token_count=response.usage.total_tokens,
-                        max_tokens=settings.max_context_tokens,
+                    accumulated = self._add_usage(accumulated, chunk_usage)
+                    response = ProviderResponse(
+                        content=full_content,
+                        tool_calls=tool_calls,
+                        usage=chunk_usage,
+                        model=model,
+                        finish_reason=finish_reason or "stop",
                     )
-                    if compressed is not state.messages:
-                        before = len(state.messages)
-                        state.messages = compressed
-                        logger.info("Context compressed: %d -> %d messages", before, len(state.messages))
 
-                state.messages.append(
-                    Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
-                )
+                    if self.compressor and response.usage:
+                        settings = get_settings()
+                        compressed = await self.compressor.compress(
+                            state.messages,
+                            token_count=response.usage.total_tokens,
+                            max_tokens=settings.max_context_tokens,
+                        )
+                        if compressed is not state.messages:
+                            before = len(state.messages)
+                            state.messages = compressed
+                            logger.info("Context compressed: %d -> %d messages", before, len(state.messages))
+                            self._emit(
+                                "context_compressed",
+                                run_context=run_context,
+                                details={"before": before, "after": len(state.messages)},
+                            )
 
-                # 流式 tool_calls 回退：部分 Provider（如 OpenAI）stream 不在 chunk 中返回
-                # tool_calls，但 finish_reason=tool_calls 指示有工具调用——回退 send() 取完整 tool_calls。
-                if not response.tool_calls and finish_reason == "tool_calls":
-                    response = await self._call_provider(state)
-                    state.messages[-1] = Message(
-                        role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None
+                    state.messages.append(
+                        Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
                     )
-                    accumulated = self._add_usage(accumulated, response.usage)
 
-                if not response.tool_calls:
-                    yield StreamEvent(type="done", final_answer=response.content)
-                    break
+                    if not response.tool_calls and finish_reason == "tool_calls":
+                        response = await self._call_provider(state, run_context=run_context)
+                        state.messages[-1] = Message(
+                            role=Role.ASSISTANT,
+                            content=response.content,
+                            tool_calls=response.tool_calls or None,
+                        )
+                        accumulated = self._add_usage(accumulated, response.usage)
 
-                # 执行工具调用
-                tool_results = await self._execute_tools(response.tool_calls, state)
-                for tc, tr in zip(response.tool_calls, tool_results, strict=True):
-                    yield StreamEvent(type="tool_call", tool_name=tc.name)
-                    yield StreamEvent(type="tool_result", tool_result_content=tr.content)
-                    state.messages.append(Message(role=Role.TOOL, content=tr.content, tool_call_id=tr.tool_call_id))
-        finally:
-            if self.session and session_id:
-                self.session.save(session_id, state.messages)
-            self.last_usage = accumulated
-            self.last_iteration = state.iteration
+                    self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+
+                    if not response.tool_calls:
+                        run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
+                        self._checkpoint(
+                            run_context,
+                            prompt=prompt,
+                            system=system_content,
+                            state=state,
+                            final_answer=response.content,
+                        )
+                        self._emit(
+                            "run_completed",
+                            run_context=run_context,
+                            details={"answer_length": len(response.content)},
+                        )
+                        yield StreamEvent(type="done", final_answer=response.content)
+                        break
+
+                    tool_results = await self._execute_tools(response.tool_calls, state, run_context=run_context)
+                    for tool_call, tool_result in zip(response.tool_calls, tool_results, strict=True):
+                        yield StreamEvent(type="tool_call", tool_name=tool_call.name)
+                        yield StreamEvent(type="tool_result", tool_result_content=tool_result.content)
+                        state.messages.append(
+                            Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
+                        )
+                    self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+            except Exception as exc:
+                run_context.touch(status=RunStatus.FAILED, iteration=state.iteration)
+                self._checkpoint(
+                    run_context,
+                    prompt=prompt,
+                    system=system_content,
+                    state=state,
+                    error=str(exc),
+                )
+                self._emit(
+                    "run_failed",
+                    run_context=run_context,
+                    details={"error": str(exc)},
+                )
+                raise
+            finally:
+                if self.session and session_id:
+                    self.session.save(session_id, state.messages)
+                self.last_usage = accumulated
+                self.last_iteration = state.iteration
+                self.last_run_context = run_context
 
     @staticmethod
     def _add_usage(a: TokenUsage, b: TokenUsage) -> TokenUsage:
-        """累加两份 token 用量。"""
+        """Add two token usage counters together."""
         return TokenUsage(
             prompt_tokens=a.prompt_tokens + b.prompt_tokens,
             completion_tokens=a.completion_tokens + b.completion_tokens,
@@ -329,23 +348,17 @@ class AgentLoop:
         )
 
     def _build_system(self, user_system: str | None, prompt: str = "") -> str | None:
-        """将用户系统提示词与按需匹配的技能内容组合为最终的系统消息。
-
-        自动调用逻辑：根据用户 prompt 关键词匹配技能 pattern，仅注入相关技能。
-        有技能但无匹配时注入简短使用说明；空存储不注入。
-        """
+        """Build one merged system prompt with context, skills, and memory."""
         parts: list[str] = []
         if user_system:
             parts.append(user_system)
 
-        # SOUL.md 人格注入（identity 层 — 系统提示词最顶层）
         if self.soul:
             soul_content = self.soul.load()
             if soul_content:
                 parts.insert(0, f"<identity>\n{soul_content}\n</identity>")
                 logger.debug("Injected SOUL.md personality into system prompt")
 
-        # 项目上下文文件注入：扫描 CWD 下的上下文文件
         if self.context_dir:
             settings = get_settings()
             if settings.context_files_enabled:
@@ -364,11 +377,9 @@ class AgentLoop:
             )[: settings.skill_max_auto_invoke]
 
             if matched:
-                # 使用追踪：记录每个匹配技能的使用
                 for skill_name in matched:
                     self.skills.record_usage(skill_name)
-                # 有匹配：注入相关技能内容
-                contents = []
+                contents: list[str] = []
                 for name in matched:
                     raw = self.skills.load(name)
                     if raw:
@@ -376,16 +387,15 @@ class AgentLoop:
                 if contents:
                     block = "\n\n---\n\n".join(contents)
                     parts.append(
-                        f"<skills>\n"
-                        f"The following skills are relevant to the user's request:\n\n"
+                        "<skills>\n"
+                        "The following skills are relevant to the user's request:\n\n"
                         f"{block}\n\n"
-                        f"You can use skill_list to see all skills, "
-                        f"skill_create to add new ones, or skill_update to modify.\n"
-                        f"</skills>"
+                        "You can use skill_list to see all skills, "
+                        "skill_create to add new ones, or skill_update to modify.\n"
+                        "</skills>"
                     )
                     logger.debug("Auto-invoked %d skill(s): %s", len(matched), matched)
             elif self.skills.list_skills():
-                # 有技能但无匹配：注入使用说明
                 parts.append(
                     "<skills>\n"
                     "No skills matched the current request. "
@@ -393,19 +403,19 @@ class AgentLoop:
                     "skill_list to browse existing skills, or skill_update to refine them.\n"
                     "</skills>"
                 )
-            # 空存储 → 不注入任何技能内容
 
-        # 事实记忆注入：将跨会话记忆加载到系统提示词
         if self.facts:
             facts_list = self.facts.load()
             if facts_list:
-                items = "\n".join(f"- {f}" for f in facts_list)
+                items = "\n".join(f"- {fact}" for fact in facts_list)
                 parts.append(
-                    f"<memory>\nThe following facts are remembered from previous conversations:\n\n{items}\n</memory>"
+                    "<memory>\n"
+                    "The following facts are remembered from previous conversations:\n\n"
+                    f"{items}\n"
+                    "</memory>"
                 )
                 logger.debug("Injected %d fact(s) into system prompt", len(facts_list))
 
-        # 记忆提醒注入：鼓励 Agent 主动保存重要信息
         if self.facts and get_settings().memory_nudge_enabled:
             parts.append(
                 "<memory-nudge>\n"
@@ -414,51 +424,47 @@ class AgentLoop:
                 "</memory-nudge>"
             )
 
-        # 用户画像注入：将用户偏好加载到系统提示词
         if self.profile:
             profile_text = self.profile.load()
             if profile_text:
                 parts.append(
-                    f"<profile>\nUser profile (adapt your responses accordingly):\n\n{profile_text}\n</profile>"
+                    "<profile>\n"
+                    "User profile (adapt your responses accordingly):\n\n"
+                    f"{profile_text}\n"
+                    "</profile>"
                 )
                 logger.debug("Injected user profile into system prompt")
 
         return "\n\n".join(parts) if parts else None
 
-    async def _call_provider(self, state: AgentState) -> ProviderResponse:
-        """通过中间件链（或直接）调用 Provider。
+    async def _call_provider(
+        self,
+        state: AgentState,
+        *,
+        run_context: RunContext | None = None,
+    ) -> ProviderResponse:
+        """Call the provider, optionally through middleware."""
+        tools = self.registry.enabled_schemas()
 
-        若配置了中间件，则构建 compose 链依次执行；
-        否则直接调用 provider.send()。
-        """
-        tools = self.registry.enabled_schemas()  # 获取所有已启用的工具 Schema
-
-        # 发送前：估算 token 数（用于日志和预算管理）
         from heagent.context.tokens import count_tokens
 
         estimated = count_tokens(state.messages)
-        logger.debug(
-            "Calling provider: %d messages, ~%d tokens estimated",
-            len(state.messages),
-            estimated,
+        logger.debug("Calling provider: %d messages, ~%d tokens estimated", len(state.messages), estimated)
+        self._emit(
+            "provider_call_started",
+            run_context=run_context,
+            details={"message_count": len(state.messages), "estimated_tokens": estimated},
         )
 
-        # 内层 handler：实际调用 Provider
         async def handler(req: Request) -> ProviderResponse:
-            return await self.provider.send(
-                req.messages,
-                tools=req.tools or None,
-            )
+            return await self.provider.send(req.messages, tools=req.tools or None)
 
-        # 有中间件 → 构建链式调用
         if self.middlewares:
             chain = compose(self.middlewares, handler)
             response = cast("ProviderResponse", await chain(Request(messages=state.messages, tools=tools)))
         else:
-            # 无中间件 → 直接调用
             response = await handler(Request(messages=state.messages, tools=tools))
 
-        # 发送后：对比实际 token 数
         if response.usage and response.usage.total_tokens > 0:
             logger.debug(
                 "Provider response: %d actual tokens (estimated: %d, delta: %+d)",
@@ -466,55 +472,167 @@ class AgentLoop:
                 estimated,
                 response.usage.total_tokens - estimated,
             )
-
+        self._emit(
+            "provider_call_completed",
+            run_context=run_context,
+            details={
+                "model": response.model,
+                "finish_reason": response.finish_reason,
+                "actual_tokens": response.usage.total_tokens,
+            },
+        )
         return response
 
-    async def _execute_tools(self, calls: list[ToolCall], state: AgentState) -> list[ToolResult]:
-        """并行执行多个工具调用。
+    async def _execute_tools(
+        self,
+        calls: list[ToolCall],
+        state: AgentState,
+        *,
+        run_context: RunContext | None = None,
+    ) -> list[ToolResult]:
+        """Execute tool calls concurrently."""
+        self._emit(
+            "tool_batch_started",
+            run_context=run_context,
+            details={"count": len(calls)},
+        )
+        tasks = [self._execute_one(call, run_context=run_context) for call in calls]
+        results = list(await asyncio.gather(*tasks))
+        state.results.extend(results)
+        self._emit(
+            "tool_batch_completed",
+            run_context=run_context,
+            details={"count": len(results), "errors": sum(1 for result in results if result.is_error)},
+        )
+        return results
 
-        使用 asyncio.gather 实现并发，所有工具同时执行，
-        全部完成后统一返回结果列表。
-        """
-        tasks = [self._execute_one(call) for call in calls]
-        results = await asyncio.gather(*tasks)
-        state.results.extend(results)  # 累积到 AgentState 的结果记录
-        return list(results)
-
-    async def _execute_one(self, call: ToolCall) -> ToolResult:
-        """执行单个工具调用的完整流程。
-
-        流程：安全检查 → 查找 handler → 执行 → 返回结果。
-        任何环节的失败都包装为 is_error=True 的 ToolResult（不抛异常），
-        确保 Agent 循环不会因单个工具失败而中断。
-        """
-        # 环节 1：安全检查（仅对 shell 工具生效）
-        try:
-            self.guard.check(call)
-        except SafetyViolation as e:
-            return ToolResult(tool_call_id=call.id, content=str(e), is_error=True)
-
-        # 环节 2：从 Registry 查找已注册的 handler
+    async def _execute_one(
+        self,
+        call: ToolCall,
+        *,
+        run_context: RunContext | None = None,
+    ) -> ToolResult:
+        """Execute one tool call end to end."""
+        verdict = self.engine.policy.evaluate_tool_call(call, context=run_context)
         handler = self.registry.get_handler(call.name)
         if handler is None:
+            self._emit(
+                "tool_call_failed",
+                run_context=run_context,
+                tool_name=call.name,
+                details={"error": "unknown tool"},
+            )
             return ToolResult(tool_call_id=call.id, content=f"Unknown tool: {call.name}", is_error=True)
 
-        # 环节 3：执行 handler 并捕获结果
-        try:
-            result = await self._invoke(handler, call)
-            content = str(result) if result is not None else ""
-            return ToolResult(tool_call_id=call.id, content=content)
-        except Exception as e:
-            logger.exception("Tool %s failed", call.name)
-            return ToolResult(tool_call_id=call.id, content=f"Tool error: {e}", is_error=True)
+        return await self.engine.executor.execute(
+            call=call,
+            verdict=verdict,
+            guard=self.guard,
+            handler=self._invoke_handler,
+            run_context=run_context,
+            emit=self._emit,
+        )
+
+    async def _invoke_handler(self, call: ToolCall) -> object:
+        """Resolve and invoke the registered handler for one tool call."""
+        handler = self.registry.get_handler(call.name)
+        if handler is None:
+            raise RuntimeError(f"Unknown tool: {call.name}")
+        return await self._invoke(handler, call)
 
     async def _invoke(self, handler: object, call: ToolCall) -> object:
-        """调用工具 handler，自动适配同步/异步函数。
-
-        通过 asyncio.iscoroutinefunction 检测 handler 类型：
-        - 异步函数 → await handler(**arguments)
-        - 同步函数 → handler(**arguments)
-        """
+        """Call a sync or async tool handler."""
         fn = cast("Callable[..., Any]", handler)
         if asyncio.iscoroutinefunction(fn):
             return await fn(**call.arguments)
         return fn(**call.arguments)
+
+    def _ensure_run_context(self, *, session_id: str | None) -> RunContext:
+        """Return a fresh run context for the current execution."""
+        if self._run_context_template is not None:
+            context = self._run_context_template
+            self._run_context_template = None
+            if session_id and context.session_id is None:
+                context.session_id = session_id
+            return context
+        return self.engine.create_run_context(session_id=session_id, workspace_root=self.context_dir)
+
+    @contextmanager
+    def _runtime_scope(self, run_context: RunContext):
+        """Bind tool runtimes for the duration of a single run."""
+        from heagent.tools.builtins.cron import bind_cron_tools
+        from heagent.tools.builtins.memory import bind_memory_tools
+        from heagent.tools.builtins.skills import bind_skill_tools
+        from heagent.tools.builtins.subagent import bind_subagent_tools
+
+        with ExitStack() as stack:
+            stack.enter_context(bind_skill_tools(self.skills))
+            stack.enter_context(bind_memory_tools(facts=self.facts, profile=self.profile))
+            stack.enter_context(bind_cron_tools(self.cron_store))
+            stack.enter_context(
+                bind_subagent_tools(
+                    self.provider,
+                    registry=self.registry,
+                    guard=self.guard,
+                    skills=self.skills,
+                    facts=self.facts,
+                    profile=self.profile,
+                    compressor=self.compressor,
+                    context_dir=self.context_dir,
+                    soul=self.soul,
+                    engine=self.engine,
+                    parent_run_id=run_context.run_id,
+                )
+            )
+            yield
+
+    def _start_run_record(self, run_context: RunContext, *, prompt: str, system: str | None) -> None:
+        """Write the initial run snapshot on a best-effort basis."""
+        try:
+            self.engine.run_store.start(run_context, prompt=prompt, system=system)
+        except Exception:
+            logger.exception("Failed to start run record for '%s'", run_context.run_id)
+
+    def _checkpoint(
+        self,
+        run_context: RunContext,
+        *,
+        prompt: str,
+        system: str | None,
+        state: AgentState,
+        final_answer: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Persist run progress on a best-effort basis."""
+        try:
+            self.engine.run_store.checkpoint(
+                run_context,
+                prompt=prompt,
+                system=system,
+                messages=state.messages,
+                results=state.results,
+                final_answer=final_answer,
+                error=error,
+            )
+        except Exception:
+            logger.exception("Failed to checkpoint run '%s'", run_context.run_id)
+
+    def _emit(
+        self,
+        event_type: str,
+        *,
+        run_context: RunContext | None = None,
+        tool_name: str = "",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Publish one runtime event on a best-effort basis."""
+        try:
+            self.engine.events.publish(
+                event_type,
+                run_id=run_context.run_id if run_context is not None else "",
+                iteration=run_context.iteration if run_context is not None else 0,
+                tool_name=tool_name,
+                details=details or {},
+            )
+        except Exception:
+            logger.exception("Failed to emit engine event '%s'", event_type)

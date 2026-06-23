@@ -1,8 +1,4 @@
-"""Asyncio 后台调度器 — 定期检查并执行到期的 Cron 任务。
-
-手写 5-field cron 解析器（无外部依赖），支持：
-  * (任意值)、*/N (每隔 N)、具体值、逗号分隔列表
-"""
+"""Async background cron scheduler."""
 
 from __future__ import annotations
 
@@ -12,6 +8,8 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from heagent.engine import EngineContainer
+
 if TYPE_CHECKING:
     from heagent.cron.jobs import CronJob, JobStore
     from heagent.providers.base import BaseProvider
@@ -20,10 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class CronScheduler:
-    """Asyncio 后台调度器，定期检查并执行到期任务。
-
-    通过构造函数注入 provider 和 stores，执行任务时创建独立 AgentLoop。
-    """
+    """Periodic scheduler that runs due cron jobs through AgentLoop."""
 
     def __init__(
         self,
@@ -31,17 +26,19 @@ class CronScheduler:
         provider: BaseProvider,
         *,
         tick_seconds: int = 60,
+        engine: EngineContainer | None = None,
         **loop_kwargs: object,
     ) -> None:
         self._store = job_store
         self._provider = provider
         self._tick_seconds = tick_seconds
         self._loop_kwargs = loop_kwargs
+        self._engine = engine or EngineContainer.default()
         self._task: asyncio.Task[None] | None = None
         self._running = False
 
     async def start(self) -> None:
-        """启动后台调度循环。"""
+        """Start the background scheduler loop."""
         if self._running:
             return
         self._running = True
@@ -49,7 +46,7 @@ class CronScheduler:
         logger.info("Cron scheduler started (tick=%ds)", self._tick_seconds)
 
     async def stop(self) -> None:
-        """优雅停止后台调度。"""
+        """Stop the background scheduler loop gracefully."""
         self._running = False
         if self._task and not self._task.done():
             self._task.cancel()
@@ -57,10 +54,7 @@ class CronScheduler:
                 await self._task
         logger.info("Cron scheduler stopped")
 
-    # ---- 内部方法 ----
-
     async def _tick_loop(self) -> None:
-        """后台循环：每 tick_seconds 秒检查一次到期任务。"""
         while self._running:
             try:
                 await self._check_and_execute()
@@ -69,7 +63,6 @@ class CronScheduler:
             await asyncio.sleep(self._tick_seconds)
 
     async def _check_and_execute(self) -> None:
-        """检查所有已启用任务，执行到期任务。"""
         now = datetime.now()
         jobs = self._store.list_jobs()
         for job in jobs:
@@ -77,52 +70,79 @@ class CronScheduler:
                 continue
             if not self._matches(job.cron, now):
                 continue
-            await self._execute_job(job)
+            await self._execute_job(job, now=now)
 
-    async def _execute_job(self, job: CronJob) -> None:
-        """创建独立 AgentLoop 执行任务。"""
-        logger.info("Executing cron job '%s': %s", job.id, job.prompt[:50])
+    async def _execute_job(self, job: CronJob, *, now: datetime) -> None:
+        """Execute one due job if the execution ledger grants the lease."""
+        key = f"cron:{job.id}:{now.strftime('%Y-%m-%dT%H:%M')}"
+        claim = self._engine.ledger.acquire(
+            key,
+            scope="cron",
+            lease_seconds=max(self._tick_seconds * 2, 120),
+            metadata={"job_id": job.id, "cron": job.cron},
+        )
+        if not claim.acquired:
+            logger.debug("Skipping cron job '%s' (%s)", job.id, claim.reason)
+            return
+
+        self._engine.events.publish(
+            "cron_job_started",
+            details={"job_id": job.id, "schedule": job.cron},
+        )
+
         success = False
+        run_context = self._engine.create_run_context(
+            metadata={"kind": "cron", "job_id": job.id},
+            workspace_root=str(getattr(self._engine, "workspace_root", "") or ""),
+        )
         try:
             from heagent.agent.loop import AgentLoop
 
-            loop = AgentLoop(self._provider, **self._loop_kwargs)  # type: ignore[arg-type]
+            loop = AgentLoop(
+                self._provider,
+                engine=self._engine,
+                run_context=run_context,
+                **self._loop_kwargs,  # type: ignore[arg-type]
+            )
             await loop.run(job.prompt)
             success = True
-        except Exception:
+        except Exception as exc:
+            self._engine.ledger.fail(key, str(exc), metadata={"job_id": job.id, "cron": job.cron})
+            self._engine.events.publish(
+                "cron_job_failed",
+                run_id=run_context.run_id,
+                details={"job_id": job.id, "error": str(exc)},
+            )
             logger.exception("Cron job '%s' execution failed", job.id)
 
         if success:
-            # 仅成功时更新最后运行时间
             from heagent.cron.jobs import _iso_now
 
             self._store.update(job.id, last_run=_iso_now())
-
-            # 一次性任务成功后删除
+            self._engine.ledger.complete(key, metadata={"job_id": job.id, "cron": job.cron})
+            self._engine.events.publish(
+                "cron_job_completed",
+                run_id=run_context.run_id,
+                details={"job_id": job.id},
+            )
             if not job.recurring:
                 self._store.remove(job.id)
                 logger.info("One-shot cron job '%s' removed after execution", job.id)
 
     @staticmethod
     def _matches(cron_expr: str, dt: datetime) -> bool:
-        """评估 5-field cron 表达式是否匹配给定时间。
-
-        支持格式：* (任意)、*/N (每隔)、具体值、逗号分隔列表。
-        字段顺序：分钟 小时 日 月 星期
-        """
+        """Evaluate a simple 5-field cron expression."""
         parts = cron_expr.strip().split()
         if len(parts) != 5:
             return False
 
-        # weekday: Python 0=Mon, cron 0=Sun — 转换
         cron_weekday = (dt.weekday() + 1) % 7
         cron_values = (dt.minute, dt.hour, dt.day, dt.month, cron_weekday)
-
         return all(_field_matches(field_expr, actual) for field_expr, actual in zip(parts, cron_values, strict=True))
 
 
 def _field_matches(expr: str, value: int) -> bool:
-    """检查单个 cron 字段是否匹配给定值。"""
+    """Return whether one cron field matches one numeric value."""
     for part in expr.split(","):
         if part == "*":
             return True
@@ -130,8 +150,6 @@ def _field_matches(expr: str, value: int) -> bool:
             step = int(part[2:])
             if step > 0 and value % step == 0:
                 return True
-        elif part.isdigit():
-            if value == int(part):
-                return True
-        # 不支持的范围表达式（如 1-5）在 V1 跳过
+        elif part.isdigit() and value == int(part):
+            return True
     return False

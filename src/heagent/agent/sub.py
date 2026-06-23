@@ -1,8 +1,4 @@
-"""子 Agent — 隔离的 Agent 实例，用于任务委派和并行执行。
-
-SubAgent 拥有独立的 AgentLoop + 对话上下文，
-可安全地并行运行多个子任务而不互相干扰。
-"""
+"""Sub-agent execution helpers."""
 
 from __future__ import annotations
 
@@ -11,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from heagent.agent.loop import AgentLoop
+from heagent.engine import EngineContainer
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
 
@@ -25,13 +22,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class SubAgentResult:
-    """子 Agent 任务执行结果。
-
-    task: 原始任务描述
-    output: 执行输出（成功时为最终答案，失败时为错误信息）
-    success: 是否成功完成
-    iterations: 实际迭代次数
-    """
+    """Result of one delegated sub-agent task."""
 
     task: str
     output: str
@@ -40,18 +31,7 @@ class SubAgentResult:
 
 
 class SubAgent:
-    """隔离的 Agent 实例。
-
-    与主 AgentLoop 共享 Provider 和 Registry，但拥有独立的对话上下文和迭代预算。
-    适用于将复杂任务拆分为多个可并行的子任务。
-
-    父级的 soul/skills/facts/profile/compressor/context_dir 可选注入——
-    这些组件参与子 AgentLoop 系统提示词组装，保证子 Agent 与父级人格/
-    记忆/技能一致。组装时 SkillStore 会触发 record_usage 写入，但它是无 await
-    的同步原子段，单线程 asyncio 下并行子 Agent 串行执行、不构成写竞态（已加回归
-    测试锁定，核实记录见 deferred-work）。session/middlewares/cron_store 不继承：
-    session 会污染父级持久化，cron 不在诉求内。
-    """
+    """Isolated agent wrapper for delegated tasks."""
 
     def __init__(
         self,
@@ -59,33 +39,31 @@ class SubAgent:
         *,
         registry: ToolRegistry | None = None,
         guard: SafetyGuard | None = None,
-        max_iterations: int = 20,  # 子 Agent 默认迭代上限更低
+        max_iterations: int = 20,
         skills: SkillStore | None = None,
         facts: FactStore | None = None,
         profile: ProfileStore | None = None,
         compressor: ContextCompressor | None = None,
         context_dir: str | None = None,
         soul: SoulStore | None = None,
+        engine: EngineContainer | None = None,
+        parent_run_id: str | None = None,
     ) -> None:
         self._provider = provider
         self._registry = registry or ToolRegistry.get()
         self._guard = guard or SafetyGuard()
         self._max_iterations = max_iterations
-        # 父级上下文组件（只读注入，转发到子 AgentLoop）
         self._skills = skills
         self._facts = facts
         self._profile = profile
         self._compressor = compressor
         self._context_dir = context_dir
         self._soul = soul
+        self._engine = engine or EngineContainer.default(workspace_root=context_dir)
+        self._parent_run_id = parent_run_id
 
     async def run(self, task: str) -> SubAgentResult:
-        """执行单个子任务。
-
-        为每次运行创建全新的 AgentLoop（确保上下文隔离——messages 空起步），
-        转发父级上下文组件用于系统提示词注入。
-        捕获所有异常并转换为 SubAgentResult。
-        """
+        """Run one delegated task in a fresh loop instance."""
         loop = AgentLoop(
             self._provider,
             registry=self._registry,
@@ -97,6 +75,12 @@ class SubAgent:
             compressor=self._compressor,
             context_dir=self._context_dir,
             soul=self._soul,
+            engine=self._engine,
+            run_context=self._engine.create_run_context(
+                parent_run_id=self._parent_run_id,
+                metadata={"kind": "subagent"},
+                workspace_root=self._context_dir,
+            ),
         )
         try:
             output = await loop.run(task)
@@ -106,22 +90,16 @@ class SubAgent:
                 success=True,
                 iterations=loop.last_iteration or 0,
             )
-        except Exception as e:
-            # 异常不向外抛出，包装为失败结果
+        except Exception as exc:
             return SubAgentResult(
                 task=task,
-                output=str(e),
+                output=str(exc),
                 success=False,
                 iterations=loop.last_iteration or 0,
             )
 
 
 async def run_parallel(agents: list[SubAgent], tasks: list[str]) -> list[SubAgentResult]:
-    """并行运行多个子 Agent。
-
-    通过 asyncio.gather 实现真正的并发执行，
-    所有子任务同时开始，全部完成后返回结果列表。
-    agents[i] 执行 tasks[i]，两者长度必须一致。
-    """
-    coros = [a.run(t) for a, t in zip(agents, tasks, strict=True)]
-    return await asyncio.gather(*coros)
+    """Run multiple sub-agent tasks concurrently."""
+    coroutines = [agent.run(task) for agent, task in zip(agents, tasks, strict=True)]
+    return await asyncio.gather(*coroutines)

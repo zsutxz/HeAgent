@@ -1,20 +1,20 @@
-"""Sub-Agent 委派工具 — 供 LLM 将任务委派给隔离的子 Agent。
-
-通过 configure_subagent_tools(provider, registry, guard,
-skills, facts, profile, compressor, context_dir, soul) 注入依赖。
-父级上下文组件会被转发到子 Agent，确保子 Agent 继承父级人格/记忆/技能。
-未配置时所有工具返回错误提示，不会抛异常。
-"""
+"""Builtin tools for delegating work to sub-agents."""
 
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from heagent.agent.sub import SubAgent, run_parallel
+from heagent.engine import EngineContainer
 from heagent.tools.decorator import tool
+from heagent.tools.runtime import RuntimeSlot
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from heagent.context.compressor import ContextCompressor
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
@@ -24,19 +24,29 @@ if TYPE_CHECKING:
     from heagent.tools.registry import ToolRegistry
     from heagent.tools.safety import SafetyGuard
 
-_provider: BaseProvider | None = None
-_registry: ToolRegistry | None = None
-_guard: SafetyGuard | None = None
-_skills: SkillStore | None = None
-_facts: FactStore | None = None
-_profile: ProfileStore | None = None
-_compressor: ContextCompressor | None = None
-_context_dir: str | None = None
-_soul: SoulStore | None = None
+
+@dataclass(slots=True)
+class SubagentToolRuntime:
+    """Runtime dependencies for sub-agent delegation tools."""
+
+    provider: BaseProvider | None
+    registry: ToolRegistry | None
+    guard: SafetyGuard | None
+    skills: SkillStore | None
+    facts: FactStore | None
+    profile: ProfileStore | None
+    compressor: ContextCompressor | None
+    context_dir: str | None
+    soul: SoulStore | None
+    engine: EngineContainer | None
+    parent_run_id: str | None
+
+
+_subagent_runtime = RuntimeSlot[SubagentToolRuntime]("heagent_subagent_tools")
 
 
 def configure_subagent_tools(
-    provider: BaseProvider,
+    provider: BaseProvider | None,
     *,
     registry: ToolRegistry | None = None,
     guard: SafetyGuard | None = None,
@@ -46,58 +56,89 @@ def configure_subagent_tools(
     compressor: ContextCompressor | None = None,
     context_dir: str | None = None,
     soul: SoulStore | None = None,
+    engine: EngineContainer | None = None,
+    parent_run_id: str | None = None,
 ) -> None:
-    """注入 Provider/Registry 及父级上下文组件，激活 sub-agent 工具。"""
-    global _provider, _registry, _guard
-    global _skills, _facts, _profile, _compressor, _context_dir, _soul
-    _provider = provider
-    _registry = registry
-    _guard = guard
-    _skills = skills
-    _facts = facts
-    _profile = profile
-    _compressor = compressor
-    _context_dir = context_dir
-    _soul = soul
+    """Set fallback runtime dependencies for sub-agent tools."""
+    _subagent_runtime.configure(
+        SubagentToolRuntime(
+            provider=provider,
+            registry=registry,
+            guard=guard,
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            compressor=compressor,
+            context_dir=context_dir,
+            soul=soul,
+            engine=engine,
+            parent_run_id=parent_run_id,
+        )
+    )
 
 
 def reset_subagent_tools() -> None:
-    """重置模块级依赖（测试清理用）。"""
-    global _provider, _registry, _guard
-    global _skills, _facts, _profile, _compressor, _context_dir, _soul
-    _provider = None
-    _registry = None
-    _guard = None
-    _skills = None
-    _facts = None
-    _profile = None
-    _compressor = None
-    _context_dir = None
-    _soul = None
+    """Clear fallback sub-agent tool dependencies."""
+    _subagent_runtime.reset()
+
+
+@contextmanager
+def bind_subagent_tools(
+    provider: BaseProvider | None,
+    *,
+    registry: ToolRegistry | None = None,
+    guard: SafetyGuard | None = None,
+    skills: SkillStore | None = None,
+    facts: FactStore | None = None,
+    profile: ProfileStore | None = None,
+    compressor: ContextCompressor | None = None,
+    context_dir: str | None = None,
+    soul: SoulStore | None = None,
+    engine: EngineContainer | None = None,
+    parent_run_id: str | None = None,
+) -> Iterator[None]:
+    """Bind sub-agent tool dependencies for the current run context."""
+    with _subagent_runtime.bind(
+        SubagentToolRuntime(
+            provider=provider,
+            registry=registry,
+            guard=guard,
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            compressor=compressor,
+            context_dir=context_dir,
+            soul=soul,
+            engine=engine,
+            parent_run_id=parent_run_id,
+        )
+    ):
+        yield
+
+
+def _runtime() -> SubagentToolRuntime | None:
+    return _subagent_runtime.get()
 
 
 @tool
 async def task_delegate(task: str) -> str:
-    """将一个任务委派给隔离的子 Agent 执行。
-    子 Agent 拥有独立的上下文和迭代预算，不会干扰主对话。
-    适用于将复杂任务拆分、独立验证或并行处理。
-
-    参数：
-        task: 要委派给子 Agent 执行的任务描述
-    """
-    if _provider is None:
+    """Delegate one task to an isolated sub-agent."""
+    runtime = _runtime()
+    if runtime is None or runtime.provider is None:
         return "Error: sub-agent tools not configured."
 
     agent = SubAgent(
-        _provider,
-        registry=_registry,
-        guard=_guard,
-        skills=_skills,
-        facts=_facts,
-        profile=_profile,
-        compressor=_compressor,
-        context_dir=_context_dir,
-        soul=_soul,
+        runtime.provider,
+        registry=runtime.registry,
+        guard=runtime.guard,
+        skills=runtime.skills,
+        facts=runtime.facts,
+        profile=runtime.profile,
+        compressor=runtime.compressor,
+        context_dir=runtime.context_dir,
+        soul=runtime.soul,
+        engine=runtime.engine,
+        parent_run_id=runtime.parent_run_id,
     )
     result = await agent.run(task)
     if result.success:
@@ -107,13 +148,9 @@ async def task_delegate(task: str) -> str:
 
 @tool
 async def task_parallel(tasks_json: str) -> str:
-    """并行执行多个子任务。每个任务在独立的子 Agent 中运行。
-    所有任务同时开始，全部完成后汇总结果。
-
-    参数：
-        tasks_json: JSON 数组格式的任务列表，如 '["任务1", "任务2"]'
-    """
-    if _provider is None:
+    """Run multiple sub-agent tasks concurrently."""
+    runtime = _runtime()
+    if runtime is None or runtime.provider is None:
         return "Error: sub-agent tools not configured."
 
     try:
@@ -123,26 +160,26 @@ async def task_parallel(tasks_json: str) -> str:
 
     if not isinstance(tasks, list) or not tasks:
         return "Error: tasks_json must be a non-empty JSON array."
-    if not all(isinstance(t, str) for t in tasks):
+    if not all(isinstance(task, str) for task in tasks):
         return "Error: tasks_json must be an array of strings."
 
-    # 复用单一无状态 SubAgent 转发器：SubAgent.run() 每次新建独立 AgentLoop，
-    # 实例本身无运行态，故多任务并发调用同一实例安全（隔离靠 run() 内的新 AgentLoop）。
     agent = SubAgent(
-        _provider,
-        registry=_registry,
-        guard=_guard,
-        skills=_skills,
-        facts=_facts,
-        profile=_profile,
-        compressor=_compressor,
-        context_dir=_context_dir,
-        soul=_soul,
+        runtime.provider,
+        registry=runtime.registry,
+        guard=runtime.guard,
+        skills=runtime.skills,
+        facts=runtime.facts,
+        profile=runtime.profile,
+        compressor=runtime.compressor,
+        context_dir=runtime.context_dir,
+        soul=runtime.soul,
+        engine=runtime.engine,
+        parent_run_id=runtime.parent_run_id,
     )
     results = await run_parallel([agent] * len(tasks), tasks)
 
     lines: list[str] = []
-    for i, r in enumerate(results):
-        status = "OK" if r.success else "FAILED"
-        lines.append(f"[{i + 1}] {status}: {r.output}")
+    for index, result in enumerate(results, 1):
+        status = "OK" if result.success else "FAILED"
+        lines.append(f"[{index}] {status}: {result.output}")
     return "\n".join(lines)
