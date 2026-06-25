@@ -168,9 +168,7 @@ class PolicyEngine:
         approved_tools = self._context_name_set(context, "approved_tools")
         if "*" in approved_tools or call.name in approved_tools:
             return True
-        if self._is_mcp_tool(call) and "__mcp__" in approved_tools:
-            return True
-        return False
+        return self._is_mcp_tool(call) and "__mcp__" in approved_tools
 
     def _sandbox_granted(self, call: ToolCall, *, context: RunContext | None) -> bool:
         if context is None:

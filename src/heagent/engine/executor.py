@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import asyncio
-from typing import TYPE_CHECKING, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from heagent.engine.policy import PolicyVerdict, ToolExecutionMode
 from heagent.exceptions import PolicyViolation, SafetyViolation

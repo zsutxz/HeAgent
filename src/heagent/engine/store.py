@@ -7,8 +7,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from heagent.engine.context import RunContext
-from heagent.types import Message, ToolResult
+# noqa: TC001 — RunContext/Message/ToolResult 是 Pydantic 模型字段类型，
+# 需运行期导入以构建 schema（ruff TC001 为误报）。
+from heagent.engine.context import RunContext  # noqa: TC001
+from heagent.types import Message, ToolResult  # noqa: TC001
 
 
 class RunSnapshot(BaseModel):

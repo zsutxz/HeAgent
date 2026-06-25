@@ -154,5 +154,5 @@ async def skill_archive(name: str) -> str:
     if store is None:
         return "Error: skill tools not configured."
     if store.archive(name):
-        return "Skill '{name}' archived to .heagent/skills/.archive/".format(name=name)
+        return f"Skill '{name}' archived to .heagent/skills/.archive/"
     return f"Error: skill '{name}' not found."
