@@ -10,7 +10,8 @@ from typing import TYPE_CHECKING, Any, cast
 
 from heagent.agent.middleware import MiddlewareFn, Request, compose
 from heagent.config import get_settings
-from heagent.engine import EngineContainer, RunContext, RunStatus
+from heagent.context.window_reset import WindowReset, WindowResetConfig
+from heagent.engine import EngineContainer, ExecutionStatus, RunContext, RunStatus
 from heagent.exceptions import BudgetExceeded
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
@@ -41,6 +42,16 @@ class AgentState:
     results: list[ToolResult] = field(default_factory=list)
 
 
+@dataclass
+class _ResumeState:
+    """Prebuilt loop state injected into ``run()`` by ``resume()``."""
+
+    state: AgentState
+    run_context: RunContext
+    prompt: str
+    system: str | None
+
+
 class AgentLoop:
     """Iterative provider/tool loop with lightweight runtime governance."""
 
@@ -57,6 +68,7 @@ class AgentLoop:
         profile: ProfileStore | None = None,
         session: SessionStore | None = None,
         compressor: ContextCompressor | None = None,
+        window_reset: WindowResetConfig | None = None,
         context_dir: str | None = None,
         soul: SoulStore | None = None,
         cron_store: JobStore | None = None,
@@ -71,7 +83,15 @@ class AgentLoop:
         self.facts = facts
         self.profile = profile
         self.session = session
+        if compressor is not None and window_reset is not None:
+            raise ValueError(
+                "ContextCompressor and window_reset are mutually exclusive (D3); "
+                "enable one context-management strategy per AgentLoop."
+            )
         self.compressor = compressor
+        self.window_reset = (
+            WindowReset(provider, config=window_reset) if window_reset is not None else None
+        )
         self.context_dir = context_dir
         self.soul = soul
         self.cron_store = cron_store
@@ -90,26 +110,36 @@ class AgentLoop:
         *,
         system: str | None = None,
         session_id: str | None = None,
+        _resume: _ResumeState | None = None,
     ) -> str:
         """Run until the provider returns a final non-tool response."""
-        state = AgentState(max_iterations=self.max_iterations)
-        accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        if _resume is not None:
+            state = _resume.state
+            run_context = _resume.run_context
+            system_content = _resume.system
+            prompt = _resume.prompt
+            accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+            self._emit("run_started", run_context=run_context, details={"resume": True})
+        else:
+            state = AgentState(max_iterations=self.max_iterations)
+            accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+            run_context = self._ensure_run_context(session_id=session_id)
+
+            if self.session and session_id:
+                prior = self.session.load(session_id)
+                if prior:
+                    state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
+                    logger.debug("Restored %d messages from session '%s'", len(prior), session_id)
+
+            system_content = self._build_system(system, prompt=prompt)
+            if system_content:
+                state.messages.append(Message(role=Role.SYSTEM, content=system_content))
+            state.messages.append(Message(role=Role.USER, content=prompt))
+
+            self._start_run_record(run_context, prompt=prompt, system=system_content)
+            self._emit("run_started", run_context=run_context, details={"session_id": session_id or ""})
+
         response: ProviderResponse | None = None
-        run_context = self._ensure_run_context(session_id=session_id)
-
-        if self.session and session_id:
-            prior = self.session.load(session_id)
-            if prior:
-                state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
-                logger.debug("Restored %d messages from session '%s'", len(prior), session_id)
-
-        system_content = self._build_system(system, prompt=prompt)
-        if system_content:
-            state.messages.append(Message(role=Role.SYSTEM, content=system_content))
-        state.messages.append(Message(role=Role.USER, content=prompt))
-
-        self._start_run_record(run_context, prompt=prompt, system=system_content)
-        self._emit("run_started", run_context=run_context, details={"session_id": session_id or ""})
 
         with self._runtime_scope(run_context):
             try:
@@ -156,6 +186,33 @@ class AgentLoop:
                             Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
                         )
                     self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+
+                    if self.window_reset and response.usage:
+                        settings = get_settings()
+                        if self.window_reset.should_trigger(
+                            token_count=response.usage.total_tokens,
+                            max_tokens=settings.max_context_tokens,
+                        ):
+                            before = len(state.messages)
+                            state.messages = await self.window_reset.reset(
+                                run_context=run_context,
+                                original_prompt=prompt,
+                                messages=state.messages,
+                            )
+                            logger.info(
+                                "Window reset: %d -> %d messages (segment=%s)",
+                                before,
+                                len(state.messages),
+                                run_context.metadata.get("segment"),
+                            )
+                            self._emit(
+                                "window_reset",
+                                run_context=run_context,
+                                details={"before": before, "after": len(state.messages)},
+                            )
+                            self._checkpoint(
+                                run_context, prompt=prompt, system=system_content, state=state
+                            )
 
                 final_answer = response.content if response is not None else ""
                 run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
@@ -316,6 +373,33 @@ class AgentLoop:
                             Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
                         )
                     self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+
+                    if self.window_reset and response.usage:
+                        settings = get_settings()
+                        if self.window_reset.should_trigger(
+                            token_count=response.usage.total_tokens,
+                            max_tokens=settings.max_context_tokens,
+                        ):
+                            before = len(state.messages)
+                            state.messages = await self.window_reset.reset(
+                                run_context=run_context,
+                                original_prompt=prompt,
+                                messages=state.messages,
+                            )
+                            logger.info(
+                                "Window reset (stream): %d -> %d messages (segment=%s)",
+                                before,
+                                len(state.messages),
+                                run_context.metadata.get("segment"),
+                            )
+                            self._emit(
+                                "window_reset",
+                                run_context=run_context,
+                                details={"before": before, "after": len(state.messages)},
+                            )
+                            self._checkpoint(
+                                run_context, prompt=prompt, system=system_content, state=state
+                            )
             except Exception as exc:
                 run_context.touch(status=RunStatus.FAILED, iteration=state.iteration)
                 self._checkpoint(
@@ -337,6 +421,44 @@ class AgentLoop:
                 self.last_usage = accumulated
                 self.last_iteration = state.iteration
                 self.last_run_context = run_context
+
+    async def resume(self, run_id: str) -> str:
+        """Resume an unfinished run by id, rebuilding context from its progress summary.
+
+        Loads the persisted snapshot; if COMPLETED, returns the stored final answer.
+        Otherwise rebuilds a fresh window from ``metadata['progress_summary']`` (or
+        falls back to the snapshot's last messages) and continues under the same
+        run_id. Streaming resume is deferred (P5).
+        """
+        snapshot = self.engine.run_store.load(run_id)
+        if snapshot is None:
+            raise ValueError(f"No run snapshot found for run_id={run_id!r}")
+        if snapshot.context.status == RunStatus.COMPLETED:
+            return snapshot.final_answer or ""
+
+        progress = snapshot.context.metadata.get("progress_summary")
+        if progress:
+            messages = WindowReset.build_resume_messages(
+                original_prompt=snapshot.prompt, summary=progress
+            )
+        else:
+            messages = [m.model_copy(deep=True) for m in snapshot.messages]
+
+        state = AgentState(
+            messages=messages,
+            max_iterations=self.max_iterations,
+            iteration=snapshot.context.iteration,
+        )
+        return await self.run(
+            snapshot.prompt,
+            system=snapshot.system,
+            _resume=_ResumeState(
+                state=state,
+                run_context=snapshot.context,
+                prompt=snapshot.prompt,
+                system=snapshot.system,
+            ),
+        )
 
     @staticmethod
     def _add_usage(a: TokenUsage, b: TokenUsage) -> TokenUsage:
@@ -512,7 +634,28 @@ class AgentLoop:
         *,
         run_context: RunContext | None = None,
     ) -> ToolResult:
-        """Execute one tool call end to end."""
+        """Execute one tool call end to end.
+
+        Idempotent via ExecutionLedger: a repeated ``tool_call.id`` (e.g. re-sent
+        by the model after a window reset) hits the cached COMPLETED result
+        instead of re-running the handler with side effects.
+        """
+        cache_key: str | None = None
+        if run_context is not None:
+            cache_key = f"{run_context.run_id}:{call.id}"
+            claim = self.engine.ledger.acquire(cache_key, run_id=run_context.run_id)
+            if not claim.acquired and claim.record.status == ExecutionStatus.COMPLETED:
+                cached = claim.record.metadata.get("result")
+                if cached is not None:
+                    logger.debug("Ledger cache hit for tool_call %s", call.id)
+                    self._emit(
+                        "tool_call_cached",
+                        run_context=run_context,
+                        tool_name=call.name,
+                        details={},
+                    )
+                    return ToolResult(tool_call_id=call.id, content=cached)
+
         verdict = self.engine.policy.evaluate_tool_call(call, context=run_context)
         handler = self.registry.get_handler(call.name)
         if handler is None:
@@ -522,16 +665,23 @@ class AgentLoop:
                 tool_name=call.name,
                 details={"error": "unknown tool"},
             )
-            return ToolResult(tool_call_id=call.id, content=f"Unknown tool: {call.name}", is_error=True)
+            result = ToolResult(tool_call_id=call.id, content=f"Unknown tool: {call.name}", is_error=True)
+        else:
+            result = await self.engine.executor.execute(
+                call=call,
+                verdict=verdict,
+                guard=self.guard,
+                handler=self._invoke_handler,
+                run_context=run_context,
+                emit=self._emit,
+            )
 
-        return await self.engine.executor.execute(
-            call=call,
-            verdict=verdict,
-            guard=self.guard,
-            handler=self._invoke_handler,
-            run_context=run_context,
-            emit=self._emit,
-        )
+        if cache_key is not None:
+            if result.is_error:
+                self.engine.ledger.fail(cache_key, result.content)
+            else:
+                self.engine.ledger.complete(cache_key, metadata={"result": result.content})
+        return result
 
     async def _invoke_handler(self, call: ToolCall) -> object:
         """Resolve and invoke the registered handler for one tool call."""

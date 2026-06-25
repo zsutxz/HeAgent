@@ -102,6 +102,12 @@ class SubAgent:
         metadata: dict[str, object] = {"kind": "subagent"}
         if self._role is not None:
             metadata["role"] = self._role.name
+        # D4：子 agent 不开 window_reset；短任务默认走 in-place 压缩
+        compressor = self._compressor
+        if compressor is None:
+            from heagent.context.compressor import ContextCompressor
+
+            compressor = ContextCompressor(self._provider)
         loop = AgentLoop(
             self._provider,
             registry=self._registry,
@@ -110,7 +116,7 @@ class SubAgent:
             skills=self._skills,
             facts=self._facts,
             profile=self._profile,
-            compressor=self._compressor,
+            compressor=compressor,
             context_dir=self._context_dir,
             soul=self._soul,
             engine=engine,
