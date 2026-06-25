@@ -55,6 +55,7 @@ python -m heagent
 | 路径 | 用途 |
 |------|------|
 | `docs/frame.md` | **架构权威**——改架构 / 数据流 / 模块内部前先读此 |
+| `docs/design.md` | 功能设计与愿景——项目要做什么 / 为什么（产品视角，区别于 frame.md 的代码实现） |
 | `docs/stock/` | 运行时股票报告输出，已 gitignore |
 | `_bmad-output/baseline/` | 主线规划周期（epics 1-10，冻结决策）：`architecture.md`·`brief.md`·`prd.md`·`epics.md`·`epics-self-learning.md`·`sprint-status.yaml` + `stories/` |
 | `_bmad-output/mcp-client/` | MCP 集成周期（epics 11-13） |
