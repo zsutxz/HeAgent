@@ -72,11 +72,14 @@ class TestTaskDelegate:
         provider = _StubProvider("computed result")
         configure_subagent_tools(provider)
         result = await task_delegate("compute 2+2")
-        assert "computed result" in result
-        assert "Sub-agent completed" in result
+        payload = json.loads(result)
+        assert payload["status"] == "ok"
+        assert payload["output"] == "computed result"
+        assert payload["iterations"] >= 1
+        assert payload["run_id"]
 
     async def test_sub_agent_failure(self) -> None:
-        """子 Agent 内部异常时返回失败信息。"""
+        """子 Agent 内部异常时返回结构化失败结果。"""
 
         class _FailProvider:
             async def send(self, messages, *, tools=None):
@@ -89,8 +92,9 @@ class TestTaskDelegate:
                 return ProviderMetadata(name="fail", model="fail")
 
         configure_subagent_tools(_FailProvider())
-        result = await task_delegate("will fail")
-        assert "Sub-agent failed" in result
+        payload = json.loads(await task_delegate("will fail"))
+        assert payload["status"] == "failed"
+        assert "API error" in payload["output"]
 
 
 class TestTaskParallel:
@@ -123,10 +127,11 @@ class TestTaskParallel:
         provider = _StubProvider("done")
         configure_subagent_tools(provider)
         result = await task_parallel(json.dumps(["task 1", "task 2"]))
-        assert "OK" in result
-        assert "done" in result
-        assert "[1]" in result
-        assert "[2]" in result
+        payload = json.loads(result)
+        assert payload["status"] == "ok"
+        outcomes = payload["outcomes"]
+        assert len(outcomes) == 2
+        assert all(o["status"] == "ok" and o["output"] == "done" for o in outcomes)
 
     async def test_threads_context_components_into_subagent(self) -> None:
         """configure_subagent_tools 接收的 6 个上下文参数应转发到构造的 SubAgent。"""
@@ -170,6 +175,56 @@ class TestTaskParallel:
         assert captured["profile"] is None
         assert captured["compressor"] is None
         assert captured["context_dir"] is None
+
+
+class TestStructuredResults:
+    """P5-3：委派工具一律返回带 ``status`` 字段的 JSON。"""
+
+    async def test_preflight_errors_are_structured(self) -> None:
+        """未配置 / 非法 JSON 等预检错误也返回 status=error 的 JSON。"""
+        unconfigured = json.loads(await task_delegate("x"))
+        assert unconfigured["status"] == "error"
+        assert "not configured" in unconfigured["message"]
+
+        configure_subagent_tools(_StubProvider())
+        bad = json.loads(await task_parallel("not json"))
+        assert bad["status"] == "error"
+        assert "valid JSON array" in bad["message"]
+
+    async def test_delegate_carries_role(self) -> None:
+        configure_subagent_tools(_StubProvider("ok"))
+        payload = json.loads(await task_delegate("plan it", role="planner"))
+        assert payload["status"] == "ok"
+        assert payload["role"] == "planner"
+
+    async def test_parallel_partial_when_one_fails(self) -> None:
+        """部分失败时 status=partial，且 outcomes 逐条标 failed。"""
+
+        class _FlakyProvider:
+            _n = 0
+
+            async def send(self, messages, *, tools=None):
+                _FlakyProvider._n += 1
+                if _FlakyProvider._n == 1:
+                    raise RuntimeError("boom")
+                return ProviderResponse(
+                    content="ok",
+                    usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                    model="stub",
+                    finish_reason="stop",
+                )
+
+            async def stream(self, messages, *, tools=None):
+                yield ProviderResponse(content="ok", usage=TokenUsage(), model="stub", finish_reason="stop")
+
+            def get_metadata(self):
+                return ProviderMetadata(name="stub", model="stub")
+
+        configure_subagent_tools(_FlakyProvider())
+        payload = json.loads(await task_parallel(json.dumps(["a", "b"])))
+        assert payload["status"] == "partial"
+        statuses = {o["status"] for o in payload["outcomes"]}
+        assert statuses == {"ok", "failed"}
 
 
 class TestToolRegistration:

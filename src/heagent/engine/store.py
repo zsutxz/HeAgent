@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 # noqa: TC001 — RunContext/Message/ToolResult 是 Pydantic 模型字段类型，
 # 需运行期导入以构建 schema（ruff TC001 为误报）。
-from heagent.engine.context import RunContext  # noqa: TC001
+from heagent.engine.context import RunContext, RunStatus  # noqa: TC001
 from heagent.types import Message, ToolResult  # noqa: TC001
 
 
@@ -23,6 +23,18 @@ class RunSnapshot(BaseModel):
     results: list[ToolResult] = Field(default_factory=list)
     final_answer: str | None = None
     error: str | None = None
+
+
+class RunNode(BaseModel):
+    """One node in a run hierarchy tree, linked via ``parent_run_id``."""
+
+    run_id: str
+    parent_run_id: str | None = None
+    status: RunStatus | None = None
+    children: list[RunNode] = Field(default_factory=list)
+
+
+RunNode.model_rebuild()
 
 
 class RunStore:
@@ -85,6 +97,40 @@ class RunStore:
         if not self._base.exists():
             return []
         return sorted(path.stem for path in self._base.glob("*.json"))
+
+    def build_run_tree(self, root_id: str | None = None) -> list[RunNode]:
+        """Build a forest of runs linked by ``parent_run_id``.
+
+        Without ``root_id`` returns every root run (``parent_run_id`` is ``None``
+        or points to a run absent from the store), each carrying its descendant
+        subtree. With ``root_id`` returns the subtree rooted at that run as a
+        single-element list (empty if the run is unknown). Output is deterministic:
+        runs are visited in sorted id order, so children appear sorted.
+        """
+        nodes: dict[str, RunNode] = {}
+        for run_id in self.list_runs():
+            snapshot = self.load(run_id)
+            if snapshot is None:
+                continue
+            ctx = snapshot.context
+            nodes[run_id] = RunNode(
+                run_id=run_id,
+                parent_run_id=ctx.parent_run_id,
+                status=ctx.status,
+            )
+
+        roots: list[RunNode] = []
+        for node in nodes.values():
+            parent = node.parent_run_id
+            if parent is not None and parent in nodes:
+                nodes[parent].children.append(node)
+            else:
+                roots.append(node)
+
+        if root_id is not None:
+            target = nodes.get(root_id)
+            return [target] if target is not None else []
+        return roots
 
     def delete(self, run_id: str) -> bool:
         """Delete one stored run snapshot."""

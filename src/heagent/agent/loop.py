@@ -258,24 +258,38 @@ class AgentLoop:
         *,
         system: str | None = None,
         session_id: str | None = None,
+        _resume: _ResumeState | None = None,
     ) -> AsyncIterator[StreamEvent]:
-        """Run the loop and yield streamed text/tool events."""
-        state = AgentState(max_iterations=self.max_iterations)
-        accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-        run_context = self._ensure_run_context(session_id=session_id)
+        """Run the loop and yield streamed text/tool events.
 
-        if self.session and session_id:
-            prior = self.session.load(session_id)
-            if prior:
-                state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
+        ``_resume`` (set by :meth:`resume_stream`) skips session/system
+        initialization and continues from a prebuilt state, mirroring
+        :meth:`run`'s resume branch.
+        """
+        if _resume is not None:
+            state = _resume.state
+            run_context = _resume.run_context
+            system_content = _resume.system
+            prompt = _resume.prompt
+            accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+            self._emit("run_started", run_context=run_context, details={"resume": True, "stream": True})
+        else:
+            state = AgentState(max_iterations=self.max_iterations)
+            accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+            run_context = self._ensure_run_context(session_id=session_id)
 
-        system_content = self._build_system(system, prompt=prompt)
-        if system_content:
-            state.messages.append(Message(role=Role.SYSTEM, content=system_content))
-        state.messages.append(Message(role=Role.USER, content=prompt))
+            if self.session and session_id:
+                prior = self.session.load(session_id)
+                if prior:
+                    state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
 
-        self._start_run_record(run_context, prompt=prompt, system=system_content)
-        self._emit("run_started", run_context=run_context, details={"stream": True})
+            system_content = self._build_system(system, prompt=prompt)
+            if system_content:
+                state.messages.append(Message(role=Role.SYSTEM, content=system_content))
+            state.messages.append(Message(role=Role.USER, content=prompt))
+
+            self._start_run_record(run_context, prompt=prompt, system=system_content)
+            self._emit("run_started", run_context=run_context, details={"stream": True})
 
         with self._runtime_scope(run_context):
             try:
@@ -428,7 +442,7 @@ class AgentLoop:
         Loads the persisted snapshot; if COMPLETED, returns the stored final answer.
         Otherwise rebuilds a fresh window from ``metadata['progress_summary']`` (or
         falls back to the snapshot's last messages) and continues under the same
-        run_id. Streaming resume is deferred (P5).
+        run_id. For streaming, use :meth:`resume_stream`.
         """
         snapshot = self.engine.run_store.load(run_id)
         if snapshot is None:
@@ -459,6 +473,46 @@ class AgentLoop:
                 system=snapshot.system,
             ),
         )
+
+    async def resume_stream(self, run_id: str) -> AsyncIterator[StreamEvent]:
+        """Streaming variant of :meth:`resume`.
+
+        A COMPLETED run yields a single ``done`` event carrying the cached final
+        answer; an unfinished run rebuilds a fresh window from
+        ``metadata['progress_summary']`` (or the snapshot's last messages) and
+        streams the continuation under the same run_id.
+        """
+        snapshot = self.engine.run_store.load(run_id)
+        if snapshot is None:
+            raise ValueError(f"No run snapshot found for run_id={run_id!r}")
+        if snapshot.context.status == RunStatus.COMPLETED:
+            yield StreamEvent(type="done", final_answer=snapshot.final_answer or "")
+            return
+
+        progress = snapshot.context.metadata.get("progress_summary")
+        if progress:
+            messages = WindowReset.build_resume_messages(
+                original_prompt=snapshot.prompt, summary=progress
+            )
+        else:
+            messages = [m.model_copy(deep=True) for m in snapshot.messages]
+
+        state = AgentState(
+            messages=messages,
+            max_iterations=self.max_iterations,
+            iteration=snapshot.context.iteration,
+        )
+        async for event in self.run_stream(
+            snapshot.prompt,
+            system=snapshot.system,
+            _resume=_ResumeState(
+                state=state,
+                run_context=snapshot.context,
+                prompt=snapshot.prompt,
+                system=snapshot.system,
+            ),
+        ):
+            yield event
 
     @staticmethod
     def _add_usage(a: TokenUsage, b: TokenUsage) -> TokenUsage:

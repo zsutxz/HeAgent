@@ -30,6 +30,7 @@ class SubAgentResult:
     output: str
     success: bool
     iterations: int = 0
+    run_id: str = ""
 
 
 class SubAgent:
@@ -133,6 +134,7 @@ class SubAgent:
                 output=output,
                 success=True,
                 iterations=loop.last_iteration or 0,
+                run_id=loop.last_run_context.run_id if loop.last_run_context else "",
             )
         except Exception as exc:
             return SubAgentResult(
@@ -140,6 +142,7 @@ class SubAgent:
                 output=str(exc),
                 success=False,
                 iterations=loop.last_iteration or 0,
+                run_id=loop.last_run_context.run_id if loop.last_run_context else "",
             )
 
 

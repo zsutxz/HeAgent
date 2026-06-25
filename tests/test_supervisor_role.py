@@ -8,6 +8,7 @@ reads that ledger back.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -67,7 +68,7 @@ async def test_task_delegate_records_completed_step() -> None:
     configure_subagent_tools(_StubProvider(), run_context=run_context)
 
     out = await task_delegate("write an add function", role="coder")
-    assert "completed" in out.lower()
+    assert json.loads(out)["status"] == "ok"
 
     steps = run_context.metadata["completed_steps"]
     assert len(steps) == 1
@@ -75,6 +76,9 @@ async def test_task_delegate_records_completed_step() -> None:
     assert step["role"] == "coder"
     assert step["task"] == "write an add function"
     assert step["success"] is True
+    # P5-3：结构化结果在 completed_steps 里额外记录 iterations / run_id
+    assert step["iterations"] >= 1
+    assert step["run_id"]
 
 
 async def test_task_status_reads_recorded_steps() -> None:

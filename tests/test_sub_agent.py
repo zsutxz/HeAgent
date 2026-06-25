@@ -56,6 +56,12 @@ class TestSubAgent:
         # StubProvider 一轮即产出文本答案 → 迭代计数为 1
         assert r.iterations == 1
 
+    async def test_run_populates_run_id(self) -> None:
+        """P5-3：结果应携带子 agent 自身 run_id，供结构化结果与树形聚合使用。"""
+        r = await SubAgent(StubProvider("result"), max_iterations=5).run("task")
+        assert r.success
+        assert r.run_id  # 非空：来自子 loop 的 last_run_context.run_id
+
     async def test_separate_context(self) -> None:
         r1, r2 = await asyncio.gather(
             SubAgent(StubProvider("a1"), max_iterations=3).run("t1"),

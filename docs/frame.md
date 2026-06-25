@@ -111,6 +111,7 @@ exceptions  types  config
 | `run(prompt)` | 入口方法，构建初始消息后进入循环 |
 | `run_stream(prompt)` | 流式入口，逐步 yield `StreamEvent`（`text`/`tool_call`/`tool_result`/`done`）；命中 `tool_calls` 时回退 `send()` 重取该轮调用 |
 | `resume(run_id)` | 从 `RunStore` 加载快照续跑（P3）：COMPLETED 直接返回 `final_answer`，否则用 `metadata['progress_summary']` 重建窗口续跑，同 `run_id` 跨多段 context window；内部经 `_resume` 注入 `run()` 的初始化分支 |
+| `resume_stream(run_id)` | `resume` 的流式版（P5-5）：COMPLETED 产出单个携带缓存答案的 `done` 事件；否则同上重建窗口后经 `_resume` 注入 `run_stream()` 流式续跑 |
 | `_build_system()` | 构建系统提示词（含人格/上下文/技能/记忆注入，见下方注入顺序） |
 | `_call_provider()` | 通过 Middleware 链调用 Provider，含 Token 估算对比 |
 | `_execute_tools()` | `asyncio.gather()` 并行执行所有 tool_calls |
@@ -172,7 +173,7 @@ make_retry_middleware(max_attempts, base_delay, max_delay) -> MiddlewareFn
 | 组件 | 说明 |
 |------|------|
 | `SubAgent` | 隔离的 Agent 实例，独立的 Loop + Context；经 `parent_run_id` 继承父 `engine`；可带 `role`（`RoleSpec`：system/allowed_tools/blocked_tools）/`system`/`allowed_tools` 角色化（P1） |
-| `SubAgentResult` | 子任务结果（task, output, success, iterations） |
+| `SubAgentResult` | 子任务结果（task, output, success, iterations, **run_id**：子 agent 自身 run_id，P5-3 供结构化结果与树形聚合） |
 | `run_parallel()` | `asyncio.gather()` 并行运行多个子 Agent |
 
 子 Agent 默认带 `ContextCompressor`（D4：不开 window_reset，短任务走原位压缩）。角色化时由父 `engine` 经 `dataclasses.replace` 换角色专属 `PolicyEngine`（allowed_tools/blocked_tools），其余运行时服务（store/ledger/events）复用。
@@ -343,13 +344,13 @@ SafetyGuard
 
 | 工具 | 功能 |
 |------|------|
-| `task_delegate` | 将单个任务委派给隔离的子 Agent（可传 `role`=planner/coder/tester/supervisor 角色化，或 `system` 自定义提示词；独立上下文+迭代预算）执行 |
-| `task_parallel` | 并行执行多个子任务（`tasks_json` 传 JSON 数组，`run_parallel()` 汇总；同 `role`/`system`） |
-| `task_status` | 读回本 run 已完成的委派步骤（`run_context.metadata['completed_steps']`，跨窗口重置存活，P2） |
+| `task_delegate` | 将单个任务委派给隔离的子 Agent（可传 `role`=planner/coder/tester/supervisor 角色化，或 `system` 自定义提示词；独立上下文+迭代预算）执行；**返回结构化 JSON** `SubTaskOutcome`（status ok/failed/error + role/task/iterations/run_id/output，P5-3） |
+| `task_parallel` | 并行执行多个子任务（`tasks_json` 传 JSON 数组，`run_parallel()` 汇总；同 `role`/`system`）；返回 `{"status": ok/partial/error, "outcomes": [SubTaskOutcome...]}`（P5-3） |
+| `task_status` | 读回本 run 已完成的委派步骤（`run_context.metadata['completed_steps']`，含 iterations/run_id，跨窗口重置存活，P2/P5-3） |
 
 技能工具在 `AgentLoop` 接收 `SkillStore` 时激活；记忆工具在接收 `FactStore`/`ProfileStore` 时激活；
 Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 cli.py 调用 `configure_subagent_tools(provider)`
-注入 Provider/Registry/Guard 激活（单次与交互模式均激活）。委派结果经 `_record_step()` 写入 supervisor 的 `metadata['completed_steps']`（跨窗口重置存活）。未注入时工具返回错误提示，不抛异常。
+注入 Provider/Registry/Guard 激活（单次与交互模式均激活）。委派结果经 `_record_step()` 写入 supervisor 的 `metadata['completed_steps']`（含 iterations/run_id，跨窗口重置存活）。未注入时工具返回 `status=error` 结构化错误，不抛异常。
 
 ### 4.5 上下文管理 (`context/`)
 
@@ -514,13 +515,15 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | `policy.py` | `PolicyEngine.evaluate_tool_call()` → `PolicyVerdict`（`DIRECT`/`APPROVAL_REQUIRED`/`SANDBOX_REQUIRED`/`BLOCKED`）：准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
 | `roles.py` | `RoleSpec`（name/system/allowed_tools/blocked_tools/max_iterations/sandbox_profile）+ 内置角色（planner/coder/tester/supervisor）+ `get_role`/`register_role`；`SubAgent` 用其构建角色专属 `PolicyEngine`（P1/P2） |
 | `executor.py` | `ToolExecutor.execute()` 按 verdict 模式分发；内部串行调 `SafetyGuard.check()`；`SANDBOX_REQUIRED` 默认 `execute_in_sandbox()` **透传**（未接真实后端，非安全边界） |
-| `store.py` | `RunStore` — `.heagent/runs/<run_id>.json` 运行快照 checkpoint（start/checkpoint/load） |
+| `store.py` | `RunStore` — `.heagent/runs/<run_id>.json` 运行快照 checkpoint（start/checkpoint/load）；`RunNode` + `build_run_tree(root_id=None)` 按 `parent_run_id` 聚合成树/森林（确定性、sorted；P5-4） |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（acquire/complete/fail/heartbeat）；**接入 `AgentLoop._execute_one`**（key=`run_id:call.id`，COMPLETED 短路返回缓存，防 window_reset 后重发相同 tool_call.id，P4）+ 供 cron 等长任务用 |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — `_emit()` 发布运行时事件，有界保留 |
 
 **与 `SafetyGuard` 的关系：** `PolicyEngine`（准入/工作区/审批/沙箱裁决）与 `SafetyGuard`（shell 命令模式黑名单）职责分离、**串行执行**——policy 先裁决、executor 内再过 guard。`AgentLoop` 每次 `run()` 用 `RunContext` 跟踪 run_id/迭代，`_runtime_scope()` 绑定 skill/memory/cron/subagent 工具运行态，`_emit()` 发事件、`run_store.checkpoint()` 持久化。子 Agent 经 `parent_run_id` 继承父 `engine`。
 
-**多 Agent 角色化 + checkpoint-resume（P1–P4）：** `roles.py` 定义 planner/coder/tester/supervisor 等角色（执行级 allowlist，D1），supervisor 经 `task_delegate`/`task_parallel` 委派角色化 `SubAgent`（D2），结果写 `metadata['completed_steps']`；token≥阈值时 `window_reset` 清窗重建、`AgentLoop.resume(run_id)` 同 run_id 跨多段窗口续跑（D3，见 4.2/4.5）；子 agent 不开 resume、默认带 compressor（D4）。
+**多 Agent 角色化 + checkpoint-resume（P1–P5）：** `roles.py` 定义 planner/coder/tester/supervisor 等角色（执行级 allowlist，D1），supervisor 经 `task_delegate`/`task_parallel` 委派角色化 `SubAgent`（D2），结果以结构化 JSON（`SubTaskOutcome`，含 run_id/iterations）写 `metadata['completed_steps']`（P5-3）；token≥阈值时 `window_reset` 清窗重建、`AgentLoop.resume(run_id)` / `resume_stream(run_id)` 同 run_id 跨多段窗口续跑（D3，见 4.2/4.5；流式版 P5-5）；子 agent 不开 resume、默认带 compressor（D4）。`RunStore.build_run_tree()` 按 `parent_run_id` 把 supervisor/子 agent 的 run 聚合成树（P5-4）。
+
+> **P5 范围说明：** 已实现干净增量三件套——结构化子任务结果（P5-3）、`parent_run_id` 树形 checkpoint 聚合（P5-4）、resume 流式版（P5-5）。原 deferred 项里的 **Schema 级工具隐藏（反转 D1）** 与 **子 agent resume（反转 D4）** 仍 **deferred**——二者会推翻已冻结的设计决策，需先经架构评审再定。
 
 ---
 

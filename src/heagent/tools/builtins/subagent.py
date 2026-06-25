@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
+
+from pydantic import BaseModel
 
 from heagent.agent.sub import SubAgent, run_parallel
 from heagent.engine.roles import RoleSpec, get_role, list_roles
@@ -25,6 +27,28 @@ if TYPE_CHECKING:
     from heagent.providers.base import BaseProvider
     from heagent.tools.registry import ToolRegistry
     from heagent.tools.safety import SafetyGuard
+
+
+class SubTaskOutcome(BaseModel):
+    """Structured outcome of one delegated sub-task (machine-parseable JSON).
+
+    ``task_delegate`` returns one of these serialized; ``task_parallel`` returns
+    ``{"status": ..., "outcomes": [...]}``. Pre-flight errors from either tool
+    return ``{"status": "error", "message": ...}`` so every tool response is a
+    JSON object carrying a ``status`` field.
+    """
+
+    status: Literal["ok", "failed"]
+    role: str = ""
+    task: str
+    iterations: int = 0
+    run_id: str = ""
+    output: str
+
+
+def _error_payload(message: str) -> str:
+    """Serialize a pre-flight error as a structured JSON string."""
+    return json.dumps({"status": "error", "message": message}, ensure_ascii=False)
 
 
 @dataclass(slots=True)
@@ -156,9 +180,7 @@ def _resolve_role(
         return None, f"Unknown role {role!r}. Available: {available}"
 
 
-def _record_step(
-    runtime: SubagentToolRuntime, *, role: str, task: str, success: bool, output: str
-) -> None:
+def _record_step(runtime: SubagentToolRuntime, *, outcome: SubTaskOutcome) -> None:
     """Append one delegation outcome to the supervisor run's metadata.
 
     Stored under ``completed_steps`` so it survives context window resets
@@ -167,7 +189,16 @@ def _record_step(
     if runtime.run_context is None:
         return
     steps = runtime.run_context.metadata.setdefault("completed_steps", [])
-    steps.append({"role": role, "task": task, "success": success, "output": output[:500]})
+    steps.append(
+        {
+            "role": outcome.role,
+            "task": outcome.task,
+            "success": outcome.status == "ok",
+            "iterations": outcome.iterations,
+            "run_id": outcome.run_id,
+            "output": outcome.output[:500],
+        }
+    )
 
 
 @tool
@@ -176,14 +207,16 @@ async def task_delegate(task: str, role: str = "", system: str = "") -> str:
 
     Pass ``role`` (e.g. planner/coder/tester) for a role-specialized agent, or
     ``system`` for a custom system prompt. With neither, a plain sub-agent runs.
+    Returns a JSON object (``status`` ∈ ok/failed/error) so the supervisor can
+    parse the outcome programmatically.
     """
     runtime = _runtime()
     if runtime is None or runtime.provider is None:
-        return "Error: sub-agent tools not configured."
+        return _error_payload("sub-agent tools not configured.")
 
     spec, err = _resolve_role(runtime, role)
     if err is not None:
-        return f"Error: {err}"
+        return _error_payload(err)
     agent = SubAgent(
         runtime.provider,
         registry=runtime.registry,
@@ -200,34 +233,43 @@ async def task_delegate(task: str, role: str = "", system: str = "") -> str:
         system=system or None,
     )
     result = await agent.run(task)
-    _record_step(
-        runtime, role=spec.name if spec else "", task=task, success=result.success, output=result.output
+    outcome = SubTaskOutcome(
+        status="ok" if result.success else "failed",
+        role=spec.name if spec else "",
+        task=task,
+        iterations=result.iterations,
+        run_id=result.run_id,
+        output=result.output,
     )
-    if result.success:
-        return f"Sub-agent completed (iterations: {result.iterations}):\n{result.output}"
-    return f"Sub-agent failed: {result.output}"
+    _record_step(runtime, outcome=outcome)
+    return outcome.model_dump_json()
 
 
 @tool
 async def task_parallel(tasks_json: str, role: str = "", system: str = "") -> str:
-    """Run multiple sub-agent tasks concurrently (same role/system for all)."""
+    """Run multiple sub-agent tasks concurrently (same role/system for all).
+
+    Returns ``{"status": "ok"|"partial"|"error", "outcomes": [...]}`` where each
+    entry is a :class:`SubTaskOutcome`; ``ok`` means every task succeeded,
+    ``partial`` means at least one failed.
+    """
     runtime = _runtime()
     if runtime is None or runtime.provider is None:
-        return "Error: sub-agent tools not configured."
+        return _error_payload("sub-agent tools not configured.")
 
     try:
         tasks = json.loads(tasks_json)
     except (json.JSONDecodeError, TypeError):
-        return "Error: tasks_json must be a valid JSON array of strings."
+        return _error_payload("tasks_json must be a valid JSON array of strings.")
 
     if not isinstance(tasks, list) or not tasks:
-        return "Error: tasks_json must be a non-empty JSON array."
+        return _error_payload("tasks_json must be a non-empty JSON array.")
     if not all(isinstance(task, str) for task in tasks):
-        return "Error: tasks_json must be an array of strings."
+        return _error_payload("tasks_json must be an array of strings.")
 
     spec, err = _resolve_role(runtime, role)
     if err is not None:
-        return f"Error: {err}"
+        return _error_payload(err)
     agent = SubAgent(
         runtime.provider,
         registry=runtime.registry,
@@ -246,16 +288,24 @@ async def task_parallel(tasks_json: str, role: str = "", system: str = "") -> st
     results = await run_parallel([agent] * len(tasks), tasks)
 
     role_name = spec.name if spec else ""
-    for task_text, result in zip(tasks, results, strict=True):
-        _record_step(
-            runtime, role=role_name, task=task_text, success=result.success, output=result.output
+    outcomes = [
+        SubTaskOutcome(
+            status="ok" if result.success else "failed",
+            role=role_name,
+            task=task_text,
+            iterations=result.iterations,
+            run_id=result.run_id,
+            output=result.output,
         )
+        for task_text, result in zip(tasks, results, strict=True)
+    ]
+    for outcome in outcomes:
+        _record_step(runtime, outcome=outcome)
 
-    lines: list[str] = []
-    for index, result in enumerate(results, 1):
-        status = "OK" if result.success else "FAILED"
-        lines.append(f"[{index}] {status}: {result.output}")
-    return "\n".join(lines)
+    overall = "ok" if all(o.status == "ok" for o in outcomes) else "partial"
+    return json.dumps(
+        {"status": overall, "outcomes": [o.model_dump() for o in outcomes]}, ensure_ascii=False
+    )
 
 
 @tool

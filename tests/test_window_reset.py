@@ -158,6 +158,44 @@ async def test_resume_rebuilds_from_progress_summary(tmp_path) -> None:
     assert loop.last_run_context.status == RunStatus.COMPLETED
 
 
+async def test_resume_stream_completed_yields_done(tmp_path) -> None:
+    """P5-5：COMPLETED 的 run 用 resume_stream 只产出一个携带缓存答案的 done 事件。"""
+    store = RunStore(str(tmp_path / "runs"))
+    rc = RunContext()
+    rc.touch(status=RunStatus.COMPLETED)
+    store.start(rc, prompt="hi", system=None)
+    store.checkpoint(rc, prompt="hi", system=None, messages=[], final_answer="42")
+
+    loop = AgentLoop(_StubProvider([]), engine=_engine(tmp_path, store=store))
+    events = [e async for e in loop.resume_stream(rc.run_id)]
+    assert [e.type for e in events] == ["done"]
+    assert events[0].final_answer == "42"
+
+
+async def test_resume_stream_rebuilds_and_continues(tmp_path) -> None:
+    """P5-5：未完成 run 从 progress_summary 重建窗口并流式续跑到 done。"""
+    store = RunStore(str(tmp_path / "runs"))
+    rc = RunContext()
+    rc.metadata["progress_summary"] = "step1 done"
+    rc.touch(iteration=3)
+    store.start(rc, prompt="build app", system=None)
+    store.checkpoint(
+        rc,
+        prompt="build app",
+        system=None,
+        messages=[Message(role=Role.USER, content="build app")],
+    )
+
+    provider = _StubProvider([_final("final-out")])
+    loop = AgentLoop(provider, engine=_engine(tmp_path, store=store))
+
+    events = [e async for e in loop.resume_stream(rc.run_id)]
+    assert events[-1].type == "done"
+    assert events[-1].final_answer == "final-out"
+    assert loop.last_run_context is not None
+    assert loop.last_run_context.status == RunStatus.COMPLETED
+
+
 def _bump_registry() -> tuple[ToolRegistry, dict[str, int]]:
     """Fresh registry with a counting ``bump`` tool; returns (registry, counter)."""
     counter: dict[str, int] = {"n": 0}
