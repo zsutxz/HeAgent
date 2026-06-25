@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from typing import Generic, TypeVar
+from typing import TYPE_CHECKING, Generic, TypeVar, cast
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 T = TypeVar("T")
 _UNSET = object()
@@ -30,10 +33,10 @@ class RuntimeSlot(Generic[T]):
         current = self._current.get()
         if current is _UNSET:
             return self._default
-        return current
+        return cast("T | None", current)
 
     @contextmanager
-    def bind(self, value: T | None):
+    def bind(self, value: T | None) -> Iterator[None]:
         """Temporarily override the binding for the current context."""
         token = self._current.set(value)
         try:

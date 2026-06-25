@@ -18,7 +18,7 @@ from heagent.tools.safety import SafetyGuard
 from heagent.types import Message, ProviderResponse, Role, StreamEvent, TokenUsage, ToolCall, ToolResult
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable
+    from collections.abc import AsyncIterator, Callable, Iterator
 
     from heagent.context.compressor import ContextCompressor
     from heagent.context.session import SessionStore
@@ -708,7 +708,7 @@ class AgentLoop:
         return self.engine.create_run_context(session_id=session_id, workspace_root=self.context_dir)
 
     @contextmanager
-    def _runtime_scope(self, run_context: RunContext):
+    def _runtime_scope(self, run_context: RunContext) -> Iterator[None]:
         """Bind tool runtimes for the duration of a single run."""
         from heagent.tools.builtins.cron import bind_cron_tools
         from heagent.tools.builtins.memory import bind_memory_tools
