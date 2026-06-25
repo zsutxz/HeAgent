@@ -110,10 +110,11 @@ exceptions  types  config
 | `AgentLoop` | 核心编排器，循环调用 Provider → 执行 Tool → 直到获得文本回答 |
 | `run(prompt)` | 入口方法，构建初始消息后进入循环 |
 | `run_stream(prompt)` | 流式入口，逐步 yield `StreamEvent`（`text`/`tool_call`/`tool_result`/`done`）；命中 `tool_calls` 时回退 `send()` 重取该轮调用 |
+| `resume(run_id)` | 从 `RunStore` 加载快照续跑（P3）：COMPLETED 直接返回 `final_answer`，否则用 `metadata['progress_summary']` 重建窗口续跑，同 `run_id` 跨多段 context window；内部经 `_resume` 注入 `run()` 的初始化分支 |
 | `_build_system()` | 构建系统提示词（含人格/上下文/技能/记忆注入，见下方注入顺序） |
 | `_call_provider()` | 通过 Middleware 链调用 Provider，含 Token 估算对比 |
 | `_execute_tools()` | `asyncio.gather()` 并行执行所有 tool_calls |
-| `_execute_one()` | `PolicyEngine.evaluate()` → `ToolExecutor` 分发（内部 `SafetyGuard.check()`）→ handler（engine/ 治理，见 4.12） |
+| `_execute_one()` | `ExecutionLedger` 幂等（key=`run_id:call.id`，COMPLETED 短路返回缓存）→ `PolicyEngine.evaluate()` → `ToolExecutor` 分发（内部 `SafetyGuard.check()`）→ handler；防 window_reset 后模型重发相同 `tool_call.id`（P4，见 4.12） |
 | `last_usage` | 最近一次 `run()` 的累计 `TokenUsage` |
 | `last_iteration` | 最近一次 `run()`/`run_stream()` 的迭代次数 |
 | `last_run_context` | 最近一次 `run()` 的 `RunContext`（run_id / 迭代 / 审批·沙箱授权元数据） |
@@ -131,7 +132,8 @@ exceptions  types  config
 | `facts` | `FactStore` | 事实记忆（激活记忆工具） |
 | `profile` | `ProfileStore` | 用户画像（激活画像工具） |
 | `session` | `SessionStore` | 会话持久化 |
-| `compressor` | `ContextCompressor` | 上下文压缩器 |
+| `compressor` | `ContextCompressor` | 上下文压缩器（原位摘要，见 4.5） |
+| `window_reset` | `WindowResetConfig` | 上下文窗口重置配置（token≥阈值清窗重建 + resume，与 `compressor` **互斥**，见 4.5；P3） |
 | `context_dir` | `str` | 上下文文件扫描目录 |
 | `soul` | `SoulStore` | 人格加载器 |
 | `cron_store` | `JobStore` | Cron 任务存储（激活 Cron 工具） |
@@ -169,9 +171,11 @@ make_retry_middleware(max_attempts, base_delay, max_delay) -> MiddlewareFn
 
 | 组件 | 说明 |
 |------|------|
-| `SubAgent` | 隔离的 Agent 实例，独立的 Loop + Context；经 `parent_run_id` 继承父 `engine` |
+| `SubAgent` | 隔离的 Agent 实例，独立的 Loop + Context；经 `parent_run_id` 继承父 `engine`；可带 `role`（`RoleSpec`：system/allowed_tools/blocked_tools）/`system`/`allowed_tools` 角色化（P1） |
 | `SubAgentResult` | 子任务结果（task, output, success, iterations） |
 | `run_parallel()` | `asyncio.gather()` 并行运行多个子 Agent |
+
+子 Agent 默认带 `ContextCompressor`（D4：不开 window_reset，短任务走原位压缩）。角色化时由父 `engine` 经 `dataclasses.replace` 换角色专属 `PolicyEngine`（allowed_tools/blocked_tools），其余运行时服务（store/ledger/events）复用。
 
 ### 4.3 Provider 层 (`providers/`)
 
@@ -297,7 +301,7 @@ SafetyGuard
 抛出 `WorkspacePathError`。`workspace_root()` 默认取 `Path.cwd()`，`set_workspace_root()`
 提供测试可注入的覆盖入口（无需 monkeypatch cwd）。
 
-#### builtins/ — 18 个内置工具
+#### builtins/ — 19 个内置工具
 
 **基础工具（5 个）：**
 
@@ -335,16 +339,17 @@ SafetyGuard
 | `cron_list` | 列出所有已调度任务 |
 | `cron_remove` | 删除指定任务 |
 
-**子 Agent 委派工具（2 个，`subagent.py`）：**
+**子 Agent 委派工具（3 个，`subagent.py`）：**
 
 | 工具 | 功能 |
 |------|------|
-| `task_delegate` | 将单个任务委派给隔离的子 Agent（独立上下文+迭代预算）执行 |
-| `task_parallel` | 并行执行多个子任务（`tasks_json` 传 JSON 数组，`run_parallel()` 汇总） |
+| `task_delegate` | 将单个任务委派给隔离的子 Agent（可传 `role`=planner/coder/tester/supervisor 角色化，或 `system` 自定义提示词；独立上下文+迭代预算）执行 |
+| `task_parallel` | 并行执行多个子任务（`tasks_json` 传 JSON 数组，`run_parallel()` 汇总；同 `role`/`system`） |
+| `task_status` | 读回本 run 已完成的委派步骤（`run_context.metadata['completed_steps']`，跨窗口重置存活，P2） |
 
 技能工具在 `AgentLoop` 接收 `SkillStore` 时激活；记忆工具在接收 `FactStore`/`ProfileStore` 时激活；
 Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 cli.py 调用 `configure_subagent_tools(provider)`
-注入 Provider/Registry/Guard 激活（单次与交互模式均激活）。未注入时工具返回错误提示，不抛异常。
+注入 Provider/Registry/Guard 激活（单次与交互模式均激活）。委派结果经 `_record_step()` 写入 supervisor 的 `metadata['completed_steps']`（跨窗口重置存活）。未注入时工具返回错误提示，不抛异常。
 
 ### 4.5 上下文管理 (`context/`)
 
@@ -365,6 +370,14 @@ Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 cli.py 调用 `c
 #### compressor.py — 上下文压缩
 
 Token 用量 ≥ `compression_threshold` 时，通过 LLM 摘要旧消息，防止上下文窗口溢出。
+
+#### window_reset.py — 上下文窗口重置（checkpoint-resume）
+
+Token 用量 ≥ 阈值（默认 0.6）时**清窗重建**：把整段对话压成一条进度摘要 + 原始 task + 续跑提示，
+写入 `RunContext.metadata['progress_summary']/['segment']`（跨清窗存活），配合 `AgentLoop.resume()`
+同 `run_id` 跨多段 context window 续跑。与 `compressor` **互斥**（运行期二选一，`AgentLoop.__init__`
+断言，D3）——compressor 原位摘要保留 recent 消息，window_reset 更激进地整窗重置；摘要提示词与
+compressor 一致。reset 不重置 iteration/accumulated（防绕预算）。`run`/`run_stream` 在工具消息追加后检查触发。
 
 #### session.py — 会话持久化
 
@@ -499,12 +512,15 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | `container.py` | `EngineContainer` — DI 容器，`default(workspace_root=)` 装配全部服务；`create_run_context()` 产出单次运行上下文 |
 | `context.py` | `RunContext`（run_id/session_id/parent_run_id/workspace_root/iteration/metadata）、`RunStatus`（running/completed/failed） |
 | `policy.py` | `PolicyEngine.evaluate_tool_call()` → `PolicyVerdict`（`DIRECT`/`APPROVAL_REQUIRED`/`SANDBOX_REQUIRED`/`BLOCKED`）：准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
+| `roles.py` | `RoleSpec`（name/system/allowed_tools/blocked_tools/max_iterations/sandbox_profile）+ 内置角色（planner/coder/tester/supervisor）+ `get_role`/`register_role`；`SubAgent` 用其构建角色专属 `PolicyEngine`（P1/P2） |
 | `executor.py` | `ToolExecutor.execute()` 按 verdict 模式分发；内部串行调 `SafetyGuard.check()`；`SANDBOX_REQUIRED` 默认 `execute_in_sandbox()` **透传**（未接真实后端，非安全边界） |
 | `store.py` | `RunStore` — `.heagent/runs/<run_id>.json` 运行快照 checkpoint（start/checkpoint/load） |
-| `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（acquire/complete/fail/heartbeat），防重复执行，供 cron 等长任务用 |
+| `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（acquire/complete/fail/heartbeat）；**接入 `AgentLoop._execute_one`**（key=`run_id:call.id`，COMPLETED 短路返回缓存，防 window_reset 后重发相同 tool_call.id，P4）+ 供 cron 等长任务用 |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — `_emit()` 发布运行时事件，有界保留 |
 
 **与 `SafetyGuard` 的关系：** `PolicyEngine`（准入/工作区/审批/沙箱裁决）与 `SafetyGuard`（shell 命令模式黑名单）职责分离、**串行执行**——policy 先裁决、executor 内再过 guard。`AgentLoop` 每次 `run()` 用 `RunContext` 跟踪 run_id/迭代，`_runtime_scope()` 绑定 skill/memory/cron/subagent 工具运行态，`_emit()` 发事件、`run_store.checkpoint()` 持久化。子 Agent 经 `parent_run_id` 继承父 `engine`。
+
+**多 Agent 角色化 + checkpoint-resume（P1–P4）：** `roles.py` 定义 planner/coder/tester/supervisor 等角色（执行级 allowlist，D1），supervisor 经 `task_delegate`/`task_parallel` 委派角色化 `SubAgent`（D2），结果写 `metadata['completed_steps']`；token≥阈值时 `window_reset` 清窗重建、`AgentLoop.resume(run_id)` 同 run_id 跨多段窗口续跑（D3，见 4.2/4.5）；子 agent 不开 resume、默认带 compressor（D4）。
 
 ---
 
@@ -536,7 +552,7 @@ src/heagent/
 ├── agent/                   # 顶层编排
 │   ├── loop.py              # AgentLoop 核心循环
 │   ├── middleware.py        # 中间件组合 + make_retry_middleware
-│   └── sub.py               # 子 Agent（并行任务）
+│   └── sub.py               # 子 Agent（并行任务 + 角色化）
 │
 ├── providers/               # LLM Provider（互不依赖）
 │   ├── base.py              # BaseProvider Protocol
@@ -555,7 +571,7 @@ src/heagent/
 │   │   ├── config.py        # MCPConfig + load_mcp_config（.mcp.json + ${ENV} 插值）
 │   │   ├── mapping.py       # mcp_tool_to_schema + bridge_result
 │   │   └── manager.py       # MCPClientManager（连接生命周期 + 工具注册）
-│   └── builtins/            # 内置工具（18 个）
+│   └── builtins/            # 内置工具（19 个）
 │       ├── __init__.py      # 触发注册
 │       ├── shell.py         # shell 命令执行
 │       ├── file.py          # 文件读写
@@ -563,12 +579,13 @@ src/heagent/
 │       ├── skills.py        # 技能管理（create/update/list/delete/curate/archive）
 │       ├── memory.py        # 记忆管理（fact_add/profile_update）
 │       ├── cron.py          # Cron 管理（add/list/remove）
-│       └── subagent.py      # 子 Agent 委派（task_delegate/task_parallel）
+│       └── subagent.py      # 子 Agent 委派（task_delegate/task_parallel/task_status）
 │
 ├── context/                 # 上下文管理
 │   ├── loader.py            # 上下文文件扫描（CONTEXT.md > AGENTS.md > CLAUDE.md）
 │   ├── tokens.py            # CJK 感知 Token 估算
 │   ├── compressor.py        # 消息压缩
+│   ├── window_reset.py      # 窗口重置 + checkpoint-resume（P3）
 │   └── session.py           # 会话持久化
 │
 ├── memory/                  # 记忆系统
@@ -581,6 +598,7 @@ src/heagent/
 │   ├── container.py         # EngineContainer（DI）
 │   ├── context.py           # RunContext / RunStatus
 │   ├── policy.py            # PolicyEngine 准入/审批/沙箱裁决
+│   ├── roles.py             # RoleSpec + 内置角色（P1/P2）
 │   ├── executor.py          # ToolExecutor 策略分发
 │   ├── store.py             # RunStore 运行快照
 │   ├── ledger.py            # ExecutionLedger 幂等/租约
@@ -600,7 +618,7 @@ python -m heagent "your prompt"
   ▼
 __main__.py → cli.main()
   │
-  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（18 个工具）
+  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（19 个工具）
   ├── get_settings() → 读取 DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
   ├── _build_provider() → OpenAIProvider / AnthropicProvider / ProviderChain
   │
