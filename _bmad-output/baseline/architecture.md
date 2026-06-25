@@ -16,6 +16,8 @@ date: '2026-05-23'
 
 _This document builds collaboratively through step-by-step discovery. Sections are appended as we work through each architectural decision together._
 
+> **冻结说明**：本文是 BMad 规划期架构决策记录（2026-05-23，frontmatter `status: complete`），**不随代码演进**。代码现状（数据流 / 模块方法 / 调用链 / 目录结构）以 [`docs/frame.md`](../../docs/frame.md) 为准——本文的目录结构与决策快照可能滞后（如未含 `engine/` 运行时引擎层、`PolicyViolation` 异常、双重路径围栏等）。
+
 ## Project Context Analysis
 
 ### Requirements Overview

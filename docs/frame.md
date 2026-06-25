@@ -111,9 +111,10 @@ exceptions  types  config
 | `_build_system()` | 构建系统提示词（含人格/上下文/技能/记忆注入，见下方注入顺序） |
 | `_call_provider()` | 通过 Middleware 链调用 Provider，含 Token 估算对比 |
 | `_execute_tools()` | `asyncio.gather()` 并行执行所有 tool_calls |
-| `_execute_one()` | 安全检查 → Registry 查找 → 执行 handler |
+| `_execute_one()` | `PolicyEngine.evaluate()` → `ToolExecutor` 分发（内部 `SafetyGuard.check()`）→ handler（engine/ 治理，见 4.12） |
 | `last_usage` | 最近一次 `run()` 的累计 `TokenUsage` |
 | `last_iteration` | 最近一次 `run()`/`run_stream()` 的迭代次数 |
+| `last_run_context` | 最近一次 `run()` 的 `RunContext`（run_id / 迭代 / 审批·沙箱授权元数据） |
 
 **`AgentLoop.__init__()` 参数：**
 
@@ -132,6 +133,8 @@ exceptions  types  config
 | `context_dir` | `str` | 上下文文件扫描目录 |
 | `soul` | `SoulStore` | 人格加载器 |
 | `cron_store` | `JobStore` | Cron 任务存储（激活 Cron 工具） |
+| `engine` | `EngineContainer` | 运行时治理容器（policy/executor/store/ledger/events），默认 `EngineContainer.default()`，见 4.12 |
+| `run_context` | `RunContext` | 预置的单次运行上下文（一次性，用后清空） |
 
 **系统提示词注入顺序（`_build_system()`）：**
 
@@ -164,7 +167,7 @@ make_retry_middleware(max_attempts, base_delay, max_delay) -> MiddlewareFn
 
 | 组件 | 说明 |
 |------|------|
-| `SubAgent` | 隔离的 Agent 实例，独立的 Loop + Context |
+| `SubAgent` | 隔离的 Agent 实例，独立的 Loop + Context；经 `parent_run_id` 继承父 `engine` |
 | `SubAgentResult` | 子任务结果（task, output, success, iterations） |
 | `run_parallel()` | `asyncio.gather()` 并行运行多个子 Agent |
 
