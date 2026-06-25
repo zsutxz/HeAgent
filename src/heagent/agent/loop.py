@@ -582,6 +582,7 @@ class AgentLoop:
                     soul=self.soul,
                     engine=self.engine,
                     parent_run_id=run_context.run_id,
+                    run_context=run_context,
                 )
             )
             yield
