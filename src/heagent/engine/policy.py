@@ -70,7 +70,7 @@ class PolicyEngine:
     ) -> None:
         self.workspace_root = workspace_root
         self.blocked_tools = set(blocked_tools or [])
-        self.allowed_tools = set(allowed_tools or [])
+        self.allowed_tools = None if allowed_tools is None else set(allowed_tools)
         self.approval_tools = set(approval_tools or [])
         self.sandbox_tools = set(sandbox_tools or [])
         self.sandbox_profiles = dict(sandbox_profiles or {})
@@ -85,7 +85,7 @@ class PolicyEngine:
         context: RunContext | None = None,
     ) -> PolicyVerdict:
         """Evaluate a tool call before any runtime execution happens."""
-        if self.allowed_tools and call.name not in self.allowed_tools:
+        if self.allowed_tools is not None and call.name not in self.allowed_tools:
             return PolicyVerdict(
                 mode=ToolExecutionMode.BLOCKED,
                 reason=f"Tool '{call.name}' is not in the policy allowlist.",
@@ -171,21 +171,12 @@ class PolicyEngine:
         return self._is_mcp_tool(call) and "__mcp__" in approved_tools
 
     def _sandbox_granted(self, call: ToolCall, *, context: RunContext | None) -> bool:
-        if context is None:
-            return False
-        metadata = context.metadata
-        if bool(metadata.get("sandbox_active", False)):
-            return True
-        sandboxed_tools = self._context_name_set(context, "sandboxed_tools")
-        if "*" in sandboxed_tools or call.name in sandboxed_tools:
-            return True
-        if self._is_mcp_tool(call) and "__mcp__" in sandboxed_tools:
-            return True
         sandbox_profile = self._sandbox_profile(call)
-        if sandbox_profile is None:
-            return False
-        sandbox_profiles = self._context_name_set(context, "sandbox_profiles")
-        return sandbox_profile in sandbox_profiles or "*" in sandbox_profiles
+        return self.context_grants_sandbox(
+            call,
+            context=context,
+            sandbox_profile=sandbox_profile,
+        )
 
     @staticmethod
     def _context_name_set(context: RunContext | None, key: str) -> set[str]:
@@ -201,3 +192,31 @@ class PolicyEngine:
     @staticmethod
     def _is_mcp_tool(call: ToolCall) -> bool:
         return "__" in call.name
+
+    @classmethod
+    def context_grants_sandbox(
+        cls,
+        call: ToolCall,
+        *,
+        context: RunContext | None,
+        sandbox_profile: str | None,
+    ) -> bool:
+        """Return whether run metadata grants sandbox execution for this call."""
+        if context is None:
+            return False
+
+        metadata = context.metadata
+        if bool(metadata.get("sandbox_active", False)):
+            return True
+
+        sandboxed_tools = cls._context_name_set(context, "sandboxed_tools")
+        if "*" in sandboxed_tools or call.name in sandboxed_tools:
+            return True
+        if cls._is_mcp_tool(call) and "__mcp__" in sandboxed_tools:
+            return True
+
+        if sandbox_profile is None:
+            return False
+
+        sandbox_profiles = cls._context_name_set(context, "sandbox_profiles")
+        return sandbox_profile in sandbox_profiles or "*" in sandbox_profiles

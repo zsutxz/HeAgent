@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
-from heagent.engine.policy import PolicyVerdict, ToolExecutionMode
+from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.exceptions import PolicyViolation, SafetyViolation
 from heagent.types import ToolCall, ToolResult
 
@@ -110,7 +110,7 @@ class ToolExecutor:
         run_context: RunContext | None,
         emit: Callable[..., None] | None,
     ) -> ToolResult:
-        if not self._sandbox_granted(run_context, verdict):
+        if not self._sandbox_granted(call, run_context, verdict):
             return self._policy_error(call, verdict, run_context=run_context, emit=emit)
 
         try:
@@ -201,18 +201,9 @@ class ToolExecutor:
         return ToolResult(tool_call_id=call.id, content=message, is_error=True)
 
     @staticmethod
-    def _sandbox_granted(run_context: RunContext | None, verdict: PolicyVerdict) -> bool:
-        if run_context is None:
-            return False
-        metadata = run_context.metadata
-        if bool(metadata.get("sandbox_active", False)):
-            return True
-        raw = metadata.get("sandbox_profiles", [])
-        if isinstance(raw, str):
-            granted = {raw}
-        elif isinstance(raw, list):
-            granted = {value for value in raw if isinstance(value, str)}
-        else:
-            granted = set()
-        profile = verdict.sandbox_profile or "default"
-        return "*" in granted or profile in granted
+    def _sandbox_granted(call: ToolCall, run_context: RunContext | None, verdict: PolicyVerdict) -> bool:
+        return PolicyEngine.context_grants_sandbox(
+            call,
+            context=run_context,
+            sandbox_profile=verdict.sandbox_profile,
+        )

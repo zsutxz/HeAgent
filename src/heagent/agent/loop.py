@@ -6,6 +6,7 @@ import asyncio
 import logging
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from heagent.agent.middleware import MiddlewareFn, Request, compose
@@ -768,8 +769,10 @@ class AgentLoop:
         from heagent.tools.builtins.memory import bind_memory_tools
         from heagent.tools.builtins.skills import bind_skill_tools
         from heagent.tools.builtins.subagent import bind_subagent_tools
+        from heagent.tools.path_safety import bind_workspace_root
 
         with ExitStack() as stack:
+            stack.enter_context(bind_workspace_root(Path(run_context.workspace_root)))
             stack.enter_context(bind_skill_tools(self.skills))
             stack.enter_context(bind_memory_tools(facts=self.facts, profile=self.profile))
             stack.enter_context(bind_cron_tools(self.cron_store))

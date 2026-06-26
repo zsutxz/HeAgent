@@ -85,15 +85,31 @@ class SubAgent:
         """Return the engine for this run, swapping in a role-specific policy.
 
         When a role restricts tools (allowed_tools / blocked_tools), build a
-        per-role PolicyEngine and replace the parent engine's policy — all other
+        per-role PolicyEngine and replace the parent engine's policy – all other
         runtime services (run_store / ledger / events) are inherited unchanged.
         """
         if self._allowed_tools is None and self._blocked_tools is None:
             return self._engine
+        parent_policy = self._engine.policy
+        inherited_allowed = None
+        if parent_policy.allowed_tools is not None:
+            inherited_allowed = set(parent_policy.allowed_tools)
+        if self._allowed_tools is not None:
+            role_allowed = set(self._allowed_tools)
+            inherited_allowed = role_allowed if inherited_allowed is None else inherited_allowed & role_allowed
+        inherited_blocked = set(parent_policy.blocked_tools)
+        if self._blocked_tools:
+            inherited_blocked.update(self._blocked_tools)
         role_policy = PolicyEngine(
-            workspace_root=self._engine.policy.workspace_root,
-            allowed_tools=list(self._allowed_tools) if self._allowed_tools else None,
-            blocked_tools=list(self._blocked_tools) if self._blocked_tools else None,
+            workspace_root=parent_policy.workspace_root,
+            allowed_tools=sorted(inherited_allowed) if inherited_allowed is not None else None,
+            blocked_tools=sorted(inherited_blocked),
+            approval_tools=sorted(parent_policy.approval_tools),
+            sandbox_tools=sorted(parent_policy.sandbox_tools),
+            sandbox_profiles=dict(parent_policy.sandbox_profiles),
+            block_mcp_tools=parent_policy.block_mcp_tools,
+            approval_mcp_tools=parent_policy.approval_mcp_tools,
+            sandbox_mcp_tools=parent_policy.sandbox_mcp_tools,
         )
         return replace(self._engine, policy=role_policy)
 

@@ -13,6 +13,7 @@ import pytest
 
 import heagent.tools.builtins.subagent as _sa_mod
 from heagent.agent.sub import SubAgent
+from heagent.engine import EngineContainer, PolicyEngine
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.builtins.subagent import (
     configure_subagent_tools,
@@ -171,3 +172,36 @@ async def test_task_delegate_unknown_role_reports_error() -> None:
     configure_subagent_tools(_Stub())
     result = await task_delegate("x", role="no_such_role")
     assert "Unknown role" in result
+
+
+def test_subagent_role_policy_inherits_parent_governance() -> None:
+    parent_engine = EngineContainer(
+        policy=PolicyEngine(
+            workspace_root="/workspace",
+            allowed_tools=["file_read", "file_write", "shell"],
+            approval_tools=["shell"],
+            sandbox_tools=["file_write"],
+            sandbox_profiles={"file_write": "workspace-write"},
+            block_mcp_tools=True,
+            approval_mcp_tools=True,
+            sandbox_mcp_tools=True,
+        )
+    )
+    agent = SubAgent(
+        _ToolCallProvider(),
+        engine=parent_engine,
+        allowed_tools=["file_read", "file_write"],
+        blocked_tools=["content_search"],
+    )
+
+    child_engine = agent._build_engine()
+    child_policy = child_engine.policy
+
+    assert child_policy.allowed_tools == {"file_read", "file_write"}
+    assert child_policy.blocked_tools == {"content_search"}
+    assert child_policy.approval_tools == {"shell"}
+    assert child_policy.sandbox_tools == {"file_write"}
+    assert child_policy.sandbox_profiles == {"file_write": "workspace-write"}
+    assert child_policy.block_mcp_tools is True
+    assert child_policy.approval_mcp_tools is True
+    assert child_policy.sandbox_mcp_tools is True

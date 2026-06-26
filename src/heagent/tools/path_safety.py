@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 
+from heagent.tools.runtime import RuntimeSlot
+
 _workspace_override: Path | None = None
+_workspace_runtime = RuntimeSlot[Path]("heagent_workspace_root")
 
 
 class WorkspacePathError(ValueError):
@@ -14,7 +18,7 @@ class WorkspacePathError(ValueError):
 def set_workspace_root(path: Path | None) -> None:
     """Override the workspace root (primarily for testing)."""
     global _workspace_override
-    _workspace_override = path
+    _workspace_override = path.resolve() if path is not None else None
 
 
 def reset_workspace_root() -> None:
@@ -25,6 +29,9 @@ def reset_workspace_root() -> None:
 
 def workspace_root() -> Path:
     """Return the resolved workspace root (override or cwd)."""
+    runtime_root = _workspace_runtime.get()
+    if runtime_root is not None:
+        return runtime_root
     if _workspace_override is not None:
         return _workspace_override
     return Path.cwd().resolve()
@@ -39,3 +46,16 @@ def resolve_workspace_path(path: str) -> Path:
     if not resolved.is_relative_to(root):
         raise WorkspacePathError(f"Path escapes current workspace: {path} (workspace: {root})")
     return resolved
+
+
+def configure_workspace_root(path: Path | None) -> None:
+    """Set the process-wide fallback workspace root for tool execution."""
+    _workspace_runtime.configure(path.resolve() if path is not None else None)
+
+
+@contextmanager
+def bind_workspace_root(path: Path | None):
+    """Bind the workspace root for the current runtime context."""
+    resolved = path.resolve() if path is not None else None
+    with _workspace_runtime.bind(resolved):
+        yield

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
 from typing import TYPE_CHECKING
 
 import pytest
 
+import heagent.tools.builtins.file as file_mod
+import heagent.tools.builtins.search as search_mod
 from heagent.tools.builtins.file import file_read, file_write
 from heagent.tools.builtins.search import content_search, file_search
 from heagent.tools.path_safety import reset_workspace_root, set_workspace_root
@@ -29,15 +32,19 @@ def _workspace(request: pytest.FixtureRequest, tmp_path: Path) -> Generator[None
 
 class TestFileToolsRegistration:
     def test_file_read_registered(self) -> None:
+        importlib.reload(file_mod)
         assert "file_read" in ToolRegistry.get().list_names()
 
     def test_file_write_registered(self) -> None:
+        importlib.reload(file_mod)
         assert "file_write" in ToolRegistry.get().list_names()
 
     def test_file_search_registered(self) -> None:
+        importlib.reload(search_mod)
         assert "file_search" in ToolRegistry.get().list_names()
 
     def test_content_search_registered(self) -> None:
+        importlib.reload(search_mod)
         assert "content_search" in ToolRegistry.get().list_names()
 
 

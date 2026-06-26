@@ -15,6 +15,7 @@ from heagent.engine import EngineContainer, PolicyEngine, RunContext, RunStatus,
 from heagent.memory.facts import FactStore
 from heagent.memory.skills import SkillStore
 from heagent.providers.base import ProviderMetadata
+from heagent.tools.builtins.file import file_write
 from heagent.tools.builtins.memory import bind_memory_tools, fact_add
 from heagent.tools.builtins.skills import bind_skill_tools, configure_skill_tools, reset_skill_tools, skill_create
 from heagent.tools.registry import ToolRegistry
@@ -286,6 +287,24 @@ class TestRuntimeBindings:
         assert fallback_store.load("fallback_skill") is not None
         assert fallback_store.load("override_skill") is None
 
+    @pytest.mark.asyncio
+    async def test_workspace_binding_tracks_run_context_root(self, workspace_dir: Path) -> None:
+        nested = workspace_dir / "nested-root"
+        nested.mkdir()
+
+        async def write_inside_bound_workspace() -> str:
+            engine = EngineContainer.default(workspace_root=str(workspace_dir))
+            loop = AgentLoop(StubProvider([_final("ok")]), engine=engine, context_dir=str(workspace_dir))
+            run_context = engine.create_run_context(workspace_root=str(nested))
+            with loop._runtime_scope(run_context):
+                return await file_write("note.txt", "hello")
+
+        result = await write_inside_bound_workspace()
+
+        assert "OK" in result
+        assert (nested / "note.txt").read_text(encoding="utf-8") == "hello"
+        assert not (workspace_dir / "note.txt").exists()
+
 
 class TestPolicyIntegration:
     @pytest.mark.asyncio
@@ -405,3 +424,28 @@ class TestToolExecutor:
 
         assert result.is_error is False
         assert result.content == "sandbox:workspace-shell:shell"
+
+    @pytest.mark.asyncio
+    async def test_sandboxed_tool_grant_matches_policy_engine(self) -> None:
+        granted_context = RunContext(
+            workspace_root=str(Path.cwd()),
+            metadata={"sandboxed_tools": ["shell"]},
+        )
+        verdict = PolicyEngine(
+            sandbox_tools=["shell"],
+            sandbox_profiles={"shell": "workspace-shell"},
+        ).evaluate_tool_call(
+            ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            context=granted_context,
+        )
+
+        result = await ToolExecutor().execute(
+            call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            verdict=verdict,
+            guard=type("Guard", (), {"check": lambda self, call: None})(),
+            handler=lambda call: asyncio.sleep(0, result="sandboxed-by-name"),
+            run_context=granted_context,
+        )
+
+        assert result.is_error is False
+        assert result.content == "sandboxed-by-name"
