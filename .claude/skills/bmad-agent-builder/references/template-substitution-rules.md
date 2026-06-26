@@ -1,6 +1,6 @@
 # Template Substitution Rules
 
-The SKILL-template provides a minimal skeleton: frontmatter, overview, agent identity sections, memory, and the activation spine. The bootloader carries no standalone config-load step — `init-sanctum` bakes config into the sanctum, so wake.py loads it as part of the identity. Everything beyond the skeleton is crafted by the builder based on what was learned during discovery. Apply these rules deterministically via `python3 scripts/process-template.py <template> -o <dest> --var key=value... --true <condition>...` — one `--var` per token, one `--true` per conditional that holds. The script fails (exit 3) on any leftover `{if-...}` marker and reports remaining `{token}` placeholders as `tokens_remaining` for you to judge against the runtime-token set.
+The SKILL-template provides a minimal skeleton: frontmatter, overview, agent identity sections, memory, and the activation spine. The bootloader carries no standalone config-load step — `init-sanctum` bakes config into the sanctum, so wake.py loads it as part of the identity. Everything beyond the skeleton is crafted by the builder based on what was learned during discovery. Apply these rules deterministically via `uv run scripts/process-template.py <template> -o <dest> --var key=value... --true <condition>...` — one `--var` per token, one `--true` per conditional that holds. The script fails (exit 3) on any leftover `{if-...}` marker and reports remaining `{token}` placeholders as `tokens_remaining` for you to judge against the runtime-token set.
 
 ## Frontmatter
 

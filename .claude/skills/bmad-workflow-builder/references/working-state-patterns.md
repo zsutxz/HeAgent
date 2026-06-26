@@ -19,11 +19,11 @@ memlog and the structured artifact are not rivals. memlog is *meta* about the wo
 
 For a skill whose value includes the reasoning behind the deliverable. The memlog carries identity across sessions, keeps the agent from railroading the user, surfaces conflicts on update, and creates an audit trail when the user overrides a past call. A skill that needs it looks fine on the first pass and falls apart on revisit without it.
 
-The memlog is typed, append-only, and written through `scripts/memlog.py` to a `.memlog.md` file beside the primary artifact. The model never edits or re-reads it mid-session; it appends one typed entry at a time and trusts the one-line JSON ack. The cycle is capture (append as decisions and directions land), distill (at finalize, account for every entry), and project (read the whole log once on resume or when building a summary).
+The memlog is typed, append-only, and written through `{project-root}/_bmad/scripts/memlog.py` to a `.memlog.md` file beside the primary artifact. The model never edits or re-reads it mid-session; it appends one typed entry at a time and trusts the one-line JSON ack. The cycle is capture (append as decisions and directions land), distill (at finalize, account for every entry), and project (read the whole log once on resume or when building a summary).
 
 ### Entry types and the CLI
 
-The CLI ships with the skill that calls it. When a built skill adopts a memlog, copy `memlog.py` from this builder's `scripts/` into the built skill's `scripts/` at emit — the bare `scripts/memlog.py` path resolves from the built skill's own root, so an uncopied CLI fails on the first `init`.
+The memlog CLI is runtime-installed at `{project-root}/_bmad/scripts/memlog.py`; a built skill calls it there and bundles no copy of its own. The `{project-root}` token resolves at runtime, so the same invocation works from any skill's root.
 
 - `init --path <file>` creates the log.
 - `append --path <file> --type <type> --text <text>` adds one typed entry; `<type>` is one of `decision`, `direction`, `assumption`, `gap`, `note`, `event`.

@@ -28,9 +28,9 @@ Confirm the agent is resolvable at `{target-agent-path}` and that a `SKILL.md` i
 Run the pre-pass once, before any lens sees the agent, so every lens reads a compact classification and token picture instead of re-deriving it from raw text:
 
 ```bash
-python3 scripts/prepass.py {target-agent-path}
-python3 scripts/scan-path-standards.py {target-agent-path}
-python3 scripts/scan-scripts.py {target-agent-path}
+uv run scripts/prepass.py {target-agent-path}
+uv run scripts/scan-path-standards.py {target-agent-path}
+uv run scripts/scan-scripts.py {target-agent-path}
 ```
 
 The two lint scanners return deterministic findings as JSON; carry their entries straight into the merged findings list with ids `lint-<n>`, keeping their severities. They are facts, not judgment, so no lens re-derives them.
@@ -143,7 +143,7 @@ Rules:
 Write the island object to `{run-folder}/findings.json` and render:
 
 ```bash
-python3 scripts/render_report.py {run-folder}/findings.json --shell assets/report-shell.html -o {run-folder}/agent-analysis-report.html --md {run-folder}/agent-analysis-report.md
+uv run scripts/render_report.py {run-folder}/findings.json --shell assets/report-shell.html -o {run-folder}/agent-analysis-report.html --md {run-folder}/agent-analysis-report.md
 ```
 
 If the script refuses, fix `findings.json` and re-run; never hand-edit the HTML. Open the HTML report for the user — it is the deliverable of Analyze; do not replace it with a chat summary of the findings. The shell fails loud: a malformed island shows a visible banner, never a blank page, and an empty findings array renders an explicit no-findings panel, so a clean agent still produces a real report.
@@ -153,7 +153,7 @@ If the script refuses, fix `findings.json` and re-run; never hand-edit the HTML.
 Append one memlog event carrying the grade (init the memlog first if `{target-agent-path}/.memlog.md` does not exist):
 
 ```bash
-python3 scripts/memlog.py append --path {target-agent-path}/.memlog.md --type event --text "analyze: grade <grade>, <c> critical / <h> high / <m> medium / <l> low, report .analysis/<timestamp>/agent-analysis-report.html"
+uv run {project-root}/_bmad/scripts/memlog.py append --path {target-agent-path}/.memlog.md --type event --text "analyze: grade <grade>, <c> critical / <h> high / <m> medium / <l> low, report .analysis/<timestamp>/agent-analysis-report.html"
 ```
 
 ## Present

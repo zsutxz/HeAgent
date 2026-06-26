@@ -10,10 +10,10 @@ Each analyze run owns `{target-skill-path}/.analysis/<YYYY-MM-DD-HHmm>/` (create
 
 Run these in parallel so the lenses read metrics instead of re-deriving them:
 
-- `python3 scripts/prepass-prompt-metrics.py {target-skill-path}`: per-file token counts (via `scripts/count_tokens.py`), frontmatter facts, and structural signals as JSON.
-- `python3 scripts/prepass-workflow-integrity.py {target-skill-path}`: workflow-integrity checks as JSON.
-- `python3 scripts/scan-path-standards.py {target-skill-path}`: path-convention lint (bare-paths-from-root, no double-prefix, no `./`).
-- `python3 scripts/scan-scripts.py {target-skill-path}`: script-standards lint (PEP 723 metadata, shebangs, non-stdlib confirmation).
+- `uv run scripts/prepass-prompt-metrics.py {target-skill-path}`: per-file token counts (via `scripts/count_tokens.py`), frontmatter facts, and structural signals as JSON.
+- `uv run scripts/prepass-workflow-integrity.py {target-skill-path}`: workflow-integrity checks as JSON.
+- `uv run scripts/scan-path-standards.py {target-skill-path}`: path-convention lint (bare-paths-from-root, no double-prefix, no `./`).
+- `uv run scripts/scan-scripts.py {target-skill-path}`: script-standards lint (PEP 723 metadata, shebangs, non-stdlib confirmation).
 
 ## Run the five lenses as parallel subagents
 
@@ -97,7 +97,7 @@ Rules:
 Write the object to `{run-folder}/findings.json` and render:
 
 ```bash
-python3 scripts/render_report.py {run-folder}/findings.json --shell assets/report-shell.html -o {run-folder}/skill-analysis-report.html --md {run-folder}/skill-analysis-report.md
+uv run scripts/render_report.py {run-folder}/findings.json --shell assets/report-shell.html -o {run-folder}/skill-analysis-report.html --md {run-folder}/skill-analysis-report.md
 ```
 
 If the script refuses, fix `findings.json` and re-run; never hand-edit the HTML. Open the HTML report for the user — it is the deliverable of Analyze; do not replace it with a chat summary of the findings. The markdown twin is the archival artifact of the same data.
@@ -109,7 +109,7 @@ The shell fails loud: a malformed island shows the parse-error banner, an unfill
 Append one memlog event carrying the grade (init the memlog first if `{target-skill-path}/.memlog.md` does not exist):
 
 ```bash
-python3 scripts/memlog.py append --path {target-skill-path}/.memlog.md --type event --text "analyze: grade <grade>, <c> critical / <h> high / <m> medium / <l> low, report .analysis/<timestamp>/skill-analysis-report.html"
+uv run {project-root}/_bmad/scripts/memlog.py append --path {target-skill-path}/.memlog.md --type event --text "analyze: grade <grade>, <c> critical / <h> high / <m> medium / <l> low, report .analysis/<timestamp>/skill-analysis-report.html"
 ```
 
 ## Present

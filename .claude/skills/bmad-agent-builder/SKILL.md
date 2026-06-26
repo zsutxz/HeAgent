@@ -27,7 +27,7 @@ The builder produces agents along one gradient surfaced as feature decisions, no
 
 ## On Activation
 
-1. **Resolve customization.** Run `python3 {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key agent` and apply the resolved `{agent.*}` values throughout the session. On failure, read `{skill-root}/customize.toml` directly and use defaults. Then execute each entry in `{agent.activation_steps_prepend}` in order, and treat every entry in `{agent.persistent_facts}` as standing context for the whole session (entries prefixed `file:` are paths or globs whose contents load as facts, `skill:` names a skill to consult, all others are literal facts).
+1. **Resolve customization.** Run `uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --key agent` and apply the resolved `{agent.*}` values throughout the session. On failure, read `{skill-root}/customize.toml` directly and use defaults. Then execute each entry in `{agent.activation_steps_prepend}` in order, and treat every entry in `{agent.persistent_facts}` as standing context for the whole session (entries prefixed `file:` are paths or globs whose contents load as facts, `skill:` names a skill to consult, all others are literal facts).
 
 2. **Detect intent.** If `--headless` or `-H` is present, set `{headless_mode}=true` for every sub-prompt; this makes the builder non-interactive and is not the Pulse Mode a built autonomous agent runs at its own runtime. Otherwise read the invocation for whether the user wants to Create, Edit, or Analyze, and which agent they mean.
 
@@ -35,7 +35,7 @@ The builder produces agents along one gradient surfaced as feature decisions, no
 
 4. **Open the floor (interactive only).** Before any structured questions or routing, invite the user to share everything in mind: who the agent is, how it should make them feel, the core outcome, examples, half-formed ideas, paths to existing agents or artifacts. Adapt the invitation to what they already gave you, then one soft "anything else?" surfaces what they almost forgot. This dump replaces most downstream questioning, so let it run. Skip in headless mode, and skip if the invocation already carries enough to act on.
 
-5. **Resume detection.** Once a target agent is identified, glob `{target-agent-path}/.memlog.md`. If one exists, read it once in full to rebuild the prior session's state, then continue append-only through `scripts/memlog.py`. This `.memlog.md` is the builder's process log and is separate from the agent's sanctum. In headless mode, resume automatically.
+5. **Resume detection.** Once a target agent is identified, glob `{target-agent-path}/.memlog.md`. If one exists, read it once in full to rebuild the prior session's state, then continue append-only through `{project-root}/_bmad/scripts/memlog.py`. This `.memlog.md` is the builder's process log and is separate from the agent's sanctum. In headless mode, resume automatically.
 
 6. **Route to the intent.** Pick the path below from the resolved intent and load only that file. Once the intent is routed, execute each entry in `{agent.activation_steps_append}` in order before the loop begins.
 

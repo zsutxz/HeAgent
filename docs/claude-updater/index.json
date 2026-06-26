@@ -1,0 +1,22 @@
+{
+  "last_check": "2026-06-26T16:53:45+08:00",
+  "last_update": "2026-06-26T16:53:45+08:00",
+  "cli_version": "2.1.187",
+  "bmad": {
+    "version": "6.9.0",
+    "previous_version": "6.8.0",
+    "location": "E:\\AI\\HeAgent\\_bmad",
+    "last_update": "2026-06-26T16:53:45+08:00",
+    "note": "独立框架（bmad-code-org/BMAD-METHOD），非 claude plugin；经 npx bmad-method install --action quick-update 升级"
+  },
+  "plugins": {
+    "agent-sdk-dev@claude-plugins-official": "82f22ec4f0a7",
+    "andrej-karpathy-skills@karpathy-skills": "1.0.0",
+    "code-review@claude-plugins-official": "82f22ec4f0a7",
+    "code-simplifier@claude-plugins-official": "1.0.0",
+    "context7@claude-plugins-official": "82f22ec4f0a7",
+    "ecc@everything-claude-code": "2.0.0",
+    "feature-dev@claude-plugins-official": "82f22ec4f0a7",
+    "open-skills@OpenSkills": "0.4.7"
+  }
+}

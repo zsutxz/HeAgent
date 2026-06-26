@@ -51,7 +51,16 @@ def find_skill_folders(module_dir: Path, exclude_name: str = "") -> list[str]:
 
 
 def detect_standalone_module(module_dir: Path) -> Path | None:
-    """Detect a standalone module: single skill folder with assets/module.yaml."""
+    """Detect a standalone module: a single skill folder with assets/module.yaml.
+
+    Works whether ``module_dir`` is the parent folder that contains the skill, or
+    the standalone skill directory itself (the path a user is most likely to hand
+    over for a single-skill module).
+    """
+    # Given the skill directory directly.
+    if (module_dir / "SKILL.md").is_file() and (module_dir / "assets" / "module.yaml").is_file():
+        return module_dir
+    # Given the parent folder containing exactly one skill.
     skill_dirs = [
         d for d in module_dir.iterdir()
         if d.is_dir() and (d / "SKILL.md").is_file()
@@ -130,14 +139,32 @@ def validate(module_dir: Path, verbose: bool = False) -> dict:
             "assets/module.yaml": skill_dir / "assets" / "module.yaml",
             "assets/module-help.csv": skill_dir / "assets" / "module-help.csv",
             "assets/module-setup.md": skill_dir / "assets" / "module-setup.md",
-            "scripts/merge-config.py": skill_dir / "scripts" / "merge-config.py",
-            "scripts/merge-help-csv.py": skill_dir / "scripts" / "merge-help-csv.py",
         }
+        # Merge scripts: accept either the dash form the scaffolder emits
+        # (merge-config.py) or the importable underscore form (merge_config.py).
+        # Both are valid — a module may rename them to be importable from
+        # module-setup.md without that being a structural defect.
+        required_any = {
+            "scripts/merge-config.py (or merge_config.py)": [
+                skill_dir / "scripts" / "merge-config.py",
+                skill_dir / "scripts" / "merge_config.py",
+            ],
+            "scripts/merge-help-csv.py (or merge_help_csv.py)": [
+                skill_dir / "scripts" / "merge-help-csv.py",
+                skill_dir / "scripts" / "merge_help_csv.py",
+            ],
+        }
+        ok = True
         for label, path in required_files.items():
             if not path.is_file():
                 finding("critical", "structure", f"Missing required file: {label}")
+                ok = False
+        for label, candidates in required_any.items():
+            if not any(p.is_file() for p in candidates):
+                finding("critical", "structure", f"Missing required file: {label}")
+                ok = False
 
-        if not all(p.is_file() for p in required_files.values()):
+        if not ok:
             return {"status": "fail", "findings": findings, "info": info}
 
         yaml_dir = skill_dir
@@ -202,8 +229,12 @@ def validate(module_dir: Path, verbose: bool = False) -> dict:
 
     # 6. Collect skills from CSV and filesystem
     csv_skills = {row.get("skill", "") for row in rows}
-    exclude_name = setup_dir.name if setup_dir else ""
-    skill_folders = find_skill_folders(module_dir, exclude_name)
+    if standalone_dir:
+        # The only valid skill is the standalone skill itself, whether we were
+        # handed the module's parent folder or the skill directory directly.
+        skill_folders = [standalone_dir.name]
+    else:
+        skill_folders = find_skill_folders(module_dir, setup_dir.name)
     info["skill_folders"] = skill_folders
     info["csv_skills"] = sorted(csv_skills)
 
@@ -215,10 +246,15 @@ def validate(module_dir: Path, verbose: bool = False) -> dict:
     # 8. Orphan CSV entries
     setup_name = setup_dir.name if setup_dir else ""
     for skill in csv_skills:
-        if skill not in skill_folders and skill != setup_name:
-            # Check if it's the setup skill itself (valid)
-            if not (module_dir / skill / "SKILL.md").is_file():
-                finding("high", "orphan-entry", f"CSV references skill '{skill}' which does not exist in the module folder")
+        if skill in skill_folders or skill == setup_name:
+            continue
+        # For a standalone module, skill_folders already enumerates every valid
+        # skill, so any other CSV skill is an orphan — never look at the parent
+        # folder (which may hold unrelated sibling skills when validating a skill
+        # dir directly). For a multi-skill module, re-check the filesystem: the
+        # setup skill lives alongside the others and is excluded from skill_folders.
+        if standalone_dir or not (module_dir / skill / "SKILL.md").is_file():
+            finding("high", "orphan-entry", f"CSV references skill '{skill}' which does not exist in the module folder")
 
     # 9. Unique menu codes
     menu_codes: dict[str, list[str]] = {}
@@ -249,7 +285,15 @@ def validate(module_dir: Path, verbose: bool = False) -> dict:
             # Can be comma-separated
             for ref in value.split(","):
                 ref = ref.strip()
-                if ref and ref not in valid_refs:
+                if not ref:
+                    continue
+                # A colon-less ref is a cross-module positional reference (a bare
+                # sibling-module skill name, e.g. "bmad-sprint-planning"). Other
+                # installed modules aren't visible here, so it can't be resolved
+                # and isn't a defect — only validate intra-module skill:action refs.
+                if ":" not in ref:
+                    continue
+                if ref not in valid_refs:
                     finding("medium", "invalid-ref",
                             f"'{display}' {field} references '{ref}' which is not a valid capability",
                             "Expected format: skill-name:action-name")
