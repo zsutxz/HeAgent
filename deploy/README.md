@@ -1,179 +1,130 @@
-# HeAgent 生产部署指南
+# HeAgent 部署说明
 
-## 部署方式
+这份文档只说明当前仓库里的部署资产“实际上能做什么”。结论先说在前面：**HeAgent 目前主要是 CLI / Python API 项目，不是现成的常驻 HTTP 服务。**
 
-### 方式一：Docker 部署（推荐）
+## 当前现状
 
-适合：服务器 / 云环境 / CI/CD 流水线
+代码入口是：
 
-```bash
-# 1. 配置环境变量
-cp .env.production.example .env.production
-# 编辑 .env.production 填入 API Key
+- `python -m heagent "prompt"`：单次执行
+- `python -m heagent`：交互模式
+- `heagent ...`：等价的安装后命令
 
-# 2. 一键部署
-bash deploy/deploy.sh docker
+当前实现里没有：
 
-# 3. 查看运行状态
-docker-compose ps
-docker-compose logs -f
+- HTTP API
+- `/health` 健康检查端点
+- 服务模式的 `MODE` 配置
+- `LOG_LEVEL`、`HEAGENT_DATA_DIR`、`MAX_TOKENS`、`TEMPERATURE` 这些核心配置项
 
-# 4. 测试
-docker-compose run --rm heagent "你好，请介绍一下你自己"
+因此，仓库中的 `Dockerfile`、`docker-compose.yml`、`deploy.sh`、`heagent.service` 应视为**部署草稿或模板资产**，不能不加审查地当成现成生产方案。
 
-# 5. 停止服务
-docker-compose down
-```
+## 现在可以可靠使用的方式
 
-### 方式二：宿主机部署（Systemd）
-
-适合：生产服务器 / 需要与其他服务集成的场景
+### 本地开发
 
 ```bash
-# 1. 配置环境变量
-cp .env.production.example .env.production
-# 编辑 .env.production 填入 API Key
-
-# 2. 一键部署（需 sudo 权限）
-bash deploy/deploy.sh host
-
-# 3. 服务管理
-sudo systemctl status heagent     # 查看状态
-sudo journalctl -u heagent -f     # 查看日志
-sudo systemctl restart heagent    # 重启
-sudo systemctl stop heagent       # 停止
-```
-
-### 方式三：开发/测试
-
-```bash
-# 安装
 pip install -e ".[dev]"
-
-# 运行
-python -m heagent "你的问题"       # 单次模式
-python -m heagent                   # 交互模式
+python -m heagent "你好"
 ```
 
----
-
-## 生产环境检查清单
-
-### 1. 安全加固 ✅
-
-- [ ] API Key 使用密钥管理服务（如 AWS Secrets Manager / HashiCorp Vault）
-- [ ] 永远不要将 `.env.production` 提交到 git（已在 `.gitignore` 中）
-- [ ] 使用非 root 用户运行（Dockerfile 已配置 `USER heagent`）
-- [ ] 容器安全：`no-new-privileges:true`，`cap_drop: ALL`
-- [ ] 启用 HTTPS（如果暴露 HTTP 端点）
-
-### 2. 监控与告警
-
-- [ ] 配置日志聚合（ELK / Grafana Loki / Datadog）
-- [ ] 设置 API 调用量监控（避免预算超支）
-- [ ] 配置磁盘空间告警（数据持久化目录）
-- [ ] 监控 Provider 可用性（降级切换）
-
-### 3. 性能调优
-
-- [ ] 根据业务量调整 `MAX_ITERATIONS`（默认 50）
-- [ ] 设置合理的 `MAX_CONTEXT_TOKENS` 防止上下文爆满
-- [ ] Docker 资源限制建议：CPU 1-2 核，内存 1-2 GB
-
-### 4. 数据持久化
-
-- [ ] 确保 `.heagent/` 目录挂载到持久化存储
-- [ ] 定期备份技能和记忆数据
-- [ ] 考虑将数据目录挂载到 NAS / 云存储
-
-### 5. 部署流水线（CI/CD）
-
-```yaml
-# .github/workflows/deploy.yml 示例
-name: Deploy
-
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Build & Deploy
-        run: |
-          docker build -t heagent:latest .
-          docker tag heagent:latest your-registry/heagent:latest
-          docker push your-registry/heagent:latest
-          # SSH 到服务器拉取新镜像重启
-```
-
----
-
-## 生产环境最佳实践
-
-### 日志管理
-
-生产环境建议将日志级别设为 `WARNING`，减少磁盘 I/O：
+交互模式：
 
 ```bash
-LOG_LEVEL=WARNING
+python -m heagent
 ```
 
-### 多 Provider 冗余
+### 容器里单次执行
 
-配置多个 API Key，实现自动降级：
+镜像本身可以构建，入口也是 `python -m heagent`：
 
 ```bash
-DEEPSEEK_API_KEY=sk-xxx
-OPENAI_API_KEY=sk-yyy
-ANTHROPIC_API_KEY=sk-zzz
+docker build -t heagent .
+docker run --rm --env-file .env.production heagent "你好"
 ```
 
-当 DeepSeek 不可用时，自动切换到 OpenAI → Anthropic。
-
-### 资源限制
-
-根据实际负载调整 Docker 资源限制：
-
-```yaml
-deploy:
-  resources:
-    limits:
-      cpus: "2.0"        # 最多 2 核
-      memory: 2G         # 最多 2 GB
-    reservations:
-      cpus: "0.5"        # 保证 0.5 核
-      memory: 512M       # 保证 512 MB
-```
-
----
-
-## 故障排查
-
-| 问题 | 排查方法 |
-|------|---------|
-| 服务无法启动 | `docker-compose logs` / `journalctl -u heagent -x` |
-| API 调用失败 | 检查 `.env.production` 中的 API Key 是否有效 |
-| 预算超限 | 检查 `MAX_ITERATIONS` 设置，或配置 Provider 用量限制 |
-| 内存不足 | 增大 Docker `memory` 限制，或减少 `MAX_TOKENS` |
-| 数据丢失 | 检查 `volumes` 挂载是否正确 |
-
----
-
-## 更新升级
+交互模式：
 
 ```bash
-# Docker 方式
-cd /path/to/heagent
-git pull                          # 拉取最新代码
-docker-compose down               # 停止旧服务
-docker-compose build --no-cache   # 重建镜像
-docker-compose up -d              # 启动新服务
-
-# 宿主机方式
-cd /path/to/heagent
-git pull
-bash deploy/deploy.sh host
+docker run -it --rm --env-file .env.production heagent
 ```
+
+如果需要在容器里保留 `.heagent/` 运行数据，请自行挂载工作目录或单独的数据卷。
+
+## 仓库内部署资产的限制
+
+### `Dockerfile`
+
+可以构建 CLI 镜像，但有一处明显未对齐的地方：
+
+- 当前 `HEALTHCHECK` 指向 `http://localhost:8080/health`
+- 代码里并没有对应的 HTTP 服务
+
+在真正使用前，需要删除或改写这段健康检查。
+
+### `docker-compose.yml`
+
+这个文件更接近示例骨架，而不是已验证方案。当前至少有这些不一致：
+
+- 暴露了 `8080` 端口，但进程并不监听端口
+- 注入了 `MODE`、`LOG_LEVEL`、`HEAGENT_DATA_DIR`，但 CLI 不读取这些配置
+- 默认形态更像“假设未来会服务化”，不是当前代码的真实运行方式
+
+如果你要保留这个文件，建议把它改成明确的批处理或交互式容器用法。
+
+### `deploy/heagent.service`
+
+这个 unit 文件当前也只是模板：
+
+- `ExecStart=/opt/heagent/.venv/bin/python -m heagent`
+- 没有传入 prompt，也没有外层服务循环
+- 这会进入交互模式，不适合作为无人值守 systemd 服务
+
+如果要用 systemd，先决定你真正要托管的是什么：
+
+- 固定 prompt 的定时批处理
+- 你自己包装的 HTTP/队列消费者
+- 另一个上层守护进程
+
+### `deploy/deploy.sh`
+
+它展示了大致部署流程，但不应直接视为可执行运维方案：
+
+- `docker` 模式会在构建镜像后执行 `git pull`
+- `host` 模式依赖 `sudo`、复制目录和当前的 systemd 模板
+- 缺少对真实服务形态的定义
+
+把它当成脚手架比当成产品脚本更合适。
+
+## 如果你要做真正的部署
+
+建议先补齐一层明确的宿主形态，再谈容器或 systemd：
+
+1. 先定义进程模型。
+   例如“单次任务执行器”“队列消费者”“自建 HTTP API 包装层”。
+2. 再定义启动命令。
+   不要直接把交互式 CLI 当作后台守护进程。
+3. 把 `.heagent/` 持久化。
+   其中包含技能、记忆、会话、运行快照和 Cron 数据。
+4. 提供 OS 级隔离。
+   尤其是开启 shell、文件工具或 MCP 时。
+5. 单独实现健康检查与可观测性。
+   这需要你的包装层暴露明确的进程状态，而不是复用当前占位配置。
+
+## 生产前检查项
+
+- 只使用受控的工作目录，不要直接挂宿主敏感目录。
+- 把 Provider 密钥放进环境变量或密钥管理系统。
+- 如果启用 MCP，按不可信代码执行模型处理。
+- 限制容器/进程的网络出站权限。
+- 明确 `.heagent/` 的备份和清理策略。
+- 为外层包装服务补日志、指标和健康检查。
+
+## 推荐理解方式
+
+更准确的理解是：
+
+- 这个仓库已经有“可运行的 Agent 内核”
+- 但还没有“定义完成的服务部署产品”
+
+所以这里的部署文档不是“一键上线指南”，而是“如何判断哪些资产可复用、哪些需要你自己补齐”的说明。

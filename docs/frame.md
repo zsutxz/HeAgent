@@ -1,6 +1,6 @@
 # HeAgent 项目架构与工作流程
 
-> **相关文档**：功能与设计意图见 [`design.md`](design.md)；开发指南（常驻骨架）见仓库根 [`CLAUDE.md`](../CLAUDE.md)；规划期冻结决策见 [`_bmad-output/baseline/architecture.md`](../_bmad-output/baseline/architecture.md)；使用说明见 [`README.md`](../README.md)。本文为**代码架构权威**，随代码更新。
+> 相关文档：总览与快速开始见 [`README.md`](../README.md)，设计目标见 [`design.md`](design.md)，文档导航见 [`文档索引`](README.md)，部署边界见 [`deploy/README.md`](../deploy/README.md)，协作约定见 [`CLAUDE.md`](../CLAUDE.md)。本文为**代码实现层面的架构参考**，以当前 `src/` 实现为准。
 
 ## 一、项目定位
 
