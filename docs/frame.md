@@ -523,7 +523,10 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 
 **多 Agent 角色化 + checkpoint-resume（P1–P5）：** `roles.py` 定义 planner/coder/tester/supervisor 等角色（执行级 allowlist，D1），supervisor 经 `task_delegate`/`task_parallel` 委派角色化 `SubAgent`（D2），结果以结构化 JSON（`SubTaskOutcome`，含 run_id/iterations）写 `metadata['completed_steps']`（P5-3）；token≥阈值时 `window_reset` 清窗重建、`AgentLoop.resume(run_id)` / `resume_stream(run_id)` 同 run_id 跨多段窗口续跑（D3，见 4.2/4.5；流式版 P5-5）；子 agent 不开 resume、默认带 compressor（D4）。`RunStore.build_run_tree()` 按 `parent_run_id` 把 supervisor/子 agent 的 run 聚合成树（P5-4）。
 
-> **P5 范围说明：** 已实现干净增量三件套——结构化子任务结果（P5-3）、`parent_run_id` 树形 checkpoint 聚合（P5-4）、resume 流式版（P5-5）。原 deferred 项里的 **Schema 级工具隐藏（反转 D1）** 与 **子 agent resume（反转 D4）** 仍 **deferred**——二者会推翻已冻结的设计决策，需先经架构评审再定。
+> **P5 范围说明：** 已实现干净增量三件套——结构化子任务结果（P5-3）、`parent_run_id` 树形 checkpoint 聚合（P5-4）、resume 流式版（P5-5）。原 deferred 项经 2026-06-26 评估**暂不反转，维持 D1/D4 冻结**：
+> - **P5-1 Schema 级工具隐藏（反转 D1）**：plan 触发条件"误调率高才做"。现状 `roles.py` 每个 prompt 逐字内嵌工具清单且与 `allowed_tools` 逐一对齐（措辞"仅这些，调用其他工具会被拦截"）+ 执行级拦截 `policy.py:88` 兜底，误调率基线极低。**D1 反转成本被原 plan 高估**——`registry.py` 已有 `_disabled`/`enabled_schemas()` schema 级隐藏设施，真要做只需在 `loop.py:304/623` 取 schema 时叠加一行 `allowed_tools` 过滤，不必重构单例为 per-agent；待观测到真实高误调率再启动。
+> - **P5-2 子 agent resume（反转 D4）**：plan 触发条件"实测需要才开放"。子 agent 短任务（`max_iterations` 15–25 + 默认 compressor in-place 摘要）量级远不到需清窗重建；反转代价是 `.heagent/runs/` checkpoint 文件爆炸（`task_parallel` 并行放大）+ 嵌套 resume 级联 + 与互斥断言冲突，收益/成本比差。
+> （评估基于静态代码分析，未跑真实 LLM 实测；依据详见 memory `heagent-loop-engine-expansion`。）
 
 ---
 
