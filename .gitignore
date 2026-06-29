@@ -16,7 +16,11 @@ venv/
 # Tools
 .mypy_cache/
 .pytest_cache/
+.pytest_tmp/
 .ruff_cache/
+
+# Coverage (pytest-cov)
+.coverage
 
 # IDE
 .idea/
