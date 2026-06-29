@@ -16,7 +16,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
@@ -24,16 +23,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from heagent.agent.middleware import MiddlewareFn, Request, compose
+from heagent.agent.system_prompt import build_system_prompt
+from heagent.agent.tool_execution import execute_tool_call, execute_tools, invoke_handler
 from heagent.config import get_settings
 from heagent.context.window_reset import WindowReset, WindowResetConfig
-from heagent.engine import EngineContainer, ExecutionStatus, RunContext, RunStatus
+from heagent.engine import EngineContainer, RunContext, RunStatus
 from heagent.exceptions import BudgetExceeded
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
 from heagent.types import Message, ProviderResponse, Role, StreamEvent, TokenUsage, ToolCall, ToolResult
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Iterator
+    from collections.abc import AsyncIterator, Iterator
 
     from heagent.context.compressor import ContextCompressor
     from heagent.context.session import SessionStore
@@ -166,26 +167,10 @@ class AgentLoop:
             accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
             self._emit("run_started", run_context=run_context, details={"resume": True})
         else:
-            # —— 分支①-B：全新运行。建空白状态、新建运行上下文。
-            state = AgentState(max_iterations=self.max_iterations)
-            accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-            run_context = self._ensure_run_context(session_id=session_id)
-
-            # 若指定会话，恢复历史消息（剔除旧 SYSTEM，避免与新系统提示词重复）。
-            if self.session and session_id:
-                prior = self.session.load(session_id)
-                if prior:
-                    state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
-                    logger.debug("Restored %d messages from session '%s'", len(prior), session_id)
-
-            # 拼装系统提示词（注入 soul/context/skills/facts/profile），再落 SYSTEM + USER。
-            system_content = self._build_system(system, prompt=prompt)
-            if system_content:
-                state.messages.append(Message(role=Role.SYSTEM, content=system_content))
-            state.messages.append(Message(role=Role.USER, content=prompt))
-
-            self._start_run_record(run_context, prompt=prompt, system=system_content)
-            self._emit("run_started", run_context=run_context, details={"session_id": session_id or ""})
+            # —— 分支①-B：全新运行。初始化状态/上下文/系统提示词（run/run_stream 共用）。
+            state, run_context, system_content, accumulated = self._init_new_run(
+                prompt, system, session_id, stream=False
+            )
 
         response: ProviderResponse | None = None
 
@@ -194,37 +179,15 @@ class AgentLoop:
         with self._runtime_scope(run_context):
             try:
                 while True:  # —— 主循环：每轮 = 一次 LLM 调用 +（若需要）一次工具执行
-                    state.iteration += 1
-                    run_context.touch(iteration=state.iteration)
-                    self._emit("iteration_started", run_context=run_context)
-
-                    # 迭代硬上限：超过仍未收敛即视为失控，抛 BudgetExceeded（显性失败）。
-                    if state.iteration > state.max_iterations:
-                        raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
+                    self._begin_iteration(state, run_context)
 
                     # 步骤1：调 LLM（可选经中间件链，如重试）。累加本轮 token 用量。
                     response = await self._call_provider(state, run_context=run_context)
                     if response.usage:
                         accumulated = self._add_usage(accumulated, response.usage)
 
-                    # 步骤2（可选）：就地压缩上下文。compressor 仅在返回新列表时才替换，
-                    # 用 ``is`` 判同避免无谓替换；同时发布压缩事件。
-                    if self.compressor and response.usage:
-                        settings = get_settings()
-                        compressed = await self.compressor.compress(
-                            state.messages,
-                            token_count=response.usage.total_tokens,
-                            max_tokens=settings.max_context_tokens,
-                        )
-                        if compressed is not state.messages:
-                            before = len(state.messages)
-                            state.messages = compressed
-                            logger.info("Context compressed: %d -> %d messages", before, len(state.messages))
-                            self._emit(
-                                "context_compressed",
-                                run_context=run_context,
-                                details={"before": before, "after": len(state.messages)},
-                            )
+                    # 步骤2（可选）：就地压缩上下文（compressor 仅在返回新列表时替换）。
+                    await self._maybe_compress(state, run_context, response.usage)
 
                     # 步骤3：把本轮 ASSISTANT 回复（含可能的 tool_calls）追加进对话历史。
                     state.messages.append(
@@ -244,32 +207,8 @@ class AgentLoop:
                         )
                     self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
 
-                    # 步骤6（可选）：窗口重置。达到 token 阈值时把长对话折叠成「原始 prompt +
-                    # 进度摘要」的新窗口（segment 计数 +1），换段继续，避免上下文溢出。
-                    if self.window_reset and response.usage:
-                        settings = get_settings()
-                        if self.window_reset.should_trigger(
-                            token_count=response.usage.total_tokens,
-                            max_tokens=settings.max_context_tokens,
-                        ):
-                            before = len(state.messages)
-                            state.messages = await self.window_reset.reset(
-                                run_context=run_context,
-                                original_prompt=prompt,
-                                messages=state.messages,
-                            )
-                            logger.info(
-                                "Window reset: %d -> %d messages (segment=%s)",
-                                before,
-                                len(state.messages),
-                                run_context.metadata.get("segment"),
-                            )
-                            self._emit(
-                                "window_reset",
-                                run_context=run_context,
-                                details={"before": before, "after": len(state.messages)},
-                            )
-                            self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+                    # 步骤6（可选）：窗口重置（达到 token 阈值则折叠成「prompt + 进度摘要」新窗口）。
+                    await self._maybe_window_reset(state, run_context, prompt, system_content, response.usage)
                     # —— 循环回到顶部，带着工具结果再调一次 LLM，直到无工具调用为止。
 
                 # 循环正常结束：记录最终答案、置 COMPLETED、发布完成事件，返回答案。
@@ -290,19 +229,7 @@ class AgentLoop:
                 return final_answer
             except Exception as exc:
                 # 任何异常：置 FAILED、记错误快照、发布失败事件后原样向上抛（显性失败）。
-                run_context.touch(status=RunStatus.FAILED, iteration=state.iteration)
-                self._checkpoint(
-                    run_context,
-                    prompt=prompt,
-                    system=system_content,
-                    state=state,
-                    error=str(exc),
-                )
-                self._emit(
-                    "run_failed",
-                    run_context=run_context,
-                    details={"error": str(exc)},
-                )
+                self._on_run_failed(run_context, prompt, system_content, state, exc)
                 raise
             finally:
                 # 无论成功失败：会话消息落盘，并把本次 run 的事后产物缓存到实例属性。
@@ -337,33 +264,15 @@ class AgentLoop:
             accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
             self._emit("run_started", run_context=run_context, details={"resume": True, "stream": True})
         else:
-            # —— 分支①-B：全新运行，建状态/上下文、恢复会话、拼系统提示词、落首条 USER。
-            state = AgentState(max_iterations=self.max_iterations)
-            accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-            run_context = self._ensure_run_context(session_id=session_id)
-
-            if self.session and session_id:
-                prior = self.session.load(session_id)
-                if prior:
-                    state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
-
-            system_content = self._build_system(system, prompt=prompt)
-            if system_content:
-                state.messages.append(Message(role=Role.SYSTEM, content=system_content))
-            state.messages.append(Message(role=Role.USER, content=prompt))
-
-            self._start_run_record(run_context, prompt=prompt, system=system_content)
-            self._emit("run_started", run_context=run_context, details={"stream": True})
+            # —— 分支①-B：全新运行。初始化状态/上下文/系统提示词（run/run_stream 共用）。
+            state, run_context, system_content, accumulated = self._init_new_run(
+                prompt, system, session_id, stream=True
+            )
 
         with self._runtime_scope(run_context):
             try:
                 while True:
-                    state.iteration += 1
-                    run_context.touch(iteration=state.iteration)
-                    self._emit("iteration_started", run_context=run_context)
-
-                    if state.iteration > state.max_iterations:
-                        raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
+                    self._begin_iteration(state, run_context)
 
                     # 本轮流式累加用的临时变量：把多个 chunk 拼回一份完整响应。
                     tools = self.registry.enabled_schemas()
@@ -397,22 +306,7 @@ class AgentLoop:
                         finish_reason=finish_reason or "stop",
                     )
 
-                    if self.compressor and response.usage:
-                        settings = get_settings()
-                        compressed = await self.compressor.compress(
-                            state.messages,
-                            token_count=response.usage.total_tokens,
-                            max_tokens=settings.max_context_tokens,
-                        )
-                        if compressed is not state.messages:
-                            before = len(state.messages)
-                            state.messages = compressed
-                            logger.info("Context compressed: %d -> %d messages", before, len(state.messages))
-                            self._emit(
-                                "context_compressed",
-                                run_context=run_context,
-                                details={"before": before, "after": len(state.messages)},
-                            )
+                    await self._maybe_compress(state, run_context, response.usage)
 
                     state.messages.append(
                         Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
@@ -459,45 +353,10 @@ class AgentLoop:
                         )
                     self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
 
-                    # 窗口重置（逻辑同 run()，流式版仅日志多带一个 stream 标记），达到阈值则换段继续。
-                    if self.window_reset and response.usage:
-                        settings = get_settings()
-                        if self.window_reset.should_trigger(
-                            token_count=response.usage.total_tokens,
-                            max_tokens=settings.max_context_tokens,
-                        ):
-                            before = len(state.messages)
-                            state.messages = await self.window_reset.reset(
-                                run_context=run_context,
-                                original_prompt=prompt,
-                                messages=state.messages,
-                            )
-                            logger.info(
-                                "Window reset (stream): %d -> %d messages (segment=%s)",
-                                before,
-                                len(state.messages),
-                                run_context.metadata.get("segment"),
-                            )
-                            self._emit(
-                                "window_reset",
-                                run_context=run_context,
-                                details={"before": before, "after": len(state.messages)},
-                            )
-                            self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+                    # 窗口重置（逻辑同 run()，达到阈值则换段继续）。
+                    await self._maybe_window_reset(state, run_context, prompt, system_content, response.usage)
             except Exception as exc:
-                run_context.touch(status=RunStatus.FAILED, iteration=state.iteration)
-                self._checkpoint(
-                    run_context,
-                    prompt=prompt,
-                    system=system_content,
-                    state=state,
-                    error=str(exc),
-                )
-                self._emit(
-                    "run_failed",
-                    run_context=run_context,
-                    details={"error": str(exc)},
-                )
+                self._on_run_failed(run_context, prompt, system_content, state, exc)
                 raise
             finally:
                 if self.session and session_id:
@@ -582,6 +441,154 @@ class AgentLoop:
         ):
             yield event
 
+    def _begin_iteration(self, state: AgentState, run_context: RunContext) -> None:
+        """推进迭代计数、发布 iteration_started 事件，并强制迭代硬上限。
+
+        每轮循环入口调用：iteration+1 → touch 上下文 → 发事件 → 超过 max_iterations
+        即抛 ``BudgetExceeded``（显性失败，防止失控循环）。``run``/``run_stream`` 共用。
+        """
+        state.iteration += 1
+        run_context.touch(iteration=state.iteration)
+        self._emit("iteration_started", run_context=run_context)
+        if state.iteration > state.max_iterations:
+            raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
+
+    def _init_new_run(
+        self,
+        prompt: str,
+        system: str | None,
+        session_id: str | None,
+        *,
+        stream: bool,
+    ) -> tuple[AgentState, RunContext, str | None, TokenUsage]:
+        """全新运行的初始化（``run``/``run_stream`` 的「分支①-B」共用）。
+
+        建空白状态与运行上下文 → 恢复会话历史（剔除旧 SYSTEM）→ 拼系统提示词 →
+        落 SYSTEM+USER 首条消息 → 写初始运行快照 → 发 run_started 事件。
+        返回 ``(state, run_context, system_content, accumulated)``。
+
+        ``stream`` 仅决定 run_started 事件 details 的载荷（流式带 ``stream`` 标记，
+        非流式带 ``session_id``），与两个入口重构前的行为逐字段一致。
+        """
+        state = AgentState(max_iterations=self.max_iterations)
+        accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+        run_context = self._ensure_run_context(session_id=session_id)
+
+        # 若指定会话，恢复历史消息（剔除旧 SYSTEM，避免与新系统提示词重复）。
+        if self.session and session_id:
+            prior = self.session.load(session_id)
+            if prior:
+                state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
+                logger.debug("Restored %d messages from session '%s'", len(prior), session_id)
+
+        # 拼装系统提示词（注入 soul/context/skills/facts/profile），再落 SYSTEM + USER。
+        system_content = self._build_system(system, prompt=prompt)
+        if system_content:
+            state.messages.append(Message(role=Role.SYSTEM, content=system_content))
+        state.messages.append(Message(role=Role.USER, content=prompt))
+
+        self._start_run_record(run_context, prompt=prompt, system=system_content)
+        details: dict[str, Any] = {"stream": True} if stream else {"session_id": session_id or ""}
+        self._emit("run_started", run_context=run_context, details=details)
+        return state, run_context, system_content, accumulated
+
+    async def _maybe_compress(
+        self,
+        state: AgentState,
+        run_context: RunContext,
+        usage: TokenUsage | None,
+    ) -> None:
+        """就地压缩上下文（compressor 启用时）。
+
+        compressor 仅在返回新列表时才替换（用 ``is`` 判同避免无谓替换），
+        同时发布 context_compressed 事件。``usage`` 为空则跳过。
+        """
+        if not self.compressor or not usage:
+            return
+        settings = get_settings()
+        compressed = await self.compressor.compress(
+            state.messages,
+            token_count=usage.total_tokens,
+            max_tokens=settings.max_context_tokens,
+        )
+        if compressed is not state.messages:
+            before = len(state.messages)
+            state.messages = compressed
+            logger.info("Context compressed: %d -> %d messages", before, len(state.messages))
+            self._emit(
+                "context_compressed",
+                run_context=run_context,
+                details={"before": before, "after": len(state.messages)},
+            )
+
+    async def _maybe_window_reset(
+        self,
+        state: AgentState,
+        run_context: RunContext,
+        prompt: str,
+        system_content: str | None,
+        usage: TokenUsage | None,
+    ) -> None:
+        """窗口重置（window_reset 启用时）。
+
+        达到 token 阈值时把长对话折叠成「原始 prompt + 进度摘要」的新窗口
+        （segment 计数 +1），换段继续，避免上下文溢出；``usage`` 为空则跳过。
+        """
+        if not self.window_reset or not usage:
+            return
+        settings = get_settings()
+        if not self.window_reset.should_trigger(
+            token_count=usage.total_tokens,
+            max_tokens=settings.max_context_tokens,
+        ):
+            return
+        before = len(state.messages)
+        state.messages = await self.window_reset.reset(
+            run_context=run_context,
+            original_prompt=prompt,
+            messages=state.messages,
+        )
+        logger.info(
+            "Window reset: %d -> %d messages (segment=%s)",
+            before,
+            len(state.messages),
+            run_context.metadata.get("segment"),
+        )
+        self._emit(
+            "window_reset",
+            run_context=run_context,
+            details={"before": before, "after": len(state.messages)},
+        )
+        self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+
+    def _on_run_failed(
+        self,
+        run_context: RunContext,
+        prompt: str,
+        system_content: str | None,
+        state: AgentState,
+        exc: Exception,
+    ) -> None:
+        """异常收尾：置 FAILED、记错误快照、发布 run_failed 事件（不含 re-raise）。
+
+        ``run``/``run_stream`` 的 except 块共用；``raise`` 留在各自 except 末尾
+        （显性失败，异常原样向上抛）。finally 块（session 落盘 + last_* 缓存）不提炼
+        ——它处于 async-generator 的 cleanup 路径，动它风险高、收益小。
+        """
+        run_context.touch(status=RunStatus.FAILED, iteration=state.iteration)
+        self._checkpoint(
+            run_context,
+            prompt=prompt,
+            system=system_content,
+            state=state,
+            error=str(exc),
+        )
+        self._emit(
+            "run_failed",
+            run_context=run_context,
+            details={"error": str(exc)},
+        )
+
     @staticmethod
     def _add_usage(a: TokenUsage, b: TokenUsage) -> TokenUsage:
         """把两份 token 用量计数逐字段相加，返回新的 ``TokenUsage``（不可变叠加）。"""
@@ -592,105 +599,16 @@ class AgentLoop:
         )
 
     def _build_system(self, user_system: str | None, prompt: str = "") -> str | None:
-        """合并生成一条系统提示词（含人格 / 项目上下文 / 技能 / 记忆 / 用户画像）。
-
-        各块按以下**注入顺序**拼装（顺序即优先级呈现，影响 LLM 对提示的权重）：
-
-          1. ``<identity>``    SOUL.md 人格（用 insert(0) 放到**最前**，作为基底身份）；
-          2. user_system       调用方显式传入的附加系统提示词；
-          3. ``<project-context>`` 项目上下文文件（受 settings.context_files_enabled 开关）；
-          4. ``<skills>``      按 prompt 相似度自动匹配的技能（命中则注入内容；未命中但
-                               存在技能时给一条引导提示）；
-          5. ``<memory>``      facts 长期记忆；若开启 memory_nudge 再追加 ``<memory-nudge>`` 提醒；
-          6. ``<profile>``     用户画像。
-
-        无任何内容时返回 None（不插入空 SYSTEM 消息）。``prompt`` 仅用于技能相似度匹配。
-        """
-        parts: list[str] = []
-        if user_system:
-            parts.append(user_system)
-
-        if self.soul:
-            soul_content = self.soul.load()
-            if soul_content:
-                # insert(0)：把人格放到系统提示词最前，确立基底身份。
-                parts.insert(0, f"<identity>\n{soul_content}\n</identity>")
-                logger.debug("Injected SOUL.md personality into system prompt")
-
-        if self.context_dir:
-            settings = get_settings()
-            if settings.context_files_enabled:
-                from heagent.context.loader import load_context_files
-
-                context = load_context_files(self.context_dir)
-                if context:
-                    parts.append(f"<project-context>\n{context}\n</project-context>")
-                    logger.debug("Injected project context files into system prompt")
-
-        if self.skills:
-            settings = get_settings()
-            # 按相似度匹配技能，截断到 skill_max_auto_invoke 上限，避免注入过多。
-            matched = self.skills.matching_skills(
-                prompt,
-                threshold=settings.skill_match_threshold,
-            )[: settings.skill_max_auto_invoke]
-
-            if matched:
-                # 命中：先记录用法（影响后续排序），再拼装技能正文。
-                for skill_name in matched:
-                    self.skills.record_usage(skill_name)
-                contents: list[str] = []
-                for name in matched:
-                    raw = self.skills.load(name)
-                    if raw:
-                        contents.append(raw)
-                if contents:
-                    block = "\n\n---\n\n".join(contents)
-                    parts.append(
-                        "<skills>\n"
-                        "The following skills are relevant to the user's request:\n\n"
-                        f"{block}\n\n"
-                        "You can use skill_list to see all skills, "
-                        "skill_create to add new ones, or skill_update to modify.\n"
-                        "</skills>"
-                    )
-                    logger.debug("Auto-invoked %d skill(s): %s", len(matched), matched)
-            elif self.skills.list_skills():
-                # 未命中但技能库非空：给一条引导，提示用户可手动创建/浏览技能。
-                parts.append(
-                    "<skills>\n"
-                    "No skills matched the current request. "
-                    "You can use skill_create to save reusable patterns, "
-                    "skill_list to browse existing skills, or skill_update to refine them.\n"
-                    "</skills>"
-                )
-
-        if self.facts:
-            facts_list = self.facts.load()
-            if facts_list:
-                items = "\n".join(f"- {fact}" for fact in facts_list)
-                parts.append(
-                    f"<memory>\nThe following facts are remembered from previous conversations:\n\n{items}\n</memory>"
-                )
-                logger.debug("Injected %d fact(s) into system prompt", len(facts_list))
-
-        if self.facts and get_settings().memory_nudge_enabled:
-            parts.append(
-                "<memory-nudge>\n"
-                "After completing a complex task or learning something important, "
-                "consider using fact_add to save key insights for future sessions.\n"
-                "</memory-nudge>"
-            )
-
-        if self.profile:
-            profile_text = self.profile.load()
-            if profile_text:
-                parts.append(
-                    f"<profile>\nUser profile (adapt your responses accordingly):\n\n{profile_text}\n</profile>"
-                )
-                logger.debug("Injected user profile into system prompt")
-
-        return "\n\n".join(parts) if parts else None
+        """合并生成系统提示词（委托 :func:`build_system_prompt`，保留 skills.record_usage 副作用）。"""
+        return build_system_prompt(
+            user_system,
+            prompt,
+            soul=self.soul,
+            context_dir=self.context_dir,
+            skills=self.skills,
+            facts=self.facts,
+            profile=self.profile,
+        )
 
     async def _call_provider(
         self,
@@ -752,25 +670,8 @@ class AgentLoop:
         *,
         run_context: RunContext | None = None,
     ) -> list[ToolResult]:
-        """并发执行一批工具调用（``asyncio.gather`` 同时跑），结果按调用顺序返回。
-
-        每个调用经 :meth:`_execute_one` 走完整的「ledger 幂等 → 策略裁决 → 执行」
-        链路；批次前后发布 tool_batch_started/completed 事件，并累加进 state.results。
-        """
-        self._emit(
-            "tool_batch_started",
-            run_context=run_context,
-            details={"count": len(calls)},
-        )
-        tasks = [self._execute_one(call, run_context=run_context) for call in calls]
-        results = list(await asyncio.gather(*tasks))
-        state.results.extend(results)
-        self._emit(
-            "tool_batch_completed",
-            run_context=run_context,
-            details={"count": len(results), "errors": sum(1 for result in results if result.is_error)},
-        )
-        return results
+        """并发执行一批工具调用（委托 :func:`execute_tools`）。"""
+        return await execute_tools(self, calls, state, run_context=run_context)
 
     async def _execute_one(
         self,
@@ -778,83 +679,12 @@ class AgentLoop:
         *,
         run_context: RunContext | None = None,
     ) -> ToolResult:
-        """端到端执行一次工具调用，并保证幂等。
-
-        幂等由 ``ExecutionLedger`` 提供：用 ``{run_id}:{tool_call.id}`` 作缓存键。
-        当模型重发同一个 tool_call（例如窗口重置后）时，直接命中已 COMPLETED 的缓存
-        结果，而不会重复执行有副作用的 handler。
-
-        正常路径：① ledger 抢占/命中 → ② PolicyEngine 裁决（准许/审批/沙箱）→
-        ③ ToolExecutor 在裁决框架内执行 handler（内部再经 SafetyGuard 黑名单）→
-        ④ 把结果（成功/失败）写回 ledger。
-        """
-        cache_key: str | None = None
-        if run_context is not None:
-            # ① 抢占缓存键：抢不到且已有 COMPLETED 记录 → 直接返回缓存结果（幂等命中）。
-            cache_key = f"{run_context.run_id}:{call.id}"
-            claim = self.engine.ledger.acquire(cache_key, run_id=run_context.run_id)
-            if not claim.acquired and claim.record.status == ExecutionStatus.COMPLETED:
-                cached = claim.record.metadata.get("result")
-                if cached is not None:
-                    logger.debug("Ledger cache hit for tool_call %s", call.id)
-                    self._emit(
-                        "tool_call_cached",
-                        run_context=run_context,
-                        tool_name=call.name,
-                        details={},
-                    )
-                    return ToolResult(tool_call_id=call.id, content=cached)
-
-        # ② 策略裁决；③ 查 handler。未知工具直接产出 error 结果，不走 executor。
-        verdict = self.engine.policy.evaluate_tool_call(call, context=run_context)
-        handler = self.registry.get_handler(call.name)
-        if handler is None:
-            self._emit(
-                "tool_call_failed",
-                run_context=run_context,
-                tool_name=call.name,
-                details={"error": "unknown tool"},
-            )
-            result = ToolResult(tool_call_id=call.id, content=f"Unknown tool: {call.name}", is_error=True)
-        else:
-            # ③ 真正执行：executor 在 verdict（准许/审批/沙箱）框架下调度 handler，
-            #    内部还会经 self.guard（SafetyGuard）做命令黑名单等检查。
-            result = await self.engine.executor.execute(
-                call=call,
-                verdict=verdict,
-                guard=self.guard,
-                handler=self._invoke_handler,
-                run_context=run_context,
-                emit=self._emit,
-            )
-
-        # ④ 结果回写 ledger：成功记 complete（带结果供后续幂等），失败记 fail（允许重试）。
-        if cache_key is not None:
-            if result.is_error:
-                self.engine.ledger.fail(cache_key, result.content)
-            else:
-                self.engine.ledger.complete(cache_key, metadata={"result": result.content})
-        return result
+        """端到端执行一次工具调用并保证幂等（委托 :func:`execute_tool_call`；被测试直接调用）。"""
+        return await execute_tool_call(self, call, run_context=run_context)
 
     async def _invoke_handler(self, call: ToolCall) -> object:
-        """解析并调用一次工具调用对应的注册 handler（executor 的执行回调）。
-
-        未知工具直接抛 RuntimeError（executor 外层会捕获并转成 ToolResult.error）。
-        """
-        handler = self.registry.get_handler(call.name)
-        if handler is None:
-            raise RuntimeError(f"Unknown tool: {call.name}")
-        return await self._invoke(handler, call)
-
-    async def _invoke(self, handler: object, call: ToolCall) -> object:
-        """实际调用 handler：自动适配 sync / async 两种工具实现。
-
-        参数以关键字展开 ``call.arguments`` 传入（工具用 ``**kwargs`` 接收）。
-        """
-        fn = cast("Callable[..., Any]", handler)
-        if asyncio.iscoroutinefunction(fn):
-            return await fn(**call.arguments)
-        return fn(**call.arguments)
+        """解析并调用工具 handler（委托 :func:`invoke_handler`）。"""
+        return await invoke_handler(self, call)
 
     def _ensure_run_context(self, *, session_id: str | None) -> RunContext:
         """为本次执行取得一个运行上下文。

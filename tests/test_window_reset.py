@@ -267,3 +267,42 @@ async def test_window_reset_then_ledger_dedupe(tmp_path) -> None:
     assert loop.last_run_context is not None
     assert loop.last_run_context.metadata.get("segment") == 1  # reset triggered once
     assert counter["n"] == 1  # re-sent b1 short-circuited by ledger
+
+
+async def test_window_reset_triggers_in_stream_mode(tmp_path) -> None:
+    """流式 ``run_stream`` 下 window_reset 同样触发（为 loop.py 重构兜底）。
+
+    与 ``test_window_reset_then_ledger_dedupe`` 同构，但走 ``run_stream`` 路径，
+    覆盖 ``run_stream`` 的 window_reset 分支——该分支在重构前无测试护栏
+    （``run_stream`` 的 except/finally 与 yield 交织，最易在重构中回归）。
+    """
+    registry, _ = _bump_registry()
+    high_usage = TokenUsage(prompt_tokens=40000, completion_tokens=40000, total_tokens=80000)
+    provider = _StubProvider(
+        [
+            # round 1：工具调用 + 高 usage → 工具执行后触发 reset
+            ProviderResponse(
+                content="",
+                tool_calls=[ToolCall(id="b1", name="bump", arguments={})],
+                usage=high_usage,
+                model="stub",
+                finish_reason="tool_calls",
+            ),
+            # round 2（reset 后）：最终回答
+            _final("DONE-STREAM"),
+        ]
+    )
+    loop = AgentLoop(
+        provider,
+        registry=registry,
+        engine=_engine(tmp_path),
+        window_reset=WindowResetConfig(),
+    )
+
+    events = [e async for e in loop.run_stream("do work")]
+
+    assert events[-1].type == "done"
+    assert events[-1].final_answer == "DONE-STREAM"
+    assert loop.last_run_context is not None
+    assert loop.last_run_context.metadata.get("segment") == 1  # reset 触发一次
+    assert loop.last_iteration is not None and loop.last_iteration >= 2
