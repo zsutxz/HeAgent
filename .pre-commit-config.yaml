@@ -14,21 +14,21 @@ repos:
       # 先 check（--fix 修可修的 lint 问题，如删未用 import / 排 import 顺序）
       - id: ruff-check
         name: ruff check --fix
-        entry: ruff check --fix
+        entry: python -m ruff check --fix
         language: system
         types: [python]
         files: ^(src|tests)/
       # 后 format（统一排版，与 CI 的 ruff format --check 对齐）
       - id: ruff-format
         name: ruff format
-        entry: ruff format
+        entry: python -m ruff format
         language: system
         types: [python]
         files: ^(src|tests)/
       # mypy 需完整模块图，固定跑整个 src（pass_filenames: false）
       - id: mypy
         name: mypy (strict)
-        entry: mypy
+        entry: python -m mypy
         language: system
         types: [python]
         pass_filenames: false
