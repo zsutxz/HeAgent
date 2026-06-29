@@ -28,7 +28,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-06-08
+last_updated: 2026-06-29
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -133,4 +133,19 @@ development_status:
   epic-13: done  # 安全边界与开源可用（FR-10/11）
   13-1-safety-statement-mcp: done
   13-2-opensource-config-docs: done
-  epic-13-retrospective: optional
+  epic-13-retrospective: done
+
+# Action items（来自 retrospective，跨周期跟踪）
+action_items:
+  - epic: 13
+    action: "评估为 MCP 运行时断连补 auto-unregister（开 spec）"
+    owner: "tan"
+    status: open
+  - epic: 13
+    action: "DP-4（SafetyGuard 扩展到 MCP）纳入下一集成周期候选"
+    owner: "tan"
+    status: open
+  - epic: 13
+    action: "MCP 返回内容隔离（prompt injection 围栏）作研究项跟踪"
+    owner: "tan"
+    status: open
