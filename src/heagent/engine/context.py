@@ -41,9 +41,9 @@ class RunStatus(StrEnum):
     ``StrEnum`` 使序列化到 JSON 快照时直接得到字符串值（``"running"`` 等）。
     """
 
-    RUNNING = "running"        # 运行中：AgentLoop 正在迭代
-    COMPLETED = "completed"    # 已完成：正常产出最终答案
-    FAILED = "failed"          # 已失败：抛出异常或被门控终止
+    RUNNING = "running"  # 运行中：AgentLoop 正在迭代
+    COMPLETED = "completed"  # 已完成：正常产出最终答案
+    FAILED = "failed"  # 已失败：抛出异常或被门控终止
 
 
 class RunContext(BaseModel):

@@ -57,8 +57,10 @@ class _StubProvider:
 
     async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
         last = messages[-1] if messages else None
-        if last is not None and last.role == Role.USER and (last.content or "").startswith(
-            "Summarize the following conversation so far"
+        if (
+            last is not None
+            and last.role == Role.USER
+            and (last.content or "").startswith("Summarize the following conversation so far")
         ):
             return ProviderResponse(content=self._summary, usage=_usage(), model="stub", finish_reason="stop")
         if self._idx < len(self._responses):

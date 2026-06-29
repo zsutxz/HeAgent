@@ -28,9 +28,9 @@ from heagent.engine.context import iso_now
 class ExecutionStatus(StrEnum):
     """账本中记录的执行状态。"""
 
-    RUNNING = "running"      # 进行中（持有租约）
+    RUNNING = "running"  # 进行中（持有租约）
     COMPLETED = "completed"  # 已成功完成（幂等短路依据）
-    FAILED = "failed"        # 已失败
+    FAILED = "failed"  # 已失败
 
 
 class ExecutionRecord(BaseModel):

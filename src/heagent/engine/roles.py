@@ -53,9 +53,7 @@ def get_role(name: str) -> RoleSpec:
     try:
         return _REGISTRY[name]
     except KeyError:
-        raise KeyError(
-            f"Unknown role {name!r}. Registered roles: {sorted(_REGISTRY)}"
-        ) from None
+        raise KeyError(f"Unknown role {name!r}. Registered roles: {sorted(_REGISTRY)}") from None
 
 
 def list_roles() -> list[str]:

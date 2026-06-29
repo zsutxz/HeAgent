@@ -40,10 +40,10 @@ class ToolExecutionMode(StrEnum):
     ``StrEnum`` 便于序列化到事件 details（见 executor 的 emit）。
     """
 
-    DIRECT = "direct"                          # 直接执行
-    APPROVAL_REQUIRED = "approval_required"    # 需审批授权（V1 executor 中等同阻断）
-    SANDBOX_REQUIRED = "sandbox_required"      # 需在沙箱内执行
-    BLOCKED = "blocked"                        # 硬阻断
+    DIRECT = "direct"  # 直接执行
+    APPROVAL_REQUIRED = "approval_required"  # 需审批授权（V1 executor 中等同阻断）
+    SANDBOX_REQUIRED = "sandbox_required"  # 需在沙箱内执行
+    BLOCKED = "blocked"  # 硬阻断
 
 
 class PolicyVerdict(BaseModel):

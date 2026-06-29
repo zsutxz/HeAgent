@@ -94,18 +94,20 @@ class SubAgent:
         # 1) 系统提示词：显式 system 优先，否则取 role.system。
         self._system = system or (role.system if role is not None else None)
         # 2) 允许工具白名单：显式参数优先；否则继承 role.allowed_tools（为空则 None=不限制）。
-        self._allowed_tools = allowed_tools if allowed_tools is not None else (
-            list(role.allowed_tools) if role is not None and role.allowed_tools else None
+        self._allowed_tools = (
+            allowed_tools
+            if allowed_tools is not None
+            else (list(role.allowed_tools) if role is not None and role.allowed_tools else None)
         )
         # 3) 禁用工具黑名单：同上。
-        self._blocked_tools = blocked_tools if blocked_tools is not None else (
-            list(role.blocked_tools) if role is not None and role.blocked_tools else None
+        self._blocked_tools = (
+            blocked_tools
+            if blocked_tools is not None
+            else (list(role.blocked_tools) if role is not None and role.blocked_tools else None)
         )
         # 4) 最大迭代数：显式参数 > role.max_iterations > 内置默认 20（子任务通常更短）。
         self._max_iterations = (
-            max_iterations
-            if max_iterations is not None
-            else (role.max_iterations if role is not None else 20)
+            max_iterations if max_iterations is not None else (role.max_iterations if role is not None else 20)
         )
 
     def _build_engine(self) -> EngineContainer:

@@ -113,6 +113,7 @@ async def test_allowed_tools_blocks_out_of_role_call() -> None:
 
 async def test_task_delegate_resolves_role_to_spec() -> None:
     """task_delegate(role='coder') threads the coder RoleSpec into SubAgent."""
+
     class _Stub:
         async def send(self, messages, *, tools=None):
             return ProviderResponse(

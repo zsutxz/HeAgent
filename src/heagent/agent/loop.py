@@ -122,9 +122,7 @@ class AgentLoop:
                 "enable one context-management strategy per AgentLoop."
             )
         self.compressor = compressor
-        self.window_reset = (
-            WindowReset(provider, config=window_reset) if window_reset is not None else None
-        )
+        self.window_reset = WindowReset(provider, config=window_reset) if window_reset is not None else None
         self.context_dir = context_dir
         self.soul = soul
         self.cron_store = cron_store
@@ -271,9 +269,7 @@ class AgentLoop:
                                 run_context=run_context,
                                 details={"before": before, "after": len(state.messages)},
                             )
-                            self._checkpoint(
-                                run_context, prompt=prompt, system=system_content, state=state
-                            )
+                            self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
                     # —— 循环回到顶部，带着工具结果再调一次 LLM，直到无工具调用为止。
 
                 # 循环正常结束：记录最终答案、置 COMPLETED、发布完成事件，返回答案。
@@ -487,9 +483,7 @@ class AgentLoop:
                                 run_context=run_context,
                                 details={"before": before, "after": len(state.messages)},
                             )
-                            self._checkpoint(
-                                run_context, prompt=prompt, system=system_content, state=state
-                            )
+                            self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
             except Exception as exc:
                 run_context.touch(status=RunStatus.FAILED, iteration=state.iteration)
                 self._checkpoint(
@@ -532,9 +526,7 @@ class AgentLoop:
 
         progress = snapshot.context.metadata.get("progress_summary")
         if progress:
-            messages = WindowReset.build_resume_messages(
-                original_prompt=snapshot.prompt, summary=progress
-            )
+            messages = WindowReset.build_resume_messages(original_prompt=snapshot.prompt, summary=progress)
         else:
             messages = [m.model_copy(deep=True) for m in snapshot.messages]
 
@@ -569,9 +561,7 @@ class AgentLoop:
 
         progress = snapshot.context.metadata.get("progress_summary")
         if progress:
-            messages = WindowReset.build_resume_messages(
-                original_prompt=snapshot.prompt, summary=progress
-            )
+            messages = WindowReset.build_resume_messages(original_prompt=snapshot.prompt, summary=progress)
         else:
             messages = [m.model_copy(deep=True) for m in snapshot.messages]
 
@@ -680,10 +670,7 @@ class AgentLoop:
             if facts_list:
                 items = "\n".join(f"- {fact}" for fact in facts_list)
                 parts.append(
-                    "<memory>\n"
-                    "The following facts are remembered from previous conversations:\n\n"
-                    f"{items}\n"
-                    "</memory>"
+                    f"<memory>\nThe following facts are remembered from previous conversations:\n\n{items}\n</memory>"
                 )
                 logger.debug("Injected %d fact(s) into system prompt", len(facts_list))
 
@@ -699,10 +686,7 @@ class AgentLoop:
             profile_text = self.profile.load()
             if profile_text:
                 parts.append(
-                    "<profile>\n"
-                    "User profile (adapt your responses accordingly):\n\n"
-                    f"{profile_text}\n"
-                    "</profile>"
+                    f"<profile>\nUser profile (adapt your responses accordingly):\n\n{profile_text}\n</profile>"
                 )
                 logger.debug("Injected user profile into system prompt")
 

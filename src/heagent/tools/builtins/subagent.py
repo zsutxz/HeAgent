@@ -161,9 +161,7 @@ def _runtime() -> SubagentToolRuntime | None:
     return _subagent_runtime.get()
 
 
-def _resolve_role(
-    runtime: SubagentToolRuntime, role: str
-) -> tuple[RoleSpec | None, str | None]:
+def _resolve_role(runtime: SubagentToolRuntime, role: str) -> tuple[RoleSpec | None, str | None]:
     """Resolve a role name to a spec via the runtime map, then the global registry.
 
     Returns ``(spec, error)``; an empty ``role`` yields ``(None, None)``.
@@ -303,9 +301,7 @@ async def task_parallel(tasks_json: str, role: str = "", system: str = "") -> st
         _record_step(runtime, outcome=outcome)
 
     overall = "ok" if all(o.status == "ok" for o in outcomes) else "partial"
-    return json.dumps(
-        {"status": overall, "outcomes": [o.model_dump() for o in outcomes]}, ensure_ascii=False
-    )
+    return json.dumps({"status": overall, "outcomes": [o.model_dump() for o in outcomes]}, ensure_ascii=False)
 
 
 @tool

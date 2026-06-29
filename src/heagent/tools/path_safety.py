@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from heagent.tools.runtime import RuntimeSlot
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 _workspace_override: Path | None = None
 _workspace_runtime = RuntimeSlot[Path]("heagent_workspace_root")
@@ -54,7 +58,7 @@ def configure_workspace_root(path: Path | None) -> None:
 
 
 @contextmanager
-def bind_workspace_root(path: Path | None):
+def bind_workspace_root(path: Path | None) -> Iterator[None]:
     """Bind the workspace root for the current runtime context."""
     resolved = path.resolve() if path is not None else None
     with _workspace_runtime.bind(resolved):
