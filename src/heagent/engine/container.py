@@ -1,4 +1,16 @@
-"""Dependency container for P0 runtime services."""
+"""运行时服务的依赖注入（DI）容器。
+
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame.md`` 4.12）。``EngineContainer``
+把全部运行时服务（策略 / 执行器 / 运行快照 / 幂等账本 / 事件总线）聚合到一个对象，
+经 :meth:`EngineContainer.default` 装配后注入 :class:`~heagent.agent.loop.AgentLoop`：
+
+- 主 Agent 经 ``engine=EngineContainer.default()`` 持有；
+- 子 Agent 经 ``parent_run_id`` **继承父 engine**（运行时服务复用，仅按角色替换 PolicyEngine，
+  见 ``docs/frame.md`` 4.2 / D4）。
+
+为何用 ``@dataclass``：本类是**装配容器**（持有协作对象），并非跨模块传输的数据模型，
+故不套用 Pydantic ``BaseModel``（项目硬约束的 Pydantic 例外仅限数据模型，见 CLAUDE.md）。
+"""
 
 from __future__ import annotations
 
@@ -16,18 +28,28 @@ from heagent.engine.store import RunStore
 
 @dataclass
 class EngineContainer:
-    """Shared runtime services used across loop executions."""
+    """跨多次 loop 执行共享的运行时服务集合。"""
 
+    # 工具准入 / 审批 / 沙箱裁决（policy.py）。
     policy: PolicyEngine = field(default_factory=PolicyEngine)
+    # 按 PolicyVerdict 分发工具调用（executor.py）。
     executor: ToolExecutor = field(default_factory=ToolExecutor)
+    # 运行快照持久化（store.py，.heagent/runs/）。
     run_store: RunStore = field(default_factory=RunStore)
+    # 幂等与租约账本（ledger.py，.heagent/ledger/）。
     ledger: ExecutionLedger = field(default_factory=ExecutionLedger)
+    # 事件总线，默认带一个日志观察者（observability.py）。
     events: EventBus = field(default_factory=lambda: EventBus([LoggingObserver()]))
+    # 工作区根目录（绝对路径）；为 None 时由 create_run_context 兜底到 cwd。
     workspace_root: str | None = None
 
     @classmethod
     def default(cls, *, workspace_root: str | None = None) -> EngineContainer:
-        """Create a default container configured for the current workspace."""
+        """为当前工作区创建默认装配的容器。
+
+        把 ``workspace_root`` 同步到 ``policy.workspace_root``（路径围栏基线）以保持一致；
+        若 policy 已自带 root 则不覆盖。
+        """
         container = cls(workspace_root=workspace_root)
         if workspace_root and not container.policy.workspace_root:
             container.policy.workspace_root = workspace_root
@@ -41,7 +63,11 @@ class EngineContainer:
         metadata: dict[str, Any] | None = None,
         workspace_root: str | None = None,
     ) -> RunContext:
-        """Construct a fresh per-run context bound to this container."""
+        """构造一个绑定到本容器的全新单次运行上下文。
+
+        工作区根解析优先级：显式参数 > 容器 > policy > 当前工作目录（cwd）。
+        ``metadata`` 做浅拷贝，避免外部字典被 run 侧修改反向污染。
+        """
         root = workspace_root or self.workspace_root or self.policy.workspace_root or str(Path.cwd().resolve())
         return RunContext(
             session_id=session_id,

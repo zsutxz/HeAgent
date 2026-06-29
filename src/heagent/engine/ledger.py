@@ -1,4 +1,15 @@
-"""Idempotency and lease ledger for scheduled or long-running work."""
+"""调度 / 长时任务的幂等与租约账本（ledger）。
+
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame.md`` 4.12）。``ExecutionLedger`` 以
+**幂等键**为粒度防止同一工作被重复执行，并把进行中的执行以**租约**（lease）占位，避免并发
+重复。记录写到 ``.heagent/ledger/<sha1(key)>.json``。
+
+两类使用场景：
+
+- **AgentLoop._execute_one**（P4）：key = ``run_id:call.id``。在 window_reset（上下文压缩）
+  后模型可能重发相同 ``tool_call.id``；账本使 COMPLETED 的调用短路返回缓存、避免重复执行。
+- **cron 等长时任务**：经 acquire / heartbeat / complete / fail 管理跨周期执行状态。
+"""
 
 from __future__ import annotations
 
@@ -15,40 +26,49 @@ from heagent.engine.context import iso_now
 
 
 class ExecutionStatus(StrEnum):
-    """Execution state stored in the ledger."""
+    """账本中记录的执行状态。"""
 
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
+    RUNNING = "running"      # 进行中（持有租约）
+    COMPLETED = "completed"  # 已成功完成（幂等短路依据）
+    FAILED = "failed"        # 已失败
 
 
 class ExecutionRecord(BaseModel):
-    """Persisted execution record keyed by idempotency key."""
+    """以幂等键索引的持久化执行记录。"""
 
+    # 幂等键（业务侧给出，如 ``run_id:call.id``）。
     key: str
+    # 作用域分组（如 cron job 名）；用于 list_records 排序。
     scope: str = ""
     status: ExecutionStatus = ExecutionStatus.RUNNING
+    # 关联的 run_id（便于跨表查询）。
     run_id: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     started_at: str = Field(default_factory=iso_now)
     updated_at: str = Field(default_factory=iso_now)
+    # 完成时间（COMPLETED / FAILED 时置）。
     finished_at: str | None = None
+    # 租约过期时间；RUNNING 期间有效，完成后清空。
     lease_expires_at: str | None = None
+    # 失败原因（FAILED 时置）。
     error: str | None = None
 
 
 class LedgerClaim(BaseModel):
-    """Result of trying to acquire one execution key."""
+    """尝试获取一个幂等键的结果。"""
 
+    # 是否成功占用（True = 调用方可执行；False = 已完成或租约活跃，应短路）。
     acquired: bool
+    # 未占用时的原因（如 "already completed" / "lease active"）。
     reason: str = ""
     record: ExecutionRecord
 
 
 class ExecutionLedger:
-    """JSON-backed ledger that prevents duplicate execution."""
+    """JSON 文件后端、防重复执行的幂等账本。"""
 
     def __init__(self, base_dir: str = ".heagent/ledger") -> None:
+        # 账本根目录；按需在 _save() 时创建。
         self._base = Path(base_dir)
 
     def acquire(
@@ -60,7 +80,14 @@ class ExecutionLedger:
         metadata: dict[str, Any] | None = None,
         run_id: str | None = None,
     ) -> LedgerClaim:
-        """Acquire a key if it is not already completed or actively leased."""
+        """尝试占用一个幂等键。
+
+        短路规则（返回 acquired=False）：
+        - 该键已 COMPLETED → ``already completed``（幂等命中，不应重复执行）；
+        - 该键 RUNNING 且租约未过期 → ``lease active``（并发重复，应放弃）。
+
+        否则（无记录 / 已失败 / 租约已过期）→ 置 RUNNING、设新租约、返回 acquired=True。
+        """
         existing = self.get(key)
         if existing is not None:
             if existing.status == ExecutionStatus.COMPLETED:
@@ -85,7 +112,7 @@ class ExecutionLedger:
         return LedgerClaim(acquired=True, record=record)
 
     def complete(self, key: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
-        """Mark a key as completed."""
+        """标记一个键为 COMPLETED（幂等短路的最终态）。无记录时自动创建。"""
         record = self.get(key) or ExecutionRecord(key=key)
         record.status = ExecutionStatus.COMPLETED
         record.updated_at = iso_now()
@@ -97,7 +124,7 @@ class ExecutionLedger:
         return record
 
     def fail(self, key: str, error: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
-        """Mark a key as failed."""
+        """标记一个键为 FAILED 并记录错误（FAILED 可被后续 acquire 重新占用）。"""
         record = self.get(key) or ExecutionRecord(key=key)
         record.status = ExecutionStatus.FAILED
         record.updated_at = iso_now()
@@ -110,7 +137,7 @@ class ExecutionLedger:
         return record
 
     def heartbeat(self, key: str, *, lease_seconds: int = 120) -> ExecutionRecord | None:
-        """Extend the lease of a running record."""
+        """为进行中的记录续租；非 RUNNING（已完成 / 失败 / 不存在）返回 None。"""
         record = self.get(key)
         if record is None or record.status != ExecutionStatus.RUNNING:
             return None
@@ -120,7 +147,7 @@ class ExecutionLedger:
         return record
 
     def get(self, key: str) -> ExecutionRecord | None:
-        """Load one record by idempotency key."""
+        """按幂等键加载一条记录；不存在则返回 None。"""
         path = self._path(key)
         if not path.exists():
             return None
@@ -128,7 +155,7 @@ class ExecutionLedger:
         return ExecutionRecord.model_validate(payload)
 
     def list_records(self) -> list[ExecutionRecord]:
-        """Return all known records."""
+        """返回全部已知记录（按 (scope, key) 排序）。"""
         if not self._base.exists():
             return []
         records: list[ExecutionRecord] = []
@@ -138,16 +165,19 @@ class ExecutionLedger:
         return sorted(records, key=lambda r: (r.scope, r.key))
 
     def _save(self, record: ExecutionRecord) -> None:
+        """把一条记录写到磁盘。"""
         self._base.mkdir(parents=True, exist_ok=True)
         payload = record.model_dump(mode="json")
         self._path(record.key).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _path(self, key: str) -> Path:
+        """幂等键 → 文件路径：用 sha1(key) 命名，规避 key 中的路径分隔符 / 特殊字符。"""
         digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
         return self._base / f"{digest}.json"
 
     @staticmethod
     def _is_expired(record: ExecutionRecord) -> bool:
+        """该 RUNNING 记录的租约是否已过期（无租约视为未过期）。"""
         if not record.lease_expires_at:
             return False
         return datetime.fromisoformat(record.lease_expires_at) <= datetime.now()

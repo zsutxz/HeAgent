@@ -1,10 +1,15 @@
-"""Named role specs for role-specialized sub-agents.
+"""角色化子 Agent 的命名角色规格（roles）。
 
-A ``RoleSpec`` bundles a system prompt with an execution-level tool policy
-(``allowed_tools`` / ``blocked_tools``). At run time the :class:`SubAgent` builds a
-role-specific :class:`~heagent.engine.policy.PolicyEngine` from the spec so
-out-of-role tool calls are blocked by the engine's ``ToolExecutor`` (design
-decision D1: execution-level allowlist, not schema-level masking).
+本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame.md`` 4.12，对应 P1 / P2）。
+
+一个 :class:`RoleSpec` 把「系统提示词」与「执行级工具策略」（``allowed_tools`` /
+``blocked_tools``）打包在一起。运行时 :class:`~heagent.agent.sub.SubAgent` 依据规格构建
+**角色专属**的 :class:`~heagent.engine.policy.PolicyEngine`，使越权工具调用被
+``ToolExecutor`` 在执行级拦截（设计决策 D1：执行级 allowlist，而非 schema 级屏蔽——工具
+仍对模型可见，但调用会被 policy 阻断并回执错误结果，模型可据此纠正）。
+
+内置四种角色（planner / coder / tester / supervisor），在模块导入时注册到进程级
+``_REGISTRY``；亦可经 :func:`register_role` 扩展自定义角色。
 """
 
 from __future__ import annotations
@@ -13,31 +18,38 @@ from pydantic import BaseModel, Field
 
 
 class RoleSpec(BaseModel):
-    """Declarative spec for a role-specialized agent.
+    """角色化 agent 的声明式规格。
 
-    Fields align with :class:`~heagent.engine.policy.PolicyEngine` constructor
-    kwargs so a spec can be mapped onto a per-agent policy.
+    字段与 :class:`~heagent.engine.policy.PolicyEngine` 构造参数对齐，故一份规格可直接
+    映射为「每 agent 一份」的 policy（``allowed_tools`` 作为白名单）。
     """
 
     name: str
+    # 角色系统提示词（注入为该子 Agent 的 system message）。
     system: str
+    # 允许的工具白名单；越权调用被 policy BLOCKED（D1：执行级拦截）。
     allowed_tools: list[str] = Field(default_factory=list)
+    # 显式黑名单（额外阻断）。
     blocked_tools: list[str] = Field(default_factory=list)
+    # 该角色子 Agent 的最大迭代轮次。
     max_iterations: int = 20
+    # 沙箱配置名（可选）；为 None 表示不强制沙箱。
     sandbox_profile: str | None = None
+    # 附加元数据（如角色描述、标签）。
     metadata: dict[str, str] = Field(default_factory=dict)
 
 
+# 进程级角色注册表：name → RoleSpec。模块导入时填入内置角色。
 _REGISTRY: dict[str, RoleSpec] = {}
 
 
 def register_role(spec: RoleSpec) -> None:
-    """Register or replace a named role spec (process-global)."""
+    """注册或替换一个命名角色规格（进程级全局）。"""
     _REGISTRY[spec.name] = spec
 
 
 def get_role(name: str) -> RoleSpec:
-    """Look up a registered role spec by name; raise ``KeyError`` if unknown."""
+    """按名字查找已注册的角色规格；未知则抛 ``KeyError``（消息列出全部已注册角色）。"""
     try:
         return _REGISTRY[name]
     except KeyError:
@@ -47,9 +59,11 @@ def get_role(name: str) -> RoleSpec:
 
 
 def list_roles() -> list[str]:
-    """Return the names of all registered roles, sorted."""
+    """返回全部已注册角色的名字（排序）。"""
     return sorted(_REGISTRY)
 
+
+# --- 内置角色系统提示词（中文；仅声明各角色职责与可用工具，运行时不改）---
 
 _PLANNER_SYSTEM = """\
 你是【计划角色 Planner】。职责：分析任务、拆解为可执行步骤、规划实现路径。只读不写、不执行副作用操作。
@@ -97,6 +111,7 @@ _SUPERVISOR_SYSTEM = """\
 
 
 def _builtin_roles() -> list[RoleSpec]:
+    """构造四种内置角色（planner / coder / tester / supervisor）及其工具白名单与迭代上限。"""
     return [
         RoleSpec(
             name="planner",
@@ -125,5 +140,6 @@ def _builtin_roles() -> list[RoleSpec]:
     ]
 
 
+# 模块导入时注册内置角色（一次性，进程级生效）。
 for _spec in _builtin_roles():
     register_role(_spec)
