@@ -42,9 +42,15 @@ class StubSession:
         self._call_result = call_result or CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
         self.list_raises = list_raises
         self.initialized = False
+        self.disconnected = False  # 运行时断连标志：置 True 后 send_ping 抛错（模拟 server 崩溃 / 网络断）
 
     async def initialize(self) -> None:
         self.initialized = True
+
+    async def send_ping(self, **_: Any) -> None:
+        """模拟 ClientSession.send_ping：disconnected 时抛错，否则成功（健康探测用）。"""
+        if self.disconnected:
+            raise RuntimeError("stub session disconnected")
 
     async def list_tools(self, **_: Any) -> Any:
         if self.list_raises is not None:
@@ -213,3 +219,66 @@ async def test_unregister_all_on_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     async with MCPClientManager(MCPConfig(servers={"s": StdioServerConfig(command="x")}), registry=reg):
         assert "s__run" in reg.list_names()
     assert "s__run" not in reg.list_names()
+
+
+# --- 运行时断连主动 unregister（FR-3 收紧）---
+
+
+def test_health_check_interval_must_be_positive() -> None:
+    """health_check_interval<=0 会让 _watch 首个 ping 立即 TimeoutError → 误注销健康 server；构造期拒绝。
+
+    Review patch F1：非正值把 interval 直接当 wait_for timeout，首轮即超时判死。
+    """
+    with pytest.raises(ValueError):
+        MCPClientManager(MCPConfig(), health_check_interval=0)
+    with pytest.raises(ValueError):
+        MCPClientManager(MCPConfig(), health_check_interval=-1)
+
+
+async def _wait_removed(reg: ToolRegistry, name: str, *, timeout_s: float = 1.0) -> bool:
+    """轮询至工具从 registry 消失（抗 CI 抖动，最多等 timeout_s 秒）。"""
+    for _ in range(int(timeout_s / 0.01)):
+        if name not in reg.list_names():
+            return True
+        await asyncio.sleep(0.01)
+    return name not in reg.list_names()
+
+
+async def test_disconnect_auto_unregisters(monkeypatch: pytest.MonkeyPatch) -> None:
+    """运行时断连 → _watch 探测 ping 失败 → 该 server 工具主动注销（无需调用触发）。"""
+    sessions = {"s": StubSession([_tool("run")])}
+    _patch_transport(monkeypatch, sessions)
+    reg = ToolRegistry()
+    async with MCPClientManager(
+        MCPConfig(servers={"s": StdioServerConfig(command="x")}),
+        registry=reg,
+        health_check_interval=0.01,
+    ):
+        assert "s__run" in reg.list_names()
+        sessions["s"].disconnected = True  # 模拟 server 崩溃 / 网络断
+        removed = await _wait_removed(reg, "s__run")
+    assert removed, "断连后该 server 工具未在探测周期内注销"
+
+
+async def test_disconnect_isolated_to_one_server(monkeypatch: pytest.MonkeyPatch) -> None:
+    """单 server 断连只注销它自己的工具，另一 server + 内置工具零影响（NFR-6）。"""
+    sessions = {
+        "a": StubSession([_tool("run")]),
+        "b": StubSession([_tool("build")]),
+    }
+    _patch_transport(monkeypatch, sessions)
+    reg = ToolRegistry()
+    async with MCPClientManager(
+        MCPConfig(
+            servers={
+                "a": StdioServerConfig(command="x"),
+                "b": StdioServerConfig(command="y"),
+            }
+        ),
+        registry=reg,
+        health_check_interval=0.01,
+    ):
+        sessions["a"].disconnected = True
+        removed = await _wait_removed(reg, "a__run")
+        assert removed, "断连 server 工具未注销"
+        assert "b__build" in reg.list_names()  # 另一 server 不受影响

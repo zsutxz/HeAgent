@@ -13,6 +13,8 @@ transport + session context（``_transport_and_session`` @asynccontextmanager，
 ``RuntimeError: Attempted to exit cancel scope in a different task``）。
 
 - 单 server 连接失败 / 超时隔离（工具不注入，NFR-6，FR-3 建立失败路径）；
+- 运行时断连主动 unregister：持有期 ``send_ping`` 健康探测，ping 失败/超时即注销该 server
+  全部工具（FR-3 收紧，工具不再滞留 LLM 工具列表）；
 - 握手 / transport 封装内部（NFR-3，为 stateless 迁移留接口）；
 - DAG：仅从 types / exceptions / registry / config / mapping 导入，禁从 agent 导入。
 """
@@ -45,6 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONNECT_TIMEOUT: float = 10.0
+_DEFAULT_HEALTH_CHECK_INTERVAL: float = 5.0  # 运行时健康探测周期（FR-3 收紧：断连即注销）
 
 
 class MCPClientManager:
@@ -64,13 +67,22 @@ class MCPClientManager:
         *,
         registry: ToolRegistry | None = None,
         connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
+        health_check_interval: float = _DEFAULT_HEALTH_CHECK_INTERVAL,
     ) -> None:
+        if health_check_interval <= 0:
+            # 非正值会让 _watch 把 interval 直接当 wait_for timeout，首轮 ping 即超时 →
+            # 误判健康 server 断连并注销其全部工具（Review patch F1）。
+            raise ValueError(
+                f"health_check_interval 必须为正数（got {health_check_interval}）"
+            )
         self._config = config
         self._registry = registry or ToolRegistry.get()
         self._connect_timeout = connect_timeout
+        self._health_check_interval = health_check_interval
         self._server_tasks: list[asyncio.Task[None]] = []
         self._stops: list[asyncio.Event] = []
-        self._registered: list[str] = []  # 已注册的 namespaced 工具名（unregister 用）
+        # server 原始名 → 其已注册的 namespaced 工具名（断连时按 server 精确摘除，FR-3 收紧）
+        self._registered: dict[str, list[str]] = {}
 
     async def __aenter__(self) -> MCPClientManager:
         await self._connect_all()
@@ -127,7 +139,8 @@ class MCPClientManager:
                 await self._discover_and_register(name, session)
             # 连接 + 发现成功（timeout 正常结束，不限制后续持有时间）
             ready.set()
-            await stop.wait()  # 持有直到 __aexit__
+            # 持有直到 __aexit__（stop）或健康探测发现运行时断连（FR-3 收紧）
+            await self._watch(name, session, stop)
         except TimeoutError:
             logger.warning("MCP server '%s' 连接/发现超时（%ss），已隔离", name, self._connect_timeout)
             ready.set()
@@ -183,7 +196,7 @@ class MCPClientManager:
                 continue
             handler = self._make_handler(session, tool.name)
             self._registry.register(schema, handler)
-            self._registered.append(schema.name)
+            self._registered.setdefault(name, []).append(schema.name)
             registered += 1
         logger.info("MCP server '%s'：发现 %d 个工具，注册 %d 个", name, len(result.tools), registered)
 
@@ -201,8 +214,38 @@ class MCPClientManager:
 
         return handler
 
+    def _unregister_server(self, name: str) -> None:
+        """注销单个 server 的全部工具（运行时断连用）。``registry.unregister`` 幂等。"""
+        for tool_name in self._registered.pop(name, ()):
+            self._registry.unregister(tool_name)
+
     def _unregister_all(self) -> None:
         """从 ToolRegistry 摘除全部 MCP 工具（还原纯内置状态，利于测试隔离）。"""
-        for tool_name in self._registered:
-            self._registry.unregister(tool_name)
+        for tool_names in self._registered.values():
+            for tool_name in tool_names:
+                self._registry.unregister(tool_name)
         self._registered.clear()
+
+    async def _watch(self, name: str, session: ClientSession, stop: asyncio.Event) -> None:
+        """持有 session 直到 ``stop`` 或健康探测发现运行时断连（FR-3 收紧）。
+
+        每 ``_health_check_interval`` 秒 race 一次 ``stop.wait()``；未 stop 则 ping。
+        ping 失败或超时 → 该 server 已不可达 → 注销其全部工具 + WARNING，随后返回
+        （``_server_loop`` 在 ``finally`` 同 task 退出 transport context）。
+
+        ping 与 session 同 task，沿用既有的「transport 同 task enter/exit」架构，
+        避免 anyio cancel scope 跨 task 回归。``stop`` 优先：``__aexit__`` 触发时
+        立即返回，不再 ping。
+        """
+        while not stop.is_set():
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=self._health_check_interval)
+                return  # stop 已 set（__aexit__ 触发）→ 立即退出，不再 ping
+            except TimeoutError:
+                pass
+            try:
+                await asyncio.wait_for(session.send_ping(), timeout=self._health_check_interval)
+            except Exception as exc:  # noqa: BLE001 - 任意 ping 失败/超时 = 断连
+                logger.warning("MCP server '%s' 运行时断连（ping 失败），已注销其工具：%s", name, exc)
+                self._unregister_server(name)
+                return
