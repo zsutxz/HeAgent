@@ -306,3 +306,26 @@ async def test_window_reset_triggers_in_stream_mode(tmp_path) -> None:
     assert loop.last_run_context is not None
     assert loop.last_run_context.metadata.get("segment") == 1  # reset 触发一次
     assert loop.last_iteration is not None and loop.last_iteration >= 2
+
+
+async def test_lease_active_skips_reexecute(tmp_path) -> None:
+    """B：lease-active（RUNNING 未过期）命中时不重复执行 handler，返回 is_error skip。
+
+    对齐 cron/scheduler.py 的「acquired=False 即 skip」语义。COMPLETED 命中走缓存
+    由 test_execute_one_ledger_caches_completed_result 覆盖；本测试覆盖 RUNNING 分支。
+    """
+    registry, counter = _bump_registry()
+    loop = AgentLoop(_StubProvider([]), registry=registry, engine=_engine(tmp_path))
+    rc = RunContext()
+    call = ToolCall(id="b1", name="bump", arguments={})
+
+    # 预占 lease：acquire 写入 RUNNING 记录但不 complete，模拟并发重入。
+    cache_key = f"{rc.run_id}:{call.id}"
+    loop.engine.ledger.acquire(cache_key, run_id=rc.run_id)
+
+    # 相同 cache_key 再调：acquire 返回 lease-active（acquired=False），应 skip。
+    result = await loop._execute_one(call, run_context=rc)
+
+    assert result.is_error
+    assert "in-flight" in result.content
+    assert counter["n"] == 0  # handler 未执行

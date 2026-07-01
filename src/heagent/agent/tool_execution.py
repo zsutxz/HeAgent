@@ -15,13 +15,13 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from heagent.engine import ExecutionStatus, RunContext
 from heagent.types import ToolCall, ToolResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from heagent.agent.loop import AgentLoop, AgentState
+    from heagent.engine import RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -68,15 +68,29 @@ async def execute_tool_call(
     """
     cache_key: str | None = None
     if run_context is not None:
-        # ① 抢占缓存键：抢不到且已有 COMPLETED 记录 → 直接返回缓存结果（幂等命中）。
+        # ① 抢占缓存键。抢不到时按记录状态分两路：
+        #    - 已 COMPLETED（有 result）→ 幂等命中，返回缓存（Commit A 会在此复核 policy）。
+        #    - lease-active（RUNNING 未过期，并发重入）→ 跳过重复执行，返回 skip 提示。
         cache_key = f"{run_context.run_id}:{call.id}"
         claim = loop.engine.ledger.acquire(cache_key, run_id=run_context.run_id)
-        if not claim.acquired and claim.record.status == ExecutionStatus.COMPLETED:
+        if not claim.acquired:
             cached = claim.record.metadata.get("result")
             if cached is not None:
                 logger.debug("Ledger cache hit for tool_call %s", call.id)
                 loop._emit("tool_call_cached", run_context=run_context, tool_name=call.name, details={})
                 return ToolResult(tool_call_id=call.id, content=cached)
+            logger.debug("Ledger lease-active skip for tool_call %s (%s)", call.id, claim.reason)
+            loop._emit(
+                "tool_call_skipped_inflight",
+                run_context=run_context,
+                tool_name=call.name,
+                details={"reason": claim.reason},
+            )
+            return ToolResult(
+                tool_call_id=call.id,
+                content=f"tool '{call.name}' already in-flight (ledger: {claim.reason}); skipped",
+                is_error=True,
+            )
 
     # ② 策略裁决；③ 查 handler。未知工具直接产出 error 结果，不走 executor。
     verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context)
