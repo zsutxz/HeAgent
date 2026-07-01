@@ -221,10 +221,9 @@ class MCPClientManager:
 
     def _unregister_all(self) -> None:
         """从 ToolRegistry 摘除全部 MCP 工具（还原纯内置状态，利于测试隔离）。"""
-        for tool_names in self._registered.values():
-            for tool_name in tool_names:
-                self._registry.unregister(tool_name)
-        self._registered.clear()
+        # 委托 _unregister_server：其 ``pop(name, ())`` 会清键，遍历完后 _registered 自然为空。
+        for name in list(self._registered):
+            self._unregister_server(name)
 
     async def _watch(self, name: str, session: ClientSession, stop: asyncio.Event) -> None:
         """持有 session 直到 ``stop`` 或健康探测发现运行时断连（FR-3 收紧）。

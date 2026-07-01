@@ -40,12 +40,15 @@ def atomic_write_text(path: Path, text: str) -> None:
 def load_json_model(path: Path, model_cls: type[T]) -> T | None:
     """容错读：``read_text`` → ``json.loads`` → ``model_cls.model_validate``。
 
-    任一步失败（``OSError`` / ``JSONDecodeError`` / ``ValidationError``）记
-    ``logger.error`` 并返回 None，不向调用方抛——单条坏记录不应中断整个 run。
-    不存在（文件缺失）由调用方自行 ``exists()`` 判断，本函数只处理「存在但读不了」。
+    文件缺失（``FileNotFoundError``）静默返回 None——属正常情况（首次 acquire / 尚无记录），
+    不计为错误。其余读 / 解析 / 校验失败（``OSError`` / ``JSONDecodeError`` /
+    ``ValidationError``）记 ``logger.error`` 并返回 None，不向调用方抛——单条坏记录不应
+    中断整个 run。
     """
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
     except (OSError, json.JSONDecodeError) as exc:
         logger.error("Failed to read JSON from %s: %s", path, exc)
         return None

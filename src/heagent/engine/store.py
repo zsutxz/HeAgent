@@ -116,10 +116,7 @@ class RunStore:
 
     async def load(self, run_id: str) -> RunSnapshot | None:
         """按 run_id 加载一份快照；不存在或损坏则返回 None。"""
-        path = self._path(run_id)
-        if not await asyncio.to_thread(path.exists):
-            return None
-        return await asyncio.to_thread(load_json_model, path, RunSnapshot)
+        return await asyncio.to_thread(load_json_model, self._path(run_id), RunSnapshot)
 
     async def list_runs(self) -> list[str]:
         """列出全部已持久化的 run_id（排序）。"""

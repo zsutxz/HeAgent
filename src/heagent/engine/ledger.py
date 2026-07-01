@@ -150,10 +150,7 @@ class ExecutionLedger:
 
     async def get(self, key: str) -> ExecutionRecord | None:
         """按幂等键加载一条记录；不存在或损坏则返回 None。"""
-        path = self._path(key)
-        if not await asyncio.to_thread(path.exists):
-            return None
-        return await asyncio.to_thread(load_json_model, path, ExecutionRecord)
+        return await asyncio.to_thread(load_json_model, self._path(key), ExecutionRecord)
 
     async def list_records(self) -> list[ExecutionRecord]:
         """返回全部已知记录（按 (scope, key) 排序）；损坏文件跳过不中断。"""
