@@ -15,6 +15,7 @@ messages / results / final_answer / error。AgentLoop 在 ``run()`` 中经 ``sta
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -69,12 +70,12 @@ class RunStore:
         # 快照根目录；按需在 save() 时创建。
         self._base = Path(base_dir)
 
-    def start(self, context: RunContext, *, prompt: str, system: str | None = None) -> str:
+    async def start(self, context: RunContext, *, prompt: str, system: str | None = None) -> str:
         """创建或覆盖一个 run 的初始快照，返回写入路径。"""
         snapshot = RunSnapshot(context=context.model_copy(deep=True), prompt=prompt, system=system)
-        return self.save(snapshot)
+        return await self.save(snapshot)
 
-    def checkpoint(
+    async def checkpoint(
         self,
         context: RunContext,
         *,
@@ -89,7 +90,7 @@ class RunStore:
 
         各可选参数为 None 时保留原值；深拷贝入参，避免外部对象被后续修改污染快照。
         """
-        snapshot = self.load(context.run_id)
+        snapshot = await self.load(context.run_id)
         if snapshot is None:
             snapshot = RunSnapshot(context=context.model_copy(deep=True), prompt=prompt, system=system)
         snapshot.context = context.model_copy(deep=True)
@@ -103,29 +104,31 @@ class RunStore:
             snapshot.final_answer = final_answer
         if error is not None:
             snapshot.error = error
-        return self.save(snapshot)
+        return await self.save(snapshot)
 
-    def save(self, snapshot: RunSnapshot) -> str:
+    async def save(self, snapshot: RunSnapshot) -> str:
         """把一份快照原子写到磁盘（按 run_id 命名），返回路径字符串。"""
         path = self._path(snapshot.context.run_id)
         payload = snapshot.model_dump(mode="json")
-        atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
+        text = json.dumps(payload, ensure_ascii=False, indent=2)
+        await asyncio.to_thread(atomic_write_text, path, text)
         return str(path)
 
-    def load(self, run_id: str) -> RunSnapshot | None:
+    async def load(self, run_id: str) -> RunSnapshot | None:
         """按 run_id 加载一份快照；不存在或损坏则返回 None。"""
         path = self._path(run_id)
-        if not path.exists():
+        if not await asyncio.to_thread(path.exists):
             return None
-        return load_json_model(path, RunSnapshot)
+        return await asyncio.to_thread(load_json_model, path, RunSnapshot)
 
-    def list_runs(self) -> list[str]:
+    async def list_runs(self) -> list[str]:
         """列出全部已持久化的 run_id（排序）。"""
-        if not self._base.exists():
+        if not await asyncio.to_thread(self._base.exists):
             return []
-        return sorted(path.stem for path in self._base.glob("*.json"))
+        paths = await asyncio.to_thread(lambda: list(self._base.glob("*.json")))
+        return sorted(path.stem for path in paths)
 
-    def build_run_tree(self, root_id: str | None = None) -> list[RunNode]:
+    async def build_run_tree(self, root_id: str | None = None) -> list[RunNode]:
         """按 ``parent_run_id`` 把全部 run 聚合成树 / 森林。
 
         不传 ``root_id``：返回所有「根 run」——即 ``parent_run_id`` 为 None、或指向**不在
@@ -135,8 +138,8 @@ class RunStore:
         """
         # 第一趟：为每个 run 建节点（带 parent_run_id / status）。
         nodes: dict[str, RunNode] = {}
-        for run_id in self.list_runs():
-            snapshot = self.load(run_id)
+        for run_id in await self.list_runs():
+            snapshot = await self.load(run_id)
             if snapshot is None:
                 continue
             ctx = snapshot.context
@@ -160,12 +163,12 @@ class RunStore:
             return [target] if target is not None else []
         return roots
 
-    def delete(self, run_id: str) -> bool:
+    async def delete(self, run_id: str) -> bool:
         """删除一份已存储的 run 快照；不存在则返回 False。"""
         path = self._path(run_id)
-        if not path.exists():
+        if not await asyncio.to_thread(path.exists):
             return False
-        path.unlink()
+        await asyncio.to_thread(path.unlink)
         return True
 
     def _path(self, run_id: str) -> Path:

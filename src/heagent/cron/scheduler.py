@@ -75,7 +75,7 @@ class CronScheduler:
     async def _execute_job(self, job: CronJob, *, now: datetime) -> None:
         """Execute one due job if the execution ledger grants the lease."""
         key = f"cron:{job.id}:{now.strftime('%Y-%m-%dT%H:%M')}"
-        claim = self._engine.ledger.acquire(
+        claim = await self._engine.ledger.acquire(
             key,
             scope="cron",
             lease_seconds=max(self._tick_seconds * 2, 120),
@@ -107,7 +107,7 @@ class CronScheduler:
             await loop.run(job.prompt)
             success = True
         except Exception as exc:
-            self._engine.ledger.fail(key, str(exc), metadata={"job_id": job.id, "cron": job.cron})
+            await self._engine.ledger.fail(key, str(exc), metadata={"job_id": job.id, "cron": job.cron})
             self._engine.events.publish(
                 "cron_job_failed",
                 run_id=run_context.run_id,
@@ -119,7 +119,7 @@ class CronScheduler:
             from heagent.cron.jobs import _iso_now
 
             self._store.update(job.id, last_run=_iso_now())
-            self._engine.ledger.complete(key, metadata={"job_id": job.id, "cron": job.cron})
+            await self._engine.ledger.complete(key, metadata={"job_id": job.id, "cron": job.cron})
             self._engine.events.publish(
                 "cron_job_completed",
                 run_id=run_context.run_id,

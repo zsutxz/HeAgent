@@ -89,7 +89,7 @@ class TestRunStoreIntegration:
 
         assert result == "ok"
         assert loop.last_run_context is not None
-        snapshot = engine.run_store.load(loop.last_run_context.run_id)
+        snapshot = await engine.run_store.load(loop.last_run_context.run_id)
         assert snapshot is not None
         assert snapshot.final_answer == "ok"
         assert snapshot.context.status == RunStatus.COMPLETED
@@ -111,7 +111,7 @@ class TestPolicyEngine:
 
         assert result == "done"
         assert loop.last_run_context is not None
-        snapshot = engine.run_store.load(loop.last_run_context.run_id)
+        snapshot = await engine.run_store.load(loop.last_run_context.run_id)
         assert snapshot is not None
         assert snapshot.results[0].is_error is True
         assert "outside workspace" in snapshot.results[0].content
@@ -201,38 +201,65 @@ class TestPolicyEngine:
 
 
 class TestExecutionLedger:
-    def test_acquire_and_complete(self, workspace_dir: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_acquire_and_complete(self, workspace_dir: Path) -> None:
         engine = EngineContainer.default(workspace_root=str(workspace_dir))
         engine.ledger = engine.ledger.__class__(base_dir=str(workspace_dir / "ledger"))
 
-        claim = engine.ledger.acquire("cron:test:2026-06-23T10:00", scope="cron")
+        claim = await engine.ledger.acquire("cron:test:2026-06-23T10:00", scope="cron")
         assert claim.acquired is True
 
-        duplicate = engine.ledger.acquire("cron:test:2026-06-23T10:00", scope="cron")
+        duplicate = await engine.ledger.acquire("cron:test:2026-06-23T10:00", scope="cron")
         assert duplicate.acquired is False
 
-        engine.ledger.complete("cron:test:2026-06-23T10:00")
-        record = engine.ledger.get("cron:test:2026-06-23T10:00")
+        await engine.ledger.complete("cron:test:2026-06-23T10:00")
+        record = await engine.ledger.get("cron:test:2026-06-23T10:00")
         assert record is not None
         assert record.status == "completed"
 
-    def test_corrupt_ledger_record_returns_none(self, workspace_dir: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_corrupt_ledger_record_returns_none(self, workspace_dir: Path) -> None:
         """C：损坏的 ledger JSON 不抛 JSONDecodeError，容错返回 None。"""
         engine = EngineContainer.default(workspace_root=str(workspace_dir))
         engine.ledger = engine.ledger.__class__(base_dir=str(workspace_dir / "ledger"))
         bad_path = engine.ledger._path("cron:test:bad")
         bad_path.parent.mkdir(parents=True, exist_ok=True)
         bad_path.write_text("{not valid json", encoding="utf-8")
-        assert engine.ledger.get("cron:test:bad") is None
+        assert await engine.ledger.get("cron:test:bad") is None
 
-    def test_corrupt_run_snapshot_loads_none(self, workspace_dir: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_corrupt_run_snapshot_loads_none(self, workspace_dir: Path) -> None:
         """C：损坏的 run 快照 JSON 容错返回 None（不破坏 resume 链路）。"""
         engine = EngineContainer.default(workspace_root=str(workspace_dir))
         engine.run_store = engine.run_store.__class__(base_dir=str(workspace_dir / "runs"))
         bad_path = engine.run_store._path("bad-run")
         bad_path.parent.mkdir(parents=True, exist_ok=True)
         bad_path.write_text("<<broken", encoding="utf-8")
-        assert engine.run_store.load("bad-run") is None
+        assert await engine.run_store.load("bad-run") is None
+
+    def test_ledger_io_methods_are_coroutines(self) -> None:
+        """D：ledger/store 的 I/O 方法是协程（防回归为同步）。"""
+        import asyncio
+
+        from heagent.engine.ledger import ExecutionLedger
+        from heagent.engine.store import RunStore
+
+        for method in (
+            ExecutionLedger.acquire,
+            ExecutionLedger.complete,
+            ExecutionLedger.fail,
+            ExecutionLedger.get,
+            ExecutionLedger._save,
+        ):
+            assert asyncio.iscoroutinefunction(method), f"{method.__name__} should be async"
+        for method in (
+            RunStore.save,
+            RunStore.load,
+            RunStore.start,
+            RunStore.checkpoint,
+            RunStore.build_run_tree,
+        ):
+            assert asyncio.iscoroutinefunction(method), f"{method.__name__} should be async"
 
     def test_atomic_write_leaves_target_intact_on_crash(self, workspace_dir: Path, monkeypatch) -> None:
         """C：os.replace 前崩溃 → 目标保持旧内容，不留半截文件。"""
@@ -361,7 +388,7 @@ class TestPolicyIntegration:
         result = await loop.run("run shell")
 
         assert result == "done"
-        snapshot = engine.run_store.load(loop.last_run_context.run_id)
+        snapshot = await engine.run_store.load(loop.last_run_context.run_id)
         assert snapshot is not None
         assert snapshot.results[0].is_error is True
         assert "requires sandbox" in snapshot.results[0].content
@@ -385,7 +412,7 @@ class TestPolicyIntegration:
         result = await loop.run("run shell")
 
         assert result == "done"
-        snapshot = engine.run_store.load(loop.last_run_context.run_id)
+        snapshot = await engine.run_store.load(loop.last_run_context.run_id)
         assert snapshot is not None
         assert snapshot.results[0].is_error is True
         assert "requires approval" in snapshot.results[0].content
@@ -422,7 +449,7 @@ class TestPolicyIntegration:
 
         assert result == "done"
         assert calls == ["dir"]
-        snapshot = engine.run_store.load(loop.last_run_context.run_id)
+        snapshot = await engine.run_store.load(loop.last_run_context.run_id)
         assert snapshot is not None
         assert snapshot.results[0].is_error is False
         assert "sandbox-ok" in snapshot.results[0].content

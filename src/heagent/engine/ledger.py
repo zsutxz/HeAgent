@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from datetime import datetime, timedelta
@@ -72,7 +73,7 @@ class ExecutionLedger:
         # 账本根目录；按需在 _save() 时创建。
         self._base = Path(base_dir)
 
-    def acquire(
+    async def acquire(
         self,
         key: str,
         *,
@@ -89,7 +90,7 @@ class ExecutionLedger:
 
         否则（无记录 / 已失败 / 租约已过期）→ 置 RUNNING、设新租约、返回 acquired=True。
         """
-        existing = self.get(key)
+        existing = await self.get(key)
         if existing is not None:
             if existing.status == ExecutionStatus.COMPLETED:
                 return LedgerClaim(acquired=False, reason="already completed", record=existing)
@@ -109,24 +110,24 @@ class ExecutionLedger:
         record.error = None
         record.metadata = dict(metadata or {})
         record.lease_expires_at = (datetime.now() + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
-        self._save(record)
+        await self._save(record)
         return LedgerClaim(acquired=True, record=record)
 
-    def complete(self, key: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
+    async def complete(self, key: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
         """标记一个键为 COMPLETED（幂等短路的最终态）。无记录时自动创建。"""
-        record = self.get(key) or ExecutionRecord(key=key)
+        record = await self.get(key) or ExecutionRecord(key=key)
         record.status = ExecutionStatus.COMPLETED
         record.updated_at = iso_now()
         record.finished_at = record.updated_at
         record.lease_expires_at = None
         if metadata is not None:
             record.metadata = dict(metadata)
-        self._save(record)
+        await self._save(record)
         return record
 
-    def fail(self, key: str, error: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
+    async def fail(self, key: str, error: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
         """标记一个键为 FAILED 并记录错误（FAILED 可被后续 acquire 重新占用）。"""
-        record = self.get(key) or ExecutionRecord(key=key)
+        record = await self.get(key) or ExecutionRecord(key=key)
         record.status = ExecutionStatus.FAILED
         record.updated_at = iso_now()
         record.finished_at = record.updated_at
@@ -134,41 +135,43 @@ class ExecutionLedger:
         record.error = error
         if metadata is not None:
             record.metadata = dict(metadata)
-        self._save(record)
+        await self._save(record)
         return record
 
-    def heartbeat(self, key: str, *, lease_seconds: int = 120) -> ExecutionRecord | None:
+    async def heartbeat(self, key: str, *, lease_seconds: int = 120) -> ExecutionRecord | None:
         """为进行中的记录续租；非 RUNNING（已完成 / 失败 / 不存在）返回 None。"""
-        record = self.get(key)
+        record = await self.get(key)
         if record is None or record.status != ExecutionStatus.RUNNING:
             return None
         record.updated_at = iso_now()
         record.lease_expires_at = (datetime.now() + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
-        self._save(record)
+        await self._save(record)
         return record
 
-    def get(self, key: str) -> ExecutionRecord | None:
+    async def get(self, key: str) -> ExecutionRecord | None:
         """按幂等键加载一条记录；不存在或损坏则返回 None。"""
         path = self._path(key)
-        if not path.exists():
+        if not await asyncio.to_thread(path.exists):
             return None
-        return load_json_model(path, ExecutionRecord)
+        return await asyncio.to_thread(load_json_model, path, ExecutionRecord)
 
-    def list_records(self) -> list[ExecutionRecord]:
+    async def list_records(self) -> list[ExecutionRecord]:
         """返回全部已知记录（按 (scope, key) 排序）；损坏文件跳过不中断。"""
-        if not self._base.exists():
+        if not await asyncio.to_thread(self._base.exists):
             return []
+        paths = await asyncio.to_thread(lambda: list(self._base.glob("*.json")))
         records: list[ExecutionRecord] = []
-        for path in self._base.glob("*.json"):
-            record = load_json_model(path, ExecutionRecord)
+        for path in paths:
+            record = await asyncio.to_thread(load_json_model, path, ExecutionRecord)
             if record is not None:
                 records.append(record)
         return sorted(records, key=lambda r: (r.scope, r.key))
 
-    def _save(self, record: ExecutionRecord) -> None:
+    async def _save(self, record: ExecutionRecord) -> None:
         """把一条记录原子写到磁盘（tmp + os.replace，防崩溃留半截）。"""
         payload = record.model_dump(mode="json")
-        atomic_write_text(self._path(record.key), json.dumps(payload, ensure_ascii=False, indent=2))
+        text = json.dumps(payload, ensure_ascii=False, indent=2)
+        await asyncio.to_thread(atomic_write_text, self._path(record.key), text)
 
     def _path(self, key: str) -> Path:
         """幂等键 → 文件路径：用 sha1(key) 命名，规避 key 中的路径分隔符 / 特殊字符。"""

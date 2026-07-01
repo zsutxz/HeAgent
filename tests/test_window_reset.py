@@ -131,8 +131,8 @@ async def test_resume_completed_returns_cached_answer(tmp_path) -> None:
     store = RunStore(str(tmp_path / "runs"))
     rc = RunContext()
     rc.touch(status=RunStatus.COMPLETED)
-    store.start(rc, prompt="hi", system=None)
-    store.checkpoint(rc, prompt="hi", system=None, messages=[], final_answer="42")
+    await store.start(rc, prompt="hi", system=None)
+    await store.checkpoint(rc, prompt="hi", system=None, messages=[], final_answer="42")
 
     loop = AgentLoop(_StubProvider([]), engine=_engine(tmp_path, store=store))
     assert await loop.resume(rc.run_id) == "42"
@@ -143,8 +143,8 @@ async def test_resume_rebuilds_from_progress_summary(tmp_path) -> None:
     rc = RunContext()
     rc.metadata["progress_summary"] = "step1 done"
     rc.touch(iteration=3)
-    store.start(rc, prompt="build app", system=None)
-    store.checkpoint(
+    await store.start(rc, prompt="build app", system=None)
+    await store.checkpoint(
         rc,
         prompt="build app",
         system=None,
@@ -165,8 +165,8 @@ async def test_resume_stream_completed_yields_done(tmp_path) -> None:
     store = RunStore(str(tmp_path / "runs"))
     rc = RunContext()
     rc.touch(status=RunStatus.COMPLETED)
-    store.start(rc, prompt="hi", system=None)
-    store.checkpoint(rc, prompt="hi", system=None, messages=[], final_answer="42")
+    await store.start(rc, prompt="hi", system=None)
+    await store.checkpoint(rc, prompt="hi", system=None, messages=[], final_answer="42")
 
     loop = AgentLoop(_StubProvider([]), engine=_engine(tmp_path, store=store))
     events = [e async for e in loop.resume_stream(rc.run_id)]
@@ -180,8 +180,8 @@ async def test_resume_stream_rebuilds_and_continues(tmp_path) -> None:
     rc = RunContext()
     rc.metadata["progress_summary"] = "step1 done"
     rc.touch(iteration=3)
-    store.start(rc, prompt="build app", system=None)
-    store.checkpoint(
+    await store.start(rc, prompt="build app", system=None)
+    await store.checkpoint(
         rc,
         prompt="build app",
         system=None,
@@ -321,7 +321,7 @@ async def test_lease_active_skips_reexecute(tmp_path) -> None:
 
     # 预占 lease：acquire 写入 RUNNING 记录但不 complete，模拟并发重入。
     cache_key = f"{rc.run_id}:{call.id}"
-    loop.engine.ledger.acquire(cache_key, run_id=rc.run_id)
+    await loop.engine.ledger.acquire(cache_key, run_id=rc.run_id)
 
     # 相同 cache_key 再调：acquire 返回 lease-active（acquired=False），应 skip。
     result = await loop._execute_one(call, run_context=rc)

@@ -73,7 +73,7 @@ async def execute_tool_call(
         #    - 已 COMPLETED（有 result）→ 幂等命中，返回缓存（Commit A 会在此复核 policy）。
         #    - lease-active（RUNNING 未过期，并发重入）→ 跳过重复执行，返回 skip 提示。
         cache_key = f"{run_context.run_id}:{call.id}"
-        claim = loop.engine.ledger.acquire(cache_key, run_id=run_context.run_id)
+        claim = await loop.engine.ledger.acquire(cache_key, run_id=run_context.run_id)
         if not claim.acquired:
             cached = claim.record.metadata.get("result")
             if cached is not None:
@@ -124,9 +124,9 @@ async def execute_tool_call(
     # ④ 结果回写 ledger：成功记 complete（带结果供后续幂等），失败记 fail（允许重试）。
     if cache_key is not None:
         if result.is_error:
-            loop.engine.ledger.fail(cache_key, result.content)
+            await loop.engine.ledger.fail(cache_key, result.content)
         else:
-            loop.engine.ledger.complete(cache_key, metadata={"result": result.content})
+            await loop.engine.ledger.complete(cache_key, metadata={"result": result.content})
     return result
 
 

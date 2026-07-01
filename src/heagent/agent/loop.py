@@ -168,7 +168,7 @@ class AgentLoop:
             self._emit("run_started", run_context=run_context, details={"resume": True})
         else:
             # —— 分支①-B：全新运行。初始化状态/上下文/系统提示词（run/run_stream 共用）。
-            state, run_context, system_content, accumulated = self._init_new_run(
+            state, run_context, system_content, accumulated = await self._init_new_run(
                 prompt, system, session_id, stream=False
             )
 
@@ -193,7 +193,7 @@ class AgentLoop:
                     state.messages.append(
                         Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
                     )
-                    self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+                    await self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
 
                     # 步骤4：若 LLM 未请求任何工具调用 —— 已是最终回答，跳出循环。
                     if not response.tool_calls:
@@ -205,7 +205,7 @@ class AgentLoop:
                         state.messages.append(
                             Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
                         )
-                    self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+                    await self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
 
                     # 步骤6（可选）：窗口重置（达到 token 阈值则折叠成「prompt + 进度摘要」新窗口）。
                     await self._maybe_window_reset(state, run_context, prompt, system_content, response.usage)
@@ -214,7 +214,7 @@ class AgentLoop:
                 # 循环正常结束：记录最终答案、置 COMPLETED、发布完成事件，返回答案。
                 final_answer = response.content if response is not None else ""
                 run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
-                self._checkpoint(
+                await self._checkpoint(
                     run_context,
                     prompt=prompt,
                     system=system_content,
@@ -229,7 +229,7 @@ class AgentLoop:
                 return final_answer
             except Exception as exc:
                 # 任何异常：置 FAILED、记错误快照、发布失败事件后原样向上抛（显性失败）。
-                self._on_run_failed(run_context, prompt, system_content, state, exc)
+                await self._on_run_failed(run_context, prompt, system_content, state, exc)
                 raise
             finally:
                 # 无论成功失败：会话消息落盘，并把本次 run 的事后产物缓存到实例属性。
@@ -265,7 +265,7 @@ class AgentLoop:
             self._emit("run_started", run_context=run_context, details={"resume": True, "stream": True})
         else:
             # —— 分支①-B：全新运行。初始化状态/上下文/系统提示词（run/run_stream 共用）。
-            state, run_context, system_content, accumulated = self._init_new_run(
+            state, run_context, system_content, accumulated = await self._init_new_run(
                 prompt, system, session_id, stream=True
             )
 
@@ -323,12 +323,12 @@ class AgentLoop:
                         )
                         accumulated = self._add_usage(accumulated, response.usage)
 
-                    self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+                    await self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
 
                     # 无工具调用 = 最终回答：置 COMPLETED、落最终快照、发布完成事件，并 yield done 结束流。
                     if not response.tool_calls:
                         run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
-                        self._checkpoint(
+                        await self._checkpoint(
                             run_context,
                             prompt=prompt,
                             system=system_content,
@@ -351,12 +351,12 @@ class AgentLoop:
                         state.messages.append(
                             Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
                         )
-                    self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+                    await self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
 
                     # 窗口重置（逻辑同 run()，达到阈值则换段继续）。
                     await self._maybe_window_reset(state, run_context, prompt, system_content, response.usage)
             except Exception as exc:
-                self._on_run_failed(run_context, prompt, system_content, state, exc)
+                await self._on_run_failed(run_context, prompt, system_content, state, exc)
                 raise
             finally:
                 if self.session and session_id:
@@ -377,7 +377,7 @@ class AgentLoop:
 
         流式恢复见 :meth:`resume_stream`。
         """
-        snapshot = self.engine.run_store.load(run_id)
+        snapshot = await self.engine.run_store.load(run_id)
         if snapshot is None:
             raise ValueError(f"No run snapshot found for run_id={run_id!r}")
         if snapshot.context.status == RunStatus.COMPLETED:
@@ -411,7 +411,7 @@ class AgentLoop:
         已 COMPLETED 的 run 直接 yield 单个 ``done`` 事件（带缓存答案）；未完成的
         run 同样按 progress_summary 重建窗口后，用原 run_id 流式续跑。
         """
-        snapshot = self.engine.run_store.load(run_id)
+        snapshot = await self.engine.run_store.load(run_id)
         if snapshot is None:
             raise ValueError(f"No run snapshot found for run_id={run_id!r}")
         if snapshot.context.status == RunStatus.COMPLETED:
@@ -453,7 +453,7 @@ class AgentLoop:
         if state.iteration > state.max_iterations:
             raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
 
-    def _init_new_run(
+    async def _init_new_run(
         self,
         prompt: str,
         system: str | None,
@@ -487,7 +487,7 @@ class AgentLoop:
             state.messages.append(Message(role=Role.SYSTEM, content=system_content))
         state.messages.append(Message(role=Role.USER, content=prompt))
 
-        self._start_run_record(run_context, prompt=prompt, system=system_content)
+        await self._start_run_record(run_context, prompt=prompt, system=system_content)
         details: dict[str, Any] = {"stream": True} if stream else {"session_id": session_id or ""}
         self._emit("run_started", run_context=run_context, details=details)
         return state, run_context, system_content, accumulated
@@ -559,9 +559,9 @@ class AgentLoop:
             run_context=run_context,
             details={"before": before, "after": len(state.messages)},
         )
-        self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+        await self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
 
-    def _on_run_failed(
+    async def _on_run_failed(
         self,
         run_context: RunContext,
         prompt: str,
@@ -576,7 +576,7 @@ class AgentLoop:
         ——它处于 async-generator 的 cleanup 路径，动它风险高、收益小。
         """
         run_context.touch(status=RunStatus.FAILED, iteration=state.iteration)
-        self._checkpoint(
+        await self._checkpoint(
             run_context,
             prompt=prompt,
             system=system_content,
@@ -737,14 +737,14 @@ class AgentLoop:
             )
             yield
 
-    def _start_run_record(self, run_context: RunContext, *, prompt: str, system: str | None) -> None:
+    async def _start_run_record(self, run_context: RunContext, *, prompt: str, system: str | None) -> None:
         """写入初始运行快照（best-effort：失败仅记日志，不阻断主循环）。"""
         try:
-            self.engine.run_store.start(run_context, prompt=prompt, system=system)
+            await self.engine.run_store.start(run_context, prompt=prompt, system=system)
         except Exception:
             logger.exception("Failed to start run record for '%s'", run_context.run_id)
 
-    def _checkpoint(
+    async def _checkpoint(
         self,
         run_context: RunContext,
         *,
@@ -760,7 +760,7 @@ class AgentLoop:
         结果，供 ``resume()`` 续跑或事后审计使用。
         """
         try:
-            self.engine.run_store.checkpoint(
+            await self.engine.run_store.checkpoint(
                 run_context,
                 prompt=prompt,
                 system=system,
