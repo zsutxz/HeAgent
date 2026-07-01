@@ -329,3 +329,26 @@ async def test_lease_active_skips_reexecute(tmp_path) -> None:
     assert result.is_error
     assert "in-flight" in result.content
     assert counter["n"] == 0  # handler 未执行
+
+
+async def test_cached_result_respects_policy_tightening(tmp_path) -> None:
+    """A：缓存命中后若 policy 收紧到 BLOCKED，不返回缓存，按 BLOCKED 处理。
+
+    防止 policy 收紧（新加 blocklist）后，已 COMPLETED 的 tool_call.id 借缓存绕过。
+    """
+    registry, counter = _bump_registry()
+    loop = AgentLoop(_StubProvider([]), registry=registry, engine=_engine(tmp_path))
+    rc = RunContext()
+    call = ToolCall(id="b1", name="bump", arguments={})
+
+    first = await loop._execute_one(call, run_context=rc)
+    assert first.content == "1"
+    assert counter["n"] == 1
+
+    # 收紧 policy：把 bump 加入黑名单 → 再次执行应判 BLOCKED，不返回缓存。
+    loop.engine.policy.blocked_tools = {*loop.engine.policy.blocked_tools, "bump"}
+
+    second = await loop._execute_one(call, run_context=rc)
+    assert second.is_error is True
+    assert second.content != "1"  # 缓存内容未被放行
+    assert counter["n"] == 1  # handler 未再执行（BLOCKED 在 executor 拦截）

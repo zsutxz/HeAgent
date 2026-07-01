@@ -15,6 +15,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
+from heagent.engine import ToolExecutionMode
 from heagent.types import ToolCall, ToolResult
 
 if TYPE_CHECKING:
@@ -76,9 +77,14 @@ async def execute_tool_call(
         if not claim.acquired:
             cached = claim.record.metadata.get("result")
             if cached is not None:
-                logger.debug("Ledger cache hit for tool_call %s", call.id)
-                loop._emit("tool_call_cached", run_context=run_context, tool_name=call.name, details={})
-                return ToolResult(tool_call_id=call.id, content=cached)
+                # A: 缓存命中也复核 policy——若当前 policy 已收紧到 BLOCKED，不返回缓存，
+                #    fall through 走正常链路（下方 evaluate 再算一次 BLOCKED，executor 拦截）。
+                cached_verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context)
+                if cached_verdict.mode is not ToolExecutionMode.BLOCKED:
+                    logger.debug("Ledger cache hit for tool_call %s", call.id)
+                    loop._emit("tool_call_cached", run_context=run_context, tool_name=call.name, details={})
+                    return ToolResult(tool_call_id=call.id, content=cached)
+                logger.debug("Ledger cache bypass for blocked tool_call %s", call.id)
             logger.debug("Ledger lease-active skip for tool_call %s (%s)", call.id, claim.reason)
             loop._emit(
                 "tool_call_skipped_inflight",
