@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 # noqa: TC001 — RunContext/Message/ToolResult 是 Pydantic 模型字段类型，
 # 需运行期导入以构建 schema（ruff TC001 为误报）。
 from heagent.engine.context import RunContext, RunStatus  # noqa: TC001
+from heagent.engine.persist import atomic_write_text, load_json_model
 from heagent.types import Message, ToolResult  # noqa: TC001
 
 
@@ -105,20 +106,18 @@ class RunStore:
         return self.save(snapshot)
 
     def save(self, snapshot: RunSnapshot) -> str:
-        """把一份快照写到磁盘（按 run_id 命名），返回路径字符串。"""
-        self._base.mkdir(parents=True, exist_ok=True)
+        """把一份快照原子写到磁盘（按 run_id 命名），返回路径字符串。"""
         path = self._path(snapshot.context.run_id)
         payload = snapshot.model_dump(mode="json")
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(path, json.dumps(payload, ensure_ascii=False, indent=2))
         return str(path)
 
     def load(self, run_id: str) -> RunSnapshot | None:
-        """按 run_id 加载一份快照；不存在则返回 None。"""
+        """按 run_id 加载一份快照；不存在或损坏则返回 None。"""
         path = self._path(run_id)
         if not path.exists():
             return None
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        return RunSnapshot.model_validate(payload)
+        return load_json_model(path, RunSnapshot)
 
     def list_runs(self) -> list[str]:
         """列出全部已持久化的 run_id（排序）。"""

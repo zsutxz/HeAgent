@@ -23,6 +23,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from heagent.engine.context import iso_now
+from heagent.engine.persist import atomic_write_text, load_json_model
 
 
 class ExecutionStatus(StrEnum):
@@ -147,28 +148,27 @@ class ExecutionLedger:
         return record
 
     def get(self, key: str) -> ExecutionRecord | None:
-        """按幂等键加载一条记录；不存在则返回 None。"""
+        """按幂等键加载一条记录；不存在或损坏则返回 None。"""
         path = self._path(key)
         if not path.exists():
             return None
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        return ExecutionRecord.model_validate(payload)
+        return load_json_model(path, ExecutionRecord)
 
     def list_records(self) -> list[ExecutionRecord]:
-        """返回全部已知记录（按 (scope, key) 排序）。"""
+        """返回全部已知记录（按 (scope, key) 排序）；损坏文件跳过不中断。"""
         if not self._base.exists():
             return []
         records: list[ExecutionRecord] = []
         for path in self._base.glob("*.json"):
-            payload = json.loads(path.read_text(encoding="utf-8"))
-            records.append(ExecutionRecord.model_validate(payload))
+            record = load_json_model(path, ExecutionRecord)
+            if record is not None:
+                records.append(record)
         return sorted(records, key=lambda r: (r.scope, r.key))
 
     def _save(self, record: ExecutionRecord) -> None:
-        """把一条记录写到磁盘。"""
-        self._base.mkdir(parents=True, exist_ok=True)
+        """把一条记录原子写到磁盘（tmp + os.replace，防崩溃留半截）。"""
         payload = record.model_dump(mode="json")
-        self._path(record.key).write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(self._path(record.key), json.dumps(payload, ensure_ascii=False, indent=2))
 
     def _path(self, key: str) -> Path:
         """幂等键 → 文件路径：用 sha1(key) 命名，规避 key 中的路径分隔符 / 特殊字符。"""

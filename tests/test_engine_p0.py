@@ -216,6 +216,40 @@ class TestExecutionLedger:
         assert record is not None
         assert record.status == "completed"
 
+    def test_corrupt_ledger_record_returns_none(self, workspace_dir: Path) -> None:
+        """C：损坏的 ledger JSON 不抛 JSONDecodeError，容错返回 None。"""
+        engine = EngineContainer.default(workspace_root=str(workspace_dir))
+        engine.ledger = engine.ledger.__class__(base_dir=str(workspace_dir / "ledger"))
+        bad_path = engine.ledger._path("cron:test:bad")
+        bad_path.parent.mkdir(parents=True, exist_ok=True)
+        bad_path.write_text("{not valid json", encoding="utf-8")
+        assert engine.ledger.get("cron:test:bad") is None
+
+    def test_corrupt_run_snapshot_loads_none(self, workspace_dir: Path) -> None:
+        """C：损坏的 run 快照 JSON 容错返回 None（不破坏 resume 链路）。"""
+        engine = EngineContainer.default(workspace_root=str(workspace_dir))
+        engine.run_store = engine.run_store.__class__(base_dir=str(workspace_dir / "runs"))
+        bad_path = engine.run_store._path("bad-run")
+        bad_path.parent.mkdir(parents=True, exist_ok=True)
+        bad_path.write_text("<<broken", encoding="utf-8")
+        assert engine.run_store.load("bad-run") is None
+
+    def test_atomic_write_leaves_target_intact_on_crash(self, workspace_dir: Path, monkeypatch) -> None:
+        """C：os.replace 前崩溃 → 目标保持旧内容，不留半截文件。"""
+        from heagent.engine.persist import atomic_write_text
+
+        def _boom(*args: object, **kwargs: object) -> None:
+            raise OSError("simulated crash before replace")
+
+        target = workspace_dir / "runs" / "r1.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text('{"old": true}', encoding="utf-8")
+
+        monkeypatch.setattr("heagent.engine.persist.os.replace", _boom)
+        with pytest.raises(OSError, match="simulated crash"):
+            atomic_write_text(target, '{"new": true}')
+        assert target.read_text(encoding="utf-8") == '{"old": true}'
+
 
 class TestCronDedup:
     @pytest.mark.asyncio
