@@ -95,6 +95,15 @@ python -m heagent
 python -m heagent --model deepseek-chat --system "你是 Python 专家" "写一个二分查找"
 ```
 
+常用 CLI 选项：
+
+| 选项 | 说明 |
+|------|------|
+| `--model` | 模型名（默认取 `settings.default_model`） |
+| `--system` | 自定义 system prompt |
+| `--max-iterations` | Agent 循环最大迭代数（默认 50） |
+| `--soul` | 自定义 `SOUL.md` 人格文件路径 |
+
 安装脚本后也可以直接使用：
 
 ```bash
@@ -159,7 +168,7 @@ MCP server 与其返回内容同样不可信，安全要求与 shell / 文件工
 - `.heagent/cron/jobs.json`：Cron 任务
 - `.heagent/runs/`：运行快照
 - `.heagent/ledger/`：工具执行幂等记录
-- `.heagent/SOUL.md`：项目级人格文件
+- `~/.heagent/SOUL.md`：全局人格（用户默认）；`.heagent/SOUL.md`：项目级人格，存在时覆盖全局
 
 上下文文件加载优先级：
 

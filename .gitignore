@@ -31,3 +31,4 @@ venv/
 .session-resume/
 docs/stock/
 docs/worldcup_prediction.md
+docs/claude-updater/

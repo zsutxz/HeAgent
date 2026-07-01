@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-06-08
+# last_updated: 2026-07-01
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -28,7 +28,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-06-29
+last_updated: 2026-07-01
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -140,7 +140,7 @@ action_items:
   - epic: 13
     action: "评估为 MCP 运行时断连补 auto-unregister（开 spec）"
     owner: "tan"
-    status: open
+    status: closed  # 2026-07-01 交付：commit 3203e4a，spec _bmad-output/patches/fr3-mcp-auto-unregister.md
   - epic: 13
     action: "DP-4（SafetyGuard 扩展到 MCP）纳入下一集成周期候选"
     owner: "tan"

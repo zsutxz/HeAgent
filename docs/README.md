@@ -45,4 +45,4 @@
 3. 本目录和 `README.md`
 4. `_bmad-output/` 下的历史规划文档
 
-`_bmad-output/` 是阶段性产物，不应当覆盖当前代码事实。
+`_bmad-output/` 是阶段性产物，不应当覆盖当前代码事实（产物导航见 [`_bmad-output/README.md`](../_bmad-output/README.md)）。

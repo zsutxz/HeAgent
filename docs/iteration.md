@@ -63,7 +63,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 3. **记录**：写入 `_bmad-output/patches/deferred-work.md`，含触发条件、严重度、冻结边界说明、建议修法。
 4. **收尾**：后续开专门 spec 处理，修完写 `Resolution` 段关闭。
 
-> `_bmad-output/patches/deferred-work.md` 的三条记录（SubAgent 写竞态、ProviderChain 双层重包、流式 backstop 丢失上下文）均已收尾关闭——竞态经核实不成立（单线程 asyncio 下同步方法串行），另两项已修复。
+> `_bmad-output/patches/deferred-work.md` 原 3 条（SubAgent 写竞态、ProviderChain 双层重包、流式 backstop 丢失上下文）均已收尾关闭——竞态经核实不成立（单线程 asyncio 下同步方法串行），另两项已修复。2026-07-01 FR-3 auto-unregister 评审另增 6 项 `defer`（pre-existing / spec 显式排除 / 非阻塞），见文件末尾，均未关闭。
 
 ### 1.5 sprint-status 维护规则
 
@@ -112,7 +112,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.3 补丁周期 · 技术债收尾
 
-`_bmad-output/patches/` 扁平存放计划外补丁，`deferred-work.md` 跟踪遗留项。已交付：`3-3-token-counter`、`5-1-subagent-context-injection`、`epic-5-context`、`p0-provider-hardening`。
+`_bmad-output/patches/` 扁平存放计划外补丁，`deferred-work.md` 跟踪遗留项。已交付：`3-3-token-counter`、`5-1-subagent-context-injection`、`epic-5-context`、`p0-provider-hardening`、`fr3-mcp-auto-unregister`（FR-3 MCP 运行时断连 auto-unregister）。另有两份轻量回顾：`retrospective-engine-p5.md`、`retrospective-p0-tech-debt.md`。
 
 ### 2.4 engine/ 增量 · epic 外 P0-P5
 
@@ -123,8 +123,8 @@ quick-dev 是**基于 spec 的单会话执行**：
 | P0 | loop engine runtime 落地 |
 | P1/P2 | 多 agent 角色化 + supervisor 编排 |
 | P3/P4 | checkpoint-resume + 工具执行幂等 |
-| P5 | 结构化结果 / 树形聚合 / resume 流式 |
-| P5-1/P5-2 | **deferred** —— 经评估暂不反转（D1/D4），依据记入 `frame.md` |
+| P5-3/P5-4/P5-5 | 结构化子任务结果（`SubTaskOutcome`）+ `parent_run_id` 树形聚合 + resume 流式版 |
+| P5-1/P5-2 | **deferred** —— 经评估暂不反转（D1/D4），依据记入 `frame.md` 4.12 |
 
 ### 2.5 迭代时间线（git log 提炼）
 
@@ -134,24 +134,25 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-06-08 | 自学习闭环 Epic 6-10 分解 |
 | 2026-06-19~20 | P0 provider 技术债收尾 + MCP Client 集成周期（Epic 11-13） |
 | 2026-06-21 | `_bmad-output/` 按周期重组 + 去日期化 |
-| 2026-06-22~23 | engine P0 loop engine runtime |
-| 2026-06-25 | engine P1-P5 扩充 + 新增 `design.md` |
+| 2026-06-23 | engine P0 loop engine runtime 落地 |
+| 2026-06-25 | engine P1-P5 同日集中落地（多 agent 角色化 + checkpoint-resume + 结构化结果/树形聚合/resume 流式）+ 新增 `design.md`；`frame.md` 4.2 对齐 engine 集成 |
 | 2026-06-26 | bmad-method 6.8.0 → 6.9.0；`frame.md` 补 loop engine |
-| 2026-06-29 | engine / agent 源码补详细中文注释 |
-| 2026-07-01 | 收敛工作区路径围栏为 `resolve_under_root` 单一算法；FR-3 收紧（MCP 运行时断连 ping-watch auto-unregister） |
+| 2026-06-29 | engine / agent 源码补详细中文注释；`loop.py` 968→797 行拆分（零回归）；新增 GitHub Actions 质量门禁 + pre-commit 钩子；epic-13 retrospective 完成 |
+| 2026-07-01 | 收敛工作区路径围栏为 `resolve_under_root` 单一算法；FR-3 收紧（MCP 运行时断连 ping-watch auto-unregister）；engine 健壮性四件套（ledger/store I/O 全套 async 化、缓存命中复核 policy、持久化原子写 + 损坏 JSON 容错、lease-active 命中跳过重复执行） |
 
 ---
 
 ## 三、经验教训（轻量 retrospective）
 
-> 下面是从 `deferred-work.md`、`frame.md` 已知缺口、git log 反推的跨 epic 教训。`sprint-status.yaml` 里各 `epic-N-retrospective` 均为 `optional`/未做；若要严格意义的 BMad 回顾产物，用 `bmad-retrospective` skill 单独生成。
+> 下面是从 `deferred-work.md`、`frame.md` 已知缺口、git log 反推的跨 epic 教训。`sprint-status.yaml` 里 epic-1~12 的 `epic-N-retrospective` 均为 `optional`/未做；epic-13 retrospective 已完成（产物 `_bmad-output/mcp-client/retrospective-epic-13.md`）。若要为其余 epic 补做严格意义的 BMad 回顾，用 `bmad-retrospective` skill 单独生成。
 
 1. **edge case hunter 会误判并发竞态**（Epic 5 / SubAgent）：deferred-work 第一条把「多协程访问共享 SkillStore」判为竞态，经核实不成立——`record_usage` 是无 `await` 的同步原子段，单线程 asyncio 下必然串行。**教训**：审查发现要核实是否真有 `await` 交错，加回归测试锁定不变量即可。
 2. **异常包装要加守卫，避免双层重包**（Epic 1 / ProviderChain）：provider 源头包成 `ProviderError` 后，chain 的 `except` 又包一层。**教训**：`_wrap_error` 类入口加 `if isinstance(e, ProviderError): raise`；用 `__cause__` 链断言写回归测试。
 3. **流式与同步路径要对称**（Epic 1）：`send()` 的 backstop 跟踪 `last_error`，`stream()` 版本一度漏了。**教训**：成对的 send/stream 实现要互相对照，补齐对称路径。
 4. **安全边界必须诚实声明，不制造「更安全」假象**（Epic 13 / engine）：`SafetyGuard` 与 engine sandbox 都不是真边界。**教训**：安全相关代码注释里写明「非真正边界，须 OS 级沙箱兜底」，见 `CLAUDE.md` 文首声明。
-5. **两种模式并存要标记冲突，而非折中**（engine / 工作区路径双重围栏，**已收敛**）：`PolicyEngine._validate_paths()` 与 `tools/path_safety.py` 曾两套围栏并存。**教训**：改其一须同步评估另一处，冲突在文档显式标出——后经收敛为共用 `resolve_under_root` 单一算法（两层有意纵深防御）解决。
+5. **两种模式并存要标记冲突，而非折中**（engine / 工作区路径双重围栏，**已收敛**）：`PolicyEngine._validate_paths()` 与 `tools/path_safety.py` 曾两套围栏并存。**教训**：改其一须同步评估另一处，冲突在文档显式标出——后经收敛为共用 `resolve_under_root` 单一算法（两层有意纵深防御）解决（2026-07-01 commit `2ae99ed` 落地，`c7171ba` 同步 frame.md/CLAUDE.md 已知缺口）。
 6. **评估结论要留依据**（engine P5-1/P5-2）：暂不反转的决策（D1/D4）把理由写进 `frame.md`，避免日后重做时忘记为何如此。
+7. **缓存命中仍须复核策略裁决**（engine / ExecutionLedger）：ledger COMPLETED 缓存命中后曾直接返回，未复核最新 policy——若 policy 收紧为 `BLOCKED` 仍返回缓存会绕过门禁。**教训**：缓存层与策略层交叉时，命中后仍须过一遍 policy（commit `84ee783`）；同理 lease-active 命中跳过执行，防并发/重入重复跑 handler（`c07f811`）。
 
 ---
 
@@ -180,3 +181,4 @@ quick-dev 是**基于 spec 的单会话执行**：
 - 迭代原始产物：`_bmad-output/baseline/`、`_bmad-output/mcp-client/`、`_bmad-output/patches/`
 - sprint 状态：`_bmad-output/baseline/sprint-status.yaml`
 - 技术债登记：`_bmad-output/patches/deferred-work.md`
+- 已产出 retrospective：`_bmad-output/patches/retrospective-{engine-p5,p0-tech-debt}.md`、`_bmad-output/mcp-client/retrospective-epic-13.md`

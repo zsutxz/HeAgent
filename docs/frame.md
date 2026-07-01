@@ -79,8 +79,8 @@ exceptions  types  config
 - `agent/` 是顶层编排器，依赖所有其他模块
 - `providers/` 和 `tools/` 互不依赖
 - `exceptions.py` 和 `types.py` 是叶子模块，无内部依赖
-- 新增 Provider 或 Tool **禁止**从 `agent/` 导入
-- `engine/` 是运行时治理层（policy/executor/store/ledger/observability），依赖 `types`/`exceptions`/`tools.safety`；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
+- 新增 Provider 或 Tool **禁止**从 `agent/` 导入（已知例外：`builtins/subagent.py` 委派工具需实例化 `SubAgent`，故 `from heagent.agent.sub import ...`；`tools/mcp/*` 严守此规则）
+- `engine/` 是运行时治理层（policy/executor/store/ledger/observability/persist），依赖 `types`/`exceptions`/`tools.safety`；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 
 ---
 
@@ -115,7 +115,7 @@ exceptions  types  config
 | `_build_system()` | 构建系统提示词（含人格/上下文/技能/记忆注入，见下方注入顺序） |
 | `_call_provider()` | 通过 Middleware 链调用 Provider，含 Token 估算对比 |
 | `_execute_tools()` | `asyncio.gather()` 并行执行所有 tool_calls |
-| `_execute_one()` | `ExecutionLedger` 幂等（key=`run_id:call.id`，COMPLETED 短路返回缓存）→ `PolicyEngine.evaluate()` → `ToolExecutor` 分发（内部 `SafetyGuard.check()`）→ handler；防 window_reset 后模型重发相同 `tool_call.id`（P4，见 4.12） |
+| `_execute_one()` | `ExecutionLedger.acquire()` 幂等/租约（key=`run_id:call.id`；COMPLETED 短路返回缓存，但**命中仍复核 policy**——若已收紧为 `BLOCKED` 则 bypass 缓存走正常链路，防策略变更后泄漏旧结果；lease-active 即 RUNNING 未过期则跳过执行、返回 `is_error` skip 提示防并发/重入）→ `PolicyEngine.evaluate()` → `ToolExecutor` 分发（内部 `SafetyGuard.check()`）→ handler → `ledger.complete()`/`fail()` 回写；防 window_reset 后模型重发相同 `tool_call.id`（P4，见 4.12） |
 | `last_usage` | 最近一次 `run()` 的累计 `TokenUsage` |
 | `last_iteration` | 最近一次 `run()`/`run_stream()` 的迭代次数 |
 | `last_run_context` | 最近一次 `run()` 的 `RunContext`（run_id / 迭代 / 审批·沙箱授权元数据） |
@@ -521,8 +521,9 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | `policy.py` | `PolicyEngine.evaluate_tool_call()` → `PolicyVerdict`（`DIRECT`/`APPROVAL_REQUIRED`/`SANDBOX_REQUIRED`/`BLOCKED`）：准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
 | `roles.py` | `RoleSpec`（name/system/allowed_tools/blocked_tools/max_iterations/sandbox_profile）+ 内置角色（planner/coder/tester/supervisor）+ `get_role`/`register_role`；`SubAgent` 用其构建角色专属 `PolicyEngine`（P1/P2） |
 | `executor.py` | `ToolExecutor.execute()` 按 verdict 模式分发；内部串行调 `SafetyGuard.check()`；`SANDBOX_REQUIRED` 默认 `execute_in_sandbox()` **透传**（未接真实后端，非安全边界） |
-| `store.py` | `RunStore` — `.heagent/runs/<run_id>.json` 运行快照 checkpoint（start/checkpoint/load）；`RunNode` + `build_run_tree(root_id=None)` 按 `parent_run_id` 聚合成树/森林（确定性、sorted；P5-4） |
-| `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（acquire/complete/fail/heartbeat）；**接入 `AgentLoop._execute_one`**（key=`run_id:call.id`，COMPLETED 短路返回缓存，防 window_reset 后重发相同 tool_call.id，P4）+ 供 cron 等长任务用 |
+| `store.py` | `RunStore` — `.heagent/runs/<run_id>.json` 运行快照 checkpoint（start/checkpoint/load/list_runs/build_run_tree/delete，**全部 I/O `async`**，经 `persist.py` 原子写+容错读）；`RunNode` + `build_run_tree(root_id=None)` 按 `parent_run_id` 聚合成树/森林（确定性、sorted；P5-4） |
+| `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（acquire/complete/fail/heartbeat/get，**全部 I/O `async`**）；**接入 `AgentLoop._execute_one`**（key=`run_id:call.id`，COMPLETED 短路返回缓存，防 window_reset 后重发相同 tool_call.id，P4；lease-active 命中跳过执行返回 skip 提示，防并发/重入）+ 供 cron 等长任务用 |
+| `persist.py` | 持久化共享工具——`atomic_write_text`（tmp + `os.replace`，`*.tmp` 不被 `glob("*.json")` 误读）+ `load_json_model`（单条损坏 JSON `logger.error` 后返回 None，不中断整 run）；store/ledger 共用 |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — `_emit()` 发布运行时事件，有界保留 |
 
 **与 `SafetyGuard` 的关系：** `PolicyEngine`（准入/工作区/审批/沙箱裁决）与 `SafetyGuard`（shell 命令模式黑名单）职责分离、**串行执行**——policy 先裁决、executor 内再过 guard。`AgentLoop` 每次 `run()` 用 `RunContext` 跟踪 run_id/迭代，`_runtime_scope()` 绑定 skill/memory/cron/subagent 工具运行态，`_emit()` 发事件、`run_store.checkpoint()` 持久化。子 Agent 经 `parent_run_id` 继承父 `engine`。
@@ -533,6 +534,8 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 > - **P5-1 Schema 级工具隐藏（反转 D1）**：plan 触发条件"误调率高才做"。现状 `roles.py` 每个 prompt 逐字内嵌工具清单且与 `allowed_tools` 逐一对齐（措辞"仅这些，调用其他工具会被拦截"）+ 执行级拦截 `policy.py:88` 兜底，误调率基线极低。**D1 反转成本被原 plan 高估**——`registry.py` 已有 `_disabled`/`enabled_schemas()` schema 级隐藏设施，真要做只需在 `loop.py:304/623` 取 schema 时叠加一行 `allowed_tools` 过滤，不必重构单例为 per-agent；待观测到真实高误调率再启动。
 > - **P5-2 子 agent resume（反转 D4）**：plan 触发条件"实测需要才开放"。子 agent 短任务（`max_iterations` 15–25 + 默认 compressor in-place 摘要）量级远不到需清窗重建；反转代价是 `.heagent/runs/` checkpoint 文件爆炸（`task_parallel` 并行放大）+ 嵌套 resume 级联 + 与互斥断言冲突，收益/成本比差。
 > （评估基于静态代码分析，未跑真实 LLM 实测；依据详见 memory `heagent-loop-engine-expansion`。）
+
+**持久化健壮性（2026-07-01 落地）：** `engine/` 的 store/ledger 全部 I/O 已 `async` 化（同步 fs 经 `asyncio.to_thread` 包裹，遵守「库代码无同步 I/O」约束）。写入经 `persist.py` 原子化（先写 `*.tmp` 再 `os.replace`，`glob("*.json")` 不匹配 `.tmp`，避免读到半写文件）；读取容错（单条损坏 JSON 记 `logger.error` 后返回 None 跳过，不中断整 run）。**注意：** 单进程 async 下经 `to_thread` 串行，但跨进程/多 loop 同写 `.heagent/` 无文件锁——见第五节缺口。
 
 ---
 
@@ -545,6 +548,7 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | MCP SafetyGuard 覆盖 | V1 `SafetyGuard` 未覆盖 MCP 工具调用（deferred DP-4） |
 | CLI 事件循环阻塞 | 交互模式 `input()` 为同步调用，阻塞 asyncio 事件循环（单用户 CLI 影响可接受） |
 | engine sandbox 透传 | `ToolExecutor.execute_in_sandbox()` 默认透传（未接真实沙箱后端），`SANDBOX_REQUIRED` 裁决不产生 OS 级隔离效果——须 OS 级沙箱兜底 |
+| ledger/store 跨进程持久化 | `engine/` 的 store/ledger 持久化非并发安全——单进程 async 下 `to_thread` 串行，但多进程/多 loop 同写 `.heagent/` 无文件锁，须避免并发写（见 4.12） |
 
 ---
 
@@ -560,7 +564,9 @@ src/heagent/
 ├── types.py                 # 共享 Pydantic 模型
 │
 ├── agent/                   # 顶层编排
-│   ├── loop.py              # AgentLoop 核心循环
+│   ├── loop.py              # AgentLoop 核心循环（LLM ↔ 工具循环）
+│   ├── system_prompt.py     # _build_system 拼装（人格/上下文/技能/记忆/画像）
+│   ├── tool_execution.py    # _execute_one 工具执行链（ledger → policy → executor）
 │   ├── middleware.py        # 中间件组合 + make_retry_middleware
 │   └── sub.py               # 子 Agent（并行任务 + 角色化）
 │
@@ -577,6 +583,7 @@ src/heagent/
 │   ├── registry.py          # ToolRegistry 单例
 │   ├── safety.py            # SafetyGuard（shell 命令安全）
 │   ├── path_safety.py       # 工作区路径校验（文件工具）
+│   ├── runtime.py           # 工具运行态绑定（_runtime_scope）
 │   ├── mcp/                 # MCP 适配层
 │   │   ├── config.py        # MCPConfig + load_mcp_config（.mcp.json + ${ENV} 插值）
 │   │   ├── mapping.py       # mcp_tool_to_schema + bridge_result
@@ -610,8 +617,9 @@ src/heagent/
 │   ├── policy.py            # PolicyEngine 准入/审批/沙箱裁决
 │   ├── roles.py             # RoleSpec + 内置角色（P1/P2）
 │   ├── executor.py          # ToolExecutor 策略分发
-│   ├── store.py             # RunStore 运行快照
-│   ├── ledger.py            # ExecutionLedger 幂等/租约
+│   ├── store.py             # RunStore 运行快照（async I/O）
+│   ├── ledger.py            # ExecutionLedger 幂等/租约（async I/O）
+│   ├── persist.py           # 原子写 + 损坏 JSON 容错（store/ledger 共用）
 │   └── observability.py     # EventBus / 事件
 └── cron/                    # 定时调度
     ├── jobs.py              # CronJob 模型 + JobStore 持久化
@@ -654,8 +662,8 @@ AgentLoop(provider, skills, facts, profile, compressor, soul, cron_store, ...).r
   │     ├── 用户 system 字符串
   │     ├── <project-context>     — CONTEXT.md / AGENTS.md / CLAUDE.md
   │     ├── <skills>              — SkillStore.match() 自动匹配 ≤ skill_max_auto_invoke 个
-  │     ├── <memory-nudge>        — 记忆保存提醒
   │     ├── <memory>              — 事实记忆列表
+  │     ├── <memory-nudge>        — 记忆保存提醒（紧随 memory）
   │     └── <profile>             — 用户画像
   │
   ▼ 循环开始 ─────────────────────────────
@@ -671,11 +679,15 @@ AgentLoop(provider, skills, facts, profile, compressor, soul, cron_store, ...).r
   ├── ContextCompressor.check()  # Token ≥ 阈值时压缩旧消息
   │
   ├── 有 tool_calls？
-  │     ├── YES → _execute_tools(calls, state)
-  │     │         ├── SafetyGuard.check(call)    # 安全检查
-  │     │         ├── ToolRegistry.get_handler() # 查找 handler
-  │     │         ├── handler(**arguments)        # 执行
-  │     │         └── ToolResult → 追加到 messages
+  │     ├── YES → _execute_tools(calls, state)   # asyncio.gather 并行
+  │     │         └── _execute_one(call) per call:
+  │     │             ├── ledger.acquire()        # 幂等/租约（COMPLETED 短路返回缓存，但 BLOCKED 复核 bypass；lease-active 跳过执行）
+  │     │             ├── PolicyEngine.evaluate() # 准入/审批/沙箱裁决
+  │     │             ├── ToolExecutor.execute()  # 按 verdict 分发
+  │     │             │    └── SafetyGuard.check()# shell 命令模式黑名单（executor 内部串行）
+  │     │             ├── handler(**arguments)    # 执行
+  │     │             ├── ledger.complete()/fail()# 回写结果
+  │     │             └── ToolResult → 追加到 messages
   │     │
   │     └── NO → 返回 response.content（最终答案）
   │
