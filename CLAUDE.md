@@ -17,7 +17,7 @@ HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP s
 - **同等约束**：MCP 工具走与内置工具一致的 `ToolError` 语义，但**不**享受额外的预校验或返回内容复核。
 - **须 OS 级沙箱兜底**：连 MCP server 时同样必须在沙箱内运行，并对子进程 / 出站网络施加最小权限。
 
-**后续（deferred / future，V1 未做）：** 运行时断连工具的自动 unregister（当前仅调用降级 `ToolError`，见 architecture FR-3）、`SafetyGuard` 扩展到 MCP（敏感工具确认 / 返回内容复核）、Resources/Prompts 原语、写操作。
+**后续（deferred / future，V1 未做）：** `SafetyGuard` 扩展到 MCP（敏感工具确认 / 返回内容复核）、Resources/Prompts 原语、写操作。（运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
 
 ## 构建与测试命令
 
@@ -115,5 +115,5 @@ exceptions  types  config
 - `SafetyGuard` / `path_safety` / `engine` sandbox 均非真正安全边界——须 OS 级沙箱兜底（见文首声明）。
 - 工作区路径围栏已收敛：policy 预检（`_validate_paths`）与 file 工具 handler 守卫（`resolve_workspace_path`）共用同一算法 `resolve_under_root`（`tools/path_safety.py`），两层有意纵深防御，不再有两份可漂移副本。
 - `ToolExecutor.execute_in_sandbox()` 默认透传（未接真实沙箱后端），`SANDBOX_REQUIRED` 裁决不产生 OS 级隔离效果。
-- MCP V1 边界：`SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）；运行时断连工具不自动 unregister（降级 `ToolError`，FR-3）；仅接 Tools 原语。
+- MCP V1 边界：`SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）；仅接 Tools 原语。
 - 完整缺口表见 `docs/frame.md` 五。

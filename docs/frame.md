@@ -506,7 +506,7 @@ HeAgentError (base)
 - `SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）
 - MCP 工具返回内容直接进入 LLM 上下文，prompt injection 无隔离
 - 仅接 Tools 原语，Resources/Prompts、写操作 deferred
-- 运行时断连后工具不自动 unregister，调用降级为 `ToolError`
+- 运行时断连主动 unregister：持有期 `send_ping` 健康探测（默认 5s 周期），ping 失败/超时即注销该 server 全部工具（FR-3 收紧）；探测间隔内被调用仍降级 `ToolError`
 
 ---
 
@@ -543,7 +543,6 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | 流式 tool_calls 回退 | `run_stream()` 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时回退 `send()` 重取该轮调用（已知设计权衡） |
 | Cron 范围表达式 | V1 解析器不支持范围表达式（如 `1-5`） |
 | MCP SafetyGuard 覆盖 | V1 `SafetyGuard` 未覆盖 MCP 工具调用（deferred DP-4） |
-| MCP 运行时断连 | 运行时断连的工具不自动 unregister，调用降级为 `ToolError` |
 | CLI 事件循环阻塞 | 交互模式 `input()` 为同步调用，阻塞 asyncio 事件循环（单用户 CLI 影响可接受） |
 | engine sandbox 透传 | `ToolExecutor.execute_in_sandbox()` 默认透传（未接真实沙箱后端），`SANDBOX_REQUIRED` 裁决不产生 OS 级隔离效果——须 OS 级沙箱兜底 |
 

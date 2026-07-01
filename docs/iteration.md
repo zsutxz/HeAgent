@@ -138,6 +138,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-06-25 | engine P1-P5 扩充 + 新增 `design.md` |
 | 2026-06-26 | bmad-method 6.8.0 → 6.9.0；`frame.md` 补 loop engine |
 | 2026-06-29 | engine / agent 源码补详细中文注释 |
+| 2026-07-01 | 收敛工作区路径围栏为 `resolve_under_root` 单一算法；FR-3 收紧（MCP 运行时断连 ping-watch auto-unregister） |
 
 ---
 
@@ -149,7 +150,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 2. **异常包装要加守卫，避免双层重包**（Epic 1 / ProviderChain）：provider 源头包成 `ProviderError` 后，chain 的 `except` 又包一层。**教训**：`_wrap_error` 类入口加 `if isinstance(e, ProviderError): raise`；用 `__cause__` 链断言写回归测试。
 3. **流式与同步路径要对称**（Epic 1）：`send()` 的 backstop 跟踪 `last_error`，`stream()` 版本一度漏了。**教训**：成对的 send/stream 实现要互相对照，补齐对称路径。
 4. **安全边界必须诚实声明，不制造「更安全」假象**（Epic 13 / engine）：`SafetyGuard` 与 engine sandbox 都不是真边界。**教训**：安全相关代码注释里写明「非真正边界，须 OS 级沙箱兜底」，见 `CLAUDE.md` 文首声明。
-5. **两种模式并存要标记冲突，而非折中**（engine / 工作区路径双重围栏）：`PolicyEngine._validate_paths()` 与 `tools/path_safety.py` 两套围栏并存。**教训**：改其一须同步评估另一处，冲突在文档显式标出。
+5. **两种模式并存要标记冲突，而非折中**（engine / 工作区路径双重围栏，**已收敛**）：`PolicyEngine._validate_paths()` 与 `tools/path_safety.py` 曾两套围栏并存。**教训**：改其一须同步评估另一处，冲突在文档显式标出——后经收敛为共用 `resolve_under_root` 单一算法（两层有意纵深防御）解决。
 6. **评估结论要留依据**（engine P5-1/P5-2）：暂不反转的决策（D1/D4）把理由写进 `frame.md`，避免日后重做时忘记为何如此。
 
 ---
@@ -159,14 +160,13 @@ quick-dev 是**基于 spec 的单会话执行**：
 **当前缺口**（详见 `frame.md` 第五章）：
 
 - `SafetyGuard` / `path_safety` / engine sandbox 均非真边界，须 OS 级沙箱兜底。
-- 工作区路径双重围栏冲突（见教训 5）。
 - `ToolExecutor.execute_in_sandbox()` 默认透传，未接真实沙箱后端。
-- MCP V1 边界：`SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）；运行时断连不自动 unregister（FR-3）；仅接 Tools 原语。
+- MCP V1 边界：`SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）；仅接 Tools 原语。
 
 **下一步候选方向**（按周期类型）：
 
 - **epic 外增量**：engine P5-1/P5-2 若反转，需新开 P 批；接真实 sandbox 后端。
-- **补丁周期**：MCP deferred 项（DP-4 安全覆盖、FR-3 断连 unregister）可开 spec。
+- **补丁周期**：MCP deferred 项（DP-4 安全覆盖）可开 spec。（FR-3 断连 auto-unregister 已交付，`tools/mcp/manager.py` `_watch`。）
 - **集成周期**：MCP Resources/Prompts 原语、写操作（目前仅 Tools）。
 
 **retrospective 补全**：如需为已完成 epic 补做正式回顾，对单个 epic 调 `bmad-retrospective` skill；本文第三章已提供轻量替代。
