@@ -113,7 +113,7 @@ exceptions  types  config
 ## 已知缺口
 
 - `SafetyGuard` / `path_safety` / `engine` sandbox 均非真正安全边界——须 OS 级沙箱兜底（见文首声明）。
-- **工作区路径双重围栏（冲突，非折中）**：`PolicyEngine._validate_paths()`（executor 前，基于 `RunContext.workspace_root`）与 `tools/path_safety.py`（`resolve_workspace_path()`，各 file 工具内部）两套并存——改其一须同步评估另一处。
+- 工作区路径围栏已收敛：policy 预检（`_validate_paths`）与 file 工具 handler 守卫（`resolve_workspace_path`）共用同一算法 `resolve_under_root`（`tools/path_safety.py`），两层有意纵深防御，不再有两份可漂移副本。
 - `ToolExecutor.execute_in_sandbox()` 默认透传（未接真实沙箱后端），`SANDBOX_REQUIRED` 裁决不产生 OS 级隔离效果。
 - MCP V1 边界：`SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）；运行时断连工具不自动 unregister（降级 `ToolError`，FR-3）；仅接 Tools 原语。
 - 完整缺口表见 `docs/frame.md` 五。

@@ -41,15 +41,25 @@ def workspace_root() -> Path:
     return Path.cwd().resolve()
 
 
-def resolve_workspace_path(path: str) -> Path:
-    """Resolve a path and ensure it stays inside the current workspace."""
-    root = workspace_root()
+def resolve_under_root(path: str, root: Path) -> Path:
+    """Resolve ``path`` under ``root`` and fence it; raise ``WorkspacePathError`` if it escapes.
+
+    Single fence algorithm shared by the policy pre-check (``engine.policy._validate_paths``)
+    and the handler guard (:func:`resolve_workspace_path`), eliminating two divergent copies.
+    Relative paths resolve against ``root``; ``strict=False`` permits not-yet-existing paths
+    (e.g. a file about to be written).
+    """
     raw = Path(path)
     candidate = raw if raw.is_absolute() else root / raw
     resolved = candidate.resolve(strict=False)
     if not resolved.is_relative_to(root):
         raise WorkspacePathError(f"Path escapes current workspace: {path} (workspace: {root})")
     return resolved
+
+
+def resolve_workspace_path(path: str) -> Path:
+    """Resolve a path and ensure it stays inside the current workspace."""
+    return resolve_under_root(path, workspace_root())
 
 
 def configure_workspace_root(path: Path | None) -> None:

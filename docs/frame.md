@@ -302,6 +302,12 @@ SafetyGuard
 抛出 `WorkspacePathError`。`workspace_root()` 默认取 `Path.cwd()`，`set_workspace_root()`
 提供测试可注入的覆盖入口（无需 monkeypatch cwd）。
 
+围栏算法集中在 `resolve_under_root(path, root)`：`engine.policy._validate_paths()` 的执行前
+预检与各 file 工具的 handler 守卫（`resolve_workspace_path`）共用同一实现——两层是有意的纵深
+防御（policy 预检 + handler 守卫），不再是两份可各自漂移的副本。root 来源策略是两层唯一有意
+差异：policy 用 `context/self.workspace_root`（皆空则放行），handler 用 `workspace_root()`
+（RuntimeSlot → override → cwd）。
+
 #### builtins/ — 19 个内置工具
 
 **基础工具（5 个）：**
@@ -539,7 +545,6 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | MCP SafetyGuard 覆盖 | V1 `SafetyGuard` 未覆盖 MCP 工具调用（deferred DP-4） |
 | MCP 运行时断连 | 运行时断连的工具不自动 unregister，调用降级为 `ToolError` |
 | CLI 事件循环阻塞 | 交互模式 `input()` 为同步调用，阻塞 asyncio 事件循环（单用户 CLI 影响可接受） |
-| 工作区路径双重围栏 | `PolicyEngine._validate_paths()`（executor 前，基于 `RunContext.workspace_root`，针对 file_read/file_write/file_search/content_search）与 `tools/path_safety.py`（`resolve_workspace_path()`，各 file 工具内部）两套并存、语义重叠——改其一须同步评估另一处 |
 | engine sandbox 透传 | `ToolExecutor.execute_in_sandbox()` 默认透传（未接真实沙箱后端），`SANDBOX_REQUIRED` 裁决不产生 OS 级隔离效果——须 OS 级沙箱兜底 |
 
 ---

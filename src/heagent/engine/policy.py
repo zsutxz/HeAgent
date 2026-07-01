@@ -29,6 +29,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
+from heagent.tools.path_safety import WorkspacePathError, resolve_under_root
+
 if TYPE_CHECKING:
     from heagent.engine.context import RunContext
     from heagent.types import ToolCall
@@ -81,7 +83,8 @@ class PolicyEngine:
     """
 
     # 受路径围栏约束的工具 → 其参数中表示路径的字段名。
-    # 仅这四类 file 工具在 policy 层做围栏（与 tools/path_safety.py 并存，见 CLAUDE.md 已知缺口）。
+    # 仅这四类 file 工具在 policy 层做执行前围栏（算法委托 tools/path_safety.py 的
+    # resolve_under_root，与 handler 守卫共用同一实现，见 _validate_paths docstring）。
     _PATH_FIELDS: dict[str, tuple[str, ...]] = {
         "file_read": ("path",),
         "file_write": ("path",),
@@ -188,8 +191,11 @@ class PolicyEngine:
 
         返回非空字符串即越界原因（调用方据此 BLOCKED）；空串表示通过 / 不适用。
         围栏基线 = context.workspace_root（优先）或 self.workspace_root；二者皆空则放行。
-        注意：与 tools/path_safety.py 的 resolve_workspace_path() 语义重叠（双重围栏，
-        见 CLAUDE.md 已知缺口），改其一须同步评估另一处。
+
+        围栏算法委托 :func:`heagent.tools.path_safety.resolve_under_root`——与 handler 守卫
+        (:func:`~heagent.tools.path_safety.resolve_workspace_path`) 共用同一实现，属有意的
+        两层纵深防御（policy 预检 + handler 守卫），不再是两份可漂移的副本。root 来源策略
+        （context/self，皆空放行）是本层与 handler 的唯一有意差异。
         """
         fields = self._PATH_FIELDS.get(call.name)
         if not fields:
@@ -203,10 +209,9 @@ class PolicyEngine:
             value = call.arguments.get(field)
             if not isinstance(value, str):
                 continue
-            candidate = Path(value)
-            # 相对路径以工作区根为基线；strict=False 允许尚不存在的路径（如待写文件）。
-            resolved = (candidate if candidate.is_absolute() else root / candidate).resolve(strict=False)
-            if not resolved.is_relative_to(root):
+            try:
+                resolve_under_root(value, root)
+            except WorkspacePathError:
                 return f"Tool '{call.name}' attempted to access a path outside workspace: {value}"
         return ""
 
