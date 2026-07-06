@@ -3,7 +3,8 @@
 存储格式：.heagent/memory/MEMORY.md（Markdown 列表）
 去重策略：新事实与已有事实进行关键词交集比较，重叠率 > 70% 视为重复。
 
-当前状态：已实现但未接入 AgentLoop。
+接入路径：``cli.py`` 实例化 → ``AgentLoop`` 持有 → 经 ``system_prompt`` 注入 SYSTEM；
+LLM 可经 ``fact_add`` 内置工具（``tools/builtins/memory.py``）写入。
 """
 
 from __future__ import annotations

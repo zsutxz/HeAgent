@@ -3,7 +3,8 @@
 存储路径：.heagent/sessions/{session_id}.json
 每个文件包含：session_id、时间戳、消息列表的序列化数据。
 
-当前状态：已实现但未接入 AgentLoop。
+接入路径：``cli.py`` 交互模式创建 → ``AgentLoop`` 持有；``run()`` 入口按 ``session_id``
+调 ``load`` 恢复历史，结束时调 ``save`` 落盘（loop.py 流式/非流式双入口均已实现）。
 """
 
 from __future__ import annotations

@@ -4,7 +4,8 @@
 使用 Markdown 二级标题（## Section）作为分节标记。
 支持更新单个节而不影响其他节。
 
-当前状态：已实现但未接入 AgentLoop。
+接入路径：``cli.py`` 实例化 → ``AgentLoop`` 持有 → 经 ``system_prompt`` 注入 SYSTEM；
+LLM 可经 ``profile_update`` 内置工具（``tools/builtins/memory.py``）写入。
 """
 
 from __future__ import annotations
