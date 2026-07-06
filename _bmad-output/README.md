@@ -2,13 +2,16 @@
 
 本目录是 HeAgent 用 **BMad Method** 驱动迭代留下的**规划产物**（brief / prd / architecture / epics / stories / 补丁 / 回顾）。它是迭代历程的事实来源之一，**不是当前代码事实**——当代码与本文档冲突时，以 `src/` 实现为准（参见 `docs/frame.md`、`docs/iteration.md`）。
 
+> **BMad config 对齐说明：** `_bmad/config.toml [modules.bmm]` 与 `_bmad/bmm/config.yaml`（installer 托管）声明 `planning_artifacts` / `implementation_artifacts` 指向 `_bmad-output/{planning,implementation}-artifacts/`——**这两个目录在本仓不存在**。HeAgent 刻意按周期而非按产物类型组织（见下方目录结构）。这两个 key 维持 installer 默认、不在 `_bmad/custom/config.toml` 覆盖：同类路径 override 经验证不生效（同 `output_folder` 上游 bug，见 commit `01fbe13`），且 quick-dev 假设的「扁平 `implementation_artifacts`」与本仓 cycle 布局结构不兼容（`sprint-status.yaml` 在 `baseline/`、`deferred-work.md` 在 `patches/`、spec 在 `specs/`，无单一目录可满足）。**实际产物位置以本文件为权威。**
+
 ## 目录结构（按周期）
 
 ```
 _bmad-output/
 ├── baseline/      主线周期（Epic 1-10，FR-1~24）
 ├── mcp-client/    MCP 集成周期（Epic 11-13，独立 FR-1~11）
-└── patches/       补丁周期（计划外技术债 / 缺陷，跨周期扁平）
+├── patches/       补丁周期（计划外技术债 / 缺陷，跨周期扁平）
+└── specs/         quick-dev / spec 产物（本地工作件，gitignored）
 ```
 
 ## baseline/ — 主线周期（Epic 1-10）
