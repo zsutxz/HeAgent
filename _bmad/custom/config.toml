@@ -6,9 +6,7 @@
 # [agents.bmad-agent-pm]
 # description = "Prefers short, bulleted PRDs over narrative drafts."
 
-# 根治 output_folder：BMad 产出统一至 docs/_bmad-output（与 2026-06-21 文档统一一致）。
-# {output_folder} 被 bmm 模块模板 {project-root}/{output_folder}/planning-artifacts 及
-# 数十个 BMad skill 消费；base config（_bmad/config.toml）未定义此 key，默认解析为
-# _bmad-output（仓库根），此处 team override 为 docs/_bmad-output，避免未来产物散回根目录。
-[core]
-output_folder = "docs/_bmad-output"
+# output_folder 不再 team override：6.9/6.10 installer 已在 base config（_bmad/config.toml）
+# 写入 output_folder = "{project-root}/_bmad-output"，实际产物即仓库根 _bmad-output/。
+# 曾尝试 override 为 docs/_bmad-output，但 bmad resolver 未让其生效（产物始终在根），
+# 已移除以消除 base / custom / 实际位置三层不一致。
