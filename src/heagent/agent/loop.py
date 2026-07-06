@@ -107,6 +107,26 @@ class AgentLoop:
         engine: EngineContainer | None = None,
         run_context: RunContext | None = None,
     ) -> None:
+        """初始化 AgentLoop 主循环。
+
+        参数：
+            provider: LLM provider，循环的驱动后端（必填）。
+            registry: 工具注册表；缺省取全局单例 ``ToolRegistry.get()``。
+            guard: 安全护栏（shell 命令黑名单）；缺省 ``SafetyGuard()``。非真正安全边界，须 OS 级沙箱兜底。
+            middlewares: 包裹 provider 调用的中间件链（如重试/日志）；缺省空。
+            max_iterations: 主循环最大轮数上限；缺省取 ``settings.max_iterations``。
+            skills: 技能记忆库（自学习闭环），可选。
+            facts: 事实记忆库，可选。
+            profile: 用户画像记忆库，可选。
+            session: 会话持久化；提供 ``session_id`` 时据此恢复历史消息并在结束时落盘。
+            compressor: 就地上下文压缩策略（D3：与 ``window_reset`` 互斥，每个 loop 仅取其一）。
+            window_reset: 窗口重置策略配置（D3：与 ``compressor`` 互斥）；达阈值折叠为「prompt + 进度摘要」。
+            context_dir: 工作区根目录（文件工具围栏基址 + engine 落盘根），可选。
+            soul: 灵魂/人格记忆库，可选。
+            cron_store: 后台定时任务的存储后端，可选。
+            engine: 运行时治理容器（policy/executor/store/ledger/observability）；缺省 ``EngineContainer.default``。非安全边界。
+            run_context: 外部预置的运行上下文（SubAgent 委派时用）；run() 取用后即清空，一次性。
+        """
         self.provider = provider
         self.registry = registry or ToolRegistry.get()
         self.guard = guard or SafetyGuard()
