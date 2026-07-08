@@ -52,3 +52,19 @@ class TestShellExecution:
         )
         assert "exit_code=-1" in result
         assert "timed out" in result
+
+    async def test_shell_delegates_to_bound_runner(self) -> None:
+        """shell 经 get_command_runner 取后端；bind 覆盖时走覆盖后端而非默认 Passthrough。"""
+        from heagent.tools.sandbox import bind_command_runner
+
+        calls: list[str] = []
+
+        class _RecordingRunner:
+            async def run(self, command: str, *, timeout: int) -> str:
+                calls.append(command)
+                return "exit_code=0\nstdout:\nrecorded"
+
+        with bind_command_runner(_RecordingRunner()):
+            result = await shell("echo hi")
+        assert calls == ["echo hi"]
+        assert "recorded" in result

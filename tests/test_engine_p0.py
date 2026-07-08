@@ -510,3 +510,97 @@ class TestToolExecutor:
 
         assert result.is_error is False
         assert result.content == "sandboxed-by-name"
+
+    @pytest.mark.asyncio
+    async def test_sandbox_runner_injected_into_handler(self) -> None:
+        """SANDBOX_REQUIRED + sandbox_runner → executor bind 后 handler 经 get_command_runner 取到该后端。"""
+        from heagent.tools.sandbox import get_command_runner
+
+        class _RecordingRunner:
+            async def run(self, command: str, *, timeout: int) -> str:
+                return f"recorded:{command}"
+
+        async def shell_like_handler(call):
+            runner = get_command_runner()
+            return await runner.run(call.arguments["command"], timeout=10)
+
+        granted_context = RunContext(
+            workspace_root=str(Path.cwd()),
+            metadata={"sandbox_profiles": ["workspace-shell"]},
+        )
+        verdict = PolicyEngine(
+            sandbox_tools=["shell"],
+            sandbox_profiles={"shell": "workspace-shell"},
+        ).evaluate_tool_call(
+            ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            context=granted_context,
+        )
+        assert verdict.requires_sandbox
+
+        executor = ToolExecutor(sandbox_runner=_RecordingRunner())
+        result = await executor.execute(
+            call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            verdict=verdict,
+            guard=type("Guard", (), {"check": lambda self, call: None})(),
+            handler=shell_like_handler,
+            run_context=granted_context,
+        )
+
+        assert result.is_error is False
+        assert result.content == "recorded:dir"
+
+    @pytest.mark.asyncio
+    async def test_direct_path_not_polluted_by_runner(self) -> None:
+        """DIRECT 路径不 bind → handler 取默认 Passthrough，即使 executor 配了 sandbox_runner。"""
+        from heagent.tools.sandbox import PassthroughRunner, get_command_runner
+
+        class _NeverRunner:
+            async def run(self, command: str, *, timeout: int) -> str:
+                raise AssertionError("DIRECT 路径不应取到 sandbox runner")
+
+        async def shell_like_handler(call):
+            runner = get_command_runner()
+            assert isinstance(runner, PassthroughRunner)
+            return "direct-ok"
+
+        direct_verdict = PolicyEngine().evaluate_tool_call(
+            ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+        )
+        assert direct_verdict.mode is ToolExecutionMode.DIRECT
+
+        executor = ToolExecutor(sandbox_runner=_NeverRunner())
+        result = await executor.execute(
+            call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            verdict=direct_verdict,
+            guard=type("Guard", (), {"check": lambda self, call: None})(),
+            handler=shell_like_handler,
+            run_context=None,
+        )
+
+        assert result.is_error is False
+        assert result.content == "direct-ok"
+
+    def test_container_post_init_injects_runner_to_executor(self) -> None:
+        """EngineContainer.__post_init__ 把 command_runner 注入 executor.sandbox_runner。"""
+        from heagent.tools.sandbox import FirejailBackend
+
+        backend = FirejailBackend()
+        container = EngineContainer(command_runner=backend)
+        assert container.executor.sandbox_runner is backend
+
+    def test_container_default_runner_is_none(self) -> None:
+        """默认装配 command_runner=None → executor.sandbox_runner=None（透传，向后兼容）。"""
+        container = EngineContainer()
+        assert container.executor.sandbox_runner is None
+
+    def test_subagent_inherits_runner_via_replace(self) -> None:
+        """SubAgent 经 replace(engine, policy=...) 只换 policy，executor 引用不变 → 继承父 runner。"""
+        from dataclasses import replace
+
+        from heagent.tools.sandbox import FirejailBackend
+
+        backend = FirejailBackend()
+        container = EngineContainer(command_runner=backend)
+        child = replace(container, policy=PolicyEngine())
+        assert child.executor is container.executor
+        assert child.executor.sandbox_runner is backend

@@ -125,6 +125,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | P3/P4 | checkpoint-resume + 工具执行幂等 |
 | P5-3/P5-4/P5-5 | 结构化子任务结果（`SubTaskOutcome`）+ `parent_run_id` 树形聚合 + resume 流式版 |
 | P5-1/P5-2 | **deferred** —— 经评估暂不反转（D1/D4），依据记入 `frame.md` 4.12 |
+| sandbox 后端 | `execute_in_sandbox` 接 `CommandRunner` 抽象（`tools/sandbox.py`）：默认 Passthrough，可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界），经 `RuntimeSlot` 注入 |
 
 ### 2.5 迭代时间线（git log 提炼）
 
@@ -139,6 +140,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-06-26 | bmad-method 6.8.0 → 6.9.0；`frame.md` 补 loop engine |
 | 2026-06-29 | engine / agent 源码补详细中文注释；`loop.py` 968→797 行拆分（零回归）；新增 GitHub Actions 质量门禁 + pre-commit 钩子；epic-13 retrospective 完成 |
 | 2026-07-01 | 收敛工作区路径围栏为 `resolve_under_root` 单一算法；FR-3 收紧（MCP 运行时断连 ping-watch auto-unregister）；engine 健壮性四件套（ledger/store I/O 全套 async 化、缓存命中复核 policy、持久化原子写 + 损坏 JSON 容错、lease-active 命中跳过重复执行） |
+| 2026-07-08 | engine sandbox 接真实后端：`execute_in_sandbox` 经 `CommandRunner` 抽象（`tools/sandbox.py`）+ `RuntimeSlot` 注入，默认 Passthrough、可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界） |
 
 ---
 
@@ -161,12 +163,12 @@ quick-dev 是**基于 spec 的单会话执行**：
 **当前缺口**（详见 `frame.md` 第五章）：
 
 - `SafetyGuard` / `path_safety` / engine sandbox 均非真边界，须 OS 级沙箱兜底。
-- `ToolExecutor.execute_in_sandbox()` 默认透传，未接真实沙箱后端。
+- `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界），file/memory 等不受覆盖。
 - MCP V1 边界：`SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）；仅接 Tools 原语。
 
 **下一步候选方向**（按周期类型）：
 
-- **epic 外增量**：engine P5-1/P5-2 若反转，需新开 P 批；接真实 sandbox 后端。
+- **epic 外增量**：engine P5-1/P5-2 若反转，需新开 P 批。（接真实 sandbox 后端已交付 2026-07-08：`CommandRunner` 抽象 + `FirejailBackend`，见 `tools/sandbox.py`。）
 - **补丁周期**：MCP deferred 项（DP-4 安全覆盖）可开 spec。（FR-3 断连 auto-unregister 已交付，`tools/mcp/manager.py` `_watch`。）
 - **集成周期**：MCP Resources/Prompts 原语、写操作（目前仅 Tools）。
 

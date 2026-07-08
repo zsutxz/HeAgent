@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from heagent.engine.context import RunContext
 from heagent.engine.executor import ToolExecutor
@@ -24,6 +24,9 @@ from heagent.engine.ledger import ExecutionLedger
 from heagent.engine.observability import EventBus, LoggingObserver
 from heagent.engine.policy import PolicyEngine
 from heagent.engine.store import RunStore
+
+if TYPE_CHECKING:
+    from heagent.tools.sandbox import CommandRunner
 
 
 @dataclass
@@ -42,6 +45,12 @@ class EngineContainer:
     events: EventBus = field(default_factory=lambda: EventBus([LoggingObserver()]))
     # 工作区根目录（绝对路径）；为 None 时由 create_run_context 兜底到 cwd。
     workspace_root: str | None = None
+    # SANDBOX_REQUIRED 路径用的子进程沙箱后端（None = 透传）；__post_init__ 注入 executor。
+    command_runner: CommandRunner | None = None
+
+    def __post_init__(self) -> None:
+        """把 container 级 command_runner 注入 executor（SANDBOX_REQUIRED 路径后端）。"""
+        self.executor.sandbox_runner = self.command_runner
 
     @classmethod
     def default(cls, *, workspace_root: str | None = None) -> EngineContainer:

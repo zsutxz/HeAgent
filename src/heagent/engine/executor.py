@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.exceptions import PolicyViolation, SafetyViolation
+from heagent.tools.sandbox import CommandRunner, bind_command_runner
 from heagent.types import ToolCall, ToolResult
 
 if TYPE_CHECKING:
@@ -40,6 +41,10 @@ Handler = Callable[[ToolCall], Awaitable[object]]
 
 class ToolExecutor:
     """按当前 policy verdict 分发工具调用。"""
+
+    def __init__(self, *, sandbox_runner: CommandRunner | None = None) -> None:
+        """记 ``SANDBOX_REQUIRED`` 路径用的后端（None 时 :meth:`execute_in_sandbox` 透传）。"""
+        self.sandbox_runner = sandbox_runner
 
     async def execute(
         self,
@@ -212,10 +217,16 @@ class ToolExecutor:
     ) -> object:
         """经配置的沙箱后端执行工具。
 
-        默认实现是**透传**（直接调 handler）。真实后端可在子类覆写本方法，或在
-        ``EngineContainer`` 中替换 executor。⚠ 当前透传不产生任何 OS 级隔离，非安全边界。
+        默认实现：配置了 ``sandbox_runner`` 则经 :func:`bind_command_runner` 注入到 handler
+        （shell 等 handler 内 ``get_command_runner()`` 取到该后端），否则透传直接调 handler。
+        子类可覆写本方法替换整套沙箱语义（见 ``tests/test_engine_p0.py`` 的 ``RecordingExecutor``）。
+        ⚠ 默认 Passthrough 不产生 OS 级隔离；FirejailBackend 仅隔离 shell 子进程、Linux-only、
+        非完美边界——须 OS 级沙箱兜底（见 CLAUDE.md）。
         """
-        return await handler(call)
+        if self.sandbox_runner is None:
+            return await handler(call)
+        with bind_command_runner(self.sandbox_runner):
+            return await handler(call)
 
     def _policy_error(
         self,

@@ -295,6 +295,10 @@ SafetyGuard
 
 工具名黑名单对所有工具生效；shell 命令检查仅对 `shell` 工具生效。违反时抛出 `SafetyViolation`。
 
+#### sandbox.py — 子进程沙箱后端（CommandRunner）
+
+`shell` 等子进程工具的可注入执行抽象。默认 `PassthroughRunner`（等价 `create_subprocess_shell` 直接执行）；`SANDBOX_REQUIRED` 路径下 `ToolExecutor.execute_in_sandbox` 经 `bind_command_runner` 注入配置的后端（如 `FirejailBackend`：`firejail -- sh -c <cmd>`，OS 级隔离）。注入走 `RuntimeSlot`（contextvar），与 memory/skills 等工具族一致；`DIRECT` 路径不 bind，取默认 Passthrough。⚠ `FirejailBackend` 仅隔离 shell 子进程、Linux-only、非完美边界——须 OS 级沙箱兜底。
+
 #### path_safety.py — 工作区路径校验（文件工具）
 
 文件类工具（`file_read` / `file_write` / `file_search` / `content_search`）写入前调用
@@ -520,7 +524,7 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | `context.py` | `RunContext`（run_id/session_id/parent_run_id/workspace_root/iteration/metadata）、`RunStatus`（running/completed/failed） |
 | `policy.py` | `PolicyEngine.evaluate_tool_call()` → `PolicyVerdict`（`DIRECT`/`APPROVAL_REQUIRED`/`SANDBOX_REQUIRED`/`BLOCKED`）：准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
 | `roles.py` | `RoleSpec`（name/system/allowed_tools/blocked_tools/max_iterations/sandbox_profile）+ 内置角色（planner/coder/tester/supervisor）+ `get_role`/`register_role`；`SubAgent` 用其构建角色专属 `PolicyEngine`（P1/P2） |
-| `executor.py` | `ToolExecutor.execute()` 按 verdict 模式分发；内部串行调 `SafetyGuard.check()`；`SANDBOX_REQUIRED` 默认 `execute_in_sandbox()` **透传**（未接真实后端，非安全边界） |
+| `executor.py` | `ToolExecutor.execute()` 按 verdict 模式分发；内部串行调 `SafetyGuard.check()`；`SANDBOX_REQUIRED` 走 `execute_in_sandbox()`——默认 Passthrough 透传，配置 `sandbox_runner` 后经 `bind_command_runner` 注入后端（如 `FirejailBackend`，见 4.4 sandbox.py；默认仍非安全边界） |
 | `store.py` | `RunStore` — `.heagent/runs/<run_id>.json` 运行快照 checkpoint（start/checkpoint/load/list_runs/build_run_tree/delete，**全部 I/O `async`**，经 `persist.py` 原子写+容错读）；`RunNode` + `build_run_tree(root_id=None)` 按 `parent_run_id` 聚合成树/森林（确定性、sorted；P5-4） |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（acquire/complete/fail/heartbeat/get，**全部 I/O `async`**）；**接入 `AgentLoop._execute_one`**（key=`run_id:call.id`，COMPLETED 短路返回缓存，防 window_reset 后重发相同 tool_call.id，P4；lease-active 命中跳过执行返回 skip 提示，防并发/重入）+ 供 cron 等长任务用 |
 | `persist.py` | 持久化共享工具——`atomic_write_text`（tmp + `os.replace`，`*.tmp` 不被 `glob("*.json")` 误读）+ `load_json_model`（单条损坏 JSON `logger.error` 后返回 None，不中断整 run）；store/ledger 共用 |
@@ -547,7 +551,7 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | Cron 范围表达式 | V1 解析器不支持范围表达式（如 `1-5`） |
 | MCP 返回内容复核 | `SafetyGuard` 执行前工具名拦截已覆盖 MCP（DP-4，2026-07-08 落地）；返回内容复核 / prompt injection 围栏仍 deferred |
 | CLI 事件循环阻塞 | 交互模式 `input()` 为同步调用，阻塞 asyncio 事件循环（单用户 CLI 影响可接受） |
-| engine sandbox 透传 | `ToolExecutor.execute_in_sandbox()` 默认透传（未接真实沙箱后端），`SANDBOX_REQUIRED` 裁决不产生 OS 级隔离效果——须 OS 级沙箱兜底 |
+| engine sandbox 后端 | `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可经 `EngineContainer(command_runner=FirejailBackend())` 注入 OS 级后端（仅隔离 shell 子进程、Linux-only、非完美边界）。file/memory 等宿主进程内 I/O 工具不 spawn 子进程，不受该后端覆盖——仍须整体 OS 级沙箱兜底 |
 | ledger/store 跨进程持久化 | `engine/` 的 store/ledger 持久化非并发安全——单进程 async 下 `to_thread` 串行，但多进程/多 loop 同写 `.heagent/` 无文件锁，须避免并发写（见 4.12） |
 
 ---

@@ -8,7 +8,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP server**（其进程、命令、HTTP transport 均由 `.mcp.json` 声明，可能来自任意第三方）。`SafetyGuard` **不是真正的安全边界**（命令黑名单可绕过、工具返回内容无围栏进入上下文、prompt injection 无隔离）。**不可在不可信内容或不可信 LLM 输出下裸跑**——必须配 OS 级沙箱（容器/firejail）。修改安全相关代码时勿将其当作有效边界。
 
-**引擎执行层（`engine/`）同样非安全边界**：`ToolExecutor` 的 `SANDBOX_REQUIRED` 模式默认 `execute_in_sandbox()` 为**透传**（未接真实后端），`PolicyEngine` 的审批/沙箱裁决仅产出 `PolicyVerdict`，不强制 OS 级隔离。与 `SafetyGuard` 一视同仁——不可作为有效边界。
+**引擎执行层（`engine/`）同样非安全边界**：`ToolExecutor` 的 `SANDBOX_REQUIRED` 模式 `execute_in_sandbox()` 默认 Passthrough **透传**，可经 `EngineContainer(command_runner=FirejailBackend())` 注入 OS 级后端（仅隔离 `shell` 子进程、Linux-only、非完美边界，见 `tools/sandbox.py`）；`PolicyEngine` 的审批/沙箱裁决仅产出 `PolicyVerdict`，不强制 OS 级隔离。与 `SafetyGuard` 一视同仁——不可作为有效边界。
 
 **MCP 特定风险（FR-10/11，与上述立场同构，不制造「接 MCP 更安全」假象）：**
 
@@ -114,6 +114,6 @@ exceptions  types  config
 
 - `SafetyGuard` / `path_safety` / `engine` sandbox 均非真正安全边界——须 OS 级沙箱兜底（见文首声明）。
 - 工作区路径围栏已收敛：policy 预检（`_validate_paths`）与 file 工具 handler 守卫（`resolve_workspace_path`）共用同一算法 `resolve_under_root`（`tools/path_safety.py`），两层有意纵深防御，不再有两份可漂移副本。
-- `ToolExecutor.execute_in_sandbox()` 默认透传（未接真实沙箱后端），`SANDBOX_REQUIRED` 裁决不产生 OS 级隔离效果。
+- `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可注入 `FirejailBackend`（仅隔离 `shell` 子进程、Linux-only、非完美边界），file/memory 等宿主进程内 I/O 工具不 spawn 子进程、不受覆盖——须整体 OS 级沙箱兜底（`tools/sandbox.py`）。
 - MCP V1 边界：`SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）；仅接 Tools 原语。
 - 完整缺口表见 `docs/frame.md` 五。

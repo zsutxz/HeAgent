@@ -1,32 +1,20 @@
 """Shell 命令执行工具。
 
-通过 asyncio.create_subprocess_shell 异步执行命令，
-捕获 stdout/stderr 并设置超时保护。
+经 :func:`~heagent.tools.sandbox.get_command_runner` 取当前 :class:`CommandRunner`
+后端执行命令——默认 :class:`~heagent.tools.sandbox.PassthroughRunner`（直接
+``create_subprocess_shell``）；``SANDBOX_REQUIRED`` 路径下由
+:class:`~heagent.engine.executor.ToolExecutor` ``bind_command_runner`` 注入沙箱后端
+（如 :class:`~heagent.tools.sandbox.FirejailBackend`）。stdout/stderr 捕获与超时保护
+由后端负责，本 handler 仅声明参数与委托。
 """
 
 from __future__ import annotations
 
-import asyncio
-
 from heagent.tools.decorator import tool
+from heagent.tools.sandbox import get_command_runner
 
 
 @tool
 async def shell(command: str, timeout: int = 120) -> str:
     """Execute a shell command and return output."""
-    try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        # 组装结果：退出码 + stdout + stderr
-        result = f"exit_code={proc.returncode}\n"
-        if stdout:
-            result += f"stdout:\n{stdout.decode('utf-8', errors='replace')}"
-        if stderr:
-            result += f"stderr:\n{stderr.decode('utf-8', errors='replace')}"
-        return result
-    except TimeoutError:
-        return f"exit_code=-1\nstderr: Command timed out after {timeout}s"
+    return await get_command_runner().run(command, timeout=timeout)
