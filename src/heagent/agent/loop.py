@@ -124,7 +124,8 @@ class AgentLoop:
             context_dir: 工作区根目录（文件工具围栏基址 + engine 落盘根），可选。
             soul: 灵魂/人格记忆库，可选。
             cron_store: 后台定时任务的存储后端，可选。
-            engine: 运行时治理容器（policy/executor/store/ledger/observability）；缺省 ``EngineContainer.default``。非安全边界。
+            engine: 运行时治理容器（policy/executor/store/ledger/observability）；
+                缺省 ``EngineContainer.default``，非安全边界（须 OS 级沙箱兜底）。
             run_context: 外部预置的运行上下文（SubAgent 委派时用）；run() 取用后即清空，一次性。
         """
         self.provider = provider
