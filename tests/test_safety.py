@@ -88,6 +88,35 @@ class TestNonShellTools:
         guard.check(_other_call())  # no raise — only shell is checked
 
 
+class TestBlockedTools:
+    """工具名 blacklist：对所有工具生效（MCP/内置/shell），spec DP-4。"""
+
+    def test_default_empty_zero_regression(self) -> None:
+        # 默认 blocked_tools=[]，MCP 工具不抛——与改动前行为逐字节一致
+        guard = SafetyGuard()
+        guard.check(ToolCall(id="1", name="github__list_issues", arguments={}))
+
+    def test_blocks_matching_mcp_tool(self) -> None:
+        guard = SafetyGuard(blocked_tools=[r"github__delete_.*"])
+        with pytest.raises(SafetyViolation):
+            guard.check(ToolCall(id="1", name="github__delete_issue", arguments={"n": 1}))
+
+    def test_allows_non_matching_mcp_tool(self) -> None:
+        guard = SafetyGuard(blocked_tools=[r"github__delete_.*"])
+        guard.check(ToolCall(id="1", name="github__list_issues", arguments={}))  # no raise
+
+    def test_tool_name_block_covers_shell(self) -> None:
+        # blocked_tools=["shell"] 命中 shell 工具名，先于 command 危险模式检查
+        guard = SafetyGuard(blocked_tools=[r"shell"])
+        with pytest.raises(SafetyViolation):
+            guard.check(_shell_call("echo safe"))
+
+    def test_block_message_names_tool(self) -> None:
+        guard = SafetyGuard(blocked_tools=[r"github__delete_.*"])
+        with pytest.raises(SafetyViolation, match="Blocked tool by name"):
+            guard.check(ToolCall(id="1", name="github__delete_issue", arguments={}))
+
+
 class TestViolationLog:
     def test_violations_recorded(self) -> None:
         guard = SafetyGuard()

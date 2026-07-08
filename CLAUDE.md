@@ -12,12 +12,12 @@ HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP s
 
 **MCP 特定风险（FR-10/11，与上述立场同构，不制造「接 MCP 更安全」假象）：**
 
-- **外部 MCP server = 不可信代码**：stdio server 会拉起任意本地子进程，HTTP server 会连任意远程端点；V1 `SafetyGuard` **不**扩展到 MCP 工具调用（架构决策 deferred，见 architecture DP-4）。
+- **外部 MCP server = 不可信代码**：stdio server 会拉起任意本地子进程，HTTP server 会连任意远程端点；`SafetyGuard` 工具名黑名单已覆盖 MCP 工具（执行前拦截，DP-4 2026-07-08 落地），但返回内容复核仍 deferred——立场不变，均非真正边界。
 - **MCP 工具输出无隔离进入 LLM 上下文**：server 返回内容（含远端响应）直接并入对话，prompt injection 无围栏——视为与内置工具返回**同等不可信**。
-- **同等约束**：MCP 工具走与内置工具一致的 `ToolError` 语义，但**不**享受额外的预校验或返回内容复核。
+- **同等约束**：MCP 工具走与内置工具一致的 `ToolError` 语义，享受同等的工具名黑名单预校验（DP-4 2026-07-08 落地），但**不**享受返回内容复核。
 - **须 OS 级沙箱兜底**：连 MCP server 时同样必须在沙箱内运行，并对子进程 / 出站网络施加最小权限。
 
-**后续（deferred / future，V1 未做）：** `SafetyGuard` 扩展到 MCP（敏感工具确认 / 返回内容复核）、Resources/Prompts 原语、写操作。（运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
+**后续（deferred / future，V1 未做）：** `SafetyGuard` MCP 返回内容复核（prompt injection 围栏）、Resources/Prompts 原语、写操作。（执行前工具名拦截已交付 DP-4 2026-07-08；运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
 
 ## 构建与测试命令
 

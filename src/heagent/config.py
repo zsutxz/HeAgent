@@ -82,6 +82,7 @@ class Settings(BaseSettings):
     # ---- MCP Client 参数（FR-7 门控；无 .mcp.json 时纯内置模式） ----
     mcp_enabled: bool = Field(default=True)  # 是否启用 MCP server 连接
     mcp_config_path: str = Field(default=".mcp.json")  # 声明式 MCP server 配置路径（项目根）
+    safety_blocked_tools: list[str] = Field(default_factory=list)  # SafetyGuard 工具名黑名单（正则，对所有工具生效）
 
     @property
     def openai_key_pool(self) -> list[str]:

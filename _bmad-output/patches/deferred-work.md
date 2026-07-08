@@ -45,3 +45,11 @@ Findings deferred during quick-dev (out of the originating story's frozen scope,
 - **handler 未把 in-flight `call_tool` 底层异常封 `ToolError` [`manager.py:205-207`] — pre-existing。** 运行时断连期间已在 in-flight 的 `await session.call_tool(...)` 可能在被 finally 关闭的 session 上抛非 `ToolError` 的底层异常（`anyio.BrokenResourceError` 等），冒泡到 `AgentLoop._execute_one`。FR-3 声明「调用降级 `ToolError`」但 handler 边界未兜底。spec Never 显式排除反应式 on-call 封装（本次不融合第二模式）。**Severity:** LOW–MED。**Suggested fix (future story):** handler 内 `try: call_tool except Exception: raise ToolError(...)`，把所有调用路径异常统一为 `ToolError` 语义。
 - **`_unregister_all` 迭代 `.values()` 后 `.clear()` [`manager.py:216-221`]。** 当前单线程 asyncio 下 `_unregister_all` 同步无 await、原子完成，与 `_unregister_server` 的 `pop` 无交错风险。**Severity:** LOW（仅未来若在 `_unregister_all` 中插 await 会破不变量）。**Suggested fix:** 先 `registered = self._registered; self._registered = {}` 快照再遍历，防御性。
 - **测试未断言断连 server task done / transport 关闭 / 内置工具保留 [`tests/test_mcp_manager.py:252-273`]。** `test_disconnect_isolated_to_one_server` 仅轮询工具从 registry 消失，未断言：(a) 断连 server 的 `_server_loop` task 已 done；(b) transport context 已 `__aexit__`；(c) 内置工具保留（该测试用空 `ToolRegistry()`，无内置工具可断言）。AC1 的「内置工具保留」由 `_unregister_server` 只 `pop` 单 key 的实现逻辑等价保证。**Severity:** LOW（测试保真度，非生产 bug）。**Suggested fix:** 补 `assert all(t.done() for t in m._server_tasks)` 或断言 fake transport 的 `__aexit__` 被调用。
+
+---
+
+## 2026-07-08 · DP-4 拆分 defer：MCP 返回内容复核（prompt injection 围栏）
+
+- source_spec: none
+- summary: SafetyGuard 扩展到 MCP 的「返回内容复核」half——MCP 工具返回内容进 LLM 上下文前加围栏 / 启发式扫描 / 标记，攻 prompt injection 无隔离缺口（`manager.py:211` handler `call_tool` 返回直接 `str()` 化进 `ToolResult.content`）。
+- evidence: DP-4（SafetyGuard 扩展到 MCP）原含「敏感工具确认 / 返回内容复核」两 half；Multi-goal check 判定两者为独立可发布 deliverable（执行前拦截 vs 执行后复核、不同代码位置、各自可独立 PR），本 spec `spec-dp4-mcp-safety-guard` 先做执行前确认/拦截 half，复核 half 拆出 defer。立场不变：复核层亦非真正边界，不宣称防住 injection。

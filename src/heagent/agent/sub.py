@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from heagent.agent.loop import AgentLoop
+from heagent.config import get_settings
 from heagent.engine import EngineContainer
 from heagent.engine.policy import PolicyEngine
 from heagent.tools.registry import ToolRegistry
@@ -79,7 +80,7 @@ class SubAgent:
         # 组件依赖：缺省时回退到全局默认（与 AgentLoop 的兜底策略一致）。
         self._provider = provider
         self._registry = registry or ToolRegistry.get()
-        self._guard = guard or SafetyGuard()
+        self._guard = guard or SafetyGuard(blocked_tools=get_settings().safety_blocked_tools)
         self._skills = skills
         self._facts = facts
         self._profile = profile

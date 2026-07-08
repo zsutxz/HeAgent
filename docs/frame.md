@@ -289,11 +289,11 @@ def shell(command: str) -> str:
 
 ```
 SafetyGuard
-  ├── BLACKLIST 模式：拦截 12 种危险模式（rm -rf, fork bomb, format, dd...）
-  └── WHITELIST 模式：仅允许白名单命令
+  ├── 工具名黑名单（blocked_tools）：对所有工具生效（含 MCP/内置/shell），正则匹配 call.name → 命中拦截
+  └── shell 命令检查（仅 "shell"）：BLACKLIST（12 种危险模式 + 自定义）/ WHITELIST
 ```
 
-仅对 `shell` 工具生效，违反时抛出 `SafetyViolation`。
+工具名黑名单对所有工具生效；shell 命令检查仅对 `shell` 工具生效。违反时抛出 `SafetyViolation`。
 
 #### path_safety.py — 工作区路径校验（文件工具）
 
@@ -503,7 +503,7 @@ HeAgentError (base)
 | `manager.py` | `MCPClientManager` — 并发连接+发现+注册，单 server 失败/超时隔离（工具不注入，不崩溃 agent） |
 
 **V1 边界：**
-- `SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）
+- `SafetyGuard` 工具名黑名单已覆盖 MCP 工具（执行前拦截，DP-4 2026-07-08 落地）；返回内容复核仍 deferred
 - MCP 工具返回内容直接进入 LLM 上下文，prompt injection 无隔离
 - 仅接 Tools 原语，Resources/Prompts、写操作 deferred
 - 运行时断连主动 unregister：持有期 `send_ping` 健康探测（默认 5s 周期），ping 失败/超时即注销该 server 全部工具（FR-3 收紧）；探测间隔内被调用仍降级 `ToolError`
@@ -545,7 +545,7 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 |------|------|
 | 流式 tool_calls 回退 | `run_stream()` 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时回退 `send()` 重取该轮调用（已知设计权衡） |
 | Cron 范围表达式 | V1 解析器不支持范围表达式（如 `1-5`） |
-| MCP SafetyGuard 覆盖 | V1 `SafetyGuard` 未覆盖 MCP 工具调用（deferred DP-4） |
+| MCP 返回内容复核 | `SafetyGuard` 执行前工具名拦截已覆盖 MCP（DP-4，2026-07-08 落地）；返回内容复核 / prompt injection 围栏仍 deferred |
 | CLI 事件循环阻塞 | 交互模式 `input()` 为同步调用，阻塞 asyncio 事件循环（单用户 CLI 影响可接受） |
 | engine sandbox 透传 | `ToolExecutor.execute_in_sandbox()` 默认透传（未接真实沙箱后端），`SANDBOX_REQUIRED` 裁决不产生 OS 级隔离效果——须 OS 级沙箱兜底 |
 | ledger/store 跨进程持久化 | `engine/` 的 store/ledger 持久化非并发安全——单进程 async 下 `to_thread` 串行，但多进程/多 loop 同写 `.heagent/` 无文件锁，须避免并发写（见 4.12） |

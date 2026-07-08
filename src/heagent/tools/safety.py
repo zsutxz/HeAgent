@@ -1,10 +1,12 @@
 """安全防护 — 工具调用执行前的安全检查。
 
-仅对 "shell" 工具生效，检查分为两层：
-  1. 内置危险模式（硬编码的 12 种）：rm -rf、fork bomb、format 等
-  2. 用户自定义规则：BLACKLIST（拦截匹配项）或 WHITELIST（仅允许匹配项）
+检查分两类：
+  - 工具名 blacklist（对所有工具生效，含 MCP/内置/shell）：按 ``call.name`` 正则命中即拦截
+  - shell 命令检查（仅 "shell" 工具）：两层——内置危险模式（硬编码 12 种）+
+    用户自定义规则（BLACKLIST 拦截匹配项 / WHITELIST 仅允许匹配项）
 
 违反安全规则时抛出 SafetyViolation，AgentLoop 将其包装为 is_error 的 ToolResult。
+非真正安全边界，须 OS 级沙箱兜底（见 CLAUDE.md 安全声明）。
 """
 
 from __future__ import annotations
@@ -54,12 +56,15 @@ class SafetyGuard:
         mode: SafetyMode = SafetyMode.BLACKLIST,
         blocked_commands: list[str] | None = None,
         allowed_commands: list[str] | None = None,
+        blocked_tools: list[str] | None = None,
     ) -> None:
         self.mode = mode  # 安全模式
         self._blocked: list[str] = blocked_commands or []  # 用户自定义黑名单规则
         self._allowed: list[str] = allowed_commands or []  # 用户自定义白名单规则
         self._blocked_compiled = [re.compile(p, re.IGNORECASE) for p in self._blocked]
         self._allowed_compiled = [re.compile(p, re.IGNORECASE) for p in self._allowed]
+        # 工具名 blacklist（对所有工具生效，含 MCP/内置/shell），按 call.name 正则命中拦截
+        self._blocked_tools_compiled = [re.compile(p, re.IGNORECASE) for p in (blocked_tools or [])]
         self._violation_log: list[str] = []  # 违规记录，用于审计
 
     def _block(self, msg: str) -> NoReturn:
@@ -70,12 +75,17 @@ class SafetyGuard:
     def check(self, call: ToolCall) -> None:
         """检查工具调用是否安全，不安全则抛出 SafetyViolation。
 
-        检查流程（仅对 shell 工具）：
-          1. 内置危险模式匹配 → 拦截
-          2. 黑名单模式：匹配用户自定义黑名单 → 拦截
-          3. 白名单模式：不在白名单中 → 拦截
+        检查流程：
+          0. 工具名 blacklist（对所有工具生效，含 MCP/内置/shell）→ 命中拦截
+          1. 内置危险模式匹配（仅 shell）→ 拦截
+          2. 黑名单模式：匹配用户自定义黑名单（仅 shell）→ 拦截
+          3. 白名单模式：不在白名单中（仅 shell）→ 拦截
         """
-        # 非 shell 工具不检查
+        # 第零层：工具名 blacklist，对所有工具生效（MCP/内置/shell），命中即拦截
+        for pat in self._blocked_tools_compiled:
+            if pat.search(call.name):
+                self._block(f"Blocked tool by name: {call.name}")
+        # 以下仅对 shell 工具检查
         if call.name != "shell":
             return
         command = call.arguments.get("command", "")

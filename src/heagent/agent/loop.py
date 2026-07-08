@@ -129,7 +129,7 @@ class AgentLoop:
         """
         self.provider = provider
         self.registry = registry or ToolRegistry.get()
-        self.guard = guard or SafetyGuard()
+        self.guard = guard or SafetyGuard(blocked_tools=get_settings().safety_blocked_tools)
         self.middlewares = middlewares or []
         self.skills = skills
         self.facts = facts
