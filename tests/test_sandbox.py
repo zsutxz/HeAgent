@@ -45,6 +45,42 @@ class TestPassthroughRunner:
         assert "exit_code=-1" in result
         assert "timed out" in result
 
+    @pytest.mark.asyncio
+    async def test_cancel_kill_and_reap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """外层取消（CancelledError）也须 kill+wait 子进程，不泄漏（D1 回归）。"""
+
+        class _FakeProc:
+            def __init__(self) -> None:
+                self.returncode = 0
+                self.killed = False
+                self.waited = False
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                await asyncio.sleep(1000)  # 阻塞到被取消
+                return b"", b""
+
+            def kill(self) -> None:
+                self.killed = True
+
+            async def wait(self) -> int:
+                self.waited = True
+                return 0
+
+        proc = _FakeProc()
+
+        async def fake_create(command: str, stdout=None, stderr=None) -> _FakeProc:
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_create)
+
+        task = asyncio.create_task(PassthroughRunner().run("blocker", timeout=120))
+        await asyncio.sleep(0.05)  # 让 task 跑到 await communicate()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert proc.killed, "CancelledError 路径未 kill 子进程"
+        assert proc.waited, "CancelledError 路径未 wait 回收"
+
 
 class TestFirejailBackend:
     @pytest.mark.asyncio

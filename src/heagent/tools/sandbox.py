@@ -71,6 +71,9 @@ async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
     except TimeoutError:
         await _kill_and_reap(proc)  # 超时收尾子进程，避免僵尸（原 shell 实现漏了 kill）
         return _TIMEOUT_RESULT.format(timeout=timeout)
+    except asyncio.CancelledError:
+        await _kill_and_reap(proc)  # 外层取消（budget/abort）也须 kill+wait，避免泄漏子进程
+        raise
     return _format_result(proc.returncode, stdout, stderr)
 
 
@@ -86,6 +89,9 @@ async def _run_subprocess_exec(argv: Sequence[str], *, timeout: int) -> str:
     except TimeoutError:
         await _kill_and_reap(proc)
         return _TIMEOUT_RESULT.format(timeout=timeout)
+    except asyncio.CancelledError:
+        await _kill_and_reap(proc)  # 外层取消（budget/abort）也须 kill+wait，避免泄漏子进程
+        raise
     return _format_result(proc.returncode, stdout, stderr)
 
 
