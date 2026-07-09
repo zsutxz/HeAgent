@@ -38,3 +38,22 @@
 
 ## 立场（不变）
 FirejailBackend 交付后 `SANDBOX_REQUIRED` **对 shell 子进程**产生 OS 级隔离效果，但：(a) 仅 shell，file/memory 等仍无隔离；(b) firejail 非完美边界（可被绕过）；(c) Linux-only，Windows 开发机/CI 无法真跑；(d) 仍须整体在 OS 级沙箱内运行。**不制造「接了 firejail 就安全」假象。**
+
+## Review Findings（2026-07-09，bmad-code-review on commit 4a8bf17）
+
+三层对抗式审查（Blind Hunter / Edge Case Hunter / Acceptance Auditor）。**Acceptance Auditor：AC1–AC8 全满足、约束无违反、无 out-of-scope 泄漏**（pytest 486 passed / ruff clean / mypy clean 复核）。下列为 patch / defer 项。
+
+dismissed 8 项（已丢弃，不列详）：`default()` 不注入 runner（spec out-of-scope YAGNI）/ `_format_result` `exit_code=None` 标注（communicate 完成后 returncode 必已设，不可达）/ PassthroughRunner 单例 stateful 隐患（speculative，无 stateful runner）/ `bind_command_runner(None)` 语义（executor 先 guard None，无 live bug）/ timeout 默认值 120 重复（无第二 caller，YAGNI）/ `extra_args` 含 `"--"`（trusted operator 输入，implausible）/ `command=""` 结果串形状（空输出省略 stdout:/stderr: 段正确，LLM 消费文本）/ 子类覆写 `execute_in_sandbox` 丢弃 runner（docstring 已声明「覆写即替换整套沙箱语义」，by-design）。
+
+### patch
+
+- [x] [Review][Patch] 超时 kill 清理不完整：`proc.kill()` 后未 `await proc.wait()`，且未处理 `ProcessLookupError`（进程恰在超时边界退出时 `kill()` 抛异常，逃逸 `except TimeoutError` → 上层转成 `Tool error:` 而非干净超时串；pipe FD/僵尸延迟到 GC 回收） [`src/heagent/tools/sandbox.py:60-62,75-77`] — blind+edge，medium。修：`try: proc.kill() except ProcessLookupError: pass` + `await proc.wait()`。
+- [x] [Review][Patch] `EngineContainer.__post_init__` 无条件 `self.executor.sandbox_runner = self.command_runner`：当 `EngineContainer(executor=ToolExecutor(sandbox_runner=backend), command_runner=None)` 时静默把 backend 覆写成 None（clobber executor-supplied runner，SANDBOX_REQUIRED 退化为透传无报错） [`src/heagent/engine/container.py:51-53`] — blind+edge，medium。修：`if self.command_runner is not None: self.executor.sandbox_runner = self.command_runner`。
+- [x] [Review][Patch] `FirejailBackend` docstring「exec 非 shell，避免双层 shell / 命令注入」措辞误导：`command` 仍经 `sh -c` 解释（shell 工具本意），exec 仅免双层 shell，并非免注入 [`src/heagent/tools/sandbox.py:92`] — blind，low。修：改写为「避免双层 shell（command 仍经 sh -c 解释，即 shell 工具本意）」。
+
+### defer
+
+- [x] [Review][Defer] `CancelledError` 中断 `communicate()` 泄漏子进程（`except TimeoutError` 不捕 CancelledError，proc 无 kill/wait） [`src/heagent/tools/sandbox.py:58-63,72-78`] — deferred, pre-existing（原 shell 同样在 cancel 时泄漏，本次未引入）。
+- [x] [Review][Defer] 超时 kill 不杀进程组（无 `start_new_session=True` + `os.killpg`，`sh -c "sleep 1000 &"` 的子孙存活） [`src/heagent/tools/sandbox.py:53,68`] — deferred, pre-existing（原 shell 同样无 process-group kill）。
+- [x] [Review][Defer] `timeout <= 0` 无校验：LLM 传 `timeout=0`/负值 → spawn 后 `wait_for` 立即 TimeoutError → 竞态 kill 未启动的进程 [`src/heagent/tools/builtins/shell.py:18`] — deferred, pre-existing（原 shell 同样无 timeout 校验）。
+- [x] [Review][Defer] `test_run_invokes_firejail_with_expected_argv` 的 result-shape 断言同义反复（fake `_FakeProc.returncode=0` 类属性 + 硬编码 communicate 返回，`"exit_code=0" in result` 对 fake 恒真，不验证 returncode 读取链路） [`tests/test_sandbox.py`] — deferred, test quality（argv 主断言有效，仅 result-shape 部分弱）。

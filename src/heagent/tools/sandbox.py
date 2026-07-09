@@ -18,7 +18,7 @@ I/O 工具不 spawn 子进程，本抽象对它们无意义。仍须整体在 OS
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Protocol
 
 from heagent.tools.runtime import RuntimeSlot
@@ -48,6 +48,17 @@ def _format_result(returncode: int | None, stdout: bytes, stderr: bytes) -> str:
 _TIMEOUT_RESULT = "exit_code=-1\nstderr: Command timed out after {timeout}s"
 
 
+async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
+    """超时收尾：SIGKILL 子进程并 ``await wait()`` 回收，避免僵尸 / pipe FD 泄漏。
+
+    ``proc.kill()`` 在进程恰好已退出时抛 ``ProcessLookupError``（超时边界竞态），
+    吞掉该竞态；``await proc.wait()`` 确保 reaped、transport 关闭管道。
+    """
+    with suppress(ProcessLookupError):
+        proc.kill()
+    await proc.wait()
+
+
 async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
     """经 ``create_subprocess_shell`` 执行；超时 kill 子进程并返回统一超时串。"""
     proc = await asyncio.create_subprocess_shell(
@@ -58,7 +69,7 @@ async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
-        proc.kill()  # 超时收尾子进程，避免僵尸（原 shell 实现漏了 kill）
+        await _kill_and_reap(proc)  # 超时收尾子进程，避免僵尸（原 shell 实现漏了 kill）
         return _TIMEOUT_RESULT.format(timeout=timeout)
     return _format_result(proc.returncode, stdout, stderr)
 
@@ -73,7 +84,7 @@ async def _run_subprocess_exec(argv: Sequence[str], *, timeout: int) -> str:
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
-        proc.kill()
+        await _kill_and_reap(proc)
         return _TIMEOUT_RESULT.format(timeout=timeout)
     return _format_result(proc.returncode, stdout, stderr)
 
@@ -89,7 +100,8 @@ class FirejailBackend:
     """经 firejail 包裹子进程的后端（OS 级隔离，Linux-only，非完美边界）。
 
     ``argv = [firejail_path, *extra_args, "--", "sh", "-c", command]``，用
-    ``create_subprocess_exec`` 启动 firejail（exec 非 shell，避免双层 shell / 命令注入），
+    ``create_subprocess_exec`` 启动 firejail（exec 非 shell，避免双层 shell；``command`` 仍经
+    ``sh -c`` 解释，即 shell 工具本意，并非免注入），firejail 再拉起 ``sh -c command``。
     firejail 再拉起 ``sh -c command``。``extra_args`` 透传给 firejail（如
     ``("--private-tmp",)``）；per-profile 参数映射为未来扩展，当前不按 profile 分。
     """

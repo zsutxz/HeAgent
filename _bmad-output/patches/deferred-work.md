@@ -53,3 +53,14 @@ Findings deferred during quick-dev (out of the originating story's frozen scope,
 - source_spec: none
 - summary: SafetyGuard 扩展到 MCP 的「返回内容复核」half——MCP 工具返回内容进 LLM 上下文前加围栏 / 启发式扫描 / 标记，攻 prompt injection 无隔离缺口（`manager.py:211` handler `call_tool` 返回直接 `str()` 化进 `ToolResult.content`）。
 - evidence: DP-4（SafetyGuard 扩展到 MCP）原含「敏感工具确认 / 返回内容复核」两 half；Multi-goal check 判定两者为独立可发布 deliverable（执行前拦截 vs 执行后复核、不同代码位置、各自可独立 PR），本 spec `spec-dp4-mcp-safety-guard` 先做执行前确认/拦截 half，复核 half 拆出 defer。立场不变：复核层亦非真正边界，不宣称防住 injection。
+
+---
+
+## Deferred from: code review of spec-engine-sandbox-backend (2026-07-09)
+
+**Source:** step-04 review of `spec-engine-sandbox-backend`（blind hunter + edge case hunter + acceptance auditor），commit `4a8bf17`。AC1–AC8 全通过、约束无违反、无 out-of-scope 泄漏。4 项 classified `defer`（pre-existing / test quality），3 项 patch 另记 spec `### patch`。
+
+- **CancelledError 中断 `communicate()` 泄漏子进程 [`src/heagent/tools/sandbox.py:58-63,72-78`] — pre-existing。** `_run_subprocess_shell`/`_run_subprocess_exec` 仅 `except TimeoutError`；外层 task 取消（budget 超 / window reset / SubAgent abort）时 `asyncio.wait_for(communicate())` 抛 `CancelledError`（BaseException，不被 `except TimeoutError` 捕），proc 无 kill 无 wait，泄漏子进程 + FD。原 shell 同样在 cancel 时泄漏，本次 commit 未引入（仅补了超时 kill，未补 cancel 清理）。**Severity:** MED（取消是长跑 agent 的正常路径）。**Suggested fix:** 加 `except asyncio.CancelledError: proc.kill(); await proc.wait(); raise`，与超时 kill 清理同 hunk 一并修。
+- **超时 kill 不杀进程组 [`src/heagent/tools/sandbox.py:53,68`] — pre-existing。** `proc.kill()` 仅 SIGKILL 直系子进程；`sh -c "sleep 1000 &"` 的后台子孙被 init 收养、存活。原 shell 同样无 `start_new_session`。**Severity:** MED（子孙泄漏，timeout 后 agent 报 exit_code=-1 但进程仍跑）。**Suggested fix:** `start_new_session=True` + `os.killpg(os.getpgid(proc.pid), signal.SIGKILL)`（Linux-only，且 firejail 自身 session/namespace 处理需评估，正交于本 spec）。
+- **`timeout <= 0` 无校验 [`src/heagent/tools/builtins/shell.py:18`] — pre-existing。** `shell(command, timeout=120)` 不校验 timeout 正性；LLM 传 0/负值 → spawn 后 `wait_for` 立即 TimeoutError → 竞态 kill 未启动的进程（叠加上面 ProcessLookupError 未处理）。原 shell 同样无校验。**Severity:** LOW。**Suggested fix:** handler 或 runner 入口 `if timeout <= 0: raise ValueError(...)` 或钳位到默认。
+- **test_firejail_argv mock result-shape 断言弱 [`tests/test_sandbox.py`] — test quality。** `_FakeProc.returncode=0` 为类属性、`communicate` 硬编码 `(b"out", b"err")`，`"exit_code=0" in result` 对 fake 恒真，不验证 `_run_subprocess_exec` 是否正确读取 `proc.returncode`（若有人把 `_format_result` 改成在 communicate 完成前读 returncode，此测试仍绿）。argv 主断言有效。**Severity:** LOW（测试保真度，非生产 bug）。**Suggested fix:** fake 按实例存 returncode，断言结果串读取自 `proc.returncode`。

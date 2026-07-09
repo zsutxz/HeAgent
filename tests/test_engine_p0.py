@@ -593,6 +593,15 @@ class TestToolExecutor:
         container = EngineContainer()
         assert container.executor.sandbox_runner is None
 
+    def test_container_preserves_executor_supplied_runner(self) -> None:
+        """container.command_runner=None 时不覆写 executor 自带 runner（防 clobber 回归）。"""
+        from heagent.tools.sandbox import FirejailBackend
+
+        backend = FirejailBackend()
+        executor = ToolExecutor(sandbox_runner=backend)
+        container = EngineContainer(executor=executor, command_runner=None)
+        assert container.executor.sandbox_runner is backend
+
     def test_subagent_inherits_runner_via_replace(self) -> None:
         """SubAgent 经 replace(engine, policy=...) 只换 policy，executor 引用不变 → 继承父 runner。"""
         from dataclasses import replace

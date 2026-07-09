@@ -49,8 +49,13 @@ class EngineContainer:
     command_runner: CommandRunner | None = None
 
     def __post_init__(self) -> None:
-        """把 container 级 command_runner 注入 executor（SANDBOX_REQUIRED 路径后端）。"""
-        self.executor.sandbox_runner = self.command_runner
+        """把 container 级 command_runner 注入 executor（SANDBOX_REQUIRED 路径后端）。
+
+        仅当 container 显式持有 runner 时注入，避免覆写 executor 自带的后端
+        （如 ``EngineContainer(executor=ToolExecutor(sandbox_runner=backend))``）。
+        """
+        if self.command_runner is not None:
+            self.executor.sandbox_runner = self.command_runner
 
     @classmethod
     def default(cls, *, workspace_root: str | None = None) -> EngineContainer:
