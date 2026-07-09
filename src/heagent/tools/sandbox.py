@@ -59,8 +59,28 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     await proc.wait()
 
 
+def _validate_timeout(timeout: int) -> None:
+    """校验 ``timeout`` 为正整数（秒），否则抛 ``ValueError``（fail-closed）。
+
+    LLM 经 JSON 工具调用传入的 ``timeout`` 不经 ``@tool`` schema 运行期强制（decorator
+    仅生成 JSON Schema 描述、无 isinstance 校验），故在 spawn 前于此 fail-closed 守卫：
+
+      - 非 ``int``（``None`` / ``str`` / ``float`` …）→ 拒绝（``nan`` / ``inf`` 属 float
+        亦在此拦截——``nan <= 0`` 恒 False 会绕过 ``<=`` 守卫并破坏 asyncio timer 堆全序）
+      - ``bool``（``int`` 子类）→ 拒绝，守住 "integer" 契约（``True`` 会被当 ``1`` 静默接受）
+      - ``<= 0`` → 拒绝（spawn 后 ``wait_for`` 立即超时 → 竞态 kill 未启动的进程）
+
+    拒绝时统一抛 ``ValueError``（而非让 ``<=`` 对非数值抛 ``TypeError``），消息含
+    ``repr(timeout)``，经 :class:`~heagent.engine.executor.ToolExecutor` ``except Exception``
+    转成错误 ``ToolResult`` 回喂 LLM、不中断循环。
+    """
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
+        raise ValueError(f"timeout must be a positive integer (seconds), got {timeout!r}")
+
+
 async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
     """经 ``create_subprocess_shell`` 执行；超时 kill 子进程并返回统一超时串。"""
+    _validate_timeout(timeout)
     proc = await asyncio.create_subprocess_shell(
         command,
         stdout=asyncio.subprocess.PIPE,
@@ -79,6 +99,7 @@ async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
 
 async def _run_subprocess_exec(argv: Sequence[str], *, timeout: int) -> str:
     """经 ``create_subprocess_exec`` 执行（argv 列表，免双层 shell / 注入）。"""
+    _validate_timeout(timeout)
     proc = await asyncio.create_subprocess_exec(
         *argv,
         stdout=asyncio.subprocess.PIPE,
