@@ -54,6 +54,8 @@ Findings deferred during quick-dev (out of the originating story's frozen scope,
 - summary: SafetyGuard 扩展到 MCP 的「返回内容复核」half——MCP 工具返回内容进 LLM 上下文前加围栏 / 启发式扫描 / 标记，攻 prompt injection 无隔离缺口（`manager.py:211` handler `call_tool` 返回直接 `str()` 化进 `ToolResult.content`）。
 - evidence: DP-4（SafetyGuard 扩展到 MCP）原含「敏感工具确认 / 返回内容复核」两 half；Multi-goal check 判定两者为独立可发布 deliverable（执行前拦截 vs 执行后复核、不同代码位置、各自可独立 PR），本 spec `spec-dp4-mcp-safety-guard` 先做执行前确认/拦截 half，复核 half 拆出 defer。立场不变：复核层亦非真正边界，不宣称防住 injection。
 
+**Resolution（2026-07-10）：** 已交付——DP-4 第二半，spec `_bmad-output/patches/spec-dp4-mcp-result-guard.md`。`mapping.bridge_result` 返回前对文本跑内置 prompt-injection 启发式正则（ChatML/tokenizer 标记 `<|im_start|>`/`<|im_end|>`/`<|endoftext|>`/`[INST]`/`[/INST]`、`<system>`/`</system>` 标签、`ignore/disregard/forget (all) previous/prior/above instructions/prompts/messages` 短语），命中加 warning 标记后**透传**（`is_error=False`，不阻断/不截断）。**命中语义经用户确认选「标记透传」**——注入与正常内容语义不可区分，纯启发式必有 FP/FN；拦截会 FP 破坏正常 MCP 工具且与「不宣称防住 injection」立场矛盾，标记透传是诚实且低代价的 defense-in-depth。作用点 `bridge_result`（MCP 返回内容 str() 化的唯一 choke point），manager/config 零改动，仅 MCP（内置工具信任模型不同）。立场不变：此层**非真正边界**，标记仅 observable defense-in-depth（审计痕迹 + 对 LLM 可见警告），FN 变形攻击仍漏过（测试 `test_guard_deformation_not_matched_fn_accepted` 锁定），须 OS 级沙箱兜底。V1 不加用户配置签名入口（注入签名是安全研究知识、非用户该配项，defer）。回归测试 `tests/test_mcp_mapping.py` 新增 11 例（干净零回归 / 单·多模式命中 / isError 优先 / 非文本块占位符 / 空文本 / 内置全签名参数化 / 变形 FN）。pytest 524 全绿、ruff/mypy 干净。此项关闭。
+
 ---
 
 ## Deferred from: code review of spec-engine-sandbox-backend (2026-07-09)

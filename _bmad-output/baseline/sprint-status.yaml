@@ -148,4 +148,4 @@ action_items:
   - epic: 13
     action: "MCP 返回内容隔离（prompt injection 围栏）作研究项跟踪"
     owner: "tan"
-    status: open
+    status: closed  # 2026-07-10 交付：DP-4 第二半，spec _bmad-output/patches/spec-dp4-mcp-result-guard.md（mapping.bridge_result 启发式围栏，标记透传，非真正边界）

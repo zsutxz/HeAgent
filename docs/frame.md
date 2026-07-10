@@ -503,12 +503,12 @@ HeAgentError (base)
 | 模块 | 说明 |
 |------|------|
 | `config.py` | `MCPConfig`、`StdioServerConfig`、`HttpServerConfig` + `load_mcp_config()`（`.mcp.json` + `${ENV}` 插值，fail-fast） |
-| `mapping.py` | `mcp_tool_to_schema()`（namespace `<server>__<tool>`）、`bridge_result()`（`isError`→`ToolError`） |
+| `mapping.py` | `mcp_tool_to_schema()`（namespace `<server>__<tool>`）、`bridge_result()`（`isError`→`ToolError`；返回前注入启发式围栏，命中加标记透传，DP-4 第二半） |
 | `manager.py` | `MCPClientManager` — 并发连接+发现+注册，单 server 失败/超时隔离（工具不注入，不崩溃 agent） |
 
-**V1 边界：**
-- `SafetyGuard` 工具名黑名单已覆盖 MCP 工具（执行前拦截，DP-4 2026-07-08 落地）；返回内容复核仍 deferred
-- MCP 工具返回内容直接进入 LLM 上下文，prompt injection 无隔离
+**V1 边界（均非真正安全边界，须 OS 级沙箱兜底）：**
+- `SafetyGuard` 工具名黑名单已覆盖 MCP 工具（执行前拦截，DP-4 第一半 2026-07-08 落地）
+- MCP 返回内容经 `mapping.bridge_result` 启发式围栏（命中注入签名加 warning 标记后透传，DP-4 第二半 2026-07-10 落地）——标记仅 observable defense-in-depth，不阻断；prompt injection 仍无可靠围栏
 - 仅接 Tools 原语，Resources/Prompts、写操作 deferred
 - 运行时断连主动 unregister：持有期 `send_ping` 健康探测（默认 5s 周期），ping 失败/超时即注销该 server 全部工具（FR-3 收紧）；探测间隔内被调用仍降级 `ToolError`
 
@@ -549,7 +549,7 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 |------|------|
 | 流式 tool_calls 回退 | `run_stream()` 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时回退 `send()` 重取该轮调用（已知设计权衡） |
 | Cron 范围表达式 | V1 解析器不支持范围表达式（如 `1-5`） |
-| MCP 返回内容复核 | `SafetyGuard` 执行前工具名拦截已覆盖 MCP（DP-4，2026-07-08 落地）；返回内容复核 / prompt injection 围栏仍 deferred |
+| MCP 返回内容复核 | 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08）；返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，`mapping.bridge_result` 标记透传，非真正边界）；用户可配置签名入口仍 deferred |
 | CLI 事件循环阻塞 | 交互模式 `input()` 为同步调用，阻塞 asyncio 事件循环（单用户 CLI 影响可接受） |
 | engine sandbox 后端 | `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可经 `EngineContainer(command_runner=FirejailBackend())` 注入 OS 级后端（仅隔离 shell 子进程、Linux-only、非完美边界）。file/memory 等宿主进程内 I/O 工具不 spawn 子进程，不受该后端覆盖——仍须整体 OS 级沙箱兜底 |
 | ledger/store 跨进程持久化 | `engine/` 的 store/ledger 持久化非并发安全——单进程 async 下 `to_thread` 串行，但多进程/多 loop 同写 `.heagent/` 无文件锁，须避免并发写（见 4.12） |
