@@ -2,7 +2,8 @@
 
 async ctx mgr：``__aenter__`` 并发连接所有 server（stdio / Streamable HTTP）+
 发现工具 + 注册进 ``ToolRegistry`` 单例（eager，LLM 首轮即见）；``__aexit__``
-unregister 全部 MCP 工具 + 优雅关闭所有 session / 子进程。
+unregister 全部 MCP 工具 + 优雅关闭所有 session / 子进程（``shutdown_timeout`` 硬上界
+兜底，transport close 挂死时 force-cancel，不无限阻塞进程退出）。
 
 **生命周期架构（per-server task）：** 每个 server 由专属 asyncio task 持有其
 transport + session context（``_transport_and_session`` @asynccontextmanager，
@@ -15,6 +16,8 @@ transport + session context（``_transport_and_session`` @asynccontextmanager，
 - 单 server 连接失败 / 超时隔离（工具不注入，NFR-6，FR-3 建立失败路径）；
 - 运行时断连主动 unregister：持有期 ``send_ping`` 健康探测，ping 失败/超时即注销该 server
   全部工具（FR-3 收紧，工具不再滞留 LLM 工具列表）；
+- ``__aexit__`` 关停带硬上界：transport close（stdio 忽略 SIGTERM / HTTP 不 FIN）挂死时，
+  ``shutdown_timeout`` 后 force-cancel 未退出 task，不无限阻塞进程退出；
 - 握手 / transport 封装内部（NFR-3，为 stateless 迁移留接口）；
 - DAG：仅从 types / exceptions / registry / config / mapping 导入，禁从 agent 导入。
 """
@@ -48,6 +51,7 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CONNECT_TIMEOUT: float = 10.0
 _DEFAULT_HEALTH_CHECK_INTERVAL: float = 5.0  # 运行时健康探测周期（FR-3 收紧：断连即注销）
+_DEFAULT_SHUTDOWN_TIMEOUT: float = 5.0  # __aexit__ 关停硬上界（transport close 挂死兜底）
 
 
 class MCPClientManager:
@@ -68,6 +72,7 @@ class MCPClientManager:
         registry: ToolRegistry | None = None,
         connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
         health_check_interval: float = _DEFAULT_HEALTH_CHECK_INTERVAL,
+        shutdown_timeout: float = _DEFAULT_SHUTDOWN_TIMEOUT,
     ) -> None:
         if health_check_interval <= 0:
             # 非正值会让 _watch 把 interval 直接当 wait_for timeout，首轮 ping 即超时 →
@@ -75,10 +80,15 @@ class MCPClientManager:
             raise ValueError(
                 f"health_check_interval 必须为正数（got {health_check_interval}）"
             )
+        if shutdown_timeout <= 0:
+            # 非正值会让 _await_shutdown 首轮 wait 立即返回（全部 pending）→ 不给任何 task
+            # graceful 关停机会即 force-cancel（与 health_check_interval<=0 误判同构）。
+            raise ValueError(f"shutdown_timeout 必须为正数（got {shutdown_timeout}）")
         self._config = config
         self._registry = registry or ToolRegistry.get()
         self._connect_timeout = connect_timeout
         self._health_check_interval = health_check_interval
+        self._shutdown_timeout = shutdown_timeout
         self._server_tasks: list[asyncio.Task[None]] = []
         self._stops: list[asyncio.Event] = []
         # server 原始名 → 其已注册的 namespaced 工具名（断连时按 server 精确摘除，FR-3 收紧）
@@ -93,10 +103,45 @@ class MCPClientManager:
         for stop in self._stops:
             stop.set()
         if self._server_tasks:
-            # 各 _server_loop 在自己的 task 内退出 transport context（同 task，不跨 task）
-            await asyncio.gather(*self._server_tasks, return_exceptions=True)
+            # 各 _server_loop 在自己的 task 内退出 transport context（同 task，不跨 task）；
+            # 带硬上界等待（transport close 挂死时 force-cancel，不无限阻塞进程退出）。
+            await self._await_shutdown(self._server_tasks)
         self._server_tasks.clear()
         self._stops.clear()
+
+    async def _await_shutdown(self, tasks: list[asyncio.Task[None]]) -> None:
+        """带硬上界等待所有 server task 退出；超时取消未完成者并短等一次，绝不无限阻塞。
+
+        ``_server_loop`` finally 的 ``await cm.__aexit__``（transport 关闭）在 stdio 子进程
+        忽略 SIGTERM / HTTP 远端不 FIN 时可无限阻塞 → ``__aexit__`` 无上界（pre-existing
+        LOW-MED）。本方法给整体关停硬上界：首轮 ``asyncio.wait`` 超时则 cancel 未完成 task
+        （cancel 经 asyncio 注入其 finally，中断挂死的 ``cm.__aexit__``），二轮短等让被取消
+        task 的 finally 收尾；二轮仍超时则记 ERROR 放弃。最坏 ~2×``_shutdown_timeout`` 必返回。
+
+        ``asyncio.wait`` 不传播 task 内异常（等同原 ``gather(..., return_exceptions=True)``）——
+        某 server 关闭异常不影响其它 / 不逸出 ``__aexit__``。
+        """
+        if not tasks:
+            return
+        _, pending = await asyncio.wait(tasks, timeout=self._shutdown_timeout)
+        if not pending:
+            return
+        logger.warning(
+            "MCP 关停超时（%ss），取消 %d 个未退出的 server task",
+            self._shutdown_timeout,
+            len(pending),
+        )
+        for task in pending:
+            task.cancel()
+        # 被取消 task 的 finally（cm.__aexit__ 被 CancelledError 中断）需一个 await tick 收尾；
+        # 同样 bounded——若 finally 内有不可中断段致二轮超时，记 ERROR 放弃（task 已 cancel）。
+        _, still_pending = await asyncio.wait(tasks, timeout=self._shutdown_timeout)
+        if still_pending:
+            logger.error(
+                "MCP 关停二次超时（%ss），%d 个 task 仍未退出，放弃等待",
+                self._shutdown_timeout,
+                len(still_pending),
+            )
 
     async def _connect_all(self) -> None:
         """并发连接所有 server；单 server 失败 / 超时隔离（NFR-6）。"""

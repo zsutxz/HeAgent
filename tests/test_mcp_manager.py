@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -282,3 +283,111 @@ async def test_disconnect_isolated_to_one_server(monkeypatch: pytest.MonkeyPatch
         removed = await _wait_removed(reg, "a__run")
         assert removed, "断连 server 工具未注销"
         assert "b__build" in reg.list_names()  # 另一 server 不受影响
+
+
+# --- __aexit__ 关停硬上界（transport close hang 兜底，pre-existing LOW-MED）---
+
+
+def test_shutdown_timeout_must_be_positive() -> None:
+    """shutdown_timeout<=0 会让 _await_shutdown 首轮 wait 立即返回全部 pending → 不给任何 task
+    graceful 关停机会即 force-cancel（与 health_check_interval<=0 误判同构）；构造期拒绝。"""
+    with pytest.raises(ValueError):
+        MCPClientManager(MCPConfig(), shutdown_timeout=0)
+    with pytest.raises(ValueError):
+        MCPClientManager(MCPConfig(), shutdown_timeout=-1)
+
+
+async def test_aexit_bounded_when_transport_close_hangs(monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+    """transport cm.__aexit__ 挂死（stdio 忽略 SIGTERM / HTTP 不 FIN）时 __aexit__ 仍有硬上界。
+
+    未修：__aexit__ 的 gather 无限阻塞 → 外层 wait_for(2.0) 超时取消并 raise TimeoutError → 测试失败。
+    已修：__aexit__ 在 shutdown_timeout 后 force-cancel 挂死 task 并返回 → body 正常完成，
+    且发出「关停超时」WARNING、工具已注销（_unregister_all 先于 hang）。
+    """
+    sessions = {"s": StubSession([_tool("run")])}
+    hang = asyncio.Event()
+
+    @asynccontextmanager
+    async def hanging_transport(self: MCPClientManager, name: str, cfg: Any) -> Any:
+        s = sessions[name]
+        await s.initialize()
+        yield s
+        await hang.wait()  # 永不 set → cm.__aexit__ 无限阻塞（模拟 transport close hang）
+
+    monkeypatch.setattr(MCPClientManager, "_transport_and_session", hanging_transport)
+    caplog.set_level(logging.WARNING)
+    reg = ToolRegistry()
+
+    async def body() -> None:
+        async with MCPClientManager(
+            MCPConfig(servers={"s": StdioServerConfig(command="x")}),
+            registry=reg,
+            shutdown_timeout=0.05,
+        ):
+            assert "s__run" in reg.list_names()
+
+    await asyncio.wait_for(body(), timeout=2.0)
+    assert any("关停超时" in r.message for r in caplog.records), "挂死时应发出关停超时 WARNING"
+    assert "s__run" not in reg.list_names()  # _unregister_all 先于 hang，工具已摘除
+
+
+async def test_aexit_clean_close_no_spurious_cancel(monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+    """正常关闭的 transport 不被误判超时 / 误 cancel（零回归：happy path 不受硬上界影响）。
+
+    shutdown_timeout 故意给宽裕值；正常 transport 的 cm.__aexit__ 远 < timeout 即完成 →
+    首轮 wait 全部 done、无 pending → 不 cancel、不告警。
+    """
+    sessions = {"s": StubSession([_tool("run")])}
+    _patch_transport(monkeypatch, sessions)
+    caplog.set_level(logging.WARNING)
+    reg = ToolRegistry()
+    async with MCPClientManager(
+        MCPConfig(servers={"s": StdioServerConfig(command="x")}),
+        registry=reg,
+        shutdown_timeout=1.0,
+    ):
+        assert "s__run" in reg.list_names()
+    assert "s__run" not in reg.list_names()
+    assert not any("关停超时" in r.message for r in caplog.records)
+    assert not any("二次超时" in r.message for r in caplog.records)
+
+
+async def test_aexit_mixed_hang_and_clean_server(monkeypatch: pytest.MonkeyPatch, caplog) -> None:
+    """单 server 挂死不阻塞其它 server 的关停：clean 的 task 首轮 done，仅 hang 的被 cancel。
+
+    asyncio.wait 的 done/pending 分离：先完成的 task 进 done（不受 timeout 惩罚），
+    真挂死的进 pending 被 cancel。__aexit__ 整体仍 bounded 返回。
+    """
+    sessions = {"clean": StubSession([_tool("run")]), "hang": StubSession([_tool("build")])}
+    hang = asyncio.Event()
+
+    @asynccontextmanager
+    async def mixed_transport(self: MCPClientManager, name: str, cfg: Any) -> Any:
+        s = sessions[name]
+        await s.initialize()
+        yield s
+        if name == "hang":
+            await hang.wait()  # 仅 hang server 的 cm.__aexit__ 挂死
+
+    monkeypatch.setattr(MCPClientManager, "_transport_and_session", mixed_transport)
+    caplog.set_level(logging.WARNING)
+    reg = ToolRegistry()
+
+    async def body() -> None:
+        async with MCPClientManager(
+            MCPConfig(
+                servers={
+                    "clean": StdioServerConfig(command="x"),
+                    "hang": StdioServerConfig(command="y"),
+                }
+            ),
+            registry=reg,
+            shutdown_timeout=0.05,
+        ):
+            assert "clean__run" in reg.list_names()
+            assert "hang__build" in reg.list_names()
+
+    await asyncio.wait_for(body(), timeout=2.0)
+    assert "clean__run" not in reg.list_names()
+    assert "hang__build" not in reg.list_names()
+    assert any("关停超时" in r.message for r in caplog.records)
