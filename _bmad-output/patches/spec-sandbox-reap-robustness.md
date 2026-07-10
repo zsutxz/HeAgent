@@ -58,6 +58,14 @@ deferred-work 原建议 item 1 用 `except BaseException`。**本 spec 细化为
 ## 立场（不变）
 reap（SIGKILL + 回收）是 **best-effort 清理**：它的失败（kill 权限 / D-state / re-entrant cancel）**绝不可**替换上层期望的控制流信号——TimeoutError 路径期望「返回超时串」，CancelledError 路径期望「取消上抛」。item 2 的硬上界把「reap 永久 hang」这一最坏形态（信号被阻塞而非替换）也纳入 best-effort 语义。`except Exception`（item 1）vs `except BaseException`（D-1）的不对称，是「返回结果」与「传播取消」两种上层意图的忠实映射，非疏漏——遵循 CLAUDE.md「显性失败」：reap 的真实 bug 经 debug 日志可诊断，不在控制流路径上抢夺信号。
 
-## Review Findings
+## Review Findings（2026-07-10，bmad-code-review on commit 8e92154）
 
-（待 bmad-code-review 填）
+三层对抗式审查（Blind Hunter / Edge Case Hunter / Acceptance Auditor）。**Acceptance Auditor：AC1–AC7 全 PASS、硬约束全 PASS、out-of-scope 无行为性泄漏**（pytest 505 passed / ruff clean / mypy clean 复核）。Blind Hunter 与 Edge Case Hunter **独立命中同一处** kill 块异常宽度问题；核心 asyncio 语义（bare `raise` 恢复原始取消 / `wait_for` D-state `TimeoutError` / `Exception` vs `BaseException` 不对称映射）经三方复核无误。
+
+### patch（1 项）
+
+- [x] [Review][Patch] **item 3 kill 块 except 过宽**（blind+edge，LOW）[`src/heagent/tools/sandbox.py:79`]：`_kill_and_reap` 的 kill 块用 `except BaseException`，但 item 3 的目标（`PermissionError`→`OSError`→`Exception`）完全可由 `except Exception` 覆盖。`BaseException` 额外吞 `KeyboardInterrupt`/`SystemExit`/`GeneratorExit`——若此类信号在 sync `proc.kill()` 期间到达，被吞后落到 `await asyncio.wait_for(proc.wait(), timeout=_REAP_WAIT_TIMEOUT)`，shutdown 信号丢失且被延迟最多 5s。修：`except Exception`（一词），仍 catch `PermissionError`、保留 item 3 解耦；且与 D-1「控制流信号优先于 best-effort 清理」立场一致。 **已落地（2026-07-10）**：`except BaseException` → `except Exception`（kill 权限失败 `PermissionError`/`OSError` 仍被 catch、保留 item 3 解耦；`KeyboardInterrupt`/`SystemExit` 不再被吞、不被 5s `wait_for` 延迟，立即逸出）。回归测试 `test_kill_block_does_not_swallow_keyboardinterrupt`（直接测 `_kill_and_reap`，fake `kill()` 抛 `KeyboardInterrupt`，断言立即逸出 + `proc.waited` 为 False）。pytest 506 passed / ruff clean / mypy clean。
+
+### dismiss（1 项）
+
+- [x] [Review][Dismiss] **D-1 CancelledError 块注释被改**（auditor，LOW）[`src/heagent/tools/sandbox.py:128,168`]：spec out-of-scope 字面「不改 CancelledError 块」，diff 改了该块注释括号（「kill 权限 / wait 再取消」→「item 2 的 D-state 超时 / wait 再取消」）。可执行代码字节相同、零行为影响；且注释改是**必要**的——item 3 后 kill `PermissionError` 不再到达此块，旧注释会误导。dismiss。

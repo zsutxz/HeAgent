@@ -12,6 +12,7 @@ import pytest
 from heagent.tools.sandbox import (
     FirejailBackend,
     PassthroughRunner,
+    _kill_and_reap,
     bind_command_runner,
     configure_command_runner,
     get_command_runner,
@@ -308,6 +309,33 @@ class TestPassthroughRunner:
             rec.levelno == logging.DEBUG and "kill failed" in rec.getMessage()
             for rec in caplog.records
         ), "kill 失败应记 debug 日志（item 3 observability）"
+
+    @pytest.mark.asyncio
+    async def test_kill_block_does_not_swallow_keyboardinterrupt(self) -> None:
+        """code review patch：kill 块用 ``except Exception``（非 BaseException）——KeyboardInterrupt
+        不被吞、立即逸出（不被 5s reap wait 延迟）。
+
+        ``_kill_and_reap`` 的 kill 块若用 ``except BaseException``（buggy），``KeyboardInterrupt`` 被
+        吞后落到 ``await wait_for(..., _REAP_WAIT_TIMEOUT)`` → shutdown 信号丢失 + 延迟最多 5s。
+        修复后 ``except Exception`` 仅 catch kill 权限失败（``PermissionError``/``OSError``），
+        ``KeyboardInterrupt``（BaseException）立即逸出、wait 不执行。直接测 ``_kill_and_reap``。
+        """
+
+        class _FakeProc:
+            def __init__(self) -> None:
+                self.waited = False
+
+            def kill(self) -> None:
+                raise KeyboardInterrupt()  # BaseException——kill 块 except 须为 Exception 才不吞
+
+            async def wait(self) -> int:
+                self.waited = True
+                return 0
+
+        proc = _FakeProc()
+        with pytest.raises(KeyboardInterrupt):
+            await _kill_and_reap(proc)
+        assert not proc.waited, "KeyboardInterrupt 应立即逸出，不落到 wait（kill 块 except 须为 Exception）"
 
 
 class TestFirejailBackend:

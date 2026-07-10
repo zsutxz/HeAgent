@@ -76,8 +76,11 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     try:
         with suppress(ProcessLookupError):
             proc.kill()
-    except BaseException:
-        # item 3：kill 权限失败不阻断 wait（解耦）——记日志后仍落到下方 wait 回收 pipe FD。
+    except Exception:
+        # item 3：kill 权限失败（PermissionError/OSError）不阻断 wait（解耦）——记日志后仍落到下方
+        # wait 回收 pipe FD。用 ``except Exception``（非 BaseException，code review patch）：item 3 的
+        # 目标全是 Exception 子类；BaseException 会额外吞 KeyboardInterrupt/SystemExit，令 shutdown
+        # 信号被下方 ``wait_for(..., 5.0)`` 延迟最多 5s。KeyboardInterrupt 须立即逸出（控制流信号优先）。
         logger.debug("kill failed; still attempt wait to reap pipe FD", exc_info=True)
     # item 2：wait 硬上界防 D-state 永久 hang；超时逸出 TimeoutError 由调用方 except 保护。
     await asyncio.wait_for(proc.wait(), timeout=_REAP_WAIT_TIMEOUT)
