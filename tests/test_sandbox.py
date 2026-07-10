@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import time
 
 import pytest
 
@@ -133,10 +134,11 @@ class TestPassthroughRunner:
         """D-1+D-1-A：取消清理时若 _kill_and_reap 抛错，原始 CancelledError 仍须上抛（不被 reap
         异常替换），且该 reap 失败记 debug 日志暴露诊断线索（observability）。
 
-        fake proc 的 ``kill()`` 抛非 ``ProcessLookupError``（逃出 ``_kill_and_reap`` 的
-        ``suppress(ProcessLookupError)``）→ ``_kill_and_reap`` 抛 ``PermissionError``。
-        buggy 写法 ``except CancelledError: await _kill_and_reap(proc); raise`` 中裸 ``raise``
-        永不执行 → task 抛 ``PermissionError``（取消信号丢失）；修复后须抛 ``CancelledError``，
+        fake proc 的 ``wait()`` 抛 ``RuntimeError`` → ``_kill_and_reap`` 经 ``wait_for`` 逸出该异常。
+        （载体经 reap-robustness spec 迁移：原用 ``kill()`` 抛 ``PermissionError``，但 item 3 后 kill
+        权限失败被 ``_kill_and_reap`` 内部吞掉、不再逸出 caller；改用 wait 侧抛错更贴近 D-1 真正关注
+        的 reap 异常场景。）buggy 写法 ``except CancelledError: await _kill_and_reap(proc); raise`` 中
+        裸 ``raise`` 永不执行 → task 抛 ``RuntimeError``（取消信号丢失）；修复后须抛 ``CancelledError``，
         且 ``except BaseException`` 分支记一条 debug 日志。
         """
 
@@ -146,11 +148,11 @@ class TestPassthroughRunner:
                 return b"", b""
 
             def kill(self) -> None:
-                # 非 ProcessLookupError → 逃出 _kill_and_reap 的 suppress，模拟 os.kill 权限失败
-                raise PermissionError("simulated kill failure")
+                pass  # item 3 后 kill 权限失败被 _kill_and_reap 内部吞掉、不逸出 caller
 
             async def wait(self) -> int:
-                return 0  # _kill_and_reap 在 kill() 抛错时不会走到 wait()
+                # reap 逸出 caller 的失败改由 wait 侧触发（RuntimeError）
+                raise RuntimeError("simulated reap wait failure")
 
         proc = _FakeProc()
 
@@ -171,6 +173,141 @@ class TestPassthroughRunner:
             rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage()
             for rec in caplog.records
         ), "reap 失败应记 debug 日志（D-1-A observability）"
+
+    @pytest.mark.asyncio
+    async def test_timeout_reap_failure_returns_timeout_result(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """item 1：TimeoutError 路径 reap 抛非取消异常时，仍返回超时串（不上抛 reap 异常）。
+
+        ``communicate()`` 超时 → 进入 ``except TimeoutError``；reap 的 ``wait()`` 抛
+        ``RuntimeError`` → ``_kill_and_reap`` 经 ``wait_for`` 逸出 → ``except Exception`` 兜底 →
+        返回超时串 + 记 ``timeout cleanup`` debug 日志。buggy 写法（无保护）会让 ``RuntimeError``
+        替换超时串上抛（调用方收到错误消息而非「Command timed out」）。
+        """
+
+        class _FakeProc:
+            async def communicate(self) -> tuple[bytes, bytes]:
+                await asyncio.sleep(1000)  # 触发外层 timeout=1
+                return b"", b""
+
+            def kill(self) -> None:
+                pass
+
+            async def wait(self) -> int:
+                raise RuntimeError("simulated reap wait failure")  # reap 逸出非取消异常
+
+        proc = _FakeProc()
+
+        async def fake_create(command: str, stdout=None, stderr=None) -> _FakeProc:
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_create)
+
+        with caplog.at_level(logging.DEBUG, logger="heagent.tools.sandbox"):
+            result = await PassthroughRunner().run("blocker", timeout=1)
+        assert "timed out" in result, "reap 失败应仍返回超时串（item 1），而非上抛 RuntimeError"
+        assert any(
+            rec.levelno == logging.DEBUG and "timeout cleanup" in rec.getMessage()
+            for rec in caplog.records
+        ), "reap 失败应记 timeout cleanup debug 日志（item 1 observability）"
+
+    @pytest.mark.asyncio
+    async def test_reap_wait_is_bounded(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """item 2：reap 的 ``wait()`` 有硬上界——D-state（wait 永不返回）不阻塞取消信号。
+
+        fake ``wait()`` sleep 1000s 模拟 D-state；``_REAP_WAIT_TIMEOUT`` monkeypatch 为 0.05s。
+        取消后 reap 的 ``wait_for`` 在 0.05s 超时逸出 ``TimeoutError`` → D-1 ``except BaseException``
+        兜底 → 裸 ``raise`` 恢复原始 ``CancelledError``。关键不变量：task 在界内结束（非 hang 1000s），
+        且 reap 逸出失败记 ``cancel cleanup`` debug 日志（无论 TimeoutError 还是 re-entrant cancel）。
+        """
+
+        monkeypatch.setattr("heagent.tools.sandbox._REAP_WAIT_TIMEOUT", 0.05)
+
+        class _FakeProc:
+            async def communicate(self) -> tuple[bytes, bytes]:
+                await asyncio.sleep(1000)  # 阻塞到被取消
+                return b"", b""
+
+            def kill(self) -> None:
+                pass
+
+            async def wait(self) -> int:
+                await asyncio.sleep(1000)  # D-state：永不返回
+
+        proc = _FakeProc()
+
+        async def fake_create(command: str, stdout=None, stderr=None) -> _FakeProc:
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_create)
+
+        start = time.monotonic()
+        task = asyncio.create_task(PassthroughRunner().run("blocker", timeout=120))
+        await asyncio.sleep(0.05)  # 让 task 跑到 await communicate()
+        task.cancel()
+        with (
+            caplog.at_level(logging.DEBUG, logger="heagent.tools.sandbox"),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await task
+        elapsed = time.monotonic() - start
+        # reap wait_for 0.05s + 取消前 0.05s，远小于 wait 的 1000s sleep——证明硬上界兜住了 hang
+        assert elapsed < 2.0, f"reap wait 未被硬上界兜住，疑似 hang（elapsed={elapsed:.2f}s）"
+        assert any(
+            rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage()
+            for rec in caplog.records
+        ), "reap 逸出失败应记 debug 日志（证明 wait_for 兜住 D-state 后放弃 reap）"
+
+    @pytest.mark.asyncio
+    async def test_kill_failure_still_waits(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """item 3：``proc.kill()`` 权限失败不阻断后续 ``wait()``（kill/wait 解耦）。
+
+        fake ``kill()`` 抛 ``PermissionError``（逃出 ``suppress(ProcessLookupError)``）；
+        ``_kill_and_reap`` 的 item 3 ``try/except`` 吞掉该失败、记 ``kill failed`` debug 日志后
+        **仍执行** ``wait()``。断言 ``proc.waited`` 为 True（wait 跑过）+ 日志产出。buggy 写法
+        （kill 抛错即跳出 _kill_and_reap）会让 ``wait()`` 不执行、pipe transport 泄漏。
+        """
+
+        class _FakeProc:
+            def __init__(self) -> None:
+                self.waited = False
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                await asyncio.sleep(1000)  # 阻塞到被取消
+                return b"", b""
+
+            def kill(self) -> None:
+                raise PermissionError("simulated kill failure")  # 逃出 suppress(PLE)
+
+            async def wait(self) -> int:
+                self.waited = True
+                return 0
+
+        proc = _FakeProc()
+
+        async def fake_create(command: str, stdout=None, stderr=None) -> _FakeProc:
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_create)
+
+        task = asyncio.create_task(PassthroughRunner().run("blocker", timeout=120))
+        await asyncio.sleep(0.05)  # 让 task 跑到 await communicate()
+        task.cancel()
+        with (
+            caplog.at_level(logging.DEBUG, logger="heagent.tools.sandbox"),
+            pytest.raises(asyncio.CancelledError),
+        ):
+            await task
+        assert proc.waited, "kill 失败后 wait() 仍应执行回收 pipe FD（item 3 解耦）"
+        assert any(
+            rec.levelno == logging.DEBUG and "kill failed" in rec.getMessage()
+            for rec in caplog.records
+        ), "kill 失败应记 debug 日志（item 3 observability）"
 
 
 class TestFirejailBackend:
@@ -237,7 +374,9 @@ class TestFirejailBackend:
         """D-1（exec 路径对称）：取消清理时 _kill_and_reap 抛错，CancelledError 仍须上抛。
 
         经 ``_run_subprocess_exec``（与 shell helper 同构的 ``except CancelledError`` 块），
-        断言取消后 task 抛 ``CancelledError`` 而非 ``PermissionError``。
+        断言取消后 task 抛 ``CancelledError`` 而非 reap 异常。载体经 reap-robustness spec 迁移：
+        原用 ``kill()`` 抛 ``PermissionError``，但 item 3 后 kill 权限失败被 ``_kill_and_reap`` 内部
+        吞掉、不再逸出 caller；改用 ``wait()`` 抛 ``RuntimeError``（wait 侧逸出）。
         """
 
         class _FakeProc:
@@ -246,9 +385,76 @@ class TestFirejailBackend:
                 return b"", b""
 
             def kill(self) -> None:
-                raise PermissionError("simulated kill failure")  # 逃出 suppress(ProcessLookupError)
+                pass  # item 3 后 kill 权限失败被 _kill_and_reap 内部吞掉、不逸出 caller
 
             async def wait(self) -> int:
+                raise RuntimeError("simulated reap wait failure")  # reap 逸出非取消异常
+
+        proc = _FakeProc()
+
+        async def fake_exec(*argv: str, stdout=None, stderr=None) -> _FakeProc:
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        backend = FirejailBackend()
+        task = asyncio.create_task(backend.run("ls", timeout=120))
+        await asyncio.sleep(0.05)  # 让 task 跑到 await communicate()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):  # 非 RuntimeError——取消信号须存活
+            await task
+
+    @pytest.mark.asyncio
+    async def test_timeout_reap_failure_returns_timeout_result(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """item 1（exec 路径对称）：TimeoutError 路径 reap 抛非取消异常仍返回超时串。"""
+
+        class _FakeProc:
+            async def communicate(self) -> tuple[bytes, bytes]:
+                await asyncio.sleep(1000)  # 触发外层 timeout=1
+                return b"", b""
+
+            def kill(self) -> None:
+                pass
+
+            async def wait(self) -> int:
+                raise RuntimeError("simulated reap wait failure")  # reap 逸出非取消异常
+
+        proc = _FakeProc()
+
+        async def fake_exec(*argv: str, stdout=None, stderr=None) -> _FakeProc:
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        with caplog.at_level(logging.DEBUG, logger="heagent.tools.sandbox"):
+            result = await FirejailBackend().run("ls", timeout=1)
+        assert "timed out" in result, "reap 失败应仍返回超时串（item 1），而非上抛 RuntimeError"
+        assert any(
+            rec.levelno == logging.DEBUG and "timeout cleanup" in rec.getMessage()
+            for rec in caplog.records
+        ), "reap 失败应记 timeout cleanup debug 日志（item 1 observability）"
+
+    @pytest.mark.asyncio
+    async def test_kill_failure_still_waits(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """item 3（exec 路径对称）：``proc.kill()`` 权限失败不阻断后续 ``wait()``。"""
+
+        class _FakeProc:
+            def __init__(self) -> None:
+                self.waited = False
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                await asyncio.sleep(1000)  # 阻塞到被取消
+                return b"", b""
+
+            def kill(self) -> None:
+                raise PermissionError("simulated kill failure")  # 逃出 suppress(PLE)
+
+            async def wait(self) -> int:
+                self.waited = True
                 return 0
 
         proc = _FakeProc()
@@ -262,8 +468,16 @@ class TestFirejailBackend:
         task = asyncio.create_task(backend.run("ls", timeout=120))
         await asyncio.sleep(0.05)  # 让 task 跑到 await communicate()
         task.cancel()
-        with pytest.raises(asyncio.CancelledError):  # 非 PermissionError——取消信号须存活
+        with (
+            caplog.at_level(logging.DEBUG, logger="heagent.tools.sandbox"),
+            pytest.raises(asyncio.CancelledError),
+        ):
             await task
+        assert proc.waited, "kill 失败后 wait() 仍应执行回收 pipe FD（item 3 解耦）"
+        assert any(
+            rec.levelno == logging.DEBUG and "kill failed" in rec.getMessage()
+            for rec in caplog.records
+        ), "kill 失败应记 debug 日志（item 3 observability）"
 
 
 class TestRuntimeSlot:

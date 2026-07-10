@@ -51,16 +51,36 @@ def _format_result(returncode: int | None, stdout: bytes, stderr: bytes) -> str:
 
 _TIMEOUT_RESULT = "exit_code=-1\nstderr: Command timed out after {timeout}s"
 
+# reap wait 硬上界（秒）。SIGKILL 后正常子进程应毫秒级退出；不可中断内核态（Linux
+# D-state / pipe transport 对端 hang）下 ``proc.wait()`` 不返回也不抛，此上界防永久 hang——
+# 否则整个 except 块卡在 reap，超时串 / 取消信号被阻塞（比 reap 抛错替换更坏的形态，item 2）。
+_REAP_WAIT_TIMEOUT = 5.0
+
 
 async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
-    """超时收尾：SIGKILL 子进程并 ``await wait()`` 回收，避免僵尸 / pipe FD 泄漏。
+    """超时/取消收尾：SIGKILL 子进程并回收，best-effort。
 
-    ``proc.kill()`` 在进程恰好已退出时抛 ``ProcessLookupError``（超时边界竞态），
-    吞掉该竞态；``await proc.wait()`` 确保 reaped、transport 关闭管道。
+    - ``proc.kill()`` 进程已退出竞态抛 ``ProcessLookupError``，吞掉。
+    - **item 3（kill/wait 解耦）**：``proc.kill()`` 权限失败（``PermissionError`` 等，逃出
+      ``suppress(ProcessLookupError)``）不再阻断后续 ``wait()``——记 debug 日志后**仍执行 wait**
+      回收 pipe FD（即便子进程未被杀，pipe transport 仍可关）。kill 失败是局部 best-effort 关注，
+      在此吞掉、不逸出。
+    - **item 2（wait 硬上界）**：``await proc.wait()`` 经 ``wait_for`` 限时 ``_REAP_WAIT_TIMEOUT``
+      秒；D-state 下 wait 不返回，此上界防永久 hang。D-state 超时逸出 ``TimeoutError``，由调用方
+      ``except`` 保护（TimeoutError 路径 item 1 / CancelledError 路径 D-1）。
+    - **不吞 re-entrant** ``CancelledError``（wait 又被取消）——取消传播优先，逸出由调用方保护。
+
+    契约（Y）：本函数吞 kill 失败，但 wait 失败（D-state ``TimeoutError`` / re-entrant
+    ``CancelledError``）逸出。调用方两 except 块各自兜底（见 item 1 / D-1），D-1 保护因此仍非死代码。
     """
-    with suppress(ProcessLookupError):
-        proc.kill()
-    await proc.wait()
+    try:
+        with suppress(ProcessLookupError):
+            proc.kill()
+    except BaseException:
+        # item 3：kill 权限失败不阻断 wait（解耦）——记日志后仍落到下方 wait 回收 pipe FD。
+        logger.debug("kill failed; still attempt wait to reap pipe FD", exc_info=True)
+    # item 2：wait 硬上界防 D-state 永久 hang；超时逸出 TimeoutError 由调用方 except 保护。
+    await asyncio.wait_for(proc.wait(), timeout=_REAP_WAIT_TIMEOUT)
 
 
 def _validate_timeout(timeout: int) -> None:
@@ -93,10 +113,19 @@ async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
-        await _kill_and_reap(proc)  # 超时收尾子进程，避免僵尸（原 shell 实现漏了 kill）
+        # item 1：reap 的非取消失败（D-state TimeoutError / RuntimeError 等）不得替换超时返回串——
+        # 仍返回超时串（reap 是 best-effort）。用 ``except Exception``（非 BaseException）：放行
+        # re-entrant CancelledError（reap 期间任务被取消时取消信号上抛，延续 D-1「取消传播优先」）。
+        try:
+            await _kill_and_reap(proc)
+        except Exception:
+            logger.debug(
+                "timeout cleanup: _kill_and_reap failed; subprocess/pipe may leak",
+                exc_info=True,
+            )
         return _TIMEOUT_RESULT.format(timeout=timeout)
     except asyncio.CancelledError:
-        # D-1：reap 失败（kill 权限 / wait 再取消）不可吞掉取消信号。``except BaseException``
+        # D-1：reap 失败（item 2 的 D-state 超时 / wait 再取消）不可吞掉取消信号。``except BaseException``
         # 吞掉 reap 异常后，块尾裸 ``raise`` 回到本 ``except CancelledError`` 语境、重新抛出原始
         # ``CancelledError``（budget/window-reset/SubAgent-abort 清理依赖它上抛）。不用
         # ``try/finally: raise``——实证其在 reap 抛错时抛 reap 异常、Cancel 沦为 ``__context__``。
@@ -124,10 +153,19 @@ async def _run_subprocess_exec(argv: Sequence[str], *, timeout: int) -> str:
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
-        await _kill_and_reap(proc)
+        # item 1：reap 的非取消失败（D-state TimeoutError / RuntimeError 等）不得替换超时返回串——
+        # 仍返回超时串（reap 是 best-effort）。用 ``except Exception``（非 BaseException）：放行
+        # re-entrant CancelledError（reap 期间任务被取消时取消信号上抛，延续 D-1「取消传播优先」）。
+        try:
+            await _kill_and_reap(proc)
+        except Exception:
+            logger.debug(
+                "timeout cleanup: _kill_and_reap failed; subprocess/pipe may leak",
+                exc_info=True,
+            )
         return _TIMEOUT_RESULT.format(timeout=timeout)
     except asyncio.CancelledError:
-        # D-1：reap 失败（kill 权限 / wait 再取消）不可吞掉取消信号。``except BaseException``
+        # D-1：reap 失败（item 2 的 D-state 超时 / wait 再取消）不可吞掉取消信号。``except BaseException``
         # 吞掉 reap 异常后，块尾裸 ``raise`` 回到本 ``except CancelledError`` 语境、重新抛出原始
         # ``CancelledError``（budget/window-reset/SubAgent-abort 清理依赖它上抛）。不用
         # ``try/finally: raise``——实证其在 reap 抛错时抛 reap 异常、Cancel 沦为 ``__context__``。
