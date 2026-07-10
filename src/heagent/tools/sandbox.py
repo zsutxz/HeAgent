@@ -18,6 +18,7 @@ I/O 工具不 spawn 子进程，本抽象对它们无意义。仍须整体在 OS
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Protocol
 
@@ -25,6 +26,9 @@ from heagent.tools.runtime import RuntimeSlot
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
+
+
+logger = logging.getLogger(__name__)
 
 
 class CommandRunner(Protocol):
@@ -92,7 +96,19 @@ async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
         await _kill_and_reap(proc)  # 超时收尾子进程，避免僵尸（原 shell 实现漏了 kill）
         return _TIMEOUT_RESULT.format(timeout=timeout)
     except asyncio.CancelledError:
-        await _kill_and_reap(proc)  # 外层取消（budget/abort）也须 kill+wait，避免泄漏子进程
+        # D-1：reap 失败（kill 权限 / wait 再取消）不可吞掉取消信号。``except BaseException``
+        # 吞掉 reap 异常后，块尾裸 ``raise`` 回到本 ``except CancelledError`` 语境、重新抛出原始
+        # ``CancelledError``（budget/window-reset/SubAgent-abort 清理依赖它上抛）。不用
+        # ``try/finally: raise``——实证其在 reap 抛错时抛 reap 异常、Cancel 沦为 ``__context__``。
+        # D-1-A：reap 是 best-effort，失败记 debug 日志暴露诊断线索（子进程/FD 泄漏等），但绝不让
+        # 异常替换取消信号（取消传播优先，遵循 CLAUDE.md「显性失败」此处表现为取消）。
+        try:
+            await _kill_and_reap(proc)  # 外层取消（budget/abort）也须 kill+wait，避免泄漏子进程
+        except BaseException:
+            logger.debug(
+                "cancel cleanup: _kill_and_reap failed; subprocess/pipe may leak",
+                exc_info=True,
+            )
         raise
     return _format_result(proc.returncode, stdout, stderr)
 
@@ -111,7 +127,19 @@ async def _run_subprocess_exec(argv: Sequence[str], *, timeout: int) -> str:
         await _kill_and_reap(proc)
         return _TIMEOUT_RESULT.format(timeout=timeout)
     except asyncio.CancelledError:
-        await _kill_and_reap(proc)  # 外层取消（budget/abort）也须 kill+wait，避免泄漏子进程
+        # D-1：reap 失败（kill 权限 / wait 再取消）不可吞掉取消信号。``except BaseException``
+        # 吞掉 reap 异常后，块尾裸 ``raise`` 回到本 ``except CancelledError`` 语境、重新抛出原始
+        # ``CancelledError``（budget/window-reset/SubAgent-abort 清理依赖它上抛）。不用
+        # ``try/finally: raise``——实证其在 reap 抛错时抛 reap 异常、Cancel 沦为 ``__context__``。
+        # D-1-A：reap 是 best-effort，失败记 debug 日志暴露诊断线索（子进程/FD 泄漏等），但绝不让
+        # 异常替换取消信号（取消传播优先，遵循 CLAUDE.md「显性失败」此处表现为取消）。
+        try:
+            await _kill_and_reap(proc)  # 外层取消（budget/abort）也须 kill+wait，避免泄漏子进程
+        except BaseException:
+            logger.debug(
+                "cancel cleanup: _kill_and_reap failed; subprocess/pipe may leak",
+                exc_info=True,
+            )
         raise
     return _format_result(proc.returncode, stdout, stderr)
 

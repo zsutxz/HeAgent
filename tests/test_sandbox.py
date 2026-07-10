@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 
 import pytest
@@ -125,6 +126,52 @@ class TestPassthroughRunner:
         assert proc.killed, "CancelledError 路径未 kill 子进程"
         assert proc.waited, "CancelledError 路径未 wait 回收"
 
+    @pytest.mark.asyncio
+    async def test_cancel_survives_reap_error(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """D-1+D-1-A：取消清理时若 _kill_and_reap 抛错，原始 CancelledError 仍须上抛（不被 reap
+        异常替换），且该 reap 失败记 debug 日志暴露诊断线索（observability）。
+
+        fake proc 的 ``kill()`` 抛非 ``ProcessLookupError``（逃出 ``_kill_and_reap`` 的
+        ``suppress(ProcessLookupError)``）→ ``_kill_and_reap`` 抛 ``PermissionError``。
+        buggy 写法 ``except CancelledError: await _kill_and_reap(proc); raise`` 中裸 ``raise``
+        永不执行 → task 抛 ``PermissionError``（取消信号丢失）；修复后须抛 ``CancelledError``，
+        且 ``except BaseException`` 分支记一条 debug 日志。
+        """
+
+        class _FakeProc:
+            async def communicate(self) -> tuple[bytes, bytes]:
+                await asyncio.sleep(1000)  # 阻塞到被取消
+                return b"", b""
+
+            def kill(self) -> None:
+                # 非 ProcessLookupError → 逃出 _kill_and_reap 的 suppress，模拟 os.kill 权限失败
+                raise PermissionError("simulated kill failure")
+
+            async def wait(self) -> int:
+                return 0  # _kill_and_reap 在 kill() 抛错时不会走到 wait()
+
+        proc = _FakeProc()
+
+        async def fake_create(command: str, stdout=None, stderr=None) -> _FakeProc:
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_create)
+
+        task = asyncio.create_task(PassthroughRunner().run("blocker", timeout=120))
+        await asyncio.sleep(0.05)  # 让 task 跑到 await communicate()
+        task.cancel()
+        with (
+            caplog.at_level(logging.DEBUG, logger="heagent.tools.sandbox"),
+            pytest.raises(asyncio.CancelledError),  # 非 PermissionError——取消信号须存活
+        ):
+            await task
+        assert any(
+            rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage()
+            for rec in caplog.records
+        ), "reap 失败应记 debug 日志（D-1-A observability）"
+
 
 class TestFirejailBackend:
     @pytest.mark.asyncio
@@ -184,6 +231,39 @@ class TestFirejailBackend:
         backend = FirejailBackend()
         with pytest.raises(ValueError, match=r"got -5$"):
             await backend.run("ls", timeout=-5)
+
+    @pytest.mark.asyncio
+    async def test_cancel_survives_reap_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """D-1（exec 路径对称）：取消清理时 _kill_and_reap 抛错，CancelledError 仍须上抛。
+
+        经 ``_run_subprocess_exec``（与 shell helper 同构的 ``except CancelledError`` 块），
+        断言取消后 task 抛 ``CancelledError`` 而非 ``PermissionError``。
+        """
+
+        class _FakeProc:
+            async def communicate(self) -> tuple[bytes, bytes]:
+                await asyncio.sleep(1000)  # 阻塞到被取消
+                return b"", b""
+
+            def kill(self) -> None:
+                raise PermissionError("simulated kill failure")  # 逃出 suppress(ProcessLookupError)
+
+            async def wait(self) -> int:
+                return 0
+
+        proc = _FakeProc()
+
+        async def fake_exec(*argv: str, stdout=None, stderr=None) -> _FakeProc:
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+
+        backend = FirejailBackend()
+        task = asyncio.create_task(backend.run("ls", timeout=120))
+        await asyncio.sleep(0.05)  # 让 task 跑到 await communicate()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):  # 非 PermissionError——取消信号须存活
+            await task
 
 
 class TestRuntimeSlot:
