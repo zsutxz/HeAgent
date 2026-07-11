@@ -77,9 +77,7 @@ class MCPClientManager:
         if health_check_interval <= 0:
             # 非正值会让 _watch 把 interval 直接当 wait_for timeout，首轮 ping 即超时 →
             # 误判健康 server 断连并注销其全部工具（Review patch F1）。
-            raise ValueError(
-                f"health_check_interval 必须为正数（got {health_check_interval}）"
-            )
+            raise ValueError(f"health_check_interval 必须为正数（got {health_check_interval}）")
         if shutdown_timeout <= 0:
             # 非正值会让 _await_shutdown 首轮 wait 立即返回（全部 pending）→ 不给任何 task
             # graceful 关停机会即 force-cancel（与 health_check_interval<=0 误判同构）。
@@ -135,7 +133,8 @@ class MCPClientManager:
             task.cancel()
         # 被取消 task 的 finally（cm.__aexit__ 被 CancelledError 中断）需一个 await tick 收尾；
         # 同样 bounded——若 finally 内有不可中断段致二轮超时，记 ERROR 放弃（task 已 cancel）。
-        _, still_pending = await asyncio.wait(tasks, timeout=self._shutdown_timeout)
+        # 只 wait pending 子集（刚 cancel 的那批）；首轮已 done 的 task 不必重复注册回调。
+        _, still_pending = await asyncio.wait(pending, timeout=self._shutdown_timeout)
         if still_pending:
             logger.error(
                 "MCP 关停二次超时（%ss），%d 个 task 仍未退出，放弃等待",
