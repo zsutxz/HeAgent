@@ -164,12 +164,12 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 - `SafetyGuard` / `path_safety` / engine sandbox 均非真边界，须 OS 级沙箱兜底。
 - `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界），file/memory 等不受覆盖。
-- MCP V1 边界：`SafetyGuard` 未覆盖 MCP 工具（deferred DP-4）；仅接 Tools 原语。
+- MCP V1 边界：`SafetyGuard` 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08），返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，标记透传、非真正边界）；仅接 Tools 原语。
 
 **下一步候选方向**（按周期类型）：
 
 - **epic 外增量**：engine P5-1/P5-2 若反转，需新开 P 批。（接真实 sandbox 后端已交付 2026-07-08：`CommandRunner` 抽象 + `FirejailBackend`，见 `tools/sandbox.py`。）
-- **补丁周期**：MCP deferred 项（DP-4 安全覆盖）可开 spec。（FR-3 断连 auto-unregister 已交付，`tools/mcp/manager.py` `_watch`。）
+- **补丁周期**：当前无未交付候选——DP-4 两半（执行前工具名拦截 2026-07-08 + 返回内容启发式围栏 2026-07-10，标记透传、非真正边界）与 FR-3 断连 auto-unregister（`tools/mcp/manager.py` `_watch`）均已交付。
 - **集成周期**：MCP Resources/Prompts 原语、写操作（目前仅 Tools）。
 
 **retrospective 补全**：如需为已完成 epic 补做正式回顾，对单个 epic 调 `bmad-retrospective` skill；本文第三章已提供轻量替代。
