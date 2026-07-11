@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -16,6 +15,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# stop() 关停硬上界（task 挂死兜底）——对齐 MCP _DEFAULT_SHUTDOWN_TIMEOUT / sandbox _REAP_WAIT_TIMEOUT
+_DEFAULT_STOP_TIMEOUT: float = 5.0
+
 
 class CronScheduler:
     """Periodic scheduler that runs due cron jobs through AgentLoop."""
@@ -27,11 +29,17 @@ class CronScheduler:
         *,
         tick_seconds: int = 60,
         engine: EngineContainer | None = None,
+        stop_timeout: float = _DEFAULT_STOP_TIMEOUT,
         **loop_kwargs: object,
     ) -> None:
+        if stop_timeout <= 0:
+            # 非正值会让 _await_stop 的 wait 立即返回（task 仍 pending）→ 不给 cancel 任何收尾
+            # 机会即 ERROR 放弃（与 MCP shutdown_timeout<=0 同构误用）。fail-closed。
+            raise ValueError(f"stop_timeout 必须为正数（got {stop_timeout}）")
         self._store = job_store
         self._provider = provider
         self._tick_seconds = tick_seconds
+        self._stop_timeout = stop_timeout
         self._loop_kwargs = loop_kwargs
         self._engine = engine or EngineContainer.default()
         self._task: asyncio.Task[None] | None = None
@@ -46,13 +54,37 @@ class CronScheduler:
         logger.info("Cron scheduler started (tick=%ds)", self._tick_seconds)
 
     async def stop(self) -> None:
-        """Stop the background scheduler loop gracefully."""
+        """Stop the background scheduler loop gracefully（带硬上界，task 挂死时记 ERROR 放弃）。
+
+        ``_tick_loop`` 卡在 ``_check_and_execute``（``AgentLoop.run`` 内不可中断 await 点）时，
+        ``task.cancel()`` 注入的 ``CancelledError`` 可被吞 → task 不退出 → 裸 ``await self._task``
+        无限阻塞 ``stop()``（pre-existing LOW-MED，与 MCP ``__aexit__`` 同构；唯一调用方
+        ``cli.py`` 交互模式 finally 是进程退出路径，挂死 = 进程退出挂死）。本方法给关停硬上界：
+        立即 cancel 后单轮 bounded ``asyncio.wait`` 收尾，task 响应取消则一个 tick 内 done，
+        挂死则 ``stop_timeout`` 后记 ERROR 放弃，绝不无限阻塞。
+        """
         self._running = False
         if self._task and not self._task.done():
-            self._task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._task
+            await self._await_stop(self._task)
         logger.info("Cron scheduler stopped")
+
+    async def _await_stop(self, task: asyncio.Task[None]) -> None:
+        """带硬上界等待 scheduler task 退出；立即 cancel 后单轮 bounded 收尾，绝不无限阻塞。
+
+        保留原「立即 cancel」语义（cron 后台调度停止求快，``_tick_loop`` 多在 ``asyncio.sleep``，
+        graceful 窗口等不到自然退出反增延迟；与 MCP ``_await_shutdown`` 的 graceful 优先两轮不同——
+        两者核心立场一致：关停必须有上界，解按场景适配）。``asyncio.wait({task}, timeout=)`` 超时
+        不自动 cancel、不传播 task 内异常（含 ``CancelledError``），task 响应取消则一个 tick 内
+        done、wait 立即返回；挂死则 ``stop_timeout`` 后返回 pending → 记 ERROR 放弃（task 已 cancel，
+        余下收尾交 GC / OS 进程退出兜底）。
+        """
+        task.cancel()
+        _, pending = await asyncio.wait({task}, timeout=self._stop_timeout)
+        if pending:
+            logger.error(
+                "Cron scheduler 关停超时（%ss），task 未退出，放弃等待",
+                self._stop_timeout,
+            )
 
     async def _tick_loop(self) -> None:
         while self._running:

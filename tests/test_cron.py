@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -9,6 +11,7 @@ import pytest
 
 from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
+from heagent.providers.base import ProviderMetadata
 from heagent.tools.builtins.cron import (
     configure_cron_tools,
     cron_add,
@@ -16,9 +19,28 @@ from heagent.tools.builtins.cron import (
     cron_remove,
     reset_cron_tools,
 )
+from heagent.types import Message, ProviderResponse, TokenUsage
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+class _StubProvider:
+    """最小 BaseProvider stub（满足 Protocol 结构；stop 测试用空 JobStore 不触发 job 执行）。"""
+
+    async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
+        return ProviderResponse(
+            content="stub",
+            usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+            model="stub",
+            finish_reason="stop",
+        )
+
+    async def stream(self, messages: list[Message], *, tools: list[object] | None = None) -> object:
+        yield await self.send(messages, tools=tools)
+
+    def get_metadata(self) -> ProviderMetadata:
+        return ProviderMetadata(name="stub", model="stub")
 
 # ---- JobStore 测试 ----
 
@@ -183,3 +205,68 @@ class TestCronTools:
 
         result = await cron_list()
         assert "Error" in result
+
+
+# ---- CronScheduler.stop 关停硬上界测试（task 挂死兜底，与 MCP __aexit__ 同构）----
+
+
+class TestCronSchedulerStop:
+    """CronScheduler.stop() 硬上界：task 不响应 cancel 时 bounded 放弃，不无限阻塞。"""
+
+    def test_stop_timeout_must_be_positive(self, tmp_path: Path) -> None:
+        """stop_timeout<=0 会让 _await_stop 的 wait 立即返回（task 仍 pending）→ 不给 cancel
+        任何收尾机会即 ERROR 放弃（与 MCP shutdown_timeout<=0 同构误用）；构造期拒绝。"""
+        store = JobStore(str(tmp_path / "jobs.json"))
+        with pytest.raises(ValueError):
+            CronScheduler(store, _StubProvider(), stop_timeout=0)
+        with pytest.raises(ValueError):
+            CronScheduler(store, _StubProvider(), stop_timeout=-1)
+
+    @pytest.mark.asyncio
+    async def test_stop_bounded_when_tick_hangs(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """_tick_loop 卡在不可中断 await（cancel 被吞）时 stop() 仍有硬上界。
+
+        未修：stop() 裸 await self._task 无限阻塞 → 外层 wait_for(2.0) 超时 raise TimeoutError → 失败。
+        已修：stop() 在 stop_timeout 后记 ERROR 放弃 → ~stop_timeout 返回。
+        """
+        store = JobStore(str(tmp_path / "jobs.json"))
+        scheduler = CronScheduler(store, _StubProvider(), tick_seconds=60, stop_timeout=0.05)
+
+        # 模拟 _check_and_execute 挂死且吞 CancelledError（不响应取消）——AgentLoop.run 内不可中断
+        # await 的最小复现：except 捕取消后 await 永不返回的 future（asyncio 进入 except/finally 后
+        # cancel 信号已被消费，后续 await 不再自动抛 CancelledError → task 不响应取消）。
+        hang = asyncio.Event()
+
+        async def hanging_check() -> None:
+            try:
+                await hang.wait()
+            except asyncio.CancelledError:
+                await hang.wait()
+
+        scheduler._check_and_execute = hanging_check  # type: ignore[method-assign]
+        await scheduler.start()
+        await asyncio.sleep(0.05)  # 让 _tick_loop 进入 hanging_check
+
+        caplog.set_level(logging.ERROR)
+        await asyncio.wait_for(scheduler.stop(), timeout=2.0)  # 未修则挂死→TimeoutError
+
+        assert any("关停超时" in r.message for r in caplog.records), "挂死时应发出关停超时 ERROR"
+
+    @pytest.mark.asyncio
+    async def test_stop_clean_no_error_on_sleep(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """正常关停（task 在 sleep）不被误判超时（零回归：happy path 不受硬上界影响）。
+
+        stop_timeout 给宽裕值；_tick_loop 在 asyncio.sleep 被 cancel 后一个 tick 内 done →
+        wait 立即返回、无「关停超时」ERROR。
+        """
+        store = JobStore(str(tmp_path / "jobs.json"))
+        scheduler = CronScheduler(store, _StubProvider(), tick_seconds=60, stop_timeout=1.0)
+        await scheduler.start()
+        await asyncio.sleep(0.05)  # 让 _tick_loop 进入 asyncio.sleep(60)
+
+        caplog.set_level(logging.ERROR)
+        await scheduler.stop()
+
+        assert scheduler._task is not None
+        assert scheduler._task.done()
+        assert not any("关停超时" in r.message for r in caplog.records)
