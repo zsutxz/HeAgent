@@ -27,6 +27,7 @@ from heagent.tools.mcp.config import (
 )
 from heagent.tools.mcp.manager import MCPClientManager
 from heagent.tools.registry import ToolRegistry
+from heagent.types import ToolSchema
 
 
 class StubSession:
@@ -262,13 +263,35 @@ async def test_disconnect_auto_unregisters(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 async def test_disconnect_isolated_to_one_server(monkeypatch: pytest.MonkeyPatch) -> None:
-    """单 server 断连只注销它自己的工具，另一 server + 内置工具零影响（NFR-6）。"""
+    """单 server 断连只注销它自己的工具 + 仅关闭它自己的 transport；另一 server 与内置工具零影响（NFR-6）。
+
+    保真度（deferred-work.md 2026-07-01 FR-3 review defer 项收尾）：不止断言工具从 registry
+    消失，还断言 (a) 断连 server 的 transport ``__aexit__`` 已执行（``closed`` 标志）、另一
+    server transport 仍持有；(b) 内置（非 server 命名空间）工具保留——证 ``_unregister_server``
+    只 ``pop`` 该 server 的 key，不误伤其他。
+    """
     sessions = {
         "a": StubSession([_tool("run")]),
         "b": StubSession([_tool("build")]),
     }
-    _patch_transport(monkeypatch, sessions)
+    closed: dict[str, bool] = {}
+
+    @asynccontextmanager
+    async def tracking_transport(self: MCPClientManager, name: str, cfg: Any) -> Any:
+        s = sessions[name]
+        await s.initialize()
+        try:
+            yield s
+        finally:
+            closed[name] = True  # cm.__aexit__ 观测标志（_server_loop finally 关 transport 时触发）
+
+    monkeypatch.setattr(MCPClientManager, "_transport_and_session", tracking_transport)
     reg = ToolRegistry()
+    # 手动注册非 server 命名空间的"内置"工具，断言断连不误伤（_unregister_server 只 pop server key）
+    async def _builtin(**_: Any) -> str:
+        return ""
+
+    reg.register(ToolSchema(name="search", description="builtin", parameters={"type": "object"}), _builtin)
     async with MCPClientManager(
         MCPConfig(
             servers={
@@ -282,7 +305,15 @@ async def test_disconnect_isolated_to_one_server(monkeypatch: pytest.MonkeyPatch
         sessions["a"].disconnected = True
         removed = await _wait_removed(reg, "a__run")
         assert removed, "断连 server 工具未注销"
-        assert "b__build" in reg.list_names()  # 另一 server 不受影响
+        assert "b__build" in reg.list_names()  # 另一 server 工具不受影响
+        assert "search" in reg.list_names()  # 内置工具不受影响
+        # _watch return → _server_loop finally → cm.__aexit__：等一个 tick 让 closed 标志置位
+        for _ in range(100):
+            if closed.get("a"):
+                break
+            await asyncio.sleep(0.01)
+        assert closed.get("a"), "断连 server 的 transport __aexit__ 未执行"
+        assert not closed.get("b"), "未断连 server 的 transport 不应被关闭"
 
 
 # --- __aexit__ 关停硬上界（transport close hang 兜底，pre-existing LOW-MED）---

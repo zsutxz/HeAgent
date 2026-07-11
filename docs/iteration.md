@@ -63,7 +63,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 3. **记录**：写入 `_bmad-output/patches/deferred-work.md`，含触发条件、严重度、冻结边界说明、建议修法。
 4. **收尾**：后续开专门 spec 处理，修完写 `Resolution` 段关闭。
 
-> `_bmad-output/patches/deferred-work.md` 原 3 条（SubAgent 写竞态、ProviderChain 双层重包、流式 backstop 丢失上下文）均已收尾关闭——竞态经核实不成立（单线程 asyncio 下同步方法串行），另两项已修复。2026-07-01 FR-3 auto-unregister 评审另增 6 项 `defer`（pre-existing / spec 显式排除 / 非阻塞），见文件末尾，均未关闭。
+> `_bmad-output/patches/deferred-work.md` 原 3 条（SubAgent 写竞态、ProviderChain 双层重包、流式 backstop 丢失上下文）均已收尾关闭——竞态经核实不成立（单线程 asyncio 下同步方法串行），另两项已修复。2026-07-01 FR-3 auto-unregister 评审另增 6 项 `defer`（pre-existing / spec 显式排除 / 非阻塞）：4 项已 Resolution 关闭（`__aexit__` 关停硬上界、handler 异常经 executor 兜底、`_unregister_all` 已是快照、测试保真度 a/b/c 补强），余 2 项保持现状（`_watch` 两个 `wait_for` 同名异义 / `except Exception` 过宽——待未来 MCP 重连场景再收窄）。
 
 ### 1.5 sprint-status 维护规则
 
