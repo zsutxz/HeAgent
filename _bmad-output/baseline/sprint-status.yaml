@@ -140,10 +140,10 @@ development_status:
   # story 无独立 N-M 文件，直接基于 epics-mcp-v2-upgrade.md 的 AC 实现（同 mcp-client 周期惯例）
   # FR-3/5 由 architecture.md 交付（切换路径 + open question），无独立 story
   # 详见 _bmad-output/mcp-v2-upgrade/epics-mcp-v2-upgrade.md
-  epic-14: backlog  # MCP v1→v2 升级准备（FR-1 pin / FR-2 隔离层 / FR-4 测试基线）
-  14-1-mcp-pin-tighten: backlog
-  14-2-v2-isolation-layer: backlog
-  14-3-migration-test-baseline: backlog
+  epic-14: done  # MCP v1→v2 升级准备（FR-1 pin bump 1.28.1 / FR-2 隔离层 / FR-4 测试基线）
+  14-1-mcp-pin-tighten: done
+  14-2-v2-isolation-layer: done
+  14-3-migration-test-baseline: done
   epic-14-retrospective: optional
 
 # Action items（来自 retrospective，跨周期跟踪）
