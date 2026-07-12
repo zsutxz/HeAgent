@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-07-01
+# last_updated: 2026-07-12
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -28,7 +28,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-07-01
+last_updated: 2026-07-12
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -134,6 +134,17 @@ development_status:
   13-1-safety-statement-mcp: done
   13-2-opensource-config-docs: done
   epic-13-retrospective: done
+
+  # === MCP v1→v2 升级准备周期（2026-07-12，独立 FR-1~5）===
+  # 编号映射：本 sprint Epic 14 = epics-mcp-v2-upgrade.md 内部的 Epic 14（直接主线编号，不撞）
+  # story 无独立 N-M 文件，直接基于 epics-mcp-v2-upgrade.md 的 AC 实现（同 mcp-client 周期惯例）
+  # FR-3/5 由 architecture.md 交付（切换路径 + open question），无独立 story
+  # 详见 _bmad-output/mcp-v2-upgrade/epics-mcp-v2-upgrade.md
+  epic-14: backlog  # MCP v1→v2 升级准备（FR-1 pin / FR-2 隔离层 / FR-4 测试基线）
+  14-1-mcp-pin-tighten: backlog
+  14-2-v2-isolation-layer: backlog
+  14-3-migration-test-baseline: backlog
+  epic-14-retrospective: optional
 
 # Action items（来自 retrospective，跨周期跟踪）
 action_items:
