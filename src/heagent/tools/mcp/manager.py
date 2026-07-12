@@ -41,6 +41,7 @@ from heagent.tools.mcp.config import (
     StdioServerConfig,
 )
 from heagent.tools.mcp.mapping import bridge_result, mcp_tool_to_schema
+from heagent.tools.mcp.session_api import call_tool, handshake, list_tools, ping
 from heagent.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -212,7 +213,7 @@ class MCPClientManager:
         if isinstance(cfg, StdioServerConfig):
             params = StdioServerParameters(command=cfg.command, args=cfg.args, env=cfg.env or None)
             async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
-                await session.initialize()
+                await handshake(session)
                 logger.info("MCP server '%s' 已连接（StdioServerConfig）", name)
                 yield session
         elif isinstance(cfg, HttpServerConfig):
@@ -223,7 +224,7 @@ class MCPClientManager:
                 streamable_http_client(cfg.url, http_client=http_client) as transport,
                 ClientSession(transport[0], transport[1]) as session,
             ):
-                await session.initialize()
+                await handshake(session)
                 logger.info("MCP server '%s' 已连接（HttpServerConfig）", name)
                 yield session
         else:  # pragma: no cover - ServerConfig union 仅两型
@@ -231,9 +232,9 @@ class MCPClientManager:
 
     async def _discover_and_register(self, name: str, session: ClientSession) -> None:
         """发现 server 工具并注册到 ToolRegistry（namespace 冲突跳过 + 告警，FR-6）。"""
-        result = await session.list_tools()
+        tools = await list_tools(session)
         registered = 0
-        for tool in result.tools:
+        for tool in tools:
             schema = mcp_tool_to_schema(name, tool)
             if self._registry.get_schema(schema.name) is not None:
                 logger.warning("MCP 工具 '%s' 命名冲突（已注册），跳过", schema.name)
@@ -242,7 +243,7 @@ class MCPClientManager:
             self._registry.register(schema, handler)
             self._registered.setdefault(name, []).append(schema.name)
             registered += 1
-        logger.info("MCP server '%s'：发现 %d 个工具，注册 %d 个", name, len(result.tools), registered)
+        logger.info("MCP server '%s'：发现 %d 个工具，注册 %d 个", name, len(tools), registered)
 
     def _make_handler(self, session: ClientSession, tool_name: str) -> Callable[..., Any]:
         """构造 MCP 工具闭包 handler：call_tool → bridge_result（isError → raise ToolError）。
@@ -253,7 +254,7 @@ class MCPClientManager:
         """
 
         async def handler(**kwargs: Any) -> str:
-            result = await session.call_tool(tool_name, kwargs or None)
+            result = await call_tool(session, tool_name, kwargs or None)
             return bridge_result(result)
 
         return handler
@@ -287,7 +288,7 @@ class MCPClientManager:
             except TimeoutError:
                 pass
             try:
-                await asyncio.wait_for(session.send_ping(), timeout=self._health_check_interval)
+                await ping(session, self._health_check_interval)
             except Exception as exc:  # noqa: BLE001 - 任意 ping 失败/超时 = 断连
                 logger.warning("MCP server '%s' 运行时断连（ping 失败），已注销其工具：%s", name, exc)
                 self._unregister_server(name)
