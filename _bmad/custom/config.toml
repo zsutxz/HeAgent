@@ -6,28 +6,8 @@
 # [agents.bmad-agent-pm]
 # description = "Prefers short, bulleted PRDs over narrative drafts."
 
-# output_folder 不再 team override：6.9/6.10 installer 已在 base config（_bmad/config.toml）
-# 写入 output_folder = "{project-root}/_bmad-output"，实际产物即仓库根 _bmad-output/。
-# 曾尝试 override 为 docs/_bmad-output，但 bmad resolver 未让其生效（产物始终在根），
-# 已移除以消除 base / custom / 实际位置三层不一致。
-
-# ─────────────────────────────────────────────────────────────────
-# planning_artifacts / implementation_artifacts 同样不 team override（刻意省略）：
-#
-# BMad installer 在 _bmad/config.toml [modules.bmm] 与 _bmad/bmm/config.yaml 写入
-#   planning_artifacts       = "{project-root}/{output_folder}/planning-artifacts"
-#   implementation_artifacts = "{project-root}/{output_folder}/implementation-artifacts"
-# 二者指向「按产物类型分桶」的 _bmad-output/{planning,implementation}-artifacts/ 目录。
-# HeAgent **刻意按周期**组织产物（baseline/ mcp-client/ patches/ specs/），这两个桶目录
-# 从未创建、未被任何流程使用——并非漂移待修，而是设计偏离。
-#
-# 不在此处补 [modules.bmm] override 的理由：
-# 1. 与 output_folder 同一 resolver 路径——同类 key 的 custom override 经验证不生效
-#    （见 memory heagent-bmad-upgrade-runbook 第 4 坑 / commit 01fbe13）。
-# 2. quick-dev 硬假设 implementation_artifacts 为扁平目录（直接子项须为
-#    spec-{slug}.md + sprint-status.yaml + deferred-work.md + epic-<N>-context.md）；
-#    本仓这些文件摊在 baseline/ + patches/ + specs/，没有任何单一目录能让其全对。
-#    故「指向某 cycle 目录」是折中融合，不解决问题反而引入 base/custom/实际 三层不一致。
-#
-# 实际产物地图权威：_bmad-output/README.md。installer 托管文件维持 base 默认，不覆写。
-# ─────────────────────────────────────────────────────────────────
+# HeAgent 团队固定配置（installer 永不覆盖；恢复 uninstall+reinstall 丢失的值）。
+# base config.toml 同步写一份作即时生效；此处为 lasting 后盾，下次 install deep-merge。
+[core]
+project_name = "heagent"
+output_folder = "{project-root}/_bmad-output"
