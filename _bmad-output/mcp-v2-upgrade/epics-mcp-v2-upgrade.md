@@ -24,7 +24,7 @@ inputDocuments:
 ### Functional Requirements
 
 ```
-FR-1: 收紧 SDK pin 到 mcp>=1.27.2,<2（补当前 mcp>=1.27,<2 落后小档；1.27.2 为 v1 线最新 stable 2026-05-29）
+FR-1: pin floor 从 mcp>=1.28,<2 提到 mcp>=1.28.1,<2（对齐 v1 线最新 stable 1.28.1；现 pin 已排除 v2 alpha）
 FR-2: 在 MCPClientManager 内建隔离层（session_api.py），封装 5 个 v2-sensitive 调用点（handshake/ping/list_tools/call_tool/types 导入+字段访问），对外暴露稳定内部接口
 FR-3: 文档化 mcp-client FR-3（运行时 ping-watch 断连 auto-unregister）在 v2 stateless 下的等价机制选型（C 过渡 + v2 切 A 被动）——由 architecture 交付，不含实现
 FR-4: 迁移测试基线——Epic 11-13 的 MCP 测试（tests/test_mcp_*.py）在本周期所有改动后全绿 + session_api 新增单测
@@ -61,7 +61,7 @@ NFR-6: 可观测（隔离层调用、握手、健康探测有日志）
 ### FR Coverage Map
 
 ```
-FR-1:  Story 14-1 — pin 收紧 mcp>=1.27.2,<2
+FR-1:  Story 14-1 — pin floor 提到 mcp>=1.28.1,<2
 FR-2:  Story 14-2 — 隔离层 session_api.py（5 调用点收敛）
 FR-3:  由 architecture.md 交付（AD-3 + 切换路径 open question）——无独立 story
 FR-4:  Story 14-3 — 测试基线（session_api 单测 + 零回归）
@@ -89,17 +89,17 @@ FR-5:  由 architecture.md 交付（§v2 切换路径）——无独立 story
 **为何单 epic：** 本周期是「准备」非「切换」——实际实现工作集中在 pin + 隔离层 + 测试三件，架构已完整预设计（AD-1~6），无子件反馈环，按 file-churn 规则合并为单 epic 有序 story。
 **实现序列锚点（architecture §v2 切换路径 + AD-1~6）：** pin → session_api.py 骨架 → manager/mapping 改引用 → 测试。
 
-### Story 14.1: 收紧 MCP SDK pin 到 mcp>=1.27.2,<2
+### Story 14.1: MCP SDK pin floor 提到 mcp>=1.28.1,<2
 
 As a framework author,
-I want 把 `mcp` SDK pin 从 `mcp>=1.27,<2` 收紧到 `mcp>=1.27.2,<2`,
-So that 补当前落后小档、锁定 v1 线最新 stable（2026-05-29）、`<2` 排除 v2 alpha（NFR-4 纯 v1）。
+I want 把 `mcp` SDK pin floor 从 `mcp>=1.28,<2` 提到 `mcp>=1.28.1,<2`,
+So that 对齐 v1 线最新 stable 1.28.1、`<2` 排除 v2 alpha（NFR-4 纯 v1）。
 
 **Acceptance Criteria:**
 
-**Given** `pyproject.toml`
-**When** 把 `mcp>=1.27,<2` 改为 `mcp>=1.27.2,<2` 并执行 `pip install -e ".[dev]"`
-**Then** 安装成功、`mcp` 1.27.2 可导入
+**Given** `pyproject.toml`（现 `mcp>=1.28,<2`）
+**When** 把 floor 改为 `mcp>=1.28.1,<2` 并执行 `pip install -e ".[dev]"`
+**Then** 安装成功、`mcp` 1.28.1 可导入（顺带同步本地 env 滞后版本）
 **And** `<2` 约束排除 v2 alpha（2.0.0a1），与既有依赖无版本冲突。
 
 **Given** 既有 `tests/test_mcp_*.py`

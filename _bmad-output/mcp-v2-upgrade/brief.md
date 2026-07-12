@@ -44,7 +44,7 @@ HeAgent 的 MCP client（`tools/mcp/`，Epic 11-13 交付）现在能连任意 M
 
 ## 成功标准
 
-- ✅ v1.27.2 落地，现有 MCP 测试零回归（`pytest tests/test_mcp_*.py` 全绿）。
+- ✅ v1.28.1 落地，现有 MCP 测试零回归（`pytest tests/test_mcp_*.py` 全绿）。
 - ✅ `MCPClientManager` 的 5 个 v2-sensitive 调用点被隔离层封装；隔离层对外接口签名在 v1→v2 切换前后保持不变（diff 为空）。
 - ✅ FR-3 断连探测在 v2 形态下有等价机制设计（architecture 定型，可不含实现）。
 - ✅ 切换路径文档化：v2 stable 落地时改动局限于隔离层内部。
@@ -52,7 +52,7 @@ HeAgent 的 MCP client（`tools/mcp/`，Epic 11-13 交付）现在能连任意 M
 ## 范围
 
 **In：**
-- 收紧 pin 到 `mcp>=1.27.2`（补当前落后小档）
+- pin floor 提到 `mcp>=1.28.1,<2`（对齐 v1 线最新 stable 1.28.1；现 pin `mcp>=1.28,<2` 已排除 v2 alpha，本周期 bump floor 锁最新）
 - `MCPClientManager` 隔离层抽象（封装 initialize / send_ping / list_tools / call_tool / types 导入）
 - FR-3 断连探测的 v2 等价机制**设计**（可不含实现）
 - 迁移测试基线（Epic 11-13 测试零回归验证）
@@ -66,7 +66,7 @@ HeAgent 的 MCP client（`tools/mcp/`，Epic 11-13 交付）现在能连任意 M
 
 ## 技术约束
 
-- 依赖官方 SDK，pin 收紧到 `mcp>=1.27.2,<2`（v2 stable 落地后再评估 pin 上界）。
+- 依赖官方 SDK，pin floor 提到 `mcp>=1.28.1,<2`（v1 线最新 stable；v2 stable 落地后再评估 pin 上界）。
 - 协议 stable `2025-11-25` 落地；`2026-07-28` 仅 RC（→final），仅作设计参照，不依赖。
 - 隔离层不引入 v2 alpha 依赖——纯 v1 上做抽象，为 v2 留形。
 

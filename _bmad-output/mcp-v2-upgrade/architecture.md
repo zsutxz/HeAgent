@@ -74,7 +74,7 @@ companions: [docs/frame.md §4.11, _bmad-output/mcp-client/prd.md]
 
 - **Binds:** NFR-4 / FR-5
 - **Prevents:** 引入 v2 alpha 依赖、本周期交付依赖 v2 stable 时点（R3）
-- **Rule:** `session_api.py` 在 v1 SDK（`mcp>=1.27.2,<2`）上实现，不 import v2-only API（`server/discover`、`mcp_types` 等）；v2 stable（目标 2026-07-27）落地前不执行切换。本周期交付不依赖 v2 时点。
+- **Rule:** `session_api.py` 在 v1 SDK（`mcp>=1.28.1,<2`）上实现，不 import v2-only API（`server/discover`、`mcp_types` 等）；v2 stable（目标 2026-07-27）落地前不执行切换。本周期交付不依赖 v2 时点。
 
 ### AD-5 — [ADOPTED] 零回归基线
 
@@ -104,7 +104,7 @@ companions: [docs/frame.md §4.11, _bmad-output/mcp-client/prd.md]
 | Name | Version |
 | --- | --- |
 | Python | 3.11+ |
-| mcp（官方 SDK） | >=1.27.2,<2（FR-1 收紧，v1 线最新 stable 2026-05-29） |
+| mcp（官方 SDK） | >=1.28.1,<2（FR-1，v1 线最新 stable；bump 自 >=1.28） |
 | pytest + pytest-asyncio | auto 模式 |
 | asyncio | stdlib |
 

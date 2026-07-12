@@ -39,7 +39,7 @@ The spine is structurally sound — all 7 code locations verified precise, inher
 
 **AD-3 (FR-3 v2 等价):** Two-part rule — v1 ping placeholder (enforceable: `session_api.ping()` calls `send_ping`) + v2 switch to A (documented path, not implemented this cycle). The "安全立场不可退化" principle is enforceable by review. **Enforceable.**
 
-**AD-4 (纯 v1):** "不 import v2-only API" + pin `mcp>=1.27.2,<2` — enforceable at install time (pin) and review time (grep for v2-only imports). **Enforceable.**
+**AD-4 (纯 v1):** "不 import v2-only API" + pin `mcp>=1.28.1,<2` — enforceable at install time (pin) and review time (grep for v2-only imports). **Enforceable.**
 
 **AD-5 (零回归):** `tests/test_mcp_*.py` 全绿 — enforceable via CI/pytest. **Enforceable.**
 
@@ -80,7 +80,7 @@ Capability → Architecture Map covers all 11 PRD requirements:
 
 | PRD | AD | Coverage |
 |---|---|---|
-| FR-1 (pin 1.27.2) | AD-4 | ✓ |
+| FR-1 (pin 1.28.1) | AD-4 | ✓ |
 | FR-2 (隔离层 5 调用点) | AD-1 / AD-2 | ✓ |
 | FR-3 (断连探测 v2 等价) | AD-3 | ✓ (设计决策定，实现 deferred) |
 | FR-4 (迁移测试基线) | AD-5 | ✓ |
@@ -116,7 +116,7 @@ No new AD contradicts any inherited invariant.
 - State: stateless isolation layer, session lifecycle by MCPClientManager ✓
 - Error: ToolError, no swallow ✓
 - Observability: logging, NFR-6 ✓
-- Operational: Python 3.11+, mcp >=1.27.2,<2, pytest+pytest-asyncio ✓
+- Operational: Python 3.11+, mcp >=1.28.1,<2, pytest+pytest-asyncio ✓
 
 **Silent dimension — `ClientSession`-vs-`Client` choice for v2 switch:**
 The spine's AD-1 functions take a `session` parameter and call `session.initialize()`, `session.send_ping()`, `session.list_tools()`, `session.call_tool()`. In v1, `session` is a `ClientSession`. In v2 SDK, `ClientSession` still supports all these methods (the migration guide confirms "ClientSession's public surface is unchanged — same constructor apart from timeout parameters, typed methods, manual `initialize()`"). But the v2 stateless mode (no `initialize`, `server/discover` probe) is a `Client(mode='auto')` feature, not a `ClientSession` feature.
@@ -138,7 +138,9 @@ AD-5 says existing tests must stay green, but doesn't specify whether new unit t
 
 ## JOB 2 — FACT-CHECK (web-researched, 2026-07-12)
 
-### F1. mcp SDK v1.27.2 latest stable (2026-05-29) — CONFIRMED ✓
+### F1. mcp SDK v1 latest stable — ❌ RETRACTED（原断言错误，2026-07-12 实现阶段核查后撤回）
+
+> **【订正 2026-07-12】** 本条原结论 **错误、撤回**。`pip index versions mcp` 权威确认 v1 线最新 stable = **1.28.1**（1.28.0 / 1.28.1 均存在）。1.28.0 早在 2026-06-20 已被本仓库安装（mcp-client Story 1.1 commit `5b6453f`），远早于本 review 日期。原「live fetch 未见图 1.28.x」系事实核查失误；下方 Note 甚至看到了官方迁移指南里的「v1.28.1」却自我说服为「前瞻引用」——自我证伪失效。故 mcp-client prd §6「v1.28.0」**正确、非笔误**；FR-1/Story 14-1 已据此重定为 bump floor 到 1.28.1（非降级到 1.27.2）。原文保留备追溯。
 
 **Source:** PyPI project page, live fetch 2026-07-12 (https://pypi.org/project/mcp/#history)
 **Finding:** PyPI release history shows:
@@ -274,7 +276,7 @@ These are all v2-switch concerns (deferred) or non-hits, so they don't affect th
 | F6 | **LOW** | "initialize 删除" framing in the v2 switch path conflates protocol-level removal (2026-07-28 spec removes the handshake) with SDK-level availability (`ClientSession.initialize()` still works in v2 as legacy). |
 
 **All committed SDK/protocol facts verified current as of 2026-07-12:**
-- mcp 1.27.2 latest v1 stable (2026-05-29) ✓ (PyPI)
+- mcp 1.28.1 latest v1 stable ✓ (PyPI，订正：原「1.27.2 / 无 1.28.x」断言错误，见 F1 RETRACTED)
 - mcp 2.0.0a1 v2 alpha (2026-06-11) ✓ (PyPI)
 - v2.0.0 stable target 2026-07-27 ✓ (GitHub)
 - Protocol 2025-11-25 stable ✓ (modelcontextprotocol.io)
