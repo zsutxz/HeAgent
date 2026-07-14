@@ -93,7 +93,7 @@ class TestEnvLoading:
 
     def test_default_model_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("DEFAULT_MODEL", "claude-sonnet-4-6")
-        s = Settings()
+        s = Settings(_env_file=None)
         assert s.default_model == "claude-sonnet-4-6"
 
     def test_mcp_enabled_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,6 +105,28 @@ class TestEnvLoading:
         monkeypatch.setenv("MCP_CONFIG_PATH", "/custom/.mcp.json")
         s = Settings()
         assert s.mcp_config_path == "/custom/.mcp.json"
+
+
+# --- Precedence: .env overrides system env ---
+
+
+class TestPrecedence:
+    def test_dotenv_overrides_system_env(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+        """同 key 同时存在于 .env 与系统环境变量时，.env 胜出。"""
+        env_file = tmp_path / ".env"
+        env_file.write_text("OPENAI_API_KEY=from-dotenv\n", encoding="utf-8")
+        monkeypatch.setenv("OPENAI_API_KEY", "from-system")
+        s = Settings(_env_file=env_file)
+        assert s.openai_api_key == "from-dotenv"
+
+    def test_system_env_fills_gap_not_in_dotenv(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+        """.env 未声明的 key，由系统环境变量兜底填充。"""
+        env_file = tmp_path / ".env"
+        env_file.write_text("DEEPSEEK_API_KEY=ds-dotenv\n", encoding="utf-8")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-system")
+        s = Settings(_env_file=env_file)
+        assert s.deepseek_api_key == "ds-dotenv"
+        assert s.anthropic_api_key == "ant-system"
 
 
 # --- Multi-key parsing ---
