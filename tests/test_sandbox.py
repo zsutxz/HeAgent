@@ -269,7 +269,7 @@ class TestPassthroughRunner:
         """item 3：``proc.kill()`` 权限失败不阻断后续 ``wait()``（kill/wait 解耦）。
 
         fake ``kill()`` 抛 ``PermissionError``（逃出 ``suppress(ProcessLookupError)``）；
-        ``_kill_and_reap`` 的 item 3 ``try/except`` 吞掉该失败、记 ``kill failed`` debug 日志后
+        ``_kill_and_reap`` 的 item 3 ``except OSError`` 吞掉该失败、记 ``kill failed`` warning 日志后
         **仍执行** ``wait()``。断言 ``proc.waited`` 为 True（wait 跑过）+ 日志产出。buggy 写法
         （kill 抛错即跳出 _kill_and_reap）会让 ``wait()`` 不执行、pipe transport 泄漏。
         """
@@ -300,15 +300,15 @@ class TestPassthroughRunner:
         await asyncio.sleep(0.05)  # 让 task 跑到 await communicate()
         task.cancel()
         with (
-            caplog.at_level(logging.DEBUG, logger="heagent.tools.sandbox"),
+            caplog.at_level(logging.WARNING, logger="heagent.tools.sandbox"),
             pytest.raises(asyncio.CancelledError),
         ):
             await task
         assert proc.waited, "kill 失败后 wait() 仍应执行回收 pipe FD（item 3 解耦）"
         assert any(
-            rec.levelno == logging.DEBUG and "kill failed" in rec.getMessage()
+            rec.levelno == logging.WARNING and "kill failed" in rec.getMessage()
             for rec in caplog.records
-        ), "kill 失败应记 debug 日志（item 3 observability）"
+        ), "kill 失败应记 warning 日志（item 3 observability ~ 需人工关注非预期 kill 失败）"
 
     @pytest.mark.asyncio
     async def test_kill_block_does_not_swallow_keyboardinterrupt(self) -> None:
@@ -497,15 +497,15 @@ class TestFirejailBackend:
         await asyncio.sleep(0.05)  # 让 task 跑到 await communicate()
         task.cancel()
         with (
-            caplog.at_level(logging.DEBUG, logger="heagent.tools.sandbox"),
+            caplog.at_level(logging.WARNING, logger="heagent.tools.sandbox"),
             pytest.raises(asyncio.CancelledError),
         ):
             await task
         assert proc.waited, "kill 失败后 wait() 仍应执行回收 pipe FD（item 3 解耦）"
         assert any(
-            rec.levelno == logging.DEBUG and "kill failed" in rec.getMessage()
+            rec.levelno == logging.WARNING and "kill failed" in rec.getMessage()
             for rec in caplog.records
-        ), "kill 失败应记 debug 日志（item 3 observability）"
+        ), "kill 失败应记 warning 日志（item 3 observability ~ 需人工关注非预期 kill 失败）"
 
 
 class TestRuntimeSlot:

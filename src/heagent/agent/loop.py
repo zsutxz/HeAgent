@@ -197,8 +197,10 @@ class AgentLoop:
 
         # 运行时作用域：在本轮 run 期间绑定工作区根/记忆/技能/cron/subagent 等工具运行时，
         # with 退出时自动解绑，保证不会泄漏到其它 run。
-        with self._runtime_scope(run_context):
-            try:
+        # 注意：with 在 try 内部 —— 任一 bind_* 抛异常也会被 _on_run_failed 收口，
+        # 不会裸抛到 run() 之外、丢失 session 落盘与 last_* 缓存。
+        try:
+            with self._runtime_scope(run_context):
                 while True:  # —— 主循环：每轮 = 一次 LLM 调用 +（若需要）一次工具执行
                     self._begin_iteration(state, run_context)
 
@@ -248,18 +250,19 @@ class AgentLoop:
                     details={"answer_length": len(final_answer)},
                 )
                 return final_answer
-            except Exception as exc:
-                # 任何异常：置 FAILED、记错误快照、发布失败事件后原样向上抛（显性失败）。
-                await self._on_run_failed(run_context, prompt, system_content, state, exc)
-                raise
-            finally:
-                # 无论成功失败：会话消息落盘，并把本次 run 的事后产物缓存到实例属性。
-                if self.session and session_id:
-                    self.session.save(session_id, state.messages)
-                    logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
-                self.last_usage = accumulated
-                self.last_iteration = state.iteration
-                self.last_run_context = run_context
+        except Exception as exc:
+            # 任何异常（包括 _runtime_scope 内 bind_* 失败）：置 FAILED、记错误快照、
+            # 发布失败事件后原样向上抛（显性失败）。
+            await self._on_run_failed(run_context, prompt, system_content, state, exc)
+            raise
+        finally:
+            # 无论成功失败：会话消息落盘，并把本次 run 的事后产物缓存到实例属性。
+            if self.session and session_id:
+                self.session.save(session_id, state.messages)
+                logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
+            self.last_usage = accumulated
+            self.last_iteration = state.iteration
+            self.last_run_context = run_context
 
     async def run_stream(
         self,
@@ -290,8 +293,10 @@ class AgentLoop:
                 prompt, system, session_id, stream=True
             )
 
-        with self._runtime_scope(run_context):
-            try:
+        # 注意：with 在 try 内部 —— 任一 bind_* 抛异常也会被 _on_run_failed 收口，
+        # 不会裸抛到 run_stream() 之外、丢失 session 落盘与 last_* 缓存。
+        try:
+            with self._runtime_scope(run_context):
                 while True:
                     self._begin_iteration(state, run_context)
 
@@ -376,15 +381,15 @@ class AgentLoop:
 
                     # 窗口重置（逻辑同 run()，达到阈值则换段继续）。
                     await self._maybe_window_reset(state, run_context, prompt, system_content, response.usage)
-            except Exception as exc:
-                await self._on_run_failed(run_context, prompt, system_content, state, exc)
-                raise
-            finally:
-                if self.session and session_id:
-                    self.session.save(session_id, state.messages)
-                self.last_usage = accumulated
-                self.last_iteration = state.iteration
-                self.last_run_context = run_context
+        except Exception as exc:
+            await self._on_run_failed(run_context, prompt, system_content, state, exc)
+            raise
+        finally:
+            if self.session and session_id:
+                self.session.save(session_id, state.messages)
+            self.last_usage = accumulated
+            self.last_iteration = state.iteration
+            self.last_run_context = run_context
 
     async def resume(self, run_id: str) -> str:
         """按 run_id 恢复一次未完成的运行，返回（续跑后的）最终回答。
@@ -728,6 +733,10 @@ class AgentLoop:
         用 ``ExitStack`` 把多个 ``bind_*`` 上下文管理器串起来：工作区根（路径安全）、
         技能/记忆/cron/subagent 工具各自拿到本次 run 的 store 与上下文。这样工具
         handler 内部无需显式传参即可访问「当前 run 的」依赖，且 run 之间互不串扰。
+
+        任一 ``bind_*`` 抛异常时 ExitStack 自动弹出已进入的上下文，异常逸出到
+        ``run()``/``run_stream()`` 的 ``try/except Exception`` 被 ``_on_run_failed`` 收口
+        （不会裸抛到 run 之外、丢失 session 落盘与 last_* 缓存）。
         """
         from heagent.tools.builtins.cron import bind_cron_tools
         from heagent.tools.builtins.memory import bind_memory_tools
