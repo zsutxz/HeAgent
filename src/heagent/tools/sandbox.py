@@ -61,27 +61,27 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     """超时/取消收尾：SIGKILL 子进程并回收，best-effort。
 
     - ``proc.kill()`` 进程已退出竞态抛 ``ProcessLookupError``，吞掉。
-    - **item 3（kill/wait 解耦）**：``proc.kill()`` 权限失败（``PermissionError`` 等，逃出
-      ``suppress(ProcessLookupError)``）不再阻断后续 ``wait()``——记 debug 日志后**仍执行 wait**
-      回收 pipe FD（即便子进程未被杀，pipe transport 仍可关）。kill 失败是局部 best-effort 关注，
-      在此吞掉、不逸出。
+    - **item 3（kill/wait 解耦）**：``proc.kill()`` 权限失败（``PermissionError`` / ``OSError``
+      等，逃出 ``suppress(ProcessLookupError)``）不再阻断后续 ``wait()``——记 warning 日志后
+      **仍执行 wait** 回收 pipe FD（即便子进程未被杀，pipe transport 仍可关）。kill 失败是
+      局部 best-effort 关注，在此吞掉、不逸出。
     - **item 2（wait 硬上界）**：``await proc.wait()`` 经 ``wait_for`` 限时 ``_REAP_WAIT_TIMEOUT``
       秒；D-state 下 wait 不返回，此上界防永久 hang。D-state 超时逸出 ``TimeoutError``，由调用方
       ``except`` 保护（TimeoutError 路径 item 1 / CancelledError 路径 D-1）。
     - **不吞 re-entrant** ``CancelledError``（wait 又被取消）——取消传播优先，逸出由调用方保护。
 
-    契约（Y）：本函数吞 kill 失败，但 wait 失败（D-state ``TimeoutError`` / re-entrant
-    ``CancelledError``）逸出。调用方两 except 块各自兜底（见 item 1 / D-1），D-1 保护因此仍非死代码。
+    契约（Y）：本函数吞 kill 失败（仅 ``ProcessLookupError``、``PermissionError``、``OSError``），
+    但 wait 失败（D-state ``TimeoutError`` / re-entrant ``CancelledError``）逸出。调用方两 except
+    块各自兜底（见 item 1 / D-1），D-1 保护因此仍非死代码。
     """
     try:
         with suppress(ProcessLookupError):
             proc.kill()
-    except Exception:
-        # item 3：kill 权限失败（PermissionError/OSError）不阻断 wait（解耦）——记日志后仍落到下方
-        # wait 回收 pipe FD。用 ``except Exception``（非 BaseException，code review patch）：item 3 的
-        # 目标全是 Exception 子类；BaseException 会额外吞 KeyboardInterrupt/SystemExit，令 shutdown
-        # 信号被下方 ``wait_for(..., 5.0)`` 延迟最多 5s。KeyboardInterrupt 须立即逸出（控制流信号优先）。
-        logger.debug("kill failed; still attempt wait to reap pipe FD", exc_info=True)
+    except OSError:
+        # item 3：kill 权限失败（PermissionError/OSError）不阻断 wait（解耦）——记 warning 日志后
+        # 仍落到下方 wait 回收 pipe FD。只用 OSError (含 PermissionError)，不吞意外异常（如
+        # RuntimeError 等），让意外异常逸出以暴露代码缺陷——显性失败优先。
+        logger.warning("kill failed; still attempt wait to reap pipe FD", exc_info=True)
     # item 2：wait 硬上界防 D-state 永久 hang；超时逸出 TimeoutError 由调用方 except 保护。
     await asyncio.wait_for(proc.wait(), timeout=_REAP_WAIT_TIMEOUT)
 

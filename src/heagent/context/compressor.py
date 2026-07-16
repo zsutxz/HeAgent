@@ -77,9 +77,19 @@ class ContextCompressor:
         if len(conversation) <= self.keep_recent:
             return messages
 
-        # 分割：旧消息（需要摘要）/ 最近消息（保留原文）
-        old = conversation[: -self.keep_recent]
-        recent = conversation[-self.keep_recent :]
+        # 分割：旧消息（需要摘要）/ 最近消息（保留原文）。
+        # 切分点必须落在「安全边界」上：recent 的首条不能是 TOOL——否则其对应的
+        # assistant(tool_calls) 已落入 old 被摘要抹平，recent 里出现无主 tool 结果，
+        # OpenAI 会以 400「tool must follow tool_calls」拒绝。故把 recent 开头的孤儿
+        # TOOL 并入 old 一同摘要（内容进入摘要、不静默丢弃，既保压缩意图又不破坏不变量）。
+        split = len(conversation) - self.keep_recent
+        while split < len(conversation) and conversation[split].role == Role.TOOL:
+            split += 1
+        # 极端情形：recent 全是 TOOL（无可安全保留的窗口）→ 放弃本轮压缩，原样返回。
+        if split >= len(conversation):
+            return messages
+        old = conversation[:split]
+        recent = conversation[split:]
 
         # 调用 LLM 生成旧消息摘要
         summary = await self._summarize(old)

@@ -73,30 +73,35 @@ def call_result_to_text(result: CallToolResult) -> str:
 
 
 # 内置 prompt-injection 启发式签名（高信号/低 FP 优先；硬编码，仿 safety._DANGEROUS_PATTERNS）。
-# 每项 (compiled_pattern, 可读描述)。非真正边界——漏报变形攻击、误报合法讨论，仅 defense-in-depth。
-_INJECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+# 每项 (compiled_pattern, 可读描述, raw_signature)。非真正边界——漏报变形攻击、误报合法讨论，
+# 仅 defense-in-depth。
+# ``raw_signature`` 在 in-band warning 中**不出现**（避免把 tokenizer 特殊标记二次写入上下文放大
+# 攻击面），仅用于 DEBUG 日志暴露（调试时匹配原始签名）。
+_INJECTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     # ChatML / tokenizer 标记劫持（正常工具输出几乎不含 → 高信号低 FP）。
-    # 描述刻意不含原始签名字节（L-1）：围栏不应把 tokenizer 特殊标记二次写入上下文放大攻击面。
-    (re.compile(r"<\|im_start\|>"), "ChatML 起始标记"),
-    (re.compile(r"<\|im_end\|>"), "ChatML 结束标记"),
-    (re.compile(r"<\|endoftext\|>"), "EOS 结束标记"),
-    (re.compile(r"\[INST\]"), "Mistral 指令起始标记"),
-    (re.compile(r"\[/INST\]"), "Mistral 指令结束标记"),
+    (re.compile(r"<\|im_start\|>"), "ChatML 起始标记", r"<|im_start|>"),
+    (re.compile(r"<\|im_end\|>"), "ChatML 结束标记", r"<|im_end|>"),
+    (re.compile(r"<\|endoftext\|>"), "EOS 结束标记", r"<|endoftext|>"),
+    (re.compile(r"\[INST\]"), "Mistral 指令起始标记", r"[INST]"),
+    (re.compile(r"\[/INST\]"), "Mistral 指令结束标记", r"[/INST]"),
     # 系统消息伪装标签（HTML/XML 大小写变体常见 → 加 IGNORECASE，与短语模式对齐 L-2）
-    (re.compile(r"<system>", re.IGNORECASE), "系统标签起始"),
-    (re.compile(r"</system>", re.IGNORECASE), "系统标签结束"),
+    (re.compile(r"<system>", re.IGNORECASE), "系统标签起始", r"<system>"),
+    (re.compile(r"</system>", re.IGNORECASE), "系统标签结束", r"</system>"),
     # 经典注入短语（讨论注入的文档会合法出现 → 中 FP，但高信号，标记语义纳入）
     (
         re.compile(r"ignore (all )?(previous|prior|above) (instructions?|prompts?)", re.IGNORECASE),
         "ignore-previous 注入短语",
+        r"ignore (all )?(previous|prior|above) (instructions?|prompts?)",
     ),
     (
         re.compile(r"disregard (all )?(previous|prior|above) (instructions?|messages?)", re.IGNORECASE),
         "disregard-previous 注入短语",
+        r"disregard (all )?(previous|prior|above) (instructions?|messages?)",
     ),
     (
         re.compile(r"forget (all )?(previous|prior) (instructions?|messages?)", re.IGNORECASE),
         "forget-previous 注入短语",
+        r"forget (all )?(previous|prior) (instructions?|messages?)",
     ),
 ]
 
@@ -106,9 +111,13 @@ _INJECTION_WARNING_TEMPLATE = (
 )
 
 
-def _scan_injection(text: str) -> list[str]:
-    """扫描文本是否命中内置 prompt-injection 启发式，返回命中签名描述列表（空=未命中）。"""
-    return [desc for pat, desc in _INJECTION_PATTERNS if pat.search(text)]
+def _scan_injection(text: str) -> list[tuple[str, str]]:
+    """扫描文本是否命中内置 prompt-injection 启发式。
+
+    返回 ``[(public_desc, raw_signature)]`` 命中签名列表（空=未命中）。
+    ``public_desc`` 给 in-band 标记（不含原始签名字节），``raw_signature`` 仅供 DEBUG 日志。
+    """
+    return [(desc, raw) for pat, desc, raw in _INJECTION_PATTERNS if pat.search(text)]
 
 
 def _guard_injection(text: str) -> str:
@@ -116,12 +125,21 @@ def _guard_injection(text: str) -> str:
 
     非真正安全边界——注入与正常内容语义不可区分，纯启发式必有 FP/FN；标记仅提供
     observable defense-in-depth（审计痕迹 + 对 LLM 的可见警告），不阻断、不截断、不抛错。
+
+    DEBUG 日志同时包含 ``public_desc`` 与 ``raw_signature``——调试时可 grep 原始模式；
+    in-band 标记仅用 ``public_desc``（不含 tokenizer 特殊标记字节，避免放大攻击面）。
     """
     hits = _scan_injection(text)
     if not hits:
         return text
-    logger.warning("MCP 返回命中注入启发式: %s", hits)  # 审计痕迹（M-1）：可 grep/聚合，与 in-band 标记互补
-    patterns = "; ".join(f'"{h}"' for h in hits)
+    public_descs = [h[0] for h in hits]
+    raw_sigs = [h[1] for h in hits]
+    logger.warning(
+        "MCP 返回命中注入启发式: desc=%s raw=%s",
+        public_descs,
+        raw_sigs,
+    )
+    patterns = "; ".join(f'"{d}"' for d in public_descs)
     return f"{_INJECTION_WARNING_TEMPLATE.format(patterns=patterns)}{text}"
 
 
