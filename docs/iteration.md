@@ -112,7 +112,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.3 补丁周期 · 技术债收尾
 
-`_bmad-output/patches/` 扁平存放计划外补丁，`deferred-work.md` 跟踪遗留项。已交付：`3-3-token-counter`、`5-1-subagent-context-injection`、`epic-5-context`、`p0-provider-hardening`、`fr3-mcp-auto-unregister`（FR-3 MCP 运行时断连 auto-unregister）。另有两份轻量回顾：`retrospective-engine-p5.md`、`retrospective-p0-tech-debt.md`。
+`_bmad-output/patches/` 扁平存放计划外补丁，`deferred-work.md` 跟踪遗留项。已交付：`3-3-token-counter`、`5-1-subagent-context-injection`、`epic-5-context`、`p0-provider-hardening`、`fr3-mcp-auto-unregister`（FR-3 MCP 运行时断连 auto-unregister）。**sandbox 健壮性系列（2026-07-09~10）**：`spec-engine-sandbox-backend`（`CommandRunner` 抽象 + code review 三修）、`spec-sandbox-timeout-validation`（timeout 正整数校验）、`spec-sandbox-cancel-signal-preservation`（CancelledError 不吞取消信号）、`spec-sandbox-reap-robustness`（reap 保护 + wait 硬上界 + kill/wait 解耦）。**关停硬上界三件套（2026-07-10~11，同构）**：`spec-mcp-shutdown-timeout`（MCP `__aexit__`）、`spec-cron-stop-timeout`（`CronScheduler.stop`）、`spec-deferred-low-cleanup`（deferred-work 收尾）。**DP-4 两半**：`spec-dp4-mcp-safety-guard`（执行前工具名拦截）、`spec-dp4-mcp-result-guard`（返回内容启发式围栏）。另有两份轻量回顾：`retrospective-engine-p5.md`、`retrospective-p0-tech-debt.md`。
 
 ### 2.4 engine/ 增量 · epic 外 P0-P5
 
@@ -141,6 +141,12 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-06-29 | engine / agent 源码补详细中文注释；`loop.py` 968→797 行拆分（零回归）；新增 GitHub Actions 质量门禁 + pre-commit 钩子；epic-13 retrospective 完成 |
 | 2026-07-01 | 收敛工作区路径围栏为 `resolve_under_root` 单一算法；FR-3 收紧（MCP 运行时断连 ping-watch auto-unregister）；engine 健壮性四件套（ledger/store I/O 全套 async 化、缓存命中复核 policy、持久化原子写 + 损坏 JSON 容错、lease-active 命中跳过重复执行） |
 | 2026-07-08 | engine sandbox 接真实后端：`execute_in_sandbox` 经 `CommandRunner` 抽象（`tools/sandbox.py`）+ `RuntimeSlot` 注入，默认 Passthrough、可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界） |
+| 2026-07-09 | sandbox 健壮性 D1/D3/D4：取消执行时 kill+wait 子进程修 `CancelledError` 泄漏；`timeout` 正整数校验（raise 非 clamp，fail-closed 拦 None/str/float/bool/nan）；firejail 测试保真度（returncode per-instance）；engine sandbox 后端 code review 三处修复 |
+| 2026-07-10 | sandbox reap 鲁棒性收尾：`CancelledError` 清理不吞取消信号（D-1，`suppress(BaseException)`+裸 raise）+ reap 保护 + `wait` 硬上界（`_REAP_WAIT_TIMEOUT`）+ kill/wait 解耦（item 1/2/3）+ kill 块 `except` 收窄 `Exception`（不吞 KeyboardInterrupt）；DP-4 第二半——MCP 返回内容注入启发式围栏（`mapping.bridge_result` 标记透传，非真正边界）；MCP `__aexit__` 关停硬上界（transport close 挂死兜底） |
+| 2026-07-11 | deferred-work 剩余 LOW 项收尾；`_await_shutdown` 二轮 `wait` 收窄为 pending 子集；`CronScheduler.stop` 关停硬上界（task 挂死兜底，与 MCP `__aexit__` 同构）——**三处同构关停硬上界补齐**；docs 同步 DP-4 过时表述 |
+| 2026-07-12 | bmad 根除 gds/bmb 残留（uninstall + install --modules core,bmm） |
+| 2026-07-14 | `.env` 优先级反转：同 key 冲突 `.env` 胜出（`init > dotenv > env > secrets`），系统环境变量退居兜底（仅填充 `.env` 未声明的键） |
+| 2026-07-16 | compressor 切分不产生孤儿 TOOL 消息；三项代码审查必修修复（`loop.py` ExitStack bind 异常 / `sandbox.py` kill 块 / `mapping.py` 注入模式描述）；新增 `docs/code-review-conclusion.md`、`docs/learning.md` |
 
 ---
 
@@ -155,6 +161,8 @@ quick-dev 是**基于 spec 的单会话执行**：
 5. **两种模式并存要标记冲突，而非折中**（engine / 工作区路径双重围栏，**已收敛**）：`PolicyEngine._validate_paths()` 与 `tools/path_safety.py` 曾两套围栏并存。**教训**：改其一须同步评估另一处，冲突在文档显式标出——后经收敛为共用 `resolve_under_root` 单一算法（两层有意纵深防御）解决（2026-07-01 commit `2ae99ed` 落地，`c7171ba` 同步 frame.md/CLAUDE.md 已知缺口）。
 6. **评估结论要留依据**（engine P5-1/P5-2）：暂不反转的决策（D1/D4）把理由写进 `frame.md`，避免日后重做时忘记为何如此。
 7. **缓存命中仍须复核策略裁决**（engine / ExecutionLedger）：ledger COMPLETED 缓存命中后曾直接返回，未复核最新 policy——若 policy 收紧为 `BLOCKED` 仍返回缓存会绕过门禁。**教训**：缓存层与策略层交叉时，命中后仍须过一遍 policy（commit `84ee783`）；同理 lease-active 命中跳过执行，防并发/重入重复跑 handler（`c07f811`）。
+8. **关停/清理路径必须有硬上界**（sandbox / MCP / cron，2026-07-09~11）：`_kill_and_reap` 的 `proc.wait()`、MCP `__aexit__` 的 transport close、`CronScheduler.stop` 的 task join 都是裸 `await`，遇不可中断 await 点（Linux D-state / 远端不 FIN / job 执行中）会无限阻塞，唯一调用方（CLI 退出路径）挂死需 OS SIGKILL。**教训**：凡 `task.cancel()` + `await` 的关停结构，`await` 必包 `asyncio.wait(timeout=N)`，超时记 ERROR 放弃——三处同构缺口同批补齐（`spec-sandbox-reap-robustness` / `spec-mcp-shutdown-timeout` / `spec-cron-stop-timeout`）。
+9. **上下文切分要保证消息配对完整**（compressor，2026-07-16）：compressor 按预算切分历史时，切点若落在 TOOL 调用与其 TOOL 结果之间，会留下孤儿 TOOL 消息（有调用无结果），破坏 LLM 的 tool_use/tool_result 配对约束。**教训**：切分边界须以完整工具轮次（call+result）为不可分割单元。
 
 ---
 
@@ -169,7 +177,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 **下一步候选方向**（按周期类型）：
 
 - **epic 外增量**：engine P5-1/P5-2 若反转，需新开 P 批。（接真实 sandbox 后端已交付 2026-07-08：`CommandRunner` 抽象 + `FirejailBackend`，见 `tools/sandbox.py`。）
-- **补丁周期**：当前无未交付候选——DP-4 两半（执行前工具名拦截 2026-07-08 + 返回内容启发式围栏 2026-07-10，标记透传、非真正边界）与 FR-3 断连 auto-unregister（`tools/mcp/manager.py` `_watch`）均已交付。
+- **补丁周期**：当前无未交付候选——DP-4 两半（执行前工具名拦截 2026-07-08 + 返回内容启发式围栏 2026-07-10）、FR-3 断连 auto-unregister、sandbox 健壮性系列（2026-07-09~10）、关停硬上界三件套（MCP/cron/sandbox 2026-07-10~11）、compressor 孤儿 TOOL 修复（2026-07-16）均已交付。
 - **集成周期**：MCP Resources/Prompts 原语、写操作（目前仅 Tools）。
 
 **retrospective 补全**：如需为已完成 epic 补做正式回顾，对单个 epic 调 `bmad-retrospective` skill；本文第三章已提供轻量替代。

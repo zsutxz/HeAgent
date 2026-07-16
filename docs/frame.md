@@ -463,6 +463,7 @@ HeAgentError (base)
 ### 4.10 配置管理 (`config.py`)
 
 - `pydantic-settings` 的 `Settings` 类，从 `.env` + 环境变量加载
+- **加载优先级（2026-07-14 反转）**：`init > dotenv > env > secrets`——同 key 冲突时 `.env` 胜出，系统环境变量退居兜底（仅填充 `.env` 未声明的键）。此前为 `env > dotenv`（环境变量胜出）
 - `get_settings()` 单例访问，`reset_settings()` 用于测试重置
 
 | 配置项 | 默认值 | 说明 |
