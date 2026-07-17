@@ -82,6 +82,9 @@ class ContextCompressor:
         # assistant(tool_calls) 已落入 old 被摘要抹平，recent 里出现无主 tool 结果，
         # OpenAI 会以 400「tool must follow tool_calls」拒绝。故把 recent 开头的孤儿
         # TOOL 并入 old 一同摘要（内容进入摘要、不静默丢弃，既保压缩意图又不破坏不变量）。
+        # 「越过开头 TOOL」即足：AgentLoop 固定先追加 assistant(tool_calls)、再紧随追加其全部
+        # TOOL 结果（见 loop.py，无交错），故 recent 中段不会有无主 TOOL；若日后有中间件在
+        # 二者间插入消息，该前提失效，此处须重新评估。
         split = len(conversation) - self.keep_recent
         while split < len(conversation) and conversation[split].role == Role.TOOL:
             split += 1
