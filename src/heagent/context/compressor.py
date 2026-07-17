@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from heagent.context.tokens import count_tokens
 from heagent.types import Message, ProviderResponse, Role
 
 if TYPE_CHECKING:
@@ -28,6 +29,10 @@ _DEFAULT_PROMPT = (
     "Preserve key facts, decisions, and any important context."
 )
 
+# 摘要请求本身的安全缓冲区：预留足够的 token 空间给摘要提示词 + 回复
+# （提示词约 30 tokens，回复预留 512 tokens，简单旧消息不会用完）
+_SUMMARY_SAFETY_MARGIN = 1024  # tokens，为摘要提示词 + LLM 回复保底
+
 
 class ContextCompressor:
     """上下文压缩器，使用 LLM 摘要旧的对话消息以释放 Token 空间。"""
@@ -38,10 +43,12 @@ class ContextCompressor:
         *,
         threshold: float = 0.8,  # 触发压缩的 Token 使用率阈值
         keep_recent: int = 4,  # 保留最近 N 条消息不参与压缩
+        max_summary_tokens: int = 4096,  # 摘要输入截断上限
     ) -> None:
         self.provider = provider
         self.threshold = threshold
         self.keep_recent = keep_recent
+        self.max_summary_tokens = max_summary_tokens
 
     async def compress(
         self,
@@ -94,8 +101,8 @@ class ContextCompressor:
         old = conversation[:split]
         recent = conversation[split:]
 
-        # 调用 LLM 生成旧消息摘要
-        summary = await self._summarize(old)
+        # 调用 LLM 生成旧消息摘要（带截断保护，防超出上下文窗口）
+        summary = await self._summarize(old, max_tokens=max_tokens)
 
         # 组装压缩后的消息列表
         compressed = [
@@ -110,10 +117,78 @@ class ContextCompressor:
         )
         return compressed
 
-    async def _summarize(self, messages: list[Message]) -> str:
-        """调用 LLM 对旧消息生成摘要。"""
-        prompt = "\n".join(f"{m.role.value}: {m.content}" for m in messages if m.content)
-        resp: ProviderResponse = await self.provider.send(
-            [Message(role=Role.USER, content=f"{_DEFAULT_PROMPT}\n\n{prompt}")]
-        )
+    async def _summarize(self, messages: list[Message], max_tokens: int = 0) -> str:
+        """调用 LLM 对旧消息生成摘要，带截断保护。
+
+        如果旧消息的估算 token 数超过安全阈值（``max_tokens - SAFETY_MARGIN``），
+        会从末尾截断保留最重要的部分，避免摘要请求本身超出上下文窗口。
+
+        参数：
+            messages: 需要摘要的旧消息列表
+            max_tokens: 原始上下文窗口上限；为 0 时不截断（纯兼容）
+        返回：
+            摘要文本
+        """
+        # 估算输入 token，若超安全阈值则截断
+        prompt_parts: list[str] = []
+        estimated = 0
+        per_message_overhead = 3  # 每条消息角色标签开销
+        safety_limit = max_tokens - _SUMMARY_SAFETY_MARGIN
+
+        # 从末尾向前取消息（最新消息最重要），直到接近安全阈值
+        for m in reversed(messages):
+            text = f"{m.role.value}: {m.content}" if m.content else ""
+            if not text and not m.tool_calls:
+                continue
+            if m.tool_calls:
+                for tc in m.tool_calls:
+                    tool_text = f"tool_call: {tc.name}({tc.arguments})"
+                    if m.content:
+                        tool_text = f"{m.content}\n{tool_text}"
+                    text = tool_text if not text else f"{text}\n{tool_text}"
+
+            msg_tokens = per_message_overhead + _estimate_tokens(text)
+            if max_tokens > 0 and estimated + msg_tokens > safety_limit:
+                # 超过安全阈值——此条及更早的消息被截断；已收集的部分足够生成有意义的摘要
+                logger.debug(
+                    "Summary input truncated at ~%d tokens (max=%d, safety=%d)",
+                    estimated,
+                    max_tokens,
+                    safety_limit,
+                )
+                break
+            estimated += msg_tokens
+            prompt_parts.insert(0, text)  # 因为是从后向前遍历，插到头部恢复原序
+
+        if not prompt_parts:
+            return "(conversation content omitted - too large to summarize)"
+
+        prompt = "\n".join(prompt_parts)
+        try:
+            resp: ProviderResponse = await self.provider.send(
+                [Message(role=Role.USER, content=f"{_DEFAULT_PROMPT}\n\n{prompt}")]
+            )
+        except Exception:
+            # 摘要失败时不抛异常、不中断主循环：返回简短占位符，
+            # 下次迭代若 token 仍超阈值会再次尝试压缩。
+            logger.exception("Summary generation failed; returning placeholder")
+            return "(summary unavailable - conversation history preserved in recent messages)"
+
         return resp.content
+
+
+def _estimate_tokens(text: str) -> int:
+    """快速 token 估算（不含消息结构开销）。"""
+    cjk = sum(
+        1
+        for ch in text
+        if (
+            0x4E00 <= (cp := ord(ch)) <= 0x9FFF
+            or 0x3400 <= cp <= 0x4DBF
+            or 0x3040 <= cp <= 0x309F
+            or 0x30A0 <= cp <= 0x30FF
+            or 0xAC00 <= cp <= 0xD7AF
+        )
+    )
+    other = len(text) - cjk
+    return max(1, cjk + int(other / 4.0))

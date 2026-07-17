@@ -72,6 +72,21 @@ class _ResumeState:
     system: str | None  # 原系统提示词
 
 
+@dataclass(slots=True)
+class _RunInit:
+    """``run()`` / ``run_stream()`` 共享的初始化产物。
+
+    与 ``_ResumeState`` 互为双生：``_init_or_resume`` 输出统一结构，
+    循环体据此进入主循环，不再重复分支逻辑。
+    """
+
+    state: AgentState
+    run_context: RunContext
+    system_content: str | None
+    accumulated: TokenUsage
+    prompt: str  # 原始 prompt（恢复时可能已替换为 _resume.prompt）
+
+
 class AgentLoop:
     """迭代式 Provider/工具循环，附带轻量运行时治理。
 
@@ -159,6 +174,10 @@ class AgentLoop:
         settings = get_settings()
         self.max_iterations = max_iterations or settings.max_iterations
 
+    # ------------------------------------------------------------------
+    # 公共入口：run（非流式）/ run_stream（流式）
+    # ------------------------------------------------------------------
+
     async def run(
         self,
         prompt: str,
@@ -176,93 +195,54 @@ class AgentLoop:
             _resume: 恢复专用（由 ``resume()`` 注入），非 None 时跳过初始化、续跑旧 run。
 
         返回最终回答字符串。流程分两段：
-          ① 初始化（除非恢复）：建状态/上下文 → 恢复会话历史 → 拼系统提示词 → 落首条 USER；
-          ② 主循环：见下方 ``while True`` 块的逐步注释。
+          ① ``_init_or_resume`` → ② 主循环（non-streaming）
         """
-        # —— 分支①-A：恢复模式。直接用注入的预构建状态，沿用旧 run_id，不重做初始化。
-        if _resume is not None:
-            state = _resume.state
-            run_context = _resume.run_context
-            system_content = _resume.system
-            prompt = _resume.prompt
-            accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-            self._emit("run_started", run_context=run_context, details={"resume": True})
-        else:
-            # —— 分支①-B：全新运行。初始化状态/上下文/系统提示词（run/run_stream 共用）。
-            state, run_context, system_content, accumulated = await self._init_new_run(
-                prompt, system, session_id, stream=False
-            )
+        init = await self._init_or_resume(prompt, system, session_id, _resume, stream=False)
+        state = init.state
+        run_context = init.run_context
+        system_content = init.system_content
+        accumulated = init.accumulated
 
         response: ProviderResponse | None = None
-
-        # 运行时作用域：在本轮 run 期间绑定工作区根/记忆/技能/cron/subagent 等工具运行时，
-        # with 退出时自动解绑，保证不会泄漏到其它 run。
-        # 注意：with 在 try 内部 —— 任一 bind_* 抛异常也会被 _on_run_failed 收口，
-        # 不会裸抛到 run() 之外、丢失 session 落盘与 last_* 缓存。
         try:
             with self._runtime_scope(run_context):
-                while True:  # —— 主循环：每轮 = 一次 LLM 调用 +（若需要）一次工具执行
+                while True:
                     self._begin_iteration(state, run_context)
-
-                    # 步骤1：调 LLM（可选经中间件链，如重试）。累加本轮 token 用量。
                     response = await self._call_provider(state, run_context=run_context)
                     if response.usage:
                         accumulated = self._add_usage(accumulated, response.usage)
 
-                    # 步骤2（可选）：就地压缩上下文（compressor 仅在返回新列表时替换）。
                     await self._maybe_compress(state, run_context, response.usage)
-
-                    # 步骤3：把本轮 ASSISTANT 回复（含可能的 tool_calls）追加进对话历史。
                     state.messages.append(
                         Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
                     )
-                    await self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+                    await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
 
-                    # 步骤4：若 LLM 未请求任何工具调用 —— 已是最终回答，跳出循环。
                     if not response.tool_calls:
                         break
 
-                    # 步骤5：并发执行 LLM 请求的工具调用，把每个结果作为 TOOL 消息追加进历史。
                     tool_results = await self._execute_tools(response.tool_calls, state, run_context=run_context)
                     for tool_result in tool_results:
                         state.messages.append(
                             Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
                         )
-                    await self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+                    await self._checkpoint(
+                        run_context, prompt=init.prompt, system=system_content, state=state
+                    )
+                    await self._maybe_window_reset(state, run_context, init.prompt, system_content, response.usage)
 
-                    # 步骤6（可选）：窗口重置（达到 token 阈值则折叠成「prompt + 进度摘要」新窗口）。
-                    await self._maybe_window_reset(state, run_context, prompt, system_content, response.usage)
-                    # —— 循环回到顶部，带着工具结果再调一次 LLM，直到无工具调用为止。
-
-                # 循环正常结束：记录最终答案、置 COMPLETED、发布完成事件，返回答案。
                 final_answer = response.content if response is not None else ""
                 run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
                 await self._checkpoint(
-                    run_context,
-                    prompt=prompt,
-                    system=system_content,
-                    state=state,
-                    final_answer=final_answer,
+                    run_context, prompt=init.prompt, system=system_content, state=state, final_answer=final_answer,
                 )
-                self._emit(
-                    "run_completed",
-                    run_context=run_context,
-                    details={"answer_length": len(final_answer)},
-                )
+                self._emit("run_completed", run_context=run_context, details={"answer_length": len(final_answer)})
                 return final_answer
         except Exception as exc:
-            # 任何异常（包括 _runtime_scope 内 bind_* 失败）：置 FAILED、记错误快照、
-            # 发布失败事件后原样向上抛（显性失败）。
-            await self._on_run_failed(run_context, prompt, system_content, state, exc)
+            await self._on_run_failed(run_context, init.prompt, system_content, state, exc)
             raise
         finally:
-            # 无论成功失败：会话消息落盘，并把本次 run 的事后产物缓存到实例属性。
-            if self.session and session_id:
-                self.session.save(session_id, state.messages)
-                logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
-            self.last_usage = accumulated
-            self.last_iteration = state.iteration
-            self.last_run_context = run_context
+            await self._persist_and_cache(session_id, state, accumulated, run_context)
 
     async def run_stream(
         self,
@@ -275,32 +255,19 @@ class AgentLoop:
         """流式版循环：边跑边 yield ``StreamEvent``（text/tool_call/tool_result/done）。
 
         与 ``run()`` 的区别：每轮 LLM 调用走 ``provider.stream`` 逐 chunk 消费，
-        文本片段实时下推；工具调用与最终完成同样以事件形式产出。``_resume`` 由
-        :meth:`resume_stream` 注入，语义与 ``run()`` 的恢复分支一致（跳过初始化、
-        续跑旧 run）。
+        文本片段实时下推；工具调用与最终完成同样以事件形式产出。
         """
-        # —— 分支①-A：恢复模式，沿用预构建状态与旧 run_id。
-        if _resume is not None:
-            state = _resume.state
-            run_context = _resume.run_context
-            system_content = _resume.system
-            prompt = _resume.prompt
-            accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-            self._emit("run_started", run_context=run_context, details={"resume": True, "stream": True})
-        else:
-            # —— 分支①-B：全新运行。初始化状态/上下文/系统提示词（run/run_stream 共用）。
-            state, run_context, system_content, accumulated = await self._init_new_run(
-                prompt, system, session_id, stream=True
-            )
+        init = await self._init_or_resume(prompt, system, session_id, _resume, stream=True)
+        state = init.state
+        run_context = init.run_context
+        system_content = init.system_content
+        accumulated = init.accumulated
 
-        # 注意：with 在 try 内部 —— 任一 bind_* 抛异常也会被 _on_run_failed 收口，
-        # 不会裸抛到 run_stream() 之外、丢失 session 落盘与 last_* 缓存。
         try:
             with self._runtime_scope(run_context):
                 while True:
                     self._begin_iteration(state, run_context)
 
-                    # 本轮流式累加用的临时变量：把多个 chunk 拼回一份完整响应。
                     tools = self.registry.enabled_schemas()
                     full_content = ""
                     tool_calls: list[ToolCall] = []
@@ -308,7 +275,6 @@ class AgentLoop:
                     model = ""
                     finish_reason = ""
 
-                    # 消费流：文本片段实时 yield 给调用方，工具调用/usage/model/finish 逐 chunk 累积。
                     async for chunk in self.provider.stream(state.messages, tools=tools or None):
                         if chunk.content:
                             full_content += chunk.content
@@ -322,7 +288,6 @@ class AgentLoop:
                         if chunk.finish_reason:
                             finish_reason = chunk.finish_reason
 
-                    # 把累积结果重构成标准 ProviderResponse（与 run() 的非流式响应同构，便于复用后续逻辑）。
                     accumulated = self._add_usage(accumulated, chunk_usage)
                     response = ProviderResponse(
                         content=full_content,
@@ -333,13 +298,12 @@ class AgentLoop:
                     )
 
                     await self._maybe_compress(state, run_context, response.usage)
-
                     state.messages.append(
-                        Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
+                        Message(
+                            role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None
+                        )
                     )
 
-                    # 流式特有兜底：finish_reason 声称是 tool_calls 却没带 tool_calls（部分 provider 在
-                    # 流式下会丢字段）。此时改走非流式 _call_provider 补取一次，确保工具调用不丢失。
                     if not response.tool_calls and finish_reason == "tool_calls":
                         response = await self._call_provider(state, run_context=run_context)
                         state.messages[-1] = Message(
@@ -349,14 +313,15 @@ class AgentLoop:
                         )
                         accumulated = self._add_usage(accumulated, response.usage)
 
-                    await self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
+                    await self._checkpoint(
+                        run_context, prompt=init.prompt, system=system_content, state=state
+                    )
 
-                    # 无工具调用 = 最终回答：置 COMPLETED、落最终快照、发布完成事件，并 yield done 结束流。
                     if not response.tool_calls:
                         run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
                         await self._checkpoint(
                             run_context,
-                            prompt=prompt,
+                            prompt=init.prompt,
                             system=system_content,
                             state=state,
                             final_answer=response.content,
@@ -369,27 +334,34 @@ class AgentLoop:
                         yield StreamEvent(type="done", final_answer=response.content)
                         break
 
-                    # 有工具调用：并发执行，并把每个「调用名 + 结果」作为事件下推，同时追加 TOOL 消息进历史。
-                    tool_results = await self._execute_tools(response.tool_calls, state, run_context=run_context)
+                    tool_results = await self._execute_tools(
+                        response.tool_calls, state, run_context=run_context
+                    )
                     for tool_call, tool_result in zip(response.tool_calls, tool_results, strict=True):
                         yield StreamEvent(type="tool_call", tool_name=tool_call.name)
                         yield StreamEvent(type="tool_result", tool_result_content=tool_result.content)
                         state.messages.append(
-                            Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
+                            Message(
+                                role=Role.TOOL,
+                                content=tool_result.content,
+                                tool_call_id=tool_result.tool_call_id,
+                            )
                         )
-                    await self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
-
-                    # 窗口重置（逻辑同 run()，达到阈值则换段继续）。
-                    await self._maybe_window_reset(state, run_context, prompt, system_content, response.usage)
+                    await self._checkpoint(
+                        run_context, prompt=init.prompt, system=system_content, state=state
+                    )
+                    await self._maybe_window_reset(
+                        state, run_context, init.prompt, system_content, response.usage
+                    )
         except Exception as exc:
-            await self._on_run_failed(run_context, prompt, system_content, state, exc)
+            await self._on_run_failed(run_context, init.prompt, system_content, state, exc)
             raise
         finally:
-            if self.session and session_id:
-                self.session.save(session_id, state.messages)
-            self.last_usage = accumulated
-            self.last_iteration = state.iteration
-            self.last_run_context = run_context
+            await self._persist_and_cache(session_id, state, accumulated, run_context)
+
+    # ------------------------------------------------------------------
+    # 恢复入口：resume / resume_stream
+    # ------------------------------------------------------------------
 
     async def resume(self, run_id: str) -> str:
         """按 run_id 恢复一次未完成的运行，返回（续跑后的）最终回答。
@@ -403,33 +375,10 @@ class AgentLoop:
 
         流式恢复见 :meth:`resume_stream`。
         """
-        snapshot = await self.engine.run_store.load(run_id)
-        if snapshot is None:
-            raise ValueError(f"No run snapshot found for run_id={run_id!r}")
-        if snapshot.context.status == RunStatus.COMPLETED:
+        snapshot, _resume = await self._build_resume_state(run_id)
+        if _resume is None:
             return snapshot.final_answer or ""
-
-        progress = snapshot.context.metadata.get("progress_summary")
-        if progress:
-            messages = WindowReset.build_resume_messages(original_prompt=snapshot.prompt, summary=progress)
-        else:
-            messages = [m.model_copy(deep=True) for m in snapshot.messages]
-
-        state = AgentState(
-            messages=messages,
-            max_iterations=self.max_iterations,
-            iteration=snapshot.context.iteration,
-        )
-        return await self.run(
-            snapshot.prompt,
-            system=snapshot.system,
-            _resume=_ResumeState(
-                state=state,
-                run_context=snapshot.context,
-                prompt=snapshot.prompt,
-                system=snapshot.system,
-            ),
-        )
+        return await self.run(snapshot.prompt, system=snapshot.system, _resume=_resume)
 
     async def resume_stream(self, run_id: str) -> AsyncIterator[StreamEvent]:
         """:meth:`resume` 的流式版。
@@ -437,12 +386,20 @@ class AgentLoop:
         已 COMPLETED 的 run 直接 yield 单个 ``done`` 事件（带缓存答案）；未完成的
         run 同样按 progress_summary 重建窗口后，用原 run_id 流式续跑。
         """
+        snapshot, _resume = await self._build_resume_state(run_id)
+        if _resume is None:
+            yield StreamEvent(type="done", final_answer=snapshot.final_answer or "")
+            return
+        async for event in self.run_stream(snapshot.prompt, system=snapshot.system, _resume=_resume):
+            yield event
+
+    async def _build_resume_state(self, run_id: str) -> tuple[object, _ResumeState | None]:
+        """从快照重建恢复状态；已完成的 run 返回 ``(snapshot, None)``。"""
         snapshot = await self.engine.run_store.load(run_id)
         if snapshot is None:
             raise ValueError(f"No run snapshot found for run_id={run_id!r}")
         if snapshot.context.status == RunStatus.COMPLETED:
-            yield StreamEvent(type="done", final_answer=snapshot.final_answer or "")
-            return
+            return snapshot, None
 
         progress = snapshot.context.metadata.get("progress_summary")
         if progress:
@@ -455,29 +412,48 @@ class AgentLoop:
             max_iterations=self.max_iterations,
             iteration=snapshot.context.iteration,
         )
-        async for event in self.run_stream(
-            snapshot.prompt,
+        return snapshot, _ResumeState(
+            state=state,
+            run_context=snapshot.context,
+            prompt=snapshot.prompt,
             system=snapshot.system,
-            _resume=_ResumeState(
-                state=state,
-                run_context=snapshot.context,
-                prompt=snapshot.prompt,
-                system=snapshot.system,
-            ),
-        ):
-            yield event
+        )
 
-    def _begin_iteration(self, state: AgentState, run_context: RunContext) -> None:
-        """推进迭代计数、发布 iteration_started 事件，并强制迭代硬上限。
+    # ------------------------------------------------------------------
+    # 初始化（run / run_stream 共享）
+    # ------------------------------------------------------------------
 
-        每轮循环入口调用：iteration+1 → touch 上下文 → 发事件 → 超过 max_iterations
-        即抛 ``BudgetExceeded``（显性失败，防止失控循环）。``run``/``run_stream`` 共用。
+    async def _init_or_resume(
+        self,
+        prompt: str,
+        system: str | None,
+        session_id: str | None,
+        _resume: _ResumeState | None,
+        *,
+        stream: bool,
+    ) -> _RunInit:
+        """统一初始化：恢复模式（_resume → 跳过）或全新运行。
+
+        返回 ``_RunInit`` 供 ``run()`` / ``run_stream()`` 直接消费，
+        循环体不再重复分支逻辑。
         """
-        state.iteration += 1
-        run_context.touch(iteration=state.iteration)
-        self._emit("iteration_started", run_context=run_context)
-        if state.iteration > state.max_iterations:
-            raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
+        if _resume is not None:
+            self._emit("run_started", run_context=_resume.run_context, details={"resume": True, "stream": stream})
+            return _RunInit(
+                state=_resume.state,
+                run_context=_resume.run_context,
+                system_content=_resume.system,
+                accumulated=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+                prompt=_resume.prompt,
+            )
+        fresh = await self._init_new_run(prompt, system, session_id, stream=stream)
+        return _RunInit(
+            state=fresh[0],
+            run_context=fresh[1],
+            system_content=fresh[2],
+            accumulated=fresh[3],
+            prompt=prompt,
+        )
 
     async def _init_new_run(
         self,
@@ -517,6 +493,48 @@ class AgentLoop:
         details: dict[str, Any] = {"stream": True} if stream else {"session_id": session_id or ""}
         self._emit("run_started", run_context=run_context, details=details)
         return state, run_context, system_content, accumulated
+
+    # ------------------------------------------------------------------
+    # 终结（run / run_stream 共享）
+    # ------------------------------------------------------------------
+
+    async def _persist_and_cache(
+        self,
+        session_id: str | None,
+        state: AgentState,
+        accumulated: TokenUsage,
+        run_context: RunContext,
+    ) -> None:
+        """持久化会话 + 缓存事后产物（finally 块共用）。
+
+        无论成功/失败均调用：落盘会话消息、缓存 ``last_*`` 属性。
+        """
+        if self.session and session_id:
+            self.session.save(session_id, state.messages)
+            logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
+        self.last_usage = accumulated
+        self.last_iteration = state.iteration
+        self.last_run_context = run_context
+
+    # ------------------------------------------------------------------
+    # 迭代控制
+    # ------------------------------------------------------------------
+
+    def _begin_iteration(self, state: AgentState, run_context: RunContext) -> None:
+        """推进迭代计数、发布 iteration_started 事件，并强制迭代硬上限。
+
+        每轮循环入口调用：iteration+1 → touch 上下文 → 发事件 → 超过 max_iterations
+        即抛 ``BudgetExceeded``（显性失败，防止失控循环）。``run``/``run_stream`` 共用。
+        """
+        state.iteration += 1
+        run_context.touch(iteration=state.iteration)
+        self._emit("iteration_started", run_context=run_context)
+        if state.iteration > state.max_iterations:
+            raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
+
+    # ------------------------------------------------------------------
+    # 上下文管理（压缩 / 窗口重置）
+    # ------------------------------------------------------------------
 
     async def _maybe_compress(
         self,
@@ -587,6 +605,10 @@ class AgentLoop:
         )
         await self._checkpoint(run_context, prompt=prompt, system=system_content, state=state)
 
+    # ------------------------------------------------------------------
+    # 异常 / 完成
+    # ------------------------------------------------------------------
+
     async def _on_run_failed(
         self,
         run_context: RunContext,
@@ -598,8 +620,7 @@ class AgentLoop:
         """异常收尾：置 FAILED、记错误快照、发布 run_failed 事件（不含 re-raise）。
 
         ``run``/``run_stream`` 的 except 块共用；``raise`` 留在各自 except 末尾
-        （显性失败，异常原样向上抛）。finally 块（session 落盘 + last_* 缓存）不提炼
-        ——它处于 async-generator 的 cleanup 路径，动它风险高、收益小。
+        （显性失败，异常原样向上抛）。
         """
         run_context.touch(status=RunStatus.FAILED, iteration=state.iteration)
         await self._checkpoint(
@@ -623,6 +644,10 @@ class AgentLoop:
             completion_tokens=a.completion_tokens + b.completion_tokens,
             total_tokens=a.total_tokens + b.total_tokens,
         )
+
+    # ------------------------------------------------------------------
+    # 系统提示词 / Provider 调用 / 工具执行
+    # ------------------------------------------------------------------
 
     def _build_system(self, user_system: str | None, prompt: str = "") -> str | None:
         """合并生成系统提示词（委托 :func:`build_system_prompt`，保留 skills.record_usage 副作用）。"""
@@ -711,6 +736,10 @@ class AgentLoop:
     async def _invoke_handler(self, call: ToolCall) -> object:
         """解析并调用工具 handler（委托 :func:`invoke_handler`）。"""
         return await invoke_handler(self, call)
+
+    # ------------------------------------------------------------------
+    # 运行时上下文 / 注册 / 持久化 / 事件
+    # ------------------------------------------------------------------
 
     def _ensure_run_context(self, *, session_id: str | None) -> RunContext:
         """为本次执行取得一个运行上下文。
