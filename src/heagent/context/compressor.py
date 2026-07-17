@@ -15,7 +15,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from heagent.context.tokens import count_tokens
 from heagent.types import Message, ProviderResponse, Role
 
 if TYPE_CHECKING:
@@ -123,19 +122,22 @@ class ContextCompressor:
         如果旧消息的估算 token 数超过安全阈值（``max_tokens - SAFETY_MARGIN``），
         会从末尾截断保留最重要的部分，避免摘要请求本身超出上下文窗口。
 
+        修复 P0.2：当 ``max_tokens`` 小于 ``SAFETY_MARGIN`` 导致 ``safety_limit <= 0`` 时，
+        不进行截断（保留全部消息）；极端情况仍返回 "conversation content omitted" 由空输入触发。
+
         参数：
             messages: 需要摘要的旧消息列表
             max_tokens: 原始上下文窗口上限；为 0 时不截断（纯兼容）
         返回：
             摘要文本
         """
-        # 估算输入 token，若超安全阈值则截断
         prompt_parts: list[str] = []
         estimated = 0
         per_message_overhead = 3  # 每条消息角色标签开销
         safety_limit = max_tokens - _SUMMARY_SAFETY_MARGIN
+        should_truncate = max_tokens > 0 and safety_limit > 0
 
-        # 从末尾向前取消息（最新消息最重要），直到接近安全阈值
+        # 从末尾向前取消息（最新消息最重要），直到接近安全阈值（或不截断时全部取出）
         for m in reversed(messages):
             text = f"{m.role.value}: {m.content}" if m.content else ""
             if not text and not m.tool_calls:
@@ -148,8 +150,8 @@ class ContextCompressor:
                     text = tool_text if not text else f"{text}\n{tool_text}"
 
             msg_tokens = per_message_overhead + _estimate_tokens(text)
-            if max_tokens > 0 and estimated + msg_tokens > safety_limit:
-                # 超过安全阈值——此条及更早的消息被截断；已收集的部分足够生成有意义的摘要
+            if should_truncate and estimated + msg_tokens > safety_limit:
+                # 超过安全阈值——此条及更早的消息被截断
                 logger.debug(
                     "Summary input truncated at ~%d tokens (max=%d, safety=%d)",
                     estimated,
@@ -160,6 +162,13 @@ class ContextCompressor:
             estimated += msg_tokens
             prompt_parts.insert(0, text)  # 因为是从后向前遍历，插到头部恢复原序
 
+        # 如果一条消息都没保留，则强制包含最近一条（避免无意义的占位符）
+        if not prompt_parts and messages:
+            m = messages[-1]  # 至少保留最近消息
+            text = f"{m.role.value}: {m.content}" if m.content else "(empty)"
+            prompt_parts.append(text)
+
+        # 极少数情况：输入完全为空（不应发生）
         if not prompt_parts:
             return "(conversation content omitted - too large to summarize)"
 
@@ -187,7 +196,7 @@ def _estimate_tokens(text: str) -> int:
             or 0x3400 <= cp <= 0x4DBF
             or 0x3040 <= cp <= 0x309F
             or 0x30A0 <= cp <= 0x30FF
-            or 0xAC00 <= cp <= 0xD7AF
+            or 0xAC00 <= cp <= 0xDFFF
         )
     )
     other = len(text) - cjk

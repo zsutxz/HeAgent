@@ -226,15 +226,17 @@ class AgentLoop:
                         state.messages.append(
                             Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
                         )
-                    await self._checkpoint(
-                        run_context, prompt=init.prompt, system=system_content, state=state
-                    )
+                    await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
                     await self._maybe_window_reset(state, run_context, init.prompt, system_content, response.usage)
 
                 final_answer = response.content if response is not None else ""
                 run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
                 await self._checkpoint(
-                    run_context, prompt=init.prompt, system=system_content, state=state, final_answer=final_answer,
+                    run_context,
+                    prompt=init.prompt,
+                    system=system_content,
+                    state=state,
+                    final_answer=final_answer,
                 )
                 self._emit("run_completed", run_context=run_context, details={"answer_length": len(final_answer)})
                 return final_answer
@@ -299,9 +301,7 @@ class AgentLoop:
 
                     await self._maybe_compress(state, run_context, response.usage)
                     state.messages.append(
-                        Message(
-                            role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None
-                        )
+                        Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
                     )
 
                     if not response.tool_calls and finish_reason == "tool_calls":
@@ -313,9 +313,7 @@ class AgentLoop:
                         )
                         accumulated = self._add_usage(accumulated, response.usage)
 
-                    await self._checkpoint(
-                        run_context, prompt=init.prompt, system=system_content, state=state
-                    )
+                    await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
 
                     if not response.tool_calls:
                         run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
@@ -334,9 +332,7 @@ class AgentLoop:
                         yield StreamEvent(type="done", final_answer=response.content)
                         break
 
-                    tool_results = await self._execute_tools(
-                        response.tool_calls, state, run_context=run_context
-                    )
+                    tool_results = await self._execute_tools(response.tool_calls, state, run_context=run_context)
                     for tool_call, tool_result in zip(response.tool_calls, tool_results, strict=True):
                         yield StreamEvent(type="tool_call", tool_name=tool_call.name)
                         yield StreamEvent(type="tool_result", tool_result_content=tool_result.content)
@@ -347,12 +343,8 @@ class AgentLoop:
                                 tool_call_id=tool_result.tool_call_id,
                             )
                         )
-                    await self._checkpoint(
-                        run_context, prompt=init.prompt, system=system_content, state=state
-                    )
-                    await self._maybe_window_reset(
-                        state, run_context, init.prompt, system_content, response.usage
-                    )
+                    await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
+                    await self._maybe_window_reset(state, run_context, init.prompt, system_content, response.usage)
         except Exception as exc:
             await self._on_run_failed(run_context, init.prompt, system_content, state, exc)
             raise

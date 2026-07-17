@@ -10,8 +10,7 @@
   后模型可能重发相同 ``tool_call.id``；账本使 COMPLETED 的调用短路返回缓存、避免重复执行。
 - **cron 等长时任务**：经 acquire / heartbeat / complete / fail 管理跨周期执行状态。
 
-记录清理：:meth:`cleanup` 按 deadline 删除 COMPLETED/FAILED 记录，默认 24 小时，
-避免 ``.heagent/ledger/`` 文件无限增长。
+记录不做自动清理（清理策略交给上层调度器或外部维护脚本决策）。
 """
 
 from __future__ import annotations
@@ -166,37 +165,6 @@ class ExecutionLedger:
             if record is not None:
                 records.append(record)
         return sorted(records, key=lambda r: (r.scope, r.key))
-
-    async def cleanup(self, max_age_hours: float = 24) -> int:
-        """删除超过指定时间的 COMPLETED / FAILED 记录。
-
-        参数：
-            max_age_hours: 清理阈值（小时）；超过此时长的已终结记录被删。
-        返回：
-            实际删除的文件数。
-        """
-        if not await asyncio.to_thread(self._base.exists):
-            return 0
-        deadline = datetime.now() - timedelta(hours=max_age_hours)
-        paths = await asyncio.to_thread(lambda: list(self._base.glob("*.json")))
-        deleted = 0
-        for path in paths:
-            record = await asyncio.to_thread(load_json_model, path, ExecutionRecord)
-            if record is None:
-                # 损坏文件无法读状态，保留不动（不丢可能重要的、用户不知情的数据）
-                continue
-            if record.status in (ExecutionStatus.COMPLETED, ExecutionStatus.FAILED) and record.finished_at:
-                try:
-                    finished = datetime.fromisoformat(record.finished_at)
-                except (ValueError, TypeError):
-                    continue
-                if finished < deadline:
-                    await asyncio.to_thread(path.unlink)
-                    deleted += 1
-        if deleted:
-            logger = __import__("logging").getLogger(__name__)
-            logger.info("Ledger cleanup: removed %d records older than %.0fh", deleted, max_age_hours)
-        return deleted
 
     async def _save(self, record: ExecutionRecord) -> None:
         """把一条记录原子写到磁盘（tmp + os.replace，防崩溃留半截）。"""
