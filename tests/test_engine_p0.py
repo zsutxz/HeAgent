@@ -19,7 +19,7 @@ from heagent.tools.builtins.file import file_write
 from heagent.tools.builtins.memory import bind_memory_tools, fact_add
 from heagent.tools.builtins.skills import bind_skill_tools, configure_skill_tools, reset_skill_tools, skill_create
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall, ToolSchema
+from heagent.types import Message, ProviderResponse, TokenUsage, ToolAnnotations, ToolCall, ToolSchema
 
 
 class StubProvider:
@@ -613,3 +613,157 @@ class TestToolExecutor:
         child = replace(container, policy=PolicyEngine())
         assert child.executor is container.executor
         assert child.executor.sandbox_runner is backend
+
+
+class TestPolicyAnnotationGate:
+    """MCP V2 写操作治理: annotations → PolicyVerdict 确定性裁决(FR-A3/A4/A5/A6,AD-3).
+
+    所有测试不触达任何 LLM provider(纯函数,确定性可单测,FR-A6).
+    """
+
+    _MCP_CALL = ToolCall(id="m1", name="github__list_issues", arguments={})
+    _BUILTIN_CALL = ToolCall(id="b1", name="shell", arguments={"command": "dir"})
+
+    def test_destructive_hint_requires_approval(self) -> None:
+        """FR-A3: destructiveHint=true → APPROVAL_REQUIRED(未授权时)."""
+        policy = PolicyEngine()
+        schema = ToolSchema(
+            name="github__delete_repo",
+            description="Delete repo",
+            parameters={},
+            annotations=ToolAnnotations(destructiveHint=True),
+        )
+        verdict = policy.evaluate_tool_call(self._MCP_CALL, schema=schema)
+        assert verdict.mode is ToolExecutionMode.APPROVAL_REQUIRED
+        assert "destructiveHint" in verdict.reason
+
+    def test_destructive_hint_after_approval_grants(self) -> None:
+        policy = PolicyEngine()
+        schema = ToolSchema(
+            name="github__delete_repo",
+            description="Delete repo",
+            parameters={},
+            annotations=ToolAnnotations(destructiveHint=True),
+        )
+        ctx = RunContext(
+            workspace_root=str(Path.cwd()),
+            metadata={"approved_tools": ["github__delete_repo"]},
+        )
+        verdict = policy.evaluate_tool_call(
+            ToolCall(id="m2", name="github__delete_repo", arguments={}),
+            context=ctx,
+            schema=schema,
+        )
+        assert verdict.mode is not ToolExecutionMode.APPROVAL_REQUIRED
+
+    def test_readonly_hint_passes_without_approval(self) -> None:
+        policy = PolicyEngine()
+        schema = ToolSchema(
+            name="github__list_issues",
+            description="List issues",
+            parameters={},
+            annotations=ToolAnnotations(readOnlyHint=True),
+        )
+        verdict = policy.evaluate_tool_call(self._MCP_CALL, schema=schema)
+        assert verdict.mode is not ToolExecutionMode.APPROVAL_REQUIRED
+
+    def test_explicit_approval_overrides_readonly_hint(self) -> None:
+        policy = PolicyEngine(approval_mcp_tools=True)
+        schema = ToolSchema(
+            name="github__list_issues",
+            description="List issues",
+            parameters={},
+            annotations=ToolAnnotations(readOnlyHint=True),
+        )
+        verdict = policy.evaluate_tool_call(self._MCP_CALL, schema=schema)
+        assert verdict.mode is ToolExecutionMode.APPROVAL_REQUIRED
+        assert "approval_mcp_tools=True" in verdict.reason
+
+    def test_no_annotations_failsafe_requires_approval(self) -> None:
+        policy = PolicyEngine()
+        schema = ToolSchema(
+            name="github__list_issues",
+            description="List issues",
+            parameters={},
+            annotations=None,
+        )
+        verdict = policy.evaluate_tool_call(self._MCP_CALL, schema=schema)
+        assert verdict.mode is ToolExecutionMode.APPROVAL_REQUIRED
+        assert "fail-safe" in verdict.reason
+
+    def test_builtin_tool_schema_none_skips_annotation_gate(self) -> None:
+        policy = PolicyEngine()
+        verdict = policy.evaluate_tool_call(self._BUILTIN_CALL, schema=None)
+        assert verdict.mode is ToolExecutionMode.DIRECT
+
+    def test_builtin_tool_with_approval_tools_still_works(self) -> None:
+        policy = PolicyEngine(approval_tools=["shell"])
+        ctx = RunContext(workspace_root=str(Path.cwd()))
+        verdict = policy.evaluate_tool_call(self._BUILTIN_CALL, schema=None, context=ctx)
+        assert verdict.mode is ToolExecutionMode.APPROVAL_REQUIRED
+        assert "approval_tools" in verdict.reason
+
+    def test_idempotent_hint_does_not_affect_verdict(self) -> None:
+        policy = PolicyEngine()
+        schema = ToolSchema(
+            name="github__list_issues",
+            description="List issues",
+            parameters={},
+            annotations=ToolAnnotations(idempotentHint=True),
+        )
+        # annotations存在(非None),非destructive/readOnly→DIRECT
+        # fail-safe(APPROVAL_REQUIRED)仅在schema.annotations is None时触发
+        verdict = policy.evaluate_tool_call(self._MCP_CALL, schema=schema)
+        assert verdict.mode is ToolExecutionMode.DIRECT
+
+    def test_wildcard_approval_grants_mcp_tool(self) -> None:
+        policy = PolicyEngine()
+        schema = ToolSchema(
+            name="github__delete_repo",
+            description="Delete repo",
+            parameters={},
+            annotations=ToolAnnotations(destructiveHint=True),
+        )
+        ctx = RunContext(
+            workspace_root=str(Path.cwd()),
+            metadata={"approved_tools": ["*"]},
+        )
+        verdict = policy.evaluate_tool_call(
+            ToolCall(id="m3", name="github__delete_repo", arguments={}),
+            context=ctx,
+            schema=schema,
+        )
+        assert verdict.mode is not ToolExecutionMode.APPROVAL_REQUIRED
+
+    def test_mcp_wildcard_approval_grants_mcp_tool(self) -> None:
+        policy = PolicyEngine()
+        schema = ToolSchema(
+            name="github__delete_repo",
+            description="Delete repo",
+            parameters={},
+            annotations=ToolAnnotations(destructiveHint=True),
+        )
+        ctx = RunContext(
+            workspace_root=str(Path.cwd()),
+            metadata={"approved_tools": ["__mcp__"]},
+        )
+        verdict = policy.evaluate_tool_call(
+            ToolCall(id="m4", name="github__delete_repo", arguments={}),
+            context=ctx,
+            schema=schema,
+        )
+        assert verdict.mode is not ToolExecutionMode.APPROVAL_REQUIRED
+
+    def test_non_mcp_tool_with_schema_does_not_failsafe(self) -> None:
+        policy = PolicyEngine()
+        schema = ToolSchema(
+            name="file_read",
+            description="Read file",
+            parameters={},
+            annotations=None,
+        )
+        verdict = policy.evaluate_tool_call(
+            ToolCall(id="b2", name="file_read", arguments={"path": "/tmp/x"}),
+            schema=schema,
+        )
+        assert verdict.mode is ToolExecutionMode.DIRECT

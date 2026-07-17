@@ -79,7 +79,8 @@ async def execute_tool_call(
             if cached is not None:
                 # A: 缓存命中也复核 policy——若当前 policy 已收紧到 BLOCKED，不返回缓存，
                 #    fall through 走正常链路（下方 evaluate 再算一次 BLOCKED，executor 拦截）。
-                cached_verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context)
+                schema = loop.registry.get_schema(call.name)
+                cached_verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context, schema=schema)
                 if cached_verdict.mode is not ToolExecutionMode.BLOCKED:
                     logger.debug("Ledger cache hit for tool_call %s", call.id)
                     loop._emit("tool_call_cached", run_context=run_context, tool_name=call.name, details={})
@@ -99,7 +100,8 @@ async def execute_tool_call(
             )
 
     # ② 策略裁决；③ 查 handler。未知工具直接产出 error 结果，不走 executor。
-    verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context)
+    schema = loop.registry.get_schema(call.name)
+    verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context, schema=schema)
     handler = loop.registry.get_handler(call.name)
     if handler is None:
         loop._emit(
