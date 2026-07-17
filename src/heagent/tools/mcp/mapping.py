@@ -15,10 +15,19 @@ import logging
 import re
 from typing import Any
 
-from mcp.types import CallToolResult, EmbeddedResource, ImageContent, TextContent, Tool
+from mcp.types import (
+    CallToolResult,
+    EmbeddedResource,
+    ImageContent,
+    TextContent,
+    Tool,
+)
+from mcp.types import (
+    ToolAnnotations as McpToolAnnotations,
+)
 
 from heagent.exceptions import ToolError
-from heagent.types import ToolSchema
+from heagent.types import ToolAnnotations, ToolSchema
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +45,31 @@ def namespaced_tool_name(server_name: str, tool_name: str) -> str:
     return f"{normalize_server_name(server_name)}{_NAMESPACE_SEP}{tool_name}"
 
 
+def _mcp_annotations_to_heagent(ann: McpToolAnnotations | None) -> ToolAnnotations | None:
+    """mcp ``Tool.annotations`` → HeAgent ``ToolAnnotations``（tri-state 折叠 + 丢弃 ``title``）。
+
+    ``None`` → ``None``（缺省保守标记，交由 FR-A5 fail-safe 在 PolicyEngine 消费）；否则四 hint 经
+    ``bool()`` 折叠（mcp tri-state ``True/False/None`` → ``True/False/False``），非决策字段 ``title``
+    不透传。注：转换在 mapping 层完成——types 层不上浮 mcp 依赖（保 DAG）。
+    """
+    if ann is None:
+        return None
+    return ToolAnnotations(
+        readOnlyHint=bool(ann.readOnlyHint),
+        destructiveHint=bool(ann.destructiveHint),
+        idempotentHint=bool(ann.idempotentHint),
+        openWorldHint=bool(ann.openWorldHint),
+    )
+
+
 def mcp_tool_to_schema(server_name: str, tool: Tool) -> ToolSchema:
-    """mcp ``Tool`` → HeAgent ``ToolSchema``（namespace 化，inputSchema passthrough，FR-4）。"""
+    """mcp ``Tool`` → HeAgent ``ToolSchema``（namespace 化，inputSchema/annotations passthrough，FR-4/A2）。"""
     input_schema = tool.inputSchema if isinstance(tool.inputSchema, dict) else _EMPTY_SCHEMA
     return ToolSchema(
         name=namespaced_tool_name(server_name, tool.name),
         description=tool.description or f"MCP tool {tool.name}",
         parameters=input_schema,
+        annotations=_mcp_annotations_to_heagent(tool.annotations),
     )
 
 
