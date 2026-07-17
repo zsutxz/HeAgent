@@ -1,0 +1,81 @@
+# generated: 2026-07-17
+# last_updated: 2026-07-17
+# project: HeAgent
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/mcp-client-v2/stories
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# Action Item Status:
+#   - open: Committed during a retrospective, not yet addressed
+#   - in-progress: Actively being worked on
+#   - done: Completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+# - Retrospective appends its action items to action_items; sprint-status surfaces open ones
+
+generated: 2026-07-17
+last_updated: 2026-07-17
+project: HeAgent
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/mcp-client-v2/stories
+
+development_status:
+  # === MCP Client V2 集成周期（2026-07-17，写操作治理 + Resources/Prompts）===
+  # 编号映射：本 sprint 的 Epic 14-16 = epics.md 内部的 Epic A/B/C
+  # （V2 周期自称 Epic A/B/C，但 sprint-status skill 校验 story key 须匹配
+  #   epic-N 数字模式，不能用字母/mcp 前缀，且会撞主线 epic-1/2/3 语义；
+  #   故延续主线编号：主线 1-10 + MCP 周期一(11-13) 之后 → 14-16。
+  #   A=写操作治理(14) / B=Resources(15) / C=Prompts(16)，与 epics.md FR-A*/B*/C* 对齐。）
+  # story 将由 bmad-create-story 逐个创建于 _bmad-output/mcp-client-v2/stories/；
+  # 详见 _bmad-output/mcp-client-v2/epics.md
+
+  # Epic 14: 写操作治理 — MCP 工具危险分级的确定性闸门（FR-A1~A7，AD-1/2/3）
+  epic-14: in-progress
+  14-1-annotations-data-pipeline: review
+  14-2-policy-annotation-gate: backlog
+  14-3-zero-regression-determinism: backlog
+  14-4-safety-statement-write-op: backlog
+  epic-14-retrospective: optional
+
+  # Epic 15: Resources on-demand 发现与读取（FR-B1~B4，AD-4/5/6）
+  epic-15: backlog
+  15-1-sessions-map-disconnect: backlog
+  15-2-list-resources-bridge: backlog
+  15-3-read-resource-guard-content: backlog
+  15-4-safety-statement-resources: backlog
+  epic-15-retrospective: optional
+
+  # Epic 16: Prompts CLI slash 渲染注入（FR-C1~C4，AD-6/7）
+  epic-16: backlog
+  16-1-manager-prompts-entry: backlog
+  16-2-mcp-prompt-slash-dispatcher: backlog
+  16-3-prompt-render-guard-safety: backlog
+  epic-16-retrospective: optional
