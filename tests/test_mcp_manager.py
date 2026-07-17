@@ -287,6 +287,7 @@ async def test_disconnect_isolated_to_one_server(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr(MCPClientManager, "_transport_and_session", tracking_transport)
     reg = ToolRegistry()
+
     # 手动注册非 server 命名空间的"内置"工具，断言断连不误伤（_unregister_server 只 pop server key）
     async def _builtin(**_: Any) -> str:
         return ""

@@ -42,6 +42,7 @@ class _StubProvider:
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(name="stub", model="stub")
 
+
 # ---- JobStore 测试 ----
 
 

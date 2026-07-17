@@ -51,10 +51,7 @@ async def file_read(
             return f"Error: offset {offset} exceeds file length ({total} lines)"
 
         # limit: number of lines
-        if limit is not None and limit >= 0:
-            end = start + limit
-        else:
-            end = total
+        end = start + limit if limit is not None and limit >= 0 else total
         if end > total:
             end = total
 

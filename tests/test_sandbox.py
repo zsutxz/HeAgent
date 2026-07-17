@@ -170,10 +170,9 @@ class TestPassthroughRunner:
             pytest.raises(asyncio.CancelledError),  # 非 PermissionError——取消信号须存活
         ):
             await task
-        assert any(
-            rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage()
-            for rec in caplog.records
-        ), "reap 失败应记 debug 日志（D-1-A observability）"
+        assert any(rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage() for rec in caplog.records), (
+            "reap 失败应记 debug 日志（D-1-A observability）"
+        )
 
     @pytest.mark.asyncio
     async def test_timeout_reap_failure_returns_timeout_result(
@@ -208,10 +207,9 @@ class TestPassthroughRunner:
         with caplog.at_level(logging.DEBUG, logger="heagent.tools.sandbox"):
             result = await PassthroughRunner().run("blocker", timeout=1)
         assert "timed out" in result, "reap 失败应仍返回超时串（item 1），而非上抛 RuntimeError"
-        assert any(
-            rec.levelno == logging.DEBUG and "timeout cleanup" in rec.getMessage()
-            for rec in caplog.records
-        ), "reap 失败应记 timeout cleanup debug 日志（item 1 observability）"
+        assert any(rec.levelno == logging.DEBUG and "timeout cleanup" in rec.getMessage() for rec in caplog.records), (
+            "reap 失败应记 timeout cleanup debug 日志（item 1 observability）"
+        )
 
     @pytest.mark.asyncio
     async def test_reap_wait_is_bounded(
@@ -257,10 +255,9 @@ class TestPassthroughRunner:
         elapsed = time.monotonic() - start
         # reap wait_for 0.05s + 取消前 0.05s，远小于 wait 的 1000s sleep——证明硬上界兜住了 hang
         assert elapsed < 2.0, f"reap wait 未被硬上界兜住，疑似 hang（elapsed={elapsed:.2f}s）"
-        assert any(
-            rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage()
-            for rec in caplog.records
-        ), "reap 逸出失败应记 debug 日志（证明 wait_for 兜住 D-state 后放弃 reap）"
+        assert any(rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage() for rec in caplog.records), (
+            "reap 逸出失败应记 debug 日志（证明 wait_for 兜住 D-state 后放弃 reap）"
+        )
 
     @pytest.mark.asyncio
     async def test_kill_failure_still_waits(
@@ -305,10 +302,9 @@ class TestPassthroughRunner:
         ):
             await task
         assert proc.waited, "kill 失败后 wait() 仍应执行回收 pipe FD（item 3 解耦）"
-        assert any(
-            rec.levelno == logging.WARNING and "kill failed" in rec.getMessage()
-            for rec in caplog.records
-        ), "kill 失败应记 warning 日志（item 3 observability ~ 需人工关注非预期 kill 失败）"
+        assert any(rec.levelno == logging.WARNING and "kill failed" in rec.getMessage() for rec in caplog.records), (
+            "kill 失败应记 warning 日志（item 3 observability ~ 需人工关注非预期 kill 失败）"
+        )
 
     @pytest.mark.asyncio
     async def test_kill_block_does_not_swallow_keyboardinterrupt(self) -> None:
@@ -459,10 +455,9 @@ class TestFirejailBackend:
         with caplog.at_level(logging.DEBUG, logger="heagent.tools.sandbox"):
             result = await FirejailBackend().run("ls", timeout=1)
         assert "timed out" in result, "reap 失败应仍返回超时串（item 1），而非上抛 RuntimeError"
-        assert any(
-            rec.levelno == logging.DEBUG and "timeout cleanup" in rec.getMessage()
-            for rec in caplog.records
-        ), "reap 失败应记 timeout cleanup debug 日志（item 1 observability）"
+        assert any(rec.levelno == logging.DEBUG and "timeout cleanup" in rec.getMessage() for rec in caplog.records), (
+            "reap 失败应记 timeout cleanup debug 日志（item 1 observability）"
+        )
 
     @pytest.mark.asyncio
     async def test_kill_failure_still_waits(
@@ -502,10 +497,9 @@ class TestFirejailBackend:
         ):
             await task
         assert proc.waited, "kill 失败后 wait() 仍应执行回收 pipe FD（item 3 解耦）"
-        assert any(
-            rec.levelno == logging.WARNING and "kill failed" in rec.getMessage()
-            for rec in caplog.records
-        ), "kill 失败应记 warning 日志（item 3 observability ~ 需人工关注非预期 kill 失败）"
+        assert any(rec.levelno == logging.WARNING and "kill failed" in rec.getMessage() for rec in caplog.records), (
+            "kill 失败应记 warning 日志（item 3 observability ~ 需人工关注非预期 kill 失败）"
+        )
 
 
 class TestRuntimeSlot:
