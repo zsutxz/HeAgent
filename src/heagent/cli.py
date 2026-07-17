@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 import click
 
 import heagent.tools.builtins  # noqa: F401
+from heagent import __version__
 from heagent.agent.loop import AgentLoop
 from heagent.agent.middleware import make_retry_middleware
 from heagent.config import Settings, get_settings
@@ -41,6 +42,11 @@ if TYPE_CHECKING:
     from heagent.types import TokenUsage
 
 logger = logging.getLogger(__name__)
+
+
+def _print_banner() -> None:
+    """Print the HeAgent version banner to stderr on startup."""
+    click.echo(f"HeAgent v{__version__} — A self-improving AI Agent core framework", err=True)
 
 
 def _print_usage(usage: TokenUsage | None) -> None:
@@ -289,6 +295,9 @@ def main(
         stream=sys.stderr,
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # Display version banner on every startup
+    _print_banner()
 
     settings = get_settings()
     resolved_model = model or settings.default_model
