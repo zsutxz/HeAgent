@@ -34,6 +34,7 @@ import httpx
 from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
+from mcp.types import BlobResourceContents, TextContent, TextResourceContents
 
 from heagent.exceptions import ToolError
 from heagent.tools.mcp.config import (
@@ -42,7 +43,7 @@ from heagent.tools.mcp.config import (
     ServerConfig,
     StdioServerConfig,
 )
-from heagent.tools.mcp.mapping import bridge_result, mcp_tool_to_schema
+from heagent.tools.mcp.mapping import bridge_result, guard_content, mcp_tool_to_schema
 from heagent.tools.registry import ToolRegistry
 from heagent.types import ToolAnnotations, ToolSchema
 
@@ -95,9 +96,9 @@ class MCPClientManager:
         # server 原始名 → 其已注册的 namespaced 工具名（断连时按 server 精确摘除，FR-3 收紧）
         self._registered: dict[str, list[str]] = {}
         # 已连 session 查找表：server 原始名 → ClientSession
-        # 供 bridge 工具（list_resources）跨 task 访问；连接失败 / 断连时 pop。
+        # 供 bridge 工具（list_resources / read_resource）跨 task 访问；连接失败 / 断连时 pop。
         self._sessions: dict[str, ClientSession] = {}
-        # mcp__list_resources 桥接工具是否已注册（_connect_all 内惰性注册）
+        # 桥接工具是否已注册（mcp__list_resources + mcp__read_resource 两者统一标记）
         self._bridge_registered = False
 
     async def __aenter__(self) -> MCPClientManager:
@@ -293,6 +294,7 @@ class MCPClientManager:
         # 1. 摘除桥接工具（先于 server 工具，避免 server unregister 误判 bridge 存活）
         if self._bridge_registered:
             self._registry.unregister("mcp__list_resources")
+            self._registry.unregister("mcp__read_resource")
             self._bridge_registered = False
         # 2. 委托 _unregister_server：其 ``pop(name, ())`` 会清键，遍历完后 _registered 自然为空。
         for name in list(self._registered):
@@ -301,9 +303,10 @@ class MCPClientManager:
         self._sessions.clear()
 
     def _register_bridge_tool(self) -> None:
-        """注册 mcp__list_resources 桥接工具（_connect_all 内惰性注册，幂等）。"""
+        """注册 mcp__list_resources + mcp__read_resource 桥接工具（_connect_all 内惰性注册，幂等）。"""
         if self._bridge_registered:
             return
+        # --- mcp__list_resources ---
         if self._registry.get_schema("mcp__list_resources") is not None:
             # 命名冲突：server 名为 "mcp" 且其工具叫 "list_resources" 时，namespaced 名同为
             # mcp__list_resources（registry.register 重复注册会静默覆盖）。不覆盖 server 工具——
@@ -312,15 +315,39 @@ class MCPClientManager:
                 "mcp__list_resources 命名冲突（registry 已有同名工具，疑似 server 'mcp' 注册），跳过桥接注册"
             )
             return
-        schema = ToolSchema(
+        list_schema = ToolSchema(
             name="mcp__list_resources",
             description="列出所有已连 MCP server 暴露的资源。返回 JSON 数组，每元素含 server/uri/name/description。",
             parameters={"type": "object", "properties": {}, "required": []},
             annotations=ToolAnnotations(readOnlyHint=True),
         )
-        self._registry.register(schema, self._handle_list_resources)
+        self._registry.register(list_schema, self._handle_list_resources)
+
+        # --- mcp__read_resource ---
+        if self._registry.get_schema("mcp__read_resource") is not None:
+            logger.warning(
+                "mcp__read_resource 命名冲突（registry 已有同名工具），跳过桥接注册"
+            )
+            # 回滚已注册的 list_resources
+            self._registry.unregister("mcp__list_resources")
+            return
+        read_schema = ToolSchema(
+            name="mcp__read_resource",
+            description="读取指定 MCP server 上某 URI 的资源内容。server 必填，uri 为完整资源 URI。返回文本内容。",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "server": {"type": "string", "description": "目标 MCP server 名"},
+                    "uri": {"type": "string", "description": "资源 URI"},
+                },
+                "required": ["server", "uri"],
+            },
+            annotations=ToolAnnotations(readOnlyHint=True),
+        )
+        self._registry.register(read_schema, self._handle_read_resource)
+
         self._bridge_registered = True
-        logger.info("MCP 桥接工具 'mcp__list_resources' 已注册")
+        logger.info("MCP 桥接工具 'mcp__list_resources' 和 'mcp__read_resource' 已注册")
 
     async def _handle_list_resources(self) -> str:
         """mcp__list_resources handler：聚合所有已连 session 的 resources。"""
@@ -339,6 +366,85 @@ class MCPClientManager:
                     "description": r.description or "",
                 })
         return json.dumps(results, ensure_ascii=False)
+
+    async def _handle_read_resource(self, server: str, uri: str) -> str:
+        """mcp__read_resource handler：读取指定 server 上某 URI 的资源内容，经注入围栏标记后返回。"""
+        session = self._get_session(server)
+        try:
+            resp = await session.read_resource(uri)
+        except Exception as exc:  # noqa: BLE001 - 将任意 read_resource 失败转为 ToolError
+            raise ToolError(f"Failed to read resource '{uri}' from server '{server}': {exc}") from exc
+        # 转换资源内容为文本（类似 call_result_to_text 但作用于 ReadResourceResult.contents）
+        parts: list[str] = []
+        for content in resp.contents:
+            if isinstance(content, TextResourceContents):
+                parts.append(content.text)
+            elif isinstance(content, BlobResourceContents):
+                mime = content.mimeType or "application/octet-stream"
+                parts.append(f"[binary: {mime}]")
+            else:
+                parts.append(f"[unknown: {type(content).__name__}]")
+        text = "\n".join(parts)
+        return guard_content(text)
+
+    # ── Story 16-1: Prompts 读取入口（经 _sessions，非 LLM 工具）──
+
+    async def list_prompts(self, server: str | None = None) -> str:
+        """列出 MCP server 的 Prompts 模板清单（CLI slash 分发器用，非 LLM 工具）。
+
+        指定 ``server`` 时仅返回该 server 的模板，否则聚合所有已连 server。
+        返回 JSON 字符串，每项含 ``{server, name, description, arguments}``。
+        无模板 / 无 server 连接时返回 ``[]``（不抛错），单 server 失败隔离。
+        """
+        results: list[dict[str, object]] = []
+        if server is not None:
+            session = self._get_session(server)
+            try:
+                resp = await session.list_prompts()
+            except Exception as exc:  # noqa: BLE001 - 单 server 失败不向上传播
+                logger.warning("MCP server '%s' list_prompts 失败：%s", server, exc)
+                return "[]"
+            for p in resp.prompts:
+                args = [{"name": a.name, "description": a.description or "", "required": a.required or False}
+                        for a in (p.arguments or [])]
+                results.append({
+                    "server": server,
+                    "name": p.name,
+                    "description": p.description or "",
+                    "arguments": args,
+                })
+            return json.dumps(results, ensure_ascii=False)
+
+        # 聚合所有 server
+        for name in list(self._sessions):
+            try:
+                sub = json.loads(await self.list_prompts(name))
+                results.extend(sub)
+            except Exception as exc:  # noqa: BLE001 - 单 server 失败隔离
+                logger.warning("MCP server '%s' list_prompts 聚合失败：%s", name, exc)
+        return json.dumps(results, ensure_ascii=False)
+
+    async def get_prompt(self, server: str, name: str, arguments: dict[str, str] | None = None) -> str:
+        """渲染指定 MCP server 上的 Prompt 模板并返回文本内容（CLI slash 分发器用，非 LLM 工具）。
+
+        经 ``_get_session(server)`` 取 session 后调 ``session.get_prompt()``。
+        返回渲染文本（从返回的 PromptMessage 中提取 text content），
+        模板不存在 / 参数缺失时抛 ``ToolError``。
+        """
+        session = self._get_session(server)
+        try:
+            resp = await session.get_prompt(name, arguments)
+        except Exception as exc:  # noqa: BLE001 - 将任意 get_prompt 失败转为 ToolError
+            raise ToolError(f"Failed to get prompt '{name}' from server '{server}': {exc}") from exc
+        parts: list[str] = []
+        for msg in resp.messages:
+            if isinstance(msg.content, TextContent):
+                parts.append(msg.content.text)
+            else:
+                parts.append(f"[{type(msg.content).__name__}]")
+        return "\n".join(parts)
+
+    # ── 持有期运行时 ──
 
     async def _watch(self, name: str, session: ClientSession, stop: asyncio.Event) -> None:
         """持有 session 直到 ``stop`` 或健康探测发现运行时断连（FR-3 收紧）。

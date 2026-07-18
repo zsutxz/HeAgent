@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-07-17
+# last_updated: 2026-07-23
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -41,7 +41,7 @@
 # - Retrospective appends its action items to action_items; sprint-status surfaces open ones
 
 generated: 2026-07-17
-last_updated: 2026-07-17
+last_updated: 2026-07-23
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -62,11 +62,11 @@ development_status:
   epic-14-retrospective: optional
 
   # Epic 15: Resources on-demand 发现与读取（FR-B1~B4，AD-4/5/6）
-  epic-15: in-progress
+  epic-15: done
   15-1-sessions-map-disconnect: done
   15-2-list-resources-bridge: done
-  15-3-read-resource-guard-content: backlog
-  15-4-safety-statement-resources: backlog
+  15-3-read-resource-guard-content: done
+  15-4-safety-statement-resources: done
   epic-15-retrospective: optional
 
   # Epic 16: Prompts CLI slash 渲染注入（FR-C1~C4，AD-6/7）
