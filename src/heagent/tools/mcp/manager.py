@@ -169,7 +169,10 @@ class MCPClientManager:
         self._stops = stops
         # 并发等待全部就绪（成功 / 失败 / 超时都会 set ready，故不会 hang）
         await asyncio.gather(*[r.wait() for r in readies], return_exceptions=True)
-        # 有至少一个 server 成功连接 → 注册桥接工具
+        # 有至少一个 server 成功连接 → 注册桥接工具。
+        # 注意：_sessions 仅包含成功建立连接 + 完成工具发现的 server；
+        # 连接/发现失败的 server 不会出现在 _sessions 中，其工具不会被注入。
+        # 因此 bridge 注册天然跳过失败 server 的工具——这是设计意图而非 bug。
         if self._sessions and not self._bridge_registered:
             self._register_bridge_tool()
 

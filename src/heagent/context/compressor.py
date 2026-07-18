@@ -122,8 +122,8 @@ class ContextCompressor:
         如果旧消息的估算 token 数超过安全阈值（``max_tokens - SAFETY_MARGIN``），
         会从末尾截断保留最重要的部分，避免摘要请求本身超出上下文窗口。
 
-        修复 P0.2：当 ``max_tokens`` 小于 ``SAFETY_MARGIN`` 导致 ``safety_limit <= 0`` 时，
-        不进行截断（保留全部消息）；极端情况仍返回 "conversation content omitted" 由空输入触发。
+        当 ``max_tokens <= SAFETY_MARGIN`` 导致安全空间不足以承载摘要请求本身时，
+        不调 LLM 直接返回占位符——避免浪费一次注定失败的 API 调用。
 
         参数：
             messages: 需要摘要的旧消息列表
@@ -131,10 +131,20 @@ class ContextCompressor:
         返回：
             摘要文本
         """
+        # 安全空间不足以承载摘要请求本身 → 不调 LLM，直接返回占位符。
+        # 调用方（compress）下次迭代若 token 仍超阈值会再次进入此地。
+        safety_limit = max_tokens - _SUMMARY_SAFETY_MARGIN
+        if max_tokens > 0 and safety_limit <= 0:
+            logger.warning(
+                "Context window too small for summarization (max_tokens=%d, safety_margin=%d)",
+                max_tokens,
+                _SUMMARY_SAFETY_MARGIN,
+            )
+            return "(conversation content omitted - context window too small to summarize by LLM)"
+
         prompt_parts: list[str] = []
         estimated = 0
         per_message_overhead = 3  # 每条消息角色标签开销
-        safety_limit = max_tokens - _SUMMARY_SAFETY_MARGIN
         should_truncate = max_tokens > 0 and safety_limit > 0
 
         # 从末尾向前取消息（最新消息最重要），直到接近安全阈值（或不截断时全部取出）

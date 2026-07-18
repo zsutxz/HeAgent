@@ -51,10 +51,13 @@ class EngineContainer:
     def __post_init__(self) -> None:
         """把 container 级 command_runner 注入 executor（SANDBOX_REQUIRED 路径后端）。
 
-        仅当 container 显式持有 runner 时注入，避免覆写 executor 自带的后端
-        （如 ``EngineContainer(executor=ToolExecutor(sandbox_runner=backend))``）。
+        仅当 container 显式持有 runner 且 executor 尚未自带后端时才注入——
+        避免覆写 executor 显式指定的后端（如
+        ``EngineContainer(executor=ToolExecutor(sandbox_runner=backend))``）。
+        若 executor 已持有 sandbox_runner，container 级的 command_runner 不会
+        静默覆盖（executor 的显式后端优先）。
         """
-        if self.command_runner is not None:
+        if self.command_runner is not None and self.executor.sandbox_runner is None:
             self.executor.sandbox_runner = self.command_runner
 
     @classmethod

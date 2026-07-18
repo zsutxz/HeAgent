@@ -37,8 +37,12 @@ DEFAULT_SUMMARY_PROMPT = (
 RESUME_HINT = (
     "The previous context window was summarized and reset. "
     "Continue the task using the progress summary above; "
-    "do not repeat steps that the summary already describes as completed."
+    "do not repeat steps that the summary description already describes as completed."
 )
+
+# 摘要输入字符硬上限（~8000 tokens，保守适配任意 LLM 上下文窗口）。
+# 从末尾截断（最新消息更重要），超出部分不送入摘要请求。
+_MAX_SUMMARY_CHARS = 32000
 
 
 class WindowResetConfig(BaseModel):
@@ -95,9 +99,41 @@ class WindowReset:
         ]
 
     async def _summarize(self, messages: list[Message]) -> str:
-        """调用 provider 生成摘要（复用 compressor 的提示词风格）。"""
-        prompt = "\n".join(f"{m.role.value}: {m.content}" for m in messages if m.content)
-        resp: ProviderResponse = await self.provider.send(
-            [Message(role=Role.USER, content=f"{self.config.summary_prompt}\n\n{prompt}")]
-        )
+        """调用 provider 生成摘要（复用 compressor 的提示词风格）。
+
+        从末尾截断保护：当对话极长时，仅保留最近的 ~32k 字符送入摘要请求，
+        避免摘要请求自身超出 LLM 上下文窗口（与 ``ContextCompressor._summarize``
+        的截断保护对齐）。
+        """
+        # 从末尾累积消息行，使最近的对话内容优先保留
+        lines: list[str] = []
+        total_chars = 0
+        for m in reversed(messages):
+            if not m.content:
+                continue
+            line = f"{m.role.value}: {m.content}"
+            if total_chars + len(line) > _MAX_SUMMARY_CHARS:
+                logger.debug(
+                    "WindowReset summary input truncated at ~%d chars (limit=%d)",
+                    total_chars,
+                    _MAX_SUMMARY_CHARS,
+                )
+                break
+            lines.insert(0, line)
+            total_chars += len(line)
+
+        if not lines:
+            return "(conversation content omitted - too large to summarize for window reset)"
+
+        prompt = "\n".join(lines)
+        try:
+            resp: ProviderResponse = await self.provider.send(
+                [Message(role=Role.USER, content=f"{self.config.summary_prompt}\n\n{prompt}")]
+            )
+        except Exception:
+            # 摘要失败时不抛异常、不中断主循环：返回占位符，
+            # 下次迭代若 token 仍超阈值会再次尝试重置。
+            logger.exception("WindowReset summary generation failed; returning placeholder")
+            return "(summary unavailable - window reset attempted but LLM call failed)"
+
         return resp.content
