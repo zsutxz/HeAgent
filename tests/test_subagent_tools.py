@@ -47,22 +47,14 @@ class _StubProvider:
         return ProviderMetadata(name="stub", model="stub")
 
 
-@pytest.fixture(autouse=True)
-def _cleanup():
-    """每个测试前后清理 ToolRegistry 和 subagent 模块状态。"""
-    registry = ToolRegistry.get()
-    registry._tools.clear()
-    registry._handlers.clear()
-    registry._disabled.clear()
-    reset_subagent_tools()
+@pytest.fixture()
+def _reset_subagent():
+    """Teardown only: 测试后复位 subagent 模块状态，防止 provider 泄漏到后续测试。"""
     yield
-    registry = ToolRegistry.get()
-    registry._tools.clear()
-    registry._handlers.clear()
-    registry._disabled.clear()
     reset_subagent_tools()
 
 
+@pytest.mark.usefixtures("_reset_subagent")
 class TestTaskDelegate:
     async def test_unconfigured_returns_error(self) -> None:
         result = await task_delegate("do something")
@@ -97,6 +89,7 @@ class TestTaskDelegate:
         assert "API error" in payload["output"]
 
 
+@pytest.mark.usefixtures("_reset_subagent")
 class TestTaskParallel:
     async def test_unconfigured_returns_error(self) -> None:
         result = await task_parallel('["task1"]')
@@ -136,8 +129,6 @@ class TestTaskParallel:
     async def test_threads_context_components_into_subagent(self) -> None:
         """configure_subagent_tools 接收的 6 个上下文参数应转发到构造的 SubAgent。"""
         import heagent.tools.builtins.subagent as _sa_mod
-
-        # 用最简单的真实对象作为 marker —— SubAgent 会原样存储
         from heagent.memory.facts import FactStore
         from heagent.memory.soul import SoulStore
 
@@ -154,7 +145,6 @@ class TestTaskParallel:
             facts=facts,
         )
 
-        # 捕获 SubAgent 构造时传入的 kwargs
         captured: dict[str, object] = {}
         original_subagent_init = _sa_mod.SubAgent.__init__
 
@@ -177,6 +167,7 @@ class TestTaskParallel:
         assert captured["context_dir"] is None
 
 
+@pytest.mark.usefixtures("_reset_subagent")
 class TestStructuredResults:
     """P5-3：委派工具一律返回带 ``status`` 字段的 JSON。"""
 
@@ -230,13 +221,7 @@ class TestStructuredResults:
 class TestToolRegistration:
     def test_task_delegate_registered(self) -> None:
         """task_delegate 应通过 @tool 注册到 ToolRegistry。"""
-        # @tool 在 import 时注册，但 autouse fixture 清理了 registry。
-        # 重新导入触发注册验证。
-        import importlib
 
-        import heagent.tools.builtins.subagent as _sa
-
-        importlib.reload(_sa)
         registry = ToolRegistry.get()
         schema = registry.get_schema("task_delegate")
         assert schema is not None
@@ -244,11 +229,6 @@ class TestToolRegistration:
 
     def test_task_parallel_registered(self) -> None:
         """task_parallel 应通过 @tool 注册到 ToolRegistry。"""
-        import importlib
-
-        import heagent.tools.builtins.subagent as _sa
-
-        importlib.reload(_sa)
         registry = ToolRegistry.get()
         schema = registry.get_schema("task_parallel")
         assert schema is not None
