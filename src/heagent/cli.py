@@ -9,7 +9,7 @@ import logging
 import os
 import sys
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -278,7 +278,7 @@ async def _run_chat(
                 await scheduler.stop()
 
 
-def _format_prompt_args(args: list[dict]) -> str:
+def _format_prompt_args(args: list[dict[str, Any]]) -> str:
     """Format MCP Prompt arguments list for display."""
     if not args:
         return "(no args)"

@@ -28,6 +28,7 @@ from heagent.agent.tool_execution import execute_tool_call, execute_tools, invok
 from heagent.config import get_settings
 from heagent.context.window_reset import WindowReset, WindowResetConfig
 from heagent.engine import EngineContainer, RunContext, RunStatus
+from heagent.engine.store import RunSnapshot
 from heagent.exceptions import BudgetExceeded
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
@@ -385,7 +386,7 @@ class AgentLoop:
         async for event in self.run_stream(snapshot.prompt, system=snapshot.system, _resume=_resume):
             yield event
 
-    async def _build_resume_state(self, run_id: str) -> tuple[object, _ResumeState | None]:
+    async def _build_resume_state(self, run_id: str) -> tuple[RunSnapshot, _ResumeState | None]:
         """从快照重建恢复状态；已完成的 run 返回 ``(snapshot, None)``。"""
         snapshot = await self.engine.run_store.load(run_id)
         if snapshot is None:

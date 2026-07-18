@@ -70,7 +70,7 @@ async def _resolve_addresses(host: str) -> list[str]:
         infos = await loop.getaddrinfo(host, None)
     except (socket.gaierror, socket.herror) as exc:
         raise RuntimeError(f"DNS 解析失败: {host} ({exc})") from None
-    addrs = sorted({info[4][0] for info in infos})
+    addrs = sorted({str(info[4][0]) for info in infos})
     if not addrs:
         raise RuntimeError(f"DNS 无解析结果: {host}")
     return addrs

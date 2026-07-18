@@ -325,9 +325,7 @@ class MCPClientManager:
 
         # --- mcp__read_resource ---
         if self._registry.get_schema("mcp__read_resource") is not None:
-            logger.warning(
-                "mcp__read_resource 命名冲突（registry 已有同名工具），跳过桥接注册"
-            )
+            logger.warning("mcp__read_resource 命名冲突（registry 已有同名工具），跳过桥接注册")
             # 回滚已注册的 list_resources
             self._registry.unregister("mcp__list_resources")
             return
@@ -359,19 +357,21 @@ class MCPClientManager:
                 logger.warning("MCP server '%s' list_resources 失败，跳过：%s", name, exc)
                 continue
             for r in resp.resources:
-                results.append({
-                    "server": name,
-                    "uri": str(r.uri),
-                    "name": r.name,
-                    "description": r.description or "",
-                })
+                results.append(
+                    {
+                        "server": name,
+                        "uri": str(r.uri),
+                        "name": r.name,
+                        "description": r.description or "",
+                    }
+                )
         return json.dumps(results, ensure_ascii=False)
 
     async def _handle_read_resource(self, server: str, uri: str) -> str:
         """mcp__read_resource handler：读取指定 server 上某 URI 的资源内容，经注入围栏标记后返回。"""
         session = self._get_session(server)
         try:
-            resp = await session.read_resource(uri)
+            resp = await session.read_resource(uri)  # type: ignore[arg-type]
         except Exception as exc:  # noqa: BLE001 - 将任意 read_resource 失败转为 ToolError
             raise ToolError(f"Failed to read resource '{uri}' from server '{server}': {exc}") from exc
         # 转换资源内容为文本（类似 call_result_to_text 但作用于 ReadResourceResult.contents）
@@ -405,14 +405,18 @@ class MCPClientManager:
                 logger.warning("MCP server '%s' list_prompts 失败：%s", server, exc)
                 return "[]"
             for p in resp.prompts:
-                args = [{"name": a.name, "description": a.description or "", "required": a.required or False}
-                        for a in (p.arguments or [])]
-                results.append({
-                    "server": server,
-                    "name": p.name,
-                    "description": p.description or "",
-                    "arguments": args,
-                })
+                args = [
+                    {"name": a.name, "description": a.description or "", "required": a.required or False}
+                    for a in (p.arguments or [])
+                ]
+                results.append(
+                    {
+                        "server": server,
+                        "name": p.name,
+                        "description": p.description or "",
+                        "arguments": args,
+                    }
+                )
             return json.dumps(results, ensure_ascii=False)
 
         # 聚合所有 server
