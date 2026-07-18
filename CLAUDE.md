@@ -13,11 +13,12 @@ HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP s
 **MCP 特定风险（FR-10/11，与上述立场同构，不制造「接 MCP 更安全」假象）：**
 
 - **外部 MCP server = 不可信代码**：stdio server 会拉起任意本地子进程，HTTP server 会连任意远程端点；`SafetyGuard` 工具名黑名单已覆盖 MCP 工具（执行前拦截，DP-4 第一半 2026-07-08 落地），返回内容亦经启发式围栏（标记透传，DP-4 第二半 2026-07-10 落地）——但两者均非真正边界，立场不变。
+- **Tool.annotations 是 server 自声明、不可信**：MCP `Tool.annotations`（`destructiveHint`/`readOnlyHint`/etc.）由 server 自行声明，恶意/错误 server 可把 `delete_repository` 谎报为 `readOnlyHint=true`。`PolicyEngine` 的写操作治理闸门（destructive→审批 / readOnly→放行 / 缺省→fail-safe）仅 defense-in-depth 确定性标记，**非真正安全边界**，不改变「须 OS 级沙箱兜底」的核心立场。
 - **MCP 工具输出进入 LLM 上下文有启发式围栏但非隔离**：server 返回内容（含远端响应）经 `mapping.bridge_result` 启发式扫描，命中注入签名则加 warning 标记后透传（不阻断）；标记仅 observable defense-in-depth，prompt injection 仍无可靠围栏——视为与内置工具返回**同等不可信**，须 OS 级沙箱兜底。
 - **同等约束**：MCP 工具走与内置工具一致的 `ToolError` 语义，享受同等的工具名黑名单预校验（DP-4 第一半 2026-07-08）与返回内容启发式标记（DP-4 第二半 2026-07-10），但**两者均非真正安全边界**。
 - **须 OS 级沙箱兜底**：连 MCP server 时同样必须在沙箱内运行，并对子进程 / 出站网络施加最小权限。
 
-**后续（deferred / future，V1 未做）：** Resources/Prompts 原语、写操作、返回内容围栏的用户可配置签名入口（V1 仅内置启发式集）。（执行前工具名拦截已交付 DP-4 第一半 2026-07-08；返回内容启发式围栏已交付 DP-4 第二半 2026-07-10；运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
+**后续（deferred / future，V2 未做）：** Resources/Prompts 原语、返回内容围栏的用户可配置签名入口（V1/V2 仅内置启发式集）。（写操作治理已交付 V2 2026-07-17：annotations 感知 `PolicyEngine` 闸门，见 `engine/policy.py`、`tools/mcp/mapping.py`；执行前工具名拦截已交付 DP-4 第一半 2026-07-08；返回内容启发式围栏已交付 DP-4 第二半 2026-07-10；运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
 
 ## 构建与测试命令
 
@@ -120,4 +121,5 @@ exceptions  types  config
 - 工作区路径围栏已收敛：policy 预检（`_validate_paths`）与 file 工具 handler 守卫（`resolve_workspace_path`）共用同一算法 `resolve_under_root`（`tools/path_safety.py`），两层有意纵深防御，不再有两份可漂移副本。
 - `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可注入 `FirejailBackend`（仅隔离 `shell` 子进程、Linux-only、非完美边界），file/memory 等宿主进程内 I/O 工具不 spawn 子进程、不受覆盖——须整体 OS 级沙箱兜底（`tools/sandbox.py`）。
 - MCP V1 边界：`SafetyGuard` 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08），返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，标记透传、非真正边界）；仅接 Tools 原语。
+- **MCP 写操作治理 annotations 不可信**：`Tool.annotations`（`destructiveHint`/`readOnlyHint`/etc.）是 server 自声明，恶意 server 可谎报读写属性。`PolicyEngine` 的注解闸门（destructive→审批 / readOnly→放行 / 缺省→fail-safe）仅 defense-in-depth，非真正安全边界——须 OS 级沙箱兜底（参见 `engine/policy.py`、`tools/mcp/mapping.py`）。
 - 完整缺口表见 `docs/frame.md` 五。

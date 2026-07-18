@@ -4,7 +4,7 @@ baseline_commit: 6ccc4530b5fb2004b2df85411cc164af05b8b4c0
 
 # Story 14.1: annotations 数据管线（ToolAnnotations 模型 + ToolSchema.annotations + mapping 透传）
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -188,4 +188,4 @@ glm-5.2（Claude Code CLI，2026-07-17）
 
 ## Change Log
 
-- 2026-07-17：Story 14-1 实现完成——annotations 数据管线落地（ToolAnnotations 模型 + ToolSchema.annotations + mapping 透传 + tri-state 折叠 + title 丢弃）。TDD red-green，全量回归零退步。Status → review。
+- 2026-07-17：Story 14-1 实现完成——annotations 数据管线落地（ToolAnnotations 模型 + ToolSchema.annotations + mapping 透传 + tri-state 折叠 + title 丢弃）。TDD red-green，全量回归零退步。Status → done。

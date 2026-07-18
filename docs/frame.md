@@ -551,6 +551,7 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | 流式 tool_calls 回退 | `run_stream()` 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时回退 `send()` 重取该轮调用（已知设计权衡） |
 | Cron 范围表达式 | V1 解析器不支持范围表达式（如 `1-5`） |
 | MCP 返回内容复核 | 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08）；返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，`mapping.bridge_result` 标记透传，非真正边界）；用户可配置签名入口仍 deferred |
+| MCP 写操作治理 annotations | `Tool.annotations`（`destructiveHint`/`readOnlyHint`/etc.）是 server 自声明，恶意 server 可谎报读写属性；`PolicyEngine` 注解闸门（destructive→审批 / readOnly→放行 / 缺省→fail-safe）仅 defense-in-depth 确定性标记，非真正安全边界——须 OS 级沙箱兜底（`engine/policy.py`、`tools/mcp/mapping.py`） |
 | CLI 事件循环阻塞 | 交互模式 `input()` 为同步调用，阻塞 asyncio 事件循环（单用户 CLI 影响可接受） |
 | engine sandbox 后端 | `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可经 `EngineContainer(command_runner=FirejailBackend())` 注入 OS 级后端（仅隔离 shell 子进程、Linux-only、非完美边界）。file/memory 等宿主进程内 I/O 工具不 spawn 子进程，不受该后端覆盖——仍须整体 OS 级沙箱兜底 |
 | ledger/store 跨进程持久化 | `engine/` 的 store/ledger 持久化非并发安全——单进程 async 下 `to_thread` 串行，但多进程/多 loop 同写 `.heagent/` 无文件锁，须避免并发写（见 4.12） |
