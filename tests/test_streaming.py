@@ -133,14 +133,15 @@ class TestRunStream:
             stream_finish_reason="tool_calls",
         )
         loop = AgentLoop(provider, registry=registry)
-        events = [e async for e in loop.run_stream("test")]
+        try:
+            events = [e async for e in loop.run_stream("test")]
 
-        tc_events = [e for e in events if e.type == "tool_call"]
-        tr_events = [e for e in events if e.type == "tool_result"]
-        done_events = [e for e in events if e.type == "done"]
-        assert len(tc_events) >= 1
-        assert len(tr_events) >= 1
-        assert len(done_events) == 1
-
-        # 只清理此测试注册的临时工具，不影响 builtin 注册表
-        registry.unregister("echo_tool")
+            tc_events = [e for e in events if e.type == "tool_call"]
+            tr_events = [e for e in events if e.type == "tool_result"]
+            done_events = [e for e in events if e.type == "done"]
+            assert len(tc_events) >= 1
+            assert len(tr_events) >= 1
+            assert len(done_events) == 1
+        finally:
+            # 只清理此测试注册的临时工具，不影响 builtin 注册表（断言失败也清理）
+            registry.unregister("echo_tool")

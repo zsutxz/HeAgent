@@ -220,16 +220,21 @@ class TestStructuredResults:
 
 class TestToolRegistration:
     def test_task_delegate_registered(self) -> None:
-        """task_delegate 应通过 @tool 注册到 ToolRegistry。"""
+        """task_delegate 已注册且 schema 形态绑定本工具（task/role/system 参数）。"""
 
         registry = ToolRegistry.get()
         schema = registry.get_schema("task_delegate")
         assert schema is not None
-        assert "task_delegate" in schema.name
+        assert schema.name == "task_delegate"
+        props = schema.parameters["properties"]
+        assert "task" in props
+        assert {"role", "system"} <= set(props)
 
     def test_task_parallel_registered(self) -> None:
-        """task_parallel 应通过 @tool 注册到 ToolRegistry。"""
+        """task_parallel 已注册且 schema 形态绑定本工具（tasks_json 参数）。"""
         registry = ToolRegistry.get()
         schema = registry.get_schema("task_parallel")
         assert schema is not None
-        assert "task_parallel" in schema.name
+        assert schema.name == "task_parallel"
+        props = schema.parameters["properties"]
+        assert "tasks_json" in props
