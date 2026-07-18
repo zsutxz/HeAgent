@@ -1,45 +1,3 @@
-# generated: 2026-07-17
-# last_updated: 2026-07-23
-# project: HeAgent
-# project_key: NOKEY
-# tracking_system: file-system
-# story_location: _bmad-output/mcp-client-v2/stories
-
-# STATUS DEFINITIONS:
-# ==================
-# Epic Status:
-#   - backlog: Epic not yet started
-#   - in-progress: Epic actively being worked on
-#   - done: All stories in epic completed
-#
-# Epic Status Transitions:
-#   - backlog → in-progress: Automatically when first story is created (via create-story)
-#   - in-progress → done: Manually when all stories reach 'done' status
-#
-# Story Status:
-#   - backlog: Story only exists in epic file
-#   - ready-for-dev: Story file created in stories folder
-#   - in-progress: Developer actively working on implementation
-#   - review: Ready for code review (via Dev's code-review workflow)
-#   - done: Story completed
-#
-# Retrospective Status:
-#   - optional: Can be completed but not required
-#   - done: Retrospective has been completed
-#
-# Action Item Status:
-#   - open: Committed during a retrospective, not yet addressed
-#   - in-progress: Actively being worked on
-#   - done: Completed
-#
-# WORKFLOW NOTES:
-# ===============
-# - Epic transitions to 'in-progress' automatically when first story is created
-# - Stories can be worked in parallel if team capacity allows
-# - Developer typically creates next story after previous one is 'done' to incorporate learnings
-# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
-# - Retrospective appends its action items to action_items; sprint-status surfaces open ones
-
 generated: 2026-07-17
 last_updated: 2026-07-23
 project: HeAgent
@@ -48,12 +6,8 @@ tracking_system: file-system
 story_location: _bmad-output/mcp-client-v2/stories
 
 development_status:
-  # === MCP Client V2 集成周期（2026-07-17，写操作治理 + Resources/Prompts）===
-  # 编号映射：本 sprint 的 Epic 14-16 = epics.md 内部的 Epic A/B/C
-  # 延续主线编号：主线 1-10 + MCP 周期一(11-13) 之后 → 14-16。
-  #   A=写操作治理(14) / B=Resources(15) / C=Prompts(16)
+  # === MCP Client V2 集成周期（2026-07-17）===
 
-  # Epic 14: 写操作治理 — MCP 工具危险分级的确定性闸门（FR-A1~A7，AD-1/2/3）
   epic-14: done
   14-1-annotations-data-pipeline: done
   14-2-policy-annotation-gate: done
@@ -61,7 +15,6 @@ development_status:
   14-4-safety-statement-write-op: done
   epic-14-retrospective: optional
 
-  # Epic 15: Resources on-demand 发现与读取（FR-B1~B4，AD-4/5/6）
   epic-15: done
   15-1-sessions-map-disconnect: done
   15-2-list-resources-bridge: done
@@ -69,14 +22,20 @@ development_status:
   15-4-safety-statement-resources: done
   epic-15-retrospective: optional
 
-  # Epic 16: Prompts CLI slash 渲染注入（FR-C1~C4，AD-6/7）
-  epic-16: backlog
-  16-1-manager-prompts-entry: backlog
-  16-2-mcp-prompt-slash-dispatcher: backlog
-  16-3-prompt-render-guard-safety: backlog
+  epic-16: done
+  16-1-manager-prompts-entry: done
+  16-2-mcp-prompt-slash-dispatcher: done
+  16-3-prompt-render-guard-safety: done
+  16-4-slash-command-tests: done
   epic-16-retrospective: optional
 
-action_items:
-  # 本表收集跨 sprint 回顾会（retrospective）产生的 open 行动项。
-  # epic 各自的 retrospective 可在各 epic 完成时补做，action item 追加于此。
-  # open → in-progress → done 生命周期。完成即更新。
+  # === 内置工具扩展周期（2026-07-23）===
+
+  epic-17: done
+  17-1-git-status-diff: done
+  17-2-git-log-blame: done
+  17-3-path-safety-integration: done
+  17-4-tests-docs: done
+  epic-17-retrospective: optional
+
+action_items: []
