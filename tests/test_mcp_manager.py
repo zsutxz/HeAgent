@@ -12,12 +12,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 from typing import Any
 
 import pytest
-from mcp.types import CallToolResult, TextContent, Tool
+from mcp.types import CallToolResult, ListResourcesResult, Resource, TextContent, Tool
 
 from heagent.exceptions import ToolError
 from heagent.tools.mcp.config import (
@@ -31,7 +32,7 @@ from heagent.types import ToolSchema
 
 
 class StubSession:
-    """模拟 ClientSession（initialize / list_tools / call_tool）。"""
+    """模拟 ClientSession（initialize / list_tools / call_tool / list_resources）。"""
 
     def __init__(
         self,
@@ -39,10 +40,14 @@ class StubSession:
         call_result: CallToolResult | None = None,
         *,
         list_raises: Exception | None = None,
+        resources: list[Resource] | None = None,
+        list_resources_raises: Exception | None = None,
     ) -> None:
         self._tools = tools
         self._call_result = call_result or CallToolResult(content=[TextContent(type="text", text="ok")], isError=False)
         self.list_raises = list_raises
+        self._resources = resources or []
+        self.list_resources_raises = list_resources_raises
         self.initialized = False
         self.disconnected = False  # 运行时断连标志：置 True 后 send_ping 抛错（模拟 server 崩溃 / 网络断）
 
@@ -63,6 +68,11 @@ class StubSession:
 
         return _Result()
 
+    async def list_resources(self, **_: Any) -> ListResourcesResult:
+        if self.list_resources_raises is not None:
+            raise self.list_resources_raises
+        return ListResourcesResult(resources=self._resources)
+
     async def call_tool(self, name: str, arguments: Any = None, **_: Any) -> CallToolResult:
         self._last_call = (name, arguments)
         return self._call_result
@@ -70,6 +80,10 @@ class StubSession:
 
 def _tool(name: str, desc: str = "d") -> Tool:
     return Tool(name=name, description=desc, inputSchema={"type": "object"})
+
+
+def _resource(uri: str, name: str, description: str = "") -> Resource:
+    return Resource(uri=uri, name=name, description=description)
 
 
 def _patch_transport(monkeypatch: pytest.MonkeyPatch, sessions: dict[str, StubSession]) -> None:
@@ -423,3 +437,260 @@ async def test_aexit_mixed_hang_and_clean_server(monkeypatch: pytest.MonkeyPatch
     assert "clean__run" not in reg.list_names()
     assert "hang__build" not in reg.list_names()
     assert any("关停超时" in r.message for r in caplog.records)
+
+
+# --- _sessions 映射（Story 15-1: B/C 前置）---
+
+
+async def test_sessions_populated_after_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """连接成功后，_sessions 包含各 server 的 session 引用。"""
+    sessions = {
+        "alpha": StubSession([_tool("run")]),
+        "beta": StubSession([_tool("build")]),
+    }
+    _patch_transport(monkeypatch, sessions)
+    async with MCPClientManager(
+        MCPConfig(
+            servers={
+                "alpha": StdioServerConfig(command="x"),
+                "beta": StdioServerConfig(command="y"),
+            }
+        ),
+    ) as mgr:
+        assert "alpha" in mgr._sessions
+        assert "beta" in mgr._sessions
+        assert mgr._sessions["alpha"] is sessions["alpha"]
+        assert mgr._sessions["beta"] is sessions["beta"]
+
+
+async def test_sessions_empty_on_no_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """无 MCP 配置时 _sessions 为空字典。"""
+    async with MCPClientManager(MCPConfig()) as mgr:
+        assert mgr._sessions == {}
+
+
+async def test_sessions_cleared_on_unregister(monkeypatch: pytest.MonkeyPatch) -> None:
+    """__aexit__ 后 _sessions 被清空（_unregister_all → _unregister_server 逐 server pop）。"""
+    sessions = {
+        "s": StubSession([_tool("run")]),
+    }
+    _patch_transport(monkeypatch, sessions)
+    async with MCPClientManager(
+        MCPConfig(servers={"s": StdioServerConfig(command="x")}),
+    ) as mgr:
+        assert "s" in mgr._sessions
+    assert mgr._sessions == {}  # __aexit__ 后已清空
+
+
+async def test_get_session_returns_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_get_session 返回已连 server 的 session。"""
+    sessions = {"s": StubSession([_tool("run")])}
+    _patch_transport(monkeypatch, sessions)
+    async with MCPClientManager(MCPConfig(servers={"s": StdioServerConfig(command="x")})) as mgr:
+        got = mgr._get_session("s")
+        assert got is sessions["s"]
+
+
+async def test_get_session_raises_tool_error_on_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """_get_session 对缺键 server 抛 ToolError（不裸 KeyError）。"""
+    async with MCPClientManager(MCPConfig()) as mgr:
+        with pytest.raises(ToolError, match="disconnected"):
+            mgr._get_session("nonexistent")
+
+
+async def test_get_session_after_disconnect_raises_tool_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """运行时断连后 _get_session 抛 ToolError（_unregister_server 已 pop _sessions）。"""
+    sessions = {"s": StubSession([_tool("run")])}
+    _patch_transport(monkeypatch, sessions)
+    reg = ToolRegistry()
+    async with MCPClientManager(
+        MCPConfig(servers={"s": StdioServerConfig(command="x")}),
+        registry=reg,
+        health_check_interval=0.01,
+    ) as mgr:
+        assert "s" in mgr._sessions
+        sessions["s"].disconnected = True
+        removed = await _wait_removed(reg, "s__run")
+        assert removed
+        # 断连后 _get_session 应抛 ToolError
+        with pytest.raises(ToolError, match="disconnected"):
+            mgr._get_session("s")
+
+
+# --- mcp__list_resources 桥接工具（Story 15-2）---
+
+
+async def test_list_resources_registered_when_sessions_active(monkeypatch: pytest.MonkeyPatch) -> None:
+    """有已连 session 时注册 mcp__list_resources。"""
+    sessions = {"s": StubSession([_tool("run")], resources=[_resource("mem://x", "x")])}
+    _patch_transport(monkeypatch, sessions)
+    reg = ToolRegistry()
+    async with MCPClientManager(MCPConfig(servers={"s": StdioServerConfig(command="x")}), registry=reg):
+        names = reg.list_names()
+    assert "mcp__list_resources" in names
+
+
+async def test_list_resources_not_registered_when_empty_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """无 MCP 配置时不注册 mcp__list_resources。"""
+    reg = ToolRegistry()
+    async with MCPClientManager(MCPConfig(), registry=reg):
+        names = reg.list_names()
+    assert "mcp__list_resources" not in names
+
+
+async def test_list_resources_not_registered_when_all_fail(monkeypatch: pytest.MonkeyPatch) -> None:
+    """所有 server 连接失败时也不注册桥接工具（_sessions 为空）。"""
+    sessions = {"s": StubSession([_tool("run")], list_raises=RuntimeError("fail"))}
+    _patch_transport(monkeypatch, sessions)
+    reg = ToolRegistry()
+    async with MCPClientManager(MCPConfig(servers={"s": StdioServerConfig(command="x")}), registry=reg):
+        names = reg.list_names()
+    assert "mcp__list_resources" not in names
+
+
+async def test_list_resources_aggregates_all_servers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """mcp__list_resources 聚合所有 server 的 resources。"""
+    sessions = {
+        "alpha": StubSession(
+            [_tool("run")],
+            resources=[
+                _resource("alpha://readme", "README"),
+                _resource("alpha://config", "Config"),
+            ],
+        ),
+        "beta": StubSession(
+            [_tool("build")],
+            resources=[
+                _resource("beta://doc", "Doc"),
+            ],
+        ),
+    }
+    _patch_transport(monkeypatch, sessions)
+    async with MCPClientManager(
+        MCPConfig(
+            servers={
+                "alpha": StdioServerConfig(command="x"),
+                "beta": StdioServerConfig(command="y"),
+            }
+        ),
+    ) as mgr:
+        output = await mgr._handle_list_resources()
+    data = json.loads(output)
+    assert isinstance(data, list)
+    assert len(data) == 3
+    servers = {e["server"] for e in data}
+    assert servers == {"alpha", "beta"}
+    uris = {e["uri"] for e in data}
+    assert uris == {"alpha://readme", "alpha://config", "beta://doc"}
+
+
+async def test_list_resources_empty_when_no_resources(monkeypatch: pytest.MonkeyPatch) -> None:
+    """无资源时返回空 JSON 数组。"""
+    sessions = {"s": StubSession([_tool("run")], resources=[])}
+    _patch_transport(monkeypatch, sessions)
+    async with MCPClientManager(MCPConfig(servers={"s": StdioServerConfig(command="x")})) as mgr:
+        output = await mgr._handle_list_resources()
+    assert json.loads(output) == []
+
+
+async def test_list_resources_empty_when_no_sessions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """无已连 session 时返回空 JSON 数组。"""
+    async with MCPClientManager(MCPConfig()) as mgr:
+        output = await mgr._handle_list_resources()
+    assert json.loads(output) == []
+
+
+async def test_list_resources_partial_failure_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """单 server list_resources 失败不崩溃整体——仅跳过该 server，其它结果正常返回。"""
+    sessions = {
+        "good": StubSession(
+            [_tool("run")],
+            resources=[_resource("good://r", "R")],
+        ),
+        "bad": StubSession(
+            [_tool("build")],
+            resources=[_resource("bad://r", "R")],
+            list_resources_raises=RuntimeError("bad server"),
+        ),
+    }
+    _patch_transport(monkeypatch, sessions)
+    async with MCPClientManager(
+        MCPConfig(
+            servers={
+                "good": StdioServerConfig(command="x"),
+                "bad": StdioServerConfig(command="y"),
+            }
+        ),
+    ) as mgr:
+        output = await mgr._handle_list_resources()
+    data = json.loads(output)
+    assert len(data) == 1
+    assert data[0]["server"] == "good"
+
+
+async def test_list_resources_has_readonly_hint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """mcp__list_resources 的 ToolSchema.annotations.readOnlyHint 为 True。"""
+    sessions = {"s": StubSession([_tool("run")], resources=[_resource("mem://x", "x")])}
+    _patch_transport(monkeypatch, sessions)
+    reg = ToolRegistry()
+    async with MCPClientManager(MCPConfig(servers={"s": StdioServerConfig(command="x")}), registry=reg):
+        schema = reg.get_schema("mcp__list_resources")
+    assert schema is not None
+    assert schema.annotations is not None
+    assert schema.annotations.readOnlyHint is True
+
+
+async def test_list_resources_unregistered_on_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """__aexit__ 后 mcp__list_resources 从 registry 移除。"""
+    sessions = {"s": StubSession([_tool("run")], resources=[_resource("mem://x", "x")])}
+    _patch_transport(monkeypatch, sessions)
+    reg = ToolRegistry()
+    async with MCPClientManager(MCPConfig(servers={"s": StdioServerConfig(command="x")}), registry=reg):
+        assert "mcp__list_resources" in reg.list_names()
+    assert "mcp__list_resources" not in reg.list_names()
+
+
+async def test_list_resources_disconnect_preserves_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
+    """单 server 运行时断连不摘除桥接工具（其它 server 仍可用）。"""
+    sessions = {
+        "a": StubSession([_tool("run")], resources=[_resource("a://r", "R")]),
+        "b": StubSession([_tool("build")], resources=[_resource("b://r", "R")]),
+    }
+    _patch_transport(monkeypatch, sessions)
+    reg = ToolRegistry()
+    async with MCPClientManager(
+        MCPConfig(
+            servers={
+                "a": StdioServerConfig(command="x"),
+                "b": StdioServerConfig(command="y"),
+            }
+        ),
+        registry=reg,
+        health_check_interval=0.01,
+    ) as mgr:
+        assert "mcp__list_resources" in reg.list_names()
+        sessions["a"].disconnected = True
+        removed = await _wait_removed(reg, "a__run")
+        assert removed
+        # 桥接工具仍注册
+        assert "mcp__list_resources" in reg.list_names()
+        # handler 仍可用——仅返回剩余的 server b
+        output = await mgr._handle_list_resources()
+        data = json.loads(output)
+        assert len(data) == 1
+        assert data[0]["server"] == "b"
+
+
+async def test_list_resources_bridge_skipped_on_name_collision(monkeypatch: pytest.MonkeyPatch) -> None:
+    """server 名 'mcp' + 工具 'list_resources' 与桥接同名时，守卫跳过、不覆盖 server 工具。"""
+    sessions = {"mcp": StubSession([_tool("list_resources")])}
+    _patch_transport(monkeypatch, sessions)
+    reg = ToolRegistry()
+    async with MCPClientManager(
+        MCPConfig(servers={"mcp": StdioServerConfig(command="x")}),
+        registry=reg,
+    ):
+        schema = reg.get_schema("mcp__list_resources")
+    # 桥接守卫命中跳过 → registry 内仍是 server 工具（description="d"，非桥接的长中文描述）
+    assert schema is not None
+    assert schema.description == "d"

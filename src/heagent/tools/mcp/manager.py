@@ -25,6 +25,7 @@ transport + session context（``_transport_and_session`` @asynccontextmanager，
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
@@ -34,6 +35,7 @@ from mcp import ClientSession
 from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 
+from heagent.exceptions import ToolError
 from heagent.tools.mcp.config import (
     HttpServerConfig,
     MCPConfig,
@@ -42,6 +44,7 @@ from heagent.tools.mcp.config import (
 )
 from heagent.tools.mcp.mapping import bridge_result, mcp_tool_to_schema
 from heagent.tools.registry import ToolRegistry
+from heagent.types import ToolAnnotations, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
@@ -91,6 +94,11 @@ class MCPClientManager:
         self._stops: list[asyncio.Event] = []
         # server 原始名 → 其已注册的 namespaced 工具名（断连时按 server 精确摘除，FR-3 收紧）
         self._registered: dict[str, list[str]] = {}
+        # 已连 session 查找表：server 原始名 → ClientSession
+        # 供 bridge 工具（list_resources）跨 task 访问；连接失败 / 断连时 pop。
+        self._sessions: dict[str, ClientSession] = {}
+        # mcp__list_resources 桥接工具是否已注册（_connect_all 内惰性注册）
+        self._bridge_registered = False
 
     async def __aenter__(self) -> MCPClientManager:
         await self._connect_all()
@@ -160,6 +168,9 @@ class MCPClientManager:
         self._stops = stops
         # 并发等待全部就绪（成功 / 失败 / 超时都会 set ready，故不会 hang）
         await asyncio.gather(*[r.wait() for r in readies], return_exceptions=True)
+        # 有至少一个 server 成功连接 → 注册桥接工具
+        if self._sessions and not self._bridge_registered:
+            self._register_bridge_tool()
 
     async def _server_loop(
         self,
@@ -180,6 +191,8 @@ class MCPClientManager:
             async with asyncio.timeout(self._connect_timeout):
                 session: ClientSession = await cm.__aenter__()
                 entered = True
+                # 登记 session 至查找表（bridge 工具跨 task 寻址用；断连 / finally 摘除）
+                self._sessions[name] = session
                 await self._discover_and_register(name, session)
             # 连接 + 发现成功（timeout 正常结束，不限制后续持有时间）
             ready.set()
@@ -187,9 +200,11 @@ class MCPClientManager:
             await self._watch(name, session, stop)
         except TimeoutError:
             logger.warning("MCP server '%s' 连接/发现超时（%ss），已隔离", name, self._connect_timeout)
+            self._sessions.pop(name, None)  # 发现失败→清除 session，避免桥接注册虚假工具
             ready.set()
         except Exception as exc:  # noqa: BLE001 - 隔离任意连接 / 发现失败，不崩溃 agent
             logger.warning("MCP server '%s' 连接/发现失败，已隔离：%s", name, exc)
+            self._sessions.pop(name, None)  # 发现失败→清除 session，避免桥接注册虚假工具
             ready.set()
         finally:
             if entered:
@@ -197,6 +212,8 @@ class MCPClientManager:
                     await cm.__aexit__(None, None, None)
                 except Exception:  # noqa: BLE001 - 退出清理异常不向上传播
                     logger.warning("MCP server '%s' 关闭时异常，已忽略", name)
+            # 无论 entered 与否，均清除 session 查找表（连接失败时 early cleanup）
+            self._sessions.pop(name, None)
 
     @asynccontextmanager
     async def _transport_and_session(
@@ -258,16 +275,70 @@ class MCPClientManager:
 
         return handler
 
+    def _get_session(self, name: str) -> ClientSession:
+        """按 server 名查找已连 session；未连 / 断连时抛 ToolError（不裸 KeyError）。"""
+        session = self._sessions.get(name)
+        if session is None:
+            raise ToolError(f"MCP server '{name}' disconnected")
+        return session
+
     def _unregister_server(self, name: str) -> None:
         """注销单个 server 的全部工具（运行时断连用）。``registry.unregister`` 幂等。"""
         for tool_name in self._registered.pop(name, ()):
             self._registry.unregister(tool_name)
+        self._sessions.pop(name, None)
 
     def _unregister_all(self) -> None:
         """从 ToolRegistry 摘除全部 MCP 工具（还原纯内置状态，利于测试隔离）。"""
-        # 委托 _unregister_server：其 ``pop(name, ())`` 会清键，遍历完后 _registered 自然为空。
+        # 1. 摘除桥接工具（先于 server 工具，避免 server unregister 误判 bridge 存活）
+        if self._bridge_registered:
+            self._registry.unregister("mcp__list_resources")
+            self._bridge_registered = False
+        # 2. 委托 _unregister_server：其 ``pop(name, ())`` 会清键，遍历完后 _registered 自然为空。
         for name in list(self._registered):
             self._unregister_server(name)
+        # 3. 兜底清理 _sessions（_unregister_server 已逐 server pop，此处作双重确认）
+        self._sessions.clear()
+
+    def _register_bridge_tool(self) -> None:
+        """注册 mcp__list_resources 桥接工具（_connect_all 内惰性注册，幂等）。"""
+        if self._bridge_registered:
+            return
+        if self._registry.get_schema("mcp__list_resources") is not None:
+            # 命名冲突：server 名为 "mcp" 且其工具叫 "list_resources" 时，namespaced 名同为
+            # mcp__list_resources（registry.register 重复注册会静默覆盖）。不覆盖 server 工具——
+            # 告警跳过，保留 server 原工具（极端边缘情况，fail-safe 不静默丢工具）。
+            logger.warning(
+                "mcp__list_resources 命名冲突（registry 已有同名工具，疑似 server 'mcp' 注册），跳过桥接注册"
+            )
+            return
+        schema = ToolSchema(
+            name="mcp__list_resources",
+            description="列出所有已连 MCP server 暴露的资源。返回 JSON 数组，每元素含 server/uri/name/description。",
+            parameters={"type": "object", "properties": {}, "required": []},
+            annotations=ToolAnnotations(readOnlyHint=True),
+        )
+        self._registry.register(schema, self._handle_list_resources)
+        self._bridge_registered = True
+        logger.info("MCP 桥接工具 'mcp__list_resources' 已注册")
+
+    async def _handle_list_resources(self) -> str:
+        """mcp__list_resources handler：聚合所有已连 session 的 resources。"""
+        results: list[dict[str, object]] = []
+        for name, session in list(self._sessions.items()):
+            try:
+                resp = await session.list_resources()
+            except Exception as exc:  # noqa: BLE001 - 单 server 失败隔离，不崩溃整体
+                logger.warning("MCP server '%s' list_resources 失败，跳过：%s", name, exc)
+                continue
+            for r in resp.resources:
+                results.append({
+                    "server": name,
+                    "uri": str(r.uri),
+                    "name": r.name,
+                    "description": r.description or "",
+                })
+        return json.dumps(results, ensure_ascii=False)
 
     async def _watch(self, name: str, session: ClientSession, stop: asyncio.Event) -> None:
         """持有 session 直到 ``stop`` 或健康探测发现运行时断连（FR-3 收紧）。
