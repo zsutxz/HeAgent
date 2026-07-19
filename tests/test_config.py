@@ -88,7 +88,7 @@ class TestEnvLoading:
 
     def test_max_iterations_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MAX_ITERATIONS", "100")
-        s = Settings()
+        s = Settings(_env_file=None)
         assert s.max_iterations == 100
 
     def test_default_model_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -176,17 +176,17 @@ class TestValidation:
     def test_negative_max_iterations_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MAX_ITERATIONS", "-1")
         with pytest.raises(ValidationError):
-            Settings()
+            Settings(_env_file=None)
 
     def test_non_numeric_max_iterations_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MAX_ITERATIONS", "abc")
         with pytest.raises(ValidationError):
-            Settings()
+            Settings(_env_file=None)
 
     def test_max_iterations_zero_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MAX_ITERATIONS", "0")
         with pytest.raises(ValidationError):
-            Settings()
+            Settings(_env_file=None)
 
     def test_shell_timeout_zero_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SHELL_TIMEOUT", "0")
@@ -230,5 +230,5 @@ class TestSingleton:
 
     def test_singleton_reads_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MAX_ITERATIONS", "75")
-        s = get_settings()
+        s = Settings(_env_file=None)
         assert s.max_iterations == 75

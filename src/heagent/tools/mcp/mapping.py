@@ -4,16 +4,17 @@
   ``inputSchema`` 直接 passthrough 进 ``ToolSchema.parameters``（已是标准 JSON Schema）；
 - namespace（FR-6）：server 名规整化（小写 + 非字母数字 → ``_``）；
 - 结果桥接（FR-5）：``CallToolResult.content`` → str（V1 text-only）；``isError`` → 抛 ``ToolError``。
-- 注入围栏（DP-4 第二半）：``bridge_result`` 返回前扫描内置 prompt-injection 启发式，
-  命中加 warning 标记后透传（``is_error=False``）。**非真正安全边界**——纯启发式必有 FP/FN，
-  仅 observable defense-in-depth，须 OS 级沙箱兜底（见 CLAUDE.md 安全声明）。
+- 注入围栏（DP-4 第二半 + FR-B4）：``bridge_result`` 与 ``guard_content``（新增，供资源桥接 / slash
+  共用）返回前扫描内置 prompt-injection 启发式，命中加 warning 标记后透传（``is_error=False``）。
+  **非真正安全边界**——纯启发式必有 FP/FN，仅 observable defense-in-depth，须 OS 级沙箱兜底
+  （见 CLAUDE.md 安全声明）。
 """
 
 from __future__ import annotations
 
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from heagent.exceptions import ToolError
 from heagent.tools.mcp.session_api import (
@@ -25,7 +26,10 @@ from heagent.tools.mcp.session_api import (
     input_schema_of,
     result_is_error,
 )
-from heagent.types import ToolSchema
+from heagent.types import ToolAnnotations, ToolSchema
+
+if TYPE_CHECKING:
+    from mcp.types import ToolAnnotations as McpToolAnnotations
 
 logger = logging.getLogger(__name__)
 
@@ -42,13 +46,31 @@ def namespaced_tool_name(server_name: str, tool_name: str) -> str:
     return f"{normalize_server_name(server_name)}{_NAMESPACE_SEP}{tool_name}"
 
 
+def _mcp_annotations_to_heagent(ann: McpToolAnnotations | None) -> ToolAnnotations | None:
+    """mcp ``Tool.annotations`` → HeAgent ``ToolAnnotations``（tri-state 折叠 + 丢弃 ``title``）。
+
+    ``None`` → ``None``（缺省保守标记，交由 FR-A5 fail-safe 在 PolicyEngine 消费）；否则四 hint 经
+    ``bool()`` 折叠（mcp tri-state ``True/False/None`` → ``True/False/False``），非决策字段 ``title``
+    不透传。注：转换在 mapping 层完成——types 层不上浮 mcp 依赖（保 DAG）。
+    """
+    if ann is None:
+        return None
+    return ToolAnnotations(
+        readOnlyHint=bool(ann.readOnlyHint),
+        destructiveHint=bool(ann.destructiveHint),
+        idempotentHint=bool(ann.idempotentHint),
+        openWorldHint=bool(ann.openWorldHint),
+    )
+
+
 def mcp_tool_to_schema(server_name: str, tool: Tool) -> ToolSchema:
-    """mcp ``Tool`` → HeAgent ``ToolSchema``（namespace 化，inputSchema passthrough，FR-4）。"""
+    """mcp ``Tool`` → HeAgent ``ToolSchema``（namespace 化，inputSchema/annotations passthrough，FR-4/A2）。"""
     input_schema = input_schema_of(tool)
     return ToolSchema(
         name=namespaced_tool_name(server_name, tool.name),
         description=tool.description or f"MCP tool {tool.name}",
         parameters=input_schema,
+        annotations=_mcp_annotations_to_heagent(tool.annotations),
     )
 
 
@@ -120,8 +142,11 @@ def _scan_injection(text: str) -> list[tuple[str, str]]:
     return [(desc, raw) for pat, desc, raw in _INJECTION_PATTERNS if pat.search(text)]
 
 
-def _guard_injection(text: str) -> str:
-    """对 MCP 返回文本加注入启发式围栏：命中则前缀 warning 标记块后透传，未命中原样返回。
+def guard_content(text: str) -> str:
+    """对任意 MCP 返回文本加注入启发式围栏：命中则前缀 warning 标记块后透传，未命中原样返回。
+
+    公共函数供 ``bridge_result``、``mcp__read_resource``、（后续）slash 分发器共用单一实现
+    （AR-6）。文档字符串与 ``_guard_injection`` 原语义一致。
 
     非真正安全边界——注入与正常内容语义不可区分，纯启发式必有 FP/FN；标记仅提供
     observable defense-in-depth（审计痕迹 + 对 LLM 的可见警告），不阻断、不截断、不抛错。
@@ -135,7 +160,7 @@ def _guard_injection(text: str) -> str:
     public_descs = [h[0] for h in hits]
     raw_sigs = [h[1] for h in hits]
     logger.warning(
-        "MCP 返回命中注入启发式: desc=%s raw=%s",
+        "MCP 文本命中注入启发式: desc=%s raw=%s",
         public_descs,
         raw_sigs,
     )
@@ -146,11 +171,11 @@ def _guard_injection(text: str) -> str:
 def bridge_result(result: CallToolResult) -> str:
     """桥接 ``CallToolResult``：``isError`` → 抛 ``ToolError``；否则返回经注入围栏标记的文本。
 
-    注入围栏（DP-4 第二半）：返回文本经 ``_guard_injection`` 扫描内置启发式，命中加 warning
+    注入围栏（DP-4 第二半 + FR-B4）：返回文本经 ``guard_content`` 扫描内置启发式，命中加 warning
     标记后透传（``is_error=False``，不阻断）。错误语义优先（``isError`` 分支不受围栏影响）。
     非真正边界，须 OS 级沙箱兜底（见 CLAUDE.md）。
     """
     text = call_result_to_text(result)
     if result_is_error(result):
         raise ToolError(text)
-    return _guard_injection(text)
+    return guard_content(text)

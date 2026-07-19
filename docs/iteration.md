@@ -67,9 +67,9 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 1.5 sprint-status 维护规则
 
-- **Epic 编号延续主线**：新周期自称 Epic 1-N 会撞主线编号，故延续主线编号递增（MCP 周期 = Epic 11-13）。
+- **Epic 编号延续主线**：新周期自称 Epic 1-N 会撞主线编号，故延续主线编号递增（MCP 周期 = Epic 11-13，MCP V2 周期 = Epic 14-16）。
 - **story key 须匹配 `epic-N-M` pattern**：`sprint-status` skill 校验 key 格式，不能用自定义前缀（如 `mcp-`）。
-- **MCP 周期映射**：sprint-status 的 Epic 11-13 = `epics-mcp-client.md` 内部的 Epic 1-3。
+- **MCP 周期映射**：sprint-status 的 Epic 11-13 = `epics-mcp-client.md` 内部的 Epic 1-3；Epic 14-16 = `epics.md`（MCP V2 周期）内部的 Epic A/B/C。
 - **retrospective 字段**：每个 epic 配 `epic-N-retrospective`，状态 `optional`（可做不做）。
 
 ---
@@ -100,7 +100,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 > MVP 范围内的 FR-18（MCP 工具发现）当时标注「延后」，后由 MCP 周期承接。
 
-### 2.2 MCP Client 集成周期 · Epic 11-13
+### 2.2 MCP Client 集成周期一 · Epic 11-13
 
 来源 `_bmad-output/mcp-client/`，独立 brief/prd/architecture/epics：
 
@@ -110,11 +110,21 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 12 | GitHub 只读验收（FR-9：E2E 锁定真实工具名） |
 | 13 | 安全边界与开源可用（FR-10/11：安全声明覆盖 MCP 不可信边界 + 开源文档） |
 
-### 2.3 补丁周期 · 技术债收尾
+### 2.3 MCP Client V2 集成周期二 · Epic 14-16
 
-`_bmad-output/patches/` 扁平存放计划外补丁，`deferred-work.md` 跟踪遗留项。已交付：`3-3-token-counter`、`5-1-subagent-context-injection`、`epic-5-context`、`p0-provider-hardening`、`fr3-mcp-auto-unregister`（FR-3 MCP 运行时断连 auto-unregister）。另有两份轻量回顾：`retrospective-engine-p5.md`、`retrospective-p0-tech-debt.md`。
+来源 `_bmad-output/mcp-client-v2/`，2026-07-17 启动。延续主线编号 14-16（映射 epics.md 的 Epic A/B/C）：
 
-### 2.4 engine/ 增量 · epic 外 P0-P5
+| Epic | 主题 | 状态 |
+|------|------|------|
+| 14 | 写操作治理 — MCP 工具危险分级的确定性闸门（FR-A1~A7，AD-1/2/3） | **已完成** — 14-1 annotations 数据管线 + 14-2 policy 注解闸门 + 14-3 零回归确定性 + 14-4 安全声明同步已全部 `done` |
+| 15 | Resources on-demand 发现与读取（FR-B1~B4，AD-4/5/6） | **已完成** — 15-1 sessions 查找表 + 15-2 list_resources 桥接工具 + 15-3 read_resource + guard_content 围栏 + 15-4 安全声明同步已全部 `done` |
+| 16 | Prompts 交互式协商（FR-C1~C4，AD-7/8/9） | **backlog** |
+
+### 2.4 补丁周期 · 技术债收尾
+
+`_bmad-output/patches/` 扁平存放计划外补丁，`deferred-work.md` 跟踪遗留项。已交付：`3-3-token-counter`、`5-1-subagent-context-injection`、`epic-5-context`、`p0-provider-hardening`、`fr3-mcp-auto-unregister`（FR-3 MCP 运行时断连 auto-unregister）。**sandbox 健壮性系列（2026-07-09~10）**：`spec-engine-sandbox-backend`（`CommandRunner` 抽象 + code review 三修）、`spec-sandbox-timeout-validation`（timeout 正整数校验）、`spec-sandbox-cancel-signal-preservation`（CancelledError 不吞取消信号）、`spec-sandbox-reap-robustness`（reap 保护 + wait 硬上界 + kill/wait 解耦）。**关停硬上界三件套（2026-07-10~11，同构）**：`spec-mcp-shutdown-timeout`（MCP `__aexit__`）、`spec-cron-stop-timeout`（`CronScheduler.stop`）、`spec-deferred-low-cleanup`（deferred-work 收尾）。**DP-4 两半**：`spec-dp4-mcp-safety-guard`（执行前工具名拦截）、`spec-dp4-mcp-result-guard`（返回内容启发式围栏）。另有两份轻量回顾：`retrospective-engine-p5.md`、`retrospective-p0-tech-debt.md`。
+
+### 2.5 engine/ 增量 · epic 外 P0-P5
 
 运行时治理层（`PolicyEngine` + `ToolExecutor` + `store/ledger/observability`）按 P 批演进，不挂 Epic 编号，进度记入 `frame.md` 4.12：
 
@@ -127,7 +137,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | P5-1/P5-2 | **deferred** —— 经评估暂不反转（D1/D4），依据记入 `frame.md` 4.12 |
 | sandbox 后端 | `execute_in_sandbox` 接 `CommandRunner` 抽象（`tools/sandbox.py`）：默认 Passthrough，可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界），经 `RuntimeSlot` 注入 |
 
-### 2.5 迭代时间线（git log 提炼）
+### 2.6 迭代时间线（git log 提炼）
 
 | 时间 | 里程碑 |
 |------|--------|
@@ -141,12 +151,22 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-06-29 | engine / agent 源码补详细中文注释；`loop.py` 968→797 行拆分（零回归）；新增 GitHub Actions 质量门禁 + pre-commit 钩子；epic-13 retrospective 完成 |
 | 2026-07-01 | 收敛工作区路径围栏为 `resolve_under_root` 单一算法；FR-3 收紧（MCP 运行时断连 ping-watch auto-unregister）；engine 健壮性四件套（ledger/store I/O 全套 async 化、缓存命中复核 policy、持久化原子写 + 损坏 JSON 容错、lease-active 命中跳过重复执行） |
 | 2026-07-08 | engine sandbox 接真实后端：`execute_in_sandbox` 经 `CommandRunner` 抽象（`tools/sandbox.py`）+ `RuntimeSlot` 注入，默认 Passthrough、可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界） |
+| 2026-07-09 | sandbox 健壮性 D1/D3/D4：取消执行时 kill+wait 子进程修 `CancelledError` 泄漏；`timeout` 正整数校验（raise 非 clamp，fail-closed 拦 None/str/float/bool/nan）；firejail 测试保真度（returncode per-instance）；engine sandbox 后端 code review 三处修复 |
+| 2026-07-10 | sandbox reap 鲁棒性收尾：`CancelledError` 清理不吞取消信号（D-1，`suppress(BaseException)`+裸 raise）+ reap 保护 + `wait` 硬上界（`_REAP_WAIT_TIMEOUT`）+ kill/wait 解耦（item 1/2/3）+ kill 块 `except` 收窄 `Exception`（不吞 KeyboardInterrupt）；DP-4 第二半——MCP 返回内容注入启发式围栏（`mapping.bridge_result` 标记透传，非真正边界）；MCP `__aexit__` 关停硬上界（transport close 挂死兜底） |
+| 2026-07-11 | deferred-work 剩余 LOW 项收尾；`_await_shutdown` 二轮 `wait` 收窄为 pending 子集；`CronScheduler.stop` 关停硬上界（task 挂死兜底，与 MCP `__aexit__` 同构）——**三处同构关停硬上界补齐**；docs 同步 DP-4 过时表述 |
+| 2026-07-12 | bmad 根除 gds/bmb 残留（uninstall + install --modules core,bmm） |
+| 2026-07-14 | `.env` 优先级反转：同 key 冲突 `.env` 胜出（`init > dotenv > env > secrets`），系统环境变量退居兜底（仅填充 `.env` 未声明的键） |
+| 2026-07-16 | compressor 切分不产生孤儿 TOOL 消息；三项代码审查必修修复（`loop.py` ExitStack bind 异常 / `sandbox.py` kill 块 / `mapping.py` 注入模式描述）；新增 `docs/code-review-conclusion.md`、`docs/learning.md` |
+| 2026-07-17 | MCP Client V2 周期启动（Epic 14-16）；`ToolAnnotations` 数据模型 + `mapping.py` 透传管线（14-1）；`file_read` 新增 `offset`/`limit` 行范围参数 |
+| 2026-07-17 | 模板方法重构 `run`/`run_stream`（解耦异步/同步路径）；`PolicyEngine` annotations 感知写操作闸门（14-2：destructive→审批 / readOnly→放行 / 缺省→fail-safe）+ 零回归测试 + 安全声明同步（CLAUDE.md 标注 annotations 不可信）；`_bmad-output/` 旧版 sprint-status 清理；CLI 版本 banner |
+| 2026-07-17 | **Resources 桥接工具（Story 15-1/15-2）**：`_sessions` 查找表 + `_get_session` + `_handle_list_resources` 聚合 JSON 桥 + `_register_bridge_tool`（`readOnlyHint=True`）+ `_server_loop` 异常路径 session cleanup —— 14 个新测试，31/31 manager 测试通过，**全线 586/586 通过** |
+| 2026-07-23 | **Resources 完成（Story 15-3/15-4）**：`guard_content` 提取为公共函数（供 `bridge_result`/`read_resource` 共用）+ `mcp__read_resource` 桥接工具 handler（`_handle_read_resource`，含 `server`/`uri` 参数 + `readOnlyHint`）+ 安全声明同步 + 配套测试（49 个 mapping + 46 个 manager 测试，**全线 607/607 通过**） |
 
 ---
 
 ## 三、经验教训（轻量 retrospective）
 
-> 下面是从 `deferred-work.md`、`frame.md` 已知缺口、git log 反推的跨 epic 教训。`sprint-status.yaml` 里 epic-1~12 的 `epic-N-retrospective` 均为 `optional`/未做；epic-13 retrospective 已完成（产物 `_bmad-output/mcp-client/retrospective-epic-13.md`）。若要为其余 epic 补做严格意义的 BMad 回顾，用 `bmad-retrospective` skill 单独生成。
+> 下面是从 `deferred-work.md`、`frame.md` 已知缺口、git log 反推的跨 epic 教训。`sprint-status.yaml` 里 epic-1~16 的 `epic-N-retrospective` 均为 `optional`/未做；epic-13 retrospective 已完成（产物 `_bmad-output/mcp-client/retrospective-epic-13.md`）。若要为其余 epic 补做严格意义的 BMad 回顾，用 `bmad-retrospective` skill 单独生成。
 
 1. **edge case hunter 会误判并发竞态**（Epic 5 / SubAgent）：deferred-work 第一条把「多协程访问共享 SkillStore」判为竞态，经核实不成立——`record_usage` 是无 `await` 的同步原子段，单线程 asyncio 下必然串行。**教训**：审查发现要核实是否真有 `await` 交错，加回归测试锁定不变量即可。
 2. **异常包装要加守卫，避免双层重包**（Epic 1 / ProviderChain）：provider 源头包成 `ProviderError` 后，chain 的 `except` 又包一层。**教训**：`_wrap_error` 类入口加 `if isinstance(e, ProviderError): raise`；用 `__cause__` 链断言写回归测试。
@@ -155,6 +175,9 @@ quick-dev 是**基于 spec 的单会话执行**：
 5. **两种模式并存要标记冲突，而非折中**（engine / 工作区路径双重围栏，**已收敛**）：`PolicyEngine._validate_paths()` 与 `tools/path_safety.py` 曾两套围栏并存。**教训**：改其一须同步评估另一处，冲突在文档显式标出——后经收敛为共用 `resolve_under_root` 单一算法（两层有意纵深防御）解决（2026-07-01 commit `2ae99ed` 落地，`c7171ba` 同步 frame.md/CLAUDE.md 已知缺口）。
 6. **评估结论要留依据**（engine P5-1/P5-2）：暂不反转的决策（D1/D4）把理由写进 `frame.md`，避免日后重做时忘记为何如此。
 7. **缓存命中仍须复核策略裁决**（engine / ExecutionLedger）：ledger COMPLETED 缓存命中后曾直接返回，未复核最新 policy——若 policy 收紧为 `BLOCKED` 仍返回缓存会绕过门禁。**教训**：缓存层与策略层交叉时，命中后仍须过一遍 policy（commit `84ee783`）；同理 lease-active 命中跳过执行，防并发/重入重复跑 handler（`c07f811`）。
+8. **关停/清理路径必须有硬上界**（sandbox / MCP / cron，2026-07-09~11）：`_kill_and_reap` 的 `proc.wait()`、MCP `__aexit__` 的 transport close、`CronScheduler.stop` 的 task join 都是裸 `await`，遇不可中断 await 点（Linux D-state / 远端不 FIN / job 执行中）会无限阻塞，唯一调用方（CLI 退出路径）挂死需 OS SIGKILL。**教训**：凡 `task.cancel()` + `await` 的关停结构，`await` 必包 `asyncio.wait(timeout=N)`，超时记 ERROR 放弃——三处同构缺口同批补齐（`spec-sandbox-reap-robustness` / `spec-mcp-shutdown-timeout` / `spec-cron-stop-timeout`）。
+9. **上下文切分要保证消息配对完整**（compressor，2026-07-16）：compressor 按预算切分历史时，切点若落在 TOOL 调用与其 TOOL 结果之间，会留下孤儿 TOOL 消息（有调用无结果），破坏 LLM 的 tool_use/tool_result 配对约束。**教训**：切分边界须以完整工具轮次（call+result）为不可分割单元。
+10. **跨 task session 泄露要两面收尸**（MCP `_server_loop`，2026-07-17）：`_server_loop` 在 `__aenter__` 成功后登记 `self._sessions[name] = session`，但 `_discover_and_register` 失败时 `except` 处理器只 set ready 未 pop——`_sessions` 残留虚假 session，桥接工具据此注册，后续调用抛异常。**教训**：配对登记的清理点必须覆盖全部退出路径（`except` + `finally` 两面收尸），单靠 `finally` 不够——`finally` 仅清 `entered` 路径，`except` 段的 early return 漏了 `finally` 后的 `pop` 收尾。
 
 ---
 
@@ -168,9 +191,10 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 **下一步候选方向**（按周期类型）：
 
+- **MCP Client V2 继续（Epic 16）**：Prompts 发现/协商/渲染 全套原语（Story 16-1→16-3，当前全部 `backlog`，接续 MCP Client V2 周期）。
 - **epic 外增量**：engine P5-1/P5-2 若反转，需新开 P 批。（接真实 sandbox 后端已交付 2026-07-08：`CommandRunner` 抽象 + `FirejailBackend`，见 `tools/sandbox.py`。）
-- **补丁周期**：当前无未交付候选——DP-4 两半（执行前工具名拦截 2026-07-08 + 返回内容启发式围栏 2026-07-10，标记透传、非真正边界）与 FR-3 断连 auto-unregister（`tools/mcp/manager.py` `_watch`）均已交付。
-- **集成周期**：MCP Resources/Prompts 原语、写操作（目前仅 Tools）。
+- **补丁周期**：当前无未交付候选——DP-4 两半（执行前工具名拦截 2026-07-08 + 返回内容启发式围栏 2026-07-10）、FR-3 断连 auto-unregister、sandbox 健壮性系列（2026-07-09~10）、关停硬上界三件套（MCP/cron/sandbox 2026-07-10~11）、compressor 孤儿 TOOL 修复（2026-07-16）、写操作治理 annotations 感知 PolicyEngine 闸门（2026-07-17~22）、Resources 桥接工具（2026-07-17）、guard_content 公共函数 + read_resource（2026-07-23）均已交付。
+- **集成周期**：MCP Prompts 原语（Epic 16，当前 `backlog`）。
 
 **retrospective 补全**：如需为已完成 epic 补做正式回顾，对单个 epic 调 `bmad-retrospective` skill；本文第三章已提供轻量替代。
 
@@ -180,7 +204,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 - 架构权威：[`frame.md`](frame.md)（含 engine 模块 4.12、已知缺口第五章）
 - 产品愿景：[`design.md`](design.md)
-- 迭代原始产物：`_bmad-output/baseline/`、`_bmad-output/mcp-client/`、`_bmad-output/patches/`
-- sprint 状态：`_bmad-output/baseline/sprint-status.yaml`
+- 迭代原始产物：`_bmad-output/baseline/`、`_bmad-output/mcp-client/`、`_bmad-output/mcp-client-v2/`、`_bmad-output/patches/`
+- sprint 状态：`_bmad-output/baseline/sprint-status.yaml`、`_bmad-output/mcp-client-v2/sprint-status.yaml`
 - 技术债登记：`_bmad-output/patches/deferred-work.md`
 - 已产出 retrospective：`_bmad-output/patches/retrospective-{engine-p5,p0-tech-debt}.md`、`_bmad-output/mcp-client/retrospective-epic-13.md`

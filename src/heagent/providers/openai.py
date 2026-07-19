@@ -91,6 +91,10 @@ def _build_usage(usage: object) -> TokenUsage:
     )
 
 
+# 流式 tool_calls 增量未到达时使用的零用量常量（避免每次创建新实例）。
+_ZERO_USAGE = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+
+
 class OpenAIProvider:
     """OpenAI 及兼容 API 的 Provider 实现。
 
@@ -156,33 +160,80 @@ class OpenAIProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> AsyncIterator[ProviderResponse]:
-        """流式调用 LLM，逐步返回响应片段。"""
+        """流式调用 LLM，逐步返回响应片段。
+
+        OpenAI 流式 API 中 tool_calls 是逐 chunk 增量返回的（``delta.tool_calls``）：
+        首次出现含 ``id`` 与 ``function.name``，后续 chunk 含 ``function.arguments``
+        增量追加。本方法在流内按 index 累积这些片段，文本 chunk 即时下推，流结束后
+        产出最终 chunk（携带完整 tool_calls + usage + finish_reason）。
+        """
         kwargs = self._build_kwargs(messages, tools)
         kwargs["stream"] = True
         kwargs["stream_options"] = {"include_usage": True}
 
         try:
             stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
+            # 按 tool_call index 累积增量片段：{idx: {"id": ..., "name": ..., "arguments": ...}}
+            tc_acc: dict[int, dict[str, str]] = {}
+            model = ""
+            finish_reason = ""
+            final_usage = _ZERO_USAGE
+
             async for chunk in stream:
                 if not chunk.choices:
                     # usage-bearing sentinel chunk sent by OpenAI at end of stream
                     if chunk.usage:
-                        yield ProviderResponse(
-                            content="",
-                            tool_calls=[],
-                            usage=_build_usage(chunk.usage),
-                            model=chunk.model,
-                            finish_reason="",
-                        )
+                        final_usage = _build_usage(chunk.usage)
+                    if chunk.model:
+                        model = chunk.model
                     continue
+
                 delta = chunk.choices[0].delta
-                yield ProviderResponse(
-                    content=delta.content or "",
-                    tool_calls=[],
-                    usage=_build_usage(chunk.usage),
-                    model=chunk.model,
-                    finish_reason=chunk.choices[0].finish_reason or "",
-                )
+                if chunk.choices[0].finish_reason:
+                    finish_reason = chunk.choices[0].finish_reason or ""
+
+                # 增量累积 tool_calls（OpenAI 分多个 chunk 逐步发送）
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx: int = tc.index
+                        if idx not in tc_acc:
+                            tc_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                        if tc.id:
+                            tc_acc[idx]["id"] = tc.id
+                        if tc.function:
+                            if tc.function.name:
+                                tc_acc[idx]["name"] = tc.function.name
+                            if tc.function.arguments:
+                                tc_acc[idx]["arguments"] += tc.function.arguments
+
+                # 文本内容即时下推（tool_calls 留在最终 chunk 统一产出）
+                if delta.content:
+                    yield ProviderResponse(
+                        content=delta.content,
+                        tool_calls=[],
+                        usage=_ZERO_USAGE,
+                        model=chunk.model,
+                        finish_reason="",
+                    )
+
+            # 流结束：产出最终 chunk，携带完整的累积 tool_calls + usage + finish_reason
+            tool_calls: list[ToolCall] = []
+            for idx in sorted(tc_acc.keys()):
+                tc = tc_acc[idx]
+                if tc["id"] and tc["name"]:
+                    try:
+                        args: object = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                    except json.JSONDecodeError:
+                        args = {}
+                    tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
+
+            yield ProviderResponse(
+                content="",
+                tool_calls=tool_calls,
+                usage=final_usage,
+                model=model,
+                finish_reason=finish_reason or "stop",
+            )
         except Exception as e:
             raise wrap_provider_error(e) from e
 

@@ -28,6 +28,19 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 
+# ── fixtures ──────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture()
+def _reset_subagent():
+    """Teardown only: 测试后复位 subagent provider，防止泄漏到后续测试。"""
+    yield
+    reset_subagent_tools()
+
+
+# ── test helpers ──────────────────────────────────────────────────────────────
+
+
 class _ToolCallProvider:
     """Round 1: emit a ``secret_tool`` call. Round 2: finish with text.
 
@@ -68,19 +81,7 @@ class _ToolCallProvider:
         return ProviderMetadata(name="stub", model="stub")
 
 
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    reg = ToolRegistry.get()
-    reg._tools.clear()
-    reg._handlers.clear()
-    reg._disabled.clear()
-    reset_subagent_tools()
-    yield
-    reg = ToolRegistry.get()
-    reg._tools.clear()
-    reg._handlers.clear()
-    reg._disabled.clear()
-    reset_subagent_tools()
+# ── tests ────────────────────────────────────────────────────────────────────
 
 
 async def test_allowed_tools_blocks_out_of_role_call() -> None:
@@ -93,24 +94,29 @@ async def test_allowed_tools_blocks_out_of_role_call() -> None:
         invocations.append("ran")
         return "should not run"
 
+    registry = ToolRegistry.get()
     provider = _ToolCallProvider()
-    agent = SubAgent(
-        provider,
-        registry=ToolRegistry.get(),
-        allowed_tools=["file_read"],  # secret_tool not allowed
-        max_iterations=5,
-    )
-    await agent.run("call the secret tool")
+    try:
+        agent = SubAgent(
+            provider,
+            registry=registry,
+            allowed_tools=["file_read"],  # secret_tool not allowed
+            max_iterations=5,
+        )
+        await agent.run("call the secret tool")
 
-    # handler never executed (policy blocks before dispatch)
-    assert invocations == []
-    # round 2 saw the blocked tool result mentioning the tool name
-    assert len(provider.seen) >= 2
-    tool_msgs = [m for m in provider.seen[1] if m.role is Role.TOOL]
-    assert tool_msgs, "expected a TOOL message carrying the blocked result"
-    assert any("secret_tool" in (m.content or "") for m in tool_msgs)
+        # handler never executed (policy blocks before dispatch)
+        assert invocations == []
+        # round 2 saw the blocked tool result mentioning the tool name
+        assert len(provider.seen) >= 2
+        tool_msgs = [m for m in provider.seen[1] if m.role is Role.TOOL]
+        assert tool_msgs, "expected a TOOL message carrying the blocked result"
+        assert any("secret_tool" in (m.content or "") for m in tool_msgs)
+    finally:
+        registry.unregister("secret_tool")
 
 
+@pytest.mark.usefixtures("_reset_subagent")
 async def test_task_delegate_resolves_role_to_spec() -> None:
     """task_delegate(role='coder') threads the coder RoleSpec into SubAgent."""
 
@@ -149,11 +155,10 @@ async def test_task_delegate_resolves_role_to_spec() -> None:
     assert role is not None
     assert role.name == "coder"
     assert "file_write" in role.allowed_tools
-    # task_delegate passes role and lets SubAgent derive system from it
-    # (system="" → None); SubAgent.__init__ resolves role.system internally.
     assert captured["system"] is None
 
 
+@pytest.mark.usefixtures("_reset_subagent")
 async def test_task_delegate_unknown_role_reports_error() -> None:
     class _Stub:
         async def send(self, messages, *, tools=None):

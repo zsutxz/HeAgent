@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import sys
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
 
 import heagent.tools.builtins  # noqa: F401
+from heagent import __version__
 from heagent.agent.loop import AgentLoop
 from heagent.agent.middleware import make_retry_middleware
 from heagent.config import Settings, get_settings
@@ -41,6 +43,11 @@ if TYPE_CHECKING:
     from heagent.types import TokenUsage
 
 logger = logging.getLogger(__name__)
+
+
+def _print_banner() -> None:
+    """Print the HeAgent version banner to stderr on startup."""
+    click.echo(f"HeAgent v{__version__} — A self-improving AI Agent core framework", err=True)
 
 
 def _print_usage(usage: TokenUsage | None) -> None:
@@ -229,7 +236,7 @@ async def _run_chat(
     session_id = uuid.uuid4().hex[:8]
     engine = EngineContainer.default(workspace_root=os.getcwd())
 
-    async with mcp_ctx or contextlib.nullcontext():
+    async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
         session = SessionStore()
         loop, scheduler = _build_loop(settings, provider, max_iterations, soul_path, session=session, engine=engine)
         click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
@@ -246,6 +253,11 @@ async def _run_chat(
 
                 if not user_input.strip():
                     break
+
+                # Slash command dispatch
+                if user_input.startswith("/mcp-prompt"):
+                    await _handle_mcp_prompt(user_input, mcp_manager)
+                    continue
 
                 try:
                     async for event in loop.run_stream(user_input, system=system, session_id=session_id):
@@ -264,6 +276,80 @@ async def _run_chat(
         finally:
             if scheduler:
                 await scheduler.stop()
+
+
+def _format_prompt_args(args: list[dict[str, Any]]) -> str:
+    """Format MCP Prompt arguments list for display."""
+    if not args:
+        return "(no args)"
+    return " ".join(
+        f"{a['name']}=..." if a.get("required") else f"{a['name']}?"
+        for a in args
+    )
+
+
+async def _handle_mcp_prompt(user_input: str, mcp_manager: Any) -> None:
+    """Handle /mcp-prompt slash command in chat mode.
+
+    Syntax:
+        /mcp-prompt                              - list all prompts from all servers
+        /mcp-prompt <server>                     - list prompts from one server
+        /mcp-prompt <server> <name> [k=v ...]    - render a prompt with optional arguments
+    """
+    if mcp_manager is None or not hasattr(mcp_manager, "list_prompts"):
+        click.echo("[mcp] No MCP server connected.", err=True)
+        return
+
+    parts = user_input.split()
+
+    if len(parts) == 1:
+        result = await mcp_manager.list_prompts()
+        data = json.loads(result)
+        if not data:
+            click.echo("[mcp-prompt] No prompts available.")
+            return
+        for p in data:
+            server = p["server"]
+            name = p["name"]
+            desc = p.get("description", "")
+            arg_str = _format_prompt_args(p.get("arguments", []))
+            click.echo(f"  [{server}] {name}: {desc} ({arg_str})")
+        return
+
+    if len(parts) == 2:
+        server = parts[1]
+        result = await mcp_manager.list_prompts(server)
+        data = json.loads(result)
+        if not data:
+            click.echo(f"[mcp-prompt] No prompts on server '{server}'.")
+            return
+        for p in data:
+            name = p["name"]
+            desc = p.get("description", "")
+            arg_str = _format_prompt_args(p.get("arguments", []))
+            click.echo(f"  {name}: {desc} ({arg_str})")
+        return
+
+    # len(parts) >= 3: render a prompt
+    server = parts[1]
+    prompt_name = parts[2]
+    arguments: dict[str, str] = {}
+    for arg in parts[3:]:
+        if "=" in arg:
+            k, v = arg.split("=", 1)
+            arguments[k] = v
+    try:
+        text = await mcp_manager.get_prompt(server, prompt_name, arguments or None)
+        guarded = _guard_mcp_content(text)
+        click.echo(guarded)
+    except Exception as exc:
+        click.echo(f"[mcp-prompt error] {exc}", err=True)
+
+
+def _guard_mcp_content(text: str) -> str:
+    """Apply heuristic injection guard to MCP prompt output (non-bridge path, CLI only)."""
+    from heagent.tools.mcp.mapping import guard_content  # noqa: PLC0415 - inline import for CLI-only
+    return guard_content(text)
 
 
 @click.command()
@@ -289,6 +375,9 @@ def main(
         stream=sys.stderr,
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
+
+    # Display version banner on every startup
+    _print_banner()
 
     settings = get_settings()
     resolved_model = model or settings.default_model

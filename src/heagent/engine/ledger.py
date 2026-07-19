@@ -9,6 +9,8 @@
 - **AgentLoop._execute_one**（P4）：key = ``run_id:call.id``。在 window_reset（上下文压缩）
   后模型可能重发相同 ``tool_call.id``；账本使 COMPLETED 的调用短路返回缓存、避免重复执行。
 - **cron 等长时任务**：经 acquire / heartbeat / complete / fail 管理跨周期执行状态。
+
+记录不做自动清理（清理策略交给上层调度器或外部维护脚本决策）。
 """
 
 from __future__ import annotations

@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pytest
-
 from heagent.agent.loop import AgentLoop
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
@@ -34,7 +32,6 @@ class StreamStubProvider:
 
     async def send(self, messages: list[Message], *, tools=None) -> ProviderResponse:
         self._send_count += 1
-        # send() 的第一次调用返回 tool_calls，后续返回普通文本
         if self._tool_calls_response and self._send_count == 1:
             return self._tool_calls_response
         full = "".join(self._chunks)
@@ -59,19 +56,6 @@ class StreamStubProvider:
 
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(name="stub", model="stub", supports_streaming=True)
-
-
-@pytest.fixture(autouse=True)
-def _cleanup_registry():
-    registry = ToolRegistry.get()
-    registry._tools.clear()
-    registry._handlers.clear()
-    registry._disabled.clear()
-    yield
-    registry = ToolRegistry.get()
-    registry._tools.clear()
-    registry._handlers.clear()
-    registry._disabled.clear()
 
 
 class TestRunStream:
@@ -143,18 +127,21 @@ class TestRunStream:
             finish_reason="tool_calls",
         )
 
-        # stream 返回空文本 + finish_reason="tool_calls" → 触发 send() 回退
         provider = StreamStubProvider(
             chunks=[""],
             tool_calls_response=tc_response,
             stream_finish_reason="tool_calls",
         )
         loop = AgentLoop(provider, registry=registry)
-        events = [e async for e in loop.run_stream("test")]
+        try:
+            events = [e async for e in loop.run_stream("test")]
 
-        tc_events = [e for e in events if e.type == "tool_call"]
-        tr_events = [e for e in events if e.type == "tool_result"]
-        done_events = [e for e in events if e.type == "done"]
-        assert len(tc_events) >= 1
-        assert len(tr_events) >= 1
-        assert len(done_events) == 1
+            tc_events = [e for e in events if e.type == "tool_call"]
+            tr_events = [e for e in events if e.type == "tool_result"]
+            done_events = [e for e in events if e.type == "done"]
+            assert len(tc_events) >= 1
+            assert len(tr_events) >= 1
+            assert len(done_events) == 1
+        finally:
+            # 只清理此测试注册的临时工具，不影响 builtin 注册表（断言失败也清理）
+            registry.unregister("echo_tool")

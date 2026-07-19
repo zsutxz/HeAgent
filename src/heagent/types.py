@@ -91,6 +91,24 @@ class ProviderResponse(BaseModel):
     finish_reason: str
 
 
+class ToolAnnotations(BaseModel):
+    """MCP 工具的风险 hint（HeAgent 自有模型）。
+
+    由 ``mapping.mcp_tool_to_schema`` 从 MCP ``Tool.annotations`` 透传，供下游 PolicyEngine
+    做确定性危险分级（``destructiveHint`` 审批 / ``readOnlyHint`` 放行）。**server 自声明、不可信**
+    ——恶意/错误 server 可谎报；治理闸门仅 defense-in-depth 标记，**非真正安全边界**，须 OS 级
+    沙箱兜底（见 CLAUDE.md 安全声明）。
+
+    与 ``mcp.types.ToolAnnotations`` 的差异：四 hint 折叠为纯 ``bool``（mcp 原为 ``bool|None``
+    tri-state，``None``→``False``）；**不透传** mcp 第 5 字段 ``title``（非裁决信号，丢弃）。
+    """
+
+    readOnlyHint: bool = False  # 工具不改环境（PolicyEngine 据此放行）
+    destructiveHint: bool = False  # 工具可能 destructive（PolicyEngine 据此审批）
+    idempotentHint: bool = False  # 幂等 hint（透传存储，V2 不进裁决）
+    openWorldHint: bool = False  # 与外部开放世界交互 hint（透传存储，V2 不进裁决）
+
+
 class ToolSchema(BaseModel):
     """工具的 JSON Schema 描述，用于 LLM function calling。
 
@@ -98,11 +116,13 @@ class ToolSchema(BaseModel):
     name: 工具名称
     description: 工具功能描述（取自 docstring 首行）
     parameters: 参数的 JSON Schema（从类型提示自动映射）
+    annotations: 工具风险 hint（来自 MCP ``Tool.annotations``）；``None``=未声明，内置工具缺省
     """
 
     name: str
     description: str
     parameters: dict[str, object]
+    annotations: ToolAnnotations | None = None
 
 
 class StreamEvent(BaseModel):

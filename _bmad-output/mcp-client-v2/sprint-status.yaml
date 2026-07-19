@@ -1,0 +1,41 @@
+generated: 2026-07-17
+last_updated: 2026-07-23
+project: HeAgent
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/mcp-client-v2/stories
+
+development_status:
+  # === MCP Client V2 集成周期（2026-07-17）===
+
+  epic-14: done
+  14-1-annotations-data-pipeline: done
+  14-2-policy-annotation-gate: done
+  14-3-zero-regression-determinism: done
+  14-4-safety-statement-write-op: done
+  epic-14-retrospective: optional
+
+  epic-15: done
+  15-1-sessions-map-disconnect: done
+  15-2-list-resources-bridge: done
+  15-3-read-resource-guard-content: done
+  15-4-safety-statement-resources: done
+  epic-15-retrospective: optional
+
+  epic-16: done
+  16-1-manager-prompts-entry: done
+  16-2-mcp-prompt-slash-dispatcher: done
+  16-3-prompt-render-guard-safety: done
+  16-4-slash-command-tests: done
+  epic-16-retrospective: optional
+
+  # === 内置工具扩展周期（2026-07-23）===
+
+  epic-17: done
+  17-1-git-status-diff: done
+  17-2-git-log-blame: done
+  17-3-path-safety-integration: done
+  17-4-tests-docs: done
+  epic-17-retrospective: optional
+
+action_items: []

@@ -102,7 +102,11 @@ def _build_usage(usage: object) -> TokenUsage:
       - cache_creation_input_tokens: 写入缓存的输入
       - cache_read_input_tokens: 从缓存读取的输入
     三者之和才是真实输入量。若不合并，缓存命中时 prompt_tokens 会大幅低估。
+
+    ``usage`` 为 None 时返回零用量（极少数情况下的防御性守卫）。
     """
+    if usage is None:
+        return _ZERO_USAGE
     inp = getattr(usage, "input_tokens", None) or 0
     cache_read = getattr(usage, "cache_read_input_tokens", None) or 0
     cache_create = getattr(usage, "cache_creation_input_tokens", None) or 0

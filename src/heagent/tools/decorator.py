@@ -23,7 +23,7 @@ import inspect
 from typing import TYPE_CHECKING, Any, get_type_hints
 
 from heagent.tools.registry import ToolRegistry
-from heagent.types import ToolSchema
+from heagent.types import ToolAnnotations, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,6 +43,8 @@ def tool(
     name: str | None = None,
     description: str | None = None,
     enabled: bool = True,
+    read_only: bool | None = None,
+    destructive: bool | None = None,
 ) -> Callable[..., Any]:
     """将函数注册为 Agent 可调用的工具。
 
@@ -55,6 +57,8 @@ def tool(
         name: 自定义工具名（默认使用函数名）
         description: 自定义描述（默认使用 docstring 首行）
         enabled: 是否启用（False 则注册但不可用）
+        read_only: 若为 True，设置 ToolAnnotations.readOnlyHint（供 PolicyEngine 放行）
+        destructive: 若为 True，设置 ToolAnnotations.destructiveHint（供 PolicyEngine 审批）
     """
 
     def _register(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -89,8 +93,16 @@ def tool(
         if required:
             parameters["required"] = required
 
+        # 构建 annotations（若有 read_only 或 destructive 标志）
+        annotations: ToolAnnotations | None = None
+        if read_only is not None or destructive is not None:
+            annotations = ToolAnnotations(
+                readOnlyHint=read_only or False,
+                destructiveHint=destructive or False,
+            )
+
         # 创建 Schema 并注册到全局 Registry
-        schema = ToolSchema(name=tool_name, description=tool_desc, parameters=parameters)
+        schema = ToolSchema(name=tool_name, description=tool_desc, parameters=parameters, annotations=annotations)
         registry = ToolRegistry.get()
         registry.register(schema, fn)
         if not enabled:

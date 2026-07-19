@@ -78,6 +78,98 @@ class TestFileRead:
         result = await file_read(str(tmp_path))  # type: ignore[operator]
         assert "Error: path is a directory" in result
 
+    # --- offset / limit ---
+
+    async def test_read_offset_2(self, tmp_path: object) -> None:
+        """offset starts from given line (1-based)."""
+        p = tmp_path / "lines.txt"  # type: ignore[operator]
+        p.write_text("line1\nline2\nline3\nline4\nline5", encoding="utf-8")
+        result = await file_read(str(p), offset=3)
+        assert result.startswith("line3\nline4\nline5")
+        assert "truncated" in result
+        assert "2 lines above" in result
+
+    async def test_read_limit_2(self, tmp_path: object) -> None:
+        """limit caps the number of lines returned."""
+        p = tmp_path / "lines.txt"  # type: ignore[operator]
+        p.write_text("line1\nline2\nline3\nline4\nline5", encoding="utf-8")
+        result = await file_read(str(p), limit=2)
+        assert result.startswith("line1\nline2")
+        assert "truncated" in result
+        assert "3 lines below" in result
+
+    async def test_read_offset_and_limit(self, tmp_path: object) -> None:
+        """offset + limit work together."""
+        p = tmp_path / "lines.txt"  # type: ignore[operator]
+        p.write_text("line1\nline2\nline3\nline4\nline5", encoding="utf-8")
+        result = await file_read(str(p), offset=2, limit=2)
+        assert result.startswith("line2\nline3")
+        assert "truncated" in result
+        assert "1 lines above" in result
+        assert "2 lines below" in result
+
+    async def test_read_offset_0_clamped(self, tmp_path: object) -> None:
+        """offset < 1 is clamped to line 1."""
+        p = tmp_path / "lines.txt"  # type: ignore[operator]
+        p.write_text("a\nb\nc", encoding="utf-8")
+        result = await file_read(str(p), offset=0, limit=2)
+        assert result.startswith("a\nb")
+        assert "truncated" in result
+
+    async def test_read_offset_exceeds_file(self, tmp_path: object) -> None:
+        """offset beyond file length returns error."""
+        p = tmp_path / "lines.txt"  # type: ignore[operator]
+        p.write_text("a\nb", encoding="utf-8")
+        result = await file_read(str(p), offset=10)
+        assert "Error: offset 10 exceeds file length" in result
+
+    async def test_read_limit_more_than_remaining(self, tmp_path: object) -> None:
+        """limit beyond EOF returns all remaining lines (with truncation note)."""
+        p = tmp_path / "lines.txt"  # type: ignore[operator]
+        p.write_text("a\nb\nc", encoding="utf-8")
+        result = await file_read(str(p), offset=2, limit=100)
+        assert result.startswith("b\nc")
+        assert "truncated" in result
+        assert "1 lines above" in result
+
+    async def test_read_truncation_note_above(self, tmp_path: object) -> None:
+        """truncation note mentions lines above when offset > 1."""
+        p = tmp_path / "lines.txt"  # type: ignore[operator]
+        p.write_text("a\nb\nc\nd", encoding="utf-8")
+        result = await file_read(str(p), offset=3)
+        assert "truncated" in result
+        assert "lines above" in result
+        assert "lines below" not in result
+        assert result.startswith("c\nd")
+
+    async def test_read_truncation_note_below(self, tmp_path: object) -> None:
+        """truncation note mentions lines below when limit < total."""
+        p = tmp_path / "lines.txt"  # type: ignore[operator]
+        p.write_text("a\nb\nc\nd\ne", encoding="utf-8")
+        result = await file_read(str(p), limit=2)
+        assert "truncated" in result
+        assert "lines below" in result
+        assert "lines above" not in result
+        assert result.startswith("a\nb")
+
+    async def test_read_truncation_note_both(self, tmp_path: object) -> None:
+        """truncation note mentions both sides when offset + limit slice mid-file."""
+        p = tmp_path / "lines.txt"  # type: ignore[operator]
+        p.write_text("a\nb\nc\nd\ne\nf", encoding="utf-8")
+        result = await file_read(str(p), offset=3, limit=2)
+        assert "truncated" in result
+        assert "lines above" in result
+        assert "lines below" in result
+        assert result.startswith("c\nd")
+
+    async def test_read_offset_and_limit_both_none_returns_full(self, tmp_path: object) -> None:
+        """offset=None, limit=None returns full content (no truncation note)."""
+        p = tmp_path / "lines.txt"  # type: ignore[operator]
+        p.write_text("a\nb\nc", encoding="utf-8")
+        result = await file_read(str(p))
+        assert result == "a\nb\nc"
+        assert "truncated" not in result
+
 
 @pytest.mark.asyncio
 class TestFileWrite:
