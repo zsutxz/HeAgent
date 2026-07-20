@@ -1,4 +1,4 @@
-# HeAgent 迭代开发指南与历程
+﻿# HeAgent 迭代开发指南与历程
 
 > 这份文档回答两件事：**项目是怎么一步步迭代到现在的**（历程），以及**怎么继续迭代**（流程）。架构看 [`frame.md`](frame.md)，愿景看 [`design.md`](design.md)，本文只讲「迭代」这一维度。
 
@@ -160,7 +160,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-07-17 | MCP Client V2 周期启动（Epic 14-16）；`ToolAnnotations` 数据模型 + `mapping.py` 透传管线（14-1）；`file_read` 新增 `offset`/`limit` 行范围参数 |
 | 2026-07-17 | 模板方法重构 `run`/`run_stream`（解耦异步/同步路径）；`PolicyEngine` annotations 感知写操作闸门（14-2：destructive→审批 / readOnly→放行 / 缺省→fail-safe）+ 零回归测试 + 安全声明同步（CLAUDE.md 标注 annotations 不可信）；`_bmad-output/` 旧版 sprint-status 清理；CLI 版本 banner |
 | 2026-07-17 | **Resources 桥接工具（Story 15-1/15-2）**：`_sessions` 查找表 + `_get_session` + `_handle_list_resources` 聚合 JSON 桥 + `_register_bridge_tool`（`readOnlyHint=True`）+ `_server_loop` 异常路径 session cleanup —— 14 个新测试，31/31 manager 测试通过，**全线 586/586 通过** |
-| 2026-07-23 | **Resources 完成（Story 15-3/15-4）**：`guard_content` 提取为公共函数（供 `bridge_result`/`read_resource` 共用）+ `mcp__read_resource` 桥接工具 handler（`_handle_read_resource`，含 `server`/`uri` 参数 + `readOnlyHint`）+ 安全声明同步 + 配套测试（49 个 mapping + 46 个 manager 测试，**全线 607/607 通过**） |
+| 2026-07-20 | **Resources 完成（Story 15-3/15-4）**：`guard_content` 提取为公共函数（供 `bridge_result`/`read_resource` 共用）+ `mcp__read_resource` 桥接工具 handler（`_handle_read_resource`，含 `server`/`uri` 参数 + `readOnlyHint`）+ 安全声明同步 + 配套测试（49 个 mapping + 46 个 manager 测试，**全线 607/607 通过**） |
 
 ---
 
@@ -193,7 +193,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 - **MCP Client V2 继续（Epic 16）**：Prompts 发现/协商/渲染 全套原语（Story 16-1→16-3，当前全部 `backlog`，接续 MCP Client V2 周期）。
 - **epic 外增量**：engine P5-1/P5-2 若反转，需新开 P 批。（接真实 sandbox 后端已交付 2026-07-08：`CommandRunner` 抽象 + `FirejailBackend`，见 `tools/sandbox.py`。）
-- **补丁周期**：当前无未交付候选——DP-4 两半（执行前工具名拦截 2026-07-08 + 返回内容启发式围栏 2026-07-10）、FR-3 断连 auto-unregister、sandbox 健壮性系列（2026-07-09~10）、关停硬上界三件套（MCP/cron/sandbox 2026-07-10~11）、compressor 孤儿 TOOL 修复（2026-07-16）、写操作治理 annotations 感知 PolicyEngine 闸门（2026-07-17~22）、Resources 桥接工具（2026-07-17）、guard_content 公共函数 + read_resource（2026-07-23）均已交付。
+- **补丁周期**：当前无未交付候选——DP-4 两半（执行前工具名拦截 2026-07-08 + 返回内容启发式围栏 2026-07-10）、FR-3 断连 auto-unregister、sandbox 健壮性系列（2026-07-09~10）、关停硬上界三件套（MCP/cron/sandbox 2026-07-10~11）、compressor 孤儿 TOOL 修复（2026-07-16）、写操作治理 annotations 感知 PolicyEngine 闸门（2026-07-17~22）、Resources 桥接工具（2026-07-17）、guard_content 公共函数 + read_resource（2026-07-20）均已交付。
 - **集成周期**：MCP Prompts 原语（Epic 16，当前 `backlog`）。
 
 **retrospective 补全**：如需为已完成 epic 补做正式回顾，对单个 epic 调 `bmad-retrospective` skill；本文第三章已提供轻量替代。

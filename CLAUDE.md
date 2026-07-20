@@ -18,7 +18,7 @@ HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP s
 - **同等约束**：MCP 工具走与内置工具一致的 `ToolError` 语义，享受同等的工具名黑名单预校验（DP-4 第一半 2026-07-08）与返回内容启发式标记（DP-4 第二半 2026-07-10），但**两者均非真正安全边界**。
 - **须 OS 级沙箱兜底**：连 MCP server 时同样必须在沙箱内运行，并对子进程 / 出站网络施加最小权限。
 
-**后续（deferred / future，V2 未做）：** Resources 原语、返回内容围栏的用户可配置签名入口（V1/V2 仅内置启发式集）。（Prompts 原语已完成：Story 16-1/2/3/4 2026-07-21；写操作治理已交付 V2 2026-07-17：annotations 感知 `PolicyEngine` 闸门，见 `engine/policy.py`、`tools/mcp/mapping.py`；执行前工具名拦截已交付 DP-4 第一半 2026-07-08；返回内容启发式围栏已交付 DP-4 第二半 2026-07-10；运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
+**后续（deferred / future，V2 未做）：** Resources 原语、返回内容围栏的用户可配置签名入口（V1/V2 仅内置启发式集）。（Prompts 原语已完成：Story 16-1/2/3/4 2026-07-20；写操作治理已交付 V2 2026-07-17：annotations 感知 `PolicyEngine` 闸门，见 `engine/policy.py`、`tools/mcp/mapping.py`；执行前工具名拦截已交付 DP-4 第一半 2026-07-08；返回内容启发式围栏已交付 DP-4 第二半 2026-07-10；运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
 
 ## 构建与测试命令
 
