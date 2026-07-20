@@ -1,0 +1,29 @@
+generated: 2026-07-20
+last_updated: 2026-07-20
+project: HeAgent
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/sandbox-hardening/stories
+
+development_status:
+  epic-S1: done
+  S1-1-firejail-profiles-build-argv: done
+  S1-2-executor-profile-contextvar: done
+  epic-S1-retrospective: optional
+
+  epic-S2: done
+  S2-1-firejail-availability-degradation: done
+  S2-2-env-cli-config-entry: done
+  epic-S2-retrospective: optional
+
+  epic-S3: done
+  S3-1-linux-process-group-kill: done
+  S3-2-workspace-root-private-mount: done
+  epic-S3-retrospective: optional
+
+  epic-S4: done
+  S4-1-emit-sandbox-fields: skipped
+  S4-2-safety-docs-sync: done
+  epic-S4-retrospective: optional
+
+action_items: []
