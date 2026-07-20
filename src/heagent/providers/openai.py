@@ -172,8 +172,7 @@ class OpenAIProvider:
         kwargs["stream_options"] = {"include_usage": True}
 
         try:
-            stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
-            try:
+            async with await self._client.chat.completions.create(**kwargs) as stream:  # type: ignore[call-overload]
                 # 按 tool_call index 累积增量片段：{idx: {"id": ..., "name": ..., "arguments": ...}}
                 tc_acc: dict[int, dict[str, str]] = {}
                 model = ""
@@ -237,11 +236,6 @@ class OpenAIProvider:
                     model=model,
                     finish_reason=finish_reason or "stop",
                 )
-            finally:
-                # 确保流与底层连接释放：async_generator.aclose() 或 AsyncStream.close()
-                _close = getattr(stream, "aclose", None) or getattr(stream, "close", None)
-                if _close is not None:
-                    await _close()
         except Exception as e:
             raise wrap_provider_error(e) from e
 

@@ -15,6 +15,7 @@
    对 MCP 工具，如果传入了 ``schema``（含 ``annotations``），则：
    - ``destructiveHint`` → 需要审批（FR-A3）；
    - ``readOnlyHint`` → 不需审批（FR-A4，除非被显式策略覆盖：``approval_tools`` / ``approval_mcp_tools`` 优先）；
+   - annotations 存在但两 hint 均为 ``False`` → fail-safe 需要审批（FR-A5）；
    - 缺 ``annotations``（``None``）→ fail-safe 需要审批（FR-A5）；
    - ``schema=None``（内置工具）→ 跳过注解裁决，走既有路径（FR-A2 AD-2，零回归）；
 6. **沙箱**（``sandbox_tools``）—— 需沙箱 → ``SANDBOX_REQUIRED``（无论是否已授权，mode 均
@@ -236,10 +237,11 @@ class PolicyEngine:
 
         优先级（前者短路）：
         1. 显式策略命中（``approval_tools`` 含该工具，或开启 ``approval_mcp_tools`` 且为 MCP 工具）；
-        2. MCP 工具 + ``schema.annotations.destructiveHint`` → 需审批；
-        3. MCP 工具 + ``schema.annotations.readOnlyHint`` → 放行（免审批）；
-        4. MCP 工具 + ``schema.annotations is None`` → fail-safe 需审批；
-        5. ``schema`` 为 ``None``（V1 内置工具 / 未知工具）→ 跳过注解裁决，走既有路径（零回归）。
+        2. MCP 工具 + ``schema.annotations.destructiveHint`` → 需审批（FR-A3）；
+        3. MCP 工具 + ``schema.annotations.readOnlyHint`` → 放行（免审批，FR-A4）；
+        4. MCP 工具 + annotations 存在但两 hint 均为 False → fail-safe 需审批（FR-A5）；
+        5. MCP 工具 + ``schema.annotations is None`` → fail-safe 需审批（FR-A5）；
+        6. ``schema`` 为 ``None``（V1 内置工具 / 未知工具）→ 跳过注解裁决，走既有路径（零回归）。
         """
         # 1) 显式策略始终优先。
         if call.name in self.approval_tools:
@@ -256,7 +258,10 @@ class PolicyEngine:
             # 2b) readOnlyHint → 免审批（FR-A4）。
             if ann is not None and ann.readOnlyHint:
                 return False
-            # 2c) 缺 annotations（None）→ fail-safe 需审批（FR-A5）。
+            # 2c) annotations 存在但两个 hint 均为 False → fail-safe 需审批（FR-A5）。
+            if ann is not None:
+                return True
+            # 2d) 缺 annotations（None）→ fail-safe 需审批（FR-A5）。
             if ann is None:
                 return True
 
@@ -276,6 +281,8 @@ class PolicyEngine:
             ann = schema.annotations
             if ann is not None and ann.destructiveHint:
                 return f"MCP tool '{call.name}' requires approval (destructiveHint)."
+            if ann is not None:
+                return f"MCP tool '{call.name}' requires approval (annotations present, neither hint set; fail-safe)."
             if ann is None:
                 return f"MCP tool '{call.name}' requires approval (no annotations; fail-safe)."
 

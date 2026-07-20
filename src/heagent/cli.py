@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
     from typing import Any
 
+    from heagent.engine.context import RunContext
     from heagent.providers.base import BaseProvider
     from heagent.types import TokenUsage
 
@@ -175,17 +176,30 @@ def _build_loop(
 
     scheduler: CronScheduler | None = None
     if session is not None and settings.cron_enabled and cron_store:
+        # C-3: cron 不再反向依赖 agent——job_runner 由本层注入，cron 仅依赖协议类型。
+        async def _run_job(prompt: str, run_context: RunContext) -> None:
+            loop = AgentLoop(
+                provider,
+                max_iterations=max_iterations,
+                middlewares=[retry_mw],
+                skills=skills,
+                facts=facts,
+                profile=profile,
+                compressor=compressor,
+                context_dir=os.getcwd(),
+                soul=soul,
+                cron_store=cron_store,
+                engine=engine,
+                run_context=run_context,
+            )
+            await loop.run(prompt)
+
         scheduler = CronScheduler(
             cron_store,
             provider,
             tick_seconds=settings.cron_tick_seconds,
             engine=engine,
-            skills=skills,
-            facts=facts,
-            profile=profile,
-            compressor=compressor,
-            soul=soul,
-            cron_store=cron_store,
+            job_runner=_run_job,
         )
 
     loop = AgentLoop(

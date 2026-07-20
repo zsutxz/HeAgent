@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,9 +12,6 @@ from heagent.providers.base import BaseProvider
 from heagent.providers.openai import OpenAIProvider, _parse_tool_calls, _to_openai_messages, _to_openai_tools
 from heagent.providers.retry import retry_with_backoff
 from heagent.types import Message, Role, ToolSchema
-
-if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
 
 
 def _mock_usage(p: int = 10, c: int = 5, t: int = 15) -> SimpleNamespace:
@@ -58,6 +54,30 @@ def _mock_chunk(
 
 def _mock_tool_call(tc_id: str = "call_1", name: str = "run", arguments: str = '{"cmd":"ls"}') -> SimpleNamespace:
     return SimpleNamespace(id=tc_id, function=SimpleNamespace(name=name, arguments=arguments))
+
+
+class _FakeAsyncStream:
+    """兼容 ``async with`` 的假流对象（模拟 OpenAI SDK AsyncStream 的双重协议）。"""
+
+    def __init__(self, chunks: list[SimpleNamespace]) -> None:
+        self._chunks = chunks
+        self._idx = 0
+
+    def __aiter__(self) -> _FakeAsyncStream:
+        return self
+
+    async def __anext__(self) -> SimpleNamespace:
+        if self._idx >= len(self._chunks):
+            raise StopAsyncIteration
+        chunk = self._chunks[self._idx]
+        self._idx += 1
+        return chunk
+
+    async def __aenter__(self) -> _FakeAsyncStream:
+        return self
+
+    async def __aexit__(self, *args: object) -> None:
+        pass
 
 
 class TestHelpers:
@@ -137,12 +157,9 @@ class TestStream:
     async def test_stream_yields_chunks(self, mock_cls: MagicMock) -> None:
         mock_client = AsyncMock()
         mock_cls.return_value = mock_client
-
-        async def fake_stream(**kwargs: object) -> AsyncIterator[object]:
-            for c in ["Hello", " World"]:
-                yield _mock_chunk(content=c)
-
-        mock_client.chat.completions.create = AsyncMock(side_effect=fake_stream)
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=_FakeAsyncStream([_mock_chunk(content="Hello"), _mock_chunk(content=" World")])
+        )
 
         p = OpenAIProvider(api_key="sk-test")
         chunks = [c async for c in p.stream([Message(role=Role.USER, content="hi")])]

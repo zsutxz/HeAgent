@@ -17,23 +17,26 @@ from __future__ import annotations
 import contextlib
 import re
 import shutil
-from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from pydantic import BaseModel, Field
 
 from heagent.engine.persist import atomic_write_text
 
 
-@dataclass
-class SkillContent:
-    """解析后的技能结构化字段。"""
+class SkillContent(BaseModel):
+    """解析后的技能结构化字段。
+
+    使用 Pydantic BaseModel（项目硬约束：数据模型一律 Pydantic，不得用 dataclass）。
+    """
 
     name: str
     description: str
     pattern: str
     steps: list[str]
     created: str
-    tags: list[str] = field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     usage_count: int = 0
     last_used: str = ""
 

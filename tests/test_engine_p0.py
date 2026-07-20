@@ -291,23 +291,19 @@ class TestCronDedup:
         job = store.create_job("say hi", "* * * * *")
         store.add(job)
 
-        class CountingProvider(StubProvider):
-            def __init__(self) -> None:
-                super().__init__([_final("ok"), _final("ok")])
-                self.calls = 0
+        call_count = 0
 
-            async def send(self, messages: list[Message], *, tools=None) -> ProviderResponse:
-                self.calls += 1
-                return await super().send(messages, tools=tools)
+        async def run_job(prompt: str, ctx: RunContext) -> None:
+            nonlocal call_count
+            call_count += 1
 
-        provider = CountingProvider()
-        scheduler = CronScheduler(store, provider, engine=engine, context_dir=str(workspace_dir))
+        scheduler = CronScheduler(store, StubProvider([_final("ok")]), engine=engine, job_runner=run_job)
         due = datetime(2026, 6, 23, 10, 15, 0)
 
         await scheduler._execute_job(job, now=due)
         await scheduler._execute_job(job, now=due)
 
-        assert provider.calls == 1
+        assert call_count == 1
 
 
 class TestRuntimeBindings:
@@ -711,10 +707,10 @@ class TestPolicyAnnotationGate:
             parameters={},
             annotations=ToolAnnotations(idempotentHint=True),
         )
-        # annotations存在(非None),非destructive/readOnly→DIRECT
-        # fail-safe(APPROVAL_REQUIRED)仅在schema.annotations is None时触发
+        # annotations 存在(非None)但 destructiveHint/readOnlyHint 均为 False → fail-safe 需审批
+        # idempotentHint 不影响裁决（policy 不读取该字段）
         verdict = policy.evaluate_tool_call(self._MCP_CALL, schema=schema)
-        assert verdict.mode is ToolExecutionMode.DIRECT
+        assert verdict.mode is ToolExecutionMode.APPROVAL_REQUIRED
 
     def test_wildcard_approval_grants_mcp_tool(self) -> None:
         policy = PolicyEngine()

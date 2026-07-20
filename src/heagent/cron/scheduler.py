@@ -4,13 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from heagent.engine import EngineContainer
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable
+
     from heagent.cron.jobs import CronJob, JobStore
+    from heagent.engine.context import RunContext
     from heagent.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
@@ -18,9 +22,17 @@ logger = logging.getLogger(__name__)
 # stop() 关停硬上界（task 挂死兜底）——对齐 MCP _DEFAULT_SHUTDOWN_TIMEOUT / sandbox _REAP_WAIT_TIMEOUT
 _DEFAULT_STOP_TIMEOUT: float = 5.0
 
+# JobRunner: agent 层注入的 job 执行协议（prompt + run_context → awaitable）。
+# cron 模块不再反向依赖 agent——runner 由 cli.py 实例化时注入。
+JobRunner = Callable[[str, "RunContext"], "Awaitable[None]"]
+
 
 class CronScheduler:
-    """Periodic scheduler that runs due cron jobs through AgentLoop."""
+    """Periodic scheduler that runs due cron jobs through an injected JobRunner.
+
+    C-3 修正：cron 不再反向依赖 agent。runner 由上层（cli.py）注入，cron 仅依赖
+    provider / engine / 协议类型，保持 DAG 方向一致。
+    """
 
     def __init__(
         self,
@@ -30,7 +42,7 @@ class CronScheduler:
         tick_seconds: int = 60,
         engine: EngineContainer | None = None,
         stop_timeout: float = _DEFAULT_STOP_TIMEOUT,
-        **loop_kwargs: object,
+        job_runner: JobRunner | None = None,
     ) -> None:
         if stop_timeout <= 0:
             # 非正值会让 _await_stop 的 wait 立即返回（task 仍 pending）→ 不给 cancel 任何收尾
@@ -40,8 +52,8 @@ class CronScheduler:
         self._provider = provider
         self._tick_seconds = tick_seconds
         self._stop_timeout = stop_timeout
-        self._loop_kwargs = loop_kwargs
         self._engine = engine or EngineContainer.default()
+        self._job_runner = job_runner
         self._task: asyncio.Task[None] | None = None
         self._running = False
 
@@ -106,6 +118,10 @@ class CronScheduler:
 
     async def _execute_job(self, job: CronJob, *, now: datetime) -> None:
         """Execute one due job if the execution ledger grants the lease."""
+        if self._job_runner is None:
+            logger.warning("CronScheduler has no job_runner injected; skipping job '%s'", job.id)
+            return
+
         key = f"cron:{job.id}:{now.strftime('%Y-%m-%dT%H:%M')}"
         claim = await self._engine.ledger.acquire(
             key,
@@ -128,15 +144,7 @@ class CronScheduler:
             workspace_root=str(getattr(self._engine, "workspace_root", "") or ""),
         )
         try:
-            from heagent.agent.loop import AgentLoop
-
-            loop = AgentLoop(
-                self._provider,
-                engine=self._engine,
-                run_context=run_context,
-                **self._loop_kwargs,  # type: ignore[arg-type]
-            )
-            await loop.run(job.prompt)
+            await self._job_runner(job.prompt, run_context)
             success = True
         except Exception as exc:
             await self._engine.ledger.fail(key, str(exc), metadata={"job_id": job.id, "cron": job.cron})
