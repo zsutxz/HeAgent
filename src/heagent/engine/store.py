@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -26,6 +27,8 @@ from pydantic import BaseModel, Field
 from heagent.engine.context import RunContext, RunStatus  # noqa: TC001
 from heagent.engine.persist import atomic_write_text, load_json_model
 from heagent.types import Message, ToolResult  # noqa: TC001
+
+logger = logging.getLogger(__name__)
 
 
 class RunSnapshot(BaseModel):
@@ -132,12 +135,20 @@ class RunStore:
         store 中**的 run（断链视为根）；每个根携带其完整子树。传 ``root_id``：返回以该 run
         为根的子树（单元素列表；未知 run 返回空列表）。输出确定：按 sorted id 访问，故同一
         父下的子节点亦按 id 排序。
+
+        .. note::
+
+           损坏或解析失败的 run 快照记录在跳过时记 ``logger.warning``（含 run_id），
+           不阻塞其余正常 run 的树构造。这与 :meth:`load` 的单条容错策略一致。
         """
         # 第一趟：为每个 run 建节点（带 parent_run_id / status）。
         nodes: dict[str, RunNode] = {}
         for run_id in await self.list_runs():
             snapshot = await self.load(run_id)
             if snapshot is None:
+                # 文件存在但解析失败（损坏 JSON / schema 不匹配）→ 记日志后跳过，
+                # 不阻塞其余正常 run 的树构造（P1-2 修复：显性可观测替代静默丢失）。
+                logger.warning("Skipping corrupted or unreadable run snapshot: %s", run_id)
                 continue
             ctx = snapshot.context
             nodes[run_id] = RunNode(

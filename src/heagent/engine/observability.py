@@ -41,10 +41,20 @@ class EngineEvent(BaseModel):
 
 
 class EventObserver(Protocol):
-    """引擎事件的观察者接口（结构化鸭子类型）。"""
+    """引擎事件的观察者接口（结构化鸭子类型）。
+
+    实现须知：
+        ``handle`` 由 ``EventBus.emit`` 在调用方协程中**同步派发**、不另起 task。
+        自定义观察者的 ``handle`` **不得**做阻塞 I/O 或耗时 CPU 计算——阻塞会直接
+        拖慢 agent 主循环。默认 ``LoggingObserver`` 的 ``handle`` 仅调 ``logger.log``，
+        是安全的（P1-3 协议约束标注）。
+    """
 
     def handle(self, event: EngineEvent) -> None:
-        """消费一个事件。"""
+        """消费一个事件。
+
+        该方法被 ``EventBus.emit`` 在当前协程上下文中同步调用；**不得阻塞**。
+        """
 
 
 class LoggingObserver:

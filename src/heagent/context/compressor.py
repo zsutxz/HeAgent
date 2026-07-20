@@ -150,15 +150,19 @@ class ContextCompressor:
 
         # 从末尾向前取消息（最新消息最重要），直到接近安全阈值（或不截断时全部取出）
         for m in reversed(messages):
-            text = f"{m.role.value}: {m.content}" if m.content else ""
-            if not text and not m.tool_calls:
-                continue
+            # 用 parts 列表组装消息文本：先 content（含角色前缀）、再逐条 tool_call
+            # ——避免 content 与 tool_calls 内嵌 content 重复（P1-1 修复）。
+            parts: list[str] = []
+            if m.content:
+                parts.append(f"{m.role.value}: {m.content}")
             if m.tool_calls:
                 for tc in m.tool_calls:
-                    tool_text = f"tool_call: {tc.name}({json.dumps(tc.arguments, ensure_ascii=False)})"
-                    if m.content:
-                        tool_text = f"{m.content}\n{tool_text}"
-                    text = tool_text if not text else f"{text}\n{tool_text}"
+                    parts.append(
+                        f"tool_call: {tc.name}({json.dumps(tc.arguments, ensure_ascii=False)})"
+                    )
+            if not parts:
+                continue
+            text = "\n".join(parts)
 
             msg_tokens = per_message_overhead + _estimate_tokens(text)
             # 每条 tool_call 附加 JSON 结构开销（大括号、引号、逗号、函数调用包裹等）
