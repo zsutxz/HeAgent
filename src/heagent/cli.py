@@ -251,7 +251,7 @@ async def _run_chat(
                 await scheduler.start()
             while True:
                 try:
-                    user_input = input("> ")
+                    user_input = await asyncio.to_thread(input, "> ")
                 except (KeyboardInterrupt, EOFError):
                     click.echo("\nBye!")
                     break

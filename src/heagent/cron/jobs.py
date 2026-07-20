@@ -12,6 +12,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from heagent.engine.persist import atomic_write_text
+
 
 class CronJob(BaseModel):
     """定时任务定义。"""
@@ -89,10 +91,9 @@ class JobStore:
         return [CronJob(**j) for j in data]
 
     def _save_all(self, jobs: list[CronJob]) -> None:
-        """将所有任务保存到 JSON 文件。"""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
+        """将所有任务保存到 JSON 文件（原子写，防崩溃中途截断 JSON）。"""
         data = [j.model_dump() for j in jobs]
-        self._path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(self._path, json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def _iso_now() -> str:

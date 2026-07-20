@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from heagent.engine.persist import atomic_write_text
+
 
 class ProfileStore:
     """用户画像存储管理器，支持分节更新。"""
@@ -26,9 +28,8 @@ class ProfileStore:
         return self._path.read_text(encoding="utf-8").strip()
 
     def save(self, content: str) -> None:
-        """覆盖保存完整的用户画像。"""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._path.write_text(content, encoding="utf-8")
+        """覆盖保存完整的用户画像（原子写）。"""
+        atomic_write_text(self._path, content)
 
     def update_section(self, section: str, value: str) -> None:
         """更新或追加指定节的值。

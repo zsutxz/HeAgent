@@ -19,8 +19,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_GIT_TIMEOUT = 60  # 只读 git 操作的硬上界（秒），防凭据提示/远端不可达/巨型 diff 无限挂起
+
+
 async def _run_git(*args: str, cwd: Path | None = None) -> str:
-    """执行 git 子命令，返回 stdout 文本；失败抛 RuntimeError。"""
+    """执行 git 子命令，返回 stdout 文本；失败或超时抛 RuntimeError。"""
     proc = await asyncio.create_subprocess_exec(
         "git",
         *args,
@@ -28,11 +31,23 @@ async def _run_git(*args: str, cwd: Path | None = None) -> str:
         stderr=asyncio.subprocess.PIPE,
         cwd=cwd or workspace_root(),
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_GIT_TIMEOUT)
+    except TimeoutError:
+        # wait_for 仅取消 await、不杀子进程——须显式终止防僵尸，再报超时
+        try:
+            proc.kill()
+            await proc.wait()
+        except ProcessLookupError:
+            pass
+        except Exception:
+            pass
+        raise RuntimeError(f"git {' '.join(args)} timed out after {_GIT_TIMEOUT}s") from None
     if proc.returncode != 0:
-        err = stderr.decode().strip() or f"git {' '.join(args)} failed with code {proc.returncode}"
+        detail = stderr.decode("utf-8", errors="replace").strip()
+        err = detail or f"git {' '.join(args)} failed with code {proc.returncode}"
         raise RuntimeError(err)
-    return stdout.decode().strip()
+    return stdout.decode("utf-8", errors="replace").strip()
 
 
 def _validate_git_path(file_path: str) -> str:

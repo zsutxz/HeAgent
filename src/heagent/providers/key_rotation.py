@@ -45,21 +45,6 @@ class KeyRotatingProvider:
         """当前活跃的 Provider 实例。"""
         return self._providers[self._current_index]
 
-    def _advance(self) -> bool:
-        """切换到下一个密钥。全部耗尽返回 False。"""
-        if self._current_index < len(self._providers) - 1:
-            old = self._current_index
-            self._current_index += 1
-            logger.info(
-                "Key rotation: %s (#%d) -> %s (#%d)",
-                self._providers[old].get_metadata().name,
-                old,
-                self.current.get_metadata().name,
-                self._current_index,
-            )
-            return True
-        return False
-
     def _is_rotation_error(self, error: Exception) -> bool:
         """判断是否为可触发密钥轮换的错误（429/401）。"""
         if not isinstance(error, ProviderError):
@@ -80,20 +65,17 @@ class KeyRotatingProvider:
         last_error: Exception | None = None
         start = self._current_index
 
-        for _ in range(len(self._providers)):
+        for idx in range(start, len(self._providers)):
+            provider = self._providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
             try:
-                return await self.current.send(messages, tools=tools)
+                resp = await provider.send(messages, tools=tools)
+                self._current_index = idx  # 粘性：停在生效的 key 上（原 _advance 后不复位）
+                return resp
             except Exception as e:
                 if not self._is_rotation_error(e):
                     raise
                 last_error = e
-                logger.warning(
-                    "Key #%d failed (rotatable): %s",
-                    self._current_index,
-                    e,
-                )
-                if not self._advance():
-                    break
+                logger.warning("Key #%d failed (rotatable): %s", idx, e)
 
         # 恢复原始索引
         self._current_index = start
@@ -107,12 +89,14 @@ class KeyRotatingProvider:
     ) -> AsyncIterator[ProviderResponse]:
         """流式调用的密钥轮换版本。"""
         start = self._current_index
-        for _ in range(len(self._providers)):
+        for idx in range(start, len(self._providers)):
+            provider = self._providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
             delivered = False
             try:
-                async for chunk in self.current.stream(messages, tools=tools):
+                async for chunk in provider.stream(messages, tools=tools):
                     delivered = True
                     yield chunk
+                self._current_index = idx  # 粘性：停在生效的 key 上
                 return
             except Exception as e:
                 if delivered:
@@ -123,13 +107,7 @@ class KeyRotatingProvider:
                     raise wrap_provider_error(e) from e
                 if not self._is_rotation_error(e):
                     raise
-                logger.warning(
-                    "Key #%d stream failed (rotatable): %s",
-                    self._current_index,
-                    e,
-                )
-                if not self._advance():
-                    break
+                logger.warning("Key #%d stream failed (rotatable): %s", idx, e)
         self._current_index = start
         raise ProviderError("All keys exhausted for stream")
 

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from heagent.engine.persist import atomic_write_text
+
 
 class FactStore:
     """追加式事实记忆存储，带关键词去重。"""
@@ -31,10 +33,9 @@ class FactStore:
             overlap = fact_words & set(ef.lower().split())  # 关键词交集
             if len(overlap) / max(len(fact_words), 1) > 0.7:  # 70% 阈值
                 return False
-        # 追加写入（不覆盖已有内容）
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._path, "a", encoding="utf-8") as f:
-            f.write(f"- {fact}\n")
+        # 追加写入（原子写整文件，防崩溃中途截断）
+        prior = self._path.read_text(encoding="utf-8") if self._path.exists() else ""
+        atomic_write_text(self._path, prior + f"- {fact}\n")
         return True
 
     def load(self) -> list[str]:

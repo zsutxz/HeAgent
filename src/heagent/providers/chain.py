@@ -88,16 +88,17 @@ class ProviderChain:
         last_error: Exception | None = None
         start = self._current_index  # 记录起始索引，失败后恢复
 
-        for _ in range(len(self._providers)):
+        for idx in range(start, len(self._providers)):
+            provider = self._providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
             try:
-                resp = await self.current.send(messages, tools=tools)
+                resp = await provider.send(messages, tools=tools)
                 self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
                 return resp
             except Exception as e:
                 category = classify_exception(e)
                 logger.warning(
                     "Provider %s failed (%s): %s",
-                    self.current.get_metadata().name,
+                    provider.get_metadata().name,
                     category.value,
                     e,
                 )
@@ -106,8 +107,6 @@ class ProviderChain:
                     self._current_index = start
                     _raise_provider_error(e)
                 last_error = e
-                if not self._advance():
-                    break
 
         # 所有 Provider 均失败（均为可回退错误）→ 恢复索引，抛出最后的错误
         self._current_index = start
@@ -128,10 +127,11 @@ class ProviderChain:
         """
         start = self._current_index
         last_error: Exception | None = None
-        for _ in range(len(self._providers)):
+        for idx in range(start, len(self._providers)):
+            provider = self._providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
             delivered = False
             try:
-                async for chunk in self.current.stream(messages, tools=tools):
+                async for chunk in provider.stream(messages, tools=tools):
                     delivered = True  # 已从当前 Provider 取得 chunk，回退将产生重复输出
                     yield chunk
                 self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
@@ -144,7 +144,7 @@ class ProviderChain:
                 category = classify_exception(e)
                 logger.warning(
                     "Provider %s stream failed (%s): %s",
-                    self.current.get_metadata().name,
+                    provider.get_metadata().name,
                     category.value,
                     e,
                 )
@@ -152,8 +152,6 @@ class ProviderChain:
                     self._current_index = start
                     _raise_provider_error(e)
                 last_error = e
-                if not self._advance():
-                    break
         self._current_index = start
         if last_error is not None:
             _raise_provider_error(last_error)

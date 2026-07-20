@@ -110,7 +110,7 @@ async def skill_list() -> str:
     if not names:
         return "No skills stored yet. Use skill_create to add one."
 
-    def _build_lines():
+    def _build_lines() -> list[str]:
         lines: list[str] = []
         for name in names:
             parsed = store.parse(name)
@@ -147,7 +147,7 @@ async def skill_curate(days: str = "30") -> str:
     if not stale:
         return f"No stale skills found (all used within {stale_days} days)."
 
-    def _build_curate_lines():
+    def _build_curate_lines() -> list[str]:
         lines = [f"Found {len(stale)} stale skill(s) (unused for {stale_days}+ days):\n"]
         for name in stale:
             parsed = store.parse(name)

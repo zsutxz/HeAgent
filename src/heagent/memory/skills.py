@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from heagent.engine.persist import atomic_write_text
+
 
 @dataclass
 class SkillContent:
@@ -115,7 +117,7 @@ class SkillStore:
 
         content = "\n".join(fm_lines) + "\n" + "\n".join(body_lines)
         md_path = skill_dir / "SKILL.md"
-        md_path.write_text(content, encoding="utf-8")
+        atomic_write_text(md_path, content)
         return str(md_path)
 
     def load(self, name: str) -> str | None:

@@ -173,67 +173,75 @@ class OpenAIProvider:
 
         try:
             stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
-            # 按 tool_call index 累积增量片段：{idx: {"id": ..., "name": ..., "arguments": ...}}
-            tc_acc: dict[int, dict[str, str]] = {}
-            model = ""
-            finish_reason = ""
-            final_usage = _ZERO_USAGE
+            try:
+                # 按 tool_call index 累积增量片段：{idx: {"id": ..., "name": ..., "arguments": ...}}
+                tc_acc: dict[int, dict[str, str]] = {}
+                model = ""
+                finish_reason = ""
+                final_usage = _ZERO_USAGE
 
-            async for chunk in stream:
-                if not chunk.choices:
-                    # usage-bearing sentinel chunk sent by OpenAI at end of stream
-                    if chunk.usage:
-                        final_usage = _build_usage(chunk.usage)
-                    if chunk.model:
-                        model = chunk.model
-                    continue
+                async for chunk in stream:
+                    if not chunk.choices:
+                        # usage-bearing sentinel chunk sent by OpenAI at end of stream
+                        if chunk.usage:
+                            final_usage = _build_usage(chunk.usage)
+                        if chunk.model:
+                            model = chunk.model
+                        continue
 
-                delta = chunk.choices[0].delta
-                if chunk.choices[0].finish_reason:
-                    finish_reason = chunk.choices[0].finish_reason or ""
+                    delta = chunk.choices[0].delta
+                    if chunk.choices[0].finish_reason:
+                        finish_reason = chunk.choices[0].finish_reason or ""
 
-                # 增量累积 tool_calls（OpenAI 分多个 chunk 逐步发送）
-                if getattr(delta, "tool_calls", None):
-                    for tc in delta.tool_calls:
-                        idx: int = tc.index
-                        if idx not in tc_acc:
-                            tc_acc[idx] = {"id": "", "name": "", "arguments": ""}
-                        if tc.id:
-                            tc_acc[idx]["id"] = tc.id
-                        if tc.function:
-                            if tc.function.name:
-                                tc_acc[idx]["name"] = tc.function.name
-                            if tc.function.arguments:
-                                tc_acc[idx]["arguments"] += tc.function.arguments
+                    # 增量累积 tool_calls（OpenAI 分多个 chunk 逐步发送）
+                    if getattr(delta, "tool_calls", None):
+                        for tc in delta.tool_calls:
+                            idx: int = tc.index
+                            if idx not in tc_acc:
+                                tc_acc[idx] = {"id": "", "name": "", "arguments": ""}
+                            if tc.id:
+                                tc_acc[idx]["id"] = tc.id
+                            if tc.function:
+                                if tc.function.name:
+                                    tc_acc[idx]["name"] = tc.function.name
+                                if tc.function.arguments:
+                                    tc_acc[idx]["arguments"] += tc.function.arguments
 
-                # 文本内容即时下推（tool_calls 留在最终 chunk 统一产出）
-                if delta.content:
-                    yield ProviderResponse(
-                        content=delta.content,
-                        tool_calls=[],
-                        usage=_ZERO_USAGE,
-                        model=chunk.model,
-                        finish_reason="",
-                    )
+                    # 文本内容即时下推（tool_calls 留在最终 chunk 统一产出）
+                    if delta.content:
+                        yield ProviderResponse(
+                            content=delta.content,
+                            tool_calls=[],
+                            usage=_ZERO_USAGE,
+                            model=chunk.model,
+                            finish_reason="",
+                        )
 
-            # 流结束：产出最终 chunk，携带完整的累积 tool_calls + usage + finish_reason
-            tool_calls: list[ToolCall] = []
-            for idx in sorted(tc_acc.keys()):
-                tc = tc_acc[idx]
-                if tc["id"] and tc["name"]:
-                    try:
-                        args: object = json.loads(tc["arguments"]) if tc["arguments"] else {}
-                    except json.JSONDecodeError:
-                        args = {}
-                    tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
+                # 流结束：产出最终 chunk，携带完整的累积 tool_calls + usage + finish_reason
+                tool_calls: list[ToolCall] = []
+                for idx in sorted(tc_acc.keys()):
+                    tc = tc_acc[idx]
+                    if tc["id"] and tc["name"]:
+                        try:
+                            parsed: object = json.loads(tc["arguments"]) if tc["arguments"] else {}
+                        except json.JSONDecodeError:
+                            parsed = {}
+                        # 参数必须是 JSON 对象；畸形输入（数组/字符串/数字）退化为空 dict
+                        args: dict[str, object] = parsed if isinstance(parsed, dict) else {}
+                        tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
 
-            yield ProviderResponse(
-                content="",
-                tool_calls=tool_calls,
-                usage=final_usage,
-                model=model,
-                finish_reason=finish_reason or "stop",
-            )
+                yield ProviderResponse(
+                    content="",
+                    tool_calls=tool_calls,
+                    usage=final_usage,
+                    model=model,
+                    finish_reason=finish_reason or "stop",
+                )
+            finally:
+                # 确保流与底层连接释放：async_generator.aclose() 或 AsyncStream.close()
+                _close = getattr(stream, "aclose", None) or getattr(stream, "close", None)
+                if _close is not None:
+                    await _close()
         except Exception as e:
             raise wrap_provider_error(e) from e
 

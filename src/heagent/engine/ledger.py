@@ -74,6 +74,10 @@ class ExecutionLedger:
     def __init__(self, base_dir: str = ".heagent/ledger") -> None:
         # 账本根目录；按需在 _save() 时创建。
         self._base = Path(base_dir)
+        # 进程内互斥：串行化 acquire/complete/fail/heartbeat 的「读-改-写」，避免并发
+        # 同 key（如 LLM 重发 dup tool_call.id 经 gather）的 TOCTOU 互斥失效。
+        # 仅进程内有效；跨进程共享同一 ledger 目录须 OS 级文件锁兜底。
+        self._lock = asyncio.Lock()
 
     async def acquire(
         self,
@@ -92,63 +96,67 @@ class ExecutionLedger:
 
         否则（无记录 / 已失败 / 租约已过期）→ 置 RUNNING、设新租约、返回 acquired=True。
         """
-        existing = await self.get(key)
-        if existing is not None:
-            if existing.status == ExecutionStatus.COMPLETED:
-                return LedgerClaim(acquired=False, reason="already completed", record=existing)
-            if existing.status == ExecutionStatus.RUNNING and not self._is_expired(existing):
-                return LedgerClaim(acquired=False, reason="lease active", record=existing)
-            record = existing.model_copy(deep=True)
-        else:
-            record = ExecutionRecord(key=key, scope=scope)
+        async with self._lock:
+            existing = await self.get(key)
+            if existing is not None:
+                if existing.status == ExecutionStatus.COMPLETED:
+                    return LedgerClaim(acquired=False, reason="already completed", record=existing)
+                if existing.status == ExecutionStatus.RUNNING and not self._is_expired(existing):
+                    return LedgerClaim(acquired=False, reason="lease active", record=existing)
+                record = existing.model_copy(deep=True)
+            else:
+                record = ExecutionRecord(key=key, scope=scope)
 
-        now = iso_now()
-        record.scope = scope
-        record.status = ExecutionStatus.RUNNING
-        record.run_id = run_id
-        record.started_at = now
-        record.updated_at = now
-        record.finished_at = None
-        record.error = None
-        record.metadata = dict(metadata or {})
-        record.lease_expires_at = (datetime.now() + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
-        await self._save(record)
-        return LedgerClaim(acquired=True, record=record)
+            now = iso_now()
+            record.scope = scope
+            record.status = ExecutionStatus.RUNNING
+            record.run_id = run_id
+            record.started_at = now
+            record.updated_at = now
+            record.finished_at = None
+            record.error = None
+            record.metadata = dict(metadata or {})
+            record.lease_expires_at = (datetime.now() + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
+            await self._save(record)
+            return LedgerClaim(acquired=True, record=record)
 
     async def complete(self, key: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
         """标记一个键为 COMPLETED（幂等短路的最终态）。无记录时自动创建。"""
-        record = await self.get(key) or ExecutionRecord(key=key)
-        record.status = ExecutionStatus.COMPLETED
-        record.updated_at = iso_now()
-        record.finished_at = record.updated_at
-        record.lease_expires_at = None
-        if metadata is not None:
-            record.metadata = dict(metadata)
-        await self._save(record)
-        return record
+        async with self._lock:
+            record = await self.get(key) or ExecutionRecord(key=key)
+            record.status = ExecutionStatus.COMPLETED
+            record.updated_at = iso_now()
+            record.finished_at = record.updated_at
+            record.lease_expires_at = None
+            if metadata is not None:
+                record.metadata = dict(metadata)
+            await self._save(record)
+            return record
 
     async def fail(self, key: str, error: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
         """标记一个键为 FAILED 并记录错误（FAILED 可被后续 acquire 重新占用）。"""
-        record = await self.get(key) or ExecutionRecord(key=key)
-        record.status = ExecutionStatus.FAILED
-        record.updated_at = iso_now()
-        record.finished_at = record.updated_at
-        record.lease_expires_at = None
-        record.error = error
-        if metadata is not None:
-            record.metadata = dict(metadata)
-        await self._save(record)
-        return record
+        async with self._lock:
+            record = await self.get(key) or ExecutionRecord(key=key)
+            record.status = ExecutionStatus.FAILED
+            record.updated_at = iso_now()
+            record.finished_at = record.updated_at
+            record.lease_expires_at = None
+            record.error = error
+            if metadata is not None:
+                record.metadata = dict(metadata)
+            await self._save(record)
+            return record
 
     async def heartbeat(self, key: str, *, lease_seconds: int = 120) -> ExecutionRecord | None:
         """为进行中的记录续租；非 RUNNING（已完成 / 失败 / 不存在）返回 None。"""
-        record = await self.get(key)
-        if record is None or record.status != ExecutionStatus.RUNNING:
-            return None
-        record.updated_at = iso_now()
-        record.lease_expires_at = (datetime.now() + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
-        await self._save(record)
-        return record
+        async with self._lock:
+            record = await self.get(key)
+            if record is None or record.status != ExecutionStatus.RUNNING:
+                return None
+            record.updated_at = iso_now()
+            record.lease_expires_at = (datetime.now() + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
+            await self._save(record)
+            return record
 
     async def get(self, key: str) -> ExecutionRecord | None:
         """按幂等键加载一条记录；不存在或损坏则返回 None。"""

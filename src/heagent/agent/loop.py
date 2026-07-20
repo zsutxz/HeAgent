@@ -28,7 +28,6 @@ from heagent.agent.tool_execution import execute_tool_call, execute_tools, invok
 from heagent.config import get_settings
 from heagent.context.window_reset import WindowReset, WindowResetConfig
 from heagent.engine import EngineContainer, RunContext, RunStatus
-from heagent.engine.store import RunSnapshot
 from heagent.exceptions import BudgetExceeded
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
@@ -40,6 +39,7 @@ if TYPE_CHECKING:
     from heagent.context.compressor import ContextCompressor
     from heagent.context.session import SessionStore
     from heagent.cron.jobs import JobStore
+    from heagent.engine.store import RunSnapshot
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
     from heagent.memory.skills import SkillStore

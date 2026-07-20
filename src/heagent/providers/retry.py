@@ -32,15 +32,15 @@ class ErrorCategory(StrEnum):
 def _classify(status: int | None, message: str) -> ErrorCategory:
     """根据状态码和消息文本分类错误的纯函数（供 classify_error/classify_exception 共享）。
 
-    分类优先级：429 > 401 > 5xx > 其他（默认 NON_TRANSIENT）
+    分类优先级：429 > 401/403 > 5xx > 其他（默认 NON_TRANSIENT）
     """
     msg = message.lower()
 
     # 限流：429 状态码或消息中包含 rate/429
     if status == 429 or "rate" in msg or "429" in msg:
         return ErrorCategory.RATE_LIMITED
-    # 认证失败：401 状态码或消息中包含 auth/401
-    if status == 401 or "auth" in msg or "401" in msg:
+    # 认证失败：401/403 状态码或消息中包含 auth/401/forbidden
+    if status in (401, 403) or "auth" in msg or "401" in msg or "forbidden" in msg:
         return ErrorCategory.AUTH_FAILED
     # 临时错误：5xx 状态码或超时/连接/过载关键词。
     # OpenAI SDK 的 APITimeoutError.message="Request timed out."（含 "timed out" 不含 "timeout"）、
