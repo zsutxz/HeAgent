@@ -76,7 +76,6 @@ def _prompt_startup_provider(provider: SwitchableProvider) -> None:
     # Default selection matches ACTIVE_PROVIDER (or first if not set)
     default_idx = names.index(provider.active) + 1
 
-    click.echo("", err=True)
     click.echo("Multiple providers available. Choose one:", err=True)
     for i, name in enumerate(names, 1):
         meta = info[name]
@@ -90,7 +89,7 @@ def _prompt_startup_provider(provider: SwitchableProvider) -> None:
             if 1 <= choice <= len(names):
                 provider.switch(names[choice - 1])
                 meta = provider.get_metadata()
-                click.echo(f"  → Using {provider.active} ({meta.model})\n", err=True)
+                click.echo(f"  → Using {provider.active} ({meta.model})", err=True)
                 return
             click.echo(f"  Please enter 1-{len(names)}", err=True)
         except (ValueError, click.Abort):
