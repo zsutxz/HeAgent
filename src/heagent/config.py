@@ -75,8 +75,6 @@ class Settings(BaseSettings):
     kimi_model: str = "moonshot-v1-8k"  # Kimi (Moonshot) 默认模型
 
     # ---- Anthropic 提示词缓存（FR-3） ----
-    # 对 system prompt 注入 cache_control 断点，降低重复输入成本。
-    # 使用不支持 cache_control 的 Anthropic 代理时应关闭。
     anthropic_prompt_caching: bool = True
 
     # ---- 多密钥池（逗号分隔存储，运行时解析为列表） ----
@@ -84,51 +82,55 @@ class Settings(BaseSettings):
     anthropic_api_keys: str = ""
 
     # ---- 框架运行参数 ----
-    max_iterations: int = Field(default=50, ge=1)  # Agent 循环最大迭代次数
-    compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)  # 上下文压缩触发阈值
-    max_context_tokens: int = Field(default=128000, ge=1)  # 模型上下文窗口大小（用于压缩判断）
-    shell_timeout: int = Field(default=120, ge=1)  # Shell 命令超时时间（秒）
+    max_iterations: int = Field(default=50, ge=1)
+    compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
+    max_context_tokens: int = Field(default=128000, ge=1)
+    shell_timeout: int = Field(default=120, ge=1)
 
     # ---- 重试策略参数 ----
-    retry_max_attempts: int = Field(default=3, ge=1)  # 最大重试次数
-    retry_base_delay: float = Field(default=1.0, ge=0.0)  # 重试基础延迟（秒）
-    retry_max_delay: float = Field(default=30.0, ge=0.0)  # 重试最大延迟（秒）
+    retry_max_attempts: int = Field(default=3, ge=1)
+    retry_base_delay: float = Field(default=1.0, ge=0.0)
+    retry_max_delay: float = Field(default=30.0, ge=0.0)
 
     # ---- 技能系统参数 ----
-    skill_match_threshold: float = Field(default=0.3, ge=0.0, le=1.0)  # 自动调用关键词匹配阈值
-    skill_max_auto_invoke: int = Field(default=3, ge=0)  # 每轮最多自动注入技能数
+    skill_match_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
+    skill_max_auto_invoke: int = Field(default=3, ge=0)
 
     # ---- 上下文文件参数 ----
-    context_files_enabled: bool = Field(default=True)  # 是否自动加载项目上下文文件
+    context_files_enabled: bool = Field(default=True)
 
     # ---- 记忆提醒参数 ----
-    memory_nudge_enabled: bool = Field(default=True)  # 是否注入记忆保存提醒
+    memory_nudge_enabled: bool = Field(default=True)
 
     # ---- 技能策展参数 ----
-    skill_curator_stale_days: int = Field(default=30, ge=1)  # 多少天未使用视为过期
+    skill_curator_stale_days: int = Field(default=30, ge=1)
 
     # ---- Cron 调度参数 ----
-    cron_enabled: bool = Field(default=True)  # 是否启用 cron 调度
-    cron_tick_seconds: int = Field(default=60, ge=10)  # 调度器检查间隔（秒）
+    cron_enabled: bool = Field(default=True)
+    cron_tick_seconds: int = Field(default=60, ge=10)
 
-    # ---- MCP Client 参数（FR-7 门控；无 .mcp.json 时纯内置模式） ----
-    mcp_enabled: bool = Field(default=True)  # 是否启用 MCP server 连接
-    mcp_config_path: str = Field(default=".mcp.json")  # 声明式 MCP server 配置路径（项目根）
-    safety_blocked_tools: list[str] = Field(default_factory=list)  # SafetyGuard 工具名黑名单（正则，对所有工具生效）
+    # ---- MCP Client 参数 ----
+    mcp_enabled: bool = Field(default=True)
+    mcp_config_path: str = Field(default=".mcp.json")
+    safety_blocked_tools: list[str] = Field(default_factory=list)
+
+    # ---- 沙箱后端（FR-S4） ----
+    # "passthrough" = 零隔离（默认），"firejail" = FirejailBackend。
+    # CLI --sandbox flag 可覆盖；firejail 不可用时自动降级 Passthrough。
+    sandbox_backend: str = Field(default="passthrough")
+    # firejail 可执行文件路径（PATH 查找或绝对路径）。
+    sandbox_firejail_path: str = Field(default="firejail")
 
     @property
     def openai_key_pool(self) -> list[str]:
-        """解析逗号分隔的 OpenAI 多密钥池。"""
         return _parse_comma_list(self.openai_api_keys)
 
     @property
     def anthropic_key_pool(self) -> list[str]:
-        """解析逗号分隔的 Anthropic 多密钥池。"""
         return _parse_comma_list(self.anthropic_api_keys)
 
 
 def get_settings() -> Settings:
-    """获取配置单例。首次调用时从环境变量/.env 加载，后续返回缓存。"""
     global _settings
     if _settings is None:
         _settings = Settings()
@@ -136,6 +138,5 @@ def get_settings() -> Settings:
 
 
 def reset_settings() -> None:
-    """重置配置单例（主要用于测试隔离）。"""
     global _settings
     _settings = None

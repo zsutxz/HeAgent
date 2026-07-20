@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.exceptions import PolicyViolation, SafetyViolation
-from heagent.tools.sandbox import CommandRunner, bind_command_runner
+from heagent.tools.sandbox import CommandRunner, bind_command_runner, bind_sandbox_profile
 from heagent.types import ToolCall, ToolResult
 
 if TYPE_CHECKING:
@@ -217,15 +217,16 @@ class ToolExecutor:
     ) -> object:
         """经配置的沙箱后端执行工具。
 
-        默认实现：配置了 ``sandbox_runner`` 则经 :func:`bind_command_runner` 注入到 handler
-        （shell 等 handler 内 ``get_command_runner()`` 取到该后端），否则透传直接调 handler。
+        默认实现：配置了 ``sandbox_runner`` 则经 :func:`bind_command_runner` + :func:`bind_sandbox_profile`
+        注入到 handler（shell 等 handler 内 ``get_command_runner()`` / ``get_sandbox_profile()``
+        取到对应值），否则透传直接调 handler。
         子类可覆写本方法替换整套沙箱语义（见 ``tests/test_engine_p0.py`` 的 ``RecordingExecutor``）。
         ⚠ 默认 Passthrough 不产生 OS 级隔离；FirejailBackend 仅隔离 shell 子进程、Linux-only、
         非完美边界——须 OS 级沙箱兜底（见 CLAUDE.md）。
         """
         if self.sandbox_runner is None:
             return await handler(call)
-        with bind_command_runner(self.sandbox_runner):
+        with bind_command_runner(self.sandbox_runner), bind_sandbox_profile(profile):
             return await handler(call)
 
     def _policy_error(

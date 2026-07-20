@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import sys
 import time
 
@@ -14,9 +15,12 @@ from heagent.tools.sandbox import (
     PassthroughRunner,
     _kill_and_reap,
     bind_command_runner,
+    bind_sandbox_profile,
     configure_command_runner,
     get_command_runner,
+    get_sandbox_profile,
     reset_command_runner,
+    reset_sandbox_profile,
 )
 
 _PY = f'"{sys.executable}"'
@@ -26,8 +30,10 @@ _PY = f'"{sys.executable}"'
 def _isolate_command_runner():
     """每测试前后清进程级 fallback，防 ``configure`` 串扰。"""
     reset_command_runner()
+    reset_sandbox_profile()
     yield
     reset_command_runner()
+    reset_sandbox_profile()
 
 
 class TestPassthroughRunner:
@@ -345,6 +351,7 @@ class TestFirejailBackend:
         ``communicate`` **完成后**才读 ``proc.returncode``（D4 保真度：原断言对
         类属性 ``returncode=0`` 同义反复，不验证读取时序）。
         """
+        monkeypatch.setattr(shutil, "which", lambda p: "firejail")  # firejail 可用
         captured: dict[str, list[str]] = {}
 
         async def fake_exec(*argv: str, stdout=None, stderr=None):
@@ -372,6 +379,7 @@ class TestFirejailBackend:
     @pytest.mark.asyncio
     async def test_timeout_zero_raises_before_spawn(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """D3：``timeout<=0`` 在 exec 前抛 ``ValueError``（消息含传入值），不拉起 firejail 子进程。"""
+        monkeypatch.setattr(shutil, "which", lambda p: "firejail")
 
         async def fake_exec(*argv: str, stdout=None, stderr=None):
             raise AssertionError("timeout<=0 不应 spawn firejail 子进程")
@@ -384,6 +392,7 @@ class TestFirejailBackend:
     @pytest.mark.asyncio
     async def test_timeout_negative_raises_before_spawn(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """D3：负 timeout 在 exec 前同样抛 ``ValueError``（spec 要求 Passthrough + exec 两路径）。"""
+        monkeypatch.setattr(shutil, "which", lambda p: "firejail")
 
         async def fake_exec(*argv: str, stdout=None, stderr=None):
             raise AssertionError("负 timeout 不应 spawn firejail 子进程")
@@ -402,6 +411,7 @@ class TestFirejailBackend:
         原用 ``kill()`` 抛 ``PermissionError``，但 item 3 后 kill 权限失败被 ``_kill_and_reap`` 内部
         吞掉、不再逸出 caller；改用 ``wait()`` 抛 ``RuntimeError``（wait 侧逸出）。
         """
+        monkeypatch.setattr(shutil, "which", lambda p: "firejail")
 
         class _FakeProc:
             async def communicate(self) -> tuple[bytes, bytes]:
@@ -433,6 +443,7 @@ class TestFirejailBackend:
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """item 1（exec 路径对称）：TimeoutError 路径 reap 抛非取消异常仍返回超时串。"""
+        monkeypatch.setattr(shutil, "which", lambda p: "firejail")
 
         class _FakeProc:
             async def communicate(self) -> tuple[bytes, bytes]:
@@ -464,6 +475,7 @@ class TestFirejailBackend:
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """item 3（exec 路径对称）：``proc.kill()`` 权限失败不阻断后续 ``wait()``。"""
+        monkeypatch.setattr(shutil, "which", lambda p: "firejail")
 
         class _FakeProc:
             def __init__(self) -> None:
@@ -500,6 +512,264 @@ class TestFirejailBackend:
         assert any(rec.levelno == logging.WARNING and "kill failed" in rec.getMessage() for rec in caplog.records), (
             "kill 失败应记 warning 日志（item 3 observability ~ 需人工关注非预期 kill 失败）"
         )
+
+
+# ── S1-1: profiles dict + _build_argv ────────────────────────────────────────
+
+class TestFirejailProfiles:
+    """S1-1: profiles dict + _build_argv 纯函数。"""
+
+    def test_profiles_empty_by_default(self) -> None:
+        backend = FirejailBackend()
+        assert backend._profiles == {}
+
+    def test_profiles_stored_as_tuples(self) -> None:
+        backend = FirejailBackend(profiles={
+            "default": ["--private-tmp"],
+            "network-isolated": ["--net=none", "--private-tmp"],
+        })
+        assert backend._profiles == {
+            "default": ("--private-tmp",),
+            "network-isolated": ("--net=none", "--private-tmp"),
+        }
+
+    def test_build_argv_no_profile(self) -> None:
+        backend = FirejailBackend(extra_args=("--private-tmp",))
+        argv = backend._build_argv("ls", profile=None)
+        assert argv == ["firejail", "--private-tmp", "--", "sh", "-c", "ls"]
+
+    def test_build_argv_with_profile(self) -> None:
+        backend = FirejailBackend(profiles={"network-isolated": ("--net=none",)})
+        argv = backend._build_argv("curl evil.com", profile="network-isolated")
+        assert argv == ["firejail", "--net=none", "--", "sh", "-c", "curl evil.com"]
+
+    def test_build_argv_unknown_profile_only_extra_args(self) -> None:
+        backend = FirejailBackend(
+            extra_args=("--private-tmp",),
+            profiles={"default": ("--private-dev",)},
+        )
+        argv = backend._build_argv("ls", profile="nonexistent")
+        assert argv == ["firejail", "--private-tmp", "--", "sh", "-c", "ls"]
+
+    def test_build_argv_extra_and_profile_merged(self) -> None:
+        backend = FirejailBackend(
+            extra_args=("--private-tmp",),
+            profiles={"strict": ("--net=none", "--caps.drop=all")},
+        )
+        argv = backend._build_argv("ls", profile="strict")
+        assert argv == [
+            "firejail", "--private-tmp", "--net=none", "--caps.drop=all",
+            "--", "sh", "-c", "ls",
+        ]
+
+    def test_build_argv_pure_function_same_input_same_output(self) -> None:
+        backend = FirejailBackend(profiles={"x": ("-a",)})
+        a = backend._build_argv("cmd", profile="x")
+        b = backend._build_argv("cmd", profile="x")
+        assert a == b
+
+    def test_build_argv_custom_firejail_path(self) -> None:
+        backend = FirejailBackend(firejail_path="/usr/local/bin/firejail")
+        argv = backend._build_argv("ls", profile=None)
+        assert argv[0] == "/usr/local/bin/firejail"
+
+    def test_build_argv_with_workspace_root(self) -> None:
+        backend = FirejailBackend(workspace_root="/home/user/project")
+        argv = backend._build_argv("ls", profile=None)
+        assert "--private=/home/user/project" in argv
+        private_idx = argv.index("--private=/home/user/project")
+        dash_idx = argv.index("--")
+        assert private_idx < dash_idx
+
+    def test_build_argv_without_workspace_root(self) -> None:
+        backend = FirejailBackend()
+        argv = backend._build_argv("ls", profile=None)
+        assert not any(a.startswith("--private=") for a in argv)
+
+    def test_build_argv_workspace_and_profile_ordering(self) -> None:
+        backend = FirejailBackend(
+            extra_args=("--tmpfs=/tmp",),
+            profiles={"strict": ("--net=none",)},
+            workspace_root="/ws",
+        )
+        argv = backend._build_argv("ls", profile="strict")
+        extra_idx = argv.index("--tmpfs=/tmp")
+        private_idx = argv.index("--private=/ws")
+        net_idx = argv.index("--net=none")
+        dash_idx = argv.index("--")
+        assert extra_idx < private_idx < net_idx < dash_idx
+
+
+# ── S1-2: sandbox profile contextvar ────────────────────────────────────────
+
+class TestSandboxProfileSlot:
+    """S1-2: sandbox profile contextvar。"""
+
+    def test_default_is_none(self) -> None:
+        assert get_sandbox_profile() is None
+
+    def test_bind_sets_and_restores(self) -> None:
+        assert get_sandbox_profile() is None
+        with bind_sandbox_profile("network-isolated"):
+            assert get_sandbox_profile() == "network-isolated"
+        assert get_sandbox_profile() is None
+
+    def test_bind_none_is_transparent(self) -> None:
+        with bind_sandbox_profile(None):
+            assert get_sandbox_profile() is None
+
+    def test_nested_bind_restores_outer(self) -> None:
+        with bind_sandbox_profile("outer"):
+            assert get_sandbox_profile() == "outer"
+            with bind_sandbox_profile("inner"):
+                assert get_sandbox_profile() == "inner"
+            assert get_sandbox_profile() == "outer"
+
+    def test_bind_no_leak(self) -> None:
+        with bind_sandbox_profile("network-isolated"):
+            pass
+        assert get_sandbox_profile() is None
+
+
+# ── S1-2: executor profile injection ────────────────────────────────────────
+
+class TestExecutorProfileInjection:
+    """S1-2: executor execute_in_sandbox 注入 profile。"""
+
+    @pytest.mark.asyncio
+    async def test_executor_binds_profile_in_handler(self) -> None:
+        """executor 的 execute_in_sandbox 把 profile 注入 handler context。"""
+        from heagent.engine.executor import ToolExecutor
+        from heagent.tools.sandbox import FirejailBackend
+
+        captured_profile: list[str | None] = []
+
+        async def handler(call):
+            captured_profile.append(get_sandbox_profile())
+            return "ok"
+
+        executor = ToolExecutor(sandbox_runner=FirejailBackend())
+        await executor.execute_in_sandbox(
+            call=type("Call", (), {"name": "shell", "arguments": {"command": "echo hi"}})(),
+            profile="network-isolated",
+            handler=handler,
+        )
+        assert captured_profile == ["network-isolated"]
+
+    @pytest.mark.asyncio
+    async def test_executor_null_runner_no_profile_bind(self) -> None:
+        """sandbox_runner=None 时不经过 profile bind（快速路径）。"""
+        from heagent.engine.executor import ToolExecutor
+
+        captured: list[str | None] = []
+
+        async def handler(call):
+            captured.append(get_sandbox_profile())
+            return "ok"
+
+        executor = ToolExecutor()  # sandbox_runner=None
+        await executor.execute_in_sandbox(
+            call=type("Call", (), {"name": "shell", "arguments": {"command": "echo hi"}})(),
+            profile="network-isolated",
+            handler=handler,
+        )
+        # None runner paths do NOT bind profile — profile is meaningless without a runner
+        assert captured == [None]
+
+    @pytest.mark.asyncio
+    async def test_passthrough_runner_ignores_profile_in_handler(self) -> None:
+        """PassthroughRunner.run 无视 profile——行为完全不变。"""
+        from heagent.engine.executor import ToolExecutor
+
+        async def handler(call):
+            runner = get_command_runner()
+            assert isinstance(runner, PassthroughRunner)
+            p = get_sandbox_profile()
+            return f"profile={p}"
+
+        executor = ToolExecutor(sandbox_runner=PassthroughRunner())
+        result = await executor.execute_in_sandbox(
+            call=type("Call", (), {"name": "shell", "arguments": {"command": "echo hi"}})(),
+            profile="network-isolated",
+            handler=handler,
+        )
+        assert result == "profile=network-isolated"
+
+
+# ── S2-1: firejail availability detection ───────────────────────────────────
+
+class TestFirejailAvailability:
+    """S2-1: firejail 可用性检测 + 优雅降级。"""
+
+    def test_available_true_when_found(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(shutil, "which", lambda p: "/usr/bin/firejail")
+        backend = FirejailBackend()
+        assert backend.available is True
+        assert backend._resolved_path == "/usr/bin/firejail"
+
+    def test_available_false_when_not_found(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setattr(shutil, "which", lambda p: None)
+        with caplog.at_level(logging.WARNING, logger="heagent.tools.sandbox"):
+            backend = FirejailBackend()
+        assert backend.available is False
+        assert backend._resolved_path is None
+        assert any("firejail not found" in rec.getMessage() for rec in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_run_falls_back_when_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(shutil, "which", lambda p: None)
+
+        class _FakeProc:
+            def __init__(self):
+                self.returncode = 0
+
+            async def communicate(self):
+                return (b"hello", b"")
+
+        async def fake_shell(command: str, stdout=None, stderr=None):
+            return _FakeProc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
+        backend = FirejailBackend()
+        result = await backend.run("echo hi", timeout=10)
+        assert "exit_code=0" in result
+        assert "hello" in result
+
+    @pytest.mark.asyncio
+    async def test_run_uses_resolved_path_when_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(shutil, "which", lambda p: "/usr/bin/firejail")
+
+        captured_argv: list[list[str]] = []
+
+        async def fake_exec(*argv: str, stdout=None, stderr=None):
+            captured_argv.append(list(argv))
+
+            class _P:
+                def __init__(self):
+                    self.returncode = None
+
+                async def communicate(self):
+                    self.returncode = 0
+                    return (b"out", b"")
+
+            return _P()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        backend = FirejailBackend()
+        await backend.run("ls", timeout=10)
+        assert captured_argv[0][0] == "/usr/bin/firejail"
+
+
+# ── S3-2: workspace_root --private mapping ──────────────────────────────────
+
+class TestFirejailWorkspaceRoot:
+    """S3-2: workspace_root 自动映射 --private。"""
+
+    def test_workspace_root_default_none(self) -> None:
+        backend = FirejailBackend()
+        assert backend._workspace_root is None
 
 
 class TestRuntimeSlot:

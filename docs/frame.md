@@ -297,7 +297,9 @@ SafetyGuard
 
 #### sandbox.py — 子进程沙箱后端（CommandRunner）
 
-`shell` 等子进程工具的可注入执行抽象。默认 `PassthroughRunner`（等价 `create_subprocess_shell` 直接执行）；`SANDBOX_REQUIRED` 路径下 `ToolExecutor.execute_in_sandbox` 经 `bind_command_runner` 注入配置的后端（如 `FirejailBackend`：`firejail -- sh -c <cmd>`，OS 级隔离）。注入走 `RuntimeSlot`（contextvar），与 memory/skills 等工具族一致；`DIRECT` 路径不 bind，取默认 Passthrough。⚠ `FirejailBackend` 仅隔离 shell 子进程、Linux-only、非完美边界——须 OS 级沙箱兜底。
+`shell` 等子进程工具的可注入执行抽象。默认 `PassthroughRunner`（等价 `create_subprocess_shell` 直接执行）；`SANDBOX_REQUIRED` 路径下 `ToolExecutor.execute_in_sandbox` 经 `bind_command_runner` + `bind_sandbox_profile` 注入配置的后端与 profile 名。注入走 `RuntimeSlot`（contextvar），与 memory/skills 等工具族一致；`DIRECT` 路径不 bind，取默认 Passthrough。
+
+**FirejailBackend（2026-07-20 硬化）：** 新增 `profiles` dict（profile 名 → firejail 参数映射），使 `RoleSpec.sandbox_profile` 死字段激活；`shutil.which` 构造期检测 firejail 可用性，不可用时 `run()` 优雅降级到 Passthrough（warn + 不崩溃）；Linux 进程组 killing（`start_new_session` + `os.killpg`）解决 `sh -c "cmd &"` 子孙泄漏；自动 `--private=<workspace_root>` OS 级文件系统隔离。⚠ `FirejailBackend` 仅隔离 shell 子进程、Linux-only、非完美边界——须 OS 级沙箱兜底。
 
 #### path_safety.py — 工作区路径校验（文件工具）
 

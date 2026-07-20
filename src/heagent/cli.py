@@ -224,6 +224,7 @@ def _build_loop(
     *,
     session: SessionStore | None = None,
     engine: EngineContainer | None = None,
+    sandbox_backend: str | None = None,
 ) -> tuple[AgentLoop, CronScheduler | None]:
     """Build the loop runtime and optional cron scheduler."""
     skills = SkillStore()
@@ -232,7 +233,7 @@ def _build_loop(
     soul = _build_soul(soul_path)
     cron_store = JobStore() if settings.cron_enabled else None
     compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
-    engine = engine or EngineContainer.default(workspace_root=os.getcwd())
+    engine = engine or EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
     retry_mw = make_retry_middleware(
         max_attempts=settings.retry_max_attempts,
         base_delay=settings.retry_base_delay,
@@ -291,13 +292,15 @@ async def _run_single(
     max_iterations: int,
     soul_path: str | None = None,
     mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
+    sandbox_backend: str | None = None,
 ) -> None:
     """Run a single prompt and print the result."""
     settings = get_settings()
-    engine = EngineContainer.default(workspace_root=os.getcwd())
+    engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
 
     async with mcp_ctx or contextlib.nullcontext():
-        loop, _ = _build_loop(settings, provider, max_iterations, soul_path, engine=engine)
+        loop, _ = _build_loop(settings, provider, max_iterations, soul_path,
+                                  engine=engine, sandbox_backend=sandbox_backend)
         try:
             result = await loop.run(prompt, system=system)
             click.echo(result)
@@ -314,15 +317,18 @@ async def _run_chat(
     max_iterations: int,
     soul_path: str | None = None,
     mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
+    sandbox_backend: str | None = None,
 ) -> None:
     """Run interactive chat mode."""
     settings = get_settings()
     session_id = uuid.uuid4().hex[:8]
-    engine = EngineContainer.default(workspace_root=os.getcwd())
+    engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
 
     async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
         session = SessionStore()
-        loop, scheduler = _build_loop(settings, provider, max_iterations, soul_path, session=session, engine=engine)
+        loop, scheduler = _build_loop(settings, provider, max_iterations,
+                                        soul_path, session=session, engine=engine,
+                                        sandbox_backend=sandbox_backend)
         click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
         try:
@@ -500,12 +506,15 @@ def _guard_mcp_content(text: str) -> str:
 @click.option("--system", default=None, help="System prompt")
 @click.option("--max-iterations", type=int, default=None, help="Max agent loop iterations")
 @click.option("--soul", default=None, help="Path to custom SOUL.md personality file")
+@click.option("--sandbox", type=click.Choice(["passthrough", "firejail"]),
+              default="passthrough", help="Sandbox backend for shell execution")
 def main(
     prompt: str | None,
     model: str | None,
     system: str | None,
     max_iterations: int | None,
     soul: str | None,
+    sandbox: str | None = None,
 ) -> None:
     """Run HeAgent in single-shot or interactive mode."""
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -525,6 +534,19 @@ def main(
     resolved_iterations = max_iterations or settings.max_iterations
     provider = _build_provider(settings, model)
 
+    # --- 沙箱提醒：firejail 不可用时报显式 warning ---
+    sandbox_resolved = sandbox or settings.sandbox_backend
+    if sandbox_resolved == "firejail":
+        import shutil as _shutil
+        if _shutil.which(settings.sandbox_firejail_path) is None:
+            click.echo(
+                f" WARNING: firejail not found ({settings.sandbox_firejail_path}). Shell commands will run "
+                f"WITHOUT sandbox isolation. Install firejail: sudo apt install firejail",
+                err=True,
+            )
+        else:
+            click.echo(f" firejail sandbox ENABLED ({settings.sandbox_firejail_path})", err=True)
+
     # --- 启动时交互选择 provider（始终弹出，ACTIVE_PROVIDER 决定默认项） ---
     if isinstance(provider, SwitchableProvider):
         _prompt_startup_provider(provider)
@@ -536,6 +558,8 @@ def main(
         raise SystemExit(1) from None
 
     if prompt:
-        asyncio.run(_run_single(prompt, provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx))
+        asyncio.run(_run_single(prompt, provider, system, resolved_iterations,
+                              soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox))
     else:
-        asyncio.run(_run_chat(provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx))
+        asyncio.run(_run_chat(provider, system, resolved_iterations,
+                            soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox))

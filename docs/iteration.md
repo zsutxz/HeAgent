@@ -160,6 +160,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-07-17 | MCP Client V2 周期启动（Epic 14-16）；`ToolAnnotations` 数据模型 + `mapping.py` 透传管线（14-1）；`file_read` 新增 `offset`/`limit` 行范围参数 |
 | 2026-07-17 | 模板方法重构 `run`/`run_stream`（解耦异步/同步路径）；`PolicyEngine` annotations 感知写操作闸门（14-2：destructive→审批 / readOnly→放行 / 缺省→fail-safe）+ 零回归测试 + 安全声明同步（CLAUDE.md 标注 annotations 不可信）；`_bmad-output/` 旧版 sprint-status 清理；CLI 版本 banner |
 | 2026-07-17 | **Resources 桥接工具（Story 15-1/15-2）**：`_sessions` 查找表 + `_get_session` + `_handle_list_resources` 聚合 JSON 桥 + `_register_bridge_tool`（`readOnlyHint=True`）+ `_server_loop` 异常路径 session cleanup —— 14 个新测试，31/31 manager 测试通过，**全线 586/586 通过** |
+| 2026-07-20 | **Sandbox 硬化周期（profile 映射 / 降级 / 配置入口 / 进程组 kill / workspace 隔离）**——Epic S1-S4 全部 8 个 story 交付，新增 24 个 sandbox 专项测试，全量 751/751 通过 |
 | 2026-07-20 | **Resources 完成（Story 15-3/15-4）**：`guard_content` 提取为公共函数（供 `bridge_result`/`read_resource` 共用）+ `mcp__read_resource` 桥接工具 handler（`_handle_read_resource`，含 `server`/`uri` 参数 + `readOnlyHint`）+ 安全声明同步 + 配套测试（49 个 mapping + 46 个 manager 测试，**全线 607/607 通过**） |
 
 ---
