@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -154,12 +155,15 @@ class ContextCompressor:
                 continue
             if m.tool_calls:
                 for tc in m.tool_calls:
-                    tool_text = f"tool_call: {tc.name}({tc.arguments})"
+                    tool_text = f"tool_call: {tc.name}({json.dumps(tc.arguments, ensure_ascii=False)})"
                     if m.content:
                         tool_text = f"{m.content}\n{tool_text}"
                     text = tool_text if not text else f"{text}\n{tool_text}"
 
             msg_tokens = per_message_overhead + _estimate_tokens(text)
+            # 每条 tool_call 附加 JSON 结构开销（大括号、引号、逗号、函数调用包裹等）
+            if m.tool_calls:
+                msg_tokens += len(m.tool_calls) * 30
             if should_truncate and estimated + msg_tokens > safety_limit:
                 # 超过安全阈值——此条及更早的消息被截断
                 logger.debug(

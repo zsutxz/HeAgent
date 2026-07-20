@@ -1,5 +1,5 @@
 generated: 2026-07-17
-last_updated: 2026-07-23
+last_updated: 2026-07-20
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -29,7 +29,7 @@ development_status:
   16-4-slash-command-tests: done
   epic-16-retrospective: optional
 
-  # === 内置工具扩展周期（2026-07-23）===
+  # === 内置工具扩展周期（2026-07-20）===
 
   epic-17: done
   17-1-git-status-diff: done

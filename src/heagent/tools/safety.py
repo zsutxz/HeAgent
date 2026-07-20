@@ -40,7 +40,7 @@ _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
         r"\breboot\b",  # 重启
         r"\bdel\s+/[sS]",  # del /s 递归删除 (Windows)
         r"\brmdir\s+/[sS]",  # rmdir /s 递归删除 (Windows)
-        r":\(\)\{.*;\}",  # fork bomb (:(){ :|:& };:)
+        r":\(\)\s*\{[^}]*[;&|][^}]*\}",  # fork bomb — 花括号内含 ; & | 任一 shell 分隔符
         r">\s*/dev/sd",  # 直接写入磁盘设备
         r"\bchmod\s+(-R\s+)?000\b",  # chmod 000 移除所有权限
         r"\bchown\s+(-R\s+)?root\b",  # chown root 提权
