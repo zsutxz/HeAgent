@@ -47,6 +47,11 @@ class KeyRotatingProvider:
         """当前活跃的 Provider 实例。"""
         return self._providers[self._current_index]
 
+    @property
+    def key_count(self) -> int:
+        """密钥池中的 Provider 实例数。"""
+        return len(self._providers)
+
     @staticmethod
     def _is_rotation_error(error: Exception) -> bool:
         """判断是否为可触发密钥轮换的错误（RATE_LIMITED 或 AUTH_FAILED）。

@@ -54,15 +54,25 @@ class Settings(BaseSettings):
         """
         return (init_settings, dotenv_settings, env_settings, file_secret_settings)
 
+    # ---- 活跃 Provider（交互模式启动时默认使用哪个） ----
+    active_provider: str | None = None  # 启动时默认 provider，如 deepseek / kimi / openai / anthropic
+
     # ---- API 密钥（可选，在 Provider 使用时校验） ----
-    deepseek_api_key: str | None = None  # DeepSeek API Key（优先检测）
+    deepseek_api_key: str | None = None  # DeepSeek API Key
     openai_api_key: str | None = None  # OpenAI API Key
     anthropic_api_key: str | None = None  # Anthropic API Key
+    kimi_api_key: str | None = None  # Kimi (Moonshot AI) API Key
 
     # ---- API 基础 URL（用于 OpenAI 兼容的第三方服务） ----
     deepseek_base_url: str | None = None  # DeepSeek 默认 https://api.deepseek.com/v1
     openai_base_url: str | None = None  # OpenAI 兼容服务（如智谱 AI）
     anthropic_base_url: str | None = None  # Anthropic 代理地址
+    kimi_base_url: str | None = None  # Kimi 默认 https://api.moonshot.cn/v1
+
+    # ---- 各 Provider 默认模型（--model CLI 参数可覆盖） ----
+    default_model: str = "gpt-4o"  # OpenAI 默认模型名称
+    deepseek_model: str = "deepseek-chat"  # DeepSeek 默认模型
+    kimi_model: str = "moonshot-v1-8k"  # Kimi (Moonshot) 默认模型
 
     # ---- Anthropic 提示词缓存（FR-3） ----
     # 对 system prompt 注入 cache_control 断点，降低重复输入成本。
@@ -74,7 +84,6 @@ class Settings(BaseSettings):
     anthropic_api_keys: str = ""
 
     # ---- 框架运行参数 ----
-    default_model: str = "gpt-4o"  # 默认模型名称
     max_iterations: int = Field(default=50, ge=1)  # Agent 循环最大迭代次数
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)  # 上下文压缩触发阈值
     max_context_tokens: int = Field(default=128000, ge=1)  # 模型上下文窗口大小（用于压缩判断）

@@ -4,6 +4,7 @@ from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.base import BaseProvider, ProviderMetadata
 from heagent.providers.chain import ProviderChain
 from heagent.providers.openai import OpenAIProvider
+from heagent.providers.switchable import SwitchableProvider
 
 __all__ = [
     "AnthropicProvider",
@@ -11,4 +12,5 @@ __all__ = [
     "OpenAIProvider",
     "ProviderChain",
     "ProviderMetadata",
+    "SwitchableProvider",
 ]

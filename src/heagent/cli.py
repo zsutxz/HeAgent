@@ -29,9 +29,9 @@ from heagent.memory.profile import ProfileStore
 from heagent.memory.skills import SkillStore
 from heagent.memory.soul import SoulStore
 from heagent.providers.anthropic import AnthropicProvider
-from heagent.providers.chain import ProviderChain
 from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
+from heagent.providers.switchable import SwitchableProvider
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
 
 if TYPE_CHECKING:
@@ -61,35 +61,101 @@ def _print_usage(usage: TokenUsage | None) -> None:
     )
 
 
-def _build_provider(settings: Settings, model: str) -> BaseProvider:
-    """Build the best available provider chain from configured credentials."""
-    providers: list[BaseProvider] = []
+def _prompt_startup_provider(provider: SwitchableProvider) -> None:
+    """Prompt the user to select a provider at startup (interactive mode).
 
+    ACTIVE_PROVIDER in .env determines the default (press Enter to accept).
+    """
+    info = provider.info()
+    names = list(info.keys())
+
+    # If only one provider, no need to prompt
+    if len(names) <= 1:
+        return
+
+    # Default selection matches ACTIVE_PROVIDER (or first if not set)
+    default_idx = names.index(provider.active) + 1
+
+    click.echo("")
+    click.echo("Multiple providers available. Choose one:", err=True)
+    for i, name in enumerate(names, 1):
+        meta = info[name]
+        marker = "← default" if i == default_idx else ""
+        click.echo(f"  [{i}] {name}  ({meta['model']})  {marker}", err=True)
+
+    while True:
+        try:
+            raw = click.prompt("Select (number)", type=str, default=str(default_idx))
+            choice = int(raw)
+            if 1 <= choice <= len(names):
+                provider.switch(names[choice - 1])
+                meta = provider.get_metadata()
+                click.echo(f"  → Using {provider.active} ({meta.model})\n", err=True)
+                return
+            click.echo(f"  Please enter 1-{len(names)}", err=True)
+        except (ValueError, click.Abort):
+            raise SystemExit(0) from None
+
+
+def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
+    """Build the best available provider from configured credentials.
+
+    When multiple vendors are configured (DeepSeek + Kimi + OpenAI + Anthropic),
+    returns a ``SwitchableProvider`` allowing runtime switching via ``/model``.
+    When only one vendor is configured, returns that provider directly (or a
+    ``ProviderChain`` for fallback if key pools are set).
+
+    ``model`` overrides the per-provider default model (from CLI ``--model`` flag).
+    """
+    named: dict[str, BaseProvider] = {}
+
+    # -- DeepSeek --
     if settings.deepseek_api_key:
-        providers.append(
-            OpenAIProvider(
-                api_key=settings.deepseek_api_key,
-                model=model,
-                base_url=settings.deepseek_base_url or "https://api.deepseek.com/v1",
-            )
+        named["deepseek"] = OpenAIProvider(
+            api_key=settings.deepseek_api_key,
+            model=model or settings.deepseek_model,
+            base_url=settings.deepseek_base_url or "https://api.deepseek.com/v1",
         )
 
-    openai_provider = _build_openai_providers(settings, model)
+    # -- Kimi (Moonshot AI) --
+    if settings.kimi_api_key:
+        named["kimi"] = OpenAIProvider(
+            api_key=settings.kimi_api_key,
+            model=model or settings.kimi_model,
+            base_url=settings.kimi_base_url or "https://api.moonshot.cn/v1",
+        )
+
+    # -- OpenAI --
+    openai_provider = _build_openai_providers(settings, model or settings.default_model)
     if openai_provider:
-        providers.append(openai_provider)
+        named["openai"] = openai_provider
 
-    anthropic_provider = _build_anthropic_providers(settings, model)
+    # -- Anthropic --
+    anthropic_provider = _build_anthropic_providers(settings, model or settings.default_model)
     if anthropic_provider:
-        providers.append(anthropic_provider)
+        named["anthropic"] = anthropic_provider
 
-    if not providers:
+    if not named:
         click.echo(
-            "Error: No API key configured. Set DEEPSEEK_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
+            "Error: No API key configured. Set DEEPSEEK_API_KEY, KIMI_API_KEY, "
+            "OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
             err=True,
         )
         raise SystemExit(1)
 
-    return providers[0] if len(providers) == 1 else ProviderChain(providers)
+    if len(named) == 1:
+        return next(iter(named.values()))
+
+    # Multiple providers → switchable mode
+    default_name = settings.active_provider or next(iter(named.keys()))
+    if default_name not in named:
+        logger.warning(
+            "ACTIVE_PROVIDER=%s not configured (missing API key), falling back to %s",
+            default_name,
+            next(iter(named.keys())),
+        )
+        default_name = next(iter(named.keys()))
+    return SwitchableProvider(named, default=default_name)
 
 
 def _build_key_rotated(
@@ -273,10 +339,11 @@ async def _run_chat(
                 if not user_input.strip():
                     break
 
-                # Slash command dispatch
-                if user_input.startswith("/mcp-prompt"):
-                    await _handle_mcp_prompt(user_input, mcp_manager)
-                    continue
+                # ---- slash command dispatch ----
+                if user_input.startswith("/"):
+                    handled = await _handle_slash(user_input, provider, mcp_manager)
+                    if handled:
+                        continue
 
                 try:
                     async for event in loop.run_stream(user_input, system=system, session_id=session_id):
@@ -296,6 +363,63 @@ async def _run_chat(
             if scheduler:
                 await scheduler.stop()
 
+
+# ------------------------------------------------------------------
+# 斜杠命令路由
+# ------------------------------------------------------------------
+
+async def _handle_slash(
+    user_input: str,
+    provider: BaseProvider,
+    mcp_manager: Any,
+) -> bool:
+    """Route slash commands; returns True if handled, False to pass through."""
+    parts = user_input.split()
+    cmd = parts[0].lower() if parts else ""
+
+    if cmd == "/model":
+        await _handle_model_cmd(parts, provider)
+        return True
+
+    if cmd == "/mcp-prompt":
+        await _handle_mcp_prompt(user_input, mcp_manager)
+        return True
+
+    return False
+
+
+async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
+    """Handle /model slash command for runtime LLM switching.
+
+    Syntax:
+        /model                  - list all available providers
+        /model <name>           - switch to named provider
+    """
+    if not isinstance(provider, SwitchableProvider):
+        click.echo("[model] Only one provider configured; switching not available.", err=True)
+        return
+
+    if len(parts) == 1:
+        # 列出
+        info = provider.info()
+        click.echo("Available models:", err=True)
+        for name, meta in info.items():
+            marker = "→" if meta["active"] else " "
+            click.echo(f"  [{marker}] {name}  ({meta['model']})", err=True)
+        return
+
+    name = parts[1]
+    try:
+        provider.switch(name)
+        meta = provider.get_metadata()
+        click.echo(f"[model] Switched to {name} ({meta.model})", err=True)
+    except ValueError as exc:
+        click.echo(f"[model] {exc}", err=True)
+
+
+# ------------------------------------------------------------------
+# /mcp-prompt handler
+# ------------------------------------------------------------------
 
 def _format_prompt_args(args: list[dict[str, Any]]) -> str:
     """Format MCP Prompt arguments list for display."""
@@ -373,7 +497,7 @@ def _guard_mcp_content(text: str) -> str:
 
 @click.command()
 @click.argument("prompt", required=False)
-@click.option("--model", default=None, help="Model name (default: from settings or gpt-4o)")
+@click.option("--model", default=None, help="Model name (default: per-provider setting)")
 @click.option("--system", default=None, help="System prompt")
 @click.option("--max-iterations", type=int, default=None, help="Max agent loop iterations")
 @click.option("--soul", default=None, help="Path to custom SOUL.md personality file")
@@ -399,9 +523,12 @@ def main(
     _print_banner()
 
     settings = get_settings()
-    resolved_model = model or settings.default_model
     resolved_iterations = max_iterations or settings.max_iterations
-    provider = _build_provider(settings, resolved_model)
+    provider = _build_provider(settings, model)
+
+    # --- 启动时交互选择 provider（始终弹出，ACTIVE_PROVIDER 决定默认项） ---
+    if isinstance(provider, SwitchableProvider):
+        _prompt_startup_provider(provider)
 
     try:
         mcp_ctx = _mcp_lifecycle(settings)
