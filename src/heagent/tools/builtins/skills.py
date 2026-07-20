@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -59,14 +60,14 @@ async def skill_create(
     store = _store()
     if store is None:
         return "Error: skill tools not configured."
-    if store.load(name) is not None:
+    if await asyncio.to_thread(store.load, name) is not None:
         return f"Error: skill '{name}' already exists. Use skill_update to modify it."
     step_list = [step.strip() for step in steps.split("|") if step.strip()]
     if not step_list:
         return "Error: at least one step is required."
     tag_list = [tag.strip() for tag in tags.split("|") if tag.strip()] if tags else None
     try:
-        path = store.save(name, description, pattern, step_list, tags=tag_list)
+        path = await asyncio.to_thread(store.save, name, description, pattern, step_list, tags=tag_list)
     except ValueError as exc:
         return f"Error: {exc}"
     return f"Skill '{name}' created at {path}"
@@ -84,13 +85,16 @@ async def skill_update(
     store = _store()
     if store is None:
         return "Error: skill tools not configured."
-    if store.parse(name) is None:
+    if await asyncio.to_thread(store.parse, name) is None:
         return f"Error: skill '{name}' not found. Use skill_create first."
     description_value = description or None
     pattern_value = pattern or None
     step_list = [step.strip() for step in steps.split("|") if step.strip()] if steps else None
     tag_list = [tag.strip() for tag in tags.split("|") if tag.strip()] if tags else None
-    path = store.update(name, description=description_value, pattern=pattern_value, steps=step_list, tags=tag_list)
+    path = await asyncio.to_thread(
+        store.update, name,
+        description=description_value, pattern=pattern_value, steps=step_list, tags=tag_list,
+    )
     if path is None:
         return f"Error: failed to update skill '{name}'."
     return f"Skill '{name}' updated at {path}"
@@ -102,14 +106,19 @@ async def skill_list() -> str:
     store = _store()
     if store is None:
         return "Error: skill tools not configured."
-    names = store.list_skills()
+    names = await asyncio.to_thread(store.list_skills)
     if not names:
         return "No skills stored yet. Use skill_create to add one."
-    lines: list[str] = []
-    for name in names:
-        parsed = store.parse(name)
-        description = parsed.description if parsed is not None else "(unable to parse)"
-        lines.append(f"- {name}: {description}")
+
+    def _build_lines():
+        lines: list[str] = []
+        for name in names:
+            parsed = store.parse(name)
+            description = parsed.description if parsed is not None else "(unable to parse)"
+            lines.append(f"- {name}: {description}")
+        return lines
+
+    lines = await asyncio.to_thread(_build_lines)
     return "\n".join(lines)
 
 
@@ -119,7 +128,7 @@ async def skill_delete(name: str) -> str:
     store = _store()
     if store is None:
         return "Error: skill tools not configured."
-    if store.delete(name):
+    if await asyncio.to_thread(store.delete, name):
         return f"Skill '{name}' deleted."
     return f"Error: skill '{name}' not found."
 
@@ -134,16 +143,21 @@ async def skill_curate(days: str = "30") -> str:
         stale_days = int(days)
     except ValueError:
         return "Error: days must be a number."
-    stale = store.stale_skills(days=stale_days)
+    stale = await asyncio.to_thread(store.stale_skills, days=stale_days)
     if not stale:
         return f"No stale skills found (all used within {stale_days} days)."
-    lines = [f"Found {len(stale)} stale skill(s) (unused for {stale_days}+ days):\n"]
-    for name in stale:
-        parsed = store.parse(name)
-        if parsed is None:
-            lines.append(f"- {name}: (parse error)")
-        else:
-            lines.append(f"- {name}: used {parsed.usage_count}x, last: {parsed.last_used or 'never'}")
+
+    def _build_curate_lines():
+        lines = [f"Found {len(stale)} stale skill(s) (unused for {stale_days}+ days):\n"]
+        for name in stale:
+            parsed = store.parse(name)
+            if parsed is None:
+                lines.append(f"- {name}: (parse error)")
+            else:
+                lines.append(f"- {name}: used {parsed.usage_count}x, last: {parsed.last_used or 'never'}")
+        return lines
+
+    lines = await asyncio.to_thread(_build_curate_lines)
     return "\n".join(lines)
 
 
@@ -153,6 +167,6 @@ async def skill_archive(name: str) -> str:
     store = _store()
     if store is None:
         return "Error: skill tools not configured."
-    if store.archive(name):
+    if await asyncio.to_thread(store.archive, name):
         return f"Skill '{name}' archived to .heagent/skills/.archive/"
     return f"Error: skill '{name}' not found."

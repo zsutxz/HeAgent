@@ -79,7 +79,7 @@ class TestContextCompressor:
             _msg(Role.USER, "q3"),
             _msg(Role.ASSISTANT, "a3"),
         ]
-        result = await comp.compress(msgs, token_count=90, max_tokens=100)
+        result = await comp.compress(msgs, token_count=3600, max_tokens=4096)
         assert len(result) < len(msgs)
         assert result[0].content == "sys"
         assert "[Conversation summary]" in result[1].content
@@ -89,7 +89,7 @@ class TestContextCompressor:
     async def test_keep_recent_too_few_messages(self) -> None:
         comp = ContextCompressor(StubProvider(), threshold=0.1, keep_recent=10)
         msgs = [_msg(Role.USER, "q"), _msg(Role.ASSISTANT, "a")]
-        result = await comp.compress(msgs, token_count=90, max_tokens=100)
+        result = await comp.compress(msgs, token_count=3600, max_tokens=4096)
         assert result is msgs
 
     async def test_zero_max_tokens(self) -> None:
@@ -106,7 +106,7 @@ class TestContextCompressor:
             _msg(Role.USER, "q2"),
             _msg(Role.ASSISTANT, "a2"),
         ]
-        result = await comp.compress(msgs, token_count=90, max_tokens=100)
+        result = await comp.compress(msgs, token_count=3600, max_tokens=4096)
         assert "42" in result[0].content
 
     async def test_compress_does_not_orphan_tool_messages(self) -> None:
@@ -127,7 +127,7 @@ class TestContextCompressor:
             _tool_result("c2", "r2"),
             _msg(Role.ASSISTANT, "final"),
         ]
-        result = await comp.compress(msgs, token_count=90, max_tokens=100)
+        result = await comp.compress(msgs, token_count=3600, max_tokens=4096)
         assert _no_orphan_tool(result), "compressed history orphaned a tool message"
         assert len(result) < len(msgs)  # 确实发生了压缩
         assert result[-1].content == "final"
@@ -143,6 +143,6 @@ class TestContextCompressor:
             _tool_result("c1", "r1"),
             _tool_result("c1", "r1b"),
         ]
-        result = await comp.compress(msgs, token_count=90, max_tokens=100)
+        result = await comp.compress(msgs, token_count=3600, max_tokens=4096)
         assert result is msgs
         assert _no_orphan_tool(result)

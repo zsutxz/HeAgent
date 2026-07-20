@@ -193,7 +193,7 @@ class OpenAIProvider:
                     finish_reason = chunk.choices[0].finish_reason or ""
 
                 # 增量累积 tool_calls（OpenAI 分多个 chunk 逐步发送）
-                if delta.tool_calls:
+                if getattr(delta, "tool_calls", None):
                     for tc in delta.tool_calls:
                         idx: int = tc.index
                         if idx not in tc_acc:

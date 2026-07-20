@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -62,7 +63,8 @@ async def fact_add(fact: str) -> str:
     store = runtime.facts if runtime is not None else None
     if store is None:
         return "Error: fact tools not configured."
-    if store.add(fact):
+    added = await asyncio.to_thread(store.add, fact)
+    if added:
         return f"Fact saved: {fact}"
     return "Fact already exists (duplicate detected)."
 
@@ -74,5 +76,5 @@ async def profile_update(section: str, value: str) -> str:
     store = runtime.profile if runtime is not None else None
     if store is None:
         return "Error: profile tools not configured."
-    store.update_section(section, value)
+    await asyncio.to_thread(store.update_section, section, value)
     return f"Profile section '{section}' updated."

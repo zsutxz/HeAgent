@@ -219,9 +219,14 @@ async def _run_single(
 
     async with mcp_ctx or contextlib.nullcontext():
         loop, _ = _build_loop(settings, provider, max_iterations, soul_path, engine=engine)
-        result = await loop.run(prompt, system=system)
-        click.echo(result)
-        _print_usage(loop.last_usage)
+        try:
+            result = await loop.run(prompt, system=system)
+            click.echo(result)
+            _print_usage(loop.last_usage)
+        except BudgetExceeded as exc:
+            click.echo(f"[budget exceeded] {exc.message}", err=True)
+        except HeAgentError as exc:
+            click.echo(f"[error] {exc.message}", err=True)
 
 
 async def _run_chat(
