@@ -1,7 +1,12 @@
-"""可切换 Provider — 运行时在多个 LLM provider 之间手动切换。
+"""可切换 Provider — 运行时在多个 LLM provider 之间手动/自动切换。
 
-与 ``ProviderChain``（自动故障转移）不同，``SwitchableProvider`` 由用户主动控制
-使用哪个后端。在交互模式下通过 ``/model`` 命令切换；也可在代码中调用 ``switch()``。
+``SwitchableProvider`` 支持两种切换模式：
+  - **手动切换**：用户通过 ``/model`` 命令主动选择 provider。
+  - **自动回退**：当前 provider 触发限流 (429) 或瞬时错误时，自动尝试池中下一个
+    provider；成功后粘性停留在该 provider（后续调用不再浪费配额重试已限流的）。
+
+与 ``ProviderChain``（全自动、不复位）不同，``SwitchableProvider`` 以用户选择为
+默认起点，自动回退是「当前选择不可用时的应急接管」。
 
 每个命名 provider 持有独立的实例（含各自 API key、base_url、model），切换即时生效，
 不会丢失未完成的上下文。
@@ -12,7 +17,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from heagent.exceptions import ProviderError
 from heagent.providers.base import BaseProvider, ProviderMetadata, ProviderSummary
+from heagent.providers.retry import ErrorCategory, classify_exception, wrap_provider_error
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -23,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class SwitchableProvider:
-    """持有多个命名 provider 并可运行时切换。
+    """持有多个命名 provider 并可运行时切换（手动 + 自动回退）。
 
     实现了 ``BaseProvider`` 协议，对 ``AgentLoop`` 完全透明——它只看到「一个 provider」，
     切换发生在内部委托层。
@@ -38,6 +45,12 @@ class SwitchableProvider:
         await sp.send(messages)          # 使用 deepseek
         sp.switch("kimi")
         await sp.send(messages)          # 现在使用 kimi
+
+    自动回退示例：
+        # deepseek 触发 429 → 自动切到 kimi，后续调用粘性使用 kimi
+        await sp.send(messages)          # deepseek 429 → kimi 成功 → 粘性 kimi
+        await sp.send(messages)          # 直接走 kimi（不再重试 deepseek）
+        sp.switch("deepseek")            # 用户手动切回 deepseek（配额已刷新）
     """
 
     def __init__(self, providers: dict[str, BaseProvider], *, default: str) -> None:
@@ -98,6 +111,30 @@ class SwitchableProvider:
         """当前活跃的 provider 实例（内部使用）。"""
         return self._providers[self._active]
 
+    # ------------------------------------------------------------------
+    # 自动回退：按「活跃 → 池中其余」顺序尝试，限流/瞬时错误触发
+    # ------------------------------------------------------------------
+
+    def _ordered_names(self) -> list[str]:
+        """返回 provider 名称列表：活跃优先，其余保持注册顺序。"""
+        return [self._active] + [n for n in self._providers if n != self._active]
+
+    @staticmethod
+    def _is_fallback_error(error: Exception) -> bool:
+        """判断是否应触发自动回退（RATE_LIMITED 或 TRANSIENT）。
+
+        仅这两类错误会在切换 provider 后好转；AUTH_FAILED / NON_TRANSIENT 不回退。
+        """
+        return classify_exception(error) in (ErrorCategory.RATE_LIMITED, ErrorCategory.TRANSIENT)
+
+    def _note_fallback(self, from_name: str, to_name: str) -> None:
+        """记录自动回退并粘性停留到新 provider。"""
+        logger.warning(
+            "Auto-fallback: %s unavailable → switched to %s (sticky until /model or next failure)",
+            from_name,
+            to_name,
+        )
+
     # -- BaseProvider 协议实现 --
 
     async def send(
@@ -106,14 +143,35 @@ class SwitchableProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> ProviderResponse:
-        """委托给当前活跃 provider 的 send。
+        """发送请求，当前 provider 不可用时自动回退。
 
-        无需锁：``switch()`` 仅原子改写 ``self._active``（GIL 下单属性赋值），本方法先
-        捕获 ``provider = self._current`` 再 await——切换只影响后续 send/stream，已捕获的
-        provider 引用不受影响。原 ``_lock`` 横跨整个网络调用只会无谓串行化并发请求。
+        顺序：活跃 provider 优先 → 池中其余按注册顺序。
+        仅 RATE_LIMITED (429) 和 TRANSIENT (5xx/超时) 触发回退；
+        AUTH_FAILED / NON_TRANSIENT 直接上抛，不浪费时间重试。
+        成功回退后粘性停留在新 provider（后续调用不再重试已限流的旧 provider）。
         """
-        provider = self._current
-        return await provider.send(messages, tools=tools)
+        last_error: Exception | None = None
+        active_before = self._active
+
+        for name in self._ordered_names():
+            provider = self._providers[name]
+            try:
+                resp = await provider.send(messages, tools=tools)
+                if name != active_before:
+                    self._note_fallback(active_before, name)
+                    self._active = name  # 粘性停留
+                return resp
+            except Exception as e:
+                if not self._is_fallback_error(e):
+                    raise
+                logger.warning("Provider '%s' unavailable (%s), trying next...", name, classify_exception(e).value)
+                last_error = e
+
+        # 池耗尽：重置到原始活跃 provider，上抛最后一个错误
+        self._active = active_before
+        if last_error is not None:
+            raise wrap_provider_error(last_error) from last_error
+        raise ProviderError("All providers exhausted")
 
     async def stream(
         self,
@@ -121,14 +179,45 @@ class SwitchableProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> AsyncIterator[ProviderResponse]:
-        """委托给当前活跃 provider 的 stream。
+        """流式请求，自动回退版本。
 
-        在迭代前捕获当前 provider，保证整个 stream 生命周期使用同一实例——切换只对
-        下一次 send/stream 生效，已开始的 stream 不受影响（捕获引用，非锁）。
+        与 ``send()`` 回退逻辑相同，但追加「已下发 chunk → 不回退」约束：
+        一旦当前 provider 已产出任意 chunk，后续异常不回退——否则下一个 provider
+        从头重放会导致消费者收到重复前缀。
+        成功回退后同样粘性停留在新 provider。
         """
-        provider = self._current
-        async for chunk in provider.stream(messages, tools=tools):
-            yield chunk
+        last_error: Exception | None = None
+        active_before = self._active
+
+        for name in self._ordered_names():
+            provider = self._providers[name]
+            delivered = False
+            try:
+                async for chunk in provider.stream(messages, tools=tools):
+                    delivered = True
+                    yield chunk
+                if name != active_before:
+                    self._note_fallback(active_before, name)
+                    self._active = name  # 粘性停留
+                return
+            except Exception as e:
+                if delivered:
+                    # 已下发输出，重放会重复——不回退，直接上抛
+                    self._active = active_before
+                    raise
+                if not self._is_fallback_error(e):
+                    raise
+                logger.warning(
+                    "Provider '%s' stream unavailable (%s), trying next...",
+                    name,
+                    classify_exception(e).value,
+                )
+                last_error = e
+
+        self._active = active_before
+        if last_error is not None:
+            raise wrap_provider_error(last_error) from last_error
+        raise ProviderError("All providers exhausted for stream")
 
     def get_metadata(self) -> ProviderMetadata:
         """返回当前活跃 provider 的能力描述。"""
