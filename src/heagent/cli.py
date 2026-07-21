@@ -511,7 +511,7 @@ def _guard_mcp_content(text: str) -> str:
 @click.option("--max-iterations", type=int, default=None, help="Max agent loop iterations")
 @click.option("--soul", default=None, help="Path to custom SOUL.md personality file")
 @click.option("--sandbox", type=click.Choice(["passthrough", "firejail"]),
-              default="passthrough", help="Sandbox backend for shell execution")
+              default=None, help="Sandbox backend for shell execution (default: from SANDBOX_BACKEND setting)")
 def main(
     prompt: str | None,
     model: str | None,
