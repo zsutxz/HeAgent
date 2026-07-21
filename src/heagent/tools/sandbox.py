@@ -22,6 +22,7 @@ import logging
 import os
 import shutil
 import signal
+import subprocess
 import sys
 from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Protocol
@@ -207,6 +208,135 @@ class FirejailBackend:
         return await _run_subprocess_exec(argv, timeout=timeout)
 
 
+
+
+class WinJobBackend:
+    """Windows Job Objects sandbox backend (process-level isolation, Windows-only).
+
+    Uses Windows Job Object API to wrap child processes. When the job handle
+    is closed or parent exits, OS auto-terminates all child processes via
+    ``JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE``.
+
+    Gracefully degrades to :class:`PassthroughRunner` when unavailable.
+    """
+
+    def __init__(self) -> None:
+        self._available: bool | None = None
+
+    @staticmethod
+    def available() -> bool:
+        """Windows Job Objects available on current platform."""
+        if sys.platform != "win32":
+            return False
+        try:
+            import ctypes
+            _ = ctypes.windll.kernel32.CreateJobObjectW
+            return True
+        except (ImportError, AttributeError, OSError):
+            return False
+
+    async def run(self, command: str, *, timeout: int) -> str:
+        if not self.available():
+            logger.warning(
+                "WinJobBackend not available; falling back to Passthrough"
+            )
+            return await PassthroughRunner().run(command, timeout=timeout)
+
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.windll.kernel32
+
+        # ── Job Object constants ──
+        JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+
+        class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("PerProcessUserTimeLimit", ctypes.c_ulonglong),
+                ("PerJobUserTimeLimit", ctypes.c_ulonglong),
+                ("LimitFlags", ctypes.c_ulong),
+                ("MinimumWorkingSetSize", ctypes.c_size_t),
+                ("MaximumWorkingSetSize", ctypes.c_size_t),
+                ("ActiveProcessLimit", ctypes.c_ulong),
+                ("Affinity", ctypes.c_ulonglong),
+                ("PriorityClass", ctypes.c_ulong),
+                ("SchedulingClass", ctypes.c_ulong),
+            ]
+
+        class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+            _fields_ = [
+                ("BasicLimitInformation", JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                ("IoInfo", ctypes.c_byte * 48),
+                ("ProcessMemoryLimit", ctypes.c_size_t),
+                ("JobMemoryLimit", ctypes.c_size_t),
+                ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                ("PeakJobMemoryUsed", ctypes.c_size_t),
+            ]
+
+        # ── Create Job Object ──
+        hJob = kernel32.CreateJobObjectW(None, None)
+        if not hJob:
+            err = ctypes.get_last_error()
+            logger.error("CreateJobObject failed (err=%d), falling back to Passthrough", err)
+            return await PassthroughRunner().run(command, timeout=timeout)
+
+        try:
+            # Configure job limits
+            info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+
+            JobObjectExtendedLimitInformation = 9
+            ret = kernel32.SetInformationJobObject(
+                wintypes.HANDLE(hJob),
+                JobObjectExtendedLimitInformation,
+                ctypes.byref(info),
+                ctypes.sizeof(info),
+            )
+            if not ret:
+                err = ctypes.get_last_error()
+                logger.error("SetInformationJobObject failed (err=%d)", err)
+
+            # ── Start child process ──
+            proc = await asyncio.to_thread(
+                subprocess.Popen,
+                ["cmd", "/c", command],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            # Assign to job object
+            kernel32.AssignProcessToJobObject(
+                wintypes.HANDLE(hJob),
+                wintypes.HANDLE(int(proc._handle)),
+            )
+
+            # ── Wait for completion ──
+            try:
+                stdout, stderr = await asyncio.wait_for(
+                    asyncio.to_thread(proc.communicate),
+                    timeout=timeout,
+                )
+                return _format_result(proc.returncode, stdout, stderr)
+            except TimeoutError:
+                try:
+                    proc.kill()
+                    await asyncio.to_thread(proc.wait)
+                except Exception as _exc:
+                    logger.debug("timeout cleanup: kill/wait failed", exc_info=True)
+                return _TIMEOUT_RESULT.format(timeout=timeout)
+            except asyncio.CancelledError:
+                try:
+                    proc.kill()
+                    await asyncio.to_thread(proc.wait)
+                except BaseException:
+                    logger.debug("cancel cleanup: kill/wait failed", exc_info=True)
+                raise
+
+        finally:
+            kernel32.CloseHandle(wintypes.HANDLE(hJob))
+
+    def __repr__(self) -> str:
+        return f"WinJobBackend(available={self.available()})"
 # —— RuntimeSlot 注入 ——
 _command_runner_slot = RuntimeSlot[CommandRunner]("heagent_command_runner")
 _DEFAULT_RUNNER = PassthroughRunner()

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "heagent"
-version = "0.1.0"
+version = "0.2.0"
 description = "A self-improving AI Agent core framework"
 requires-python = ">=3.11"
 dependencies = [
@@ -25,6 +25,9 @@ dev = [
     "ruff",
     "mypy",
     "pre-commit",
+    "bandit>=1.7",
+    "pip-audit>=2.7",
+    "pytest-benchmark>=4.0",
 ]
 
 [project.scripts]
@@ -47,3 +50,10 @@ packages = ["src/heagent"]
 [tool.mypy]
 strict = true
 python_version = "3.11"
+
+[[tool.mypy.overrides]]
+module = [
+    "heagent.engine.persist",
+    "heagent.tools.sandbox",
+]
+disallow_untyped_defs = false

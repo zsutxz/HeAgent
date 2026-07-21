@@ -2,7 +2,41 @@ line-length = 120
 target-version = "py311"
 
 [lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking-imports
+    "C90",  # mccabe 圈复杂度
+    "S",    # flake8-bandit 安全规则
+]
 
 [lint.isort]
 known-first-party = ["heagent"]
+
+[lint.mccabe]
+max-complexity = 15
+
+[lint.per-file-ignores]
+# 安全规则在测试中放宽
+"tests/**/*.py" = ["S101", "S104", "S108", "S607"]
+# CLI 入口 S110
+"src/heagent/cli.py" = ["S110"]
+# 预存：git 工具超时清理中的 try-except-pass
+"src/heagent/tools/builtins/git.py" = ["S110"]
+# 预存：文件搜索中的 filesystem error 忽略
+"src/heagent/tools/builtins/search.py" = ["S112"]
+# 预存：非加密哈希（sha1 用于路径 safe hash，非安全场景）
+"src/heagent/engine/ledger.py" = ["S324"]
+# 预存：随机抖动（非加密场景）
+"src/heagent/providers/retry.py" = ["S311"]
+# 预存：复杂函数（合理业务复杂度）
+"src/heagent/agent/system_prompt.py" = ["C901"]
+"src/heagent/providers/openai.py" = ["C901"]
+# 预存：文件锁 B904/SIM105 风格选择（不影响正确性）+ TC003 runtime Path
+"src/heagent/engine/persist.py" = ["B904", "SIM105", "TC003"]
+# 预存：SIM 建议（不影响正确性）
+"src/heagent/memory/facts.py" = ["SIM108"]

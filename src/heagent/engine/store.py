@@ -72,6 +72,8 @@ class RunStore:
     def __init__(self, base_dir: str = ".heagent/runs") -> None:
         # 快照根目录；按需在 save() 时创建。
         self._base = Path(base_dir)
+        # 跨进程文件锁开关（经 EngineContainer.enable_file_locks 注入，V2）。
+        self._enable_locks: bool = False
 
     async def start(self, context: RunContext, *, prompt: str, system: str | None = None) -> str:
         """创建或覆盖一个 run 的初始快照，返回写入路径。"""
@@ -116,7 +118,7 @@ class RunStore:
         path = self._path(snapshot.context.run_id)
         payload = snapshot.model_dump(mode="json")
         text = json.dumps(payload, ensure_ascii=False, indent=2)
-        await asyncio.to_thread(atomic_write_text, path, text)
+        await asyncio.to_thread(atomic_write_text, path, text, lock=self._enable_locks)
         return str(path)
 
     async def load(self, run_id: str) -> RunSnapshot | None:

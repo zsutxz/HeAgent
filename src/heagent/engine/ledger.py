@@ -78,6 +78,8 @@ class ExecutionLedger:
         # 同 key（如 LLM 重发 dup tool_call.id 经 gather）的 TOCTOU 互斥失效。
         # 仅进程内有效；跨进程共享同一 ledger 目录须 OS 级文件锁兜底。
         self._lock = asyncio.Lock()
+        # 跨进程文件锁开关（经 EngineContainer.enable_file_locks 注入，V2）。
+        self._enable_locks: bool = False
 
     async def acquire(
         self,
@@ -197,7 +199,7 @@ class ExecutionLedger:
         """把一条记录原子写到磁盘（tmp + os.replace，防崩溃留半截）。"""
         payload = record.model_dump(mode="json")
         text = json.dumps(payload, ensure_ascii=False, indent=2)
-        await asyncio.to_thread(atomic_write_text, self._path(record.key), text)
+        await asyncio.to_thread(atomic_write_text, self._path(record.key), text, lock=self._enable_locks)
 
     def _path(self, key: str) -> Path:
         """幂等键 → 文件路径：用 sha1(key) 命名，规避 key 中的路径分隔符 / 特殊字符。"""

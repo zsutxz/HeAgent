@@ -1,0 +1,26 @@
+generated: 2026-07-21
+last_updated: 2026-07-21
+project: HeAgent
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/robustness-hardening/stories
+
+development_status:
+  # === 健壮性与质量硬化周期（2026-07-21）===
+
+  epic-18: backlog  # 健壮性硬化 (FR-A1~A5)
+  18-1-file-locking: backlog
+  18-2-cron-range: backlog
+  18-3-winjob-backend: backlog
+  18-4-safety-docs-deadcode: backlog
+  epic-18-retrospective: optional
+
+  epic-19: backlog  # 质量工程化 (FR-C1~C6)
+  19-1-coverage-90: backlog
+  19-2-ci-matrix: backlog
+  19-3-static-analysis: backlog
+  19-4-benchmark-complexity: backlog
+  19-5-docs-version-sync: backlog
+  epic-19-retrospective: optional
+
+action_items: []

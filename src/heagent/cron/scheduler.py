@@ -175,8 +175,9 @@ class CronScheduler:
             logger.info("One-shot cron job '%s' removed after execution", job.id)
 
     @staticmethod
+    @staticmethod
     def _matches(cron_expr: str, dt: datetime) -> bool:
-        """Evaluate a simple 5-field cron expression."""
+        """Evaluate a 5-field cron expression with range/step support (V2)."""
         parts = cron_expr.strip().split()
         if len(parts) != 5:
             return False
@@ -185,29 +186,107 @@ class CronScheduler:
         # _field_matches 对 "7" 做特判 equality 到 0（P1-12 修复）。
         cron_weekday = (dt.weekday() + 1) % 7  # Monday=1...Sunday=0
         cron_values = (dt.minute, dt.hour, dt.day, dt.month, cron_weekday)
-        return all(_field_matches(field_expr, actual) for field_expr, actual in zip(parts, cron_values, strict=True))
+        # 每个字段的合法范围（用于解析范围表达式）
+        field_ranges = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))
+        return all(
+            _field_matches(expr, value, min_val=rng[0], max_val=rng[1])
+            for expr, value, rng in zip(parts, cron_values, field_ranges, strict=True)
+        )
 
+def _field_matches(expr: str, value: int, *, min_val: int = 0, max_val: int = 59) -> bool:
+    """Return whether one cron field matches one numeric value.
 
-def _field_matches(expr: str, value: int) -> bool:
-    """Return whether one cron field matches one numeric value."""
-    for part in expr.split(","):
-        if part == "*":
-            return True
-        if part.startswith("*/"):
+    V2 扩展：支持范围表达式（``1-5``）和步进组合（``*/15`` / ``1-30/10``）。
+    内部走 ``_parse_field`` 统一解析 → 查值是否在展开列表中。
+    """
+    # weekday Sunday=7 兼容映射（P1-12 修复）
+    if expr.strip() == "7" and value == 0:
+        return True
+    return value in _parse_field(expr, min_val=min_val, max_val=max_val)
+
+def _parse_field(raw: str, *, min_val: int = 0, max_val: int = 59) -> list[int]:
+    """统一解析 cron 字段为展开数值列表（V2 新增）。
+
+    支持的语法：
+    - ``*`` → [min_val, ..., max_val]
+    - 单个数值 ``"5"`` → [5]
+    - 逗号列表 ``"1,3,5"`` → [1, 3, 5]
+    - 范围 ``"1-5"`` → [1, 2, 3, 4, 5]
+    - 步进 ``"*/15"`` → 从 min_val 开始每隔 step 的值
+    - 范围+步进 ``"1-30/10"`` → [1, 11, 21]
+    """
+    raw = raw.strip()
+    result: list[int] = []
+
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+
+        # 范围+步进: "1-30/10"
+        if "/" in part and "-" in part:
+            range_part, step_str = part.split("/", 1)
+            start_str, end_str = range_part.split("-", 1)
+            start, end, step = _validate_range_parts(start_str, end_str, step_str, min_val, max_val)
+            result.extend(range(start, end + 1, step))
+
+        # 纯步进: "*/15"
+        elif part.startswith("*/"):
             step_str = part[2:]
-            # "*/" 后无数字（如 "*/" 作为独立字段）→ 不匹配（P0-4 修复：不再 int("") 崩溃）
             if not step_str or not step_str.isdigit():
-                continue
+                raise ValueError(f"Invalid step in cron field: {part!r}")
             step = int(step_str)
-            if step > 0 and value % step == 0:
-                return True
-        elif part == "7" and value == 0:
-            # cron 标准：weekday Sunday=7 兼容映射（P1-12 修复）
-            return True
-        elif part.isdigit() and value == int(part):
-            return True
-    return False
+            if step <= 0:
+                raise ValueError(f"Cron step must be positive: {step}")
+            result.extend(range(min_val, max_val + 1, step))
 
+        # 纯范围: "1-5"
+        elif "-" in part:
+            start_str, end_str = part.split("-", 1)
+            start, end = _parse_range_bounds(start_str, end_str, min_val, max_val)
+            result.extend(range(start, end + 1))
+
+        # 通配符 "*"
+        elif part == "*":
+            result.extend(range(min_val, max_val + 1))
+
+        # 单个数值 "5"
+        elif part.isdigit():
+            v = int(part)
+            if v < min_val or v > max_val:
+                raise ValueError(f"Cron value {v} out of range [{min_val}, {max_val}]")
+            result.append(v)
+
+        else:
+            raise ValueError(f"Invalid cron field expression: {part!r}")
+
+    return sorted(set(result))
+
+
+def _parse_range_bounds(start_str: str, end_str: str, min_val: int, max_val: int) -> tuple[int, int]:
+    """解析并校验范围边界。"""
+    if not start_str.isdigit() or not end_str.isdigit():
+        raise ValueError(f"Invalid cron range: {start_str}-{end_str}")
+    start = int(start_str)
+    end = int(end_str)
+    if start < min_val or end > max_val:
+        raise ValueError(f"Cron range {start}-{end} out of [{min_val}, {max_val}]")
+    if start > end:
+        raise ValueError(f"Cron range start {start} > end {end}")
+    return start, end
+
+
+def _validate_range_parts(
+    start_str: str, end_str: str, step_str: str, min_val: int, max_val: int
+) -> tuple[int, int, int]:
+    """解析并校验范围+步进参数。"""
+    start, end = _parse_range_bounds(start_str, end_str, min_val, max_val)
+    if not step_str.isdigit():
+        raise ValueError(f"Invalid cron step: {step_str!r}")
+    step = int(step_str)
+    if step <= 0:
+        raise ValueError(f"Cron step must be positive: {step}")
+    return start, end, step
 
 def _iso_now() -> str:
     """当前时间的 ISO 格式字符串（供 _execute_job 使用，消除行内 import）。"""
