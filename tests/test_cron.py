@@ -11,7 +11,6 @@ import pytest
 
 from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
-from heagent.providers.base import ProviderMetadata
 from heagent.tools.builtins.cron import (
     configure_cron_tools,
     cron_add,
@@ -19,28 +18,9 @@ from heagent.tools.builtins.cron import (
     cron_remove,
     reset_cron_tools,
 )
-from heagent.types import Message, ProviderResponse, TokenUsage
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-
-class _StubProvider:
-    """最小 BaseProvider stub（满足 Protocol 结构；stop 测试用空 JobStore 不触发 job 执行）。"""
-
-    async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
-        return ProviderResponse(
-            content="stub",
-            usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
-            model="stub",
-            finish_reason="stop",
-        )
-
-    async def stream(self, messages: list[Message], *, tools: list[object] | None = None) -> object:
-        yield await self.send(messages, tools=tools)
-
-    def get_metadata(self) -> ProviderMetadata:
-        return ProviderMetadata(name="stub", model="stub")
 
 
 # ---- JobStore 测试 ----
@@ -219,9 +199,9 @@ class TestCronSchedulerStop:
         任何收尾机会即 ERROR 放弃（与 MCP shutdown_timeout<=0 同构误用）；构造期拒绝。"""
         store = JobStore(str(tmp_path / "jobs.json"))
         with pytest.raises(ValueError):
-            CronScheduler(store, _StubProvider(), stop_timeout=0)
+            CronScheduler(store, stop_timeout=0)
         with pytest.raises(ValueError):
-            CronScheduler(store, _StubProvider(), stop_timeout=-1)
+            CronScheduler(store, stop_timeout=-1)
 
     @pytest.mark.asyncio
     async def test_stop_bounded_when_tick_hangs(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -231,7 +211,7 @@ class TestCronSchedulerStop:
         已修：stop() 在 stop_timeout 后记 ERROR 放弃 → ~stop_timeout 返回。
         """
         store = JobStore(str(tmp_path / "jobs.json"))
-        scheduler = CronScheduler(store, _StubProvider(), tick_seconds=60, stop_timeout=0.05)
+        scheduler = CronScheduler(store, tick_seconds=60, stop_timeout=0.05)
 
         # 模拟 _check_and_execute 挂死且吞 CancelledError（不响应取消）——AgentLoop.run 内不可中断
         # await 的最小复现：except 捕取消后 await 永不返回的 future（asyncio 进入 except/finally 后
@@ -261,7 +241,7 @@ class TestCronSchedulerStop:
         wait 立即返回、无「关停超时」ERROR。
         """
         store = JobStore(str(tmp_path / "jobs.json"))
-        scheduler = CronScheduler(store, _StubProvider(), tick_seconds=60, stop_timeout=1.0)
+        scheduler = CronScheduler(store, tick_seconds=60, stop_timeout=1.0)
         await scheduler.start()
         await asyncio.sleep(0.05)  # 让 _tick_loop 进入 asyncio.sleep(60)
 

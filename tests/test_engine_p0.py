@@ -297,7 +297,7 @@ class TestCronDedup:
             nonlocal call_count
             call_count += 1
 
-        scheduler = CronScheduler(store, StubProvider([_final("ok")]), engine=engine, job_runner=run_job)
+        scheduler = CronScheduler(store, engine=engine, job_runner=run_job)
         due = datetime(2026, 6, 23, 10, 15, 0)
 
         await scheduler._execute_job(job, now=due)

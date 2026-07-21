@@ -15,7 +15,6 @@ if TYPE_CHECKING:
 
     from heagent.cron.jobs import CronJob, JobStore
     from heagent.engine.context import RunContext
-    from heagent.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
 
@@ -31,13 +30,12 @@ class CronScheduler:
     """Periodic scheduler that runs due cron jobs through an injected JobRunner.
 
     C-3 修正：cron 不再反向依赖 agent。runner 由上层（cli.py）注入，cron 仅依赖
-    provider / engine / 协议类型，保持 DAG 方向一致。
+    engine / 协议类型，保持 DAG 方向一致。
     """
 
     def __init__(
         self,
         job_store: JobStore,
-        provider: BaseProvider,
         *,
         tick_seconds: int = 60,
         engine: EngineContainer | None = None,
@@ -49,7 +47,6 @@ class CronScheduler:
             # 机会即 ERROR 放弃（与 MCP shutdown_timeout<=0 同构误用）。fail-closed。
             raise ValueError(f"stop_timeout 必须为正数（got {stop_timeout}）")
         self._store = job_store
-        self._provider = provider
         self._tick_seconds = tick_seconds
         self._stop_timeout = stop_timeout
         self._engine = engine or EngineContainer.default()

@@ -97,6 +97,7 @@ class KeyRotatingProvider:
     ) -> AsyncIterator[ProviderResponse]:
         """流式调用的密钥轮换版本。"""
         async with self._lock:
+            last_error: Exception | None = None
             start = self._current_index
             for idx in range(start, len(self._providers)):
                 provider = self._providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
@@ -116,9 +117,12 @@ class KeyRotatingProvider:
                         raise wrap_provider_error(e) from e
                     if not self._is_rotation_error(e):
                         raise
+                    last_error = e
                     logger.warning("Key #%d stream failed (rotatable): %s", idx, e)
             self._current_index = start
-            raise ProviderError("All keys exhausted for stream")
+            # 上抛最后一个 key 的真实错误（保留 status_code 供上游 classify_exception 分类 /
+            # 跨 provider 故障转移），与 send() 对称——勿用泛化 ProviderError 丢弃诊断信息。
+            raise last_error or ProviderError("All keys exhausted for stream")
 
     def get_metadata(self) -> ProviderMetadata:
         """返回当前活跃 Provider 的能力描述。"""

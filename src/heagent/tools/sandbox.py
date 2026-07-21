@@ -59,8 +59,11 @@ _REAP_WAIT_TIMEOUT = 5.0
 async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     try:
         if sys.platform == "linux":
+            # start_new_session=True 保证 proc.pid 即进程组长 pid，直接对其组发 SIGKILL。
+            # 不用 os.getpgid(proc.pid)：子进程已退出且 PID 被 OS 回收时，getpgid 会返回别的
+            # 进程的 pgid，导致 killpg 误杀无关进程组（PID 复用竞态）。
             with suppress(ProcessLookupError):
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                os.killpg(proc.pid, signal.SIGKILL)
         else:
             with suppress(ProcessLookupError):
                 proc.kill()

@@ -25,6 +25,18 @@ class ProviderMetadata(BaseModel):
     supports_tools: bool = False  # 是否支持 function calling
 
 
+class ProviderSummary(BaseModel):
+    """SwitchableProvider.info() 返回的单个 provider 摘要（/model 列表展示用）。
+
+    跨模块数据用 Pydantic 模型（禁原始 dict），使 CLI 调用方可类型安全地属性访问。
+    """
+
+    model: str
+    streaming: bool
+    tools: bool
+    active: bool
+
+
 @runtime_checkable
 class BaseProvider(Protocol):
     """LLM Provider 统一协议。

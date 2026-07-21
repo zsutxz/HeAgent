@@ -9,11 +9,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING
 
-from heagent.providers.base import BaseProvider, ProviderMetadata
+from heagent.providers.base import BaseProvider, ProviderMetadata, ProviderSummary
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -54,7 +53,6 @@ class SwitchableProvider:
             raise ValueError(f"Default provider {default!r} not in provider pool")
         self._providers = dict(providers)
         self._active: str = default
-        self._lock = asyncio.Lock()  # 防并发的 switch + send 竞态
 
     # -- 公共 API --
 
@@ -82,17 +80,17 @@ class SwitchableProvider:
         self._active = name
         logger.info("Provider switched: %s → %s", old, name)
 
-    def info(self) -> dict[str, object]:
+    def info(self) -> dict[str, ProviderSummary]:
         """返回所有 provider 的元数据摘要，用于 ``/model`` 列表展示。"""
-        result: dict[str, object] = {}
+        result: dict[str, ProviderSummary] = {}
         for name, p in self._providers.items():
             meta = p.get_metadata()
-            result[name] = {
-                "model": meta.model,
-                "streaming": meta.supports_streaming,
-                "tools": meta.supports_tools,
-                "active": name == self._active,
-            }
+            result[name] = ProviderSummary(
+                model=meta.model,
+                streaming=meta.supports_streaming,
+                tools=meta.supports_tools,
+                active=name == self._active,
+            )
         return result
 
     @property
@@ -108,9 +106,14 @@ class SwitchableProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> ProviderResponse:
-        """委托给当前活跃 provider 的 send。"""
-        async with self._lock:
-            return await self._current.send(messages, tools=tools)
+        """委托给当前活跃 provider 的 send。
+
+        无需锁：``switch()`` 仅原子改写 ``self._active``（GIL 下单属性赋值），本方法先
+        捕获 ``provider = self._current`` 再 await——切换只影响后续 send/stream，已捕获的
+        provider 引用不受影响。原 ``_lock`` 横跨整个网络调用只会无谓串行化并发请求。
+        """
+        provider = self._current
+        return await provider.send(messages, tools=tools)
 
     async def stream(
         self,
@@ -120,12 +123,10 @@ class SwitchableProvider:
     ) -> AsyncIterator[ProviderResponse]:
         """委托给当前活跃 provider 的 stream。
 
-        注意：stream 期间不应切换 provider——切换会等到下一次 send/stream 才生效，
-        已开始的 stream 不受影响（每个 chunk 走同一个 provider）。
+        在迭代前捕获当前 provider，保证整个 stream 生命周期使用同一实例——切换只对
+        下一次 send/stream 生效，已开始的 stream 不受影响（捕获引用，非锁）。
         """
-        # 在 __iter__ 之前捕获当前 provider，保证整个 stream 生命周期使用同一实例。
-        async with self._lock:
-            provider = self._current
+        provider = self._current
         async for chunk in provider.stream(messages, tools=tools):
             yield chunk
 

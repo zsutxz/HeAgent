@@ -66,6 +66,11 @@ def _prompt_startup_provider(provider: SwitchableProvider) -> None:
 
     ACTIVE_PROVIDER in .env determines the default (press Enter to accept).
     """
+    # 非 TTY（CI / 管道 / 单次自动化）不强弹选择——直接用 ACTIVE_PROVIDER 默认继续，
+    # 避免 click.prompt 在关闭的 stdin 上抛 Abort → SystemExit(0) 静默吞掉任务（HIGH-3）。
+    if not sys.stdin.isatty():
+        return
+
     info = provider.info()
     names = list(info.keys())
 
@@ -80,7 +85,7 @@ def _prompt_startup_provider(provider: SwitchableProvider) -> None:
     for i, name in enumerate(names, 1):
         meta = info[name]
         marker = "← default" if i == default_idx else ""
-        click.echo(f"  [{i}] {name}  ({meta['model']})  {marker}", err=True)
+        click.echo(f"  [{i}] {name}  ({meta.model})  {marker}", err=True)
 
     while True:
         try:
@@ -262,7 +267,6 @@ def _build_loop(
 
         scheduler = CronScheduler(
             cron_store,
-            provider,
             tick_seconds=settings.cron_tick_seconds,
             engine=engine,
             job_runner=_run_job,

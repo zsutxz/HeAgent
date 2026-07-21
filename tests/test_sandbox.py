@@ -26,9 +26,27 @@ from heagent.tools.sandbox import (
 _PY = f'"{sys.executable}"'
 
 
+class _FakeProcBase:
+    """所有 _FakeProc 的公共基类：提供 ``pid``（_kill_and_reap Linux 分支读取）。
+
+    os.killpg 已由 ``_isolate_command_runner`` mock，pid 值仅作占位、永不作为真实信号目标。
+    """
+
+    pid = 1
+
+
 @pytest.fixture(autouse=True)
-def _isolate_command_runner():
-    """每测试前后清进程级 fallback，防 ``configure`` 串扰。"""
+def _isolate_command_runner(monkeypatch: pytest.MonkeyPatch):
+    """每测试前后清进程级 fallback，防 ``configure`` 串扰。
+
+    另两道安全网（让 fake-based 测试在所有平台确定性、且不发真实信号）：
+    - 钉 ``sys.platform`` 为非 linux：fake 无法承载真实进程组语义，统一走 else 分支
+      （``proc.kill()``、不加 ``start_new_session``，避免 fake_exec 因多余 kwarg 报错）。
+      Linux ``os.killpg`` 分支由 ``test_kill_and_reap_linux_uses_proc_pid_directly`` 专门覆盖。
+    - mock ``os.killpg`` 为 no-op：永不让测试向真实进程组发信号。
+    """
+    monkeypatch.setattr("heagent.tools.sandbox.sys.platform", "win32")
+    monkeypatch.setattr("os.killpg", lambda *args, **kwargs: None, raising=False)
     reset_command_runner()
     reset_sandbox_profile()
     yield
@@ -102,7 +120,7 @@ class TestPassthroughRunner:
     async def test_cancel_kill_and_reap(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """外层取消（CancelledError）也须 kill+wait 子进程，不泄漏（D1 回归）。"""
 
-        class _FakeProc:
+        class _FakeProc(_FakeProcBase):
             def __init__(self) -> None:
                 self.returncode = 0
                 self.killed = False
@@ -149,7 +167,7 @@ class TestPassthroughRunner:
         且 ``except BaseException`` 分支记一条 debug 日志。
         """
 
-        class _FakeProc:
+        class _FakeProc(_FakeProcBase):
             async def communicate(self) -> tuple[bytes, bytes]:
                 await asyncio.sleep(1000)  # 阻塞到被取消
                 return b"", b""
@@ -192,7 +210,7 @@ class TestPassthroughRunner:
         替换超时串上抛（调用方收到错误消息而非「Command timed out」）。
         """
 
-        class _FakeProc:
+        class _FakeProc(_FakeProcBase):
             async def communicate(self) -> tuple[bytes, bytes]:
                 await asyncio.sleep(1000)  # 触发外层 timeout=1
                 return b"", b""
@@ -231,7 +249,7 @@ class TestPassthroughRunner:
 
         monkeypatch.setattr("heagent.tools.sandbox._REAP_WAIT_TIMEOUT", 0.05)
 
-        class _FakeProc:
+        class _FakeProc(_FakeProcBase):
             async def communicate(self) -> tuple[bytes, bytes]:
                 await asyncio.sleep(1000)  # 阻塞到被取消
                 return b"", b""
@@ -277,7 +295,7 @@ class TestPassthroughRunner:
         （kill 抛错即跳出 _kill_and_reap）会让 ``wait()`` 不执行、pipe transport 泄漏。
         """
 
-        class _FakeProc:
+        class _FakeProc(_FakeProcBase):
             def __init__(self) -> None:
                 self.waited = False
 
@@ -323,7 +341,7 @@ class TestPassthroughRunner:
         ``KeyboardInterrupt``（BaseException）立即逸出、wait 不执行。直接测 ``_kill_and_reap``。
         """
 
-        class _FakeProc:
+        class _FakeProc(_FakeProcBase):
             def __init__(self) -> None:
                 self.waited = False
 
@@ -338,6 +356,37 @@ class TestPassthroughRunner:
         with pytest.raises(KeyboardInterrupt):
             await _kill_and_reap(proc)
         assert not proc.waited, "KeyboardInterrupt 应立即逸出，不落到 wait（kill 块 except 须为 Exception）"
+
+    @pytest.mark.asyncio
+    async def test_kill_and_reap_linux_uses_proc_pid_directly(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """HIGH-1 回归：Linux 分支须直接 ``os.killpg(proc.pid, SIGKILL)``，不经 ``os.getpgid``。
+
+        ``start_new_session=True`` 保证 ``proc.pid`` 即进程组长 pid，直接对其组发 SIGKILL 即可。
+        ``os.getpgid(proc.pid)`` 在子进程已退出且 PID 被 OS 回收时会返回别的进程的 pgid，导致
+        ``killpg`` 误杀无关进程组（PID 复用竞态）。本测钉 platform=linux 并断言：``getpgid``
+        从未被调用、``killpg`` 以 ``(proc.pid, SIGKILL)`` 恰好调用一次。
+        """
+        monkeypatch.setattr("heagent.tools.sandbox.sys.platform", "linux")
+        # signal.SIGKILL / os.killpg / os.getpgid 均为 Unix-only，Windows 下不存在——
+        # 既然已钉 platform=linux 强制走 Linux 分支，须一并注入这些符号（raising=False）。
+        fake_sigkill = 9
+        monkeypatch.setattr("heagent.tools.sandbox.signal.SIGKILL", fake_sigkill, raising=False)
+
+        getpgid_calls: list[int] = []
+        killpg_calls: list[tuple[int, int]] = []
+        monkeypatch.setattr("os.getpgid", lambda pid: getpgid_calls.append(pid) or pid, raising=False)
+        monkeypatch.setattr("os.killpg", lambda pid, sig: killpg_calls.append((pid, sig)), raising=False)
+
+        class _FakeProc(_FakeProcBase):
+            async def wait(self) -> int:
+                return 0
+
+        proc = _FakeProc()
+        await _kill_and_reap(proc)
+        assert not getpgid_calls, "不得调用 os.getpgid（PID 复用竞态源）"
+        assert killpg_calls == [(proc.pid, fake_sigkill)], (
+            "须直接对 proc.pid（= 组长 pid）发 SIGKILL，不经 getpgid"
+        )
 
 
 class TestFirejailBackend:
@@ -357,7 +406,7 @@ class TestFirejailBackend:
         async def fake_exec(*argv: str, stdout=None, stderr=None):
             captured["argv"] = list(argv)
 
-            class _FakeProc:
+            class _FakeProc(_FakeProcBase):
                 def __init__(self) -> None:
                     self.returncode = None  # communicate 完成后才置位
 
@@ -413,7 +462,7 @@ class TestFirejailBackend:
         """
         monkeypatch.setattr(shutil, "which", lambda p: "firejail")
 
-        class _FakeProc:
+        class _FakeProc(_FakeProcBase):
             async def communicate(self) -> tuple[bytes, bytes]:
                 await asyncio.sleep(1000)  # 阻塞到被取消
                 return b"", b""
@@ -445,7 +494,7 @@ class TestFirejailBackend:
         """item 1（exec 路径对称）：TimeoutError 路径 reap 抛非取消异常仍返回超时串。"""
         monkeypatch.setattr(shutil, "which", lambda p: "firejail")
 
-        class _FakeProc:
+        class _FakeProc(_FakeProcBase):
             async def communicate(self) -> tuple[bytes, bytes]:
                 await asyncio.sleep(1000)  # 触发外层 timeout=1
                 return b"", b""
@@ -477,7 +526,7 @@ class TestFirejailBackend:
         """item 3（exec 路径对称）：``proc.kill()`` 权限失败不阻断后续 ``wait()``。"""
         monkeypatch.setattr(shutil, "which", lambda p: "firejail")
 
-        class _FakeProc:
+        class _FakeProc(_FakeProcBase):
             def __init__(self) -> None:
                 self.waited = False
 
@@ -721,7 +770,7 @@ class TestFirejailAvailability:
     async def test_run_falls_back_when_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(shutil, "which", lambda p: None)
 
-        class _FakeProc:
+        class _FakeProc(_FakeProcBase):
             def __init__(self):
                 self.returncode = 0
 

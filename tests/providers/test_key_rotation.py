@@ -137,16 +137,22 @@ class TestKeyRotatingProvider:
         chunks = [c async for c in rp.stream([Message(role=Role.USER, content="hi")])]
         assert chunks[0].content == "stream-ok"
 
-    async def test_stream_all_keys_exhausted(self) -> None:
+    async def test_stream_all_keys_exhausted_preserves_last_error(self) -> None:
+        """HIGH-4：流式密钥池耗尽时，须上抛最后一个 key 的真实错误（保留 status_code），
+        而非泛化的 "All keys exhausted for stream"——否则下游 classify_exception 看到
+        status_code=None 会判为 NON_TRANSIENT，阻断跨 provider 故障转移。与 send() 对称。"""
         rp = KeyRotatingProvider(
             [
                 _make_provider("a", fail_with=ProviderError("rate", status_code=429)),
                 _make_provider("b", fail_with=ProviderError("rate", status_code=429)),
             ]
         )
-        with pytest.raises(ProviderError, match="All keys exhausted"):
+        with pytest.raises(ProviderError) as exc_info:
             async for _ in rp.stream([Message(role=Role.USER, content="hi")]):
                 pass
+        assert exc_info.value.status_code == 429, (
+            "流式耗尽须保留真实 status_code 供上游分类/故障转移（HIGH-4）"
+        )
 
     def test_metadata_includes_keypool(self) -> None:
         rp = KeyRotatingProvider([_make_provider("openai")])

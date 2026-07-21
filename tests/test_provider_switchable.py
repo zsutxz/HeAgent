@@ -127,14 +127,14 @@ def test_info_returns_all_with_active_marker(fake_providers) -> None:
     info = sp.info()
 
     assert set(info.keys()) == {"alpha", "beta", "gamma"}
-    assert info["alpha"]["active"] is True
-    assert info["beta"]["active"] is False
-    assert info["gamma"]["active"] is False
+    assert info["alpha"].active is True
+    assert info["beta"].active is False
+    assert info["gamma"].active is False
 
     sp.switch("beta")
     info = sp.info()
-    assert info["alpha"]["active"] is False
-    assert info["beta"]["active"] is True
+    assert info["alpha"].active is False
+    assert info["beta"].active is True
 
 
 def test_names_returns_list(fake_providers) -> None:
