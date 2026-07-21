@@ -15,8 +15,8 @@ development_status:
   18-4-safety-docs-deadcode: done
   epic-18-retrospective: optional
 
-  epic-19: in-progress  # 质量工程化 (FR-C1~C6)
-  19-1-coverage-90: backlog  # 当前 88%（4310/4834），promoted to backlog；CI 门槛 -fail-under=88
+  epic-19: done  # 质量工程化 (FR-C1~C6)
+  19-1-coverage-90: done  # 89%→90%（4310 stmts, 438 miss），新增 21 个专项测试
   19-2-ci-matrix: done  # 三平台 × 3.11/3.12/3.13 矩阵 + fail-fast: false
   19-3-static-analysis: done  # Bandit (-ll) + pip-audit (continue-on-error) 入 CI；ruff 已含 S/B/C90/SIM/TCH
   19-4-benchmark-complexity: done  # tests/test_benchmarks.py（10 例，默认 skip）；ruff.toml C90 max=15

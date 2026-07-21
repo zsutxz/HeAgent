@@ -161,6 +161,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-07-17 | 模板方法重构 `run`/`run_stream`（解耦异步/同步路径）；`PolicyEngine` annotations 感知写操作闸门（14-2：destructive→审批 / readOnly→放行 / 缺省→fail-safe）+ 零回归测试 + 安全声明同步（CLAUDE.md 标注 annotations 不可信）；`_bmad-output/` 旧版 sprint-status 清理；CLI 版本 banner |
 | 2026-07-17 | **Resources 桥接工具（Story 15-1/15-2）**：`_sessions` 查找表 + `_get_session` + `_handle_list_resources` 聚合 JSON 桥 + `_register_bridge_tool`（`readOnlyHint=True`）+ `_server_loop` 异常路径 session cleanup —— 14 个新测试，31/31 manager 测试通过，**全线 586/586 通过** |
 | 2026-07-20 | **Sandbox 硬化周期（profile 映射 / 降级 / 配置入口 / 进程组 kill / workspace 隔离）**——Epic S1-S4 全部 8 个 story 交付，新增 24 个 sandbox 专项测试，全量 751/751 通过 |
+| 2026-07-21 | **Epic 19 完成**——覆盖率 89%→90%：新增 21 个专项测试覆盖 17 个模块，911 测试全绿，ruff 零错误。健壮性与质量硬化周期（Epic 18-19）全部交付。
 | 2026-07-21 | **健壮性与质量硬化周期（Epic 18）**：跨进程文件锁（`persist.py` `lock=True` POSIX/Windows 平台自适应 + `EngineContainer.enable_file_locks`）+ Cron 范围表达式（`1-5`/`*/15`/`1-30/10`）+ `WinJobBackend`（Windows Job Objects 进程级隔离）+ 安全声明/文档同步——Epic 18 全部交付，新增 46 个专项测试（9 文件锁 + 27 cron + 10 WinJob），**全线 797/797 通过** |
 | 2026-07-20 | **Resources 完成（Story 15-3/15-4）**：`guard_content` 提取为公共函数（供 `bridge_result`/`read_resource` 共用）+ `mcp__read_resource` 桥接工具 handler（`_handle_read_resource`，含 `server`/`uri` 参数 + `readOnlyHint`）+ 安全声明同步 + 配套测试（49 个 mapping + 46 个 manager 测试，**全线 607/607 通过**） |
 
@@ -196,7 +197,9 @@ quick-dev 是**基于 spec 的单会话执行**：
 - **MCP Client V2 继续（Epic 16）**：Prompts 发现/协商/渲染 全套原语（Story 16-1→16-3，当前全部 `backlog`，接续 MCP Client V2 周期）。
 - **epic 外增量**：engine P5-1/P5-2 若反转，需新开 P 批。（接真实 sandbox 后端已交付 2026-07-08：`CommandRunner` 抽象 + `FirejailBackend`，见 `tools/sandbox.py`。）
 - **补丁周期**：当前无未交付候选——DP-4 两半（执行前工具名拦截 2026-07-08 + 返回内容启发式围栏 2026-07-10）、FR-3 断连 auto-unregister、sandbox 健壮性系列（2026-07-09~10）、关停硬上界三件套（MCP/cron/sandbox 2026-07-10~11）、compressor 孤儿 TOOL 修复（2026-07-16）、写操作治理 annotations 感知 PolicyEngine 闸门（2026-07-17~22）、Resources 桥接工具（2026-07-17）、guard_content 公共函数 + read_resource（2026-07-20）均已交付。
-- **集成周期**：MCP Prompts 原语（Epic 16，当前 `backlog`）。
+- **集成周期**：MCP Prompts 原语（Epic 16，已完成 / sprint-status done）。
+
+**Epic 19 收尾**：全部 6 个 story 已交付；覆盖率 90%（4310 stmts，911 tests）。
 
 **retrospective 补全**：如需为已完成 epic 补做正式回顾，对单个 epic 调 `bmad-retrospective` skill；本文第三章已提供轻量替代。
 
