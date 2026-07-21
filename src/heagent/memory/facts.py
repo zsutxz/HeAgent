@@ -27,15 +27,26 @@ class FactStore:
         重叠率（交集/新事实词数）超过 70% 则视为重复，拒绝添加。
         返回 True 表示添加成功，False 表示重复。
         """
-        existing = self._load_facts()
+        # 单次读取：同时用于去重判断与拼接写入，规避两次独立读取之间的多进程竞态
+        # （若去重用 _load_facts() 而拼接用 read_text()，两次读之间外部写入会丢失）。
+        if self._path.exists():
+            raw = self._path.read_text(encoding="utf-8")
+        else:
+            raw = ""
+
+        # 从 raw 解析已有事实列表（与 _load_facts 逻辑一致）
+        existing: list[str] = []
+        for line in raw.strip().splitlines():
+            if line.startswith("- "):
+                existing.append(line[2:])
+
         fact_words = set(fact.lower().split())  # 新事实的单词集合
         for ef in existing:
             overlap = fact_words & set(ef.lower().split())  # 关键词交集
             if len(overlap) / max(len(fact_words), 1) > 0.7:  # 70% 阈值
                 return False
         # 追加写入（原子写整文件，防崩溃中途截断）
-        prior = self._path.read_text(encoding="utf-8") if self._path.exists() else ""
-        atomic_write_text(self._path, prior + f"- {fact}\n")
+        atomic_write_text(self._path, raw + f"- {fact}\n")
         return True
 
     def load(self) -> list[str]:

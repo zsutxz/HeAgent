@@ -199,6 +199,25 @@ def _record_step(runtime: SubagentToolRuntime, *, outcome: SubTaskOutcome) -> No
     )
 
 
+def _make_subagent(runtime: SubagentToolRuntime, spec: RoleSpec | None, system: str | None) -> SubAgent:
+    """Construct a SubAgent from the current runtime slot (shared factory for task_parallel)."""
+    return SubAgent(
+        runtime.provider,
+        registry=runtime.registry,
+        guard=runtime.guard,
+        skills=runtime.skills,
+        facts=runtime.facts,
+        profile=runtime.profile,
+        compressor=runtime.compressor,
+        context_dir=runtime.context_dir,
+        soul=runtime.soul,
+        engine=runtime.engine,
+        parent_run_id=runtime.parent_run_id,
+        role=spec,
+        system=system,
+    )
+
+
 @tool
 async def task_delegate(task: str, role: str = "", system: str = "") -> str:
     """Delegate one task to an isolated sub-agent.
@@ -215,21 +234,7 @@ async def task_delegate(task: str, role: str = "", system: str = "") -> str:
     spec, err = _resolve_role(runtime, role)
     if err is not None:
         return _error_payload(err)
-    agent = SubAgent(
-        runtime.provider,
-        registry=runtime.registry,
-        guard=runtime.guard,
-        skills=runtime.skills,
-        facts=runtime.facts,
-        profile=runtime.profile,
-        compressor=runtime.compressor,
-        context_dir=runtime.context_dir,
-        soul=runtime.soul,
-        engine=runtime.engine,
-        parent_run_id=runtime.parent_run_id,
-        role=spec,
-        system=system or None,
-    )
+    agent = _make_subagent(runtime, spec, system or None)
     result = await agent.run(task)
     outcome = SubTaskOutcome(
         status="ok" if result.success else "failed",
@@ -268,22 +273,10 @@ async def task_parallel(tasks_json: str, role: str = "", system: str = "") -> st
     spec, err = _resolve_role(runtime, role)
     if err is not None:
         return _error_payload(err)
-    agent = SubAgent(
-        runtime.provider,
-        registry=runtime.registry,
-        guard=runtime.guard,
-        skills=runtime.skills,
-        facts=runtime.facts,
-        profile=runtime.profile,
-        compressor=runtime.compressor,
-        context_dir=runtime.context_dir,
-        soul=runtime.soul,
-        engine=runtime.engine,
-        parent_run_id=runtime.parent_run_id,
-        role=spec,
-        system=system or None,
-    )
-    results = await run_parallel([agent] * len(tasks), tasks)
+    # 为每个 task 创建独立的 SubAgent 实例（P1-1 修复：原 [agent] * len(tasks) 创建同一对象
+    # 的多份引用，并发 task 竞态读写同一 SubAgent 内部状态会导致数据竞态）。
+    agents = [_make_subagent(runtime, spec, system or None) for _ in tasks]
+    results = await run_parallel(agents, tasks)
 
     role_name = spec.name if spec else ""
     outcomes = [

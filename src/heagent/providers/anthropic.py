@@ -228,10 +228,24 @@ class AnthropicProvider:
                         model=self._model,
                         finish_reason="",
                     )
-                # 文本块流尽后用 get_final_message() 取完整响应，补发一个最终 chunk：
-                # 携带真实 usage（驱动 token 累计与压缩触发）、tool_calls（流式工具调用）、
-                # finish_reason。文本已在上方逐块 yield，此处 content="" 避免重复输出。
-                final = await stream.get_final_message()
+                # P1-20 修复：get_final_message 失败时不静默丢失 tool_calls——
+                # 先 yield 带错误标记的 chunk 告知消费者流未正常终结，再抛 ProviderError。
+                try:
+                    final = await stream.get_final_message()
+                except Exception as final_err:
+                    logger.warning(
+                        "Anthropic get_final_message failed for model=%s: %s",
+                        self._model,
+                        final_err,
+                    )
+                    yield ProviderResponse(
+                        content="",
+                        tool_calls=[],
+                        usage=_ZERO_USAGE,
+                        model=self._model,
+                        finish_reason=f"error: {final_err}",
+                    )
+                    raise
                 yield ProviderResponse(
                     content="",
                     tool_calls=_parse_tool_use_blocks(final.content),

@@ -120,10 +120,12 @@ class ContextCompressor:
     async def _summarize(self, messages: list[Message], max_tokens: int = 0) -> str:
         """调用 LLM 对旧消息生成摘要，带截断保护。
 
-        如果旧消息的估算 token 数超过安全阈值（``max_tokens - SAFETY_MARGIN``），
+        如果旧消息的估算 token 数超过安全阈值（``effective_limit - SAFETY_MARGIN``），
         会从末尾截断保留最重要的部分，避免摘要请求本身超出上下文窗口。
+        ``effective_limit`` 取 ``min(max_tokens, self.max_summary_tokens)``（P1-4 修复：
+        激活 max_summary_tokens 死字段，防止摘要输入膨胀至 ~127K token 导致质量劣化）。
 
-        当 ``max_tokens <= SAFETY_MARGIN`` 导致安全空间不足以承载摘要请求本身时，
+        当 ``effective_limit <= SAFETY_MARGIN`` 导致安全空间不足以承载摘要请求本身时，
         不调 LLM 直接返回占位符——避免浪费一次注定失败的 API 调用。
 
         参数：
@@ -132,13 +134,18 @@ class ContextCompressor:
         返回：
             摘要文本
         """
+        # effective_limit：min(window_limit, summary_input_limit)，收紧摘要输入上限（P1-4 修复）
+        effective_limit = (
+            min(max_tokens, self.max_summary_tokens) if max_tokens > 0 else self.max_summary_tokens
+        )
+        safety_limit = effective_limit - _SUMMARY_SAFETY_MARGIN
+
         # 安全空间不足以承载摘要请求本身 → 不调 LLM，直接返回占位符。
         # 调用方（compress）下次迭代若 token 仍超阈值会再次进入此地。
-        safety_limit = max_tokens - _SUMMARY_SAFETY_MARGIN
-        if max_tokens > 0 and safety_limit <= 0:
+        if effective_limit > 0 and safety_limit <= 0:
             logger.warning(
-                "Context window too small for summarization (max_tokens=%d, safety_margin=%d)",
-                max_tokens,
+                "Context window too small for summarization (effective_limit=%d, safety_margin=%d)",
+                effective_limit,
                 _SUMMARY_SAFETY_MARGIN,
             )
             return "(conversation content omitted - context window too small to summarize by LLM)"
@@ -146,7 +153,7 @@ class ContextCompressor:
         prompt_parts: list[str] = []
         estimated = 0
         per_message_overhead = 3  # 每条消息角色标签开销
-        should_truncate = max_tokens > 0 and safety_limit > 0
+        should_truncate = effective_limit > 0 and safety_limit > 0
 
         # 从末尾向前取消息（最新消息最重要），直到接近安全阈值（或不截断时全部取出）
         for m in reversed(messages):
@@ -160,6 +167,9 @@ class ContextCompressor:
                     parts.append(
                         f"tool_call: {tc.name}({json.dumps(tc.arguments, ensure_ascii=False)})"
                     )
+            # tool_call_id 的 token 开销（TOOL 消息标识，与 tokens.py count_tokens 对齐）
+            if m.role == Role.TOOL and m.tool_call_id:
+                parts.insert(0, f"tool_result({m.tool_call_id}):")
             if not parts:
                 continue
             text = "\n".join(parts)
@@ -171,9 +181,9 @@ class ContextCompressor:
             if should_truncate and estimated + msg_tokens > safety_limit:
                 # 超过安全阈值——此条及更早的消息被截断
                 logger.debug(
-                    "Summary input truncated at ~%d tokens (max=%d, safety=%d)",
+                    "Summary input truncated at ~%d tokens (effective=%d, safety=%d)",
                     estimated,
-                    max_tokens,
+                    effective_limit,
                     safety_limit,
                 )
                 break
@@ -205,17 +215,10 @@ class ContextCompressor:
 
 
 def _estimate_tokens(text: str) -> int:
-    """快速 token 估算（不含消息结构开销）。"""
-    cjk = sum(
-        1
-        for ch in text
-        if (
-            0x4E00 <= (cp := ord(ch)) <= 0x9FFF
-            or 0x3400 <= cp <= 0x4DBF
-            or 0x3040 <= cp <= 0x309F
-            or 0x30A0 <= cp <= 0x30FF
-            or 0xAC00 <= cp <= 0xDFFF
-        )
-    )
-    other = len(text) - cjk
-    return max(1, cjk + int(other / 4.0))
+    """快速 token 估算（不含消息结构开销）。
+
+    与 :func:`heagent.context.tokens._estimate_text_tokens` 保持 Unicode 覆盖一致——
+    统一切到 tokens 模块后此处可删除（P2 维护项）。"""
+    from heagent.context.tokens import _estimate_text_tokens
+
+    return _estimate_text_tokens(text)

@@ -63,16 +63,12 @@ class ProviderChain:
         return list(self._providers)
 
     def _advance(self) -> bool:
-        """将活跃索引后移一位（故障转移）。
+        """将活跃索引后移一位（故障转移）。保留供测试使用。
 
         返回 True 表示成功切换，False 表示已无可用的 Provider。
         """
         if self._current_index < len(self._providers) - 1:
-            old = self._current_index
             self._current_index += 1
-            logger.info(
-                "Fallback: %s -> %s", self._providers[old].get_metadata().name, self.current.get_metadata().name
-            )
             return True
         return False
 
@@ -127,40 +123,50 @@ class ProviderChain:
         与 send() 回退精度逻辑相同（FR-4），但追加一条约束：一旦已向下游交付
         过任何 chunk，后续异常不再回退——否则下一个 Provider 会从头重放，导致
         消费者收到重复前缀。仅在首个 chunk 之前的失败才按 FR-4 回退。
+
+        P1-3 修复：索引读写持锁，但迭代不持锁——避免长时间持锁串行化并发 consumer。
         """
+        # 锁内：读取起始索引与当前 provider 实例，获取本地引用后退出锁。
         async with self._lock:
             start = self._current_index
-            last_error: Exception | None = None
-            for idx in range(start, len(self._providers)):
-                provider = self._providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
-                delivered = False
-                try:
-                    async for chunk in provider.stream(messages, tools=tools):
-                        delivered = True  # 已从当前 Provider 取得 chunk，回退将产生重复输出
-                        yield chunk
-                    self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
-                    return
-                except Exception as e:
-                    # 已交付部分输出 → 不可回退（重放会重复），直接抛出并复位索引
-                    if delivered:
+            providers = list(self._providers)
+
+        last_error: Exception | None = None
+        for idx in range(start, len(providers)):
+            provider = providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
+            delivered = False
+            try:
+                async for chunk in provider.stream(messages, tools=tools):
+                    delivered = True  # 已从当前 Provider 取得 chunk，回退将产生重复输出
+                    yield chunk
+                # 锁内：成功后复位到主 Provider（不粘性旁路）
+                async with self._lock:
+                    self._current_index = start
+                return
+            except Exception as e:
+                # 已交付部分输出 → 不可回退（重放会重复），直接抛出并复位索引
+                if delivered:
+                    async with self._lock:
                         self._current_index = start
-                        _raise_provider_error(e)
-                    category = classify_exception(e)
-                    logger.warning(
-                        "Provider %s stream failed (%s): %s",
-                        provider.get_metadata().name,
-                        category.value,
-                        e,
-                    )
-                    if category == ErrorCategory.NON_TRANSIENT:
+                    _raise_provider_error(e)
+                category = classify_exception(e)
+                logger.warning(
+                    "Provider %s stream failed (%s): %s",
+                    provider.get_metadata().name,
+                    category.value,
+                    e,
+                )
+                if category == ErrorCategory.NON_TRANSIENT:
+                    async with self._lock:
                         self._current_index = start
-                        _raise_provider_error(e)
-                    last_error = e
+                    _raise_provider_error(e)
+                last_error = e
+        async with self._lock:
             self._current_index = start
-            if last_error is not None:
-                _raise_provider_error(last_error)
-            # 理论不可达：见 send() 同款注释。
-            raise ProviderError("All providers failed for stream")
+        if last_error is not None:
+            _raise_provider_error(last_error)
+        # 理论不可达：见 send() 同款注释。
+        raise ProviderError("All providers failed for stream")
 
     def get_metadata(self) -> ProviderMetadata:
         """返回当前活跃 Provider 的能力描述。"""

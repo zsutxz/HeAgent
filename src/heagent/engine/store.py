@@ -98,7 +98,9 @@ class RunStore:
             snapshot = RunSnapshot(context=context.model_copy(deep=True), prompt=prompt, system=system)
         snapshot.context = context.model_copy(deep=True)
         snapshot.prompt = prompt
-        snapshot.system = system
+        # P1-9 修复：system 为 None 时保留原值，不覆写为 None 清空有效系统提示词。
+        if system is not None:
+            snapshot.system = system
         if messages is not None:
             snapshot.messages = [m.model_copy(deep=True) for m in messages]
         if results is not None:

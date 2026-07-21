@@ -43,6 +43,15 @@ async def _run_git(*args: str, cwd: Path | None = None) -> str:
         except Exception:
             pass
         raise RuntimeError(f"git {' '.join(args)} timed out after {_GIT_TIMEOUT}s") from None
+    except asyncio.CancelledError:
+        # P1-5 修复：CancelledError 单独捕获，kill+reap 子进程防僵尸泄漏
+        try:
+            proc.kill()
+            await proc.wait()
+        except (ProcessLookupError, Exception):
+            pass
+        raise
+
     if proc.returncode != 0:
         detail = stderr.decode("utf-8", errors="replace").strip()
         err = detail or f"git {' '.join(args)} failed with code {proc.returncode}"

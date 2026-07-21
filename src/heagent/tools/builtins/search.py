@@ -11,6 +11,10 @@ from heagent.tools.path_safety import WorkspacePathError, resolve_workspace_path
 if TYPE_CHECKING:
     from pathlib import Path
 
+# P1-18 修复：content_search 文件大小上限（10 MB），防大文件 OOM。
+# 与 web_fetch 2 MB 上限同思路：对工作区内文件做防御性限制。
+_MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
+
 
 def _resolve_dir(directory: str) -> Path | str:
     """解析并校验工作区目录，返回 Path 或错误消息字符串。"""
@@ -74,6 +78,16 @@ async def content_search(
         except WorkspacePathError:
             continue
         if not resolved.is_file():
+            continue
+        # P1-18 修复：跳过超大文件，避免 read_text() OOM
+        try:
+            file_size = resolved.stat().st_size
+        except OSError:
+            continue
+        if file_size > _MAX_FILE_SIZE:
+            results.append(f"{resolved}: [skipped — file too large ({file_size / (1024*1024):.1f} MB)]")
+            if len(results) >= max_results:
+                break
             continue
         try:
             text = resolved.read_text(encoding="utf-8", errors="replace")

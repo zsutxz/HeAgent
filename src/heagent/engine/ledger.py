@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
@@ -116,14 +116,26 @@ class ExecutionLedger:
             record.finished_at = None
             record.error = None
             record.metadata = dict(metadata or {})
-            record.lease_expires_at = (datetime.now() + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
+            record.lease_expires_at = (
+                datetime.now(tz=UTC) + timedelta(seconds=lease_seconds)
+            ).isoformat(timespec="seconds")
             await self._save(record)
             return LedgerClaim(acquired=True, record=record)
 
     async def complete(self, key: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
-        """标记一个键为 COMPLETED（幂等短路的最终态）。无记录时自动创建。"""
+        """标记一个键为 COMPLETED（幂等短路的最终态）。
+
+        仅在记录已存在且状态为 RUNNING 时操作（P1-8 修复：防止误调 complete("wrong_key")
+        凭空创建记录，导致该 key 被永久阻塞）。
+        """
         async with self._lock:
-            record = await self.get(key) or ExecutionRecord(key=key)
+            record = await self.get(key)
+            if record is None:
+                raise ValueError(f"Cannot complete non-existent key: {key!r}")
+            if record.status != ExecutionStatus.RUNNING:
+                raise RuntimeError(
+                    f"Cannot complete key {key!r}: current status is {record.status.value}"
+                )
             record.status = ExecutionStatus.COMPLETED
             record.updated_at = iso_now()
             record.finished_at = record.updated_at
@@ -134,9 +146,14 @@ class ExecutionLedger:
             return record
 
     async def fail(self, key: str, error: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
-        """标记一个键为 FAILED 并记录错误（FAILED 可被后续 acquire 重新占用）。"""
+        """标记一个键为 FAILED 并记录错误（FAILED 可被后续 acquire 重新占用）。
+
+        仅在记录已存在时操作；不存在则抛错（P1-8 修复：防止凭空创建记录）。
+        """
         async with self._lock:
-            record = await self.get(key) or ExecutionRecord(key=key)
+            record = await self.get(key)
+            if record is None:
+                raise ValueError(f"Cannot fail non-existent key: {key!r}")
             record.status = ExecutionStatus.FAILED
             record.updated_at = iso_now()
             record.finished_at = record.updated_at
@@ -154,7 +171,9 @@ class ExecutionLedger:
             if record is None or record.status != ExecutionStatus.RUNNING:
                 return None
             record.updated_at = iso_now()
-            record.lease_expires_at = (datetime.now() + timedelta(seconds=lease_seconds)).isoformat(timespec="seconds")
+            record.lease_expires_at = (
+                datetime.now(tz=UTC) + timedelta(seconds=lease_seconds)
+            ).isoformat(timespec="seconds")
             await self._save(record)
             return record
 
@@ -190,4 +209,4 @@ class ExecutionLedger:
         """该 RUNNING 记录的租约是否已过期（无租约视为未过期）。"""
         if not record.lease_expires_at:
             return False
-        return datetime.fromisoformat(record.lease_expires_at) <= datetime.now()
+        return datetime.fromisoformat(record.lease_expires_at) <= datetime.now(tz=UTC)

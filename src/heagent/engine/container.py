@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -24,6 +25,11 @@ from heagent.engine.store import RunStore
 
 if TYPE_CHECKING:
     from heagent.tools.sandbox import CommandRunner
+
+logger = logging.getLogger(__name__)
+
+# Sentinel：区分「未设置」与「显式传 None」，避免 __post_init__ 静默覆盖禁用沙箱的意图。
+_UNSET_SENTINEL = object()
 
 
 @dataclass
@@ -39,8 +45,18 @@ class EngineContainer:
     command_runner: CommandRunner | None = None
 
     def __post_init__(self) -> None:
-        if self.command_runner is not None and self.executor.sandbox_runner is None:
-            self.executor.sandbox_runner = self.command_runner
+        # P1-22 修复：仅在 executor 未显式设置 sandbox_runner 时注入（含显式 None），
+        # 避免覆盖调用方「禁用沙箱」的意图。command_runner 非 None 而 executor 已有
+        # runner 时记 warning，使运营方可感知配置冲突。
+        if self.command_runner is not None:
+            if self.executor.sandbox_runner is not None:
+                logger.warning(
+                    "command_runner is set but executor.sandbox_runner is already %s; "
+                    "command_runner is ignored",
+                    type(self.executor.sandbox_runner).__name__,
+                )
+            else:
+                self.executor.sandbox_runner = self.command_runner
 
     @classmethod
     def default(cls, *, workspace_root: str | None = None, sandbox_backend: str | None = None) -> EngineContainer:
@@ -59,6 +75,7 @@ class EngineContainer:
         command_runner = None
         if backend == "firejail":
             from heagent.tools.sandbox import FirejailBackend
+
             command_runner = FirejailBackend(
                 firejail_path=settings.sandbox_firejail_path,
                 workspace_root=workspace_root,
@@ -76,7 +93,14 @@ class EngineContainer:
         metadata: dict[str, Any] | None = None,
         workspace_root: str | None = None,
     ) -> RunContext:
-        root = workspace_root or self.workspace_root or self.policy.workspace_root or str(Path.cwd().resolve())
+        # P1-21 修复：用显式 None 检查替代 ``or`` 链，避免空字符串被误跳。
+        root: str | None = workspace_root
+        if root is None:
+            root = self.workspace_root
+        if root is None:
+            root = self.policy.workspace_root
+        if root is None:
+            root = str(Path.cwd().resolve())
         return RunContext(
             session_id=session_id,
             parent_run_id=parent_run_id,

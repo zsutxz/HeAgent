@@ -80,24 +80,29 @@ class SkillStore:
         tags: list[str] | None = None,
         usage_count: int = 0,
         last_used: str = "",
+        created: str | None = None,
     ) -> str:
         """保存一个技能为标准目录结构。
 
         创建 skills/<name>/SKILL.md，包含 YAML frontmatter 和 Markdown 正文。
         返回 SKILL.md 的路径。
+
+        ``created`` 为 None 时自动生成当前时间；``update()`` / ``record_usage()``
+        透传原值，防止每次调用覆写原始创建时间（P1-7 修复）。
         """
         safe = self._validate_name(name)
         skill_dir = self._base / safe
         skill_dir.mkdir(parents=True, exist_ok=True)
 
-        now = datetime.now().isoformat()
+        if created is None:
+            created = datetime.now().isoformat()
         tag_str = ", ".join(tags) if tags else ""
         # frontmatter
         fm_lines = [
             "---",
             f"name: {safe}",
             f'description: "{description}"',
-            f"created: {now}",
+            f"created: {created}",
         ]
         if tag_str:
             fm_lines.append(f"tags: [{tag_str}]")
@@ -191,6 +196,7 @@ class SkillStore:
             tags=tags if tags is not None else existing.tags,
             usage_count=existing.usage_count,
             last_used=existing.last_used,
+            created=existing.created,  # P1-7 修复：保留原始创建时间
         )
 
     # ---- 使用追踪与策展 ----
@@ -209,6 +215,7 @@ class SkillStore:
             tags=existing.tags or None,
             usage_count=existing.usage_count + 1,
             last_used=now,
+            created=existing.created,  # P1-7 修复：保留原始创建时间
         )
 
     def stale_skills(self, days: int = 30) -> list[str]:

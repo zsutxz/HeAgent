@@ -260,13 +260,13 @@ class MCPClientManager:
             if self._registry.get_schema(schema.name) is not None:
                 logger.warning("MCP 工具 '%s' 命名冲突（已注册），跳过", schema.name)
                 continue
-            handler = self._make_handler(session, tool.name)
+            handler = self._make_handler(session, tool.name, name)
             self._registry.register(schema, handler)
             self._registered.setdefault(name, []).append(schema.name)
             registered += 1
         logger.info("MCP server '%s'：发现 %d 个工具，注册 %d 个", name, len(tools), registered)
 
-    def _make_handler(self, session: ClientSession, tool_name: str) -> Callable[..., Any]:
+    def _make_handler(self, session: ClientSession, tool_name: str, server_name: str = "") -> Callable[..., Any]:
         """构造 MCP 工具闭包 handler：call_tool → bridge_result（isError → raise ToolError）。
 
         handler 契约契合 AgentLoop._invoke（async + **arguments）；返回 str 作为
@@ -275,6 +275,9 @@ class MCPClientManager:
         """
 
         async def handler(**kwargs: Any) -> str:
+            # P1-17: session liveness check — if server disconnected, return semantic error
+            if server_name and self._sessions.get(server_name) is not session:
+                raise ToolError(f"MCP server '{server_name}' disconnected")
             result = await call_tool(session, tool_name, kwargs or None)
             return bridge_result(result)
 

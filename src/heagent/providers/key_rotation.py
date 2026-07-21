@@ -22,6 +22,17 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _raise_wrapped(error: Exception) -> None:
+    """Raise ``error``, wrapping non-ProviderError into ProviderError (P1-3 修复)。
+
+    统一保证 key_rotation chain 抛出的始终是 HeAgent Error 体系内的异常，
+    不裸抛 SDK 异常穿透上层 ProviderChain。
+    """
+    if isinstance(error, ProviderError):
+        raise error
+    raise wrap_provider_error(error) from error
+
+
 class KeyRotatingProvider:
     """同一 Provider 类型的多密钥轮换包装。
 
@@ -81,13 +92,15 @@ class KeyRotatingProvider:
                     return resp
                 except Exception as e:
                     if not self._is_rotation_error(e):
-                        raise
+                        _raise_wrapped(e)  # P1-3 修复：统一包装为 ProviderError
                     last_error = e
                     logger.warning("Key #%d failed (rotatable): %s", idx, e)
 
             # 恢复原始索引
             self._current_index = start
-            raise last_error or ProviderError("All keys exhausted")
+            if last_error is not None:
+                _raise_wrapped(last_error)
+            raise ProviderError("All keys exhausted")
 
     async def stream(
         self,
@@ -110,19 +123,19 @@ class KeyRotatingProvider:
                     return
                 except Exception as e:
                     if delivered:
-                        # 已下发部分输出，重放会产生重复前缀，直接抛出（包装为 ProviderError 保证上层分类一致）
+                        # 已下发部分输出，重放会产生重复前缀，直接抛出
                         self._current_index = start
-                        if isinstance(e, ProviderError):
-                            raise
-                        raise wrap_provider_error(e) from e
+                        _raise_wrapped(e)  # P1-3 修复：统一包装为 ProviderError
                     if not self._is_rotation_error(e):
-                        raise
+                        _raise_wrapped(e)  # P1-3 修复：统一包装为 ProviderError
                     last_error = e
                     logger.warning("Key #%d stream failed (rotatable): %s", idx, e)
             self._current_index = start
             # 上抛最后一个 key 的真实错误（保留 status_code 供上游 classify_exception 分类 /
             # 跨 provider 故障转移），与 send() 对称——勿用泛化 ProviderError 丢弃诊断信息。
-            raise last_error or ProviderError("All keys exhausted for stream")
+            if last_error is not None:
+                _raise_wrapped(last_error)
+            raise ProviderError("All keys exhausted for stream")
 
     def get_metadata(self) -> ProviderMetadata:
         """返回当前活跃 Provider 的能力描述。"""

@@ -10,7 +10,7 @@
 1. **白名单**（``allowed_tools``）—— 设了白名单且工具不在其中 → ``BLOCKED``；
 2. **黑名单**（``blocked_tools``）—— 命中 → ``BLOCKED``；
 3. **MCP 门控**（``block_mcp_tools``）—— 命中 MCP 工具 → ``BLOCKED``；
-4. **工作区路径围栏**（:meth:`_validate_paths`）—— file 工具路径越界 → ``BLOCKED``；
+4. **工作区路径围栏**（:meth:`_validate_paths`）—— file/git 工具路径越界 → ``BLOCKED``；
 5. **审批**（``approval_tools``）—— 需审批且当前 run 未授权 → ``APPROVAL_REQUIRED``；
    对 MCP 工具，如果传入了 ``schema``（含 ``annotations``），则：
    - ``destructiveHint`` → 需要审批（FR-A3）；
@@ -89,13 +89,17 @@ class PolicyEngine:
     """
 
     # 受路径围栏约束的工具 → 其参数中表示路径的字段名。
-    # 仅这四类 file 工具在 policy 层做执行前围栏（算法委托 tools/path_safety.py 的
-    # resolve_under_root，与 handler 守卫共用同一实现，见 _validate_paths docstring）。
+    # P1-15 修复：补全 git_status/git_diff/git_log/git_blame，使 git 路径越界在 policy 层
+    # 也被预检拦截，与 file 工具保持一致的「policy + handler」两层纵深防御。
     _PATH_FIELDS: dict[str, tuple[str, ...]] = {
         "file_read": ("path",),
         "file_write": ("path",),
         "file_search": ("directory",),
         "content_search": ("directory",),
+        "git_status": ("path",),
+        "git_diff": ("path",),
+        "git_log": ("path",),
+        "git_blame": ("file_path",),
     }
 
     def __init__(
@@ -162,7 +166,7 @@ class PolicyEngine:
                 reason=f"MCP tool '{call.name}' is blocked by policy.",
             )
 
-        # 4) 工作区路径围栏：file 工具的路径参数越界 → 阻断。
+        # 4) 工作区路径围栏：file/git 工具的路径参数越界 → 阻断。
         path_error = self._validate_paths(call, context=context)
         if path_error:
             return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=path_error)
@@ -196,7 +200,7 @@ class PolicyEngine:
         return PolicyVerdict(mode=ToolExecutionMode.DIRECT, sandbox_profile=sandbox_profile)
 
     def _validate_paths(self, call: ToolCall, *, context: RunContext | None) -> str:
-        """对受约束的 file 工具做工作区路径围栏校验。
+        """对受约束的 file/git 工具做工作区路径围栏校验。
 
         返回非空字符串即越界原因（调用方据此 BLOCKED）；空串表示通过 / 不适用。
         围栏基线 = context.workspace_root（优先）或 self.workspace_root；二者皆空则放行。

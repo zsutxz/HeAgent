@@ -14,6 +14,7 @@ compressor 保持一致，确保摘要风格统一。
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING
 
@@ -104,14 +105,28 @@ class WindowReset:
         从末尾截断保护：当对话极长时，仅保留最近的 ~32k 字符送入摘要请求，
         避免摘要请求自身超出 LLM 上下文窗口（与 ``ContextCompressor._summarize``
         的截断保护对齐）。
+
+        P1-6 修复：同时序列化 tool_calls（arguments）与 tool 结果，
+        避免摘要丢失关键的工具交互上下文。
         """
-        # 从末尾累积消息行，使最近的对话内容优先保留
         lines: list[str] = []
         total_chars = 0
         for m in reversed(messages):
-            if not m.content:
+            parts: list[str] = []
+            if m.content:
+                parts.append(f"{m.role.value}: {m.content}")
+            # P1-6 修复：序列化 tool_calls，防止工具调用上下文丢失
+            if m.tool_calls:
+                for tc in m.tool_calls:
+                    tc_args = json.dumps(tc.arguments, ensure_ascii=False)
+                    parts.append(f"tool_call: {tc.name}({tc_args})")
+            # tool 返回结果（TOOL 角色消息）
+            if m.role == Role.TOOL and m.tool_call_id:
+                content = m.content or ""
+                parts.insert(0, f"tool_result({m.tool_call_id}): {content}")
+            if not parts:
                 continue
-            line = f"{m.role.value}: {m.content}"
+            line = "\n".join(parts)
             if total_chars + len(line) > _MAX_SUMMARY_CHARS:
                 logger.debug(
                     "WindowReset summary input truncated at ~%d chars (limit=%d)",

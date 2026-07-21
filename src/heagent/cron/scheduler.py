@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from heagent.engine import EngineContainer
@@ -104,8 +104,13 @@ class CronScheduler:
             await asyncio.sleep(self._tick_seconds)
 
     async def _check_and_execute(self) -> None:
+        """扫描到期 job 并执行；``list_jobs()`` 失败不穿透（仅记日志，等待下次 tick 重试）。"""
         now = datetime.now()
-        jobs = self._store.list_jobs()
+        try:
+            jobs = self._store.list_jobs()
+        except Exception:
+            logger.exception("Failed to load cron jobs; skipping this tick")
+            return
         for job in jobs:
             if not job.enabled:
                 continue
@@ -135,14 +140,12 @@ class CronScheduler:
             details={"job_id": job.id, "schedule": job.cron},
         )
 
-        success = False
         run_context = self._engine.create_run_context(
             metadata={"kind": "cron", "job_id": job.id},
             workspace_root=str(getattr(self._engine, "workspace_root", "") or ""),
         )
         try:
             await self._job_runner(job.prompt, run_context)
-            success = True
         except Exception as exc:
             await self._engine.ledger.fail(key, str(exc), metadata={"job_id": job.id, "cron": job.cron})
             self._engine.events.publish(
@@ -150,21 +153,26 @@ class CronScheduler:
                 run_id=run_context.run_id,
                 details={"job_id": job.id, "error": str(exc)},
             )
-            logger.exception("Cron job '%s' execution failed", job.id)
-
-        if success:
-            from heagent.cron.jobs import _iso_now
-
+            # 失败路径也更新 last_run——防止每分钟无限重试（P1-11 修复）。
+            # ledger.fail() 清除了 lease_expires_at，下一分钟新 key 的 acquire 会成功；
+            # last_run 不更新会导致同一个逻辑分钟被无限重入。
             self._store.update(job.id, last_run=_iso_now())
-            await self._engine.ledger.complete(key, metadata={"job_id": job.id, "cron": job.cron})
-            self._engine.events.publish(
-                "cron_job_completed",
-                run_id=run_context.run_id,
-                details={"job_id": job.id},
-            )
-            if not job.recurring:
-                self._store.remove(job.id)
-                logger.info("One-shot cron job '%s' removed after execution", job.id)
+            logger.exception("Cron job '%s' execution failed", job.id)
+            return
+
+        # 先写 ledger.complete（幂等标记），成功后再更新 last_run（P1-10 修复）。
+        # 原顺序 store.update 在前：若 ledger.complete 抛异常，last_run 已更新但
+        # 幂等未标记，下一分钟重复执行。
+        await self._engine.ledger.complete(key, metadata={"job_id": job.id, "cron": job.cron})
+        self._store.update(job.id, last_run=_iso_now())
+        self._engine.events.publish(
+            "cron_job_completed",
+            run_id=run_context.run_id,
+            details={"job_id": job.id},
+        )
+        if not job.recurring:
+            self._store.remove(job.id)
+            logger.info("One-shot cron job '%s' removed after execution", job.id)
 
     @staticmethod
     def _matches(cron_expr: str, dt: datetime) -> bool:
@@ -173,7 +181,9 @@ class CronScheduler:
         if len(parts) != 5:
             return False
 
-        cron_weekday = (dt.weekday() + 1) % 7
+        # weekday：标准 cron 中 Sunday 同时用 0 和 7 表示，此处映射到 0；
+        # _field_matches 对 "7" 做特判 equality 到 0（P1-12 修复）。
+        cron_weekday = (dt.weekday() + 1) % 7  # Monday=1...Sunday=0
         cron_values = (dt.minute, dt.hour, dt.day, dt.month, cron_weekday)
         return all(_field_matches(field_expr, actual) for field_expr, actual in zip(parts, cron_values, strict=True))
 
@@ -184,9 +194,22 @@ def _field_matches(expr: str, value: int) -> bool:
         if part == "*":
             return True
         if part.startswith("*/"):
-            step = int(part[2:])
+            step_str = part[2:]
+            # "*/" 后无数字（如 "*/" 作为独立字段）→ 不匹配（P0-4 修复：不再 int("") 崩溃）
+            if not step_str or not step_str.isdigit():
+                continue
+            step = int(step_str)
             if step > 0 and value % step == 0:
                 return True
+        elif part == "7" and value == 0:
+            # cron 标准：weekday Sunday=7 兼容映射（P1-12 修复）
+            return True
         elif part.isdigit() and value == int(part):
             return True
     return False
+
+
+def _iso_now() -> str:
+    """当前时间的 ISO 格式字符串（供 _execute_job 使用，消除行内 import）。"""
+
+    return datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%S")

@@ -23,6 +23,7 @@ started / completed / failed / blocked 事件供可观测。
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -34,6 +35,8 @@ from heagent.types import ToolCall, ToolResult
 if TYPE_CHECKING:
     from heagent.engine.context import RunContext
     from heagent.tools.safety import SafetyGuard
+
+logger = logging.getLogger(__name__)
 
 # 工具处理器签名：接收 ToolCall，返回任意结果（executor 会 str() 化为 ToolResult.content）。
 Handler = Callable[[ToolCall], Awaitable[object]]
@@ -108,7 +111,10 @@ class ToolExecutor:
                     "tool_call_blocked",
                     run_context=run_context,
                     tool_name=call.name,
-                    details={"reason": str(exc), "mode": ToolExecutionMode.BLOCKED.value},
+                    details={
+                        "reason": str(exc),
+                        "mode": "safety_blocked",  # P1-6 修复：标识触发层为 SafetyGuard 而非 Policy
+                    },
                 )
             return ToolResult(tool_call_id=call.id, content=str(exc), is_error=True)
 
@@ -165,10 +171,14 @@ class ToolExecutor:
                     "tool_call_blocked",
                     run_context=run_context,
                     tool_name=call.name,
-                    details={"reason": str(exc), "mode": ToolExecutionMode.BLOCKED.value},
+                    details={
+                        "reason": str(exc),
+                        "mode": "safety_blocked",  # P1-6 修复
+                    },
                 )
             return ToolResult(tool_call_id=call.id, content=str(exc), is_error=True)
 
+        sandbox_mode = ToolExecutionMode.SANDBOX_REQUIRED.value
         try:
             if emit:
                 emit(
@@ -176,7 +186,7 @@ class ToolExecutor:
                     run_context=run_context,
                     tool_name=call.name,
                     details={
-                        "mode": ToolExecutionMode.SANDBOX_REQUIRED.value,
+                        "mode": sandbox_mode,
                         "sandbox_profile": verdict.sandbox_profile or "",
                     },
                 )
@@ -188,7 +198,7 @@ class ToolExecutor:
                     run_context=run_context,
                     tool_name=call.name,
                     details={
-                        "mode": ToolExecutionMode.SANDBOX_REQUIRED.value,
+                        "mode": sandbox_mode,
                         "sandbox_profile": verdict.sandbox_profile or "",
                         "content_length": len(content),
                     },
@@ -201,7 +211,7 @@ class ToolExecutor:
                     run_context=run_context,
                     tool_name=call.name,
                     details={
-                        "mode": ToolExecutionMode.SANDBOX_REQUIRED.value,
+                        "mode": sandbox_mode,
                         "sandbox_profile": verdict.sandbox_profile or "",
                         "error": str(exc),
                     },
@@ -225,6 +235,11 @@ class ToolExecutor:
         非完美边界——须 OS 级沙箱兜底（见 CLAUDE.md）。
         """
         if self.sandbox_runner is None:
+            logger.warning(
+                "SANDBOX_REQUIRED verdict but sandbox_runner is None; "
+                "executing tool '%s' in passthrough (no OS-level isolation)",
+                call.name,
+            )
             return await handler(call)
         with bind_command_runner(self.sandbox_runner), bind_sandbox_profile(profile):
             return await handler(call)

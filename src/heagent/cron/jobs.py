@@ -6,13 +6,16 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from heagent.engine.persist import atomic_write_text
+
+logger = logging.getLogger(__name__)
 
 
 class CronJob(BaseModel):
@@ -84,11 +87,33 @@ class JobStore:
     # ---- 内部方法 ----
 
     def _load_all(self) -> list[CronJob]:
-        """从 JSON 文件加载所有任务。"""
+        """从 JSON 文件加载所有任务。
+
+        损坏的 JSON 或字段不匹配的条目会被跳过并记录警告——避免整个 tick 因一条
+        损坏数据而跳过所有 job（参见 scheduler._check_and_execute 的调用链）。
+        """
         if not self._path.exists():
             return []
-        data = json.loads(self._path.read_text(encoding="utf-8"))
-        return [CronJob(**j) for j in data]
+        try:
+            raw = self._path.read_text(encoding="utf-8")
+        except OSError:
+            logger.warning("Failed to read cron jobs file; returning empty list", exc_info=True)
+            return []
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.warning("Corrupted cron jobs JSON; returning empty list", exc_info=True)
+            return []
+        if not isinstance(data, list):
+            logger.warning("Cron jobs JSON is not a list; returning empty list")
+            return []
+        jobs: list[CronJob] = []
+        for j in data:
+            try:
+                jobs.append(CronJob(**j))
+            except ValidationError:
+                logger.warning("Skipping invalid cron job entry: %s", j)
+        return jobs
 
     def _save_all(self, jobs: list[CronJob]) -> None:
         """将所有任务保存到 JSON 文件（原子写，防崩溃中途截断 JSON）。"""

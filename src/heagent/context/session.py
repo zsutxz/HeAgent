@@ -10,11 +10,23 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 
 from heagent.engine.persist import atomic_write_text
 from heagent.types import Message
+
+# session_id 允许的字符集：字母数字 + 连字符/下划线，防止路径遍历（如 ../etc/passwd）。
+_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+# 合理长度上限：UUID hex 最大 32 字符，加上前缀/后缀留有余额，超过视为异常拒绝。
+_MAX_SESSION_ID_LEN = 128
+
+
+def _validate_session_id(session_id: str) -> None:
+    """校验 session_id 仅含安全字符，拒绝路径遍历 payload。"""
+    if not session_id or len(session_id) > _MAX_SESSION_ID_LEN or not _SESSION_ID_RE.match(session_id):
+        raise ValueError(f"Invalid session_id: {session_id!r}")
 
 
 class SessionStore:
@@ -32,6 +44,7 @@ class SessionStore:
 
         返回保存的文件路径。
         """
+        _validate_session_id(session_id)
         path = self._base / f"{session_id}.json"
 
         # 读取现有 version，在此基础上递增
@@ -58,6 +71,7 @@ class SessionStore:
 
         文件不存在时返回空列表。version 用于日志记录，不做合并冲突处理。
         """
+        _validate_session_id(session_id)
         path = self._base / f"{session_id}.json"
         if not path.exists():
             return []
@@ -75,6 +89,7 @@ class SessionStore:
 
     def delete(self, session_id: str) -> bool:
         """删除指定会话文件。返回是否成功删除。"""
+        _validate_session_id(session_id)
         path = self._base / f"{session_id}.json"
         if path.exists():
             path.unlink()

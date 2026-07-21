@@ -2,7 +2,7 @@
 
 检查分两类：
   - 工具名 blacklist（对所有工具生效，含 MCP/内置/shell）：按 ``call.name`` 正则命中即拦截
-  - shell 命令检查（仅 "shell" 工具）：两层——内置危险模式（硬编码 12 种）+
+  - shell 命令检查（仅 "shell" 工具）：两层——内置危险模式（17 种）+
     用户自定义规则（BLACKLIST 拦截匹配项 / WHITELIST 仅允许匹配项）
 
 违反安全规则时抛出 SafetyViolation，AgentLoop 将其包装为 is_error 的 ToolResult。
@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import re
+from collections import deque
 from enum import StrEnum
 from typing import TYPE_CHECKING, NoReturn
 
@@ -28,22 +29,33 @@ class SafetyMode(StrEnum):
     WHITELIST = "whitelist"  # 白名单模式：仅允许匹配的命令
 
 
-# 内置的 12 种危险命令正则模式（不区分大小写）
+# 内置的危险命令正则模式（不区分大小写），P1-2 补全：新增 poweroff/halt/curl-pipe-sh/wget-pipe-sh/
+# /dev/tcp reverse shell/chmod 777/chmod +s/eval/source/fork bomb 通用形式/rm 分离标志位。
 _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE)
     for p in [
-        r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|.*-rf\b)",  # rm -rf / rm -f
+        r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|.*-rf\b|.*\s-f\b)",  # rm -rf / rm -f / rm ... -f
         r"\bformat\s+[a-zA-Z]:",  # format C:
-        r"\bdd\s+if=",  # dd 磁盘操作
+        r"\bdd\b",  # dd 磁盘操作（含 dd of=/dev/sda if=/dev/zero）
         r"\bmkfs\b",  # 格式化文件系统
         r"\bshutdown\b",  # 关机
         r"\breboot\b",  # 重启
+        r"\bpoweroff\b",  # 关机变体
+        r"\bhalt\b",  # 关机变体
         r"\bdel\s+/[sS]",  # del /s 递归删除 (Windows)
         r"\brmdir\s+/[sS]",  # rmdir /s 递归删除 (Windows)
         r":\(\)\s*\{[^}]*[;&|][^}]*\}",  # fork bomb — 花括号内含 ; & | 任一 shell 分隔符
+        r"\.[^/\s]+\s*\{[^}]*[;&|][^}]*\}",  # fork bomb 通用形式 .name(){ ...|...& };.name
         r">\s*/dev/sd",  # 直接写入磁盘设备
         r"\bchmod\s+(-R\s+)?000\b",  # chmod 000 移除所有权限
+        r"\bchmod\s+.*777\b",  # chmod 777 全局可写
+        r"\bchmod\s+.*\+s\b",  # chmod +s setuid
         r"\bchown\s+(-R\s+)?root\b",  # chown root 提权
+        r"\bcurl\b.*\|\s*(?:sh|bash)",  # curl ... | sh
+        r"\bwget\b.*\|\s*(?:sh|bash)",  # wget ... | sh
+        r"/dev/tcp/",  # /dev/tcp reverse shell
+        r"\beval\b",  # eval 动态代码执行
+        r"\bsource\b\s+(?:/|~|\.\.)",  # source 执行外部脚本
     ]
 ]
 
@@ -65,7 +77,8 @@ class SafetyGuard:
         self._allowed_compiled = [re.compile(p, re.IGNORECASE) for p in self._allowed]
         # 工具名 blacklist（对所有工具生效，含 MCP/内置/shell），按 call.name 正则命中拦截
         self._blocked_tools_compiled = [re.compile(p, re.IGNORECASE) for p in (blocked_tools or [])]
-        self._violation_log: list[str] = []  # 违规记录，用于审计
+        # P2-1 修复：用 deque 限长，防止长运行会话无限增长导致内存泄漏
+        self._violation_log: deque[str] = deque(maxlen=1000)
 
     def _block(self, msg: str) -> NoReturn:
         """记录违规并抛出 SafetyViolation。"""
