@@ -119,8 +119,9 @@ exceptions  types  config
 
 - `SafetyGuard` / `path_safety` / `engine` sandbox 均非真正安全边界——须 OS 级沙箱兜底（见文首声明）。
 - 工作区路径围栏已收敛：policy 预检（`_validate_paths`）与 file 工具 handler 守卫（`resolve_workspace_path`）共用同一算法 `resolve_under_root`（`tools/path_safety.py`），两层有意纵深防御，不再有两份可漂移副本。
-- `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可注入 `FirejailBackend`（仅隔离 `shell` 子进程、Linux-only、非完美边界），file/memory 等宿主进程内 I/O 工具不 spawn 子进程、不受覆盖——须整体 OS 级沙箱兜底（`tools/sandbox.py`）。
+- `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可注入：Linux `FirejailBackend`（仅隔离 `shell` 子进程、非完美边界）/ Windows `WinJobBackend`（Job Objects 进程级隔离，`KILL_ON_JOB_CLOSE` 自动终止子孙进程）。file/memory 等宿主进程内 I/O 工具不 spawn 子进程、不受覆盖——须整体 OS 级沙箱兜底（`tools/sandbox.py`）。
 - **Sandbox 硬化（2026-07-20）：** `FirejailBackend` 新增 profile → 参数映射（`sandbox_profile` 死字段激活）、`.env`/CLI 配置入口（`SANDBOX_BACKEND` / `--sandbox`）、firejail 不可用时优雅降级（warn + Passthrough）、Linux 进程组 killing（`os.killpg`）、workspace_root OS 级文件系统隔离（`--private`）。Firejail 仍非完美边界——上述强化均为 defense-in-depth，须 OS 级沙箱兜底。
+- **文件锁与 WinJob 硬化（2026-07-21）：** `persist.py` `atomic_write_text(lock=True)` 可选跨进程文件锁（POSIX `fcntl.flock` / Windows `msvcrt.locking`），`EngineContainer(enable_file_locks=True)` 自动开启 store/ledger 写锁。`WinJobBackend` 为 Windows 提供 Job Objects 进程级隔离（非完美边界，须 OS 级沙箱兜底）。跨进程持久化缺口已关闭（defense-in-depth，不防恶意进程）。
 - MCP V1 边界：`SafetyGuard` 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08），返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，标记透传、非真正边界）；仅接 Tools 原语。
 - **MCP 写操作治理 annotations 不可信**：`Tool.annotations`（`destructiveHint`/`readOnlyHint`/etc.）是 server 自声明，恶意 server 可谎报读写属性。`PolicyEngine` 的注解闸门（destructive→审批 / readOnly→放行 / 缺省→fail-safe）仅 defense-in-depth，非真正安全边界——须 OS 级沙箱兜底（参见 `engine/policy.py`、`tools/mcp/mapping.py`）。
 - 完整缺口表见 `docs/frame.md` 五。

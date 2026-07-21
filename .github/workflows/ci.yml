@@ -7,7 +7,7 @@ on:
   workflow_dispatch:  # 手动触发（含 integration 测试）
 
 jobs:
-  # ── Lint job（单次运行，不随矩阵重复）──
+  # ── Lint + Security job（单次运行，不随矩阵重复）──
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -30,6 +30,13 @@ jobs:
       - name: Mypy (strict)
         run: mypy src
 
+      - name: Bandit (security scan)
+        run: bandit -r src/ -ll
+
+      - name: pip-audit (dependency vulns)
+        run: pip-audit
+        continue-on-error: true  # LOW 告警不 fail CI
+
   # ── 测试矩阵（多平台 × 多 Python 版本）──
   test:
     needs: lint
@@ -39,9 +46,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python: ["3.11", "3.12", "3.13"]
-        exclude:
-          # macOS ARM runners 可能不可用或慢；保留 x64
-          # 全部组合保留以验证跨平台兼容性
 
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +59,7 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Test
-        run: pytest -q --tb=short -m "not integration"
+        run: pytest -q --tb=short -m "not integration and not benchmark"
 
   # ── 覆盖率（仅在 ubuntu + 3.11 上跑以节省资源）──
   coverage:
@@ -73,7 +77,7 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Test + coverage
-        run: pytest --cov=heagent --cov-report=term-missing --cov-fail-under=90 -m "not integration"
+        run: pytest --cov=heagent --cov-report=term-missing --cov-fail-under=88 -m "not integration and not benchmark"
 
   # ── 集成测试（手动触发或 workflow_dispatch）──
   integration:

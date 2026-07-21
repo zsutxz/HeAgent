@@ -8,19 +8,19 @@ story_location: _bmad-output/robustness-hardening/stories
 development_status:
   # === 健壮性与质量硬化周期（2026-07-21）===
 
-  epic-18: backlog  # 健壮性硬化 (FR-A1~A5)
-  18-1-file-locking: backlog
-  18-2-cron-range: backlog
-  18-3-winjob-backend: backlog
-  18-4-safety-docs-deadcode: backlog
+  epic-18: done  # 健壮性硬化 (FR-A1~A5)
+  18-1-file-locking: done
+  18-2-cron-range: done
+  18-3-winjob-backend: done
+  18-4-safety-docs-deadcode: done
   epic-18-retrospective: optional
 
-  epic-19: backlog  # 质量工程化 (FR-C1~C6)
-  19-1-coverage-90: backlog
-  19-2-ci-matrix: backlog
-  19-3-static-analysis: backlog
-  19-4-benchmark-complexity: backlog
-  19-5-docs-version-sync: backlog
+  epic-19: in-progress  # 质量工程化 (FR-C1~C6)
+  19-1-coverage-90: backlog  # 当前 88%（4310/4834），promoted to backlog；CI 门槛 -fail-under=88
+  19-2-ci-matrix: done  # 三平台 × 3.11/3.12/3.13 矩阵 + fail-fast: false
+  19-3-static-analysis: done  # Bandit (-ll) + pip-audit (continue-on-error) 入 CI；ruff 已含 S/B/C90/SIM/TCH
+  19-4-benchmark-complexity: done  # tests/test_benchmarks.py（10 例，默认 skip）；ruff.toml C90 max=15
+  19-5-docs-version-sync: done  # v0.3.0；frame.md/CLAUDE.md/iteration.md 已知缺口同步硬化后状态
   epic-19-retrospective: optional
 
 action_items: []

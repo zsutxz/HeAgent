@@ -542,7 +542,7 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 > - **P5-2 子 agent resume（反转 D4）**：plan 触发条件"实测需要才开放"。子 agent 短任务（`max_iterations` 15–25 + 默认 compressor in-place 摘要）量级远不到需清窗重建；反转代价是 `.heagent/runs/` checkpoint 文件爆炸（`task_parallel` 并行放大）+ 嵌套 resume 级联 + 与互斥断言冲突，收益/成本比差。
 > （评估基于静态代码分析，未跑真实 LLM 实测；依据详见 memory `heagent-loop-engine-expansion`。）
 
-**持久化健壮性（2026-07-01 落地）：** `engine/` 的 store/ledger 全部 I/O 已 `async` 化（同步 fs 经 `asyncio.to_thread` 包裹，遵守「库代码无同步 I/O」约束）。写入经 `persist.py` 原子化（先写 `*.tmp` 再 `os.replace`，`glob("*.json")` 不匹配 `.tmp`，避免读到半写文件）；读取容错（单条损坏 JSON 记 `logger.error` 后返回 None 跳过，不中断整 run）。**注意：** 单进程 async 下经 `to_thread` 串行，但跨进程/多 loop 同写 `.heagent/` 无文件锁——见第五节缺口。
+**持久化健壮性（2026-07-01 落地，2026-07-21 硬化）：** `engine/` 的 store/ledger 全部 I/O 已 `async` 化（同步 fs 经 `asyncio.to_thread` 包裹，遵守「库代码无同步 I/O」约束）。写入经 `persist.py` `atomic_write_text` 原子化（先写 `*.tmp` 再 `os.replace`，`glob("*.json")` 不匹配 `.tmp`，避免读到半写文件）；读取容错（单条损坏 JSON 记 `logger.error` 后返回 None 跳过，不中断整 run）。**2026-07-21 硬化：** 新增可选跨进程文件锁 `lock=True`（POSIX `fcntl.flock` / Windows `msvcrt.locking`），经 `EngineContainer(enable_file_locks=True)` 自动开启 store/ledger 写锁，多进程并发写 `.heagent/` 场景下防数据损坏（defense-in-depth，不防恶意进程）。
 
 ---
 
@@ -551,12 +551,11 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | 缺口 | 说明 |
 |------|------|
 | 流式 tool_calls 回退 | `run_stream()` 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时回退 `send()` 重取该轮调用（已知设计权衡） |
-| Cron 范围表达式 | V1 解析器不支持范围表达式（如 `1-5`） |
 | MCP 返回内容复核 | 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08）；返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，`mapping.bridge_result` 标记透传，非真正边界）；用户可配置签名入口仍 deferred |
 | MCP 写操作治理 annotations | `Tool.annotations`（`destructiveHint`/`readOnlyHint`/etc.）是 server 自声明，恶意 server 可谎报读写属性；`PolicyEngine` 注解闸门（destructive→审批 / readOnly→放行 / 缺省→fail-safe）仅 defense-in-depth 确定性标记，非真正安全边界——须 OS 级沙箱兜底（`engine/policy.py`、`tools/mcp/mapping.py`） |
 | CLI 事件循环阻塞 | 交互模式 `input()` 为同步调用，阻塞 asyncio 事件循环（单用户 CLI 影响可接受） |
-| engine sandbox 后端 | `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可经 `EngineContainer(command_runner=FirejailBackend())` 注入 OS 级后端（仅隔离 shell 子进程、Linux-only、非完美边界）。file/memory 等宿主进程内 I/O 工具不 spawn 子进程，不受该后端覆盖——仍须整体 OS 级沙箱兜底 |
-| ledger/store 跨进程持久化 | `engine/` 的 store/ledger 持久化非并发安全——单进程 async 下 `to_thread` 串行，但多进程/多 loop 同写 `.heagent/` 无文件锁，须避免并发写（见 4.12） |
+| engine sandbox 后端 | `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可经 `EngineContainer(command_runner=...)` 注入：Linux `FirejailBackend`（仅隔离 shell 子进程、非完美边界）/ Windows `WinJobBackend`（Job Objects 进程级隔离，`KILL_ON_JOB_CLOSE` 自动终止子孙进程）。file/memory 等宿主进程内 I/O 工具不 spawn 子进程，不受后端覆盖——仍须整体 OS 级沙箱兜底 |
+| ledger/store 跨进程持久化 | **已硬化（2026-07-21）：** `persist.py` `atomic_write_text(lock=True)` 可选跨进程文件锁（POSIX/Windows 平台自适应）。`EngineContainer(enable_file_locks=True)` 自动开启 store/ledger 写锁。默认关闭以保持单进程零开销——defense-in-depth，不防恶意进程 |
 
 ---
 

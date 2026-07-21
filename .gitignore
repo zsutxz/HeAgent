@@ -19,6 +19,10 @@ venv/
 .pytest_tmp/
 .ruff_cache/
 
+# Understand-Anything (knowledge graph artifacts)
+.ua/
+.understand-anything/
+
 # Coverage (pytest-cov)
 .coverage
 
