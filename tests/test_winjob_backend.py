@@ -115,6 +115,7 @@ class TestWinJobBackend:
         assert hasattr(backend, "run")
         assert callable(backend.run)
         import inspect
+
         assert inspect.iscoroutinefunction(backend.run)
 
     def test_repr_contains_available(self):

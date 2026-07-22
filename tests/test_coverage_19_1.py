@@ -45,6 +45,7 @@ from heagent.types import ToolCall
 
 # ── Stub provider for subagent tests ─────────────────────────────────
 
+
 class StubProvider:
     """Minimal stub provider that satisfies the BaseProvider protocol."""
 

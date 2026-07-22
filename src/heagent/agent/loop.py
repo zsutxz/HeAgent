@@ -233,7 +233,9 @@ class AgentLoop:
                             Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
                         )
                     await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
-                    await self._maybe_window_reset(state, run_context, init.prompt, system_content, usage=response.usage)
+                    await self._maybe_window_reset(
+                        state, run_context, init.prompt, system_content, usage=response.usage
+                    )
 
                 final_answer = response.content if response is not None else ""
                 run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
@@ -369,7 +371,9 @@ class AgentLoop:
                             )
                         )
                     await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
-                    await self._maybe_window_reset(state, run_context, init.prompt, system_content, usage=response.usage)
+                    await self._maybe_window_reset(
+                        state, run_context, init.prompt, system_content, usage=response.usage
+                    )
         except Exception as exc:
             await self._on_run_failed(run_context, init.prompt, system_content, state, exc)
             raise

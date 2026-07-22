@@ -92,8 +92,12 @@ async def skill_update(
     step_list = [step.strip() for step in steps.split("|") if step.strip()] if steps else None
     tag_list = [tag.strip() for tag in tags.split("|") if tag.strip()] if tags else None
     path = await asyncio.to_thread(
-        store.update, name,
-        description=description_value, pattern=pattern_value, steps=step_list, tags=tag_list,
+        store.update,
+        name,
+        description=description_value,
+        pattern=pattern_value,
+        steps=step_list,
+        tags=tag_list,
     )
     if path is None:
         return f"Error: failed to update skill '{name}'."

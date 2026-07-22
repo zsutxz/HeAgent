@@ -227,9 +227,7 @@ class TestWebFetch:
         assert any("example.com/path" in u for u in requests)
 
     @pytest.mark.asyncio
-    async def test_byte_cap_truncation(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_byte_cap_truncation(self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
         """响应体超 2MB 硬上限：流式截断 + 警告。"""
         _make_mock(monkeypatch, body="A" * (3 * 1024 * 1024))
         with caplog.at_level(logging.WARNING, logger="heagent.tools.builtins.web"):
@@ -247,9 +245,7 @@ class TestWebFetch:
             await web_fetch(url="https://example.com")
 
     @pytest.mark.asyncio
-    async def test_request_error_raises_runtime_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_request_error_raises_runtime_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def _conn_err(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("simulated")
 
@@ -288,9 +284,7 @@ class TestWebFetch:
         "blocked_ip",
         ["127.0.0.1", "10.0.0.1", "169.254.169.254", "::1", "fe80::1"],
     )
-    async def test_ssrf_private_ip_blocked(
-        self, monkeypatch: pytest.MonkeyPatch, blocked_ip: str
-    ) -> None:
+    async def test_ssrf_private_ip_blocked(self, monkeypatch: pytest.MonkeyPatch, blocked_ip: str) -> None:
         async def _blocked(host: str) -> list[str]:
             return [blocked_ip]
 
@@ -307,12 +301,8 @@ class TestWebFetch:
     async def test_redirect_followed(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def _redirector(request: httpx.Request) -> httpx.Response:
             if "start" in str(request.url):
-                return httpx.Response(
-                    status_code=302, headers={"location": "https://target.example.com/final"}
-                )
-            return httpx.Response(
-                status_code=200, content=b"followed", headers={"content-type": "text/plain"}
-            )
+                return httpx.Response(status_code=302, headers={"location": "https://target.example.com/final"})
+            return httpx.Response(status_code=200, content=b"followed", headers={"content-type": "text/plain"})
 
         _, requests = _make_mock(monkeypatch, handler=_redirector)
         result = await web_fetch(url="https://example.com/start")
@@ -335,9 +325,7 @@ class TestWebFetch:
                     status_code=302,
                     headers={"location": "https://private-target.example.com/x"},
                 )
-            return httpx.Response(
-                status_code=200, content=b"x", headers={"content-type": "text/plain"}
-            )
+            return httpx.Response(status_code=200, content=b"x", headers={"content-type": "text/plain"})
 
         _make_mock(monkeypatch, handler=_redirector)
         with pytest.raises(RuntimeError, match="非公网"):
@@ -359,9 +347,7 @@ class TestWebFetch:
         def _redirector(request: httpx.Request) -> httpx.Response:
             if "start" in str(request.url):
                 return httpx.Response(status_code=302, headers={"location": location})
-            return httpx.Response(
-                status_code=200, content=b"ok", headers={"content-type": "text/plain"}
-            )
+            return httpx.Response(status_code=200, content=b"ok", headers={"content-type": "text/plain"})
 
         _, requests = _make_mock(monkeypatch, handler=_redirector)
         result = await web_fetch(url="https://example.com/start")
@@ -369,13 +355,9 @@ class TestWebFetch:
         assert any(expected_fragment in u for u in requests)
 
     @pytest.mark.asyncio
-    async def test_https_to_http_downgrade_blocked(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    async def test_https_to_http_downgrade_blocked(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def _downgrade(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(
-                status_code=302, headers={"location": "http://insecure.example.com/"}
-            )
+            return httpx.Response(status_code=302, headers={"location": "http://insecure.example.com/"})
 
         _make_mock(monkeypatch, handler=_downgrade)
         with pytest.raises(RuntimeError, match="降级"):

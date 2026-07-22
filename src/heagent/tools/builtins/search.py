@@ -85,7 +85,7 @@ async def content_search(
         except OSError:
             continue
         if file_size > _MAX_FILE_SIZE:
-            results.append(f"{resolved}: [skipped — file too large ({file_size / (1024*1024):.1f} MB)]")
+            results.append(f"{resolved}: [skipped — file too large ({file_size / (1024 * 1024):.1f} MB)]")
             if len(results) >= max_results:
                 break
             continue

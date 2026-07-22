@@ -25,6 +25,10 @@ venv/
 
 # Coverage (pytest-cov)
 .coverage
+htmlcov/
+
+# Benchmark (pytest-benchmark)
+benchmark-data/
 
 # IDE
 .idea/

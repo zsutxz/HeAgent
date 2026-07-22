@@ -25,23 +25,31 @@ def _init_git_repo(tmp_path: Path) -> Path:
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@heagent.local"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "HeAgent Test"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "initial commit"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
     # 第二次提交以产生历史
     (repo / "README.md").write_text("# Test Repo\n\nHello world.\n\nMore content.\n", encoding="utf-8")
     subprocess.run(["git", "add", "README.md"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "update readme"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
     return repo
 

@@ -150,9 +150,7 @@ class TestKeyRotatingProvider:
         with pytest.raises(ProviderError) as exc_info:
             async for _ in rp.stream([Message(role=Role.USER, content="hi")]):
                 pass
-        assert exc_info.value.status_code == 429, (
-            "流式耗尽须保留真实 status_code 供上游分类/故障转移（HIGH-4）"
-        )
+        assert exc_info.value.status_code == 429, "流式耗尽须保留真实 status_code 供上游分类/故障转移（HIGH-4）"
 
     def test_metadata_includes_keypool(self) -> None:
         rp = KeyRotatingProvider([_make_provider("openai")])

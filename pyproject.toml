@@ -58,3 +58,33 @@ module = [
     "heagent.tools.sandbox",
 ]
 disallow_untyped_defs = false
+
+# ── Coverage (pytest-cov) ──
+# branch = true 启用分支覆盖，更诚实（此前 90% 为纯行覆盖）
+[tool.coverage.run]
+source = ["src/heagent"]
+branch = true
+omit = [
+    "tests/*",
+    "*/venv/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+# 分支覆盖基线 87%；CI 经 --cov-fail-under 读取同一门限
+fail_under = 87
+
+# ── Benchmark (pytest-benchmark) ──
+[tool.pytest_benchmark]
+min_rounds = 5
+max_time = 1.0
+timer = "time.perf_counter"
+storage = "./benchmark-data/"
+save = "ci"
+autosave = true

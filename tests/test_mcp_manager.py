@@ -107,9 +107,7 @@ class StubSession:
         content = self._read_resource_content.get(uri)
         if content is None:
             raise RuntimeError(f"Resource not found: {uri}")
-        return ReadResourceResult(
-            contents=[TextResourceContents(uri=uri, mimeType="text/plain", text=content)]
-        )
+        return ReadResourceResult(contents=[TextResourceContents(uri=uri, mimeType="text/plain", text=content)])
 
     async def list_prompts(self, **_: Any) -> ListPromptsResult:
         if self.list_prompts_raises is not None:
@@ -988,8 +986,11 @@ async def test_list_prompts_aggregates_all_servers(monkeypatch: pytest.MonkeyPat
             [_tool("run")],
             prompts=[
                 Prompt(name="greet", description="Say hello"),
-                Prompt(name="analyze", description="Analyze data",
-                       arguments=[PromptArgument(name="topic", description="Topic", required=True)]),
+                Prompt(
+                    name="analyze",
+                    description="Analyze data",
+                    arguments=[PromptArgument(name="topic", description="Topic", required=True)],
+                ),
             ],
         ),
         "beta": StubSession(
@@ -1165,4 +1166,3 @@ async def test_list_prompts_after_disconnect(monkeypatch: pytest.MonkeyPatch) ->
     data = json.loads(output)
     assert len(data) == 1
     assert data[0]["server"] == "b"
-

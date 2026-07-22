@@ -65,9 +65,9 @@ def _validate_schedule(schedule: str) -> str | None:
             if "-" in sub:
                 sub_parts = sub.split("-", 1)
                 if not all(p.isdigit() for p in sub_parts if p):
-                    return f"Invalid cron field {i+1}: {part!r}"
+                    return f"Invalid cron field {i + 1}: {part!r}"
             elif not sub.isdigit():
-                return f"Invalid cron field {i+1}: {part!r}"
+                return f"Invalid cron field {i + 1}: {part!r}"
     return None
 
 
@@ -111,8 +111,7 @@ async def cron_list() -> str:
         status = "enabled" if job.enabled else "disabled"
         recurrence = "recurring" if job.recurring else "one-shot"
         lines.append(
-            f"- [{job.id}] '{job.prompt[:40]}' | {job.cron} | {recurrence} | {status}"
-            f" | last: {job.last_run or 'never'}"
+            f"- [{job.id}] '{job.prompt[:40]}' | {job.cron} | {recurrence} | {status} | last: {job.last_run or 'never'}"
         )
     parts.append("\n".join(lines))
     return "\n".join(parts)

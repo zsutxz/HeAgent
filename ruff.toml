@@ -12,6 +12,10 @@ select = [
     "TCH",  # flake8-type-checking-imports
     "C90",  # mccabe 圈复杂度
     "S",    # flake8-bandit 安全规则
+    "PLC",  # Pylint 约定
+    "RUF",  # ruff 专项
+    "PT",   # pytest 专项
+    "PIE",  # flake8-pie
 ]
 
 [lint.isort]
@@ -21,8 +25,28 @@ known-first-party = ["heagent"]
 max-complexity = 15
 
 [lint.per-file-ignores]
-# 安全规则在测试中放宽
-"tests/**/*.py" = ["S101", "S104", "S108", "S607"]
+# ── 安全规则在测试中放宽 + 中文项目/延迟导入/风格偏好豁免 ──
+"tests/**/*.py" = [
+    "S101", "S104", "S108", "S607",  # 安全规则
+    "RUF002", "RUF003", "RUF001",     # 中文全角字符（项目约定）
+    "PLC0415",                         # 延迟导入（有意设计）
+    "PT001", "PT011", "PT012", "PT006", "PT018",  # pytest 风格偏好
+    "RUF022", "RUF023", "RUF100",     # 排序/未用 noqa 风格
+    "RUF043",                         # match 参数非 raw string
+    "SIM105", "S110",                 # try-except-pass
+    "F401", "E741", "F811", "TC003", "TC005", "I001",  # import 约定
+]
+# src 层豁免
+"src/**/*.py" = [
+    "RUF002", "RUF003", "RUF001",     # 中文全角字符（项目约定）
+    "PLC0415",                         # 延迟导入（循环导入避免）
+    "RUF022", "RUF023", "RUF100",     # 排序/未用 noqa 风格
+    "RUF012",                         # 类级别可变默认值（BaseModel 不受影响）
+    "PLC0207",                        # str.split 次数建议（风格偏好）
+    "E501",                           # 行宽溢出（中文注释行长）
+]
+
+# ── 以下为既有豁免（保留不变）──
 # CLI 入口 S110
 "src/heagent/cli.py" = ["S110"]
 # 预存：git 工具超时清理中的 try-except-pass
@@ -40,3 +64,8 @@ max-complexity = 15
 "src/heagent/engine/persist.py" = ["B904", "SIM105", "TC003"]
 # 预存：SIM 建议（不影响正确性）
 "src/heagent/memory/facts.py" = ["SIM108"]
+
+[format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

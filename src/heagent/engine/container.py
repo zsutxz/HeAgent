@@ -62,8 +62,7 @@ class EngineContainer:
         if self.command_runner is not None:
             if self.executor.sandbox_runner is not None:
                 logger.warning(
-                    "command_runner is set but executor.sandbox_runner is already %s; "
-                    "command_runner is ignored",
+                    "command_runner is set but executor.sandbox_runner is already %s; command_runner is ignored",
                     type(self.executor.sandbox_runner).__name__,
                 )
             else:
@@ -88,7 +87,8 @@ class EngineContainer:
         except Exception as exc:
             logger.error(
                 "Ledger prune failed (%s: %s); skipping this run",
-                type(exc).__name__, exc,
+                type(exc).__name__,
+                exc,
             )
             return 0
         if n:

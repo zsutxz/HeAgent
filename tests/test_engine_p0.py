@@ -290,9 +290,7 @@ class TestPruneLedgerOnce:
         engine.ledger = engine.ledger.__class__(base_dir=str(workspace_dir / "ledger"))
         engine.ledger_retention_days = 7
         old = (datetime.now(tz=UTC) - timedelta(days=30)).isoformat()
-        await engine.ledger._save(
-            ExecutionRecord(key="old:done", status=ExecutionStatus.COMPLETED, finished_at=old)
-        )
+        await engine.ledger._save(ExecutionRecord(key="old:done", status=ExecutionStatus.COMPLETED, finished_at=old))
         assert await engine.prune_ledger_once() == 1
         # 第二次短路（_pruned=True）
         assert await engine.prune_ledger_once() == 0

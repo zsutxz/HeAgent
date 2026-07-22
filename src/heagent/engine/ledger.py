@@ -147,9 +147,9 @@ class ExecutionLedger:
             record.finished_at = None
             record.error = None
             record.metadata = dict(metadata or {})
-            record.lease_expires_at = (
-                datetime.now(tz=UTC) + timedelta(seconds=lease_seconds)
-            ).isoformat(timespec="seconds")
+            record.lease_expires_at = (datetime.now(tz=UTC) + timedelta(seconds=lease_seconds)).isoformat(
+                timespec="seconds"
+            )
             await self._save(record)
             return LedgerClaim(acquired=True, record=record)
 
@@ -164,9 +164,7 @@ class ExecutionLedger:
             if record is None:
                 raise ValueError(f"Cannot complete non-existent key: {key!r}")
             if record.status != ExecutionStatus.RUNNING:
-                raise RuntimeError(
-                    f"Cannot complete key {key!r}: current status is {record.status.value}"
-                )
+                raise RuntimeError(f"Cannot complete key {key!r}: current status is {record.status.value}")
             record.status = ExecutionStatus.COMPLETED
             record.updated_at = iso_now()
             record.finished_at = record.updated_at
@@ -202,9 +200,9 @@ class ExecutionLedger:
             if record is None or record.status != ExecutionStatus.RUNNING:
                 return None
             record.updated_at = iso_now()
-            record.lease_expires_at = (
-                datetime.now(tz=UTC) + timedelta(seconds=lease_seconds)
-            ).isoformat(timespec="seconds")
+            record.lease_expires_at = (datetime.now(tz=UTC) + timedelta(seconds=lease_seconds)).isoformat(
+                timespec="seconds"
+            )
             await self._save(record)
             return record
 

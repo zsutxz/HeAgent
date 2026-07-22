@@ -144,6 +144,7 @@ class KeyRotatingProvider:
         if last_error is not None:
             _raise_wrapped(last_error)
         raise ProviderError("All keys exhausted for stream")
+
     def get_metadata(self) -> ProviderMetadata:
         """返回当前活跃 Provider 的能力描述。"""
         meta = self.current.get_metadata()

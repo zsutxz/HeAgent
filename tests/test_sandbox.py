@@ -384,9 +384,7 @@ class TestPassthroughRunner:
         proc = _FakeProc()
         await _kill_and_reap(proc)
         assert not getpgid_calls, "不得调用 os.getpgid（PID 复用竞态源）"
-        assert killpg_calls == [(proc.pid, fake_sigkill)], (
-            "须直接对 proc.pid（= 组长 pid）发 SIGKILL，不经 getpgid"
-        )
+        assert killpg_calls == [(proc.pid, fake_sigkill)], "须直接对 proc.pid（= 组长 pid）发 SIGKILL，不经 getpgid"
 
 
 class TestFirejailBackend:
@@ -565,6 +563,7 @@ class TestFirejailBackend:
 
 # ── S1-1: profiles dict + _build_argv ────────────────────────────────────────
 
+
 class TestFirejailProfiles:
     """S1-1: profiles dict + _build_argv 纯函数。"""
 
@@ -573,10 +572,12 @@ class TestFirejailProfiles:
         assert backend._profiles == {}
 
     def test_profiles_stored_as_tuples(self) -> None:
-        backend = FirejailBackend(profiles={
-            "default": ["--private-tmp"],
-            "network-isolated": ["--net=none", "--private-tmp"],
-        })
+        backend = FirejailBackend(
+            profiles={
+                "default": ["--private-tmp"],
+                "network-isolated": ["--net=none", "--private-tmp"],
+            }
+        )
         assert backend._profiles == {
             "default": ("--private-tmp",),
             "network-isolated": ("--net=none", "--private-tmp"),
@@ -607,8 +608,14 @@ class TestFirejailProfiles:
         )
         argv = backend._build_argv("ls", profile="strict")
         assert argv == [
-            "firejail", "--private-tmp", "--net=none", "--caps.drop=all",
-            "--", "sh", "-c", "ls",
+            "firejail",
+            "--private-tmp",
+            "--net=none",
+            "--caps.drop=all",
+            "--",
+            "sh",
+            "-c",
+            "ls",
         ]
 
     def test_build_argv_pure_function_same_input_same_output(self) -> None:
@@ -651,6 +658,7 @@ class TestFirejailProfiles:
 
 # ── S1-2: sandbox profile contextvar ────────────────────────────────────────
 
+
 class TestSandboxProfileSlot:
     """S1-2: sandbox profile contextvar。"""
 
@@ -681,6 +689,7 @@ class TestSandboxProfileSlot:
 
 
 # ── S1-2: executor profile injection ────────────────────────────────────────
+
 
 class TestExecutorProfileInjection:
     """S1-2: executor execute_in_sandbox 注入 profile。"""
@@ -747,6 +756,7 @@ class TestExecutorProfileInjection:
 
 # ── S2-1: firejail availability detection ───────────────────────────────────
 
+
 class TestFirejailAvailability:
     """S2-1: firejail 可用性检测 + 优雅降级。"""
 
@@ -757,7 +767,9 @@ class TestFirejailAvailability:
         assert backend._resolved_path == "/usr/bin/firejail"
 
     def test_available_false_when_not_found(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         monkeypatch.setattr(shutil, "which", lambda p: None)
         with caplog.at_level(logging.WARNING, logger="heagent.tools.sandbox"):
@@ -812,6 +824,7 @@ class TestFirejailAvailability:
 
 
 # ── S3-2: workspace_root --private mapping ──────────────────────────────────
+
 
 class TestFirejailWorkspaceRoot:
     """S3-2: workspace_root 自动映射 --private。"""

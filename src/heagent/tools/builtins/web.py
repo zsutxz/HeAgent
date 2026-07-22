@@ -136,9 +136,7 @@ async def web_fetch(url: str, max_length: int = 50000) -> str:
     current = await _validate_url(url, pin_scheme=pin_scheme)
     timeout = httpx.Timeout(_DEFAULT_TIMEOUT, connect=_CONNECT_TIMEOUT)
     # trust_env=False：忽略进程 HTTP(S)_PROXY，避免流量绕过 IP 出站校验经代理外出
-    async with httpx.AsyncClient(
-        timeout=timeout, follow_redirects=False, trust_env=False
-    ) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False, trust_env=False) as client:
         for _ in range(_MAX_REDIRECTS):
             try:
                 async with client.stream("GET", current, headers=_HEADERS) as response:
@@ -146,23 +144,18 @@ async def web_fetch(url: str, max_length: int = 50000) -> str:
                         location = response.headers.get("location")
                         if not location or not location.strip():
                             raise RuntimeError(f"重定向响应缺少有效 Location: {current}")
-                        current = await _validate_url(
-                            urljoin(current, location), pin_scheme=pin_scheme
-                        )
+                        current = await _validate_url(urljoin(current, location), pin_scheme=pin_scheme)
                         continue
                     response.raise_for_status()
                     content_type = response.headers.get("content-type", "")
                     # 缺 Content-Type 视为文本放行；仅当存在且非文本类时拒绝
                     if content_type and not _is_allowed_content_type(content_type):
                         raise RuntimeError(
-                            f"不支持的内容类型 '{content_type}'。"
-                            "仅支持文本类内容（HTML/JSON/XML/纯文本）。"
+                            f"不支持的内容类型 '{content_type}'。仅支持文本类内容（HTML/JSON/XML/纯文本）。"
                         )
                     content_bytes, exceeded = await _read_capped(response)
                     if exceeded:
-                        logger.warning(
-                            "web_fetch 内容过大，截断到 %d 字节", _MAX_CONTENT_BYTES
-                        )
+                        logger.warning("web_fetch 内容过大，截断到 %d 字节", _MAX_CONTENT_BYTES)
                     encoding = response.encoding or "utf-8"
                 break
             except httpx.TimeoutException:

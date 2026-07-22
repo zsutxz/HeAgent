@@ -124,8 +124,12 @@ class _MockMCPManager:
                 {"server": "alpha", "name": "greet", "description": "Say hello", "arguments": []},
             ],
             "beta": [
-                {"server": "beta", "name": "analyze", "description": "Analyze data",
-                 "arguments": [{"name": "topic", "description": "Topic", "required": True}]},
+                {
+                    "server": "beta",
+                    "name": "analyze",
+                    "description": "Analyze data",
+                    "arguments": [{"name": "topic", "description": "Topic", "required": True}],
+                },
             ],
         }
         self._prompt_texts: dict[str, str] = {

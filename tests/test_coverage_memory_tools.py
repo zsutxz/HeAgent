@@ -32,6 +32,7 @@ def _reset_after() -> None:
 # fact_add  error paths
 # ---------------------------------------------------------------------------
 
+
 class TestFactAddErrors:
     """fact_add() → "Error: fact tools not configured." branches."""
 
@@ -50,6 +51,7 @@ class TestFactAddErrors:
 # ---------------------------------------------------------------------------
 # fact_add  duplicate path
 # ---------------------------------------------------------------------------
+
 
 class TestFactAddDuplicate:
     """fact_add() → "Fact already exists (duplicate detected)." branch."""
@@ -78,6 +80,7 @@ class TestFactAddDuplicate:
 # profile_update  error paths
 # ---------------------------------------------------------------------------
 
+
 class TestProfileUpdateErrors:
     """profile_update() → "Error: profile tools not configured." branches."""
 
@@ -96,6 +99,7 @@ class TestProfileUpdateErrors:
 # ---------------------------------------------------------------------------
 # configure_memory_tools
 # ---------------------------------------------------------------------------
+
 
 class TestConfigure:
     """configure_memory_tools() basic call paths."""
@@ -136,6 +140,7 @@ class TestConfigure:
 # reset_memory_tools
 # ---------------------------------------------------------------------------
 
+
 class TestReset:
     """reset_memory_tools() basic call path."""
 
@@ -154,6 +159,7 @@ class TestReset:
 # ---------------------------------------------------------------------------
 # bind_memory_tools  (context manager)
 # ---------------------------------------------------------------------------
+
 
 class TestBind:
     """bind_memory_tools() context-manager paths."""

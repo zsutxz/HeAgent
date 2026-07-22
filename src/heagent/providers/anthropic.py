@@ -202,7 +202,8 @@ class AnthropicProvider:
             if getattr(block, "type", None) == "thinking":
                 logger.warning(
                     "Claude thinking block detected (model=%s) — not yet passed back to API; "
-                    "multi-turn tool-use may lose reasoning context", self._model
+                    "multi-turn tool-use may lose reasoning context",
+                    self._model,
                 )
             if getattr(block, "type", None) == "text":
                 text_parts.append(getattr(block, "text", ""))

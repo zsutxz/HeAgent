@@ -93,9 +93,7 @@ class SwitchableProvider:
             ValueError: 名称不存在。
         """
         if name not in self._providers:
-            raise ValueError(
-                f"Unknown provider {name!r}. Available: {', '.join(sorted(self._providers.keys()))}"
-            )
+            raise ValueError(f"Unknown provider {name!r}. Available: {', '.join(sorted(self._providers.keys()))}")
         async with self._lock:
             old = self._active
             self._active = name

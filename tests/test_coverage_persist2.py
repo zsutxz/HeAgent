@@ -15,6 +15,7 @@ import heagent.engine.persist as persist_mod
 
 # ── 行 47: posix retry loop body ──
 
+
 class TestAcquireLockPosixRetry:
     """覆盖 _acquire_lock_posix 非首轮迭代的 sleep 路径。"""
 
@@ -47,6 +48,7 @@ class TestAcquireLockPosixRetry:
 
 
 # ── 行 62-63: Windows 空文件哨兵 OSError ──
+
 
 class TestAcquireLockWindowsEmptyFile:
     """覆盖 _acquire_lock_windows 的 except OSError: pass（行 62-63）。"""
@@ -82,6 +84,7 @@ class TestAcquireLockWindowsEmptyFile:
 
 
 # ── 行 170-177: load_json_model 错误路径 ──
+
 
 class _FakeModel(BaseModel):
     name: str

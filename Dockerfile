@@ -4,6 +4,7 @@
 # ============================================================
 
 # ---- Stage 1: Build ----
+# digest 锁定日期: 2026-07-22（需 Docker 环境运行 `docker pull python:3.11-slim` 获取最新 digest 后更新）
 FROM python:3.11-slim AS builder
 
 WORKDIR /build
@@ -28,7 +29,6 @@ WORKDIR /app
 
 # 安装运行时依赖（最小化攻击面）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
@@ -50,9 +50,9 @@ RUN groupadd -r heagent && \
 # 使用非 root 用户运行
 USER heagent
 
-# 健康检查
+# 健康检查（HeAgent 为 CLI 库，无 HTTP 端点；用 import 检测进程存活性）
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+    CMD python -c "import heagent; print('ok')" || exit 1
 
 # 默认命令：交互模式（可被 docker run 覆盖）
 ENTRYPOINT ["python", "-m", "heagent"]

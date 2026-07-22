@@ -208,8 +208,6 @@ class FirejailBackend:
         return await _run_subprocess_exec(argv, timeout=timeout)
 
 
-
-
 class WinJobBackend:
     """Windows Job Objects sandbox backend (process-level isolation, Windows-only).
 
@@ -230,6 +228,7 @@ class WinJobBackend:
             return False
         try:
             import ctypes
+
             _ = ctypes.windll.kernel32.CreateJobObjectW
             return True
         except (ImportError, AttributeError, OSError):
@@ -237,9 +236,7 @@ class WinJobBackend:
 
     async def run(self, command: str, *, timeout: int) -> str:
         if not self.available():
-            logger.warning(
-                "WinJobBackend not available; falling back to Passthrough"
-            )
+            logger.warning("WinJobBackend not available; falling back to Passthrough")
             return await PassthroughRunner().run(command, timeout=timeout)
 
         import ctypes
@@ -337,6 +334,8 @@ class WinJobBackend:
 
     def __repr__(self) -> str:
         return f"WinJobBackend(available={self.available()})"
+
+
 # —— RuntimeSlot 注入 ——
 _command_runner_slot = RuntimeSlot[CommandRunner]("heagent_command_runner")
 _DEFAULT_RUNNER = PassthroughRunner()

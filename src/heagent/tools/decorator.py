@@ -128,9 +128,7 @@ def tool(
             # 解析参数类型（支持 Union / Optional / int | None / list[str] 等）
             ptype, is_nullable = _resolve_schema_type(hints.get(param_name, str))
             if is_nullable:
-                prop: dict[str, object] = {
-                    "anyOf": [{"type": ptype}, {"type": "null"}]
-                }
+                prop: dict[str, object] = {"anyOf": [{"type": ptype}, {"type": "null"}]}
             else:
                 prop = {"type": ptype}
             # 有默认值的参数标记 default

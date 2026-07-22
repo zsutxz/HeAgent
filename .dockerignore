@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+.env
+
+# IDE & Editor
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# HeAgent runtime (生成于运行时，不打包进镜像)
+.heagent/
+
+# Test & QA artifacts
+.mypy_cache/
+.pytest_cache/
+.pytest_tmp/
+.ruff_cache/
+.coverage
+htmlcov/
+benchmark-data/
+
+# Git
+.git/
+
+# BMad & docs
+_bmad-output/
+docs/stock/
+
+# Node (若有)
+node_modules/

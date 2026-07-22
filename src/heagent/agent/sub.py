@@ -175,6 +175,7 @@ class SubAgent:
             compressor = self._compressor
             if compressor is None:
                 from heagent.context.compressor import ContextCompressor
+
                 compressor = ContextCompressor(self._provider)
         loop = AgentLoop(
             self._provider,

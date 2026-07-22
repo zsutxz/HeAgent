@@ -303,8 +303,9 @@ async def _run_single(
     engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
 
     async with mcp_ctx or contextlib.nullcontext():
-        loop, _ = _build_loop(settings, provider, max_iterations, soul_path,
-                                  engine=engine, sandbox_backend=sandbox_backend)
+        loop, _ = _build_loop(
+            settings, provider, max_iterations, soul_path, engine=engine, sandbox_backend=sandbox_backend
+        )
         try:
             result = await loop.run(prompt, system=system)
             click.echo(result)
@@ -330,9 +331,15 @@ async def _run_chat(
 
     async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
         session = SessionStore()
-        loop, scheduler = _build_loop(settings, provider, max_iterations,
-                                        soul_path, session=session, engine=engine,
-                                        sandbox_backend=sandbox_backend)
+        loop, scheduler = _build_loop(
+            settings,
+            provider,
+            max_iterations,
+            soul_path,
+            session=session,
+            engine=engine,
+            sandbox_backend=sandbox_backend,
+        )
         click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
         try:
@@ -376,6 +383,7 @@ async def _run_chat(
 # ------------------------------------------------------------------
 # 斜杠命令路由
 # ------------------------------------------------------------------
+
 
 async def _handle_slash(
     user_input: str,
@@ -430,14 +438,12 @@ async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
 # /mcp-prompt handler
 # ------------------------------------------------------------------
 
+
 def _format_prompt_args(args: list[dict[str, Any]]) -> str:
     """Format MCP Prompt arguments list for display."""
     if not args:
         return "(no args)"
-    return " ".join(
-        f"{a['name']}=..." if a.get("required") else f"{a['name']}?"
-        for a in args
-    )
+    return " ".join(f"{a['name']}=..." if a.get("required") else f"{a['name']}?" for a in args)
 
 
 async def _handle_mcp_prompt(user_input: str, mcp_manager: Any) -> None:
@@ -501,6 +507,7 @@ async def _handle_mcp_prompt(user_input: str, mcp_manager: Any) -> None:
 def _guard_mcp_content(text: str) -> str:
     """Apply heuristic injection guard to MCP prompt output (non-bridge path, CLI only)."""
     from heagent.tools.mcp.mapping import guard_content  # noqa: PLC0415 - inline import for CLI-only
+
     return guard_content(text)
 
 
@@ -510,8 +517,12 @@ def _guard_mcp_content(text: str) -> str:
 @click.option("--system", default=None, help="System prompt")
 @click.option("--max-iterations", type=int, default=None, help="Max agent loop iterations")
 @click.option("--soul", default=None, help="Path to custom SOUL.md personality file")
-@click.option("--sandbox", type=click.Choice(["passthrough", "firejail"]),
-              default=None, help="Sandbox backend for shell execution (default: from SANDBOX_BACKEND setting)")
+@click.option(
+    "--sandbox",
+    type=click.Choice(["passthrough", "firejail"]),
+    default=None,
+    help="Sandbox backend for shell execution (default: from SANDBOX_BACKEND setting)",
+)
 def main(
     prompt: str | None,
     model: str | None,
@@ -542,6 +553,7 @@ def main(
     sandbox_resolved = sandbox or settings.sandbox_backend
     if sandbox_resolved == "firejail":
         import shutil as _shutil
+
         if _shutil.which(settings.sandbox_firejail_path) is None:
             click.echo(
                 f" WARNING: firejail not found ({settings.sandbox_firejail_path}). Shell commands will run "
@@ -562,8 +574,12 @@ def main(
         raise SystemExit(1) from None
 
     if prompt:
-        asyncio.run(_run_single(prompt, provider, system, resolved_iterations,
-                              soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox))
+        asyncio.run(
+            _run_single(
+                prompt, provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox
+            )
+        )
     else:
-        asyncio.run(_run_chat(provider, system, resolved_iterations,
-                            soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox))
+        asyncio.run(
+            _run_chat(provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox)
+        )

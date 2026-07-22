@@ -112,7 +112,9 @@ class TestRunSubprocessShellCancelled:
 
     @pytest.mark.asyncio
     async def test_cancel_reap_failure_still_reraises(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """取消清理时 _kill_and_reap 抛 BaseException → 不吞，CancelledError 仍上抛。
 
@@ -144,10 +146,9 @@ class TestRunSubprocessShellCancelled:
             pytest.raises(asyncio.CancelledError),
         ):
             await task
-        assert any(
-            rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage()
-            for rec in caplog.records
-        ), "reap 失败应记 debug 日志（cancel cleanup）"
+        assert any(rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage() for rec in caplog.records), (
+            "reap 失败应记 debug 日志（cancel cleanup）"
+        )
 
     @pytest.mark.asyncio
     async def test_timeout_kills_and_returns_timeout_result(self) -> None:
@@ -238,7 +239,9 @@ class TestRunSubprocessExecCancelled:
 
     @pytest.mark.asyncio
     async def test_cancel_reap_failure_still_reraises(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """取消清理时 _kill_and_reap 抛 BaseException → debug 日志 + CancelledError 仍上抛。"""
 
@@ -267,10 +270,7 @@ class TestRunSubprocessExecCancelled:
             pytest.raises(asyncio.CancelledError),
         ):
             await task
-        assert any(
-            rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage()
-            for rec in caplog.records
-        )
+        assert any(rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage() for rec in caplog.records)
 
     @pytest.mark.asyncio
     async def test_timeout_kills_and_returns_timeout_result(self) -> None:
@@ -330,12 +330,14 @@ class TestFirejailBackendFallback:
     ) -> FirejailBackend:
         """构造 firejail 不可用的 backend（shutil.which → None）。"""
         import shutil
+
         monkeypatch.setattr(shutil, "which", lambda p: None)
         return FirejailBackend()
 
     @pytest.mark.asyncio
     async def test_fallback_uses_passthrough_not_exec(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """不可用时调用 ``PassthroughRunner().run``（create_subprocess_shell），
         而非 ``create_subprocess_exec``。
@@ -372,7 +374,8 @@ class TestFirejailBackendFallback:
 
     @pytest.mark.asyncio
     async def test_fallback_preserves_timeout_semantics(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """不可用时 timeout 校验、超时返回均经 PassthroughRunner 生效。"""
         backend = self._make_unavailable_backend(monkeypatch)
@@ -411,10 +414,12 @@ class TestFirejailBackendProfilePath:
 
     @pytest.mark.asyncio
     async def test_profile_injected_into_argv(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """可用 + profile bind → argv 含 profile 参数 → 调 create_subprocess_exec。"""
         import shutil
+
         monkeypatch.setattr(shutil, "which", lambda p: "/usr/bin/firejail")
 
         captured_argv: list[list[str]] = []
@@ -445,10 +450,12 @@ class TestFirejailBackendProfilePath:
 
     @pytest.mark.asyncio
     async def test_no_profile_bind_yields_no_profile_args(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """可用但未 bind profile → argv 不含 profile 专属参数，仅 extra_args。"""
         import shutil
+
         monkeypatch.setattr(shutil, "which", lambda p: "/usr/bin/firejail")
 
         captured_argv: list[list[str]] = []
@@ -477,10 +484,12 @@ class TestFirejailBackendProfilePath:
 
     @pytest.mark.asyncio
     async def test_profile_bind_as_contextvar_survives_async_boundary(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """contextvar 在 async 边界内存活——bind 后 async 调用 run 仍读到 profile。"""
         import shutil
+
         monkeypatch.setattr(shutil, "which", lambda p: "/usr/bin/firejail")
 
         captured_argv: list[list[str]] = []
@@ -562,7 +571,9 @@ class TestWinJobBackend:
 
     @pytest.mark.asyncio
     async def test_run_falls_back_when_unavailable(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """WinJobBackend.available()=False → 走 PassthroughRunner 降级 + warning 日志。"""
         monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: False))
@@ -589,10 +600,9 @@ class TestWinJobBackend:
 
         assert "winjob_fallback" in result
         assert shell_called
-        assert any(
-            "WinJobBackend not available" in rec.getMessage()
-            for rec in caplog.records
-        ), "不可用时应记 warning 日志"
+        assert any("WinJobBackend not available" in rec.getMessage() for rec in caplog.records), (
+            "不可用时应记 warning 日志"
+        )
 
     # ── run 可用路径 辅助方法 ──
 
@@ -605,21 +615,30 @@ class TestWinJobBackend:
         # CreateJobObjectW / SetInformationJobObject / AssignProcessToJobObject:
         # 全部返回非零成功码以便流程走通。
         monkeypatch.setattr(
-            ctypes.windll.kernel32, "CreateJobObjectW", lambda a, b: 12345,
+            ctypes.windll.kernel32,
+            "CreateJobObjectW",
+            lambda a, b: 12345,
         )
         monkeypatch.setattr(
-            ctypes.windll.kernel32, "SetInformationJobObject", lambda *a: 1,
+            ctypes.windll.kernel32,
+            "SetInformationJobObject",
+            lambda *a: 1,
         )
         monkeypatch.setattr(
-            ctypes.windll.kernel32, "AssignProcessToJobObject", lambda *a: 1,
+            ctypes.windll.kernel32,
+            "AssignProcessToJobObject",
+            lambda *a: 1,
         )
         monkeypatch.setattr(
-            ctypes.windll.kernel32, "CloseHandle", lambda *a: 1,
+            ctypes.windll.kernel32,
+            "CloseHandle",
+            lambda *a: 1,
         )
 
     @pytest.mark.asyncio
     async def test_run_available_normal_execution(
-        self, monkeypatch: pytest.MonkeyPatch,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """WinJobBackend 可用时走 Windows Job Objects 路径（行 296-297）。
 
@@ -665,7 +684,9 @@ class TestWinJobBackend:
 
     @pytest.mark.asyncio
     async def test_run_available_cancelled_error(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """WinJobBackend 可用路径 CancelledError 清理分支（行 324-325）。
 
@@ -685,6 +706,7 @@ class TestWinJobBackend:
             def communicate(self):
                 # 永不返回——等待取消
                 import time
+
                 time.sleep(1000)
                 return b"", b""
 
@@ -723,10 +745,10 @@ class TestWinJobBackend:
             await task
 
         assert killed, "取消后应 kill 子进程"
-        assert any(
-            rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage()
-            for rec in caplog.records
-        ) or waited, "取消 cleanup 应执行（log 或 waited）"
+        assert (
+            any(rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage() for rec in caplog.records)
+            or waited
+        ), "取消 cleanup 应执行（log 或 waited）"
 
 
 # ──────────────────────────────────────────────────────────────────────────────

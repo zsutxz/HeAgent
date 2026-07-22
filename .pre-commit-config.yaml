@@ -1,7 +1,7 @@
-# pre-commit 钩子：提交前自动跑 ruff check / ruff format / mypy，
+# pre-commit 钩子：提交前自动跑 ruff check / ruff format / mypy / bandit，
 # 与 CI（.github/workflows/ci.yml）三道检查保持一致。
 #
-# 采用 local hooks（language: system）直接调用项目 dev 依赖里的 ruff/mypy，
+# 采用 local hooks（language: system）直接调用项目 dev 依赖里的 ruff/mypy/bandit，
 # 保证版本与本地开发、CI（pip install -e ".[dev]"）完全一致；
 # mypy 也能看到 pydantic 等依赖，无需 additional_dependencies。
 #
@@ -9,6 +9,19 @@
 # 全量跑：pre-commit run --all-files
 
 repos:
+  # ── 基础文件卫生 hooks ──
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ['--maxkb=500']
+
+  # ── HeAgent 专项 hooks ──
   - repo: local
     hooks:
       # 先 check（--fix 修可修的 lint 问题，如删未用 import / 排 import 顺序）
@@ -33,3 +46,12 @@ repos:
         types: [python]
         pass_filenames: false
         args: [src]
+      # bandit 安全扫描（与 CI 一致，-ll 仅 low+ 告警）
+      - id: bandit
+        name: bandit (security)
+        entry: python -m bandit
+        language: system
+        types: [python]
+        files: ^src/
+        args: ['-r', '-ll']
+        pass_filenames: false

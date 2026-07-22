@@ -135,9 +135,7 @@ class ContextCompressor:
             摘要文本
         """
         # effective_limit：min(window_limit, summary_input_limit)，收紧摘要输入上限（P1-4 修复）
-        effective_limit = (
-            min(max_tokens, self.max_summary_tokens) if max_tokens > 0 else self.max_summary_tokens
-        )
+        effective_limit = min(max_tokens, self.max_summary_tokens) if max_tokens > 0 else self.max_summary_tokens
         safety_limit = effective_limit - _SUMMARY_SAFETY_MARGIN
 
         # 安全空间不足以承载摘要请求本身 → 不调 LLM，直接返回占位符。
@@ -164,9 +162,7 @@ class ContextCompressor:
                 parts.append(f"{m.role.value}: {m.content}")
             if m.tool_calls:
                 for tc in m.tool_calls:
-                    parts.append(
-                        f"tool_call: {tc.name}({json.dumps(tc.arguments, ensure_ascii=False)})"
-                    )
+                    parts.append(f"tool_call: {tc.name}({json.dumps(tc.arguments, ensure_ascii=False)})")
             # tool_call_id 的 token 开销（TOOL 消息标识，与 tokens.py count_tokens 对齐）
             if m.role == Role.TOOL and m.tool_call_id:
                 parts.insert(0, f"tool_result({m.tool_call_id}):")
