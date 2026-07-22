@@ -19,9 +19,19 @@ def _mock_usage(p: int = 10, c: int = 5, t: int = 15) -> SimpleNamespace:
 
 
 def _mock_choice(
-    content: str = "hello", finish_reason: str = "stop", tool_calls: list[object] | None = None
+    content: str = "hello",
+    finish_reason: str = "stop",
+    tool_calls: list[object] | None = None,
+    reasoning_content: str | None = None,
 ) -> SimpleNamespace:
-    return SimpleNamespace(message=SimpleNamespace(content=content, tool_calls=tool_calls), finish_reason=finish_reason)
+    return SimpleNamespace(
+        message=SimpleNamespace(
+            content=content,
+            tool_calls=tool_calls,
+            reasoning_content=reasoning_content,
+        ),
+        finish_reason=finish_reason,
+    )
 
 
 def _mock_response(
@@ -30,9 +40,12 @@ def _mock_response(
     finish_reason: str = "stop",
     tool_calls: list[object] | None = None,
     usage: object | None = None,
+    reasoning_content: str | None = None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        choices=[_mock_choice(content, finish_reason, tool_calls)], model=model, usage=usage or _mock_usage()
+        choices=[_mock_choice(content, finish_reason, tool_calls, reasoning_content)],
+        model=model,
+        usage=usage or _mock_usage(),
     )
 
 
@@ -42,11 +55,21 @@ def _mock_chunk(
     finish_reason: str = "",
     has_choices: bool = True,
     usage: object | None = None,
+    reasoning_content: str | None = None,
 ) -> SimpleNamespace:
     if not has_choices:
         return SimpleNamespace(choices=[], model=model, usage=usage)
     return SimpleNamespace(
-        choices=[SimpleNamespace(delta=SimpleNamespace(content=content, tool_calls=None), finish_reason=finish_reason)],
+        choices=[
+            SimpleNamespace(
+                delta=SimpleNamespace(
+                    content=content,
+                    tool_calls=None,
+                    reasoning_content=reasoning_content,
+                ),
+                finish_reason=finish_reason,
+            )
+        ],
         model=model,
         usage=usage,
     )
@@ -90,6 +113,18 @@ class TestHelpers:
         msgs = [Message(role=Role.TOOL, content="output", tool_call_id="tc1")]
         result = _to_openai_messages(msgs)
         assert result[0]["tool_call_id"] == "tc1"
+
+    def test_to_openai_messages_with_reasoning_content(self) -> None:
+        msgs = [
+            Message(
+                role=Role.ASSISTANT,
+                content="",
+                tool_calls=[],
+                reasoning_content="I need to inspect the files.",
+            )
+        ]
+        result = _to_openai_messages(msgs)
+        assert result[0]["reasoning_content"] == "I need to inspect the files."
 
     def test_to_openai_tools(self) -> None:
         tools = [ToolSchema(name="run", description="run cmd", parameters={"type": "object"})]
@@ -142,6 +177,23 @@ class TestSend:
         assert len(resp.tool_calls) == 1
 
     @patch("heagent.providers.openai.AsyncOpenAI")
+    async def test_send_preserves_reasoning_content(self, mock_cls: MagicMock) -> None:
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=_mock_response(
+                "",
+                finish_reason="tool_calls",
+                tool_calls=[_mock_tool_call()],
+                reasoning_content="I should run the tool.",
+            )
+        )
+
+        resp = await OpenAIProvider(api_key="sk-test").send([Message(role=Role.USER, content="inspect")])
+
+        assert resp.reasoning_content == "I should run the tool."
+
+    @patch("heagent.providers.openai.AsyncOpenAI")
     async def test_send_custom_model(self, mock_cls: MagicMock) -> None:
         mock_client = AsyncMock()
         mock_cls.return_value = mock_client
@@ -165,6 +217,26 @@ class TestStream:
         chunks = [c async for c in p.stream([Message(role=Role.USER, content="hi")])]
         assert len(chunks) >= 2
         assert chunks[0].content == "Hello"
+
+    @patch("heagent.providers.openai.AsyncOpenAI")
+    async def test_stream_preserves_reasoning_content(self, mock_cls: MagicMock) -> None:
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=_FakeAsyncStream(
+                [
+                    _mock_chunk(content="", reasoning_content="I should "),
+                    _mock_chunk(content="", reasoning_content="run it.", finish_reason="tool_calls"),
+                ]
+            )
+        )
+
+        chunks = [
+            chunk
+            async for chunk in OpenAIProvider(api_key="sk-test").stream([Message(role=Role.USER, content="inspect")])
+        ]
+
+        assert chunks[-1].reasoning_content == "I should run it."
 
 
 class _FakeSdkError(Exception):

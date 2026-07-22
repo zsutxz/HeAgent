@@ -13,7 +13,7 @@ from openai import AsyncOpenAI
 
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.retry import wrap_provider_error
-from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall, ToolSchema
+from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -25,6 +25,7 @@ def _to_openai_messages(messages: list[Message]) -> list[dict[str, object]]:
     处理规则：
     - 基本字段：role, content
     - ASSISTANT 消息可能包含 tool_calls → 转为 OpenAI function calling 格式
+    - 思考模型的 ASSISTANT 消息可能包含 reasoning_content → 原样回传
     - TOOL 消息需要 tool_call_id 和 name 字段
     """
     result: list[dict[str, object]] = []
@@ -40,6 +41,8 @@ def _to_openai_messages(messages: list[Message]) -> list[dict[str, object]]:
                 }
                 for tc in msg.tool_calls
             ]
+        if msg.role == Role.ASSISTANT and msg.reasoning_content is not None:
+            d["reasoning_content"] = msg.reasoning_content
         # 工具执行结果需要关联的调用 ID 和工具名
         if msg.tool_call_id:
             d["tool_call_id"] = msg.tool_call_id
@@ -152,6 +155,7 @@ class OpenAIProvider:
             usage=_build_usage(resp.usage),
             model=resp.model,
             finish_reason=choice.finish_reason or "stop",
+            reasoning_content=getattr(message, "reasoning_content", None) or None,
         )
 
     async def stream(
@@ -178,6 +182,7 @@ class OpenAIProvider:
                 model = ""
                 finish_reason = ""
                 final_usage = _ZERO_USAGE
+                reasoning_content = ""
 
                 async for chunk in stream:
                     if not chunk.choices:
@@ -191,6 +196,12 @@ class OpenAIProvider:
                     delta = chunk.choices[0].delta
                     if chunk.choices[0].finish_reason:
                         finish_reason = chunk.choices[0].finish_reason or ""
+
+                    # DeepSeek/Kimi 等思考模型在工具调用续轮中要求原样回传该字段。
+                    # 仅内部累计，不作为可见文本 chunk 下推。
+                    delta_reasoning = getattr(delta, "reasoning_content", None)
+                    if delta_reasoning:
+                        reasoning_content += delta_reasoning
 
                     # 增量累积 tool_calls（OpenAI 分多个 chunk 逐步发送）
                     if getattr(delta, "tool_calls", None):
@@ -235,6 +246,7 @@ class OpenAIProvider:
                     usage=final_usage,
                     model=model,
                     finish_reason=finish_reason or "stop",
+                    reasoning_content=reasoning_content or None,
                 )
         except Exception as e:
             raise wrap_provider_error(e) from e

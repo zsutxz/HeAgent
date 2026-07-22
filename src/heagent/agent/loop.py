@@ -215,7 +215,12 @@ class AgentLoop:
 
                     await self._maybe_compress(state, run_context, response.usage)
                     state.messages.append(
-                        Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
+                        Message(
+                            role=Role.ASSISTANT,
+                            content=response.content,
+                            tool_calls=response.tool_calls or None,
+                            reasoning_content=response.reasoning_content,
+                        )
                     )
                     await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
 
@@ -277,6 +282,7 @@ class AgentLoop:
                     chunk_usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
                     model = ""
                     finish_reason = ""
+                    reasoning_content = ""
 
                     async for chunk in self.provider.stream(state.messages, tools=tools or None):
                         if chunk.content:
@@ -290,6 +296,8 @@ class AgentLoop:
                             model = chunk.model
                         if chunk.finish_reason:
                             finish_reason = chunk.finish_reason
+                        if chunk.reasoning_content:
+                            reasoning_content += chunk.reasoning_content
 
                     accumulated = self._add_usage(accumulated, chunk_usage)
                     response = ProviderResponse(
@@ -298,11 +306,17 @@ class AgentLoop:
                         usage=chunk_usage,
                         model=model,
                         finish_reason=finish_reason or "stop",
+                        reasoning_content=reasoning_content or None,
                     )
 
                     await self._maybe_compress(state, run_context, response.usage)
                     state.messages.append(
-                        Message(role=Role.ASSISTANT, content=response.content, tool_calls=response.tool_calls or None)
+                        Message(
+                            role=Role.ASSISTANT,
+                            content=response.content,
+                            tool_calls=response.tool_calls or None,
+                            reasoning_content=response.reasoning_content,
+                        )
                     )
 
                     if not response.tool_calls and finish_reason == "tool_calls":
@@ -311,6 +325,7 @@ class AgentLoop:
                             role=Role.ASSISTANT,
                             content=response.content,
                             tool_calls=response.tool_calls or None,
+                            reasoning_content=response.reasoning_content,
                         )
                         accumulated = self._add_usage(accumulated, response.usage)
 

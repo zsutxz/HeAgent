@@ -64,6 +64,7 @@ class Message(BaseModel):
     name: 工具名称（仅 TOOL 角色使用）
     tool_call_id: 关联的工具调用 ID（仅 TOOL 角色使用）
     tool_calls: LLM 请求的工具调用列表（仅 ASSISTANT 角色使用）
+    reasoning_content: 思考模型要求在工具调用续轮中原样回传的推理内容
     """
 
     role: Role
@@ -71,6 +72,7 @@ class Message(BaseModel):
     name: str | None = None
     tool_call_id: str | None = None
     tool_calls: list[ToolCall] | None = None
+    reasoning_content: str | None = None
 
 
 class ProviderResponse(BaseModel):
@@ -82,6 +84,7 @@ class ProviderResponse(BaseModel):
     usage: Token 使用统计
     model: 实际使用的模型名称
     finish_reason: 结束原因（stop/tool_calls/length 等）
+    reasoning_content: OpenAI 兼容思考模型返回、续轮时必须回传的推理内容
     """
 
     content: str
@@ -89,6 +92,7 @@ class ProviderResponse(BaseModel):
     usage: TokenUsage
     model: str
     finish_reason: str
+    reasoning_content: str | None = None
 
 
 class ToolAnnotations(BaseModel):

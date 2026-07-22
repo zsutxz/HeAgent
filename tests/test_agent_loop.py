@@ -29,8 +29,10 @@ class StubProvider:
     def __init__(self, responses: list[ProviderResponse]) -> None:
         self._responses = list(responses)
         self._idx = 0
+        self.calls: list[list[Message]] = []
 
     async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
+        self.calls.append([message.model_copy(deep=True) for message in messages])
         if self._idx < len(self._responses):
             resp = self._responses[self._idx]
             self._idx += 1
@@ -131,6 +133,22 @@ class TestAgentLoop:
         )
         result = await AgentLoop(provider, registry=fresh_registry, max_iterations=10).run("test")
         assert result == "pong"
+
+    @pytest.mark.asyncio
+    async def test_tool_followup_preserves_reasoning_content(self, fresh_registry: ToolRegistry) -> None:
+        fresh_registry.register(
+            ToolSchema(name="echo", description="echo", parameters={"type": "object", "properties": {}}),
+            lambda text="default": text,
+        )
+        tool_response = _tool_resp([_tc("1", "echo", {"text": "ping"})])
+        tool_response.reasoning_content = "I should call echo."
+        provider = StubProvider([tool_response, _final("pong")])
+
+        result = await AgentLoop(provider, registry=fresh_registry, max_iterations=10).run("test")
+
+        assert result == "pong"
+        assistant = next(message for message in provider.calls[1] if message.role == Role.ASSISTANT)
+        assert assistant.reasoning_content == "I should call echo."
 
     @pytest.mark.asyncio
     async def test_unknown_tool(self, fresh_registry: ToolRegistry) -> None:
