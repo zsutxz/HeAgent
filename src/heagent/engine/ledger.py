@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -32,9 +33,10 @@ from pydantic import BaseModel, Field
 from heagent.engine.context import iso_now
 from heagent.engine.persist import atomic_write_text, load_json_model
 
-import logging
-
 logger = logging.getLogger(__name__)
+
+# ── prune 进度日志间隔 ───────────────────────────────────────────
+_PRUNE_PROGRESS_INTERVAL = 500  # 每处理 500 个文件打一次 info 日志
 
 
 class ExecutionStatus(StrEnum):
@@ -76,6 +78,23 @@ class LedgerClaim(BaseModel):
     record: ExecutionRecord
 
 
+# ── 日期比较辅助 ─────────────────────────────────────────────────
+# 存储的时间戳来源混杂：``iso_now()`` 输出 naive UTC，测试/外部可能
+# 用 ``.isoformat()`` 输出 aware（带 +00:00）。Python 禁止 naive 与 aware
+# 直接比较（TypeError）——统一 strip tzinfo 后再比。
+
+
+def _parse_iso_to_naive(raw: str) -> datetime:
+    """``datetime.fromisoformat`` → naive UTC（strip 现有 tzinfo）。"""
+    dt = datetime.fromisoformat(raw)
+    if dt.tzinfo is not None:
+        dt = dt.replace(tzinfo=None)
+    return dt
+
+
+# ── 账本 ─────────────────────────────────────────────────────────
+
+
 class ExecutionLedger:
     """JSON 文件后端、防重复执行的幂等账本。"""
 
@@ -88,6 +107,8 @@ class ExecutionLedger:
         self._lock = asyncio.Lock()
         # 跨进程文件锁开关（经 EngineContainer.enable_file_locks 注入，V2）。
         self._enable_locks: bool = False
+
+    # ── 公开 API ─────────────────────────────────────────────────
 
     async def acquire(
         self,
@@ -111,7 +132,7 @@ class ExecutionLedger:
             if existing is not None:
                 if existing.status == ExecutionStatus.COMPLETED:
                     return LedgerClaim(acquired=False, reason="already completed", record=existing)
-                if existing.status == ExecutionStatus.RUNNING and not self._is_expired(existing):
+                if existing.status == ExecutionStatus.RUNNING and self._is_lease_active(existing):
                     return LedgerClaim(acquired=False, reason="lease active", record=existing)
                 record = existing.model_copy(deep=True)
             else:
@@ -192,16 +213,30 @@ class ExecutionLedger:
         return await asyncio.to_thread(load_json_model, self._path(key), ExecutionRecord)
 
     async def list_records(self) -> list[ExecutionRecord]:
-        """返回全部已知记录（按 (scope, key) 排序）；损坏文件跳过不中断。"""
+        """返回全部已知记录（按 (scope, key) 排序）；损坏文件跳过不中断。
+
+        P1-23 加固：逐文件 try/except + >500 条时输出进度日志（防假死）。
+        """
         if not await asyncio.to_thread(self._base.exists):
             return []
         paths = await asyncio.to_thread(lambda: list(self._base.glob("*.json")))
+        total = len(paths)
         records: list[ExecutionRecord] = []
-        for path in paths:
-            record = await asyncio.to_thread(load_json_model, path, ExecutionRecord)
+        for i, path in enumerate(paths):
+            if i > 0 and i % _PRUNE_PROGRESS_INTERVAL == 0:
+                logger.info("list_records: scanned %d/%d files, %d valid so far", i, total, len(records))
+            try:
+                record = await asyncio.to_thread(load_json_model, path, ExecutionRecord)
+            except Exception:
+                logger.debug("list_records: unhandled error on %s; skipping", path, exc_info=True)
+                continue
             if record is not None:
                 records.append(record)
+        if total >= _PRUNE_PROGRESS_INTERVAL:
+            logger.info("list_records: done — %d valid out of %d files", len(records), total)
         return sorted(records, key=lambda r: (r.scope, r.key))
+
+    # ── 内部 ─────────────────────────────────────────────────────
 
     async def _save(self, record: ExecutionRecord) -> None:
         """把一条记录原子写到磁盘（tmp + os.replace，防崩溃留半截）。"""
@@ -215,11 +250,17 @@ class ExecutionLedger:
         return self._base / f"{digest}.json"
 
     @staticmethod
-    def _is_expired(record: ExecutionRecord) -> bool:
-        """该 RUNNING 记录的租约是否已过期（无租约视为未过期）。"""
+    def _is_lease_active(record: ExecutionRecord) -> bool:
+        """租约是否仍有效（RUNNING 且租约未过期）。
+
+        比对前统一经 ``_parse_iso_to_naive`` 去 tzinfo——存储来源混用 naive/aware，
+        Python 禁止混比（TypeError）。
+        """
         if not record.lease_expires_at:
-            return False
-        return datetime.fromisoformat(record.lease_expires_at) <= datetime.now(tz=UTC)
+            return True  # 无租约视为永久有效
+        return _parse_iso_to_naive(record.lease_expires_at) > datetime.now(tz=UTC).replace(tzinfo=None)
+
+    # ── prune（轻量文件路径直走，不 load 全量 Pydantic）─────────
 
     async def prune(self, *, retention_days: int, before: datetime | None = None) -> int:
         """删除过期记录，返回删除数。``retention_days <= 0`` 时直接返回 0（禁用清理）。
@@ -228,37 +269,73 @@ class ExecutionLedger:
         以及 ``RUNNING`` 且租约已过期的孤儿（``heartbeat`` 无调用方，过期即死）。
         保留：未过期 ``RUNNING``（在途，防误删导致重复执行副作用工具）。
 
-        单条 ``unlink`` 失败不中断整批（P1-23 修复——此前实现缺失 per-file 容错，
-        单个文件锁/permission 错误即导致整批 prune 失败）。
+        P1-23 重写：不再经 ``list_records``（7152 次 Pydantic ``model_validate``），
+        改为直接 glob → 逐文件轻量 ``json.loads`` 取 ``status``/``finished_at``/
+        ``lease_expires_at`` 判定过期性，大幅降低 prune 启动成本。
+        单条 JSON 解析 / 删除失败不中断整批。
         """
         if retention_days <= 0:
             return 0
         cutoff = before if before is not None else datetime.now(tz=UTC) - timedelta(days=retention_days)
+        cutoff_naive = cutoff.replace(tzinfo=None)
+
+        if not await asyncio.to_thread(self._base.exists):
+            return 0
+        paths = await asyncio.to_thread(lambda: list(self._base.glob("*.json")))
+        total = len(paths)
         deleted = 0
-        for record in await self.list_records():
+
+        for i, path in enumerate(paths):
+            if i > 0 and i % _PRUNE_PROGRESS_INTERVAL == 0:
+                logger.info("ledger prune: scanned %d/%d files, deleted %d so far", i, total, deleted)
             try:
-                if not self._is_stale(record, cutoff):
+                if not await self._is_path_stale(path, cutoff_naive):
                     continue
             except Exception:
-                logger.debug("Failed to determine staleness for key %s; skipping", record.key, exc_info=True)
+                logger.debug("ledger prune: staleness check failed on %s; skipping", path, exc_info=True)
                 continue
-            path = self._path(record.key)
             try:
                 if await asyncio.to_thread(path.exists):
                     await asyncio.to_thread(path.unlink)
                     deleted += 1
             except Exception:
-                logger.debug("Failed to prune ledger record %s (%s); continuing", record.key, path, exc_info=True)
+                logger.debug("ledger prune: unlink failed on %s; continuing", path, exc_info=True)
+
+        if total >= _PRUNE_PROGRESS_INTERVAL:
+            logger.info("ledger prune: done — deleted %d stale of %d files", deleted, total)
         return deleted
 
-    @staticmethod
-    def _is_stale(record: ExecutionRecord, cutoff: datetime) -> bool:
-        """记录是否过期可删：``RUNNING`` 看租约，终态（``COMPLETED``/``FAILED``）看 ``finished_at``。
+    async def _is_path_stale(self, path: Path, cutoff_naive: datetime) -> bool:
+        """轻量判定一个 ledger 文件是否过期可删。
 
-        无 ``finished_at`` 的终态记录保守保留（视为未过期），避免误删。
+        不实例化 ``ExecutionRecord``——只做 ``json.loads`` 取必需字段。
+        JSON 解析 / 日期解析失败视为不可删（保守保留）。
+        ``cutoff_naive`` 已去除 tzinfo，可直接比较。
         """
-        if record.status == ExecutionStatus.RUNNING:
-            return ExecutionLedger._is_expired(record)
-        if not record.finished_at:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
             return False
-        return datetime.fromisoformat(record.finished_at) <= cutoff
+
+        status = data.get("status", "")
+        if status == "running":
+            lease_raw = data.get("lease_expires_at")
+            if not lease_raw:
+                return False
+            try:
+                now_naive = datetime.now(tz=UTC).replace(tzinfo=None)
+                return _parse_iso_to_naive(lease_raw) <= now_naive
+            except (ValueError, TypeError):
+                return False
+
+        if status in ("completed", "failed"):
+            finished_raw = data.get("finished_at")
+            if not finished_raw:
+                return False
+            try:
+                return _parse_iso_to_naive(finished_raw) <= cutoff_naive
+            except (ValueError, TypeError):
+                return False
+
+        # 未知 status → 保守保留
+        return False

@@ -14,6 +14,7 @@ V2 新增：``enable_file_locks`` 参数——开启后 ``RunStore``/``Execution
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -73,14 +74,22 @@ class EngineContainer:
 
         ``ledger_retention_days <= 0`` 时禁用。清理 IO 故障不中断 run（对齐
         ``persist.load_json_model`` 容错哲学）；已置 ``_pruned`` 标志本次不再重试。
+
+        ``CancelledError`` 不吞（透传给调用方处理 task 取消语义）；其余 ``Exception``
+        打含异常类型+消息的 error 日志并返回 0 继续 run。
         """
         if self._pruned or self.ledger_retention_days <= 0:
             return 0
         self._pruned = True
         try:
             n = await self.ledger.prune(retention_days=self.ledger_retention_days)
-        except Exception:
-            logger.exception("Ledger prune failed; skipping this run")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error(
+                "Ledger prune failed (%s: %s); skipping this run",
+                type(exc).__name__, exc,
+            )
             return 0
         if n:
             logger.info("Ledger pruned %d expired records (retention=%dd)", n, self.ledger_retention_days)
