@@ -175,7 +175,6 @@ class CronScheduler:
             logger.info("One-shot cron job '%s' removed after execution", job.id)
 
     @staticmethod
-    @staticmethod
     def _matches(cron_expr: str, dt: datetime) -> bool:
         """Evaluate a 5-field cron expression with range/step support (V2)."""
         parts = cron_expr.strip().split()
