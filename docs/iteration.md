@@ -118,7 +118,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 |------|------|------|
 | 14 | 写操作治理 — MCP 工具危险分级的确定性闸门（FR-A1~A7，AD-1/2/3） | **已完成** — 14-1 annotations 数据管线 + 14-2 policy 注解闸门 + 14-3 零回归确定性 + 14-4 安全声明同步已全部 `done` |
 | 15 | Resources on-demand 发现与读取（FR-B1~B4，AD-4/5/6） | **已完成** — 15-1 sessions 查找表 + 15-2 list_resources 桥接工具 + 15-3 read_resource + guard_content 围栏 + 15-4 安全声明同步已全部 `done` |
-| 16 | Prompts 交互式协商（FR-C1~C4，AD-7/8/9） | **backlog** |
+| 16 | Prompts 交互式协商（FR-C1~C4，AD-7/8/9） | **已完成** — 16-1 manager prompts 入口 + 16-2 slash 命令调度 + 16-3 渲染守卫 + 16-4 测试已全部 `done` |
 
 ### 2.4 补丁周期 · 技术债收尾
 
@@ -134,7 +134,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | P1/P2 | 多 agent 角色化 + supervisor 编排 |
 | P3/P4 | checkpoint-resume + 工具执行幂等 |
 | P5-3/P5-4/P5-5 | 结构化子任务结果（`SubTaskOutcome`）+ `parent_run_id` 树形聚合 + resume 流式版 |
-| P5-1/P5-2 | **deferred** —— 经评估暂不反转（D1/D4），依据记入 `frame.md` 4.12 |
+| P5-1/P5-2 | **2026-07-21 已交付**：schema 级工具白名单过滤（`AgentLoop._get_tools()`）+ `SubAgent` 可选 `window_reset` 参数 |
 | sandbox 后端 | `execute_in_sandbox` 接 `CommandRunner` 抽象（`tools/sandbox.py`）：默认 Passthrough，可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界），经 `RuntimeSlot` 注入 |
 
 ### 2.6 迭代时间线（git log 提炼）
@@ -163,7 +163,9 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-07-20 | **Sandbox 硬化周期（profile 映射 / 降级 / 配置入口 / 进程组 kill / workspace 隔离）**——Epic S1-S4 全部 8 个 story 交付，新增 24 个 sandbox 专项测试，全量 751/751 通过 |
 | 2026-07-21 | **Epic 19 完成**——覆盖率 89%→90%：新增 21 个专项测试覆盖 17 个模块，911 测试全绿，ruff 零错误。健壮性与质量硬化周期（Epic 18-19）全部交付。
 | 2026-07-21 | **健壮性与质量硬化周期（Epic 18）**：跨进程文件锁（`persist.py` `lock=True` POSIX/Windows 平台自适应 + `EngineContainer.enable_file_locks`）+ Cron 范围表达式（`1-5`/`*/15`/`1-30/10`）+ `WinJobBackend`（Windows Job Objects 进程级隔离）+ 安全声明/文档同步——Epic 18 全部交付，新增 46 个专项测试（9 文件锁 + 27 cron + 10 WinJob），**全线 797/797 通过** |
+| 2026-07-21 | **P5-1/P5-2 交付**：schema 级工具过滤 + SubAgent window_reset + CLI 阻塞缺口关闭（文档同步） |
 | 2026-07-20 | **Resources 完成（Story 15-3/15-4）**：`guard_content` 提取为公共函数（供 `bridge_result`/`read_resource` 共用）+ `mcp__read_resource` 桥接工具 handler（`_handle_read_resource`，含 `server`/`uri` 参数 + `readOnlyHint`）+ 安全声明同步 + 配套测试（49 个 mapping + 46 个 manager 测试，**全线 607/607 通过**） |
+| 2026-07-20 | **Prompts 桥接完成（Epic 16，Story 16-1~4）**：manager prompts 入口 + slash 命令调度 + 渲染守卫 + 测试——MCP V2 周期（Epic 14-16）全部 `done` |
 
 ---
 
@@ -176,7 +178,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 3. **流式与同步路径要对称**（Epic 1）：`send()` 的 backstop 跟踪 `last_error`，`stream()` 版本一度漏了。**教训**：成对的 send/stream 实现要互相对照，补齐对称路径。
 4. **安全边界必须诚实声明，不制造「更安全」假象**（Epic 13 / engine）：`SafetyGuard` 与 engine sandbox 都不是真边界。**教训**：安全相关代码注释里写明「非真正边界，须 OS 级沙箱兜底」，见 `CLAUDE.md` 文首声明。
 5. **两种模式并存要标记冲突，而非折中**（engine / 工作区路径双重围栏，**已收敛**）：`PolicyEngine._validate_paths()` 与 `tools/path_safety.py` 曾两套围栏并存。**教训**：改其一须同步评估另一处，冲突在文档显式标出——后经收敛为共用 `resolve_under_root` 单一算法（两层有意纵深防御）解决（2026-07-01 commit `2ae99ed` 落地，`c7171ba` 同步 frame.md/CLAUDE.md 已知缺口）。
-6. **评估结论要留依据**（engine P5-1/P5-2）：暂不反转的决策（D1/D4）把理由写进 `frame.md`，避免日后重做时忘记为何如此。
+6. **评估结论要留依据**（engine P5-1/P5-2）：暂缓决策（D1/D4）把理由写进 `frame.md`，避免日后重做时忘记为何如此——P5-1/P5-2 后于 2026-07-21 反转交付，当初的取舍依据仍有助于理清演进。
 7. **缓存命中仍须复核策略裁决**（engine / ExecutionLedger）：ledger COMPLETED 缓存命中后曾直接返回，未复核最新 policy——若 policy 收紧为 `BLOCKED` 仍返回缓存会绕过门禁。**教训**：缓存层与策略层交叉时，命中后仍须过一遍 policy（commit `84ee783`）；同理 lease-active 命中跳过执行，防并发/重入重复跑 handler（`c07f811`）。
 8. **关停/清理路径必须有硬上界**（sandbox / MCP / cron，2026-07-09~11）：`_kill_and_reap` 的 `proc.wait()`、MCP `__aexit__` 的 transport close、`CronScheduler.stop` 的 task join 都是裸 `await`，遇不可中断 await 点（Linux D-state / 远端不 FIN / job 执行中）会无限阻塞，唯一调用方（CLI 退出路径）挂死需 OS SIGKILL。**教训**：凡 `task.cancel()` + `await` 的关停结构，`await` 必包 `asyncio.wait(timeout=N)`，超时记 ERROR 放弃——三处同构缺口同批补齐（`spec-sandbox-reap-robustness` / `spec-mcp-shutdown-timeout` / `spec-cron-stop-timeout`）。
 9. **上下文切分要保证消息配对完整**（compressor，2026-07-16）：compressor 按预算切分历史时，切点若落在 TOOL 调用与其 TOOL 结果之间，会留下孤儿 TOOL 消息（有调用无结果），破坏 LLM 的 tool_use/tool_result 配对约束。**教训**：切分边界须以完整工具轮次（call+result）为不可分割单元。
@@ -190,14 +192,14 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 - `SafetyGuard` / `path_safety` / engine sandbox 均非真边界，须 OS 级沙箱兜底。
 - `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界），file/memory 等不受覆盖。
-- MCP V1 边界：`SafetyGuard` 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08），返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，标记透传、非真正边界）；仅接 Tools 原语。
+- MCP 边界：`SafetyGuard` 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08），返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，标记透传、非真正边界）；Tools/Resources/Prompts 三原语 + 写操作治理（Epic 14-16）均已交付。
 
 **下一步候选方向**（按周期类型）：
 
-- **MCP Client V2 继续（Epic 16）**：Prompts 发现/协商/渲染 全套原语（Story 16-1→16-3，当前全部 `backlog`，接续 MCP Client V2 周期）。
-- **epic 外增量**：engine P5-1/P5-2 若反转，需新开 P 批。（接真实 sandbox 后端已交付 2026-07-08：`CommandRunner` 抽象 + `FirejailBackend`，见 `tools/sandbox.py`。）
-- **补丁周期**：当前无未交付候选——DP-4 两半（执行前工具名拦截 2026-07-08 + 返回内容启发式围栏 2026-07-10）、FR-3 断连 auto-unregister、sandbox 健壮性系列（2026-07-09~10）、关停硬上界三件套（MCP/cron/sandbox 2026-07-10~11）、compressor 孤儿 TOOL 修复（2026-07-16）、写操作治理 annotations 感知 PolicyEngine 闸门（2026-07-17~22）、Resources 桥接工具（2026-07-17）、guard_content 公共函数 + read_resource（2026-07-20）均已交付。
-- **集成周期**：MCP Prompts 原语（Epic 16，已完成 / sprint-status done）。
+- **主线周期**：10 个 epic + MCP 集成（Epic 11-16）全部 `done`，无未交付项。
+- **epic 外增量**：P5-1/P5-2 已交付（schema 级工具过滤 + SubAgent window_reset，2026-07-21，依据见 `frame.md` 4.12）；真实 sandbox 后端已交付（`CommandRunner` 抽象 + `FirejailBackend`，见 `tools/sandbox.py`）；Sandbox 硬化（Epic S1-S4，2026-07-20）+ 健壮性/质量硬化（Epic 18-19，2026-07-21）均已完成。
+- **补丁周期**：当前无未交付候选——DP-4 两半（2026-07-08/10）、FR-3 断连 auto-unregister、sandbox 健壮性系列（2026-07-09~10）、关停硬上界三件套（2026-07-10~11）、compressor 孤儿 TOOL 修复（2026-07-16）、写操作治理 annotations 闸门（Epic 14，2026-07-17~22）、Resources/Prompts 桥接（Epic 15-16，2026-07-17~20）均已交付。
+- **集成周期**：MCP 三原语（Tools/Resources/Prompts）+ 写操作治理（Epic 14-16）均已完成。
 
 **Epic 19 收尾**：全部 6 个 story 已交付；覆盖率 90%（4310 stmts，911 tests）。
 
@@ -210,6 +212,6 @@ quick-dev 是**基于 spec 的单会话执行**：
 - 架构权威：[`frame.md`](frame.md)（含 engine 模块 4.12、已知缺口第五章）
 - 产品愿景：[`design.md`](design.md)
 - 迭代原始产物：`_bmad-output/baseline/`、`_bmad-output/mcp-client/`、`_bmad-output/mcp-client-v2/`、`_bmad-output/patches/`
-- sprint 状态：`_bmad-output/baseline/sprint-status.yaml`、`_bmad-output/mcp-client-v2/sprint-status.yaml`
+- sprint 状态：`_bmad-output/baseline/sprint-status.yaml`、`_bmad-output/mcp-client-v2/sprint-status.yaml`、`_bmad-output/sandbox-hardening/sprint-status.yaml`、`_bmad-output/robustness-hardening/sprint-status.yaml`
 - 技术债登记：`_bmad-output/patches/deferred-work.md`
 - 已产出 retrospective：`_bmad-output/patches/retrospective-{engine-p5,p0-tech-debt}.md`、`_bmad-output/mcp-client/retrospective-epic-13.md`

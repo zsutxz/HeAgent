@@ -38,8 +38,8 @@ exceptions  types  config
 | 模块 | 一句话 |
 |------|--------|
 | `agent/` | 顶层编排：`AgentLoop` 主循环 + `middleware` 管道 + `SubAgent` 子 Agent |
-| `providers/` | LLM Provider 层：OpenAI/Anthropic + 三层容错（重试→密钥轮换→跨 Provider 回退） |
-| `tools/` | 工具系统：`@tool` 注册 + `SafetyGuard` + `path_safety` + 19 个内置工具 + MCP 桥接 |
+| `providers/` | LLM Provider 层：OpenAI/Anthropic + 多层容错（重试→密钥轮换→跨 Provider 回退→运行时 vendor 切换） |
+| `tools/` | 工具系统：`@tool` 注册 + `SafetyGuard` + `path_safety` + 24 个内置工具 + MCP 桥接 |
 | `engine/` | 运行时治理：`PolicyEngine` 准入/审批/沙箱裁决 + `ToolExecutor` 分发 + `RunStore`/`ExecutionLedger` |
 | `context/` | 上下文管理：文件扫描加载 + Token 估算 + 压缩/窗口重置 + 会话持久化 |
 | `memory/` | 自学习闭环：技能(`skills`) + 事实(`facts`) + 画像(`profile`) + 人格(`soul`) |
@@ -99,13 +99,14 @@ exceptions  types  config
 | `tool_execution.py` | _execute_one 实现 | 工具执行链实现（ledger→policy→executor） |
 | `sub.py` | `SubAgent` / `run_parallel` | 隔离子 Agent + 并行委派 + 角色化 |
 
-### 5.2 providers/ — LLM Provider（三层容错）
+### 5.2 providers/ — LLM Provider（多层容错 + 运行时切换）
 
 ```
-ProviderChain (外层：跨 Provider 类型回退，NON_TRANSIENT 不回退)
-  └── KeyRotatingProvider (中层：同类型多 key 轮换，429/401 触发)
-        └── OpenAIProvider / AnthropicProvider (内层)
-              └── retry_with_backoff (内层：仅 TRANSIENT 指数退避)
+SwitchableProvider (外层选择层：/model 手动切换 + 当前 provider 限流/瞬时错误自动回退)
+  └── ProviderChain (跨 Provider 类型回退，NON_TRANSIENT 不回退)
+        └── KeyRotatingProvider (同类型多 key 轮换，429/401 触发)
+              └── OpenAIProvider / AnthropicProvider (内层)
+                    └── retry_with_backoff (仅 TRANSIENT 指数退避)
 ```
 
 | 文件 | 说明 |
@@ -116,6 +117,7 @@ ProviderChain (外层：跨 Provider 类型回退，NON_TRANSIENT 不回退)
 | `chain.py` | `ProviderChain` 有序回退列表 |
 | `key_rotation.py` | `KeyRotatingProvider` 密钥池轮换 |
 | `retry.py` | 错误分类器（RATE_LIMITED/AUTH_FAILED/TRANSIENT/NON_TRANSIENT） + 指数退避 |
+| `switchable.py` | `SwitchableProvider` 多 vendor 运行时切换（`/model` 手动切 + 自动回退，对 AgentLoop 透明） |
 
 ### 5.3 tools/ — 工具系统
 
@@ -126,7 +128,7 @@ ProviderChain (外层：跨 Provider 类型回退，NON_TRANSIENT 不回退)
 - `path_safety.py` — 工作区路径校验（`resolve_workspace_path` + `resolve_under_root` 单算法）
 - `sandbox.py` — `CommandRunner` 抽象（PassthroughRunner / FirejailBackend）
 
-**19 个内置工具**：
+**24 个内置工具**：
 
 | 类别 | 工具 |
 |------|------|
@@ -135,11 +137,16 @@ ProviderChain (外层：跨 Provider 类型回退，NON_TRANSIENT 不回退)
 | 记忆管理 (2) | `fact_add`, `profile_update` |
 | Cron (3) | `cron_add`, `cron_list`, `cron_remove` |
 | 子 Agent (3) | `task_delegate`, `task_parallel`, `task_status` |
+| Web (1) | `web_fetch`（HTTP 抓取，read-only） |
+| Git (4) | `git_status`, `git_diff`, `git_log`, `git_blame`（均 read-only） |
 
-**MCP（tools/mcp/）**：
+**MCP（tools/mcp/）**——三原语均已接入（Epic 14-16）：
 - `config.py` — 从 `.mcp.json` 加载 MCP server 声明（支持 `${ENV}` 插值）
-- `mapping.py` — namespace 转写（`<server>__<tool>`）+ 返回内容启发式围栏标记
+- `mapping.py` — namespace 转写（`<server>__<tool>`）+ 返回内容启发式围栏标记（`guard_content`）
 - `manager.py` — `MCPClientManager` 并发连接 + 发现 + 注册 + ping-watch 健康探测
+- **Tools**：工具桥接（`<server>__<tool>`）+ 写操作治理 annotations 闸门（Epic 14）
+- **Resources**：`mcp__list_resources` / `mcp__read_resource` 桥接工具（Epic 15，`readOnlyHint` + 围栏）
+- **Prompts**：slash 命令调度 + 渲染守卫（Epic 16）
 
 ### 5.4 engine/ — 运行时治理（P0 增量）
 
@@ -229,13 +236,15 @@ src/heagent/
 │   ├── base.py / openai.py / anthropic.py
 │   ├── chain.py             # 跨 Provider 回退
 │   ├── key_rotation.py      # 密钥池轮换
-│   └── retry.py             # 错误分类+重试
+│   ├── retry.py             # 错误分类+重试
+│   └── switchable.py        # 运行时多 vendor 切换
 │
 ├── tools/            # 工具系统
 │   ├── decorator.py / registry.py / safety.py / path_safety.py / sandbox.py
-│   ├── builtins/             # 19 个内置工具
+│   ├── builtins/             # 24 个内置工具
 │   │   ├── shell.py / file.py / search.py
 │   │   ├── skills.py / memory.py / cron.py / subagent.py
+│   │   └── web.py / git.py
 │   └── mcp/                  # MCP 桥接
 │       ├── config.py / mapping.py / manager.py
 │
@@ -273,14 +282,12 @@ src/heagent/
 |------|------|
 | **SafetyGuard ≠ 安全边界** | 工具名黑名单 + shell 命令检查，仅命令级护栏 |
 | **path_safety ≠ 安全边界** | 工作区路径校验，纵深防御用 |
-| **engine sandbox ≠ 安全边界** | `execute_in_sandbox()` 默认 Passthrough；`FirejailBackend` 仅 shell 子进程、Linux-only |
-| **MCP 返回围栏 ≠ 安全边界** | 返回内容启发式扫描标记透传，非真正阻断 |
+| **engine sandbox ≠ 安全边界** | `execute_in_sandbox()` 默认 Passthrough；`FirejailBackend`（Linux shell 子进程）/ `WinJobBackend`（Windows Job Objects）均非完美边界 |
+| **MCP 返回围栏 ≠ 安全边界** | 返回内容启发式扫描标记透传（DP-4 第二半已落地），非真正阻断 |
 | **CLI 阻塞事件循环** | 交互模式 `input()` 阻塞 asyncio（单用户 CLI 可接受） |
-| **cron 范围表达式** | V1 解析器不支持 `1-5` 等范围语法 |
 | **流式 tool_calls 回退** | 多数 Provider 流式模式不返回 tool_calls，须回退 `send()` 重取 |
-| **跨进程持久化** | store/ledger 无文件锁（单进程 async 下安全，多进程须避免并发写） |
 
 ---
 
-*最后更新：2026-07-08*
+*最后更新：2026-07-22*
 *来源：代码 + `docs/frame.md`（架构权威） + `docs/design.md`（设计愿景） + `docs/iteration.md`（迭代历程）*

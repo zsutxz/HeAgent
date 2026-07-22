@@ -176,7 +176,7 @@ make_retry_middleware(max_attempts, base_delay, max_delay) -> MiddlewareFn
 | `SubAgentResult` | 子任务结果（task, output, success, iterations, **run_id**：子 agent 自身 run_id，P5-3 供结构化结果与树形聚合） |
 | `run_parallel()` | `asyncio.gather()` 并行运行多个子 Agent |
 
-子 Agent 默认带 `ContextCompressor`（D4：不开 window_reset，短任务走原位压缩）。角色化时由父 `engine` 经 `dataclasses.replace` 换角色专属 `PolicyEngine`（allowed_tools/blocked_tools），其余运行时服务（store/ledger/events）复用。
+子 Agent 默认带 `ContextCompressor`（短任务走原位压缩），可经 `window_reset` 参数启用跨窗口续跑（长任务场景，P5-2 已交付）。角色化时由父 `engine` 经 `dataclasses.replace` 换角色专属 `PolicyEngine`（allowed_tools/blocked_tools），其余运行时服务（store/ledger/events）复用。
 
 ### 4.3 Provider 层 (`providers/`)
 
@@ -254,6 +254,17 @@ AgentLoop
   └─ middlewares = [make_retry_middleware()]         # 内层：仅 TRANSIENT 指数退避重试
 ```
 
+#### switchable.py — 运行时多 vendor 切换（**外层选择层**）
+
+`SwitchableProvider` 持有 `{名称: provider}` 池（每个命名 provider 独立 key/base_url/model），实现 `BaseProvider` 协议、对 `AgentLoop` 透明。与 `ProviderChain` 的全自动按序回退不同，它以**用户当前选择**为默认起点，自动回退仅作「当前选择不可用时的应急接管」：
+
+- **手动切换**：`switch(name)` 经交互模式 `/model` 命令触发（cli.py）。
+- **自动回退**：当前 provider 抛 `RATE_LIMITED`/`TRANSIENT`（429/5xx/超时）时自动切到池中下一个；`AUTH_FAILED`/`NON_TRANSIENT` 不回退（与 chain 同精度）。
+- **粘性停留**：成功回退后 `_active` 更新为新 provider，后续不再重试已限流的旧 provider。
+- **流式约束**：`stream()` 已下发 chunk 则不回退，防重复前缀。
+
+可包住 `ProviderChain` 等任意 provider，与三层容错叠加：用户选择（switchable）→ 跨类型回退（chain）→ 多 key 轮换（key_rotation）→ 重试（retry）。
+
 ### 4.4 Tool 系统 (`tools/`)
 
 #### decorator.py — @tool 装饰器
@@ -314,7 +325,7 @@ SafetyGuard
 差异：policy 用 `context/self.workspace_root`（皆空则放行），handler 用 `workspace_root()`
 （RuntimeSlot → override → cwd）。
 
-#### builtins/ — 19 个内置工具
+#### builtins/ — 24 个内置工具
 
 **基础工具（5 个）：**
 
@@ -359,6 +370,21 @@ SafetyGuard
 | `task_delegate` | 将单个任务委派给隔离的子 Agent（可传 `role`=planner/coder/tester/supervisor 角色化，或 `system` 自定义提示词；独立上下文+迭代预算）执行；**返回结构化 JSON** `SubTaskOutcome`（status ok/failed/error + role/task/iterations/run_id/output，P5-3） |
 | `task_parallel` | 并行执行多个子任务（`tasks_json` 传 JSON 数组，`run_parallel()` 汇总；同 `role`/`system`）；返回 `{"status": ok/partial/error, "outcomes": [SubTaskOutcome...]}`（P5-3） |
 | `task_status` | 读回本 run 已完成的委派步骤（`run_context.metadata['completed_steps']`，含 iterations/run_id，跨窗口重置存活，P2/P5-3） |
+
+**Web 工具（1 个，`web.py`）：**
+
+| 工具 | 功能 |
+|------|------|
+| `web_fetch` | 抓取 HTTP URL 内容（`@tool(read_only=True)`，`max_length` 截断；SSRF 围栏 + 流式截断 + 重定向再校验） |
+
+**Git 工具（4 个，`git.py`，均 `@tool(read_only=True)`）：**
+
+| 工具 | 功能 |
+|------|------|
+| `git_status` | 仓库工作区状态 |
+| `git_diff` | 提交/工作区差异 |
+| `git_log` | 提交历史 |
+| `git_blame` | 行级作者追溯 |
 
 技能工具在 `AgentLoop` 接收 `SkillStore` 时激活；记忆工具在接收 `FactStore`/`ProfileStore` 时激活；
 Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 cli.py 调用 `configure_subagent_tools(provider)`
@@ -512,7 +538,7 @@ HeAgentError (base)
 **V1 边界（均非真正安全边界，须 OS 级沙箱兜底）：**
 - `SafetyGuard` 工具名黑名单已覆盖 MCP 工具（执行前拦截，DP-4 第一半 2026-07-08 落地）
 - MCP 返回内容经 `mapping.bridge_result` 启发式围栏（命中注入签名加 warning 标记后透传，DP-4 第二半 2026-07-10 落地）——标记仅 observable defense-in-depth，不阻断；prompt injection 仍无可靠围栏
-- 仅接 Tools 原语，Resources/Prompts、写操作 deferred
+- 三原语均接入：Tools（工具桥接）+ Resources（`mcp__list_resources`/`mcp__read_resource` 桥接工具，Epic 15，`readOnlyHint` + `guard_content` 围栏）+ Prompts（slash 命令调度 + 渲染守卫，Epic 16）；写操作治理 annotations 闸门已交付（Epic 14，见 4.12 policy.py）
 - 运行时断连主动 unregister：持有期 `send_ping` 健康探测（默认 5s 周期），ping 失败/超时即注销该 server 全部工具（FR-3 收紧）；探测间隔内被调用仍降级 `ToolError`
 
 ---
@@ -535,11 +561,11 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 
 **与 `SafetyGuard` 的关系：** `PolicyEngine`（准入/工作区/审批/沙箱裁决）与 `SafetyGuard`（shell 命令模式黑名单）职责分离、**串行执行**——policy 先裁决、executor 内再过 guard。`AgentLoop` 每次 `run()` 用 `RunContext` 跟踪 run_id/迭代，`_runtime_scope()` 绑定 skill/memory/cron/subagent 工具运行态，`_emit()` 发事件、`run_store.checkpoint()` 持久化。子 Agent 经 `parent_run_id` 继承父 `engine`。
 
-**多 Agent 角色化 + checkpoint-resume（P1–P5）：** `roles.py` 定义 planner/coder/tester/supervisor 等角色（执行级 allowlist，D1），supervisor 经 `task_delegate`/`task_parallel` 委派角色化 `SubAgent`（D2），结果以结构化 JSON（`SubTaskOutcome`，含 run_id/iterations）写 `metadata['completed_steps']`（P5-3）；token≥阈值时 `window_reset` 清窗重建、`AgentLoop.resume(run_id)` / `resume_stream(run_id)` 同 run_id 跨多段窗口续跑（D3，见 4.2/4.5；流式版 P5-5）；子 agent 不开 resume、默认带 compressor（D4）。`RunStore.build_run_tree()` 按 `parent_run_id` 把 supervisor/子 agent 的 run 聚合成树（P5-4）。
+**多 Agent 角色化 + checkpoint-resume（P1–P5）：** `roles.py` 定义 planner/coder/tester/supervisor 等角色（执行级 allowlist，D1），supervisor 经 `task_delegate`/`task_parallel` 委派角色化 `SubAgent`（D2），结果以结构化 JSON（`SubTaskOutcome`，含 run_id/iterations）写 `metadata['completed_steps']`（P5-3）；token≥阈值时 `window_reset` 清窗重建、`AgentLoop.resume(run_id)` / `resume_stream(run_id)` 同 run_id 跨多段窗口续跑（D3，见 4.2/4.5；流式版 P5-5）；子 agent 默认带 compressor，可经 `window_reset` 参数启用 resume（P5-2 已交付）。`RunStore.build_run_tree()` 按 `parent_run_id` 把 supervisor/子 agent 的 run 聚合成树（P5-4）。
 
-> **P5 范围说明：** 已实现干净增量三件套——结构化子任务结果（P5-3）、`parent_run_id` 树形 checkpoint 聚合（P5-4）、resume 流式版（P5-5）。原 deferred 项经 2026-06-26 评估**暂不反转，维持 D1/D4 冻结**：
-> - **P5-1 Schema 级工具隐藏（反转 D1）**：plan 触发条件"误调率高才做"。现状 `roles.py` 每个 prompt 逐字内嵌工具清单且与 `allowed_tools` 逐一对齐（措辞"仅这些，调用其他工具会被拦截"）+ 执行级拦截 `policy.py:88` 兜底，误调率基线极低。**D1 反转成本被原 plan 高估**——`registry.py` 已有 `_disabled`/`enabled_schemas()` schema 级隐藏设施，真要做只需在 `loop.py:304/623` 取 schema 时叠加一行 `allowed_tools` 过滤，不必重构单例为 per-agent；待观测到真实高误调率再启动。
-> - **P5-2 子 agent resume（反转 D4）**：plan 触发条件"实测需要才开放"。子 agent 短任务（`max_iterations` 15–25 + 默认 compressor in-place 摘要）量级远不到需清窗重建；反转代价是 `.heagent/runs/` checkpoint 文件爆炸（`task_parallel` 并行放大）+ 嵌套 resume 级联 + 与互斥断言冲突，收益/成本比差。
+> **P5 范围说明：** 已实现干净增量三件套——结构化子任务结果（P5-3）、`parent_run_id` 树形 checkpoint 聚合（P5-4）、resume 流式版（P5-5）。原 deferred 项 P5-1/P5-2 经 2026-06-26 评估暂缓（D1/D4），后于 **2026-07-21 反转交付**：
+> - **P5-1 Schema 级工具隐藏（2026-07-21 已交付）**：`AgentLoop._get_tools()` 在 `enabled_schemas()` 之上叠加 `allowed_tools` 白名单过滤，`_call_provider` / `run_stream` 两路径统一复用。仅当 `engine.policy.allowed_tools` 非 None 时才过滤——子 Agent 角色化时自动生效，主 Agent 无影响。
+> - **P5-2 子 agent resume（2026-07-21 已交付）**：`SubAgent` 新增 `window_reset` 参数（默认 None=compressor 模式），长任务场景可显式传入启用跨窗口续跑。子 agent 短任务（`max_iterations` 15–25）默认仍走 compressor——`window_reset` 是 opt-in，不改变现有默认行为。
 > （评估基于静态代码分析，未跑真实 LLM 实测；依据详见 memory `heagent-loop-engine-expansion`。）
 
 **持久化健壮性（2026-07-01 落地，2026-07-21 硬化）：** `engine/` 的 store/ledger 全部 I/O 已 `async` 化（同步 fs 经 `asyncio.to_thread` 包裹，遵守「库代码无同步 I/O」约束）。写入经 `persist.py` `atomic_write_text` 原子化（先写 `*.tmp` 再 `os.replace`，`glob("*.json")` 不匹配 `.tmp`，避免读到半写文件）；读取容错（单条损坏 JSON 记 `logger.error` 后返回 None 跳过，不中断整 run）。**2026-07-21 硬化：** 新增可选跨进程文件锁 `lock=True`（POSIX `fcntl.flock` / Windows `msvcrt.locking`），经 `EngineContainer(enable_file_locks=True)` 自动开启 store/ledger 写锁，多进程并发写 `.heagent/` 场景下防数据损坏（defense-in-depth，不防恶意进程）。
@@ -553,7 +579,6 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | 流式 tool_calls 回退 | `run_stream()` 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时回退 `send()` 重取该轮调用（已知设计权衡） |
 | MCP 返回内容复核 | 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08）；返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，`mapping.bridge_result` 标记透传，非真正边界）；用户可配置签名入口仍 deferred |
 | MCP 写操作治理 annotations | `Tool.annotations`（`destructiveHint`/`readOnlyHint`/etc.）是 server 自声明，恶意 server 可谎报读写属性；`PolicyEngine` 注解闸门（destructive→审批 / readOnly→放行 / 缺省→fail-safe）仅 defense-in-depth 确定性标记，非真正安全边界——须 OS 级沙箱兜底（`engine/policy.py`、`tools/mcp/mapping.py`） |
-| CLI 事件循环阻塞 | 交互模式 `input()` 为同步调用，阻塞 asyncio 事件循环（单用户 CLI 影响可接受） |
 | engine sandbox 后端 | `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可经 `EngineContainer(command_runner=...)` 注入：Linux `FirejailBackend`（仅隔离 shell 子进程、非完美边界）/ Windows `WinJobBackend`（Job Objects 进程级隔离，`KILL_ON_JOB_CLOSE` 自动终止子孙进程）。file/memory 等宿主进程内 I/O 工具不 spawn 子进程，不受后端覆盖——仍须整体 OS 级沙箱兜底 |
 | ledger/store 跨进程持久化 | **已硬化（2026-07-21）：** `persist.py` `atomic_write_text(lock=True)` 可选跨进程文件锁（POSIX/Windows 平台自适应）。`EngineContainer(enable_file_locks=True)` 自动开启 store/ledger 写锁。默认关闭以保持单进程零开销——defense-in-depth，不防恶意进程 |
 
@@ -583,7 +608,8 @@ src/heagent/
 │   ├── anthropic.py         # Anthropic（含提示词缓存 FR-3）
 │   ├── chain.py             # ProviderChain 回退链（外层，FR-4 回退精度）
 │   ├── key_rotation.py      # KeyRotatingProvider 密钥池轮换（中层）
-│   └── retry.py             # 错误分类 + make_retry_middleware（内层）
+│   ├── retry.py             # 错误分类 + make_retry_middleware（内层）
+│   └── switchable.py        # SwitchableProvider 运行时多 vendor 切换（外层选择层）
 │
 ├── tools/                   # 工具系统
 │   ├── decorator.py         # @tool 装饰器
@@ -595,7 +621,7 @@ src/heagent/
 │   │   ├── config.py        # MCPConfig + load_mcp_config（.mcp.json + ${ENV} 插值）
 │   │   ├── mapping.py       # mcp_tool_to_schema + bridge_result
 │   │   └── manager.py       # MCPClientManager（连接生命周期 + 工具注册）
-│   └── builtins/            # 内置工具（19 个）
+│   └── builtins/            # 内置工具（24 个）
 │       ├── __init__.py      # 触发注册
 │       ├── shell.py         # shell 命令执行
 │       ├── file.py          # 文件读写
@@ -603,7 +629,9 @@ src/heagent/
 │       ├── skills.py        # 技能管理（create/update/list/delete/curate/archive）
 │       ├── memory.py        # 记忆管理（fact_add/profile_update）
 │       ├── cron.py          # Cron 管理（add/list/remove）
-│       └── subagent.py      # 子 Agent 委派（task_delegate/task_parallel/task_status）
+│       ├── subagent.py      # 子 Agent 委派（task_delegate/task_parallel/task_status）
+│       ├── web.py           # web_fetch（HTTP 抓取，read-only）
+│       └── git.py           # Git 工具（status/diff/log/blame，read-only）
 │
 ├── context/                 # 上下文管理
 │   ├── loader.py            # 上下文文件扫描（CONTEXT.md > AGENTS.md > CLAUDE.md）
@@ -643,7 +671,7 @@ python -m heagent "your prompt"
   ▼
 __main__.py → cli.main()
   │
-  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（19 个工具）
+  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（24 个工具）
   ├── get_settings() → 读取 DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
   ├── _build_provider() → OpenAIProvider / AnthropicProvider / ProviderChain
   │
