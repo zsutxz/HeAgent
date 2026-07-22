@@ -109,6 +109,10 @@ class Settings(BaseSettings):
     cron_enabled: bool = Field(default=True)
     cron_tick_seconds: int = Field(default=60, ge=10)
 
+    # ---- Ledger 自动清理参数 ----
+    # ledger 幂等记录（.heagent/ledger/）超过此天数在 run 启动时自动删除；0=禁用清理。
+    ledger_retention_days: int = Field(default=7, ge=0)
+
     # ---- MCP Client 参数 ----
     mcp_enabled: bool = Field(default=True)
     mcp_config_path: str = Field(default=".mcp.json")

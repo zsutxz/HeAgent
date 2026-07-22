@@ -465,6 +465,7 @@ class AgentLoop:
         ``stream`` 仅决定 run_started 事件 details 的载荷（流式带 ``stream`` 标记，
         非流式带 ``session_id``），与两个入口重构前的行为逐字段一致。
         """
+        await self.engine.prune_ledger_once()  # 全新 run 启动清理一次；resume 不触发（那次 run 启动已清过）
         state = AgentState(max_iterations=self.max_iterations)
         accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
         run_context = self._ensure_run_context(session_id=session_id)

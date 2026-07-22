@@ -8,9 +8,13 @@
 
 - **AgentLoop._execute_one**（P4）：key = ``run_id:call.id``。在 window_reset（上下文压缩）
   后模型可能重发相同 ``tool_call.id``；账本使 COMPLETED 的调用短路返回缓存、避免重复执行。
-- **cron 等长时任务**：经 acquire / heartbeat / complete / fail 管理跨周期执行状态。
+- **cron 调度**：key = ``cron:{job_id}:{分钟时间戳}``，经 acquire / complete / fail 防同一
+  逻辑分钟的 job 被重复执行（租约靠 ``lease_seconds`` 设足覆盖执行）。``heartbeat`` 为
+  预留续租接口，当前无调用方——上层自定义长时 job_runner 跑超租约任务时可周期续租。
 
-记录不做自动清理（清理策略交给上层调度器或外部维护脚本决策）。
+过期记录由 :meth:`prune` 按保留期自动清理（``EngineContainer.prune_ledger_once`` 在全新 run
+启动时触发）：保留期外的终态死记录（``COMPLETED``/``FAILED``）与过期孤儿 ``RUNNING`` 才删，
+未过期 ``RUNNING``（在途）保留；保留期内不清理。
 """
 
 from __future__ import annotations
@@ -212,3 +216,37 @@ class ExecutionLedger:
         if not record.lease_expires_at:
             return False
         return datetime.fromisoformat(record.lease_expires_at) <= datetime.now(tz=UTC)
+
+    async def prune(self, *, retention_days: int, before: datetime | None = None) -> int:
+        """删除过期记录，返回删除数。``retention_days <= 0`` 时直接返回 0（禁用清理）。
+
+        删除：``COMPLETED``/``FAILED`` 中 ``finished_at`` 早于 cutoff 的终态死记录，
+        以及 ``RUNNING`` 且租约已过期的孤儿（``heartbeat`` 无调用方，过期即死）。
+        保留：未过期 ``RUNNING``（在途，防误删导致重复执行副作用工具）。
+
+        单条 ``unlink`` 失败不中断整批——与 ``list_records`` 容错哲学一致。
+        """
+        if retention_days <= 0:
+            return 0
+        cutoff = before if before is not None else datetime.now(tz=UTC) - timedelta(days=retention_days)
+        deleted = 0
+        for record in await self.list_records():
+            if not self._is_stale(record, cutoff):
+                continue
+            path = self._path(record.key)
+            if await asyncio.to_thread(path.exists):
+                await asyncio.to_thread(path.unlink)
+            deleted += 1
+        return deleted
+
+    @staticmethod
+    def _is_stale(record: ExecutionRecord, cutoff: datetime) -> bool:
+        """记录是否过期可删：``RUNNING`` 看租约，终态（``COMPLETED``/``FAILED``）看 ``finished_at``。
+
+        无 ``finished_at`` 的终态记录保守保留（视为未过期），避免误删。
+        """
+        if record.status == ExecutionStatus.RUNNING:
+            return ExecutionLedger._is_expired(record)
+        if not record.finished_at:
+            return False
+        return datetime.fromisoformat(record.finished_at) <= cutoff

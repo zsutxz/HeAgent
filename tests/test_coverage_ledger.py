@@ -11,8 +11,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from heagent.engine.ledger import ExecutionLedger, ExecutionRecord
-
+from heagent.engine.ledger import ExecutionLedger, ExecutionRecord, ExecutionStatus
 
 # ── complete() 边界 ──────────────────────────────────────────────
 
@@ -115,3 +114,72 @@ class TestIsExpired:
         future = (datetime.now(tz=UTC) + timedelta(seconds=60)).isoformat()
         record = ExecutionRecord(key="test:future", lease_expires_at=future)
         assert ExecutionLedger._is_expired(record) is False
+
+
+# ── prune() 过期清理 ────────────────────────────────────────────
+
+
+def _make_record(
+    key: str,
+    *,
+    status: ExecutionStatus,
+    finished_at: str | None = None,
+    lease_expires_at: str | None = None,
+) -> ExecutionRecord:
+    """构造一条记录（绕过 acquire/complete 的 now 赋值，直接控制时间戳）。"""
+    return ExecutionRecord(key=key, status=status, finished_at=finished_at, lease_expires_at=lease_expires_at)
+
+
+class TestPrune:
+    @pytest.mark.asyncio
+    async def test_prune_removes_old_completed_keeps_recent(self, tmp_path) -> None:
+        """prune 删 finished_at 过期的 COMPLETED，保留近期的。"""
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        old = (datetime.now(tz=UTC) - timedelta(days=10)).isoformat()
+        recent = (datetime.now(tz=UTC) - timedelta(days=1)).isoformat()
+        await ledger._save(_make_record("old:done", status=ExecutionStatus.COMPLETED, finished_at=old))
+        await ledger._save(_make_record("new:done", status=ExecutionStatus.COMPLETED, finished_at=recent))
+        assert await ledger.prune(retention_days=7) == 1
+        assert await ledger.get("old:done") is None
+        assert await ledger.get("new:done") is not None
+
+    @pytest.mark.asyncio
+    async def test_prune_removes_old_failed(self, tmp_path) -> None:
+        """prune 删过期的 FAILED。"""
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        old = (datetime.now(tz=UTC) - timedelta(days=30)).isoformat()
+        await ledger._save(_make_record("old:fail", status=ExecutionStatus.FAILED, finished_at=old))
+        assert await ledger.prune(retention_days=7) == 1
+        assert await ledger.get("old:fail") is None
+
+    @pytest.mark.asyncio
+    async def test_prune_removes_orphan_running_keeps_inflight(self, tmp_path) -> None:
+        """prune 删租约过期的孤儿 RUNNING，保留未过期（在途）的。"""
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        expired_lease = (datetime.now(tz=UTC) - timedelta(seconds=60)).isoformat()
+        future_lease = (datetime.now(tz=UTC) + timedelta(seconds=60)).isoformat()
+        await ledger._save(_make_record("orphan", status=ExecutionStatus.RUNNING, lease_expires_at=expired_lease))
+        await ledger._save(_make_record("inflight", status=ExecutionStatus.RUNNING, lease_expires_at=future_lease))
+        assert await ledger.prune(retention_days=7) == 1
+        assert await ledger.get("orphan") is None
+        assert await ledger.get("inflight") is not None
+
+    @pytest.mark.asyncio
+    async def test_prune_zero_retention_noop(self, tmp_path) -> None:
+        """retention_days=0 禁用，不删任何记录。"""
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        old = (datetime.now(tz=UTC) - timedelta(days=99)).isoformat()
+        await ledger._save(_make_record("old:done", status=ExecutionStatus.COMPLETED, finished_at=old))
+        assert await ledger.prune(retention_days=0) == 0
+        assert await ledger.get("old:done") is not None
+
+    @pytest.mark.asyncio
+    async def test_prune_skips_corrupt_file(self, tmp_path) -> None:
+        """损坏 JSON 不中断 prune（list_records 容错跳过），正常删其他过期记录。"""
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        bad_path = ledger._path("corrupt:key")
+        bad_path.parent.mkdir(parents=True, exist_ok=True)
+        bad_path.write_text("{not valid json", encoding="utf-8")
+        old = (datetime.now(tz=UTC) - timedelta(days=10)).isoformat()
+        await ledger._save(_make_record("old:done", status=ExecutionStatus.COMPLETED, finished_at=old))
+        assert await ledger.prune(retention_days=7) == 1

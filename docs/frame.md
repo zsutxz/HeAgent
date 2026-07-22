@@ -555,7 +555,7 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | `roles.py` | `RoleSpec`（name/system/allowed_tools/blocked_tools/max_iterations/sandbox_profile）+ 内置角色（planner/coder/tester/supervisor）+ `get_role`/`register_role`；`SubAgent` 用其构建角色专属 `PolicyEngine`（P1/P2） |
 | `executor.py` | `ToolExecutor.execute()` 按 verdict 模式分发；内部串行调 `SafetyGuard.check()`；`SANDBOX_REQUIRED` 走 `execute_in_sandbox()`——默认 Passthrough 透传，配置 `sandbox_runner` 后经 `bind_command_runner` 注入后端（如 `FirejailBackend`，见 4.4 sandbox.py；默认仍非安全边界） |
 | `store.py` | `RunStore` — `.heagent/runs/<run_id>.json` 运行快照 checkpoint（start/checkpoint/load/list_runs/build_run_tree/delete，**全部 I/O `async`**，经 `persist.py` 原子写+容错读）；`RunNode` + `build_run_tree(root_id=None)` 按 `parent_run_id` 聚合成树/森林（确定性、sorted；P5-4） |
-| `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（acquire/complete/fail/heartbeat/get，**全部 I/O `async`**）；**接入 `AgentLoop._execute_one`**（key=`run_id:call.id`，COMPLETED 短路返回缓存，防 window_reset 后重发相同 tool_call.id，P4；lease-active 命中跳过执行返回 skip 提示，防并发/重入）+ 供 cron 等长任务用 |
+| `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（acquire/complete/fail/heartbeat/get/prune，**全部 I/O `async`**）；**接入 `AgentLoop._execute_one`**（key=`run_id:call.id`，COMPLETED 短路返回缓存，防 window_reset 后重发相同 tool_call.id，P4；lease-active 命中跳过执行返回 skip 提示，防并发/重入）+ 供 cron 等长任务用 |
 | `persist.py` | 持久化共享工具——`atomic_write_text`（tmp + `os.replace`，`*.tmp` 不被 `glob("*.json")` 误读）+ `load_json_model`（单条损坏 JSON `logger.error` 后返回 None，不中断整 run）；store/ledger 共用 |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — `_emit()` 发布运行时事件，有界保留 |
 
@@ -581,6 +581,7 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 | MCP 写操作治理 annotations | `Tool.annotations`（`destructiveHint`/`readOnlyHint`/etc.）是 server 自声明，恶意 server 可谎报读写属性；`PolicyEngine` 注解闸门（destructive→审批 / readOnly→放行 / 缺省→fail-safe）仅 defense-in-depth 确定性标记，非真正安全边界——须 OS 级沙箱兜底（`engine/policy.py`、`tools/mcp/mapping.py`） |
 | engine sandbox 后端 | `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可经 `EngineContainer(command_runner=...)` 注入：Linux `FirejailBackend`（仅隔离 shell 子进程、非完美边界）/ Windows `WinJobBackend`（Job Objects 进程级隔离，`KILL_ON_JOB_CLOSE` 自动终止子孙进程）。file/memory 等宿主进程内 I/O 工具不 spawn 子进程，不受后端覆盖——仍须整体 OS 级沙箱兜底 |
 | ledger/store 跨进程持久化 | **已硬化（2026-07-21）：** `persist.py` `atomic_write_text(lock=True)` 可选跨进程文件锁（POSIX/Windows 平台自适应）。`EngineContainer(enable_file_locks=True)` 自动开启 store/ledger 写锁。默认关闭以保持单进程零开销——defense-in-depth，不防恶意进程 |
+| ledger 自动过期清理 | **已落地（2026-07-22）：** `ExecutionLedger.prune()` + `EngineContainer.prune_ledger_once()` 在全新 run 启动时按 `LEDGER_RETENTION_DAYS`（默认 7，0=禁用）删过期终态（COMPLETED/FAILED）+ 孤儿 RUNNING，保留在途 RUNNING；sub agent 经 `_pruned` 去重不重复扫；清理 IO 故障 try/except 不中断 run |
 
 ---
 

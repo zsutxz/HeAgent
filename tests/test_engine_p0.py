@@ -278,6 +278,34 @@ class TestExecutionLedger:
         assert target.read_text(encoding="utf-8") == '{"old": true}'
 
 
+class TestPruneLedgerOnce:
+    @pytest.mark.asyncio
+    async def test_prune_once_dedup(self, workspace_dir: Path) -> None:
+        """prune_ledger_once 首次清理、第二次短路返回 0（去重）。"""
+        from datetime import UTC, datetime, timedelta
+
+        from heagent.engine.ledger import ExecutionRecord, ExecutionStatus
+
+        engine = EngineContainer.default(workspace_root=str(workspace_dir))
+        engine.ledger = engine.ledger.__class__(base_dir=str(workspace_dir / "ledger"))
+        engine.ledger_retention_days = 7
+        old = (datetime.now(tz=UTC) - timedelta(days=30)).isoformat()
+        await engine.ledger._save(
+            ExecutionRecord(key="old:done", status=ExecutionStatus.COMPLETED, finished_at=old)
+        )
+        assert await engine.prune_ledger_once() == 1
+        # 第二次短路（_pruned=True）
+        assert await engine.prune_ledger_once() == 0
+
+    @pytest.mark.asyncio
+    async def test_prune_once_zero_retention_noop(self, workspace_dir: Path) -> None:
+        """ledger_retention_days=0 时 prune_ledger_once 直接返回 0（禁用）。"""
+        engine = EngineContainer.default(workspace_root=str(workspace_dir))
+        engine.ledger = engine.ledger.__class__(base_dir=str(workspace_dir / "ledger"))
+        engine.ledger_retention_days = 0
+        assert await engine.prune_ledger_once() == 0
+
+
 class TestCronDedup:
     @pytest.mark.asyncio
     async def test_cron_scheduler_uses_ledger_to_skip_duplicate_tick(self, workspace_dir: Path) -> None:

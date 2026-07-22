@@ -44,6 +44,10 @@ class EngineContainer:
     workspace_root: str | None = None
     command_runner: CommandRunner | None = None
     enable_file_locks: bool = False
+    # ledger 自动清理保留天数（0=禁用）；default() 从 Settings 读，手动构造默认 0。
+    ledger_retention_days: int = 0
+    # 进程内去重标志：同一容器 prune_ledger_once 仅首次 run 触发（sub agent 继承父 engine 时不重复扫）。
+    _pruned: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         # 注入 cross-process file locks（V2）
@@ -63,6 +67,24 @@ class EngineContainer:
                 )
             else:
                 self.executor.sandbox_runner = self.command_runner
+
+    async def prune_ledger_once(self) -> int:
+        """首次调用时清理过期 ledger 记录，之后短路返回 0（去重）。
+
+        ``ledger_retention_days <= 0`` 时禁用。清理 IO 故障不中断 run（对齐
+        ``persist.load_json_model`` 容错哲学）；已置 ``_pruned`` 标志本次不再重试。
+        """
+        if self._pruned or self.ledger_retention_days <= 0:
+            return 0
+        self._pruned = True
+        try:
+            n = await self.ledger.prune(retention_days=self.ledger_retention_days)
+        except Exception:
+            logger.exception("Ledger prune failed; skipping this run")
+            return 0
+        if n:
+            logger.info("Ledger pruned %d expired records (retention=%dd)", n, self.ledger_retention_days)
+        return n
 
     @classmethod
     def default(cls, *, workspace_root: str | None = None, sandbox_backend: str | None = None) -> EngineContainer:
@@ -96,6 +118,7 @@ class EngineContainer:
                 logger.warning("WinJobBackend requested but not available; falling back to Passthrough")
 
         container = cls(workspace_root=workspace_root, command_runner=command_runner)
+        container.ledger_retention_days = settings.ledger_retention_days
         if workspace_root and not container.policy.workspace_root:
             container.policy.workspace_root = workspace_root
         return container
