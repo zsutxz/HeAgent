@@ -4,6 +4,8 @@
   - 工具名 blacklist（对所有工具生效，含 MCP/内置/shell）：按 ``call.name`` 正则命中即拦截
   - shell 命令检查（仅 "shell" 工具）：两层——内置危险模式（17 种）+
     用户自定义规则（BLACKLIST 拦截匹配项 / WHITELIST 仅允许匹配项）
+  - 非 shell 工具的 command 参数检查（P1-14）：对参数中含 "command" 键的任意工具
+    也执行命令级检查（defense-in-depth）
 
 违反安全规则时抛出 SafetyViolation，AgentLoop 将其包装为 is_error 的 ToolResult。
 非真正安全边界，须 OS 级沙箱兜底（见 CLAUDE.md 安全声明）。
@@ -31,6 +33,8 @@ class SafetyMode(StrEnum):
 
 # 内置的危险命令正则模式（不区分大小写），P1-2 补全：新增 poweroff/halt/curl-pipe-sh/wget-pipe-sh/
 # /dev/tcp reverse shell/chmod 777/chmod +s/eval/source/fork bomb 通用形式/rm 分离标志位。
+# P1-15 扩展：新增 nc/ncat 反向 shell、python/perl/ruby/php -e/-r 内联执行、
+# iptables/systemctl 防火墙/服务篡改、crontab 持久化。
 _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE)
     for p in [
@@ -56,6 +60,13 @@ _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
         r"/dev/tcp/",  # /dev/tcp reverse shell
         r"\beval\b",  # eval 动态代码执行
         r"\bsource\b\s+(?:/|~|\.\.)",  # source 执行外部脚本
+        # P1-15 新增：以下 6 条覆盖此前遗漏的常见攻击向量
+        r"\b(?:nc|ncat|netcat)\b.*-e\b",  # netcat -e reverse shell
+        r"\bpython\d*\s+-c\b",  # python -c 内联执行
+        r"\b(?:perl|ruby|php)\d*\s+-[er]\b",  # perl/ruby/php -e/-r 内联执行
+        r"\biptables\b\s+-F\b",  # iptables 清空所有规则
+        r"\bsystemctl\b\s+disable\b",  # systemctl 禁用服务
+        r"\bcrontab\b",  # crontab 修改持久化
     ]
 ]
 
@@ -93,16 +104,26 @@ class SafetyGuard:
           1. 内置危险模式匹配（仅 shell）→ 拦截
           2. 黑名单模式：匹配用户自定义黑名单（仅 shell）→ 拦截
           3. 白名单模式：不在白名单中（仅 shell）→ 拦截
+          4. P1-14：非 shell 但参数中含 "command" 键的工具，同样执行命令级检查
+             （defense-in-depth，防止恶意 MCP tool 把危险命令藏在参数中绕过）
         """
         # 第零层：工具名 blacklist，对所有工具生效（MCP/内置/shell），命中即拦截
         for pat in self._blocked_tools_compiled:
             if pat.search(call.name):
                 self._block(f"Blocked tool by name: {call.name}")
-        # 以下仅对 shell 工具检查
-        if call.name != "shell":
-            return
-        command = call.arguments.get("command", "")
-        if not isinstance(command, str):
+
+        # 提取 command 参数（shell 工具或其他携带 command 的工具）
+        command = ""
+        if call.name == "shell":
+            command = call.arguments.get("command", "")
+        else:
+            # P1-14：非 shell 工具若参数中含 "command" 键，也做命令级检查
+            # （defense-in-depth — 恶意 MCP tool 可把危险命令藏在参数中）
+            command = call.arguments.get("command", "")
+            if not isinstance(command, str) or not command:
+                return
+
+        if not isinstance(command, str) or not command:
             return
 
         # 第一层：内置危险模式检查

@@ -527,48 +527,44 @@ HeAgentError (base)
 
 ### 4.11 MCP 集成 (`tools/mcp/`)
 
-**架构：** async ctx mgr 生命周期，连接时发现+注册到 ToolRegistry，退出时 unregister+优雅关闭。
+MCP server 桥接层（非必要功能，已交付）。连接时发现+注册到 `ToolRegistry`，退出时 unregister。
 
 | 模块 | 说明 |
 |------|------|
-| `config.py` | `MCPConfig`、`StdioServerConfig`、`HttpServerConfig` + `load_mcp_config()`（`.mcp.json` + `${ENV}` 插值，fail-fast） |
-| `mapping.py` | `mcp_tool_to_schema()`（namespace `<server>__<tool>`）、`bridge_result()`（`isError`→`ToolError`；返回前注入启发式围栏，命中加标记透传，DP-4 第二半） |
-| `manager.py` | `MCPClientManager` — 并发连接+发现+注册，单 server 失败/超时隔离（工具不注入，不崩溃 agent） |
+| `config.py` | `MCPConfig` + `load_mcp_config()`（`.mcp.json` + `${ENV}` 插值） |
+| `mapping.py` | `mcp_tool_to_schema()`（namespace `<server>__<tool>`）、`bridge_result()` |
+| `manager.py` | `MCPClientManager` — 并发连接+发现+注册，单 server 失败隔离 |
 
-**V1 边界（均非真正安全边界，须 OS 级沙箱兜底）：**
-- `SafetyGuard` 工具名黑名单已覆盖 MCP 工具（执行前拦截，DP-4 第一半 2026-07-08 落地）
-- MCP 返回内容经 `mapping.bridge_result` 启发式围栏（命中注入签名加 warning 标记后透传，DP-4 第二半 2026-07-10 落地）——标记仅 observable defense-in-depth，不阻断；prompt injection 仍无可靠围栏
-- 三原语均接入：Tools（工具桥接）+ Resources（`mcp__list_resources`/`mcp__read_resource` 桥接工具，Epic 15，`readOnlyHint` + `guard_content` 围栏）+ Prompts（slash 命令调度 + 渲染守卫，Epic 16）；写操作治理 annotations 闸门已交付（Epic 14，见 4.12 policy.py）
-- 运行时断连主动 unregister：持有期 `send_ping` 健康探测（默认 5s 周期），ping 失败/超时即注销该 server 全部工具（FR-3 收紧）；探测间隔内被调用仍降级 `ToolError`
+⚠ MCP 工具与内置工具同等不可信（执行前拦截 + 返回启发式围栏均已落地，但**均非真正安全边界**，须 OS 级沙箱兜底）。
 
 ---
 
 ### 4.12 运行时引擎 (`engine/`)
 
-epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行时治理层，经 `EngineContainer`（DI 容器）注入。工具执行改为**策略门控**：先 `PolicyEngine` 裁决，再 `ToolExecutor` 分发。
+`EngineContainer`（DI 容器）注入 `AgentLoop`，工具执行走**策略门控**：`PolicyEngine` 裁决 → `ToolExecutor` 分发 → `SafetyGuard` 检查。子 Agent 经 `parent_run_id` 继承父 `engine`。
 
 | 模块 | 说明 |
 |------|------|
-| `container.py` | `EngineContainer` — DI 容器，`default(workspace_root=)` 装配全部服务；`create_run_context()` 产出单次运行上下文 |
-| `context.py` | `RunContext`（run_id/session_id/parent_run_id/workspace_root/iteration/metadata）、`RunStatus`（running/completed/failed） |
-| `policy.py` | `PolicyEngine.evaluate_tool_call()` → `PolicyVerdict`（`DIRECT`/`APPROVAL_REQUIRED`/`SANDBOX_REQUIRED`/`BLOCKED`）：准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
-| `roles.py` | `RoleSpec`（name/system/allowed_tools/blocked_tools/max_iterations/sandbox_profile）+ 内置角色（planner/coder/tester/supervisor）+ `get_role`/`register_role`；`SubAgent` 用其构建角色专属 `PolicyEngine`（P1/P2） |
-| `executor.py` | `ToolExecutor.execute()` 按 verdict 模式分发；内部串行调 `SafetyGuard.check()`；`SANDBOX_REQUIRED` 走 `execute_in_sandbox()`——默认 Passthrough 透传，配置 `sandbox_runner` 后经 `bind_command_runner` 注入后端（如 `FirejailBackend`，见 4.4 sandbox.py；默认仍非安全边界） |
-| `store.py` | `RunStore` — `.heagent/runs/<run_id>.json` 运行快照 checkpoint（start/checkpoint/load/list_runs/build_run_tree/delete，**全部 I/O `async`**，经 `persist.py` 原子写+容错读）；`RunNode` + `build_run_tree(root_id=None)` 按 `parent_run_id` 聚合成树/森林（确定性、sorted；P5-4） |
-| `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（acquire/complete/fail/heartbeat/get/prune，**全部 I/O `async`**）；**接入 `AgentLoop._execute_one`**（key=`run_id:call.id`，COMPLETED 短路返回缓存，防 window_reset 后重发相同 tool_call.id，P4；lease-active 命中跳过执行返回 skip 提示，防并发/重入）+ 供 cron 等长任务用 |
-| `persist.py` | 持久化共享工具——`atomic_write_text`（tmp + `os.replace`，`*.tmp` 不被 `glob("*.json")` 误读）+ `load_json_model`（单条损坏 JSON `logger.error` 后返回 None，不中断整 run）；store/ledger 共用 |
-| `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — `_emit()` 发布运行时事件，有界保留 |
+| `container.py` | `EngineContainer` — DI 容器，`default(workspace_root=)` 装配全部服务 |
+| `context.py` | `RunContext`（run_id/session_id/parent_run_id/workspace_root/iteration/metadata）、`RunStatus` |
+| `policy.py` | `PolicyEngine` — 准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
+| `roles.py` | `RoleSpec` + 内置角色（planner/coder/tester/supervisor），`SubAgent` 构建角色专属 `PolicyEngine` |
+| `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端 |
+| `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合 |
+| `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入 |
+| `persist.py` | `atomic_write_text`（`*.tmp` + `os.replace` 原子写）+ `load_json_model`（损坏 JSON 容错跳过） |
+| `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布 |
 
-**与 `SafetyGuard` 的关系：** `PolicyEngine`（准入/工作区/审批/沙箱裁决）与 `SafetyGuard`（shell 命令模式黑名单）职责分离、**串行执行**——policy 先裁决、executor 内再过 guard。`AgentLoop` 每次 `run()` 用 `RunContext` 跟踪 run_id/迭代，`_runtime_scope()` 绑定 skill/memory/cron/subagent 工具运行态，`_emit()` 发事件、`run_store.checkpoint()` 持久化。子 Agent 经 `parent_run_id` 继承父 `engine`。
+**已完成：**
 
-**多 Agent 角色化 + checkpoint-resume（P1–P5）：** `roles.py` 定义 planner/coder/tester/supervisor 等角色（执行级 allowlist，D1），supervisor 经 `task_delegate`/`task_parallel` 委派角色化 `SubAgent`（D2），结果以结构化 JSON（`SubTaskOutcome`，含 run_id/iterations）写 `metadata['completed_steps']`（P5-3）；token≥阈值时 `window_reset` 清窗重建、`AgentLoop.resume(run_id)` / `resume_stream(run_id)` 同 run_id 跨多段窗口续跑（D3，见 4.2/4.5；流式版 P5-5）；子 agent 默认带 compressor，可经 `window_reset` 参数启用 resume（P5-2 已交付）。`RunStore.build_run_tree()` 按 `parent_run_id` 把 supervisor/子 agent 的 run 聚合成树（P5-4）。
+- **策略门控链**：`PolicyEngine.evaluate()` → `ToolExecutor.execute()` → `SafetyGuard.check()`，串行执行，职责分离
+- **角色化 + checkpoint-resume**：supervisor 委派角色化 `SubAgent`，结构化结果写 `metadata['completed_steps']`；`window_reset` 清窗重建 + `resume`/`resume_stream` 跨窗口续跑；`build_run_tree()` 树形聚合；Schema 级工具隐藏
+- **持久化健壮性**：store/ledger 全部 async I/O + 原子写 + 损坏 JSON 容错；可选跨进程文件锁（`EngineContainer(enable_file_locks=True)`）
 
-> **P5 范围说明：** 已实现干净增量三件套——结构化子任务结果（P5-3）、`parent_run_id` 树形 checkpoint 聚合（P5-4）、resume 流式版（P5-5）。原 deferred 项 P5-1/P5-2 经 2026-06-26 评估暂缓（D1/D4），后于 **2026-07-21 反转交付**：
-> - **P5-1 Schema 级工具隐藏（2026-07-21 已交付）**：`AgentLoop._get_tools()` 在 `enabled_schemas()` 之上叠加 `allowed_tools` 白名单过滤，`_call_provider` / `run_stream` 两路径统一复用。仅当 `engine.policy.allowed_tools` 非 None 时才过滤——子 Agent 角色化时自动生效，主 Agent 无影响。
-> - **P5-2 子 agent resume（2026-07-21 已交付）**：`SubAgent` 新增 `window_reset` 参数（默认 None=compressor 模式），长任务场景可显式传入启用跨窗口续跑。子 agent 短任务（`max_iterations` 15–25）默认仍走 compressor——`window_reset` 是 opt-in，不改变现有默认行为。
-> （评估基于静态代码分析，未跑真实 LLM 实测；依据详见 memory `heagent-loop-engine-expansion`。）
+**待完善：**
 
-**持久化健壮性（2026-07-01 落地，2026-07-21 硬化）：** `engine/` 的 store/ledger 全部 I/O 已 `async` 化（同步 fs 经 `asyncio.to_thread` 包裹，遵守「库代码无同步 I/O」约束）。写入经 `persist.py` `atomic_write_text` 原子化（先写 `*.tmp` 再 `os.replace`，`glob("*.json")` 不匹配 `.tmp`，避免读到半写文件）；读取容错（单条损坏 JSON 记 `logger.error` 后返回 None 跳过，不中断整 run）。**2026-07-21 硬化：** 新增可选跨进程文件锁 `lock=True`（POSIX `fcntl.flock` / Windows `msvcrt.locking`），经 `EngineContainer(enable_file_locks=True)` 自动开启 store/ledger 写锁，多进程并发写 `.heagent/` 场景下防数据损坏（defense-in-depth，不防恶意进程）。
+- **Sandbox 后端**：`execute_in_sandbox()` 默认 Passthrough 透传；`FirejailBackend` 仅隔离 shell 子进程、非完美边界（见 4.4 sandbox.py）
+- **安全边界**：`SafetyGuard` / `PolicyEngine` / sandbox 均非真正安全边界，须 OS 级沙箱兜底（详见 CLAUDE.md 安全声明）
 
 ---
 
@@ -576,12 +572,9 @@ epic 收尾后引入的 P0 loop engine runtime——围绕 `AgentLoop` 的运行
 
 | 缺口 | 说明 |
 |------|------|
-| 流式 tool_calls 回退 | `run_stream()` 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时回退 `send()` 重取该轮调用（已知设计权衡） |
-| MCP 返回内容复核 | 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08）；返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，`mapping.bridge_result` 标记透传，非真正边界）；用户可配置签名入口仍 deferred |
-| MCP 写操作治理 annotations | `Tool.annotations`（`destructiveHint`/`readOnlyHint`/etc.）是 server 自声明，恶意 server 可谎报读写属性；`PolicyEngine` 注解闸门（destructive→审批 / readOnly→放行 / 缺省→fail-safe）仅 defense-in-depth 确定性标记，非真正安全边界——须 OS 级沙箱兜底（`engine/policy.py`、`tools/mcp/mapping.py`） |
-| engine sandbox 后端 | `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可经 `EngineContainer(command_runner=...)` 注入：Linux `FirejailBackend`（仅隔离 shell 子进程、非完美边界）/ Windows `WinJobBackend`（Job Objects 进程级隔离，`KILL_ON_JOB_CLOSE` 自动终止子孙进程）。file/memory 等宿主进程内 I/O 工具不 spawn 子进程，不受后端覆盖——仍须整体 OS 级沙箱兜底 |
-| ledger/store 跨进程持久化 | **已硬化（2026-07-21）：** `persist.py` `atomic_write_text(lock=True)` 可选跨进程文件锁（POSIX/Windows 平台自适应）。`EngineContainer(enable_file_locks=True)` 自动开启 store/ledger 写锁。默认关闭以保持单进程零开销——defense-in-depth，不防恶意进程 |
-| ledger 自动过期清理 | **已落地（2026-07-22）：** `ExecutionLedger.prune()` + `EngineContainer.prune_ledger_once()` 在全新 run 启动时按 `LEDGER_RETENTION_DAYS`（默认 7，0=禁用）删过期终态（COMPLETED/FAILED）+ 孤儿 RUNNING，保留在途 RUNNING；sub agent 经 `_pruned` 去重不重复扫；清理 IO 故障 try/except 不中断 run |
+| 流式 tool_calls 回退 | `run_stream()` 流式模式不返回 `tool_calls`，命中时回退 `send()` 重取（已知设计权衡） |
+| MCP / engine sandbox 安全边界 | `SafetyGuard` / `PolicyEngine` / `FirejailBackend` / MCP 围栏均非真正安全边界，须 OS 级沙箱兜底（详见 CLAUDE.md 安全声明） |
+| 用户可配置 MCP 签名入口 | 返回内容启发式围栏仅内置规则集，用户自定义签名 deferred |
 
 ---
 

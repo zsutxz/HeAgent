@@ -7,8 +7,8 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
@@ -35,6 +35,12 @@ class JobStore:
 
     def __init__(self, path: str = ".heagent/cron/jobs.json") -> None:
         self._path = Path(path)
+        self._corruption_count: int = 0  # P0-3：最近一次 _load_all 跳过的损坏条目数
+
+    @property
+    def corruption_count(self) -> int:
+        """最近一次加载时跳过的损坏/非法条目数（供 cron_list 等工具展示提示）。"""
+        return self._corruption_count
 
     def add(self, job: CronJob) -> None:
         """添加一个定时任务。"""
@@ -91,7 +97,10 @@ class JobStore:
 
         损坏的 JSON 或字段不匹配的条目会被跳过并记录警告——避免整个 tick 因一条
         损坏数据而跳过所有 job（参见 scheduler._check_and_execute 的调用链）。
+
+        P0-3：累加 _corruption_count 供 cron_list 等工具向用户提示损坏条目数。
         """
+        self._corruption_count = 0  # 每次加载重置计数
         if not self._path.exists():
             return []
         try:
@@ -103,9 +112,11 @@ class JobStore:
             data = json.loads(raw)
         except json.JSONDecodeError:
             logger.warning("Corrupted cron jobs JSON; returning empty list", exc_info=True)
+            self._corruption_count = -1  # 特殊值：整个文件损坏
             return []
         if not isinstance(data, list):
             logger.warning("Cron jobs JSON is not a list; returning empty list")
+            self._corruption_count = -1
             return []
         jobs: list[CronJob] = []
         for j in data:
@@ -113,6 +124,7 @@ class JobStore:
                 jobs.append(CronJob(**j))
             except ValidationError:
                 logger.warning("Skipping invalid cron job entry: %s", j)
+                self._corruption_count += 1
         return jobs
 
     def _save_all(self, jobs: list[CronJob]) -> None:
@@ -122,5 +134,10 @@ class JobStore:
 
 
 def _iso_now() -> str:
-    """当前时间的 ISO 格式字符串。"""
-    return time.strftime("%Y-%m-%dT%H:%M:%S")
+    """当前时间的 UTC ISO-8601 格式字符串（无时区后缀，分钟精度）。
+
+    P0-1 修复：此前 jobs.py 用本地时间（time.strftime）、scheduler.py 用 UTC
+    （datetime.now(tz=UTC)），同一 job 的 created 和 last_run 差 8 小时且均无
+    时区标记，格式相同无法区分语义。现统一为 UTC 单一真源，调度器从本模块导入。
+    """
+    return datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%S")

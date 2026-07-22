@@ -44,14 +44,14 @@ class SwitchableProvider:
         }, default="deepseek")
 
         await sp.send(messages)          # 使用 deepseek
-        sp.switch("kimi")
+        await sp.switch("kimi")
         await sp.send(messages)          # 现在使用 kimi
 
     自动回退示例：
         # deepseek 触发 429 → 自动切到 kimi，后续调用粘性使用 kimi
         await sp.send(messages)          # deepseek 429 → kimi 成功 → 粘性 kimi
         await sp.send(messages)          # 直接走 kimi（不再重试 deepseek）
-        sp.switch("deepseek")            # 用户手动切回 deepseek（配额已刷新）
+        await sp.switch("deepseek")      # 用户手动切回 deepseek（配额已刷新）
     """
 
     def __init__(self, providers: dict[str, BaseProvider], *, default: str) -> None:
@@ -82,8 +82,12 @@ class SwitchableProvider:
         """所有可用 provider 名称列表。"""
         return list(self._providers.keys())
 
-    def switch(self, name: str) -> None:
+    async def switch(self, name: str) -> None:
         """切换到指定名称的 provider。
+
+        P1-9 修复：改为 async，内部持锁确保与 send()/stream() 自动回退
+        不产生竞态——此前同步直写 _active 绕过 _lock，用户手动切换可被
+        自动回退静默覆盖。
 
         Raises:
             ValueError: 名称不存在。
@@ -92,8 +96,9 @@ class SwitchableProvider:
             raise ValueError(
                 f"Unknown provider {name!r}. Available: {', '.join(sorted(self._providers.keys()))}"
             )
-        old = self._active
-        self._active = name
+        async with self._lock:
+            old = self._active
+            self._active = name
         logger.info("Provider switched: %s → %s", old, name)
 
     def info(self) -> dict[str, ProviderSummary]:
@@ -153,7 +158,6 @@ class SwitchableProvider:
         AUTH_FAILED / NON_TRANSIENT 直接上抛，不浪费时间重试。
         成功回退后粘性停留在新 provider（后续调用不再重试已限流的旧 provider）。
         """
-        # P2-2 修复：锁内捕获当前 _active 状态，防止 switch 与 send 并发导致中间态。
         async with self._lock:
             active_before = self._active
             last_error: Exception | None = None

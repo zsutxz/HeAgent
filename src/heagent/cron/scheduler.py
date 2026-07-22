@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from heagent.engine import EngineContainer
@@ -104,7 +104,11 @@ class CronScheduler:
             await asyncio.sleep(self._tick_seconds)
 
     async def _check_and_execute(self) -> None:
-        """扫描到期 job 并执行；``list_jobs()`` 失败不穿透（仅记日志，等待下次 tick 重试）。"""
+        """扫描到期 job 并执行；``list_jobs()`` 失败不穿透（仅记日志，等待下次 tick 重试）。
+
+        P0-2 修复：对每条 job 的 ``_matches`` 做 per-job try/except——
+        存储中一条坏 cron 表达式不再导致同 tick 后续正常 job 全部跳过。
+        """
         now = datetime.now()
         try:
             jobs = self._store.list_jobs()
@@ -114,7 +118,16 @@ class CronScheduler:
         for job in jobs:
             if not job.enabled:
                 continue
-            if not self._matches(job.cron, now):
+            # P0-2：per-job ValueError 保护 —— 非法 cron 表达式仅跳过当前 job
+            try:
+                if not self._matches(job.cron, now):
+                    continue
+            except ValueError:
+                logger.warning(
+                    "Invalid cron expression for job '%s': %s — skipping this tick",
+                    job.id,
+                    job.cron,
+                )
                 continue
             await self._execute_job(job, now=now)
 
@@ -156,6 +169,8 @@ class CronScheduler:
             # 失败路径也更新 last_run——防止每分钟无限重试（P1-11 修复）。
             # ledger.fail() 清除了 lease_expires_at，下一分钟新 key 的 acquire 会成功；
             # last_run 不更新会导致同一个逻辑分钟被无限重入。
+            from heagent.cron.jobs import _iso_now
+
             self._store.update(job.id, last_run=_iso_now())
             logger.exception("Cron job '%s' execution failed", job.id)
             return
@@ -164,6 +179,8 @@ class CronScheduler:
         # 原顺序 store.update 在前：若 ledger.complete 抛异常，last_run 已更新但
         # 幂等未标记，下一分钟重复执行。
         await self._engine.ledger.complete(key, metadata={"job_id": job.id, "cron": job.cron})
+        from heagent.cron.jobs import _iso_now
+
         self._store.update(job.id, last_run=_iso_now())
         self._engine.events.publish(
             "cron_job_completed",
@@ -192,6 +209,7 @@ class CronScheduler:
             for expr, value, rng in zip(parts, cron_values, field_ranges, strict=True)
         )
 
+
 def _field_matches(expr: str, value: int, *, min_val: int = 0, max_val: int = 59) -> bool:
     """Return whether one cron field matches one numeric value.
 
@@ -202,6 +220,7 @@ def _field_matches(expr: str, value: int, *, min_val: int = 0, max_val: int = 59
     if expr.strip() == "7" and value == 0:
         return True
     return value in _parse_field(expr, min_val=min_val, max_val=max_val)
+
 
 def _parse_field(raw: str, *, min_val: int = 0, max_val: int = 59) -> list[int]:
     """统一解析 cron 字段为展开数值列表（V2 新增）。
@@ -286,8 +305,3 @@ def _validate_range_parts(
     if step <= 0:
         raise ValueError(f"Cron step must be positive: {step}")
     return start, end, step
-
-def _iso_now() -> str:
-    """当前时间的 ISO 格式字符串（供 _execute_job 使用，消除行内 import）。"""
-
-    return datetime.now(tz=UTC).strftime("%Y-%m-%dT%H:%M:%S")

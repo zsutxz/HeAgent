@@ -91,27 +91,29 @@ def test_construction_with_single_provider(fake_providers) -> None:
 # ------------------------------------------------------------------
 
 
-def test_switch_valid(fake_providers) -> None:
+@pytest.mark.asyncio
+async def test_switch_valid(fake_providers) -> None:
     """Switching to a valid provider updates active."""
     from heagent.providers.switchable import SwitchableProvider
 
     sp = SwitchableProvider(fake_providers, default="alpha")
     assert sp.active == "alpha"
 
-    sp.switch("beta")
+    await sp.switch("beta")
     assert sp.active == "beta"
 
-    sp.switch("gamma")
+    await sp.switch("gamma")
     assert sp.active == "gamma"
 
 
-def test_switch_invalid(fake_providers) -> None:
+@pytest.mark.asyncio
+async def test_switch_invalid(fake_providers) -> None:
     """Switching to an unknown name raises."""
     from heagent.providers.switchable import SwitchableProvider
 
     sp = SwitchableProvider(fake_providers, default="alpha")
     with pytest.raises(ValueError, match="Unknown provider"):
-        sp.switch("delta")
+        await sp.switch("delta")
 
 
 # ------------------------------------------------------------------
@@ -119,7 +121,8 @@ def test_switch_invalid(fake_providers) -> None:
 # ------------------------------------------------------------------
 
 
-def test_info_returns_all_with_active_marker(fake_providers) -> None:
+@pytest.mark.asyncio
+async def test_info_returns_all_with_active_marker(fake_providers) -> None:
     """info() returns metadata for all providers, marking the active one."""
     from heagent.providers.switchable import SwitchableProvider
 
@@ -131,7 +134,7 @@ def test_info_returns_all_with_active_marker(fake_providers) -> None:
     assert info["beta"].active is False
     assert info["gamma"].active is False
 
-    sp.switch("beta")
+    await sp.switch("beta")
     info = sp.info()
     assert info["alpha"].active is False
     assert info["beta"].active is True
@@ -163,7 +166,7 @@ async def test_send_delegates_to_active(fake_providers) -> None:
     assert fake_providers["alpha"]._send_count == 1
     assert fake_providers["beta"]._send_count == 0
 
-    sp.switch("beta")
+    await sp.switch("beta")
     resp = await sp.send(msg)
     assert resp.content == "response from beta"
     assert fake_providers["beta"]._send_count == 1
@@ -186,7 +189,7 @@ async def test_stream_delegates_to_active(fake_providers) -> None:
     assert len(chunks) == 1
     assert chunks[0].content == "stream from alpha"
 
-    sp.switch("gamma")
+    await sp.switch("gamma")
     chunks = [c async for c in sp.stream(msg)]
     assert len(chunks) == 1
     assert chunks[0].content == "stream from gamma"
@@ -197,7 +200,8 @@ async def test_stream_delegates_to_active(fake_providers) -> None:
 # ------------------------------------------------------------------
 
 
-def test_get_metadata_reflects_active(fake_providers) -> None:
+@pytest.mark.asyncio
+async def test_get_metadata_reflects_active(fake_providers) -> None:
     """get_metadata returns the active provider's metadata with switchable prefix."""
     from heagent.providers.switchable import SwitchableProvider
 
@@ -206,7 +210,7 @@ def test_get_metadata_reflects_active(fake_providers) -> None:
     assert meta.name == "switchable:alpha"
     assert meta.model == "alpha-v1"
 
-    sp.switch("beta")
+    await sp.switch("beta")
     meta = sp.get_metadata()
     assert meta.name == "switchable:beta"
     assert meta.model == "beta-v2"

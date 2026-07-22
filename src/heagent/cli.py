@@ -61,7 +61,7 @@ def _print_usage(usage: TokenUsage | None) -> None:
     )
 
 
-def _prompt_startup_provider(provider: SwitchableProvider) -> None:
+async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
     """Prompt the user to select a provider at startup (interactive mode).
 
     ACTIVE_PROVIDER in .env determines the default (press Enter to accept).
@@ -92,7 +92,7 @@ def _prompt_startup_provider(provider: SwitchableProvider) -> None:
             raw = click.prompt("Select (number)", type=str, default=str(default_idx))
             choice = int(raw)
             if 1 <= choice <= len(names):
-                provider.switch(names[choice - 1])
+                await provider.switch(names[choice - 1])
                 meta = provider.get_metadata()
                 click.echo(f"  → Using {provider.active} ({meta.model})", err=True)
                 return
@@ -419,7 +419,7 @@ async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
 
     name = parts[1]
     try:
-        provider.switch(name)
+        await provider.switch(name)
         meta = provider.get_metadata()
         click.echo(f"[model] Switched to {name} ({meta.model})", err=True)
     except ValueError as exc:
@@ -553,7 +553,7 @@ def main(
 
     # --- 启动时交互选择 provider（始终弹出，ACTIVE_PROVIDER 决定默认项） ---
     if isinstance(provider, SwitchableProvider):
-        _prompt_startup_provider(provider)
+        asyncio.run(_prompt_startup_provider(provider))
 
     try:
         mcp_ctx = _mcp_lifecycle(settings)

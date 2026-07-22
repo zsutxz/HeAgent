@@ -233,7 +233,7 @@ class AgentLoop:
                             Message(role=Role.TOOL, content=tool_result.content, tool_call_id=tool_result.tool_call_id)
                         )
                     await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
-                    await self._maybe_window_reset(state, run_context, init.prompt, system_content, response.usage)
+                    await self._maybe_window_reset(state, run_context, init.prompt, system_content, usage=response.usage)
 
                 final_answer = response.content if response is not None else ""
                 run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
@@ -291,7 +291,9 @@ class AgentLoop:
                         if chunk.tool_calls:
                             tool_calls.extend(chunk.tool_calls)
                         if chunk.usage and chunk.usage.total_tokens > 0:
-                            chunk_usage = chunk.usage
+                            # P1-2 修复：跨 chunk 的 usage 用累加而非覆盖
+                            # （非 OpenAI 提供者可能分多个 chunk 分发 usage）
+                            chunk_usage = self._add_usage(chunk_usage, chunk.usage)
                         if chunk.model:
                             model = chunk.model
                         if chunk.finish_reason:
@@ -319,13 +321,20 @@ class AgentLoop:
                         )
                     )
 
+                    # P1-1 修复：流式 delta 累积未能捕获 tool_calls、
+                    # 但 finish_reason 指示 tool_calls 时，回退到非流式调用。
+                    # 此前不完整消息已追加入 messages，LLM 回退调用看到残缺历史
+                    # 并在覆盖后仍不一致；现先 pop 残缺消息、回退成功后再 append。
                     if not response.tool_calls and finish_reason == "tool_calls":
+                        state.messages.pop()  # 移除残缺的流式 assistant 消息
                         response = await self._call_provider(state, run_context=run_context)
-                        state.messages[-1] = Message(
-                            role=Role.ASSISTANT,
-                            content=response.content,
-                            tool_calls=response.tool_calls or None,
-                            reasoning_content=response.reasoning_content,
+                        state.messages.append(
+                            Message(
+                                role=Role.ASSISTANT,
+                                content=response.content,
+                                tool_calls=response.tool_calls or None,
+                                reasoning_content=response.reasoning_content,
+                            )
                         )
                         accumulated = self._add_usage(accumulated, response.usage)
 
@@ -360,7 +369,7 @@ class AgentLoop:
                             )
                         )
                     await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
-                    await self._maybe_window_reset(state, run_context, init.prompt, system_content, response.usage)
+                    await self._maybe_window_reset(state, run_context, init.prompt, system_content, usage=response.usage)
         except Exception as exc:
             await self._on_run_failed(run_context, init.prompt, system_content, state, exc)
             raise
@@ -580,18 +589,29 @@ class AgentLoop:
         run_context: RunContext,
         prompt: str,
         system_content: str | None,
-        usage: TokenUsage | None,
+        *,
+        usage: TokenUsage | None = None,
     ) -> None:
         """窗口重置（window_reset 启用时）。
 
         达到 token 阈值时把长对话折叠成「原始 prompt + 进度摘要」的新窗口
-        （segment 计数 +1），换段继续，避免上下文溢出；``usage`` 为空则跳过。
+        （segment 计数 +1），换段继续，避免上下文溢出。
+
+        P1-3 修复：取 LLM 上报的 ``usage.total_tokens``（调用**前**的输入 token 数）
+        与 ``count_tokens(state.messages)``（调用**后**、含工具结果的 token 估算）
+        的**最大值**作为触发判断依据——纠正此前仅用 usage（滞后一轮）的偏差。
         """
-        if not self.window_reset or not usage:
+        if not self.window_reset:
             return
+        from heagent.context.tokens import count_tokens
+
         settings = get_settings()
+        # P1-3: usage reflects pre-call input tokens; count_tokens reflects current msg list
+        # (including just-appended tool results); take max to avoid one-round lag.
+        llm_tokens = usage.total_tokens if usage else 0
+        current_tokens = max(llm_tokens, count_tokens(state.messages))
         if not self.window_reset.should_trigger(
-            token_count=usage.total_tokens,
+            token_count=current_tokens,
             max_tokens=settings.max_context_tokens,
         ):
             return

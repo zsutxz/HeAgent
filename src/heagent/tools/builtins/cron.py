@@ -93,16 +93,29 @@ async def cron_list() -> str:
     if store is None:
         return "Error: cron tools not configured."
     jobs = store.list_jobs()
+    parts: list[str] = []
+
+    # P0-3：展示因损坏/非法而被跳过的条目数（静默消失→用户可感知）
+    corrupted = store.corruption_count
+    if corrupted == -1:
+        parts.append("⚠️  Cron jobs file is corrupted or not a valid list — all entries skipped.")
+    elif corrupted > 0:
+        parts.append(f"⚠️  {corrupted} job(s) skipped due to corruption or invalid fields.")
+
     if not jobs:
-        return "No cron jobs scheduled."
+        parts.append("No cron jobs scheduled.")
+        return "\n".join(parts)
+
     lines: list[str] = []
     for job in jobs:
         status = "enabled" if job.enabled else "disabled"
         recurrence = "recurring" if job.recurring else "one-shot"
         lines.append(
-            f"- [{job.id}] '{job.prompt[:40]}' | {job.cron} | {recurrence} | {status} | last: {job.last_run or 'never'}"
+            f"- [{job.id}] '{job.prompt[:40]}' | {job.cron} | {recurrence} | {status}"
+            f" | last: {job.last_run or 'never'}"
         )
-    return "\n".join(lines)
+    parts.append("\n".join(lines))
+    return "\n".join(parts)
 
 
 @tool

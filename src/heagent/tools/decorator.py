@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import inspect
+import logging
 import types
 from typing import TYPE_CHECKING, Any, Union, get_args, get_origin, get_type_hints
 
@@ -29,12 +30,17 @@ from heagent.types import ToolAnnotations, ToolSchema
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+logger = logging.getLogger(__name__)
+
 # Python 类型 → JSON Schema 类型 的映射表
+# P1-12 扩展：补充 list/dict 等容器类型的 origin 键
 _TYPE_MAP: dict[type, str] = {
     int: "integer",
     float: "number",
     bool: "boolean",
     str: "string",
+    list: "array",
+    dict: "object",
 }
 
 
@@ -43,6 +49,10 @@ def _resolve_schema_type(annotation: Any) -> tuple[str, bool]:
 
     支持 ``int | None``、``Optional[int]``、``Union[str, int]`` 等 Union 语法。
     对于含 ``None`` 的 Union，提取非 ``NoneType`` 的基础类型并标记 nullable。
+
+    P1-12 扩展：支持 ``list[str]``、``dict[str, int]`` 等泛型容器类型——
+    通过 ``get_origin(annotation)`` 获取容器 origin 后查 ``_TYPE_MAP``。
+
     无法精确映射时 fallback 到 ``"string"``。
     """
     origin = get_origin(annotation)
@@ -53,9 +63,14 @@ def _resolve_schema_type(annotation: Any) -> tuple[str, bool]:
         non_none = [a for a in args if a is not type(None)]
         is_nullable = len(non_none) < len(args)
         if len(non_none) == 1:
-            return _TYPE_MAP.get(non_none[0], "string"), is_nullable
+            # P1-12：单非 None 类型的 Union，递归解析基础类型（含容器）
+            return _resolve_schema_type(non_none[0])[0], is_nullable
         # 多类型 Union (str | int) 无法精确映射单一 JSON Schema type
         return "string", is_nullable
+
+    # P1-12：泛型容器如 list[str]、dict[str, int]——origin 为 list/dict 等
+    if origin is not None:
+        return _TYPE_MAP.get(origin, "string"), False
 
     return _TYPE_MAP.get(annotation, "string"), False
 
@@ -90,8 +105,18 @@ def tool(
         # 确定工具描述：显式指定 > docstring 首行
         tool_desc = description or (fn.__doc__ or "").strip().split("\n")[0]
 
-        # 从函数签名提取类型提示
-        hints = get_type_hints(fn)
+        # P1-13 修复：get_type_hints 在遇到无法解析的前向引用时会抛 NameError；
+        # 加 try/except 保护，fallback 到空 hints（所有参数按 str 处理）。
+        try:
+            hints = get_type_hints(fn)
+        except (NameError, AttributeError) as exc:
+            logger.warning(
+                "Cannot resolve type hints for '%s': %s — falling back to all-string",
+                tool_name,
+                exc,
+            )
+            hints = {}
+
         sig = inspect.signature(fn)
 
         # 构建 JSON Schema 的 properties 和 required
@@ -100,7 +125,7 @@ def tool(
         for param_name, param in sig.parameters.items():
             if param_name == "self":
                 continue
-            # 解析参数类型（支持 Union / Optional / int | None）
+            # 解析参数类型（支持 Union / Optional / int | None / list[str] 等）
             ptype, is_nullable = _resolve_schema_type(hints.get(param_name, str))
             if is_nullable:
                 prop: dict[str, object] = {

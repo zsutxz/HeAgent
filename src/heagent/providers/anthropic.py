@@ -196,7 +196,14 @@ class AnthropicProvider:
             raise wrap_provider_error(e) from e
 
         text_parts: list[str] = []
+        # P1-10：检测 Claude 扩展思考 (thinking) 块——当前未在 Message 模型中回传，
+        # 多轮 tools 续轮可能丢失推理上下文；记录 warning 供排查。
         for block in resp.content:
+            if getattr(block, "type", None) == "thinking":
+                logger.warning(
+                    "Claude thinking block detected (model=%s) — not yet passed back to API; "
+                    "multi-turn tool-use may lose reasoning context", self._model
+                )
             if getattr(block, "type", None) == "text":
                 text_parts.append(getattr(block, "text", ""))
         tool_calls = _parse_tool_use_blocks(resp.content)

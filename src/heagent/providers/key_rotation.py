@@ -108,35 +108,42 @@ class KeyRotatingProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> AsyncIterator[ProviderResponse]:
-        """流式调用的密钥轮换版本。"""
-        async with self._lock:
-            last_error: Exception | None = None
-            start = self._current_index
-            for idx in range(start, len(self._providers)):
-                provider = self._providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
-                delivered = False
-                try:
-                    async for chunk in provider.stream(messages, tools=tools):
-                        delivered = True
-                        yield chunk
-                    self._current_index = idx  # 粘性：停在生效的 key 上
-                    return
-                except Exception as e:
-                    if delivered:
-                        # 已下发部分输出，重放会产生重复前缀，直接抛出
-                        self._current_index = start
-                        _raise_wrapped(e)  # P1-3 修复：统一包装为 ProviderError
-                    if not self._is_rotation_error(e):
-                        _raise_wrapped(e)  # P1-3 修复：统一包装为 ProviderError
-                    last_error = e
-                    logger.warning("Key #%d stream failed (rotatable): %s", idx, e)
-            self._current_index = start
-            # 上抛最后一个 key 的真实错误（保留 status_code 供上游 classify_exception 分类 /
-            # 跨 provider 故障转移），与 send() 对称——勿用泛化 ProviderError 丢弃诊断信息。
-            if last_error is not None:
-                _raise_wrapped(last_error)
-            raise ProviderError("All keys exhausted for stream")
+        """流式调用的密钥轮换版本。
 
+        P1-11 修复：与 chain.py/switchable.py 对齐——锁内仅快照索引，释放锁后
+        迭代，避免持锁覆盖整个流式迭代串行化并发 consumer。
+        """
+        # P1-11：锁内快照索引 + provider 列表，释放锁后迭代
+        async with self._lock:
+            start = self._current_index
+            providers_snapshot = list(self._providers)  # 快照，免疫并发修改
+
+        last_error: Exception | None = None
+        for idx in range(start, len(providers_snapshot)):
+            provider = providers_snapshot[idx]  # 本地捕获实例
+            delivered = False
+            try:
+                async for chunk in provider.stream(messages, tools=tools):
+                    delivered = True
+                    yield chunk
+                # 成功 → 锁内更新索引（粘性停留）
+                async with self._lock:
+                    self._current_index = idx
+                return
+            except Exception as e:
+                if delivered:
+                    async with self._lock:
+                        self._current_index = start
+                    _raise_wrapped(e)
+                if not self._is_rotation_error(e):
+                    _raise_wrapped(e)
+                last_error = e
+                logger.warning("Key #%d stream failed (rotatable): %s", idx, e)
+        async with self._lock:
+            self._current_index = start
+        if last_error is not None:
+            _raise_wrapped(last_error)
+        raise ProviderError("All keys exhausted for stream")
     def get_metadata(self) -> ProviderMetadata:
         """返回当前活跃 Provider 的能力描述。"""
         meta = self.current.get_metadata()
