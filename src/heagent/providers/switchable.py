@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -66,6 +67,8 @@ class SwitchableProvider:
             raise ValueError(f"Default provider {default!r} not in provider pool")
         self._providers = dict(providers)
         self._active: str = default
+        # P2-2 修复：防并发 switch/send/stream 对 _active 的竞态修改。
+        self._lock = asyncio.Lock()
 
     # -- 公共 API --
 
@@ -150,25 +153,27 @@ class SwitchableProvider:
         AUTH_FAILED / NON_TRANSIENT 直接上抛，不浪费时间重试。
         成功回退后粘性停留在新 provider（后续调用不再重试已限流的旧 provider）。
         """
-        last_error: Exception | None = None
-        active_before = self._active
+        # P2-2 修复：锁内捕获当前 _active 状态，防止 switch 与 send 并发导致中间态。
+        async with self._lock:
+            active_before = self._active
+            last_error: Exception | None = None
 
-        for name in self._ordered_names():
-            provider = self._providers[name]
-            try:
-                resp = await provider.send(messages, tools=tools)
-                if name != active_before:
-                    self._note_fallback(active_before, name)
-                    self._active = name  # 粘性停留
-                return resp
-            except Exception as e:
-                if not self._is_fallback_error(e):
-                    raise
-                logger.warning("Provider '%s' unavailable (%s), trying next...", name, classify_exception(e).value)
-                last_error = e
+            for name in self._ordered_names():
+                provider = self._providers[name]
+                try:
+                    resp = await provider.send(messages, tools=tools)
+                    if name != active_before:
+                        self._note_fallback(active_before, name)
+                        self._active = name  # 粘性停留
+                    return resp
+                except Exception as e:
+                    if not self._is_fallback_error(e):
+                        raise
+                    logger.warning("Provider '%s' unavailable (%s), trying next...", name, classify_exception(e).value)
+                    last_error = e
 
-        # 池耗尽：重置到原始活跃 provider，上抛最后一个错误
-        self._active = active_before
+            # 池耗尽：重置到原始活跃 provider，上抛最后一个错误
+            self._active = active_before
         if last_error is not None:
             raise wrap_provider_error(last_error) from last_error
         raise ProviderError("All providers exhausted")
@@ -186,24 +191,32 @@ class SwitchableProvider:
         从头重放会导致消费者收到重复前缀。
         成功回退后同样粘性停留在新 provider。
         """
-        last_error: Exception | None = None
-        active_before = self._active
+        # P2-2 修复：锁内读取 active 与获取 provider 实例，释放锁后迭代——
+        # 避免长时间持锁串行化并发 consumer。
+        async with self._lock:
+            active_before = self._active
+            ordered = self._ordered_names()
+            providers = {name: self._providers[name] for name in ordered}
 
-        for name in self._ordered_names():
-            provider = self._providers[name]
+        last_error: Exception | None = None
+        for name in ordered:
+            provider = providers[name]
             delivered = False
             try:
                 async for chunk in provider.stream(messages, tools=tools):
                     delivered = True
                     yield chunk
                 if name != active_before:
-                    self._note_fallback(active_before, name)
-                    self._active = name  # 粘性停留
+                    # 成功回退 → 锁内更新 _active
+                    async with self._lock:
+                        self._note_fallback(active_before, name)
+                        self._active = name  # 粘性停留
                 return
             except Exception as e:
                 if delivered:
                     # 已下发输出，重放会重复——不回退，直接上抛
-                    self._active = active_before
+                    async with self._lock:
+                        self._active = active_before
                     raise
                 if not self._is_fallback_error(e):
                     raise
@@ -214,7 +227,8 @@ class SwitchableProvider:
                 )
                 last_error = e
 
-        self._active = active_before
+        async with self._lock:
+            self._active = active_before
         if last_error is not None:
             raise wrap_provider_error(last_error) from last_error
         raise ProviderError("All providers exhausted for stream")
