@@ -20,7 +20,8 @@
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Any, get_type_hints
+import types
+from typing import TYPE_CHECKING, Any, Union, get_args, get_origin, get_type_hints
 
 from heagent.tools.registry import ToolRegistry
 from heagent.types import ToolAnnotations, ToolSchema
@@ -35,6 +36,28 @@ _TYPE_MAP: dict[type, str] = {
     bool: "boolean",
     str: "string",
 }
+
+
+def _resolve_schema_type(annotation: Any) -> tuple[str, bool]:
+    """解析 Python 类型注解为 (JSON Schema 类型名, 是否可空)。
+
+    支持 ``int | None``、``Optional[int]``、``Union[str, int]`` 等 Union 语法。
+    对于含 ``None`` 的 Union，提取非 ``NoneType`` 的基础类型并标记 nullable。
+    无法精确映射时 fallback 到 ``"string"``。
+    """
+    origin = get_origin(annotation)
+    args = get_args(annotation)
+
+    if origin is types.UnionType or origin is Union:
+        # int | None / Optional[int] / Union[str, int, None]
+        non_none = [a for a in args if a is not type(None)]
+        is_nullable = len(non_none) < len(args)
+        if len(non_none) == 1:
+            return _TYPE_MAP.get(non_none[0], "string"), is_nullable
+        # 多类型 Union (str | int) 无法精确映射单一 JSON Schema type
+        return "string", is_nullable
+
+    return _TYPE_MAP.get(annotation, "string"), False
 
 
 def tool(
@@ -77,9 +100,14 @@ def tool(
         for param_name, param in sig.parameters.items():
             if param_name == "self":
                 continue
-            # 获取参数类型，默认为 string
-            ptype = hints.get(param_name, str)
-            prop: dict[str, object] = {"type": _TYPE_MAP.get(ptype, "string")}
+            # 解析参数类型（支持 Union / Optional / int | None）
+            ptype, is_nullable = _resolve_schema_type(hints.get(param_name, str))
+            if is_nullable:
+                prop: dict[str, object] = {
+                    "anyOf": [{"type": ptype}, {"type": "null"}]
+                }
+            else:
+                prop = {"type": ptype}
             # 有默认值的参数标记 default
             if param.default is not inspect.Parameter.empty:
                 prop["default"] = param.default
