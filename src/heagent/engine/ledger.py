@@ -32,6 +32,10 @@ from pydantic import BaseModel, Field
 from heagent.engine.context import iso_now
 from heagent.engine.persist import atomic_write_text, load_json_model
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 class ExecutionStatus(StrEnum):
     """账本中记录的执行状态。"""
@@ -224,19 +228,27 @@ class ExecutionLedger:
         以及 ``RUNNING`` 且租约已过期的孤儿（``heartbeat`` 无调用方，过期即死）。
         保留：未过期 ``RUNNING``（在途，防误删导致重复执行副作用工具）。
 
-        单条 ``unlink`` 失败不中断整批——与 ``list_records`` 容错哲学一致。
+        单条 ``unlink`` 失败不中断整批（P1-23 修复——此前实现缺失 per-file 容错，
+        单个文件锁/permission 错误即导致整批 prune 失败）。
         """
         if retention_days <= 0:
             return 0
         cutoff = before if before is not None else datetime.now(tz=UTC) - timedelta(days=retention_days)
         deleted = 0
         for record in await self.list_records():
-            if not self._is_stale(record, cutoff):
+            try:
+                if not self._is_stale(record, cutoff):
+                    continue
+            except Exception:
+                logger.debug("Failed to determine staleness for key %s; skipping", record.key, exc_info=True)
                 continue
             path = self._path(record.key)
-            if await asyncio.to_thread(path.exists):
-                await asyncio.to_thread(path.unlink)
-            deleted += 1
+            try:
+                if await asyncio.to_thread(path.exists):
+                    await asyncio.to_thread(path.unlink)
+                    deleted += 1
+            except Exception:
+                logger.debug("Failed to prune ledger record %s (%s); continuing", record.key, path, exc_info=True)
         return deleted
 
     @staticmethod
