@@ -26,6 +26,7 @@ from heagent.tools.safety import SafetyGuard
 
 if TYPE_CHECKING:
     from heagent.context.compressor import ContextCompressor
+    from heagent.context.window_reset import WindowResetConfig
     from heagent.engine.roles import RoleSpec
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
@@ -76,6 +77,7 @@ class SubAgent:
         system: str | None = None,
         allowed_tools: list[str] | None = None,
         blocked_tools: list[str] | None = None,
+        window_reset: WindowResetConfig | None = None,
     ) -> None:
         # 组件依赖：缺省时回退到全局默认（与 AgentLoop 的兜底策略一致）。
         self._provider = provider
@@ -90,6 +92,7 @@ class SubAgent:
         self._engine = engine or EngineContainer.default(workspace_root=context_dir)
         self._parent_run_id = parent_run_id
         self._role = role
+        self._window_reset = window_reset
 
         # 以下四项遵循「显式参数 > role 默认 > 内置默认」的优先级解析。
         # 1) 系统提示词：显式 system 优先，否则取 role.system。
@@ -156,8 +159,8 @@ class SubAgent:
         流程：
           1. 用 ``_build_engine`` 得到（可能收敛过工具集的）engine；
           2. 建一个挂在父 run 之下的独立 ``RunContext``（metadata 标记 kind/role）；
-          3. 构造全新 ``AgentLoop``——子任务不开启 window_reset（D4 决策），
-             短任务默认走就地压缩；
+          3. 构造全新 ``AgentLoop``——若传入 ``window_reset`` 则启用跨窗口续跑
+             （长任务场景），否则走就地压缩（默认）；
           4. 调 ``loop.run`` 执行，成功/失败都包装成 ``SubAgentResult`` 返回
              （失败不抛出，而是 success=False、output=异常文本，便于父循环处理）。
         """
@@ -165,12 +168,14 @@ class SubAgent:
         metadata: dict[str, object] = {"kind": "subagent"}
         if self._role is not None:
             metadata["role"] = self._role.name
-        # D4：子 agent 不开 window_reset；短任务默认走 in-place 压缩
-        compressor = self._compressor
-        if compressor is None:
-            from heagent.context.compressor import ContextCompressor
-
-            compressor = ContextCompressor(self._provider)
+        # 上下文管理：window_reset 优先（长任务跨窗口续跑）；否则走 in-place 压缩（默认）。
+        compressor = None
+        window_reset = self._window_reset
+        if window_reset is None:
+            compressor = self._compressor
+            if compressor is None:
+                from heagent.context.compressor import ContextCompressor
+                compressor = ContextCompressor(self._provider)
         loop = AgentLoop(
             self._provider,
             registry=self._registry,
@@ -180,6 +185,7 @@ class SubAgent:
             facts=self._facts,
             profile=self._profile,
             compressor=compressor,
+            window_reset=window_reset,
             context_dir=self._context_dir,
             soul=self._soul,
             engine=engine,

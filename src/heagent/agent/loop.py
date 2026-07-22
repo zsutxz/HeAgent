@@ -271,7 +271,7 @@ class AgentLoop:
                 while True:
                     self._begin_iteration(state, run_context)
 
-                    tools = self.registry.enabled_schemas()
+                    tools = self._get_tools()
                     full_content = ""
                     tool_calls: list[ToolCall] = []
                     chunk_usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
@@ -654,6 +654,18 @@ class AgentLoop:
             profile=self.profile,
         )
 
+    def _get_tools(self) -> list:
+        """取发送给 LLM 的工具 Schema 列表，按 policy 白名单过滤（P5-1）。
+
+        若 engine.policy.allowed_tools 非 None，仅返回白名单内工具；
+        否则返回全部已启用工具。减少 token 浪费与模型误调。
+        """
+        schemas = self.registry.enabled_schemas()
+        allowed = self.engine.policy.allowed_tools
+        if allowed is not None:
+            schemas = [s for s in schemas if s.name in allowed]
+        return schemas
+
     async def _call_provider(
         self,
         state: AgentState,
@@ -667,7 +679,7 @@ class AgentLoop:
         否则直接调 handler。调用前后发布 provider_call_started/completed 事件，
         并用本地 token 估算与实际 usage 对照记录偏差。
         """
-        tools = self.registry.enabled_schemas()
+        tools = self._get_tools()
 
         from heagent.context.tokens import count_tokens
 
