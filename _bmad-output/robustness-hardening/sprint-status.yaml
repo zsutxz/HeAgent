@@ -1,5 +1,5 @@
 generated: 2026-07-21
-last_updated: 2026-07-21
+last_updated: 2026-07-22
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -13,7 +13,7 @@ development_status:
   18-2-cron-range: done
   18-3-winjob-backend: done
   18-4-safety-docs-deadcode: done
-  epic-18-retrospective: optional
+  epic-18-retrospective: done
 
   epic-19: done  # 质量工程化 (FR-C1~C6)
   19-1-coverage-90: done  # 89%→90%（4310 stmts, 438 miss），新增 21 个专项测试
@@ -21,6 +21,6 @@ development_status:
   19-3-static-analysis: done  # Bandit (-ll) + pip-audit (continue-on-error) 入 CI；ruff 已含 S/B/C90/SIM/TCH
   19-4-benchmark-complexity: done  # tests/test_benchmarks.py（10 例，默认 skip）；ruff.toml C90 max=15
   19-5-docs-version-sync: done  # v0.3.0；frame.md/CLAUDE.md/iteration.md 已知缺口同步硬化后状态
-  epic-19-retrospective: optional
+  epic-19-retrospective: done
 
 action_items: []

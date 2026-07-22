@@ -10,20 +10,20 @@ development_status:
   20-1-coverage-config: done
   20-2-ci-coverage-migration: done
   20-3-coverage-artifact: done
-  epic-20-retrospective: optional
+  epic-20-retrospective: done
 
   epic-21: done
   21-1-benchmark-fixture: done
   21-2-benchmark-config: done
   21-3-ci-benchmark-job: done
   21-4-ci-benchmark-compare: done
-  epic-21-retrospective: optional
+  epic-21-retrospective: done
 
   epic-22: done
   22-1-dockerignore: done
   22-2-healthcheck-fix: done
   22-3-base-image-digest: done
-  epic-22-retrospective: optional
+  epic-22-retrospective: done
 
   epic-23: done
   23-1-ci-pip-cache: done
@@ -34,6 +34,6 @@ development_status:
   23-6-precommit-bandit: done
   23-7-ruff-rules: done
   23-8-ruff-fixes: done
-  epic-23-retrospective: optional
+  epic-23-retrospective: done
 
 action_items: []

@@ -1,11 +1,10 @@
 # ============================================================
 # HeAgent 生产部署 docker-compose 配置
 # 使用方式:
-#   docker-compose up -d                     # 启动交互服务
-#   docker-compose run --rm heagent "你的问题"  # 单次执行
+#   # 1) 复制 .env.production.example → .env.production 并填入 API key
+#   # 2) docker-compose run --rm heagent "你的问题"  # 单次执行
+#   # 3) docker-compose run --rm heagent             # 交互模式
 # ============================================================
-
-version: "3.9"
 
 services:
   heagent:
@@ -15,8 +14,8 @@ services:
     container_name: heagent
     restart: unless-stopped
 
-    # 环境变量（生产环境切勿硬编码密钥！）
-    # 建议: 创建 .env.production 文件，或在 CI/CD 中注入
+    # 环境变量（需先创建 .env.production 并填入 API key）
+    # 模板见 .env.production.example
     env_file:
       - .env.production
     environment:
@@ -24,18 +23,12 @@ services:
       - HEAGENT_DATA_DIR=/data/heagent
       # 日志级别（生产环境建议 WARNING 减少日志量）
       - LOG_LEVEL=WARNING
-      # 服务模式：api / chat（默认为交互式 chat）
-      - MODE=chat
 
     volumes:
       # 持久化运行时数据（技能、记忆、会话等）
       - heagent_data:/data/heagent
-      # （可选）绑定宿主 .env 文件，避免每次重建
+      # 绑定宿主 .env 文件，避免每次重建
       - ./.env.production:/app/.env:ro
-
-    ports:
-      # 如果未来提供 HTTP API 可映射端口
-      - "8080:8080"
 
     # 资源限制
     deploy:
@@ -52,6 +45,9 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
 
     logging:
       driver: "json-file"

@@ -6,7 +6,24 @@ build-backend = "hatchling.build"
 name = "heagent"
 version = "0.3.0"
 description = "A self-improving AI Agent core framework"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "HeAgent Contributors" },
+]
 requires-python = ">=3.11"
+keywords = ["ai", "agent", "llm", "self-learning", "mcp", "tool-calling", "openai", "anthropic"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Operating System :: OS Independent",
+]
 dependencies = [
     "pydantic>=2.13",
     "pydantic-settings>=2.0",
@@ -16,6 +33,12 @@ dependencies = [
     "click>=8.0",
     "mcp>=1.28.1,<2",
 ]
+
+[project.urls]
+Homepage = "https://github.com/zsutxz/HeAgent"
+Repository = "https://github.com/zsutxz/HeAgent"
+Issues = "https://github.com/zsutxz/HeAgent/issues"
+Documentation = "https://github.com/zsutxz/HeAgent/blob/main/docs/README.md"
 
 [project.optional-dependencies]
 dev = [
