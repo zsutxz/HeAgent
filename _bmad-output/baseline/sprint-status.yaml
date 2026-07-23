@@ -277,17 +277,17 @@ development_status:
   epic-24-retrospective: done
 
   # ═══════════════════════════════════════════════════════════════
-  # GUI 终端界面周期 · Epic 25–28（2026-07-23，当前进行中）
+  # GUI 终端界面周期 · Epic 25–28（2026-07-23）
   # 原 gui/sprint-status.yaml 编号 24–27，整体 +1 偏移
   # ═══════════════════════════════════════════════════════════════
 
-  epic-25: in-progress  # 流式聊天 — 最小可跑（FR-G1~G6）
-  25-1-project-skeleton-cli-entry: ready-for-dev
-  25-2-streaming-chat-engine: ready-for-dev
-  25-3-markdown-execution-state: ready-for-dev
+  epic-25: done  # 流式聊天 — 最小可跑（FR-G1~G6）
+  25-1-project-skeleton-cli-entry: done
+  25-2-streaming-chat-engine: done
+  25-3-markdown-execution-state: done
   epic-25-retrospective: optional
 
-  epic-26: backlog  # 工具可视化 + 斜杠命令（FR-G7~G14）
+  epic-26: in-progress  # 工具可视化 + 斜杠命令（FR-G7~G14）
   26-1-tool-call-cards: ready-for-dev
   26-2-slash-commands: ready-for-dev
   26-3-interrupt-shortcuts: ready-for-dev
