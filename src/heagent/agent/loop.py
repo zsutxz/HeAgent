@@ -728,7 +728,7 @@ class AgentLoop:
         from heagent.context.tokens import count_tokens
 
         estimated = count_tokens(state.messages)
-        logger.debug("Calling provider: %d messages, ~%d tokens estimated", len(state.messages), estimated)
+        logger.info("Calling provider: %d messages, ~%d tokens estimated", len(state.messages), estimated)
         self._emit(
             "provider_call_started",
             run_context=run_context,
@@ -746,7 +746,7 @@ class AgentLoop:
             response = await handler(Request(messages=state.messages, tools=tools))
 
         if response.usage and response.usage.total_tokens > 0:
-            logger.debug(
+            logger.info(
                 "Provider response: %d actual tokens (estimated: %d, delta: %+d)",
                 response.usage.total_tokens,
                 estimated,
