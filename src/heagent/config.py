@@ -62,7 +62,7 @@ class Settings(BaseSettings):
     # ---- 框架运行参数 ----
     max_iterations: int = Field(default=50, ge=1)
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
-    max_context_tokens: int = Field(default=128000, ge=1)
+    max_context_tokens: int = Field(default=1_000_000, ge=1)
     shell_timeout: int = Field(default=120, ge=1)
 
     # ---- 日志参数 ----

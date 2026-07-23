@@ -305,6 +305,19 @@ class AgentLoop:
                         if chunk.reasoning_content:
                             reasoning_content += chunk.reasoning_content
 
+                    # 部分 Provider（DeepSeek 等）流式 API 不支持 usage-bearing chunk，
+                    # chunk_usage 始终为零 → 用量显示、压缩、窗口重置全部失效。
+                    # 此时用本地 token 估算兜底（与 _call_provider / _maybe_window_reset 一致）。
+                    if chunk_usage.total_tokens == 0:
+                        from heagent.context.tokens import count_tokens
+
+                        estimated = count_tokens(state.messages)
+                        chunk_usage = TokenUsage(
+                            prompt_tokens=estimated,
+                            completion_tokens=0,
+                            total_tokens=estimated,
+                        )
+
                     accumulated = self._add_usage(accumulated, chunk_usage)
                     response = ProviderResponse(
                         content=full_content,

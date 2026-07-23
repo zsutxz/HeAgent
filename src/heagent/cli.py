@@ -68,9 +68,14 @@ def _print_usage(usage: TokenUsage | None) -> None:
 
 
 def _format_tokens_k(n: int) -> str:
-    """Format token count with K suffix (e.g. 1234 -> '1.2K', 128000 -> '128K')."""
+    """Format token count with K/M suffix (e.g. 1234 -> '1.2K', 128000 -> '128K', 1000000 -> '1M')."""
     if n < 1000:
         return str(n)
+    if n >= 1_000_000:
+        m = n / 1_000_000
+        if m == int(m):
+            return f"{int(m)}M"
+        return f"{m:.1f}M"
     k = n / 1000
     if k == int(k):
         return f"{int(k)}K"
