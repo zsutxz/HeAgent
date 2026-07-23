@@ -21,7 +21,9 @@ class GuiState(BaseModel):
     model_name: str = ""  # 当前 LLM 模型名（状态栏显示）
     iteration: int = 0  # 当前迭代轮数
     max_iterations: int = 50  # 最大迭代数（状态栏进度）
-    token_usage: TokenUsage = Field(default_factory=TokenUsage)  # 累计 Token
+    token_usage: TokenUsage = Field(
+        default_factory=lambda: TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+    )
     is_running: bool = False  # Agent 是否正在执行
     active_tool: str = ""  # 当前活跃工具名（空=无）
     last_error: str | None = None  # 最近错误信息
