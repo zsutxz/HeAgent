@@ -170,3 +170,34 @@ class TestCronMatchesWithRanges:
         dt = datetime(2026, 7, 26, 0, 0)
         assert CronScheduler._matches(expr0, dt) is True
         assert CronScheduler._matches(expr7, dt) is True
+
+    def test_sunday_range_5_to_7_matches_sunday(self):
+        """P1-12 扩展：周五-周日范围 (5-7) 匹配周日——7→0 规范化覆盖范围语法"""
+        # July 24 2026 = Friday, July 25 = Saturday, July 26 = Sunday
+        expr = "0 0 * * 5-7"
+        assert CronScheduler._matches(expr, datetime(2026, 7, 24, 0, 0)) is True  # 周五
+        assert CronScheduler._matches(expr, datetime(2026, 7, 25, 0, 0)) is True  # 周六
+        assert CronScheduler._matches(expr, datetime(2026, 7, 26, 0, 0)) is True  # 周日
+        assert CronScheduler._matches(expr, datetime(2026, 7, 22, 0, 0)) is False  # 周三
+
+    def test_sunday_range_0_to_7_matches_sunday(self):
+        """周日经由范围 0-7 匹配（0 和 7 都在范围内）"""
+        expr = "0 0 * * 0-7"
+        dt = datetime(2026, 7, 26, 0, 0)  # 周日
+        assert CronScheduler._matches(expr, dt) is True
+
+    def test_sunday_comma_list_with_7_matches_sunday(self):
+        """周末列表 0,6,7 匹配周日——7→0 规范化覆盖逗号列表"""
+        expr = "0 0 * * 0,6,7"
+        # July 26 2026 = Sunday
+        assert CronScheduler._matches(expr, datetime(2026, 7, 26, 0, 0)) is True  # 周日
+        assert CronScheduler._matches(expr, datetime(2026, 7, 25, 0, 0)) is True  # 周六
+        assert CronScheduler._matches(expr, datetime(2026, 7, 22, 0, 0)) is False  # 周三
+
+    def test_sunday_step_with_7_normalized(self):
+        """隔天步进 */2 在周日匹配——7→0 规范化不影响步进展开"""
+        # */2 over 0-7 → [0,2,4,6]; after 7→0 normalization → [0,2,4,6]
+        # July 26 2026 = Sunday (value=0) → 0 in [0,2,4,6] → True
+        expr = "0 0 * * */2"
+        dt = datetime(2026, 7, 26, 0, 0)  # 周日
+        assert CronScheduler._matches(expr, dt) is True

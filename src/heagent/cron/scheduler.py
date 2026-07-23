@@ -199,7 +199,7 @@ class CronScheduler:
             return False
 
         # weekday：标准 cron 中 Sunday 同时用 0 和 7 表示，此处映射到 0；
-        # _field_matches 对 "7" 做特判 equality 到 0（P1-12 修复）。
+        # _field_matches 内部对 weekday 字段 (max_val=7) 统一做 7→0 规范化。
         cron_weekday = (dt.weekday() + 1) % 7  # Monday=1...Sunday=0
         cron_values = (dt.minute, dt.hour, dt.day, dt.month, cron_weekday)
         # 每个字段的合法范围（用于解析范围表达式）
@@ -215,11 +215,15 @@ def _field_matches(expr: str, value: int, *, min_val: int = 0, max_val: int = 59
 
     V2 扩展：支持范围表达式（``1-5``）和步进组合（``*/15`` / ``1-30/10``）。
     内部走 ``_parse_field`` 统一解析 → 查值是否在展开列表中。
+
+    P1-12 扩展修复：对 weekday 字段 (max_val==7) 统一把 cron ``"7"``（周日）
+    映射到内部值 0（周日），覆盖单值 ``"7"``、范围 ``"5-7"``、列表 ``"1,3,7"``
+    等全部语法。原修复仅覆盖 ``expr=="7"`` 的精确匹配，范围/列表中的 7 会漏判周日。
     """
-    # weekday Sunday=7 兼容映射（P1-12 修复）
-    if expr.strip() == "7" and value == 0:
-        return True
-    return value in _parse_field(expr, min_val=min_val, max_val=max_val)
+    values = _parse_field(expr, min_val=min_val, max_val=max_val)
+    if max_val == 7:
+        values = [0 if v == 7 else v for v in values]
+    return value in values
 
 
 def _parse_field(raw: str, *, min_val: int = 0, max_val: int = 59) -> list[int]:

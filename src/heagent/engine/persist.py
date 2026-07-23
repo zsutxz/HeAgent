@@ -131,10 +131,11 @@ def atomic_write_text(
     path.parent.mkdir(parents=True, exist_ok=True)
 
     lock_fd: int | None = None
+    lock_path: Path | None = None
 
     if lock:
         lock_path = path.with_name(path.name + ".lock")
-        lock_fd = os.open(lock_path, os.O_CREAT | os.O_RDWR)
+        lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
         try:
             _acquire_lock(lock_fd, lock_timeout)
         except BaseException:
@@ -153,6 +154,16 @@ def atomic_write_text(
                 logger.debug("Failed to release lock on %s", path, exc_info=True)
             finally:
                 os.close(lock_fd)
+                # P1 修复：写入完成后清理锁文件，防止僵尸 .lock 文件在 ledger
+                # （数千条记录）等高频写入场景下无限积累，导致目录膨胀与
+                # 文件系统性能劣化（Windows 尤甚）。unlink 失败不抛——
+                # 文件已不存在（并发清理）或权限不足（需运维介入）均为
+                # 非致命；锁已释放，下次写入会经 O_CREAT 重建。
+                if lock_path is not None:
+                    try:
+                        os.unlink(str(lock_path))
+                    except OSError:
+                        logger.debug("Failed to unlink lock file %s", lock_path, exc_info=True)
 
 
 def load_json_model(path: Path, model_cls: type[T]) -> T | None:
