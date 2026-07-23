@@ -1,8 +1,6 @@
 """ChatScreen — 主聊天界面：消息列表 + ToolCard + 输入区 + 状态栏。
 
-Story 26-1：ToolCard 流式插入与更新。
-Story 26-2：斜杠命令路由 (/model /mcp-prompt /clear /help)。
-Story 26-3：中断 (Ctrl+C)、清屏 (Ctrl+L)。
+通过定时轮询 GuiState 同步到 widgets（Textual watch 不支持外部模型）。
 """
 
 from __future__ import annotations
@@ -74,7 +72,6 @@ class ChatScreen(Screen):
         super().__init__(name=name, id=id)
         self._bridge = bridge
         self._state = state
-        # 最近一张 ToolCard 引用（用于 stream_event 即时更新）
         self._current_tool_card = None
 
     def compose(self):
@@ -90,15 +87,25 @@ class ChatScreen(Screen):
             )
 
     def on_mount(self) -> None:
-        """绑定 state → widget 的数据流。"""
-        self.watch(self._state, "model_name", self._on_state_change)
-        self.watch(self._state, "iteration", self._on_state_change)
-        self.watch(self._state, "max_iterations", self._on_state_change)
-        self.watch(self._state, "token_usage", self._on_state_change)
-        self.watch(self._state, "is_running", self._on_running_change)
-        self.watch(self._state, "active_tool", self._on_state_change)
+        """定时轮询 GuiState → widgets."""
         self._sync_state_to_ui()
+        self.set_interval(0.25, self._poll_state)
         self.query_one(InputArea).focus_input()
+
+    def _poll_state(self) -> None:
+        """把 GuiState 字段刷新到 widgets。"""
+        sb = self.query_one("#status-bar", StatusBar)
+        sb.model_name = self._state.model_name
+        sb.iteration = self._state.iteration
+        sb.max_iterations = self._state.max_iterations
+        sb.total_tokens = self._state.token_usage.total_tokens
+        sb.is_running = self._state.is_running
+        sb.active_tool = self._state.active_tool
+
+        # 同步输入区禁用状态
+        inp = self.query_one(InputArea)
+        if inp.disabled != self._state.is_running:
+            inp.disabled = self._state.is_running
 
     # ── Message 处理 ────────────────────────────────────────
 
@@ -124,7 +131,6 @@ class ChatScreen(Screen):
         if event.type == "text":
             ml.append_text(event.text)
         elif event.type == "tool_call":
-            # 插入 ToolCard（RichLog.mount 直接挂载 widget）
             self._current_tool_card = ml.insert_tool_card(event.tool_name)
         elif event.type == "tool_result":
             if self._current_tool_card is not None:
@@ -139,81 +145,58 @@ class ChatScreen(Screen):
             self._finalize_state()
 
     def _handle_interrupted(self) -> None:
-        ml = self.query_one("#message-list", MessageList)
-        ml.append_system_message("[已中断]")
+        self.query_one("#message-list", MessageList).append_system_message("[已中断]")
 
     def _handle_error(self, error: str) -> None:
-        ml = self.query_one("#message-list", MessageList)
-        ml.append_system_message(f"[错误] {error}")
+        self.query_one("#message-list", MessageList).append_system_message(f"[错误] {error}")
 
     # ── 斜杠命令 ────────────────────────────────────────────
 
     def _on_slash_command(self, command: str, args: str) -> bool:
-        """路由斜杠命令。返回 True 表示已处理（不发送给 Agent）。"""
         ml = self.query_one("#message-list", MessageList)
-
         if command == "/clear":
             ml.clear()
             return True
-
         if command == "/help":
             ml.append_system_message(
                 "可用命令：\n"
-                "  /model [name]  — 查看或切换 LLM 模型\n"
-                "  /mcp-prompt [server] [name]  — MCP Prompt 交互\n"
-                "  /clear  — 清空消息列表 (Ctrl+L)\n"
+                "  /model [name]  — 切换 LLM 模型\n"
+                "  /clear  — 清屏 (Ctrl+L)\n"
                 "  /help  — 显示此帮助\n"
-                "  Ctrl+C  — 中断 Agent 执行\n"
+                "  Ctrl+C  — 中断 Agent\n"
                 "  Ctrl+Q  — 退出"
             )
             return True
-
         if command == "/model":
             self._handle_model_cmd(args)
             return True
-
-        if command == "/mcp-prompt":
-            ml.append_system_message("[dim]/mcp-prompt 功能将在后续版本中完整支持[/]")
-            return True
-
         return False
 
     def _handle_model_cmd(self, args: str) -> None:
-        """处理 /model 命令：无参数列出，带参数切换。"""
         ml = self.query_one("#message-list", MessageList)
         from heagent.gui.app import HeAgentApp
-
         app = HeAgentApp.get_current_app()
         if not isinstance(app, HeAgentApp) or not app._loop:
-            ml.append_system_message("[dim]/model: 无法获取 AgentLoop 引用[/]")
+            ml.append_system_message("[dim]/model: 无法获取 Agent[/]")
             return
-
         provider = app._loop.provider
         from heagent.providers.switchable import SwitchableProvider
-
         if not isinstance(provider, SwitchableProvider):
-            ml.append_system_message(f"[dim]当前模型: {provider.get_metadata().model} (无可切换的 Provider)[/]")
+            ml.append_system_message(f"[dim]当前: {provider.get_metadata().model}[/]")
             return
-
         if not args:
-            # 列出所有 Provider
             info = provider.info()
             lines = ["可用模型:"]
             for name, meta in info.items():
-                marker = "[green]← 当前[/]" if meta["active"] else ""
-                lines.append(f"  {name}  ({meta['model']})  {marker}")
+                marker = "[green]←[/]" if meta["active"] else ""
+                lines.append(f"  {name} ({meta['model']}) {marker}")
             ml.append_system_message("\n".join(lines))
             return
-
-        # 切换 Provider
         target = args.strip()
         try:
-
             async def _switch():
                 await provider.switch(target)
-                meta = provider.get_metadata()
-                self._state.model_name = meta.model
-
+                self._state.model_name = provider.get_metadata().model
             asyncio.create_task(_switch())
             ml.append_system_message(f"[dim]已切换到 [bold]{target}[/][/]")
         except Exception as exc:
@@ -222,7 +205,6 @@ class ChatScreen(Screen):
     # ── 用户输入 ────────────────────────────────────────────
 
     async def _on_user_submit(self, text: str) -> None:
-        """用户提交一条消息（非斜杠命令路由后到达）。"""
         ml = self.query_one("#message-list", MessageList)
         ml.append_user_message(text)
         ml.begin_agent_message()
@@ -232,15 +214,12 @@ class ChatScreen(Screen):
     # ── 快捷键 ──────────────────────────────────────────────
 
     def action_clear_screen(self) -> None:
-        """Ctrl+L 清空消息列表。"""
         self.query_one("#message-list", MessageList).clear()
 
     # ── 状态同步 ────────────────────────────────────────────
 
     def _finalize_state(self) -> None:
-        """Agent 完成后从 AgentLoop.last_* 刷新状态。"""
         from heagent.gui.app import HeAgentApp
-
         app = HeAgentApp.get_current_app()
         if isinstance(app, HeAgentApp) and app._loop:
             loop = app._loop
@@ -249,25 +228,7 @@ class ChatScreen(Screen):
             if loop.last_iteration is not None:
                 self._state.iteration = loop.last_iteration
             if loop.provider:
-                meta = loop.provider.get_metadata()
-                self._state.model_name = meta.model
+                self._state.model_name = loop.provider.get_metadata().model
 
     def _sync_state_to_ui(self) -> None:
-        """把 GuiState 字段刷新到 widgets。"""
-        sb = self.query_one("#status-bar", StatusBar)
-        sb.model_name = self._state.model_name
-        sb.iteration = self._state.iteration
-        sb.max_iterations = self._state.max_iterations
-        sb.total_tokens = self._state.token_usage.total_tokens
-        sb.is_running = self._state.is_running
-        sb.active_tool = self._state.active_tool
-
-    async def _on_running_change(self, value: bool) -> None:
-        """Agent 执行状态变更 → 禁用/启用输入。"""
-        inp = self.query_one(InputArea)
-        inp.disabled = value
-        self._on_state_change(None)
-
-    def _on_state_change(self, _value: object) -> None:
-        """任意状态字段变更 → 刷新状态栏。"""
-        self._sync_state_to_ui()
+        self._poll_state()
