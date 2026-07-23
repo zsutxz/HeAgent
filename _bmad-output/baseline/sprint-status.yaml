@@ -299,10 +299,10 @@ development_status:
   27-3-cron-memory-panel: done
   epic-27-retrospective: optional
 
-  epic-28: in-progress  # 可观测性（FR-G20~G24）
-  28-1-event-log-panel: ready-for-dev
-  28-2-run-history-panel: ready-for-dev
-  28-3-run-detail-resume: ready-for-dev
+  epic-28: done  # 可观测性（FR-G20~G24）
+  28-1-event-log-panel: done
+  28-2-run-history-panel: done
+  28-3-run-detail-resume: done
   epic-28-retrospective: optional
 
 # ═════════════════════════════════════════════════════════════════

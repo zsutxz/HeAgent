@@ -1,6 +1,6 @@
 """Textual App — root application shell.
 
-持有 AgentLoop / AgentBridge / GuiState + 全部 Stores，管理多页面导航。
+持有 AgentLoop / AgentBridge / GuiState + 全部 Stores + 事件观察者，管理多页面导航。
 """
 
 from __future__ import annotations
@@ -11,22 +11,21 @@ from textual.app import App, ComposeResult
 from textual.widgets import Footer
 
 from heagent.gui.bridge import AgentBridge
+from heagent.gui.observers import GuiEventObserver
 from heagent.gui.screens.chat import ChatScreen
 from heagent.gui.state import GuiState
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
     from heagent.cron.jobs import JobStore
+    from heagent.engine import EngineContainer
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
     from heagent.memory.skills import SkillStore
 
 
 class HeAgentApp(App):
-    """HeAgent terminal UI application.
-
-    绑定 F1-F6 快速导航到各管理页面。
-    """
+    """HeAgent terminal UI application. F1-F6 导航到各管理页面。"""
 
     TITLE = "HeAgent"
     SUB_TITLE = "A self-improving AI Agent"
@@ -60,6 +59,15 @@ class HeAgentApp(App):
         self.job_store = job_store
         self.fact_store = fact_store
         self.profile_store = profile_store
+        # 事件观察者引用（供 EventLog widget 拉取）
+        self._event_observer: GuiEventObserver | None = None
+
+    @property
+    def engine(self) -> EngineContainer | None:
+        """EngineContainer，供 RunsScreen 访问 RunStore。"""
+        if self._loop:
+            return self._loop.engine
+        return None
 
     def on_mount(self) -> None:
         """Push the main chat screen on startup."""
@@ -87,7 +95,7 @@ class HeAgentApp(App):
 
     def action_switch_to_runs(self) -> None:
         from heagent.gui.screens.runs import RunsScreen
-        self._switch_or_push(RunsScreen())
+        self._switch_or_push(RunsScreen(self.engine))
 
     def action_switch_to_logs(self) -> None:
         from heagent.gui.screens.event_log import EventLogScreen
@@ -98,7 +106,6 @@ class HeAgentApp(App):
         for s in self._screen_stack:
             if type(s) is type(screen):
                 self.pop_screen()
-                # 如果 pop 后栈顶不是 chat，而目标是 chat → 保留
                 return
         self.push_screen(screen)
 
