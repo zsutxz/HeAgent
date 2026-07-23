@@ -2,25 +2,24 @@
 
 from __future__ import annotations
 
-from textual.app import ComposeResult
+from typing import TYPE_CHECKING
+
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, Switch, Static
+from textual.widgets import Button, Input, Label, Static, Switch
+
+if TYPE_CHECKING:
+    from textual.app import ComposeResult
 
 
 class CronAddModal(ModalScreen[None]):
-    """新建 Cron 任务弹窗。"""
-
-    def __init__(self, store, refresh_cb) -> None:
-        super().__init__()
-        self._store = store
-        self._refresh = refresh_cb
+    """添加 Cron 任务弹窗。"""
 
     CSS = """
     CronAddModal {
         align: center middle;
     }
-    #add-dialog {
+    #add-box {
         width: 50;
         height: auto;
         background: $panel;
@@ -29,15 +28,20 @@ class CronAddModal(ModalScreen[None]):
     }
     """
 
+    def __init__(self, store, refresh_cb) -> None:
+        super().__init__()
+        self._store = store
+        self._refresh = refresh_cb
+
     def compose(self) -> ComposeResult:
-        with Vertical(id="add-dialog"):
-            yield Static("[bold]添加 Cron 任务[/]", id="add-title")
-            yield Label("Prompt (任务描述)")
-            yield Input(placeholder="如: 获取 AI 新闻", id="add-prompt")
+        with Vertical(id="add-box"):
+            yield Static("[bold]添加 Cron 任务[/]")
+            yield Label("提示词")
+            yield Input(placeholder="Agent 要执行的提示词", id="input-prompt")
             yield Label("Cron 表达式")
-            yield Input(placeholder="如: 0 9 * * *", id="add-schedule")
-            yield Label("循环执行")
-            yield Switch(value=True, id="add-recurring")
+            yield Input(placeholder="如: 0 9 * * *", id="input-schedule")
+            yield Label("启用")
+            yield Switch(value=True, id="switch-enabled")
             yield Button("创建", id="btn-create", variant="primary")
             yield Button("取消", id="btn-cancel")
 
@@ -48,13 +52,12 @@ class CronAddModal(ModalScreen[None]):
             self._do_create()
 
     def _do_create(self) -> None:
-        prompt = self.query_one("#add-prompt", Input).value.strip()
-        schedule = self.query_one("#add-schedule", Input).value.strip()
-        recurring = self.query_one("#add-recurring", Switch).value
+        prompt = self.query_one("#input-prompt", Input).value.strip()
+        schedule = self.query_one("#input-schedule", Input).value.strip()
+        enabled = self.query_one("#switch-enabled", Switch).value
         if not prompt or not schedule:
             return
         if self._store:
-            job = self._store.create_job(prompt, schedule, recurring=recurring)
-            self._store.add(job)
+            self._store.add(prompt, schedule, enabled)
         self._refresh()
         self.dismiss()

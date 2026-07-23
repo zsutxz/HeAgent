@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from textual.app import ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static, TextArea
 
 if TYPE_CHECKING:
+    from textual.app import ComposeResult
+
     from heagent.memory.skills import SkillStore
 
 
@@ -43,12 +44,11 @@ class SkillScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         yield DataTable(id="skill-table")
-        with Container(id="skill-actions"):
-            with Horizontal():
-                yield Button("新建技能", id="btn-create", variant="primary")
-                yield Button("查看详情", id="btn-detail")
-                yield Button("归档过期", id="btn-archive", variant="warning")
-                yield Button("删除", id="btn-delete", variant="error")
+        with Container(id="skill-actions"), Horizontal():
+            yield Button("新建技能", id="btn-create", variant="primary")
+            yield Button("查看详情", id="btn-detail")
+            yield Button("归档过期", id="btn-archive", variant="warning")
+            yield Button("删除", id="btn-delete", variant="error")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -158,7 +158,7 @@ class _SkillCreateModal(ModalScreen[None]):
             yield Input(placeholder="简短描述", id="input-desc")
             yield Label("匹配模式")
             yield Input(placeholder="触发 pattern", id="input-pattern")
-            yield Label("步骤 (每行一步)")
+            yield Label("步骤 (每步一行)")
             yield TextArea("", id="input-steps")
             yield Button("创建", id="btn-dosave", variant="primary")
             yield Button("取消", id="btn-cancel")
@@ -180,9 +180,6 @@ class _SkillCreateModal(ModalScreen[None]):
             return
 
         if self._store:
-            try:
-                self._store.save(name, desc, pattern, steps)
-            except ValueError:
-                pass  # 名称非法时静默忽略
+            self._store.save(name, desc, pattern, steps)
         self._refresh()
         self.dismiss()

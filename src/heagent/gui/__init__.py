@@ -25,6 +25,7 @@ def gui_main(model: str | None = None, sandbox: str | None = None) -> None:
 
     # ── Provider ────────────────────────────────────────────
     from heagent.cli import _build_provider
+
     provider = _build_provider(settings, model)
 
     # ── Stores ──────────────────────────────────────────────
@@ -69,7 +70,8 @@ def gui_main(model: str | None = None, sandbox: str | None = None) -> None:
 
     # ── 启动 Textual ────────────────────────────────────────
     app = HeAgentApp(
-        bridge, state,
+        bridge,
+        state,
         loop=loop,
         skill_store=skill_store,
         job_store=job_store,

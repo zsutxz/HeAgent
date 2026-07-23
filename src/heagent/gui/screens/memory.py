@@ -7,12 +7,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from textual.app import ComposeResult
-from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Header, Static, TabbedContent, TabPane
 
 if TYPE_CHECKING:
+    from textual.app import ComposeResult
+
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
 

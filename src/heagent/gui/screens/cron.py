@@ -7,12 +7,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header
 
 if TYPE_CHECKING:
+    from textual.app import ComposeResult
+
     from heagent.cron.jobs import JobStore
 
 
@@ -43,10 +44,9 @@ class CronScreen(Screen):
     def compose(self) -> ComposeResult:
         yield Header()
         yield DataTable(id="cron-table")
-        with Container(id="cron-actions"):
-            with Horizontal():
-                yield Button("添加任务", id="btn-add", variant="primary")
-                yield Button("删除任务", id="btn-delete", variant="error")
+        with Container(id="cron-actions"), Horizontal():
+            yield Button("添加任务", id="btn-add", variant="primary")
+            yield Button("删除任务", id="btn-delete", variant="error")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -73,6 +73,7 @@ class CronScreen(Screen):
         btn_id = event.button.id
         if btn_id == "btn-add":
             from heagent.gui.screens.cron_add import CronAddModal
+
             self.app.push_screen(CronAddModal(self._store, self._refresh_table))
         elif btn_id == "btn-delete":
             self._delete_selected()

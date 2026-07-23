@@ -55,8 +55,9 @@ class EventLog(Widget):
         if not new_events or self.paused:
             return
 
-        assert self._log is not None
-        for ts, evt_type, details in reversed(new_events):
+        if self._log is None:
+            return
+        for _ts, evt_type, details in reversed(new_events):
             tool = details.get("tool_name", "")
             run_id = details.get("run_id", "")[:8]
             error = details.get("error", "")

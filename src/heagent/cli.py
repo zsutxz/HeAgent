@@ -93,9 +93,7 @@ def _setup_logging() -> None:
     """Configure logging for CLI mode (stderr console + file)."""
     _settings = get_settings()
     _console_level = getattr(logging, _settings.log_level.upper(), logging.INFO)
-    _file_level = getattr(
-        logging, (_settings.log_file_level or _settings.log_level).upper(), _console_level
-    )
+    _file_level = getattr(logging, (_settings.log_file_level or _settings.log_level).upper(), _console_level)
     _log_dir = Path(_settings.log_dir)
     _log_dir.mkdir(parents=True, exist_ok=True)
     _log_file = _log_dir / f"heagent-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
@@ -284,6 +282,7 @@ def _build_loop(
 
     scheduler: CronScheduler | None = None
     if session is not None and settings.cron_enabled and cron_store:
+
         async def _run_job(prompt: str, run_context: RunContext) -> None:
             loop = AgentLoop(
                 provider,
@@ -587,15 +586,24 @@ def _run_cli_impl(
     if prompt:
         asyncio.run(
             _run_single(
-                prompt, provider, system, resolved_iterations,
-                soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox,
+                prompt,
+                provider,
+                system,
+                resolved_iterations,
+                soul_path=soul,
+                mcp_ctx=mcp_ctx,
+                sandbox_backend=sandbox,
             )
         )
     else:
         asyncio.run(
             _run_chat(
-                provider, system, resolved_iterations,
-                soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox,
+                provider,
+                system,
+                resolved_iterations,
+                soul_path=soul,
+                mcp_ctx=mcp_ctx,
+                sandbox_backend=sandbox,
             )
         )
 

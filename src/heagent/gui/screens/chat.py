@@ -10,7 +10,7 @@ from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Input, RichLog, Static
 
-from heagent.gui.bridge import BridgeMessage, MSG_AGENT_ERROR, MSG_AGENT_INTERRUPTED, MSG_STREAM_EVENT
+from heagent.gui.bridge import MSG_AGENT_ERROR, MSG_AGENT_INTERRUPTED, MSG_STREAM_EVENT, BridgeMessage
 
 if TYPE_CHECKING:
     from heagent.gui.bridge import AgentBridge
@@ -38,11 +38,12 @@ class ChatScreen(Screen):
     #input-row { height: auto; padding: 1; }
     """
 
-    def __init__(self, bridge: AgentBridge, state: GuiState,
-                 *, name: str | None = None, id: str | None = None) -> None:
+    def __init__(self, bridge: AgentBridge, state: GuiState, *, name: str | None = None, id: str | None = None) -> None:
         super().__init__(name=name, id=id)
         self._bridge = bridge
         self._state = state
+        self._pending_submit: asyncio.Task[None] | None = None
+        self._pending_switch: asyncio.Task[None] | None = None
 
     def compose(self):
         yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True)
@@ -101,6 +102,7 @@ class ChatScreen(Screen):
 
     def _finalize_state(self) -> None:
         from heagent.gui.app import HeAgentApp
+
         app = HeAgentApp.get_current_app()
         if isinstance(app, HeAgentApp) and app.agent_loop:
             loop = app.agent_loop
@@ -134,7 +136,7 @@ class ChatScreen(Screen):
         log = self.query_one("#chat-log", RichLog)
         log.write(f"[bold cyan]>[/] {text}")
         log.write("[bold green]🤖[/] ")
-        asyncio.create_task(self._bridge.submit(text))
+        self._pending_submit = asyncio.create_task(self._bridge.submit(text))
 
     def _handle_slash(self, cmd: str, args: str) -> bool:
         log = self.query_one("#chat-log", RichLog)
@@ -153,11 +155,13 @@ class ChatScreen(Screen):
     def _model_cmd(self, args: str) -> None:
         log = self.query_one("#chat-log", RichLog)
         from heagent.gui.app import HeAgentApp
+
         app = HeAgentApp.get_current_app()
         if not isinstance(app, HeAgentApp) or not app.agent_loop:
             return
         provider = app.agent_loop.provider
         from heagent.providers.switchable import SwitchableProvider
+
         if not isinstance(provider, SwitchableProvider):
             log.write(f"[dim]当前: {provider.get_metadata().model}[/]")
             return
@@ -170,11 +174,16 @@ class ChatScreen(Screen):
             log.write("\n".join(lines))
             return
         target = args.strip()
+
         async def _switch():
-            await provider.switch(target)
-            self._state.model_name = provider.get_metadata().model
-        asyncio.create_task(_switch())
-        log.write(f"[dim]已切换到 {target}[/]")
+            try:
+                await provider.switch(target)
+                self._state.model_name = provider.get_metadata().model
+                log.write(f"[dim]已切换到 {target}[/]")
+            except ValueError as exc:
+                log.write(f"[red]切换失败: {exc}[/]")
+
+        self._pending_switch = asyncio.create_task(_switch())
 
     def action_clear_screen(self) -> None:
         log = self.query_one("#chat-log", RichLog)

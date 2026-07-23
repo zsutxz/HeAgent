@@ -14,13 +14,12 @@ from typing import TYPE_CHECKING, Any
 
 from textual.message import Message as TextualMessage
 
-from heagent.types import StreamEvent
-
 if TYPE_CHECKING:
     from textual.app import App as TextualApp
 
     from heagent.agent.loop import AgentLoop
     from heagent.gui.state import GuiState
+    from heagent.types import StreamEvent
 
 logger = logging.getLogger(__name__)
 

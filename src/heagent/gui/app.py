@@ -13,15 +13,15 @@ from typing import TYPE_CHECKING, ClassVar
 from textual.app import App, ComposeResult
 from textual.widgets import Footer
 
-from heagent.gui.bridge import AgentBridge, BridgeMessage
-from heagent.gui.observers import GuiEventObserver
 from heagent.gui.screens.chat import ChatScreen
-from heagent.gui.state import GuiState
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
     from heagent.cron.jobs import JobStore
     from heagent.engine import EngineContainer
+    from heagent.gui.bridge import AgentBridge, BridgeMessage
+    from heagent.gui.observers import GuiEventObserver
+    from heagent.gui.state import GuiState
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
     from heagent.memory.skills import SkillStore
@@ -114,22 +114,27 @@ class HeAgentApp(App):
 
     def action_switch_to_skills(self) -> None:
         from heagent.gui.screens.skills import SkillScreen
+
         self._switch_or_push(SkillScreen(self.skill_store))
 
     def action_switch_to_cron(self) -> None:
         from heagent.gui.screens.cron import CronScreen
+
         self._switch_or_push(CronScreen(self.job_store))
 
     def action_switch_to_memory(self) -> None:
         from heagent.gui.screens.memory import MemoryScreen
+
         self._switch_or_push(MemoryScreen(self.fact_store, self.profile_store))
 
     def action_switch_to_runs(self) -> None:
         from heagent.gui.screens.runs import RunsScreen
+
         self._switch_or_push(RunsScreen(self.engine))
 
     def action_switch_to_logs(self) -> None:
         from heagent.gui.screens.event_log import EventLogScreen
+
         self._switch_or_push(EventLogScreen())
 
     def _switch_or_push(self, screen) -> None:

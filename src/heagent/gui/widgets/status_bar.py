@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from textual import events
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Static

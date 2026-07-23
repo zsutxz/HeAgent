@@ -41,30 +41,33 @@ class MessageList(Widget):
 
     # ── 公开 API ─────────────────────────────────────────────
 
+    def _ensure_log(self) -> RichLog:
+        """返回 _log 或抛可诊断异常（替代 assert）。"""
+        if self._log is None:
+            raise RuntimeError("MessageList._log is None — widget not mounted")
+        return self._log
+
     def append_user_message(self, text: str) -> None:
         """追加一条用户消息。"""
-        assert self._log is not None
-        self._log.write(f"[bold cyan]>[/] {text}")
+        self._ensure_log().write(f"[bold cyan]>[/] {text}")
 
     def begin_agent_message(self) -> None:
         """开始一条 agent 消息（后续 append_text 流式追加到同一段）。"""
-        assert self._log is not None
-        self._log.write("[bold green]🤖[/] ")
+        self._ensure_log().write("[bold green]🤖[/] ")
         self._streaming_agent = True
 
     def append_text(self, text: str) -> None:
         """流式追加一行 agent 文本（Markdown）。"""
-        assert self._log is not None
-        self._log.write(text)
+        self._ensure_log().write(text)
 
     def insert_tool_card(self, tool_name: str) -> ToolCard:
         """插入一张工具调用卡片，返回引用供后续更新。"""
-        assert self._log is not None
+        log = self._ensure_log()
         self._streaming_agent = False
         self._tool_started_at = time.monotonic()
         card = ToolCard(tool_name)
         self._last_tool_card = card
-        self._log.mount(card)
+        log.mount(card)
         return card
 
     def update_tool_result(self, content: str, is_error: bool = False) -> None:
@@ -82,12 +85,10 @@ class MessageList(Widget):
 
     def append_system_message(self, text: str) -> None:
         """追加一条系统消息（中断 / 错误等）。"""
-        assert self._log is not None
-        self._log.write(f"[dim italic]{text}[/]")
+        self._ensure_log().write(f"[dim italic]{text}[/]")
 
     def clear(self) -> None:
         """清空消息列表。"""
-        assert self._log is not None
-        self._log.clear()
+        self._ensure_log().clear()
         self._streaming_agent = False
         self._last_tool_card = None

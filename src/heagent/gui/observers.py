@@ -15,9 +15,8 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING
 
-from heagent.engine.observability import EngineEvent
-
 if TYPE_CHECKING:
+    from heagent.engine.observability import EngineEvent
     from heagent.gui.state import GuiState
 
 logger = logging.getLogger(__name__)

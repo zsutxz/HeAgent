@@ -6,11 +6,15 @@ Tab 补全斜杠命令名称；Enter 发送或执行斜杠命令。
 
 from __future__ import annotations
 
-from textual import events
+from typing import TYPE_CHECKING
+
 from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Button, Input
+
+if TYPE_CHECKING:
+    from textual import events
 
 # 支持的斜杠命令列表（供 Tab 补全）
 _SLASH_COMMANDS = ["/model", "/mcp-prompt", "/clear", "/help"]

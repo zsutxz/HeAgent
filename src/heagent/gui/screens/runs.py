@@ -5,14 +5,16 @@ Tree 渲染运行树（RunStore.build_run_tree），选中节点查看详情/恢
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
-from textual.app import ComposeResult
-from textual.containers import Container, Horizontal, Vertical
+from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, Static, Tree
 
 if TYPE_CHECKING:
+    from textual.app import ComposeResult
+
     from heagent.engine import EngineContainer
 
 
@@ -47,6 +49,8 @@ class RunsScreen(Screen):
     def __init__(self, engine: EngineContainer | None = None) -> None:
         super().__init__()
         self._engine = engine
+        self._pending_fetch: asyncio.Task[None] | None = None
+        self._pending_resume: asyncio.Task[None] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -71,14 +75,12 @@ class RunsScreen(Screen):
             root.add("引擎未初始化")
             return
 
-        import asyncio
-
         async def _fetch():
             store = self._engine.run_store
             roots = await store.build_run_tree()
             self._populate_tree(roots)
 
-        asyncio.create_task(_fetch())
+        self._pending_fetch = asyncio.create_task(_fetch())
 
     def _populate_tree(self, roots: list) -> None:
         tree = self.query_one("#run-tree", Tree)
@@ -121,6 +123,7 @@ class RunsScreen(Screen):
 
         async def _resume():
             from heagent.gui.app import HeAgentApp
+
             app = HeAgentApp.get_current_app()
             if not isinstance(app, HeAgentApp) or app.agent_loop is None:
                 detail.update("[red]无法恢复：AgentLoop 未初始化[/]")
@@ -132,8 +135,7 @@ class RunsScreen(Screen):
             except Exception as exc:
                 detail.update(f"[red]恢复失败: {exc}[/]")
 
-        import asyncio
-        asyncio.create_task(_resume())
+        self._pending_resume = asyncio.create_task(_resume())
 
     @staticmethod
     def _icon(status) -> str:
