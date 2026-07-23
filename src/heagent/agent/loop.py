@@ -247,6 +247,8 @@ class AgentLoop:
                     final_answer=final_answer,
                 )
                 self._emit("run_completed", run_context=run_context, details={"answer_length": len(final_answer)})
+                self.last_usage = accumulated
+                self.last_iteration = state.iteration
                 return final_answer
         except Exception as exc:
             await self._on_run_failed(run_context, init.prompt, system_content, state, exc)
@@ -356,6 +358,8 @@ class AgentLoop:
                             run_context=run_context,
                             details={"answer_length": len(response.content)},
                         )
+                        self.last_usage = accumulated
+                        self.last_iteration = state.iteration
                         yield StreamEvent(type="done", final_answer=response.content)
                         break
 
