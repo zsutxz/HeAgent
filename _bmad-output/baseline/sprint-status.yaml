@@ -287,13 +287,13 @@ development_status:
   25-3-markdown-execution-state: done
   epic-25-retrospective: optional
 
-  epic-26: in-progress  # 工具可视化 + 斜杠命令（FR-G7~G14）
-  26-1-tool-call-cards: ready-for-dev
-  26-2-slash-commands: ready-for-dev
-  26-3-interrupt-shortcuts: ready-for-dev
+  epic-26: done  # 工具可视化 + 斜杠命令（FR-G7~G14）
+  26-1-tool-call-cards: done
+  26-2-slash-commands: done
+  26-3-interrupt-shortcuts: done
   epic-26-retrospective: optional
 
-  epic-27: backlog  # 管理面板（FR-G15~G19）
+  epic-27: in-progress  # 管理面板（FR-G15~G19）
   27-1-page-navigation: ready-for-dev
   27-2-skill-management: ready-for-dev
   27-3-cron-memory-panel: ready-for-dev

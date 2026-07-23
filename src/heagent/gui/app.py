@@ -41,3 +41,8 @@ class HeAgentApp(App):
 
     def compose(self) -> ComposeResult:
         yield Footer()
+
+    def action_quit(self) -> None:
+        """Ctrl+Q 退出：先中断 Agent，再退出。"""
+        self._bridge.cancel()
+        super().action_quit()
