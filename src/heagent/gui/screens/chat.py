@@ -1,4 +1,4 @@
-"""ChatScreen — 主聊天界面（简化版）。"""
+"""ChatScreen — 主聊天界面（流式对话 + 工具调用可视化）。"""
 
 from __future__ import annotations
 
@@ -7,9 +7,10 @@ import logging
 from typing import TYPE_CHECKING
 
 from textual.containers import Horizontal
-from textual.message import Message
 from textual.screen import Screen
 from textual.widgets import Button, Input, RichLog, Static
+
+from heagent.gui.bridge import BridgeMessage, MSG_AGENT_ERROR, MSG_AGENT_INTERRUPTED, MSG_STREAM_EVENT
 
 if TYPE_CHECKING:
     from heagent.gui.bridge import AgentBridge
@@ -22,7 +23,11 @@ WELCOME = "[bold green]HeAgent[/]\n输入消息开始对话。[dim]/help 查看�
 
 
 class ChatScreen(Screen):
-    """主聊天界面。"""
+    """主聊天界面。
+
+    BridgeMessage 处理链：
+        AgentBridge.post() → App.on_bridge_message() → ChatScreen.on_bridge_message()
+    """
 
     BINDINGS = [("ctrl+l", "clear_screen", "清屏")]
 
@@ -67,33 +72,38 @@ class ChatScreen(Screen):
             + (" │ ⏳" if running else "")
         )
 
-    def on_unexpected_message(self, message: Message) -> None:
-        msg_type = getattr(message, "type", "")
-        payload = getattr(message, "payload", {})
+    # ── BridgeMessage 处理 ──────────────────────────────────
+
+    def on_bridge_message(self, message: BridgeMessage) -> None:
+        """处理来自 AgentBridge 的消息（由 App 转发到此）。"""
         log = self.query_one("#chat-log", RichLog)
-        if msg_type == "gui.stream_event":
+        msg_type = message.msg_type
+        payload = message.payload
+
+        if msg_type == MSG_STREAM_EVENT:
             evt = payload.get("event")
             if evt is None:
                 return
-            if evt.type == "text":
-                log.write(evt.text)
-            elif evt.type == "tool_call":
-                log.write(f"[dim]🔧 {evt.tool_name}...[/]")
-            elif evt.type == "tool_result":
-                result = evt.tool_result_content[:300]
+            evt_typed: StreamEvent = evt  # type: ignore[assignment]
+            if evt_typed.type == "text":
+                log.write(evt_typed.text)
+            elif evt_typed.type == "tool_call":
+                log.write(f"[dim]🔧 {evt_typed.tool_name}...[/]")
+            elif evt_typed.type == "tool_result":
+                result = evt_typed.tool_result_content[:300]
                 log.write(f"  [green]✓[/] {result}")
-            elif evt.type == "done":
+            elif evt_typed.type == "done":
                 self._finalize_state()
-        elif msg_type == "gui.agent_interrupted":
+        elif msg_type == MSG_AGENT_INTERRUPTED:
             log.write("[dim italic][已中断][/]")
-        elif msg_type == "gui.agent_error":
+        elif msg_type == MSG_AGENT_ERROR:
             log.write(f"[red][错误] {payload.get('error', '')}[/]")
 
     def _finalize_state(self) -> None:
         from heagent.gui.app import HeAgentApp
         app = HeAgentApp.get_current_app()
-        if isinstance(app, HeAgentApp) and app._loop:
-            loop = app._loop
+        if isinstance(app, HeAgentApp) and app.agent_loop:
+            loop = app.agent_loop
             if loop.last_usage:
                 self._state.token_usage = loop.last_usage
             if loop.last_iteration is not None:
@@ -144,9 +154,9 @@ class ChatScreen(Screen):
         log = self.query_one("#chat-log", RichLog)
         from heagent.gui.app import HeAgentApp
         app = HeAgentApp.get_current_app()
-        if not isinstance(app, HeAgentApp) or not app._loop:
+        if not isinstance(app, HeAgentApp) or not app.agent_loop:
             return
-        provider = app._loop.provider
+        provider = app.agent_loop.provider
         from heagent.providers.switchable import SwitchableProvider
         if not isinstance(provider, SwitchableProvider):
             log.write(f"[dim]当前: {provider.get_metadata().model}[/]")

@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
+import sys
+from datetime import datetime
+from pathlib import Path
 
 import click
 
@@ -33,30 +35,45 @@ def gui_cmd(model: str | None, sandbox: str | None) -> None:
         )
         raise SystemExit(1) from None
 
-    # 基本的日志配置（完整配置在 cli.py 的 run 命令中；GUI 走 Textual 自己的日志）
+    # ── 日志配置（stderr + 文件双写，与 CLI 模式 `_setup_logging` 同构）──
+    from heagent.config import get_settings
+
+    _settings = get_settings()
+    _console_level = getattr(logging, _settings.log_level.upper(), logging.INFO)
+    _file_level = getattr(logging, (_settings.log_file_level or _settings.log_level).upper(), _console_level)
+
+    _log_dir = Path(_settings.log_dir)
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _log_file = _log_dir / f"heagent-gui-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+
+    _console_handler = logging.StreamHandler(sys.stderr)
+    _console_handler.setLevel(_console_level)
+    _file_handler = logging.FileHandler(str(_log_file), encoding="utf-8")
+    _file_handler.setLevel(_file_level)
+
     logging.basicConfig(
-        level=logging.INFO,
+        level=min(_console_level, _file_level),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[logging.StreamHandler()],
+        handlers=[_console_handler, _file_handler],
+        force=True,
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
+    logger.info("GUI session started — log file: %s", _log_file)
+
     # 沙箱提醒
     if sandbox == "firejail":
-        from heagent.config import get_settings
-
-        settings = get_settings()
         import shutil as _shutil
 
-        if _shutil.which(settings.sandbox_firejail_path) is None:
+        if _shutil.which(_settings.sandbox_firejail_path) is None:
             click.echo(
-                f" WARNING: firejail not found ({settings.sandbox_firejail_path}). "
+                f" WARNING: firejail not found ({_settings.sandbox_firejail_path}). "
                 f"Shell commands will run WITHOUT sandbox isolation.",
                 err=True,
             )
         else:
-            click.echo(f" firejail sandbox ENABLED ({settings.sandbox_firejail_path})", err=True)
+            click.echo(f" firejail sandbox ENABLED ({_settings.sandbox_firejail_path})", err=True)
 
     try:
         asyncio.run(gui_main(model=model, sandbox=sandbox))

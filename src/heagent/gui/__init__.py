@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import logging
 
+import heagent.tools.builtins  # noqa: F401 — 触发 @tool 注册
+
 logger = logging.getLogger(__name__)
 
 

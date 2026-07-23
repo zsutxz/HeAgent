@@ -122,11 +122,11 @@ class RunsScreen(Screen):
         async def _resume():
             from heagent.gui.app import HeAgentApp
             app = HeAgentApp.get_current_app()
-            if not isinstance(app, HeAgentApp) or app._loop is None:
+            if not isinstance(app, HeAgentApp) or app.agent_loop is None:
                 detail.update("[red]无法恢复：AgentLoop 未初始化[/]")
                 return
             try:
-                result = await app._loop.resume(run_id)
+                result = await app.agent_loop.resume(run_id)
                 detail.update(f"[green]运行 {run_id[:8]} 恢复完成[/]\n\n{result[:500]}")
                 self._load_tree()
             except Exception as exc:
