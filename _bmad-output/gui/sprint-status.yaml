@@ -1,0 +1,42 @@
+# generated: 2026-07-23
+# last_updated: 2026-07-23
+# project: HeAgent
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/gui/stories
+
+generated: 2026-07-23
+last_updated: 2026-07-23
+project: HeAgent
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/gui/stories
+
+development_status:
+  # Epic 24: 流式聊天 — 最小可跑（FR-G1~G6）
+  epic-24: in-progress
+  24-1-project-skeleton-cli-entry: ready-for-dev
+  24-2-streaming-chat-engine: ready-for-dev
+  24-3-markdown-execution-state: ready-for-dev
+  epic-24-retrospective: optional
+
+  # Epic 25: 工具可视化 + 斜杠命令（FR-G7~G14）
+  epic-25: backlog
+  25-1-tool-call-cards: ready-for-dev
+  25-2-slash-commands: ready-for-dev
+  25-3-interrupt-shortcuts: ready-for-dev
+  epic-25-retrospective: optional
+
+  # Epic 26: 管理面板（FR-G15~G19）
+  epic-26: backlog
+  26-1-page-navigation: ready-for-dev
+  26-2-skill-management: ready-for-dev
+  26-3-cron-memory-panel: ready-for-dev
+  epic-26-retrospective: optional
+
+  # Epic 27: 可观测性（FR-G20~G24）
+  epic-27: backlog
+  27-1-event-log-panel: ready-for-dev
+  27-2-run-history-panel: ready-for-dev
+  27-3-run-detail-resume: ready-for-dev
+  epic-27-retrospective: optional
