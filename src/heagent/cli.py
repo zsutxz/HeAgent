@@ -67,6 +67,19 @@ def _print_usage(usage: TokenUsage | None) -> None:
     )
 
 
+def _format_status(loop: AgentLoop) -> str:
+    """Format CLI status bar: model name + tokens used / max tokens.
+
+    Reads live model from provider metadata and token usage from last run.
+    Returns a compact one-liner suitable as an input prompt prefix.
+    """
+    meta = loop.provider.get_metadata()
+    model = meta.model
+    used = loop.last_usage.total_tokens if loop.last_usage else 0
+    max_tok = get_settings().max_context_tokens
+    return f"[{model} | {used:,}/{max_tok:,} tokens]"
+
+
 def _setup_logging() -> None:
     """Configure logging for CLI mode (stderr console + file)."""
     _settings = get_settings()
@@ -361,7 +374,8 @@ async def _run_chat(
                 await scheduler.start()
             while True:
                 try:
-                    user_input = await asyncio.to_thread(input, "> ")
+                    status = _format_status(loop)
+                    user_input = await asyncio.to_thread(input, f"{status}\n> ")
                 except (KeyboardInterrupt, EOFError):
                     click.echo("\nBye!")
                     break
