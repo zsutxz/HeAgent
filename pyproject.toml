@@ -52,6 +52,9 @@ dev = [
     "pip-audit>=2.7",
     "pytest-benchmark>=4.0",
 ]
+gui = [
+    "textual>=1.0,<2.0",
+]
 
 [project.scripts]
 heagent = "heagent.cli:main"

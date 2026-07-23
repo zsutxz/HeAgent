@@ -30,6 +30,7 @@ class TestCLI:
         # Point to empty dir so pydantic-settings finds no .env file
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
+        # ``heagent hello`` → DefaultGroup falls back to ``run hello``
         result = runner.invoke(main, ["hello"])
         assert result.exit_code != 0
         assert "No API key" in result.output
@@ -39,8 +40,17 @@ class TestCLI:
         result = runner.invoke(main, ["--help"])
         assert result.exit_code == 0
         assert "HeAgent" in result.output
+        assert "run" in result.output
+        assert "gui" in result.output
+
+    def test_run_help_shows_options(self):
+        """``heagent run --help`` shows the shared options (--model etc.)."""
+        runner = CliRunner()
+        result = runner.invoke(main, ["run", "--help"])
+        assert result.exit_code == 0
         assert "--model" in result.output
         assert "--system" in result.output
+        assert "--sandbox" in result.output
 
     def test_interactive_exits_on_empty_input(self, monkeypatch):
         """Interactive mode exits gracefully on empty input."""
@@ -51,12 +61,25 @@ class TestCLI:
         # Should exit cleanly, not crash
         assert result.exit_code == 0
 
-    def test_model_flag_sets_provider(self, monkeypatch):
-        """--model flag is accepted without error."""
+    def test_model_flag_accepted(self, monkeypatch):
+        """``heagent run --model`` is accepted by the run subcommand."""
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
         runner = CliRunner()
-        result = runner.invoke(main, ["--help"])
+        result = runner.invoke(main, ["run", "--help"])
         assert "--model" in result.output
+
+    def test_default_group_forwards_prompt(self, monkeypatch, clean_settings, tmp_path):
+        """``heagent hello`` forwards to ``run hello`` via DefaultGroup."""
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.chdir(tmp_path)
+        runner = CliRunner()
+        result = runner.invoke(main, ["hello world"])
+        # Should have tried to build a provider (and failed with "No API key"),
+        # not NoSuchCommand.
+        assert "No API key" in result.output
+        assert result.exit_code != 0
 
 
 class TestPublicAPI:

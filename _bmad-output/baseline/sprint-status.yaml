@@ -1,9 +1,25 @@
 # generated: 2026-05-26
-# last_updated: 2026-07-22
+# last_updated: 2026-07-23
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
-# story_location: _bmad-output/patches
+# story_location: _bmad-output/ (distributed per-cycle: baseline/, mcp-client-v2/, sandbox-hardening/, robustness-hardening/, quality-engineering/, gui/)
+#
+# CONSOLIDATION NOTE (2026-07-23):
+#   本文件是 HeAgent 全周期 sprint-status 的单一权威来源。
+#   此前 sprint-status 分散在 6 个目录，存在 Epic 14 编号冲突（baseline 的 MCP v1→v2 升级准备
+#   vs mcp-client-v2 的写操作治理）。本次合并统一编号如下：
+#
+#   Epic 1–13   : 保持 baseline 原编号
+#   Epic 14     : MCP v1→v2 升级准备（原 baseline Epic 14）
+#   Epic 15–18  : MCP Client V2 实际集成（原 mcp-client-v2 的 Epic 14–17，整体 +1 偏移）
+#   Epic S1–S4  : Sandbox 硬化周期（保持 S 前缀，无冲突）
+#   Epic 19–20  : 健壮性与质量硬化（原 robustness-hardening 的 Epic 18–19，整体 +1 偏移）
+#   Epic 21–24  : 质量工程深化（原 quality-engineering 的 Epic 20–23，整体 +1 偏移）
+#   Epic 25–28  : GUI 终端界面（原 gui 的 Epic 24–27，整体 +1 偏移）
+#
+#   历史 sprint-status 文件保留在各自周期目录作为只读归档；
+#   后续状态更新以本文件为唯一写目标。
 
 # STATUS DEFINITIONS:
 # ==================
@@ -28,13 +44,17 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-07-22
+last_updated: 2026-07-23
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
-story_location: _bmad-output/patches
+story_location: _bmad-output/ (distributed per-cycle)
 
 development_status:
+  # ═══════════════════════════════════════════════════════════════
+  # 主线周期 · Epic 1–10（FR-1~24）
+  # ═══════════════════════════════════════════════════════════════
+
   # Epic 1: 项目基础设施与 LLM 通信 (FR-1~5, FR-19)
   epic-1: done
   1-1-project-initialization: done
@@ -112,12 +132,10 @@ development_status:
   10-5-cli-scheduler-lifecycle: done
   epic-10-retrospective: done
 
-  # === MCP Client 集成周期（2026-06-20，独立 FR-1~11）===
-  # 编号映射：本 sprint 的 Epic 11-13 = epics-mcp-client.md 内部的 Epic 1-3
-  # （MCP 周期自称 Epic 1-3 会撞主线 epic-1/2/3，故延续主线编号至 11-13；
-  #   且 sprint-status skill 校验 story key 须匹配 epic-N pattern，不能用 mcp- 前缀）
-  # story 无独立 N-M 文件，直接基于 epics-mcp-client.md 的 AC 实现；
-  # 详见 _bmad-output/mcp-client/epics-mcp-client.md
+  # ═══════════════════════════════════════════════════════════════
+  # MCP Client 集成周期一 · Epic 11–13（独立 FR-1~11）
+  # ═══════════════════════════════════════════════════════════════
+
   epic-11: done  # MCP 工具桥接（FR-1~8）
   11-1-mcp-dep-skeleton: done
   11-2-mcp-config-env-interpolation: done
@@ -135,18 +153,161 @@ development_status:
   13-2-opensource-config-docs: done
   epic-13-retrospective: done
 
-  # === MCP v1→v2 升级准备周期（2026-07-12，独立 FR-1~5）===
-  # 编号映射：本 sprint Epic 14 = epics-mcp-v2-upgrade.md 内部的 Epic 14（直接主线编号，不撞）
-  # story 无独立 N-M 文件，直接基于 epics-mcp-v2-upgrade.md 的 AC 实现（同 mcp-client 周期惯例）
-  # FR-3/5 由 architecture.md 交付（切换路径 + open question），无独立 story
-  # 详见 _bmad-output/mcp-v2-upgrade/epics-mcp-v2-upgrade.md
-  epic-14: done  # MCP v1→v2 升级准备（FR-1 pin bump 1.28.1 / FR-2 隔离层 / FR-4 测试基线）
+  # ═══════════════════════════════════════════════════════════════
+  # MCP v1→v2 升级准备周期 · Epic 14（独立 FR-1~5）
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-14: done  # MCP v1→v2 升级准备（FR-1 pin bump / FR-2 隔离层 / FR-4 测试基线）
   14-1-mcp-pin-tighten: done
   14-2-v2-isolation-layer: done
   14-3-migration-test-baseline: done
   epic-14-retrospective: done
 
+  # ═══════════════════════════════════════════════════════════════
+  # MCP Client V2 集成周期二 · Epic 15–18（独立 FR-A~C + 内置工具扩展）
+  # 原 mcp-client-v2/sprint-status.yaml 编号 14–17，整体 +1 偏移
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-15: done  # 写操作治理 — MCP 工具危险分级的确定性闸门（FR-A1~A7）
+  15-1-annotations-data-pipeline: done
+  15-2-policy-annotation-gate: done
+  15-3-zero-regression-determinism: done
+  15-4-safety-statement-write-op: done
+  epic-15-retrospective: done
+
+  epic-16: done  # Resources on-demand 发现与读取（FR-B1~B4）
+  16-1-sessions-map-disconnect: done
+  16-2-list-resources-bridge: done
+  16-3-read-resource-guard-content: done
+  16-4-safety-statement-resources: done
+  epic-16-retrospective: done
+
+  epic-17: done  # Prompts 交互式协商（FR-C1~C4）
+  17-1-manager-prompts-entry: done
+  17-2-mcp-prompt-slash-dispatcher: done
+  17-3-prompt-render-guard-safety: done
+  17-4-slash-command-tests: done
+  epic-17-retrospective: done
+
+  epic-18: done  # 内置工具扩展（git 工具 + path safety 集成）
+  18-1-git-status-diff: done
+  18-2-git-log-blame: done
+  18-3-path-safety-integration: done
+  18-4-tests-docs: done
+  epic-18-retrospective: done
+
+  # ═══════════════════════════════════════════════════════════════
+  # Sandbox 硬化周期 · Epic S1–S4（2026-07-20）
+  # 原 sandbox-hardening/sprint-status.yaml，保持 S 前缀
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-S1: done  # profile 映射 + contextvar 注入
+  S1-1-firejail-profiles-build-argv: done
+  S1-2-executor-profile-contextvar: done
+  epic-S1-retrospective: done
+
+  epic-S2: done  # firejail 可用性降级 + 配置入口
+  S2-1-firejail-availability-degradation: done
+  S2-2-env-cli-config-entry: done
+  epic-S2-retrospective: done
+
+  epic-S3: done  # Linux 进程组 kill + workspace 隔离
+  S3-1-linux-process-group-kill: done
+  S3-2-workspace-root-private-mount: done
+  epic-S3-retrospective: done
+
+  epic-S4: done  # 安全声明同步
+  S4-1-emit-sandbox-fields: skipped
+  S4-2-safety-docs-sync: done
+  epic-S4-retrospective: done
+
+  # ═══════════════════════════════════════════════════════════════
+  # 健壮性与质量硬化周期 · Epic 19–20（2026-07-21）
+  # 原 robustness-hardening/sprint-status.yaml 编号 18–19，整体 +1 偏移
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-19: done  # 健壮性硬化（FR-A1~A5）
+  19-1-file-locking: done
+  19-2-cron-range: done
+  19-3-winjob-backend: done
+  19-4-safety-docs-deadcode: done
+  epic-19-retrospective: done
+
+  epic-20: done  # 质量工程化（FR-C1~C6）
+  20-1-coverage-90: done
+  20-2-ci-matrix: done
+  20-3-static-analysis: done
+  20-4-benchmark-complexity: done
+  20-5-docs-version-sync: done
+  epic-20-retrospective: done
+
+  # ═══════════════════════════════════════════════════════════════
+  # 质量工程深化周期 · Epic 21–24（2026-07-22）
+  # 原 quality-engineering/sprint-status.yaml 编号 20–23，整体 +1 偏移
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-21: done  # Coverage 工程化
+  21-1-coverage-config: done
+  21-2-ci-coverage-migration: done
+  21-3-coverage-artifact: done
+  epic-21-retrospective: done
+
+  epic-22: done  # Benchmark 重构
+  22-1-benchmark-fixture: done
+  22-2-benchmark-config: done
+  22-3-ci-benchmark-job: done
+  22-4-ci-benchmark-compare: done
+  epic-22-retrospective: done
+
+  epic-23: done  # Docker 硬化
+  23-1-dockerignore: done
+  23-2-healthcheck-fix: done
+  23-3-base-image-digest: done
+  epic-23-retrospective: done
+
+  epic-24: done  # CI 效能与安全左移
+  24-1-ci-pip-cache: done
+  24-2-ci-py314: done
+  24-3-ci-codeql: done
+  24-4-ci-dependency-review: done
+  24-5-precommit-hygiene: done
+  24-6-precommit-bandit: done
+  24-7-ruff-rules: done
+  24-8-ruff-fixes: done
+  epic-24-retrospective: done
+
+  # ═══════════════════════════════════════════════════════════════
+  # GUI 终端界面周期 · Epic 25–28（2026-07-23，当前进行中）
+  # 原 gui/sprint-status.yaml 编号 24–27，整体 +1 偏移
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-25: in-progress  # 流式聊天 — 最小可跑（FR-G1~G6）
+  25-1-project-skeleton-cli-entry: ready-for-dev
+  25-2-streaming-chat-engine: ready-for-dev
+  25-3-markdown-execution-state: ready-for-dev
+  epic-25-retrospective: optional
+
+  epic-26: backlog  # 工具可视化 + 斜杠命令（FR-G7~G14）
+  26-1-tool-call-cards: ready-for-dev
+  26-2-slash-commands: ready-for-dev
+  26-3-interrupt-shortcuts: ready-for-dev
+  epic-26-retrospective: optional
+
+  epic-27: backlog  # 管理面板（FR-G15~G19）
+  27-1-page-navigation: ready-for-dev
+  27-2-skill-management: ready-for-dev
+  27-3-cron-memory-panel: ready-for-dev
+  epic-27-retrospective: optional
+
+  epic-28: backlog  # 可观测性（FR-G20~G24）
+  28-1-event-log-panel: ready-for-dev
+  28-2-run-history-panel: ready-for-dev
+  28-3-run-detail-resume: ready-for-dev
+  epic-28-retrospective: optional
+
+# ═════════════════════════════════════════════════════════════════
 # Action items（来自 retrospective，跨周期跟踪）
+# ═════════════════════════════════════════════════════════════════
 action_items:
   - epic: 13
     action: "评估为 MCP 运行时断连补 auto-unregister（开 spec）"
@@ -159,4 +320,4 @@ action_items:
   - epic: 13
     action: "MCP 返回内容隔离（prompt injection 围栏）作研究项跟踪"
     owner: "tan"
-    status: closed  # 2026-07-10 交付：DP-4 第二半，spec _bmad-output/patches/spec-dp4-mcp-result-guard.md（mapping.bridge_result 启发式围栏，标记透传，非真正边界）
+    status: closed  # 2026-07-10 交付：DP-4 第二半，spec _bmad-output/patches/spec-dp4-mcp-result-guard.md

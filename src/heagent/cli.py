@@ -39,13 +39,17 @@ from heagent.tools.mcp import MCPClientManager, load_mcp_config
 if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractAsyncContextManager
-    from typing import Any
 
     from heagent.engine.context import RunContext
     from heagent.providers.base import BaseProvider
     from heagent.types import TokenUsage
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Shared utilities (CLI / GUI reuse)
+# =============================================================================
 
 
 def _print_banner() -> None:
@@ -63,30 +67,52 @@ def _print_usage(usage: TokenUsage | None) -> None:
     )
 
 
+def _setup_logging() -> None:
+    """Configure logging for CLI mode (stderr console + file)."""
+    _settings = get_settings()
+    _console_level = getattr(logging, _settings.log_level.upper(), logging.INFO)
+    _file_level = getattr(
+        logging, (_settings.log_file_level or _settings.log_level).upper(), _console_level
+    )
+    _log_dir = Path(_settings.log_dir)
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _log_file = _log_dir / f"heagent-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+
+    _console_handler = logging.StreamHandler(sys.stderr)
+    _console_handler.setLevel(_console_level)
+    _file_handler = logging.FileHandler(str(_log_file), encoding="utf-8")
+    _file_handler.setLevel(_file_level)
+
+    logging.basicConfig(
+        level=min(_console_level, _file_level),
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[_console_handler, _file_handler],
+        force=True,
+    )
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
 async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
     """Prompt the user to select a provider at startup (interactive mode).
 
     ACTIVE_PROVIDER in .env determines the default (press Enter to accept).
     """
-    # 非 TTY（CI / 管道 / 单次自动化）不强弹选择——直接用 ACTIVE_PROVIDER 默认继续，
-    # 避免 click.prompt 在关闭的 stdin 上抛 Abort → SystemExit(0) 静默吞掉任务（HIGH-3）。
     if not sys.stdin.isatty():
         return
 
     info = provider.info()
     names = list(info.keys())
 
-    # If only one provider, no need to prompt
     if len(names) <= 1:
         return
 
-    # Default selection matches ACTIVE_PROVIDER (or first if not set)
     default_idx = names.index(provider.active) + 1
 
     click.echo("Multiple providers available. Choose one:", err=True)
     for i, name in enumerate(names, 1):
         meta = info[name]
-        marker = "← default" if i == default_idx else ""
+        marker = "<- default" if i == default_idx else ""
         click.echo(f"  [{i}] {name}  ({meta.model})  {marker}", err=True)
 
     while True:
@@ -96,7 +122,7 @@ async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
             if 1 <= choice <= len(names):
                 await provider.switch(names[choice - 1])
                 meta = provider.get_metadata()
-                click.echo(f"  → Using {provider.active} ({meta.model})", err=True)
+                click.echo(f"  -> Using {provider.active} ({meta.model})", err=True)
                 return
             click.echo(f"  Please enter 1-{len(names)}", err=True)
         except (ValueError, click.Abort):
@@ -104,18 +130,9 @@ async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
 
 
 def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
-    """Build the best available provider from configured credentials.
-
-    When multiple vendors are configured (DeepSeek + Kimi + OpenAI + Anthropic),
-    returns a ``SwitchableProvider`` allowing runtime switching via ``/model``.
-    When only one vendor is configured, returns that provider directly (or a
-    ``ProviderChain`` for fallback if key pools are set).
-
-    ``model`` overrides the per-provider default model (from CLI ``--model`` flag).
-    """
+    """Build the best available provider from configured credentials."""
     named: dict[str, BaseProvider] = {}
 
-    # -- DeepSeek --
     if settings.deepseek_api_key:
         named["deepseek"] = OpenAIProvider(
             api_key=settings.deepseek_api_key,
@@ -123,7 +140,6 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
             base_url=settings.deepseek_base_url or "https://api.deepseek.com/v1",
         )
 
-    # -- Kimi (Moonshot AI) --
     if settings.kimi_api_key:
         named["kimi"] = OpenAIProvider(
             api_key=settings.kimi_api_key,
@@ -131,12 +147,10 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
             base_url=settings.kimi_base_url or "https://api.moonshot.cn/v1",
         )
 
-    # -- OpenAI --
     openai_provider = _build_openai_providers(settings, model or settings.default_model)
     if openai_provider:
         named["openai"] = openai_provider
 
-    # -- Anthropic --
     anthropic_provider = _build_anthropic_providers(settings, model or settings.default_model)
     if anthropic_provider:
         named["anthropic"] = anthropic_provider
@@ -152,7 +166,6 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     if len(named) == 1:
         return next(iter(named.values()))
 
-    # Multiple providers → switchable mode
     default_name = settings.active_provider or next(iter(named.keys()))
     if default_name not in named:
         logger.warning(
@@ -249,7 +262,6 @@ def _build_loop(
 
     scheduler: CronScheduler | None = None
     if session is not None and settings.cron_enabled and cron_store:
-        # C-3: cron 不再反向依赖 agent——job_runner 由本层注入，cron 仅依赖协议类型。
         async def _run_job(prompt: str, run_context: RunContext) -> None:
             loop = AgentLoop(
                 provider,
@@ -357,7 +369,6 @@ async def _run_chat(
                 if not user_input.strip():
                     break
 
-                # ---- slash command dispatch ----
                 if user_input.startswith("/"):
                     handled = await _handle_slash(user_input, provider, mcp_manager)
                     if handled:
@@ -382,9 +393,9 @@ async def _run_chat(
                 await scheduler.stop()
 
 
-# ------------------------------------------------------------------
-# 斜杠命令路由
-# ------------------------------------------------------------------
+# =============================================================================
+# Slash command routing (CLI interactive mode)
+# =============================================================================
 
 
 async def _handle_slash(
@@ -408,22 +419,16 @@ async def _handle_slash(
 
 
 async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
-    """Handle /model slash command for runtime LLM switching.
-
-    Syntax:
-        /model                  - list all available providers
-        /model <name>           - switch to named provider
-    """
+    """Handle /model slash command for runtime LLM switching."""
     if not isinstance(provider, SwitchableProvider):
         click.echo("[model] Only one provider configured; switching not available.", err=True)
         return
 
     if len(parts) == 1:
-        # 列出
         info = provider.info()
         click.echo("Available models:", err=True)
         for name, meta in info.items():
-            marker = "→" if meta["active"] else " "
+            marker = "->" if meta["active"] else " "
             click.echo(f"  [{marker}] {name}  ({meta['model']})", err=True)
         return
 
@@ -436,11 +441,6 @@ async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
         click.echo(f"[model] {exc}", err=True)
 
 
-# ------------------------------------------------------------------
-# /mcp-prompt handler
-# ------------------------------------------------------------------
-
-
 def _format_prompt_args(args: list[dict[str, Any]]) -> str:
     """Format MCP Prompt arguments list for display."""
     if not args:
@@ -449,13 +449,7 @@ def _format_prompt_args(args: list[dict[str, Any]]) -> str:
 
 
 async def _handle_mcp_prompt(user_input: str, mcp_manager: Any) -> None:
-    """Handle /mcp-prompt slash command in chat mode.
-
-    Syntax:
-        /mcp-prompt                              - list all prompts from all servers
-        /mcp-prompt <server>                     - list prompts from one server
-        /mcp-prompt <server> <name> [k=v ...]    - render a prompt with optional arguments
-    """
+    """Handle /mcp-prompt slash command in chat mode."""
     if mcp_manager is None or not hasattr(mcp_manager, "list_prompts"):
         click.echo("[mcp] No MCP server connected.", err=True)
         return
@@ -490,7 +484,6 @@ async def _handle_mcp_prompt(user_input: str, mcp_manager: Any) -> None:
             click.echo(f"  {name}: {desc} ({arg_str})")
         return
 
-    # len(parts) >= 3: render a prompt
     server = parts[1]
     prompt_name = parts[2]
     arguments: dict[str, str] = {}
@@ -508,82 +501,51 @@ async def _handle_mcp_prompt(user_input: str, mcp_manager: Any) -> None:
 
 def _guard_mcp_content(text: str) -> str:
     """Apply heuristic injection guard to MCP prompt output (non-bridge path, CLI only)."""
-    from heagent.tools.mcp.mapping import guard_content  # noqa: PLC0415 - inline import for CLI-only
+    from heagent.tools.mcp.mapping import guard_content  # noqa: PLC0415
 
     return guard_content(text)
 
 
-@click.command()
-@click.argument("prompt", required=False)
-@click.option("--model", default=None, help="Model name (default: per-provider setting)")
-@click.option("--system", default=None, help="System prompt")
-@click.option("--max-iterations", type=int, default=None, help="Max agent loop iterations")
-@click.option("--soul", default=None, help="Path to custom SOUL.md personality file")
-@click.option(
-    "--sandbox",
-    type=click.Choice(["passthrough", "firejail"]),
-    default=None,
-    help="Sandbox backend for shell execution (default: from SANDBOX_BACKEND setting)",
-)
-def main(
+# =============================================================================
+# Core CLI implementation (shared by run subcommand and default path)
+# =============================================================================
+
+
+def _run_cli_impl(
     prompt: str | None,
     model: str | None,
     system: str | None,
     max_iterations: int | None,
     soul: str | None,
-    sandbox: str | None = None,
+    sandbox: str | None,
 ) -> None:
-    """Run HeAgent in single-shot or interactive mode."""
+    """Core CLI routine — logging, provider, MCP, dispatch to single/chat."""
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
-    # 日志：控制台(stderr) 按 LOG_LEVEL；文件按 LOG_FILE_LEVEL（未设则回退 LOG_LEVEL）。
-    _settings = get_settings()
-    _console_level = getattr(logging, _settings.log_level.upper(), logging.INFO)
-    _file_level = getattr(
-        logging, (_settings.log_file_level or _settings.log_level).upper(), _console_level
-    )
-    _log_dir = Path(_settings.log_dir)
-    _log_dir.mkdir(parents=True, exist_ok=True)
-    _log_file = _log_dir / f"heagent-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
-
-    _console_handler = logging.StreamHandler(sys.stderr)
-    _console_handler.setLevel(_console_level)
-    _file_handler = logging.FileHandler(str(_log_file), encoding="utf-8")
-    _file_handler.setLevel(_file_level)
-
-    logging.basicConfig(
-        # 根 logger 取两者中更宽的级别，避免消息在抵达更详尽的 handler 前被根级别丢弃
-        level=min(_console_level, _file_level),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[_console_handler, _file_handler],
-        force=True,  # 确保覆盖导入链中可能触发的默认 handler
-    )
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-
-    # Display version banner on every startup
+    _setup_logging()
     _print_banner()
 
     settings = get_settings()
     resolved_iterations = max_iterations or settings.max_iterations
     provider = _build_provider(settings, model)
 
-    # --- 沙箱提醒：firejail 不可用时报显式 warning ---
+    # --- Sandbox warning ---
     sandbox_resolved = sandbox or settings.sandbox_backend
     if sandbox_resolved == "firejail":
         import shutil as _shutil
 
         if _shutil.which(settings.sandbox_firejail_path) is None:
             click.echo(
-                f" WARNING: firejail not found ({settings.sandbox_firejail_path}). Shell commands will run "
-                f"WITHOUT sandbox isolation. Install firejail: sudo apt install firejail",
+                f" WARNING: firejail not found ({settings.sandbox_firejail_path}). "
+                f"Shell commands will run WITHOUT sandbox isolation. "
+                f"Install firejail: sudo apt install firejail",
                 err=True,
             )
         else:
             click.echo(f" firejail sandbox ENABLED ({settings.sandbox_firejail_path})", err=True)
 
-    # --- 启动时交互选择 provider（始终弹出，ACTIVE_PROVIDER 决定默认项） ---
+    # --- Interactive provider selection at startup ---
     if isinstance(provider, SwitchableProvider):
         asyncio.run(_prompt_startup_provider(provider))
 
@@ -596,10 +558,108 @@ def main(
     if prompt:
         asyncio.run(
             _run_single(
-                prompt, provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox
+                prompt, provider, system, resolved_iterations,
+                soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox,
             )
         )
     else:
         asyncio.run(
-            _run_chat(provider, system, resolved_iterations, soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox)
+            _run_chat(
+                provider, system, resolved_iterations,
+                soul_path=soul, mcp_ctx=mcp_ctx, sandbox_backend=sandbox,
+            )
         )
+
+
+# =============================================================================
+# Click command group (with DefaultGroup for backward-compatible "heagent msg")
+# =============================================================================
+
+_RUN_OPTIONS = [
+    click.argument("prompt", required=False),
+    click.option("--model", default=None, help="Model name (default: per-provider setting)"),
+    click.option("--system", default=None, help="System prompt"),
+    click.option("--max-iterations", type=int, default=None, help="Max agent loop iterations"),
+    click.option("--soul", default=None, help="Path to custom SOUL.md personality file"),
+    click.option(
+        "--sandbox",
+        type=click.Choice(["passthrough", "firejail"]),
+        default=None,
+        help="Sandbox backend for shell execution (default: from SANDBOX_BACKEND setting)",
+    ),
+]
+
+
+def _apply_options(fn):
+    """Decorator: apply shared CLI options to a Click command."""
+    for opt in reversed(_RUN_OPTIONS):
+        fn = opt(fn)
+    return fn
+
+
+class DefaultGroup(click.Group):
+    """A Click Group that falls back to the ``default_command`` when an unknown
+    command name is provided (instead of raising ``NoSuchCommand``).
+
+    This allows ``heagent "hello"`` to be treated as ``heagent run "hello"``
+    while explicit subcommands (``gui``, ``run``) take priority.
+    """
+
+    _default_command: str | None = None
+
+    def set_default_command(self, name: str) -> None:
+        self._default_command = name
+
+    def resolve_command(self, ctx: click.Context, args: list[str]) -> tuple[str | None, click.Command, list[str]]:
+        try:
+            return super().resolve_command(ctx, args)
+        except click.NoSuchCommand:
+            if self._default_command and self._default_command in self.commands:
+                return self._default_command, self.commands[self._default_command], args
+            raise
+
+
+@click.command(cls=DefaultGroup, invoke_without_command=True)
+@click.pass_context
+def main(ctx: click.Context) -> None:
+    """HeAgent — A self-improving AI Agent core framework.
+
+    Run without arguments for interactive chat mode, or provide a prompt
+    for single-shot execution.
+
+    \b
+    Examples:
+      heagent                        # interactive chat
+      heagent "analyze this file"    # single-shot
+      heagent run "prompt"           # explicit run subcommand
+      heagent gui                    # launch terminal UI
+    """
+    if ctx.invoked_subcommand is None:
+        # No subcommand -> interactive mode
+        ctx.invoke(run, prompt=None)
+
+
+@main.command("run")
+@_apply_options
+def run(
+    prompt: str | None,
+    model: str | None,
+    system: str | None,
+    max_iterations: int | None,
+    soul: str | None,
+    sandbox: str | None,
+) -> None:
+    """Run HeAgent in single-shot or interactive mode."""
+    _run_cli_impl(prompt, model, system, max_iterations, soul, sandbox)
+
+
+# Set run as the default command (heagent "hello" -> run "hello")
+main.set_default_command("run")
+
+# Register gui subcommand (lazy import to avoid loading Textual on non-GUI paths)
+try:
+    from heagent.gui.cli import gui_cmd
+
+    main.add_command(gui_cmd)
+except ImportError:
+    pass
