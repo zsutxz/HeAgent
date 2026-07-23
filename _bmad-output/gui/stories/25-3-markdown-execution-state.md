@@ -1,6 +1,6 @@
-# Story 24-3: Markdown 渲染与执行状态
+# Story 25-3: Markdown 渲染与执行状态
 
-> Epic 24: 流式聊天（最小可跑）
+> Epic 25: 流式聊天（最小可跑）
 > 状态: ready-for-dev
 > 依赖: 24-2（流式聊天引擎）
 > 估时: 0.5-1 天

@@ -1,6 +1,6 @@
-# Story 27-1: 事件日志面板
+# Story 28-1: 事件日志面板
 
-> Epic 27: 可观测性
+> Epic 28: 可观测性
 > 状态: ready-for-dev
 > 依赖: 24-2（EngineContainer 和 EventBus 已注入）、26-1（页面导航）
 > 估时: 0.5-1 天

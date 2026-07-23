@@ -1,6 +1,6 @@
-# Story 26-1: 页面导航系统
+# Story 27-1: 页面导航系统
 
-> Epic 26: 管理面板
+> Epic 27: 管理面板
 > 状态: ready-for-dev
 > 依赖: 24-2（流式聊天引擎）
 > 估时: 0.5-1 天
@@ -14,7 +14,7 @@
 ### AC1: 多 Screen 注册
 - [ ] `HeAgentApp` 维护所有 Screen 实例（懒加载或预创建）
 - [ ] Screen 列表：`ChatScreen`、`SkillScreen`、`CronScreen`、`MemoryScreen`、`RunsScreen`、`EventLogScreen`
-- [ ] 未实现的 Screen（Epic 26-27 的）用占位 Screen（`PlaceholderScreen(title)`）
+- [ ] 未实现的 Screen（Epic 27-28 的）用占位 Screen（`PlaceholderScreen(title)`）
 
 ### AC2: 导航快捷键
 - [ ] Footer 显示：`F1 聊天 | F2 技能 | F3 Cron | F4 记忆 | F5 运行 | F6 日志`

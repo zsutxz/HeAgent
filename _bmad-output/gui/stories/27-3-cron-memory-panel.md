@@ -1,6 +1,6 @@
-# Story 26-3: Cron + 记忆面板
+# Story 27-3: Cron + 记忆面板
 
-> Epic 26: 管理面板
+> Epic 27: 管理面板
 > 状态: ready-for-dev
 > 依赖: 26-1（页面导航）
 > 估时: 1 天
