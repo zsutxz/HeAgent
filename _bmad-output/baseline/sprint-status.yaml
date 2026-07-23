@@ -293,13 +293,13 @@ development_status:
   26-3-interrupt-shortcuts: done
   epic-26-retrospective: optional
 
-  epic-27: in-progress  # 管理面板（FR-G15~G19）
-  27-1-page-navigation: ready-for-dev
-  27-2-skill-management: ready-for-dev
-  27-3-cron-memory-panel: ready-for-dev
+  epic-27: done  # 管理面板（FR-G15~G19）
+  27-1-page-navigation: done
+  27-2-skill-management: done
+  27-3-cron-memory-panel: done
   epic-27-retrospective: optional
 
-  epic-28: backlog  # 可观测性（FR-G20~G24）
+  epic-28: in-progress  # 可观测性（FR-G20~G24）
   28-1-event-log-panel: ready-for-dev
   28-2-run-history-panel: ready-for-dev
   28-3-run-detail-resume: ready-for-dev
