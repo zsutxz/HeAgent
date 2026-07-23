@@ -155,7 +155,7 @@ class MCPClientManager:
     async def _connect_all(self) -> None:
         """并发连接所有 server；单 server 失败 / 超时隔离（NFR-6）。"""
         if self._config.is_empty:
-            logger.info("MCPClientManager: 无配置 server → 纯内置工具模式")
+            logger.debug("MCPClientManager: 无配置 server → 纯内置工具模式")
             return
         readies: list[asyncio.Event] = []
         stops: list[asyncio.Event] = []

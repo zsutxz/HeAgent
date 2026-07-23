@@ -12,6 +12,7 @@ venv/
 
 # HeAgent runtime data
 .heagent/
+logs/
 
 # Tools
 .mypy_cache/

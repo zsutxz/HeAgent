@@ -7,11 +7,7 @@
 from __future__ import annotations
 
 from pydantic import Field
-from pydantic_settings import (
-    BaseSettings,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-)
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _settings: Settings | None = None  # 单例缓存
 
@@ -26,9 +22,8 @@ def _parse_comma_list(v: str) -> list[str]:
 class Settings(BaseSettings):
     """全局配置，字段名与 .env / 环境变量名一一对应。
 
-    加载优先级：.env 文件 > 系统环境变量 > 字段默认值
-    （同 key 冲突时 .env 胜出，系统环境变量仅作兜底，填充 .env 未声明的键；
-    由下方 settings_customise_sources 反转 dotenv/env 顺序实现）。
+    加载优先级：系统环境变量 > .env 文件 > 字段默认值。
+    遵循 pydantic-settings 标准顺序，用户可通过命令行环境变量临时覆盖 .env 中的值。
     """
 
     model_config = SettingsConfigDict(
@@ -36,23 +31,6 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",  # 忽略 .env 中未声明的变量
     )
-
-    @classmethod
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """配置源优先级：.env 文件 > 系统环境变量。
-
-        pydantic-settings 默认顺序为 init > env > dotenv（系统变量覆盖 .env）；
-        此处将 dotenv 提至 env 之前，使 .env 在同 key 冲突时胜出，
-        系统环境变量退居兜底，仅填充 .env 未声明的键。
-        """
-        return (init_settings, dotenv_settings, env_settings, file_secret_settings)
 
     # ---- 活跃 Provider（交互模式启动时默认使用哪个） ----
     active_provider: str | None = None  # 启动时默认 provider，如 deepseek / kimi / openai / anthropic
@@ -86,6 +64,11 @@ class Settings(BaseSettings):
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
     max_context_tokens: int = Field(default=128000, ge=1)
     shell_timeout: int = Field(default=120, ge=1)
+
+    # ---- 日志参数 ----
+    log_dir: str = Field(default="logs")  # 日志文件目录，每次启动创建新文件
+    log_level: str = Field(default="INFO")  # 控制台(stderr)日志级别: DEBUG / INFO / WARNING / ERROR
+    log_file_level: str | None = Field(default=None)  # 文件日志级别; None=回退到 log_level
 
     # ---- 重试策略参数 ----
     retry_max_attempts: int = Field(default=3, ge=1)

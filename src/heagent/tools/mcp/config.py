@@ -89,7 +89,7 @@ def load_mcp_config(path: str | Path = ".mcp.json") -> MCPConfig:
     """
     p = Path(path)
     if not p.is_file():
-        logger.info("无 .mcp.json（%s）→ 纯内置工具模式", p)
+        logger.debug("无 .mcp.json（%s）→ 纯内置工具模式", p)
         return MCPConfig()
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
@@ -101,7 +101,7 @@ def load_mcp_config(path: str | Path = ".mcp.json") -> MCPConfig:
     if not isinstance(servers_raw, dict):
         raise ToolError(f".mcp.json 的 mcpServers 须为对象（{p}）")
     if not servers_raw:
-        logger.info(".mcp.json 的 mcpServers 为空 → 纯内置工具模式")
+        logger.debug(".mcp.json 的 mcpServers 为空 → 纯内置工具模式")
         return MCPConfig()
     interpolated = _interpolate_env(servers_raw)
     servers: dict[str, ServerConfig] = {}

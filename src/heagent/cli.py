@@ -9,6 +9,8 @@ import logging
 import os
 import sys
 import uuid
+from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -535,10 +537,28 @@ def main(
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+    # 日志：控制台(stderr) 按 LOG_LEVEL；文件按 LOG_FILE_LEVEL（未设则回退 LOG_LEVEL）。
+    _settings = get_settings()
+    _console_level = getattr(logging, _settings.log_level.upper(), logging.INFO)
+    _file_level = getattr(
+        logging, (_settings.log_file_level or _settings.log_level).upper(), _console_level
+    )
+    _log_dir = Path(_settings.log_dir)
+    _log_dir.mkdir(parents=True, exist_ok=True)
+    _log_file = _log_dir / f"heagent-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+
+    _console_handler = logging.StreamHandler(sys.stderr)
+    _console_handler.setLevel(_console_level)
+    _file_handler = logging.FileHandler(str(_log_file), encoding="utf-8")
+    _file_handler.setLevel(_file_level)
+
     logging.basicConfig(
-        level=logging.INFO,
-        format="%(levelname)s [%(name)s] %(message)s",
-        stream=sys.stderr,
+        # 根 logger 取两者中更宽的级别，避免消息在抵达更详尽的 handler 前被根级别丢弃
+        level=min(_console_level, _file_level),
+        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=[_console_handler, _file_handler],
+        force=True,  # 确保覆盖导入链中可能触发的默认 handler
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
