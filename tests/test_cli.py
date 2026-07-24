@@ -289,3 +289,52 @@ class TestMCPSlashCommand:
         result = _format_prompt_args(args)
         assert "topic=..." in result
         assert "lang?" in result
+
+
+class TestFormatStatus:
+    """_format_status: CLI 状态栏（per-call 用量 + 从程序开始的累计 token）。"""
+
+    @pytest.fixture()
+    def cli_settings(self, monkeypatch):
+        """Pin context window / compression threshold so assertions are stable."""
+        from heagent.config import reset_settings
+
+        monkeypatch.setenv("MAX_CONTEXT_TOKENS", "1000000")
+        monkeypatch.setenv("COMPRESSION_THRESHOLD", "0.8")
+        reset_settings()
+        yield
+        reset_settings()
+
+    @staticmethod
+    def _fake_loop(model: str = "deepseek-v4-pro", used: int = 0, cumulative: int = 0):
+        """Duck-typed stand-in for AgentLoop — only the fields _format_status reads."""
+        from types import SimpleNamespace
+
+        from heagent.types import TokenUsage
+
+        provider = SimpleNamespace(get_metadata=lambda: SimpleNamespace(model=model))
+        usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=used) if used > 0 else None
+        return SimpleNamespace(provider=provider, last_usage=usage, cumulative_tokens=cumulative)
+
+    def test_no_cumulative_when_zero(self, cli_settings):
+        """累计为 0（进入交互、尚未 run）时不显示累计段。"""
+        from heagent.cli import _format_status
+
+        status = _format_status(self._fake_loop(used=0, cumulative=0))
+        assert status == "[deepseek-v4-pro | 0/1M tok | cmp@80%]"
+        assert "累计" not in status
+
+    def test_shows_cumulative_when_positive(self, cli_settings):
+        """累计 > 0 时追加「累计: XX tok」段（跨 run 累加）。"""
+        from heagent.cli import _format_status
+
+        status = _format_status(self._fake_loop(used=28500, cumulative=45200))
+        assert status == "[deepseek-v4-pro | 28.5K/1M tok | cmp@80% | 累计: 45.2K tok]"
+
+    def test_per_call_and_cumulative_independent(self, cli_settings):
+        """per-call 用量与累计独立：本轮 28.5K，累计 58.5K（含历史轮次）。"""
+        from heagent.cli import _format_status
+
+        status = _format_status(self._fake_loop(used=28500, cumulative=58500))
+        assert "28.5K/1M tok" in status
+        assert "累计: 58.5K tok" in status
