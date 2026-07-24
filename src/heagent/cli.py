@@ -83,10 +83,11 @@ def _format_tokens_k(n: int) -> str:
 
 
 def _format_status(loop: AgentLoop) -> str:
-    """Format CLI prompt prefix: model + per-call tokens / context window + compression threshold.
+    """Format CLI prompt prefix: model + per-call tokens / context window + compression threshold + cumulative.
 
-    Shows per-call token usage against the model context window, plus the
-    compression trigger threshold (compression_threshold % of max_context_tokens).
+    Shows per-call token usage against the model context window, the compression
+    trigger threshold (compression_threshold % of max_context_tokens), and the
+    cumulative tokens consumed since program start (across runs, only when > 0).
     """
     meta = loop.provider.get_metadata()
     model = meta.model
@@ -95,7 +96,14 @@ def _format_status(loop: AgentLoop) -> str:
     usage = loop.last_usage
     used = usage.total_tokens if usage and usage.total_tokens > 0 else 0
     cmp_pct = int(settings.compression_threshold * 100)
-    return f"[{model} | {_format_tokens_k(used)}/{_format_tokens_k(max_tok)} tok | cmp@{cmp_pct}%]"
+    parts = [
+        model,
+        f"{_format_tokens_k(used)}/{_format_tokens_k(max_tok)} tok",
+        f"cmp@{cmp_pct}%",
+    ]
+    if loop.cumulative_tokens > 0:
+        parts.append(f"累计: {_format_tokens_k(loop.cumulative_tokens)} tok")
+    return f"[{' | '.join(parts)}]"
 
 
 def _setup_logging() -> None:
