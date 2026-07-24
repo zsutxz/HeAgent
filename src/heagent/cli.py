@@ -82,16 +82,18 @@ def _format_tokens_k(n: int) -> str:
     return f"{k:.1f}K"
 
 
-def _format_status(loop: AgentLoop, session_tokens: int = 0) -> str:
-    """Format CLI status bar: model name + cumulative tokens used / max tokens.
+def _format_status(loop: AgentLoop) -> str:
+    """Format CLI prompt prefix: model + last call token usage / context window.
 
-    Reads live model from provider metadata and cumulative session usage.
-    Returns a compact one-liner suitable as an input prompt prefix.
+    Shows per-call (not cumulative) token usage against the model context window.
+    Before the first call, shows "0/X".
     """
     meta = loop.provider.get_metadata()
     model = meta.model
     max_tok = get_settings().max_context_tokens
-    return f"[{model} | {_format_tokens_k(session_tokens)}/{_format_tokens_k(max_tok)} tokens]"
+    usage = loop.last_usage
+    used = usage.total_tokens if usage and usage.total_tokens > 0 else 0
+    return f"[{model} | {_format_tokens_k(used)}/{_format_tokens_k(max_tok)} tokens]"
 
 
 def _setup_logging() -> None:
@@ -382,15 +384,12 @@ async def _run_chat(
         )
         click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
-        # Track cumulative tokens across all interactions in this session.
-        session_tokens = 0
-
         try:
             if scheduler:
                 await scheduler.start()
             while True:
                 try:
-                    status = _format_status(loop, session_tokens)
+                    status = _format_status(loop)
                     user_input = await asyncio.to_thread(input, f"{status}\n> ")
                 except (KeyboardInterrupt, EOFError):
                     click.echo("\nBye!")
@@ -418,9 +417,6 @@ async def _run_chat(
                     click.echo(f"[budget exceeded] {exc.message}", err=True)
                 except HeAgentError as exc:
                     click.echo(f"[error] {exc.message}", err=True)
-                finally:
-                    if loop.last_usage and loop.last_usage.total_tokens > 0:
-                        session_tokens += loop.last_usage.total_tokens
         finally:
             if scheduler:
                 await scheduler.stop()

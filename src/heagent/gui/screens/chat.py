@@ -10,6 +10,7 @@ from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Input, RichLog, Static
 
+from heagent.config import get_settings
 from heagent.gui.bridge import MSG_AGENT_ERROR, MSG_AGENT_INTERRUPTED, MSG_STREAM_EVENT, BridgeMessage
 
 if TYPE_CHECKING:
@@ -56,6 +57,8 @@ class ChatScreen(Screen):
         self.query_one("#chat-log", RichLog).write(WELCOME)
         self.set_interval(0.25, self._tick)
         self.query_one("#user-input", Input).focus()
+        # 初始化 max_context_tokens 用于首次状态栏渲染
+        self._state.max_context_tokens = get_settings().max_context_tokens
 
     def _tick(self) -> None:
         """轮询状态 + 输入禁用。"""
@@ -66,8 +69,15 @@ class ChatScreen(Screen):
             inp.disabled = running
             btn.disabled = running
             inp.placeholder = "Agent 运行中..." if running else "输入消息..."
+
+        max_ctx = self._state.max_context_tokens
+        tok_str = (
+            f"{self._state.token_usage.total_tokens}/{max_ctx} tok"
+            if max_ctx > 0
+            else f"Tok: {self._state.token_usage.total_tokens}"
+        )
         self.query_one("#status-line", Static).update(
-            f"{self._state.model_name} │ Token: {self._state.token_usage.total_tokens} │ "
+            f"{self._state.model_name} │ {tok_str} │ "
             f"轮: {self._state.iteration}/{self._state.max_iterations}"
             + (f" │ 🔧 {self._state.active_tool}" if self._state.active_tool else "")
             + (" │ ⏳" if running else "")
@@ -179,6 +189,7 @@ class ChatScreen(Screen):
             try:
                 await provider.switch(target)
                 self._state.model_name = provider.get_metadata().model
+                self._state.max_context_tokens = get_settings().max_context_tokens
                 log.write(f"[dim]已切换到 {target}[/]")
             except ValueError as exc:
                 log.write(f"[red]切换失败: {exc}[/]")

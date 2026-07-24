@@ -24,6 +24,7 @@ class GuiState(BaseModel):
     token_usage: TokenUsage = Field(
         default_factory=lambda: TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
     )
+    max_context_tokens: int = 0  # 模型上下文窗口上限（状态栏分母）
     is_running: bool = False  # Agent 是否正在执行
     active_tool: str = ""  # 当前活跃工具名（空=无）
     last_error: str | None = None  # 最近错误信息

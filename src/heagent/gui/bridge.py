@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from heagent.gui.state import GuiState
     from heagent.types import StreamEvent
 
+from heagent.config import get_settings
+
 logger = logging.getLogger(__name__)
 
 # ── Bridge 消息类型常量 ──────────────────────────────────
@@ -76,6 +78,8 @@ class AgentBridge:
         """提交用户提示词，在后台消费 ``AgentLoop.run_stream()``。"""
         self._state.is_running = True
         self._state.last_error = None
+        self._state.active_tool = ""
+        self._state.max_context_tokens = get_settings().max_context_tokens
         self._current_task = asyncio.current_task()
 
         try:
