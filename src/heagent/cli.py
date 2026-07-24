@@ -661,7 +661,7 @@ class DefaultGroup(click.Group):
     def resolve_command(self, ctx: click.Context, args: list[str]) -> tuple[str | None, click.Command, list[str]]:
         try:
             return super().resolve_command(ctx, args)
-        except click.NoSuchCommand:
+        except click.UsageError:
             if self._default_command and self._default_command in self.commands:
                 return self._default_command, self.commands[self._default_command], args
             raise
