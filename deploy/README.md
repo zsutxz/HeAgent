@@ -1,130 +1,66 @@
 # HeAgent 部署说明
 
-这份文档只说明当前仓库里的部署资产“实际上能做什么”。结论先说在前面：**HeAgent 目前主要是 CLI / Python API 项目，不是现成的常驻 HTTP 服务。**
+HeAgent 是 CLI 工具 + Python 库，**不是常驻 HTTP 服务**。部署即安装，通过命令行或容器使用。
 
-## 当前现状
+## 使用方式
 
-代码入口是：
-
-- `python -m heagent "prompt"`：单次执行
-- `python -m heagent`：交互模式
-- `heagent ...`：等价的安装后命令
-
-当前实现里没有：
-
-- HTTP API
-- `/health` 健康检查端点
-- 服务模式的 `MODE` 配置
-- `LOG_LEVEL`、`HEAGENT_DATA_DIR`、`MAX_TOKENS`、`TEMPERATURE` 这些核心配置项
-
-因此，仓库中的 `Dockerfile`、`docker-compose.yml`、`deploy.sh`、`heagent.service` 应视为**部署草稿或模板资产**，不能不加审查地当成现成生产方案。
-
-## 现在可以可靠使用的方式
-
-### 本地开发
+### pip install（推荐）
 
 ```bash
-pip install -e ".[dev]"
-python -m heagent "你好"
+pip install heagent
+
+# 单次执行
+heagent "你的问题"
+
+# 交互模式
+heagent
 ```
 
-交互模式：
+### Docker
 
 ```bash
-python -m heagent
+docker compose build
+docker compose run --rm heagent "你的问题"   # 单次执行
+docker compose run --rm heagent               # 交互模式
 ```
 
-### 容器里单次执行
+### 定时任务
 
-镜像本身可以构建，入口也是 `python -m heagent`：
+HeAgent 内置 cron 调度器（交互模式内 `/cron` 命令或 `cron_add` 工具），进程退出后不持久。生产级定时任务建议外层系统 cron 触发单次执行：
 
 ```bash
-docker build -t heagent .
-docker run --rm --env-file .env.production heagent "你好"
+# crontab -e
+0 9 * * * cd /path/to/project && docker compose run --rm heagent '每日任务 prompt'
 ```
 
-交互模式：
+## 仓库部署资产
 
-```bash
-docker run -it --rm --env-file .env.production heagent
-```
+| 文件 | 用途 | 状态 |
+|------|------|------|
+| `Dockerfile` | 多阶段构建，非 root 用户，OCI labels | ✅ 就绪 |
+| `docker-compose.yml` | `docker compose run --rm` CLI 一次性/交互用法 | ✅ 就绪 |
+| `deploy/deploy.sh` | 一键部署脚本（docker / host 两种模式） | ✅ 就绪 |
+| `deploy/README.md` | 本文件 | ✅ 当前 |
 
-如果需要在容器里保留 `.heagent/` 运行数据，请自行挂载工作目录或单独的数据卷。
-
-## 仓库内部署资产的限制
-
-### `Dockerfile`
-
-可以构建 CLI 镜像，但有一处明显未对齐的地方：
-
-- 当前 `HEALTHCHECK` 指向 `http://localhost:8080/health`
-- 代码里并没有对应的 HTTP 服务
-
-在真正使用前，需要删除或改写这段健康检查。
-
-### `docker-compose.yml`
-
-这个文件更接近示例骨架，而不是已验证方案。当前至少有这些不一致：
-
-- 暴露了 `8080` 端口，但进程并不监听端口
-- 注入了 `MODE`、`LOG_LEVEL`、`HEAGENT_DATA_DIR`，但 CLI 不读取这些配置
-- 默认形态更像“假设未来会服务化”，不是当前代码的真实运行方式
-
-如果你要保留这个文件，建议把它改成明确的批处理或交互式容器用法。
-
-### `deploy/heagent.service`
-
-这个 unit 文件当前也只是模板：
-
-- `ExecStart=/opt/heagent/.venv/bin/python -m heagent`
-- 没有传入 prompt，也没有外层服务循环
-- 这会进入交互模式，不适合作为无人值守 systemd 服务
-
-如果要用 systemd，先决定你真正要托管的是什么：
-
-- 固定 prompt 的定时批处理
-- 你自己包装的 HTTP/队列消费者
-- 另一个上层守护进程
-
-### `deploy/deploy.sh`
-
-它展示了大致部署流程，但不应直接视为可执行运维方案：
-
-- `docker` 模式会在构建镜像后执行 `git pull`
-- `host` 模式依赖 `sudo`、复制目录和当前的 systemd 模板
-- 缺少对真实服务形态的定义
-
-把它当成脚手架比当成产品脚本更合适。
-
-## 如果你要做真正的部署
-
-建议先补齐一层明确的宿主形态，再谈容器或 systemd：
-
-1. 先定义进程模型。
-   例如“单次任务执行器”“队列消费者”“自建 HTTP API 包装层”。
-2. 再定义启动命令。
-   不要直接把交互式 CLI 当作后台守护进程。
-3. 把 `.heagent/` 持久化。
-   其中包含技能、记忆、会话、运行快照和 Cron 数据。
-4. 提供 OS 级隔离。
-   尤其是开启 shell、文件工具或 MCP 时。
-5. 单独实现健康检查与可观测性。
-   这需要你的包装层暴露明确的进程状态，而不是复用当前占位配置。
+`deploy/heagent.service` 已移除（交互式 CLI 不适合作为 systemd 守护进程）。
 
 ## 生产前检查项
 
-- 只使用受控的工作目录，不要直接挂宿主敏感目录。
-- 把 Provider 密钥放进环境变量或密钥管理系统。
-- 如果启用 MCP，按不可信代码执行模型处理。
-- 限制容器/进程的网络出站权限。
-- 明确 `.heagent/` 的备份和清理策略。
-- 为外层包装服务补日志、指标和健康检查。
+- **API Key**：通过 `.env.production` 或环境变量注入，勿硬编码。
+- **工作目录**：`.heagent/` 含技能、记忆、会话、快照、Cron 数据，确保持久化（Docker 用 volume）。
+- **OS 级沙箱**：`shell` / MCP 工具执行不可信代码，须容器或 firejail 等 OS 级隔离（`SafetyGuard` 非真正安全边界）。
+- **网络权限**：限制出站到必需的 LLM API 端点即可。
+- **备份**：`.heagent/` 定期备份。
+- **日志**：生产环境建议 `LOG_LEVEL=WARNING`。
 
-## 推荐理解方式
+## 版本发布
 
-更准确的理解是：
+```bash
+# 打 tag 触发 CI release（PyPI + GHCR + Docker Hub）
+git tag v0.3.0
+git push origin v0.3.0
+```
 
-- 这个仓库已经有“可运行的 Agent 内核”
-- 但还没有“定义完成的服务部署产品”
-
-所以这里的部署文档不是“一键上线指南”，而是“如何判断哪些资产可复用、哪些需要你自己补齐”的说明。
+CI release job 自动：
+1. `twine check` → PyPI（Trusted Publisher OIDC）
+2. `docker buildx` → GHCR + Docker Hub（multi-arch: amd64 + arm64）

@@ -4,11 +4,12 @@
 #
 # 构建:
 #   docker build -t heagent .
-#   docker build -t heagent --build-arg BASE_DIGEST=@sha256:abc...
+#   docker build -t heagent --build-arg BASE_DIGEST=@sha256:abc... --build-arg VERSION=0.3.0
 # ============================================================
 
 ARG BASE_DIGEST=
 ARG RUNNER_DIGEST=
+ARG VERSION=unknown
 
 # ---- Stage 1: Build ----
 FROM python:3.11-slim${BASE_DIGEST} AS builder
@@ -27,6 +28,12 @@ RUN pip install --no-cache-dir build && \
 FROM python:3.11-slim${RUNNER_DIGEST} AS runner
 
 WORKDIR /app
+
+# OCI 标准镜像标签（Docker Hub / GHCR 页面渲染用）
+LABEL org.opencontainers.image.source="https://github.com/zsutxz/HeAgent"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.description="A self-improving AI Agent core framework"
+LABEL org.opencontainers.image.licenses="MIT"
 
 # 从 builder 复制 wheel
 COPY --from=builder /build/dist/*.whl /tmp/

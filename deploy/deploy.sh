@@ -3,6 +3,11 @@
 # HeAgent 一键部署脚本
 # 支持 Docker 和 宿主机 两种部署方式
 # 使用: bash deploy/deploy.sh [docker|host]
+#
+# 注意: HeAgent 是 CLI 工具，不是常驻服务。
+#   Docker 模式构建镜像后通过 `docker compose run --rm` 使用。
+#   Host 模式通过 pip install + cron 调度（如需要定时任务）。
+#   systemd 服务单元已移除——交互式 CLI 不适合作为无人值守守护进程。
 # ============================================================
 
 set -euo pipefail
@@ -25,7 +30,6 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 check_prerequisites() {
     if [ "$DEPLOY_MODE" = "docker" ]; then
         command -v docker >/dev/null 2>&1 || { log_error "Docker 未安装"; exit 1; }
-        command -v docker-compose >/dev/null 2>&1 || { log_error "docker-compose 未安装"; exit 1; }
     else
         command -v python3 >/dev/null 2>&1 || { log_error "Python 3 未安装"; exit 1; }
     fi
@@ -47,81 +51,56 @@ deploy_docker() {
 
     cd "$PROJECT_DIR"
 
-    # 构建镜像
-    log_info "构建 Docker 镜像..."
-    docker build -t "$APP_NAME:latest" -f Dockerfile .
-
-    # 拉取最新代码（如果有 git）
+    # 拉取最新代码（先拉取，再构建——确保构建的是最新代码）
     if git rev-parse --git-dir >/dev/null 2>&1; then
         log_info "更新代码到最新版本..."
         git pull origin master
     fi
 
-    # 启动服务
-    log_info "启动 ${APP_NAME} 服务..."
-    docker-compose up -d
+    # 构建镜像
+    log_info "构建 Docker 镜像..."
+    docker compose build
 
-    # 等待启动并检查健康
-    log_info "等待服务启动..."
-    sleep 3
-    if docker ps --filter "name=${APP_NAME}" --format "{{.Status}}" | grep -q "Up"; then
-        log_info "✅ ${APP_NAME} 已成功部署并运行！"
-        log_info "查看日志: docker-compose logs -f"
-        log_info "测试运行: docker-compose run --rm heagent '你好'"
-    else
-        log_error "❌ 服务启动失败，请检查日志: docker-compose logs"
-        exit 1
-    fi
+    # 验证镜像
+    log_info "验证镜像..."
+    docker compose run --rm "$APP_NAME" --help
+
+    log_info "✅ ${APP_NAME} Docker 镜像已构建完成！"
+    log_info ""
+    log_info "使用方式:"
+    log_info "  单次执行:  docker compose run --rm heagent '你的问题'"
+    log_info "  交互模式:  docker compose run --rm heagent"
+    log_info "  定时任务:  使用宿主 cron 调用 docker compose run --rm heagent 'prompt'"
+    log_info "  查看日志:  docker compose logs"
 }
 
 # ========== 宿主机部署 ==========
 deploy_host() {
     log_info ">>> 开始宿主机部署..."
 
-    local VENV_DIR="$PROJECT_DIR/.venv"
-    local INSTALL_DIR="/opt/$APP_NAME"
+    cd "$PROJECT_DIR"
 
-    # 创建安装目录
-    sudo mkdir -p "$INSTALL_DIR"
-    sudo chown "$(whoami):$(whoami)" "$INSTALL_DIR"
+    # 安装 HeAgent（可编辑模式）
+    log_info "安装 HeAgent..."
+    pip install -e "."
 
-    # 复制项目文件
-    log_info "复制项目文件到 $INSTALL_DIR..."
-    cp -r "$PROJECT_DIR/src" "$INSTALL_DIR/"
-    cp "$PROJECT_DIR/pyproject.toml" "$INSTALL_DIR/"
-    cp "$PROJECT_DIR/.env.production" "$INSTALL_DIR/"
-    cp -r "$PROJECT_DIR/deploy" "$INSTALL_DIR/"
+    # 验证安装
+    log_info "验证安装..."
+    heagent --help
 
-    # 创建虚拟环境
-    log_info "创建 Python 虚拟环境..."
-    python3 -m venv "$INSTALL_DIR/.venv"
-    source "$INSTALL_DIR/.venv/bin/activate"
-    pip install --no-cache-dir -e "$INSTALL_DIR"
-
-    # 创建 heagent 用户
-    if ! id -u heagent >/dev/null 2>&1; then
-        log_info "创建 heagent 系统用户..."
-        sudo useradd -r -s /sbin/nologin -d "$INSTALL_DIR" heagent
-    fi
-    sudo chown -R heagent:heagent "$INSTALL_DIR"
-
-    # 安装 systemd 服务
-    log_info "安装 systemd 服务..."
-    sudo cp "$INSTALL_DIR/deploy/heagent.service" /etc/systemd/system/
-    sudo systemctl daemon-reload
-    sudo systemctl enable "$APP_NAME"
-    sudo systemctl start "$APP_NAME"
-
-    # 检查状态
-    sleep 2
-    if sudo systemctl is-active --quiet "$APP_NAME"; then
-        log_info "✅ ${APP_NAME} 已成功部署并运行！"
-        log_info "查看状态: sudo systemctl status $APP_NAME"
-        log_info "查看日志: sudo journalctl -u $APP_NAME -f"
-    else
-        log_error "❌ 服务启动失败，请检查: sudo journalctl -u $APP_NAME -x"
-        exit 1
-    fi
+    log_info "✅ ${APP_NAME} 已安装完成！"
+    log_info ""
+    log_info "使用方式:"
+    log_info "  单次执行:  heagent '你的问题'"
+    log_info "  交互模式:  heagent"
+    log_info ""
+    log_info "如需定时任务，使用系统 cron:"
+    log_info "  crontab -e"
+    log_info "  0 9 * * * cd $(pwd) && heagent 'fetch_ai_news'"
+    log_info ""
+    log_info "注意: HeAgent 内置 cron 调度器（heagent 交互模式内 / cron_add 工具），"
+    log_info "      但该调度器在进程退出后不持久；"
+    log_info "      如需生产级定时任务，建议外层系统 cron 或 systemd timer 触发单次执行。"
 }
 
 # ========== 主流程 ==========

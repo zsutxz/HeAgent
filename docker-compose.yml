@@ -1,9 +1,13 @@
 # ============================================================
-# HeAgent 生产部署 docker-compose 配置
+# HeAgent Docker Compose 配置（CLI 一次性 / 交互用法）
+#
+# 前置条件:
+#   1) 复制 .env.production.example → .env.production 并填入 API key
+#   2) docker compose build
+#
 # 使用方式:
-#   # 1) 复制 .env.production.example → .env.production 并填入 API key
-#   # 2) docker-compose run --rm heagent "你的问题"  # 单次执行
-#   # 3) docker-compose run --rm heagent             # 交互模式
+#   docker compose run --rm heagent "你的问题"    # 单次执行
+#   docker compose run --rm heagent               # 交互模式
 # ============================================================
 
 services:
@@ -11,8 +15,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - VERSION=${VERSION:-unknown}
     container_name: heagent
-    restart: unless-stopped
 
     # 环境变量（需先创建 .env.production 并填入 API key）
     # 模板见 .env.production.example
@@ -29,16 +34,6 @@ services:
       - heagent_data:/data/heagent
       # 绑定宿主 .env 文件，避免每次重建
       - ./.env.production:/app/.env:ro
-
-    # 资源限制
-    deploy:
-      resources:
-        limits:
-          cpus: "1.0"
-          memory: 1G
-        reservations:
-          cpus: "0.5"
-          memory: 512M
 
     # 安全配置
     security_opt:
