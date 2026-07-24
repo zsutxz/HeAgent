@@ -29,3 +29,4 @@ class GuiState(BaseModel):
     is_running: bool = False  # Agent 是否正在执行
     active_tool: str = ""  # 当前活跃工具名（空=无）
     last_error: str | None = None  # 最近错误信息
+    cumulative_tokens: int = 0  # 从程序启动开始的累计总 token 数（跨 run 累加）

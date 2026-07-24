@@ -171,6 +171,8 @@ class AgentLoop:
         self.last_run_context: RunContext | None = None
         self.last_usage: TokenUsage | None = None
         self.last_iteration: int | None = None
+        # 从程序启动开始的累计总 token 数（跨 run 累加）
+        self.cumulative_tokens: int = 0
 
         settings = get_settings()
         self.max_iterations = max_iterations or settings.max_iterations
@@ -248,6 +250,7 @@ class AgentLoop:
                 )
                 self._emit("run_completed", run_context=run_context, details={"answer_length": len(final_answer)})
                 self.last_usage = accumulated
+                self.cumulative_tokens += accumulated.total_tokens
                 self.last_iteration = state.iteration
                 return final_answer
         except Exception as exc:
@@ -372,6 +375,7 @@ class AgentLoop:
                             details={"answer_length": len(response.content)},
                         )
                         self.last_usage = accumulated
+                        self.cumulative_tokens += accumulated.total_tokens
                         self.last_iteration = state.iteration
                         yield StreamEvent(type="done", final_answer=response.content)
                         break

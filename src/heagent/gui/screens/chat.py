@@ -23,6 +23,21 @@ logger = logging.getLogger(__name__)
 WELCOME = "[bold green]HeAgent[/]\n输入消息开始对话。[dim]/help 查看命令[/]"
 
 
+def _format_tokens_k(n: int) -> str:
+    """Format token count with K/M suffix."""
+    if n < 1000:
+        return str(n)
+    if n >= 1_000_000:
+        m = n / 1_000_000
+        if m == int(m):
+            return f"{int(m)}M"
+        return f"{m:.1f}M"
+    k = n / 1000
+    if k == int(k):
+        return f"{int(k)}K"
+    return f"{k:.1f}K"
+
+
 class ChatScreen(Screen):
     """主聊天界面。
 
@@ -77,13 +92,22 @@ class ChatScreen(Screen):
             if max_ctx > 0
             else f"Tok: {self._state.token_usage.total_tokens}"
         )
+        cumul = self._state.cumulative_tokens
+        cumul_str = f"累计: {_format_tokens_k(cumul)} tok" if cumul > 0 else ""
         cmp_pct = int(self._state.compression_threshold * 100)
-        self.query_one("#status-line", Static).update(
-            f"{self._state.model_name} │ {tok_str} │ cmp@{cmp_pct}% │ "
-            f"轮: {self._state.iteration}/{self._state.max_iterations}"
-            + (f" │ 🔧 {self._state.active_tool}" if self._state.active_tool else "")
-            + (" │ ⏳" if running else "")
-        )
+        parts = [
+            self._state.model_name,
+            tok_str,
+            f"cmp@{cmp_pct}%",
+            f"轮: {self._state.iteration}/{self._state.max_iterations}",
+        ]
+        if cumul_str:
+            parts.append(cumul_str)
+        if self._state.active_tool:
+            parts.append(f"🔧 {self._state.active_tool}")
+        if running:
+            parts.append("⏳")
+        self.query_one("#status-line", Static).update(" │ ".join(parts))
 
     # ── BridgeMessage 处理 ──────────────────────────────────
 
@@ -122,6 +146,7 @@ class ChatScreen(Screen):
                 self._state.token_usage = loop.last_usage
             if loop.last_iteration is not None:
                 self._state.iteration = loop.last_iteration
+            self._state.cumulative_tokens = loop.cumulative_tokens
 
     # ── input ──
 
