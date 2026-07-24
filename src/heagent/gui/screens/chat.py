@@ -57,8 +57,9 @@ class ChatScreen(Screen):
         self.query_one("#chat-log", RichLog).write(WELCOME)
         self.set_interval(0.25, self._tick)
         self.query_one("#user-input", Input).focus()
-        # 初始化 max_context_tokens 用于首次状态栏渲染
-        self._state.max_context_tokens = get_settings().max_context_tokens
+        s = get_settings()
+        self._state.max_context_tokens = s.max_context_tokens
+        self._state.compression_threshold = s.compression_threshold
 
     def _tick(self) -> None:
         """轮询状态 + 输入禁用。"""
@@ -76,8 +77,9 @@ class ChatScreen(Screen):
             if max_ctx > 0
             else f"Tok: {self._state.token_usage.total_tokens}"
         )
+        cmp_pct = int(self._state.compression_threshold * 100)
         self.query_one("#status-line", Static).update(
-            f"{self._state.model_name} │ {tok_str} │ "
+            f"{self._state.model_name} │ {tok_str} │ cmp@{cmp_pct}% │ "
             f"轮: {self._state.iteration}/{self._state.max_iterations}"
             + (f" │ 🔧 {self._state.active_tool}" if self._state.active_tool else "")
             + (" │ ⏳" if running else "")
@@ -188,8 +190,10 @@ class ChatScreen(Screen):
         async def _switch():
             try:
                 await provider.switch(target)
+                s = get_settings()
                 self._state.model_name = provider.get_metadata().model
-                self._state.max_context_tokens = get_settings().max_context_tokens
+                self._state.max_context_tokens = s.max_context_tokens
+                self._state.compression_threshold = s.compression_threshold
                 log.write(f"[dim]已切换到 {target}[/]")
             except ValueError as exc:
                 log.write(f"[red]切换失败: {exc}[/]")

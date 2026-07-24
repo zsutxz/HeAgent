@@ -79,7 +79,9 @@ class AgentBridge:
         self._state.is_running = True
         self._state.last_error = None
         self._state.active_tool = ""
-        self._state.max_context_tokens = get_settings().max_context_tokens
+        s = get_settings()
+        self._state.max_context_tokens = s.max_context_tokens
+        self._state.compression_threshold = s.compression_threshold
         self._current_task = asyncio.current_task()
 
         try:

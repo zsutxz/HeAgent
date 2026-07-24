@@ -1,6 +1,6 @@
 """StatusBar — 模型名 / Token 用量 / 迭代数 / 运行状态。
 
-显示每次调用的 token 用量 vs 上下文窗口上限（非累计）。
+显示每次调用的 token 用量 vs 上下文窗口上限，以及压缩触发阈值。
 """
 
 from __future__ import annotations
@@ -11,13 +11,14 @@ from textual.widgets import Static
 
 
 class StatusBar(Widget):
-    """底部状态栏：模型名 + Token (used/max) + 迭代数 + 运行指示。"""
+    """底部状态栏：模型名 + Token (used/max) + 压缩阈值 + 迭代数 + 运行指示。"""
 
     model_name: reactive[str] = reactive("")
     iteration: reactive[int] = reactive(0)
     max_iterations: reactive[int] = reactive(50)
     total_tokens: reactive[int] = reactive(0)
     max_context_tokens: reactive[int] = reactive(0)
+    compression_threshold: reactive[float] = reactive(0.8)
     is_running: reactive[bool] = reactive(False)
     active_tool: reactive[str] = reactive("")
 
@@ -38,6 +39,9 @@ class StatusBar(Widget):
         self._refresh()
 
     def watch_max_context_tokens(self, value: int) -> None:
+        self._refresh()
+
+    def watch_compression_threshold(self, value: float) -> None:
         self._refresh()
 
     def watch_is_running(self, value: bool) -> None:
@@ -61,6 +65,8 @@ class StatusBar(Widget):
             else f"Tok: {self.total_tokens}"
         )
         parts.append(tok_str)
+        cmp_pct = int(self.compression_threshold * 100)
+        parts.append(f"cmp@{cmp_pct}%")
         if self.iteration > 0:
             parts.append(f"轮: {self.iteration}/{self.max_iterations}")
         self._label.update(" │ ".join(parts))
