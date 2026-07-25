@@ -1,15 +1,25 @@
 """HeAgent 配置管理 — 基于 pydantic-settings 的统一配置。
 
-从 .env 文件和系统环境变量加载配置。
+加载优先级（高 → 低）：
+1. 系统环境变量（``os.environ``）
+2. 项目本地 ``.env`` 文件（当前工作目录）
+3. 用户全局 ``~/.heagent/.env``
+4. 字段默认值
+
 通过 get_settings() 获取单例，reset_settings() 用于测试重置。
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _settings: Settings | None = None  # 单例缓存
+
+GLOBAL_CONFIG_DIR: Path = Path.home() / ".heagent"
+GLOBAL_CONFIG_FILE: Path = GLOBAL_CONFIG_DIR / ".env"
 
 
 def _parse_comma_list(v: str) -> list[str]:
@@ -22,12 +32,14 @@ def _parse_comma_list(v: str) -> list[str]:
 class Settings(BaseSettings):
     """全局配置，字段名与 .env / 环境变量名一一对应。
 
-    加载优先级：系统环境变量 > .env 文件 > 字段默认值。
+    加载优先级：系统环境变量 > 项目 ``.env`` > 用户全局 ``~/.heagent/.env`` > 字段默认值。
     遵循 pydantic-settings 标准顺序，用户可通过命令行环境变量临时覆盖 .env 中的值。
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # 优先加载全局配置，然后用项目 .env 覆盖；
+        # pydantic-settings 对序列按顺加载，后面的文件覆盖前面的重复 key。
+        env_file=[str(GLOBAL_CONFIG_FILE), ".env"],
         env_file_encoding="utf-8",
         extra="ignore",  # 忽略 .env 中未声明的变量
     )

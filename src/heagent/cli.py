@@ -19,7 +19,7 @@ import heagent.tools.builtins  # noqa: F401
 from heagent import __version__
 from heagent.agent.loop import AgentLoop
 from heagent.agent.middleware import make_retry_middleware
-from heagent.config import Settings, get_settings
+from heagent.config import GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE, Settings, get_settings
 from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
 from heagent.cron.jobs import JobStore
@@ -680,6 +680,7 @@ def main(ctx: click.Context) -> None:
       heagent                        # interactive chat
       heagent "analyze this file"    # single-shot
       heagent run "prompt"           # explicit run subcommand
+      heagent init                   # create global config in ~/.heagent
       heagent gui                    # launch terminal UI
     """
     if ctx.invoked_subcommand is None:
@@ -699,6 +700,90 @@ def run(
 ) -> None:
     """Run HeAgent in single-shot or interactive mode."""
     _run_cli_impl(prompt, model, system, max_iterations, soul, sandbox)
+
+
+# =============================================================================
+# Init subcommand
+# =============================================================================
+
+_INIT_ENV_TEMPLATE = """# HeAgent 全局配置文件
+# 存放路径：{path}
+# 加载优先级：显式环境变量 > 项目 .env > 本文件 > 字段默认值
+# 意即：在任意项目目录下运行 heagent 时，本文件中的配置作为默认值自动生效，
+#       可在单个项目的 .env 中覆盖。
+
+# ---- 活跃 Provider ----
+# ACTIVE_PROVIDER=deepseek
+
+# ---- API 密钥 ----
+# DEEPSEEK_API_KEY=your-deepseek-key
+# OPENAI_API_KEY=your-openai-key
+# ANTHROPIC_API_KEY=your-anthropic-key
+# KIMI_API_KEY=your-kimi-key
+
+# ---- API 基础 URL（用于代理或自营服务）----
+# DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
+# OPENAI_BASE_URL=
+# ANTHROPIC_BASE_URL=
+# KIMI_BASE_URL=https://api.moonshot.cn/v1
+
+# ---- 各 Provider 默认模型 ----
+# DEFAULT_MODEL=gpt-4o
+# DEEPSEEK_MODEL=deepseek-chat
+# KIMI_MODEL=moonshot-v1-8k
+
+# ---- Anthropic 提示词缓存 ----
+# ANTHROPIC_PROMPT_CACHING=true
+
+# ---- 重试策略 ----
+# RETRY_MAX_ATTEMPTS=3
+# RETRY_BASE_DELAY=1.0
+# RETRY_MAX_DELAY=30.0
+
+# ---- 日志 ----
+# LOG_LEVEL=INFO
+# LOG_FILE_LEVEL=DEBUG
+# LOG_DIR=logs
+
+# ---- 沙箱后端 ----
+# SANDBOX_BACKEND=passthrough
+# SANDBOX_FIREJAIL_PATH=firejail
+
+# ---- MCP ----
+# MCP_ENABLED=true
+# MCP_CONFIG_PATH=.mcp.json
+"""
+
+
+@main.command("init")
+def init_cmd() -> None:
+    """初始化 HeAgent 全局配置目录。
+
+    在用户主目录创建 ``~/.heagent/``，并生成带注释的配置模板 ``~/.heagent/.env``。
+    如果文件已存在，则保留不覆盖。
+    """
+    created_dir = False
+    if not GLOBAL_CONFIG_DIR.exists():
+        GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        created_dir = True
+
+    created_file = False
+    if not GLOBAL_CONFIG_FILE.exists():
+        template = _INIT_ENV_TEMPLATE.format(path=str(GLOBAL_CONFIG_FILE))
+        GLOBAL_CONFIG_FILE.write_text(template, encoding="utf-8")
+        created_file = True
+
+    if created_dir and created_file:
+        click.echo(f"[OK] Created global config directory: {GLOBAL_CONFIG_DIR}")
+        click.echo(f"[OK] Created config template: {GLOBAL_CONFIG_FILE}")
+        click.echo("")
+        click.echo("Edit ~/.heagent/.env to set your API keys and preferences.")
+        click.echo("Project-level .env files can still override per-project.")
+    elif created_file:
+        click.echo(f"[OK] Created config template: {GLOBAL_CONFIG_FILE}")
+        click.echo("Edit it to set your API keys and preferences.")
+    else:
+        click.echo(f"Already exists: {GLOBAL_CONFIG_FILE} (not overwritten)")
 
 
 # Set run as the default command (heagent "hello" -> run "hello")

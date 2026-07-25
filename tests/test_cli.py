@@ -10,6 +10,12 @@ from click.testing import CliRunner
 from heagent.cli import main
 
 
+def _clear_all_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clear all known API key environment variables for hermetic tests."""
+    for key in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "KIMI_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+
+
 @pytest.fixture()
 def clean_settings():
     """Reset settings singleton for tests that need it."""
@@ -24,9 +30,7 @@ class TestCLI:
     """CLI command tests using click.testing.CliRunner."""
 
     def test_no_api_key_shows_error(self, monkeypatch, clean_settings, tmp_path):
-        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        _clear_all_api_keys(monkeypatch)
         # Point to empty dir so pydantic-settings finds no .env file
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
@@ -41,6 +45,7 @@ class TestCLI:
         assert result.exit_code == 0
         assert "HeAgent" in result.output
         assert "run" in result.output
+        assert "init" in result.output
         assert "gui" in result.output
 
     def test_run_help_shows_options(self):
@@ -70,9 +75,7 @@ class TestCLI:
 
     def test_default_group_forwards_prompt(self, monkeypatch, clean_settings, tmp_path):
         """``heagent hello`` forwards to ``run hello`` via DefaultGroup."""
-        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        _clear_all_api_keys(monkeypatch)
         monkeypatch.chdir(tmp_path)
         runner = CliRunner()
         result = runner.invoke(main, ["hello world"])

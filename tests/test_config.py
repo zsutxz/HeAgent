@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
@@ -124,10 +126,12 @@ class TestPrecedence:
         assert s.openai_api_key == "from-system"
 
     def test_system_env_fills_gap_not_in_dotenv(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-        """.env 未声明的 key，由系统环境变量兜底填充。"""
+        """.env 未声明的 key，由系统环境变量兑底填充。"""
         env_file = tmp_path / ".env"
         env_file.write_text("DEEPSEEK_API_KEY=ds-dotenv\n", encoding="utf-8")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-system")
+        # 清除可能存在的环境变量，确保测试孤立
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         s = Settings(_env_file=env_file)
         assert s.deepseek_api_key == "ds-dotenv"
         assert s.anthropic_api_key == "ant-system"
@@ -318,3 +322,76 @@ class TestDefaults:
     def test_default_mcp_config_path(self) -> None:
         s = Settings()
         assert s.mcp_config_path == ".mcp.json"
+
+
+# --- Global config (~/.heagent/.env) ---
+
+
+class TestGlobalConfig:
+    """Test the ~/.heagent/.env global configuration layer via env_file sequence."""
+
+    def test_global_config_used_when_no_project_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """全局配置作为默认值，当项目 .env 未覆盖时生效。"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        global_env = tmp_path / "global.env"
+        global_env.write_text("OPENAI_API_KEY=global-key\n", encoding="utf-8")
+
+        project_env = tmp_path / ".env"
+        project_env.write_text("", encoding="utf-8")
+
+        s = Settings(_env_file=[str(global_env), str(project_env)])
+        assert s.openai_api_key == "global-key"
+
+    def test_project_env_overrides_global(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """项目 .env 覆盖全局配置。"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        global_env = tmp_path / "global.env"
+        global_env.write_text("OPENAI_API_KEY=global-key\n", encoding="utf-8")
+
+        project_env = tmp_path / ".env"
+        project_env.write_text("OPENAI_API_KEY=project-key\n", encoding="utf-8")
+
+        s = Settings(_env_file=[str(global_env), str(project_env)])
+        assert s.openai_api_key == "project-key"
+
+    def test_system_env_overrides_both(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """显式环境变量优先级最高，覆盖项目 .env 和全局配置。"""
+        monkeypatch.setenv("OPENAI_API_KEY", "system-key")
+
+        global_env = tmp_path / "global.env"
+        global_env.write_text("OPENAI_API_KEY=global-key\n", encoding="utf-8")
+
+        project_env = tmp_path / ".env"
+        project_env.write_text("OPENAI_API_KEY=project-key\n", encoding="utf-8")
+
+        s = Settings(_env_file=[str(global_env), str(project_env)])
+        assert s.openai_api_key == "system-key"
+
+    def test_missing_global_file_falls_back_to_defaults(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """全局配置文件不存在时静默跳过，回退到字段默认值。"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        nonexistent = tmp_path / "nonexistent.env"
+        project_env = tmp_path / ".env"
+        project_env.write_text("", encoding="utf-8")
+
+        s = Settings(_env_file=[str(nonexistent), str(project_env)])
+        assert s.openai_api_key is None
+
+    def test_class_level_env_file_sequence(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Settings 模型的 model_config 中 env_file 为序列 [global, project]。"""
+        assert "env_file" in Settings.model_config
+        env_files = Settings.model_config["env_file"]
+        assert isinstance(env_files, list) and len(env_files) == 2
+        assert ".env" in env_files
+        assert any(".heagent" in f for f in env_files)
