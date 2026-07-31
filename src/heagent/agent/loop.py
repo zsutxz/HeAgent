@@ -31,7 +31,16 @@ from heagent.engine import EngineContainer, RunContext, RunStatus
 from heagent.exceptions import BudgetExceeded
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
-from heagent.types import Message, ProviderResponse, Role, StreamEvent, TokenUsage, ToolCall, ToolResult
+from heagent.types import (
+    Message,
+    ProviderResponse,
+    Role,
+    StreamEvent,
+    TokenUsage,
+    ToolCall,
+    ToolResult,
+    ToolSchema,
+)
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Iterator
@@ -715,7 +724,7 @@ class AgentLoop:
             profile=self.profile,
         )
 
-    def _get_tools(self) -> list:
+    def _get_tools(self) -> list[ToolSchema]:
         """取发送给 LLM 的工具 Schema 列表，按 policy 白名单过滤（P5-1）。
 
         若 engine.policy.allowed_tools 非 None，仅返回白名单内工具；

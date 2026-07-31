@@ -330,9 +330,7 @@ class TestDefaults:
 class TestGlobalConfig:
     """Test the ~/.heagent/.env global configuration layer via env_file sequence."""
 
-    def test_global_config_used_when_no_project_override(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_global_config_used_when_no_project_override(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """全局配置作为默认值，当项目 .env 未覆盖时生效。"""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
@@ -345,9 +343,7 @@ class TestGlobalConfig:
         s = Settings(_env_file=[str(global_env), str(project_env)])
         assert s.openai_api_key == "global-key"
 
-    def test_project_env_overrides_global(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_project_env_overrides_global(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """项目 .env 覆盖全局配置。"""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
@@ -360,9 +356,7 @@ class TestGlobalConfig:
         s = Settings(_env_file=[str(global_env), str(project_env)])
         assert s.openai_api_key == "project-key"
 
-    def test_system_env_overrides_both(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_system_env_overrides_both(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """显式环境变量优先级最高，覆盖项目 .env 和全局配置。"""
         monkeypatch.setenv("OPENAI_API_KEY", "system-key")
 
@@ -375,9 +369,7 @@ class TestGlobalConfig:
         s = Settings(_env_file=[str(global_env), str(project_env)])
         assert s.openai_api_key == "system-key"
 
-    def test_missing_global_file_falls_back_to_defaults(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_missing_global_file_falls_back_to_defaults(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """全局配置文件不存在时静默跳过，回退到字段默认值。"""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
@@ -388,18 +380,20 @@ class TestGlobalConfig:
         s = Settings(_env_file=[str(nonexistent), str(project_env)])
         assert s.openai_api_key is None
 
-    def test_class_level_env_file_sequence(self) -> None:
+    def test_class_level_env_file_sequence(
+        self,
+        _isolate_dotenv_files: list[str],  # noqa: PT019 - fixture 有返回值，ruff 0.15 误报
+    ) -> None:
         """``model_config.env_file`` 为 [global, project] 序列（源码契约）。
 
         全局层路径在模块导入时固化自 ``GLOBAL_CONFIG_FILE``；运行时 ``model_config`` 可能
-        被 ``conftest`` 隔离 fixture 改写（指向 tmp），故全局层经源码常量断言、结构
-        （长度 2 + 项目 ``.env``）经运行时断言——两者解耦后互不干扰。
+        被 ``conftest`` 隔离 fixture 改写（指向 tmp），故全局层经源码常量断言、项目层经
+        fixture 捕获的原始序列断言——两者解耦后互不干扰。
         """
         # 源码契约：全局层 = ~/.heagent/.env（类级声明来源，未被运行时 fixture 改）
         assert GLOBAL_CONFIG_FILE.parent.name == ".heagent"
         assert GLOBAL_CONFIG_FILE.name == ".env"
 
-        # 运行时结构：env_file 是 [全局, 项目] 两元素序列，项目层为 ".env"
-        env_files = Settings.model_config["env_file"]
-        assert isinstance(env_files, list) and len(env_files) == 2
-        assert ".env" in env_files
+        # 项目层：源码声明为相对 ".env"
+        assert isinstance(_isolate_dotenv_files, list) and len(_isolate_dotenv_files) == 2
+        assert ".env" in _isolate_dotenv_files

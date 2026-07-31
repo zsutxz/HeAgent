@@ -110,7 +110,7 @@ class EngineContainer:
 
         settings = get_settings()
         backend = sandbox_backend if sandbox_backend is not None else settings.sandbox_backend
-        command_runner = None
+        command_runner: CommandRunner | None = None
         if backend == "firejail":
             from heagent.tools.sandbox import FirejailBackend
 
@@ -126,7 +126,14 @@ class EngineContainer:
             else:
                 logger.warning("WinJobBackend requested but not available; falling back to Passthrough")
 
-        container = cls(workspace_root=workspace_root, command_runner=command_runner)
+        # 默认装配开启跨进程文件锁：CLI/GUI 可能多进程共享同一 .heagent/ 目录
+        # （如 cron + 交互式实例并存），RunStore/ledger 写入需要跨进程互斥。
+        # 锁文件由 ledger prune 随过期记录一并清理，不会无限累积。
+        container = cls(
+            workspace_root=workspace_root,
+            command_runner=command_runner,
+            enable_file_locks=True,
+        )
         container.ledger_retention_days = settings.ledger_retention_days
         if workspace_root and not container.policy.workspace_root:
             container.policy.workspace_root = workspace_root

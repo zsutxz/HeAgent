@@ -201,8 +201,13 @@ def _record_step(runtime: SubagentToolRuntime, *, outcome: SubTaskOutcome) -> No
 
 def _make_subagent(runtime: SubagentToolRuntime, spec: RoleSpec | None, system: str | None) -> SubAgent:
     """Construct a SubAgent from the current runtime slot (shared factory for task_parallel)."""
+    provider = runtime.provider
+    if provider is None:
+        # 调用方（task_delegate / task_parallel）已前置检查；此处兜底保证类型收窄，
+        # 同时避免未配置运行时下构造出半残 SubAgent。
+        raise RuntimeError("sub-agent tools not configured (provider is None)")
     return SubAgent(
-        runtime.provider,
+        provider,
         registry=runtime.registry,
         guard=runtime.guard,
         skills=runtime.skills,

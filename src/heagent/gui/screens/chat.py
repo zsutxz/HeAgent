@@ -14,6 +14,8 @@ from heagent.config import get_settings
 from heagent.gui.bridge import MSG_AGENT_ERROR, MSG_AGENT_INTERRUPTED, MSG_STREAM_EVENT, BridgeMessage
 
 if TYPE_CHECKING:
+    from textual.app import ComposeResult
+
     from heagent.gui.bridge import AgentBridge
     from heagent.gui.state import GuiState
     from heagent.types import StreamEvent
@@ -38,7 +40,7 @@ def _format_tokens_k(n: int) -> str:
     return f"{k:.1f}K"
 
 
-class ChatScreen(Screen):
+class ChatScreen(Screen[None]):
     """主聊天界面。
 
     BridgeMessage 处理链：
@@ -61,7 +63,7 @@ class ChatScreen(Screen):
         self._pending_submit: asyncio.Task[None] | None = None
         self._pending_switch: asyncio.Task[None] | None = None
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True)
         yield Static("", id="status-line")
         with Horizontal(id="input-row"):
@@ -121,7 +123,7 @@ class ChatScreen(Screen):
             evt = payload.get("event")
             if evt is None:
                 return
-            evt_typed: StreamEvent = evt  # type: ignore[assignment]
+            evt_typed: StreamEvent = evt
             if evt_typed.type == "text":
                 log.write(evt_typed.text)
             elif evt_typed.type == "tool_call":
@@ -206,13 +208,13 @@ class ChatScreen(Screen):
             info = provider.info()
             lines = ["[bold]可用模型:[/]"]
             for name, meta in info.items():
-                marker = "[green]←[/]" if meta["active"] else ""
-                lines.append(f"  {name} ({meta['model']}) {marker}")
+                marker = "[green]←[/]" if meta.active else ""
+                lines.append(f"  {name} ({meta.model}) {marker}")
             log.write("\n".join(lines))
             return
         target = args.strip()
 
-        async def _switch():
+        async def _switch() -> None:
             try:
                 await provider.switch(target)
                 s = get_settings()

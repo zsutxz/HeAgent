@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from textual.app import ComposeResult
 
 
-class EventLogScreen(Screen):
+class EventLogScreen(Screen[None]):
     """引擎事件日志查看页面。"""
 
     BINDINGS = [

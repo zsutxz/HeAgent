@@ -295,6 +295,14 @@ class ExecutionLedger:
             try:
                 if await asyncio.to_thread(path.exists):
                     await asyncio.to_thread(path.unlink)
+                    # 随记录一并清理配套锁文件（persist.py 保留 .lock 以规避 unlink 竞态，
+                    # 此处是唯一合法的清理时机：记录已判为过期删除，其锁文件不再有等待者）。
+                    lock_path = path.with_name(path.name + ".lock")
+                    try:
+                        if await asyncio.to_thread(lock_path.exists):
+                            await asyncio.to_thread(lock_path.unlink)
+                    except Exception:
+                        logger.debug("ledger prune: lock file cleanup failed on %s", lock_path, exc_info=True)
                     deleted += 1
             except Exception:
                 logger.debug("ledger prune: unlink failed on %s; continuing", path, exc_info=True)

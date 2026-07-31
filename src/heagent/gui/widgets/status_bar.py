@@ -5,9 +5,14 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Static
+
+if TYPE_CHECKING:
+    from textual.app import ComposeResult
 
 
 class StatusBar(Widget):
@@ -26,7 +31,7 @@ class StatusBar(Widget):
         super().__init__(name=name, id=id)
         self._label = Static("", id="status-label")
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         yield self._label
 
     def watch_model_name(self, value: str) -> None:

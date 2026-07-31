@@ -34,6 +34,22 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
 
+@pytest.fixture(autouse=True)
+def _pin_context_window(monkeypatch: pytest.MonkeyPatch) -> None:
+    """固定上下文窗口为 128k，隔离全局默认值波动。
+
+    ``_maybe_window_reset`` 用 ``settings.max_context_tokens`` 作为分母；commit
+    574c2d9 曾把默认值从 128000 改成 1_000_000，导致 80000 usage 不再越过 60%
+    阈值、端到端 window_reset 用例失败。这里显式钉死窗口，测试不再依赖全局默认。
+    """
+    from heagent.config import reset_settings
+
+    monkeypatch.setenv("MAX_CONTEXT_TOKENS", "128000")
+    reset_settings()
+    yield
+    reset_settings()
+
+
 def _usage(total: int = 15) -> TokenUsage:
     return TokenUsage(prompt_tokens=total // 2, completion_tokens=total - total // 2, total_tokens=total)
 

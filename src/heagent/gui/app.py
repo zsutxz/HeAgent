@@ -8,7 +8,7 @@ BridgeMessage 路由：
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from textual.app import App, ComposeResult
 from textual.widgets import Footer
@@ -16,6 +16,8 @@ from textual.widgets import Footer
 from heagent.gui.screens.chat import ChatScreen
 
 if TYPE_CHECKING:
+    from textual.screen import Screen
+
     from heagent.agent.loop import AgentLoop
     from heagent.cron.jobs import JobStore
     from heagent.engine import EngineContainer
@@ -27,7 +29,7 @@ if TYPE_CHECKING:
     from heagent.memory.skills import SkillStore
 
 
-class HeAgentApp(App):
+class HeAgentApp(App[None]):
     """HeAgent terminal UI application. F1-F6 导航到各管理页面。"""
 
     TITLE = "HeAgent"
@@ -137,7 +139,7 @@ class HeAgentApp(App):
 
         self._switch_or_push(EventLogScreen())
 
-    def _switch_or_push(self, screen) -> None:
+    def _switch_or_push(self, screen: Screen[Any]) -> None:
         """若目标 Screen 已在栈中 → pop 到它；否则 push 新实例。"""
         for s in self._screen_stack:
             if type(s) is type(screen):
@@ -145,7 +147,7 @@ class HeAgentApp(App):
                 return
         self.push_screen(screen)
 
-    def action_quit(self) -> None:
+    async def action_quit(self) -> None:
         """Ctrl+Q 退出：先中断 Agent，再退出。"""
         self._bridge.cancel()
-        super().action_quit()
+        await super().action_quit()

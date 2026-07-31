@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from heagent.memory.profile import ProfileStore
 
 
-class MemoryScreen(Screen):
+class MemoryScreen(Screen[None]):
     """记忆/画像浏览面板。"""
 
     BINDINGS = [
@@ -56,10 +56,9 @@ class MemoryScreen(Screen):
     def _load_profile(self) -> str:
         if self._profile is None:
             return "[dim]ProfileStore 未初始化[/]"
-        sections = self._profile.load()
-        if not sections:
+        content = self._profile.load()
+        if not content:
             return "[dim]暂无用户画像。Agent 可通过 profile_update 工具自动更新。[/]"
-        lines = ["[bold]用户画像:[/]\n"]
-        for section, value in sorted(sections.items()):
-            lines.append(f"[bold]{section}[/]: {value}")
-        return "\n".join(lines)
+        # ProfileStore.load() 返回 USER.md 原始 Markdown（## Section 分节），
+        # 直接展示全文；此前误把 str 当 dict 调 .items() 会在有内容时崩溃。
+        return f"[bold]用户画像:[/]\n\n{content}"

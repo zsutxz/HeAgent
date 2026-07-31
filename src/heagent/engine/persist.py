@@ -19,7 +19,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -36,10 +36,11 @@ def _acquire_lock_posix(fd: int, timeout: float) -> None:
     """POSIX ``fcntl.flock`` 排他锁。"""
     import fcntl
 
+    fcntl_mod: Any = fcntl  # typeshed 在 win32 上无 flock 属性，统一走 Any 避免平台差异
     deadline = time.monotonic() + timeout
     while True:
         try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            fcntl_mod.flock(fd, fcntl_mod.LOCK_EX | fcntl_mod.LOCK_NB)
             return
         except BlockingIOError:
             if time.monotonic() >= deadline:
@@ -84,7 +85,8 @@ def _acquire_lock(fd: int, timeout: float) -> None:
 def _release_lock_posix(fd: int) -> None:
     import fcntl
 
-    fcntl.flock(fd, fcntl.LOCK_UN)
+    fcntl_mod: Any = fcntl
+    fcntl_mod.flock(fd, fcntl_mod.LOCK_UN)
 
 
 def _release_lock_windows(fd: int) -> None:
@@ -154,16 +156,10 @@ def atomic_write_text(
                 logger.debug("Failed to release lock on %s", path, exc_info=True)
             finally:
                 os.close(lock_fd)
-                # P1 修复：写入完成后清理锁文件，防止僵尸 .lock 文件在 ledger
-                # （数千条记录）等高频写入场景下无限积累，导致目录膨胀与
-                # 文件系统性能劣化（Windows 尤甚）。unlink 失败不抛——
-                # 文件已不存在（并发清理）或权限不足（需运维介入）均为
-                # 非致命；锁已释放，下次写入会经 O_CREAT 重建。
-                if lock_path is not None:
-                    try:
-                        os.unlink(str(lock_path))
-                    except OSError:
-                        logger.debug("Failed to unlink lock file %s", lock_path, exc_info=True)
+                # 注意：刻意不删除 .lock 文件。删除锁文件存在经典竞态——进程 B 可能
+                # 正在等待旧 inode 上的锁，进程 C 新建 .lock 并加锁成功，导致 B/C 的
+                # 互斥失效。保留 0 字节锁文件换取跨进程互斥的正确性；ledger prune
+                # 会随记录文件一并清理过期 .lock（见 engine/ledger.py）。
 
 
 def load_json_model(path: Path, model_cls: type[T]) -> T | None:

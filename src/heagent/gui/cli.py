@@ -5,7 +5,6 @@ Thin wrapper that builds the Provider/AgentLoop and hands off to the Textual app
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import sys
 from datetime import datetime
@@ -76,7 +75,9 @@ def gui_cmd(model: str | None, sandbox: str | None) -> None:
             click.echo(f" firejail sandbox ENABLED ({_settings.sandbox_firejail_path})", err=True)
 
     try:
-        asyncio.run(gui_main(model=model, sandbox=sandbox))
+        # gui_main 是同步入口（内部自行运行 Textual 事件循环）；
+        # 不能包 asyncio.run()——gui_main 返回 None，asyncio.run(None) 会抛 TypeError。
+        gui_main(model=model, sandbox=sandbox)
     except ImportError:
         click.echo(
             "GUI 依赖未安装。请运行: pip install heagent[gui]",

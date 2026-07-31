@@ -14,7 +14,10 @@ from textual.widget import Widget
 from textual.widgets import Button, Input
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from textual import events
+    from textual.app import ComposeResult
 
 # 支持的斜杠命令列表（供 Tab 补全）
 _SLASH_COMMANDS = ["/model", "/mcp-prompt", "/clear", "/help"]
@@ -32,8 +35,8 @@ class InputArea(Widget):
     def __init__(
         self,
         *,
-        on_submit,
-        on_slash_command=None,
+        on_submit: Callable[[str], None],
+        on_slash_command: Callable[[str, str], bool] | None = None,
         name: str | None = None,
         id: str | None = None,
     ) -> None:
@@ -41,7 +44,7 @@ class InputArea(Widget):
         self._on_submit = on_submit  # callback(prompt: str)
         self._on_slash_command = on_slash_command  # callback(command: str, args: str) -> bool
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         with Horizontal(id="input-row"):
             yield Input(
                 placeholder="输入消息... (Enter 发送, / 斜杠命令)",
@@ -56,7 +59,7 @@ class InputArea(Widget):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self._do_submit()
 
-    def _on_key(self, event: events.Key) -> None:
+    async def _on_key(self, event: events.Key) -> None:
         """Escape 清空输入框；Tab 补全斜杠命令。"""
         inp = self.query_one("#user-input", Input)
         if event.key == "escape":

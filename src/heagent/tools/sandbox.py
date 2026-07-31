@@ -304,7 +304,7 @@ class WinJobBackend:
             # Assign to job object
             kernel32.AssignProcessToJobObject(
                 wintypes.HANDLE(hJob),
-                wintypes.HANDLE(int(proc._handle)),
+                wintypes.HANDLE(int(proc._handle)),  # type: ignore[attr-defined]  # Windows 私有句柄属性
             )
 
             # ── Wait for completion ──

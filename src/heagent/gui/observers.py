@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from heagent.engine.observability import EngineEvent
@@ -35,7 +35,7 @@ class GuiEventObserver:
     def __init__(self, state: GuiState) -> None:
         self._state = state
         # 环形缓冲：deque[(timestamp, event_type_str, details_dict)]
-        self._buffer: deque[tuple[float, str, dict]] = deque(maxlen=_MAX_EVENTS)
+        self._buffer: deque[tuple[float, str, dict[str, Any]]] = deque(maxlen=_MAX_EVENTS)
 
     def handle(self, event: EngineEvent) -> None:
         """EventBus 回调入口。
@@ -61,7 +61,7 @@ class GuiEventObserver:
             entry_details["iteration"] = event.iteration
         self._buffer.append((now, etype, entry_details))
 
-    def get_recent(self, limit: int = 100) -> list[tuple[float, str, dict]]:
+    def get_recent(self, limit: int = 100) -> list[tuple[float, str, dict[str, Any]]]:
         """返回最近 N 条事件（最新在前）。"""
         items = list(self._buffer)
         items.reverse()

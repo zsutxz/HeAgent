@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from heagent.cron.jobs import JobStore
 
 
-class CronScreen(Screen):
+class CronScreen(Screen[None]):
     """Cron 任务管理面板。"""
 
     BINDINGS = [

@@ -7,11 +7,15 @@
 from __future__ import annotations
 
 import time
+from typing import TYPE_CHECKING
 
 from textual.widget import Widget
 from textual.widgets import RichLog
 
 from heagent.gui.widgets.tool_card import ToolCard
+
+if TYPE_CHECKING:
+    from textual.app import ComposeResult
 
 
 class MessageList(Widget):
@@ -27,7 +31,7 @@ class MessageList(Widget):
         # 工具调用开始时间（用于计算耗时）
         self._tool_started_at: float = 0.0
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         yield RichLog(
             id="chat-log",
             highlight=True,

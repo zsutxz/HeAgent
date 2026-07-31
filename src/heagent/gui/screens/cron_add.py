@@ -9,7 +9,11 @@ from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label, Static, Switch
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from textual.app import ComposeResult
+
+    from heagent.cron.jobs import JobStore
 
 
 class CronAddModal(ModalScreen[None]):
@@ -28,7 +32,7 @@ class CronAddModal(ModalScreen[None]):
     }
     """
 
-    def __init__(self, store, refresh_cb) -> None:
+    def __init__(self, store: JobStore | None, refresh_cb: Callable[[], None]) -> None:
         super().__init__()
         self._store = store
         self._refresh = refresh_cb
@@ -58,6 +62,8 @@ class CronAddModal(ModalScreen[None]):
         if not prompt or not schedule:
             return
         if self._store:
-            self._store.add(prompt, schedule, enabled)
+            job = self._store.create_job(prompt, schedule)
+            job.enabled = enabled
+            self._store.add(job)
         self._refresh()
         self.dismiss()

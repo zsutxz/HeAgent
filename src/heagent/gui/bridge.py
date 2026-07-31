@@ -63,9 +63,9 @@ class AgentBridge:
         self._loop = loop
         self._state = state
         self._current_task: asyncio.Task[None] | None = None
-        self._app: TextualApp | None = None  # 由 HeAgentApp.__init__ 注入
+        self._app: TextualApp[None] | None = None  # 由 HeAgentApp.__init__ 注入
 
-    def set_app(self, app: TextualApp) -> None:
+    def set_app(self, app: TextualApp[None]) -> None:
         """注入 Textual App 实例引用（供 post 投递消息）。"""
         self._app = app
 

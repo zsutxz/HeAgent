@@ -21,16 +21,24 @@ os.environ.setdefault("LEDGER_RETENTION_DAYS", "0")
 
 
 @pytest.fixture(autouse=True)
-def _isolate_global_env_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """隔离 ``~/.heagent/.env`` 全局配置（commit 0621ce5 引入的加载层）。
+def _isolate_dotenv_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
+    """隔离全局（``~/.heagent/.env``）与项目（``.env``）两层配置加载。
 
-    ``Settings.model_config.env_file`` 在模块导入时固化为绝对路径
+    ``Settings.model_config.env_file`` 在模块导入时固化为
     ``[~/.heagent/.env, .env]``，``monkeypatch.chdir`` 对其无效。若开发者本机存在
-    ``~/.heagent/.env``（如运行过 ``heagent init`` 并填入真实 key），不带 ``_env_file`` 的
-    ``Settings()`` 会读到全局配置，使断言默认值的用例本地失败而 CI（无全局文件）通过——
-    不可复现。指向 tmp 下不存在的文件即可；显式传 ``_env_file`` 的用例不受影响
-    （实例参数优先级高于 ``model_config``）。
+    ``~/.heagent/.env``（如运行过 ``heagent init``）或项目根存在 ``.env``（真实 key /
+    ``MAX_ITERATIONS`` 等），不带 ``_env_file`` 的 ``Settings()`` 会读到真实配置，
+    使断言默认值的用例本地失败而 CI（无配置文件）通过——不可复现。两层都指向 tmp 下
+    不存在的文件即可；显式传 ``_env_file`` 的用例不受影响（实例参数优先级高于
+    ``model_config``）。返回改动前的原始 env_file 序列，供源码契约类测试断言。
     """
+    source_env_files = list(Settings.model_config["env_file"])
     monkeypatch.setitem(
-        Settings.model_config, "env_file", [str(tmp_path / "nonexistent_global.env"), ".env"]
+        Settings.model_config,
+        "env_file",
+        [
+            str(tmp_path / "nonexistent_global.env"),
+            str(tmp_path / "nonexistent_project.env"),
+        ],
     )
+    return source_env_files

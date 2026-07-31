@@ -158,8 +158,8 @@ async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
             choice = int(raw)
             if 1 <= choice <= len(names):
                 await provider.switch(names[choice - 1])
-                meta = provider.get_metadata()
-                click.echo(f"  -> Using {provider.active} ({meta.model})", err=True)
+                active_meta = provider.get_metadata()
+                click.echo(f"  -> Using {provider.active} ({active_meta.model})", err=True)
                 return
             click.echo(f"  Please enter 1-{len(names)}", err=True)
         except (ValueError, click.Abort):
@@ -467,15 +467,15 @@ async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
         info = provider.info()
         click.echo("Available models:", err=True)
         for name, meta in info.items():
-            marker = "->" if meta["active"] else " "
-            click.echo(f"  [{marker}] {name}  ({meta['model']})", err=True)
+            marker = "->" if meta.active else " "
+            click.echo(f"  [{marker}] {name}  ({meta.model})", err=True)
         return
 
     name = parts[1]
     try:
         await provider.switch(name)
-        meta = provider.get_metadata()
-        click.echo(f"[model] Switched to {name} ({meta.model})", err=True)
+        active_meta = provider.get_metadata()
+        click.echo(f"[model] Switched to {name} ({active_meta.model})", err=True)
     except ValueError as exc:
         click.echo(f"[model] {exc}", err=True)
 
@@ -638,7 +638,7 @@ _RUN_OPTIONS = [
 ]
 
 
-def _apply_options(fn):
+def _apply_options(fn: Callable[..., Any]) -> Callable[..., Any]:
     """Decorator: apply shared CLI options to a Click command."""
     for opt in reversed(_RUN_OPTIONS):
         fn = opt(fn)
@@ -658,13 +658,20 @@ class DefaultGroup(click.Group):
     def set_default_command(self, name: str) -> None:
         self._default_command = name
 
-    def resolve_command(self, ctx: click.Context, args: list[str]) -> tuple[str | None, click.Command, list[str]]:
-        try:
+    def resolve_command(
+        self, ctx: click.Context, args: list[str]
+    ) -> tuple[str | None, click.Command | None, list[str]]:
+        """已注册子命令优先；其余一律回退到默认命令 run 解析。
+
+        ``heagent "prompt"`` 与 ``heagent --model X "prompt"`` 都依赖该回退——
+        未知选项随后仍由 run 自身的解析器报错，不会静默吞掉。
+        """
+        if args and args[0] in self.commands:
             return super().resolve_command(ctx, args)
-        except click.UsageError:
-            if self._default_command and self._default_command in self.commands:
-                return self._default_command, self.commands[self._default_command], args
-            raise
+        default = self._default_command
+        if default is not None and default in self.commands:
+            return default, self.commands[default], args
+        return super().resolve_command(ctx, args)
 
 
 @click.command(cls=DefaultGroup, invoke_without_command=True)

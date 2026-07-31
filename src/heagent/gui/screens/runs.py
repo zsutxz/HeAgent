@@ -6,7 +6,7 @@ Tree 渲染运行树（RunStore.build_run_tree），选中节点查看详情/恢
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from textual.containers import Horizontal, Vertical
 from textual.screen import Screen
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from heagent.engine import EngineContainer
 
 
-class RunsScreen(Screen):
+class RunsScreen(Screen[None]):
     """运行历史面板。"""
 
     BINDINGS = [
@@ -75,14 +75,16 @@ class RunsScreen(Screen):
             root.add("引擎未初始化")
             return
 
-        async def _fetch():
-            store = self._engine.run_store
+        engine = self._engine
+
+        async def _fetch() -> None:
+            store = engine.run_store
             roots = await store.build_run_tree()
             self._populate_tree(roots)
 
         self._pending_fetch = asyncio.create_task(_fetch())
 
-    def _populate_tree(self, roots: list) -> None:
+    def _populate_tree(self, roots: list[Any]) -> None:
         tree = self.query_one("#run-tree", Tree)
         for rn in roots:
             status_icon = self._icon(rn.status)
@@ -95,7 +97,7 @@ class RunsScreen(Screen):
                 c_node = node.add(c_label)
                 c_node.data = child
 
-    def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
+    def on_tree_node_selected(self, event: Tree.NodeSelected[Any]) -> None:
         """选中节点 → 展示详情。"""
         data = event.node.data
         if data is None:
@@ -121,7 +123,7 @@ class RunsScreen(Screen):
         run_id = node.data.run_id
         detail = self.query_one("#detail-content", Static)
 
-        async def _resume():
+        async def _resume() -> None:
             from heagent.gui.app import HeAgentApp
 
             app = HeAgentApp.get_current_app()
@@ -138,7 +140,7 @@ class RunsScreen(Screen):
         self._pending_resume = asyncio.create_task(_resume())
 
     @staticmethod
-    def _icon(status) -> str:
+    def _icon(status: Any) -> str:
         if status is None:
             return "⬜"
         name = getattr(status, "value", str(status))
@@ -151,7 +153,7 @@ class RunsScreen(Screen):
         return "⬜"
 
     @staticmethod
-    def _status_text(status) -> str:
+    def _status_text(status: Any) -> str:
         if status is None:
             return "未知"
         name = getattr(status, "value", str(status))

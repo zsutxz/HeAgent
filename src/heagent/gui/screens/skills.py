@@ -12,12 +12,14 @@ from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static, TextArea
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from textual.app import ComposeResult
 
     from heagent.memory.skills import SkillStore
 
 
-class SkillScreen(Screen):
+class SkillScreen(Screen[None]):
     """技能管理面板。"""
 
     BINDINGS = [
@@ -114,7 +116,7 @@ class _SkillDetailModal(ModalScreen[None]):
     def __init__(self, store: SkillStore | None, name: str) -> None:
         super().__init__()
         self._store = store
-        self._name = name
+        self._name: str = name
 
     def compose(self) -> ComposeResult:
         raw = self._store.load(self._name) if self._store else "无法加载"
@@ -144,7 +146,7 @@ class _SkillCreateModal(ModalScreen[None]):
     }
     """
 
-    def __init__(self, store: SkillStore | None, refresh_cb) -> None:
+    def __init__(self, store: SkillStore | None, refresh_cb: Callable[[], None]) -> None:
         super().__init__()
         self._store = store
         self._refresh = refresh_cb

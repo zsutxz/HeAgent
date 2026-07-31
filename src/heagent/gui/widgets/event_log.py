@@ -5,9 +5,14 @@ Epic 28-1：订阅 GuiEventObserver 缓冲，定时拉取渲染。
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import RichLog
+
+if TYPE_CHECKING:
+    from textual.app import ComposeResult
 
 
 class EventLog(Widget):
@@ -23,7 +28,7 @@ class EventLog(Widget):
         self._log: RichLog | None = None
         self._last_rendered_idx: int = 0  # 在缓冲中的渲染位置
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         yield RichLog(
             id="event-log-view",
             highlight=True,

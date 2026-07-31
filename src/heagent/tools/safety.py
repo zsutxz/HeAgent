@@ -112,19 +112,11 @@ class SafetyGuard:
             if pat.search(call.name):
                 self._block(f"Blocked tool by name: {call.name}")
 
-        # 提取 command 参数（shell 工具或其他携带 command 的工具）
-        command = ""
-        if call.name == "shell":
-            command = call.arguments.get("command", "")
-        else:
-            # P1-14：非 shell 工具若参数中含 "command" 键，也做命令级检查
-            # （defense-in-depth — 恶意 MCP tool 可把危险命令藏在参数中）
-            command = call.arguments.get("command", "")
-            if not isinstance(command, str) or not command:
-                return
-
-        if not isinstance(command, str) or not command:
+        # 提取 command 参数（shell 工具或其他携带 command 的工具，P1-14 defense-in-depth）
+        raw_command = call.arguments.get("command", "")
+        if not isinstance(raw_command, str) or not raw_command:
             return
+        command = raw_command
 
         # 第一层：内置危险模式检查
         for pat in _DANGEROUS_PATTERNS:
