@@ -39,6 +39,7 @@ benchmark-data/
 # Claude Code
 .session-resume/
 docs/stock/
+docs/news.md
 docs/worldcup_prediction.md
 docs/claude-updater/
 
