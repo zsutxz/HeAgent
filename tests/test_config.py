@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from heagent.config import Settings, reset_settings
+from heagent.config import GLOBAL_CONFIG_FILE, Settings, reset_settings
 from typing import Any
 
 
@@ -126,7 +126,7 @@ class TestPrecedence:
         assert s.openai_api_key == "from-system"
 
     def test_system_env_fills_gap_not_in_dotenv(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
-        """.env 未声明的 key，由系统环境变量兑底填充。"""
+        """.env 未声明的 key，由系统环境变量兜底填充。"""
         env_file = tmp_path / ".env"
         env_file.write_text("DEEPSEEK_API_KEY=ds-dotenv\n", encoding="utf-8")
         monkeypatch.setenv("ANTHROPIC_API_KEY", "ant-system")
@@ -388,10 +388,18 @@ class TestGlobalConfig:
         s = Settings(_env_file=[str(nonexistent), str(project_env)])
         assert s.openai_api_key is None
 
-    def test_class_level_env_file_sequence(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Settings 模型的 model_config 中 env_file 为序列 [global, project]。"""
-        assert "env_file" in Settings.model_config
+    def test_class_level_env_file_sequence(self) -> None:
+        """``model_config.env_file`` 为 [global, project] 序列（源码契约）。
+
+        全局层路径在模块导入时固化自 ``GLOBAL_CONFIG_FILE``；运行时 ``model_config`` 可能
+        被 ``conftest`` 隔离 fixture 改写（指向 tmp），故全局层经源码常量断言、结构
+        （长度 2 + 项目 ``.env``）经运行时断言——两者解耦后互不干扰。
+        """
+        # 源码契约：全局层 = ~/.heagent/.env（类级声明来源，未被运行时 fixture 改）
+        assert GLOBAL_CONFIG_FILE.parent.name == ".heagent"
+        assert GLOBAL_CONFIG_FILE.name == ".env"
+
+        # 运行时结构：env_file 是 [全局, 项目] 两元素序列，项目层为 ".env"
         env_files = Settings.model_config["env_file"]
         assert isinstance(env_files, list) and len(env_files) == 2
         assert ".env" in env_files
-        assert any(".heagent" in f for f in env_files)
