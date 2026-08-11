@@ -46,3 +46,4 @@ docs/claude-updater/
 # BMad (bmad-method installer artifacts)
 uv.lock
 _bmad-output/specs/
+.agents/skills/
