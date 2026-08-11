@@ -74,10 +74,11 @@ class Settings(BaseSettings):
     # ---- 框架运行参数 ----
     max_iterations: int = Field(default=50, ge=1)
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
-    # 默认上下文窗口 128k：与 .env.example 文档一致，且保证 window_reset/compressor
-    # 的触发阈值（threshold % of window）在默认配置下可达；1M 默认值会让这两套
-    # 上下文管理机制在实际对话中几乎永不触发（commit 574c2d9 引入的回归）。
-    max_context_tokens: int = Field(default=128000, ge=1)
+    # 默认上下文窗口 512k：与 .env.example 文档一致。注意 window_reset/compressor
+    # 的触发阈值 = threshold % of window，窗口越大触发越晚（0.8 × 512k ≈ 410k）；
+    # 须确认所用模型实际上下文 ≥512k，否则压缩触发前就会先撞上 API 上限报 400。
+    # （历史：574c2d9 曾把默认改为 1M，导致这两套机制在默认配置下几乎永不触发。）
+    max_context_tokens: int = Field(default=512000, ge=1)
     shell_timeout: int = Field(default=120, ge=1)
 
     # ---- 日志参数 ----

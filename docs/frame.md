@@ -507,7 +507,7 @@ HeAgentError (base)
 | `anthropic_api_keys` | "" | Anthropic 多密钥池（逗号分隔） |
 | `default_model` | `gpt-4o` | 默认模型 |
 | `max_iterations` | 50 | Agent 循环最大迭代次数 |
-| `max_context_tokens` | 128000 | 模型上下文窗口大小 |
+| `max_context_tokens` | 512000 | 模型上下文窗口大小 |
 | `compression_threshold` | 0.8 | 上下文压缩触发阈值 |
 | `shell_timeout` | 120 | Shell 命令超时（秒） |
 | `retry_max_attempts` | 3 | 最大重试次数 |
