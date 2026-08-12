@@ -280,6 +280,10 @@ class TestCronSchedulerStop:
         # 孤儿 task 挂了 _retrieve_task_exception done callback（待终态取回异常）
         cb_funcs = [cb[0] if isinstance(cb, tuple) else cb for cb in orphan._callbacks]
         assert _retrieve_task_exception in cb_funcs
+        # 清理挂死 task：吞了首 cancel 后再 hang；二次 cancel 经第二 Event（未被 except 保护）→ 终止
+        orphan.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await orphan
 
     @pytest.mark.asyncio
     async def test_retrieve_task_exception_contract(self) -> None:
