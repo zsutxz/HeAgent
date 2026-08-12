@@ -81,6 +81,7 @@ exceptions  types  config
 - `exceptions.py` 和 `types.py` 是叶子模块，无内部依赖
 - 新增 Provider 或 Tool **禁止**从 `agent/` 导入（已知例外：`builtins/subagent.py` 委派工具需实例化 `SubAgent`，故 `from heagent.agent.sub import ...`；`tools/mcp/*` 严守此规则）
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability/persist），依赖 `types`/`exceptions`/`tools.safety`；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
+- `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `engine.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
 
 ---
 
@@ -472,7 +473,7 @@ compressor 一致。reset 不重置 iteration/accumulated（防绕预算）。`r
 | 组件 | 说明 |
 |------|------|
 | `CronScheduler` | asyncio 后台任务，每 `cron_tick_seconds` 秒检查到期任务 |
-| 手写 cron 解析 | 5-field（分 时 日 月 星期），支持 `*`、`*/N`、具体值、逗号列表 |
+| 手写 cron 解析 | 5-field（分 时 日 月 星期），支持 `*`、`*/N`、范围 `1-5`、步进 `1-30/10`、逗号列表；实现在纯叶子 `cron/expr.py`（`cron_matches`），`scheduler.py` 的 `CronScheduler._matches` 为薄委托（`memory/dream` 经 `cron.expr` 共用，不 reach-through 调度器） |
 | 构造函数注入 | provider + stores，执行时创建独立 AgentLoop |
 
 一次性任务（`recurring=False`）成功后自动删除。

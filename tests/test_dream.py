@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import asyncio
+import contextlib
 import time
 
 import pytest
@@ -473,3 +474,114 @@ async def test_failed_dream_rearms_idle_timer() -> None:
     assert any(e.event_type == "dream_end" and e.details.get("success") is False for e in events), (
         "failed dream should publish dream_end(success=False)"
     )
+
+
+# ── dreaming-defer-cleanup：(a) DAG 解耦 / (b) 孤儿 task 取回 / (c) 取消审计精度 ──
+
+
+def test_dream_decoupled_from_cron_scheduler() -> None:
+    """AC2: memory/dream.py 不再 import CronScheduler（消除 memory→cron.scheduler reach-through）。
+
+    cron 匹配改走纯叶子 heagent.cron.expr.cron_matches；dream 模块命名空间不绑定 CronScheduler。
+    """
+    from heagent.cron.expr import cron_matches  # noqa: F401
+    from heagent.memory import dream as dream_mod
+
+    assert not hasattr(dream_mod, "CronScheduler"), "dream must not import CronScheduler (reach-through smell)"
+
+
+async def test_dream_await_stop_clears_task_and_attaches_callback_on_timeout() -> None:
+    """AC4: DreamScheduler._await_stop 超时分支——清 _task + 挂 _retrieve_task_exception（与 cron 对称）。"""
+    from heagent.memory.dream import _retrieve_task_exception
+
+    settings = Settings(_env_file=None, dream_enabled=True, dream_cron="* * * * *", dream_idle_minutes=0)
+    engine = EngineContainer()
+    scheduler = DreamScheduler(
+        _make_runner(_DoneProvider()),
+        engine=engine,
+        settings=settings,
+        stop_timeout=0.05,
+    )
+
+    # 不响应取消的挂死 task（吞 CancelledError 后再 hang）——模拟 dream 卡在不可中断 await。
+    async def _uncancellable() -> None:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await asyncio.Event().wait()
+
+    hung = asyncio.create_task(_uncancellable())
+    scheduler._task = hung
+    await asyncio.sleep(0.02)  # 让 _uncancellable 进入第一个 Event.wait()（_fut_waiter 就位后再 cancel）
+    await scheduler._await_stop(hung)
+
+    # 超时分支：清 _task
+    assert scheduler._task is None
+    # 孤儿 task 挂了 _retrieve_task_exception done callback
+    cb_funcs = [cb[0] if isinstance(cb, tuple) else cb for cb in hung._callbacks]
+    assert _retrieve_task_exception in cb_funcs
+    # 清理挂死 task
+    hung.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await hung
+
+
+async def test_dream_retrieve_task_exception_contract() -> None:
+    """AC4: dream 侧 _retrieve_task_exception 守卫 cancelled + 取非 None 异常。"""
+    from heagent.memory.dream import _retrieve_task_exception
+
+    async def _raise() -> None:
+        raise RuntimeError("orphan boom")
+
+    t1 = asyncio.create_task(_raise())
+    await asyncio.sleep(0.01)
+    _retrieve_task_exception(t1)  # 取回，不抛
+
+    t2 = asyncio.create_task(asyncio.sleep(0))
+    await asyncio.sleep(0.01)
+    _retrieve_task_exception(t2)  # exc None → noop
+
+    t3 = asyncio.create_task(asyncio.Event().wait())
+    t3.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await t3
+    assert t3.cancelled()
+    _retrieve_task_exception(t3)  # cancelled 守卫 → 不抛 CancelledError
+
+
+async def test_run_dream_internal_cancel_marked() -> None:
+    """AC5: 子任务内部自取消（_running 仍 True）→ dream_end(internal_cancel=True, aborted=False)。"""
+
+    async def _self_cancel_runner(prompt: str) -> DreamResult:
+        raise asyncio.CancelledError()  # 内部自取消
+
+    settings = Settings(_env_file=None, dream_enabled=True, dream_cron="* * * * *", dream_idle_minutes=0)
+    engine = EngineContainer()
+    scheduler = DreamScheduler(_self_cancel_runner, engine=engine, settings=settings)
+    scheduler._running = True  # 模拟 dream 进行中、scheduler 仍 running（非 stop 取消）
+    with contextlib.suppress(asyncio.CancelledError):
+        await scheduler._run_dream("cron")
+    end = [e for e in _dream_events(engine) if e.event_type == "dream_end"]
+    assert end, "internal cancel should publish dream_end"
+    assert end[-1].details.get("internal_cancel") is True
+    assert end[-1].details.get("aborted") is False
+    assert scheduler.dreaming is False  # finally 释放互斥
+
+
+async def test_run_dream_stop_cancel_marked() -> None:
+    """AC5: stop() 取消（_running 已 False）→ dream_end(aborted=True, internal_cancel=False)。"""
+
+    async def _cancel_runner(prompt: str) -> DreamResult:
+        raise asyncio.CancelledError()
+
+    settings = Settings(_env_file=None, dream_enabled=True, dream_cron="* * * * *", dream_idle_minutes=0)
+    engine = EngineContainer()
+    scheduler = DreamScheduler(_cancel_runner, engine=engine, settings=settings)
+    scheduler._running = False  # 模拟 stop() 已置 False
+    with contextlib.suppress(asyncio.CancelledError):
+        await scheduler._run_dream("idle")
+    end = [e for e in _dream_events(engine) if e.event_type == "dream_end"]
+    assert end, "stop cancel should publish dream_end"
+    assert end[-1].details.get("aborted") is True
+    assert end[-1].details.get("internal_cancel") is False
+

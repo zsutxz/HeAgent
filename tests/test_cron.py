@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -251,3 +252,58 @@ class TestCronSchedulerStop:
         assert scheduler._task is not None
         assert scheduler._task.done()
         assert not any("关停超时" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_stop_timeout_clears_task_and_attaches_callback(
+        self, tmp_path: Path
+    ) -> None:
+        """AC4: 超时分支清 _task + 挂 _retrieve_task_exception（dream+cron 对称，此为 cron 侧）。"""
+        from heagent.cron.scheduler import _retrieve_task_exception
+
+        store = JobStore(str(tmp_path / "jobs.json"))
+        scheduler = CronScheduler(store, tick_seconds=60, stop_timeout=0.05)
+
+        async def hanging_check() -> None:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                await asyncio.Event().wait()  # 吞取消 → task 不响应
+
+        scheduler._check_and_execute = hanging_check  # type: ignore[method-assign]
+        await scheduler.start()
+        await asyncio.sleep(0.05)
+        orphan = scheduler._task
+        await asyncio.wait_for(scheduler.stop(), timeout=2.0)
+
+        # 超时分支：清 _task（仅在 pending 分支发生——clean 路径保留 _task，见上一测试）
+        assert scheduler._task is None
+        # 孤儿 task 挂了 _retrieve_task_exception done callback（待终态取回异常）
+        cb_funcs = [cb[0] if isinstance(cb, tuple) else cb for cb in orphan._callbacks]
+        assert _retrieve_task_exception in cb_funcs
+
+    @pytest.mark.asyncio
+    async def test_retrieve_task_exception_contract(self) -> None:
+        """AC4: _retrieve_task_exception 守卫 cancelled + 取非 None 异常（避免 'never retrieved'）。"""
+        from heagent.cron.scheduler import _retrieve_task_exception
+
+        # 异常 task：callback 取回（标记 retrieved），不抛
+        async def _raise() -> None:
+            raise RuntimeError("orphan boom")
+
+        t1 = asyncio.create_task(_raise())
+        await asyncio.sleep(0.01)
+        _retrieve_task_exception(t1)  # 不抛，标记 retrieved
+
+        # 干净 task：exc 为 None → noop
+        t2 = asyncio.create_task(asyncio.sleep(0))
+        await asyncio.sleep(0.01)
+        _retrieve_task_exception(t2)
+
+        # cancelled task：守卫 return（不调 .exception()，避免 CancelledError）
+        t3 = asyncio.create_task(asyncio.Event().wait())
+        t3.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await t3
+        assert t3.cancelled()
+        _retrieve_task_exception(t3)  # 守卫：cancelled → return，不抛
+

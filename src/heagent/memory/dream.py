@@ -42,7 +42,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from heagent.config import Settings, get_settings
-from heagent.cron.scheduler import CronScheduler
+from heagent.cron.expr import cron_matches
 from heagent.engine import EngineContainer
 
 if TYPE_CHECKING:
@@ -58,6 +58,22 @@ _DEFAULT_STOP_TIMEOUT: float = 5.0
 _SESSION_MSG_CHAR_CAP: int = 800
 # 预注入 prompt 中单条 session 摘要的消息条数上限，避免单 session 占满预算。
 _SESSION_MSG_COUNT_CAP: int = 20
+
+
+def _retrieve_task_exception(task: asyncio.Task[None]) -> None:
+    """done callback：取回关停超时后孤儿 task 的异常，避免 asyncio「Task exception was never retrieved」。
+
+    ``_await_stop`` 超时分支放弃等待后，孤儿 task 仍在事件循环中收尾；若其终态带异常
+    （``_tick_loop`` 的 ``except Exception`` 之外的 BaseException 路径），未取回会触发警告。
+    本 callback 在 task 终态被调用：cancelled task 无需 retrieve（且 ``task.exception()``
+    对 cancelled task 会抛 ``CancelledError``，须守卫），其余取非 None 异常记 ERROR 并标记 retrieved。
+    对齐 ``cron/scheduler.py`` 同名 helper（同构预存模式，不跨包共享以免引新边）。
+    """
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("Dream scheduler 关停后的孤儿 task 抛出未处理异常: %r", exc)
 
 
 @dataclass(slots=True)
@@ -110,7 +126,7 @@ class DreamScheduler:
         # dream 参数从 settings 读（构造时快照，运行中不动态变）。
         self._cron_expr: str = self._settings.dream_cron
         # fail-fast：畸形 cron 在构造期暴露，避免 tick 循环每 cron_tick_seconds 秒刷一条 warning
-        # （审查 #4/#5）——5 字段非法会每 tick 刷屏，6 字段（带秒）会被 _matches 静默判 False 无诊断。
+        # （审查 #4/#5）——5 字段非法会每 tick 刷屏，6 字段（带秒）会被 cron_matches 静默判 False 无诊断。
         self._validate_cron_expr(self._cron_expr)
         self._idle_minutes: int = self._settings.dream_idle_minutes
         self._session_lookback: int = self._settings.dream_session_lookback
@@ -188,11 +204,16 @@ class DreamScheduler:
         """带硬上界等待 scheduler task 退出；立即 cancel 后单轮 bounded 收尾，绝不无限阻塞。
 
         对齐 :meth:`CronScheduler._await_stop` 的同构关停立场（立即 cancel + bounded wait +
-        超时记 ERROR 放弃）。
+        超时记 ERROR 放弃）；超时分支另挂 done callback 取回孤儿 task 异常（避免「Task exception
+        was never retrieved」）。
         """
         task.cancel()
         _, pending = await asyncio.wait({task}, timeout=self._stop_timeout)
         if pending:
+            # 孤儿 task：已 cancel 但窗口内未退出。挂 done callback 取回 exception（标记 retrieved），
+            # 避免「Task exception was never retrieved」；清 _task 释放引用，余下收尾交事件循环/GC/OS 进程退出。
+            task.add_done_callback(_retrieve_task_exception)
+            self._task = None
             logger.error(
                 "Dream scheduler 关停超时（%ss），task 未退出，放弃等待",
                 self._stop_timeout,
@@ -216,7 +237,7 @@ class DreamScheduler:
     async def _check_and_dream(self) -> None:
         """检查双触发条件，任一命中且当前无活跃 dream 则起一次 dream。
 
-        - cron 触发：命中 ``_cron_expr``（经 :meth:`CronScheduler._matches` 静态匹配）。
+        - cron 触发：命中 ``_cron_expr``（经 :func:`heagent.cron.expr.cron_matches` 匹配）。
         - idle 触发：``_idle_minutes > 0`` 且距 ``_last_active_ts`` 超过阈值。
         - 互斥：``_dreaming`` 为真则跳过（AC3）。
         - cron / idle 同时命中时优先 cron（cron 是定时意图，idle 是机会主义）。
@@ -225,7 +246,7 @@ class DreamScheduler:
             return  # AC3：互斥，dream 进行中不起第二个。
         now = datetime.now()
         # _cron_expr 已在构造期 fail-fast 校验（_validate_cron_expr），此处不再捕获 ValueError。
-        cron_match = CronScheduler._matches(self._cron_expr, now)
+        cron_match = cron_matches(self._cron_expr, now)
         idle_match = (
             self._idle_minutes > 0
             and (time.monotonic() - self._last_active_ts) >= self._idle_minutes * 60
@@ -269,10 +290,17 @@ class DreamScheduler:
                 result.iterations,
             )
         except asyncio.CancelledError:
-            # stop() 取消时：发布 dream_end(aborted)，然后让 CancelledError 传播至 task 边界。
+            # 区分 stop() 取消（_running 已 False）vs 子任务内部自取消（_running 仍 True）——审计精度。
+            # stop() 首行置 _running=False 后才 cancel，故 stop 取消见 _running=False；内部自取消仍 True。
+            # 任一情况都让 CancelledError 传播至 task 边界（取消信号优先，不改既有传播契约）。
             self._engine.events.publish(
                 "dream_end",
-                details={"trigger": trigger, "success": False, "aborted": True},
+                details={
+                    "trigger": trigger,
+                    "success": False,
+                    "aborted": not self._running,
+                    "internal_cancel": self._running,
+                },
             )
             raise
         except Exception as exc:
@@ -356,12 +384,12 @@ class DreamScheduler:
         """fail-fast 校验 ``dream_cron``：必须 5 字段且各字段合法。
 
         避免畸形表达式在 tick 循环里每 ``cron_tick_seconds`` 秒刷一条 warning（默认 ~1440/天），
-        或 6 字段（带秒）被 :meth:`CronScheduler._matches` 静默判 False 而无诊断（审查 #4/#5）。
+        或 6 字段（带秒）被 :func:`heagent.cron.expr.cron_matches` 静默判 False 而无诊断（审查 #4/#5）。
         """
         parts = expr.split()
         if len(parts) != 5:
             raise ValueError(f"dream_cron 必须为 5 字段标准 cron 表达式（got {expr!r}）")
         try:
-            CronScheduler._matches(expr, datetime.now())
+            cron_matches(expr, datetime.now())
         except ValueError as exc:
             raise ValueError(f"dream_cron {expr!r} 无效：{exc}") from exc

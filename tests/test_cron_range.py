@@ -4,7 +4,8 @@ from datetime import datetime
 
 import pytest
 
-from heagent.cron.scheduler import CronScheduler, _parse_field
+from heagent.cron.expr import _parse_field, cron_matches
+from heagent.cron.scheduler import CronScheduler
 
 
 class TestCronRangeExpressions:
@@ -201,3 +202,29 @@ class TestCronMatchesWithRanges:
         expr = "0 0 * * */2"
         dt = datetime(2026, 7, 26, 0, 0)  # 周日
         assert CronScheduler._matches(expr, dt) is True
+
+
+class TestCronExprModule:
+    """AC1: cron.expr 纯叶子独立可用（解耦 memory/dream reach-through）。"""
+
+    def test_cron_matches_from_expr_module(self) -> None:
+        """cron_matches 经 heagent.cron.expr 直接调用，与 CronScheduler._matches 薄委托一致。"""
+        from heagent.cron.expr import cron_matches
+
+        dt = datetime(2026, 6, 8, 14, 30, 0)
+        assert cron_matches("* * * * *", dt) is True
+        assert cron_matches("*/5 * * * *", dt) is True
+        assert cron_matches("*/7 * * * *", dt) is False
+        # 薄委托零回归：两者结果一致
+        assert cron_matches("*/5 * * * *", dt) == CronScheduler._matches("*/5 * * * *", dt)
+
+    def test_expr_module_is_pure_leaf(self) -> None:
+        """约束：cron.expr 零 heagent 导入（纯叶子，可被任意上层依赖而不引横向耦合）。"""
+        import inspect
+
+        from heagent.cron import expr
+
+        src = inspect.getsource(expr)
+        assert "import heagent" not in src, "cron.expr must not import heagent (pure leaf)"
+        assert "from heagent" not in src, "cron.expr must not import heagent (pure leaf)"
+

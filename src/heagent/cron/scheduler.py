@@ -8,6 +8,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from heagent.cron.expr import cron_matches
 from heagent.engine import EngineContainer
 
 if TYPE_CHECKING:
@@ -84,12 +85,17 @@ class CronScheduler:
         graceful 窗口等不到自然退出反增延迟；与 MCP ``_await_shutdown`` 的 graceful 优先两轮不同——
         两者核心立场一致：关停必须有上界，解按场景适配）。``asyncio.wait({task}, timeout=)`` 超时
         不自动 cancel、不传播 task 内异常（含 ``CancelledError``），task 响应取消则一个 tick 内
-        done、wait 立即返回；挂死则 ``stop_timeout`` 后返回 pending → 记 ERROR 放弃（task 已 cancel，
-        余下收尾交 GC / OS 进程退出兜底）。
+        done、wait 立即返回；挂死则 ``stop_timeout`` 后返回 pending → 记 ERROR 放弃（task 已 cancel），
+        并挂 done callback（``_retrieve_task_exception``）取回孤儿 task 终态异常（避免「Task exception
+        was never retrieved」），清 ``_task`` 释放引用；余下收尾交事件循环 / OS 进程退出兜底。
         """
         task.cancel()
         _, pending = await asyncio.wait({task}, timeout=self._stop_timeout)
         if pending:
+            # 孤儿 task：已 cancel 但窗口内未退出。挂 done callback 取回 exception（标记 retrieved），
+            # 避免「Task exception was never retrieved」；清 _task 释放引用，余下收尾交事件循环/GC/OS 进程退出。
+            task.add_done_callback(_retrieve_task_exception)
+            self._task = None
             logger.error(
                 "Cron scheduler 关停超时（%ss），task 未退出，放弃等待",
                 self._stop_timeout,
@@ -193,119 +199,25 @@ class CronScheduler:
 
     @staticmethod
     def _matches(cron_expr: str, dt: datetime) -> bool:
-        """Evaluate a 5-field cron expression with range/step support (V2)."""
-        parts = cron_expr.strip().split()
-        if len(parts) != 5:
-            return False
+        """Evaluate a 5-field cron expression（薄委托 :func:`heagent.cron.expr.cron_matches`）。
 
-        # weekday：标准 cron 中 Sunday 同时用 0 和 7 表示，此处映射到 0；
-        # _field_matches 内部对 weekday 字段 (max_val=7) 统一做 7→0 规范化。
-        cron_weekday = (dt.weekday() + 1) % 7  # Monday=1...Sunday=0
-        cron_values = (dt.minute, dt.hour, dt.day, dt.month, cron_weekday)
-        # 每个字段的合法范围（用于解析范围表达式）
-        field_ranges = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))
-        return all(
-            _field_matches(expr, value, min_val=rng[0], max_val=rng[1])
-            for expr, value, rng in zip(parts, cron_values, field_ranges, strict=True)
-        )
+        实现已抽到纯叶子 :mod:`heagent.cron.expr`（解耦 ``memory/dream`` 横向 reach-through）。
+        保留此静态方法以维持既有 API 面（``test_cron.py`` + 内部 ``self._matches`` 调用），
+        零行为变更。
+        """
+        return cron_matches(cron_expr, dt)
 
 
-def _field_matches(expr: str, value: int, *, min_val: int = 0, max_val: int = 59) -> bool:
-    """Return whether one cron field matches one numeric value.
+def _retrieve_task_exception(task: asyncio.Task[None]) -> None:
+    """done callback：取回关停超时后孤儿 task 的异常，避免 asyncio「Task exception was never retrieved」。
 
-    V2 扩展：支持范围表达式（``1-5``）和步进组合（``*/15`` / ``1-30/10``）。
-    内部走 ``_parse_field`` 统一解析 → 查值是否在展开列表中。
-
-    P1-12 扩展修复：对 weekday 字段 (max_val==7) 统一把 cron ``"7"``（周日）
-    映射到内部值 0（周日），覆盖单值 ``"7"``、范围 ``"5-7"``、列表 ``"1,3,7"``
-    等全部语法。原修复仅覆盖 ``expr=="7"`` 的精确匹配，范围/列表中的 7 会漏判周日。
+    ``_await_stop`` 超时分支放弃等待后，孤儿 task 仍在事件循环中收尾；若其终态带异常
+    （``_tick_loop`` 的 ``except Exception`` 之外的 BaseException 路径），未取回会触发警告。
+    本 callback 在 task 终态被调用：cancelled task 无需 retrieve（且 ``task.exception()``
+    对 cancelled task 会抛 ``CancelledError``，须守卫），其余取非 None 异常记 ERROR 并标记 retrieved。
     """
-    values = _parse_field(expr, min_val=min_val, max_val=max_val)
-    if max_val == 7:
-        values = [0 if v == 7 else v for v in values]
-    return value in values
-
-
-def _parse_field(raw: str, *, min_val: int = 0, max_val: int = 59) -> list[int]:
-    """统一解析 cron 字段为展开数值列表（V2 新增）。
-
-    支持的语法：
-    - ``*`` → [min_val, ..., max_val]
-    - 单个数值 ``"5"`` → [5]
-    - 逗号列表 ``"1,3,5"`` → [1, 3, 5]
-    - 范围 ``"1-5"`` → [1, 2, 3, 4, 5]
-    - 步进 ``"*/15"`` → 从 min_val 开始每隔 step 的值
-    - 范围+步进 ``"1-30/10"`` → [1, 11, 21]
-    """
-    raw = raw.strip()
-    result: list[int] = []
-
-    for part in raw.split(","):
-        part = part.strip()
-        if not part:
-            continue
-
-        # 范围+步进: "1-30/10"
-        if "/" in part and "-" in part:
-            range_part, step_str = part.split("/", 1)
-            start_str, end_str = range_part.split("-", 1)
-            start, end, step = _validate_range_parts(start_str, end_str, step_str, min_val, max_val)
-            result.extend(range(start, end + 1, step))
-
-        # 纯步进: "*/15"
-        elif part.startswith("*/"):
-            step_str = part[2:]
-            if not step_str or not step_str.isdigit():
-                raise ValueError(f"Invalid step in cron field: {part!r}")
-            step = int(step_str)
-            if step <= 0:
-                raise ValueError(f"Cron step must be positive: {step}")
-            result.extend(range(min_val, max_val + 1, step))
-
-        # 纯范围: "1-5"
-        elif "-" in part:
-            start_str, end_str = part.split("-", 1)
-            start, end = _parse_range_bounds(start_str, end_str, min_val, max_val)
-            result.extend(range(start, end + 1))
-
-        # 通配符 "*"
-        elif part == "*":
-            result.extend(range(min_val, max_val + 1))
-
-        # 单个数值 "5"
-        elif part.isdigit():
-            v = int(part)
-            if v < min_val or v > max_val:
-                raise ValueError(f"Cron value {v} out of range [{min_val}, {max_val}]")
-            result.append(v)
-
-        else:
-            raise ValueError(f"Invalid cron field expression: {part!r}")
-
-    return sorted(set(result))
-
-
-def _parse_range_bounds(start_str: str, end_str: str, min_val: int, max_val: int) -> tuple[int, int]:
-    """解析并校验范围边界。"""
-    if not start_str.isdigit() or not end_str.isdigit():
-        raise ValueError(f"Invalid cron range: {start_str}-{end_str}")
-    start = int(start_str)
-    end = int(end_str)
-    if start < min_val or end > max_val:
-        raise ValueError(f"Cron range {start}-{end} out of [{min_val}, {max_val}]")
-    if start > end:
-        raise ValueError(f"Cron range start {start} > end {end}")
-    return start, end
-
-
-def _validate_range_parts(
-    start_str: str, end_str: str, step_str: str, min_val: int, max_val: int
-) -> tuple[int, int, int]:
-    """解析并校验范围+步进参数。"""
-    start, end = _parse_range_bounds(start_str, end_str, min_val, max_val)
-    if not step_str.isdigit():
-        raise ValueError(f"Invalid cron step: {step_str!r}")
-    step = int(step_str)
-    if step <= 0:
-        raise ValueError(f"Cron step must be positive: {step}")
-    return start, end, step
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.error("Cron scheduler 关停后的孤儿 task 抛出未处理异常: %r", exc)
