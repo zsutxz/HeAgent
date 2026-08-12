@@ -442,6 +442,22 @@ compressor 一致。reset 不重置 iteration/accumulated（防绕预算）。`r
 
 两级 SOUL.md 加载：全局 `~/.heagent/SOUL.md` + 项目 `.heagent/SOUL.md`。项目级存在时覆盖全局级，不做合并。
 
+#### dream.py — 离线记忆巩固调度器（Dreaming 模式，epic 外增量）
+
+后台 asyncio 调度器，到点起角色化 `SubAgent(role="dreamer")` 对近期 session 历史 + 记忆库做巩固（去重 / 提炼 / 查证 / 归档），经 memory 工具回写四库，下个会话 `_build_system()` 自然注入。tick 逻辑**模仿而非塞进 `CronScheduler`**（dream 不进 `JobStore`、不是用户 prompt、有专属巩固流程；两者可并存于交互模式后台）。
+
+| 组件 | 说明 |
+|------|------|
+| `DreamScheduler` | 双触发共用 tick（每 `cron_tick_seconds` 秒）：cron 时刻命中 + idle 超时（距上次 run ≥ `dream_idle_minutes`）；`_dreaming` 互斥（同时最多一个 dream）；`stop()` 带硬上界（对齐 `CronScheduler._await_stop`）；`__init__` fail-fast 校验 `dream_cron` |
+| `DreamRunner` | agent 层注入的执行协议（`prompt → DreamResult`）；dreamer SubAgent 由 `cli.py` 组合根构造注入（`memory/` **不导入 `agent/`**，DAG 合规——与 `CronScheduler`+`JobRunner` 同构） |
+| idle 计时 | 经 `EventBus` 订阅 `run_completed` 更新 `last_active_ts`（不改 REPL 同步 `input()`）；`_run_dream` finally 兜底重置（防失败/取消 dream 不发 `run_completed` 致每 tick 重燃） |
+| session 预注入 | `SessionStore.recent_session_ids()` 按 timestamp 降序取最近 N，截断拼进 prompt（dreamer **不持 `file_read`**，最小权限） |
+| `dreamer` 角色 | `RoleSpec` allowed/blocked 双层（见 `engine/roles.py`）；`dream_enabled` 默认 `False`（opt-in） |
+
+事件：`dream_start` / `dream_end`（trigger / success / iterations / run_id）经 `EventBus` 发布，`LoggingObserver` 落日志。
+
+⚠ **安全立场**（与文首声明一致，诚实不造假象）：dreaming = 无人监督 + 联网（`web_fetch`）+ 改持久记忆，比交互式更危险——被污染网页可经 prompt injection 跨会话污染记忆库。`PolicyEngine`/`RoleSpec` 工具白名单均**非真正安全边界**（defense-in-depth 标记/拦截）；`web_fetch` 返回当前**不经 `guard_content`**（仅 MCP 工具经 `bridge_result`，端到端接入 deferred，见 `deferred-work.md`）。须 OS 级沙箱兜底；OS 沙箱就绪后 dreamer 须迁移进沙箱。
+
 ### 4.7 Cron 调度 (`cron/`)
 
 #### jobs.py — 任务模型与持久化
@@ -520,6 +536,11 @@ HeAgentError (base)
 | `skill_curator_stale_days` | 30 | 技能过期天数 |
 | `cron_enabled` | True | 是否启用 cron 调度 |
 | `cron_tick_seconds` | 60 | 调度器检查间隔（秒） |
+| `dream_enabled` | False | 是否启用 dreaming（离线记忆巩固，opt-in；无人监督后台跑+联网+改持久记忆） |
+| `dream_cron` | `0 3 * * *` | dream cron 触发表达式（构造期 fail-fast 校验，须 5 字段） |
+| `dream_idle_minutes` | 30 | dream idle 触发阈值（分钟，距上次 run 结束；0=禁用 idle 触发） |
+| `dream_max_iterations` | 20 | dreamer SubAgent 独立迭代预算（不复用全局 `max_iterations`） |
+| `dream_session_lookback` | 5 | 预加载近期 session 个数（按 timestamp 降序） |
 | `mcp_enabled` | True | 是否启用 MCP server 连接（门控，False 则跳过加载） |
 | `mcp_config_path` | `.mcp.json` | MCP server 声明式配置文件路径 |
 
@@ -548,7 +569,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `container.py` | `EngineContainer` — DI 容器，`default(workspace_root=)` 装配全部服务 |
 | `context.py` | `RunContext`（run_id/session_id/parent_run_id/workspace_root/iteration/metadata）、`RunStatus` |
 | `policy.py` | `PolicyEngine` — 准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
-| `roles.py` | `RoleSpec` + 内置角色（planner/coder/tester/supervisor），`SubAgent` 构建角色专属 `PolicyEngine` |
+| `roles.py` | `RoleSpec` + 内置角色（planner/coder/tester/supervisor/dreamer），`SubAgent` 构建角色专属 `PolicyEngine` |
 | `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端 |
 | `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合 |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入 |
@@ -575,6 +596,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | 流式 tool_calls 回退 | `run_stream()` 流式模式不返回 `tool_calls`，命中时回退 `send()` 重取（已知设计权衡） |
 | MCP / engine sandbox 安全边界 | `SafetyGuard` / `PolicyEngine` / `FirejailBackend` / MCP 围栏均非真正安全边界，须 OS 级沙箱兜底（详见 CLAUDE.md 安全声明） |
 | 用户可配置 MCP 签名入口 | 返回内容启发式围栏仅内置规则集，用户自定义签名 deferred |
+| Dreaming 联网注入围栏 | `web_fetch` 返回路径未接 `guard_content`（仅 MCP 工具经 `bridge_result`），dreamer 联网结果无注入围栏——端到端接入 deferred（独立 spec）；dreamer 须 OS 级沙箱兜底（见 4.6 dream.py） |
 
 ---
 
@@ -638,7 +660,8 @@ src/heagent/
 │   ├── facts.py             # 事实存储 + 去重
 │   ├── skills.py            # 技能存储（HermesAgent 目录结构）
 │   ├── profile.py           # 用户画像
-│   └── soul.py              # 人格系统（全局/项目两级）
+│   ├── soul.py              # 人格系统（全局/项目两级）
+│   └── dream.py             # 离线记忆巩固调度器（Dreaming 模式）
 │
 ├── engine/                  # 运行时引擎（P0）
 │   ├── container.py         # EngineContainer（DI）
