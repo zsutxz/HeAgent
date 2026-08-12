@@ -67,6 +67,16 @@ def _print_usage(usage: TokenUsage | None) -> None:
     )
 
 
+def _print_stream_event(event: Any) -> None:
+    """Render one streaming event from ``AgentLoop.run_stream`` to the terminal."""
+    if event.type == "text":
+        click.echo(event.text, nl=False)
+    elif event.type == "tool_call":
+        click.echo(f"\n[calling {event.tool_name}...]", nl=False)
+    elif event.type == "tool_result":
+        click.echo(" [done]", nl=False)
+
+
 def _format_tokens_k(n: int) -> str:
     """Format token count with K/M suffix (e.g. 1234 -> '1.2K', 128000 -> '128K', 1000000 -> '1M')."""
     if n < 1000:
@@ -282,12 +292,20 @@ def _build_loop(
     session: SessionStore | None = None,
     engine: EngineContainer | None = None,
     sandbox_backend: str | None = None,
+    skills: SkillStore | None = None,
+    facts: FactStore | None = None,
+    profile: ProfileStore | None = None,
+    soul: SoulStore | None = None,
 ) -> tuple[AgentLoop, CronScheduler | None]:
-    """Build the loop runtime and optional cron scheduler."""
-    skills = SkillStore()
-    facts = FactStore()
-    profile = ProfileStore()
-    soul = _build_soul(soul_path)
+    """Build the loop runtime and optional cron scheduler.
+
+    可选的预构建记忆存储（``skills``/``facts``/``profile``/``soul``）允许调用方与
+    后台调度器（如 DreamScheduler）共享同一份存储实例；缺省时各自新建。
+    """
+    skills = skills or SkillStore()
+    facts = facts or FactStore()
+    profile = profile or ProfileStore()
+    soul = soul or _build_soul(soul_path)
     cron_store = JobStore() if settings.cron_enabled else None
     compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
     engine = engine or EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
@@ -368,6 +386,62 @@ async def _run_single(
             click.echo(f"[error] {exc.message}", err=True)
 
 
+def _build_dream_scheduler(
+    settings: Settings,
+    provider: BaseProvider,
+    engine: EngineContainer,
+    session: SessionStore,
+    skills: SkillStore,
+    facts: FactStore,
+    profile: ProfileStore,
+    soul: SoulStore | None,
+) -> Any | None:
+    """Construct DreamScheduler when dream_enabled (opt-in); otherwise return None.
+
+    dreaming = 无人监督后台跑 + 联网 + 改持久记忆；PolicyEngine/role/web 围栏均非真正安全边界，
+    须 OS 级沙箱兜底。``dream_enabled`` 默认 False。
+
+    DAG 合规：dreamer SubAgent 的构造在此（cli.py 组合根）经 dream_runner 闭包注入，
+    使 ``memory/dream.py`` 无需导入 ``agent/``。
+    """
+    if not settings.dream_enabled:
+        return None
+    from heagent.agent.sub import SubAgent  # noqa: PLC0415
+    from heagent.engine.roles import get_role  # noqa: PLC0415
+    from heagent.memory.dream import DreamResult, DreamScheduler  # noqa: PLC0415
+
+    context_dir = os.getcwd()
+    role = get_role("dreamer")
+    max_iterations = settings.dream_max_iterations
+
+    async def _dream_runner(prompt: str) -> DreamResult:  # noqa: ANN202
+        agent = SubAgent(
+            provider,
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            soul=soul,
+            context_dir=context_dir,
+            engine=engine,
+            role=role,
+            max_iterations=max_iterations,
+        )
+        result = await agent.run(prompt)
+        return DreamResult(
+            success=result.success,
+            iterations=result.iterations,
+            output=result.output,
+            run_id=result.run_id,
+        )
+
+    return DreamScheduler(
+        _dream_runner,
+        engine=engine,
+        session_store=session,
+        settings=settings,
+    )
+
+
 async def _run_chat(
     provider: BaseProvider,
     system: str | None,
@@ -383,6 +457,11 @@ async def _run_chat(
 
     async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
         session = SessionStore()
+        # 预构建记忆存储，与 DreamScheduler 共享同一份实例（dream 回写即主 loop 可见）。
+        skills = SkillStore()
+        facts = FactStore()
+        profile = ProfileStore()
+        soul = _build_soul(soul_path)
         loop, scheduler = _build_loop(
             settings,
             provider,
@@ -391,12 +470,19 @@ async def _run_chat(
             session=session,
             engine=engine,
             sandbox_backend=sandbox_backend,
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            soul=soul,
         )
+        dream_scheduler = _build_dream_scheduler(settings, provider, engine, session, skills, facts, profile, soul)
         click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
         try:
             if scheduler:
                 await scheduler.start()
+            if dream_scheduler:
+                await dream_scheduler.start()
             while True:
                 try:
                     status = _format_status(loop)
@@ -415,12 +501,7 @@ async def _run_chat(
 
                 try:
                     async for event in loop.run_stream(user_input, system=system, session_id=session_id):
-                        if event.type == "text":
-                            click.echo(event.text, nl=False)
-                        elif event.type == "tool_call":
-                            click.echo(f"\n[calling {event.tool_name}...]", nl=False)
-                        elif event.type == "tool_result":
-                            click.echo(" [done]", nl=False)
+                        _print_stream_event(event)
                     click.echo("\n")
                     _print_usage(loop.last_usage)
                 except BudgetExceeded as exc:
@@ -428,6 +509,8 @@ async def _run_chat(
                 except HeAgentError as exc:
                     click.echo(f"[error] {exc.message}", err=True)
         finally:
+            if dream_scheduler:
+                await dream_scheduler.stop()
             if scheduler:
                 await scheduler.stop()
 

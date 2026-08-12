@@ -105,3 +105,23 @@ Findings deferred during quick-dev (out of the originating story's frozen scope,
 **Severity:** LOW–MED（关停挂死，与 MCP 原病同档；触发需「job 执行中遇不可中断 await」非默认路径；pre-existing）。
 **Suggested fix (future story):** `stop()` 的裸 `await` 包硬上界：`asyncio.wait({task}, timeout=N)`，超时记 ERROR 放弃（task 已 cancel）。
 **Resolution（2026-07-11）：** 已修复——经 spec `spec-cron-stop-timeout.md`。`stop()` 抽出 `_await_stop(task)` helper：保留原「立即 cancel」语义（cron 后台调度停止求快，`_tick_loop` 多在 `asyncio.sleep(tick_seconds)`，graceful 窗口等不到自然退出反增延迟；**与 MCP `_await_shutdown` 的 graceful 优先两轮不同——两者核心立场一致：关停必须有上界，解按场景适配**），`task.cancel()` 后单轮 `asyncio.wait({task}, timeout=stop_timeout)` 收尾——task 响应取消则一个 tick 内 done、wait 立即返回，挂死则 `stop_timeout` 后记 ERROR 放弃。**最坏 `stop_timeout` 必返回，绝不无限阻塞**（核心不变量 AC5）。`stop_timeout` 构造参数（默认 `_DEFAULT_STOP_TIMEOUT=5.0`，对齐 MCP `_DEFAULT_SHUTDOWN_TIMEOUT` / sandbox `_REAP_WAIT_TIMEOUT`），`<=0` 构造期 raise（对齐 MCP `shutdown_timeout` 校验，防 wait 立即返回误放弃）。移除原 `contextlib.suppress(asyncio.CancelledError)`（`asyncio.wait` 不传播 task 内异常，比原 suppress 更宽）+ 不再需要的 `import contextlib`。`_tick_loop`/`_check_and_execute`/`_execute_job` 零改动（cancel 经 asyncio 注入）。回归测试 `tests/test_cron.py` 新增 3 例（参数校验 / hang→bounded 用 `asyncio.wait_for(body, 2.0)` 挂死探测器 / clean 零回归 sleep 路径不被误判）。pytest 534 全绿（531 + 3 新）、ruff/mypy 干净。此项关闭——**三处同构（sandbox D-state reap / MCP transport close / cron job 执行）关停硬上界补齐完毕**。
+
+---
+
+## 2026-08-11 · Dreaming AC6 端到端：web_fetch 返回路径未接 guard_content
+
+- source_spec: `_bmad-output/specs/spec-dreaming-memory-consolidation.md`
+- summary: dreamer 角色联网（`web_fetch`）返回内容当前不经 `guard_content` 注入围栏——仅 MCP 工具返回经 `mapping.bridge_result` 走围栏，内置 `web_fetch`（`tools/builtins/web.py`）handler 返回路径未接入；dreamer 联网结果直接进 LLM 上下文，prompt injection 无围栏。
+- evidence: dreaming spec（AC6）原假设「dreamer 调 `web_fetch` → `guard_content` 标记透传」，step-03 实现后发现 `web.py` handler 返回未调 `guard_content`，端到端不成立。AC6 经 human renegotiate 降级为「`guard_content` 函数级复用（零回归）」，端到端接入 defer。spec 立场段原把「web 返回启发式标记」列为缓解，与实现矛盾——已诚实化（代码注释 `dream.py` / `roles.py` + spec I/O Matrix / Design Notes / Change Log）。
+- severity: MED（dreamer 无人监督联网 + 改持久记忆，注入可跨会话污染；但 `dream_enabled` 默认 False，opt-in）。
+- suggested fix (future story): `web.py` `web_fetch` handler 返回前调 `guard_content(content)`（与 MCP `bridge_result` 对齐），命中注入签名则加 warning 标记透传（`is_error=False`，与 MCP 同语义）。此改动影响所有 `web_fetch` 调用（内置工具信任模型变化），宜独立 spec 评估（非 dreaming scope）。
+
+---
+
+## 2026-08-12 · Dreaming 审查 defer（step-04 对抗审查，3 个 low，非阻断）
+
+- source_spec: `_bmad-output/specs/spec-dreaming-memory-consolidation.md`
+- summary: step-04 双 hunter 对抗审查发现的 3 个低优项，非本 story 阻断缺陷，defer 待后续：(a) **`memory/dream.py` → `cron.scheduler` 横向 DAG 边**——仅复用 `CronScheduler._matches` 静态 cron 解析器做 fail-fast 校验 + tick 匹配；非硬约束违反（仅 `agent/` 导入被禁、无环），但 CLAUDE.md DAG 图未画 `memory → cron` 边（coupling smell）；(b) **`DreamScheduler._await_stop` 超时分支孤儿 task**——`if pending:` 仅记 ERROR log，未置 `self._task = None` / 未取回 exception，task 退出可能触发 "Task exception was never retrieved"（继承自 `CronScheduler._await_stop` 同构模式）；(c) **`_run_dream` CancelledError 分支总标 `aborted=True`**——无法区分 `stop()` 取消 vs 子任务内部自取消（审计精度）。
+- evidence: 两审查子代理（blind hunter / edge case hunter）独立发现并交叉确认。(a) `dream.py` `from heagent.cron.scheduler import CronScheduler`；CLAUDE.md DAG 图仅画 `memory → engine`。(b) `_await_stop` 超时分支无 task 清理（与 `cron/scheduler.py` 同构预存模式）。(c) `_run_dream` CancelledError handler 无条件 `aborted=True`。三者均 low：不影响 dreaming 核心正确性 / 安全立场 / 关停硬上界，修复需跨模块重构或改预存模式。
+- severity: LOW
+- suggested fix (future story): (a) 抽 `CronScheduler._matches` / `_parse_field` 到共享 util（如 `tools/cron_expr.py`），`memory/dream.py` 与 `cron/scheduler.py` 共用，消除横向边——应连 cron 侧一起改（独立 story）。(b) `_await_stop` 超时分支补 `self._task = None` + `task.add_done_callback(...)` 取回 exception（连 `CronScheduler._await_stop` 一起修，预存模式统一）。(c) CancelledError handler 检查 `self._running`：仍 running 则标 `internal_cancel`，否则 `aborted`（区分 stop 取消）。

@@ -82,10 +82,31 @@ class SessionStore:
         return [Message(**m) for m in data.get("messages", [])]
 
     def list_sessions(self) -> list[str]:
-        """返回所有已保存的会话 ID（按名称排序）。"""
+        """返回所有已保存的会话 ID（按文件名字母序）。"""
         if not self._base.exists():
             return []
         return sorted(p.stem for p in self._base.glob("*.json"))
+
+    def recent_session_ids(self, limit: int) -> list[str]:
+        """返回最近 ``limit`` 个会话 ID（按 session 落盘 ``timestamp`` 降序）。
+
+        :meth:`list_sessions` 按文件名字母序、不反映时间先后（session_id 是随机 hex）；
+        DreamScheduler 需按真实时间取近期 session 做巩固，故按 ``timestamp`` 降序。
+        损坏 / 缺 timestamp 的条目按 0.0 排序（沉底，不剔除）。
+        """
+        if not self._base.exists() or limit <= 0:
+            return []
+        entries: list[tuple[float, str]] = []
+        for p in self._base.glob("*.json"):
+            ts = 0.0
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                ts = float(data.get("timestamp") or 0.0)
+            except (json.JSONDecodeError, OSError, TypeError, ValueError):
+                pass  # 损坏文件按 ts=0.0 排序
+            entries.append((ts, p.stem))
+        entries.sort(key=lambda e: e[0], reverse=True)
+        return [sid for _, sid in entries[:limit]]
 
     def delete(self, session_id: str) -> bool:
         """删除指定会话文件。返回是否成功删除。"""

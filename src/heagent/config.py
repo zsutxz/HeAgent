@@ -108,6 +108,15 @@ class Settings(BaseSettings):
     cron_enabled: bool = Field(default=True)
     cron_tick_seconds: int = Field(default=60, ge=10)
 
+    # ---- Dreaming（离线记忆巩固）参数 ----
+    # dream_enabled 默认 False：dreaming = 无人监督后台跑 + 联网 + 改持久记忆，opt-in。
+    # 非安全边界（PolicyEngine/role/web 围栏均非真边界，须 OS 级沙箱兜底）。
+    dream_enabled: bool = Field(default=False)
+    dream_cron: str = Field(default="0 3 * * *")  # cron 触发表达式（凌晨 3 点低峰）
+    dream_idle_minutes: int = Field(default=30, ge=0)  # idle 触发阈值（分钟）；0 = 禁用 idle 触发
+    dream_max_iterations: int = Field(default=20, ge=1)  # dreamer SubAgent 独立预算（不复用全局）
+    dream_session_lookback: int = Field(default=5, ge=1)  # 预加载近期 session 个数
+
     # ---- Ledger 自动清理参数 ----
     # ledger 幂等记录（.heagent/ledger/）超过此天数在 run 启动时自动删除；0=禁用清理。
     ledger_retention_days: int = Field(default=7, ge=0)
