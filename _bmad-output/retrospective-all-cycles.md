@@ -88,7 +88,7 @@
 | 1 | **安全边界诚实度** | SafetyGuard/engine sandbox 均非真边界但命名像边界——命名/文档应降低「安全」期望 |
 | 2 | **回顾不及时** | 仅 epic-13 做过实时回顾，其余事后补——epic 完成即回顾 |
 | 3 | **静默降级** | firejail 不可用仪 warn 不中断——用户可能误以为沙箱已开。应加首次加载提示或 CLI banner 标注 |
-| 4 | **编号冲突** | 两份 Epic 14 (mcp-v2-upgrade 与 mcp-client-v2) 同名异义——后续跨周期应统一编号空间 |
+| 4 | **编号冲突** | 两份 Epic 14 (mcp 阶段二与阶段三，原 mcp-v2-upgrade 与 mcp-client-v2) 同名异义——后续跨周期应统一编号空间 |
 | 5 | **复杂度接受** | agent/loop.py C901 超标不拆——长期应拆分 |
 | 6 | **可观测缺口** | S4-1 emit 事件跳过、benchmark 数据不入库——历史趋势和沙箱执行轨迹不可追溯 |
 | 7 | **内置预设缺失** | sandbox profiles 无开箱即用预设、cron 无常见模板——降低用户上手成本 |
@@ -115,7 +115,7 @@
 本文标记所有周期回顾为 `done`。sprint-status.yaml 中所有 `epic-N-retrospective` 均更新为 `done`。
 
 回顾产物索引：
-- Epic 13 正式回顾: `_bmad-output/mcp-client/retrospective-epic-13.md`
+- Epic 13 正式回顾: `_bmad-output/mcp/retrospective-epic-13.md`（2026-08-18 MCP 三目录合并后路径）
 - Engine P5 回顾: `_bmad-output/patches/retrospective-engine-p5.md`
 - P0 技术债回顾: `_bmad-output/patches/retrospective-p0-tech-debt.md`
 - **全周期综合回顾 (本文)**: `_bmad-output/retrospective-all-cycles.md`

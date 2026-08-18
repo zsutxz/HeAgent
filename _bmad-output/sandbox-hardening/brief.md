@@ -4,8 +4,8 @@ status: draft
 cycle: sandbox-hardening
 preceded_by:
   - _bmad-output/baseline/（epics 1-10，MVP + 自学习闭环）
-  - _bmad-output/mcp-client/（epics 11-13，MCP Tools-only）
-  - _bmad-output/mcp-client-v2/（epics 14-17，写操作治理 + Resources/Prompts + Git 工具）
+  - _bmad-output/mcp/（阶段一，原 mcp-client/，epics 11-13，MCP Tools-only）
+  - _bmad-output/mcp/（阶段三，原 mcp-client-v2/，epics 15-18，写操作治理 + Resources/Prompts + Git 工具）
 created: 2026-07-20
 updated: 2026-07-20
 ---

@@ -2,7 +2,7 @@
 title: "HeAgent 健壮性与质量硬化"
 status: draft
 cycle: robustness-hardening
-preceded_by: _bmad-output/mcp-client-v2/（Epic 14-17，MCP 全原语 + 内置工具扩展，已冻结交付）
+preceded_by: _bmad-output/mcp/（阶段三，原 mcp-client-v2/，Epic 15-18，MCP 全原语 + 内置工具扩展，已冻结交付）
 created: 2026-07-21
 updated: 2026-07-21
 ---

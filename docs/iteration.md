@@ -69,7 +69,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 - **Epic 编号延续主线**：新周期自称 Epic 1-N 会撞主线编号，故延续主线编号递增（MCP 周期 = Epic 11-13，MCP V2 周期 = Epic 15-18）。
 - **story key 须匹配 `epic-N-M` pattern**：`sprint-status` skill 校验 key 格式，不能用自定义前缀（如 `mcp-`）。
-- **MCP 周期映射**：sprint-status 的 Epic 11-13 = `epics-mcp-client.md` 内部的 Epic 1-3；Epic 15-18 = `epics.md`（MCP V2 周期）内部的 Epic A/B/C + 内置工具扩展。
+- **MCP 周期映射**（2026-08-18 三目录合并为 `_bmad-output/mcp/`）：sprint-status 的 Epic 11-13 = `epics.md` 阶段一内部 Epic 1-3；Epic 14 = `epics.md` 阶段二；Epic 15-18 = `epics.md` 阶段三内部 Epic A/B/C + 内置工具扩展。
 - **retrospective 字段**：每个 epic 配 `epic-N-retrospective`，状态 `optional`（可做不做）或 `done`（已完成）。
 - **单一权威（2026-07-23）**：全周期 sprint-status 统一在 `_bmad-output/baseline/sprint-status.yaml`，旧文件保留作为只读归档。
 
@@ -103,7 +103,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.2 MCP Client 集成周期一 · Epic 11-13
 
-来源 `_bmad-output/mcp-client/`，独立 brief/prd/architecture/epics：
+来源 `_bmad-output/mcp/`（阶段一，原 `mcp-client/`，2026-08-18 合并），独立 brief/prd/architecture/epics：
 
 | Epic | 主题 |
 |------|------|
@@ -113,7 +113,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.3 MCP Client V2 集成周期二 · Epic 15-18
 
-来源 `_bmad-output/mcp-client-v2/`，2026-07-17 启动。延续主线编号 15-18（映射 epics.md 的 Epic A/B/C + 内置工具扩展）：
+来源 `_bmad-output/mcp/`（阶段三，原 `mcp-client-v2/`），2026-07-17 启动。延续主线编号 15-18（映射 epics.md 的 Epic A/B/C + 内置工具扩展）：
 
 | Epic | 主题 | 状态 |
 |------|------|------|
@@ -256,7 +256,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 - 架构权威：[`frame.md`](frame.md)（含 engine 模块 4.12、已知缺口第五章）
 - 产品愿景：[`design.md`](design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
-- 迭代原始产物：`_bmad-output/baseline/`、`_bmad-output/mcp-client/`、`_bmad-output/mcp-client-v2/`、`_bmad-output/mcp-v2-upgrade/`、`_bmad-output/sandbox-hardening/`、`_bmad-output/robustness-hardening/`、`_bmad-output/quality-engineering/`、`_bmad-output/gui/`、`_bmad-output/patches/`
+- 迭代原始产物：`_bmad-output/baseline/`、`_bmad-output/mcp/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/sandbox-hardening/`、`_bmad-output/robustness-hardening/`、`_bmad-output/quality-engineering/`、`_bmad-output/gui/`、`_bmad-output/patches/`
 - **sprint 状态（单一权威）**：[`_bmad-output/baseline/sprint-status.yaml`](../_bmad-output/baseline/sprint-status.yaml)（2026-07-23 整合，覆盖全 8 个周期、28 个 Epic + S1-S4）
 - 技术债登记：`_bmad-output/patches/deferred-work.md`
-- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/mcp-client/retrospective-epic-13.md`、`_bmad-output/patches/retrospective-engine-p5.md`、`_bmad-output/patches/retrospective-p0-tech-debt.md`
+- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/mcp/retrospective-epic-13.md`、`_bmad-output/patches/retrospective-engine-p5.md`、`_bmad-output/patches/retrospective-p0-tech-debt.md`
