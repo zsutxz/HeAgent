@@ -9,6 +9,7 @@
 ```
 _bmad-output/
 ├── consolidated-overview.md  统一整合总览（全周期综合摘要，2026-08-18）
+├── retrospective-all-cycles.md  全周期综合回顾（2026-07-22，Epic 1-23 + S1-S4）
 ├── baseline/               主线周期（Epic 1–10，FR-1~24）
 ├── mcp/                    MCP Client 集成周期（三阶段：Epic 11-13 / 14 / 15-18，2026-08-18 合并）
 ├── sandbox-hardening/      Sandbox 硬化周期（Epic S1–S4）
@@ -16,7 +17,7 @@ _bmad-output/
 ├── quality-engineering/    质量工程深化周期（Epic 21–24）
 ├── gui/                    GUI 终端界面周期（Epic 25–28）
 ├── patches/                补丁周期（计划外技术债 / 缺陷，跨周期扁平）
-└── specs/                  quick-dev / spec 产物（本地工作件，gitignored）
+└── specs/                  quick-dev / spec 产物（本地工作件，gitignored；2026-08-18 已清空，目录暂不存在）
 ```
 
 ## sprint-status 单一权威
@@ -125,6 +126,13 @@ _bmad-output/
 | `spec-sandbox-cancel-signal-preservation.md` | CancelledError 不吞取消信号 spec |
 | `spec-sandbox-reap-robustness.md` | sandbox reap 鲁棒性 spec |
 | `spec-sandbox-timeout-validation.md` | sandbox timeout 正整数校验 spec |
+| `cli-status-bar.md` | CLI 状态栏补丁 spec |
+| `code-review-2026-07-20.md` | 2026-07-20 全面代码审查记录 |
+| `spec-business-data-integration.md` | 业务数据集成 spec |
+| `spec-dreaming-defer-cleanup.md` | dreaming defer 项清理 spec |
+| `spec-dreaming-memory-consolidation.md` | Dreaming 模式（离线记忆巩固）实现 spec |
+| `spec-mcp-user-injection-signatures.md` | MCP 返回内容围栏用户可配置签名入口 spec（deferred） |
+| `spec-steering-followup.md` | 方向选择 follow-up spec |
 
 ## 当前状态摘要
 
