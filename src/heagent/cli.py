@@ -24,7 +24,7 @@ from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
 from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
-from heagent.engine import EngineContainer
+from heagent.engine import ConsoleApprovalHandler, EngineContainer
 from heagent.exceptions import BudgetExceeded, HeAgentError
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
@@ -371,6 +371,8 @@ async def _run_single(
     """Run a single prompt and print the result."""
     settings = get_settings()
     engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
+    if sys.stdin.isatty() and engine.approval_handler is None:
+        engine.approval_handler = ConsoleApprovalHandler()
 
     async with mcp_ctx or contextlib.nullcontext():
         loop, _ = _build_loop(
@@ -442,6 +444,29 @@ def _build_dream_scheduler(
     )
 
 
+def _resolve_session_id(
+    session: SessionStore,
+    *,
+    continue_session: bool = False,
+    resume_session: str | None = None,
+) -> str:
+    """决定本次交互会话的 session_id（Epic 30）。
+
+    - ``resume_session`` 指定时复用该 id；
+    - ``continue_session`` 时复用最近一次会话 id（无历史则回退新 id 并提示）；
+    - 否则新建随机 id。
+    """
+    if resume_session:
+        return resume_session
+    if continue_session:
+        recent = session.recent_session_ids(1)
+        if recent:
+            click.echo(f"[session] Continuing most recent session: {recent[0]}", err=True)
+            return recent[0]
+        click.echo("[session] No prior session found; starting a new one.", err=True)
+    return uuid.uuid4().hex[:8]
+
+
 async def _run_chat(
     provider: BaseProvider,
     system: str | None,
@@ -449,14 +474,19 @@ async def _run_chat(
     soul_path: str | None = None,
     mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
     sandbox_backend: str | None = None,
+    continue_session: bool = False,
+    resume_session: str | None = None,
 ) -> None:
     """Run interactive chat mode."""
     settings = get_settings()
-    session_id = uuid.uuid4().hex[:8]
     engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
+    if engine.approval_handler is None:
+        engine.approval_handler = ConsoleApprovalHandler()
 
     async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
         session = SessionStore()
+        # 会话复用（Epic 30）：--resume 指定 / --continue 最近 / 否则新建。
+        session_id = _resolve_session_id(session, continue_session=continue_session, resume_session=resume_session)
         # 预构建记忆存储，与 DreamScheduler 共享同一份实例（dream 回写即主 loop 可见）。
         skills = SkillStore()
         facts = FactStore()
@@ -640,6 +670,8 @@ def _run_cli_impl(
     max_iterations: int | None,
     soul: str | None,
     sandbox: str | None,
+    continue_session: bool = False,
+    resume_session: str | None = None,
 ) -> None:
     """Core CLI routine — logging, provider, MCP, dispatch to single/chat."""
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -698,6 +730,8 @@ def _run_cli_impl(
                 soul_path=soul,
                 mcp_ctx=mcp_ctx,
                 sandbox_backend=sandbox,
+                continue_session=continue_session,
+                resume_session=resume_session,
             )
         )
 
@@ -717,6 +751,19 @@ _RUN_OPTIONS = [
         type=click.Choice(["passthrough", "firejail"]),
         default=None,
         help="Sandbox backend for shell execution (default: from SANDBOX_BACKEND setting)",
+    ),
+    click.option(
+        "--continue",
+        "continue_session",
+        is_flag=True,
+        default=False,
+        help="Continue the most recent session (interactive mode)",
+    ),
+    click.option(
+        "--resume",
+        "resume_session",
+        default=None,
+        help="Resume a specific session by id (interactive mode)",
     ),
 ]
 
@@ -787,9 +834,11 @@ def run(
     max_iterations: int | None,
     soul: str | None,
     sandbox: str | None,
+    continue_session: bool,
+    resume_session: str | None,
 ) -> None:
     """Run HeAgent in single-shot or interactive mode."""
-    _run_cli_impl(prompt, model, system, max_iterations, soul, sandbox)
+    _run_cli_impl(prompt, model, system, max_iterations, soul, sandbox, continue_session, resume_session)
 
 
 # =============================================================================

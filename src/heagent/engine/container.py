@@ -28,6 +28,7 @@ from heagent.engine.policy import PolicyEngine
 from heagent.engine.store import RunStore
 
 if TYPE_CHECKING:
+    from heagent.engine.approval import ApprovalHandler
     from heagent.tools.sandbox import CommandRunner
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class EngineContainer:
     events: EventBus = field(default_factory=lambda: EventBus([LoggingObserver()]))
     workspace_root: str | None = None
     command_runner: CommandRunner | None = None
+    approval_handler: ApprovalHandler | None = None
     enable_file_locks: bool = False
     # ledger 自动清理保留天数（0=禁用）；default() 从 Settings 读，手动构造默认 0。
     ledger_retention_days: int = 0
@@ -135,6 +137,8 @@ class EngineContainer:
             enable_file_locks=True,
         )
         container.ledger_retention_days = settings.ledger_retention_days
+        if settings.approval_tool_list:
+            container.policy.approval_tools = set(settings.approval_tool_list)
         if workspace_root and not container.policy.workspace_root:
             container.policy.workspace_root = workspace_root
         return container

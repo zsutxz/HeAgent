@@ -15,14 +15,14 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, cast
 
-from heagent.engine import ToolExecutionMode
+from heagent.engine import ApprovalDecision, ApprovalRequest, ToolExecutionMode
 from heagent.types import ToolCall, ToolResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from heagent.agent.loop import AgentLoop, AgentState
-    from heagent.engine import RunContext
+    from heagent.engine import PolicyVerdict, RunContext
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,10 @@ async def execute_tool_call(
         # ② 策略裁决；③ 查 handler。未知工具直接产出 error 结果，不走 executor。
         schema = loop.registry.get_schema(call.name)
         verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context, schema=schema)
+        # ②.5 审批交互（Epic 29）：需审批且配置了审批处理器时，先询问再（重新）裁决。
+        # 未配置 handler 时 verdict 保持 APPROVAL_REQUIRED，走既有 executor 等同阻断路径（零回归）。
+        if verdict.mode is ToolExecutionMode.APPROVAL_REQUIRED and loop.engine.approval_handler is not None:
+            verdict = await _resolve_approval(loop, call, verdict, run_context)
         handler = loop.registry.get_handler(call.name)
         if handler is None:
             loop._emit(
@@ -153,6 +157,48 @@ async def execute_tool_call(
             details={"error": str(exc)},
         )
         return ToolResult(tool_call_id=call.id, content=f"Tool error: {exc}", is_error=True)
+
+
+async def _resolve_approval(
+    loop: AgentLoop,
+    call: ToolCall,
+    verdict: PolicyVerdict,
+    run_context: RunContext | None,
+) -> PolicyVerdict:
+    """审批交互：询问审批处理器；APPROVE 则写入 per-run 授权并重新裁决，DENY 保持原 verdict。
+
+    handler 抛异常时 fail-safe 视为 DENY（不执行工具），保证可预测安全语义。
+    授权写入 ``RunContext.metadata["approved_tools"]``，复用
+    :meth:`PolicyEngine._approval_granted` 的既有读取逻辑（per-run 粒度）。
+    """
+    handler = loop.engine.approval_handler
+    if handler is None:  # 防御性：调用方已确保非 None，此处兜底返回原 verdict。
+        return verdict
+    decision = ApprovalDecision.DENY
+    try:
+        decision = await handler.request(ApprovalRequest(tool_name=call.name, reason=verdict.reason, call=call))
+    except Exception:
+        logger.exception("approval handler failed for tool '%s'; denying", call.name)
+        decision = ApprovalDecision.DENY
+
+    loop._emit(
+        "tool_call_approval",
+        run_context=run_context,
+        tool_name=call.name,
+        details={"decision": decision.value, "reason": verdict.reason},
+    )
+
+    if decision is ApprovalDecision.APPROVE:
+        # 写入 per-run 授权（列表追加，幂等）。
+        if run_context is not None:
+            approved = run_context.metadata.setdefault("approved_tools", [])
+            if isinstance(approved, list) and call.name not in approved:
+                approved.append(call.name)
+        # 重新裁决：授权命中后审批步骤应被跳过，得到 DIRECT / SANDBOX_REQUIRED。
+        schema = loop.registry.get_schema(call.name)
+        return loop.engine.policy.evaluate_tool_call(call, context=run_context, schema=schema)
+    # DENY：保持 APPROVAL_REQUIRED，交给 executor 转 error（与现状一致）。
+    return verdict
 
 
 async def invoke_handler(loop: AgentLoop, call: ToolCall) -> object:

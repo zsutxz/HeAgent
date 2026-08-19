@@ -133,6 +133,10 @@ class Settings(BaseSettings):
     # firejail 可执行文件路径（PATH 查找或绝对路径）。
     sandbox_firejail_path: str = Field(default="firejail")
 
+    # ---- 审批参数（Epic 29） ----
+    # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。
+    approval_tools: str = Field(default="")
+
     @property
     def openai_key_pool(self) -> list[str]:
         return _parse_comma_list(self.openai_api_keys)
@@ -140,6 +144,10 @@ class Settings(BaseSettings):
     @property
     def anthropic_key_pool(self) -> list[str]:
         return _parse_comma_list(self.anthropic_api_keys)
+
+    @property
+    def approval_tool_list(self) -> list[str]:
+        return _parse_comma_list(self.approval_tools)
 
 
 def get_settings() -> Settings:

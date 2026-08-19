@@ -104,6 +104,8 @@ python -m heagent --model deepseek-chat --system "你是 Python 专家" "写一�
 | `--max-iterations` | Agent 循环最大迭代数（默认 50） |
 | `--soul` | 自定义 `SOUL.md` 人格文件路径 |
 | `--sandbox` | 沙箱后端（`passthrough` 默认 / `firejail`） |
+| `--continue` | 继续最近一次会话（交互模式） |
+| `--resume <id>` | 恢复指定 session id 的会话（交互模式） |
 
 安装脚本后也可以直接使用：
 

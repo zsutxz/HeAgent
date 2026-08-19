@@ -5,6 +5,13 @@
 事件总线，经 :class:`EngineContainer` 注入主循环。此处统一导出对外公开的类型。
 """
 
+from heagent.engine.approval import (
+    ApprovalDecision,
+    ApprovalHandler,
+    ApprovalRequest,
+    ConsoleApprovalHandler,
+    DenyAllApprovalHandler,
+)
 from heagent.engine.container import EngineContainer
 from heagent.engine.context import RunContext, RunStatus
 from heagent.engine.executor import ToolExecutor
@@ -14,6 +21,11 @@ from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.engine.store import RunSnapshot, RunStore
 
 __all__ = [
+    "ApprovalDecision",
+    "ApprovalHandler",
+    "ApprovalRequest",
+    "ConsoleApprovalHandler",
+    "DenyAllApprovalHandler",
     "EngineContainer",
     "EngineEvent",
     "EventBus",
