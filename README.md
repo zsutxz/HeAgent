@@ -132,6 +132,31 @@ description: 审查代码变更
 
 触发 `/review` 时，该 prompt 模板会作为一条用户消息提交给 Agent。
 
+### 成本估算
+
+配置模型价格表（`.env` 的 `MODEL_PRICING`，JSON，单位美元/百万 token）后，每次回答的
+token 统计行会追加成本：
+
+```bash
+MODEL_PRICING='{"deepseek-chat": {"input": 0.27, "output": 1.1}}'
+```
+
+### 自定义角色（配置文件驱动）
+
+从 `.heagent/agents/*.md`（项目级）与 `~/.heagent/agents/*.md`（用户级）加载自定义角色，
+无需改代码即可扩展 `task_delegate` 可用的角色：
+
+```markdown
+---
+name: security-reviewer
+description: 安全审查
+tools: file_read, content_search
+---
+你是安全审查角色，检查代码中的安全漏洞。
+```
+
+frontmatter 的 `tools` 为角色工具白名单（逗号分隔），正文为角色 system prompt。
+
 安装脚本后也可以直接使用：
 
 ```bash

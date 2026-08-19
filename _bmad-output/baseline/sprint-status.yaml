@@ -344,6 +344,17 @@ development_status:
   33-4-plan-mode-tests-docs: done
   epic-33-retrospective: done
 
+  # ═══════════════════════════════════════════════════════════════
+  # 交互与可扩展层周期 · Epic 34（2026-08-19）
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-34: done  # 配置文件驱动角色 + 成本估算（FR-F1~F4）
+  34-1-cost-estimation: done
+  34-2-config-driven-roles: done
+  34-3-cli-cost-role-wiring: done
+  34-4-epic34-tests-docs: done
+  epic-34-retrospective: done
+
 # ═════════════════════════════════════════════════════════════════
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════

@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from heagent.types import Message
+    from heagent.types import Message, TokenUsage
 
 # 消息结构开销常量（与 OpenAI/LangChain 对齐）
 _TOKENS_PER_MESSAGE = 3  # 每条消息的角色标签、分隔符开销
@@ -50,6 +50,24 @@ def count_tokens(messages: list[Message]) -> int:
             total += _estimate_text_tokens(msg.tool_call_id)
     total += _TOKENS_REPLY_PRIMING
     return total
+
+
+def estimate_cost(usage: TokenUsage, model: str, pricing: dict[str, dict[str, float]]) -> float | None:
+    """按模型价格估算一次使用的美元成本；无该模型价格则返回 None。
+
+    参数：
+        usage: 一次 provider 调用的 token 用量（prompt/completion）。
+        model: 实际使用的模型名（``ProviderMetadata.model``）。
+        pricing: 价格表 ``{"<model>": {"input": $/M tok, "output": $/M tok}}``。
+
+    返回：美元成本（input + output）；模型不在价格表返回 None。
+    """
+    prices = pricing.get(model)
+    if prices is None:
+        return None
+    in_cost = usage.prompt_tokens / 1_000_000.0 * prices.get("input", 0.0)
+    out_cost = usage.completion_tokens / 1_000_000.0 * prices.get("output", 0.0)
+    return in_cost + out_cost
 
 
 def _estimate_text_tokens(text: str) -> int:

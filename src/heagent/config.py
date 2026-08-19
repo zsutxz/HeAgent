@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from pydantic import Field
@@ -141,6 +142,10 @@ class Settings(BaseSettings):
     # True 时收敛为只读模式：仅允许 readOnlyHint=True 的内置工具，禁止写操作（CLI --plan 覆盖）。
     plan_mode: bool = Field(default=False)
 
+    # ---- 成本估算（Epic 34） ----
+    # 模型价格表 JSON：{"<model>": {"input": <$/M tok>, "output": <$/M tok>}}；空 = 不显示成本。
+    model_pricing: str = Field(default="")
+
     @property
     def openai_key_pool(self) -> list[str]:
         return _parse_comma_list(self.openai_api_keys)
@@ -152,6 +157,26 @@ class Settings(BaseSettings):
     @property
     def approval_tool_list(self) -> list[str]:
         return _parse_comma_list(self.approval_tools)
+
+    @property
+    def model_pricing_map(self) -> dict[str, dict[str, float]]:
+        """解析模型价格表 JSON；无效 JSON 返回空 dict（不崩溃、不显示成本）。"""
+        if not self.model_pricing:
+            return {}
+        try:
+            data = json.loads(self.model_pricing)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        result: dict[str, dict[str, float]] = {}
+        for model, prices in data.items():
+            if isinstance(prices, dict):
+                result[model] = {
+                    "input": float(prices.get("input", 0.0)),
+                    "output": float(prices.get("output", 0.0)),
+                }
+        return result
 
 
 def get_settings() -> Settings:

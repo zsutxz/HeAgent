@@ -14,6 +14,10 @@
 
 from __future__ import annotations
 
+import contextlib
+import re
+from pathlib import Path
+
 from pydantic import BaseModel, Field
 
 
@@ -59,6 +63,68 @@ def get_role(name: str) -> RoleSpec:
 def list_roles() -> list[str]:
     """返回全部已注册角色的名字（排序）。"""
     return sorted(_REGISTRY)
+
+
+def load_agent_roles(agents_dirs: list[str | Path] | None = None) -> list[RoleSpec]:
+    """从 ``*.md`` 文件加载并注册自定义角色（Epic 34）。
+
+    默认目录（**后者覆盖前者**）：
+      - ``~/.heagent/agents/``（用户级，先加载）
+      - ``.heagent/agents/``（项目级，后加载，覆盖同名）
+
+    每个 ``.md``：frontmatter 声明 ``name`` / ``description`` / ``tools``（逗号分隔白名单）/
+    ``max_iterations``，正文为角色 system prompt。解析失败静默跳过，不阻断启动。
+    返回成功加载（并注册）的 :class:`RoleSpec` 列表。
+    """
+    if agents_dirs is None:
+        agents_dirs = [str(Path.home() / ".heagent" / "agents"), ".heagent/agents"]
+    loaded: list[RoleSpec] = []
+    for directory in agents_dirs:
+        base = Path(directory)
+        if not base.is_dir():
+            continue
+        for path in sorted(base.glob("*.md")):
+            try:
+                spec = _parse_role_md(path)
+            except (OSError, ValueError):
+                continue
+            if spec is None:
+                continue
+            register_role(spec)  # 后加载覆盖同名（项目级优先于用户级）
+            loaded.append(spec)
+    return loaded
+
+
+def _parse_role_md(path: Path) -> RoleSpec | None:
+    """解析一个角色 ``.md`` 文件：frontmatter 取 name/description/tools/max_iterations，正文为 system。"""
+    raw = path.read_text(encoding="utf-8")
+    name = ""
+    description = ""
+    tools: list[str] = []
+    max_iterations = 20
+    body = raw
+    frontmatter = re.match(r"^---\s*\n(.*?)\n---\s*\n", raw, re.DOTALL)
+    if frontmatter:
+        fm_text = frontmatter.group(1)
+        body = raw[frontmatter.end() :]
+        for line in fm_text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("name:"):
+                name = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+            elif stripped.startswith("description:"):
+                description = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+            elif stripped.startswith("tools:"):
+                tools = [tkn.strip() for tkn in stripped.split(":", 1)[1].split(",") if tkn.strip()]
+            elif stripped.startswith("max_iterations:"):
+                with contextlib.suppress(ValueError):
+                    max_iterations = int(stripped.split(":", 1)[1].strip())
+    if not name:
+        name = path.stem
+    system = body.strip()
+    if not system:
+        return None
+    metadata = {"description": description} if description else {}
+    return RoleSpec(name=name, system=system, allowed_tools=tools, max_iterations=max_iterations, metadata=metadata)
 
 
 # --- 内置角色系统提示词（中文；仅声明各角色职责与可用工具，运行时不改）---

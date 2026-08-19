@@ -22,9 +22,11 @@ from heagent.agent.middleware import make_retry_middleware
 from heagent.config import GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE, Settings, get_settings
 from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
+from heagent.context.tokens import estimate_cost
 from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
 from heagent.engine import ConsoleApprovalHandler, EngineContainer
+from heagent.engine.roles import load_agent_roles
 from heagent.exceptions import BudgetExceeded, HeAgentError
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
@@ -59,14 +61,16 @@ def _print_banner() -> None:
     click.echo(f"HeAgent v{__version__} — A self-improving AI Agent core framework", err=True)
 
 
-def _print_usage(usage: TokenUsage | None) -> None:
-    """Print token usage to stderr after a run."""
+def _print_usage(usage: TokenUsage | None, *, model: str | None = None) -> None:
+    """Print token usage to stderr after a run (with optional cost, Epic 34)."""
     if usage is None or usage.total_tokens == 0:
         return
-    click.echo(
-        f"  [tokens: {usage.prompt_tokens} in + {usage.completion_tokens} out = {usage.total_tokens} total]",
-        err=True,
-    )
+    line = f"  [tokens: {usage.prompt_tokens} in + {usage.completion_tokens} out = {usage.total_tokens} total]"
+    if model:
+        cost = estimate_cost(usage, model, get_settings().model_pricing_map)
+        if cost is not None:
+            line += f" [cost: ${cost:.4f}]"
+    click.echo(line, err=True)
 
 
 def _print_stream_event(event: Any) -> None:
@@ -408,7 +412,7 @@ async def _run_single(
         try:
             result = await loop.run(prompt, system=system)
             click.echo(result)
-            _print_usage(loop.last_usage)
+            _print_usage(loop.last_usage, model=loop.provider.get_metadata().model)
         except BudgetExceeded as exc:
             click.echo(f"[budget exceeded] {exc.message}", err=True)
         except HeAgentError as exc:
@@ -580,7 +584,7 @@ async def _run_prompt(loop: AgentLoop, prompt: str, system: str | None, session_
         async for event in loop.run_stream(prompt, system=system, session_id=session_id):
             _print_stream_event(event)
         click.echo("\n")
-        _print_usage(loop.last_usage)
+        _print_usage(loop.last_usage, model=loop.provider.get_metadata().model)
     except BudgetExceeded as exc:
         click.echo(f"[budget exceeded] {exc.message}", err=True)
     except HeAgentError as exc:
@@ -756,6 +760,9 @@ def _run_cli_impl(
     resolved_iterations = max_iterations or settings.max_iterations
     resolved_plan = plan_mode or settings.plan_mode
     provider = _build_provider(settings, model)
+
+    # 加载配置文件驱动的自定义角色（Epic 34）：.heagent/agents/*.md + ~/.heagent/agents/*.md
+    load_agent_roles()
 
     # --- Sandbox warning ---
     sandbox_resolved = sandbox or settings.sandbox_backend
