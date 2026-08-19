@@ -116,6 +116,6 @@
 
 回顾产物索引：
 - Epic 13 正式回顾: `_bmad-output/_cycles/mcp/retrospective-epic-13.md`（2026-08-18 MCP 三目录合并后路径）
-- Engine P5 回顾: `_bmad-output/patches/retrospective-engine-p5.md`
-- P0 技术债回顾: `_bmad-output/patches/retrospective-p0-tech-debt.md`
+- Engine P5 回顾: `_bmad-output/patches/_meta/retrospective-engine-p5.md`
+- P0 技术债回顾: `_bmad-output/patches/provider/retrospective-p0-tech-debt.md`
 - **全周期综合回顾 (本文)**: `_bmad-output/retrospective-all-cycles.md`

@@ -2,7 +2,7 @@
 
 本目录是 HeAgent 用 **BMad Method** 驱动迭代留下的**规划产物**（brief / prd / architecture / epics / stories / 补丁 / 回顾）。它是迭代历程的事实来源之一，**不是当前代码事实**——当代码与本文档冲突时，以 `src/` 实现为准（参见 `docs/frame.md`、`docs/iteration.md`）。
 
-> **BMad config 对齐说明：** `_bmad/config.toml [modules.bmm]` 与 `_bmad/bmm/config.yaml`（installer 托管）声明 `planning_artifacts` / `implementation_artifacts` 指向 `_bmad-output/{planning,implementation}-artifacts/`——**这两个目录在本仓不存在**。HeAgent 刻意按周期而非按产物类型组织（见下方目录结构）。这两个 key 维持 installer 默认、不在 `_bmad/custom/config.toml` 覆盖：同类路径 override 经验证不生效（同 `output_folder` 上游 bug，见 commit `01fbe13`），且 quick-dev 假设的「扁平 `implementation_artifacts`」与本仓 cycle 布局结构不兼容（`sprint-status.yaml` 在 `baseline/`、`deferred-work.md` 在 `patches/`、spec 在 `specs/`，无单一目录可满足）。**实际产物位置以本文件为权威。**
+> **BMad config 对齐说明：** `_bmad/config.toml [modules.bmm]` 与 `_bmad/bmm/config.yaml`（installer 托管）声明 `planning_artifacts` / `implementation_artifacts` 指向 `_bmad-output/{planning,implementation}-artifacts/`——**这两个目录在本仓不存在**。HeAgent 刻意按周期而非按产物类型组织（见下方目录结构）。这两个 key 维持 installer 默认、不在 `_bmad/custom/config.toml` 覆盖：同类路径 override 经验证不生效（同 `output_folder` 上游 bug，见 commit `01fbe13`），且 quick-dev 假设的「扁平 `implementation_artifacts`」与本仓 cycle 布局结构不兼容（`sprint-status.yaml` 在 `_cycles/baseline/`、`deferred-work.md` 在 `patches/_meta/`、spec 在 `specs/`，无单一目录可满足）。**实际产物位置以本文件为权威。**
 
 ## 目录结构（按周期）
 
@@ -20,7 +20,7 @@ _bmad-output/
 │   ├── quality-engineering/ 质量工程深化周期（Epic 21–24）
 │   ├── gui/                GUI 终端界面周期（Epic 25–28）
 │   └── interaction/        交互与可扩展层周期（Epic 29–35）
-├── patches/                补丁周期（计划外技术债 / 缺陷，跨周期扁平；epic 映射见 EPICS-INDEX.md）
+├── patches/                补丁周期（计划外技术债 / 缺陷，按领域分子目录 provider/context/memory/cron/mcp/sandbox/_meta）
 └── specs/                  quick-dev / spec 产物（本地工作件，gitignored；2026-08-18 已清空，目录暂不存在）
 ```
 
@@ -110,35 +110,67 @@ _bmad-output/
 | `epics.md` | Epic 25–28 拆分（原内部编号 24–27） |
 | `sprint-status.yaml` | 已归档 — 见 `_cycles/baseline/sprint-status.yaml` |
 
-## patches/ — 补丁周期（跨周期扁平）
+## patches/ — 补丁周期（按领域分子目录，2026-08-19 重组）
+
+### provider/ — Provider 与容错（Epic 1 域）
+
+| 文件 | 用途 |
+|------|------|
+| `p0-provider-hardening.md` | P0 Provider 加固 spec（异常分类/包装/容错） |
+| `p0-hardening-review-diff.txt` | P0 加固的评审 diff（过程产物） |
+| `retrospective-p0-tech-debt.md` | P0 技术债收尾回顾 |
+
+### context/ — 上下文与子 Agent（Epic 3/5 域）
+
+| 文件 | 用途 |
+|------|------|
+| `3-3-token-counter.md` | token 计数器补丁 spec |
+| `5-1-subagent-context-injection.md` | 子 Agent 上下文注入补丁 spec |
+| `epic-5-context.md` | Epic 5 上下文相关补丁 |
+
+### memory/ — 记忆巩固（Epic 4 域）
+
+| 文件 | 用途 |
+|------|------|
+| `spec-dreaming-memory-consolidation.md` | Dreaming 模式（离线记忆巩固）实现 spec |
+| `spec-dreaming-defer-cleanup.md` | dreaming defer 项清理 spec |
+
+### cron/ — 定时调度（Epic 10 域）
+
+| 文件 | 用途 |
+|------|------|
+| `spec-cron-stop-timeout.md` | CronScheduler.stop 关停硬上界 spec |
+
+### mcp/ — MCP 补丁（Epic 11-18 域）
+
+| 文件 | 用途 |
+|------|------|
+| `fr3-mcp-auto-unregister.md` | FR-3 MCP 运行时断连 auto-unregister spec（2026-07-01 交付） |
+| `spec-dp4-mcp-safety-guard.md` | DP-4 第一半 — 执行前工具名拦截 spec |
+| `spec-dp4-mcp-result-guard.md` | DP-4 第二半 — MCP 返回内容启发式围栏 spec |
+| `spec-mcp-user-injection-signatures.md` | MCP 返回内容围栏用户可配置签名入口 spec（deferred） |
+| `spec-mcp-shutdown-timeout.md` | MCP `__aexit__` 关停硬上界 spec |
+
+### sandbox/ — 沙箱与 engine 后端（engine + S1-S4 域）
+
+| 文件 | 用途 |
+|------|------|
+| `spec-engine-sandbox-backend.md` | engine sandbox 后端抽象 spec |
+| `spec-sandbox-timeout-validation.md` | sandbox timeout 正整数校验 spec |
+| `spec-sandbox-cancel-signal-preservation.md` | CancelledError 不吞取消信号 spec |
+| `spec-sandbox-reap-robustness.md` | sandbox reap 鲁棒性 spec |
+
+### _meta/ — 跨周期登记与回顾
 
 | 文件 | 用途 |
 |------|------|
 | `deferred-work.md` | **跨周期技术债登记**：spec 边界外的 defer 项 + Resolution 收尾记录 |
-| `p0-provider-hardening.md` | P0 Provider 加固 spec（异常分类/包装/容错） |
-| `p0-hardening-review-diff.txt` | P0 加固的评审 diff（过程产物） |
-| `3-3-token-counter.md` | token 计数器补丁 spec |
-| `5-1-subagent-context-injection.md` | 子 Agent 上下文注入补丁 spec |
-| `epic-5-context.md` | Epic 5 上下文相关补丁 |
-| `fr3-mcp-auto-unregister.md` | FR-3 MCP 运行时断连 auto-unregister spec（2026-07-01 交付） |
-| `retrospective-engine-p5.md` | engine P5 轻量回顾 |
-| `retrospective-p0-tech-debt.md` | P0 技术债收尾回顾 |
-| `spec-cron-stop-timeout.md` | CronScheduler.stop 关停硬上界 spec |
 | `spec-deferred-low-cleanup.md` | deferred-work 低优先级清理 spec |
-| `spec-dp4-mcp-result-guard.md` | DP-4 第二半 — MCP 返回内容启发式围栏 spec |
-| `spec-dp4-mcp-safety-guard.md` | DP-4 第一半 — 执行前工具名拦截 spec |
-| `spec-engine-sandbox-backend.md` | engine sandbox 后端抽象 spec |
-| `spec-mcp-shutdown-timeout.md` | MCP `__aexit__` 关停硬上界 spec |
-| `spec-sandbox-cancel-signal-preservation.md` | CancelledError 不吞取消信号 spec |
-| `spec-sandbox-reap-robustness.md` | sandbox reap 鲁棒性 spec |
-| `spec-sandbox-timeout-validation.md` | sandbox timeout 正整数校验 spec |
-| `cli-status-bar.md` | CLI 状态栏补丁 spec |
 | `code-review-2026-07-20.md` | 2026-07-20 全面代码审查记录 |
-| `spec-business-data-integration.md` | 业务数据集成 spec |
-| `spec-dreaming-defer-cleanup.md` | dreaming defer 项清理 spec |
-| `spec-dreaming-memory-consolidation.md` | Dreaming 模式（离线记忆巩固）实现 spec |
-| `spec-mcp-user-injection-signatures.md` | MCP 返回内容围栏用户可配置签名入口 spec（deferred） |
+| `retrospective-engine-p5.md` | engine P5 轻量回顾 |
 | `spec-steering-followup.md` | 方向选择 follow-up spec |
+| `spec-business-data-integration.md` | 业务数据集成 spec |
+| `cli-status-bar.md` | CLI 状态栏补丁 spec（关联 Epic 35） |
 
 ## 当前状态摘要
 

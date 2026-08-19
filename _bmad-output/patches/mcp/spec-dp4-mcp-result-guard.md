@@ -8,8 +8,8 @@ review_loop_iteration: 0
 context:
   - '{project-root}/docs/frame.md'
   - '{project-root}/CLAUDE.md'
-  - '{project-root}/_bmad-output/patches/spec-dp4-mcp-safety-guard.md'  # DP-4 第一半（执行前拦截）
-  - '{project-root}/_bmad-output/patches/deferred-work.md'  # 2026-07-08 拆分条
+  - '{project-root}/_bmad-output/patches/mcp/spec-dp4-mcp-safety-guard.md'  # DP-4 第一半（执行前拦截）
+  - '{project-root}/_bmad-output/patches/_meta/deferred-work.md'  # 2026-07-08 拆分条
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
@@ -72,7 +72,7 @@ context:
 - `CLAUDE.md` — 安全声明 MCP 特定风险段：「MCP 工具输出无隔离进入 LLM 上下文」更新为「有启发式围栏（标记透传）但仍非真正边界」；已知缺口表 MCP V1 边界条去「返回内容复核 deferred」。
 - `docs/frame.md` — 4.11 SafetyGuard / MCP 章节 + 第五章已知缺口：更新 MCP 返回内容围栏状态（DP-4 第二半落地）。
 - `_bmad-output/_cycles/baseline/sprint-status.yaml` — `action_items`「MCP 返回内容隔离」项 status `open → closed`。
-- `_bmad-output/patches/deferred-work.md` — 2026-07-08 拆分条补 Resolution（指向本 spec）。
+- `_bmad-output/patches/_meta/deferred-work.md` — 2026-07-08 拆分条补 Resolution（指向本 spec）。
 
 ## Tasks & Acceptance
 

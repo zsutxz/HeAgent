@@ -64,7 +64,7 @@ python -m heagent
 | `_bmad-output/_cycles/baseline/` | 主线规划周期（epics 1-10，冻结决策）：`architecture.md`·`brief.md`·`prd.md`·`epics.md`·`epics-self-learning.md`·`sprint-status.yaml`（story 已移至 epic 目录） |
 | `_bmad-output/_cycles/mcp/` | MCP Client 集成周期（epics 11-18，三阶段，2026-08-18 合并） |
 | `_bmad-output/_cycles/`（其余） | sandbox-hardening（S1-S4）/ robustness-hardening（19-20）/ quality-engineering（21-24）/ gui（25-28）/ interaction（29-35） |
-| `_bmad-output/patches/` | 计划外补丁与技术债，跨周期扁平（epic 映射见 EPICS-INDEX.md） |
+| `_bmad-output/patches/<领域>/` | 计划外补丁与技术债，按领域分子目录（provider/context/memory/cron/mcp/sandbox/_meta，映射见 EPICS-INDEX.md） |
 
 > 进度：全部 10 个 epic 已完成（24 个 FR），详见 `_bmad-output/_cycles/baseline/sprint-status.yaml`；`engine/` 为 epic 外 P0 增量（见 frame.md 4.12）。
 

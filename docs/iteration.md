@@ -60,10 +60,10 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 1. **发现**：code-review 的 edge case hunter / blind hunter 发现。
 2. **分类**：`fix now`（当前 spec 内修）/ `defer`（记入 deferred-work）。
-3. **记录**：写入 `_bmad-output/patches/deferred-work.md`，含触发条件、严重度、冻结边界说明、建议修法。
+3. **记录**：写入 `_bmad-output/patches/_meta/deferred-work.md`，含触发条件、严重度、冻结边界说明、建议修法。
 4. **收尾**：后续开专门 spec 处理，修完写 `Resolution` 段关闭。
 
-> `_bmad-output/patches/deferred-work.md` 原 3 条（SubAgent 写竞态、ProviderChain 双层重包、流式 backstop 丢失上下文）均已收尾关闭——竞态经核实不成立（单线程 asyncio 下同步方法串行），另两项已修复。2026-07-01 FR-3 auto-unregister 评审另增 6 项 `defer`（pre-existing / spec 显式排除 / 非阻塞）：4 项已 Resolution 关闭（`__aexit__` 关停硬上界、handler 异常经 executor 兜底、`_unregister_all` 已是快照、测试保真度 a/b/c 补强），余 2 项保持现状（`_watch` 两个 `wait_for` 同名异义 / `except Exception` 过宽——待未来 MCP 重连场景再收窄）。
+> `_bmad-output/patches/_meta/deferred-work.md` 原 3 条（SubAgent 写竞态、ProviderChain 双层重包、流式 backstop 丢失上下文）均已收尾关闭——竞态经核实不成立（单线程 asyncio 下同步方法串行），另两项已修复。2026-07-01 FR-3 auto-unregister 评审另增 6 项 `defer`（pre-existing / spec 显式排除 / 非阻塞）：4 项已 Resolution 关闭（`__aexit__` 关停硬上界、handler 异常经 executor 兜底、`_unregister_all` 已是快照、测试保真度 a/b/c 补强），余 2 项保持现状（`_watch` 两个 `wait_for` 同名异义 / `except Exception` 过宽——待未来 MCP 重连场景再收窄）。
 
 ### 1.5 sprint-status 维护规则
 
@@ -275,5 +275,5 @@ quick-dev 是**基于 spec 的单会话执行**：
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
 - 迭代原始产物：`_bmad-output/_cycles/baseline/`、`_bmad-output/_cycles/mcp/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/_cycles/sandbox-hardening/`、`_bmad-output/_cycles/robustness-hardening/`、`_bmad-output/_cycles/quality-engineering/`、`_bmad-output/_cycles/gui/`、`_bmad-output/_cycles/interaction/`、`_bmad-output/patches/`
 - **sprint 状态（单一权威）**：[`_bmad-output/_cycles/baseline/sprint-status.yaml`](../_bmad-output/_cycles/baseline/sprint-status.yaml)（2026-08-19 更新，覆盖全 9 个周期、35 个 Epic + S1-S4）
-- 技术债登记：`_bmad-output/patches/deferred-work.md`
-- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/_cycles/mcp/retrospective-epic-13.md`、`_bmad-output/patches/retrospective-engine-p5.md`、`_bmad-output/patches/retrospective-p0-tech-debt.md`
+- 技术债登记：`_bmad-output/patches/_meta/deferred-work.md`
+- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/_cycles/mcp/retrospective-epic-13.md`、`_bmad-output/patches/_meta/retrospective-engine-p5.md`、`_bmad-output/patches/provider/retrospective-p0-tech-debt.md`

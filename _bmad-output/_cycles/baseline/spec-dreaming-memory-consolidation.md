@@ -6,7 +6,7 @@ baseline_commit: '169b8bb'
 status: 'done'
 review_loop_iteration: 0
 context:
-  - '{project-root}/_bmad-output/patches/spec-dreaming-memory-consolidation.md'
+  - '{project-root}/_bmad-output/patches/memory/spec-dreaming-memory-consolidation.md'
   - '{project-root}/docs/frame.md'
 ---
 

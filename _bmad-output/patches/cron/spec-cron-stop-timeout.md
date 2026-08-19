@@ -11,7 +11,7 @@ context:
   - '{project-root}/src/heagent/cron/scheduler.py'
   - '{project-root}/src/heagent/cli.py'  # stop() 唯一调用方——交互模式 finally 进程退出路径
   - '{project-root}/tests/test_cron.py'
-  - '{project-root}/_bmad-output/patches/spec-mcp-shutdown-timeout.md'  # 同构先例（commit 109df37）
+  - '{project-root}/_bmad-output/patches/mcp/spec-mcp-shutdown-timeout.md'  # 同构先例（commit 109df37）
   - '{project-root}/src/heagent/tools/mcp/manager.py'  # _await_shutdown 参照
 ---
 
@@ -72,7 +72,7 @@ context:
   - `test_stop_timeout_must_be_positive`：`CronScheduler(store, _StubProvider(), stop_timeout=0)` 与 `=-1` 各 `pytest.raises(ValueError)`（对齐 `test_shutdown_timeout_must_be_positive`）。
   - `test_stop_bounded_when_tick_hangs`：`stop_timeout=0.05`；monkeypatch `scheduler._check_and_execute` 为「吞 CancelledError 的挂起协程」（`try: await event.wait() except CancelledError: await event.wait()`——捕取消后继续挂起 = 模拟不响应 cancel）；`await scheduler.start()` + 小 sleep 让 `_tick_loop` 进入挂起协程；`await asyncio.wait_for(scheduler.stop(), timeout=2.0)`——未修则裸 `await` 挂死触发外层 `TimeoutError`，修后 ~0.05s 返回；断言 ERROR 日志（caplog）含「关停超时」。
   - `test_stop_clean_no_error_on_sleep`：`stop_timeout=1.0`（宽裕）；`start()` + 小 sleep 让 `_tick_loop` 进入 `asyncio.sleep`；`await scheduler.stop()`；断言 `self._task.done()`、无「关停超时」ERROR（零回归：sleep 中断路径不被误判）。
-- `_bmad-output/patches/deferred-work.md` — 新增条目登记此兄弟缺口（Source = MCP `__aexit__` 硬上界 commit `109df37` 的 code review 兄弟发现），直接带 Resolution 指向本 spec。
+- `_bmad-output/patches/_meta/deferred-work.md` — 新增条目登记此兄弟缺口（Source = MCP `__aexit__` 硬上界 commit `109df37` 的 code review 兄弟发现），直接带 Resolution 指向本 spec。
 - `docs/frame.md` / `CLAUDE.md` — 评估：frame.md 4.7（line 426-434）scheduler 描述简洁、无关停行为；line 725 `finally: scheduler.stop()` 仍准确；CLAUDE.md「已知缺口」段未列 cron stop。**无 stale「stop 可阻塞 / 关停无上界」表述** → 按 spec 条件性「若涉则同步」跳过，surgical。
 
 ## Tasks & Acceptance
@@ -82,7 +82,7 @@ context:
 - [x] `tests/test_cron.py` — 3 例回归（校验 / hang→bounded 挂死探测器 / clean 零回归）+ `_StubProvider` — 验证意图
 - [x] `pytest tests/test_cron.py -v` — 既有全绿 + 3 新增
 - [x] `pytest` — 全量零回归 + `ruff check src tests` 零新增 + `mypy src` 干净
-- [x] `_bmad-output/patches/deferred-work.md` — 新增兄弟缺口条目 + Resolution — 诚实记账
+- [x] `_bmad-output/patches/_meta/deferred-work.md` — 新增兄弟缺口条目 + Resolution — 诚实记账
 
 **Acceptance Criteria:**
 - AC1: Given `_tick_loop` 卡在不可中断 await（cancel 被吞、task 不退出），when `stop()`（`stop_timeout=0.05`），then `stop()` 在 ≤2.0s 内返回（非挂死），且发出「关停超时」ERROR。

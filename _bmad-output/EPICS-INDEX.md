@@ -6,7 +6,7 @@
 > |------|------|
 > | `epic-*/stories/` | 可执行 story 文件，按 epic 归档（仅建有 story 的 epic） |
 > | `_cycles/<周期>/` | 周期级规划文档（prd / brief / architecture / epics / sprint-status / reviews / retrospective） |
-> | `patches/` | 计划外补丁与技术债，跨周期扁平（见各 epic 节「相关 patches」映射） |
+> | `patches/<领域>/` | 计划外补丁与技术债，按领域分子目录（provider/context/memory/cron/mcp/sandbox/_meta，映射见各 epic 节） |
 >
 > **权威进度 = `_cycles/baseline/sprint-status.yaml`**（全部 epic 状态以此为准，含各周期 sprint-status 整合）。
 > Epic 编号内幕：周期内部曾用 A/B/C/S 前缀编号，主线统一映射见下表（11-13=MCP V1 内部 1-3；15/16/17=A/B/C；19/20=健壮性周期 A/C；S1-S4=沙箱周期）。
@@ -63,19 +63,19 @@
 
 - 周期文档：`_cycles/baseline/`（`prd.md`·`brief.md`·`architecture.md`·`epics.md`（Epic 1-5）·`epics-self-learning.md`（Epic 6-10）·`prd-decision-log.md`·`brief-decision-log.md`·`spec-dreaming-memory-consolidation.md`·`sprint-status.yaml`）
 - 相关 patches：
-  - Epic 1（provider 容错）：`patches/p0-provider-hardening.md`、`patches/p0-hardening-review-diff.txt`、`patches/retrospective-p0-tech-debt.md`
-  - Epic 3：`patches/3-3-token-counter.md`
-  - Epic 4（记忆/巩固）：`patches/spec-dreaming-memory-consolidation.md`、`patches/spec-dreaming-defer-cleanup.md`
-  - Epic 5：`patches/5-1-subagent-context-injection.md`、`patches/epic-5-context.md`
-  - Epic 10（Cron）：`patches/spec-cron-stop-timeout.md`
-- engine/ 为 epic 外 P0 增量（见 `docs/frame.md` 4.12）：`patches/retrospective-engine-p5.md`
+  - Epic 1（provider 容错）：`patches/provider/p0-provider-hardening.md`、`patches/provider/p0-hardening-review-diff.txt`、`patches/provider/retrospective-p0-tech-debt.md`
+  - Epic 3：`patches/context/3-3-token-counter.md`
+  - Epic 4（记忆/巩固）：`patches/memory/spec-dreaming-memory-consolidation.md`、`patches/memory/spec-dreaming-defer-cleanup.md`
+  - Epic 5：`patches/context/5-1-subagent-context-injection.md`、`patches/context/epic-5-context.md`
+  - Epic 10（Cron）：`patches/cron/spec-cron-stop-timeout.md`
+- engine/ 为 epic 外 P0 增量（见 `docs/frame.md` 4.12）：`patches/_meta/retrospective-engine-p5.md`
 
 ### mcp（Epic 11-18，MCP Client 集成周期，三阶段，2026-08-18 合并）
 
 - 周期文档：`_cycles/mcp/`（`prd.md`·`brief.md`·`architecture.md`·`epics.md`（三阶段整合分解）·`epics-integration.md`（归档集成文）·`decision-log.md`·`poc-readiness-report.md`·`retrospective-epic-13.md`·`reviews/_v1·_v2·_upgrade/`·`README.md`·`sprint-status.yaml`）
 - 相关 patches：
-  - Epic 11（MCP FR-3 断连注销 / 生命周期）：`patches/fr3-mcp-auto-unregister.md`、`patches/spec-mcp-shutdown-timeout.md`
-  - Epic 13（安全边界 DP-4）：`patches/spec-dp4-mcp-safety-guard.md`、`patches/spec-dp4-mcp-result-guard.md`、`patches/spec-mcp-user-injection-signatures.md`
+  - Epic 11（MCP FR-3 断连注销 / 生命周期）：`patches/mcp/fr3-mcp-auto-unregister.md`、`patches/mcp/spec-mcp-shutdown-timeout.md`
+  - Epic 13（安全边界 DP-4）：`patches/mcp/spec-dp4-mcp-safety-guard.md`、`patches/mcp/spec-dp4-mcp-result-guard.md`、`patches/mcp/spec-mcp-user-injection-signatures.md`
 
 ### robustness-hardening（Epic 19-20，健壮性与质量硬化）
 
@@ -88,7 +88,7 @@
 ### sandbox-hardening（Epic S1-S4，Sandbox 硬化）
 
 - 周期文档：`_cycles/sandbox-hardening/`（`prd.md`·`brief.md`·`ARCHITECTURE-SPINE.md`·`epics.md`·`sprint-status.yaml`）
-- 相关 patches：`patches/spec-engine-sandbox-backend.md`（S1 前置）、`patches/spec-sandbox-timeout-validation.md`、`patches/spec-sandbox-cancel-signal-preservation.md`、`patches/spec-sandbox-reap-robustness.md`
+- 相关 patches：`patches/sandbox/spec-engine-sandbox-backend.md`（S1 前置）、`patches/sandbox/spec-sandbox-timeout-validation.md`、`patches/sandbox/spec-sandbox-cancel-signal-preservation.md`、`patches/sandbox/spec-sandbox-reap-robustness.md`
 
 ### gui（Epic 25-28，GUI 终端界面）
 
@@ -97,11 +97,11 @@
 ### interaction（Epic 29-35，交互与可扩展层周期，2026-08-19 收官）
 
 - 周期文档：`_cycles/interaction/`（`prd.md`·`brief.md`·`epics.md`（29/30 正文 + 31-35 Backlog 表）·`retrospective.md`）
-- 相关 patches：`patches/cli-status-bar.md`（CLI 交互，关联 Epic 35）
+- 相关 patches：`patches/_meta/cli-status-bar.md`（CLI 交互，关联 Epic 35）
 
 ### 跨周期（无单一 epic 归属）
 
-- `patches/deferred-work.md`、`patches/spec-deferred-low-cleanup.md`（defer 项收尾）
-- `patches/code-review-2026-07-20.md`（全仓审查）
-- `patches/spec-business-data-integration.md`（独立业务 spec）
+- `patches/_meta/deferred-work.md`、`patches/_meta/spec-deferred-low-cleanup.md`（defer 项收尾）
+- `patches/_meta/code-review-2026-07-20.md`（全仓审查）
+- `patches/_meta/spec-business-data-integration.md`（独立业务 spec）
 - 根级汇总：`consolidated-overview.md`、`retrospective-all-cycles.md`、`README.md`

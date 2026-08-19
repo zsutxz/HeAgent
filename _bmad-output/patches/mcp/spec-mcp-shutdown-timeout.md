@@ -10,7 +10,7 @@ context:
   - '{project-root}/CLAUDE.md'
   - '{project-root}/src/heagent/tools/mcp/manager.py'
   - '{project-root}/tests/test_mcp_manager.py'
-  - '{project-root}/_bmad-output/patches/deferred-work.md'  # 2026-07-01 FR-3 review · __aexit__ gather 无超时条
+  - '{project-root}/_bmad-output/patches/_meta/deferred-work.md'  # 2026-07-01 FR-3 review · __aexit__ gather 无超时条
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
@@ -72,7 +72,7 @@ context:
   - `test_aexit_clean_close_no_spurious_cancel`：正常 fake_transport（yield 后正常返回）；断言 `__aexit__` 正常完成、无 "关停超时" WARNING、无 "二次超时" ERROR（零回归：happy path 不被误 cancel）。
   - `test_shutdown_timeout_must_be_positive`：`MCPClientManager(MCPConfig(), shutdown_timeout=0)` 与 `=-1` 各 `pytest.raises(ValueError)`（对齐 `test_health_check_interval_must_be_positive`）。
   - `test_aexit_mixed_hang_and_clean_server`：server A 正常、B 挂死；断言 A 的工具注销、`__aexit__` bounded 返回、仅 B 被 cancel（混合 done/pending 分离）。
-- `_bmad-output/patches/deferred-work.md` — 2026-07-01 FR-3 review 的「`__aexit__` gather 无超时」条补 Resolution（指向本 spec）+ 顺带把「handler 未把 in-flight call_tool 封 ToolError」条关为「executor 已兜底」（item D，研究证实崩溃前提失效）。
+- `_bmad-output/patches/_meta/deferred-work.md` — 2026-07-01 FR-3 review 的「`__aexit__` gather 无超时」条补 Resolution（指向本 spec）+ 顺带把「handler 未把 in-flight call_tool 封 ToolError」条关为「executor 已兜底」（item D，研究证实崩溃前提失效）。
 - `docs/frame.md` / `CLAUDE.md` — 若已知缺口表 / MCP 生命周期描述有「`__aexit__` 可阻塞 / 关停无上界」相关表述，同步更新（预计仅 frame.md 4.11 / 已知缺口表一句）。
 
 ## Tasks & Acceptance
@@ -82,7 +82,7 @@ context:
 - [x] `tests/test_mcp_manager.py` -- 4 例回归（hang bounded / clean 零回归 / 校验 / 混合）-- 验证意图
 - [x] `pytest tests/test_mcp_manager.py -v` -- 15 passed（11 既有 + 4 新）
 - [x] `pytest` -- 531 passed 零回归 + `ruff check src tests` 零新增 + `mypy src` 干净
-- [x] `_bmad-output/patches/deferred-work.md` -- item A Resolution + item D 关闭 -- 诚实记账
+- [x] `_bmad-output/patches/_meta/deferred-work.md` -- item A Resolution + item D 关闭 -- 诚实记账
 - [x] `docs/frame.md` / `CLAUDE.md` -- 评估后无 stale「__aexit__ 可阻塞 / 关停无上界」表述（frame.md 仅 line 501「退出时 unregister+优雅关闭」仍准确；该缺口从未进已知缺口表，只在 deferred-work.md）→ 按 spec 条件性「若涉则同步」跳过，surgical
 
 **Acceptance Criteria:**

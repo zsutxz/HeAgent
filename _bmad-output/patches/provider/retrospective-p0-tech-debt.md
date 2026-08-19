@@ -1,7 +1,7 @@
 # Retrospective — P0 Provider 技术债收尾
 
 > **事后补做**（2026-06-29）。P0 技术债收尾是补丁周期的一组工作（非 sprint-status 标准 epic），按同一 retro 模板生成。
-> 证据来源：`_bmad-output/patches/deferred-work.md`（三条均已关闭）+ `git log`（2026-06-19 异常统一包装、2026-06-20 P0 债收尾）。
+> 证据来源：`_bmad-output/patches/_meta/deferred-work.md`（三条均已关闭）+ `git log`（2026-06-19 异常统一包装、2026-06-20 P0 债收尾）。
 > 适配 CLI/库项目——省略 sprint velocity / incidents / deployment / stakeholder（不适用，不编造）。
 
 ## 概览
