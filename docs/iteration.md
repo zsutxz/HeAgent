@@ -213,6 +213,23 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-07-22 | **质量工程深化（Epic 21-24）**：coverage 工程化 + benchmark 重构 + Docker 硬化 + CI 效能/安全 + pre-commit 加固 + Ruff 扩展——全部 4 个 Epic、20 个 FR 交付，零业务代码改动，922 测试全绿 |
 | 2026-07-22 | **全周期回顾完成**：`_bmad-output/retrospective-all-cycles.md` 覆盖全部 24 个已完成 Epic + S1-S4，所有 sprint-status 的 `epic-N-retrospective` 标记 `done` |
 | 2026-07-23 | **GUI 终端界面周期启动**：BMad 规划冻结（brief→prd→architecture→epics），Epic 25-28 开始，流式聊天为当前焦点 |
+| 2026-08-19 | **交互与可扩展层周期（Epic 29-35）全部交付**：审批闭环 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 配置文件驱动角色 + 成本估算 / CLI 体验 + 技术债收尾——7 个 Epic、28 个 story、7 次提交，全量 1052 测试通过 |
+
+### 2.11 交互与可扩展层周期 · Epic 29-35
+
+来源 `_bmad-output/interaction/`（2026-08-19 启动并完成）。对照 Claude Code 补齐「面向使用者的交互与可扩展层」——审批、会话恢复、斜杠命令、Hooks、Plan Mode、自定义角色、成本追踪。全部复用既有基础设施（PolicyEngine / SessionStore / EventBus / RoleSpec / TokenUsage），`AgentLoop` 核心零侵入：
+
+| Epic | 主题 | FR |
+|------|------|----|
+| 29 | 运行时审批闭环 | FR-A1~A5（`ApprovalHandler` 协议 + `APPROVAL_REQUIRED` 交互授权） |
+| 30 | 会话恢复入口 | FR-B1~B3（`--continue`/`--resume`） |
+| 31 | 斜杠命令系统 | FR-C1~C4（注册表 + 用户自定义命令） |
+| 32 | Hooks 系统 | FR-D1~D4（PreToolUse/PostToolUse/SessionStart/End） |
+| 33 | Plan Mode / 只读模式 | FR-E1~E4（readOnlyHint 白名单收敛） |
+| 34 | 配置文件驱动角色 + 成本估算 | FR-F1~F4 |
+| 35 | CLI 体验优化 + 技术债收尾 | FR-G1~G4（web_fetch guard_content / cron expr 诊断 / init --project / readline） |
+
+详见 `_bmad-output/interaction/`（brief/prd/epics/retrospective）。
 
 ---
 
@@ -236,18 +253,18 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ## 四、路线图与下一步
 
-**当前状态（2026-07-23）**：全部 8 个开发周期，Epic 1-24 + S1-S4 已完成；GUI 终端界面周期（Epic 25-28，FR-G1~G24）已启动，Epic 25 流式聊天为当前焦点。
+**当前状态（2026-08-19）**：全部 9 个开发周期完成——主线（Epic 1-10）、MCP（11-18）、Sandbox 硬化（S1-S4）、健壮性/质量（19-24）、GUI（25-28）、**交互与可扩展层（29-35）** 全部交付；全量 1052 测试通过。
 
 **当前缺口**（详见 `frame.md` 第五章）：
 
 - `SafetyGuard` / `path_safety` / engine sandbox 均非真边界，须 OS 级沙箱兜底。
 - `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可注入 `FirejailBackend`（仅 shell 子进程、Linux-only、非完美边界），file/memory 等不受覆盖。
 
-**下一步**：
+**下一步（候选，非承诺）**：
 
-- ✅ **回顾**：全部 24 个已完成 Epic + S1-S4 的正式回顾已完成（`_bmad-output/retrospective-all-cycles.md`），sprint-status 全部标记 `done`。
-- 🔜 **GUI 开发**：Epic 25 流式聊天——项目骨架、流式引擎、Markdown 渲染与执行状态。
+- ✅ **回顾**：全部 35 个已完成 Epic + S1-S4 的正式回顾——全周期见 `_bmad-output/retrospective-all-cycles.md`，交互与可扩展层见 `_bmad-output/interaction/retrospective.md`（2026-08-19）。
 - ⏳ **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow。
+- 🔮 **可选增强**：多模态（vision）、Web API 服务端（均与 `design.md` 当前非目标冲突，需重新评估）；Hooks 增强（`UserPromptSubmit`/`Stop`/`SubagentStop` 事件、参数模板引擎）。
 
 ---
 
@@ -256,7 +273,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 - 架构权威：[`frame.md`](frame.md)（含 engine 模块 4.12、已知缺口第五章）
 - 产品愿景：[`design.md`](design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
-- 迭代原始产物：`_bmad-output/baseline/`、`_bmad-output/mcp/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/sandbox-hardening/`、`_bmad-output/robustness-hardening/`、`_bmad-output/quality-engineering/`、`_bmad-output/gui/`、`_bmad-output/patches/`
-- **sprint 状态（单一权威）**：[`_bmad-output/baseline/sprint-status.yaml`](../_bmad-output/baseline/sprint-status.yaml)（2026-07-23 整合，覆盖全 8 个周期、28 个 Epic + S1-S4）
+- 迭代原始产物：`_bmad-output/baseline/`、`_bmad-output/mcp/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/sandbox-hardening/`、`_bmad-output/robustness-hardening/`、`_bmad-output/quality-engineering/`、`_bmad-output/gui/`、`_bmad-output/interaction/`、`_bmad-output/patches/`
+- **sprint 状态（单一权威）**：[`_bmad-output/baseline/sprint-status.yaml`](../_bmad-output/baseline/sprint-status.yaml)（2026-08-19 更新，覆盖全 9 个周期、35 个 Epic + S1-S4）
 - 技术债登记：`_bmad-output/patches/deferred-work.md`
 - 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/mcp/retrospective-epic-13.md`、`_bmad-output/patches/retrospective-engine-p5.md`、`_bmad-output/patches/retrospective-p0-tech-debt.md`
