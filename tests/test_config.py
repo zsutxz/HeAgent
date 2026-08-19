@@ -68,6 +68,20 @@ class TestEnvLoading:
         s = Settings()
         assert s.compression_threshold == 0.5
 
+    def test_context_strategy_default(self) -> None:
+        s = Settings()
+        assert s.context_strategy == "compressor"
+
+    def test_context_strategy_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("CONTEXT_STRATEGY", "reset")
+        s = Settings()
+        assert s.context_strategy == "reset"
+
+    def test_window_reset_threshold(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("WINDOW_RESET_THRESHOLD", "0.7")
+        s = Settings()
+        assert s.window_reset_threshold == 0.7
+
     def test_shell_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SHELL_TIMEOUT", "60")
         s = Settings()

@@ -192,6 +192,8 @@ class AgentLoop:
         self.last_iteration: int | None = None
         # 从程序启动开始的累计总 token 数（跨 run 累加）
         self.cumulative_tokens: int = 0
+        # 最近一次 run 结束时的「当前上下文占用」估算（下一轮将发送的消息 token 数），供状态栏展示。
+        self.last_context_tokens: int = 0
 
         settings = get_settings()
         self.max_iterations = max_iterations or settings.max_iterations
@@ -641,6 +643,10 @@ class AgentLoop:
         self.last_usage = accumulated
         self.last_iteration = state.iteration
         self.last_run_context = run_context
+        # 当前上下文占用：以「下一轮将发送的消息」估算 token 数（区别于 last_usage 的累计值）。
+        from heagent.context.tokens import count_tokens
+
+        self.last_context_tokens = count_tokens(state.messages)
         if self.engine.hooks is not None:
             await self.engine.hooks.run_session(SESSION_END, run_context)
 

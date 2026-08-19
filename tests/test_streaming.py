@@ -89,6 +89,15 @@ class TestRunStream:
         assert loop.last_usage is not None
         assert loop.last_usage.total_tokens > 0
 
+    async def test_tracks_last_context_tokens(self) -> None:
+        """run 结束后 last_context_tokens 反映当前上下文占用（>0，区别于累计 last_usage）。"""
+        provider = StreamStubProvider(["answer"])
+        loop = AgentLoop(provider)
+        async for _ in loop.run_stream("hi"):
+            pass
+
+        assert loop.last_context_tokens > 0
+
     async def test_stream_events_order(self) -> None:
         """所有 text 事件应在 done 之前。"""
         provider = StreamStubProvider(["a", "b"])

@@ -295,7 +295,7 @@ class TestMCPSlashCommand:
 
 
 class TestFormatStatus:
-    """_format_status: CLI 状态栏（per-call 用量 + 从程序开始的累计 token）。"""
+    """_format_status: CLI 状态栏（当前上下文占用 + 从程序开始的累计 token）。"""
 
     @pytest.fixture()
     def cli_settings(self, monkeypatch):
@@ -309,15 +309,28 @@ class TestFormatStatus:
         reset_settings()
 
     @staticmethod
-    def _fake_loop(model: str = "deepseek-v4-pro", used: int = 0, cumulative: int = 0):
+    def _fake_loop(
+        model: str = "deepseek-v4-pro",
+        used: int = 0,
+        cumulative: int = 0,
+        strategy: str = "compressor",
+        reset_threshold: float = 0.6,
+    ):
         """Duck-typed stand-in for AgentLoop — only the fields _format_status reads."""
         from types import SimpleNamespace
 
-        from heagent.types import TokenUsage
-
         provider = SimpleNamespace(get_metadata=lambda: SimpleNamespace(model=model))
-        usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=used) if used > 0 else None
-        return SimpleNamespace(provider=provider, last_usage=usage, cumulative_tokens=cumulative)
+        compressor = SimpleNamespace(threshold=0.8) if strategy == "compressor" else None
+        window_reset = (
+            SimpleNamespace(config=SimpleNamespace(threshold=reset_threshold)) if strategy == "reset" else None
+        )
+        return SimpleNamespace(
+            provider=provider,
+            last_context_tokens=used,
+            cumulative_tokens=cumulative,
+            compressor=compressor,
+            window_reset=window_reset,
+        )
 
     def test_no_cumulative_when_zero(self, cli_settings):
         """累计为 0（进入交互、尚未 run）时不显示累计段。"""
@@ -341,3 +354,12 @@ class TestFormatStatus:
         status = _format_status(self._fake_loop(used=28500, cumulative=58500))
         assert "28.5K/1M tok" in status
         assert "累计: 58.5K tok" in status
+
+    def test_reset_strategy_label(self, cli_settings):
+        """context_strategy=reset 时标签显示 reset@阈值（而非 cmp@）。"""
+        from heagent.cli import _format_status
+
+        status = _format_status(self._fake_loop(used=1000, cumulative=2000, strategy="reset"))
+        assert "1K/1M tok" in status
+        assert "reset@60%" in status
+        assert "累计: 2K tok" in status

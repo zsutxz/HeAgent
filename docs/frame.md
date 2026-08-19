@@ -434,6 +434,7 @@ Token 用量 ≥ 阈值（默认 0.6）时**清窗重建**：把整段对话压�
 同 `run_id` 跨多段 context window 续跑。与 `compressor` **互斥**（运行期二选一，`AgentLoop.__init__`
 断言，D3）——compressor 原位摘要保留 recent 消息，window_reset 更激进地整窗重置；摘要提示词与
 compressor 一致。reset 不重置 iteration/accumulated（防绕预算）。`run`/`run_stream` 在工具消息追加后检查触发。
+CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RESET_THRESHOLD` 控制重置触发阈值（见 cli.py `_build_context_strategy`）。
 
 #### session.py — 会话持久化
 

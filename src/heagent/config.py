@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     # ---- 框架运行参数 ----
     max_iterations: int = Field(default=50, ge=1)
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
+    # 上下文管理策略："compressor"=原地摘要压缩（默认）；"reset"=窗口重置（清窗后 resume 续跑，D3 互斥）。
+    context_strategy: str = Field(default="compressor")
+    # 窗口重置触发阈值（context_strategy=reset 时生效）。
+    window_reset_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
     # 默认上下文窗口 512k：与 .env.example 文档一致。注意 window_reset/compressor
     # 的触发阈值 = threshold % of window，窗口越大触发越晚（0.8 × 512k ≈ 410k）；
     # 须确认所用模型实际上下文 ≥512k，否则压缩触发前就会先撞上 API 上限报 400。

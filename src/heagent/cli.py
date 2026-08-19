@@ -23,6 +23,7 @@ from heagent.config import GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE, Settings, get_
 from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
 from heagent.context.tokens import estimate_cost
+from heagent.context.window_reset import WindowResetConfig
 from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
 from heagent.engine import ConsoleApprovalHandler, EngineContainer
@@ -100,24 +101,24 @@ def _format_tokens_k(n: int) -> str:
 
 
 def _format_status(loop: AgentLoop) -> str:
-    """Format CLI prompt prefix: model + per-call tokens / context window + compression threshold + cumulative.
+    """Format CLI prompt prefix: model + current context occupancy / window + strategy threshold + cumulative.
 
-    Shows per-call token usage against the model context window, the compression
-    trigger threshold (compression_threshold % of max_context_tokens), and the
-    cumulative tokens consumed since program start (across runs, only when > 0).
+    Shows the **current** context occupancy (``loop.last_context_tokens``, i.e. the token
+    estimate of what the next call would send) against the context window, the active
+    context-management strategy threshold (compressor / window_reset), and the cumulative
+    tokens consumed since program start (across runs, only when > 0).
     """
     meta = loop.provider.get_metadata()
     model = meta.model
     settings = get_settings()
     max_tok = settings.max_context_tokens
-    usage = loop.last_usage
-    used = usage.total_tokens if usage and usage.total_tokens > 0 else 0
-    cmp_pct = int(settings.compression_threshold * 100)
-    parts = [
-        model,
-        f"{_format_tokens_k(used)}/{_format_tokens_k(max_tok)} tok",
-        f"cmp@{cmp_pct}%",
-    ]
+    used = loop.last_context_tokens
+    parts = [model, f"{_format_tokens_k(used)}/{_format_tokens_k(max_tok)} tok"]
+    # 上下文策略标签：window_reset 与 compressor 互斥，据 loop 实际启用的策略取阈值。
+    if loop.window_reset is not None:
+        parts.append(f"reset@{int(loop.window_reset.config.threshold * 100)}%")
+    elif loop.compressor is not None:
+        parts.append(f"cmp@{int(loop.compressor.threshold * 100)}%")
     if loop.cumulative_tokens > 0:
         parts.append(f"累计: {_format_tokens_k(loop.cumulative_tokens)} tok")
     return f"[{' | '.join(parts)}]"
@@ -314,6 +315,23 @@ def _mcp_lifecycle(settings: Settings) -> AbstractAsyncContextManager[Any]:
     return MCPClientManager(config)
 
 
+def _build_context_strategy(
+    settings: Settings, provider: BaseProvider
+) -> tuple[ContextCompressor | None, WindowResetConfig | None]:
+    """按 CONTEXT_STRATEGY 构造上下文管理策略（compressor / window_reset，二选一）。
+
+    D3 决策：两者互斥，AgentLoop 同传即报错。默认 "compressor"；未知值告警并回退
+    compressor，避免静默失效。
+    """
+    strategy = settings.context_strategy
+    if strategy == "reset":
+        return None, WindowResetConfig(threshold=settings.window_reset_threshold)
+    if strategy == "compressor":
+        return ContextCompressor(provider, threshold=settings.compression_threshold), None
+    logger.warning("CONTEXT_STRATEGY=%r invalid; falling back to compressor", strategy)
+    return ContextCompressor(provider, threshold=settings.compression_threshold), None
+
+
 def _build_loop(
     settings: Settings,
     provider: BaseProvider,
@@ -338,7 +356,7 @@ def _build_loop(
     profile = profile or ProfileStore()
     soul = soul or _build_soul(soul_path)
     cron_store = JobStore() if settings.cron_enabled else None
-    compressor = ContextCompressor(provider, threshold=settings.compression_threshold)
+    compressor, window_reset = _build_context_strategy(settings, provider)
     engine = engine or EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
     retry_mw = make_retry_middleware(
         max_attempts=settings.retry_max_attempts,
@@ -358,6 +376,7 @@ def _build_loop(
                 facts=facts,
                 profile=profile,
                 compressor=compressor,
+                window_reset=window_reset,
                 context_dir=os.getcwd(),
                 soul=soul,
                 cron_store=cron_store,
@@ -382,6 +401,7 @@ def _build_loop(
         profile=profile,
         session=session,
         compressor=compressor,
+        window_reset=window_reset,
         context_dir=os.getcwd(),
         soul=soul,
         cron_store=cron_store,
