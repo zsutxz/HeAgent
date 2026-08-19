@@ -322,6 +322,17 @@ development_status:
   30-3-session-tests-docs: done
   epic-30-retrospective: done
 
+  # ═══════════════════════════════════════════════════════════════
+  # 交互与可扩展层周期 · Epic 31（2026-08-19）
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-31: done  # 斜杠命令系统（FR-C1~C4）
+  31-1-slash-registry-model: done
+  31-2-builtin-commands-custom-load: done
+  31-3-cli-registry-integration: done
+  31-4-slash-tests-docs: done
+  epic-31-retrospective: done
+
 # ═════════════════════════════════════════════════════════════════
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════

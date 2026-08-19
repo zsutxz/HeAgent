@@ -107,6 +107,30 @@ python -m heagent --model deepseek-chat --system "你是 Python 专家" "写一�
 | `--continue` | 继续最近一次会话（交互模式） |
 | `--resume <id>` | 恢复指定 session id 的会话（交互模式） |
 
+### 交互模式斜杠命令
+
+交互模式下输入以 `/` 开头会路由到斜杠命令（Epic 31）：
+
+| 命令 | 说明 |
+|------|------|
+| `/model` | 列出 / 切换 LLM 模型 |
+| `/mcp-prompt` | 调度 MCP prompt |
+| `/clear` | 清空当前会话上下文 |
+| `/help` | 列出所有可用斜杠命令 |
+| 自定义命令 | 从 `.heagent/commands/*.md`（项目级）与 `~/.heagent/commands/*.md`（用户级）加载 |
+
+自定义命令格式（frontmatter 声明 name/description，正文为 prompt 模板）：
+
+```markdown
+---
+name: review
+description: 审查代码变更
+---
+请审查当前的代码变更，重点关注潜在 bug 与可读性。
+```
+
+触发 `/review` 时，该 prompt 模板会作为一条用户消息提交给 Agent。
+
 安装脚本后也可以直接使用：
 
 ```bash

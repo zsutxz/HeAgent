@@ -34,6 +34,7 @@ from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
 from heagent.providers.switchable import SwitchableProvider
+from heagent.slash import SlashRegistry, load_custom_commands
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
 
 if TYPE_CHECKING:
@@ -506,6 +507,7 @@ async def _run_chat(
             soul=soul,
         )
         dream_scheduler = _build_dream_scheduler(settings, provider, engine, session, skills, facts, profile, soul)
+        registry = _build_slash_registry(provider, mcp_manager, session, session_id, loop, system)
         click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
 
         try:
@@ -525,19 +527,11 @@ async def _run_chat(
                     break
 
                 if user_input.startswith("/"):
-                    handled = await _handle_slash(user_input, provider, mcp_manager)
+                    handled = await _handle_slash(user_input, registry)
                     if handled:
                         continue
 
-                try:
-                    async for event in loop.run_stream(user_input, system=system, session_id=session_id):
-                        _print_stream_event(event)
-                    click.echo("\n")
-                    _print_usage(loop.last_usage)
-                except BudgetExceeded as exc:
-                    click.echo(f"[budget exceeded] {exc.message}", err=True)
-                except HeAgentError as exc:
-                    click.echo(f"[error] {exc.message}", err=True)
+                await _run_prompt(loop, user_input, system, session_id)
         finally:
             if dream_scheduler:
                 await dream_scheduler.stop()
@@ -550,24 +544,71 @@ async def _run_chat(
 # =============================================================================
 
 
-async def _handle_slash(
-    user_input: str,
+async def _run_prompt(loop: AgentLoop, prompt: str, system: str | None, session_id: str) -> None:
+    """把一条用户消息提交给 loop 流式执行并打印结果（自定义斜杠命令复用）。"""
+    try:
+        async for event in loop.run_stream(prompt, system=system, session_id=session_id):
+            _print_stream_event(event)
+        click.echo("\n")
+        _print_usage(loop.last_usage)
+    except BudgetExceeded as exc:
+        click.echo(f"[budget exceeded] {exc.message}", err=True)
+    except HeAgentError as exc:
+        click.echo(f"[error] {exc.message}", err=True)
+
+
+def _build_slash_registry(
     provider: BaseProvider,
     mcp_manager: Any,
-) -> bool:
-    """Route slash commands; returns True if handled, False to pass through."""
+    session: SessionStore | None,
+    session_id: str,
+    loop: AgentLoop,
+    system: str | None,
+) -> SlashRegistry:
+    """构造斜杠命令注册表：内置命令 + 用户自定义命令（Epic 31）。"""
+    registry = SlashRegistry()
+
+    async def _model(args: str) -> None:
+        await _handle_model_cmd(["/model", *args.split()], provider)
+
+    async def _mcp_prompt(args: str) -> None:
+        await _handle_mcp_prompt(f"/mcp-prompt {args}".strip(), mcp_manager)
+
+    async def _clear(args: str) -> None:
+        if session is not None:
+            session.delete(session_id)
+        click.echo("[clear] Session history cleared. Next message starts fresh.", err=True)
+
+    async def _help(args: str) -> None:
+        click.echo("Available slash commands:", err=True)
+        for name in registry.names():
+            click.echo(f"  /{name}  {registry.describe(name)}", err=True)
+
+    registry.register("model", "切换 LLM 模型", _model)
+    registry.register("mcp-prompt", "调度 MCP prompt", _mcp_prompt)
+    registry.register("clear", "清空当前会话上下文", _clear)
+    registry.register("help", "列出所有斜杠命令", _help)
+
+    for command in load_custom_commands():
+        prompt = command.prompt
+
+        async def _custom(args: str, prompt: str = prompt) -> None:
+            await _run_prompt(loop, prompt, system, session_id)
+
+        registry.register(command.name, command.description, _custom)
+
+    return registry
+
+
+async def _handle_slash(user_input: str, registry: SlashRegistry) -> bool:
+    """Route slash commands via registry; returns True if handled, False to pass through."""
     parts = user_input.split()
     cmd = parts[0].lower() if parts else ""
-
-    if cmd == "/model":
-        await _handle_model_cmd(parts, provider)
-        return True
-
-    if cmd == "/mcp-prompt":
-        await _handle_mcp_prompt(user_input, mcp_manager)
-        return True
-
-    return False
+    if not cmd.startswith("/"):
+        return False
+    name = cmd[1:]
+    args = " ".join(parts[1:])
+    return await registry.dispatch(name, args)
 
 
 async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
