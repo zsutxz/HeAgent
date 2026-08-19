@@ -1,0 +1,33 @@
+# ARCHIVED (2026-07-23): 全周期 sprint-status 已整合至 _bmad-output/_cycles/baseline/sprint-status.yaml。
+# 本文件保留作为只读归档，后续状态更新以 baseline 文件为准。
+# 整合说明见 _bmad-output/README.md。
+#
+generated: 2026-07-20
+last_updated: 2026-07-22
+project: HeAgent
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/ (stories 已按 epic 重组至 epic-*/stories/，见 EPICS-INDEX.md)
+
+development_status:
+  epic-S1: done
+  S1-1-firejail-profiles-build-argv: done
+  S1-2-executor-profile-contextvar: done
+  epic-S1-retrospective: done
+
+  epic-S2: done
+  S2-1-firejail-availability-degradation: done
+  S2-2-env-cli-config-entry: done
+  epic-S2-retrospective: done
+
+  epic-S3: done
+  S3-1-linux-process-group-kill: done
+  S3-2-workspace-root-private-mount: done
+  epic-S3-retrospective: done
+
+  epic-S4: done
+  S4-1-emit-sandbox-fields: skipped
+  S4-2-safety-docs-sync: done
+  epic-S4-retrospective: done
+
+action_items: []

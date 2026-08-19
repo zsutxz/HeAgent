@@ -3,7 +3,7 @@
 > **生成**：2026-08-18（以本机当前时间 UTC+8 为准）
 > **范围**：`_bmad-output/` 全部 8 个开发周期 + 补丁/技术债 + engine 增量，整合自各周期 brief / prd / architecture / epics / stories / sprint-status / retrospective / patches / specs 共 90+ 份文档。
 > **定位**：本文是 BMad 规划产物的**统一导航与综合摘要**——按周期纵向梳理「意图 → 需求 → 架构 → 拆分 → 状态」，横向提供**统一编号索引**与**跨周期模式**。它**不是当前代码事实**：代码现状以 `docs/frame.md` 为准，规划与实现冲突时以 `src/` 为准。
-> **权威状态**：所有 Epic/Story 状态以 `_bmad-output/baseline/sprint-status.yaml`（2026-07-23 整合，唯一写目标）为单一权威。
+> **权威状态**：所有 Epic/Story 状态以 `_bmad-output/_cycles/baseline/sprint-status.yaml`（2026-07-23 整合，唯一写目标）为单一权威。
 
 ---
 
@@ -98,7 +98,7 @@
 
 ## 三、周期 1：主线 MVP 与自学习闭环（Epic 1-10，FR-1~24）
 
-> 目录：`_bmad-output/baseline/`。规划期 2026-05-23~26。状态：**Epic 1-10 全部 done**（37 stories + 10 retrospective）。
+> 目录：`_bmad-output/_cycles/baseline/`。规划期 2026-05-23~26。状态：**Epic 1-10 全部 done**（37 stories + 10 retrospective）。
 
 ### 3.1 产品定位与边界（brief，DEC-001~005）
 
@@ -217,7 +217,7 @@ PRD 精简 ~2 页、FR 全局编号；19 FR 覆盖 7 子系统；MCP 延后 MVP 
 
 ## 四、周期 2：MCP Client 集成一（Epic 11-13，独立 FR-1~11）
 
-> 目录：`_bmad-output/mcp/`（阶段一，原 `mcp-client/`）。规划期 2026-06-20。状态：**Epic 11-13 全部 done**（8 stories）。
+> 目录：`_bmad-output/_cycles/mcp/`（阶段一，原 `mcp-client/`）。规划期 2026-06-20。状态：**Epic 11-13 全部 done**（8 stories）。
 
 ### 4.1 周期意图
 
@@ -274,7 +274,7 @@ PRD 精简 ~2 页、FR 全局编号；19 FR 覆盖 7 子系统；MCP 延后 MVP 
 
 ## 五、周期 3：MCP v1→v2 升级准备（Epic 14，独立 FR-1~5）
 
-> 目录：`_bmad-output/mcp/`（阶段二，原 `mcp-v2-upgrade/`）。2026-07-12。状态：**Epic 14 done**（3 stories + POC 验证）。
+> 目录：`_bmad-output/_cycles/mcp/`（阶段二，原 `mcp-v2-upgrade/`）。2026-07-12。状态：**Epic 14 done**（3 stories + POC 验证）。
 
 ### 5.1 周期意图
 
@@ -315,7 +315,7 @@ PRD 精简 ~2 页、FR 全局编号；19 FR 覆盖 7 子系统；MCP 延后 MVP 
 
 ## 六、周期 4：MCP Client V2（Epic 15-18，FR-A~C + 内置工具）
 
-> 目录：`_bmad-output/mcp/`（阶段三，原 `mcp-client-v2/`）。2026-07-17。状态：**Epic 15-18 全部 done**（11 stories，16/16 FR 覆盖）。
+> 目录：`_bmad-output/_cycles/mcp/`（阶段三，原 `mcp-client-v2/`）。2026-07-17。状态：**Epic 15-18 全部 done**（11 stories，16/16 FR 覆盖）。
 
 ### 6.1 周期意图
 
@@ -370,7 +370,7 @@ V1（Tools-only）的延续，把 V1 刻意冻结的三处缺口补齐，落在�
 
 ## 七、周期 5：Sandbox 硬化（Epic S1-S4，FR-S1~S7）
 
-> 目录：`_bmad-output/sandbox-hardening/`。2026-07-20。状态：**Epic S1-S4 done**（8 stories，S4-1 skipped；24 个 sandbox 专项测试，751/751 全绿）。
+> 目录：`_bmad-output/_cycles/sandbox-hardening/`。2026-07-20。状态：**Epic S1-S4 done**（8 stories，S4-1 skipped；24 个 sandbox 专项测试，751/751 全绿）。
 
 ### 7.1 周期意图
 
@@ -419,7 +419,7 @@ V1（Tools-only）的延续，把 V1 刻意冻结的三处缺口补齐，落在�
 
 ## 八、周期 6：健壮性与质量硬化（Epic 19-20，FR-A1~A5 + FR-C1~C6）
 
-> 目录：`_bmad-output/robustness-hardening/`。2026-07-21。状态：**Epic 19-20 done**（9 stories；46 专项测试，797/797 全绿）。
+> 目录：`_bmad-output/_cycles/robustness-hardening/`。2026-07-21。状态：**Epic 19-20 done**（9 stories；46 专项测试，797/797 全绿）。
 
 ### 8.1 周期意图
 
@@ -474,7 +474,7 @@ V1（Tools-only）的延续，把 V1 刻意冻结的三处缺口补齐，落在�
 
 ## 九、周期 7：质量工程深化（Epic 21-24，FR-Q1~Q20）
 
-> 目录：`_bmad-output/quality-engineering/`。2026-07-22。状态：**Epic 21-24 全部 done**（18 stories，20 FR 交付，零业务代码改动，922 测试全绿）。
+> 目录：`_bmad-output/_cycles/quality-engineering/`。2026-07-22。状态：**Epic 21-24 全部 done**（18 stories，20 FR 交付，零业务代码改动，922 测试全绿）。
 
 ### 9.1 周期意图
 
@@ -513,7 +513,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ## 十、周期 8：GUI 终端界面（Epic 25-28，FR-G1~G24）
 
-> 目录：`_bmad-output/gui/`。2026-07-23。状态：**Epic 25-28 全部 done**（12 stories；retrospective 为 optional——按 sprint-status 单一权威）。参考 `docs/gui-plan.md`。
+> 目录：`_bmad-output/_cycles/gui/`。2026-07-23。状态：**Epic 25-28 全部 done**（12 stories；retrospective 为 optional——按 sprint-status 单一权威）。参考 `docs/gui-plan.md`。
 
 ### 10.1 周期意图
 
@@ -757,14 +757,14 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/README.md` | 产物地图（按周期） |
 | `_bmad-output/consolidated-overview.md` | **本文——统一整合总览** |
 | `_bmad-output/retrospective-all-cycles.md` | 全周期综合回顾（2026-07-22，覆盖 Epic 1-23 + S1-S4） |
-| `_bmad-output/baseline/sprint-status.yaml` | **sprint 状态单一权威**（全 8 周期） |
-| `_bmad-output/baseline/` | 主线周期原始产物（Epic 1-10） |
-| `_bmad-output/mcp/` | MCP Client 集成周期（三阶段统一，2026-08-18 合并；含 Epic 11-18） |
+| `_bmad-output/_cycles/baseline/sprint-status.yaml` | **sprint 状态单一权威**（全 8 周期） |
+| `_bmad-output/_cycles/baseline/` | 主线周期原始产物（Epic 1-10） |
+| `_bmad-output/_cycles/mcp/` | MCP Client 集成周期（三阶段统一，2026-08-18 合并；含 Epic 11-18） |
 
 
-| `_bmad-output/sandbox-hardening/` | Sandbox 硬化（Epic S1-S4） |
-| `_bmad-output/robustness-hardening/` | 健壮性硬化（Epic 19-20） |
-| `_bmad-output/quality-engineering/` | 质量工程深化（Epic 21-24） |
-| `_bmad-output/gui/` | GUI 周期（Epic 25-28） |
+| `_bmad-output/_cycles/sandbox-hardening/` | Sandbox 硬化（Epic S1-S4） |
+| `_bmad-output/_cycles/robustness-hardening/` | 健壮性硬化（Epic 19-20） |
+| `_bmad-output/_cycles/quality-engineering/` | 质量工程深化（Epic 21-24） |
+| `_bmad-output/_cycles/gui/` | GUI 周期（Epic 25-28） |
 | `_bmad-output/patches/` | 补丁 spec + 技术债登记（deferred-work.md） |
 | `_bmad-output/specs/` | quick-dev 本地工作件（gitignored） |

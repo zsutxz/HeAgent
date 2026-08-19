@@ -60,7 +60,7 @@ context:
 - `tests/test_safety.py` — 加 `TestBlockedTools`：MCP 名命中/不命中、默认空零回归、工具名覆盖 shell
 - `CLAUDE.md` — 安全声明：DP-4 从 deferred → 已落地（立场不变）
 - `docs/frame.md` — 4.11（line 506）+ 第五章已知缺口表（line 548）：更新 SafetyGuard MCP 覆盖状态
-- `_bmad-output/baseline/sprint-status.yaml` — `action_items` DP-4 项 status `open → closed`
+- `_bmad-output/_cycles/baseline/sprint-status.yaml` — `action_items` DP-4 项 status `open → closed`
 
 ## Tasks & Acceptance
 
@@ -70,7 +70,7 @@ context:
 - [x] `src/heagent/agent/loop.py` + `src/heagent/agent/sub.py` -- SafetyGuard 构造从 `get_settings().safety_blocked_tools` 注入（`guard or SafetyGuard(...)`）；子 Agent 优先继承父 guard -- 启用通路
 - [x] `tests/test_safety.py` -- 加 `TestBlockedTools` 覆盖 I/O Matrix 四场景；构造用 `ToolCall(id="1", name="github__delete_issue", arguments={...})` 仿 `_shell_call` -- 验证意图
 - [x] `CLAUDE.md` -- 安全声明段去 DP-4 deferred 标记，改述为已落地但立场不变 -- 诚实边界
-- [x] `docs/frame.md` + `_bmad-output/baseline/sprint-status.yaml` -- 更新已知缺口 + action_items DP-4 关闭 -- 同步架构权威
+- [x] `docs/frame.md` + `_bmad-output/_cycles/baseline/sprint-status.yaml` -- 更新已知缺口 + action_items DP-4 关闭 -- 同步架构权威
 
 **Acceptance Criteria:**
 - Given `blocked_tools=["github__delete_.*"]`，when MCP 工具 `github__delete_issue` 经 `check()`，then 抛 `SafetyViolation` 且 `ToolExecutor` 返回 `is_error=True` `ToolResult`。
