@@ -110,7 +110,7 @@ Findings deferred during quick-dev (out of the originating story's frozen scope,
 
 ## 2026-08-11 · Dreaming AC6 端到端：web_fetch 返回路径未接 guard_content
 
-- source_spec: `_bmad-output/specs/spec-dreaming-memory-consolidation.md`
+- source_spec: `_bmad-output/epics/epic-01-10-主线规划周期/spec-dreaming-memory-consolidation-frozen.md`
 - summary: dreamer 角色联网（`web_fetch`）返回内容当前不经 `guard_content` 注入围栏——仅 MCP 工具返回经 `mapping.bridge_result` 走围栏，内置 `web_fetch`（`tools/builtins/web.py`）handler 返回路径未接入；dreamer 联网结果直接进 LLM 上下文，prompt injection 无围栏。
 - evidence: dreaming spec（AC6）原假设「dreamer 调 `web_fetch` → `guard_content` 标记透传」，step-03 实现后发现 `web.py` handler 返回未调 `guard_content`，端到端不成立。AC6 经 human renegotiate 降级为「`guard_content` 函数级复用（零回归）」，端到端接入 defer。spec 立场段原把「web 返回启发式标记」列为缓解，与实现矛盾——已诚实化（代码注释 `dream.py` / `roles.py` + spec I/O Matrix / Design Notes / Change Log）。
 - severity: MED（dreamer 无人监督联网 + 改持久记忆，注入可跨会话污染；但 `dream_enabled` 默认 False，opt-in）。
@@ -122,7 +122,7 @@ Findings deferred during quick-dev (out of the originating story's frozen scope,
 
 ## 2026-08-12 · Dreaming 审查 defer（step-04 对抗审查，3 个 low，非阻断）
 
-- source_spec: `_bmad-output/specs/spec-dreaming-memory-consolidation.md`
+- source_spec: `_bmad-output/epics/epic-01-10-主线规划周期/spec-dreaming-memory-consolidation-frozen.md`
 - summary: step-04 双 hunter 对抗审查发现的 3 个低优项，非本 story 阻断缺陷，defer 待后续：(a) **`memory/dream.py` → `cron.scheduler` 横向 DAG 边**——仅复用 `CronScheduler._matches` 静态 cron 解析器做 fail-fast 校验 + tick 匹配；非硬约束违反（仅 `agent/` 导入被禁、无环），但 CLAUDE.md DAG 图未画 `memory → cron` 边（coupling smell）；(b) **`DreamScheduler._await_stop` 超时分支孤儿 task**——`if pending:` 仅记 ERROR log，未置 `self._task = None` / 未取回 exception，task 退出可能触发 "Task exception was never retrieved"（继承自 `CronScheduler._await_stop` 同构模式）；(c) **`_run_dream` CancelledError 分支总标 `aborted=True`**——无法区分 `stop()` 取消 vs 子任务内部自取消（审计精度）。
 - evidence: 两审查子代理（blind hunter / edge case hunter）独立发现并交叉确认。(a) `dream.py` `from heagent.cron.scheduler import CronScheduler`；CLAUDE.md DAG 图仅画 `memory → engine`。(b) `_await_stop` 超时分支无 task 清理（与 `cron/scheduler.py` 同构预存模式）。(c) `_run_dream` CancelledError handler 无条件 `aborted=True`。三者均 low：不影响 dreaming 核心正确性 / 安全立场 / 关停硬上界，修复需跨模块重构或改预存模式。
 - severity: LOW

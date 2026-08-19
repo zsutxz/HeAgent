@@ -77,7 +77,7 @@ So that 下游 `PolicyEngine`（story 14-2）能从**数据**而非 LLM 输出�
 
 ### 架构约束（AD-1/2/3 对本 story 的硬约束）
 
-摘自 `_bmad-output/epics/epic-11-18-MCP集成周期/ARCHITECTURE-SPINE.md`：
+摘自 `_bmad-output/epics/epic-11-18-MCP集成周期/architecture.md`：
 
 - **AD-1**：annotations 经 `ToolSchema` 携带（不是污染 `ToolCall`，不是塞进 `RunContext.metadata`）。→ 本 story 落字段在 `ToolSchema`，正是 AD-1 的数据载体。
 - **Consistency Conventions（数据模型）**："`ToolSchema.annotations` 为 HeAgent 自有 Pydantic 模型，字段覆盖四 hint（`readOnly`/`destructive`/`idempotent`/`openWorld`）；`mcp.types.ToolAnnotations` 实际还有第 5 个非决策字段 `title`——V2 **不透传 `title`**（非裁决信号，丢弃）。`annotations` 缺省本身不触发 fail-safe；fail-safe 仅在「MCP 工具 + 缺 annotations」时触发。"
@@ -150,9 +150,9 @@ AC 明定 HeAgent 模型字段「均默认 `False`」（纯 `bool`，非 `bool |
 ### References
 
 - [Source: `_bmad-output/epics/epic-11-18-MCP集成周期/epics.md`#Story A.1] —— AC verbatim 来源
-- [Source: `_bmad-output/epics/epic-11-18-MCP集成周期/ARCHITECTURE-SPINE.md`#AD-1] —— annotations 经 ToolSchema 注入
-- [Source: `_bmad-output/epics/epic-11-18-MCP集成周期/ARCHITECTURE-SPINE.md`#Consistency Conventions] —— 数据模型约定（丢 title、四 hint、None 语义）
-- [Source: `_bmad-output/epics/epic-11-18-MCP集成周期/ARCHITECTURE-SPINE.md`#Inherited Invariants] —— DAG（types 不上浮 mcp）
+- [Source: `_bmad-output/epics/epic-11-18-MCP集成周期/architecture.md`#AD-1] —— annotations 经 ToolSchema 注入
+- [Source: `_bmad-output/epics/epic-11-18-MCP集成周期/architecture.md`#Consistency Conventions] —— 数据模型约定（丢 title、四 hint、None 语义）
+- [Source: `_bmad-output/epics/epic-11-18-MCP集成周期/architecture.md`#Inherited Invariants] —— DAG（types 不上浮 mcp）
 - [Source: `src/heagent/types.py:94`] —— `ToolSchema` 现状（3 字段）
 - [Source: `src/heagent/tools/mcp/mapping.py:39`] —— `mcp_tool_to_schema` 现状
 - [Source: `src/heagent/tools/decorator.py:93`] —— 内置工具 ToolSchema 构造点（零回归证明）

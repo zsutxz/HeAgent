@@ -1,7 +1,7 @@
 ---
 review-lens: reality-check
 reviewer: claude (glm-5.2)
-target: _bmad-output/mcp-client-v2/ARCHITECTURE-SPINE.md
+target: _bmad-output/epics/epic-11-18-MCP集成周期/architecture.md
 date: 2026-07-17
 verdict: PASS-WITH-FINDINGS
 ---

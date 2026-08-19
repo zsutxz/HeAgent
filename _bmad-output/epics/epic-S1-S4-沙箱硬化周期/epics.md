@@ -3,7 +3,7 @@ stepsCompleted: ["step-01-requirements-extraction", "step-02-design-epics", "ste
 inputDocuments:
   - _bmad-output/epics/epic-S1-S4-沙箱硬化周期/brief.md
   - _bmad-output/epics/epic-S1-S4-沙箱硬化周期/prd.md
-  - _bmad-output/epics/epic-S1-S4-沙箱硬化周期/ARCHITECTURE-SPINE.md
+  - _bmad-output/epics/epic-S1-S4-沙箱硬化周期/architecture.md
 cycle: sandbox-hardening
 project: HeAgent
 ---
@@ -12,7 +12,7 @@ project: HeAgent
 
 > 本文档把 Sandbox 硬化周期（profile 映射 / 配置入口 / 进程组 kill / workspace 隔离 / 可观测）
 > 的 PRD FR/NFR 与架构承重决策（AD）分解为可实现的 story。FR 编号与 PRD `FR-S*` 对齐；
-> AD 编号与 `ARCHITECTURE-SPINE.md` 对齐。
+> AD 编号与 `architecture.md` 对齐。
 
 ## Overview
 
@@ -46,7 +46,7 @@ project: HeAgent
 
 ### Additional Requirements (Architecture Decisions)
 
-> 自 `ARCHITECTURE-SPINE.md` 承重决策 AD-S1~AD-S7，影响实现的硬约束。
+> 自 `architecture.md` 承重决策 AD-S1~AD-S7，影响实现的硬约束。
 
 - **AR-1 (AD-S1):** profile → args 映射在 `FirejailBackend` 内部，不扩 `CommandRunner` Protocol 签名。`_build_argv` 纯函数可独立单测。
 - **AR-2 (AD-S2):** profile 经 `bind_sandbox_profile` contextvar 注入（与既有 `_command_runner_slot` 同构），不混入 `CommandRunner.run` 签名。

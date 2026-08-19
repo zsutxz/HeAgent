@@ -70,29 +70,29 @@ context 组件的注入本质是"只读"——它们参与子 loop 的 `_build_s
 **上下文注入核心（设计意图入口）**
 
 - 设计意图起点：SubAgent 新增 6 个上下文参数并存储
-  [`sub.py:54`](../../src/heagent/agent/sub.py#L54)
+  [`sub.py:54`](../../../src/heagent/agent/sub.py#L54)
 - 关键转发：run() 把组件传入全新子 AgentLoop（messages 空起步）
-  [`sub.py:88`](../../src/heagent/agent/sub.py#L88)
+  [`sub.py:88`](../../../src/heagent/agent/sub.py#L88)
 
 **工具层注入**
 
 - configure_subagent_tools 接收并暂存 6 个组件
-  [`subagent.py:40`](../../src/heagent/tools/builtins/subagent.py#L40)
+  [`subagent.py:40`](../../../src/heagent/tools/builtins/subagent.py#L40)
 - task_delegate 构造 SubAgent 时传入
-  [`subagent.py:92`](../../src/heagent/tools/builtins/subagent.py#L92)
+  [`subagent.py:92`](../../../src/heagent/tools/builtins/subagent.py#L92)
 - task_parallel 每个子 Agent 同样传入
-  [`subagent.py:125`](../../src/heagent/tools/builtins/subagent.py#L125)
+  [`subagent.py:125`](../../../src/heagent/tools/builtins/subagent.py#L125)
 
 **CLI 接线**
 
 - _run_single 调用处补传父级组件
-  [`cli.py:181`](../../src/heagent/cli.py#L181)
+  [`cli.py:181`](../../../src/heagent/cli.py#L181)
 - _run_chat 调用处补传父级组件
-  [`cli.py:242`](../../src/heagent/cli.py#L242)
+  [`cli.py:242`](../../../src/heagent/cli.py#L242)
 
 **测试（外围）**
 
 - 继承 + 隔离 + 向后兼容三类断言
-  [`test_sub_agent.py:60`](../../tests/test_sub_agent.py#L60)
+  [`test_sub_agent.py:60`](../../../tests/test_sub_agent.py#L60)
 - 工具层注入路径验证
-  [`test_subagent_tools.py:122`](../../tests/test_subagent_tools.py#L122)
+  [`test_subagent_tools.py:122`](../../../tests/test_subagent_tools.py#L122)

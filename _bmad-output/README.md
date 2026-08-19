@@ -10,9 +10,8 @@
 _bmad-output/
 ├── consolidated-overview.md  统一整合总览（全周期综合摘要 + epic 总目录；原 EPICS-INDEX.md 已并入，2026-08-19）
 ├── retrospective-all-cycles.md  全周期综合回顾（2026-07-22，Epic 1-23 + S1-S4）
-├── epics/                  全部 epic 目录统一收纳（2026-08-19）
-│   ├── epic-01-基础设施与LLM通信/ … epic-S4-沙箱可观测收尾/   按 epic 归档的 story 目录（epic-NN-主题/stories/，仅建有 story 的 epic）
-│   ├── epic-01-10-主线规划周期/   baseline 周期文档（Epic 1–10，FR-1~24）
+├── epics/                  按周期组织（2026-08-19）：周期目录（epic-区间-周期/）内含周期文档 + 各 epic 的 story 子目录（epic-NN-主题/stories/，仅建有 story 的 epic）
+│   ├── epic-01-10-主线规划周期/   baseline 周期文档（Epic 1–10，FR-1~24）+ epic-01-基础设施与LLM通信/
 │   ├── epic-11-18-MCP集成周期/    mcp（三阶段：11-13 / 14 / 15-18，2026-08-18 合并）
 │   ├── epic-S1-S4-沙箱硬化周期/   sandbox-hardening（Epic S1–S4）
 │   ├── epic-19-20-健壮性硬化周期/ robustness-hardening（Epic 19–20）
@@ -23,7 +22,7 @@ _bmad-output/
 └── specs/                  quick-dev / spec 产物（本地工作件，gitignored；2026-08-18 已清空，目录暂不存在）
 ```
 
-> **2026-08-19 重组**：全部 epic 目录统一收纳于 `epics/`——`epics/epic-NN-主题/stories/`（可执行 story）与 `epics/epic-区间-周期/`（周期级 prd/brief/architecture/epics/sprint-status）；patch 按领域在 `patches/`。各 epic 的状态矩阵与文档地图见 [`consolidated-overview.md`](consolidated-overview.md)（原 EPICS-INDEX.md 已并入其导航层）。
+> **2026-08-19 重组**：`epics/` 按周期组织——7 个周期目录（`epic-区间-周期/`）收纳周期级 prd/brief/architecture/epics/sprint-status，**各 epic 的 story 子目录（`epic-NN-主题/stories/`）嵌套在所属周期目录内**；patch 按领域在 `patches/`。各 epic 的状态矩阵与文档地图见 [`consolidated-overview.md`](consolidated-overview.md)（原 EPICS-INDEX.md 已并入其导航层）。
 
 ## sprint-status 单一权威
 
@@ -41,6 +40,7 @@ _bmad-output/
 | Epic 19–20 | robustness-hardening | 文件锁 / Cron 范围 / WinJobBackend / 覆盖率 90% |
 | Epic 21–24 | quality-engineering | Coverage 工程化 / Benchmark / Docker 硬化 / CI 安全 |
 | Epic 25–28 | gui | GUI 终端界面（流式聊天 / 工具可视化 / 管理面板 / 可观测性） |
+| Epic 29–35 | interaction | 交互与可扩展层（审批 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 角色配置 / CLI 收尾） |
 
 各自周期目录下的旧 sprint-status 保留作为只读归档；后续状态更新以 `epics/epic-01-10-主线规划周期/sprint-status.yaml` 为唯一写目标。
 
@@ -54,7 +54,7 @@ _bmad-output/
 | `epics.md` | Epic 1-5（MVP，FR-1~19）拆分 + 覆盖矩阵 |
 | `epics-self-learning.md` | Epic 6-10（自学习闭环，FR-20~24）拆分 |
 | `sprint-status.yaml` | **全周期 story/epic 状态流转与 action_items 跟踪**（事实来源，含 8 个周期） |
-| `epics/epic-01-基础设施与LLM通信/stories/`（1-1~1-5） | Epic 1 的可执行 story（含 AC，2026-08-19 移出） |
+| `epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/stories/`（1-1~1-5） | Epic 1 的可执行 story（含 AC，2026-08-19 移出） |
 
 ## epics/epic-11-18-MCP集成周期/ — MCP Client 集成周期（三阶段统一，2026-08-18 合并）
 
@@ -79,7 +79,7 @@ _bmad-output/
 
 | 文件 | 用途 |
 |------|------|
-| `ARCHITECTURE-SPINE.md` | 硬化架构脊架 |
+| `architecture.md` | 硬化架构脊架（原 ARCHITECTURE-SPINE.md） |
 | `epics.md` | Epic S1–S4 拆分 |
 | `sprint-status.yaml` | 已归档 — 见 `epics/epic-01-10-主线规划周期/sprint-status.yaml` |
 
@@ -87,7 +87,7 @@ _bmad-output/
 
 | 文件 | 用途 |
 |------|------|
-| `ARCHITECTURE-SPINE.md` | 架构脊架 |
+| `architecture.md` | 架构脊架（原 ARCHITECTURE-SPINE.md） |
 | `epics.md` | Epic 19–20 拆分（原内部编号 18–19） |
 | `sprint-status.yaml` | 已归档 — 见 `epics/epic-01-10-主线规划周期/sprint-status.yaml` |
 

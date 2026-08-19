@@ -51,7 +51,7 @@
 
 ## 下一步
 
-见 [`docs/iteration.md`](../../docs/iteration.md) 第四章「路线图与下一步」——MCP deferred 项（DP-4 安全覆盖、FR-3 断连 unregister、Resources/Prompts）均为下一集成周期候选。
+见 [`docs/iteration.md`](../../../docs/iteration.md) 第四章「路线图与下一步」——MCP deferred 项（DP-4 安全覆盖、FR-3 断连 unregister、Resources/Prompts）均为下一集成周期候选。
 
 ## 不适用字段（CLI/库项目）
 

@@ -2,7 +2,7 @@
 
 **Reviewer:** architecture-spine reviewer (rubric + web-researched fact-check)
 **Date:** 2026-07-12
-**Subject:** `_bmad-output/mcp-v2-upgrade/architecture.md`
+**Subject:** `_bmad-output/epics/epic-11-18-MCP集成周期/architecture.md`
 **Sources verified:** PyPI release history (live fetch 2026-07-12), official v2 migration guide (live fetch 2026-07-12), RC blog post (web search 2026-07-12), codebase (manager.py / mapping.py / frame.md)
 
 ---

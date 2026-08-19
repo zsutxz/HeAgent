@@ -76,9 +76,9 @@ context: ['{project-root}/_bmad-output/epics/epic-11-18-MCP集成周期/architec
 **断连探测核心（设计意图入口）**
 
 - 持有循环 race stop vs ping：`_watch`
-  [`manager.py`](../../src/heagent/tools/mcp/manager.py)
+  [`manager.py`](../../../src/heagent/tools/mcp/manager.py)
 - `_server_loop` 把 `await stop.wait()` 换成 `await self._watch(...)`
-  [`manager.py:108`](../../src/heagent/tools/mcp/manager.py#L108)
+  [`manager.py:108`](../../../src/heagent/tools/mcp/manager.py#L108)
 
 **按 server 精确摘除**
 
@@ -89,7 +89,7 @@ context: ['{project-root}/_bmad-output/epics/epic-11-18-MCP集成周期/architec
 **测试（外围）**
 
 - 断连主动注销 + 单 server 隔离
-  [`test_mcp_manager.py`](../../tests/test_mcp_manager.py)
+  [`test_mcp_manager.py`](../../../tests/test_mcp_manager.py)
 
 ## Review Findings
 

@@ -110,50 +110,50 @@ context:
 **核心调度器（设计意图 · 双触发 · 互斥 · 关停）**
 
 - 入口：双触发设计 + DAG 合规 + 诚实安全立场（模块 docstring）
-  [`dream.py:81`](../../src/heagent/memory/dream.py#L81)
+  [`dream.py:81`](../../../src/heagent/memory/dream.py#L81)
 
 - 双触发评估：cron 优先、idle 阈值、`_dreaming` 互斥早返
-  [`dream.py:216`](../../src/heagent/memory/dream.py#L216)
+  [`dream.py:216`](../../../src/heagent/memory/dream.py#L216)
 
 - dream 执行：互斥置位入 try、dream_start/end 事件、finally 重置 idle（审查 #2/#3）
-  [`dream.py:242`](../../src/heagent/memory/dream.py#L242)
+  [`dream.py:242`](../../../src/heagent/memory/dream.py#L242)
 
 - 关停硬上界：cancel + bounded wait + 超时记 ERROR（对齐 CronScheduler）
-  [`dream.py:187`](../../src/heagent/memory/dream.py#L187)
+  [`dream.py:187`](../../../src/heagent/memory/dream.py#L187)
 
 **fail-fast 配置校验**
 
 - 构造期校验 cron：5 字段 + 字段合法，避免每 tick 刷屏 / 6 字段静默（审查 #4/#5）
-  [`dream.py:355`](../../src/heagent/memory/dream.py#L355)
+  [`dream.py:355`](../../../src/heagent/memory/dream.py#L355)
 
 **session 预注入（最小权限 · 时间序）**
 
 - 按 session.timestamp 降序取真正最近 N 个（审查 #1——list_sessions 字母序不反映时间）
-  [`dream.py:312`](../../src/heagent/memory/dream.py#L312)
+  [`dream.py:312`](../../../src/heagent/memory/dream.py#L312)
 
 - SessionStore 新方法：按落盘 timestamp 排序，支撑 dream 取近期 session
-  [`session.py:90`](../../src/heagent/context/session.py#L90)
+  [`session.py:90`](../../../src/heagent/context/session.py#L90)
 
 **角色与工具围栏**
 
 - dreamer RoleSpec：allowed/blocked 双层 + 独立迭代预算
-  [`roles.py:162`](../../src/heagent/engine/roles.py#L162)
+  [`roles.py:162`](../../../src/heagent/engine/roles.py#L162)
 
 - 巩固 system prompt：去重/提炼/查证/归档 + web 批判性对待声明
-  [`roles.py:115`](../../src/heagent/engine/roles.py#L115)
+  [`roles.py:115`](../../../src/heagent/engine/roles.py#L115)
 
 **装配与配置**
 
 - 5 个 dream_* 配置项（dream_enabled 默认 False = opt-in）
-  [`config.py:111`](../../src/heagent/config.py#L111)
+  [`config.py:111`](../../../src/heagent/config.py#L111)
 
 - 组合根注入 dream_runner 闭包（memory/ 不导入 agent/，DAG 合规）
-  [`cli.py:389`](../../src/heagent/cli.py#L389)
+  [`cli.py:389`](../../../src/heagent/cli.py#L389)
 
 - 交互模式装配 DreamScheduler 后台 task + finally stop
-  [`cli.py:473`](../../src/heagent/cli.py#L473)
+  [`cli.py:473`](../../../src/heagent/cli.py#L473)
 
 **测试**
 
 - AC1–AC9 + 审查 patch 回归（fail-fast cron / 端到端 start-tick-stop / 失败 idle 重置）
-  [`test_dream.py:1`](../../tests/test_dream.py#L1)
+  [`test_dream.py:1`](../../../tests/test_dream.py#L1)

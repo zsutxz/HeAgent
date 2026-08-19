@@ -1,7 +1,7 @@
 ---
 reviewer: adversary
-spine: _bmad-output/mcp-client-v2/ARCHITECTURE-SPINE.md
-prd: _bmad-output/mcp-client-v2/prd.md
+spine: _bmad-output/epics/epic-11-18-MCP集成周期/architecture.md
+prd: _bmad-output/epics/epic-11-18-MCP集成周期/prd.md
 date: 2026-07-17
 verdict: PASS-WITH-FINDINGS
 ---

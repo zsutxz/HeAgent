@@ -3,7 +3,7 @@ stepsCompleted: ["step-01-requirements-extraction", "step-02-design-epics", "ste
 inputDocuments:
   - _bmad-output/epics/epic-19-20-健壮性硬化周期/brief.md
   - _bmad-output/epics/epic-19-20-健壮性硬化周期/prd.md
-  - _bmad-output/epics/epic-19-20-健壮性硬化周期/ARCHITECTURE-SPINE.md
+  - _bmad-output/epics/epic-19-20-健壮性硬化周期/architecture.md
 cycle: robustness-hardening
 project: HeAgent
 created: 2026-07-21

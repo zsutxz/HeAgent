@@ -14,7 +14,7 @@ last_updated: 2026-07-23
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
-story_location: _bmad-output/ (stories 已按 epic 重组至 epic-*/stories/，见 consolidated-overview.md)
+story_location: _bmad-output/ (stories 已按 epic 归档至所属周期目录内 epic-*/stories/，见 consolidated-overview.md)
 
 development_status:
   # Epic 24: 流式聊天 — 最小可跑（FR-G1~G6）

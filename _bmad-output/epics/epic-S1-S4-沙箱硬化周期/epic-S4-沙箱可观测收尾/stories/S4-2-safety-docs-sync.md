@@ -56,7 +56,7 @@ So that 本轮硬化不会让人误以为 Firejail 变成了安全边界。
 - [ ] **Task 1: CLAUDE.md 更新** (AC-1)
   - [ ] 在「⚠ 安全声明」章节的 sandbox 段后追加新文本
   - [ ] 不删改既有安全声明、仅追加本轮增量
-  - [ ] 措辞与 `ARCHITECTURE-SPINE.md` 安全声明段一致
+  - [ ] 措辞与 `architecture.md` 安全声明段一致
 
 - [ ] **Task 2: docs/frame.md 更新** (AC-2)
   - [ ] 4.4 sandbox.py 节更新：在现有 `FirejailBackend` 描述后追加新能力

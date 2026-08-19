@@ -1,6 +1,6 @@
 # Adversarial Architecture Review — MCP v1→v2 升级准备 Architecture Spine
 
-> 审查对象：`_bmad-output/mcp-v2-upgrade/architecture.md`（AD-1~AD-6）
+> 审查对象：`_bmad-output/epics/epic-11-18-MCP集成周期/architecture.md`（AD-1~AD-6）
 > 审查方法：构造两个 Epic 14+ story（**story-X** = `handshake`+`ping` / **story-Y** = `list_tools`+`call_tool`+类型别名+字段兼容），验证它们各自**字面 obey 全部 AD** 却构建出**互不兼容**的产物。
 > 代码核查源：`src/heagent/tools/mcp/manager.py` + `mapping.py` + `registry.py` + `agent/loop.py`
 > 审查日期：2026-07-12

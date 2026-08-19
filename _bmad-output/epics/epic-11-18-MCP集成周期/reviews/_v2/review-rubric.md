@@ -1,8 +1,8 @@
 # Rubric Review — ARCHITECTURE-SPINE.md (MCP Client V2)
 
 Lens: GOOD-SPINE RUBRIC (checklist walker).
-Subject: `_bmad-output/mcp-client-v2/ARCHITECTURE-SPINE.md` (status: draft, 2026-07-17).
-Cross-referenced against: `_bmad-output/mcp-client-v2/prd.md` and the brownfield code under `src/heagent/` (`engine/policy.py`, `engine/context.py`, `tools/mcp/manager.py`, `tools/mcp/mapping.py`, `agent/tool_execution.py`, `types.py`, `cli.py`).
+Subject: `_bmad-output/epics/epic-11-18-MCP集成周期/architecture.md` (status: draft, 2026-07-17).
+Cross-referenced against: `_bmad-output/epics/epic-11-18-MCP集成周期/prd.md` and the brownfield code under `src/heagent/` (`engine/policy.py`, `engine/context.py`, `tools/mcp/manager.py`, `tools/mcp/mapping.py`, `agent/tool_execution.py`, `types.py`, `cli.py`).
 
 ## Overall verdict
 

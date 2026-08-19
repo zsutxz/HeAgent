@@ -69,7 +69,7 @@
 
 **FR 编号空间**（互不冲突，引用须写全限定）：主线 `FR-1~24`；MCP V1 `FR-1~11`；MCP 升级准备 `FR-1~5`；MCP V2 `FR-A1~A7 / FR-B1~B4 / FR-C1~C4`；Sandbox `FR-S1~S7`；健壮性 `FR-A1~A5 + FR-C1~C6`；质量工程 `FR-Q1~Q20`；GUI `FR-G1~G24`；interaction `FR-A1~A5 / FR-B1~B3 / FR-C~G 各 1~4`。
 
-> 另有历史「Epic 6」编号冲突：`epics/epic-11-18-MCP集成周期/epics-integration.md`（2026-06-03）自称 Epic 6=AgentLoop 全模块集成，其后被自学习周期重新占用（Epic 6=Context Files，以 sprint-status 为准）；该文视作「Epic 1-5 之后的集成补丁」历史归档。
+> 另有历史「Epic 6」编号冲突：`epics/epic-01-10-主线规划周期/epics-integration.md`（2026-06-03）自称 Epic 6=AgentLoop 全模块集成，其后被自学习周期重新占用（Epic 6=Context Files，以 sprint-status 为准）；该文视作「Epic 1-5 之后的集成补丁」历史归档。
 
 ---
 
@@ -701,7 +701,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | 25-28 | GUI 终端界面（FR-G） | 12 | done（retrospective optional） |
 | 29-35 | 交互与可扩展层（FR-A~G） | 27 | done（2026-08-19；无独立 story 文件，quick-dev 执行） |
 
-**Story 文件归档**：`epics/epic-{01,14,15,16,19,25,26,27,28,S1-S4}-<主题>/stories/`（仅建有 story 文件的 13 个 epic；其余 epic 的 story 仅登记于 sprint-status）。
+**Story 文件归档**：嵌套于所属周期目录内——`epic-01` 在 `epic-01-10-主线规划周期/`、`epic-14/15/16` 在 `epic-11-18-MCP集成周期/`、`epic-19` 在 `epic-19-20-健壮性硬化周期/`、`epic-25~28` 在 `epic-25-28-GUI界面周期/`、`epic-S1~S4` 在 `epic-S1-S4-沙箱硬化周期/`（路径形如 `epics/<周期>/epic-NN-<主题>/stories/`；其余 epic 无独立 story 文件，仅登记于 sprint-status）。
 
 **跨周期 Action Items（3 条全部 closed）**：Epic 13 FR-3 auto-unregister（2026-07-01，commit 3203e4a）；DP-4 第一半 SafetyGuard 执行前拦截（2026-07-08）；DP-4 第二半 MCP 返回内容围栏（2026-07-10）。
 
@@ -818,6 +818,6 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/epics/epic-21-24-质量工程周期/` | 质量工程深化（Epic 21-24） |
 | `_bmad-output/epics/epic-25-28-GUI界面周期/` | GUI 周期（Epic 25-28） |
 | `_bmad-output/epics/epic-29-35-交互扩展周期/` | 交互与可扩展层周期（Epic 29-35，2026-08-19） |
-| `_bmad-output/epics/epic-NN-主题/stories/` | 按 epic 归档的 story 文件（13 个，清单见 14.1 注） |
+| `_bmad-output/epics/<周期>/epic-NN-主题/stories/` | 按 epic 归档的 story 文件（13 个，嵌套于所属周期目录，清单见 14.1 注） |
 | `_bmad-output/patches/<领域>/` | 补丁 spec + 技术债登记（provider/context/memory/cron/mcp/sandbox/_meta） |
 | `_bmad-output/specs/` | quick-dev 本地工作件（gitignored） |

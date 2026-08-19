@@ -124,27 +124,27 @@ def wrap_provider_error(error: Exception) -> ProviderError:
 **核心抽象：异常包装单一来源**
 
 - 共享包装函数——DRY 单一来源，复用 `_extract_status_message` 的 duck-type。
-  [`retry.py:74`](../../src/heagent/providers/retry.py#L74)
+  [`retry.py:74`](../../../src/heagent/providers/retry.py#L74)
 
 - 错误分类纯函数；评审 patch 行——补 `"timed out"`/`"connection"` 让 OpenAI 超时/连接错误归 TRANSIENT。
-  [`retry.py:51`](../../src/heagent/providers/retry.py#L51)
+  [`retry.py:51`](../../../src/heagent/providers/retry.py#L51)
 
 - chain 的包装现委托共享函数，消除重复 duck-type。
-  [`chain.py:20`](../../src/heagent/providers/chain.py#L20)
+  [`chain.py:20`](../../../src/heagent/providers/chain.py#L20)
 
 **provider 源头包装（P0-2 修复面）**
 
 - OpenAI `send` 包 `try/except Exception`→`ProviderError`，保留 cause。
-  [`openai.py:117`](../../src/heagent/providers/openai.py#L117)
+  [`openai.py:117`](../../../src/heagent/providers/openai.py#L117)
 
 - OpenAI `stream` 同样包装（create + 迭代整体入 try）。
-  [`openai.py:172`](../../src/heagent/providers/openai.py#L172)
+  [`openai.py:172`](../../../src/heagent/providers/openai.py#L172)
 
 - Anthropic `send` 包装；流式 `async with` 整体入 try 后于此抛包装异常。
-  [`anthropic.py:184`](../../src/heagent/providers/anthropic.py#L184)
+  [`anthropic.py:184`](../../../src/heagent/providers/anthropic.py#L184)
 
 - Anthropic `stream` 把 `async with`+`get_final_message` 整体包入 try。
-  [`anthropic.py:221`](../../src/heagent/providers/anthropic.py#L221)
+  [`anthropic.py:221`](../../../src/heagent/providers/anthropic.py#L221)
 
 **安全声明（P0-1 零代码止损）**
 
@@ -152,18 +152,18 @@ def wrap_provider_error(error: Exception) -> ProviderError:
   [`README.md:5`](../../README.md#L5)
 
 - CLAUDE.md 同等声明（SafetyGuard 非真正边界，须 OS 级沙箱）。
-  [`CLAUDE.md:5`](../../CLAUDE.md#L5)
+  [`CLAUDE.md:5`](../../../CLAUDE.md#L5)
 
 **测试：真实 SDK 异常证明死代码已修**
 
 - 杀手用例——真实 OpenAIProvider(mock 抛 SDK 429) 包进 KeyRotatingProvider 断言轮换。
-  [`test_key_rotation.py:179`](../../tests/providers/test_key_rotation.py#L179)
+  [`test_key_rotation.py:179`](../../../tests/providers/test_key_rotation.py#L179)
 
 - 证明单 provider retry 经包装后对 SDK 瞬时错误重试。
-  [`test_openai.py:169`](../../tests/providers/test_openai.py#L169)
+  [`test_openai.py:169`](../../../tests/providers/test_openai.py#L169)
 
 - 证明 send 把 SDK 异常包装为 ProviderError 且保留 `__cause__`。
-  [`test_openai.py:141`](../../tests/providers/test_openai.py#L141)
+  [`test_openai.py:141`](../../../tests/providers/test_openai.py#L141)
 
 - patch 回归——OpenAI 超时短语现判为 TRANSIENT。
-  [`test_retry.py:73`](../../tests/providers/test_retry.py#L73)
+  [`test_retry.py:73`](../../../tests/providers/test_retry.py#L73)

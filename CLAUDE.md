@@ -60,7 +60,7 @@ python -m heagent
 | `docs/iteration.md` | 迭代开发指南与历程——怎么迭代过来的 / 怎么继续迭代（BMad 周期 / epic / 技术债 / 路线图） |
 | `docs/stock/` | 运行时股票报告输出，已 gitignore |
 | `_bmad-output/consolidated-overview.md` | **统一整合总览（含 epic 总目录）**——全周期摘要 + 全 epic（1-35 + S1-S4）主题/状态/story/patch 映射（原 EPICS-INDEX.md 已并入） |
-| `_bmad-output/epics/epic-*/stories/` | 按 epic 归档的 story 文件（仅建有 story 的 epic） |
+| `_bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/` | 按 epic 归档的 story 文件，嵌套在所属周期目录内（仅建有 story 的 epic） |
 | `_bmad-output/epics/epic-01-10-主线规划周期/` | 主线规划周期（epics 1-10，冻结决策）：`architecture.md`·`brief.md`·`prd.md`·`epics.md`·`epics-self-learning.md`·`sprint-status.yaml`（story 已移至 epic 目录） |
 | `_bmad-output/epics/epic-11-18-MCP集成周期/` | MCP Client 集成周期（epics 11-18，三阶段，2026-08-18 合并） |
 | `_bmad-output/epics/`（其余周期目录） | epic-S1-S4-沙箱硬化周期 / epic-19-20-健壮性硬化周期 / epic-21-24-质量工程周期 / epic-25-28-GUI界面周期 / epic-29-35-交互扩展周期 |
