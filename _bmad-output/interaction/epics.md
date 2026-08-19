@@ -79,4 +79,4 @@
 | 32 | Hooks 系统（用户可配置事件钩子） | P1 | backlog |
 | 33 | Plan Mode / 只读模式 | P1 | **已完成（2026-08-19）** |
 | 34 | 配置文件驱动角色 + 成本估算 | P2 | **已完成（2026-08-19）** |
-| 35 | CLI 体验优化 + 技术债收尾（web_fetch guard_content / cron expr 诊断 / /init / web_search） | P2 |
+| 35 | CLI 体验优化 + 技术债收尾（web_fetch guard_content / cron expr 诊断 / /init / readline） | P2 | **已完成（2026-08-19）** |

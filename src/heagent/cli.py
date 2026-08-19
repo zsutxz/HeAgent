@@ -475,6 +475,22 @@ def _build_dream_scheduler(
     )
 
 
+def _setup_readline() -> None:
+    """配置 readline 历史（Epic 35 体验优化）；readline 不可用（如 Windows）时静默跳过。"""
+    try:
+        import readline  # noqa: PLC0415
+    except ImportError:
+        return
+    GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    histfile = GLOBAL_CONFIG_DIR / "history"
+    with contextlib.suppress(OSError, FileNotFoundError):
+        readline.read_history_file(str(histfile))  # type: ignore[attr-defined]  # Unix readline only
+    readline.set_history_length(1000)  # type: ignore[attr-defined]  # Unix readline only
+    import atexit  # noqa: PLC0415
+
+    atexit.register(readline.write_history_file, str(histfile))  # type: ignore[attr-defined]  # Unix readline only
+
+
 def _resolve_session_id(
     session: SessionStore,
     *,
@@ -510,6 +526,7 @@ async def _run_chat(
     plan_mode: bool = False,
 ) -> None:
     """Run interactive chat mode."""
+    _setup_readline()
     settings = get_settings()
     engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
     if engine.approval_handler is None:
@@ -986,12 +1003,49 @@ _INIT_ENV_TEMPLATE = """# HeAgent 全局配置文件
 """
 
 
+_CONTEXT_TEMPLATE = """# CONTEXT.md
+
+> HeAgent 每次运行会自动加载本文件（优先级：`.heagent/CONTEXT.md` > `AGENTS.md` > `CLAUDE.md`）。
+> 在此填写项目的关键背景与约定，帮助 Agent 更好地理解本项目。
+
+## 项目概述
+
+<!-- 项目是做什么的、技术栈、目录结构 -->
+
+## 关键约定
+
+<!-- 命名规范、代码规范、构建 / 测试命令等 -->
+
+## 注意事项
+
+<!-- 哪些文件 / 目录不要修改、哪些是生成产物、安全边界等 -->
+"""
+
+
+def _init_project_context() -> None:
+    """生成项目 ``.heagent/CONTEXT.md`` 模板（若不存在）。"""
+    context_path = Path(".heagent") / "CONTEXT.md"
+    if context_path.exists():
+        click.echo(f"Already exists: {context_path} (not overwritten)")
+        return
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.write_text(_CONTEXT_TEMPLATE, encoding="utf-8")
+    click.echo(f"[OK] Created project context template: {context_path}")
+
+
 @main.command("init")
-def init_cmd() -> None:
+@click.option(
+    "--project",
+    "project",
+    is_flag=True,
+    default=False,
+    help="Also generate project .heagent/CONTEXT.md template",
+)
+def init_cmd(project: bool) -> None:
     """初始化 HeAgent 全局配置目录。
 
     在用户主目录创建 ``~/.heagent/``，并生成带注释的配置模板 ``~/.heagent/.env``。
-    如果文件已存在，则保留不覆盖。
+    如果文件已存在，则保留不覆盖。``--project`` 时额外生成项目 ``.heagent/CONTEXT.md``。
     """
     created_dir = False
     if not GLOBAL_CONFIG_DIR.exists():
@@ -1015,6 +1069,9 @@ def init_cmd() -> None:
         click.echo("Edit it to set your API keys and preferences.")
     else:
         click.echo(f"Already exists: {GLOBAL_CONFIG_FILE} (not overwritten)")
+
+    if project:
+        _init_project_context()
 
 
 # Set run as the default command (heagent "hello" -> run "hello")

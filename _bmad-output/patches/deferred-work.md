@@ -116,6 +116,8 @@ Findings deferred during quick-dev (out of the originating story's frozen scope,
 - severity: MED（dreamer 无人监督联网 + 改持久记忆，注入可跨会话污染；但 `dream_enabled` 默认 False，opt-in）。
 - suggested fix (future story): `web.py` `web_fetch` handler 返回前调 `guard_content(content)`（与 MCP `bridge_result` 对齐），命中注入签名则加 warning 标记透传（`is_error=False`，与 MCP 同语义）。此改动影响所有 `web_fetch` 调用（内置工具信任模型变化），宜独立 spec 评估（非 dreaming scope）。
 
+**Resolution（2026-08-19，Epic 35）：** 已修复——`web.py` `web_fetch` handler 返回前调 `guard_content(text)`（复用 `tools/mcp/mapping.guard_content` 公共函数，与 `bridge_result` 对齐），命中内置注入签名则加 warning 标记后透传（不阻断）。web_fetch 信任模型与 MCP 工具收敛一致。回归测试 `tests/test_epic35.py::TestWebFetchGuardContent`（注入签名命中 / 干净内容零回归）。此项关闭。
+
 ---
 
 ## 2026-08-12 · Dreaming 审查 defer（step-04 对抗审查，3 个 low，非阻断）
@@ -137,3 +139,5 @@ Findings deferred during quick-dev (out of the originating story's frozen scope,
 - evidence: /code-review（AST 比对 + git show 确认逐字搬迁）发现。`cron_matches("*/5-10 * * * *", dt)` → `part.split("/",1)=['*','5-10']` → `'*'.split("-",1)=['*']` → `start_str, end_str = ['*']` 解包失败。**Pre-existing**（搬迁前 `scheduler.py` 字节一致），**功能安全**（仍为 ValueError，被 `DreamScheduler._validate_cron_expr` / `CronScheduler._check_and_execute` per-job handler 捕获），仅影响病态畸形输入的诊断可读性，对任何合法 cron 语法无影响。
 - severity: LOW（诊断可读性，仅病态输入）
 - suggested fix (future): 范围+步进分支先校验 `range_part` 含 `-`，或解析失败时抛域级 `Invalid cron field expression`。本次 spec 冻结「逐字搬迁 / 零行为变更」，不在 scope 内改。
+
+**Resolution（2026-08-19，Epic 35）：** 已修复——`cron/expr.py` 范围+步进分支在 `range_part.split("-", 1)` 解包前先校验 `"-" not in range_part`，命中则抛域级 `Invalid cron field expression`（替代内部 `not enough values to unpack`）。回归测试 `tests/test_epic35.py::TestCronMalformedRangeStep`。此项关闭。

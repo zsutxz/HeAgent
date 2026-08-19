@@ -21,6 +21,7 @@ from urllib.parse import urljoin, urlparse
 import httpx
 
 from heagent.tools.decorator import tool
+from heagent.tools.mcp.mapping import guard_content
 
 logger = logging.getLogger(__name__)
 
@@ -177,4 +178,6 @@ async def web_fetch(url: str, max_length: int = 50000) -> str:
         text = text[:cap]
         text += f"\n\n[已截断: 原文 {total_chars} 字符，显示前 {cap} 字符]"
 
-    return text
+    # 注入启发式围栏（Epic 35）：与 MCP bridge_result 对齐——命中内置注入签名则加
+    # warning 标记后透传（不阻断）。非真正安全边界，须 OS 级沙箱兜底（见 CLAUDE.md）。
+    return guard_content(text)

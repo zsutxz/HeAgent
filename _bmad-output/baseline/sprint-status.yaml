@@ -355,6 +355,17 @@ development_status:
   34-4-epic34-tests-docs: done
   epic-34-retrospective: done
 
+  # ═══════════════════════════════════════════════════════════════
+  # 交互与可扩展层周期 · Epic 35（2026-08-19）
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-35: done  # CLI 体验优化 + 技术债收尾（FR-G1~G4）
+  35-1-web-fetch-guard-content: done
+  35-2-cron-expr-malformed-diagnostic: done
+  35-3-init-project-context: done
+  35-4-readline-history: done
+  epic-35-retrospective: done
+
 # ═════════════════════════════════════════════════════════════════
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════
