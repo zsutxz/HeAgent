@@ -35,6 +35,7 @@ from heagent.memory.soul import SoulStore
 from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
+from heagent.providers.router import HeuristicRouter, RoutingProvider
 from heagent.providers.switchable import SwitchableProvider
 from heagent.slash import SlashRegistry, load_custom_commands
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
@@ -184,6 +185,8 @@ async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
 
 def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     """Build the best available provider from configured credentials."""
+    if settings.routing_enabled:
+        return _build_routing_provider(settings)
     named: dict[str, BaseProvider] = {}
 
     if settings.deepseek_api_key:
@@ -228,6 +231,28 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
         )
         default_name = next(iter(named.keys()))
     return SwitchableProvider(named, default=default_name)
+
+
+def _build_routing_provider(settings: Settings) -> BaseProvider:
+    """Build a RoutingProvider for DeepSeek's flash/pro split (chat=fast, reasoner=pro).
+
+    ``ROUTING_ENABLED=true`` 时由 ``_build_provider`` 调用。DeepSeek 是唯一有天然
+    「快速版/深度版」二分的 OpenAI 兼容 provider，故路由默认绑定 DeepSeek：
+    fast → ``routing_fast_model``（默认 deepseek-chat），pro → ``routing_pro_model``
+    （默认 deepseek-reasoner）。启发式路由见 ``providers/router.py``。
+    """
+    if not settings.deepseek_api_key:
+        click.echo(
+            "Error: ROUTING_ENABLED=true requires DEEPSEEK_API_KEY (fast=deepseek-chat, pro=deepseek-reasoner).",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    base_url = settings.deepseek_base_url or "https://api.deepseek.com/v1"
+    fast = OpenAIProvider(api_key=settings.deepseek_api_key, model=settings.routing_fast_model, base_url=base_url)
+    pro = OpenAIProvider(api_key=settings.deepseek_api_key, model=settings.routing_pro_model, base_url=base_url)
+    router = HeuristicRouter(fast="fast", pro="pro", reasoning_keywords=settings.routing_keyword_list or None)
+    return RoutingProvider({"fast": fast, "pro": pro}, router, default="fast")
 
 
 def _build_key_rotated(
@@ -622,6 +647,9 @@ def _build_slash_registry(
     async def _model(args: str) -> None:
         await _handle_model_cmd(["/model", *args.split()], provider)
 
+    async def _route(args: str) -> None:
+        await _handle_route_cmd(provider)
+
     async def _mcp_prompt(args: str) -> None:
         await _handle_mcp_prompt(f"/mcp-prompt {args}".strip(), mcp_manager)
 
@@ -636,6 +664,7 @@ def _build_slash_registry(
             click.echo(f"  /{name}  {registry.describe(name)}", err=True)
 
     registry.register("model", "切换 LLM 模型", _model)
+    registry.register("route", "显示智能路由状态", _route)
     registry.register("mcp-prompt", "调度 MCP prompt", _mcp_prompt)
     registry.register("clear", "清空当前会话上下文", _clear)
     registry.register("help", "列出所有斜杠命令", _help)
@@ -683,6 +712,22 @@ async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
         click.echo(f"[model] Switched to {name} ({active_meta.model})", err=True)
     except ValueError as exc:
         click.echo(f"[model] {exc}", err=True)
+
+
+async def _handle_route_cmd(provider: BaseProvider) -> None:
+    """Handle /route slash command: show smart-routing pool + last decision."""
+    if not isinstance(provider, RoutingProvider):
+        click.echo("[route] Smart routing not enabled (set ROUTING_ENABLED=true).", err=True)
+        return
+    click.echo("Smart routing pool:", err=True)
+    click.echo(f"  models: {provider.get_metadata().model}", err=True)
+    if provider.last_decision is not None:
+        click.echo(
+            f"  last decision: {provider.last_decision.provider} ({provider.last_decision.reason})",
+            err=True,
+        )
+    else:
+        click.echo("  last decision: (none yet)", err=True)
 
 
 def _format_prompt_args(args: list[dict[str, Any]]) -> str:

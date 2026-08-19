@@ -266,6 +266,22 @@ AgentLoop
 
 可包住 `ProviderChain` 等任意 provider，与三层容错叠加：用户选择（switchable）→ 跨类型回退（chain）→ 多 key 轮换（key_rotation）→ 重试（retry）。
 
+#### router.py — 智能路由（按任务特征选模型，**主动选择层**）
+
+`RoutingProvider` 持有 `{名称: provider}` 池，每次 `send`/`stream` **调用前**由 `Router`
+根据请求内容（消息历史 + 工具列表）**主动**决定用哪个 provider——与 `SwitchableProvider`/
+`ProviderChain` 的「出错才切换」正交（本类在无错误的正常路径上做主动选择）。对 `AgentLoop`
+透明（实现 `BaseProvider` 协议）。
+
+- `HeuristicRouter`：决策顺序 = ① **推理链续接**（任一 ASSISTANT 消息带 `reasoning_content`
+  → 停留 pro，避免非思考模型截断推理链）→ ② **复杂度关键词**（扫描 USER 消息命中
+  `DEFAULT_REASONING_KEYWORDS` 或自定义词 → pro）→ ③ 兜底 fast。纯启发式（非安全机制）。
+- `RoutingProvider.send/stream`：`_pick()` 决策 → 未知名称回退 `default` → 委托。
+- `last_decision`（`RouteDecision`）记录最近一次决策，供日志/`/route` 命令观测。
+- CLI：`ROUTING_ENABLED=true` 时 `_build_provider` 构建 DeepSeek 二分
+  （`routing_fast_model`=deepseek-chat / `routing_pro_model`=deepseek-reasoner）；
+  `/route` 命令展示池与最近决策。
+
 ### 4.4 Tool 系统 (`tools/`)
 
 #### decorator.py — @tool 装饰器
@@ -629,6 +645,7 @@ src/heagent/
 │   ├── chain.py             # ProviderChain 回退链（外层，FR-4 回退精度）
 │   ├── key_rotation.py      # KeyRotatingProvider 密钥池轮换（中层）
 │   ├── retry.py             # 错误分类 + make_retry_middleware（内层）
+│   ├── router.py            # RoutingProvider 智能路由（按任务特征选模型，主动选择层）
 │   └── switchable.py        # SwitchableProvider 运行时多 vendor 切换（外层选择层）
 │
 ├── tools/                   # 工具系统

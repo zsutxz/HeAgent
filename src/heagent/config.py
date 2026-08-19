@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     openai_api_keys: str = ""
     anthropic_api_keys: str = ""
 
+    # ---- 智能路由参数（Provider 智能路由：按任务特征在 flash/pro 模型间自动切换） ----
+    # True 时 CLI 构建 RoutingProvider（DeepSeek chat=fast / reasoner=pro）替代常规 provider。
+    routing_enabled: bool = Field(default=False)
+    # 快速模型（flash 类比）与深度模型（pro 类比）的模型名。
+    routing_fast_model: str = Field(default="deepseek-chat")
+    routing_pro_model: str = Field(default="deepseek-reasoner")
+    # 追加到内置推理关键词表的自定义词（逗号分隔；命中即路由到 pro）。
+    routing_reasoning_keywords: str = Field(default="")
+
     # ---- 框架运行参数 ----
     max_iterations: int = Field(default=50, ge=1)
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
@@ -157,6 +166,10 @@ class Settings(BaseSettings):
     @property
     def approval_tool_list(self) -> list[str]:
         return _parse_comma_list(self.approval_tools)
+
+    @property
+    def routing_keyword_list(self) -> list[str]:
+        return _parse_comma_list(self.routing_reasoning_keywords)
 
     @property
     def model_pricing_map(self) -> dict[str, dict[str, float]]:
