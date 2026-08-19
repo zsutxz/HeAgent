@@ -69,9 +69,9 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 - **Epic 编号延续主线**：新周期自称 Epic 1-N 会撞主线编号，故延续主线编号递增（MCP 周期 = Epic 11-13，MCP V2 周期 = Epic 15-18）。
 - **story key 须匹配 `epic-N-M` pattern**：`sprint-status` skill 校验 key 格式，不能用自定义前缀（如 `mcp-`）。
-- **MCP 周期映射**（2026-08-18 三目录合并为 `_bmad-output/_cycles/mcp/`）：sprint-status 的 Epic 11-13 = `epics.md` 阶段一内部 Epic 1-3；Epic 14 = `epics.md` 阶段二；Epic 15-18 = `epics.md` 阶段三内部 Epic A/B/C + 内置工具扩展。
+- **MCP 周期映射**（2026-08-18 三目录合并为 `_bmad-output/epics/epic-11-18-MCP集成周期/`）：sprint-status 的 Epic 11-13 = `epics.md` 阶段一内部 Epic 1-3；Epic 14 = `epics.md` 阶段二；Epic 15-18 = `epics.md` 阶段三内部 Epic A/B/C + 内置工具扩展。
 - **retrospective 字段**：每个 epic 配 `epic-N-retrospective`，状态 `optional`（可做不做）或 `done`（已完成）。
-- **单一权威（2026-07-23）**：全周期 sprint-status 统一在 `_bmad-output/_cycles/baseline/sprint-status.yaml`，旧文件保留作为只读归档。
+- **单一权威（2026-07-23）**：全周期 sprint-status 统一在 `_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml`，旧文件保留作为只读归档。
 
 ---
 
@@ -79,7 +79,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.1 主线周期 · Epic 1-10
 
-**Epic 1-5（MVP，FR-1~19）** —— 来源 `_bmad-output/_cycles/baseline/epics.md`：
+**Epic 1-5（MVP，FR-1~19）** —— 来源 `_bmad-output/epics/epic-01-10-主线规划周期/epics.md`：
 
 | Epic | 主题 | FR |
 |------|------|----|
@@ -89,7 +89,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 4 | 自学习记忆系统 | FR-10~12 |
 | 5 | 多 Agent 并行编排 | FR-16, 17 |
 
-**Epic 6-10（自学习闭环扩展，FR-20~24）** —— 来源 `_bmad-output/_cycles/baseline/epics-self-learning.md`，补齐从「被动工具」到「主动学习者」的能力：
+**Epic 6-10（自学习闭环扩展，FR-20~24）** —— 来源 `_bmad-output/epics/epic-01-10-主线规划周期/epics-self-learning.md`，补齐从「被动工具」到「主动学习者」的能力：
 
 | Epic | 主题 | FR |
 |------|------|----|
@@ -103,7 +103,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.2 MCP Client 集成周期一 · Epic 11-13
 
-来源 `_bmad-output/_cycles/mcp/`（阶段一，原 `mcp-client/`，2026-08-18 合并），独立 brief/prd/architecture/epics：
+来源 `_bmad-output/epics/epic-11-18-MCP集成周期/`（阶段一，原 `mcp-client/`，2026-08-18 合并），独立 brief/prd/architecture/epics：
 
 | Epic | 主题 |
 |------|------|
@@ -113,7 +113,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.3 MCP Client V2 集成周期二 · Epic 15-18
 
-来源 `_bmad-output/_cycles/mcp/`（阶段三，原 `mcp-client-v2/`），2026-07-17 启动。延续主线编号 15-18（映射 epics.md 的 Epic A/B/C + 内置工具扩展）：
+来源 `_bmad-output/epics/epic-11-18-MCP集成周期/`（阶段三，原 `mcp-client-v2/`），2026-07-17 启动。延续主线编号 15-18（映射 epics.md 的 Epic A/B/C + 内置工具扩展）：
 
 | Epic | 主题 | 状态 |
 |------|------|------|
@@ -124,7 +124,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.4 Sandbox 硬化周期 · Epic S1-S4
 
-来源 `_bmad-output/_cycles/sandbox-hardening/`，2026-07-20 启动。Sandbox 后端硬化，含 firejail profile 映射、降级、配置入口、Linux 进程组 kill、workspace 隔离：
+来源 `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`，2026-07-20 启动。Sandbox 后端硬化，含 firejail profile 映射、降级、配置入口、Linux 进程组 kill、workspace 隔离：
 
 | Epic | 主题 | 状态 |
 |------|------|------|
@@ -135,7 +135,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.5 健壮性与质量硬化周期 · Epic 19-20
 
-来源 `_bmad-output/_cycles/robustness-hardening/`，2026-07-21 启动。跨进程文件锁、Cron 范围表达式、WinJobBackend、覆盖率 89%→90%：
+来源 `_bmad-output/epics/epic-19-20-健壮性硬化周期/`，2026-07-21 启动。跨进程文件锁、Cron 范围表达式、WinJobBackend、覆盖率 89%→90%：
 
 | Epic | 主题 | 状态 |
 |------|------|------|
@@ -144,7 +144,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.6 质量工程深化周期 · Epic 21-24
 
-来源 `_bmad-output/_cycles/quality-engineering/`，2026-07-22 启动。Coverage 工程化、Benchmark 重构、Docker 硬化、CI 效能/安全左移：
+来源 `_bmad-output/epics/epic-21-24-质量工程周期/`，2026-07-22 启动。Coverage 工程化、Benchmark 重构、Docker 硬化、CI 效能/安全左移：
 
 | Epic | 主题 | 状态 |
 |------|------|------|
@@ -155,7 +155,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.7 GUI 终端界面周期 · Epic 25-28
 
-来源 `_bmad-output/_cycles/gui/`，2026-07-23 启动。Textual 终端界面，含流式聊天、工具可视化、管理面板、可观测性：
+来源 `_bmad-output/epics/epic-25-28-GUI界面周期/`，2026-07-23 启动。Textual 终端界面，含流式聊天、工具可视化、管理面板、可观测性：
 
 | Epic | 主题 | 状态 |
 |------|------|------|
@@ -217,7 +217,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2.11 交互与可扩展层周期 · Epic 29-35
 
-来源 `_bmad-output/_cycles/interaction/`（2026-08-19 启动并完成）。对照 Claude Code 补齐「面向使用者的交互与可扩展层」——审批、会话恢复、斜杠命令、Hooks、Plan Mode、自定义角色、成本追踪。全部复用既有基础设施（PolicyEngine / SessionStore / EventBus / RoleSpec / TokenUsage），`AgentLoop` 核心零侵入：
+来源 `_bmad-output/epics/epic-29-35-交互扩展周期/`（2026-08-19 启动并完成）。对照 Claude Code 补齐「面向使用者的交互与可扩展层」——审批、会话恢复、斜杠命令、Hooks、Plan Mode、自定义角色、成本追踪。全部复用既有基础设施（PolicyEngine / SessionStore / EventBus / RoleSpec / TokenUsage），`AgentLoop` 核心零侵入：
 
 | Epic | 主题 | FR |
 |------|------|----|
@@ -229,7 +229,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 34 | 配置文件驱动角色 + 成本估算 | FR-F1~F4 |
 | 35 | CLI 体验优化 + 技术债收尾 | FR-G1~G4（web_fetch guard_content / cron expr 诊断 / init --project / readline） |
 
-详见 `_bmad-output/_cycles/interaction/`（brief/prd/epics/retrospective）。
+详见 `_bmad-output/epics/epic-29-35-交互扩展周期/`（brief/prd/epics/retrospective）。
 
 ---
 
@@ -262,7 +262,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 **下一步（候选，非承诺）**：
 
-- ✅ **回顾**：全部 35 个已完成 Epic + S1-S4 的正式回顾——全周期见 `_bmad-output/retrospective-all-cycles.md`，交互与可扩展层见 `_bmad-output/_cycles/interaction/retrospective.md`（2026-08-19）。
+- ✅ **回顾**：全部 35 个已完成 Epic + S1-S4 的正式回顾——全周期见 `_bmad-output/retrospective-all-cycles.md`，交互与可扩展层见 `_bmad-output/epics/epic-29-35-交互扩展周期/retrospective.md`（2026-08-19）。
 - ⏳ **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow。
 - 🔮 **可选增强**：多模态（vision）、Web API 服务端（均与 `design.md` 当前非目标冲突，需重新评估）；Hooks 增强（`UserPromptSubmit`/`Stop`/`SubagentStop` 事件、参数模板引擎）。
 
@@ -273,7 +273,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 - 架构权威：[`frame.md`](frame.md)（含 engine 模块 4.12、已知缺口第五章）
 - 产品愿景：[`design.md`](design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
-- 迭代原始产物：`_bmad-output/_cycles/baseline/`、`_bmad-output/_cycles/mcp/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/_cycles/sandbox-hardening/`、`_bmad-output/_cycles/robustness-hardening/`、`_bmad-output/_cycles/quality-engineering/`、`_bmad-output/_cycles/gui/`、`_bmad-output/_cycles/interaction/`、`_bmad-output/patches/`
-- **sprint 状态（单一权威）**：[`_bmad-output/_cycles/baseline/sprint-status.yaml`](../_bmad-output/_cycles/baseline/sprint-status.yaml)（2026-08-19 更新，覆盖全 9 个周期、35 个 Epic + S1-S4）
+- 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/patches/`
+- **sprint 状态（单一权威）**：[`_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml`](../_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml)（2026-08-19 更新，覆盖全 9 个周期、35 个 Epic + S1-S4）
 - 技术债登记：`_bmad-output/patches/_meta/deferred-work.md`
-- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/_cycles/mcp/retrospective-epic-13.md`、`_bmad-output/patches/_meta/retrospective-engine-p5.md`、`_bmad-output/patches/provider/retrospective-p0-tech-debt.md`
+- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`、`_bmad-output/patches/_meta/retrospective-engine-p5.md`、`_bmad-output/patches/provider/retrospective-p0-tech-debt.md`

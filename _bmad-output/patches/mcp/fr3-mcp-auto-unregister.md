@@ -4,7 +4,7 @@ type: 'enhancement'
 created: '2026-07-01'
 status: 'done'
 baseline_commit: '2ae99edf7909e229566f70486f6bccc952e378f4'
-context: ['{project-root}/_bmad-output/_cycles/mcp/architecture.md', '{project-root}/_bmad-output/_cycles/mcp/epics.md', '{project-root}/docs/frame.md']
+context: ['{project-root}/_bmad-output/epics/epic-11-18-MCP集成周期/architecture.md', '{project-root}/_bmad-output/epics/epic-11-18-MCP集成周期/epics.md', '{project-root}/docs/frame.md']
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">

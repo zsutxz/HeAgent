@@ -115,7 +115,7 @@
 本文标记所有周期回顾为 `done`。sprint-status.yaml 中所有 `epic-N-retrospective` 均更新为 `done`。
 
 回顾产物索引：
-- Epic 13 正式回顾: `_bmad-output/_cycles/mcp/retrospective-epic-13.md`（2026-08-18 MCP 三目录合并后路径）
+- Epic 13 正式回顾: `_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`（2026-08-18 MCP 三目录合并后路径）
 - Engine P5 回顾: `_bmad-output/patches/_meta/retrospective-engine-p5.md`
 - P0 技术债回顾: `_bmad-output/patches/provider/retrospective-p0-tech-debt.md`
 - **全周期综合回顾 (本文)**: `_bmad-output/retrospective-all-cycles.md`
