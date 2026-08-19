@@ -119,7 +119,25 @@ async def execute_tool_call(
         if verdict.mode is ToolExecutionMode.APPROVAL_REQUIRED and loop.engine.approval_handler is not None:
             verdict = await _resolve_approval(loop, call, verdict, run_context)
         handler = loop.registry.get_handler(call.name)
-        if handler is None:
+        # ②.6 PreToolUse hooks（Epic 32）：可阻断工具调用（block hook 退出码非 0 → 阻断）。
+        hook_feedback: str | None = None
+        if loop.engine.hooks is not None:
+            hook_result = await loop.engine.hooks.run_pre_tool(call, run_context)
+            if hook_result.blocked:
+                hook_feedback = hook_result.feedback
+        if hook_feedback is not None:
+            loop._emit(
+                "tool_call_blocked",
+                run_context=run_context,
+                tool_name=call.name,
+                details={"reason": "hook", "feedback": hook_feedback},
+            )
+            result = ToolResult(
+                tool_call_id=call.id,
+                content=f"Tool '{call.name}' blocked by hook: {hook_feedback}",
+                is_error=True,
+            )
+        elif handler is None:
             loop._emit(
                 "tool_call_failed",
                 run_context=run_context,
@@ -138,6 +156,9 @@ async def execute_tool_call(
                 run_context=run_context,
                 emit=loop._emit,
             )
+            # PostToolUse hooks（Epic 32）：通知，不阻断。
+            if loop.engine.hooks is not None:
+                await loop.engine.hooks.run_post_tool(call, run_context)
 
         # ④ 结果回写 ledger：成功记 complete（带结果供后续幂等），失败记 fail（允许重试）。
         if cache_key is not None:

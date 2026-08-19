@@ -28,6 +28,7 @@ from heagent.agent.tool_execution import execute_tool_call, execute_tools, invok
 from heagent.config import get_settings
 from heagent.context.window_reset import WindowReset, WindowResetConfig
 from heagent.engine import EngineContainer, RunContext, RunStatus
+from heagent.engine.hooks import SESSION_END, SESSION_START
 from heagent.exceptions import BudgetExceeded
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
@@ -615,6 +616,8 @@ class AgentLoop:
         await self._start_run_record(run_context, prompt=prompt, system=system_content)
         details: dict[str, Any] = {"stream": True} if stream else {"session_id": session_id or ""}
         self._emit("run_started", run_context=run_context, details=details)
+        if self.engine.hooks is not None:
+            await self.engine.hooks.run_session(SESSION_START, run_context)
         return state, run_context, system_content, accumulated
 
     # ------------------------------------------------------------------
@@ -638,6 +641,8 @@ class AgentLoop:
         self.last_usage = accumulated
         self.last_iteration = state.iteration
         self.last_run_context = run_context
+        if self.engine.hooks is not None:
+            await self.engine.hooks.run_session(SESSION_END, run_context)
 
     # ------------------------------------------------------------------
     # 迭代控制

@@ -366,6 +366,17 @@ development_status:
   35-4-readline-history: done
   epic-35-retrospective: done
 
+  # ═══════════════════════════════════════════════════════════════
+  # 交互与可扩展层周期 · Epic 32（2026-08-19）
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-32: done  # Hooks 系统（FR-D1~D4）
+  32-1-hook-manager-model: done
+  32-2-pre-post-tool-hooks: done
+  32-3-session-hooks: done
+  32-4-hook-tests-docs: done
+  epic-32-retrospective: done
+
 # ═════════════════════════════════════════════════════════════════
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════

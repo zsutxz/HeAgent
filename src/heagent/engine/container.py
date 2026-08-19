@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, Any
 
 from heagent.engine.context import RunContext
 from heagent.engine.executor import ToolExecutor
+from heagent.engine.hooks import HookManager
 from heagent.engine.ledger import ExecutionLedger
 from heagent.engine.observability import EventBus, LoggingObserver
 from heagent.engine.policy import PolicyEngine
@@ -46,6 +47,7 @@ class EngineContainer:
     workspace_root: str | None = None
     command_runner: CommandRunner | None = None
     approval_handler: ApprovalHandler | None = None
+    hooks: HookManager | None = None
     enable_file_locks: bool = False
     # ledger 自动清理保留天数（0=禁用）；default() 从 Settings 读，手动构造默认 0。
     ledger_retention_days: int = 0
@@ -139,6 +141,7 @@ class EngineContainer:
         container.ledger_retention_days = settings.ledger_retention_days
         if settings.approval_tool_list:
             container.policy.approval_tools = set(settings.approval_tool_list)
+        container.hooks = HookManager.load(".heagent/hooks.json")
         if workspace_root and not container.policy.workspace_root:
             container.policy.workspace_root = workspace_root
         return container

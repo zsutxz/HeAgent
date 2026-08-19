@@ -570,6 +570,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `container.py` | `EngineContainer` — DI 容器，`default(workspace_root=)` 装配全部服务 |
 | `context.py` | `RunContext`（run_id/session_id/parent_run_id/workspace_root/iteration/metadata）、`RunStatus` |
 | `approval.py` | `ApprovalHandler` 协议 + `ApprovalDecision`/`ApprovalRequest` + `ConsoleApprovalHandler`/`DenyAllApprovalHandler` — 交互式审批闭环（Epic 29） |
+| `hooks.py` | `HookConfig`/`HookManager` — 用户可配置事件钩子（PreToolUse/PostToolUse/SessionStart/SessionEnd，Epic 32） |
 | `policy.py` | `PolicyEngine` — 准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
 | `roles.py` | `RoleSpec` + 内置角色（planner/coder/tester/supervisor/dreamer），`SubAgent` 构建角色专属 `PolicyEngine` |
 | `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端 |

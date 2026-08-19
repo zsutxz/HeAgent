@@ -15,6 +15,7 @@ from heagent.engine.approval import (
 from heagent.engine.container import EngineContainer
 from heagent.engine.context import RunContext, RunStatus
 from heagent.engine.executor import ToolExecutor
+from heagent.engine.hooks import HookConfig, HookManager, HookResult
 from heagent.engine.ledger import ExecutionLedger, ExecutionRecord, ExecutionStatus, LedgerClaim
 from heagent.engine.observability import EngineEvent, EventBus, LoggingObserver
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
@@ -30,6 +31,9 @@ __all__ = [
     "EngineEvent",
     "EventBus",
     "ExecutionLedger",
+    "HookConfig",
+    "HookManager",
+    "HookResult",
     "ExecutionRecord",
     "ExecutionStatus",
     "ToolExecutor",

@@ -157,6 +157,23 @@ tools: file_read, content_search
 
 frontmatter 的 `tools` 为角色工具白名单（逗号分隔），正文为角色 system prompt。
 
+### 事件钩子（Hooks）
+
+从 `.heagent/hooks.json` 加载用户可配置的事件钩子（shell 命令在事件点触发）：
+
+```json
+{
+  "hooks": [
+    {"event": "PreToolUse", "matcher": "shell", "command": "notify-user.sh", "block": false}
+  ]
+}
+```
+
+支持事件：`PreToolUse`（工具执行前，`block: true` 且命令退出码非 0 则阻断工具）、
+`PostToolUse`（工具执行后）、`SessionStart` / `SessionEnd`（run 开始/结束）。
+hook 命令可读取注入的环境变量 `HEAGENT_EVENT` / `HEAGENT_TOOL_NAME` / `HEAGENT_RUN_ID` /
+`HEAGENT_SESSION_ID`。
+
 安装脚本后也可以直接使用：
 
 ```bash
