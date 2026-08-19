@@ -333,6 +333,17 @@ development_status:
   31-4-slash-tests-docs: done
   epic-31-retrospective: done
 
+  # ═══════════════════════════════════════════════════════════════
+  # 交互与可扩展层周期 · Epic 33（2026-08-19）
+  # ═══════════════════════════════════════════════════════════════
+
+  epic-33: done  # Plan Mode / 只读模式（FR-E1~E4）
+  33-1-readonly-annotations: done
+  33-2-plan-mode-config-cli: done
+  33-3-plan-mode-policy-filter: done
+  33-4-plan-mode-tests-docs: done
+  epic-33-retrospective: done
+
 # ═════════════════════════════════════════════════════════════════
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════

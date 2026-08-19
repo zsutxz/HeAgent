@@ -106,6 +106,7 @@ python -m heagent --model deepseek-chat --system "你是 Python 专家" "写一�
 | `--sandbox` | 沙箱后端（`passthrough` 默认 / `firejail`） |
 | `--continue` | 继续最近一次会话（交互模式） |
 | `--resume <id>` | 恢复指定 session id 的会话（交互模式） |
+| `--plan` | Plan Mode（只读规划：禁用 shell/写文件等写操作工具） |
 
 ### 交互模式斜杠命令
 

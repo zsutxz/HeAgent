@@ -302,7 +302,7 @@ async def task_parallel(tasks_json: str, role: str = "", system: str = "") -> st
     return json.dumps({"status": overall, "outcomes": [o.model_dump() for o in outcomes]}, ensure_ascii=False)
 
 
-@tool
+@tool(read_only=True)
 async def task_status() -> str:
     """List delegation steps completed in this run (survives context resets)."""
     runtime = _runtime()

@@ -6,7 +6,7 @@ from heagent.tools.decorator import tool
 from heagent.tools.path_safety import WorkspacePathError, resolve_workspace_path
 
 
-@tool
+@tool(read_only=True)
 async def file_read(
     path: str,
     offset: int | None = None,

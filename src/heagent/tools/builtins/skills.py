@@ -104,7 +104,7 @@ async def skill_update(
     return f"Skill '{name}' updated at {path}"
 
 
-@tool
+@tool(read_only=True)
 async def skill_list() -> str:
     """List stored skills."""
     store = _store()
@@ -137,7 +137,7 @@ async def skill_delete(name: str) -> str:
     return f"Error: skill '{name}' not found."
 
 
-@tool
+@tool(read_only=True)
 async def skill_curate(days: str = "30") -> str:
     """List stale skills that have not been used recently."""
     store = _store()

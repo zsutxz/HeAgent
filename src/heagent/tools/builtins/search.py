@@ -29,7 +29,7 @@ def _resolve_dir(directory: str) -> Path | str:
     return root
 
 
-@tool
+@tool(read_only=True)
 async def file_search(
     pattern: str,
     directory: str = ".",
@@ -54,7 +54,7 @@ async def file_search(
     return "\n".join(matches)
 
 
-@tool
+@tool(read_only=True)
 async def content_search(
     query: str,
     directory: str = ".",

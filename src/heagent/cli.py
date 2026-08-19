@@ -36,6 +36,7 @@ from heagent.providers.openai import OpenAIProvider
 from heagent.providers.switchable import SwitchableProvider
 from heagent.slash import SlashRegistry, load_custom_commands
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
+from heagent.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -360,6 +361,27 @@ def _build_loop(
     return loop, scheduler
 
 
+def _apply_plan_mode(engine: EngineContainer, *, plan_mode: bool) -> str | None:
+    """Plan Mode（Epic 33）：收敛 PolicyEngine 白名单为只读工具集，返回 plan 提示拼入 system。
+
+    只读工具集 = 所有 ``readOnlyHint=True`` 的**内置**工具（排除 MCP 工具——其
+    ``readOnlyHint`` 由 server 自声明、不可信，见 CLAUDE.md 安全声明；plan mode 下
+    默认排除全部 MCP 工具是 fail-safe 方向，误判只导致可用工具变少，不泄漏写操作）。
+    """
+    if not plan_mode:
+        return None
+    readonly = {
+        s.name
+        for s in ToolRegistry.get().enabled_schemas()
+        if "__" not in s.name and s.annotations is not None and s.annotations.readOnlyHint
+    }
+    engine.policy.allowed_tools = readonly
+    return (
+        "You are in PLAN MODE (read-only). Do not modify files, execute shell commands, "
+        "or change any persistent state. Only read, analyze, and present a plan."
+    )
+
+
 async def _run_single(
     prompt: str,
     provider: BaseProvider,
@@ -368,12 +390,16 @@ async def _run_single(
     soul_path: str | None = None,
     mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
     sandbox_backend: str | None = None,
+    plan_mode: bool = False,
 ) -> None:
     """Run a single prompt and print the result."""
     settings = get_settings()
     engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
     if sys.stdin.isatty() and engine.approval_handler is None:
         engine.approval_handler = ConsoleApprovalHandler()
+    plan_hint = _apply_plan_mode(engine, plan_mode=plan_mode)
+    if plan_hint:
+        system = f"{plan_hint}\n\n{system}" if system else plan_hint
 
     async with mcp_ctx or contextlib.nullcontext():
         loop, _ = _build_loop(
@@ -477,12 +503,16 @@ async def _run_chat(
     sandbox_backend: str | None = None,
     continue_session: bool = False,
     resume_session: str | None = None,
+    plan_mode: bool = False,
 ) -> None:
     """Run interactive chat mode."""
     settings = get_settings()
     engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
     if engine.approval_handler is None:
         engine.approval_handler = ConsoleApprovalHandler()
+    plan_hint = _apply_plan_mode(engine, plan_mode=plan_mode)
+    if plan_hint:
+        system = f"{plan_hint}\n\n{system}" if system else plan_hint
 
     async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
         session = SessionStore()
@@ -713,6 +743,7 @@ def _run_cli_impl(
     sandbox: str | None,
     continue_session: bool = False,
     resume_session: str | None = None,
+    plan_mode: bool = False,
 ) -> None:
     """Core CLI routine — logging, provider, MCP, dispatch to single/chat."""
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -723,6 +754,7 @@ def _run_cli_impl(
 
     settings = get_settings()
     resolved_iterations = max_iterations or settings.max_iterations
+    resolved_plan = plan_mode or settings.plan_mode
     provider = _build_provider(settings, model)
 
     # --- Sandbox warning ---
@@ -760,6 +792,7 @@ def _run_cli_impl(
                 soul_path=soul,
                 mcp_ctx=mcp_ctx,
                 sandbox_backend=sandbox,
+                plan_mode=resolved_plan,
             )
         )
     else:
@@ -773,6 +806,7 @@ def _run_cli_impl(
                 sandbox_backend=sandbox,
                 continue_session=continue_session,
                 resume_session=resume_session,
+                plan_mode=resolved_plan,
             )
         )
 
@@ -805,6 +839,13 @@ _RUN_OPTIONS = [
         "resume_session",
         default=None,
         help="Resume a specific session by id (interactive mode)",
+    ),
+    click.option(
+        "--plan",
+        "plan_mode",
+        is_flag=True,
+        default=False,
+        help="Plan mode: read-only (no write tools / shell)",
     ),
 ]
 
@@ -877,9 +918,12 @@ def run(
     sandbox: str | None,
     continue_session: bool,
     resume_session: str | None,
+    plan_mode: bool,
 ) -> None:
     """Run HeAgent in single-shot or interactive mode."""
-    _run_cli_impl(prompt, model, system, max_iterations, soul, sandbox, continue_session, resume_session)
+    _run_cli_impl(
+        prompt, model, system, max_iterations, soul, sandbox, continue_session, resume_session, plan_mode
+    )
 
 
 # =============================================================================

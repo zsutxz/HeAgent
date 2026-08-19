@@ -86,7 +86,7 @@ async def cron_add(prompt: str, schedule: str, recurring: bool = True) -> str:
     return f"Cron job created: id={job.id}, schedule='{schedule}', recurring={job.recurring}"
 
 
-@tool
+@tool(read_only=True)
 async def cron_list() -> str:
     """List all scheduled cron jobs."""
     store = _store()

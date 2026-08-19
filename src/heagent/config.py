@@ -137,6 +137,10 @@ class Settings(BaseSettings):
     # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。
     approval_tools: str = Field(default="")
 
+    # ---- Plan Mode（Epic 33） ----
+    # True 时收敛为只读模式：仅允许 readOnlyHint=True 的内置工具，禁止写操作（CLI --plan 覆盖）。
+    plan_mode: bool = Field(default=False)
+
     @property
     def openai_key_pool(self) -> list[str]:
         return _parse_comma_list(self.openai_api_keys)
