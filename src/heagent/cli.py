@@ -254,12 +254,12 @@ def _build_routing_provider(settings: Settings) -> BaseProvider:
 
     ``ROUTING_ENABLED=true`` 时由 ``_build_provider`` 调用。DeepSeek 是唯一有天然
     「快速版/深度版」二分的 OpenAI 兼容 provider，故路由默认绑定 DeepSeek：
-    fast → ``routing_fast_model``（默认 deepseek-chat），pro → ``routing_pro_model``
-    （默认 deepseek-reasoner）。启发式路由见 ``providers/router.py``。
+    fast → ``routing_fast_model``（默认 deepseek-v4-flash），pro → ``routing_pro_model``
+    （默认 deepseek-v4-pro）。启发式路由见 ``providers/router.py``。
     """
     if not settings.deepseek_api_key:
         click.echo(
-            "Error: ROUTING_ENABLED=true requires DEEPSEEK_API_KEY (fast=deepseek-chat, pro=deepseek-reasoner).",
+            "Error: ROUTING_ENABLED=true requires DEEPSEEK_API_KEY (fast=deepseek-v4-flash, pro=deepseek-v4-pro).",
             err=True,
         )
         raise SystemExit(1)
@@ -1108,7 +1108,7 @@ _INIT_ENV_TEMPLATE = """# HeAgent 全局配置文件
 
 # ---- 各 Provider 默认模型 ----
 # DEFAULT_MODEL=gpt-4o
-# DEEPSEEK_MODEL=deepseek-chat
+# DEEPSEEK_MODEL=deepseek-v4-pro
 # KIMI_MODEL=moonshot-v1-8k
 
 # ---- Anthropic 提示词缓存 ----

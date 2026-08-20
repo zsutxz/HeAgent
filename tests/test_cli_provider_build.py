@@ -40,7 +40,7 @@ class TestBuildProviderRoutingComposition:
         provider = _build_provider(Settings(deepseek_api_key="sk-test", routing_enabled=True), None)
         assert isinstance(provider, RoutingProvider)
         assert set(provider.names) == {"fast", "pro"}
-        assert provider.get_metadata().model == "fast:deepseek-chat, pro:deepseek-reasoner"
+        assert provider.get_metadata().model == "fast:deepseek-v4-flash, pro:deepseek-v4-pro"
 
     def test_routing_plus_kimi_returns_switchable_with_routing_deepseek(self, hermetic) -> None:
         """路由 + 第二个 provider → SwitchableProvider，deepseek 条目为 RoutingProvider。"""
@@ -56,8 +56,8 @@ class TestBuildProviderRoutingComposition:
         assert isinstance(provider.current, RoutingProvider)
         # /model 列表展示：deepseek 条目展示 fast/pro 两个模型
         summary = provider.info()["deepseek"]
-        assert "deepseek-chat" in summary.model
-        assert "deepseek-reasoner" in summary.model
+        assert "deepseek-v4-flash" in summary.model
+        assert "deepseek-v4-pro" in summary.model
 
     def test_routing_enabled_without_deepseek_key_degrades_gracefully(self, hermetic) -> None:
         """路由开启但无 deepseek 密钥 → 优雅降级：其余 provider 照常可用（不阻断 Choose）。"""

@@ -62,7 +62,7 @@ class Settings(BaseSettings):
 
     # ---- 各 Provider 默认模型（--model CLI 参数可覆盖） ----
     default_model: str = "gpt-4o"  # OpenAI 默认模型名称
-    deepseek_model: str = "deepseek-chat"  # DeepSeek 默认模型
+    deepseek_model: str = "deepseek-v4-pro"  # DeepSeek 默认模型
     kimi_model: str = "moonshot-v1-8k"  # Kimi (Moonshot) 默认模型
 
     # ---- Anthropic 提示词缓存（FR-3） ----
@@ -77,8 +77,8 @@ class Settings(BaseSettings):
     # 自动切换），并照常放入多 provider 池——不影响 Multiple providers Choose。
     routing_enabled: bool = Field(default=False)
     # 快速模型（flash 类比）与深度模型（pro 类比）的模型名。
-    routing_fast_model: str = Field(default="deepseek-chat")
-    routing_pro_model: str = Field(default="deepseek-reasoner")
+    routing_fast_model: str = Field(default="deepseek-v4-flash")
+    routing_pro_model: str = Field(default="deepseek-v4-pro")
     # 追加到内置推理关键词表的自定义词（逗号分隔；命中即路由到 pro）。
     routing_reasoning_keywords: str = Field(default="")
 

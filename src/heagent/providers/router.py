@@ -6,8 +6,8 @@
 
 典型用法（DeepSeek 的 flash/pro 类比）：
 
-    fast = OpenAIProvider(api_key="sk-...", model="deepseek-chat", base_url="https://api.deepseek.com/v1")
-    pro  = OpenAIProvider(api_key="sk-...", model="deepseek-reasoner", base_url="https://api.deepseek.com/v1")
+    fast = OpenAIProvider(api_key="sk-...", model="deepseek-v4-flash", base_url="https://api.deepseek.com/v1")
+    pro  = OpenAIProvider(api_key="sk-...", model="deepseek-v4-pro", base_url="https://api.deepseek.com/v1")
     router = HeuristicRouter(fast="fast", pro="pro")
     provider = RoutingProvider({"fast": fast, "pro": pro}, router, default="fast")
 
