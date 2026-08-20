@@ -197,6 +197,11 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
 
     if settings.deepseek_api_key:
         if settings.routing_enabled:
+            if model:
+                logger.warning(
+                    "--model %s ignored for deepseek: ROUTING_ENABLED=true builds a flash/pro pool (use /route to force).",
+                    model,
+                )
             named["deepseek"] = _build_routing_provider(settings)
         else:
             named["deepseek"] = OpenAIProvider(

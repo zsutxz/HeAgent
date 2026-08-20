@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from pydantic import BaseModel
 
 from heagent.providers.base import ProviderMetadata
+from heagent.providers.retry import ErrorCategory, classify_exception
 from heagent.types import Role
 
 if TYPE_CHECKING:
@@ -117,6 +118,12 @@ class HeuristicRouter:
          （大小写不敏感子串）→ 判定为复杂任务，路由到 pro。
       3. **兜底**：否则路由到 fast（快速/廉价模型）。
 
+    **成本语义（任务级而非消息级）**：判据 1/2 均扫描全部历史消息——任一轮命中
+    关键词（或推理链开启）后，后续**所有**轮次（包括简单追问）都持续路由到 pro，
+    直到会话上下文被压缩/重置。这是有意取舍：避免 tool-call 后最新消息为 TOOL
+    结果时漏判复杂度；代价是长会话可能全量按 pro 计费。介意成本可在新会话中
+    避免触发关键词，或 ``/route fast`` 强制。
+
     这是**纯启发式**（非精确、非安全机制）：关键词可能误判（漏判简单任务 / 误判
     复杂任务），但对「多付一点钱 vs 少一次往返」的取舍足够实用；推理链续接则保证
     pro 模型发起的推理不会被 flash 模型无推理地截断。
@@ -169,8 +176,16 @@ class RoutingProvider:
     """按请求内容智能路由到命名 provider 池（如 fast/pro）。
 
     每次 ``send``/``stream`` 前调用 ``Router.route`` 决定用哪个 provider，然后原样
-    委托；与 SwitchableProvider/ProviderChain 的「出错回退」正交——本类在**无错误**
-    的正常路径上做主动选择。
+    委托；与 SwitchableProvider/ProviderChain 的「跨 vendor 出错回退」不同层——本类
+    在**无错误**的正常路径上做主动选择。
+
+    **池内兄弟回退**：路由目标失败且错误为 RATE_LIMITED / TRANSIENT（与
+    ``SwitchableProvider`` 同一套 ``classify_exception`` 分类）时，先尝试池内其余
+    provider（如 flash 过载 → pro）再上抛——同 vendor 的 flash/pro 容量独立，比
+    跨 vendor 粘性跳转（对话中途换模型、质量漂移）代价小。AUTH_FAILED /
+    NON_TRANSIENT 不回退（换兄弟模型也不会好转），直接上抛给外层
+    ``SwitchableProvider`` 按条目回退。流式仅在**首个 chunk 前**失败才改道（已
+    开始输出后无法重放前缀）。
 
     对 ``AgentLoop`` 完全透明（实现 BaseProvider 协议）。``last_decision`` 记录最近
     一次决策（观测/调试用，best-effort——单次字符串赋值在 CPython 下原子，不引入
@@ -266,6 +281,18 @@ class RoutingProvider:
         self.last_decision = decision
         return name, self._providers[name]
 
+    @staticmethod
+    def _is_fallback_error(error: Exception) -> bool:
+        """是否触发池内兄弟回退——与 ``SwitchableProvider`` 同一套分类，避免两套语义漂移。"""
+        return classify_exception(error) in (ErrorCategory.RATE_LIMITED, ErrorCategory.TRANSIENT)
+
+    def _sibling(self, name: str) -> BaseProvider | None:
+        """返回池内除 ``name`` 外的第一个 provider（按插入序，确定性）；无兄弟则 None。"""
+        for other_name, provider in self._providers.items():
+            if other_name != name:
+                return provider
+        return None
+
     # -- BaseProvider 协议实现 --
 
     async def send(
@@ -274,10 +301,22 @@ class RoutingProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> ProviderResponse:
-        """按路由决策委托给选中的 provider 完成单次调用。"""
+        """按路由决策委托给选中的 provider 完成单次调用。
+
+        路由目标失败且为限流/瞬时错误时，回退到池内兄弟（见类 docstring）。
+        """
         name, provider = self._pick(messages, tools)
         logger.info("Routing → %s (reason=%s)", name, self.last_decision.reason if self.last_decision else "")
-        return await provider.send(messages, tools=tools)
+        try:
+            return await provider.send(messages, tools=tools)
+        except Exception as exc:
+            if not self._is_fallback_error(exc):
+                raise
+            sibling = self._sibling(name)
+            if sibling is None:
+                raise
+            logger.warning("Routing target %s failed (%s); retrying with in-pool sibling", name, exc)
+            return await sibling.send(messages, tools=tools)
 
     async def stream(
         self,
@@ -285,10 +324,28 @@ class RoutingProvider:
         *,
         tools: list[ToolSchema] | None = None,
     ) -> AsyncIterator[ProviderResponse]:
-        """流式版：按路由决策委托，逐 chunk 透传（不在流中途改道，避免重放重复前缀）。"""
+        """流式版：按路由决策委托，逐 chunk 透传。
+
+        仅在**首个 chunk 产生前**失败才改道兄弟（已开始输出后无法重放前缀，不改道）。
+        """
         name, provider = self._pick(messages, tools)
         logger.info("Routing (stream) → %s (reason=%s)", name, self.last_decision.reason if self.last_decision else "")
-        async for chunk in provider.stream(messages, tools=tools):
+        iterator = provider.stream(messages, tools=tools)
+        try:
+            first = await iterator.__anext__()
+        except StopAsyncIteration:
+            return
+        except Exception as exc:
+            if not self._is_fallback_error(exc):
+                raise
+            sibling = self._sibling(name)
+            if sibling is None:
+                raise
+            logger.warning("Routing target %s failed in stream (%s); retrying with in-pool sibling", name, exc)
+            iterator = sibling.stream(messages, tools=tools)
+            first = await iterator.__anext__()
+        yield first
+        async for chunk in iterator:
             yield chunk
 
     def get_metadata(self) -> ProviderMetadata:

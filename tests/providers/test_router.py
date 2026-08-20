@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from heagent.exceptions import ProviderError
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.router import HeuristicRouter, RouteDecision, RoutingProvider, active_model
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
@@ -340,3 +341,70 @@ class TestActiveModel:
                 return plain
 
         assert active_model(Wrapper()) is None
+
+
+class TestInPoolFallback:
+    """池内兄弟回退：限流/瞬时错误先试池内兄弟（同 vendor），非瞬时错误直接上抛。
+
+    语义见 RoutingProvider docstring：flash 过载 → pro 接管，仍失败才上抛给外层
+    SwitchableProvider 跨 vendor 回退——避免「flash 单模型过载导致整条目跳 vendor」。
+    """
+
+    @staticmethod
+    def _failing(error: Exception) -> object:
+        class FailingProvider:
+            async def send(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> ProviderResponse:
+                raise error
+
+            async def stream(
+                self, messages: list[Message], *, tools: list[ToolSchema] | None = None
+            ) -> AsyncIterator[ProviderResponse]:
+                raise error
+                yield  # pragma: no cover - 使本函数成为 async generator
+
+            def get_metadata(self) -> ProviderMetadata:
+                return ProviderMetadata(name="fail", model="fail-m", supports_streaming=True, supports_tools=True)
+
+        return FailingProvider()
+
+    def _routing(self, failing: object, ok: object) -> RoutingProvider:
+        router = HeuristicRouter(fast="fast", pro="pro")
+        return RoutingProvider({"fast": failing, "pro": ok}, router, default="fast")
+
+    @pytest.mark.asyncio
+    async def test_send_rate_limited_falls_back_to_sibling(self) -> None:
+        """flash 429（限流）→ 池内 pro 接管，不跨 vendor 上抛。"""
+        routing = self._routing(self._failing(ProviderError("rate limited", status_code=429)), _make_provider("pro"))
+        response = await routing.send([_msg("你好")])  # 简单消息 → fast → 429 → pro
+        assert response.model == "pro"
+
+    @pytest.mark.asyncio
+    async def test_send_transient_falls_back_to_sibling(self) -> None:
+        """flash 503（瞬时）→ 池内 pro 接管。"""
+        routing = self._routing(self._failing(ProviderError("service unavailable: 503")), _make_provider("pro"))
+        response = await routing.send([_msg("你好")])
+        assert response.model == "pro"
+
+    @pytest.mark.asyncio
+    async def test_send_non_transient_raises(self) -> None:
+        """401（鉴权失败，换兄弟模型也不会好）→ 不回退，直接上抛。"""
+        routing = self._routing(self._failing(ProviderError("unauthorized", status_code=401)), _make_provider("pro"))
+        with pytest.raises(ProviderError):
+            await routing.send([_msg("你好")])
+
+    @pytest.mark.asyncio
+    async def test_stream_falls_back_before_first_chunk(self) -> None:
+        """流式在首 chunk 前失败 → 改道兄弟；输出全部来自兄弟。"""
+        routing = self._routing(self._failing(ProviderError("rate limited", status_code=429)), _make_provider("pro"))
+        chunks = [c async for c in routing.stream([_msg("你好")])]
+        assert len(chunks) == 1
+        assert chunks[0].model == "pro"
+
+    @pytest.mark.asyncio
+    async def test_single_provider_pool_has_no_sibling(self) -> None:
+        """单 provider 池无兄弟可回退 → 原样上抛。"""
+        router = HeuristicRouter(fast="fast", pro="fast")
+        failing = self._failing(ProviderError("rate limited", status_code=429))
+        routing = RoutingProvider({"fast": failing}, router, default="fast")
+        with pytest.raises(ProviderError):
+            await routing.send([_msg("你好")])
