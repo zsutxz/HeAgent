@@ -152,6 +152,11 @@ class Settings(BaseSettings):
     # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。
     approval_tools: str = Field(default="")
 
+    # ---- 用户事件钩子（Epic 32） ----
+    # false = 不加载 .heagent/hooks.json。hooks 是用户自配置的本地命令（非安全边界），
+    # 不可信仓库可投放该文件自动执行——故须显式开启（防供给链式自动执行）。
+    hooks_enabled: bool = Field(default=False)
+
     # ---- Plan Mode（Epic 33） ----
     # True 时收敛为只读模式：仅允许 readOnlyHint=True 的内置工具，禁止写操作（CLI --plan 覆盖）。
     plan_mode: bool = Field(default=False)

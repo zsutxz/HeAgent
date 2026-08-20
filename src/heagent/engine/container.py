@@ -141,7 +141,16 @@ class EngineContainer:
         container.ledger_retention_days = settings.ledger_retention_days
         if settings.approval_tool_list:
             container.policy.approval_tools = set(settings.approval_tool_list)
-        container.hooks = HookManager.load(".heagent/hooks.json")
+        # hooks 是用户自配置的本地命令：默认**不**加载（HOOKS_ENABLED=false），防不可信
+        # 仓库投放的 .heagent/hooks.json 在 clone 后自动执行；路径按 workspace_root 解析
+        # （缺省回退 CWD）。文件存在但未开启时告警，避免「配置了却不生效」的静默失效。
+        hooks_path = Path(workspace_root or ".") / ".heagent" / "hooks.json"
+        if settings.hooks_enabled:
+            container.hooks = HookManager.load(hooks_path)
+        elif hooks_path.exists():
+            logger.warning(
+                "%s found but HOOKS_ENABLED is false; not loading (opt in via .env)", hooks_path
+            )
         if workspace_root and not container.policy.workspace_root:
             container.policy.workspace_root = workspace_root
         return container

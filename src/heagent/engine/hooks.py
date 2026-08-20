@@ -26,9 +26,11 @@ import asyncio
 import json
 import logging
 import os
-from dataclasses import dataclass
+import signal
+import sys
+from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -47,18 +49,29 @@ SESSION_END = "SessionEnd"
 # hook 命令默认超时（秒）：防止恶意/挂死的 hook 拖死 agent 主循环。
 _DEFAULT_HOOK_TIMEOUT = 30.0
 
+# hook 子进程环境白名单：**不透传全量 os.environ**（防 API key 等敏感变量随 hook 命令
+# 外传），仅保留 shell 找到可执行文件所需的基本变量（跨平台并集）+ ``HEAGENT_*`` 前缀。
+_ENV_ALLOWLIST = frozenset(
+    {
+        "PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR",  # Windows shell 必需
+        "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR",  # POSIX shell 常用
+        "TEMP", "TMP",  # 临时目录（两平台）
+    }
+)
+
 
 class HookConfig(BaseModel):
     """一条 hook 配置（来自 ``hooks.json`` 的 ``hooks`` 数组元素）。"""
 
-    event: str  # PreToolUse / PostToolUse / SessionStart / SessionEnd
+    # Literal 校验：拼错事件名（如 "PostToolUs"）在加载期即失败（load 跳过 + warning），
+    # 而非静默注册一条永不触发的 hook。
+    event: Literal["PreToolUse", "PostToolUse", "SessionStart", "SessionEnd"]
     command: str  # shell 命令
     matcher: str = Field(default="")  # 工具名过滤（PreToolUse/PostToolUse）；空 = 全部
     block: bool = False  # PreToolUse：命令退出码非 0 则阻断工具调用
 
 
-@dataclass
-class HookResult:
+class HookResult(BaseModel):
     """一次 PreToolUse hook 运行的结果。"""
 
     blocked: bool = False
@@ -89,9 +102,14 @@ class HookManager:
             if not isinstance(raw, dict):
                 continue
             try:
-                hooks.append(HookConfig(**raw))
+                hook = HookConfig(**raw)
             except Exception as exc:  # noqa: BLE001 - 单条非法跳过，不影响其他 hook
                 logger.warning("Invalid hook config %r: %s", raw, exc)
+                continue
+            if hook.event in (SESSION_START, SESSION_END) and hook.matcher:
+                # session 事件无工具名可匹配，matcher 恒不生效——告警防静默错配置。
+                logger.warning("Hook %r: matcher has no effect on %s events", hook.command, hook.event)
+            hooks.append(hook)
         return cls(hooks, timeout=timeout)
 
     # ---- 事件执行入口 ----
@@ -129,21 +147,47 @@ class HookManager:
 
     async def _run(self, hook: HookConfig, *, tool_name: str, run_context: RunContext | None) -> tuple[int, str]:
         """执行一条 hook 命令，返回 (退出码, stdout)。执行异常 / 超时返回 (1, 说明)。"""
-        env = {**os.environ, "HEAGENT_EVENT": hook.event, "HEAGENT_TOOL_NAME": tool_name}
+        env = {k: v for k, v in os.environ.items() if k.startswith("HEAGENT_") or k in _ENV_ALLOWLIST}
+        env.update({"HEAGENT_EVENT": hook.event, "HEAGENT_TOOL_NAME": tool_name})
         if run_context is not None:
             env["HEAGENT_RUN_ID"] = run_context.run_id
             env["HEAGENT_SESSION_ID"] = run_context.session_id or ""
         try:
+            kwargs: dict[str, Any] = {}
+            if sys.platform != "win32":
+                # 独立进程组：超时可 killpg 整组终止（shell 的孙进程一并回收，防孤儿）。
+                kwargs["start_new_session"] = True
             proc = await asyncio.create_subprocess_shell(
                 hook.command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 env=env,
+                **kwargs,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self._timeout)
             return proc.returncode or 0, stdout.decode(errors="replace")
         except TimeoutError:
             logger.warning("Hook timed out (%s): %s", hook.event, hook.command)
+            # 超时仅取消 communicate 协程不终止子进程，须显式终止整棵进程树并回收：
+            # - 直接子进程是 shell（cmd.exe / sh），kill 它杀不掉孙进程，且孙进程持有
+            #   stdout 管道使 wait() 挂到孙进程退出——挂死的 hook 每次触发都泄漏进程。
+            # - Windows 用 taskkill /T 按树终止；POSIX 用 killpg 杀整个进程组。
+            # 竞态下进程组恰已消亡则跳过（ProcessLookupError / Windows 已退出竞态）。
+            with suppress(ProcessLookupError, PermissionError):
+                if sys.platform == "win32":
+                    killer = await asyncio.create_subprocess_exec(
+                        "taskkill",
+                        "/PID",
+                        str(proc.pid),
+                        "/T",
+                        "/F",
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    await killer.wait()
+                else:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                await proc.wait()
             return 1, "hook timed out"
         except Exception:  # noqa: BLE001 - hook 命令崩溃视为失败（fail-safe 阻断）
             logger.exception("Hook failed (%s): %s", hook.event, hook.command)
