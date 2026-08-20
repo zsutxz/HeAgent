@@ -12,6 +12,7 @@ from textual.widgets import Button, Input, RichLog, Static
 
 from heagent.config import get_settings
 from heagent.gui.bridge import MSG_AGENT_ERROR, MSG_AGENT_INTERRUPTED, MSG_STREAM_EVENT, BridgeMessage
+from heagent.providers.router import active_model
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -202,7 +203,7 @@ class ChatScreen(Screen[None]):
         from heagent.providers.switchable import SwitchableProvider
 
         if not isinstance(provider, SwitchableProvider):
-            log.write(f"[dim]当前: {provider.get_metadata().model}[/]")
+            log.write(f"[dim]当前: {active_model(provider) or provider.get_metadata().model}[/]")
             return
         if not args:
             info = provider.info()
@@ -218,7 +219,7 @@ class ChatScreen(Screen[None]):
             try:
                 await provider.switch(target)
                 s = get_settings()
-                self._state.model_name = provider.get_metadata().model
+                self._state.model_name = active_model(provider) or provider.get_metadata().model
                 self._state.max_context_tokens = s.max_context_tokens
                 self._state.compression_threshold = s.compression_threshold
                 log.write(f"[dim]已切换到 {target}[/]")

@@ -82,6 +82,24 @@ class SwitchableProvider:
         """所有可用 provider 名称列表。"""
         return list(self._providers.keys())
 
+    @property
+    def current(self) -> BaseProvider:
+        """当前活跃的 provider 实例（只读观测用；等价于内部 ``_current``）。
+
+        供 CLI/观测层解包嵌套 provider（如池内某条目是 ``RoutingProvider``）使用，
+        避免外部直接触碰 ``_providers`` 私有字典。
+        """
+        return self._providers[self._active]
+
+    @property
+    def providers(self) -> dict[str, BaseProvider]:
+        """``{名称: provider 实例}`` 的只读副本（观测/调试用，返回副本防外部篡改池结构）。
+
+        与 ``info()``（仅元数据摘要）互补：本属性暴露实例本身，供类型检查
+        （如判断池内是否含 ``RoutingProvider``）与嵌套解包。
+        """
+        return dict(self._providers)
+
     async def switch(self, name: str) -> None:
         """切换到指定名称的 provider。
 

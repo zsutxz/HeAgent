@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from heagent.providers.base import ProviderMetadata
-from heagent.providers.router import HeuristicRouter, RouteDecision, RoutingProvider
+from heagent.providers.router import HeuristicRouter, RouteDecision, RoutingProvider, active_model
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
 
 if TYPE_CHECKING:
@@ -195,3 +195,148 @@ class TestRoutingProvider:
         )
         assert provider.names == ["fast", "pro"]
         assert provider.default == "fast"
+
+    async def test_set_force_overrides_router(self) -> None:
+        """set_force('pro') 后无视启发式路由，简单消息也走 pro。"""
+        fast = _make_provider("fast")
+        pro = _make_provider("pro")
+        provider = RoutingProvider({"fast": fast, "pro": pro}, HeuristicRouter(fast="fast", pro="pro"), default="fast")
+        provider.set_force("pro")
+        resp = await provider.send([_msg("你好")])
+        assert resp.model == "pro"
+        assert pro.send_calls == 1
+        assert fast.send_calls == 0
+        assert provider.last_decision == RouteDecision(provider="pro", reason="forced")
+
+    async def test_clear_force_restores_auto(self) -> None:
+        """set_force(None) 后恢复启发式自动路由。"""
+        fast = _make_provider("fast")
+        pro = _make_provider("pro")
+        provider = RoutingProvider({"fast": fast, "pro": pro}, HeuristicRouter(fast="fast", pro="pro"), default="fast")
+        provider.set_force("pro")
+        await provider.send([_msg("你好")])
+        provider.set_force(None)
+        resp = await provider.send([_msg("你好")])
+        assert resp.model == "fast"
+        assert provider.last_decision == RouteDecision(provider="fast", reason="default_fast")
+
+    def test_set_force_invalid_raises(self) -> None:
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+        with pytest.raises(ValueError):
+            provider.set_force("ghost")
+
+    def test_force_property(self) -> None:
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+        assert provider.force is None
+        provider.set_force("pro")
+        assert provider.force == "pro"
+
+    def test_constructor_force(self) -> None:
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+            force="pro",
+        )
+        assert provider.force == "pro"
+        assert provider.current_model == "pro"
+
+    def test_current_model_reflects_force_immediately(self) -> None:
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+        provider.set_force("pro")
+        assert provider.current_model == "pro"
+
+
+class TestCurrentModel:
+    """RoutingProvider.current_model —— 当前实际命中的模型名（状态栏显示用）。"""
+
+    def test_defaults_to_default_model_before_routing(self) -> None:
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+        assert provider.current_model == "fast"
+
+    async def test_reflects_last_decision(self) -> None:
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+        await provider.send([_msg("请分析这段代码")])
+        assert provider.current_model == "pro"
+
+    async def test_falls_back_to_default_on_unknown_route(self) -> None:
+        fast = _make_provider("fast")
+
+        class BadRouter:
+            def route(self, messages: list[Message], tools: list[ToolSchema] | None) -> RouteDecision:
+                return RouteDecision(provider="ghost", reason="oops")
+
+        provider = RoutingProvider({"fast": fast}, BadRouter(), default="fast")
+        await provider.send([_msg("hi")])
+        assert provider.current_model == "fast"
+
+
+class TestActiveModel:
+    """active_model() —— 递归解包嵌套 provider，取当前实际模型名。"""
+
+    def test_routing_provider(self) -> None:
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+        assert active_model(provider) == "fast"
+
+    async def test_reflects_last_decision(self) -> None:
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+        await provider.send([_msg("请分析")])
+        assert active_model(provider) == "pro"
+
+    def test_unwraps_nested_wrapper(self) -> None:
+        inner = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+
+        class Wrapper:
+            def __init__(self, child: object) -> None:
+                self._child = child
+
+            @property
+            def current(self) -> object:
+                return self._child
+
+        assert active_model(Wrapper(inner)) == "fast"
+
+    def test_returns_none_for_plain_provider(self) -> None:
+        assert active_model(_make_provider("plain")) is None
+
+    def test_returns_none_for_wrapper_without_routing(self) -> None:
+        plain = _make_provider("plain")
+
+        class Wrapper:
+            @property
+            def current(self) -> object:
+                return plain
+
+        assert active_model(Wrapper()) is None

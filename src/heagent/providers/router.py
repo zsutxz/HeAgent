@@ -177,13 +177,22 @@ class RoutingProvider:
     锁；并发下仅可能读到稍旧的决策，无正确性影响）。
     """
 
-    def __init__(self, providers: dict[str, BaseProvider], router: Router, *, default: str) -> None:
+    def __init__(
+        self,
+        providers: dict[str, BaseProvider],
+        router: Router,
+        *,
+        default: str,
+        force: str | None = None,
+    ) -> None:
         """初始化智能路由 provider。
 
         Args:
             providers: ``{名称: provider 实例}`` 池；名称即 Router 返回的 key。
             router: 路由策略，返回 ``RouteDecision``。
             default: Router 返回未知名称时的兜底 provider 名，必须在 providers 中。
+            force: 可选；强制固定使用某个 provider 名（如 "pro"），None = 自动路由。
+                可在运行时用 ``set_force()`` 动态切换（对应 ``/route pro|fast|auto``）。
         """
         if not providers:
             raise ValueError("RoutingProvider requires at least one provider")
@@ -192,6 +201,9 @@ class RoutingProvider:
         self._providers = dict(providers)
         self._router = router
         self._default = default
+        self._force: str | None = None
+        if force is not None:
+            self.set_force(force)
         self.last_decision: RouteDecision | None = None
 
     # -- 公共 API --
@@ -206,9 +218,45 @@ class RoutingProvider:
         """兜底 provider 名。"""
         return self._default
 
+    @property
+    def force(self) -> str | None:
+        """当前强制指定的 provider 名；None = 自动路由（启发式）。"""
+        return self._force
+
+    def set_force(self, name: str | None) -> None:
+        """强制后续调用固定使用某个 provider；传入 None 恢复自动路由。
+
+        传池外名称抛 ``ValueError``。设置后 ``_pick()`` 跳过 ``Router.route()``，
+        直接使用强制项（reason="forced"）；``current_model`` 立即反映新模型。
+        """
+        if name is not None and name not in self._providers:
+            raise ValueError(f"Forced provider {name!r} not in pool {sorted(self._providers)}")
+        self._force = name
+
+    @property
+    def current_model(self) -> str:
+        """最近一次路由实际选中的模型名；尚未路由时返回 default 模型。
+
+        状态栏 / 观测层用它显示「当前模型」，而非 get_metadata().model 的
+        池内全部模型列表（如 "fast:deepseek-v4-flash, pro:deepseek-v4-pro"）。
+        若已 ``set_force`` 强制指定，则立即返回强制项的模型（不等下一次路由）。
+        """
+        if self._force is not None:
+            return self._providers[self._force].get_metadata().model
+        name = self._default
+        if self.last_decision is not None and self.last_decision.provider in self._providers:
+            name = self.last_decision.provider
+        return self._providers[name].get_metadata().model
+
     def _pick(self, messages: list[Message], tools: list[ToolSchema] | None) -> tuple[str, BaseProvider]:
-        """执行路由决策并解析为 (名称, 实例)；未知名称回退 default。"""
-        decision = self._router.route(messages, tools)
+        """执行路由决策并解析为 (名称, 实例)；未知名称回退 default。
+
+        若 ``set_force`` 已强制指定，则跳过 ``Router.route()`` 直接使用强制项。
+        """
+        if self._force is not None:
+            decision = RouteDecision(provider=self._force, reason="forced")
+        else:
+            decision = self._router.route(messages, tools)
         name = decision.provider
         if name not in self._providers:
             # 路由策略返回了池外名称（配置漂移/自定义 Router 缺陷）→ 兜底 default，
@@ -256,3 +304,26 @@ class RoutingProvider:
             supports_streaming=all(p.get_metadata().supports_streaming for p in self._providers.values()),
             supports_tools=all(p.get_metadata().supports_tools for p in self._providers.values()),
         )
+
+
+def active_model(provider: object) -> str | None:
+    """递归解包嵌套 provider，返回「当前实际使用的模型名」（观测 / 状态栏用）。
+
+    RoutingProvider 通过 ``current_model`` 暴露当前实际命中的模型；包装器
+    （SwitchableProvider / ProviderChain / KeyRotatingProvider）通过 ``current``
+    指向活跃子 provider。递归解包找到 RoutingProvider 的 ``current_model``；
+    找不到则返回 None（调用方回退 ``get_metadata().model``）。
+
+    供 CLI 提示符前缀 / GUI 状态栏复用，避免各处重复鸭子类型判断。
+    """
+    seen = 0
+    while provider is not None and seen < 10:
+        model = getattr(provider, "current_model", None)
+        if isinstance(model, str) and model:
+            return model
+        child = getattr(provider, "current", None)
+        if child is None or child is provider:
+            return None
+        provider = child
+        seen += 1
+    return None

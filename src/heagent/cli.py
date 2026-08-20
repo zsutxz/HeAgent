@@ -36,7 +36,7 @@ from heagent.memory.soul import SoulStore
 from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
-from heagent.providers.router import HeuristicRouter, RoutingProvider
+from heagent.providers.router import HeuristicRouter, RoutingProvider, active_model
 from heagent.providers.switchable import SwitchableProvider
 from heagent.slash import SlashRegistry, load_custom_commands
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
@@ -109,7 +109,8 @@ def _format_status(loop: AgentLoop) -> str:
     tokens consumed since program start (across runs, only when > 0).
     """
     meta = loop.provider.get_metadata()
-    model = meta.model
+    # RoutingProvider：只显示当前实际使用的模型（flash/pro），而非池内全部模型列表。
+    model = active_model(loop.provider) or meta.model
     settings = get_settings()
     max_tok = settings.max_context_tokens
     used = loop.last_context_tokens
@@ -185,16 +186,30 @@ async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
 
 
 def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
-    """Build the best available provider from configured credentials."""
-    if settings.routing_enabled:
-        return _build_routing_provider(settings)
+    """Build the best available provider from configured credentials.
+
+    智能路由（``ROUTING_ENABLED=true``）作用于 **DeepSeek 条目本身**：此时 deepseek 池内
+    构建为 ``RoutingProvider``（flash=快速 / pro=深度，按问题难度自动切换），并**照常放入
+    多 provider 池**——不影响「Multiple providers Choose」（启动选择 + ``/model`` 切换 +
+    自动回退）。只有 deepseek 一个 provider 时直接返回该 ``RoutingProvider``（等价旧行为）。
+    """
     named: dict[str, BaseProvider] = {}
 
     if settings.deepseek_api_key:
-        named["deepseek"] = OpenAIProvider(
-            api_key=settings.deepseek_api_key,
-            model=model or settings.deepseek_model,
-            base_url=settings.deepseek_base_url or "https://api.deepseek.com/v1",
+        if settings.routing_enabled:
+            named["deepseek"] = _build_routing_provider(settings)
+        else:
+            named["deepseek"] = OpenAIProvider(
+                api_key=settings.deepseek_api_key,
+                model=model or settings.deepseek_model,
+                base_url=settings.deepseek_base_url or "https://api.deepseek.com/v1",
+            )
+    elif settings.routing_enabled:
+        # 路由仅绑定 DeepSeek：未配置密钥时优雅降级（其余 provider 照常可用），
+        # 不因误配置而阻断整个「Multiple providers Choose」。
+        logger.warning(
+            "ROUTING_ENABLED=true but DEEPSEEK_API_KEY is not set; smart routing skipped "
+            "(other providers remain available)."
         )
 
     if settings.kimi_api_key:
@@ -668,7 +683,7 @@ def _build_slash_registry(
         await _handle_model_cmd(["/model", *args.split()], provider)
 
     async def _route(args: str) -> None:
-        await _handle_route_cmd(provider)
+        await _handle_route_cmd(provider, args)
 
     async def _mcp_prompt(args: str) -> None:
         await _handle_mcp_prompt(f"/mcp-prompt {args}".strip(), mcp_manager)
@@ -684,7 +699,7 @@ def _build_slash_registry(
             click.echo(f"  /{name}  {registry.describe(name)}", err=True)
 
     registry.register("model", "切换 LLM 模型", _model)
-    registry.register("route", "显示智能路由状态", _route)
+    registry.register("route", "智能路由状态 / 强制模型 (pro|fast|auto)", _route)
     registry.register("mcp-prompt", "调度 MCP prompt", _mcp_prompt)
     registry.register("clear", "清空当前会话上下文", _clear)
     registry.register("help", "列出所有斜杠命令", _help)
@@ -734,16 +749,67 @@ async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
         click.echo(f"[model] {exc}", err=True)
 
 
-async def _handle_route_cmd(provider: BaseProvider) -> None:
-    """Handle /route slash command: show smart-routing pool + last decision."""
-    if not isinstance(provider, RoutingProvider):
-        click.echo("[route] Smart routing not enabled (set ROUTING_ENABLED=true).", err=True)
+def _extract_routing(provider: BaseProvider) -> tuple[RoutingProvider | None, str | None]:
+    """从 provider 栈中取出当前生效的智能路由实例（支持 ``SwitchableProvider`` 嵌套）。
+
+    Returns:
+        (routing, hint): routing 为当前活跃 provider 上的 ``RoutingProvider``（无则 None）；
+        hint 为「池内存在路由但不在当前活跃 provider 上」时的提示语（无则 None）。
+    """
+    if isinstance(provider, RoutingProvider):
+        return provider, None
+    if isinstance(provider, SwitchableProvider):
+        current = provider.current
+        if isinstance(current, RoutingProvider):
+            return current, None
+        routed = [name for name, p in provider.providers.items() if isinstance(p, RoutingProvider)]
+        if routed:
+            return None, (
+                f"Smart routing is on provider '{routed[0]}' (flash/pro); "
+                f"switch to it with /model {routed[0]} (active: {provider.active})."
+            )
+    return None, None
+
+
+async def _handle_route_cmd(provider: BaseProvider, args: str = "") -> None:
+    """Handle /route slash command: show/force smart-routing model.
+
+    ``/route``           显示路由池 + 最近决策 + 当前强制状态；
+    ``/route pro|fast``  强制固定使用 pro / fast 模型（后续调用跳过启发式路由）；
+    ``/route auto``      清除强制，恢复自动路由。
+    """
+    routing, hint = _extract_routing(provider)
+    if routing is None:
+        if hint:
+            click.echo(f"[route] {hint}", err=True)
+        else:
+            click.echo("[route] Smart routing not enabled (set ROUTING_ENABLED=true).", err=True)
         return
+
+    arg = (args or "").strip().lower()
+    if arg in ("pro", "fast"):
+        try:
+            routing.set_force(arg)
+        except ValueError as exc:
+            click.echo(f"[route] {exc}", err=True)
+            return
+        click.echo(f"[route] Forced model -> {arg} ({routing.current_model})", err=True)
+        return
+    if arg == "auto":
+        routing.set_force(None)
+        click.echo("[route] Forced model cleared; back to auto routing.", err=True)
+        return
+    if arg:
+        click.echo(f"[route] Unknown argument {arg!r} (use: pro | fast | auto).", err=True)
+        return
+
     click.echo("Smart routing pool:", err=True)
-    click.echo(f"  models: {provider.get_metadata().model}", err=True)
-    if provider.last_decision is not None:
+    click.echo(f"  models: {routing.get_metadata().model}", err=True)
+    if routing.force is not None:
+        click.echo(f"  forced: {routing.force} ({routing.current_model})", err=True)
+    if routing.last_decision is not None:
         click.echo(
-            f"  last decision: {provider.last_decision.provider} ({provider.last_decision.reason})",
+            f"  last decision: {routing.last_decision.provider} ({routing.last_decision.reason})",
             err=True,
         )
     else:

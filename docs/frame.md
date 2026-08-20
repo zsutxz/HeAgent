@@ -278,9 +278,10 @@ AgentLoop
   `DEFAULT_REASONING_KEYWORDS` 或自定义词 → pro）→ ③ 兜底 fast。纯启发式（非安全机制）。
 - `RoutingProvider.send/stream`：`_pick()` 决策 → 未知名称回退 `default` → 委托。
 - `last_decision`（`RouteDecision`）记录最近一次决策，供日志/`/route` 命令观测。
-- CLI：`ROUTING_ENABLED=true` 时 `_build_provider` 构建 DeepSeek 二分
-  （`routing_fast_model`=deepseek-chat / `routing_pro_model`=deepseek-reasoner）；
-  `/route` 命令展示池与最近决策。
+- CLI：`ROUTING_ENABLED=true` 时 `_build_provider` 将 DeepSeek 条目构建为二分路由
+  （`routing_fast_model`=deepseek-chat / `routing_pro_model`=deepseek-reasoner），并照常
+  放入 `SwitchableProvider` 池（Multiple providers Choose / `/model` 切换不受影响）；
+  `/route` 命令解包嵌套路由、展示当前生效池与最近决策。
 
 ### 4.4 Tool 系统 (`tools/`)
 

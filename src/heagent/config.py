@@ -73,7 +73,8 @@ class Settings(BaseSettings):
     anthropic_api_keys: str = ""
 
     # ---- 智能路由参数（Provider 智能路由：按任务特征在 flash/pro 模型间自动切换） ----
-    # True 时 CLI 构建 RoutingProvider（DeepSeek chat=fast / reasoner=pro）替代常规 provider。
+    # True 时 CLI 将 DeepSeek 条目构建为 RoutingProvider（flash=快速 / pro=深度，按问题难度
+    # 自动切换），并照常放入多 provider 池——不影响 Multiple providers Choose。
     routing_enabled: bool = Field(default=False)
     # 快速模型（flash 类比）与深度模型（pro 类比）的模型名。
     routing_fast_model: str = Field(default="deepseek-chat")
