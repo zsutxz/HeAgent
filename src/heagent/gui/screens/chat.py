@@ -210,7 +210,9 @@ class ChatScreen(Screen[None]):
             lines = ["[bold]可用模型:[/]"]
             for name, meta in info.items():
                 marker = "[green]←[/]" if meta.active else ""
-                lines.append(f"  {name} ({meta.model}) {marker}")
+                # 智能路由条目（RoutingProvider）：只显示默认模型，而非池内全部模型列表。
+                display_model = active_model(provider.providers[name]) or meta.model
+                lines.append(f"  {name} ({display_model}) {marker}")
             log.write("\n".join(lines))
             return
         target = args.strip()

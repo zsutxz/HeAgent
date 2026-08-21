@@ -168,8 +168,10 @@ async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
     click.echo("Multiple providers available. Choose one:", err=True)
     for i, name in enumerate(names, 1):
         meta = info[name]
+        # 智能路由条目（RoutingProvider）：只显示默认模型（如 deepseek-v4-flash），而非池内全部模型列表。
+        display_model = active_model(provider.providers[name]) or meta.model
         marker = "<- default" if i == default_idx else ""
-        click.echo(f"  [{i}] {name}  ({meta.model})  {marker}", err=True)
+        click.echo(f"  [{i}] {name}  ({display_model})  {marker}", err=True)
 
     while True:
         try:
@@ -177,8 +179,8 @@ async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
             choice = int(raw)
             if 1 <= choice <= len(names):
                 await provider.switch(names[choice - 1])
-                active_meta = provider.get_metadata()
-                click.echo(f"  -> Using {provider.active} ({active_meta.model})", err=True)
+                display_model = active_model(provider.current) or provider.get_metadata().model
+                click.echo(f"  -> Using {provider.active} ({display_model})", err=True)
                 return
             click.echo(f"  Please enter 1-{len(names)}", err=True)
         except (ValueError, click.Abort):
@@ -742,14 +744,15 @@ async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
         click.echo("Available models:", err=True)
         for name, meta in info.items():
             marker = "->" if meta.active else " "
-            click.echo(f"  [{marker}] {name}  ({meta.model})", err=True)
+            display_model = active_model(provider.providers[name]) or meta.model
+            click.echo(f"  [{marker}] {name}  ({display_model})", err=True)
         return
 
     name = parts[1]
     try:
         await provider.switch(name)
-        active_meta = provider.get_metadata()
-        click.echo(f"[model] Switched to {name} ({active_meta.model})", err=True)
+        display_model = active_model(provider.current) or provider.get_metadata().model
+        click.echo(f"[model] Switched to {name} ({display_model})", err=True)
     except ValueError as exc:
         click.echo(f"[model] {exc}", err=True)
 
