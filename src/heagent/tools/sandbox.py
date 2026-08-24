@@ -56,6 +56,31 @@ def _format_result(returncode: int | None, stdout: bytes, stderr: bytes) -> str:
 _TIMEOUT_RESULT = "exit_code=-1\nstderr: Command timed out after {timeout}s"
 _REAP_WAIT_TIMEOUT = 5.0
 
+_SENSITIVE_ENV_SUFFIXES = (
+    "_API_KEY",
+    "_API_KEYS",
+    "_TOKEN",
+    "_SECRET",
+    "_PASSWORD",
+    "_CREDENTIALS",
+    "_PRIVATE_KEY",
+)
+
+
+def scrub_sensitive_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """剥离敏感环境变量（``*_API_KEY`` / ``*_TOKEN`` 等），透传其余。纯函数。
+
+    默认从 ``os.environ`` 取源。匹配按键名大小写不敏感（``.upper().endswith(suffix)``）。
+    非真正安全边界——仅减少 casual 凭证泄露，须 OS 级沙箱兜底。
+    """
+    source = dict(os.environ if env is None else env)
+    return {
+        k: v
+        for k, v in source.items()
+        if not any(k.upper().endswith(suffix) for suffix in _SENSITIVE_ENV_SUFFIXES)
+    }
+
+
 
 async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     try:
@@ -83,6 +108,7 @@ async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
     kwargs: dict[str, object] = {"stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE}
     if sys.platform == "linux":
         kwargs["start_new_session"] = True
+    kwargs["env"] = scrub_sensitive_env()
     proc = await asyncio.create_subprocess_shell(command, **kwargs)  # type: ignore[arg-type]
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
@@ -106,6 +132,7 @@ async def _run_subprocess_exec(argv: Sequence[str], *, timeout: int) -> str:
     kwargs: dict[str, object] = {"stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE}
     if sys.platform == "linux":
         kwargs["start_new_session"] = True
+    kwargs["env"] = scrub_sensitive_env()
     proc = await asyncio.create_subprocess_exec(*argv, **kwargs)  # type: ignore[arg-type]
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)

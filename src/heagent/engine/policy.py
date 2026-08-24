@@ -35,7 +35,12 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from heagent.tools.path_safety import WorkspacePathError, resolve_under_root
+from heagent.tools.path_safety import (
+    WorkspacePathError,
+    check_read_denied,
+    check_write_denied,
+    resolve_under_root,
+)
 
 if TYPE_CHECKING:
     from heagent.engine.context import RunContext
@@ -101,6 +106,10 @@ class PolicyEngine:
         "git_log": ("path",),
         "git_blame": ("file_path",),
     }
+
+    # 凭证 deny 预检的工具分类（git 工具不接 deny，只走围栏）
+    _DENY_READ_TOOLS: frozenset[str] = frozenset({"file_read", "file_search", "content_search"})
+    _DENY_WRITE_TOOLS: frozenset[str] = frozenset({"file_write"})
 
     def __init__(
         self,
@@ -226,6 +235,20 @@ class PolicyEngine:
                 resolve_under_root(value, root)
             except WorkspacePathError:
                 return f"Tool '{call.name}' attempted to access a path outside workspace: {value}"
+
+        # 凭证 deny 预检（与围栏独立的两层纵深防御；git 工具不接 deny）
+        if call.name in self._DENY_WRITE_TOOLS:
+            value = call.arguments.get("path")
+            if isinstance(value, str):
+                denied = check_write_denied(value)
+                if denied is not None:
+                    return f"Tool '{call.name}': {denied}"
+        elif call.name in self._DENY_READ_TOOLS:
+            value = call.arguments.get(fields[0])
+            if isinstance(value, str):
+                denied = check_read_denied(value)
+                if denied is not None:
+                    return f"Tool '{call.name}': {denied}"
         return ""
 
     def _workspace_root(self, context: RunContext | None) -> Path | None:

@@ -94,7 +94,7 @@ class TestRunSubprocessShellCancelled:
 
         proc = _FakeProc()
 
-        async def fake_shell(command: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch = pytest.MonkeyPatch()
@@ -134,7 +134,7 @@ class TestRunSubprocessShellCancelled:
 
         proc = _FakeProc()
 
-        async def fake_shell(command: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
@@ -172,7 +172,7 @@ class TestRunSubprocessShellCancelled:
 
         proc = _FakeProc()
 
-        async def fake_shell(command: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch = pytest.MonkeyPatch()
@@ -221,7 +221,7 @@ class TestRunSubprocessExecCancelled:
 
         proc = _FakeProc()
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch = pytest.MonkeyPatch()
@@ -258,7 +258,7 @@ class TestRunSubprocessExecCancelled:
 
         proc = _FakeProc()
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
@@ -294,7 +294,7 @@ class TestRunSubprocessExecCancelled:
 
         proc = _FakeProc()
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch = pytest.MonkeyPatch()
@@ -354,12 +354,12 @@ class TestFirejailBackendFallback:
             async def communicate(self):
                 return (b"passthrough_out", b"")
 
-        async def fake_shell(command: str, stdout=None, stderr=None):
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None):
             nonlocal shell_called
             shell_called = True
             return _FakeProc()
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None):
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None):
             nonlocal exec_called
             exec_called = True
             return _FakeProc()
@@ -394,7 +394,7 @@ class TestFirejailBackendFallback:
             async def wait(self) -> int:
                 return -1
 
-        async def fake_shell(command: str, stdout=None, stderr=None):
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None):
             return _FakeProc()
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
@@ -431,7 +431,7 @@ class TestFirejailBackendProfilePath:
             async def communicate(self):
                 return (b"firejailed_out", b"")
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None):
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None):
             captured_argv.append(list(argv))
             return _FakeProc()
 
@@ -467,7 +467,7 @@ class TestFirejailBackendProfilePath:
             async def communicate(self):
                 return (b"out", b"")
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None):
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None):
             captured_argv.append(list(argv))
             return _FakeProc()
 
@@ -501,7 +501,7 @@ class TestFirejailBackendProfilePath:
             async def communicate(self):
                 return (b"ok", b"")
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None):
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None):
             captured_argv.append(list(argv))
             return _FakeProc()
 
@@ -587,7 +587,7 @@ class TestWinJobBackend:
             async def communicate(self):
                 return (b"winjob_fallback", b"")
 
-        async def fake_shell(command: str, stdout=None, stderr=None):
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None):
             nonlocal shell_called
             shell_called = True
             return _FakeProc()
@@ -669,7 +669,7 @@ class TestWinJobBackend:
 
         monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
 
-        async def fake_shell(command, stdout=None, stderr=None):
+        async def fake_shell(command, stdout=None, stderr=None, env=None):
             nonlocal shell_called
             shell_called = True
             raise AssertionError("不应走 PassthroughRunner")

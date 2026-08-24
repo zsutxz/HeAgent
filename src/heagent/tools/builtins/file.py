@@ -3,7 +3,12 @@
 from __future__ import annotations
 
 from heagent.tools.decorator import tool
-from heagent.tools.path_safety import WorkspacePathError, resolve_workspace_path
+from heagent.tools.path_safety import (
+    WorkspacePathError,
+    check_read_denied,
+    check_write_denied,
+    resolve_workspace_path,
+)
 
 
 @tool(read_only=True)
@@ -30,6 +35,9 @@ async def file_read(
     """
     try:
         resolved = resolve_workspace_path(path)
+        denied = check_read_denied(path)
+        if denied is not None:
+            return f"Error: {denied}"
         if not resolved.exists():
             return f"Error: file not found: {path}"
         if resolved.is_dir():
@@ -79,6 +87,9 @@ async def file_write(path: str, content: str) -> str:
     """Write content to a file, creating parent directories as needed."""
     try:
         resolved = resolve_workspace_path(path)
+        denied = check_write_denied(path)
+        if denied is not None:
+            return f"Error: {denied}"
         resolved.parent.mkdir(parents=True, exist_ok=True)
         resolved.write_text(content, encoding="utf-8")
         return f"OK: wrote {len(content)} chars to {path}"

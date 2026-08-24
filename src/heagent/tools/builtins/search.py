@@ -6,7 +6,7 @@ import re
 from typing import TYPE_CHECKING
 
 from heagent.tools.decorator import tool
-from heagent.tools.path_safety import WorkspacePathError, resolve_workspace_path
+from heagent.tools.path_safety import WorkspacePathError, check_read_denied, resolve_workspace_path
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -22,11 +22,25 @@ def _resolve_dir(directory: str) -> Path | str:
         root = resolve_workspace_path(directory)
     except WorkspacePathError as e:
         return f"Error: {e}"
+    denied = check_read_denied(directory)
+    if denied is not None:
+        return f"Error: {denied}"
     if not root.exists():
         return f"Error: directory not found: {directory}"
     if not root.is_dir():
         return f"Error: path is not a directory: {directory}"
     return root
+
+
+def _resolve_searchable(path: str) -> Path | None:
+    """解析工作区路径并做读 deny 检查；返回可读路径，或 ``None`` 表示应跳过。"""
+    try:
+        resolved = resolve_workspace_path(path)
+    except WorkspacePathError:
+        return None
+    if check_read_denied(path) is not None:
+        return None
+    return resolved
 
 
 @tool(read_only=True)
@@ -42,9 +56,7 @@ async def file_search(
 
     matches: list[str] = []
     for path in root.rglob(pattern):
-        try:
-            resolve_workspace_path(str(path))
-        except WorkspacePathError:
+        if _resolve_searchable(str(path)) is None:
             continue
         matches.append(str(path))
         if len(matches) >= max_results:
@@ -73,11 +85,8 @@ async def content_search(
 
     results: list[str] = []
     for path in root.rglob(file_pattern):
-        try:
-            resolved = resolve_workspace_path(str(path))
-        except WorkspacePathError:
-            continue
-        if not resolved.is_file():
+        resolved = _resolve_searchable(str(path))
+        if resolved is None or not resolved.is_file():
             continue
         # P1-18 修复：跳过超大文件，避免 read_text() OOM
         try:

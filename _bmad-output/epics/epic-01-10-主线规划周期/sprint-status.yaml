@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-08-19
+# last_updated: 2026-08-24
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -44,7 +44,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-07-23
+last_updated: 2026-08-24
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -378,6 +378,30 @@ development_status:
   epic-32-retrospective: done
 
 # ═════════════════════════════════════════════════════════════════
+
+  # =============================================================
+  # 文件安全与凭证防护周期 · Epic 36–39（2026-08-24）
+  # =============================================================
+
+  epic-36: done  # 凭证文件精确 deny（读 + 写，FR-F1/F2）
+  36-1-credential-write-deny: done
+  36-2-credential-read-deny: done
+  36-3-policy-credential-deny-precheck: done
+  36-4-safetyguard-credential-destructive-guard: done
+  epic-36-retrospective: optional
+
+  epic-37: done  # 凭证环境变量 scrubbing（FR-F3）
+  37-1-env-scrubbing: done
+  epic-37-retrospective: optional
+
+  epic-38: done  # .heagent/ 内部状态读 deny（FR-F4）
+  38-1-internal-state-read-deny: done
+  epic-38-retrospective: optional
+
+  epic-39: done  # 安全声明 + 文档同步（FR-F5）
+  39-1-safety-docs-sync: done
+  epic-39-retrospective: optional
+
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════
 action_items:

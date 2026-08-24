@@ -76,7 +76,7 @@ class TestPassthroughRunner:
     async def test_timeout_zero_raises_before_spawn(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """D3：``timeout<=0`` 在 spawn 前抛 ``ValueError``（消息含传入值），不拉起子进程。"""
 
-        async def fake_shell(command: str, stdout=None, stderr=None):
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None):
             raise AssertionError("timeout<=0 不应 spawn 子进程")
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
@@ -87,7 +87,7 @@ class TestPassthroughRunner:
     async def test_timeout_negative_raises_before_spawn(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """D3：负 timeout 同样在 spawn 前抛 ``ValueError``（消息含传入值）。"""
 
-        async def fake_shell(command: str, stdout=None, stderr=None):
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None):
             raise AssertionError("负 timeout 不应 spawn 子进程")
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
@@ -109,7 +109,7 @@ class TestPassthroughRunner:
         故须在类型层（``not isinstance(int)``）拦下。
         """
 
-        async def fake_shell(command: str, stdout=None, stderr=None):
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None):
             raise AssertionError(f"非正整数 timeout 不应 spawn 子进程（got {bad_timeout!r}）")
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
@@ -139,7 +139,7 @@ class TestPassthroughRunner:
 
         proc = _FakeProc()
 
-        async def fake_create(command: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_create(command: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_create)
@@ -181,7 +181,7 @@ class TestPassthroughRunner:
 
         proc = _FakeProc()
 
-        async def fake_create(command: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_create(command: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_create)
@@ -223,7 +223,7 @@ class TestPassthroughRunner:
 
         proc = _FakeProc()
 
-        async def fake_create(command: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_create(command: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_create)
@@ -262,7 +262,7 @@ class TestPassthroughRunner:
 
         proc = _FakeProc()
 
-        async def fake_create(command: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_create(command: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_create)
@@ -312,7 +312,7 @@ class TestPassthroughRunner:
 
         proc = _FakeProc()
 
-        async def fake_create(command: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_create(command: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_create)
@@ -401,7 +401,7 @@ class TestFirejailBackend:
         monkeypatch.setattr(shutil, "which", lambda p: "firejail")  # firejail 可用
         captured: dict[str, list[str]] = {}
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None):
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None):
             captured["argv"] = list(argv)
 
             class _FakeProc(_FakeProcBase):
@@ -428,7 +428,7 @@ class TestFirejailBackend:
         """D3：``timeout<=0`` 在 exec 前抛 ``ValueError``（消息含传入值），不拉起 firejail 子进程。"""
         monkeypatch.setattr(shutil, "which", lambda p: "firejail")
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None):
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None):
             raise AssertionError("timeout<=0 不应 spawn firejail 子进程")
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
@@ -441,7 +441,7 @@ class TestFirejailBackend:
         """D3：负 timeout 在 exec 前同样抛 ``ValueError``（spec 要求 Passthrough + exec 两路径）。"""
         monkeypatch.setattr(shutil, "which", lambda p: "firejail")
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None):
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None):
             raise AssertionError("负 timeout 不应 spawn firejail 子进程")
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
@@ -473,7 +473,7 @@ class TestFirejailBackend:
 
         proc = _FakeProc()
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
@@ -505,7 +505,7 @@ class TestFirejailBackend:
 
         proc = _FakeProc()
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
@@ -541,7 +541,7 @@ class TestFirejailBackend:
 
         proc = _FakeProc()
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None) -> _FakeProc:
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None) -> _FakeProc:
             return proc
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
@@ -789,7 +789,7 @@ class TestFirejailAvailability:
             async def communicate(self):
                 return (b"hello", b"")
 
-        async def fake_shell(command: str, stdout=None, stderr=None):
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None):
             return _FakeProc()
 
         monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
@@ -804,7 +804,7 @@ class TestFirejailAvailability:
 
         captured_argv: list[list[str]] = []
 
-        async def fake_exec(*argv: str, stdout=None, stderr=None):
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None):
             captured_argv.append(list(argv))
 
             class _P:

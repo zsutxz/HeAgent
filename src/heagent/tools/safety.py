@@ -71,6 +71,19 @@ _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
 ]
 
 
+# 凭证文件/目录的破坏性命令拦截（rm/mv/rmdir/unlink/重定向覆盖 作用于凭证路径）——Epic 36 延伸。
+# 非真正安全边界：shell 可用 base64 / python -c 等绕过，仅拦「合作模式下尊重工具拒绝」的模型。
+_CREDENTIAL_PATH_ALT = (
+    r"authorized_keys|id_rsa|id_ed25519|id_dsa|\.ssh|\.aws|\.gnupg|\.kube"
+    r"|\.env|\.netrc|\.npmrc|\.pypirc|\.git-credentials|sudoers|passwd|shadow"
+)
+
+_CREDENTIAL_DESTRUCTIVE_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(rf"\b(?:rm|mv|rmdir|unlink)\b[^\n]*?(?:{_CREDENTIAL_PATH_ALT})", re.IGNORECASE),
+    re.compile(rf">[^>\n]*?(?:{_CREDENTIAL_PATH_ALT})", re.IGNORECASE),
+]
+
+
 class SafetyGuard:
     """工具调用安全检查器，在执行前拦截危险操作。"""
 
@@ -122,6 +135,11 @@ class SafetyGuard:
         for pat in _DANGEROUS_PATTERNS:
             if pat.search(command):
                 self._block(f"Blocked dangerous command: {command}")
+
+        # 第一层半：凭证文件破坏性操作（rm/mv/rmdir/unlink/重定向覆盖 作用于凭证路径）
+        for pat in _CREDENTIAL_DESTRUCTIVE_PATTERNS:
+            if pat.search(command):
+                self._block(f"Blocked credential-path destructive command: {command}")
 
         # 第二层：用户自定义规则
         if self.mode == SafetyMode.BLACKLIST:

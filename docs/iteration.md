@@ -214,6 +214,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 2026-07-22 | **全周期回顾完成**：`_bmad-output/retrospective-all-cycles.md` 覆盖全部 24 个已完成 Epic + S1-S4，所有 sprint-status 的 `epic-N-retrospective` 标记 `done` |
 | 2026-07-23 | **GUI 终端界面周期启动**：BMad 规划冻结（brief→prd→architecture→epics），Epic 25-28 开始，流式聊天为当前焦点 |
 | 2026-08-19 | **交互与可扩展层周期（Epic 29-35）全部交付**：审批闭环 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 配置文件驱动角色 + 成本估算 / CLI 体验 + 技术债收尾——7 个 Epic、28 个 story、7 次提交，全量 1052 测试通过 |
+| 2026-08-24 | **文件安全与凭证防护周期（Epic 36-39）全部交付**：凭证 deny（读+写）/ env scrubbing / 内部状态读 deny / 文档同步——4 个 Epic、6 个 story，全量 1135 测试通过 |
 
 ### 2.11 交互与可扩展层周期 · Epic 29-35
 
@@ -230,6 +231,23 @@ quick-dev 是**基于 spec 的单会话执行**：
 | 35 | CLI 体验优化 + 技术债收尾 | FR-G1~G4（web_fetch guard_content / cron expr 诊断 / init --project / readline） |
 
 详见 `_bmad-output/epics/epic-29-35-交互扩展周期/`（brief/prd/epics/retrospective）。
+
+---
+
+### 2.12 文件安全与凭证防护周期 · Epic 36-39
+
+来源 `_bmad-output/epics/epic-36-39-文件安全防护周期/`（2026-08-24 启动并完成）。借鉴 hermes
+`agent/file_safety.py` 的纵深防御设计，补齐凭证文件 deny（读 + 写）、凭证环境变量 scrubbing、
+`.heagent/` 内部状态读 deny 三类防护：
+
+| Epic | 主题 | FR |
+|------|------|----|
+| 36 | 凭证文件精确 deny（读 + 写） | FR-F1/F2 |
+| 37 | 凭证环境变量 scrubbing | FR-F3 |
+| 38 | `.heagent/` 内部状态读 deny | FR-F4 |
+| 39 | 安全声明 + 文档同步 | FR-F5 |
+
+详见 `_bmad-output/epics/epic-36-39-文件安全防护周期/`（brief/prd/architecture/epics/stories）。
 
 ---
 

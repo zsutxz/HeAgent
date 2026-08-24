@@ -343,6 +343,8 @@ SafetyGuard
 差异：policy 用 `context/self.workspace_root`（皆空则放行），handler 用 `workspace_root()`
 （RuntimeSlot → override → cwd）。
 
+另含**凭证 deny**与**内部状态读 deny**（借鉴 hermes `file_safety.py`，2026-08-24）：`build_write_denied_paths` / `build_write_denied_prefixes` 拦截对凭证文件（`~/.ssh/*` / `~/.aws/*` / `.env` / `.netrc` 等）的写入；`check_read_denied` 拦截对 secret-bearing 文件名（`.env` 等）与 `.heagent/` 内部状态目录（sessions/ledger/runs/memory/skills）的读取。deny 与围栏是**并列的独立层**（先围栏后 deny），git 工具只走围栏不接 deny。⚠ 均为 defense-in-depth 启发式层，非真正安全边界——shell 工具仍可 `cat .env` 绕过，须 OS 级沙箱兜底。
+
 #### builtins/ — 24 个内置工具
 
 **基础工具（5 个）：**
@@ -619,6 +621,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | 用户可配置 MCP 签名入口 | 返回内容启发式围栏仅内置规则集，用户自定义签名 deferred |
 | Dreaming 联网注入围栏 | `web_fetch` 返回路径未接 `guard_content`（仅 MCP 工具经 `bridge_result`），dreamer 联网结果无注入围栏——端到端接入 deferred（独立 spec）；dreamer 须 OS 级沙箱兜底（见 4.6 dream.py） |
 | 交互式审批非安全边界 | 审批闭环（Epic 29）把「要不要执行」交给用户，**不是安全边界**——`PolicyEngine` 本就非真边界，须 OS 级沙箱兜底（见 4.12 approval.py） |
+| 文件安全与凭证防护非边界 | `path_safety` 凭证 deny / `scrub_sensitive_env` 均为 defense-in-depth 启发式层（2026-08-24），非真正边界——shell 工具仍可 `cat .env` 绕过，须 OS 级沙箱兜底 |
 
 ---
 
