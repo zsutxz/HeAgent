@@ -481,7 +481,7 @@ class TestToolExecutor:
     @pytest.mark.asyncio
     async def test_custom_executor_can_override_sandbox_backend(self) -> None:
         class RecordingExecutor(ToolExecutor):
-            async def execute_in_sandbox(self, *, call, profile, handler):
+            async def execute_in_sandbox(self, *, call, profile, handler, run_context=None):
                 return f"sandbox:{profile}:{call.name}"
 
         executor = RecordingExecutor()
@@ -789,3 +789,313 @@ class TestPolicyAnnotationGate:
             schema=schema,
         )
         assert verdict.mode is ToolExecutionMode.DIRECT
+
+
+class TestSandboxSessionWorkspace:
+    """FR-1: create_run_context 沙箱会话目录两态 + execute_in_sandbox bind 生效。"""
+
+    @pytest.fixture(autouse=True)
+    def _reset_settings_around(self):
+        """每测试前后重置 Settings 单例，防 SANDBOX_SESSION_WORKSPACE 泄漏到后续测试。"""
+        from heagent.config import reset_settings
+
+        reset_settings()
+        yield
+        reset_settings()
+
+    def test_switch_off_no_metadata_no_dir(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """开关关（默认）：无 metadata 键、不建目录——与现状一致。"""
+        monkeypatch.delenv("SANDBOX_SESSION_WORKSPACE", raising=False)
+        monkeypatch.chdir(tmp_path)
+        engine = EngineContainer(workspace_root=str(tmp_path))
+        ctx = engine.create_run_context()
+        assert "sandbox_workspace" not in ctx.metadata
+        assert not (tmp_path / ".heagent" / "sandboxes").exists()
+
+    def test_switch_on_writes_metadata_and_creates_dir(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """开关开：metadata["sandbox_workspace"] = <cwd>/.heagent/sandboxes/<run_id>/ 且目录存在。"""
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
+        monkeypatch.chdir(tmp_path)
+        engine = EngineContainer(workspace_root=str(tmp_path))
+        ctx = engine.create_run_context()
+        expected = tmp_path / ".heagent" / "sandboxes" / ctx.run_id
+        assert ctx.metadata["sandbox_workspace"] == str(expected)
+        assert expected.is_dir()
+
+    def test_switch_on_mkdir_failure_raises_with_path(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """开关开但目录不可创建 → create_run_context 抛异常（含目标路径），不静默降级（NFR-1）。"""
+        import re
+
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / ".heagent").write_text("placeholder file, not a dir")  # 占位文件 → 子路径 mkdir 失败
+        engine = EngineContainer(workspace_root=str(tmp_path))
+        with pytest.raises(RuntimeError) as excinfo:
+            engine.create_run_context()
+        # 消息含目标路径（.heagent/sandboxes/<run_id>），且链了原始 OSError
+        assert ".heagent" in str(excinfo.value)
+        assert "sandboxes" in str(excinfo.value)
+        assert excinfo.value.__cause__ is not None
+        assert isinstance(excinfo.value.__cause__, OSError)
+        assert re.search(r"sandboxes[/\\][0-9a-f]{32}", str(excinfo.value))
+
+    def test_dir_anchors_to_workspace_root_not_cwd(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """修订1 主断言：进程 cwd=A、container workspace_root=B → 目录落 B 下、绝不落 A 下。
+
+        真实 caller（loop/sub/cron）传的 root 可 ≠ cwd；分叉时目录若锚 cwd 会逃出
+        file 工具围栏（shell 写入产物 file 工具不可读，split-brain）。
+        """
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
+        cwd_a = tmp_path / "cwd-a"
+        root_b = tmp_path / "root-b"
+        cwd_a.mkdir()
+        root_b.mkdir()
+        monkeypatch.chdir(cwd_a)
+        engine = EngineContainer(workspace_root=str(root_b))
+        ctx = engine.create_run_context()
+        expected = root_b / ".heagent" / "sandboxes" / ctx.run_id
+        assert ctx.metadata["sandbox_workspace"] == str(expected)
+        assert expected.is_dir()
+        # 绝不落在进程 cwd 下（A 无任何沙箱目录痕迹）
+        assert not (cwd_a / ".heagent").exists()
+
+    def test_explicit_param_root_wins_in_fork(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """回退链最高优先级：参数 root=C 覆盖 container root=B 与 cwd=A，目录落 C。"""
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
+        cwd_a = tmp_path / "cwd-a"
+        root_b = tmp_path / "root-b"
+        root_c = tmp_path / "root-c"
+        cwd_a.mkdir()
+        root_b.mkdir()
+        root_c.mkdir()
+        monkeypatch.chdir(cwd_a)
+        engine = EngineContainer(workspace_root=str(root_b))
+        ctx = engine.create_run_context(workspace_root=str(root_c))
+        expected = root_c / ".heagent" / "sandboxes" / ctx.run_id
+        assert ctx.metadata["sandbox_workspace"] == str(expected)
+        assert expected.is_dir()
+        assert not (root_b / ".heagent").exists()
+
+    def test_preseeded_key_cleared_when_switch_off(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """修订1：caller metadata 预含 sandbox_workspace + 开关关 → 键被清除，不 bind。"""
+        monkeypatch.delenv("SANDBOX_SESSION_WORKSPACE", raising=False)
+        monkeypatch.chdir(tmp_path)
+        engine = EngineContainer(workspace_root=str(tmp_path))
+        ctx = engine.create_run_context(metadata={"sandbox_workspace": "/stale/path"})
+        assert "sandbox_workspace" not in ctx.metadata
+
+    @pytest.mark.asyncio
+    async def test_execute_in_sandbox_binds_workspace_from_metadata(self, tmp_path: Path) -> None:
+        """metadata 含 sandbox_workspace → handler 内 get_sandbox_workspace() 取到该目录。"""
+        from heagent.tools.sandbox import get_sandbox_workspace
+
+        class _RecordingRunner:
+            async def run(self, command: str, *, timeout: int) -> str:
+                return "recorded"
+
+        captured: list[Path | None] = []
+
+        async def handler(call):
+            captured.append(get_sandbox_workspace())
+            return "ok"
+
+        session = tmp_path / "session-dir"
+        session.mkdir()
+        ctx = RunContext(workspace_root=str(tmp_path), metadata={"sandbox_workspace": str(session)})
+        executor = ToolExecutor(sandbox_runner=_RecordingRunner())
+        await executor.execute_in_sandbox(
+            call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            profile=None,
+            handler=handler,
+            run_context=ctx,
+        )
+        assert captured == [session]
+
+    @pytest.mark.asyncio
+    async def test_execute_in_sandbox_without_metadata_no_bind(self, tmp_path: Path) -> None:
+        """metadata 无键 / run_context=None → 不 bind，handler 内取 None（现状一致）。"""
+        from heagent.tools.sandbox import get_sandbox_workspace
+
+        class _RecordingRunner:
+            async def run(self, command: str, *, timeout: int) -> str:
+                return "recorded"
+
+        captured: list[Path | None] = []
+
+        async def handler(call):
+            captured.append(get_sandbox_workspace())
+            return "ok"
+
+        executor = ToolExecutor(sandbox_runner=_RecordingRunner())
+        await executor.execute_in_sandbox(
+            call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            profile=None,
+            handler=handler,
+            run_context=RunContext(workspace_root=str(tmp_path)),
+        )
+        await executor.execute_in_sandbox(
+            call=ToolCall(id="2", name="shell", arguments={"command": "dir"}),
+            profile=None,
+            handler=handler,
+            run_context=None,
+        )
+        assert captured == [None, None]
+
+    @pytest.mark.asyncio
+    async def test_non_str_metadata_value_no_bind(self, tmp_path: Path) -> None:
+        """修订1：sandbox_workspace 非 str（int）/ 空串 → 不 bind（None），不抛异常。"""
+        from heagent.tools.sandbox import get_sandbox_workspace
+
+        class _RecordingRunner:
+            async def run(self, command: str, *, timeout: int) -> str:
+                return "recorded"
+
+        captured: list[Path | None] = []
+
+        async def handler(call):
+            captured.append(get_sandbox_workspace())
+            return "ok"
+
+        executor = ToolExecutor(sandbox_runner=_RecordingRunner())
+        await executor.execute_in_sandbox(
+            call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            profile=None,
+            handler=handler,
+            run_context=RunContext(workspace_root=str(tmp_path), metadata={"sandbox_workspace": 123}),
+        )
+        await executor.execute_in_sandbox(
+            call=ToolCall(id="2", name="shell", arguments={"command": "dir"}),
+            profile=None,
+            handler=handler,
+            run_context=RunContext(workspace_root=str(tmp_path), metadata={"sandbox_workspace": ""}),
+        )
+        assert captured == [None, None]
+
+    @pytest.mark.asyncio
+    async def test_missing_session_dir_raises_before_bind(self, tmp_path: Path) -> None:
+        """修订1：metadata 指向不存在的目录 → bind 前抛 RuntimeError("sandbox workspace missing: <path>")。"""
+
+        class _RecordingRunner:
+            async def run(self, command: str, *, timeout: int) -> str:
+                return "recorded"
+
+        async def handler(call):
+            raise AssertionError("目录缺失应在 handler 前（bind 前）显性失败")
+
+        missing = tmp_path / "never-created"
+        ctx = RunContext(workspace_root=str(tmp_path), metadata={"sandbox_workspace": str(missing)})
+        executor = ToolExecutor(sandbox_runner=_RecordingRunner())
+        with pytest.raises(RuntimeError, match="sandbox workspace missing") as excinfo:
+            await executor.execute_in_sandbox(
+                call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+                profile=None,
+                handler=handler,
+                run_context=ctx,
+            )
+        assert str(missing) in str(excinfo.value)
+
+    @pytest.mark.asyncio
+    async def test_no_runner_with_workspace_logs_ignored_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """修订1：sandbox_runner=None + metadata 含会话目录 → 明确 warning（sandbox_workspace ignored）。"""
+        import logging
+
+        session = tmp_path / "session-dir"
+        session.mkdir()
+        ctx = RunContext(workspace_root=str(tmp_path), metadata={"sandbox_workspace": str(session)})
+        with caplog.at_level(logging.WARNING, logger="heagent.engine.executor"):
+            result = await ToolExecutor().execute_in_sandbox(
+                call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+                profile=None,
+                handler=lambda call: asyncio.sleep(0, result="passthrough"),
+                run_context=ctx,
+            )
+        assert result == "passthrough"
+        assert any("sandbox_workspace ignored" in rec.getMessage() for rec in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_old_signature_subclass_override_compat(self, tmp_path: Path) -> None:
+        """修订1：库消费者旧签名 execute_in_sandbox(*, call, profile, handler) 经 execute() 不 TypeError。"""
+
+        class OldSignatureExecutor(ToolExecutor):
+            async def execute_in_sandbox(self, *, call, profile, handler):
+                return f"legacy:{call.name}"
+
+        session = tmp_path / "session-dir"
+        session.mkdir()
+        granted_context = RunContext(
+            workspace_root=str(tmp_path),
+            metadata={"sandbox_profiles": ["workspace-shell"], "sandbox_workspace": str(session)},
+        )
+        verdict = PolicyEngine(
+            sandbox_tools=["shell"],
+            sandbox_profiles={"shell": "workspace-shell"},
+        ).evaluate_tool_call(
+            ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            context=granted_context,
+        )
+        assert verdict.requires_sandbox
+
+        executor = OldSignatureExecutor()
+        result = await executor.execute(
+            call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            verdict=verdict,
+            guard=type("Guard", (), {"check": lambda self, call: None})(),
+            handler=lambda call: asyncio.sleep(0, result="unused"),
+            run_context=granted_context,
+        )
+        assert result.is_error is False
+        assert result.content == "legacy:shell"
+
+    @pytest.mark.asyncio
+    async def test_execute_threads_run_context_into_sandbox(self, tmp_path: Path) -> None:
+        """SANDBOX_REQUIRED 完整链路：run_context 经 execute() 流至 execute_in_sandbox 并 bind。"""
+        from heagent.tools.sandbox import get_sandbox_workspace
+
+        class _RecordingRunner:
+            async def run(self, command: str, *, timeout: int) -> str:
+                return "recorded"
+
+        captured: list[Path | None] = []
+
+        async def shell_like_handler(call):
+            captured.append(get_sandbox_workspace())
+            return "sandboxed"
+
+        session = tmp_path / "session-x"
+        session.mkdir()
+        granted_context = RunContext(
+            workspace_root=str(tmp_path),
+            metadata={"sandbox_profiles": ["workspace-shell"], "sandbox_workspace": str(session)},
+        )
+        verdict = PolicyEngine(
+            sandbox_tools=["shell"],
+            sandbox_profiles={"shell": "workspace-shell"},
+        ).evaluate_tool_call(
+            ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            context=granted_context,
+        )
+        assert verdict.requires_sandbox
+
+        executor = ToolExecutor(sandbox_runner=_RecordingRunner())
+        result = await executor.execute(
+            call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            verdict=verdict,
+            guard=type("Guard", (), {"check": lambda self, call: None})(),
+            handler=shell_like_handler,
+            run_context=granted_context,
+        )
+
+        assert result.is_error is False
+        assert captured == [session]

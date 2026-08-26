@@ -147,6 +147,11 @@ class Settings(BaseSettings):
     sandbox_backend: str = Field(default="passthrough")
     # firejail 可执行文件路径（PATH 查找或绝对路径）。
     sandbox_firejail_path: str = Field(default="firejail")
+    # 沙箱会话目录开关（FR-1）：True 时每个 run 经 EngineContainer.create_run_context
+    # 在 `<cwd>/.heagent/sandboxes/<run_id>/` 幂等创建 per-run workspace，并经
+    # RunContext.metadata["sandbox_workspace"] 送达后端（Firejail 作 --private 根、
+    # WinJob 作子进程 cwd——目录约定，无文件系统隔离）。默认 False：行为与现状一致。
+    sandbox_session_workspace: bool = Field(default=False)
 
     # ---- 审批参数（Epic 29） ----
     # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。

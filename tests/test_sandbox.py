@@ -7,6 +7,7 @@ import logging
 import shutil
 import sys
 import time
+from pathlib import Path
 
 import pytest
 
@@ -16,11 +17,15 @@ from heagent.tools.sandbox import (
     _kill_and_reap,
     bind_command_runner,
     bind_sandbox_profile,
+    bind_sandbox_workspace,
     configure_command_runner,
     get_command_runner,
     get_sandbox_profile,
+    get_sandbox_workspace,
     reset_command_runner,
     reset_sandbox_profile,
+    reset_sandbox_workspace,
+    sandbox_session_dir,
 )
 
 _PY = f'"{sys.executable}"'
@@ -49,9 +54,11 @@ def _isolate_command_runner(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr("os.killpg", lambda *args, **kwargs: None, raising=False)
     reset_command_runner()
     reset_sandbox_profile()
+    reset_sandbox_workspace()
     yield
     reset_command_runner()
     reset_sandbox_profile()
+    reset_sandbox_workspace()
 
 
 class TestPassthroughRunner:
@@ -883,3 +890,153 @@ class TestExecutorIntegration:
         )
         assert result.is_error is True
         assert "timeout" in result.content
+
+
+# ── FR-1: sandbox session workspace ─────────────────────────────────────────
+
+
+class TestSandboxSessionDir:
+    """FR-1: ``sandbox_session_dir`` 纯函数——幂等创建 / base 注入 / 规范路径。"""
+
+    def test_creates_dir_under_default_root(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """默认根 ``Path.cwd()/.heagent/sandboxes``：返回 ``<root>/<run_id>/`` 且目录已存在。"""
+        monkeypatch.chdir(tmp_path)
+        path = sandbox_session_dir("runabc")
+        assert path == tmp_path / ".heagent" / "sandboxes" / "runabc"
+        assert path.is_dir()
+
+    def test_idempotent_same_run_id(self, tmp_path: Path) -> None:
+        """同一 run_id 两次调用 → 同一路径、不抛异常（幂等）。"""
+        first = sandbox_session_dir("same-run", base=tmp_path)
+        second = sandbox_session_dir("same-run", base=tmp_path)
+        assert first == second
+        assert first.is_dir()
+
+    def test_base_injection_replaces_default_root(self, tmp_path: Path) -> None:
+        """``base`` 显式传入时替代整个默认根（测试注入通道）。"""
+        path = sandbox_session_dir("r1", base=tmp_path / "custom-root")
+        assert path == tmp_path / "custom-root" / "r1"
+        assert path.is_dir()
+
+    def test_returns_absolute_path(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """默认根基于 ``Path.cwd()``——返回值始终为绝对路径（可直传后端 argv / cwd）。"""
+        monkeypatch.chdir(tmp_path)
+        assert sandbox_session_dir("abs-run").is_absolute()
+
+    def test_independent_of_executor_instances(self, tmp_path: Path) -> None:
+        """不依赖任何执行器实例状态——不构造 backend 也返回已创建目录。"""
+        assert sandbox_session_dir("pure-run", base=tmp_path).is_dir()
+
+    @pytest.mark.parametrize(
+        "bad_run_id",
+        ["", "a/b", "a\\b", "..", ".", "/abs/run"],
+        ids=["empty", "slash", "backslash", "dotdot", "dot", "absolute"],
+    )
+    def test_invalid_run_id_raises_value_error(self, tmp_path: Path, bad_run_id: str) -> None:
+        """非法 run_id（空串/含分隔符/.././绝对路径）→ ValueError，且不建任何目录。"""
+        with pytest.raises(ValueError, match="invalid run_id"):
+            sandbox_session_dir(bad_run_id, base=tmp_path)
+        assert list(tmp_path.iterdir()) == []
+
+
+class TestSandboxWorkspaceSlot:
+    """FR-1: sandbox workspace contextvar（仿 profile slot）。"""
+
+    def test_default_is_none(self) -> None:
+        assert get_sandbox_workspace() is None
+
+    def test_bind_sets_and_restores(self, tmp_path: Path) -> None:
+        assert get_sandbox_workspace() is None
+        with bind_sandbox_workspace(tmp_path):
+            assert get_sandbox_workspace() == tmp_path
+        assert get_sandbox_workspace() is None
+
+    def test_bind_none_is_transparent(self) -> None:
+        with bind_sandbox_workspace(None):
+            assert get_sandbox_workspace() is None
+
+    def test_nested_bind_restores_outer(self, tmp_path: Path) -> None:
+        outer, inner = tmp_path / "outer", tmp_path / "inner"
+        with bind_sandbox_workspace(outer):
+            assert get_sandbox_workspace() == outer
+            with bind_sandbox_workspace(inner):
+                assert get_sandbox_workspace() == inner
+            assert get_sandbox_workspace() == outer
+        assert get_sandbox_workspace() is None
+
+
+class TestFirejailSessionWorkspace:
+    """FR-1: FirejailBackend 以 per-run 会话目录优先作 ``--private`` 根。"""
+
+    @staticmethod
+    def _capture_exec(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+        """钉 firejail 可用 + 捕获 argv 的公共 setup，返回捕获列表。"""
+        monkeypatch.setattr(shutil, "which", lambda p: "/usr/bin/firejail")
+        captured: list[list[str]] = []
+
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None):
+            captured.append(list(argv))
+
+            class _FakeProc(_FakeProcBase):
+                def __init__(self):
+                    self.returncode = 0
+
+                async def communicate(self):
+                    return (b"out", b"")
+
+            return _FakeProc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        return captured
+
+    @pytest.mark.asyncio
+    async def test_session_workspace_overrides_constructor_root(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """bind per-run 目录 → argv 含 ``--private=<该目录>``，优先于构造期 workspace_root。"""
+        captured = self._capture_exec(monkeypatch)
+        backend = FirejailBackend(workspace_root="/constructor-root")
+        session = tmp_path / "session-run"
+        with bind_sandbox_workspace(session):
+            await backend.run("ls", timeout=10)
+        assert f"--private={session}" in captured[0]
+        assert "--private=/constructor-root" not in captured[0]
+
+    @pytest.mark.asyncio
+    async def test_no_bind_uses_constructor_root_regression(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """无 bind（开关关）→ argv 与现状逐字节一致：构造期 root，无会话目录痕迹。"""
+        captured = self._capture_exec(monkeypatch)
+        backend = FirejailBackend(workspace_root="/constructor-root")
+        await backend.run("ls", timeout=10)
+        assert captured[0] == ["/usr/bin/firejail", "--private=/constructor-root", "--", "sh", "-c", "ls"]
+
+    @pytest.mark.asyncio
+    async def test_no_bind_no_root_no_private(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """无 bind 且无构造期 root → 不出现任何 --private（回归锁定）。"""
+        captured = self._capture_exec(monkeypatch)
+        await FirejailBackend().run("ls", timeout=10)
+        assert captured[0] == ["/usr/bin/firejail", "--", "sh", "-c", "ls"]
+
+    @pytest.mark.asyncio
+    async def test_unavailable_with_bind_still_passthrough(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """firejail 不可用 + 会话目录已解析 → 维持 warn + Passthrough 降级，无新增失败路径。"""
+        monkeypatch.setattr(shutil, "which", lambda p: None)
+
+        async def fake_exec(*argv: str, stdout=None, stderr=None, env=None):
+            raise AssertionError("不可用时不应走 create_subprocess_exec")
+
+        class _FakeProc(_FakeProcBase):
+            def __init__(self):
+                self.returncode = 0
+
+            async def communicate(self):
+                return (b"pw_out", b"")
+
+        async def fake_shell(command: str, stdout=None, stderr=None, env=None):
+            return _FakeProc()
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", fake_exec)
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
+        with bind_sandbox_workspace(Path("/resolved-session")):
+            result = await FirejailBackend().run("echo hi", timeout=10)
+        assert "pw_out" in result

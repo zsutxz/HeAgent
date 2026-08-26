@@ -23,13 +23,20 @@ started / completed / failed / blocked 事件供可观测。
 
 from __future__ import annotations
 
+import inspect
 import logging
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.exceptions import PolicyViolation, SafetyViolation
-from heagent.tools.sandbox import CommandRunner, bind_command_runner, bind_sandbox_profile
+from heagent.tools.sandbox import (
+    CommandRunner,
+    bind_command_runner,
+    bind_sandbox_profile,
+    bind_sandbox_workspace,
+)
 from heagent.types import ToolCall, ToolResult
 
 if TYPE_CHECKING:
@@ -40,6 +47,24 @@ logger = logging.getLogger(__name__)
 
 # 工具处理器签名：接收 ToolCall，返回任意结果（executor 会 str() 化为 ToolResult.content）。
 Handler = Callable[[ToolCall], Awaitable[object]]
+
+
+def _session_workspace(run_context: RunContext | None) -> Path | None:
+    """从 ``run_context.metadata`` 提取并校验沙箱会话目录（FR-1）。
+
+    无键 / 非 str / 空串 → None（不 bind，行为与现状一致）；路径不存在 → 抛
+    ``RuntimeError("sandbox workspace missing: <path>")`` 显性失败（bind 前拦下，
+    不让不存在的目录直入 ``--private=`` / ``cwd=``）。
+    """
+    if run_context is None:
+        return None
+    raw = run_context.metadata.get("sandbox_workspace")
+    if not isinstance(raw, str) or not raw:
+        return None
+    path = Path(raw)
+    if not path.exists():
+        raise RuntimeError(f"sandbox workspace missing: {path}")
+    return path
 
 
 class ToolExecutor:
@@ -190,7 +215,21 @@ class ToolExecutor:
                         "sandbox_profile": verdict.sandbox_profile or "",
                     },
                 )
-            result = await self.execute_in_sandbox(call=call, profile=verdict.sandbox_profile, handler=handler)
+            # 子类 override 兼容：库消费者旧签名 execute_in_sandbox(*, call, profile, handler)
+            # 不含 run_context——签名探测后按需传参，防 TypeError（FR-1 review patch 5）。
+            if "run_context" in inspect.signature(self.execute_in_sandbox).parameters:
+                result = await self.execute_in_sandbox(
+                    call=call,
+                    profile=verdict.sandbox_profile,
+                    handler=handler,
+                    run_context=run_context,
+                )
+            else:
+                result = await self.execute_in_sandbox(
+                    call=call,
+                    profile=verdict.sandbox_profile,
+                    handler=handler,
+                )
             content = str(result) if result is not None else ""
             if emit:
                 emit(
@@ -224,25 +263,40 @@ class ToolExecutor:
         call: ToolCall,
         profile: str | None,
         handler: Handler,
+        run_context: RunContext | None = None,
     ) -> object:
         """经配置的沙箱后端执行工具。
 
         默认实现：配置了 ``sandbox_runner`` 则经 :func:`bind_command_runner` + :func:`bind_sandbox_profile`
         注入到 handler（shell 等 handler 内 ``get_command_runner()`` / ``get_sandbox_profile()``
         取到对应值），否则透传直接调 handler。
+        FR-1（沙箱会话目录）：``run_context.metadata["sandbox_workspace"]`` 存在（开关开启时
+        由 :meth:`EngineContainer.create_run_context <heagent.engine.container.EngineContainer.create_run_context>`
+        写入）时再经 :func:`bind_sandbox_workspace` 把 per-run 目录送达后端（Firejail ``--private``
+        根 / WinJob 子进程 cwd）；无该键时不 bind，行为与现状一致。
         子类可覆写本方法替换整套沙箱语义（见 ``tests/test_engine_p0.py`` 的 ``RecordingExecutor``）。
         ⚠ 默认 Passthrough 不产生 OS 级隔离；FirejailBackend 仅隔离 shell 子进程、Linux-only、
-        非完美边界——须 OS 级沙箱兜底（见 CLAUDE.md）。
+        非完美边界；WinJob 会话目录仅 cwd 约定、无文件系统隔离——须 OS 级沙箱兜底（见 CLAUDE.md）。
         """
         if self.sandbox_runner is None:
+            if run_context is not None and isinstance(run_context.metadata.get("sandbox_workspace"), str):
+                logger.warning(
+                    "sandbox_workspace ignored: no sandbox backend (sandbox_runner is None); "
+                    "tool '%s' runs passthrough without per-run session directory",
+                    call.name,
+                )
             logger.warning(
                 "SANDBOX_REQUIRED verdict but sandbox_runner is None; "
                 "executing tool '%s' in passthrough (no OS-level isolation)",
                 call.name,
             )
             return await handler(call)
+        workspace = _session_workspace(run_context)
         with bind_command_runner(self.sandbox_runner), bind_sandbox_profile(profile):
-            return await handler(call)
+            if workspace is None:
+                return await handler(call)
+            with bind_sandbox_workspace(workspace):
+                return await handler(call)
 
     def _policy_error(
         self,

@@ -170,9 +170,33 @@ class EngineContainer:
             root = self.policy.workspace_root
         if root is None:
             root = str(Path.cwd().resolve())
-        return RunContext(
+        ctx = RunContext(
             session_id=session_id,
             parent_run_id=parent_run_id,
             workspace_root=root,
             metadata=dict(metadata or {}),
         )
+        # FR-1（沙箱会话目录）：开关开启时解析 per-run 目录并写入 metadata，
+        # 由 ToolExecutor.execute_in_sandbox bind 给后端（Firejail --private 根 /
+        # WinJob 子进程 cwd）。目录根锚定 workspace_root 回退链（root，上方已解析：
+        # 参数→container→policy→cwd）而非进程 cwd——目录落在 file 工具围栏内；
+        # 目标路径在 try 外预推导，except 严禁二次 Path.cwd() 重建（POSIX cwd 消失时
+        # 二次推导会抛新异常掩盖原始错误）。目录创建失败（权限/磁盘）→ 显性失败
+        # （NFR-1），严禁静默降级为「无目录继续跑」。
+        from heagent.config import get_settings
+        from heagent.tools.sandbox import sandbox_session_dir
+
+        if get_settings().sandbox_session_workspace:
+            base = Path(root) / ".heagent" / "sandboxes"
+            target = base / ctx.run_id
+            try:
+                ctx.metadata["sandbox_workspace"] = str(sandbox_session_dir(ctx.run_id, base=base))
+            except OSError as exc:
+                raise RuntimeError(
+                    f"Failed to create sandbox session workspace {target} "
+                    "(sandbox_session_workspace enabled; failing run start, no silent fallback)"
+                ) from exc
+        else:
+            # 开关关闭：清除 caller 预含键——残留会使 executor 误 bind 过期目录。
+            ctx.metadata.pop("sandbox_workspace", None)
+        return ctx

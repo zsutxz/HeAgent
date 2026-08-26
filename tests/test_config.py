@@ -269,6 +269,33 @@ class TestSandboxEnv:
         assert s.sandbox_firejail_path == "/usr/local/bin/firejail"
 
 
+class TestSandboxSessionWorkspaceEnv:
+    """FR-1: ``sandbox_session_workspace`` 开关解析（default=False / "true" / "1" / 非法值）。"""
+
+    def test_default_off(self, tmp_path: Any) -> None:
+        """默认 False（空 .env 隔离项目配置干扰）。"""
+        s = Settings(_env_file=tmp_path / ".env")
+        assert s.sandbox_session_workspace is False
+
+    def test_env_true(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
+        assert Settings().sandbox_session_workspace is True
+
+    def test_env_one(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "1")
+        assert Settings().sandbox_session_workspace is True
+
+    def test_env_false_stays_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "false")
+        assert Settings().sandbox_session_workspace is False
+
+    def test_env_invalid_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """非法值（非布尔字面量）→ pydantic 校验错误，显性失败不静默取默认。"""
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "banana")
+        with pytest.raises(ValidationError):
+            Settings()
+
+
 class TestLedgerRetention:
     def test_default_ledger_retention_days(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         """默认值 7（使用空 .env 避免项目 .env 干扰，并清除系统环境残留）。"""

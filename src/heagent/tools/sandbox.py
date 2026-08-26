@@ -25,6 +25,7 @@ import signal
 import subprocess
 import sys
 from contextlib import contextmanager, suppress
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from heagent.tools.runtime import RuntimeSlot
@@ -231,7 +232,14 @@ class FirejailBackend:
             return await PassthroughRunner().run(command, timeout=timeout)
 
         profile = get_sandbox_profile()
-        argv = self._build_argv(command, profile)
+        # FR-1：per-run 沙箱会话目录（经 executor bind）优先作为 --private 根；
+        # 未 bind（None）时 _build_argv 回退构造期 self._workspace_root，行为与现状一致。
+        workspace = get_sandbox_workspace()
+        argv = self._build_argv(
+            command,
+            profile,
+            workspace_root=str(workspace) if workspace is not None else None,
+        )
         return await _run_subprocess_exec(argv, timeout=timeout)
 
 
@@ -321,12 +329,25 @@ class WinJobBackend:
                 logger.error("SetInformationJobObject failed (err=%d)", err)
 
             # ── Start child process ──
-            proc = await asyncio.to_thread(
-                subprocess.Popen,
-                ["cmd", "/c", command],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+            # FR-1：per-run 沙箱会话目录（经 executor bind）作为子进程 cwd——
+            # 目录约定 only：仅决定命令的工作目录，无任何文件系统/网络隔离
+            # （WinJob 仅做进程级隔离），非安全边界。未 bind 时不传 cwd（与现状一致）。
+            workspace = get_sandbox_workspace()
+            if workspace is not None:
+                proc = await asyncio.to_thread(
+                    subprocess.Popen,
+                    ["cmd", "/c", command],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    cwd=str(workspace),
+                )
+            else:
+                proc = await asyncio.to_thread(
+                    subprocess.Popen,
+                    ["cmd", "/c", command],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
 
             # Assign to job object
             kernel32.AssignProcessToJobObject(
@@ -402,4 +423,59 @@ def reset_sandbox_profile() -> None:
 @contextmanager
 def bind_sandbox_profile(profile: str | None) -> Iterator[None]:
     with _sandbox_profile_slot.bind(profile):
+        yield
+
+
+# —— Sandbox session workspace（FR-1：per-run 沙箱会话目录）——
+
+
+def sandbox_session_dir(run_id: str, *, base: Path | None = None) -> Path:
+    """返回 ``<base>/<run_id>/`` 沙箱会话目录并幂等创建（``mkdir(parents=True, exist_ok=True)``）。
+
+    幂等目录解析（有 I/O 副作用、默认根依赖进程 cwd）：默认根为
+    ``Path.cwd()/".heagent"/"sandboxes"``，``base`` 显式传入时替代整个默认根
+    （EngineContainer.create_run_context 以 workspace_root 回退链锚定）。同一 ``run_id``
+    重复调用返回同一路径；不依赖任何执行器实例状态。
+
+    ``run_id`` 非法（空串 / 含路径分隔符 ``/`` 或 ``\\`` / 含 ``\\x00`` / ``.`` / ``..`` /
+    绝对路径 / Windows 盘符前缀如 ``C:evil``）抛 :class:`ValueError`——防任意 metadata
+    字符串直入 ``--private=`` / ``cwd=``；目标路径已存在且为符号链接同样抛
+    :class:`ValueError`（防符号链接逃逸锚定根）。
+
+    ⚠ 目录约定而非安全边界：WinJob 后端仅将其作为子进程 cwd（无文件系统/网络隔离）；
+    Firejail 将其作为 ``--private`` 根（OS 级文件系统隔离，但 firejail 非完美边界）。
+    """
+
+    if (
+        not run_id
+        or run_id in (".", "..")
+        or "/" in run_id
+        or "\\" in run_id
+        or "\x00" in run_id
+        or Path(run_id).is_absolute()
+        or Path(run_id).drive
+    ):
+        raise ValueError(f"invalid run_id: {run_id!r} (must be a single non-traversal path segment)")
+    root = base if base is not None else Path.cwd() / ".heagent" / "sandboxes"
+    path = root / run_id
+    if path.is_symlink():
+        raise ValueError(f"sandbox session path is a symlink (refusing to anchor through it): {path}")
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+_sandbox_workspace_slot: RuntimeSlot[Path | None] = RuntimeSlot[Path | None]("heagent_sandbox_workspace")
+
+
+def get_sandbox_workspace() -> Path | None:
+    return _sandbox_workspace_slot.get()
+
+
+def reset_sandbox_workspace() -> None:
+    _sandbox_workspace_slot.reset()
+
+
+@contextmanager
+def bind_sandbox_workspace(path: Path | None) -> Iterator[None]:
+    with _sandbox_workspace_slot.bind(path):
         yield
