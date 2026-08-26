@@ -38,6 +38,11 @@ class TestEnvLoading:
         s = Settings()
         assert s.kimi_api_key == "sk-test-kimi"
 
+    def test_loads_glm_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GLM_API_KEY", "sk-test-glm")
+        s = Settings()
+        assert s.glm_api_key == "sk-test-glm"
+
     def test_loads_active_provider(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ACTIVE_PROVIDER", "kimi")
         s = Settings()
@@ -57,6 +62,11 @@ class TestEnvLoading:
         monkeypatch.setenv("KIMI_MODEL", "moonshot-v1-128k")
         s = Settings()
         assert s.kimi_model == "moonshot-v1-128k"
+
+    def test_glm_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GLM_MODEL", "glm-5.3-air")
+        s = Settings()
+        assert s.glm_model == "glm-5.3-air"
 
     def test_max_iterations(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MAX_ITERATIONS", "100")

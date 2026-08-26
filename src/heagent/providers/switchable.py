@@ -39,7 +39,7 @@ class SwitchableProvider:
     示例：
         sp = SwitchableProvider({
             "deepseek": OpenAIProvider(api_key="sk-xxx", model="deepseek-v4-pro", base_url="..."),
-            "kimi":     OpenAIProvider(api_key="sk-yyy", model="moonshot-v1-8k", base_url="..."),
+            "kimi":     OpenAIProvider(api_key="sk-yyy", model="kimi-k3", base_url="..."),
             "openai":   OpenAIProvider(api_key="sk-zzz", model="gpt-4o"),
         }, default="deepseek")
 

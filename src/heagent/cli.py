@@ -226,6 +226,13 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
             base_url=settings.kimi_base_url or "https://api.moonshot.cn/v1",
         )
 
+    if settings.glm_api_key:
+        named["glm"] = OpenAIProvider(
+            api_key=settings.glm_api_key,
+            model=model or settings.glm_model,
+            base_url=settings.glm_base_url or "https://open.bigmodel.cn/api/paas/v4",
+        )
+
     openai_provider = _build_openai_providers(settings, model or settings.default_model)
     if openai_provider:
         named["openai"] = openai_provider
@@ -237,7 +244,7 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     if not named:
         click.echo(
             "Error: No API key configured. Set DEEPSEEK_API_KEY, KIMI_API_KEY, "
-            "OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
+            "GLM_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
             err=True,
         )
         raise SystemExit(1)
@@ -1107,17 +1114,20 @@ _INIT_ENV_TEMPLATE = """# HeAgent 全局配置文件
 # OPENAI_API_KEY=your-openai-key
 # ANTHROPIC_API_KEY=your-anthropic-key
 # KIMI_API_KEY=your-kimi-key
+# GLM_API_KEY=your-glm-key
 
 # ---- API 基础 URL（用于代理或自营服务）----
 # DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
 # OPENAI_BASE_URL=
 # ANTHROPIC_BASE_URL=
 # KIMI_BASE_URL=https://api.moonshot.cn/v1
+# GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
 
 # ---- 各 Provider 默认模型 ----
 # DEFAULT_MODEL=gpt-4o
 # DEEPSEEK_MODEL=deepseek-v4-pro
-# KIMI_MODEL=moonshot-v1-8k
+# KIMI_MODEL=kimi-k3
+# GLM_MODEL=glm-5.3
 
 # ---- Anthropic 提示词缓存 ----
 # ANTHROPIC_PROMPT_CACHING=true

@@ -12,7 +12,7 @@ from heagent.cli import main
 
 def _clear_all_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     """Clear all known API key environment variables for hermetic tests."""
-    for key in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "KIMI_API_KEY"):
+    for key in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "KIMI_API_KEY", "GLM_API_KEY"):
         monkeypatch.delenv(key, raising=False)
 
 

@@ -46,24 +46,27 @@ class Settings(BaseSettings):
     )
 
     # ---- 活跃 Provider（交互模式启动时默认使用哪个） ----
-    active_provider: str | None = None  # 启动时默认 provider，如 deepseek / kimi / openai / anthropic
+    active_provider: str | None = None  # 启动时默认 provider，如 deepseek / kimi / glm / openai / anthropic
 
     # ---- API 密钥（可选，在 Provider 使用时校验） ----
     deepseek_api_key: str | None = None  # DeepSeek API Key
     openai_api_key: str | None = None  # OpenAI API Key
     anthropic_api_key: str | None = None  # Anthropic API Key
     kimi_api_key: str | None = None  # Kimi (Moonshot AI) API Key
+    glm_api_key: str | None = None  # GLM (智谱 AI) API Key
 
     # ---- API 基础 URL（用于 OpenAI 兼容的第三方服务） ----
     deepseek_base_url: str | None = None  # DeepSeek 默认 https://api.deepseek.com/v1
     openai_base_url: str | None = None  # OpenAI 兼容服务（如智谱 AI）
     anthropic_base_url: str | None = None  # Anthropic 代理地址
     kimi_base_url: str | None = None  # Kimi 默认 https://api.moonshot.cn/v1
+    glm_base_url: str | None = None  # GLM 默认 https://open.bigmodel.cn/api/paas/v4
 
     # ---- 各 Provider 默认模型（--model CLI 参数可覆盖） ----
     default_model: str = "gpt-4o"  # OpenAI 默认模型名称
     deepseek_model: str = "deepseek-v4-pro"  # DeepSeek 默认模型
-    kimi_model: str = "moonshot-v1-8k"  # Kimi (Moonshot) 默认模型
+    kimi_model: str = "kimi-k3"  # Kimi (Moonshot) 默认模型
+    glm_model: str = "glm-5.3"  # GLM (智谱) 默认模型
 
     # ---- Anthropic 提示词缓存（FR-3） ----
     anthropic_prompt_caching: bool = True

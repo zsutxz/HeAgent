@@ -18,7 +18,7 @@ from heagent.providers.switchable import SwitchableProvider
 
 
 def _clear_all_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
-    for key in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "KIMI_API_KEY"):
+    for key in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "KIMI_API_KEY", "GLM_API_KEY"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -73,6 +73,27 @@ class TestBuildProviderRoutingComposition:
         )
         assert isinstance(provider, SwitchableProvider)
         assert isinstance(provider.providers["deepseek"], OpenAIProvider)
+
+
+class TestBuildProviderGlm:
+    """GLM（智谱）条目构建：OpenAI 兼容端点，照 kimi 模式入池。"""
+
+    def test_glm_only_returns_plain_openai_provider(self, hermetic) -> None:
+        provider = _build_provider(Settings(glm_api_key="sk-glm"), None)
+        assert isinstance(provider, OpenAIProvider)
+        assert provider.get_metadata().model == "glm-5.3"
+
+    def test_glm_with_kimi_returns_switchable(self, hermetic) -> None:
+        provider = _build_provider(Settings(kimi_api_key="sk-kimi", glm_api_key="sk-glm"), None)
+        assert isinstance(provider, SwitchableProvider)
+        assert set(provider.names) == {"kimi", "glm"}
+        glm_meta = provider.providers["glm"].get_metadata()
+        assert glm_meta.model == "glm-5.3"
+
+    def test_model_flag_overrides_glm_default(self, hermetic) -> None:
+        provider = _build_provider(Settings(glm_api_key="sk-glm"), "glm-5.3-air")
+        assert isinstance(provider, OpenAIProvider)
+        assert provider.get_metadata().model == "glm-5.3-air"
 
 
 class TestExtractRouting:
