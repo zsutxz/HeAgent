@@ -33,6 +33,7 @@ from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.exceptions import PolicyViolation, SafetyViolation
 from heagent.tools.sandbox import (
     CommandRunner,
+    SandboxTier,
     bind_command_runner,
     bind_sandbox_profile,
     bind_sandbox_workspace,
@@ -73,6 +74,16 @@ class ToolExecutor:
     def __init__(self, *, sandbox_runner: CommandRunner | None = None) -> None:
         """记 ``SANDBOX_REQUIRED`` 路径用的后端（None 时 :meth:`execute_in_sandbox` 透传）。"""
         self.sandbox_runner = sandbox_runner
+
+    def _runner_tier(self) -> SandboxTier:
+        """当前沙箱后端的强度档位；无后端（透传快速路径）时为 ``PASSTHROUGH``。
+
+        库消费者的自定义 runner 可能未声明 ``tier``（旧 ``CommandRunner`` 契约无此
+        属性）——按最弱档 ``PASSTHROUGH`` 处理（fail-safe：未知强度不误判为强隔离）。
+        """
+        if self.sandbox_runner is None:
+            return SandboxTier.PASSTHROUGH
+        return getattr(self.sandbox_runner, "tier", SandboxTier.PASSTHROUGH)
 
     async def execute(
         self,
@@ -204,6 +215,7 @@ class ToolExecutor:
             return ToolResult(tool_call_id=call.id, content=str(exc), is_error=True)
 
         sandbox_mode = ToolExecutionMode.SANDBOX_REQUIRED.value
+        sandbox_tier = self._runner_tier().value
         try:
             if emit:
                 emit(
@@ -213,6 +225,7 @@ class ToolExecutor:
                     details={
                         "mode": sandbox_mode,
                         "sandbox_profile": verdict.sandbox_profile or "",
+                        "sandbox_tier": sandbox_tier,
                     },
                 )
             # 子类 override 兼容：库消费者旧签名 execute_in_sandbox(*, call, profile, handler)
@@ -239,6 +252,7 @@ class ToolExecutor:
                     details={
                         "mode": sandbox_mode,
                         "sandbox_profile": verdict.sandbox_profile or "",
+                        "sandbox_tier": sandbox_tier,
                         "content_length": len(content),
                     },
                 )
@@ -252,6 +266,7 @@ class ToolExecutor:
                     details={
                         "mode": sandbox_mode,
                         "sandbox_profile": verdict.sandbox_profile or "",
+                        "sandbox_tier": sandbox_tier,
                         "error": str(exc),
                     },
                 )

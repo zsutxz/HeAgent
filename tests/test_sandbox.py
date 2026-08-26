@@ -14,6 +14,8 @@ import pytest
 from heagent.tools.sandbox import (
     FirejailBackend,
     PassthroughRunner,
+    SandboxTier,
+    WinJobBackend,
     _kill_and_reap,
     bind_command_runner,
     bind_sandbox_profile,
@@ -1040,3 +1042,31 @@ class TestFirejailSessionWorkspace:
         with bind_sandbox_workspace(Path("/resolved-session")):
             result = await FirejailBackend().run("echo hi", timeout=10)
         assert "pw_out" in result
+
+
+# ── FR-2: sandbox backend strength tiering ──────────────────────────────────
+
+
+class TestSandboxTier:
+    """FR-2: SandboxTier 分级枚举 + 后端档位声明 + 审批降级锁定。"""
+
+    def test_all_four_tiers_exist(self) -> None:
+        assert {t.value for t in SandboxTier} == {"passthrough", "job", "firejail", "container"}
+
+    def test_rank_is_strictly_increasing(self) -> None:
+        tiers = [SandboxTier.PASSTHROUGH, SandboxTier.JOB, SandboxTier.FIREJAIL, SandboxTier.CONTAINER]
+        assert [t.rank for t in tiers] == [0, 1, 2, 3]
+
+    def test_backend_tier_declarations(self) -> None:
+        assert PassthroughRunner.tier is SandboxTier.PASSTHROUGH
+        assert WinJobBackend.tier is SandboxTier.JOB
+        assert FirejailBackend.tier is SandboxTier.FIREJAIL
+
+    def test_weak_tiers_cannot_relax_approval(self) -> None:
+        """弱后端（passthrough/job/firejail）一律不降审批（NFR-2 测试锁定）。"""
+        for tier in (SandboxTier.PASSTHROUGH, SandboxTier.JOB, SandboxTier.FIREJAIL):
+            assert tier.can_relax_approval is False
+
+    def test_container_tier_reserved_can_relax(self) -> None:
+        """container 档（预留，无实现后端）才允许审批降级。"""
+        assert SandboxTier.CONTAINER.can_relax_approval is True

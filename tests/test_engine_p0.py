@@ -18,6 +18,7 @@ from heagent.providers.base import ProviderMetadata
 from heagent.tools.builtins.file import file_write
 from heagent.tools.builtins.memory import bind_memory_tools, fact_add
 from heagent.tools.builtins.skills import bind_skill_tools, configure_skill_tools, reset_skill_tools, skill_create
+from heagent.tools.sandbox import SandboxTier
 from heagent.tools.registry import ToolRegistry
 from heagent.types import Message, ProviderResponse, TokenUsage, ToolAnnotations, ToolCall, ToolSchema
 
@@ -1099,3 +1100,67 @@ class TestSandboxSessionWorkspace:
 
         assert result.is_error is False
         assert captured == [session]
+
+
+class TestSandboxBackendTier:
+    """FR-2: executor 查询后端强度档位 + emit 事件传递 sandbox_tier。"""
+
+    def test_runner_tier_none_is_passthrough(self) -> None:
+        executor = ToolExecutor()  # sandbox_runner=None（透传快速路径）
+        assert executor._runner_tier() is SandboxTier.PASSTHROUGH
+
+    def test_runner_tier_reflects_injected_backend(self) -> None:
+        class _TierRunner:
+            tier = SandboxTier.FIREJAIL
+
+            async def run(self, command: str, *, timeout: int) -> str:
+                return "ok"
+
+        executor = ToolExecutor(sandbox_runner=_TierRunner())
+        assert executor._runner_tier() is SandboxTier.FIREJAIL
+
+    @pytest.mark.asyncio
+    async def test_emit_details_include_sandbox_tier(self, tmp_path: Path) -> None:
+        """SANDBOX_REQUIRED 链路 emit 事件 details 含当前后端档位字符串。"""
+
+        class _RecordingRunner:
+            tier = SandboxTier.JOB
+
+            async def run(self, command: str, *, timeout: int) -> str:
+                return "recorded"
+
+        events: list[tuple[str, dict]] = []
+
+        def emit(name, **kwargs):
+            events.append((name, kwargs.get("details") or {}))
+
+        session = tmp_path / "sess"
+        session.mkdir()
+        granted = RunContext(
+            workspace_root=str(tmp_path),
+            metadata={"sandbox_profiles": ["ws"], "sandbox_workspace": str(session)},
+        )
+        verdict = PolicyEngine(sandbox_tools=["shell"], sandbox_profiles={"shell": "ws"}).evaluate_tool_call(
+            ToolCall(id="1", name="shell", arguments={"command": "dir"}), context=granted
+        )
+        assert verdict.requires_sandbox
+
+        async def shell_like_handler(call):
+            return "sandboxed"
+
+        executor = ToolExecutor(sandbox_runner=_RecordingRunner())
+        result = await executor.execute(
+            call=ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+            verdict=verdict,
+            guard=type("Guard", (), {"check": lambda self, call: None})(),
+            handler=shell_like_handler,
+            run_context=granted,
+            emit=emit,
+        )
+        assert result.is_error is False
+
+        started = [d for n, d in events if n == "tool_call_started"]
+        assert started, "expected tool_call_started event"
+        assert started[0]["sandbox_tier"] == "job"
+        completed = [d for n, d in events if n == "tool_call_completed"]
+        assert completed and completed[0]["sandbox_tier"] == "job"

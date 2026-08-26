@@ -25,6 +25,7 @@ import signal
 import subprocess
 import sys
 from contextlib import contextmanager, suppress
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
@@ -37,8 +38,47 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+_TIER_RANK: dict[str, int] = {
+    "passthrough": 0,
+    "job": 1,
+    "firejail": 2,
+    "container": 3,
+}
+
+
+class SandboxTier(StrEnum):
+    """沙箱后端强度分级（passthrough < job < firejail < container）。
+
+    强度递增；``container`` 档（OS 级强隔离，如 Docker / bubblewrap / AppContainer）
+    为预留枚举，当前无实现后端。仅 ``container`` 档允许审批降级
+    （:attr:`can_relax_approval`）——弱后端（passthrough/job/firejail）一律维持原
+    审批要求（NFR-2，测试锁定）。
+    """
+
+    PASSTHROUGH = "passthrough"
+    JOB = "job"
+    FIREJAIL = "firejail"
+    CONTAINER = "container"
+
+    @property
+    def rank(self) -> int:
+        """强度序（0=最弱，3=最强），供强度比较。"""
+        return _TIER_RANK[self.value]
+
+    @property
+    def can_relax_approval(self) -> bool:
+        """是否允许审批降级——仅 ``container`` 档（OS 级强隔离）可降审批。
+
+        弱后端（passthrough/job/firejail）一律 False：不得因后端强度跳过审批
+        （NFR-2，测试锁定）。
+        """
+        return self is SandboxTier.CONTAINER
+
+
 class CommandRunner(Protocol):
     """执行一条 shell 命令的抽象后端。"""
+
+    tier: SandboxTier
 
     async def run(self, command: str, *, timeout: int) -> str:
         """执行 ``command``，返回 ``exit_code=...\nstdout:...\nstderr:...`` 格式结果。"""
@@ -155,6 +195,8 @@ async def _run_subprocess_exec(argv: Sequence[str], *, timeout: int) -> str:
 class PassthroughRunner:
     """直接执行后端（不隔离）——等价原 ``shell`` 工具的 ``create_subprocess_shell``。"""
 
+    tier = SandboxTier.PASSTHROUGH
+
     async def run(self, command: str, *, timeout: int) -> str:
         return await _run_subprocess_shell(command, timeout=timeout)
 
@@ -168,6 +210,8 @@ class FirejailBackend:
     ``--private`` 参数（OS 级文件系统隔离）。firejail 不可用时通过 :meth:`run` 优雅降级
     到 PassthroughRunner。
     """
+
+    tier = SandboxTier.FIREJAIL
 
     def __init__(
         self,
@@ -252,6 +296,8 @@ class WinJobBackend:
 
     Gracefully degrades to :class:`PassthroughRunner` when unavailable.
     """
+
+    tier = SandboxTier.JOB
 
     def __init__(self) -> None:
         self._available: bool | None = None
