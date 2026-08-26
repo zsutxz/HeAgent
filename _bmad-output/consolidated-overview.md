@@ -66,8 +66,10 @@
 | Epic 21–24 | quality-engineering | Coverage 工程化 / Benchmark / Docker 硬化 / CI 安全 |
 | Epic 25–28 | gui | GUI 终端界面（流式聊天 / 工具可视化 / 管理面板 / 可观测性） |
 | Epic 29–35 | interaction | 交互与可扩展层（审批 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 角色配置 / CLI 收尾） |
+| Epic 36–39 | file-security | 文件安全与凭证防护（凭证路径 deny / scrub_sensitive_env / SafetyGuard 凭证拦截，2026-08-24 交付） |
+| Epic 40 | sandbox-session | 沙箱会话化执行（会话目录 / 后端强度分级 / env 豁免 / SandboxSession，2026-08-26 规划） |
 
-**FR 编号空间**（互不冲突，引用须写全限定）：主线 `FR-1~24`；MCP V1 `FR-1~11`；MCP 升级准备 `FR-1~5`；MCP V2 `FR-A1~A7 / FR-B1~B4 / FR-C1~C4`；Sandbox `FR-S1~S7`；健壮性 `FR-A1~A5 + FR-C1~C6`；质量工程 `FR-Q1~Q20`；GUI `FR-G1~G24`；interaction `FR-A1~A5 / FR-B1~B3 / FR-C~G 各 1~4`。
+**FR 编号空间**（互不冲突，引用须写全限定）：主线 `FR-1~24`；MCP V1 `FR-1~11`；MCP 升级准备 `FR-1~5`；MCP V2 `FR-A1~A7 / FR-B1~B4 / FR-C1~C4`；Sandbox `FR-S1~S7`；健壮性 `FR-A1~A5 + FR-C1~C6`；质量工程 `FR-Q1~Q20`；GUI `FR-G1~G24`；interaction `FR-A1~A5 / FR-B1~B3 / FR-C~G 各 1~4`；文件安全 `FR-1~5`（本地）；沙箱会话化 `FR-1~5`（本地，FR-5 deferred）。
 
 > 另有历史「Epic 6」编号冲突：`epics/epic-01-10-主线规划周期/epics-integration.md`（2026-06-03）自称 Epic 6=AgentLoop 全模块集成，其后被自学习周期重新占用（Epic 6=Context Files，以 sprint-status 为准）；该文视作「Epic 1-5 之后的集成补丁」历史归档。
 

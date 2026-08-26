@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-08-24
+# last_updated: 2026-08-26
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -44,7 +44,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-08-24
+last_updated: 2026-08-26
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -401,6 +401,17 @@ development_status:
   epic-39: done  # 安全声明 + 文档同步（FR-F5）
   39-1-safety-docs-sync: done
   epic-39-retrospective: optional
+
+  # =============================================================
+  # 沙箱会话化周期 · Epic 40（2026-08-26 规划登记，FR-1~4；FR-5 execute_code RPC deferred）
+  # =============================================================
+
+  epic-40: backlog  # 沙箱会话化执行 — hermes 式后端抽象（FR-1~4）
+  40-1-session-workspace-directory: backlog
+  40-2-backend-strength-tiering: backlog
+  40-3-env-scrub-allowlist: backlog
+  40-4-sandbox-session-lifecycle: backlog
+  epic-40-retrospective: optional
 
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════

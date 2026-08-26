@@ -1,6 +1,6 @@
 """HeAgent - A self-improving AI Agent core framework."""
 
-__version__ = "0.3.1"
+__version__ = "0.4.0"
 
 from heagent.agent.loop import AgentLoop as Agent
 from heagent.config import Settings, get_settings
