@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Protocol
 from heagent.tools.runtime import RuntimeSlot
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping, Sequence
+    from collections.abc import Iterable, Iterator, Mapping, Sequence
 
 
 logger = logging.getLogger(__name__)
@@ -108,18 +108,33 @@ _SENSITIVE_ENV_SUFFIXES = (
 )
 
 
-def scrub_sensitive_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
+def scrub_sensitive_env(
+    env: Mapping[str, str] | None = None,
+    *,
+    allowlist: Iterable[str] | None = None,
+) -> dict[str, str]:
     """剥离敏感环境变量（``*_API_KEY`` / ``*_TOKEN`` 等），透传其余。纯函数。
 
     默认从 ``os.environ`` 取源。匹配按键名大小写不敏感（``.upper().endswith(suffix)``）。
-    非真正安全边界——仅减少 casual 凭证泄露，须 OS 级沙箱兜底。
+    ``allowlist`` 为豁免变量名集合（大小写不敏感精确匹配）：命中者即使匹配敏感后缀也保留；
+    未配置（None/空）时行为与现状一致（全剥离）。非真正安全边界——仅减少 casual 凭证泄露，
+    须 OS 级沙箱兜底。
     """
+    allowed = {name.upper() for name in (allowlist or ())}
     source = dict(os.environ if env is None else env)
     return {
         k: v
         for k, v in source.items()
-        if not any(k.upper().endswith(suffix) for suffix in _SENSITIVE_ENV_SUFFIXES)
+        if k.upper() in allowed
+        or not any(k.upper().endswith(suffix) for suffix in _SENSITIVE_ENV_SUFFIXES)
     }
+
+
+def _env_allowlist() -> frozenset[str]:
+    """从 Settings 读沙箱 env 豁免 allowlist（惰性 import 防顶层循环）。"""
+    from heagent.config import get_settings
+
+    return get_settings().sandbox_env_allowlist_set
 
 
 
@@ -149,7 +164,7 @@ async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
     kwargs: dict[str, object] = {"stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE}
     if sys.platform == "linux":
         kwargs["start_new_session"] = True
-    kwargs["env"] = scrub_sensitive_env()
+    kwargs["env"] = scrub_sensitive_env(allowlist=_env_allowlist())
     proc = await asyncio.create_subprocess_shell(command, **kwargs)  # type: ignore[arg-type]
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
@@ -173,7 +188,7 @@ async def _run_subprocess_exec(argv: Sequence[str], *, timeout: int) -> str:
     kwargs: dict[str, object] = {"stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE}
     if sys.platform == "linux":
         kwargs["start_new_session"] = True
-    kwargs["env"] = scrub_sensitive_env()
+    kwargs["env"] = scrub_sensitive_env(allowlist=_env_allowlist())
     proc = await asyncio.create_subprocess_exec(*argv, **kwargs)  # type: ignore[arg-type]
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)

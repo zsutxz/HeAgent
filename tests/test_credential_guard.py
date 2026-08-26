@@ -145,6 +145,33 @@ class TestScrubSensitiveEnv:
     def test_empty(self) -> None:
         assert scrub_sensitive_env({}) == {}
 
+    def test_allowlist_keeps_exempted_sensitive(self) -> None:
+        """FR-3: allowlist 命中的敏感变量保留，其余仍剥离。"""
+        env = {"GITHUB_TOKEN": "ghp_xxx", "OPENAI_API_KEY": "sk-yyy"}
+        result = scrub_sensitive_env(env, allowlist=["GITHUB_TOKEN"])
+        assert result["GITHUB_TOKEN"] == env["GITHUB_TOKEN"]
+        assert "OPENAI_API_KEY" not in result
+
+    def test_allowlist_empty_identical_to_default(self) -> None:
+        """FR-3: allowlist 空/None → 与现状逐字节一致（全剥离）。"""
+        env = {"OPENAI_API_KEY": "sk-yyy", "PATH": "/usr/bin"}
+        assert scrub_sensitive_env(env, allowlist=[]) == scrub_sensitive_env(env)
+        assert scrub_sensitive_env(env, allowlist=None) == scrub_sensitive_env(env)
+
+    def test_allowlist_case_insensitive(self) -> None:
+        """FR-3: allowlist 大小写不敏感精确匹配。"""
+        env = {"GITHUB_TOKEN": "ghp_xxx", "OPENAI_API_KEY": "sk-yyy"}
+        result = scrub_sensitive_env(env, allowlist=["github_token"])
+        assert result["GITHUB_TOKEN"] == env["GITHUB_TOKEN"]
+        assert "OPENAI_API_KEY" not in result
+
+    def test_allowlist_nonsensitive_noop(self) -> None:
+        """FR-3: allowlist 含非敏感变量不影响其保留（本就保留）。"""
+        env = {"PATH": "/usr/bin", "OPENAI_API_KEY": "sk-yyy"}
+        result = scrub_sensitive_env(env, allowlist=["PATH"])
+        assert result["PATH"] == "/usr/bin"
+        assert "OPENAI_API_KEY" not in result
+
 
 # ── FR-F1 / FR-F2：file handler 守卫 ───────────────────────────────
 

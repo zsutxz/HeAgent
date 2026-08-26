@@ -438,3 +438,22 @@ class TestGlobalConfig:
         # 项目层：源码声明为相对 ".env"
         assert isinstance(_isolate_dotenv_files, list) and len(_isolate_dotenv_files) == 2
         assert ".env" in _isolate_dotenv_files
+
+
+class TestSandboxEnvAllowlist:
+    """FR-3: ``sandbox_env_allowlist`` 解析（default 空 / 逗号分隔 / property set）。"""
+
+    def test_default_empty(self, tmp_path: Any) -> None:
+        s = Settings(_env_file=tmp_path / ".env")
+        assert s.sandbox_env_allowlist == ""
+        assert s.sandbox_env_allowlist_set == frozenset()
+
+    def test_comma_separated(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SANDBOX_ENV_ALLOWLIST", "GITHUB_TOKEN,CUSTOM_SECRET")
+        s = Settings()
+        assert s.sandbox_env_allowlist_set == frozenset({"GITHUB_TOKEN", "CUSTOM_SECRET"})
+
+    def test_whitespace_trimmed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SANDBOX_ENV_ALLOWLIST", " GITHUB_TOKEN , CUSTOM ")
+        s = Settings()
+        assert s.sandbox_env_allowlist_set == frozenset({"GITHUB_TOKEN", "CUSTOM"})

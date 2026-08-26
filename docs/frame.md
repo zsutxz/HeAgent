@@ -334,6 +334,8 @@ SafetyGuard
 
 **沙箱后端强度分级（FR-2，2026-08-26）：** 引入 `SandboxTier(StrEnum)` 四档强度枚举 `passthrough(0) < job(1) < firejail(2) < container(3)`——`PassthroughRunner`→`passthrough`、`WinJobBackend`→`job`、`FirejailBackend`→`firejail`；`container` 档（OS 级强隔离，如 Docker/bubblewrap/AppContainer）为预留枚举、当前无实现后端。`CommandRunner` Protocol 新增 `tier` 属性，执行路径经 `ToolExecutor._runner_tier()` 查询当前后端档位（无后端→`PASSTHROUGH`；自定义 runner 缺 `tier`→`PASSTHROUGH` fail-safe），并随 `SANDBOX_REQUIRED` emit 事件 `details["sandbox_tier"]` 可观测。审批降级（`SandboxTier.can_relax_approval`）仅 `container` 档返回 True——弱后端（passthrough/job/firejail）一律维持原审批要求（NFR-2 测试锁定）；该判定点当前**未接入** `PolicyEngine` 裁决（container 后端落地时的独立工作）。
 
+**沙箱 env 豁免（FR-3，2026-08-26）：** `scrub_sensitive_env(env, *, allowlist=...)` 新增 `allowlist` 参数（精确变量名、大小写不敏感）——命中 allowlist 的变量即使匹配敏感后缀也保留，其余仍剥离；未配置时行为与现状逐字节一致（默认全剥离）。配置入口 `Settings.sandbox_env_allowlist`（env `SANDBOX_ENV_ALLOWLIST`，逗号分隔）经 `sandbox_env_allowlist_set` property 解析，`_run_subprocess_shell`/`_run_subprocess_exec` 经 `_env_allowlist()` 读 Settings 传入。豁免仅作用于 env 剥离，不影响 `path_safety` 凭证 deny 与 `SafetyGuard` 凭证路径拦截。
+
 #### path_safety.py — 工作区路径校验（文件工具）
 
 文件类工具（`file_read` / `file_write` / `file_search` / `content_search`）写入前调用
@@ -628,6 +630,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | 文件安全与凭证防护非边界 | `path_safety` 凭证 deny / `scrub_sensitive_env` 均为 defense-in-depth 启发式层（2026-08-24），非真正边界——shell 工具仍可 `cat .env` 绕过，须 OS 级沙箱兜底 |
 | 沙箱会话目录非安全边界 | `sandbox_session_workspace`（FR-1，2026-08-26）只提供 per-run 目录约定：WinJob 仅把目录作为子进程 cwd（**零文件系统/网络隔离**），Firejail `--private` 亦非完美边界——须 OS 级沙箱兜底（见 4.4 sandbox.py） |
 | 沙箱后端分级预留 | `SandboxTier`（FR-2，2026-08-26）`container` 档仅预留枚举、无实现后端；审批降级（`can_relax_approval`）未接入 `PolicyEngine` 裁决，弱后端一律维持原审批要求——分级不产生新安全边界 |
+| 沙箱 env 豁免非安全边界 | `sandbox_env_allowlist`（FR-3，2026-08-26）仅豁免 `scrub_sensitive_env` 剥离，非真正边界——shell 工具仍可读任意环境变量，须 OS 级沙箱兜底 |
 
 ---
 

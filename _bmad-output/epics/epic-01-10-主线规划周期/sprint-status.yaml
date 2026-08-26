@@ -409,7 +409,7 @@ development_status:
   epic-40: in-progress  # 沙箱会话化执行 — hermes 式后端抽象（FR-1~4）
   40-1-session-workspace-directory: done
   40-2-backend-strength-tiering: done
-  40-3-env-scrub-allowlist: backlog
+  40-3-env-scrub-allowlist: done
   40-4-sandbox-session-lifecycle: backlog
   epic-40-retrospective: optional
 

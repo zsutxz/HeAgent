@@ -152,6 +152,9 @@ class Settings(BaseSettings):
     # RunContext.metadata["sandbox_workspace"] 送达后端（Firejail 作 --private 根、
     # WinJob 作子进程 cwd——目录约定，无文件系统隔离）。默认 False：行为与现状一致。
     sandbox_session_workspace: bool = Field(default=False)
+    # 沙箱 env 豁免 allowlist（FR-3）：逗号分隔的环境变量名（如 "GITHUB_TOKEN,CUSTOM_SECRET"）。
+    # 命中 allowlist 的变量不参与 scrub_sensitive_env 的敏感剥离。空 = 全剥离（现状）。
+    sandbox_env_allowlist: str = Field(default="")
 
     # ---- 审批参数（Epic 29） ----
     # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。
@@ -181,6 +184,11 @@ class Settings(BaseSettings):
     @property
     def approval_tool_list(self) -> list[str]:
         return _parse_comma_list(self.approval_tools)
+
+    @property
+    def sandbox_env_allowlist_set(self) -> frozenset[str]:
+        """沙箱 env 豁免 allowlist 的大小写不敏感集合（供 scrub_sensitive_env 匹配）。"""
+        return frozenset(name.upper() for name in _parse_comma_list(self.sandbox_env_allowlist))
 
     @property
     def routing_keyword_list(self) -> list[str]:
