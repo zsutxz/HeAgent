@@ -100,6 +100,7 @@ exceptions  types  config
 | Cron 调度 | 交互模式下启动 CronScheduler 后台任务 |
 | 重试中间件 | 通过 `make_retry_middleware()` 接入 AgentLoop |
 | Token 统计 | 每次回答后显示 `[tokens: N in + M out = T total]` |
+| 运行中断 | 交互模式运行期间按 Ctrl+Q 取消当前 run、回到输入状态（见 `terminal.py`） |
 
 ### 4.2 Agent 核心 (`agent/`)
 
@@ -644,6 +645,7 @@ src/heagent/
 ├── __init__.py
 ├── __main__.py              # python -m heagent 入口
 ├── cli.py                   # Click CLI（单次/交互模式）
+├── terminal.py              # 终端键盘监听（Ctrl+Q 打断运行，CLI 交互模式）
 ├── config.py                # pydantic-settings 配置
 ├── exceptions.py            # 异常层级
 ├── types.py                 # 共享 Pydantic 模型

@@ -39,6 +39,7 @@ from heagent.providers.openai import OpenAIProvider
 from heagent.providers.router import HeuristicRouter, RoutingProvider, active_model
 from heagent.providers.switchable import SwitchableProvider
 from heagent.slash import SlashRegistry, load_custom_commands
+from heagent.terminal import KeyInterruptMonitor
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
 from heagent.tools.registry import ToolRegistry
 
@@ -633,7 +634,7 @@ async def _run_chat(
         )
         dream_scheduler = _build_dream_scheduler(settings, provider, engine, session, skills, facts, profile, soul)
         registry = _build_slash_registry(provider, mcp_manager, session, session_id, loop, system)
-        click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message, or press Enter to exit.")
+        click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message (Ctrl+Q to interrupt, empty Enter to exit).")
 
         try:
             if scheduler:
@@ -670,7 +671,34 @@ async def _run_chat(
 
 
 async def _run_prompt(loop: AgentLoop, prompt: str, system: str | None, session_id: str) -> None:
-    """把一条用户消息提交给 loop 流式执行并打印结果（自定义斜杠命令复用）。"""
+    """把一条用户消息提交给 loop 流式执行并打印结果（自定义斜杠命令复用）。
+
+    运行期间后台监听 Ctrl+Q：按下即取消当前 run、回到交互输入状态（程序不退出）。
+    """
+    monitor = KeyInterruptMonitor()
+    monitor.start(asyncio.get_running_loop())
+    run_task = asyncio.create_task(_consume_stream(loop, prompt, system, session_id))
+    interrupt_wait: asyncio.Task[bool] | None = None
+    try:
+        if monitor.active:
+            interrupt_wait = asyncio.create_task(monitor.interrupted.wait())
+            done, _ = await asyncio.wait({run_task, interrupt_wait}, return_when=asyncio.FIRST_COMPLETED)
+            if interrupt_wait in done and not run_task.done():
+                run_task.cancel()
+        try:
+            await run_task
+        except asyncio.CancelledError:
+            click.echo("\n[interrupted] Run interrupted by Ctrl+Q.", err=True)
+    finally:
+        monitor.stop()
+        if interrupt_wait is not None:
+            interrupt_wait.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await interrupt_wait
+
+
+async def _consume_stream(loop: AgentLoop, prompt: str, system: str | None, session_id: str) -> None:
+    """消费 ``loop.run_stream`` 并打印；业务异常在此收口（CancelledError 透传）。"""
     try:
         async for event in loop.run_stream(prompt, system=system, session_id=session_id):
             _print_stream_event(event)
