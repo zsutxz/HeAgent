@@ -1164,3 +1164,39 @@ class TestSandboxBackendTier:
         assert started[0]["sandbox_tier"] == "job"
         completed = [d for n, d in events if n == "tool_call_completed"]
         assert completed and completed[0]["sandbox_tier"] == "job"
+
+
+class TestSandboxSessionBinding:
+    """FR-4: execute_in_sandbox 绑定 SandboxSession（handler 可取到）。"""
+
+    @pytest.mark.asyncio
+    async def test_execute_in_sandbox_binds_session(self, tmp_path: Path) -> None:
+        from heagent.tools.sandbox import get_sandbox_session, pop_session
+
+        class _RecordingRunner:
+            tier = SandboxTier.FIREJAIL
+
+            async def run(self, command, *, timeout):
+                return "recorded"
+
+        captured: list[object] = []
+
+        async def handler(call):
+            captured.append(get_sandbox_session())
+            return "ok"
+
+        session_dir = tmp_path / "session-dir"
+        session_dir.mkdir()
+        ctx = RunContext(workspace_root=str(tmp_path), metadata={"sandbox_workspace": str(session_dir)})
+        executor = ToolExecutor(sandbox_runner=_RecordingRunner())
+        await executor.execute_in_sandbox(
+            call=ToolCall(id="1", name="shell", arguments={"command": "pwd"}),
+            profile=None,
+            handler=handler,
+            run_context=ctx,
+        )
+        pop_session(ctx.run_id)  # 清理模块级会话缓存
+
+        assert len(captured) == 1
+        assert captured[0] is not None
+        assert captured[0].cwd == session_dir

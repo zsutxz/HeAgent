@@ -406,11 +406,11 @@ development_status:
   # 沙箱会话化周期 · Epic 40（2026-08-26 规划登记，FR-1~4；FR-5 execute_code RPC deferred）
   # =============================================================
 
-  epic-40: in-progress  # 沙箱会话化执行 — hermes 式后端抽象（FR-1~4）
+  epic-40: done  # 沙箱会话化执行 — hermes 式后端抽象（FR-1~4）
   40-1-session-workspace-directory: done
   40-2-backend-strength-tiering: done
   40-3-env-scrub-allowlist: done
-  40-4-sandbox-session-lifecycle: backlog
+  40-4-sandbox-session-lifecycle: done
   epic-40-retrospective: optional
 
 # Action items（来自 retrospective，跨周期跟踪）

@@ -540,3 +540,116 @@ def reset_sandbox_workspace() -> None:
 def bind_sandbox_workspace(path: Path | None) -> Iterator[None]:
     with _sandbox_workspace_slot.bind(path):
         yield
+
+
+# —— Sandbox session（FR-4：per-run 会话作用域，cwd 跨命令保持 + teardown）——
+
+_MARKER = "HEAGENT_CWD"
+
+
+class SandboxSession:
+    """同一 run 的沙箱会话作用域：持久 workspace + cwd 跨命令保持 + teardown。
+
+    通过在每条命令前 ``cd <cwd>``、末尾上报 ``$PWD``/``%CD%`` 捕获新 cwd 实现跨命令
+    状态保持——shell 子进程每次退出后 cwd 丢失，本类把「上一条命令结束时的 cwd」显式
+    记录并作为下一条命令的起点（多步操作「写→编译→运行」自然衔接）。
+
+    ⚠ 会话非安全边界：WinJob 仅目录约定、Firejail ``--private`` 亦非完美边界，须
+    OS 级沙箱兜底（见 CLAUDE.md）。
+    """
+
+    def __init__(self, workspace: str | Path) -> None:
+        self.workspace = Path(workspace)
+        self.cwd: Path = self.workspace
+
+    def _wrap(self, command: str, *, cmd_shell: bool) -> str:
+        """把命令包装成「在 session.cwd 下执行 + 末尾上报新 cwd（marker 行 + 路径行）」。"""
+        if cmd_shell:
+            # Windows cmd：cd /d 跨盘符；末尾 `cd`（无参）输出当前目录作 marker 行后一行。
+            # 注意不用 %CD%——cmd /c 在解析阶段就展开 %VAR%，拿不到 cd 后的目录。
+            return f'cd /d "{self.cwd}" && {command} & echo {_MARKER} & cd'
+        # POSIX sh：cd 后分组执行（分组不建子 shell，命令内 cd 影响 $PWD），末尾 printf 上报。
+        return f'cd "{self.cwd}" && {{ {command}; }}; printf "\n{_MARKER}\n%s\n" "$PWD"'
+
+    @staticmethod
+    def _extract_cwd(output: str) -> Path | None:
+        """从命令输出解析 marker 行后一行的新 cwd；未找到返回 None。"""
+        lines = output.splitlines()
+        for i, line in enumerate(lines):
+            if line.strip() == _MARKER and i + 1 < len(lines):
+                path = lines[i + 1].strip()
+                if path:
+                    return Path(path)
+        return None
+
+    @staticmethod
+    def _strip_marker(output: str) -> str:
+        """去掉输出里的 marker 行及其后一行（路径），返回干净输出。"""
+        lines = output.splitlines()
+        kept: list[str] = []
+        skip_next = False
+        for line in lines:
+            if line.strip() == _MARKER:
+                skip_next = True
+                continue
+            if skip_next:
+                skip_next = False
+                continue
+            kept.append(line)
+        return "\n".join(kept)
+
+    async def run(self, command: str, *, timeout: int) -> str:
+        """在当前会话执行命令：cd 前缀 + 执行 + cwd 回填 + 输出清理。"""
+        runner = get_command_runner()
+        # Windows 上 create_subprocess_shell 走 cmd.exe（Passthrough/WinJob 均 cmd）；
+        # Linux 上 sh（Passthrough/Firejail 均 POSIX）。WinJob 恒 cmd。
+        cmd_shell = isinstance(runner, WinJobBackend) or sys.platform == "win32"
+        result = await runner.run(self._wrap(command, cmd_shell=cmd_shell), timeout=timeout)
+        new_cwd = self._extract_cwd(result)
+        if new_cwd is not None:
+            self.cwd = new_cwd
+        return self._strip_marker(result)
+
+    async def close(self, *, keep: bool) -> None:
+        """teardown：按配置清理会话目录（保留/删除）。"""
+        if not keep:
+            await asyncio.to_thread(shutil.rmtree, self.workspace, ignore_errors=True)
+
+
+_sandbox_sessions: dict[str, SandboxSession] = {}
+
+
+def get_or_create_session(run_id: str, workspace: str | Path) -> SandboxSession:
+    """按 run_id 获取/创建会话（同一 run 复用同一会话）。"""
+    session = _sandbox_sessions.get(run_id)
+    if session is None:
+        session = SandboxSession(workspace)
+        _sandbox_sessions[run_id] = session
+    return session
+
+
+def pop_session(run_id: str) -> SandboxSession | None:
+    """取出并移除会话（teardown 用）。"""
+    return _sandbox_sessions.pop(run_id, None)
+
+
+def clear_sandbox_sessions() -> None:
+    """清空会话缓存（测试用）。"""
+    _sandbox_sessions.clear()
+
+
+_sandbox_session_slot: RuntimeSlot[SandboxSession] = RuntimeSlot[SandboxSession]("heagent_sandbox_session")
+
+
+def get_sandbox_session() -> SandboxSession | None:
+    return _sandbox_session_slot.get()
+
+
+def reset_sandbox_session() -> None:
+    _sandbox_session_slot.reset()
+
+
+@contextmanager
+def bind_sandbox_session(session: SandboxSession | None) -> Iterator[None]:
+    with _sandbox_session_slot.bind(session):
+        yield

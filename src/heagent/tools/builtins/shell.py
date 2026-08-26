@@ -11,10 +11,13 @@
 from __future__ import annotations
 
 from heagent.tools.decorator import tool
-from heagent.tools.sandbox import get_command_runner
+from heagent.tools.sandbox import get_command_runner, get_sandbox_session
 
 
 @tool
 async def shell(command: str, timeout: int = 120) -> str:
     """Execute a shell command and return output."""
+    session = get_sandbox_session()
+    if session is not None:
+        return await session.run(command, timeout=timeout)
     return await get_command_runner().run(command, timeout=timeout)

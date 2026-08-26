@@ -155,6 +155,8 @@ class Settings(BaseSettings):
     # 沙箱 env 豁免 allowlist（FR-3）：逗号分隔的环境变量名（如 "GITHUB_TOKEN,CUSTOM_SECRET"）。
     # 命中 allowlist 的变量不参与 scrub_sensitive_env 的敏感剥离。空 = 全剥离（现状）。
     sandbox_env_allowlist: str = Field(default="")
+    # 沙箱会话目录保留开关（FR-4）：True = run 结束后保留会话目录；False（默认）= 删除。
+    sandbox_session_keep: bool = Field(default=False)
 
     # ---- 审批参数（Epic 29） ----
     # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。

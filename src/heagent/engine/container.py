@@ -200,3 +200,16 @@ class EngineContainer:
             # 开关关闭：清除 caller 预含键——残留会使 executor 误 bind 过期目录。
             ctx.metadata.pop("sandbox_workspace", None)
         return ctx
+
+    async def close_run(self, run_context: RunContext) -> None:
+        """run 结束 teardown：清理该 run 的沙箱会话目录（保留/删除）。
+
+        FR-4：正常结束路径（AgentLoop._persist_and_cache 调用）。crash 孤儿目录无
+        GC/保留策略属 deferred（见 deferred-work.md）。会话非安全边界（须 OS 级沙箱兜底）。
+        """
+        from heagent.config import get_settings
+        from heagent.tools.sandbox import pop_session
+
+        session = pop_session(run_context.run_id)
+        if session is not None:
+            await session.close(keep=get_settings().sandbox_session_keep)

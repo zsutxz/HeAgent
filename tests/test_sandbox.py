@@ -14,6 +14,7 @@ import pytest
 from heagent.tools.sandbox import (
     FirejailBackend,
     PassthroughRunner,
+    SandboxSession,
     SandboxTier,
     WinJobBackend,
     _kill_and_reap,
@@ -1070,3 +1071,87 @@ class TestSandboxTier:
     def test_container_tier_reserved_can_relax(self) -> None:
         """container 档（预留，无实现后端）才允许审批降级。"""
         assert SandboxTier.CONTAINER.can_relax_approval is True
+
+
+# ── FR-4: SandboxSession 会话作用域 ──────────────────────────────────────────
+
+
+class TestSandboxSession:
+    """FR-4: SandboxSession 会话作用域 + cwd 跨命令保持 + teardown。"""
+
+    def test_initial_cwd_is_workspace(self, tmp_path: Path) -> None:
+        s = SandboxSession(tmp_path)
+        assert s.cwd == tmp_path
+        assert s.workspace == tmp_path
+
+    def test_wrap_posix(self, tmp_path: Path) -> None:
+        s = SandboxSession(tmp_path)
+        wrapped = s._wrap("pwd", cmd_shell=False)
+        assert str(tmp_path) in wrapped
+        assert "HEAGENT_CWD" in wrapped
+        assert "$PWD" in wrapped
+
+    def test_wrap_cmd(self, tmp_path: Path) -> None:
+        s = SandboxSession(tmp_path)
+        wrapped = s._wrap("pwd", cmd_shell=True)
+        assert str(tmp_path) in wrapped
+        assert "HEAGENT_CWD" in wrapped
+
+    def test_extract_cwd(self) -> None:
+        out = "exit_code=0\nstdout:\nHEAGENT_CWD\n/tmp/run/sub\nstderr:\n"
+        assert SandboxSession._extract_cwd(out) == Path("/tmp/run/sub")
+
+    def test_extract_cwd_missing(self) -> None:
+        assert SandboxSession._extract_cwd("exit_code=0\nstdout:\nhello\n") is None
+
+    def test_strip_marker(self) -> None:
+        out = "exit_code=0\nstdout:\nhello\nHEAGENT_CWD\n/tmp/x\nstderr:\n"
+        stripped = SandboxSession._strip_marker(out)
+        assert "HEAGENT_CWD" not in stripped
+        assert "hello" in stripped
+
+    @pytest.mark.asyncio
+    async def test_run_wraps_updates_cwd_strips(self, tmp_path: Path) -> None:
+        """run() 用 mock runner：命令被包装（cd 前缀 + marker）、cwd 回填、marker 去除。"""
+        captured: list[str] = []
+
+        class _Runner:
+            tier = SandboxTier.FIREJAIL
+
+            async def run(self, command, *, timeout):
+                captured.append(command)
+                return "exit_code=0\nstdout:\nhello\nHEAGENT_CWD\n/fake/sub\nstderr:\n"
+
+        s = SandboxSession(tmp_path)
+        with bind_command_runner(_Runner()):
+            result = await s.run("echo hi", timeout=10)
+        assert str(tmp_path) in captured[0]
+        assert "HEAGENT_CWD" in captured[0]
+        assert s.cwd == Path("/fake/sub")
+        assert "HEAGENT_CWD" not in result
+        assert "hello" in result
+
+    @pytest.mark.asyncio
+    async def test_cwd_persists_across_commands(self, tmp_path: Path) -> None:
+        """真实 shell：cd sub 后 session.cwd 正确更新，文件落在 sub 下（cwd 跨命令保持核心）。
+
+        跨平台命令（mkdir/cd/echo 为 cmd 与 sh 通用）；不依赖 pwd/ls（POSIX-only）。
+        """
+        s = SandboxSession(tmp_path)
+        with bind_command_runner(PassthroughRunner()):
+            await s.run("mkdir sub && cd sub && echo hi > a", timeout=15)
+        assert s.cwd == tmp_path / "sub"
+        assert (tmp_path / "sub" / "a").exists()
+
+    @pytest.mark.asyncio
+    async def test_close_removes_workspace(self, tmp_path: Path) -> None:
+        s = SandboxSession(tmp_path)
+        (tmp_path / "x.txt").write_text("hi", encoding="utf-8")
+        await s.close(keep=False)
+        assert not tmp_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_close_keeps_workspace(self, tmp_path: Path) -> None:
+        s = SandboxSession(tmp_path)
+        await s.close(keep=True)
+        assert tmp_path.exists()

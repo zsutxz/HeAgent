@@ -36,7 +36,9 @@ from heagent.tools.sandbox import (
     SandboxTier,
     bind_command_runner,
     bind_sandbox_profile,
+    bind_sandbox_session,
     bind_sandbox_workspace,
+    get_or_create_session,
 )
 from heagent.types import ToolCall, ToolResult
 
@@ -308,9 +310,12 @@ class ToolExecutor:
             return await handler(call)
         workspace = _session_workspace(run_context)
         with bind_command_runner(self.sandbox_runner), bind_sandbox_profile(profile):
-            if workspace is None:
+            # workspace 非 None 蕴含 run_context 非 None（_session_workspace(None) → None）；
+            # 用 or 收窄类型（避免 bandit S101 assert）。
+            if workspace is None or run_context is None:
                 return await handler(call)
-            with bind_sandbox_workspace(workspace):
+            session = get_or_create_session(run_context.run_id, workspace)
+            with bind_sandbox_workspace(workspace), bind_sandbox_session(session):
                 return await handler(call)
 
     def _policy_error(

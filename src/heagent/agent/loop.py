@@ -649,6 +649,7 @@ class AgentLoop:
         self.last_context_tokens = count_tokens(state.messages)
         if self.engine.hooks is not None:
             await self.engine.hooks.run_session(SESSION_END, run_context)
+        await self.engine.close_run(run_context)
 
     # ------------------------------------------------------------------
     # 迭代控制
