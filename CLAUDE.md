@@ -47,6 +47,9 @@ python -m heagent "你的提示词"
 
 # 运行 CLI（交互式聊天模式）
 python -m heagent
+
+# 运行 TUI（Textual 终端界面，懒加载）
+python -m heagent gui
 ```
 
 ## 文档布局
@@ -74,14 +77,14 @@ python -m heagent
 
 ## 架构骨架
 
-HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编排 LLM ↔ 工具执行循环；CLI 入口经 `asyncio.run()` 桥接。**完整数据流、模块详解、调用链见 `docs/frame.md`。**
+HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编排 LLM ↔ 工具执行循环；CLI 入口经 `asyncio.run()` 桥接，`heagent gui` 子命令懒加载 Textual TUI。**完整数据流、模块详解、调用链见 `docs/frame.md`。**
 
 模块依赖 DAG：
 
 ```
 exceptions  types  config
     ↑          ↑       ↑
-    └─ providers ─┴── tools ─┴── context ── engine ── agent
+    └─ providers ─┴── tools ─┴── context ── engine ── agent ── gui
                             ↑              ↑
                         memory ─────────────┘
 ```
@@ -89,12 +92,14 @@ exceptions  types  config
 模块一句话清单：
 
 - `agent/` — 顶层编排（`AgentLoop` 主循环 + `middleware` + `sub` 子 Agent）
-- `providers/` — LLM provider（OpenAI 兼容 / Anthropic）+ 多层容错（`chain` 跨 provider 回退 / `key_rotation` 多密钥轮换 / `retry` 指数退避 / `switchable` 运行时 vendor 切换）
+- `providers/` — LLM provider（OpenAI 兼容：DeepSeek / Kimi / GLM 等 + Anthropic 原生）+ 智能路由（`router` RoutingProvider）+ 多层容错（`chain` 跨 provider 回退 / `key_rotation` 多密钥轮换 / `retry` 指数退避 / `switchable` 运行时 vendor 切换）
 - `tools/` — `@tool` 注册（`registry`）+ `SafetyGuard`（shell 黑名单）+ `path_safety` + `builtins/`（24 工具）+ `mcp/` 桥接
 - `engine/` — 运行时治理（`PolicyEngine` 准入/审批/沙箱裁决 + `ToolExecutor` 分发 + `store`/`ledger`/`observability`），经 `EngineContainer` 注入 `AgentLoop`
 - `context/` — 上下文压缩 / 会话持久化 / 上下文文件加载 / token 估算
 - `memory/` — 自学习闭环（`skills`/`facts`/`profile`/`soul`）
 - `cron/` — 后台定时调度
+- `gui/` — Textual TUI（`app`/`bridge`/`screens`/`widgets`），经 `AgentBridge` 持有并观察 `AgentLoop`
+- `cli.py` / `slash.py` / `terminal.py` — CLI 入口（单次 + 交互模式）；`slash` 为注册表驱动斜杠命令 + 用户自定义命令（`.heagent/commands/*.md`），零 heagent 依赖
 
 硬约束（违反即架构错误）：
 

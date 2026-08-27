@@ -1,15 +1,16 @@
-"""终端键盘监听：运行期间按 Ctrl+Q 打断当前 run（对齐 Claude Code 双 Esc 语义）。
+"""终端键盘监听：运行期间按 Enter 打断当前 run。
 
-``KeyInterruptMonitor`` 在后台线程监听标准输入，检测到 Ctrl+Q（ASCII 0x11/DC1）
-后经 ``loop.call_soon_threadsafe`` 置位 ``asyncio.Event``，供 CLI 交互模式取消
-当前正在执行的 ``AgentLoop.run_stream`` 并回到输入状态（程序不退出）。
+``KeyInterruptMonitor`` 在后台线程监听标准输入，检测到 Enter（CR=0x0D / LF=0x0A，
+终端经 ICRNL 可能把 CR 转成 LF）后经 ``loop.call_soon_threadsafe`` 置位
+``asyncio.Event``，供 CLI 交互模式取消当前正在执行的 ``AgentLoop.run_stream``
+并回到输入状态（程序不退出）。
 
 跨平台实现：
 - Windows：``msvcrt.kbhit`` + ``getwch`` 轮询控制台输入；
 - POSIX：``select`` + 原始终端模式（关 ICANON/ECHO/IXON）。
 
-关 IXON 是必须的——否则终端驱动把 Ctrl+Q 当作 XON 流控信号吞掉，程序读不到该字节。
-仅改输入标志、保留 OPOST，流式输出排版不受影响。
+关 IXON 以禁用 XON/XOFF 流控，避免运行期间按 Ctrl+S 冻结输出流。仅改输入标志、
+保留 OPOST，流式输出排版不受影响。
 
 非 tty 标准输入（管道/重定向）时自动停用（``active=False``），run 正常跑完。
 """
@@ -32,8 +33,13 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Ctrl+Q = DC1 = 0x11 = 17
-CTRL_Q = 17
+# Enter = CR(0x0D) / LF(0x0A)。POSIX raw 模式下 ICRNL 默认开启，Enter 可能以 LF 到达；
+# Windows msvcrt.getwch 按 Enter 返回 CR。二者都算打断键。
+ENTER_CR = 13
+ENTER_LF = 10
+
+# 打断键集合：Enter（CR / LF）。
+INTERRUPT_KEYS = frozenset({ENTER_CR, ENTER_LF})
 
 
 def _stdin_is_tty() -> bool:
@@ -52,7 +58,7 @@ def _unix_raw_mode() -> Iterator[None]:
     fd = sys.stdin.fileno()
     old = t.tcgetattr(fd)
     new = t.tcgetattr(fd)
-    new[0] &= ~t.IXON  # c_iflag：关输出流控，让 Ctrl+Q 到达
+    new[0] &= ~t.IXON  # c_iflag：关输出流控（禁用 XON/XOFF）
     new[3] &= ~(t.ICANON | t.ECHO)  # c_lflag：关 canonical/回显
     t.tcsetattr(fd, t.TCSANOW, new)
     try:
@@ -62,7 +68,7 @@ def _unix_raw_mode() -> Iterator[None]:
 
 
 class KeyInterruptMonitor:
-    """后台监听 Ctrl+Q；命中即线程安全地置位 ``interrupted`` 事件。"""
+    """后台监听 Enter；命中即线程安全地置位 ``interrupted`` 事件。"""
 
     def __init__(self) -> None:
         self.interrupted: asyncio.Event = asyncio.Event()
@@ -107,13 +113,13 @@ class KeyInterruptMonitor:
     # -- 内部 ---------------------------------------------------------
 
     def _poll(self, loop: AbstractEventLoop) -> None:
-        """后台线程主循环：读键直到命中 Ctrl+Q 或 stop；非 Ctrl+Q 键忽略。"""
+        """后台线程主循环：读键直到命中打断键或 stop；非打断键忽略。"""
         try:
             while not self._stop.is_set():
                 key = self._read_key()
                 if key is None:
                     return  # stop 置位
-                if key == CTRL_Q:
+                if key in INTERRUPT_KEYS:
                     loop.call_soon_threadsafe(self.interrupted.set)
                     return
         except Exception as exc:  # 终端关闭 / stdin 不可读：静默退出，不影响主流程

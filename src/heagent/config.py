@@ -57,7 +57,7 @@ class Settings(BaseSettings):
 
     # ---- API 基础 URL（用于 OpenAI 兼容的第三方服务） ----
     deepseek_base_url: str | None = None  # DeepSeek 默认 https://api.deepseek.com/v1
-    openai_base_url: str | None = None  # OpenAI 兼容服务（如智谱 AI）
+    openai_base_url: str | None = None  # OpenAI 兼容服务（如 vLLM / 自营代理）
     anthropic_base_url: str | None = None  # Anthropic 代理地址
     kimi_base_url: str | None = None  # Kimi 默认 https://api.moonshot.cn/v1
     glm_base_url: str | None = None  # GLM 默认 https://open.bigmodel.cn/api/paas/v4

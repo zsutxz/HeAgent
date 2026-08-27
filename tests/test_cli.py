@@ -57,14 +57,28 @@ class TestCLI:
         assert "--system" in result.output
         assert "--sandbox" in result.output
 
-    def test_interactive_exits_on_empty_input(self, monkeypatch):
-        """Interactive mode exits gracefully on empty input."""
+    def test_interactive_empty_enter_then_eof_exits(self, monkeypatch):
+        """Interactive mode no longer exits on empty Enter; exits cleanly on EOF."""
         monkeypatch.setenv("OPENAI_API_KEY", "test-key")
         runner = CliRunner()
-        # Simulate empty input (user presses Enter immediately)
+        # Simulate empty Enter then EOF (input stream exhausted)
         result = runner.invoke(main, input="\n")
-        # Should exit cleanly, not crash
+        # Empty Enter is skipped (no exit); EOF then exits cleanly, not crash
         assert result.exit_code == 0
+
+    def test_interactive_empty_enter_is_skipped(self, monkeypatch):
+        """空回车不退出：空行被跳过，后续消息仍进入 run。"""
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        runner = CliRunner()
+        called: list[str] = []
+
+        async def fake_run_prompt(loop, prompt, system, session_id):
+            called.append(prompt)
+
+        monkeypatch.setattr("heagent.cli._run_prompt", fake_run_prompt)
+        result = runner.invoke(main, input="\nhello\n")
+        assert result.exit_code == 0
+        assert called == ["hello"]
 
     def test_model_flag_accepted(self, monkeypatch):
         """``heagent run --model`` is accepted by the run subcommand."""

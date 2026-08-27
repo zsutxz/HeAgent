@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from heagent.terminal import CTRL_Q, KeyInterruptMonitor
+from heagent.terminal import ENTER_CR, ENTER_LF, KeyInterruptMonitor
 
 
 class _FakeLoop:
@@ -14,16 +14,18 @@ class _FakeLoop:
         fn(*args, **kwargs)
 
 
-def test_poll_triggers_interrupt_on_ctrl_q(monkeypatch) -> None:
-    monitor = KeyInterruptMonitor()
-    monkeypatch.setattr(monitor, "_read_key", lambda: CTRL_Q)
-    monitor._poll(_FakeLoop())
-    assert monitor.interrupted.is_set()
+def test_poll_triggers_interrupt_on_enter(monkeypatch) -> None:
+    """Enter（CR / LF）均触发打断（方案 A：空回车打断）。"""
+    for key in (ENTER_CR, ENTER_LF):
+        monitor = KeyInterruptMonitor()
+        monkeypatch.setattr(monitor, "_read_key", lambda k=key: k)
+        monitor._poll(_FakeLoop())
+        assert monitor.interrupted.is_set(), f"Enter key {key} should interrupt"
 
 
-def test_poll_ignores_other_keys_until_ctrl_q(monkeypatch) -> None:
+def test_poll_ignores_other_keys_until_enter(monkeypatch) -> None:
     monitor = KeyInterruptMonitor()
-    keys = iter([ord("x"), ord("a"), CTRL_Q])
+    keys = iter([ord("x"), ord("a"), ENTER_CR])
     monkeypatch.setattr(monitor, "_read_key", lambda: next(keys))
     monitor._poll(_FakeLoop())
     assert monitor.interrupted.is_set()

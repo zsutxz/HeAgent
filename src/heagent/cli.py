@@ -634,7 +634,7 @@ async def _run_chat(
         )
         dream_scheduler = _build_dream_scheduler(settings, provider, engine, session, skills, facts, profile, soul)
         registry = _build_slash_registry(provider, mcp_manager, session, session_id, loop, system)
-        click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message (Ctrl+Q to interrupt, empty Enter to exit).")
+        click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message (Enter to interrupt, Ctrl+C to exit).")
 
         try:
             if scheduler:
@@ -650,7 +650,7 @@ async def _run_chat(
                     break
 
                 if not user_input.strip():
-                    break
+                    continue
 
                 if user_input.startswith("/"):
                     handled = await _handle_slash(user_input, registry)
@@ -673,7 +673,7 @@ async def _run_chat(
 async def _run_prompt(loop: AgentLoop, prompt: str, system: str | None, session_id: str) -> None:
     """把一条用户消息提交给 loop 流式执行并打印结果（自定义斜杠命令复用）。
 
-    运行期间后台监听 Ctrl+Q：按下即取消当前 run、回到交互输入状态（程序不退出）。
+    运行期间后台监听 Enter：按下即取消当前 run、回到交互输入状态（程序不退出）。
     """
     monitor = KeyInterruptMonitor()
     monitor.start(asyncio.get_running_loop())
@@ -688,7 +688,7 @@ async def _run_prompt(loop: AgentLoop, prompt: str, system: str | None, session_
         try:
             await run_task
         except asyncio.CancelledError:
-            click.echo("\n[interrupted] Run interrupted by Ctrl+Q.", err=True)
+            click.echo("\n[interrupted] Run interrupted by Enter.", err=True)
     finally:
         monitor.stop()
         if interrupt_wait is not None:
