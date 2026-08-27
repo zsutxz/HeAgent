@@ -90,6 +90,7 @@ class KeyInterruptMonitor:
         self._stack = contextlib.ExitStack()
         if os.name == "posix":
             self._stack.enter_context(_unix_raw_mode())
+        self._drain_pending_keys()
         self._active = True
         self._thread = threading.Thread(
             target=self._poll,
@@ -111,6 +112,27 @@ class KeyInterruptMonitor:
         self._active = False
 
     # -- 内部 ---------------------------------------------------------
+
+    def _drain_pending_keys(self) -> None:
+        """丢弃监听启动前残留在输入缓冲的按键（如提交输入时双击 Enter 的第二次）。
+
+        不排空的话，残留 Enter 会被监听线程立即读走、误打断刚启动的 run。
+        POSIX 须在 raw 模式下排空（canonical 模式 select 只对完整行报告可读）。
+        """
+        if os.name == "nt":
+            import msvcrt
+
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+        else:
+            import select
+
+            while True:
+                ready, _, _ = select.select([sys.stdin], [], [], 0)
+                if not ready:
+                    break
+                if not sys.stdin.buffer.read(1):
+                    break
 
     def _poll(self, loop: AbstractEventLoop) -> None:
         """后台线程主循环：读键直到命中打断键或 stop；非打断键忽略。"""

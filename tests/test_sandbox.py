@@ -1150,6 +1150,60 @@ class TestSandboxSession:
         await s.close(keep=False)
         assert not tmp_path.exists()
 
+    # ---- 退出码保持（bugfix：包装链尾命令会重置进程退出码）----
+
+    def test_extract_cwd_with_rc_marker(self) -> None:
+        """marker 行携带 rc（Windows 形态 ``HEAGENT_CWD 3``）时 cwd 解析不受影响。"""
+        out = "exit_code=0\nstdout:\nHEAGENT_CWD 3\n/tmp/run/sub\nstderr:\n"
+        assert SandboxSession._extract_cwd(out) == Path("/tmp/run/sub")
+
+    def test_extract_rc(self) -> None:
+        out = "exit_code=0\nstdout:\nHEAGENT_CWD 3\n/tmp/x\nstderr:\n"
+        assert SandboxSession._extract_rc(out) == 3
+
+    def test_extract_rc_missing(self) -> None:
+        """POSIX marker 不带 rc（进程级退出码已复原）→ None，不触发回填。"""
+        assert SandboxSession._extract_rc("exit_code=0\nstdout:\nHEAGENT_CWD\n/tmp\n") is None
+
+    def test_strip_marker_with_rc(self) -> None:
+        out = "exit_code=0\nstdout:\nhello\nHEAGENT_CWD 3\n/tmp/x\nstderr:\n"
+        stripped = SandboxSession._strip_marker(out)
+        assert "HEAGENT_CWD" not in stripped
+        assert "hello" in stripped
+
+    @pytest.mark.asyncio
+    async def test_run_rewrites_exit_code_from_marker(self, tmp_path: Path) -> None:
+        """Windows 形态：进程级 exit_code=0（链尾 cd 重置 ERRORLEVEL），marker 带回真实 rc → 回填。"""
+
+        class _Runner:
+            tier = SandboxTier.FIREJAIL
+
+            async def run(self, command, *, timeout):
+                return "exit_code=0\nstdout:\nhello\nHEAGENT_CWD 7\n/fake/sub\nstderr:\n"
+
+        s = SandboxSession(tmp_path)
+        with bind_command_runner(_Runner()):
+            result = await s.run("anything", timeout=10)
+        assert result.startswith("exit_code=7")
+        assert "HEAGENT_CWD" not in result
+        assert s.cwd == Path("/fake/sub")
+
+    @pytest.mark.asyncio
+    async def test_run_failure_exit_code_preserved(self, tmp_path: Path) -> None:
+        """失败命令退出码必须透传（真实 shell，LLM 靠 exit_code 判断失败；回归：包装后恒 0）。"""
+        s = SandboxSession(tmp_path)
+        with bind_command_runner(PassthroughRunner()):
+            result = await s.run('python -c "import sys; sys.exit(3)"', timeout=30)
+        assert result.startswith("exit_code=3")
+
+    @pytest.mark.asyncio
+    async def test_run_success_exit_code_zero(self, tmp_path: Path) -> None:
+        """成功命令退出码保持 0（修复不引入反向回归）。"""
+        s = SandboxSession(tmp_path)
+        with bind_command_runner(PassthroughRunner()):
+            result = await s.run("echo ok_session", timeout=15)
+        assert result.startswith("exit_code=0")
+
     @pytest.mark.asyncio
     async def test_close_keeps_workspace(self, tmp_path: Path) -> None:
         s = SandboxSession(tmp_path)

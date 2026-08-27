@@ -563,33 +563,54 @@ class SandboxSession:
         self.cwd: Path = self.workspace
 
     def _wrap(self, command: str, *, cmd_shell: bool) -> str:
-        """把命令包装成「在 session.cwd 下执行 + 末尾上报新 cwd（marker 行 + 路径行）」。"""
+        """把命令包装成「在 session.cwd 下执行 + 末尾上报新 cwd（marker 行 + 路径行）+ 退出码保持」。
+
+        退出码保持：链尾上报命令（echo/cd/printf）会重置进程级退出码——POSIX 以
+        ``__rc=$?; exit "$__rc"`` 复原；Windows 经 ``call echo %^ERRORLEVEL%`` 把真实 rc 随
+        marker 行带回（``%^`` 转义 + ``call`` 重解析拿执行后值），由 :meth:`run` 回填。
+        用户命令为 ``exit N`` 时 shell 直接终止、marker 缺失：进程 rc 已正确，cwd 保持
+        上一条（固有限制）。
+        """
         if cmd_shell:
             # Windows cmd：cd /d 跨盘符；末尾 `cd`（无参）输出当前目录作 marker 行后一行。
-            # 注意不用 %CD%——cmd /c 在解析阶段就展开 %VAR%，拿不到 cd 后的目录。
-            return f'cd /d "{self.cwd}" && {command} & echo {_MARKER} & cd'
-        # POSIX sh：cd 后分组执行（分组不建子 shell，命令内 cd 影响 $PWD），末尾 printf 上报。
-        return f'cd "{self.cwd}" && {{ {command}; }}; printf "\n{_MARKER}\n%s\n" "$PWD"'
+            # 注意不用 %CD%——cmd /c 在解析阶段就展开 %VAR%，拿不到 cd 后的目录；
+            # 同理 %ERRORLEVEL% 直接展开拿到的是执行前旧值，须 %^ 转义 + call 重解析。
+            return f'cd /d "{self.cwd}" && {command} & call echo {_MARKER} %^ERRORLEVEL% & cd'
+        # POSIX sh：cd 后分组执行（分组不建子 shell，命令内 cd 影响 $PWD）；先捕获 rc、
+        # printf 上报 cwd，再 exit 复原真实退出码。
+        return f'cd "{self.cwd}" && {{ {command}; }}; __rc=$?; printf "\n{_MARKER}\n%s\n" "$PWD"; exit "$__rc"'
 
     @staticmethod
     def _extract_cwd(output: str) -> Path | None:
-        """从命令输出解析 marker 行后一行的新 cwd；未找到返回 None。"""
+        """从命令输出解析 marker 行（``{MARKER}`` 或 ``{MARKER} <rc>``）后一行的新 cwd；未找到返回 None。"""
         lines = output.splitlines()
         for i, line in enumerate(lines):
-            if line.strip() == _MARKER and i + 1 < len(lines):
+            parts = line.strip().split()
+            if parts and parts[0] == _MARKER and i + 1 < len(lines):
                 path = lines[i + 1].strip()
                 if path:
                     return Path(path)
         return None
 
     @staticmethod
+    def _extract_rc(output: str) -> int | None:
+        """从 marker 行（``{MARKER} <rc>``）解析用户命令真实退出码；未找到/非整数返回 None。"""
+        for line in output.splitlines():
+            parts = line.strip().split()
+            if len(parts) >= 2 and parts[0] == _MARKER:
+                with suppress(ValueError):
+                    return int(parts[1])
+        return None
+
+    @staticmethod
     def _strip_marker(output: str) -> str:
-        """去掉输出里的 marker 行及其后一行（路径），返回干净输出。"""
+        """去掉输出里的 marker 行（含可选 rc 尾巴）及其后一行（路径），返回干净输出。"""
         lines = output.splitlines()
         kept: list[str] = []
         skip_next = False
         for line in lines:
-            if line.strip() == _MARKER:
+            parts = line.strip().split()
+            if parts and parts[0] == _MARKER:
                 skip_next = True
                 continue
             if skip_next:
@@ -598,8 +619,21 @@ class SandboxSession:
             kept.append(line)
         return "\n".join(kept)
 
+    @staticmethod
+    def _rewrite_exit_code(result: str, rc: int) -> str:
+        """把结果首行 ``exit_code=`` 重写为用户命令真实退出码。
+
+        Windows cmd 链尾的 echo/cd 会重置 ERRORLEVEL，进程级返回码恒 0——真实 rc 经
+        marker 行带回，此处回填。非 ``exit_code=`` 开头（如超时结果）不改写。
+        """
+        if not result.startswith("exit_code="):
+            return result
+        nl = result.find("\n")
+        rest = result[nl:] if nl >= 0 else ""
+        return f"exit_code={rc}{rest}"
+
     async def run(self, command: str, *, timeout: int) -> str:
-        """在当前会话执行命令：cd 前缀 + 执行 + cwd 回填 + 输出清理。"""
+        """在当前会话执行命令：cd 前缀 + 执行 + cwd/rc 回填 + 输出清理。"""
         runner = get_command_runner()
         # Windows 上 create_subprocess_shell 走 cmd.exe（Passthrough/WinJob 均 cmd）；
         # Linux 上 sh（Passthrough/Firejail 均 POSIX）。WinJob 恒 cmd。
@@ -608,6 +642,9 @@ class SandboxSession:
         new_cwd = self._extract_cwd(result)
         if new_cwd is not None:
             self.cwd = new_cwd
+        rc = self._extract_rc(result)
+        if rc is not None:
+            result = self._rewrite_exit_code(result, rc)
         return self._strip_marker(result)
 
     async def close(self, *, keep: bool) -> None:

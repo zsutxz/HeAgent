@@ -73,7 +73,10 @@ class TestReadonlyAnnotations:
     def test_readonly_tools_marked(self) -> None:
         """内置只读工具应有 readOnlyHint=True；写工具不应有。"""
         registry = ToolRegistry.get()
-        for name in ("file_read", "file_search", "content_search", "skill_list", "skill_curate", "cron_list", "task_status"):
+        for name in (
+            "file_read", "file_search", "content_search",
+            "skill_list", "skill_curate", "cron_list", "task_status",
+        ):
             schema = registry.get_schema(name)
             assert schema is not None, name
             assert schema.annotations is not None and schema.annotations.readOnlyHint, name
