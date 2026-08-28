@@ -208,6 +208,81 @@ class TestAgentLoop:
         result = await AgentLoop(provider, registry=fresh_registry, max_iterations=10).run("test")
         assert result == "done"
 
+    @pytest.mark.asyncio
+    async def test_pause_resume_before_first_iteration(self) -> None:
+        """pause() 后循环在首轮边界挂起（不发 LLM 调用），unpause() 后继续完成。"""
+        provider = StubProvider([_final("hello")])
+        loop = AgentLoop(provider, max_iterations=10)
+
+        loop.pause()
+        assert loop.is_paused is True
+
+        run_task = asyncio.create_task(loop.run("hi"))
+        await asyncio.sleep(0.1)
+        assert not run_task.done()  # 已挂起，尚未完成
+        assert provider.calls == []  # 未发起任何 LLM 调用
+
+        loop.unpause()
+        assert loop.is_paused is False
+        result = await asyncio.wait_for(run_task, timeout=2)
+        assert result == "hello"
+        assert len(provider.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_run_stream_pause_resume(self) -> None:
+        """流式入口同样在边界挂起，unpause 后产出事件。"""
+        provider = StubProvider([_final("stream hello")])
+        loop = AgentLoop(provider, max_iterations=10)
+
+        loop.pause()
+        events: list[object] = []
+
+        async def consume() -> None:
+            async for ev in loop.run_stream("hi"):
+                events.append(ev)
+
+        task = asyncio.create_task(consume())
+        await asyncio.sleep(0.1)
+        assert not task.done()
+        assert events == []  # 挂起期间无任何事件产出
+
+        loop.unpause()
+        await asyncio.wait_for(task, timeout=2)
+        assert any(getattr(e, "type", None) == "done" for e in events)
+
+    @pytest.mark.asyncio
+    async def test_pause_state_reset_after_cancelled_run(self) -> None:
+        """暂停后被取消的 run 不残留暂停态：下一次 run 应立即运行（P1 回归）。"""
+        provider = StubProvider([_final("first")])
+        loop = AgentLoop(provider, max_iterations=10)
+
+        # 第一次 run：暂停 → 挂起 → 取消（模拟 CLI「暂停 + 双击 Esc 打断」）
+        loop.pause()
+        run_task = asyncio.create_task(loop.run("hi"))
+        await asyncio.sleep(0.1)
+        assert not run_task.done()  # 已挂起
+        assert provider.calls == []  # 挂起期间未发起任何 LLM 调用
+        run_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run_task
+
+        # 复位后：下一次 run 应立即运行，不再挂起
+        assert loop.is_paused is False
+        result = await asyncio.wait_for(loop.run("hi again"), timeout=2)
+        assert result == "first"  # 第一次 run 未消费响应，第二次拿到第一个
+        assert len(provider.calls) == 1  # 第二次 run 正常调用一次
+
+    def test_pause_resume_idempotent(self) -> None:
+        """pause()/unpause() 幂等，is_paused 反映请求态。"""
+        loop = AgentLoop(StubProvider([_final("ok")]), max_iterations=10)
+        assert loop.is_paused is False
+        loop.pause()
+        loop.pause()
+        assert loop.is_paused is True
+        loop.unpause()
+        loop.unpause()
+        assert loop.is_paused is False
+
 
 class TestParallelExecution:
     @pytest.mark.asyncio

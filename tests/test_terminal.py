@@ -1,10 +1,10 @@
-"""终端键盘打断监听（KeyInterruptMonitor）测试。"""
+"""终端键盘打断/暂停监听（KeyInterruptMonitor）测试。"""
 
 from __future__ import annotations
 
 import asyncio
 
-from heagent.terminal import ENTER_CR, ENTER_LF, KeyInterruptMonitor
+from heagent.terminal import ENTER, ESC, LF, KeyInterruptMonitor
 
 
 class _FakeLoop:
@@ -14,20 +14,42 @@ class _FakeLoop:
         fn(*args, **kwargs)
 
 
-def test_poll_triggers_interrupt_on_enter(monkeypatch) -> None:
-    """Enter（CR / LF）均触发打断（方案 A：空回车打断）。"""
-    for key in (ENTER_CR, ENTER_LF):
-        monitor = KeyInterruptMonitor()
-        monkeypatch.setattr(monitor, "_read_key", lambda k=key: k)
-        monitor._poll(_FakeLoop())
-        assert monitor.interrupted.is_set(), f"Enter key {key} should interrupt"
-
-
-def test_poll_ignores_other_keys_until_enter(monkeypatch) -> None:
+def test_poll_double_escape_interrupts(monkeypatch) -> None:
+    """双击 Esc（间隔内第二次）触发打断，不触发暂停。"""
     monitor = KeyInterruptMonitor()
-    keys = iter([ord("x"), ord("a"), ENTER_CR])
-    monkeypatch.setattr(monitor, "_read_key", lambda: next(keys))
+    keys = iter([ESC, ESC])
+    monkeypatch.setattr(monitor, "_read_key", lambda timeout=None: next(keys))
     monitor._poll(_FakeLoop())
+    assert monitor.interrupted.is_set()
+    assert not monitor.pause_toggle.is_set()
+
+
+def test_poll_single_escape_pauses(monkeypatch) -> None:
+    """单击 Esc（超时无第二次）触发暂停，不打断。"""
+    monitor = KeyInterruptMonitor()
+    keys = iter([ESC, None, None])
+    monkeypatch.setattr(monitor, "_read_key", lambda timeout=None: next(keys))
+    monitor._poll(_FakeLoop())
+    assert monitor.pause_toggle.is_set()
+    assert not monitor.interrupted.is_set()
+
+
+def test_poll_ignores_other_keys_until_double_escape(monkeypatch) -> None:
+    """非 Esc 键被忽略，不影响后续 Esc 消歧。"""
+    monitor = KeyInterruptMonitor()
+    keys = iter([ord("x"), ord("a"), ESC, ESC])
+    monkeypatch.setattr(monitor, "_read_key", lambda timeout=None: next(keys))
+    monitor._poll(_FakeLoop())
+    assert monitor.interrupted.is_set()
+
+
+def test_poll_pause_then_double_escape_interrupts(monkeypatch) -> None:
+    """单击 Esc 暂停后监听不退出，后续双击 Esc 仍能打断。"""
+    monitor = KeyInterruptMonitor()
+    keys = iter([ESC, None, ESC, ESC])
+    monkeypatch.setattr(monitor, "_read_key", lambda timeout=None: next(keys))
+    monitor._poll(_FakeLoop())
+    assert monitor.pause_toggle.is_set()
     assert monitor.interrupted.is_set()
 
 
@@ -36,13 +58,14 @@ def test_poll_returns_without_reading_when_stopped(monkeypatch) -> None:
     monitor._stop.set()
     calls = {"n": 0}
 
-    def _read_key() -> int | None:
+    def _read_key(timeout=None) -> int | None:
         calls["n"] += 1
         return None
 
     monkeypatch.setattr(monitor, "_read_key", _read_key)
     monitor._poll(_FakeLoop())
     assert not monitor.interrupted.is_set()
+    assert not monitor.pause_toggle.is_set()
     assert calls["n"] == 0  # stop 已置位，while 循环不进入
 
 
@@ -110,3 +133,110 @@ def test_unix_raw_mode_clears_and_restores_flags(monkeypatch) -> None:
     assert calls[1][0] == 2  # TCSADRAIN
     assert calls[1][1] == 0x1  # 恢复 IXON
     assert calls[1][2] == 0x2 | 0x8  # 恢复 ICANON|ECHO
+
+
+def test_read_key_posix_esc_alone(monkeypatch) -> None:
+    """单独 Esc（无转义序列后续字节）返回 0x1B。"""
+    import select as _select
+
+    class _Buffer:
+        def read(self, n: int) -> bytes:
+            return b"\x1b"
+
+    class _Stdin:
+        buffer = _Buffer()
+
+    call = {"n": 0}
+
+    def _fake_select(rlist, wlist, xlist, timeout):
+        call["n"] += 1
+        # 第一次 select（主循环等待）：可读；第二次 select（转义探测）：不可读
+        return (list(rlist), [], []) if call["n"] == 1 else ([], [], [])
+
+    monkeypatch.setattr("heagent.terminal.sys.stdin", _Stdin())
+    monkeypatch.setattr(_select, "select", _fake_select)
+
+    monitor = KeyInterruptMonitor()
+    assert monitor._read_key_posix() == ESC
+
+
+def test_read_key_posix_arrow_sequence_skipped(monkeypatch) -> None:
+    """方向键转义序列（ESC [ A）首字节不误判为 Esc，返回后续字节。"""
+    import select as _select
+
+    data = [b"\x1b", b"["]
+
+    class _Buffer:
+        def read(self, n: int) -> bytes:
+            return data.pop(0)
+
+    class _Stdin:
+        buffer = _Buffer()
+
+    def _fake_select(rlist, wlist, xlist, timeout):
+        # 转义探测始终可读（存在后续字节），验证 Esc 首字节被跳过
+        return (list(rlist), [], [])
+
+    monkeypatch.setattr("heagent.terminal.sys.stdin", _Stdin())
+    monkeypatch.setattr(_select, "select", _fake_select)
+
+    monitor = KeyInterruptMonitor()
+    assert monitor._read_key_posix() == ord("[")
+
+
+def test_read_key_posix_double_escape(monkeypatch) -> None:
+    """快速双击 Esc（两个 Esc 紧跟）不误判为转义序列：两次调用各返回一个 Esc。"""
+    import select as _select
+
+    data = [b"\x1b", b"\x1b"]
+
+    class _Buffer:
+        def read(self, n: int) -> bytes:
+            return data.pop(0)
+
+    class _Stdin:
+        buffer = _Buffer()
+
+    def _fake_select(rlist, wlist, xlist, timeout):
+        # 主循环等待与转义探测均始终可读（存在第二个 Esc）
+        return (list(rlist), [], [])
+
+    monkeypatch.setattr("heagent.terminal.sys.stdin", _Stdin())
+    monkeypatch.setattr(_select, "select", _fake_select)
+
+    monitor = KeyInterruptMonitor()
+    assert monitor._read_key_posix() == ESC  # 第一个 Esc
+    assert monitor._read_key_posix() == ESC  # 第二个 Esc（经 pushback 返回）
+
+
+def test_poll_enter_cr_resumes(monkeypatch) -> None:
+    """Enter（CR）触发恢复事件，不触发暂停/打断。"""
+    monitor = KeyInterruptMonitor()
+    keys = iter([ENTER, None])
+    monkeypatch.setattr(monitor, "_read_key", lambda timeout=None: next(keys))
+    monitor._poll(_FakeLoop())
+    assert monitor.resume.is_set()
+    assert not monitor.pause_toggle.is_set()
+    assert not monitor.interrupted.is_set()
+
+
+def test_poll_enter_lf_resumes(monkeypatch) -> None:
+    """Enter（LF）触发恢复事件，不触发暂停/打断。"""
+    monitor = KeyInterruptMonitor()
+    keys = iter([LF, None])
+    monkeypatch.setattr(monitor, "_read_key", lambda timeout=None: next(keys))
+    monitor._poll(_FakeLoop())
+    assert monitor.resume.is_set()
+    assert not monitor.pause_toggle.is_set()
+    assert not monitor.interrupted.is_set()
+
+
+def test_poll_escape_then_enter_sets_pause_and_resume(monkeypatch) -> None:
+    """Esc 后消歧窗口内按 Enter：暂停与恢复事件同时置位，不打断。"""
+    monitor = KeyInterruptMonitor()
+    keys = iter([ESC, ENTER, None])
+    monkeypatch.setattr(monitor, "_read_key", lambda timeout=None: next(keys))
+    monitor._poll(_FakeLoop())
+    assert monitor.pause_toggle.is_set()
+    assert monitor.resume.is_set()
+    assert not monitor.interrupted.is_set()

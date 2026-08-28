@@ -9,13 +9,15 @@
 本模块对外的主入口：
   - :meth:`AgentLoop.run`          —— 非流式执行，返回最终回答字符串；
   - :meth:`AgentLoop.run_stream`   —— 流式执行，逐个 yield ``StreamEvent``；
-  - :meth:`AgentLoop.resume` / ``resume_stream`` —— 按 run_id 恢复未完成的运行。
+  - :meth:`AgentLoop.resume` / ``resume_stream`` —— 按 run_id 恢复未完成的运行；
+  - :meth:`AgentLoop.pause` / ``unpause`` / ``is_paused`` —— 协作式暂停/恢复当前循环。
 
 完整数据流 / 调用链见 ``docs/frame.md``；本文件的注释聚焦于循环内部逐步流程。
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field
@@ -194,6 +196,10 @@ class AgentLoop:
         self.cumulative_tokens: int = 0
         # 最近一次 run 结束时的「当前上下文占用」估算（下一轮将发送的消息 token 数），供状态栏展示。
         self.last_context_tokens: int = 0
+        # 协作式暂停控制：Event 初始已设置（运行态）。pause() 清空 → 循环在下一轮边界挂起；
+        # unpause() 重新设置 → 继续。仅在同一事件循环内调用（跨线程需 call_soon_threadsafe 包装）。
+        self._pause_event: asyncio.Event = asyncio.Event()
+        self._pause_event.set()
 
         settings = get_settings()
         self.max_iterations = max_iterations or settings.max_iterations
@@ -221,6 +227,44 @@ class AgentLoop:
         except Exception:
             logger.warning("follow_up_callback failed", exc_info=True)
             return []
+
+    # ------------------------------------------------------------------
+    # 暂停 / 恢复（协作式：在下一轮 LLM 调用前的边界生效）
+    # ------------------------------------------------------------------
+
+    def pause(self) -> None:
+        """请求暂停循环：当前进行中的 LLM 调用会跑完，随后在下一轮边界挂起。
+
+        协作式暂停——不打断进行中的 provider 调用、不取消任务；``unpause()`` 后从
+        挂起点原地继续（消息、迭代计数、run 上下文均保留）。幂等，可多次调用。
+        须在同一事件循环内调用（跨线程请用 ``loop.call_soon_threadsafe`` 包装）。
+        """
+        self._pause_event.clear()
+        logger.info("AgentLoop pause requested")
+
+    def unpause(self) -> None:
+        """恢复被 ``pause()`` 挂起的循环。幂等，可多次调用。"""
+        self._pause_event.set()
+        logger.info("AgentLoop unpaused")
+
+    @property
+    def is_paused(self) -> bool:
+        """当前是否处于暂停请求态（循环可能尚未到达挂起点）。"""
+        return not self._pause_event.is_set()
+
+    async def _wait_if_paused(self, run_context: RunContext) -> None:
+        """暂停检查点：处于暂停态则挂起，直到 ``unpause()``。
+
+        由 ``run`` / ``run_stream`` 内层循环在每轮边界调用；挂起前后各发一条
+        ``run_paused`` / ``run_resumed`` 事件供观测。
+        """
+        if self._pause_event.is_set():
+            return
+        self._emit("run_paused", run_context=run_context)
+        try:
+            await self._pause_event.wait()
+        finally:
+            self._emit("run_resumed", run_context=run_context)
 
     # ------------------------------------------------------------------
     # 公共入口：run（非流式）/ run_stream（流式）
@@ -258,6 +302,9 @@ class AgentLoop:
                 while True:
                     # ---- 内层循环：steering + 工具执行 ----
                     while True:
+                        # 暂停检查点（协作式）：pause() 后挂在此处，unpause() 继续。
+                        await self._wait_if_paused(run_context)
+
                         # Poll steering 回调（每轮 LLM 调用前），注入的消息作为用户指令进入下一轮上下文
                         for msg in await self._poll_steering():
                             state.messages.append(msg)
@@ -350,6 +397,9 @@ class AgentLoop:
                 while True:
                     # ---- 内层循环：steering + 工具执行 ----
                     while True:
+                        # 暂停检查点（协作式）：pause() 后挂在此处，unpause() 继续。
+                        await self._wait_if_paused(run_context)
+
                         # Poll steering 回调（每轮 LLM 调用前）
                         for msg in await self._poll_steering():
                             state.messages.append(msg)
@@ -637,6 +687,9 @@ class AgentLoop:
 
         无论成功/失败均调用：落盘会话消息、缓存 ``last_*`` 属性。
         """
+        # 复位暂停态：无论完成/失败/取消（finally 块），均解除协作式暂停，
+        # 防止「暂停后被打断」的暂停态泄漏到下一次 run（P1 修复）。
+        self._pause_event.set()
         if self.session and session_id:
             self.session.save(session_id, state.messages)
             logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)

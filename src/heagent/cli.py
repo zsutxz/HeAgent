@@ -9,6 +9,7 @@ import logging
 import os
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -77,14 +78,41 @@ def _print_usage(usage: TokenUsage | None, *, model: str | None = None) -> None:
     click.echo(line, err=True)
 
 
-def _print_stream_event(event: Any) -> None:
+@dataclass
+class _LineState:
+    """跟踪终端光标是否在行首（供状态消息决定是否补换行）。
+
+    流式输出经 ``click.echo(..., nl=False)`` 打印、常停半行；暂停/恢复等状态消息
+    需从行首开始，故按需补换行，避免无谓空行。
+    """
+
+    at_line_start: bool = True
+
+    def write(self, text: str) -> None:
+        """记录一次不带尾换行的输出，更新行首状态。"""
+        if text:
+            self.at_line_start = text.endswith("\n")
+
+
+def _echo_status(message: str, line_state: _LineState) -> None:
+    """打印状态消息：光标不在行首时先补换行；``click.echo`` 默认尾换行后置行首。"""
+    prefix = "" if line_state.at_line_start else "\n"
+    click.echo(f"{prefix}{message}", err=True)
+    line_state.at_line_start = True
+
+
+def _print_stream_event(event: Any, line_state: _LineState) -> None:
     """Render one streaming event from ``AgentLoop.run_stream`` to the terminal."""
     if event.type == "text":
         click.echo(event.text, nl=False)
+        line_state.write(event.text)
     elif event.type == "tool_call":
-        click.echo(f"\n[calling {event.tool_name}...]", nl=False)
+        text = f"\n[calling {event.tool_name}...]"
+        click.echo(text, nl=False)
+        line_state.write(text)
     elif event.type == "tool_result":
         click.echo(" [done]", nl=False)
+        line_state.write(" [done]")
 
 
 def _format_tokens_k(n: int) -> str:
@@ -711,7 +739,7 @@ async def _run_chat(
         )
         dream_scheduler = _build_dream_scheduler(settings, provider, engine, session, skills, facts, profile, soul)
         registry = _build_slash_registry(provider, mcp_manager, session, session_id, loop, system)
-        click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message (Enter to interrupt, Ctrl+C to exit).")
+        click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message (Esc to pause, Enter to resume, double Esc to interrupt, Ctrl+C to exit).")
 
         try:
             if scheduler:
@@ -747,39 +775,86 @@ async def _run_chat(
 # =============================================================================
 
 
+def _pause_loop(loop: AgentLoop, line_state: _LineState) -> None:
+    """暂停当前 run（幂等，已暂停则无操作）。"""
+    if not loop.is_paused:
+        loop.pause()
+        _echo_status("[paused] Run paused (Enter to resume).", line_state)
+
+
+def _resume_loop(loop: AgentLoop, line_state: _LineState) -> None:
+    """恢复被暂停的 run（幂等，未暂停则无操作）。"""
+    if loop.is_paused:
+        loop.unpause()
+        _echo_status("[paused] Run resumed.", line_state)
+
+
 async def _run_prompt(loop: AgentLoop, prompt: str, system: str | None, session_id: str) -> None:
     """把一条用户消息提交给 loop 流式执行并打印结果（自定义斜杠命令复用）。
 
-    运行期间后台监听 Enter：按下即取消当前 run、回到交互输入状态（程序不退出）。
+    运行期间后台监听按键：
+      - 单击 Esc 暂停当前 run（暂停不取消，恢复后从挂起点继续）；
+      - Enter 恢复被暂停的 run；
+      - 双击 Esc 取消当前 run、回到交互输入状态（程序不退出）。
     """
     monitor = KeyInterruptMonitor()
     monitor.start(asyncio.get_running_loop())
-    run_task = asyncio.create_task(_consume_stream(loop, prompt, system, session_id))
+    line_state = _LineState()
+    run_task = asyncio.create_task(_consume_stream(loop, prompt, system, session_id, line_state))
     interrupt_wait: asyncio.Task[bool] | None = None
+    pause_wait: asyncio.Task[bool] | None = None
+    resume_wait: asyncio.Task[bool] | None = None
     try:
         if monitor.active:
             interrupt_wait = asyncio.create_task(monitor.interrupted.wait())
-            done, _ = await asyncio.wait({run_task, interrupt_wait}, return_when=asyncio.FIRST_COMPLETED)
-            if interrupt_wait in done and not run_task.done():
-                run_task.cancel()
+            while not run_task.done():
+                pause_wait = asyncio.create_task(monitor.pause_toggle.wait())
+                resume_wait = asyncio.create_task(monitor.resume.wait())
+                done, _ = await asyncio.wait(
+                    {run_task, interrupt_wait, pause_wait, resume_wait},
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if run_task.done():
+                    break
+                if interrupt_wait in done:
+                    run_task.cancel()
+                    break
+                if pause_wait in done:
+                    _pause_loop(loop, line_state)
+                    monitor.pause_toggle.clear()
+                if resume_wait in done:
+                    _resume_loop(loop, line_state)
+                    monitor.resume.clear()
+                for task in (pause_wait, resume_wait):
+                    task.cancel()
         try:
             await run_task
         except asyncio.CancelledError:
-            click.echo("\n[interrupted] Run interrupted by Enter.", err=True)
+            _echo_status("[interrupted] Run interrupted by double Esc.", line_state)
     finally:
         monitor.stop()
-        if interrupt_wait is not None:
-            interrupt_wait.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await interrupt_wait
+
+        async def _cancel(task: asyncio.Task[bool] | None) -> None:
+            if task is not None:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+        await _cancel(interrupt_wait)
+        await _cancel(pause_wait)
+        await _cancel(resume_wait)
 
 
-async def _consume_stream(loop: AgentLoop, prompt: str, system: str | None, session_id: str) -> None:
+async def _consume_stream(
+    loop: AgentLoop, prompt: str, system: str | None, session_id: str, line_state: _LineState
+) -> None:
     """消费 ``loop.run_stream`` 并打印；业务异常在此收口（CancelledError 透传）。"""
     try:
         async for event in loop.run_stream(prompt, system=system, session_id=session_id):
-            _print_stream_event(event)
-        click.echo("\n")
+            _print_stream_event(event, line_state)
+        if not line_state.at_line_start:
+            click.echo("")
+            line_state.at_line_start = True
         _print_usage(loop.last_usage, model=loop.provider.get_metadata().model)
     except BudgetExceeded as exc:
         click.echo(f"[budget exceeded] {exc.message}", err=True)

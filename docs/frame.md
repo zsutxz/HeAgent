@@ -100,7 +100,7 @@ exceptions  types  config
 | Cron 调度 | 交互模式下启动 CronScheduler 后台任务 |
 | 重试中间件 | 通过 `make_retry_middleware()` 接入 AgentLoop |
 | Token 统计 | 每次回答后显示 `[tokens: N in + M out = T total]` |
-| 运行中断 | 交互模式运行期间按 Ctrl+Q 取消当前 run、回到输入状态（见 `terminal.py`） |
+| 运行暂停/恢复/中断 | 交互模式运行期间按 Esc 暂停当前 run、Enter 恢复、双击 Esc 打断（取消当前 run、回到输入状态，见 `terminal.py`） |
 
 ### 4.2 Agent 核心 (`agent/`)
 
@@ -114,6 +114,7 @@ exceptions  types  config
 | `run_stream(prompt)` | 流式入口，逐步 yield `StreamEvent`（`text`/`tool_call`/`tool_result`/`done`）；命中 `tool_calls` 时回退 `send()` 重取该轮调用 |
 | `resume(run_id)` | 从 `RunStore` 加载快照续跑（P3）：COMPLETED 直接返回 `final_answer`，否则用 `metadata['progress_summary']` 重建窗口续跑，同 `run_id` 跨多段 context window；内部经 `_resume` 注入 `run()` 的初始化分支 |
 | `resume_stream(run_id)` | `resume` 的流式版（P5-5）：COMPLETED 产出单个携带缓存答案的 `done` 事件；否则同上重建窗口后经 `_resume` 注入 `run_stream()` 流式续跑 |
+| `pause()` / `unpause()` / `is_paused` | 协作式暂停/恢复当前循环（`asyncio.Event` 实现）：`pause()` 后循环在下一轮边界挂起（进行中的 LLM 调用跑完），`unpause()` 从挂起点原地继续；`is_paused` 反映请求态。每次 run 结束（完成/失败/取消）在 `_persist_and_cache` 自动复位，不泄漏到下一次 run |
 | `_build_system()` | 构建系统提示词（含人格/上下文/技能/记忆注入，见下方注入顺序） |
 | `_call_provider()` | 通过 Middleware 链调用 Provider，含 Token 估算对比 |
 | `_execute_tools()` | `asyncio.gather()` 并行执行所有 tool_calls |
@@ -645,7 +646,7 @@ src/heagent/
 ├── __init__.py
 ├── __main__.py              # python -m heagent 入口
 ├── cli.py                   # Click CLI（单次/交互模式）
-├── terminal.py              # 终端键盘监听（Ctrl+Q 打断运行，CLI 交互模式）
+├── terminal.py              # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断，CLI 交互模式）
 ├── config.py                # pydantic-settings 配置
 ├── exceptions.py            # 异常层级
 ├── types.py                 # 共享 Pydantic 模型
