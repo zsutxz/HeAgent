@@ -13,12 +13,20 @@ import pytest
 from heagent.cli import _build_provider, _extract_routing
 from heagent.config import Settings, reset_settings
 from heagent.providers.openai import OpenAIProvider
+from heagent.providers.responses import OpenAIResponsesProvider
 from heagent.providers.router import RoutingProvider
 from heagent.providers.switchable import SwitchableProvider
 
 
 def _clear_all_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
-    for key in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "KIMI_API_KEY", "GLM_API_KEY"):
+    for key in (
+        "DEEPSEEK_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENAI_RESPONSES_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "KIMI_API_KEY",
+        "GLM_API_KEY",
+    ):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -151,3 +159,76 @@ class TestSwitchableAccessors:
         # 副本：外部修改不影响池
         sp.providers["x"] = b  # type: ignore[assignment]
         assert "x" not in sp.names
+
+
+class TestBuildProviderGpt:
+    """gpt 条目构建：走 Responses API（wire_api="responses"），独立于 Chat Completions 的 openai。"""
+
+    def test_gpt_only_returns_responses_provider(self, hermetic) -> None:
+        provider = _build_provider(Settings(openai_responses_api_key="sk-gpt"), None)
+        assert isinstance(provider, OpenAIResponsesProvider)
+        assert provider.get_metadata().model == "gpt-5.6-terra"
+
+    def test_gpt_with_kimi_returns_switchable(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(kimi_api_key="sk-kimi", openai_responses_api_key="sk-gpt"),
+            None,
+        )
+        assert isinstance(provider, SwitchableProvider)
+        assert set(provider.names) == {"kimi", "gpt"}
+        assert isinstance(provider.providers["gpt"], OpenAIResponsesProvider)
+
+    def test_model_flag_overrides_gpt_default(self, hermetic) -> None:
+        provider = _build_provider(Settings(openai_responses_api_key="sk-gpt"), "gpt-5.5")
+        assert isinstance(provider, OpenAIResponsesProvider)
+        assert provider.get_metadata().model == "gpt-5.5"
+
+    def test_gpt_and_openai_coexist_in_pool(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(openai_api_key="sk-chat", openai_responses_api_key="sk-gpt"),
+            None,
+        )
+        assert isinstance(provider, SwitchableProvider)
+        assert set(provider.names) == {"openai", "gpt"}
+        assert isinstance(provider.providers["openai"], OpenAIProvider)
+        assert isinstance(provider.providers["gpt"], OpenAIResponsesProvider)
+
+
+class TestBuildProviderGptRouting:
+    """GPT_ROUTING_ENABLED=true 时 gpt 条目为 RoutingProvider（terra/luna/sol 三档）。"""
+
+    def test_gpt_routing_only_gpt_returns_routing_provider(self, hermetic) -> None:
+        """只有 gpt 且开启 GPT 路由 → 直接返回 RoutingProvider（terra/luna/sol）。"""
+        provider = _build_provider(
+            Settings(openai_responses_api_key="sk-gpt", gpt_routing_enabled=True),
+            None,
+        )
+        assert isinstance(provider, RoutingProvider)
+        assert set(provider.names) == {"terra", "luna", "sol"}
+        assert provider.get_metadata().model == "terra:gpt-5.6-terra, luna:gpt-5.6-luna, sol:gpt-5.6-sol"
+
+    def test_gpt_routing_plus_kimi_returns_switchable_with_routing_gpt(self, hermetic) -> None:
+        """GPT 路由 + 第二个 provider → SwitchableProvider，gpt 条目为 RoutingProvider。"""
+        provider = _build_provider(
+            Settings(kimi_api_key="sk-kimi", openai_responses_api_key="sk-gpt", gpt_routing_enabled=True),
+            None,
+        )
+        assert isinstance(provider, SwitchableProvider)
+        assert set(provider.names) == {"kimi", "gpt"}
+        gpt_entry = provider.providers["gpt"]
+        assert isinstance(gpt_entry, RoutingProvider)
+        # /model 列表展示：gpt 条目展示 terra/luna/sol 三个模型
+        summary = provider.info()["gpt"]
+        assert "gpt-5.6-terra" in summary.model
+        assert "gpt-5.6-luna" in summary.model
+        assert "gpt-5.6-sol" in summary.model
+
+    def test_gpt_routing_enabled_without_key_degrades_gracefully(self, hermetic) -> None:
+        """GPT 路由开启但无 Responses API 密钥 → 优雅降级：其余 provider 照常可用。"""
+        provider = _build_provider(Settings(kimi_api_key="sk-kimi", gpt_routing_enabled=True), None)
+        assert isinstance(provider, OpenAIProvider)
+
+    def test_gpt_routing_disabled_gpt_is_plain_responses(self, hermetic) -> None:
+        """未开启 GPT 路由 → gpt 条目为普通 OpenAIResponsesProvider。"""
+        provider = _build_provider(Settings(openai_responses_api_key="sk-gpt"), None)
+        assert isinstance(provider, OpenAIResponsesProvider)

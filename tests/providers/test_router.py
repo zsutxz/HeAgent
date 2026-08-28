@@ -110,6 +110,30 @@ class TestHeuristicRouter:
         decision = router.route(messages, None)
         assert decision.provider == "pro"
 
+    def test_mid_tier_routes_mid_keyword(self) -> None:
+        """配置了 mid 档时，中档关键词 → mid。"""
+        router = HeuristicRouter(fast="terra", mid="luna", pro="sol")
+        decision = router.route([_msg("帮我总结一下这篇文章")], None)
+        assert decision == RouteDecision(provider="luna", reason="mid_keyword:总结")
+
+    def test_no_mid_tier_ignores_mid_keywords(self) -> None:
+        """未配置 mid 档时，中档关键词不回退到 mid，直接兜底 fast。"""
+        router = HeuristicRouter(fast="fast", pro="pro")
+        decision = router.route([_msg("帮我总结一下")], None)
+        assert decision == RouteDecision(provider="fast", reason="default_fast")
+
+    def test_complex_keyword_precedes_mid(self) -> None:
+        """复杂关键词优先级高于中档关键词：同时命中时路由到 sol。"""
+        router = HeuristicRouter(fast="terra", mid="luna", pro="sol")
+        decision = router.route([_msg("帮我分析并总结这段代码")], None)
+        assert decision.provider == "sol"
+
+    def test_mid_custom_keywords_merge_not_replace(self) -> None:
+        """自定义中档词追加到内置表，内置词仍生效。"""
+        router = HeuristicRouter(fast="terra", mid="luna", pro="sol", mid_keywords=["排版"])
+        assert router.route([_msg("请排版")], None).provider == "luna"  # 自定义词
+        assert router.route([_msg("请总结")], None).provider == "luna"  # 内置词仍生效
+
 
 class TestRoutingProvider:
     def test_requires_at_least_one(self) -> None:

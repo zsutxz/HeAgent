@@ -36,6 +36,7 @@ from heagent.memory.soul import SoulStore
 from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
+from heagent.providers.responses import OpenAIResponsesProvider
 from heagent.providers.router import HeuristicRouter, RoutingProvider, active_model
 from heagent.providers.switchable import SwitchableProvider
 from heagent.slash import SlashRegistry, load_custom_commands
@@ -238,6 +239,10 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     if openai_provider:
         named["openai"] = openai_provider
 
+    gpt_provider = _build_gpt_providers(settings, model)
+    if gpt_provider:
+        named["gpt"] = gpt_provider
+
     anthropic_provider = _build_anthropic_providers(settings, model or settings.default_model)
     if anthropic_provider:
         named["anthropic"] = anthropic_provider
@@ -245,7 +250,8 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     if not named:
         click.echo(
             "Error: No API key configured. Set DEEPSEEK_API_KEY, KIMI_API_KEY, "
-            "GLM_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY in environment.",
+            "GLM_API_KEY, OPENAI_API_KEY, OPENAI_RESPONSES_API_KEY or ANTHROPIC_API_KEY "
+            "in environment.",
             err=True,
         )
         raise SystemExit(1)
@@ -284,6 +290,77 @@ def _build_routing_provider(settings: Settings) -> BaseProvider:
     pro = OpenAIProvider(api_key=settings.deepseek_api_key, model=settings.routing_pro_model, base_url=base_url)
     router = HeuristicRouter(fast="fast", pro="pro", reasoning_keywords=settings.routing_keyword_list or None)
     return RoutingProvider({"fast": fast, "pro": pro}, router, default="fast")
+
+
+def _build_gpt_providers(settings: Settings, model: str | None) -> BaseProvider | None:
+    """Build the GPT (Responses API) entry: routing pool (terra/luna/sol) or plain provider.
+
+    返回 None 表示未配置 GPT 凭据。``GPT_ROUTING_ENABLED=true`` 时构建 ``RoutingProvider``
+    （terra/luna/sol 三档，按问题难度自动切换），否则构建普通 ``OpenAIResponsesProvider``
+    （/model gpt 切换）。
+    """
+    if settings.openai_responses_api_key:
+        if settings.gpt_routing_enabled:
+            if model:
+                logger.warning(
+                    "--model %s ignored for gpt: GPT_ROUTING_ENABLED=true builds a "
+                    "terra/luna/sol pool (use /route to force).",
+                    model,
+                )
+            return _build_gpt_routing_provider(settings)
+        return OpenAIResponsesProvider(
+            api_key=settings.openai_responses_api_key,
+            model=model or settings.openai_responses_model,
+            base_url=settings.openai_responses_base_url,
+        )
+    if settings.gpt_routing_enabled:
+        logger.warning(
+            "GPT_ROUTING_ENABLED=true but OPENAI_RESPONSES_API_KEY is not set; gpt routing skipped "
+            "(other providers remain available)."
+        )
+    return None
+
+
+def _build_gpt_routing_provider(settings: Settings) -> BaseProvider:
+    """Build a RoutingProvider for GPT's terra/luna/sol split (Responses API).
+
+    ``GPT_ROUTING_ENABLED=true`` 时由 ``_build_provider`` 调用：gpt（Responses API）
+    条目构建为 ``RoutingProvider``（terra=快速 / luna=中档 / sol=深度，按问题难度
+    自动切换）。三档对应 komapi.top 等中转站暴露的 gpt-5.6-terra / gpt-5.6-luna /
+    gpt-5.6-sol；模型名经 Settings 可配。启发式路由见 ``providers/router.py``。
+    """
+    if not settings.openai_responses_api_key:
+        click.echo(
+            "Error: GPT_ROUTING_ENABLED=true requires OPENAI_RESPONSES_API_KEY "
+            "(terra=gpt-5.6-terra, luna=gpt-5.6-luna, sol=gpt-5.6-sol).",
+            err=True,
+        )
+        raise SystemExit(1)
+
+    base_url = settings.openai_responses_base_url
+    terra = OpenAIResponsesProvider(
+        api_key=settings.openai_responses_api_key,
+        model=settings.gpt_routing_terra_model,
+        base_url=base_url,
+    )
+    luna = OpenAIResponsesProvider(
+        api_key=settings.openai_responses_api_key,
+        model=settings.gpt_routing_luna_model,
+        base_url=base_url,
+    )
+    sol = OpenAIResponsesProvider(
+        api_key=settings.openai_responses_api_key,
+        model=settings.gpt_routing_sol_model,
+        base_url=base_url,
+    )
+    router = HeuristicRouter(
+        fast="terra",
+        mid="luna",
+        pro="sol",
+        reasoning_keywords=settings.gpt_routing_reasoning_keyword_list or None,
+        mid_keywords=settings.gpt_routing_mid_keyword_list or None,
+    )
+    return RoutingProvider({"terra": terra, "luna": luna, "sol": sol}, router, default="terra")
 
 
 def _build_key_rotated(
@@ -741,7 +818,7 @@ def _build_slash_registry(
             click.echo(f"  /{name}  {registry.describe(name)}", err=True)
 
     registry.register("model", "切换 LLM 模型", _model)
-    registry.register("route", "智能路由状态 / 强制模型 (pro|fast|auto)", _route)
+    registry.register("route", "智能路由状态 / 强制模型 (<name>|auto)", _route)
     registry.register("mcp-prompt", "调度 MCP prompt", _mcp_prompt)
     registry.register("clear", "清空当前会话上下文", _clear)
     registry.register("help", "列出所有斜杠命令", _help)
@@ -808,7 +885,7 @@ def _extract_routing(provider: BaseProvider) -> tuple[RoutingProvider | None, st
         routed = [name for name, p in provider.providers.items() if isinstance(p, RoutingProvider)]
         if routed:
             return None, (
-                f"Smart routing is on provider '{routed[0]}' (flash/pro); "
+                f"Smart routing is on provider '{routed[0]}'; "
                 f"switch to it with /model {routed[0]} (active: {provider.active})."
             )
     return None, None
@@ -818,7 +895,7 @@ async def _handle_route_cmd(provider: BaseProvider, args: str = "") -> None:
     """Handle /route slash command: show/force smart-routing model.
 
     ``/route``           显示路由池 + 最近决策 + 当前强制状态；
-    ``/route pro|fast``  强制固定使用 pro / fast 模型（后续调用跳过启发式路由）；
+    ``/route <name>``    强制固定使用池内某个模型（后续调用跳过启发式路由）；
     ``/route auto``      清除强制，恢复自动路由。
     """
     routing, hint = _extract_routing(provider)
@@ -830,20 +907,20 @@ async def _handle_route_cmd(provider: BaseProvider, args: str = "") -> None:
         return
 
     arg = (args or "").strip().lower()
-    if arg in ("pro", "fast"):
-        try:
-            routing.set_force(arg)
-        except ValueError as exc:
-            click.echo(f"[route] {exc}", err=True)
-            return
-        click.echo(f"[route] Forced model -> {arg} ({routing.current_model})", err=True)
-        return
     if arg == "auto":
         routing.set_force(None)
         click.echo("[route] Forced model cleared; back to auto routing.", err=True)
         return
     if arg:
-        click.echo(f"[route] Unknown argument {arg!r} (use: pro | fast | auto).", err=True)
+        if arg in routing.names:
+            try:
+                routing.set_force(arg)
+            except ValueError as exc:
+                click.echo(f"[route] {exc}", err=True)
+                return
+            click.echo(f"[route] Forced model -> {arg} ({routing.current_model})", err=True)
+            return
+        click.echo(f"[route] Unknown argument {arg!r} (use: {' | '.join(routing.names)} | auto).", err=True)
         return
 
     click.echo("Smart routing pool:", err=True)

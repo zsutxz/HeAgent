@@ -81,6 +81,37 @@ DEFAULT_REASONING_KEYWORDS: list[str] = [
     "think",
 ]
 
+# 内置「中档任务」关键词（大小写不敏感；中文按子串匹配）。命中任意一个即路由到
+# mid（中档模型）。仅当 HeuristicRouter 配置了 mid 档时生效；可在构造时追加自定义词。
+DEFAULT_MID_KEYWORDS: list[str] = [
+    # 中文
+    "总结",
+    "概括",
+    "整理",
+    "改写",
+    "翻译",
+    "润色",
+    "缩写",
+    "扩写",
+    "列举",
+    "查找",
+    "提取",
+    "转换",
+    "格式化",
+    "分类",
+    "校对",
+    # 英文
+    "summarize",
+    "summarise",
+    "organize",
+    "rewrite",
+    "translate",
+    "polish",
+    "extract",
+    "convert",
+    "classify",
+]
+
 
 class RouteDecision(BaseModel):
     """单次路由决策结果。
@@ -116,7 +147,9 @@ class HeuristicRouter:
          故强制停留在 pro。
       2. **复杂度关键词**：扫描全部 USER 消息，命中 ``reasoning_keywords`` 中任一
          （大小写不敏感子串）→ 判定为复杂任务，路由到 pro。
-      3. **兜底**：否则路由到 fast（快速/廉价模型）。
+      3. **中档关键词**（仅当配置了 ``mid`` 档时）：扫描全部 USER 消息，命中
+         ``mid_keywords`` 中任一 → 判定为中档任务，路由到 mid。
+      4. **兜底**：否则路由到 fast（快速/廉价模型）。
 
     **成本语义（任务级而非消息级）**：判据 1/2 均扫描全部历史消息——任一轮命中
     关键词（或推理链开启）后，后续**所有**轮次（包括简单追问）都持续路由到 pro，
@@ -134,23 +167,34 @@ class HeuristicRouter:
         *,
         fast: str = "fast",
         pro: str = "pro",
+        mid: str | None = None,
         reasoning_keywords: list[str] | None = None,
+        mid_keywords: list[str] | None = None,
     ) -> None:
         """初始化启发式路由。
 
         Args:
             fast: 快速模型的 provider 名（默认 "fast"）。
             pro: 深度模型的 provider 名（默认 "pro"）。
-            reasoning_keywords: 追加到内置关键词表的自定义词（与内置词合并，不覆盖）。
+            mid: 可选；中档模型的 provider 名（如 "luna"）。传入 None 则退化为
+                二档路由（fast/pro），不启用中档关键词匹配。
+            reasoning_keywords: 追加到内置「复杂任务」关键词表的自定义词（合并，不覆盖）。
                 传入 None 则仅用 DEFAULT_REASONING_KEYWORDS。
+            mid_keywords: 追加到内置「中档任务」关键词表的自定义词（合并，不覆盖）。
+                传入 None 则仅用 DEFAULT_MID_KEYWORDS（仅在配置 mid 时生效）。
         """
         self._fast = fast
         self._pro = pro
+        self._mid = mid
         merged = list(DEFAULT_REASONING_KEYWORDS)
         if reasoning_keywords:
             merged.extend(reasoning_keywords)
         # 归一化为小写，匹配时对文本同样 lower()，保证英文大小写不敏感。
         self._keywords: list[str] = [k.lower() for k in merged]
+        merged_mid = list(DEFAULT_MID_KEYWORDS)
+        if mid_keywords:
+            merged_mid.extend(mid_keywords)
+        self._mid_keywords: list[str] = [k.lower() for k in merged_mid]
 
     def route(self, messages: list[Message], tools: list[ToolSchema] | None) -> RouteDecision:
         """按决策顺序返回路由结果（见类 docstring）。"""
@@ -159,7 +203,7 @@ class HeuristicRouter:
             if msg.role == Role.ASSISTANT and msg.reasoning_content:
                 return RouteDecision(provider=self._pro, reason="reasoning_continuity")
 
-        # 2. 复杂度关键词：扫描 USER 消息。
+        # 2. 复杂度关键词：扫描 USER 消息 → pro（深度档）。
         for msg in messages:
             if msg.role != Role.USER:
                 continue
@@ -168,7 +212,17 @@ class HeuristicRouter:
                 if kw in text:
                     return RouteDecision(provider=self._pro, reason=f"keyword:{kw}")
 
-        # 3. 兜底 fast。
+        # 3. 中档关键词：扫描 USER 消息 → mid（仅当配置了 mid 档时）。
+        if self._mid is not None:
+            for msg in messages:
+                if msg.role != Role.USER:
+                    continue
+                text = msg.content.lower()
+                for kw in self._mid_keywords:
+                    if kw in text:
+                        return RouteDecision(provider=self._mid, reason=f"mid_keyword:{kw}")
+
+        # 4. 兜底 fast。
         return RouteDecision(provider=self._fast, reason="default_fast")
 
 

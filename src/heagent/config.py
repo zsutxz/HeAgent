@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None  # Anthropic API Key
     kimi_api_key: str | None = None  # Kimi (Moonshot AI) API Key
     glm_api_key: str | None = None  # GLM (智谱 AI) API Key
+    openai_responses_api_key: str | None = None  # OpenAI Responses API Key（wire_api="responses" 中转站）
 
     # ---- API 基础 URL（用于 OpenAI 兼容的第三方服务） ----
     deepseek_base_url: str | None = None  # DeepSeek 默认 https://api.deepseek.com/v1
@@ -61,12 +62,14 @@ class Settings(BaseSettings):
     anthropic_base_url: str | None = None  # Anthropic 代理地址
     kimi_base_url: str | None = None  # Kimi 默认 https://api.moonshot.cn/v1
     glm_base_url: str | None = None  # GLM 默认 https://open.bigmodel.cn/api/paas/v4
+    openai_responses_base_url: str | None = None  # Responses API 中转站（如 https://www.komapi.top/v1）
 
     # ---- 各 Provider 默认模型（--model CLI 参数可覆盖） ----
     default_model: str = "gpt-4o"  # OpenAI 默认模型名称
     deepseek_model: str = "deepseek-v4-pro"  # DeepSeek 默认模型
     kimi_model: str = "kimi-k3"  # Kimi (Moonshot) 默认模型
     glm_model: str = "glm-5.3"  # GLM (智谱) 默认模型
+    openai_responses_model: str = "gpt-5.6-terra"  # Responses API 默认模型
 
     # ---- Anthropic 提示词缓存（FR-3） ----
     anthropic_prompt_caching: bool = True
@@ -84,6 +87,18 @@ class Settings(BaseSettings):
     routing_pro_model: str = Field(default="deepseek-v4-pro")
     # 追加到内置推理关键词表的自定义词（逗号分隔；命中即路由到 pro）。
     routing_reasoning_keywords: str = Field(default="")
+
+    # ---- GPT 智能路由（OpenAI Responses API：terra/luna/sol 三档） ----
+    # True 时 CLI 将 gpt（Responses API）条目构建为 RoutingProvider：terra=快速 /
+    # luna=中档 / sol=深度，按问题难度自动切换，并照常放入多 provider 池。
+    gpt_routing_enabled: bool = Field(default=False)
+    gpt_routing_terra_model: str = Field(default="gpt-5.6-terra")  # terra（快速）档模型
+    gpt_routing_luna_model: str = Field(default="gpt-5.6-luna")  # luna（中档）模型
+    gpt_routing_sol_model: str = Field(default="gpt-5.6-sol")  # sol（深度）档模型
+    # 追加到内置中档关键词表的自定义词（逗号分隔；命中即路由到 luna）。
+    gpt_routing_mid_keywords: str = Field(default="")
+    # 追加到内置推理关键词表的自定义词（逗号分隔；命中即路由到 sol）。
+    gpt_routing_reasoning_keywords: str = Field(default="")
 
     # ---- 框架运行参数 ----
     max_iterations: int = Field(default=50, ge=1)
@@ -198,6 +213,14 @@ class Settings(BaseSettings):
     @property
     def routing_keyword_list(self) -> list[str]:
         return _parse_comma_list(self.routing_reasoning_keywords)
+
+    @property
+    def gpt_routing_mid_keyword_list(self) -> list[str]:
+        return _parse_comma_list(self.gpt_routing_mid_keywords)
+
+    @property
+    def gpt_routing_reasoning_keyword_list(self) -> list[str]:
+        return _parse_comma_list(self.gpt_routing_reasoning_keywords)
 
     @property
     def model_pricing_map(self) -> dict[str, dict[str, float]]:
