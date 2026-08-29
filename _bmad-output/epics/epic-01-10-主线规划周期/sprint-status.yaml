@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-08-26
+# last_updated: 2026-08-29
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -44,7 +44,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-08-26
+last_updated: 2026-08-29
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -412,6 +412,17 @@ development_status:
   40-3-env-scrub-allowlist: done
   40-4-sandbox-session-lifecycle: done
   epic-40-retrospective: optional
+
+  # =============================================================
+  # 目标驱动开发周期 · Epic 41（2026-08-29 规划登记，FR-1~4；/goal 启动 skill 执行工作流）
+  # =============================================================
+
+  epic-41: in-progress  # /goal 启动 goal skill 执行工作流（FR-1~4）
+  41-1-goal-skill-single-step: review
+  41-2-run-loop-run-metadata: backlog
+  41-3-cron-auto-unattended: backlog
+  41-4-docs-regression-smoke: backlog
+  epic-41-retrospective: optional
 
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════

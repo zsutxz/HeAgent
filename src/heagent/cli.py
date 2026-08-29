@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import click
 
@@ -28,6 +28,7 @@ from heagent.context.window_reset import WindowResetConfig
 from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
 from heagent.engine import ConsoleApprovalHandler, EngineContainer
+from heagent.engine.persist import atomic_write_text
 from heagent.engine.roles import load_agent_roles
 from heagent.exceptions import BudgetExceeded, HeAgentError
 from heagent.memory.facts import FactStore
@@ -49,6 +50,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractAsyncContextManager
 
+    from heagent.agent.sub import SubAgentResult
     from heagent.engine.context import RunContext
     from heagent.providers.base import BaseProvider
     from heagent.types import TokenUsage
@@ -898,6 +900,11 @@ def _build_slash_registry(
     registry.register("clear", "清空当前会话上下文", _clear)
     registry.register("help", "列出所有斜杠命令", _help)
 
+    async def _goal(args: str) -> None:
+        await _goal_runner(provider, loop.engine, args)
+
+    registry.register("goal", "目标驱动开发（new/next/status/reset，Story 41.1）", _goal)
+
     for command in load_custom_commands():
         prompt = command.prompt
 
@@ -918,6 +925,298 @@ async def _handle_slash(user_input: str, registry: SlashRegistry) -> bool:
     name = cmd[1:]
     args = " ".join(parts[1:])
     return await registry.dispatch(name, args)
+
+
+# =============================================================================
+# /goal 命令族（Story 41.1：目标驱动开发工作流——skill 正文直读 + 逐 story 会话）
+# =============================================================================
+
+# goal 状态目录与 skill 正文路径（相对路径，使用时锚定 Path.cwd()）。
+_GOALS_DIR = Path(".heagent/goals")
+_GOAL_SKILL_PATH = Path(".heagent/skills/goal/SKILL.md")
+_GOAL_STATUSES = frozenset({"planning", "executing", "done", "blocked"})
+_GOAL_HEX = frozenset("0123456789abcdef")  # goal_id 字符集（与 uuid4().hex[:8] 写入格式一致）
+# 保留子命令（首 token 命中即子命令；new 之外带尾文本时显性拒绝，防尾文本被静默吞掉）。
+_GOAL_RESERVED = ("next", "status", "reset", "run", "auto")
+
+
+class GoalProgress(NamedTuple):
+    """GOAL.md 边界扫描结果（NamedTuple：零依赖，命名访问消魔法下标）。"""
+
+    status: str | None  # 首非空行 status: <planning|executing|done|blocked>，非法为 None
+    total: int  # `- [ ]` / `- [x]` checkbox 总数
+    done: int  # 已勾选数（GFM 大写 `- [X]` 同计）
+    in_progress: str | None  # `> in-progress: S<n>` 的 <n>，无则 None
+
+
+def _scan_goal_md(text: str) -> GoalProgress:
+    """扫描 GOAL.md 的三个机器标记（无状态纯函数）：status 行 / checkbox / in-progress 行。
+
+    status 须为**首非空行** ``status: <planning|executing|done|blocked>``，非法返回
+    None（调用方显性报错）；story 只认 ``- [ ]`` / ``- [x]`` 行首 checkbox（大写 ``X``
+    按 GFM 同计勾选）；in-progress 取首个合法 ``> in-progress: S<n>`` 行的 ``<n>``。
+    """
+    first = next((ln for ln in text.splitlines() if ln.strip()), "")
+    status: str | None = None
+    if first.startswith("status:"):
+        value = first.split(":", 1)[1].strip()
+        status = value if value in _GOAL_STATUSES else None
+    total = done = 0
+    in_progress: str | None = None
+    for line in text.splitlines():
+        stripped = line.lstrip()
+        if stripped.lower().startswith(("- [ ]", "- [x]")):
+            total += 1
+            if stripped.lower().startswith("- [x]"):
+                done += 1
+        elif in_progress is None and stripped.startswith("> in-progress:"):
+            value = stripped.split(":", 1)[1].strip()
+            if value.upper().startswith("S") and value[1:].isdigit():
+                in_progress = value[1:]
+    return GoalProgress(status, total, done, in_progress)
+
+
+def _goal_usage() -> None:
+    """打印 /goal 子命令用法表（缺参 / 未实现 / 拼错时）。"""
+    click.echo(
+        "/goal 用法：\n"
+        "  /goal <目标描述>      新建 goal 并执行 planning 规程\n"
+        "  /goal new <目标描述>  同上（显式 new 形式）\n"
+        "  /goal next            推进下一条 story（每步全新会话）\n"
+        "  /goal status          查看进度与 GOAL.md 全文\n"
+        "  /goal reset           清除 current 指针（goal 目录保留）\n"
+        "  /goal run | auto      尚未实现（Story 41.2/41.3）",
+        err=True,
+    )
+
+
+def _goal_skill_text() -> str | None:
+    """路径直读 goal skill 正文（不走 SkillStore 相似度匹配）；缺失/不可读/解码失败返回 None。"""
+    try:
+        return _GOAL_SKILL_PATH.read_text(encoding="utf-8")
+    except (OSError, ValueError):  # ValueError 覆盖 UnicodeDecodeError（GBK 存档，P1-23 先例）
+        return None
+
+
+def _goal_active_md() -> Path | None:
+    """解析活跃 goal 的 GOAL.md 路径；指针缺失/解码失败返回 None，内容非法显性报错。"""
+    try:
+        goal_id = (_GOALS_DIR / "current").read_text(encoding="utf-8").strip()
+    except (OSError, ValueError):
+        return None
+    if not goal_id:
+        return None
+    # 指针内容须为 8 位小写十六进制（与写入格式一致）：防手改指针以 ../.. 或绝对路径
+    # 把围栏外任意文件当 GOAL.md 注入 LLM prompt（仿 sandbox_session_dir 先例）。
+    if len(goal_id) != 8 or any(c not in _GOAL_HEX for c in goal_id):
+        click.echo(f"[goal] current 指针内容非法：{goal_id!r}（须为 8 位十六进制 goal_id）。", err=True)
+        return None
+    return _GOALS_DIR / goal_id / "GOAL.md"
+
+
+def _goal_read_md(goal_md: Path) -> tuple[str, GoalProgress] | None:
+    """读 GOAL.md 并扫描标记；缺失/不合规时显性报错并返回 None（目录保留可重试）。"""
+    try:
+        text = goal_md.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        click.echo(f"[goal] 显性失败：GOAL.md 缺失（{goal_md}）——会话未落盘。目录保留，可重试。", err=True)
+        return None
+    except (OSError, ValueError) as exc:
+        click.echo(f"[goal] 显性失败：GOAL.md 读取失败（{exc}）。目录保留，可重试。", err=True)
+        return None
+    progress = _scan_goal_md(text)
+    if progress.status is None:
+        click.echo(
+            "[goal] 显性失败：GOAL.md 首非空行须为「status: planning|executing|done|blocked」。目录保留，可重试。",
+            err=True,
+        )
+        return None
+    return text, progress
+
+
+async def _goal_session(provider: BaseProvider, engine: EngineContainer | None, prompt: str) -> SubAgentResult | None:
+    """开一个**全新** SubAgent 会话执行一个 goal 步骤（非流式，流式 deferred）。
+
+    每次 ``run()`` 新建 AgentLoop+RunContext；``window_reset`` 按设置阈值启用（长会话
+    清窗续跑）。Ctrl+C / 任务取消不崩出交互层：捕获后回显「状态在盘」并返回 None。
+    """
+    from heagent.agent.sub import SubAgent  # noqa: PLC0415
+
+    agent = SubAgent(
+        provider,
+        engine=engine,
+        window_reset=WindowResetConfig(threshold=get_settings().window_reset_threshold),
+    )
+    try:
+        return await agent.run(prompt)
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        click.echo("[goal] 已中断：状态在盘（GOAL.md），/goal next 可续跑。", err=True)
+        return None
+
+
+def _goal_status() -> None:
+    """打印活跃 goal 进度（done/total + status）与 GOAL.md 全文。"""
+    goal_md = _goal_active_md()
+    if goal_md is None:
+        click.echo("[goal] 无活跃 goal。用 /goal new <目标描述> 新建。", err=True)
+        return
+    read = _goal_read_md(goal_md)
+    if read is None:
+        return
+    text, prog = read
+    click.echo(f"[goal] 进度：{prog.done}/{prog.total} 条 story 已完成（status: {prog.status}）", err=True)
+    click.echo(text)
+
+
+def _goal_reset() -> None:
+    """清除 current 指针（不删任何其他文件）；goal 目录保留并回显路径。"""
+    try:
+        (_GOALS_DIR / "current").unlink(missing_ok=True)  # missing_ok：竞态下指针已消失视为已清
+    except OSError as exc:
+        click.echo(f"[goal] 落盘失败：清除 current 指针失败（{exc}）。", err=True)
+        return
+    click.echo(f"[goal] current 指针已清除；goal 目录保留：{_GOALS_DIR.resolve()}", err=True)
+
+
+def _goal_planning_prompt(skill: str, description: str, goal_md: Path) -> str:
+    """planning 会话 prompt（确定性拼接：skill 正文 + 任务段 + 目标 + GOAL.md 绝对路径）。"""
+    return f"{skill}\n\n# 任务：执行 planning 规程\n目标：{description}\nGOAL.md 路径：{goal_md.resolve()}"
+
+
+async def _goal_run_planning(
+    provider: BaseProvider, engine: EngineContainer | None, skill: str, description: str, goal_md: Path
+) -> None:
+    """跑 planning 会话并做产物校验收口（``_goal_new`` 与 goal.txt 恢复路径共用）。"""
+    result = await _goal_session(provider, engine, _goal_planning_prompt(skill, description, goal_md))
+    if result is None:
+        return
+    if not result.success:
+        click.echo(f"[goal] planning 会话失败：{result.output}", err=True)
+        return
+    click.echo(result.output)
+    read = _goal_read_md(goal_md)
+    if read is None:
+        return
+    _, prog = read
+    if prog.status != "executing" or prog.total < 1:
+        click.echo(
+            f"[goal] 显性失败：planning 产物不合规（要求 status=executing 且 ≥1 条 story，"
+            f"实际 status={prog.status}、story={prog.total} 条）。目录保留，可重试。",
+            err=True,
+        )
+        return
+    click.echo(f"[goal] planning 完成：{prog.done}/{prog.total} 条 story。用 /goal next 推进。", err=True)
+
+
+async def _goal_new(provider: BaseProvider, engine: EngineContainer | None, skill: str, description: str) -> None:
+    """新建 goal（goal.txt + current 原子写）并跑 planning 会话，扫描校验产物。"""
+    goal_id = uuid.uuid4().hex[:8]
+    goal_dir = _GOALS_DIR / goal_id
+    while goal_dir.exists():  # 8-hex 前缀撞上既有目录即换号，不静默覆写旧 goal
+        goal_id = uuid.uuid4().hex[:8]
+        goal_dir = _GOALS_DIR / goal_id
+    try:
+        atomic_write_text(goal_dir / "goal.txt", description)
+        atomic_write_text(_GOALS_DIR / "current", goal_id)
+    except (OSError, ValueError) as exc:
+        click.echo(f"[goal] 落盘失败：{exc}", err=True)
+        return
+    await _goal_run_planning(provider, engine, skill, description, goal_dir / "GOAL.md")
+
+
+async def _goal_next(provider: BaseProvider, engine: EngineContainer | None, skill: str) -> None:
+    """推进一条 story：prompt=skill 正文 + GOAL.md 全文 + 单 story 指令，全新会话执行。"""
+    goal_md = _goal_active_md()
+    if goal_md is None:
+        click.echo("[goal] 无活跃 goal。用 /goal new <目标描述> 新建。", err=True)
+        return
+    if not goal_md.exists():
+        # goal.txt 恢复路径：GOAL.md 缺失（planning 未落盘）时用原始描述重跑 planning，
+        # 复用现有 goal_id/goal_dir（不建新目录、不动 current 指针）。
+        description = None
+        try:
+            text = (goal_md.parent / "goal.txt").read_text(encoding="utf-8").strip()
+            if text:
+                description = text
+        except (OSError, ValueError):
+            pass
+        if description is None:
+            _goal_read_md(goal_md)  # 无恢复路径（goal.txt 亦缺失）：显性报「GOAL.md 缺失」
+            return
+        click.echo("[goal] GOAL.md 缺失，用 goal.txt 原始描述重跑 planning。", err=True)
+        await _goal_run_planning(provider, engine, skill, description, goal_md)
+        return
+    read = _goal_read_md(goal_md)
+    if read is None:
+        return
+    text, prog = read
+    if prog.status == "done" or (prog.total > 0 and prog.done >= prog.total):
+        click.echo(f"[goal] 全部 story 已完成（{prog.done}/{prog.total}，status: {prog.status}），不开会话。", err=True)
+        return
+    if prog.total < 1:
+        click.echo("[goal] GOAL.md 无 story 可推进（0 条 checkbox）。目录保留，可重试。", err=True)
+        return
+    prompt = f"{skill}\n\n# 任务：执行 story 规程（仅一条）\nGOAL.md 路径：{goal_md.resolve()}\n\n{text}"
+    result = await _goal_session(provider, engine, prompt)
+    if result is None:
+        return
+    if not result.success:
+        click.echo(f"[goal] story 会话失败：{result.output}", err=True)
+        return
+    click.echo(result.output)
+    read = _goal_read_md(goal_md)
+    if read is None:
+        return
+    _, after = read
+    click.echo(f"[goal] 进度：{after.done}/{after.total}（status: {after.status}）", err=True)
+    # run 白跑可检测（纯读侧对比，不写 GOAL.md）：零变化显性告警；全部勾选但 status 未翻 done 提示。
+    if (after.done, after.total) == (prog.done, prog.total):
+        click.echo("[goal] 会话未推进任何 story（GOAL.md 无变化）。", err=True)
+    elif after.total > 0 and after.done == after.total and after.status != "done":
+        click.echo("[goal] 全部 story 已勾选但 status 未翻 done（skill 契约遗漏）；读侧已按完成处理。", err=True)
+
+
+async def _goal_runner(provider: BaseProvider, engine: EngineContainer | None, args: str) -> None:
+    """/goal 子命令族总入口：skill 缺失守卫 → 子命令解析分发。
+
+    首 token 命中子命令集合（new/next/run/auto/status/reset）即子命令；否则整段
+    args 视为目标描述（等价 ``new``——中文目标常为单 token，无法与「拼错的子命令」
+    结构性区分，故按 Design Notes 解析契约一律视为描述）。``run``/``auto`` 属保留
+    子命令但 41.2/41.3 未实现，回用法表；保留字（new 除外）带尾文本时同样回用法表，
+    防尾文本被静默吞掉。
+    """
+    skill = _goal_skill_text()
+    if skill is None:
+        click.echo(
+            "[goal] 缺少 skill：.heagent/skills/goal/SKILL.md 不存在（工作流方法论契约）。\n"
+            "请创建该文件，frontmatter 最小示例：\n"
+            "  ---\n  name: goal\n  description: 目标驱动开发工作流契约\n  ---\n"
+            "正文写 GOAL.md 状态文件格式与 planning/story 规程。",
+            err=True,
+        )
+        return
+    parts = args.split(None, 1)
+    head = parts[0].lower() if parts else ""
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    if not parts:
+        _goal_status()
+    elif head == "new":
+        if rest:
+            await _goal_new(provider, engine, skill, rest)
+        else:
+            _goal_usage()
+    elif head in _GOAL_RESERVED and rest:
+        _goal_usage()  # 保留字带尾文本：显性拒绝，防尾文本被静默吞掉
+    elif head == "status":
+        _goal_status()
+    elif head == "reset":
+        _goal_reset()
+    elif head == "next":
+        await _goal_next(provider, engine, skill)
+    elif head in ("run", "auto"):  # 保留字但 41.2/41.3 未实现
+        _goal_usage()
+    else:
+        await _goal_new(provider, engine, skill, args.strip())
 
 
 async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
