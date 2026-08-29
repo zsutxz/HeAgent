@@ -102,6 +102,7 @@ class Settings(BaseSettings):
 
     # ---- 框架运行参数 ----
     max_iterations: int = Field(default=50, ge=1)
+    goal_max_iterations: int = Field(default=20, ge=1)
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
     # 上下文管理策略："compressor"=原地摘要压缩（默认）；"reset"=窗口重置（清窗后 resume 续跑，D3 互斥）。
     context_strategy: str = Field(default="compressor")

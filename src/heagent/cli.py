@@ -10,7 +10,7 @@ import os
 import sys
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -25,6 +25,7 @@ from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
 from heagent.context.tokens import estimate_cost
 from heagent.context.window_reset import WindowResetConfig
+from heagent.cron.expr import cron_matches
 from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
 from heagent.engine import ConsoleApprovalHandler, EngineContainer
@@ -56,6 +57,9 @@ if TYPE_CHECKING:
     from heagent.types import TokenUsage
 
 logger = logging.getLogger(__name__)
+_GOAL_AUTO_DEFAULT_CRON = "*/15 * * * *"
+_GOAL_AUTO_PREFIX = "goal-advance "
+_goal_auto_lock = asyncio.Lock()
 
 
 # =============================================================================
@@ -505,6 +509,9 @@ def _build_loop(
     if session is not None and settings.cron_enabled and cron_store:
 
         async def _run_job(prompt: str, run_context: RunContext) -> None:
+            if prompt.startswith(_GOAL_AUTO_PREFIX):
+                await _goal_cron_advance(provider, engine, cron_store, prompt[len(_GOAL_AUTO_PREFIX) :].strip())
+                return
             loop = AgentLoop(
                 provider,
                 max_iterations=max_iterations,
@@ -740,7 +747,7 @@ async def _run_chat(
             soul=soul,
         )
         dream_scheduler = _build_dream_scheduler(settings, provider, engine, session, skills, facts, profile, soul)
-        registry = _build_slash_registry(provider, mcp_manager, session, session_id, loop, system)
+        registry = _build_slash_registry(provider, mcp_manager, session, session_id, loop, system, loop.cron_store)
         click.echo(f"HeAgent interactive mode (session: {session_id}). Type your message (Esc to pause, Enter to resume, double Esc to interrupt, Ctrl+C to exit).")
 
         try:
@@ -760,7 +767,14 @@ async def _run_chat(
                     continue
 
                 if user_input.startswith("/"):
-                    handled = await _handle_slash(user_input, registry)
+                    try:
+                        handled = await _handle_slash(user_input, registry)
+                    except (KeyboardInterrupt, asyncio.CancelledError):
+                        click.echo("[interrupted] Slash command interrupted; state is preserved.", err=True)
+                        handled = True
+                    except Exception as exc:
+                        click.echo(f"[error] Slash command failed: {exc}", err=True)
+                        handled = True
                     if handled:
                         continue
 
@@ -871,6 +885,7 @@ def _build_slash_registry(
     session_id: str,
     loop: AgentLoop,
     system: str | None,
+    cron_store: JobStore | None = None,
 ) -> SlashRegistry:
     """构造斜杠命令注册表：内置命令 + 用户自定义命令（Epic 31）。"""
     registry = SlashRegistry()
@@ -901,7 +916,7 @@ def _build_slash_registry(
     registry.register("help", "列出所有斜杠命令", _help)
 
     async def _goal(args: str) -> None:
-        await _goal_runner(provider, loop.engine, args)
+        await _goal_runner(provider, loop.engine, args, cron_store=cron_store)
 
     registry.register("goal", "目标驱动开发（new/next/status/reset，Story 41.1）", _goal)
 
@@ -938,6 +953,11 @@ _GOAL_STATUSES = frozenset({"planning", "executing", "done", "blocked"})
 _GOAL_HEX = frozenset("0123456789abcdef")  # goal_id 字符集（与 uuid4().hex[:8] 写入格式一致）
 # 保留子命令（首 token 命中即子命令；new 之外带尾文本时显性拒绝，防尾文本被静默吞掉）。
 _GOAL_RESERVED = ("next", "status", "reset", "run", "auto")
+_GOAL_RUN_MAX_ROUNDS = 10
+_GOAL_ADVANCED = "advanced"
+_GOAL_DONE = "done"
+_GOAL_STALLED = "stalled"
+_GOAL_FAILED = "failed"
 
 
 class GoalProgress(NamedTuple):
@@ -985,7 +1005,8 @@ def _goal_usage() -> None:
         "  /goal next            推进下一条 story（每步全新会话）\n"
         "  /goal status          查看进度与 GOAL.md 全文\n"
         "  /goal reset           清除 current 指针（goal 目录保留）\n"
-        "  /goal run | auto      尚未实现（Story 41.2/41.3）",
+        f"  /goal run             连续推进 goal（最多 {_GOAL_RUN_MAX_ROUNDS} 步；Ctrl+C 可中断）\n"
+        "  /goal auto            尚未实现（Story 41.3）",
         err=True,
     )
 
@@ -1034,7 +1055,14 @@ def _goal_read_md(goal_md: Path) -> tuple[str, GoalProgress] | None:
     return text, progress
 
 
-async def _goal_session(provider: BaseProvider, engine: EngineContainer | None, prompt: str) -> SubAgentResult | None:
+async def _goal_session(
+    provider: BaseProvider,
+    engine: EngineContainer | None,
+    prompt: str,
+    *,
+    metadata: dict[str, Any] | None = None,
+    max_iterations: int | None = None,
+) -> SubAgentResult | None:
     """开一个**全新** SubAgent 会话执行一个 goal 步骤（非流式，流式 deferred）。
 
     每次 ``run()`` 新建 AgentLoop+RunContext；``window_reset`` 按设置阈值启用（长会话
@@ -1045,6 +1073,8 @@ async def _goal_session(provider: BaseProvider, engine: EngineContainer | None, 
     agent = SubAgent(
         provider,
         engine=engine,
+        metadata=metadata,
+        max_iterations=max_iterations if max_iterations is not None else get_settings().goal_max_iterations,
         window_reset=WindowResetConfig(threshold=get_settings().window_reset_threshold),
     )
     try:
@@ -1058,7 +1088,7 @@ def _goal_status() -> None:
     """打印活跃 goal 进度（done/total + status）与 GOAL.md 全文。"""
     goal_md = _goal_active_md()
     if goal_md is None:
-        click.echo("[goal] 无活跃 goal。用 /goal new <目标描述> 新建。", err=True)
+        click.echo("[goal] 无活跃 goal。用 /goal new <目标描述> 新建；/goal next 或 /goal run 可继续推进。", err=True)
         return
     read = _goal_read_md(goal_md)
     if read is None:
@@ -1085,18 +1115,21 @@ def _goal_planning_prompt(skill: str, description: str, goal_md: Path) -> str:
 
 async def _goal_run_planning(
     provider: BaseProvider, engine: EngineContainer | None, skill: str, description: str, goal_md: Path
-) -> None:
+) -> bool | None:
     """跑 planning 会话并做产物校验收口（``_goal_new`` 与 goal.txt 恢复路径共用）。"""
-    result = await _goal_session(provider, engine, _goal_planning_prompt(skill, description, goal_md))
+    result = await _goal_session(
+        provider, engine, _goal_planning_prompt(skill, description, goal_md),
+        metadata={"goal_id": goal_md.parent.name, "goal_kind": "planning"},
+    )
     if result is None:
-        return
+        return None
     if not result.success:
         click.echo(f"[goal] planning 会话失败：{result.output}", err=True)
-        return
+        return False
     click.echo(result.output)
     read = _goal_read_md(goal_md)
     if read is None:
-        return
+        return False
     _, prog = read
     if prog.status != "executing" or prog.total < 1:
         click.echo(
@@ -1104,8 +1137,9 @@ async def _goal_run_planning(
             f"实际 status={prog.status}、story={prog.total} 条）。目录保留，可重试。",
             err=True,
         )
-        return
+        return False
     click.echo(f"[goal] planning 完成：{prog.done}/{prog.total} 条 story。用 /goal next 推进。", err=True)
+    return True
 
 
 async def _goal_new(provider: BaseProvider, engine: EngineContainer | None, skill: str, description: str) -> None:
@@ -1124,12 +1158,12 @@ async def _goal_new(provider: BaseProvider, engine: EngineContainer | None, skil
     await _goal_run_planning(provider, engine, skill, description, goal_dir / "GOAL.md")
 
 
-async def _goal_next(provider: BaseProvider, engine: EngineContainer | None, skill: str) -> None:
+async def _goal_advance(provider: BaseProvider, engine: EngineContainer | None, skill: str) -> str:  # noqa: C901
     """推进一条 story：prompt=skill 正文 + GOAL.md 全文 + 单 story 指令，全新会话执行。"""
     goal_md = _goal_active_md()
     if goal_md is None:
-        click.echo("[goal] 无活跃 goal。用 /goal new <目标描述> 新建。", err=True)
-        return
+        click.echo("[goal] 无活跃 goal。用 /goal new <目标描述> 新建；/goal next 或 /goal run 可继续推进。", err=True)
+        return _GOAL_FAILED
     if not goal_md.exists():
         # goal.txt 恢复路径：GOAL.md 缺失（planning 未落盘）时用原始描述重跑 planning，
         # 复用现有 goal_id/goal_dir（不建新目录、不动 current 指针）。
@@ -1142,41 +1176,116 @@ async def _goal_next(provider: BaseProvider, engine: EngineContainer | None, ski
             pass
         if description is None:
             _goal_read_md(goal_md)  # 无恢复路径（goal.txt 亦缺失）：显性报「GOAL.md 缺失」
-            return
+            return _GOAL_FAILED
         click.echo("[goal] GOAL.md 缺失，用 goal.txt 原始描述重跑 planning。", err=True)
-        await _goal_run_planning(provider, engine, skill, description, goal_md)
-        return
+        planning = await _goal_run_planning(provider, engine, skill, description, goal_md)
+        return _GOAL_FAILED if planning is not True else _GOAL_ADVANCED
     read = _goal_read_md(goal_md)
     if read is None:
-        return
+        return _GOAL_FAILED
     text, prog = read
+    if prog.status in ("blocked", "planning"):
+        click.echo(f"[goal] 当前 goal status={prog.status}，停止推进；请先处理状态。", err=True)
+        return _GOAL_FAILED
     if prog.status == "done" or (prog.total > 0 and prog.done >= prog.total):
         click.echo(f"[goal] 全部 story 已完成（{prog.done}/{prog.total}，status: {prog.status}），不开会话。", err=True)
-        return
+        return _GOAL_DONE
     if prog.total < 1:
         click.echo("[goal] GOAL.md 无 story 可推进（0 条 checkbox）。目录保留，可重试。", err=True)
-        return
+        return _GOAL_FAILED
     prompt = f"{skill}\n\n# 任务：执行 story 规程（仅一条）\nGOAL.md 路径：{goal_md.resolve()}\n\n{text}"
-    result = await _goal_session(provider, engine, prompt)
+    result = await _goal_session(
+        provider, engine, prompt,
+        metadata={"goal_id": goal_md.parent.name, "goal_kind": "story"},
+    )
     if result is None:
-        return
+        return _GOAL_FAILED
     if not result.success:
         click.echo(f"[goal] story 会话失败：{result.output}", err=True)
-        return
+        return _GOAL_FAILED
     click.echo(result.output)
     read = _goal_read_md(goal_md)
     if read is None:
-        return
+        return _GOAL_FAILED
     _, after = read
     click.echo(f"[goal] 进度：{after.done}/{after.total}（status: {after.status}）", err=True)
     # run 白跑可检测（纯读侧对比，不写 GOAL.md）：零变化显性告警；全部勾选但 status 未翻 done 提示。
-    if (after.done, after.total) == (prog.done, prog.total):
-        click.echo("[goal] 会话未推进任何 story（GOAL.md 无变化）。", err=True)
-    elif after.total > 0 and after.done == after.total and after.status != "done":
-        click.echo("[goal] 全部 story 已勾选但 status 未翻 done（skill 契约遗漏）；读侧已按完成处理。", err=True)
+    if after.status in ("blocked", "planning"):
+        click.echo(f"[goal] 会话后 status 变为 {after.status}，停止推进。", err=True)
+        return _GOAL_FAILED
+    if after.done < prog.done or after.total < prog.total:
+        click.echo(f"[goal] 进度回退：此前 {prog.done}/{prog.total}，现在 {after.done}/{after.total}。", err=True)
+        return _GOAL_FAILED
+    if after.status == "done":
+        return _GOAL_DONE
+    if after.total > 0 and after.done == after.total:
+        click.echo("[goal] 全部 story 已勾选但 status 未翻 done（skill 契约遗漏）；按完成处理。", err=True)
+        return _GOAL_DONE
+    if after.done == prog.done:
+        click.echo("[goal] 会话未推进任何 story（GOAL.md 无 story 净完成）。", err=True)
+        return _GOAL_STALLED
+    return _GOAL_ADVANCED
 
 
-async def _goal_runner(provider: BaseProvider, engine: EngineContainer | None, args: str) -> None:
+async def _goal_next(provider: BaseProvider, engine: EngineContainer | None, skill: str) -> None:
+    """推进一个 story；保留旧 slash 命令的无返回值接口。"""
+    await _goal_advance(provider, engine, skill)
+
+
+async def _goal_run(provider: BaseProvider, engine: EngineContainer | None, skill: str) -> None:
+    """连续推进 goal，遇到完成、失败、停滞或规划状态立即停止。"""
+    try:
+        for round_no in range(1, _GOAL_RUN_MAX_ROUNDS + 1):
+            click.echo(f"[goal] run 第 {round_no}/{_GOAL_RUN_MAX_ROUNDS} 步", err=True)
+            async with _goal_auto_lock:
+                outcome = await _goal_advance(provider, engine, skill)
+            if outcome == _GOAL_DONE:
+                click.echo(f"[goal] run 完成：共 {round_no} 步。", err=True)
+                return
+            if outcome != _GOAL_ADVANCED:
+                return
+    except (KeyboardInterrupt, asyncio.CancelledError):
+        click.echo("[goal] 已中断：状态在盘（GOAL.md），/goal next 可继续跑（也可用 /goal run 继续推进）。", err=True)
+        return
+    click.echo(
+        f"[goal] run 触顶：连续 {_GOAL_RUN_MAX_ROUNDS} 步推进仍未达到 done。GOAL.md 状态保留，可再次 /goal run 继续。",
+        err=True,
+    )
+
+
+def _goal_auto_remove(store: JobStore, goal_id: str) -> int:
+    removed = 0
+    for job in store.list_jobs():
+        if job.prompt == f"{_GOAL_AUTO_PREFIX}{goal_id}" and store.remove(job.id):
+            removed += 1
+    return removed
+
+
+async def _goal_cron_advance(
+    provider: BaseProvider, engine: EngineContainer | None, store: JobStore, goal_id: str
+) -> None:
+    """Run one scheduled goal step under the same process lock as manual commands."""
+    async with _goal_auto_lock:
+        current = _goal_active_md()
+        if current is None or current.parent.name != goal_id:
+            return
+        skill = _goal_skill_text()
+        if skill is None:
+            return
+        outcome = await _goal_advance(provider, engine, skill)
+        after = _goal_read_md(current)
+        if outcome == _GOAL_DONE or (after is not None and after[1].status == "blocked"):
+            removed = _goal_auto_remove(store, goal_id)
+            click.echo(f"[goal] auto 已收口：goal {goal_id}，注销 {removed} 个 job。", err=True)
+
+
+async def _goal_runner(  # noqa: C901
+    provider: BaseProvider,
+    engine: EngineContainer | None,
+    args: str,
+    *,
+    cron_store: JobStore | None = None,
+) -> None:
     """/goal 子命令族总入口：skill 缺失守卫 → 子命令解析分发。
 
     首 token 命中子命令集合（new/next/run/auto/status/reset）即子命令；否则整段
@@ -1212,9 +1321,36 @@ async def _goal_runner(provider: BaseProvider, engine: EngineContainer | None, a
     elif head == "reset":
         _goal_reset()
     elif head == "next":
-        await _goal_next(provider, engine, skill)
-    elif head in ("run", "auto"):  # 保留字但 41.2/41.3 未实现
-        _goal_usage()
+        async with _goal_auto_lock:
+            await _goal_next(provider, engine, skill)
+    elif head == "run":
+        await _goal_run(provider, engine, skill)
+    elif head == "auto":
+        goal_md = _goal_active_md()
+        if rest == "off":
+            if cron_store is None:
+                click.echo("[goal] cron 未启用，无法注销 auto job。", err=True)
+            elif goal_md is None:
+                click.echo("[goal] 无活跃 goal。", err=True)
+            else:
+                removed = _goal_auto_remove(cron_store, goal_md.parent.name)
+                click.echo(f"[goal] auto 已关闭：注销 {removed} 个 job。", err=True)
+        elif cron_store is None:
+            click.echo("[goal] cron 未启用；请设置 CRON_ENABLED=true 后重试。/goal next 可手动推进。", err=True)
+        elif goal_md is None:
+            click.echo("[goal] 无活跃 goal。请先使用 /goal new <目标描述>。", err=True)
+        else:
+            schedule = rest or _GOAL_AUTO_DEFAULT_CRON
+            try:
+                cron_matches(schedule, datetime.now(UTC))
+            except (TypeError, ValueError) as exc:
+                click.echo(f"[goal] 非法 cron 表达式：{exc}", err=True)
+            else:
+                goal_id = goal_md.parent.name
+                _goal_auto_remove(cron_store, goal_id)
+                job = cron_store.create_job(f"{_GOAL_AUTO_PREFIX}{goal_id}", schedule)
+                cron_store.add(job)
+                click.echo(f"[goal] auto 已注册：{job.id}，schedule={schedule!r}。", err=True)
     else:
         await _goal_new(provider, engine, skill, args.strip())
 

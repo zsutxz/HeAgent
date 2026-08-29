@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from textual.app import ComposeResult
 
 # 支持的斜杠命令列表（供 Tab 补全）
-_SLASH_COMMANDS = ["/model", "/mcp-prompt", "/clear", "/help"]
+_SLASH_COMMANDS = ["/model", "/mcp-prompt", "/goal", "/clear", "/help"]
 
 
 class InputArea(Widget):

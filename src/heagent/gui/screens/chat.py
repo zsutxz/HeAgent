@@ -190,7 +190,33 @@ class ChatScreen(Screen[None]):
         if cmd == "/model":
             self._model_cmd(args)
             return True
+        if cmd == "/goal":
+            self._goal_cmd(args)
+            return True
         return False
+
+    def _goal_cmd(self, args: str) -> None:
+        """Run goal commands through the shared CLI goal implementation."""
+        log = self.query_one("#chat-log", RichLog)
+
+        async def _run() -> None:
+            from heagent.cli import _goal_runner
+            from heagent.gui.app import HeAgentApp
+
+            app = HeAgentApp.get_current_app()
+            if not isinstance(app, HeAgentApp) or app.agent_loop is None:
+                log.write("[red]Goal runner unavailable[/]")
+                return
+            self._state.is_running = True
+            try:
+                await _goal_runner(app.agent_loop.provider, app.agent_loop.engine, args, cron_store=app.job_store)
+                log.write("[dim]Goal command completed; use /goal status to inspect progress.[/]")
+            except Exception as exc:
+                log.write(f"[red]Goal command failed: {exc}[/]")
+            finally:
+                self._state.is_running = False
+
+        self._pending_submit = asyncio.create_task(_run())
 
     def _model_cmd(self, args: str) -> None:
         log = self.query_one("#chat-log", RichLog)

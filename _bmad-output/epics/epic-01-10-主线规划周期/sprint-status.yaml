@@ -414,14 +414,14 @@ development_status:
   epic-40-retrospective: optional
 
   # =============================================================
-  # 目标驱动开发周期 · Epic 41（2026-08-29 规划登记，FR-1~4；/goal 启动 skill 执行工作流）
+  # 目标驱动开发周期 · Epic 41（2026-08-29 交付，FR-1~4；/goal 启动 skill 执行工作流）
   # =============================================================
 
-  epic-41: in-progress  # /goal 启动 goal skill 执行工作流（FR-1~4）
+  epic-41: done  # /goal 启动 goal skill 执行工作流（FR-1~4）
   41-1-goal-skill-single-step: review
-  41-2-run-loop-run-metadata: backlog
-  41-3-cron-auto-unattended: backlog
-  41-4-docs-regression-smoke: backlog
+  41-2-run-loop-run-metadata: done
+  41-3-cron-auto-unattended: done
+  41-4-docs-regression-smoke: done
   epic-41-retrospective: optional
 
 # Action items（来自 retrospective，跨周期跟踪）

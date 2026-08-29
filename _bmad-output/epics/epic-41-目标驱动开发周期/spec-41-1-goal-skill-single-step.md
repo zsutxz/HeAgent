@@ -6,7 +6,7 @@ status: 'done'
 review_loop_iteration: 0
 baseline_commit: 'e192934'
 context:
-  - '{project-root}/_bmad-output/implementation-artifacts/epic-41-context.md'
+  - '{project-root}/_bmad-output/epics/epic-41-目标驱动开发周期/epic-41-context.md'
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">
@@ -155,4 +155,3 @@ story prompt 同头部，任务段换为「执行 story 规程（仅一条）」
 - 关键锁定用例：GBK 解码失败显性化 / 非保留 token=描述契约
   [`test_goal_command.py:308`](../../tests/test_goal_command.py#L308)
   [`test_goal_command.py:576`](../../tests/test_goal_command.py#L576)
-

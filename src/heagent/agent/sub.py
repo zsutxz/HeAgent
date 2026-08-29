@@ -14,8 +14,9 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from heagent.agent.loop import AgentLoop
 from heagent.config import get_settings
@@ -78,6 +79,7 @@ class SubAgent:
         allowed_tools: list[str] | None = None,
         blocked_tools: list[str] | None = None,
         window_reset: WindowResetConfig | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         # 组件依赖：缺省时回退到全局默认（与 AgentLoop 的兜底策略一致）。
         self._provider = provider
@@ -93,6 +95,7 @@ class SubAgent:
         self._parent_run_id = parent_run_id
         self._role = role
         self._window_reset = window_reset
+        self._metadata = copy.deepcopy(metadata) if metadata is not None else None
 
         # 以下四项遵循「显式参数 > role 默认 > 内置默认」的优先级解析。
         # 1) 系统提示词：显式 system 优先，否则取 role.system。
@@ -165,7 +168,16 @@ class SubAgent:
              （失败不抛出，而是 success=False、output=异常文本，便于父循环处理）。
         """
         engine = self._build_engine()
-        metadata: dict[str, object] = {"kind": "subagent"}
+        reserved = {
+            "kind", "role", "approved_tools", "sandboxed_tools", "sandbox_profiles",
+            "sandbox_active", "sandbox_workspace", "progress_summary", "segment", "completed_steps",
+        }
+        metadata: dict[str, Any] = {
+            key: copy.deepcopy(value)
+            for key, value in (self._metadata or {}).items()
+            if key not in reserved
+        }
+        metadata["kind"] = "subagent"
         if self._role is not None:
             metadata["role"] = self._role.name
         # 上下文管理：window_reset 优先（长任务跨窗口续跑）；否则走 in-place 压缩（默认）。

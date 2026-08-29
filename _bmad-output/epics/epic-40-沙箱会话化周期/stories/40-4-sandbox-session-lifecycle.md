@@ -6,7 +6,7 @@ status: 'done'
 epic: 40
 story: '40-4'
 context:
-  - '{project-root}/_bmad-output/implementation-artifacts/epic-40-context.md'
+  - '{project-root}/_bmad-output/epics/epic-40-沙箱会话化周期/epic-40-context.md'
 ---
 
 ## Intent

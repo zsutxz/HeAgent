@@ -8,7 +8,7 @@ baseline_commit: 10a478f10e11738eb0ca392817da894ad108d2ff
 epic: 40
 story: '40-1'
 context:
-  - '{project-root}/_bmad-output/implementation-artifacts/epic-40-context.md'
+  - '{project-root}/_bmad-output/epics/epic-40-沙箱会话化周期/epic-40-context.md'
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">

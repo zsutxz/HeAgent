@@ -571,6 +571,7 @@ HeAgentError (base)
 | `dream_cron` | `0 3 * * *` | dream cron 触发表达式（构造期 fail-fast 校验，须 5 字段） |
 | `dream_idle_minutes` | 30 | dream idle 触发阈值（分钟，距上次 run 结束；0=禁用 idle 触发） |
 | `dream_max_iterations` | 20 | dreamer SubAgent 独立迭代预算（不复用全局 `max_iterations`） |
+| `goal_max_iterations` | 20 | `/goal` 单步 SubAgent 最大迭代轮数 |
 | `dream_session_lookback` | 5 | 预加载近期 session 个数（按 timestamp 降序） |
 | `mcp_enabled` | True | 是否启用 MCP server 连接（门控，False 则跳过加载） |
 | `mcp_config_path` | `.mcp.json` | MCP server 声明式配置文件路径 |
@@ -621,6 +622,26 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 - **安全边界**：`SafetyGuard` / `PolicyEngine` / sandbox 均非真正安全边界，须 OS 级沙箱兜底（详见 CLAUDE.md 安全声明）
 
 ---
+
+### 4.13 Goal 驱动工作流 (`/goal`)
+
+`/goal` 是 CLI 层的机制入口，方法论由运行时本地的
+`.heagent/skills/goal/SKILL.md` 承载。框架只读取三个机器标记：
+`.heagent/goals/<goal_id>/GOAL.md` 首个非空 `status`、story checkbox 数量，
+以及可选的 `in-progress` 标记；不会创建独立的 `goal.py` 状态模型或 `runs.jsonl`。
+
+- `/goal <description>` 或 `/goal new <description>` 创建 `goal.txt` 与 `current` 指针，
+  并启动 planning SubAgent。
+- `/goal next` 推进一条 story；`/goal run` 复用同一推进函数连续执行，最多 10 轮。
+  每一步都是全新的 SubAgent/RunContext，会话失败、状态回退、blocked/planning 或无净完成时停止。
+- `/goal status` 只读回显状态与完整 GOAL.md；`/goal reset` 只清除 current 指针并保留目录。
+- `/goal auto [cron]` 将 `goal-advance <goal_id>` 写入 JobStore，cron tick 复用推进路径；
+  goal 完成或 blocked 时自动注销，`/goal auto off` 可手动注销。
+
+Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`（planning/story）
+与框架权威的 `kind=subagent`。metadata 仅用于观测，不能覆盖 PolicyEngine 的授权字段；
+无人值守 cron 不提升权限，审批与 sandbox 策略仍由 engine 处理。该层同样不是 OS 安全边界，
+外部工具与 LLM 输出仍须在 OS 级沙箱中运行。
 
 ## 五、已知缺口
 
