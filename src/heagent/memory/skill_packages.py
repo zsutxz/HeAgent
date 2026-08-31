@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
-from typing import cast
+from typing import Iterable, cast  # noqa: UP035
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
@@ -29,6 +29,22 @@ class SkillPackageResourceError(SkillPackageError):
     """Raised when a package resource is invalid, missing, or outside its root."""
 
 
+class SkillCatalogError(ValueError):
+    """Base error raised while indexing skill packages."""
+
+
+class SkillResolutionError(SkillCatalogError):
+    """Raised when an explicit skill id cannot be resolved unambiguously."""
+
+    def __init__(self, skill_id: str, reason: str, candidates: Iterable[SkillCatalogEntry] = ()) -> None:
+        self.skill_id = skill_id
+        self.reason = reason
+        self.candidates = tuple(candidates)
+        details = "; ".join(f"{c.canonical_id} ({c.package_root})" for c in self.candidates)
+        suffix = f"; candidates: {details}" if details else ""
+        super().__init__(f"Skill '{skill_id}' cannot be resolved: {reason}{suffix}")
+
+
 class SkillPackageMetadata(BaseModel):
     """Stable metadata associated with a package entry point."""
 
@@ -41,6 +57,10 @@ class SkillPackageMetadata(BaseModel):
     description: str = ""
     version: str = ""
     tags: list[str] = Field(default_factory=list)
+    canonical_id: str = ""
+    source_id: str = ""
+    aliases: list[str] = Field(default_factory=list)
+    available: bool = True
 
 
 class SkillPackageEntry(BaseModel):
@@ -153,6 +173,13 @@ class SkillPackage(BaseModel):
                     key, value = line.split(":", 1)
                     values[key.strip()] = value.strip().strip("\"'")
         tags = [tag.strip() for tag in values.get("tags", "").strip("[]").split(",") if tag.strip()]
+        aliases = [tag.strip().strip("\"'") for tag in values.get("aliases", "").strip("[]").split(",") if tag.strip()]
+        canonical_id = values.get("canonical_id", values.get("canonicalId", ""))
+        source_id = values.get("source_id", values.get("sourceId", ""))
+        available_value = values.get("available", "true").lower()
+        if available_value not in {"true", "false", "1", "0", "yes", "no"}:
+            raise ValueError(f"invalid available flag '{available_value}'")
+        available = available_value not in {"false", "0", "no"}
         return SkillPackageMetadata(
             skill_id=self.skill_id,
             package_root=str(self.root),
@@ -161,7 +188,143 @@ class SkillPackage(BaseModel):
             description=values.get("description", ""),
             version=values.get("version", ""),
             tags=tags,
+            canonical_id=canonical_id,
+            source_id=source_id,
+            aliases=aliases,
+            available=available,
         )
+
+
+class SkillCatalogEntry(BaseModel):
+    """An indexed package and its stable identifiers."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
+
+    canonical_id: str
+    source_id: str
+    aliases: list[str] = Field(default_factory=list)
+    version: str = ""
+    available: bool = True
+    package_root: str
+    package: SkillPackage | None = None
+    error: str | None = None
+
+
+class SkillCatalog:
+    """Discover packages from explicitly supplied source directories."""
+
+    def __init__(self, source_dirs: Iterable[str | Path] = ()) -> None:
+        self.source_dirs = tuple(Path(path).expanduser() for path in source_dirs)
+        self._entries: tuple[SkillCatalogEntry, ...] = ()
+
+    @property
+    def entries(self) -> list[SkillCatalogEntry]:
+        return list(self._entries)
+
+    def scan(self, source_dirs: Iterable[str | Path] | None = None) -> list[SkillCatalogEntry]:
+        """Scan immediate child package directories in deterministic order."""
+        if source_dirs is not None:
+            self.source_dirs = tuple(Path(path).expanduser() for path in source_dirs)
+        found: list[SkillCatalogEntry] = []
+        for source_dir in self.source_dirs:
+            root = source_dir.resolve(strict=False)
+            if not root.is_dir() or root.name == ".archive":
+                continue
+            candidates = [root] if (root / "SKILL.md").exists() else sorted(
+                (child for child in root.iterdir() if child.is_dir() and child.name != ".archive"),
+                key=lambda p: p.name,
+            )
+            for package_root in candidates:
+                found.append(self._index_package(package_root))
+        # Identical canonical packages from the same root are one package, not a conflict.
+        unique: dict[tuple[str, str, tuple[str, ...]], SkillCatalogEntry] = {}
+        for entry in found:
+            key = (entry.canonical_id, entry.package_root, tuple(entry.aliases))
+            unique.setdefault(key, entry)
+        self._entries = tuple(sorted(unique.values(), key=lambda e: (e.canonical_id, e.package_root)))
+        return self.entries
+
+    def _index_package(self, package_root: Path) -> SkillCatalogEntry:
+        source_id = package_root.name
+        package_root_text = str(package_root.resolve(strict=False))
+        try:
+            provisional = SkillPackage(skill_id=source_id, root=package_root)
+            metadata = provisional.read_entry().metadata
+            declared_id = metadata.canonical_id.strip() or metadata.name.strip() or source_id
+            canonical_id = self._canonical_id(declared_id)
+            if not canonical_id.startswith("he-"):
+                raise ValueError("metadata name must be a valid he-* or bmad-* skill id")
+            source_id = metadata.source_id.strip() or metadata.name.strip() or source_id
+            aliases = list(metadata.aliases)
+            if source_id != canonical_id:
+                aliases.append(source_id)
+            if canonical_id.startswith("he-"):
+                aliases.append("bmad-" + canonical_id[3:])
+            aliases = sorted(set(alias for alias in aliases if alias != canonical_id))
+            package = SkillPackage(skill_id=canonical_id, root=package_root)
+            package.read_entry()
+            return SkillCatalogEntry(
+                canonical_id=canonical_id,
+                source_id=source_id,
+                aliases=aliases,
+                version=metadata.version,
+                package_root=package_root_text,
+                package=package if metadata.available else None,
+                available=metadata.available,
+                error=None if metadata.available else "package marked unavailable by metadata",
+            )
+        except (SkillPackageError, ValueError, OSError) as exc:
+            try:
+                canonical_id = self._canonical_id(source_id)
+            except ValueError:
+                canonical_id = "he-" + re.sub(r"[^a-z0-9_-]+", "-", source_id.lower()).strip("-")
+            reason = f"invalid metadata: {exc}" if isinstance(exc, ValueError) else str(exc)
+            return SkillCatalogEntry(
+                canonical_id=canonical_id,
+                source_id=source_id,
+                aliases=["bmad-" + canonical_id[3:]] if canonical_id.startswith("he-") else [],
+                available=False,
+                package_root=package_root_text,
+                error=reason,
+            )
+
+    @staticmethod
+    def _canonical_id(skill_id: str) -> str:
+        value = skill_id.strip()
+        if value.startswith("bmad-"):
+            value = "he-" + value[5:]
+        if not re.fullmatch(r"he-[a-z0-9][a-z0-9_-]*", value):
+            raise ValueError(f"invalid skill id '{skill_id}'")
+        return value
+
+
+class SkillResolver:
+    """Resolve canonical ids and compatibility aliases deterministically."""
+
+    def __init__(self, catalog: SkillCatalog | Iterable[SkillCatalogEntry]) -> None:
+        self.catalog = catalog
+
+    def resolve(self, skill_id: str) -> SkillPackage:
+        if not isinstance(skill_id, str) or not skill_id.strip():
+            raise SkillResolutionError(str(skill_id), "skill id is empty")
+        entries = self.catalog.entries if isinstance(self.catalog, SkillCatalog) else list(self.catalog)
+        requested = skill_id.strip()
+        try:
+            canonical_requested = SkillCatalog._canonical_id(requested)
+        except ValueError:
+            canonical_requested = ""
+        # Canonical ids are explicit and always outrank alias matches.
+        canonical = [e for e in entries if canonical_requested and e.canonical_id == canonical_requested]
+        matches = canonical or [e for e in entries if requested == e.source_id or requested in e.aliases]
+        if not matches:
+            reason = "invalid skill id" if not canonical_requested else "skill id was not found"
+            raise SkillResolutionError(requested, reason)
+        if len(matches) != 1:
+            raise SkillResolutionError(requested, "canonical or alias id is ambiguous", matches)
+        entry = matches[0]
+        if not entry.available or entry.package is None:
+            raise SkillResolutionError(requested, entry.error or "package is unavailable", matches)
+        return entry.package
 
 
 # Short aliases keep callers independent of the concrete diagnostic subclass names.

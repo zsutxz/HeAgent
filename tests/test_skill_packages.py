@@ -7,7 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from heagent.memory.skill_packages import SkillPackage, SkillPackageEntryError, SkillPackageResourceError
+from heagent.memory.skill_packages import (
+    SkillCatalog,
+    SkillPackage,
+    SkillPackageEntryError,
+    SkillPackageResourceError,
+    SkillResolutionError,
+    SkillResolver,
+)
 
 
 def make_package(root: Path) -> None:
@@ -145,3 +152,108 @@ class TestSkillPackage:
 
         with pytest.raises(SkillPackageEntryError, match=r"he-build.*SKILL.md.*escapes"):
             SkillPackage(skill_id="he-build", root=tmp_path).read_entry()
+
+
+class TestSkillCatalog:
+    @staticmethod
+    def _write_package(root: Path, name: str, *, version: str = "", entry: bool = True) -> Path:
+        package = root / name
+        package.mkdir()
+        if entry:
+            package.joinpath("SKILL.md").write_text(
+                f"---\nname: {name}\nversion: {version}\n---\n# {name}\n", encoding="utf-8"
+            )
+        return package
+
+    def test_scans_multiple_sources_in_canonical_order(self, tmp_path: Path) -> None:
+        project = tmp_path / "project"
+        user = tmp_path / "user"
+        project.mkdir()
+        user.mkdir()
+        self._write_package(project, "bmad-prd", version="1.0")
+        self._write_package(user, "he-build", version="2.0")
+
+        entries = SkillCatalog([user, project]).scan()
+
+        assert [entry.canonical_id for entry in entries] == ["he-build", "he-prd"]
+        assert entries[1].source_id == "bmad-prd"
+        assert entries[1].version == "1.0"
+        assert all(entry.available for entry in entries)
+
+    def test_does_not_scan_archived_skill_directory(self, tmp_path: Path) -> None:
+        archive = tmp_path / ".archive"
+        archive.mkdir()
+        self._write_package(archive, "he-old")
+
+        assert SkillCatalog([tmp_path]).scan() == []
+
+    def test_resolves_canonical_and_bmad_alias_to_same_package(self, tmp_path: Path) -> None:
+        self._write_package(tmp_path, "bmad-prd")
+        resolver = SkillResolver(SkillCatalog([tmp_path]))
+        resolver.catalog.scan()
+
+        assert resolver.resolve("he-prd") is resolver.resolve("bmad-prd")
+        assert resolver.resolve("he-prd").skill_id == "he-prd"
+
+    def test_resolves_declared_custom_alias(self, tmp_path: Path) -> None:
+        package = self._write_package(tmp_path, "legacy")
+        package.joinpath("SKILL.md").write_text(
+            "---\ncanonical_id: he-prd\nsource_id: legacy-prd\naliases: [old-prd]\n---\n", encoding="utf-8"
+        )
+        resolver = SkillResolver(SkillCatalog([tmp_path]))
+        resolver.catalog.scan()
+
+        assert resolver.resolve("legacy-prd").skill_id == "he-prd"
+        assert resolver.resolve("old-prd").skill_id == "he-prd"
+
+    def test_rejects_invalid_availability_flag(self, tmp_path: Path) -> None:
+        package = self._write_package(tmp_path, "he-invalid")
+        package.joinpath("SKILL.md").write_text("---\nname: he-invalid\navailable: maybe\n---\n", encoding="utf-8")
+        entry = SkillCatalog([tmp_path]).scan()[0]
+        assert not entry.available
+        assert entry.error is not None and "available flag" in entry.error
+
+    def test_canonical_request_has_priority_over_alias_match(self, tmp_path: Path) -> None:
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        first.mkdir()
+        second.mkdir()
+        self._write_package(first, "he-prd")
+        self._write_package(second, "bmad-prd")
+        catalog = SkillCatalog([first, second])
+        catalog.scan()
+
+        with pytest.raises(SkillResolutionError, match=r"he-prd.*ambiguous"):
+            SkillResolver(catalog).resolve("he-prd")
+
+    def test_reports_conflicting_aliases_without_choosing(self, tmp_path: Path) -> None:
+        first = tmp_path / "first"
+        second = tmp_path / "second"
+        first.mkdir()
+        second.mkdir()
+        self._write_package(first, "he-prd")
+        self._write_package(second, "he-prd")
+        catalog = SkillCatalog([first, second])
+        catalog.scan()
+
+        with pytest.raises(SkillResolutionError, match=r"he-prd.*first.*second"):
+            SkillResolver(catalog).resolve("bmad-prd")
+
+    def test_missing_entry_is_indexed_as_unavailable_with_diagnostic(self, tmp_path: Path) -> None:
+        self._write_package(tmp_path, "he-missing", entry=False)
+
+        entry = SkillCatalog([tmp_path]).scan()[0]
+
+        assert not entry.available
+        assert entry.error is not None and "missing" in entry.error
+        with pytest.raises(SkillResolutionError, match=r"he-missing.*missing"):
+            SkillResolver([entry]).resolve("he-missing")
+
+    def test_invalid_metadata_is_indexed_as_unavailable(self, tmp_path: Path) -> None:
+        package = self._write_package(tmp_path, "he-invalid")
+        package.joinpath("SKILL.md").write_text("---\nname: not valid\n---\n", encoding="utf-8")
+
+        entry = SkillCatalog([tmp_path]).scan()[0]
+
+        assert not entry.available
+        assert entry.error is not None and "invalid metadata" in entry.error
