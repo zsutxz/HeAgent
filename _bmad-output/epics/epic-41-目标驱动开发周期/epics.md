@@ -1,7 +1,7 @@
 ---
 stepsCompleted: [step-01-validate-prerequisites, step-02-design-epics, step-03-create-stories, step-04-final-validation]
 inputDocuments:
-  - spec-goal-command（_bmad-output/specs/spec-goal-command/：SPEC.md 七能力契约 + goal-workflow-contract.md 状态文件契约，2026-08-29 蒸馏，gitignored 本地工作件）
+  - spec-goal-command（spec-goal-command/：SPEC.md 七能力契约 + goal-workflow-contract.md 状态文件契约，2026-08-29 蒸馏，Epic 41 归档源）
   - 用户多轮澄清（2026-08-28~29 会话）：载体/形态/范围拍板 + 「具体开发流程通过 skill 实现、goal 不写成 Python 文件」+ 「本 epic 重点是 /goal 启动特定 skill、通过 skill 执行工作流」
   - CLAUDE.md（硬约束 / 测试惯例 / 已知缺口）
   - docs/frame.md（架构权威）
