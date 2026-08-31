@@ -9,6 +9,7 @@
 3. [架构参考](frame.md)：代码结构、数据流、模块边界、运行时设计。
 4. [迭代历程](iteration.md)：项目怎么一步步迭代到现在、怎么继续迭代。
 5. [部署说明](../deploy/README.md)：当前部署资产的适用范围和限制。
+6. [BMad 敏捷系统规划](bmad-heagent-plan.md)：BMad 技能迁移、目标工作流、checkpoint 和 Token 分段设计。
 
 ## 文档职责
 
@@ -27,6 +28,10 @@
 - `docs/iteration.md`
   - 讲迭代历程与 BMad 工作流。
   - 回答”项目怎么迭代过来的、怎么继续迭代”。
+
+- `docs/bmad-heagent-plan.md`
+  - 讲 HeAgent 如何承载 BMad 技能包和目标级敏捷执行。
+  - 回答“/goal 启动后如何经过完整工作流并跨 Token 分段持续完成”。
 
 - `docs/learning.md`
   - 架构浓缩笔记，初次接触时快速建立整体认知（`frame.md` 的速览版）。
