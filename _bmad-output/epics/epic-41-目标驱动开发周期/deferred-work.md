@@ -28,12 +28,10 @@ the behavior is covered by `tests/test_cli.py`.
 
 ### 41-D4 `RoleSpec.metadata` lifecycle
 
-**Status: decision required.** `engine.roles.RoleSpec.metadata` is still a dead
-field with no consumer. Choose one explicit path:
-
-- remove it in a compatibility-reviewed change; or
-- define its observability semantics and propagate it to run metadata, with the
-  same reserved-key filtering used by `SubAgent`.
+**Status: resolved.** Role metadata is observable in the child run snapshot.
+`SubAgent` merges role metadata first, then caller metadata (caller wins), and
+filters framework-owned keys using the same reserved-key policy already used
+for caller metadata. No role metadata is merged into policy-owned state.
 
 Do not merge it into `RunContext.metadata` by default: policy and window-reset
 keys are framework-owned and must not be user-overridable.

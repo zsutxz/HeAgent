@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 from heagent.agent.sub import SubAgent, run_parallel
+from heagent.engine.roles import RoleSpec
 from heagent.memory.facts import FactStore
 from heagent.memory.skills import SkillStore
 from heagent.memory.soul import SoulStore
@@ -61,6 +62,38 @@ class TestSubAgent:
         r = await SubAgent(StubProvider("result"), max_iterations=5).run("task")
         assert r.success
         assert r.run_id  # 非空：来自子 loop 的 last_run_context.run_id
+
+    async def test_role_metadata_is_observable_and_caller_metadata_wins(self, monkeypatch) -> None:
+        captured: dict[str, object] = {}
+        from heagent.agent import loop as loop_module
+
+        real_init = loop_module.AgentLoop.__init__
+
+        def spy_init(self_loop, provider, **kwargs):
+            run_context = kwargs.get("run_context")
+            captured["metadata"] = dict(run_context.metadata)
+            return real_init(self_loop, provider, **kwargs)
+
+        monkeypatch.setattr(loop_module.AgentLoop, "__init__", spy_init)
+        role = RoleSpec(
+            name="reviewer",
+            system="review",
+            metadata={"description": "role description", "scope": "review"},
+        )
+        result = await SubAgent(
+            StubProvider("ok"),
+            role=role,
+            metadata={"scope": "caller", "kind": "spoofed", "custom": "value"},
+        ).run("task")
+
+        assert result.success
+        assert captured["metadata"] == {
+            "description": "role description",
+            "scope": "caller",
+            "custom": "value",
+            "kind": "subagent",
+            "role": "reviewer",
+        }
 
     async def test_separate_context(self) -> None:
         r1, r2 = await asyncio.gather(
