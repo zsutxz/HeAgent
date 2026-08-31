@@ -15,9 +15,17 @@ from types import SimpleNamespace
 import pytest
 
 from heagent.agent.loop import AgentLoop
-from heagent.cli import _build_slash_registry, _goal_runner, _handle_slash, _scan_goal_md
+from heagent.cli import (
+    _build_slash_registry,
+    _goal_auto_goal_id,
+    _goal_cron_advance,
+    _goal_runner,
+    _handle_slash,
+    _scan_goal_md,
+)
 from heagent.config import get_settings, reset_settings
 from heagent.context.window_reset import WindowResetConfig
+from heagent.cron.jobs import JobStore
 from heagent.providers.base import ProviderMetadata
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
 
@@ -188,6 +196,12 @@ class TestScanGoalMd:
         prog = _scan_goal_md("status: executing\n- [X] S1: a\n- [ ] S2: b\n")
         assert (prog.total, prog.done) == (2, 1)
 
+    def test_nested_checkboxes_are_not_stories(self) -> None:
+        prog = _scan_goal_md(
+            "status: executing\n\n- [ ] S1: a\n  - [ ] acceptance check\n- [x] S2: b\n  - [x] note check\n"
+        )
+        assert (prog.total, prog.done) == (2, 1)
+
     def test_in_progress_marker_parsed(self) -> None:
         text = "status: executing\n\n- [ ] S1: a\n\n> in-progress: S1\n"
         assert _scan_goal_md(text).in_progress == "1"
@@ -322,6 +336,8 @@ class TestGoalDecodeAndWriteGuards:
             await _goal_runner(provider, None, "next")
         err = capsys.readouterr().err
         assert "[goal]" in err
+        if target == "current":
+            assert "current 指针读取失败" in err
         assert provider.calls == []  # 不开会话
 
     @pytest.mark.asyncio
@@ -558,6 +574,31 @@ class TestGoalReset:
         assert md.exists()  # goal 目录与文件全保留
         assert (md.parent / "goal.txt").exists()
         assert str(goal_cwd / ".heagent" / "goals") in capsys.readouterr().err  # 回显目录路径
+
+
+class TestGoalAuto:
+    @pytest.mark.asyncio
+    async def test_rejects_cron_with_wrong_field_count(
+        self, goal_cwd: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _seed_goal(goal_cwd)
+        store = JobStore(str(goal_cwd / "jobs.json"))
+        await _goal_runner(ScriptedGoalProvider(), None, "auto * * *", cron_store=store)
+        assert "5 字段" in capsys.readouterr().err
+        assert store.list_jobs() == []
+
+    @pytest.mark.asyncio
+    async def test_stale_auto_job_is_removed_after_reset(self, goal_cwd: Path) -> None:
+        _seed_goal(goal_cwd)
+        store = JobStore(str(goal_cwd / "jobs.json"))
+        store.add(store.create_job("goal-advance deadbeef", "*/15 * * * *"))
+        (goal_cwd / ".heagent" / "goals" / "current").unlink()
+        await _goal_cron_advance(ScriptedGoalProvider(), None, store, "deadbeef")
+        assert store.list_jobs() == []
+
+    def test_only_exact_goal_auto_prompts_are_routed(self) -> None:
+        assert _goal_auto_goal_id("goal-advance deadbeef") == "deadbeef"
+        assert _goal_auto_goal_id("goal-advance write report") is None
 
 
 class TestGoalUsageAndDispatch:

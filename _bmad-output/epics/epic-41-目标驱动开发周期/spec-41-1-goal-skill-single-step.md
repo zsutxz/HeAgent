@@ -155,3 +155,32 @@ story prompt 同头部，任务段换为「执行 story 规程（仅一条）」
 - 关键锁定用例：GBK 解码失败显性化 / 非保留 token=描述契约
   [`test_goal_command.py:308`](../../tests/test_goal_command.py#L308)
   [`test_goal_command.py:576`](../../tests/test_goal_command.py#L576)
+
+## Suggested Review Order
+
+**Goal State Boundaries**
+
+- Count only contract-shaped story entries.
+  [`cli.py:974`](../../../src/heagent/cli.py#L974)
+
+- Preserve absent and unreadable pointer distinction.
+  [`cli.py:1024`](../../../src/heagent/cli.py#L1024)
+
+**Scheduled Advancement**
+
+- Route only scheduler-owned goal jobs.
+  [`cli.py:511`](../../../src/heagent/cli.py#L511)
+
+- Prune auto jobs after goal replacement.
+  [`cli.py:1269`](../../../src/heagent/cli.py#L1269)
+
+- Reject malformed schedules before persistence.
+  [`cli.py:1346`](../../../src/heagent/cli.py#L1346)
+
+**Contract Tests**
+
+- Lock parser boundary and cron cleanup.
+  [`test_goal_command.py:199`](../../../tests/test_goal_command.py#L199)
+
+- Cover invalid cron and stale jobs.
+  [`test_goal_command.py:581`](../../../tests/test_goal_command.py#L581)

@@ -7,6 +7,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import sys
 import uuid
 from dataclasses import dataclass
@@ -509,8 +510,9 @@ def _build_loop(
     if session is not None and settings.cron_enabled and cron_store:
 
         async def _run_job(prompt: str, run_context: RunContext) -> None:
-            if prompt.startswith(_GOAL_AUTO_PREFIX):
-                await _goal_cron_advance(provider, engine, cron_store, prompt[len(_GOAL_AUTO_PREFIX) :].strip())
+            goal_id = _goal_auto_goal_id(prompt)
+            if goal_id is not None:
+                await _goal_cron_advance(provider, engine, cron_store, goal_id)
                 return
             loop = AgentLoop(
                 provider,
@@ -984,13 +986,13 @@ def _scan_goal_md(text: str) -> GoalProgress:
     total = done = 0
     in_progress: str | None = None
     for line in text.splitlines():
-        stripped = line.lstrip()
-        if stripped.lower().startswith(("- [ ]", "- [x]")):
+        story = re.match(r"- \[([ xX])\] S\d+: ", line)
+        if story:
             total += 1
-            if stripped.lower().startswith("- [x]"):
+            if story.group(1).lower() == "x":
                 done += 1
-        elif in_progress is None and stripped.startswith("> in-progress:"):
-            value = stripped.split(":", 1)[1].strip()
+        elif in_progress is None and line.startswith("> in-progress:"):
+            value = line.split(":", 1)[1].strip()
             if value.upper().startswith("S") and value[1:].isdigit():
                 in_progress = value[1:]
     return GoalProgress(status, total, done, in_progress)
@@ -1023,7 +1025,10 @@ def _goal_active_md() -> Path | None:
     """解析活跃 goal 的 GOAL.md 路径；指针缺失/解码失败返回 None，内容非法显性报错。"""
     try:
         goal_id = (_GOALS_DIR / "current").read_text(encoding="utf-8").strip()
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        click.echo(f"[goal] 显性失败：current 指针读取失败（{exc}）。", err=True)
         return None
     if not goal_id:
         return None
@@ -1261,6 +1266,16 @@ def _goal_auto_remove(store: JobStore, goal_id: str) -> int:
     return removed
 
 
+def _goal_auto_goal_id(prompt: str) -> str | None:
+    """Return the exact goal id from a scheduler-owned auto prompt, if any."""
+    if not prompt.startswith(_GOAL_AUTO_PREFIX):
+        return None
+    goal_id = prompt[len(_GOAL_AUTO_PREFIX) :].strip()
+    if len(goal_id) == 8 and all(char in _GOAL_HEX for char in goal_id):
+        return goal_id
+    return None
+
+
 async def _goal_cron_advance(
     provider: BaseProvider, engine: EngineContainer | None, store: JobStore, goal_id: str
 ) -> None:
@@ -1268,6 +1283,9 @@ async def _goal_cron_advance(
     async with _goal_auto_lock:
         current = _goal_active_md()
         if current is None or current.parent.name != goal_id:
+            removed = _goal_auto_remove(store, goal_id)
+            if removed:
+                click.echo(f"[goal] auto 已收口：goal {goal_id} 已非当前 goal，注销 {removed} 个 job。", err=True)
             return
         skill = _goal_skill_text()
         if skill is None:
@@ -1314,7 +1332,7 @@ async def _goal_runner(  # noqa: C901
             await _goal_new(provider, engine, skill, rest)
         else:
             _goal_usage()
-    elif head in _GOAL_RESERVED and rest:
+    elif head in ("next", "status", "reset", "run") and rest:
         _goal_usage()  # 保留字带尾文本：显性拒绝，防尾文本被静默吞掉
     elif head == "status":
         _goal_status()
@@ -1340,8 +1358,17 @@ async def _goal_runner(  # noqa: C901
         elif goal_md is None:
             click.echo("[goal] 无活跃 goal。请先使用 /goal new <目标描述>。", err=True)
         else:
+            read = _goal_read_md(goal_md)
+            if read is None:
+                return
+            _, progress = read
+            if progress.status == "done" or (progress.total > 0 and progress.done >= progress.total):
+                click.echo("[goal] \u5f53\u524d goal \u5df2\u5b8c\u6210\uff0c\u4e0d\u6ce8\u518c auto job\u3002", err=True)
+                return
             schedule = rest or _GOAL_AUTO_DEFAULT_CRON
             try:
+                if len(schedule.split()) != 5:
+                    raise ValueError("cron 必须为 5 字段标准表达式")
                 cron_matches(schedule, datetime.now(UTC))
             except (TypeError, ValueError) as exc:
                 click.echo(f"[goal] 非法 cron 表达式：{exc}", err=True)
