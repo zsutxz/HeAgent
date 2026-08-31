@@ -19,9 +19,10 @@ be added when the Textual test harness is extended.
 
 ### 41-D3 Interactive REPL slash-command exception fence
 
-**Status: resolved.** The interactive loop catches cancellation and ordinary
-exceptions around slash dispatch, echoes the original error, and continues the
-REPL without silently hiding failures.
+**Status: resolved.** The interactive loop catches ordinary exceptions around
+slash dispatch, echoes the original error, and continues the REPL without
+silently hiding failures. Cancellation is re-raised so shutdown remains clean;
+the behavior is covered by `tests/test_cli.py`.
 
 ## Open Decisions
 
@@ -41,8 +42,6 @@ keys are framework-owned and must not be user-overridable.
 
 - Add a Textual test proving `/goal next` and `/goal status` are handled by the
   goal runner and never reach `AgentBridge.submit()` as ordinary prompts.
-- Add a CLI integration test for a slash handler raising `RuntimeError`, proving
-  the REPL remains usable and the error text is visible.
 
 ## References
 

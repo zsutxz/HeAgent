@@ -19,7 +19,7 @@
 - `src/heagent/config.py:109`——`window_reset_threshold`（默认 0.6）；`max_iterations` 字段同文件
 - `src/heagent/slash.py`——`SlashRegistry.register/dispatch`（零依赖纯注册表，slash 不得 import agent/providers）
 - `src/heagent/engine/persist.py:112`——`atomic_write_text(path, text, *, lock=False)`（自动 mkdir；Runner 落盘全走它）
-- `.heagent/skills/goal/SKILL.md`——工作流 skill 草稿已就位（采纳为基线）；契约全文同 `_bmad-output/specs/spec-goal-command/goal-workflow-contract.md`
+- `.heagent/skills/goal/SKILL.md`——工作流 skill 草稿已就位（采纳为基线）；契约全文见 [`spec-goal-command/goal-workflow-contract.md`](spec-goal-command/goal-workflow-contract.md)
 
 ## 状态目录约定
 

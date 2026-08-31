@@ -769,16 +769,7 @@ async def _run_chat(
                     continue
 
                 if user_input.startswith("/"):
-                    try:
-                        handled = await _handle_slash(user_input, registry)
-                    except asyncio.CancelledError:
-                        raise
-                    except KeyboardInterrupt:
-                        click.echo("[interrupted] Slash command interrupted; state is preserved.", err=True)
-                        handled = True
-                    except Exception as exc:
-                        click.echo(f"[error] Slash command failed: {exc}", err=True)
-                        handled = True
+                    handled = await _dispatch_slash_interactive(user_input, registry)
                     if handled:
                         continue
 
@@ -944,6 +935,20 @@ async def _handle_slash(user_input: str, registry: SlashRegistry) -> bool:
     name = cmd[1:]
     args = " ".join(parts[1:])
     return await registry.dispatch(name, args)
+
+
+async def _dispatch_slash_interactive(user_input: str, registry: SlashRegistry) -> bool:
+    """Dispatch one interactive slash command while preserving cancellation semantics."""
+    try:
+        return await _handle_slash(user_input, registry)
+    except asyncio.CancelledError:
+        raise
+    except KeyboardInterrupt:
+        click.echo("[interrupted] Slash command interrupted; state is preserved.", err=True)
+        return True
+    except Exception as exc:
+        click.echo(f"[error] Slash command failed: {exc}", err=True)
+        return True
 
 
 # =============================================================================

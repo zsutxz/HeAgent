@@ -7,7 +7,8 @@ import json
 import pytest
 from click.testing import CliRunner
 
-from heagent.cli import main
+from heagent.cli import _dispatch_slash_interactive, main
+from heagent.slash import SlashRegistry
 
 
 def _clear_all_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -97,6 +98,17 @@ class TestCLI:
         # not NoSuchCommand.
         assert "No API key" in result.output
         assert result.exit_code != 0
+
+    @pytest.mark.asyncio
+    async def test_interactive_slash_runtime_error_is_visible_and_handled(self, capsys):
+        registry = SlashRegistry()
+
+        async def boom(args: str) -> None:
+            raise RuntimeError("slash boom")
+
+        registry.register("boom", "", boom)
+        assert await _dispatch_slash_interactive("/boom", registry) is True
+        assert "slash boom" in capsys.readouterr().err
 
 
 class TestPublicAPI:
