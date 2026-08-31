@@ -1,6 +1,6 @@
 # Epic 41 开发上下文（/goal 启动 skill 执行工作流）
 
-> 契约权威：`_bmad-output/specs/spec-goal-command/SPEC.md` + `goal-workflow-contract.md`（gitignored 本地件，内容已全量吸收进 `epics.md`）。本文件只给代码锚点。
+> 契约权威：[`spec-goal-command/SPEC.md`](spec-goal-command/SPEC.md) + [`spec-goal-command/goal-workflow-contract.md`](spec-goal-command/goal-workflow-contract.md)。本文件只给代码锚点。
 
 ## 挂载点（行号基于 2026-08-29 master e192934）
 

@@ -823,4 +823,4 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/epics/epic-29-35-交互扩展周期/` | 交互与可扩展层周期（Epic 29-35，2026-08-19） |
 | `_bmad-output/epics/<周期>/epic-NN-主题/stories/` | 按 epic 归档的 story 文件（13 个，嵌套于所属周期目录，清单见 14.1 注） |
 | `_bmad-output/patches/<领域>/` | 补丁 spec + 技术债登记（provider/context/memory/cron/mcp/sandbox/_meta） |
-| `_bmad-output/specs/` | quick-dev 本地工作件（gitignored） |
+| `_bmad-output/specs/` | quick-dev 本地工作件（gitignored；Epic 41 goal 契约已归档至 `_bmad-output/epics/epic-41-目标驱动开发周期/spec-goal-command/`） |

@@ -418,7 +418,7 @@ development_status:
   # =============================================================
 
   epic-41: done  # /goal 启动 goal skill 执行工作流（FR-1~4）
-  41-1-goal-skill-single-step: review
+  41-1-goal-skill-single-step: done
   41-2-run-loop-run-metadata: done
   41-3-cron-auto-unattended: done
   41-4-docs-regression-smoke: done

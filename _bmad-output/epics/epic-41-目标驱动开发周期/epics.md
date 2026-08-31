@@ -10,6 +10,8 @@ inputDocuments:
 
 # HeAgent - Epic Breakdown
 
+> Canonical goal-command contract: [`spec-goal-command/SPEC.md`](spec-goal-command/SPEC.md) and [`spec-goal-command/goal-workflow-contract.md`](spec-goal-command/goal-workflow-contract.md). These documents are archived with Epic 41 and are the maintained source for the goal workflow requirements.
+
 ## Overview
 
 This document provides the complete epic and story breakdown for HeAgent, decomposing the requirements from the PRD, UX Design if it exists, and Architecture requirements into implementable stories.

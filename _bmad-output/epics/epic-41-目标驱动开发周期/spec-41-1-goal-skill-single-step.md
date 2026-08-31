@@ -4,6 +4,7 @@ type: 'feature'
 created: '2026-08-29'
 status: 'done'
 review_loop_iteration: 0
+followup_review_recommended: true
 baseline_commit: 'e192934'
 context:
   - '{project-root}/_bmad-output/epics/epic-41-目标驱动开发周期/epic-41-context.md'
@@ -184,3 +185,38 @@ story prompt 同头部，任务段换为「执行 story 规程（仅一条）」
 
 - Cover invalid cron and stale jobs.
   [`test_goal_command.py:581`](../../../tests/test_goal_command.py#L581)
+
+## Review Triage Log
+
+### 2026-08-31 - Review pass
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (medium 4, low 2)
+- defer: 2: (medium 2)
+- reject: 1: (low 1)
+- addressed_findings:
+  - `[medium][patch]` Re-raise `asyncio.CancelledError` at the interactive slash boundary so cancelled sessions terminate cleanly.
+  - `[medium][patch]` Reject empty comma segments in cron expressions before persisting auto jobs.
+  - `[medium][patch]` Resolve the active goal directory and reject symlink escapes outside `.heagent/goals`.
+  - `[medium][patch]` Bound repeated goal-id collision attempts and report explicit failure.
+  - `[medium][patch]` Remove stale auto jobs when replacing the active goal, and when the goal skill disappears.
+- `[low][patch]` Add regression coverage for malformed cron and stale-job cleanup.
+
+## Auto Run Result
+
+Status: done
+
+Summary: Completed review-driven hardening for the goal workflow and archived the goal-command contract with Epic 41. GUI output routing and cross-process locking remain deferred by decision.
+
+Files changed:
+- `src/heagent/cli.py`: cancellation propagation, goal path containment, bounded IDs, auto-job cleanup, and strict cron validation.
+- `tests/test_goal_command.py`: malformed cron and stale auto-job regression tests.
+- `spec-goal-command/SPEC.md`, `spec-goal-command/goal-workflow-contract.md`: canonical Epic 41 contract archive.
+- `epic-41-context.md`, `epics.md`, `consolidated-overview.md`: canonical archive references.
+
+Review findings: 6 patches applied, 2 items deferred, 1 later-story finding rejected.
+
+Verification: `pytest tests/test_goal_command.py -q` passed (51); `ruff check src tests` passed; `mypy src` passed. Full suite: 1328 passed, 3 skipped, 14 deselected, 2 pre-existing failures in `tests/test_epic35.py` due to `tests.test_web_fetch` import resolution.
+
+Residual risks: GUI goal output remains outside RichLog, and goal advancement is only process-local serialized.

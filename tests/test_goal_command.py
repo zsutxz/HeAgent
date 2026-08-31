@@ -588,6 +588,25 @@ class TestGoalAuto:
         assert store.list_jobs() == []
 
     @pytest.mark.asyncio
+    async def test_rejects_cron_with_empty_comma_segment(
+        self, goal_cwd: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _seed_goal(goal_cwd)
+        store = JobStore(str(goal_cwd / "jobs.json"))
+        await _goal_runner(ScriptedGoalProvider(), None, "auto 1,,2 * * * *", cron_store=store)
+        assert "空的逗号分段" in capsys.readouterr().err
+        assert store.list_jobs() == []
+
+    @pytest.mark.asyncio
+    async def test_new_goal_removes_previous_auto_job(self, goal_cwd: Path) -> None:
+        await _goal_runner(ScriptedGoalProvider(), None, "旧目标")
+        old_id = _current_goal_id(goal_cwd)
+        store = JobStore(str(goal_cwd / "jobs.json"))
+        store.add(store.create_job(f"goal-advance {old_id}", "*/15 * * * *"))
+        await _goal_runner(ScriptedGoalProvider(), None, "新目标", cron_store=store)
+        assert all(job.prompt != f"goal-advance {old_id}" for job in store.list_jobs())
+
+    @pytest.mark.asyncio
     async def test_stale_auto_job_is_removed_after_reset(self, goal_cwd: Path) -> None:
         _seed_goal(goal_cwd)
         store = JobStore(str(goal_cwd / "jobs.json"))

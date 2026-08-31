@@ -771,7 +771,9 @@ async def _run_chat(
                 if user_input.startswith("/"):
                     try:
                         handled = await _handle_slash(user_input, registry)
-                    except (KeyboardInterrupt, asyncio.CancelledError):
+                    except asyncio.CancelledError:
+                        raise
+                    except KeyboardInterrupt:
                         click.echo("[interrupted] Slash command interrupted; state is preserved.", err=True)
                         handled = True
                     except Exception as exc:
@@ -1037,7 +1039,12 @@ def _goal_active_md() -> Path | None:
     if len(goal_id) != 8 or any(c not in _GOAL_HEX for c in goal_id):
         click.echo(f"[goal] current 指针内容非法：{goal_id!r}（须为 8 位十六进制 goal_id）。", err=True)
         return None
-    return _GOALS_DIR / goal_id / "GOAL.md"
+    goals_root = _GOALS_DIR.resolve()
+    goal_root = (_GOALS_DIR / goal_id).resolve()
+    if not goal_root.is_relative_to(goals_root):
+        click.echo("[goal] current 指针解析后越过 goals 根目录。", err=True)
+        return None
+    return goal_root / "GOAL.md"
 
 
 def _goal_read_md(goal_md: Path) -> tuple[str, GoalProgress] | None:
@@ -1147,19 +1154,36 @@ async def _goal_run_planning(
     return True
 
 
-async def _goal_new(provider: BaseProvider, engine: EngineContainer | None, skill: str, description: str) -> None:
+async def _goal_new(
+    provider: BaseProvider,
+    engine: EngineContainer | None,
+    skill: str,
+    description: str,
+    *,
+    cron_store: JobStore | None = None,
+) -> None:
     """新建 goal（goal.txt + current 原子写）并跑 planning 会话，扫描校验产物。"""
+    previous = _goal_active_md()
     goal_id = uuid.uuid4().hex[:8]
     goal_dir = _GOALS_DIR / goal_id
-    while goal_dir.exists():  # 8-hex 前缀撞上既有目录即换号，不静默覆写旧 goal
+    for _ in range(100):
+        if not goal_dir.exists():
+            break
         goal_id = uuid.uuid4().hex[:8]
         goal_dir = _GOALS_DIR / goal_id
+    else:
+        click.echo("[goal] 显性失败：无法分配未占用的 goal_id（UUID 前缀持续碰撞）。", err=True)
+        return
     try:
         atomic_write_text(goal_dir / "goal.txt", description)
         atomic_write_text(_GOALS_DIR / "current", goal_id)
     except (OSError, ValueError) as exc:
         click.echo(f"[goal] 落盘失败：{exc}", err=True)
         return
+    if previous is not None and cron_store is not None:
+        removed = _goal_auto_remove(cron_store, previous.parent.name)
+        if removed:
+            click.echo(f"[goal] 已清理旧 goal {previous.parent.name} 的 {removed} 个 auto job。", err=True)
     await _goal_run_planning(provider, engine, skill, description, goal_dir / "GOAL.md")
 
 
@@ -1289,6 +1313,8 @@ async def _goal_cron_advance(
             return
         skill = _goal_skill_text()
         if skill is None:
+            click.echo("[goal] auto 停止：缺少 .heagent/skills/goal/SKILL.md，注销 auto job。", err=True)
+            _goal_auto_remove(store, goal_id)
             return
         outcome = await _goal_advance(provider, engine, skill)
         after = _goal_read_md(current)
@@ -1329,7 +1355,8 @@ async def _goal_runner(  # noqa: C901
         _goal_status()
     elif head == "new":
         if rest:
-            await _goal_new(provider, engine, skill, rest)
+            async with _goal_auto_lock:
+                await _goal_new(provider, engine, skill, rest, cron_store=cron_store)
         else:
             _goal_usage()
     elif head in ("next", "status", "reset", "run") and rest:
@@ -1367,8 +1394,11 @@ async def _goal_runner(  # noqa: C901
                 return
             schedule = rest or _GOAL_AUTO_DEFAULT_CRON
             try:
-                if len(schedule.split()) != 5:
+                fields = schedule.split()
+                if len(fields) != 5:
                     raise ValueError("cron 必须为 5 字段标准表达式")
+                if any(not field or any(not part.strip() for part in field.split(",")) for field in fields):
+                    raise ValueError("cron 字段不能包含空的逗号分段")
                 cron_matches(schedule, datetime.now(UTC))
             except (TypeError, ValueError) as exc:
                 click.echo(f"[goal] 非法 cron 表达式：{exc}", err=True)
@@ -1379,7 +1409,8 @@ async def _goal_runner(  # noqa: C901
                 cron_store.add(job)
                 click.echo(f"[goal] auto 已注册：{job.id}，schedule={schedule!r}。", err=True)
     else:
-        await _goal_new(provider, engine, skill, args.strip())
+        async with _goal_auto_lock:
+            await _goal_new(provider, engine, skill, args.strip(), cron_store=cron_store)
 
 
 async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
