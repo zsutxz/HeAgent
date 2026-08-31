@@ -10,3 +10,6 @@
 - source_spec: `docs/bmad-heagent-plan.md`
   summary: 完善目标级 CLI、审计、成本统计、测试覆盖和相关文档。
   evidence: 这些是面向运维和质量的收尾交付物，能够在核心运行时、编排和恢复功能完成后独立验收。
+- source_spec: `_bmad-output/epics/epic-42-BMad技能包运行时周期/stories/42-1-skill-package-model-resource-safety.md`
+  summary: 评估技能包资源读取在并发文件替换下的 TOCTOU 防护策略。
+  evidence: 当前路径校验与按路径读取之间存在文件系统竞态窗口；该问题需要 OS/文件描述符级设计，超出本 Story 的用户态路径围栏范围。
