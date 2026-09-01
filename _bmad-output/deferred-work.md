@@ -13,3 +13,8 @@
 - source_spec: `_bmad-output/epics/epic-42-BMad技能包运行时周期/stories/42-1-skill-package-model-resource-safety.md`
   summary: 评估技能包资源读取在并发文件替换下的 TOCTOU 防护策略。
   evidence: 当前路径校验与按路径读取之间存在文件系统竞态窗口；该问题需要 OS/文件描述符级设计，超出本 Story 的用户态路径围栏范围。
+  resolution: Epic 46.1 assessment only 已完成。特征测试证明 resolve-then-read 与符号链接替换窗口；当前保留 resolve_under_root 语义，不声称 TOCTOU 完整防护。
+  follow_up: 另立实现 Story 评估 descriptor-relative/目录句柄或可信导入 snapshot；OS sandbox 作为外部 defense-in-depth。
+- source_spec: `_bmad-output/implementation-artifacts/spec-46-1-skill-resource-toctou-assessment.md`
+  summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
+  evidence: Epic 46.1 仅形成 assessment-only 结论，未证明跨平台运行时方案可行，现有路径围栏仍保留竞态残余风险。

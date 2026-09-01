@@ -69,7 +69,7 @@
 | Epic 36–39 | file-security | 文件安全与凭证防护（凭证路径 deny / scrub_sensitive_env / SafetyGuard 凭证拦截，2026-08-24 交付） |
 | Epic 40 | sandbox-session | 沙箱会话化执行（会话目录 / 后端强度分级 / env 豁免 / SandboxSession，2026-08-26 规划） |
 | Epic 41 | goal-driven-dev | /goal 启动 skill 执行工作流（机制薄代码 + skill 承载方法论 + cron 无人值守，2026-08-29 已交付） |
-| Epic 43–46 | goal-workflow-continuation | 目标级编排/恢复、Token 分段、运维收口与技能资源 TOCTOU 评估（2026-09-01 规划；Epic 43–44 已完成） |
+| Epic 43–46 | goal-workflow-continuation | 目标级编排/恢复、Token 分段、运维收口与技能资源 TOCTOU 评估（2026-09-01；Epic 43–46 评估/实现已完成） |
 
 **FR 编号空间**（互不冲突，引用须写全限定）：主线 `FR-1~24`；MCP V1 `FR-1~11`；MCP 升级准备 `FR-1~5`；MCP V2 `FR-A1~A7 / FR-B1~B4 / FR-C1~C4`；Sandbox `FR-S1~S7`；健壮性 `FR-A1~A5 + FR-C1~C6`；质量工程 `FR-Q1~Q20`；GUI `FR-G1~G24`；interaction `FR-A1~A5 / FR-B1~B3 / FR-C~G 各 1~4`；文件安全 `FR-1~5`（本地）；沙箱会话化 `FR-1~5`（本地，FR-5 deferred）。
 
@@ -828,6 +828,6 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### Epic 45.3 质量收口证据（2026-09-01）
 
-Epic 43-44 已完成，Epic 45.3 增加无网络两-story 目标工作流冒烟、checkpoint/ledger/EventBus 审计证据和损坏状态显式失败覆盖；`scripts/quality_gate.py` 统一默认回归、覆盖率、ruff 与 mypy 门禁。Epic 46 的技能资源 TOCTOU 评估仍为 backlog。
+Epic 43-44 已完成，Epic 45.3 增加无网络两-story 目标工作流冒烟、checkpoint/ledger/EventBus 审计证据和损坏状态显式失败覆盖；`scripts/quality_gate.py` 统一默认回归、覆盖率、ruff 与 mypy 门禁。Epic 46.1 已完成 assessment-only 评估：特征测试证明技能资源 resolve-then-read 与符号链接替换窗口，保留现有 `resolve_under_root` 语义，不声称 TOCTOU 完整防护；descriptor/目录句柄、可信导入 snapshot 或 OS sandbox 加固须另立 story。
 
-状态以 `_bmad-output/sprint-status.yaml` 为准：Epic 45 及其 45.1-45.3 stories 已完成，Epic 46 保持 backlog。
+状态以 `_bmad-output/sprint-status.yaml` 为准：Epic 45 及其 45.1-45.3 stories 已完成，Epic 46.1 的评估交付完成；Epic 46 后续运行时加固仍保持 backlog。

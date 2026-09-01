@@ -643,6 +643,19 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 无人值守 cron 不提升权限，审批与 sandbox 策略仍由 engine 处理。该层同样不是 OS 安全边界，
 外部工具与 LLM 输出仍须在 OS 级沙箱中运行。
 
+### 4.14 技能资源读取 TOCTOU 评估（Epic 46.1）
+
+`SkillPackage` 的入口、step、reference、template、asset 和 script 均采用“`resolve_under_root` 解析 ->
+`is_file()` 检查 -> `read_text()` 使用”。`resolve_under_root` 能拒绝绝对路径、路径穿越和解析后越界符号链接，
+但不持有 OS 文件描述符、目录句柄或不可变快照；检查后替换仍可能改变实际读取内容。特征证据见
+`tests/test_skill_packages_toctou.py`，评估与候选方案见
+`_bmad-output/patches/memory/spec-skill-resource-toctou-assessment.md`，故事流程规格见
+`_bmad-output/implementation-artifacts/spec-46-1-skill-resource-toctou-assessment.md`。
+
+结论是 assessment only：当前不改变 `SkillPackage` 公共 API 或路径围栏语义，不声称已完成 TOCTOU 防护。
+descriptor-relative/目录句柄、导入边界 snapshot 和 OS sandbox 的实现须另立 story；所有方案仍是
+defense-in-depth，OS sandbox 才能处理 hostile filesystem/process context。
+
 ## 五、已知缺口
 
 | 缺口 | 说明 |

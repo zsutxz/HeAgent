@@ -44,7 +44,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-08-29
+last_updated: 2026-09-01
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -454,8 +454,8 @@ development_status:
   45-3-quality-gates-docs-smoke: done
   epic-45-retrospective: optional
 
-  epic-46: backlog  # 技能资源并发替换安全评估（FR5）
-  46-1-skill-resource-toctou-assessment: backlog
+  epic-46: done  # 技能资源并发替换安全评估（FR5）
+  46-1-skill-resource-toctou-assessment: done
   epic-46-retrospective: optional
 
 # Action items（来自 retrospective，跨周期跟踪）

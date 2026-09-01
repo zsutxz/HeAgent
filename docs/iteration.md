@@ -290,7 +290,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 ### 2026-09-01：目标级工作流质量收口
 
-Epic 43-44 的实现已完成，Epic 45.3 补齐了无网络两-story 冒烟、checkpoint/ledger/EventBus 审计证据、损坏状态显式失败测试，以及 `scripts/quality_gate.py` 统一质量门。CI 的 `goal-smoke` job 不需要外部凭据；真实 LLM 冒烟若不可用必须显式标为 blocked。Epic 46 的技能资源 TOCTOU 评估仍为 backlog。
+Epic 43-44 的实现已完成，Epic 45.3 补齐了无网络两-story 冒烟、checkpoint/ledger/EventBus 审计证据、损坏状态显式失败测试，以及 `scripts/quality_gate.py` 统一质量门。Epic 46.1 已完成 assessment-only 技能资源 TOCTOU 评估：保留现有路径围栏语义，不声称已完成竞态防护；descriptor/目录句柄、可信导入 snapshot 或 OS sandbox 加固须另立 story。
 
 - 架构权威：[`frame.md`](frame.md)（含 engine 模块 4.12、已知缺口第五章）
 - 产品愿景：[`design.md`](design.md)
