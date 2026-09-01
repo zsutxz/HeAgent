@@ -464,7 +464,8 @@ development_status:
   epic-47: in-progress
   47-1-artifact-hierarchy-contract: done
   47-2-bmad-agent-packages: done
-  47-3-workflow-step-resource-loading: in-progress
+  47-3-workflow-step-resource-loading: done
+  47-4-workflow-runner-gates: in-progress
   47-4-workflow-runner-gates: backlog
   47-5-goal-epic-story-integration: backlog
   47-6-review-retrospective-correct-course: backlog

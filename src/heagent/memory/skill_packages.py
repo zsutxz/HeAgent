@@ -8,7 +8,7 @@ import os
 import re
 import stat
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
-from typing import Awaitable, Callable, Iterable, Literal, cast  # noqa: UP035
+from typing import Any, Awaitable, Callable, Iterable, Literal, cast  # noqa: UP035
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
@@ -31,6 +31,38 @@ class SkillPackageEntryError(SkillPackageError):
 
 class SkillPackageResourceError(SkillPackageError):
     """Raised when a package resource is invalid, missing, or outside its root."""
+
+
+class SkillWorkflowError(SkillPackageResourceError):
+    """Raised when a declarative workflow or its ordered steps are invalid."""
+
+
+class WorkflowStepResource(BaseModel):
+    """One Markdown workflow step and its declarative execution contract."""
+
+    index: int
+    name: str
+    instructions: str
+    input: str = ""
+    output: str = ""
+    next: str | None = None
+    checkpoint: str = ""
+    validation_rules: str = ""
+    frontmatter: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowResource(BaseModel):
+    """A workflow declaration with steps in execution order."""
+
+    name: str
+    instructions: str
+    steps: list[WorkflowStepResource]
+    frontmatter: dict[str, Any] = Field(default_factory=dict)
+
+
+# Descriptive aliases for callers that prefer the shorter names.
+WorkflowStep = WorkflowStepResource
+WorkflowDefinition = WorkflowResource
 
 
 class SkillCatalogError(ValueError):
@@ -170,6 +202,142 @@ class SkillPackage(BaseModel):
 
     def read_step(self, resource: str) -> str:
         return self.read_resource(resource)
+
+    def read_workflow(self, resource: str = "workflow.md") -> WorkflowResource:
+        """Load ``workflow.md`` and all declared/discovered steps in order.
+
+        The workflow file is the only authority for an explicit ``steps`` list;
+        when omitted, ``step-NN-*.md`` files are discovered deterministically.
+        """
+        try:
+            text = self.read_resource(resource)
+        except SkillPackageResourceError as exc:
+            raise SkillWorkflowError(self.skill_id, resource, exc.reason) from exc
+        try:
+            values, body = self._parse_resource_frontmatter(text)
+        except ValueError as exc:
+            raise SkillWorkflowError(self.skill_id, resource, str(exc)) from exc
+        declared = values.get("steps")
+        if declared is None or declared == "":
+            names = self._discover_workflow_steps()
+        else:
+            names = self._resource_list(declared, resource)
+        if not names:
+            raise SkillWorkflowError(self.skill_id, resource, "workflow has no steps")
+        steps: list[WorkflowStepResource] = []
+        seen_names: set[str] = set()
+        seen_indexes: set[int] = set()
+        for position, name in enumerate(names, 1):
+            if name in seen_names:
+                raise SkillWorkflowError(self.skill_id, name, "duplicate step reference")
+            seen_names.add(name)
+            match = re.match(r"^step-(\d+)(?:[-_].*)?\.md$", Path(name).name, re.IGNORECASE)
+            if match is None:
+                raise SkillWorkflowError(self.skill_id, name, "step filename must use step-NN-*.md order")
+            index = int(match.group(1))
+            if index in seen_indexes:
+                raise SkillWorkflowError(self.skill_id, name, "duplicate step number")
+            seen_indexes.add(index)
+            if index != position:
+                raise SkillWorkflowError(self.skill_id, name, "step order must start at 1 and be contiguous")
+            try:
+                step_text = self.read_resource(name)
+            except SkillPackageResourceError as exc:
+                raise SkillWorkflowError(self.skill_id, name, exc.reason) from exc
+            try:
+                step_values, step_body = self._parse_resource_frontmatter(step_text)
+            except ValueError as exc:
+                raise SkillWorkflowError(self.skill_id, name, str(exc)) from exc
+            steps.append(
+                WorkflowStepResource(
+                    index=index,
+                    name=name,
+                    instructions=step_body.strip(),
+                    input=self._value_text(step_values, "input", "inputs"),
+                    output=self._value_text(step_values, "output", "outputs"),
+                    next=self._value_text(step_values, "next", "next_step") or None,
+                    checkpoint=self._value_text(step_values, "checkpoint"),
+                    validation_rules=self._value_text(step_values, "validation", "validation_rules", "verify"),
+                    frontmatter=step_values,
+                )
+            )
+        known = {step.name for step in steps}
+        for step in steps:
+            if step.next and step.next not in known:
+                raise SkillWorkflowError(self.skill_id, step.name, f"next step reference is not declared: {step.next}")
+        return WorkflowResource(
+            name=self._value_text(values, "name", "id") or self.skill_id,
+            instructions=body.strip(),
+            steps=steps,
+            frontmatter=values,
+        )
+
+    load_workflow = read_workflow
+
+    def read_workflow_steps(self, resource: str = "workflow.md") -> list[WorkflowStepResource]:
+        """Return only the validated, ordered steps from a workflow."""
+        return self.read_workflow(resource).steps
+
+    def _discover_workflow_steps(self) -> list[str]:
+        candidates = sorted(
+            (path.name for path in self.root.iterdir() if path.is_file() and re.match(r"^step-\d+.*\.md$", path.name, re.I)),
+            key=self._step_sort_key,
+        )
+        return candidates
+
+    @staticmethod
+    def _step_sort_key(value: str) -> tuple[int, str]:
+        match = re.match(r"^step-(\d+)", value, re.IGNORECASE)
+        if match is None:
+            raise ValueError(f"invalid step filename: {value}")
+        return int(match.group(1)), value.lower()
+
+    def _resource_list(self, value: Any, workflow: str) -> list[str]:
+        if isinstance(value, str):
+            items = [item.strip() for item in value.strip("[]").split(",") if item.strip()]
+        elif isinstance(value, list):
+            items = [str(item).strip() for item in value if str(item).strip()]
+        else:
+            raise SkillWorkflowError(self.skill_id, workflow, "steps must be a list")
+        for item in items:
+            if self._is_absolute(item) or self._has_parent(item):
+                raise SkillWorkflowError(self.skill_id, item, "step reference must stay within package root")
+        return items
+
+    @staticmethod
+    def _value_text(values: dict[str, Any], *keys: str) -> str:
+        for key in keys:
+            if key in values and values[key] is not None:
+                value = values[key]
+                if isinstance(value, list):
+                    return ", ".join(str(item) for item in value)
+                result = str(value).strip().strip("\"'")
+                return "" if result.casefold() in {"none", "null"} else result
+        return ""
+
+    @staticmethod
+    def _parse_resource_frontmatter(text: str) -> tuple[dict[str, Any], str]:
+        match = re.match(r"^---\s*\n(.*?)\n---\s*(?:\n|\Z)", text, re.DOTALL)
+        if match is None:
+            return {}, text
+        values: dict[str, Any] = {}
+        for line in match.group(1).splitlines():
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            if ":" not in line or line[:1].isspace():
+                raise ValueError(f"invalid workflow frontmatter line: {line}")
+            key, raw = line.split(":", 1)
+            key = key.strip()
+            if not key or key in values:
+                raise ValueError(f"duplicate workflow frontmatter key: {key}")
+            raw = raw.strip()
+            if raw.startswith("[") and raw.endswith("]"):
+                values[key] = [item.strip().strip("\"'") for item in raw[1:-1].split(",") if item.strip()]
+            elif raw.lower() in {"true", "false"}:
+                values[key] = raw.lower() == "true"
+            else:
+                values[key] = raw.strip("\"'")
+        return values, text[match.end() :]
 
     def read_reference(self, resource: str) -> str:
         return self._read_in("references", resource)
