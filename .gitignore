@@ -18,6 +18,10 @@ logs/
 .mypy_cache/
 .pytest_cache/
 .pytest_tmp/
+.pytest_tmp_local/
+.test-workdirs/
+workflow_test_tmp*/
+.tmp/
 .ruff_cache/
 
 # Understand-Anything (knowledge graph artifacts)

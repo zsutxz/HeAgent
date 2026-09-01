@@ -448,10 +448,10 @@ development_status:
   44-3-recovery-envelope-long-goal-integration: done
   epic-44-retrospective: optional
 
-  epic-45: in-progress  # 目标级运维、审计与质量收口（FR4）
+  epic-45: done  # 目标级运维、审计与质量收口（FR4）
   45-1-goal-cli-control-status: done
   45-2-run-audit-cost-observability: done
-  45-3-quality-gates-docs-smoke: backlog
+  45-3-quality-gates-docs-smoke: done
   epic-45-retrospective: optional
 
   epic-46: backlog  # 技能资源并发替换安全评估（FR5）
