@@ -461,15 +461,15 @@ development_status:
 
   # 声明式 BMad 敏捷工作流周期 · Epic 47（2026-09-01 规划登记）
   # Goal → Epic → Story；Markdown workflow/step；BMad Agent 迁移与产物 Gate
-  epic-47: in-progress
+  epic-47: done
   47-1-artifact-hierarchy-contract: done
   47-2-bmad-agent-packages: done
   47-3-workflow-step-resource-loading: done
   47-4-workflow-runner-gates: done
   47-5-goal-epic-story-integration: done
   47-6-review-retrospective-correct-course: done
-  47-7-sample-epic-regression-docs: in-progress
-  epic-47-retrospective: optional
+  47-7-sample-epic-regression-docs: done
+  epic-47-retrospective: done
 
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════
