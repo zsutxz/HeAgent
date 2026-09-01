@@ -35,15 +35,25 @@ def test_blocking_review_returns_to_implementation_and_preserves_verdict() -> No
 
 
 def test_passing_review_requires_evidence_and_does_not_roll_back() -> None:
-    state = GoalWorkflowState(phase=WorkflowPhase.REVIEW, status=WorkflowStatus.RUNNING)
+    state = GoalWorkflowState(
+        phase=WorkflowPhase.REVIEW,
+        status=WorkflowStatus.RUNNING,
+        artifact_refs=["test-results.md"],
+    )
     verdict = ReviewVerdict(evidence=["pytest passed"])
 
     result = apply_review_verdict(state, verdict)
 
     assert result.state.phase is WorkflowPhase.REVIEW
     assert result.completion_eligible is True
+    result.state.artifact_refs.append("review.md")
+    assert state.artifact_refs == ["test-results.md"]
     with pytest.raises(ValidationError):
         ReviewVerdict(evidence=[])
+    with pytest.raises(AgileClosureError, match="review phase"):
+        apply_review_verdict(
+            GoalWorkflowState(phase=WorkflowPhase.IMPLEMENTATION, status=WorkflowStatus.RUNNING), verdict
+        )
 
 
 def test_retrospective_requires_done_stories_and_acceptance_evidence() -> None:
@@ -81,4 +91,12 @@ def test_correct_course_rejects_illegal_transition_without_mutating_source() -> 
     illegal = legal.model_copy(update={"target_phase": WorkflowPhase.SPRINT})
     with pytest.raises(AgileClosureError, match="illegal workflow transition"):
         apply_correct_course(state, illegal)
+    mismatched = CorrectCourse(
+        source_phase=WorkflowPhase.IMPLEMENTATION,
+        target_phase=WorkflowPhase.RETROSPECTIVE,
+        reason="stale record",
+        impact="must not apply",
+    )
+    with pytest.raises(AgileClosureError, match="source phase"):
+        apply_correct_course(state, mismatched)
     assert state.phase is WorkflowPhase.REVIEW
