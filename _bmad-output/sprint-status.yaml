@@ -424,6 +424,14 @@ development_status:
   41-4-docs-regression-smoke: done
   epic-41-retrospective: optional
 
+  epic-42: done  # 可安装、可验证的声明式技能包运行时（FR1-FR8）
+  42-1-skill-package-model-resource-safety: done
+  42-2-skill-catalog-resolution: done
+  42-3-skill-step-runner: done
+  42-4-skill-importer: done
+  42-5-compatibility-regression: done
+  epic-42-retrospective: optional
+
   # =============================================================
   # 目标级工作流周期 · Epic 43–46（2026-09-01 规划）
   # =============================================================
