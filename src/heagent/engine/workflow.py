@@ -105,7 +105,12 @@ class WorkflowCheckpointStore:
             raise WorkflowCheckpointError("cannot checkpoint a workflow with a tool in flight")
         path = self._path(checkpoint.checkpoint_id)
         state = workflow_state or self._state_from_checkpoint(checkpoint)
+        if state.goal_id != checkpoint.goal_id:
+            raise WorkflowCheckpointError("checkpoint and workflow state belong to different goals")
         async with self._lock:
+            existing_workflow = await asyncio.to_thread(load_json_model, self._workflow_path, GoalWorkflowState)
+            if self._workflow_path.exists() and existing_workflow is None:
+                raise WorkflowCheckpointError(f"workflow state is corrupted: {self._workflow_path}")
             existing = await asyncio.to_thread(load_json_model, path, WorkflowCheckpoint)
             if path.exists() and existing is None:
                 raise WorkflowCheckpointError(f"checkpoint is corrupted: {path}")

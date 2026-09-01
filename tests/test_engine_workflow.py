@@ -218,6 +218,25 @@ async def test_checkpoint_store_loads_latest_unfinished_and_rejects_corruption(t
 
 
 @pytest.mark.asyncio
+async def test_checkpoint_rejects_goal_mismatch_and_corrupt_workflow_state(tmp_path) -> None:
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"))
+    checkpoint = WorkflowCheckpoint(
+        checkpoint_id="goal1-step1",
+        goal_id="goal1",
+        phase=WorkflowPhase.PLANNING,
+        status=WorkflowStatus.WAITING_USER,
+        run_id="run1",
+    )
+    with pytest.raises(WorkflowCheckpointError, match="different goals"):
+        await store.save(checkpoint, GoalWorkflowState(goal_id="goal2"))
+
+    workflow_path = tmp_path / "workflow.json"
+    workflow_path.write_text("{broken", encoding="utf-8")
+    with pytest.raises(WorkflowCheckpointError, match="workflow state is corrupted"):
+        await store.save(checkpoint)
+
+
+@pytest.mark.asyncio
 async def test_checkpoint_rejects_in_flight_conflicts_and_unsafe_ids(tmp_path) -> None:
     store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"))
     in_flight = WorkflowCheckpoint(
