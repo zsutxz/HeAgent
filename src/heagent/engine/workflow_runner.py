@@ -96,6 +96,7 @@ class WorkflowRunner:
             active_step=checkpoint.active_step if checkpoint.active_step is not None else len(workflow.steps),
             status=checkpoint.status,
             completed_steps=list(checkpoint.completed_steps),
+            outputs={reference: None for reference in checkpoint.artifact_refs},
             acceptance_evidence=list(checkpoint.acceptance_evidence),
         )
         kwargs.setdefault("phase", checkpoint.phase)
@@ -127,11 +128,15 @@ class WorkflowRunner:
         if self.done:
             return WorkflowRunResult(status=WorkflowStatus.COMPLETED, step_index=None, reason="workflow is complete")
         if self.state.status in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
-            return WorkflowRunResult(status=self.state.status, step_index=self.state.active_step, reason=self.state.reason)
+            return WorkflowRunResult(
+                status=self.state.status, step_index=self.state.active_step, reason=self.state.reason
+            )
         step = self.workflow.steps[self.state.active_step]
         missing = self._missing_inputs(step, inputs or artifacts or {})
         if missing:
-            return await self._stop(WorkflowStatus.BLOCKED, step, "missing required inputs: " + ", ".join(missing), missing, checkpoint)
+            return await self._stop(
+                WorkflowStatus.BLOCKED, step, "missing required inputs: " + ", ".join(missing), missing, checkpoint
+            )
         result = callback(step)
         if inspect.isawaitable(result):
             result = await result
@@ -143,21 +148,40 @@ class WorkflowRunner:
             except WorkflowGateError as exc:
                 return await self._stop(WorkflowStatus.BLOCKED, step, str(exc), [], checkpoint)
             completed = [*self.state.completed_steps, self.state.active_step]
-            next_status = WorkflowStatus.COMPLETED if self.state.active_step + 1 >= len(self.workflow.steps) else WorkflowStatus.PENDING
-            if step.checkpoint.strip().casefold() in {"true", "user", "human", "checkpoint", "waiting_user"}:
+            next_status = (
+                WorkflowStatus.COMPLETED
+                if self.state.active_step + 1 >= len(self.workflow.steps)
+                else WorkflowStatus.PENDING
+            )
+            if self.state.active_step < len(self.workflow.steps) and step.checkpoint.strip().casefold() in {
+                "true",
+                "user",
+                "human",
+                "checkpoint",
+                "waiting_user",
+            }:
                 next_status = WorkflowStatus.WAITING_USER
-            self.state = self.state.model_copy(update={
-                "active_step": self.state.active_step + 1,
-                "status": next_status,
-                "completed_steps": completed,
-                "outputs": {**self.state.outputs, step.name: result.output},
-                "acceptance_evidence": [*self.state.acceptance_evidence, *result.evidence],
-                "reason": result.reason,
-            })
+            self.state = self.state.model_copy(
+                update={
+                    "active_step": self.state.active_step + 1,
+                    "status": next_status,
+                    "completed_steps": completed,
+                    "outputs": {**self.state.outputs, step.name: result.output},
+                    "acceptance_evidence": [*self.state.acceptance_evidence, *result.evidence],
+                    "reason": result.reason,
+                }
+            )
         else:
             self.state = self.state.model_copy(update={"status": result.status, "reason": result.reason})
         checkpoint_id = await self._persist(step, checkpoint)
-        return WorkflowRunResult(status=self.state.status, step_index=step.index, output=result.output, reason=result.reason, acceptance_evidence=result.evidence, checkpoint_id=checkpoint_id)
+        return WorkflowRunResult(
+            status=self.state.status,
+            step_index=step.index,
+            output=result.output,
+            reason=result.reason,
+            acceptance_evidence=result.evidence,
+            checkpoint_id=checkpoint_id,
+        )
 
     run = run_step
 
@@ -169,10 +193,29 @@ class WorkflowRunner:
             self.state = self.state.model_copy(update={"status": WorkflowStatus.PENDING, "reason": ""})
         return self.state.model_copy(deep=True)
 
-    async def _stop(self, status: WorkflowStatus, step: WorkflowStepResource, reason: str, missing: list[str], checkpoint: CheckpointCallback | None) -> WorkflowRunResult:
+    async def persist_state(self) -> str | None:
+        """Persist a command-boundary state change without invoking a callback.
+
+        Pause and resume are CLI state changes, not workflow steps. Keeping this
+        operation on the Runner prevents callers from rebuilding checkpoint
+        payloads and accidentally losing completed-step history on recovery.
+        """
+        step = self.workflow.steps[min(self.state.active_step, len(self.workflow.steps) - 1)]
+        return await self._persist(step, None)
+
+    async def _stop(
+        self,
+        status: WorkflowStatus,
+        step: WorkflowStepResource,
+        reason: str,
+        missing: list[str],
+        checkpoint: CheckpointCallback | None,
+    ) -> WorkflowRunResult:
         self.state = self.state.model_copy(update={"status": status, "reason": reason})
         checkpoint_id = await self._persist(step, checkpoint)
-        return WorkflowRunResult(status=status, step_index=step.index, reason=reason, missing=missing, checkpoint_id=checkpoint_id)
+        return WorkflowRunResult(
+            status=status, step_index=step.index, reason=reason, missing=missing, checkpoint_id=checkpoint_id
+        )
 
     async def _persist(self, step: WorkflowStepResource, callback: CheckpointCallback | None) -> str | None:
         if callback:
@@ -182,10 +225,19 @@ class WorkflowRunner:
         if self.checkpoint_store is None:
             return None
         checkpoint = WorkflowCheckpoint(
-            checkpoint_id=f"{self.goal_id}-{self.run_id}-step-{step.index}-{self.state.status.value}", goal_id=self.goal_id,
-            phase=self.phase, status=self.state.status, run_id=self.run_id,
-            active_step=self.state.active_step, artifact_refs=list(self.state.outputs),
-            acceptance_evidence=list(self.state.acceptance_evidence), completed_steps=list(self.state.completed_steps), next_action=self.state.reason,
+            checkpoint_id=(
+                f"{self.goal_id}-{self.run_id}-step-{step.index}-active-{self.state.active_step}-{self.state.status.value}"
+            ),
+            goal_id=self.goal_id,
+            phase=self.phase,
+            status=self.state.status,
+            run_id=self.run_id,
+            active_skill=self.workflow.name,
+            active_step=self.state.active_step,
+            artifact_refs=list(self.state.outputs),
+            acceptance_evidence=list(self.state.acceptance_evidence),
+            completed_steps=list(self.state.completed_steps),
+            next_action=self.state.reason,
         )
         aggregate_status = self.state.status
         if aggregate_status is WorkflowStatus.COMPLETED and self.phase is not WorkflowPhase.DONE:
@@ -197,7 +249,9 @@ class WorkflowRunner:
             active_step=self.state.active_step,
             status=aggregate_status,
             artifact_refs=list(self.state.outputs),
-            blocked_reason=self.state.reason if self.state.status in {WorkflowStatus.BLOCKED, WorkflowStatus.FAILED} else None,
+            blocked_reason=self.state.reason
+            if self.state.status in {WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}
+            else None,
             next_action=self.state.reason,
         )
         await self.checkpoint_store.save(checkpoint, workflow_state)
