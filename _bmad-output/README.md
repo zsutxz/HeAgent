@@ -17,7 +17,8 @@ _bmad-output/
 │   ├── epic-19-20-健壮性硬化周期/ robustness-hardening（Epic 19–20）
 │   ├── epic-21-24-质量工程周期/   quality-engineering（Epic 21–24）
 │   ├── epic-25-28-GUI界面周期/    gui（Epic 25–28）
-│   └── epic-29-35-交互扩展周期/   interaction（Epic 29–35）
+│   ├── epic-29-35-交互扩展周期/   interaction（Epic 29–35）
+│   └── epic-43-46-目标级工作流周期/  goal workflow continuation（Epic 43–46）
 ├── patches/                补丁周期（计划外技术债 / 缺陷，按领域分子目录 provider/context/memory/cron/mcp/sandbox/_meta）
 └── specs/                  quick-dev / spec 产物（本地工作件，gitignored；2026-08-18 已清空，目录暂不存在）
 ```

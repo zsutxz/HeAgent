@@ -424,6 +424,32 @@ development_status:
   41-4-docs-regression-smoke: done
   epic-41-retrospective: optional
 
+  # =============================================================
+  # 目标级工作流周期 · Epic 43–46（2026-09-01 规划）
+  # =============================================================
+
+  epic-43: in-progress  # 可控的目标工作流推进与恢复（FR1/FR2）
+  43-1-workflow-state-model-transitions: done
+  43-2-phase-routing-preconditions-gates: review
+  43-3-workflow-checkpoint-pause-resume-idempotency: review
+  epic-43-retrospective: optional
+
+  epic-44: in-progress  # 跨上下文的长目标连续执行（FR3）
+  44-1-segment-token-budget-threshold: review
+  44-2-automatic-rollover-fresh-context: review
+  44-3-recovery-envelope-long-goal-integration: review
+  epic-44-retrospective: optional
+
+  epic-45: backlog  # 目标级运维、审计与质量收口（FR4）
+  45-1-goal-cli-control-status: backlog
+  45-2-run-audit-cost-observability: backlog
+  45-3-quality-gates-docs-smoke: backlog
+  epic-45-retrospective: optional
+
+  epic-46: backlog  # 技能资源并发替换安全评估（FR5）
+  46-1-skill-resource-toctou-assessment: backlog
+  epic-46-retrospective: optional
+
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════
 action_items:

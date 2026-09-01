@@ -20,6 +20,23 @@ from heagent.engine.ledger import ExecutionLedger, ExecutionRecord, ExecutionSta
 from heagent.engine.observability import EngineEvent, EventBus, LoggingObserver
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.engine.store import RunSnapshot, RunStore
+from heagent.engine.workflow import (
+    GoalWorkflowState,
+    RecoveryEnvelope,
+    RolloverCoordinator,
+    RolloverResult,
+    TokenBudgetError,
+    TokenBudgetManager,
+    TokenBudgetState,
+    WorkflowCheckpoint,
+    WorkflowCheckpointError,
+    WorkflowCheckpointStore,
+    WorkflowOrchestrator,
+    WorkflowPhase,
+    WorkflowRoute,
+    WorkflowStatus,
+    build_recovery_envelope,
+)
 
 __all__ = [
     "ApprovalDecision",
@@ -46,4 +63,19 @@ __all__ = [
     "RunSnapshot",
     "RunStatus",
     "RunStore",
+    "GoalWorkflowState",
+    "WorkflowCheckpoint",
+    "WorkflowCheckpointError",
+    "WorkflowCheckpointStore",
+    "TokenBudgetError",
+    "TokenBudgetManager",
+    "TokenBudgetState",
+    "RolloverCoordinator",
+    "RolloverResult",
+    "RecoveryEnvelope",
+    "build_recovery_envelope",
+    "WorkflowOrchestrator",
+    "WorkflowPhase",
+    "WorkflowRoute",
+    "WorkflowStatus",
 ]
