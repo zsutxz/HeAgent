@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,10 @@ from heagent.memory.skill_packages import (
     SkillPackageResourceError,
     SkillResolutionError,
     SkillResolver,
+    SkillRunner,
+    SkillRunnerState,
+    SkillStep,
+    SkillStepResult,
 )
 
 
@@ -257,3 +262,77 @@ class TestSkillCatalog:
 
         assert not entry.available
         assert entry.error is not None and "invalid metadata" in entry.error
+
+
+class TestSkillRunner:
+    def test_runs_one_step_and_keeps_waiting_step(self, tmp_path: Path) -> None:
+        make_package(tmp_path)
+        (tmp_path / "step-01.md").write_text("first", encoding="utf-8")
+        (tmp_path / "step-02.md").write_text("second", encoding="utf-8")
+        runner = SkillRunner(SkillPackage(skill_id="he-build", root=tmp_path), ["step-01.md", "step-02.md"])
+        seen: list[int] = []
+
+        async def callback(step: SkillStep) -> SkillStepResult:
+            seen.append(step.index)
+            return SkillStepResult(status="waiting_user", reason="needs input")
+
+        state = asyncio.run(runner.run(callback))
+        assert state.status == "waiting_user"
+        assert state.active_step == 0
+        assert seen == [0]
+
+    def test_completed_step_advances_only_on_next_run(self, tmp_path: Path) -> None:
+        make_package(tmp_path)
+        (tmp_path / "one.md").write_text("one", encoding="utf-8")
+        (tmp_path / "two.md").write_text("two", encoding="utf-8")
+        runner = SkillRunner(SkillPackage(skill_id="he-build", root=tmp_path), ["one.md", "two.md"])
+        seen: list[int] = []
+
+        async def callback(step: SkillStep) -> SkillStepResult:
+            seen.append(step.index)
+            return SkillStepResult(status="completed")
+
+        asyncio.run(runner.run(callback))
+        assert runner.state.active_step == 0
+        asyncio.run(runner.run(callback))
+        assert seen == [0, 1]
+        assert runner.state.status == "completed"
+        assert runner.done
+
+    def test_invalid_active_step_is_rejected(self, tmp_path: Path) -> None:
+        make_package(tmp_path)
+        (tmp_path / "one.md").write_text("one", encoding="utf-8")
+        with pytest.raises(ValueError, match="out of range"):
+            SkillRunner(
+                SkillPackage(skill_id="he-build", root=tmp_path),
+                ["one.md"],
+                SkillRunnerState(active_step=2),
+            )
+
+    def test_failed_step_is_explicit_and_does_not_advance(self, tmp_path: Path) -> None:
+        make_package(tmp_path)
+        (tmp_path / "one.md").write_text("one", encoding="utf-8")
+        runner = SkillRunner(SkillPackage(skill_id="he-build", root=tmp_path), ["one.md"])
+
+        async def callback(step: SkillStep) -> SkillStepResult:
+            return SkillStepResult(status="failed", reason="bad input")
+
+        state = asyncio.run(runner.run(callback))
+        assert state.status == "failed"
+        assert state.reason == "bad input"
+        assert state.active_step == 0
+        asyncio.run(runner.run(callback))
+        assert state.reason == "bad input"
+
+    def test_blocked_step_keeps_active_index_with_sync_callback(self, tmp_path: Path) -> None:
+        make_package(tmp_path)
+        (tmp_path / "one.md").write_text("one", encoding="utf-8")
+        runner = SkillRunner(SkillPackage(skill_id="he-build", root=tmp_path), ["one.md"])
+
+        def callback(step: SkillStep) -> SkillStepResult:
+            assert step.instructions == "one"
+            return SkillStepResult(status="blocked", reason="approval required")
+
+        state = asyncio.run(runner.run(callback))
+        assert state.status == "blocked"
+        assert state.active_step == 0
