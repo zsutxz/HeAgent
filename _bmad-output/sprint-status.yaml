@@ -459,6 +459,18 @@ development_status:
   46-2-skill-resource-open-hardening: done
   epic-46-retrospective: optional
 
+  # 声明式 BMad 敏捷工作流周期 · Epic 47（2026-09-01 规划登记）
+  # Goal → Epic → Story；Markdown workflow/step；BMad Agent 迁移与产物 Gate
+  epic-47: in-progress
+  47-1-artifact-hierarchy-contract: done
+  47-2-bmad-agent-packages: backlog
+  47-3-workflow-step-resource-loading: backlog
+  47-4-workflow-runner-gates: backlog
+  47-5-goal-epic-story-integration: backlog
+  47-6-review-retrospective-correct-course: backlog
+  47-7-sample-epic-regression-docs: backlog
+  epic-47-retrospective: optional
+
 # Action items（来自 retrospective，跨周期跟踪）
 # ═════════════════════════════════════════════════════════════════
 action_items:

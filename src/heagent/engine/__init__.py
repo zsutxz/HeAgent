@@ -12,6 +12,21 @@ from heagent.engine.approval import (
     ConsoleApprovalHandler,
     DenyAllApprovalHandler,
 )
+from heagent.engine.artifacts import (
+    ArtifactContract,
+    ArtifactContractError,
+    ArtifactKind,
+    ArtifactStatus,
+    EpicArtifact,
+    Frontmatter,
+    GoalArtifact,
+    StoryArtifact,
+    assert_sprint_status_authority,
+    parse_artifact,
+    parse_frontmatter,
+    validate_hierarchy,
+    validate_sprint_status_path,
+)
 from heagent.engine.container import EngineContainer
 from heagent.engine.context import RunContext, RunStatus
 from heagent.engine.executor import ToolExecutor
@@ -39,6 +54,19 @@ from heagent.engine.workflow import (
 )
 
 __all__ = [
+    "ArtifactContract",
+    "ArtifactContractError",
+    "ArtifactKind",
+    "ArtifactStatus",
+    "EpicArtifact",
+    "Frontmatter",
+    "GoalArtifact",
+    "StoryArtifact",
+    "assert_sprint_status_authority",
+    "parse_artifact",
+    "parse_frontmatter",
+    "validate_hierarchy",
+    "validate_sprint_status_path",
     "ApprovalDecision",
     "ApprovalHandler",
     "ApprovalRequest",
