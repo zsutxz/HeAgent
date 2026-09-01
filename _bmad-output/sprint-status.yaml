@@ -467,8 +467,8 @@ development_status:
   47-3-workflow-step-resource-loading: done
   47-4-workflow-runner-gates: done
   47-5-goal-epic-story-integration: done
-  47-6-review-retrospective-correct-course: in-progress
-  47-7-sample-epic-regression-docs: backlog
+  47-6-review-retrospective-correct-course: done
+  47-7-sample-epic-regression-docs: in-progress
   epic-47-retrospective: optional
 
 # Action items（来自 retrospective，跨周期跟踪）

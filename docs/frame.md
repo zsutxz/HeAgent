@@ -609,6 +609,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入 |
 | `persist.py` | `atomic_write_text`（`*.tmp` + `os.replace` 原子写）+ `load_json_model`（损坏 JSON 容错跳过） |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布 |
+| `agile.py` | `ReviewVerdict`、`Retrospective`、`CorrectCourse` — 审查闭环工件；阻塞发现仅经 `WorkflowOrchestrator` 回退 implementation，所有发现与证据保留，Epic retrospective 必须引用已完成 Story 的验收证据 |
 
 **已完成：**
 
