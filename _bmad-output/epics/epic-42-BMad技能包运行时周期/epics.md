@@ -36,6 +36,11 @@ NFR4: 资源采用按需加载，不能把整个 BMad 技能目录注入每次 L
 NFR5: 现有行为必须零回归；新增目录映射、别名、路径安全、状态机、导入锁和损坏输入均需单元测试。
 NFR6: 方法论保持声明式：工作流顺序和 step 约束由 Markdown/配置定义，不能复制成散落的 Python 特殊分支。
 
+**资源读取竞态说明（Epic 46.1）：** `SkillPackage` 的 `resolve_under_root` 围栏仍拒绝绝对路径、路径穿越
+和解析后越界符号链接，但“解析/检查 -> `read_text()`”之间的文件替换窗口已由特征测试证实。该围栏是
+defense-in-depth，不是 OS 安全边界；descriptor-relative/目录句柄、导入 snapshot 或 OS sandbox 的加固
+不在 Epic 42 运行时实现内，须以后续独立 story 评估和交付。
+
 ### Additional Requirements
 
 - 复用 `tools.path_safety.resolve_under_root` 的根目录围栏语义；包根先 `resolve()`，可选资源使用非严格解析，禁止 startswith 等弱校验。
