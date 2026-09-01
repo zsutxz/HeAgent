@@ -278,6 +278,8 @@ def test_token_budget_rejects_invalid_counts_and_configuration() -> None:
         manager.record(prompt_tokens=-1, completion_tokens=0)
     with pytest.raises(TokenBudgetError, match="non-negative"):
         manager.should_rollover(-1)
+    with pytest.raises(TokenBudgetError, match="non-negative"):
+        manager.record(prompt_tokens=True, completion_tokens=0)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
@@ -313,6 +315,23 @@ async def test_rollover_rejects_in_flight_without_callbacks() -> None:
     assert called is False
 
 
+@pytest.mark.asyncio
+async def test_rollover_restores_budget_when_fresh_run_fails() -> None:
+    manager = TokenBudgetManager(segment_limit=100)
+    manager.record(prompt_tokens=10, completion_tokens=5)
+    before = manager.state
+
+    async def checkpoint(_: str) -> None:
+        return None
+
+    async def start_run(_: str) -> str:
+        raise RuntimeError("new run unavailable")
+
+    with pytest.raises(RuntimeError, match="new run unavailable"):
+        await RolloverCoordinator(checkpoint, start_run).rollover(manager, run_id="run1")
+    assert manager.state == before
+
+
 def test_recovery_envelope_is_bounded_and_has_deterministic_summary_fallback() -> None:
     state = GoalWorkflowState(active_story="43.3", artifact_refs=["checkpoint.json"])
     envelope = build_recovery_envelope(
@@ -325,4 +344,6 @@ def test_recovery_envelope_is_bounded_and_has_deterministic_summary_fallback() -
     assert envelope.version == 1
     assert envelope.checkpoint_summary.startswith("goal=")
     assert envelope.summary_error == "summary timeout"
+    assert envelope.segment_index == state.segment_index
+    assert envelope.cumulative_tokens == state.cumulative_tokens
     assert not hasattr(envelope, "messages")

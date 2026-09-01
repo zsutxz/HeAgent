@@ -1,5 +1,5 @@
 ---
-status: review
+status: done
 baseline_commit: current
 ---
 

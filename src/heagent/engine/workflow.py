@@ -195,6 +195,14 @@ class TokenBudgetState(BaseModel):
     cumulative_tokens: int = Field(default=0, ge=0)
     context_window_usage: int = Field(default=0, ge=0)
 
+    @model_validator(mode="after")
+    def validate_counters(self) -> TokenBudgetState:
+        if self.segment_tokens > self.cumulative_tokens:
+            raise ValueError("segment_tokens cannot exceed cumulative_tokens")
+        if self.context_window_usage > self.segment_tokens:
+            raise ValueError("context_window_usage cannot exceed segment_tokens")
+        return self
+
 
 class TokenBudgetManager:
     """Deterministically decide whether a provider call must roll over."""
@@ -235,7 +243,7 @@ class TokenBudgetManager:
 
     @staticmethod
     def _validate_count(value: int, name: str) -> None:
-        if not isinstance(value, int) or value < 0:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise TokenBudgetError(f"{name} must be a non-negative integer")
 
 
@@ -270,11 +278,17 @@ class RolloverCoordinator:
             raise TokenBudgetError("run_id is required")
         if tool_in_flight:
             raise TokenBudgetError("cannot rollover while a tool is in flight")
+        previous_state = manager.state.model_copy(deep=True)
         previous_segment = manager.state.segment_index
         await self._checkpoint(run_id)
         next_state = manager.rollover()
-        new_run_id = await self._start_run(run_id)
+        try:
+            new_run_id = await self._start_run(run_id)
+        except BaseException:
+            manager.state = previous_state
+            raise
         if not isinstance(new_run_id, str) or not new_run_id.strip():
+            manager.state = previous_state
             raise TokenBudgetError("fresh run callback returned an invalid run id")
         return RolloverResult(
             previous_run_id=run_id,
@@ -292,6 +306,8 @@ class RecoveryEnvelope(BaseModel):
     phase: WorkflowPhase
     active_story: str | None = None
     active_step: int | None = Field(default=None, ge=0)
+    segment_index: int = Field(default=0, ge=0)
+    cumulative_tokens: int = Field(default=0, ge=0)
     artifact_refs: list[str] = Field(default_factory=list)
     acceptance_evidence: list[str] = Field(default_factory=list)
     checkpoint_summary: str = ""
@@ -318,6 +334,8 @@ def build_recovery_envelope(
         phase=state.phase,
         active_story=state.active_story,
         active_step=state.active_step,
+        segment_index=state.segment_index,
+        cumulative_tokens=state.cumulative_tokens,
         artifact_refs=list(state.artifact_refs),
         acceptance_evidence=list(acceptance_evidence or []),
         checkpoint_summary=summary,

@@ -434,10 +434,10 @@ development_status:
   43-3-workflow-checkpoint-pause-resume-idempotency: done
   epic-43-retrospective: optional
 
-  epic-44: in-progress  # 跨上下文的长目标连续执行（FR3）
-  44-1-segment-token-budget-threshold: review
-  44-2-automatic-rollover-fresh-context: review
-  44-3-recovery-envelope-long-goal-integration: review
+  epic-44: done  # 跨上下文的长目标连续执行（FR3）
+  44-1-segment-token-budget-threshold: done
+  44-2-automatic-rollover-fresh-context: done
+  44-3-recovery-envelope-long-goal-integration: done
   epic-44-retrospective: optional
 
   epic-45: backlog  # 目标级运维、审计与质量收口（FR4）
