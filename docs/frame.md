@@ -652,7 +652,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 不支持该标志的平台保留兼容打开；特征证据与回退覆盖见 `tests/test_skill_packages_toctou.py`，评估与候选方案见
 `_bmad-output/patches/memory/spec-skill-resource-toctou-assessment.md`，故事流程规格见
 `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`，
-实现规格见 `_bmad-output/implementation-artifacts/spec-46-2-skill-resource-open-hardening.md`。
+实现规格见 `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/spec-46-2-skill-resource-open-hardening.md`。
 
 该加固只保护最终路径组件，不能消除中间目录替换、恶意挂载或更高权限宿主进程造成的竞态；不声称已完成
 TOCTOU 防护。descriptor-relative/目录句柄、导入边界 snapshot 和 OS sandbox 仍须另立 story；所有方案仍是
