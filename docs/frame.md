@@ -734,6 +734,7 @@ src/heagent/
 │   ├── store.py             # RunStore 运行快照（async I/O）
 │   ├── ledger.py            # ExecutionLedger 幂等/租约（async I/O）
 │   ├── persist.py           # 原子写 + 损坏 JSON 容错（store/ledger 共用）
+│   ├── workflow.py          # Goal workflow state / routing / checkpoint persistence
 │   └── observability.py     # EventBus / 事件
 └── cron/                    # 定时调度
     ├── jobs.py              # CronJob 模型 + JobStore 持久化
