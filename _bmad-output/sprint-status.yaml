@@ -442,7 +442,7 @@ development_status:
 
   epic-45: in-progress  # 目标级运维、审计与质量收口（FR4）
   45-1-goal-cli-control-status: done
-  45-2-run-audit-cost-observability: backlog
+  45-2-run-audit-cost-observability: done
   45-3-quality-gates-docs-smoke: backlog
   epic-45-retrospective: optional
 

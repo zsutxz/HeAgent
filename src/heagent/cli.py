@@ -970,7 +970,7 @@ _GOAL_SKILL_PATH = Path(".heagent/skills/goal/SKILL.md")
 _GOAL_STATUSES = frozenset({"planning", "executing", "done", "blocked"})
 _GOAL_HEX = frozenset("0123456789abcdef")  # goal_id 字符集（与 uuid4().hex[:8] 写入格式一致）
 # 保留子命令（首 token 命中即子命令；new 之外带尾文本时显性拒绝，防尾文本被静默吞掉）。
-_GOAL_RESERVED = ("next", "status", "reset", "run", "auto", "pause", "resume")
+_GOAL_RESERVED = ("next", "status", "reset", "run", "auto", "pause", "resume", "audit")
 _GOAL_RUN_MAX_ROUNDS = 10
 _GOAL_ADVANCED = "advanced"
 _GOAL_DONE = "done"
@@ -1208,6 +1208,31 @@ async def _goal_status() -> None:
             err=True,
         )
     click.echo(text)
+
+
+async def _goal_audit(engine: EngineContainer | None) -> None:
+    goal_md = _goal_active_md()
+    if goal_md is None:
+        click.echo("[goal] no active goal available for audit", err=True)
+        return
+    goal_id = goal_md.parent.name
+    if engine is None:
+        click.echo("[goal] audit unavailable without engine", err=True)
+        return
+    records = [record for record in await engine.ledger.list_records() if record.metadata.get("goal_id") == goal_id]
+    events = [event for event in engine.events.recent_events if event.details.get("goal_id") == goal_id or event.run_id == goal_id]
+    click.echo(f"[goal] audit: goal={goal_id} records={len(records)} events={len(events)}", err=True)
+    for record in records:
+        click.echo(
+            f"  record={record.key} status={record.status.value} run={record.run_id or '-'} "
+            f"started={record.started_at} finished={record.finished_at or '-'} error={record.error or '-'}",
+            err=True,
+        )
+    for event in events:
+        click.echo(
+            f"  event={event.event_type} run={event.run_id or '-'} at={event.timestamp} details={event.details}",
+            err=True,
+        )
 
 
 def _goal_reset() -> None:
@@ -1459,7 +1484,7 @@ async def _goal_runner(  # noqa: C901
                 await _goal_new(provider, engine, skill, rest, cron_store=cron_store)
         else:
             _goal_usage()
-    elif head in ("next", "status", "reset", "run", "pause", "resume") and rest:
+    elif head in ("next", "status", "reset", "run", "pause", "resume", "audit") and rest:
         _goal_usage()  # 保留字带尾文本：显性拒绝，防尾文本被静默吞掉
     elif head == "status":
         await _goal_status()
@@ -1474,6 +1499,8 @@ async def _goal_runner(  # noqa: C901
         await _goal_pause()
     elif head == "resume":
         await _goal_resume()
+    elif head == "audit":
+        await _goal_audit(engine)
     elif head == "auto":
         goal_md = _goal_active_md()
         if rest == "off":

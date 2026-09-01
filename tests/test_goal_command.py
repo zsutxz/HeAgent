@@ -597,6 +597,34 @@ class TestGoalWorkflowControls:
         assert '"status": "running"' in workflow.read_text(encoding="utf-8")
         assert md.read_text(encoding="utf-8") == original
 
+    @pytest.mark.asyncio
+    async def test_audit_filters_records_and_events_by_goal(
+        self, goal_cwd: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _seed_goal(goal_cwd)
+        from heagent.engine.ledger import ExecutionRecord, ExecutionStatus
+        from heagent.engine.observability import EngineEvent, EventBus
+
+        class Ledger:
+            async def list_records(self):
+                return [
+                    ExecutionRecord(key="a", metadata={"goal_id": "deadbeef"}, status=ExecutionStatus.COMPLETED),
+                    ExecutionRecord(key="b", metadata={"goal_id": "other"}, status=ExecutionStatus.COMPLETED),
+                ]
+
+        engine = SimpleNamespace(
+            ledger=Ledger(),
+            events=EventBus(),
+        )
+        engine.events.emit(EngineEvent(event_type="goal", details={"goal_id": "deadbeef"}))
+        engine.events.emit(EngineEvent(event_type="other", details={"goal_id": "other"}))
+
+        await _goal_runner(ScriptedGoalProvider(), engine, "audit")
+        err = capsys.readouterr().err
+        assert "records=1 events=1" in err
+        assert "record=a" in err
+        assert "record=b" not in err
+
 
 class TestGoalAuto:
     @pytest.mark.asyncio
