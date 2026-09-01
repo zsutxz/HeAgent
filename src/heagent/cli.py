@@ -1028,8 +1028,11 @@ async def _goal_declarative_runner(
             checkpoint
             for checkpoint in checkpoints
             if checkpoint.active_step == workflow_state.active_step
-            and checkpoint.status is workflow_state.status
             and checkpoint.active_skill == workflow.name
+            and (
+                checkpoint.status is workflow_state.status
+                or (checkpoint.status is WorkflowStatus.COMPLETED and workflow_state.status is WorkflowStatus.RUNNING)
+            )
         ]
         if matching:
             return WorkflowRunner.from_checkpoint(
@@ -1038,6 +1041,8 @@ async def _goal_declarative_runner(
                 checkpoint_store=store,
                 phase=WorkflowPhase.IMPLEMENTATION,
             )
+        if checkpoints:
+            raise WorkflowCheckpointError("workflow configuration does not match the persisted goal state")
     # Each goal owns its checkpoint directory, so the latest checkpoint for this
     # goal is the authoritative recovery point. Do not make recovery contingent
     # on optional descriptive metadata such as ``active_skill``.
@@ -1124,9 +1129,6 @@ async def _goal_declarative_advance(
     # Input declarations describe the context supplied by this deterministic CLI
     # boundary. Artifact names from completed steps remain available on resume.
     inputs = set(runner.state.outputs)
-    inputs.update(
-        item.strip() for item in re.split(r"[,\n]", workflow.steps[runner.state.active_step].input) if item.strip()
-    )
     try:
         result = await runner.run_step(execute_step, inputs=inputs)
     except (WorkflowCheckpointError, ValueError, TypeError) as exc:
@@ -1182,7 +1184,7 @@ async def _goal_declarative_status(workflow: WorkflowResource) -> None:
         return
     try:
         runner = await _goal_declarative_runner(workflow, goal_dir)
-    except WorkflowCheckpointError as exc:
+    except (WorkflowCheckpointError, ValueError) as exc:
         click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
         return
     click.echo(
@@ -1199,8 +1201,11 @@ async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: 
         return
     try:
         runner = await _goal_declarative_runner(workflow, goal_dir)
+        if runner.done:
+            click.echo("[goal] declarative workflow is already complete", err=True)
+            return
         if resume:
-            if runner.state.status is not WorkflowStatus.WAITING_USER:
+            if runner.state.status not in {WorkflowStatus.WAITING_USER, WorkflowStatus.FAILED}:
                 click.echo(f"[goal] workflow status={runner.state.status.value}; resume is not required", err=True)
                 return
             runner.resume()

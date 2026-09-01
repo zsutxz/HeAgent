@@ -161,12 +161,15 @@ class WorkflowRunner:
                 "waiting_user",
             }:
                 next_status = WorkflowStatus.WAITING_USER
+            outputs = {**self.state.outputs, step.name: result.output}
+            if step.output:
+                outputs[step.output] = result.output
             self.state = self.state.model_copy(
                 update={
                     "active_step": self.state.active_step + 1,
                     "status": next_status,
                     "completed_steps": completed,
-                    "outputs": {**self.state.outputs, step.name: result.output},
+                    "outputs": outputs,
                     "acceptance_evidence": [*self.state.acceptance_evidence, *result.evidence],
                     "reason": result.reason,
                 }

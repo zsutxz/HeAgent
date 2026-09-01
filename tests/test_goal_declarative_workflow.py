@@ -26,7 +26,7 @@ def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         encoding="utf-8",
     )
     (workflow_root / "step-02-build.md").write_text(
-        "---\noutput: implementation\ncheckpoint: true\n---\n\nbuild the story\n",
+        "---\ninput: plan\noutput: implementation\ncheckpoint: true\n---\n\nbuild the story\n",
         encoding="utf-8",
     )
     return tmp_path
