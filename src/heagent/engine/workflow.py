@@ -62,6 +62,10 @@ class WorkflowRoute(BaseModel):
     skill_id: str | None = None
     target_phase: WorkflowPhase | None = None
     status: WorkflowStatus
+    active_skill: str | None = None
+    active_step: int | None = Field(default=None, ge=0)
+    active_story: str | None = None
+    next_action: str = ""
     missing_artifacts: list[str] = Field(default_factory=list)
     reason: str = ""
 
@@ -91,14 +95,16 @@ class WorkflowCheckpointError(ValueError):
 class WorkflowCheckpointStore:
     """File-backed checkpoint store with deterministic idempotency."""
 
-    def __init__(self, base_dir: str = ".heagent/checkpoints") -> None:
+    def __init__(self, base_dir: str = ".heagent/checkpoints", *, workflow_path: str | None = None) -> None:
         self._base = Path(base_dir)
+        self._workflow_path = Path(workflow_path) if workflow_path is not None else self._base.parent / "workflow.json"
         self._lock = asyncio.Lock()
 
-    async def save(self, checkpoint: WorkflowCheckpoint) -> str:
+    async def save(self, checkpoint: WorkflowCheckpoint, workflow_state: GoalWorkflowState | None = None) -> str:
         if checkpoint.tool_in_flight:
             raise WorkflowCheckpointError("cannot checkpoint a workflow with a tool in flight")
         path = self._path(checkpoint.checkpoint_id)
+        state = workflow_state or self._state_from_checkpoint(checkpoint)
         async with self._lock:
             existing = await asyncio.to_thread(load_json_model, path, WorkflowCheckpoint)
             if path.exists() and existing is None:
@@ -106,13 +112,65 @@ class WorkflowCheckpointStore:
             if existing is not None:
                 if existing.model_dump(mode="json") != checkpoint.model_dump(mode="json"):
                     raise WorkflowCheckpointError(f"checkpoint conflict: {checkpoint.checkpoint_id}")
-                return str(path)
-            payload = json.dumps(checkpoint.model_dump(mode="json"), ensure_ascii=False, indent=2)
-            await asyncio.to_thread(atomic_write_text, path, payload)
+            else:
+                payload = json.dumps(checkpoint.model_dump(mode="json"), ensure_ascii=False, indent=2)
+                await asyncio.to_thread(atomic_write_text, path, payload)
+            workflow_payload = json.dumps(state.model_dump(mode="json"), ensure_ascii=False, indent=2)
+            await asyncio.to_thread(atomic_write_text, self._workflow_path, workflow_payload)
         return str(path)
 
     async def load(self, checkpoint_id: str) -> WorkflowCheckpoint | None:
-        return await asyncio.to_thread(load_json_model, self._path(checkpoint_id), WorkflowCheckpoint)
+        path = self._path(checkpoint_id)
+        checkpoint = await asyncio.to_thread(load_json_model, path, WorkflowCheckpoint)
+        if path.exists() and checkpoint is None:
+            raise WorkflowCheckpointError(f"checkpoint is corrupted: {path}")
+        return checkpoint
+
+    async def load_workflow(self) -> GoalWorkflowState | None:
+        """Load the aggregate workflow state; corruption is an explicit failure."""
+        state = await asyncio.to_thread(load_json_model, self._workflow_path, GoalWorkflowState)
+        if self._workflow_path.exists() and state is None:
+            raise WorkflowCheckpointError(f"workflow state is corrupted: {self._workflow_path}")
+        return state
+
+    async def list_checkpoints(self, *, goal_id: str | None = None) -> list[WorkflowCheckpoint]:
+        """Return valid checkpoints in deterministic creation/id order."""
+        if not await asyncio.to_thread(self._base.exists):
+            return []
+        checkpoints: list[WorkflowCheckpoint] = []
+        for path in sorted(await asyncio.to_thread(lambda: list(self._base.glob("*.json")))):
+            checkpoint = await asyncio.to_thread(load_json_model, path, WorkflowCheckpoint)
+            if checkpoint is None:
+                raise WorkflowCheckpointError(f"checkpoint is corrupted: {path}")
+            if goal_id is None or checkpoint.goal_id == goal_id:
+                checkpoints.append(checkpoint)
+        return sorted(checkpoints, key=lambda item: (item.created_at, item.checkpoint_id))
+
+    async def load_latest_unfinished(self, goal_id: str) -> WorkflowCheckpoint | None:
+        """Load the latest checkpoint that has not completed its workflow unit."""
+        checkpoints = await self.list_checkpoints(goal_id=goal_id)
+        for checkpoint in reversed(checkpoints):
+            if checkpoint.status is not WorkflowStatus.COMPLETED:
+                return checkpoint
+        return None
+
+    @staticmethod
+    def _state_from_checkpoint(checkpoint: WorkflowCheckpoint) -> GoalWorkflowState:
+        aggregate_status = checkpoint.status
+        if aggregate_status is WorkflowStatus.COMPLETED and checkpoint.phase is not WorkflowPhase.DONE:
+            # A checkpoint completes one unit; only the done phase completes the goal.
+            aggregate_status = WorkflowStatus.RUNNING
+        return GoalWorkflowState(
+            goal_id=checkpoint.goal_id,
+            phase=checkpoint.phase,
+            active_skill=checkpoint.active_skill,
+            active_step=checkpoint.active_step,
+            active_story=checkpoint.active_story,
+            status=aggregate_status,
+            artifact_refs=list(checkpoint.artifact_refs),
+            next_action=checkpoint.next_action,
+            updated_at=checkpoint.created_at,
+        )
 
     def _path(self, checkpoint_id: str) -> Path:
         if not checkpoint_id or Path(checkpoint_id).name != checkpoint_id or checkpoint_id in {".", ".."}:
@@ -284,6 +342,7 @@ class GoalWorkflowState(BaseModel):
     artifact_refs: list[str] = Field(default_factory=list)
     blocked_reason: str | None = None
     transition_reason: str = ""
+    next_action: str = ""
     updated_at: str = Field(default_factory=_iso_now)
 
     @model_validator(mode="after")
@@ -342,9 +401,23 @@ class WorkflowOrchestrator:
         remains responsible for canonical/alias resolution and ambiguity errors.
         """
         if state.status in {WorkflowStatus.BLOCKED, WorkflowStatus.FAILED, WorkflowStatus.COMPLETED}:
-            return WorkflowRoute(status=state.status, reason=state.blocked_reason or "workflow is not runnable")
+            return WorkflowRoute(
+                status=state.status,
+                active_skill=state.active_skill,
+                active_step=state.active_step,
+                active_story=state.active_story,
+                next_action=state.next_action,
+                reason=state.blocked_reason or "workflow is not runnable",
+            )
         if waiting_for_user or state.status is WorkflowStatus.WAITING_USER:
-            return WorkflowRoute(status=WorkflowStatus.WAITING_USER, reason="user confirmation is required before continuing")
+            return WorkflowRoute(
+                status=WorkflowStatus.WAITING_USER,
+                active_skill=state.active_skill,
+                active_step=state.active_step,
+                active_story=state.active_story,
+                next_action=state.next_action,
+                reason="user confirmation is required before continuing",
+            )
         target = cls._next_phase(state.phase)
         if target is None:
             return WorkflowRoute(status=WorkflowStatus.COMPLETED, target_phase=WorkflowPhase.DONE, reason="workflow has no remaining phase")
@@ -424,8 +497,32 @@ class WorkflowOrchestrator:
                 "status": status,
                 "blocked_reason": None,
                 "transition_reason": reason,
+                "next_action": "",
                 "updated_at": _iso_now(),
                 }
+            )
+        )
+
+    @staticmethod
+    def wait_for_user(state: GoalWorkflowState, prompt: str) -> GoalWorkflowState:
+        """Pause at the current step while retaining an explicit recovery prompt."""
+        if not isinstance(prompt, str) or not prompt.strip():
+            raise WorkflowTransitionError("waiting prompt is required")
+        if state.phase is WorkflowPhase.DONE or state.status in {
+            WorkflowStatus.COMPLETED,
+            WorkflowStatus.BLOCKED,
+            WorkflowStatus.FAILED,
+        }:
+            raise WorkflowTransitionError("cannot wait on a terminal workflow")
+        return GoalWorkflowState.model_validate(
+            state.model_copy(
+                deep=True,
+                update={
+                    "status": WorkflowStatus.WAITING_USER,
+                    "next_action": prompt,
+                    "transition_reason": prompt,
+                    "updated_at": _iso_now(),
+                },
             )
         )
 
@@ -447,6 +544,7 @@ class WorkflowOrchestrator:
                     "status": WorkflowStatus.BLOCKED,
                     "blocked_reason": reason,
                     "transition_reason": reason,
+                    "next_action": reason,
                     "updated_at": _iso_now(),
                 },
             )
@@ -470,6 +568,7 @@ class WorkflowOrchestrator:
                     "status": WorkflowStatus.FAILED,
                     "blocked_reason": reason,
                     "transition_reason": reason,
+                    "next_action": reason,
                     "updated_at": _iso_now(),
                 },
             )

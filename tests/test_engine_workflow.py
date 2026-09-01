@@ -145,6 +145,21 @@ def test_route_review_defaults_to_retrospective_not_implementation_loop() -> Non
     assert route.target_phase is WorkflowPhase.RETROSPECTIVE
 
 
+def test_wait_for_user_retains_step_and_prompt() -> None:
+    state = GoalWorkflowState(active_skill="he-build", active_step=3, active_story="43.2")
+
+    waiting = WorkflowOrchestrator.wait_for_user(state, "请确认 Epic 边界后继续")
+
+    assert waiting.status is WorkflowStatus.WAITING_USER
+    assert waiting.active_step == 3
+    assert waiting.active_story == "43.2"
+    assert waiting.next_action == "请确认 Epic 边界后继续"
+    route = WorkflowOrchestrator.route(waiting)
+    assert route.status is WorkflowStatus.WAITING_USER
+    assert route.active_step == 3
+    assert route.next_action == "请确认 Epic 边界后继续"
+
+
 @pytest.mark.asyncio
 async def test_checkpoint_save_is_atomic_and_idempotent(tmp_path) -> None:
     store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"))
@@ -163,6 +178,43 @@ async def test_checkpoint_save_is_atomic_and_idempotent(tmp_path) -> None:
     loaded = await store.load(checkpoint.checkpoint_id)
     assert loaded is not None
     assert loaded.next_action == "await user"
+    workflow = await store.load_workflow()
+    assert workflow is not None
+    assert workflow.goal_id == "goal1"
+    assert (tmp_path / "workflow.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_store_loads_latest_unfinished_and_rejects_corruption(tmp_path) -> None:
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"))
+    await store.save(
+        WorkflowCheckpoint(
+            checkpoint_id="goal1-step1",
+            goal_id="goal1",
+            phase=WorkflowPhase.PLANNING,
+            status=WorkflowStatus.COMPLETED,
+            run_id="run1",
+            created_at="2026-09-01T10:00:00",
+        )
+    )
+    await store.save(
+        WorkflowCheckpoint(
+            checkpoint_id="goal1-step2",
+            goal_id="goal1",
+            phase=WorkflowPhase.SPRINT,
+            status=WorkflowStatus.WAITING_USER,
+            run_id="run2",
+            active_step=2,
+            created_at="2026-09-01T10:01:00",
+        )
+    )
+    latest = await store.load_latest_unfinished("goal1")
+    assert latest is not None
+    assert latest.checkpoint_id == "goal1-step2"
+
+    (tmp_path / "checkpoints" / "broken.json").write_text("{broken", encoding="utf-8")
+    with pytest.raises(WorkflowCheckpointError, match="corrupted"):
+        await store.load("broken")
 
 
 @pytest.mark.asyncio
