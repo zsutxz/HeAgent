@@ -52,6 +52,13 @@ from heagent.engine.workflow import (
     WorkflowStatus,
     build_recovery_envelope,
 )
+from heagent.engine.workflow_runner import (
+    WorkflowGateError,
+    WorkflowRunner,
+    WorkflowRunnerState,
+    WorkflowRunResult,
+    WorkflowStepResult,
+)
 
 __all__ = [
     "ArtifactContract",
@@ -106,4 +113,9 @@ __all__ = [
     "WorkflowPhase",
     "WorkflowRoute",
     "WorkflowStatus",
+    "WorkflowGateError",
+    "WorkflowRunResult",
+    "WorkflowRunner",
+    "WorkflowRunnerState",
+    "WorkflowStepResult",
 ]
