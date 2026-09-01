@@ -3,7 +3,7 @@
 > **生成**：2026-08-18（2026-08-19 修订：并入原 EPICS-INDEX.md 导航层，补周期 9）
 > **范围**：`_bmad-output/` 全部 9 个开发周期 + 补丁/技术债 + engine 增量，整合自各周期 brief / prd / architecture / epics / stories / sprint-status / retrospective / patches / specs 共 90+ 份文档。
 > **定位**：本文是 BMad 规划产物的**统一导航与综合摘要**（兼 epic 总目录，原 EPICS-INDEX.md 已并入）——按周期纵向梳理「意图 → 需求 → 架构 → 拆分 → 状态」，横向提供**统一编号索引**与**跨周期模式**。它**不是当前代码事实**：代码现状以 `docs/frame.md` 为准，规划与实现冲突时以 `src/` 为准。
-> **权威状态**：所有 Epic/Story 状态以 `_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml`（2026-07-23 整合，唯一写目标）为单一权威。
+> **权威状态**：所有 Epic/Story 状态以 `_bmad-output/sprint-status.yaml`（2026-07-23 整合，唯一写目标）为单一权威。
 
 ---
 
@@ -685,7 +685,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ## 十四、统一编号体系与状态矩阵
 
-### 14.1 Epic 状态矩阵（权威 = `epics/epic-01-10-主线规划周期/sprint-status.yaml`，2026-07-23 整合）
+### 14.1 Epic 状态矩阵（权威 = `_bmad-output/sprint-status.yaml`，2026-07-23 整合）
 
 | Epic | 主题 | Stories | 状态 |
 |------|------|---------|------|
@@ -814,7 +814,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/README.md` | 产物地图（按周期） |
 | `_bmad-output/consolidated-overview.md` | **本文——统一整合总览（含 epic 总目录，原 EPICS-INDEX.md 已并入）** |
 | `_bmad-output/retrospective-all-cycles.md` | 全周期综合回顾（2026-07-22，覆盖 Epic 1-23 + S1-S4） |
-| `_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml` | **sprint 状态单一权威**（全 9 周期） |
+| `_bmad-output/sprint-status.yaml` | **sprint 状态单一权威**（全 9 周期） |
 | `_bmad-output/epics/epic-01-10-主线规划周期/` | 主线周期原始产物（Epic 1-10） |
 | `_bmad-output/epics/epic-11-18-MCP集成周期/` | MCP Client 集成周期（三阶段统一，2026-08-18 合并；含 Epic 11-18） |
 | `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/` | Sandbox 硬化（Epic S1-S4） |

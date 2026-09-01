@@ -27,7 +27,7 @@ _bmad-output/
 
 ## sprint-status 单一权威
 
-**全周期 sprint 状态统一在 `_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml`。**
+**全周期 sprint 状态统一在 `_bmad-output/sprint-status.yaml`。**
 
 2026-07-23 整合：此前 sprint-status 分散在 6 个文件（`baseline/`、`mcp-client-v2/`、`sandbox-hardening/`、`robustness-hardening/`、`quality-engineering/`、`gui/`），存在 Epic 14 编号冲突。合并后的编号规则（2026-08-18 MCP 三目录合并后，周期列更新为 `mcp/`）：
 
@@ -43,7 +43,7 @@ _bmad-output/
 | Epic 25–28 | gui | GUI 终端界面（流式聊天 / 工具可视化 / 管理面板 / 可观测性） |
 | Epic 29–35 | interaction | 交互与可扩展层（审批 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 角色配置 / CLI 收尾） |
 
-各自周期目录下的旧 sprint-status 保留作为只读归档；后续状态更新以 `epics/epic-01-10-主线规划周期/sprint-status.yaml` 为唯一写目标。
+各自周期目录下的旧 sprint-status 保留作为只读归档；后续状态更新以 `_bmad-output/sprint-status.yaml` 为唯一写目标。
 
 ## epics/epic-01-10-主线规划周期/ — 主线周期（Epic 1–10，FR-1~24）
 
@@ -71,7 +71,7 @@ _bmad-output/
 | `decision-log.md` | 决策记录（整合）：D1-7 / DP-1~6 / P1-P5 / OQ-1~6 |
 | `retrospective-epic-13.md` | Epic 13 回顾（已完成） |
 | `poc-readiness-report.md` | 升级周期 POC 就绪度报告（v2 b1 实装验证） |
-| `sprint-status.yaml` | 已归档 — 见 `epics/epic-01-10-主线规划周期/sprint-status.yaml` |
+| `sprint-status.yaml` | 已归档 — 见 `_bmad-output/sprint-status.yaml` |
 | `epics-integration.md` | 历史归档（2026-06-03 Epic 6 集成补丁，非 MCP 内容，编号已被占用） |
 | `epic-14/15/16-*/stories/` | V2 周期 story 文件（14-x/15-x/16-x，2026-08-19 移出至按 epic 目录） |
 | `reviews/_v1/` `reviews/_upgrade/` `reviews/_v2/` | 三阶段评审产物（PRD rubric / 对抗评审 / 事实核查） |
@@ -82,7 +82,7 @@ _bmad-output/
 |------|------|
 | `architecture.md` | 硬化架构脊架（原 ARCHITECTURE-SPINE.md） |
 | `epics.md` | Epic S1–S4 拆分 |
-| `sprint-status.yaml` | 已归档 — 见 `epics/epic-01-10-主线规划周期/sprint-status.yaml` |
+| `sprint-status.yaml` | 已归档 — 见 `_bmad-output/sprint-status.yaml` |
 
 ## epics/epic-19-20-健壮性硬化周期/ — 健壮性与质量硬化周期（Epic 19–20）
 
@@ -90,7 +90,7 @@ _bmad-output/
 |------|------|
 | `architecture.md` | 架构脊架（原 ARCHITECTURE-SPINE.md） |
 | `epics.md` | Epic 19–20 拆分（原内部编号 18–19） |
-| `sprint-status.yaml` | 已归档 — 见 `epics/epic-01-10-主线规划周期/sprint-status.yaml` |
+| `sprint-status.yaml` | 已归档 — 见 `_bmad-output/sprint-status.yaml` |
 
 ## epics/epic-21-24-质量工程周期/ — 质量工程深化周期（Epic 21–24）
 
@@ -98,7 +98,7 @@ _bmad-output/
 |------|------|
 | `architecture.md` | 架构设计 |
 | `epics.md` | Epic 21–24 拆分（原内部编号 20–23） |
-| `sprint-status.yaml` | 已归档 — 见 `epics/epic-01-10-主线规划周期/sprint-status.yaml` |
+| `sprint-status.yaml` | 已归档 — 见 `_bmad-output/sprint-status.yaml` |
 
 ## epics/epic-25-28-GUI界面周期/ — GUI 终端界面周期（Epic 25–28）
 
@@ -108,7 +108,7 @@ _bmad-output/
 | `prd.md` | FR-G1~G24 |
 | `architecture.md` | GUI 架构（Textual + bridge + 状态管理） |
 | `epics.md` | Epic 25–28 拆分（原内部编号 24–27） |
-| `sprint-status.yaml` | 已归档 — 见 `epics/epic-01-10-主线规划周期/sprint-status.yaml` |
+| `sprint-status.yaml` | 已归档 — 见 `_bmad-output/sprint-status.yaml` |
 
 ## patches/ — 补丁周期（按领域分子目录，2026-08-19 重组）
 
@@ -174,8 +174,8 @@ _bmad-output/
 
 ## 当前状态摘要
 
-- **Epic 1–24 + S1–S4 全部 `done`**（详见 `epics/epic-01-10-主线规划周期/sprint-status.yaml`）。
-- **Epic 25–28（GUI）`done`**（12 stories，见 `epics/epic-01-10-主线规划周期/sprint-status.yaml`；周期目录旧状态为规划期快照）。
+- **Epic 1–24 + S1–S4 全部 `done`**（详见 `_bmad-output/sprint-status.yaml`）。
+- **Epic 25–28（GUI）`done`**（12 stories，见 `_bmad-output/sprint-status.yaml`；周期目录旧状态为规划期快照）。
 - **MCP 三目录已合并**（2026-08-18）：`mcp-client/` + `mcp-v2-upgrade/` + `mcp-client-v2/` → `mcp/`，核心文档整合为 6 份，执行产物保留。
 - **deferred-work.md**：原 3 条（SubAgent 写竞态 / ProviderChain 双层重包 / 流式 backstop）均已关闭；2026-07-01 FR-3 评审另增 6 项 `defer`（pre-existing / spec 显式排除 / 非阻塞）—— 4 项已 Resolution 关闭，余 2 项保持现状（`_watch` 两个 `wait_for` 同名异义 / `except Exception` 过宽，待 MCP 重连场景收窄）。
 - **action_items**：三项全 `closed` —— FR-3 auto-unregister（2026-07-01）、DP-4 第一半 SafetyGuard 执行前拦截（2026-07-08）、DP-4 第二半 MCP 返回内容启发式围栏（2026-07-10）。

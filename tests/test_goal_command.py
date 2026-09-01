@@ -576,6 +576,28 @@ class TestGoalReset:
         assert str(goal_cwd / ".heagent" / "goals") in capsys.readouterr().err  # 回显目录路径
 
 
+class TestGoalWorkflowControls:
+    @pytest.mark.asyncio
+    async def test_pause_resume_persist_workflow_without_editing_goal_board(
+        self, goal_cwd: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        md = _seed_goal(goal_cwd)
+        original = md.read_text(encoding="utf-8")
+        provider = ScriptedGoalProvider()
+
+        await _goal_runner(provider, None, "pause")
+        workflow = md.parent / "workflow.json"
+        assert workflow.exists()
+        assert '"status": "waiting_user"' in workflow.read_text(encoding="utf-8")
+        assert md.read_text(encoding="utf-8") == original
+
+        await _goal_runner(provider, None, "pause")
+        assert "already paused" in capsys.readouterr().err
+        await _goal_runner(provider, None, "resume")
+        assert '"status": "running"' in workflow.read_text(encoding="utf-8")
+        assert md.read_text(encoding="utf-8") == original
+
+
 class TestGoalAuto:
     @pytest.mark.asyncio
     async def test_rejects_cron_with_wrong_field_count(

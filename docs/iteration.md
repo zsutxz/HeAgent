@@ -71,7 +71,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 - **story key 须匹配 `epic-N-M` pattern**：`sprint-status` skill 校验 key 格式，不能用自定义前缀（如 `mcp-`）。
 - **MCP 周期映射**（2026-08-18 三目录合并为 `_bmad-output/epics/epic-11-18-MCP集成周期/`）：sprint-status 的 Epic 11-13 = `epics.md` 阶段一内部 Epic 1-3；Epic 14 = `epics.md` 阶段二；Epic 15-18 = `epics.md` 阶段三内部 Epic A/B/C + 内置工具扩展。
 - **retrospective 字段**：每个 epic 配 `epic-N-retrospective`，状态 `optional`（可做不做）或 `done`（已完成）。
-- **单一权威（2026-07-23）**：全周期 sprint-status 统一在 `_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml`，旧文件保留作为只读归档。
+- **单一权威（2026-07-23）**：全周期 sprint-status 统一在 `_bmad-output/sprint-status.yaml`，旧文件保留作为只读归档。
 
 ---
 
@@ -292,6 +292,6 @@ quick-dev 是**基于 spec 的单会话执行**：
 - 产品愿景：[`design.md`](design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
 - 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/patches/`
-- **sprint 状态（单一权威）**：[`_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml`](../_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml)（2026-08-19 更新，覆盖全 9 个周期、35 个 Epic + S1-S4）
+- **sprint 状态（单一权威）**：[`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml)（2026-08-19 更新，覆盖全 9 个周期、35 个 Epic + S1-S4）
 - 技术债登记：`_bmad-output/patches/_meta/deferred-work.md`
 - 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`、`_bmad-output/patches/_meta/retrospective-engine-p5.md`、`_bmad-output/patches/provider/retrospective-p0-tech-debt.md`

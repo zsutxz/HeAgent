@@ -29,7 +29,16 @@ from heagent.context.window_reset import WindowResetConfig
 from heagent.cron.expr import cron_matches
 from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
-from heagent.engine import ConsoleApprovalHandler, EngineContainer
+from heagent.engine import (
+    ConsoleApprovalHandler,
+    EngineContainer,
+    GoalWorkflowState,
+    WorkflowCheckpoint,
+    WorkflowCheckpointError,
+    WorkflowCheckpointStore,
+    WorkflowOrchestrator,
+    WorkflowStatus,
+)
 from heagent.engine.persist import atomic_write_text
 from heagent.engine.roles import load_agent_roles
 from heagent.exceptions import BudgetExceeded, HeAgentError
@@ -961,7 +970,7 @@ _GOAL_SKILL_PATH = Path(".heagent/skills/goal/SKILL.md")
 _GOAL_STATUSES = frozenset({"planning", "executing", "done", "blocked"})
 _GOAL_HEX = frozenset("0123456789abcdef")  # goal_id 字符集（与 uuid4().hex[:8] 写入格式一致）
 # 保留子命令（首 token 命中即子命令；new 之外带尾文本时显性拒绝，防尾文本被静默吞掉）。
-_GOAL_RESERVED = ("next", "status", "reset", "run", "auto")
+_GOAL_RESERVED = ("next", "status", "reset", "run", "auto", "pause", "resume")
 _GOAL_RUN_MAX_ROUNDS = 10
 _GOAL_ADVANCED = "advanced"
 _GOAL_DONE = "done"
@@ -1101,7 +1110,80 @@ async def _goal_session(
         return None
 
 
-def _goal_status() -> None:
+def _goal_workflow_store(goal_md: Path) -> WorkflowCheckpointStore:
+    return WorkflowCheckpointStore(
+        str(goal_md.parent / "checkpoints"),
+        workflow_path=str(goal_md.parent / "workflow.json"),
+    )
+
+
+async def _goal_pause() -> None:
+    goal_md = _goal_active_md()
+    if goal_md is None or not goal_md.exists():
+        click.echo("[goal] no active goal available to pause", err=True)
+        return
+    store = _goal_workflow_store(goal_md)
+    try:
+        state = await store.load_workflow() or GoalWorkflowState(goal_id=goal_md.parent.name)
+        if state.status is WorkflowStatus.WAITING_USER:
+            click.echo("[goal] already paused; use /goal resume to continue", err=True)
+            return
+        paused = WorkflowOrchestrator.wait_for_user(state, "user requested pause; resume to continue")
+        checkpoint = WorkflowCheckpoint(
+            checkpoint_id=f"{state.goal_id}-pause",
+            goal_id=state.goal_id,
+            phase=paused.phase,
+            status=paused.status,
+            run_id=f"manual-{state.goal_id}",
+            active_skill=paused.active_skill,
+            active_step=paused.active_step,
+            active_story=paused.active_story,
+            artifact_refs=list(paused.artifact_refs),
+            next_action=paused.next_action,
+        )
+        await store.save(checkpoint, paused)
+    except WorkflowCheckpointError as exc:
+        click.echo(f"[goal] checkpoint failed: {exc}", err=True)
+        return
+    click.echo(f"[goal] paused: phase={paused.phase.value}, step={paused.active_step or '-'}", err=True)
+
+
+async def _goal_resume() -> None:
+    goal_md = _goal_active_md()
+    if goal_md is None or not goal_md.exists():
+        click.echo("[goal] no active goal available to resume", err=True)
+        return
+    store = _goal_workflow_store(goal_md)
+    try:
+        state = await store.load_workflow()
+        if state is None:
+            click.echo("[goal] no workflow checkpoint; use /goal next first", err=True)
+            return
+        if state.status is not WorkflowStatus.WAITING_USER:
+            click.echo(f"[goal] workflow status={state.status.value}; resume is not required", err=True)
+            return
+        resumed = GoalWorkflowState.model_validate(
+            state.model_copy(update={"status": WorkflowStatus.RUNNING, "next_action": ""})
+        )
+        checkpoint = WorkflowCheckpoint(
+            checkpoint_id=f"{state.goal_id}-resume-{state.active_step or 0}",
+            goal_id=state.goal_id,
+            phase=resumed.phase,
+            status=resumed.status,
+            run_id=f"manual-{state.goal_id}",
+            active_skill=resumed.active_skill,
+            active_step=resumed.active_step,
+            active_story=resumed.active_story,
+            artifact_refs=list(resumed.artifact_refs),
+        )
+        await store.save(checkpoint, resumed)
+    except WorkflowCheckpointError as exc:
+        click.echo(f"[goal] resume failed: {exc}", err=True)
+        return
+    click.echo(f"[goal] resumed: phase={resumed.phase.value}, step={resumed.active_step or '-'}", err=True)
+
+
+async def _goal_status() -> None:
     """打印活跃 goal 进度（done/total + status）与 GOAL.md 全文。"""
     goal_md = _goal_active_md()
     if goal_md is None:
@@ -1112,6 +1194,19 @@ def _goal_status() -> None:
         return
     text, prog = read
     click.echo(f"[goal] 进度：{prog.done}/{prog.total} 条 story 已完成（status: {prog.status}）", err=True)
+    try:
+        workflow = await _goal_workflow_store(goal_md).load_workflow()
+    except WorkflowCheckpointError as exc:
+        click.echo(f"[goal] workflow state corrupted: {exc}", err=True)
+        workflow = None
+    if workflow is not None:
+        click.echo(
+            f"[goal] workflow: phase={workflow.phase.value} status={workflow.status.value} "
+            f"skill={workflow.active_skill or '-'} step={workflow.active_step or '-'} "
+            f"segment={workflow.segment_index} cumulative_tokens={workflow.cumulative_tokens} "
+            f"next={workflow.next_action or '-'}",
+            err=True,
+        )
     click.echo(text)
 
 
@@ -1357,17 +1452,17 @@ async def _goal_runner(  # noqa: C901
     head = parts[0].lower() if parts else ""
     rest = parts[1].strip() if len(parts) > 1 else ""
     if not parts:
-        _goal_status()
+        await _goal_status()
     elif head == "new":
         if rest:
             async with _goal_auto_lock:
                 await _goal_new(provider, engine, skill, rest, cron_store=cron_store)
         else:
             _goal_usage()
-    elif head in ("next", "status", "reset", "run") and rest:
+    elif head in ("next", "status", "reset", "run", "pause", "resume") and rest:
         _goal_usage()  # 保留字带尾文本：显性拒绝，防尾文本被静默吞掉
     elif head == "status":
-        _goal_status()
+        await _goal_status()
     elif head == "reset":
         _goal_reset()
     elif head == "next":
@@ -1375,6 +1470,10 @@ async def _goal_runner(  # noqa: C901
             await _goal_next(provider, engine, skill)
     elif head == "run":
         await _goal_run(provider, engine, skill)
+    elif head == "pause":
+        await _goal_pause()
+    elif head == "resume":
+        await _goal_resume()
     elif head == "auto":
         goal_md = _goal_active_md()
         if rest == "off":
