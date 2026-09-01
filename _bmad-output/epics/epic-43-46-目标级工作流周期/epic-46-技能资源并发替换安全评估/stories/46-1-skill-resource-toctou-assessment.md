@@ -75,18 +75,18 @@ The default decision is expected to be “assessment only; no cross-platform run
 **Threat model and decision**
 
 - Start with the assessment conclusion and residual boundary.
-  [`assessment:1`](../../_bmad-output/patches/memory/spec-skill-resource-toctou-assessment.md#L1)
+  [`assessment:1`](../../../../patches/memory/spec-skill-resource-toctou-assessment.md#L1)
 
 - Confirm architecture wording preserves defense-in-depth limits.
-  [`frame.md:646`](../../docs/frame.md#L646)
+  [`frame.md:646`](../../../../../docs/frame.md#L646)
 
 **Evidence and planning traceability**
 
 - Check cross-reader replacement characterization coverage.
-  [`test_skill_packages_toctou.py:33`](../../tests/test_skill_packages_toctou.py#L33)
+  [`test_skill_packages_toctou.py:33`](../../../../../tests/test_skill_packages_toctou.py#L33)
 
 - Check symlink replacement evidence and capability handling.
-  [`test_skill_packages_toctou.py:58`](../../tests/test_skill_packages_toctou.py#L58)
+  [`test_skill_packages_toctou.py:58`](../../../../../tests/test_skill_packages_toctou.py#L58)
 
 - Verify deferred follow-up remains explicitly tracked.
-  [`deferred-work.md:16`](../../_bmad-output/deferred-work.md#L16)
+  [`deferred-work.md:16`](../../../../deferred-work.md#L16)

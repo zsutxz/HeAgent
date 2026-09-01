@@ -456,6 +456,7 @@ development_status:
 
   epic-46: done  # 技能资源并发替换安全评估（FR5）
   46-1-skill-resource-toctou-assessment: done
+  46-2-skill-resource-open-hardening: done
   epic-46-retrospective: optional
 
 # Action items（来自 retrospective，跨周期跟踪）

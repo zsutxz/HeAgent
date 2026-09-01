@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import errno
 import inspect
+import os
 import re
+import stat
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Awaitable, Callable, Iterable, Literal, cast  # noqa: UP035
 
@@ -99,28 +102,71 @@ class SkillPackage(BaseModel):
     def read_entry(self) -> SkillPackageEntry:
         """Read the package's SKILL.md entry point and parse basic frontmatter."""
         try:
-            path = self._resolve(self.entrypoint, entry=True)
+            text = self._read_text(self.entrypoint, entry=True)
         except SkillPackageResourceError as exc:
             raise SkillPackageEntryError(self.skill_id, self.entrypoint, exc.reason) from exc
-        if not path.is_file():
-            raise SkillPackageEntryError(self.skill_id, self.entrypoint, "entrypoint is missing")
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            raise SkillPackageEntryError(self.skill_id, self.entrypoint, f"cannot read entrypoint: {exc}") from exc
         metadata = self._parse_metadata(text)
         object.__setattr__(self, "_metadata", metadata)
         return SkillPackageEntry(text=text, metadata=metadata)
 
     def read_resource(self, resource: str) -> str:
         """Read exactly one root-relative resource, without scanning its package."""
-        path = self._resolve(resource)
-        if not path.is_file():
-            raise SkillPackageResourceError(self.skill_id, resource, "resource is missing")
+        return self._read_text(resource)
+
+    def _read_text(self, resource: str, *, entry: bool = False) -> str:
+        """Open and decode one resolved resource while retaining its descriptor lifetime."""
+        # Non-blocking open lets fstat reject FIFOs/devices without waiting for
+        # another process to provide a writer. Regular files ignore this flag.
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+        nofollow = getattr(os, "O_NOFOLLOW", None)
+        if nofollow is not None:
+            flags |= nofollow
+        binary = getattr(os, "O_BINARY", 0)
+        flags |= binary
         try:
-            return path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as exc:
-            raise SkillPackageResourceError(self.skill_id, resource, f"cannot read resource: {exc}") from exc
+            path = self._resolve(resource, entry=entry)
+            try:
+                descriptor = os.open(path, flags)
+            except OSError as exc:
+                # Some platforms expose O_NOFOLLOW but their filesystem does not
+                # implement it. Preserve the compatibility read in that case.
+                unsupported = {
+                    errno.EINVAL,
+                    getattr(errno, "ENOTSUP", errno.EINVAL),
+                    getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+                }
+                if nofollow is not None and exc.errno in unsupported:
+                    descriptor = os.open(path, flags & ~nofollow)
+                else:
+                    raise
+            try:
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode):
+                    raise OSError(errno.EISDIR, "resource is not a regular file")
+                with os.fdopen(descriptor, "rb") as stream:
+                    descriptor = -1
+                    text = stream.read().decode("utf-8")
+                    # Path.read_text() historically performed universal newline
+                    # translation; retain that public behavior after decoding.
+                    return text.replace("\r\n", "\n").replace("\r", "\n")
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+        except FileNotFoundError as exc:
+            reason = "entrypoint is missing" if entry else "resource is missing"
+            raise SkillPackageResourceError(self.skill_id, resource, reason) from exc
+        except UnicodeDecodeError as exc:
+            label = "entrypoint" if entry else "resource"
+            raise SkillPackageResourceError(self.skill_id, resource, f"cannot read {label}: {exc}") from exc
+        except OSError as exc:
+            label = "entrypoint" if entry else "resource"
+            if exc.errno in {errno.ELOOP, errno.EMLINK}:
+                reason = f"cannot read {label}: final path component is a symlink"
+            elif exc.errno in {errno.EISDIR, errno.ENXIO}:
+                reason = f"cannot read {label}: target is not a regular file"
+            else:
+                reason = f"cannot read {label}: {exc}"
+            raise SkillPackageResourceError(self.skill_id, resource, reason) from exc
 
     def read_step(self, resource: str) -> str:
         return self.read_resource(resource)

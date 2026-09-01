@@ -828,6 +828,6 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### Epic 45.3 质量收口证据（2026-09-01）
 
-Epic 43-44 已完成，Epic 45.3 增加无网络两-story 目标工作流冒烟、checkpoint/ledger/EventBus 审计证据和损坏状态显式失败覆盖；`scripts/quality_gate.py` 统一默认回归、覆盖率、ruff 与 mypy 门禁。Epic 46.1 已完成 assessment-only 评估：特征测试证明技能资源 resolve-then-read 与符号链接替换窗口，保留现有 `resolve_under_root` 语义，不声称 TOCTOU 完整防护；descriptor/目录句柄、可信导入 snapshot 或 OS sandbox 加固须另立 story。
+Epic 43-44 已完成，Epic 45.3 增加无网络两-story 目标工作流冒烟、checkpoint/ledger/EventBus 审计证据和损坏状态显式失败覆盖；`scripts/quality_gate.py` 统一默认回归、覆盖率、ruff 与 mypy 门禁。Epic 46.1 完成 assessment-only 评估，Epic 46.2 为资源读取增加 descriptor + `O_NOFOLLOW` 最终组件加固；中间目录竞态、可信导入 snapshot 或 OS sandbox 加固仍保持 backlog。
 
-状态以 `_bmad-output/sprint-status.yaml` 为准：Epic 45 及其 45.1-45.3 stories 已完成，Epic 46.1 的评估交付完成；Epic 46 后续运行时加固仍保持 backlog。
+状态以 `_bmad-output/sprint-status.yaml` 为准：Epic 45 及其 45.1-45.3 stories 已完成，Epic 46.1 评估与 46.2 最终组件加固已完成；Epic 46 后续目录句柄、snapshot 与 OS sandbox 加固仍保持 backlog。

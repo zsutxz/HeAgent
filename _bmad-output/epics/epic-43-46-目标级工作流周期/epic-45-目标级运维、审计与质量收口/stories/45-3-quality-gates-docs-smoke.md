@@ -84,26 +84,26 @@ context:
 **Workflow smoke**
 
 - 真实 CLI 两 story 冒烟
-  [`test_goal_workflow_smoke.py:115`](../../tests/test_goal_workflow_smoke.py#L115)
+  [`test_goal_workflow_smoke.py:115`](../../../../../tests/test_goal_workflow_smoke.py#L115)
 
 - checkpoint 与审计证据
-  [`test_goal_workflow_smoke.py:20`](../../tests/test_goal_workflow_smoke.py#L20)
+  [`test_goal_workflow_smoke.py:20`](../../../../../tests/test_goal_workflow_smoke.py#L20)
 
 **Quality gates**
 
 - 统一门禁与失败传播
-  [`quality_gate.py:1`](../../scripts/quality_gate.py#L1)
+  [`quality_gate.py:1`](../../../../../scripts/quality_gate.py#L1)
 
 - CI 无凭据 smoke job
-  [`ci.yml:69`](../../.github/workflows/ci.yml#L69)
+  [`ci.yml:69`](../../../../../.github/workflows/ci.yml#L69)
 
 **Documentation and status**
 
 - 架构边界与运行入口
-  [`frame.md:856`](../../docs/frame.md#L856)
+  [`frame.md:856`](../../../../../docs/frame.md#L856)
 
 - 迭代与 Epic 状态同步
-  [`iteration.md:291`](../../docs/iteration.md#L291)
+  [`iteration.md:291`](../../../../../docs/iteration.md#L291)
 
 - sprint 唯一状态源
-  [`sprint-status.yaml:451`](../sprint-status.yaml#L451)
+  [`sprint-status.yaml:451`](../../../../sprint-status.yaml#L451)

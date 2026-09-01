@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import os
 import asyncio
+import os
 from pathlib import Path
 
 import pytest
@@ -63,13 +63,13 @@ class TestSkillPackage:
         (tmp_path / "step-01.md").write_text("first", encoding="utf-8")
         (tmp_path / "step-02.md").write_text("second", encoding="utf-8")
         reads: list[Path] = []
-        original_read_text = Path.read_text
+        original_open = os.open
 
-        def record_read(path: Path, *args: object, **kwargs: object) -> str:
-            reads.append(path.resolve())
-            return original_read_text(path, *args, **kwargs)
+        def record_open(path: str | os.PathLike[str], flags: int, *args: object) -> int:
+            reads.append(Path(path).resolve())
+            return original_open(path, flags, *args)
 
-        monkeypatch.setattr(Path, "read_text", record_read)
+        monkeypatch.setattr(os, "open", record_open)
 
         assert SkillPackage(skill_id="he-build", root=tmp_path).read_step("step-01.md") == "first"
         assert reads == [(tmp_path / "step-01.md").resolve()]
