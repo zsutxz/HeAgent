@@ -726,7 +726,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### 14.3 关键 deferred 决策锚点
 
-- **DP-4**（mcp-client 决策，跨文档引用）：SafetyGuard 扩展 MCP 声明为主 → 2026-07-08 第一半（执行前工具名拦截）+ 2026-07-10 第二半（返回内容围栏）已交付；用户可配置注入签名入口仍 pending（`spec-mcp-user-injection-signatures.md`）。
+- **DP-4**（mcp-client 决策，跨文档引用）：SafetyGuard 扩展 MCP 声明为主 → 2026-07-08 第一半（执行前工具名拦截）+ 2026-07-10 第二半（返回内容围栏）已交付；项目级用户签名入口已交付（`.heagent/injection_signatures.json`），全局级仍 deferred（`spec-mcp-user-injection-signatures.md`）。
 - **P5-1 / P5-2**（engine）：schema 级工具过滤 + SubAgent window_reset——2026-07-21 反转交付。
 - **Dreaming AC6 端到端**：web_fetch 围栏接入 defer（MED，opt-in）。
 
@@ -790,7 +790,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 - `SafetyGuard` / `path_safety` / engine sandbox 均非真正安全边界——须 OS 级沙箱兜底。
 - `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；`FirejailBackend`（Linux，仅 shell 子进程）/ `WinJobBackend`（Windows，Job Objects）可注入但均非完美边界；file/memory 等宿主进程内 I/O 工具不受覆盖。
 - MCP annotations 不可信（server 自声明）——`PolicyEngine` 注解闸门仅 defense-in-depth。
-- 用户可配置 MCP 注入签名入口（`spec-mcp-user-injection-signatures.md`）**pending 未实施**。
+- 用户可配置 MCP 注入签名入口（`spec-mcp-user-injection-signatures.md`）**项目级已交付**：`.heagent/injection_signatures.json` 受 workspace 围栏并进程内懒加载；全局级配置仍 deferred。
 - Dreaming 的 web_fetch 注入围栏端到端接入 defer（AC6 降级）。
 - sandbox profile 无内置安全 profile 库、无人验证 profile 参数合法性、S4-1 emit 事件被跳过（可观测缺口）。
 

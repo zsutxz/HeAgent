@@ -2,6 +2,12 @@
 
 Findings deferred during quick-dev (out of the originating story's frozen scope, recorded for later focused attention).
 
+## 2026-09-01 - MCP user-configurable injection signatures
+
+The project-level `.heagent/injection_signatures.json` entry point is delivered in
+`spec-mcp-user-injection-signatures.md`. It is workspace-fenced, lazily cached, and
+fail-safe for malformed entries. Global/home-level configuration remains deferred.
+
 ## 2026-06-18 · SubAgent 共享 SkillStore 写竞态
 
 **Source:** step-04 review of `spec-5-1-subagent-context-injection` (edge case hunter), classified `defer`.

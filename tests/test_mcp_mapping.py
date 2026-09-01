@@ -6,6 +6,7 @@ Story 15-3（FR-B4）：``guard_content`` 公共注入围栏函数（AR-6）—�
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from mcp.types import (
 )
 
 from heagent.exceptions import ToolError
+from heagent.tools.mcp import mapping
 from heagent.tools.mcp.mapping import (
     bridge_result,
     call_result_to_text,
@@ -117,6 +119,76 @@ def test_bridge_result_iserror_raises_toolerror() -> None:
     r = _result([TextContent(type="text", text="boom")], is_error=True)
     with pytest.raises(ToolError):
         bridge_result(r)
+
+
+# --- project-local injection signatures (DP-4 deferred completion) ---
+
+
+def _set_user_signatures(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, entries: Any) -> None:
+    config = tmp_path / "injection_signatures.json"
+    config.write_text(json.dumps(entries), encoding="utf-8")
+    monkeypatch.setattr(mapping, "_USER_PATTERNS", mapping._load_user_signatures(config))
+
+
+def test_user_signature_hit_adds_warning(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    _set_user_signatures(monkeypatch, tmp_path, [{"pattern": r"ACME_SECRET", "description": "ACME marker"}])
+    out = guard_content("returned ACME_SECRET")
+    assert "ACME marker" in out
+    assert "returned ACME_SECRET" in out
+
+
+def test_user_and_builtin_signatures_merge(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    _set_user_signatures(monkeypatch, tmp_path, [{"pattern": r"ACME_SECRET", "description": "ACME marker"}])
+    out = guard_content("<|im_start|> ACME_SECRET")
+    assert "ChatML" in out
+    assert "ACME marker" in out
+
+
+def test_user_pattern_raw_not_in_band(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    _set_user_signatures(monkeypatch, tmp_path, [{"pattern": r"<ACME_[A-Z]+>", "description": "ACME token"}])
+    out = guard_content("<ACME_SECRET>")
+    assert "ACME token" in out
+    assert "<ACME_[A-Z]+>" not in out
+
+
+def test_user_description_with_token_marker_skipped(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    _set_user_signatures(monkeypatch, tmp_path, [{"pattern": "ACME", "description": "<|im_start|> marker"}])
+    assert guard_content("ACME") == "ACME"
+
+
+def test_invalid_user_regex_skipped_with_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    _set_user_signatures(
+        monkeypatch,
+        tmp_path,
+        [{"pattern": "[", "description": "bad"}, {"pattern": "ACME", "description": "good"}],
+    )
+    with caplog.at_level("ERROR"):
+        out = guard_content("ACME")
+    assert "good" in out
+    assert "invalid regex" in caplog.text
+
+
+def test_corrupted_json_falls_back_to_builtin(tmp_path: Any) -> None:
+    config = tmp_path / "injection_signatures.json"
+    config.write_text("{", encoding="utf-8")
+    assert mapping._load_user_signatures(config) == []
+
+
+def test_lazy_load_cached_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = 0
+
+    def load() -> list[tuple[Any, str, str]]:
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(mapping, "_USER_PATTERNS", None)
+    monkeypatch.setattr(mapping, "_load_user_signatures", load)
+    assert guard_content("one") == "one"
+    assert guard_content("two") == "two"
+    assert calls == 1
 
 
 # --- DP-4 第二半 + FR-B4：guard_content / bridge_result 注入围栏（标记透传，非真正边界） ---

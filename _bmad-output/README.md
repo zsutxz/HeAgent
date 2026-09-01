@@ -148,7 +148,7 @@ _bmad-output/
 | `fr3-mcp-auto-unregister.md` | FR-3 MCP 运行时断连 auto-unregister spec（2026-07-01 交付） |
 | `spec-dp4-mcp-safety-guard.md` | DP-4 第一半 — 执行前工具名拦截 spec |
 | `spec-dp4-mcp-result-guard.md` | DP-4 第二半 — MCP 返回内容启发式围栏 spec |
-| `spec-mcp-user-injection-signatures.md` | MCP 返回内容围栏用户可配置签名入口 spec（deferred） |
+| `spec-mcp-user-injection-signatures.md` | MCP 返回内容围栏用户可配置签名入口 spec（项目级已交付；全局级 deferred） |
 | `spec-mcp-shutdown-timeout.md` | MCP `__aexit__` 关停硬上界 spec |
 
 ### sandbox/ — 沙箱与 engine 后端（engine + S1-S4 域）

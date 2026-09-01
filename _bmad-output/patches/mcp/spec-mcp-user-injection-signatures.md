@@ -2,8 +2,8 @@
 title: '用户可配置 MCP 注入签名入口'
 type: 'feature'
 created: '2026-07-27'
-revised: '2026-07-31'
-status: 'pending'
+revised: '2026-09-01'
+status: 'done'
 route: 'quick-dev'
 source: 'docs/frame.md §五 已知缺口（deferred）'
 ---
