@@ -7,10 +7,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from heagent.cli import _goal_cron_advance, _goal_runner
+from heagent.cli import _goal_cron_advance, _goal_declarative_runner, _goal_declarative_workflow, _goal_runner
 from heagent.cron.jobs import JobStore
 from heagent.engine import GoalArtifact, parse_artifact
-from heagent.engine.workflow import WorkflowCheckpointStore
+from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
 
 
 @pytest.fixture()
@@ -21,8 +21,9 @@ def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (workflow_root / "workflow.md").write_text(
         "---\nname: test-development\nentrypoint: goal\non_create: persist_goal_identity\n"
         "step_executor: subagent\n---\n\nworkflow instructions\n\n"
-        "## Step 01: plan\noutput: plan\ncheckpoint: true\n\nplan the story\n\n"
-        "## Step 02: build\ninput: plan\noutput: implementation\ncheckpoint: true\n\nbuild the story\n",
+        "## Step 01: plan\ninput: user intent, existing project context\n"
+        "output: requirements brief, story breakdown\ncheckpoint: true\n\nplan the story\n\n"
+        "## Step 02: build\ninput: requirements brief\noutput: implementation\ncheckpoint: true\n\nbuild the story\n",
         encoding="utf-8",
     )
     return tmp_path
@@ -47,13 +48,16 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     await _goal_runner(SimpleNamespace(), None, "new ship the workflow")
-    goal_id = (declarative_cwd / ".heagent" / "goals" / "current").read_text(encoding="utf-8")
-    goal_dir = declarative_cwd / ".heagent" / "goals" / goal_id
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
     goal_document = goal_dir / "GOAL.md"
     assert goal_document.exists()
     assert not (goal_dir / "goal.txt").exists()
     assert isinstance(parse_artifact(goal_document), GoalArtifact)
     assert len(successful_step) == 1
+    assert "## user intent\nship the workflow" in successful_step[0]
+    assert "## existing project context" in successful_step[0]
+    assert f"Project output root: {declarative_cwd / '_he-output'}" in successful_step[0]
     checkpoints = await WorkflowCheckpointStore(str(goal_dir / "checkpoints")).list_checkpoints(goal_id=goal_id)
     assert len(checkpoints) == 1
     assert checkpoints[0].completed_steps == [0]
@@ -66,6 +70,7 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     await _goal_runner(SimpleNamespace(), None, "resume")
     await _goal_runner(SimpleNamespace(), None, "next")
     assert len(successful_step) == 2
+    assert "## requirements brief\noutput-1" in successful_step[1]
     persisted = await WorkflowCheckpointStore(str(goal_dir / "checkpoints")).list_checkpoints(goal_id=goal_id)
     assert len({checkpoint.checkpoint_id for checkpoint in persisted}) == len(persisted)
 
@@ -85,7 +90,7 @@ async def test_declarative_auto_uses_same_completed_checkpoint(
     await _goal_runner(SimpleNamespace(), None, "pause")
     await _goal_runner(SimpleNamespace(), None, "resume")
     await _goal_runner(SimpleNamespace(), None, "next")
-    goal_id = (declarative_cwd / ".heagent" / "goals" / "current").read_text(encoding="utf-8")
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
     store = JobStore(str(declarative_cwd / "jobs.json"))
     await _goal_runner(SimpleNamespace(), None, "auto", cron_store=store)
 
@@ -119,3 +124,23 @@ async def test_goal_requires_workflow_instead_of_falling_back_to_legacy_path(
     monkeypatch.chdir(tmp_path)
     await _goal_runner(SimpleNamespace(), None, "legacy goal")
     assert "workflow.md is required" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_declarative_resume_retries_a_blocked_step(
+    declarative_cwd: Path,
+    successful_step: list[str],
+) -> None:
+    await _goal_runner(SimpleNamespace(), None, "new blocked workflow")
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
+    workflow = _goal_declarative_workflow()
+    assert workflow is not None
+    runner = await _goal_declarative_runner(workflow, goal_dir)
+    runner.state = runner.state.model_copy(update={"status": WorkflowStatus.BLOCKED, "reason": "missing evidence"})
+    await runner.persist_state()
+
+    await _goal_runner(SimpleNamespace(), None, "resume")
+
+    resumed = await _goal_declarative_runner(workflow, goal_dir)
+    assert resumed.state.status is WorkflowStatus.PENDING

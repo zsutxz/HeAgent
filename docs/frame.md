@@ -628,10 +628,10 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 
 `/goal` 是 CLI 层的机制入口，方法论由运行时本地的
 `.heagent/skills/goal/SKILL.md` 承载。框架只读取三个机器标记：
-`.heagent/goals/<goal_id>/GOAL.md` 首个非空 `status`、story checkbox 数量，
+`_he-output/goals/<goal_id>/GOAL.md` 首个非空 `status`、story checkbox 数量，
 以及可选的 `in-progress` 标记；不会创建独立的 `goal.py` 状态模型或 `runs.jsonl`。
 
-- `/goal <description>` 或 `/goal new <description>` 创建 `goal.txt` 与 `current` 指针，
+- `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/GOAL.md` 与 `current` 指针，
   并启动 planning SubAgent。
 - `/goal next` 推进一条 story；`/goal run` 复用同一推进函数连续执行，最多 10 轮。
   每一步都是全新的 SubAgent/RunContext，会话失败、状态回退、blocked/planning 或无净完成时停止。
@@ -646,7 +646,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 
 **Current declarative contract:** `/goal` requires the self-contained
 `.heagent/workflows/workflow.md`. Its `on_create` declaration
-creates `GOAL.md` plus the `current` pointer; `GOAL.md` is a standard
+creates `_he-output/goals/<goal_id>/GOAL.md` plus the `current` pointer; `GOAL.md` is a standard
 GoalArtifact and is the only durable goal description. The old `goal.txt` /
 skill-driven Story flow is not used as a fallback. Each inline `## Step NN:`
 section declares the prompt, I/O contract, and checkpoint behavior; the CLI
@@ -891,4 +891,4 @@ Declarative BMad workflow artifacts have three layers with fixed ownership. `GOA
 
 ### 4.16 Declarative Agile Closure
 
-`.heagent/workflows/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `GOAL.md` is the standard GoalArtifact and replaces `goal.txt`; a missing workflow is an explicit failure, never a legacy-flow fallback. `agile.py` models review findings, retrospective evidence, and correct-course records: blocking review verdicts return through `WorkflowOrchestrator` from `review` to `implementation`; passing verdicts only grant completion eligibility.
+`.heagent/workflows/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `GOAL.md` is the standard GoalArtifact and replaces `goal.txt`; all durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure, never a legacy-flow fallback. `agile.py` models review findings, retrospective evidence, and correct-course records: blocking review verdicts return through `WorkflowOrchestrator` from `review` to `implementation`; passing verdicts only grant completion eligibility.

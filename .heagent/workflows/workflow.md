@@ -12,10 +12,15 @@ workflow. The CLI reads this file, persists the goal identity declared by
 `on_create`, and invokes one fresh SubAgent for each declared step. Completed
 steps are recorded in the goal checkpoint store; no step may be skipped.
 
+All durable non-code project artifacts produced by this workflow, including
+requirements, PRDs, UX specifications, architecture records, reviews, and
+verification reports, must be written under the project output root
+`_he-output/`. Source code remains in its established repository location.
+
 ## Step 01: analyze-requirements
 role: he-agent-analyst
-input: user intent and existing project context
-output: requirements brief and story breakdown
+input: user intent, existing project context
+output: requirements brief, story breakdown
 checkpoint: true
 validation: requirements are evidence-backed and testable
 
@@ -26,7 +31,7 @@ Stop for user input when competing interpretations remain.
 ## Step 02: define-product-scope
 role: he-agent-pm
 input: requirements brief
-output: validated PRD and ordered Epic proposal
+output: validated PRD, ordered Epic proposal
 checkpoint: true
 validation: product value, scope, non-goals, and decisions are explicit
 
@@ -35,8 +40,8 @@ Record assumptions, priorities, non-goals, and unresolved product decisions.
 
 ## Step 03: design-experience
 role: he-agent-ux
-input: requirements brief and validated PRD
-output: UX specification and user flow
+input: requirements brief, validated PRD
+output: UX specification, user flow
 checkpoint: true
 validation: primary, empty, error, retry, permission, and accessibility states are specified
 
@@ -45,8 +50,8 @@ requirements that implementation can verify.
 
 ## Step 04: design-architecture
 role: he-agent-architect
-input: validated PRD and UX specification
-output: architecture and implementation constraints
+input: validated PRD, UX specification
+output: architecture, implementation constraints
 checkpoint: true
 validation: boundaries, interfaces, dependencies, invariants, and failure handling are explicit
 
@@ -55,7 +60,7 @@ ownership and document security, reliability, migration, and verification paths.
 
 ## Step 05: clarify-and-route
 role: he-agent-analyst
-input: architecture and implementation constraints
+input: architecture, implementation constraints
 output: clarified implementation scope
 checkpoint: true
 validation: intent is actionable and single-goal
@@ -66,7 +71,7 @@ scope and acceptance direction for the next step.
 
 ## Step 06: implement-and-verify
 role: he-agent-dev
-input: clarified implementation scope and architecture and UX specification
+input: clarified implementation scope, architecture, UX specification
 output: tested code change
 checkpoint: true
 validation: acceptance criteria and focused tests pass

@@ -238,8 +238,7 @@ BMad 原有 `render_skill.py` 负责把配置占位符和引用文件渲染成�
 目标目录建议扩展为：
 
 ```text
-.heagent/goals/<goal_id>/
-  goal.txt
+_he-output/goals/<goal_id>/
   GOAL.md
   workflow.json
   checkpoints/

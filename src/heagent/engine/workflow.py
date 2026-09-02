@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar, Protocol
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -82,6 +82,7 @@ class WorkflowCheckpoint(BaseModel):
     active_step: int | None = Field(default=None, ge=0)
     active_story: str | None = None
     artifact_refs: list[str] = Field(default_factory=list)
+    outputs: dict[str, Any] = Field(default_factory=dict)
     acceptance_evidence: list[str] = Field(default_factory=list)
     completed_steps: list[int] = Field(default_factory=list)
     next_action: str = ""

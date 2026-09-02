@@ -96,7 +96,11 @@ class WorkflowRunner:
             active_step=checkpoint.active_step if checkpoint.active_step is not None else len(workflow.steps),
             status=checkpoint.status,
             completed_steps=list(checkpoint.completed_steps),
-            outputs={reference: None for reference in checkpoint.artifact_refs},
+            outputs=(
+                dict(checkpoint.outputs)
+                if checkpoint.outputs
+                else {reference: None for reference in checkpoint.artifact_refs}
+            ),
             acceptance_evidence=list(checkpoint.acceptance_evidence),
         )
         kwargs.setdefault("phase", checkpoint.phase)
@@ -162,8 +166,8 @@ class WorkflowRunner:
             }:
                 next_status = WorkflowStatus.WAITING_USER
             outputs = {**self.state.outputs, step.name: result.output}
-            if step.output:
-                outputs[step.output] = result.output
+            for reference in self._references(step.output):
+                outputs[reference] = result.output
             self.state = self.state.model_copy(
                 update={
                     "active_step": self.state.active_step + 1,
@@ -238,6 +242,7 @@ class WorkflowRunner:
             active_skill=self.workflow.name,
             active_step=self.state.active_step,
             artifact_refs=list(self.state.outputs),
+            outputs=dict(self.state.outputs),
             acceptance_evidence=list(self.state.acceptance_evidence),
             completed_steps=list(self.state.completed_steps),
             next_action=self.state.reason,
@@ -262,10 +267,15 @@ class WorkflowRunner:
 
     @staticmethod
     def _missing_inputs(step: WorkflowStepResource, values: Mapping[str, Any] | Iterable[str]) -> list[str]:
-        required = [item.strip() for item in re.split(r"[,\n]", step.input) if item.strip()]
+        required = WorkflowRunner._references(step.input)
         available = set(values)
         lowered = {str(key).lower() for key in available}
         return [item for item in required if item not in available and item.lower() not in lowered]
+
+    @staticmethod
+    def _references(declaration: str) -> list[str]:
+        """Parse the workflow's explicit comma/newline-delimited artifact references."""
+        return [item.strip() for item in re.split(r"[,\n]", declaration) if item.strip()]
 
     @classmethod
     def validate_input(cls, step: WorkflowStepResource, values: Mapping[str, Any] | Iterable[str]) -> list[str]:
@@ -290,7 +300,7 @@ class WorkflowRunner:
                 if not re.search(rf"^##\s+{re.escape(section.strip())}\s*$", text, re.I | re.M):
                     raise WorkflowGateError(f"step '{step.name}' output is missing section: {section.strip()}")
         if step.output and isinstance(output, Mapping):
-            names = [item.strip() for item in re.split(r"[,\n]", step.output) if item.strip()]
+            names = WorkflowRunner._references(step.output)
             missing = [name for name in names if name not in output]
             if missing:
                 raise WorkflowGateError("step output is missing: " + ", ".join(missing))

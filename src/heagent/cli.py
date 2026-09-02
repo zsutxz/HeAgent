@@ -23,6 +23,7 @@ from heagent.agent.loop import AgentLoop
 from heagent.agent.middleware import make_retry_middleware
 from heagent.config import GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE, Settings, get_settings
 from heagent.context.compressor import ContextCompressor
+from heagent.context.loader import load_context_files
 from heagent.context.session import SessionStore
 from heagent.context.tokens import estimate_cost
 from heagent.context.window_reset import WindowResetConfig
@@ -64,7 +65,7 @@ from heagent.tools.mcp import MCPClientManager, load_mcp_config
 from heagent.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from contextlib import AbstractAsyncContextManager
 
     from heagent.agent.sub import SubAgentResult
@@ -973,7 +974,9 @@ async def _dispatch_slash_interactive(user_input: str, registry: SlashRegistry) 
 # =============================================================================
 
 # goal 状态目录与 skill 正文路径（相对路径，使用时锚定 Path.cwd()）。
-_GOALS_DIR = Path(".heagent/goals")
+# Durable user-facing Goal and workflow artifacts belong under the project output
+# root. ``.heagent`` remains reserved for runtime configuration and skill code.
+_GOALS_DIR = Path("_he-output/goals")
 _GOAL_SKILL_PATH = Path(".heagent/skills/goal/SKILL.md")
 _GOAL_DECLARATIVE_WORKFLOW_PATH = Path(".heagent/workflows/workflow.md")
 _GOAL_STATUSES = frozenset({"planning", "executing", "done", "blocked"})
@@ -1104,15 +1107,20 @@ def _goal_declarative_prompt(
     step_name: str,
     description: str,
     goal_dir: Path,
+    inputs: Mapping[str, Any],
 ) -> str:
     role = _goal_role_instructions(step_name)
+    supplied_inputs = "\n\n".join(f"## {name}\n{value}" for name, value in inputs.items())
     return (
         f"{workflow.instructions}\n\n# Declarative workflow step\n"
         f"Goal: {description}\n"
         f"Goal directory: {goal_dir.resolve()}\n"
+        f"Project output root: {goal_dir.parent.parent.resolve()}\n"
         f"Step: {step_name}\n"
         f"Role instructions:\n{role}\n"
-        "Execute only this declared step and leave the declared artifacts on disk."
+        f"Declared inputs:\n{supplied_inputs}\n"
+        "Execute only this declared step. Write every durable non-code project artifact under the project output root; "
+        "source code remains in its established repository location."
     )
 
 
@@ -1171,11 +1179,18 @@ async def _goal_declarative_advance(
         click.echo(f"[goal] declarative workflow is {runner.state.status.value}: {runner.state.reason}", err=True)
         return _GOAL_FAILED
 
+    inputs: dict[str, Any] = {
+        "user intent": description,
+        "existing project context": load_context_files(os.getcwd())
+        or "No project context file was found; inspect the current workspace before making assumptions.",
+        **runner.state.outputs,
+    }
+
     async def execute_step(step: Any) -> WorkflowStepResult:
         result = await _goal_session(
             provider,
             engine,
-            _goal_declarative_prompt(workflow, step.name, description, goal_dir) + f"\n\n{step.instructions}",
+            _goal_declarative_prompt(workflow, step.name, description, goal_dir, inputs) + f"\n\n{step.instructions}",
             metadata={"goal_id": goal_dir.name, "goal_kind": "declarative", "workflow_step": step.name},
         )
         if result is None:
@@ -1188,7 +1203,6 @@ async def _goal_declarative_advance(
 
     # Input declarations describe the context supplied by this deterministic CLI
     # boundary. Artifact names from completed steps remain available on resume.
-    inputs = set(runner.state.outputs)
     try:
         result = await runner.run_step(execute_step, inputs=inputs)
     except (WorkflowCheckpointError, ValueError, TypeError) as exc:
@@ -1267,7 +1281,7 @@ async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: 
             click.echo("[goal] declarative workflow is already complete", err=True)
             return
         if resume:
-            if runner.state.status not in {WorkflowStatus.WAITING_USER, WorkflowStatus.FAILED}:
+            if runner.state.status not in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
                 click.echo(f"[goal] workflow status={runner.state.status.value}; resume is not required", err=True)
                 return
             runner.resume()

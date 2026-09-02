@@ -99,3 +99,27 @@ async def test_checkpoint_restore_keeps_zero_based_completed_steps(tmp_path) -> 
     result = await runner.run_step(lambda _: WorkflowStepResult(output="ok"))
     assert result.status is WorkflowStatus.COMPLETED
     assert runner.state.completed_steps == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_runner_persists_each_declared_output_reference_across_recovery(tmp_path) -> None:
+    workflow = _workflow(
+        WorkflowStepResource(
+            index=1,
+            name="step-01.md",
+            instructions="",
+            output="requirements brief, story breakdown",
+        ),
+        WorkflowStepResource(index=2, name="step-02.md", instructions="", input="requirements brief"),
+    )
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
+    runner = WorkflowRunner(workflow, goal_id="goal", run_id="run", checkpoint_store=store)
+
+    assert (await runner.run_step(lambda _: WorkflowStepResult(output="analysis"))).status is WorkflowStatus.PENDING
+    checkpoint = (await store.list_checkpoints(goal_id="goal"))[-1]
+    restored = WorkflowRunner.from_checkpoint(workflow, checkpoint, checkpoint_store=store)
+
+    assert restored.state.outputs["requirements brief"] == "analysis"
+    assert restored.state.outputs["story breakdown"] == "analysis"
+    result = await restored.run_step(lambda _: WorkflowStepResult(output="done"), inputs=restored.state.outputs)
+    assert result.status is WorkflowStatus.COMPLETED
