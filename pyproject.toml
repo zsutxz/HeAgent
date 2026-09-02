@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "heagent"
-version = "0.5.0"
+version = "0.6.0"
 description = "A self-improving AI Agent core framework"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -27,13 +27,13 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "pydantic>=2.13",
+    "pydantic>=2.13,<2.14",
     "pydantic-settings>=2.0",
     "httpx>=0.28",
     "openai>=2.37",
     "anthropic>=0.104",
     "click>=8.0",
-    "mcp>=1.28.1,<2",
+    "mcp>=1.29.1,<2",
 ]
 
 [project.urls]
