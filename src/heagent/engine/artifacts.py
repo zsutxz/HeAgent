@@ -206,7 +206,9 @@ def parse_artifact(source: str | Path) -> Artifact:
     sections = _sections(frontmatter.body)
     identifier, status, title = _metadata(values, kind)
     if not title:
-        title = next((line.lstrip("# ").strip() for line in frontmatter.body.splitlines() if line.startswith("# ")), identifier)
+        title = next(
+            (line.lstrip("# ").strip() for line in frontmatter.body.splitlines() if line.startswith("# ")), identifier
+        )
     common: dict[str, Any] = dict(id=identifier, status=status, title=title, sections=sections, source=text)
     if kind is ArtifactKind.GOAL:
         epic_section = _required(sections, ("epics",))
@@ -281,7 +283,9 @@ def validate_hierarchy(artifacts: Iterable[Artifact]) -> None:
                 raise ArtifactContractError(f"invalid Story parent reference: {artifact.epic_id}")
 
 
-def validate_sprint_status_path(path: str | Path, canonical_path: str | Path = "_bmad-output/sprint-status.yaml") -> Path:
+def validate_sprint_status_path(
+    path: str | Path, canonical_path: str | Path = "_bmad-output/sprint-status.yaml"
+) -> Path:
     """Ensure status validation targets the one canonical, read-only status file."""
     actual = Path(path).expanduser().resolve()
     canonical = Path(canonical_path).expanduser().resolve()

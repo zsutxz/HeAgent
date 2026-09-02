@@ -254,9 +254,7 @@ class TestCronSchedulerStop:
         assert not any("关停超时" in r.message for r in caplog.records)
 
     @pytest.mark.asyncio
-    async def test_stop_timeout_clears_task_and_attaches_callback(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_stop_timeout_clears_task_and_attaches_callback(self, tmp_path: Path) -> None:
         """AC4: 超时分支清 _task + 挂 _retrieve_task_exception（dream+cron 对称，此为 cron 侧）。"""
         from heagent.cron.scheduler import _retrieve_task_exception
 
@@ -310,4 +308,3 @@ class TestCronSchedulerStop:
             await t3
         assert t3.cancelled()
         _retrieve_task_exception(t3)  # 守卫：cancelled → return，不抛
-

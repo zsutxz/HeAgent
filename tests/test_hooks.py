@@ -50,7 +50,7 @@ def _usage() -> TokenUsage:
 
 def _touch_cmd(path: Path) -> str:
     """生成跨平台「写标记文件」hook 命令（供 hook 触发的副作用断言）。"""
-    return f'"{sys.executable}" -c "open(r\'{path}\', \'w\').write(\'ok\')"'
+    return f"\"{sys.executable}\" -c \"open(r'{path}', 'w').write('ok')\""
 
 
 def _tool_response(tool_name: str, args: dict[str, object]) -> ProviderResponse:
@@ -196,9 +196,7 @@ class TestHookTimeout:
     async def test_timeout_kills_child_process(self, tmp_path) -> None:
         """超时后子进程须被 kill（pid 探活：进程已死才抛 ProcessLookupError）。"""
         pid_file = tmp_path / "hook.pid"
-        hooks = [
-            HookConfig(event="PreToolUse", command=f"echo $$ > {pid_file}; sleep 10", block=True)
-        ]
+        hooks = [HookConfig(event="PreToolUse", command=f"echo $$ > {pid_file}; sleep 10", block=True)]
         mgr = HookManager(hooks, timeout=0.5)
         result = await mgr.run_pre_tool(ToolCall(id="1", name="shell", arguments={}))
         assert result.blocked is True

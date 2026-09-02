@@ -172,10 +172,7 @@ def check_read_denied(path: str) -> str | None:
     """Return a deny reason if reading ``path`` is blocked, else ``None``."""
     resolved = Path(path).expanduser().resolve()
     if resolved.name.lower() in build_read_denied_basenames():
-        return (
-            f"Read denied: '{path}' is a secret-bearing environment file. "
-            "Read .env.example instead."
-        )
+        return f"Read denied: '{path}' is a secret-bearing environment file. Read .env.example instead."
     resolved_str = str(resolved)
     for d in build_internal_state_dirs():
         if resolved_str == d or resolved_str.startswith(d + os.sep):

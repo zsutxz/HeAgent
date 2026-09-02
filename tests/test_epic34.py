@@ -72,9 +72,7 @@ class TestAgentRoles:
         assert _parse_role_md(p) is None
 
     def test_load_agent_roles_registers(self, tmp_path) -> None:
-        (tmp_path / "security.md").write_text(
-            "---\nname: security-reviewer\n---\n安全审查", encoding="utf-8"
-        )
+        (tmp_path / "security.md").write_text("---\nname: security-reviewer\n---\n安全审查", encoding="utf-8")
         loaded = load_agent_roles([str(tmp_path)])
         assert len(loaded) == 1
         assert get_role("security-reviewer").system == "安全审查"

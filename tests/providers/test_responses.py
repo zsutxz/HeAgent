@@ -109,9 +109,7 @@ class TestHelpers:
             )
         ]
         result = _to_responses_input(msgs)
-        assert result == [
-            {"type": "function_call", "call_id": "tc1", "name": "run", "arguments": '{"cmd": "ls"}'}
-        ]
+        assert result == [{"type": "function_call", "call_id": "tc1", "name": "run", "arguments": '{"cmd": "ls"}'}]
 
     def test_to_responses_tools(self) -> None:
         tools = [ToolSchema(name="run", description="run cmd", parameters={"type": "object"})]

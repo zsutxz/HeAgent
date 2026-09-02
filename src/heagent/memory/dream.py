@@ -247,10 +247,7 @@ class DreamScheduler:
         now = datetime.now()
         # _cron_expr 已在构造期 fail-fast 校验（_validate_cron_expr），此处不再捕获 ValueError。
         cron_match = cron_matches(self._cron_expr, now)
-        idle_match = (
-            self._idle_minutes > 0
-            and (time.monotonic() - self._last_active_ts) >= self._idle_minutes * 60
-        )
+        idle_match = self._idle_minutes > 0 and (time.monotonic() - self._last_active_ts) >= self._idle_minutes * 60
         if not (cron_match or idle_match):
             return
         trigger = "cron" if cron_match else "idle"

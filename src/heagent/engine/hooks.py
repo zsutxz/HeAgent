@@ -53,9 +53,18 @@ _DEFAULT_HOOK_TIMEOUT = 30.0
 # 外传），仅保留 shell 找到可执行文件所需的基本变量（跨平台并集）+ ``HEAGENT_*`` 前缀。
 _ENV_ALLOWLIST = frozenset(
     {
-        "PATH", "PATHEXT", "COMSPEC", "SYSTEMROOT", "WINDIR",  # Windows shell 必需
-        "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR",  # POSIX shell 常用
-        "TEMP", "TMP",  # 临时目录（两平台）
+        "PATH",
+        "PATHEXT",
+        "COMSPEC",
+        "SYSTEMROOT",
+        "WINDIR",  # Windows shell 必需
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "TERM",
+        "TMPDIR",  # POSIX shell 常用
+        "TEMP",
+        "TMP",  # 临时目录（两平台）
     }
 )
 

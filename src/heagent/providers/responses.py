@@ -83,8 +83,7 @@ def _to_responses_input(messages: list[Message]) -> list[dict[str, object]]:
 def _to_responses_tools(tools: list[ToolSchema]) -> list[dict[str, object]]:
     """将 HeAgent ToolSchema 转换为 Responses API 的 tools 格式。"""
     return [
-        {"type": "function", "name": t.name, "description": t.description, "parameters": t.parameters}
-        for t in tools
+        {"type": "function", "name": t.name, "description": t.description, "parameters": t.parameters} for t in tools
     ]
 
 

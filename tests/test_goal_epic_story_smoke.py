@@ -75,8 +75,10 @@ As a user, I want a plan, so that work is scoped.
 - Plan evidence recorded.
 """
 
-STORY_TWO = STORY_ONE.replace("story-one", "story-two").replace("# Plan", "# Build").replace(
-    "a plan, so that work is scoped", "a build, so that value is delivered"
+STORY_TWO = (
+    STORY_ONE.replace("story-one", "story-two")
+    .replace("# Plan", "# Build")
+    .replace("a plan, so that work is scoped", "a build, so that value is delivered")
 )
 
 
@@ -114,9 +116,7 @@ async def test_two_story_epic_smoke_preserves_evidence_across_recovery(tmp_path)
 
     workflow_state = await store.load_workflow()
     assert workflow_state is not None
-    review_state = workflow_state.model_copy(
-        update={"phase": WorkflowPhase.REVIEW, "status": WorkflowStatus.RUNNING}
-    )
+    review_state = workflow_state.model_copy(update={"phase": WorkflowPhase.REVIEW, "status": WorkflowStatus.RUNNING})
     rollback = apply_review_verdict(
         review_state,
         ReviewVerdict(

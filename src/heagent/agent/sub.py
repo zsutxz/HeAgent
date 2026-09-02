@@ -169,15 +169,21 @@ class SubAgent:
         """
         engine = self._build_engine()
         reserved = {
-            "kind", "role", "approved_tools", "sandboxed_tools", "sandbox_profiles",
-            "sandbox_active", "sandbox_workspace", "progress_summary", "segment", "completed_steps",
+            "kind",
+            "role",
+            "approved_tools",
+            "sandboxed_tools",
+            "sandbox_profiles",
+            "sandbox_active",
+            "sandbox_workspace",
+            "progress_summary",
+            "segment",
+            "completed_steps",
         }
         role_metadata = self._role.metadata if self._role is not None else {}
         supplied_metadata = {**role_metadata, **(self._metadata or {})}
         metadata: dict[str, Any] = {
-            key: copy.deepcopy(value)
-            for key, value in supplied_metadata.items()
-            if key not in reserved
+            key: copy.deepcopy(value) for key, value in supplied_metadata.items() if key not in reserved
         }
         metadata["kind"] = "subagent"
         if self._role is not None:

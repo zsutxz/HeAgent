@@ -21,8 +21,7 @@ if TYPE_CHECKING:
 class SkillResolverProtocol(Protocol):
     """Minimal resolver contract keeping engine independent from memory."""
 
-    def resolve(self, skill_id: str) -> object:
-        ...
+    def resolve(self, skill_id: str) -> object: ...
 
 
 def _iso_now() -> str:
@@ -387,7 +386,9 @@ class WorkflowOrchestrator:
         WorkflowPhase.PLANNING: frozenset({WorkflowPhase.SPRINT}),
         WorkflowPhase.SPRINT: frozenset({WorkflowPhase.IMPLEMENTATION}),
         WorkflowPhase.IMPLEMENTATION: frozenset({WorkflowPhase.REVIEW}),
-        WorkflowPhase.REVIEW: frozenset({WorkflowPhase.IMPLEMENTATION, WorkflowPhase.RETROSPECTIVE, WorkflowPhase.DONE}),
+        WorkflowPhase.REVIEW: frozenset(
+            {WorkflowPhase.IMPLEMENTATION, WorkflowPhase.RETROSPECTIVE, WorkflowPhase.DONE}
+        ),
         WorkflowPhase.RETROSPECTIVE: frozenset({WorkflowPhase.DONE}),
         WorkflowPhase.DONE: frozenset(),
     }
@@ -445,24 +446,43 @@ class WorkflowOrchestrator:
             )
         target = cls._next_phase(state.phase)
         if target is None:
-            return WorkflowRoute(status=WorkflowStatus.COMPLETED, target_phase=WorkflowPhase.DONE, reason="workflow has no remaining phase")
+            return WorkflowRoute(
+                status=WorkflowStatus.COMPLETED,
+                target_phase=WorkflowPhase.DONE,
+                reason="workflow has no remaining phase",
+            )
         artifacts = {item.replace("\\", "/").lower() for item in (available_artifacts or state.artifact_refs)}
         required = cls._required_artifacts(target)
-        missing = [label for label, alternatives in required.items() if not any(option in artifacts for option in alternatives)]
+        missing = [
+            label for label, alternatives in required.items() if not any(option in artifacts for option in alternatives)
+        ]
         if missing:
-            return WorkflowRoute(status=WorkflowStatus.BLOCKED, target_phase=target, missing_artifacts=missing, reason="missing required artifacts: " + ", ".join(missing))
+            return WorkflowRoute(
+                status=WorkflowStatus.BLOCKED,
+                target_phase=target,
+                missing_artifacts=missing,
+                reason="missing required artifacts: " + ", ".join(missing),
+            )
         skill_id = requested_skill or cls._DEFAULT_SKILLS.get(target)
         if not skill_id:
-            return WorkflowRoute(status=WorkflowStatus.BLOCKED, target_phase=target, reason=f"no skill is configured for phase {target.value}")
+            return WorkflowRoute(
+                status=WorkflowStatus.BLOCKED,
+                target_phase=target,
+                reason=f"no skill is configured for phase {target.value}",
+            )
         if resolver is None:
-            return WorkflowRoute(skill_id=skill_id, target_phase=target, status=WorkflowStatus.RUNNING, reason="skill selected")
+            return WorkflowRoute(
+                skill_id=skill_id, target_phase=target, status=WorkflowStatus.RUNNING, reason="skill selected"
+            )
         try:
             package = resolver.resolve(skill_id)
         except ValueError as exc:
             return WorkflowRoute(target_phase=target, status=WorkflowStatus.BLOCKED, reason=str(exc))
         metadata = getattr(package, "metadata", None)
         canonical_id = getattr(metadata, "canonical_id", "") or skill_id
-        return WorkflowRoute(skill_id=canonical_id, target_phase=target, status=WorkflowStatus.RUNNING, reason="skill selected")
+        return WorkflowRoute(
+            skill_id=canonical_id, target_phase=target, status=WorkflowStatus.RUNNING, reason="skill selected"
+        )
 
     @classmethod
     def _next_phase(cls, phase: WorkflowPhase) -> WorkflowPhase | None:
@@ -508,9 +528,7 @@ class WorkflowOrchestrator:
         if state.status not in {WorkflowStatus.PENDING, WorkflowStatus.RUNNING}:
             raise WorkflowTransitionError(f"cannot transition a {state.status.value} workflow")
         if preconditions_met is not True:
-            raise WorkflowTransitionError(
-                f"preconditions are not met for {state.phase.value} -> {target.value}"
-            )
+            raise WorkflowTransitionError(f"preconditions are not met for {state.phase.value} -> {target.value}")
         if not cls.can_transition(state, target):
             raise WorkflowTransitionError(f"illegal workflow transition: {state.phase.value} -> {target.value}")
         status = WorkflowStatus.COMPLETED if target is WorkflowPhase.DONE else WorkflowStatus.RUNNING
@@ -518,13 +536,13 @@ class WorkflowOrchestrator:
             state.model_copy(
                 deep=True,
                 update={
-                "phase": target,
-                "status": status,
-                "blocked_reason": None,
-                "transition_reason": reason,
-                "next_action": "",
-                "updated_at": _iso_now(),
-                }
+                    "phase": target,
+                    "status": status,
+                    "blocked_reason": None,
+                    "transition_reason": reason,
+                    "next_action": "",
+                    "updated_at": _iso_now(),
+                },
             )
         )
 

@@ -71,8 +71,14 @@ class SkillImporter:
         # The repository's manifest lives at <root>/_bmad/_config/; tests and
         # callers may pass an explicit root for manifests in another layout.
         manifest_dir = self.manifest_path.parent
-        inferred_root = manifest_dir.parent.parent if manifest_dir.name == "_config" and manifest_dir.parent.name == "_bmad" else manifest_dir
-        self.source_root = (Path(source_root).expanduser() if source_root is not None else inferred_root).resolve(strict=False)
+        inferred_root = (
+            manifest_dir.parent.parent
+            if manifest_dir.name == "_config" and manifest_dir.parent.name == "_bmad"
+            else manifest_dir
+        )
+        self.source_root = (Path(source_root).expanduser() if source_root is not None else inferred_root).resolve(
+            strict=False
+        )
         self.lock_path = self.destination_root / "manifest.lock"
 
     def import_manifest(self) -> list[SkillLockEntry]:

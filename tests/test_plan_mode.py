@@ -74,8 +74,13 @@ class TestReadonlyAnnotations:
         """内置只读工具应有 readOnlyHint=True；写工具不应有。"""
         registry = ToolRegistry.get()
         for name in (
-            "file_read", "file_search", "content_search",
-            "skill_list", "skill_curate", "cron_list", "task_status",
+            "file_read",
+            "file_search",
+            "content_search",
+            "skill_list",
+            "skill_curate",
+            "cron_list",
+            "task_status",
         ):
             schema = registry.get_schema(name)
             assert schema is not None, name

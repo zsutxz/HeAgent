@@ -148,9 +148,7 @@ class EngineContainer:
         if settings.hooks_enabled:
             container.hooks = HookManager.load(hooks_path)
         elif hooks_path.exists():
-            logger.warning(
-                "%s found but HOOKS_ENABLED is false; not loading (opt in via .env)", hooks_path
-            )
+            logger.warning("%s found but HOOKS_ENABLED is false; not loading (opt in via .env)", hooks_path)
         if workspace_root and not container.policy.workspace_root:
             container.policy.workspace_root = workspace_root
         return container

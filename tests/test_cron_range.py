@@ -227,4 +227,3 @@ class TestCronExprModule:
         src = inspect.getsource(expr)
         assert "import heagent" not in src, "cron.expr must not import heagent (pure leaf)"
         assert "from heagent" not in src, "cron.expr must not import heagent (pure leaf)"
-

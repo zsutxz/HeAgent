@@ -813,9 +813,7 @@ class TestSandboxSessionWorkspace:
         assert "sandbox_workspace" not in ctx.metadata
         assert not (tmp_path / ".heagent" / "sandboxes").exists()
 
-    def test_switch_on_writes_metadata_and_creates_dir(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_switch_on_writes_metadata_and_creates_dir(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """开关开：metadata["sandbox_workspace"] = <cwd>/.heagent/sandboxes/<run_id>/ 且目录存在。"""
         monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
         monkeypatch.chdir(tmp_path)
@@ -825,9 +823,7 @@ class TestSandboxSessionWorkspace:
         assert ctx.metadata["sandbox_workspace"] == str(expected)
         assert expected.is_dir()
 
-    def test_switch_on_mkdir_failure_raises_with_path(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_switch_on_mkdir_failure_raises_with_path(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """开关开但目录不可创建 → create_run_context 抛异常（含目标路径），不静默降级（NFR-1）。"""
         import re
 
@@ -844,9 +840,7 @@ class TestSandboxSessionWorkspace:
         assert isinstance(excinfo.value.__cause__, OSError)
         assert re.search(r"sandboxes[/\\][0-9a-f]{32}", str(excinfo.value))
 
-    def test_dir_anchors_to_workspace_root_not_cwd(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_dir_anchors_to_workspace_root_not_cwd(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """修订1 主断言：进程 cwd=A、container workspace_root=B → 目录落 B 下、绝不落 A 下。
 
         真实 caller（loop/sub/cron）传的 root 可 ≠ cwd；分叉时目录若锚 cwd 会逃出
@@ -866,9 +860,7 @@ class TestSandboxSessionWorkspace:
         # 绝不落在进程 cwd 下（A 无任何沙箱目录痕迹）
         assert not (cwd_a / ".heagent").exists()
 
-    def test_explicit_param_root_wins_in_fork(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_explicit_param_root_wins_in_fork(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """回退链最高优先级：参数 root=C 覆盖 container root=B 与 cwd=A，目录落 C。"""
         monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
         cwd_a = tmp_path / "cwd-a"
@@ -885,9 +877,7 @@ class TestSandboxSessionWorkspace:
         assert expected.is_dir()
         assert not (root_b / ".heagent").exists()
 
-    def test_preseeded_key_cleared_when_switch_off(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_preseeded_key_cleared_when_switch_off(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """修订1：caller metadata 预含 sandbox_workspace + 开关关 → 键被清除，不 bind。"""
         monkeypatch.delenv("SANDBOX_SESSION_WORKSPACE", raising=False)
         monkeypatch.chdir(tmp_path)

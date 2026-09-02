@@ -90,8 +90,13 @@ async def test_checkpoint_restore_keeps_zero_based_completed_steps(tmp_path) -> 
         WorkflowStepResource(index=2, name="step-02.md", instructions=""),
     )
     checkpoint = WorkflowCheckpoint(
-        checkpoint_id="goal-run-step-2", goal_id="goal", phase=WorkflowPhase.IMPLEMENTATION,
-        status=WorkflowStatus.PENDING, run_id="run", active_step=1, completed_steps=[0],
+        checkpoint_id="goal-run-step-2",
+        goal_id="goal",
+        phase=WorkflowPhase.IMPLEMENTATION,
+        status=WorkflowStatus.PENDING,
+        run_id="run",
+        active_step=1,
+        completed_steps=[0],
     )
     store = WorkflowCheckpointStore(str(tmp_path))
     runner = WorkflowRunner.from_checkpoint(workflow, checkpoint, checkpoint_store=store)

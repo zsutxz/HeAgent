@@ -85,16 +85,15 @@ class ConsoleApprovalHandler:
     （默认为 ``input``）。
     """
 
-    def __init__(self, *, prompt_fn: Callable[[str], str] | None = None, stream: Callable[[str], None] | None = None) -> None:
+    def __init__(
+        self, *, prompt_fn: Callable[[str], str] | None = None, stream: Callable[[str], None] | None = None
+    ) -> None:
         self._prompt_fn = prompt_fn or input
         self._stream = stream or (lambda msg: print(msg, file=sys.stderr, flush=True))
 
     async def request(self, request: ApprovalRequest) -> ApprovalDecision:
         """展示审批请求并读取用户应答；同意返回 APPROVE，否则 DENY。"""
-        self._stream(
-            f"[approval] Tool '{request.tool_name}' requires approval: {request.reason}\n"
-            f"  Allow? [y/N] "
-        )
+        self._stream(f"[approval] Tool '{request.tool_name}' requires approval: {request.reason}\n  Allow? [y/N] ")
         try:
             answer = await asyncio.to_thread(self._prompt_fn, "")
         except (EOFError, KeyboardInterrupt):

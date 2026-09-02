@@ -62,9 +62,7 @@ def _tc(call_id: str, name: str, args: dict[str, object] | None = None) -> ToolC
 
 
 def _tool_resp(calls: list[ToolCall], content: str = "") -> ProviderResponse:
-    return ProviderResponse(
-        content=content, tool_calls=calls, usage=_usage(), model="stub", finish_reason="tool_calls"
-    )
+    return ProviderResponse(content=content, tool_calls=calls, usage=_usage(), model="stub", finish_reason="tool_calls")
 
 
 def _msg_user(text: str) -> Message:
@@ -107,7 +105,7 @@ class TestSteeringQueue:
         provider = StubProvider(
             [
                 _tool_resp([_tc("1", "echo", {"text": "first"})]),  # 第一轮：返回 tool_call
-                _final("answer with steering"),                       # 第二轮：steering 已注入
+                _final("answer with steering"),  # 第二轮：steering 已注入
             ]
         )
         loop = AgentLoop(provider, registry=registry, max_iterations=10, steering_callback=steering_cb)
@@ -122,6 +120,7 @@ class TestSteeringQueue:
     @pytest.mark.asyncio
     async def test_steering_first_call_also_receives(self) -> None:
         """steering 如果第一轮 poll 就返回消息，也会在第一个 LLM 调用中生效。"""
+
         async def steering_cb() -> list[Message]:
             return [_msg_user("STEERING: override immediately")]
 
@@ -145,6 +144,7 @@ class TestSteeringQueue:
     @pytest.mark.asyncio
     async def test_steering_empty_return_no_effect(self) -> None:
         """steering 回调返回空列表时不影响正常流程。"""
+
         async def empty_steering() -> list[Message]:
             return []
 
@@ -187,6 +187,7 @@ class TestSteeringQueue:
     @pytest.mark.asyncio
     async def test_steering_callback_exception_silent(self) -> None:
         """steering 回调抛异常不应阻断主循环。"""
+
         async def broken_steering() -> list[Message]:
             raise RuntimeError("steering boom")
 
@@ -232,6 +233,7 @@ class TestFollowUpQueue:
     @pytest.mark.asyncio
     async def test_follow_up_empty_return_no_effect(self) -> None:
         """follow-up 返回空列表时正常退出。"""
+
         async def empty_follow_up() -> list[Message]:
             return []
 
@@ -252,9 +254,7 @@ class TestFollowUpQueue:
                 return [_msg_user(f"FOLLOW-UP round {rounds}")]
             return []
 
-        provider = StubProvider(
-            [_final("step 1"), _final("step 2"), _final("step 3")]
-        )
+        provider = StubProvider([_final("step 1"), _final("step 2"), _final("step 3")])
         loop = AgentLoop(provider, max_iterations=10, follow_up_callback=follow_up_cb)
         result = await loop.run("start")
 
@@ -264,6 +264,7 @@ class TestFollowUpQueue:
     @pytest.mark.asyncio
     async def test_follow_up_callback_exception_silent(self) -> None:
         """follow-up 回调抛异常不应阻断主循环。"""
+
         async def broken_follow_up() -> list[Message]:
             raise RuntimeError("follow-up boom")
 
@@ -313,6 +314,7 @@ class TestCombinedSteeringFollowUp:
     @pytest.mark.asyncio
     async def test_follow_up_respects_max_iterations(self) -> None:
         """follow-up 受 max_iterations 约束。"""
+
         async def infinite_follow_up() -> list[Message]:
             return [_msg_user("keep going")]
 
@@ -355,8 +357,8 @@ class TestCombinedSteeringFollowUp:
         provider = StubProvider(
             [
                 _tool_resp([_tc("1", "echo", {"text": "a"})]),  # inner: tool call → continues
-                _final("done after steering"),                   # inner: steering says finish → exits
-                _final("follow-up task result"),                # outer: follow-up → new round
+                _final("done after steering"),  # inner: steering says finish → exits
+                _final("follow-up task result"),  # outer: follow-up → new round
             ]
         )
         loop = AgentLoop(
@@ -398,7 +400,7 @@ class TestStreamSteeringFollowUp:
         provider = StubProvider(
             [
                 _tool_resp([_tc("1", "echo", {"text": "first"})]),  # tool call → inner loop continues
-                _final("redirected response"),                       # steering injected before this
+                _final("redirected response"),  # steering injected before this
             ]
         )
         loop = AgentLoop(provider, registry=registry, max_iterations=10, steering_callback=steering_cb)

@@ -125,8 +125,7 @@ def scrub_sensitive_env(
     return {
         k: v
         for k, v in source.items()
-        if k.upper() in allowed
-        or not any(k.upper().endswith(suffix) for suffix in _SENSITIVE_ENV_SUFFIXES)
+        if k.upper() in allowed or not any(k.upper().endswith(suffix) for suffix in _SENSITIVE_ENV_SUFFIXES)
     }
 
 
@@ -135,7 +134,6 @@ def _env_allowlist() -> frozenset[str]:
     from heagent.config import get_settings
 
     return get_settings().sandbox_env_allowlist_set
-
 
 
 async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:

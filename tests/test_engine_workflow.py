@@ -105,9 +105,7 @@ def test_route_blocks_missing_planning_artifacts_and_waits_for_user() -> None:
     state = GoalWorkflowState(phase=WorkflowPhase.PLANNING)
 
     blocked = WorkflowOrchestrator.route(state, available_artifacts=["brief.md"])
-    waiting = WorkflowOrchestrator.route(
-        GoalWorkflowState(phase=WorkflowPhase.DISCOVERY), waiting_for_user=True
-    )
+    waiting = WorkflowOrchestrator.route(GoalWorkflowState(phase=WorkflowPhase.DISCOVERY), waiting_for_user=True)
 
     assert blocked.status is WorkflowStatus.BLOCKED
     assert blocked.missing_artifacts == ["PRD or Spec", "architecture"]

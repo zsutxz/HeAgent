@@ -442,9 +442,7 @@ async def test_end_to_end_start_tick_stop() -> None:
     try:
         # 等循环分发一次 dream（cron 常匹配，~一个 tick 内出 dream_end）
         deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline and not any(
-            e.event_type == "dream_end" for e in _dream_events(engine)
-        ):
+        while time.monotonic() < deadline and not any(e.event_type == "dream_end" for e in _dream_events(engine)):
             await asyncio.sleep(0.01)
     finally:
         await scheduler.stop()
@@ -584,4 +582,3 @@ async def test_run_dream_stop_cancel_marked() -> None:
     assert end, "stop cancel should publish dream_end"
     assert end[-1].details.get("aborted") is True
     assert end[-1].details.get("internal_cancel") is False
-
