@@ -32,6 +32,7 @@ from heagent.cron.scheduler import CronScheduler
 from heagent.engine import (
     ConsoleApprovalHandler,
     EngineContainer,
+    GoalArtifact,
     GoalWorkflowState,
     WorkflowCheckpoint,
     WorkflowCheckpointError,
@@ -41,6 +42,7 @@ from heagent.engine import (
     WorkflowRunner,
     WorkflowStatus,
     WorkflowStepResult,
+    parse_artifact,
 )
 from heagent.engine.persist import atomic_write_text
 from heagent.engine.roles import load_agent_roles
@@ -973,7 +975,7 @@ async def _dispatch_slash_interactive(user_input: str, registry: SlashRegistry) 
 # goal 状态目录与 skill 正文路径（相对路径，使用时锚定 Path.cwd()）。
 _GOALS_DIR = Path(".heagent/goals")
 _GOAL_SKILL_PATH = Path(".heagent/skills/goal/SKILL.md")
-_GOAL_DECLARATIVE_WORKFLOW_PATH = Path(".heagent/workflows/bmad-development/workflow.md")
+_GOAL_DECLARATIVE_WORKFLOW_PATH = Path(".heagent/workflows/workflow.md")
 _GOAL_STATUSES = frozenset({"planning", "executing", "done", "blocked"})
 _GOAL_HEX = frozenset("0123456789abcdef")  # goal_id 字符集（与 uuid4().hex[:8] 写入格式一致）
 # 保留子命令（首 token 命中即子命令；new 之外带尾文本时显性拒绝，防尾文本被静默吞掉）。
@@ -983,6 +985,40 @@ _GOAL_ADVANCED = "advanced"
 _GOAL_DONE = "done"
 _GOAL_STALLED = "stalled"
 _GOAL_FAILED = "failed"
+
+
+def _goal_document(description: str, goal_id: str) -> str:
+    """Create the standard BMad Goal artifact used as the durable goal record."""
+    title = " ".join(description.split())
+    return (
+        "---\n"
+        f"id: goal-{goal_id}\n"
+        "type: goal\n"
+        "status: planning\n"
+        f"title: {title}\n"
+        "---\n\n"
+        f"# {title}\n\n"
+        "## Epics\n\n"
+        "- No epics have been decomposed yet.\n"
+    )
+
+
+def _goal_document_title(text: str) -> str:
+    """Read a Goal artifact title without introducing a second metadata file."""
+    artifact = parse_artifact(text)
+    if not isinstance(artifact, GoalArtifact):
+        raise ValueError("declarative GOAL.md must be a Goal artifact")
+    return artifact.title
+
+
+def _validate_goal_workflow(workflow: WorkflowResource) -> None:
+    """Restrict workflow declarations to deterministic CLI capabilities."""
+    if workflow.entrypoint not in {"", "goal"}:
+        raise ValueError(f"unsupported goal workflow entrypoint: {workflow.entrypoint}")
+    if workflow.on_create != "persist_goal_identity":
+        raise ValueError(f"unsupported goal workflow on_create hook: {workflow.on_create}")
+    if workflow.step_executor != "subagent":
+        raise ValueError(f"unsupported goal workflow step executor: {workflow.step_executor}")
 
 
 def _goal_declarative_workflow() -> WorkflowResource | None:
@@ -998,7 +1034,9 @@ def _goal_declarative_workflow() -> WorkflowResource | None:
             skill_id="goal-declarative-workflow",
             root=_GOAL_DECLARATIVE_WORKFLOW_PATH.parent,
         )
-        return package.read_workflow(_GOAL_DECLARATIVE_WORKFLOW_PATH.name)
+        workflow = package.read_workflow(_GOAL_DECLARATIVE_WORKFLOW_PATH.name)
+        _validate_goal_workflow(workflow)
+        return workflow
     except (SkillWorkflowError, ValueError, OSError) as exc:
         raise ValueError(f"declarative workflow configuration is invalid: {exc}") from exc
 
@@ -1067,13 +1105,35 @@ def _goal_declarative_prompt(
     description: str,
     goal_dir: Path,
 ) -> str:
+    role = _goal_role_instructions(step_name)
     return (
         f"{workflow.instructions}\n\n# Declarative workflow step\n"
         f"Goal: {description}\n"
         f"Goal directory: {goal_dir.resolve()}\n"
         f"Step: {step_name}\n"
+        f"Role instructions:\n{role}\n"
         "Execute only this declared step and leave the declared artifacts on disk."
     )
+
+
+def _goal_role_instructions(step_name: str) -> str:
+    """Load the role contract assigned to a workflow step."""
+    workflow = _goal_declarative_workflow()
+    role_name = next((step.role for step in workflow.steps if step.name == step_name), "") if workflow else ""
+    if not role_name:
+        return "No specialized BMad role assigned."
+    aliases = {
+        "bmad-agent-analyst": "he-agent-analyst",
+        "bmad-agent-pm": "he-agent-pm",
+        "bmad-agent-ux-designer": "he-agent-ux",
+        "bmad-agent-architect": "he-agent-architect",
+        "bmad-agent-dev": "he-agent-dev",
+    }
+    package_id = aliases.get(role_name, role_name)
+    try:
+        return SkillPackage(skill_id=package_id, root=Path(".heagent/skills") / package_id).read_entry().text
+    except (SkillWorkflowError, ValueError, OSError) as exc:
+        raise ValueError(f"workflow role '{role_name}' is unavailable: {exc}") from exc
 
 
 async def _goal_declarative_advance(
@@ -1087,12 +1147,12 @@ async def _goal_declarative_advance(
         click.echo("[goal] no active declarative goal; use /goal new <description>", err=True)
         return _GOAL_FAILED
     try:
-        description = (goal_dir / "goal.txt").read_text(encoding="utf-8").strip()
+        description = _goal_document_title((goal_dir / "GOAL.md").read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
-        click.echo(f"[goal] declarative goal metadata is unreadable: {exc}", err=True)
+        click.echo(f"[goal] declarative GOAL.md is invalid: {exc}", err=True)
         return _GOAL_FAILED
     if not description:
-        click.echo("[goal] declarative goal metadata is empty", err=True)
+        click.echo("[goal] declarative GOAL.md has no title", err=True)
         return _GOAL_FAILED
     try:
         runner = await _goal_declarative_runner(workflow, goal_dir)
@@ -1167,7 +1227,9 @@ async def _goal_declarative_new(
         click.echo("[goal] unable to allocate a declarative goal id", err=True)
         return
     try:
-        atomic_write_text(goal_dir / "goal.txt", description)
+        goal_document = _goal_document(description, goal_id)
+        _goal_document_title(goal_document)
+        atomic_write_text(goal_dir / "GOAL.md", goal_document)
         atomic_write_text(_GOALS_DIR / "current", goal_id)
     except (OSError, ValueError) as exc:
         click.echo(f"[goal] failed to persist declarative goal: {exc}", err=True)
@@ -1827,6 +1889,12 @@ async def _goal_runner(  # noqa: C901
     if declarative_workflow is not None:
         await _goal_declarative_dispatch(provider, engine, declarative_workflow, args, cron_store=cron_store)
         return
+    click.echo(
+        "[goal] workflow.md is required; the legacy GOAL.md Story flow has been removed. "
+        f"Create {_GOAL_DECLARATIVE_WORKFLOW_PATH} to configure goal execution.",
+        err=True,
+    )
+    return
     skill = _goal_skill_text()
     if skill is None:
         click.echo(

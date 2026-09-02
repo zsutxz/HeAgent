@@ -644,6 +644,15 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 无人值守 cron 不提升权限，审批与 sandbox 策略仍由 engine 处理。该层同样不是 OS 安全边界，
 外部工具与 LLM 输出仍须在 OS 级沙箱中运行。
 
+**Current declarative contract:** `/goal` requires the self-contained
+`.heagent/workflows/workflow.md`. Its `on_create` declaration
+creates `GOAL.md` plus the `current` pointer; `GOAL.md` is a standard
+GoalArtifact and is the only durable goal description. The old `goal.txt` /
+skill-driven Story flow is not used as a fallback. Each inline `## Step NN:`
+section declares the prompt, I/O contract, and checkpoint behavior; the CLI
+only maps the supported `persist_goal_identity` and `subagent` declarations to
+deterministic operations.
+
 ### 4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）
 
 `SkillPackage` 的入口、step、reference、template、asset 和 script 均采用“`resolve_under_root` 解析 ->
@@ -878,8 +887,8 @@ Epic 43-45 的目标级编排、checkpoint、恢复、Token 分段和 CLI 审计
 
 Declarative BMad workflow artifacts have three layers with fixed ownership. `GOAL.md` contains the Epic list only; `EPIC.md` contains Goal, Value, Scope, Dependencies, Acceptance Criteria, Stories, and Definition of Done; each Story document contains frontmatter, User Story, Given/When/Then acceptance criteria, Tasks, and Definition of Done. IDs and parent references are validated by `heagent.engine.artifacts.validate_hierarchy()`.
 
-`parse_artifact()` fails loudly on missing or duplicate sections, unresolved `TBD`, invalid frontmatter type/status, and malformed parent metadata. Templates are in `.heagent/workflows/bmad-development/templates/`. Epic/Story status is owned solely by `_bmad-output/sprint-status.yaml`; `workflow.json` stores runtime metadata and is never a second status board. `validate_sprint_status_path()` enforces this canonical, read-only target.
+`parse_artifact()` fails loudly on missing or duplicate sections, unresolved `TBD`, invalid frontmatter type/status, and malformed parent metadata. Templates are in `.heagent/workflows/templates/`. Epic/Story status is owned solely by `_bmad-output/sprint-status.yaml`; `workflow.json` stores runtime metadata and is never a second status board. `validate_sprint_status_path()` enforces this canonical, read-only target.
 
 ### 4.16 Declarative Agile Closure
 
-`.heagent/workflows/bmad-development/workflow.md` opt-in enables the declarative `/goal` route; without it, the legacy `GOAL.md` Story flow remains unchanged. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `agile.py` models review findings, retrospective evidence, and correct-course records: blocking review verdicts return through `WorkflowOrchestrator` from `review` to `implementation`; passing verdicts only grant completion eligibility. `tests/test_goal_epic_story_smoke.py` verifies a no-network Goal, one Epic, two Stories, checkpoint recovery, review rollback, and retrospective evidence.
+`.heagent/workflows/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `GOAL.md` is the standard GoalArtifact and replaces `goal.txt`; a missing workflow is an explicit failure, never a legacy-flow fallback. `agile.py` models review findings, retrospective evidence, and correct-course records: blocking review verdicts return through `WorkflowOrchestrator` from `review` to `implementation`; passing verdicts only grant completion eligibility.

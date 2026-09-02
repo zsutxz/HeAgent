@@ -9,24 +9,20 @@ import pytest
 
 from heagent.cli import _goal_cron_advance, _goal_runner
 from heagent.cron.jobs import JobStore
+from heagent.engine import GoalArtifact, parse_artifact
 from heagent.engine.workflow import WorkflowCheckpointStore
 
 
 @pytest.fixture()
 def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
-    workflow_root = tmp_path / ".heagent" / "workflows" / "bmad-development"
+    workflow_root = tmp_path / ".heagent" / "workflows"
     workflow_root.mkdir(parents=True)
     (workflow_root / "workflow.md").write_text(
-        "---\nname: test-development\nsteps: [step-01-plan.md, step-02-build.md]\n---\n\nworkflow instructions\n",
-        encoding="utf-8",
-    )
-    (workflow_root / "step-01-plan.md").write_text(
-        "---\noutput: plan\nnext: step-02-build.md\n---\n\nplan the story\n",
-        encoding="utf-8",
-    )
-    (workflow_root / "step-02-build.md").write_text(
-        "---\ninput: plan\noutput: implementation\ncheckpoint: true\n---\n\nbuild the story\n",
+        "---\nname: test-development\nentrypoint: goal\non_create: persist_goal_identity\n"
+        "step_executor: subagent\n---\n\nworkflow instructions\n\n"
+        "## Step 01: plan\noutput: plan\ncheckpoint: true\n\nplan the story\n\n"
+        "## Step 02: build\ninput: plan\noutput: implementation\ncheckpoint: true\n\nbuild the story\n",
         encoding="utf-8",
     )
     return tmp_path
@@ -53,7 +49,10 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     await _goal_runner(SimpleNamespace(), None, "new ship the workflow")
     goal_id = (declarative_cwd / ".heagent" / "goals" / "current").read_text(encoding="utf-8")
     goal_dir = declarative_cwd / ".heagent" / "goals" / goal_id
-    assert not (goal_dir / "GOAL.md").exists()
+    goal_document = goal_dir / "GOAL.md"
+    assert goal_document.exists()
+    assert not (goal_dir / "goal.txt").exists()
+    assert isinstance(parse_artifact(goal_document), GoalArtifact)
     assert len(successful_step) == 1
     checkpoints = await WorkflowCheckpointStore(str(goal_dir / "checkpoints")).list_checkpoints(goal_id=goal_id)
     assert len(checkpoints) == 1
@@ -96,20 +95,27 @@ async def test_declarative_auto_uses_same_completed_checkpoint(
 
 
 @pytest.mark.asyncio
-async def test_legacy_goal_path_remains_active_without_workflow(
+async def test_declarative_goal_rejects_unknown_workflow_declarations(
+    declarative_cwd: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow.write_text(
+        "---\nname: invalid\nentrypoint: unsupported\n---\n\n## Step 01: plan\noutput: plan\n\nPlan the work.\n",
+        encoding="utf-8",
+    )
+
+    await _goal_runner(SimpleNamespace(), None, "new rejected")
+
+    assert "unsupported goal workflow entrypoint" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_goal_requires_workflow_instead_of_falling_back_to_legacy_path(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    skill = tmp_path / ".heagent" / "skills" / "goal" / "SKILL.md"
-    skill.parent.mkdir(parents=True)
-    skill.write_text("legacy skill", encoding="utf-8")
-
-    async def legacy_session(provider: object, engine: object, prompt: str, **kwargs: object) -> SimpleNamespace:
-        goal_md = next((tmp_path / ".heagent" / "goals").glob("*/goal.txt")).parent / "GOAL.md"
-        goal_md.write_text("status: executing\n\n- [ ] S1: legacy\n", encoding="utf-8")
-        return SimpleNamespace(success=True, output="planned")
-
-    monkeypatch.setattr("heagent.cli._goal_session", legacy_session)
     await _goal_runner(SimpleNamespace(), None, "legacy goal")
-    assert list((tmp_path / ".heagent" / "goals").glob("*/GOAL.md"))
+    assert "workflow.md is required" in capsys.readouterr().err

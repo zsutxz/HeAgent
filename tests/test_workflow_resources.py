@@ -38,6 +38,28 @@ def test_discovers_steps_when_workflow_list_is_omitted(tmp_path: Path) -> None:
     assert [step.name for step in workflow.steps] == ["step-01-first.md", "step-02-second.md"]
 
 
+def test_loads_inline_step_contracts_without_external_step_files(tmp_path: Path) -> None:
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "workflow.md").write_text(
+        "---\nname: inline\nentrypoint: goal\non_create: persist_goal_identity\n"
+        "step_executor: subagent\n---\n\n# Inline workflow\n\n"
+        "## Step 01: clarify\noutput: scope\ncheckpoint: true\n\nClarify the request.\n\n"
+        "## Step 02: implement\ninput: scope\noutput: change\n"
+        "validation: focused tests pass\n\nImplement the change.\n",
+        encoding="utf-8",
+    )
+
+    workflow = SkillPackage(skill_id="inline", root=tmp_path).read_workflow()
+
+    assert workflow.entrypoint == "goal"
+    assert workflow.on_create == "persist_goal_identity"
+    assert workflow.step_executor == "subagent"
+    assert [step.name for step in workflow.steps] == ["step-01-clarify.md", "step-02-implement.md"]
+    assert workflow.steps[0].output == "scope"
+    assert workflow.steps[0].checkpoint == "true"
+    assert workflow.steps[1].input == "scope"
+
+
 @pytest.mark.parametrize(
     ("workflow", "message"),
     [

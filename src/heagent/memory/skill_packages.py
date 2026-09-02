@@ -48,6 +48,7 @@ class WorkflowStepResource(BaseModel):
     next: str | None = None
     checkpoint: str = ""
     validation_rules: str = ""
+    role: str = ""
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -57,6 +58,9 @@ class WorkflowResource(BaseModel):
     name: str
     instructions: str
     steps: list[WorkflowStepResource]
+    entrypoint: str = ""
+    on_create: str = "persist_goal_identity"
+    step_executor: str = "subagent"
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -206,8 +210,10 @@ class SkillPackage(BaseModel):
     def read_workflow(self, resource: str = "workflow.md") -> WorkflowResource:
         """Load ``workflow.md`` and all declared/discovered steps in order.
 
-        The workflow file is the only authority for an explicit ``steps`` list;
-        when omitted, ``step-NN-*.md`` files are discovered deterministically.
+        The workflow file is the only authority for an explicit ``steps`` list.
+        A workflow may keep its step contracts in the same file using ``## Step
+        NN: name`` sections; external ``step-NN-*.md`` resources remain
+        supported for compatibility with existing packages.
         """
         try:
             text = self.read_resource(resource)
@@ -218,8 +224,9 @@ class SkillPackage(BaseModel):
         except ValueError as exc:
             raise SkillWorkflowError(self.skill_id, resource, str(exc)) from exc
         declared = values.get("steps")
+        inline = self._parse_inline_workflow_steps(body)
         if declared is None or declared == "":
-            names = self._discover_workflow_steps()
+            names = [step.name for step in inline] if inline else self._discover_workflow_steps()
         else:
             names = self._resource_list(declared, resource)
         if not names:
@@ -240,6 +247,10 @@ class SkillPackage(BaseModel):
             seen_indexes.add(index)
             if index != position:
                 raise SkillWorkflowError(self.skill_id, name, "step order must start at 1 and be contiguous")
+            inline_step = next((step for step in inline if step.name == name), None)
+            if inline_step is not None:
+                steps.append(inline_step.model_copy(update={"index": index}))
+                continue
             try:
                 step_text = self.read_resource(name)
             except SkillPackageResourceError as exc:
@@ -258,6 +269,7 @@ class SkillPackage(BaseModel):
                     next=self._value_text(step_values, "next", "next_step") or None,
                     checkpoint=self._value_text(step_values, "checkpoint"),
                     validation_rules=self._value_text(step_values, "validation", "validation_rules", "verify"),
+                    role=self._value_text(step_values, "role", "agent"),
                     frontmatter=step_values,
                 )
             )
@@ -267,8 +279,11 @@ class SkillPackage(BaseModel):
                 raise SkillWorkflowError(self.skill_id, step.name, f"next step reference is not declared: {step.next}")
         return WorkflowResource(
             name=self._value_text(values, "name", "id") or self.skill_id,
-            instructions=body.strip(),
+            instructions=(body.split("\n## Step ", 1)[0] if inline else body).strip(),
             steps=steps,
+            entrypoint=self._value_text(values, "entrypoint"),
+            on_create=self._value_text(values, "on_create", "initialize") or "persist_goal_identity",
+            step_executor=self._value_text(values, "step_executor", "executor") or "subagent",
             frontmatter=values,
         )
 
@@ -280,10 +295,67 @@ class SkillPackage(BaseModel):
 
     def _discover_workflow_steps(self) -> list[str]:
         candidates = sorted(
-            (path.name for path in self.root.iterdir() if path.is_file() and re.match(r"^step-\d+.*\.md$", path.name, re.I)),
+            (
+                path.name
+                for path in self.root.iterdir()
+                if path.is_file() and re.match(r"^step-\d+.*\.md$", path.name, re.I)
+            ),
             key=self._step_sort_key,
         )
         return candidates
+
+    def _parse_inline_workflow_steps(self, body: str) -> list[WorkflowStepResource]:
+        """Parse step contracts embedded in ``workflow.md``.
+
+        Each section starts with ``## Step NN: name``. Metadata immediately
+        following the heading uses the same ``key: value`` syntax as a step
+        file; the remaining section is the step instruction text.
+        """
+        matches = list(re.finditer(r"(?m)^##\s+Step\s+(\d+)\s*:\s*([^\n]+)\s*$", body))
+        if not matches:
+            return []
+        steps: list[WorkflowStepResource] = []
+        for position, match in enumerate(matches, 1):
+            number = int(match.group(1))
+            if number != position:
+                raise SkillWorkflowError(
+                    self.skill_id, "workflow.md", "inline step order must start at 1 and be contiguous"
+                )
+            raw_name = re.sub(r"[^a-z0-9]+", "-", match.group(2).strip().casefold()).strip("-")
+            name = f"step-{number:02d}-{raw_name or 'step'}.md"
+            end = matches[position].start() if position < len(matches) else len(body)
+            section = body[match.end() : end].strip("\n")
+            lines = section.splitlines()
+            metadata: dict[str, Any] = {}
+            instruction_start = 0
+            for idx, line in enumerate(lines):
+                if not line.strip():
+                    instruction_start = idx + 1
+                    break
+                if ":" not in line or line[:1].isspace():
+                    instruction_start = idx
+                    break
+                key, value = line.split(":", 1)
+                key = key.strip()
+                if not key or key in metadata:
+                    raise SkillWorkflowError(self.skill_id, name, f"invalid inline step metadata: {line}")
+                metadata[key] = value.strip().strip("\"'")
+                instruction_start = idx + 1
+            steps.append(
+                WorkflowStepResource(
+                    index=number,
+                    name=name,
+                    instructions="\n".join(lines[instruction_start:]).strip(),
+                    input=self._value_text(metadata, "input", "inputs"),
+                    output=self._value_text(metadata, "output", "outputs"),
+                    next=self._value_text(metadata, "next", "next_step") or None,
+                    checkpoint=self._value_text(metadata, "checkpoint"),
+                    validation_rules=self._value_text(metadata, "validation", "validation_rules", "verify"),
+                    role=self._value_text(metadata, "role", "agent"),
+                    frontmatter=metadata,
+                )
+            )
+        return steps
 
     @staticmethod
     def _step_sort_key(value: str) -> tuple[int, str]:
@@ -364,12 +436,16 @@ class SkillPackage(BaseModel):
 
     def _resolve(self, resource: str, *, entry: bool = False) -> Path:
         if self._is_absolute(resource) or self._has_parent(resource):
-            reason = "entrypoint path is invalid" if entry else "resource path is absolute or traverses parent directory"
+            reason = (
+                "entrypoint path is invalid" if entry else "resource path is absolute or traverses parent directory"
+            )
             raise SkillPackageResourceError(self.skill_id, resource, reason)
         try:
             return resolve_under_root(resource, self.root)
         except WorkspacePathError as exc:
-            raise SkillPackageResourceError(self.skill_id, resource, f"resource path escapes package root: {exc}") from exc
+            raise SkillPackageResourceError(
+                self.skill_id, resource, f"resource path escapes package root: {exc}"
+            ) from exc
 
     @staticmethod
     def _is_absolute(resource: str) -> bool:
@@ -445,9 +521,13 @@ class SkillCatalog:
             root = source_dir.resolve(strict=False)
             if not root.is_dir() or root.name == ".archive":
                 continue
-            candidates = [root] if (root / "SKILL.md").exists() else sorted(
-                (child for child in root.iterdir() if child.is_dir() and child.name != ".archive"),
-                key=lambda p: p.name,
+            candidates = (
+                [root]
+                if (root / "SKILL.md").exists()
+                else sorted(
+                    (child for child in root.iterdir() if child.is_dir() and child.name != ".archive"),
+                    key=lambda p: p.name,
+                )
             )
             for package_root in candidates:
                 found.append(self._index_package(package_root))
@@ -623,7 +703,11 @@ class SkillRunner:
             if next_index >= len(self.steps):
                 object.__setattr__(self, "state", self.state.model_copy(update={"active_step": None}))
                 return self.state.model_copy(deep=True)
-            object.__setattr__(self, "state", self.state.model_copy(update={"active_step": next_index, "status": "pending", "reason": ""}))
+            object.__setattr__(
+                self,
+                "state",
+                self.state.model_copy(update={"active_step": next_index, "status": "pending", "reason": ""}),
+            )
         active = self.state.active_step
         if active is None:
             return self.state.model_copy(deep=True)
@@ -638,7 +722,12 @@ class SkillRunner:
             completed.append(active)
         active_step = None if result.status == "completed" and active == len(self.steps) - 1 else active
         self.state = self.state.model_copy(
-            update={"active_step": active_step, "status": result.status, "reason": result.reason, "completed_steps": completed}
+            update={
+                "active_step": active_step,
+                "status": result.status,
+                "reason": result.reason,
+                "completed_steps": completed,
+            }
         )
         return self.state.model_copy(deep=True)
 

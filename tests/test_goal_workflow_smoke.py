@@ -3,9 +3,6 @@
 from __future__ import annotations
 
 import pytest
-from tests.test_goal_command import ScriptedGoalProvider, _goal_md_text, _scan_goal_md
-
-from heagent.cli import _goal_runner
 from heagent.engine.ledger import ExecutionLedger, ExecutionStatus
 from heagent.engine.observability import EventBus
 from heagent.engine.workflow import (
@@ -116,22 +113,3 @@ async def test_corrupt_workflow_evidence_fails_loudly(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="workflow state is corrupted"):
         await store.load_workflow()
-
-
-@pytest.mark.asyncio
-async def test_goal_cli_smoke_advances_two_stories_without_network(tmp_path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    goal_dir = tmp_path / ".heagent" / "goals" / "deadbeef"
-    goal_dir.mkdir(parents=True)
-    goal_md = goal_dir / "GOAL.md"
-    goal_md.write_text(_goal_md_text(), encoding="utf-8")
-    (goal_dir.parent / "current").write_text("deadbeef", encoding="utf-8")
-    skill = tmp_path / ".heagent" / "skills" / "goal" / "SKILL.md"
-    skill.parent.mkdir(parents=True)
-    skill.write_text("---\nname: goal\ndescription: smoke\n---\n", encoding="utf-8")
-
-    await _goal_runner(ScriptedGoalProvider(), None, "next")
-    await _goal_runner(ScriptedGoalProvider(), None, "next")
-
-    progress = _scan_goal_md(goal_md.read_text(encoding="utf-8"))
-    assert (progress.done, progress.total) == (2, 2)
