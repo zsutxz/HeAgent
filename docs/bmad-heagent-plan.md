@@ -1,6 +1,6 @@
 # HeAgent BMad 敏捷开发系统规划
 
-> 状态：规划稿
+> 状态：规划与实现对照（核心工作流已交付，本文保留设计背景）
 >
 > 更新日期：2026-08-31
 
@@ -26,7 +26,7 @@
 ## 当前实现基线
 
 - `/goal` 已具备目标目录、`current` 指针、`GOAL.md`、planning 和单 Story 推进能力。
-- `SkillStore` 已支持简单的学习型 `SKILL.md`，但还不支持 BMad 的 step 文件、references、templates、scripts 和配置合并。
+- `SkillStore` 保留学习型 `SKILL.md`；BMad 技能包资源由 `memory/skill_packages.py`、`skill_importer.py` 等运行时组件提供，支持 step 文件、references、templates 和 scripts 的按需安全读取，但目前不提供通用的项目/用户配置合并 API。
 - `RunStore`、`WindowReset` 和 `AgentLoop.resume()` 已提供单次 run 的快照和上下文恢复能力。
 - BMad 技能清单位于 `_bmad/_config/skill-manifest.csv`；实际安装目录与 manifest 中的逻辑路径需要增加映射层。
 
@@ -95,14 +95,11 @@ goal-start
 
 ## BMad 工作流管理实现参考
 
-BMad 的工作流不是单个总流程文件，而是由技能包、步骤文件、配置清单和产物状态共同组成：
+BMad 的工作流由技能包、步骤文件、配置清单和产物状态共同组成；HeAgent 的 `/goal` 当前要求一个自包含的 `workflow.md` 作为运行时入口：
 
 ```text
 SKILL.md
-  -> workflow.md（可选）
-  -> step-01-*.md
-  -> step-02-*.md
-  -> ...
+  -> workflow.md（必需的自包含工作流入口；外部 step 文件仅为兼容资源形式）
 ```
 
 各类文件职责固定如下：
@@ -124,16 +121,12 @@ HeAgent 迁移后应将这些 Markdown 视为“声明式工作流定义”，�
 
 ```text
 用户输入
-  -> GoalController 创建或加载目标
-  -> WorkflowOrchestrator 读取 workflow.json
-  -> SkillResolver 依据阶段、产物和显式意图选择 he-* 技能
-  -> SkillRunner 加载 SKILL.md
-  -> 渲染配置和 workflow 快照
-  -> 读取当前 step 文件
-  -> AgentLoop 执行该 step
+  -> CLI 读取 .heagent/workflows/workflow.md
+  -> WorkflowRunner 校验并执行当前 inline step
+  -> AgentLoop / SubAgent 执行声明
   -> 校验产物和状态
-  -> 保存 checkpoint
-  -> 进入下一个 step 或下一个技能
+  -> 保存 checkpoint 与运行元数据
+  -> 进入下一个 step 或停止等待
 ```
 
 ### SkillRunner 执行规则
@@ -249,7 +242,7 @@ _he-output/goals/<goal_id>/
 
 | 内容 | 权威来源 |
 |---|---|
-| Goal 状态、Story 勾选、in-progress | `GOAL.md` |
+| Goal 描述与 Epic 列表 | `GOAL.md` |
 | 当前阶段、技能、step、阻塞原因 | `workflow.json` |
 | Epic / Story Sprint 状态 | `sprint-status.yaml` |
 | 单次 run 对话和工具快照 | `RunStore` |
@@ -257,11 +250,11 @@ _he-output/goals/<goal_id>/
 
 `workflow.json` 应使用 Pydantic 模型，例如 `GoalWorkflowState`，包含 `goal_id`、`phase`、`active_skill`、`active_step`、`active_story`、`status`、`segment_index`、`segment_tokens`、`cumulative_tokens`、`artifact_refs` 和 `blocked_reason`。
 
-`GOAL.md` 继续作为 Story 看板和人工编辑入口；`workflow.json` 只保存运行时元数据，不能复制一套 Story 勾选状态。
+`GOAL.md` 是 GoalArtifact 的人工编辑入口，只维护 Epic 列表；Epic/Story 状态唯一以 `_bmad-output/sprint-status.yaml` 为准。`workflow.json` 只保存运行时元数据，不能复制状态看板。
 
 ## Token 分段与恢复
 
-现有 `WindowReset` 解决上下文窗口占用，不等同于目标级 Token 分段。需要新增 `TokenBudgetManager`：
+现有 `WindowReset` 解决上下文窗口占用；目标级 Token 分段由已实现的 `TokenBudgetManager` 与 workflow runner 协作完成：
 
 ```text
 provider 调用前
@@ -301,7 +294,9 @@ provider 调用前
 
 ## 分阶段实施
 
-### Phase 0：契约和架构
+> 下列 Phase 0–5 是历史迁移方案，保留用于解释设计来源；当前实现状态以 `src/heagent/engine/workflow.py`、`workflow_runner.py` 和根 `sprint-status.yaml` 为准，不应作为待办清单。
+
+### Phase 0：契约和架构（历史方案）
 
 - 固定技能包、目标状态、checkpoint 和 Token 模型。
 - 固定状态所有权和阶段状态机。

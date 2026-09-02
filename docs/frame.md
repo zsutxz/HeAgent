@@ -710,6 +710,7 @@ src/heagent/
 │   ├── chain.py             # ProviderChain 回退链（外层，FR-4 回退精度）
 │   ├── key_rotation.py      # KeyRotatingProvider 密钥池轮换（中层）
 │   ├── retry.py             # 错误分类 + make_retry_middleware（内层）
+│   ├── responses.py         # OpenAI Responses API 兼容 Provider
 │   ├── router.py            # RoutingProvider 智能路由（按任务特征选模型，主动选择层）
 │   └── switchable.py        # SwitchableProvider 运行时多 vendor 切换（外层选择层）
 │
@@ -722,6 +723,7 @@ src/heagent/
 │   ├── mcp/                 # MCP 适配层
 │   │   ├── config.py        # MCPConfig + load_mcp_config（.mcp.json + ${ENV} 插值）
 │   │   ├── mapping.py       # mcp_tool_to_schema + bridge_result
+│   │   ├── session_api.py   # MCP SDK 会话字段兼容访问
 │   │   └── manager.py       # MCPClientManager（连接生命周期 + 工具注册）
 │   └── builtins/            # 内置工具（24 个）
 │       ├── __init__.py      # 触发注册
@@ -745,6 +747,8 @@ src/heagent/
 ├── memory/                  # 记忆系统
 │   ├── facts.py             # 事实存储 + 去重
 │   ├── skills.py            # 技能存储（HermesAgent 目录结构）
+│   ├── skill_packages.py    # BMad 技能包与安全资源读取
+│   ├── skill_importer.py    # 技能包导入与目录映射
 │   ├── profile.py           # 用户画像
 │   ├── soul.py              # 人格系统（全局/项目两级）
 │   └── dream.py             # 离线记忆巩固调度器（Dreaming 模式）
@@ -759,7 +763,14 @@ src/heagent/
 │   ├── ledger.py            # ExecutionLedger 幂等/租约（async I/O）
 │   ├── persist.py           # 原子写 + 损坏 JSON 容错（store/ledger 共用）
 │   ├── workflow.py          # Goal workflow state / routing / checkpoint persistence
+│   ├── workflow_runner.py    # 声明式 workflow 单步执行器
+│   ├── artifacts.py          # Goal/Epic/Story 产物契约校验
+│   ├── agile.py              # review/retrospective/correct-course 工件
+│   ├── approval.py           # 交互式审批协议与状态
+│   ├── hooks.py              # 生命周期 Hook 调度
 │   └── observability.py     # EventBus / 事件
+├── slash.py                 # 交互模式斜杠命令注册与路由
+├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）
 └── cron/                    # 定时调度
     ├── jobs.py              # CronJob 模型 + JobStore 持久化
     └── scheduler.py         # CronScheduler 后台调度器
@@ -891,4 +902,4 @@ Declarative BMad workflow artifacts have three layers with fixed ownership. `GOA
 
 ### 4.16 Declarative Agile Closure
 
-`.heagent/workflows/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `GOAL.md` is the standard GoalArtifact and replaces `goal.txt`; all durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure, never a legacy-flow fallback. `agile.py` models review findings, retrospective evidence, and correct-course records: blocking review verdicts return through `WorkflowOrchestrator` from `review` to `implementation`; passing verdicts only grant completion eligibility.
+`.heagent/workflows/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `GOAL.md` is the standard GoalArtifact and replaces `goal.txt`; all durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The CLI still contains isolated legacy helpers for compatibility characterization, but the declarative runner does not route to them. `agile.py` models review findings, retrospective evidence, and correct-course records: blocking review verdicts return through `WorkflowOrchestrator` from `review` to `implementation`; passing verdicts only grant completion eligibility.

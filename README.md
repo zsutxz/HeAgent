@@ -21,10 +21,14 @@ HeAgent 会执行 shell、读写文件、访问外部 API，并且会把工具�
 - [文档索引](docs/README.md)
 - [设计说明](docs/design.md)
 - [架构参考](docs/frame.md)
+- [架构速览](docs/learning.md)
+- [迭代历程](docs/iteration.md)
+- [GUI 集成方案（已交付实现对照）](docs/gui-plan.md)
+- [BMad 工作流规划](docs/bmad-heagent-plan.md)
 - [部署说明](deploy/README.md)
 - [仓库协作约定](CLAUDE.md)
 
-建议阅读顺序：`README` -> `docs/design.md` -> `docs/frame.md`。
+建议阅读顺序：`README` -> `docs/design.md` -> `docs/frame.md`；需要了解迭代背景时，再阅读 `docs/iteration.md` 和 `_bmad-output/README.md`。
 
 ## 核心能力
 
@@ -354,4 +358,4 @@ mypy src
 
 ## 许可证
 
-仓库当前没有附带 `LICENSE` 文件。若要在团队或外部场景使用，先明确授权边界。
+本仓库采用 MIT License，完整条款见根目录 [`LICENSE`](LICENSE)。使用时仍应遵守依赖项各自的许可证和服务条款。

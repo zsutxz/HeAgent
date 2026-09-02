@@ -2,7 +2,7 @@
 
 本目录是 HeAgent 用 **BMad Method** 驱动迭代留下的**规划产物**（brief / prd / architecture / epics / stories / 补丁 / 回顾）。它是迭代历程的事实来源之一，**不是当前代码事实**——当代码与本文档冲突时，以 `src/` 实现为准（参见 `docs/frame.md`、`docs/iteration.md`）。
 
-> **BMad config 对齐说明：** `_bmad/config.toml [modules.bmm]` 与 `_bmad/bmm/config.yaml`（installer 托管）声明 `planning_artifacts` / `implementation_artifacts` 指向 `_bmad-output/{planning,implementation}-artifacts/`——**这两个目录在本仓不存在**。HeAgent 刻意按周期而非按产物类型组织（见下方目录结构）。这两个 key 维持 installer 默认、不在 `_bmad/custom/config.toml` 覆盖：同类路径 override 经验证不生效（同 `output_folder` 上游 bug，见 commit `01fbe13`），且 quick-dev 假设的「扁平 `implementation_artifacts`」与本仓 cycle 布局结构不兼容（`sprint-status.yaml` 在 `epics/epic-01-10-主线规划周期/`、`deferred-work.md` 在 `patches/_meta/`、spec 在 `specs/`，无单一目录可满足）。**实际产物位置以本文件为权威。**
+> **BMad config 对齐说明：** `_bmad/config.toml [modules.bmm]` 与 `_bmad/bmm/config.yaml`（installer 托管）声明 `planning_artifacts` / `implementation_artifacts` 指向 `_bmad-output/{planning,implementation}-artifacts/`。本仓没有 `planning-artifacts/`；`implementation-artifacts/` 保存当前工作件，历史交付产物按周期归档。全周期状态唯一写目标是根目录 [`sprint-status.yaml`](sprint-status.yaml)，不是某个周期子目录。部分旧周期保留只读状态快照，新增周期不保证含独立 `sprint-status.yaml`。HeAgent 刻意按周期而非按产物类型组织（见下方目录结构）。
 
 ## 目录结构（按周期）
 
@@ -18,12 +18,17 @@ _bmad-output/
 │   ├── epic-21-24-质量工程周期/   quality-engineering（Epic 21–24）
 │   ├── epic-25-28-GUI界面周期/    gui（Epic 25–28）
 │   ├── epic-29-35-交互扩展周期/   interaction（Epic 29–35）
-│   └── epic-43-46-目标级工作流周期/  goal workflow continuation（Epic 43–46）
+│   ├── epic-36-39-文件安全防护周期/ credential and file safety（Epic 36–39）
+│   ├── epic-40-沙箱会话化周期/     sandbox sessions（Epic 40）
+│   ├── epic-41-目标驱动开发周期/   goal-driven development（Epic 41）
+│   ├── epic-42-BMad技能包运行时周期/ skill package runtime（Epic 42）
+│   ├── epic-43-46-目标级工作流周期/ goal workflow continuation（Epic 43–46）
+│   └── epic-47-声明式BMad敏捷工作流周期/ declarative BMad workflow（Epic 47）
 ├── patches/                补丁周期（计划外技术债 / 缺陷，按领域分子目录 provider/context/memory/cron/mcp/sandbox/_meta）
 └── specs/                  quick-dev / spec 产物（本地工作件，gitignored；2026-08-18 已清空，目录暂不存在）
 ```
 
-> **2026-08-19 重组**：`epics/` 按周期组织——7 个周期目录（`epic-区间-周期/`）收纳周期级 prd/brief/architecture/epics/sprint-status，**各 epic 的 story 子目录（`epic-NN-主题/stories/`）嵌套在所属周期目录内**；patch 按领域在 `patches/`。各 epic 的状态矩阵与文档地图见 [`consolidated-overview.md`](consolidated-overview.md)（原 EPICS-INDEX.md 已并入其导航层）。
+> **2026-08-19 起持续重组**：`epics/` 按周期组织；当前共有 13 个周期目录（`epic-区间-周期/`），收纳周期级 prd/brief/architecture/epics/sprint-status，**各 epic 的 story 子目录（`epic-NN-主题/stories/`）嵌套在所属周期目录内**；patch 按领域在 `patches/`。各 epic 的状态矩阵与文档地图见 [`consolidated-overview.md`](consolidated-overview.md)（原 EPICS-INDEX.md 已并入其导航层）。
 
 ## sprint-status 单一权威
 
@@ -42,6 +47,12 @@ _bmad-output/
 | Epic 21–24 | quality-engineering | Coverage 工程化 / Benchmark / Docker 硬化 / CI 安全 |
 | Epic 25–28 | gui | GUI 终端界面（流式聊天 / 工具可视化 / 管理面板 / 可观测性） |
 | Epic 29–35 | interaction | 交互与可扩展层（审批 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 角色配置 / CLI 收尾） |
+| Epic 36–39 | file-safety | 文件与凭证安全防护 |
+| Epic 40 | sandbox-session | 沙箱会话目录与生命周期 |
+| Epic 41 | goal | 目标驱动开发入口与产物 |
+| Epic 42 | skill-runtime | BMad 技能包运行时 |
+| Epic 43–46 | goal-workflow | 目标工作流连续执行与资源安全 |
+| Epic 47 | declarative-workflow | 声明式 BMad 工作流与产物治理 |
 
 各自周期目录下的旧 sprint-status 保留作为只读归档；后续状态更新以 `_bmad-output/sprint-status.yaml` 为唯一写目标。
 
@@ -54,7 +65,7 @@ _bmad-output/
 | `architecture.md` | 技术架构与冻结决策（交叉引用 frame.md） |
 | `epics.md` | Epic 1-5（MVP，FR-1~19）拆分 + 覆盖矩阵 |
 | `epics-self-learning.md` | Epic 6-10（自学习闭环，FR-20~24）拆分 |
-| `sprint-status.yaml` | **全周期 story/epic 状态流转与 action_items 跟踪**（事实来源，含 8 个周期） |
+| `sprint-status.yaml` | **全周期 story/epic 状态流转与 action_items 跟踪**（事实来源，覆盖当前全部周期） |
 | `epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/stories/`（1-1~1-5） | Epic 1 的可执行 story（含 AC，2026-08-19 移出） |
 
 ## epics/epic-11-18-MCP集成周期/ — MCP Client 集成周期（三阶段统一，2026-08-18 合并）
@@ -109,6 +120,30 @@ _bmad-output/
 | `architecture.md` | GUI 架构（Textual + bridge + 状态管理） |
 | `epics.md` | Epic 25–28 拆分（原内部编号 24–27） |
 | `sprint-status.yaml` | 已归档 — 见 `_bmad-output/sprint-status.yaml` |
+
+## epics/epic-36-39-文件安全防护周期/ — 文件与凭证安全周期（Epic 36–39）
+
+包含凭证文件读写拒绝、内部状态读拒绝、环境变量清理和安全声明同步。周期级 `prd.md`、`architecture.md`、`epics.md` 及各 Story 均为历史规划/交付记录，状态以根目录 `sprint-status.yaml` 为准。
+
+## epics/epic-40-沙箱会话化周期/ — 沙箱会话周期（Epic 40）
+
+记录 per-run workspace、后端强度分级、环境变量白名单和会话生命周期设计与实现。
+
+## epics/epic-41-目标驱动开发周期/ — 目标驱动开发周期（Epic 41）
+
+记录 `/goal` 入口、目标产物和单步推进契约；目标运行时产物不应与 `_bmad-output/` 历史规划混淆。
+
+## epics/epic-42-BMad技能包运行时周期/ — BMad 技能包运行时周期（Epic 42）
+
+记录技能包模型、资源安全读取、技能导入和运行时兼容性验证。
+
+## epics/epic-43-46-目标级工作流周期/ — 目标级工作流周期（Epic 43–46）
+
+记录工作流状态转换、checkpoint/resume、Token 分段、质量收口及技能资源 TOCTOU 评估与加固。
+
+## epics/epic-47-声明式BMad敏捷工作流周期/ — 声明式工作流周期（Epic 47）
+
+记录 Goal/Epic/Story 产物契约、工作流执行闸门、审查/回顾闭环和示例回归文档。
 
 ## patches/ — 补丁周期（按领域分子目录，2026-08-19 重组）
 

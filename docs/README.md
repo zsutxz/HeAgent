@@ -8,8 +8,10 @@
 2. [设计说明](design.md)：为什么要做这个项目，目标与非目标是什么。
 3. [架构参考](frame.md)：代码结构、数据流、模块边界、运行时设计。
 4. [迭代历程](iteration.md)：项目怎么一步步迭代到现在、怎么继续迭代。
-5. [部署说明](../deploy/README.md)：当前部署资产的适用范围和限制。
-6. [BMad 敏捷系统规划](bmad-heagent-plan.md)：BMad 技能迁移、目标工作流、checkpoint 和 Token 分段设计。
+5. [架构速览](learning.md)：面向初次接触者的系统结构速览。
+6. [GUI 规划](gui-plan.md)：GUI 终端界面的设计与实现边界。
+7. [BMad 敏捷系统规划](bmad-heagent-plan.md)：BMad 技能迁移、目标工作流、checkpoint 和 Token 分段设计。
+8. [部署说明](../deploy/README.md)：当前部署资产的适用范围和限制。
 
 ## 文档职责
 
@@ -29,13 +31,17 @@
   - 讲迭代历程与 BMad 工作流。
   - 回答”项目怎么迭代过来的、怎么继续迭代”。
 
+- `docs/learning.md`
+  - 提供架构参考的短版导读。
+  - 适合首次阅读代码前快速建立整体认知。
+
+- `docs/gui-plan.md`
+  - 记录 GUI 终端界面的设计目标与边界。
+  - 不替代 `docs/frame.md` 中的当前实现说明。
+
 - `docs/bmad-heagent-plan.md`
   - 讲 HeAgent 如何承载 BMad 技能包和目标级敏捷执行。
   - 回答“/goal 启动后如何经过完整工作流并跨 Token 分段持续完成”。
-
-- `docs/learning.md`
-  - 架构浓缩笔记，初次接触时快速建立整体认知（`frame.md` 的速览版）。
-  - 回答“这个系统整体长什么样”。
 
 - `deploy/README.md`
   - 讲当前部署脚本和镜像资产的真实状态。
