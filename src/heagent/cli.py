@@ -1347,14 +1347,6 @@ def _goal_usage() -> None:
     )
 
 
-def _goal_skill_text() -> str | None:
-    """路径直读 goal skill 正文（不走 SkillStore 相似度匹配）；缺失/不可读/解码失败返回 None。"""
-    try:
-        return _GOAL_SKILL_PATH.read_text(encoding="utf-8")
-    except (OSError, ValueError):  # ValueError 覆盖 UnicodeDecodeError（GBK 存档，P1-23 先例）
-        return None
-
-
 def _goal_active_md() -> Path | None:
     """解析活跃 goal 的 GOAL.md 路径；指针缺失/解码失败返回 None，内容非法显性报错。"""
     try:
@@ -1774,16 +1766,8 @@ async def _goal_cron_advance(
                 removed = _goal_auto_remove(store, goal_id)
                 click.echo(f"[goal] declarative auto closed: goal {goal_id}, removed {removed} job(s)", err=True)
             return
-        skill = _goal_skill_text()
-        if skill is None:
-            click.echo("[goal] auto 停止：缺少 .heagent/skills/goal/SKILL.md，注销 auto job。", err=True)
-            _goal_auto_remove(store, goal_id)
-            return
-        outcome = await _goal_advance(provider, engine, skill)
-        after = _goal_read_md(current)
-        if outcome == _GOAL_DONE or (after is not None and after[1].status == "blocked"):
-            removed = _goal_auto_remove(store, goal_id)
-            click.echo(f"[goal] auto 已收口：goal {goal_id}，注销 {removed} 个 job。", err=True)
+        click.echo("[goal] auto stopped: workflow.md is required; legacy goal fallback is unavailable", err=True)
+        _goal_auto_remove(store, goal_id)
 
 
 async def _goal_runner(  # noqa: C901
