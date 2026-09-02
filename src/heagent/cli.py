@@ -7,12 +7,11 @@ import contextlib
 import json
 import logging
 import os
-import re
 import sys
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, Any
 
 import click
 
@@ -40,11 +39,8 @@ from heagent.engine import (
     ConsoleApprovalHandler,
     EngineContainer,
     GoalArtifact,
-    GoalWorkflowState,
-    WorkflowCheckpoint,
     WorkflowCheckpointError,
     WorkflowCheckpointStore,
-    WorkflowOrchestrator,
     WorkflowPhase,
     WorkflowRunner,
     WorkflowStatus,
@@ -879,20 +875,15 @@ async def _dispatch_slash_interactive(user_input: str, registry: SlashRegistry) 
 # /goal 命令族（Story 41.1：目标驱动开发工作流——skill 正文直读 + 逐 story 会话）
 # =============================================================================
 
-# goal 状态目录与 skill 正文路径（相对路径，使用时锚定 Path.cwd()）。
+# goal 状态目录与声明式 workflow 路径（相对路径，使用时锚定 Path.cwd()）。
 # Durable user-facing Goal and workflow artifacts belong under the project output
 # root. ``.heagent`` remains reserved for runtime configuration and skill code.
 _GOALS_DIR = Path("_he-output/goals")
-_GOAL_SKILL_PATH = Path(".heagent/skills/goal/SKILL.md")
 _GOAL_DECLARATIVE_WORKFLOW_PATH = Path(".heagent/workflows/workflow.md")
-_GOAL_STATUSES = frozenset({"planning", "executing", "done", "blocked"})
 _GOAL_HEX = frozenset("0123456789abcdef")  # goal_id 字符集（与 uuid4().hex[:8] 写入格式一致）
-# 保留子命令（首 token 命中即子命令；new 之外带尾文本时显性拒绝，防尾文本被静默吞掉）。
-_GOAL_RESERVED = ("next", "status", "reset", "run", "auto", "pause", "resume", "audit")
 _GOAL_RUN_MAX_ROUNDS = 10
 _GOAL_ADVANCED = "advanced"
 _GOAL_DONE = "done"
-_GOAL_STALLED = "stalled"
 _GOAL_FAILED = "failed"
 
 
@@ -1296,42 +1287,6 @@ async def _goal_declarative_dispatch(
             await _goal_declarative_new(provider, engine, workflow, args.strip(), cron_store=cron_store)
 
 
-class GoalProgress(NamedTuple):
-    """GOAL.md 边界扫描结果（NamedTuple：零依赖，命名访问消魔法下标）。"""
-
-    status: str | None  # 首非空行 status: <planning|executing|done|blocked>，非法为 None
-    total: int  # `- [ ]` / `- [x]` checkbox 总数
-    done: int  # 已勾选数（GFM 大写 `- [X]` 同计）
-    in_progress: str | None  # `> in-progress: S<n>` 的 <n>，无则 None
-
-
-def _scan_goal_md(text: str) -> GoalProgress:
-    """扫描 GOAL.md 的三个机器标记（无状态纯函数）：status 行 / checkbox / in-progress 行。
-
-    status 须为**首非空行** ``status: <planning|executing|done|blocked>``，非法返回
-    None（调用方显性报错）；story 只认 ``- [ ]`` / ``- [x]`` 行首 checkbox（大写 ``X``
-    按 GFM 同计勾选）；in-progress 取首个合法 ``> in-progress: S<n>`` 行的 ``<n>``。
-    """
-    first = next((ln for ln in text.splitlines() if ln.strip()), "")
-    status: str | None = None
-    if first.startswith("status:"):
-        value = first.split(":", 1)[1].strip()
-        status = value if value in _GOAL_STATUSES else None
-    total = done = 0
-    in_progress: str | None = None
-    for line in text.splitlines():
-        story = re.match(r"- \[([ xX])\] S\d+: ", line)
-        if story:
-            total += 1
-            if story.group(1).lower() == "x":
-                done += 1
-        elif in_progress is None and line.startswith("> in-progress:"):
-            value = line.split(":", 1)[1].strip()
-            if value.upper().startswith("S") and value[1:].isdigit():
-                in_progress = value[1:]
-    return GoalProgress(status, total, done, in_progress)
-
-
 def _goal_usage() -> None:
     """打印 /goal 子命令用法表（缺参 / 未实现 / 拼错时）。"""
     click.echo(
@@ -1371,26 +1326,6 @@ def _goal_active_md() -> Path | None:
     return goal_root / "GOAL.md"
 
 
-def _goal_read_md(goal_md: Path) -> tuple[str, GoalProgress] | None:
-    """读 GOAL.md 并扫描标记；缺失/不合规时显性报错并返回 None（目录保留可重试）。"""
-    try:
-        text = goal_md.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        click.echo(f"[goal] 显性失败：GOAL.md 缺失（{goal_md}）——会话未落盘。目录保留，可重试。", err=True)
-        return None
-    except (OSError, ValueError) as exc:
-        click.echo(f"[goal] 显性失败：GOAL.md 读取失败（{exc}）。目录保留，可重试。", err=True)
-        return None
-    progress = _scan_goal_md(text)
-    if progress.status is None:
-        click.echo(
-            "[goal] 显性失败：GOAL.md 首非空行须为「status: planning|executing|done|blocked」。目录保留，可重试。",
-            err=True,
-        )
-        return None
-    return text, progress
-
-
 async def _goal_session(
     provider: BaseProvider,
     engine: EngineContainer | None,
@@ -1418,106 +1353,6 @@ async def _goal_session(
     except (KeyboardInterrupt, asyncio.CancelledError):
         click.echo("[goal] 已中断：状态在盘（GOAL.md），/goal next 可续跑。", err=True)
         return None
-
-
-def _goal_workflow_store(goal_md: Path) -> WorkflowCheckpointStore:
-    return WorkflowCheckpointStore(
-        str(goal_md.parent / "checkpoints"),
-        workflow_path=str(goal_md.parent / "workflow.json"),
-    )
-
-
-async def _goal_pause() -> None:
-    goal_md = _goal_active_md()
-    if goal_md is None or not goal_md.exists():
-        click.echo("[goal] no active goal available to pause", err=True)
-        return
-    store = _goal_workflow_store(goal_md)
-    try:
-        state = await store.load_workflow() or GoalWorkflowState(goal_id=goal_md.parent.name)
-        if state.status is WorkflowStatus.WAITING_USER:
-            click.echo("[goal] already paused; use /goal resume to continue", err=True)
-            return
-        paused = WorkflowOrchestrator.wait_for_user(state, "user requested pause; resume to continue")
-        checkpoint = WorkflowCheckpoint(
-            checkpoint_id=f"{state.goal_id}-pause",
-            goal_id=state.goal_id,
-            phase=paused.phase,
-            status=paused.status,
-            run_id=f"manual-{state.goal_id}",
-            active_skill=paused.active_skill,
-            active_step=paused.active_step,
-            active_story=paused.active_story,
-            artifact_refs=list(paused.artifact_refs),
-            next_action=paused.next_action,
-        )
-        await store.save(checkpoint, paused)
-    except WorkflowCheckpointError as exc:
-        click.echo(f"[goal] checkpoint failed: {exc}", err=True)
-        return
-    click.echo(f"[goal] paused: phase={paused.phase.value}, step={paused.active_step or '-'}", err=True)
-
-
-async def _goal_resume() -> None:
-    goal_md = _goal_active_md()
-    if goal_md is None or not goal_md.exists():
-        click.echo("[goal] no active goal available to resume", err=True)
-        return
-    store = _goal_workflow_store(goal_md)
-    try:
-        state = await store.load_workflow()
-        if state is None:
-            click.echo("[goal] no workflow checkpoint; use /goal next first", err=True)
-            return
-        if state.status is not WorkflowStatus.WAITING_USER:
-            click.echo(f"[goal] workflow status={state.status.value}; resume is not required", err=True)
-            return
-        resumed = GoalWorkflowState.model_validate(
-            state.model_copy(update={"status": WorkflowStatus.RUNNING, "next_action": ""})
-        )
-        checkpoint = WorkflowCheckpoint(
-            checkpoint_id=f"{state.goal_id}-resume-{state.active_step or 0}",
-            goal_id=state.goal_id,
-            phase=resumed.phase,
-            status=resumed.status,
-            run_id=f"manual-{state.goal_id}",
-            active_skill=resumed.active_skill,
-            active_step=resumed.active_step,
-            active_story=resumed.active_story,
-            artifact_refs=list(resumed.artifact_refs),
-        )
-        await store.save(checkpoint, resumed)
-    except WorkflowCheckpointError as exc:
-        click.echo(f"[goal] resume failed: {exc}", err=True)
-        return
-    click.echo(f"[goal] resumed: phase={resumed.phase.value}, step={resumed.active_step or '-'}", err=True)
-
-
-async def _goal_status() -> None:
-    """打印活跃 goal 进度（done/total + status）与 GOAL.md 全文。"""
-    goal_md = _goal_active_md()
-    if goal_md is None:
-        click.echo("[goal] 无活跃 goal。用 /goal new <目标描述> 新建；/goal next 或 /goal run 可继续推进。", err=True)
-        return
-    read = _goal_read_md(goal_md)
-    if read is None:
-        return
-    text, prog = read
-    click.echo(f"[goal] 进度：{prog.done}/{prog.total} 条 story 已完成（status: {prog.status}）", err=True)
-    try:
-        workflow = await _goal_workflow_store(goal_md).load_workflow()
-    except WorkflowCheckpointError as exc:
-        click.echo(f"[goal] workflow state corrupted: {exc}", err=True)
-        workflow = None
-    if workflow is not None:
-        click.echo(
-            f"[goal] workflow: phase={workflow.phase.value} status={workflow.status.value} "
-            f"skill={workflow.active_skill or '-'} step={workflow.active_step or '-'} "
-            f"segment={workflow.segment_index} cumulative_tokens={workflow.cumulative_tokens} "
-            f"next={workflow.next_action or '-'}",
-            err=True,
-        )
-    click.echo(text)
 
 
 async def _goal_audit(engine: EngineContainer | None) -> None:
@@ -1557,172 +1392,6 @@ def _goal_reset() -> None:
         click.echo(f"[goal] 落盘失败：清除 current 指针失败（{exc}）。", err=True)
         return
     click.echo(f"[goal] current 指针已清除；goal 目录保留：{_GOALS_DIR.resolve()}", err=True)
-
-
-def _goal_planning_prompt(skill: str, description: str, goal_md: Path) -> str:
-    """planning 会话 prompt（确定性拼接：skill 正文 + 任务段 + 目标 + GOAL.md 绝对路径）。"""
-    return f"{skill}\n\n# 任务：执行 planning 规程\n目标：{description}\nGOAL.md 路径：{goal_md.resolve()}"
-
-
-async def _goal_run_planning(
-    provider: BaseProvider, engine: EngineContainer | None, skill: str, description: str, goal_md: Path
-) -> bool | None:
-    """跑 planning 会话并做产物校验收口（``_goal_new`` 与 goal.txt 恢复路径共用）。"""
-    result = await _goal_session(
-        provider,
-        engine,
-        _goal_planning_prompt(skill, description, goal_md),
-        metadata={"goal_id": goal_md.parent.name, "goal_kind": "planning"},
-    )
-    if result is None:
-        return None
-    if not result.success:
-        click.echo(f"[goal] planning 会话失败：{result.output}", err=True)
-        return False
-    click.echo(result.output)
-    read = _goal_read_md(goal_md)
-    if read is None:
-        return False
-    _, prog = read
-    if prog.status != "executing" or prog.total < 1:
-        click.echo(
-            f"[goal] 显性失败：planning 产物不合规（要求 status=executing 且 ≥1 条 story，"
-            f"实际 status={prog.status}、story={prog.total} 条）。目录保留，可重试。",
-            err=True,
-        )
-        return False
-    click.echo(f"[goal] planning 完成：{prog.done}/{prog.total} 条 story。用 /goal next 推进。", err=True)
-    return True
-
-
-async def _goal_new(
-    provider: BaseProvider,
-    engine: EngineContainer | None,
-    skill: str,
-    description: str,
-    *,
-    cron_store: JobStore | None = None,
-) -> None:
-    """新建 goal（goal.txt + current 原子写）并跑 planning 会话，扫描校验产物。"""
-    previous = _goal_active_md()
-    goal_id = uuid.uuid4().hex[:8]
-    goal_dir = _GOALS_DIR / goal_id
-    for _ in range(100):
-        if not goal_dir.exists():
-            break
-        goal_id = uuid.uuid4().hex[:8]
-        goal_dir = _GOALS_DIR / goal_id
-    else:
-        click.echo("[goal] 显性失败：无法分配未占用的 goal_id（UUID 前缀持续碰撞）。", err=True)
-        return
-    try:
-        atomic_write_text(goal_dir / "goal.txt", description)
-        atomic_write_text(_GOALS_DIR / "current", goal_id)
-    except (OSError, ValueError) as exc:
-        click.echo(f"[goal] 落盘失败：{exc}", err=True)
-        return
-    if previous is not None and cron_store is not None:
-        removed = _goal_auto_remove(cron_store, previous.parent.name)
-        if removed:
-            click.echo(f"[goal] 已清理旧 goal {previous.parent.name} 的 {removed} 个 auto job。", err=True)
-    await _goal_run_planning(provider, engine, skill, description, goal_dir / "GOAL.md")
-
-
-async def _goal_advance(provider: BaseProvider, engine: EngineContainer | None, skill: str) -> str:  # noqa: C901
-    """推进一条 story：prompt=skill 正文 + GOAL.md 全文 + 单 story 指令，全新会话执行。"""
-    goal_md = _goal_active_md()
-    if goal_md is None:
-        click.echo("[goal] 无活跃 goal。用 /goal new <目标描述> 新建；/goal next 或 /goal run 可继续推进。", err=True)
-        return _GOAL_FAILED
-    if not goal_md.exists():
-        # goal.txt 恢复路径：GOAL.md 缺失（planning 未落盘）时用原始描述重跑 planning，
-        # 复用现有 goal_id/goal_dir（不建新目录、不动 current 指针）。
-        description = None
-        try:
-            text = (goal_md.parent / "goal.txt").read_text(encoding="utf-8").strip()
-            if text:
-                description = text
-        except (OSError, ValueError):
-            pass
-        if description is None:
-            _goal_read_md(goal_md)  # 无恢复路径（goal.txt 亦缺失）：显性报「GOAL.md 缺失」
-            return _GOAL_FAILED
-        click.echo("[goal] GOAL.md 缺失，用 goal.txt 原始描述重跑 planning。", err=True)
-        planning = await _goal_run_planning(provider, engine, skill, description, goal_md)
-        return _GOAL_FAILED if planning is not True else _GOAL_ADVANCED
-    read = _goal_read_md(goal_md)
-    if read is None:
-        return _GOAL_FAILED
-    text, prog = read
-    if prog.status in ("blocked", "planning"):
-        click.echo(f"[goal] 当前 goal status={prog.status}，停止推进；请先处理状态。", err=True)
-        return _GOAL_FAILED
-    if prog.status == "done" or (prog.total > 0 and prog.done >= prog.total):
-        click.echo(f"[goal] 全部 story 已完成（{prog.done}/{prog.total}，status: {prog.status}），不开会话。", err=True)
-        return _GOAL_DONE
-    if prog.total < 1:
-        click.echo("[goal] GOAL.md 无 story 可推进（0 条 checkbox）。目录保留，可重试。", err=True)
-        return _GOAL_FAILED
-    prompt = f"{skill}\n\n# 任务：执行 story 规程（仅一条）\nGOAL.md 路径：{goal_md.resolve()}\n\n{text}"
-    result = await _goal_session(
-        provider,
-        engine,
-        prompt,
-        metadata={"goal_id": goal_md.parent.name, "goal_kind": "story"},
-    )
-    if result is None:
-        return _GOAL_FAILED
-    if not result.success:
-        click.echo(f"[goal] story 会话失败：{result.output}", err=True)
-        return _GOAL_FAILED
-    click.echo(result.output)
-    read = _goal_read_md(goal_md)
-    if read is None:
-        return _GOAL_FAILED
-    _, after = read
-    click.echo(f"[goal] 进度：{after.done}/{after.total}（status: {after.status}）", err=True)
-    # run 白跑可检测（纯读侧对比，不写 GOAL.md）：零变化显性告警；全部勾选但 status 未翻 done 提示。
-    if after.status in ("blocked", "planning"):
-        click.echo(f"[goal] 会话后 status 变为 {after.status}，停止推进。", err=True)
-        return _GOAL_FAILED
-    if after.done < prog.done or after.total < prog.total:
-        click.echo(f"[goal] 进度回退：此前 {prog.done}/{prog.total}，现在 {after.done}/{after.total}。", err=True)
-        return _GOAL_FAILED
-    if after.status == "done":
-        return _GOAL_DONE
-    if after.total > 0 and after.done == after.total:
-        click.echo("[goal] 全部 story 已勾选但 status 未翻 done（skill 契约遗漏）；按完成处理。", err=True)
-        return _GOAL_DONE
-    if after.done == prog.done:
-        click.echo("[goal] 会话未推进任何 story（GOAL.md 无 story 净完成）。", err=True)
-        return _GOAL_STALLED
-    return _GOAL_ADVANCED
-
-
-async def _goal_next(provider: BaseProvider, engine: EngineContainer | None, skill: str) -> None:
-    """推进一个 story；保留旧 slash 命令的无返回值接口。"""
-    await _goal_advance(provider, engine, skill)
-
-
-async def _goal_run(provider: BaseProvider, engine: EngineContainer | None, skill: str) -> None:
-    """连续推进 goal，遇到完成、失败、停滞或规划状态立即停止。"""
-    try:
-        for round_no in range(1, _GOAL_RUN_MAX_ROUNDS + 1):
-            click.echo(f"[goal] run 第 {round_no}/{_GOAL_RUN_MAX_ROUNDS} 步", err=True)
-            async with _goal_auto_lock:
-                outcome = await _goal_advance(provider, engine, skill)
-            if outcome == _GOAL_DONE:
-                click.echo(f"[goal] run 完成：共 {round_no} 步。", err=True)
-                return
-            if outcome != _GOAL_ADVANCED:
-                return
-    except (KeyboardInterrupt, asyncio.CancelledError):
-        click.echo("[goal] 已中断：状态在盘（GOAL.md），/goal next 可继续跑（也可用 /goal run 继续推进）。", err=True)
-        return
-    click.echo(
-        f"[goal] run 触顶：连续 {_GOAL_RUN_MAX_ROUNDS} 步推进仍未达到 done。GOAL.md 状态保留，可再次 /goal run 继续。",
-        err=True,
-    )
 
 
 def _goal_auto_remove(store: JobStore, goal_id: str) -> int:
