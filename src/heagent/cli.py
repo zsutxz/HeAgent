@@ -10,7 +10,6 @@ import os
 import re
 import sys
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -18,14 +17,21 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 import click
 
 import heagent.tools.builtins  # noqa: F401
-from heagent import __version__
 from heagent.agent.loop import AgentLoop
 from heagent.agent.middleware import make_retry_middleware
+from heagent.cli_display import (
+    _echo_status,
+    _format_status,
+    _format_tokens_k,  # noqa: F401
+    _LineState,
+    _print_banner,
+    _print_stream_event,
+    _print_usage,
+)
 from heagent.config import GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE, Settings, get_settings
 from heagent.context.compressor import ContextCompressor
 from heagent.context.loader import load_context_files
 from heagent.context.session import SessionStore
-from heagent.context.tokens import estimate_cost
 from heagent.context.window_reset import WindowResetConfig
 from heagent.cron.expr import cron_matches
 from heagent.cron.jobs import JobStore
@@ -71,111 +77,11 @@ if TYPE_CHECKING:
     from heagent.agent.sub import SubAgentResult
     from heagent.engine.context import RunContext
     from heagent.providers.base import BaseProvider
-    from heagent.types import TokenUsage
 
 logger = logging.getLogger(__name__)
 _GOAL_AUTO_DEFAULT_CRON = "*/15 * * * *"
 _GOAL_AUTO_PREFIX = "goal-advance "
 _goal_auto_lock = asyncio.Lock()
-
-
-# =============================================================================
-# Shared utilities (CLI / GUI reuse)
-# =============================================================================
-
-
-def _print_banner() -> None:
-    """Print the HeAgent version banner to stderr on startup."""
-    click.echo(f"HeAgent v{__version__} — A self-improving AI Agent core framework", err=True)
-
-
-def _print_usage(usage: TokenUsage | None, *, model: str | None = None) -> None:
-    """Print token usage to stderr after a run (with optional cost, Epic 34)."""
-    if usage is None or usage.total_tokens == 0:
-        return
-    line = f"  [tokens: {usage.prompt_tokens} in + {usage.completion_tokens} out = {usage.total_tokens} total]"
-    if model:
-        cost = estimate_cost(usage, model, get_settings().model_pricing_map)
-        if cost is not None:
-            line += f" [cost: ${cost:.4f}]"
-    click.echo(line, err=True)
-
-
-@dataclass
-class _LineState:
-    """跟踪终端光标是否在行首（供状态消息决定是否补换行）。
-
-    流式输出经 ``click.echo(..., nl=False)`` 打印、常停半行；暂停/恢复等状态消息
-    需从行首开始，故按需补换行，避免无谓空行。
-    """
-
-    at_line_start: bool = True
-
-    def write(self, text: str) -> None:
-        """记录一次不带尾换行的输出，更新行首状态。"""
-        if text:
-            self.at_line_start = text.endswith("\n")
-
-
-def _echo_status(message: str, line_state: _LineState) -> None:
-    """打印状态消息：光标不在行首时先补换行；``click.echo`` 默认尾换行后置行首。"""
-    prefix = "" if line_state.at_line_start else "\n"
-    click.echo(f"{prefix}{message}", err=True)
-    line_state.at_line_start = True
-
-
-def _print_stream_event(event: Any, line_state: _LineState) -> None:
-    """Render one streaming event from ``AgentLoop.run_stream`` to the terminal."""
-    if event.type == "text":
-        click.echo(event.text, nl=False)
-        line_state.write(event.text)
-    elif event.type == "tool_call":
-        text = f"\n[calling {event.tool_name}...]"
-        click.echo(text, nl=False)
-        line_state.write(text)
-    elif event.type == "tool_result":
-        click.echo(" [done]", nl=False)
-        line_state.write(" [done]")
-
-
-def _format_tokens_k(n: int) -> str:
-    """Format token count with K/M suffix (e.g. 1234 -> '1.2K', 128000 -> '128K', 1000000 -> '1M')."""
-    if n < 1000:
-        return str(n)
-    if n >= 1_000_000:
-        m = n / 1_000_000
-        if m == int(m):
-            return f"{int(m)}M"
-        return f"{m:.1f}M"
-    k = n / 1000
-    if k == int(k):
-        return f"{int(k)}K"
-    return f"{k:.1f}K"
-
-
-def _format_status(loop: AgentLoop) -> str:
-    """Format CLI prompt prefix: model + current context occupancy / window + strategy threshold + cumulative.
-
-    Shows the **current** context occupancy (``loop.last_context_tokens``, i.e. the token
-    estimate of what the next call would send) against the context window, the active
-    context-management strategy threshold (compressor / window_reset), and the cumulative
-    tokens consumed since program start (across runs, only when > 0).
-    """
-    meta = loop.provider.get_metadata()
-    # RoutingProvider：只显示当前实际使用的模型（flash/pro），而非池内全部模型列表。
-    model = active_model(loop.provider) or meta.model
-    settings = get_settings()
-    max_tok = settings.max_context_tokens
-    used = loop.last_context_tokens
-    parts = [model, f"{_format_tokens_k(used)}/{_format_tokens_k(max_tok)} tok"]
-    # 上下文策略标签：window_reset 与 compressor 互斥，据 loop 实际启用的策略取阈值。
-    if loop.window_reset is not None:
-        parts.append(f"reset@{int(loop.window_reset.config.threshold * 100)}%")
-    elif loop.compressor is not None:
-        parts.append(f"cmp@{int(loop.compressor.threshold * 100)}%")
-    if loop.cumulative_tokens > 0:
-        parts.append(f"累计: {_format_tokens_k(loop.cumulative_tokens)} tok")
-    return f"[{' | '.join(parts)}]"
 
 
 def _setup_logging() -> None:
@@ -1887,13 +1793,9 @@ async def _goal_runner(  # noqa: C901
     *,
     cron_store: JobStore | None = None,
 ) -> None:
-    """/goal 子命令族总入口：skill 缺失守卫 → 子命令解析分发。
+    """/goal 子命令族总入口：加载声明式 workflow 后交给确定性分发器。
 
-    首 token 命中子命令集合（new/next/run/auto/status/reset）即子命令；否则整段
-    args 视为目标描述（等价 ``new``——中文目标常为单 token，无法与「拼错的子命令」
-    结构性区分，故按 Design Notes 解析契约一律视为描述）。``run``/``auto`` 属保留
-    子命令但 41.2/41.3 未实现，回用法表；保留字（new 除外）带尾文本时同样回用法表，
-    防尾文本被静默吞掉。
+    workflow.md 缺失或无效时显性失败，不回退到已移除的 legacy goal board。
     """
     try:
         declarative_workflow = _goal_declarative_workflow()
@@ -1909,87 +1811,6 @@ async def _goal_runner(  # noqa: C901
         err=True,
     )
     return
-    skill = _goal_skill_text()
-    if skill is None:
-        click.echo(
-            "[goal] 缺少 skill：.heagent/skills/goal/SKILL.md 不存在（工作流方法论契约）。\n"
-            "请创建该文件，frontmatter 最小示例：\n"
-            "  ---\n  name: goal\n  description: 目标驱动开发工作流契约\n  ---\n"
-            "正文写 GOAL.md 状态文件格式与 planning/story 规程。",
-            err=True,
-        )
-        return
-    parts = args.split(None, 1)
-    head = parts[0].lower() if parts else ""
-    rest = parts[1].strip() if len(parts) > 1 else ""
-    if not parts:
-        await _goal_status()
-    elif head == "new":
-        if rest:
-            async with _goal_auto_lock:
-                await _goal_new(provider, engine, skill, rest, cron_store=cron_store)
-        else:
-            _goal_usage()
-    elif head in ("next", "status", "reset", "run", "pause", "resume", "audit") and rest:
-        _goal_usage()  # 保留字带尾文本：显性拒绝，防尾文本被静默吞掉
-    elif head == "status":
-        await _goal_status()
-    elif head == "reset":
-        _goal_reset()
-    elif head == "next":
-        async with _goal_auto_lock:
-            await _goal_next(provider, engine, skill)
-    elif head == "run":
-        await _goal_run(provider, engine, skill)
-    elif head == "pause":
-        await _goal_pause()
-    elif head == "resume":
-        await _goal_resume()
-    elif head == "audit":
-        await _goal_audit(engine)
-    elif head == "auto":
-        goal_md = _goal_active_md()
-        if rest == "off":
-            if cron_store is None:
-                click.echo("[goal] cron 未启用，无法注销 auto job。", err=True)
-            elif goal_md is None:
-                click.echo("[goal] 无活跃 goal。", err=True)
-            else:
-                removed = _goal_auto_remove(cron_store, goal_md.parent.name)
-                click.echo(f"[goal] auto 已关闭：注销 {removed} 个 job。", err=True)
-        elif cron_store is None:
-            click.echo("[goal] cron 未启用；请设置 CRON_ENABLED=true 后重试。/goal next 可手动推进。", err=True)
-        elif goal_md is None:
-            click.echo("[goal] 无活跃 goal。请先使用 /goal new <目标描述>。", err=True)
-        else:
-            read = _goal_read_md(goal_md)
-            if read is None:
-                return
-            _, progress = read
-            if progress.status == "done" or (progress.total > 0 and progress.done >= progress.total):
-                click.echo(
-                    "[goal] \u5f53\u524d goal \u5df2\u5b8c\u6210\uff0c\u4e0d\u6ce8\u518c auto job\u3002", err=True
-                )
-                return
-            schedule = rest or _GOAL_AUTO_DEFAULT_CRON
-            try:
-                fields = schedule.split()
-                if len(fields) != 5:
-                    raise ValueError("cron 必须为 5 字段标准表达式")
-                if any(not field or any(not part.strip() for part in field.split(",")) for field in fields):
-                    raise ValueError("cron 字段不能包含空的逗号分段")
-                cron_matches(schedule, datetime.now(UTC))
-            except (TypeError, ValueError) as exc:
-                click.echo(f"[goal] 非法 cron 表达式：{exc}", err=True)
-            else:
-                goal_id = goal_md.parent.name
-                _goal_auto_remove(cron_store, goal_id)
-                job = cron_store.create_job(f"{_GOAL_AUTO_PREFIX}{goal_id}", schedule)
-                cron_store.add(job)
-                click.echo(f"[goal] auto 已注册：{job.id}，schedule={schedule!r}。", err=True)
-    else:
-        async with _goal_auto_lock:
-            await _goal_new(provider, engine, skill, args.strip(), cron_store=cron_store)
 
 
 async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:

@@ -7,3 +7,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-documentation-cleanup.md`
   summary: 整理测试文件分组、命名、重复覆盖与覆盖缺口。
   evidence: 本次整理范围包含测试文件；测试结构与代码拆分存在耦合，延后到代码模块阶段同步处理。
+- source_spec: none
+  summary: 整理测试文件分组、命名、重复覆盖与覆盖缺口。
+  evidence: 本轮按用户选择先处理代码模块拆分，测试结构作为独立阶段推进，避免测试迁移与生产代码重构同时扩大回归面。
