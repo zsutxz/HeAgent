@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import heagent.cli as cli
 from heagent.cli import _goal_cron_advance, _goal_declarative_runner, _goal_declarative_workflow, _goal_runner
 from heagent.cron.jobs import JobStore
 from heagent.engine import GoalArtifact, parse_artifact
@@ -66,9 +67,7 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     await _goal_runner(SimpleNamespace(), None, "status")
     assert "declarative progress: 1/2" in capsys.readouterr().err
 
-    await _goal_runner(SimpleNamespace(), None, "pause")
     await _goal_runner(SimpleNamespace(), None, "resume")
-    await _goal_runner(SimpleNamespace(), None, "next")
     assert len(successful_step) == 2
     assert "## requirements brief\noutput-1" in successful_step[1]
     persisted = await WorkflowCheckpointStore(str(goal_dir / "checkpoints")).list_checkpoints(goal_id=goal_id)
@@ -79,6 +78,27 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
 
     await _goal_runner(SimpleNamespace(), None, "audit")
     assert "audit unavailable without engine" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_declarative_resume_advances_once_under_goal_lock(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await _goal_runner(SimpleNamespace(), None, "new locked resume workflow")
+    observed: list[bool] = []
+    original = cli._goal_declarative_advance
+
+    async def observe_advance(provider, engine, workflow):
+        observed.append(cli._goal_auto_lock.locked())
+        return await original(provider, engine, workflow)
+
+    monkeypatch.setattr(cli, "_goal_declarative_advance", observe_advance)
+    await _goal_runner(SimpleNamespace(), None, "resume")
+
+    assert len(successful_step) == 2
+    assert observed == [True]
 
 
 @pytest.mark.asyncio
@@ -143,4 +163,38 @@ async def test_declarative_resume_retries_a_blocked_step(
     await _goal_runner(SimpleNamespace(), None, "resume")
 
     resumed = await _goal_declarative_runner(workflow, goal_dir)
-    assert resumed.state.status is WorkflowStatus.PENDING
+    assert resumed.state.status is WorkflowStatus.COMPLETED
+    assert resumed.state.completed_steps == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_declarative_next_rejects_waiting_checkpoint(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    await _goal_runner(SimpleNamespace(), None, "new checkpoint workflow")
+    await _goal_runner(SimpleNamespace(), None, "next")
+    assert len(successful_step) == 1
+    assert "use /goal resume first" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_final_checkpoint_persists_completed_state(
+    declarative_cwd: Path,
+    successful_step: list[str],
+) -> None:
+    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow.write_text(
+        "---\nname: final-checkpoint\nentrypoint: goal\non_create: persist_goal_identity\n"
+        "step_executor: subagent\n---\n\nworkflow instructions\n\n"
+        "## Step 01: finish\ninput: user intent, existing project context\n"
+        "output: implementation\ncheckpoint: true\n\nfinish the story\n",
+        encoding="utf-8",
+    )
+    await _goal_runner(SimpleNamespace(), None, "new final workflow")
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
+    runner = await _goal_declarative_runner(_goal_declarative_workflow(), goal_dir)  # type: ignore[arg-type]
+    assert runner.done
+    assert runner.state.status is WorkflowStatus.COMPLETED

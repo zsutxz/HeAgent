@@ -1167,26 +1167,27 @@ async def _goal_declarative_status(workflow: WorkflowResource) -> None:
     )
 
 
-async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: bool) -> None:
+async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: bool) -> bool:
+    """Persist a pause or resume and report whether a step may now execute."""
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
         click.echo("[goal] no active declarative goal", err=True)
-        return
+        return False
     try:
         runner = await _goal_declarative_runner(workflow, goal_dir)
         if runner.done:
             click.echo("[goal] declarative workflow is already complete", err=True)
-            return
+            return False
         if resume:
             if runner.state.status not in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
                 click.echo(f"[goal] workflow status={runner.state.status.value}; resume is not required", err=True)
-                return
+                return False
             runner.resume()
             action = "resumed"
         else:
             if runner.state.status is WorkflowStatus.WAITING_USER:
                 click.echo("[goal] already paused; use /goal resume to continue", err=True)
-                return
+                return False
             runner.state = runner.state.model_copy(
                 update={"status": WorkflowStatus.WAITING_USER, "reason": "user requested pause; resume to continue"}
             )
@@ -1194,8 +1195,9 @@ async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: 
         await runner.persist_state()
     except (WorkflowCheckpointError, ValueError) as exc:
         click.echo(f"[goal] declarative {action if 'action' in locals() else 'workflow'} failed: {exc}", err=True)
-        return
+        return False
     click.echo(f"[goal] declarative workflow {action}: step={runner.state.active_step}", err=True)
+    return resume
 
 
 async def _goal_declarative_run(
@@ -1275,7 +1277,9 @@ async def _goal_declarative_dispatch(
     elif head == "pause":
         await _goal_declarative_pause_resume(workflow, resume=False)
     elif head == "resume":
-        await _goal_declarative_pause_resume(workflow, resume=True)
+        async with _goal_auto_lock:
+            if await _goal_declarative_pause_resume(workflow, resume=True):
+                await _goal_declarative_advance(provider, engine, workflow)
     elif head == "audit":
         await _goal_audit(engine)
     elif head == "reset":

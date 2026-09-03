@@ -157,7 +157,7 @@ class WorkflowRunner:
                 if self.state.active_step + 1 >= len(self.workflow.steps)
                 else WorkflowStatus.PENDING
             )
-            if self.state.active_step < len(self.workflow.steps) and step.checkpoint.strip().casefold() in {
+            if self.state.active_step + 1 < len(self.workflow.steps) and step.checkpoint.strip().casefold() in {
                 "true",
                 "user",
                 "human",

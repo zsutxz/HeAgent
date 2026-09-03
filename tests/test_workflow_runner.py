@@ -71,6 +71,20 @@ async def test_checkpoint_waits_then_resume_advances_and_persists_state(tmp_path
 
 
 @pytest.mark.asyncio
+async def test_final_checkpoint_completes_instead_of_waiting(tmp_path) -> None:
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions="", checkpoint="true"))
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
+    runner = WorkflowRunner(workflow, goal_id="goal", run_id="run", checkpoint_store=store)
+
+    result = await runner.run_step(lambda _: WorkflowStepResult(output="done"))
+
+    assert result.status is WorkflowStatus.COMPLETED
+    assert runner.done
+    checkpoints = await store.list_checkpoints(goal_id="goal")
+    assert checkpoints[-1].status is WorkflowStatus.COMPLETED
+
+
+@pytest.mark.asyncio
 async def test_failed_step_is_retryable_without_fake_completion() -> None:
     workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
     runner = WorkflowRunner(workflow)
