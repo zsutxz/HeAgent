@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 import random
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 from heagent.exceptions import ProviderError
 
@@ -85,6 +85,13 @@ def wrap_provider_error(error: Exception) -> ProviderError:
     """
     status, message = _extract_status_message(error)
     return ProviderError(message, status_code=status)
+
+
+def raise_provider_error(error: Exception) -> NoReturn:
+    """Raise an existing ProviderError or wrap an SDK exception once."""
+    if isinstance(error, ProviderError):
+        raise error
+    raise wrap_provider_error(error) from error
 
 
 def classify_error(error: ProviderError) -> ErrorCategory:

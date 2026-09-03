@@ -15,6 +15,10 @@ import click
 logger = logging.getLogger(__name__)
 
 
+def _is_missing_textual(error: ImportError) -> bool:
+    return error.name == "textual" or (error.name or "").startswith("textual.")
+
+
 @click.command("gui")
 @click.option("--model", default=None, help="Model name (default: per-provider setting)")
 @click.option(
@@ -27,7 +31,9 @@ def gui_cmd(model: str | None, sandbox: str | None) -> None:
     """Launch the HeAgent terminal UI."""
     try:
         from heagent.gui import gui_main  # noqa: PLC0415
-    except ImportError:
+    except ImportError as exc:
+        if not _is_missing_textual(exc):
+            raise
         click.echo(
             "GUI 依赖未安装。请运行: pip install heagent[gui]",
             err=True,
@@ -78,7 +84,9 @@ def gui_cmd(model: str | None, sandbox: str | None) -> None:
         # gui_main 是同步入口（内部自行运行 Textual 事件循环）；
         # 不能包 asyncio.run()——gui_main 返回 None，asyncio.run(None) 会抛 TypeError。
         gui_main(model=model, sandbox=sandbox)
-    except ImportError:
+    except ImportError as exc:
+        if not _is_missing_textual(exc):
+            raise
         click.echo(
             "GUI 依赖未安装。请运行: pip install heagent[gui]",
             err=True,

@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from heagent.exceptions import ProviderError
 from heagent.providers.base import BaseProvider, ProviderMetadata
-from heagent.providers.retry import ErrorCategory, classify_exception, wrap_provider_error
+from heagent.providers.retry import ErrorCategory, classify_exception, raise_provider_error
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -28,9 +28,7 @@ def _raise_wrapped(error: Exception) -> None:
     统一保证 key_rotation chain 抛出的始终是 HeAgent Error 体系内的异常，
     不裸抛 SDK 异常穿透上层 ProviderChain。
     """
-    if isinstance(error, ProviderError):
-        raise error
-    raise wrap_provider_error(error) from error
+    raise_provider_error(error)
 
 
 class KeyRotatingProvider:

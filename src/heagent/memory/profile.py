@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from heagent.engine.persist import atomic_write_text
+from heagent.engine.persist import atomic_update_text, atomic_write_text
 
 
 class ProfileStore:
@@ -39,7 +39,13 @@ class ProfileStore:
           2. 找到 → 替换该节内容（直到下一个 ## 标题或文件末尾）
           3. 未找到 → 在文件末尾追加新节
         """
-        current = self.load()
+        def update(raw: str) -> tuple[str, None]:
+            return self._replace_section(raw.strip(), section, value), None
+
+        atomic_update_text(self._path, update)
+
+    @staticmethod
+    def _replace_section(current: str, section: str, value: str) -> str:
         header = f"## {section}"
         lines = current.splitlines() if current else []
         new_lines: list[str] = []
@@ -63,7 +69,7 @@ class ProfileStore:
             if new_lines:
                 new_lines.append("")
             new_lines.extend([header, value])
-        self.save("\n".join(new_lines) + "\n")
+        return "\n".join(new_lines) + "\n"
 
     def clear(self) -> None:
         """清除用户画像（删除文件）。"""

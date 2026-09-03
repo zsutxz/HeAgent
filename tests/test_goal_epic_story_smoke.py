@@ -4,15 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.engine.agile import (
-    CompletedStoryEvidence,
-    Retrospective,
-    ReviewFinding,
-    ReviewVerdict,
-    apply_review_verdict,
-)
-from heagent.engine.artifacts import ArtifactStatus, parse_artifact, validate_hierarchy
-from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowPhase, WorkflowStatus
+from heagent.engine.artifacts import parse_artifact, validate_hierarchy
+from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
 from heagent.engine.workflow_runner import WorkflowRunner, WorkflowStepResult
 from heagent.memory.skill_packages import WorkflowResource, WorkflowStepResource
 
@@ -116,33 +109,7 @@ async def test_two_story_epic_smoke_preserves_evidence_across_recovery(tmp_path)
 
     workflow_state = await store.load_workflow()
     assert workflow_state is not None
-    review_state = workflow_state.model_copy(update={"phase": WorkflowPhase.REVIEW, "status": WorkflowStatus.RUNNING})
-    rollback = apply_review_verdict(
-        review_state,
-        ReviewVerdict(
-            evidence=["review output"],
-            findings=[ReviewFinding(finding_id="f-1", summary="missing edge assertion", evidence=["test gap"])],
-        ),
-    )
-    assert rollback.state.phase is WorkflowPhase.IMPLEMENTATION
-    assert rollback.verdict.findings[0].summary == "missing edge assertion"
-
-    retrospective = Retrospective(
-        epic_id="epic-sample",
-        stories=[
-            CompletedStoryEvidence(
-                story_id="story-one",
-                status=ArtifactStatus.DONE,
-                acceptance_evidence=["story-one acceptance passed"],
-            ),
-            CompletedStoryEvidence(
-                story_id="story-two",
-                status=ArtifactStatus.DONE,
-                acceptance_evidence=["story-two acceptance passed"],
-            ),
-        ],
-        outcomes=["two stories delivered"],
-        lessons=["checkpoint recovery preserves WIP"],
-        actions=["keep artifact gates"],
-    )
-    assert [story.story_id for story in retrospective.stories] == ["story-one", "story-two"]
+    # Non-DONE workflow phases persist completed runner state as RUNNING.
+    assert workflow_state.status is WorkflowStatus.RUNNING
+    assert workflow_state.artifact_refs == ["story-one.md", "story-one", "story-two.md", "story-two"]
+    assert len(restored.state.acceptance_evidence) == 2

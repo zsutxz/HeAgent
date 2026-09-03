@@ -654,13 +654,13 @@ class AgentLoop:
 
         # 若指定会话，恢复历史消息（剔除旧 SYSTEM，避免与新系统提示词重复）。
         if self.session and session_id:
-            prior = self.session.load(session_id)
+            prior = await asyncio.to_thread(self.session.load, session_id)
             if prior:
                 state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
                 logger.debug("Restored %d messages from session '%s'", len(prior), session_id)
 
         # 拼装系统提示词（注入 soul/context/skills/facts/profile），再落 SYSTEM + USER。
-        system_content = self._build_system(system, prompt=prompt)
+        system_content = await asyncio.to_thread(self._build_system, system, prompt=prompt)
         if system_content:
             state.messages.append(Message(role=Role.SYSTEM, content=system_content))
         state.messages.append(Message(role=Role.USER, content=prompt))
@@ -691,7 +691,7 @@ class AgentLoop:
         # 防止「暂停后被打断」的暂停态泄漏到下一次 run（P1 修复）。
         self._pause_event.set()
         if self.session and session_id:
-            self.session.save(session_id, state.messages)
+            await asyncio.to_thread(self.session.save, session_id, state.messages)
             logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
         self.last_usage = accumulated
         self.last_iteration = state.iteration

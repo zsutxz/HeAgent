@@ -18,6 +18,7 @@ import logging
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -26,6 +27,7 @@ from pydantic import BaseModel, ValidationError
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
+R = TypeVar("R")
 
 # ── 平台自适应文件锁 ──────────────────────────────────────────────
 
@@ -160,6 +162,29 @@ def atomic_write_text(
                 # 正在等待旧 inode 上的锁，进程 C 新建 .lock 并加锁成功，导致 B/C 的
                 # 互斥失效。保留 0 字节锁文件换取跨进程互斥的正确性；ledger prune
                 # 会随记录文件一并清理过期 .lock（见 engine/ledger.py）。
+
+
+def atomic_update_text(path: Path, update: Callable[[str], tuple[str, R]], *, lock_timeout: float = 5.0) -> R:
+    """Read, update, and replace a text file while holding one cross-process lock."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".lock")
+    lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    try:
+        _acquire_lock(lock_fd, lock_timeout)
+        try:
+            current = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            current = ""
+        replacement, result = update(current)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(replacement, encoding="utf-8")
+        os.replace(tmp, path)
+        return result
+    finally:
+        try:
+            _release_lock(lock_fd)
+        finally:
+            os.close(lock_fd)
 
 
 def load_json_model(path: Path, model_cls: type[T]) -> T | None:

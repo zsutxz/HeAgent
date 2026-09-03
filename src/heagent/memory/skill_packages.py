@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import errno
-import inspect
 import os
 import re
 import stat
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
-from typing import Any, Awaitable, Callable, Iterable, Literal, cast  # noqa: UP035
+from typing import Any, Iterable, cast  # noqa: UP035
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
@@ -620,121 +619,3 @@ class SkillResolver:
         if not entry.available or entry.package is None:
             raise SkillResolutionError(requested, entry.error or "package is unavailable", matches)
         return entry.package
-
-
-SkillStepStatus = Literal["pending", "waiting_user", "blocked", "completed", "failed"]
-
-
-class SkillStep(BaseModel):
-    """The one step presented to a skill runner callback."""
-
-    index: int
-    name: str
-    instructions: str
-
-
-class SkillStepResult(BaseModel):
-    """Validated outcome returned by one step execution."""
-
-    status: Literal["waiting_user", "blocked", "completed", "failed"]
-    reason: str = ""
-    output: str | None = None
-
-
-class SkillRunnerState(BaseModel):
-    """Serializable state for resuming a single skill without skipping steps."""
-
-    active_step: int | None = 0
-    status: SkillStepStatus = "pending"
-    reason: str = ""
-    completed_steps: list[int] = Field(default_factory=list)
-
-
-SkillStepCallback = Callable[[SkillStep], SkillStepResult | Awaitable[SkillStepResult]]
-
-
-class SkillRunner:
-    """Execute exactly one declared skill step per call.
-
-    The runner owns sequencing and state transitions, while the callback owns
-    the actual agent execution. A paused/blocked result keeps the same active
-    step; no subsequent step is read until that step reports completion.
-    """
-
-    def __init__(self, package: SkillPackage, steps: Iterable[str], state: SkillRunnerState | None = None) -> None:
-        self.package = package
-        self.steps = tuple(steps)
-        if not self.steps:
-            raise ValueError("skill runner requires at least one step")
-        for index, name in enumerate(self.steps):
-            if not isinstance(name, str) or not name.strip():
-                raise ValueError(f"step {index} has an empty name")
-            # Validate names at construction, without reading or scanning resources.
-            package._resolve(name)
-        self.state = state or SkillRunnerState()
-        self._validate_state()
-
-    @property
-    def done(self) -> bool:
-        return self.state.status == "completed" and self.state.active_step is None
-
-    def _validate_state(self) -> None:
-        active = self.state.active_step
-        if active is not None and not 0 <= active < len(self.steps):
-            raise ValueError(f"active step index {active} is out of range")
-        if len(set(self.state.completed_steps)) != len(self.state.completed_steps):
-            raise ValueError("completed step indexes must be unique")
-        if any(index < 0 or index >= len(self.steps) for index in self.state.completed_steps):
-            raise ValueError("completed step index is out of range")
-        if self.state.status == "completed" and active is None and len(self.state.completed_steps) != len(self.steps):
-            raise ValueError("completed runner must have completed every step")
-
-    async def run(self, callback: SkillStepCallback) -> SkillRunnerState:
-        """Invoke ``callback`` once for the current step and return a snapshot."""
-        if not callable(callback):
-            raise TypeError("step callback must be callable")
-        if self.done or self.state.status == "failed":
-            return self.state.model_copy(deep=True)
-        if self.state.status == "completed":
-            next_index = self.state.active_step
-            if next_index is None:
-                return self.state.model_copy(deep=True)
-            next_index += 1
-            if next_index >= len(self.steps):
-                object.__setattr__(self, "state", self.state.model_copy(update={"active_step": None}))
-                return self.state.model_copy(deep=True)
-            object.__setattr__(
-                self,
-                "state",
-                self.state.model_copy(update={"active_step": next_index, "status": "pending", "reason": ""}),
-            )
-        active = self.state.active_step
-        if active is None:
-            return self.state.model_copy(deep=True)
-        step = SkillStep(index=active, name=self.steps[active], instructions=self.package.read_step(self.steps[active]))
-        result = callback(step)
-        if inspect.isawaitable(result):
-            result = await result
-        if not isinstance(result, SkillStepResult):
-            raise TypeError("step callback must return SkillStepResult")
-        completed = list(self.state.completed_steps)
-        if result.status == "completed" and active not in completed:
-            completed.append(active)
-        active_step = None if result.status == "completed" and active == len(self.steps) - 1 else active
-        self.state = self.state.model_copy(
-            update={
-                "active_step": active_step,
-                "status": result.status,
-                "reason": result.reason,
-                "completed_steps": completed,
-            }
-        )
-        return self.state.model_copy(deep=True)
-
-    async def run_step(self, callback: SkillStepCallback) -> SkillRunnerState:
-        """Compatibility alias emphasizing that one invocation advances one step."""
-        return await self.run(callback)
-
-
-# Short aliases keep callers independent of the concrete diagnostic subclass names.
-SkillResourceError = SkillPackageResourceError

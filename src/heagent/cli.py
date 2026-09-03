@@ -1950,10 +1950,7 @@ def init_cmd(project: bool) -> None:
 # Set run as the default command (heagent "hello" -> run "hello")
 main.set_default_command("run")
 
-# Register gui subcommand (lazy import to avoid loading Textual on non-GUI paths)
-try:
-    from heagent.gui.cli import gui_cmd
+# Register the lightweight GUI command wrapper; Textual itself remains lazy.
+from heagent.gui.cli import gui_cmd  # noqa: E402
 
-    main.add_command(gui_cmd)
-except ImportError:
-    pass
+main.add_command(gui_cmd)

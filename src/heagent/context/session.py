@@ -14,7 +14,7 @@ import re
 import time
 from pathlib import Path
 
-from heagent.engine.persist import atomic_write_text
+from heagent.engine.persist import atomic_update_text
 from heagent.types import Message
 
 # session_id 允许的字符集：字母数字 + 连字符/下划线，防止路径遍历（如 ../etc/passwd）。
@@ -62,8 +62,16 @@ class SessionStore:
             "timestamp": time.time(),
             "messages": [m.model_dump() for m in messages],
         }
-        text = json.dumps(data, ensure_ascii=False, indent=2)
-        atomic_write_text(path, text)
+        def update(raw: str) -> tuple[str, None]:
+            try:
+                current = json.loads(raw) if raw else {}
+                version = current.get("version", 0) if isinstance(current, dict) else 0
+            except json.JSONDecodeError:
+                version = 0
+            data["version"] = (version or 0) + 1
+            return json.dumps(data, ensure_ascii=False, indent=2), None
+
+        atomic_update_text(path, update)
         return str(path)
 
     def load(self, session_id: str) -> list[Message]:

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from heagent.engine.persist import atomic_write_text
+from heagent.engine.persist import atomic_update_text
 
 
 class FactStore:
@@ -34,11 +34,7 @@ class FactStore:
         else:
             raw = ""
 
-        # 从 raw 解析已有事实列表（与 _load_facts 逻辑一致）
-        existing: list[str] = []
-        for line in raw.strip().splitlines():
-            if line.startswith("- "):
-                existing.append(line[2:])
+        existing = self._parse_facts(raw)
 
         fact_words = set(fact.lower().split())  # 新事实的单词集合
         for ef in existing:
@@ -46,8 +42,16 @@ class FactStore:
             if len(overlap) / max(len(fact_words), 1) > 0.7:  # 70% 阈值
                 return False
         # 追加写入（原子写整文件，防崩溃中途截断）
-        atomic_write_text(self._path, raw + f"- {fact}\n")
-        return True
+        return atomic_update_text(self._path, lambda current: self._append_fact(current, fact))
+
+    @classmethod
+    def _append_fact(cls, raw: str, fact: str) -> tuple[str, bool]:
+        existing = cls._parse_facts(raw)
+        words = set(fact.lower().split())
+        for old in existing:
+            if len(words & set(old.lower().split())) / max(len(words), 1) > 0.7:
+                return raw, False
+        return raw + f"- {fact}\n", True
 
     def load(self) -> list[str]:
         """加载所有已存储的事实列表。"""
@@ -62,5 +66,9 @@ class FactStore:
         """从 MEMORY.md 解析所有 `- ` 开头的行。"""
         if not self._path.exists():
             return []
-        lines = self._path.read_text(encoding="utf-8").strip().splitlines()
-        return [line[2:] for line in lines if line.startswith("- ")]
+        return self._parse_facts(self._path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _parse_facts(raw: str) -> list[str]:
+        """Parse Markdown bullet facts from already-loaded text."""
+        return [line[2:] for line in raw.strip().splitlines() if line.startswith("- ")]

@@ -11,7 +11,7 @@ import logging
 from typing import TYPE_CHECKING, NoReturn
 
 from heagent.exceptions import ProviderError
-from heagent.providers.retry import ErrorCategory, classify_exception, wrap_provider_error
+from heagent.providers.retry import ErrorCategory, classify_exception, raise_provider_error
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -30,9 +30,7 @@ def _raise_provider_error(error: Exception) -> NoReturn:
     否则把 SDK/未知异常包装为 ProviderError，并以原始异常为 cause，供上层中间件分类重试、
     CLI 统一捕获，避免裸 SDK 异常穿透导致未处理崩溃。
     """
-    if isinstance(error, ProviderError):
-        raise error
-    raise wrap_provider_error(error) from error
+    raise_provider_error(error)
 
 
 class ProviderChain:
