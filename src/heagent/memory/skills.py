@@ -17,12 +17,13 @@ from __future__ import annotations
 import contextlib
 import re
 import shutil
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from heagent.engine.persist import atomic_write_text
+from heagent.engine.persist import atomic_update_text, atomic_write_text
 
 
 class SkillContent(BaseModel):
@@ -49,6 +50,11 @@ class SkillStore:
 
     def __init__(self, base_dir: str = ".heagent/skills") -> None:
         self._base = Path(base_dir)
+        # ``record_usage`` performs a read/modify/write cycle and is called
+        # from worker threads by parallel sub-agents.  Keep that cycle
+        # atomic per store instance; the file lock in ``save`` additionally
+        # protects the final replace across processes.
+        self._mutation_lock = threading.Lock()
 
     # ---- 路径工具 ----
 
@@ -59,6 +65,41 @@ class SkillStore:
     def _skill_md(self, name: str) -> Path:
         """SKILL.md 文件路径。"""
         return self._skill_dir(name) / "SKILL.md"
+
+    @staticmethod
+    def _render_skill_md(
+        name: str,
+        description: str,
+        pattern: str,
+        steps: list[str],
+        *,
+        tags: list[str] | None,
+        usage_count: int,
+        last_used: str,
+        created: str,
+    ) -> str:
+        """Render the canonical on-disk representation for one skill."""
+        tag_str = ", ".join(tags) if tags else ""
+        fm_lines = [
+            "---",
+            f"name: {name}",
+            f'description: "{description}"',
+            f"created: {created}",
+        ]
+        if tag_str:
+            fm_lines.append(f"tags: [{tag_str}]")
+        fm_lines.append(f"usage_count: {usage_count}")
+        if last_used:
+            fm_lines.append(f'last_used: "{last_used}"')
+        fm_lines.extend(["---", ""])
+
+        body_lines = [f"# {name}", ""]
+        if pattern:
+            body_lines.extend(["## Pattern", pattern, ""])
+        body_lines.append("## Steps")
+        body_lines.extend(f"{i}. {step}" for i, step in enumerate(steps, 1))
+        body_lines.append("")
+        return "\n".join(fm_lines) + "\n" + "\n".join(body_lines)
 
     @staticmethod
     def _validate_name(name: str) -> str:
@@ -96,36 +137,18 @@ class SkillStore:
 
         if created is None:
             created = datetime.now().isoformat()
-        tag_str = ", ".join(tags) if tags else ""
-        # frontmatter
-        fm_lines = [
-            "---",
-            f"name: {safe}",
-            f'description: "{description}"',
-            f"created: {created}",
-        ]
-        if tag_str:
-            fm_lines.append(f"tags: [{tag_str}]")
-        fm_lines.append(f"usage_count: {usage_count}")
-        if last_used:
-            fm_lines.append(f'last_used: "{last_used}"')
-        fm_lines.append("---")
-        fm_lines.append("")
-
-        # 正文
-        body_lines = [f"# {safe}", ""]
-        if pattern:
-            body_lines.append("## Pattern")
-            body_lines.append(pattern)
-            body_lines.append("")
-        body_lines.append("## Steps")
-        for i, step in enumerate(steps, 1):
-            body_lines.append(f"{i}. {step}")
-        body_lines.append("")
-
-        content = "\n".join(fm_lines) + "\n" + "\n".join(body_lines)
+        content = self._render_skill_md(
+            safe,
+            description,
+            pattern,
+            steps,
+            tags=tags,
+            usage_count=usage_count,
+            last_used=last_used,
+            created=created,
+        )
         md_path = skill_dir / "SKILL.md"
-        atomic_write_text(md_path, content)
+        atomic_write_text(md_path, content, lock=True)
         return str(md_path)
 
     def load(self, name: str) -> str | None:
@@ -203,20 +226,30 @@ class SkillStore:
 
     def record_usage(self, name: str) -> None:
         """递增技能使用计数并更新最后使用时间。"""
-        existing = self.parse(name)
-        if existing is None:
+        try:
+            md_path = self._skill_md(name)
+        except ValueError:
             return
-        now = datetime.now().isoformat()
-        self.save(
-            name,
-            existing.description,
-            existing.pattern,
-            existing.steps,
-            tags=existing.tags or None,
-            usage_count=existing.usage_count + 1,
-            last_used=now,
-            created=existing.created,  # P1-7 修复：保留原始创建时间
-        )
+
+        def increment(raw: str) -> tuple[str, bool]:
+            if not raw:
+                return raw, False
+            existing = self._parse_skill_md(name, raw)
+            now = datetime.now().isoformat()
+            content = self._render_skill_md(
+                name,
+                existing.description,
+                existing.pattern,
+                existing.steps,
+                tags=existing.tags or None,
+                usage_count=existing.usage_count + 1,
+                last_used=now,
+                created=existing.created,
+            )
+            return content, True
+
+        with self._mutation_lock:
+            atomic_update_text(md_path, increment)
 
     def stale_skills(self, days: int = 30) -> list[str]:
         """返回超过 N 天未使用的技能名称列表。"""
