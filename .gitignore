@@ -27,6 +27,8 @@ workflow_test_tmp*/
 # Understand-Anything (knowledge graph artifacts)
 .ua/
 .understand-anything/
+**/.ua/
+**/.understand-anything/
 
 # Coverage (pytest-cov)
 .coverage
@@ -49,5 +51,5 @@ docs/claude-updater/
 
 # BMad (bmad-method installer artifacts)
 uv.lock
-_bmad-output/specs/
 .agents/skills/
+_he-output/goals
