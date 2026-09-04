@@ -109,6 +109,7 @@ Artifact = GoalArtifact | EpicArtifact | StoryArtifact
 
 _FRONTMATTER = re.compile(r"\A---\s*\n(?P<raw>.*?)\n---\s*(?:\n|\Z)", re.DOTALL)
 _HEADING = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
+_FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _TBD = re.compile(r"\bTBD\b", re.IGNORECASE)
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 
@@ -152,7 +153,27 @@ def parse_frontmatter(text: str) -> Frontmatter:
 
 
 def _sections(body: str) -> dict[str, str]:
-    matches = list(_HEADING.finditer(body))
+    fence_ranges: list[tuple[int, int]] = []
+    fence_start: int | None = None
+    fence_marker: tuple[str, int] | None = None
+    offset = 0
+    for line in body.splitlines(keepends=True):
+        fence = _FENCE.match(line)
+        if fence:
+            marker = fence.group(1)
+            if fence_start is None:
+                fence_start, fence_marker = offset, (marker[0], len(marker))
+            elif fence_marker and marker[0] == fence_marker[0] and len(marker) >= fence_marker[1]:
+                fence_ranges.append((fence_start, offset + len(line)))
+                fence_start, fence_marker = None, None
+        offset += len(line)
+    if fence_start is not None:
+        fence_ranges.append((fence_start, len(body)))
+    matches = [
+        match
+        for match in _HEADING.finditer(body)
+        if not any(start <= match.start() < end for start, end in fence_ranges)
+    ]
     sections: dict[str, str] = {}
     for index, match in enumerate(matches):
         name = re.sub(r"\s+", " ", match.group(1).strip()).casefold()

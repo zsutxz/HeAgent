@@ -8,7 +8,13 @@ from types import SimpleNamespace
 import pytest
 
 import heagent.cli as cli
-from heagent.cli import _goal_cron_advance, _goal_declarative_runner, _goal_declarative_workflow, _goal_runner
+from heagent.cli import (
+    _goal_cron_advance,
+    _goal_declarative_runner,
+    _goal_declarative_workflow,
+    _goal_project_id,
+    _goal_runner,
+)
 from heagent.cron.jobs import JobStore
 from heagent.engine import GoalArtifact, parse_artifact
 from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
@@ -48,15 +54,20 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     successful_step: list[str],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    await _goal_runner(SimpleNamespace(), None, "new ship the workflow")
+    await _goal_runner(SimpleNamespace(), None, "new ship   the workflow")
     goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
     goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
     goal_document = goal_dir / "GOAL.md"
     assert goal_document.exists()
+    goal_text = goal_document.read_text(encoding="utf-8")
+    assert "## 原始需求（Original Request）" in goal_text
+    assert "ship   the workflow" in goal_text
+    assert not (goal_dir / "ORIGINAL_REQUEST.md").exists()
     assert not (goal_dir / "goal.txt").exists()
+    assert (goal_dir / "step-01-plan.md").read_text(encoding="utf-8") == "output-1"
     assert isinstance(parse_artifact(goal_document), GoalArtifact)
     assert len(successful_step) == 1
-    assert "## user intent\nship the workflow" in successful_step[0]
+    assert "## user intent\nship   the workflow" in successful_step[0]
     assert "## existing project context" in successful_step[0]
     assert f"Project output root: {declarative_cwd / '_he-output'}" in successful_step[0]
     checkpoints = await WorkflowCheckpointStore(str(goal_dir / "checkpoints")).list_checkpoints(goal_id=goal_id)
@@ -67,9 +78,14 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     await _goal_runner(SimpleNamespace(), None, "status")
     assert "declarative progress: 1/2" in capsys.readouterr().err
 
-    await _goal_runner(SimpleNamespace(), None, "resume")
+    await _goal_runner(SimpleNamespace(), None, "resume confirmed: use the requested scope")
     assert len(successful_step) == 2
     assert "## requirements brief\noutput-1" in successful_step[1]
+    assert "## user responses" in successful_step[1]
+    assert "confirmed: use the requested scope" in successful_step[1]
+    persisted_goal = goal_document.read_text(encoding="utf-8")
+    assert "## 用户补充（User Responses）" in persisted_goal
+    assert "confirmed: use the requested scope" in persisted_goal
     persisted = await WorkflowCheckpointStore(str(goal_dir / "checkpoints")).list_checkpoints(goal_id=goal_id)
     assert len({checkpoint.checkpoint_id for checkpoint in persisted}) == len(persisted)
 
@@ -78,6 +94,11 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
 
     await _goal_runner(SimpleNamespace(), None, "audit")
     assert "audit unavailable without engine" in capsys.readouterr().err
+
+
+def test_goal_project_id_uses_english_letters_without_numeric_suffix() -> None:
+    assert _goal_project_id("继续开发 MCP 安全功能 2026") == "continue-development-mcp-security-feature"
+    assert _goal_project_id("Build MCP security 2026") == "build-mcp-security"
 
 
 @pytest.mark.asyncio

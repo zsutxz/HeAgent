@@ -631,11 +631,14 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 `_he-output/goals/<goal_id>/GOAL.md` 首个非空 `status`、story checkbox 数量，
 以及可选的 `in-progress` 标记；不会创建独立的 `goal.py` 状态模型或 `runs.jsonl`。
 
-- `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/GOAL.md` 与 `current` 指针，
-  并启动 planning SubAgent。
+- `/goal <description>` 或 `/goal new <description>` 从原始需求提取英文字母 project slug，创建
+  `_he-output/goals/<goal_id>/GOAL.md` 与 `current` 指针；原始需求明确标注在 `GOAL.md` 专属章节中，
+  同名冲突使用字母后缀，并启动 planning SubAgent。
 - `/goal next` 推进一条 story；`/goal run` 复用同一推进函数连续执行，最多 10 轮。
   每一步都是全新的 SubAgent/RunContext，会话失败、状态回退、blocked/planning 或无净完成时停止。
 - `/goal status` 只读回显状态与完整 GOAL.md；`/goal reset` 只清除 current 指针并保留目录。
+- `/goal resume [回复]` 在 `waiting_user`、`blocked` 或 `failed` 状态下把用户回复追加到
+  `GOAL.md` 的“用户补充（User Responses）”章节，再恢复并执行当前步骤；无回复时仅恢复状态。
 - `/goal auto [cron]` 将 `goal-advance <goal_id>` 写入 JobStore，cron tick 复用推进路径；
   goal 完成或 blocked 时自动注销，`/goal auto off` 可手动注销。
 
@@ -646,12 +649,17 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 
 **Current declarative contract:** `/goal` requires the self-contained
 `.heagent/workflows/workflow.md`. Its `on_create` declaration
-creates `_he-output/goals/<goal_id>/GOAL.md` plus the `current` pointer; `GOAL.md` is a standard
-GoalArtifact and is the only durable goal description. The old `goal.txt` /
+extracts a letter-only English project slug from the original request and creates
+`_he-output/goals/<goal_id>/GOAL.md`, plus the `current` pointer; `GOAL.md` is a
+standard GoalArtifact containing normalized Goal metadata and a marked
+`原始需求（Original Request）` section. The old `goal.txt` /
 skill-driven Story flow is not used as a fallback. Each inline `## Step NN:`
 section declares the prompt, I/O contract, and checkpoint behavior; the CLI
 only maps the supported `persist_goal_identity` and `subagent` declarations to
-deterministic operations.
+deterministic operations. The exact request text is preserved in the marked Goal
+section; successful step output is persisted as
+`step-XX-<step-name>.md` beside the workflow checkpoint, so analysis artifacts
+remain inspectable without replacing the normalized Goal metadata.
 
 ### 4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）
 
