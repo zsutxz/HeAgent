@@ -117,6 +117,7 @@ exceptions  types  config
 - **日志**：每个模块 `logging.getLogger(__name__)`，仅使用标准库。
 - **行宽**：120（ruff.toml）。
 - **Python 版本**：3.11+。
+- **Git 提交**：commit message 一律使用中文。
 
 ## 已知缺口
 
