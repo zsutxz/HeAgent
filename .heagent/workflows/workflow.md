@@ -3,6 +3,7 @@ name: bmad-development
 entrypoint: goal
 on_create: persist_goal_identity
 step_executor: subagent
+checkpoint_mode: prompt
 ---
 
 # BMad development workflow

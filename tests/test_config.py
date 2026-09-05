@@ -73,6 +73,15 @@ class TestEnvLoading:
         s = Settings()
         assert s.max_iterations == 100
 
+    def test_goal_checkpoint_mode_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GOAL_CHECKPOINT_MODE", "auto")
+        assert Settings(_env_file=None).goal_checkpoint_mode == "auto"
+
+    def test_goal_checkpoint_mode_invalid_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GOAL_CHECKPOINT_MODE", "sometimes")
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)
+
     def test_compression_threshold(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("COMPRESSION_THRESHOLD", "0.5")
         s = Settings()
@@ -325,6 +334,9 @@ class TestLedgerRetention:
 
 
 class TestDefaults:
+    def test_default_goal_checkpoint_mode(self) -> None:
+        assert Settings(_env_file=None).goal_checkpoint_mode == "prompt"
+
     def test_default_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("DEFAULT_MODEL", raising=False)
         s = Settings(_env_file=None)

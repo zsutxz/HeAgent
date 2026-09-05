@@ -16,6 +16,7 @@ from heagent.cli import (
     _goal_runner,
 )
 from heagent.cron.jobs import JobStore
+from heagent.config import reset_settings
 from heagent.engine import GoalArtifact, parse_artifact
 from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
 
@@ -219,3 +220,119 @@ async def test_final_checkpoint_persists_completed_state(
     runner = await _goal_declarative_runner(_goal_declarative_workflow(), goal_dir)  # type: ignore[arg-type]
     assert runner.done
     assert runner.state.status is WorkflowStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_auto_mode_advances_until_completion(
+    declarative_cwd: Path,
+    successful_step: list[str],
+) -> None:
+    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow.write_text(
+        workflow.read_text(encoding="utf-8").replace(
+            "step_executor: subagent\n", "step_executor: subagent\ncheckpoint_mode: auto\n"
+        ),
+        encoding="utf-8",
+    )
+
+    await _goal_runner(SimpleNamespace(), None, "new auto workflow")
+
+    assert len(successful_step) == 2
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    runner = await _goal_declarative_runner(  # type: ignore[arg-type]
+        _goal_declarative_workflow(), declarative_cwd / "_he-output" / "goals" / goal_id
+    )
+    assert runner.done
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_mode_env_applies_when_workflow_omits_declaration(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GOAL_CHECKPOINT_MODE", "auto")
+    reset_settings()
+
+    await _goal_runner(SimpleNamespace(), None, "new env auto workflow")
+
+    assert len(successful_step) == 2
+
+
+@pytest.mark.asyncio
+async def test_workflow_checkpoint_mode_overrides_environment(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GOAL_CHECKPOINT_MODE", "auto")
+    reset_settings()
+    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow.write_text(
+        workflow.read_text(encoding="utf-8").replace(
+            "step_executor: subagent\n", "step_executor: subagent\ncheckpoint_mode: prompt\n"
+        ),
+        encoding="utf-8",
+    )
+
+    await _goal_runner(SimpleNamespace(), None, "new explicit prompt workflow")
+
+    assert len(successful_step) == 1
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_prompt_accepts_and_advances(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    confirmations: list[bool] = []
+
+    def confirm(_message: str, *, default: bool = False) -> bool:
+        confirmations.append(default)
+        return True
+
+    monkeypatch.setattr(cli.click, "confirm", confirm)
+
+    await _goal_runner(SimpleNamespace(), None, "new prompt workflow")
+
+    assert len(successful_step) == 2
+    assert confirmations == [False]
+
+
+@pytest.mark.asyncio
+async def test_checkpoint_prompt_rejection_keeps_waiting_user(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(cli.click, "confirm", lambda _message, default=False: False)
+
+    await _goal_runner(SimpleNamespace(), None, "new paused workflow")
+
+    assert len(successful_step) == 1
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    runner = await _goal_declarative_runner(
+        _goal_declarative_workflow(), declarative_cwd / "_he-output" / "goals" / goal_id
+    )  # type: ignore[arg-type]
+    assert runner.state.status is WorkflowStatus.WAITING_USER
+
+
+@pytest.mark.asyncio
+async def test_invalid_checkpoint_mode_fails_workflow_load(
+    declarative_cwd: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow.write_text(
+        workflow.read_text(encoding="utf-8").replace(
+            "step_executor: subagent\n", "step_executor: subagent\ncheckpoint_mode: always\n"
+        ),
+        encoding="utf-8",
+    )
+
+    await _goal_runner(SimpleNamespace(), None, "new invalid mode")
+
+    assert "invalid checkpoint_mode 'always'" in capsys.readouterr().err

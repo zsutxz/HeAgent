@@ -1017,6 +1017,29 @@ def _validate_goal_workflow(workflow: WorkflowResource) -> None:
         raise ValueError(f"unsupported goal workflow step executor: {workflow.step_executor}")
 
 
+def _goal_checkpoint_mode(workflow: WorkflowResource) -> str:
+    """Resolve checkpoint policy: workflow declaration, env-backed settings, default."""
+    declared = workflow.checkpoint_mode.strip().casefold()
+    if declared:
+        return declared
+    return get_settings().goal_checkpoint_mode
+
+
+def _goal_checkpoint_prompt() -> bool:
+    """Ask for checkpoint approval only when stdin is an interactive TTY."""
+    if not sys.stdin.isatty():
+        click.echo("[goal] waiting for user response; use /goal resume <answer> to continue", err=True)
+        return False
+    try:
+        approved = bool(click.confirm("[goal] checkpoint complete; continue to the next step?", default=False))
+        if not approved:
+            click.echo("[goal] checkpoint paused; use /goal resume <answer> to continue", err=True)
+        return approved
+    except (EOFError, KeyboardInterrupt, click.Abort):
+        click.echo("[goal] checkpoint paused; use /goal resume <answer> to continue", err=True)
+        return False
+
+
 def _goal_declarative_workflow() -> WorkflowResource | None:
     """Load the explicitly configured declarative goal workflow, if enabled.
 
@@ -1137,12 +1160,12 @@ def _goal_role_instructions(step_name: str) -> str:
         raise ValueError(f"workflow role '{role_name}' is unavailable: {exc}") from exc
 
 
-async def _goal_declarative_advance(
+async def _goal_declarative_advance(  # noqa: C901
     provider: BaseProvider,
     engine: EngineContainer | None,
     workflow: WorkflowResource,
 ) -> str:
-    """Execute one declared step, preserving completed-step checkpoints exactly."""
+    """Advance deterministically through steps and resolve completed checkpoints."""
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
         click.echo("[goal] no active declarative goal; use /goal new <description>", err=True)
@@ -1172,13 +1195,11 @@ async def _goal_declarative_advance(
         click.echo(f"[goal] declarative workflow is {runner.state.status.value}: {runner.state.reason}", err=True)
         return _GOAL_FAILED
 
-    inputs: dict[str, Any] = {
-        "user intent": description,
-        "user responses": _goal_user_responses(goal_dir) or "No user response has been recorded.",
-        "existing project context": load_context_files(os.getcwd())
-        or "No project context file was found; inspect the current workspace before making assumptions.",
-        **runner.state.outputs,
-    }
+    try:
+        mode = _goal_checkpoint_mode(workflow)
+    except ValueError as exc:
+        click.echo(f"[goal] invalid checkpoint mode: {exc}", err=True)
+        return _GOAL_FAILED
 
     async def execute_step(step: Any) -> WorkflowStepResult:
         result = await _goal_session(
@@ -1202,21 +1223,57 @@ async def _goal_declarative_advance(
 
     # Input declarations describe the context supplied by this deterministic CLI
     # boundary. Artifact names from completed steps remain available on resume.
-    try:
-        result = await runner.run_step(execute_step, inputs=inputs)
-    except (WorkflowCheckpointError, ValueError, TypeError) as exc:
-        click.echo(f"[goal] declarative workflow failed: {exc}", err=True)
-        return _GOAL_FAILED
-    click.echo(
-        f"[goal] declarative workflow: step={result.step_index if result.step_index is not None else '-'} "
-        f"status={result.status.value}",
-        err=True,
-    )
-    if result.status is WorkflowStatus.COMPLETED:
-        return _GOAL_DONE
-    if result.status is WorkflowStatus.PENDING:
-        return _GOAL_ADVANCED
-    return _GOAL_FAILED
+    while True:
+        inputs: dict[str, Any] = {
+            "user intent": description,
+            "user responses": _goal_user_responses(goal_dir) or "No user response has been recorded.",
+            "existing project context": load_context_files(os.getcwd())
+            or "No project context file was found; inspect the current workspace before making assumptions.",
+            **runner.state.outputs,
+        }
+        try:
+            result = await runner.run_step(execute_step, inputs=inputs)
+        except (WorkflowCheckpointError, ValueError, TypeError) as exc:
+            click.echo(f"[goal] declarative workflow failed: {exc}", err=True)
+            return _GOAL_FAILED
+        click.echo(
+            f"[goal] declarative workflow: step={result.step_index if result.step_index is not None else '-'} "
+            f"status={result.status.value}",
+            err=True,
+        )
+        if result.status is WorkflowStatus.COMPLETED:
+            return _GOAL_DONE
+        if result.status is WorkflowStatus.PENDING:
+            if mode == "auto":
+                continue
+            return _GOAL_ADVANCED
+        if result.status is not WorkflowStatus.WAITING_USER:
+            return _GOAL_FAILED
+
+        # WAITING_USER from a completed step is a checkpoint decision. An
+        # interrupted callback also uses WAITING_USER, but must never be treated
+        # as implicit approval.
+        checkpoint_completed = (
+            result.step_index is not None and (result.step_index - 1) in runner.state.completed_steps
+        )
+        if not checkpoint_completed:
+            return _GOAL_FAILED
+        if mode == "auto":
+            runner.resume()
+            try:
+                await runner.persist_state()
+            except (WorkflowCheckpointError, ValueError, TypeError) as exc:
+                click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
+                return _GOAL_FAILED
+            continue
+        if not _goal_checkpoint_prompt():
+            return _GOAL_FAILED
+        runner.resume()
+        try:
+            await runner.persist_state()
+        except (WorkflowCheckpointError, ValueError, TypeError) as exc:
+            click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
+            return _GOAL_FAILED
 
 
 async def _goal_declarative_new(

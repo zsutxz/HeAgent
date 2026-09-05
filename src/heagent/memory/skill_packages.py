@@ -7,7 +7,7 @@ import os
 import re
 import stat
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
-from typing import Any, Iterable, cast  # noqa: UP035
+from typing import Any, Iterable, Literal, cast  # noqa: UP035
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
@@ -60,6 +60,8 @@ class WorkflowResource(BaseModel):
     entrypoint: str = ""
     on_create: str = "persist_goal_identity"
     step_executor: str = "subagent"
+    # Empty means the workflow defers to GOAL_CHECKPOINT_MODE/settings.
+    checkpoint_mode: Literal["", "auto", "prompt"] = ""
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -206,7 +208,7 @@ class SkillPackage(BaseModel):
     def read_step(self, resource: str) -> str:
         return self.read_resource(resource)
 
-    def read_workflow(self, resource: str = "workflow.md") -> WorkflowResource:
+    def read_workflow(self, resource: str = "workflow.md") -> WorkflowResource:  # noqa: C901
         """Load ``workflow.md`` and all declared/discovered steps in order.
 
         The workflow file is the only authority for an explicit ``steps`` list.
@@ -276,6 +278,13 @@ class SkillPackage(BaseModel):
         for step in steps:
             if step.next and step.next not in known:
                 raise SkillWorkflowError(self.skill_id, step.name, f"next step reference is not declared: {step.next}")
+        checkpoint_mode = self._value_text(values, "checkpoint_mode").casefold()
+        if checkpoint_mode not in {"", "auto", "prompt"}:
+            raise SkillWorkflowError(
+                self.skill_id,
+                resource,
+                f"invalid checkpoint_mode '{checkpoint_mode}'; expected auto or prompt",
+            )
         return WorkflowResource(
             name=self._value_text(values, "name", "id") or self.skill_id,
             instructions=(body.split("\n## Step ", 1)[0] if inline else body).strip(),
@@ -283,6 +292,7 @@ class SkillPackage(BaseModel):
             entrypoint=self._value_text(values, "entrypoint"),
             on_create=self._value_text(values, "on_create", "initialize") or "persist_goal_identity",
             step_executor=self._value_text(values, "step_executor", "executor") or "subagent",
+            checkpoint_mode=checkpoint_mode,
             frontmatter=values,
         )
 
