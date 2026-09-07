@@ -556,14 +556,14 @@ class SkillCatalog:
             metadata = provisional.read_entry().metadata
             declared_id = metadata.canonical_id.strip() or metadata.name.strip() or source_id
             canonical_id = self._canonical_id(declared_id)
-            if not canonical_id.startswith("he-"):
-                raise ValueError("metadata name must be a valid he-* or bmad-* skill id")
             source_id = metadata.source_id.strip() or metadata.name.strip() or source_id
             aliases = list(metadata.aliases)
             if source_id != canonical_id:
                 aliases.append(source_id)
             if canonical_id.startswith("he-"):
                 aliases.append("bmad-" + canonical_id[3:])
+            elif canonical_id.startswith("bmad-"):
+                aliases.append("he-" + canonical_id[5:])
             aliases = sorted(set(alias for alias in aliases if alias != canonical_id))
             package = SkillPackage(skill_id=canonical_id, root=package_root)
             package.read_entry()
@@ -586,7 +586,13 @@ class SkillCatalog:
             return SkillCatalogEntry(
                 canonical_id=canonical_id,
                 source_id=source_id,
-                aliases=["bmad-" + canonical_id[3:]] if canonical_id.startswith("he-") else [],
+                aliases=(
+                    ["bmad-" + canonical_id[3:]]
+                    if canonical_id.startswith("he-")
+                    else ["he-" + canonical_id[5:]]
+                    if canonical_id.startswith("bmad-")
+                    else []
+                ),
                 available=False,
                 package_root=package_root_text,
                 error=reason,
@@ -595,9 +601,7 @@ class SkillCatalog:
     @staticmethod
     def _canonical_id(skill_id: str) -> str:
         value = skill_id.strip()
-        if value.startswith("bmad-"):
-            value = "he-" + value[5:]
-        if not re.fullmatch(r"he-[a-z0-9][a-z0-9_-]*", value):
+        if not re.fullmatch(r"(?:he|bmad)-[a-z0-9][a-z0-9_-]*", value):
             raise ValueError(f"invalid skill id '{skill_id}'")
         return value
 

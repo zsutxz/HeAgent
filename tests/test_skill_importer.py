@@ -38,8 +38,9 @@ class TestSkillImporter:
 
         records = SkillImporter(manifest, tmp_path / ".heagent" / "skills").import_manifest()
 
-        assert records[0].canonical_id == "he-prd"
-        assert (tmp_path / ".heagent" / "skills" / "he-prd" / "SKILL.md").read_text(encoding="utf-8") == (
+        # bmad-* manifest ids materialize under the same prefix (no he- rewrite).
+        assert records[0].canonical_id == "bmad-prd"
+        assert (tmp_path / ".heagent" / "skills" / "bmad-prd" / "SKILL.md").read_text(encoding="utf-8") == (
             source / "SKILL.md"
         ).read_text(encoding="utf-8")
         lock = json.loads((tmp_path / ".heagent" / "skills" / "manifest.lock").read_text(encoding="utf-8"))

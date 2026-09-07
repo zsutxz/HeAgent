@@ -1,9 +1,9 @@
 ---
-name: he-agent-architect
+name: bmad-agent-architect
 description: Technical architecture and design decisions derived from approved requirements.
-canonical_id: he-agent-architect
+canonical_id: bmad-agent-architect
 source_id: bmad-agent-architect
-aliases: [bmad-agent-architect, bmad-architect, architect]
+aliases: [bmad-architect, architect]
 version: 1.0.0
 role: system-architect
 inputs: [PRD, requirements-brief, UX-specification]

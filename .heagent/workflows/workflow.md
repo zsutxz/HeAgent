@@ -19,7 +19,7 @@ verification reports, must be written under the project output root
 `_he-output/`. Source code remains in its established repository location.
 
 ## Step 01: analyze-requirements
-role: he-agent-analyst
+role: bmad-agent-analyst
 input: user intent, existing project context
 output: requirements brief, story breakdown
 checkpoint: true
@@ -30,7 +30,7 @@ and produce a requirements brief with acceptance criteria and story-sized work.
 Stop for user input when competing interpretations remain.
 
 ## Step 02: define-product-scope
-role: he-agent-pm
+role: bmad-agent-pm
 input: requirements brief
 output: validated PRD, ordered Epic proposal
 checkpoint: true
@@ -40,7 +40,7 @@ Turn the requirements brief into a validated PRD and ordered Epic proposal.
 Record assumptions, priorities, non-goals, and unresolved product decisions.
 
 ## Step 03: design-experience
-role: he-agent-ux
+role: bmad-agent-ux-designer
 input: requirements brief, validated PRD
 output: UX specification, user flow
 checkpoint: true
@@ -50,7 +50,7 @@ Define user flows, state transitions, interaction details, and accessibility
 requirements that implementation can verify.
 
 ## Step 04: design-architecture
-role: he-agent-architect
+role: bmad-agent-architect
 input: validated PRD, UX specification
 output: architecture, implementation constraints
 checkpoint: true
@@ -60,7 +60,7 @@ Produce the lean technical architecture and decision records. Preserve module
 ownership and document security, reliability, migration, and verification paths.
 
 ## Step 05: clarify-and-route
-role: he-agent-analyst
+role: bmad-agent-analyst
 input: architecture, implementation constraints
 output: clarified implementation scope
 checkpoint: true
@@ -71,7 +71,7 @@ implementation scope. Do not implement the change in this step. Leave a clear
 scope and acceptance direction for the next step.
 
 ## Step 06: implement-and-verify
-role: he-agent-dev
+role: bmad-agent-dev
 input: clarified implementation scope, architecture, UX specification
 output: tested code change
 checkpoint: true

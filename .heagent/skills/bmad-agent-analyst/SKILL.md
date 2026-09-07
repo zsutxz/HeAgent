@@ -1,9 +1,9 @@
 ---
-name: he-agent-analyst
+name: bmad-agent-analyst
 description: Requirements analysis, validation criteria, and story decomposition.
-canonical_id: he-agent-analyst
+canonical_id: bmad-agent-analyst
 source_id: bmad-agent-analyst
-aliases: [bmad-agent-analyst, bmad-analyst, analyst]
+aliases: [bmad-analyst, analyst]
 version: 1.0.0
 role: business-analyst
 inputs: [Goal, PRD, stakeholder-evidence]

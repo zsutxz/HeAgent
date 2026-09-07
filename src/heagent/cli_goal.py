@@ -548,12 +548,14 @@ def _goal_role_instructions(step_name: str) -> str:
     role_name = next((step.role for step in workflow.steps if step.name == step_name), "") if workflow else ""
     if not role_name:
         return "No specialized BMad role assigned."
+    # Legacy workflow steps may still declare the pre-rename he-agent-* role
+    # ids; translate them to the canonical bmad-* package names.
     aliases = {
-        "bmad-agent-analyst": "he-agent-analyst",
-        "bmad-agent-pm": "he-agent-pm",
-        "bmad-agent-ux-designer": "he-agent-ux",
-        "bmad-agent-architect": "he-agent-architect",
-        "bmad-agent-dev": "he-agent-dev",
+        "he-agent-analyst": "bmad-agent-analyst",
+        "he-agent-pm": "bmad-agent-pm",
+        "he-agent-ux": "bmad-agent-ux-designer",
+        "he-agent-architect": "bmad-agent-architect",
+        "he-agent-dev": "bmad-agent-dev",
     }
     package_id = aliases.get(role_name, role_name)
     try:

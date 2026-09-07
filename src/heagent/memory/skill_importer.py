@@ -55,7 +55,7 @@ class SkillManifestLock(BaseModel):
 
 
 class SkillImporter:
-    """Materialize manifest entries into canonical ``he-*`` package directories."""
+    """Materialize manifest entries into canonical package directories."""
 
     _REQUIRED_COLUMNS = frozenset({"canonicalId", "path"})
 

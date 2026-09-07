@@ -175,9 +175,10 @@ class TestSkillCatalog:
 
         entries = SkillCatalog([user, project]).scan()
 
-        assert [entry.canonical_id for entry in entries] == ["he-build", "he-prd"]
-        assert entries[1].source_id == "bmad-prd"
-        assert entries[1].version == "1.0"
+        # he-/bmad- prefixes are preserved; no forced he- canonicalization.
+        assert [entry.canonical_id for entry in entries] == ["bmad-prd", "he-build"]
+        assert entries[0].source_id == "bmad-prd"
+        assert entries[0].version == "1.0"
         assert all(entry.available for entry in entries)
 
     def test_does_not_scan_archived_skill_directory(self, tmp_path: Path) -> None:
@@ -192,8 +193,9 @@ class TestSkillCatalog:
         resolver = SkillResolver(SkillCatalog([tmp_path]))
         resolver.catalog.scan()
 
-        assert resolver.resolve("he-prd") is resolver.resolve("bmad-prd")
-        assert resolver.resolve("he-prd").skill_id == "he-prd"
+        # bmad-prd is the preserved canonical; he-prd is the auto sibling alias.
+        assert resolver.resolve("bmad-prd") is resolver.resolve("he-prd")
+        assert resolver.resolve("bmad-prd").skill_id == "bmad-prd"
 
     def test_resolves_declared_custom_alias(self, tmp_path: Path) -> None:
         package = self._write_package(tmp_path, "legacy")
@@ -218,13 +220,18 @@ class TestSkillCatalog:
         second = tmp_path / "second"
         first.mkdir()
         second.mkdir()
+        # first is a real canonical he-prd package; second only aliases he-prd.
         self._write_package(first, "he-prd")
-        self._write_package(second, "bmad-prd")
+        package = self._write_package(second, "bmad-prd")
+        package.joinpath("SKILL.md").write_text(
+            "---\ncanonical_id: bmad-prd\nsource_id: src-prd\naliases: [he-prd]\n---\n", encoding="utf-8"
+        )
         catalog = SkillCatalog([first, second])
         catalog.scan()
 
-        with pytest.raises(SkillResolutionError, match=r"he-prd.*ambiguous"):
-            SkillResolver(catalog).resolve("he-prd")
+        resolved = SkillResolver(catalog).resolve("he-prd")
+        assert resolved.skill_id == "he-prd"
+        assert resolved.root == (first / "he-prd").resolve()
 
     def test_reports_conflicting_aliases_without_choosing(self, tmp_path: Path) -> None:
         first = tmp_path / "first"

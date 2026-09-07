@@ -1,9 +1,9 @@
 ---
-name: he-agent-ux
+name: bmad-agent-ux-designer
 description: User flows, states, interaction patterns, and UX specifications.
-canonical_id: he-agent-ux
+canonical_id: bmad-agent-ux-designer
 source_id: bmad-agent-ux-designer
-aliases: [bmad-agent-ux-designer, bmad-ux, ux]
+aliases: [he-agent-ux, bmad-ux, ux]
 version: 1.0.0
 role: ux-designer
 inputs: [Goal, PRD, requirements-brief]

@@ -1,9 +1,9 @@
 ---
-name: he-agent-pm
+name: bmad-agent-pm
 description: Product management for validated goals, PRDs, and epics.
-canonical_id: he-agent-pm
+canonical_id: bmad-agent-pm
 source_id: bmad-agent-pm
-aliases: [bmad-agent-pm, bmad-pm, pm]
+aliases: [bmad-pm, pm]
 version: 1.0.0
 role: product-manager
 inputs: [Goal, PRD, Epic]

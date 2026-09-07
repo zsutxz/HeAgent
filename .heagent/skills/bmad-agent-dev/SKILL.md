@@ -1,9 +1,9 @@
 ---
-name: he-agent-dev
+name: bmad-agent-dev
 description: Story implementation, verification, and Definition of Done execution.
-canonical_id: he-agent-dev
+canonical_id: bmad-agent-dev
 source_id: bmad-agent-dev
-aliases: [bmad-agent-dev, bmad-dev, dev]
+aliases: [bmad-dev, dev]
 version: 1.0.0
 role: senior-developer
 inputs: [Story, architecture, ux-specification, acceptance-criteria]
