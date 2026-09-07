@@ -1,12 +1,12 @@
 ---
-name: bmad-development
+name: workflow
 entrypoint: goal
 on_create: persist_goal_identity
 step_executor: subagent
 checkpoint_mode: prompt
 ---
 
-# BMad development workflow
+# development workflow
 
 This file is the complete executable contract for the declarative `/goal`
 workflow. The CLI reads this file, persists the goal identity declared by
@@ -17,37 +17,6 @@ All durable non-code project artifacts produced by this workflow, including
 requirements, PRDs, UX specifications, architecture records, reviews, and
 verification reports, must be written under the project output root
 `_he-output/`. Source code remains in its established repository location.
-
-## Questionnaire
-
-name: game-product-decisions
-applies_when: 游戏|game
-
-### Q1 对手类型
-id: opponent_type
-options: A 本地双人|B 人机|C 两者
-
-### Q2 平台
-id: platform
-options: 桌面（操作系统）|浏览器|终端|其他
-
-### Q3 规则
-id: rules
-options: 标准完整规则|简化 MVP
-
-### Q4 首版附加能力
-id: launch_features
-options: 无|悔棋|保存/继续|计时|合法落点提示|走子记录|重新开始
-
-### Q5 基础单难度是否可接受
-id: ai_single_difficulty
-when: opponent_type=B 人机|C 两者
-
-### Q6 电脑每步最长思考时间（秒）
-id: ai_think_seconds
-type: number
-minimum: 0
-when: opponent_type=B 人机|C 两者
 
 ## Step 01: analyze-requirements
 role: he-agent-analyst

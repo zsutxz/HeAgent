@@ -43,6 +43,19 @@ def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "## Step 02: build\ninput: requirements brief\noutput: implementation\ncheckpoint: true\n\nbuild the story\n",
         encoding="utf-8",
     )
+    (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "QUESTIONNAIRE.md").write_text(
+        "# Questionnaire\n\nname: game-product-decisions\napplies_when: game\n"
+        "include_in_step: step-01-plan.md\n\n"
+        "### Q1 对手类型\nid: opponent_type\noptions: A 本地双人|B 人机|C 两者\n\n"
+        "### Q2 平台\nid: platform\noptions: 桌面（操作系统）|浏览器|终端|其他\n\n"
+        "### Q3 规则\nid: rules\noptions: 标准完整规则|简化 MVP\n\n"
+        "### Q4 首版附加能力\nid: launch_features\noptions: 无|重新开始\n\n"
+        "### Q5 基础单难度是否可接受\nid: ai_single_difficulty\nwhen: opponent_type=B 人机|C 两者\n\n"
+        "### Q6 电脑每步最长思考时间（秒）\n"
+        "id: ai_think_seconds\ntype: number\nminimum: 0\nwhen: opponent_type=B 人机|C 两者\n",
+        encoding="utf-8",
+    )
     return tmp_path
 
 

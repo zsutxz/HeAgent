@@ -931,6 +931,7 @@ class GoalQuestionnaireSpec(BaseModel):
     name: str
     applies_when: str
     questions: list[GoalQuestion]
+    include_in_step: str | None = None
 
 
 class GoalQuestionnaire(BaseModel):
@@ -1032,13 +1033,26 @@ def _goal_record_user_response(goal_dir: Path, response: str) -> None:
     atomic_update_text(goal_dir / "GOAL.md", update)
 
 
-def _goal_questionnaire_spec(workflow: WorkflowResource) -> GoalQuestionnaireSpec | None:
-    """Parse an optional questionnaire declaration from workflow Markdown."""
-    section = re.search(r"(?ms)^## Questionnaire\s*$\n(.*?)(?=^## Step\s|\Z)", workflow.instructions)
+_GOAL_QUESTIONNAIRE_FILE = "QUESTIONNAIRE.md"
+
+
+def _goal_questionnaire_spec(
+    goal_dir: Path, workflow: WorkflowResource | None = None
+) -> GoalQuestionnaireSpec | None:
+    """Load a questionnaire owned by the concrete goal directory.
+
+    The workflow fallback is retained only for legacy/test packages; shipped
+    project questionnaires must live beside that goal's ``GOAL.md``.
+    """
+    del workflow
+    candidates = [goal_dir / _GOAL_QUESTIONNAIRE_FILE, Path(_GOAL_QUESTIONNAIRE_FILE)]
+    path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    text = path.read_text(encoding="utf-8") if path is not None else ""
+    section = re.search(r"(?ms)^#(?:#)? Questionnaire\s*$\n(.*)\Z", text)
     if section is None:
         return None
     header, *question_blocks = re.split(r"(?m)^###\s+", section.group(1).strip())
-    metadata = dict(re.findall(r"(?m)^(applies_when|name)\s*:\s*(.+?)\s*$", header))
+    metadata = dict(re.findall(r"(?m)^(applies_when|include_in_step|name)\s*:\s*(.+?)\s*$", header))
     applies_when = metadata.get("applies_when", "").strip()
     name = metadata.get("name", "Questionnaire").strip()
     if not applies_when:
@@ -1085,7 +1099,12 @@ def _goal_questionnaire_spec(workflow: WorkflowResource) -> GoalQuestionnaireSpe
     for index, question in enumerate(questions):
         if question.when_key is not None and question.when_key not in {prior.identifier for prior in questions[:index]}:
             raise ValueError(f"questionnaire Q{question.number} when must reference an earlier question")
-    return GoalQuestionnaireSpec(name=name, applies_when=applies_when, questions=questions)
+    return GoalQuestionnaireSpec(
+        name=name,
+        applies_when=applies_when,
+        questions=questions,
+        include_in_step=metadata.get("include_in_step", "").strip() or None,
+    )
 
 
 def _goal_questionnaire_applies(spec: GoalQuestionnaireSpec | None, description: str) -> bool:
@@ -1318,7 +1337,7 @@ async def _goal_wait_for_questionnaire(workflow: WorkflowResource, goal_dir: Pat
     except (WorkflowCheckpointError, ValueError) as exc:
         click.echo(f"[goal] failed to persist questionnaire gate: {exc}", err=True)
         return
-    spec = _goal_questionnaire_spec(workflow)
+    spec = _goal_questionnaire_spec(goal_dir, workflow)
     if spec is not None:
         _goal_show_questionnaire_prompt(spec, error)
 
@@ -1341,7 +1360,8 @@ def _goal_declarative_prompt(
         f"Role instructions:\n{role}\n"
         f"Declared inputs:\n{supplied_inputs}\n"
         "Execute only this declared step. Write every durable non-code project artifact under the project output root; "
-        "source code remains in its established repository location."
+        "source code remains in its established repository location. Return the complete artifact body as your final "
+        "response; do not return a summary, link, or claim that you wrote it elsewhere."
     )
 
 
@@ -1384,7 +1404,7 @@ async def _goal_declarative_advance(  # noqa: C901
         click.echo("[goal] declarative GOAL.md has no title", err=True)
         return _GOAL_FAILED
     try:
-        questionnaire_spec = _goal_questionnaire_spec(workflow)
+        questionnaire_spec = _goal_questionnaire_spec(goal_dir, workflow)
     except ValueError as exc:
         click.echo(f"[goal] declarative questionnaire configuration is invalid: {exc}", err=True)
         return _GOAL_FAILED
@@ -1438,6 +1458,17 @@ async def _goal_declarative_advance(  # noqa: C901
                 return WorkflowStepResult(
                     status=WorkflowStatus.FAILED,
                     reason=f"step '{step.name}' produced empty output",
+                )
+            if (
+                questionnaire is not None
+                and questionnaire_spec is not None
+                and questionnaire_spec.include_in_step == step.name
+            ):
+                output_text = (
+                    "## Confirmed Questionnaire\n\n"
+                    + questionnaire.render(questionnaire_spec)
+                    + "\n\n---\n\n"
+                    + output_text
                 )
             atomic_write_text(_goal_step_artifact_path(goal_dir, step), output_text)
         except OSError as exc:
@@ -1529,7 +1560,7 @@ async def _goal_declarative_new(
         return
     if previous is not None and cron_store is not None:
         _goal_auto_remove(cron_store, previous.name)
-    questionnaire_spec = _goal_questionnaire_spec(workflow)
+    questionnaire_spec = _goal_questionnaire_spec(goal_dir, workflow)
     if _goal_questionnaire_applies(questionnaire_spec, description) and questionnaire_spec is not None:
         questionnaire = _goal_collect_questionnaire(questionnaire_spec)
         if questionnaire is None:
@@ -1574,7 +1605,7 @@ async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: 
                 click.echo(f"[goal] workflow status={runner.state.status.value}; resume is not required", err=True)
                 return False
             description = _goal_description(goal_dir)
-            questionnaire_spec = _goal_questionnaire_spec(workflow)
+            questionnaire_spec = _goal_questionnaire_spec(goal_dir, workflow)
             questionnaire = (
                 _goal_questionnaire(goal_dir, questionnaire_spec) if questionnaire_spec is not None else None
             )
