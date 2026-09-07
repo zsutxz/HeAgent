@@ -29,6 +29,15 @@ def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (workflow_root / "workflow.md").write_text(
         "---\nname: test-development\nentrypoint: goal\non_create: persist_goal_identity\n"
         "step_executor: subagent\n---\n\nworkflow instructions\n\n"
+        "## Questionnaire\n\nname: game-product-decisions\napplies_when: game\n\n"
+        "### Q1 对手类型\nid: opponent_type\noptions: A 本地双人|B 人机|C 两者\n\n"
+        "### Q2 平台\nid: platform\noptions: 桌面（操作系统）|浏览器|终端|其他\n\n"
+        "### Q3 规则\nid: rules\noptions: 标准完整规则|简化 MVP\n\n"
+        "### Q4 首版附加能力\nid: launch_features\noptions: 无|重新开始\n\n"
+        "### Q5 基础单难度是否可接受\nid: ai_single_difficulty\nwhen: opponent_type=B 人机|C 两者\n\n"
+        "### Q6 电脑每步最长思考时间（秒）\n"
+        "id: ai_think_seconds\ntype: number\nminimum: 0\nwhen: opponent_type=B 人机|C 两者\n"
+        "\n"
         "## Step 01: plan\ninput: user intent, existing project context\n"
         "output: requirements brief, story breakdown\ncheckpoint: true\n\nplan the story\n\n"
         "## Step 02: build\ninput: requirements brief\noutput: implementation\ncheckpoint: true\n\nbuild the story\n",
@@ -353,9 +362,108 @@ async def test_empty_subagent_output_fails_without_persisting_empty_artifact(
 
     goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
     goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
-    runner = await _goal_declarative_runner(
-        _goal_declarative_workflow(), goal_dir
-    )  # type: ignore[arg-type]
+    runner = await _goal_declarative_runner(_goal_declarative_workflow(), goal_dir)  # type: ignore[arg-type]
     assert runner.state.status is WorkflowStatus.FAILED
     assert "produced empty output" in runner.state.reason
     assert not (goal_dir / "step-01-plan.md").exists()
+
+
+@pytest.mark.asyncio
+async def test_non_interactive_game_goal_waits_for_questionnaire(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    await _goal_runner(SimpleNamespace(), None, "new make a space game")
+
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
+    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
+    runner = await _goal_declarative_runner(_goal_declarative_workflow(), goal_dir)  # type: ignore[arg-type]
+    assert runner.state.status is WorkflowStatus.WAITING_USER
+    assert successful_step == []
+    assert "Q1 对手类型" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_resume_game_questionnaire_persists_answers_and_runs_first_step(
+    declarative_cwd: Path,
+    successful_step: list[str],
+) -> None:
+    await _goal_runner(SimpleNamespace(), None, "new make a space game")
+
+    await _goal_runner(
+        SimpleNamespace(),
+        None,
+        "resume Q1 对手类型：A 本地双人\nQ2 平台：浏览器\nQ3 规则：简化 MVP\nQ4 首版附加能力：重新开始",
+    )
+
+    assert len(successful_step) == 1
+    assert "## questionnaire\nQ1 对手类型：A 本地双人" in successful_step[0]
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
+    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "GOAL.md").read_text(encoding="utf-8")
+    assert "## Questionnaire: game-product-decisions" in goal_text
+    assert "Q4 首版附加能力：重新开始" in goal_text
+
+
+@pytest.mark.asyncio
+async def test_invalid_game_questionnaire_stays_waiting_for_user(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    await _goal_runner(SimpleNamespace(), None, "new make a space game")
+    await _goal_runner(SimpleNamespace(), None, "resume Q1 对手类型：B 人机\nQ2 平台：浏览器")
+
+    assert successful_step == []
+    assert "缺少 Q3" in capsys.readouterr().err
+    await _goal_runner(
+        SimpleNamespace(),
+        None,
+        "resume Q1 对手类型：A 本地双人\nQ2 平台：浏览器\nQ3 规则：简化 MVP\nQ4 首版附加能力：联网对战",
+    )
+    assert successful_step == []
+    assert "Q4 必须是" in capsys.readouterr().err
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
+    runner = await _goal_declarative_runner(
+        _goal_declarative_workflow(), declarative_cwd / "_he-output" / "goals" / goal_id
+    )  # type: ignore[arg-type]
+    assert runner.state.status is WorkflowStatus.WAITING_USER
+
+
+@pytest.mark.asyncio
+async def test_interactive_ai_game_questionnaire_collects_follow_up_answers(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    answers = iter(["B 人机", "浏览器", "简化 MVP", "重新开始", "可接受", 2.5])
+    monkeypatch.setattr(cli.click, "prompt", lambda *_args, **_kwargs: next(answers))
+    monkeypatch.setattr(cli.click, "confirm", lambda *_args, **_kwargs: False)
+
+    await _goal_runner(SimpleNamespace(), None, "new make a space game")
+
+    assert len(successful_step) == 1
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
+    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "GOAL.md").read_text(encoding="utf-8")
+    assert "Q5 基础单难度是否可接受：可接受" in goal_text
+    assert "Q6 电脑每步最长思考时间（秒）：2.5" in goal_text
+
+
+@pytest.mark.asyncio
+async def test_completed_game_questionnaire_is_not_recorded_twice_on_resume(
+    declarative_cwd: Path,
+    successful_step: list[str],
+) -> None:
+    await _goal_runner(SimpleNamespace(), None, "new make a space game")
+    await _goal_runner(
+        SimpleNamespace(),
+        None,
+        "resume Q1 对手类型：A 本地双人\nQ2 平台：浏览器\nQ3 规则：简化 MVP\nQ4 首版附加能力：无",
+    )
+    await _goal_runner(SimpleNamespace(), None, "resume continue with the current scope")
+
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
+    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "GOAL.md").read_text(encoding="utf-8")
+    assert goal_text.count("## Questionnaire: game-product-decisions") == 1
+    assert len(successful_step) == 2

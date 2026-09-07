@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import click
+from pydantic import BaseModel
 
 import heagent.tools.builtins  # noqa: F401
 from heagent.agent.loop import AgentLoop
@@ -911,6 +912,41 @@ _GOAL_DONE = "done"
 _GOAL_FAILED = "failed"
 
 
+class GoalQuestion(BaseModel):
+    """One declarative question parsed from the goal workflow Markdown."""
+
+    number: int
+    identifier: str
+    prompt: str
+    options: list[str] = []
+    when_key: str | None = None
+    when_values: list[str] = []
+    value_type: str = "text"
+    minimum: float | None = None
+
+
+class GoalQuestionnaireSpec(BaseModel):
+    """A workflow-defined questionnaire; its product rules never live in CLI code."""
+
+    name: str
+    applies_when: str
+    questions: list[GoalQuestion]
+
+
+class GoalQuestionnaire(BaseModel):
+    """Validated responses to a workflow-defined questionnaire."""
+
+    name: str
+    answers: dict[str, str]
+
+    def render(self, spec: GoalQuestionnaireSpec) -> str:
+        return "\n".join(
+            f"Q{question.number} {question.prompt}：{self.answers[question.identifier]}"
+            for question in spec.questions
+            if question.identifier in self.answers
+        )
+
+
 def _goal_document(description: str, goal_id: str) -> str:
     """Create the standard BMad Goal artifact used as the durable goal record."""
     title = " ".join(description.split())
@@ -937,8 +973,7 @@ def _goal_project_id(description: str) -> str:
     text = re.sub(r"^\s*/goal(?:\s+new)?\s*", "", description.strip(), flags=re.IGNORECASE)
     terms = "|".join(re.escape(item) for item in sorted(_GOAL_NAME_WORDS, key=len, reverse=True))
     words = [
-        _GOAL_NAME_WORDS.get(match.group(0), match.group(0))
-        for match in re.finditer(rf"(?:{terms})|[A-Za-z]+", text)
+        _GOAL_NAME_WORDS.get(match.group(0), match.group(0)) for match in re.finditer(rf"(?:{terms})|[A-Za-z]+", text)
     ]
     slug = re.sub(r"-+", "-", "-".join(words).casefold()).strip("-")
     slug = re.sub(r"-?(?:19|20)\d{2}(?:-?\d{1,2}){0,2}$", "", slug).strip("-")
@@ -947,9 +982,7 @@ def _goal_project_id(description: str) -> str:
 
 def _goal_id_is_valid(goal_id: str) -> bool:
     """Accept new letter-only ids and legacy eight-character hex ids."""
-    return bool(_GOAL_ID_RE.fullmatch(goal_id)) or (
-        len(goal_id) == 8 and all(char in _GOAL_HEX for char in goal_id)
-    )
+    return bool(_GOAL_ID_RE.fullmatch(goal_id)) or (len(goal_id) == 8 and all(char in _GOAL_HEX for char in goal_id))
 
 
 def _goal_step_artifact_path(goal_dir: Path, step: Any) -> Path:
@@ -997,6 +1030,162 @@ def _goal_record_user_response(goal_dir: Path, response: str) -> None:
         return raw.rstrip() + f"\n\n## {section_name}\n\n" + entry, None
 
     atomic_update_text(goal_dir / "GOAL.md", update)
+
+
+def _goal_questionnaire_spec(workflow: WorkflowResource) -> GoalQuestionnaireSpec | None:
+    """Parse an optional questionnaire declaration from workflow Markdown."""
+    section = re.search(r"(?ms)^## Questionnaire\s*$\n(.*?)(?=^## Step\s|\Z)", workflow.instructions)
+    if section is None:
+        return None
+    header, *question_blocks = re.split(r"(?m)^###\s+", section.group(1).strip())
+    metadata = dict(re.findall(r"(?m)^(applies_when|name)\s*:\s*(.+?)\s*$", header))
+    applies_when = metadata.get("applies_when", "").strip()
+    name = metadata.get("name", "Questionnaire").strip()
+    if not applies_when:
+        raise ValueError("questionnaire requires applies_when")
+    questions: list[GoalQuestion] = []
+    for block in question_blocks:
+        heading, _, body = block.partition("\n")
+        match = re.fullmatch(r"Q(\d+)\s+(.+)", heading.strip())
+        if match is None:
+            raise ValueError(f"invalid questionnaire heading: {heading}")
+        fields = dict(re.findall(r"(?m)^(id|options|when|type|minimum)\s*:\s*(.+?)\s*$", body))
+        identifier = fields.get("id", "").strip()
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", identifier):
+            raise ValueError(f"questionnaire Q{match.group(1)} requires id")
+        when_key, separator, raw_values = fields.get("when", "").partition("=")
+        if fields.get("when") and (not separator or not when_key.strip() or not raw_values.strip()):
+            raise ValueError(f"questionnaire Q{match.group(1)} has invalid when")
+        value_type = fields.get("type", "text").strip()
+        if value_type not in {"text", "number"}:
+            raise ValueError(f"questionnaire Q{match.group(1)} type must be text or number")
+        try:
+            minimum = float(fields["minimum"]) if "minimum" in fields else None
+        except ValueError as exc:
+            raise ValueError(f"questionnaire Q{match.group(1)} has invalid minimum") from exc
+        if minimum is not None and value_type != "number":
+            raise ValueError(f"questionnaire Q{match.group(1)} minimum requires type number")
+        questions.append(
+            GoalQuestion(
+                number=int(match.group(1)),
+                identifier=identifier,
+                prompt=match.group(2).strip(),
+                options=[item.strip() for item in fields.get("options", "").split("|") if item.strip()],
+                when_key=when_key.strip() or None,
+                when_values=[item.strip() for item in raw_values.split("|") if item.strip()],
+                value_type=value_type,
+                minimum=minimum,
+            )
+        )
+    if not questions or [question.number for question in questions] != list(range(1, len(questions) + 1)):
+        raise ValueError("questionnaire questions must start at Q1 and be contiguous")
+    identifiers = {question.identifier for question in questions}
+    if len(identifiers) != len(questions):
+        raise ValueError("questionnaire question ids must be unique")
+    for index, question in enumerate(questions):
+        if question.when_key is not None and question.when_key not in {prior.identifier for prior in questions[:index]}:
+            raise ValueError(f"questionnaire Q{question.number} when must reference an earlier question")
+    return GoalQuestionnaireSpec(name=name, applies_when=applies_when, questions=questions)
+
+
+def _goal_questionnaire_applies(spec: GoalQuestionnaireSpec | None, description: str) -> bool:
+    if spec is None:
+        return False
+    try:
+        return re.search(spec.applies_when, description, re.IGNORECASE) is not None
+    except re.error as exc:
+        raise ValueError(f"questionnaire applies_when is invalid: {exc}") from exc
+
+
+def _goal_questionnaire_from_text(text: str, spec: GoalQuestionnaireSpec) -> tuple[GoalQuestionnaire | None, str]:
+    """Validate answers against the workflow declaration without product-specific rules."""
+    values = {
+        int(number): answer.strip() for number, answer in re.findall(r"(?mi)^Q(\d+)\s*[^：:\n]*[：:]\s*(.+?)\s*$", text)
+    }
+    answers = {question.identifier: values.get(question.number, "") for question in spec.questions}
+    for question in spec.questions:
+        active = question.when_key is None or answers.get(question.when_key, "") in question.when_values
+        if not active:
+            answers.pop(question.identifier, None)
+            continue
+        value = answers[question.identifier]
+        if not value:
+            return None, f"缺少 Q{question.number} {question.prompt}"
+        if question.options and value not in question.options:
+            return None, f"Q{question.number} 必须是：" + "、".join(question.options)
+        if question.value_type == "number":
+            try:
+                numeric = float(value)
+            except ValueError:
+                return None, f"Q{question.number} 必须是数字"
+            if question.minimum is not None and numeric < question.minimum:
+                return None, f"Q{question.number} 不能小于 {question.minimum:g}"
+    return GoalQuestionnaire(name=spec.name, answers=answers), ""
+
+
+def _goal_questionnaire(goal_dir: Path, spec: GoalQuestionnaireSpec) -> GoalQuestionnaire | None:
+    text = (goal_dir / "GOAL.md").read_text(encoding="utf-8")
+    match = re.search(rf"(?ms)^## Questionnaire: {re.escape(spec.name)}\s*$\n(.*?)(?=^##\s|\Z)", text)
+    if match is None:
+        return None
+    questionnaire, error = _goal_questionnaire_from_text(match.group(1), spec)
+    if questionnaire is None:
+        raise ValueError(f"questionnaire is invalid: {error}")
+    return questionnaire
+
+
+def _goal_record_questionnaire(goal_dir: Path, questionnaire: GoalQuestionnaire, spec: GoalQuestionnaireSpec) -> None:
+    if _goal_questionnaire(goal_dir, spec) is not None:
+        return
+
+    def update(raw: str) -> tuple[str, None]:
+        return raw.rstrip() + f"\n\n## Questionnaire: {spec.name}\n\n{questionnaire.render(spec)}\n", None
+
+    atomic_update_text(goal_dir / "GOAL.md", update)
+
+
+def _goal_collect_questionnaire(spec: GoalQuestionnaireSpec) -> GoalQuestionnaire | None:
+    """Collect only questions declared in the workflow, retaining answers in memory."""
+    if not sys.stdin.isatty():
+        return None
+    answers: dict[str, str] = {}
+    try:
+        for question in spec.questions:
+            if question.when_key is not None and answers.get(question.when_key) not in question.when_values:
+                continue
+            prompt_type: Any = (
+                click.Choice(question.options)
+                if question.options
+                else float
+                if question.value_type == "number"
+                else str
+            )
+            while True:
+                value = str(click.prompt(f"Q{question.number} {question.prompt}", type=prompt_type)).strip()
+                _, error = _goal_questionnaire_from_text(
+                    "\n".join(
+                        f"Q{prior.number} {prior.prompt}：{answers[prior.identifier]}"
+                        for prior in spec.questions
+                        if prior.identifier in answers
+                    )
+                    + f"\nQ{question.number} {question.prompt}：{value}",
+                    spec,
+                )
+                if error and not error.startswith(f"缺少 Q{question.number + 1}"):
+                    click.echo(f"请重新输入：{error}", err=True)
+                    continue
+                answers[question.identifier] = value
+                break
+        return GoalQuestionnaire(name=spec.name, answers=answers)
+    except (EOFError, KeyboardInterrupt, click.Abort, click.BadParameter):
+        return None
+
+
+def _goal_show_questionnaire_prompt(spec: GoalQuestionnaireSpec, error: str = "") -> None:
+    if error:
+        click.echo(f"[goal] questionnaire invalid: {error}", err=True)
+    template = "\n".join(f"Q{question.number} {question.prompt}：<answer>" for question in spec.questions)
+    click.echo(f"[goal] answer with /goal resume followed by:\n{template}", err=True)
 
 
 def _goal_document_title(text: str) -> str:
@@ -1118,6 +1307,22 @@ async def _goal_declarative_runner(
     )
 
 
+async def _goal_wait_for_questionnaire(workflow: WorkflowResource, goal_dir: Path, error: str = "") -> None:
+    """Persist a recoverable questionnaire gate before any SubAgent can run."""
+    try:
+        runner = await _goal_declarative_runner(workflow, goal_dir)
+        runner.state = runner.state.model_copy(
+            update={"status": WorkflowStatus.WAITING_USER, "reason": "workflow questionnaire is required"}
+        )
+        await runner.persist_state()
+    except (WorkflowCheckpointError, ValueError) as exc:
+        click.echo(f"[goal] failed to persist questionnaire gate: {exc}", err=True)
+        return
+    spec = _goal_questionnaire_spec(workflow)
+    if spec is not None:
+        _goal_show_questionnaire_prompt(spec, error)
+
+
 def _goal_declarative_prompt(
     workflow: WorkflowResource,
     step_name: str,
@@ -1179,6 +1384,19 @@ async def _goal_declarative_advance(  # noqa: C901
         click.echo("[goal] declarative GOAL.md has no title", err=True)
         return _GOAL_FAILED
     try:
+        questionnaire_spec = _goal_questionnaire_spec(workflow)
+    except ValueError as exc:
+        click.echo(f"[goal] declarative questionnaire configuration is invalid: {exc}", err=True)
+        return _GOAL_FAILED
+    try:
+        questionnaire = _goal_questionnaire(goal_dir, questionnaire_spec) if questionnaire_spec is not None else None
+    except (OSError, ValueError) as exc:
+        click.echo(f"[goal] declarative questionnaire is invalid: {exc}", err=True)
+        return _GOAL_FAILED
+    if _goal_questionnaire_applies(questionnaire_spec, description) and questionnaire is None:
+        await _goal_wait_for_questionnaire(workflow, goal_dir)
+        return _GOAL_FAILED
+    try:
         runner = await _goal_declarative_runner(workflow, goal_dir)
     except WorkflowCheckpointError as exc:
         click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
@@ -1236,6 +1454,8 @@ async def _goal_declarative_advance(  # noqa: C901
             or "No project context file was found; inspect the current workspace before making assumptions.",
             **runner.state.outputs,
         }
+        if questionnaire is not None and questionnaire_spec is not None:
+            inputs["questionnaire"] = questionnaire.render(questionnaire_spec)
         try:
             result = await runner.run_step(execute_step, inputs=inputs)
         except (WorkflowCheckpointError, ValueError, TypeError) as exc:
@@ -1258,9 +1478,7 @@ async def _goal_declarative_advance(  # noqa: C901
         # WAITING_USER from a completed step is a checkpoint decision. An
         # interrupted callback also uses WAITING_USER, but must never be treated
         # as implicit approval.
-        checkpoint_completed = (
-            result.step_index is not None and (result.step_index - 1) in runner.state.completed_steps
-        )
+        checkpoint_completed = result.step_index is not None and (result.step_index - 1) in runner.state.completed_steps
         if not checkpoint_completed:
             return _GOAL_FAILED
         if mode == "auto":
@@ -1311,6 +1529,13 @@ async def _goal_declarative_new(
         return
     if previous is not None and cron_store is not None:
         _goal_auto_remove(cron_store, previous.name)
+    questionnaire_spec = _goal_questionnaire_spec(workflow)
+    if _goal_questionnaire_applies(questionnaire_spec, description) and questionnaire_spec is not None:
+        questionnaire = _goal_collect_questionnaire(questionnaire_spec)
+        if questionnaire is None:
+            await _goal_wait_for_questionnaire(workflow, goal_dir)
+            return
+        _goal_record_questionnaire(goal_dir, questionnaire, questionnaire_spec)
     await _goal_declarative_advance(provider, engine, workflow)
 
 
@@ -1333,9 +1558,7 @@ async def _goal_declarative_status(workflow: WorkflowResource) -> None:
         click.echo("[goal] waiting for user response; use /goal resume <answer> to continue", err=True)
 
 
-async def _goal_declarative_pause_resume(
-    workflow: WorkflowResource, *, resume: bool, response: str = ""
-) -> bool:
+async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: bool, response: str = "") -> bool:
     """Persist a pause or resume and report whether a step may now execute."""
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
@@ -1350,7 +1573,20 @@ async def _goal_declarative_pause_resume(
             if runner.state.status not in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
                 click.echo(f"[goal] workflow status={runner.state.status.value}; resume is not required", err=True)
                 return False
-            if response:
+            description = _goal_description(goal_dir)
+            questionnaire_spec = _goal_questionnaire_spec(workflow)
+            questionnaire = (
+                _goal_questionnaire(goal_dir, questionnaire_spec) if questionnaire_spec is not None else None
+            )
+            if _goal_questionnaire_applies(questionnaire_spec, description) and questionnaire is None:
+                if questionnaire_spec is None:
+                    return False
+                parsed, error = _goal_questionnaire_from_text(response, questionnaire_spec)
+                if parsed is None:
+                    _goal_show_questionnaire_prompt(questionnaire_spec, error)
+                    return False
+                _goal_record_questionnaire(goal_dir, parsed, questionnaire_spec)
+            elif response:
                 _goal_record_user_response(goal_dir, response)
             runner.resume()
             action = "resumed"
