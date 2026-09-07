@@ -1041,14 +1041,17 @@ def _goal_questionnaire_spec(
 ) -> GoalQuestionnaireSpec | None:
     """Load a questionnaire owned by the concrete goal directory.
 
-    The workflow fallback is retained only for legacy/test packages; shipped
-    project questionnaires must live beside that goal's ``GOAL.md``.
+    New goals keep the declarative questionnaire in ``GOAL.md``. The standalone
+    file fallback is retained for legacy/test packages that have not migrated.
     """
     del workflow
-    candidates = [goal_dir / _GOAL_QUESTIONNAIRE_FILE, Path(_GOAL_QUESTIONNAIRE_FILE)]
-    path = next((candidate for candidate in candidates if candidate.is_file()), None)
-    text = path.read_text(encoding="utf-8") if path is not None else ""
-    section = re.search(r"(?ms)^#(?:#)? Questionnaire\s*$\n(.*)\Z", text)
+    goal_path = goal_dir / "GOAL.md"
+    text = goal_path.read_text(encoding="utf-8") if goal_path.is_file() else ""
+    section = re.search(r"(?ms)^##? Questionnaire\s*$\n(.*?)(?=^##\s|\Z)", text)
+    if section is None:
+        legacy_path = Path(_GOAL_QUESTIONNAIRE_FILE)
+        text = legacy_path.read_text(encoding="utf-8") if legacy_path.is_file() else ""
+        section = re.search(r"(?ms)^#(?:#)? Questionnaire\s*$\n(.*)\Z", text)
     if section is None:
         return None
     header, *question_blocks = re.split(r"(?m)^###\s+", section.group(1).strip())
