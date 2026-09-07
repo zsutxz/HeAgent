@@ -82,3 +82,16 @@ def _format_status(loop: AgentLoop) -> str:
     if loop.cumulative_tokens > 0:
         parts.append(f"累计: {_format_tokens_k(loop.cumulative_tokens)} tok")
     return f"[{' | '.join(parts)}]"
+
+
+def _announce_start(name: str, purpose: str) -> None:
+    """Print a start banner when a phase/skill/agent begins."""
+    click.echo(f"▶ 启动 [{name}] — {purpose}", err=True)
+
+
+def _announce_end(name: str, loop: AgentLoop, *, iterations: int | None = None, ok: bool = True) -> None:
+    """Print a completion summary plus the token/status line after an agent finishes."""
+    mark = "✔" if ok else "✘"
+    suffix = f"（{iterations} 轮）" if iterations else ""
+    click.echo(f"{mark} [{name}] {'完成' if ok else '失败'}{suffix}", err=True)
+    click.echo(_format_status(loop), err=True)

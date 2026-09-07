@@ -156,6 +156,18 @@ class SubAgent:
         # dataclasses.replace：以 role_policy 覆写 policy 字段，其余字段保持不变。
         return replace(self._engine, policy=role_policy)
 
+    def _announce_identity(self, task: str) -> tuple[str, str]:
+        """Derive a short human-readable name and purpose for progress announcements."""
+        metadata = self._metadata or {}
+        role_name = self._role.name if self._role is not None else None
+        step = metadata.get("workflow_step") or metadata.get("goal_kind")
+        name = str(step) if step else (role_name or "subagent")
+        purpose = metadata.get("purpose") or role_name
+        if not purpose:
+            first_line = task.strip().splitlines()[0] if task and task.strip() else ""
+            purpose = first_line[:120] if first_line else "sub-task"
+        return name, str(purpose)
+
     async def run(self, task: str) -> SubAgentResult:
         """在一个全新的 loop 实例中跑完一次委派子任务，返回结构化结果。
 
@@ -168,6 +180,10 @@ class SubAgent:
              （失败不抛出，而是 success=False、output=异常文本，便于父循环处理）。
         """
         engine = self._build_engine()
+        from heagent.cli_display import _announce_end, _announce_start
+
+        name, purpose = self._announce_identity(task)
+        _announce_start(name, purpose)
         reserved = {
             "kind",
             "role",
@@ -218,6 +234,7 @@ class SubAgent:
         )
         try:
             output = await loop.run(task, system=self._system)
+            _announce_end(name, loop, iterations=loop.last_iteration or 0, ok=True)
             return SubAgentResult(
                 task=task,
                 output=output,
@@ -227,6 +244,7 @@ class SubAgent:
             )
         except Exception as exc:
             # 捕获所有异常：子任务失败不中断父循环，而是以失败结果回传。
+            _announce_end(name, loop, iterations=loop.last_iteration or 0, ok=False)
             return SubAgentResult(
                 task=task,
                 output=str(exc),

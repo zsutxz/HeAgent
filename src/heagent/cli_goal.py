@@ -643,7 +643,12 @@ async def _goal_declarative_advance(  # noqa: C901
             provider,
             engine,
             _goal_declarative_prompt(workflow, step.name, description, goal_dir, inputs) + f"\n\n{step.instructions}",
-            metadata={"goal_id": goal_dir.name, "goal_kind": "declarative", "workflow_step": step.name},
+            metadata={
+                "goal_id": goal_dir.name,
+                "goal_kind": "declarative",
+                "workflow_step": step.name,
+                "purpose": step.role or step.name,
+            },
         )
         if result is None:
             return WorkflowStepResult(

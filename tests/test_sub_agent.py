@@ -234,3 +234,42 @@ class TestParallel:
         parsed = store.parse("grepsearch")
         assert parsed is not None
         assert parsed.usage_count == n
+
+
+@pytest.mark.asyncio
+class TestSubAgentAnnouncements:
+    async def test_run_announces_start_and_end(self, capsys) -> None:
+        await SubAgent(StubProvider("result"), max_iterations=5).run("analyze the requirements")
+        err = capsys.readouterr().err
+        assert "▶ 启动" in err
+        assert "analyze the requirements" in err
+        assert "✔" in err
+        assert "完成" in err
+
+    async def test_run_failure_announces_failure(self, capsys) -> None:
+        class Fail(StubProvider):
+            async def send(self, messages: list[Message], **kw: object) -> ProviderResponse:
+                raise RuntimeError("API down")
+
+        await SubAgent(Fail(), max_iterations=2).run("fail")
+        err = capsys.readouterr().err
+        assert "▶ 启动" in err
+        assert "✘" in err
+        assert "失败" in err
+
+
+class TestSubAgentAnnounceIdentity:
+    def test_metadata_purpose_wins(self) -> None:
+        agent = SubAgent(
+            StubProvider(),
+            metadata={"workflow_step": "step-01-plan.md", "purpose": "bmad-agent-analyst"},
+        )
+        assert agent._announce_identity("long prompt") == ("step-01-plan.md", "bmad-agent-analyst")
+
+    def test_role_name_used_without_metadata(self) -> None:
+        agent = SubAgent(StubProvider(), role=RoleSpec(name="bmad-agent-analyst", system="analyze"))
+        assert agent._announce_identity("long prompt") == ("bmad-agent-analyst", "bmad-agent-analyst")
+
+    def test_falls_back_to_subagent_and_first_line(self) -> None:
+        agent = SubAgent(StubProvider())
+        assert agent._announce_identity("first line\nsecond line") == ("subagent", "first line")
