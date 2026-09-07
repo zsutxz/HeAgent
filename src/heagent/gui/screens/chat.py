@@ -200,7 +200,7 @@ class ChatScreen(Screen[None]):
         log = self.query_one("#chat-log", RichLog)
 
         async def _run() -> None:
-            from heagent.cli import _goal_runner
+            from heagent.cli_goal import _goal_runner
             from heagent.gui.app import HeAgentApp
 
             app = HeAgentApp.get_current_app()

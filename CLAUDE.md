@@ -99,7 +99,7 @@ exceptions  types  config
 - `memory/` — 自学习闭环（`skills`/`facts`/`profile`/`soul`）
 - `cron/` — 后台定时调度
 - `gui/` — Textual TUI（`app`/`bridge`/`screens`/`widgets`），经 `AgentBridge` 持有并观察 `AgentLoop`
-- `cli.py` / `slash.py` / `terminal.py` — CLI 入口（单次 + 交互模式）；`slash` 为注册表驱动斜杠命令 + 用户自定义命令（`.heagent/commands/*.md`），零 heagent 依赖
+- `cli.py` / `cli_goal.py` / `slash.py` / `terminal.py` — CLI 入口（单次 + 交互模式）；`cli_goal` 为 /goal 命令族（声明式工作流分发 + 问卷门控 + cron 自动推进）；`slash` 为注册表驱动斜杠命令 + 用户自定义命令（`.heagent/commands/*.md`），零 heagent 依赖
 
 硬约束（违反即架构错误）：
 

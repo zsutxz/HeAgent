@@ -626,7 +626,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 
 ### 4.13 Goal 驱动工作流 (`/goal`)
 
-`/goal` 是 CLI 层的机制入口，方法论由运行时本地的
+`/goal` 是 CLI 层的机制入口（命令族实现位于 `cli_goal.py`），方法论由运行时本地的
 `.heagent/skills/goal/SKILL.md` 承载。框架只读取三个机器标记：
 `_he-output/goals/<goal_id>/GOAL.md` 首个非空 `status`、story checkbox 数量，
 以及可选的 `in-progress` 标记；不会创建独立的 `goal.py` 状态模型或 `runs.jsonl`。
@@ -699,6 +699,7 @@ src/heagent/
 ├── __init__.py
 ├── __main__.py              # python -m heagent 入口
 ├── cli.py                   # Click CLI（单次/交互模式）
+├── cli_goal.py              # /goal 命令族（声明式工作流分发 + 问卷门控 + cron 自动推进）
 ├── terminal.py              # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断，CLI 交互模式）
 ├── config.py                # pydantic-settings 配置
 ├── exceptions.py            # 异常层级

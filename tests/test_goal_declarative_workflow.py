@@ -8,7 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 import heagent.cli as cli
-from heagent.cli import (
+import heagent.cli_goal as cli_goal
+from heagent.cli_goal import (
     _goal_cron_advance,
     _goal_declarative_runner,
     _goal_declarative_workflow,
@@ -67,7 +68,7 @@ def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls.append(prompt)
         return SimpleNamespace(success=True, output=f"output-{len(calls)}")
 
-    monkeypatch.setattr("heagent.cli._goal_session", run_step)
+    monkeypatch.setattr("heagent.cli_goal._goal_session", run_step)
     return calls
 
 
@@ -132,13 +133,13 @@ async def test_declarative_resume_advances_once_under_goal_lock(
 ) -> None:
     await _goal_runner(SimpleNamespace(), None, "new locked resume workflow")
     observed: list[bool] = []
-    original = cli._goal_declarative_advance
+    original = cli_goal._goal_declarative_advance
 
     async def observe_advance(provider, engine, workflow):
-        observed.append(cli._goal_auto_lock.locked())
+        observed.append(cli_goal._goal_auto_lock.locked())
         return await original(provider, engine, workflow)
 
-    monkeypatch.setattr(cli, "_goal_declarative_advance", observe_advance)
+    monkeypatch.setattr(cli_goal, "_goal_declarative_advance", observe_advance)
     await _goal_runner(SimpleNamespace(), None, "resume")
 
     assert len(successful_step) == 2
@@ -369,7 +370,7 @@ async def test_empty_subagent_output_fails_without_persisting_empty_artifact(
         del provider, engine, prompt, kwargs
         return SimpleNamespace(success=True, output="  \n")
 
-    monkeypatch.setattr(cli, "_goal_session", empty_goal_session)
+    monkeypatch.setattr(cli_goal, "_goal_session", empty_goal_session)
 
     await _goal_runner(SimpleNamespace(), None, "new empty output workflow")
 
@@ -480,3 +481,75 @@ async def test_completed_game_questionnaire_is_not_recorded_twice_on_resume(
     goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "GOAL.md").read_text(encoding="utf-8")
     assert goal_text.count("## Questionnaire: game-product-decisions") == 1
     assert len(successful_step) == 2
+
+
+def test_cli_reexports_goal_runner_but_not_monkeypatch_seams() -> None:
+    """cli.py keeps only the three self-used goal symbols; patch seams live in cli_goal."""
+    assert cli._goal_runner is cli_goal._goal_runner
+    assert not hasattr(cli, "_goal_session")
+
+
+@pytest.mark.asyncio
+async def test_declarative_auto_keeps_job_when_paused_at_checkpoint(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Prompt-mode checkpoint pauses are waiting, not terminal: cron auto must survive them."""
+    await _goal_runner(SimpleNamespace(), None, "new scheduled pause workflow")
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    store = JobStore(str(declarative_cwd / "jobs.json"))
+    await _goal_runner(SimpleNamespace(), None, "auto", cron_store=store)
+
+    await _goal_cron_advance(SimpleNamespace(), None, store, goal_id)
+
+    assert len(successful_step) == 1
+    assert len(store.list_jobs()) == 1
+    assert "paused; use /goal resume first" in capsys.readouterr().err
+
+
+def test_interactive_questionnaire_skips_inactive_gap_without_reask(
+    declarative_cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A valid answer must be accepted even when the next question is inactive and a later one is active."""
+    monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    (declarative_cwd / "QUESTIONNAIRE.md").write_text(
+        "# Questionnaire\n\nname: gap-test\napplies_when: test\n\n"
+        "### Q1 模式\nid: mode\noptions: A 独行|B 组队\n\n"
+        "### Q2 队友\nid: teammate\nwhen: mode=B 组队\n\n"
+        "### Q3 备注\nid: note\n",
+        encoding="utf-8",
+    )
+    spec = cli_goal._goal_questionnaire_spec(declarative_cwd)
+    assert spec is not None
+    answers = iter(["A 独行", "ok"])
+    calls: list[str] = []
+
+    def fake_prompt(message: object, **kwargs: object) -> str:
+        calls.append(str(message))
+        return next(answers)
+
+    monkeypatch.setattr(cli.click, "prompt", fake_prompt)
+
+    questionnaire = cli_goal._goal_collect_questionnaire(spec)
+
+    assert questionnaire is not None
+    assert questionnaire.answers == {"mode": "A 独行", "note": "ok"}
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_declarative_new_reports_invalid_questionnaire_configuration(
+    declarative_cwd: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A malformed questionnaire declaration must fail loudly at /goal new, not escape."""
+    (declarative_cwd / "QUESTIONNAIRE.md").write_text(
+        "# Questionnaire\n\nname: broken\napplies_when: ([unclosed\n\n### Q1 模式\nid: mode\n",
+        encoding="utf-8",
+    )
+
+    await _goal_runner(SimpleNamespace(), None, "new broken questionnaire game")
+
+    assert "declarative questionnaire configuration is invalid" in capsys.readouterr().err
