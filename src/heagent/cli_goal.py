@@ -460,11 +460,13 @@ async def _goal_declarative_runner(
     checkpoints = await store.list_checkpoints(goal_id=goal_dir.name)
     workflow_state = await store.load_workflow()
     if workflow_state is not None:
+        # Match against the persisted active_skill (workflow.json) rather than the
+        # current workflow.name, so a workflow rename does not strand existing goals.
         matching = [
             checkpoint
             for checkpoint in checkpoints
             if checkpoint.active_step == workflow_state.active_step
-            and checkpoint.active_skill == workflow.name
+            and checkpoint.active_skill == workflow_state.active_skill
             and (
                 checkpoint.status is workflow_state.status
                 or (checkpoint.status is WorkflowStatus.COMPLETED and workflow_state.status is WorkflowStatus.RUNNING)
