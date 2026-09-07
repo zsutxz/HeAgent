@@ -336,3 +336,26 @@ async def test_invalid_checkpoint_mode_fails_workflow_load(
     await _goal_runner(SimpleNamespace(), None, "new invalid mode")
 
     assert "invalid checkpoint_mode 'always'" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_empty_subagent_output_fails_without_persisting_empty_artifact(
+    declarative_cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def empty_goal_session(provider: object, engine: object, prompt: str, **kwargs: object) -> SimpleNamespace:
+        del provider, engine, prompt, kwargs
+        return SimpleNamespace(success=True, output="  \n")
+
+    monkeypatch.setattr(cli, "_goal_session", empty_goal_session)
+
+    await _goal_runner(SimpleNamespace(), None, "new empty output workflow")
+
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
+    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
+    runner = await _goal_declarative_runner(
+        _goal_declarative_workflow(), goal_dir
+    )  # type: ignore[arg-type]
+    assert runner.state.status is WorkflowStatus.FAILED
+    assert "produced empty output" in runner.state.reason
+    assert not (goal_dir / "step-01-plan.md").exists()

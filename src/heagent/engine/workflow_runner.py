@@ -102,6 +102,7 @@ class WorkflowRunner:
                 else {reference: None for reference in checkpoint.artifact_refs}
             ),
             acceptance_evidence=list(checkpoint.acceptance_evidence),
+            reason=checkpoint.next_action,
         )
         kwargs.setdefault("phase", checkpoint.phase)
         return cls(workflow, state, goal_id=checkpoint.goal_id, run_id=checkpoint.run_id, **kwargs)

@@ -1216,6 +1216,11 @@ async def _goal_declarative_advance(  # noqa: C901
             return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=str(result.output))
         try:
             output_text = result.output if isinstance(result.output, str) else str(result.output)
+            if result.output is None or (isinstance(result.output, str) and not output_text.strip()):
+                return WorkflowStepResult(
+                    status=WorkflowStatus.FAILED,
+                    reason=f"step '{step.name}' produced empty output",
+                )
             atomic_write_text(_goal_step_artifact_path(goal_dir, step), output_text)
         except OSError as exc:
             return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist step output: {exc}")
