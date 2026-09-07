@@ -142,3 +142,26 @@ async def test_runner_persists_each_declared_output_reference_across_recovery(tm
     assert restored.state.outputs["story breakdown"] == "analysis"
     result = await restored.run_step(lambda _: WorkflowStepResult(output="done"), inputs=restored.state.outputs)
     assert result.status is WorkflowStatus.COMPLETED
+
+
+@pytest.mark.asyncio
+async def test_resume_reegress_same_pending_checkpoint_is_idempotent(tmp_path) -> None:
+    workflow = _workflow(
+        WorkflowStepResource(index=1, name="step-01.md", instructions="", checkpoint="user"),
+        WorkflowStepResource(index=2, name="step-02.md", instructions=""),
+    )
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
+    runner = WorkflowRunner(workflow, goal_id="goal", run_id="run", checkpoint_store=store)
+
+    assert (await runner.run_step(lambda _: WorkflowStepResult(output="ok"))).status is WorkflowStatus.WAITING_USER
+    runner.resume()
+    await runner.persist_state()  # first write of step-2-active-1-pending
+
+    runner.state = runner.state.model_copy(update={"status": WorkflowStatus.WAITING_USER, "reason": "interrupted"})
+    await runner.persist_state()  # step-2-active-1-waiting_user
+
+    runner.resume()
+    await runner.persist_state()  # re-issues step-2-active-1-pending; must not conflict
+
+    checkpoints = await store.list_checkpoints(goal_id="goal")
+    assert any(c.checkpoint_id == "goal-run-step-2-active-1-pending" for c in checkpoints)

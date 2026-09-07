@@ -116,7 +116,7 @@ class WorkflowCheckpointStore:
             if path.exists() and existing is None:
                 raise WorkflowCheckpointError(f"checkpoint is corrupted: {path}")
             if existing is not None:
-                if existing.model_dump(mode="json") != checkpoint.model_dump(mode="json"):
+                if self._logical_dump(existing) != self._logical_dump(checkpoint):
                     raise WorkflowCheckpointError(f"checkpoint conflict: {checkpoint.checkpoint_id}")
             else:
                 payload = json.dumps(checkpoint.model_dump(mode="json"), ensure_ascii=False, indent=2)
@@ -177,6 +177,16 @@ class WorkflowCheckpointStore:
             next_action=checkpoint.next_action,
             updated_at=checkpoint.created_at,
         )
+
+    @staticmethod
+    def _logical_dump(checkpoint: WorkflowCheckpoint) -> dict[str, Any]:
+        """Serialize checkpoint identity without the wall-clock persistence stamp.
+
+        ``created_at`` legitimately differs between two writes of the same logical
+        snapshot (for example a pause/resume cycle re-issuing the same pending
+        checkpoint), so it must not participate in conflict detection.
+        """
+        return checkpoint.model_dump(mode="json", exclude={"created_at"})
 
     def _path(self, checkpoint_id: str) -> Path:
         if not checkpoint_id or Path(checkpoint_id).name != checkpoint_id or checkpoint_id in {".", ".."}:
