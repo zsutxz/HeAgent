@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from heagent.config import Settings
+from heagent.config import Settings, reset_settings
 
 # 必须在 heagent.config 首次 import / get_settings() 之前设置（pydantic-settings 懒加载）。
 # setdefault 不覆盖用户已在环境/.env 中显式设置的值。
@@ -41,4 +41,7 @@ def _isolate_dotenv_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> li
             str(tmp_path / "nonexistent_project.env"),
         ],
     )
+    # 隔离单例状态：每个测试从干净 Settings 开始（跨测试 env 泄漏如
+    # GOAL_CHECKPOINT_MODE=auto 会污染后续断言默认值的用例）。
+    reset_settings()
     return source_env_files

@@ -553,3 +553,91 @@ async def test_declarative_new_reports_invalid_questionnaire_configuration(
     await _goal_runner(SimpleNamespace(), None, "new broken questionnaire game")
 
     assert "declarative questionnaire configuration is invalid" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_open_question_mode_default_injects_proceed_with_default(
+    declarative_cwd: Path,
+    successful_step: list[str],
+) -> None:
+    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow.write_text(
+        workflow.read_text(encoding="utf-8").replace(
+            "step_executor: subagent\n", "step_executor: subagent\nopen_question_mode: default\n"
+        ),
+        encoding="utf-8",
+    )
+
+    await _goal_runner(SimpleNamespace(), None, "new default open question workflow")
+
+    assert len(successful_step) == 1
+    assert "Open question policy:" in successful_step[0]
+    assert "proceed with the recommended" in successful_step[0]
+    assert "do not stop with waiting_user" in successful_step[0]
+
+
+@pytest.mark.asyncio
+async def test_open_question_mode_block_injects_stop_instruction(
+    declarative_cwd: Path,
+    successful_step: list[str],
+) -> None:
+    await _goal_runner(SimpleNamespace(), None, "new block open question workflow")
+
+    assert len(successful_step) == 1
+    assert "Open question policy:" in successful_step[0]
+    assert "Stop with waiting_user" in successful_step[0]
+
+
+@pytest.mark.asyncio
+async def test_invalid_open_question_mode_fails_workflow_load(
+    declarative_cwd: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow.write_text(
+        workflow.read_text(encoding="utf-8").replace(
+            "step_executor: subagent\n", "step_executor: subagent\nopen_question_mode: always\n"
+        ),
+        encoding="utf-8",
+    )
+
+    await _goal_runner(SimpleNamespace(), None, "new invalid open question mode")
+
+    assert "invalid open_question_mode 'always'" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_open_question_mode_env_applies_when_workflow_omits_declaration(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GOAL_OPEN_QUESTION_MODE", "default")
+    reset_settings()
+
+    await _goal_runner(SimpleNamespace(), None, "new env open question workflow")
+
+    assert len(successful_step) == 1
+    assert "do not stop with waiting_user" in successful_step[0]
+
+
+@pytest.mark.asyncio
+async def test_workflow_open_question_mode_overrides_environment(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("GOAL_OPEN_QUESTION_MODE", "default")
+    reset_settings()
+    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow.write_text(
+        workflow.read_text(encoding="utf-8").replace(
+            "step_executor: subagent\n", "step_executor: subagent\nopen_question_mode: block\n"
+        ),
+        encoding="utf-8",
+    )
+
+    await _goal_runner(SimpleNamespace(), None, "new explicit block open question workflow")
+
+    assert len(successful_step) == 1
+    assert "Stop with waiting_user" in successful_step[0]

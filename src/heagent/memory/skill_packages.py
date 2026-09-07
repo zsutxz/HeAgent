@@ -62,6 +62,8 @@ class WorkflowResource(BaseModel):
     step_executor: str = "subagent"
     # Empty means the workflow defers to GOAL_CHECKPOINT_MODE/settings.
     checkpoint_mode: Literal["", "auto", "prompt"] = ""
+    # Empty means the workflow defers to GOAL_OPEN_QUESTION_MODE/settings.
+    open_question_mode: Literal["", "block", "default"] = ""
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -285,6 +287,13 @@ class SkillPackage(BaseModel):
                 resource,
                 f"invalid checkpoint_mode '{checkpoint_mode}'; expected auto or prompt",
             )
+        open_question_mode = self._value_text(values, "open_question_mode", "open_questions").casefold()
+        if open_question_mode not in {"", "block", "default"}:
+            raise SkillWorkflowError(
+                self.skill_id,
+                resource,
+                f"invalid open_question_mode '{open_question_mode}'; expected block or default",
+            )
         return WorkflowResource(
             name=self._value_text(values, "name", "id") or self.skill_id,
             instructions=(body.split("\n## Step ", 1)[0] if inline else body).strip(),
@@ -293,6 +302,7 @@ class SkillPackage(BaseModel):
             on_create=self._value_text(values, "on_create", "initialize") or "persist_goal_identity",
             step_executor=self._value_text(values, "step_executor", "executor") or "subagent",
             checkpoint_mode=checkpoint_mode,
+            open_question_mode=open_question_mode,
             frontmatter=values,
         )
 

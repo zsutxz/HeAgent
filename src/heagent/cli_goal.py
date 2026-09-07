@@ -404,6 +404,14 @@ def _goal_checkpoint_mode(workflow: WorkflowResource) -> str:
     return get_settings().goal_checkpoint_mode
 
 
+def _goal_open_question_mode(workflow: WorkflowResource) -> str:
+    """Resolve open-question policy: workflow declaration, env-backed settings, default."""
+    declared = workflow.open_question_mode.strip().casefold()
+    if declared:
+        return declared
+    return get_settings().goal_open_question_mode
+
+
 def _goal_checkpoint_prompt() -> bool:
     """Ask for checkpoint approval only when stdin is an interactive TTY."""
     if not sys.stdin.isatty():
@@ -528,6 +536,12 @@ def _goal_declarative_prompt(
 ) -> str:
     role = _goal_role_instructions(step_name)
     supplied_inputs = "\n\n".join(f"## {name}\n{value}" for name, value in inputs.items())
+    open_question_policy = (
+        "When a competing interpretation requires a stakeholder choice, proceed with the recommended "
+        "default and record the assumption explicitly; do not stop with waiting_user."
+        if _goal_open_question_mode(workflow) == "default"
+        else "Stop with waiting_user when competing interpretations require stakeholder choice."
+    )
     return (
         f"{workflow.instructions}\n\n# Declarative workflow step\n"
         f"Goal: {description}\n"
@@ -535,6 +549,7 @@ def _goal_declarative_prompt(
         f"Project output root: {goal_dir.parent.parent.resolve()}\n"
         f"Step: {step_name}\n"
         f"Role instructions:\n{role}\n"
+        f"Open question policy:\n{open_question_policy}\n"
         f"Declared inputs:\n{supplied_inputs}\n"
         "Execute only this declared step. Write every durable non-code project artifact under the project output root; "
         "source code remains in its established repository location. Return the complete artifact body as your final "

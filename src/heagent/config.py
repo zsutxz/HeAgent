@@ -107,6 +107,11 @@ class Settings(BaseSettings):
     # Checkpoint decision policy for declarative /goal workflows.  Workflow
     # frontmatter may override this process-wide default.
     goal_checkpoint_mode: Literal["auto", "prompt"] = "prompt"
+    # Open-question decision policy for declarative /goal step subagents.
+    # block=stop with waiting_user on competing interpretations (default);
+    # default=proceed with recommended defaults and record assumptions.
+    # Workflow frontmatter may override this process-wide default.
+    goal_open_question_mode: Literal["block", "default"] = "block"
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
     # 上下文管理策略："compressor"=原地摘要压缩（默认）；"reset"=窗口重置（清窗后 resume 续跑，D3 互斥）。
     context_strategy: str = Field(default="compressor")

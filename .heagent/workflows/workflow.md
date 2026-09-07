@@ -3,7 +3,8 @@ name: workflow
 entrypoint: goal
 on_create: persist_goal_identity
 step_executor: subagent
-checkpoint_mode: prompt
+checkpoint_mode: auto
+open_question_mode: default
 ---
 
 # development workflow
