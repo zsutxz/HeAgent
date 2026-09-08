@@ -52,6 +52,10 @@ class WorkflowStepResource(BaseModel):
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
+CheckpointMode = Literal["", "auto", "prompt"]
+OpenQuestionMode = Literal["", "block", "default"]
+
+
 class WorkflowResource(BaseModel):
     """A workflow declaration with steps in execution order."""
 
@@ -62,9 +66,9 @@ class WorkflowResource(BaseModel):
     on_create: str = "persist_goal_identity"
     step_executor: str = "subagent"
     # Empty means the workflow defers to GOAL_CHECKPOINT_MODE/settings.
-    checkpoint_mode: Literal["", "auto", "prompt"] = ""
+    checkpoint_mode: CheckpointMode = ""
     # Empty means the workflow defers to GOAL_OPEN_QUESTION_MODE/settings.
-    open_question_mode: Literal["", "block", "default"] = ""
+    open_question_mode: OpenQuestionMode = ""
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -303,8 +307,8 @@ class SkillPackage(BaseModel):
             entrypoint=self._value_text(values, "entrypoint"),
             on_create=self._value_text(values, "on_create", "initialize") or "persist_goal_identity",
             step_executor=self._value_text(values, "step_executor", "executor") or "subagent",
-            checkpoint_mode=checkpoint_mode,
-            open_question_mode=open_question_mode,
+            checkpoint_mode=cast("CheckpointMode", checkpoint_mode),
+            open_question_mode=cast("OpenQuestionMode", open_question_mode),
             frontmatter=values,
         )
 

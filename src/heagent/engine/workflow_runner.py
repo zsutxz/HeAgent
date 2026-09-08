@@ -133,7 +133,7 @@ class WorkflowRunResult(BaseModel):
 
 WorkflowCallback = Callable[[WorkflowStepResource], WorkflowStepResult | Awaitable[WorkflowStepResult]]
 StoryWorkflowCallback = Callable[[WorkflowStepResource, StorySpec], WorkflowStepResult | Awaitable[WorkflowStepResult]]
-CheckpointCallback = Callable[[WorkflowRunnerState], None | Awaitable[None]]
+CheckpointCallback = Callable[[WorkflowRunnerState], Awaitable[None] | None]
 
 
 class WorkflowRunner:
@@ -234,8 +234,9 @@ class WorkflowRunner:
             story_specs = self._resolve_stories(step, stories)
         except WorkflowGateError as exc:
             return await self._stop(WorkflowStatus.BLOCKED, step, str(exc), [], checkpoint)
-        active_story = story_specs[self.state.story_index] if is_story_loop else None
+        active_story: StorySpec | None = None
         if is_story_loop:
+            active_story = story_specs[self.state.story_index]
             self.state = self.state.model_copy(update={"active_story": active_story.id})
 
         result = self._invoke_callback(callback, step, active_story)
