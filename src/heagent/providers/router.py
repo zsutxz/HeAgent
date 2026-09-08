@@ -131,6 +131,10 @@ class Router(Protocol):
 
     实现只需 ``route`` 方法，返回 ``RouteDecision``。通过 @runtime_checkable 支持
     isinstance() 检查；与 BaseProvider 一样无需继承——鸭子类型即可。
+
+    **可选钩子**：额外实现 ``note_selection(name)`` 的 Router，会在每次实际选中 provider
+    后被 ``RoutingProvider`` 回调（duck-typing，未实现则跳过）。自定义 Router 不实现该
+    钩子也能正常工作。
     """
 
     def route(self, messages: list[Message], tools: list[ToolSchema] | None) -> RouteDecision:
@@ -142,24 +146,27 @@ class HeuristicRouter:
     """启发式路由：推理链续接 + 关键词检测。
 
     决策顺序（先命中先返回）：
-      1. **推理链续接**：任一条 ASSISTANT 消息携带 ``reasoning_content``（思考模型
-         的推理痕迹）→ 说明正处在多轮推理链中途，切回非思考模型会打断推理链，
-         故强制停留在 pro。
+      1. **推理链续接**：**上一轮实际选中的就是 pro** 且历史里仍有 ASSISTANT 消息
+         携带 ``reasoning_content``（思考痕迹）→ 说明正处在 pro 发起的多轮推理中途，
+         故继续停留在 pro。判据以「上一轮是否真的用了 pro」为准，而非「历史里有没有
+         ``reasoning_content``」：DeepSeek v4 的 flash 与 pro 都是思考模型、都返回
+         ``reasoning_content``，按后者判定会让走过一次 flash 后永久锁死 pro。
       2. **复杂度关键词**：扫描全部 USER 消息，命中 ``reasoning_keywords`` 中任一
          （大小写不敏感子串）→ 判定为复杂任务，路由到 pro。
       3. **中档关键词**（仅当配置了 ``mid`` 档时）：扫描全部 USER 消息，命中
          ``mid_keywords`` 中任一 → 判定为中档任务，路由到 mid。
       4. **兜底**：否则路由到 fast（快速/廉价模型）。
 
-    **成本语义（任务级而非消息级）**：判据 1/2 均扫描全部历史消息——任一轮命中
-    关键词（或推理链开启）后，后续**所有**轮次（包括简单追问）都持续路由到 pro，
-    直到会话上下文被压缩/重置。这是有意取舍：避免 tool-call 后最新消息为 TOOL
+    **成本语义（任务级而非消息级）**：判据 2/3 均扫描全部历史消息——任一轮命中
+    关键词后，后续**所有**轮次（包括简单追问）都持续路由到 pro，直到会话上下文被
+    压缩/重置；判据 1 在 pro 的思考痕迹仍留在历史中时续接 pro，痕迹被压缩掉后即
+    自动回落到关键词判定。这是有意取舍：避免 tool-call 后最新消息为 TOOL
     结果时漏判复杂度；代价是长会话可能全量按 pro 计费。介意成本可在新会话中
     避免触发关键词，或 ``/route fast`` 强制。
 
     这是**纯启发式**（非精确、非安全机制）：关键词可能误判（漏判简单任务 / 误判
-    复杂任务），但对「多付一点钱 vs 少一次往返」的取舍足够实用；推理链续接则保证
-    pro 模型发起的推理不会被 flash 模型无推理地截断。
+    复杂任务），但对「多付一点钱 vs 少一次往返」的取舍足够实用；推理链续接保证
+    pro 发起、尚未走完的多轮推理不会被中途换模型打断。
     """
 
     def __init__(
@@ -195,13 +202,33 @@ class HeuristicRouter:
         if mid_keywords:
             merged_mid.extend(mid_keywords)
         self._mid_keywords: list[str] = [k.lower() for k in merged_mid]
+        # 上一次「实际选中」的 provider 名（由 RoutingProvider 经 note_selection 回调
+        # 写入，含 forced / 兜底后的真实结果）；None = 尚未路由过。判据 1 用它判断
+        # 「上一轮是不是 pro」——不能改用「历史里有没有 reasoning_content」（见类 docstring）。
+        self._last_provider: str | None = None
+
+    @property
+    def last_provider(self) -> str | None:
+        """上一次实际选中的 provider 名；None = 尚未路由过（观测 / 测试用）。"""
+        return self._last_provider
+
+    def note_selection(self, name: str) -> None:
+        """记录本次实际选中的 provider 名（由 ``RoutingProvider`` 在 ``_pick`` 后回调）。
+
+        判据 1「推理链续接」据此判断上一轮是否真的用了 pro——而非扫描历史里是否存在
+        ``reasoning_content``（flash 也返回该字段，扫描会让 pro 永久锁死）。
+        """
+        self._last_provider = name
 
     def route(self, messages: list[Message], tools: list[ToolSchema] | None) -> RouteDecision:
         """按决策顺序返回路由结果（见类 docstring）。"""
-        # 1. 推理链续接：ASSISTANT 消息携带 reasoning_content → 停留 pro。
-        for msg in messages:
-            if msg.role == Role.ASSISTANT and msg.reasoning_content:
-                return RouteDecision(provider=self._pro, reason="reasoning_continuity")
+        # 1. 推理链续接：上一轮实际选中 pro，且思考痕迹仍在历史中 → 继续 pro。
+        #    只看「上一轮是不是 pro」而非「历史里有没有 reasoning_content」：flash 也返回
+        #    该字段，按后者会让走过一次 flash 后永久锁死 pro（fast 再也切不回）。
+        if self._last_provider == self._pro and any(
+            msg.role == Role.ASSISTANT and msg.reasoning_content for msg in messages
+        ):
+            return RouteDecision(provider=self._pro, reason="reasoning_continuity")
 
         # 2. 复杂度关键词：扫描 USER 消息 → pro（深度档）。
         for msg in messages:
@@ -240,6 +267,9 @@ class RoutingProvider:
     NON_TRANSIENT 不回退（换兄弟模型也不会好转），直接上抛给外层
     ``SwitchableProvider`` 按条目回退。流式仅在**首个 chunk 前**失败才改道（已
     开始输出后无法重放前缀）。
+
+    ``_pick`` 解析出实际选中的 provider 后，若路由策略实现了可选钩子
+    ``note_selection(name)`` 则回传（供 ``HeuristicRouter`` 判定「上一轮是否 pro」）。
 
     对 ``AgentLoop`` 完全透明（实现 BaseProvider 协议）。``last_decision`` 记录最近
     一次决策（观测/调试用，best-effort——单次字符串赋值在 CPython 下原子，不引入
@@ -333,7 +363,18 @@ class RoutingProvider:
             decision = RouteDecision(provider=self._default, reason=f"fallback_from:{name}({decision.reason})")
             name = self._default
         self.last_decision = decision
+        self._note_selection(name)
         return name, self._providers[name]
+
+    def _note_selection(self, name: str) -> None:
+        """把本次实际选中的 provider 名回传给路由策略（若其实现了可选钩子）。
+
+        ``HeuristicRouter`` 借此把「推理链续接」收窄为「上一轮实际是 pro」。钩子为
+        duck-typing 可选——只实现 ``route`` 的自定义 Router 不受影响。
+        """
+        hook = getattr(self._router, "note_selection", None)
+        if callable(hook):
+            hook(name)
 
     @staticmethod
     def _is_fallback_error(error: Exception) -> bool:

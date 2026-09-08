@@ -72,26 +72,58 @@ class TestHeuristicRouter:
         assert decision.provider == "pro"
         assert decision.reason == "keyword:analyze"
 
-    def test_reasoning_continuity_routes_pro(self) -> None:
-        """ASSISTANT 消息携带 reasoning_content → 推理链续接，停留 pro（即使无关键词）。"""
+    def test_flash_reasoning_content_does_not_lock_pro(self) -> None:
+        """回归：flash 也返回 reasoning_content，但不能因此锁死 pro。
+
+        DeepSeek v4 的 flash/pro 都是思考模型，历史里出现 reasoning_content 并不代表
+        上一轮用了 pro——若按「历史里有无 reasoning_content」判定，简单会话从第二轮起
+        就会永久走 pro，fast 再也切不回。
+        """
         router = HeuristicRouter(fast="fast", pro="pro")
         messages = [
-            _msg("hello"),
+            _msg("你好"),
+            Message(role=Role.ASSISTANT, content="...", reasoning_content="thinking..."),
+            _msg("继续"),
+        ]
+        decision = router.route(messages, None)
+        assert decision == RouteDecision(provider="fast", reason="default_fast")
+
+    def test_reasoning_continuity_after_pro_selection(self) -> None:
+        """上一轮实际选中 pro + 思考痕迹仍在历史 → 续接 pro（即使关键词已滚出历史）。"""
+        router = HeuristicRouter(fast="fast", pro="pro")
+        router.note_selection("pro")
+        messages = [
             Message(role=Role.ASSISTANT, content="...", reasoning_content="thinking..."),
             _msg("继续"),
         ]
         decision = router.route(messages, None)
         assert decision == RouteDecision(provider="pro", reason="reasoning_continuity")
 
-    def test_reasoning_continuity_precedes_keyword(self) -> None:
-        """推理链续接优先级高于关键词（其实两者都指向 pro，这里验证 reason 取值）。"""
+    def test_reasoning_continuity_after_flash_selection(self) -> None:
+        """上一轮实际是 fast → 即使历史里有 reasoning_content 也不续接 pro。"""
         router = HeuristicRouter(fast="fast", pro="pro")
+        router.note_selection("fast")
+        messages = [
+            Message(role=Role.ASSISTANT, content="...", reasoning_content="thinking..."),
+            _msg("继续"),
+        ]
+        assert router.route(messages, None).provider == "fast"
+
+    def test_reasoning_continuity_requires_reasoning_trace(self) -> None:
+        """上一轮是 pro，但思考痕迹已被压缩掉 → 不再续接，回落关键词/兜底。"""
+        router = HeuristicRouter(fast="fast", pro="pro")
+        router.note_selection("pro")
+        assert router.route([_msg("继续")], None) == RouteDecision(provider="fast", reason="default_fast")
+
+    def test_reasoning_continuity_precedes_keyword(self) -> None:
+        """推理链续接优先级高于关键词（两者都指向 pro，这里验证 reason 取值）。"""
+        router = HeuristicRouter(fast="fast", pro="pro")
+        router.note_selection("pro")
         messages = [
             Message(role=Role.ASSISTANT, content="...", reasoning_content="thinking..."),
             _msg("分析一下"),
         ]
-        decision = router.route(messages, None)
-        assert decision.reason == "reasoning_continuity"
+        assert router.route(messages, None).reason == "reasoning_continuity"
 
     def test_custom_keywords_merge_not_replace(self) -> None:
         """自定义关键词追加到内置表，而非覆盖——内置词仍生效。"""
@@ -153,6 +185,17 @@ class TestRoutingProvider:
         assert fast.send_calls == 1
         assert pro.send_calls == 0
         assert provider.last_decision == RouteDecision(provider="fast", reason="default_fast")
+
+    async def test_router_notes_actual_selection(self) -> None:
+        """_pick 后把实际选中的 provider 回传给路由器（可选钩子），供判据 1 使用。"""
+        router = HeuristicRouter(fast="fast", pro="pro")
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")}, router, default="fast"
+        )
+        await provider.send([_msg("你好")])
+        assert router.last_provider == "fast"
+        await provider.send([_msg("请分析这段代码")])
+        assert router.last_provider == "pro"
 
     async def test_send_routes_pro_on_keyword(self) -> None:
         fast = _make_provider("fast")

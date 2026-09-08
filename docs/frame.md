@@ -275,9 +275,12 @@ AgentLoop
 `ProviderChain` 的「出错才切换」正交（本类在无错误的正常路径上做主动选择）。对 `AgentLoop`
 透明（实现 `BaseProvider` 协议）。
 
-- `HeuristicRouter`：决策顺序 = ① **推理链续接**（任一 ASSISTANT 消息带 `reasoning_content`
-  → 停留 pro，避免非思考模型截断推理链）→ ② **复杂度关键词**（扫描 USER 消息命中
-  `DEFAULT_REASONING_KEYWORDS` 或自定义词 → pro）→ ③ 兜底 fast。纯启发式（非安全机制）。
+- `HeuristicRouter`：决策顺序 = ① **推理链续接**（**上一轮实际选中 pro** 且历史里仍有
+  ASSISTANT 的 `reasoning_content` → 继续 pro，避免打断 pro 的多轮推理）→ ② **复杂度
+  关键词**（扫描 USER 消息命中 `DEFAULT_REASONING_KEYWORDS` 或自定义词 → pro）→ ③ 兜底
+  fast。判据 ① 以「上一轮是否 pro」而非「历史有无 `reasoning_content`」为准——DeepSeek v4
+  的 flash/pro 都是思考模型、都返回该字段，按后者会让走过一次 flash 后永久锁死 pro；
+  `RoutingProvider._pick` 经可选钩子 `note_selection` 回传实际选中项。纯启发式（非安全机制）。
 - `RoutingProvider.send/stream`：`_pick()` 决策 → 未知名称回退 `default` → 委托。
 - `last_decision`（`RouteDecision`）记录最近一次决策，供日志/`/route` 命令观测。
 - CLI：`ROUTING_ENABLED=true` 时 `_build_provider` 将 DeepSeek 条目构建为二分路由
