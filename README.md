@@ -19,16 +19,15 @@ HeAgent 会执行 shell、读写文件、访问外部 API，并且会把工具�
 ## 文档地图
 
 - [文档索引](docs/README.md)
-- [设计说明](docs/design.md)
 - [架构参考](docs/frame.md)
-- [架构速览](docs/learning.md)
-- [迭代历程](docs/iteration.md)
-- [GUI 集成方案（已交付实现对照）](docs/gui-plan.md)
-- [BMad 工作流规划](docs/bmad-heagent-plan.md)
+- [敏捷工作流](docs/workflow.md)
+- [设计说明](docs/design.md)
+- [迭代指南](docs/iteration.md)
+- [GUI 实现对照](_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md)
 - [部署说明](deploy/README.md)
 - [仓库协作约定](CLAUDE.md)
 
-建议阅读顺序：`README` -> `docs/design.md` -> `docs/frame.md`；需要了解迭代背景时，再阅读 `docs/iteration.md` 和 `_bmad-output/README.md`。
+建议阅读顺序：`README` -> `docs/README.md` -> `docs/frame.md`；开发敏捷工作流时再阅读 `docs/workflow.md`。
 
 ## 核心能力
 

@@ -546,10 +546,13 @@ HeAgentError (base)
 | `deepseek_api_key` | None | DeepSeek API Key（优先） |
 | `openai_api_key` | None | OpenAI API Key |
 | `anthropic_api_key` | None | Anthropic API Key |
+| `kimi_api_key` / `glm_api_key` | None | Kimi、GLM Provider API Key |
+| `openai_responses_api_key` | None | OpenAI Responses API / 中转站 API Key |
 | `deepseek_base_url` | None | DeepSeek API 基础 URL |
 | `openai_base_url` | None | OpenAI 兼容服务 URL |
 | `anthropic_base_url` | None | Anthropic 代理地址 |
 | `anthropic_prompt_caching` | True | Anthropic 提示词缓存（注入 cache_control 断点，FR-3；不兼容代理时关闭） |
+| `gpt_routing_enabled` | False | GPT terra/luna/sol 智能路由开关 |
 | `openai_api_keys` | "" | OpenAI 多密钥池（逗号分隔） |
 | `anthropic_api_keys` | "" | Anthropic 多密钥池（逗号分隔） |
 | `default_model` | `gpt-4o` | 默认模型 |
@@ -572,9 +575,17 @@ HeAgentError (base)
 | `dream_idle_minutes` | 30 | dream idle 触发阈值（分钟，距上次 run 结束；0=禁用 idle 触发） |
 | `dream_max_iterations` | 20 | dreamer SubAgent 独立迭代预算（不复用全局 `max_iterations`） |
 | `goal_max_iterations` | 20 | `/goal` 单步 SubAgent 最大迭代轮数 |
+| `goal_checkpoint_mode` | `prompt` | `/goal` 检查点策略：自动继续或等待用户 |
+| `goal_open_question_mode` | `block` | `/goal` 未决问题策略：阻塞或采用默认值 |
 | `dream_session_lookback` | 5 | 预加载近期 session 个数（按 timestamp 降序） |
 | `mcp_enabled` | True | 是否启用 MCP server 连接（门控，False 则跳过加载） |
 | `mcp_config_path` | `.mcp.json` | MCP server 声明式配置文件路径 |
+| `sandbox_backend` | `passthrough` | Shell 后端；可选 `firejail` |
+| `sandbox_session_workspace` | False | 是否为每个 run 建立会话工作目录 |
+| `sandbox_session_keep` | False | run 结束后是否保留会话目录 |
+| `approval_tools` | `""` | 需要交互审批的工具名列表 |
+| `hooks_enabled` | False | 是否启用 `.heagent/hooks.json` |
+| `plan_mode` | False | 是否启用只读计划模式 |
 
 ---
 
@@ -609,7 +620,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入 |
 | `persist.py` | `atomic_write_text`（`*.tmp` + `os.replace` 原子写）+ `load_json_model`（损坏 JSON 容错跳过） |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布 |
-| `agile.py` | `ReviewVerdict`、`Retrospective`、`CorrectCourse` — 审查闭环工件；阻塞发现仅经 `WorkflowOrchestrator` 回退 implementation，所有发现与证据保留，Epic retrospective 必须引用已完成 Story 的验收证据 |
+| `agile.py` | `ReviewVerdict`、`Retrospective`、`CorrectCourse` — 审查、回顾和纠偏工件模型；由声明式工作流或上层调用方消费，不自行推进 `/goal` 阶段 |
 
 **已完成：**
 
@@ -617,7 +628,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 - **角色化 + checkpoint-resume**：supervisor 委派角色化 `SubAgent`，结构化结果写 `metadata['completed_steps']`；`window_reset` 清窗重建 + `resume`/`resume_stream` 跨窗口续跑；`build_run_tree()` 树形聚合；Schema 级工具隐藏
 - **持久化健壮性**：store/ledger 全部 async I/O + 原子写 + 损坏 JSON 容错；可选跨进程文件锁（`EngineContainer(enable_file_locks=True)`）
 
-**待完善：**
+**已知限制：**
 
 - **Sandbox 后端**：`execute_in_sandbox()` 默认 Passthrough 透传；`FirejailBackend` 仅隔离 shell 子进程、非完美边界（见 4.4 sandbox.py）
 - **安全边界**：`SafetyGuard` / `PolicyEngine` / sandbox 均非真正安全边界，须 OS 级沙箱兜底（详见 CLAUDE.md 安全声明）
@@ -626,40 +637,29 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 
 ### 4.13 Goal 驱动工作流 (`/goal`)
 
-`/goal` 是 CLI 层的机制入口（命令族实现位于 `cli_goal.py`），方法论由运行时本地的
-`.heagent/skills/goal/SKILL.md` 承载。框架只读取三个机器标记：
-`_he-output/goals/<goal_id>/GOAL.md` 首个非空 `status`、story checkbox 数量，
-以及可选的 `in-progress` 标记；不会创建独立的 `goal.py` 状态模型或 `runs.jsonl`。
+`/goal` 是 CLI 层的机制入口（命令族实现位于 `cli_goal.py`）。当前工作流的唯一方法论入口是
+`.heagent/workflows/workflow.md`；步骤声明中的 `role` 再解析对应的 `.heagent/skills/*/SKILL.md`。
+当前工作流的维护说明见 [`docs/workflow.md`](workflow.md)。
 
-- `/goal <description>` 或 `/goal new <description>` 从原始需求提取英文字母 project slug，创建
-  `_he-output/goals/<goal_id>/GOAL.md` 与 `current` 指针；原始需求明确标注在 `GOAL.md` 专属章节中，
-  同名冲突使用字母后缀，并启动 planning SubAgent。
-- `/goal next` 推进一条 story；`/goal run` 复用同一推进函数连续执行，最多 10 轮。
-  每一步都是全新的 SubAgent/RunContext，会话失败、状态回退、blocked/planning 或无净完成时停止。
-- `/goal status` 只读回显状态与完整 GOAL.md；`/goal reset` 只清除 current 指针并保留目录。
-- `/goal resume [回复]` 在 `waiting_user`、`blocked` 或 `failed` 状态下把用户回复追加到
-  `GOAL.md` 的“用户补充（User Responses）”章节，再恢复并执行当前步骤；无回复时仅恢复状态。
-- `/goal auto [cron]` 将 `goal-advance <goal_id>` 写入 JobStore，cron tick 复用推进路径；
-  goal 完成或 blocked 时自动注销，`/goal auto off` 可手动注销。
+- `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/GOAL.md` 和 `current` 指针，
+  然后执行 workflow 的第一个声明步骤。
+- `/goal next` 执行一个声明步骤，`story_loop`（当前为 `02-epics.md`）步骤则每次执行一条 Story；`/goal run` 可连续推进，遇到检查点、
+  阻塞或失败即停止。
+- `/goal status` 只读回显运行状态和目标产物；`/goal reset` 只清除 current 指针并保留目标目录。
+- `/goal resume [回复]` 记录用户回复并恢复等待中的步骤；`/goal auto [cron]` 通过 JobStore 复用同一推进路径。
+
+每个步骤或 Story 都由新的 SubAgent/RunContext 执行。`WorkflowRunner` 负责顺序、输入、输出、checkpoint
+和恢复；它不决定 Epic/Story 的拆分方法。
 
 Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`（planning/story）
 与框架权威的 `kind=subagent`。metadata 仅用于观测，不能覆盖 PolicyEngine 的授权字段；
 无人值守 cron 不提升权限，审批与 sandbox 策略仍由 engine 处理。该层同样不是 OS 安全边界，
 外部工具与 LLM 输出仍须在 OS 级沙箱中运行。
 
-**Current declarative contract:** `/goal` requires the self-contained
-`.heagent/workflows/workflow.md`. Its `on_create` declaration
-extracts a letter-only English project slug from the original request and creates
-`_he-output/goals/<goal_id>/GOAL.md`, plus the `current` pointer; `GOAL.md` is a
-standard GoalArtifact containing normalized Goal metadata and a marked
-`原始需求（Original Request）` section. The old `goal.txt` /
-skill-driven Story flow is not used as a fallback. Each inline `## Step NN:`
-section declares the prompt, I/O contract, and checkpoint behavior; the CLI
-only maps the supported `persist_goal_identity` and `subagent` declarations to
-deterministic operations. The exact request text is preserved in the marked Goal
-section; successful step output is persisted as
-`step-XX-<step-name>.md` beside the workflow checkpoint, so analysis artifacts
-remain inspectable without replacing the normalized Goal metadata.
+`workflow.md` 是自包含的声明式入口。其 `on_create` 声明创建规范化 `GoalArtifact` 和 `current` 指针；
+每个 inline `## Step NN:` 区块声明 prompt、输入输出和 checkpoint。CLI 只映射已支持的
+`persist_goal_identity` 与 `subagent` 声明到确定性操作；成功输出保存为
+`step-XX-<step-name>.md`，Story 输出保存到对应的 Story 子目录。旧的 imperative goal board 路径不再作为回退。
 
 ### 4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）
 
@@ -901,14 +901,14 @@ python -m heagent
 
 Epic 43-45 的目标级编排、checkpoint、恢复、Token 分段和 CLI 审计由确定性测试覆盖。`tests/test_goal_workflow_smoke.py` 使用无网络执行，验证两个 story 单元、workflow/checkpoint、ledger 与 EventBus 证据，并覆盖缺少产物时的 blocked 分支和损坏状态显式失败。
 
-本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format 和 mypy；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。`GOAL.md` 仍是 Story 看板权威，`workflow.json` 只保存运行时元数据；SafetyGuard、path_safety 与 engine sandbox 仍是 defense-in-depth，非 OS 安全边界。
+本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format 和 mypy；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal` 的步骤权威是 `.heagent/workflows/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 仍是 defense-in-depth，非 OS 安全边界。
 
 ### 4.15 Goal/Epic/Story artifact contract
 
 Declarative BMad workflow artifacts have three layers with fixed ownership. `GOAL.md` contains the Epic list only; `EPIC.md` contains Goal, Value, Scope, Dependencies, Acceptance Criteria, Stories, and Definition of Done; each Story document contains frontmatter, User Story, Given/When/Then acceptance criteria, Tasks, and Definition of Done. IDs and parent references are validated by `heagent.engine.artifacts.validate_hierarchy()`.
 
-`parse_artifact()` fails loudly on missing or duplicate sections, unresolved `TBD`, invalid frontmatter type/status, and malformed parent metadata. Templates are in `.heagent/workflows/templates/`. Epic/Story status is owned solely by `_bmad-output/sprint-status.yaml`; `workflow.json` stores runtime metadata and is never a second status board. `validate_sprint_status_path()` enforces this canonical, read-only target.
+`parse_artifact()` fails loudly on missing or duplicate sections, unresolved `TBD`, invalid frontmatter type/status, and malformed parent metadata. Templates are in `.heagent/workflows/templates/`. Historical Epic/Story status is owned solely by `_bmad-output/sprint-status.yaml`; `workflow.json` stores runtime metadata and is never a second status board. `validate_sprint_status_path()` enforces this canonical, read-only target.
 
 ### 4.16 Declarative Agile Closure
 
-`.heagent/workflows/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `GOAL.md` is the standard GoalArtifact and replaces `goal.txt`; all durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The former imperative `goal.txt` story-board path has been removed, leaving the declarative runner as the sole `/goal` execution path. `agile.py` models review findings, retrospective evidence, and correct-course records: blocking review verdicts return through `WorkflowOrchestrator` from `review` to `implementation`; passing verdicts only grant completion eligibility.
+`.heagent/workflows/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `GOAL.md` is the standard GoalArtifact and replaces `goal.txt`; all durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The former imperative `goal.txt` story-board path has been removed, leaving the declarative runner as the sole `/goal` execution path. `agile.py` provides review findings, retrospective evidence, and correct-course record models; transition policy remains owned by the active workflow and its deterministic runner.

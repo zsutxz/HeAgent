@@ -7,7 +7,7 @@ baseline_commit: '0e84d5fb21780d440690f20c38f94273e0f777cb'
 review_loop_iteration: 0
 context:
   - 'E:\\AI\\HeAgent\\docs\\frame.md'
-  - 'E:\\AI\\HeAgent\\docs\\bmad-heagent-plan.md'
+  - 'E:\\AI\\HeAgent\\_bmad-output\\epics\\epic-47-声明式BMad敏捷工作流周期\\bmad-heagent-plan.md'
   - 'E:\\AI\\HeAgent\\_bmad-output\\epics\\epic-42-BMad技能包运行时周期\\epics.md'
 ---
 

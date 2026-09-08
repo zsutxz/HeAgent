@@ -3,7 +3,7 @@
 > BMad Method · Step 1: brief
 > 日期: 2026-07-23
 > 状态: draft
-> 参考: docs/gui-plan.md
+> 参考: gui-plan.md
 
 ## 一、产品意图
 

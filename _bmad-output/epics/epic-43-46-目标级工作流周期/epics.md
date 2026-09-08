@@ -2,7 +2,7 @@
 stepsCompleted: [step-01-validate-prerequisites, step-02-design-epics, step-03-create-stories, step-04-final-validation]
 inputDocuments:
   - '{project-root}/_bmad-output/deferred-work.md'
-  - '{project-root}/docs/bmad-heagent-plan.md'
+  - '{project-root}/_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/bmad-heagent-plan.md'
   - '{project-root}/docs/frame.md'
   - '{project-root}/_bmad-output/epics/epic-42-BMad技能包运行时周期/epics.md'
 ---

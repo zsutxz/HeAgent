@@ -27,9 +27,12 @@ HeAgent 用 **BMad Method** 驱动迭代，组织单元是「**周期（Cycle）
 | **补丁周期** | 计划外技术债 / 缺陷 | `_bmad-output/patches/` + `deferred-work.md` | spec 文件，不占 Epic 编号 |
 | **epic 外增量** | 架构演进（如 engine 治理层） | 直接落代码 + `frame.md` 记录 | 按 P0/P1… 分批 |
 
-### 1.2 主线 / 集成周期的标准工作流
+### 1.2 历史规划周期工作流
 
-每个新周期按此顺序推进，每步对应一个 BMad skill（`bmad-*` 前缀）：
+下面是历史规划产物采用的周期级顺序；它解释 `_bmad-output/` 的目录结构，不等于当前 `/goal` 的运行时步骤。
+当前运行时工作流见 [`workflow.md`](workflow.md)。
+
+每个历史周期按此顺序推进，每步对应一个 BMad skill（`bmad-*` 前缀）：
 
 ```
 brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  →  code-review
@@ -46,9 +49,9 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 > `sprint-status.yaml` 跟踪每个 story 的状态流转：`backlog → ready-for-dev → in-progress → review → done`。
 
-### 1.3 Story 执行：quick-dev + spec 冻结
+### 1.3 历史 Story 执行：quick-dev + spec 冻结
 
-quick-dev 是**基于 spec 的单会话执行**：
+历史 quick-dev 是**基于 spec 的单会话执行**：
 
 - 每个 story / 缺陷 / 变更先冻结成一个 **spec**（明确做什么、不做什么的边界），再实现。
 - **一会话一 spec**：完整 spec 执行接近单会话 token 上限，多个缺陷要拆成多次会话分别执行（参见记忆 `bmad-quickdev-budget-per-spec`）。
@@ -273,7 +276,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 
 **历史快照（2026-08-19）**：当时记录的 9 个开发周期（主线 Epic 1-10、MCP 11-18、Sandbox 硬化 S1-S4、健壮性/质量 19-24、GUI 25-28、交互与可扩展层 29-35）已全部交付；该日期的测试统计仅代表当时状态。
 
-**当前状态（2026-09-02）**：后续文件安全、沙箱会话、目标驱动开发、BMad 技能包和声明式工作流周期已完成或有独立产物，状态以 [`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml) 为准。`pytest --collect-only -q` 收集 1415 项，默认配置排除 14 项集成/基准测试；质量门禁仍需在可写临时目录下运行，Windows Hook 超时问题已登记在 `_bmad-output/implementation-artifacts/deferred-work.md`。
+**当前状态（2026-09-08）**：后续文件安全、沙箱会话、目标驱动开发、BMad 技能包和声明式工作流周期已完成或有独立产物，状态以 [`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml) 为准。当前 `/goal` 的可执行契约是 [`.heagent/workflows/workflow.md`](../.heagent/workflows/workflow.md)，维护说明见 [`workflow.md`](workflow.md)；`pytest --collect-only -q` 收集数以本地运行结果为准，质量门禁仍需在可写临时目录下运行。
 
 **当前缺口**（详见 `frame.md` 第五章）：
 
@@ -295,6 +298,7 @@ quick-dev 是**基于 spec 的单会话执行**：
 Epic 43-44 的实现已完成，Epic 45.3 补齐了无网络两-story 冒烟、checkpoint/ledger/EventBus 审计证据、损坏状态显式失败测试，以及 `scripts/quality_gate.py` 统一质量门。Epic 46.1 完成 TOCTOU assessment，Epic 46.2 为资源读取增加 descriptor + `O_NOFOLLOW` 最终组件加固；中间目录竞态、可信导入 snapshot 与 OS sandbox 仍保留为后续工作。
 
 - 架构权威：[`frame.md`](frame.md)（含 engine 模块 4.16、已知缺口第五章）
+- 当前工作流：[`workflow.md`](workflow.md)（`.heagent/workflows/workflow.md` 为可执行契约）
 - 产品愿景：[`design.md`](design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
 - 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`、`_bmad-output/patches/`

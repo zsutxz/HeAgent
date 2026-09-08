@@ -1,7 +1,7 @@
 ---
 stepsCompleted: [step-01-validate-prerequisites, step-02-design-epics, step-03-create-stories, step-04-final-validation]
 inputDocuments:
-  - '{project-root}/docs/bmad-heagent-plan.md'
+  - '{project-root}/_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/bmad-heagent-plan.md'
   - '{project-root}/docs/frame.md'
   - '{project-root}/docs/design.md'
   - '{project-root}/_bmad-output/epics/epic-41-目标驱动开发周期/epics.md'

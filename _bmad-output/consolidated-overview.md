@@ -523,7 +523,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ## 十、周期 8：GUI 终端界面（Epic 25-28，FR-G1~G24）
 
-> 目录：`_bmad-output/epics/epic-25-28-GUI界面周期/`。2026-07-23。状态：**Epic 25-28 全部 done**（12 stories；retrospective 为 optional——按 sprint-status 单一权威）。参考 `docs/gui-plan.md`。
+> 目录：`_bmad-output/epics/epic-25-28-GUI界面周期/`。2026-07-23。状态：**Epic 25-28 全部 done**（12 stories；retrospective 为 optional——按 sprint-status 单一权威）。参考 `_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md`。
 
 ### 10.1 周期意图
 
@@ -810,8 +810,8 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `docs/frame.md` | **架构权威**（活文档，随代码更新） |
 | `docs/design.md` | 产品愿景与理念 |
 | `docs/iteration.md` | 迭代历程与流程 |
-| `docs/gui-plan.md` | GUI 实现计划 |
-| `docs/learning.md` | 跨周期经验沉淀 |
+| `_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md` | GUI 实现计划 |
+| `docs/workflow.md` | 当前敏捷工作流维护说明 |
 | `_bmad-output/README.md` | 产物地图（按周期） |
 | `_bmad-output/consolidated-overview.md` | **本文——统一整合总览（含 epic 总目录，原 EPICS-INDEX.md 已并入）** |
 | `_bmad-output/retrospective-all-cycles.md` | 全周期综合回顾（2026-07-22，覆盖 Epic 1-23 + S1-S4） |

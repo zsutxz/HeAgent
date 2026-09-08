@@ -1,63 +1,47 @@
 # 文档索引
 
-本目录存放面向仓库维护者和扩展开发者的专题文档。首页只保留项目总览和快速开始，细节放在这里分层维护。
+本文档目录只保留“当前事实、设计意图、迭代方法、运行配置”四类入口。代码事实以 `src/` 为准；
+`_bmad-output/` 是历史规划和验收证据，不是当前运行时配置。
 
-## 阅读顺序
+## 当前事实
 
-1. [仓库首页](../README.md)：项目定位、使用方式、基础配置。
-2. [设计说明](design.md)：为什么要做这个项目，目标与非目标是什么。
-3. [架构参考](frame.md)：代码结构、数据流、模块边界、运行时设计。
-4. [迭代历程](iteration.md)：项目怎么一步步迭代到现在、怎么继续迭代。
-5. [架构速览](learning.md)：面向初次接触者的系统结构速览。
-6. [GUI 规划](gui-plan.md)：GUI 终端界面的设计与实现边界。
-7. [BMad 敏捷系统规划](bmad-heagent-plan.md)：BMad 技能迁移、目标工作流、checkpoint 和 Token 分段设计。
-8. [部署说明](../deploy/README.md)：当前部署资产的适用范围和限制。
+- [架构参考](frame.md)：当前数据流、模块边界、配置、运行时治理和已知缺口。
+- [敏捷工作流](workflow.md)：当前 `/goal`、`workflow.md`、Epic/Story 和 checkpoint 的职责边界。
+- [部署说明](../deploy/README.md)：部署资产的真实适用范围和限制。
 
-## 文档职责
+## 推荐阅读路径
 
-- `README.md`
-  - 给第一次进入仓库的人看。
-  - 只放总览、快速开始、运行方式、关键边界。
+1. 先读本索引了解文档职责和权威顺序。
+2. 再读 [`design.md`](design.md) 了解项目定位、目标和非目标。
+3. 最后按需读 [`frame.md`](frame.md) 的数据流、模块 DAG、`engine/`、`/goal` 和已知缺口。
 
-- `docs/design.md`
-  - 讲设计意图、能力边界、成功标准。
-  - 回答“这个项目为什么这样做”。
+## 快速定位
 
-- `docs/frame.md`
-  - 讲代码实现和模块关系。
-  - 回答”这套实现现在是怎么工作的”。
+| 想了解什么 | 阅读位置 |
+| --- | --- |
+| LLM、工具和 Agent 如何串起来 | [`frame.md`](frame.md) 的“数据流”和“核心模块” |
+| 策略、审批、ledger、沙箱 | [`frame.md`](frame.md) 的 `engine/` 与“已知缺口” |
+| Epic/Story 如何由 Markdown 驱动 | [`workflow.md`](workflow.md) 与 [`.heagent/workflows/workflow.md`](../.heagent/workflows/workflow.md) |
+| GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
+| 历史为什么这样演进 | [`iteration.md`](iteration.md) 与 [`_bmad-output/`](../_bmad-output/README.md) |
 
-- `docs/iteration.md`
-  - 讲迭代历程与 BMad 工作流。
-  - 回答”项目怎么迭代过来的、怎么继续迭代”。
+## 设计与维护
 
-- `docs/learning.md`
-  - 提供架构参考的短版导读。
-  - 适合首次阅读代码前快速建立整体认知。
+- [设计说明](design.md)：项目定位、设计动机、非目标和成熟度判断。
+- [迭代指南](iteration.md)：如何继续迭代，以及已完成周期的历史索引。
 
-- `docs/gui-plan.md`
-  - 记录 GUI 终端界面的设计目标与边界。
-  - 不替代 `docs/frame.md` 中的当前实现说明。
+## 规划归档
 
-- `docs/bmad-heagent-plan.md`
-  - 讲 HeAgent 如何承载 BMad 技能包和目标级敏捷执行。
-  - 回答“/goal 启动后如何经过完整工作流并跨 Token 分段持续完成”。
+- [`_bmad-output/README.md`](../_bmad-output/README.md)：Epic、Story、spec、retrospective 和 patch 的归档导航。
+- [`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml)：规划状态的单一权威。
+- [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md)：GUI 设计与实现对照（随 Epic 25-28 归档）。
+- [BMad 设计记录](../_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/bmad-heagent-plan.md)：工作流设计的历史背景和当前实现指针；不作为待办清单。
 
-- `deploy/README.md`
-  - 讲当前部署脚本和镜像资产的真实状态。
-  - 回答“哪些可以直接用，哪些只是模板”。
+## 权威规则
 
-- `CLAUDE.md`
-  - 仓库协作约定和开发工作流。
-  - 面向贡献者，不是用户文档。
+1. 运行行为：`src/`。
+2. 配置默认值和 CLI 入口：`src/heagent/config.py`、`src/heagent/cli.py`、`pyproject.toml`。
+3. 当前 `/goal` 工作流：`.heagent/workflows/workflow.md`。
+4. 设计和历史说明：本目录与 `_bmad-output/`，不得覆盖前三项。
 
-## 事实来源
-
-优先级从高到低：
-
-1. `src/` 下的当前实现
-2. `pyproject.toml`、`.env.example`、`.mcp.json.example` 等配置样例
-3. 本目录和 `README.md`
-4. `_bmad-output/` 下的历史规划文档
-
-`_bmad-output/` 是阶段性产物，不应当覆盖当前代码事实（产物导航见 [`_bmad-output/README.md`](../_bmad-output/README.md)）。
+新增或变更功能时，先更新对应的当前事实文档；历史规划只追加证据，不回写成“当前实现”。

@@ -16,7 +16,7 @@ GUI 是 HeAgent 的**可选交互层**，地位与 `cli.py` 平级——是库�
                            │ StreamEvent / EventBus
               ┌────────────┼────────────┐
               ▼            ▼            ▼
-          cli.py       gui/         (未来 Web API)
+          cli.py       gui/         (暂不提供 Web API)
 ```
 
 设计原则（对齐项目 `design.md`）：
@@ -111,10 +111,10 @@ gui/  ──依赖──▶  agent/  engine/  providers/  tools/  memory/  cron/
 
 关键点：**`AgentLoop` 已经有 `run_stream()` 和 `EventBus`，GUI 只需消费这两个现成接口，不需新增任何核心钩子。**
 
-### 4.2 bridge.py 设计（核心胶水）
+### 4.2 bridge.py 当前实现
 
 ```python
-# bridge.py —— 伪代码示意，非实现
+# bridge.py —— 当前实现的职责摘要
 
 class AgentBridge:
     """在 Textual App 和 AgentLoop 之间桥接 async 数据流。
@@ -229,9 +229,16 @@ class AgentBridge:
 
 ---
 
-## 六、分阶段路线图
+## 六、当前实现与历史路线
 
-### Phase 1 — 最小可跑（目标：2-3 天）
+`src/heagent/gui/` 已包含 Textual 主应用、流式 AgentBridge、聊天界面、工具调用展示、模型/斜杠命令交互、
+技能/Cron/记忆管理页、运行历史、事件日志和取消运行。入口是 `heagent gui`，GUI 依赖通过
+`pip install -e ".[gui]"` 安装。
+
+以下 Phase 文字是历史交付顺序，不是当前待办清单。新增 GUI 功能时以 `src/heagent/gui/` 为事实源，
+并同步本节的实现列表和 `docs/frame.md`。
+
+### Phase 1 — 最小可跑（已交付）
 
 **目标**：能在终端里聊天，流式看到回复。
 
@@ -249,7 +256,7 @@ class AgentBridge:
 
 **验证方式**：`pip install -e ".[gui]" && heagent gui`，输入 prompt，流式看到回复。
 
-### Phase 2 — 完整对话体验（目标：2-3 天）
+### Phase 2 — 完整对话体验（已交付）
 
 **目标**：工具调用可视化 + 斜杠命令 + 模型切换。
 
@@ -261,7 +268,7 @@ class AgentBridge:
 - `gui/screens/chat.py` 增强 — 中断按钮（停止当前 Agent 运行）
 - 快捷键 `Ctrl+C` 中断 Agent，`Ctrl+L` 清屏
 
-### Phase 3 — 管理面板（目标：3-4 天）
+### Phase 3 — 管理面板（已交付）
 
 **目标**：技能/Cron/记忆的管理 UI。
 
@@ -272,7 +279,7 @@ class AgentBridge:
 - `gui/screens/memory.py` — 事实记忆/用户画像查看（读 `MEMORY.md` / `USER.md`）
 - 页面导航（`TabbedContent` 或侧栏 + `Footer` 快捷键提示）
 
-### Phase 4 — 可观测性（目标：2-3 天）
+### Phase 4 — 可观测性（已交付）
 
 **目标**：运行历史 + 事件日志 + 子 Agent 追踪。
 
@@ -349,9 +356,10 @@ AgentLoop 收到 CancelledError  →  优雅退出
 GUI 显示 "[已中断]" 并恢复输入
 ```
 
-需要 `AgentLoop.run_stream()` 支持 `CancelledError` 的优雅处理（当前已有 `finally` 块做 session 保存，应能自动处理——需验证）。
+当前 `AgentBridge.cancel()` 取消运行任务，`AgentBridge.submit()` 的 `finally` 恢复输入状态；实际行为由
+`src/heagent/gui/bridge.py` 和 GUI 回归测试共同定义。
 
-### 7.5 `--gui` 入口设计
+### 7.5 `heagent gui` 入口
 
 ```
 python -m heagent              # 现有：CLI 交互模式
@@ -360,10 +368,10 @@ python -m heagent gui          # 新增：启动 TUI
 python -m heagent gui --model deepseek-chat  # 指定模型
 ```
 
-用 Click 的 `Group` 把现有 `main` 和新的 `gui` 命令组合：
+当前入口是 Click 的 `gui` 子命令；以下代码仅保留为历史结构示意，实际实现见 `src/heagent/gui/cli.py`：
 
 ```python
-# cli.py 改造示意
+# CLI 子命令入口（当前实现位于 `src/heagent/gui/cli.py`）
 @click.group()
 def cli():
     pass
@@ -376,7 +384,7 @@ def run(prompt, ...): ...
 def gui(...): ...
 ```
 
-或者更简单：加 `--gui` flag（改动更小，但 CLI 语义略混）。
+不使用 `--gui` flag；CLI 与 GUI 是两个明确的入口。
 
 ---
 
@@ -385,7 +393,7 @@ def gui(...): ...
 | 风险 | 影响 | 缓解 |
 |------|------|------|
 | Textual 版本升级 break | 中 | pin 版本；Textual 1.0 已 stable |
-| `run_stream()` 的 CancelledError 未正确清理 | 中 | Phase 2 重点验证；必要时在 `AgentLoop` 加 `except asyncio.CancelledError` 清理 |
+| GUI 运行取消后的资源清理 | 低 | 当前 `AgentBridge.cancel()` 取消任务并在 `finally` 清理运行状态；持续通过回归测试验证 |
 | 终端不支持（Windows cmd / PS 旧版） | 低 | Textual 支持 Windows Terminal；不支持的传统控制台报友好错误 |
 | 终端窗口太小 | 低 | Textual 自适应布局；最小尺寸 80×24 |
 | 用户不想装 GUI 依赖 | 无 | `[gui]` optional extra，不装就不加载 |
@@ -394,7 +402,7 @@ def gui(...): ...
 
 ## 九、不做的事（明确非目标）
 
-- **不做 Web 界面**（Phase 1-4 完成后可作为 Phase 5 评估，但当前定位是终端工具）
+- **不做 Web 界面**（当前定位是终端工具；如需 Web 形态，应另立需求和架构评估）
 - **不改 `AgentLoop` 核心**（已有 `run_stream()` + `EventBus` 足够）
 - **不做多窗口/多会话并发**（单会话单 Agent，和 CLI 交互模式一致）
 - **不做图形化配置向导**（`.env` 编辑已足够，配置项多但不是 GUI 的核心价值）
@@ -410,5 +418,5 @@ def gui(...): ...
 | **核心桥接** | `AgentLoop.run_stream()` + `EventBus` → `post_message()` → Widget |
 | **改动范围** | 仅新增 `src/heagent/gui/` + `pyproject.toml` optional dep；核心 0 改动 |
 | **入口** | `heagent gui` 子命令 |
-| **交付节奏** | 4 个 Phase，每个 2-4 天，每 Phase 独立可演示 |
+| **交付记录** | 4 个历史 Phase 均已交付；当前实现以 `src/heagent/gui/` 为准 |
 | **总工期估算** | 约 9-13 天（单人） |

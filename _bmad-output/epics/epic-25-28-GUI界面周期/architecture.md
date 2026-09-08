@@ -2,7 +2,7 @@
 
 > BMad Method · Step 3: architecture
 > 日期: 2026-07-23
-> 输入: prd.md, docs/gui-plan.md, docs/frame.md
+> 输入: prd.md, gui-plan.md, docs/frame.md
 
 ## 一、技术选型冻结
 

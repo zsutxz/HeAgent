@@ -2,7 +2,7 @@
 
 > BMad Method · Step 2: prd
 > 日期: 2026-07-23
-> 输入: brief.md, docs/gui-plan.md
+> 输入: brief.md, gui-plan.md
 
 ## 一、功能需求（FR）
 
