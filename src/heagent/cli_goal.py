@@ -26,6 +26,7 @@ from heagent.engine import (
     WorkflowStatus,
     WorkflowStepResult,
     parse_artifact,
+    parse_story_list,
 )
 from heagent.engine.persist import atomic_update_text, atomic_write_text
 from heagent.memory.skill_packages import SkillPackage, SkillWorkflowError, WorkflowResource
@@ -158,11 +159,19 @@ def _goal_id_is_valid(goal_id: str) -> bool:
     return bool(_GOAL_ID_RE.fullmatch(goal_id)) or (len(goal_id) == 8 and all(char in _GOAL_HEX for char in goal_id))
 
 
-def _goal_step_artifact_path(goal_dir: Path, step: Any) -> Path:
-    """Map a declared workflow step to its durable output document."""
+def _goal_step_artifact_path(goal_dir: Path, step: Any, story: Any = None) -> Path:
+    """Map a declared workflow step (or its active story) to a durable output document.
+
+    A story-loop step routes each story into its own subdirectory (``s-1/``,
+    ``s-2/``, ...) under a step directory, so per-story artifacts do not
+    flatten into the goal root alongside step documents.
+    """
     name = re.sub(r"^step-\d+-", "", step.name.casefold())
     name = re.sub(r"\.md$", "", name)
     slug = re.sub(r"[^a-z0-9]+", "-", name).strip("-") or "step"
+    if story is not None:
+        story_slug = re.sub(r"[^a-z0-9]+", "-", story.id.casefold()).strip("-") or "story"
+        return goal_dir / f"step-{step.index:02d}-{slug}" / story_slug / "report.md"
     return goal_dir / f"step-{step.index:02d}-{slug}.md"
 
 
@@ -533,6 +542,7 @@ def _goal_declarative_prompt(
     description: str,
     goal_dir: Path,
     inputs: Mapping[str, Any],
+    story: Any = None,
 ) -> str:
     role = _goal_role_instructions(step_name)
     supplied_inputs = "\n\n".join(f"## {name}\n{value}" for name, value in inputs.items())
@@ -542,12 +552,20 @@ def _goal_declarative_prompt(
         if _goal_open_question_mode(workflow) == "default"
         else "Stop with waiting_user when competing interpretations require stakeholder choice."
     )
+    story_context = ""
+    if story is not None:
+        story_context = (
+            f"Active story: {story.id}"
+            + (f" - {story.summary}" if story.summary else "")
+            + "\nImplement only this one story; leave all other stories for subsequent increments.\n"
+        )
     return (
         f"{workflow.instructions}\n\n# Declarative workflow step\n"
         f"Goal: {description}\n"
         f"Goal directory: {goal_dir.resolve()}\n"
         f"Project output root: {goal_dir.parent.parent.resolve()}\n"
         f"Step: {step_name}\n"
+        f"{story_context}"
         f"Role instructions:\n{role}\n"
         f"Open question policy:\n{open_question_policy}\n"
         f"Declared inputs:\n{supplied_inputs}\n"
@@ -555,6 +573,16 @@ def _goal_declarative_prompt(
         "source code remains in its established repository location. Return the complete artifact body as your final "
         "response; do not return a summary, link, or claim that you wrote it elsewhere."
     )
+
+
+def _goal_load_stories(goal_dir: Path, step: Any) -> list[Any]:
+    """Load and parse the story list referenced by a story-loop step."""
+    source = step.story_loop.strip()
+    root = goal_dir.resolve()
+    path = (goal_dir / source).resolve()
+    if not path.is_relative_to(root):
+        raise ValueError(f"story source escapes the goal directory: {source}")
+    return parse_story_list(path.read_text(encoding="utf-8"))
 
 
 def _goal_role_instructions(step_name: str) -> str:
@@ -638,16 +666,18 @@ async def _goal_declarative_advance(  # noqa: C901
         click.echo(f"[goal] invalid checkpoint mode: {exc}", err=True)
         return _GOAL_FAILED
 
-    async def execute_step(step: Any) -> WorkflowStepResult:
+    async def execute_step(step: Any, story: Any = None) -> WorkflowStepResult:
+        prompt = _goal_declarative_prompt(workflow, step.name, description, goal_dir, inputs, story=story)
         result = await _goal_session(
             provider,
             engine,
-            _goal_declarative_prompt(workflow, step.name, description, goal_dir, inputs) + f"\n\n{step.instructions}",
+            prompt + f"\n\n{step.instructions}",
             metadata={
                 "goal_id": goal_dir.name,
                 "goal_kind": "declarative",
                 "workflow_step": step.name,
-                "purpose": step.role or step.name,
+                "workflow_story": story.id if story is not None else None,
+                "purpose": (step.role or step.name) + (f" / {story.id}" if story is not None else ""),
             },
         )
         if result is None:
@@ -674,7 +704,7 @@ async def _goal_declarative_advance(  # noqa: C901
                     + "\n\n---\n\n"
                     + output_text
                 )
-            atomic_write_text(_goal_step_artifact_path(goal_dir, step), output_text)
+            atomic_write_text(_goal_step_artifact_path(goal_dir, step, story), output_text)
         except OSError as exc:
             return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist step output: {exc}")
         return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=result.output)
@@ -696,14 +726,23 @@ async def _goal_declarative_advance(  # noqa: C901
         }
         if questionnaire is not None and questionnaire_spec is not None:
             inputs["questionnaire"] = questionnaire.render(questionnaire_spec)
+        active_step = runner.workflow.steps[runner.state.active_step]
+        stories = None
+        if active_step.story_loop.strip():
+            try:
+                stories = _goal_load_stories(goal_dir, active_step)
+            except (OSError, ValueError) as exc:
+                click.echo(f"[goal] declarative story source failed: {exc}", err=True)
+                return _GOAL_FAILED
         try:
-            result = await runner.run_step(execute_step, inputs=inputs)
+            result = await runner.run_step(execute_step, inputs=inputs, stories=stories)
         except (WorkflowCheckpointError, ValueError, TypeError) as exc:
             click.echo(f"[goal] declarative workflow failed: {exc}", err=True)
             return _GOAL_FAILED
+        story_label = f" story={result.story_id}" if result.story_id else ""
         click.echo(
-            f"[goal] declarative workflow: step={result.step_index if result.step_index is not None else '-'} "
-            f"status={result.status.value}",
+            f"[goal] declarative workflow: step={result.step_index if result.step_index is not None else '-'}"
+            f"{story_label} status={result.status.value}",
             err=True,
         )
         if result.status is WorkflowStatus.COMPLETED:
@@ -718,7 +757,9 @@ async def _goal_declarative_advance(  # noqa: C901
         # WAITING_USER from a completed step is a checkpoint decision. An
         # interrupted callback also uses WAITING_USER, but must never be treated
         # as implicit approval.
-        checkpoint_completed = result.step_index is not None and (result.step_index - 1) in runner.state.completed_steps
+        step_checkpoint = result.step_index is not None and (result.step_index - 1) in runner.state.completed_steps
+        story_checkpoint = result.story_id is not None and result.story_id in runner.state.completed_stories
+        checkpoint_completed = step_checkpoint or story_checkpoint
         if not checkpoint_completed:
             return _GOAL_WAITING
         if mode == "auto":

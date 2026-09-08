@@ -48,6 +48,7 @@ class WorkflowStepResource(BaseModel):
     checkpoint: str = ""
     validation_rules: str = ""
     role: str = ""
+    story_loop: str = ""
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -273,6 +274,7 @@ class SkillPackage(BaseModel):
                     checkpoint=self._value_text(step_values, "checkpoint"),
                     validation_rules=self._value_text(step_values, "validation", "validation_rules", "verify"),
                     role=self._value_text(step_values, "role", "agent"),
+                    story_loop=self._value_text(step_values, "story_loop"),
                     frontmatter=step_values,
                 )
             )
@@ -371,6 +373,7 @@ class SkillPackage(BaseModel):
                     checkpoint=self._value_text(metadata, "checkpoint"),
                     validation_rules=self._value_text(metadata, "validation", "validation_rules", "verify"),
                     role=self._value_text(metadata, "role", "agent"),
+                    story_loop=self._value_text(metadata, "story_loop"),
                     frontmatter=metadata,
                 )
             )

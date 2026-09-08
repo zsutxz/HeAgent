@@ -53,11 +53,13 @@ from heagent.engine.workflow import (
     build_recovery_envelope,
 )
 from heagent.engine.workflow_runner import (
+    StorySpec,
     WorkflowGateError,
     WorkflowRunner,
     WorkflowRunnerState,
     WorkflowRunResult,
     WorkflowStepResult,
+    parse_story_list,
 )
 
 __all__ = [
@@ -113,6 +115,8 @@ __all__ = [
     "WorkflowPhase",
     "WorkflowRoute",
     "WorkflowStatus",
+    "StorySpec",
+    "parse_story_list",
     "WorkflowGateError",
     "WorkflowRunResult",
     "WorkflowRunner",

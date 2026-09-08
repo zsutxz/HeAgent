@@ -84,6 +84,9 @@ class WorkflowCheckpoint(BaseModel):
     outputs: dict[str, Any] = Field(default_factory=dict)
     acceptance_evidence: list[str] = Field(default_factory=list)
     completed_steps: list[int] = Field(default_factory=list)
+    story_index: int | None = Field(default=None, ge=0)
+    completed_stories: list[str] = Field(default_factory=list)
+    story_outputs: dict[str, Any] = Field(default_factory=dict)
     next_action: str = ""
     tool_in_flight: bool = False
     created_at: str = Field(default_factory=_iso_now)

@@ -39,6 +39,9 @@ validation: product value, scope, non-goals, and decisions are explicit
 
 Turn the requirements brief into a validated PRD and ordered Epic proposal.
 Record assumptions, priorities, non-goals, and unresolved product decisions.
+Write the ordered Epic proposal to `epics.md` in the goal directory, listing each
+story as a numbered heading (`### S-1 ...`, `### S-2 ...`) so the implementation
+step can expand them into per-story increments.
 
 ## Step 03: design-experience
 role: bmad-agent-ux-designer
@@ -76,6 +79,7 @@ role: bmad-agent-dev
 input: clarified implementation scope, architecture, UX specification
 output: tested code change
 checkpoint: true
+story_loop: epics.md
 validation: acceptance criteria and focused tests pass
 
 Make the scoped change, run focused verification, and report residual risk.
