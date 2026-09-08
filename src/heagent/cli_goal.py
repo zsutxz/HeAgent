@@ -6,6 +6,7 @@ import asyncio
 import os
 import re
 import sys
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -607,107 +608,166 @@ def _goal_role_instructions(step_name: str) -> str:
         raise ValueError(f"workflow role '{role_name}' is unavailable: {exc}") from exc
 
 
-async def _goal_declarative_advance(  # noqa: C901
+@dataclass
+class _GoalAdvanceContext:
+    """Prepared state for one declarative advance invocation."""
+
+    runner: WorkflowRunner
+    mode: str
+    description: str
+    questionnaire: GoalQuestionnaire | None
+    questionnaire_spec: GoalQuestionnaireSpec | None
+    goal_dir: Path
+
+
+async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | None, _GoalAdvanceContext | None]:
+    """Load and validate goal state before advancing; a non-None outcome means stop."""
+    goal_dir = _goal_declarative_active_dir()
+    if goal_dir is None:
+        click.echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+        return _GOAL_FAILED, None
+    try:
+        description = _goal_description(goal_dir)
+    except (OSError, ValueError) as exc:
+        click.echo(f"[goal] declarative GOAL.md is invalid: {exc}", err=True)
+        return _GOAL_FAILED, None
+    if not description:
+        click.echo("[goal] declarative GOAL.md has no title", err=True)
+        return _GOAL_FAILED, None
+    try:
+        questionnaire_spec = _goal_questionnaire_spec(goal_dir)
+    except (ValueError, OSError) as exc:
+        click.echo(f"[goal] declarative questionnaire configuration is invalid: {exc}", err=True)
+        return _GOAL_FAILED, None
+    try:
+        questionnaire = _goal_questionnaire(goal_dir, questionnaire_spec) if questionnaire_spec is not None else None
+    except (OSError, ValueError) as exc:
+        click.echo(f"[goal] declarative questionnaire is invalid: {exc}", err=True)
+        return _GOAL_FAILED, None
+    try:
+        applies = _goal_questionnaire_applies(questionnaire_spec, description)
+    except ValueError as exc:
+        click.echo(f"[goal] declarative questionnaire configuration is invalid: {exc}", err=True)
+        return _GOAL_FAILED, None
+    if applies and questionnaire is None:
+        await _goal_wait_for_questionnaire(workflow, goal_dir)
+        return _GOAL_WAITING, None
+    try:
+        runner = await _goal_declarative_runner(workflow, goal_dir)
+    except WorkflowCheckpointError as exc:
+        click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
+        return _GOAL_FAILED, None
+    if runner.done:
+        click.echo("[goal] declarative workflow is already complete", err=True)
+        return _GOAL_DONE, None
+    # A pause/cancellation is persisted as a non-completed Runner state. Resume
+    # is explicit at the command boundary, then this call may continue the step.
+    if runner.state.status is WorkflowStatus.WAITING_USER:
+        click.echo("[goal] declarative workflow is paused; use /goal resume first", err=True)
+        return _GOAL_WAITING, None
+    if runner.state.status in {WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
+        click.echo(f"[goal] declarative workflow is {runner.state.status.value}: {runner.state.reason}", err=True)
+        return _GOAL_FAILED, None
+    try:
+        mode = _goal_checkpoint_mode(workflow)
+    except ValueError as exc:
+        click.echo(f"[goal] invalid checkpoint mode: {exc}", err=True)
+        return _GOAL_FAILED, None
+    return None, _GoalAdvanceContext(
+        runner=runner,
+        mode=mode,
+        description=description,
+        questionnaire=questionnaire,
+        questionnaire_spec=questionnaire_spec,
+        goal_dir=goal_dir,
+    )
+
+
+async def _goal_execute_step(
+    provider: BaseProvider,
+    engine: EngineContainer | None,
+    workflow: WorkflowResource,
+    description: str,
+    goal_dir: Path,
+    inputs: Mapping[str, Any],
+    step: Any,
+    questionnaire: GoalQuestionnaire | None,
+    questionnaire_spec: GoalQuestionnaireSpec | None,
+    story: Any = None,
+) -> WorkflowStepResult:
+    """Execute one declared step through a fresh SubAgent session."""
+    prompt = _goal_declarative_prompt(workflow, step.name, description, goal_dir, inputs, story=story)
+    result = await _goal_session(
+        provider,
+        engine,
+        prompt + f"\n\n{step.instructions}",
+        metadata={
+            "goal_id": goal_dir.name,
+            "goal_kind": "declarative",
+            "workflow_step": step.name,
+            "workflow_story": story.id if story is not None else None,
+            "purpose": (step.role or step.name) + (f" / {story.id}" if story is not None else ""),
+        },
+    )
+    if result is None:
+        return WorkflowStepResult(
+            status=WorkflowStatus.WAITING_USER, reason="interrupted; resume to retry the active step"
+        )
+    if not result.success:
+        return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=str(result.output))
+    try:
+        output_text = result.output if isinstance(result.output, str) else str(result.output)
+        if result.output is None or (isinstance(result.output, str) and not output_text.strip()):
+            return WorkflowStepResult(
+                status=WorkflowStatus.FAILED,
+                reason=f"step '{step.name}' produced empty output",
+            )
+        if (
+            questionnaire is not None
+            and questionnaire_spec is not None
+            and questionnaire_spec.include_in_step == step.name
+        ):
+            output_text = (
+                "## Confirmed Questionnaire\n\n"
+                + questionnaire.render(questionnaire_spec)
+                + "\n\n---\n\n"
+                + output_text
+            )
+        atomic_write_text(_goal_step_artifact_path(goal_dir, step, story), output_text)
+    except OSError as exc:
+        return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist step output: {exc}")
+    return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=result.output)
+
+
+async def _goal_declarative_advance(
     provider: BaseProvider,
     engine: EngineContainer | None,
     workflow: WorkflowResource,
 ) -> str:
     """Advance deterministically through steps and resolve completed checkpoints."""
-    goal_dir = _goal_declarative_active_dir()
-    if goal_dir is None:
-        click.echo("[goal] no active declarative goal; use /goal new <description>", err=True)
-        return _GOAL_FAILED
-    try:
-        description = _goal_description(goal_dir)
-    except (OSError, ValueError) as exc:
-        click.echo(f"[goal] declarative GOAL.md is invalid: {exc}", err=True)
-        return _GOAL_FAILED
-    if not description:
-        click.echo("[goal] declarative GOAL.md has no title", err=True)
-        return _GOAL_FAILED
-    try:
-        questionnaire_spec = _goal_questionnaire_spec(goal_dir)
-    except (ValueError, OSError) as exc:
-        click.echo(f"[goal] declarative questionnaire configuration is invalid: {exc}", err=True)
-        return _GOAL_FAILED
-    try:
-        questionnaire = _goal_questionnaire(goal_dir, questionnaire_spec) if questionnaire_spec is not None else None
-    except (OSError, ValueError) as exc:
-        click.echo(f"[goal] declarative questionnaire is invalid: {exc}", err=True)
-        return _GOAL_FAILED
-    try:
-        applies = _goal_questionnaire_applies(questionnaire_spec, description)
-    except ValueError as exc:
-        click.echo(f"[goal] declarative questionnaire configuration is invalid: {exc}", err=True)
-        return _GOAL_FAILED
-    if applies and questionnaire is None:
-        await _goal_wait_for_questionnaire(workflow, goal_dir)
-        return _GOAL_WAITING
-    try:
-        runner = await _goal_declarative_runner(workflow, goal_dir)
-    except WorkflowCheckpointError as exc:
-        click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
-        return _GOAL_FAILED
-    if runner.done:
-        click.echo("[goal] declarative workflow is already complete", err=True)
-        return _GOAL_DONE
-    # A pause/cancellation is persisted as a non-completed Runner state. Resume
-    # is explicit at the command boundary, then this call may continue the step.
-    if runner.state.status is WorkflowStatus.WAITING_USER:
-        click.echo("[goal] declarative workflow is paused; use /goal resume first", err=True)
-        return _GOAL_WAITING
-    if runner.state.status in {WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
-        click.echo(f"[goal] declarative workflow is {runner.state.status.value}: {runner.state.reason}", err=True)
-        return _GOAL_FAILED
-
-    try:
-        mode = _goal_checkpoint_mode(workflow)
-    except ValueError as exc:
-        click.echo(f"[goal] invalid checkpoint mode: {exc}", err=True)
-        return _GOAL_FAILED
+    outcome, context = await _goal_declarative_prepare(workflow)
+    if outcome is not None or context is None:
+        return outcome or _GOAL_FAILED
+    runner = context.runner
+    mode = context.mode
+    description = context.description
+    questionnaire = context.questionnaire
+    questionnaire_spec = context.questionnaire_spec
+    goal_dir = context.goal_dir
 
     async def execute_step(step: Any, story: Any = None) -> WorkflowStepResult:
-        prompt = _goal_declarative_prompt(workflow, step.name, description, goal_dir, inputs, story=story)
-        result = await _goal_session(
+        return await _goal_execute_step(
             provider,
             engine,
-            prompt + f"\n\n{step.instructions}",
-            metadata={
-                "goal_id": goal_dir.name,
-                "goal_kind": "declarative",
-                "workflow_step": step.name,
-                "workflow_story": story.id if story is not None else None,
-                "purpose": (step.role or step.name) + (f" / {story.id}" if story is not None else ""),
-            },
+            workflow,
+            description,
+            goal_dir,
+            inputs,
+            step,
+            questionnaire,
+            questionnaire_spec,
+            story,
         )
-        if result is None:
-            return WorkflowStepResult(
-                status=WorkflowStatus.WAITING_USER, reason="interrupted; resume to retry the active step"
-            )
-        if not result.success:
-            return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=str(result.output))
-        try:
-            output_text = result.output if isinstance(result.output, str) else str(result.output)
-            if result.output is None or (isinstance(result.output, str) and not output_text.strip()):
-                return WorkflowStepResult(
-                    status=WorkflowStatus.FAILED,
-                    reason=f"step '{step.name}' produced empty output",
-                )
-            if (
-                questionnaire is not None
-                and questionnaire_spec is not None
-                and questionnaire_spec.include_in_step == step.name
-            ):
-                output_text = (
-                    "## Confirmed Questionnaire\n\n"
-                    + questionnaire.render(questionnaire_spec)
-                    + "\n\n---\n\n"
-                    + output_text
-                )
-            atomic_write_text(_goal_step_artifact_path(goal_dir, step, story), output_text)
-        except OSError as exc:
-            return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist step output: {exc}")
-        return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=result.output)
 
     # Input declarations describe the context supplied by this deterministic CLI
     # boundary. Artifact names from completed steps remain available on resume.

@@ -1,4 +1,12 @@
-"""Goal-level workflow state and deterministic phase transitions."""
+"""Goal-level workflow state and deterministic phase transitions.
+
+Two generations of the goal engine coexist in this module. ``WorkflowRunner``
+(``workflow_runner.py``) is the active declarative runner backing ``/goal``.
+``WorkflowOrchestrator``, ``TokenBudgetManager``, ``RolloverCoordinator`` and
+``RecoveryEnvelope`` predate the declarative runner and remain exported for the
+legacy phase-machine model and its tests. New goal features should extend the
+declarative runner rather than the legacy phase machine.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +33,7 @@ class SkillResolverProtocol(Protocol):
 
 
 def _iso_now() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now().isoformat(timespec="microseconds")
 
 
 class WorkflowPhase(StrEnum):

@@ -60,6 +60,7 @@ max-complexity = 15
 # 预存：复杂函数（合理业务复杂度）
 "src/heagent/agent/system_prompt.py" = ["C901"]
 "src/heagent/providers/openai.py" = ["C901"]
+"src/heagent/cli_goal.py" = ["C901"]
 # 预存：文件锁 B904/SIM105 风格选择（不影响正确性）+ TC003 runtime Path
 "src/heagent/engine/persist.py" = ["B904", "SIM105", "TC003"]
 # 预存：SIM 建议（不影响正确性）

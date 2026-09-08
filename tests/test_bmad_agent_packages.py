@@ -31,13 +31,10 @@ def test_bmad_agent_packages_are_discoverable_with_compat_aliases() -> None:
         assert legacy_alias in entry.aliases
         assert entry.package is not None
         text = entry.package.read_entry().text
-        assert "## Inputs" in text
-        assert "## Outputs" in text
-        assert "## Responsibilities" in text
-        assert "## Decision Boundaries" in text
-        assert "## Checklist" in text
-        assert "## Stop Conditions" in text
-        assert "never advances a Goal phase" in text
+        assert "## Overview" in text
+        assert "## Conventions" in text
+        assert "## On Activation" in text
+        assert "### Step 1:" in text
 
 
 @pytest.mark.parametrize("requested", [*EXPECTED, *EXPECTED.values()])
