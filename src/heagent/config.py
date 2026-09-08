@@ -104,6 +104,9 @@ class Settings(BaseSettings):
     # ---- 框架运行参数 ----
     max_iterations: int = Field(default=50, ge=1)
     goal_max_iterations: int = Field(default=20, ge=1)
+    # 子 Agent 委派的最大嵌套深度（0=禁止任何委派）。超限时 task_delegate /
+    # task_parallel 返回 status=error，避免 LLM 自我委派无限递归。
+    subagent_max_depth: int = Field(default=3, ge=0)
     # Checkpoint decision policy for declarative /goal workflows.  Workflow
     # frontmatter may override this process-wide default.
     goal_checkpoint_mode: Literal["auto", "prompt"] = "prompt"

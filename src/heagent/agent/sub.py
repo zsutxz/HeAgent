@@ -80,6 +80,7 @@ class SubAgent:
         blocked_tools: list[str] | None = None,
         window_reset: WindowResetConfig | None = None,
         metadata: dict[str, Any] | None = None,
+        delegation_depth: int = 1,
     ) -> None:
         # 组件依赖：缺省时回退到全局默认（与 AgentLoop 的兜底策略一致）。
         self._provider = provider
@@ -93,6 +94,8 @@ class SubAgent:
         self._soul = soul
         self._engine = engine or EngineContainer.default(workspace_root=context_dir)
         self._parent_run_id = parent_run_id
+        # 本子 Agent 自身所处的委派深度（根 loop 的委派产物=1）；由其创建的子 loop 继承。
+        self._delegation_depth = delegation_depth
         self._role = role
         self._window_reset = window_reset
         self._metadata = copy.deepcopy(metadata) if metadata is not None else None
@@ -226,6 +229,7 @@ class SubAgent:
             context_dir=self._context_dir,
             soul=self._soul,
             engine=engine,
+            delegation_depth=self._delegation_depth,
             run_context=engine.create_run_context(
                 parent_run_id=self._parent_run_id,
                 metadata=metadata,

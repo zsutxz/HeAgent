@@ -134,6 +134,7 @@ class AgentLoop:
         cron_store: JobStore | None = None,
         engine: EngineContainer | None = None,
         run_context: RunContext | None = None,
+        delegation_depth: int = 0,
         steering_callback: Callable[[], Awaitable[list[Message]]] | None = None,
         follow_up_callback: Callable[[], Awaitable[list[Message]]] | None = None,
     ) -> None:
@@ -157,6 +158,8 @@ class AgentLoop:
             engine: 运行时治理容器（policy/executor/store/ledger/observability）；
                 缺省 ``EngineContainer.default``，非安全边界（须 OS 级沙箱兜底）。
             run_context: 外部预置的运行上下文（SubAgent 委派时用）；run() 取用后即清空，一次性。
+            delegation_depth: 当前 loop 所处的委派深度（根 loop=0，SubAgent 创建的子 loop=父深度+1）；
+                作为子 Agent 委派工具的递归深度闸门输入（上限取 `Settings.subagent_max_depth`）。
             steering_callback: steering 回调（参考 Pi）：每轮 LLM 调用前被 poll，返回的消息
                 以 USER 角色注入到下一轮上下文。用于在 Agent 运行中插入/重定向指令。
             follow_up_callback: follow-up 回调（参考 Pi）：内层循环自然退出（无 tool_calls）后被 poll，
@@ -185,6 +188,8 @@ class AgentLoop:
         self.engine = engine or EngineContainer.default(workspace_root=context_dir)
         # 外部可预置一个 RunContext（SubAgent 委派时用）；run() 取用后即清空，保证一次性。
         self._run_context_template = run_context
+        # 委派深度：根 loop 为 0，SubAgent 创建的子 loop 为父深度+1（递归闸门用）。
+        self.delegation_depth = delegation_depth
         # steering / follow-up 回调（参考 Pi 双层循环设计）
         self.steering_callback = steering_callback
         self.follow_up_callback = follow_up_callback
@@ -1005,8 +1010,17 @@ class AgentLoop:
                 soul=self.soul,
                 engine=self.engine,
                 parent_run_id=run_context.run_id,
+                depth=self.delegation_depth,
             )
-            stack.enter_context(bind_subagent_tools(delegate_one, delegate_many, run_context=run_context))
+            stack.enter_context(
+                bind_subagent_tools(
+                    delegate_one,
+                    delegate_many,
+                    run_context=run_context,
+                    depth=self.delegation_depth,
+                    max_depth=get_settings().subagent_max_depth,
+                )
+            )
             yield
 
     async def _start_run_record(self, run_context: RunContext, *, prompt: str, system: str | None) -> None:

@@ -62,6 +62,7 @@ class SessionStore:
             "timestamp": time.time(),
             "messages": [m.model_dump() for m in messages],
         }
+
         def update(raw: str) -> tuple[str, None]:
             try:
                 current = json.loads(raw) if raw else {}

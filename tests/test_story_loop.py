@@ -214,4 +214,3 @@ def test_story_artifact_routes_into_per_story_subdirectory(tmp_path) -> None:
     # 非 story step 仍平铺在 goal 根目录（向后兼容）
     plain_path = _goal_step_artifact_path(tmp_path, step)
     assert plain_path == tmp_path / "step-06-implement-and-verify.md"
-

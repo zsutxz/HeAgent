@@ -257,6 +257,7 @@ class TestTaskParallelUnknownRole:
     @pytest.mark.asyncio
     async def test_task_parallel_unknown_role_error(self) -> None:
         """task_parallel 传入未知 role → 返回错误 payload。"""
+
         async def delegate_many(tasks, spec, system):  # noqa: ANN001, ANN202, ARG001
             return []
 

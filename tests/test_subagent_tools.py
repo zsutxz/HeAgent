@@ -172,6 +172,50 @@ class TestTaskParallel:
 
 
 @pytest.mark.usefixtures("_reset_subagent")
+@pytest.mark.usefixtures("_reset_subagent")
+class TestDepthLimit:
+    """委派深度闸门：depth >= max_depth 时拒绝，避免 LLM 自我委派无限递归。"""
+
+    async def test_delegate_rejected_at_limit(self) -> None:
+        executor = _configure(_FakeExecutor(), depth=3, max_depth=3)
+        payload = json.loads(await task_delegate("x"))
+
+        assert payload["status"] == "error"
+        assert "depth limit" in payload["message"]
+        assert executor.calls == []
+
+    async def test_parallel_rejected_at_limit(self) -> None:
+        executor = _configure(_FakeExecutor(), depth=3, max_depth=3)
+        payload = json.loads(await task_parallel(json.dumps(["a", "b"])))
+
+        assert payload["status"] == "error"
+        assert "depth limit" in payload["message"]
+        assert executor.calls == []
+
+    async def test_delegates_below_limit(self) -> None:
+        executor = _configure(_FakeExecutor(), depth=2, max_depth=3)
+        payload = json.loads(await task_delegate("x"))
+
+        assert payload["status"] == "ok"
+        assert len(executor.calls) == 1
+
+    async def test_zero_budget_blocks_root_delegation(self) -> None:
+        """max_depth=0：连根 loop 的委派也拒绝（全局关闭委派）。"""
+        executor = _configure(_FakeExecutor(), depth=0, max_depth=0)
+        payload = json.loads(await task_delegate("x"))
+
+        assert payload["status"] == "error"
+        assert executor.calls == []
+
+    async def test_depth_check_precedes_role_resolution(self) -> None:
+        """深度超限优先于角色解析：未知角色 + 超限时报告深度错误。"""
+        executor = _configure(_FakeExecutor(), depth=3, max_depth=3)
+        payload = json.loads(await task_delegate("x", role="no_such_role"))
+
+        assert "depth limit" in payload["message"]
+        assert executor.calls == []
+
+
 class TestCompletedSteps:
     """委派结果写入 run_context.metadata['completed_steps']（跨上下文重置存活）。"""
 

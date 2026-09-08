@@ -1,0 +1,19 @@
+# 行尾策略：仓库统一 LF。
+# Windows 上 core.autocrlf=true 会在 checkout 时把工作区转成 CRLF，使
+# `ruff format --check` 对纯 CRLF 文件误报「would reformat」。此处显式声明
+# 优先于 core.autocrlf，保证各平台工作区行尾一致。
+* text=auto eol=lf
+
+# 常见二进制文件不做行尾转换（text=auto 已可自动检测，显式声明以防误判）。
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.whl binary
+*.so binary
+*.dll binary
+*.exe binary

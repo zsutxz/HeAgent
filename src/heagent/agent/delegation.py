@@ -43,12 +43,14 @@ def build_subagent_delegates(
     soul: SoulStore | None = None,
     engine: EngineContainer | None = None,
     parent_run_id: str | None = None,
+    depth: int = 0,
 ) -> tuple[DelegateOne, DelegateMany]:
     """构造本次 run 的单任务 / 并行委派回调（闭包捕获父 Agent 的组件依赖）。
 
     参数与 :class:`~heagent.agent.sub.SubAgent` 的构造参数一一对应：回调被调用时
     才构造子 Agent，因此每次委派都拿到全新实例；``parent_run_id`` 让子 run 挂在
-    当前父 run 之下（可追踪 / 可恢复）。
+    当前父 run 之下（可追踪 / 可恢复）；``depth`` 是父 loop 的委派深度，子 Agent
+    以 ``depth + 1`` 记录自身深度（配合工具层的递归深度闸门）。
     """
 
     def _make(spec: RoleSpec | None, system: str | None) -> SubAgent:
@@ -67,6 +69,7 @@ def build_subagent_delegates(
             parent_run_id=parent_run_id,
             role=spec,
             system=system,
+            delegation_depth=depth + 1,
         )
 
     def _to_outcome(result: SubAgentResult, spec: RoleSpec | None) -> SubTaskOutcome:

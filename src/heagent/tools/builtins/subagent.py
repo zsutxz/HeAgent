@@ -61,15 +61,19 @@ def _error_payload(message: str) -> str:
 class SubagentToolRuntime:
     """Runtime dependencies for sub-agent delegation tools.
 
-    只保存注入进来的委派回调与本次 run 的作用域数据；``delegate_one`` /
-    ``delegate_many`` 为 None 表示未绑定运行时（工具返回 ``status=error``，
-    不构造任何子 Agent）。
+    只保存注入进来的委派回调、本次 run 的作用域数据与递归深度预算；
+    ``delegate_one`` / ``delegate_many`` 为 None 表示未绑定运行时（工具返回
+    ``status=error``，不构造任何子 Agent）。``depth`` 是当前 loop 所处的委派
+    深度，``max_depth`` 来自 ``Settings.subagent_max_depth``——``depth >=
+    max_depth`` 时委派工具直接返回结构化错误，防止 LLM 自我委派无限递归。
     """
 
     delegate_one: DelegateOne | None = None
     delegate_many: DelegateMany | None = None
     run_context: RunContext | None = None
     roles: dict[str, RoleSpec] | None = None
+    depth: int = 0
+    max_depth: int = 3
 
 
 _subagent_runtime = RuntimeSlot[SubagentToolRuntime]("heagent_subagent_tools")
@@ -81,6 +85,8 @@ def configure_subagent_tools(
     *,
     run_context: RunContext | None = None,
     roles: dict[str, RoleSpec] | None = None,
+    depth: int = 0,
+    max_depth: int = 3,
 ) -> None:
     """Set fallback delegation callbacks for sub-agent tools."""
     _subagent_runtime.configure(
@@ -89,6 +95,8 @@ def configure_subagent_tools(
             delegate_many=delegate_many,
             run_context=run_context,
             roles=roles,
+            depth=depth,
+            max_depth=max_depth,
         )
     )
 
@@ -105,6 +113,8 @@ def bind_subagent_tools(
     *,
     run_context: RunContext | None = None,
     roles: dict[str, RoleSpec] | None = None,
+    depth: int = 0,
+    max_depth: int = 3,
 ) -> Iterator[None]:
     """Bind sub-agent delegation callbacks for the current run context."""
     with _subagent_runtime.bind(
@@ -113,6 +123,8 @@ def bind_subagent_tools(
             delegate_many=delegate_many,
             run_context=run_context,
             roles=roles,
+            depth=depth,
+            max_depth=max_depth,
         )
     ):
         yield
@@ -120,6 +132,23 @@ def bind_subagent_tools(
 
 def _runtime() -> SubagentToolRuntime | None:
     return _subagent_runtime.get()
+
+
+def _depth_limit_error(runtime: SubagentToolRuntime) -> str | None:
+    """Return an error message when the delegation depth budget is exhausted.
+
+    ``depth`` is the current loop's nesting level (root=0, each SubAgent level
+    +1); ``max_depth`` is the configured ceiling. Reaching the ceiling makes
+    both delegation tools fail fast with a structured error instead of spawning
+    another sub-agent, which bounds self-delegation recursion.
+    """
+    if runtime.depth < runtime.max_depth:
+        return None
+    return (
+        f"sub-agent delegation depth limit reached (depth={runtime.depth}, "
+        f"max_depth={runtime.max_depth}); finish the task in the current agent "
+        "instead of delegating further."
+    )
 
 
 def _resolve_role(runtime: SubagentToolRuntime, role: str) -> tuple[RoleSpec | None, str | None]:
@@ -173,6 +202,10 @@ async def task_delegate(task: str, role: str = "", system: str = "") -> str:
     if runtime is None or runtime.delegate_one is None:
         return _error_payload("sub-agent tools not configured.")
 
+    depth_error = _depth_limit_error(runtime)
+    if depth_error is not None:
+        return _error_payload(depth_error)
+
     spec, err = _resolve_role(runtime, role)
     if err is not None:
         return _error_payload(err)
@@ -193,6 +226,10 @@ async def task_parallel(tasks_json: str, role: str = "", system: str = "") -> st
     runtime = _runtime()
     if runtime is None or runtime.delegate_many is None:
         return _error_payload("sub-agent tools not configured.")
+
+    depth_error = _depth_limit_error(runtime)
+    if depth_error is not None:
+        return _error_payload(depth_error)
 
     try:
         tasks = json.loads(tasks_json)

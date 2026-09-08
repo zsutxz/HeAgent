@@ -39,6 +39,7 @@ class ProfileStore:
           2. 找到 → 替换该节内容（直到下一个 ## 标题或文件末尾）
           3. 未找到 → 在文件末尾追加新节
         """
+
         def update(raw: str) -> tuple[str, None]:
             return self._replace_section(raw.strip(), section, value), None
 

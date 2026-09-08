@@ -178,7 +178,7 @@ make_retry_middleware(max_attempts, base_delay, max_delay) -> MiddlewareFn
 | `SubAgent` | 隔离的 Agent 实例，独立的 Loop + Context；经 `parent_run_id` 继承父 `engine`；可带 `role`（`RoleSpec`：system/allowed_tools/blocked_tools）/`system`/`allowed_tools` 角色化（P1） |
 | `SubAgentResult` | 子任务结果（task, output, success, iterations, **run_id**：子 agent 自身 run_id，P5-3 供结构化结果与树形聚合） |
 | `run_parallel()` | `asyncio.gather()` 并行运行多个子 Agent |
-| `build_subagent_delegates()` | `agent/delegation.py`：为 tools 层组装单任务/并行委派回调（`DelegateOne`/`DelegateMany`），把 `SubAgentResult` 映射为工具层 `SubTaskOutcome`；`AgentLoop._runtime_scope` 每次 run 绑定、退出解绑 |
+| `build_subagent_delegates()` | `agent/delegation.py`：为 tools 层组装单任务/并行委派回调（`DelegateOne`/`DelegateMany`），把 `SubAgentResult` 映射为工具层 `SubTaskOutcome`；`AgentLoop._runtime_scope` 每次 run 绑定、退出解绑；`depth` 入参 +1 写入子 Agent（递归深度闸门输入） |
 
 子 Agent 默认带 `ContextCompressor`（短任务走原位压缩），可经 `window_reset` 参数启用跨窗口续跑（长任务场景，P5-2 已交付）。角色化时由父 `engine` 经 `dataclasses.replace` 换角色专属 `PolicyEngine`（allowed_tools/blocked_tools），其余运行时服务（store/ledger/events）复用。
 
@@ -421,7 +421,7 @@ SafetyGuard
 | `git_blame` | 行级作者追溯 |
 
 技能工具在 `AgentLoop` 接收 `SkillStore` 时激活；记忆工具在接收 `FactStore`/`ProfileStore` 时激活；
-Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 `AgentLoop._runtime_scope` 在每次 run 注入委派回调（`agent/delegation.build_subagent_delegates`）激活，run 退出即解绑（单次与交互模式均如此）。委派结果经 `_record_step()` 写入 supervisor 的 `metadata['completed_steps']`（含 iterations/run_id，跨窗口重置存活）。未注入时工具返回 `status=error` 结构化错误，不抛异常。
+Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 `AgentLoop._runtime_scope` 在每次 run 注入委派回调（`agent/delegation.build_subagent_delegates`）激活，run 退出即解绑（单次与交互模式均如此）。委派结果经 `_record_step()` 写入 supervisor 的 `metadata['completed_steps']`（含 iterations/run_id，跨窗口重置存活）。未注入时工具返回 `status=error` 结构化错误，不抛异常。`task_delegate`/`task_parallel` 另受**递归深度闸门**约束：当前 loop 的 `depth` `>= Settings.subagent_max_depth`（默认 3）时直接返回 `status=error`、不再构造子 Agent，防止 LLM 自我委派无限递归；根 loop `depth=0`，SubAgent 创建的子 loop 为父深度 +1。
 
 ### 4.5 上下文管理 (`context/`)
 
@@ -578,6 +578,7 @@ HeAgentError (base)
 | `dream_idle_minutes` | 30 | dream idle 触发阈值（分钟，距上次 run 结束；0=禁用 idle 触发） |
 | `dream_max_iterations` | 20 | dreamer SubAgent 独立迭代预算（不复用全局 `max_iterations`） |
 | `goal_max_iterations` | 20 | `/goal` 单步 SubAgent 最大迭代轮数 |
+| `subagent_max_depth` | 3 | 子 Agent 委派嵌套深度上限（0=禁止委派；超限工具返回 `status=error`） |
 | `goal_checkpoint_mode` | `prompt` | `/goal` 检查点策略：自动继续或等待用户 |
 | `goal_open_question_mode` | `block` | `/goal` 未决问题策略：阻塞或采用默认值 |
 | `dream_session_lookback` | 5 | 预加载近期 session 个数（按 timestamp 降序） |

@@ -132,9 +132,7 @@ class WorkflowRunResult(BaseModel):
 
 
 WorkflowCallback = Callable[[WorkflowStepResource], WorkflowStepResult | Awaitable[WorkflowStepResult]]
-StoryWorkflowCallback = Callable[
-    [WorkflowStepResource, StorySpec], WorkflowStepResult | Awaitable[WorkflowStepResult]
-]
+StoryWorkflowCallback = Callable[[WorkflowStepResource, StorySpec], WorkflowStepResult | Awaitable[WorkflowStepResult]]
 CheckpointCallback = Callable[[WorkflowRunnerState], None | Awaitable[None]]
 
 
@@ -394,8 +392,7 @@ class WorkflowRunner:
         positional = [
             parameter
             for parameter in signature.parameters.values()
-            if parameter.kind
-            in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD, parameter.VAR_POSITIONAL)
+            if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD, parameter.VAR_POSITIONAL)
         ]
         return len(positional) >= 2
 

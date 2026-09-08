@@ -139,4 +139,3 @@ class TestEstimateCompletionTokens:
 
         assert estimate_completion_tokens("") == 0
         assert estimate_completion_tokens("", []) == 0
-
