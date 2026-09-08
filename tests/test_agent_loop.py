@@ -251,6 +251,22 @@ class TestAgentLoop:
         assert any(getattr(e, "type", None) == "done" for e in events)
 
     @pytest.mark.asyncio
+    async def test_run_stream_estimates_completion_when_usage_absent(self) -> None:
+        """流式 Provider 不返回 usage 时，completion 用本地估算而非 0。"""
+        resp = ProviderResponse(
+            content="stream hello world",
+            usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+            model="stub",
+            finish_reason="stop",
+        )
+        loop = AgentLoop(StubProvider([resp]), max_iterations=10)
+        async for _ in loop.run_stream("hi"):
+            pass
+        assert loop.last_usage is not None
+        assert loop.last_usage.completion_tokens > 0
+        assert loop.last_usage.total_tokens >= loop.last_usage.prompt_tokens
+
+    @pytest.mark.asyncio
     async def test_pause_state_reset_after_cancelled_run(self) -> None:
         """暂停后被取消的 run 不残留暂停态：下一次 run 应立即运行（P1 回归）。"""
         provider = StubProvider([_final("first")])

@@ -435,13 +435,14 @@ class AgentLoop:
                         # chunk_usage 始终为零 → 用量显示、压缩、窗口重置全部失效。
                         # 此时用本地 token 估算兜底（与 _call_provider / _maybe_window_reset 一致）。
                         if chunk_usage.total_tokens == 0:
-                            from heagent.context.tokens import count_tokens
+                            from heagent.context.tokens import count_tokens, estimate_completion_tokens
 
-                            estimated = count_tokens(state.messages)
+                            estimated_prompt = count_tokens(state.messages)
+                            estimated_completion = estimate_completion_tokens(full_content, tool_calls)
                             chunk_usage = TokenUsage(
-                                prompt_tokens=estimated,
-                                completion_tokens=0,
-                                total_tokens=estimated,
+                                prompt_tokens=estimated_prompt,
+                                completion_tokens=estimated_completion,
+                                total_tokens=estimated_prompt + estimated_completion,
                             )
 
                         accumulated = self._add_usage(accumulated, chunk_usage)

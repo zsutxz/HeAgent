@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from heagent.types import Message, TokenUsage
+    from heagent.types import Message, TokenUsage, ToolCall
 
 # 消息结构开销常量（与 OpenAI/LangChain 对齐）
 _TOKENS_PER_MESSAGE = 3  # 每条消息的角色标签、分隔符开销
@@ -49,6 +49,20 @@ def count_tokens(messages: list[Message]) -> int:
         if msg.tool_call_id:
             total += _estimate_text_tokens(msg.tool_call_id)
     total += _TOKENS_REPLY_PRIMING
+    return total
+
+
+def estimate_completion_tokens(content: str, tool_calls: list[ToolCall] | None = None) -> int:
+    """估算一次 LLM 输出的 token 数（文本 + 工具调用参数）。
+
+    与 :func:`count_tokens` 相同的 CJK 感知启发式，但只算「输出侧」：
+    纯文本内容 + 每个工具调用的名称与序列化参数。用于流式 Provider
+    不返回 usage 时的 completion token 兜底（避免 out=0 的失真显示）。
+    """
+    total = _estimate_text_tokens(content) if content else 0
+    for call in tool_calls or []:
+        total += _estimate_text_tokens(call.name)
+        total += _estimate_text_tokens(str(call.arguments))
     return total
 
 

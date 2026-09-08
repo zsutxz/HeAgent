@@ -117,3 +117,26 @@ class TestCountTokens:
         # 真实 tiktoken 结果大约 25-30 tokens
         # 启发式允许 ±50% 偏差
         assert 15 <= result <= 60
+
+
+class TestEstimateCompletionTokens:
+    """输出侧 token 估算测试（流式 usage 兜底）。"""
+
+    def test_text_only(self) -> None:
+        from heagent.context.tokens import estimate_completion_tokens
+
+        assert estimate_completion_tokens("hello world") == 2
+
+    def test_tool_calls_without_text(self) -> None:
+        from heagent.context.tokens import estimate_completion_tokens
+        from heagent.types import ToolCall
+
+        calls = [ToolCall(id="call_1", name="shell", arguments={"command": "ls -la"})]
+        assert estimate_completion_tokens("", calls) > 0
+
+    def test_empty_returns_zero(self) -> None:
+        from heagent.context.tokens import estimate_completion_tokens
+
+        assert estimate_completion_tokens("") == 0
+        assert estimate_completion_tokens("", []) == 0
+
