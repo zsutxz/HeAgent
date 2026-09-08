@@ -32,27 +32,6 @@ HeAgent 是一个面向学习、实验和原型验证的 AI Agent 框架。项�
 - 扩展新工具或新 Provider 时，能否尽量少改核心逻辑。
 - 运行时状态、子任务和恢复点能否被结构化记录，而不是散落在消息里。
 
-## 当前能力范围
-
-HeAgent 当前已经实现并暴露给使用者的能力主要有：
-
-1. Provider 抽象层
-   支持 OpenAI、Anthropic，以及 DeepSeek 等兼容 OpenAI 协议的服务（DeepSeek 经 `OpenAIProvider` + `base_url` 接入，非独立 provider 类）；支持重试、key 池轮换、跨 Provider 回退，以及运行时经 `/model` 在多个 vendor 间手动/自动切换（`SwitchableProvider`）。
-2. 工具调用系统
-   支持 `@tool` 注册、schema 生成、并行工具执行、shell/file/search 等内置工具。
-3. 记忆与人格
-   支持技能、事实、用户画像、全局/项目级 `SOUL.md`。
-4. 上下文管理
-   支持上下文文件加载、压缩、窗口重置、会话持久化。
-5. 子 Agent
-   支持委派、并行执行以及 `planner`、`coder`、`tester`、`supervisor` 四个内置角色。
-6. MCP
-   支持通过 `.mcp.json` 注册外部 MCP server，接入 Tools（工具桥接 + 写操作治理）、Resources（按需发现/读取）、Prompts（slash 命令调度）三原语。
-7. Cron
-   支持在交互模式下启动后台调度器。
-8. 运行时治理
-   支持 `PolicyEngine`、`ToolExecutor`、`RunStore`、`ExecutionLedger`、事件发布。
-
 ## 明确非目标
 
 当前阶段不把下面这些内容当作项目承诺：
@@ -66,6 +45,7 @@ HeAgent 当前已经实现并暴露给使用者的能力主要有：
 
 - `SafetyGuard` 不是沙箱。
 - 外部 MCP server 不是受信执行环境。
+- MCP 三原语（Tools / Resources / Prompts）已交付，但后续不再作为必要开发方向。
 - “可运行”不等于“适合生产环境”。
 
 ## 设计原则
@@ -89,12 +69,12 @@ HeAgent 当前已经实现并暴露给使用者的能力主要有：
 
 截至当前仓库状态，HeAgent 更准确的描述是：
 
-- 一个可运行的 CLI / Python 库
-- 一个持续演进中的 Agent 架构实验场
-- 一个比“生产代理服务”更适合拿来阅读、验证和扩展的项目
+- 一个可运行的 CLI / Python 库，含交互式聊天、`/goal` 声明式工作流与 Textual TUI。
+- 一个从「架构实验场」演进为「可日常使用的 agent 工具」的项目。
+- 一个仍比“生产代理服务”更适合拿来阅读、验证和扩展的项目。
 
 如果后续演进到真正的服务化部署、可信沙箱、稳定 API，再单独拆分新的设计文档更合适。
 
 ---
 
-*最后更新：2026-07-22*
+*最后更新：2026-09-08*
