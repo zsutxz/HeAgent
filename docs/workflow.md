@@ -19,14 +19,20 @@
 
 ## 当前步骤
 
-项目默认工作流目前包含六步：
+项目默认工作流目前包含九步：
 
-1. `analyze-requirements`：分析需求并产出可验证的需求与故事拆分。
-2. `define-product-scope`：形成 PRD 和有序 Epic/Story 提案。
-3. `design-experience`：形成 UX、流程和可访问性要求。
-4. `design-architecture`：形成架构、边界、约束和决策记录。
-5. `clarify-and-route`：确认实现范围，不修改实现代码。
-6. `implement-and-verify`：由 `bmad-agent-dev` 按 `story_loop: 02-epics.md` 每次实现一条 Story 并验证。
+1. `market-research`：由 `bmad-agent-analyst` 产出市场、竞品、替代方案与用户证据摘要，以及决策驱动和证据缺口（只读、headless）。
+2. `brainstorm-options`：由 `bmad-brainstorming` 以 headless「ideate for me」立场发散并收敛出候选方向排序（只读）。
+3. `analyze-requirements`：分析需求并产出可验证的需求与故事拆分。
+4. `define-product-scope`：形成 PRD 和有序 Epic/Story 提案。
+5. `design-experience`：形成 UX、流程和可访问性要求。
+6. `design-architecture`：形成架构、边界、约束和决策记录。
+7. `clarify-and-route`：确认实现范围，不修改实现代码。
+8. `implement-and-verify`：由 `bmad-agent-dev` 按 `story_loop: 02-epics.md` 每次实现一条 Story 并验证。
+9. `code-review`：由 `code_review` 按 `story_loop: 02-epics.md` 逐条 Story 对抗式复核，按严重度输出发现与处置状态。
+
+**写权限边界**：步骤 01–02 只读；步骤 08 是唯一创建实现产物的步骤；步骤 09 只能为修复 Critical
+发现而改代码，且每处修复必须重跑受影响测试。这条边界由步骤正文声明，代码不做强制校验。
 
 这些步骤不是 Python 中的固定状态机。`WorkflowRunner` 只负责顺序、输入缺失、输出结果、checkpoint
 和恢复；`cli_goal.py` 负责确定性装配和 SubAgent 调用。
@@ -53,10 +59,14 @@
 ```text
 _he-output/goals/<goal-id>/
 ├── GOAL.md                         # Goal 身份和原始需求
-├── 02-epics.md                    # 工作流声明的 Epic/Story 输入
-├── step-01-...md                   # 非 Story 步骤输出
-├── step-06-implement-and-verify/
+├── 02-epics.md                     # 工作流声明的 Epic/Story 输入
+├── step-01-market-research.md      # 市场调研摘要与证据缺口
+├── step-02-brainstorm-options.md   # 头脑风暴与候选方向
+├── step-03-...md                   # 其余非 Story 步骤输出
+├── step-08-implement-and-verify/
 │   └── s-1/report.md               # 每条 Story 的实现与验收报告
+├── step-09-code-review/
+│   └── s-1/report.md               # 每条 Story 的评审报告与处置状态
 └── checkpoints/                    # WorkflowRunner 运行时 checkpoint
 ```
 
@@ -66,6 +76,12 @@ _he-output/goals/<goal-id>/
 ## 修改工作流的规则
 
 - 变更流程顺序或阶段职责：修改 `.heagent/workflows/workflow.md`。
+- 新增或重排步骤：在 `workflow.md` 加 `## Step NN: name` 区块，`NN` 必须从 1 连续递增；`role:`
+  必须指向已安装的 `.heagent/skills/<role>/SKILL.md`；`input:` 的每个引用必须是 CLI 注入键
+  （`user intent` / `user responses` / `existing project context`）或前序步骤 `output:` 声明的名字，
+  否则该步骤会被判为 BLOCKED。
+- 声明 `story_loop: <artifact>` 的步骤会按该产物里的 Story 列表逐条展开，每条 Story 独立 checkpoint；
+  产物落到 `<goal-dir>/step-NN-<slug>/s-<n>/report.md`。
 - 变更角色执行方法：修改 `.heagent/skills/<skill>/SKILL.md`。
 - 变更产物字段或父子关系：同步修改 `engine/artifacts.py`、模板和测试。
 - 变更恢复、checkpoint、路径安全或工具执行：修改 `src/heagent/` 机制代码，并同步 `docs/frame.md`。
