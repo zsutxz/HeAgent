@@ -39,7 +39,7 @@ validation: product value, scope, non-goals, and decisions are explicit
 
 Turn the requirements brief into a validated PRD and ordered Epic proposal.
 Record assumptions, priorities, non-goals, and unresolved product decisions.
-Write the ordered Epic proposal to `epics.md` in the goal directory, listing each
+Write the ordered Epic proposal to `02-epics.md` in the goal directory, listing each
 story as a numbered heading (`### S-1 ...`, `### S-2 ...`) so the implementation
 step can expand them into per-story increments.
 
@@ -79,9 +79,17 @@ role: bmad-agent-dev
 input: clarified implementation scope, architecture, UX specification
 output: tested code change
 checkpoint: true
-story_loop: epics.md
+story_loop: 02-epics.md
 validation: acceptance criteria and focused tests pass
 
 Make the scoped change, run focused verification, and report residual risk.
 Only this step may modify project implementation artifacts. When its acceptance
 criteria pass, the workflow is complete.
+
+Story-loop artifact layout: for each story, write its definition verbatim from
+the story list (including parent Epic, priority, and dependencies) to
+`s-<n>/story.md`, and the implementation report to `s-<n>/report.md`. After the
+final story completes, write the top-level step document as an index with an
+Epic overview, milestone table, and a per-story table (title / owning Epic /
+status) linking each `story.md` and `report.md`; then update `GOAL.md` Epics and
+Stories sections to match.
