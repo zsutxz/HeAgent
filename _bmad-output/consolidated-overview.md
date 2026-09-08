@@ -811,7 +811,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `docs/design.md` | 产品愿景与理念 |
 | `docs/iteration.md` | 迭代历程与流程 |
 | `_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md` | GUI 实现计划 |
-| `docs/workflow.md` | 当前敏捷工作流维护说明 |
+| `docs/workflow_intro.md` | 当前敏捷工作流维护说明 |
 | `_bmad-output/README.md` | 产物地图（按周期） |
 | `_bmad-output/consolidated-overview.md` | **本文——统一整合总览（含 epic 总目录，原 EPICS-INDEX.md 已并入）** |
 | `_bmad-output/retrospective-all-cycles.md` | 全周期综合回顾（2026-07-22，覆盖 Epic 1-23 + S1-S4） |

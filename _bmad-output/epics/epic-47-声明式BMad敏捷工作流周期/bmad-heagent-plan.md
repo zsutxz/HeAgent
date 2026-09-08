@@ -1,7 +1,7 @@
 # BMad 设计记录
 
 > 本文是历史设计背景，不是当前实现说明，也不是待办清单。
-> 当前 `/goal` 的运行契约见 [`workflow.md`](workflow.md)，代码事实见 [`frame.md`](frame.md)。
+> 当前 `/goal` 的运行契约见 [`workflow_intro.md`](workflow_intro.md)，代码事实见 [`frame.md`](frame.md)。
 
 ## 保留原因
 
@@ -55,7 +55,7 @@ Epic/spec 中；当前代码不要根据这些历史段落推断未实现功能�
 
 ## 维护规则
 
-- 当前行为变更：先改代码和对应的 `docs/frame.md` / `docs/workflow.md`。
+- 当前行为变更：先改代码和对应的 `docs/frame.md` / `docs/workflow_intro.md`。
 - 工作流方法论变更：改 `.heagent/workflows/workflow.md` 或角色 Skill，不在本文复制一份。
 - 历史周期状态：只更新 `_bmad-output/` 的相应产物，不把历史计划改写成当前能力。
 - 删除或合并文档时，必须保留一个明确的权威链接，避免出现两个互相漂移的说明。
