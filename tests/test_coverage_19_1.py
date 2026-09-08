@@ -231,19 +231,7 @@ class TestResolveRole:
         """_resolve_role 在 runtime.roles 中命中时返回该 RoleSpec。"""
         from heagent.engine.roles import RoleSpec
 
-        runtime = SubagentToolRuntime(
-            provider=None,
-            registry=None,
-            guard=None,
-            skills=None,
-            facts=None,
-            profile=None,
-            compressor=None,
-            context_dir=None,
-            soul=None,
-            engine=None,
-            parent_run_id=None,
-        )
+        runtime = SubagentToolRuntime()
         spec = RoleSpec(name="custom", system="custom system")
         runtime.roles = {"custom": spec}
         result, err = _resolve_role(runtime, "custom")
@@ -252,19 +240,7 @@ class TestResolveRole:
 
     def test_resolve_role_unknown(self) -> None:
         """_resolve_role 未知 role → 返回错误，列出可用角色。"""
-        runtime = SubagentToolRuntime(
-            provider=None,
-            registry=None,
-            guard=None,
-            skills=None,
-            facts=None,
-            profile=None,
-            compressor=None,
-            context_dir=None,
-            soul=None,
-            engine=None,
-            parent_run_id=None,
-        )
+        runtime = SubagentToolRuntime()
         result, err = _resolve_role(runtime, "ghost_role")
         assert result is None
         assert err is not None
@@ -281,7 +257,10 @@ class TestTaskParallelUnknownRole:
     @pytest.mark.asyncio
     async def test_task_parallel_unknown_role_error(self) -> None:
         """task_parallel 传入未知 role → 返回错误 payload。"""
-        configure_subagent_tools(provider=StubProvider())
+        async def delegate_many(tasks, spec, system):  # noqa: ANN001, ANN202, ARG001
+            return []
+
+        configure_subagent_tools(delegate_many=delegate_many)
         try:
             result = await task_parallel(
                 tasks_json=json.dumps(["task 1", "task 2"]),
@@ -464,19 +443,7 @@ class TestRecordStepNoRuntime:
         """_record_step 在 runtime.run_context 为 None 时直接返回，不抛异常。"""
         from heagent.tools.builtins.subagent import SubTaskOutcome as Sto
 
-        runtime = SubagentToolRuntime(
-            provider=None,
-            registry=None,
-            guard=None,
-            skills=None,
-            facts=None,
-            profile=None,
-            compressor=None,
-            context_dir=None,
-            soul=None,
-            engine=None,
-            parent_run_id=None,
-        )
+        runtime = SubagentToolRuntime()
         runtime.run_context = None
         outcome = Sto(status="ok", role="tester", task="test", iterations=1, output="done")
         _record_step(runtime, outcome=outcome)

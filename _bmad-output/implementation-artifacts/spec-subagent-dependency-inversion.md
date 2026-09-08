@@ -2,7 +2,7 @@
 title: '消除工具层对子 Agent 编排层的反向依赖'
 type: 'refactor'
 created: '2026-09-03'
-status: 'in-progress'
+status: 'done'
 baseline_commit: 'f49c20a8e19df64111565a28a26e1c16c97bf997'
 review_loop_iteration: 0
 context:
@@ -49,10 +49,10 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/heagent/tools/builtins/subagent.py` -- 定义可注入异步委派回调并移除所有 `heagent.agent` 导入。
-- [ ] `src/heagent/agent/loop.py` -- 在运行时作用域组装 `SubAgent` 并绑定单任务/并行执行实现。
-- [ ] `tests/test_subagent_tools.py` -- 用 fake executor 验证所有工具 JSON 和边界分支。
-- [ ] `tests/test_sub_agent.py`, `tests/test_subagent_role.py` -- 验证真实编排路径仍保持权限、角色和结果语义。
+- [x] `src/heagent/tools/builtins/subagent.py` -- 定义可注入异步委派回调并移除所有 `heagent.agent` 导入。
+- [x] `src/heagent/agent/loop.py` -- 在运行时作用域组装 `SubAgent` 并绑定单任务/并行执行实现。
+- [x] `tests/test_subagent_tools.py` -- 用 fake executor 验证所有工具 JSON 和边界分支。
+- [x] `tests/test_sub_agent.py`, `tests/test_subagent_role.py` -- 验证真实编排路径仍保持权限、角色和结果语义。
 
 **Acceptance Criteria:**
 - Given 全仓源码, when 搜索 tools 对 agent 的导入, then `src/heagent/tools/**` 中不存在 `from heagent.agent` 或 `import heagent.agent`。
@@ -60,6 +60,11 @@ context:
 - Given AgentLoop 启动一次 run, when 模型调用委派工具, then 回调获得当前 run 的 provider、stores、engine 和 parent run id。
 
 ## Spec Change Log
+
+- 2026-09-08：新增 `src/heagent/agent/delegation.py`（`build_subagent_delegates` 回调工厂），而非把 `SubAgent` 构造内联进 `AgentLoop._runtime_scope`——loop.py 只做「每 run 绑定 / 退出解绑」，编排细节独立可测。
+- 2026-09-08：`configure_subagent_tools` / `bind_subagent_tools` 首参由 `provider` 改为 `delegate_one` / `delegate_many` 回调；`SubagentToolRuntime` 只保留回调与 `run_context` / `roles`（从未被读取的死字段 `default_system` 一并移除）。内部 API 变更，工具名 / 参数 / JSON 契约未动。
+- 2026-09-08：`task_parallel` 增加「回调返回条数与 tasks 不等长即 `status=error`」的显性校验，避免错位记账（回调契约要求等长保序）。
+- 2026-09-08：新增 `tests/test_agent_delegation.py`（结果映射 / 并行实例隔离 / 组件与 parent_run_id 透传 / AgentLoop 端到端绑定与解绑）；`tests/test_coverage_19_1.py` 4 个用例改用新 API；`tests/test_subagent_tools.py` 改为 fake executor（不再 monkeypatch `SubAgent`）。
 
 ## Design Notes
 

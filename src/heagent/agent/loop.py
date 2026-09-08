@@ -972,13 +972,16 @@ class AgentLoop:
         """在单次 run 期间绑定各工具的运行时依赖，with 退出时统一解绑。
 
         用 ``ExitStack`` 把多个 ``bind_*`` 上下文管理器串起来：工作区根（路径安全）、
-        技能/记忆/cron/subagent 工具各自拿到本次 run 的 store 与上下文。这样工具
-        handler 内部无需显式传参即可访问「当前 run 的」依赖，且 run 之间互不串扰。
+        技能/记忆/cron 工具各自拿到本次 run 的 store 与上下文；subagent 工具拿到的是
+        **由本层组装**的委派回调（``build_subagent_delegates``，见 ``agent/delegation.py``），
+        工具层因此无需认识 ``SubAgent``。这样工具 handler 内部无需显式传参即可访问
+        「当前 run 的」依赖，且 run 之间互不串扰。
 
         任一 ``bind_*`` 抛异常时 ExitStack 自动弹出已进入的上下文，异常逸出到
         ``run()``/``run_stream()`` 的 ``try/except Exception`` 被 ``_on_run_failed`` 收口
         （不会裸抛到 run 之外、丢失 session 落盘与 last_* 缓存）。
         """
+        from heagent.agent.delegation import build_subagent_delegates
         from heagent.tools.builtins.cron import bind_cron_tools
         from heagent.tools.builtins.memory import bind_memory_tools
         from heagent.tools.builtins.skills import bind_skill_tools
@@ -990,22 +993,20 @@ class AgentLoop:
             stack.enter_context(bind_skill_tools(self.skills))
             stack.enter_context(bind_memory_tools(facts=self.facts, profile=self.profile))
             stack.enter_context(bind_cron_tools(self.cron_store))
-            stack.enter_context(
-                bind_subagent_tools(
-                    self.provider,
-                    registry=self.registry,
-                    guard=self.guard,
-                    skills=self.skills,
-                    facts=self.facts,
-                    profile=self.profile,
-                    compressor=self.compressor,
-                    context_dir=self.context_dir,
-                    soul=self.soul,
-                    engine=self.engine,
-                    parent_run_id=run_context.run_id,
-                    run_context=run_context,
-                )
+            delegate_one, delegate_many = build_subagent_delegates(
+                self.provider,
+                registry=self.registry,
+                guard=self.guard,
+                skills=self.skills,
+                facts=self.facts,
+                profile=self.profile,
+                compressor=self.compressor,
+                context_dir=self.context_dir,
+                soul=self.soul,
+                engine=self.engine,
+                parent_run_id=run_context.run_id,
             )
+            stack.enter_context(bind_subagent_tools(delegate_one, delegate_many, run_context=run_context))
             yield
 
     async def _start_run_record(self, run_context: RunContext, *, prompt: str, system: str | None) -> None:

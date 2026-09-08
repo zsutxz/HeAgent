@@ -79,7 +79,7 @@ exceptions  types  config
 - `agent/` 是顶层编排器，依赖所有其他模块
 - `providers/` 和 `tools/` 互不依赖
 - `exceptions.py` 和 `types.py` 是叶子模块，无内部依赖
-- 新增 Provider 或 Tool **禁止**从 `agent/` 导入（已知例外：`builtins/subagent.py` 委派工具需实例化 `SubAgent`，故 `from heagent.agent.sub import ...`；`tools/mcp/*` 严守此规则）
+- 新增 Provider 或 Tool **禁止**从 `agent/` 导入（**全仓无例外**：`builtins/subagent.py` 只持可注入委派回调，子 Agent 编排由 `agent/delegation.py` 提供、`AgentLoop._runtime_scope` 每 run 绑定；`tools/mcp/*` 同）
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability/persist），依赖 `types`/`exceptions`/`tools.safety`；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `engine.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
 
@@ -178,6 +178,7 @@ make_retry_middleware(max_attempts, base_delay, max_delay) -> MiddlewareFn
 | `SubAgent` | 隔离的 Agent 实例，独立的 Loop + Context；经 `parent_run_id` 继承父 `engine`；可带 `role`（`RoleSpec`：system/allowed_tools/blocked_tools）/`system`/`allowed_tools` 角色化（P1） |
 | `SubAgentResult` | 子任务结果（task, output, success, iterations, **run_id**：子 agent 自身 run_id，P5-3 供结构化结果与树形聚合） |
 | `run_parallel()` | `asyncio.gather()` 并行运行多个子 Agent |
+| `build_subagent_delegates()` | `agent/delegation.py`：为 tools 层组装单任务/并行委派回调（`DelegateOne`/`DelegateMany`），把 `SubAgentResult` 映射为工具层 `SubTaskOutcome`；`AgentLoop._runtime_scope` 每次 run 绑定、退出解绑 |
 
 子 Agent 默认带 `ContextCompressor`（短任务走原位压缩），可经 `window_reset` 参数启用跨窗口续跑（长任务场景，P5-2 已交付）。角色化时由父 `engine` 经 `dataclasses.replace` 换角色专属 `PolicyEngine`（allowed_tools/blocked_tools），其余运行时服务（store/ledger/events）复用。
 
@@ -420,8 +421,7 @@ SafetyGuard
 | `git_blame` | 行级作者追溯 |
 
 技能工具在 `AgentLoop` 接收 `SkillStore` 时激活；记忆工具在接收 `FactStore`/`ProfileStore` 时激活；
-Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 cli.py 调用 `configure_subagent_tools(provider)`
-注入 Provider/Registry/Guard 激活（单次与交互模式均激活）。委派结果经 `_record_step()` 写入 supervisor 的 `metadata['completed_steps']`（含 iterations/run_id，跨窗口重置存活）。未注入时工具返回 `status=error` 结构化错误，不抛异常。
+Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 `AgentLoop._runtime_scope` 在每次 run 注入委派回调（`agent/delegation.build_subagent_delegates`）激活，run 退出即解绑（单次与交互模式均如此）。委派结果经 `_record_step()` 写入 supervisor 的 `metadata['completed_steps']`（含 iterations/run_id，跨窗口重置存活）。未注入时工具返回 `status=error` 结构化错误，不抛异常。
 
 ### 4.5 上下文管理 (`context/`)
 
@@ -713,6 +713,7 @@ src/heagent/
 │   ├── system_prompt.py     # _build_system 拼装（人格/上下文/技能/记忆/画像）
 │   ├── tool_execution.py    # _execute_one 工具执行链（ledger → policy → executor）
 │   ├── middleware.py        # 中间件组合 + make_retry_middleware
+│   ├── delegation.py        # 子 Agent 委派回调（tools ↔ agent 依赖倒置）
 │   └── sub.py               # 子 Agent（并行任务 + 角色化）
 │
 ├── providers/               # LLM Provider（互不依赖）
@@ -745,7 +746,7 @@ src/heagent/
 │       ├── skills.py        # 技能管理（create/update/list/delete/curate/archive）
 │       ├── memory.py        # 记忆管理（fact_add/profile_update）
 │       ├── cron.py          # Cron 管理（add/list/remove）
-│       ├── subagent.py      # 子 Agent 委派（task_delegate/task_parallel/task_status）
+│       ├── subagent.py      # 子 Agent 委派工具（仅持可注入回调，不导入 agent/）
 │       ├── web.py           # web_fetch（HTTP 抓取，read-only）
 │       └── git.py           # Git 工具（status/diff/log/blame，read-only）
 │

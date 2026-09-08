@@ -1,15 +1,23 @@
-"""Builtin tools for delegating work to sub-agents."""
+"""Builtin tools for delegating work to sub-agents.
+
+工具层只持有「怎么委派」的可注入异步回调（:data:`DelegateOne` /
+:data:`DelegateMany`）与 run 作用域数据（``run_context`` / ``roles``），
+**不认识**具体的子 Agent 实现——真实编排由 ``agent`` 层提供
+（``agent.delegation.build_subagent_delegates``），经 ``AgentLoop`` 在每次 run
+的作用域内绑定。这样 ``tools`` 不再反向依赖 ``agent``（架构硬约束：新增工具
+禁止从 ``agent/`` 导入）。
+"""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
 
-from heagent.agent.sub import SubAgent, run_parallel
 from heagent.engine.roles import RoleSpec, get_role, list_roles
 from heagent.tools.decorator import tool
 from heagent.tools.runtime import RuntimeSlot
@@ -17,16 +25,7 @@ from heagent.tools.runtime import RuntimeSlot
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from heagent.context.compressor import ContextCompressor
-    from heagent.engine import EngineContainer
     from heagent.engine.context import RunContext
-    from heagent.memory.facts import FactStore
-    from heagent.memory.profile import ProfileStore
-    from heagent.memory.skills import SkillStore
-    from heagent.memory.soul import SoulStore
-    from heagent.providers.base import BaseProvider
-    from heagent.tools.registry import ToolRegistry
-    from heagent.tools.safety import SafetyGuard
 
 
 class SubTaskOutcome(BaseModel):
@@ -46,6 +45,13 @@ class SubTaskOutcome(BaseModel):
     output: str
 
 
+# 委派回调协议：由 agent 层实现并注入（工具层不构造 SubAgent，也不导入 agent 层）。
+# delegate_one(task, role_spec, system) -> 单任务结构化结果
+DelegateOne = Callable[[str, RoleSpec | None, str | None], Awaitable[SubTaskOutcome]]
+# delegate_many(tasks, role_spec, system) -> 与 tasks 等长且保序的结果列表
+DelegateMany = Callable[[list[str], RoleSpec | None, str | None], Awaitable[list[SubTaskOutcome]]]
+
+
 def _error_payload(message: str) -> str:
     """Serialize a pre-flight error as a structured JSON string."""
     return json.dumps({"status": "error", "message": message}, ensure_ascii=False)
@@ -53,61 +59,36 @@ def _error_payload(message: str) -> str:
 
 @dataclass(slots=True)
 class SubagentToolRuntime:
-    """Runtime dependencies for sub-agent delegation tools."""
+    """Runtime dependencies for sub-agent delegation tools.
 
-    provider: BaseProvider | None
-    registry: ToolRegistry | None
-    guard: SafetyGuard | None
-    skills: SkillStore | None
-    facts: FactStore | None
-    profile: ProfileStore | None
-    compressor: ContextCompressor | None
-    context_dir: str | None
-    soul: SoulStore | None
-    engine: EngineContainer | None
-    parent_run_id: str | None
+    只保存注入进来的委派回调与本次 run 的作用域数据；``delegate_one`` /
+    ``delegate_many`` 为 None 表示未绑定运行时（工具返回 ``status=error``，
+    不构造任何子 Agent）。
+    """
+
+    delegate_one: DelegateOne | None = None
+    delegate_many: DelegateMany | None = None
     run_context: RunContext | None = None
     roles: dict[str, RoleSpec] | None = None
-    default_system: str | None = None
 
 
 _subagent_runtime = RuntimeSlot[SubagentToolRuntime]("heagent_subagent_tools")
 
 
 def configure_subagent_tools(
-    provider: BaseProvider | None,
+    delegate_one: DelegateOne | None = None,
+    delegate_many: DelegateMany | None = None,
     *,
-    registry: ToolRegistry | None = None,
-    guard: SafetyGuard | None = None,
-    skills: SkillStore | None = None,
-    facts: FactStore | None = None,
-    profile: ProfileStore | None = None,
-    compressor: ContextCompressor | None = None,
-    context_dir: str | None = None,
-    soul: SoulStore | None = None,
-    engine: EngineContainer | None = None,
-    parent_run_id: str | None = None,
     run_context: RunContext | None = None,
     roles: dict[str, RoleSpec] | None = None,
-    default_system: str | None = None,
 ) -> None:
-    """Set fallback runtime dependencies for sub-agent tools."""
+    """Set fallback delegation callbacks for sub-agent tools."""
     _subagent_runtime.configure(
         SubagentToolRuntime(
-            provider=provider,
-            registry=registry,
-            guard=guard,
-            skills=skills,
-            facts=facts,
-            profile=profile,
-            compressor=compressor,
-            context_dir=context_dir,
-            soul=soul,
-            engine=engine,
-            parent_run_id=parent_run_id,
+            delegate_one=delegate_one,
+            delegate_many=delegate_many,
             run_context=run_context,
             roles=roles,
-            default_system=default_system,
         )
     )
 
@@ -119,39 +100,19 @@ def reset_subagent_tools() -> None:
 
 @contextmanager
 def bind_subagent_tools(
-    provider: BaseProvider | None,
+    delegate_one: DelegateOne | None = None,
+    delegate_many: DelegateMany | None = None,
     *,
-    registry: ToolRegistry | None = None,
-    guard: SafetyGuard | None = None,
-    skills: SkillStore | None = None,
-    facts: FactStore | None = None,
-    profile: ProfileStore | None = None,
-    compressor: ContextCompressor | None = None,
-    context_dir: str | None = None,
-    soul: SoulStore | None = None,
-    engine: EngineContainer | None = None,
-    parent_run_id: str | None = None,
     run_context: RunContext | None = None,
     roles: dict[str, RoleSpec] | None = None,
-    default_system: str | None = None,
 ) -> Iterator[None]:
-    """Bind sub-agent tool dependencies for the current run context."""
+    """Bind sub-agent delegation callbacks for the current run context."""
     with _subagent_runtime.bind(
         SubagentToolRuntime(
-            provider=provider,
-            registry=registry,
-            guard=guard,
-            skills=skills,
-            facts=facts,
-            profile=profile,
-            compressor=compressor,
-            context_dir=context_dir,
-            soul=soul,
-            engine=engine,
-            parent_run_id=parent_run_id,
+            delegate_one=delegate_one,
+            delegate_many=delegate_many,
             run_context=run_context,
             roles=roles,
-            default_system=default_system,
         )
     ):
         yield
@@ -199,30 +160,6 @@ def _record_step(runtime: SubagentToolRuntime, *, outcome: SubTaskOutcome) -> No
     )
 
 
-def _make_subagent(runtime: SubagentToolRuntime, spec: RoleSpec | None, system: str | None) -> SubAgent:
-    """Construct a SubAgent from the current runtime slot (shared factory for task_parallel)."""
-    provider = runtime.provider
-    if provider is None:
-        # 调用方（task_delegate / task_parallel）已前置检查；此处兜底保证类型收窄，
-        # 同时避免未配置运行时下构造出半残 SubAgent。
-        raise RuntimeError("sub-agent tools not configured (provider is None)")
-    return SubAgent(
-        provider,
-        registry=runtime.registry,
-        guard=runtime.guard,
-        skills=runtime.skills,
-        facts=runtime.facts,
-        profile=runtime.profile,
-        compressor=runtime.compressor,
-        context_dir=runtime.context_dir,
-        soul=runtime.soul,
-        engine=runtime.engine,
-        parent_run_id=runtime.parent_run_id,
-        role=spec,
-        system=system,
-    )
-
-
 @tool
 async def task_delegate(task: str, role: str = "", system: str = "") -> str:
     """Delegate one task to an isolated sub-agent.
@@ -233,22 +170,14 @@ async def task_delegate(task: str, role: str = "", system: str = "") -> str:
     parse the outcome programmatically.
     """
     runtime = _runtime()
-    if runtime is None or runtime.provider is None:
+    if runtime is None or runtime.delegate_one is None:
         return _error_payload("sub-agent tools not configured.")
 
     spec, err = _resolve_role(runtime, role)
     if err is not None:
         return _error_payload(err)
-    agent = _make_subagent(runtime, spec, system or None)
-    result = await agent.run(task)
-    outcome = SubTaskOutcome(
-        status="ok" if result.success else "failed",
-        role=spec.name if spec else "",
-        task=task,
-        iterations=result.iterations,
-        run_id=result.run_id,
-        output=result.output,
-    )
+
+    outcome = await runtime.delegate_one(task, spec, system or None)
     _record_step(runtime, outcome=outcome)
     return outcome.model_dump_json()
 
@@ -262,7 +191,7 @@ async def task_parallel(tasks_json: str, role: str = "", system: str = "") -> st
     ``partial`` means at least one failed.
     """
     runtime = _runtime()
-    if runtime is None or runtime.provider is None:
+    if runtime is None or runtime.delegate_many is None:
         return _error_payload("sub-agent tools not configured.")
 
     try:
@@ -278,23 +207,12 @@ async def task_parallel(tasks_json: str, role: str = "", system: str = "") -> st
     spec, err = _resolve_role(runtime, role)
     if err is not None:
         return _error_payload(err)
-    # 为每个 task 创建独立的 SubAgent 实例（P1-1 修复：原 [agent] * len(tasks) 创建同一对象
-    # 的多份引用，并发 task 竞态读写同一 SubAgent 内部状态会导致数据竞态）。
-    agents = [_make_subagent(runtime, spec, system or None) for _ in tasks]
-    results = await run_parallel(agents, tasks)
 
-    role_name = spec.name if spec else ""
-    outcomes = [
-        SubTaskOutcome(
-            status="ok" if result.success else "failed",
-            role=role_name,
-            task=task_text,
-            iterations=result.iterations,
-            run_id=result.run_id,
-            output=result.output,
-        )
-        for task_text, result in zip(tasks, results, strict=True)
-    ]
+    outcomes = await runtime.delegate_many(tasks, spec, system or None)
+    if len(outcomes) != len(tasks):
+        # 回调契约要求与 tasks 等长保序；长度不符时显性失败，避免错位记账。
+        return _error_payload("delegation callback returned a mismatched outcome count.")
+
     for outcome in outcomes:
         _record_step(runtime, outcome=outcome)
 

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from heagent.agent.delegation import build_subagent_delegates
 from heagent.engine.context import RunContext
 from heagent.engine.roles import get_role
 from heagent.providers.base import ProviderMetadata
@@ -65,7 +66,8 @@ def test_supervisor_role_spec() -> None:
 
 async def test_task_delegate_records_completed_step() -> None:
     run_context = RunContext()
-    configure_subagent_tools(_StubProvider(), run_context=run_context)
+    delegate_one, delegate_many = build_subagent_delegates(_StubProvider())
+    configure_subagent_tools(delegate_one, delegate_many, run_context=run_context)
 
     out = await task_delegate("write an add function", role="coder")
     assert json.loads(out)["status"] == "ok"
@@ -83,7 +85,8 @@ async def test_task_delegate_records_completed_step() -> None:
 
 async def test_task_status_reads_recorded_steps() -> None:
     run_context = RunContext()
-    configure_subagent_tools(_StubProvider(), run_context=run_context)
+    delegate_one, delegate_many = build_subagent_delegates(_StubProvider())
+    configure_subagent_tools(delegate_one, delegate_many, run_context=run_context)
     await task_delegate("write an add function", role="coder")
 
     status = await task_status()
@@ -93,7 +96,8 @@ async def test_task_status_reads_recorded_steps() -> None:
 
 async def test_task_status_empty_when_no_delegations() -> None:
     run_context = RunContext()
-    configure_subagent_tools(_StubProvider(), run_context=run_context)
+    delegate_one, delegate_many = build_subagent_delegates(_StubProvider())
+    configure_subagent_tools(delegate_one, delegate_many, run_context=run_context)
 
     status = await task_status()
     assert "尚无" in status

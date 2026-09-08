@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-import heagent.tools.builtins.subagent as _sa_mod
+from heagent.agent.delegation import build_subagent_delegates
 from heagent.agent.sub import SubAgent
 from heagent.engine import EngineContainer, PolicyEngine
 from heagent.providers.base import ProviderMetadata
@@ -135,21 +135,22 @@ async def test_task_delegate_resolves_role_to_spec() -> None:
         def get_metadata(self):
             return ProviderMetadata(name="stub", model="stub")
 
-    configure_subagent_tools(_Stub())
+    delegate_one, delegate_many = build_subagent_delegates(_Stub())
+    configure_subagent_tools(delegate_one, delegate_many)
 
     captured: dict[str, object] = {}
-    original_init = _sa_mod.SubAgent.__init__
+    original_init = SubAgent.__init__
 
     def spy(self_sa, provider_arg, **kwargs):
         captured["role"] = kwargs.get("role")
         captured["system"] = kwargs.get("system")
         return original_init(self_sa, provider_arg, **kwargs)
 
-    _sa_mod.SubAgent.__init__ = spy
+    SubAgent.__init__ = spy
     try:
         await task_delegate("write a function", role="coder")
     finally:
-        _sa_mod.SubAgent.__init__ = original_init
+        SubAgent.__init__ = original_init
 
     role = captured["role"]
     assert role is not None
@@ -175,7 +176,8 @@ async def test_task_delegate_unknown_role_reports_error() -> None:
         def get_metadata(self):
             return ProviderMetadata(name="stub", model="stub")
 
-    configure_subagent_tools(_Stub())
+    delegate_one, delegate_many = build_subagent_delegates(_Stub())
+    configure_subagent_tools(delegate_one, delegate_many)
     result = await task_delegate("x", role="no_such_role")
     assert "Unknown role" in result
 
