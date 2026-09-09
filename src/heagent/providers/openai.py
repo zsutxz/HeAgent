@@ -110,8 +110,10 @@ class OpenAIProvider:
         api_key: str,
         model: str = "gpt-4o",
         base_url: str | None = None,
+        max_tokens: int | None = None,
     ) -> None:
         self._model = model
+        self._max_tokens = max_tokens
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     def _build_kwargs(
@@ -126,6 +128,8 @@ class OpenAIProvider:
         }
         if tools:
             kwargs["tools"] = _to_openai_tools(tools)
+        if self._max_tokens is not None:
+            kwargs["max_tokens"] = self._max_tokens
         return kwargs
 
     async def send(

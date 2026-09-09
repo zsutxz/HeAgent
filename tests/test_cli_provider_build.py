@@ -12,6 +12,7 @@ import pytest
 
 from heagent.cli import _build_provider, _extract_routing
 from heagent.config import Settings, reset_settings
+from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.openai import OpenAIProvider
 from heagent.providers.responses import OpenAIResponsesProvider
 from heagent.providers.router import RoutingProvider
@@ -102,6 +103,110 @@ class TestBuildProviderGlm:
         provider = _build_provider(Settings(glm_api_key="sk-glm"), "glm-5.3-air")
         assert isinstance(provider, OpenAIProvider)
         assert provider.get_metadata().model == "glm-5.3-air"
+
+
+class TestBuildProviderOllama:
+    """本地 Ollama 条目：显式开关（OLLAMA_ENABLED）而非密钥存在性，OpenAI 兼容 /v1。"""
+
+    def test_disabled_excluded_from_pool(self, hermetic) -> None:
+        """默认关闭：即使配了 OLLAMA_MODEL 也不入池（不静默连 localhost）。"""
+        provider = _build_provider(
+            Settings(kimi_api_key="sk-kimi", ollama_enabled=False, ollama_model="qwen3:8b"),
+            None,
+        )
+        assert isinstance(provider, OpenAIProvider)
+        assert provider.get_metadata().model == "kimi-k3"
+
+    def test_enabled_builds_openai_compatible_provider(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(ollama_enabled=True, ollama_model="qwen3.5-9b-local:latest"),
+            None,
+        )
+        assert isinstance(provider, OpenAIProvider)
+        assert provider.get_metadata().model == "qwen3.5-9b-local:latest"
+        assert str(provider._client.base_url).startswith("http://127.0.0.1:11434")
+
+    def test_enabled_without_model_fails_fast(self, hermetic, capsys) -> None:
+        """OLLAMA_ENABLED=true 但未配模型 → fail-fast（不猜模型名）。"""
+        with pytest.raises(SystemExit):
+            _build_provider(Settings(ollama_enabled=True), None)
+        assert "OLLAMA_MODEL" in capsys.readouterr().err
+
+    def test_custom_base_url(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(
+                ollama_enabled=True,
+                ollama_model="qwen3:8b",
+                ollama_base_url="http://192.168.1.9:11434/v1",
+            ),
+            None,
+        )
+        assert isinstance(provider, OpenAIProvider)
+        assert str(provider._client.base_url).startswith("http://192.168.1.9:11434")
+
+    def test_ollama_with_cloud_provider_returns_switchable(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(kimi_api_key="sk-kimi", ollama_enabled=True, ollama_model="qwen3:8b"),
+            None,
+        )
+        assert isinstance(provider, SwitchableProvider)
+        assert set(provider.names) == {"kimi", "ollama"}
+        assert provider.providers["ollama"].get_metadata().model == "qwen3:8b"
+
+    def test_model_flag_overrides_ollama_default(self, hermetic) -> None:
+        provider = _build_provider(Settings(ollama_enabled=True, ollama_model="qwen3:8b"), "qwen3:4b")
+        assert isinstance(provider, OpenAIProvider)
+        assert provider.get_metadata().model == "qwen3:4b"
+
+    def test_active_provider_selects_ollama(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(
+                kimi_api_key="sk-kimi",
+                ollama_enabled=True,
+                ollama_model="qwen3:8b",
+                active_provider="ollama",
+            ),
+            None,
+        )
+        assert isinstance(provider, SwitchableProvider)
+        assert provider.active == "ollama"
+
+
+class TestBuildProviderMaxOutputTokens:
+    """Settings.max_output_tokens 透传到各 provider 的输出上限。"""
+
+    def test_wired_to_openai_compat(self, hermetic) -> None:
+        provider = _build_provider(Settings(kimi_api_key="sk-kimi", max_output_tokens=1234), None)
+        assert isinstance(provider, OpenAIProvider)
+        assert provider._max_tokens == 1234
+
+    def test_defaults_to_no_cap(self, hermetic) -> None:
+        provider = _build_provider(Settings(kimi_api_key="sk-kimi"), None)
+        assert provider._max_tokens is None
+
+    def test_wired_to_ollama(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(ollama_enabled=True, ollama_model="qwen3:8b", max_output_tokens=2048),
+            None,
+        )
+        assert isinstance(provider, OpenAIProvider)
+        assert provider._max_tokens == 2048
+
+    def test_wired_to_responses(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(openai_responses_api_key="sk-gpt", max_output_tokens=777),
+            None,
+        )
+        assert isinstance(provider, OpenAIResponsesProvider)
+        assert provider._max_output_tokens == 777
+
+    def test_wired_to_anthropic(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(anthropic_api_key="sk-ant", max_output_tokens=999),
+            None,
+        )
+        assert isinstance(provider, AnthropicProvider)
+        assert provider._max_tokens == 999
 
 
 class TestExtractRouting:

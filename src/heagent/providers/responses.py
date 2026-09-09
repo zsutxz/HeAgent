@@ -143,10 +143,12 @@ class OpenAIResponsesProvider:
         base_url: str | None = None,
         *,
         instructions: str | None = None,
+        max_output_tokens: int | None = None,
         user_agent: str = _DEFAULT_USER_AGENT,
     ) -> None:
         self._model = model
         self._instructions = instructions
+        self._max_output_tokens = max_output_tokens
         # 覆盖默认 User-Agent：部分中转站拦截 ``OpenAI/Python/...``。
         self._client = AsyncOpenAI(
             api_key=api_key,
@@ -169,6 +171,8 @@ class OpenAIResponsesProvider:
             kwargs["instructions"] = instructions
         if tools:
             kwargs["tools"] = _to_responses_tools(tools)
+        if self._max_output_tokens is not None:
+            kwargs["max_output_tokens"] = self._max_output_tokens
         return kwargs
 
     async def send(

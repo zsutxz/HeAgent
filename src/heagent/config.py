@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     )
 
     # ---- 活跃 Provider（交互模式启动时默认使用哪个） ----
-    active_provider: str | None = None  # 启动时默认 provider，如 deepseek / kimi / glm / openai / anthropic
+    active_provider: str | None = None  # 启动时默认 provider，如 deepseek / kimi / glm / ollama / openai / anthropic
 
     # ---- API 密钥（可选，在 Provider 使用时校验） ----
     deepseek_api_key: str | None = None  # DeepSeek API Key
@@ -71,6 +71,17 @@ class Settings(BaseSettings):
     kimi_model: str = "kimi-k3"  # Kimi (Moonshot) 默认模型
     glm_model: str = "glm-5.3"  # GLM (智谱) 默认模型
     openai_responses_model: str = "gpt-5.6-terra"  # Responses API 默认模型
+
+    # ---- 本地 Ollama（OpenAI 兼容 /v1；无真实 API Key） ----
+    # ollama_enabled 默认 False：本地端点属显式 opt-in——避免默认向 localhost 发请求，
+    # 也避免「装了 Ollama 但没启动」时被当成可用 provider 混进回退池。
+    # ollama_model 无合理默认值（Ollama 无「官方默认模型」概念），启用时必填，否则 fail-fast。
+    # 注意：本地模型窗口常远小于 max_context_tokens 默认 512000（取决于 Ollama Modelfile 的
+    # num_ctx），须按实际值下调，否则压缩/窗口重置阈值永不触发、先撞 API 400。
+    ollama_enabled: bool = False
+    ollama_base_url: str = "http://127.0.0.1:11434/v1"  # Ollama OpenAI 兼容端点
+    ollama_model: str | None = None  # 必填（启用时）：如 qwen3.5-9b-local:latest
+    ollama_api_key: str | None = None  # Ollama 不校验 key，留空时用占位符 "ollama"
 
     # ---- Anthropic 提示词缓存（FR-3） ----
     anthropic_prompt_caching: bool = True
@@ -125,6 +136,10 @@ class Settings(BaseSettings):
     # 须确认所用模型实际上下文 ≥512k，否则压缩触发前就会先撞上 API 上限报 400。
     # （历史：574c2d9 曾把默认改为 1M，导致这两套机制在默认配置下几乎永不触发。）
     max_context_tokens: int = Field(default=512000, ge=1)
+    # 单次输出的最大 token 数（OpenAI 兼容 Chat Completions 的 max_tokens、Responses 的
+    # max_output_tokens、Anthropic 的 max_tokens）。None = 不设上限（沿用各 provider 默认）。
+    # 本地思考模型（如 Ollama 的 qwen3.5 等）无上限时可能无限生成，本地测试建议设一个值（如 4096）。
+    max_output_tokens: int | None = Field(default=None, ge=1)
     shell_timeout: int = Field(default=120, ge=1)
 
     # ---- 日志参数 ----

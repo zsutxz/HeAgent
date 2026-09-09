@@ -78,6 +78,17 @@ ANTHROPIC_API_KEY=...
 
 CLI 默认按 `DeepSeek -> OpenAI -> Anthropic` 的顺序构建可用 Provider。
 
+本地 Ollama（无需 API Key，显式 opt-in）：
+
+```bash
+OLLAMA_ENABLED=true
+OLLAMA_MODEL=qwen3:8b   # 本机模型名，见 curl http://127.0.0.1:11434/api/tags
+# OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
+```
+
+> 本地模型窗口常远小于 `MAX_CONTEXT_TOKENS` 默认 512000（Ollama 实际取 Modelfile 的 `num_ctx`），
+> 须按实际值下调，否则压缩/窗口重置阈值永不触发、先撞 API 400。
+
 ### 3. 运行
 
 单次执行：

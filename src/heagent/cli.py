@@ -131,6 +131,9 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     构建为 ``RoutingProvider``（flash=快速 / pro=深度，按问题难度自动切换），并**照常放入
     多 provider 池**——不影响「Multiple providers Choose」（启动选择 + ``/model`` 切换 +
     自动回退）。只有 deepseek 一个 provider 时直接返回该 ``RoutingProvider``（等价旧行为）。
+
+    本地 Ollama 经 ``OLLAMA_ENABLED=true`` 显式启用（OpenAI 兼容 ``/v1``、无需真实 key），
+    作为独立条目入池，可经 ``/model`` 切换、``--model`` 覆盖模型名。
     """
     named: dict[str, BaseProvider] = {}
 
@@ -147,6 +150,7 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
                 api_key=settings.deepseek_api_key,
                 model=model or settings.deepseek_model,
                 base_url=settings.deepseek_base_url or "https://api.deepseek.com/v1",
+                max_tokens=settings.max_output_tokens,
             )
     elif settings.routing_enabled:
         # 路由仅绑定 DeepSeek：未配置密钥时优雅降级（其余 provider 照常可用），
@@ -161,6 +165,7 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
             api_key=settings.kimi_api_key,
             model=model or settings.kimi_model,
             base_url=settings.kimi_base_url or "https://api.moonshot.cn/v1",
+            max_tokens=settings.max_output_tokens,
         )
 
     if settings.glm_api_key:
@@ -168,7 +173,12 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
             api_key=settings.glm_api_key,
             model=model or settings.glm_model,
             base_url=settings.glm_base_url or "https://open.bigmodel.cn/api/paas/v4",
+            max_tokens=settings.max_output_tokens,
         )
+
+    ollama_provider = _build_ollama_provider(settings, model)
+    if ollama_provider:
+        named["ollama"] = ollama_provider
 
     openai_provider = _build_openai_providers(settings, model or settings.default_model)
     if openai_provider:
@@ -186,7 +196,7 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
         click.echo(
             "Error: No API key configured. Set DEEPSEEK_API_KEY, KIMI_API_KEY, "
             "GLM_API_KEY, OPENAI_API_KEY, OPENAI_RESPONSES_API_KEY or ANTHROPIC_API_KEY "
-            "in environment.",
+            "in environment, or enable the local Ollama entry with OLLAMA_ENABLED=true.",
             err=True,
         )
         raise SystemExit(1)
@@ -221,8 +231,18 @@ def _build_routing_provider(settings: Settings) -> BaseProvider:
         raise SystemExit(1)
 
     base_url = settings.deepseek_base_url or "https://api.deepseek.com/v1"
-    fast = OpenAIProvider(api_key=settings.deepseek_api_key, model=settings.routing_fast_model, base_url=base_url)
-    pro = OpenAIProvider(api_key=settings.deepseek_api_key, model=settings.routing_pro_model, base_url=base_url)
+    fast = OpenAIProvider(
+        api_key=settings.deepseek_api_key,
+        model=settings.routing_fast_model,
+        base_url=base_url,
+        max_tokens=settings.max_output_tokens,
+    )
+    pro = OpenAIProvider(
+        api_key=settings.deepseek_api_key,
+        model=settings.routing_pro_model,
+        base_url=base_url,
+        max_tokens=settings.max_output_tokens,
+    )
     router = HeuristicRouter(fast="fast", pro="pro", reasoning_keywords=settings.routing_keyword_list or None)
     return RoutingProvider({"fast": fast, "pro": pro}, router, default="fast")
 
@@ -247,6 +267,7 @@ def _build_gpt_providers(settings: Settings, model: str | None) -> BaseProvider 
             api_key=settings.openai_responses_api_key,
             model=model or settings.openai_responses_model,
             base_url=settings.openai_responses_base_url,
+            max_output_tokens=settings.max_output_tokens,
         )
     if settings.gpt_routing_enabled:
         logger.warning(
@@ -277,16 +298,19 @@ def _build_gpt_routing_provider(settings: Settings) -> BaseProvider:
         api_key=settings.openai_responses_api_key,
         model=settings.gpt_routing_terra_model,
         base_url=base_url,
+        max_output_tokens=settings.max_output_tokens,
     )
     luna = OpenAIResponsesProvider(
         api_key=settings.openai_responses_api_key,
         model=settings.gpt_routing_luna_model,
         base_url=base_url,
+        max_output_tokens=settings.max_output_tokens,
     )
     sol = OpenAIResponsesProvider(
         api_key=settings.openai_responses_api_key,
         model=settings.gpt_routing_sol_model,
         base_url=base_url,
+        max_output_tokens=settings.max_output_tokens,
     )
     router = HeuristicRouter(
         fast="terra",
@@ -321,7 +345,37 @@ def _build_openai_providers(settings: Settings, model: str) -> BaseProvider | No
     return _build_key_rotated(
         settings.openai_api_key,
         settings.openai_key_pool,
-        lambda key: OpenAIProvider(api_key=key, model=model, base_url=settings.openai_base_url),
+        lambda key: OpenAIProvider(
+            api_key=key,
+            model=model,
+            base_url=settings.openai_base_url,
+            max_tokens=settings.max_output_tokens,
+        ),
+    )
+
+
+def _build_ollama_provider(settings: Settings, model: str | None) -> OpenAIProvider | None:
+    """Build the local Ollama entry (OpenAI-compatible ``/v1``, no real API key).
+
+    ``OLLAMA_ENABLED=true`` 时由 ``_build_provider`` 调用。Ollama 不校验 API Key，故以
+    **显式开关**（而非「密钥存在性」）判定是否构建——默认关闭，避免向 localhost 发请求，
+    也避免「装了 Ollama 但没启动」时被当成可用 provider 混进池。``OLLAMA_MODEL`` 未配置时
+    fail-fast（Ollama 无「官方默认模型」概念，不猜模型名）。
+    """
+    if not settings.ollama_enabled:
+        return None
+    if not settings.ollama_model:
+        click.echo(
+            "Error: OLLAMA_ENABLED=true requires OLLAMA_MODEL "
+            "(e.g. OLLAMA_MODEL=qwen3:8b; list local models: curl http://127.0.0.1:11434/api/tags).",
+            err=True,
+        )
+        raise SystemExit(1)
+    return OpenAIProvider(
+        api_key=settings.ollama_api_key or "ollama",  # Ollama 不校验 key，占位即可
+        model=model or settings.ollama_model,
+        base_url=settings.ollama_base_url or "http://127.0.0.1:11434/v1",
+        max_tokens=settings.max_output_tokens,
     )
 
 
@@ -335,6 +389,7 @@ def _build_anthropic_providers(settings: Settings, model: str) -> BaseProvider |
             model=model,
             base_url=settings.anthropic_base_url,
             prompt_caching=settings.anthropic_prompt_caching,
+            max_tokens=settings.max_output_tokens or 4096,
         ),
     )
 
@@ -1239,6 +1294,14 @@ _INIT_ENV_TEMPLATE = """# HeAgent 全局配置文件
 # DEEPSEEK_MODEL=deepseek-v4-pro
 # KIMI_MODEL=kimi-k3
 # GLM_MODEL=glm-5.3
+
+# ---- 本地 Ollama（OpenAI 兼容 /v1，显式 opt-in；无需真实 API Key）----
+# OLLAMA_ENABLED=true
+# OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
+# OLLAMA_MODEL=qwen3:8b
+# MAX_OUTPUT_TOKENS=4096   # 可选：单次输出上限（本地思考模型建议设，防无限生成）
+# 本地模型窗口通常远小于默认 512000（Ollama 取 Modelfile 的 num_ctx），请按实际值下调
+# MAX_CONTEXT_TOKENS，否则压缩/窗口重置阈值永不触发、先撞 API 400。
 
 # ---- Anthropic 提示词缓存 ----
 # ANTHROPIC_PROMPT_CACHING=true

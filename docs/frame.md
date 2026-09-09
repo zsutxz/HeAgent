@@ -94,7 +94,7 @@ exceptions  types  config
 | 入口命令 | `python -m heagent [PROMPT]` |
 | 单次模式 | 传入 PROMPT 参数，执行后退出 |
 | 交互模式 | 不传参数，进入 REPL 聊天循环 |
-| Provider 构建 | 自动检测 `DEEPSEEK_API_KEY` → `OPENAI_API_KEY` → `ANTHROPIC_API_KEY` |
+| Provider 构建 | 自动检测 `DEEPSEEK_API_KEY` → `OPENAI_API_KEY` → `ANTHROPIC_API_KEY`；本地 Ollama 经 `OLLAMA_ENABLED=true` 显式启用 |
 | 工具注册 | 导入 `heagent.tools.builtins` 触发 `@tool` 注册 |
 | 模块初始化 | 自动创建 SkillStore、FactStore、ProfileStore、SoulStore、SessionStore、ContextCompressor、JobStore |
 | Cron 调度 | 交互模式下启动 CronScheduler 后台任务 |
@@ -199,6 +199,7 @@ class BaseProvider(Protocol):
 
 - 支持自定义 `base_url`（DeepSeek、智谱 AI 等）
 - 消息/工具调用格式转换：HeAgent ↔ OpenAI API
+- **本地 Ollama**：`ollama_enabled=true` 时 CLI 构建 `ollama` 条目（`OpenAIProvider`，`base_url` 指向 Ollama `/v1`）。Ollama 不校验 API Key，故以**显式开关**（而非密钥存在性）判定是否构建——默认关闭，避免默认向 localhost 发请求、也避免「装了没启动」混进回退池；`ollama_model` 未配置时 fail-fast（不猜模型名）
 
 #### anthropic.py — Anthropic Provider
 
@@ -551,6 +552,9 @@ HeAgentError (base)
 | `anthropic_api_key` | None | Anthropic API Key |
 | `kimi_api_key` / `glm_api_key` | None | Kimi、GLM Provider API Key |
 | `openai_responses_api_key` | None | OpenAI Responses API / 中转站 API Key |
+| `ollama_enabled` | False | 本地 Ollama 条目开关（OpenAI 兼容 `/v1`，显式 opt-in，无需 API Key） |
+| `ollama_base_url` | `http://127.0.0.1:11434/v1` | Ollama OpenAI 兼容端点 |
+| `ollama_model` | None | Ollama 模型名（启用时必填，否则 fail-fast） |
 | `deepseek_base_url` | None | DeepSeek API 基础 URL |
 | `openai_base_url` | None | OpenAI 兼容服务 URL |
 | `anthropic_base_url` | None | Anthropic 代理地址 |
@@ -561,6 +565,7 @@ HeAgentError (base)
 | `default_model` | `gpt-4o` | 默认模型 |
 | `max_iterations` | 50 | Agent 循环最大迭代次数 |
 | `max_context_tokens` | 512000 | 模型上下文窗口大小 |
+| `max_output_tokens` | None | 单次输出 token 上限（None=不设；本地思考模型建议设） |
 | `compression_threshold` | 0.8 | 上下文压缩触发阈值 |
 | `shell_timeout` | 120 | Shell 命令超时（秒） |
 | `retry_max_attempts` | 3 | 最大重试次数 |
@@ -801,8 +806,8 @@ python -m heagent "your prompt"
 __main__.py → cli.main()
   │
   ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（24 个工具）
-  ├── get_settings() → 读取 DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
-  ├── _build_provider() → OpenAIProvider / AnthropicProvider / ProviderChain
+  ├── get_settings() → 读取 DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY（+ OLLAMA_ENABLED 本地条目）
+  ├── _build_provider() → OpenAIProvider（含本地 ollama）/ AnthropicProvider / ProviderChain
   │
   ▼
 asyncio.run(_run_single())

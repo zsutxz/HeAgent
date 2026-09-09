@@ -203,6 +203,26 @@ class TestSend:
         resp = await p.send([Message(role=Role.USER, content="hi")])
         assert resp.model == "gpt-4o-mini"
 
+    @patch("heagent.providers.openai.AsyncOpenAI")
+    async def test_send_includes_max_tokens_when_set(self, mock_cls: MagicMock) -> None:
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.chat.completions.create = AsyncMock(return_value=_mock_response("ok"))
+
+        await OpenAIProvider(api_key="sk-test", max_tokens=128).send([Message(role=Role.USER, content="hi")])
+
+        assert mock_client.chat.completions.create.call_args.kwargs["max_tokens"] == 128
+
+    @patch("heagent.providers.openai.AsyncOpenAI")
+    async def test_send_omits_max_tokens_when_none(self, mock_cls: MagicMock) -> None:
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.chat.completions.create = AsyncMock(return_value=_mock_response("ok"))
+
+        await OpenAIProvider(api_key="sk-test").send([Message(role=Role.USER, content="hi")])
+
+        assert "max_tokens" not in mock_client.chat.completions.create.call_args.kwargs
+
 
 class TestStream:
     @patch("heagent.providers.openai.AsyncOpenAI")
