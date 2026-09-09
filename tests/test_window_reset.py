@@ -111,7 +111,7 @@ def test_should_trigger_threshold() -> None:
 
 def test_build_resume_messages_structure() -> None:
     out = WindowReset.build_resume_messages(original_prompt="do X", summary="half done")
-    assert [m.role for m in out] == [Role.SYSTEM, Role.USER, Role.SYSTEM]
+    assert [m.role for m in out] == [Role.SYSTEM, Role.USER, Role.USER]
     assert out[1].content == "do X"
     assert "half done" in out[0].content
 
@@ -129,7 +129,7 @@ async def test_reset_rebuilds_window_and_metadata() -> None:
     out = await wr.reset(run_context=rc, original_prompt="task", messages=messages)
 
     assert len(out) == 3
-    assert [m.role for m in out] == [Role.SYSTEM, Role.USER, Role.SYSTEM]
+    assert [m.role for m in out] == [Role.SYSTEM, Role.USER, Role.USER]
     assert out[1].content == "task"
     # system messages are excluded from the summary payload but metadata records it
     assert rc.metadata["segment"] == 1

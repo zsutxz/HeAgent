@@ -83,6 +83,7 @@ class TestContextCompressor:
         assert len(result) < len(msgs)
         assert result[0].content == "sys"
         assert "[Conversation summary]" in result[1].content
+        assert result[1].role == Role.USER  # summary must not be SYSTEM (strict templates reject non-leading SYSTEM)
         assert result[-2].content == "q3"
         assert result[-1].content == "a3"
 

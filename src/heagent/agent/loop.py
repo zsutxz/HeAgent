@@ -658,17 +658,20 @@ class AgentLoop:
         accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
         run_context = self._ensure_run_context(session_id=session_id)
 
-        # 若指定会话，恢复历史消息（剔除旧 SYSTEM，避免与新系统提示词重复）。
+        # 拼装系统提示词（注入 soul/context/skills/facts/profile），先落 SYSTEM——
+        # 严格模板（如 Ollama）要求 SYSTEM 必须是消息数组的第一条。
+        system_content = await asyncio.to_thread(self._build_system, system, prompt=prompt)
+        if system_content:
+            state.messages.append(Message(role=Role.SYSTEM, content=system_content))
+
+        # 若指定会话，恢复历史消息（剔除旧 SYSTEM，避免与新系统提示词重复），
+        # 置于 SYSTEM 之后、新 USER 提示词之前。
         if self.session and session_id:
             prior = await asyncio.to_thread(self.session.load, session_id)
             if prior:
                 state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
                 logger.debug("Restored %d messages from session '%s'", len(prior), session_id)
 
-        # 拼装系统提示词（注入 soul/context/skills/facts/profile），再落 SYSTEM + USER。
-        system_content = await asyncio.to_thread(self._build_system, system, prompt=prompt)
-        if system_content:
-            state.messages.append(Message(role=Role.SYSTEM, content=system_content))
         state.messages.append(Message(role=Role.USER, content=prompt))
 
         await self._start_run_record(run_context, prompt=prompt, system=system_content)

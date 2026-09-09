@@ -107,7 +107,7 @@ class ContextCompressor:
         # 组装压缩后的消息列表
         compressed = [
             *system_msgs,
-            Message(role=Role.SYSTEM, content=f"[Conversation summary]\n{summary}"),
+            Message(role=Role.USER, content=f"[Conversation summary]\n{summary}"),
             *recent,
         ]
         logger.info(

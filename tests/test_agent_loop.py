@@ -9,6 +9,7 @@ import pytest
 from heagent.agent.loop import AgentLoop, AgentState
 from heagent.agent.middleware import Request, compose
 from heagent.config import reset_settings
+from heagent.context.session import SessionStore
 from heagent.exceptions import BudgetExceeded
 from heagent.memory.skills import SkillStore
 from heagent.providers.base import ProviderMetadata
@@ -118,6 +119,39 @@ class TestAgentLoop:
         loop = AgentLoop(provider, max_iterations=10)
         result = await loop.run("say hello")
         assert result == "hello world"
+
+    @pytest.mark.asyncio
+    async def test_session_restore_keeps_system_first(self, tmp_path) -> None:
+        """回归：恢复会话历史后 SYSTEM 提示词必须仍是消息列表第一条。
+
+        严格模板（如 Ollama）要求 SYSTEM 只能出现在开头，
+        历史上曾把恢复的消息拼到 SYSTEM 之前，导致报错
+        「System message must be at the beginning」。
+        """
+        store = SessionStore(base_dir=str(tmp_path))
+        store.save(
+            "sess1",
+            [
+                Message(role=Role.SYSTEM, content="old system"),
+                Message(role=Role.USER, content="q1"),
+                Message(role=Role.ASSISTANT, content="a1"),
+            ],
+        )
+        provider = StubProvider([_final("done")])
+        loop = AgentLoop(provider, session=store, max_iterations=10)
+        result = await loop.run("q2", system="new system", session_id="sess1")
+        assert result == "done"
+        sent = provider.calls[0]
+        roles = [m.role for m in sent]
+        # 第一条必须是 SYSTEM，且其后不得再出现 SYSTEM（旧 SYSTEM 已剔除）。
+        assert roles[0] == Role.SYSTEM
+        assert Role.SYSTEM not in roles[1:]
+        assert sent[0].content == "new system"
+        # 恢复的历史消息与新的 USER 提示词都在，新 USER 在最末。
+        contents = [m.content for m in sent]
+        assert "q1" in contents
+        assert "a1" in contents
+        assert contents[-1] == "q2"
 
     @pytest.mark.asyncio
     async def test_single_tool_call(self, fresh_registry: ToolRegistry) -> None:

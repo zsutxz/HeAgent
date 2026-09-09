@@ -96,7 +96,7 @@ class WindowReset:
         return [
             Message(role=Role.SYSTEM, content=f"[Progress summary]\n{summary}"),
             Message(role=Role.USER, content=original_prompt),
-            Message(role=Role.SYSTEM, content=RESUME_HINT),
+            Message(role=Role.USER, content=RESUME_HINT),
         ]
 
     async def _summarize(self, messages: list[Message]) -> str:
