@@ -21,7 +21,8 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install -e ".[dev]"
+        # gui extra 必装：mypy 检查 src/heagent/gui/**，缺 textual 会报 import-not-found
+        run: pip install -e ".[dev,gui]"
 
       - name: Ruff lint
         run: ruff check src tests
