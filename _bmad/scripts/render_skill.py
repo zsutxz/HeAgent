@@ -32,6 +32,10 @@ _SHORT_CONFIG_TOKEN = re.compile(r"\{\{\.([A-Za-z0-9_]+)\}\}")
 _CUSTOM_TOKEN = re.compile(r"\{workflow\.([A-Za-z0-9_.-]+)\}")
 _SNAPSHOT_TOKEN = re.compile(r"\[\[bmad-snapshot:([A-Za-z0-9_./-]+\.md)\]\]")
 
+# Nested config placeholders such as `{output_folder}` inside a config value.
+_PLACEHOLDER_TOKEN = re.compile(r"\{([A-Za-z0-9_.-]+)\}")
+_MAX_PLACEHOLDER_DEPTH = 8
+
 
 def _hash_bytes(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
@@ -115,11 +119,60 @@ def _load_sources(skill_dir: Path) -> dict[str, str]:
     return sources
 
 
-def _resolve_config_value(value: Any, label: str, project_root: Path) -> str:
+def _find_config_scalar(data: Any, key: str) -> str | None:
+    """Return the single string scalar named `key` anywhere in the config, else None."""
+    matches = _find_config_values(data, key)
+    if len(matches) != 1:
+        return None
+    value = matches[0][1]
+    return value if isinstance(value, str) else None
+
+
+def _expand_config_placeholders(
+    text: str,
+    central: dict[str, Any],
+    project_root: Path,
+    label: str,
+    seen: frozenset[str] = frozenset(),
+) -> str:
+    """Expand `{project-root}` and nested config placeholders such as `{output_folder}`.
+
+    Unknown or ambiguous placeholder names are left verbatim for the agent to resolve.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key == "project-root":
+            return str(project_root)
+        value = _find_config_scalar(central, key)
+        if value is None:
+            return match.group(0)
+        if key in seen or len(seen) >= _MAX_PLACEHOLDER_DEPTH:
+            raise RenderError(f"cyclic or too deep config reference `{{{key}}}` in {label}")
+        return _expand_config_placeholders(value, central, project_root, label, seen | {key})
+
+    return _PLACEHOLDER_TOKEN.sub(replace, text)
+
+
+def _collapse_project_root(text: str, project_root: Path) -> str:
+    """Collapse the duplicated root a nested value such as `{output_folder}` introduces.
+
+    `{output_folder}` resolves to an absolute `{project-root}/_bmad-output`, while the
+    consuming value already prefixes `{project-root}`, so a naive expansion yields the
+    root twice; the intent is a single absolute path.
+    """
+    root = re.escape(str(project_root))
+    return re.sub(f"{root}[\\\\/]+{root}", lambda _match: str(project_root), text, flags=re.IGNORECASE)
+
+
+def _resolve_config_value(
+    value: Any, label: str, project_root: Path, central: dict[str, Any]
+) -> str:
     text = _require_string(value, label)
-    if "{project-root}" not in text:
+    expanded = _expand_config_placeholders(text, central, project_root, label)
+    if expanded == text:
         return text
-    resolved = text.replace("{project-root}", str(project_root))
+    resolved = _collapse_project_root(expanded, project_root)
     if not Path(resolved).is_absolute():
         raise RenderError(f"{label} must resolve to an absolute path: {resolved}")
     return resolved
@@ -147,7 +200,7 @@ def _resolve_short_config(
         paths = ", ".join(path for path, _ in matches)
         raise RenderError(f"ambiguous config value `{key}` found at: {paths}")
     path, value = matches[0]
-    return path, _resolve_config_value(value, f"config.{path}", project_root)
+    return path, _resolve_config_value(value, f"config.{path}", project_root, central)
 
 
 def _format_markdown_list(items: list[str]) -> str:
@@ -209,7 +262,7 @@ def _resolve_replacements(
             token, path = match.group(0), match.group(1)
             source = f"config.{path}"
             resolved = _resolve_config_value(
-                _lookup(central, path, "config value"), source, project_root
+                _lookup(central, path, "config value"), source, project_root, central
             )
             replacements[token] = resolved
             input_values[source] = resolved

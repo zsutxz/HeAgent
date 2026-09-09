@@ -1,0 +1,22 @@
+# Team override for bmad-build — committed to the repo, never touched by the BMad
+# installer. Merged over `.heagent/skills/bmad-build/customize.toml`; list entries
+# append, so the default `file:{project-root}/**/project-context.md` fact stays.
+#
+# Why this exists — sprint-status.yaml write conflict:
+#
+#   * `_bmad-output/sprint-status.yaml` is the historical planning status record for
+#     this repository. `.heagent/workflows/workflow.md` (the /goal contract) forbids
+#     writing it, and no code under `src/` reads or writes it — `validate_sprint_status_path()`
+#     only enforces that status validation targets this one canonical file.
+#   * bmad-build's `sync-sprint-status.md` sub-step would otherwise advance the active
+#     story (`in-progress` -> `review`) and lift its parent epic out of `backlog`,
+#     making one workflow the writer of a record another workflow declares read-only.
+#
+# The fact below overrides that sub-step so every workflow in this repository treats
+# the file as read-only. Delete this file to let bmad-build sync it again.
+
+[workflow]
+
+persistent_facts = [
+  "Project policy — overrides `sync-sprint-status.md` in this repository: `_bmad-output/sprint-status.yaml` is a read-only historical planning record. Do not create, modify, or delete it; skip every sprint-status sync and tell the user once per run that the sync was skipped by project policy.",
+]

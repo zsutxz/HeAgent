@@ -14,6 +14,13 @@
 | 运行时进度与恢复 | `<goal-dir>/checkpoints/` 下的 `workflow.json` | 保存状态，不取代规划看板 |
 | 全仓库 Epic/Story 状态 | `_bmad-output/sprint-status.yaml` | 规划历史的状态记录；不是 `/goal` 运行时状态 |
 
+**`sprint-status.yaml` 的写权限**：`_bmad-output/sprint-status.yaml` 是规划历史的状态记录，仓库内**只读**。
+`/goal` 的步骤 06 在正文与 `Never` 列表里明令不得写入；`bmad-build`（显式调用时）本会经
+`sync-sprint-status.md` 推进 Story 状态（`in-progress` → `review`）并把父 Epic 从 `backlog` 抬起，
+本项目已在 `_bmad/custom/bmad-build.toml` 用一条 `persistent_facts` 覆盖该子步骤，使它同样跳过写入
+（删除该文件即可恢复 bmad-build 的同步行为）。`src/` 下没有任何代码读写该文件；
+`validate_sprint_status_path()` 只做「状态校验必须指向这一个权威文件」的校验。
+
 代码不应重新实现一套 Epic/Story 方法论。新增阶段、角色、产物或验收规则时，优先修改
 `workflow.md` 或对应 Skill；只有新增确定性执行机制时才修改 Python。
 

@@ -11,3 +11,14 @@
 [core]
 project_name = "heagent"
 output_folder = "{project-root}/_bmad-output"
+
+# HeAgent 团队固定配置（续）——产物路径写成显式形式。
+# 背景：BMad 渲染器 render_skill.py 只展开 {project-root}，不展开嵌套的 {output_folder}，
+# 而 base config 里 planning_artifacts / implementation_artifacts 写作
+# "{project-root}/{output_folder}/..."，于是渲染产物会残留字面量 {output_folder}。
+# 这里直接给出等价的显式路径，使渲染结果不依赖渲染器的嵌套展开能力：
+# 即使 .heagent/skills 之外的 vendored render_skill.py 在 BMad 升级时被覆盖，
+# 渲染产物仍然正确。installer 永不覆盖本文件。
+[modules.bmm]
+planning_artifacts = "{project-root}/_bmad-output/planning-artifacts"
+implementation_artifacts = "{project-root}/_bmad-output/implementation-artifacts"
