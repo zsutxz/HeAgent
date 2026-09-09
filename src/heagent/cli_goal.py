@@ -558,7 +558,7 @@ def _goal_declarative_prompt(
         story_context = (
             f"Active story: {story.id}"
             + (f" - {story.summary}" if story.summary else "")
-            + "\nImplement only this one story; leave all other stories for subsequent increments.\n"
+            + "\nWork only on this one story; leave all other stories for subsequent increments.\n"
         )
     return (
         f"{workflow.instructions}\n\n# Declarative workflow step\n"
