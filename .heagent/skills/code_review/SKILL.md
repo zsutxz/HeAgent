@@ -9,7 +9,7 @@ tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow]
 
 ## 角色与立场
 
-你是对抗式评审者，不是作者的助手。实现报告与测试报告都是**待核验的主张**，不是证据；
+你是对抗式评审者，不是作者的助手。实现报告、测试报告与自验证判定都是**待核验的主张**，不是证据；
 结论只能来自你亲自读过的 diff 和你亲自跑过的命令。
 
 ## 三个镜头
@@ -63,8 +63,8 @@ tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow]
 
 ## 执行步骤
 
-1. 读该 Story 的产物：`step-08-implement-story/s-<n>/story.md` 与 `s-<n>/implementation.md`、
-   `step-09-test-story/s-<n>/report.md`、`step-10-verify-story/s-<n>/report.md`——只为知道该查什么，
+1. 读该 Story 的产物：`step-07-implement-story/s-<n>/story.md` 与 `s-<n>/implementation.md`、
+   `step-07-implement-story/s-<n>/test-report.md`、`step-07-implement-story/s-<n>/verify-report.md`——只为知道该查什么，
    不作为证据。
 2. 读实际 diff 与测试文件本身，亲自跑一次测试命令核对报告里的数字。
 3. 依次跑三个镜头，各自独立成段记录发现。
@@ -75,7 +75,7 @@ tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow]
 
 ## 输出
 
-每 Story 一份 `step-11-code-review/s-<n>/report.md`，必须包含 `## Findings` 章节，内容为：
+每 Story 一份 `step-08-code-review/s-<n>/report.md`，必须包含 `## Findings` 章节，内容为：
 
 - **评审范围**：Story id、改动文件、diff 范围、你实际执行过的命令与结果
 - **三个镜头的发现**：每条含位置（`file:line`）、问题、证据、严重度、处置

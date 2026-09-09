@@ -15,20 +15,27 @@ workflow. The CLI reads this file, persists the goal identity declared by
 steps are recorded in the goal checkpoint store; no step may be skipped.
 
 All durable non-code project artifacts produced by this workflow, including
-requirements, PRDs, UX specifications, architecture records, reviews, and
-verification reports, must be written under the project output root
-`_he-output/`. Source code remains in its established repository location.
+requirements, PRDs, architecture records, reviews, and verification reports,
+must be written under the project output root `_he-output/`. Source code remains
+in its established repository location.
 
 Step 01 is read-only research and step 02 is read-only ideation: neither may
-modify project implementation artifacts. Steps 08 to 11 run once per story in
-that order and own disjoint work: step 08 implements, step 09 owns the tests,
-step 10 verifies independently, and step 11 reviews adversarially. Step 08 is
-the only step allowed to create implementation artifacts; step 09 is the only
-step allowed to add or change test files, except for a minimal defect fix it
-must record as a finding; steps 10 and 11 may change code only to fix the
-Critical findings they report. Step 12 is the Epic-level integration gate and
-the final acceptance step. Every step that changes code must re-run the affected
-tests and state the exact commands and results.
+modify project implementation artifacts. Step 06 is the planning step: it splits
+the validated scope into stories, orders the work items, assigns every story to a
+sprint, and fixes each story's acceptance criteria; it plans, and never
+implements. Step 07 is the heavy per-story step: a single session implements,
+tests, and verifies one story, and it is the only step allowed to create
+implementation artifacts or to add and change test files.
+Steps 07 and 08 run once per story in that order: step 07 delivers the story,
+step 08 reviews it adversarially and may change code only to fix the Critical
+findings it reports. Step 08 is also the final acceptance step: after the final
+story it runs the Epic-level integration gate. Every step that changes code must
+re-run the affected tests and state the exact commands and results.
+
+Step 07 carries its role contract inline in this file: it declares no `role:`
+and depends on no external skill package. Every other step delegates its
+methodology to the `.heagent/skills/<role>/SKILL.md` package named by its
+`role:`.
 
 ## Step 01: market-research
 role: bmad-agent-analyst
@@ -89,23 +96,14 @@ validation: product value, scope, non-goals, and decisions are explicit
 
 Turn the requirements brief into a validated PRD and ordered Epic proposal.
 Record assumptions, priorities, non-goals, and unresolved product decisions.
-Write the ordered Epic proposal to `02-epics.md` in the goal directory, listing each
-story as a numbered heading (`### S-1 ...`, `### S-2 ...`) so the implementation
-step can expand them into per-story increments.
+Order the Epics by value and dependency, and describe each Epic's goal and scope
+at the Epic level. Do not split into stories here: the per-story breakdown
+(`### S-1 ...`) happens in step 06 once the architecture is known. Return the PRD
+and the ordered Epic proposal as your final response.
 
-## Step 05: design-experience
-role: bmad-agent-ux-designer
-input: requirements brief, validated PRD
-output: UX specification, user flow
-checkpoint: true
-validation: primary, empty, error, retry, permission, and accessibility states are specified
-
-Define user flows, state transitions, interaction details, and accessibility
-requirements that implementation can verify.
-
-## Step 06: design-architecture
+## Step 05: design-architecture
 role: bmad-agent-architect
-input: validated PRD, UX specification
+input: validated PRD
 output: architecture, implementation constraints
 checkpoint: true
 validation: boundaries, interfaces, dependencies, invariants, and failure handling are explicit
@@ -113,176 +111,218 @@ validation: boundaries, interfaces, dependencies, invariants, and failure handli
 Produce the lean technical architecture and decision records. Preserve module
 ownership and document security, reliability, migration, and verification paths.
 
-## Step 07: clarify-and-route
+## Step 06: refine-stories
 role: bmad-agent-analyst
-input: architecture, implementation constraints
-output: clarified implementation scope
+input: validated PRD, ordered Epic proposal, architecture, implementation constraints
+output: clarified implementation scope, sprint plan, story breakdown
 checkpoint: true
-validation: intent is actionable and single-goal
+validation: section: Story Breakdown; section: Sprint Plan; the scope is split into a story list numbered contiguously from S-1 in execution order, each story single-goal, acceptance-criteria-complete, dependency-ordered, and assigned to exactly one sprint
 
-Confirm the requested change, inspect relevant context, and record the
-implementation scope. Do not implement the change in this step. Leave a clear
-scope and acceptance direction for the next step.
+This is the planning step: it turns the validated scope into a sprint-refined,
+dependency-ordered story backlog with fixed acceptance criteria. Its four
+deliverables are the story split, the sprint refinement, the work-item order, and
+the acceptance criteria. Do not implement the change in this step.
 
-## Step 08: implement-story
-role: bmad-agent-dev
-input: clarified implementation scope, architecture, UX specification
-output: story implementation, story definition
+Confirm the requested change, inspect relevant context, and subdivide the work
+into stories.
+
+Read the validated PRD and the ordered Epic proposal, then the architecture and
+its implementation constraints. Confirm the change is still what the PRD asks and
+resolve any scope ambiguity into a single goal. The Epic-level split is already
+settled in step 04: do not re-plan the Epics.
+
+Split the work into stories. Use exactly one `### S-1 <title>` heading per story:
+that heading form is the story list steps 07 and 08 read, so keep the canonical
+list plain — no bullets, no tables, no extra decoration. Each story states its
+parent Epic, priority, dependencies (story ids or none), its acceptance criteria
+as verifiable Given/When/Then conditions — or an equally testable form for
+criteria that are not behavioural — its definition of done, and a size note
+showing it fits one implement-test-verify session. A story is single-goal,
+independently buildable, testable, and verifiable, and it leaves the repository
+working when it is done.
+
+Order the work items by their numbering. Story numbering is the execution order:
+the runner reads the `### S-N` list and executes strictly by numeric suffix, so
+number the stories S-1..S-N in the order they will be built, with no gaps and no
+reused numbers. Order by dependency first and value second: no story may depend
+on a later story, and every dependency you declare must already exist or be
+delivered by a lower-numbered story.
+
+Refine the sprints. Group the ordered stories into sprints — short increments
+whose end can be demonstrated. Each sprint states its goal, the stories it
+contains, its entry criteria, its exit criteria, the end-to-end slice that can be
+demonstrated when it closes, and the risk it retires. Sprint membership must be
+contiguous and monotonic with story numbering: sprint 1 holds the lowest-numbered
+stories, sprint 2 the next, and so on, because execution order is strictly
+numeric. Every story belongs to exactly one sprint, and the sprints together
+cover every story.
+
+Write the result to `02-epics.md` in the goal directory: the Epic sections with
+the canonical `### S-N` story headings first, then a `## Sprint Plan` section.
+`02-epics.md` is the story-list source of truth for every later step; steps 07
+and 08 read it and must not modify it. Do not write
+`_bmad-output/sprint-status.yaml`: it is the historical planning status record
+and stays read-only.
+
+Return the complete plan as your final response with two explicit sections:
+`## Story Breakdown` (the clarified scope plus the per-story list with acceptance
+criteria and definition of done) and `## Sprint Plan` (each sprint's goal, story
+set, entry criteria, exit criteria, and demonstrable slice). A missing section
+blocks this step.
+
+Never: implement the change; re-plan the Epics; produce a story list with gaps,
+duplicate numbers, or numbering that contradicts execution order; state
+acceptance criteria that cannot be verified; leave a story without a sprint, a
+sprint without exit criteria, or a sprint spanning non-contiguous story numbers;
+write to `_bmad-output/sprint-status.yaml`.
+
+## Step 07: implement-story
+input: clarified implementation scope, architecture
+output: story implementation, story definition, story test evidence, story verification report
 checkpoint: true
 story_loop: 02-epics.md
-validation: section: Implementation Summary; the scoped change is implemented and the touched scope passes lint and type checks
+validation: section: Implementation Summary; section: Test Evidence; section: Verification Verdict; the active story is implemented, tested, and verified inside this one step and the exact commands with their results are recorded
+
+This is the heavy per-story step: one session implements the active story, owns
+its tests, and verifies it against its own acceptance contract. It is the only
+step allowed to create implementation artifacts or to add and change test files.
+Step 08 reviews the result adversarially and, after the final story, runs the
+Epic-level gate.
 
 Implement exactly one story per increment: the active story injected by the CLI.
-Do not implement other stories, do not pre-build later stories, and do not write
-or modify test files; test authoring belongs to step 09.
+Do not implement other stories and do not pre-build later stories.
+
+Stance: you are the implementer, the tester, and the first verifier of this one
+story. The three phases are not optional and must not be collapsed into one
+another: a phase whose evidence you did not produce yourself does not exist, and
+a phase you skipped is a failure of this step, not a shortcut.
 
 Before changing code, write the active story definition verbatim — id, title,
-parent Epic, priority, dependencies, acceptance criteria, and definition of done
-— to `step-08-implement-story/s-<n>/story.md`. The test and verification steps
-read that file as the acceptance contract, so it must not drift from
+parent Epic, sprint, priority, dependencies, acceptance criteria, and definition
+of done — to `step-07-implement-story/s-<n>/story.md`. It is the acceptance
+contract that every later phase and every later step reads, so it must not drift
+from `02-epics.md`.
+
+Phase 1 — implement. Build the change against the architecture and the validated
+PRD. Keep it minimal, follow existing module boundaries and conventions, and
+leave the repository importing and linting cleanly. Write
+`step-07-implement-story/s-<n>/implementation.md` with the changed files, the
+decisions you made, and anything you could not finish.
+
+Phase 2 — test. Map every acceptance criterion of `story.md` to at least one
+executed test, plus the boundary, empty, error, retry, and permission paths the
+criteria imply, and cover the definition of done. Author or extend tests under
+the repository's test directory following the existing framework, naming, and
+fixture conventions; do not modify product code to make a test pass. Run the
+focused tests for this story, then the related regression suite, and record the
+exact command line and the observed result for every run — counts, failures, and
+the failing output when there is any. Never weaken, skip, or delete an existing
+assertion to obtain a green run; if an existing test is itself wrong, say why and
+record it. Write `step-07-implement-story/s-<n>/test-report.md` with the
+criterion-to-test mapping, the commands and their results, and the residual
+coverage gaps.
+
+Phase 3 — verify. Re-read the actual diff and the test files you just wrote,
+re-run the commands yourself, and judge each acceptance criterion separately as
+pass, fail, or not-verifiable with concrete evidence: command output, file and
+line, or observed behaviour. Also judge the definition of done, confirm the
+change stayed inside the story scope, and check for regressions in behaviour the
+story did not intend to change. A criterion you cannot evidence is a fail, not an
+assumption. Apply the smallest fix for any Critical defect you find, re-run the
+affected tests, and record it. Write `step-07-implement-story/s-<n>/verify-report.md`
+with the per-criterion verdict table (criterion / verdict / evidence), the
+commands you re-ran, and the residual risk.
+
+Return the complete per-story report as your final response with three explicit
+sections: `## Implementation Summary` (changed files, how to exercise the
+change, residual risks), `## Test Evidence` (criterion-to-test mapping, exact
+commands and their results, coverage gaps), and `## Verification Verdict`
+(per-criterion verdict table and overall verdict). A missing section blocks this
+step.
+
+Never: claim a phase passed without the command that produced it; rewrite an
+acceptance criterion to match what was built; report a failing test as a warning
+or a skipped test as a pass; declare your own work verified without re-running
+the commands; implement another story, expand the story scope, or modify
 `02-epics.md`.
 
-Then implement the change against the architecture and the UX specification.
-Keep it minimal, follow existing module boundaries and conventions, and leave
-the repository importing and linting cleanly.
+After the final story completes, write the top-level step document as an index
+with an Epic overview and a per-story table (story / owning Epic / changed files
+/ criteria passed / verdict) linking each `story.md`, `implementation.md`,
+`test-report.md`, and `verify-report.md`, then update the `GOAL.md` Epics section
+to match. `GOAL.md` manages Epics only; story status lives in the per-story
+artifacts, and `02-epics.md` stays read-only once step 06 wrote it.
 
-Write `step-08-implement-story/s-<n>/implementation.md` with the changed files,
-the decisions you made, and anything you could not finish. Do not claim that
-acceptance criteria pass and do not claim test evidence; testing and
-verification are separate steps and must not depend on your report.
-
-Return the complete implementation summary as your final response, with an
-explicit `## Implementation Summary` section listing the changed files, how to
-exercise the change, and the residual risks. After the final story completes,
-write the top-level step document as an index with an Epic overview and a
-per-story table (story / owning Epic / changed files / status) linking each
-`story.md` and `implementation.md`, then update `GOAL.md` Epics and Stories
-sections to match.
-
-## Step 09: test-story
-role: story_test
-input: story implementation, story definition, architecture
-output: story test evidence
-checkpoint: true
-story_loop: 02-epics.md
-validation: section: Test Evidence; every acceptance criterion of the active story maps to at least one executed test and the exact commands with their results are recorded
-
-Own the tests for the active story. Read
-`step-08-implement-story/s-<n>/story.md` (the acceptance contract),
-`step-08-implement-story/s-<n>/implementation.md`, and the actual diff; treat the
-implementation report as a claim to check, never as evidence.
-
-Design tests that cover every acceptance criterion plus the boundary, error, and
-retry paths those criteria imply. Add or extend test files under the
-repository's test directory; do not modify product code to make a test pass. Run
-the focused tests for this story, then the related regression suite, and record
-the exact command line and the observed result for each run.
-
-If a test exposes a product defect, record it as a finding with a severity, then
-apply the smallest fix that makes the behaviour correct, re-run the affected
-tests, and label the fix explicitly as "fixed in step 09; pending independent
-verification in step 10". Never weaken or delete an existing assertion to obtain
-a green run; if an existing test is itself wrong, say why and record it.
-
-Write `step-09-test-story/s-<n>/report.md` with the criterion-to-test mapping,
-the commands and their results, the defects found and their disposition, and the
-residual coverage gaps. Return the complete report as your final response with
-an explicit `## Test Evidence` section. After the final story completes, write
-the top-level step document as an index with a per-story table (story / criteria
-covered / tests run / result) linking each `s-<n>/report.md`, then update the
-`GOAL.md` Stories table with the test outcome.
-
-## Step 10: verify-story
-role: story_verify
-input: story test evidence, story implementation, story definition, requirements brief
-output: story verification report
-checkpoint: true
-story_loop: 02-epics.md
-validation: section: Verification Verdict; every acceptance criterion is independently re-checked against evidence and any criterion without evidence is reported as failed
-
-Verify the active story as an independent verifier. Do not trust the
-implementation report or the test report: read the actual diff, read the test
-files, and re-run the commands yourself before judging.
-
-Judge each acceptance criterion of `step-08-implement-story/s-<n>/story.md`
-separately and record pass, fail, or not-verifiable with concrete evidence
-(command output, file and line, observed behaviour). Check the definition of
-done, check that the change stayed inside the story scope, and check for
-regressions in behaviour the story did not intend to change.
-
-A criterion you cannot evidence is a fail, not an assumption. When you find a
-Critical defect, apply the smallest fix, re-run the affected tests, and record
-the fix as "fixed in step 10; re-verified by the same commands". Do not redesign
-the implementation.
-
-Write `step-10-verify-story/s-<n>/report.md` with the per-criterion verdict table
-and its evidence. Return the complete report as your final response with an
-explicit `## Verification Verdict` section. After the final story completes,
-write the top-level step document as an index with a per-story table (story /
-criteria passed / criteria failed / verdict) linking each `s-<n>/report.md`, and
-update the `GOAL.md` Stories table with the verification outcome.
-
-## Step 11: code-review
+## Step 08: code-review
 role: code_review
-input: story verification report, story implementation, architecture, UX specification
-output: review report, remediation status
+input: story verification report, story implementation, story test evidence, architecture, validated PRD
+output: review report, epic integration report
 checkpoint: true
 story_loop: 02-epics.md
 validation: section: Findings; every finding carries severity, evidence, and a resolution (fixed / accepted / deferred with reason)
 
-Review one story at a time through the three review lenses (adversarial, edge case, verification gap) defined by the role contract. For the active story, read its implementation
-artifacts `step-08-implement-story/s-<n>/story.md` and
-`step-08-implement-story/s-<n>/implementation.md`, its test report
-`step-09-test-story/s-<n>/report.md`, and its verification report
-`step-10-verify-story/s-<n>/report.md` before judging, and verify every claim
-against the actual diff and test runs rather than those reports. Review the
-change that story made; note a cross-story regression you observe, but leave it
-to the story that owns it unless it is Critical.
+Review exactly one story per increment: the active story injected by the CLI.
+Do not review other stories in this increment; leave them for their own
+increments.
 
-Fix Critical findings in place and re-run the affected tests; record each
-Warning and Suggestion as accepted or deferred with a reason. Story-loop artifact
-layout: write each story's review to `s-<n>/report.md` under this step's
-directory. After the final story completes, write the top-level step document as
-an index with a per-story table (story / findings by severity / remediation
-status) linking each `s-<n>/report.md`, and update the `GOAL.md` Stories table
-with the review outcome.
+For the active story, read its artifacts
+`step-07-implement-story/s-<n>/story.md`,
+`step-07-implement-story/s-<n>/implementation.md`,
+`step-07-implement-story/s-<n>/test-report.md`, and
+`step-07-implement-story/s-<n>/verify-report.md` before judging, and verify every
+claim against the actual diff and test runs rather than those reports. Step 07
+implemented, tested, and verified the story in a single session, so its own
+verdicts carry no independent weight: re-run the commands yourself.
 
-## Step 12: epic-integration-test
-role: epic_integration_test
-input: review report, story test evidence, story verification report, validated PRD
-output: epic integration report
-checkpoint: true
-validation: section: Integration Verdict; every Epic in the story list has an integration report recording the executed commands, their results, and an explicit pass or fail verdict
+Review the change that story made through the three review lenses (adversarial,
+edge case, verification gap) defined by the role contract. Note a cross-story
+regression you observe, but leave it to the story that owns it unless it is
+Critical. Fix Critical findings in place and re-run the affected tests; record
+each Warning and Suggestion as accepted or deferred with a reason. Write the
+story's review to `s-<n>/report.md` under this step's directory.
 
-Run the Epic-level integration gate. This step is the final acceptance step of
-the workflow: it decides whether each Epic is demonstrably integrated, not just
-whether its stories were implemented one by one.
+If the active story is the last story of a sprint in `02-epics.md`, also verify
+that sprint before closing the story: run the sprint's demonstrable slice, check
+its exit criteria, and record the result in the story's review report. A sprint
+whose exit criteria fail is a Critical finding of its last story.
 
-Group the stories of `02-epics.md` — together with their
-`step-08-implement-story/s-<n>/story.md` definitions — by parent Epic. For each
-Epic, in the order the Epics appear:
+After the final story completes, run the Epic-level integration gate — this step
+is the final acceptance step of the workflow. Group the stories of `02-epics.md`
+by parent Epic, keeping the order the Epics appear, and for each Epic:
 
-1. Confirm every story of that Epic has all of its artifacts:
-   `step-08-implement-story/s-<n>/story.md` and `s-<n>/implementation.md`,
-   `step-09-test-story/s-<n>/report.md`, `step-10-verify-story/s-<n>/report.md`,
-   and `step-11-code-review/s-<n>/report.md`; and that no Critical finding is
-   left unresolved. A missing artifact or an unresolved Critical finding fails
-   that Epic — report it instead of continuing past it.
-2. Design the integration scenarios that only become real when the Epic's
-   stories are combined: cross-story flows, module boundaries, the real entry
-   point (CLI, API, or public interface), and the data crossing them. Prefer
-   executing the shipped code end to end over re-testing story internals.
-3. Run the integration scenarios, the full test suite, and the project quality
-   gates (lint, format, type check). Record the exact commands and the observed
-   results, including failures and their output.
-4. Decide pass or fail for that Epic, with the evidence, the scenarios not
+1. Check the entry evidence: `step-07-implement-story/s-<n>/story.md`,
+   `s-<n>/implementation.md`, `s-<n>/test-report.md`, `s-<n>/verify-report.md`,
+   and this step's `s-<n>/report.md`; and that no Critical finding is left
+   unresolved. A missing artifact or an unresolved Critical finding fails that
+   Epic — report it instead of continuing past it.
+2. Design and run the integration scenarios that only become real when the
+   Epic's stories are combined: cross-story flows, module boundaries, the real
+   entry point (CLI, API, or public interface), and the data crossing them.
+   Prefer executing the shipped code end to end over re-testing story internals.
+3. Run the full test suite and the project quality gates (lint, format, type
+   check). Record the exact commands and the observed results, including
+   failures and their output.
+4. On a Critical integration defect: apply the smallest fix, re-run the affected
+   tests, re-run the Epic's integration scenarios, and record it as "fixed in
+   step 08; integration re-run". Do not redesign the implementation.
+5. Decide pass or fail for that Epic, with the evidence, the scenarios not
    covered, and the residual risk. Do not soften a failure into a warning.
 
-Write each Epic's report to
-`step-12-epic-integration-test/epic-<id>/integration-report.md`. Return the
-complete integration report as your final response with an explicit
-`## Integration Verdict` section listing every Epic with its verdict and the
-commands that produced it. Finally, write the top-level step document as an
-index with a per-Epic table (Epic / stories / scenarios / verdict) linking each
-`integration-report.md`, and update the `GOAL.md` Epics table with the
-integration outcome.
+Write each Epic's report to `epic-<id>/integration-report.md` under this step's
+directory, then write the top-level step document as an index with a per-story
+table (story / findings by severity / remediation status) and a per-Epic table
+(Epic / stories / scenarios / verdict) linking each report, and update the
+`GOAL.md` Epics section with the review and integration outcome. `GOAL.md`
+manages Epics only, and `02-epics.md` stays read-only during the story loop.
+
+Return the complete report as your final response with an explicit
+`## Findings` section (for the active story) and, for the final story, an
+explicit `## Integration Verdict` section listing every Epic with its verdict
+and the commands that produced it.
+
+Never: trust the step 07 reports without re-running the commands; fix only
+Critical findings during review; declare an Epic integrated because its stories
+each passed in isolation; skip an Epic, or stop after the first failing Epic,
+without reporting the remaining ones; treat an untested integration path as a
+pass; weaken a scenario or a gate to obtain a green verdict; modify
+`02-epics.md`.
