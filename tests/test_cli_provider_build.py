@@ -447,6 +447,15 @@ class TestBuildProviderGpt:
         assert isinstance(provider, OpenAIResponsesProvider)
         assert provider.get_metadata().model == "gpt-5.5"
 
+    def test_openai_model_setting_drives_gpt_entry(self, hermetic) -> None:
+        """OPENAI_MODEL（Settings.openai_model）是 gpt 条目（Responses API）的默认模型。"""
+        provider = _build_provider(
+            Settings(openai_responses_api_key="sk-gpt", openai_model="gpt-5.6-sol"),
+            None,
+        )
+        assert isinstance(provider, OpenAIResponsesProvider)
+        assert provider.get_metadata().model == "gpt-5.6-sol"
+
     def test_gpt_and_openai_coexist_in_pool(self, hermetic) -> None:
         provider = _build_provider(
             Settings(openai_api_key="sk-chat", openai_responses_api_key="sk-gpt"),

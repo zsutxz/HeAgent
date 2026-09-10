@@ -546,3 +546,25 @@ class TestRoutingPoolMap:
         with caplog.at_level("WARNING"):
             assert settings.routing_pool_map == {}
         assert any("ROUTING_POOLS[glm] invalid" in record.message for record in caplog.records)
+
+
+class TestOpenaiModelSetting:
+    """OPENAI_MODEL → Settings.openai_model（gpt / Responses API 条目模型）。"""
+
+    def test_env_wires_to_field(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENAI_MODEL", "gpt-5.6-luna")
+        assert Settings().openai_model == "gpt-5.6-luna"
+
+    def test_default_value(self) -> None:
+        assert Settings().openai_model == "gpt-5.6-terra"
+
+    def test_legacy_field_removed(self) -> None:
+        """旧名 openai_responses_model 已移除（env 亦不再生效）。"""
+        assert "openai_responses_model" not in Settings.model_fields
+
+    def test_default_model_is_separate(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """OPENAI_MODEL 与 DEFAULT_MODEL 是两个独立设置（后者给 openai/anthropic 兜底）。"""
+        monkeypatch.setenv("OPENAI_MODEL", "gpt-5.6-luna")
+        settings = Settings(default_model="gpt-4o")
+        assert settings.openai_model == "gpt-5.6-luna"
+        assert settings.default_model == "gpt-4o"

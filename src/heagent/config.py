@@ -78,7 +78,7 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-v4-pro"  # DeepSeek 默认模型
     kimi_model: str = "kimi-k3"  # Kimi (Moonshot) 默认模型
     glm_model: str = "glm-5.3"  # GLM (智谱) 默认模型
-    openai_responses_model: str = "gpt-5.6-terra"  # Responses API 默认模型
+    openai_model: str = "gpt-5.6-terra"  # gpt（Responses API）条目默认模型（env: OPENAI_MODEL）
 
     # ---- 本地 Ollama（OpenAI 兼容 /v1；无真实 API Key） ----
     # ollama_enabled 默认 False：本地端点属显式 opt-in——避免默认向 localhost 发请求，

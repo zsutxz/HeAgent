@@ -301,7 +301,7 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
             "gpt",
             specs.get("gpt"),
             model=model,
-            default_model=settings.openai_responses_model,
+            default_model=settings.openai_model,
             default_base_url=settings.openai_responses_base_url,
             build=_responses_builder(
                 settings,

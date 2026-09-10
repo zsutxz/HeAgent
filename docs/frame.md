@@ -582,7 +582,8 @@ HeAgentError (base)
 | `routing_pools` | "" | 声明式路由池 JSON（任意 provider 条目多档池；改档位/角色/关键词无需改代码） |
 | `openai_api_keys` | "" | OpenAI 多密钥池（逗号分隔） |
 | `anthropic_api_keys` | "" | Anthropic 多密钥池（逗号分隔） |
-| `default_model` | `gpt-4o` | 默认模型 |
+| `default_model` | `gpt-4o` | openai（Chat Completions）/ anthropic 条目的兜底模型 |
+| `openai_model` | `gpt-5.6-terra` | gpt（Responses API）条目默认模型（声明 gpt 池时由 `tiers` 决定） |
 | `max_iterations` | 50 | Agent 循环最大迭代次数 |
 | `max_context_tokens` | 512000 | 模型上下文窗口大小 |
 | `max_output_tokens` | None | 单次输出 token 上限（None=不设；本地思考模型建议设） |
