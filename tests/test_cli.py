@@ -400,3 +400,58 @@ class TestFormatStatus:
 
         status = _format_status(self._fake_loop(used=28500, cumulative=45200, reason="keyword:分析"))
         assert status == "[deepseek-v4-pro←keyword:分析 | 28.5K/1M tok | cmp@80% | 累计: 45.2K tok]"
+
+    def test_hides_default_fast_reason(self, cli_settings):
+        """兜底理由 default_fast 不显示——状态行只留模型名，避免被误读成模型/路由名。"""
+        from heagent.cli import _format_status
+
+        status = _format_status(self._fake_loop(used=28500, cumulative=45200, reason="default_fast"))
+        assert status == "[deepseek-v4-pro | 28.5K/1M tok | cmp@80% | 累计: 45.2K tok]"
+
+
+class TestRouteCommandOutput:
+    """/route 命令输出——与状态行共用同一套「不展示兜底理由」策略（display_reason）。"""
+
+    @staticmethod
+    def _routing():
+        """真 RoutingProvider + duck-typed 池成员（只需 get_metadata）。"""
+        from types import SimpleNamespace
+
+        from heagent.providers.base import ProviderMetadata
+        from heagent.providers.router import HeuristicRouter, RoutingProvider
+
+        def child(model: str):
+            return SimpleNamespace(
+                get_metadata=lambda m=model: ProviderMetadata(
+                    name=m, model=m, supports_streaming=True, supports_tools=True
+                )
+            )
+
+        return RoutingProvider(
+            {"terra": child("gpt-5.6-terra"), "luna": child("gpt-5.6-luna")},
+            HeuristicRouter(fast="terra", mid="luna", pro="luna"),
+            default="terra",
+        )
+
+    async def test_hides_default_fast(self, capsys):
+        """兜底决策 → last decision 只报档位，不附 (default_fast)。"""
+        from heagent.cli import _handle_route_cmd
+        from heagent.providers.router import RouteDecision
+
+        provider = self._routing()
+        provider.last_decision = RouteDecision(provider="terra", reason="default_fast")
+        await _handle_route_cmd(provider, "")
+        err = capsys.readouterr().err
+        assert "last decision: terra" in err
+        assert "default_fast" not in err
+
+    async def test_keeps_keyword_reason(self, capsys):
+        """非兜底理由照旧显示（如关键词命中），说明被滤掉的只有兜底那一档。"""
+        from heagent.cli import _handle_route_cmd
+        from heagent.providers.router import RouteDecision
+
+        provider = self._routing()
+        provider.last_decision = RouteDecision(provider="luna", reason="keyword:分析")
+        await _handle_route_cmd(provider, "")
+        err = capsys.readouterr().err
+        assert "last decision: luna (keyword:分析)" in err

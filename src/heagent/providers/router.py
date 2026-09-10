@@ -326,9 +326,10 @@ class RoutingProvider:
         self._router = router
         self._default = default
         self._force: str | None = None
+        # last_decision 先于 set_force 初始化：set_force 会同步刷新决策（见其 docstring）。
+        self.last_decision: RouteDecision | None = None
         if force is not None:
             self.set_force(force)
-        self.last_decision: RouteDecision | None = None
 
     # -- 公共 API --
 
@@ -351,11 +352,18 @@ class RoutingProvider:
         """强制后续调用固定使用某个 provider；传入 None 恢复自动路由。
 
         传池外名称抛 ``ValueError``。设置后 ``_pick()`` 跳过 ``Router.route()``，
-        直接使用强制项（reason="forced"）；``current_model`` 立即反映新模型。
+        直接使用强制项（reason="forced"）；``current_model`` 立即反映新模型，
+        ``last_decision`` 亦同步刷新——否则 ``/route <name>`` 之后、下一次调用之前的
+        状态行会显示「新模型 + 旧理由」的自相矛盾组合（如 gpt-5.6-luna←keyword:分析）。
         """
         if name is not None and name not in self._providers:
             raise ValueError(f"Forced provider {name!r} not in pool {sorted(self._providers)}")
         self._force = name
+        # 观测一致性：current_model 立即反映强制项，last_decision 若停在旧决策上，状态行
+        # 就会把「已强制的模型」与「上一次启发式的理由」拼在一起（2026-09-10 实测：
+        # gpt-5.6-luna←keyword:分析）。清空强制时置空决策——残留 reason="forced" 同样是
+        # 错的，此时 current_model 回落默认档。
+        self.last_decision = RouteDecision(provider=name, reason="forced") if name is not None else None
 
     @property
     def current_model(self) -> str:
@@ -533,11 +541,29 @@ def active_route_reason(provider: object) -> str | None:
     return None
 
 
+# 不展示的理由：``default_fast`` = 「没命中任何关键词，用默认档」——它不解释任何东西，
+# 反而容易被误读成模型名 / 路由名（2026-09-10 用户反馈）。原始 reason 仍由
+# ``active_route_reason`` 原样返回（日志 / 排查用），只是不进展示层输出。
+_UNANNOTATED_REASONS = frozenset({"default_fast"})
+
+
+def display_reason(reason: str | None) -> str | None:
+    """把原始 reason 映射为**展示用**理由；兜底理由（``default_fast``）返回 None = 不展示。
+
+    状态行（``annotate_route``）与 ``/route`` 命令共用同一策略，避免两处各写一份白名单；
+    原始 reason 不丢——``active_route_reason()``、日志与 ``/route`` 的排查入口仍在。
+    """
+    if not reason or reason in _UNANNOTATED_REASONS:
+        return None
+    return reason
+
+
 def annotate_route(provider: object, model: str) -> str:
     """把最近一次路由理由附到展示用模型名后（``deepseek-v4-pro←keyword:分析``）。
 
-    无路由 / 尚未决策时**原样返回** ``model``——非路由场景（含测试里的 duck-typed 假
-    provider）展示串逐字节不变。CLI 状态行与 GUI 状态栏共用，避免两处各写一份。
+    无路由 / 尚未决策 / 理由为兜底（``default_fast``）时**原样返回** ``model``——非路由
+    场景（含测试里的 duck-typed 假 provider）展示串逐字节不变。CLI 状态行与 GUI 状态栏
+    共用（展示策略见 ``display_reason``），避免各处各写一份。
     """
-    reason = active_route_reason(provider)
+    reason = display_reason(active_route_reason(provider))
     return f"{model}←{reason}" if reason else model

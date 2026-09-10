@@ -45,7 +45,7 @@ from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
 from heagent.providers.responses import OpenAIResponsesProvider
-from heagent.providers.router import HeuristicRouter, RoutingProvider, active_model
+from heagent.providers.router import HeuristicRouter, RoutingProvider, active_model, display_reason
 from heagent.providers.switchable import SwitchableProvider
 from heagent.slash import SlashRegistry, load_custom_commands
 from heagent.terminal import KeyInterruptMonitor
@@ -1021,10 +1021,13 @@ async def _handle_route_cmd(provider: BaseProvider, args: str = "") -> None:
     if routing.force is not None:
         click.echo(f"  forced: {routing.force} ({routing.current_model})", err=True)
     if routing.last_decision is not None:
-        click.echo(
-            f"  last decision: {routing.last_decision.provider} ({routing.last_decision.reason})",
-            err=True,
-        )
+        # 与状态行同一展示策略：兜底理由（default_fast）不展示——它不解释任何东西，
+        # 还容易被误读成模型名。原始 reason 仍可查（日志 / active_route_reason）。
+        line = f"  last decision: {routing.last_decision.provider}"
+        reason = display_reason(routing.last_decision.reason)
+        if reason:
+            line += f" ({reason})"
+        click.echo(line, err=True)
     else:
         click.echo("  last decision: (none yet)", err=True)
 

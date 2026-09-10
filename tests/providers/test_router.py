@@ -15,6 +15,7 @@ from heagent.providers.router import (
     active_model,
     active_route_reason,
     annotate_route,
+    display_reason,
 )
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
 
@@ -384,6 +385,8 @@ class TestRoutingProvider:
         )
         assert provider.force == "pro"
         assert provider.current_model == "pro"
+        # 构造期强制与 last_decision 同样自洽，状态行一开局就是 pro←forced。
+        assert active_route_reason(provider) == "forced"
 
     def test_current_model_reflects_force_immediately(self) -> None:
         provider = RoutingProvider(
@@ -393,6 +396,47 @@ class TestRoutingProvider:
         )
         provider.set_force("pro")
         assert provider.current_model == "pro"
+
+    def test_set_force_syncs_last_decision_immediately(self) -> None:
+        """`/route <name>` 后状态行立即自洽（模型与理由来自同一决策）。
+
+        回归（2026-09-10 实测）：force 只改 ``current_model``、``last_decision`` 仍是上一次
+        启发式决策时，提示符会把新模型与旧理由拼在一起（如 ``gpt-5.6-luna←keyword:分析``）。
+        """
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+        provider.set_force("pro")
+        assert provider.last_decision == RouteDecision(provider="pro", reason="forced")
+        assert annotate_route(provider, provider.current_model) == "pro←forced"
+
+    async def test_force_replaces_stale_auto_reason(self) -> None:
+        """已有 default_fast 决策时强制 → 旧理由被替换，不再混进状态行。"""
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+        await provider.send([_msg("你好")])
+        assert active_route_reason(provider) == "default_fast"
+        provider.set_force("pro")
+        assert annotate_route(provider, provider.current_model) == "pro←forced"
+
+    async def test_clear_force_drops_stale_forced_decision(self) -> None:
+        """``/route auto`` 清空强制 → 决策置空（不留 ``forced`` 残留），模型回落默认档。"""
+        provider = RoutingProvider(
+            {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+        provider.set_force("pro")
+        await provider.send([_msg("你好")])
+        provider.set_force(None)
+        assert provider.last_decision is None
+        assert active_route_reason(provider) is None
+        assert annotate_route(provider, provider.current_model) == "fast"
 
 
 class TestCurrentModel:
@@ -569,11 +613,12 @@ class TestActiveRouteReason:
         assert active_route_reason(provider) == "keyword:分析"
         assert annotate_route(provider, "deepseek-v4-pro") == "deepseek-v4-pro←keyword:分析"
 
-    async def test_default_fast_reason_is_shown(self) -> None:
-        """无关键词 → default_fast（显式标注，避免与「未启用路由」混淆）。"""
+    async def test_default_fast_reason_is_hidden_from_display(self) -> None:
+        """无关键词 → reason 仍是 default_fast（观测可查），但不贴到状态行。"""
         provider = self._provider()
         await provider.send([_msg("你好")])
         assert active_route_reason(provider) == "default_fast"
+        assert annotate_route(provider, "deepseek-flash") == "deepseek-flash"
 
     async def test_forced_reason(self) -> None:
         """`/route <name>` 强制后 reason=forced——状态栏可区分「强制」与「启发式选中」。"""
@@ -597,6 +642,14 @@ class TestActiveRouteReason:
                 return self._child
 
         assert active_route_reason(Wrapper(inner)) == "keyword:分析"
+
+    def test_display_reason_filters_fallback_only(self) -> None:
+        """display_reason 只滤兜底理由：其它理由（含未知值）原样透传。"""
+        assert display_reason("default_fast") is None
+        assert display_reason("keyword:分析") == "keyword:分析"
+        assert display_reason("forced") == "forced"
+        assert display_reason(None) is None
+        assert display_reason("") is None
 
     def test_none_for_plain_provider(self) -> None:
         """非路由 provider → 无 reason（状态行保持旧格式）。"""
