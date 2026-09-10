@@ -672,6 +672,11 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 每个步骤或 Story 都由新的 SubAgent/RunContext 执行。`WorkflowRunner` 负责顺序、输入、输出、checkpoint
 和恢复；它不决定 Epic/Story 的拆分方法。
 
+checkpoint id 同时是幂等键（`WorkflowCheckpointStore.save` 对「同 id 不同内容」fail-safe 报错），因此必须是「位置」的
+完全函数：`story_loop` 步骤的激活 Story 参与 id —— `<goal>-<run>-step-<N>-story-<index>[-<S-n>]-active-<step>-<status>`。
+同一 `(step, story_index)` 槽位确实存在两种快照（「尚未进入首个 Story」与「Story S-1 待执行」），不区分会让 resume
+重写被误判为 checkpoint conflict（2026-09-10 修复）。
+
 Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`（planning/story）
 与框架权威的 `kind=subagent`。metadata 仅用于观测，不能覆盖 PolicyEngine 的授权字段；
 无人值守 cron 不提升权限，审批与 sandbox 策略仍由 engine 处理。该层同样不是 OS 安全边界，
@@ -680,7 +685,10 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 `workflow.md` 是自包含的声明式入口。其 `on_create` 声明创建规范化 `GoalArtifact` 和 `current` 指针；
 每个 inline `## Step NN:` 区块声明 prompt、输入输出和 checkpoint。CLI 只映射已支持的
 `persist_goal_identity` 与 `subagent` 声明到确定性操作；成功输出保存为
-`step-XX-<step-name>.md`，Story 输出保存到对应的 Story 子目录。旧的 imperative goal board 路径不再作为回退。
+`step-XX-<step-name>.md`，Story 输出保存到对应的 Story 子目录——`parse_story_list` 从 story list 的
+`## E<N> — <标题>` 段落（或 Story 块内的 `父 Epic` 字段，后者优先）解析出 `StorySpec.epic`，产物按
+`step-NN-<slug>/epic-<eN>/s-<n>/report.md` 分组（`E1` → `epic-e1`；无 Epic 分组时退化为
+`step-NN-<slug>/s-<n>/report.md`）。旧的 imperative goal board 路径不再作为回退。
 
 ### 4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）
 

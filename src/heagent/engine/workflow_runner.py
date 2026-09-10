@@ -29,6 +29,7 @@ class StorySpec(BaseModel):
 
     id: str = Field(min_length=1)
     summary: str = ""
+    epic: str = ""
 
 
 _STORY_ID = re.compile(r"^(?:story|s)[-_ ]?(\d+)$", re.IGNORECASE)
@@ -44,6 +45,14 @@ _STORY_TABLE = re.compile(
     r"^\|\s*(?P<id>(?:story|s)[-_ ]?\d+)\s*\|\s*(?P<summary>.*?)\s*\|",
     re.IGNORECASE,
 )
+_EPIC_HEADING = re.compile(
+    r"^#{1,6}\s+(?:epic[-_ ]*(?:e[-_ ]?)?|e[-_ ]?)(?P<epic>\d+)(?=$|[\s:：\-—.．])",
+    re.IGNORECASE,
+)
+_EPIC_FIELD = re.compile(
+    r"(?:父\s*Epic|parent[-_ ]*epic|epic_id)\s*\**\s*[:：]\s*\**\s*(?P<epic>e[-_ ]?\d+|\d+)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
 
 
 def _normalize_story_id(raw: str) -> str:
@@ -51,6 +60,12 @@ def _normalize_story_id(raw: str) -> str:
     if match is None:
         raise WorkflowGateError(f"invalid story id: {raw!r}")
     return f"S-{int(match.group(1))}"
+
+
+def _normalize_epic_id(raw: str) -> str:
+    """Normalize an Epic reference (``E1`` / ``e 1`` / ``epic 1``) to ``E1``."""
+    digits = re.search(r"\d+", raw or "")
+    return f"E{int(digits.group(0))}" if digits is not None else (raw or "").strip()
 
 
 def _story_sort_key(spec: StorySpec) -> int:
@@ -71,26 +86,53 @@ def parse_story_list(text: str) -> list[StorySpec]:
     Story ids normalize to ``S-<n>`` and are deduplicated by id, then sorted by
     their numeric suffix. Non-story rows (e.g. Epic ids such as ``E-1``) are
     ignored.
+
+    Epic grouping is optional: a story inherits the Epic declared by the nearest
+    preceding Epic heading (``## E1 ...`` / ``## Epic 1 ...``), and an explicit
+    ``- **父 Epic**: E1`` field inside the story block wins over that heading. A
+    source without grouping keeps the flat behaviour (``epic`` stays empty).
     """
     if not isinstance(text, str) or not text.strip():
         return []
-    seen: dict[str, StorySpec] = {}
-    for line in text.splitlines():
+    lines = text.splitlines()
+    epic_headings: list[tuple[int, str]] = []
+    epic_fields: list[tuple[int, str]] = []
+    stories: list[tuple[int, str, str]] = []
+    seen: set[str] = set()
+    for index, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
             continue
+        epic_match = _EPIC_HEADING.match(stripped)
+        if epic_match is not None:
+            epic_headings.append((index, _normalize_epic_id(epic_match.group("epic"))))
+            continue
+        story_match = None
         for pattern in (_STORY_HEADING, _STORY_LIST, _STORY_TABLE):
-            match = pattern.match(stripped)
-            if match is None:
-                continue
+            story_match = pattern.match(stripped)
+            if story_match is not None:
+                break
+        if story_match is not None:
             try:
-                story_id = _normalize_story_id(match.group("id"))
+                story_id = _normalize_story_id(story_match.group("id"))
             except WorkflowGateError:
+                story_id = ""
+            if story_id:
+                if story_id not in seen:
+                    seen.add(story_id)
+                    stories.append((index, story_id, story_match.group("summary").strip()))
                 continue
-            if story_id not in seen:
-                seen[story_id] = StorySpec(id=story_id, summary=match.group("summary").strip())
-            break
-    return sorted(seen.values(), key=_story_sort_key)
+        field_match = _EPIC_FIELD.search(stripped)
+        if field_match is not None:
+            epic_fields.append((index, _normalize_epic_id(field_match.group("epic"))))
+    specs: list[StorySpec] = []
+    for position, (index, story_id, summary) in enumerate(stories):
+        end = stories[position + 1][0] if position + 1 < len(stories) else len(lines)
+        epic = next((value for field_index, value in epic_fields if index < field_index < end), "")
+        if not epic:
+            epic = next((value for heading_index, value in reversed(epic_headings) if heading_index < index), "")
+        specs.append(StorySpec(id=story_id, summary=summary, epic=epic))
+    return sorted(specs, key=_story_sort_key)
 
 
 class WorkflowRunnerState(BaseModel):
@@ -446,7 +488,25 @@ class WorkflowRunner:
         return checkpoint.checkpoint_id
 
     def _checkpoint_id(self, step: WorkflowStepResource) -> str:
-        story_part = f"-story-{self.state.story_index}" if self._is_story_step(step) else ""
+        """Build the idempotency key for one logical checkpoint position.
+
+        The id must be a total function of the position, because the store treats
+        a second write of the same id with different content as a conflict. For a
+        story-loop step the position includes the active story: the same
+        ``(step, story_index)`` slot legitimately holds two snapshots -- "the step
+        has not entered its story yet" (no active story, written while the previous
+        step advanced into this one) and "story S-1 is pending" (written when the
+        runner resumed into an interrupted story). Omitting the story made the
+        second write collide with the first and raise a bogus conflict.
+        """
+        story_part = ""
+        if self._is_story_step(step):
+            story_part = f"-story-{self.state.story_index}"
+            # Story ids are normalized upstream; sanitize defensively so a
+            # hand-built spec can never produce a path-unsafe checkpoint id.
+            label = re.sub(r"[^0-9A-Za-z]+", "-", self.state.active_story or "").strip("-")
+            if label:
+                story_part += f"-{label}"
         return (
             f"{self.goal_id}-{self.run_id}-step-{step.index}{story_part}"
             f"-active-{self.state.active_step}-{self.state.status.value}"

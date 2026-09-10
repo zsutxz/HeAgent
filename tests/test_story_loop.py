@@ -204,6 +204,49 @@ async def test_story_loop_interruption_keeps_active_story(tmp_path) -> None:
     assert result.story_id == "S-1"
 
 
+@pytest.mark.asyncio
+async def test_story_loop_resume_does_not_conflict_with_previous_step_advance(tmp_path) -> None:
+    """A resumed story and an unentered story may not share one checkpoint id.
+
+    Regression: advancing into a story-loop step writes a pending snapshot for
+    ``(step, story_index=0)`` with no active story. Resuming an interrupted first
+    story then re-issued the very same id carrying ``active_story="S-1"``, so the
+    store rejected the write as a bogus conflict and ``/goal resume`` failed.
+    """
+    workflow = WorkflowResource(
+        name="demo",
+        instructions="",
+        steps=[
+            WorkflowStepResource(index=1, name="step-01.md", instructions="", checkpoint="user"),
+            WorkflowStepResource(index=2, name="step-02.md", instructions="", story_loop="epics.md", checkpoint="user"),
+        ],
+    )
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
+    runner = WorkflowRunner(workflow, goal_id="goal", run_id="run", checkpoint_store=store)
+
+    assert (await runner.run_step(lambda _: WorkflowStepResult(output="ok"))).status is WorkflowStatus.WAITING_USER
+    runner.resume()
+    await runner.persist_state()  # step-02 entered, no story started yet
+
+    async def interrupt(step, story):
+        return WorkflowStepResult(status=WorkflowStatus.WAITING_USER, reason="interrupted")
+
+    interrupted = await runner.run_step(interrupt, stories=STORIES)
+    assert interrupted.status is WorkflowStatus.WAITING_USER
+
+    runner.resume()
+    await runner.persist_state()  # must not raise WorkflowCheckpointError
+
+    checkpoints = await store.list_checkpoints(goal_id="goal")
+    ids = {checkpoint.checkpoint_id for checkpoint in checkpoints}
+    assert "goal-run-step-2-story-0-S-1-active-1-waiting_user" in ids
+    assert "goal-run-step-2-story-0-S-1-active-1-pending" in ids
+    assert "goal-run-step-2-story-0-active-1-pending" in ids
+    restored = WorkflowRunner.from_checkpoint(workflow, checkpoints[-1], checkpoint_store=store)
+    assert restored.state.active_story == "S-1"
+    assert restored.state.story_index == 0
+
+
 def test_story_artifact_routes_into_per_story_subdirectory(tmp_path) -> None:
     step = WorkflowStepResource(index=6, name="step-06-implement-and-verify.md", instructions="")
     story = StorySpec(id="S-1", summary="Scene rendering")
@@ -214,3 +257,69 @@ def test_story_artifact_routes_into_per_story_subdirectory(tmp_path) -> None:
     # 非 story step 仍平铺在 goal 根目录（向后兼容）
     plain_path = _goal_step_artifact_path(tmp_path, step)
     assert plain_path == tmp_path / "step-06-implement-and-verify.md"
+
+
+def test_parse_story_list_keeps_the_flat_shape_without_epic_grouping() -> None:
+    """Sources without grouping must keep the pre-Epic behaviour (epic stays empty)."""
+    stories = parse_story_list("- [ ] S-1 Scene rendering\n- [ ] S-2 Input routing\n")
+    assert [(story.id, story.epic) for story in stories] == [("S-1", ""), ("S-2", "")]
+
+
+def test_parse_story_list_groups_stories_by_epic_heading() -> None:
+    text = """# 02-epics.md - plan
+
+## E1 Core engine
+
+### S-1 Skeleton
+
+## Epic 2: Loop
+
+### S-2 Input routing
+"""
+    stories = parse_story_list(text)
+    assert [(story.id, story.epic) for story in stories] == [("S-1", "E1"), ("S-2", "E2")]
+
+
+def test_parse_story_list_prefers_explicit_parent_epic_field() -> None:
+    text = """## E1 Core engine
+
+### S-1 Skeleton
+- **父 Epic**: E3
+- **优先级**: P0
+
+### S-2 Input routing
+- **父 Epic**: E3
+"""
+    stories = parse_story_list(text)
+    assert [(story.id, story.epic) for story in stories] == [("S-1", "E3"), ("S-2", "E3")]
+
+
+def test_parse_story_list_ignores_numeric_and_sprint_headings() -> None:
+    """A document title, a sprint heading and a table row's 父 Epic mention are not grouping."""
+    text = """# 02-epics.md - plan
+
+## Sprint Plan
+
+### Sprint 1 - first
+
+- S-1 Skeleton
+- S-2 Input routing
+"""
+    assert [story.epic for story in parse_story_list(text)] == ["", ""]
+    table = """## E2 Loop
+
+| S-3 | Input routing | 父 Epic: E9 |
+"""
+    assert [(story.id, story.epic) for story in parse_story_list(table)] == [("S-3", "E2")]
+
+
+def test_story_artifact_routes_into_epic_subdirectory(tmp_path) -> None:
+    """A story with Epic grouping lands in <step-dir>/epic-<eN>/s-<n>/report.md."""
+    step = WorkflowStepResource(index=7, name="step-07-implement-story.md", instructions="")
+
+    grouped = _goal_step_artifact_path(tmp_path, step, StorySpec(id="S-3", summary="x", epic="E3"))
+    assert grouped == tmp_path / "step-07-implement-story" / "epic-e3" / "s-3" / "report.md"
+
+    # 无 Epic 分组时保持平铺（向后兼容既有 goal 的产物布局）
+    flat = _goal_step_artifact_path(tmp_path, step, StorySpec(id="S-3", summary="x"))
+    assert flat == tmp_path / "step-07-implement-story" / "s-3" / "report.md"

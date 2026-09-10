@@ -1,8 +1,9 @@
 ---
 name: code_review
-description: "代码评审契约：以对抗式 / 边界追踪 / 验证缺口三个镜头审查代码变更，每条发现带严重度、证据与处置；Critical 就地修复并重跑受影响测试。用于 /goal 声明式工作流的逐 Story 评审步骤（role: code_review）。"
+description: "代码评审契约：以对抗式 / 边界追踪 / 验证缺口三个镜头审查代码变更，每条发现带严重度与处置；Critical 就地修复并重跑受影响测试。它是 /goal 声明式工作流 step 07 **Epic 收口评审**（每个 Epic 的最后一条 story 增量内执行）的完整参考——步骤正文内联了同一契约的精简版并以其为准。"
 created: 2026-06-03T10:05:20.270521
-tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow]
+updated: 2026-09-10
+tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow, epic-closure]
 ---
 
 # code_review
@@ -10,7 +11,16 @@ tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow]
 ## 角色与立场
 
 你是对抗式评审者，不是作者的助手。实现报告、测试报告与自验证判定都是**待核验的主张**，不是证据；
-结论只能来自你亲自读过的 diff 和你亲自跑过的命令。
+结论只能来自你亲自读过的合并 diff 和你亲自跑过的命令。
+
+评审与实现同处一个会话（step 07 的重任务步骤），因此必须把它当作**事后审计**：先切换立场，从合并
+diff 与重跑命令出发，不得采信自己先前写下的结论。独立于实现者的系统级验证由 step 08
+（`system-integration-test`）承担。
+
+## 评审对象
+
+一次评审覆盖**一整个 Epic**——该 Epic 在 `02-epics.md` 段落里的**全部 story**（不是单条 story），
+触发时机是该 Epic 的最后一条 story 在 step 07 内的收口增量。
 
 ## 三个镜头
 
@@ -40,50 +50,75 @@ tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow]
 - 用覆盖率数字替代行为验证
 - 验收标准里某条没有对应的可执行证据
 
-## 严重度（定级前先读代码）
+## 定级（定级前先读代码）
 
 在定级之前打开每条发现所在的源码，读足够的上下文——调用点、守卫、校验往往在 diff 之外。
-**不得只看 diff hunk 定级。**
+**不得只看 diff hunk 定级。** 按对**最终消费者**（软件用户、文档读者等）的后果定级：
 
 | 等级 | 判据 |
 | --- | --- |
-| **Critical** | 会导致功能错误、数据损坏、安全漏洞、静默失败或严重性能问题，必须修复 |
-| **Warning** | 可能引发问题，或违反项目既定的模式与约定，建议修复 |
-| **Suggestion** | 可读性、结构、可维护性方面的改进 |
+| **high** | 会导致功能错误、数据损坏、安全漏洞、静默失败或严重性能问题；不可容忍，等同步骤正文的 **Critical**——必须修复 |
+| **medium** | 可能引发问题，或违反项目既定的模式与约定，可容忍 |
+| **low** | 无影响或仅观感问题 |
 
-## 处置
+## 分诊与处置（按顺序执行）
 
-每条发现必须且只能给出以下处置之一：
-
-- `fixed` —— 已就地修复（仅 Critical 允许自动修），必须附重跑的测试命令与结果
-- `accepted` —— 接受现状，写明接受理由（有意设计 / 已被其它步骤覆盖 / 代价大于收益）
-- `deferred` —— 推迟，写明归属（哪一步、哪条 Story、哪个后续项）
+1. **去重**：只合并「同一主张且同一所需动作」的发现；其余逐条独立评估。不得因为某条相关发现被驳回
+   就驳回另一条。
+2. **归类**（每条发现恰好归一类）：
+   - `intent_gap` —— 由本次改动引起，但因意图不完整而无法从规格消解。除非只有唯一读法，不要推断意图。
+   - `bad_spec` —— 由本次改动引起，包含直接偏离规格。在 `bad_spec` 与 `patch` 之间犹豫时，
+     **优先 `bad_spec`**。
+   - `patch` —— 由本次改动引起，无需人工输入即可琐碎修复。
+   - `defer` —— **非本 Epic 引起**的既有问题。在 `defer` 与 `reject` 之间犹豫时**优先 `reject`**。
+   - `reject` —— 噪声，静默丢弃。
+3. **处置**：
+   - `intent_gap` → 标 `blocked` 交人裁决，不要猜。
+   - `bad_spec` → **不要改 `02-epics.md`**（它在 story 循环期只读）。施加使实现与规格一致的最小修复
+     并重跑受影响测试，再写一条**规格缺陷记录**：触发发现、应改的规格条目、避免的已知坏态、KEEP
+     指令（哪些做法是对的、重新推导时必须保留）。
+   - `patch` → 就地修复并重跑受影响测试；修复失败且无法解决时标 `blocked`。
+   - `defer` → 向 `_he-output/goals/<goal-id>/deferred-work.md` **追加**一条（`source_spec` /
+     `summary` / `evidence`）；不改既有条目，也不查重。
+   - `reject` → 静默丢弃。
 
 **不得**把 Critical 降级为 Warning 以求通过；**不得**留下无严重度或无处置的发现。
 
+## 删除检查
+
+若合并 diff 删除了有意义的代码，确认被删除的行为或契约要么已被重新建立，要么被有意退役。
+
+## 回环上限
+
+每发生一次「需回到实现阶段重新推导」的情形，把 `review-report.md` frontmatter 的
+`review_loop_iteration` 加一（缺省 0）。超过 **5** 即 HALT 升级给人。
+
 ## 执行步骤
 
-1. 读该 Story 的产物：`step-07-implement-story/s-<n>/story.md` 与 `s-<n>/implementation.md`、
-   `step-07-implement-story/s-<n>/test-report.md`、`step-07-implement-story/s-<n>/verify-report.md`——只为知道该查什么，
-   不作为证据。
-2. 读实际 diff 与测试文件本身，亲自跑一次测试命令核对报告里的数字。
+1. 读该 Epic 全部 story 的产物：
+   `step-07-implement-story/epic-<eN>/s-<n>/story.md`、`implementation.md`、`test-report.md`、
+   `verify-report.md`——只为知道该查什么，不作为证据。
+2. 读实际合并 diff 与测试文件本身，亲自跑一次测试命令核对报告里的数字。
 3. 依次跑三个镜头，各自独立成段记录发现。
-4. 逐条定级（先读代码）并给出处置。
-5. Critical 就地做**最小**修复，重跑受影响测试；若无法在本次范围内安全修复，改为 `deferred`
-   并写明阻塞原因——不得假装修好。
+4. 逐条定级（先读代码）并按上面的分诊规则给出处置。
+5. Critical / `bad_spec` / `patch` 就地做**最小**修复，重跑受影响测试；若无法在本次范围内安全修复，
+   改为 `deferred` 并写明阻塞原因——不得假装修好。
 6. 写报告。
 
 ## 输出
 
-每 Story 一份 `step-08-code-review/s-<n>/report.md`，必须包含 `## Findings` 章节，内容为：
+每个 Epic 一份 `_he-output/goals/<goal-id>/step-07-implement-story/epic-<eN>/review-report.md`
+（`E1` → `epic-e1`），frontmatter 含 `review_loop_iteration`，正文必须包含 `## 评审发现` 章节：
 
-- **评审范围**：Story id、改动文件、diff 范围、你实际执行过的命令与结果
+- **评审范围**：Epic 引用、覆盖的 story 列表、改动文件、diff 范围、你实际执行过的命令与结果
 - **三个镜头的发现**：每条含位置（`file:line`）、问题、证据、严重度、处置
 - **处置汇总**：各严重度计数 + 每条发现的处置
 - **结论**：放行 / 不放行，以及不放行时的阻塞项
 
-最终响应返回完整报告。全部 Story 完成后，写顶层索引（Story / 各严重度发现数 / 处置状态）
-链接各 `s-<n>/report.md`，并更新 `GOAL.md` 的 Stories 表。
+最终响应返回完整报告，并在命中 Epic 收口时追加 `## 评审发现` 与 `## 收口结论` 章节。全部 story
+完成后，step 07 写顶层索引 `step-07-implement-story/index.md`（Epic 总览 + 逐 story 表格）并更新
+`GOAL.md` 的 **Epics** 段——`GOAL.md` 只管 Epic，story 状态活在逐 story 产物里，不要写
+`GOAL.md` 的 Stories 章节（`parse_artifact` 会因「GOAL.md may manage Epics only」硬失败）。
 
 ## 禁止
 
@@ -92,3 +127,4 @@ tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow]
 - 把 Critical 写成 Warning，或把「未验证」写成「通过」。
 - 留下无严重度或无处置的发现。
 - 借评审做重构式改动——评审只做最小修复。
+- 修改 `02-epics.md`，或把评审范围缩到单条 story 而漏掉本 Epic 其余 story 的改动。

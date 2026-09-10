@@ -160,19 +160,30 @@ def _goal_id_is_valid(goal_id: str) -> bool:
     return bool(_GOAL_ID_RE.fullmatch(goal_id)) or (len(goal_id) == 8 and all(char in _GOAL_HEX for char in goal_id))
 
 
+def _epic_directory_name(epic: str) -> str:
+    """Map an Epic reference from a story list (``E1``) to its directory (``epic-e1``)."""
+    slug = re.sub(r"[^a-z0-9]+", "-", str(epic).casefold()).strip("-")
+    return f"epic-{slug}" if slug else ""
+
+
 def _goal_step_artifact_path(goal_dir: Path, step: Any, story: Any = None) -> Path:
     """Map a declared workflow step (or its active story) to a durable output document.
 
     A story-loop step routes each story into its own subdirectory (``s-1/``,
-    ``s-2/``, ...) under a step directory, so per-story artifacts do not
-    flatten into the goal root alongside step documents.
+    ``s-2/``, ...) under the step directory, grouped further by the story's Epic
+    (``epic-e1/s-1/``) when the story list declares Epic grouping. Sources
+    without grouping keep the flat ``s-<n>/`` layout.
     """
     name = re.sub(r"^step-\d+-", "", step.name.casefold())
     name = re.sub(r"\.md$", "", name)
     slug = re.sub(r"[^a-z0-9]+", "-", name).strip("-") or "step"
     if story is not None:
         story_slug = re.sub(r"[^a-z0-9]+", "-", story.id.casefold()).strip("-") or "story"
-        return goal_dir / f"step-{step.index:02d}-{slug}" / story_slug / "report.md"
+        directory = goal_dir / f"step-{step.index:02d}-{slug}"
+        epic_dir = _epic_directory_name(getattr(story, "epic", ""))
+        if epic_dir:
+            directory = directory / epic_dir
+        return directory / story_slug / "report.md"
     return goal_dir / f"step-{step.index:02d}-{slug}.md"
 
 
@@ -555,9 +566,11 @@ def _goal_declarative_prompt(
     )
     story_context = ""
     if story is not None:
+        epic_ref = str(getattr(story, "epic", "") or "")
         story_context = (
             f"Active story: {story.id}"
             + (f" - {story.summary}" if story.summary else "")
+            + (f"\nParent epic: {epic_ref}" if epic_ref else "")
             + "\nWork only on this one story; leave all other stories for subsequent increments.\n"
         )
     return (
