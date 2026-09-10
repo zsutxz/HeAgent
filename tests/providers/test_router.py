@@ -8,7 +8,14 @@ import pytest
 
 from heagent.exceptions import ProviderError
 from heagent.providers.base import ProviderMetadata
-from heagent.providers.router import HeuristicRouter, RouteDecision, RoutingProvider, active_model
+from heagent.providers.router import (
+    HeuristicRouter,
+    RouteDecision,
+    RoutingProvider,
+    active_model,
+    active_route_reason,
+    annotate_route,
+)
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
 
 if TYPE_CHECKING:
@@ -536,3 +543,72 @@ class TestInPoolFallback:
         routing = RoutingProvider({"fast": failing}, router, default="fast")
         with pytest.raises(ProviderError):
             await routing.send([_msg("你好")])
+
+
+class TestActiveRouteReason:
+    """active_route_reason() / annotate_route() —— 状态栏「为什么是这个模型」的可解释标记。"""
+
+    @staticmethod
+    def _provider() -> RoutingProvider:
+        return RoutingProvider(
+            {"fast": _make_provider("deepseek-flash"), "pro": _make_provider("deepseek-v4-pro")},
+            HeuristicRouter(fast="fast", pro="pro"),
+            default="fast",
+        )
+
+    def test_none_before_first_decision(self) -> None:
+        """尚未路由过 → 无理由可标注，展示串逐字节不变。"""
+        provider = self._provider()
+        assert active_route_reason(provider) is None
+        assert annotate_route(provider, "deepseek-flash") == "deepseek-flash"
+
+    async def test_keyword_reason_after_send(self) -> None:
+        """命中复杂度关键词 → reason=keyword:<词>，状态栏据此解释「为何走 pro」。"""
+        provider = self._provider()
+        await provider.send([_msg("帮我分析一下这段日志")])
+        assert active_route_reason(provider) == "keyword:分析"
+        assert annotate_route(provider, "deepseek-v4-pro") == "deepseek-v4-pro←keyword:分析"
+
+    async def test_default_fast_reason_is_shown(self) -> None:
+        """无关键词 → default_fast（显式标注，避免与「未启用路由」混淆）。"""
+        provider = self._provider()
+        await provider.send([_msg("你好")])
+        assert active_route_reason(provider) == "default_fast"
+
+    async def test_forced_reason(self) -> None:
+        """`/route <name>` 强制后 reason=forced——状态栏可区分「强制」与「启发式选中」。"""
+        provider = self._provider()
+        provider.set_force("pro")
+        await provider.send([_msg("你好")])
+        assert active_route_reason(provider) == "forced"
+        assert annotate_route(provider, "deepseek-v4-pro") == "deepseek-v4-pro←forced"
+
+    async def test_unwraps_nested_wrapper(self) -> None:
+        """SwitchableProvider 等包装层经 `current` 解包后仍能取到 reason。"""
+        inner = self._provider()
+        await inner.send([_msg("帮我分析一下")])
+
+        class Wrapper:
+            def __init__(self, child: object) -> None:
+                self._child = child
+
+            @property
+            def current(self) -> object:
+                return self._child
+
+        assert active_route_reason(Wrapper(inner)) == "keyword:分析"
+
+    def test_none_for_plain_provider(self) -> None:
+        """非路由 provider → 无 reason（状态行保持旧格式）。"""
+        assert active_route_reason(_make_provider("plain")) is None
+
+    def test_none_for_wrapper_without_routing(self) -> None:
+        """包装层解包到底也不是路由 provider → None。"""
+        plain = _make_provider("plain")
+
+        class Wrapper:
+            @property
+            def current(self) -> object:
+                return plain
+
+        assert active_route_reason(Wrapper()) is None

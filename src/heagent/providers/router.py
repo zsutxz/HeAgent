@@ -504,3 +504,40 @@ def active_model(provider: object) -> str | None:
         provider = child
         seen += 1
     return None
+
+
+def active_route_reason(provider: object) -> str | None:
+    """递归解包嵌套 provider，返回**最近一次路由决策的理由**（观测 / 状态栏用）。
+
+    与 ``active_model`` 同构：``RoutingProvider.last_decision.reason`` 是该次决策的可解释
+    标记——``keyword:分析`` / ``mid_keyword:摘要`` / ``reasoning_continuity`` /
+    ``default_fast`` / ``forced`` / ``fallback_from:<name>(...)``。返回 None = 未启用智能
+    路由（嵌套链里找不到 RoutingProvider），或尚未发生过一次决策。
+
+    为什么需要它：只显示「当前是 pro」无法回答「**为什么**是 pro」——关键词命中、推理链
+    续接、``/route`` 强制、池外名称回退四种来源在状态栏上完全同形，用户只能靠猜或翻日志。
+    把 reason 附到状态行，决策即当场可解释（纯观测，不改变任何路由行为）。
+    """
+    seen = 0
+    current = provider
+    while current is not None and seen < 10:
+        decision = getattr(current, "last_decision", None)
+        if decision is not None:
+            reason = getattr(decision, "reason", None)
+            return reason if isinstance(reason, str) and reason else None
+        child = getattr(current, "current", None)
+        if child is None or child is current:
+            return None
+        current = child
+        seen += 1
+    return None
+
+
+def annotate_route(provider: object, model: str) -> str:
+    """把最近一次路由理由附到展示用模型名后（``deepseek-v4-pro←keyword:分析``）。
+
+    无路由 / 尚未决策时**原样返回** ``model``——非路由场景（含测试里的 duck-typed 假
+    provider）展示串逐字节不变。CLI 状态行与 GUI 状态栏共用，避免两处各写一份。
+    """
+    reason = active_route_reason(provider)
+    return f"{model}←{reason}" if reason else model

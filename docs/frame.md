@@ -292,10 +292,15 @@ AgentLoop
   （pro 主要误判源），需要时用 `ROUTING_REASONING_KEYWORDS` 追加回来。纯启发式（非安全机制）。
 - `RoutingProvider.send/stream`：`_pick()` 决策 → 未知名称回退 `default` → 委托。
 - `last_decision`（`RouteDecision`）记录最近一次决策，供日志/`/route` 命令观测。
+- **决策可见性**：`active_route_reason()` / `annotate_route()` 把最近一次决策的 reason 附到
+  状态行模型名后（如 `deepseek-v4-pro←keyword:分析`），使「**为什么**是这个模型」当场可解释
+  ——关键词命中、推理链续接、`/route` 强制、池外名称回退四种来源在状态栏上原本完全同形，
+  只能靠猜或翻日志。未启用路由 / 尚未决策时 `annotate_route` 原样返回模型名（展示串逐字节
+  不变）；CLI 状态行（`cli_display._format_status`）与 GUI 状态栏共用该标注。
 - CLI：`ROUTING_ENABLED=true` 时 `_build_provider` 将 DeepSeek 条目构建为二分路由
   （`routing_fast_model`=deepseek-flash / `routing_pro_model`=deepseek-v4-pro），并照常
   放入 `SwitchableProvider` 池（Multiple providers Choose / `/model` 切换不受影响）；
-  `/route` 命令解包嵌套路由、展示当前生效池与最近决策。
+  `/route` 命令解包嵌套路由、展示当前生效池与最近决策；状态行同一决策另见 `active_route_reason`。
 
 ### 4.4 Tool 系统 (`tools/`)
 

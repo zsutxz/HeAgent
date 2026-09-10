@@ -341,11 +341,15 @@ class TestFormatStatus:
         cumulative: int = 0,
         strategy: str = "compressor",
         reset_threshold: float = 0.6,
+        reason: str | None = None,
     ):
         """Duck-typed stand-in for AgentLoop — only the fields _format_status reads."""
         from types import SimpleNamespace
 
-        provider = SimpleNamespace(get_metadata=lambda: SimpleNamespace(model=model))
+        provider_attrs: dict[str, object] = {"get_metadata": lambda: SimpleNamespace(model=model)}
+        if reason is not None:
+            provider_attrs["last_decision"] = SimpleNamespace(reason=reason)
+        provider = SimpleNamespace(**provider_attrs)
         compressor = SimpleNamespace(threshold=0.8) if strategy == "compressor" else None
         window_reset = (
             SimpleNamespace(config=SimpleNamespace(threshold=reset_threshold)) if strategy == "reset" else None
@@ -389,3 +393,10 @@ class TestFormatStatus:
         assert "1K/1M tok" in status
         assert "reset@60%" in status
         assert "累计: 2K tok" in status
+
+    def test_shows_route_reason(self, cli_settings):
+        """智能路由生效时在模型名后附最近一次路由理由，使「为何是 pro」当场可解释。"""
+        from heagent.cli import _format_status
+
+        status = _format_status(self._fake_loop(used=28500, cumulative=45200, reason="keyword:分析"))
+        assert status == "[deepseek-v4-pro←keyword:分析 | 28.5K/1M tok | cmp@80% | 累计: 45.2K tok]"

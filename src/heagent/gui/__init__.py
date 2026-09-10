@@ -25,7 +25,7 @@ def gui_main(model: str | None = None, sandbox: str | None = None) -> None:
 
     # ── Provider ────────────────────────────────────────────
     from heagent.cli import _build_provider
-    from heagent.providers.router import active_model
+    from heagent.providers.router import active_model, annotate_route
 
     provider = _build_provider(settings, model)
 
@@ -60,7 +60,7 @@ def gui_main(model: str | None = None, sandbox: str | None = None) -> None:
 
     # ── GUI 状态 + 桥接 ─────────────────────────────────────
     state = GuiState(
-        model_name=active_model(provider) or provider.get_metadata().model,
+        model_name=annotate_route(provider, active_model(provider) or provider.get_metadata().model),
         max_iterations=settings.max_iterations,
     )
     bridge = AgentBridge(loop, state)

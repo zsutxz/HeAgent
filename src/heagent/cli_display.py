@@ -10,7 +10,7 @@ import click
 from heagent import __version__
 from heagent.config import get_settings
 from heagent.context.tokens import estimate_cost
-from heagent.providers.router import active_model
+from heagent.providers.router import active_model, annotate_route
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
@@ -72,7 +72,7 @@ def _format_tokens_k(n: int) -> str:
 
 def _format_status(loop: AgentLoop) -> str:
     meta = loop.provider.get_metadata()
-    model = active_model(loop.provider) or meta.model
+    model = annotate_route(loop.provider, active_model(loop.provider) or meta.model)
     settings = get_settings()
     parts = [model, f"{_format_tokens_k(loop.last_context_tokens)}/{_format_tokens_k(settings.max_context_tokens)} tok"]
     if loop.window_reset is not None:
