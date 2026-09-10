@@ -12,16 +12,24 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from heagent.types import RoutingPoolSpec
+
+logger = logging.getLogger(__name__)
 
 _settings: Settings | None = None  # 单例缓存
 
 GLOBAL_CONFIG_DIR: Path = Path.home() / ".heagent"
 GLOBAL_CONFIG_FILE: Path = GLOBAL_CONFIG_DIR / ".env"
+
+# 路由池可绑定的 provider 条目名（与 cli._build_provider 的池内条目名一致）。
+ROUTING_POOL_ENTRIES: frozenset[str] = frozenset({"deepseek", "kimi", "glm", "ollama", "openai", "gpt", "anthropic"})
 
 
 def _parse_comma_list(v: str) -> list[str]:
@@ -90,31 +98,21 @@ class Settings(BaseSettings):
     openai_api_keys: str = ""
     anthropic_api_keys: str = ""
 
-    # ---- 智能路由参数（Provider 智能路由：按任务特征在 flash/pro 模型间自动切换） ----
-    # True 时 CLI 将 DeepSeek 条目构建为 RoutingProvider（flash=快速 / pro=深度，按问题难度
-    # 自动切换），并照常放入多 provider 池——不影响 Multiple providers Choose。
-    routing_enabled: bool = Field(default=False)
-    # 快速模型（flash 类比）与深度模型（pro 类比）的模型名。
-    routing_fast_model: str = Field(default="deepseek-flash")
-    routing_pro_model: str = Field(default="deepseek-v4-pro")
-    # 追加到内置推理关键词表的自定义词（逗号分隔；命中即路由到 pro）。
-    routing_reasoning_keywords: str = Field(default="")
-    # 推理链续接开关（HeuristicRouter 判据 1）：true 时「上一轮走了 pro 且思考痕迹仍在
-    # 历史中」会让后续轮次即使没命中关键词也继续走 pro；默认 false = 尽量用 fast
-    # （只按**当前请求**是否命中关键词判定，历史命中不再锁定）。
-    routing_reasoning_continuity: bool = Field(default=False)
+    # ---- 智能路由（唯一入口：ROUTING_POOLS 声明式路由池） ----
+    # JSON 形如：
+    #   {"glm": {"tiers": {"fast": "glm-5.3-flash", "pro": "glm-5.3"}},
+    #    "gpt": {"tiers": {"terra": "gpt-5.6-terra", "luna": "gpt-5.6-luna", "sol": "gpt-5.6-sol"},
+    #            "roles": {"fast": "terra", "mid": "luna", "pro": "sol"}, "default": "terra"}}
+    # 键须为 provider 条目名（deepseek/kimi/glm/ollama/openai/gpt/anthropic），**条目出现在这里
+    # 即为启用该池**（必须有对应凭据）；没有按 provider 的专用开关。档位模型、角色映射、默认档、
+    # 关键词（命中即路由到该档）、base_url 覆盖全在配置里——**调整路由池无需改代码**。
+    # 无效 JSON / 非法规格 / 未知条目名 → 告警并忽略该条（不阻断启动）。
+    routing_pools: str = Field(default="")
 
-    # ---- GPT 智能路由（OpenAI Responses API：terra/luna/sol 三档） ----
-    # True 时 CLI 将 gpt（Responses API）条目构建为 RoutingProvider：terra=快速 /
-    # luna=中档 / sol=深度，按问题难度自动切换，并照常放入多 provider 池。
-    gpt_routing_enabled: bool = Field(default=False)
-    gpt_routing_terra_model: str = Field(default="gpt-5.6-terra")  # terra（快速）档模型
-    gpt_routing_luna_model: str = Field(default="gpt-5.6-luna")  # luna（中档）模型
-    gpt_routing_sol_model: str = Field(default="gpt-5.6-sol")  # sol（深度）档模型
-    # 追加到内置中档关键词表的自定义词（逗号分隔；命中即路由到 luna）。
-    gpt_routing_mid_keywords: str = Field(default="")
-    # 追加到内置推理关键词表的自定义词（逗号分隔；命中即路由到 sol）。
-    gpt_routing_reasoning_keywords: str = Field(default="")
+    # 推理链续接（判据 1，**所有池的默认值**，单池可用 "reasoning_continuity" 覆盖）：true 时
+    # 「上一轮走了 pro 且思考痕迹仍在历史中」会让后续轮次即使没命中关键词也继续走 pro；
+    # 默认 false = 尽量用 fast（只按**当前请求**是否命中关键词判定，历史命中不再锁定）。
+    routing_reasoning_continuity: bool = Field(default=False)
 
     # ---- 框架运行参数 ----
     max_iterations: int = Field(default=50, ge=1)
@@ -243,16 +241,41 @@ class Settings(BaseSettings):
         return frozenset(name.upper() for name in _parse_comma_list(self.sandbox_env_allowlist))
 
     @property
-    def routing_keyword_list(self) -> list[str]:
-        return _parse_comma_list(self.routing_reasoning_keywords)
+    def routing_pool_map(self) -> dict[str, RoutingPoolSpec]:
+        """路由池规格表：``ROUTING_POOLS``（JSON）解析结果（条目名 → 规格）。
 
-    @property
-    def gpt_routing_mid_keyword_list(self) -> list[str]:
-        return _parse_comma_list(self.gpt_routing_mid_keywords)
+        **唯一的路由配置入口**：某条目出现在这里即为启用该池——不再有按 provider 的专用
+        开关（``ROUTING_ENABLED`` / ``GPT_ROUTING_ENABLED`` 等已移除）。
+        """
+        if not self.routing_pools.strip():
+            return {}
+        return self._parse_routing_pools(self.routing_pools)
 
-    @property
-    def gpt_routing_reasoning_keyword_list(self) -> list[str]:
-        return _parse_comma_list(self.gpt_routing_reasoning_keywords)
+    def _parse_routing_pools(self, raw: str) -> dict[str, RoutingPoolSpec]:
+        """解析 ``ROUTING_POOLS`` JSON；非法内容告警后丢弃（不阻断启动）。"""
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.warning("ROUTING_POOLS is not valid JSON (%s); ignored", exc)
+            return {}
+        if not isinstance(payload, dict):
+            logger.warning("ROUTING_POOLS must be a JSON object of {entry: spec}; ignored")
+            return {}
+
+        specs: dict[str, RoutingPoolSpec] = {}
+        for entry, spec in payload.items():
+            if entry not in ROUTING_POOL_ENTRIES:
+                logger.warning(
+                    "ROUTING_POOLS declares unknown provider entry %r (known: %s); ignored",
+                    entry,
+                    ", ".join(sorted(ROUTING_POOL_ENTRIES)),
+                )
+                continue
+            try:
+                specs[entry] = RoutingPoolSpec.model_validate(spec)
+            except ValidationError as exc:
+                logger.warning("ROUTING_POOLS[%s] invalid (%s); ignored", entry, exc)
+        return specs
 
     @property
     def model_pricing_map(self) -> dict[str, dict[str, float]]:

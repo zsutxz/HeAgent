@@ -1,6 +1,10 @@
 """Tests for HeAgent shared types."""
 
+import pytest
+from pydantic import ValidationError
+
 from heagent.types import (
+    RoutingPoolSpec,
     Message,
     ProviderResponse,
     Role,
@@ -110,3 +114,53 @@ def test_tool_schema_with_annotations() -> None:
     schema = ToolSchema(name="search", description="search", parameters={"type": "object"}, annotations=ann)
     assert schema.annotations is not None
     assert schema.annotations.readOnlyHint is True
+
+
+class TestRoutingPoolSpec:
+    """声明式路由池规格：角色推断 / 默认档 / 关键词解析 / 校验失败。"""
+
+    def test_name_based_role_inference(self) -> None:
+        spec = RoutingPoolSpec(tiers={"fast": "a", "mid": "b", "pro": "c"})
+        assert (spec.fast_name, spec.mid_name, spec.pro_name) == ("fast", "mid", "pro")
+        assert spec.default_name == "fast"
+
+    def test_positional_role_inference_for_two_tiers(self) -> None:
+        spec = RoutingPoolSpec(tiers={"small": "a", "big": "b"})
+        assert spec.fast_name == "small"
+        assert spec.pro_name == "big"
+        assert spec.mid_name is None  # 中间档须显式声明（名字无线索时不猜）
+        assert spec.default_name == "small"
+
+    def test_explicit_roles_and_default(self) -> None:
+        spec = RoutingPoolSpec(
+            tiers={"a": "m-a", "b": "m-b", "c": "m-c"},
+            roles={"fast": "a", "mid": "b", "pro": "c"},
+            default="b",
+        )
+        assert (spec.fast_name, spec.mid_name, spec.pro_name) == ("a", "b", "c")
+        assert spec.default_name == "b"
+
+    def test_keyword_list_parsing(self) -> None:
+        spec = RoutingPoolSpec(tiers={"fast": "a", "pro": "b"}, keywords={"pro": " 分析, 证明 ,"})
+        assert spec.keyword_list("pro") == ["分析", "证明"]
+        assert spec.keyword_list("mid") == []
+
+    def test_empty_tiers_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RoutingPoolSpec(tiers={})
+
+    def test_blank_model_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RoutingPoolSpec(tiers={"fast": "  "})
+
+    def test_role_referencing_unknown_tier_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RoutingPoolSpec(tiers={"fast": "a"}, roles={"pro": "nope"})
+
+    def test_default_outside_tiers_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RoutingPoolSpec(tiers={"fast": "a", "pro": "b"}, default="nope")
+
+    def test_unused_keyword_role_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            RoutingPoolSpec(tiers={"fast": "a", "pro": "b"}, keywords={"fast": "x"})

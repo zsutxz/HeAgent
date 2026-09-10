@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Role(StrEnum):
@@ -144,3 +144,97 @@ class StreamEvent(BaseModel):
     tool_name: str = ""
     tool_result_content: str = ""
     final_answer: str = ""
+
+
+class RoutingPoolSpec(BaseModel):
+    """声明式智能路由池规格（``ROUTING_POOLS`` JSON 的单条条目）。
+
+    一个「池」= 某个 provider 条目内部的**多档模型池**：未强制时由启发式按任务难度自动
+    选档，``/route <池内名>`` 可手动钉死档位。**档位名、模型名、角色映射、默认档、关键词
+    全部来自配置**——调整路由池不需要改代码。
+
+    - ``tiers``：有序「池内名 → 模型名」映射。池内名即 ``/route`` 接受的名字（如
+      fast/pro、terra/luna/sol），模型名是真正发给 API 的模型 ID。
+    - ``roles``：难度角色（fast/mid/pro）→ 池内名。缺省按名字推断：池内名恰为
+      fast/mid/pro 者优先，否则**首档 = fast、末档 = pro**；中间档（mid）须显式声明
+      （三档同义名如 terra/luna/sol 无名字线索，推断中间档会猜错）。
+    - ``default``：默认档位池内名（缺省 = fast 角色对应档）。
+    - ``keywords``：角色（mid/pro）→ 追加关键词（逗号分隔）；命中即路由到该档。
+    - ``reasoning_continuity``：该池是否启用推理链续接（判据 1）；None = 取全局配置。
+    - ``base_url``：覆盖该池的 base_url；None = 用该 provider 条目自身配置。
+    """
+
+    tiers: dict[str, str]
+    roles: dict[str, str] = Field(default_factory=dict)
+    default: str | None = None
+    keywords: dict[str, str] = Field(default_factory=dict)
+    reasoning_continuity: bool | None = None
+    base_url: str | None = None
+
+    @field_validator("tiers")
+    @classmethod
+    def _non_empty_tiers(cls, tiers: dict[str, str]) -> dict[str, str]:
+        if not tiers:
+            raise ValueError("tiers must not be empty")
+        for name, model in tiers.items():
+            if not name.strip() or not model.strip():
+                raise ValueError("tier names and model names must be non-empty")
+        return tiers
+
+    @field_validator("roles")
+    @classmethod
+    def _known_roles(cls, roles: dict[str, str]) -> dict[str, str]:
+        unknown = sorted(set(roles) - {"fast", "mid", "pro"})
+        if unknown:
+            raise ValueError(f"unknown roles {unknown} (allowed: fast, mid, pro)")
+        return roles
+
+    @model_validator(mode="after")
+    def _references_exist(self) -> RoutingPoolSpec:
+        for role, tier in self.roles.items():
+            if tier not in self.tiers:
+                raise ValueError(f"role {role!r} references unknown tier {tier!r}")
+        if self.default is not None and self.default not in self.tiers:
+            raise ValueError(f"default {self.default!r} is not a declared tier")
+        unknown = sorted(set(self.keywords) - {"mid", "pro"})
+        if unknown:
+            raise ValueError(f"keywords for {unknown} are unused (allowed: mid, pro)")
+        return self
+
+    def _resolve_role(self, role: str) -> str | None:
+        """角色 → 池内名：显式声明 > 同名档位 > （fast 首档 / pro 末档）；mid 无声明则 None。"""
+        explicit = self.roles.get(role)
+        if explicit:
+            return explicit
+        by_name = {name.casefold(): name for name in self.tiers}
+        if role in by_name:
+            return by_name[role]
+        if role == "fast":
+            return next(iter(self.tiers))
+        if role == "pro":
+            return list(self.tiers)[-1]
+        return None
+
+    @property
+    def fast_name(self) -> str:
+        """快速档的池内名。"""
+        return self._resolve_role("fast") or next(iter(self.tiers))
+
+    @property
+    def mid_name(self) -> str | None:
+        """中档的池内名；未显式声明（且无同名档位）时为 None = 不启用中档。"""
+        return self._resolve_role("mid")
+
+    @property
+    def pro_name(self) -> str:
+        """深度档的池内名。"""
+        return self._resolve_role("pro") or list(self.tiers)[-1]
+
+    @property
+    def default_name(self) -> str:
+        """默认档（自动路由未命中关键词时的兜底档）的池内名。"""
+        return self.default or self.fast_name
+
+    def keyword_list(self, role: str) -> list[str]:
+        """角色对应的追加关键词列表（逗号分隔解析）；未配置时为 []。"""
+        return [item.strip() for item in self.keywords.get(role, "").split(",") if item.strip()]

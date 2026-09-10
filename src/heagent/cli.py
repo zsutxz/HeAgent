@@ -58,6 +58,10 @@ if TYPE_CHECKING:
 
     from heagent.engine.context import RunContext
     from heagent.providers.base import BaseProvider
+    from heagent.types import RoutingPoolSpec
+
+    # 单档 provider 构建器：(档位模型名, base_url 覆盖) → provider
+    ProviderBuilder = Callable[[str, str | None], BaseProvider]
 
 logger = logging.getLogger(__name__)
 
@@ -124,73 +128,208 @@ async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
             raise SystemExit(0) from None
 
 
+# provider 条目的默认 base_url（未配置对应 *_BASE_URL 时使用）。
+_DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
+_KIMI_BASE_URL = "https://api.moonshot.cn/v1"
+_GLM_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
+_OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1"
+
+# 路由池声明了某条目、但该条目凭据缺失时的告警提示（键与 ROUTING_POOL_ENTRIES 对齐）。
+_ENTRY_CREDENTIAL_HINTS = {
+    "deepseek": "DEEPSEEK_API_KEY",
+    "kimi": "KIMI_API_KEY",
+    "glm": "GLM_API_KEY",
+    "ollama": "OLLAMA_ENABLED",
+    "openai": "OPENAI_API_KEY",
+    "gpt": "OPENAI_RESPONSES_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+}
+
+
+def _openai_builder(settings: Settings, *, key: str, base_url: str | None) -> ProviderBuilder:
+    """单密钥 OpenAI 兼容条目的构建器（Chat Completions）：每档一个模型名。"""
+
+    def build(tier_model: str, override: str | None) -> BaseProvider:
+        return OpenAIProvider(
+            api_key=key,
+            model=tier_model,
+            base_url=override or base_url,
+            max_tokens=settings.max_output_tokens,
+        )
+
+    return build
+
+
+def _responses_builder(settings: Settings, *, key: str, base_url: str | None) -> ProviderBuilder:
+    """单密钥 Responses API 条目的构建器（gpt 条目）：每档一个模型名。"""
+
+    def build(tier_model: str, override: str | None) -> BaseProvider:
+        return OpenAIResponsesProvider(
+            api_key=key,
+            model=tier_model,
+            base_url=override or base_url,
+            max_output_tokens=settings.max_output_tokens,
+        )
+
+    return build
+
+
+def _build_entry(
+    entry: str,
+    spec: RoutingPoolSpec | None,
+    *,
+    model: str | None,
+    default_model: str,
+    default_base_url: str | None,
+    build: ProviderBuilder,
+    continuity: bool,
+) -> BaseProvider:
+    """构建单个 provider 条目：无池规格 → 单模型条目；有规格 → 按规格构建路由池。
+
+    池规格来自 ``ROUTING_POOLS``（或旧版开关换算而来）：池内名、档位模型、角色映射、默认
+    档、关键词、base_url 覆盖**全部由配置决定**——调整路由池无需改代码。
+    """
+    if spec is None:
+        return build(model or default_model, default_base_url)
+
+    if model:
+        logger.warning(
+            "--model %s ignored for %s: a routing pool is configured for it (use /route to force).",
+            model,
+            entry,
+        )
+    children: dict[str, BaseProvider] = {
+        tier: build(tier_model, spec.base_url or default_base_url) for tier, tier_model in spec.tiers.items()
+    }
+    router = HeuristicRouter(
+        fast=spec.fast_name,
+        mid=spec.mid_name,
+        pro=spec.pro_name,
+        reasoning_keywords=spec.keyword_list("pro") or None,
+        mid_keywords=spec.keyword_list("mid") or None,
+        continuity=continuity if spec.reasoning_continuity is None else spec.reasoning_continuity,
+    )
+    return RoutingProvider(children, router, default=spec.default_name)
+
+
 def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     """Build the best available provider from configured credentials.
 
-    智能路由（``ROUTING_ENABLED=true``）作用于 **DeepSeek 条目本身**：此时 deepseek 池内
-    构建为 ``RoutingProvider``（flash=快速 / pro=深度，按问题难度自动切换），并**照常放入
-    多 provider 池**——不影响「Multiple providers Choose」（启动选择 + ``/model`` 切换 +
-    自动回退）。只有 deepseek 一个 provider 时直接返回该 ``RoutingProvider``（等价旧行为）。
+    每个 provider 条目既可以是**单模型**，也可以是**声明式多档路由池**：``ROUTING_POOLS``
+    （JSON）按条目名声明档位/角色/默认档/关键词，命中即把该条目构建为 ``RoutingProvider``
+    （按任务难度自动切档，``/route <池内名>`` 手动钉死），并**照常放入多 provider 池**
+    ——不影响「Multiple providers Choose」（启动选择 + ``/model`` 切换 + 自动回退）。
+
+    路由池只有这一个入口：条目出现在 ``ROUTING_POOLS`` 里即为启用该池
+    （见 ``Settings.routing_pool_map``）；没有按 provider 的专用开关。
 
     本地 Ollama 经 ``OLLAMA_ENABLED=true`` 显式启用（OpenAI 兼容 ``/v1``、无需真实 key），
     作为独立条目入池，可经 ``/model`` 切换、``--model`` 覆盖模型名。
     """
     named: dict[str, BaseProvider] = {}
+    specs = settings.routing_pool_map
+    continuity = settings.routing_reasoning_continuity
 
     if settings.deepseek_api_key:
-        if settings.routing_enabled:
-            if model:
-                logger.warning(
-                    "--model %s ignored for deepseek: ROUTING_ENABLED=true builds a flash/pro pool (use /route to force).",
-                    model,
-                )
-            named["deepseek"] = _build_routing_provider(settings)
-        else:
-            named["deepseek"] = OpenAIProvider(
-                api_key=settings.deepseek_api_key,
-                model=model or settings.deepseek_model,
-                base_url=settings.deepseek_base_url or "https://api.deepseek.com/v1",
-                max_tokens=settings.max_output_tokens,
-            )
-    elif settings.routing_enabled:
-        # 路由仅绑定 DeepSeek：未配置密钥时优雅降级（其余 provider 照常可用），
-        # 不因误配置而阻断整个「Multiple providers Choose」。
-        logger.warning(
-            "ROUTING_ENABLED=true but DEEPSEEK_API_KEY is not set; smart routing skipped "
-            "(other providers remain available)."
+        deepseek_url = settings.deepseek_base_url or _DEEPSEEK_BASE_URL
+        named["deepseek"] = _build_entry(
+            "deepseek",
+            specs.get("deepseek"),
+            model=model,
+            default_model=settings.deepseek_model,
+            default_base_url=deepseek_url,
+            build=_openai_builder(settings, key=settings.deepseek_api_key, base_url=deepseek_url),
+            continuity=continuity,
         )
 
     if settings.kimi_api_key:
-        named["kimi"] = OpenAIProvider(
-            api_key=settings.kimi_api_key,
-            model=model or settings.kimi_model,
-            base_url=settings.kimi_base_url or "https://api.moonshot.cn/v1",
-            max_tokens=settings.max_output_tokens,
+        kimi_url = settings.kimi_base_url or _KIMI_BASE_URL
+        named["kimi"] = _build_entry(
+            "kimi",
+            specs.get("kimi"),
+            model=model,
+            default_model=settings.kimi_model,
+            default_base_url=kimi_url,
+            build=_openai_builder(settings, key=settings.kimi_api_key, base_url=kimi_url),
+            continuity=continuity,
         )
 
     if settings.glm_api_key:
-        named["glm"] = OpenAIProvider(
-            api_key=settings.glm_api_key,
-            model=model or settings.glm_model,
-            base_url=settings.glm_base_url or "https://open.bigmodel.cn/api/paas/v4",
-            max_tokens=settings.max_output_tokens,
+        glm_url = settings.glm_base_url or _GLM_BASE_URL
+        named["glm"] = _build_entry(
+            "glm",
+            specs.get("glm"),
+            model=model,
+            default_model=settings.glm_model,
+            default_base_url=glm_url,
+            build=_openai_builder(settings, key=settings.glm_api_key, base_url=glm_url),
+            continuity=continuity,
         )
 
-    ollama_provider = _build_ollama_provider(settings, model)
-    if ollama_provider:
-        named["ollama"] = ollama_provider
+    if settings.ollama_enabled:
+        if not settings.ollama_model:
+            click.echo(
+                "Error: OLLAMA_ENABLED=true requires OLLAMA_MODEL "
+                "(e.g. OLLAMA_MODEL=qwen3:8b; list local models: curl http://127.0.0.1:11434/api/tags).",
+                err=True,
+            )
+            raise SystemExit(1)
+        ollama_url = settings.ollama_base_url or _OLLAMA_BASE_URL
+        named["ollama"] = _build_entry(
+            "ollama",
+            specs.get("ollama"),
+            model=model,
+            default_model=settings.ollama_model,
+            default_base_url=ollama_url,
+            build=_openai_builder(settings, key=settings.ollama_api_key or "ollama", base_url=ollama_url),
+            continuity=continuity,
+        )
 
-    openai_provider = _build_openai_providers(settings, model or settings.default_model)
-    if openai_provider:
-        named["openai"] = openai_provider
+    if settings.openai_api_key or settings.openai_key_pool:
+        named["openai"] = _build_entry(
+            "openai",
+            specs.get("openai"),
+            model=model,
+            default_model=settings.default_model,
+            default_base_url=settings.openai_base_url,
+            build=_openai_pool_builder(settings),
+            continuity=continuity,
+        )
 
-    gpt_provider = _build_gpt_providers(settings, model)
-    if gpt_provider:
-        named["gpt"] = gpt_provider
+    if settings.openai_responses_api_key:
+        named["gpt"] = _build_entry(
+            "gpt",
+            specs.get("gpt"),
+            model=model,
+            default_model=settings.openai_responses_model,
+            default_base_url=settings.openai_responses_base_url,
+            build=_responses_builder(
+                settings,
+                key=settings.openai_responses_api_key,
+                base_url=settings.openai_responses_base_url,
+            ),
+            continuity=continuity,
+        )
 
-    anthropic_provider = _build_anthropic_providers(settings, model or settings.default_model)
-    if anthropic_provider:
-        named["anthropic"] = anthropic_provider
+    if settings.anthropic_api_key or settings.anthropic_key_pool:
+        named["anthropic"] = _build_entry(
+            "anthropic",
+            specs.get("anthropic"),
+            model=model,
+            default_model=settings.default_model,
+            default_base_url=settings.anthropic_base_url,
+            build=_anthropic_pool_builder(settings),
+            continuity=continuity,
+        )
+
+    for entry in specs:
+        if entry not in named:
+            logger.warning(
+                "A routing pool is configured for %r but that provider entry is unavailable "
+                "(%s not set / entry disabled); pool skipped, other providers unaffected.",
+                entry,
+                _ENTRY_CREDENTIAL_HINTS.get(entry, "credentials"),
+            )
 
     if not named:
         click.echo(
@@ -215,119 +354,6 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     return SwitchableProvider(named, default=default_name)
 
 
-def _build_routing_provider(settings: Settings) -> BaseProvider:
-    """Build a RoutingProvider for DeepSeek's flash/pro split (chat=fast, reasoner=pro).
-
-    ``ROUTING_ENABLED=true`` 时由 ``_build_provider`` 调用。DeepSeek 是唯一有天然
-    「快速版/深度版」二分的 OpenAI 兼容 provider，故路由默认绑定 DeepSeek：
-    fast → ``routing_fast_model``（默认 deepseek-flash），pro → ``routing_pro_model``
-    （默认 deepseek-v4-pro）。启发式路由见 ``providers/router.py``。
-    """
-    if not settings.deepseek_api_key:
-        click.echo(
-            "Error: ROUTING_ENABLED=true requires DEEPSEEK_API_KEY (fast=deepseek-flash, pro=deepseek-v4-pro).",
-            err=True,
-        )
-        raise SystemExit(1)
-
-    base_url = settings.deepseek_base_url or "https://api.deepseek.com/v1"
-    fast = OpenAIProvider(
-        api_key=settings.deepseek_api_key,
-        model=settings.routing_fast_model,
-        base_url=base_url,
-        max_tokens=settings.max_output_tokens,
-    )
-    pro = OpenAIProvider(
-        api_key=settings.deepseek_api_key,
-        model=settings.routing_pro_model,
-        base_url=base_url,
-        max_tokens=settings.max_output_tokens,
-    )
-    router = HeuristicRouter(
-        fast="fast",
-        pro="pro",
-        reasoning_keywords=settings.routing_keyword_list or None,
-        continuity=settings.routing_reasoning_continuity,
-    )
-    return RoutingProvider({"fast": fast, "pro": pro}, router, default="fast")
-
-
-def _build_gpt_providers(settings: Settings, model: str | None) -> BaseProvider | None:
-    """Build the GPT (Responses API) entry: routing pool (terra/luna/sol) or plain provider.
-
-    返回 None 表示未配置 GPT 凭据。``GPT_ROUTING_ENABLED=true`` 时构建 ``RoutingProvider``
-    （terra/luna/sol 三档，按问题难度自动切换），否则构建普通 ``OpenAIResponsesProvider``
-    （/model gpt 切换）。
-    """
-    if settings.openai_responses_api_key:
-        if settings.gpt_routing_enabled:
-            if model:
-                logger.warning(
-                    "--model %s ignored for gpt: GPT_ROUTING_ENABLED=true builds a "
-                    "terra/luna/sol pool (use /route to force).",
-                    model,
-                )
-            return _build_gpt_routing_provider(settings)
-        return OpenAIResponsesProvider(
-            api_key=settings.openai_responses_api_key,
-            model=model or settings.openai_responses_model,
-            base_url=settings.openai_responses_base_url,
-            max_output_tokens=settings.max_output_tokens,
-        )
-    if settings.gpt_routing_enabled:
-        logger.warning(
-            "GPT_ROUTING_ENABLED=true but OPENAI_RESPONSES_API_KEY is not set; gpt routing skipped "
-            "(other providers remain available)."
-        )
-    return None
-
-
-def _build_gpt_routing_provider(settings: Settings) -> BaseProvider:
-    """Build a RoutingProvider for GPT's terra/luna/sol split (Responses API).
-
-    ``GPT_ROUTING_ENABLED=true`` 时由 ``_build_provider`` 调用：gpt（Responses API）
-    条目构建为 ``RoutingProvider``（terra=快速 / luna=中档 / sol=深度，按问题难度
-    自动切换）。三档对应 komapi.top 等中转站暴露的 gpt-5.6-terra / gpt-5.6-luna /
-    gpt-5.6-sol；模型名经 Settings 可配。启发式路由见 ``providers/router.py``。
-    """
-    if not settings.openai_responses_api_key:
-        click.echo(
-            "Error: GPT_ROUTING_ENABLED=true requires OPENAI_RESPONSES_API_KEY "
-            "(terra=gpt-5.6-terra, luna=gpt-5.6-luna, sol=gpt-5.6-sol).",
-            err=True,
-        )
-        raise SystemExit(1)
-
-    base_url = settings.openai_responses_base_url
-    terra = OpenAIResponsesProvider(
-        api_key=settings.openai_responses_api_key,
-        model=settings.gpt_routing_terra_model,
-        base_url=base_url,
-        max_output_tokens=settings.max_output_tokens,
-    )
-    luna = OpenAIResponsesProvider(
-        api_key=settings.openai_responses_api_key,
-        model=settings.gpt_routing_luna_model,
-        base_url=base_url,
-        max_output_tokens=settings.max_output_tokens,
-    )
-    sol = OpenAIResponsesProvider(
-        api_key=settings.openai_responses_api_key,
-        model=settings.gpt_routing_sol_model,
-        base_url=base_url,
-        max_output_tokens=settings.max_output_tokens,
-    )
-    router = HeuristicRouter(
-        fast="terra",
-        mid="luna",
-        pro="sol",
-        reasoning_keywords=settings.gpt_routing_reasoning_keyword_list or None,
-        mid_keywords=settings.gpt_routing_mid_keyword_list or None,
-        continuity=settings.routing_reasoning_continuity,
-    )
-    return RoutingProvider({"terra": terra, "luna": luna, "sol": sol}, router, default="terra")
-
-
 def _build_key_rotated(
     primary_key: str | None,
     pool: list[str],
@@ -346,54 +372,52 @@ def _build_key_rotated(
     return providers[0] if len(providers) == 1 else KeyRotatingProvider(providers)
 
 
-def _build_openai_providers(settings: Settings, model: str) -> BaseProvider | None:
-    """Build the OpenAI-compatible provider stack."""
-    return _build_key_rotated(
+def _key_rotated_builder(
+    primary_key: str | None,
+    pool: list[str],
+    make: Callable[[str, str, str | None], BaseProvider],
+) -> ProviderBuilder:
+    """多密钥轮换条目的构建器：同一组密钥在**每个档位**内各自轮换。
+
+    Args:
+        primary_key: 主密钥（可选）。
+        pool: 备用密钥池。
+        make: ``(api_key, 档位模型, base_url 覆盖) → 单档 provider``。
+    """
+
+    def build(tier_model: str, override: str | None) -> BaseProvider:
+        provider = _build_key_rotated(primary_key, pool, lambda key: make(key, tier_model, override))
+        if provider is None:
+            # 调用点已确认存在密钥；此处仅防御内部不一致（不静默造出空 provider）
+            raise SystemExit("Error: provider entry requested without credentials.")
+        return provider
+
+    return build
+
+
+def _openai_pool_builder(settings: Settings) -> ProviderBuilder:
+    """openai 条目构建器（Chat Completions，多密钥池）。"""
+    return _key_rotated_builder(
         settings.openai_api_key,
         settings.openai_key_pool,
-        lambda key: OpenAIProvider(
+        lambda key, tier_model, url: OpenAIProvider(
             api_key=key,
-            model=model,
-            base_url=settings.openai_base_url,
+            model=tier_model,
+            base_url=url,
             max_tokens=settings.max_output_tokens,
         ),
     )
 
 
-def _build_ollama_provider(settings: Settings, model: str | None) -> OpenAIProvider | None:
-    """Build the local Ollama entry (OpenAI-compatible ``/v1``, no real API key).
-
-    ``OLLAMA_ENABLED=true`` 时由 ``_build_provider`` 调用。Ollama 不校验 API Key，故以
-    **显式开关**（而非「密钥存在性」）判定是否构建——默认关闭，避免向 localhost 发请求，
-    也避免「装了 Ollama 但没启动」时被当成可用 provider 混进池。``OLLAMA_MODEL`` 未配置时
-    fail-fast（Ollama 无「官方默认模型」概念，不猜模型名）。
-    """
-    if not settings.ollama_enabled:
-        return None
-    if not settings.ollama_model:
-        click.echo(
-            "Error: OLLAMA_ENABLED=true requires OLLAMA_MODEL "
-            "(e.g. OLLAMA_MODEL=qwen3:8b; list local models: curl http://127.0.0.1:11434/api/tags).",
-            err=True,
-        )
-        raise SystemExit(1)
-    return OpenAIProvider(
-        api_key=settings.ollama_api_key or "ollama",  # Ollama 不校验 key，占位即可
-        model=model or settings.ollama_model,
-        base_url=settings.ollama_base_url or "http://127.0.0.1:11434/v1",
-        max_tokens=settings.max_output_tokens,
-    )
-
-
-def _build_anthropic_providers(settings: Settings, model: str) -> BaseProvider | None:
-    """Build the Anthropic provider stack."""
-    return _build_key_rotated(
+def _anthropic_pool_builder(settings: Settings) -> ProviderBuilder:
+    """anthropic 条目构建器（多密钥池）。"""
+    return _key_rotated_builder(
         settings.anthropic_api_key,
         settings.anthropic_key_pool,
-        lambda key: AnthropicProvider(
+        lambda key, tier_model, url: AnthropicProvider(
             api_key=key,
-            model=model,
-            base_url=settings.anthropic_base_url,
+            model=tier_model,
+            base_url=url,
             prompt_caching=settings.anthropic_prompt_caching,
             max_tokens=settings.max_output_tokens or 4096,
         ),
@@ -972,7 +996,7 @@ async def _handle_route_cmd(provider: BaseProvider, args: str = "") -> None:
         if hint:
             click.echo(f"[route] {hint}", err=True)
         else:
-            click.echo("[route] Smart routing not enabled (set ROUTING_ENABLED=true).", err=True)
+            click.echo("[route] Smart routing not enabled (configure ROUTING_POOLS).", err=True)
         return
 
     arg = (args or "").strip().lower()

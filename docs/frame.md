@@ -289,7 +289,7 @@ AgentLoop
   `reasoning_content`」为准——DeepSeek v4 的 flash/pro 都是思考模型、都返回该字段，按后者
   会让走过一次 flash 后永久锁死 pro；`RoutingProvider._pick` 经可选钩子 `note_selection`
   回传实际选中项（供判据 ①）。内置复杂度表不含「为什么」「解释」「why」「explain」等纯疑问词
-  （pro 主要误判源），需要时用 `ROUTING_REASONING_KEYWORDS` 追加回来。纯启发式（非安全机制）。
+  （pro 主要误判源），需要时用该池 `ROUTING_POOLS` 的 `keywords` 追加回来。纯启发式（非安全机制）。
 - `RoutingProvider.send/stream`：`_pick()` 决策 → 未知名称回退 `default` → 委托。
 - `last_decision`（`RouteDecision`）记录最近一次决策，供日志/`/route` 命令观测。
 - **决策可见性**：`active_route_reason()` / `annotate_route()` 把最近一次决策的 reason 附到
@@ -297,10 +297,18 @@ AgentLoop
   ——关键词命中、推理链续接、`/route` 强制、池外名称回退四种来源在状态栏上原本完全同形，
   只能靠猜或翻日志。未启用路由 / 尚未决策时 `annotate_route` 原样返回模型名（展示串逐字节
   不变）；CLI 状态行（`cli_display._format_status`）与 GUI 状态栏共用该标注。
-- CLI：`ROUTING_ENABLED=true` 时 `_build_provider` 将 DeepSeek 条目构建为二分路由
-  （`routing_fast_model`=deepseek-flash / `routing_pro_model`=deepseek-v4-pro），并照常
-  放入 `SwitchableProvider` 池（Multiple providers Choose / `/model` 切换不受影响）；
-  `/route` 命令解包嵌套路由、展示当前生效池与最近决策；状态行同一决策另见 `active_route_reason`。
+- CLI：路由池是**声明式**的——`ROUTING_POOLS`（JSON）按 provider 条目名声明池：
+  档位（池内名 → 模型名）、角色映射（fast/mid/pro → 池内名）、默认档、各档追加关键词、
+  `base_url` 覆盖。`_build_provider` 对每个条目查 `Settings.routing_pool_map`：命中即构建
+  `RoutingProvider`（规格由 `RoutingPoolSpec` 校验，`types.py`），否则单模型条目；两种情况
+  都照常放入 `SwitchableProvider` 池（Multiple providers Choose / `/model` 切换不受影响）。
+  **新增/调整档位、模型名、角色、关键词全部只改配置，无需改代码**（新增 provider 条目仍需
+  代码接入凭据）。路由池**只有这一个入口**：条目出现在 `ROUTING_POOLS` 里即为启用该池；
+  旧版按 provider 的开关（`ROUTING_ENABLED` / `ROUTING_FAST_MODEL` / `ROUTING_PRO_MODEL` /
+  `ROUTING_REASONING_KEYWORDS` / `GPT_ROUTING_*`）已移除。全局仅保留
+  `ROUTING_REASONING_CONTINUITY`（所有池的续接默认值，可在池内覆盖）。
+  `/route <池内名>` 命令解包嵌套路由、展示当前生效池与最近决策；状态行同一决策另见
+  `active_route_reason`。
 
 ### 4.4 Tool 系统 (`tools/`)
 
@@ -571,7 +579,7 @@ HeAgentError (base)
 | `openai_base_url` | None | OpenAI 兼容服务 URL |
 | `anthropic_base_url` | None | Anthropic 代理地址 |
 | `anthropic_prompt_caching` | True | Anthropic 提示词缓存（注入 cache_control 断点，FR-3；不兼容代理时关闭） |
-| `gpt_routing_enabled` | False | GPT terra/luna/sol 智能路由开关 |
+| `routing_pools` | "" | 声明式路由池 JSON（任意 provider 条目多档池；改档位/角色/关键词无需改代码） |
 | `openai_api_keys` | "" | OpenAI 多密钥池（逗号分隔） |
 | `anthropic_api_keys` | "" | Anthropic 多密钥池（逗号分隔） |
 | `default_model` | `gpt-4o` | 默认模型 |

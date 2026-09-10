@@ -1,9 +1,11 @@
 """Tests for CLI provider construction: smart routing composes inside the multi-provider pool.
 
-核心回归：``ROUTING_ENABLED=true`` 时 DeepSeek 条目应为 ``RoutingProvider``（flash/pro 按
-问题难度自动切换），并**照常放入 ``SwitchableProvider`` 池**——不影响「Multiple providers
-Choose」（启动选择 + ``/model`` 切换 + 自动回退）。只有 deepseek 一个 provider 时直接返回
-路由池（等价旧行为）。
+核心回归：``ROUTING_POOLS`` 声明了某条目时，该条目应为 ``RoutingProvider``（按池内档位
+自动切换），并**照常放入 ``SwitchableProvider`` 池**——不影响「Multiple providers Choose」
+（启动选择 + ``/model`` 切换 + 自动回退）。只有该一个 provider 时直接返回路由池。
+
+路由池只此一个入口：没有按 provider 的专用开关（``ROUTING_ENABLED`` / ``GPT_ROUTING_ENABLED``
+等已移除）——条目出现在 ``ROUTING_POOLS`` 里即为启用。
 """
 
 from __future__ import annotations
@@ -17,6 +19,14 @@ from heagent.providers.openai import OpenAIProvider
 from heagent.providers.responses import OpenAIResponsesProvider
 from heagent.providers.router import RoutingProvider
 from heagent.providers.switchable import SwitchableProvider
+from heagent.types import Message, Role
+
+# 测试用池规格：deepseek 二分（池内名 fast/pro）、gpt 三档（terra/luna/sol + 显式 roles）。
+_DEEPSEEK_POOL = '{"deepseek": {"tiers": {"fast": "deepseek-flash", "pro": "deepseek-v4-pro"}}}'
+_GPT_POOL = (
+    '{"gpt": {"tiers": {"terra": "gpt-5.6-terra", "luna": "gpt-5.6-luna", "sol": "gpt-5.6-sol"},'
+    ' "roles": {"fast": "terra", "mid": "luna", "pro": "sol"}, "default": "terra"}}'
+)
 
 
 def _clear_all_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,19 +52,22 @@ def hermetic(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
 
 
 class TestBuildProviderRoutingComposition:
-    """ROUTING_ENABLED=true 与 Multiple providers Choose 的组合语义。"""
+    """路由池与 Multiple providers Choose 的组合语义（deepseek 用声明式池）。"""
 
-    def test_routing_only_deepseek_returns_routing_provider(self, hermetic) -> None:
-        """只有 deepseek 且开启路由 → 直接返回 RoutingProvider（等价旧行为）。"""
-        provider = _build_provider(Settings(deepseek_api_key="sk-test", routing_enabled=True), None)
+    def test_pool_only_deepseek_returns_routing_provider(self, hermetic) -> None:
+        """只有 deepseek 且声明了池 → 直接返回 RoutingProvider。"""
+        provider = _build_provider(
+            Settings(deepseek_api_key="sk-test", routing_pools=_DEEPSEEK_POOL),
+            None,
+        )
         assert isinstance(provider, RoutingProvider)
         assert set(provider.names) == {"fast", "pro"}
         assert provider.get_metadata().model == "fast:deepseek-flash, pro:deepseek-v4-pro"
 
-    def test_routing_plus_kimi_returns_switchable_with_routing_deepseek(self, hermetic) -> None:
-        """路由 + 第二个 provider → SwitchableProvider，deepseek 条目为 RoutingProvider。"""
+    def test_pool_plus_kimi_returns_switchable_with_routing_deepseek(self, hermetic) -> None:
+        """池 + 第二个 provider → SwitchableProvider，deepseek 条目为 RoutingProvider。"""
         provider = _build_provider(
-            Settings(deepseek_api_key="sk-ds", kimi_api_key="sk-kimi", routing_enabled=True),
+            Settings(deepseek_api_key="sk-ds", kimi_api_key="sk-kimi", routing_pools=_DEEPSEEK_POOL),
             None,
         )
         assert isinstance(provider, SwitchableProvider)
@@ -68,20 +81,166 @@ class TestBuildProviderRoutingComposition:
         assert "deepseek-flash" in summary.model
         assert "deepseek-v4-pro" in summary.model
 
-    def test_routing_enabled_without_deepseek_key_degrades_gracefully(self, hermetic) -> None:
-        """路由开启但无 deepseek 密钥 → 优雅降级：其余 provider 照常可用（不阻断 Choose）。"""
-        provider = _build_provider(Settings(kimi_api_key="sk-kimi", routing_enabled=True), None)
+    def test_pool_without_key_degrades_gracefully(self, hermetic) -> None:
+        """声明了池但无对应密钥 → 优雅降级：其余 provider 照常可用（不阻断 Choose）。"""
+        provider = _build_provider(Settings(kimi_api_key="sk-kimi", routing_pools=_DEEPSEEK_POOL), None)
         # 不再 SystemExit；kimi 直接可用
         assert isinstance(provider, OpenAIProvider)
 
-    def test_routing_disabled_deepseek_is_plain_openai(self, hermetic) -> None:
-        """未开启路由 → deepseek 条目为普通 OpenAIProvider（Multiple providers Choose 原样）。"""
+    def test_deepseek_without_pool_is_plain_openai(self, hermetic) -> None:
+        """未声明池 → deepseek 条目为普通 OpenAIProvider（Multiple providers Choose 原样）。"""
         provider = _build_provider(
             Settings(deepseek_api_key="sk-test", kimi_api_key="sk-kimi"),
             None,
         )
         assert isinstance(provider, SwitchableProvider)
         assert isinstance(provider.providers["deepseek"], OpenAIProvider)
+
+
+class TestBuildProviderDeclarativeRouting:
+    """声明式路由池：ROUTING_POOLS 声明档位/角色/关键词，调整池无需改代码。"""
+
+    def test_pool_declared_by_config(self, hermetic) -> None:
+        """glm 条目按 JSON 规格构建为 flash/pro 池，/route 可直接驱动。"""
+        provider = _build_provider(
+            Settings(
+                glm_api_key="sk-glm",
+                routing_pools='{"glm": {"tiers": {"fast": "glm-5.3-flash", "pro": "glm-5.3"}}}',
+            ),
+            None,
+        )
+        assert isinstance(provider, RoutingProvider)
+        assert set(provider.names) == {"fast", "pro"}
+        assert provider.get_metadata().model == "fast:glm-5.3-flash, pro:glm-5.3"
+        routing, hint = _extract_routing(provider)
+        assert routing is provider
+        assert hint is None
+
+    def test_pool_names_roles_default_are_config_driven(self, hermetic) -> None:
+        """池内名、角色映射、默认档全部来自配置（此处三档 + 别名）。"""
+        provider = _build_provider(
+            Settings(
+                glm_api_key="sk-glm",
+                routing_pools=(
+                    '{"glm": {"tiers": {"small": "glm-5.3-air", "mid": "glm-5.3", "big": "glm-5.3-max"},'
+                    ' "roles": {"fast": "small", "mid": "mid", "pro": "big"}, "default": "small"}}'
+                ),
+            ),
+            None,
+        )
+        assert isinstance(provider, RoutingProvider)
+        assert set(provider.names) == {"small", "mid", "big"}
+        assert provider.get_metadata().model == "small:glm-5.3-air, mid:glm-5.3, big:glm-5.3-max"
+
+    def test_configured_keywords_drive_pro_route(self, hermetic) -> None:
+        """配置里的关键词真的参与决策：命中自定义词 → pro，否则 fast。"""
+        provider = _build_provider(
+            Settings(
+                glm_api_key="sk-glm",
+                routing_pools=(
+                    '{"glm": {"tiers": {"fast": "glm-5.3-flash", "pro": "glm-5.3"},'
+                    ' "keywords": {"pro": "totally-custom-token"}}}'
+                ),
+            ),
+            None,
+        )
+        assert isinstance(provider, RoutingProvider)
+        messages = [Message(role=Role.USER, content="please do totally-custom-token now")]
+        assert provider._router.route(messages, None).provider == "pro"
+        assert provider._router.route([Message(role=Role.USER, content="hello")], None).provider == "fast"
+
+    def test_pool_composes_into_switchable_and_model_flag_warns(self, hermetic, caplog) -> None:
+        with caplog.at_level("WARNING"):
+            provider = _build_provider(
+                Settings(
+                    kimi_api_key="sk-kimi",
+                    glm_api_key="sk-glm",
+                    routing_pools='{"glm": {"tiers": {"fast": "glm-5.3-flash", "pro": "glm-5.3"}}}',
+                ),
+                "glm-5",
+            )
+        assert isinstance(provider, SwitchableProvider)
+        assert isinstance(provider.providers["glm"], RoutingProvider)
+        assert any("ignored for glm" in record.message for record in caplog.records)
+
+    def test_base_url_override_from_config(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(
+                glm_api_key="sk-glm",
+                routing_pools=(
+                    '{"glm": {"tiers": {"fast": "a", "pro": "b"}, "base_url": "https://proxy.example.com/v1"}}'
+                ),
+            ),
+            None,
+        )
+        assert isinstance(provider, RoutingProvider)
+        for name in provider.names:
+            assert str(provider._providers[name]._client.base_url).startswith("https://proxy.example.com/v1")
+
+    def test_legacy_env_switches_no_longer_create_pools(self, hermetic, monkeypatch) -> None:
+        """旧版按 provider 的开关已移除：环境里还留着也不再造池（唯一入口是 ROUTING_POOLS）。"""
+        monkeypatch.setenv("ROUTING_ENABLED", "true")
+        monkeypatch.setenv("ROUTING_FAST_MODEL", "ds-fast")
+        monkeypatch.setenv("GPT_ROUTING_ENABLED", "true")
+        provider = _build_provider(Settings(deepseek_api_key="sk-ds"), None)
+        assert isinstance(provider, OpenAIProvider)
+        assert provider.get_metadata().model == "deepseek-v4-pro"
+
+    def test_invalid_json_ignored_keeps_plain_entry(self, hermetic, caplog) -> None:
+        with caplog.at_level("WARNING"):
+            provider = _build_provider(Settings(glm_api_key="sk-glm", routing_pools="{not json"), None)
+        assert isinstance(provider, OpenAIProvider)
+        assert provider.get_metadata().model == "glm-5.3"
+        assert any("ROUTING_POOLS" in record.message for record in caplog.records)
+
+    def test_invalid_spec_ignored(self, hermetic, caplog) -> None:
+        """roles 指向不存在的档位 → 该条忽略（告警，不阻断启动）。"""
+        with caplog.at_level("WARNING"):
+            provider = _build_provider(
+                Settings(
+                    glm_api_key="sk-glm",
+                    routing_pools='{"glm": {"tiers": {"fast": "glm-5.3-flash"}, "roles": {"pro": "nope"}}}',
+                ),
+                None,
+            )
+        assert isinstance(provider, OpenAIProvider)
+        assert any("ROUTING_POOLS[glm] invalid" in record.message for record in caplog.records)
+
+    def test_unknown_entry_ignored(self, hermetic, caplog) -> None:
+        with caplog.at_level("WARNING"):
+            provider = _build_provider(
+                Settings(kimi_api_key="sk-kimi", routing_pools='{"mistral": {"tiers": {"fast": "m-small"}}}'),
+                None,
+            )
+        assert isinstance(provider, OpenAIProvider)
+        assert any("unknown provider entry" in record.message for record in caplog.records)
+
+    def test_pool_without_credentials_warns_and_skips(self, hermetic, caplog) -> None:
+        with caplog.at_level("WARNING"):
+            provider = _build_provider(
+                Settings(
+                    kimi_api_key="sk-kimi",
+                    routing_pools='{"glm": {"tiers": {"fast": "glm-5.3-flash", "pro": "glm-5.3"}}}',
+                ),
+                None,
+            )
+        assert isinstance(provider, OpenAIProvider)  # 只剩 kimi（非路由）
+        assert any("GLM_API_KEY" in record.message for record in caplog.records)
+
+    def test_gpt_pool_from_config_uses_responses_api(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(
+                openai_responses_api_key="sk-gpt",
+                routing_pools=(
+                    '{"gpt": {"tiers": {"terra": "gpt-5.6-terra", "luna": "gpt-5.6-luna", "sol": "gpt-5.6-sol"},'
+                    ' "roles": {"fast": "terra", "mid": "luna", "pro": "sol"}, "default": "terra"}}'
+                ),
+            ),
+            None,
+        )
+        assert isinstance(provider, RoutingProvider)
+        assert set(provider.names) == {"terra", "luna", "sol"}
+        assert all(isinstance(child, OpenAIResponsesProvider) for child in provider._providers.values())
 
 
 class TestBuildProviderGlm:
@@ -213,14 +372,14 @@ class TestExtractRouting:
     """/route 命令解包：支持 SwitchableProvider 嵌套。"""
 
     def test_direct_routing(self, hermetic) -> None:
-        provider = _build_provider(Settings(deepseek_api_key="sk-test", routing_enabled=True), None)
+        provider = _build_provider(Settings(deepseek_api_key="sk-test", routing_pools=_DEEPSEEK_POOL), None)
         routing, hint = _extract_routing(provider)
         assert routing is provider
         assert hint is None
 
     def test_switchable_active_routing(self, hermetic) -> None:
         provider = _build_provider(
-            Settings(deepseek_api_key="sk-ds", kimi_api_key="sk-kimi", routing_enabled=True),
+            Settings(deepseek_api_key="sk-ds", kimi_api_key="sk-kimi", routing_pools=_DEEPSEEK_POOL),
             None,
         )
         assert isinstance(provider, SwitchableProvider)
@@ -231,7 +390,7 @@ class TestExtractRouting:
     def test_switchable_active_not_routing_gives_hint(self, hermetic) -> None:
         """当前活跃 provider 非路由、池内另有路由 → 提示 /model 切回。"""
         provider = _build_provider(
-            Settings(deepseek_api_key="sk-ds", kimi_api_key="sk-kimi", routing_enabled=True),
+            Settings(deepseek_api_key="sk-ds", kimi_api_key="sk-kimi", routing_pools=_DEEPSEEK_POOL),
             None,
         )
         assert isinstance(provider, SwitchableProvider)
@@ -300,22 +459,22 @@ class TestBuildProviderGpt:
 
 
 class TestBuildProviderGptRouting:
-    """GPT_ROUTING_ENABLED=true 时 gpt 条目为 RoutingProvider（terra/luna/sol 三档）。"""
+    """声明式池：gpt 条目为 RoutingProvider（terra/luna/sol 三档，Responses API）。"""
 
-    def test_gpt_routing_only_gpt_returns_routing_provider(self, hermetic) -> None:
-        """只有 gpt 且开启 GPT 路由 → 直接返回 RoutingProvider（terra/luna/sol）。"""
+    def test_gpt_pool_only_gpt_returns_routing_provider(self, hermetic) -> None:
+        """只有 gpt 且声明了三档池 → 直接返回 RoutingProvider（terra/luna/sol）。"""
         provider = _build_provider(
-            Settings(openai_responses_api_key="sk-gpt", gpt_routing_enabled=True),
+            Settings(openai_responses_api_key="sk-gpt", routing_pools=_GPT_POOL),
             None,
         )
         assert isinstance(provider, RoutingProvider)
         assert set(provider.names) == {"terra", "luna", "sol"}
         assert provider.get_metadata().model == "terra:gpt-5.6-terra, luna:gpt-5.6-luna, sol:gpt-5.6-sol"
 
-    def test_gpt_routing_plus_kimi_returns_switchable_with_routing_gpt(self, hermetic) -> None:
-        """GPT 路由 + 第二个 provider → SwitchableProvider，gpt 条目为 RoutingProvider。"""
+    def test_gpt_pool_plus_kimi_returns_switchable_with_routing_gpt(self, hermetic) -> None:
+        """gpt 三档池 + 第二个 provider → SwitchableProvider，gpt 条目为 RoutingProvider。"""
         provider = _build_provider(
-            Settings(kimi_api_key="sk-kimi", openai_responses_api_key="sk-gpt", gpt_routing_enabled=True),
+            Settings(kimi_api_key="sk-kimi", openai_responses_api_key="sk-gpt", routing_pools=_GPT_POOL),
             None,
         )
         assert isinstance(provider, SwitchableProvider)
@@ -328,13 +487,13 @@ class TestBuildProviderGptRouting:
         assert "gpt-5.6-luna" in summary.model
         assert "gpt-5.6-sol" in summary.model
 
-    def test_gpt_routing_enabled_without_key_degrades_gracefully(self, hermetic) -> None:
-        """GPT 路由开启但无 Responses API 密钥 → 优雅降级：其余 provider 照常可用。"""
-        provider = _build_provider(Settings(kimi_api_key="sk-kimi", gpt_routing_enabled=True), None)
+    def test_gpt_pool_without_key_degrades_gracefully(self, hermetic) -> None:
+        """声明了三档池但无 Responses API 密钥 → 优雅降级：其余 provider 照常可用。"""
+        provider = _build_provider(Settings(kimi_api_key="sk-kimi", routing_pools=_GPT_POOL), None)
         assert isinstance(provider, OpenAIProvider)
 
-    def test_gpt_routing_disabled_gpt_is_plain_responses(self, hermetic) -> None:
-        """未开启 GPT 路由 → gpt 条目为普通 OpenAIResponsesProvider。"""
+    def test_gpt_without_pool_is_plain_responses(self, hermetic) -> None:
+        """未声明池 → gpt 条目为普通 OpenAIResponsesProvider。"""
         provider = _build_provider(Settings(openai_responses_api_key="sk-gpt"), None)
         assert isinstance(provider, OpenAIResponsesProvider)
 
@@ -342,23 +501,36 @@ class TestBuildProviderGptRouting:
 class TestRoutingContinuityWiring:
     """ROUTING_REASONING_CONTINUITY 透传到 HeuristicRouter（默认 False = 尽量用 fast）。"""
 
-    def test_deepseek_routing_continuity_defaults_off(self, hermetic) -> None:
-        provider = _build_provider(Settings(deepseek_api_key="sk-test", routing_enabled=True), None)
+    def test_pool_continuity_defaults_off(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(deepseek_api_key="sk-test", routing_pools=_DEEPSEEK_POOL),
+            None,
+        )
         assert isinstance(provider, RoutingProvider)
         assert provider._router.continuity is False
 
-    def test_deepseek_routing_continuity_honours_setting(self, hermetic) -> None:
+    def test_global_continuity_honours_setting(self, hermetic) -> None:
         provider = _build_provider(
-            Settings(deepseek_api_key="sk-test", routing_enabled=True, routing_reasoning_continuity=True),
+            Settings(
+                deepseek_api_key="sk-test",
+                routing_pools=_DEEPSEEK_POOL,
+                routing_reasoning_continuity=True,
+            ),
             None,
         )
         assert isinstance(provider, RoutingProvider)
         assert provider._router.continuity is True
 
-    def test_gpt_routing_continuity_honours_setting(self, hermetic) -> None:
+    def test_pool_level_continuity_overrides_global(self, hermetic) -> None:
+        """池内 "reasoning_continuity" 覆盖全局开关（全局 true、池内 false）。"""
+        pool = '{"deepseek": {"tiers": {"fast": "a", "pro": "b"}, "reasoning_continuity": false}}'
         provider = _build_provider(
-            Settings(openai_responses_api_key="sk-gpt", gpt_routing_enabled=True, routing_reasoning_continuity=True),
+            Settings(
+                deepseek_api_key="sk-test",
+                routing_pools=pool,
+                routing_reasoning_continuity=True,
+            ),
             None,
         )
         assert isinstance(provider, RoutingProvider)
-        assert provider._router.continuity is True
+        assert provider._router.continuity is False

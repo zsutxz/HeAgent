@@ -479,3 +479,70 @@ class TestSandboxEnvAllowlist:
         monkeypatch.setenv("SANDBOX_ENV_ALLOWLIST", " GITHUB_TOKEN , CUSTOM ")
         s = Settings()
         assert s.sandbox_env_allowlist_set == frozenset({"GITHUB_TOKEN", "CUSTOM"})
+
+
+class TestRoutingPoolMap:
+    """ROUTING_POOLS 解析（唯一入口；旧版按 provider 的开关已移除）。"""
+
+    _GLM_POOL = '{"glm": {"tiers": {"fast": "glm-5.3-flash", "pro": "glm-5.3"}}}'
+
+    def test_declarative_pool_parsed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("ROUTING_POOLS", self._GLM_POOL)
+        specs = Settings().routing_pool_map
+        assert set(specs) == {"glm"}
+        assert specs["glm"].tiers == {"fast": "glm-5.3-flash", "pro": "glm-5.3"}
+
+    def test_no_pools_by_default(self) -> None:
+        assert Settings(routing_pools="").routing_pool_map == {}
+
+    def test_multiple_pools_in_one_json(self) -> None:
+        settings = Settings(
+            routing_pools=(
+                '{"deepseek": {"tiers": {"fast": "ds-fast", "pro": "ds-pro"}},'
+                ' "gpt": {"tiers": {"terra": "t", "luna": "l", "sol": "s"},'
+                ' "roles": {"fast": "terra", "mid": "luna", "pro": "sol"}}}'
+            )
+        )
+        specs = settings.routing_pool_map
+        assert set(specs) == {"deepseek", "gpt"}
+        assert specs["deepseek"].pro_name == "pro"
+        assert (specs["gpt"].fast_name, specs["gpt"].mid_name, specs["gpt"].pro_name) == (
+            "terra",
+            "luna",
+            "sol",
+        )
+
+    def test_legacy_provider_switches_are_removed(self) -> None:
+        """回归护栏：不再存在按 provider 的专用开关字段（唯一入口是 ROUTING_POOLS）。"""
+        for field in (
+            "routing_enabled",
+            "routing_fast_model",
+            "routing_pro_model",
+            "routing_reasoning_keywords",
+            "gpt_routing_enabled",
+            "gpt_routing_terra_model",
+            "gpt_routing_mid_keywords",
+        ):
+            assert field not in Settings.model_fields, f"{field} 应已移除"
+
+    def test_invalid_json_ignored(self, caplog: pytest.LogCaptureFixture) -> None:
+        settings = Settings(routing_pools="{not json")
+        with caplog.at_level("WARNING"):
+            assert settings.routing_pool_map == {}
+        assert any("not valid JSON" in record.message for record in caplog.records)
+
+    def test_non_object_json_ignored(self) -> None:
+        settings = Settings(routing_pools="[1, 2]")
+        assert settings.routing_pool_map == {}
+
+    def test_unknown_entry_ignored(self, caplog: pytest.LogCaptureFixture) -> None:
+        settings = Settings(routing_pools='{"mistral": {"tiers": {"fast": "a"}}}')
+        with caplog.at_level("WARNING"):
+            assert settings.routing_pool_map == {}
+        assert any("unknown provider entry" in record.message for record in caplog.records)
+
+    def test_invalid_spec_ignored(self, caplog: pytest.LogCaptureFixture) -> None:
+        settings = Settings(routing_pools='{"glm": {"tiers": {}}}')
+        with caplog.at_level("WARNING"):
+            assert settings.routing_pool_map == {}
+        assert any("ROUTING_POOLS[glm] invalid" in record.message for record in caplog.records)

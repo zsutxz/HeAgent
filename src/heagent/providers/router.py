@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 # 命中任意一个即路由到 pro（深度模型）。可在 HeuristicRouter 构造时追加自定义词。
 # 表内不含「为什么」「解释」「why」「explain」等**纯疑问词**：它们高频出现在普通问答里，
 # 是 pro 的主要误判源（默认立场是尽量用 fast）；确需按其上 pro 时，用
-# ROUTING_REASONING_KEYWORDS / reasoning_keywords= 追加回来即可。
+# 路由池的 keywords（ROUTING_POOLS 的 "keywords"）/ reasoning_keywords= 追加回来即可。
 DEFAULT_REASONING_KEYWORDS: list[str] = [
     # 中文
     "分析",
