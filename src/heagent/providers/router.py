@@ -6,7 +6,7 @@
 
 典型用法（DeepSeek 的 flash/pro 类比）：
 
-    fast = OpenAIProvider(api_key="sk-...", model="deepseek-v4-flash", base_url="https://api.deepseek.com/v1")
+    fast = OpenAIProvider(api_key="sk-...", model="deepseek-flash", base_url="https://api.deepseek.com/v1")
     pro  = OpenAIProvider(api_key="sk-...", model="deepseek-v4-pro", base_url="https://api.deepseek.com/v1")
     router = HeuristicRouter(fast="fast", pro="pro")
     provider = RoutingProvider({"fast": fast, "pro": pro}, router, default="fast")
@@ -362,7 +362,7 @@ class RoutingProvider:
         """最近一次路由实际选中的模型名；尚未路由时返回 default 模型。
 
         状态栏 / 观测层用它显示「当前模型」，而非 get_metadata().model 的
-        池内全部模型列表（如 "fast:deepseek-v4-flash, pro:deepseek-v4-pro"）。
+        池内全部模型列表（如 "fast:deepseek-flash, pro:deepseek-v4-pro"）。
         若已 ``set_force`` 强制指定，则立即返回强制项的模型（不等下一次路由）。
         """
         if self._force is not None:

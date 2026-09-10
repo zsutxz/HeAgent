@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     # 自动切换），并照常放入多 provider 池——不影响 Multiple providers Choose。
     routing_enabled: bool = Field(default=False)
     # 快速模型（flash 类比）与深度模型（pro 类比）的模型名。
-    routing_fast_model: str = Field(default="deepseek-v4-flash")
+    routing_fast_model: str = Field(default="deepseek-flash")
     routing_pro_model: str = Field(default="deepseek-v4-pro")
     # 追加到内置推理关键词表的自定义词（逗号分隔；命中即路由到 pro）。
     routing_reasoning_keywords: str = Field(default="")

@@ -105,7 +105,7 @@ async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
     click.echo("Multiple providers available. Choose one:", err=True)
     for i, name in enumerate(names, 1):
         meta = info[name]
-        # 智能路由条目（RoutingProvider）：只显示默认模型（如 deepseek-v4-flash），而非池内全部模型列表。
+        # 智能路由条目（RoutingProvider）：只显示默认模型（如 deepseek-flash），而非池内全部模型列表。
         display_model = active_model(provider.providers[name]) or meta.model
         marker = "<- default" if i == default_idx else ""
         click.echo(f"  [{i}] {name}  ({display_model})  {marker}", err=True)
@@ -220,12 +220,12 @@ def _build_routing_provider(settings: Settings) -> BaseProvider:
 
     ``ROUTING_ENABLED=true`` 时由 ``_build_provider`` 调用。DeepSeek 是唯一有天然
     「快速版/深度版」二分的 OpenAI 兼容 provider，故路由默认绑定 DeepSeek：
-    fast → ``routing_fast_model``（默认 deepseek-v4-flash），pro → ``routing_pro_model``
+    fast → ``routing_fast_model``（默认 deepseek-flash），pro → ``routing_pro_model``
     （默认 deepseek-v4-pro）。启发式路由见 ``providers/router.py``。
     """
     if not settings.deepseek_api_key:
         click.echo(
-            "Error: ROUTING_ENABLED=true requires DEEPSEEK_API_KEY (fast=deepseek-v4-flash, pro=deepseek-v4-pro).",
+            "Error: ROUTING_ENABLED=true requires DEEPSEEK_API_KEY (fast=deepseek-flash, pro=deepseek-v4-pro).",
             err=True,
         )
         raise SystemExit(1)
