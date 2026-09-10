@@ -99,6 +99,10 @@ class Settings(BaseSettings):
     routing_pro_model: str = Field(default="deepseek-v4-pro")
     # 追加到内置推理关键词表的自定义词（逗号分隔；命中即路由到 pro）。
     routing_reasoning_keywords: str = Field(default="")
+    # 推理链续接开关（HeuristicRouter 判据 1）：true 时「上一轮走了 pro 且思考痕迹仍在
+    # 历史中」会让后续轮次即使没命中关键词也继续走 pro；默认 false = 尽量用 fast
+    # （只按**当前请求**是否命中关键词判定，历史命中不再锁定）。
+    routing_reasoning_continuity: bool = Field(default=False)
 
     # ---- GPT 智能路由（OpenAI Responses API：terra/luna/sol 三档） ----
     # True 时 CLI 将 gpt（Responses API）条目构建为 RoutingProvider：terra=快速 /

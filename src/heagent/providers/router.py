@@ -14,6 +14,9 @@
     await provider.send(messages)   # 普通问题 → fast
     await provider.send(messages)   # 带「分析/推理」关键词 → pro
 
+判定**只作用于当前请求**（最近一条 USER 消息），且默认关闭「推理链续接」——历史里
+命中过关键词不会让后续轮次持续走 pro（**默认立场：能用 fast 就用 fast**）。
+
 对 ``AgentLoop`` 完全透明（实现 ``BaseProvider`` 协议），零改动注入。
 
 **非安全边界说明**：路由决策是启发式（关键词 + 推理链续接），仅影响「用哪个模型」，
@@ -42,6 +45,9 @@ logger = logging.getLogger(__name__)
 
 # 内置「推理/复杂任务」关键词（大小写不敏感；中文按子串匹配）。
 # 命中任意一个即路由到 pro（深度模型）。可在 HeuristicRouter 构造时追加自定义词。
+# 表内不含「为什么」「解释」「why」「explain」等**纯疑问词**：它们高频出现在普通问答里，
+# 是 pro 的主要误判源（默认立场是尽量用 fast）；确需按其上 pro 时，用
+# ROUTING_REASONING_KEYWORDS / reasoning_keywords= 追加回来即可。
 DEFAULT_REASONING_KEYWORDS: list[str] = [
     # 中文
     "分析",
@@ -60,8 +66,6 @@ DEFAULT_REASONING_KEYWORDS: list[str] = [
     "代码审查",
     "调试",
     "原理",
-    "为什么",
-    "解释",
     # 英文
     "analyze",
     "reason",
@@ -73,8 +77,6 @@ DEFAULT_REASONING_KEYWORDS: list[str] = [
     "algorithm",
     "architecture",
     "debug",
-    "explain",
-    "why",
     "compare",
     "refactor",
     "step by step",
@@ -142,31 +144,47 @@ class Router(Protocol):
         ...
 
 
+def _latest_user_text(messages: list[Message]) -> str | None:
+    """返回**最近一条** USER 消息的小写文本；无 USER 消息时返回 None。
+
+    **反向扫描**而非取列表末条：同一轮内的 tool 调用会把尾部消息变成 TOOL/ASSISTANT
+    结果，取末条会漏判本轮请求；反向找最近一条 USER 消息既跳过尾部噪声，又保证只按
+    **当前请求**判定复杂度——历史里命中过关键词不再让后续轮次持续走 pro。
+    """
+    for message in reversed(messages):
+        if message.role == Role.USER:
+            return message.content.lower()
+    return None
+
+
 class HeuristicRouter:
-    """启发式路由：推理链续接 + 关键词检测。
+    """启发式路由：关键词检测（默认）+ 可选推理链续接。
 
     决策顺序（先命中先返回）：
-      1. **推理链续接**：**上一轮实际选中的就是 pro** 且历史里仍有 ASSISTANT 消息
-         携带 ``reasoning_content``（思考痕迹）→ 说明正处在 pro 发起的多轮推理中途，
-         故继续停留在 pro。判据以「上一轮是否真的用了 pro」为准，而非「历史里有没有
+      1. **推理链续接**（**默认关闭**，构造参数 ``continuity=True`` 时启用）：**上一轮
+         实际选中的就是 pro** 且历史里仍有 ASSISTANT 消息携带 ``reasoning_content``
+         （思考痕迹）→ 继续停留在 pro。**默认关闭**的理由：它会让「一次 pro」把整个
+         会话钉在 pro（思考痕迹要等上下文压缩才消失），与「默认尽量用 fast」冲突。
+         启用时判据以「上一轮是否真的用了 pro」为准，而非「历史里有没有
          ``reasoning_content``」：DeepSeek v4 的 flash 与 pro 都是思考模型、都返回
          ``reasoning_content``，按后者判定会让走过一次 flash 后永久锁死 pro。
-      2. **复杂度关键词**：扫描全部 USER 消息，命中 ``reasoning_keywords`` 中任一
-         （大小写不敏感子串）→ 判定为复杂任务，路由到 pro。
-      3. **中档关键词**（仅当配置了 ``mid`` 档时）：扫描全部 USER 消息，命中
+      2. **复杂度关键词**：扫描**最近一条 USER 消息**（反向查找，跳过尾部的
+         ASSISTANT/TOOL），命中 ``reasoning_keywords`` 中任一（大小写不敏感子串）→
+         判定为复杂任务，路由到 pro。
+      3. **中档关键词**（仅当配置了 ``mid`` 档时）：同样只扫描最近一条 USER 消息，命中
          ``mid_keywords`` 中任一 → 判定为中档任务，路由到 mid。
       4. **兜底**：否则路由到 fast（快速/廉价模型）。
 
-    **成本语义（任务级而非消息级）**：判据 2/3 均扫描全部历史消息——任一轮命中
-    关键词后，后续**所有**轮次（包括简单追问）都持续路由到 pro，直到会话上下文被
-    压缩/重置；判据 1 在 pro 的思考痕迹仍留在历史中时续接 pro，痕迹被压缩掉后即
-    自动回落到关键词判定。这是有意取舍：避免 tool-call 后最新消息为 TOOL
-    结果时漏判复杂度；代价是长会话可能全量按 pro 计费。介意成本可在新会话中
-    避免触发关键词，或 ``/route fast`` 强制。
+    **成本语义（按当前请求判定，默认尽量用 fast）**：判据 2/3 只看最近一条 USER
+    消息——历史里命中过关键词**不会**让后续轮次（含简单追问）持续走 pro；只有当前这条
+    请求自身命中才走 pro。用「反向查找最近一条 USER 消息」而非「取列表末条」：同一轮内
+    的 tool 调用会让尾部消息变成 TOOL 结果，此时最近一条 USER 消息仍是本轮请求，不会
+    漏判——这正是旧版「扫描全部历史」想解决的问题，现以更精准的方式覆盖，且不再有
+    「长会话全量按 pro 计费」的副作用。确需「一次 pro 就一直 pro」时开 ``continuity=True``；
+    也确实想全程 fast 时用 ``/route fast`` 强制。
 
     这是**纯启发式**（非精确、非安全机制）：关键词可能误判（漏判简单任务 / 误判
-    复杂任务），但对「多付一点钱 vs 少一次往返」的取舍足够实用；推理链续接保证
-    pro 发起、尚未走完的多轮推理不会被中途换模型打断。
+    复杂任务），但对「多付一点钱 vs 少一次往返」的取舍足够实用。
     """
 
     def __init__(
@@ -177,6 +195,7 @@ class HeuristicRouter:
         mid: str | None = None,
         reasoning_keywords: list[str] | None = None,
         mid_keywords: list[str] | None = None,
+        continuity: bool = False,
     ) -> None:
         """初始化启发式路由。
 
@@ -189,10 +208,14 @@ class HeuristicRouter:
                 传入 None 则仅用 DEFAULT_REASONING_KEYWORDS。
             mid_keywords: 追加到内置「中档任务」关键词表的自定义词（合并，不覆盖）。
                 传入 None 则仅用 DEFAULT_MID_KEYWORDS（仅在配置 mid 时生效）。
+            continuity: 是否启用「推理链续接」（判据 1）。默认 False = 尽量用 fast——
+                启用后，上一轮走了 pro 且思考痕迹仍在历史中时，后续轮次即使没命中关键词
+                也继续走 pro，代价是在思考痕迹被压缩掉之前一直按 pro 计费。
         """
         self._fast = fast
         self._pro = pro
         self._mid = mid
+        self._continuity = continuity
         merged = list(DEFAULT_REASONING_KEYWORDS)
         if reasoning_keywords:
             merged.extend(reasoning_keywords)
@@ -212,6 +235,11 @@ class HeuristicRouter:
         """上一次实际选中的 provider 名；None = 尚未路由过（观测 / 测试用）。"""
         return self._last_provider
 
+    @property
+    def continuity(self) -> bool:
+        """是否启用「推理链续接」（判据 1）；默认 False（尽量用 fast）。"""
+        return self._continuity
+
     def note_selection(self, name: str) -> None:
         """记录本次实际选中的 provider 名（由 ``RoutingProvider`` 在 ``_pick`` 后回调）。
 
@@ -222,29 +250,26 @@ class HeuristicRouter:
 
     def route(self, messages: list[Message], tools: list[ToolSchema] | None) -> RouteDecision:
         """按决策顺序返回路由结果（见类 docstring）。"""
-        # 1. 推理链续接：上一轮实际选中 pro，且思考痕迹仍在历史中 → 继续 pro。
-        #    只看「上一轮是不是 pro」而非「历史里有没有 reasoning_content」：flash 也返回
-        #    该字段，按后者会让走过一次 flash 后永久锁死 pro（fast 再也切不回）。
-        if self._last_provider == self._pro and any(
-            msg.role == Role.ASSISTANT and msg.reasoning_content for msg in messages
+        # 1. 推理链续接（默认关闭，continuity=True 时启用）：上一轮实际选中 pro，且思考
+        #    痕迹仍在历史中 → 继续 pro。只看「上一轮是不是 pro」而非「历史里有没有
+        #    reasoning_content」：flash 也返回该字段，按后者会让走过一次 flash 后永久
+        #    锁死 pro（fast 再也切不回）。
+        if (
+            self._continuity
+            and self._last_provider == self._pro
+            and any(msg.role == Role.ASSISTANT and msg.reasoning_content for msg in messages)
         ):
             return RouteDecision(provider=self._pro, reason="reasoning_continuity")
 
-        # 2. 复杂度关键词：扫描 USER 消息 → pro（深度档）。
-        for msg in messages:
-            if msg.role != Role.USER:
-                continue
-            text = msg.content.lower()
+        # 2/3. 复杂度 + 中档关键词：**只扫描最近一条 USER 消息**（按当前请求判定，默认
+        #      尽量用 fast）。反向查找以跳过尾部 ASSISTANT/TOOL——同一轮 tool 调用后尾部
+        #      已不是 USER 消息，但本轮请求仍是最新的那一条，不会漏判。
+        text = _latest_user_text(messages)
+        if text is not None:
             for kw in self._keywords:
                 if kw in text:
                     return RouteDecision(provider=self._pro, reason=f"keyword:{kw}")
-
-        # 3. 中档关键词：扫描 USER 消息 → mid（仅当配置了 mid 档时）。
-        if self._mid is not None:
-            for msg in messages:
-                if msg.role != Role.USER:
-                    continue
-                text = msg.content.lower()
+            if self._mid is not None:
                 for kw in self._mid_keywords:
                     if kw in text:
                         return RouteDecision(provider=self._mid, reason=f"mid_keyword:{kw}")

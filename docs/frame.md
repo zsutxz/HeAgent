@@ -277,12 +277,19 @@ AgentLoop
 `ProviderChain` 的「出错才切换」正交（本类在无错误的正常路径上做主动选择）。对 `AgentLoop`
 透明（实现 `BaseProvider` 协议）。
 
-- `HeuristicRouter`：决策顺序 = ① **推理链续接**（**上一轮实际选中 pro** 且历史里仍有
-  ASSISTANT 的 `reasoning_content` → 继续 pro，避免打断 pro 的多轮推理）→ ② **复杂度
-  关键词**（扫描 USER 消息命中 `DEFAULT_REASONING_KEYWORDS` 或自定义词 → pro）→ ③ 兜底
-  fast。判据 ① 以「上一轮是否 pro」而非「历史有无 `reasoning_content`」为准——DeepSeek v4
-  的 flash/pro 都是思考模型、都返回该字段，按后者会让走过一次 flash 后永久锁死 pro；
-  `RoutingProvider._pick` 经可选钩子 `note_selection` 回传实际选中项。纯启发式（非安全机制）。
+- `HeuristicRouter`：**默认尽量用 fast（只按当前请求判定）**，决策顺序 = ① **推理链续接**
+  （**默认关闭**，`continuity=True` / `ROUTING_REASONING_CONTINUITY=true` 时启用：**上一轮
+  实际选中 pro** 且历史里仍有 ASSISTANT 的 `reasoning_content` → 继续 pro；默认关是因为它
+  会把会话钉在 pro，与「尽量 fast」冲突）→ ② **复杂度关键词**（扫描**最近一条 USER
+  消息**，反向查找以跳过尾部 ASSISTANT/TOOL，命中 `DEFAULT_REASONING_KEYWORDS` 或自定义词
+  → pro）→ ③ **中档关键词**（配置 mid 档时，同样只看最近一条 USER 消息 → mid）→ ④ 兜底
+  fast。关键词范围是「最近一条 USER 消息」而非「全部历史」——历史命中过关键词不会让后续
+  轮次（含简单追问）持续走 pro；反向查找则保证同一轮 tool 调用后（尾部是 TOOL 结果）仍
+  能取到本轮请求，不漏判。判据 ① 以「上一轮是否 pro」而非「历史有无
+  `reasoning_content`」为准——DeepSeek v4 的 flash/pro 都是思考模型、都返回该字段，按后者
+  会让走过一次 flash 后永久锁死 pro；`RoutingProvider._pick` 经可选钩子 `note_selection`
+  回传实际选中项（供判据 ①）。内置复杂度表不含「为什么」「解释」「why」「explain」等纯疑问词
+  （pro 主要误判源），需要时用 `ROUTING_REASONING_KEYWORDS` 追加回来。纯启发式（非安全机制）。
 - `RoutingProvider.send/stream`：`_pick()` 决策 → 未知名称回退 `default` → 委托。
 - `last_decision`（`RouteDecision`）记录最近一次决策，供日志/`/route` 命令观测。
 - CLI：`ROUTING_ENABLED=true` 时 `_build_provider` 将 DeepSeek 条目构建为二分路由

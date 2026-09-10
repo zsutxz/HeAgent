@@ -337,3 +337,28 @@ class TestBuildProviderGptRouting:
         """未开启 GPT 路由 → gpt 条目为普通 OpenAIResponsesProvider。"""
         provider = _build_provider(Settings(openai_responses_api_key="sk-gpt"), None)
         assert isinstance(provider, OpenAIResponsesProvider)
+
+
+class TestRoutingContinuityWiring:
+    """ROUTING_REASONING_CONTINUITY 透传到 HeuristicRouter（默认 False = 尽量用 fast）。"""
+
+    def test_deepseek_routing_continuity_defaults_off(self, hermetic) -> None:
+        provider = _build_provider(Settings(deepseek_api_key="sk-test", routing_enabled=True), None)
+        assert isinstance(provider, RoutingProvider)
+        assert provider._router.continuity is False
+
+    def test_deepseek_routing_continuity_honours_setting(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(deepseek_api_key="sk-test", routing_enabled=True, routing_reasoning_continuity=True),
+            None,
+        )
+        assert isinstance(provider, RoutingProvider)
+        assert provider._router.continuity is True
+
+    def test_gpt_routing_continuity_honours_setting(self, hermetic) -> None:
+        provider = _build_provider(
+            Settings(openai_responses_api_key="sk-gpt", gpt_routing_enabled=True, routing_reasoning_continuity=True),
+            None,
+        )
+        assert isinstance(provider, RoutingProvider)
+        assert provider._router.continuity is True

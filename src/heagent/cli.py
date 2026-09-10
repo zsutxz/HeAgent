@@ -243,7 +243,12 @@ def _build_routing_provider(settings: Settings) -> BaseProvider:
         base_url=base_url,
         max_tokens=settings.max_output_tokens,
     )
-    router = HeuristicRouter(fast="fast", pro="pro", reasoning_keywords=settings.routing_keyword_list or None)
+    router = HeuristicRouter(
+        fast="fast",
+        pro="pro",
+        reasoning_keywords=settings.routing_keyword_list or None,
+        continuity=settings.routing_reasoning_continuity,
+    )
     return RoutingProvider({"fast": fast, "pro": pro}, router, default="fast")
 
 
@@ -318,6 +323,7 @@ def _build_gpt_routing_provider(settings: Settings) -> BaseProvider:
         pro="sol",
         reasoning_keywords=settings.gpt_routing_reasoning_keyword_list or None,
         mid_keywords=settings.gpt_routing_mid_keyword_list or None,
+        continuity=settings.routing_reasoning_continuity,
     )
     return RoutingProvider({"terra": terra, "luna": luna, "sol": sol}, router, default="terra")
 

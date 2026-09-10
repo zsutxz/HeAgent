@@ -90,7 +90,7 @@ class TestHeuristicRouter:
 
     def test_reasoning_continuity_after_pro_selection(self) -> None:
         """上一轮实际选中 pro + 思考痕迹仍在历史 → 续接 pro（即使关键词已滚出历史）。"""
-        router = HeuristicRouter(fast="fast", pro="pro")
+        router = HeuristicRouter(fast="fast", pro="pro", continuity=True)
         router.note_selection("pro")
         messages = [
             Message(role=Role.ASSISTANT, content="...", reasoning_content="thinking..."),
@@ -101,7 +101,7 @@ class TestHeuristicRouter:
 
     def test_reasoning_continuity_after_flash_selection(self) -> None:
         """上一轮实际是 fast → 即使历史里有 reasoning_content 也不续接 pro。"""
-        router = HeuristicRouter(fast="fast", pro="pro")
+        router = HeuristicRouter(fast="fast", pro="pro", continuity=True)
         router.note_selection("fast")
         messages = [
             Message(role=Role.ASSISTANT, content="...", reasoning_content="thinking..."),
@@ -111,13 +111,13 @@ class TestHeuristicRouter:
 
     def test_reasoning_continuity_requires_reasoning_trace(self) -> None:
         """上一轮是 pro，但思考痕迹已被压缩掉 → 不再续接，回落关键词/兜底。"""
-        router = HeuristicRouter(fast="fast", pro="pro")
+        router = HeuristicRouter(fast="fast", pro="pro", continuity=True)
         router.note_selection("pro")
         assert router.route([_msg("继续")], None) == RouteDecision(provider="fast", reason="default_fast")
 
     def test_reasoning_continuity_precedes_keyword(self) -> None:
         """推理链续接优先级高于关键词（两者都指向 pro，这里验证 reason 取值）。"""
-        router = HeuristicRouter(fast="fast", pro="pro")
+        router = HeuristicRouter(fast="fast", pro="pro", continuity=True)
         router.note_selection("pro")
         messages = [
             Message(role=Role.ASSISTANT, content="...", reasoning_content="thinking..."),
@@ -131,16 +131,77 @@ class TestHeuristicRouter:
         assert router.route([_msg("请审计")], None).provider == "pro"  # 自定义词
         assert router.route([_msg("请分析")], None).provider == "pro"  # 内置词仍生效
 
-    def test_keyword_matches_any_user_message(self) -> None:
-        """关键词扫描遍历全部 USER 消息，不止最后一条（多轮后最新消息可能是 TOOL）。"""
+    def test_keyword_scan_skips_trailing_assistant_and_tool(self) -> None:
+        """反向查找最近一条 USER 消息：同一轮 tool 调用后尾部是 TOOL/ASSISTANT 也不漏判。"""
         router = HeuristicRouter(fast="fast", pro="pro")
         messages = [
-            _msg("帮我规划一个复杂方案"),
+            _msg("帮我规划一个方案"),
             Message(role=Role.ASSISTANT, content="好的"),
             Message(role=Role.TOOL, content="tool output", tool_call_id="1"),
         ]
         decision = router.route(messages, None)
         assert decision.provider == "pro"
+        assert decision.reason == "keyword:规划"
+
+    def test_keyword_scans_only_latest_user_message(self) -> None:
+        """只按**当前请求**判定：历史命中过关键词不再让后续轮次持续走 pro。"""
+        router = HeuristicRouter(fast="fast", pro="pro")
+        messages = [
+            _msg("帮我分析这段代码"),
+            Message(role=Role.ASSISTANT, content="好的"),
+            _msg("继续"),
+        ]
+        assert router.route(messages, None) == RouteDecision(provider="fast", reason="default_fast")
+
+    def test_history_keyword_does_not_lock_pro_when_continuity_off(self) -> None:
+        """回归：历史命中关键词 + 上一轮是 pro（未开 continuity）→ 简单追问回落 fast。"""
+        router = HeuristicRouter(fast="fast", pro="pro")
+        router.note_selection("pro")
+        messages = [
+            _msg("帮我分析这段代码"),
+            Message(role=Role.ASSISTANT, content="...", reasoning_content="thinking..."),
+            _msg("继续"),
+        ]
+        assert router.route(messages, None) == RouteDecision(provider="fast", reason="default_fast")
+
+    def test_no_user_message_falls_back_fast(self) -> None:
+        """没有任何 USER 消息（如仅 TOOL 结果）→ 兜底 fast，不误判 pro。"""
+        router = HeuristicRouter(fast="fast", pro="pro")
+        messages = [Message(role=Role.TOOL, content="分析 规划 推理", tool_call_id="1")]
+        assert router.route(messages, None) == RouteDecision(provider="fast", reason="default_fast")
+
+    def test_mid_keyword_scans_only_latest_user_message(self) -> None:
+        """中档关键词同样只看最近一条 USER 消息（历史命中不再持续走 mid）。"""
+        router = HeuristicRouter(fast="terra", mid="luna", pro="sol")
+        messages = [
+            _msg("帮我总结一下这篇文章"),
+            Message(role=Role.ASSISTANT, content="好的"),
+            _msg("继续"),
+        ]
+        assert router.route(messages, None) == RouteDecision(provider="terra", reason="default_fast")
+
+    def test_continuity_disabled_by_default(self) -> None:
+        """默认 continuity=False：一次 pro 不会把整个会话钉在 pro。"""
+        router = HeuristicRouter(fast="fast", pro="pro")
+        assert router.continuity is False
+        router.note_selection("pro")
+        messages = [
+            Message(role=Role.ASSISTANT, content="...", reasoning_content="thinking..."),
+            _msg("继续"),
+        ]
+        assert router.route(messages, None) == RouteDecision(provider="fast", reason="default_fast")
+
+    def test_weak_question_words_do_not_route_pro_by_default(self) -> None:
+        """纯疑问词（为什么/解释/why/explain）已移出内置表（pro 主要误判源）。"""
+        router = HeuristicRouter(fast="fast", pro="pro")
+        for text in ("为什么天空是蓝的", "解释一下这个词", "why is it so", "explain this"):
+            assert router.route([_msg(text)], None) == RouteDecision(provider="fast", reason="default_fast")
+
+    def test_weak_question_words_can_be_restored(self) -> None:
+        """需要时可用自定义词把纯疑问词加回内置表（合并语义，不覆盖）。"""
+        router = HeuristicRouter(fast="fast", pro="pro", reasoning_keywords=["为什么", "explain"])
+        assert router.route([_msg("为什么天空是蓝的")], None).provider == "pro"
+        assert router.route([_msg("explain this")], None).provider == "pro"
 
     def test_mid_tier_routes_mid_keyword(self) -> None:
         """配置了 mid 档时，中档关键词 → mid。"""
