@@ -54,3 +54,4 @@ uv.lock
 .agents/skills/
 _he-output/goals
 projects/
+.pytest_tmp_templates_final/

@@ -58,8 +58,8 @@ Step 08 是**全系统最终验收步骤**：只在全部 story 完成后运行�
 `epic-e1`），Epic 级报告落在同一 `epic-<eN>/` 目录下。任何改动代码的步骤都必须重跑受影响的测试，
 并写明确切命令与结果。
 
-Step 07 与 step 08 的**角色契约内联在本文件中**：它们不声明 `role:`，也不依赖任何外部 skill 包。
-其余步骤把方法论委派给 `role:` 指名的 `.heagent/skills/<role>/SKILL.md`。
+每个步骤的执行方法都由 `role:` 指名的 `.heagent/skills/<role>/SKILL.md` 提供。本文件只维护
+步骤顺序、输入输出、检查点、产物位置和工作流特有的边界。
 
 ## Step 01: market-research（市场调研）
 role: bmad-agent-analyst
@@ -183,159 +183,27 @@ story 编号**连续且单调**：sprint 1 放编号最小的 story，sprint 2 �
 `_bmad-output/sprint-status.yaml`。
 
 ## Step 07: implement-story（实现故事）
+role: bmad-build
 input: 澄清的实现范围, 架构
 output: 故事实现, 故事定义, 故事测试证据, 故事验证报告
 checkpoint: true
 story_loop: 02-epics.md
 validation: section: 实现摘要; section: 测试证据; section: 验证结论; 本条 story 在这一个步骤内完成实现、测试与验证，且记录下确切命令及其结果
 
-这是**逐 story 的重任务步骤**：一个会话内实现当前 story、拥有它的测试，并按它自己的验收契约完成
-验证。它是唯一允许创建实现产物、唯一允许新增或修改测试文件的步骤。它还在所属 Sprint / Epic 的
-收口增量里承担 Sprint 退出验证与 **Epic 级代码评审**；全系统的集成与测试留给 step 08。
-
-每次增量**只实现一条 story**：由 CLI 注入的当前 story。不要实现其他 story，也不要提前构建后续
-story。
-
-**产物目录（按 Epic 分组）**：本步骤的产物写入
-`_he-output/goals/<goal-id>/step-07-implement-story/epic-<eN>/s-<n>/`——`<eN>` 是当前 story 在
-`02-epics.md` 中的父 Epic 引用小写（`E1` → `epic-e1`），`<n>` 是 story 编号。CLI 已把本增量的
-`report.md` 写入该目录；`story.md`、`implementation.md`、`test-report.md`、`verify-report.md`
-必须写在同一目录下。若 `02-epics.md` 没有 Epic 分段（既无 `## E<N>` 段也无 `父 Epic` 字段），退化
-为 `step-07-implement-story/s-<n>/`。
-
-**立场**：你是这一条 story 的实现者、测试者与第一验证者。三个阶段都不可选、也不可互相合并——没有
-你亲自产出的证据的阶段等于不存在，被你跳过的阶段是本步骤的**失败**而不是捷径。
-
-**冻结契约**：先按 `02-epics.md` **逐字**写出当前 story 的定义——id、标题、父 Epic、sprint、
-优先级、依赖、验收标准与 DoD——到 `step-07-implement-story/epic-<eN>/s-<n>/story.md`，并补上代码地图、边界与
-约束（必须 / 需先问 / 禁止）、I/O 与边界矩阵（若有）、验证方式。它是后续每个阶段、每个步骤读取的
-**验收契约**，因此不得与 `02-epics.md` 漂移。写出后即**冻结**：只有人能改，你不得在本步骤内改写
-验收标准。若 `02-epics.md` 缺少上述某节，由你依据 PRD、架构与代码库补齐，并在该节标注 `derived`；
-不得因缺节停工，也不得凭空发明需求。
-
-Phase 1 — 实现。按架构与已验证 PRD 构建改动。保持最小、遵循既有模块边界与约定，并让仓库保持可
-导入、可静态检查。把改动文件、你做出的决策、以及未能完成的部分写入
-`step-07-implement-story/epic-<eN>/s-<n>/implementation.md`。
-
-Phase 2 — 测试。把 `story.md` 的每条验收标准映射到至少一个**实际执行过的**测试，并覆盖这些标准
-隐含的边界、空值、错误、重试与权限路径，同时覆盖 DoD。在仓库既有测试目录下、按既有框架/命名/
-fixture 约定新增或扩展测试；**不得为了让测试通过而改产品代码**。先跑本 story 的聚焦测试，再跑
-相关回归套件，并为每次运行记录**确切命令行与观察到的结果**——计数、失败数，以及任何失败输出。
-**永远不要**削弱、跳过或删除既有断言来换取绿色；若既有测试本身有错，说明理由并记录。若
-`story.md` 含 I/O 与边界矩阵，逐行核对每个矩阵行都有至少一个覆盖其期望行为的测试，且该测试**实际
-跑过并通过**：存在但未运行（未注册、被过滤、跳过、禁用）算缺失；测试与矩阵冲突时**永远改代码，
-不改期望**；矩阵行本身有歧义时停下问人。把标准到测试的映射、命令及其结果、以及残余覆盖缺口写入
-`step-07-implement-story/epic-<eN>/s-<n>/test-report.md`。
-
-Phase 3 — 验证。重读实际 diff 与你刚写的测试文件，**自己**重跑命令，并逐条判定每条验收标准为
-通过 / 不通过 / 无法验证，并给出具体证据：命令输出、文件与行号，或观察到的行为。同时判定 DoD、
-确认改动没有越出 story 范围，并检查该 story 本不打算改动的行为是否出现回归。**无法举证的验收标准
-判为不通过，不是「假定通过」。** 发现 Critical 缺陷时施加最小修复、重跑受影响测试并记录。把逐条
-判定表（标准 / 判定 / 证据）、你重跑的命令与残余风险写入
-`step-07-implement-story/epic-<eN>/s-<n>/verify-report.md`。
-
-**Phase 4 — 收口（仅当本增量命中边界时执行）**
-
-先判定本增量是否落在边界上：读 `02-epics.md`，找出当前 story 所属的 Sprint 与 Epic——若它是该
-Sprint 的最后一条 story，执行 **Sprint 收口**；若它是该 Epic 的最后一条 story，执行 **Epic 收口
-评审**。两者可以同时命中，都不可省略；不命中边界时不要臆造收口动作。
-
-**Sprint 收口**：跑该 Sprint 的可演示切片、核对进入与退出准则，把结果记入 `## 收口结论`。退出准则
-不通过是本增量的 Critical 缺陷。
-
-**Epic 收口评审**：对本 Epic 的**全部 story** 做一次对抗式代码评审——这是本工作流的代码评审关口，
-step 08 不再逐 story 评审。评审报告写入本步骤目录下的 `epic-<eN>/review-report.md`，必须含
-`## 评审发现` 章节与 frontmatter `review_loop_iteration`（缺省 0）。评审契约如下：
-
-- **立场**：你是对抗式评审者，不是自己前几个阶段的辩护人。实现报告、测试报告与自验证判定都是
-  **待核验的主张**；结论只能来自你亲自读过的合并 diff 和你亲自跑过的命令。评审与实现同处一个会话，
-  因此必须把它当作**事后审计**：先切换立场、从合并 diff 与重跑命令出发，不得采信自己先前写下的结论。
-- **三个镜头**（各自独立成段记录）：①**对抗式**——找「缺什么」而不只是「错什么」，默认这份改动有
-  问题再去证明它；关注未处理的分支、静默吞掉的异常、被绕过的校验、假设了却未验证的前提、并发与
-  重入、资源释放、错误路径的日志与返回值、被删掉的守卫、新增的隐式耦合。②**边界追踪**——沿真实
-  调用链追踪，而不是只读 diff 片段（空值 / 空集合 / 单元素 / 上限 / 超时 / 取消 / 重试 / 部分失败 /
-  顺序依赖 / 类型边界 `0`、`-1`、`None`、`""`、极大值）；每条边界问三件事：会不会崩、会不会静默
-  错、有没有测试。③**验证缺口**——对照验收标准找「声称通过但没有证据」的地方：断言只覆盖 happy
-  path、断言实现细节而非可观察行为、改了实现却没改对应测试、测试被跳过 / 削弱 / 删除、用覆盖率数字
-  替代行为验证。
-- **定级前先读代码**：打开每条发现所在的源码、调用点与守卫，不得只看 diff hunk 定级。
-- **分诊（按顺序执行）**：①**去重**——只合并「同一主张且同一所需动作」的发现，其余逐条独立评估，
-  不得因为某条相关发现被驳回就驳回另一条；②**定级**——按对**最终消费者**的后果定级（`high` 不可容忍＝Critical、
-  必须修复 / `medium` 可容忍 / `low` 无影响或仅观感），**忽略**你自己前几阶段给出的等级；③**归类**
-  （每条恰好一类）——`intent_gap`（本改动引起、但意图不完整无法消解；除非只有唯一读法，不要推断
-  意图）/ `bad_spec`（本改动直接偏离规格；在它和 `patch` 之间犹豫时优先 `bad_spec`）/ `patch`
-  （无需人工输入即可琐碎修复）/ `defer`（非本 Epic 引起的既有问题；在它和 `reject` 之间犹豫时优先
-  `reject`）/ `reject`（噪声，静默丢弃）；④**处置**——`intent_gap` 标 `blocked` 交人裁决，不要猜；
-  `bad_spec` **不要改 `02-epics.md`**，施加使实现与规格一致的最小修复并写一条规格缺陷记录（触发
-  发现、应改的规格条目、避免的已知坏态、KEEP 指令）；`patch` 就地修复并重跑受影响测试；`defer`
-  向 `deferred-work.md` **追加**一条（`source_spec` / `summary` / `evidence`，不改既有条目、不查
-  重）；`reject` 静默丢弃。
-- **删除检查**：若合并 diff 删除了有意义的代码，确认被删除的行为或契约要么已被重新建立，要么被
-  有意退役。
-- **只做最小修复**：Critical 就地最小修复并重跑受影响测试；跨 Epic 的回归可以记录，但除非是
-  Critical，留给拥有它的 story。
-- **回环上限**：每发生一次「需回到实现阶段重新推导」的情形，把 `review-report.md` frontmatter 的
-  `review_loop_iteration` 加一；超过 **5** 即 HALT 升级给人。
-
-把完整的逐 story 报告作为最终回复返回，必须含三个显式章节：`## 实现摘要`（改动文件、如何触发
-改动、残余风险）、`## 测试证据`（标准到测试映射、确切命令及结果、覆盖缺口）与 `## 验证结论`（逐条
-判定表与总体结论）。**缺任一章即阻塞本步骤。** 命中收口边界时**再追加** `## 评审发现`（该 Epic
-的发现、严重度与处置）与 `## 收口结论`（Sprint / Epic 的退出判定与证据）。这两个章节是正文要求
-而非 `section:` 门禁——`section:` 门禁按每条 story 逐次校验，无法只对收口增量生效——因此 step 08
-会复核它们是否存在且自洽。
-
-禁止：在没有产生结果的那条命令的情况下宣称某阶段通过；改写验收标准去匹配已实现的代码；把失败
-测试报成警告、把跳过测试报成通过；未重跑命令就宣称自己的工作已验证；实现另一条 story、扩大
-story 范围；跳过收口增量（Sprint / Epic 边界）的验证或评审；把收口评审写成对自己前几阶段结论的复述；
-对 Epic 收口评审报出的 Critical 不做最小修复就放行；修改 `02-epics.md`。
-
-最后一条 story 完成后，写出本步骤顶层文档 `step-07-implement-story/index.md` 作为索引：逐 Epic
-总览（Epic / 包含的 story / 收口评审结论 / 是否有未决 Critical）+ 逐 story 表格（story / 所属
-Epic / 改动文件 / 通过标准数 / 结论），链接每个 `epic-<eN>/s-<n>/` 下的 `story.md`、
-`implementation.md`、`test-report.md`、`verify-report.md` 以及 `epic-<eN>/review-report.md`，
-然后同步更新 `GOAL.md` 的 Epics 段。`GOAL.md` 只管 Epic；story 状态活在逐
-story 产物里，`02-epics.md` 在 step 06 写出后保持只读。
+`bmad-build` 是本步骤的实现、测试与验证方法论来源。CLI 每次只注入一条 Story；只实现该 Story，
+不得修改冻结的 `02-epics.md`。Story 产物必须写入
+`_he-output/goals/<goal-id>/step-07-implement-story/epic-<eN>/s-<n>/`：`story.md`、
+`implementation.md`、`test-report.md` 与 `verify-report.md`；CLI 保存该次步骤输出为同目录的
+`report.md`。命中 Sprint 或 Epic 的最后一条 Story 时，按 BMad 方法完成相应收口，并将证据写入报告。
 
 ## Step 08: system-integration-test（系统集成及测试）
+role: bmad-qa-generate-e2e-tests
 input: 故事验证报告, 故事实现, 故事测试证据, 架构, 已验证 PRD
 output: 评审报告, 系统集成报告
 checkpoint: true
 validation: section: 评审发现; section: 质量门禁; section: 系统集成结论; 逐 Epic 集成场景与跨 Epic 端到端场景都记录确切命令与观察结果，且不存在未决 Critical
 
-这是**全系统最终验收步骤**，只运行一次（不按 story、也不按 Epic 展开各自的检查点）：全部 story
-实现完毕、每个 Epic 都通过收口评审之后，把各 Epic 合起来当作一个系统来验证。它不重新设计实现，
-只做最小修复，并给出系统级放行结论。
-
-**前置核对（逐 Epic，按 `02-epics.md` 的 Epic 出现顺序）**：核对进入证据——
-`step-07-implement-story/epic-<eN>/s-<n>/` 下的 `story.md`、`implementation.md`、
-`test-report.md`、`verify-report.md`，以及 `epic-<eN>/review-report.md` 的 `## 评审发现`；并确认
-没有未解决的 Critical 发现。缺产物或存在未决 Critical 发现即该 Epic **失败**——如实报告，不要绕过
-继续。
-
-**逐 Epic 集成**：为每个 Epic 设计并运行**只有该 Epic 的 story 合起来时才成立**的集成场景：跨
-story 流程、模块边界、真实入口（CLI / API / 公开接口）以及穿过它们的数据。优先端到端执行已交付
-代码，而不是重复测 story 内部。把每个 Epic 的报告写入本步骤目录下的
-`epic-<eN>/integration-report.md`。
-
-**系统级集成与测试**：跨 Epic 端到端——把全部 Epic 合起来，按真实用户旅程跑通主路径，并至少覆盖
-失败路径、边界输入与中断 / 恢复路径。凡「各 Epic 单独通过、合起来才暴露」的问题都属于本步骤的
-发现；优先真实入口而非单元级重测。
-
-**质量门禁**：跑全量测试套件与项目质量门禁（lint、format、类型检查）。记录**确切命令与观察到的
-结果**（计数、失败数、失败输出），不得只写「通过」。
-
-**Critical 处置**：出现 Critical 集成缺陷时施加最小修复、重跑受影响测试、重跑相关集成场景，并记为
-「在 step 08 修复；集成已重跑」。不要重新设计实现，也不要为了拿到绿色结论而削弱场景或门禁。
-
-**判定与索引**：逐 Epic 给 pass / fail 与证据，再给系统级总体结论、未覆盖的场景与残余风险；
-**不要把失败软化成警告**。写出本步骤顶层文档作为索引：逐 story 表（story / 各严重度发现数 / 处置
-状态）+ 逐 Epic 表（Epic / story / 集成场景 / 结论）+ 系统级门禁结果，并更新 `GOAL.md` 的 Epics
-段以反映评审与集成结论。`GOAL.md` 只管 Epic，`02-epics.md` 全程只读。
-
-把完整报告作为最终回复返回，必须含三个显式章节：`## 评审发现`（逐 Epic 集成与系统级测试中发现的
-问题，带严重度、证据与处置）、`## 质量门禁`（确切命令与观察到的结果）与 `## 系统集成结论`（逐
-Epic 结论 + 系统级判定 + 未覆盖场景与残余风险）。**缺任一章即阻塞本步骤。**
-
-禁止：不重跑命令就采信 step 07 的报告；因为各 story、各 Epic 单独通过就宣称系统已集成；跳过某个
-Epic，或在第一个失败的 Epic 之后就停下而不报告其余 Epic；把未测的路径当作通过；为了拿到绿色结论
-而削弱场景或门禁；修改 `02-epics.md`。
+`bmad-qa-generate-e2e-tests` 是本步骤的集成与端到端测试方法论来源。全部 Story 完成后只执行一次：
+逐 Epic 验证跨 Story 集成场景，并验证跨 Epic 主路径、失败路径与恢复路径。逐 Epic 报告写入
+`step-08-system-integration-test/epic-<eN>/integration-report.md`；顶层报告给出质量门禁、未决
+Critical 与系统级结论。只允许修复本步骤发现的 Critical 集成缺陷；`02-epics.md` 保持只读。
