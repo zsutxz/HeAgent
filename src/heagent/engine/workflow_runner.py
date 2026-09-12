@@ -20,6 +20,21 @@ from heagent.engine.workflow import (
 )
 from heagent.memory.skill_packages import WorkflowResource, WorkflowStepResource
 
+_SECTION_RULE = re.compile(r"section\s*:\s*([^,;]+)", re.IGNORECASE)
+
+
+def required_sections(validation_rules: str | None) -> list[str]:
+    """Return the ``section:`` headings a step output must contain.
+
+    Single parser shared by the post-step output gate and the pre-step prompt: an
+    executor has to be told the exact headings it will be judged on, otherwise a
+    long step can finish all its work and still be blocked on a heading it never
+    saw.
+    """
+    if not validation_rules:
+        return []
+    return [item.strip() for item in _SECTION_RULE.findall(validation_rules) if item.strip()]
+
 
 class WorkflowGateError(ValueError):
     """Raised when a step cannot satisfy its declared contract."""
@@ -74,6 +89,30 @@ def _story_sort_key(spec: StorySpec) -> int:
     return int(match.group(1)) if match else 0
 
 
+def _is_epic_reference(cell: str) -> bool:
+    """True when a table cell is a bare Epic reference (``E1`` / ``E-1`` / ``Epic 1``)."""
+    return bool(re.fullmatch(r"(?:epic[-_ ]*(?:e[-_ ]?)?|e[-_ ]?)\d+", cell.strip(), re.IGNORECASE))
+
+
+def _story_table_entry(stripped: str) -> tuple[str, str, str] | None:
+    """Parse one table row into ``(id, summary, epic_hint)``; ``None`` for a non-story row.
+
+    An overview table such as ``| S-1 | E1 | P0 | none | <title> |`` puts the Epic in
+    the second column and the human summary in the last one, so the raw second cell
+    must not be mistaken for the story title.
+    """
+    match = _STORY_TABLE.match(stripped)
+    if match is None:
+        return None
+    cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+    summary = match.group("summary").strip()
+    epic_hint = ""
+    if len(cells) >= 3 and _is_epic_reference(cells[1]):
+        epic_hint = _normalize_epic_id(cells[1])
+        summary = next((cell for cell in reversed(cells[2:]) if cell), summary)
+    return match.group("id"), summary, epic_hint
+
+
 def parse_story_list(text: str) -> list[StorySpec]:
     """Extract an ordered story list from Markdown.
 
@@ -84,9 +123,13 @@ def parse_story_list(text: str) -> list[StorySpec]:
     * ``- [ ] S-1 Scene rendering`` (list/checklist item)
     * ``| S-1 | Scene rendering |`` (table row)
 
-    Story ids normalize to ``S-<n>`` and are deduplicated by id, then sorted by
-    their numeric suffix. Non-story rows (e.g. Epic ids such as ``E-1``) are
-    ignored.
+    Shapes are ranked for a repeated id: a story heading outranks a list item,
+    which outranks a table row. A document therefore still keeps every story it
+    declares (including table-only rows) while an overview table such as
+    ``| S-1 | E1 | P0 | none | <title> |`` can no longer overwrite the titles and
+    Epics owned by the story sections. Story ids normalize to ``S-<n>`` and are
+    deduplicated by id, then sorted by their numeric suffix. Non-story rows
+    (e.g. Epic ids such as ``E-1``) are ignored.
 
     Epic grouping is optional: a story inherits the Epic declared by the nearest
     preceding Epic heading (``## E1 ...`` / ``## Epic 1 ...``), and an explicit
@@ -98,8 +141,8 @@ def parse_story_list(text: str) -> list[StorySpec]:
     lines = text.splitlines()
     epic_headings: list[tuple[int, str]] = []
     epic_fields: list[tuple[int, str]] = []
-    stories: list[tuple[int, str, str]] = []
-    seen: set[str] = set()
+    stories: list[tuple[int, str, str, str]] = []
+    ranks: dict[str, int] = {}
     for index, line in enumerate(lines):
         stripped = line.strip()
         if not stripped:
@@ -108,28 +151,39 @@ def parse_story_list(text: str) -> list[StorySpec]:
         if epic_match is not None:
             epic_headings.append((index, _normalize_epic_id(epic_match.group("epic"))))
             continue
-        story_match = None
-        for pattern in (_STORY_HEADING, _STORY_LIST, _STORY_TABLE):
-            story_match = pattern.match(stripped)
-            if story_match is not None:
-                break
-        if story_match is not None:
+        entry: tuple[str, str, str, int] | None = None
+        heading_match = _STORY_HEADING.match(stripped)
+        if heading_match is not None:
+            entry = (heading_match.group("id"), heading_match.group("summary").strip(), "", 0)
+        else:
+            list_match = _STORY_LIST.match(stripped)
+            if list_match is not None:
+                entry = (list_match.group("id"), list_match.group("summary").strip(), "", 1)
+            else:
+                table_entry = _story_table_entry(stripped)
+                entry = (*table_entry, 2) if table_entry is not None else None
+        if entry is not None:
             try:
-                story_id = _normalize_story_id(story_match.group("id"))
+                story_id = _normalize_story_id(entry[0])
             except WorkflowGateError:
                 story_id = ""
             if story_id:
-                if story_id not in seen:
-                    seen.add(story_id)
-                    stories.append((index, story_id, story_match.group("summary").strip()))
+                rank = ranks.get(story_id)
+                if rank is None:
+                    ranks[story_id] = entry[3]
+                    stories.append((index, story_id, entry[1], entry[2]))
+                elif entry[3] < rank:
+                    ranks[story_id] = entry[3]
+                    position = next(pos for pos, item in enumerate(stories) if item[1] == story_id)
+                    stories[position] = (index, story_id, entry[1], entry[2])
                 continue
         field_match = _EPIC_FIELD.search(stripped)
         if field_match is not None:
             epic_fields.append((index, _normalize_epic_id(field_match.group("epic"))))
     specs: list[StorySpec] = []
-    for position, (index, story_id, summary) in enumerate(stories):
+    for position, (index, story_id, summary, epic_hint) in enumerate(stories):
         end = stories[position + 1][0] if position + 1 < len(stories) else len(lines)
-        epic = next((value for field_index, value in epic_fields if index < field_index < end), "")
+        epic = epic_hint or next((value for field_index, value in epic_fields if index < field_index < end), "")
         if not epic:
             epic = next((value for heading_index, value in reversed(epic_headings) if heading_index < index), "")
         specs.append(StorySpec(id=story_id, summary=summary, epic=epic))
@@ -232,7 +286,9 @@ class WorkflowRunner:
             story_index=checkpoint.story_index if checkpoint.story_index is not None else 0,
             completed_stories=list(checkpoint.completed_stories),
             story_outputs=dict(checkpoint.story_outputs),
-            active_stories=list(checkpoint.active_stories or ([checkpoint.active_story] if checkpoint.active_story else [])),
+            active_stories=list(
+                checkpoint.active_stories or ([checkpoint.active_story] if checkpoint.active_story else [])
+            ),
             story_statuses=dict(checkpoint.story_statuses),
         )
         kwargs.setdefault("phase", checkpoint.phase)
@@ -286,7 +342,9 @@ class WorkflowRunner:
             if step.max_parallel_stories > 1 and story_specs and all(story.epic for story in story_specs):
                 return await self._run_story_batch(callback, step, story_specs, checkpoint)
             active_story = story_specs[self.state.story_index]
-            self.state = self.state.model_copy(update={"active_story": active_story.id, "active_stories": [active_story.id]})
+            self.state = self.state.model_copy(
+                update={"active_story": active_story.id, "active_stories": [active_story.id]}
+            )
 
         result = self._invoke_callback(callback, step, active_story)
         if inspect.isawaitable(result):
@@ -405,7 +463,9 @@ class WorkflowRunner:
             update.update(self._step_advance_update(step, combined))
             update.update({"active_stories": [], "active_story": None})
         else:
-            update["status"] = WorkflowStatus.WAITING_USER if self._checkpoint_declared(step) else WorkflowStatus.PENDING
+            update["status"] = (
+                WorkflowStatus.WAITING_USER if self._checkpoint_declared(step) else WorkflowStatus.PENDING
+            )
             update["reason"] = ""
         self.state = self.state.model_copy(update=update)
         checkpoint_id = await self._persist(step, checkpoint)
@@ -650,9 +710,13 @@ class WorkflowRunner:
             rules = step.validation_rules.casefold()
             if "given" in rules and not re.search(r"given.*when.*then", text, re.I | re.S):
                 raise WorkflowGateError(f"step '{step.name}' output failed validation: {step.validation_rules}")
-            for section in re.findall(r"section\s*:\s*([^,;]+)", rules):
-                if not re.search(rf"^##\s+{re.escape(section.strip())}\s*$", text, re.I | re.M):
-                    raise WorkflowGateError(f"step '{step.name}' output is missing section: {section.strip()}")
+            for section in required_sections(step.validation_rules):
+                if not re.search(rf"^##\s+{re.escape(section)}\s*$", text, re.I | re.M):
+                    present = [item.strip() for item in re.findall(r"^##\s+(.+?)\s*$", text, re.M)][:8]
+                    found = ", ".join(present) if present else "none"
+                    raise WorkflowGateError(
+                        f"step '{step.name}' output is missing section: {section} (present H2 headings: {found})"
+                    )
         if step.output and isinstance(output, Mapping):
             names = WorkflowRunner._references(step.output)
             missing = [name for name in names if name not in output]

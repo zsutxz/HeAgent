@@ -26,6 +26,7 @@ from heagent.cli_display import (
     _print_banner,
     _print_stream_event,
     _print_usage,
+    show_deferred_work,
 )
 from heagent.cli_goal import _goal_auto_goal_id, _goal_cron_advance, _goal_runner
 from heagent.config import GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE, Settings, get_settings
@@ -894,6 +895,11 @@ def _build_slash_registry(
     registry.register("model", "切换 LLM 模型", _model)
     registry.register("route", "智能路由状态 / 强制模型 (<name>|auto)", _route)
     registry.register("mcp-prompt", "调度 MCP prompt", _mcp_prompt)
+
+    async def _deferred(args: str) -> None:
+        show_deferred_work(Path.cwd())
+
+    registry.register("deferred", "列出 deferred-work 台账（遗留项登记）", _deferred)
     registry.register("clear", "清空当前会话上下文", _clear)
     registry.register("help", "列出所有斜杠命令", _help)
 

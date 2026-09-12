@@ -18,8 +18,16 @@ from heagent.cli_goal import (
 )
 from heagent.cron.jobs import JobStore
 from heagent.config import reset_settings
-from heagent.engine import GoalArtifact, parse_artifact
+from heagent.engine import (
+    GoalArtifact,
+    WorkflowGateError,
+    WorkflowRunResult,
+    WorkflowRunner,
+    parse_artifact,
+    required_sections,
+)
 from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
+from heagent.memory.skill_packages import WorkflowResource, WorkflowStepResource
 
 
 @pytest.fixture()
@@ -641,3 +649,164 @@ async def test_workflow_open_question_mode_overrides_environment(
 
     assert len(successful_step) == 1
     assert "Stop with waiting_user" in successful_step[0]
+
+
+def test_step_prompt_feeds_gate_headings_to_executor(tmp_path: Path) -> None:
+    """The executor must be told the exact headings the post-step gate requires."""
+    validation_rules = "section: 实现摘要; section: 测试证据; section: 验证结论; 记录确切命令与结果"
+    workflow = WorkflowResource(name="demo", instructions="workflow instructions", steps=[])
+    prompt = cli_goal._goal_declarative_prompt(
+        workflow,
+        "step-07-implement-story.md",
+        "demo goal",
+        tmp_path,
+        {"澄清的实现范围": "scope"},
+        validation_rules=validation_rules,
+    )
+    assert "Gate requirements (hard, enforced on your final response):" in prompt
+    assert required_sections(validation_rules) == ["实现摘要", "测试证据", "验证结论"]
+    for section in required_sections(validation_rules):
+        assert f"  - ## {section}\n" in prompt
+    assert "the workflow will not advance" in prompt
+    assert validation_rules in prompt
+
+
+def test_step_prompt_gate_headings_satisfy_the_runner_gate(tmp_path: Path) -> None:
+    """The advertised headings must be sufficient for the real (post-step) gate."""
+    step = WorkflowStepResource(
+        index=1,
+        name="step-01-plan.md",
+        instructions="",
+        validation_rules="section: 实现摘要; section: 测试证据",
+    )
+    workflow = WorkflowResource(name="demo", instructions="workflow instructions", steps=[step])
+    prompt = cli_goal._goal_declarative_prompt(
+        workflow, step.name, "demo goal", tmp_path, {"user intent": "ship it"}, validation_rules=step.validation_rules
+    )
+    sections = required_sections(step.validation_rules)
+    assert [item for item in sections if f"  - ## {item}\n" in prompt] == sections
+    body = "\n\n".join(f"## {section}\n\ncontent" for section in sections)
+    WorkflowRunner.validate_output(step, body)
+    with pytest.raises(WorkflowGateError):
+        WorkflowRunner.validate_output(step, body.replace("## 测试证据", "测试证据"))
+    # The prompt itself must not satisfy the gate: the advertised headings are list items
+    # there, so telling the executor about the gate never pre-approves the step output.
+    with pytest.raises(WorkflowGateError):
+        WorkflowRunner.validate_output(step, prompt)
+
+
+def test_step_prompt_without_gate_rules_has_no_gate_block(tmp_path: Path) -> None:
+    """Steps without ``section:`` rules keep the previous prompt shape."""
+    workflow = WorkflowResource(name="demo", instructions="workflow instructions", steps=[])
+    prompt = cli_goal._goal_declarative_prompt(
+        workflow, "step-01-plan.md", "demo goal", tmp_path, {"user intent": "ship it"}
+    )
+    assert "Gate requirements" not in prompt
+    assert "Declared validation rules (verbatim)" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_step_iteration_budget_overrides_the_global_default(
+    declarative_cwd: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A step declaring `max_iterations:` must reach the SubAgent session; 0 inherits."""
+    seen: list[object] = []
+
+    async def run_step(provider: object, engine: object, prompt: str, **kwargs: object) -> SimpleNamespace:
+        seen.append(kwargs.get("max_iterations"))
+        return SimpleNamespace(success=True, output="body")
+
+    monkeypatch.setattr("heagent.cli_goal._goal_session", run_step)
+    workflow = WorkflowResource(name="demo", instructions="", steps=[])
+    goal_dir = declarative_cwd / "_he-output" / "goals" / "demo"
+    goal_dir.mkdir(parents=True, exist_ok=True)
+    for declared in (40, 0):
+        step = WorkflowStepResource(index=1, name="step-01-plan.md", instructions="", max_iterations=declared)
+        await cli_goal._goal_execute_step(
+            SimpleNamespace(),
+            None,
+            workflow,
+            "demo goal",
+            goal_dir,
+            {"user intent": "ship it"},
+            step,
+            None,
+            None,
+        )
+    assert seen == [40, None]
+
+
+def test_step_prompt_renders_duplicate_artifact_text_once(tmp_path: Path) -> None:
+    """Each artifact is stored under two keys; the prompt must not carry it twice."""
+    artifact = "# 市场调研报告\n\n" + "证据" * 400
+    workflow = WorkflowResource(name="demo", instructions="workflow instructions", steps=[])
+    prompt = cli_goal._goal_declarative_prompt(
+        workflow,
+        "step-07-implement-story.md",
+        "demo goal",
+        tmp_path,
+        {"user intent": "demo", "step-01-market-research.md": artifact, "市场综述": artifact},
+    )
+    assert prompt.count(artifact) == 1
+    assert "## step-01-market-research.md" in prompt
+    assert "## 市场综述" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_blocked_step_reports_the_way_out(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """BLOCKED used to be a dead end: the CLI must print how to leave it."""
+    goal_dir = tmp_path / "goal"
+    goal_dir.mkdir()
+    (goal_dir / "GOAL.md").write_text(cli_goal._goal_document("demo goal", "demo"), encoding="utf-8")
+    step = WorkflowStepResource(index=1, name="step-01.md", instructions="")
+    workflow = WorkflowResource(name="demo", instructions="", steps=[step])
+
+    class StubRunner:
+        def __init__(self) -> None:
+            self.workflow = workflow
+            self.state = SimpleNamespace(outputs={}, active_step=0, reason="gate rejected the output")
+
+        async def run_step(self, callback: object, *, inputs: object, stories: object = None) -> WorkflowRunResult:
+            return WorkflowRunResult(
+                status=WorkflowStatus.BLOCKED,
+                step_index=0,
+                reason="step 'step-01.md' output is missing section: 实现摘要",
+            )
+
+    context = cli_goal._GoalAdvanceContext(
+        runner=StubRunner(),  # type: ignore[arg-type]
+        mode="auto",
+        description="demo goal",
+        questionnaire=None,
+        questionnaire_spec=None,
+        goal_dir=goal_dir,
+    )
+
+    async def prepare(prepared_workflow: object) -> tuple[None, object]:
+        return None, context
+
+    monkeypatch.setattr(cli_goal, "_goal_declarative_prepare", prepare)
+    outcome = await cli_goal._goal_declarative_advance(SimpleNamespace(), None, workflow)
+    err = capsys.readouterr().err
+    assert "[goal] step blocked: step 'step-01.md' output is missing section: 实现摘要" in err
+    assert "/goal resume" in err
+    assert outcome == cli_goal._GOAL_FAILED
+
+
+@pytest.mark.asyncio
+async def test_typo_subcommand_prints_usage_instead_of_creating_a_goal(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``/goal resume\\`` used to silently allocate a new goal and burn its first step."""
+    await _goal_runner(SimpleNamespace(), None, "resume\\")
+    err = capsys.readouterr().err
+    assert "did you mean `/goal resume`" in err
+    assert successful_step == []
+    assert not (declarative_cwd / "_he-output" / "goals" / "current").exists()

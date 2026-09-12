@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import os
 import re
 import sys
@@ -28,6 +29,7 @@ from heagent.engine import (
     WorkflowStepResult,
     parse_artifact,
     parse_story_list,
+    required_sections,
 )
 from heagent.engine.persist import atomic_update_text, atomic_write_text
 from heagent.memory.skill_packages import SkillPackage, SkillWorkflowError, WorkflowResource
@@ -548,6 +550,58 @@ async def _goal_wait_for_questionnaire(workflow: WorkflowResource, goal_dir: Pat
         _goal_show_questionnaire_prompt(spec, error)
 
 
+def _goal_gate_requirements(validation_rules: str) -> str:
+    """Render the step's post-hoc gate contract so the executor sees it beforehand.
+
+    ``validation: section: <title>`` is enforced by ``WorkflowRunner`` only *after* the
+    step returns.  Without this block a long step can finish all its work and still be
+    blocked on a heading it was never told to emit.
+    """
+    rules = (validation_rules or "").strip()
+    sections = required_sections(rules)
+    needs_given_when_then = "given" in rules.casefold()
+    lines = ["Gate requirements (hard, enforced on your final response):"] if sections or needs_given_when_then else []
+    if sections:
+        lines.append(
+            "- Your final response must contain each of these Markdown headings exactly as written, each on its own "
+            "line with nothing else on that line:"
+        )
+        lines.extend(f"  - ## {section}" for section in sections)
+        lines.append(
+            "- A missing, renamed, or suffixed heading blocks the whole step: the workflow will not advance and "
+            "this step's work has to be redone."
+        )
+    if needs_given_when_then:
+        lines.append("- Acceptance criteria must be written as Given / When / Then.")
+    if lines:
+        lines.append(f"- Declared validation rules (verbatim): {rules}")
+    return "\n".join(lines)
+
+
+def _dedupe_inputs(inputs: Mapping[str, Any], declared: str = "") -> list[tuple[str, Any]]:
+    """Render each distinct input body once, under its most meaningful key.
+
+    A completed step stores its artifact under both the declared output names and the
+    artifact file name, so rendering every key duplicated whole artifacts in the step
+    prompt (the step-07 prompt measured ~130k tokens with roughly half of it repeated
+    text).  Among keys sharing one body, the one this step declares in ``input:`` wins;
+    otherwise the first occurrence wins.  Nothing unique is dropped.
+    """
+    wanted = {item.strip() for item in re.split(r"[,\n]", declared) if item.strip()}
+    chosen: dict[str, str] = {}
+    for name, value in inputs.items():
+        if not (isinstance(value, str) and value):
+            continue
+        current = chosen.get(value)
+        if current is None or (name in wanted and current not in wanted):
+            chosen[value] = name
+    return [
+        (name, value)
+        for name, value in inputs.items()
+        if not (isinstance(value, str) and value) or chosen[value] == name
+    ]
+
+
 def _goal_declarative_prompt(
     workflow: WorkflowResource,
     step_name: str,
@@ -555,9 +609,13 @@ def _goal_declarative_prompt(
     goal_dir: Path,
     inputs: Mapping[str, Any],
     story: Any = None,
+    validation_rules: str = "",
+    declared_inputs: str = "",
 ) -> str:
     role = _goal_role_instructions(step_name)
-    supplied_inputs = "\n\n".join(f"## {name}\n{value}" for name, value in inputs.items())
+    gate = _goal_gate_requirements(validation_rules)
+    gate_block = f"{gate}\n\n" if gate else ""
+    supplied_inputs = "\n\n".join(f"## {name}\n{value}" for name, value in _dedupe_inputs(inputs, declared_inputs))
     open_question_policy = (
         "When a competing interpretation requires a stakeholder choice, proceed with the recommended "
         "default and record the assumption explicitly; do not stop with waiting_user."
@@ -583,6 +641,7 @@ def _goal_declarative_prompt(
         f"Role instructions:\n{role}\n"
         f"Open question policy:\n{open_question_policy}\n"
         f"Declared inputs:\n{supplied_inputs}\n"
+        f"{gate_block}"
         "Execute only this declared step. Write every durable non-code project artifact under the project output root; "
         "source code remains in its established repository location. Return the complete artifact body as your final "
         "response; do not return a summary, link, or claim that you wrote it elsewhere."
@@ -709,7 +768,16 @@ async def _goal_execute_step(
     story: Any = None,
 ) -> WorkflowStepResult:
     """Execute one declared step through a fresh SubAgent session."""
-    prompt = _goal_declarative_prompt(workflow, step.name, description, goal_dir, inputs, story=story)
+    prompt = _goal_declarative_prompt(
+        workflow,
+        step.name,
+        description,
+        goal_dir,
+        inputs,
+        story=story,
+        validation_rules=step.validation_rules,
+        declared_inputs=step.input,
+    )
     result = await _goal_session(
         provider,
         engine,
@@ -721,6 +789,7 @@ async def _goal_execute_step(
             "workflow_story": story.id if story is not None else None,
             "purpose": (step.role or step.name) + (f" / {story.id}" if story is not None else ""),
         },
+        max_iterations=step.max_iterations or None,
     )
     if result is None:
         return WorkflowStepResult(
@@ -825,6 +894,14 @@ async def _goal_declarative_advance(
                 continue
             return _GOAL_ADVANCED
         if result.status is not WorkflowStatus.WAITING_USER:
+            if result.status is WorkflowStatus.BLOCKED:
+                reason = result.reason or runner.state.reason or "the step output failed its gate"
+                click.echo(f"[goal] step blocked: {reason}", err=True)
+                click.echo(
+                    "[goal] the step must be re-run: record a human acknowledgement with "
+                    "`/goal resume <说明>` (the active step then executes again); `/goal status` shows the state.",
+                    err=True,
+                )
             return _GOAL_FAILED
 
         # WAITING_USER from a completed step is a checkpoint decision. An
@@ -1015,6 +1092,23 @@ async def _goal_declarative_auto(
     click.echo(f"[goal] declarative auto registered: {job.id} workflow={workflow.name}", err=True)
 
 
+_GOAL_SUBCOMMAND_NAMES = ("new", "next", "run", "status", "pause", "resume", "audit", "auto", "reset")
+
+
+def _goal_typo_subcommand(args: str) -> str | None:
+    """Map a single-token typo of a known subcommand to that subcommand.
+
+    ``/goal <anything else>`` starts a new goal, so a hand slip such as ``/goal resume\\``
+    silently burned a whole goal's first step.  Only single-token inputs close to a
+    known subcommand are treated as typos; multi-word descriptions pass through.
+    """
+    parts = args.split()
+    if len(parts) != 1:
+        return None
+    matches = difflib.get_close_matches(parts[0].casefold(), _GOAL_SUBCOMMAND_NAMES, n=1, cutoff=0.8)
+    return matches[0] if matches else None
+
+
 async def _goal_declarative_dispatch(
     provider: BaseProvider,
     engine: EngineContainer | None,
@@ -1056,6 +1150,9 @@ async def _goal_declarative_dispatch(
         _goal_reset()
     elif head == "auto":
         await _goal_declarative_auto(workflow, rest, cron_store)
+    elif (intended := _goal_typo_subcommand(args)) is not None:
+        click.echo(f"[goal] unknown subcommand {args.strip()!r}; did you mean `/goal {intended}`?", err=True)
+        _goal_usage()
     else:
         async with _goal_auto_lock:
             await _goal_declarative_new(provider, engine, workflow, args.strip(), cron_store=cron_store)

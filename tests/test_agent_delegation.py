@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from heagent.agent.delegation import build_subagent_delegates
-from heagent.agent.loop import AgentLoop
+from heagent.agent.loop import AgentLoop, _delegation_details
 from heagent.agent.sub import SubAgent
 from heagent.config import get_settings, reset_settings
+from heagent.engine import EngineContainer
 from heagent.engine.roles import get_role
 from heagent.memory.facts import FactStore
 from heagent.memory.soul import SoulStore
@@ -302,3 +303,38 @@ async def test_agent_loop_binding_is_scoped_to_run(tmp_path) -> None:  # noqa: A
     payload = json.loads(await task_delegate("stale"))
     assert payload["status"] == "error"
     assert "not configured" in payload["message"]
+
+
+def test_delegation_details_keep_only_identity_keys() -> None:
+    """Only the delegation identity travels into the log; unrelated metadata stays out."""
+    engine = EngineContainer()
+    run_context = engine.create_run_context(
+        metadata={"kind": "subagent", "role": "bmad-build", "workflow_step": "step-07-implement-story.md", "memo": ""}
+    )
+    assert _delegation_details(run_context) == {
+        "kind": "subagent",
+        "role": "bmad-build",
+        "workflow_step": "step-07-implement-story.md",
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_started_event_carries_the_delegation_identity(tmp_path) -> None:  # noqa: ANN001
+    """``run_started`` must name the delegated run, since banners never reach the log file."""
+    engine = EngineContainer(workspace_root=str(tmp_path))
+    run_context = engine.create_run_context(
+        metadata={"kind": "subagent", "role": "bmad-build", "workflow_step": "step-07-implement-story.md"}
+    )
+    loop = AgentLoop(
+        _StubProvider(),
+        engine=engine,
+        context_dir=str(tmp_path),
+        max_iterations=2,
+        run_context=run_context,
+    )
+    await loop.run("do it")
+    started = [event for event in engine.events.recent_events if event.event_type == "run_started"]
+    assert started
+    assert started[-1].details["kind"] == "subagent"
+    assert started[-1].details["role"] == "bmad-build"
+    assert started[-1].details["workflow_step"] == "step-07-implement-story.md"

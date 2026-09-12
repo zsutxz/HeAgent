@@ -3,7 +3,14 @@ from __future__ import annotations
 import pytest
 
 from heagent.engine.workflow import WorkflowCheckpoint, WorkflowCheckpointStore, WorkflowPhase, WorkflowStatus
-from heagent.engine.workflow_runner import WorkflowRunResult, WorkflowRunner, WorkflowStepResult
+from heagent.engine.workflow_runner import (
+    WorkflowGateError,
+    WorkflowRunResult,
+    WorkflowRunner,
+    WorkflowStepResult,
+    parse_story_list,
+    required_sections,
+)
 from heagent.memory.skill_packages import WorkflowResource, WorkflowStepResource
 
 
@@ -165,3 +172,94 @@ async def test_resume_reegress_same_pending_checkpoint_is_idempotent(tmp_path) -
 
     checkpoints = await store.list_checkpoints(goal_id="goal")
     assert any(c.checkpoint_id == "goal-run-step-2-active-1-pending" for c in checkpoints)
+
+
+def test_section_gate_requires_standalone_headings() -> None:
+    """A ``section:`` rule only accepts ``## <title>`` on its own line, nothing else."""
+    step = WorkflowStepResource(
+        index=1,
+        name="step-01.md",
+        instructions="",
+        validation_rules="section: 实现摘要; section: 测试证据; section: 验证结论",
+    )
+    WorkflowRunner.validate_output(step, "## 实现摘要\n\n## 测试证据\n\n## 验证结论\n")
+    with pytest.raises(WorkflowGateError):
+        WorkflowRunner.validate_output(step, "## 实现摘要（S-1）\n\n## 测试证据\n\n## 验证结论\n")
+    with pytest.raises(WorkflowGateError):
+        WorkflowRunner.validate_output(step, "## 实现摘要\n\n## 测试证据\n")
+
+
+def test_required_sections_ignores_case_and_keeps_authored_names() -> None:
+    """``Section:`` spelling keeps working, and the message keeps the authored casing."""
+    assert required_sections("Section: Implementation Summary; section: Verification Verdict") == [
+        "Implementation Summary",
+        "Verification Verdict",
+    ]
+    assert required_sections("") == []
+    assert required_sections(None) == []
+    assert required_sections("given when then only") == []
+    step = WorkflowStepResource(
+        index=1,
+        name="step-01.md",
+        instructions="",
+        validation_rules="Section: Implementation Summary",
+    )
+    WorkflowRunner.validate_output(step, "## implementation summary\n")
+
+
+STORY_DOC = "\n".join(
+    [
+        "# 02-epics.md",
+        "",
+        "| 编号 | 父 Epic | 优先级 | 依赖 | 单一用户可见目标 |",
+        "|------|---------|--------|------|------------------|",
+        "| S-1 | E1 | P0 | none | 打开网页即可完整玩一局 |",
+        "| S-2 | E2 | P1 | S-1 | 最高分跨会话记住 |",
+        "",
+        "## E1 — 经典玩法核心",
+        "### S-1 经典玩法核心（可玩一局）",
+        "",
+        "- **父 Epic**：E1",
+        "",
+        "## E2 — 本地最高分与游戏控制",
+        "### S-2 本地最高分",
+        "",
+        "- **父 Epic**：E2",
+    ]
+)
+
+
+def test_story_headings_win_over_the_overview_table() -> None:
+    """A doc with story sections plus an overview table must not read the table."""
+    stories = parse_story_list(STORY_DOC)
+    assert [story.id for story in stories] == ["S-1", "S-2"]
+    assert [story.epic for story in stories] == ["E1", "E2"]
+    assert stories[0].summary == "经典玩法核心（可玩一局）"
+
+
+def test_story_table_alone_reads_the_epic_column_and_last_cell() -> None:
+    """Tables without story sections keep working, with the Epic read from its column."""
+    table = "\n".join(
+        [
+            "| 编号 | 父 Epic | 优先级 | 依赖 | 单一用户可见目标 |",
+            "|------|---------|--------|------|------------------|",
+            "| S-1 | E1 | P0 | none | 打开网页即可完整玩一局 |",
+            "| S-2 | E2 | P1 | S-1 | 最高分跨会话记住 |",
+            "",
+            "## Sprint 计划",
+            "",
+            "### Sprint 1 — 可玩闭环",
+            "",
+            "### Sprint 2 — 体验收口",
+        ]
+    )
+    stories = parse_story_list(table)
+    assert [story.epic for story in stories] == ["E1", "E2"]
+    assert stories[1].summary == "最高分跨会话记住"
+
+
+def test_gate_error_names_the_headings_that_are_present() -> None:
+    """A blocked step must show what its output actually contained."""
+    step = WorkflowStepResource(index=1, name="step-07.md", instructions="", validation_rules="section: 实现摘要")
+    with pytest.raises(WorkflowGateError, match="present H2 headings: 3. 本轮实现动作"):
+        WorkflowRunner.validate_output(step, "## 3. 本轮实现动作\n\ntext\n")

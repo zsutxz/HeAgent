@@ -134,6 +134,13 @@ def _runtime() -> SubagentToolRuntime | None:
     return _subagent_runtime.get()
 
 
+_DELEGATION_FALLBACK = (
+    " If a context-free reviewer is still required (e.g. bmad-build review layers), write every child "
+    "prompt verbatim to `_bmad-output/implementation-artifacts/` and HALT, so a human can run each one "
+    "in a separate session."
+)
+
+
 def _depth_limit_error(runtime: SubagentToolRuntime) -> str | None:
     """Return an error message when the delegation depth budget is exhausted.
 
@@ -147,7 +154,7 @@ def _depth_limit_error(runtime: SubagentToolRuntime) -> str | None:
     return (
         f"sub-agent delegation depth limit reached (depth={runtime.depth}, "
         f"max_depth={runtime.max_depth}); finish the task in the current agent "
-        "instead of delegating further."
+        "instead of delegating further." + _DELEGATION_FALLBACK
     )
 
 
@@ -200,7 +207,7 @@ async def task_delegate(task: str, role: str = "", system: str = "") -> str:
     """
     runtime = _runtime()
     if runtime is None or runtime.delegate_one is None:
-        return _error_payload("sub-agent tools not configured.")
+        return _error_payload("sub-agent tools not configured." + _DELEGATION_FALLBACK)
 
     depth_error = _depth_limit_error(runtime)
     if depth_error is not None:
@@ -225,7 +232,7 @@ async def task_parallel(tasks_json: str, role: str = "", system: str = "") -> st
     """
     runtime = _runtime()
     if runtime is None or runtime.delegate_many is None:
-        return _error_payload("sub-agent tools not configured.")
+        return _error_payload("sub-agent tools not configured." + _DELEGATION_FALLBACK)
 
     depth_error = _depth_limit_error(runtime)
     if depth_error is not None:

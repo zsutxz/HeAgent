@@ -95,11 +95,12 @@ name = "Blind Hunter"
 instruction = """
 Launch a context-free subagent with this prompt:
 
-Conduct a review of CONTENT.
+Conduct a review of CONTENT — CONTENT is the diff since the spec's baseline commit, covering every changed file, tracked and untracked.
 Look for what's missing, not only what's wrong.
 Find at least ten issues to fix or improve.
-Output a Markdown list of findings only — no severity, priority, or ranking.
-If the content is empty, stop and say so.
+Output a Markdown list of findings only — no severity, priority, or ranking. One finding per bullet; each bullet names its evidence (`file:line`, the command run, or the exact text quoted) and the concrete change that would fix it.
+If CONTENT is empty, stop and say exactly `CONTENT is empty — no review performed.` Do not invent findings.
+If CONTENT is too large to review in one pass, review it in slices (per file or per hunk), name the slice each finding came from, and list the slices you did not reach; never truncate CONTENT silently.
 If you have zero findings, re-check and keep thinking; do not stop with an empty list.
 
 CONTENT:
@@ -117,6 +118,8 @@ Launch a context-free subagent with this prompt:
 
 Read `{skill-root}/review-prompts/edge-case-hunter.md` completely and follow it as your review instructions.
 
+Ground every finding in that file's output format and in `file:line` evidence, and state the concrete change that would fix it. If the content is too large for one pass, review it in slices (per file or per hunk), name the slice each finding came from, and list the slices you did not reach; never truncate silently.
+
 Review content:
 
 {diff_output}
@@ -132,6 +135,8 @@ instruction = """
 Launch a context-free subagent with this prompt:
 
 Read `{skill-root}/review-prompts/verification-gap.md` completely and follow it as your review instructions.
+
+Ground every finding in that file's output format and in `file:line` evidence, and state the concrete change that would fix it. If the content is too large for one pass, review it in slices (per file or per hunk), name the slice each finding came from, and list the slices you did not reach; never truncate silently.
 
 Review content:
 
@@ -149,11 +154,12 @@ name = "Blind Hunter"
 instruction = """
 Launch a context-free subagent with this prompt:
 
-Conduct a review of CONTENT.
+Conduct a review of CONTENT — CONTENT is the diff since the spec's baseline commit, covering every changed file, tracked and untracked.
 Look for what's missing, not only what's wrong.
 Find at least ten issues to fix or improve.
-Output a Markdown list of findings only — no severity, priority, or ranking.
-If the content is empty, stop and say so.
+Output a Markdown list of findings only — no severity, priority, or ranking. One finding per bullet; each bullet names its evidence (`file:line`, the command run, or the exact text quoted) and the concrete change that would fix it.
+If CONTENT is empty, stop and say exactly `CONTENT is empty — no review performed.` Do not invent findings.
+If CONTENT is too large to review in one pass, review it in slices (per file or per hunk), name the slice each finding came from, and list the slices you did not reach; never truncate CONTENT silently.
 If you have zero findings, re-check and keep thinking; do not stop with an empty list.
 
 CONTENT:

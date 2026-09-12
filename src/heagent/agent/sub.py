@@ -185,8 +185,6 @@ class SubAgent:
         engine = self._build_engine()
         from heagent.cli_display import _announce_end, _announce_start
 
-        name, purpose = self._announce_identity(task)
-        _announce_start(name, purpose)
         reserved = {
             "kind",
             "role",
@@ -216,6 +214,13 @@ class SubAgent:
                 from heagent.context.compressor import ContextCompressor
 
                 compressor = ContextCompressor(self._provider)
+        run_context = engine.create_run_context(
+            parent_run_id=self._parent_run_id,
+            metadata=metadata,
+            workspace_root=self._context_dir,
+        )
+        name, purpose = self._announce_identity(task)
+        _announce_start(name, purpose, run_id=run_context.run_id)
         loop = AgentLoop(
             self._provider,
             registry=self._registry,
@@ -230,11 +235,7 @@ class SubAgent:
             soul=self._soul,
             engine=engine,
             delegation_depth=self._delegation_depth,
-            run_context=engine.create_run_context(
-                parent_run_id=self._parent_run_id,
-                metadata=metadata,
-                workspace_root=self._context_dir,
-            ),
+            run_context=run_context,
         )
         try:
             output = await loop.run(task, system=self._system)

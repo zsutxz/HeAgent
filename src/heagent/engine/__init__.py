@@ -60,6 +60,7 @@ from heagent.engine.workflow_runner import (
     WorkflowRunResult,
     WorkflowStepResult,
     parse_story_list,
+    required_sections,
 )
 
 __all__ = [
@@ -117,6 +118,7 @@ __all__ = [
     "WorkflowStatus",
     "StorySpec",
     "parse_story_list",
+    "required_sections",
     "WorkflowGateError",
     "WorkflowRunResult",
     "WorkflowRunner",

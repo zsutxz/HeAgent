@@ -100,6 +100,21 @@ class _RunInit:
     prompt: str  # 原始 prompt（恢复时可能已替换为 _resume.prompt）
 
 
+_DELEGATION_DETAIL_KEYS = ("kind", "role", "workflow_step", "workflow_story", "goal_id", "goal_kind")
+
+
+def _delegation_details(run_context: RunContext) -> dict[str, Any]:
+    """Return a delegated run's identity for the ``run_started`` log line.
+
+    Progress banners (``cli_display._announce_*``) are stderr-only, so the log file could
+    not answer "which agent/step ran when" after the fact.  These keys make a delegated run
+    reconstructible from ``logs/heagent-*.log``; a root run carries no such metadata and
+    therefore logs exactly as before.
+    """
+    metadata = run_context.metadata or {}
+    return {key: metadata[key] for key in _DELEGATION_DETAIL_KEYS if metadata.get(key) not in (None, "")}
+
+
 class AgentLoop:
     """迭代式 Provider/工具循环，附带轻量运行时治理。
 
@@ -619,7 +634,9 @@ class AgentLoop:
         循环体不再重复分支逻辑。
         """
         if _resume is not None:
-            self._emit("run_started", run_context=_resume.run_context, details={"resume": True, "stream": stream})
+            resume_details: dict[str, Any] = {"resume": True, "stream": stream}
+            resume_details.update(_delegation_details(_resume.run_context))
+            self._emit("run_started", run_context=_resume.run_context, details=resume_details)
             return _RunInit(
                 state=_resume.state,
                 run_context=_resume.run_context,
@@ -676,6 +693,7 @@ class AgentLoop:
 
         await self._start_run_record(run_context, prompt=prompt, system=system_content)
         details: dict[str, Any] = {"stream": True} if stream else {"session_id": session_id or ""}
+        details.update(_delegation_details(run_context))
         self._emit("run_started", run_context=run_context, details=details)
         if self.engine.hooks is not None:
             await self.engine.hooks.run_session(SESSION_START, run_context)

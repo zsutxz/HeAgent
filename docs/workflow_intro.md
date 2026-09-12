@@ -57,7 +57,10 @@
 | Epic 集成测试 + 系统集成测试 | 步骤 08（全部 Story 完成之后，只运行一次） | `validation` 强制输出含 `## 评审发现` / `## 质量门禁` / `## 系统集成结论` 三个章节，缺一即 BLOCKED；逐 Epic 子报告 `epic-<eN>/integration-report.md` + 顶层索引 |
 
 `validation` 里的 `section: <标题>` 由 `WorkflowRunner._validate_output` 机械校验：输出缺少该 Markdown
-标题即判为 BLOCKED，不会静默推进。所有步骤均由 `role:` 指向相应的
+标题即判为 BLOCKED，不会静默推进。唯一解析入口是 `required_sections()`（`engine/workflow_runner.py`）；
+`_goal_declarative_prompt` 会在派发步骤**之前**把同一批标题写进 prompt 的 "Gate requirements" 段（并声明
+标题须独占一行、不得改后缀），使执行者动手前就知道自己会被哪些标题判定——门禁本身仍然只在步骤返回后
+机械校验，不因 prompt 提示而放宽。所有步骤均由 `role:` 指向相应的
 `.heagent/skills/<role>/SKILL.md`。
 
 这些步骤不是 Python 中的固定状态机。`WorkflowRunner` 只负责顺序、输入缺失、输出结果、checkpoint
@@ -130,9 +133,15 @@ _he-output/goals/<goal-id>/
 - 收口动作不是独立步骤：Sprint 收口与 Epic 收口评审由步骤 07 的正文按「当前 Story 是否落在边界上」
   判定并执行，因为它们共享 Story 循环的会话与 checkpoint。`section:` 门禁按每条 Story 逐次校验，无法
   只对收口增量生效，故这两个章节靠步骤正文要求 + 步骤 08 复核。
+- 重任务步骤可用 `max_iterations: <1..1000>` 覆盖该步骤的 SubAgent 迭代预算（缺省继承
+  `Settings.goal_max_iterations`）；原子大 Story 建议显式放宽，撞上限会让整步/整批以 `failed` 收场。
+- 遗留项台账由 bmad-build 模板写入 `_bmad-output/implementation-artifacts/deferred-work.md`（goal 内的
+  Epic 级台账落在 `_he-output/goals/<goal-id>/step-*/…/deferred-work.md`）；`/deferred` 是它的 reader，
+  会列出全部台账的条目数与最新条目。
 - 需要机械保证的验收证据，用 `validation: section: <标题>; <说明>` 声明——`WorkflowRunner` 会校验输出
-  是否包含该 `## <标题>`，缺失即 BLOCKED。不要在 `validation` 里使用 `given` 一词，除非确实要求输出
-  符合 Given/When/Then 格式。
+  是否包含该 `## <标题>`（必须是独占一行、无后缀的 `## 标题`；`## 标题（S-1）` 照样判缺失）。这些标题会由
+  `_goal_declarative_prompt` 先注入步骤 prompt 的 "Gate requirements" 段，执行者无需猜测门禁标题。不要在
+  `validation` 里使用 `given` 一词，除非确实要求输出符合 Given/When/Then 格式。
 - 变更角色执行方法：修改 `role:` 指向的 `.heagent/skills/<skill>/SKILL.md`；`workflow.md` 仅维护步骤
   的声明、边界与产物约束。
 - 变更产物字段或父子关系：同步修改 `engine/artifacts.py`、模板和测试。

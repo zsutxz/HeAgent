@@ -253,3 +253,13 @@ class TestToolRegistration:
         assert schema.name == "task_parallel"
         props = schema.parameters["properties"]
         assert "tasks_json" in props
+
+
+@pytest.mark.usefixtures("_reset_subagent")
+async def test_delegation_errors_point_at_the_offline_review_fallback() -> None:
+    """When delegation is refused, the error must carry the HALT-and-handoff path."""
+    _configure(_FakeExecutor(), depth=3, max_depth=3)
+    payload = json.loads(await task_delegate("review the diff"))
+    assert payload["status"] == "error"
+    assert "depth limit" in payload["message"]
+    assert "_bmad-output/implementation-artifacts/" in payload["message"]

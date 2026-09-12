@@ -50,6 +50,8 @@ class WorkflowStepResource(BaseModel):
     role: str = ""
     story_loop: str = ""
     max_parallel_stories: int = Field(default=1, ge=1, le=5)
+    # Per-step iteration budget; 0 = inherit Settings.goal_max_iterations.
+    max_iterations: int = Field(default=0, ge=0)
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -281,6 +283,7 @@ class SkillPackage(BaseModel):
                     role=self._value_text(step_values, "role", "agent"),
                     story_loop=self._value_text(step_values, "story_loop"),
                     max_parallel_stories=self._parallel_limit(step_values, name),
+                    max_iterations=self._iteration_budget(step_values, name),
                     frontmatter=step_values,
                 )
             )
@@ -381,6 +384,7 @@ class SkillPackage(BaseModel):
                     role=self._value_text(metadata, "role", "agent"),
                     story_loop=self._value_text(metadata, "story_loop"),
                     max_parallel_stories=self._parallel_limit(metadata, name),
+                    max_iterations=self._iteration_budget(metadata, name),
                     frontmatter=metadata,
                 )
             )
@@ -423,9 +427,21 @@ class SkillPackage(BaseModel):
         raw = values["max_parallel_stories"]
         if isinstance(raw, bool):
             raise SkillWorkflowError(self.skill_id, resource, "max_parallel_stories must be an integer from 1 to 5")
-        text = str(raw).strip().strip('"\'')
+        text = str(raw).strip().strip("\"'")
         if not re.fullmatch(r"[1-9]", text or "") or int(text) > 5:
             raise SkillWorkflowError(self.skill_id, resource, "max_parallel_stories must be an integer from 1 to 5")
+        return int(text)
+
+    def _iteration_budget(self, values: dict[str, Any], resource: str) -> int:
+        """Parse the optional per-step iteration budget (0 = inherit the global setting)."""
+        if "max_iterations" not in values:
+            return 0
+        raw = values["max_iterations"]
+        if isinstance(raw, bool):
+            raise SkillWorkflowError(self.skill_id, resource, "max_iterations must be an integer from 1 to 1000")
+        text = str(raw).strip().strip("\"'")
+        if not re.fullmatch(r"[1-9]\d{0,3}", text or "") or int(text) > 1000:
+            raise SkillWorkflowError(self.skill_id, resource, "max_iterations must be an integer from 1 to 1000")
         return int(text)
 
     @staticmethod

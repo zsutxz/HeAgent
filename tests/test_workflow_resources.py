@@ -63,20 +63,33 @@ def test_loads_inline_step_contracts_without_external_step_files(tmp_path: Path)
 
 def test_loads_max_parallel_stories_with_default_and_bound(tmp_path: Path) -> None:
     package = _package(tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\n")
-    (tmp_path / "step-01-first.md").write_text(
-        "---\nmax_parallel_stories: 3\n---\nFirst", encoding="utf-8"
-    )
+    (tmp_path / "step-01-first.md").write_text("---\nmax_parallel_stories: 3\n---\nFirst", encoding="utf-8")
     workflow = package.read_workflow()
     assert workflow.steps[0].max_parallel_stories == 3
     assert workflow.steps[1].max_parallel_stories == 1
 
 
+def test_reads_step_iteration_budget_with_default_and_bound(tmp_path: Path) -> None:
+    """`max_iterations:` overrides the global budget; absent = inherit (0)."""
+    package = _package(tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\n")
+    (tmp_path / "step-01-first.md").write_text("---\nmax_iterations: 40\n---\nFirst", encoding="utf-8")
+    workflow = package.read_workflow()
+    assert workflow.steps[0].max_iterations == 40
+    assert workflow.steps[1].max_iterations == 0
+
+
+@pytest.mark.parametrize("value", ["0", "1001", "1.5", "true", "null", ""])
+def test_rejects_invalid_step_iteration_budget(tmp_path: Path, value: str) -> None:
+    package = _package(tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\n")
+    (tmp_path / "step-01-first.md").write_text(f"---\nmax_iterations: {value}\n---\nFirst", encoding="utf-8")
+    with pytest.raises(SkillWorkflowError, match="max_iterations"):
+        package.read_workflow()
+
+
 @pytest.mark.parametrize("value", ["0", "6", "1.5", "true", "null", ""])
 def test_rejects_invalid_max_parallel_stories(tmp_path: Path, value: str) -> None:
     package = _package(tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\n")
-    (tmp_path / "step-01-first.md").write_text(
-        f"---\nmax_parallel_stories: {value}\n---\nFirst", encoding="utf-8"
-    )
+    (tmp_path / "step-01-first.md").write_text(f"---\nmax_parallel_stories: {value}\n---\nFirst", encoding="utf-8")
     with pytest.raises(SkillWorkflowError, match="max_parallel_stories"):
         package.read_workflow()
 

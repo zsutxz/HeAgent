@@ -128,6 +128,9 @@ class Settings(BaseSettings):
     # default=proceed with recommended defaults and record assumptions.
     # Workflow frontmatter may override this process-wide default.
     goal_open_question_mode: Literal["block", "default"] = "block"
+    # 是否把「▶ 启动 / ✔ 完成 + 状态行」进度公告写到 stderr。嵌套子代理与交互输入行
+    # 共用终端，公告可能被误提交为提示词；ANNOUNCE_PROGRESS=false 可静音。
+    announce_progress: bool = Field(default=True)
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
     # 上下文管理策略："compressor"=原地摘要压缩（默认）；"reset"=窗口重置（清窗后 resume 续跑，D3 互斥）。
     context_strategy: str = Field(default="compressor")
