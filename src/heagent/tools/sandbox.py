@@ -85,12 +85,53 @@ class CommandRunner(Protocol):
         ...
 
 
+_MAX_CHANNEL_BYTES = 512 * 1024
+_TRUNCATION_MARKER = "[truncated]"
+
+
+def _cap_channel(raw: bytes, limit: int = _MAX_CHANNEL_BYTES) -> str:
+    """Decode one channel, keeping head and tail once it exceeds ``limit`` bytes.
+
+    The tail is preserved on purpose: ``SandboxSession`` reads its cwd/exit-code marker
+    from the end of stdout.  A single unbounded shell result used to be fed back into
+    the model verbatim (one 1.97 MB stdout blew a 1M-token context window).
+    """
+    if len(raw) <= limit:
+        return raw.decode("utf-8", errors="replace")
+    # Reserve room for the diagnostic line so the final UTF-8 result, rather
+    # than only the raw payload, stays within the per-channel byte budget.
+    marker = f"\n{_TRUNCATION_MARKER}"
+    marker_bytes = len(marker.encode("utf-8"))
+    payload_limit = max(limit - marker_bytes - 1, 0)
+    head_bytes = payload_limit // 2
+    tail_bytes = payload_limit - head_bytes
+    dropped = len(raw) - payload_limit
+    head = raw[:head_bytes].decode("utf-8", errors="replace")
+    tail = raw[-tail_bytes:].decode("utf-8", errors="replace") if tail_bytes else ""
+    detail = f" {dropped} bytes dropped (kept first {head_bytes} and last {tail_bytes})\n"
+
+    # Malformed UTF-8 can expand when decoded with replacement characters.
+    # Trim text (tail first, to preserve its final marker) if that expansion
+    # would otherwise exceed the byte budget.
+    detail_bytes = len((marker + detail).encode("utf-8"))
+    available = max(limit - detail_bytes, 0)
+    tail_encoded = tail.encode("utf-8")
+    if len(tail_encoded) > available:
+        tail = tail_encoded[-available:].decode("utf-8", errors="ignore") if available else ""
+        tail_encoded = tail.encode("utf-8")
+    head_available = max(available - len(tail_encoded), 0)
+    head_bytes_text = head.encode("utf-8")
+    if len(head_bytes_text) > head_available:
+        head = head_bytes_text[:head_available].decode("utf-8", errors="ignore")
+    return head + marker + detail + tail
+
+
 def _format_result(returncode: int | None, stdout: bytes, stderr: bytes) -> str:
     result = f"exit_code={returncode}\n"
     if stdout:
-        result += f"stdout:\n{stdout.decode('utf-8', errors='replace')}"
+        result += f"stdout:\n{_cap_channel(stdout)}"
     if stderr:
-        result += f"stderr:\n{stderr.decode('utf-8', errors='replace')}"
+        result += f"stderr:\n{_cap_channel(stderr)}"
     return result
 
 

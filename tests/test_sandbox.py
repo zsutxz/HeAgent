@@ -17,6 +17,7 @@ from heagent.tools.sandbox import (
     SandboxSession,
     SandboxTier,
     WinJobBackend,
+    _format_result,
     _kill_and_reap,
     bind_command_runner,
     bind_sandbox_profile,
@@ -1209,3 +1210,52 @@ class TestSandboxSession:
         s = SandboxSession(tmp_path)
         await s.close(keep=True)
         assert tmp_path.exists()
+
+
+def test_format_result_caps_oversized_stdout_and_keeps_the_tail() -> None:
+    """A megabyte-scale result is capped, still marked, and its tail survives."""
+    tail_marker = "HEAGENT_CWD=E:\\tmp"
+    stdout = b"x" * (600 * 1024) + tail_marker.encode()
+    result = _format_result(0, stdout, b"")
+    assert result.startswith("exit_code=0\nstdout:\n")
+    assert "[truncated]" in result
+    assert result.endswith(tail_marker)
+    assert len(result) < len(stdout)
+    channel = result.split("stdout:\n", 1)[1]
+    assert len(channel.encode("utf-8")) <= 512 * 1024
+
+
+def test_format_result_caps_stderr_independently() -> None:
+    result = _format_result(2, b"small", b"e" * (600 * 1024))
+    assert "stdout:\nsmall" in result
+    assert "stderr:\n" in result
+    assert "[truncated]" in result
+    channel = result.split("stderr:\n", 1)[1]
+    assert len(channel.encode("utf-8")) <= 512 * 1024
+
+
+@pytest.mark.asyncio
+async def test_session_preserves_tail_marker_after_stdout_truncation(tmp_path: Path) -> None:
+    """SandboxSession must still recover cwd and rc from a capped stdout tail."""
+    marker_path = tmp_path / "nested"
+    raw_stdout = b"x" * (600 * 1024) + f"\nHEAGENT_CWD 7\n{marker_path}\n".encode()
+
+    class _Runner:
+        tier = SandboxTier.PASSTHROUGH
+
+        async def run(self, command: str, *, timeout: int) -> str:
+            return _format_result(0, raw_stdout, b"")
+
+    session = SandboxSession(tmp_path)
+    with bind_command_runner(_Runner()):
+        result = await session.run("echo oversized", timeout=10)
+
+    assert session.cwd == marker_path
+    assert result.startswith("exit_code=7")
+    assert "HEAGENT_CWD" not in result
+    assert "[truncated]" in result
+
+
+def test_format_result_leaves_small_output_untouched() -> None:
+    assert _format_result(1, b"ok", b"warn\n") == "exit_code=1\nstdout:\nokstderr:\nwarn\n"
+    assert _format_result(None, b"", b"") == "exit_code=None\n"
