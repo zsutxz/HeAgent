@@ -450,7 +450,7 @@ SafetyGuard
 | `git_blame` | 行级作者追溯 |
 
 技能工具在 `AgentLoop` 接收 `SkillStore` 时激活；记忆工具在接收 `FactStore`/`ProfileStore` 时激活；
-Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 `AgentLoop._runtime_scope` 在每次 run 注入委派回调（`agent/delegation.build_subagent_delegates`）激活，run 退出即解绑（单次与交互模式均如此）。委派结果经 `_record_step()` 写入 supervisor 的 `metadata['completed_steps']`（含 iterations/run_id，跨窗口重置存活）。未注入时工具返回 `status=error` 结构化错误，不抛异常。`task_delegate`/`task_parallel` 另受**递归深度闸门**约束：当前 loop 的 `depth` `>= Settings.subagent_max_depth`（默认 3）时直接返回 `status=error`、不再构造子 Agent，防止 LLM 自我委派无限递归；根 loop `depth=0`，SubAgent 创建的子 loop 为父深度 +1。
+Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 `AgentLoop._runtime_scope` 在每次 run 注入委派回调（`agent/delegation.build_subagent_delegates`）激活，run 退出即解绑（单次与交互模式均如此）。委派结果经 `_record_step()` 写入 supervisor 的 `metadata['completed_steps']`（含 iterations/run_id，跨窗口重置存活）。未注入时工具返回 `status=error` 结构化错误，不抛异常。`task_delegate`/`task_parallel` 另受**递归深度闸门**约束：当前 loop 的 `depth` `>= Settings.subagent_max_depth`（默认 3）时直接返回 `status=error`、不再构造子 Agent，防止 LLM 自我委派无限递归；根 loop `depth=0`，SubAgent 创建的子 loop 为父深度 +1。子 Agent 的迭代预算按「显式参数 > 角色显式声明 > `Settings.subagent_max_iterations`（默认 20）」解析；角色未声明即跟随配置（内置 `tester` 已改为不声明，使验证器预算可调）。
 
 ### 4.5 上下文管理 (`context/`)
 
@@ -613,6 +613,7 @@ HeAgentError (base)
 | `dream_max_iterations` | 20 | dreamer SubAgent 独立迭代预算（不复用全局 `max_iterations`） |
 | `goal_max_iterations` | 20 | `/goal` 单步 SubAgent 最大迭代轮数（步骤可用 `max_iterations:` 覆盖） |
 | `subagent_max_depth` | 3 | 子 Agent 委派嵌套深度上限（0=禁止委派；超限工具返回 `status=error`） |
+| `subagent_max_iterations` | 20 | 嵌套子代理兜底迭代预算（角色未声明 `max_iterations` 时生效：显式参数 > 角色声明 > 本项） |
 | `goal_checkpoint_mode` | `prompt` | `/goal` 检查点策略：自动继续或等待用户 |
 | `goal_open_question_mode` | `block` | `/goal` 未决问题策略：阻塞或采用默认值 |
 | `announce_progress` | True | 是否把「▶ 启动 / ✔ 完成 + 状态行」进度公告写到 stderr（false=静音） |

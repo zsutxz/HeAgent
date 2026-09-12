@@ -115,9 +115,12 @@ class SubAgent:
             if blocked_tools is not None
             else (list(role.blocked_tools) if role is not None and role.blocked_tools else None)
         )
-        # 4) 最大迭代数：显式参数 > role.max_iterations > 内置默认 20（子任务通常更短）。
+        # 4) 最大迭代数：显式参数 > role 显式声明 > Settings.subagent_max_iterations。
+        role_iterations = role.max_iterations if role is not None else None
         self._max_iterations = (
-            max_iterations if max_iterations is not None else (role.max_iterations if role is not None else 20)
+            max_iterations
+            if max_iterations is not None
+            else (role_iterations if role_iterations is not None else get_settings().subagent_max_iterations)
         )
 
     def _build_engine(self) -> EngineContainer:

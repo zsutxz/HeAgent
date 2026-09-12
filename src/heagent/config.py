@@ -120,6 +120,10 @@ class Settings(BaseSettings):
     # 子 Agent 委派的最大嵌套深度（0=禁止任何委派）。超限时 task_delegate /
     # task_parallel 返回 status=error，避免 LLM 自我委派无限递归。
     subagent_max_depth: int = Field(default=3, ge=0)
+    # 嵌套子代理（task_delegate / task_parallel）的兜底迭代预算：角色未声明
+    # `max_iterations` 时生效（优先级：显式参数 > 角色声明 > 本项）。默认 20 与
+    # 此前写死在 SubAgent / 角色解析里的值一致。
+    subagent_max_iterations: int = Field(default=20, ge=1)
     # Checkpoint decision policy for declarative /goal workflows.  Workflow
     # frontmatter may override this process-wide default.
     goal_checkpoint_mode: Literal["auto", "prompt"] = "prompt"

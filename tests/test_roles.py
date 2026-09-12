@@ -12,7 +12,8 @@ class TestRoleSpec:
         spec = RoleSpec(name="x", system="be x")
         assert spec.allowed_tools == []
         assert spec.blocked_tools == []
-        assert spec.max_iterations == 20
+        # None = 未声明，跟随 Settings.subagent_max_iterations（不再是写死的 20）。
+        assert spec.max_iterations is None
         assert spec.metadata == {}
 
     def test_roundtrip(self) -> None:

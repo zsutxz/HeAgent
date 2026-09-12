@@ -35,8 +35,8 @@ class RoleSpec(BaseModel):
     allowed_tools: list[str] = Field(default_factory=list)
     # 显式黑名单（额外阻断）。
     blocked_tools: list[str] = Field(default_factory=list)
-    # 该角色子 Agent 的最大迭代轮次。
-    max_iterations: int = 20
+    # 该角色子 Agent 的最大迭代轮次；None = 未声明，跟随 Settings.subagent_max_iterations。
+    max_iterations: int | None = None
     # 沙箱配置名（可选）；为 None 表示不强制沙箱。
     sandbox_profile: str | None = None
     # 附加元数据（如角色描述、标签）。
@@ -101,7 +101,7 @@ def _parse_role_md(path: Path) -> RoleSpec | None:
     name = ""
     description = ""
     tools: list[str] = []
-    max_iterations = 20
+    max_iterations: int | None = None
     body = raw
     frontmatter = re.match(r"^---\s*\n(.*?)\n---\s*\n", raw, re.DOTALL)
     if frontmatter:
@@ -217,7 +217,6 @@ def _builtin_roles() -> list[RoleSpec]:
             name="tester",
             system=_TESTER_SYSTEM,
             allowed_tools=["file_read", "content_search", "shell"],
-            max_iterations=20,
         ),
         RoleSpec(
             name="supervisor",
