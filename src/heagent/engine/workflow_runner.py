@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -148,6 +149,8 @@ class WorkflowRunnerState(BaseModel):
     story_index: int = Field(default=0, ge=0)
     completed_stories: list[str] = Field(default_factory=list)
     story_outputs: dict[str, Any] = Field(default_factory=dict)
+    active_stories: list[str] = Field(default_factory=list)
+    story_statuses: dict[str, str] = Field(default_factory=dict)
 
 
 class WorkflowStepResult(BaseModel):
@@ -229,6 +232,8 @@ class WorkflowRunner:
             story_index=checkpoint.story_index if checkpoint.story_index is not None else 0,
             completed_stories=list(checkpoint.completed_stories),
             story_outputs=dict(checkpoint.story_outputs),
+            active_stories=list(checkpoint.active_stories or ([checkpoint.active_story] if checkpoint.active_story else [])),
+            story_statuses=dict(checkpoint.story_statuses),
         )
         kwargs.setdefault("phase", checkpoint.phase)
         return cls(workflow, state, goal_id=checkpoint.goal_id, run_id=checkpoint.run_id, **kwargs)
@@ -278,8 +283,10 @@ class WorkflowRunner:
             return await self._stop(WorkflowStatus.BLOCKED, step, str(exc), [], checkpoint)
         active_story: StorySpec | None = None
         if is_story_loop:
+            if step.max_parallel_stories > 1 and story_specs and all(story.epic for story in story_specs):
+                return await self._run_story_batch(callback, step, story_specs, checkpoint)
             active_story = story_specs[self.state.story_index]
-            self.state = self.state.model_copy(update={"active_story": active_story.id})
+            self.state = self.state.model_copy(update={"active_story": active_story.id, "active_stories": [active_story.id]})
 
         result = self._invoke_callback(callback, step, active_story)
         if inspect.isawaitable(result):
@@ -317,6 +324,98 @@ class WorkflowRunner:
             checkpoint_id=checkpoint_id,
             story_id=executed_story_id,
             story_index=executed_story_index,
+        )
+
+    async def _run_story_batch(
+        self,
+        callback: WorkflowCallback | StoryWorkflowCallback,
+        step: WorkflowStepResource,
+        story_specs: list[StorySpec],
+        checkpoint: CheckpointCallback | None,
+    ) -> WorkflowRunResult:
+        """Run one bounded batch from the first incomplete Epic only."""
+        completed = set(self.state.completed_stories)
+        remaining = [story for story in story_specs if story.id not in completed]
+        if not remaining:
+            combined = "\n\n---\n\n".join(str(value) for value in self.state.story_outputs.values())
+            self.state = self.state.model_copy(update=self._step_advance_update(step, combined))
+            checkpoint_id = await self._persist(step, checkpoint)
+            return WorkflowRunResult(status=self.state.status, step_index=step.index, checkpoint_id=checkpoint_id)
+        epic = remaining[0].epic
+        if not epic:
+            raise WorkflowGateError("parallel story execution requires every scheduled story to declare an Epic")
+        batch = [story for story in remaining if story.epic == epic][: step.max_parallel_stories]
+        active_ids = [story.id for story in batch]
+        statuses = {**self.state.story_statuses, **{story_id: "running" for story_id in active_ids}}
+        self.state = self.state.model_copy(
+            update={"active_story": active_ids[0], "active_stories": active_ids, "story_statuses": statuses}
+        )
+        await self._persist(step, checkpoint)
+
+        async def execute(story: StorySpec) -> tuple[StorySpec, WorkflowStepResult | BaseException]:
+            try:
+                result = self._invoke_callback(callback, step, story)
+                if inspect.isawaitable(result):
+                    result = await result
+                if not isinstance(result, WorkflowStepResult):
+                    raise TypeError("story callback must return WorkflowStepResult")
+                return story, result
+            except Exception as exc:  # isolate one Story failure from its batch
+                return story, exc
+
+        results = await asyncio.gather(*(execute(story) for story in batch))
+        completed_ids: list[str] = []
+        story_outputs = dict(self.state.story_outputs)
+        evidence = list(self.state.acceptance_evidence)
+        failure_reason = ""
+        for story, result in results:
+            if isinstance(result, BaseException):
+                statuses[story.id] = "failed"
+                failure_reason = f"{story.id}: {result}"
+                continue
+            if result.status is not WorkflowStatus.COMPLETED:
+                statuses[story.id] = result.status.value
+                failure_reason = result.reason or f"{story.id}: {result.status.value}"
+                continue
+            try:
+                self._validate_output(step, result.output)
+            except WorkflowGateError as exc:
+                statuses[story.id] = "failed"
+                failure_reason = f"{story.id}: {exc}"
+                continue
+            statuses[story.id] = "completed"
+            completed_ids.append(story.id)
+            story_outputs[story.id] = result.output
+            evidence.extend(result.evidence)
+        all_completed = set(completed_ids)
+        completed_stories = [*self.state.completed_stories, *[story.id for story in batch if story.id in all_completed]]
+        active = [story.id for story in batch if statuses.get(story.id) == "running"]
+        update: dict[str, Any] = {
+            "completed_stories": completed_stories,
+            "story_outputs": story_outputs,
+            "acceptance_evidence": evidence,
+            "active_stories": active,
+            "active_story": active[0] if active else None,
+            "story_statuses": statuses,
+        }
+        if failure_reason:
+            update.update({"status": WorkflowStatus.FAILED, "reason": failure_reason})
+        elif len(completed_stories) >= len(story_specs):
+            combined = "\n\n---\n\n".join(str(value) for value in story_outputs.values())
+            update.update(self._step_advance_update(step, combined))
+            update.update({"active_stories": [], "active_story": None})
+        else:
+            update["status"] = WorkflowStatus.WAITING_USER if self._checkpoint_declared(step) else WorkflowStatus.PENDING
+            update["reason"] = ""
+        self.state = self.state.model_copy(update=update)
+        checkpoint_id = await self._persist(step, checkpoint)
+        return WorkflowRunResult(
+            status=self.state.status,
+            step_index=step.index,
+            output={story_id: story_outputs[story_id] for story_id in completed_ids},
+            reason=self.state.reason,
+            checkpoint_id=checkpoint_id,
+            story_id=completed_ids[0] if completed_ids else batch[0].id,
         )
 
     run = run_step
@@ -386,6 +485,7 @@ class WorkflowRunner:
             update.update(
                 {
                     "active_story": None,
+                    "active_stories": [],
                     "story_index": 0,
                     "completed_stories": [],
                     "story_outputs": {},
@@ -400,6 +500,7 @@ class WorkflowRunner:
             "completed_stories": completed_stories,
             "story_outputs": story_outputs,
             "active_story": next_story.id,
+            "active_stories": [next_story.id],
         }
 
     def _resolve_stories(self, step: WorkflowStepResource, stories: Iterable[StorySpec] | None) -> list[StorySpec]:
@@ -459,6 +560,8 @@ class WorkflowRunner:
             active_skill=self.workflow.name,
             active_step=self.state.active_step,
             active_story=self.state.active_story,
+            active_stories=list(self.state.active_stories),
+            story_statuses=dict(self.state.story_statuses),
             story_index=self.state.story_index if self._is_story_step(step) else None,
             completed_stories=list(self.state.completed_stories),
             story_outputs=dict(self.state.story_outputs),
@@ -477,6 +580,8 @@ class WorkflowRunner:
             active_skill=self.workflow.name,
             active_step=self.state.active_step,
             active_story=self.state.active_story,
+            active_stories=list(self.state.active_stories),
+            story_statuses=dict(self.state.story_statuses),
             status=aggregate_status,
             artifact_refs=list(self.state.outputs),
             blocked_reason=self.state.reason
@@ -502,6 +607,8 @@ class WorkflowRunner:
         story_part = ""
         if self._is_story_step(step):
             story_part = f"-story-{self.state.story_index}"
+            if step.max_parallel_stories > 1:
+                story_part += f"-parallel-{len(self.state.completed_stories)}"
             # Story ids are normalized upstream; sanitize defensively so a
             # hand-built spec can never produce a path-unsafe checkpoint id.
             label = re.sub(r"[^0-9A-Za-z]+", "-", self.state.active_story or "").strip("-")

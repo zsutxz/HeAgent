@@ -49,6 +49,7 @@ class WorkflowStepResource(BaseModel):
     validation_rules: str = ""
     role: str = ""
     story_loop: str = ""
+    max_parallel_stories: int = Field(default=1, ge=1, le=5)
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -279,6 +280,7 @@ class SkillPackage(BaseModel):
                     validation_rules=self._value_text(step_values, "validation", "validation_rules", "verify"),
                     role=self._value_text(step_values, "role", "agent"),
                     story_loop=self._value_text(step_values, "story_loop"),
+                    max_parallel_stories=self._parallel_limit(step_values, name),
                     frontmatter=step_values,
                 )
             )
@@ -378,6 +380,7 @@ class SkillPackage(BaseModel):
                     validation_rules=self._value_text(metadata, "validation", "validation_rules", "verify"),
                     role=self._value_text(metadata, "role", "agent"),
                     story_loop=self._value_text(metadata, "story_loop"),
+                    max_parallel_stories=self._parallel_limit(metadata, name),
                     frontmatter=metadata,
                 )
             )
@@ -412,6 +415,18 @@ class SkillPackage(BaseModel):
                 result = str(value).strip().strip("\"'")
                 return "" if result.casefold() in {"none", "null"} else result
         return ""
+
+    def _parallel_limit(self, values: dict[str, Any], resource: str) -> int:
+        """Parse the bounded Step 07 concurrency setting without coercion."""
+        if "max_parallel_stories" not in values:
+            return 1
+        raw = values["max_parallel_stories"]
+        if isinstance(raw, bool):
+            raise SkillWorkflowError(self.skill_id, resource, "max_parallel_stories must be an integer from 1 to 5")
+        text = str(raw).strip().strip('"\'')
+        if not re.fullmatch(r"[1-9]", text or "") or int(text) > 5:
+            raise SkillWorkflowError(self.skill_id, resource, "max_parallel_stories must be an integer from 1 to 5")
+        return int(text)
 
     @staticmethod
     def _parse_resource_frontmatter(text: str) -> tuple[dict[str, Any], str]:

@@ -44,7 +44,7 @@ Step 01 与 step 02 是**只读**步骤（市场调研与发散构思），不�
 story 的验收标准；它只规划，不实现。Step 07 是**逐 story 的重任务步骤**：单个会话内完成一条
 story 的实现、测试与验证，并且是唯一允许创建实现产物、唯一允许新增或修改测试文件的步骤。
 
-Step 07 按 `02-epics.md` 的 `### S-N` 顺序逐 story 执行，每次增量只处理一条 story，并在两个收口
+Step 07 按 `02-epics.md` 的 `### S-N` 顺序执行；默认每次增量只处理一条 Story，声明并行上限后可在同一 Epic 内批量处理，并在两个收口
 点上追加动作：**Sprint 收口**（当前 story 是该 Sprint 最后一条时，跑该 Sprint 的可演示切片并核对
 退出准则）与 **Epic 收口评审**（当前 story 是该 Epic 最后一条时，对本 Epic 的全部 story 做一次
 对抗式代码评审）；不命中边界时不要额外做事。
@@ -188,10 +188,12 @@ input: 澄清的实现范围, 架构
 output: 故事实现, 故事定义, 故事测试证据, 故事验证报告
 checkpoint: true
 story_loop: 02-epics.md
+max_parallel_stories: 3
 validation: section: 实现摘要; section: 测试证据; section: 验证结论; 本条 story 在这一个步骤内完成实现、测试与验证，且记录下确切命令及其结果
 
-`bmad-build` 是本步骤的实现、测试与验证方法论来源。CLI 每次只注入一条 Story；只实现该 Story，
-不得修改冻结的 `02-epics.md`。Story 产物必须写入
+`bmad-build` 是本步骤的实现、测试与验证方法论来源。默认每次只注入一条 Story；当
+`max_parallel_stories > 1` 时，仅在同一个 Epic 内以批次方式并发执行，跨 Epic 严格串行，单条失败不取消
+同批其他 Story。只实现当前 Story，不得修改冻结的 `02-epics.md`。Story 产物必须写入
 `_he-output/goals/<goal-id>/step-07-implement-story/epic-<eN>/s-<n>/`：`story.md`、
 `implementation.md`、`test-report.md` 与 `verify-report.md`；CLI 保存该次步骤输出为同目录的
 `report.md`。命中 Sprint 或 Epic 的最后一条 Story 时，按 BMad 方法完成相应收口，并将证据写入报告。

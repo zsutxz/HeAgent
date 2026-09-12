@@ -26,10 +26,13 @@ status: planning
 - 47-5：`/goal` 接入 Epic、Story、Sprint 工作流
 - 47-6：Review、Retrospective、Correct Course 闭环
 - 47-7：完整样例 Epic、回归测试和文档收口
+- 47-8：Step 07 同 Epic 并行参数
+- 47-9：Step 07 同 Epic Story 批次并行
+- 47-10：Story 批次 checkpoint 与恢复
 
 ## Dependency Order
 
-47-1 → (47-2, 47-3) → 47-4 → 47-5 → 47-6 → 47-7
+47-1 → (47-2, 47-3) → 47-4 → 47-5 → 47-6 → 47-7 → 47-8 → 47-9 → 47-10
 
 ## Epic Acceptance
 

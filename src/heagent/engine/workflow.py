@@ -95,6 +95,8 @@ class WorkflowCheckpoint(BaseModel):
     story_index: int | None = Field(default=None, ge=0)
     completed_stories: list[str] = Field(default_factory=list)
     story_outputs: dict[str, Any] = Field(default_factory=dict)
+    active_stories: list[str] = Field(default_factory=list)
+    story_statuses: dict[str, str] = Field(default_factory=dict)
     next_action: str = ""
     tool_in_flight: bool = False
     created_at: str = Field(default_factory=_iso_now)
@@ -183,6 +185,8 @@ class WorkflowCheckpointStore:
             active_skill=checkpoint.active_skill,
             active_step=checkpoint.active_step,
             active_story=checkpoint.active_story,
+            active_stories=list(checkpoint.active_stories),
+            story_statuses=dict(checkpoint.story_statuses),
             status=aggregate_status,
             artifact_refs=list(checkpoint.artifact_refs),
             next_action=checkpoint.next_action,
@@ -380,6 +384,8 @@ class GoalWorkflowState(BaseModel):
     active_skill: str | None = None
     active_step: int | None = Field(default=None, ge=0)
     active_story: str | None = None
+    active_stories: list[str] = Field(default_factory=list)
+    story_statuses: dict[str, str] = Field(default_factory=dict)
     status: WorkflowStatus = WorkflowStatus.PENDING
     segment_index: int = Field(default=0, ge=0)
     segment_tokens: int = Field(default=0, ge=0)

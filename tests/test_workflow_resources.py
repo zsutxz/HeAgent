@@ -45,7 +45,7 @@ def test_loads_inline_step_contracts_without_external_step_files(tmp_path: Path)
         "step_executor: subagent\n---\n\n# Inline workflow\n\n"
         "## Step 01: clarify\noutput: scope\ncheckpoint: true\n\nClarify the request.\n\n"
         "## Step 02: implement\ninput: scope\noutput: change\n"
-        "validation: focused tests pass\n\nImplement the change.\n",
+        "validation: focused tests pass\nmax_parallel_stories: 4\n\nImplement the change.\n",
         encoding="utf-8",
     )
 
@@ -58,6 +58,27 @@ def test_loads_inline_step_contracts_without_external_step_files(tmp_path: Path)
     assert workflow.steps[0].output == "scope"
     assert workflow.steps[0].checkpoint == "true"
     assert workflow.steps[1].input == "scope"
+    assert workflow.steps[1].max_parallel_stories == 4
+
+
+def test_loads_max_parallel_stories_with_default_and_bound(tmp_path: Path) -> None:
+    package = _package(tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\n")
+    (tmp_path / "step-01-first.md").write_text(
+        "---\nmax_parallel_stories: 3\n---\nFirst", encoding="utf-8"
+    )
+    workflow = package.read_workflow()
+    assert workflow.steps[0].max_parallel_stories == 3
+    assert workflow.steps[1].max_parallel_stories == 1
+
+
+@pytest.mark.parametrize("value", ["0", "6", "1.5", "true", "null", ""])
+def test_rejects_invalid_max_parallel_stories(tmp_path: Path, value: str) -> None:
+    package = _package(tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\n")
+    (tmp_path / "step-01-first.md").write_text(
+        f"---\nmax_parallel_stories: {value}\n---\nFirst", encoding="utf-8"
+    )
+    with pytest.raises(SkillWorkflowError, match="max_parallel_stories"):
+        package.read_workflow()
 
 
 @pytest.mark.parametrize(
