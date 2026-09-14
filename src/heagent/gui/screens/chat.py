@@ -6,6 +6,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from rich.markup import escape
 from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Input, RichLog, Static
@@ -13,6 +14,7 @@ from textual.widgets import Button, Input, RichLog, Static
 from heagent.config import get_settings
 from heagent.gui.bridge import MSG_AGENT_ERROR, MSG_AGENT_INTERRUPTED, MSG_STREAM_EVENT, BridgeMessage
 from heagent.providers.router import active_model, annotate_route
+from heagent.tools.call_summary import activity_label
 
 if TYPE_CHECKING:
     from textual.app import ComposeResult
@@ -24,6 +26,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 WELCOME = "[bold green]HeAgent[/]\n输入消息开始对话。[dim]/help 查看命令[/]"
+
+
+def _render_tool_result(event: StreamEvent) -> str:
+    """把 ``tool_result`` 事件渲染成 RichLog markup 行（失败归因红叉 / 成功绿勾）。
+
+    内容与工具名经 ``markup.escape``——工具输出**不可信**，其中形如 ``[red]`` 的片段
+    在 ``markup=True`` 的 RichLog（本 widget 即开启）里会被当标记解释。
+    失败必须显式归因且**不得**沿用绿勾（与 CLI 的 ``[failed <tool>]`` 同一语义，
+    2026-09-14 复核发现 GUI 侧原先无论成败一律画绿勾）。
+    """
+    result = escape(event.tool_result_content[:300])
+    if event.tool_error:
+        return f"  [red]✗ {escape(event.tool_name)}[/] {result}"
+    return f"  [green]✓[/] {result}"
 
 
 def _format_tokens_k(n: int) -> str:
@@ -128,10 +144,12 @@ class ChatScreen(Screen[None]):
             if evt_typed.type == "text":
                 log.write(evt_typed.text)
             elif evt_typed.type == "tool_call":
-                log.write(f"[dim]🔧 {evt_typed.tool_name}...[/]")
+                # 标签拼接走 activity_label（与 CLI 提示行 / 状态栏 / 活动台账同一口径）；
+                # escape 防工具参数里的 `[...]` 被 RichLog 当 markup 解释（本 widget markup=True）。
+                label = escape(activity_label(evt_typed.tool_name, evt_typed.tool_target))
+                log.write(f"[dim]🔧 {label}...[/]")
             elif evt_typed.type == "tool_result":
-                result = evt_typed.tool_result_content[:300]
-                log.write(f"  [green]✓[/] {result}")
+                log.write(_render_tool_result(evt_typed))
             elif evt_typed.type == "done":
                 self._finalize_state()
         elif msg_type == MSG_AGENT_INTERRUPTED:

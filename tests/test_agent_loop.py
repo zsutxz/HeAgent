@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 import pytest
 
@@ -606,3 +607,145 @@ class TestSkillInjection:
             assert f"skill_{i}" in content
         assert "skill_3" not in content
         assert "skill_4" not in content
+
+
+class TestToolActivity:
+    """run 作用域的工具展示态：在途摘要（状态栏）+ 活动台账（跑完回显）。"""
+
+    @pytest.mark.asyncio
+    async def test_active_tool_visible_in_flight_and_cleared_after(self, fresh_registry: ToolRegistry) -> None:
+        seen: list[str] = []
+        holder: list[AgentLoop] = []
+
+        async def probe_tool(path: str = "") -> str:
+            seen.append(holder[0].active_tool)
+            return "ok"
+
+        _register(fresh_registry, "probe", probe_tool)
+        provider = StubProvider([_tool_resp([_tc("1", "probe", {"path": "docs/frame.md"})]), _final("done")])
+        loop = AgentLoop(provider, registry=fresh_registry, max_iterations=10)
+        holder.append(loop)
+
+        result = await loop.run("probe it")
+
+        assert result == "done"
+        # 工具执行期间状态栏读得到；批次一结束即清空。
+        assert seen == ["probe → docs/frame.md"]
+        assert loop.active_tool == ""
+        assert loop.tool_activity == ["probe → docs/frame.md"]
+
+    @pytest.mark.asyncio
+    async def test_batch_summary_counts_the_extra_calls(self, fresh_registry: ToolRegistry) -> None:
+        """一批多调用只占一个状态段：首个工具 + (+N)，但台账逐条留痕。"""
+        seen: list[str] = []
+        holder: list[AgentLoop] = []
+
+        async def probe_tool(path: str = "") -> str:
+            if not seen:
+                seen.append(holder[0].active_tool)
+            return "ok"
+
+        _register(fresh_registry, "probe", probe_tool)
+        provider = StubProvider(
+            [
+                _tool_resp([_tc("1", "probe", {"path": "a.md"}), _tc("2", "probe", {"path": "b.md"})]),
+                _final("done"),
+            ]
+        )
+        loop = AgentLoop(provider, registry=fresh_registry, max_iterations=10)
+        holder.append(loop)
+
+        await loop.run("probe twice")
+
+        assert seen == ["probe → a.md (+1)"]
+        assert loop.tool_activity == ["probe → a.md", "probe → b.md"]
+
+    @pytest.mark.asyncio
+    async def test_activity_ledger_resets_between_runs(self, fresh_registry: ToolRegistry) -> None:
+        """交互模式复用同一 loop：活动台账按 run 重置，不跨轮累积。"""
+
+        async def probe_tool(path: str = "") -> str:
+            return "ok"
+
+        _register(fresh_registry, "probe", probe_tool)
+        provider = StubProvider(
+            [
+                _tool_resp([_tc("1", "probe", {"path": "a.md"})]),
+                _final("first"),
+                _tool_resp([_tc("2", "probe", {"path": "b.md"})]),
+                _final("second"),
+            ]
+        )
+        loop = AgentLoop(provider, registry=fresh_registry, max_iterations=10)
+
+        await loop.run("one")
+        assert loop.tool_activity == ["probe → a.md"]
+
+        await loop.run("two")
+        assert loop.tool_activity == ["probe → b.md"]
+
+    @pytest.mark.asyncio
+    async def test_resume_path_also_resets_display_state(self, fresh_registry: ToolRegistry) -> None:
+        """恢复也是新的一次 run：在途工具与活动台账都要清空。
+
+        回归：重置原先只在 ``_init_new_run`` 里，而 ``_init_or_resume`` 在恢复分支
+        提前 return，resume 后状态栏 / 台账会残留上一段 run 的值。
+        """
+        from heagent.agent.loop import _ResumeState
+
+        loop = AgentLoop(StubProvider([_final("done")]), registry=fresh_registry, max_iterations=10)
+        loop.active_tool = "file_read → stale.md"
+        loop.tool_activity = ["file_read → stale.md"]
+
+        init = await loop._init_or_resume(
+            "resume me",
+            None,
+            None,
+            _ResumeState(
+                state=AgentState(),
+                run_context=loop._ensure_run_context(session_id=None),
+                prompt="resume me",
+                system=None,
+            ),
+            stream=False,
+        )
+
+        assert init.prompt == "resume me"
+        assert loop.active_tool == ""
+        assert loop.tool_activity == []
+
+    @pytest.mark.asyncio
+    async def test_active_tool_cleared_when_run_is_cancelled(self, fresh_registry: ToolRegistry) -> None:
+        """取消（双击 Esc / 中断）也必须清空在途工具，否则状态栏留着陈旧值。"""
+        started = asyncio.Event()
+
+        async def hang_tool() -> str:
+            started.set()
+            await asyncio.sleep(30)
+            return "never"
+
+        _register(fresh_registry, "hang", hang_tool)
+        provider = StubProvider([_tool_resp([_tc("1", "hang")]), _final("unreachable")])
+        loop = AgentLoop(provider, registry=fresh_registry, max_iterations=5)
+
+        task = asyncio.create_task(loop.run("hang"))
+        await asyncio.wait_for(started.wait(), timeout=5)
+        assert loop.active_tool == "hang"
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+        assert loop.active_tool == ""
+
+
+def _register(registry: ToolRegistry, name: str, handler: object) -> None:
+    """注册一个只有一个字符串参数的工具（活动标签走 call_summary 的兜底取名）。"""
+    registry.register(
+        ToolSchema(
+            name=name,
+            description=name,
+            parameters={"type": "object", "properties": {"path": {"type": "string"}}},
+        ),
+        handler,
+    )

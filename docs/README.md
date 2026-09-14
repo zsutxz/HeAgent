@@ -29,6 +29,7 @@
 
 - [设计说明](design.md)：项目定位、设计动机、非目标和成熟度判断。
 - [迭代指南](iteration.md)：如何继续迭代，以及已完成周期的历史索引。
+- [LangChain 迁移可行性](langchain-migration-feasibility.md)：只分析技术可行性与迁移边界（模块映射、三种迁移方案、分阶段路线；结论是「HeAgent Runtime + LangChain Model/Tool + LangGraph Workflow」混合，而非全量替换）；不代表已开始迁移，也不改变当前实现。
 
 ## 规划归档
 

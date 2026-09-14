@@ -32,6 +32,7 @@ from heagent.context.window_reset import WindowReset, WindowResetConfig
 from heagent.engine import EngineContainer, RunContext, RunStatus
 from heagent.engine.hooks import SESSION_END, SESSION_START
 from heagent.exceptions import BudgetExceeded
+from heagent.tools.call_summary import summarize_tool_call
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
 from heagent.types import (
@@ -214,6 +215,14 @@ class AgentLoop:
         self.last_iteration: int | None = None
         # 从程序启动开始的累计总 token 数（跨 run 累加）
         self.cumulative_tokens: int = 0
+        # 当前在途的工具批次摘要（形如 ``file_read → src/a.py``；多调用带 ``(+N)``）。
+        # 批次执行期间非空、结束（含取消）即清空——状态栏据此显示「卡在哪个工具」。
+        self.active_tool: str = ""
+        # 本次 run 的「调用尝试」活动标签（每次调用一条，run 开始即清空）。事件环缓冲仅
+        # 200 条、长 run 会丢早期调用，故活动回顾独立记录于此（单次模式跑完回显）；
+        # 被 policy/hook 阻止、命中 ledger 缓存的调用**同样留痕**——台账记的是
+        # 「这次 run 试过动什么」，展示文案（show_tool_activity）据此刻画。
+        self.tool_activity: list[str] = []
         # 最近一次 run 结束时的「当前上下文占用」估算（下一轮将发送的消息 token 数），供状态栏展示。
         self.last_context_tokens: int = 0
         # 协作式暂停控制：Event 初始已设置（运行态）。pause() 清空 → 循环在下一轮边界挂起；
@@ -507,10 +516,25 @@ class AgentLoop:
                         if not response.tool_calls:
                             break  # 退出内层，进入 follow-up 检查
 
+                        # 先逐个公告「调用什么、作用在哪个对象上」，再执行：
+                        # 工具可能耗时数十秒（shell / 联网 / 子 Agent），展示层需要在
+                        # 它真正跑起来之前就看到目标；结果事件在执行后补发。
+                        for tool_call in response.tool_calls:
+                            yield StreamEvent(
+                                type="tool_call",
+                                tool_name=tool_call.name,
+                                tool_target=summarize_tool_call(tool_call.name, tool_call.arguments),
+                            )
                         tool_results = await self._execute_tools(response.tool_calls, state, run_context=run_context)
                         for tool_call, tool_result in zip(response.tool_calls, tool_results, strict=True):
-                            yield StreamEvent(type="tool_call", tool_name=tool_call.name)
-                            yield StreamEvent(type="tool_result", tool_result_content=tool_result.content)
+                            # 批次内并发执行，结果按调用顺序返回——带上工具名与成败标志，
+                            # 展示层才能把「失败」归因到具体调用（成功不必逐条提示）。
+                            yield StreamEvent(
+                                type="tool_result",
+                                tool_name=tool_call.name,
+                                tool_result_content=tool_result.content,
+                                tool_error=tool_result.is_error,
+                            )
                             state.messages.append(
                                 Message(
                                     role=Role.TOOL,
@@ -633,6 +657,11 @@ class AgentLoop:
         返回 ``_RunInit`` 供 ``run()`` / ``run_stream()`` 直接消费，
         循环体不再重复分支逻辑。
         """
+        # 展示态按 run 重置（恢复也是新的一次 run）：交互模式复用同一 loop 跑多轮，
+        # 不清会跨轮串味。放在本函数顶部而非 _init_new_run——后者在恢复分支被提前
+        # 跳过，会导致 resume 后的状态栏/台账残留上一段 run 的值。
+        self.active_tool = ""
+        self.tool_activity = []
         if _resume is not None:
             resume_details: dict[str, Any] = {"resume": True, "stream": stream}
             resume_details.update(_delegation_details(_resume.run_context))
@@ -694,6 +723,7 @@ class AgentLoop:
         await self._start_run_record(run_context, prompt=prompt, system=system_content)
         details: dict[str, Any] = {"stream": True} if stream else {"session_id": session_id or ""}
         details.update(_delegation_details(run_context))
+        # 展示态已由 _init_or_resume 统一重置（新 run 与恢复路径共用）。
         self._emit("run_started", run_context=run_context, details=details)
         if self.engine.hooks is not None:
             await self.engine.hooks.run_session(SESSION_START, run_context)
@@ -1085,6 +1115,7 @@ class AgentLoop:
         *,
         run_context: RunContext | None = None,
         tool_name: str = "",
+        target: str = "",
         details: dict[str, Any] | None = None,
     ) -> None:
         """发布一条运行时事件（best-effort：失败仅记日志，不阻断主循环）。
@@ -1098,6 +1129,7 @@ class AgentLoop:
                 run_id=run_context.run_id if run_context is not None else "",
                 iteration=run_context.iteration if run_context is not None else 0,
                 tool_name=tool_name,
+                target=target,
                 details=details or {},
             )
         except Exception:

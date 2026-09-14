@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING
 
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.exceptions import PolicyViolation, SafetyViolation
+from heagent.tools.call_summary import summarize_tool_call
 from heagent.tools.sandbox import (
     CommandRunner,
     SandboxTier,
@@ -76,6 +77,15 @@ class ToolExecutor:
     def __init__(self, *, sandbox_runner: CommandRunner | None = None) -> None:
         """记 ``SANDBOX_REQUIRED`` 路径用的后端（None 时 :meth:`execute_in_sandbox` 透传）。"""
         self.sandbox_runner = sandbox_runner
+
+    @staticmethod
+    def _target(call: ToolCall) -> str:
+        """该调用的「作用对象」摘要（读写的文件 / 命令 / URL / 子 Agent 角色）。
+
+        唯一产自 :func:`heagent.tools.call_summary.summarize_tool_call`——日志、流式事件与
+        各展示层共用同一份格式化，避免多处映射漂移；永不抛异常（退化为空串）。
+        """
+        return summarize_tool_call(call.name, call.arguments)
 
     def _runner_tier(self) -> SandboxTier:
         """当前沙箱后端的强度档位；无后端（透传快速路径）时为 ``PASSTHROUGH``。
@@ -149,6 +159,7 @@ class ToolExecutor:
                     "tool_call_blocked",
                     run_context=run_context,
                     tool_name=call.name,
+                    target=self._target(call),
                     details={
                         "reason": str(exc),
                         "mode": "safety_blocked",  # P1-6 修复：标识触发层为 SafetyGuard 而非 Policy
@@ -162,6 +173,7 @@ class ToolExecutor:
                     "tool_call_started",
                     run_context=run_context,
                     tool_name=call.name,
+                    target=self._target(call),
                     details={"mode": ToolExecutionMode.DIRECT.value},
                 )
             result = await handler(call)
@@ -171,6 +183,7 @@ class ToolExecutor:
                     "tool_call_completed",
                     run_context=run_context,
                     tool_name=call.name,
+                    target=self._target(call),
                     details={"mode": ToolExecutionMode.DIRECT.value, "content_length": len(content)},
                 )
             return ToolResult(tool_call_id=call.id, content=content)
@@ -180,6 +193,7 @@ class ToolExecutor:
                     "tool_call_failed",
                     run_context=run_context,
                     tool_name=call.name,
+                    target=self._target(call),
                     details={"mode": ToolExecutionMode.DIRECT.value, "error": str(exc)},
                 )
             return ToolResult(tool_call_id=call.id, content=f"Tool error: {exc}", is_error=True)
@@ -209,6 +223,7 @@ class ToolExecutor:
                     "tool_call_blocked",
                     run_context=run_context,
                     tool_name=call.name,
+                    target=self._target(call),
                     details={
                         "reason": str(exc),
                         "mode": "safety_blocked",  # P1-6 修复
@@ -224,6 +239,7 @@ class ToolExecutor:
                     "tool_call_started",
                     run_context=run_context,
                     tool_name=call.name,
+                    target=self._target(call),
                     details={
                         "mode": sandbox_mode,
                         "sandbox_profile": verdict.sandbox_profile or "",
@@ -251,6 +267,7 @@ class ToolExecutor:
                     "tool_call_completed",
                     run_context=run_context,
                     tool_name=call.name,
+                    target=self._target(call),
                     details={
                         "mode": sandbox_mode,
                         "sandbox_profile": verdict.sandbox_profile or "",
@@ -265,6 +282,7 @@ class ToolExecutor:
                     "tool_call_failed",
                     run_context=run_context,
                     tool_name=call.name,
+                    target=self._target(call),
                     details={
                         "mode": sandbox_mode,
                         "sandbox_profile": verdict.sandbox_profile or "",
@@ -333,6 +351,7 @@ class ToolExecutor:
                 "tool_call_blocked",
                 run_context=run_context,
                 tool_name=call.name,
+                target=self._target(call),
                 details={
                     "reason": verdict.reason,
                     "mode": verdict.mode.value,

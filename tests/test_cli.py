@@ -342,6 +342,7 @@ class TestFormatStatus:
         strategy: str = "compressor",
         reset_threshold: float = 0.6,
         reason: str | None = None,
+        active_tool: str = "",
     ):
         """Duck-typed stand-in for AgentLoop — only the fields _format_status reads."""
         from types import SimpleNamespace
@@ -360,6 +361,7 @@ class TestFormatStatus:
             cumulative_tokens=cumulative,
             compressor=compressor,
             window_reset=window_reset,
+            active_tool=active_tool,
         )
 
     def test_no_cumulative_when_zero(self, cli_settings):
@@ -455,3 +457,130 @@ class TestRouteCommandOutput:
         await _handle_route_cmd(provider, "")
         err = capsys.readouterr().err
         assert "last decision: luna (keyword:分析)" in err
+
+
+class TestToolActivityDisplay:
+    """``_print_stream_event``：流式工具提示行（调用行带目标，失败结果单独归因）。"""
+
+    def test_renders_target(self, capsys) -> None:
+        from heagent.cli_display import _LineState, _print_stream_event
+        from heagent.types import StreamEvent
+
+        state = _LineState()
+        _print_stream_event(
+            StreamEvent(type="tool_call", tool_name="file_read", tool_target="docs/frame.md"),
+            state,
+        )
+
+        assert capsys.readouterr().out == "[calling file_read → docs/frame.md]\n"
+        assert state.at_line_start is True
+
+    def test_long_shell_command_is_rendered_in_full(self, capsys) -> None:
+        """shell 命令在提示行显示全文——截断会让「跑了什么」不可判断。"""
+        from heagent.cli_display import _LineState, _print_stream_event
+        from heagent.tools.call_summary import summarize_tool_call
+        from heagent.types import StreamEvent
+
+        command = "cd /d E:\\AI\\HeAgent && git diff src/heagent/agent/loop.py"
+        _print_stream_event(
+            StreamEvent(
+                type="tool_call",
+                tool_name="shell",
+                tool_target=summarize_tool_call("shell", {"command": command}),
+            ),
+            _LineState(),
+        )
+
+        assert capsys.readouterr().out == f"[calling shell → {command}]\n"
+
+    def test_degrades_without_target(self, capsys) -> None:
+        """无摘要（无参工具）时保持旧形态，不出现悬空箭头。"""
+        from heagent.cli_display import _LineState, _print_stream_event
+        from heagent.types import StreamEvent
+
+        _print_stream_event(StreamEvent(type="tool_call", tool_name="task_status"), _LineState())
+
+        assert capsys.readouterr().out == "[calling task_status]\n"
+
+    def test_successful_result_stays_silent(self, capsys) -> None:
+        """成功结果不逐条回显（并发批次会挤成一串无主语标记）。"""
+        from heagent.cli_display import _LineState, _print_stream_event
+        from heagent.types import StreamEvent
+
+        _print_stream_event(
+            StreamEvent(type="tool_result", tool_name="file_read", tool_result_content="content"),
+            _LineState(),
+        )
+
+        assert capsys.readouterr().out == ""
+
+    def test_failed_result_is_attributed(self, capsys) -> None:
+        """失败结果必须指出是哪个工具失败。"""
+        from heagent.cli_display import _LineState, _print_stream_event
+        from heagent.types import StreamEvent
+
+        _print_stream_event(
+            StreamEvent(type="tool_result", tool_name="shell", tool_result_content="Tool error: x", tool_error=True),
+            _LineState(),
+        )
+
+        assert capsys.readouterr().out == "[failed shell]\n"
+
+
+class TestToolActivityStatusLine:
+    """状态栏末段 `🔧 <tool> → <target>`：在途工具可见（暂停/恢复时判断卡在哪）。"""
+
+    @staticmethod
+    def _fake_loop(**kwargs):
+        return TestFormatStatus._fake_loop(**kwargs)
+
+    def test_shows_in_flight_tool(self) -> None:
+        from heagent.cli import _format_status
+        from heagent.config import get_settings, reset_settings
+
+        get_settings().max_context_tokens = 1_000_000
+        try:
+            status = _format_status(self._fake_loop(used=1000, cumulative=2000, active_tool="shell → pytest -q"))
+        finally:
+            reset_settings()
+
+        assert status == "[deepseek-v4-pro | 1K/1M tok | cmp@80% | 累计: 2K tok | 🔧 shell → pytest -q]"
+
+    def test_degrades_the_icon_on_a_gbk_console(self, monkeypatch) -> None:
+        """GBK 控制台下 🔧 不可编码——状态行降级为 [tool]，不能让渲染抛异常。"""
+        import sys
+        from types import SimpleNamespace
+
+        from heagent.cli import _format_status
+        from heagent.config import get_settings, reset_settings
+
+        monkeypatch.setattr(sys, "stderr", SimpleNamespace(encoding="gbk"))
+        get_settings().max_context_tokens = 1_000_000
+        try:
+            status = _format_status(self._fake_loop(used=1000, cumulative=2000, active_tool="shell → pytest -q"))
+        finally:
+            reset_settings()
+
+        assert "[tool] shell → pytest -q" in status
+        assert "🔧" not in status
+
+    def test_omits_segment_when_idle(self) -> None:
+        """无在途工具时不出现悬空图标（交互输入行常驻显示该状态行）。"""
+        from heagent.cli import _format_status
+
+        assert "🔧" not in _format_status(self._fake_loop(used=1000, cumulative=2000))
+
+    def test_pause_prints_status_with_the_in_flight_tool(self, capsys) -> None:
+        """暂停常发生在长工具中途——只报「已暂停」看不出卡在哪，必须带状态行。"""
+        from heagent.cli import _pause_loop
+        from heagent.cli_display import _LineState
+
+        loop = self._fake_loop(used=1000, cumulative=2000, active_tool="shell → pytest -q")
+        loop.is_paused = False
+        loop.pause = lambda: None
+
+        _pause_loop(loop, _LineState())
+
+        err = capsys.readouterr().err
+        assert "[paused] Run paused (Enter to resume)." in err
+        assert "🔧 shell → pytest -q" in err

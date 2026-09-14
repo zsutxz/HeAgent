@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from heagent import cli_display
-from heagent.cli_display import show_deferred_work
+from heagent.cli_display import show_deferred_work, show_tool_activity
 from heagent.config import get_settings, reset_settings
 
 if TYPE_CHECKING:
@@ -82,3 +82,52 @@ def test_show_deferred_work_includes_legacy_and_goal_local_ledgers(
 def test_show_deferred_work_reports_a_missing_ledger(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     show_deferred_work(tmp_path)
     assert "[deferred] no ledger found" in capsys.readouterr().err
+
+
+def _activity_loop(*labels: str):
+    """Duck-typed stand-in — show_tool_activity only reads ``tool_activity``."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(tool_activity=list(labels))
+
+
+def test_show_tool_activity_is_silent_without_calls(capsys: pytest.CaptureFixture[str]) -> None:
+    """零调用不输出（与 _print_usage 零用量静默一致）。"""
+    show_tool_activity(_activity_loop())
+
+    assert capsys.readouterr().err == ""
+
+
+def test_show_tool_activity_dedupes_repeated_targets(capsys: pytest.CaptureFixture[str]) -> None:
+    """同一文件读三次只列一次，但头部仍报真实调用次数。"""
+    show_tool_activity(_activity_loop("file_read → a.md", "shell → pytest -q", "file_read → a.md"))
+
+    assert capsys.readouterr().err.splitlines() == [
+        "[tools] 3 次调用尝试，2 个不同目标：",
+        "  file_read → a.md",
+        "  shell → pytest -q",
+    ]
+
+
+def test_icon_degrades_when_the_console_cannot_encode_it() -> None:
+    """GBK（cp936）控制台 / 重定向下 emoji 与几何符号不可编码——必须降级而非抛异常。"""
+    from heagent.cli_display import _icon
+
+    assert _icon("🔧", "[tool]", encoding="cp936") == "[tool]"
+    assert _icon("🔧", "[tool]", encoding="utf-8") == "🔧"
+    assert _icon("▶ ", "> ", encoding="cp936") == "> "
+    assert _icon("✔ ", "", encoding="cp936") == ""
+    # 未知编码名（LookupError）同样降级，不能让状态行把 run 带崩。
+    assert _icon("✔ ", "", encoding="no-such-codec") == ""
+
+
+def test_show_tool_activity_folds_overflow(capsys: pytest.CaptureFixture[str]) -> None:
+    """超出 limit 的目标折叠成一行计数，不刷屏。"""
+    show_tool_activity(_activity_loop(*[f"file_read → {index}.md" for index in range(5)]), limit=2)
+
+    assert capsys.readouterr().err.splitlines() == [
+        "[tools] 5 次调用尝试：",
+        "  file_read → 0.md",
+        "  file_read → 1.md",
+        "  … 另有 3 个目标",
+    ]

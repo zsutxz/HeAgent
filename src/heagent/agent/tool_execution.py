@@ -16,6 +16,7 @@ import logging
 from typing import TYPE_CHECKING, Any, cast
 
 from heagent.engine import ApprovalDecision, ApprovalRequest, ToolExecutionMode
+from heagent.tools.call_summary import activity_label, summarize_tool_call
 from heagent.types import ToolCall, ToolResult
 
 if TYPE_CHECKING:
@@ -25,6 +26,17 @@ if TYPE_CHECKING:
     from heagent.engine import PolicyVerdict, RunContext
 
 logger = logging.getLogger(__name__)
+
+
+def _activity_labels(calls: list[ToolCall]) -> list[str]:
+    """把一批调用渲染成活动标签 ``<tool> → <target>``（无作用对象时只留工具名）。
+
+    同一份标签同时喂给状态栏（``loop.active_tool``）与 run 级活动台账
+    （``loop.tool_activity``），保证「正在跑什么」与「跑完回看什么」不会两套口径；
+    拼接统一经 :func:`heagent.tools.call_summary.activity_label`——GUI 侧（bridge /
+    聊天日志）走同一函数，避免两端各拼箭头而漂移。
+    """
+    return [activity_label(call.name, summarize_tool_call(call.name, call.arguments)) for call in calls]
 
 
 async def execute_tools(
@@ -38,22 +50,37 @@ async def execute_tools(
 
     每个调用经 :func:`execute_tool_call` 走完整的「ledger 幂等 → 策略裁决 → 执行」
     链路；批次前后发布 tool_batch_started/completed 事件，并累加进 state.results。
+
+    顺带维护 run 作用域的展示态：在途期间 ``loop.active_tool`` 非空（状态栏可见），
+    并把每个调用的活动标签追加进 ``loop.tool_activity``（单次模式跑完回显）。
     """
     loop._emit("tool_batch_started", run_context=run_context, details={"count": len(calls)})
-    tasks = [execute_tool_call(loop, call, run_context=run_context) for call in calls]
-    results = list(await asyncio.gather(*tasks, return_exceptions=True))
-    # 防 asyncio.gather 内部异常向上传播取消整批调用（P1-2 修复）：
-    # 若 execute_tool_call 自身抛异常（如 ledger I/O 故障），把异常转成 error ToolResult，
-    # 不中断同批其它工具调用。
+    # 状态栏要看到「卡在哪个工具」，活动台账要留「这次 run 试过动什么」——两者同源。
+    # 台账在执行**前**登记：被阻止 / 命中缓存的调用也留痕（回看时同等重要），
+    # 故其语义是「调用尝试」而非「执行成功」，展示文案据此刻画。
+    labels = _activity_labels(calls)
+    loop.tool_activity.extend(labels)
+    if labels:
+        loop.active_tool = labels[0] if len(labels) == 1 else f"{labels[0]} (+{len(labels) - 1})"
     safe_results: list[ToolResult] = []
-    for i, raw in enumerate(results):
-        if isinstance(raw, BaseException):
-            tool_call_id = calls[i].id if i < len(calls) else "unknown"
-            logger.exception("Unexpected exception in execute_tool_call for %s", tool_call_id)
-            safe_results.append(ToolResult(tool_call_id=tool_call_id, content=f"Tool error: {raw}", is_error=True))
-        else:
-            safe_results.append(raw)
-    state.results.extend(safe_results)
+    try:
+        tasks = [execute_tool_call(loop, call, run_context=run_context) for call in calls]
+        results = list(await asyncio.gather(*tasks, return_exceptions=True))
+        # 防 asyncio.gather 内部异常向上传播取消整批调用（P1-2 修复）：
+        # 若 execute_tool_call 自身抛异常（如 ledger I/O 故障），把异常转成 error ToolResult，
+        # 不中断同批其它工具调用。
+        for i, raw in enumerate(results):
+            if isinstance(raw, BaseException):
+                tool_call_id = calls[i].id if i < len(calls) else "unknown"
+                logger.exception("Unexpected exception in execute_tool_call for %s", tool_call_id)
+                safe_results.append(ToolResult(tool_call_id=tool_call_id, content=f"Tool error: {raw}", is_error=True))
+            else:
+                safe_results.append(raw)
+        state.results.extend(safe_results)
+    finally:
+        # 走到这里即「本批已不在途」；取消（CancelledError）同样经此清空，
+        # 否则被中断的 run 会把陈旧工具留在状态栏上。
+        loop.active_tool = ""
     loop._emit(
         "tool_batch_completed",
         run_context=run_context,

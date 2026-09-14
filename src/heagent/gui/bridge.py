@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from heagent.types import StreamEvent
 
 from heagent.config import get_settings
+from heagent.tools.call_summary import activity_label
 
 logger = logging.getLogger(__name__)
 
@@ -105,6 +106,9 @@ class AgentBridge:
 
     def _update_state(self, event: StreamEvent) -> None:
         if event.type == "tool_call":
-            self._state.active_tool = event.tool_name
+            # 与 gui/observers.py（引擎事件路径）同口径：都经 activity_label 带作用对象。
+            # 两条路径在同一次 run 中都活跃（本类消费 run_stream，observers 订阅 EventBus），
+            # 只写裸工具名会被后到的引擎事件覆盖成带 target 的格式（反之亦然）。
+            self._state.active_tool = activity_label(event.tool_name, event.tool_target)
         elif event.type == "tool_result":
             self._state.active_tool = ""

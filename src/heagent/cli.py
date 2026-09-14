@@ -27,6 +27,7 @@ from heagent.cli_display import (
     _print_stream_event,
     _print_usage,
     show_deferred_work,
+    show_tool_activity,
 )
 from heagent.cli_goal import _goal_auto_goal_id, _goal_cron_advance, _goal_runner
 from heagent.config import GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE, Settings, get_settings
@@ -594,6 +595,9 @@ async def _run_single(
             click.echo(f"[budget exceeded] {exc.message}", err=True)
         except HeAgentError as exc:
             click.echo(f"[error] {exc.message}", err=True)
+        finally:
+            # 活动回顾放 finally：出错/超预算时「它到底动了什么」往往才是最需要看的。
+            show_tool_activity(loop)
 
 
 def _build_dream_scheduler(
@@ -779,6 +783,8 @@ def _pause_loop(loop: AgentLoop, line_state: _LineState) -> None:
     if not loop.is_paused:
         loop.pause()
         _echo_status("[paused] Run paused (Enter to resume).", line_state)
+        # 补一行状态：暂停常发生在长工具中途，把在途工具显示出来才知道卡在哪。
+        _echo_status(_format_status(loop), line_state)
 
 
 def _resume_loop(loop: AgentLoop, line_state: _LineState) -> None:
@@ -786,6 +792,7 @@ def _resume_loop(loop: AgentLoop, line_state: _LineState) -> None:
     if loop.is_paused:
         loop.unpause()
         _echo_status("[paused] Run resumed.", line_state)
+        _echo_status(_format_status(loop), line_state)
 
 
 async def _run_prompt(loop: AgentLoop, prompt: str, system: str | None, session_id: str) -> None:

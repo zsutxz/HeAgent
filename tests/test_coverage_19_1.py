@@ -291,6 +291,28 @@ class FakeObserver:
 
 
 class TestEventBus:
+    def test_publish_carries_target_as_a_first_class_field(self) -> None:
+        """target 是字段而非 details 的键——日志/展示层不必翻 dict。"""
+        bus = EventBus()
+        event = bus.publish("tool_call_started", tool_name="file_read", target="docs/frame.md")
+
+        assert event.target == "docs/frame.md"
+        assert "target" not in event.details
+
+    def test_logging_observer_renders_a_target_segment(self, caplog) -> None:
+        """默认观察者把 target 渲染成独立段（缺省记 '-'）。"""
+        import logging
+
+        from heagent.engine.observability import LoggingObserver
+
+        bus = EventBus([LoggingObserver()])
+        with caplog.at_level(logging.INFO, logger="heagent.engine.observability"):
+            bus.publish("tool_call_started", run_id="r1", tool_name="file_read", target="docs/frame.md")
+            bus.publish("iteration_started", run_id="r1")
+
+        assert "tool=file_read target=docs/frame.md details=" in caplog.text
+        assert "tool=- target=- details=" in caplog.text
+
     def test_subscribe_and_emit(self) -> None:
         """EventBus.subscribe → emit → 观察者收到事件（line 94, 105-106）。"""
         bus = EventBus()

@@ -15,6 +15,8 @@ import time
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from heagent.tools.call_summary import activity_label
+
 if TYPE_CHECKING:
     from heagent.engine.observability import EngineEvent
     from heagent.gui.state import GuiState
@@ -49,12 +51,17 @@ class GuiEventObserver:
         # 更新 state
         etype = event.event_type
         if etype == "tool_call_started":
-            self._state.active_tool = event.tool_name or "unknown"
+            # 带上作用对象：状态栏显示 `file_read → src/a.py`，与 CLI 提示 / 聊天日志同一口径。
+            # 拼接走 activity_label——本文件与 bridge.py 曾各写一套（一处带 target、一处不带），
+            # 同一次 run 中两条路径互相覆盖，状态栏会在两种格式间抖动。
+            self._state.active_tool = activity_label(event.tool_name or "unknown", event.target)
         elif etype in ("tool_call_completed", "tool_call_failed", "tool_call_blocked"):
             self._state.active_tool = ""
 
         # 追加到缓冲
         entry_details = dict(details)
+        if event.target:
+            entry_details["target"] = event.target
         if event.run_id:
             entry_details["run_id"] = event.run_id
         if event.iteration:

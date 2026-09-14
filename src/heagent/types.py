@@ -134,15 +134,20 @@ class StreamEvent(BaseModel):
 
     type: 事件类型
       - "text": LLM 生成的文本片段
-      - "tool_call": 工具开始执行
-      - "tool_result": 工具执行完成
+      - "tool_call": 工具开始执行（携带 ``tool_target``：读写的文件 / 命令 / 子 Agent）
+      - "tool_result": 工具执行完成（返回 tool_name / tool_error，供展示层区分成败）
       - "done": 最终完成，携带完整回答
     """
 
     type: Literal["text", "tool_call", "tool_result", "done"]
     text: str = ""
     tool_name: str = ""
+    # 该调用的「作用对象」单行摘要（读写的文件 / 执行的命令 / 委派的子 Agent），
+    # 由 heagent.tools.call_summary 统一产出；空串表示未提供（无参工具等）。
+    tool_target: str = ""
     tool_result_content: str = ""
+    # 该结果是否为错误（``is_error``）；仅 ``tool_result`` 事件有意义。
+    tool_error: bool = False
     final_answer: str = ""
 
 

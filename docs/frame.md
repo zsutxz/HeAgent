@@ -62,6 +62,11 @@ AgentLoop.run(prompt)
 > `provider.stream()` 逐块 yield 为 `StreamEvent`（`text` / `tool_call` / `tool_result` / `done`）。
 > 多数 Provider 在流式模式不返回 `tool_calls`，命中 `finish_reason=tool_calls` 时回退 `send()`
 > 重取该轮调用，再并行执行工具并继续流式下一轮。
+>
+> `tool_call` 事件在**执行之前**逐个发出（工具可能耗时数十秒，展示层需实时可见），
+> 并携带 `tool_target`——该调用作用对象的单行摘要（读写的文件 / 命令 / URL / 子 Agent 角色），
+> 由 `tools/call_summary.py` 统一产出；`tool_result` 事件携带 `tool_name` 与 `tool_error`
+> 供失败归因（批次并发执行，结果按调用顺序返回）。
 
 ---
 
@@ -111,7 +116,7 @@ exceptions  types  config
 | `AgentState` | 单次运行的可变状态（消息列表、迭代计数、结果） |
 | `AgentLoop` | 核心编排器，循环调用 Provider → 执行 Tool → 直到获得文本回答 |
 | `run(prompt)` | 入口方法，构建初始消息后进入循环 |
-| `run_stream(prompt)` | 流式入口，逐步 yield `StreamEvent`（`text`/`tool_call`/`tool_result`/`done`）；命中 `tool_calls` 时回退 `send()` 重取该轮调用 |
+| `run_stream(prompt)` | 流式入口，逐步 yield `StreamEvent`（`text`/`tool_call`/`tool_result`/`done`）；`tool_call` 在执行前发出并带 `tool_target`（作用对象摘要），`tool_result` 带 `tool_name`/`tool_error`；命中 `tool_calls` 时回退 `send()` 重取该轮调用 |
 | `resume(run_id)` | 从 `RunStore` 加载快照续跑（P3）：COMPLETED 直接返回 `final_answer`，否则用 `metadata['progress_summary']` 重建窗口续跑，同 `run_id` 跨多段 context window；内部经 `_resume` 注入 `run()` 的初始化分支 |
 | `resume_stream(run_id)` | `resume` 的流式版（P5-5）：COMPLETED 产出单个携带缓存答案的 `done` 事件；否则同上重建窗口后经 `_resume` 注入 `run_stream()` 流式续跑 |
 | `pause()` / `unpause()` / `is_paused` | 协作式暂停/恢复当前循环（`asyncio.Event` 实现）：`pause()` 后循环在下一轮边界挂起（进行中的 LLM 调用跑完），`unpause()` 从挂起点原地继续；`is_paused` 反映请求态。每次 run 结束（完成/失败/取消）在 `_persist_and_cache` 自动复位，不泄漏到下一次 run |
@@ -122,6 +127,8 @@ exceptions  types  config
 | `last_usage` | 最近一次 `run()` 的累计 `TokenUsage` |
 | `last_iteration` | 最近一次 `run()`/`run_stream()` 的迭代次数 |
 | `last_run_context` | 最近一次 `run()` 的 `RunContext`（run_id / 迭代 / 审批·沙箱授权元数据） |
+| `active_tool` | **在途**工具批次摘要（如 `file_read → src/a.py`；多调用带 `(+N)`），由 `activity_label` 拼接：批次执行期间非空、结束或取消即清空，run 开始（含 `resume`）即重置——状态栏 `🔧 …` 段据此显示「卡在哪个工具」 |
+| `tool_activity` | 本次 run 的**调用尝试**活动标签（每次调用一条，run 开始即重置，`resume` 路径同样重置）——执行前登记，被阻止 / 命中 ledger 缓存的调用同样留痕；单次模式跑完由 `cli_display.show_tool_activity` 回显 |
 
 **`AgentLoop.__init__()` 参数：**
 
@@ -372,6 +379,34 @@ SafetyGuard
 **沙箱 env 豁免（FR-3，2026-08-26）：** `scrub_sensitive_env(env, *, allowlist=...)` 新增 `allowlist` 参数（精确变量名、大小写不敏感）——命中 allowlist 的变量即使匹配敏感后缀也保留，其余仍剥离；未配置时行为与现状逐字节一致（默认全剥离）。配置入口 `Settings.sandbox_env_allowlist`（env `SANDBOX_ENV_ALLOWLIST`，逗号分隔）经 `sandbox_env_allowlist_set` property 解析，`_run_subprocess_shell`/`_run_subprocess_exec` 经 `_env_allowlist()` 读 Settings 传入。豁免仅作用于 env 剥离，不影响 `path_safety` 凭证 deny 与 `SafetyGuard` 凭证路径拦截。
 
 **SandboxSession 会话生命周期（FR-4，2026-08-26）：** 引入 `SandboxSession` 会话作用域——同一 run 的连续 shell 命令共享同一 session workspace（40.1 目录）并**跨命令保持 cwd**：`run()` 以「cd 前缀 + 末尾上报（POSIX `printf $PWD` / cmd `cd`）回填 `session.cwd`」包装命令，多步操作（写→编译→运行）自然衔接；包装同时**保持用户命令退出码**（POSIX `exit "$__rc"` 复原 / Windows `call echo %^ERRORLEVEL%` 经 marker 行带回并由 `run()` 回填 `exit_code=`，修复包装后失败命令恒 `exit_code=0` 的缺陷；`exit N` 直退类命令 marker 缺失属固有限制，rc 仍正确）。会话经 `get_or_create_session(run_id)` 按 run 缓存、`bind_sandbox_session` 送达 shell handler（handler 优先走 session）；`EngineContainer.close_run`（`AgentLoop._persist_and_cache` 尾部调用）teardown 按 `sandbox_session_keep`（默认 False=删除）清理会话目录。⚠ 会话非安全边界：cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无文件系统隔离、Firejail 亦非完美边界——须 OS 级沙箱兜底。
+
+#### call_summary.py — 工具调用「作用对象」摘要（纯展示辅助）
+
+`summarize_tool_call(name, arguments)` 把一次调用归纳为**单行**说明：读写哪个文件、
+执行哪条命令、抓哪个 URL、委派给哪个角色的子 Agent（如 `docs/frame.md`、
+`src — *.py`、`0 9 * * * — 生成 AI 新闻摘要`、`coder — 实现登录模块`）。
+该摘要出现在四个展示面：CLI 提示行 `[calling <tool> → <target>]`
+（`cli_display._print_stream_event`，在执行**前**发出）、TUI 聊天日志、工具事件的
+`target` 字段（`EngineEvent.target`——独立成段而非埋进 `details`，见 4.12）、以及状态栏的
+`🔧 <tool> → <target>` 段（`loop.active_tool`，暂停/恢复时据此判断卡在哪个工具）、
+GUI 状态栏与 TUI 聊天日志（`gui/bridge.py` 流式路径与 `gui/observers.py` 引擎事件路径同口径）。
+单次模式（`python -m heagent "..."`，走 `run()` 无流式事件）跑完另由
+`cli_display.show_tool_activity` 回显 run 级台账 `loop.tool_activity`（**调用尝试**：
+执行前登记，被阻止 / 命中缓存的调用同样留痕；同目标去重、超 20 条折叠为一行计数），
+保证「执行中没有提示行」的场景事后仍有记录。
+
+纯函数、零 heagent 依赖，是该信息的**唯一来源**（`AgentLoop.run_stream` 的流式事件、
+`ToolExecutor` 工具事件的 `target` 字段、`loop.active_tool` 与 `tool_activity` 共用，
+避免多处映射漂移）。契约：
+**永不抛异常**（参数形状异常退化为空摘要，展示逻辑不得中断 agent 循环）、只回显参数
+不推断语义、单行折叠（换行 / 连续空白折叠为单空格，防终端串行）。长度：路径类
+72 字符、自由文本（子 Agent 任务 / 记忆事实）40 字符，超长加省略号；**shell 命令不截断**
+（全文保留，只折叠空白）——截断后的命令无法判断「它到底跑了什么」，是审查与审计场景里
+信息损失最大的一类参数（`_NO_TRUNCATE_TOOLS`）。
+
+`<tool> → <target>` 的**拼接**同样同源：`activity_label(name, target)`——CLI 提示行 / 状态行、
+GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示层自行拼箭头曾是漂移源头
+（2026-09-14 复核：GUI 两条事件路径一个带 target、一个不带，同一状态字段被互相覆盖）。
 
 #### path_safety.py — 工作区路径校验（文件工具）
 
@@ -777,6 +812,7 @@ src/heagent/
 │   ├── registry.py          # ToolRegistry 单例
 │   ├── safety.py            # SafetyGuard（shell 命令安全）
 │   ├── path_safety.py       # 工作区路径校验（文件工具）
+│   ├── call_summary.py      # 工具调用「作用对象」摘要（展示层共用）
 │   ├── runtime.py           # 工具运行态绑定（_runtime_scope）
 │   ├── mcp/                 # MCP 适配层
 │   │   ├── config.py        # MCPConfig + load_mcp_config（.mcp.json + ${ENV} 插值）
@@ -908,6 +944,7 @@ AgentLoop(provider, skills, facts, profile, compressor, soul, cron_store, ...).r
   ▼
 click.echo(result)
 _print_usage(loop.last_usage)  # [tokens: N in + M out = T total]
+show_tool_activity(loop)       # [tools] N 次调用尝试：file_read → src/a.py …
 ```
 
 **交互模式额外流程：**

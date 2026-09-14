@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from heagent.agent.loop import AgentLoop
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall
+from heagent.types import Message, ProviderResponse, StreamEvent, TokenUsage, ToolCall
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -154,3 +154,74 @@ class TestRunStream:
         finally:
             # 只清理此测试注册的临时工具，不影响 builtin 注册表（断言失败也清理）
             registry.unregister("echo_tool")
+
+    async def test_tool_call_event_carries_target_and_precedes_execution(self) -> None:
+        """tool_call 事件带「作用对象」摘要，且在工具真正执行之前发出（展示层据此时时提示）。"""
+        from heagent.tools.decorator import tool
+
+        executed: list[str] = []
+
+        @tool
+        async def probe_tool(path: str) -> str:
+            """Read a file-like path."""
+            executed.append(path)
+            return f"content of {path}"
+
+        registry = ToolRegistry.get()
+        tool_call = ToolCall(id="tc1", name="probe_tool", arguments={"path": "docs/frame.md"})
+        tc_response = ProviderResponse(
+            content="",
+            tool_calls=[tool_call],
+            usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            model="stub",
+            finish_reason="tool_calls",
+        )
+        provider = StreamStubProvider(chunks=[""], tool_calls_response=tc_response, stream_finish_reason="tool_calls")
+        loop = AgentLoop(provider, registry=registry)
+        try:
+            announced: list[StreamEvent] = []
+            events: list[StreamEvent] = []
+            async for event in loop.run_stream("test"):
+                if event.type == "tool_call":
+                    announced.append(event)
+                    # 公告必须早于执行——此刻 handler 尚未被调用。
+                    assert executed == []
+                events.append(event)
+
+            assert [(e.tool_name, e.tool_target) for e in announced] == [("probe_tool", "docs/frame.md")]
+            assert executed == ["docs/frame.md"]
+            types = [e.type for e in events]
+            assert types.index("tool_call") < types.index("tool_result")
+        finally:
+            registry.unregister("probe_tool")
+
+    async def test_tool_result_event_marks_failure(self) -> None:
+        """工具 handler 抛异常 → tool_result 带 tool_error=True（展示层据此归因失败）。"""
+        from heagent.tools.decorator import tool
+
+        @tool
+        async def boom_tool(path: str) -> str:
+            """Always fails."""
+            raise RuntimeError(f"cannot read {path}")
+
+        registry = ToolRegistry.get()
+        tool_call = ToolCall(id="tc1", name="boom_tool", arguments={"path": "missing.txt"})
+        tc_response = ProviderResponse(
+            content="",
+            tool_calls=[tool_call],
+            usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            model="stub",
+            finish_reason="tool_calls",
+        )
+        provider = StreamStubProvider(chunks=[""], tool_calls_response=tc_response, stream_finish_reason="tool_calls")
+        loop = AgentLoop(provider, registry=registry)
+        try:
+            events = [e async for e in loop.run_stream("test")]
+
+            calls = [e for e in events if e.type == "tool_call"]
+            results = [e for e in events if e.type == "tool_result"]
+            assert [(e.tool_name, e.tool_target) for e in calls] == [("boom_tool", "missing.txt")]
+            assert [(e.tool_name, e.tool_error) for e in results] == [("boom_tool", True)]
+            assert "cannot read missing.txt" in results[0].tool_result_content
+        finally:
+            registry.unregister("boom_tool")

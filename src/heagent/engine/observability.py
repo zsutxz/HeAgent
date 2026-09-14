@@ -36,6 +36,10 @@ class EngineEvent(BaseModel):
     iteration: int = 0
     # 关联工具名（非工具事件留空）。
     tool_name: str = ""
+    # 该工具调用的「作用对象」摘要（读写的文件 / 执行的命令 / 委派的子 Agent 角色）。
+    # 独立成字段而非塞进 ``details``：日志按段渲染 ``target=…``，运维不必在 dict 里翻找；
+    # 空串表示不适用（非工具事件）。
+    target: str = ""
     # 自由扩展字段（如 mode / sandbox_profile / content_length / error）。
     details: dict[str, Any] = Field(default_factory=dict)
 
@@ -66,11 +70,12 @@ class LoggingObserver:
     def handle(self, event: EngineEvent) -> None:
         logger.log(
             self._level,
-            "engine event=%s run=%s iteration=%s tool=%s details=%s",
+            "engine event=%s run=%s iteration=%s tool=%s target=%s details=%s",
             event.event_type,
             event.run_id or "-",
             event.iteration,
             event.tool_name or "-",
+            event.target or "-",
             event.details,
         )
 
@@ -112,6 +117,7 @@ class EventBus:
         run_id: str = "",
         iteration: int = 0,
         tool_name: str = "",
+        target: str = "",
         details: dict[str, Any] | None = None,
     ) -> EngineEvent:
         """一步构建并发送一个事件（EngineContainer.events.publish 的常用入口）。"""
@@ -120,6 +126,7 @@ class EventBus:
             run_id=run_id,
             iteration=iteration,
             tool_name=tool_name,
+            target=target,
             details=details or {},
         )
         self.emit(event)
