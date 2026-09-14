@@ -38,8 +38,20 @@ class SkillContent(BaseModel):
     steps: list[str]
     created: str
     tags: list[str] = Field(default_factory=list)
+    triggers: list[str] = Field(default_factory=list)
+    negative_triggers: list[str] = Field(default_factory=list)
+    priority: int = 0
     usage_count: int = 0
     last_used: str = ""
+
+
+class SkillMatch(BaseModel):
+    """Explainable result from the skill matcher."""
+
+    name: str
+    score: float
+    priority: int = 0
+    matched_triggers: list[str] = Field(default_factory=list)
 
 
 class SkillStore:
@@ -74,6 +86,9 @@ class SkillStore:
         steps: list[str],
         *,
         tags: list[str] | None,
+        triggers: list[str] | None,
+        negative_triggers: list[str] | None,
+        priority: int,
         usage_count: int,
         last_used: str,
         created: str,
@@ -88,6 +103,12 @@ class SkillStore:
         ]
         if tag_str:
             fm_lines.append(f"tags: [{tag_str}]")
+        if triggers:
+            fm_lines.append(f"triggers: [{', '.join(triggers)}]")
+        if negative_triggers:
+            fm_lines.append(f"negative_triggers: [{', '.join(negative_triggers)}]")
+        if priority:
+            fm_lines.append(f"priority: {priority}")
         fm_lines.append(f"usage_count: {usage_count}")
         if last_used:
             fm_lines.append(f'last_used: "{last_used}"')
@@ -119,6 +140,9 @@ class SkillStore:
         steps: list[str],
         *,
         tags: list[str] | None = None,
+        triggers: list[str] | None = None,
+        negative_triggers: list[str] | None = None,
+        priority: int = 0,
         usage_count: int = 0,
         last_used: str = "",
         created: str | None = None,
@@ -143,6 +167,9 @@ class SkillStore:
             pattern,
             steps,
             tags=tags,
+            triggers=triggers,
+            negative_triggers=negative_triggers,
+            priority=priority,
             usage_count=usage_count,
             last_used=last_used,
             created=created,
@@ -206,6 +233,9 @@ class SkillStore:
         pattern: str | None = None,
         steps: list[str] | None = None,
         tags: list[str] | None = None,
+        triggers: list[str] | None = None,
+        negative_triggers: list[str] | None = None,
+        priority: int | None = None,
     ) -> str | None:
         """部分更新已有技能。仅覆盖非 None 字段，其余保持原样。返回 SKILL.md 路径或 None。"""
         existing = self.parse(name)
@@ -217,6 +247,9 @@ class SkillStore:
             pattern if pattern is not None else existing.pattern,
             steps if steps is not None else existing.steps,
             tags=tags if tags is not None else existing.tags,
+            triggers=triggers if triggers is not None else existing.triggers,
+            negative_triggers=negative_triggers if negative_triggers is not None else existing.negative_triggers,
+            priority=priority if priority is not None else existing.priority,
             usage_count=existing.usage_count,
             last_used=existing.last_used,
             created=existing.created,  # P1-7 修复：保留原始创建时间
@@ -242,6 +275,9 @@ class SkillStore:
                 existing.pattern,
                 existing.steps,
                 tags=existing.tags or None,
+                triggers=existing.triggers or None,
+                negative_triggers=existing.negative_triggers or None,
+                priority=existing.priority,
                 usage_count=existing.usage_count + 1,
                 last_used=now,
                 created=existing.created,
@@ -285,35 +321,43 @@ class SkillStore:
 
     # ---- 匹配 ----
 
-    def matching_skills(self, prompt: str, threshold: float) -> list[str]:
-        """返回与用户提示词关键词重叠的技能名称（按相关度降序）。
-
-        匹配算法：prompt 词集 ∩ pattern 词集 / pattern 词集长度 ≥ threshold。
-        """
+    def match_skill_details(self, prompt: str, threshold: float) -> list[SkillMatch]:
+        """Return explainable, backward-compatible skill matches."""
         if not prompt.strip():
             return []
-        prompt_words = set(prompt.lower().split())
-        matches: list[tuple[float, str]] = []
+        prompt_text = prompt.casefold()
+        prompt_tokens = _skill_tokens(prompt)
+        matches: list[SkillMatch] = []
         for name in self.list_skills():
             parsed = self.parse(name)
             if parsed is None:
                 continue
-            # pattern + tags 都参与匹配
-            match_text = f"{parsed.pattern} {' '.join(parsed.tags)}"
-            pattern_words = set(match_text.lower().split())
-            if not pattern_words:
+            if any(trigger.casefold() in prompt_text for trigger in parsed.negative_triggers):
                 continue
-            overlap = len(prompt_words & pattern_words)
-            ratio = overlap / len(pattern_words)
-            if ratio >= threshold:
-                matches.append((ratio, name))
-        matches.sort(key=lambda x: x[0], reverse=True)
-        return [name for _, name in matches]
+            pattern_tokens = _skill_tokens(f"{parsed.pattern} {' '.join(parsed.tags)}")
+            matched_triggers = [t for t in parsed.triggers if t.casefold() in prompt_text]
+            trigger_hit = bool(matched_triggers)
+            if not pattern_tokens and not trigger_hit:
+                continue
+            overlap = len(prompt_tokens & pattern_tokens)
+            ratio = overlap / len(pattern_tokens) if pattern_tokens else 0.0
+            # Explicit triggers are high-confidence; ordinary matching retains the old threshold semantics.
+            score = 1.0 if trigger_hit else ratio
+            if score >= threshold:
+                matches.append(
+                    SkillMatch(name=name, score=score, priority=parsed.priority, matched_triggers=matched_triggers)
+                )
+        matches.sort(key=lambda item: (-bool(item.matched_triggers), -item.score, -item.priority, item.name))
+        return matches
+
+    def matching_skills(self, prompt: str, threshold: float) -> list[str]:
+        """Return matching names; retained as the legacy public API."""
+        return [match.name for match in self.match_skill_details(prompt, threshold)]
 
     # ---- 解析器 ----
 
     @staticmethod
-    def _parse_skill_md(name: str, content: str) -> SkillContent:
+    def _parse_skill_md(name: str, content: str) -> SkillContent:  # noqa: C901
         """解析 SKILL.md（YAML frontmatter + Markdown 正文）为结构化字段。
 
         容错处理：缺失字段默认为空字符串/空列表，不抛异常。
@@ -325,6 +369,9 @@ class SkillStore:
         steps: list[str] = []
         usage_count: int = 0
         last_used: str = ""
+        triggers: list[str] = []
+        negative_triggers: list[str] = []
+        priority = 0
 
         # 分离 frontmatter 和正文
         body = content
@@ -343,6 +390,13 @@ class SkillStore:
                     tag_part = stripped.split(":", 1)[1].strip()
                     if tag_part.startswith("[") and tag_part.endswith("]"):
                         tags = [t.strip() for t in tag_part[1:-1].split(",") if t.strip()]
+                elif stripped.startswith("triggers:"):
+                    triggers = _parse_inline_list(stripped.split(":", 1)[1])
+                elif stripped.startswith("negative_triggers:"):
+                    negative_triggers = _parse_inline_list(stripped.split(":", 1)[1])
+                elif stripped.startswith("priority:"):
+                    with contextlib.suppress(ValueError):
+                        priority = int(stripped.split(":", 1)[1].strip())
                 elif stripped.startswith("usage_count:"):
                     with contextlib.suppress(ValueError):
                         usage_count = int(stripped.split(":", 1)[1].strip())
@@ -373,6 +427,31 @@ class SkillStore:
             steps=steps,
             created=created,
             tags=tags,
+            triggers=triggers,
+            negative_triggers=negative_triggers,
+            priority=priority,
             usage_count=usage_count,
             last_used=last_used,
         )
+
+
+def _parse_inline_list(value: str) -> list[str]:
+    value = value.strip()
+    if not (value.startswith("[") and value.endswith("]")):
+        return [value.strip().strip("\"'")] if value else []
+    return [item.strip().strip("\"'") for item in value[1:-1].split(",") if item.strip()]
+
+
+def _skill_tokens(text: str) -> set[str]:
+    """Dependency-free mixed-language tokens with CJK bigrams/trigrams."""
+    chunks = re.findall(r"[a-zA-Z0-9_]+|[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]+", text.casefold())
+    tokens: set[str] = set()
+    for chunk in chunks:
+        if not re.fullmatch(r"[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]+", chunk):
+            tokens.add(chunk)
+            continue
+        # Whole CJK runs depend on whitespace boundaries and make coverage unfair:
+        # use only two/three-character evidence, excluding low-signal single characters.
+        for size in (2, 3):
+            tokens.update(chunk[i : i + size] for i in range(len(chunk) - size + 1))
+    return tokens

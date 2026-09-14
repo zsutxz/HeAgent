@@ -10,6 +10,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from heagent.config import get_settings
+from heagent.context.tokens import estimate_text_tokens
 
 if TYPE_CHECKING:
     from heagent.memory.facts import FactStore
@@ -68,27 +69,35 @@ def build_system_prompt(
     if skills:
         settings = get_settings()
         # 按相似度匹配技能，截断到 skill_max_auto_invoke 上限，避免注入过多。
-        matched = skills.matching_skills(
-            prompt,
-            threshold=settings.skill_match_threshold,
-        )[: settings.skill_max_auto_invoke]
-
+        candidates = skills.match_skill_details(prompt, threshold=settings.skill_match_threshold)
+        matched: list[str] = []
+        contents: list[str] = []
+        used_tokens = 0
+        for candidate in candidates:
+            if len(matched) >= settings.skill_max_auto_invoke:
+                break
+            raw = skills.load(candidate.name)
+            if not raw:
+                continue
+            cost = estimate_text_tokens(raw)
+            budget = settings.skill_max_auto_invoke_tokens
+            if budget is not None and used_tokens + cost > budget:
+                logger.debug("Skipped skill %s: estimated token budget exceeded", candidate.name)
+                continue
+            matched.append(candidate.name)
+            contents.append(raw)
+            used_tokens += cost
         if matched:
-            # 命中：先记录用法（影响后续排序），再拼装技能正文。
+            # 只记录最终注入的技能，避免预算跳过项被误记为使用。
             for skill_name in matched:
                 skills.record_usage(skill_name)
-            contents: list[str] = []
-            for name in matched:
-                raw = skills.load(name)
-                if raw:
-                    contents.append(raw)
             if contents:
                 block = "\n\n---\n\n".join(contents)
                 parts.append(
                     "<skills>\n"
                     "The following skills are relevant to the user's request:\n\n"
                     f"{block}\n\n"
-                    "You can use skill_list to see all skills, "
+                    "You can use skill_list to see all skills, skill_load to read one by name, "
                     "skill_create to add new ones, or skill_update to modify.\n"
                     "</skills>"
                 )
@@ -98,8 +107,8 @@ def build_system_prompt(
             parts.append(
                 "<skills>\n"
                 "No skills matched the current request. "
-                "You can use skill_create to save reusable patterns, "
-                "skill_list to browse existing skills, or skill_update to refine them.\n"
+                "You can use skill_create to save reusable patterns, skill_list to browse existing skills, "
+                "skill_load to read one by name, or skill_update to refine them.\n"
                 "</skills>"
             )
 

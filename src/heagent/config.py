@@ -164,6 +164,10 @@ class Settings(BaseSettings):
     # ---- 技能系统参数 ----
     skill_match_threshold: float = Field(default=0.3, ge=0.0, le=1.0)
     skill_max_auto_invoke: int = Field(default=3, ge=0)
+    # None 保持旧行为；设置后按完整 Skill 估算 token 限制自动注入总量。
+    skill_max_auto_invoke_tokens: int | None = Field(default=None, ge=1)
+    # skill_load 的完整正文读取预算；超出时显式拒绝，不截断可能含安全约束的 Markdown。
+    skill_max_manual_load_tokens: int | None = Field(default=8192, ge=1)
 
     # ---- 上下文文件参数 ----
     context_files_enabled: bool = Field(default=True)

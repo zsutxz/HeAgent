@@ -435,13 +435,14 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
 | `file_search` | `search.py` | 按文件名搜索 |
 | `content_search` | `search.py` | 按内容搜索文件 |
 
-**技能管理工具（6 个，`skills.py`）：**
+**技能管理工具（7 个，`skills.py`）：**
 
 | 工具 | 功能 |
 |------|------|
-| `skill_create` | 创建新技能（SKILL.md + 目录结构） |
+| `skill_create` | 创建新技能（SKILL.md + 目录结构；支持 triggers / negative_triggers / priority 匹配元数据） |
 | `skill_update` | 更新已有技能内容（仅改非空字段） |
 | `skill_list` | 列出所有已注册技能 |
+| `skill_load` | 按规范化技能名只读完整 SKILL.md（不执行 steps/scripts、不读取任意资源；受手动读取 token 预算限制） |
 | `skill_delete` | 删除指定技能 |
 | `skill_curate` | 列出超 N 天未使用的过期技能（含使用次数/最后使用时间） |
 | `skill_archive` | 归档技能到 `.archive/`（不参与匹配/列出，可恢复） |
@@ -530,7 +531,7 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 #### skills.py — 技能存储
 
-`.heagent/skills/<name>/SKILL.md`，HermesAgent 标准目录结构（可选 `templates/`、`references/`）。匹配算法：用户提示词词集 ∩ 技能 pattern+tags 词集 / pattern 词集长度 ≥ `skill_match_threshold`。
+`.heagent/skills/<name>/SKILL.md`，HermesAgent 标准目录结构（可选 `templates/`、`references/`）。frontmatter 可选 `triggers`、`negative_triggers`、`priority`：负向触发优先排除，显式触发优先于常规相关度，随后按相关度、priority、名称稳定排序。常规匹配使用无依赖的混合 tokenizer：ASCII 标识符完整分词，CJK 使用二/三字片段（避免空格边界和单字高频误匹配）；旧 Skill 缺新字段时退化为原有 `pattern + tags` 相关度。自动注入同时受数量上限与可选总 token 预算限制，只注入完整正文、跳过超预算项且仅对最终注入项记录 usage；`skill_load` 可显式按名读取完整技能（同样不截断）。
 
 #### profile.py — 用户画像
 
@@ -637,6 +638,8 @@ HeAgentError (base)
 | `retry_max_delay` | 30.0 | 重试最大延迟（秒） |
 | `skill_match_threshold` | 0.3 | 技能关键词匹配阈值（0.0–1.0） |
 | `skill_max_auto_invoke` | 3 | 最多自动注入技能数 |
+| `skill_max_auto_invoke_tokens` | None | 自动注入技能正文的总估算 token 预算（None 保持旧行为；超预算完整 Skill 跳过而不截断） |
+| `skill_max_manual_load_tokens` | 8192 | `skill_load` 单个完整 Skill 的估算 token 上限（超限显式拒绝） |
 | `context_files_enabled` | True | 是否自动加载项目上下文文件 |
 | `memory_nudge_enabled` | True | 是否注入记忆保存提醒 |
 | `skill_curator_stale_days` | 30 | 技能过期天数 |

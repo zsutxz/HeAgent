@@ -100,6 +100,40 @@ class TestSkillStore:
         assert s.matching_skills("", threshold=0.3) == []
         assert s.matching_skills("   ", threshold=0.3) == []
 
+    def test_cjk_pattern_matches_without_whitespace(self, tmp_path: object) -> None:
+        s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
+        s.save("stock_analysis", "A-share analysis", "股票 技术分析", ["step"])
+        assert s.matching_skills("帮我分析股票走势", threshold=0.3) == ["stock_analysis"]
+
+    def test_trigger_beats_pattern_and_priority_breaks_ties(self, tmp_path: object) -> None:
+        s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
+        s.save("pattern", "Pattern", "部署", ["step"], priority=99)
+        s.save("trigger_low", "Trigger", "无关", ["step"], triggers=["发布生产"], priority=1)
+        s.save("trigger_high", "Trigger", "无关", ["step"], triggers=["发布生产"], priority=2)
+        assert s.matching_skills("请部署并发布生产", threshold=0.3) == ["trigger_high", "trigger_low", "pattern"]
+
+    def test_negative_trigger_rejects_an_otherwise_matching_skill(self, tmp_path: object) -> None:
+        s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
+        s.save(
+            "deploy",
+            "Deploy",
+            "部署 生产",
+            ["step"],
+            triggers=["部署"],
+            negative_triggers=["不要执行"],
+        )
+        assert s.matching_skills("部署生产环境，但不要执行", threshold=0.3) == []
+
+    def test_new_metadata_round_trips_and_update_preserves_it(self, tmp_path: object) -> None:
+        s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
+        s.save("deploy", "Deploy", "部署", ["step"], triggers=["发布"], negative_triggers=["只读"], priority=7)
+        s.update("deploy", description="Updated")
+        parsed = s.parse("deploy")
+        assert parsed is not None
+        assert parsed.triggers == ["发布"]
+        assert parsed.negative_triggers == ["只读"]
+        assert parsed.priority == 7
+
     def test_matching_skills_sorted_by_relevance(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("low", "Low", "a b c d e f g", ["step"])  # 1/7 ≈ 0.14

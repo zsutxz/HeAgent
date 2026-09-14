@@ -576,6 +576,36 @@ class TestSkillInjection:
         assert "deploy_skill" not in system_msgs[0].content
 
     @pytest.mark.asyncio
+    async def test_auto_invoke_token_budget_skips_long_skill_and_does_not_count_it(self, tmp_path, monkeypatch) -> None:
+        captured: list[Message] = []
+
+        class CaptureProvider:
+            async def send(self, messages, *, tools=None):
+                captured.extend(messages)
+                return _final("done")
+
+            async def stream(self, messages, *, tools=None):
+                yield await self.send(messages, tools=tools)
+
+            def get_metadata(self):
+                return ProviderMetadata(name="capture", model="capture")
+
+        monkeypatch.setenv("SKILL_MAX_AUTO_INVOKE_TOKENS", "80")
+        reset_settings()
+        skills = SkillStore(base_dir=str(tmp_path / "skills"))
+        skills.save("long", "Long", "deploy", ["x" * 400])
+        skills.save("short", "Short", "deploy", ["ok"])
+        loop = AgentLoop(CaptureProvider(), max_iterations=10, skills=skills)
+        await loop.run("deploy")
+
+        system = next(message.content for message in captured if message.role == Role.SYSTEM)
+        assert "# short" in system
+        assert "# long" not in system
+        assert skills.parse("long").usage_count == 0  # type: ignore[union-attr]
+        assert skills.parse("short").usage_count == 1  # type: ignore[union-attr]
+        reset_settings()
+
+    @pytest.mark.asyncio
     async def test_auto_invoke_max_limit(self, tmp_path) -> None:
         """多个匹配技能只注入 skill_max_auto_invoke 个。"""
         captured: list[Message] = []

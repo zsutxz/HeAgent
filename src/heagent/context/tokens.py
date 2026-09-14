@@ -84,6 +84,11 @@ def estimate_cost(usage: TokenUsage, model: str, pricing: dict[str, dict[str, fl
     return in_cost + out_cost
 
 
+def estimate_text_tokens(text: str) -> int:
+    """Public wrapper for the shared heuristic token estimator."""
+    return _estimate_text_tokens(text)
+
+
 def _estimate_text_tokens(text: str) -> int:
     """估算文本的 token 数，CJK 感知。
 

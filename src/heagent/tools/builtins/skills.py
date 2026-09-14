@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from heagent.config import get_settings
+from heagent.context.tokens import estimate_text_tokens
 from heagent.tools.decorator import tool
 from heagent.tools.runtime import RuntimeSlot
 
@@ -55,6 +57,9 @@ async def skill_create(
     pattern: str,
     steps: str,
     tags: str = "",
+    triggers: str = "",
+    negative_triggers: str = "",
+    priority: int = 0,
 ) -> str:
     """Create a reusable skill."""
     store = _store()
@@ -66,8 +71,22 @@ async def skill_create(
     if not step_list:
         return "Error: at least one step is required."
     tag_list = [tag.strip() for tag in tags.split("|") if tag.strip()] if tags else None
+    trigger_list = [item.strip() for item in triggers.split("|") if item.strip()] if triggers else None
+    negative_list = (
+        [item.strip() for item in negative_triggers.split("|") if item.strip()] if negative_triggers else None
+    )
     try:
-        path = await asyncio.to_thread(store.save, name, description, pattern, step_list, tags=tag_list)
+        path = await asyncio.to_thread(
+            store.save,
+            name,
+            description,
+            pattern,
+            step_list,
+            tags=tag_list,
+            triggers=trigger_list,
+            negative_triggers=negative_list,
+            priority=priority,
+        )
     except ValueError as exc:
         return f"Error: {exc}"
     return f"Skill '{name}' created at {path}"
@@ -80,6 +99,9 @@ async def skill_update(
     pattern: str = "",
     steps: str = "",
     tags: str = "",
+    triggers: str = "",
+    negative_triggers: str = "",
+    priority: int | None = None,
 ) -> str:
     """Update an existing skill."""
     store = _store()
@@ -91,6 +113,10 @@ async def skill_update(
     pattern_value = pattern or None
     step_list = [step.strip() for step in steps.split("|") if step.strip()] if steps else None
     tag_list = [tag.strip() for tag in tags.split("|") if tag.strip()] if tags else None
+    trigger_list = [item.strip() for item in triggers.split("|") if item.strip()] if triggers else None
+    negative_list = (
+        [item.strip() for item in negative_triggers.split("|") if item.strip()] if negative_triggers else None
+    )
     path = await asyncio.to_thread(
         store.update,
         name,
@@ -98,6 +124,9 @@ async def skill_update(
         pattern=pattern_value,
         steps=step_list,
         tags=tag_list,
+        triggers=trigger_list,
+        negative_triggers=negative_list,
+        priority=priority,
     )
     if path is None:
         return f"Error: failed to update skill '{name}'."
@@ -124,6 +153,21 @@ async def skill_list() -> str:
 
     lines = await asyncio.to_thread(_build_lines)
     return "\n".join(lines)
+
+
+@tool(read_only=True)
+async def skill_load(name: str) -> str:
+    """Read one named skill's complete SKILL.md without executing it or its resources."""
+    store = _store()
+    if store is None:
+        return "Error: skill tools not configured."
+    content = await asyncio.to_thread(store.load, name)
+    if content is None:
+        return f"Error: skill '{name}' not found or has an invalid name."
+    budget = get_settings().skill_max_manual_load_tokens
+    if budget is not None and estimate_text_tokens(content) > budget:
+        return f"Error: skill '{name}' exceeds the configured manual-load token budget ({budget})."
+    return content
 
 
 @tool

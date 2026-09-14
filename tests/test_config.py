@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from heagent.config import GLOBAL_CONFIG_FILE, Settings, reset_settings
+from heagent.config import GLOBAL_CONFIG_FILE, Settings, get_settings, reset_settings
 from typing import Any
 
 
@@ -568,3 +568,16 @@ class TestOpenaiModelSetting:
         settings = Settings(default_model="gpt-4o")
         assert settings.openai_model == "gpt-5.6-luna"
         assert settings.default_model == "gpt-4o"
+
+
+def test_skill_auto_invoke_token_budget_env(monkeypatch) -> None:
+    monkeypatch.setenv("SKILL_MAX_AUTO_INVOKE_TOKENS", "1024")
+    reset_settings()
+    assert get_settings().skill_max_auto_invoke_tokens == 1024
+    reset_settings()
+
+
+def test_skill_manual_load_token_budget_default_and_env(monkeypatch) -> None:
+    assert Settings().skill_max_manual_load_tokens == 8192
+    monkeypatch.setenv("SKILL_MAX_MANUAL_LOAD_TOKENS", "2048")
+    assert Settings().skill_max_manual_load_tokens == 2048

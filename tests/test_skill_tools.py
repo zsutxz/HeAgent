@@ -11,6 +11,7 @@ from heagent.tools.builtins.skills import (
     skill_create,
     skill_delete,
     skill_list,
+    skill_load,
     skill_update,
 )
 
@@ -33,6 +34,24 @@ class TestSkillCreate:
         result = await skill_create("deploy", "Deploy app", "deploy to production", "push|deploy")
         assert "created" in result
         assert skill_store.load("deploy") is not None
+
+    @pytest.mark.asyncio
+    async def test_create_and_update_matching_metadata(self, skill_store: SkillStore) -> None:
+        await skill_create(
+            "deploy",
+            "Deploy app",
+            "deploy",
+            "push",
+            triggers="发布|上线",
+            negative_triggers="不要执行",
+            priority=8,
+        )
+        await skill_update("deploy", triggers="发布生产", priority=9)
+        parsed = skill_store.parse("deploy")
+        assert parsed is not None
+        assert parsed.triggers == ["发布生产"]
+        assert parsed.negative_triggers == ["不要执行"]
+        assert parsed.priority == 9
 
     @pytest.mark.asyncio
     async def test_create_duplicate(self, skill_store: SkillStore) -> None:
@@ -141,3 +160,26 @@ class TestSkillDelete:
     async def test_delete_nonexistent(self, skill_store: SkillStore) -> None:
         result = await skill_delete("ghost")
         assert "not found" in result
+
+
+class TestSkillLoad:
+    @pytest.mark.asyncio
+    async def test_load_existing_skill(self, skill_store: SkillStore) -> None:
+        await skill_create("deploy", "Deploy app", "deploy", "push")
+        result = await skill_load("deploy")
+        assert "# deploy" in result
+
+    @pytest.mark.asyncio
+    async def test_load_missing_or_unconfigured_skill(self, skill_store: SkillStore) -> None:
+        assert "not found" in await skill_load("missing")
+        reset_skill_tools()
+        assert "not configured" in await skill_load("missing")
+
+    @pytest.mark.asyncio
+    async def test_load_rejects_content_over_token_budget(self, skill_store: SkillStore, monkeypatch) -> None:
+        await skill_create("large", "Large", "large", "x" * 400)
+        monkeypatch.setenv("SKILL_MAX_MANUAL_LOAD_TOKENS", "10")
+        from heagent.config import reset_settings
+
+        reset_settings()
+        assert "exceeds" in await skill_load("large")
