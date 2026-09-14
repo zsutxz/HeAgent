@@ -516,17 +516,38 @@ Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 `AgentLoop._runt
 |------|------|
 | `load_context_files(cwd)` | 扫描 `.heagent/CONTEXT.md` > `AGENTS.md` > `CLAUDE.md`，按优先级合并 |
 
-#### tokens.py — Token 估算
+#### tokens.py — Token 计量（真实 tokenizer + 在线校准，P0-3）
 
 | 函数 | 说明 |
 |------|------|
-| `count_tokens(messages)` | CJK 感知启发式估算，无需外部依赖（tiktoken 等） |
+| `count_tokens(messages, *, model=None)` | 真实 tokenizer 优先，其次**校准后**的启发式；`model` 决定 encoding 与校准系数 |
+| `note_actual_usage(model, *, estimated, actual)` | 用 provider 真实 usage 回收校准系数（指数滑动平均，按模型记录） |
+| `tokenizer_backend(model)` / `calibration_factor(model)` | 当前后端名 / 当前系数（诊断与状态展示） |
+| `reset_calibration()` | 清空系数与 encoding 缓存 |
 
-估算策略：CJK 字符 ~1 token/字符，其他 ~4 字符/token，每条消息 +3 结构开销。
+后端口径由 `Settings.tokenizer`（`TOKENIZER`）控制：`auto`（默认）= 装了 tiktoken 就用真实
+encoding（模型名不被识别时退 `cl100k_base`），否则用 CJK 感知启发式；`estimate` = 强制启发式；
+`tiktoken` = 强制真实（依赖缺失时告警一次后回退）。encoding 按模型缓存（含「不可用」这一结果，
+避免反复尝试导入）。
+
+校准：`AgentLoop._call_provider` 在拿到真实 `usage.prompt_tokens` 时调用 `note_actual_usage`——
+这是**唯一**校准入口（非流式调用必经此处；流式 usage 缺失时无样本可学）。坏样本被丢弃
+（`actual<=0`，或比值超出 0.2~5），因为坏样本会把压缩阈值带偏。启发式路径返回
+`round(raw × factor)`，两条路径量纲因此可比。
+
+⚠ 计量结果直接喂给压缩阈值与窗口重置判定：偏差会放大成「该压缩时没压缩（撞 API 400）」
+或「提前压缩、白丢上下文」，故不再满足于纯估算。
 
 #### compressor.py — 上下文压缩
 
 Token 用量 ≥ `compression_threshold` 时，通过 LLM 摘要旧消息，防止上下文窗口溢出。
+
+摘要提示词为**结构化四段**（`STRUCTURED_SUMMARY_PROMPT`，公开名）：`## Goal` /
+`## Changed files` / `## Todo` / `## Constraints and failures`，并要求标识符、路径、命令与
+报错**逐字保留**。旧版只要「一段话 + 保留 key facts」，实测会把「改过哪些文件、还剩什么
+没做」这类**可重放状态**揉成模糊叙述，压缩后接着干时容易重做已完成的改动或丢掉未完成的
+步骤。`window_reset.py` 的 `DEFAULT_SUMMARY_PROMPT` 直接复用该常量（此前两处各写一份、仅
+靠注释约定一致）。
 
 #### window_reset.py — 上下文窗口重置（checkpoint-resume）
 
@@ -684,6 +705,7 @@ HeAgentError (base)
 | `sandbox_mode` | `workspace-write` | 权限档位：`read-only`（只放行只读工具，未知工具 fail-closed）/ `workspace-write` / `danger-full-access`（跳过围栏与凭证 deny 预检）；非法值回退并告警 |
 | `sandbox_network` | False | 是否允许子进程出站；False 时 firejail 追加 `--net=none`，其余后端记「网络隔离未生效」 |
 | `sandbox_enforce` | True | 探测到**真实**后端时自动把 `shell` 纳入沙箱工具集并授权当次 run（passthrough 下零行为变更） |
+| `tokenizer` | `auto` | Token 计量后端：`auto`（有 tiktoken 用真实 encoding，否则启发式 + 在线校准）/ `estimate` / `tiktoken` |
 | `sandbox_session_workspace` | False | 是否为每个 run 建立会话工作目录 |
 | `sandbox_session_keep` | False | run 结束后是否保留会话目录 |
 | `approval_tools` | `""` | 需要交互审批的工具名列表 |

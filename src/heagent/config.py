@@ -159,6 +159,13 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")  # 控制台(stderr)日志级别: DEBUG / INFO / WARNING / ERROR
     log_file_level: str | None = Field(default=None)  # 文件日志级别; None=回退到 log_level
 
+    # ---- Token 计量（P0-3） ----
+    # auto（默认）= 装了 tiktoken 就用真实 tokenizer，否则用 CJK 感知启发式（并按 provider
+    #   真实 usage 在线校准系数）；estimate = 强制启发式（对齐旧行为 / 离线复现）；
+    #   tiktoken = 强制真实 tokenizer（依赖缺失时告警一次后回退估算）。
+    # 注：计量结果直接决定压缩阈值与窗口重置判定，偏差会放大为「该压缩时没压缩」或白丢上下文。
+    tokenizer: str = Field(default="auto")
+
     # ---- 重试策略参数 ----
     retry_max_attempts: int = Field(default=3, ge=1)
     retry_base_delay: float = Field(default=1.0, ge=0.0)

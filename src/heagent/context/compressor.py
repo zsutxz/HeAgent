@@ -23,11 +23,29 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 摘要提示词：指导 LLM 提取关键信息
-_DEFAULT_PROMPT = (
-    "Summarize the following conversation so far in a concise paragraph. "
-    "Preserve key facts, decisions, and any important context."
+# 摘要提示词：要求**结构化**四段，而不是「一段话」。
+#
+# 旧版只要求 "concise paragraph…preserve key facts"——实测会把「改过哪些文件、还剩什么
+# 没做」这类**可重放状态**揉成模糊叙述，压缩后模型接着干时容易重做已完成的改动或丢掉
+# 未完成的步骤。四段制把可重放状态显式化，并要求标识符/路径/命令/报错**逐字保留**。
+# 公开名：window_reset 复用同一份结构化提示词，避免两套上下文策略各写一份摘要指令而
+# 漂移（历史上「与 compressor 保持一致」只靠注释维系，改一处另一处不会跟着变）。
+STRUCTURED_SUMMARY_PROMPT = (
+    "Summarize the conversation so far for your own future use. Reply with exactly these "
+    "four sections, in this order, and nothing else:\n"
+    "## Goal\nThe user's current objective, in one or two sentences.\n"
+    "## Changed files\nEvery file created, edited or deleted so far, one line each: path — "
+    "what changed (function/section level). Write 'none' if nothing was changed.\n"
+    "## Todo\nWhat still remains to be done, in the order it should be done. "
+    "Write 'none' if the work is complete.\n"
+    "## Constraints and failures\n"
+    "Decisions that must keep holding, plus commands/tests already run with their outcome "
+    "and every error already encountered and how it was resolved.\n"
+    "Keep identifiers, file paths, commands and error messages verbatim; do not invent "
+    "details that are not in the conversation."
 )
+# 兼容旧名（既有引用与测试沿用）
+_DEFAULT_PROMPT = STRUCTURED_SUMMARY_PROMPT
 
 # 摘要请求本身的安全缓冲区：预留足够的 token 空间给摘要提示词 + 回复
 # （提示词约 30 tokens，回复预留 512 tokens，简单旧消息不会用完）

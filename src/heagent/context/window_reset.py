@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from heagent.context.compressor import STRUCTURED_SUMMARY_PROMPT
 from heagent.types import Message, ProviderResponse, Role
 
 if TYPE_CHECKING:
@@ -28,11 +29,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 摘要提示词（与 ContextCompressor 保持一致，统一摘要风格）
-DEFAULT_SUMMARY_PROMPT = (
-    "Summarize the following conversation so far in a concise paragraph. "
-    "Preserve key facts, decisions, and any important context."
-)
+# 摘要提示词：**复用 compressor 的结构化四段提示词**——不再是「注释约定一致、实际各写
+# 一份」。两种上下文策略（compressor / reset）共用同一指令，改一处即两处同时生效。
+DEFAULT_SUMMARY_PROMPT = STRUCTURED_SUMMARY_PROMPT
 
 # 续跑提示：注入清窗后的新窗口，引导模型基于摘要继续、不重复已完成步骤
 RESUME_HINT = (

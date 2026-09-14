@@ -971,6 +971,15 @@ class AgentLoop:
                 estimated,
                 response.usage.total_tokens - estimated,
             )
+            # P0-3：把「实际 vs 估算」的偏差回收成校准系数（输入侧同量纲才可比）。
+            # 这是全局唯一的校准入口——非流式调用必经此处，流式 usage 缺失时无样本可学。
+            from heagent.context.tokens import note_actual_usage
+
+            note_actual_usage(
+                response.model,
+                estimated=estimated,
+                actual=response.usage.prompt_tokens,
+            )
         self._emit(
             "provider_call_completed",
             run_context=run_context,

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from heagent.agent.loop import AgentLoop
-from heagent.context.compressor import ContextCompressor
+from heagent.context.compressor import ContextCompressor, STRUCTURED_SUMMARY_PROMPT
 from heagent.context.window_reset import WindowReset, WindowResetConfig
 from heagent.engine.container import EngineContainer
 from heagent.engine.context import RunContext, RunStatus
@@ -58,6 +58,11 @@ def _final(content: str) -> ProviderResponse:
     return ProviderResponse(content=content, usage=_usage(), model="stub", finish_reason="stop")
 
 
+# 摘要请求的识别标记**从共享常量派生**：此前硬编码旧 prompt 的前缀，prompt 一改
+# （P0-3 结构化四段）测试就静默走错分支，用「payload 耗尽 → 默认回复」冒充成功。
+_SUMMARY_PREFIX = STRUCTURED_SUMMARY_PROMPT.split("\n", 1)[0]
+
+
 class _StubProvider:
     """Scripted main-conversation provider that returns a canned summary.
 
@@ -73,11 +78,7 @@ class _StubProvider:
 
     async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
         last = messages[-1] if messages else None
-        if (
-            last is not None
-            and last.role == Role.USER
-            and (last.content or "").startswith("Summarize the following conversation so far")
-        ):
+        if last is not None and last.role == Role.USER and (last.content or "").startswith(_SUMMARY_PREFIX):
             return ProviderResponse(content=self._summary, usage=_usage(), model="stub", finish_reason="stop")
         if self._idx < len(self._responses):
             resp = self._responses[self._idx]
