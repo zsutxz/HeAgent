@@ -23,4 +23,3 @@ baseline_commit: 'c477115d260849e871658f35b346e8a59579a8ff'
   [`AGENTS.md:12`](../../AGENTS.md#L12)
 - 核对架构和安全边界
   [`AGENTS.md:27`](../../AGENTS.md#L27)
-
