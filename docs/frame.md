@@ -425,7 +425,7 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
 
 #### edits.py — 编辑原语支撑（行尾保真 / diff 回执 / 落盘前快照）
 
-`file_write` / `file_edit` 共用的编辑护栏（2026-09-15 新增）：
+`file_write` / `file_edit` 共用的编辑护栏（2026-09-14 新增）：
 
 - **行尾与 BOM 保真**：`read_text_file` / `write_text_file` 走 `read_bytes` / `write_bytes`
   ——`Path.read_text/write_text` 默认做 universal-newline 翻译（Windows 上把 LF 文件写成 CRLF），
