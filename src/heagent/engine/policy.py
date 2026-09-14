@@ -99,6 +99,7 @@ class PolicyEngine:
     _PATH_FIELDS: dict[str, tuple[str, ...]] = {
         "file_read": ("path",),
         "file_write": ("path",),
+        "file_edit": ("path",),
         "file_search": ("directory",),
         "content_search": ("directory",),
         "git_status": ("path",),

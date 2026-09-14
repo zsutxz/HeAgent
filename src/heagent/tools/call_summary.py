@@ -39,6 +39,7 @@ _ARROW = " → "
 # 表项会静默失效（改表不生效的死配置，见 tests 的 test_every_table_entry_is_reachable）。
 _TARGET_FIELDS: dict[str, str] = {
     "file_read": "path",
+    "file_edit": "path",
     "git_status": "path",
     "git_log": "path",
     "git_blame": "file_path",

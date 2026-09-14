@@ -1,14 +1,68 @@
-"""File read/write tools scoped to the current workspace."""
+"""File read / write / edit tools scoped to the current workspace.
+
+编辑护栏（实现见 :mod:`heagent.tools.edits`）：
+
+- ``file_read`` 与 ``file_edit`` 共用**同一份文本形态**（去 BOM、行尾归一为 ``\n``），
+  保证「读到的片段可直接拿去匹配」，不会因隐形 BOM 或 CRLF 而匹配失败；
+- ``file_write`` / ``file_edit`` 落盘走 ``write_bytes``（不触发平台行尾翻译），写前留
+  快照、写后回 ``+N -M`` diff 回执——旧版 ``file_write`` 只回 ``wrote N chars``，
+  模型与用户都无法自证「实际改了什么」。
+"""
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from heagent.tools.decorator import tool
+from heagent.tools.edits import (
+    MAX_DIFF_SOURCE_BYTES,
+    read_text_file,
+    render_diff,
+    render_new_file,
+    snapshot_before_write,
+    write_text_file,
+)
 from heagent.tools.path_safety import (
     WorkspacePathError,
     check_read_denied,
     check_write_denied,
     resolve_workspace_path,
 )
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+def _writable(path: str) -> Path | str:
+    """解析可写目标并做写 deny 检查；失败时返回错误消息（字符串），成功返回路径。"""
+    try:
+        resolved = resolve_workspace_path(path)
+    except WorkspacePathError as exc:
+        return f"Error: {exc}"
+    reason = check_write_denied(path)
+    if reason is not None:
+        return f"Error: {reason}"
+    return resolved
+
+
+def _read_for_diff(path: Path) -> str | None:
+    """读旧内容供 diff 回执使用；不存在 / 超限 / 不可解码 → ``None``（回执退化为计数）。"""
+    try:
+        if not path.is_file() or path.stat().st_size > MAX_DIFF_SOURCE_BYTES:
+            return None
+        return read_text_file(path).text
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def _receipt(header: str, body: str, snapshot: str | None) -> str:
+    """拼装统一回执：``header`` + diff ``body`` +（可选）快照行。"""
+    lines = [header]
+    if body:
+        lines.append(body)
+    if snapshot:
+        lines.append(f"snapshot: {snapshot}")
+    return "\n".join(lines)
 
 
 @tool(read_only=True)
@@ -22,6 +76,10 @@ async def file_read(
     When ``offset`` and/or ``limit`` are provided, the file is read line-by-line
     (1-indexed).  The returned string includes the selected lines joined with
     newlines, with a tail note if lines were omitted.
+
+    The returned text is the same form ``file_edit`` matches against (BOM stripped,
+    line endings normalised to ``\\n``), so a snippet copied from here can be passed
+    to ``file_edit`` verbatim.
 
     Parameters
     ----------
@@ -43,7 +101,7 @@ async def file_read(
         if resolved.is_dir():
             return f"Error: path is a directory: {path}"
 
-        text = resolved.read_text(encoding="utf-8")
+        text = read_text_file(resolved).text
 
         if offset is None and limit is None:
             return text
@@ -84,16 +142,109 @@ async def file_read(
 
 @tool
 async def file_write(path: str, content: str) -> str:
-    """Write content to a file, creating parent directories as needed."""
+    """Write content to a file (full overwrite), creating parent directories as needed.
+
+    Returns a ``+N -M`` diff summary of what changed, and leaves a pre-write snapshot
+    for existing files.  For a targeted change prefer ``file_edit``: it rewrites only
+    the matched snippet, so the rest of the file cannot be lost by truncation.
+
+    Parameters
+    ----------
+    path:
+        Path to the file (relative to workspace or absolute).
+    content:
+        Full new content of the file (written verbatim; line endings are not translated).
+    """
+    resolved = _writable(path)
+    if isinstance(resolved, str):
+        return resolved
     try:
-        resolved = resolve_workspace_path(path)
-        denied = check_write_denied(path)
-        if denied is not None:
-            return f"Error: {denied}"
         resolved.parent.mkdir(parents=True, exist_ok=True)
-        resolved.write_text(content, encoding="utf-8")
-        return f"OK: wrote {len(content)} chars to {path}"
-    except WorkspacePathError as e:
-        return f"Error: {e}"
-    except Exception as e:
-        return f"Error writing file: {e}"
+    except OSError as exc:
+        return f"Error writing file: {exc}"
+
+    existed = resolved.is_file()
+    previous = _read_for_diff(resolved)
+    snapshot = snapshot_before_write(resolved, op="write")
+    try:
+        resolved.write_bytes(content.encode("utf-8"))
+    except OSError as exc:
+        return f"Error writing file: {exc}"
+
+    if not existed:
+        body = render_new_file(content)
+    elif previous is None:
+        body = f"{len(content)} chars; diff unavailable (previous content too large or not UTF-8)"
+    else:
+        body = render_diff(previous, content)
+    return _receipt(f"OK: wrote {path} ({len(content)} chars)", body, snapshot)
+
+
+@tool
+async def file_edit(
+    path: str,
+    old_string: str,
+    new_string: str,
+    replace_all: bool = False,
+) -> str:
+    """Replace an exact snippet inside a file (surgical edit; everything else is untouched).
+
+    ``old_string`` must match the file content exactly — indentation, blank lines and
+    surrounding characters included.  Copy it verbatim from ``file_read``.  It must match
+    **exactly once** unless ``replace_all`` is true.  A missing or ambiguous match returns
+    an error and changes nothing on disk.  Returns a ``+N -M`` diff summary and leaves a
+    pre-edit snapshot for rollback.
+
+    Parameters
+    ----------
+    path:
+        Path to the file (relative to workspace or absolute).
+    old_string:
+        Exact existing snippet to replace (must be unique unless ``replace_all``).
+    new_string:
+        Replacement text (may be empty to delete the snippet).
+    replace_all:
+        Replace every occurrence instead of requiring a unique match.
+    """
+    if not old_string:
+        return "Error: old_string must not be empty (use file_write to create a new file)."
+    if old_string == new_string:
+        return "Error: file_edit is a no-op — old_string and new_string are identical."
+
+    resolved = _writable(path)
+    if isinstance(resolved, str):
+        return resolved
+    if resolved.is_dir():
+        return f"Error: path is a directory: {path}"
+    if not resolved.is_file():
+        return f"Error: file not found: {path}"
+    try:
+        current = read_text_file(resolved)
+    except UnicodeDecodeError:
+        return f"Error: {path} is not valid UTF-8 text; file_edit only handles text files."
+    except OSError as exc:
+        return f"Error reading file: {exc}"
+
+    needle = old_string.replace("\r\n", "\n")
+    matches = current.text.count(needle)
+    if matches == 0:
+        return (
+            f"Error: old_string not found in {path}. Read the file with file_read and copy the "
+            "snippet verbatim — indentation and blank lines must match exactly."
+        )
+    if matches > 1 and not replace_all:
+        return (
+            f"Error: old_string matches {matches} locations in {path}. Include more surrounding "
+            "context to make it unique, or pass replace_all=true to replace every occurrence."
+        )
+
+    replacement = new_string.replace("\r\n", "\n")
+    updated = current.text.replace(needle, replacement, -1 if replace_all else 1)
+    snapshot = snapshot_before_write(resolved, op="edit")
+    try:
+        write_text_file(resolved, updated, newline=current.newline, has_bom=current.has_bom)
+    except OSError as exc:
+        return f"Error writing file: {exc}"
+
+    header = f"OK: edited {path} ({matches} replacements)" if replace_all else f"OK: edited {path}"
+    return _receipt(header, render_diff(current.text, updated), snapshot)

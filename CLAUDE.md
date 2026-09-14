@@ -93,7 +93,7 @@ exceptions  types  config
 
 - `agent/` — 顶层编排（`AgentLoop` 主循环 + `middleware` + `sub` 子 Agent）
 - `providers/` — LLM provider（OpenAI 兼容：DeepSeek / Kimi / GLM 等 + Anthropic 原生）+ 智能路由（`router` RoutingProvider）+ 多层容错（`chain` 跨 provider 回退 / `key_rotation` 多密钥轮换 / `retry` 指数退避 / `switchable` 运行时 vendor 切换）
-- `tools/` — `@tool` 注册（`registry`）+ `SafetyGuard`（shell 黑名单）+ `path_safety` + `builtins/`（24 工具）+ `mcp/` 桥接
+- `tools/` — `@tool` 注册（`registry`）+ `SafetyGuard`（shell 黑名单）+ `path_safety` + `builtins/`（25 工具）+ `mcp/` 桥接
 - `engine/` — 运行时治理（`PolicyEngine` 准入/审批/沙箱裁决 + `ToolExecutor` 分发 + `store`/`ledger`/`observability`），经 `EngineContainer` 注入 `AgentLoop`
 - `context/` — 上下文压缩 / 会话持久化 / 上下文文件加载 / token 估算
 - `memory/` — 自学习闭环（`skills`/`facts`/`profile`/`soul`）

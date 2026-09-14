@@ -423,15 +423,35 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
 
 另含**凭证 deny**与**内部状态读 deny**（借鉴 hermes `file_safety.py`，2026-08-24）：`build_write_denied_paths` / `build_write_denied_prefixes` 拦截对凭证文件（`~/.ssh/*` / `~/.aws/*` / `.env` / `.netrc` 等）的写入；`check_read_denied` 拦截对 secret-bearing 文件名（`.env` 等）与 `.heagent/` 内部状态目录（sessions/ledger/runs/memory/skills）的读取。deny 与围栏是**并列的独立层**（先围栏后 deny），git 工具只走围栏不接 deny。⚠ 均为 defense-in-depth 启发式层，非真正安全边界——shell 工具仍可 `cat .env` 绕过，须 OS 级沙箱兜底。
 
-#### builtins/ — 24 个内置工具
+#### edits.py — 编辑原语支撑（行尾保真 / diff 回执 / 落盘前快照）
 
-**基础工具（5 个）：**
+`file_write` / `file_edit` 共用的编辑护栏（2026-09-15 新增）：
+
+- **行尾与 BOM 保真**：`read_text_file` / `write_text_file` 走 `read_bytes` / `write_bytes`
+  ——`Path.read_text/write_text` 默认做 universal-newline 翻译（Windows 上把 LF 文件写成 CRLF），
+  编辑类工具若破坏行尾即是真实事故面（本仓 2026-09-08 行尾治理）。读写两侧都保真，才能保证
+  「只改一处、其余字节不动」。`file_read` 与 `file_edit` **共用同一文本形态**（去 BOM + 行尾
+  归一为 `\n`），使模型从 `file_read` 复制的片段可直接用于匹配（否则 BOM 会造成隐形失配）。
+- **diff 回执**：`render_diff` 回 `+N -M` 与有界 hunk 预览（行数 40 / 字符 4000 双限 + 截断标注）；
+  `file_write` 回执含 diff，不再是裸的 `wrote N chars`——模型与用户都能在回执里自证「实际改了什么」。
+- **落盘前快照**：`snapshot_before_write` 复制旧字节到
+  `<workspace>/.heagent/tmp/edit-snapshots/<run_id>/` 并追加 `manifest.jsonl` 台账
+  （`at` / `op` / `path` / `snapshot` / `bytes`）。run 绑定由 `AgentLoop._runtime_scope` 经
+  `bind_edit_snapshot_run(run_context.run_id)` 完成；未绑定（直接调工具 / 子进程 / 测试）退化为
+  工作区级共享目录。快照是 **best-effort**：文件超 2 MB 或 I/O 失败均跳过快照、不阻断编辑
+  （回执不出现 snapshot 行，仅记日志）。快照 GC 见「五、已知缺口」。
+- ⚠ 行尾保真与快照均属**可用性**护栏，非安全边界：快照目录位于 workspace 内、可被 shell 删除。
+
+#### builtins/ — 25 个内置工具
+
+**基础工具（6 个）：**
 
 | 工具 | 文件 | 功能 |
 |------|------|------|
 | `shell` | `shell.py` | 执行 shell 命令 |
 | `file_read` | `file.py` | 读取文件内容 |
-| `file_write` | `file.py` | 写入文件 |
+| `file_write` | `file.py` | 全量覆写文件（回 `+N -M` diff 摘要，写前留快照） |
+| `file_edit` | `file.py` | 精确替换文件中的唯一片段（失配/歧义即报错，磁盘零改动） |
 | `file_search` | `search.py` | 按文件名搜索 |
 | `content_search` | `search.py` | 按内容搜索文件 |
 
