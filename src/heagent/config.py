@@ -23,6 +23,9 @@ from heagent.types import RoutingPoolSpec
 
 logger = logging.getLogger(__name__)
 
+# 沙箱权限档位（P0-2）的合法取值；非法配置回退 ``workspace-write``（见 Settings.sandbox_mode_resolved）。
+SANDBOX_MODES: frozenset[str] = frozenset({"read-only", "workspace-write", "danger-full-access"})
+
 _settings: Settings | None = None  # 单例缓存
 
 GLOBAL_CONFIG_DIR: Path = Path.home() / ".heagent"
@@ -200,10 +203,27 @@ class Settings(BaseSettings):
     mcp_config_path: str = Field(default=".mcp.json")
     safety_blocked_tools: list[str] = Field(default_factory=list)
 
-    # ---- 沙箱后端（FR-S4） ----
-    # "passthrough" = 零隔离（默认），"firejail" = FirejailBackend。
-    # CLI --sandbox flag 可覆盖；firejail 不可用时自动降级 Passthrough。
-    sandbox_backend: str = Field(default="passthrough")
+    # ---- 沙箱后端与权限档位（FR-S4 / P0-2） ----
+    # "auto"（默认）= 探测可用后端：firejail 可用则用（Linux/macOS），否则 passthrough。
+    #   Windows 的 "winjob" 需显式指定——WinJob 无文件系统隔离，自动启用会改变所有
+    #   shell 命令的进程语义而收益有限（故 auto 不选它）。
+    # "passthrough" = 零隔离；"firejail" = FirejailBackend；"winjob" = WinJobBackend。
+    # CLI --sandbox flag 可覆盖；显式指定而不可用时降级 Passthrough 并告警。
+    sandbox_backend: str = Field(default="auto")
+    # 权限档位（P0-2）：
+    #   read-only          = 只放行只读工具，其余一律 BLOCKED（fail-closed）；
+    #   workspace-write    = 现状：写操作受工作区围栏 + 凭证 deny + 审批管辖；
+    #   danger-full-access = 跳过围栏与 deny 预检（显式危险模式，仅限受控环境）。
+    # 非法值经 sandbox_mode_resolved 回退 workspace-write 并告警（不阻断启动）。
+    sandbox_mode: str = Field(default="workspace-write")
+    # 沙箱网络开关（P0-2）：False（默认）= 禁止子进程出站。仅真实沙箱后端可强制
+    # （firejail 映射为 --net=none）；passthrough / winjob 无网络隔离能力，会记提示
+    # 而非假装生效。宿主进程内的 HTTP 工具（web_fetch）不受此开关约束。
+    sandbox_network: bool = Field(default=False)
+    # 沙箱强制开关（P0-2）：True（默认）= 探测到**真实**沙箱后端时，自动把 shell 纳入
+    # PolicyEngine.sandbox_tools 并授权当次 run 走沙箱路径（否则要手工配 sandbox_tools）。
+    # 无真实后端（passthrough）时不改变任何行为——不给「已在沙箱里跑」的假象。
+    sandbox_enforce: bool = Field(default=True)
     # firejail 可执行文件路径（PATH 查找或绝对路径）。
     sandbox_firejail_path: str = Field(default="firejail")
     # 沙箱会话目录开关（FR-1）：True 时每个 run 经 EngineContainer.create_run_context
@@ -245,6 +265,23 @@ class Settings(BaseSettings):
     @property
     def approval_tool_list(self) -> list[str]:
         return _parse_comma_list(self.approval_tools)
+
+    @property
+    def sandbox_mode_resolved(self) -> str:
+        """解析后的权限档位；非法值回退 ``workspace-write`` 并告警（不阻断启动）。
+
+        与 ``ROUTING_POOLS`` 的容错风格一致：配置错误降级为安全默认值 + 显式告警，
+        而不是让整个进程起不来（安全侧默认值即现状语义，不会静默放宽权限）。
+        """
+        mode = self.sandbox_mode.strip().lower()
+        if mode in SANDBOX_MODES:
+            return mode
+        logger.warning(
+            "SANDBOX_MODE %r is not one of %s; falling back to 'workspace-write'",
+            self.sandbox_mode,
+            sorted(SANDBOX_MODES),
+        )
+        return "workspace-write"
 
     @property
     def sandbox_env_allowlist_set(self) -> frozenset[str]:

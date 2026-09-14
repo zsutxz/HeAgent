@@ -274,10 +274,13 @@ class FirejailBackend:
         extra_args: Sequence[str] = (),
         profiles: Mapping[str, Sequence[str]] | None = None,
         workspace_root: str | None = None,
+        network: bool = True,
     ) -> None:
         self._firejail_path = firejail_path
         self._extra_args = tuple(extra_args)
         self._workspace_root = workspace_root
+        # P0-2：False 时在 argv 中插入 ``--net=none``（禁止子进程出站）。
+        self._network = network
         self._profiles: dict[str, tuple[str, ...]] = {}
         if profiles:
             self._profiles = {k: tuple(v) for k, v in profiles.items()}
@@ -315,6 +318,11 @@ class FirejailBackend:
             workspace_root = self._workspace_root
         argv: list[str] = [self._resolved_path or self._firejail_path]
         argv.extend(self._extra_args)
+
+        if not self._network:
+            # --net=none 必须排在 profile -- 之前；与 profile 参数同为 defense-in-depth，
+            # 非完美边界（firejail 本身非安全边界，见模块 docstring）。
+            argv.append("--net=none")
 
         if workspace_root:
             argv.append(f"--private={workspace_root}")

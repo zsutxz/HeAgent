@@ -680,7 +680,10 @@ HeAgentError (base)
 | `dream_session_lookback` | 5 | 预加载近期 session 个数（按 timestamp 降序） |
 | `mcp_enabled` | True | 是否启用 MCP server 连接（门控，False 则跳过加载） |
 | `mcp_config_path` | `.mcp.json` | MCP server 声明式配置文件路径 |
-| `sandbox_backend` | `passthrough` | Shell 后端；可选 `firejail` |
+| `sandbox_backend` | `auto` | Shell 沙箱后端：`auto`（探测 firejail，缺则回退 passthrough）/ `passthrough` / `firejail` / `winjob`（Windows 需显式指定） |
+| `sandbox_mode` | `workspace-write` | 权限档位：`read-only`（只放行只读工具，未知工具 fail-closed）/ `workspace-write` / `danger-full-access`（跳过围栏与凭证 deny 预检）；非法值回退并告警 |
+| `sandbox_network` | False | 是否允许子进程出站；False 时 firejail 追加 `--net=none`，其余后端记「网络隔离未生效」 |
+| `sandbox_enforce` | True | 探测到**真实**后端时自动把 `shell` 纳入沙箱工具集并授权当次 run（passthrough 下零行为变更） |
 | `sandbox_session_workspace` | False | 是否为每个 run 建立会话工作目录 |
 | `sandbox_session_keep` | False | run 结束后是否保留会话目录 |
 | `approval_tools` | `""` | 需要交互审批的工具名列表 |

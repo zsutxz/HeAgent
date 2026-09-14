@@ -268,9 +268,9 @@ class TestSingleton:
 
 class TestSandboxEnv:
     def test_default_sandbox_backend(self, tmp_path: Any) -> None:
-        """默认值 passthrough（使用空 .env 避免项目 .env 干扰）。"""
+        """默认值 auto（探测 firejail，缺则回退 passthrough；空 .env 隔离项目配置）。"""
         s = Settings(_env_file=tmp_path / ".env")
-        assert s.sandbox_backend == "passthrough"
+        assert s.sandbox_backend == "auto"
 
     def test_sandbox_backend_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SANDBOX_BACKEND", "firejail")

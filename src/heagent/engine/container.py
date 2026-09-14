@@ -114,6 +114,15 @@ class EngineContainer:
 
         settings = get_settings()
         backend = sandbox_backend if sandbox_backend is not None else settings.sandbox_backend
+        backend = backend.strip().lower()
+        if backend == "auto":
+            # P0-2：自动档只认 firejail（Linux/macOS 的真实 OS 级隔离）。Windows 的 Job
+            # Objects 需显式指定——它无文件系统隔离，自动启用会改掉所有 shell 命令的进程
+            # 语义而隔离收益有限（诚实取舍，见 docs/frame.md 配置表）。
+            import shutil as _shutil
+
+            backend = "firejail" if _shutil.which(settings.sandbox_firejail_path) else "passthrough"
+            logger.info("sandbox backend 'auto' resolved to %r", backend)
         command_runner: CommandRunner | None = None
         if backend == "firejail":
             from heagent.tools.sandbox import FirejailBackend
@@ -121,6 +130,7 @@ class EngineContainer:
             command_runner = FirejailBackend(
                 firejail_path=settings.sandbox_firejail_path,
                 workspace_root=workspace_root,
+                network=settings.sandbox_network,
             )
         elif backend == "winjob":
             from heagent.tools.sandbox import WinJobBackend
@@ -139,8 +149,23 @@ class EngineContainer:
             enable_file_locks=True,
         )
         container.ledger_retention_days = settings.ledger_retention_days
+        # P0-2 权限档位：由 Settings 注入（非法值已在 sandbox_mode_resolved 回退 + 告警）。
+        container.policy.sandbox_mode = settings.sandbox_mode_resolved
         if settings.approval_tool_list:
             container.policy.approval_tools = set(settings.approval_tool_list)
+        # P0-2 沙箱强制：**仅在探测到真实后端时**把 shell 纳入沙箱工具集——passthrough
+        # 平台保持零行为变更，不制造「命令已在沙箱里跑」的假象（诚实立场见 CLAUDE.md）。
+        # 授权由 create_run_context 与策略同源写入 metadata，故不会出现「策略要求沙箱却
+        # 未授权」导致 shell 全线被拒的整类故障。
+        if settings.sandbox_enforce and command_runner is not None:
+            container.policy.sandbox_tools.add("shell")
+            tier = getattr(getattr(command_runner, "tier", None), "value", None)
+            if not settings.sandbox_network and tier != "firejail":
+                logger.info(
+                    "SANDBOX_NETWORK=false but backend %r cannot restrict outbound traffic; "
+                    "network isolation is NOT in effect",
+                    backend,
+                )
         # hooks 是用户自配置的本地命令：默认**不**加载（HOOKS_ENABLED=false），防不可信
         # 仓库投放的 .heagent/hooks.json 在 clone 后自动执行；路径按 workspace_root 解析
         # （缺省回退 CWD）。文件存在但未开启时告警，避免「配置了却不生效」的静默失效。
@@ -174,6 +199,13 @@ class EngineContainer:
             workspace_root=root,
             metadata=dict(metadata or {}),
         )
+        # P0-2：**仅在真实沙箱后端在位时**才自动授权（与 EngineContainer.default 的 enforce
+        # 同条件）。后端缺席（passthrough）时不写该键——策略要求沙箱而无授权仍按既有
+        # fail-safe 阻断，既不制造「已在沙箱里跑」的假象，也不放宽「未授权即拒绝」的契约。
+        if self.executor.sandbox_runner is not None:
+            sandboxed_tools = sorted(self.policy.sandbox_tools)
+            if sandboxed_tools:
+                ctx.metadata["sandboxed_tools"] = sandboxed_tools
         # FR-1（沙箱会话目录）：开关开启时解析 per-run 目录并写入 metadata，
         # 由 ToolExecutor.execute_in_sandbox bind 给后端（Firejail --private 根 /
         # WinJob 子进程 cwd）。目录根锚定 workspace_root 回退链（root，上方已解析：
