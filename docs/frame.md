@@ -533,6 +533,8 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 `.heagent/skills/<name>/SKILL.md`，HermesAgent 标准目录结构（可选 `templates/`、`references/`）。frontmatter 可选 `triggers`、`negative_triggers`、`priority`：负向触发优先排除，显式触发优先于常规相关度，随后按相关度、priority、名称稳定排序。常规匹配使用无依赖的混合 tokenizer：ASCII 标识符完整分词，CJK 使用二/三字片段（避免空格边界和单字高频误匹配）；旧 Skill 缺新字段时退化为原有 `pattern + tags` 相关度。自动注入同时受数量上限与可选总 token 预算限制，只注入完整正文、跳过超预算项且仅对最终注入项记录 usage；`skill_load` 可显式按名读取完整技能（同样不截断）。
 
+**重渲染安全性（2026-09-14）：** 渲染器只能表达 `# <name>` / `## Pattern` / `## Steps`，解析器也只读后两节，因此 `record_usage` 先经 `_body_survives_rerender` 判定：正文若含这两节之外的章节（手写角色契约、`deploy_production` 式的阶段说明），改走 `_update_usage_frontmatter`「只就地改写 frontmatter 计数、正文逐字节保留」，避免一次自动匹配即把 130 行契约削成 411 字符空壳；无 frontmatter 时保留原文件并记 `logger.warning`（显性失败，不静默丢计数）。`skill_update` 走同一判定：只改元数据字段（description / tags / triggers / negative_triggers / priority）时就地改写 frontmatter、正文逐字节保留；要求改 `pattern` / `steps` 则抛 `SkillRewriteError(ValueError)` 显式拒绝（工具层转成可读 `Error:` 文案），无 frontmatter 块同样拒绝——至此已无「静默重排正文」的路径（`save()` 仍是显式全量覆写 API，只在创建与无损技能更新时被调用）。
+
 #### profile.py — 用户画像
 
 `.heagent/user/USER.md`，按 section 更新。通过 `profile_update` 工具由 LLM 自主维护。

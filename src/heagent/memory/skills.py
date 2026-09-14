@@ -15,15 +15,34 @@
 from __future__ import annotations
 
 import contextlib
+import logging
 import re
 import shutil
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
 from heagent.engine.persist import atomic_update_text, atomic_write_text
+
+if TYPE_CHECKING:
+    from collections.abc import Collection, Mapping
+
+logger = logging.getLogger(__name__)
+
+# SKILL.md 的 frontmatter 分隔与捕获。``_parse_skill_md`` 与「只改计数、保留正文」的
+# 就地改写共用同一模式，避免两份可漂移的副本。
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+class SkillRewriteError(ValueError):
+    """拒绝会丢正文的技能改写（正文含 ``## Pattern`` / ``## Steps`` 之外的章节）。
+
+    继承 ``ValueError``，与 ``skill_importer.SkillImportError`` 同构；工具层按 ``ValueError``
+    捕获，避免 ``tools`` → ``memory`` 的运行时依赖（该方向只允许 ``TYPE_CHECKING``）。
+    """
 
 
 class SkillContent(BaseModel):
@@ -94,25 +113,22 @@ class SkillStore:
         created: str,
     ) -> str:
         """Render the canonical on-disk representation for one skill."""
-        tag_str = ", ".join(tags) if tags else ""
         fm_lines = [
             "---",
-            f"name: {name}",
-            f'description: "{description}"',
-            f"created: {created}",
+            *_metadata_lines(
+                name=name,
+                description=description,
+                created=created,
+                tags=tags,
+                triggers=triggers,
+                negative_triggers=negative_triggers,
+                priority=priority,
+                usage_count=usage_count,
+                last_used=last_used,
+            ),
+            "---",
+            "",
         ]
-        if tag_str:
-            fm_lines.append(f"tags: [{tag_str}]")
-        if triggers:
-            fm_lines.append(f"triggers: [{', '.join(triggers)}]")
-        if negative_triggers:
-            fm_lines.append(f"negative_triggers: [{', '.join(negative_triggers)}]")
-        if priority:
-            fm_lines.append(f"priority: {priority}")
-        fm_lines.append(f"usage_count: {usage_count}")
-        if last_used:
-            fm_lines.append(f'last_used: "{last_used}"')
-        fm_lines.extend(["---", ""])
 
         body_lines = [f"# {name}", ""]
         if pattern:
@@ -121,6 +137,35 @@ class SkillStore:
         body_lines.extend(f"{i}. {step}" for i, step in enumerate(steps, 1))
         body_lines.append("")
         return "\n".join(fm_lines) + "\n" + "\n".join(body_lines)
+
+    @staticmethod
+    def _body_survives_rerender(raw: str) -> bool:
+        """正文是否能被 :meth:`_render_skill_md` 无损表达。
+
+        渲染器只产出 ``# <name>`` / ``## Pattern`` / ``## Steps``，解析器也只读后两节；
+        其余章节（手写角色契约、附加说明）在任何整体重渲染中都会被丢弃。返回 False 的
+        技能必须走「只改 frontmatter 计数、正文逐字节保留」的就地路径。
+        """
+        match = _FRONTMATTER_RE.match(raw)
+        body = raw[match.end() :] if match is not None else raw
+        section = ""
+        for line in body.splitlines():
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped == "## Pattern":
+                section = "pattern"
+                continue
+            if stripped == "## Steps":
+                section = "steps"
+                continue
+            if stripped.startswith("#"):
+                if stripped.startswith("# ") and not section:
+                    continue  # 渲染器写的 H1 标题，重渲染会原样重建
+                return False
+            if not section:
+                return False
+        return True
 
     @staticmethod
     def _validate_name(name: str) -> str:
@@ -237,10 +282,29 @@ class SkillStore:
         negative_triggers: list[str] | None = None,
         priority: int | None = None,
     ) -> str | None:
-        """部分更新已有技能。仅覆盖非 None 字段，其余保持原样。返回 SKILL.md 路径或 None。"""
+        """部分更新已有技能。仅覆盖非 None 字段，其余保持原样。返回 SKILL.md 路径或 None。
+
+        正文不可被渲染器无损表达时（见 :meth:`_body_survives_rerender`）分两路：只改元数据
+        字段 → 就地改写 frontmatter、正文逐字节保留；要求改 ``pattern`` / ``steps`` → 抛
+        :class:`SkillRewriteError`（显式拒绝，而非静默丢正文）。
+        """
         existing = self.parse(name)
         if existing is None:
             return None
+        raw = self.load(name) or ""
+        if not self._body_survives_rerender(raw):
+            return self._update_preserving_body(
+                name,
+                raw,
+                existing,
+                description=description,
+                pattern=pattern,
+                steps=steps,
+                tags=tags,
+                triggers=triggers,
+                negative_triggers=negative_triggers,
+                priority=priority,
+            )
         return self.save(
             name,
             description if description is not None else existing.description,
@@ -254,6 +318,69 @@ class SkillStore:
             last_used=existing.last_used,
             created=existing.created,  # P1-7 修复：保留原始创建时间
         )
+
+    def _update_preserving_body(
+        self,
+        name: str,
+        raw: str,
+        existing: SkillContent,
+        *,
+        description: str | None,
+        pattern: str | None,
+        steps: list[str] | None,
+        tags: list[str] | None,
+        triggers: list[str] | None,
+        negative_triggers: list[str] | None,
+        priority: int | None,
+    ) -> str:
+        """就地更新元数据字段、正文逐字节保留；要求改正文则抛错。
+
+        正文含渲染器表达不了的章节时，整体重渲染会把它们丢掉——故只把元数据字段按
+        :func:`_metadata_lines` 的规范行就地替换/删除。
+        """
+        if pattern is not None or steps is not None:
+            raise SkillRewriteError(
+                f"skill '{name}' has body sections outside '## Pattern'/'## Steps'; rewriting "
+                "pattern/steps would drop them. Reflow the body into those two sections first, "
+                "or update only description/tags/triggers/negative_triggers/priority."
+            )
+        merged = _metadata_lines(
+            name=name,
+            description=description if description is not None else existing.description,
+            created=existing.created,
+            tags=existing.tags if tags is None else tags,
+            triggers=existing.triggers if triggers is None else triggers,
+            negative_triggers=existing.negative_triggers if negative_triggers is None else negative_triggers,
+            priority=existing.priority if priority is None else priority,
+            usage_count=existing.usage_count,
+            last_used=existing.last_used,
+        )
+        upserts: dict[str, str] = {}
+        removals: list[str] = []
+        for key, value in (
+            ("description", description),
+            ("tags", tags),
+            ("triggers", triggers),
+            ("negative_triggers", negative_triggers),
+            ("priority", priority),
+        ):
+            if value is None:
+                continue  # 调用方未要求改动该字段，保持原样
+            rendered = _key_line(merged, key)
+            if rendered is None:
+                removals.append(key)  # 规范行缺省（如空 tags）→ 删除该行
+            else:
+                upserts[key] = rendered
+        if not upserts and not removals:
+            return str(self._skill_md(name))  # 无元数据改动：不写盘
+        patched = _patch_frontmatter(raw, upserts, removals)
+        if patched is None:
+            raise SkillRewriteError(
+                f"skill '{name}' has no frontmatter block; updating metadata in place would require rewriting the body."
+            )
+        md_path = self._skill_md(name)
+        atomic_write_text(md_path, patched, lock=True)
+        return str(md_path)
 
     # ---- 使用追踪与策展 ----
 
@@ -269,6 +396,19 @@ class SkillStore:
                 return raw, False
             existing = self._parse_skill_md(name, raw)
             now = datetime.now().isoformat()
+            if not self._body_survives_rerender(raw):
+                # 正文含 Pattern/Steps 之外的章节：整体重渲染会把它们静默丢弃
+                # （实测 130 行角色契约会被削成 411 字符空壳），故只就地改写计数。
+                patched = _update_usage_frontmatter(raw, existing, now)
+                if patched is None:
+                    logger.warning(
+                        "Skill %s: no frontmatter to update and a re-render would drop body content; "
+                        "usage not recorded",
+                        name,
+                    )
+                    return raw, False
+                logger.info("Skill %s: usage counters updated in place to preserve body sections", name)
+                return patched, True
             content = self._render_skill_md(
                 name,
                 existing.description,
@@ -373,9 +513,9 @@ class SkillStore:
         negative_triggers: list[str] = []
         priority = 0
 
-        # 分离 frontmatter 和正文
+        # 分离 frontmatter 和正文（模式与「只改计数」的就地改写共用，见 _FRONTMATTER_RE）
         body = content
-        fm_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
+        fm_match = _FRONTMATTER_RE.match(content)
         if fm_match:
             fm_text = fm_match.group(1)
             body = content[fm_match.end() :]
@@ -433,6 +573,96 @@ class SkillStore:
             usage_count=usage_count,
             last_used=last_used,
         )
+
+
+def _metadata_lines(
+    *,
+    name: str,
+    description: str,
+    created: str,
+    tags: list[str] | None,
+    triggers: list[str] | None,
+    negative_triggers: list[str] | None,
+    priority: int,
+    usage_count: int,
+    last_used: str,
+) -> list[str]:
+    """frontmatter 主体行（不含首尾 ``---``）——渲染与就地改写共用的唯一格式来源。"""
+    lines = [f"name: {name}", f'description: "{description}"', f"created: {created}"]
+    for key, values in (
+        ("tags", tags),
+        ("triggers", triggers),
+        ("negative_triggers", negative_triggers),
+    ):
+        if values:
+            lines.append(f"{key}: [{', '.join(values)}]")
+    if priority:
+        lines.append(f"priority: {priority}")
+    lines.append(f"usage_count: {usage_count}")
+    if last_used:
+        lines.append(f'last_used: "{last_used}"')
+    return lines
+
+
+def _key_line(lines: list[str], key: str) -> str | None:
+    """取 ``key:`` 开头的规范行；该字段缺省时返回 None。"""
+    prefix = f"{key}:"
+    return next((line for line in lines if line.startswith(prefix)), None)
+
+
+def _patch_frontmatter(raw: str, upserts: Mapping[str, str], removals: Collection[str] = ()) -> str | None:
+    """就地改写 frontmatter：``upserts`` 整行替换，``removals`` 删除整行。
+
+    正文与未涉及的 frontmatter 行逐字节保留（按 group(1) 跨度替换，分隔符与空行不受
+    影响）。无 frontmatter 块时返回 None——调用方保留原文件，不做猜测性改写。
+    """
+    match = _FRONTMATTER_RE.match(raw)
+    if match is None:
+        return None
+    remove = set(removals)
+    keys = (*upserts, *remove)
+    lines: list[str] = []
+    seen: set[str] = set()
+    for line in match.group(1).splitlines():
+        stripped = line.strip()
+        key = next((candidate for candidate in keys if stripped.startswith(f"{candidate}:")), None)
+        if key is None:
+            lines.append(line)
+            continue
+        seen.add(key)
+        if key in upserts:
+            lines.append(upserts[key])
+    for key, replacement in upserts.items():
+        if key not in seen:
+            lines.append(replacement)
+    return raw[: match.start(1)] + "\n".join(lines) + raw[match.end(1) :]
+
+
+def _update_usage_frontmatter(raw: str, existing: SkillContent, last_used: str) -> str | None:
+    """只改写 usage_count / last_used，正文与其余行逐字节保留。
+
+    供「正文含 ``## Pattern`` / ``## Steps`` 之外章节」的技能使用（见
+    :meth:`SkillStore._body_survives_rerender`）。无 frontmatter 时返回 None：不做猜测性
+    改写，调用方保留原文件并记 warning（显性可观测，而非静默丢计数）。
+    """
+    lines = _metadata_lines(
+        name=existing.name,
+        description=existing.description,
+        created=existing.created,
+        tags=existing.tags or None,
+        triggers=existing.triggers or None,
+        negative_triggers=existing.negative_triggers or None,
+        priority=existing.priority,
+        usage_count=existing.usage_count + 1,
+        last_used=last_used,
+    )
+    return _patch_frontmatter(
+        raw,
+        {
+            "usage_count": _key_line(lines, "usage_count") or f"usage_count: {existing.usage_count + 1}",
+            "last_used": _key_line(lines, "last_used") or f'last_used: "{last_used}"',
+        },
+    )
 
 
 def _parse_inline_list(value: str) -> list[str]:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from heagent.memory.skills import SkillStore
@@ -23,6 +25,43 @@ def skill_store(tmp_path: object) -> SkillStore:
     configure_skill_tools(store)
     yield store
     reset_skill_tools()
+
+
+# ---- skill_update：正文保护 ----
+
+
+class TestSkillUpdateBodyProtection:
+    CONTRACT = (
+        "---\n"
+        "name: role\n"
+        'description: "手写角色契约"\n'
+        "created: 2026-01-01T00:00:00\n"
+        "---\n"
+        "\n"
+        "# role\n"
+        "\n"
+        "## 角色与职责\n"
+        "\n"
+        "正文。\n"
+    )
+
+    @pytest.mark.asyncio
+    async def test_body_rewrite_refused_with_readable_error(self, tmp_path: Path) -> None:
+        """工具层把 SkillRewriteError 转成可读 Error 文案，且原文件一字未改。"""
+        md = tmp_path / "skills" / "role" / "SKILL.md"
+        md.parent.mkdir(parents=True)
+        md.write_text(self.CONTRACT, encoding="utf-8")
+        configure_skill_tools(SkillStore(base_dir=str(tmp_path / "skills")))
+        try:
+            result = await skill_update("role", steps="新步骤")
+            assert result.startswith("Error:")
+            assert "would drop" in result
+            assert md.read_text(encoding="utf-8") == self.CONTRACT
+            ok = await skill_update("role", description="新描述")
+            assert "updated" in ok
+            assert "## 角色与职责" in md.read_text(encoding="utf-8")
+        finally:
+            reset_skill_tools()
 
 
 # ---- skill_create ----

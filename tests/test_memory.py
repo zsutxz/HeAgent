@@ -2,9 +2,45 @@
 
 from __future__ import annotations
 
+import logging
+
+import pytest
+
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
-from heagent.memory.skills import SkillStore
+from heagent.memory.skills import SkillRewriteError, SkillStore
+
+
+ROLE_CONTRACT = """---
+name: code_review
+description: "手写角色契约：以三镜头审查代码变更"
+created: 2026-01-01T00:00:00
+tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow, epic-closure]
+usage_count: 0
+---
+
+# code_review
+
+## 角色与职责
+
+你是一名对抗式评审员。
+
+## 镜头一（对抗式）
+
+先假设变更是错的，再看它为何能通过测试。
+
+## 镜头二（边界追踪）
+
+追踪空值、并发与超长输入边界。
+
+## 输出格式
+
+- 每条发现带严重度与处置
+
+## 禁止
+
+- 不得修改期望值来迁就实现
+"""
 
 
 class TestSkillStore:
@@ -141,6 +177,164 @@ class TestSkillStore:
         s.save("mid", "Mid", "a b c d e", ["step"])  # 3/5 = 0.6
         matched = s.matching_skills("a b c", threshold=0.1)
         assert matched == ["high", "mid", "low"]
+
+    def test_record_usage_increments_counters_for_canonical_skill(self, tmp_path: object) -> None:
+        s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
+        s.save("canon", "Canonical", "canonical pattern", ["step one", "step two"])
+        s.record_usage("canon")
+        parsed = s.parse("canon")
+        assert parsed is not None
+        assert parsed.usage_count == 1
+        assert parsed.last_used
+        assert parsed.pattern == "canonical pattern"
+        assert parsed.steps == ["step one", "step two"]
+
+    def test_record_usage_preserves_sections_the_renderer_cannot_express(self, tmp_path: object) -> None:
+        """回归：正文含 Pattern/Steps 之外的章节时不得整体重渲染（原缺陷会丢正文）。"""
+        base = tmp_path / "sk"  # type: ignore[operator]
+        skill_dir = base / "role_contract"
+        skill_dir.mkdir(parents=True)
+        md = skill_dir / "SKILL.md"
+        md.write_text(ROLE_CONTRACT, encoding="utf-8")
+        s = SkillStore(base_dir=str(base))
+        s.record_usage("role_contract")
+        after = md.read_text(encoding="utf-8")
+        parsed = s.parse("role_contract")
+        assert parsed is not None
+        assert parsed.usage_count == 1
+        assert parsed.last_used
+        assert "usage_count: 1" in after
+        # 正文（frontmatter 之后）逐字节保留，只有 frontmatter 计数被就地改写
+        assert after.split("\n---\n", 1)[1] == ROLE_CONTRACT.split("\n---\n", 1)[1]
+
+    def test_record_usage_keeps_extra_sections_beside_pattern_and_steps(self, tmp_path: object) -> None:
+        """deploy_production 形态：既有 Pattern/Steps，又有额外阶段章节，两者都须保留。"""
+        base = tmp_path / "sk"  # type: ignore[operator]
+        s = SkillStore(base_dir=str(base))
+        s.save("deploy", "Deploy", "deploy to production", ["push"])
+        md = base / "deploy" / "SKILL.md"
+        before = md.read_text(encoding="utf-8")
+        extra = "## 阶段一：检查\n\n先跑全量测试。\n"
+        md.write_text(before + extra, encoding="utf-8")
+        s.record_usage("deploy")
+        after = md.read_text(encoding="utf-8")
+        parsed = s.parse("deploy")
+        assert parsed is not None
+        assert parsed.usage_count == 1
+        # 解析器把未识别的 ## 章节折进 Steps（重渲染即 mangle 正文），故断言正文逐字节保留
+        assert after.split("\n---\n", 1)[1] == before.split("\n---\n", 1)[1] + extra
+
+    def test_auto_matched_contract_skill_survives_usage_recording(self, tmp_path: object) -> None:
+        """端到端回归：tags 词元命中 → 注入 → record_usage 后契约仍是全文（曾 130 行 → 411 字符）。"""
+        base = tmp_path / "sk"  # type: ignore[operator]
+        skill_dir = base / "code_review"
+        skill_dir.mkdir(parents=True)
+        md = skill_dir / "SKILL.md"
+        md.write_text(ROLE_CONTRACT, encoding="utf-8")
+        s = SkillStore(base_dir=str(base))
+        prompt = "please review this code and check the workflow for the epic"
+        assert s.matching_skills(prompt, threshold=0.3) == ["code_review"]
+        s.record_usage("code_review")
+        after = md.read_text(encoding="utf-8")
+        parsed = s.parse("code_review")
+        assert parsed is not None
+        assert parsed.steps == []  # 该形态本无 Steps，正是原缺陷的触发条件
+        assert parsed.usage_count == 1
+        assert "## 禁止" in after
+        assert len(after) >= len(ROLE_CONTRACT)
+
+    def test_record_usage_leaves_frontmatter_less_skill_untouched(
+        self, tmp_path: object, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        base = tmp_path / "sk"  # type: ignore[operator]
+        skill_dir = base / "raw"
+        skill_dir.mkdir(parents=True)
+        md = skill_dir / "SKILL.md"
+        original = "# raw\n\n## 手写契约\n\n正文。\n"
+        md.write_text(original, encoding="utf-8")
+        s = SkillStore(base_dir=str(base))
+        with caplog.at_level(logging.WARNING):
+            s.record_usage("raw")
+        assert md.read_text(encoding="utf-8") == original
+        assert "usage not recorded" in caplog.text
+
+    def test_update_refuses_body_rewrite_and_keeps_the_contract(self, tmp_path: object) -> None:
+        """回归：正文含 Pattern/Steps 之外的章节时，改 pattern/steps 必须显式拒绝而非静默丢正文。"""
+        base = tmp_path / "sk"  # type: ignore[operator]
+        skill_dir = base / "code_review"
+        skill_dir.mkdir(parents=True)
+        md = skill_dir / "SKILL.md"
+        md.write_text(ROLE_CONTRACT, encoding="utf-8")
+        s = SkillStore(base_dir=str(base))
+        with pytest.raises(SkillRewriteError):
+            s.update("code_review", steps=["rewritten"])
+        with pytest.raises(SkillRewriteError):
+            s.update("code_review", pattern="rewritten")
+        assert md.read_text(encoding="utf-8") == ROLE_CONTRACT  # 一字未改
+
+    def test_update_metadata_in_place_preserves_the_contract(self, tmp_path: object) -> None:
+        """元数据字段可就地改写：正文逐字节保留，新值可被 parse 读回。"""
+        base = tmp_path / "sk"  # type: ignore[operator]
+        skill_dir = base / "code_review"
+        skill_dir.mkdir(parents=True)
+        md = skill_dir / "SKILL.md"
+        md.write_text(ROLE_CONTRACT, encoding="utf-8")
+        s = SkillStore(base_dir=str(base))
+        path = s.update("code_review", description="新描述", triggers=["评审"], priority=7)
+        assert path == str(md)
+        parsed = s.parse("code_review")
+        assert parsed is not None
+        assert parsed.description == "新描述"
+        assert parsed.triggers == ["评审"]
+        assert parsed.priority == 7
+        after = md.read_text(encoding="utf-8")
+        assert after.split("\n---\n", 1)[1] == ROLE_CONTRACT.split("\n---\n", 1)[1]
+
+    def test_update_removes_metadata_lines_that_become_empty(self, tmp_path: object) -> None:
+        """清空 tags / priority=0 → 规范行被删除（与渲染器的省略规则一致），正文不动。"""
+        original = ROLE_CONTRACT.replace(
+            "tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow, epic-closure]\n",
+            "tags: [x]\npriority: 3\n",
+        )
+        base = tmp_path / "sk"  # type: ignore[operator]
+        skill_dir = base / "code_review"
+        skill_dir.mkdir(parents=True)
+        md = skill_dir / "SKILL.md"
+        md.write_text(original, encoding="utf-8")
+        s = SkillStore(base_dir=str(base))
+        s.update("code_review", tags=[], priority=0)
+        after = md.read_text(encoding="utf-8")
+        frontmatter = after.split("\n---\n", 1)[0]
+        assert "tags:" not in frontmatter
+        assert "priority:" not in frontmatter
+        assert after.split("\n---\n", 1)[1] == original.split("\n---\n", 1)[1]
+
+    def test_update_without_frontmatter_is_refused(self, tmp_path: object) -> None:
+        """无 frontmatter 块时无法就地改元数据 → 拒绝，而不是重写整个文件。"""
+        base = tmp_path / "sk"  # type: ignore[operator]
+        skill_dir = base / "raw"
+        skill_dir.mkdir(parents=True)
+        md = skill_dir / "SKILL.md"
+        original = "# raw\n\n## 手写契约\n\n正文。\n"
+        md.write_text(original, encoding="utf-8")
+        s = SkillStore(base_dir=str(base))
+        with pytest.raises(SkillRewriteError):
+            s.update("raw", description="x")
+        assert md.read_text(encoding="utf-8") == original
+
+    @pytest.mark.parametrize(
+        ("body", "expected"),
+        [
+            ("# t\n\n## Pattern\n\np\n\n## Steps\n\n1. s\n", True),
+            ("# t\n\n## Steps\n\n1. s\n", True),
+            ("# t\n\n## 角色与职责\n\n正文\n", False),
+            ("# t\n\n## Pattern\n\np\n\n## Steps\n\n1. s\n\n## 附加\n\nx\n", False),
+            ("# t\n\n开头说明\n\n## Pattern\n\np\n", False),
+            ("# t\n\n## Pattern\n\np\n\n### 小节\n\nx\n", False),
+        ],
+    )
+    def test_body_survives_rerender_detection(self, body: str, expected: bool) -> None:
+        assert SkillStore._body_survives_rerender(body) is expected
 
 
 class TestFactStore:

@@ -117,17 +117,22 @@ async def skill_update(
     negative_list = (
         [item.strip() for item in negative_triggers.split("|") if item.strip()] if negative_triggers else None
     )
-    path = await asyncio.to_thread(
-        store.update,
-        name,
-        description=description_value,
-        pattern=pattern_value,
-        steps=step_list,
-        tags=tag_list,
-        triggers=trigger_list,
-        negative_triggers=negative_list,
-        priority=priority,
-    )
+    try:
+        path = await asyncio.to_thread(
+            store.update,
+            name,
+            description=description_value,
+            pattern=pattern_value,
+            steps=step_list,
+            tags=tag_list,
+            triggers=trigger_list,
+            negative_triggers=negative_list,
+            priority=priority,
+        )
+    except ValueError as exc:
+        # SkillRewriteError（正文含 Pattern/Steps 之外的章节，改写会丢正文）继承 ValueError。
+        # 按基类捕获，避免 tools → memory 的运行时依赖（该方向只允许 TYPE_CHECKING）。
+        return f"Error: {exc}"
     if path is None:
         return f"Error: failed to update skill '{name}'."
     return f"Skill '{name}' updated at {path}"
