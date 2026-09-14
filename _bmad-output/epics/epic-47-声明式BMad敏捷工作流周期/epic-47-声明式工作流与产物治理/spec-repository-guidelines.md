@@ -18,8 +18,8 @@ baseline_commit: 'c477115d260849e871658f35b346e8a59579a8ff'
 ## Suggested Review Order
 
 - 先确认指南目标与结构
-  [`AGENTS.md:1`](../../AGENTS.md#L1)
+  [`AGENTS.md:1`](../../../../AGENTS.md#L1)
 - 核对开发命令与工具约束
-  [`AGENTS.md:12`](../../AGENTS.md#L12)
+  [`AGENTS.md:12`](../../../../AGENTS.md#L12)
 - 核对架构和安全边界
-  [`AGENTS.md:27`](../../AGENTS.md#L27)
+  [`AGENTS.md:27`](../../../../AGENTS.md#L27)

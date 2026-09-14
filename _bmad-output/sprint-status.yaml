@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-08-29
+# last_updated: 2026-09-14
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -44,11 +44,12 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-09-01
+last_updated: 2026-09-14
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/ (stories 已按 epic 归档至所属周期目录内 epic-*/stories/，见 consolidated-overview.md)
+# 完成的实现 spec 按所属 Epic 归档；implementation-artifacts/ 仅保留 deferred-work.md 活动台账。
 
 development_status:
   # ═══════════════════════════════════════════════════════════════
@@ -406,7 +407,7 @@ development_status:
   # 沙箱会话化周期 · Epic 40（2026-08-26 规划登记，FR-1~4；FR-5 execute_code RPC deferred）
   # =============================================================
 
-  epic-40: done  # 沙箱会话化执行 — hermes 式后端抽象（FR-1~4）
+  epic-40: done  # 沙箱会话化执行 — hermes 式后端抽象（FR-1~4；含 shell 输出上限补充 spec）
   40-1-session-workspace-directory: done
   40-2-backend-strength-tiering: done
   40-3-env-scrub-allowlist: done
@@ -461,7 +462,7 @@ development_status:
 
   # 声明式 BMad 敏捷工作流周期 · Epic 47（2026-09-01 规划登记）
   # Goal → Epic → Story；Markdown workflow/step；BMad Agent 迁移与产物 Gate
-  epic-47: done
+  epic-47: done  # 含 checkpoint 恢复、运行时治理、子代理依赖反转与贡献指南补充 spec
   47-1-artifact-hierarchy-contract: done
   47-2-bmad-agent-packages: done
   47-3-workflow-step-resource-loading: done

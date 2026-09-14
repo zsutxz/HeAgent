@@ -81,23 +81,23 @@ context:
 **异步边界与持久化**
 
 - Agent 主循环将同步存储移出事件循环
-  [`loop.py:654`](../../src/heagent/agent/loop.py#L654)
+  [`loop.py:654`](../../../../src/heagent/agent/loop.py#L654)
 
 - 统一读改写锁，避免并发覆盖
-  [`persist.py:164`](../../src/heagent/engine/persist.py#L164)
+  [`persist.py:164`](../../../../src/heagent/engine/persist.py#L164)
 
 - 会话版本在锁内递增
-  [`session.py:40`](../../src/heagent/context/session.py#L40)
+  [`session.py:40`](../../../../src/heagent/context/session.py#L40)
 
 **架构精简与错误边界**
 
 - 删除无生产消费者的重复状态机
-  [`skill_packages.py:619`](../../src/heagent/memory/skill_packages.py#L619)
+  [`skill_packages.py:619`](../../../../src/heagent/memory/skill_packages.py#L619)
 
 - GUI 仅转换缺失 Textual 错误
-  [`gui.py:18`](../../src/heagent/gui/cli.py#L18)
+  [`gui.py:18`](../../../../src/heagent/gui/cli.py#L18)
 
 **回归验证**
 
 - 工作流恢复测试保留核心契约
-  [`test_goal_epic_story_smoke.py:109`](../../tests/test_goal_epic_story_smoke.py#L109)
+  [`test_goal_epic_story_smoke.py:109`](../../../../tests/test_goal_epic_story_smoke.py#L109)

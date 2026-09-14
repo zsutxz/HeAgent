@@ -3,6 +3,8 @@
 > 生成: 2026-07-22
 > 覆盖: Epic 1–23 + S1–S4，7 个开发周期
 > 基准: 922 测试全绿、ruff clean、覆盖率 90%
+>
+> 归档更新（2026-09-14）：本文覆盖范围不变；已完成实现 spec 已按 Epic 40 / Epic 47 归档，跨周期 deferred 台账保留在 `implementation-artifacts/deferred-work.md`。
 
 ---
 
@@ -119,3 +121,4 @@
 - Engine P5 回顾: `_bmad-output/patches/_meta/retrospective-engine-p5.md`
 - P0 技术债回顾: `_bmad-output/patches/provider/retrospective-p0-tech-debt.md`
 - **全周期综合回顾 (本文)**: `_bmad-output/retrospective-all-cycles.md`
+- 2026-09-14 实现 spec 归档: Epic 40 的 `spec-shell-output-limit.md`；Epic 47 的 checkpoint、运行时治理、子代理依赖反转和贡献指南 spec

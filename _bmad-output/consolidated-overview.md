@@ -46,10 +46,10 @@
 |----------|------|----------|----------|
 | 主线周期 | 新产品方向 / 大功能集 | `_bmad-output/<cycle>/`（brief→prd→architecture→epics→stories） | Epic 沿主线编号递增 |
 | 集成周期 | 接入外部系统（如 MCP） | 同上，独立 brief/prd | Epic 编号延续主线 |
-| 补丁周期 | 计划外技术债 / 缺陷 | `_bmad-output/patches/` + `deferred-work.md` | spec 文件，不占 Epic 编号 |
+| 补丁周期 | 计划外技术债 / 缺陷 | `_bmad-output/patches/` + `implementation-artifacts/deferred-work.md` | spec 文件，不占 Epic 编号 |
 | epic 外增量 | 架构演进（engine 治理层） | 直接落代码 + `frame.md` 记录 | 按 P0/P1… 分批 |
 
-**标准工作流**：`brief → prd → architecture → epics → stories → quick-dev → code-review`，每步对应一个 `bmad-*` skill。技术债走 **deferral 机制**（发现 → 分类 fix-now/defer → 记录 `deferred-work.md` → 开专门 spec 收尾写 Resolution 关闭）。
+**标准工作流**：`brief → prd → architecture → epics → stories → quick-dev → code-review`，每步对应一个 `bmad-*` skill。技术债走 **deferral 机制**（发现 → 分类 fix-now/defer → 记录 `implementation-artifacts/deferred-work.md` → 开专门 spec 收尾写 Resolution 关闭）。
 
 ### 1.3 统一编号体系（2026-07-23 整合消歧）
 
@@ -622,7 +622,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ## 十二、补丁周期与技术债（patches/ + specs/）
 
-> `patches/` 按领域分子目录存放计划外补丁（provider/context/memory/cron/mcp/sandbox/_meta，2026-08-19 重组；spec 不占 Epic 编号），`deferred-work.md` 跟踪遗留项，`specs/` 为 quick-dev 本地工作件（gitignored）。
+> `patches/` 按领域分子目录存放计划外补丁（provider/context/memory/cron/mcp/sandbox/_meta，2026-08-19 重组；spec 不占 Epic 编号），`implementation-artifacts/deferred-work.md` 跟踪遗留项，`specs/` 为 quick-dev 本地工作件（gitignored）。
 
 ### 11.1 deferred-work.md 登记（跨周期技术债）
 
@@ -825,6 +825,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/epics/epic-29-35-交互扩展周期/` | 交互与可扩展层周期（Epic 29-35，2026-08-19） |
 | `_bmad-output/epics/<周期>/epic-NN-主题/stories/` | 按 epic 归档的 story 文件（13 个，嵌套于所属周期目录，清单见 14.1 注） |
 | `_bmad-output/patches/<领域>/` | 补丁 spec + 技术债登记（provider/context/memory/cron/mcp/sandbox/_meta） |
+| `_bmad-output/implementation-artifacts/deferred-work.md` | 工作流的跨周期 deferred canonical 台账 |
 | `_bmad-output/specs/` | quick-dev 本地工作件（gitignored；Epic 41 goal 契约已归档至 `_bmad-output/epics/epic-41-目标驱动开发周期/spec-goal-command/`） |
 
 ### Epic 45.3 质量收口证据（2026-09-01）
@@ -832,3 +833,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 Epic 43-44 已完成，Epic 45.3 增加无网络两-story 目标工作流冒烟、checkpoint/ledger/EventBus 审计证据和损坏状态显式失败覆盖；`scripts/quality_gate.py` 统一默认回归、覆盖率、ruff 与 mypy 门禁。Epic 46.1 完成 assessment-only 评估，Epic 46.2 为资源读取增加 descriptor + `O_NOFOLLOW` 最终组件加固；中间目录竞态、可信导入 snapshot 或 OS sandbox 加固仍保持 backlog。
 
 状态以 `_bmad-output/sprint-status.yaml` 为准：Epic 45 及其 45.1-45.3 stories 已完成，Epic 46.1 评估与 46.2 最终组件加固已完成；Epic 46 后续目录句柄、snapshot 与 OS sandbox 加固仍保持 backlog。
+
+### 已完成实现 spec 归档（2026-09-14）
+
+`spec-shell-output-limit.md` 已归档至 Epic 40；checkpoint 恢复、运行时持久化治理、子代理依赖反转及仓库贡献指南 spec 已归档至 Epic 47 的 `epic-47-声明式工作流与产物治理/`。`implementation-artifacts/` 不再保留这些已完成 spec，仅保留工作流持续维护的 deferred 台账。

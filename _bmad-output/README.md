@@ -2,7 +2,7 @@
 
 本目录是 HeAgent 用 **BMad Method** 驱动迭代留下的**规划产物**（brief / prd / architecture / epics / stories / 补丁 / 回顾）。它是迭代历程的事实来源之一，**不是当前代码事实**——当代码与本文档冲突时，以 `src/` 实现为准（参见 `docs/frame.md`、`docs/iteration.md`）。
 
-> **BMad config 对齐说明：** `_bmad/config.toml [modules.bmm]` 与 `_bmad/bmm/config.yaml`（installer 托管）声明 `planning_artifacts` / `implementation_artifacts` 指向 `_bmad-output/{planning,implementation}-artifacts/`。本仓没有 `planning-artifacts/`；`implementation-artifacts/` 保存当前工作件，历史交付产物按周期归档。全周期状态唯一写目标是根目录 [`sprint-status.yaml`](sprint-status.yaml)，不是某个周期子目录。部分旧周期保留只读状态快照，新增周期不保证含独立 `sprint-status.yaml`。HeAgent 刻意按周期而非按产物类型组织（见下方目录结构）。
+> **BMad config 对齐说明：** `_bmad/config.toml [modules.bmm]` 与 `_bmad/bmm/config.yaml`（installer 托管）声明 `planning_artifacts` / `implementation_artifacts` 指向 `_bmad-output/{planning,implementation}-artifacts/`。本仓没有 `planning-artifacts/`；`implementation-artifacts/` 仅保留工作流的活动台账 [`deferred-work.md`](implementation-artifacts/deferred-work.md)，已完成的实现 spec 按所属 Epic 归档。全周期状态唯一写目标是根目录 [`sprint-status.yaml`](sprint-status.yaml)，不是某个周期子目录。部分旧周期保留只读状态快照，新增周期不保证含独立 `sprint-status.yaml`。HeAgent 刻意按周期而非按产物类型组织（见下方目录结构）。
 
 ## 目录结构（按周期）
 
@@ -10,6 +10,7 @@
 _bmad-output/
 ├── consolidated-overview.md  统一整合总览（全周期综合摘要 + epic 总目录；原 EPICS-INDEX.md 已并入，2026-08-19）
 ├── retrospective-all-cycles.md  全周期综合回顾（2026-07-22，Epic 1-23 + S1-S4）
+├── implementation-artifacts/ 活动工作流台账（仅 deferred-work.md）
 ├── epics/                  按周期组织（2026-08-19）：周期目录（epic-区间-周期/）内含周期文档 + 各 epic 的 story 子目录（epic-NN-主题/stories/，仅建有 story 的 epic）
 │   ├── epic-01-10-主线规划周期/   baseline 周期文档（Epic 1–10，FR-1~24）+ epic-01-基础设施与LLM通信/
 │   ├── epic-11-18-MCP集成周期/    mcp（三阶段：11-13 / 14 / 15-18，2026-08-18 合并）
@@ -127,7 +128,7 @@ _bmad-output/
 
 ## epics/epic-40-沙箱会话化周期/ — 沙箱会话周期（Epic 40）
 
-记录 per-run workspace、后端强度分级、环境变量白名单和会话生命周期设计与实现。
+记录 per-run workspace、后端强度分级、环境变量白名单、会话生命周期及 shell 输出上限的设计与实现；已完成的补充 spec 为 `spec-shell-output-limit.md`。
 
 ## epics/epic-41-目标驱动开发周期/ — 目标驱动开发周期（Epic 41）
 
@@ -143,7 +144,7 @@ _bmad-output/
 
 ## epics/epic-47-声明式BMad敏捷工作流周期/ — 声明式工作流周期（Epic 47）
 
-记录 Goal/Epic/Story 产物契约、工作流执行闸门、审查/回顾闭环和示例回归文档。
+记录 Goal/Epic/Story 产物契约、工作流执行闸门、审查/回顾闭环和示例回归文档。补充归档包括 checkpoint 恢复、运行时持久化治理、子代理依赖反转和仓库贡献指南（均位于 `epic-47-声明式工作流与产物治理/`）。
 
 ## patches/ — 补丁周期（按领域分子目录，2026-08-19 重组）
 
@@ -199,7 +200,7 @@ _bmad-output/
 
 | 文件 | 用途 |
 |------|------|
-| `deferred-work.md` | **跨周期技术债登记**：spec 边界外的 defer 项 + Resolution 收尾记录 |
+| `implementation-artifacts/deferred-work.md` | **跨周期技术债登记**：spec 边界外的 defer 项 + Resolution 收尾记录（工作流 canonical 台账） |
 | `spec-deferred-low-cleanup.md` | deferred-work 低优先级清理 spec |
 | `code-review-2026-07-20.md` | 2026-07-20 全面代码审查记录 |
 | `retrospective-engine-p5.md` | engine P5 轻量回顾 |
@@ -212,7 +213,7 @@ _bmad-output/
 - **Epic 1–24 + S1–S4 全部 `done`**（详见 `_bmad-output/sprint-status.yaml`）。
 - **Epic 25–28（GUI）`done`**（12 stories，见 `_bmad-output/sprint-status.yaml`；周期目录旧状态为规划期快照）。
 - **MCP 三目录已合并**（2026-08-18）：`mcp-client/` + `mcp-v2-upgrade/` + `mcp-client-v2/` → `mcp/`，核心文档整合为 6 份，执行产物保留。
-- **deferred-work.md**：原 3 条（SubAgent 写竞态 / ProviderChain 双层重包 / 流式 backstop）均已关闭；2026-07-01 FR-3 评审另增 6 项 `defer`（pre-existing / spec 显式排除 / 非阻塞）—— 4 项已 Resolution 关闭，余 2 项保持现状（`_watch` 两个 `wait_for` 同名异义 / `except Exception` 过宽，待 MCP 重连场景收窄）。
+- **deferred-work.md**：canonical 路径为 `implementation-artifacts/deferred-work.md`；原 3 条（SubAgent 写竞态 / ProviderChain 双层重包 / 流式 backstop）均已关闭；2026-07-01 FR-3 评审另增 6 项 `defer`（pre-existing / spec 显式排除 / 非阻塞）—— 4 项已 Resolution 关闭，余 2 项保持现状（`_watch` 两个 `wait_for` 同名异义 / `except Exception` 过宽，待 MCP 重连场景收窄）。
 - **action_items**：三项全 `closed` —— FR-3 auto-unregister（2026-07-01）、DP-4 第一半 SafetyGuard 执行前拦截（2026-07-08）、DP-4 第二半 MCP 返回内容启发式围栏（2026-07-10）。
 - **补丁系列**：sandbox 健壮性系列（timeout 正整数校验 / CancelledError 不吞取消信号 / reap 鲁棒性）、关停硬上界三件套（MCP `__aexit__` / `CronScheduler.stop` / sandbox reap）、compressor 孤儿 TOOL 消息修复均已交付。
 - **epic 外增量**：`engine/` 运行时治理层（P0-P5）不挂 Epic 编号，进度记入 `docs/frame.md` 4.12。
