@@ -137,8 +137,11 @@ class KeyInterruptMonitor:
         if os.name == "nt":
             import msvcrt
 
-            while msvcrt.kbhit():
-                msvcrt.getwch()
+            # 经 Any 访问：msvcrt 是 Windows 专属模块，Linux 平台（CI 的 mypy 在 Ubuntu）
+            # typeshed 不暴露其属性——与 _unix_raw_mode 的 termios 同法。
+            msvcrt_mod: Any = msvcrt
+            while msvcrt_mod.kbhit():
+                msvcrt_mod.getwch()
         else:
             import select
 
@@ -184,10 +187,11 @@ class KeyInterruptMonitor:
     def _read_key_windows(self, timeout: float | None = None) -> int | None:
         import msvcrt
 
+        msvcrt_mod: Any = msvcrt  # Linux 平台下 typeshed 不暴露其属性（同 _drain_pending_keys）
         deadline = None if timeout is None else time.monotonic() + timeout
         while not self._stop.is_set():
-            if msvcrt.kbhit():
-                return ord(msvcrt.getwch())
+            if msvcrt_mod.kbhit():
+                return ord(msvcrt_mod.getwch())
             if deadline is not None and time.monotonic() >= deadline:
                 return None
             time.sleep(0.02)

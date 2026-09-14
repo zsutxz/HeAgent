@@ -665,11 +665,13 @@ def _setup_readline() -> None:
     GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     histfile = GLOBAL_CONFIG_DIR / "history"
     with contextlib.suppress(OSError, FileNotFoundError):
-        readline.read_history_file(str(histfile))  # type: ignore[attr-defined]  # Unix readline only
-    readline.set_history_length(1000)  # type: ignore[attr-defined]  # Unix readline only
+        # unused-ignore：Windows 的 readline 存根缺这些属性（ignore 被使用），Linux 的
+        # 有（ignore 未被使用）——列上 unused-ignore 让两个平台都不报 strict 的未用告警。
+        readline.read_history_file(str(histfile))  # type: ignore[attr-defined, unused-ignore]
+    readline.set_history_length(1000)  # type: ignore[attr-defined, unused-ignore]
     import atexit  # noqa: PLC0415
 
-    atexit.register(readline.write_history_file, str(histfile))  # type: ignore[attr-defined]  # Unix readline only
+    atexit.register(readline.write_history_file, str(histfile))  # type: ignore[attr-defined, unused-ignore]
 
 
 def _resolve_session_id(

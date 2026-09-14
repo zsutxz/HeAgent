@@ -33,6 +33,7 @@ from heagent.tools.runtime import RuntimeSlot
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator, Mapping, Sequence
+    from typing import Any
 
 
 logger = logging.getLogger(__name__)
@@ -377,7 +378,11 @@ class WinJobBackend:
         import ctypes
         from ctypes import wintypes
 
-        kernel32 = ctypes.windll.kernel32
+        # 经 Any 访问：windll / get_last_error 是 Windows 平台专属（typeshed 在 Linux
+        # 上不暴露），而 CI 的 mypy 跑在 Ubuntu；Structure / byref / sizeof 等跨平台属性
+        # 保持原样，不受影响。
+        ctypes_win: Any = ctypes
+        kernel32 = ctypes_win.windll.kernel32
 
         # ── Job Object constants ──
         JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
@@ -408,7 +413,7 @@ class WinJobBackend:
         # ── Create Job Object ──
         hJob = kernel32.CreateJobObjectW(None, None)
         if not hJob:
-            err = ctypes.get_last_error()
+            err = ctypes_win.get_last_error()
             logger.error("CreateJobObject failed (err=%d), falling back to Passthrough", err)
             return await PassthroughRunner().run(command, timeout=timeout)
 
@@ -425,7 +430,7 @@ class WinJobBackend:
                 ctypes.sizeof(info),
             )
             if not ret:
-                err = ctypes.get_last_error()
+                err = ctypes_win.get_last_error()
                 logger.error("SetInformationJobObject failed (err=%d)", err)
 
             # ── Start child process ──

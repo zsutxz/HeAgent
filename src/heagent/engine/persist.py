@@ -57,6 +57,10 @@ def _acquire_lock_windows(fd: int, timeout: float) -> None:
     """
     import msvcrt
 
+    # 经 Any 访问：msvcrt 是 Windows 专属模块，Linux 平台（CI 的 mypy 跑在 Ubuntu）
+    # typeshed 不暴露其属性——与 :func:`_release_lock_posix` 的 fcntl 同法。
+    msvcrt_mod: Any = msvcrt
+
     # 空文件写哨兵字节（msvcrt.locking 对 0 字节文件行为未定义）
     try:
         cur = os.lseek(fd, 0, os.SEEK_END)
@@ -68,7 +72,7 @@ def _acquire_lock_windows(fd: int, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     while True:
         try:
-            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            msvcrt_mod.locking(fd, msvcrt_mod.LK_NBLCK, 1)
             return
         except OSError:
             if time.monotonic() >= deadline:
@@ -94,8 +98,9 @@ def _release_lock_posix(fd: int) -> None:
 def _release_lock_windows(fd: int) -> None:
     import msvcrt
 
+    msvcrt_mod: Any = msvcrt  # Linux 平台下 typeshed 不暴露其属性（同 _acquire_lock_windows）
     try:
-        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        msvcrt_mod.locking(fd, msvcrt_mod.LK_UNLCK, 1)
     except OSError:
         pass  # 文件可能已被关闭；静默忽略
 
