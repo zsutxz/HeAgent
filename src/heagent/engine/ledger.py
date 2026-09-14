@@ -244,7 +244,9 @@ class ExecutionLedger:
 
     def _path(self, key: str) -> Path:
         """幂等键 → 文件路径：用 sha1(key) 命名，规避 key 中的路径分隔符 / 特殊字符。"""
-        digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
+        # usedforsecurity=False：本哈希只用于「幂等键 → 文件名」的命名（非安全用途），
+        # 如实标注可让 Bandit B324 放行，并规避 FIPS 模式下 SHA1 被禁导致的落盘失败。
+        digest = hashlib.sha1(key.encode("utf-8"), usedforsecurity=False).hexdigest()
         return self._base / f"{digest}.json"
 
     @staticmethod
