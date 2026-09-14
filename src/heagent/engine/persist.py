@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -113,6 +114,42 @@ def _release_lock(fd: int) -> None:
         _release_lock_posix(fd)
 
 
+# ── 原子替换（Windows 读者兼容）──────────────────────────────────
+
+_REPLACE_ATTEMPTS = 5
+_REPLACE_BACKOFF = 0.02
+
+
+def _is_windows_sharing_violation(exc: PermissionError) -> bool:
+    """Return whether *exc* is a retryable Windows sharing/access conflict."""
+    return sys.platform == "win32" and getattr(exc, "winerror", None) in {5, 32}
+
+
+def _replace_with_retry(tmp: Path, path: Path) -> None:
+    """Replace a same-directory temporary file, retrying transient Windows sharing conflicts."""
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError as exc:
+            if not _is_windows_sharing_violation(exc) or attempt == _REPLACE_ATTEMPTS - 1:
+                raise
+            time.sleep(_REPLACE_BACKOFF * (attempt + 1))
+
+
+def _write_temp_text(path: Path, text: str) -> Path:
+    """Write text to a unique temporary sibling so concurrent writers cannot alias it."""
+    fd, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent, text=True)
+    tmp = Path(raw_tmp)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return tmp
+
+
 # ── 公开 API ─────────────────────────────────────────────────────
 
 
@@ -152,9 +189,11 @@ def atomic_write_text(
             raise
 
     try:
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(text, encoding="utf-8")
-        os.replace(tmp, path)
+        tmp = _write_temp_text(path, text)
+        try:
+            _replace_with_retry(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
     finally:
         if lock and lock_fd is not None:
             try:
@@ -181,9 +220,11 @@ def atomic_update_text(path: Path, update: Callable[[str], tuple[str, R]], *, lo
         except FileNotFoundError:
             current = ""
         replacement, result = update(current)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(replacement, encoding="utf-8")
-        os.replace(tmp, path)
+        tmp = _write_temp_text(path, replacement)
+        try:
+            _replace_with_retry(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
         return result
     finally:
         try:

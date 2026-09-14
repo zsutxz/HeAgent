@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 
 import pytest
 
@@ -106,6 +107,38 @@ class TestSkillStore:
         assert parsed is not None
         assert parsed.description == "desc"
         assert parsed.steps == ["step2", "step3"]
+
+    def test_update_and_usage_from_separate_stores_do_not_lose_counter(
+        self, tmp_path: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        base_dir = tmp_path / "sk"  # type: ignore[operator]
+        updater = SkillStore(base_dir=str(base_dir))
+        recorder = SkillStore(base_dir=str(base_dir))
+        updater.save("shared", "old", "pattern", ["step"])
+        rendering = threading.Event()
+        release = threading.Event()
+        original_render = updater._render_skill_md
+
+        def blocked_render(*args: object, **kwargs: object) -> str:
+            rendering.set()
+            assert release.wait(timeout=5)
+            return original_render(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(updater, "_render_skill_md", blocked_render)
+        update_thread = threading.Thread(target=updater.update, kwargs={"name": "shared", "description": "new"})
+        update_thread.start()
+        assert rendering.wait(timeout=5)
+        usage_thread = threading.Thread(target=recorder.record_usage, args=("shared",))
+        usage_thread.start()
+        release.set()
+        update_thread.join(timeout=5)
+        usage_thread.join(timeout=5)
+
+        assert not update_thread.is_alive() and not usage_thread.is_alive()
+        parsed = updater.parse("shared")
+        assert parsed is not None
+        assert parsed.description == "new"
+        assert parsed.usage_count == 1
 
     def test_update_nonexistent(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]

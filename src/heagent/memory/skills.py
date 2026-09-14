@@ -81,11 +81,14 @@ class SkillStore:
 
     def __init__(self, base_dir: str = ".heagent/skills") -> None:
         self._base = Path(base_dir)
-        # ``record_usage`` performs a read/modify/write cycle and is called
-        # from worker threads by parallel sub-agents.  Keep that cycle
-        # atomic per store instance; the file lock in ``save`` additionally
-        # protects the final replace across processes.
-        self._mutation_lock = threading.Lock()
+        # 本锁使同一实例的「读」与「写」互斥。并行子代理经 ``asyncio.to_thread``
+        # 在多个工作线程里同时构建系统提示词（读 SKILL.md 做技能匹配）并调用
+        # ``record_usage``（原子替换 SKILL.md），而 Windows 的 ``open`` 不共享删除
+        # 权限：读者只要持有句柄，写者的 ``os.replace`` 就会以 ``WinError 5`` 失败。
+        # 故读路径与写路径共用这一把锁；``atomic_write_text(lock=True)`` 的
+        # ``.lock`` 文件锁另行覆盖跨进程场景，:func:`_replace_with_retry` 兜住瞬时占用。
+        # 用 ``RLock`` 是因为 ``parse`` → ``load`` 等路径会嵌套获取。
+        self._mutation_lock = threading.RLock()
 
     # ---- 路径工具 ----
 
@@ -96,6 +99,16 @@ class SkillStore:
     def _skill_md(self, name: str) -> Path:
         """SKILL.md 文件路径。"""
         return self._skill_dir(name) / "SKILL.md"
+
+    def _read_text(self, path: Path) -> str:
+        """读取技能文件，并与同实例的写操作互斥。
+
+        见 :meth:`__init__` 的锁说明：Windows 上读者持句柄会让写者的 ``os.replace``
+        失败，故读路径不得与写路径并发。文件缺失时抛 ``FileNotFoundError``，由调用方
+        （如 :meth:`load`）决定语义。
+        """
+        with self._mutation_lock:
+            return path.read_text(encoding="utf-8")
 
     @staticmethod
     def _render_skill_md(
@@ -202,7 +215,6 @@ class SkillStore:
         """
         safe = self._validate_name(name)
         skill_dir = self._base / safe
-        skill_dir.mkdir(parents=True, exist_ok=True)
 
         if created is None:
             created = datetime.now().isoformat()
@@ -220,7 +232,9 @@ class SkillStore:
             created=created,
         )
         md_path = skill_dir / "SKILL.md"
-        atomic_write_text(md_path, content, lock=True)
+        with self._mutation_lock:
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(md_path, content, lock=True)
         return str(md_path)
 
     def load(self, name: str) -> str | None:
@@ -229,9 +243,10 @@ class SkillStore:
             path = self._skill_md(name)
         except ValueError:
             return None
-        if path.exists():
-            return path.read_text(encoding="utf-8")
-        return None
+        try:
+            return self._read_text(path)
+        except FileNotFoundError:
+            return None
 
     def list_skills(self) -> list[str]:
         """返回所有已存储的技能名称（目录名，按名称排序）。"""
@@ -245,9 +260,10 @@ class SkillStore:
             skill_dir = self._skill_dir(name)
         except ValueError:
             return False
-        if skill_dir.is_dir():
-            shutil.rmtree(skill_dir)
-            return True
+        with self._mutation_lock:
+            if skill_dir.is_dir():
+                shutil.rmtree(skill_dir)
+                return True
         return False
 
     def all_skills_content(self) -> list[str]:
@@ -282,42 +298,84 @@ class SkillStore:
         negative_triggers: list[str] | None = None,
         priority: int | None = None,
     ) -> str | None:
-        """部分更新已有技能。仅覆盖非 None 字段，其余保持原样。返回 SKILL.md 路径或 None。
+        """部分更新已有技能，并把读、合并、写入置于同一跨进程事务中。
 
-        正文不可被渲染器无损表达时（见 :meth:`_body_survives_rerender`）分两路：只改元数据
-        字段 → 就地改写 frontmatter、正文逐字节保留；要求改 ``pattern`` / ``steps`` → 抛
-        :class:`SkillRewriteError`（显式拒绝，而非静默丢正文）。
+        ``atomic_update_text`` 持有 SKILL.md 的文件锁，因此与 ``record_usage`` 或另一
+        个 ``SkillStore`` 实例的更新不会以旧快照覆盖彼此的 frontmatter 变更。
         """
-        existing = self.parse(name)
-        if existing is None:
+        try:
+            md_path = self._skill_md(name)
+        except ValueError:
             return None
-        raw = self.load(name) or ""
-        if not self._body_survives_rerender(raw):
-            return self._update_preserving_body(
-                name,
-                raw,
-                existing,
-                description=description,
-                pattern=pattern,
-                steps=steps,
-                tags=tags,
-                triggers=triggers,
-                negative_triggers=negative_triggers,
-                priority=priority,
+
+        def apply(raw: str) -> tuple[str, bool]:
+            if not raw:
+                return raw, False
+            existing = self._parse_skill_md(name, raw)
+            if not self._body_survives_rerender(raw):
+                if pattern is not None or steps is not None:
+                    raise SkillRewriteError(
+                        f"skill '{name}' has body sections outside '## Pattern'/'## Steps'; rewriting "
+                        "pattern/steps would drop them. Reflow the body into those two sections first, "
+                        "or update only description/tags/triggers/negative_triggers/priority."
+                    )
+                merged = _metadata_lines(
+                    name=name,
+                    description=description if description is not None else existing.description,
+                    created=existing.created,
+                    tags=existing.tags if tags is None else tags,
+                    triggers=existing.triggers if triggers is None else triggers,
+                    negative_triggers=existing.negative_triggers if negative_triggers is None else negative_triggers,
+                    priority=existing.priority if priority is None else priority,
+                    usage_count=existing.usage_count,
+                    last_used=existing.last_used,
+                )
+                upserts: dict[str, str] = {}
+                removals: list[str] = []
+                for key, value in (
+                    ("description", description),
+                    ("tags", tags),
+                    ("triggers", triggers),
+                    ("negative_triggers", negative_triggers),
+                    ("priority", priority),
+                ):
+                    if value is None:
+                        continue
+                    rendered = _key_line(merged, key)
+                    if rendered is None:
+                        removals.append(key)
+                    else:
+                        upserts[key] = rendered
+                if not upserts and not removals:
+                    return raw, True
+                patched = _patch_frontmatter(raw, upserts, removals)
+                if patched is None:
+                    raise SkillRewriteError(
+                        f"skill '{name}' has no frontmatter block; updating metadata in place would require rewriting the body."
+                    )
+                return patched, True
+            return (
+                self._render_skill_md(
+                    name,
+                    description if description is not None else existing.description,
+                    pattern if pattern is not None else existing.pattern,
+                    steps if steps is not None else existing.steps,
+                    tags=tags if tags is not None else existing.tags,
+                    triggers=triggers if triggers is not None else existing.triggers,
+                    negative_triggers=negative_triggers
+                    if negative_triggers is not None
+                    else existing.negative_triggers,
+                    priority=priority if priority is not None else existing.priority,
+                    usage_count=existing.usage_count,
+                    last_used=existing.last_used,
+                    created=existing.created,
+                ),
+                True,
             )
-        return self.save(
-            name,
-            description if description is not None else existing.description,
-            pattern if pattern is not None else existing.pattern,
-            steps if steps is not None else existing.steps,
-            tags=tags if tags is not None else existing.tags,
-            triggers=triggers if triggers is not None else existing.triggers,
-            negative_triggers=negative_triggers if negative_triggers is not None else existing.negative_triggers,
-            priority=priority if priority is not None else existing.priority,
-            usage_count=existing.usage_count,
-            last_used=existing.last_used,
-            created=existing.created,  # P1-7 修复：保留原始创建时间
-        )
+
+        with self._mutation_lock:
+            updated = atomic_update_text(md_path, apply)
+        return str(md_path) if updated else None
 
     def _update_preserving_body(
         self,
@@ -379,7 +437,8 @@ class SkillStore:
                 f"skill '{name}' has no frontmatter block; updating metadata in place would require rewriting the body."
             )
         md_path = self._skill_md(name)
-        atomic_write_text(md_path, patched, lock=True)
+        with self._mutation_lock:
+            atomic_write_text(md_path, patched, lock=True)
         return str(md_path)
 
     # ---- 使用追踪与策展 ----
@@ -452,12 +511,13 @@ class SkillStore:
             src = self._skill_dir(name)
         except ValueError:
             return False
-        if not src.is_dir():
-            return False
         archive_dir = self._base / ".archive"
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(src), str(archive_dir / name))
-        return True
+        with self._mutation_lock:
+            if not src.is_dir():
+                return False
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(archive_dir / name))
+            return True
 
     # ---- 匹配 ----
 
