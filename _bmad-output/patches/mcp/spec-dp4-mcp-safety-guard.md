@@ -34,7 +34,7 @@ context:
 - 实现期若发现 `SubAgent` 自建默认 `SafetyGuard()`（`agent/sub.py:82`）未继承父配置，HALT 确认注入路径（父传入 vs 子自建读 Settings）。
 
 **Never:**
-- 不做返回内容复核 / prompt injection 围栏（已拆出 defer 到 `deferred-work.md` 2026-07-08 条）。
+- 不做返回内容复核 / prompt injection 围栏（已拆出 defer 到 `deferred-work.md`（2026-09-15 退役并删除） 2026-07-08 条）。
 - 不改 `PolicyEngine.block_mcp_tools`/`approval_mcp_tools`/`sandbox_mcp_tools`——那是 engine 治理层全量开关（粗粒度），与本 spec 的细粒度工具名拦截是两层纵深防御，不融合（CLAUDE.md 原则5）。
 - 不内置「危险 MCP 工具名」硬编码列表——完全由用户配置驱动（避免维护成本 + 误判）。
 - 不接真实 OS 沙箱、不做 interactive approval 后端（V1 `APPROVAL_REQUIRED` 仍等同阻断）。

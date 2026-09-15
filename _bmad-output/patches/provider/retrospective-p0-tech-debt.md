@@ -1,7 +1,7 @@
 # Retrospective — P0 Provider 技术债收尾
 
 > **事后补做**（2026-06-29）。P0 技术债收尾是补丁周期的一组工作（非 sprint-status 标准 epic），按同一 retro 模板生成。
-> 证据来源：`_bmad-output/patches/_meta/deferred-work.md`（三条均已关闭）+ `git log`（2026-06-19 异常统一包装、2026-06-20 P0 债收尾）。
+> 证据来源：`_bmad-output/patches/_meta/deferred-work.md`（2026-09-15 退役并删除；三条均已关闭）+ `git log`（2026-06-19 异常统一包装、2026-06-20 P0 债收尾）。
 > 适配 CLI/库项目——省略 sprint velocity / incidents / deployment / stakeholder（不适用，不编造）。
 
 ## 概览
@@ -29,7 +29,7 @@
 1. **审查发现的并发竞态要先核实 await 交错**：单线程 asyncio 下，无 `await` 的同步方法必然串行（A 完整写完才轮到 B），不构成竞态。**不要引入 `asyncio.Lock`**——`Lock.acquire` 是 awaitable，同步方法内用不了；`threading.Lock` 在单线程无意义。用回归测试锁定不变量即可。
 2. **异常包装入口加 `isinstance` 守卫**：`_wrap_error` 类入口 `if isinstance(e, ProviderError): raise`，避免对体系内异常二次包装；用「抛出异常的 `__cause__` 不再是另一个 `ProviderError`」写回归测试。
 3. **成对路径要对称实现 + 对称测试**：`send()` 跟踪 `last_error`，`stream()` 一度漏了——成对的 send/stream 实现要互相对照补齐。
-4. **deferral 机制有效**：spec 边界外的连锁问题（双层重包、流式 backstop）走 `deferred-work.md` 而非就地扩展原 spec——冻结边界 + 单独收尾，避免单个 spec 膨胀。
+4. **deferral 机制有效**：spec 边界外的连锁问题（双层重包、流式 backstop）走 `deferred-work.md`（2026-09-15 退役并删除）而非就地扩展原 spec——冻结边界 + 单独收尾，避免单个 spec 膨胀。
 
 ## 技术债 / 遗留（Deferred）
 

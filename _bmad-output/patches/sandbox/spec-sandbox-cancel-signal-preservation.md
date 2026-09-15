@@ -2,7 +2,7 @@
 
 ## source
 - 路线来源：用户于「bmad 继续开发」方向选择中选定「D-1 reap 吞取消信号」（一会话一 spec）。
-- 根因：`deferred-work.md`「Deferred from: code review of spec-sandbox-timeout-validation (2026-07-09)」剩 1 项 `defer`（pre-existing adjacent）：
+- 根因：`deferred-work.md`（2026-09-15 退役并删除）「Deferred from: code review of spec-sandbox-timeout-validation (2026-07-09)」剩 1 项 `defer`（pre-existing adjacent）：
   - **D-1**：`_run_subprocess_shell` / `_run_subprocess_exec` 的 `except asyncio.CancelledError: await _kill_and_reap(proc); raise`——若 `_kill_and_reap` 自身抛异常（`proc.kill()` 抛非 `ProcessLookupError`，或内层 `await proc.wait()` 又被取消），块尾裸 `raise` 不执行，原始 `CancelledError` 被 reap 路径异常替换 → **取消信号丢失**。外层 task 取消（budget 超限 / window reset / SubAgent abort）依赖 `CancelledError` 上抛以触发各层 finally 清理，丢失会破坏这些清理语义。D1（2026-07-09）引入此 `except CancelledError` 块时遗留，非本次 diff 引入。
 
 ## 关键语义勘误（先读后写 / 实证）
@@ -29,7 +29,7 @@ CPython 语义：`finally` 块在 try 体内异常 in-flight 时执行，裸 `ra
 ## in scope（做）
 1. **D-1 修复**：`_run_subprocess_shell`（`tools/sandbox.py:94-96`）与 `_run_subprocess_exec`（`tools/sandbox.py:113-115`）的 `except asyncio.CancelledError` 块改为 `with suppress(BaseException): await _kill_and_reap(proc)` 后裸 `raise`——确保 reap 失败时原始 `CancelledError` 仍上抛。两 helper 对称改（与 D1 引入时的对称结构一致）。
 2. **D-1 回归测试**：`tests/test_sandbox.py` 新增 `test_cancel_survives_reap_error`（`TestPassthroughRunner` + `TestFirejailBackend` 各一），用 fake proc 的 `kill()` 抛非 `ProcessLookupError`（逃出 `_kill_and_reap` 的 `suppress(ProcessLookupError)`），断言取消后 task 抛 `CancelledError` 而非 reap 异常。
-3. **文档**：`deferred-work.md` 关闭 D-1 Resolution（含语义勘误说明）。
+3. **文档**：`deferred-work.md`（2026-09-15 退役并删除）关闭 D-1 Resolution（含语义勘误说明）。
 
 ## out of scope（不做 / deferred）
 - ❌ `TimeoutError` 路径的 reap 异常处理（`except TimeoutError: await _kill_and_reap(proc); return ...`）——该路径 reap 抛错会替换超时返回串，但**不涉及取消信号**（无 `CancelledError` 需保护），正交于 D-1，另记。
@@ -61,7 +61,7 @@ CPython 语义：`finally` 块在 try 体内异常 in-flight 时执行，裸 `ra
 
 - [x] [Review][Patch] **D-1-A reap 失败零 observability**（blind+edge，MED）[`src/heagent/tools/sandbox.py:99-101,123-125`]：`suppress(BaseException)` 吞掉 reap 异常（PermissionError/KeyboardInterrupt/未来 D2 killpg 失败）却**无任何日志**，子进程+pipe FD 泄漏对运维完全不可诊断。两 hunter 独立给同一建议：块内加 debug 日志。修：模块顶部补 `logger = logging.getLogger(__name__)`（**sandbox.py 当前无 logger，违反 CLAUDE.md「每个模块 logger」，顺带合规**），两 `except CancelledError` 块由 `with suppress(BaseException)` 改 `try/except BaseException: logger.debug(..., exc_info=True)`（语义等价、取消信号仍上抛），加测试断言 debug 日志产出。 **已落地（2026-07-10）**：`logger.debug("cancel cleanup: _kill_and_reap failed; subprocess/pipe may leak", exc_info=True)`，`TestPassthroughRunner.test_cancel_survives_reap_error` 加 `caplog` 断言 debug 日志产出。pytest 500 passed / ruff clean / mypy clean。
 
-### defer（3 项，pre-existing / spec 显式 deferred，记 deferred-work.md）
+### defer（3 项，pre-existing / spec 显式 deferred，记 deferred-work.md；该台账 2026-09-15 退役并删除）
 
 - [x] [Review][Defer] **TimeoutError 路径 reap 抛错替换超时串**（blind+edge，LOW）[`src/heagent/tools/sandbox.py:91-93,115-117`] — spec out-of-scope #1 明确 deferred，不涉取消信号。
 - [x] [Review][Defer] **`wait()` D-state 永久 hang**（edge，LOW）[`src/heagent/tools/sandbox.py:59`] — 极端内核态 hang，suppress 无能为力，pre-existing，正交。

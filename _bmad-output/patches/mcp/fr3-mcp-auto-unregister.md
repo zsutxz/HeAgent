@@ -101,7 +101,7 @@ context: ['{project-root}/_bmad-output/epics/epic-11-18-MCP集成周期/architec
 
 - [x] [Review][Patch] `health_check_interval <= 0` 致启动即误注销全部健康 server [`src/heagent/tools/mcp/manager.py:64-76`] — 构造函数无校验；`_watch` 直接把 interval 当 `wait_for` timeout，0/负值会让首个 ping 立即 `TimeoutError` → `_unregister_server` 摘除全部工具（即便 server 健康）。**已修复（2026-07-01）**：构造函数加 `health_check_interval > 0` 校验，违例抛 `ValueError`；回归测试 `test_health_check_interval_must_be_positive`。
 
-### defer（pre-existing / spec 显式排除 / 非阻塞，详见 `deferred-work.md`）
+### defer（pre-existing / spec 显式排除 / 非阻塞，详见 `deferred-work.md`；该台账 2026-09-15 退役并删除）
 
 - [x] [Review][Defer] `__aexit__` 的 `gather(*tasks)` 无超时，transport 清理卡住可致关停挂死 [`manager.py:85-93,144-149`] — deferred, pre-existing（`cm.__aexit__` 既有就无超时，非本次引入）
 - [x] [Review][Defer] `_watch` 两个 `wait_for` 的 `TimeoutError` 同名异义 [`manager.py:235-245`] — deferred，内联注释已缓解，重构易碎

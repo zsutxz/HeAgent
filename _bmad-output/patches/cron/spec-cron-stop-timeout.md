@@ -72,7 +72,7 @@ context:
   - `test_stop_timeout_must_be_positive`：`CronScheduler(store, _StubProvider(), stop_timeout=0)` 与 `=-1` 各 `pytest.raises(ValueError)`（对齐 `test_shutdown_timeout_must_be_positive`）。
   - `test_stop_bounded_when_tick_hangs`：`stop_timeout=0.05`；monkeypatch `scheduler._check_and_execute` 为「吞 CancelledError 的挂起协程」（`try: await event.wait() except CancelledError: await event.wait()`——捕取消后继续挂起 = 模拟不响应 cancel）；`await scheduler.start()` + 小 sleep 让 `_tick_loop` 进入挂起协程；`await asyncio.wait_for(scheduler.stop(), timeout=2.0)`——未修则裸 `await` 挂死触发外层 `TimeoutError`，修后 ~0.05s 返回；断言 ERROR 日志（caplog）含「关停超时」。
   - `test_stop_clean_no_error_on_sleep`：`stop_timeout=1.0`（宽裕）；`start()` + 小 sleep 让 `_tick_loop` 进入 `asyncio.sleep`；`await scheduler.stop()`；断言 `self._task.done()`、无「关停超时」ERROR（零回归：sleep 中断路径不被误判）。
-- `_bmad-output/patches/_meta/deferred-work.md` — 新增条目登记此兄弟缺口（Source = MCP `__aexit__` 硬上界 commit `109df37` 的 code review 兄弟发现），直接带 Resolution 指向本 spec。
+- `_bmad-output/patches/_meta/deferred-work.md`（2026-09-15 退役并删除） — 新增条目登记此兄弟缺口（Source = MCP `__aexit__` 硬上界 commit `109df37` 的 code review 兄弟发现），直接带 Resolution 指向本 spec。
 - `docs/frame.md` / `CLAUDE.md` — 评估：frame.md 4.7（line 426-434）scheduler 描述简洁、无关停行为；line 725 `finally: scheduler.stop()` 仍准确；CLAUDE.md「已知缺口」段未列 cron stop。**无 stale「stop 可阻塞 / 关停无上界」表述** → 按 spec 条件性「若涉则同步」跳过，surgical。
 
 ## Tasks & Acceptance
@@ -82,7 +82,7 @@ context:
 - [x] `tests/test_cron.py` — 3 例回归（校验 / hang→bounded 挂死探测器 / clean 零回归）+ `_StubProvider` — 验证意图
 - [x] `pytest tests/test_cron.py -v` — 既有全绿 + 3 新增
 - [x] `pytest` — 全量零回归 + `ruff check src tests` 零新增 + `mypy src` 干净
-- [x] `_bmad-output/patches/_meta/deferred-work.md` — 新增兄弟缺口条目 + Resolution — 诚实记账
+- [x] `_bmad-output/patches/_meta/deferred-work.md`（2026-09-15 退役并删除） — 新增兄弟缺口条目 + Resolution — 诚实记账
 
 **Acceptance Criteria:**
 - AC1: Given `_tick_loop` 卡在不可中断 await（cancel 被吞、task 不退出），when `stop()`（`stop_timeout=0.05`），then `stop()` 在 ≤2.0s 内返回（非挂死），且发出「关停超时」ERROR。
@@ -99,7 +99,7 @@ context:
 
 **为何移除 `contextlib.suppress(asyncio.CancelledError)`：** `asyncio.wait({task})` 把 task 内异常（含 `CancelledError`）存于 task 对象、不传播给调用方，`stop()` 永不逸出 task 异常——比原 `suppress(CancelledError)` 更宽（连非 cancel 异常也隔离），且语义更清晰（不依赖 `suppress` 吞特定异常）。移除后 `import contextlib` 全文件无引用，一并删（ruff unused import）。
 
-**与 MCP / sandbox 的三处同构：** sandbox `_kill_and_reap`（`wait_for(proc.wait(), timeout=_REAP_WAIT_TIMEOUT)`，D-state reap hang，commit 见 deferred-work.md）+ MCP `__aexit__`（`_await_shutdown` 两轮，transport close hang，commit `109df37`）+ 本 spec `CronScheduler.stop`（`_await_stop` 单轮，job 执行 hang）——三者同属「不可靠外部子进程/连接/任务的关停必须有上界」立场，`timeout` 统一 5.0s。本 spec 是该立场的第三处补齐，**消除 code review 指出的最后一个同构兄弟缺口**。
+**与 MCP / sandbox 的三处同构：** sandbox `_kill_and_reap`（`wait_for(proc.wait(), timeout=_REAP_WAIT_TIMEOUT)`，D-state reap hang，commit 见 deferred-work.md；该台账 2026-09-15 退役并删除）+ MCP `__aexit__`（`_await_shutdown` 两轮，transport close hang，commit `109df37`）+ 本 spec `CronScheduler.stop`（`_await_stop` 单轮，job 执行 hang）——三者同属「不可靠外部子进程/连接/任务的关停必须有上界」立场，`timeout` 统一 5.0s。本 spec 是该立场的第三处补齐，**消除 code review 指出的最后一个同构兄弟缺口**。
 
 **CancelledError 传播不破坏既有语义：** `_tick_loop` 的 `except Exception`（scheduler.py:61）本就不捕 `CancelledError`（BaseException）；`stop()` 的 `task.cancel()` 注入后，`CancelledError` 经 `_tick_loop` 逸出 task，`asyncio.wait` 将其存于 task（done）不传播——与近期 sandbox / MCP「取消信号优先传播」立场一致，无需改 `_tick_loop`。
 

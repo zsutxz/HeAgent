@@ -7,7 +7,7 @@ review_loop_iteration: 0
 baseline_commit: 'd9e631e439972f7a64b6c633f6506bd6808b1042'
 context:
   - '{project-root}/CLAUDE.md'
-  - '{project-root}/_bmad-output/patches/_meta/deferred-work.md'
+  - '{project-root}/_bmad-output/patches/_meta/deferred-work.md'  # 该台账 2026-09-15 退役并删除
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">

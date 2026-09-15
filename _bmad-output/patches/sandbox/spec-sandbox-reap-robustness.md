@@ -2,7 +2,7 @@
 
 ## source
 - 路线来源：用户于「bmad 继续开发」方向选择中选定「沙箱 reap 鲁棒性收尾」（一会话一 spec）。
-- 根因：`deferred-work.md`「Deferred from: code review of spec-sandbox-cancel-signal-preservation (2026-07-10)」剩 3 项 `defer`（pre-existing / spec 显式 deferred），全部集中在 `src/heagent/tools/sandbox.py` 的 `_kill_and_reap` 与两 helper 的 `except TimeoutError` 块：
+- 根因：`deferred-work.md`（2026-09-15 退役并删除）「Deferred from: code review of spec-sandbox-cancel-signal-preservation (2026-07-10)」剩 3 项 `defer`（pre-existing / spec 显式 deferred），全部集中在 `src/heagent/tools/sandbox.py` 的 `_kill_and_reap` 与两 helper 的 `except TimeoutError` 块：
   - **item 1**：`except TimeoutError: await _kill_and_reap(proc); return _TIMEOUT_RESULT`（`sandbox.py:95-97,126-128`）未对称加 reap 保护——reap 抛错替换超时返回串上抛，调用方收到 `PermissionError` 而非「Command timed out」（错误消息不对，循环不中断）。与刚修的 `CancelledError` 路径（D-1）处理不对称。
   - **item 2**：`_kill_and_reap` 的 `await proc.wait()`（`sandbox.py:63`）在子进程处不可中断内核态（Linux D-state / pipe transport 对端 hang）时不返回也不抛——`suppress(BaseException)` 只吞异常、对 hang 无能为力，整个 `except` 块卡在 reap，取消信号/超时串被永久阻塞（比 D-1「reap 抛错替换」更坏的形态）。
   - **item 3**：`_kill_and_reap` 的 `proc.kill()`（`sandbox.py:61-62`）抛非 `ProcessLookupError`（如 `PermissionError`）时逃出 `suppress(ProcessLookupError)`，`await proc.wait()` 不执行 → 子进程未杀未 reap、pipe transport 在 GC 前保持打开。inherent「杀不掉」限制。
@@ -31,7 +31,7 @@ deferred-work 原建议 item 1 用 `except BaseException`。**本 spec 细化为
 2. **item 1（两 helper 的 `except TimeoutError` 块）**：`_run_subprocess_shell` 与 `_run_subprocess_exec` 对称加 `try: await _kill_and_reap(proc) except Exception: logger.debug(...)`，reap 非取消失败仍 `return _TIMEOUT_RESULT`。
 3. **D-1-A 测试载体迁移**：`test_cancel_survives_reap_error`（Passthrough + Firejail）原用 kill→`PermissionError` 触发 reap 抛错；item 3 后 kill 失败被内部吞、不再逸出 caller，改用 **wait 侧抛错**（fake `wait()` raise `RuntimeError`）——更贴近 D-1 真正关注的 reap 异常场景，断言不变（取消存活 + debug 日志）。
 4. **回归测试**：新增 item 1（reap 失败仍返回超时串，Passthrough + Firejail）、item 2（wait 硬上界防 D-state hang）、item 3（kill 失败仍 wait，Passthrough + Firejail）。
-5. **文档**：`deferred-work.md` 关闭 3 项 Resolution。
+5. **文档**：`deferred-work.md`（2026-09-15 退役并删除）关闭 3 项 Resolution。
 
 ## out of scope（不做 / deferred）
 - ❌ 不改两 helper 的 `except asyncio.CancelledError` 块——D-1（commit `0872c06`）仍有效，其 `except BaseException` 现顺带 catch item 2 新增的 D-state `TimeoutError`（bare-raise 恢复原始取消，语义不变）。

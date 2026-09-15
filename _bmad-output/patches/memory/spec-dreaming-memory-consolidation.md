@@ -51,5 +51,5 @@
 ## 立场（不变，须诚实声明）
 - **dreaming = 无人监督下主动跑 + 改持久记忆 + 含联网（`web_fetch`）**，比交互式更危险：被污染的网页内容可经 prompt injection 写入记忆库，**影响后续所有会话**（攻击面是持久的、跨会话的）。
 - 用户选定「先用 PolicyEngine + role 限定，不等 OS 级沙箱」。这与 CLAUDE.md 文首声明（`SafetyGuard`/`PolicyEngine`/`FirejailBackend`/MCP 围栏**均非真正安全边界**）存在**有意识的张力**：当前 dreaming 的安全依赖 (a) `RoleSpec` 工具白名单、(b) `PolicyEngine` 审批门、(c) `web_fetch` 的 `guard_content` 启发式围栏——三者皆为 defense-in-depth 标记/拦截，**非真正隔离**。
-- **缓解（defense-in-depth，非真正边界）**：dreamer 工具白名单最小化（无 shell/file_write）、~~web 返回启发式标记~~（**未实现/deferred**——`web_fetch` 返回路径当前未接 `guard_content`，仅 MCP 工具经 `bridge_result`；见 `_bmad-output/patches/_meta/deferred-work.md`）、`dream_enabled` 默认关、`dream_max_iterations` 紧预算、`EventBus` 事件可审计。
+- **缓解（defense-in-depth，非真正边界）**：dreamer 工具白名单最小化（无 shell/file_write）、~~web 返回启发式标记~~（**未实现/deferred**——`web_fetch` 返回路径当前未接 `guard_content`，仅 MCP 工具经 `bridge_result`；见 `_bmad-output/patches/_meta/deferred-work.md`；该台账 2026-09-15 退役并删除）、`dream_enabled` 默认关、`dream_max_iterations` 紧预算、`EventBus` 事件可审计。
 - **硬立场**：OS 级沙箱就绪后，dreamer SubAgent 必须迁移进沙箱执行（尤其联网 + 写记忆的组合）。在此之前，dreaming 不可在不可信内容/不可信网络下启用。本 spec **不制造「dreaming 已安全」假象**——与项目教训 4「安全边界必须诚实声明」一致。

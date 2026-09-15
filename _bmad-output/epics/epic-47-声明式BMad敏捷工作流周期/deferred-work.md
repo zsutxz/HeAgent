@@ -1,6 +1,6 @@
 # Epic 47 声明式 BMad 敏捷工作流周期遗留项台账（deferred-work）
 
-> **归并来源**：`_bmad-output/patches/_meta/deferred-work.md`（原跨周期技术债台账，2026-09-15 整理后退役）。
+> **归并来源**：`_bmad-output/patches/_meta/deferred-work.md`（原跨周期技术债台账，2026-09-15 整理后退役并删除）。
 > **归档规则**：按条目**归属的 epic / 归属层**归档；本周期同时承担 epic 外 **engine 运行时治理增量**
 > 的归档（与 `epic-47-声明式工作流与产物治理/spec-runtime-hygiene.md` 同域，engine 层不挂 Epic 编号，
 > 进度另见 `docs/frame.md` 4.12）。

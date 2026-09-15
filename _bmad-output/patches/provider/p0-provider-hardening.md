@@ -85,7 +85,7 @@ context:
 
 - 2026-06-19：调查发现 P0-3（Anthropic 流式 `get_final_message`）已由 commit `5a3bfda` 完成，本次仅保留回归测试，不再重写实现。范围由「P0 三项」收窄为「P0-1 文档声明 + P0-2 异常包装（含真实 SDK 异常测试）+ P0-3 回归锁定」。
 - 2026-06-19（验证）：实现完成。`pytest tests/providers/` 88 全绿（含 7 个新增「真实 SDK 异常」用例，已显式确认 PASSED）；全量 pytest 342 passed / 1 failed——唯一失败 `test_config::test_default_max_iterations` 为**既有环境耦合**（`.env` 设 `MAX_ITERATIONS=20`、测试未 `reset_settings()`，与本次无关，留待 P3）。ruff/mypy 对改动文件均 **0 新增错误**（既有 TC003/UP042/E501 基线问题不变，mypy providers 基线 2 错 == 改后 2 错）。P0-3 回归由既有 `test_anthropic::test_stream_yields_text` 覆盖（最终 chunk 携带 tool_calls/usage/finish_reason），无需新增。
-- 2026-06-19（评审）：3 路并行评审（盲审 / 边界 / 验收）。**验收审计**：5 AC + 5 Never-rule 全 MET、DRY MET → PASS。**边界 hunter** 发现 HIGH：OpenAI `APITimeoutError`/`APIConnectionError` 经包装后 `_classify` 因 `"timeout"` 不匹配 `"timed out"` 误判 NON_TRANSIENT → 单 provider 超时仍不重试（违反已冻结 I/O 矩阵「连接超时→retry 据此重试」）→ 已 **patch**：`_classify` 加 `"timed out"`/`"connection"` 关键词 + 2 个分类测试（test_retry 21 全绿）。其余 **reject**（盲审 B1/B2/B3/B5/B6/B7 + 边界 E3，均实测/核验为误报或既有惯例）。1 项 **defer**：Chain 对已包装 ProviderError 双层重包（见 deferred-work.md，LOW，P2 范围）。无 intent_gap/bad_spec → 不触发 loopback。
+- 2026-06-19（评审）：3 路并行评审（盲审 / 边界 / 验收）。**验收审计**：5 AC + 5 Never-rule 全 MET、DRY MET → PASS。**边界 hunter** 发现 HIGH：OpenAI `APITimeoutError`/`APIConnectionError` 经包装后 `_classify` 因 `"timeout"` 不匹配 `"timed out"` 误判 NON_TRANSIENT → 单 provider 超时仍不重试（违反已冻结 I/O 矩阵「连接超时→retry 据此重试」）→ 已 **patch**：`_classify` 加 `"timed out"`/`"connection"` 关键词 + 2 个分类测试（test_retry 21 全绿）。其余 **reject**（盲审 B1/B2/B3/B5/B6/B7 + 边界 E3，均实测/核验为误报或既有惯例）。1 项 **defer**：Chain 对已包装 ProviderError 双层重包（见 deferred-work.md（2026-09-15 退役并删除），LOW，P2 范围）。无 intent_gap/bad_spec → 不触发 loopback。
 
 ## Design Notes
 
