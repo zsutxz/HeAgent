@@ -188,6 +188,11 @@ class Settings(BaseSettings):
     # 影响每个项目，且会让测试依赖开发机 home。
     context_files_user_level: bool = Field(default=False)
 
+    # ---- 事件传输（JSONL / rollout）----
+    # 是否把每次 run 的事件落盘为 .heagent/runs/<run_id>/rollout.jsonl（可 `heagent replay` 回放）。
+    # 默认关闭：落盘内容含命令与工具原始输出（与工具返回同等不可信），按需开启。
+    events_rollout_enabled: bool = Field(default=False)
+
     # ---- 记忆提醒参数 ----
     memory_nudge_enabled: bool = Field(default=True)
 

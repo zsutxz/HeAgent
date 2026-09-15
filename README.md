@@ -88,6 +88,7 @@ heagent init
 | `heagent run [PROMPT]` | 单次执行；缺少 prompt 时进入交互模式 |
 | `heagent init` | 创建 `~/.heagent` 全局配置目录 |
 | `heagent gui` | 启动终端 UI，需安装 `.[gui]` |
+| `heagent replay FILE` | 回放 JSONL 事件文件（人读格式；`--json` 原样回吐） |
 
 `run` 和默认入口共享以下常用选项：
 
@@ -99,6 +100,9 @@ heagent init
 | `--continue` / `--resume ID` | 在交互模式继续最近或指定会话 |
 | `--plan` | 启用只读 Plan Mode，禁止 shell 和写入类工具 |
 | `--sandbox passthrough|firejail` | 选择 shell 执行后端 |
+| `--json` | 单次模式：**stdout 只输出 JSONL 事件流**（人读信息走 stderr），便于管道/CI 消费 |
+
+**机器接口（JSONL 事件流）**：`heagent run "…" --json` 输出一行一事件（字段：`schema_version`/`seq`/`ts`/`run_id`/`iteration`/`kind`/`tool`/`target`/`details`），以 `run_started` 开头、`run_completed`/`run_failed` 收尾，最终答案以 `assistant_message` 交回。事件与工具原始输出**同等不可信**（含 MCP/远端内容），不得因结构化而提升信任。设 `EVENTS_ROLLOUT_ENABLED=true` 会把每个 run 的事件落盘到 `.heagent/runs/<run_id>/rollout.jsonl`（默认关闭），可 `heagent replay` 回放。
 
 交互模式内可使用：
 

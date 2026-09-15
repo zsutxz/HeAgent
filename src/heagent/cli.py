@@ -38,6 +38,7 @@ from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
 from heagent.engine import ConsoleApprovalHandler, EngineContainer
 from heagent.engine.roles import load_agent_roles
+from heagent.events.sink import JsonlSink, default_rollout_dir, read_rollout, render_event
 from heagent.exceptions import BudgetExceeded, HeAgentError
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
@@ -573,8 +574,14 @@ async def _run_single(
     mcp_ctx: AbstractAsyncContextManager[Any] | None = None,
     sandbox_backend: str | None = None,
     plan_mode: bool = False,
+    json_output: bool = False,
 ) -> None:
-    """Run a single prompt and print the result."""
+    """Run a single prompt and print the result.
+
+    ``json_output=True``（``--json``）时 **stdout 只出 JSONL 事件流**：最终答案作为
+    ``assistant_message`` 事件交回，横幅 / 用量 / 活动回顾等人类可读信息本就走 stderr，
+    故管道消费方拿到的是干净的事件流。
+    """
     settings = get_settings()
     engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
     if sys.stdin.isatty() and engine.approval_handler is None:
@@ -583,13 +590,20 @@ async def _run_single(
     if plan_hint:
         system = f"{plan_hint}\n\n{system}" if system else plan_hint
 
+    sink = _build_event_sink(settings, json_output=json_output)
+    if sink is not None:
+        engine.events.subscribe(sink)
+
     async with mcp_ctx or contextlib.nullcontext():
         loop, _ = _build_loop(
             settings, provider, max_iterations, soul_path, engine=engine, sandbox_backend=sandbox_backend
         )
         try:
             result = await loop.run(prompt, system=system)
-            click.echo(result)
+            if sink is not None and json_output:
+                sink.assistant_message(result)
+            else:
+                click.echo(result)
             _print_usage(loop.last_usage, model=loop.provider.get_metadata().model)
         except BudgetExceeded as exc:
             click.echo(f"[budget exceeded] {exc.message}", err=True)
@@ -598,6 +612,19 @@ async def _run_single(
         finally:
             # 活动回顾放 finally：出错/超预算时「它到底动了什么」往往才是最需要看的。
             show_tool_activity(loop)
+
+
+def _build_event_sink(settings: Settings, *, json_output: bool) -> JsonlSink | None:
+    """构造 JSONL 事件接收器（不需要则返回 None）。
+
+    两个动作互相独立，刻意不做隐式耦合：``--json`` 只负责 stdout（用户可自行重定向成文件），
+    rollout 落盘只由 ``EVENTS_ROLLOUT_ENABLED`` 决定（默认关闭——落盘含工具原始输出）。
+    """
+    stream = sys.stdout if json_output else None
+    rollout_dir = default_rollout_dir() if settings.events_rollout_enabled else None
+    if stream is None and rollout_dir is None:
+        return None
+    return JsonlSink(stream=stream, rollout_dir=rollout_dir)
 
 
 def _build_dream_scheduler(
@@ -1127,6 +1154,7 @@ def _run_cli_impl(
     continue_session: bool = False,
     resume_session: str | None = None,
     plan_mode: bool = False,
+    json_output: bool = False,
 ) -> None:
     """Core CLI routine — logging, provider, MCP, dispatch to single/chat."""
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -1179,6 +1207,7 @@ def _run_cli_impl(
                 mcp_ctx=mcp_ctx,
                 sandbox_backend=sandbox,
                 plan_mode=resolved_plan,
+                json_output=json_output,
             )
         )
     else:
@@ -1232,6 +1261,13 @@ _RUN_OPTIONS = [
         is_flag=True,
         default=False,
         help="Plan mode: read-only (no write tools / shell)",
+    ),
+    click.option(
+        "--json",
+        "json_output",
+        is_flag=True,
+        default=False,
+        help="Single-shot: emit a JSONL event stream on stdout (human output stays on stderr)",
     ),
 ]
 
@@ -1305,9 +1341,34 @@ def run(
     continue_session: bool,
     resume_session: str | None,
     plan_mode: bool,
+    json_output: bool = False,
 ) -> None:
     """Run HeAgent in single-shot or interactive mode."""
-    _run_cli_impl(prompt, model, system, max_iterations, soul, sandbox, continue_session, resume_session, plan_mode)
+    _run_cli_impl(
+        prompt,
+        model,
+        system,
+        max_iterations,
+        soul,
+        sandbox,
+        continue_session,
+        resume_session,
+        plan_mode,
+        json_output=json_output,
+    )
+
+
+@main.command("replay")
+@click.argument("path", type=click.Path(exists=True, dir_okay=False, path_type=Path))
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit raw JSONL instead of rendered lines")
+def replay_cmd(path: Path, as_json: bool) -> None:
+    """Replay a rollout / JSONL event file (from ``--json`` or ``EVENTS_ROLLOUT_ENABLED``)."""
+    events = read_rollout(path)
+    if not events:
+        click.echo(f"[replay] no events in {path}", err=True)
+        return
+    for event in events:
+        click.echo(event.to_jsonl() if as_json else render_event(event))
 
 
 # =============================================================================

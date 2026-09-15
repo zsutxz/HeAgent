@@ -696,6 +696,7 @@ HeAgentError (base)
 | `dream_cron` | `0 3 * * *` | dream cron 触发表达式（构造期 fail-fast 校验，须 5 字段） |
 | `dream_idle_minutes` | 30 | dream idle 触发阈值（分钟，距上次 run 结束；0=禁用 idle 触发） |
 | `dream_max_iterations` | 20 | dreamer SubAgent 独立迭代预算（不复用全局 `max_iterations`） |
+| `events_rollout_enabled` | False | 是否把每次 run 的事件落盘为 `.heagent/runs/<run_id>/rollout.jsonl`（默认关闭；内容含工具原始输出） |
 | `context_files_max_bytes` | 32768 | 上下文文件字节预算；超预算时近端优先保留，被丢弃/截断者显式标注 |
 | `context_files_user_level` | False | 是否纳入用户级 `~/.heagent/AGENTS.md`（默认关闭，避免全局文件静默影响每个项目） |
 | `goal_max_iterations` | 20 | `/goal` 单步 SubAgent 最大迭代轮数（步骤可用 `max_iterations:` 覆盖） |
@@ -780,6 +781,23 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
   阻塞或失败即停止。
 - `/goal status` 只读回显运行状态和目标产物；`/goal reset` 只清除 current 指针并保留目标目录。
 - `/goal resume [回复]` 记录用户回复并恢复等待中的步骤；`/goal auto [cron]` 通过 JobStore 复用同一推进路径。
+
+#### 事件传输：JSONL / rollout（`events/`）
+
+对外的**机器可读契约**（对齐 Codex 的 `--json` 事件流）。事件源仍是引擎事件总线（`observability.py`），
+`events/` 只做「映射 + 序列化 + 落盘」，**不重复插桩**：
+
+| 入口 | 说明 |
+|------|------|
+| `RunEvent` / `SCHEMA_VERSION` | 单条事件（`seq` 单调递增 / `ts` / `run_id` / `iteration` / `kind` / `tool` / `target` / `details`）；字段集由 `schema_version` 锚定，改字段须 bump 版本并更新黄金测试 |
+| `from_engine_event()` | `EngineEvent` → `RunEvent`；**开集** `kind`（沿用引擎事件名，引擎新增事件无需改协议）；`KNOWN_KINDS` 仅作文档与测试依据，**不作**过滤 |
+| `JsonlSink` | 观察者：写 stdout（`--json`）与/或 `<cwd>/.heagent/runs/<run_id>/rollout.jsonl`（`EVENTS_ROLLOUT_ENABLED`，默认关闭）。`handle` 由总线**同步**派发，故只做「序列化 + 一次 write/flush」，不压缩不轮转；写盘失败仅告警，不打断 run；每 run 一个文件 ⇒ 单写者，无需跨进程锁 |
+| `assistant_message` | 传输层补充的**唯一**非引擎事件：CLI 在 run 结束后交回最终答案（引擎侧无对应事件） |
+| `read_rollout()` / `render_event()` | 读回 JSONL（坏行跳过并告警——crash 截断的尾行不毁整次回放）/ 渲染人读单行 |
+
+**CLI 契约**：`heagent run "…" --json` 时 **stdout 只出 JSONL**（`run_started` 开头、`run_completed`/`run_failed` 收尾、`assistant_message` 交回答案），横幅 / 用量 / 活动回顾等人读信息一律走 stderr，故可直接管道消费；`heagent replay <file> [--json]` 回放。两个动作**互不隐式耦合**：`--json` 不落盘（可自行重定向），落盘不要求输出到 stdout。
+
+**不可信性**：JSONL 的 `target` / `details` 携带命令与工具原始输出（含 MCP / 远端内容），与工具返回**同等不可信**，不得因「结构化」提升信任；rollout 属项目内部状态（`.heagent/` 已 gitignore，path_safety 亦设内部状态读拒），不得改写到可提交路径。
 
 每个步骤或 Story 都由新的 SubAgent/RunContext 执行。`WorkflowRunner` 负责顺序、输入、输出、checkpoint
 和恢复；它不决定 Epic/Story 的拆分方法。
@@ -936,6 +954,9 @@ src/heagent/
 python -m heagent "your prompt"
   │
   ▼
+├── events/                  # 事件传输层（JSONL 契约 / rollout 落盘 / replay）
+│   ├── protocol.py          # RunEvent + EngineEvent → RunEvent 映射
+│   └── sink.py              # JsonlSink（stdout/rollout）+ read_rollout / render_event
 __main__.py → cli.main()
   │
   ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（24 个工具）
