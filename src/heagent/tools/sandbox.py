@@ -199,13 +199,21 @@ def _validate_timeout(timeout: int) -> None:
         raise ValueError(f"timeout must be a positive integer (seconds), got {timeout!r}")
 
 
-async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
-    _validate_timeout(timeout)
+def _spawn_kwargs() -> dict[str, object]:
+    """子进程启动的公共 kwargs：双管道 + 新会话（Linux 进程组隔离）+ 剥离敏感环境变量。"""
     kwargs: dict[str, object] = {"stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE}
     if sys.platform == "linux":
         kwargs["start_new_session"] = True
     kwargs["env"] = scrub_sensitive_env(allowlist=_env_allowlist())
-    proc = await asyncio.create_subprocess_shell(command, **kwargs)  # type: ignore[arg-type]
+    return kwargs
+
+
+async def _supervise_subprocess(proc: asyncio.subprocess.Process, *, timeout: int) -> str:
+    """有界等待子进程收尾：超时/取消都先杀进程树，再给出格式化结果。
+
+    超时与取消**两条清理路径必须一致**（否则「被取消」会留下孤儿进程树）——这正是本函数存在的
+    理由：shell 与 exec 两条路径曾各持一份逐字副本，2026-09-15 修复收尾不一致时要改两处。
+    """
     try:
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except TimeoutError:
@@ -221,30 +229,18 @@ async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
             logger.debug("cancel cleanup: _kill_and_reap failed; subprocess/pipe may leak", exc_info=True)
         raise
     return _format_result(proc.returncode, stdout, stderr)
+
+
+async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
+    _validate_timeout(timeout)
+    proc = await asyncio.create_subprocess_shell(command, **_spawn_kwargs())  # type: ignore[arg-type]
+    return await _supervise_subprocess(proc, timeout=timeout)
 
 
 async def _run_subprocess_exec(argv: Sequence[str], *, timeout: int) -> str:
     _validate_timeout(timeout)
-    kwargs: dict[str, object] = {"stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE}
-    if sys.platform == "linux":
-        kwargs["start_new_session"] = True
-    kwargs["env"] = scrub_sensitive_env(allowlist=_env_allowlist())
-    proc = await asyncio.create_subprocess_exec(*argv, **kwargs)  # type: ignore[arg-type]
-    try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except TimeoutError:
-        try:
-            await _kill_and_reap(proc)
-        except Exception:
-            logger.debug("timeout cleanup: _kill_and_reap failed; subprocess/pipe may leak", exc_info=True)
-        return _TIMEOUT_RESULT.format(timeout=timeout)
-    except asyncio.CancelledError:
-        try:
-            await _kill_and_reap(proc)
-        except BaseException:
-            logger.debug("cancel cleanup: _kill_and_reap failed; subprocess/pipe may leak", exc_info=True)
-        raise
-    return _format_result(proc.returncode, stdout, stderr)
+    proc = await asyncio.create_subprocess_exec(*argv, **_spawn_kwargs())  # type: ignore[arg-type]
+    return await _supervise_subprocess(proc, timeout=timeout)
 
 
 class PassthroughRunner:

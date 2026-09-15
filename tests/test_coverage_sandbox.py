@@ -1,8 +1,7 @@
 """Coverage补丁：覆盖 tools/sandbox.py 未覆盖行。
 
 目标行号（来源：覆盖率报告）：
-- 85: ``_run_subprocess_shell`` 的 ``CancelledError`` 清理分支
-- 108: ``_run_subprocess_exec`` 的 ``CancelledError`` 清理分支
+- ``_supervise_subprocess`` 的 ``CancelledError`` 清理分支（shell/exec 两路共用，2026-09-15 抽成单一实现）
 - 230: ``FirejailBackend.run`` firejail 不可用时 fallback 到 PassthroughRunner
 - 235-236: ``FirejailBackend.run`` 可用时读 sandbox_profile + build_argv
 - 240-243: ``FirejailBackend.run`` 可用时调 ``_run_subprocess_exec``
@@ -60,7 +59,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# _run_subprocess_shell  CancelledError 分支（行 85）
+# _run_subprocess_shell → _supervise_subprocess 的 CancelledError 分支
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -186,7 +185,7 @@ class TestRunSubprocessShellCancelled:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# _run_subprocess_exec  CancelledError 分支（行 108）
+# _run_subprocess_exec → _supervise_subprocess 的 CancelledError 分支
 # ──────────────────────────────────────────────────────────────────────────────
 
 
