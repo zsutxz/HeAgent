@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import time
 from pathlib import Path
@@ -23,12 +24,54 @@ from heagent.engine.persist import (
     stamp_is_recent,
     touch_prune_stamp,
 )
-from heagent.types import Message
+from heagent.types import Message, Role
+
+logger = logging.getLogger(__name__)
 
 # session_id 允许的字符集：字母数字 + 连字符/下划线，防止路径遍历（如 ../etc/passwd）。
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 # 合理长度上限：UUID hex 最大 32 字符，加上前缀/后缀留有余额，超过视为异常拒绝。
 _MAX_SESSION_ID_LEN = 128
+
+
+def _complete_tool_transactions(messages: list[Message]) -> list[Message]:
+    """Return the longest prefix containing only complete tool-call transactions.
+
+    Chat Completions requires every assistant ``tool_calls`` message to be followed
+    immediately by one TOOL message for each call. A cancelled run can otherwise be
+    persisted after the assistant message but before its tool results, which poisons
+    every later request that restores that session.
+    """
+    complete: list[Message] = []
+    pending_ids: set[str] = set()
+    transaction_start = 0
+
+    for message in messages:
+        if pending_ids:
+            if message.role is not Role.TOOL or message.tool_call_id not in pending_ids:
+                logger.warning("Discarding incomplete tool-call transaction from session history")
+                return complete[:transaction_start]
+            pending_ids.remove(message.tool_call_id)
+            complete.append(message)
+            continue
+
+        if message.role is Role.TOOL:
+            logger.warning("Discarding session history from orphaned tool result")
+            return complete
+
+        complete.append(message)
+        if message.role is Role.ASSISTANT and message.tool_calls:
+            call_ids = [call.id for call in message.tool_calls]
+            if not all(call_ids) or len(set(call_ids)) != len(call_ids):
+                logger.warning("Discarding session history from malformed tool-call transaction")
+                return complete[:-1]
+            pending_ids = set(call_ids)
+            transaction_start = len(complete) - 1
+
+    if pending_ids:
+        logger.warning("Discarding incomplete tool-call transaction at end of session history")
+        return complete[:transaction_start]
+    return complete
 
 
 def _validate_session_id(session_id: str) -> None:
@@ -89,7 +132,7 @@ class SessionStore:
             "session_id": session_id,
             "version": existing_version + 1,
             "timestamp": time.time(),
-            "messages": [m.model_dump() for m in messages],
+            "messages": [m.model_dump() for m in _complete_tool_transactions(messages)],
         }
 
         def update(raw: str) -> tuple[str, None]:
@@ -117,7 +160,8 @@ class SessionStore:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return []
-        return [Message(**m) for m in data.get("messages", [])]
+        messages = [Message(**m) for m in data.get("messages", [])]
+        return _complete_tool_transactions(messages)
 
     def list_sessions(self) -> list[str]:
         """返回所有已保存的会话 ID（按文件名字母序）。"""

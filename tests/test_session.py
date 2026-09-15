@@ -48,12 +48,54 @@ class TestSessionStore:
                 content="",
                 tool_calls=[ToolCall(id="c1", name="shell", arguments={"command": "ls"})],
             ),
+            Message(role=Role.TOOL, content="file list", tool_call_id="c1", name="shell"),
         ]
         store.save("tools", msgs)
         loaded = store.load("tools")
-        assert len(loaded) == 1
+        assert len(loaded) == 2
         assert loaded[0].tool_calls is not None
         assert loaded[0].tool_calls[0].name == "shell"
+
+    def test_save_discards_incomplete_tool_call_transaction(self, tmp_path: object) -> None:
+        store = SessionStore(base_dir=str(tmp_path / "sessions"))  # type: ignore[operator]
+        messages = [
+            Message(role=Role.USER, content="inspect the directory"),
+            Message(
+                role=Role.ASSISTANT,
+                content="",
+                tool_calls=[ToolCall(id="c1", name="shell", arguments={"command": "ls"})],
+            ),
+        ]
+
+        store.save("interrupted", messages)
+
+        assert [message.role for message in store.load("interrupted")] == [Role.USER]
+
+    def test_load_discards_corrupt_tool_call_suffix(self, tmp_path: object) -> None:
+        store = SessionStore(base_dir=str(tmp_path / "sessions"))  # type: ignore[operator]
+        path = tmp_path / "sessions" / "corrupt.json"  # type: ignore[operator]
+        path.parent.mkdir()
+        path.write_text(
+            json.dumps(
+                {
+                    "session_id": "corrupt",
+                    "messages": [
+                        Message(role=Role.USER, content="first").model_dump(),
+                        Message(
+                            role=Role.ASSISTANT,
+                            content="",
+                            tool_calls=[ToolCall(id="c1", name="shell", arguments={"command": "ls"})],
+                        ).model_dump(),
+                        Message(role=Role.USER, content="must not reach the API").model_dump(),
+                    ],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        loaded = store.load("corrupt")
+
+        assert [message.content for message in loaded] == ["first"]
 
     def test_list_sessions(self, tmp_path: object) -> None:
         store = SessionStore(base_dir=str(tmp_path / "sessions"))  # type: ignore[operator]
