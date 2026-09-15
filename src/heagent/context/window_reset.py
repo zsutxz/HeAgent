@@ -14,13 +14,12 @@ compressor 保持一致，确保摘要风格统一。
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from heagent.context.compressor import STRUCTURED_SUMMARY_PROMPT
+from heagent.context.compressor import STRUCTURED_SUMMARY_PROMPT, render_message_for_summary
 from heagent.types import Message, ProviderResponse, Role
 
 if TYPE_CHECKING:
@@ -111,18 +110,9 @@ class WindowReset:
         lines: list[str] = []
         total_chars = 0
         for m in reversed(messages):
-            parts: list[str] = []
-            if m.content:
-                parts.append(f"{m.role.value}: {m.content}")
-            # P1-6 修复：序列化 tool_calls，防止工具调用上下文丢失
-            if m.tool_calls:
-                for tc in m.tool_calls:
-                    tc_args = json.dumps(tc.arguments, ensure_ascii=False)
-                    parts.append(f"tool_call: {tc.name}({tc_args})")
-            # tool 返回结果（TOOL 角色消息）
-            if m.role == Role.TOOL and m.tool_call_id:
-                content = m.content or ""
-                parts.insert(0, f"tool_result({m.tool_call_id}): {content}")
+            # 组装走共用序列化（与 ContextCompressor 同一实现）；此处保留工具返回正文
+            # （tool_result_content=True），使清窗续跑不丢工具上下文（P1-6）。
+            parts = render_message_for_summary(m, tool_result_content=True)
             if not parts:
                 continue
             line = "\n".join(parts)

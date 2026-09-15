@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 from heagent.cron.expr import cron_matches
 from heagent.engine import EngineContainer
+from heagent.task_shutdown import DEFAULT_STOP_TIMEOUT, await_task_stop, retrieve_task_exception
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
@@ -18,9 +19,6 @@ if TYPE_CHECKING:
     from heagent.engine.context import RunContext
 
 logger = logging.getLogger(__name__)
-
-# stop() 关停硬上界（task 挂死兜底）——对齐 MCP _DEFAULT_SHUTDOWN_TIMEOUT / sandbox _REAP_WAIT_TIMEOUT
-_DEFAULT_STOP_TIMEOUT: float = 5.0
 
 # JobRunner: agent 层注入的 job 执行协议（prompt + run_context → awaitable）。
 # cron 模块不再反向依赖 agent——runner 由 cli.py 实例化时注入。
@@ -40,7 +38,7 @@ class CronScheduler:
         *,
         tick_seconds: int = 60,
         engine: EngineContainer | None = None,
-        stop_timeout: float = _DEFAULT_STOP_TIMEOUT,
+        stop_timeout: float = DEFAULT_STOP_TIMEOUT,
         job_runner: JobRunner | None = None,
     ) -> None:
         if stop_timeout <= 0:
@@ -88,18 +86,15 @@ class CronScheduler:
         done、wait 立即返回；挂死则 ``stop_timeout`` 后返回 pending → 记 ERROR 放弃（task 已 cancel），
         并挂 done callback（``_retrieve_task_exception``）取回孤儿 task 终态异常（避免「Task exception
         was never retrieved」），清 ``_task`` 释放引用；余下收尾交事件循环 / OS 进程退出兜底。
+
+        cancel / bounded wait / 超时告警本身实现在 ``heagent.task_shutdown.await_task_stop``
+        （与 :class:`~heagent.memory.dream.DreamScheduler` 共用同一内核）。
         """
-        task.cancel()
-        _, pending = await asyncio.wait({task}, timeout=self._stop_timeout)
-        if pending:
+        if await await_task_stop(task, timeout=self._stop_timeout, owner="Cron scheduler"):
             # 孤儿 task：已 cancel 但窗口内未退出。挂 done callback 取回 exception（标记 retrieved），
             # 避免「Task exception was never retrieved」；清 _task 释放引用，余下收尾交事件循环/GC/OS 进程退出。
             task.add_done_callback(_retrieve_task_exception)
             self._task = None
-            logger.error(
-                "Cron scheduler 关停超时（%ss），task 未退出，放弃等待",
-                self._stop_timeout,
-            )
 
     async def _tick_loop(self) -> None:
         while self._running:
@@ -209,15 +204,10 @@ class CronScheduler:
 
 
 def _retrieve_task_exception(task: asyncio.Task[None]) -> None:
-    """done callback：取回关停超时后孤儿 task 的异常，避免 asyncio「Task exception was never retrieved」。
+    """done callback：取回关停超时后孤儿 task 的异常（实现见 ``heagent.task_shutdown``）。
 
-    ``_await_stop`` 超时分支放弃等待后，孤儿 task 仍在事件循环中收尾；若其终态带异常
-    （``_tick_loop`` 的 ``except Exception`` 之外的 BaseException 路径），未取回会触发警告。
-    本 callback 在 task 终态被调用：cancelled task 无需 retrieve（且 ``task.exception()``
-    对 cancelled task 会抛 ``CancelledError``，须守卫），其余取非 None 异常记 ERROR 并标记 retrieved。
+    保留本薄包装而非直接传 ``functools.partial``：``add_done_callback`` 因此拿到签名严格为
+    ``(task) -> None`` 的可调用对象，同时保住 ``owner`` 日志前缀；两侧同名薄包装也让
+    ``test_cron.py`` / ``test_dream.py`` 继续断言「cron 与 dream 对称」。
     """
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc is not None:
-        logger.error("Cron scheduler 关停后的孤儿 task 抛出未处理异常: %r", exc)
+    retrieve_task_exception(task, owner="Cron scheduler")

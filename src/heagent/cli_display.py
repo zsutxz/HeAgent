@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import click
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from heagent.agent.loop import AgentLoop
-    from heagent.types import TokenUsage
+    from heagent.types import StreamEvent, TokenUsage
 
 
 def _print_banner() -> None:
@@ -72,27 +72,34 @@ def _echo_status(message: str, line_state: _LineState) -> None:
     line_state.at_line_start = True
 
 
-def _print_stream_event(event: Any, line_state: _LineState) -> None:
+def _emit(text: str, line_state: _LineState) -> None:
+    """流式输出（不自动换行）：写 stdout 的同时推进行首状态，避免两处失步。"""
+    click.echo(text, nl=False)
+    line_state.write(text)
+
+
+def _print_stream_event(event: StreamEvent, line_state: _LineState) -> None:
     if event.type == "text":
-        click.echo(event.text, nl=False)
-        line_state.write(event.text)
+        _emit(event.text, line_state)
     elif event.type == "tool_call":
         # 自成一行：紧跟其后的可能是模型继续输出的文本，行尾不留悬挂内容。
         # 标签拼接走 activity_label，与状态行 / GUI / 活动台账同一口径。
         label = activity_label(event.tool_name, event.tool_target)
-        text = f"{_line_prefix(line_state)}[calling {label}]\n"
-        click.echo(text, nl=False)
-        line_state.write(text)
+        _emit(f"{_line_prefix(line_state)}[calling {label}]\n", line_state)
     elif event.type == "tool_result" and event.tool_error:
         # 成功不逐条回显：批次是并发执行的，N 个结果会在同一刻到达，逐条 [done]
         # 只会挤成一串无主语的标记；失败必须归因到具体调用，故单独提示。
         subject = f" {event.tool_name}" if event.tool_name else ""
-        text = f"{_line_prefix(line_state)}[failed{subject}]\n"
-        click.echo(text, nl=False)
-        line_state.write(text)
+        _emit(f"{_line_prefix(line_state)}[failed{subject}]\n", line_state)
 
 
-def _format_tokens_k(n: int) -> str:
+def format_tokens_k(n: int) -> str:
+    """把 token 数渲染成 ``K``/``M`` 后缀短形式（CLI 状态行与 GUI 状态栏的唯一实现）。
+
+    2026-09-15：CLI ``_format_status`` 与 GUI ``ChatScreen`` 曾各持一份逐字相同的副本，
+    此处合并为唯一实现点。边界行为刻意保持不变：``999_999`` 仍渲染为 ``1000.0K``
+    （K 分支不去进位到 M）。
+    """
     if n < 1000:
         return str(n)
     if n >= 1_000_000:
@@ -106,13 +113,13 @@ def _format_status(loop: AgentLoop) -> str:
     meta = loop.provider.get_metadata()
     model = annotate_route(loop.provider, active_model(loop.provider) or meta.model)
     settings = get_settings()
-    parts = [model, f"{_format_tokens_k(loop.last_context_tokens)}/{_format_tokens_k(settings.max_context_tokens)} tok"]
+    parts = [model, f"{format_tokens_k(loop.last_context_tokens)}/{format_tokens_k(settings.max_context_tokens)} tok"]
     if loop.window_reset is not None:
         parts.append(f"reset@{int(loop.window_reset.config.threshold * 100)}%")
     elif loop.compressor is not None:
         parts.append(f"cmp@{int(loop.compressor.threshold * 100)}%")
     if loop.cumulative_tokens > 0:
-        parts.append(f"累计: {_format_tokens_k(loop.cumulative_tokens)} tok")
+        parts.append(f"累计: {format_tokens_k(loop.cumulative_tokens)} tok")
     # 在途工具：暂停/恢复或子 Agent 收尾时，一眼看出「卡在哪个工具」。
     if loop.active_tool:
         parts.append(f"{_icon('🔧', '[tool]')} {loop.active_tool}")

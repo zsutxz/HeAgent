@@ -11,6 +11,7 @@ from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Input, RichLog, Static
 
+from heagent.cli_display import format_tokens_k
 from heagent.config import get_settings
 from heagent.gui.bridge import MSG_AGENT_ERROR, MSG_AGENT_INTERRUPTED, MSG_STREAM_EVENT, BridgeMessage
 from heagent.providers.router import active_model, annotate_route
@@ -40,21 +41,6 @@ def _render_tool_result(event: StreamEvent) -> str:
     if event.tool_error:
         return f"  [red]✗ {escape(event.tool_name)}[/] {result}"
     return f"  [green]✓[/] {result}"
-
-
-def _format_tokens_k(n: int) -> str:
-    """Format token count with K/M suffix."""
-    if n < 1000:
-        return str(n)
-    if n >= 1_000_000:
-        m = n / 1_000_000
-        if m == int(m):
-            return f"{int(m)}M"
-        return f"{m:.1f}M"
-    k = n / 1000
-    if k == int(k):
-        return f"{int(k)}K"
-    return f"{k:.1f}K"
 
 
 class ChatScreen(Screen[None]):
@@ -112,7 +98,7 @@ class ChatScreen(Screen[None]):
             else f"Tok: {self._state.token_usage.total_tokens}"
         )
         cumul = self._state.cumulative_tokens
-        cumul_str = f"累计: {_format_tokens_k(cumul)} tok" if cumul > 0 else ""
+        cumul_str = f"累计: {format_tokens_k(cumul)} tok" if cumul > 0 else ""
         cmp_pct = int(self._state.compression_threshold * 100)
         parts = [
             self._state.model_name,

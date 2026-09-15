@@ -176,8 +176,10 @@ _SUPERVISOR_SYSTEM = """\
 # 安全立场（与 CLAUDE.md 文首一致）：dreamer 在无人监督下主动运行、联网、改持久记忆。
 # PolicyEngine 的工具白/黑名单均非真正安全边界（defense-in-depth 标记/拦截）——被污染网页内容
 # 可经 prompt injection 写入记忆库、影响后续所有会话（跨会话持久攻击面）。须 OS 级沙箱兜底。
-# ⚠ web_fetch 返回内容当前不经 guard_content（仅 MCP 工具经 bridge_result 围栏）——dreamer 联网
-# 结果直接进上下文、注入无围栏；端到端围栏接入 deferred（见 deferred-work.md）。
+# ⚠ web_fetch 返回内容**已接** guard_content 启发式围栏（2026-09-15 勘误：此处曾记「当前不经
+# guard_content、端到端接入 deferred」，但 tools/builtins/web.py 早已接入、test_dream.py AC6 覆盖）
+# ——命中注入签名仅加 warning 标记后**透传、不阻断**，故 dreamer 联网结果仍属「不可信内容进上下文」。
+# 上述均为 defense-in-depth，非真正安全边界——须 OS 级沙箱兜底。
 _DREAMER_SYSTEM = """\
 你是【做梦角色 Dreamer】。职责：在空闲时对近期会话历史与记忆库做离线巩固（去重 / 提炼 / 查证 / 归档）。
 你会收到预加载的近期 session 历史摘要（你不持 file_read，无法自行翻文件）。请基于这些材料工作。

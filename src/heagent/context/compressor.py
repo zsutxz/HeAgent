@@ -52,6 +52,44 @@ _DEFAULT_PROMPT = STRUCTURED_SUMMARY_PROMPT
 _SUMMARY_SAFETY_MARGIN = 1024  # tokens，为摘要提示词 + LLM 回复保底
 
 
+def render_message_for_summary(message: Message, *, tool_result_content: bool) -> list[str]:
+    """把单条消息渲染成摘要请求用的文本片段（角色前缀 + tool_call + tool_result）。
+
+    **摘要输入的唯一序列化点**：``ContextCompressor._summarize`` 与
+    ``WindowReset._summarize`` 曾各持一份逐字副本（2026-09-15 合并，此前仅靠注释
+    「与 … 保持一致」手工同步）。两者压缩的是同一份对话的两条路径，模型看到的格式不该因
+    走哪条路径而变。
+
+    组装顺序有讲究（P1-1 修复）：先 ``content``（含角色前缀）、再逐条 ``tool_call``，避免
+    content 与 tool_calls 内嵌 content 重复；``tool_result`` 插到头部作为该消息的标识。
+
+    ``tool_result_content`` 决定 TOOL 消息的正文挂在哪一行（这是两处调用点唯一的有意差异）；
+    正文始终**只写一次**：
+      - ``False``（compressor）—— 正文挂角色行 ``tool: <content>``，标识行只写
+        ``tool_result(<id>):``。其返回值同时充当 token 估算输入，须与
+        :func:`heagent.context.tokens.count_tokens` 对 TOOL 消息的口径对齐。
+      - ``True``（window reset）—— 正文并入标识行 ``tool_result(<id>): <content>``，不再另写
+        角色行。
+
+    2026-09-15 修复：``True`` 分支此前「标识行带正文 + 角色行再带一次」，工具正文被重复计入
+    摘要输入（既浪费 token，也让模型读到重复内容）。
+
+    返回空列表表示该消息无可用内容，调用方应跳过它（不写入摘要）。
+    """
+    parts: list[str] = []
+    tool_result_marker = message.role == Role.TOOL and bool(message.tool_call_id)
+    # 工具结果的正文只写一次：并入标识行（True）或留在角色行（False），二者不并用。
+    if message.content and not (tool_result_marker and tool_result_content):
+        parts.append(f"{message.role.value}: {message.content}")
+    if message.tool_calls:
+        for call in message.tool_calls:
+            parts.append(f"tool_call: {call.name}({json.dumps(call.arguments, ensure_ascii=False)})")
+    if tool_result_marker:
+        suffix = f" {message.content or ''}" if tool_result_content else ""
+        parts.insert(0, f"tool_result({message.tool_call_id}):{suffix}")
+    return parts
+
+
 class ContextCompressor:
     """上下文压缩器，使用 LLM 摘要旧的对话消息以释放 Token 空间。"""
 
@@ -173,17 +211,9 @@ class ContextCompressor:
 
         # 从末尾向前取消息（最新消息最重要），直到接近安全阈值（或不截断时全部取出）
         for m in reversed(messages):
-            # 用 parts 列表组装消息文本：先 content（含角色前缀）、再逐条 tool_call
-            # ——避免 content 与 tool_calls 内嵌 content 重复（P1-1 修复）。
-            parts: list[str] = []
-            if m.content:
-                parts.append(f"{m.role.value}: {m.content}")
-            if m.tool_calls:
-                for tc in m.tool_calls:
-                    parts.append(f"tool_call: {tc.name}({json.dumps(tc.arguments, ensure_ascii=False)})")
-            # tool_call_id 的 token 开销（TOOL 消息标识，与 tokens.py count_tokens 对齐）
-            if m.role == Role.TOOL and m.tool_call_id:
-                parts.insert(0, f"tool_result({m.tool_call_id}):")
+            # 组装走共用序列化（与 WindowReset 同一实现）；tool_result 只留标识符，
+            # 因其返回值同时用于 token 估算，须与 tokens.count_tokens 的 TOOL 口径对齐。
+            parts = render_message_for_summary(m, tool_result_content=False)
             if not parts:
                 continue
             text = "\n".join(parts)

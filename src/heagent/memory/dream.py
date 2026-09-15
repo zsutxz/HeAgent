@@ -25,9 +25,10 @@ DAG 合规：本模块属 ``memory/``，**不依赖 ``agent/``**（硬约束：�
 dreaming = 无人监督 + 联网（``web_fetch``）+ 改持久记忆。比交互式更危险——被污染的网页内容
 可经 prompt injection 写入记忆库，**影响后续所有会话**（攻击面是持久的、跨会话的）。
 ``PolicyEngine``/``RoleSpec`` 工具白名单均**非真正安全边界**（defense-in-depth 标记/拦截，非真正隔离）。
-⚠ ``web_fetch`` 返回内容**当前不经** guard_content（仅 MCP 工具返回经 ``bridge_result`` 围栏）——dreamer
-联网结果直接进 LLM 上下文，注入**无围栏**（端到端接入 deferred，见 ``deferred-work.md``）。两处均
-须 OS 级沙箱兜底；OS 沙箱就绪后 dreamer 须迁移进沙箱。
+⚠ ``web_fetch`` 返回内容**已接** ``guard_content`` 启发式围栏（2026-09-15 勘误：此处曾记「当前不经
+guard_content、端到端接入 deferred」，实际 ``tools/builtins/web.py`` 早已接入，``test_dream.py`` AC6
+覆盖）——命中注入签名仅加 warning 标记后**透传、不阻断**，故仍属「不可信内容进 LLM 上下文」。
+均须 OS 级沙箱兜底；OS 沙箱就绪后 dreamer 须迁移进沙箱。
 本模块不制造「dreaming 已安全」假象。
 """
 
@@ -44,15 +45,13 @@ from typing import TYPE_CHECKING
 from heagent.config import Settings, get_settings
 from heagent.cron.expr import cron_matches
 from heagent.engine import EngineContainer
+from heagent.task_shutdown import DEFAULT_STOP_TIMEOUT, await_task_stop, retrieve_task_exception
 
 if TYPE_CHECKING:
     from heagent.context.session import SessionStore
     from heagent.engine.observability import EngineEvent
 
 logger = logging.getLogger(__name__)
-
-# stop() 关停硬上界（task 挂死兜底）——对齐 CronScheduler._DEFAULT_STOP_TIMEOUT / MCP shutdown。
-_DEFAULT_STOP_TIMEOUT: float = 5.0
 
 # 预注入 prompt 中单个 session 的消息内容截断上限（字符），避免 prompt 过大。
 _SESSION_MSG_CHAR_CAP: int = 800
@@ -61,19 +60,13 @@ _SESSION_MSG_COUNT_CAP: int = 20
 
 
 def _retrieve_task_exception(task: asyncio.Task[None]) -> None:
-    """done callback：取回关停超时后孤儿 task 的异常，避免 asyncio「Task exception was never retrieved」。
+    """done callback：取回关停超时后孤儿 task 的异常（实现见 ``heagent.task_shutdown``）。
 
-    ``_await_stop`` 超时分支放弃等待后，孤儿 task 仍在事件循环中收尾；若其终态带异常
-    （``_tick_loop`` 的 ``except Exception`` 之外的 BaseException 路径），未取回会触发警告。
-    本 callback 在 task 终态被调用：cancelled task 无需 retrieve（且 ``task.exception()``
-    对 cancelled task 会抛 ``CancelledError``，须守卫），其余取非 None 异常记 ERROR 并标记 retrieved。
-    对齐 ``cron/scheduler.py`` 同名 helper（同构预存模式，不跨包共享以免引新边）。
+    保留本薄包装而非直接传 ``functools.partial``：``add_done_callback`` 因此拿到签名严格为
+    ``(task) -> None`` 的可调用对象，同时保住 ``owner`` 日志前缀；两侧同名薄包装也让
+    ``test_cron.py`` / ``test_dream.py`` 继续断言「cron 与 dream 对称」。
     """
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc is not None:
-        logger.error("Dream scheduler 关停后的孤儿 task 抛出未处理异常: %r", exc)
+    retrieve_task_exception(task, owner="Dream scheduler")
 
 
 @dataclass(slots=True)
@@ -111,7 +104,7 @@ class DreamScheduler:
         session_store: SessionStore | None = None,
         settings: Settings | None = None,
         tick_seconds: float | None = None,
-        stop_timeout: float = _DEFAULT_STOP_TIMEOUT,
+        stop_timeout: float = DEFAULT_STOP_TIMEOUT,
     ) -> None:
         if stop_timeout <= 0:
             # 非正值会让 _await_stop 的 wait 立即返回（task 仍 pending）→ 不给 cancel 任何收尾
@@ -203,21 +196,16 @@ class DreamScheduler:
     async def _await_stop(self, task: asyncio.Task[None]) -> None:
         """带硬上界等待 scheduler task 退出；立即 cancel 后单轮 bounded 收尾，绝不无限阻塞。
 
-        对齐 :meth:`CronScheduler._await_stop` 的同构关停立场（立即 cancel + bounded wait +
-        超时记 ERROR 放弃）；超时分支另挂 done callback 取回孤儿 task 异常（避免「Task exception
+        走 ``heagent.task_shutdown.await_task_stop``（与
+        :class:`~heagent.cron.scheduler.CronScheduler` 共用同一内核）：立即 cancel + bounded wait +
+        超时记 ERROR 放弃；超时分支另挂 done callback 取回孤儿 task 异常（避免「Task exception
         was never retrieved」）。
         """
-        task.cancel()
-        _, pending = await asyncio.wait({task}, timeout=self._stop_timeout)
-        if pending:
+        if await await_task_stop(task, timeout=self._stop_timeout, owner="Dream scheduler"):
             # 孤儿 task：已 cancel 但窗口内未退出。挂 done callback 取回 exception（标记 retrieved），
             # 避免「Task exception was never retrieved」；清 _task 释放引用，余下收尾交事件循环/GC/OS 进程退出。
             task.add_done_callback(_retrieve_task_exception)
             self._task = None
-            logger.error(
-                "Dream scheduler 关停超时（%ss），task 未退出，放弃等待",
-                self._stop_timeout,
-            )
 
     # ------------------------------------------------------------------
     # tick 循环（双触发共用）

@@ -21,7 +21,6 @@ from heagent.agent.middleware import make_retry_middleware
 from heagent.cli_display import (
     _echo_status,
     _format_status,
-    _format_tokens_k,  # noqa: F401
     _LineState,
     _print_banner,
     _print_stream_event,
