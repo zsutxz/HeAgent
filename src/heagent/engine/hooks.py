@@ -154,6 +154,28 @@ class HookManager:
             matched.append(hook)
         return matched
 
+    async def _terminate_process_tree(self, proc: asyncio.subprocess.Process) -> None:
+        """Terminate a hook process tree."""
+        with suppress(ProcessLookupError, PermissionError):
+            if sys.platform == "win32":
+                killer = await asyncio.create_subprocess_exec(
+                    "taskkill",
+                    "/PID",
+                    str(proc.pid),
+                    "/T",
+                    "/F",
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                await killer.wait()
+            else:
+                os.killpg(proc.pid, signal.SIGKILL)
+
+    async def _terminate_and_reap(self, proc: asyncio.subprocess.Process) -> None:
+        """Terminate a hook process tree and close its pipe transports."""
+        await self._terminate_process_tree(proc)
+        await proc.communicate()
+
     async def _run(self, hook: HookConfig, *, tool_name: str, run_context: RunContext | None) -> tuple[int, str]:
         """执行一条 hook 命令，返回 (退出码, stdout)。执行异常 / 超时返回 (1, 说明)。"""
         env = {k: v for k, v in os.environ.items() if k.startswith("HEAGENT_") or k in _ENV_ALLOWLIST}
@@ -161,6 +183,7 @@ class HookManager:
         if run_context is not None:
             env["HEAGENT_RUN_ID"] = run_context.run_id
             env["HEAGENT_SESSION_ID"] = run_context.session_id or ""
+        proc: asyncio.subprocess.Process | None = None
         try:
             kwargs: dict[str, Any] = {}
             if sys.platform != "win32":
@@ -182,22 +205,17 @@ class HookManager:
             #   stdout 管道使 wait() 挂到孙进程退出——挂死的 hook 每次触发都泄漏进程。
             # - Windows 用 taskkill /T 按树终止；POSIX 用 killpg 杀整个进程组。
             # 竞态下进程组恰已消亡则跳过（ProcessLookupError / Windows 已退出竞态）。
-            with suppress(ProcessLookupError, PermissionError):
-                if sys.platform == "win32":
-                    killer = await asyncio.create_subprocess_exec(
-                        "taskkill",
-                        "/PID",
-                        str(proc.pid),
-                        "/T",
-                        "/F",
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
-                    )
-                    await killer.wait()
-                else:
-                    os.killpg(proc.pid, signal.SIGKILL)
+            if proc is not None:
+                await self._terminate_process_tree(proc)
                 await proc.wait()
             return 1, "hook timed out"
+        except asyncio.CancelledError:
+            if proc is not None:
+                try:
+                    await self._terminate_and_reap(proc)
+                except BaseException:
+                    logger.debug("cancel cleanup: hook subprocess/pipe may leak", exc_info=True)
+            raise
         except Exception:  # noqa: BLE001 - hook 命令崩溃视为失败（fail-safe 阻断）
             logger.exception("Hook failed (%s): %s", hook.event, hook.command)
             return 1, "hook failed"

@@ -190,8 +190,8 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
             with suppress(ProcessLookupError):
                 proc.kill()
     except OSError:
-        logger.warning("kill failed; still attempt wait to reap pipe FD", exc_info=True)
-    await asyncio.wait_for(proc.wait(), timeout=_REAP_WAIT_TIMEOUT)
+        logger.warning("kill failed; still attempt pipe cleanup", exc_info=True)
+    await asyncio.wait_for(proc.communicate(), timeout=_REAP_WAIT_TIMEOUT)
 
 
 def _validate_timeout(timeout: int) -> None:

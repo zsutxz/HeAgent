@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -203,6 +204,38 @@ class TestHookTimeout:
         pid = int(pid_file.read_text().strip())
         with pytest.raises(ProcessLookupError):
             os.kill(pid, 0)  # 进程已被 kill → 探活必失败
+
+    @pytest.mark.asyncio
+    async def test_cancellation_reaps_hook_pipes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        class _FakeProc:
+            pid = 123
+
+            def __init__(self) -> None:
+                self.communicate_calls = 0
+
+            async def communicate(self) -> tuple[bytes, bytes]:
+                self.communicate_calls += 1
+                if self.communicate_calls == 1:
+                    await asyncio.Event().wait()
+                return b"", b""
+
+        proc = _FakeProc()
+
+        async def fake_shell(*args, **kwargs):
+            return proc
+
+        monkeypatch.setattr(asyncio, "create_subprocess_shell", fake_shell)
+        monkeypatch.setattr("heagent.engine.hooks.sys.platform", "linux")
+        monkeypatch.setattr("heagent.engine.hooks.signal.SIGKILL", 9, raising=False)
+        monkeypatch.setattr("heagent.engine.hooks.os.killpg", lambda *args: None, raising=False)
+
+        manager = HookManager([HookConfig(event="SessionStart", command="blocker")])
+        task = asyncio.create_task(manager.run_session("SessionStart"))
+        await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert proc.communicate_calls == 2
 
 
 class TestHookEnvWhitelist:

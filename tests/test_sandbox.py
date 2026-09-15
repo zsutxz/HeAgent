@@ -135,9 +135,12 @@ class TestPassthroughRunner:
             def __init__(self) -> None:
                 self.returncode = 0
                 self.killed = False
-                self.waited = False
+                self.communicate_calls = 0
 
             async def communicate(self) -> tuple[bytes, bytes]:
+                self.communicate_calls += 1
+                if self.communicate_calls > 1:
+                    return b"", b""
                 await asyncio.sleep(1000)  # 阻塞到被取消
                 return b"", b""
 
@@ -161,7 +164,7 @@ class TestPassthroughRunner:
         with pytest.raises(asyncio.CancelledError):
             await task
         assert proc.killed, "CancelledError 路径未 kill 子进程"
-        assert proc.waited, "CancelledError 路径未 wait 回收"
+        assert proc.communicate_calls == 2, "CancelledError 路径未再次 communicate 回收管道"
 
     @pytest.mark.asyncio
     async def test_cancel_survives_reap_error(
@@ -308,18 +311,17 @@ class TestPassthroughRunner:
 
         class _FakeProc(_FakeProcBase):
             def __init__(self) -> None:
-                self.waited = False
+                self.communicate_calls = 0
 
             async def communicate(self) -> tuple[bytes, bytes]:
+                self.communicate_calls += 1
+                if self.communicate_calls > 1:
+                    return b"", b""
                 await asyncio.sleep(1000)  # 阻塞到被取消
                 return b"", b""
 
             def kill(self) -> None:
                 raise PermissionError("simulated kill failure")  # 逃出 suppress(PLE)
-
-            async def wait(self) -> int:
-                self.waited = True
-                return 0
 
         proc = _FakeProc()
 
@@ -336,7 +338,7 @@ class TestPassthroughRunner:
             pytest.raises(asyncio.CancelledError),
         ):
             await task
-        assert proc.waited, "kill 失败后 wait() 仍应执行回收 pipe FD（item 3 解耦）"
+        assert proc.communicate_calls == 2, "kill 失败后仍应 communicate 回收管道"
         assert any(rec.levelno == logging.WARNING and "kill failed" in rec.getMessage() for rec in caplog.records), (
             "kill 失败应记 warning 日志（item 3 observability ~ 需人工关注非预期 kill 失败）"
         )
@@ -389,6 +391,9 @@ class TestPassthroughRunner:
         monkeypatch.setattr("os.killpg", lambda pid, sig: killpg_calls.append((pid, sig)), raising=False)
 
         class _FakeProc(_FakeProcBase):
+            async def communicate(self) -> tuple[bytes, bytes]:
+                return b"", b""
+
             async def wait(self) -> int:
                 return 0
 
@@ -537,18 +542,17 @@ class TestFirejailBackend:
 
         class _FakeProc(_FakeProcBase):
             def __init__(self) -> None:
-                self.waited = False
+                self.communicate_calls = 0
 
             async def communicate(self) -> tuple[bytes, bytes]:
+                self.communicate_calls += 1
+                if self.communicate_calls > 1:
+                    return b"", b""
                 await asyncio.sleep(1000)  # 阻塞到被取消
                 return b"", b""
 
             def kill(self) -> None:
                 raise PermissionError("simulated kill failure")  # 逃出 suppress(PLE)
-
-            async def wait(self) -> int:
-                self.waited = True
-                return 0
 
         proc = _FakeProc()
 
@@ -566,7 +570,7 @@ class TestFirejailBackend:
             pytest.raises(asyncio.CancelledError),
         ):
             await task
-        assert proc.waited, "kill 失败后 wait() 仍应执行回收 pipe FD（item 3 解耦）"
+        assert proc.communicate_calls == 2, "kill 失败后仍应 communicate 回收管道"
         assert any(rec.levelno == logging.WARNING and "kill failed" in rec.getMessage() for rec in caplog.records), (
             "kill 失败应记 warning 日志（item 3 observability ~ 需人工关注非预期 kill 失败）"
         )

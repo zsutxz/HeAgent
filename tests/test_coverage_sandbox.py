@@ -79,18 +79,17 @@ class TestRunSubprocessShellCancelled:
         class _FakeProc(_FakeProcBase):
             def __init__(self) -> None:
                 self.killed = False
-                self.waited = False
+                self.communicate_calls = 0
 
             async def communicate(self) -> tuple[bytes, bytes]:
+                self.communicate_calls += 1
+                if self.communicate_calls > 1:
+                    return b"", b""
                 await asyncio.sleep(1000)  # 阻塞到被取消
                 return b"", b""
 
             def kill(self) -> None:
                 self.killed = True
-
-            async def wait(self) -> int:
-                self.waited = True
-                return 0
 
         proc = _FakeProc()
 
@@ -106,7 +105,7 @@ class TestRunSubprocessShellCancelled:
             with pytest.raises(asyncio.CancelledError):
                 await task
             assert proc.killed, "CancelledError 分支须 kill 子进程"
-            assert proc.waited, "CancelledError 分支须 wait 回收"
+            assert proc.communicate_calls == 2, "CancelledError 分支须 communicate 回收管道"
         finally:
             monkeypatch.undo()
 
@@ -157,18 +156,17 @@ class TestRunSubprocessShellCancelled:
         class _FakeProc(_FakeProcBase):
             def __init__(self) -> None:
                 self.killed = False
-                self.waited = False
+                self.communicate_calls = 0
 
             async def communicate(self) -> tuple[bytes, bytes]:
+                self.communicate_calls += 1
+                if self.communicate_calls > 1:
+                    return b"", b""
                 await asyncio.sleep(1000)  # 触发 timeout=0.05
                 return b"", b""
 
             def kill(self) -> None:
                 self.killed = True
-
-            async def wait(self) -> int:
-                self.waited = True
-                return 0
 
         proc = _FakeProc()
 
@@ -182,7 +180,7 @@ class TestRunSubprocessShellCancelled:
             assert "exit_code=-1" in result
             assert "timed out" in result
             assert proc.killed
-            assert proc.waited
+            assert proc.communicate_calls == 2
         finally:
             monkeypatch.undo()
 
@@ -206,18 +204,17 @@ class TestRunSubprocessExecCancelled:
         class _FakeProc(_FakeProcBase):
             def __init__(self) -> None:
                 self.killed = False
-                self.waited = False
+                self.communicate_calls = 0
 
             async def communicate(self) -> tuple[bytes, bytes]:
+                self.communicate_calls += 1
+                if self.communicate_calls > 1:
+                    return b"", b""
                 await asyncio.sleep(1000)
                 return b"", b""
 
             def kill(self) -> None:
                 self.killed = True
-
-            async def wait(self) -> int:
-                self.waited = True
-                return 0
 
         proc = _FakeProc()
 
@@ -233,7 +230,7 @@ class TestRunSubprocessExecCancelled:
             with pytest.raises(asyncio.CancelledError):
                 await task
             assert proc.killed
-            assert proc.waited
+            assert proc.communicate_calls == 2
         finally:
             monkeypatch.undo()
 
@@ -279,18 +276,17 @@ class TestRunSubprocessExecCancelled:
         class _FakeProc(_FakeProcBase):
             def __init__(self) -> None:
                 self.killed = False
-                self.waited = False
+                self.communicate_calls = 0
 
             async def communicate(self) -> tuple[bytes, bytes]:
+                self.communicate_calls += 1
+                if self.communicate_calls > 1:
+                    return b"", b""
                 await asyncio.sleep(1000)
                 return b"", b""
 
             def kill(self) -> None:
                 self.killed = True
-
-            async def wait(self) -> int:
-                self.waited = True
-                return 0
 
         proc = _FakeProc()
 
@@ -304,7 +300,7 @@ class TestRunSubprocessExecCancelled:
             assert "exit_code=-1" in result
             assert "timed out" in result
             assert proc.killed
-            assert proc.waited
+            assert proc.communicate_calls == 2
         finally:
             monkeypatch.undo()
 

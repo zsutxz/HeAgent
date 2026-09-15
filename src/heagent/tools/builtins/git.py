@@ -37,7 +37,7 @@ async def _run_git(*args: str, cwd: Path | None = None) -> str:
         # wait_for 仅取消 await、不杀子进程——须显式终止防僵尸，再报超时
         try:
             proc.kill()
-            await proc.wait()
+            await proc.communicate()
         except ProcessLookupError:
             pass
         except Exception:
@@ -47,7 +47,7 @@ async def _run_git(*args: str, cwd: Path | None = None) -> str:
         # P1-5 修复：CancelledError 单独捕获，kill+reap 子进程防僵尸泄漏
         try:
             proc.kill()
-            await proc.wait()
+            await proc.communicate()
         except (ProcessLookupError, Exception):
             pass
         raise
