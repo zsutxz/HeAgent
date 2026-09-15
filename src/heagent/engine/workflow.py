@@ -535,6 +535,35 @@ class WorkflowOrchestrator:
             return False
         return target in cls._TRANSITIONS[state.phase]
 
+    @staticmethod
+    def _require_text(value: str, message: str) -> str:
+        """校验必填的非空文本参数（非 str / 空白即抛），返回原值便于链式调用。"""
+        if not isinstance(value, str) or not value.strip():
+            raise WorkflowTransitionError(message)
+        return value
+
+    @staticmethod
+    def _guard_terminal(state: GoalWorkflowState, verb: str) -> None:
+        """终态流程（DONE / COMPLETED / BLOCKED / FAILED）不允许再迁移。"""
+        if state.phase is WorkflowPhase.DONE or state.status in {
+            WorkflowStatus.COMPLETED,
+            WorkflowStatus.BLOCKED,
+            WorkflowStatus.FAILED,
+        }:
+            raise WorkflowTransitionError(f"cannot {verb} a terminal workflow")
+
+    @staticmethod
+    def _transition(state: GoalWorkflowState, **update: object) -> GoalWorkflowState:
+        """深拷贝 + 打时间戳 + 重新校验，产出迁移后的新状态。
+
+        所有状态迁移共用（``transition`` / ``wait_for_user`` / ``block`` / ``fail``）——原来四处各写
+        一遍 ``model_copy(deep=True, update={..., "updated_at": _iso_now()})``，漏掉一处时间戳即静默
+        产出「时间没动」的状态。
+        """
+        return GoalWorkflowState.model_validate(
+            state.model_copy(deep=True, update={**update, "updated_at": _iso_now()})
+        )
+
     @classmethod
     def transition(
         cls,
@@ -550,8 +579,7 @@ class WorkflowOrchestrator:
                 target = WorkflowPhase(target)
             except (TypeError, ValueError) as exc:
                 raise WorkflowTransitionError(f"unknown target phase: {target!r}") from exc
-        if not isinstance(reason, str) or not reason.strip():
-            raise WorkflowTransitionError("transition reason is required")
+        WorkflowOrchestrator._require_text(reason, "transition reason is required")
         if state.status not in {WorkflowStatus.PENDING, WorkflowStatus.RUNNING}:
             raise WorkflowTransitionError(f"cannot transition a {state.status.value} workflow")
         if preconditions_met is not True:
@@ -559,87 +587,49 @@ class WorkflowOrchestrator:
         if not cls.can_transition(state, target):
             raise WorkflowTransitionError(f"illegal workflow transition: {state.phase.value} -> {target.value}")
         status = WorkflowStatus.COMPLETED if target is WorkflowPhase.DONE else WorkflowStatus.RUNNING
-        return GoalWorkflowState.model_validate(
-            state.model_copy(
-                deep=True,
-                update={
-                    "phase": target,
-                    "status": status,
-                    "blocked_reason": None,
-                    "transition_reason": reason,
-                    "next_action": "",
-                    "updated_at": _iso_now(),
-                },
-            )
+        return cls._transition(
+            state,
+            phase=target,
+            status=status,
+            blocked_reason=None,
+            transition_reason=reason,
+            next_action="",
         )
 
     @staticmethod
     def wait_for_user(state: GoalWorkflowState, prompt: str) -> GoalWorkflowState:
         """Pause at the current step while retaining an explicit recovery prompt."""
-        if not isinstance(prompt, str) or not prompt.strip():
-            raise WorkflowTransitionError("waiting prompt is required")
-        if state.phase is WorkflowPhase.DONE or state.status in {
-            WorkflowStatus.COMPLETED,
-            WorkflowStatus.BLOCKED,
-            WorkflowStatus.FAILED,
-        }:
-            raise WorkflowTransitionError("cannot wait on a terminal workflow")
-        return GoalWorkflowState.model_validate(
-            state.model_copy(
-                deep=True,
-                update={
-                    "status": WorkflowStatus.WAITING_USER,
-                    "next_action": prompt,
-                    "transition_reason": prompt,
-                    "updated_at": _iso_now(),
-                },
-            )
+        WorkflowOrchestrator._require_text(prompt, "waiting prompt is required")
+        WorkflowOrchestrator._guard_terminal(state, "wait")
+        return WorkflowOrchestrator._transition(
+            state,
+            status=WorkflowStatus.WAITING_USER,
+            next_action=prompt,
+            transition_reason=prompt,
         )
 
     @staticmethod
     def block(state: GoalWorkflowState, reason: str) -> GoalWorkflowState:
         """Mark a workflow blocked without changing its phase or board state."""
-        if not isinstance(reason, str) or not reason.strip():
-            raise WorkflowTransitionError("blocked reason is required")
-        if state.phase is WorkflowPhase.DONE or state.status in {
-            WorkflowStatus.COMPLETED,
-            WorkflowStatus.BLOCKED,
-            WorkflowStatus.FAILED,
-        }:
-            raise WorkflowTransitionError("cannot block a terminal workflow")
-        return GoalWorkflowState.model_validate(
-            state.model_copy(
-                deep=True,
-                update={
-                    "status": WorkflowStatus.BLOCKED,
-                    "blocked_reason": reason,
-                    "transition_reason": reason,
-                    "next_action": reason,
-                    "updated_at": _iso_now(),
-                },
-            )
+        WorkflowOrchestrator._require_text(reason, "blocked reason is required")
+        WorkflowOrchestrator._guard_terminal(state, "block")
+        return WorkflowOrchestrator._transition(
+            state,
+            status=WorkflowStatus.BLOCKED,
+            blocked_reason=reason,
+            transition_reason=reason,
+            next_action=reason,
         )
 
     @staticmethod
     def fail(state: GoalWorkflowState, reason: str) -> GoalWorkflowState:
         """Mark a workflow failed without fabricating a completed phase."""
-        if not isinstance(reason, str) or not reason.strip():
-            raise WorkflowTransitionError("failure reason is required")
-        if state.phase is WorkflowPhase.DONE or state.status in {
-            WorkflowStatus.COMPLETED,
-            WorkflowStatus.BLOCKED,
-            WorkflowStatus.FAILED,
-        }:
-            raise WorkflowTransitionError("cannot fail a terminal workflow")
-        return GoalWorkflowState.model_validate(
-            state.model_copy(
-                deep=True,
-                update={
-                    "status": WorkflowStatus.FAILED,
-                    "blocked_reason": reason,
-                    "transition_reason": reason,
-                    "next_action": reason,
-                    "updated_at": _iso_now(),
-                },
-            )
+        WorkflowOrchestrator._require_text(reason, "failure reason is required")
+        WorkflowOrchestrator._guard_terminal(state, "fail")
+        return WorkflowOrchestrator._transition(
+            state,
+            status=WorkflowStatus.FAILED,
+            blocked_reason=reason,
+            transition_reason=reason,
+            next_action=reason,
         )
