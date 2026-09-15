@@ -612,7 +612,7 @@ def _goal_declarative_prompt(
     validation_rules: str = "",
     declared_inputs: str = "",
 ) -> str:
-    role = _goal_role_instructions(step_name)
+    role = _goal_role_instructions(workflow, step_name)
     gate = _goal_gate_requirements(validation_rules)
     gate_block = f"{gate}\n\n" if gate else ""
     supplied_inputs = "\n\n".join(f"## {name}\n{value}" for name, value in _dedupe_inputs(inputs, declared_inputs))
@@ -658,10 +658,15 @@ def _goal_load_stories(goal_dir: Path, step: Any) -> list[Any]:
     return parse_story_list(path.read_text(encoding="utf-8"))
 
 
-def _goal_role_instructions(step_name: str) -> str:
-    """Load the role contract assigned to a workflow step."""
-    workflow = _goal_declarative_workflow()
-    role_name = next((step.role for step in workflow.steps if step.name == step_name), "") if workflow else ""
+def _goal_role_instructions(workflow: WorkflowResource, step_name: str) -> str:
+    """Load the role contract assigned to a workflow step.
+
+    角色在**传入的 workflow** 上查——此前这里按 step 名重载全局 ``_goal_declarative_workflow()``，
+    而调用方本来就持有 workflow：等于把参数静默替换成另一份来源。后果是测试传合成 workflow 时
+    仍按**真实** workflow 解析 role，从而依赖本机 ``.heagent/skills/`` 技能库（该目录 gitignore），
+    在干净检出（CI）上必然报 "workflow role ... is unavailable" 而红。
+    """
+    role_name = next((step.role for step in workflow.steps if step.name == step_name), "")
     if not role_name:
         return "No specialized BMad role assigned."
     # Legacy workflow steps may still declare the pre-rename he-agent-* role
