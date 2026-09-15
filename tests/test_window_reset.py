@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
@@ -27,7 +28,7 @@ from heagent.context.compressor import ContextCompressor, STRUCTURED_SUMMARY_PRO
 from heagent.context.window_reset import WindowReset, WindowResetConfig
 from heagent.engine.container import EngineContainer
 from heagent.engine.context import RunContext, RunStatus
-from heagent.engine.ledger import ExecutionLedger
+from heagent.engine.ledger import ExecutionLedger, _lease_deadline
 from heagent.engine.store import RunStore
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
@@ -407,20 +408,62 @@ def _short_lease(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(tool_execution, "_LEDGER_LEASE_RENEW_INTERVAL", 0.2)
 
 
+def test_lease_deadline_keeps_sub_second_precision() -> None:
+    """租约到期时刻必须保留亚秒精度。
+
+    秒级截断（``timespec="seconds"``）会把记录的实际有效期压成「到下一个整秒边界为止」——最多 1s、
+    最少 0s；1s 量级租约下等于吃掉一半以上窗口，续租稍晚即被判成过期 RUNNING 孤儿而删掉
+    （曾使整套测试约半数概率红，见 :func:`_await_valid_lease`）。
+    """
+    now = datetime.now(tz=UTC)
+    parsed = datetime.fromisoformat(_lease_deadline(1))
+    assert parsed.tzinfo is not None
+    # 上界留 10ms 容差：两次取时有微秒级间隔（实测 3µs），断言的是「未被截断到整秒边界」。
+    assert 0.9 < (parsed - now).total_seconds() <= 1.01
+
+
+async def _await_valid_lease(ledger: ExecutionLedger, key: str, *, timeout: float = 10.0) -> None:
+    """等到记录被续租到「此刻之后仍有效」为止（最多 ``timeout`` 秒）。
+
+    为什么不等固定墙钟：CI / 满载机器上事件循环可能被饿住 >1s，固定 ``sleep`` 会在「一次续租都
+    没轮到」时就断言，把负载假红当成代码缺陷（实测：与 mypy 同批执行、以及覆盖率插桩下均可复现）。
+    这里把等待交给「租约确实被推后」这一事实——机器慢只表现为等得久，不再误报。
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        record = await ledger.get(key)
+        assert record is not None, f"record {key} vanished while the tool was in flight"
+        assert record.status.value == "running", f"tool finished before renewal was observed ({record.status.value})"
+        # 与判定侧同精度比较（ledger 写微秒 ISO）；这里统一成 aware 再比，避免 naive/aware 混比。
+        expires = record.lease_expires_at or ""
+        if expires:
+            lease_deadline = datetime.fromisoformat(expires)
+            if lease_deadline.tzinfo is None:
+                lease_deadline = lease_deadline.replace(tzinfo=UTC)
+            if lease_deadline > datetime.now(tz=UTC):
+                return
+        assert loop.time() < deadline, f"lease for {key} was not renewed within {timeout}s"
+        await asyncio.sleep(0.05)
+
+
 @pytest.mark.usefixtures("_short_lease")
 async def test_inflight_tool_call_keeps_its_lease_fresh(tmp_path) -> None:
     """在途续租：长时工具跑超租约时，其它进程的 prune 删不掉它的记录。
 
-    时序复刻线上故障——1s 租约 + 1.6s 工具，在 1.25s（已超原始租约、但**仍未跑完**）
-    执行 prune；若未续租，此时记录会被当作过期孤儿删掉。
+    时序复刻线上故障——1s 租约 + 3s 工具：越过原始租约之后（1.1s，此刻工具必仍在途）**先等到
+    续租把租约推后**，再执行 prune；若未续租，此时记录会被当作过期孤儿删掉。等待不依赖固定
+    墙钟（见 :func:`_await_valid_lease`），否则满载机器上会因「一次续租都没轮到」而假红。
     """
-    registry, counter = _slow_registry(1.6)
+    registry, counter = _slow_registry(3.0)
     loop = AgentLoop(_StubProvider([]), registry=registry, engine=_engine(tmp_path))
     rc = RunContext()
     call = ToolCall(id="s1", name="slow", arguments={})
 
     task = asyncio.create_task(loop._execute_one(call, run_context=rc))
-    await asyncio.sleep(1.25)
+    key = f"{rc.run_id}:{call.id}"
+    await asyncio.sleep(1.1)
+    await _await_valid_lease(loop.engine.ledger, key)
     # 前置断言：此刻记录确实还是 RUNNING（否则 prune 测试会因「已经终态」而假通过）。
     inflight = await loop.engine.ledger.get(f"{rc.run_id}:{call.id}")
     assert inflight is not None and inflight.status.value == "running"

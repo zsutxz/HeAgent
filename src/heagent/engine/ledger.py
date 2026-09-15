@@ -104,6 +104,18 @@ def _parse_iso_to_naive(raw: str) -> datetime:
 # ── 账本 ─────────────────────────────────────────────────────────
 
 
+def _lease_deadline(lease_seconds: int) -> str:
+    """租约到期时刻（ISO，naive UTC，**微秒精度**）。
+
+    精度必须到微秒：判定侧（``_is_lease_active`` / ``_is_path_stale``）拿微秒精度的
+    ``datetime.now(tz=UTC)`` 比较；若这里按秒截断，记录的实际有效期就变成「到下一个整秒边界
+    为止」——最多 1s、最少 0s。1s 量级租约（``_LEDGER_LEASE_SECONDS=1`` 的测试场景）下等于把
+    窗口吃掉一半以上，续租稍晚即被判成「过期 RUNNING 孤儿」而删掉（实测：整套测试约半数概率红）。
+    生产 120s 租约下截断虽只占 <1%，语义同样是错的——记录报的到期时刻比实际早。
+    """
+    return (datetime.now(tz=UTC) + timedelta(seconds=lease_seconds)).isoformat(timespec="microseconds")
+
+
 class ExecutionLedger:
     """JSON 文件后端、防重复执行的幂等账本。"""
 
@@ -156,9 +168,7 @@ class ExecutionLedger:
             record.finished_at = None
             record.error = None
             record.metadata = dict(metadata or {})
-            record.lease_expires_at = (datetime.now(tz=UTC) + timedelta(seconds=lease_seconds)).isoformat(
-                timespec="seconds"
-            )
+            record.lease_expires_at = _lease_deadline(lease_seconds)
             await self._save(record)
             return LedgerClaim(acquired=True, record=record)
 
@@ -246,9 +256,7 @@ class ExecutionLedger:
             if record is None or record.status != ExecutionStatus.RUNNING:
                 return None
             record.updated_at = iso_now()
-            record.lease_expires_at = (datetime.now(tz=UTC) + timedelta(seconds=lease_seconds)).isoformat(
-                timespec="seconds"
-            )
+            record.lease_expires_at = _lease_deadline(lease_seconds)
             await self._save(record)
             return record
 
