@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from heagent.exceptions import ProviderError
 from heagent.providers.base import BaseProvider, ProviderMetadata, ProviderSummary
-from heagent.providers.retry import ErrorCategory, classify_exception, wrap_provider_error
+from heagent.providers.retry import classify_exception, is_pool_fallback_error, wrap_provider_error
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -143,14 +143,6 @@ class SwitchableProvider:
         """返回 provider 名称列表：活跃优先，其余保持注册顺序。"""
         return [self._active] + [n for n in self._providers if n != self._active]
 
-    @staticmethod
-    def _is_fallback_error(error: Exception) -> bool:
-        """判断是否应触发自动回退（RATE_LIMITED 或 TRANSIENT）。
-
-        仅这两类错误会在切换 provider 后好转；AUTH_FAILED / NON_TRANSIENT 不回退。
-        """
-        return classify_exception(error) in (ErrorCategory.RATE_LIMITED, ErrorCategory.TRANSIENT)
-
     def _note_fallback(self, from_name: str, to_name: str) -> None:
         """记录自动回退并粘性停留到新 provider。"""
         logger.warning(
@@ -187,7 +179,7 @@ class SwitchableProvider:
                         self._active = name  # 粘性停留
                     return resp
                 except Exception as e:
-                    if not self._is_fallback_error(e):
+                    if not is_pool_fallback_error(e):
                         raise
                     logger.warning("Provider '%s' unavailable (%s), trying next...", name, classify_exception(e).value)
                     last_error = e
@@ -238,7 +230,7 @@ class SwitchableProvider:
                     async with self._lock:
                         self._active = active_before
                     raise
-                if not self._is_fallback_error(e):
+                if not is_pool_fallback_error(e):
                     raise
                 logger.warning(
                     "Provider '%s' stream unavailable (%s), trying next...",

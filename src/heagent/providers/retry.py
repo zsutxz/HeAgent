@@ -5,6 +5,18 @@
   - AUTH_FAILED (401/403): 认证失败，不重试（需修正密钥）
   - TRANSIENT (5xx/超时): 临时错误，使用指数退避 + 随机抖动重试
   - NON_TRANSIENT (其他): 非临时错误，不重试
+
+本模块同时是「哪类错误值得换一个 provider / 换一把密钥」判据的**唯一来源**。三个消费方立场
+不同，且各有理由——**不要合并成一套**：
+
+  - ``ProviderChain``（固定回退列表）：RATE_LIMITED / AUTH_FAILED / TRANSIENT 回退，即
+    「非 NON_TRANSIENT 都回退」。列表里的 provider 各自持有有效密钥，认证失败换一家就能救
+    （``tests/providers/test_chain.py`` 有专测）。
+  - ``RoutingProvider`` / ``SwitchableProvider``（池内换档）：仅 RATE_LIMITED / TRANSIENT
+    （:func:`is_pool_fallback_error`）。池内换档会**静默改掉用户选定的模型/vendor**，认证失败
+    属配置问题、不该偷偷换。
+  - ``KeyRotatingProvider``（换同一 provider 的密钥）：RATE_LIMITED / AUTH_FAILED。换密钥
+    正是认证失败的解。
 """
 
 from __future__ import annotations
@@ -109,6 +121,19 @@ def classify_exception(error: Exception) -> ErrorCategory:
     NON_TRANSIENT（400/422 等客户端错误）不应回退——切换 Provider 不会令坏请求变好。
     """
     return _classify(*_extract_status_message(error))
+
+
+def is_pool_fallback_error(error: Exception) -> bool:
+    """池内换档是否值得：仅 RATE_LIMITED / TRANSIENT 触发回退。
+
+    ``RoutingProvider``（声明式路由池）与 ``SwitchableProvider``（运行时 vendor 切换）共用本判据
+    ——两者都是「在同一批凭据里换一个档位」，换档会静默改掉用户选定的模型/vendor，故 AUTH_FAILED
+    （配置问题）与 NON_TRANSIENT（坏请求）都不回退。
+
+    与另两方**有意不同**（见模块 docstring 策略矩阵）：``ProviderChain`` 与 ``KeyRotatingProvider``
+    都回退 AUTH_FAILED——前者换一家 provider 就能救，后者换一把密钥正是解。
+    """
+    return classify_exception(error) in (ErrorCategory.RATE_LIMITED, ErrorCategory.TRANSIENT)
 
 
 async def retry_with_backoff(

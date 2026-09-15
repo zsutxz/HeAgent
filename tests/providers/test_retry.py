@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 
 from heagent.exceptions import ProviderError
-from heagent.providers.retry import ErrorCategory, classify_error, classify_exception, retry_with_backoff
+from heagent.providers.retry import (
+    ErrorCategory,
+    classify_error,
+    classify_exception,
+    is_pool_fallback_error,
+    retry_with_backoff,
+)
 
 
 class _FakeSdkError(Exception):
@@ -155,3 +161,40 @@ class TestRetryContract:
 
 async def _async_ok(val: str) -> str:
     return val
+
+
+class TestPoolFallbackPolicy:
+    """池内换档判据（``is_pool_fallback_error``）是 RoutingProvider / SwitchableProvider 的**唯一**来源。
+
+    与另两方**有意不同**（见 retry.py 模块 docstring 的策略矩阵）：ProviderChain 回退 AUTH_FAILED
+    （``tests/providers/test_chain.py`` 的 401 跨 provider 用例），KeyRotatingProvider 也回退
+    AUTH_FAILED（换一把密钥正是解）。本类把这套分歧钉死，避免后人误当漂移而「顺手统一」。
+    """
+
+    @pytest.mark.parametrize(
+        ("status", "message", "expected"),
+        [
+            (429, "Rate limited", True),
+            (503, "overloaded", True),
+            (0, "connection timeout", True),
+            (401, "Unauthorized", False),
+            (403, "Forbidden", False),
+            (400, "bad request", False),
+            (422, "unprocessable", False),
+        ],
+    )
+    def test_policy_matrix(self, status: int, message: str, expected: bool) -> None:
+        assert is_pool_fallback_error(_FakeSdkError(message, status)) is expected
+
+    def test_auth_failed_excluded_even_though_chain_falls_back_on_it(self) -> None:
+        auth = _FakeSdkError("Unauthorized", 401)
+        assert classify_exception(auth) is ErrorCategory.AUTH_FAILED  # 非 NON_TRANSIENT：chain 的判据会放行
+        assert is_pool_fallback_error(auth) is False  # 池内换档不放行
+
+    def test_predicate_has_a_single_implementation(self) -> None:
+        """护栏：router / switchable 不得再各持一份私有判据副本（曾逐字重复，只靠 docstring 互指对齐）。"""
+        from heagent.providers import router as router_module
+        from heagent.providers import switchable as switchable_module
+
+        assert not hasattr(router_module.RoutingProvider, "_is_fallback_error")
+        assert not hasattr(switchable_module.SwitchableProvider, "_is_fallback_error")

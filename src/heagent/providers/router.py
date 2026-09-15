@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from pydantic import BaseModel
 
 from heagent.providers.base import ProviderMetadata
-from heagent.providers.retry import ErrorCategory, classify_exception
+from heagent.providers.retry import is_pool_fallback_error
 from heagent.types import Role
 
 if TYPE_CHECKING:
@@ -409,11 +409,6 @@ class RoutingProvider:
         if callable(hook):
             hook(name)
 
-    @staticmethod
-    def _is_fallback_error(error: Exception) -> bool:
-        """是否触发池内兄弟回退——与 ``SwitchableProvider`` 同一套分类，避免两套语义漂移。"""
-        return classify_exception(error) in (ErrorCategory.RATE_LIMITED, ErrorCategory.TRANSIENT)
-
     def _sibling(self, name: str) -> BaseProvider | None:
         """返回池内除 ``name`` 外的第一个 provider（按插入序，确定性）；无兄弟则 None。"""
         for other_name, provider in self._providers.items():
@@ -438,7 +433,7 @@ class RoutingProvider:
         try:
             return await provider.send(messages, tools=tools)
         except Exception as exc:
-            if not self._is_fallback_error(exc):
+            if not is_pool_fallback_error(exc):
                 raise
             sibling = self._sibling(name)
             if sibling is None:
@@ -464,7 +459,7 @@ class RoutingProvider:
         except StopAsyncIteration:
             return
         except Exception as exc:
-            if not self._is_fallback_error(exc):
+            if not is_pool_fallback_error(exc):
                 raise
             sibling = self._sibling(name)
             if sibling is None:
