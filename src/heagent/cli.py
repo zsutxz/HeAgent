@@ -93,6 +93,19 @@ def _setup_logging() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
+def _prune_runtime_artifacts(settings: Settings) -> None:
+    """启动时回收运行时产物（日志 / 会话 / 编辑快照）：best-effort，绝不阻断启动。
+
+    具体实现在 ``heagent.housekeeping``（单独成模块便于直接测试）；这里只做「失败不上抛」。
+    """
+    try:
+        from heagent.housekeeping import prune_runtime_artifacts_sync
+
+        prune_runtime_artifacts_sync(settings)
+    except Exception:
+        logger.warning("runtime artifact cleanup failed; continuing", exc_info=True)
+
+
 async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
     """Prompt the user to select a provider at startup (interactive mode).
 
@@ -1164,6 +1177,8 @@ def _run_cli_impl(
     _print_banner()
 
     settings = get_settings()
+    # 启动时回收运行时产物（日志 / 会话 / 编辑快照）：best-effort，失败只记日志不阻断启动。
+    _prune_runtime_artifacts(settings)
     resolved_iterations = max_iterations or settings.max_iterations
     resolved_plan = plan_mode or settings.plan_mode
     provider = _build_provider(settings, model)

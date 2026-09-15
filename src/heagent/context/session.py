@@ -9,12 +9,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
 from pathlib import Path
 
-from heagent.engine.persist import atomic_update_text
+from heagent.engine.persist import (
+    atomic_update_text,
+    delete_entries,
+    prune_stamp_path,
+    scan_dir,
+    stamp_is_recent,
+    touch_prune_stamp,
+)
 from heagent.types import Message
 
 # session_id 允许的字符集：字母数字 + 连字符/下划线，防止路径遍历（如 ../etc/passwd）。
@@ -38,6 +46,27 @@ class SessionStore:
 
     def __init__(self, base_dir: str = ".heagent/sessions") -> None:
         self._base = Path(base_dir)
+
+    async def prune(self, retention_days: int, *, min_interval_seconds: int = 0) -> int:
+        """按 mtime 回收过期会话文件，返回删除数（``retention_days <= 0`` 禁用）。
+
+        会话此前**没有任何回收方**（实测 84 天积累 409 文件 / 83 MiB，最老 101 天）：老会话
+        几乎不会被 ``--continue`` 再用，但文件会随每次交互单调增长。判定只看文件 mtime
+        （会话每次保存都会刷新 mtime，故「在用的会话」不会被误删），不解析 JSON。
+        单条删除失败不中断整批；``min_interval_seconds > 0`` 时走跨进程节流（见
+        ``engine.persist.stamp_is_recent``）。
+        """
+        if retention_days <= 0:
+            return 0
+        stamp = prune_stamp_path(self._base)
+        if await asyncio.to_thread(stamp_is_recent, stamp, min_interval_seconds):
+            return 0
+        entries = await asyncio.to_thread(scan_dir, self._base)
+        cutoff = time.time() - retention_days * 86_400
+        stale = [e.path for e in entries if not e.is_dir and e.path.name.endswith(".json") and e.mtime < cutoff]
+        deleted, _ = await asyncio.to_thread(delete_entries, stale, [])
+        await asyncio.to_thread(touch_prune_stamp, stamp)
+        return deleted
 
     def save(self, session_id: str, messages: list[Message]) -> str:
         """保存对话历史到 JSON 文件（原子写 + version 递增）。

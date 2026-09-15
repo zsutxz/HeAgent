@@ -182,3 +182,53 @@ class TestPrune:
         corrupt.write_bytes(b"\x80\x81\x82\xff\xfe")
 
         assert await ledger.prune(retention_days=7) == 1  # 只删 stale
+
+    @pytest.mark.asyncio
+    async def test_complete_distinguishes_corrupt_record_from_missing(self, tmp_path) -> None:
+        """记录文件存在但读不出来时，错误文案如实说明「损坏」而非「键不存在」。"""
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        corrupt = ledger._path("k1")
+        corrupt.parent.mkdir(parents=True, exist_ok=True)
+        corrupt.write_bytes(b"\x80\x81\x82")
+
+        with pytest.raises(ValueError, match="record exists but is unreadable"):
+            await ledger.complete("k1")
+        with pytest.raises(ValueError, match="record exists but is unreadable"):
+            await ledger.fail("k1", "boom")
+
+        with pytest.raises(ValueError, match="Cannot complete non-existent key"):
+            await ledger.complete("never-acquired")
+
+    @pytest.mark.asyncio
+    async def test_complete_recreate_if_missing_restores_idempotency_cache(self, tmp_path) -> None:
+        """``recreate_if_missing=True``：记录被清后重建为 COMPLETED，重复 acquire 仍命中缓存。
+
+        这是工具调用链路的容错档（记录在途被 prune 清掉时不丢幂等）。默认（不开该档）
+        仍是严格语义——见上面两条断言。
+        """
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+
+        record = await ledger.complete("k:gone", metadata={"result": "out"}, recreate_if_missing=True)
+
+        assert record.status == ExecutionStatus.COMPLETED
+        assert record.finished_at is not None
+        loaded = await ledger.get("k:gone")
+        assert loaded is not None and loaded.status == ExecutionStatus.COMPLETED
+        assert loaded.metadata == {"result": "out"}
+
+        claim = await ledger.acquire("k:gone", run_id="r1")
+        assert claim.acquired is False  # 幂等缓存已恢复：重发不会重跑
+
+    @pytest.mark.asyncio
+    async def test_complete_recreate_if_missing_is_idempotent_on_completed(self, tmp_path) -> None:
+        """已经是 COMPLETED 时不算错误（并发/重发场景），返回原记录。"""
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        await ledger.acquire("k:done", run_id="r1")
+        first = await ledger.complete("k:done")
+
+        again = await ledger.complete("k:done", recreate_if_missing=True)
+
+        assert again.finished_at == first.finished_at
+        # 不开容错档时仍按既有契约报错（防回归）
+        with pytest.raises(RuntimeError, match="current status is completed"):
+            await ledger.complete("k:done")

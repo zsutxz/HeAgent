@@ -53,6 +53,8 @@ class EngineContainer:
     ledger_retention_days: int = 0
     # run 快照自动清理保留天数（0=禁用）；default() 从 Settings 读，手动构造默认 0。
     run_retention_days: int = 0
+    # 过期清理的跨进程节流秒数（0=每次都扫）；default() 从 Settings 读，手动构造默认 0（测试无节流）。
+    prune_min_interval_seconds: int = 0
     # 进程内去重标志：同一容器 prune_*_once 仅首次 run 触发（sub agent 继承父 engine 时不重复扫）。
     # 两者独立：ledger 与 runs 各自的清理互不阻塞。
     _ledger_pruned: bool = field(default=False, init=False, repr=False)
@@ -89,7 +91,9 @@ class EngineContainer:
             return 0
         self._ledger_pruned = True
         try:
-            n = await self.ledger.prune(retention_days=self.ledger_retention_days)
+            n = await self.ledger.prune(
+                retention_days=self.ledger_retention_days, min_interval_seconds=self.prune_min_interval_seconds
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -118,7 +122,9 @@ class EngineContainer:
             return 0
         self._runs_pruned = True
         try:
-            n = await self.run_store.prune(retention_days=self.run_retention_days)
+            n = await self.run_store.prune(
+                retention_days=self.run_retention_days, min_interval_seconds=self.prune_min_interval_seconds
+            )
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -185,6 +191,7 @@ class EngineContainer:
         )
         container.ledger_retention_days = settings.ledger_retention_days
         container.run_retention_days = settings.run_retention_days
+        container.prune_min_interval_seconds = settings.prune_min_interval_seconds
         # P0-2 权限档位：由 Settings 注入（非法值已在 sandbox_mode_resolved 回退 + 告警）。
         container.policy.sandbox_mode = settings.sandbox_mode_resolved
         if settings.approval_tool_list:

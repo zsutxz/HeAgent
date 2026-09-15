@@ -123,7 +123,7 @@ exceptions  types  config
 | `_build_system()` | 构建系统提示词（含人格/上下文/技能/记忆注入，见下方注入顺序） |
 | `_call_provider()` | 通过 Middleware 链调用 Provider，含 Token 估算对比 |
 | `_execute_tools()` | `asyncio.gather()` 并行执行所有 tool_calls |
-| `_execute_one()` | `ExecutionLedger.acquire()` 幂等/租约（key=`run_id:call.id`；COMPLETED 短路返回缓存，但**命中仍复核 policy**——若已收紧为 `BLOCKED` 则 bypass 缓存走正常链路，防策略变更后泄漏旧结果；lease-active 即 RUNNING 未过期则跳过执行、返回 `is_error` skip 提示防并发/重入）→ **在途期间后台续租**（`_renew_ledger_lease`，工具可跑数分钟，固定租约会让记录被 prune 误判为孤儿删除）→ `PolicyEngine.evaluate()` → `ToolExecutor` 分发（内部 `SafetyGuard.check()`）→ handler → `ledger.complete()`/`fail()` 回写（**回写失败只记 warning，不改写工具结果**——账本只是幂等缓存）；防 window_reset 后模型重发相同 `tool_call.id`（P4，见 4.12） |
+| `_execute_one()` | `ExecutionLedger.acquire()` 幂等/租约（key=`run_id:call.id`；COMPLETED 短路返回缓存，但**命中仍复核 policy**——若已收紧为 `BLOCKED` 则 bypass 缓存走正常链路，防策略变更后泄漏旧结果；lease-active 即 RUNNING 未过期则跳过执行、返回 `is_error` skip 提示防并发/重入）→ **在途期间后台续租**（`_renew_ledger_lease`，工具可跑数分钟，固定租约会让记录被 prune 误判为孤儿删除）→ `PolicyEngine.evaluate()` → `ToolExecutor` 分发（内部 `SafetyGuard.check()`）→ handler → `ledger.complete()`/`fail()` 回写（**回写失败只记 warning，不改写工具结果**；成功路径带 `recreate_if_missing=True`，记录被清则**重建为 COMPLETED** 以保住幂等缓存）；防 window_reset 后模型重发相同 `tool_call.id`（P4，见 4.12） |
 | `last_usage` | 最近一次 `run()` 的累计 `TokenUsage` |
 | `last_iteration` | 最近一次 `run()`/`run_stream()` 的迭代次数 |
 | `last_run_context` | 最近一次 `run()` 的 `RunContext`（run_id / 迭代 / 审批·沙箱授权元数据） |
@@ -723,6 +723,10 @@ HeAgentError (base)
 | `sandbox_network` | False | 是否允许子进程出站；False 时 firejail 追加 `--net=none`，其余后端记「网络隔离未生效」 |
 | `run_retention_days` | 7 | `.heagent/runs/` 运行快照（`<run_id>.json` + 配套 `.lock` + `<run_id>/` 产物目录）保留天数；全新 run 启动时清理一次（0=禁用）。`persist.py` 刻意保留 `.lock`（规避 unlink 竞态），本项是 runs 侧唯一回收时机 |
 | `ledger_retention_days` | 7 | `.heagent/ledger/` 幂等记录保留天数；全新 run 启动时清理一次（0=禁用） |
+| `prune_min_interval_seconds` | 900 | 过期清理的**跨进程节流**：距上次清理不足此间隔就跳过扫描（0=每次都扫）。短命 CLI 进程靠它省掉「每次启动重扫万级目录」 |
+| `log_retention_days` | 14 | `logs/` 日志文件保留天数（CLI/GUI 启动时回收；0=禁用） |
+| `session_retention_days` | 30 | `.heagent/sessions/` 会话文件保留天数（启动时按 mtime 回收；0=禁用） |
+| `edit_snapshot_retention_days` | 7 | `.heagent/tmp/edit-snapshots/` 编辑快照保留天数（启动时回收 run 目录；0=禁用） |
 | `sandbox_enforce` | True | 探测到**真实**后端时自动把 `shell` 纳入沙箱工具集并授权当次 run（passthrough 下零行为变更） |
 | `tokenizer` | `auto` | Token 计量后端：`auto`（有 tiktoken 用真实 encoding，否则启发式 + 在线校准）/ `estimate` / `tiktoken` |
 | `sandbox_session_workspace` | False | 是否为每个 run 建立会话工作目录 |

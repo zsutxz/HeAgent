@@ -16,9 +16,11 @@ ledger 回写``。单个工具异常被转成 error ToolResult，不阻塞同批
    ``complete()`` 就会撞 ``Cannot complete non-existent key``，把跑完的成果换成一条记账
    报错（实测踩坑：一次 6 分半的 pytest 输出被整段丢弃，模型只好重跑一遍）。故在途期间
    后台周期续租，让「租约过期 = 真孤儿」这一 prune 前提成立。
-2. **回写失败不改结果**（``_record_ledger_outcome``）：即便记录仍被清掉（如另一进程禁用
-   续租窗口内 prune、I/O 故障），也只记 warning 并丢掉幂等缓存，绝不把成功的工具结果
-   替换成 error ToolResult——缓存丢了最多是重发时重复执行一次，结果丢了是整轮白干。
+2. **回写失败不改结果**（``_record_ledger_outcome``）：即便记录仍被清掉（如另一进程在续租
+   窗口内 prune、I/O 故障），也只记 warning 并（成功路径）**把记录重建为 COMPLETED**，
+   绝不把成功的工具结果替换成 error ToolResult——缓存丢了最多是重发时重复执行一次，
+   结果丢了是整轮白干。重建只开在工具调用这一个调用点（``recreate_if_missing=True``），
+   ledger 的默认严格语义（防误键凭空建记录）不变。
 """
 
 from __future__ import annotations
@@ -78,12 +80,17 @@ async def _record_ledger_outcome(loop: AgentLoop, cache_key: str, result: ToolRe
 
     幂等记账是旁路：记账失败（记录被 prune 清掉、跨进程锁冲突、磁盘故障……）不得改写
     工具结果，否则「跑成功的工具」会被降级成一条 ``Tool error: Cannot complete ...``。
+
+    成功路径带 ``recreate_if_missing=True``（唯一开这档的调用点）：记录若在工具在途期间被
+    别的进程清掉，就按「本次确实完成了」重建为 COMPLETED——保住幂等缓存，避免模型重发同一
+    ``tool_call.id`` 时把有副作用的工具再跑一遍。失败路径不开：FAILED 语义本就允许重试，
+    没有值得保住的结果。
     """
     try:
         if result.is_error:
             await loop.engine.ledger.fail(cache_key, result.content)
         else:
-            await loop.engine.ledger.complete(cache_key, metadata={"result": result.content})
+            await loop.engine.ledger.complete(cache_key, metadata={"result": result.content}, recreate_if_missing=True)
     except Exception:
         logger.warning(
             "Failed to record ledger outcome for %s (tool result kept; idempotency cache lost)",

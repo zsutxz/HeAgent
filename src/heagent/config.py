@@ -221,6 +221,19 @@ class Settings(BaseSettings):
     # 在 run 启动时自动删除；0=禁用清理。默认 7 天与 ledger 对齐——persist.py 刻意保留 .lock
     # 以规避 unlink 竞态，故必须有回收方，否则 runs 目录随运行次数单调增长（实测 84 天 6 万文件）。
     run_retention_days: int = Field(default=7, ge=0)
+    # 过期清理的跨进程节流（秒）：距上次清理不足该间隔就跳过扫描（0=每次都扫）。
+    # 每次全新 run 启动都要扫 `.heagent/runs` + `.heagent/ledger`，短命 CLI 进程（每次调用
+    # 都是新进程）在这层节流下能省掉几乎全部扫描成本；保留期以天计，延迟清理无副作用。
+    prune_min_interval_seconds: int = Field(default=900, ge=0)
+
+    # ---- 运行时产物保留期（日志 / 会话 / 编辑快照，由 CLI 启动时的 housekeeping 回收）----
+    # 这三类此前没有回收方，会随使用单调增长（实测 84 天：logs 21 MiB、sessions 83 MiB、
+    # edit-snapshots 只增不减）。0=禁用该类清理。
+    log_retention_days: int = Field(default=14, ge=0)
+    # 会话文件（`.heagent/sessions/`）：老会话基本不会被 --continue 再用，保留 30 天。
+    session_retention_days: int = Field(default=30, ge=0)
+    # 编辑快照（`.heagent/tmp/edit-snapshots/`，「误改后悔药」，每次编辑都可能新增）。
+    edit_snapshot_retention_days: int = Field(default=7, ge=0)
 
     # ---- MCP Client 参数 ----
     mcp_enabled: bool = Field(default=True)

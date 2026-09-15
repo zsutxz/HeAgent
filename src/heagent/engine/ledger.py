@@ -33,7 +33,14 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from heagent.engine.context import iso_now
-from heagent.engine.persist import atomic_write_text, load_json_model
+from heagent.engine.persist import (
+    atomic_write_text,
+    load_json_model,
+    prune_stamp_path,
+    scan_dir,
+    stamp_is_recent,
+    touch_prune_stamp,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -155,16 +162,48 @@ class ExecutionLedger:
             await self._save(record)
             return LedgerClaim(acquired=True, record=record)
 
-    async def complete(self, key: str, *, metadata: dict[str, Any] | None = None) -> ExecutionRecord:
+    async def complete(
+        self,
+        key: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+        recreate_if_missing: bool = False,
+    ) -> ExecutionRecord:
         """标记一个键为 COMPLETED（幂等短路的最终态）。
 
         仅在记录已存在且状态为 RUNNING 时操作（P1-8 修复：防止误调 complete("wrong_key")
-        凭空创建记录，导致该 key 被永久阻塞）。
+        凭空创建记录，导致该 key 被永久阻塞）——**该严格语义是默认行为**。
+
+        ``recreate_if_missing=True`` 时开一档**容错完成**，仅供工具调用这条链路使用
+        （``agent/tool_execution._record_ledger_outcome``）：记录若在工具在途期间被别的
+        进程 prune 掉（长时调用跑超租约、crash 后租约过期被清），就按「本次执行确实完成了」
+        重建为 COMPLETED——否则模型重发同一 ``tool_call.id`` 时会**重复执行有副作用的工具**，
+        幂等缓存的意义就没了。同为已 COMPLETED 的记录也算幂等命中（不报错）。
+        两种容错都可在日志中观察到（重建记 warning，已 COMPLETED 幂等命中记 debug）。
         """
         async with self._lock:
             record = await self.get(key)
             if record is None:
-                raise ValueError(f"Cannot complete non-existent key: {key!r}")
+                if not recreate_if_missing:
+                    raise ValueError(await self._missing_record_message("complete", key))
+                now = iso_now()
+                logger.warning(
+                    "ledger record %r vanished before completion; recreating as COMPLETED to keep idempotency",
+                    key,
+                )
+                record = ExecutionRecord(
+                    key=key,
+                    status=ExecutionStatus.COMPLETED,
+                    metadata=dict(metadata or {}),
+                    started_at=now,
+                    updated_at=now,
+                    finished_at=now,
+                )
+                await self._save(record)
+                return record
+            if record.status == ExecutionStatus.COMPLETED and recreate_if_missing:
+                logger.debug("ledger record %r already COMPLETED; treating as idempotent", key)
+                return record
             if record.status != ExecutionStatus.RUNNING:
                 raise RuntimeError(f"Cannot complete key {key!r}: current status is {record.status.value}")
             record.status = ExecutionStatus.COMPLETED
@@ -184,7 +223,7 @@ class ExecutionLedger:
         async with self._lock:
             record = await self.get(key)
             if record is None:
-                raise ValueError(f"Cannot fail non-existent key: {key!r}")
+                raise ValueError(await self._missing_record_message("fail", key))
             record.status = ExecutionStatus.FAILED
             record.updated_at = iso_now()
             record.finished_at = record.updated_at
@@ -216,6 +255,17 @@ class ExecutionLedger:
     async def get(self, key: str) -> ExecutionRecord | None:
         """按幂等键加载一条记录；不存在或损坏则返回 None。"""
         return await asyncio.to_thread(load_json_model, self._path(key), ExecutionRecord)
+
+    async def _missing_record_message(self, action: str, key: str) -> str:
+        """``complete``/``fail`` 找不到记录时的错误文案——区分「真不存在」与「存在但读不出来」。
+
+        后者（文件在、但 JSON 损坏 / 被截断）原先会被报成 ``non-existent key``，把一条
+        可诊断的 I/O 事故伪装成「键写错了」（2026-09-15 排障时踩到）。文件存在即如实说明。
+        """
+        exists = await asyncio.to_thread(self._path(key).exists)
+        if exists:
+            return f"Cannot {action} key {key!r}: record exists but is unreadable (corrupt JSON?)"
+        return f"Cannot {action} non-existent key: {key!r}"
 
     async def list_records(self) -> list[ExecutionRecord]:
         """返回全部已知记录（按 (scope, key) 排序）；损坏文件跳过不中断。
@@ -269,8 +319,11 @@ class ExecutionLedger:
 
     # ── prune（轻量文件路径直走，不 load 全量 Pydantic）─────────
 
-    async def prune(self, *, retention_days: int, before: datetime | None = None) -> int:
+    async def prune(self, *, retention_days: int, before: datetime | None = None, min_interval_seconds: int = 0) -> int:
         """删除过期记录，返回删除数。``retention_days <= 0`` 时直接返回 0（禁用清理）。
+
+        ``min_interval_seconds > 0`` 时加一层**跨进程节流**（见 ``persist.stamp_is_recent``）：
+        距上次清理不足该间隔直接返回 0，避免每次 CLI 启动重扫万级目录。
 
         删除：``COMPLETED``/``FAILED`` 中 ``finished_at`` 早于 cutoff 的终态死记录，
         以及 ``RUNNING`` 且租约已过期的孤儿。**在途记录能存活的前提是有调用方周期续租**
@@ -279,80 +332,98 @@ class ExecutionLedger:
         保留：未过期 ``RUNNING``（在途，防误删导致重复执行副作用工具）。
 
         P1-23 重写：不再经 ``list_records``（7152 次 Pydantic ``model_validate``），
-        改为直接 glob → 逐文件轻量 ``json.loads`` 取 ``status``/``finished_at``/
-        ``lease_expires_at`` 判定过期性，大幅降低 prune 启动成本。
+        改为轻量 ``json.loads`` 只取 ``status``/``finished_at``/``lease_expires_at`` 判定过期性。
         单条 JSON 解析 / 删除失败不中断整批。
+
+        万级文件性能（2026-09-15）：扫描、判定、删除各占**一次**线程跳转
+        （``persist.scan_dir`` + ``_is_path_stale`` + ``_delete_stale``）。旧实现逐条
+        ``await asyncio.to_thread(...)``（2 万条 ≈ 4 万次跳转）+ 在协程里直接 ``read_text``
+        阻塞事件循环，实测单次 prune 9.7s → 现约 1s 量级。
         """
         if retention_days <= 0:
+            return 0
+        stamp = prune_stamp_path(self._base)
+        if await asyncio.to_thread(stamp_is_recent, stamp, min_interval_seconds):
             return 0
         cutoff = before if before is not None else datetime.now(tz=UTC) - timedelta(days=retention_days)
         cutoff_naive = cutoff.replace(tzinfo=None)
 
         if not await asyncio.to_thread(self._base.exists):
             return 0
-        paths = await asyncio.to_thread(lambda: list(self._base.glob("*.json")))
+        entries = await asyncio.to_thread(scan_dir, self._base)
+        paths = [e.path for e in entries if not e.is_dir and e.path.name.endswith(".json")]
         total = len(paths)
-        deleted = 0
 
-        for i, path in enumerate(paths):
-            if i > 0 and i % _PRUNE_PROGRESS_INTERVAL == 0:
-                logger.info("ledger prune: scanned %d/%d files, deleted %d so far", i, total, deleted)
-            try:
-                if not await self._is_path_stale(path, cutoff_naive):
-                    continue
-            except Exception:
-                logger.debug("ledger prune: staleness check failed on %s; skipping", path, exc_info=True)
-                continue
-            try:
-                if await asyncio.to_thread(path.exists):
-                    await asyncio.to_thread(path.unlink)
-                    # 随记录一并清理配套锁文件（persist.py 保留 .lock 以规避 unlink 竞态，
-                    # 此处是唯一合法的清理时机：记录已判为过期删除，其锁文件不再有等待者）。
-                    lock_path = path.with_name(path.name + ".lock")
-                    try:
-                        if await asyncio.to_thread(lock_path.exists):
-                            await asyncio.to_thread(lock_path.unlink)
-                    except Exception:
-                        logger.debug("ledger prune: lock file cleanup failed on %s", lock_path, exc_info=True)
-                    deleted += 1
-            except Exception:
-                logger.debug("ledger prune: unlink failed on %s; continuing", path, exc_info=True)
-
+        # 判定与删除各占**一次**线程跳转（不在事件循环里阻塞、也不逐条起线程）：
+        # 逐条 `await asyncio.to_thread(...)` 在万级文件下仅线程跳转就要数秒（实测 2 万条 9.7s），
+        # 且旧实现把 `read_text` 直接放在协程里，会阻塞整个事件循环。
+        stale = [path for i, path in enumerate(paths) if _is_path_stale(path, cutoff_naive, index=i, total=total)]
+        deleted = await asyncio.to_thread(_delete_stale, stale)
+        await asyncio.to_thread(touch_prune_stamp, stamp)
         if total >= _PRUNE_PROGRESS_INTERVAL:
             logger.info("ledger prune: done — deleted %d stale of %d files", deleted, total)
         return deleted
 
-    async def _is_path_stale(self, path: Path, cutoff_naive: datetime) -> bool:
-        """轻量判定一个 ledger 文件是否过期可删。
 
-        不实例化 ``ExecutionRecord``——只做 ``json.loads`` 取必需字段。
-        JSON 解析 / 日期解析失败视为不可删（保守保留）。
-        ``cutoff_naive`` 已去除 tzinfo，可直接比较。
-        """
+def _is_path_stale(path: Path, cutoff_naive: datetime, *, index: int = 0, total: int = 0) -> bool:
+    """轻量判定一个 ledger 文件是否过期可删（**同步**，由 :meth:`ExecutionLedger.prune` 批量调用）。
+
+    不实例化 ``ExecutionRecord``——只做 ``json.loads`` 取必需字段。JSON 解析 / 日期解析
+    失败视为不可删（保守保留）。``cutoff_naive`` 已去除 tzinfo，可直接比较。
+    设计成同步函数是为了让它整批跑在**一个**工作线程里（逐条 ``to_thread`` 的跳转成本
+    在万级文件下远高于解析本身）。
+    """
+    if index > 0 and index % _PRUNE_PROGRESS_INTERVAL == 0:
+        logger.info("ledger prune: scanned %d/%d files", index, total)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+
+    status = data.get("status", "")
+    if status == "running":
+        lease_raw = data.get("lease_expires_at")
+        if not lease_raw:
+            return False
         try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError, json.JSONDecodeError):
+            now_naive = datetime.now(tz=UTC).replace(tzinfo=None)
+            return _parse_iso_to_naive(lease_raw) <= now_naive
+        except (ValueError, TypeError):
             return False
 
-        status = data.get("status", "")
-        if status == "running":
-            lease_raw = data.get("lease_expires_at")
-            if not lease_raw:
-                return False
-            try:
-                now_naive = datetime.now(tz=UTC).replace(tzinfo=None)
-                return _parse_iso_to_naive(lease_raw) <= now_naive
-            except (ValueError, TypeError):
-                return False
+    if status in ("completed", "failed"):
+        finished_raw = data.get("finished_at")
+        if not finished_raw:
+            return False
+        try:
+            return _parse_iso_to_naive(finished_raw) <= cutoff_naive
+        except (ValueError, TypeError):
+            return False
 
-        if status in ("completed", "failed"):
-            finished_raw = data.get("finished_at")
-            if not finished_raw:
-                return False
-            try:
-                return _parse_iso_to_naive(finished_raw) <= cutoff_naive
-            except (ValueError, TypeError):
-                return False
+    # 未知 status → 保守保留
+    return False
 
-        # 未知 status → 保守保留
-        return False
+
+def _delete_stale(paths: list[Path]) -> int:
+    """批量删除判定过期的 ledger 记录（**同步**，批量调用），返回删除数。
+
+    随记录一并清理配套 ``.lock``（``persist.py`` 保留 .lock 以规避 unlink 竞态，此处是
+    唯一合法的清理时机：记录已判为过期删除，其锁文件不再有等待者）；锁文件删除失败只记
+    ``debug``（不计入返回值——与保留期语义无关）。
+    """
+    deleted = 0
+    for path in paths:
+        try:
+            path.unlink()
+            deleted += 1
+        except FileNotFoundError:
+            continue  # 竞态下已被删：不计入，也不算失败
+        except OSError:
+            logger.debug("ledger prune: unlink failed on %s; continuing", path, exc_info=True)
+            continue
+        lock_path = path.with_name(path.name + ".lock")
+        try:
+            lock_path.unlink(missing_ok=True)
+        except OSError:
+            logger.debug("ledger prune: lock file cleanup failed on %s", lock_path, exc_info=True)
+    return deleted

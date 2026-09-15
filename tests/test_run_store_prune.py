@@ -1,7 +1,8 @@
 """RunStore.prune / EngineContainer.prune_runs_once 测试 — 过期 run 快照的回收。
 
 覆盖：记录 + 配套 .lock + 产物目录的回收、无主锁清扫、在途（新鲜）条目保留、
-轻量判定（不 load Pydantic，坏 JSON 照样回收）、失败不中断、去重标志与 ledger 相互独立。
+轻量判定（不 load Pydantic，坏 JSON 照样回收）、失败不中断、去重标志与 ledger 相互独立、
+批量 I/O（不再逐条起线程）与跨进程节流。
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ import pytest
 
 from heagent.agent.loop import AgentLoop
 from heagent.config import get_settings, reset_settings
+from heagent.engine import persist as persist_mod
 from heagent.engine.container import EngineContainer
 from heagent.engine.store import RunStore
 from heagent.providers.base import ProviderMetadata
@@ -186,6 +188,73 @@ class TestRunStorePrune:
 
         assert inside.exists()
         assert not outside.exists()
+
+    async def test_prune_scans_and_deletes_in_two_batches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """批量 I/O 回归：整次 prune 只占「一次扫描 + 一次删除」两次线程跳转。
+
+        旧实现逐条 `await asyncio.to_thread(path.stat)` / `.unlink()`（50 条即上百次跳转），
+        万级文件下光跳转就要数秒。这里直接锁定「不再逐条起线程」这一结构性质。
+        """
+        store = _store(tmp_path)
+        for i in range(50):
+            _record(store, tmp_path, f"old-{i:02d}")
+        scans = 0
+        deletes = 0
+        real_scan, real_delete = persist_mod.scan_dir, persist_mod.delete_entries
+
+        def _count_scan(base: Path) -> list[persist_mod.DirEntry]:
+            nonlocal scans
+            scans += 1
+            return real_scan(base)
+
+        def _count_delete(files: list[Path], dirs: list[Path]) -> tuple[int, int]:
+            nonlocal deletes
+            deletes += 1
+            return real_delete(files, dirs)
+
+        monkeypatch.setattr("heagent.engine.store.scan_dir", _count_scan)
+        monkeypatch.setattr("heagent.engine.store.delete_entries", _count_delete)
+
+        assert await store.prune(retention_days=7) == 100  # 50 记录 + 50 锁
+
+        assert scans == 1
+        assert deletes == 1
+
+    async def test_prune_is_throttled_across_calls(self, tmp_path: Path) -> None:
+        """跨进程节流：距上次清理不足 ``min_interval_seconds`` 时不再扫描（直接返回 0）。
+
+        短命 CLI 进程（每次调用都是新进程）靠这层省掉「每次启动重扫万级目录」。
+        """
+        store = _store(tmp_path)
+        _record(store, tmp_path, "old-run")
+
+        assert await store.prune(retention_days=7, min_interval_seconds=3600) == 2
+        _record(store, tmp_path, "another-old-run")
+        assert await store.prune(retention_days=7, min_interval_seconds=3600) == 0  # 被节流
+        assert (tmp_path / "runs" / "another-old-run.json").exists()  # 确实没扫
+        assert await store.prune(retention_days=7) == 2  # 关掉节流（默认 0）即照常清理
+
+    async def test_zero_interval_never_throttles(self, tmp_path: Path) -> None:
+        """``min_interval_seconds=0``（默认）每次都真扫——测试与手动调用的既有语义。"""
+        store = _store(tmp_path)
+        _record(store, tmp_path, "a")
+        assert await store.prune(retention_days=7, min_interval_seconds=0) == 2
+        _record(store, tmp_path, "b")
+        assert await store.prune(retention_days=7, min_interval_seconds=0) == 2
+
+    def test_prune_min_interval_default_is_fifteen_minutes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("PRUNE_MIN_INTERVAL_SECONDS", raising=False)
+        reset_settings()
+
+        assert get_settings().prune_min_interval_seconds == 900
+
+    def test_prune_min_interval_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PRUNE_MIN_INTERVAL_SECONDS", "60")
+        reset_settings()
+
+        assert get_settings().prune_min_interval_seconds == 60
 
 
 # ══════════════════════════════════════════════════════════════════════

@@ -441,13 +441,14 @@ async def test_inflight_tool_call_keeps_its_lease_fresh(tmp_path) -> None:
 
 
 @pytest.mark.usefixtures("_short_lease")
-async def test_expired_orphan_is_prunable_but_result_survives(
+async def test_expired_orphan_is_prunable_but_result_and_cache_survive(
     tmp_path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """反例（禁用续租）：记录仍会被 prune 删掉，但工具结果不再被记账错误顶替。
+    """反例（禁用续租）：记录仍会被 prune 删掉，但结果不丢、幂等缓存还会被重建。
 
-    这条锁住故障的另一半——prune 语义本身不变（过期 RUNNING = 孤儿），变的是
-    「缓存丢了不能连结果一起丢」。
+    这条锁住故障修复的两半——prune 语义本身不变（过期 RUNNING = 孤儿），变的是：
+    ① 记账失败不顶替工具结果；② 成功路径带 ``recreate_if_missing``，记录被清后按
+    「本次确实完成了」重建为 COMPLETED，故模型重发同一 ``tool_call.id`` 不会重跑副作用工具。
     """
 
     async def _noop_renewal(*_args: object, **_kwargs: object) -> None:
@@ -471,8 +472,14 @@ async def test_expired_orphan_is_prunable_but_result_survives(
     assert result.is_error is False
     assert result.content == "1"  # ← 修复前这里是 "Tool error: Cannot complete non-existent key..."
     assert counter["n"] == 1
-    assert any("Failed to record ledger outcome" in record.message for record in caplog.records)
-    assert await loop.engine.ledger.get(f"{rc.run_id}:{call.id}") is None  # 缓存确已丢失
+    assert any("recreating as COMPLETED" in record.message for record in caplog.records)
+
+    # 幂等缓存被重建：重发同一 tool_call.id 命中缓存，handler 不再执行第二次。
+    rebuilt = await loop.engine.ledger.get(f"{rc.run_id}:{call.id}")
+    assert rebuilt is not None and rebuilt.status.value == "completed"
+    cached = await loop._execute_one(call, run_context=rc)
+    assert cached.content == "1"
+    assert counter["n"] == 1
 
 
 async def test_complete_failure_keeps_successful_result(
