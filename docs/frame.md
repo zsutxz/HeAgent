@@ -659,26 +659,34 @@ HeAgentError (base)
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `deepseek_api_key` | None | DeepSeek API Key（优先） |
+| `active_provider` | None | 默认激活的 provider 条目名（多条目时作为启动选择与 `SwitchableProvider` 的默认项）；未设或该条目不可用 → 回退到第一个可用条目（构建顺序 `deepseek` → `kimi` → `glm` → `ollama` → `openai` → `gpt` → `anthropic`） |
 | `openai_api_key` | None | OpenAI API Key |
 | `anthropic_api_key` | None | Anthropic API Key |
 | `kimi_api_key` / `glm_api_key` | None | Kimi、GLM Provider API Key |
 | `openai_responses_api_key` | None | OpenAI Responses API / 中转站 API Key |
+| `openai_responses_base_url` | None | Responses API 中转站地址（`wire_api="responses"`，如 `https://www.komapi.top/v1`） |
 | `ollama_enabled` | False | 本地 Ollama 条目开关（OpenAI 兼容 `/v1`，显式 opt-in，无需 API Key） |
 | `ollama_base_url` | `http://127.0.0.1:11434/v1` | Ollama OpenAI 兼容端点 |
 | `ollama_model` | None | Ollama 模型名（启用时必填，否则 fail-fast） |
+| `ollama_api_key` | None | Ollama 占位 key（缺省用 `"ollama"`；Ollama 不校验 key） |
 | `deepseek_base_url` | None | DeepSeek API 基础 URL |
 | `openai_base_url` | None | OpenAI 兼容服务 URL |
 | `anthropic_base_url` | None | Anthropic 代理地址 |
+| `kimi_base_url` / `glm_base_url` | None | Kimi、GLM API 基础 URL（缺省用内置端点 `api.moonshot.cn/v1` / `open.bigmodel.cn/api/paas/v4`） |
 | `anthropic_prompt_caching` | True | Anthropic 提示词缓存（注入 cache_control 断点，FR-3；不兼容代理时关闭） |
 | `routing_pools` | "" | 声明式路由池 JSON（任意 provider 条目多档池；改档位/角色/关键词无需改代码） |
+| `routing_reasoning_continuity` | False | 推理链续接（**所有池的默认值**，单池可用 spec 的 `reasoning_continuity` 覆盖）：true 时「上一轮走了 pro 且思考痕迹仍在历史中」继续走 pro，否则只按当前请求命中关键词判定 |
 | `openai_api_keys` | "" | OpenAI 多密钥池（逗号分隔） |
 | `anthropic_api_keys` | "" | Anthropic 多密钥池（逗号分隔） |
 | `default_model` | `gpt-4o` | openai（Chat Completions）/ anthropic 条目的兜底模型 |
+| `deepseek_model` / `kimi_model` / `glm_model` | `deepseek-v4-pro` / `kimi-k3` / `glm-5.3` | 各 Provider 默认模型（**仅该条目未出现在 `routing_pools` 时生效**；有池时模型由池的 `tiers` 决定，`--model` 亦被忽略并告警） |
 | `openai_model` | `gpt-5.6-terra` | gpt（Responses API）条目默认模型（声明 gpt 池时由 `tiers` 决定） |
 | `max_iterations` | 50 | Agent 循环最大迭代次数 |
 | `max_context_tokens` | 512000 | 模型上下文窗口大小 |
 | `max_output_tokens` | None | 单次输出 token 上限（None=不设；本地思考模型建议设） |
 | `compression_threshold` | 0.8 | 上下文压缩触发阈值 |
+| `context_strategy` | `compressor` | 上下文管理策略：`compressor`=原地摘要压缩（默认）/ `reset`=窗口重置（清窗后 resume 续跑；与 compressor 互斥） |
+| `window_reset_threshold` | 0.6 | 窗口重置触发阈值（`context_strategy=reset` 时生效） |
 | `shell_timeout` | 120 | Shell 命令超时（秒） |
 | `retry_max_attempts` | 3 | 最大重试次数 |
 | `retry_base_delay` | 1.0 | 重试基础延迟（秒） |
@@ -688,6 +696,9 @@ HeAgentError (base)
 | `skill_max_auto_invoke_tokens` | None | 自动注入技能正文的总估算 token 预算（None 保持旧行为；超预算完整 Skill 跳过而不截断） |
 | `skill_max_manual_load_tokens` | 8192 | `skill_load` 单个完整 Skill 的估算 token 上限（超限显式拒绝） |
 | `context_files_enabled` | True | 是否自动加载项目上下文文件（分层扫描） |
+| `context_files_max_bytes` | 32768 | 上下文文件字节预算；超预算时近端优先保留，被丢弃/截断者显式标注 |
+| `context_files_user_level` | False | 是否纳入用户级 `~/.heagent/AGENTS.md`（默认关闭，避免全局文件静默影响每个项目） |
+| `events_rollout_enabled` | False | 是否把每次 run 的事件落盘为 `.heagent/runs/<run_id>/rollout.jsonl`（默认关闭；内容含工具原始输出） |
 | `memory_nudge_enabled` | True | 是否注入记忆保存提醒 |
 | `skill_curator_stale_days` | 30 | 技能过期天数 |
 | `cron_enabled` | True | 是否启用 cron 调度 |
@@ -696,9 +707,6 @@ HeAgentError (base)
 | `dream_cron` | `0 3 * * *` | dream cron 触发表达式（构造期 fail-fast 校验，须 5 字段） |
 | `dream_idle_minutes` | 30 | dream idle 触发阈值（分钟，距上次 run 结束；0=禁用 idle 触发） |
 | `dream_max_iterations` | 20 | dreamer SubAgent 独立迭代预算（不复用全局 `max_iterations`） |
-| `events_rollout_enabled` | False | 是否把每次 run 的事件落盘为 `.heagent/runs/<run_id>/rollout.jsonl`（默认关闭；内容含工具原始输出） |
-| `context_files_max_bytes` | 32768 | 上下文文件字节预算；超预算时近端优先保留，被丢弃/截断者显式标注 |
-| `context_files_user_level` | False | 是否纳入用户级 `~/.heagent/AGENTS.md`（默认关闭，避免全局文件静默影响每个项目） |
 | `goal_max_iterations` | 20 | `/goal` 单步 SubAgent 最大迭代轮数（步骤可用 `max_iterations:` 覆盖） |
 | `subagent_max_depth` | 3 | 子 Agent 委派嵌套深度上限（0=禁止委派；超限工具返回 `status=error`） |
 | `subagent_max_iterations` | 20 | 嵌套子代理兜底迭代预算（角色未声明 `max_iterations` 时生效：显式参数 > 角色声明 > 本项） |
@@ -708,22 +716,29 @@ HeAgentError (base)
 | `dream_session_lookback` | 5 | 预加载近期 session 个数（按 timestamp 降序） |
 | `mcp_enabled` | True | 是否启用 MCP server 连接（门控，False 则跳过加载） |
 | `mcp_config_path` | `.mcp.json` | MCP server 声明式配置文件路径 |
+| `safety_blocked_tools` | `[]` | 工具名黑名单（**JSON 数组**，元素为正则片段、大小写不敏感）：命中即由 `SafetyGuard` 在执行前拦截，对内置 / shell / MCP 工具同等生效（默认空=不拦） |
 | `sandbox_backend` | `auto` | Shell 沙箱后端：`auto`（探测 firejail，缺则回退 passthrough）/ `passthrough` / `firejail` / `winjob`（Windows 需显式指定） |
+| `sandbox_firejail_path` | `firejail` | firejail 可执行文件路径（PATH 查找或绝对路径） |
 | `sandbox_mode` | `workspace-write` | 权限档位：`read-only`（只放行只读工具，未知工具 fail-closed）/ `workspace-write` / `danger-full-access`（跳过围栏与凭证 deny 预检）；非法值回退并告警 |
 | `sandbox_network` | False | 是否允许子进程出站；False 时 firejail 追加 `--net=none`，其余后端记「网络隔离未生效」 |
+| `run_retention_days` | 7 | `.heagent/runs/` 运行快照（`<run_id>.json` + 配套 `.lock` + `<run_id>/` 产物目录）保留天数；全新 run 启动时清理一次（0=禁用）。`persist.py` 刻意保留 `.lock`（规避 unlink 竞态），本项是 runs 侧唯一回收时机 |
+| `ledger_retention_days` | 7 | `.heagent/ledger/` 幂等记录保留天数；全新 run 启动时清理一次（0=禁用） |
 | `sandbox_enforce` | True | 探测到**真实**后端时自动把 `shell` 纳入沙箱工具集并授权当次 run（passthrough 下零行为变更） |
 | `tokenizer` | `auto` | Token 计量后端：`auto`（有 tiktoken 用真实 encoding，否则启发式 + 在线校准）/ `estimate` / `tiktoken` |
 | `sandbox_session_workspace` | False | 是否为每个 run 建立会话工作目录 |
 | `sandbox_session_keep` | False | run 结束后是否保留会话目录 |
+| `sandbox_env_allowlist` | `""` | 逗号分隔的 env 豁免变量名（如 `GITHUB_TOKEN`）：命中者不参与 `scrub_sensitive_env` 的敏感剥离；空=全剥离 |
 | `approval_tools` | `""` | 需要交互审批的工具名列表 |
 | `hooks_enabled` | False | 是否启用 `.heagent/hooks.json` |
 | `plan_mode` | False | 是否启用只读计划模式 |
+| `model_pricing` | `""` | 模型价格表 JSON `{"<model>": {"input": 单价, "output": 单价}}`（$/M token）；空=不显示成本 |
+| `log_dir` | `logs` | 日志文件目录（相对 cwd），每次启动新建 `heagent-<时间戳>.log` |
+| `log_level` | `INFO` | stderr 控制台日志级别：`DEBUG` / `INFO` / `WARNING` / `ERROR` |
+| `log_file_level` | None | 文件日志级别；未设（None）时回退到 `log_level` |
 
 ---
 
 ### 4.11 MCP 集成 (`tools/mcp/`)
-| `run_retention_days` | 7 | `.heagent/runs/` 运行快照（`<run_id>.json` + 配套 `.lock` + `<run_id>/` 产物目录）保留天数；全新 run 启动时清理一次（0=禁用）。`persist.py` 刻意保留 `.lock`（规避 unlink 竞态），本项是 runs 侧唯一回收时机 |
-| `ledger_retention_days` | 7 | `.heagent/ledger/` 幂等记录保留天数；全新 run 启动时清理一次（0=禁用） |
 
 MCP server 桥接层（非必要功能，已交付）。连接时发现+注册到 `ToolRegistry`，退出时 unregister。
 
@@ -767,21 +782,6 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 - **Sandbox 后端**：`execute_in_sandbox()` 默认 Passthrough 透传；`FirejailBackend` 仅隔离 shell 子进程、非完美边界（见 4.4 sandbox.py）
 - **安全边界**：`SafetyGuard` / `PolicyEngine` / sandbox 均非真正安全边界，须 OS 级沙箱兜底（详见 CLAUDE.md 安全声明）
 
----
-
-### 4.13 Goal 驱动工作流 (`/goal`)
-
-`/goal` 是 CLI 层的机制入口（命令族实现位于 `cli_goal.py`）。当前工作流的唯一方法论入口是
-`.heagent/workflows/workflow.md`；步骤声明中的 `role` 再解析对应的 `.heagent/skills/*/SKILL.md`。
-当前工作流的维护说明见 [`docs/workflow_intro.md`](workflow_intro.md)。
-
-- `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/GOAL.md` 和 `current` 指针，
-  然后执行 workflow 的第一个声明步骤。
-- `/goal next` 执行一个声明步骤，`story_loop`（当前为 `02-epics.md`）步骤则每次执行一条 Story；`/goal run` 可连续推进，遇到检查点、
-  阻塞或失败即停止。
-- `/goal status` 只读回显运行状态和目标产物；`/goal reset` 只清除 current 指针并保留目标目录。
-- `/goal resume [回复]` 记录用户回复并恢复等待中的步骤；`/goal auto [cron]` 通过 JobStore 复用同一推进路径。
-
 #### 事件传输：JSONL / rollout（`events/`）
 
 对外的**机器可读契约**（对齐 Codex 的 `--json` 事件流）。事件源仍是引擎事件总线（`observability.py`），
@@ -798,6 +798,21 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 **CLI 契约**：`heagent run "…" --json` 时 **stdout 只出 JSONL**（`run_started` 开头、`run_completed`/`run_failed` 收尾、`assistant_message` 交回答案），横幅 / 用量 / 活动回顾等人读信息一律走 stderr，故可直接管道消费；`heagent replay <file> [--json]` 回放。两个动作**互不隐式耦合**：`--json` 不落盘（可自行重定向），落盘不要求输出到 stdout。
 
 **不可信性**：JSONL 的 `target` / `details` 携带命令与工具原始输出（含 MCP / 远端内容），与工具返回**同等不可信**，不得因「结构化」提升信任；rollout 属项目内部状态（`.heagent/` 已 gitignore，path_safety 亦设内部状态读拒），不得改写到可提交路径。
+
+---
+
+### 4.13 Goal 驱动工作流 (`/goal`)
+
+`/goal` 是 CLI 层的机制入口（命令族实现位于 `cli_goal.py`）。当前工作流的唯一方法论入口是
+`.heagent/workflows/workflow.md`；步骤声明中的 `role` 再解析对应的 `.heagent/skills/*/SKILL.md`。
+当前工作流的维护说明见 [`docs/workflow_intro.md`](workflow_intro.md)。
+
+- `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/GOAL.md` 和 `current` 指针，
+  然后执行 workflow 的第一个声明步骤。
+- `/goal next` 执行一个声明步骤，`story_loop`（当前为 `02-epics.md`）步骤则每次执行一条 Story；`/goal run` 可连续推进，遇到检查点、
+  阻塞或失败即停止。
+- `/goal status` 只读回显运行状态和目标产物；`/goal reset` 只清除 current 指针并保留目标目录。
+- `/goal resume [回复]` 记录用户回复并恢复等待中的步骤；`/goal auto [cron]` 通过 JobStore 复用同一推进路径。
 
 每个步骤或 Story 都由新的 SubAgent/RunContext 执行。`WorkflowRunner` 负责顺序、输入、输出、checkpoint
 和恢复；它不决定 Epic/Story 的拆分方法。
@@ -939,6 +954,9 @@ src/heagent/
 │   ├── approval.py           # 交互式审批协议与状态
 │   ├── hooks.py              # 生命周期 Hook 调度
 │   └── observability.py     # EventBus / 事件
+├── events/                  # 事件传输层（JSONL 契约 / rollout 落盘 / replay）
+│   ├── protocol.py          # RunEvent + EngineEvent → RunEvent 映射
+│   └── sink.py              # JsonlSink（stdout/rollout）+ read_rollout / render_event
 ├── slash.py                 # 交互模式斜杠命令注册与路由
 ├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）
 └── cron/                    # 定时调度
@@ -954,9 +972,6 @@ src/heagent/
 python -m heagent "your prompt"
   │
   ▼
-├── events/                  # 事件传输层（JSONL 契约 / rollout 落盘 / replay）
-│   ├── protocol.py          # RunEvent + EngineEvent → RunEvent 映射
-│   └── sink.py              # JsonlSink（stdout/rollout）+ read_rollout / render_event
 __main__.py → cli.main()
   │
   ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（24 个工具）
