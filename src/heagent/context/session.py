@@ -9,21 +9,13 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import re
 import time
 from pathlib import Path
 
-from heagent.engine.persist import (
-    atomic_update_text,
-    delete_entries,
-    prune_stamp_path,
-    scan_dir,
-    stamp_is_recent,
-    touch_prune_stamp,
-)
+from heagent.engine.persist import atomic_update_text, prune_entries_by_mtime
 from heagent.types import Message, Role
 
 logger = logging.getLogger(__name__)
@@ -97,19 +89,12 @@ class SessionStore:
         几乎不会被 ``--continue`` 再用，但文件会随每次交互单调增长。判定只看文件 mtime
         （会话每次保存都会刷新 mtime，故「在用的会话」不会被误删），不解析 JSON。
         单条删除失败不中断整批；``min_interval_seconds > 0`` 时走跨进程节流（见
-        ``engine.persist.stamp_is_recent``）。
+        ``engine.persist.stamp_is_recent``）。序列实现在 ``prune_entries_by_mtime``
+        （与 logs / edit-snapshots 共用，仅后缀不同）。
         """
-        if retention_days <= 0:
-            return 0
-        stamp = prune_stamp_path(self._base)
-        if await asyncio.to_thread(stamp_is_recent, stamp, min_interval_seconds):
-            return 0
-        entries = await asyncio.to_thread(scan_dir, self._base)
-        cutoff = time.time() - retention_days * 86_400
-        stale = [e.path for e in entries if not e.is_dir and e.path.name.endswith(".json") and e.mtime < cutoff]
-        deleted, _ = await asyncio.to_thread(delete_entries, stale, [])
-        await asyncio.to_thread(touch_prune_stamp, stamp)
-        return deleted
+        return await prune_entries_by_mtime(
+            self._base, retention_days=retention_days, suffix=".json", min_interval_seconds=min_interval_seconds
+        )
 
     def save(self, session_id: str, messages: list[Message]) -> str:
         """保存对话历史到 JSON 文件（原子写 + version 递增）。

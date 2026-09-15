@@ -27,7 +27,14 @@ from typing import TYPE_CHECKING
 
 from heagent.config import get_settings
 from heagent.context.session import SessionStore
-from heagent.engine.persist import delete_entries, prune_stamp_path, scan_dir, stamp_is_recent, touch_prune_stamp
+from heagent.engine.persist import (
+    delete_entries,
+    prune_entries_by_mtime,
+    prune_stamp_path,
+    scan_dir,
+    stamp_is_recent,
+    touch_prune_stamp,
+)
 from heagent.tools.edits import prune_snapshots
 from heagent.tools.sandbox import sandbox_sessions_root
 
@@ -46,19 +53,16 @@ async def prune_logs(
     数十 MB），不回收会随使用无限增长。``retention_days <= 0`` 禁用。
 
     ``stamp_root`` 用来把节流标记收进 ``.heagent/``：``logs/`` 的父目录是仓库根，默认落点
-    会在仓库根留下未跟踪文件（``.logs.prune-stamp``）。
+    会在仓库根留下未跟踪文件（``.logs.prune-stamp``）。序列实现在
+    ``prune_entries_by_mtime``（与 sessions / edit-snapshots 共用，仅后缀不同）。
     """
-    if retention_days <= 0:
-        return 0
-    stamp = prune_stamp_path(log_dir, stamp_root=stamp_root)
-    if await asyncio.to_thread(stamp_is_recent, stamp, min_interval_seconds):
-        return 0
-    entries = await asyncio.to_thread(scan_dir, log_dir)
-    cutoff = time.time() - retention_days * 86_400
-    stale = [e.path for e in entries if not e.is_dir and e.path.name.endswith(".log") and e.mtime < cutoff]
-    deleted, _ = await asyncio.to_thread(delete_entries, stale, [])
-    await asyncio.to_thread(touch_prune_stamp, stamp)
-    return deleted
+    return await prune_entries_by_mtime(
+        log_dir,
+        retention_days=retention_days,
+        suffix=".log",
+        min_interval_seconds=min_interval_seconds,
+        stamp_root=stamp_root,
+    )
 
 
 # 沙箱会话目录清理的单趟上限：崩溃孤儿可能一次积压成千上万，单趟全删会让启动抖动

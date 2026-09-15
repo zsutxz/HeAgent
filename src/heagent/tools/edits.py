@@ -19,12 +19,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import codecs
 import difflib
 import json
 import logging
-import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime
@@ -32,7 +30,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from heagent.engine.persist import delete_entries, prune_stamp_path, scan_dir, stamp_is_recent, touch_prune_stamp
+from heagent.engine.persist import prune_entries_by_mtime
 from heagent.tools.path_safety import workspace_root
 from heagent.tools.runtime import RuntimeSlot
 
@@ -151,21 +149,15 @@ async def prune_snapshots(retention_days: int, *, workspace: Path | None = None,
 
     快照是「误改后的后悔药」：**有上限的单文件备份**（``MAX_SNAPSHOT_BYTES``）+ manifest
     台账，但此前没有保留期，会随编辑次数单调增长。按整个 ``<run_id>/`` 目录的 mtime 判定
-    （写入即刷新），故「当前 run 的快照」不会被误删。``retention_days <= 0`` 禁用。
+    （写入即刷新），故「当前 run 的快照」不会被误删。``retention_days <= 0`` 禁用。序列实现
+    在 ``prune_entries_by_mtime``（与 sessions / logs 共用；本处特点是不按后缀过滤且目录一并回收）。
     """
-    if retention_days <= 0:
-        return 0
-    base = snapshot_base(workspace)
-    stamp = prune_stamp_path(base)
-    if await asyncio.to_thread(stamp_is_recent, stamp, min_interval_seconds):
-        return 0
-    entries = await asyncio.to_thread(scan_dir, base)
-    cutoff = time.time() - retention_days * 86_400
-    files = [e.path for e in entries if not e.is_dir and e.mtime < cutoff]
-    dirs = [e.path for e in entries if e.is_dir and e.mtime < cutoff]
-    deleted_files, deleted_dirs = await asyncio.to_thread(delete_entries, files, dirs)
-    await asyncio.to_thread(touch_prune_stamp, stamp)
-    return deleted_files + deleted_dirs
+    return await prune_entries_by_mtime(
+        snapshot_base(workspace),
+        retention_days=retention_days,
+        include_dirs=True,
+        min_interval_seconds=min_interval_seconds,
+    )
 
 
 @contextmanager

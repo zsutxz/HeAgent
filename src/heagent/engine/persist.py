@@ -13,11 +13,17 @@ V2 新增：可选的跨进程文件锁（``lock=True``），通过 ``.lock`` �
 万级文件下逐条 ``await asyncio.to_thread(path.stat)`` 的线程跳转成本远超 I/O 本身
 （实测 .heagent/runs 2 万条目：逐条 4.8s → 批量 ~0.1s）。
 
+``prune_entries_by_mtime`` 是**文件级产物**（sessions / logs / edit-snapshots）回收的唯一序列
+（2026-09-15 内核化；此前三处各持一份逐字副本，任一处漏改即静默分叉）。store / ledger 的
+多集合判定（记录 + 配套锁 + 产物目录）与 ``prune_sandbox_dirs`` 的目录判活语义不同，仍各自
+实现——见该函数 docstring 的「不合并的兄弟实现」段。
+
 属于 ``engine/`` 运行时治理层（见 ``docs/frame.md`` 4.12）。
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -134,6 +140,48 @@ def delete_entries(files: Sequence[Path], dirs: Sequence[Path]) -> tuple[int, in
         except OSError:
             logger.debug("delete_entries: rmtree failed on %s; continuing", path, exc_info=True)
     return deleted_files, deleted_dirs
+
+
+async def prune_entries_by_mtime(
+    base: Path,
+    *,
+    retention_days: int,
+    suffix: str | None = None,
+    include_dirs: bool = False,
+    min_interval_seconds: int = 0,
+    stamp_root: Path | None = None,
+) -> int:
+    """按 mtime 回收 ``base`` 下的过期条目，返回删除数（``retention_days <= 0`` 时禁用）。
+
+    这是「文件级产物回收」的唯一序列：守卫 → 跨进程节流 → **一次**批量扫描 → cutoff 判定
+    → **一次**批量删除 → 打节流标记。sessions / logs / edit-snapshots 三类产物只差「后缀过滤」
+    与「是否连目录一起删」，故共用本内核——2026-09-15 之前三者各持一份逐字副本，意味着
+    :func:`scan_dir` 的批量 I/O 优化必须重复施加三次（且任一处漏改即静默分叉）。
+
+    ``suffix=None`` 不过滤后缀；``include_dirs=True`` 时目录也按 mtime 参与回收（文件与目录
+    各计 1）。符号链接不特殊处理（``scan_dir`` 的 ``is_dir()`` 跟随链接），与内核化前各实现
+    逐字一致。``stamp_root`` 语义见 :func:`prune_stamp_path`。
+
+    不合并的兄弟实现（语义确属不同，**不是**漏改）：``RunStore.prune`` / ``ExecutionLedger.prune``
+    判定的是「记录 + 配套锁 + 产物目录」多集合（后者还要读 JSON 判终态），``prune_sandbox_dirs``
+    判活要连带直接子项且拒绝穿透符号链接。
+    """
+    if retention_days <= 0:
+        return 0
+    stamp = prune_stamp_path(base, stamp_root=stamp_root)
+    if await asyncio.to_thread(stamp_is_recent, stamp, min_interval_seconds):
+        return 0
+    entries = await asyncio.to_thread(scan_dir, base)
+    cutoff = time.time() - retention_days * 86_400
+    files = [
+        e.path
+        for e in entries
+        if not e.is_dir and e.mtime < cutoff and (suffix is None or e.path.name.endswith(suffix))
+    ]
+    dirs = [e.path for e in entries if e.is_dir and e.mtime < cutoff] if include_dirs else []
+    deleted_files, deleted_dirs = await asyncio.to_thread(delete_entries, files, dirs)
+    await asyncio.to_thread(touch_prune_stamp, stamp)
+    return deleted_files + deleted_dirs
 
 
 # ── 平台自适应文件锁 ──────────────────────────────────────────────
