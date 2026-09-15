@@ -181,6 +181,12 @@ class Settings(BaseSettings):
 
     # ---- 上下文文件参数 ----
     context_files_enabled: bool = Field(default=True)
+    # 分层发现的字节总预算：超预算时**近端优先**（越靠近 cwd 越具体），被丢弃/截断的文件
+    # 以显式标记回报，绝不静默。
+    context_files_max_bytes: int = Field(default=32768, ge=1)
+    # 是否纳入用户级 `~/.heagent/AGENTS.md`（排在最前、最泛）。默认关闭：全局文件会静默
+    # 影响每个项目，且会让测试依赖开发机 home。
+    context_files_user_level: bool = Field(default=False)
 
     # ---- 记忆提醒参数 ----
     memory_nudge_enabled: bool = Field(default=True)

@@ -510,11 +510,15 @@ Cron 工具在接收 `JobStore` 时激活；子 Agent 工具由 `AgentLoop._runt
 
 ### 4.5 上下文管理 (`context/`)
 
-#### loader.py — 上下文文件扫描
+#### loader.py — 上下文文件分层扫描
 
 | 函数 | 说明 |
 |------|------|
-| `load_context_files(cwd)` | 扫描 `.heagent/CONTEXT.md` > `AGENTS.md` > `CLAUDE.md`，按优先级合并 |
+| `load_context_files(cwd, *, max_bytes=None, user_level=None, home=None)` | 分层扫描并渲染（无命中返回 None）；其余参数为测试/调用方覆盖，默认取 Settings |
+| `collect_context_files(cwd, ...)` | 同上但返回结构化 `ContextBundle`（files/omitted/bytes_used），供断言层序与预算行为 |
+| `_level_dirs(start, *, max_levels=8)` | 由外到内的目录链 `[仓库根, …, cwd]`；不在仓库内时为 `[start]` |
+
+**分层发现语义（对齐 Codex 的 `AGENTS.md` 约定）**：①**仓库边界**——自 `cwd` 向上找 `.git`/`.hg`，命中即纳入该级并停止上溯（`max_levels=8` 超限则退化为单层，不做无界上溯）；不在仓库内时只扫 `cwd` 一层，**既有行为逐字节不变**。②**层序由泛到专**——仓库根在前、`cwd` 在后，同一层内保持既有优先级 `.heagent/CONTEXT.md` > `AGENTS.md` > `CLAUDE.md`；段落标题为相对最外层目录的 POSIX 路径（`## sub/AGENTS.md`），最外层即旧标签本身。③**用户级文件** `~/.heagent/AGENTS.md` 由 `CONTEXT_FILES_USER_LEVEL` 控制，**默认关闭**（全局文件静默影响每个项目，且会让测试依赖开发机 home）；标题固定渲染为 `~/.heagent/AGENTS.md`，不泄绝对路径。④**字节预算** `CONTEXT_FILES_MAX_BYTES`（默认 32768，Codex 同量级）——超预算时**近端优先**（越靠近 cwd 越具体），单段放不下但预算 ≥1024 字节时保留头部并按**悲观标记长度**预留，末尾追加 `… (truncated — kept the first N of M bytes)`；整段丢弃者汇总为一行 `(context files omitted: N — CONTEXT_FILES_MAX_BYTES=… exhausted; raise the budget to include: …)` 并打 `logger.warning`，**绝不静默**。坏编码文件按不可读处理并告警，不打断 run。
 
 #### tokens.py — Token 计量（真实 tokenizer + 在线校准，P0-3）
 
@@ -683,7 +687,7 @@ HeAgentError (base)
 | `skill_max_auto_invoke` | 3 | 最多自动注入技能数 |
 | `skill_max_auto_invoke_tokens` | None | 自动注入技能正文的总估算 token 预算（None 保持旧行为；超预算完整 Skill 跳过而不截断） |
 | `skill_max_manual_load_tokens` | 8192 | `skill_load` 单个完整 Skill 的估算 token 上限（超限显式拒绝） |
-| `context_files_enabled` | True | 是否自动加载项目上下文文件 |
+| `context_files_enabled` | True | 是否自动加载项目上下文文件（分层扫描） |
 | `memory_nudge_enabled` | True | 是否注入记忆保存提醒 |
 | `skill_curator_stale_days` | 30 | 技能过期天数 |
 | `cron_enabled` | True | 是否启用 cron 调度 |
@@ -692,6 +696,8 @@ HeAgentError (base)
 | `dream_cron` | `0 3 * * *` | dream cron 触发表达式（构造期 fail-fast 校验，须 5 字段） |
 | `dream_idle_minutes` | 30 | dream idle 触发阈值（分钟，距上次 run 结束；0=禁用 idle 触发） |
 | `dream_max_iterations` | 20 | dreamer SubAgent 独立迭代预算（不复用全局 `max_iterations`） |
+| `context_files_max_bytes` | 32768 | 上下文文件字节预算；超预算时近端优先保留，被丢弃/截断者显式标注 |
+| `context_files_user_level` | False | 是否纳入用户级 `~/.heagent/AGENTS.md`（默认关闭，避免全局文件静默影响每个项目） |
 | `goal_max_iterations` | 20 | `/goal` 单步 SubAgent 最大迭代轮数（步骤可用 `max_iterations:` 覆盖） |
 | `subagent_max_depth` | 3 | 子 Agent 委派嵌套深度上限（0=禁止委派；超限工具返回 `status=error`） |
 | `subagent_max_iterations` | 20 | 嵌套子代理兜底迭代预算（角色未声明 `max_iterations` 时生效：显式参数 > 角色声明 > 本项） |
@@ -882,7 +888,7 @@ src/heagent/
 │       └── git.py           # Git 工具（status/diff/log/blame，read-only）
 │
 ├── context/                 # 上下文管理
-│   ├── loader.py            # 上下文文件扫描（CONTEXT.md > AGENTS.md > CLAUDE.md）
+│   ├── loader.py            # 上下文文件分层扫描（仓库根 → cwd，CONTEXT.md > AGENTS.md > CLAUDE.md）
 │   ├── tokens.py            # CJK 感知 Token 估算
 │   ├── compressor.py        # 消息压缩
 │   ├── window_reset.py      # 窗口重置 + checkpoint-resume（P3）
