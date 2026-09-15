@@ -147,6 +147,9 @@ async def test_run_housekeeping_prunes_all_three_targets(tmp_path: Path) -> None
     assert not old_log.exists()
     assert not session_file.exists()
     assert not snapshot_run.exists()
+    # 节流标记必须落在 .heagent/ 下，不能在仓库根留未跟踪文件（logs/ 的父目录即仓库根）。
+    assert not (tmp_path / ".logs.prune-stamp").exists()
+    assert (tmp_path / ".heagent" / ".logs.prune-stamp").exists()
 
 
 async def test_run_housekeeping_is_throttled_across_calls(tmp_path: Path) -> None:

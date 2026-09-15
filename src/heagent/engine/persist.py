@@ -75,13 +75,16 @@ def scan_dir(base: Path) -> list[DirEntry]:
         return []
 
 
-def prune_stamp_path(base: Path) -> Path:
-    """prune 节流标记的路径：``<base 的父目录>/.<base 名>.prune-stamp``。
+def prune_stamp_path(base: Path, *, stamp_root: Path | None = None) -> Path:
+    """prune 节流标记的路径：``<stamp_root 或 base 的父目录>/.<base 名>.prune-stamp``。
 
-    刻意放在被扫描目录**之外**（父目录），避免它出现在 prune 自己的扫描结果里、也不污染
-    ``.heagent/runs/`` 这类会被外部工具 glob 的目录。
+    默认放在被扫描目录**之外**（父目录），避免它出现在 prune 自己的扫描结果里、也不污染
+    ``.heagent/runs/`` 这类会被外部工具 glob 的目录。``stamp_root`` 用于把标记收进
+    ``.heagent/`` —— 工作区级目标（如 ``logs/``）的父目录就是仓库根，默认落点会在仓库根
+    留下一个未跟踪文件（实测踩到：``git status`` 出现 ``.logs.prune-stamp``）。
     """
-    return base.parent / f".{base.name}.prune-stamp"
+    root = stamp_root if stamp_root is not None else base.parent
+    return root / f".{base.name}.prune-stamp"
 
 
 def stamp_is_recent(path: Path, min_interval_seconds: int) -> bool:

@@ -32,15 +32,20 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def prune_logs(log_dir: Path, retention_days: int, *, min_interval_seconds: int = 0) -> int:
+async def prune_logs(
+    log_dir: Path, retention_days: int, *, min_interval_seconds: int = 0, stamp_root: Path | None = None
+) -> int:
     """回收 ``log_dir`` 下超过保留期的日志文件（按 mtime），返回删除数。
 
     每次启动都会新建 ``heagent-<时间戳>.log``，而日志含完整 prompt / 工具 JSON（单个可达
     数十 MB），不回收会随使用无限增长。``retention_days <= 0`` 禁用。
+
+    ``stamp_root`` 用来把节流标记收进 ``.heagent/``：``logs/`` 的父目录是仓库根，默认落点
+    会在仓库根留下未跟踪文件（``.logs.prune-stamp``）。
     """
     if retention_days <= 0:
         return 0
-    stamp = prune_stamp_path(log_dir)
+    stamp = prune_stamp_path(log_dir, stamp_root=stamp_root)
     if await asyncio.to_thread(stamp_is_recent, stamp, min_interval_seconds):
         return 0
     entries = await asyncio.to_thread(scan_dir, log_dir)
@@ -67,7 +72,11 @@ async def run_housekeeping(
 
     try:
         targets["logs"] = await prune_logs(
-            log_dir or Path(conf.log_dir), conf.log_retention_days, min_interval_seconds=interval
+            log_dir or Path(conf.log_dir),
+            conf.log_retention_days,
+            min_interval_seconds=interval,
+            # 节流标记收进 .heagent/：logs/ 的父目录就是仓库根，会给 git status 留未跟踪文件。
+            stamp_root=root / ".heagent",
         )
     except Exception:
         logger.warning("log retention cleanup failed", exc_info=True)

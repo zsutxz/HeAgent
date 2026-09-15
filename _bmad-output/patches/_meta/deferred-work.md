@@ -147,3 +147,18 @@ fail-safe for malformed entries. Global/home-level configuration remains deferre
 - suggested fix (future): 范围+步进分支先校验 `range_part` 含 `-`，或解析失败时抛域级 `Invalid cron field expression`。本次 spec 冻结「逐字搬迁 / 零行为变更」，不在 scope 内改。
 
 **Resolution（2026-08-19，Epic 35）：** 已修复——`cron/expr.py` 范围+步进分支在 `range_part.split("-", 1)` 解包前先校验 `"-" not in range_part`，命中则抛域级 `Invalid cron field expression`（替代内部 `not enough values to unpack`）。回归测试 `tests/test_epic35.py::TestCronMalformedRangeStep`。此项关闭。
+
+## 2026-09-15 · ledger 记录在途被删（长时工具调用）：机制已证、施动者未定
+
+- source: 线上故障（`logs/heagent-20260915-105024.log`，run `d435c6c5d5eb442f9c01330a474b0759`，2026-09-15 11:03–11:16）。
+- summary: shell 调 pytest 跑 385s，超 120s 租约后记录被「过期 RUNNING = 孤儿」规则删除；工具跑完回写 `complete()` 抛 `Cannot complete non-existent key`，兜底 `except` 把成功的 18KB 输出整段替换成 `Tool error`，模型只好重跑（第二次同样死法，白跑 13 分钟）。
+- evidence（事后取证）: ① 该 run 的 **2/2 长调用**（385s / 384s）记录缺失，**8/8 短调用**记录均在且 `status=completed` —— 只有 `prune` 的「RUNNING + 租约过期」规则会呈现「只挑跑超租约的那两条删」的模式，其他机制（整目录清理 / 外部删除）无法只删这两条；② 当天全部 `ledger prune` 日志为 08:51 / 08:53 / 08:54 / 09:53 / 10:21 / 10:31 / 10:32 / 10:36 / 10:50 / 11:17，**两个故障窗口（11:03:38–11:10:03、11:10:05–11:16:29）内没有任何一条**，11:17:04 那次属本会话启动（晚于两次失败）；③ 已排除：会话自身进程（唯一 prune 在 10:50:36，早于记录产生，且日志无第二次 prune）、机器环境无 `*_RETENTION_*` 变量、src 从不把 Settings 导出到 `os.environ`、测试不 spawn CLI 子进程（全用 `CliRunner` 在进程内且 conftest 已置 `LEDGER_RETENTION_DAYS=0`）→ 施动者是**未写日志的进程**（直连 engine 的脚本，或某个 retention≠0 的测试进程），事后无法唯一归因。
+- severity: HIGH（曾致 13 分钟白跑 + 结果丢失）。现已被三层缓解，残余风险 LOW。
+- Resolution（2026-09-15，commit `cc8cb3f` + `95ae3e6`）:
+  1. **在途续租**（`agent/tool_execution._renew_ledger_lease`，40s 心跳 / 120s 租约）—— 让「租约过期 = 真孤儿」这个 prune 前提成立，**直接命中本次已证的机制，根因已封**；
+  2. **回写容错**（`_record_ledger_outcome` 回写失败只记 warning、不改写工具结果）+ **容错完成**（`complete(..., recreate_if_missing=True)` 把被清的记录重建为 COMPLETED 以保住幂等）—— 即使记录被以任何方式清掉，结果与幂等缓存都不再丢；
+  3. **可诊断性**（`complete`/`fail` 区分「真不存在」与「文件在但读不出来（损坏）」）—— 下一次同类事故可当场区分「被删」与「损坏」。
+  回归：`tests/test_window_reset.py`（在途 prune 删不掉记录 / 禁用续租时结果与缓存都保住等 6 例）+ `tests/test_coverage_ledger.py`（容错完成 / 损坏文案 3 例）。
+- 残留（低优先）: 若再出现「未写日志的进程 prune 真实 ledger」，可据新增的 `ledger record ... vanished before completion` / `recreating as COMPLETED` warning 拿到精确时点，再反查当时进程（当前证据链不足以回溯 2026-09-15 那次）。
+
+---
