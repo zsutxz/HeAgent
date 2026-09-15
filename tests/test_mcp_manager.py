@@ -303,6 +303,40 @@ def test_health_check_interval_must_be_positive() -> None:
         MCPClientManager(MCPConfig(), health_check_interval=-1)
 
 
+async def test_stop_requested_true_when_stop_set() -> None:
+    """``_stop_requested``：stop 已 set 时立即 True（不等满 interval）。"""
+    manager = MCPClientManager(MCPConfig(), health_check_interval=10.0)
+    stop = asyncio.Event()
+    stop.set()
+    assert await asyncio.wait_for(manager._stop_requested(stop), timeout=1.0) is True
+
+
+async def test_stop_requested_false_on_timeout() -> None:
+    """``_stop_requested``：stop 未 set 时吞掉自身 TimeoutError 返回 False（≠ ping 断连超时）。
+
+    deferred-work.md 2026-07-01 项（两个 wait_for 的 TimeoutError 同名异义）：本 helper 是
+    分义的载体——关停等待超时不再与「ping 超时 = 断连」共用一个异常出口，且只观察、不 set stop。
+    """
+    manager = MCPClientManager(MCPConfig(), health_check_interval=0.01)
+    stop = asyncio.Event()
+    assert await asyncio.wait_for(manager._stop_requested(stop), timeout=1.0) is False
+    assert not stop.is_set(), "helper 只观察关停信号，绝不自行 set"
+
+
+async def test_watch_stop_priority_skips_ping() -> None:
+    """stop 已 set 时 ``_watch`` 立即返回、绝不 ping（分义重构后「关停优先」语义不变）。"""
+
+    class _PingForbiddenSession(StubSession):
+        async def send_ping(self, **_: Any) -> None:
+            raise AssertionError("stop 已 set 时不应再 ping")
+
+    manager = MCPClientManager(MCPConfig(), health_check_interval=10.0)
+    stop = asyncio.Event()
+    stop.set()
+    # interval 10s 而 wait_for 上限 1s：只在「未 ping 且未等满 interval」时才能通过
+    await asyncio.wait_for(manager._watch("s", _PingForbiddenSession([]), stop), timeout=1.0)
+
+
 async def _wait_removed(reg: ToolRegistry, name: str, *, timeout_s: float = 1.0) -> bool:
     """轮询至工具从 registry 消失（抗 CI 抖动，最多等 timeout_s 秒）。"""
     for _ in range(int(timeout_s / 0.01)):

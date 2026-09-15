@@ -457,10 +457,24 @@ class MCPClientManager:
 
     # ── 持有期运行时 ──
 
+    async def _stop_requested(self, stop: asyncio.Event) -> bool:
+        """等 ``stop`` 至多 ``_health_check_interval`` 秒；True = 收到关停信号。
+
+        与 ping 的超时**分义**（deferred-work 2026-07-01）：本 helper 吞掉自身的 ``TimeoutError``
+        并返回 False，使 ``_watch`` 循环体内 ``TimeoutError`` 只剩「ping 超时 = 断连」一种含义。
+        原实现两个 ``wait_for`` 的 ``TimeoutError`` 同名异义、仅靠 try 块物理位置区分——未来
+        合并 try 块的重构会把「关停等待超时」误判为「断连」→ 误注销健康 server。
+        """
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=self._health_check_interval)
+        except TimeoutError:
+            return False
+        return True
+
     async def _watch(self, name: str, session: ClientSession, stop: asyncio.Event) -> None:
         """持有 session 直到 ``stop`` 或健康探测发现运行时断连（FR-3 收紧）。
 
-        每 ``_health_check_interval`` 秒 race 一次 ``stop.wait()``；未 stop 则 ping。
+        每 ``_health_check_interval`` 秒经 ``_stop_requested`` 问一次关停信号；未 stop 则 ping。
         ping 失败或超时 → 该 server 已不可达 → 注销其全部工具 + WARNING，随后返回
         （``_server_loop`` 在 ``finally`` 同 task 退出 transport context）。
 
@@ -469,11 +483,8 @@ class MCPClientManager:
         立即返回，不再 ping。
         """
         while not stop.is_set():
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=self._health_check_interval)
+            if await self._stop_requested(stop):
                 return  # stop 已 set（__aexit__ 触发）→ 立即退出，不再 ping
-            except TimeoutError:
-                pass
             try:
                 await ping(session, self._health_check_interval)
             except Exception as exc:  # noqa: BLE001 - 任意 ping 失败/超时 = 断连
