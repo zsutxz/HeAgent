@@ -178,7 +178,7 @@ _bmad-output/
 | `epics/epic-11-18-MCP集成周期/deferred-work.md` | E11-D1（FR-3 评审 6 项）、E11-D2（DP-4 返回内容围栏）、E11-D3（注入签名全局级，决策关闭） |
 | `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md` | S-D1（engine sandbox 后端评审 4 项，含进程组 kill 勘误）、S-D2（取消信号保留）、S-D3（reap 鲁棒性 3 项） |
 | `epics/epic-40-沙箱会话化周期/deferred-work.md` | E40-D1..D4 + E40-C1 |
-| `epics/epic-41-目标驱动开发周期/deferred-work.md` | 41-D1..D4 |
+| `epics/epic-41-目标驱动开发周期/deferred-work.md` | E41-D1..D4（GUI `/goal` 收口、goal 跨进程锁为活动项） |
 | `epics/epic-47-声明式BMad敏捷工作流周期/deferred-work.md` | E47-D1（ledger 记录在途被删；engine 运行时治理增量，同域 `epic-47-声明式工作流与产物治理/spec-runtime-hygiene.md`） |
 
 活动（未闭合）遗留项仍在 `implementation-artifacts/deferred-work.md`。

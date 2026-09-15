@@ -136,10 +136,12 @@ deny 与 env scrub 均为 defense-in-depth，**非真正安全边界**（shell �
 
 ### Deferred（未来考虑）
 
-- ⬜ MCP stdio server 子进程的 env scrubbing
-- ⬜ cron job 脚本子进程的 env scrubbing
-- ⬜ 凭证 deny 规则的用户可配置入口（当前内置规则表，hermes 也是代码内硬编码 + env 变量）
-- ⬜ 路径级审批分级（若未来引入非 workspace 的受控写场景）
+> 2026-09-15 逐条复核完毕：未闭合项统一登记在 [`implementation-artifacts/deferred-work.md`](../../implementation-artifacts/deferred-work.md)（活动台账）；两条经核实「已覆盖、不成立」的已在下方就地标注。
+
+- ✅ MCP stdio server 子进程的 env scrubbing — **已覆盖，不成立（2026-09-15 核实）**：MCP SDK 默认只继承环境**白名单**（`mcp/client/stdio/__init__.py:28,127`；Windows 下仅 APPDATA/HOMEDRIVE/HOMEPATH/LOCALAPPDATA/PATH/PATHEXT/PROCESSOR_ARCHITECTURE/SYSTEMDRIVE/SYSTEMROOT/TEMP/USERNAME/USERPROFILE），不含任何 `*_API_KEY` / `*_TOKEN`；只有 `.mcp.json` 显式声明的 `env` 才会追加 → 不列入待办。
+- ✅ cron job 脚本子进程的 env scrubbing — **已覆盖，不成立（2026-09-15 核实）**：`src/heagent/cron/` 无 `Popen` / `create_subprocess_*`（job 在进程内跑 agent run），唯一子进程路径是 run 内的 shell 工具，已被 `tools/sandbox.py` 的 `scrub_sensitive_env` 覆盖 → 不列入待办。
+- ⬜ 凭证 deny 规则的用户可配置入口（当前内置规则表，hermes 也是代码内硬编码 + env 变量） — **已登记活动台账（2026-09-15）**：无项目级可配置入口（内置表见 `tools/path_safety.py:89`），可照 `.heagent/injection_signatures.json` 的形状补一个。
+- ⬜ 路径级审批分级（若未来引入非 workspace 的受控写场景） — **条件性，已登记活动台账（2026-09-15）**：前置（非 workspace 受控写场景）尚未引入，当前审批粒度为工具级。
 
 ---
 

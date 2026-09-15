@@ -705,7 +705,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `epics/epic-11-18-MCP集成周期/deferred-work.md` | E11-D1、E11-D2、E11-D3 | FR-3 评审 6 项（4 修 / 2 决策关闭）；DP-4 返回内容启发式围栏**已交付**；注入签名 global/home 级**决策关闭（won't do）** |
 | `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md` | S-D1、S-D2、S-D3 | engine sandbox 后端评审 4 项（含进程组 kill **勘误：早已交付**）；取消信号保留（`suppress` 语义勘误）；reap 鲁棒性 3 项（超时串保护 / D-state 硬上界 / kill-wait 解耦） |
 | `epics/epic-40-沙箱会话化周期/deferred-work.md` | E40-D1..D4、E40-C1 | 孤儿目录 GC / 目录对模型可见 / WinJob cwd 可测缝 / CLI 平权 |
-| `epics/epic-41-目标驱动开发周期/deferred-work.md` | 41-D1..D4 | goal 会话预算 / TUI 路由 / REPL 异常围栏 / role metadata 生命周期 |
+| `epics/epic-41-目标驱动开发周期/deferred-work.md` | E41-D1..D4 | goal 会话预算 / TUI 路由 / REPL 异常围栏 / role metadata 生命周期（GUI `/goal` 收口与 goal 跨进程锁为**活动项**，见活动台账） |
 | `epics/epic-47-声明式BMad敏捷工作流周期/deferred-work.md` | E47-D1 | ledger 记录在途被删（在途续租 + 回写容错 + 可诊断性）——engine 运行时治理增量 |
 
 ### 13.2 补丁 spec 清单（已交付，按主题分组）
