@@ -46,10 +46,10 @@
 |----------|------|----------|----------|
 | 主线周期 | 新产品方向 / 大功能集 | `_bmad-output/<cycle>/`（brief→prd→architecture→epics→stories） | Epic 沿主线编号递增 |
 | 集成周期 | 接入外部系统（如 MCP） | 同上，独立 brief/prd | Epic 编号延续主线 |
-| 补丁周期 | 计划外技术债 / 缺陷 | `_bmad-output/patches/` + `implementation-artifacts/deferred-work.md` | spec 文件，不占 Epic 编号 |
+| 补丁周期 | 计划外技术债 / 缺陷 | `_bmad-output/patches/`（补丁 spec）+ 各周期 `deferred-work.md`（已闭合项归档） | spec 文件，不占 Epic 编号 |
 | epic 外增量 | 架构演进（engine 治理层） | 直接落代码 + `frame.md` 记录 | 按 P0/P1… 分批 |
 
-**标准工作流**：`brief → prd → architecture → epics → stories → quick-dev → code-review`，每步对应一个 `bmad-*` skill。技术债走 **deferral 机制**（发现 → 分类 fix-now/defer → 记录 `implementation-artifacts/deferred-work.md` → 开专门 spec 收尾写 Resolution 关闭）。
+**标准工作流**：`brief → prd → architecture → epics → stories → quick-dev → code-review`，每步对应一个 `bmad-*` skill。技术债走 **deferral 机制**（发现 → 分类 fix-now/defer → 记录 `implementation-artifacts/deferred-work.md` 活动台账 → 开专门 spec 收尾写 Resolution 关闭 → **按归属 epic 归档**到各周期 `deferred-work.md`）。
 
 ### 1.3 统一编号体系（2026-07-23 整合消歧）
 
@@ -622,24 +622,20 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ## 十二、补丁周期与技术债（patches/ + specs/）
 
-> `patches/` 按领域分子目录存放计划外补丁（provider/context/memory/cron/mcp/sandbox/_meta，2026-08-19 重组；spec 不占 Epic 编号），`implementation-artifacts/deferred-work.md` 跟踪遗留项，`specs/` 为 quick-dev 本地工作件（gitignored）。
+> `patches/` 按领域分子目录存放计划外补丁 spec（provider/context/memory/cron/mcp/sandbox/_meta，2026-08-19 重组；spec 不占 Epic 编号），`specs/` 为 quick-dev 本地工作件（gitignored）。**遗留项**：未闭合项在 `implementation-artifacts/deferred-work.md`；已闭合项按归属 epic 归档到各周期 `deferred-work.md`（2026-09-15 整理，原 `patches/_meta/deferred-work.md` 全部条目闭合后退役）。
 
-### 11.1 deferred-work.md 登记（跨周期技术债）
+### 11.1 已闭合技术债（按归属 epic 归档，2026-09-15）
 
-| 条目 | 触发 | 结局 |
-|------|------|------|
-| SubAgent 共享 SkillStore 写竞态（2026-06-18） | spec-5-1 review | **核实不成立关闭**（`record_usage`/`save` 是无 await 的同步原子段，单线程 asyncio 必然串行）+ 回归测试锁定 |
-| ProviderChain 双层重包（2026-06-19） | spec-p0-2 review | **已修复**（`_raise_provider_error` 取代 `_wrap_error`，已是 ProviderError 原样 raise） |
-| 流式 backstop 丢失最后错误上下文（2026-06-19） | — | **已修复**（2026-06-20，stream 循环跟踪 last_error 与 send 对称） |
-| FR-3 MCP auto-unregister review 6 项 defer（2026-07-01） | FR-3 | ①`__aexit__` 超时已修（spec-mcp-shutdown-timeout）；②`_watch` 两个 wait_for 同名异义**保持现状**；③`except Exception` 过宽**保持现状**（spec Always 显式接受）；④handler 未封 ToolError 经研究关闭（executor 兜底）；⑤`_unregister_all` 核实关闭（快照已满足）；⑥测试保真度已关闭（commit 7131cd0） |
-| DP-4 拆分 defer：MCP 返回内容复核（2026-07-08） | DP-4 | **已交付**（2026-07-10，spec-dp4-mcp-result-guard） |
-| spec-engine-sandbox-backend review 4 项 defer（2026-07-09） | AC1-AC8 | ①CancelledError 泄漏已修；②进程组 kill defer to Linux env；③timeout 校验已修；④firejail argv 测试保真度已修 |
-| spec-sandbox-timeout-validation review 1 项（2026-07-09） | D-1 | **已修复**（spec-sandbox-cancel-signal-preservation，`suppress(BaseException)` + 裸 raise） |
-| spec-sandbox-cancel-signal-preservation review 3 项（2026-07-10） | item 1/2/3 | **全部已修复**（spec-sandbox-reap-robustness） |
-| CronScheduler.stop 关停无上界（2026-07-11） | — | **已修复**（spec-cron-stop-timeout）——三处同构关停硬上界补齐 |
-| Dreaming AC6 端到端：web_fetch 未接 guard_content（2026-08-11） | AC6 | **保持 defer**——AC6 降级为「函数级复用（零回归）」，端到端接入独立 spec 评估（MED，`dream_enabled` 默认 False） |
-| Dreaming 审查 3 个 LOW defer（2026-08-12） | (a)(b)(c) | **全部已修复**（spec-dreaming-defer-cleanup：抽 `cron/expr.py` 纯叶子 / `_retrieve_task_exception` / `aborted` vs `internal_cancel` 区分） |
-| cron/expr 范围+步进分支诊断信息不友好（2026-08-12） | /code-review | **保持 defer**（LOW，仅病态输入诊断可读性，不在「逐字搬迁」scope） |
+原跨周期台账 `_bmad-output/patches/_meta/deferred-work.md` 的条目**已全部闭合**，按归属 epic 归并进各周期 `deferred-work.md`（原始长文历史不再保留）。**活动（未闭合）项**仍在 `implementation-artifacts/deferred-work.md`。
+
+| 归档文件 | 条目（ID） | 要点 |
+|----------|-----------|------|
+| `epics/epic-01-10-主线规划周期/deferred-work.md` | E1-D1/D2、E4-D1/D2、E5-D1、E10-D1/D2 | ProviderChain 双层重包 + 流式 backstop 对称化；Dreaming AC6 `web_fetch` 接 `guard_content`（Epic 35）+ 3 个 LOW（抽 `cron/expr.py` 纯叶子 / 孤儿 task 取回 / 取消语义区分）；`SkillStore` 写竞态**核实不成立**；cron 关停硬上界 + cron expr 诊断 |
+| `epics/epic-11-18-MCP集成周期/deferred-work.md` | E11-D1、E11-D2、E11-D3 | FR-3 评审 6 项（4 修 / 2 决策关闭）；DP-4 返回内容启发式围栏**已交付**；注入签名 global/home 级**决策关闭（won't do）** |
+| `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md` | S-D1、S-D2、S-D3 | engine sandbox 后端评审 4 项（含进程组 kill **勘误：早已交付**）；取消信号保留（`suppress` 语义勘误）；reap 鲁棒性 3 项（超时串保护 / D-state 硬上界 / kill-wait 解耦） |
+| `epics/epic-40-沙箱会话化周期/deferred-work.md` | E40-D1..D4、E40-C1 | 孤儿目录 GC / 目录对模型可见 / WinJob cwd 可测缝 / CLI 平权 |
+| `epics/epic-41-目标驱动开发周期/deferred-work.md` | 41-D1..D4 | goal 会话预算 / TUI 路由 / REPL 异常围栏 / role metadata 生命周期 |
+| `epics/epic-47-声明式BMad敏捷工作流周期/deferred-work.md` | E47-D1 | ledger 记录在途被删（在途续租 + 回写容错 + 可诊断性）——engine 运行时治理增量 |
 
 ### 11.2 补丁 spec 清单（已交付，按主题分组）
 
@@ -653,7 +649,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 **关停硬上界三件套（同构，统一 5.0s）**：`spec-mcp-shutdown-timeout.md`（done，2026-07-10）——`_await_shutdown` 两轮；`spec-cron-stop-timeout.md`（done，2026-07-11）——`_await_stop` 单轮；`spec-deferred-low-cleanup.md`（done，2026-07-11）——deferred LOW 收尾 + 测试保真度补齐。
 
-**Dreaming / steering（2026-08）**：`spec-dreaming-memory-consolidation.md`（冻结 spec，2026-08-11）——`memory/dream.py` `DreamScheduler`（双触发 cron `0 3 * * *` + idle 30min；`dream_enabled` 默认 False opt-in）+ `engine/roles.py` dreamer RoleSpec（白名单 fact_add/profile_update/skill_*/web_fetch，黑名单 shell/file_write/cron_*/task_*/git_*；**不持 `file_read`** 最小权限）+ `dream_max_iterations` 默认 20；`spec-dreaming-defer-cleanup.md`（done，2026-08-12）——3 个 LOW defer 收口（抽 `cron/expr.py` 纯叶子）；`spec-steering-followup.md`（spec，source 2026-08-10）——`AgentLoop` 双层循环（外层 follow-up + 内层 steering），两个可选 async callback，`run()`/`run_stream()` 提取共用 `_run_loop` 模板方法；`spec-business-data-integration.md`（母规划 spec，2026-08-11）——业务运营数据整合，**混合以 MCP 为主**，5 阶段（盘点/只读 MVP/写操作审批/跨系统编排/安全硬化），治理核心依据 = 内置 `@tool` annotations 在 PolicyEngine 阶段不被消费 vs MCP 工具闸门有效；`spec-mcp-user-injection-signatures.md`（**pending**，2026-07-27~31）——用户可配置注入签名入口 `.heagent/injection_signatures.json`（DP-4 deferred 项，未实施）。
+**Dreaming / steering（2026-08）**：`spec-dreaming-memory-consolidation.md`（冻结 spec，2026-08-11）——`memory/dream.py` `DreamScheduler`（双触发 cron `0 3 * * *` + idle 30min；`dream_enabled` 默认 False opt-in）+ `engine/roles.py` dreamer RoleSpec（白名单 fact_add/profile_update/skill_*/web_fetch，黑名单 shell/file_write/cron_*/task_*/git_*；**不持 `file_read`** 最小权限）+ `dream_max_iterations` 默认 20；`spec-dreaming-defer-cleanup.md`（done，2026-08-12）——3 个 LOW defer 收口（抽 `cron/expr.py` 纯叶子）；`spec-steering-followup.md`（spec，source 2026-08-10）——`AgentLoop` 双层循环（外层 follow-up + 内层 steering），两个可选 async callback，`run()`/`run_stream()` 提取共用 `_run_loop` 模板方法；`spec-business-data-integration.md`（母规划 spec，2026-08-11）——业务运营数据整合，**混合以 MCP 为主**，5 阶段（盘点/只读 MVP/写操作审批/跨系统编排/安全硬化），治理核心依据 = 内置 `@tool` annotations 在 PolicyEngine 阶段不被消费 vs MCP 工具闸门有效；`spec-mcp-user-injection-signatures.md`（**项目级已交付**，2026-07-27~31）——用户可配置注入签名入口 `.heagent/injection_signatures.json`（workspace 围栏 + 进程级懒加载 + 畸形条目 fail-safe）；**全局/home 级入口 2026-09-15 决策关闭（won't do）**：MCP 非必要方向 + home 级会跨项目静默生效，见 `epic-11-18-MCP集成周期/deferred-work.md` E11-D3。
 
 **其他**：`cli-status-bar.md`（done，2026-07-23）——交互模式提示符显示模型 + token 用量（`_format_status`）；`code-review-2026-07-20.md`（审查报告）——727/727 通过，无 🔴 P0 当前缺陷，P0-3 已修复验证、P1-1~P1-3 与 P2-1~P2-5 记录；`retrospective-engine-p5.md`（done，2026-06-29）——P5-3/4/5 交付 + P5-1/2 反转 deferred（后 2026-07-21 交付）；`retrospective-p0-tech-debt.md`（done，2026-06-29）——三条全部关闭。
 
@@ -727,9 +723,9 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### 14.3 关键 deferred 决策锚点
 
-- **DP-4**（mcp-client 决策，跨文档引用）：SafetyGuard 扩展 MCP 声明为主 → 2026-07-08 第一半（执行前工具名拦截）+ 2026-07-10 第二半（返回内容围栏）已交付；项目级用户签名入口已交付（`.heagent/injection_signatures.json`），全局级仍 deferred（`spec-mcp-user-injection-signatures.md`）。
+- **DP-4**（mcp-client 决策，跨文档引用）：SafetyGuard 扩展 MCP 声明为主 → 2026-07-08 第一半（执行前工具名拦截）+ 2026-07-10 第二半（返回内容围栏）已交付；项目级用户签名入口已交付（`.heagent/injection_signatures.json`），全局/home 级 2026-09-15 **决策关闭（won't do）**（`epic-11-18-MCP集成周期/deferred-work.md` E11-D3）。
 - **P5-1 / P5-2**（engine）：schema 级工具过滤 + SubAgent window_reset——2026-07-21 反转交付。
-- **Dreaming AC6 端到端**：web_fetch 围栏接入 defer（MED，opt-in）。
+- **Dreaming AC6 端到端**：web_fetch 围栏接入**已交付**（2026-08-19，Epic 35；`web_fetch` handler 调 `guard_content`），见 `epic-01-10-主线规划周期/deferred-work.md` E4-D1。
 
 ---
 
@@ -791,8 +787,8 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 - `SafetyGuard` / `path_safety` / engine sandbox 均非真正安全边界——须 OS 级沙箱兜底。
 - `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；`FirejailBackend`（Linux，仅 shell 子进程）/ `WinJobBackend`（Windows，Job Objects）可注入但均非完美边界；file/memory 等宿主进程内 I/O 工具不受覆盖。
 - MCP annotations 不可信（server 自声明）——`PolicyEngine` 注解闸门仅 defense-in-depth。
-- 用户可配置 MCP 注入签名入口（`spec-mcp-user-injection-signatures.md`）**项目级已交付**：`.heagent/injection_signatures.json` 受 workspace 围栏并进程内懒加载；全局级配置仍 deferred。
-- Dreaming 的 web_fetch 注入围栏端到端接入 defer（AC6 降级）。
+- 用户可配置 MCP 注入签名入口（`spec-mcp-user-injection-signatures.md`）**项目级已交付**：`.heagent/injection_signatures.json` 受 workspace 围栏并进程内懒加载；全局/home 级 2026-09-15 **决策关闭（won't do）**。
+- Dreaming 的 web_fetch 注入围栏端到端接入**已交付**（2026-08-19，Epic 35；标记透传，非真正边界）。
 - sandbox profile 无内置安全 profile 库、无人验证 profile 参数合法性、S4-1 emit 事件被跳过（可观测缺口）。
 
 ### 16.3 下一步（路线图）
@@ -824,8 +820,9 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/epics/epic-25-28-GUI界面周期/` | GUI 周期（Epic 25-28） |
 | `_bmad-output/epics/epic-29-35-交互扩展周期/` | 交互与可扩展层周期（Epic 29-35，2026-08-19） |
 | `_bmad-output/epics/<周期>/epic-NN-主题/stories/` | 按 epic 归档的 story 文件（13 个，嵌套于所属周期目录，清单见 14.1 注） |
-| `_bmad-output/patches/<领域>/` | 补丁 spec + 技术债登记（provider/context/memory/cron/mcp/sandbox/_meta） |
-| `_bmad-output/implementation-artifacts/deferred-work.md` | 工作流的跨周期 deferred canonical 台账 |
+| `_bmad-output/patches/<领域>/` | 补丁 spec（provider/context/memory/cron/mcp/sandbox/_meta） |
+| `_bmad-output/implementation-artifacts/deferred-work.md` | 工作流的跨周期 deferred **活动台账**（未闭合项） |
+| `_bmad-output/epics/<周期>/deferred-work.md` | 已闭合遗留项按归属 epic 归档（含 40 / 41 / 01-10 / 11-18 / S1-S4 / 47） |
 | `_bmad-output/specs/` | quick-dev 本地工作件（gitignored；Epic 41 goal 契约已归档至 `_bmad-output/epics/epic-41-目标驱动开发周期/spec-goal-command/`） |
 
 ### Epic 45.3 质量收口证据（2026-09-01）
@@ -836,4 +833,8 @@ Epic 43-44 已完成，Epic 45.3 增加无网络两-story 目标工作流冒烟�
 
 ### 已完成实现 spec 归档（2026-09-14）
 
-`spec-shell-output-limit.md` 已归档至 Epic 40；checkpoint 恢复、运行时持久化治理、子代理依赖反转及仓库贡献指南 spec 已归档至 Epic 47 的 `epic-47-声明式工作流与产物治理/`。`implementation-artifacts/` 不再保留这些已完成 spec，仅保留工作流持续维护的 deferred 台账。
+`spec-shell-output-limit.md` 已归档至 Epic 40；checkpoint 恢复、运行时持久化治理、子代理依赖反转及仓库贡献指南 spec 已归档至 Epic 47 的 `epic-47-声明式工作流与产物治理/`。`implementation-artifacts/` 不再保留这些已完成 spec，仅保留工作流持续维护的 deferred 活动台账。
+
+### 已闭合 deferred-work 归档（2026-09-15）
+
+`patches/_meta/deferred-work.md` 的条目已全部闭合，按归属 epic 归并进 `epic-01-10-主线规划周期/`、`epic-11-18-MCP集成周期/`、`epic-S1-S4-沙箱硬化周期/`、`epic-47-声明式BMad敏捷工作流周期/` 的 `deferred-work.md`（另 `epic-40`/`epic-41` 原有台账保留），原台账随之退役；条目索引见 11.1，活动（未闭合）项仍在 `implementation-artifacts/deferred-work.md`。
