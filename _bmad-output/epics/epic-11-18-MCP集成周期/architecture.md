@@ -200,6 +200,8 @@ tools/mcp/mapping.py       # 改从 session_api 取类型 + 字段兼容
 
 ## Deferred
 
+> **2026-09-15 标注｜本节是阶段二当时的 Deferred 记录，不是当前待办账本。** `Resources/Prompts/写操作` 已随阶段三交付（Epic 14-16）；`FR-3 A`（运行时断连主动注销）亦已交付（`tools/mcp/manager.py` 的 `_watch` 健康探测，见 `deferred-work.md` E11-D1）；其余 MCP 域未开发项——`v2` 实际切换、`server/discover` 主动探测（B）、隔离层升级 Protocol、全局（home）级注入签名入口——已随「MCP 不再作为 HeAgent 必要开发方向」的决策**冻结**（`CLAUDE.md` 文首 MCP 立场；签名入口一项见 E11-D3「决策关闭（won't do）」）。当前 MCP 域唯一活动项是「stdio server 子进程未接入沙箱后端」，见 `implementation-artifacts/deferred-work.md`。
+
 v2 实际切换执行；FR-3 A 实现；Resources/Prompts/写操作（v2 stable 后重评——后由阶段三落地）；`server/discover` 主动探测（B）；隔离层升级 Protocol（若需 v1/v2 并存）；用户可配置注入签名入口（DP-4 deferred 项，正交）。
 
 ---
@@ -318,6 +320,8 @@ src/heagent/
 | SM-6 / AR-8 | CLAUDE.md / frame.md | AD-8 |
 
 ## Deferred
+
+> **2026-09-15 标注｜阶段三当时的 Deferred 记录，不是当前待办账本。** 本次核实：`subscribe_resource` 与 `resource templates` 未见实现（`src/heagent/tools/mcp/` 无相关符号）；`idempotentHint` / `openWorldHint` 已由 `tools/mcp/mapping.py:64,65` 映射，但 `PolicyEngine` 未据此裁决（写操作闸门只看 `destructiveHint` / `readOnlyHint`）；其余各项（fail-safe 保守度增强 → V3、全局级注入签名入口、内置工具 annotation 驱动治理、完整操作/环境维度）同属 MCP 域，随上述「MCP 非必要方向」决策冻结。未闭合项统一以 `implementation-artifacts/deferred-work.md` 为准。
 
 subscribe_resource（OQ-5，与 on-demand 及 stateless 双冲突）；resource templates（OQ-6，边际价值低）；idempotent/openWorld 裁决消费（FR-A7）；fail-safe 保守度增强（PRD OQ-1 → V3）；用户可配置注入签名入口（DP-4 硬化，独立 spec）；内置工具 annotation 驱动治理；完整操作/环境维度。
 
