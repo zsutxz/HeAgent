@@ -8,9 +8,11 @@
 
 - **AgentLoop._execute_one**（P4）：key = ``run_id:call.id``。在 window_reset（上下文压缩）
   后模型可能重发相同 ``tool_call.id``；账本使 COMPLETED 的调用短路返回缓存、避免重复执行。
+  工具在途期间由 ``agent/tool_execution._renew_ledger_lease`` 周期续租——工具可跑数分钟
+  （``shell`` 超时上限），固定租约不足以覆盖，续租是「未过期 RUNNING 即真在途」的前提。
 - **cron 调度**：key = ``cron:{job_id}:{分钟时间戳}``，经 acquire / complete / fail 防同一
-  逻辑分钟的 job 被重复执行（租约靠 ``lease_seconds`` 设足覆盖执行）。``heartbeat`` 为
-  预留续租接口，当前无调用方——上层自定义长时 job_runner 跑超租约任务时可周期续租。
+  逻辑分钟的 job 被重复执行（租约靠 ``lease_seconds`` 设足覆盖执行）。``heartbeat`` 亦可
+  由上层长时 job_runner 周期调用续租（同工具在途续租的用法）。
 
 过期记录由 :meth:`prune` 按保留期自动清理（``EngineContainer.prune_ledger_once`` 在全新 run
 启动时触发）：保留期外的终态死记录（``COMPLETED``/``FAILED``）与过期孤儿 ``RUNNING`` 才删，
@@ -194,7 +196,12 @@ class ExecutionLedger:
             return record
 
     async def heartbeat(self, key: str, *, lease_seconds: int = 120) -> ExecutionRecord | None:
-        """为进行中的记录续租；非 RUNNING（已完成 / 失败 / 不存在）返回 None。"""
+        """为进行中的记录续租；非 RUNNING（已完成 / 失败 / 不存在）返回 None。
+
+        唯一调用方是工具在途续租（``agent/tool_execution._renew_ledger_lease``）：返回
+        ``None`` 即「无需再续租」（记录已终态或被 prune 清掉），调用方应停止续租但不能
+        据此判定工具失败——账本只是幂等缓存。
+        """
         async with self._lock:
             record = await self.get(key)
             if record is None or record.status != ExecutionStatus.RUNNING:
@@ -266,7 +273,9 @@ class ExecutionLedger:
         """删除过期记录，返回删除数。``retention_days <= 0`` 时直接返回 0（禁用清理）。
 
         删除：``COMPLETED``/``FAILED`` 中 ``finished_at`` 早于 cutoff 的终态死记录，
-        以及 ``RUNNING`` 且租约已过期的孤儿（``heartbeat`` 无调用方，过期即死）。
+        以及 ``RUNNING`` 且租约已过期的孤儿。**在途记录能存活的前提是有调用方周期续租**
+        （``agent/tool_execution._renew_ledger_lease`` 覆盖工具在途；无续租的长任务
+        跑超 ``lease_seconds`` 后仍会被判为孤儿——这是有意取舍，见 :meth:`heartbeat`）。
         保留：未过期 ``RUNNING``（在途，防误删导致重复执行副作用工具）。
 
         P1-23 重写：不再经 ``list_records``（7152 次 Pydantic ``model_validate``），

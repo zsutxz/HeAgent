@@ -7,12 +7,25 @@
 
 执行链固定为：``ledger 幂等 → PolicyEngine 裁决 → ToolExecutor 执行（内含 SafetyGuard）→
 ledger 回写``。单个工具异常被转成 error ToolResult，不阻塞同批其它调用。
+
+**ledger 只是幂等缓存，不拥有工具结果**，因此这里有两条硬性约定：
+
+1. **在途期间续租**（``_renew_ledger_lease``）：工具可以跑很久（``shell`` 的 ``timeout``
+   可达数分钟），而 ledger 记录带 120s 租约——租约过期后任何进程的 ``prune`` 都会把它
+   视为「孤儿 RUNNING」删掉（见 ``engine/ledger.py`` 的 prune 语义）。长时调用结束再
+   ``complete()`` 就会撞 ``Cannot complete non-existent key``，把跑完的成果换成一条记账
+   报错（实测踩坑：一次 6 分半的 pytest 输出被整段丢弃，模型只好重跑一遍）。故在途期间
+   后台周期续租，让「租约过期 = 真孤儿」这一 prune 前提成立。
+2. **回写失败不改结果**（``_record_ledger_outcome``）：即便记录仍被清掉（如另一进程禁用
+   续租窗口内 prune、I/O 故障），也只记 warning 并丢掉幂等缓存，绝不把成功的工具结果
+   替换成 error ToolResult——缓存丢了最多是重发时重复执行一次，结果丢了是整轮白干。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 from typing import TYPE_CHECKING, Any, cast
 
 from heagent.engine import ApprovalDecision, ApprovalRequest, ToolExecutionMode
@@ -24,8 +37,59 @@ if TYPE_CHECKING:
 
     from heagent.agent.loop import AgentLoop, AgentState
     from heagent.engine import PolicyVerdict, RunContext
+    from heagent.engine.ledger import ExecutionLedger
 
 logger = logging.getLogger(__name__)
+
+# ── ledger 租约续期（长时工具调用）─────────────────────────────────
+# 租约长度与续期间隔：间隔取租约的 1/3，保证单个心跳周期内的时钟抖动/事件循环排队
+# 不会让租约在两次续期之间过期。两者都可在测试中替换（见 tests/test_window_reset.py）。
+_LEDGER_LEASE_SECONDS = 120
+_LEDGER_LEASE_RENEW_INTERVAL = 40
+
+
+async def _renew_ledger_lease(ledger: ExecutionLedger, key: str) -> None:
+    """工具在途期间周期续租，直到被调用方取消（或记录已消失）。
+
+    这是尽力而为的保活：记录被清掉（``heartbeat`` 返回 ``None``）或续租本身 I/O 失败都
+    只记 warning，**不抛错**——工具结果由 :func:`_record_ledger_outcome` 与调用方兜底，
+    绝不能因为「保不住缓存键」而打断正在跑的工具。
+
+    实现上刻意用 ``asyncio.sleep`` 循环而非 ``asyncio.TimerHandle``：间隔远大于单次
+    ``to_thread`` 落盘耗时，无需担心漂移累积。
+    """
+    while True:
+        await asyncio.sleep(_LEDGER_LEASE_RENEW_INTERVAL)
+        try:
+            record = await ledger.heartbeat(key, lease_seconds=_LEDGER_LEASE_SECONDS)
+        except Exception:
+            # 注意 CancelledError 是 BaseException，不会被这里吞掉——取消续租任务
+            # （execute_tool_call 的 finally）仍按取消语义退出。
+            logger.warning("Ledger lease renewal failed for %s; will retry", key, exc_info=True)
+            continue
+        if record is None:
+            # 记录已被清理（或已终态）：续租已无意义，退出让回写路径去报告。
+            logger.warning("Ledger record %s vanished while the tool was in flight", key)
+            return
+
+
+async def _record_ledger_outcome(loop: AgentLoop, cache_key: str, result: ToolResult) -> None:
+    """把工具结果写回 ledger（成功 ``complete`` / 失败 ``fail``），**失败只告警**。
+
+    幂等记账是旁路：记账失败（记录被 prune 清掉、跨进程锁冲突、磁盘故障……）不得改写
+    工具结果，否则「跑成功的工具」会被降级成一条 ``Tool error: Cannot complete ...``。
+    """
+    try:
+        if result.is_error:
+            await loop.engine.ledger.fail(cache_key, result.content)
+        else:
+            await loop.engine.ledger.complete(cache_key, metadata={"result": result.content})
+    except Exception:
+        logger.warning(
+            "Failed to record ledger outcome for %s (tool result kept; idempotency cache lost)",
+            cache_key,
+            exc_info=True,
+        )
 
 
 def _activity_labels(calls: list[ToolCall]) -> list[str]:
@@ -104,15 +168,22 @@ async def execute_tool_call(
     正常路径：① ledger 抢占/命中 → ② PolicyEngine 裁决（准许/审批/沙箱）→
     ③ ToolExecutor 在裁决框架内执行 handler（内部再经 SafetyGuard 黑名单）→
     ④ 把结果（成功/失败）写回 ledger。
+
+    ① 与 ④ 都是**旁路记账**：① 失败仍转 error ToolResult（P1-2）；④ 失败只记 warning，
+    不影响已拿到的工具结果。① 成功后在途期间后台续租（见模块 docstring 第 1 条），
+    避免长时调用被别的进程 prune 掉自己的记录。
     """
     cache_key: str | None = None
+    lease_task: asyncio.Task[None] | None = None
     try:
         if run_context is not None:
             # ① 抢占缓存键。抢不到时按记录状态分两路：
             #    - 已 COMPLETED（有 result）→ 幂等命中，返回缓存（Commit A 会在此复核 policy）。
             #    - lease-active（RUNNING 未过期，并发重入）→ 跳过重复执行，返回 skip 提示。
             cache_key = f"{run_context.run_id}:{call.id}"
-            claim = await loop.engine.ledger.acquire(cache_key, run_id=run_context.run_id)
+            claim = await loop.engine.ledger.acquire(
+                cache_key, lease_seconds=_LEDGER_LEASE_SECONDS, run_id=run_context.run_id
+            )
             if not claim.acquired:
                 cached = claim.record.metadata.get("result")
                 if cached is not None:
@@ -137,6 +208,9 @@ async def execute_tool_call(
                     content=f"tool '{call.name}' already in-flight (ledger: {claim.reason}); skipped",
                     is_error=True,
                 )
+            # ①.5 占用成功 → 在途期间后台续租（工具可能跑数分钟，远超租约长度）。
+            #     失败/取消都不影响工具执行，故不 await 结果、不 attach 回调。
+            lease_task = asyncio.create_task(_renew_ledger_lease(loop.engine.ledger, cache_key))
 
         # ② 策略裁决；③ 查 handler。未知工具直接产出 error 结果，不走 executor。
         schema = loop.registry.get_schema(call.name)
@@ -188,11 +262,9 @@ async def execute_tool_call(
                 await loop.engine.hooks.run_post_tool(call, run_context)
 
         # ④ 结果回写 ledger：成功记 complete（带结果供后续幂等），失败记 fail（允许重试）。
+        #    记账失败不得改写工具结果——见 _record_ledger_outcome 的 docstring。
         if cache_key is not None:
-            if result.is_error:
-                await loop.engine.ledger.fail(cache_key, result.content)
-            else:
-                await loop.engine.ledger.complete(cache_key, metadata={"result": result.content})
+            await _record_ledger_outcome(loop, cache_key, result)
         return result
     except Exception as exc:
         # P1-2 修复：ledger acquire / policy evaluate 等非 handler 异常也转为 error ToolResult，
@@ -205,6 +277,13 @@ async def execute_tool_call(
             details={"error": str(exc)},
         )
         return ToolResult(tool_call_id=call.id, content=f"Tool error: {exc}", is_error=True)
+    finally:
+        # 收尾取消续租任务：**必须在回写之后**（回写期间记录仍需保持有效租约），
+        # 且无论正常返回、异常返回还是被取消都要执行，否则会留下一个常驻心跳任务。
+        if lease_task is not None:
+            lease_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await lease_task
 
 
 async def _resolve_approval(

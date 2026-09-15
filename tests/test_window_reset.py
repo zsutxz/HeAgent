@@ -15,10 +15,13 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from typing import TYPE_CHECKING
 
 import pytest
 
+from heagent.agent import tool_execution
 from heagent.agent.loop import AgentLoop
 from heagent.context.compressor import ContextCompressor, STRUCTURED_SUMMARY_PROMPT
 from heagent.context.window_reset import WindowReset, WindowResetConfig
@@ -369,3 +372,196 @@ async def test_cached_result_respects_policy_tightening(tmp_path) -> None:
     assert second.is_error is True
     assert second.content != "1"  # 缓存内容未被放行
     assert counter["n"] == 1  # handler 未再执行（BLOCKED 在 executor 拦截）
+
+
+# ══════════════════════════════════════════════════════════════════════
+# 长时工具调用：在途续租 + 回写容错
+# （回归 2026-09-15：6 分半的 shell 跑超 120s 租约 → 记录被 prune 当孤儿删掉 →
+#   complete 抛 Cannot complete non-existent key → 跑完的输出被换成一条记账报错）
+# ══════════════════════════════════════════════════════════════════════
+
+_TOOL_LOGGER = "heagent.agent.tool_execution"
+
+
+def _slow_registry(delay: float) -> tuple[ToolRegistry, dict[str, int]]:
+    """注册耗时 ``delay`` 秒的 ``slow`` 工具；返回 (registry, counter)。"""
+    counter: dict[str, int] = {"n": 0}
+
+    async def slow() -> int:
+        counter["n"] += 1
+        await asyncio.sleep(delay)
+        return counter["n"]
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolSchema(name="slow", description="slow", parameters={"type": "object", "properties": {}}),
+        slow,
+    )
+    return registry, counter
+
+
+@pytest.fixture
+def _short_lease(monkeypatch: pytest.MonkeyPatch) -> None:
+    """把租约压到 1s、续期 0.2s，使「跑超租约」在测试里只要 1 秒（而非 2 分钟）。"""
+    monkeypatch.setattr(tool_execution, "_LEDGER_LEASE_SECONDS", 1)
+    monkeypatch.setattr(tool_execution, "_LEDGER_LEASE_RENEW_INTERVAL", 0.2)
+
+
+@pytest.mark.usefixtures("_short_lease")
+async def test_inflight_tool_call_keeps_its_lease_fresh(tmp_path) -> None:
+    """在途续租：长时工具跑超租约时，其它进程的 prune 删不掉它的记录。
+
+    时序复刻线上故障——1s 租约 + 1.6s 工具，在 1.25s（已超原始租约、但**仍未跑完**）
+    执行 prune；若未续租，此时记录会被当作过期孤儿删掉。
+    """
+    registry, counter = _slow_registry(1.6)
+    loop = AgentLoop(_StubProvider([]), registry=registry, engine=_engine(tmp_path))
+    rc = RunContext()
+    call = ToolCall(id="s1", name="slow", arguments={})
+
+    task = asyncio.create_task(loop._execute_one(call, run_context=rc))
+    await asyncio.sleep(1.25)
+    # 前置断言：此刻记录确实还是 RUNNING（否则 prune 测试会因「已经终态」而假通过）。
+    inflight = await loop.engine.ledger.get(f"{rc.run_id}:{call.id}")
+    assert inflight is not None and inflight.status.value == "running"
+    assert await loop.engine.ledger.prune(retention_days=7) == 0  # 续租保住了在途记录
+
+    result = await task
+    assert result.is_error is False
+    assert result.content == "1"
+    assert counter["n"] == 1
+
+    record = await loop.engine.ledger.get(f"{rc.run_id}:{call.id}")
+    assert record is not None and record.status.value == "completed"
+
+    # 幂等缓存仍然可用：同一 tool_call.id 再发一次不再执行 handler。
+    cached = await loop._execute_one(call, run_context=rc)
+    assert cached.content == "1"
+    assert counter["n"] == 1
+
+
+@pytest.mark.usefixtures("_short_lease")
+async def test_expired_orphan_is_prunable_but_result_survives(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """反例（禁用续租）：记录仍会被 prune 删掉，但工具结果不再被记账错误顶替。
+
+    这条锁住故障的另一半——prune 语义本身不变（过期 RUNNING = 孤儿），变的是
+    「缓存丢了不能连结果一起丢」。
+    """
+
+    async def _noop_renewal(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(tool_execution, "_renew_ledger_lease", _noop_renewal)
+    registry, counter = _slow_registry(1.6)
+    loop = AgentLoop(_StubProvider([]), registry=registry, engine=_engine(tmp_path))
+    rc = RunContext()
+    call = ToolCall(id="s2", name="slow", arguments={})
+
+    with caplog.at_level(logging.WARNING, logger=_TOOL_LOGGER):
+        task = asyncio.create_task(loop._execute_one(call, run_context=rc))
+        await asyncio.sleep(1.25)
+        inflight = await loop.engine.ledger.get(f"{rc.run_id}:{call.id}")
+        assert inflight is not None and inflight.status.value == "running"
+        # 租约在 1.0s 已过期、工具尚未跑完 → 判为孤儿并删除。
+        assert await loop.engine.ledger.prune(retention_days=7) == 1
+        result = await task
+
+    assert result.is_error is False
+    assert result.content == "1"  # ← 修复前这里是 "Tool error: Cannot complete non-existent key..."
+    assert counter["n"] == 1
+    assert any("Failed to record ledger outcome" in record.message for record in caplog.records)
+    assert await loop.engine.ledger.get(f"{rc.run_id}:{call.id}") is None  # 缓存确已丢失
+
+
+async def test_complete_failure_keeps_successful_result(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """回写成功态抛错（记录被清）→ 成功的工具结果原样返回，只记 warning。"""
+    registry, counter = _bump_registry()
+    loop = AgentLoop(_StubProvider([]), registry=registry, engine=_engine(tmp_path))
+    rc = RunContext()
+    call = ToolCall(id="c9", name="bump", arguments={})
+
+    async def _boom(*_args: object, **_kwargs: object) -> None:
+        raise ValueError("Cannot complete non-existent key: 'x'")
+
+    monkeypatch.setattr(loop.engine.ledger, "complete", _boom)
+
+    with caplog.at_level(logging.WARNING, logger=_TOOL_LOGGER):
+        result = await loop._execute_one(call, run_context=rc)
+
+    assert result.is_error is False
+    assert result.content == "1"
+    assert counter["n"] == 1
+    assert any("Failed to record ledger outcome" in record.message for record in caplog.records)
+
+
+async def test_fail_writeback_failure_keeps_error_result(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """回写失败态抛错 → 仍返回 handler 的错误结果，不被记账错误顶替。"""
+
+    async def boom_tool() -> str:
+        raise RuntimeError("handler exploded")
+
+    registry = ToolRegistry()
+    registry.register(
+        ToolSchema(name="boom", description="boom", parameters={"type": "object", "properties": {}}),
+        boom_tool,
+    )
+    loop = AgentLoop(_StubProvider([]), registry=registry, engine=_engine(tmp_path))
+    rc = RunContext()
+    call = ToolCall(id="c10", name="boom", arguments={})
+
+    async def _boom(*_args: object, **_kwargs: object) -> None:
+        raise ValueError("Cannot fail non-existent key: 'x'")
+
+    monkeypatch.setattr(loop.engine.ledger, "fail", _boom)
+
+    with caplog.at_level(logging.WARNING, logger=_TOOL_LOGGER):
+        result = await loop._execute_one(call, run_context=rc)
+
+    assert result.is_error is True
+    assert "handler exploded" in result.content  # handler 的失败原因仍可见
+    assert "non-existent key" not in result.content  # 记账错误未顶替
+    assert any("Failed to record ledger outcome" in record.message for record in caplog.records)
+
+
+async def test_renewal_stops_when_record_is_gone(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """记录已消失时续租任务自行退出（不空转），且不抛错。"""
+    monkeypatch.setattr(tool_execution, "_LEDGER_LEASE_RENEW_INTERVAL", 0.01)
+    ledger = ExecutionLedger(str(tmp_path / "ledger"))
+
+    with caplog.at_level(logging.WARNING, logger=_TOOL_LOGGER):
+        # wait_for 兜底：若实现退化成死循环，测试立刻失败而不是挂住。
+        await asyncio.wait_for(tool_execution._renew_ledger_lease(ledger, "gone:key"), timeout=2)
+
+    assert any("vanished" in record.message for record in caplog.records)
+
+
+async def test_renewal_survives_heartbeat_io_failure(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """续租自身 I/O 故障只告警并重试，绝不把异常抛进工具执行路径。"""
+    monkeypatch.setattr(tool_execution, "_LEDGER_LEASE_RENEW_INTERVAL", 0.01)
+    ledger = ExecutionLedger(str(tmp_path / "ledger"))
+    await ledger.acquire("k:1", lease_seconds=30)
+    calls: list[int] = []
+
+    async def _flaky(key: str, *, lease_seconds: int = 120):  # noqa: ANN202 - 测试替身
+        calls.append(1)
+        if len(calls) == 1:
+            raise OSError("disk hiccup")
+        return None  # 第二次返回 None → 任务正常退出
+
+    monkeypatch.setattr(ledger, "heartbeat", _flaky)
+
+    with caplog.at_level(logging.WARNING, logger=_TOOL_LOGGER):
+        await asyncio.wait_for(tool_execution._renew_ledger_lease(ledger, "k:1"), timeout=2)
+
+    assert len(calls) >= 2  # 失败后仍重试（未因异常退出）
+    assert any("renewal failed" in record.message for record in caplog.records)
