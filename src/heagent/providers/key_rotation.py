@@ -110,6 +110,9 @@ class KeyRotatingProvider:
 
         P1-11 修复：与 chain.py/switchable.py 对齐——锁内仅快照索引，释放锁后
         迭代，避免持锁覆盖整个流式迭代串行化并发 consumer。
+
+        与 ``ProviderChain.stream`` 结构同构，但**索引语义有意不同**：本类成功后停留到成功的
+        那把密钥（粘性，后续复用），chain 则复位到 ``start``。故两者不共用模板。
         """
         # P1-11：锁内快照索引 + provider 列表，释放锁后迭代
         async with self._lock:

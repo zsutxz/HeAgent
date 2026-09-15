@@ -79,6 +79,25 @@ class SubagentToolRuntime:
 _subagent_runtime = RuntimeSlot[SubagentToolRuntime]("heagent_subagent_tools")
 
 
+def _build_runtime(
+    delegate_one: DelegateOne | None,
+    delegate_many: DelegateMany | None,
+    run_context: RunContext | None,
+    roles: dict[str, RoleSpec] | None,
+    depth: int,
+    max_depth: int,
+) -> SubagentToolRuntime:
+    """构造委派运行时快照——``configure`` 与 ``bind`` 两个入口共用（6 个字段曾各写一遍，易漂移）。"""
+    return SubagentToolRuntime(
+        delegate_one=delegate_one,
+        delegate_many=delegate_many,
+        run_context=run_context,
+        roles=roles,
+        depth=depth,
+        max_depth=max_depth,
+    )
+
+
 def configure_subagent_tools(
     delegate_one: DelegateOne | None = None,
     delegate_many: DelegateMany | None = None,
@@ -89,16 +108,7 @@ def configure_subagent_tools(
     max_depth: int = 3,
 ) -> None:
     """Set fallback delegation callbacks for sub-agent tools."""
-    _subagent_runtime.configure(
-        SubagentToolRuntime(
-            delegate_one=delegate_one,
-            delegate_many=delegate_many,
-            run_context=run_context,
-            roles=roles,
-            depth=depth,
-            max_depth=max_depth,
-        )
-    )
+    _subagent_runtime.configure(_build_runtime(delegate_one, delegate_many, run_context, roles, depth, max_depth))
 
 
 def reset_subagent_tools() -> None:
@@ -117,16 +127,7 @@ def bind_subagent_tools(
     max_depth: int = 3,
 ) -> Iterator[None]:
     """Bind sub-agent delegation callbacks for the current run context."""
-    with _subagent_runtime.bind(
-        SubagentToolRuntime(
-            delegate_one=delegate_one,
-            delegate_many=delegate_many,
-            run_context=run_context,
-            roles=roles,
-            depth=depth,
-            max_depth=max_depth,
-        )
-    ):
+    with _subagent_runtime.bind(_build_runtime(delegate_one, delegate_many, run_context, roles, depth, max_depth)):
         yield
 
 

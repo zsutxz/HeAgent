@@ -239,22 +239,25 @@ class AgentLoop:
 
     async def _poll_steering(self) -> list[Message]:
         """Poll steering 回调，返回待注入的消息（失败静默，不阻断主循环）。"""
-        if self.steering_callback is None:
-            return []
-        try:
-            return await self.steering_callback()
-        except Exception:
-            logger.warning("steering_callback failed", exc_info=True)
-            return []
+        return await self._poll(self.steering_callback, "steering_callback")
 
     async def _poll_follow_up(self) -> list[Message]:
         """Poll follow-up 回调，返回待注入的消息（失败静默，不阻断主循环）。"""
-        if self.follow_up_callback is None:
+        return await self._poll(self.follow_up_callback, "follow_up_callback")
+
+    @staticmethod
+    async def _poll(callback: Callable[[], Awaitable[list[Message]]] | None, label: str) -> list[Message]:
+        """轮询一个可选回调：未配置返回空表，回调抛错只记 warning。
+
+        消息注入（steering / follow-up）**不得阻断主循环**，故异常在此静默；两处调用点仅
+        「回调 + 日志标签」不同，原先各持一份逐字副本。
+        """
+        if callback is None:
             return []
         try:
-            return await self.follow_up_callback()
+            return await callback()
         except Exception:
-            logger.warning("follow_up_callback failed", exc_info=True)
+            logger.warning("%s failed", label, exc_info=True)
             return []
 
     # ------------------------------------------------------------------

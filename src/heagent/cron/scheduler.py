@@ -100,6 +100,8 @@ class CronScheduler:
         while self._running:
             try:
                 await self._check_and_execute()
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 logger.exception("Cron tick error")
             await asyncio.sleep(self._tick_seconds)

@@ -123,6 +123,10 @@ class ProviderChain:
         消费者收到重复前缀。仅在首个 chunk 之前的失败才按 FR-4 回退。
 
         P1-3 修复：索引读写持锁，但迭代不持锁——避免长时间持锁串行化并发 consumer。
+
+        与 ``KeyRotatingProvider.stream`` 结构同构，但**索引语义有意不同**：本类成功后复位到
+        ``start``（非粘性旁路，下次仍从主 Provider 起），密钥轮换则停留到成功的那把密钥
+        （粘性）。故两者不共用模板——改其一时请对照另一处。
         """
         # 锁内：读取起始索引与当前 provider 实例，获取本地引用后退出锁。
         async with self._lock:

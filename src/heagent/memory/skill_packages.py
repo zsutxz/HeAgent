@@ -420,29 +420,30 @@ class SkillPackage(BaseModel):
                 return "" if result.casefold() in {"none", "null"} else result
         return ""
 
+    def _bounded_int(self, values: dict[str, Any], resource: str, *, key: str, default: int, maximum: int) -> int:
+        """解析有界整数设置（缺省取 ``default``；bool / 非数字 / 越界一律抛，不做强制转换）。
+
+        ``max_parallel_stories`` 与 ``max_iterations`` 的校验规则本来逐字相同（各持一份副本），
+        此处参数化为唯一实现：**两条规则必须一致**，否则同一份 frontmatter 在两处得到不同宽容度。
+        """
+        if key not in values:
+            return default
+        message = f"{key} must be an integer from 1 to {maximum}"
+        raw = values[key]
+        if isinstance(raw, bool):
+            raise SkillWorkflowError(self.skill_id, resource, message)
+        text = str(raw).strip().strip("\"'")
+        if not re.fullmatch(r"[1-9]\d*", text or "") or int(text) > maximum:
+            raise SkillWorkflowError(self.skill_id, resource, message)
+        return int(text)
+
     def _parallel_limit(self, values: dict[str, Any], resource: str) -> int:
         """Parse the bounded Step 07 concurrency setting without coercion."""
-        if "max_parallel_stories" not in values:
-            return 1
-        raw = values["max_parallel_stories"]
-        if isinstance(raw, bool):
-            raise SkillWorkflowError(self.skill_id, resource, "max_parallel_stories must be an integer from 1 to 5")
-        text = str(raw).strip().strip("\"'")
-        if not re.fullmatch(r"[1-9]", text or "") or int(text) > 5:
-            raise SkillWorkflowError(self.skill_id, resource, "max_parallel_stories must be an integer from 1 to 5")
-        return int(text)
+        return self._bounded_int(values, resource, key="max_parallel_stories", default=1, maximum=5)
 
     def _iteration_budget(self, values: dict[str, Any], resource: str) -> int:
         """Parse the optional per-step iteration budget (0 = inherit the global setting)."""
-        if "max_iterations" not in values:
-            return 0
-        raw = values["max_iterations"]
-        if isinstance(raw, bool):
-            raise SkillWorkflowError(self.skill_id, resource, "max_iterations must be an integer from 1 to 1000")
-        text = str(raw).strip().strip("\"'")
-        if not re.fullmatch(r"[1-9]\d{0,3}", text or "") or int(text) > 1000:
-            raise SkillWorkflowError(self.skill_id, resource, "max_iterations must be an integer from 1 to 1000")
-        return int(text)
+        return self._bounded_int(values, resource, key="max_iterations", default=0, maximum=1000)
 
     @staticmethod
     def _parse_resource_frontmatter(text: str) -> tuple[dict[str, Any], str]:
