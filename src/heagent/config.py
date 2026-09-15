@@ -211,6 +211,12 @@ class Settings(BaseSettings):
     # ledger 幂等记录（.heagent/ledger/）超过此天数在 run 启动时自动删除；0=禁用清理。
     ledger_retention_days: int = Field(default=7, ge=0)
 
+    # ---- Run 快照自动清理参数 ----
+    # .heagent/runs/ 的 run 快照（`<run_id>.json` + 配套 .lock + `<run_id>/` 产物目录）超过此天数
+    # 在 run 启动时自动删除；0=禁用清理。默认 7 天与 ledger 对齐——persist.py 刻意保留 .lock
+    # 以规避 unlink 竞态，故必须有回收方，否则 runs 目录随运行次数单调增长（实测 84 天 6 万文件）。
+    run_retention_days: int = Field(default=7, ge=0)
+
     # ---- MCP Client 参数 ----
     mcp_enabled: bool = Field(default=True)
     mcp_config_path: str = Field(default=".mcp.json")

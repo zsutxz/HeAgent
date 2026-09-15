@@ -721,6 +721,8 @@ HeAgentError (base)
 ---
 
 ### 4.11 MCP 集成 (`tools/mcp/`)
+| `run_retention_days` | 7 | `.heagent/runs/` 运行快照（`<run_id>.json` + 配套 `.lock` + `<run_id>/` 产物目录）保留天数；全新 run 启动时清理一次（0=禁用）。`persist.py` 刻意保留 `.lock`（规避 unlink 竞态），本项是 runs 侧唯一回收时机 |
+| `ledger_retention_days` | 7 | `.heagent/ledger/` 幂等记录保留天数；全新 run 启动时清理一次（0=禁用） |
 
 MCP server 桥接层（非必要功能，已交付）。连接时发现+注册到 `ToolRegistry`，退出时 unregister。
 
@@ -747,7 +749,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `policy.py` | `PolicyEngine` — 准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
 | `roles.py` | `RoleSpec` + 内置角色（planner/coder/tester/supervisor/dreamer），`SubAgent` 构建角色专属 `PolicyEngine` |
 | `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端；FR-1 会话目录经 `bind_sandbox_workspace` 送达；FR-2 后端强度档位经 `_runner_tier()` 查询并随 emit 事件 `sandbox_tier` 可观测（见 4.4 sandbox.py） |
-| `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合 |
+| `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次 |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入；`heartbeat()` 由工具在途续租（`agent/tool_execution._renew_ledger_lease`）调用，使「过期 RUNNING = 孤儿」成为 prune 的可靠判据 |
 | `persist.py` | `atomic_write_text`（`*.tmp` + `os.replace` 原子写）+ `load_json_model`（损坏 JSON 容错跳过） |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布 |

@@ -204,8 +204,8 @@ def atomic_write_text(
                 os.close(lock_fd)
                 # 注意：刻意不删除 .lock 文件。删除锁文件存在经典竞态——进程 B 可能
                 # 正在等待旧 inode 上的锁，进程 C 新建 .lock 并加锁成功，导致 B/C 的
-                # 互斥失效。保留 0 字节锁文件换取跨进程互斥的正确性；ledger prune
-                # 会随记录文件一并清理过期 .lock（见 engine/ledger.py）。
+                # 互斥失效。保留 0 字节锁文件换取跨进程互斥的正确性；过期 .lock 由各自的
+                # prune 随记录一并回收（ledger → engine/ledger.py；runs → engine/store.py）。
 
 
 def atomic_update_text(path: Path, update: Callable[[str], tuple[str, R]], *, lock_timeout: float = 5.0) -> R:

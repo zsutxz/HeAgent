@@ -51,8 +51,12 @@ class EngineContainer:
     enable_file_locks: bool = False
     # ledger 自动清理保留天数（0=禁用）；default() 从 Settings 读，手动构造默认 0。
     ledger_retention_days: int = 0
-    # 进程内去重标志：同一容器 prune_ledger_once 仅首次 run 触发（sub agent 继承父 engine 时不重复扫）。
-    _pruned: bool = field(default=False, init=False, repr=False)
+    # run 快照自动清理保留天数（0=禁用）；default() 从 Settings 读，手动构造默认 0。
+    run_retention_days: int = 0
+    # 进程内去重标志：同一容器 prune_*_once 仅首次 run 触发（sub agent 继承父 engine 时不重复扫）。
+    # 两者独立：ledger 与 runs 各自的清理互不阻塞。
+    _ledger_pruned: bool = field(default=False, init=False, repr=False)
+    _runs_pruned: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         # 注入 cross-process file locks（V2）
@@ -76,14 +80,14 @@ class EngineContainer:
         """首次调用时清理过期 ledger 记录，之后短路返回 0（去重）。
 
         ``ledger_retention_days <= 0`` 时禁用。清理 IO 故障不中断 run（对齐
-        ``persist.load_json_model`` 容错哲学）；已置 ``_pruned`` 标志本次不再重试。
+        ``persist.load_json_model`` 容错哲学）；已置 ``_ledger_pruned`` 标志本次不再重试。
 
         ``CancelledError`` 不吞（透传给调用方处理 task 取消语义）；其余 ``Exception``
         打含异常类型+消息的 error 日志并返回 0 继续 run。
         """
-        if self._pruned or self.ledger_retention_days <= 0:
+        if self._ledger_pruned or self.ledger_retention_days <= 0:
             return 0
-        self._pruned = True
+        self._ledger_pruned = True
         try:
             n = await self.ledger.prune(retention_days=self.ledger_retention_days)
         except asyncio.CancelledError:
@@ -97,6 +101,35 @@ class EngineContainer:
             return 0
         if n:
             logger.info("Ledger pruned %d expired records (retention=%dd)", n, self.ledger_retention_days)
+        return n
+
+    async def prune_runs_once(self) -> int:
+        """首次调用时清理过期 run 快照，之后短路返回 0（去重）。
+
+        与 :meth:`prune_ledger_once` 同构：``run_retention_days <= 0`` 时禁用；清理 IO 故障
+        不中断 run（``CancelledError`` 不吞，其余异常打 error 日志后返回 0）；``_runs_pruned``
+        与 ledger 的去重标志**相互独立**——两者互不阻塞。
+
+        为什么需要它：``RunStore`` 每次 run 写 ``<run_id>.json`` + ``.json.lock``，而
+        ``persist.py`` 刻意不删锁文件，若无人回收则 runs 目录随运行次数单调增长
+        （实测 84 天积累 6 万个文件 / 700MB）。
+        """
+        if self._runs_pruned or self.run_retention_days <= 0:
+            return 0
+        self._runs_pruned = True
+        try:
+            n = await self.run_store.prune(retention_days=self.run_retention_days)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error(
+                "Run snapshot prune failed (%s: %s); skipping this run",
+                type(exc).__name__,
+                exc,
+            )
+            return 0
+        if n:
+            logger.info("Run snapshots pruned %d expired entries (retention=%dd)", n, self.run_retention_days)
         return n
 
     @classmethod
@@ -142,13 +175,16 @@ class EngineContainer:
 
         # 默认装配开启跨进程文件锁：CLI/GUI 可能多进程共享同一 .heagent/ 目录
         # （如 cron + 交互式实例并存），RunStore/ledger 写入需要跨进程互斥。
-        # 锁文件由 ledger prune 随过期记录一并清理，不会无限累积。
+        # 锁文件由 persist.py 刻意保留（规避 unlink 竞态），回收时机是各自的 prune：
+        # ledger 随过期记录、runs 随过期快照一并清理（见 engine/ledger.py、engine/store.py），
+        # 故不会无限累积——但前提是 retention 未被禁用（0）。
         container = cls(
             workspace_root=workspace_root,
             command_runner=command_runner,
             enable_file_locks=True,
         )
         container.ledger_retention_days = settings.ledger_retention_days
+        container.run_retention_days = settings.run_retention_days
         # P0-2 权限档位：由 Settings 注入（非法值已在 sandbox_mode_resolved 回退 + 告警）。
         container.policy.sandbox_mode = settings.sandbox_mode_resolved
         if settings.approval_tool_list:

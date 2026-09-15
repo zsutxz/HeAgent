@@ -9,6 +9,11 @@ messages / results / final_answer / error。AgentLoop 在 ``run()`` 中经 ``sta
 （含子 Agent run）聚合成**树 / 森林**，供 task_status 等工具查询委派层级（P5-4；确定性输出：
 按 sorted id 访问，子节点亦排序）。
 
+另提供 :meth:`RunStore.prune`：按保留期清理过期快照，并**随记录一并回收配套 ``.lock``**
+（``persist.py`` 刻意不删除锁文件以规避 unlink 竞态，本方法是 runs 侧唯一的合法清理时机）
+以及该 run 的产物目录（``<run_id>/``，如 rollout）。清理由 ``EngineContainer.prune_runs_once``
+在全新 run 启动时触发一次（与 ledger 同构）。
+
 > 注意：与 ``context/session.py``（``.heagent/sessions/``，跨轮**对话历史**）用途不同——
 > RunStore 是**单次 run 的可恢复快照**（见 frame.md 4.5 / 4.12）。
 """
@@ -18,9 +23,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
+import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 # noqa: TC001 — RunContext/Message/ToolResult 是 Pydantic 模型字段类型，
 # 需运行期导入以构建 schema（ruff TC001 为误报）。
@@ -29,6 +40,11 @@ from heagent.engine.persist import atomic_write_text, load_json_model
 from heagent.types import Message, ToolResult  # noqa: TC001
 
 logger = logging.getLogger(__name__)
+
+# prune 进度日志间隔（每处理 N 个条目打一次 info，避免万级文件时静默过久）。
+_PRUNE_PROGRESS_INTERVAL = 500
+# 锁文件后缀（与 persist.py 的 ``path.name + ".lock"`` 约定一致）。
+_LOCK_SUFFIX = ".lock"
 
 
 class RunSnapshot(BaseModel):
@@ -181,6 +197,115 @@ class RunStore:
         if not await asyncio.to_thread(path.exists):
             return False
         await asyncio.to_thread(path.unlink)
+        return True
+
+    async def prune(self, *, retention_days: int) -> int:
+        """按保留期清理过期 run 快照，返回**删除项数**。``retention_days <= 0`` 时禁用（返回 0）。
+
+        删除范围（每项各计 1）：
+
+        * 过期记录 ``<run_id>.json``（mtime 早于 cutoff）**及其配套 ``<run_id>.json.lock``**；
+        * 过期记录的产物目录 ``<run_id>/``（如 rollout.jsonl）——避免留下无主产物；
+        * **无主锁** ``<run_id>.json.lock``：记录已不存在（如被 :meth:`delete` 单独删除）且
+          锁本身已过期。``persist.py`` 刻意不删除锁文件以规避 unlink 竞态，此处是 runs 侧
+          唯一的合法回收时机（与 ``ledger.prune`` 同约定）。
+
+        设计要点：
+
+        * **轻量判定**：只看文件 ``mtime``，**不 load** 任何 Pydantic 模型（对齐 ``ledger.prune``
+          的 P1-23 重写：万级文件下避免逐条 ``model_validate``）。
+        * **不会误删在途 run**：在途 run 每次 ``checkpoint`` 都会刷新 mtime，而保留期以天计，
+          远大于一次 run 的写入间隔。
+        * **失败不中断**：单条 ``stat``/``unlink``/``rmtree`` 失败仅 ``debug`` 日志后继续；
+          每 ``_PRUNE_PROGRESS_INTERVAL`` 条打一次进度 info（万级文件时不静默）。
+        """
+        if retention_days <= 0:
+            return 0
+        if not await asyncio.to_thread(self._base.exists):
+            return 0
+        cutoff = time.time() - retention_days * 86_400
+        entries = await asyncio.to_thread(lambda: sorted(self._base.glob("*")))
+        records = [p for p in entries if p.name.endswith(".json")]
+        locks = [p for p in entries if p.name.endswith(_LOCK_SUFFIX)]
+
+        deleted = await self._prune_records(records, cutoff)
+        # 第二遍：清扫第一遍未覆盖的无主锁（含记录已被 delete、静默遗留的锁）。
+        deleted += await self._prune_orphan_locks(locks, cutoff)
+
+        total = len(records) + len(locks)
+        if total >= _PRUNE_PROGRESS_INTERVAL:
+            logger.info("run store prune: done — deleted %d of %d entries", deleted, total)
+        return deleted
+
+    async def _prune_records(self, records: Sequence[Path], cutoff: float) -> int:
+        """删除过期记录及其配套锁、产物目录；返回删除项数。"""
+        deleted = 0
+        for i, path in enumerate(records):
+            if i > 0 and i % _PRUNE_PROGRESS_INTERVAL == 0:
+                logger.info("run store prune: scanned %d/%d records, deleted %d so far", i, len(records), deleted)
+            if not await self._is_expired(path, cutoff):
+                continue
+            if await self._unlink(path):
+                deleted += 1
+                if await self._unlink(path.with_name(path.name + _LOCK_SUFFIX)):
+                    deleted += 1
+                if await self._prune_artifacts(path.stem):
+                    deleted += 1
+        return deleted
+
+    async def _prune_orphan_locks(self, locks: Sequence[Path], cutoff: float) -> int:
+        """删除「记录已不存在且自身已过期」的锁文件；返回删除项数。"""
+        deleted = 0
+        for i, lock_path in enumerate(locks):
+            if i > 0 and i % _PRUNE_PROGRESS_INTERVAL == 0:
+                logger.info("run store prune: scanned %d/%d locks, deleted %d so far", i, len(locks), deleted)
+            record = lock_path.with_name(lock_path.name[: -len(_LOCK_SUFFIX)])
+            try:
+                # 先判存在性再 stat：锁可能已随记录在第一遍里被删（避免无谓的 FileNotFoundError）。
+                if await asyncio.to_thread(record.exists) or not await asyncio.to_thread(lock_path.exists):
+                    continue
+            except OSError:
+                logger.debug("run store prune: stat failed on %s; skipping", lock_path, exc_info=True)
+                continue
+            if not await self._is_expired(lock_path, cutoff):
+                continue
+            if await self._unlink(lock_path):
+                deleted += 1
+        return deleted
+
+    async def _is_expired(self, path: Path, cutoff: float) -> bool:
+        """路径 mtime 早于 ``cutoff`` 即过期；``stat`` 失败视为不动（返回 False）。"""
+        try:
+            return (await asyncio.to_thread(path.stat)).st_mtime < cutoff
+        except OSError:
+            logger.debug("run store prune: stat failed on %s; skipping", path, exc_info=True)
+            return False
+
+    async def _unlink(self, path: Path) -> bool:
+        """删除一个文件；失败/不存在返回 False（不抛异常）。"""
+        try:
+            if not await asyncio.to_thread(path.exists):
+                return False
+            await asyncio.to_thread(path.unlink)
+        except OSError:
+            logger.debug("run store prune: unlink failed on %s; continuing", path, exc_info=True)
+            return False
+        return True
+
+    async def _prune_artifacts(self, run_id: str) -> bool:
+        """删除某个 run 的产物目录 ``<base>/<run_id>/``（如 rollout）。
+
+        仅当目录确实是 ``self._base`` 的直接子目录时才删——``run_id`` 来自目录内文件名，
+        该断言防「名字里带路径分隔符 / 符号链接」导致的越界删除。非目录返回 False。
+        """
+        directory = self._base / run_id
+        try:
+            if directory.parent != self._base or not await asyncio.to_thread(directory.is_dir):
+                return False
+            await asyncio.to_thread(shutil.rmtree, directory, True)
+        except OSError:
+            logger.debug("run store prune: artifact cleanup failed on %s; continuing", directory, exc_info=True)
+            return False
         return True
 
     def _path(self, run_id: str) -> Path:
