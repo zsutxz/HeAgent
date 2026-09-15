@@ -29,6 +29,8 @@ from heagent.engine.policy import PolicyEngine
 from heagent.engine.store import RunStore
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from heagent.engine.approval import ApprovalHandler
     from heagent.tools.sandbox import CommandRunner
 
@@ -103,6 +105,20 @@ class EngineContainer:
 
         return get_settings().sandbox_session_keep
 
+    async def _prune_once(self, prune: Callable[[], Awaitable[int]], *, label: str) -> int:
+        """执行一次 prune 调用：``CancelledError`` 不吞（透传 task 取消语义），其余 IO 故障只记 error。
+
+        两处 prune（ledger / run 快照）的**故障立场一致**：清理是维护动作，失败不得中断 run。
+        调用方负责「已跑过 / 保留期 <= 0」的短路与去重标志置位——两侧标志**相互独立**，互不阻塞。
+        """
+        try:
+            return await prune()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("%s prune failed (%s: %s); skipping this run", label, type(exc).__name__, exc)
+            return 0
+
     async def prune_ledger_once(self) -> int:
         """首次调用时清理过期 ledger 记录，之后短路返回 0（去重）。
 
@@ -115,19 +131,12 @@ class EngineContainer:
         if self._ledger_pruned or self.ledger_retention_days <= 0:
             return 0
         self._ledger_pruned = True
-        try:
-            n = await self.ledger.prune(
+        n = await self._prune_once(
+            lambda: self.ledger.prune(
                 retention_days=self.ledger_retention_days, min_interval_seconds=self.prune_min_interval_seconds
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.error(
-                "Ledger prune failed (%s: %s); skipping this run",
-                type(exc).__name__,
-                exc,
-            )
-            return 0
+            ),
+            label="Ledger",
+        )
         if n:
             logger.info("Ledger pruned %d expired records (retention=%dd)", n, self.ledger_retention_days)
         return n
@@ -146,19 +155,12 @@ class EngineContainer:
         if self._runs_pruned or self.run_retention_days <= 0:
             return 0
         self._runs_pruned = True
-        try:
-            n = await self.run_store.prune(
+        n = await self._prune_once(
+            lambda: self.run_store.prune(
                 retention_days=self.run_retention_days, min_interval_seconds=self.prune_min_interval_seconds
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            logger.error(
-                "Run snapshot prune failed (%s: %s); skipping this run",
-                type(exc).__name__,
-                exc,
-            )
-            return 0
+            ),
+            label="Run snapshot",
+        )
         if n:
             logger.info("Run snapshots pruned %d expired entries (retention=%dd)", n, self.run_retention_days)
         return n
