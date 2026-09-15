@@ -189,13 +189,3 @@
 
 ---
 
-## 五、已归档
-
-2026-07-22 时本文标记全部已覆盖周期的回顾为 `done`；**2026-09-15 复核**：后续周期（Epic 25–46）的 `epic-*-retrospective` 在 `sprint-status.yaml` 中多为 `optional`（未做正式回顾），仅 Epic 47 为 `done`——本文 1.7–1.14 为速览式补录，不等同于正式回顾。
-
-回顾产物索引：
-- Epic 13 正式回顾: `_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`（2026-08-18 MCP 三目录合并后路径）
-- Engine P5 回顾: `_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/epic-47-声明式工作流与产物治理/retrospective-engine-p5.md`
-- P0 技术债回顾: `_bmad-output/epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/retrospective-p0-tech-debt.md`
-- **全周期综合回顾 (本文)**: `_bmad-output/retrospective-all-cycles.md`
-- 2026-09-14 实现 spec 归档: Epic 40 的 `spec-shell-output-limit.md`；Epic 47 的 checkpoint、运行时治理、子代理依赖反转和贡献指南 spec

@@ -460,19 +460,3 @@ development_status:
   47-6-review-retrospective-correct-course: done
   47-7-sample-epic-regression-docs: done
   epic-47-retrospective: done
-
-# Action items（来自 retrospective，跨周期跟踪）
-# ═════════════════════════════════════════════════════════════════
-action_items:
-  - epic: 13
-    action: "评估为 MCP 运行时断连补 auto-unregister（开 spec）"
-    owner: "tan"
-    status: closed  # 2026-07-01 交付：commit 3203e4a，spec _bmad-output/epics/epic-11-18-MCP集成周期/epic-11-MCP工具桥接/fr3-mcp-auto-unregister.md
-  - epic: 13
-    action: "DP-4（SafetyGuard 扩展到 MCP）纳入下一集成周期候选"
-    owner: "tan"
-    status: closed  # 2026-07-08 交付（执行前工具名拦截 half）：spec _bmad-output/epics/epic-11-18-MCP集成周期/epic-13-安全边界与开源可用/spec-dp4-mcp-safety-guard.md
-  - epic: 13
-    action: "MCP 返回内容隔离（prompt injection 围栏）作研究项跟踪"
-    owner: "tan"
-    status: closed  # 2026-07-10 交付：DP-4 第二半，spec _bmad-output/epics/epic-11-18-MCP集成周期/epic-13-安全边界与开源可用/spec-dp4-mcp-result-guard.md

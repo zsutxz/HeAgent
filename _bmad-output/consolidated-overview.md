@@ -925,16 +925,3 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/epics/<周期>/deferred-work.md` | 已闭合遗留项按归属 epic 归档（含 40 / 41 / 01-10 / 11-18 / S1-S4 / 47） |
 | `_bmad-output/specs/` | quick-dev 本地工作件（gitignored；Epic 41 goal 契约已归档至 `_bmad-output/epics/epic-41-目标驱动开发周期/spec-goal-command/`） |
 
-### Epic 45.3 质量收口证据（2026-09-01）
-
-Epic 43-44 已完成，Epic 45.3 增加无网络两-story 目标工作流冒烟、checkpoint/ledger/EventBus 审计证据和损坏状态显式失败覆盖；`scripts/quality_gate.py` 统一默认回归、覆盖率、ruff 与 mypy 门禁。Epic 46.1 完成 assessment-only 评估，Epic 46.2 为资源读取增加 descriptor + `O_NOFOLLOW` 最终组件加固；中间目录竞态、可信导入 snapshot 或 OS sandbox 加固仍保持 backlog。
-
-状态以 `_bmad-output/sprint-status.yaml` 为准：Epic 45 及其 45.1-45.3 stories 已完成，Epic 46.1 评估与 46.2 最终组件加固已完成；Epic 46 后续目录句柄、snapshot 与 OS sandbox 加固仍保持 backlog。
-
-### 已完成实现 spec 归档（2026-09-14）
-
-`spec-shell-output-limit.md` 已归档至 Epic 40；checkpoint 恢复、运行时持久化治理、子代理依赖反转及仓库贡献指南 spec 已归档至 Epic 47 的 `epic-47-声明式工作流与产物治理/`。`implementation-artifacts/` 不再保留这些已完成 spec，仅保留工作流持续维护的 deferred 活动台账。
-
-### 已闭合 deferred-work 归档（2026-09-15）
-
-原跨周期台账 `patches/_meta/deferred-work.md`（2026-09-15 随 `patches/` 目录解散而删除）的条目已全部闭合，按归属 epic 归并进 `epic-01-10-主线规划周期/`、`epic-11-18-MCP集成周期/`、`epic-S1-S4-沙箱硬化周期/`、`epic-47-声明式BMad敏捷工作流周期/` 的 `deferred-work.md`（另 `epic-40`/`epic-41` 原有台账保留），原台账随之退役并删除；条目索引见 13.1，活动（未闭合）项仍在 `implementation-artifacts/deferred-work.md`。
