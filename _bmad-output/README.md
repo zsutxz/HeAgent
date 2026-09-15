@@ -65,7 +65,7 @@ _bmad-output/
 | `architecture.md` | 技术架构与冻结决策（交叉引用 frame.md） |
 | `epics.md` | Epic 1-5（MVP，FR-1~19）拆分 + 覆盖矩阵 |
 | `epics-self-learning.md` | Epic 6-10（自学习闭环，FR-20~24）拆分 |
-| `sprint-status.yaml` | **全周期 story/epic 状态流转与 action_items 跟踪**（事实来源，覆盖当前全部周期） |
+| `sprint-status.yaml` | **全周期 story/epic 状态流转**（事实来源，覆盖当前全部周期；`action_items` 块 2026-09-15 移除，三条均 `closed`） |
 | `epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/stories/`（1-1~1-5） | Epic 1 的可执行 story（含 AC，2026-08-19 移出） |
 
 ## epics/epic-11-18-MCP集成周期/ — MCP Client 集成周期（三阶段统一，2026-08-18 合并）
@@ -162,9 +162,9 @@ _bmad-output/
 | `epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/` | `spec-skill-resource-toctou-assessment.md`（技能资源 TOCTOU 评估） |
 | `epics/epic-47-声明式BMad敏捷工作流周期/epic-47-声明式工作流与产物治理/` | `retrospective-engine-p5.md`（engine P5 回顾；engine 运行时治理增量与 `spec-runtime-hygiene.md` 同域） |
 | `epics/epic-S1-S4-沙箱硬化周期/` | `spec-engine-sandbox-backend.md`（`CommandRunner` 后端抽象）、`spec-sandbox-timeout-validation.md`（timeout 正整数校验）、`spec-sandbox-cancel-signal-preservation.md`（取消信号保留）、`spec-sandbox-reap-robustness.md`（reap 鲁棒性） |
-| `implementation-artifacts/` | `spec-business-data-integration.md`（业务数据整合母规划 spec，未实现，跨周期路线） |
+| `implementation-artifacts/` | `spec-business-data-integration.md`（业务数据整合母规划 spec，未实现，跨周期路线；**2026-09-15 已删除**，见下「已失效删除」） |
 
-**已失效删除**（内容被 epic 侧台账 / 代码+测试覆盖，仅存于 git 历史）：`3-3-token-counter.md`（2026-09-15）、`p0-hardening-review-diff.txt`（2026-09-15，过程产物）、`code-review-2026-07-20.md`（2026-09-15）、`deferred-work.md`（2026-09-15 退役）、`spec-deferred-low-cleanup.md`（2026-09-15，条目已并入 `epic-11-18-MCP集成周期` 与 `epic-S1-S4-沙箱硬化周期` 的 `deferred-work.md`）。
+**已失效删除**（内容被 epic 侧台账 / 代码+测试覆盖，仅存于 git 历史）：`3-3-token-counter.md`（2026-09-15）、`p0-hardening-review-diff.txt`（2026-09-15，过程产物）、`code-review-2026-07-20.md`（2026-09-15）、`deferred-work.md`（2026-09-15 退役）、`spec-deferred-low-cleanup.md`（2026-09-15，条目已并入 `epic-11-18-MCP集成周期` 与 `epic-S1-S4-沙箱硬化周期` 的 `deferred-work.md`）、`spec-business-data-integration.md`（2026-09-15；**未启动**的母规划 spec——未衍生实现 spec 或 epic，正文仅存 git 历史）。
 
 > 归档原则：**「谁交付它，就放进谁的 epic 目录」**——补丁 spec 与它服务的 epic/story 同目录，避免 `patches/` 与 `epics/` 两处漂移。
 
@@ -189,7 +189,7 @@ _bmad-output/
 - **Epic 25–28（GUI）`done`**（12 stories，见 `_bmad-output/sprint-status.yaml`；周期目录旧状态为规划期快照）。
 - **MCP 三目录已合并**（2026-08-18）：`mcp-client/` + `mcp-v2-upgrade/` + `mcp-client-v2/` → `mcp/`，核心文档整合为 6 份，执行产物保留。
 - **deferred-work.md**：**活动台账**路径为 `implementation-artifacts/deferred-work.md`（未闭合项）；**已闭合项**按归属 epic 归档到各周期 `deferred-work.md`（2026-09-15 整理，原 `patches/_meta/deferred-work.md` 全部条目已闭合后退役并删除）。早期 3 条（SubAgent 写竞态 / ProviderChain 双层重包 / 流式 backstop）与 2026-07-01 FR-3 评审 6 项 `defer` 均已收尾——4 项修复（含 `__aexit__` 关停硬上界）、1 项核实不成立、2 项决策关闭（`_watch` `wait_for` 同名异义已修，`except Exception` 过宽经实测证明「收窄会更坏」故保持现状）。
-- **action_items**：三项全 `closed` —— FR-3 auto-unregister（2026-07-01）、DP-4 第一半 SafetyGuard 执行前拦截（2026-07-08）、DP-4 第二半 MCP 返回内容启发式围栏（2026-07-10）。
+- **action_items（2026-09-15 移除）**：三项全 `closed` 后删除根 `sprint-status.yaml` 的 `action_items` 块 —— FR-3 auto-unregister（2026-07-01）、DP-4 第一半 SafetyGuard 执行前拦截（2026-07-08）、DP-4 第二半 MCP 返回内容启发式围栏（2026-07-10）；条目均已闭合，原始记录仅存 git 历史。
 - **补丁系列**：sandbox 健壮性系列（timeout 正整数校验 / CancelledError 不吞取消信号 / reap 鲁棒性）、关停硬上界三件套（MCP `__aexit__` / `CronScheduler.stop` / sandbox reap）、compressor 孤儿 TOOL 消息修复均已交付。
 - **epic 外增量**：`engine/` 运行时治理层（P0-P5）不挂 Epic 编号，进度记入 `docs/frame.md` 4.12。
 

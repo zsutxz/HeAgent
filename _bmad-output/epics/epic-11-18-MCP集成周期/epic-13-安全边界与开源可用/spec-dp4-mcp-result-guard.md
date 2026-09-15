@@ -71,7 +71,7 @@ context:
 - `tests/test_mcp_mapping.py` — 加 `TestInjectionGuard`：干净零回归 / 单模式命中 / 多模式命中 / isError 仍抛 ToolError（注入不干预）/ 非文本块不误命中 / 空文本 / 内置各模式参数化覆盖。
 - `CLAUDE.md` — 安全声明 MCP 特定风险段：「MCP 工具输出无隔离进入 LLM 上下文」更新为「有启发式围栏（标记透传）但仍非真正边界」；已知缺口表 MCP V1 边界条去「返回内容复核 deferred」。
 - `docs/frame.md` — 4.11 SafetyGuard / MCP 章节 + 第五章已知缺口：更新 MCP 返回内容围栏状态（DP-4 第二半落地）。
-- `_bmad-output/sprint-status.yaml` — `action_items`「MCP 返回内容隔离」项 status `open → closed`。
+- `_bmad-output/sprint-status.yaml` — `action_items`「MCP 返回内容隔离」项 status `open → closed`（2026-09-15 注：该 `action_items` 块已从根 `sprint-status.yaml` 移除，条目为 `closed`）。
 - `_bmad-output/patches/_meta/deferred-work.md`（2026-09-15 退役并删除） — 2026-07-08 拆分条补 Resolution（指向本 spec）。
 
 ## Tasks & Acceptance
