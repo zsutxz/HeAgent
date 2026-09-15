@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from pathlib import Path
 
 import pytest
 
@@ -779,3 +780,106 @@ def _register(registry: ToolRegistry, name: str, handler: object) -> None:
         ),
         handler,
     )
+
+
+class TestSandboxWorkspaceVisibility:
+    """E40-D2: 本 run 的 sandbox 会话目录对模型可见（system prompt 唯一通道）且与 shell 同源。"""
+
+    def test_prompt_block_present_when_workspace_effective(self, tmp_path) -> None:
+        """生效时注入 ``<shell-workspace>`` 块并含该绝对路径。"""
+        from heagent.agent.system_prompt import build_system_prompt
+
+        session = tmp_path / "sess"
+        system = build_system_prompt(
+            None,
+            "",
+            soul=None,
+            context_dir=None,
+            skills=None,
+            facts=None,
+            profile=None,
+            sandbox_workspace=str(session),
+        )
+
+        assert system is not None
+        assert "<shell-workspace>" in system
+        assert str(session) in system
+
+    def test_prompt_block_absent_without_workspace(self) -> None:
+        """未生效（None/空串）时不注入——宁可不提示，也不报一个与真实 cwd 不符的路径。"""
+        from heagent.agent.system_prompt import build_system_prompt
+
+        for value in (None, ""):
+            system = build_system_prompt(
+                None,
+                "",
+                soul=None,
+                context_dir=None,
+                skills=None,
+                facts=None,
+                profile=None,
+                sandbox_workspace=value,
+            )
+            assert system is None or "<shell-workspace>" not in system
+
+    @pytest.mark.asyncio
+    async def test_prompt_reports_the_same_dir_shell_receives(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """端到端：SYSTEM 里报的路径 == executor 实际 bind 给 shell 的 cwd（同一来源，不分叉）。"""
+        from heagent.agent.loop import AgentLoop
+        from heagent.engine import EngineContainer
+        from heagent.tools.builtins.shell import shell
+        from heagent.tools.sandbox import get_sandbox_workspace
+
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
+        monkeypatch.chdir(tmp_path)
+
+        seen: list[Path | None] = []
+
+        class _RecordingRunner:
+            async def run(self, command: str, *, timeout: int) -> str:
+                seen.append(get_sandbox_workspace())
+                return "recorded"
+
+        engine = EngineContainer(workspace_root=str(tmp_path), command_runner=_RecordingRunner())
+        # 模拟 EngineContainer.default() 在真实后端在位时的自动授权（shell 走沙箱路径）
+        engine.policy.sandbox_tools.add("shell")
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolSchema(
+                name="shell",
+                description="run shell",
+                parameters={"type": "object", "properties": {"command": {"type": "string"}}},
+            ),
+            shell,
+        )
+        provider = StubProvider([_tool_resp([_tc("1", "shell", {"command": "pwd"})]), _final("done")])
+        loop = AgentLoop(provider, registry=registry, engine=engine, max_iterations=5)
+
+        assert await loop.run("where am i") == "done"
+
+        assert seen and seen[0] is not None, "shell 未收到沙箱会话目录（授权/bind 链断了）"
+        system = next(m.content for m in provider.calls[0] if m.role == Role.SYSTEM)
+        assert str(seen[0]) in system, "模型看到的路径与 shell 实际 cwd 不一致"
+        assert "<shell-workspace>" in system
+
+    @pytest.mark.asyncio
+    async def test_no_prompt_block_when_backend_missing(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """开关开但**无真实后端**（passthrough）：目录不生效 → 不向模型报路径。"""
+        from heagent.agent.loop import AgentLoop
+        from heagent.engine import EngineContainer
+
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
+        monkeypatch.chdir(tmp_path)
+
+        engine = EngineContainer(workspace_root=str(tmp_path))  # command_runner=None
+        provider = StubProvider([_final("done")])
+        loop = AgentLoop(provider, engine=engine, max_iterations=5)
+        await loop.run("hi")
+
+        # 无 soul/context/skills/facts/profile 时 system_content 为 None（无 SYSTEM 消息），
+        # 故断言「任何 SYSTEM 消息都不含该块」，而非假定一定有一条。
+        systems = [m.content for m in provider.calls[0] if m.role == Role.SYSTEM]
+        assert all("<shell-workspace>" not in (content or "") for content in systems)

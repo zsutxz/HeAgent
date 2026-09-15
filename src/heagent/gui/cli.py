@@ -27,7 +27,24 @@ def _is_missing_textual(error: ImportError) -> bool:
     default=None,
     help="Sandbox backend for shell execution",
 )
-def gui_cmd(model: str | None, sandbox: str | None) -> None:
+@click.option(
+    "--sandbox-session-workspace/--no-sandbox-session-workspace",
+    "sandbox_session_workspace",
+    default=None,
+    help="Per-run sandbox session dir for shell (default: SANDBOX_SESSION_WORKSPACE env)",
+)
+@click.option(
+    "--sandbox-session-keep/--no-sandbox-session-keep",
+    "sandbox_session_keep",
+    default=None,
+    help="Keep the per-run sandbox session dir after the run (default: SANDBOX_SESSION_KEEP env)",
+)
+def gui_cmd(
+    model: str | None,
+    sandbox: str | None,
+    sandbox_session_workspace: bool | None,
+    sandbox_session_keep: bool | None,
+) -> None:
     """Launch the HeAgent terminal UI."""
     try:
         from heagent.gui import gui_main  # noqa: PLC0415
@@ -91,7 +108,12 @@ def gui_cmd(model: str | None, sandbox: str | None) -> None:
     try:
         # gui_main 是同步入口（内部自行运行 Textual 事件循环）；
         # 不能包 asyncio.run()——gui_main 返回 None，asyncio.run(None) 会抛 TypeError。
-        gui_main(model=model, sandbox=sandbox)
+        gui_main(
+            model=model,
+            sandbox=sandbox,
+            sandbox_session_workspace=sandbox_session_workspace,
+            sandbox_session_keep=sandbox_session_keep,
+        )
     except ImportError as exc:
         if not _is_missing_textual(exc):
             raise

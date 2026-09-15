@@ -57,6 +57,8 @@ class TestCLI:
         assert "--model" in result.output
         assert "--system" in result.output
         assert "--sandbox" in result.output
+        assert "--sandbox-session-workspace" in result.output
+        assert "--no-sandbox-session-workspace" in result.output
 
     def test_interactive_empty_enter_then_eof_exits(self, monkeypatch):
         """Interactive mode no longer exits on empty Enter; exits cleanly on EOF."""
@@ -87,6 +89,29 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(main, ["run", "--help"])
         assert "--model" in result.output
+
+    def test_run_forwards_sandbox_session_flags(self, monkeypatch):
+        """E40-D4: 两个沙箱会话选项按三态传到 ``_run_cli_impl``（缺席=None，跟随 env）。"""
+        captured: dict[str, object] = {}
+
+        def fake_impl(*_args: object, **kwargs: object) -> None:
+            captured.clear()
+            captured.update(kwargs)
+
+        monkeypatch.setattr("heagent.cli._run_cli_impl", fake_impl)
+        runner = CliRunner()
+
+        assert runner.invoke(main, ["run", "hi", "--sandbox-session-workspace"]).exit_code == 0
+        assert captured["sandbox_session_workspace"] is True
+        assert captured["sandbox_session_keep"] is None
+
+        assert runner.invoke(main, ["run", "hi", "--no-sandbox-session-keep"]).exit_code == 0
+        assert captured["sandbox_session_keep"] is False
+        assert captured["sandbox_session_workspace"] is None
+
+        assert runner.invoke(main, ["run", "hi"]).exit_code == 0
+        assert captured["sandbox_session_workspace"] is None
+        assert captured["sandbox_session_keep"] is None
 
     def test_default_group_forwards_prompt(self, monkeypatch, clean_settings, tmp_path):
         """``heagent hello`` forwards to ``run hello`` via DefaultGroup."""

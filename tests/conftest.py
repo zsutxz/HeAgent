@@ -28,11 +28,12 @@ os.environ.setdefault("LEDGER_RETENTION_DAYS", "0")
 os.environ.setdefault("RUN_RETENTION_DAYS", "0")
 # 清理节流也关掉：测试里新建容器若读到真实 .heagent 的节流标记就会静默不清理，断言会假失败。
 os.environ.setdefault("PRUNE_MIN_INTERVAL_SECONDS", "0")
-# 运行时产物保留期（日志 / 会话 / 编辑快照）同样关掉：测试会真的调 CLI 入口，
-# 不关的话就会去扫/删开发机上的真实 logs/、.heagent/sessions、edit-snapshots。
+# 运行时产物保留期（日志 / 会话 / 编辑快照 / 沙箱会话目录）同样关掉：测试会真的调 CLI 入口，
+# 不关的话就会去扫/删开发机上的真实 logs/、.heagent/sessions、edit-snapshots、.heagent/sandboxes。
 os.environ.setdefault("LOG_RETENTION_DAYS", "0")
 os.environ.setdefault("SESSION_RETENTION_DAYS", "0")
 os.environ.setdefault("EDIT_SNAPSHOT_RETENTION_DAYS", "0")
+os.environ.setdefault("SANDBOX_DIR_RETENTION_DAYS", "0")
 
 
 @pytest.fixture(autouse=True)

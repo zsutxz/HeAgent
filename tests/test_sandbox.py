@@ -30,6 +30,7 @@ from heagent.tools.sandbox import (
     reset_sandbox_profile,
     reset_sandbox_workspace,
     sandbox_session_dir,
+    sandbox_sessions_root,
 )
 
 _PY = f'"{sys.executable}"'
@@ -934,6 +935,12 @@ class TestSandboxSessionDir:
     def test_independent_of_executor_instances(self, tmp_path: Path) -> None:
         """不依赖任何执行器实例状态——不构造 backend 也返回已创建目录。"""
         assert sandbox_session_dir("pure-run", base=tmp_path).is_dir()
+
+    def test_default_root_matches_convention_root(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """约定根不变量（E40-D1）：创建方与回收方必须看同一个根。"""
+        monkeypatch.chdir(tmp_path)
+        assert sandbox_session_dir("run-1").parent == sandbox_sessions_root()
+        assert sandbox_sessions_root(tmp_path) == tmp_path / ".heagent" / "sandboxes"
 
     @pytest.mark.parametrize(
         "bad_run_id",

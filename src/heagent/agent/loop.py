@@ -706,8 +706,14 @@ class AgentLoop:
         run_context = self._ensure_run_context(session_id=session_id)
 
         # 拼装系统提示词（注入 soul/context/skills/facts/profile），先落 SYSTEM——
-        # 严格模板（如 Ollama）要求 SYSTEM 必须是消息数组的第一条。
-        system_content = await asyncio.to_thread(self._build_system, system, prompt=prompt)
+        # 严格模板（如 Ollama）要求 SYSTEM 必须是消息数组的第一条。E40-D2：本 run 的
+        # shell 沙箱工作目录（真正生效时）也在此告知模型。
+        system_content = await asyncio.to_thread(
+            self._build_system,
+            system,
+            prompt=prompt,
+            sandbox_workspace=self._bound_sandbox_workspace(run_context),
+        )
         if system_content:
             state.messages.append(Message(role=Role.SYSTEM, content=system_content))
 
@@ -906,7 +912,9 @@ class AgentLoop:
     # 系统提示词 / Provider 调用 / 工具执行
     # ------------------------------------------------------------------
 
-    def _build_system(self, user_system: str | None, prompt: str = "") -> str | None:
+    def _build_system(
+        self, user_system: str | None, prompt: str = "", sandbox_workspace: str | None = None
+    ) -> str | None:
         """合并生成系统提示词（委托 :func:`build_system_prompt`，保留 skills.record_usage 副作用）。"""
         return build_system_prompt(
             user_system,
@@ -916,7 +924,21 @@ class AgentLoop:
             skills=self.skills,
             facts=self.facts,
             profile=self.profile,
+            sandbox_workspace=sandbox_workspace,
         )
+
+    def _bound_sandbox_workspace(self, run_context: RunContext) -> str | None:
+        """本 run **真正生效**的 shell 沙箱工作目录（未生效返回 None）。
+
+        与 executor 的 bind 条件同源：只有存在真实沙箱后端（``executor.sandbox_runner`` 非
+        None）时，``metadata["sandbox_workspace"]`` 才会被 bind 给后端并成为 shell 的 cwd /
+        ``--private`` 根。开关开启但后端缺席（passthrough）时该目录并不生效——此时**不**向模型
+        报任何路径（提示词与真实 cwd 不一致比不提示更坏，见 E40-D2）。
+        """
+        if self.engine.executor.sandbox_runner is None:
+            return None
+        value = run_context.metadata.get("sandbox_workspace")
+        return value if isinstance(value, str) and value else None
 
     def _get_tools(self) -> list[ToolSchema]:
         """取发送给 LLM 的工具 Schema 列表，按 policy 白名单过滤（P5-1）。

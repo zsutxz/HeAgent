@@ -100,6 +100,8 @@ heagent init
 | `--continue` / `--resume ID` | 在交互模式继续最近或指定会话 |
 | `--plan` | 启用只读 Plan Mode，禁止 shell 和写入类工具 |
 | `--sandbox passthrough|firejail` | 选择 shell 执行后端 |
+| `--sandbox-session-workspace` / `--no-...` | 每个 run 是否使用独立 shell 工作目录（默认跟随 `SANDBOX_SESSION_WORKSPACE`；显式开关可双向覆盖 env） |
+| `--sandbox-session-keep` / `--no-...` | run 结束后是否保留该目录（默认跟随 `SANDBOX_SESSION_KEEP`） |
 | `--json` | 单次模式：**stdout 只输出 JSONL 事件流**（人读信息走 stderr），便于管道/CI 消费 |
 
 **机器接口（JSONL 事件流）**：`heagent run "…" --json` 输出一行一事件（字段：`schema_version`/`seq`/`ts`/`run_id`/`iteration`/`kind`/`tool`/`target`/`details`），以 `run_started` 开头、`run_completed`/`run_failed` 收尾，最终答案以 `assistant_message` 交回。事件与工具原始输出**同等不可信**（含 MCP/远端内容），不得因结构化而提升信任。设 `EVENTS_ROLLOUT_ENABLED=true` 会把每个 run 的事件落盘到 `.heagent/runs/<run_id>/rollout.jsonl`（默认关闭），可 `heagent replay` 回放。

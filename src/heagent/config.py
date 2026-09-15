@@ -273,6 +273,10 @@ class Settings(BaseSettings):
     sandbox_env_allowlist: str = Field(default="")
     # 沙箱会话目录保留开关（FR-4）：True = run 结束后保留会话目录；False（默认）= 删除。
     sandbox_session_keep: bool = Field(default=False)
+    # 沙箱会话目录保留天数（E40-D1）：崩溃 run 留下的 `.heagent/sandboxes/<run_id>/` 不经过
+    # 正常 teardown，由 CLI/GUI 启动时的 housekeeping 按本保留期回收（0=禁用）。
+    # 7 天与编辑快照同档——它是 per-run 临时工作区，比 run 快照（30 天）短命得多。
+    sandbox_dir_retention_days: int = Field(default=7, ge=0)
 
     # ---- 审批参数（Epic 29） ----
     # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。

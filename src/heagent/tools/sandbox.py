@@ -350,6 +350,33 @@ class FirejailBackend:
         return await _run_subprocess_exec(argv, timeout=timeout)
 
 
+def _winjob_spawn(command: str, workspace: Path | None) -> subprocess.Popen[bytes]:
+    """启动 WinJob 子进程——**单处**决定 ``cwd`` 是否传入（E40-D3 的可测缝）。
+
+    未 bind 会话目录时与改动前逐字段一致（不传 ``cwd``，不改既有进程语义）。抽成模块级
+    纯函数（不触任何 Windows 内核 API）使该决定能在非 Windows 平台被断言：原实现把它写在
+    ``run()`` 的两条 ``subprocess.Popen`` 分支里，Linux CI 上无法覆盖（测试整段跳过）。
+
+    ⚠ 目录约定而非安全边界：``cwd`` 只决定子进程工作目录，WinJob 不提供任何文件系统 /
+    网络隔离（仅进程级 Job Objects），须 OS 级沙箱兜底。
+    """
+    # noqa 依据：``command`` 就是 ``shell`` 工具的用户/LLM 命令（不可信是本模块的前提），
+    # 隔离由 Job Objects + OS 级沙箱兜底承担，而非靠这里「检查输入」；``cmd`` 为 Windows
+    # 系统内置解释器，无绝对路径可给（沿用改动前的调用形态）。
+    if workspace is None:
+        return subprocess.Popen(  # noqa: S603
+            ["cmd", "/c", command],  # noqa: S607
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+    return subprocess.Popen(  # noqa: S603
+        ["cmd", "/c", command],  # noqa: S607
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        cwd=str(workspace),
+    )
+
+
 class WinJobBackend:
     """Windows Job Objects sandbox backend (process-level isolation, Windows-only).
 
@@ -442,25 +469,7 @@ class WinJobBackend:
                 logger.error("SetInformationJobObject failed (err=%d)", err)
 
             # ── Start child process ──
-            # FR-1：per-run 沙箱会话目录（经 executor bind）作为子进程 cwd——
-            # 目录约定 only：仅决定命令的工作目录，无任何文件系统/网络隔离
-            # （WinJob 仅做进程级隔离），非安全边界。未 bind 时不传 cwd（与现状一致）。
-            workspace = get_sandbox_workspace()
-            if workspace is not None:
-                proc = await asyncio.to_thread(
-                    subprocess.Popen,
-                    ["cmd", "/c", command],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    cwd=str(workspace),
-                )
-            else:
-                proc = await asyncio.to_thread(
-                    subprocess.Popen,
-                    ["cmd", "/c", command],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
+            proc = await asyncio.to_thread(_winjob_spawn, command, get_sandbox_workspace())
 
             # Assign to job object
             kernel32.AssignProcessToJobObject(
@@ -540,6 +549,19 @@ def bind_sandbox_profile(profile: str | None) -> Iterator[None]:
 
 
 # —— Sandbox session workspace（FR-1：per-run 沙箱会话目录）——
+
+
+def sandbox_sessions_root(workspace: Path | None = None) -> Path:
+    """工作区下的沙箱会话目录**约定根**：``<workspace 或进程 cwd>/.heagent/sandboxes``。
+
+    纯路径计算、无 I/O。调用方必须看同一个根：``EngineContainer.create_run_context`` 在此
+    创建 per-run 目录（经 ``sandbox_session_dir(..., base=...)``），``housekeeping.prune_sandbox_dirs``
+    在此回收崩溃 run 的孤儿目录——两处共用本函数，避免「目录约定」漂移成两份字面量。
+
+    注意与 ``sandbox_session_dir(base=...)`` 的区别：后者的 ``base`` 是**整个根**的替代
+    （测试注入通道，不再追加 ``.heagent/sandboxes``），本函数才是「工作区 → 约定根」的映射。
+    """
+    return (workspace if workspace is not None else Path.cwd()) / ".heagent" / "sandboxes"
 
 
 def sandbox_session_dir(run_id: str, *, base: Path | None = None) -> Path:

@@ -30,20 +30,27 @@ def build_system_prompt(
     skills: SkillStore | None,
     facts: FactStore | None,
     profile: ProfileStore | None,
+    sandbox_workspace: str | None = None,
 ) -> str | None:
-    """合并生成一条系统提示词（含人格 / 项目上下文 / 技能 / 记忆 / 用户画像）。
+    """合并生成一条系统提示词（含人格 / 项目上下文 / 沙箱工作目录 / 技能 / 记忆 / 用户画像）。
 
     各块按以下**注入顺序**拼装（顺序即优先级呈现，影响 LLM 对提示的权重）：
 
       1. ``<identity>``    SOUL.md 人格（用 insert(0) 放到**最前**，作为基底身份）；
       2. user_system       调用方显式传入的附加系统提示词；
       3. ``<project-context>`` 项目上下文文件（受 settings.context_files_enabled 开关）；
-      4. ``<skills>``      按 prompt 相似度自动匹配的技能（命中则注入内容；未命中但
+      4. ``<shell-workspace>`` per-run 沙箱会话目录（仅在其**真正生效**时注入；见
+                           ``sandbox_workspace``）——让模型知道 shell 命令的工作目录在哪，
+                           避免 shell 写入位置与 file 工具的相对路径假设分叉（E40-D2）；
+      5. ``<skills>``      按 prompt 相似度自动匹配的技能（命中则注入内容；未命中但
                            存在技能时给一条引导提示）；
-      5. ``<memory>``      facts 长期记忆；若开启 memory_nudge 再追加 ``<memory-nudge>`` 提醒；
-      6. ``<profile>``     用户画像。
+      6. ``<memory>``      facts 长期记忆；若开启 memory_nudge 再追加 ``<memory-nudge>`` 提醒；
+      7. ``<profile>``     用户画像。
 
     无任何内容时返回 None（不插入空 SYSTEM 消息）。``prompt`` 仅用于技能相似度匹配。
+
+    ``sandbox_workspace`` 为「本 run 的 shell 工作目录」绝对路径；未绑定（或有开关但无真实
+    沙箱后端）时传 None——**不可在未生效时报路径**，否则提示词与真实 cwd 不一致，比不提示更坏。
     """
     parts: list[str] = []
     if user_system:
@@ -65,6 +72,21 @@ def build_system_prompt(
             if context:
                 parts.append(f"<project-context>\n{context}\n</project-context>")
                 logger.debug("Injected project context files into system prompt")
+
+    if sandbox_workspace:
+        # E40-D2：把 per-run shell 工作目录显式告诉模型。这是**唯一**的暴露通道
+        # （system prompt），而非 tool schema / result——单一来源避免两处说法漂移。
+        parts.append(
+            "<shell-workspace>\n"
+            "Shell commands in this run start in this directory and keep their working directory "
+            "across commands:\n"
+            f"{sandbox_workspace}\n\n"
+            "It is per-run scratch space. Relative paths in file tools resolve against the workspace "
+            "root instead, so pass an absolute path when a shell command and a file tool must touch "
+            "the same file.\n"
+            "</shell-workspace>"
+        )
+        logger.debug("Injected per-run shell workspace into system prompt: %s", sandbox_workspace)
 
     if skills:
         settings = get_settings()

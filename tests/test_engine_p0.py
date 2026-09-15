@@ -1092,6 +1092,69 @@ class TestSandboxSessionWorkspace:
         assert captured == [session]
 
 
+class TestSandboxSessionSwitchPrecedence:
+    """E40-D4: 沙箱会话两开关三态（CLI 显式值 > Settings/env），含 default() 透传。"""
+
+    @pytest.fixture(autouse=True)
+    def _reset_settings_around(self):
+        """每测试前后重置 Settings 单例，防 SANDBOX_SESSION_* 泄漏到后续测试。"""
+        from heagent.config import reset_settings
+
+        reset_settings()
+        yield
+        reset_settings()
+
+    def test_container_true_overrides_env_false(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """显式 True（CLI ``--sandbox-session-workspace``）压过 env 的 false。"""
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "false")
+        monkeypatch.chdir(tmp_path)
+        engine = EngineContainer(workspace_root=str(tmp_path), sandbox_session_workspace=True)
+        ctx = engine.create_run_context()
+        assert ctx.metadata["sandbox_workspace"] == str(tmp_path / ".heagent" / "sandboxes" / ctx.run_id)
+
+    def test_container_false_overrides_env_true(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """显式 False（CLI ``--no-sandbox-session-workspace``）压过 env 的 true。
+
+        这是三态（而非「只能开」）的意义：env 开了也能在单次运行里关掉。
+        """
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
+        monkeypatch.chdir(tmp_path)
+        engine = EngineContainer(workspace_root=str(tmp_path), sandbox_session_workspace=False)
+        ctx = engine.create_run_context()
+        assert "sandbox_workspace" not in ctx.metadata
+        assert not (tmp_path / ".heagent" / "sandboxes").exists()
+
+    def test_container_none_follows_env(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """选项缺席（None）跟随 env——不传标志时行为与改动前逐字节一致。"""
+        monkeypatch.setenv("SANDBOX_SESSION_WORKSPACE", "true")
+        monkeypatch.chdir(tmp_path)
+        engine = EngineContainer(workspace_root=str(tmp_path))
+        ctx = engine.create_run_context()
+        assert ctx.metadata["sandbox_workspace"] == str(tmp_path / ".heagent" / "sandboxes" / ctx.run_id)
+
+    def test_keep_switch_precedence(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """teardown 保留开关同样三态：显式值压过 env，None 跟随 env。"""
+        monkeypatch.setenv("SANDBOX_SESSION_KEEP", "false")
+        keeping = EngineContainer(workspace_root=str(tmp_path), sandbox_session_keep=True)
+        assert keeping._session_keep_enabled() is True
+
+        monkeypatch.setenv("SANDBOX_SESSION_KEEP", "true")
+        dropping = EngineContainer(workspace_root=str(tmp_path), sandbox_session_keep=False)
+        assert dropping._session_keep_enabled() is False
+        assert EngineContainer(workspace_root=str(tmp_path))._session_keep_enabled() is True
+
+    def test_default_forwards_session_flags(self, tmp_path: Path) -> None:
+        """``default()`` 把两个会话开关透传到容器（CLI/GUI 的唯一装配路径）。"""
+        engine = EngineContainer.default(
+            workspace_root=str(tmp_path),
+            sandbox_backend="passthrough",
+            sandbox_session_workspace=True,
+            sandbox_session_keep=False,
+        )
+        assert engine.sandbox_session_workspace is True
+        assert engine.sandbox_session_keep is False
+
+
 class TestSandboxBackendTier:
     """FR-2: executor 查询后端强度档位 + emit 事件传递 sandbox_tier。"""
 

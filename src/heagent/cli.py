@@ -588,6 +588,8 @@ async def _run_single(
     sandbox_backend: str | None = None,
     plan_mode: bool = False,
     json_output: bool = False,
+    sandbox_session_workspace: bool | None = None,
+    sandbox_session_keep: bool | None = None,
 ) -> None:
     """Run a single prompt and print the result.
 
@@ -596,7 +598,12 @@ async def _run_single(
     故管道消费方拿到的是干净的事件流。
     """
     settings = get_settings()
-    engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
+    engine = EngineContainer.default(
+        workspace_root=os.getcwd(),
+        sandbox_backend=sandbox_backend,
+        sandbox_session_workspace=sandbox_session_workspace,
+        sandbox_session_keep=sandbox_session_keep,
+    )
     if sys.stdin.isatty() and engine.approval_handler is None:
         engine.approval_handler = ConsoleApprovalHandler()
     plan_hint = _apply_plan_mode(engine, plan_mode=plan_mode)
@@ -747,11 +754,18 @@ async def _run_chat(
     continue_session: bool = False,
     resume_session: str | None = None,
     plan_mode: bool = False,
+    sandbox_session_workspace: bool | None = None,
+    sandbox_session_keep: bool | None = None,
 ) -> None:
     """Run interactive chat mode."""
     _setup_readline()
     settings = get_settings()
-    engine = EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
+    engine = EngineContainer.default(
+        workspace_root=os.getcwd(),
+        sandbox_backend=sandbox_backend,
+        sandbox_session_workspace=sandbox_session_workspace,
+        sandbox_session_keep=sandbox_session_keep,
+    )
     if engine.approval_handler is None:
         engine.approval_handler = ConsoleApprovalHandler()
     plan_hint = _apply_plan_mode(engine, plan_mode=plan_mode)
@@ -1168,6 +1182,8 @@ def _run_cli_impl(
     resume_session: str | None = None,
     plan_mode: bool = False,
     json_output: bool = False,
+    sandbox_session_workspace: bool | None = None,
+    sandbox_session_keep: bool | None = None,
 ) -> None:
     """Core CLI routine — logging, provider, MCP, dispatch to single/chat."""
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
@@ -1223,6 +1239,8 @@ def _run_cli_impl(
                 sandbox_backend=sandbox,
                 plan_mode=resolved_plan,
                 json_output=json_output,
+                sandbox_session_workspace=sandbox_session_workspace,
+                sandbox_session_keep=sandbox_session_keep,
             )
         )
     else:
@@ -1237,6 +1255,8 @@ def _run_cli_impl(
                 continue_session=continue_session,
                 resume_session=resume_session,
                 plan_mode=resolved_plan,
+                sandbox_session_workspace=sandbox_session_workspace,
+                sandbox_session_keep=sandbox_session_keep,
             )
         )
 
@@ -1256,6 +1276,18 @@ _RUN_OPTIONS = [
         type=click.Choice(["auto", "passthrough", "firejail", "winjob"]),
         default=None,
         help="Sandbox backend for shell execution (default: auto = probe firejail)",
+    ),
+    click.option(
+        "--sandbox-session-workspace/--no-sandbox-session-workspace",
+        "sandbox_session_workspace",
+        default=None,
+        help="Per-run sandbox session dir for shell (default: SANDBOX_SESSION_WORKSPACE env)",
+    ),
+    click.option(
+        "--sandbox-session-keep/--no-sandbox-session-keep",
+        "sandbox_session_keep",
+        default=None,
+        help="Keep the per-run sandbox session dir after the run (default: SANDBOX_SESSION_KEEP env)",
     ),
     click.option(
         "--continue",
@@ -1357,6 +1389,8 @@ def run(
     resume_session: str | None,
     plan_mode: bool,
     json_output: bool = False,
+    sandbox_session_workspace: bool | None = None,
+    sandbox_session_keep: bool | None = None,
 ) -> None:
     """Run HeAgent in single-shot or interactive mode."""
     _run_cli_impl(
@@ -1370,6 +1404,8 @@ def run(
         resume_session,
         plan_mode,
         json_output=json_output,
+        sandbox_session_workspace=sandbox_session_workspace,
+        sandbox_session_keep=sandbox_session_keep,
     )
 
 

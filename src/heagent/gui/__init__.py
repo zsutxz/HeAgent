@@ -13,7 +13,12 @@ import heagent.tools.builtins  # noqa: F401 — 触发 @tool 注册
 logger = logging.getLogger(__name__)
 
 
-def gui_main(model: str | None = None, sandbox: str | None = None) -> None:
+def gui_main(
+    model: str | None = None,
+    sandbox: str | None = None,
+    sandbox_session_workspace: bool | None = None,
+    sandbox_session_keep: bool | None = None,
+) -> None:
     """Launch the HeAgent Textual TUI."""
     from heagent.config import get_settings
     from heagent.gui.app import HeAgentApp
@@ -45,7 +50,12 @@ def gui_main(model: str | None = None, sandbox: str | None = None) -> None:
     from heagent.engine import EngineContainer
     from heagent.tools.registry import ToolRegistry
 
-    engine = EngineContainer.default(workspace_root=None, sandbox_backend=sandbox or settings.sandbox_backend)
+    engine = EngineContainer.default(
+        workspace_root=None,
+        sandbox_backend=sandbox or settings.sandbox_backend,
+        sandbox_session_workspace=sandbox_session_workspace,
+        sandbox_session_keep=sandbox_session_keep,
+    )
 
     loop = AgentLoop(
         provider,

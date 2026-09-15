@@ -631,6 +631,7 @@ class TestWinJobBackend:
             lambda *a: 1,
         )
 
+    @pytest.mark.skipif(sys.platform != "win32", reason="需 ctypes.windll（Windows-only 内核 API）")
     @pytest.mark.asyncio
     async def test_run_available_normal_execution(
         self,
@@ -655,7 +656,7 @@ class TestWinJobBackend:
                 return (b"winjob_ok", b"")
 
         async def fake_to_thread(func, *args, **kwargs):
-            if func is subprocess.Popen:
+            if func is subprocess.Popen or getattr(func, "__name__", "") == "_winjob_spawn":
                 return _FakePopen()
             if hasattr(func, "__name__") and func.__name__ == "communicate":
                 return (b"winjob_ok", b"")
@@ -678,6 +679,7 @@ class TestWinJobBackend:
         assert "winjob_ok" in result
         assert not shell_called, "可用时不应走 PassthroughRunner 降级"
 
+    @pytest.mark.skipif(sys.platform != "win32", reason="需 ctypes.windll（Windows-only 内核 API）")
     @pytest.mark.asyncio
     async def test_run_available_cancelled_error(
         self,
@@ -716,7 +718,7 @@ class TestWinJobBackend:
                 return 0
 
         async def fake_to_thread(func, *args, **kwargs):
-            if func is subprocess.Popen:
+            if func is subprocess.Popen or getattr(func, "__name__", "") == "_winjob_spawn":
                 return _FakePopen()
             if hasattr(func, "__name__") and func.__name__ == "communicate":
                 await asyncio.sleep(1000)  # 阻塞直到取消

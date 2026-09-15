@@ -157,10 +157,11 @@ exceptions  types  config
 1. <identity>        — SOUL.md 人格（最顶层，insert(0) 插到最前）
 2. 用户 system 字符串
 3. <project-context> — 上下文文件（CONTEXT.md > AGENTS.md > CLAUDE.md）
-4. <skills>          — 自动匹配的技能
-5. <memory>          — 事实记忆
-6. <memory-nudge>    — 记忆保存提醒
-7. <profile>         — 用户画像
+4. <shell-workspace> — 本 run 的 shell 沙箱工作目录（E40-D2；仅真正生效时注入）
+5. <skills>          — 自动匹配的技能
+6. <memory>          — 事实记忆
+7. <memory-nudge>    — 记忆保存提醒
+8. <profile>         — 用户画像
 ```
 
 #### middleware.py — 中间件管道
@@ -379,6 +380,8 @@ SafetyGuard
 **沙箱 env 豁免（FR-3，2026-08-26）：** `scrub_sensitive_env(env, *, allowlist=...)` 新增 `allowlist` 参数（精确变量名、大小写不敏感）——命中 allowlist 的变量即使匹配敏感后缀也保留，其余仍剥离；未配置时行为与现状逐字节一致（默认全剥离）。配置入口 `Settings.sandbox_env_allowlist`（env `SANDBOX_ENV_ALLOWLIST`，逗号分隔）经 `sandbox_env_allowlist_set` property 解析，`_run_subprocess_shell`/`_run_subprocess_exec` 经 `_env_allowlist()` 读 Settings 传入。豁免仅作用于 env 剥离，不影响 `path_safety` 凭证 deny 与 `SafetyGuard` 凭证路径拦截。
 
 **SandboxSession 会话生命周期（FR-4，2026-08-26）：** 引入 `SandboxSession` 会话作用域——同一 run 的连续 shell 命令共享同一 session workspace（40.1 目录）并**跨命令保持 cwd**：`run()` 以「cd 前缀 + 末尾上报（POSIX `printf $PWD` / cmd `cd`）回填 `session.cwd`」包装命令，多步操作（写→编译→运行）自然衔接；包装同时**保持用户命令退出码**（POSIX `exit "$__rc"` 复原 / Windows `call echo %^ERRORLEVEL%` 经 marker 行带回并由 `run()` 回填 `exit_code=`，修复包装后失败命令恒 `exit_code=0` 的缺陷；`exit N` 直退类命令 marker 缺失属固有限制，rc 仍正确）。会话经 `get_or_create_session(run_id)` 按 run 缓存、`bind_sandbox_session` 送达 shell handler（handler 优先走 session）；`EngineContainer.close_run`（`AgentLoop._persist_and_cache` 尾部调用）teardown 按 `sandbox_session_keep`（默认 False=删除）清理会话目录。⚠ 会话非安全边界：cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无文件系统隔离、Firejail 亦非完美边界——须 OS 级沙箱兜底。
+
+**E40 补齐（2026-09-15，四项）：** ① **孤儿目录 GC（E40-D1）**——crash / SIGKILL 的 run 不走 teardown，其 `<workspace>/.heagent/sandboxes/<run_id>/` 由 CLI/GUI 启动时的 `housekeeping.prune_sandbox_dirs` 按 `sandbox_dir_retention_days`（默认 7 天）回收：判活取「目录 + **直接子项**」最新 mtime（正在写的 run 不被删；只扫一层，成本有界），非目录条目与符号链接一律不动（符号链接记 warning，绝不穿透），单趟删除数有上限、删除失败记 warning 留待下次启动。约定根由 `tools.sandbox.sandbox_sessions_root(workspace)` 单一表达（创建方与回收方共用，防空漂移）。② **目录对模型可见（E40-D2）**——`_build_system()` 在本 run 会话目录**真正生效**（存在真实沙箱后端）时注入 `<shell-workspace>` 块，告知绝对路径与「file 工具相对路径按 workspace root 解析」的差异；开关开但后端缺席（passthrough）时**不报路径**（与真实 cwd 不一致比不提示更坏）。③ **WinJob cwd 可测缝（E40-D3）**——子进程启动收敛到 `_winjob_spawn(command, workspace)` 单点（未 bind 时不传 `cwd`，与改动前逐字段一致），使该决定可在非 Windows 平台被断言（原实现写在 `run()` 两条 `Popen` 分支里，Linux CI 整段跳过）。④ **CLI/GUI 平权（E40-D4）**——`--sandbox-session-workspace` / `--sandbox-session-keep`（含 `--no-...`）三态覆盖 `Settings`（未传标志时行为与改动前逐字节一致）。
 
 #### call_summary.py — 工具调用「作用对象」摘要（纯展示辅助）
 
@@ -602,7 +605,7 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 事件：`dream_start` / `dream_end`（trigger / success / iterations / run_id）经 `EventBus` 发布，`LoggingObserver` 落日志。
 
-⚠ **安全立场**（与文首声明一致，诚实不造假象）：dreaming = 无人监督 + 联网（`web_fetch`）+ 改持久记忆，比交互式更危险——被污染网页可经 prompt injection 跨会话污染记忆库。`PolicyEngine`/`RoleSpec` 工具白名单均**非真正安全边界**（defense-in-depth 标记/拦截）；`web_fetch` 返回当前**不经 `guard_content`**（仅 MCP 工具经 `bridge_result`，端到端接入 deferred，见 `deferred-work.md`）。须 OS 级沙箱兜底；OS 沙箱就绪后 dreamer 须迁移进沙箱。
+⚠ **安全立场**（与文首声明一致，诚实不造假象）：dreaming = 无人监督 + 联网（`web_fetch`）+ 改持久记忆，比交互式更危险——被污染网页可经 prompt injection 跨会话污染记忆库。`PolicyEngine`/`RoleSpec` 工具白名单均**非真正安全边界**（defense-in-depth 标记/拦截）；`web_fetch` 返回现经 `guard_content` 启发式围栏（Epic 35，2026-08-19：命中内置注入签名加 warning 标记后**透传**，不阻断；与 MCP `bridge_result` 同语义、**非隔离**）。须 OS 级沙箱兜底；OS 沙箱就绪后 dreamer 须迁移进沙箱。
 
 ### 4.7 Cron 调度 (`cron/`)
 
@@ -727,10 +730,11 @@ HeAgentError (base)
 | `log_retention_days` | 14 | `logs/` 日志文件保留天数（CLI/GUI 启动时回收；0=禁用） |
 | `session_retention_days` | 30 | `.heagent/sessions/` 会话文件保留天数（启动时按 mtime 回收；0=禁用） |
 | `edit_snapshot_retention_days` | 7 | `.heagent/tmp/edit-snapshots/` 编辑快照保留天数（启动时回收 run 目录；0=禁用） |
+| `sandbox_dir_retention_days` | 7 | `.heagent/sandboxes/<run_id>/` 沙箱会话目录保留天数（E40-D1：崩溃/SIGKILL 的 run 不会 teardown，由启动时回收**孤儿**目录；0=禁用。判活取「目录 + 直接子项」最新 mtime，故正在写的 run 不会被删；单趟有上限、失败记 warning） |
 | `sandbox_enforce` | True | 探测到**真实**后端时自动把 `shell` 纳入沙箱工具集并授权当次 run（passthrough 下零行为变更） |
 | `tokenizer` | `auto` | Token 计量后端：`auto`（有 tiktoken 用真实 encoding，否则启发式 + 在线校准）/ `estimate` / `tiktoken` |
-| `sandbox_session_workspace` | False | 是否为每个 run 建立会话工作目录 |
-| `sandbox_session_keep` | False | run 结束后是否保留会话目录 |
+| `sandbox_session_workspace` | False | 是否为每个 run 建立会话工作目录；CLI/GUI `--sandbox-session-workspace` / `--no-...` 可**双向**覆盖（E40-D4，三态：未传则跟随本项） |
+| `sandbox_session_keep` | False | run 结束后是否保留会话目录；同上，CLI/GUI `--sandbox-session-keep` / `--no-...` 可覆盖 |
 | `sandbox_env_allowlist` | `""` | 逗号分隔的 env 豁免变量名（如 `GITHUB_TOKEN`）：命中者不参与 `scrub_sensitive_env` 的敏感剥离；空=全剥离 |
 | `approval_tools` | `""` | 需要交互审批的工具名列表 |
 | `hooks_enabled` | False | 是否启用 `.heagent/hooks.json` |
@@ -860,13 +864,13 @@ defense-in-depth，OS sandbox 才能处理 hostile filesystem/process context。
 | 流式 tool_calls 回退 | `run_stream()` 流式模式不返回 `tool_calls`，命中时回退 `send()` 重取（已知设计权衡） |
 | MCP / engine sandbox 安全边界 | `SafetyGuard` / `PolicyEngine` / `FirejailBackend` / MCP 围栏均非真正安全边界，须 OS 级沙箱兜底（详见 CLAUDE.md 安全声明） |
 | 用户可配置 MCP 签名入口 | 项目级 `.heagent/injection_signatures.json` 已接入并进程内缓存；全局级配置仍 deferred；签名围栏仍是非真正安全边界 |
-| Dreaming 联网注入围栏 | `web_fetch` 返回路径未接 `guard_content`（仅 MCP 工具经 `bridge_result`），dreamer 联网结果无注入围栏——端到端接入 deferred（独立 spec）；dreamer 须 OS 级沙箱兜底（见 4.6 dream.py） |
+| Dreaming 联网注入围栏 | `web_fetch` 返回路径已接 `guard_content`（Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；仍是非真正边界（标记仅 observable defense-in-depth），dreamer 须 OS 级沙箱兜底（见 4.6 dream.py） |
 | 交互式审批非安全边界 | 审批闭环（Epic 29）把「要不要执行」交给用户，**不是安全边界**——`PolicyEngine` 本就非真边界，须 OS 级沙箱兜底（见 4.12 approval.py） |
 | 文件安全与凭证防护非边界 | `path_safety` 凭证 deny / `scrub_sensitive_env` 均为 defense-in-depth 启发式层（2026-08-24），非真正边界——shell 工具仍可 `cat .env` 绕过，须 OS 级沙箱兜底 |
 | 沙箱会话目录非安全边界 | `sandbox_session_workspace`（FR-1，2026-08-26）只提供 per-run 目录约定：WinJob 仅把目录作为子进程 cwd（**零文件系统/网络隔离**），Firejail `--private` 亦非完美边界——须 OS 级沙箱兜底（见 4.4 sandbox.py） |
 | 沙箱后端分级预留 | `SandboxTier`（FR-2，2026-08-26）`container` 档仅预留枚举、无实现后端；审批降级（`can_relax_approval`）未接入 `PolicyEngine` 裁决，弱后端一律维持原审批要求——分级不产生新安全边界 |
 | 沙箱 env 豁免非安全边界 | `sandbox_env_allowlist`（FR-3，2026-08-26）仅豁免 `scrub_sensitive_env` 剥离，非真正边界——shell 工具仍可读任意环境变量，须 OS 级沙箱兜底 |
-| SandboxSession 非安全边界 | `SandboxSession`（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 非完美边界——须 OS 级沙箱兜底；crash 孤儿目录无 GC/保留策略（deferred） |
+| SandboxSession 非安全边界 | `SandboxSession`（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 非完美边界——须 OS 级沙箱兜底；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（`housekeeping.prune_sandbox_dirs` + `sandbox_dir_retention_days`），仍非安全边界 |
 
 ---
 
@@ -1003,6 +1007,7 @@ AgentLoop(provider, skills, facts, profile, compressor, soul, cron_store, ...).r
   │     ├── <identity>            — SOUL.md 人格
   │     ├── 用户 system 字符串
   │     ├── <project-context>     — CONTEXT.md / AGENTS.md / CLAUDE.md
+  │     ├── <shell-workspace>     — 本 run 的 shell 沙箱工作目录（真正生效时；E40-D2）
   │     ├── <skills>              — SkillStore.match() 自动匹配 ≤ skill_max_auto_invoke 个
   │     ├── <memory>              — 事实记忆列表
   │     ├── <memory-nudge>        — 记忆保存提醒（紧随 memory）

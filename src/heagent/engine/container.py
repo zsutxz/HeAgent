@@ -55,6 +55,12 @@ class EngineContainer:
     run_retention_days: int = 0
     # 过期清理的跨进程节流秒数（0=每次都扫）；default() 从 Settings 读，手动构造默认 0（测试无节流）。
     prune_min_interval_seconds: int = 0
+    # 沙箱会话目录开关（E40-D4）：None = 跟随 Settings（env）；True/False = 显式覆盖
+    # （CLI `--sandbox-session-workspace` / `--no-sandbox-session-workspace`）。
+    sandbox_session_workspace: bool | None = None
+    # 沙箱会话目录 teardown 保留开关（E40-D4）：None = 跟随 Settings；True/False = 显式覆盖
+    # （CLI `--sandbox-session-keep` / `--no-sandbox-session-keep`）。
+    sandbox_session_keep: bool | None = None
     # 进程内去重标志：同一容器 prune_*_once 仅首次 run 触发（sub agent 继承父 engine 时不重复扫）。
     # 两者独立：ledger 与 runs 各自的清理互不阻塞。
     _ledger_pruned: bool = field(default=False, init=False, repr=False)
@@ -77,6 +83,25 @@ class EngineContainer:
                 )
             else:
                 self.executor.sandbox_runner = self.command_runner
+
+    def _session_workspace_enabled(self) -> bool:
+        """沙箱会话目录是否开启（E40-D4）：容器显式值（CLI）优先，否则跟随 Settings（env）。
+
+        与 executor 授权同源：开关开启即写 metadata（后端是否真吃该目录由 executor 判定）。
+        """
+        if self.sandbox_session_workspace is not None:
+            return self.sandbox_session_workspace
+        from heagent.config import get_settings
+
+        return get_settings().sandbox_session_workspace
+
+    def _session_keep_enabled(self) -> bool:
+        """run 结束后是否保留沙箱会话目录（E40-D4）：同上，CLI 值优先于 Settings。"""
+        if self.sandbox_session_keep is not None:
+            return self.sandbox_session_keep
+        from heagent.config import get_settings
+
+        return get_settings().sandbox_session_keep
 
     async def prune_ledger_once(self) -> int:
         """首次调用时清理过期 ledger 记录，之后短路返回 0（去重）。
@@ -139,7 +164,14 @@ class EngineContainer:
         return n
 
     @classmethod
-    def default(cls, *, workspace_root: str | None = None, sandbox_backend: str | None = None) -> EngineContainer:
+    def default(
+        cls,
+        *,
+        workspace_root: str | None = None,
+        sandbox_backend: str | None = None,
+        sandbox_session_workspace: bool | None = None,
+        sandbox_session_keep: bool | None = None,
+    ) -> EngineContainer:
         """为当前工作区创建默认装配的容器。
 
         读取 ``Settings.sandbox_backend`` 自动构造对应的 ``CommandRunner``（FR-S4）：
@@ -147,7 +179,9 @@ class EngineContainer:
         - ``"firejail"`` → ``FirejailBackend`` 实例
         - ``"winjob"`` → ``WinJobBackend`` 实例（FR-A3，Windows Job Objects）
 
-        ``sandbox_backend`` 显式传入时优先于 Settings。
+        ``sandbox_backend`` 显式传入时优先于 Settings。``sandbox_session_workspace`` /
+        ``sandbox_session_keep`` 为 ``None`` 时跟随 Settings（env），显式传值时覆盖
+        （CLI 开关，E40-D4——三态语义使 ``--no-...`` 能反向覆盖 env 的 true）。
         """
         from heagent.config import get_settings
 
@@ -188,6 +222,8 @@ class EngineContainer:
             workspace_root=workspace_root,
             command_runner=command_runner,
             enable_file_locks=True,
+            sandbox_session_workspace=sandbox_session_workspace,
+            sandbox_session_keep=sandbox_session_keep,
         )
         container.ledger_retention_days = settings.ledger_retention_days
         container.run_retention_days = settings.run_retention_days
@@ -256,11 +292,10 @@ class EngineContainer:
         # 目标路径在 try 外预推导，except 严禁二次 Path.cwd() 重建（POSIX cwd 消失时
         # 二次推导会抛新异常掩盖原始错误）。目录创建失败（权限/磁盘）→ 显性失败
         # （NFR-1），严禁静默降级为「无目录继续跑」。
-        from heagent.config import get_settings
-        from heagent.tools.sandbox import sandbox_session_dir
+        from heagent.tools.sandbox import sandbox_session_dir, sandbox_sessions_root
 
-        if get_settings().sandbox_session_workspace:
-            base = Path(root) / ".heagent" / "sandboxes"
+        if self._session_workspace_enabled():
+            base = sandbox_sessions_root(Path(root))
             target = base / ctx.run_id
             try:
                 ctx.metadata["sandbox_workspace"] = str(sandbox_session_dir(ctx.run_id, base=base))
@@ -277,12 +312,12 @@ class EngineContainer:
     async def close_run(self, run_context: RunContext) -> None:
         """run 结束 teardown：清理该 run 的沙箱会话目录（保留/删除）。
 
-        FR-4：正常结束路径（AgentLoop._persist_and_cache 调用）。crash 孤儿目录无
-        GC/保留策略属 deferred（见 deferred-work.md）。会话非安全边界（须 OS 级沙箱兜底）。
+        FR-4：正常结束路径（AgentLoop._persist_and_cache 调用）。crash 孤儿目录由
+        ``housekeeping.prune_sandbox_dirs``（CLI/GUI 启动时，E40-D1）按保留期回收。
+        会话非安全边界（须 OS 级沙箱兜底）。
         """
-        from heagent.config import get_settings
         from heagent.tools.sandbox import pop_session
 
         session = pop_session(run_context.run_id)
         if session is not None:
-            await session.close(keep=get_settings().sandbox_session_keep)
+            await session.close(keep=self._session_keep_enabled())

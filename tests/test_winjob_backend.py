@@ -1,7 +1,9 @@
 """Story A.3: Windows Job Objects sandbox backend 测试。"""
 
 import asyncio
+import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -148,8 +150,11 @@ class TestWinJobSessionWorkspace:
 
     @staticmethod
     def _capture_popen_kwargs(monkeypatch: pytest.MonkeyPatch) -> dict:
-        """Mock to_thread + Popen，返回捕获到的 Popen kwargs。"""
-        import subprocess
+        """Mock ``subprocess.Popen``（``_winjob_spawn`` 缝的唯一下游）并捕获其 kwargs。
+
+        E40-D3 后 ``run()`` 经 ``_winjob_spawn`` 启动子进程，故此处直接替换 ``Popen``
+        （原先替换 ``asyncio.to_thread`` 的写法会绕过该缝）。
+        """
 
         popen_kwargs: dict = {}
 
@@ -162,14 +167,7 @@ class TestWinJobSessionWorkspace:
             def communicate(self):
                 return (b"winjob_cwd_ok", b"")
 
-        async def fake_to_thread(func, *args, **kwargs):
-            if func is subprocess.Popen:
-                return _FakePopen(*args, **kwargs)
-            if getattr(func, "__name__", "") == "communicate":
-                return (b"winjob_cwd_ok", b"")
-            return func(*args, **kwargs)
-
-        monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+        monkeypatch.setattr(subprocess, "Popen", _FakePopen)
         return popen_kwargs
 
     @pytest.mark.asyncio
@@ -210,3 +208,50 @@ class TestWinJobSessionWorkspace:
 
         assert "winjob_cwd_ok" in result
         assert "cwd" not in popen_kwargs
+
+
+class TestWinJobSpawnSeam:
+    """E40-D3: ``_winjob_spawn`` 缝——``cwd`` 决定点，不触 Windows 内核 API。
+
+    原实现把 ``cwd`` 写死在 ``run()`` 的两条 ``subprocess.Popen`` 分支里（只有 Windows-only
+    测试碰得到，Linux/macOS CI 整段跳过）；现在 spawn 集中在 ``_winjob_spawn``，故可在任意
+    平台替换 ``subprocess.Popen`` 后断言真实调用参数。Windows 侧另有
+    ``TestWinJobSessionWorkspace`` 的端到端集成断言（经 Job Objects 全路径）。
+    """
+
+    @staticmethod
+    def _capture(monkeypatch: pytest.MonkeyPatch) -> dict:
+        captured: dict = {}
+
+        class _FakePopen:
+            def __init__(self, argv, **kwargs):
+                captured["argv"] = argv
+                captured.update(kwargs)
+
+        monkeypatch.setattr(subprocess, "Popen", _FakePopen)
+        return captured
+
+    def test_cwd_passed_when_workspace_bound(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        """bind 会话目录 → ``Popen(cwd=<目录>)``（目录约定，无文件系统隔离）。"""
+        from heagent.tools.sandbox import _winjob_spawn
+
+        captured = self._capture(monkeypatch)
+        session = tmp_path / "sess"
+
+        _winjob_spawn("echo hi", session)
+
+        assert captured["cwd"] == str(session)
+        assert captured["argv"] == ["cmd", "/c", "echo hi"]
+        assert captured["stdout"] is subprocess.PIPE
+        assert captured["stderr"] is subprocess.PIPE
+
+    def test_no_cwd_without_workspace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """未 bind（None）→ **不传** ``cwd``（与改动前逐字段一致，不改进程语义）。"""
+        from heagent.tools.sandbox import _winjob_spawn
+
+        captured = self._capture(monkeypatch)
+
+        _winjob_spawn("echo hi", None)
+
+        assert "cwd" not in captured
+        assert set(captured) == {"argv", "stdout", "stderr"}
