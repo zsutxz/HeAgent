@@ -11,7 +11,7 @@ context:
   - '{project-root}/src/heagent/cron/scheduler.py'
   - '{project-root}/src/heagent/cli.py'  # stop() 唯一调用方——交互模式 finally 进程退出路径
   - '{project-root}/tests/test_cron.py'
-  - '{project-root}/_bmad-output/patches/mcp/spec-mcp-shutdown-timeout.md'  # 同构先例（commit 109df37）
+  - '{project-root}/_bmad-output/epics/epic-11-18-MCP集成周期/epic-11-MCP工具桥接/spec-mcp-shutdown-timeout.md'  # 同构先例（commit 109df37）
   - '{project-root}/src/heagent/tools/mcp/manager.py'  # _await_shutdown 参照
 ---
 

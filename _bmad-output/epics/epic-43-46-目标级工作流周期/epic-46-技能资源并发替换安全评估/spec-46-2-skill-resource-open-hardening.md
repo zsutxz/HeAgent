@@ -7,7 +7,7 @@ baseline_commit: 'c7349a5a3c6ea1c9559dd38e2c14c657137f65b5'
 review_loop_iteration: 0
 context:
   - 'E:/AI/HeAgent/docs/frame.md'
-  - 'E:/AI/HeAgent/_bmad-output/patches/memory/spec-skill-resource-toctou-assessment.md'
+  - 'E:/AI/HeAgent/_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/spec-skill-resource-toctou-assessment.md'
   - 'E:/AI/HeAgent/_bmad-output/epics/epic-43-46-鐩爣绾у伐浣滄祦鍛ㄦ湡/epic-46-鎶€鑳借祫婧愬苟鍙戞浛鎹㈠畨鍏ㄨ瘎浼?stories/46-1-skill-resource-toctou-assessment.md'
 ---
 

@@ -2,7 +2,7 @@
 
 > **本文件只登记活动（未闭合）遗留项**，是工作流的 append-only 入口（bmad-build defer 分诊写入）。
 > 条目**闭合后**写 `Resolution`，随后按**归属 epic**归档到 `_bmad-output/epics/<周期>/deferred-work.md`，并可从此处移除（历史长文不保留）。
-> 已闭合项归档索引见 `_bmad-output/consolidated-overview.md` 11.1；原跨周期台账 `_bmad-output/patches/_meta/deferred-work.md` 已于 2026-09-15 退役并删除。
+> 已闭合项归档索引见 `_bmad-output/consolidated-overview.md` 13.1；原跨周期台账 `_bmad-output/patches/_meta/deferred-work.md` 已于 2026-09-15 退役并删除。
 > 格式：`source_spec` / `summary`（含触发条件、严重度、冻结边界）/ `evidence`。
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`

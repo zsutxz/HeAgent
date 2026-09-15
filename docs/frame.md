@@ -849,7 +849,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 `os.open()`（平台支持时附加 `O_NOFOLLOW`）-> `fstat()` 常规文件校验 -> 已打开 descriptor 读取”。这能拒绝
 绝对路径、路径穿越、解析后越界符号链接，以及支持 `O_NOFOLLOW` 的平台上最终组件在打开前被替换为符号链接的情形。
 不支持该标志的平台保留兼容打开；特征证据与回退覆盖见 `tests/test_skill_packages_toctou.py`，评估与候选方案见
-`_bmad-output/patches/memory/spec-skill-resource-toctou-assessment.md`，故事流程规格见
+`_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/spec-skill-resource-toctou-assessment.md`，故事流程规格见
 `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`，
 实现规格见 `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/spec-46-2-skill-resource-open-hardening.md`。
 

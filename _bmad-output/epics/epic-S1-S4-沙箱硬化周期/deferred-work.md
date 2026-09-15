@@ -36,7 +36,7 @@
 
 - **来源**：step-04 review of `spec-sandbox-timeout-validation`（2026-07-09）。AC1–AC6 全满足；4 项 `patch` 已落地，1 项 `defer`（pre-existing adjacent），2 项 dismissed（推测性，无现存绕过）。
 - **发现**：`_kill_and_reap` 在 `except CancelledError` 块内自身抛异常会**吞掉原始取消信号**——`except asyncio.CancelledError: await _kill_and_reap(proc); raise` 中若 reap 自身抛错（`proc.kill()` 抛非 `ProcessLookupError`，或内层 `await proc.wait()` 又被取消），块尾裸 `raise` 不执行，原始 `CancelledError` 被 reap 路径异常替换 → 与 D1「CancelledError 清理」意图相悖，可能破坏 budget / window-reset / SubAgent-abort 清理。
-- **结论**：**已修复**（2026-07-10，补丁 spec `_bmad-output/patches/sandbox/spec-sandbox-cancel-signal-preservation.md`，D-1）。
+- **结论**：**已修复**（2026-07-10，补丁 spec `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/spec-sandbox-cancel-signal-preservation.md`，D-1）。
   - **关键语义勘误**：原建议 `try: await _kill_and_reap(proc) finally: raise` **实证无效**——finally 内裸 `raise` 会抬升 try 体内 in-flight 异常，`CancelledError` 沦为 `__context__`；正确机制是 `except BaseException: logger.debug(..., exc_info=True); raise`（吞掉 reap 异常 → 回到外层 `except CancelledError` 语境 → 重抛原始取消信号）。两 helper 同改（patch D-1-A 顺带补 observability：reap 失败记 debug 日志 + 补模块缺失的 `logging.getLogger(__name__)`）。
 - **证据**：`tests/test_sandbox.py::test_cancel_survives_reap_error`（Passthrough + Firejail 两路径）断言取消后 task 抛 `CancelledError` 而非 reap 的 `PermissionError`。
 
@@ -45,7 +45,7 @@
 ## S-D3 `spec-sandbox-cancel-signal-preservation` 评审 3 项 `defer`
 
 - **来源**：step-04 review of `spec-sandbox-cancel-signal-preservation`（2026-07-10，commit 前的 D-1 改动）。AC1–AC6 全满足；1 项 `patch` 已落地（D-1-A observability），3 项 `defer`（pre-existing / spec 显式 deferred）。三项全部集中在 `tools/sandbox.py` 的 `_kill_and_reap` 与两 helper 的 `except TimeoutError` 块。
-- **结论**：**三项全部修复**（2026-07-10，补丁 spec `_bmad-output/patches/sandbox/spec-sandbox-reap-robustness.md`）。
+- **结论**：**三项全部修复**（2026-07-10，补丁 spec `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/spec-sandbox-reap-robustness.md`）。
 
 | # | 发现 | 结论与证据 |
 |---|------|-----------|

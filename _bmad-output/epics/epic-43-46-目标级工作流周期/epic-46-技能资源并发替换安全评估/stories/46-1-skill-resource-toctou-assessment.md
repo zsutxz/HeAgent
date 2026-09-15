@@ -50,7 +50,7 @@ context:
 
 **Execution:**
 - [x] `tests/test_skill_packages_toctou.py` -- add deterministic characterization tests for resolve-then-read replacement and symlink replacement, plus platform capability notes -- provide reproducible evidence without changing runtime behavior.
-- [x] `_bmad-output/patches/memory/spec-skill-resource-toctou-assessment.md` -- write the threat model, affected resources, current controls, attack preconditions, candidate comparison, decision, and residual-risk statement -- make the assessment independently reviewable.
+- [x] `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/spec-skill-resource-toctou-assessment.md` -- write the threat model, affected resources, current controls, attack preconditions, candidate comparison, decision, and residual-risk statement -- make the assessment independently reviewable.
 - [x] `docs/frame.md`, `_bmad-output/deferred-work.md`, `_bmad-output/epics/epic-42-BMad技能包运行时周期/epics.md`, `_bmad-output/consolidated-overview.md` -- align references to the same conclusion and identify any future implementation story -- prevent contradictory security claims.
 
 **Acceptance Criteria:**
@@ -75,7 +75,7 @@ The default decision is expected to be “assessment only; no cross-platform run
 **Threat model and decision**
 
 - Start with the assessment conclusion and residual boundary.
-  [`assessment:1`](../../../../patches/memory/spec-skill-resource-toctou-assessment.md#L1)
+  [`assessment:1`](../spec-skill-resource-toctou-assessment.md#L1)
 
 - Confirm architecture wording preserves defense-in-depth limits.
   [`frame.md:646`](../../../../../docs/frame.md#L646)

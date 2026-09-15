@@ -1,7 +1,7 @@
 # HeAgent BMad 开发文档整合总览
 
-> **生成**：2026-08-18（2026-08-19 修订：并入原 EPICS-INDEX.md 导航层，补周期 9）
-> **范围**：`_bmad-output/` 全部 9 个开发周期 + 补丁/技术债 + engine 增量，整合自各周期 brief / prd / architecture / epics / stories / sprint-status / retrospective / patches / specs 共 90+ 份文档。
+> **生成**：2026-08-18（2026-08-19 修订：并入原 EPICS-INDEX.md 导航层，补周期 9；**2026-09-15 整理**：补周期 10-15（Epic 36-47）速览、`patches/` 解散后的 spec 归档说明、状态矩阵与当前状态刷新至 2026-09-15）
+> **范围**：`_bmad-output/` 全部 **15 个开发周期**（Epic 1-47 + S1-S4）+ 补丁 spec 归档（原 `patches/`）+ engine 增量，整合自各周期 brief / prd / architecture / epics / stories / sprint-status / retrospective / deferred-work 与补丁 spec 共 90+ 份文档。
 > **定位**：本文是 BMad 规划产物的**统一导航与综合摘要**（兼 epic 总目录，原 EPICS-INDEX.md 已并入）——按周期纵向梳理「意图 → 需求 → 架构 → 拆分 → 状态」，横向提供**统一编号索引**与**跨周期模式**。它**不是当前代码事实**：代码现状以 `docs/frame.md` 为准，规划与实现冲突时以 `src/` 为准。
 > **权威状态**：所有 Epic/Story 状态以 `_bmad-output/sprint-status.yaml`（2026-07-23 整合，唯一写目标）为单一权威。
 
@@ -20,11 +20,12 @@
 9. [周期 7：质量工程深化（Epic 21-24，FR-Q1~Q20）](#九周期-7质量工程深化epic-21-24fr-q1q20)
 10. [周期 8：GUI 终端界面（Epic 25-28，FR-G1~G24）](#十周期-8gui-终端界面epic-25-28fr-g1g24)
 11. [周期 9：交互与可扩展层（Epic 29-35）](#十一周期-9交互与可扩展层epic-29-35fr-ag)
-12. [补丁周期与技术债（patches/ + specs/）](#十二补丁周期与技术债patches--specs)
-13. [engine/ 增量（epic 外 P 批）](#十三engine-增量epic-外-p-批)
-14. [统一编号体系与状态矩阵](#十四统一编号体系与状态矩阵)
-15. [跨周期模式：做对 / 可改进 / 教训](#十五跨周期模式做对--可改进--教训)
-16. [当前状态与下一步](#十六当前状态与下一步)
+12. [周期 10-15 速览（Epic 36-47）](#十二周期-10-15-速览epic-36-47)
+13. [补丁 spec 归档与技术债](#十三补丁-spec-归档与技术债)
+14. [engine/ 增量（epic 外 P 批）](#十四engine-增量epic-外-p-批)
+15. [统一编号体系与状态矩阵](#十五统一编号体系与状态矩阵)
+16. [跨周期模式：做对 / 可改进 / 教训](#十六跨周期模式做对--可改进--教训)
+17. [当前状态与下一步](#十七当前状态与下一步)
 
 ---
 
@@ -46,7 +47,7 @@
 |----------|------|----------|----------|
 | 主线周期 | 新产品方向 / 大功能集 | `_bmad-output/<cycle>/`（brief→prd→architecture→epics→stories） | Epic 沿主线编号递增 |
 | 集成周期 | 接入外部系统（如 MCP） | 同上，独立 brief/prd | Epic 编号延续主线 |
-| 补丁周期 | 计划外技术债 / 缺陷 | `_bmad-output/patches/`（补丁 spec）+ 各周期 `deferred-work.md`（已闭合项归档） | spec 文件，不占 Epic 编号 |
+| 补丁周期 | 计划外技术债 / 缺陷 | 补丁 spec 按归属 epic 归入 `_bmad-output/epics/<周期>/<epic-NN-主题>/`（原 `patches/` 2026-09-15 解散）+ 各周期 `deferred-work.md`（已闭合项归档） | spec 文件，不占 Epic 编号 |
 | epic 外增量 | 架构演进（engine 治理层） | 直接落代码 + `frame.md` 记录 | 按 P0/P1… 分批 |
 
 **标准工作流**：`brief → prd → architecture → epics → stories → quick-dev → code-review`，每步对应一个 `bmad-*` skill。技术债走 **deferral 机制**（发现 → 分类 fix-now/defer → 记录 `implementation-artifacts/deferred-work.md` 活动台账 → 开专门 spec 收尾写 Resolution 关闭 → **按归属 epic 归档**到各周期 `deferred-work.md`）。
@@ -101,8 +102,15 @@
 | 2026-07-23 | GUI 周期（Epic 25-28）规划冻结 + sprint-status 统一整合；GUI 12 个 story 全部 done |
 | 2026-08-10~12 | **后续增量（git log 实证）**：steering/follow-up 双层循环（P0）、Dreaming 离线记忆巩固模式、`cron/expr.py` 纯叶子抽取、业务数据整合母规划 spec、用户可配置 MCP 注入签名 spec（pending）、`~/.heagent/.env` 全局配置 + `heagent init`、Windows exe 打包 + release 0.3.1 |
 | 2026-08-19 | **交互与可扩展层周期（Epic 29-35）规划冻结并收官**：审批闭环 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 自定义角色 + 成本估算 / CLI 收尾；全量 1052 测试通过 |
+| 2026-08-24 | **文件安全与凭证防护周期（Epic 36-39）交付**：凭证路径 deny（读+写）/ `scrub_sensitive_env` / `.heagent/` 内部状态读 deny；commit `a1d886d`，全量 1135 测试通过 |
+| 2026-08-26 | **沙箱会话化周期（Epic 40）交付**：per-run 会话工作区 + 后端强度分级 + env 豁免 + `SandboxSession` cwd 保持；版本 0.4.0 |
+| 2026-08-29 | **目标驱动开发（Epic 41）交付**：`/goal` 命令族（skill 承载方法论 + `cli.py` 薄机制）+ `goal-advance` cron 无人值守；2026-09-07 拆为独立模块 `cli_goal.py` |
+| 2026-09-01 | **技能包运行时（Epic 42）+ 目标级工作流（Epic 43-46）交付**：`he-*` canonical / manifest 哈希锁 / step runner；WorkflowOrchestrator + checkpoint + rollover + 审计 + `scripts/quality_gate.py`；Epic 46 TOCTOU 评估 + `O_NOFOLLOW` 加固 |
+| 2026-09-09~12 | **声明式 BMad 工作流（Epic 47）主体交付**：`.heagent/workflows/workflow.md` 中文化并吸收 bmad-build 方法论、角色/模板契约重构、同 Epic Story 批次并行、sandbox 输出上限（512 KiB/通道） |
+| 2026-09-14 | 对标 Codex 三项：分层上下文文件发现、机器可读事件流（`events/` + rollout / replay）、真实 tokenizer + 结构化压缩；`file_edit` 编辑原语与沙箱权限档位化 |
+| 2026-09-15 | **规划产物整理**：`patches/` 解散并按归属 epic 归档（22 个 spec）、跨周期 deferred 台账按 epic 归并（E1/E4/E5/E10/E11/S-D/E40/E47 全部闭合）、story 产物按 Epic 分组；全量 1896 passed / 9 skipped |
 
-> ⚠️ **文档滞后说明**：`docs/iteration.md` 时间线止于 2026-07-23（GUI 启动），但代码已演进到 2026-08 中旬（Dreaming / steering / 发布）。整合时以 git log 与 patches 最新 spec 为准补全了后续增量；规划产物（sprint-status）尚未为 8 月上旬增量更新编号，这部分以 patches spec + git log 为准（interaction 周期 Epic 29-35 已于 2026-08-19 回写 sprint-status）。
+> **文档滞后说明（2026-09-15 更新）**：`docs/iteration.md` 已补齐至 2026-09-15（含 8-9 月增量与整理记录），8 月上旬增量（Dreaming / steering / 发布）亦已回写 `sprint-status.yaml` 与各周期目录。**若本文与 `docs/iteration.md` / `sprint-status.yaml` 冲突，以后二者为准**；代码现状以 `docs/frame.md` 为准。
 
 ---
 
@@ -620,11 +628,74 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ---
 
-## 十二、补丁周期与技术债（patches/ + specs/）
+## 十二、周期 10-15 速览（Epic 36-47）
 
-> `patches/` 按领域分子目录存放计划外补丁 spec（provider/context/memory/cron/mcp/sandbox/_meta，2026-08-19 重组；spec 不占 Epic 编号），`specs/` 为 quick-dev 本地工作件（gitignored）。**遗留项**：未闭合项在 `implementation-artifacts/deferred-work.md`；已闭合项按归属 epic 归档到各周期 `deferred-work.md`（2026-09-15 整理，原 `patches/_meta/deferred-work.md` 全部条目闭合后退役并删除）。
+> 2026-09-15 增补：本节收纳 2026-08-24 之后交付的 6 个周期（Epic 36-47，共 15 个周期）。各周期的完整 brief / prd / architecture / epics / stories 在其周期目录内（`_bmad-output/epics/epic-*-周期/`），本节只做**速览 + 契约要点**；口径以 `_bmad-output/sprint-status.yaml` 与 `src/` 代码为准。
 
-### 11.1 已闭合技术债（按归属 epic 归档，2026-09-15）
+### 12.1 周期 10：文件安全与凭证防护（Epic 36-39）· 2026-08-24
+
+> 目录：`epics/epic-36-39-文件安全防护周期/`。交付 4 Epic / 6 story（FR-F1~F5），commit `a1d886d`（25 files，+1881/−44），全量 1135 测试通过。
+
+- **意图**：文件层原本只有「工作区围栏」一个维度；本轮补**凭证路径 deny（读 + 写）**、shell 子进程 **env scrubbing**、`.heagent/` **内部状态读 deny** 三类纵深防御。成果：`file_read(".env")` / `file_write("~/.ssh/id_rsa")` 被拦、`shell("env")` 泄不出 API key。
+- **关键决策**：deny 是**与围栏并列的新层**（不并入 `resolve_under_root`，故 git 工具不受影响），顺序固定「先围栏后 deny」，handler 与 policy 两层各自守卫（AD-F1）；规则表为纯函数、**刻意不开用户配置入口**（防无意放宽，AD-F2）；scrub 采「按模式剥离敏感 key」而非白名单透传（AD-F3）；内部状态只 deny 读（AD-F4）。
+- **落点**：`tools/path_safety.py`、`tools/sandbox.py`（`scrub_sensitive_env`）、`engine/policy.py`（`_validate_paths` deny 预检）、`tools/builtins/file.py`、`tools/builtins/search.py`、`tools/safety.py`（凭证破坏性命令拦截）。
+- **缺口**：MCP stdio server / cron job 子进程的 env scrubbing、凭证 deny 的用户入口、凭证 store 绝对路径读 deny；`shell` 仍可 `cat .env`——deny / scrub **非真正安全边界**（须 OS 级沙箱兜底）。
+- **教训**：同一威胁要按它的**所有可达路径**分别封堵——凭证写只拦 `file_write` 会在 shell 的 `rm` / `mv` / 重定向上漏网（36-4 的由来）；补层时做成与既有围栏**并列的独立纯函数层**，才能独立单测/演进且不污染既有调用方。
+
+### 12.2 周期 11：沙箱会话化（Epic 40）· 2026-08-26
+
+> 目录：`epics/epic-40-沙箱会话化周期/`。交付 4 story（FR-1~4；FR-5 `execute_code` RPC deferred、本周期不建 story），版本 0.4.0，`stories/` 有独立 story 文件。
+
+- **意图**：把 shell 执行从「无状态逐命令透传」升级为 **per-run 会话化**：每 run 有持久 workspace、cwd 跨命令保持、结束 teardown；裁决与执行路径可感知后端强度分级。
+- **关键决策**：会话目录根锚定 workspace_root 回退链，经 `RunContext.metadata["sandbox_workspace"]` + contextvar 送达（Firejail 复用既有 `--private` 通道，WinJob 仅作子进程 cwd）；`SandboxTier`（`passthrough < job < firejail < container`）+ `can_relax_approval` 仅 `container` 为真（**弱后端不得降审批**）；env 豁免 `SANDBOX_ENV_ALLOWLIST` 保持 `scrub_sensitive_env` 纯函数；cwd 保持用「`cd` 前缀 + 尾捕获 marker」，用户退出码经 `exit "$__rc"` / Windows marker 回填。
+- **配置与可见性**：`SANDBOX_SESSION_WORKSPACE` / `SANDBOX_SESSION_KEEP`（含 CLI/GUI 三态开关）；system prompt `<shell-workspace>` 块**仅在真实后端生效时**注入（诚实门）。
+- **缺口**：WinJob 无文件系统/网络隔离、Firejail 非完美边界；目录约定本身非安全边界——须 OS 级沙箱兜底。`deferred-work.md` 的 E40-D1..D4 / C1 全部 Closed。
+- **教训**：跨平台 shell 状态保持不能靠猜语义（`%CD%` 在解析期即展开、`pwd` 仅 POSIX）——先写真实 shell 探针再定 marker 形状；同理「有目录」不等于「有隔离」，诚实门比多报一个路径更重要。
+
+### 12.3 周期 12：目标驱动开发（Epic 41）· 2026-08-29
+
+> 目录：`epics/epic-41-目标驱动开发周期/`。交付 41.1~41.4（FR-1~4），commit `81264bb` / `08a4294` / `2f53406` / `90a8dc4`；2026-09-07 命令族拆为独立模块 `cli_goal.py`（`02f084e`）。
+
+- **意图**：给交互 CLI 补 BMad 式目标驱动入口——`/goal <描述>` 一条命令启动 skill、逐 story 独立会话推进、进度落盘可续跑、`/goal auto` 无人值守。
+- **关键决策（分层铁律 NFR-1）**：**方法论只存在 `.heagent/skills/goal/SKILL.md`（人可直接编辑），机制全落 `cli.py`（约 130 行）**，明令禁止 `goal.py` / Pydantic `GoalState` / runs.jsonl；**会话边界 = story 边界**（每步全新 SubAgent + skill 正文路径直读 + `WindowResetConfig` 阈值清窗续跑）；机器只扫三个标记（`status:` / checkbox 计数 / `> in-progress: S<n>`）；`auto` 经 `JobStore` 注册 `goal-advance <goal_id>`，`_run_job` 前缀分流到同一推进路径，done/blocked 自动注销。
+- **观测（FR-3）**：`SubAgent(metadata=...)` 透传 `goal_id` / `goal_kind` 进 `.heagent/runs/<run_id>.json`，保留键过滤、`kind=subagent`；默认 None 行为逐字节不变。
+- **缺口**（41-D1~D4 已闭合）：GUI 侧 `/goal` 输出未进 RichLog、无取消控制与 cron 生命周期管理；goal 指针 / 会话 / `GOAL.md` 仅有**进程内** asyncio 锁，缺跨进程锁（第二个 CLI 进程可并发跑同一 story 并丢进度）。
+- **教训**：把「方法论当文本、机制当薄代码」切开后工作流演进只改 skill 文件——但边界判定一旦交给 LLM 写盘，就必须给每个「没落盘 / 白跑 / 触顶」配**显性报错**，否则失败会长得像成功。
+
+### 12.4 周期 13：BMad 技能包运行时（Epic 42）· 2026-09-01
+
+> 目录：`epics/epic-42-BMad技能包运行时周期/`。交付 42-1~42-5（FR1~FR8），commit `6168100`（8 files，+580/−1）。
+
+- **意图**：把技能从「单个 `SKILL.md` 学习型技能」升级为**可安装、可验证的声明式技能包运行时**——`he-*` canonical ID + `bmad-*` 兼容别名、按需安全读取 step/references/templates/assets/scripts、不自动跳步的可恢复单步执行。
+- **关键决策**：五对象单一职责分层（`SkillPackage` / `SkillCatalog` / `SkillResolver` / `SkillRunner` / `SkillImporter`，落点 `memory/skill_packages.py`、`memory/skill_importer.py`）；路径围栏复用 `tools/path_safety.resolve_under_root` 而**刻意不接** `check_read_denied`（避免内部状态读限误伤本地技能目录）；导入锁走 `engine/persist.atomic_write_text` 原子写 + SHA-256 入口哈希 + `.heagent/skills/manifest.lock`；冲突不静默（多候选 / 缺 `SKILL.md` / 源缺失均返回带 ID 与路径的诊断错误）。
+- **缺口**：资源读取竞态（`resolve`→`read` 之间的替换窗口）**不在本周期交付**，显式转出为独立 story → 由 Epic 46.1 评估、46.2 以 `O_NOFOLLOW` 加固最终组件；中间目录替换、可信导入 snapshot、OS sandbox 仍 backlog。命名后演进：角色技能 canonical 于 `6b044af`（2026-09-07）迁至 `bmad-agent-*`，`he-*` 降为 legacy 别名。
+- **教训**：「解析后校验 → 真的读」不是原子动作——分层的路径围栏只能说 defense-in-depth，**围栏与真边界必须在文档里写清区别**，并把竞态窗口显式转成独立 story 而不是默认已解决。
+
+### 12.5 周期 14：目标级工作流（Epic 43-46）· 2026-09-01
+
+> 目录：`epics/epic-43-46-目标级工作流周期/`。交付 4 Epic / 11 story（FR1~FR5）；核心 commit `2e6c7e9`（编排原语）、`b7a4784`（Epic 43 checkpoint）、`a6e48f0`（Epic 44 rollover）、`63f1c78`（pause/resume）、`840731c`（workflow audit）、`44a77e4`（质量门收口）、`ab18d19`+`c7349a5`（TOCTOU 评估）、`9115a25`（`O_NOFOLLOW` 加固）。
+
+- **意图**：把 `/goal` 从「单次会话推进」升级为**可控、可恢复、可审计**的长期执行（确定性阶段路由 + 人工闸门 + checkpoint/暂停恢复 + 跨上下文 Token 分段 rollover + 目标级运维与质量门）；Epic 46 与主线正交，只评估技能资源并发替换风险。
+- **关键决策**：路由 / 迁移 / 阈值 / 幂等**一律由确定性代码裁决**，LLM 不得决定阶段或伪造完成（落点 `engine/workflow.py`：`GoalWorkflowState` / `WorkflowOrchestrator` / `WorkflowCheckpointStore` / `TokenBudgetManager` / `RolloverCoordinator` / `RecoveryEnvelope`）；**所有权切分**——`GOAL.md` 拥有 Goal/Story 看板，`workflow.json` + `checkpoints/` 只存阶段/技能/step/Token 与恢复元数据、不复制 checkbox；checkpoint **仅在工具事务结束后**原子写入（在途工具绝不标成功，同 run/step 重复提交幂等、内容冲突显式失败、损坏状态进 `blocked`/`failed`）；rollover 固定「checkpoint → reset → fresh run」；质量门单一入口 `scripts/quality_gate.py`（goal smoke → 回归+覆盖率≥87 → ruff check → ruff format → mypy，fail-fast）+ CI 无凭据 `goal-smoke` job。
+- **Epic 46（评估先行）**：加固只落在 `memory/skill_packages.py`——统一「`resolve_under_root` 解析 → `os.open`（支持平台附 `O_NOFOLLOW`）→ `fstat` 常规文件校验 → descriptor 读取」，`path_safety` 围栏不动，不支持平台保留兼容回退。
+- **缺口**：Epic 46 后续 backlog（descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox）；`engine/workflow.py` docstring 自述为声明式 runner 之前的 legacy 相位机（新目标能力应扩展 `engine/workflow_runner.py`）；45-1/45-2 无 story 文件、spec-45-3 与 spec-46-1 已在归档提交中删除或改名（仅存 git 历史）。
+- **教训**：「状态所有权」与「事务结束才 checkpoint」必须先钉死，否则恢复语义会退化成重复完成；用户态路径检查永远不是安全边界——**评估先行、加固只做最终组件**，残余竞态写进文档而不是宣称已修。
+
+### 12.6 周期 15：声明式 BMad 敏捷工作流（Epic 47）· 2026-09-01 → 2026-09-15
+
+> 目录：`epics/epic-47-声明式BMad敏捷工作流周期/`。交付 47-1~47-10（含 47-8~10 批次并行）；核心 commit `b49ff78`（工作流契约中文化并吸收 bmad-build 方法论）、`f0d7837`（角色与模板契约重构）、`94d4c36`（同 Epic Story 并行）、`cc8cb3f` + `95ae3e6`（在途续租 / 运行时治理）、`5f6c781`（deferred 台账按 epic 归档）。
+
+- **意图**：把 `/goal` 从 Goal→Story 轻量循环升级为 **Goal→Epic→Story 的 BMad 敏捷流程**——工作流规则、阶段顺序、产物契约由 Markdown 声明（`.heagent/workflows/workflow.md` + 角色 `SKILL.md`），通用 Runner 只负责解释执行；PM/Analyst/Architect/UX/Dev 以可改的本地 Agent 技能包提供。
+- **关键决策（Agile Contract）**：**方法论归 Markdown、确定性边界归代码**（步骤顺序 / 输入输出 / `validation` / checkpoint / 恢复 / 错误态不可交给 LLM）；`GOAL.md` 只管 Epic 看板、`sprint-status.yaml` 是 Epic/Story 状态**唯一写目标**；一个 Story 一个执行会话（WIP=1）、Review 失败退回实现、Epic 完成后 Retrospective；产物缺失 / 格式非法 / 验收失败 / 冲突 / 人工 checkpoint **必须显式停止**。
+- **落点**：`engine/workflow_runner.py`（单步推进 / story loop / resume / gate 不绕过）、`engine/artifacts.py`（frontmatter + 固定章节 + Given-When-Then + TBD 拒收 + 层级 ID 校验）、`engine/agile.py`（review / retrospective / correct-course 确定性状态操作）、`memory/skill_packages.py`（复用根目录围栏读资源）、`cli_goal.py`（装配 + `_goal_auto_lock`）。
+- **缺口**：**E47-D1**「ledger 记录在途被删」已修复（在途每 40s 续租 + 回写失败只告警不吞结果 + 区分「不存在 / 损坏」），但**施动者未唯一归因**（残余风险 LOW，契约写入 `tool_execution.py` 模块 docstring）；`skill_update` 遇富正文技能拒绝改写（须先备份）；bmad-build Step 07 未声明 step 级 `max_iterations`（实际回落全局 20，原子大 Story 仍可能整批失败）。
+- **教训**：「流程方法论 → Markdown，确定性规则 → 代码」必须分离到底——一旦把流程分支写回 CLI，声明式契约就开始漂移，checkpoint 与产物校验会失去单一可信源。
+
+## 十三、补丁 spec 归档与技术债
+
+> **2026-09-15 重组**：原 `patches/`（按领域分子目录 provider/context/memory/cron/mcp/sandbox/_meta）**已解散**——计划外补丁 spec 按**归属 epic** 归档进 `epics/<周期>/<epic-NN-主题>/`（与它服务的 epic/story 同目录，逐文件映射见 `README.md`「补丁 spec」节；spec 不占 Epic 编号，故不进编号序列），不再单独成目录；`specs/` 为 quick-dev 本地工作件（gitignored）。**遗留项**：未闭合项在 `implementation-artifacts/deferred-work.md`；已闭合项按归属 epic 归档到各周期 `deferred-work.md`（2026-09-15 整理，原 `patches/_meta/deferred-work.md` 全部条目闭合后随目录一并退役删除）。
+
+### 13.1 已闭合技术债（按归属 epic 归档，2026-09-15）
 
 原跨周期台账 `_bmad-output/patches/_meta/deferred-work.md`（2026-09-15 退役并删除）的条目**已全部闭合**，按归属 epic 归并进各周期 `deferred-work.md`（原始长文历史不再保留）。**活动（未闭合）项**仍在 `implementation-artifacts/deferred-work.md`。
 
@@ -637,7 +708,9 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `epics/epic-41-目标驱动开发周期/deferred-work.md` | 41-D1..D4 | goal 会话预算 / TUI 路由 / REPL 异常围栏 / role metadata 生命周期 |
 | `epics/epic-47-声明式BMad敏捷工作流周期/deferred-work.md` | E47-D1 | ledger 记录在途被删（在途续租 + 回写容错 + 可诊断性）——engine 运行时治理增量 |
 
-### 11.2 补丁 spec 清单（已交付，按主题分组）
+### 13.2 补丁 spec 清单（已交付，按主题分组）
+
+> **2026-09-15 重组**：`patches/` 目录已解散，下列 spec 均已按**归属 epic** 归档（逐文件映射见 `README.md`「补丁 spec」节）。本小节保留交付内容记录，文件名后不再附路径。
 
 **P0 Provider 加固**：`p0-provider-hardening.md`（done，2026-06-19）——`wrap_provider_error` 共享函数，openai/anthropic/chain 源头包装 SDK 异常，打通密钥轮换/重试/异常层级三连；评审发现 `_classify` 缺 `"timed out"`/`"connection"` 关键词已 patch。`p0-hardening-review-diff.txt`（2026-09-15 已删除）为评审补丁文本。
 
@@ -647,13 +720,13 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 **sandbox 健壮性系列（2026-07-09~10）**：`spec-engine-sandbox-backend.md`（done）——`CommandRunner` Protocol + `PassthroughRunner` + `FirejailBackend` + RuntimeSlot 注入；`spec-sandbox-timeout-validation.md`（done）——timeout 正整数校验（fail-closed 拦 None/str/float/bool/nan/inf）；`spec-sandbox-cancel-signal-preservation.md`（done）——取消信号保留（`suppress(BaseException)` + 裸 raise）；`spec-sandbox-reap-robustness.md`（done）——reap 保护 + `_REAP_WAIT_TIMEOUT=5.0` + kill/wait 解耦。
 
-**关停硬上界三件套（同构，统一 5.0s）**：`spec-mcp-shutdown-timeout.md`（done，2026-07-10）——`_await_shutdown` 两轮；`spec-cron-stop-timeout.md`（done，2026-07-11）——`_await_stop` 单轮；`spec-deferred-low-cleanup.md`（done，2026-07-11）——deferred LOW 收尾 + 测试保真度补齐。
+**关停硬上界三件套（同构，统一 5.0s）**：`spec-mcp-shutdown-timeout.md`（done，2026-07-10）——`_await_shutdown` 两轮；`spec-cron-stop-timeout.md`（done，2026-07-11）——`_await_stop` 单轮；`spec-deferred-low-cleanup.md`（done，2026-07-11；2026-09-15 删除——条目已被 `epic-11-18`/`epic-S1-S4` 的 `deferred-work.md` 更详覆盖）——deferred LOW 收尾 + 测试保真度补齐。
 
 **Dreaming / steering（2026-08）**：`spec-dreaming-memory-consolidation.md`（冻结 spec，2026-08-11）——`memory/dream.py` `DreamScheduler`（双触发 cron `0 3 * * *` + idle 30min；`dream_enabled` 默认 False opt-in）+ `engine/roles.py` dreamer RoleSpec（白名单 fact_add/profile_update/skill_*/web_fetch，黑名单 shell/file_write/cron_*/task_*/git_*；**不持 `file_read`** 最小权限）+ `dream_max_iterations` 默认 20；`spec-dreaming-defer-cleanup.md`（done，2026-08-12）——3 个 LOW defer 收口（抽 `cron/expr.py` 纯叶子）；`spec-steering-followup.md`（spec，source 2026-08-10）——`AgentLoop` 双层循环（外层 follow-up + 内层 steering），两个可选 async callback，`run()`/`run_stream()` 提取共用 `_run_loop` 模板方法；`spec-business-data-integration.md`（母规划 spec，2026-08-11）——业务运营数据整合，**混合以 MCP 为主**，5 阶段（盘点/只读 MVP/写操作审批/跨系统编排/安全硬化），治理核心依据 = 内置 `@tool` annotations 在 PolicyEngine 阶段不被消费 vs MCP 工具闸门有效；`spec-mcp-user-injection-signatures.md`（**项目级已交付**，2026-07-27~31）——用户可配置注入签名入口 `.heagent/injection_signatures.json`（workspace 围栏 + 进程级懒加载 + 畸形条目 fail-safe）；**全局/home 级入口 2026-09-15 决策关闭（won't do）**：MCP 非必要方向 + home 级会跨项目静默生效，见 `epic-11-18-MCP集成周期/deferred-work.md` E11-D3。
 
 **其他**：`cli-status-bar.md`（done，2026-07-23）——交互模式提示符显示模型 + token 用量（`_format_status`）；`code-review-2026-07-20.md`（审查报告；2026-09-15 已删除）——727/727 通过，无 🔴 P0 当前缺陷，P0-3 已修复验证、P1-1~P1-3 与 P2-1~P2-5 记录；`retrospective-engine-p5.md`（done，2026-06-29）——P5-3/4/5 交付 + P5-1/2 反转 deferred（后 2026-07-21 交付）；`retrospective-p0-tech-debt.md`（done，2026-06-29）——三条全部关闭。
 
-### 11.3 specs/（quick-dev 本地工作件）
+### 13.3 specs/（quick-dev 本地工作件）
 
 - `spec-dreaming-memory-consolidation.md`（冻结实现版，done，2026-08-11）——与 patches 详版同一 spec 的冻结版，含 AC6 降级 Change Log（web_fetch 未接 guard_content → 函数级复用）。
 - `spec-sandbox-backend/SPEC.md`（P0-a 契约 spec）——把「缺后端」从静默成功改成**显性失败**（fail-closed）：`SANDBOX_REQUIRED` 且无后端 → 拒绝执行返回 `is_error=True` 点名缺失 profile，**绝不静默回退裸 handler**；CAP-1~3 + Constraints（fail-closed 默认路径 Windows/Linux 均可跑）。
@@ -661,7 +734,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ---
 
-## 十三、engine/ 增量（epic 外 P 批）
+## 十四、engine/ 增量（epic 外 P 批）
 
 运行时治理层（`PolicyEngine` + `ToolExecutor` + `store/ledger/observability`）按 P 批演进，不挂 Epic 编号，进度记入 `frame.md` 4.12：
 
@@ -680,9 +753,9 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ---
 
-## 十四、统一编号体系与状态矩阵
+## 十五、统一编号体系与状态矩阵
 
-### 14.1 Epic 状态矩阵（权威 = `_bmad-output/sprint-status.yaml`，2026-07-23 整合）
+### 15.1 Epic 状态矩阵（权威 = `_bmad-output/sprint-status.yaml`，2026-09-15 更新）
 
 | Epic | 主题 | Stories | 状态 |
 |------|------|---------|------|
@@ -701,12 +774,18 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | 21-24 | 质量工程深化（FR-Q） | 18 | done |
 | 25-28 | GUI 终端界面（FR-G） | 12 | done（retrospective optional） |
 | 29-35 | 交互与可扩展层（FR-A~G） | 27 | done（2026-08-19；无独立 story 文件，quick-dev 执行） |
+| 36-39 | 文件安全与凭证防护（FR-F） | 6 | done（2026-08-24；retrospective optional） |
+| 40 | 沙箱会话化执行（FR-1~4；FR-5 deferred） | 4 | done（2026-08-26；retrospective optional） |
+| 41 | 目标驱动开发 / `/goal`（FR-1~4） | 4 | done（2026-08-29；retrospective optional） |
+| 42 | BMad 技能包运行时（FR1~FR8） | 5 | done（2026-09-01；retrospective optional） |
+| 43-46 | 目标级工作流（编排 / 分段 / 运维收口 / TOCTOU 评估） | 11 | done（2026-09-01；retrospective optional） |
+| 47 | 声明式 BMad 敏捷工作流（含 47-8~10 批次并行） | 10 | done（2026-09-01 → 09-15；retrospective done） |
 
-**Story 文件归档**：嵌套于所属周期目录内——`epic-01` 在 `epic-01-10-主线规划周期/`、`epic-14/15/16` 在 `epic-11-18-MCP集成周期/`、`epic-19` 在 `epic-19-20-健壮性硬化周期/`、`epic-25~28` 在 `epic-25-28-GUI界面周期/`、`epic-S1~S4` 在 `epic-S1-S4-沙箱硬化周期/`（路径形如 `epics/<周期>/epic-NN-<主题>/stories/`；其余 epic 无独立 story 文件，仅登记于 sprint-status）。
+**Story 文件归档（2026-09-15 复核：25 个 `stories/` 目录、82 个 story 文件）**：路径形如 `epics/<周期>/epic-NN-<主题>/stories/`，嵌套于所属周期目录——`epic-01/05`（主线周期）、`epic-14/15/16`（MCP 周期）、`epic-19`、`epic-25~28`、`epic-36~39`、`epic-40`、`epic-42`、`epic-43~46`、`epic-47`、`epic-S1~S4`；其余 epic（2/3/4/6~13/17/18/20~24/29~35/41）无独立 story 文件，仅登记于 sprint-status。
 
 **跨周期 Action Items（3 条全部 closed）**：Epic 13 FR-3 auto-unregister（2026-07-01，commit 3203e4a）；DP-4 第一半 SafetyGuard 执行前拦截（2026-07-08）；DP-4 第二半 MCP 返回内容围栏（2026-07-10）。
 
-### 14.2 FR 编号空间对照（引用须写全限定）
+### 15.2 FR 编号空间对照（引用须写全限定）
 
 | 周期 | 编号 | 数量 | 状态 |
 |------|------|------|------|
@@ -719,9 +798,15 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | quality-engineering | FR-Q1~Q20 + NFR-Q1~Q4 | 20 | 全部实现 |
 | gui | FR-G1~G24 + NFR-G1~G8 | 24 | 全部实现 |
 | interaction | FR-A1~A5 / FR-B1~B3 / FR-C1~C4 / FR-D1~D4 / FR-E1~E4 / FR-F1~F4 / FR-G1~G4 | 28 | 全部实现 |
-| **合计** | | **~145 FR** | |
+| file-safety（Epic 36-39） | FR-F1~F5 + NFR-F1~F5 | 5 | 全部实现（2026-08-24） |
+| sandbox-session（Epic 40） | FR-1~4 + NFR-1~4 | 4 | 全部实现（FR-5 `execute_code` RPC deferred） |
+| goal-driven（Epic 41） | FR-1~4 | 4 | 全部实现（2026-08-29） |
+| skill-package（Epic 42） | FR1~FR8 + NFR1~NFR6 | 8 | 全部实现（2026-09-01） |
+| goal-workflow（Epic 43-46） | FR1~FR5 | 5 | 全部实现（Epic 46 后续 backlog 见 17.3） |
+| declarative-workflow（Epic 47） | 无 FR 编号（Agile Contract + 47-1~47-10） | — | 全部实现（2026-09-15） |
+| **合计** | | **~171 FR** | |
 
-### 14.3 关键 deferred 决策锚点
+### 15.3 关键 deferred 决策锚点
 
 - **DP-4**（mcp-client 决策，跨文档引用）：SafetyGuard 扩展 MCP 声明为主 → 2026-07-08 第一半（执行前工具名拦截）+ 2026-07-10 第二半（返回内容围栏）已交付；项目级用户签名入口已交付（`.heagent/injection_signatures.json`），全局/home 级 2026-09-15 **决策关闭（won't do）**（`epic-11-18-MCP集成周期/deferred-work.md` E11-D3）。
 - **P5-1 / P5-2**（engine）：schema 级工具过滤 + SubAgent window_reset——2026-07-21 反转交付。
@@ -729,9 +814,9 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ---
 
-## 十五、跨周期模式：做对 / 可改进 / 教训
+## 十六、跨周期模式：做对 / 可改进 / 教训
 
-### 15.1 做对了什么（10 条跨周期模式）
+### 16.1 做对了什么（12 条跨周期模式）
 
 | # | 模式 | 证据 |
 |---|------|------|
@@ -745,8 +830,10 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | 8 | **分层门禁** | 本地 88/CI 90 coverage、bandit -ll 不阻塞 CI——差异化约束不互锁 |
 | 9 | **优雅降级模式** | Firejail/WinJobBackend 不可用 → warn + Passthrough，不 crash、不中断 |
 | 10 | **对称性审查** | send/stream、enter/exit、kill/wait——成对路径互相对照补齐 |
+| 11 | **方法论与机制分离** | `/goal` 工作流：流程规则归 Markdown（`.heagent/workflows/workflow.md` + 角色 SKILL.md，人可直接改），确定性边界归代码——工作流演进零代码改动 |
+| 12 | **诚实门（honest gate）** | 能力「未真正生效」时宁可不报：`<shell-workspace>` 仅在真实后端就绪时注入；围栏 / 沙箱一律标注 defense-in-depth，不制造「已安全」假象 |
 
-### 15.2 可改进什么（8 条）
+### 16.2 可改进什么（10 条）
 
 | # | 模式 | 建议 |
 |---|------|------|
@@ -758,8 +845,10 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | 6 | 可观测缺口 | S4-1 emit 事件跳过、benchmark 数据不入库——历史趋势和沙箱执行轨迹不可追溯 |
 | 7 | 内置预设缺失 | sandbox profiles 无开箱即用预设、cron 无常见模板——降低用户上手成本 |
 | 8 | 扩展点不足 | Prompts slash 分发器最简 `startswith("/")`、git 工具逐个加——未来可能需要结构化注册表 |
+| 9 | 规划产物滞后于交付 | 部分周期 story 文件缺失或命名漂移（如 45-1/45-2 无 story 文件）、6 个 36-39 story 的 frontmatter 仍为 `backlog`——交付即回写 status/frontmatter |
+| 10 | 跨进程互斥缺位 | goal 指针 / `GOAL.md` 仅进程内 asyncio 锁——双 CLI 进程可并发推进同一 story；长时工具在途记录缺续租的教训（E47-D1）同源 |
 
-### 15.3 迭代教训（10 条，详见 iteration.md 三）
+### 16.3 迭代教训（12 条，详见 iteration.md 三）
 
 1. edge case hunter 会误判并发竞态——先核实是否真有 `await` 交错再定级。
 2. 异常包装要加守卫避免双层重包（`_raise_provider_error`）。
@@ -771,18 +860,20 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 8. 关停/清理路径必须有硬上界（sandbox/MCP/cron 三处同构 5.0s）。
 9. 上下文切分要保证消息配对完整（compressor 孤儿 TOOL 消息）。
 10. 跨 task session 泄露要两面收尸（`_server_loop` except + finally 双清理）。
+11. 恢复语义取决于「状态所有权 + 事务结束才 checkpoint」——先钉死这两条，否则恢复会退化成重复完成。
+12. 竞态与围栏必须诚实分级：显式把窗口转成独立 story（Epic 42→46）、加固只做最终组件，残余风险写进文档而不是宣称已修。
 
 ---
 
-## 十六、当前状态与下一步
+## 十七、当前状态与下一步
 
-### 16.1 当前状态（截至 2026-08-19）
+### 17.1 当前状态（截至 2026-09-15）
 
-- **规划产物**：9 个开发周期全部 Epic（1-35 + S1-S4）在 sprint-status 中标记 done；GUI 12 stories done（retrospective optional）；interaction 周期 7 Epic done（2026-08-19，27 story 项）。
-- **代码现状**：已演进到 2026-08 中旬——`engine/` 治理层、Dreaming 离线记忆巩固（`memory/dream.py`，opt-in）、steering/follow-up 双层循环（`d3ac241`）、`cron/expr.py` 纯叶子抽取（`a032a5a`）、`~/.heagent/.env` 全局配置 + `heagent init`（`0621ce5`）、Windows exe 打包（PyInstaller）+ release 0.3.1（`4b4a3a5`）、AGENTS.md 新增（`169b8bb`）、默认上下文窗口 128000→512000（`2ca0639`）、状态栏 token 展示系列。
-- **测试基线**：922+（GUI 周期后持续增长；Dreaming 收口时 pytest 994 绿；interaction 收官时 1052 绿）。
+- **规划产物**：**全部 15 个周期**（Epic 1-47 + S1-S4）在 `sprint-status.yaml` 中标记 `done`；GUI（25-28）、文件安全（36-39）、沙箱会话化（40）、目标驱动（41）、技能包（42）、目标级工作流（43-46）的 retrospective 为 `optional`（未做正式回顾，交付记录见各周期目录与 `retrospective-all-cycles.md`）。2026-09-15 完成产物整理：`patches/` 解散并按归属 epic 归档、跨周期 deferred 台账按 epic 归并、story 产物按 Epic 分组。
+- **代码现状**（2026-09-15）：`engine/` 运行时治理（权限档位 `sandbox_mode` / `ToolExecutor` / store·ledger·observability）+ `events/` 机器可读事件流（rollout + replay）+ 分层上下文文件发现 + 真实 tokenizer / 结构化压缩 + `file_edit` 编辑原语；`/goal` 声明式工作流（`.heagent/workflows/workflow.md` + `engine/workflow_runner.py` + `engine/artifacts.py` + `engine/agile.py` + `cli_goal.py`）；沙箱会话化（`SandboxTier` + 会话目录 + 输出上限）+ 权限档位化；技能包运行时（`memory/skill_packages.py` + `skill_importer.py`，含 `O_NOFOLLOW` 加固）；凭证防护（deny 表 + `scrub_sensitive_env`）；本地 provider（Ollama）+ `max_output_tokens`。
+- **测试基线**：**1896 passed / 9 skipped**（`pytest` 全量，2026-09-15 实测）；覆盖率 ≈ 90%（gate 87）；`scripts/quality_gate.py` 五门（goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy）。
 
-### 16.2 已知缺口（详见 frame.md 第五章）
+### 17.2 已知缺口（详见 frame.md 第五章）
 
 - `SafetyGuard` / `path_safety` / engine sandbox 均非真正安全边界——须 OS 级沙箱兜底。
 - `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；`FirejailBackend`（Linux，仅 shell 子进程）/ `WinJobBackend`（Windows，Job Objects）可注入但均非完美边界；file/memory 等宿主进程内 I/O 工具不受覆盖。
@@ -791,11 +882,13 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 - Dreaming 的 web_fetch 注入围栏端到端接入**已交付**（2026-08-19，Epic 35；标记透传，非真正边界）。
 - sandbox profile 无内置安全 profile 库、无人验证 profile 参数合法性、S4-1 emit 事件被跳过（可观测缺口）。
 
-### 16.3 下一步（路线图）
+### 17.3 下一步（路线图）
 
-- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（git log 已见 release 0.3.1 + exe 打包，持续推进）。
-- ⏳ **规划产物同步**：8 月增量（Dreaming/steering/发布）尚未回写 sprint-status 与 iteration.md 时间线，建议补录。
-- ⏳ **技术债**：`agent/loop.py` C901 拆分、benchmark 数据入库（历史趋势）、sandbox 开箱即用 profile 库、Prompts 结构化注册表。
+- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（release 0.4.0 + exe 打包已就绪，持续推进）。
+- ⏳ **Epic 46 后续 backlog**：descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox——中间目录替换竞态仍未闭合（见 `implementation-artifacts/deferred-work.md`）。
+- ⏳ **声明式工作流补强**：bmad-build Step 07 未声明 step 级 `max_iterations`（回落全局 20，原子大 Story 可能整批失败）；`skill_update` 遇富正文技能拒绝改写（须先备份）。
+- ⏳ **跨进程安全**：goal 指针 / `GOAL.md` 仅有进程内 asyncio 锁（双 CLI 进程可并发推进同一 story）；E47-D1 施动者未唯一归因（残余风险 LOW，契约已入 `tool_execution.py` docstring）。
+- ⏳ **技术债**：`agent/loop.py` C901 拆分、benchmark 数据入库（历史趋势）、sandbox 开箱即用 profile 库、Prompts 结构化注册表、`engine/workflow.py` legacy 相位机归档。
 
 ---
 
@@ -810,8 +903,8 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `docs/workflow_intro.md` | 当前敏捷工作流维护说明 |
 | `_bmad-output/README.md` | 产物地图（按周期） |
 | `_bmad-output/consolidated-overview.md` | **本文——统一整合总览（含 epic 总目录，原 EPICS-INDEX.md 已并入）** |
-| `_bmad-output/retrospective-all-cycles.md` | 全周期综合回顾（2026-07-22，覆盖 Epic 1-23 + S1-S4） |
-| `_bmad-output/sprint-status.yaml` | **sprint 状态单一权威**（全 9 周期） |
+| `_bmad-output/retrospective-all-cycles.md` | 全周期综合回顾（2026-07-22 生成，2026-09-15 扩充至覆盖 Epic 1-47 + S1-S4） |
+| `_bmad-output/sprint-status.yaml` | **sprint 状态单一权威**（全 15 周期） |
 | `_bmad-output/epics/epic-01-10-主线规划周期/` | 主线周期原始产物（Epic 1-10） |
 | `_bmad-output/epics/epic-11-18-MCP集成周期/` | MCP Client 集成周期（三阶段统一，2026-08-18 合并；含 Epic 11-18） |
 | `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/` | Sandbox 硬化（Epic S1-S4） |
@@ -819,9 +912,16 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/epics/epic-21-24-质量工程周期/` | 质量工程深化（Epic 21-24） |
 | `_bmad-output/epics/epic-25-28-GUI界面周期/` | GUI 周期（Epic 25-28） |
 | `_bmad-output/epics/epic-29-35-交互扩展周期/` | 交互与可扩展层周期（Epic 29-35，2026-08-19） |
-| `_bmad-output/epics/<周期>/epic-NN-主题/stories/` | 按 epic 归档的 story 文件（13 个，嵌套于所属周期目录，清单见 14.1 注） |
-| `_bmad-output/patches/<领域>/` | 补丁 spec（provider/context/memory/cron/mcp/sandbox/_meta） |
+| `_bmad-output/epics/epic-36-39-文件安全防护周期/` | 文件安全与凭证防护（Epic 36-39，2026-08-24） |
+| `_bmad-output/epics/epic-40-沙箱会话化周期/` | 沙箱会话化执行（Epic 40，2026-08-26） |
+| `_bmad-output/epics/epic-41-目标驱动开发周期/` | 目标驱动开发 / `/goal`（Epic 41，2026-08-29） |
+| `_bmad-output/epics/epic-42-BMad技能包运行时周期/` | BMad 技能包运行时（Epic 42，2026-09-01） |
+| `_bmad-output/epics/epic-43-46-目标级工作流周期/` | 目标级工作流（Epic 43-46，2026-09-01） |
+| `_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/` | 声明式 BMad 敏捷工作流（Epic 47，2026-09-01 → 09-15） |
+| `_bmad-output/epics/<周期>/epic-NN-主题/stories/` | 按 epic 归档的 story 文件（82 个，25 个 `stories/` 目录，嵌套于所属周期目录） |
+| `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录（原 `patches/<领域>/` 2026-09-15 解散） |
 | `_bmad-output/implementation-artifacts/deferred-work.md` | 工作流的跨周期 deferred **活动台账**（未闭合项） |
+| `_bmad-output/implementation-artifacts/spec-business-data-integration.md` | 业务数据整合**母规划 spec**（未启动；多阶段跨周期，衍生实现 spec 完成后再按归属 epic 归档） |
 | `_bmad-output/epics/<周期>/deferred-work.md` | 已闭合遗留项按归属 epic 归档（含 40 / 41 / 01-10 / 11-18 / S1-S4 / 47） |
 | `_bmad-output/specs/` | quick-dev 本地工作件（gitignored；Epic 41 goal 契约已归档至 `_bmad-output/epics/epic-41-目标驱动开发周期/spec-goal-command/`） |
 
@@ -837,4 +937,4 @@ Epic 43-44 已完成，Epic 45.3 增加无网络两-story 目标工作流冒烟�
 
 ### 已闭合 deferred-work 归档（2026-09-15）
 
-`patches/_meta/deferred-work.md` 的条目已全部闭合，按归属 epic 归并进 `epic-01-10-主线规划周期/`、`epic-11-18-MCP集成周期/`、`epic-S1-S4-沙箱硬化周期/`、`epic-47-声明式BMad敏捷工作流周期/` 的 `deferred-work.md`（另 `epic-40`/`epic-41` 原有台账保留），原台账随之退役并删除；条目索引见 11.1，活动（未闭合）项仍在 `implementation-artifacts/deferred-work.md`。
+原跨周期台账 `patches/_meta/deferred-work.md`（2026-09-15 随 `patches/` 目录解散而删除）的条目已全部闭合，按归属 epic 归并进 `epic-01-10-主线规划周期/`、`epic-11-18-MCP集成周期/`、`epic-S1-S4-沙箱硬化周期/`、`epic-47-声明式BMad敏捷工作流周期/` 的 `deferred-work.md`（另 `epic-40`/`epic-41` 原有台账保留），原台账随之退役并删除；条目索引见 13.1，活动（未闭合）项仍在 `implementation-artifacts/deferred-work.md`。

@@ -67,7 +67,7 @@ python -m heagent gui
 | `_bmad-output/epics/epic-01-10-主线规划周期/` | 主线规划周期（epics 1-10，冻结决策）：`architecture.md`·`brief.md`·`prd.md`·`epics.md`·`epics-self-learning.md`·`sprint-status.yaml`（story 已移至 epic 目录） |
 | `_bmad-output/epics/epic-11-18-MCP集成周期/` | MCP Client 集成周期（epics 11-18，三阶段，2026-08-18 合并） |
 | `_bmad-output/epics/`（其余周期目录） | epic-S1-S4-沙箱硬化周期 / epic-19-20-健壮性硬化周期 / epic-21-24-质量工程周期 / epic-25-28-GUI界面周期 / epic-29-35-交互扩展周期 |
-| `_bmad-output/patches/<领域>/` | 计划外补丁与技术债，按领域分子目录（provider/context/memory/cron/mcp/sandbox/_meta，映射见 consolidated-overview.md） |
+| `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录归档——原 `_bmad-output/patches/`（按领域分子目录）已于 2026-09-15 解散，映射见 consolidated-overview.md 十二 |
 
 > 进度：全部 10 个 epic 已完成（24 个 FR），详见 `_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml`；`engine/` 为 epic 外 P0 增量（见 frame.md 4.12）。
 

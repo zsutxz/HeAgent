@@ -9,8 +9,8 @@
 ```
 _bmad-output/
 ├── consolidated-overview.md  统一整合总览（全周期综合摘要 + epic 总目录；原 EPICS-INDEX.md 已并入，2026-08-19）
-├── retrospective-all-cycles.md  全周期综合回顾（2026-07-22，Epic 1-23 + S1-S4）
-├── implementation-artifacts/ 活动遗留项台账（仅未闭合项 deferred-work.md）
+├── retrospective-all-cycles.md  全周期综合回顾（2026-07-22 生成 / 2026-09-15 扩充至 Epic 1-47 + S1-S4）
+├── implementation-artifacts/ 活动件：未闭合 deferred 台账（deferred-work.md）+ 未启动的母规划 spec（spec-business-data-integration.md）
 ├── epics/                  按周期组织（2026-08-19）：周期目录（epic-区间-周期/）内含周期文档 + 各 epic 的 story 子目录（epic-NN-主题/stories/，仅建有 story 的 epic）+ 已闭合遗留项台账（各周期 deferred-work.md）
 │   ├── epic-01-10-主线规划周期/   baseline 周期文档（Epic 1–10，FR-1~24）+ epic-01-基础设施与LLM通信/
 │   ├── epic-11-18-MCP集成周期/    mcp（三阶段：11-13 / 14 / 15-18，2026-08-18 合并）
@@ -25,11 +25,10 @@ _bmad-output/
 │   ├── epic-42-BMad技能包运行时周期/ skill package runtime（Epic 42）
 │   ├── epic-43-46-目标级工作流周期/ goal workflow continuation（Epic 43–46）
 │   └── epic-47-声明式BMad敏捷工作流周期/ declarative BMad workflow（Epic 47）
-├── patches/                补丁周期（计划外技术债 / 缺陷，按领域分子目录 provider/context/memory/cron/mcp/sandbox/_meta）
 └── specs/                  quick-dev / spec 产物（本地工作件，gitignored；2026-08-18 已清空，目录暂不存在）
 ```
 
-> **2026-08-19 起持续重组**：`epics/` 按周期组织；当前共有 13 个周期目录（`epic-区间-周期/`），收纳周期级 prd/brief/architecture/epics/sprint-status，**各 epic 的 story 子目录（`epic-NN-主题/stories/`）嵌套在所属周期目录内**；patch 按领域在 `patches/`。各 epic 的状态矩阵与文档地图见 [`consolidated-overview.md`](consolidated-overview.md)（原 EPICS-INDEX.md 已并入其导航层）。
+> **2026-08-19 起持续重组**：`epics/` 按周期组织；当前共有 13 个周期目录（`epic-区间-周期/`），收纳周期级 prd/brief/architecture/epics/sprint-status，**各 epic 的 story 子目录（`epic-NN-主题/stories/`）嵌套在所属周期目录内**；**补丁 spec 按归属 epic 归档进 `epic-NN-主题/`**（原 `patches/` 按领域分子目录于 2026-09-15 解散，映射见本文件「补丁 spec」节）。各 epic 的状态矩阵与文档地图见 [`consolidated-overview.md`](consolidated-overview.md)（原 EPICS-INDEX.md 已并入其导航层）。
 
 ## sprint-status 单一权威
 
@@ -146,68 +145,28 @@ _bmad-output/
 
 记录 Goal/Epic/Story 产物契约、工作流执行闸门、审查/回顾闭环和示例回归文档。补充归档包括 checkpoint 恢复、运行时持久化治理、子代理依赖反转和仓库贡献指南（均位于 `epic-47-声明式工作流与产物治理/`）。
 
-## patches/ — 补丁周期（按领域分子目录，2026-08-19 重组）
+## 补丁 spec（原 `patches/`，2026-09-15 解散）
 
-### provider/ — Provider 与容错（Epic 1 域）
+计划外补丁 / 缺陷 spec 不再集中在 `patches/<领域>/`，而是**按归属 epic 与 story 同目录归档**（`epic-NN-主题/` 下；story 级 spec 进 `stories/`）：
 
-| 文件 | 用途 |
-|------|------|
-| `p0-provider-hardening.md` | P0 Provider 加固 spec（异常分类/包装/容错） |
-| `p0-hardening-review-diff.txt` | P0 加固的评审 diff（过程产物；2026-09-15 已删除） |
-| `retrospective-p0-tech-debt.md` | P0 技术债收尾回顾 |
+| 归档位置 | 补丁 spec（按原文件名） |
+|----------|------------------------|
+| `epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/` | `p0-provider-hardening.md`（P0 异常包装）、`retrospective-p0-tech-debt.md`（P0 债回顾） |
+| `epics/epic-01-10-主线规划周期/epic-02-自主Agent核心循环/` | `spec-steering-followup.md`（steering / follow-up 双层循环） |
+| `epics/epic-01-10-主线规划周期/epic-04-自学习记忆系统/` | `spec-dreaming-memory-consolidation.md`（Dreaming 规划 spec）、`spec-dreaming-memory-consolidation-frozen.md`（冻结实现版，原在周期根、随原始 spec 归位）、`spec-dreaming-defer-cleanup.md`（3 个 LOW defer 收口） |
+| `epics/epic-01-10-主线规划周期/epic-05-多Agent并行编排/` | `epic-5-context.md`（Epic 5 上下文编译件）、`stories/5-1-subagent-context-injection.md`（SubAgent 上下文注入） |
+| `epics/epic-01-10-主线规划周期/epic-10-Cron定时调度/` | `spec-cron-stop-timeout.md`（`CronScheduler.stop` 关停硬上界） |
+| `epics/epic-11-18-MCP集成周期/epic-11-MCP工具桥接/` | `fr3-mcp-auto-unregister.md`（FR-3 断连自动注销）、`spec-mcp-shutdown-timeout.md`（`__aexit__` 关停硬上界） |
+| `epics/epic-11-18-MCP集成周期/epic-13-安全边界与开源可用/` | `spec-dp4-mcp-safety-guard.md`（DP-4 第一半·执行前拦截）、`spec-dp4-mcp-result-guard.md`（DP-4 第二半·返回内容围栏）、`spec-mcp-user-injection-signatures.md`（用户可配置注入签名入口） |
+| `epics/epic-29-35-交互扩展周期/epic-35-CLI体验优化/` | `cli-status-bar.md`（交互模式状态栏） |
+| `epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/` | `spec-skill-resource-toctou-assessment.md`（技能资源 TOCTOU 评估） |
+| `epics/epic-47-声明式BMad敏捷工作流周期/epic-47-声明式工作流与产物治理/` | `retrospective-engine-p5.md`（engine P5 回顾；engine 运行时治理增量与 `spec-runtime-hygiene.md` 同域） |
+| `epics/epic-S1-S4-沙箱硬化周期/` | `spec-engine-sandbox-backend.md`（`CommandRunner` 后端抽象）、`spec-sandbox-timeout-validation.md`（timeout 正整数校验）、`spec-sandbox-cancel-signal-preservation.md`（取消信号保留）、`spec-sandbox-reap-robustness.md`（reap 鲁棒性） |
+| `implementation-artifacts/` | `spec-business-data-integration.md`（业务数据整合母规划 spec，未实现，跨周期路线） |
 
-### context/ — 上下文与子 Agent（Epic 3/5 域）
+**已失效删除**（内容被 epic 侧台账 / 代码+测试覆盖，仅存于 git 历史）：`3-3-token-counter.md`（2026-09-15）、`p0-hardening-review-diff.txt`（2026-09-15，过程产物）、`code-review-2026-07-20.md`（2026-09-15）、`deferred-work.md`（2026-09-15 退役）、`spec-deferred-low-cleanup.md`（2026-09-15，条目已并入 `epic-11-18-MCP集成周期` 与 `epic-S1-S4-沙箱硬化周期` 的 `deferred-work.md`）。
 
-| 文件 | 用途 |
-|------|------|
-| `3-3-token-counter.md` | token 计数器补丁 spec（2026-09-15 已删除） |
-| `5-1-subagent-context-injection.md` | 子 Agent 上下文注入补丁 spec |
-| `epic-5-context.md` | Epic 5 上下文相关补丁 |
-
-### memory/ — 记忆巩固（Epic 4 域）
-
-| 文件 | 用途 |
-|------|------|
-| `spec-dreaming-memory-consolidation.md` | Dreaming 模式（离线记忆巩固）实现 spec |
-| `spec-dreaming-defer-cleanup.md` | dreaming defer 项清理 spec |
-
-### cron/ — 定时调度（Epic 10 域）
-
-| 文件 | 用途 |
-|------|------|
-| `spec-cron-stop-timeout.md` | CronScheduler.stop 关停硬上界 spec |
-
-### mcp/ — MCP 补丁（Epic 11-18 域）
-
-| 文件 | 用途 |
-|------|------|
-| `fr3-mcp-auto-unregister.md` | FR-3 MCP 运行时断连 auto-unregister spec（2026-07-01 交付） |
-| `spec-dp4-mcp-safety-guard.md` | DP-4 第一半 — 执行前工具名拦截 spec |
-| `spec-dp4-mcp-result-guard.md` | DP-4 第二半 — MCP 返回内容启发式围栏 spec |
-| `spec-mcp-user-injection-signatures.md` | MCP 返回内容围栏用户可配置签名入口 spec（项目级已交付；全局级 deferred） |
-| `spec-mcp-shutdown-timeout.md` | MCP `__aexit__` 关停硬上界 spec |
-
-### sandbox/ — 沙箱与 engine 后端（engine + S1-S4 域）
-
-| 文件 | 用途 |
-|------|------|
-| `spec-engine-sandbox-backend.md` | engine sandbox 后端抽象 spec |
-| `spec-sandbox-timeout-validation.md` | sandbox timeout 正整数校验 spec |
-| `spec-sandbox-cancel-signal-preservation.md` | CancelledError 不吞取消信号 spec |
-| `spec-sandbox-reap-robustness.md` | sandbox reap 鲁棒性 spec |
-
-### _meta/ — 跨周期登记与回顾
-
-> `deferred-work.md` 已迁出并删除（2026-09-15）：活动项归 `implementation-artifacts/deferred-work.md`，已闭合项按归属 epic 归档到各周期 `deferred-work.md`（见「各周期 deferred-work.md」节）。
-
-| 文件 | 用途 |
-|------|------|
-| `spec-deferred-low-cleanup.md` | deferred-work 低优先级清理 spec |
-| `code-review-2026-07-20.md` | 2026-07-20 全面代码审查记录（2026-09-15 已删除） |
-| `retrospective-engine-p5.md` | engine P5 轻量回顾 |
-| `spec-steering-followup.md` | 方向选择 follow-up spec |
-| `spec-business-data-integration.md` | 业务数据集成 spec |
-| `cli-status-bar.md` | CLI 状态栏补丁 spec（关联 Epic 35） |
+> 归档原则：**「谁交付它，就放进谁的 epic 目录」**——补丁 spec 与它服务的 epic/story 同目录，避免 `patches/` 与 `epics/` 两处漂移。
 
 ### 各周期 deferred-work.md — 已闭合遗留项归档（2026-09-15）
 

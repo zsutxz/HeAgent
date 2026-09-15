@@ -8,7 +8,7 @@ review_loop_iteration: 0
 context:
   - '{project-root}/docs/frame.md'
   - '{project-root}/CLAUDE.md'
-  - '{project-root}/_bmad-output/patches/mcp/spec-dp4-mcp-safety-guard.md'  # DP-4 第一半（执行前拦截）
+  - '{project-root}/_bmad-output/epics/epic-11-18-MCP集成周期/epic-13-安全边界与开源可用/spec-dp4-mcp-safety-guard.md'  # DP-4 第一半（执行前拦截）
   - '{project-root}/_bmad-output/patches/_meta/deferred-work.md'  # 2026-07-08 拆分条（该台账 2026-09-15 退役并删除）
 ---
 

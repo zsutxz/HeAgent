@@ -6,7 +6,7 @@ baseline_commit: '169b8bb'
 status: 'done'
 review_loop_iteration: 0
 context:
-  - '{project-root}/_bmad-output/patches/memory/spec-dreaming-memory-consolidation.md'
+  - '{project-root}/_bmad-output/epics/epic-01-10-主线规划周期/epic-04-自学习记忆系统/spec-dreaming-memory-consolidation.md'
   - '{project-root}/docs/frame.md'
 ---
 
@@ -95,7 +95,7 @@ context:
 
 - **双触发共用 tick**：idle 触发不改 REPL 同步 `input()`，仅检查"距上次 run 结束时长"（覆盖 run 之间间隙，不覆盖 input 等待期间）；异步 input 重构 out-of-scope。
 - **dreamer 不持 `file_read`**：`DreamScheduler` 预加载最近 `dream_session_lookback` 个 session 消息截断注入 prompt，dreamer LLM 自行消化提炼。
-- **安全张力**：dreaming = 无人监督 + 联网 + 改持久记忆（被污染网页可跨会话污染后续对话）。完整风险/缓解/硬立场见 patches 冻结 spec 立场段（context 引用）；代码注释须如实声明 `PolicyEngine`/role 围栏非真边界，**且 `web_fetch` 当前无注入围栏**（端到端 deferred），不制造"已安全"假象。
+- **安全张力**：dreaming = 无人监督 + 联网 + 改持久记忆（被污染网页可跨会话污染后续对话）。完整风险/缓解/硬立场见同目录 `spec-dreaming-memory-consolidation.md` 立场段（frontmatter context 引用）；代码注释须如实声明 `PolicyEngine`/role 围栏非真边界，**且 `web_fetch` 当前无注入围栏**（端到端 deferred），不制造"已安全"假象。
 
 ## Verification
 

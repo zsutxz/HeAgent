@@ -4,7 +4,7 @@ type: 'bugfix'
 created: '2026-06-17'
 status: 'done'
 baseline_commit: '2739274a5a3db1584bfbab51ca5fdbec500fd554'
-context: ['{project-root}/_bmad-output/patches/context/epic-5-context.md']
+context: ['{project-root}/_bmad-output/epics/epic-01-10-主线规划周期/epic-05-多Agent并行编排/epic-5-context.md']
 ---
 
 <frozen-after-approval reason="human-owned intent — do not modify unless human renegotiates">

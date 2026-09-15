@@ -24,7 +24,7 @@ HeAgent 用 **BMad Method** 驱动迭代，组织单元是「**周期（Cycle）
 |----------|------|----------|----------|
 | **主线周期** | 新产品方向 / 大功能集 | `_bmad-output/<cycle>/`（brief→prd→architecture→epics→stories） | Epic 沿主线编号递增 |
 | **集成周期** | 接入外部系统（如 MCP） | 同上，独立 brief/prd | Epic 编号延续主线 |
-| **补丁周期** | 计划外技术债 / 缺陷 | `_bmad-output/patches/`（补丁 spec）+ 各周期 `deferred-work.md`（已闭合项按归属 epic 归档） | spec 文件，不占 Epic 编号 |
+| **补丁周期** | 计划外技术债 / 缺陷 | 补丁 spec 按归属 epic 归入 `_bmad-output/epics/<周期>/<epic-NN-主题>/`（原 `patches/` 2026-09-15 解散）+ 各周期 `deferred-work.md`（已闭合项归档） | spec 文件，不占 Epic 编号 |
 | **epic 外增量** | 架构演进（如 engine 治理层） | 直接落代码 + `frame.md` 记录 | 按 P0/P1… 分批 |
 
 ### 1.2 历史规划周期工作流
@@ -66,7 +66,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 3. **记录**：写入 `_bmad-output/implementation-artifacts/deferred-work.md`（活动台账，append-only），含触发条件、严重度、冻结边界说明、建议修法。
 4. **收尾**：后续开专门 spec 处理，修完写 `Resolution` 段关闭；**闭合后按归属 epic 归档**到 `_bmad-output/epics/<周期>/deferred-work.md`（保留结论、证据与 commit 指针，不保留原始长文历史）。
 
-> **已闭合项归档（2026-09-15 整理）**：原跨周期台账 `_bmad-output/patches/_meta/deferred-work.md` 的条目已全部闭合，按归属 epic 归并进各周期 `deferred-work.md`（`epic-01-10-主线规划周期`、`epic-11-18-MCP集成周期`、`epic-S1-S4-沙箱硬化周期`、`epic-40-沙箱会话化周期`、`epic-41-目标驱动开发周期`、`epic-47-声明式BMad敏捷工作流周期`），原台账随之退役并删除。条目索引见 `consolidated-overview.md` 11.1。
+> **已闭合项归档（2026-09-15 整理）**：原跨周期台账 `_bmad-output/patches/_meta/deferred-work.md` 的条目已全部闭合，按归属 epic 归并进各周期 `deferred-work.md`（`epic-01-10-主线规划周期`、`epic-11-18-MCP集成周期`、`epic-S1-S4-沙箱硬化周期`、`epic-40-沙箱会话化周期`、`epic-41-目标驱动开发周期`、`epic-47-声明式BMad敏捷工作流周期`），原台账随之退役并删除。条目索引见 `consolidated-overview.md` 13.1。
 
 ### 1.5 sprint-status 维护规则
 
@@ -169,7 +169,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 2.8 补丁周期 · 技术债收尾
 
-`_bmad-output/patches/` 扁平存放计划外补丁 spec；遗留项活动台账为 `implementation-artifacts/deferred-work.md`，条目闭合后按归属 epic 归档到各周期 `deferred-work.md`。已交付：`3-3-token-counter`（文件 2026-09-15 已删除）、`5-1-subagent-context-injection`、`epic-5-context`、`p0-provider-hardening`、`fr3-mcp-auto-unregister`（FR-3 MCP 运行时断连 auto-unregister）。**sandbox 健壮性系列（2026-07-09~10）**：`spec-engine-sandbox-backend`（`CommandRunner` 抽象 + code review 三修）、`spec-sandbox-timeout-validation`（timeout 正整数校验）、`spec-sandbox-cancel-signal-preservation`（CancelledError 不吞取消信号）、`spec-sandbox-reap-robustness`（reap 保护 + wait 硬上界 + kill/wait 解耦）。**关停硬上界三件套（2026-07-10~11，同构）**：`spec-mcp-shutdown-timeout`（MCP `__aexit__`）、`spec-cron-stop-timeout`（`CronScheduler.stop`）、`spec-deferred-low-cleanup`（deferred-work 收尾）。**DP-4 两半**：`spec-dp4-mcp-safety-guard`（执行前工具名拦截）、`spec-dp4-mcp-result-guard`（返回内容启发式围栏）。另有两份轻量回顾：`retrospective-engine-p5.md`、`retrospective-p0-tech-debt.md`。**台账归档（2026-09-15）**：`patches/_meta/deferred-work.md` 的条目已全部闭合，按归属 epic 归并进各周期 `deferred-work.md` 后原台账退役并删除（见 1.4；活动遗留项仍在 `implementation-artifacts/deferred-work.md`）。
+`_bmad-output/patches/`（**2026-09-15 解散**）曾按领域扁平分目录存放计划外补丁 spec，现已**按归属 epic 与它服务的 story 同目录归档**（`epics/<周期>/<epic-NN-主题>/`；逐文件映射见 `_bmad-output/README.md`「补丁 spec」节）。遗留项活动台账为 `implementation-artifacts/deferred-work.md`，条目闭合后按归属 epic 归档到各周期 `deferred-work.md`。已交付（下列为历史文件名，路径已归位）：`3-3-token-counter`（文件 2026-09-15 已删除）、`5-1-subagent-context-injection`、`epic-5-context`、`p0-provider-hardening`、`fr3-mcp-auto-unregister`（FR-3 MCP 运行时断连 auto-unregister）。**sandbox 健壮性系列（2026-07-09~10）**：`spec-engine-sandbox-backend`（`CommandRunner` 抽象 + code review 三修）、`spec-sandbox-timeout-validation`（timeout 正整数校验）、`spec-sandbox-cancel-signal-preservation`（CancelledError 不吞取消信号）、`spec-sandbox-reap-robustness`（reap 保护 + wait 硬上界 + kill/wait 解耦）。**关停硬上界三件套（2026-07-10~11，同构）**：`spec-mcp-shutdown-timeout`（MCP `__aexit__`）、`spec-cron-stop-timeout`（`CronScheduler.stop`）、`spec-deferred-low-cleanup`（deferred-work 收尾；2026-09-15 删除——条目已并入各周期台账）。**DP-4 两半**：`spec-dp4-mcp-safety-guard`（执行前工具名拦截）、`spec-dp4-mcp-result-guard`（返回内容启发式围栏）。另有两份轻量回顾：`retrospective-engine-p5.md`、`retrospective-p0-tech-debt.md`（随所属 epic 目录归档）。**台账归档（2026-09-15）**：`patches/_meta/deferred-work.md` 的条目已全部闭合，按归属 epic 归并进各周期 `deferred-work.md` 后原台账随 `patches/` 目录一并退役删除（见 1.4；活动遗留项仍在 `implementation-artifacts/deferred-work.md`）。
 
 ### 2.9 engine/ 增量 · epic 外 P0-P5
 
@@ -302,7 +302,7 @@ Epic 43-44 的实现已完成，Epic 45.3 补齐了无网络两-story 冒烟、c
 - 当前工作流：[`workflow_intro.md`](workflow_intro.md)（`.heagent/workflows/workflow.md` 为可执行契约）
 - 产品愿景：[`design.md`](design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
-- 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`、`_bmad-output/patches/`
+- 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`（原 `_bmad-output/patches/` 已于 2026-09-15 解散，补丁 spec 已按归属 epic 归位）
 - **sprint 状态（单一权威）**：[`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml)（持续更新，覆盖当前全部周期与 Epic）
 - 技术债登记：活动台账 `_bmad-output/implementation-artifacts/deferred-work.md`；已闭合项按归属 epic 归档到 `_bmad-output/epics/<周期>/deferred-work.md`（原 `_bmad-output/patches/_meta/deferred-work.md` 已于 2026-09-15 退役并删除）
-- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`、`_bmad-output/patches/_meta/retrospective-engine-p5.md`、`_bmad-output/patches/provider/retrospective-p0-tech-debt.md`
+- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/epic-47-声明式工作流与产物治理/retrospective-engine-p5.md`、`_bmad-output/epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/retrospective-p0-tech-debt.md`

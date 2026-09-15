@@ -51,7 +51,7 @@
 ### E4-D2 Dreaming 对抗审查 3 个 LOW defer
 
 - **来源**：`spec-dreaming-memory-consolidation` step-04 双 hunter 对抗审查（2026-08-12），3 项均判 low、非阻断。
-- **闭合者**：补丁 spec `_bmad-output/patches/memory/spec-dreaming-defer-cleanup.md`（一会话一 spec，inline 对抗审查 clean）。
+- **闭合者**：补丁 spec `_bmad-output/epics/epic-01-10-主线规划周期/epic-04-自学习记忆系统/spec-dreaming-defer-cleanup.md`（一会话一 spec，inline 对抗审查 clean）。
 
 | # | 发现 | 结论与证据 |
 |---|------|-----------|
@@ -82,7 +82,7 @@
 
 - **来源**：`spec-mcp-shutdown-timeout`（commit `109df37`）code review 指出的**同构兄弟缺口**（2026-07-11，review agent 提出）。
 - **问题**：`stop()` 在 `_running = False` 后对未完成 task `task.cancel()` + `with contextlib.suppress(asyncio.CancelledError): await self._task`，该 `await` 无硬上界。`_tick_loop` 卡在 `_check_and_execute` → `_execute_job` → `await loop.run(job.prompt)`（`AgentLoop.run`）的不可中断 await 点时，cancel 注入的 `CancelledError` 被吞 → task 不退出 → `stop()` 无限阻塞。唯一调用方是 CLI 交互模式 `finally`（进程退出路径）→ 挂死 = 进程退出挂死，需 OS SIGKILL 兜底。
-- **结论**：**已修复**（补丁 spec `_bmad-output/patches/cron/spec-cron-stop-timeout.md`）。抽 `_await_stop(task)`：保留原「立即 cancel」语义（cron 停止求快；`_tick_loop` 多在 `asyncio.sleep(tick_seconds)`，graceful 窗口反增延迟），`task.cancel()` 后单轮 `asyncio.wait({task}, timeout=stop_timeout)`——**最坏 `stop_timeout` 必返回，绝不无限阻塞**。`stop_timeout` 为构造参数（默认 `_DEFAULT_STOP_TIMEOUT=5.0`，对齐 MCP `_DEFAULT_SHUTDOWN_TIMEOUT` / sandbox `_REAP_WAIT_TIMEOUT`），`<=0` 构造期 raise；移除原 `contextlib.suppress`（`asyncio.wait` 不传播 task 内异常，比原 suppress 更宽）与不再需要的 `import contextlib`。
+- **结论**：**已修复**（补丁 spec `_bmad-output/epics/epic-01-10-主线规划周期/epic-10-Cron定时调度/spec-cron-stop-timeout.md`）。抽 `_await_stop(task)`：保留原「立即 cancel」语义（cron 停止求快；`_tick_loop` 多在 `asyncio.sleep(tick_seconds)`，graceful 窗口反增延迟），`task.cancel()` 后单轮 `asyncio.wait({task}, timeout=stop_timeout)`——**最坏 `stop_timeout` 必返回，绝不无限阻塞**。`stop_timeout` 为构造参数（默认 `_DEFAULT_STOP_TIMEOUT=5.0`，对齐 MCP `_DEFAULT_SHUTDOWN_TIMEOUT` / sandbox `_REAP_WAIT_TIMEOUT`），`<=0` 构造期 raise；移除原 `contextlib.suppress`（`asyncio.wait` 不传播 task 内异常，比原 suppress 更宽）与不再需要的 `import contextlib`。
 - **证据**：`src/heagent/cron/scheduler.py:78,81`；`tests/test_cron.py::test_stop_timeout_must_be_positive`、`::test_stop_bounded_when_tick_hangs`（用 `asyncio.wait_for(body, 2.0)` 做挂死探测器）、`::test_stop_clean_no_error_on_sleep`。
 - **同构三处**（「不可靠外部子进程 / 连接 / 任务的关停必须有上界」，timeout 统一 5.0s）：sandbox reap（D-state，见 `epic-S1-S4-沙箱硬化周期/deferred-work.md` S-D3）+ MCP `__aexit__`（见 `epic-11-18-MCP集成周期/deferred-work.md` E11-D1a）+ 本项。**最后一块同构缺口补齐完毕**。
 

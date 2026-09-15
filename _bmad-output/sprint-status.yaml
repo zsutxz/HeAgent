@@ -1,9 +1,9 @@
 # generated: 2026-05-26
-# last_updated: 2026-09-14
+# last_updated: 2026-09-15
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
-# story_location: stories 已按 epic 重组至 _bmad-output/epics/epic-*/stories/，总目录见 consolidated-overview.md
+# story_location: stories 已按 epic 归档至 _bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/；epic 总目录见 consolidated-overview.md
 #
 # CONSOLIDATION NOTE (2026-07-23):
 #   本文件是 HeAgent 全周期 sprint-status 的单一权威来源。
@@ -38,18 +38,20 @@
 #   - in-progress: Developer actively working on implementation
 #   - review: Ready for code review
 #   - done: Story completed
+#   - skipped: 明确决定不做并记录理由（非遗漏；当前唯一用例 = S4-1 emit 事件，可观测性缺口记入 frame.md 五）
 #
 # Retrospective Status:
 #   - optional: Can be completed but not required
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-09-14
+last_updated: 2026-09-15
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
-story_location: _bmad-output/ (stories 已按 epic 归档至所属周期目录内 epic-*/stories/，见 consolidated-overview.md)
-# 完成的实现 spec 按所属 Epic 归档；implementation-artifacts/ 仅保留 deferred-work.md 活动台账。
+story_location: _bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/（stories 嵌套于所属周期目录，见 consolidated-overview.md）
+# spec 归档口径（2026-09-15）：实现 spec 与补丁 spec 一律按**归属 epic** 归档到 `epics/<周期>/<epic-NN-主题>/`（原 `patches/` 目录已解散）；
+#   `implementation-artifacts/` 只保留未闭合 deferred 活动台账与未启动的母规划 spec。
 
 development_status:
   # ═══════════════════════════════════════════════════════════════
@@ -218,7 +220,7 @@ development_status:
   epic-S3-retrospective: done
 
   epic-S4: done  # 安全声明同步
-  S4-1-emit-sandbox-fields: skipped
+  S4-1-emit-sandbox-fields: skipped  # 明确决定不做（可观测性缺口，见 docs/frame.md 五）
   S4-2-safety-docs-sync: done
   epic-S4-retrospective: done
 
@@ -307,7 +309,8 @@ development_status:
   epic-28-retrospective: optional
 
   # ═══════════════════════════════════════════════════════════════
-  # 交互与可扩展层周期 · Epic 29–30（2026-08-19）
+  # 交互与可扩展层周期 · Epic 29–35（2026-08-19）
+  # 27 个 story 项，quick-dev 直接执行（无独立 story 文件）
   # ═══════════════════════════════════════════════════════════════
 
   epic-29: done  # 运行时审批闭环（FR-A1~A5）
@@ -323,53 +326,12 @@ development_status:
   30-3-session-tests-docs: done
   epic-30-retrospective: done
 
-  # ═══════════════════════════════════════════════════════════════
-  # 交互与可扩展层周期 · Epic 31（2026-08-19）
-  # ═══════════════════════════════════════════════════════════════
-
   epic-31: done  # 斜杠命令系统（FR-C1~C4）
   31-1-slash-registry-model: done
   31-2-builtin-commands-custom-load: done
   31-3-cli-registry-integration: done
   31-4-slash-tests-docs: done
   epic-31-retrospective: done
-
-  # ═══════════════════════════════════════════════════════════════
-  # 交互与可扩展层周期 · Epic 33（2026-08-19）
-  # ═══════════════════════════════════════════════════════════════
-
-  epic-33: done  # Plan Mode / 只读模式（FR-E1~E4）
-  33-1-readonly-annotations: done
-  33-2-plan-mode-config-cli: done
-  33-3-plan-mode-policy-filter: done
-  33-4-plan-mode-tests-docs: done
-  epic-33-retrospective: done
-
-  # ═══════════════════════════════════════════════════════════════
-  # 交互与可扩展层周期 · Epic 34（2026-08-19）
-  # ═══════════════════════════════════════════════════════════════
-
-  epic-34: done  # 配置文件驱动角色 + 成本估算（FR-F1~F4）
-  34-1-cost-estimation: done
-  34-2-config-driven-roles: done
-  34-3-cli-cost-role-wiring: done
-  34-4-epic34-tests-docs: done
-  epic-34-retrospective: done
-
-  # ═══════════════════════════════════════════════════════════════
-  # 交互与可扩展层周期 · Epic 35（2026-08-19）
-  # ═══════════════════════════════════════════════════════════════
-
-  epic-35: done  # CLI 体验优化 + 技术债收尾（FR-G1~G4）
-  35-1-web-fetch-guard-content: done
-  35-2-cron-expr-malformed-diagnostic: done
-  35-3-init-project-context: done
-  35-4-readline-history: done
-  epic-35-retrospective: done
-
-  # ═══════════════════════════════════════════════════════════════
-  # 交互与可扩展层周期 · Epic 32（2026-08-19）
-  # ═══════════════════════════════════════════════════════════════
 
   epic-32: done  # Hooks 系统（FR-D1~D4）
   32-1-hook-manager-model: done
@@ -378,11 +340,32 @@ development_status:
   32-4-hook-tests-docs: done
   epic-32-retrospective: done
 
+  epic-33: done  # Plan Mode / 只读模式（FR-E1~E4）
+  33-1-readonly-annotations: done
+  33-2-plan-mode-config-cli: done
+  33-3-plan-mode-policy-filter: done
+  33-4-plan-mode-tests-docs: done
+  epic-33-retrospective: done
+
+  epic-34: done  # 配置文件驱动角色 + 成本估算（FR-F1~F4）
+  34-1-cost-estimation: done
+  34-2-config-driven-roles: done
+  34-3-cli-cost-role-wiring: done
+  34-4-epic34-tests-docs: done
+  epic-34-retrospective: done
+
+  epic-35: done  # CLI 体验优化 + 技术债收尾（FR-G1~G4）
+  35-1-web-fetch-guard-content: done
+  35-2-cron-expr-malformed-diagnostic: done
+  35-3-init-project-context: done
+  35-4-readline-history: done
+  epic-35-retrospective: done
+
 # ═════════════════════════════════════════════════════════════════
 
-  # =============================================================
-  # 文件安全与凭证防护周期 · Epic 36–39（2026-08-24）
-  # =============================================================
+  # ═══════════════════════════════════════════════════════════════
+  # 文件安全与凭证防护周期 · Epic 36–39（2026-08-24，FR-F1~F5）
+  # ═══════════════════════════════════════════════════════════════
 
   epic-36: done  # 凭证文件精确 deny（读 + 写，FR-F1/F2）
   36-1-credential-write-deny: done
@@ -403,9 +386,9 @@ development_status:
   39-1-safety-docs-sync: done
   epic-39-retrospective: optional
 
-  # =============================================================
-  # 沙箱会话化周期 · Epic 40（2026-08-26 规划登记，FR-1~4；FR-5 execute_code RPC deferred）
-  # =============================================================
+  # ═══════════════════════════════════════════════════════════════
+  # 沙箱会话化周期 · Epic 40（2026-08-26，FR-1~4；FR-5 execute_code RPC deferred，本周期不建 story）
+  # ═══════════════════════════════════════════════════════════════
 
   epic-40: done  # 沙箱会话化执行 — hermes 式后端抽象（FR-1~4；含 shell 输出上限补充 spec）
   40-1-session-workspace-directory: done
@@ -414,9 +397,9 @@ development_status:
   40-4-sandbox-session-lifecycle: done
   epic-40-retrospective: optional
 
-  # =============================================================
+  # ═══════════════════════════════════════════════════════════════
   # 目标驱动开发周期 · Epic 41（2026-08-29 交付，FR-1~4；/goal 启动 skill 执行工作流）
-  # =============================================================
+  # ═══════════════════════════════════════════════════════════════
 
   epic-41: done  # /goal 启动 goal skill 执行工作流（FR-1~4）
   41-1-goal-skill-single-step: done
@@ -424,6 +407,10 @@ development_status:
   41-3-cron-auto-unattended: done
   41-4-docs-regression-smoke: done
   epic-41-retrospective: optional
+
+  # ═══════════════════════════════════════════════════════════════
+  # BMad 技能包运行时周期 · Epic 42（2026-08-31 规划，2026-09-01 交付，FR1~FR8）
+  # ═══════════════════════════════════════════════════════════════
 
   epic-42: done  # 可安装、可验证的声明式技能包运行时（FR1-FR8）
   42-1-skill-package-model-resource-safety: done
@@ -433,9 +420,9 @@ development_status:
   42-5-compatibility-regression: done
   epic-42-retrospective: optional
 
-  # =============================================================
-  # 目标级工作流周期 · Epic 43–46（2026-09-01 规划）
-  # =============================================================
+  # ═══════════════════════════════════════════════════════════════
+  # 目标级工作流周期 · Epic 43–46（2026-09-01，FR1~FR5）
+  # ═══════════════════════════════════════════════════════════════
 
   epic-43: done  # 可控的目标工作流推进与恢复（FR1/FR2）
   43-1-workflow-state-model-transitions: done
@@ -460,7 +447,9 @@ development_status:
   46-2-skill-resource-open-hardening: done
   epic-46-retrospective: optional
 
-  # 声明式 BMad 敏捷工作流周期 · Epic 47（2026-09-01 规划登记）
+  # ═══════════════════════════════════════════════════════════════
+  # 声明式 BMad 敏捷工作流周期 · Epic 47（2026-09-01 规划 → 2026-09-15 交付）
+  # ═══════════════════════════════════════════════════════════════
   # Goal → Epic → Story；Markdown workflow/step；BMad Agent 迁移与产物 Gate
   epic-47: done  # 含 checkpoint 恢复、运行时治理、子代理依赖反转与贡献指南补充 spec
   47-1-artifact-hierarchy-contract: done
@@ -478,12 +467,12 @@ action_items:
   - epic: 13
     action: "评估为 MCP 运行时断连补 auto-unregister（开 spec）"
     owner: "tan"
-    status: closed  # 2026-07-01 交付：commit 3203e4a，spec _bmad-output/patches/mcp/fr3-mcp-auto-unregister.md
+    status: closed  # 2026-07-01 交付：commit 3203e4a，spec _bmad-output/epics/epic-11-18-MCP集成周期/epic-11-MCP工具桥接/fr3-mcp-auto-unregister.md
   - epic: 13
     action: "DP-4（SafetyGuard 扩展到 MCP）纳入下一集成周期候选"
     owner: "tan"
-    status: closed  # 2026-07-08 交付（执行前工具名拦截 half）：spec _bmad-output/patches/mcp/spec-dp4-mcp-safety-guard.md
+    status: closed  # 2026-07-08 交付（执行前工具名拦截 half）：spec _bmad-output/epics/epic-11-18-MCP集成周期/epic-13-安全边界与开源可用/spec-dp4-mcp-safety-guard.md
   - epic: 13
     action: "MCP 返回内容隔离（prompt injection 围栏）作研究项跟踪"
     owner: "tan"
-    status: closed  # 2026-07-10 交付：DP-4 第二半，spec _bmad-output/patches/mcp/spec-dp4-mcp-result-guard.md
+    status: closed  # 2026-07-10 交付：DP-4 第二半，spec _bmad-output/epics/epic-11-18-MCP集成周期/epic-13-安全边界与开源可用/spec-dp4-mcp-result-guard.md

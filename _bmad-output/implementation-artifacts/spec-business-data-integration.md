@@ -1,13 +1,20 @@
 # Spec：业务运营数据整合（HeAgent 作统一数据访问层）
 
 > 形态：**母规划 spec**——多阶段、跨周期。进入实现时按阶段衍生独立实现 spec（如 `spec-business-data-mvp`、`spec-approval-callback`），一会话一 spec，不对齐单会话完成（见 [[bmad-quickdev-budget-per-spec]]）。
+> **状态**：**未启动**——阻塞于「阶段 0 业务数据盘点」（非编码，需业务 owner 输入）。最后事实复核：2026-09-15。
+> **归档位置**：`_bmad-output/implementation-artifacts/`（未启动的规划件留在活动目录）。某阶段一旦交付，其实现 spec 按**归属 epic** 归档到 `_bmad-output/epics/<周期>/<epic-NN-主题>/`——原 `patches/` 目录已于 2026-09-15 解散。
+> **维护约定**：正文对代码的引用一律用**符号**（模块 / 类 / 方法名）而非行号——行号随演进漂移；标 `（2026-09-15 复核）` 的结论已逐条对照代码。
 
 ## source
 - 路线来源：用户 2026-08-11 经三问决策选定——① 数据范围＝**业务运营数据**（数据库/表单/Excel/报表 API）；② 目标＝**Agent 统一访问/操作**（跨系统读写、自动化、分析）；③ 载体＝**基于 HeAgent 构建**；④ 架构＝**混合，以 MCP 为主**；⑤ 推进＝**落成规划文档**。
 - 参考概念：agent-as-data-plane（用 agent 作统一数据访问层，区别于传统 ETL 入仓）；数据虚拟化 + 按需访问。
-- 落地基础（HeAgent 现成）：`@tool` 装饰器 + `ToolRegistry`（`tools/decorator.py:78`、`registry.py:19`）；MCP 客户端三原语 + annotations 闸门（Epic 14/15/16，`tools/mcp/manager.py`）；`PolicyEngine` 7 步治理（`engine/policy.py:135`）；`engine/ledger` 审计；`memory/` 四库（`skills`/`facts`）；`providers` 多层容错；`CronScheduler` 定时。
-- 现状缺口（探查确认）：**无 SQL/DB 工具、无通用 HTTP/REST（仅 `web_fetch` GET 只读）、无 CSV/Excel 解析**；V1 `APPROVAL_REQUIRED` 当前等同阻断（`policy.py:52`，无 human-in-the-loop 审批 callback）。
-- **治理反直觉点（关键）**：内置 `@tool` 的 `read_only`/`destructive` 在 `PolicyEngine` 阶段**不被消费**（`policy.py:248` 显式跳过内置工具 annotations 裁决）——内置写工具是否走审批仅靠显式列入 `approval_tools`；**MCP 工具的 annotations 闸门有效**（`destructive→审批 / readOnly→放行 / 缺省→fail-safe 审批`，`policy.py:257-270`）。这是选「MCP 为主」的核心治理依据。
+- 落地基础（HeAgent 现成，2026-09-15 复核）：`@tool` 装饰器 + `ToolRegistry`（`tools/decorator.py` / `tools/registry.py`）；MCP 客户端三原语 + annotations 闸门（Epic 14/15/16，`tools/mcp/manager.py`）；`PolicyEngine.evaluate_tool_call` 的 **7 步裁决**（`engine/policy.py`：步 0 权限档位 → 1 白名单 → 2 黑名单 → 3 MCP 门控 → 4 工作区围栏 / 凭证 deny → **5 审批（注解感知）** → 6 沙箱 → 7 直接执行）；`engine/ledger` 审计；`memory/` 四库（`skills`/`facts`/`profile`/`soul`）；`providers` 多层容错；`CronScheduler` 定时；**交互式审批闭环**（Epic 29，`engine/approval.py`）；**沙箱能力**（`SANDBOX_BACKEND` + `SandboxTier` + 会话目录 + `sandbox_mode` 权限档位）。
+- 现状缺口（**2026-09-15 复核**）：**仍无 SQL/DB 工具、无通用 HTTP/REST（仅 `web_fetch` GET 只读）、无 CSV/Excel 解析**——本规划的全部实现工作仍未开始。
+- **已解除的旧阻塞**：原「V1 `APPROVAL_REQUIRED` 等同阻断、无 human-in-the-loop 审批 callback」**不再成立**——Epic 29 已交付交互式审批（`engine/approval.py`：`ApprovalHandler` Protocol + `DenyAllApprovalHandler` / `ConsoleApprovalHandler`），授权经 `RunContext.metadata["approved_tools"]`（支持 `"*"` / `"__mcp__"` 通配）。**写操作路径不再被前置阻塞**。
+- **已收敛的相关能力**：`guard_content` 启发式围栏现已同时作用于 MCP 工具返回与内置 `web_fetch`（Epic 35 / E4-D1），业务数据返回内容可直接复用该单一入口。
+- **治理反直觉点（关键，2026-09-15 复核）**：内置 `@tool` 的 `destructive` 标注在 **审批** 阶段**不被消费**——`PolicyEngine._requires_approval` 的注解分支只对 **MCP 工具（且传入了 `schema`）** 生效；内置写工具是否走审批仅靠显式列入 `approval_tools`。**MCP 工具的 annotations 闸门有效**（`destructiveHint→审批 / readOnlyHint→放行 / 缺省或缺失→fail-safe 审批`）。
+  - 补充：内置工具的 `read_only` 标注**在 `sandbox_mode="read-only"` 档位下会被消费**（`_is_read_only`：schema `readOnlyHint` 优先，否则查 `_READ_ONLY_TOOLS`，未知工具 fail-closed）——即只读档位是「上限」闸门，与「审批」是两条独立路径。
+  - 这是选「MCP 为主」的核心治理依据：**MCP 侧的危险分级是自动的，内置侧必须显式配置**。
 
 ## 架构决策（混合，MCP 为主）
 
@@ -25,6 +32,8 @@
 - **内部业务库只读探查**（需低延迟、高频）→ 补一个 builtin `db_query`（`read_only=True` + 强制 row limit/超时/列裁剪）。
 - Excel/CSV 源 → 封 MCP server（解析在 server 侧），不在 HeAgent 进程内建解析。
 
+> ⚠️ **方向性前提（2026-09 用户决策）**：MCP 三原语（Tools / Resources / Prompts）已全部交付，但 **MCP 后续不再作为 HeAgent 的必要开发方向**（CLAUDE.md 已把相关增强列为 deferred / future）。因此本规划的「以 MCP 为主」意味着：**业务侧 MCP server 由使用者自行封装与维护**，HeAgent 侧不再为此扩展 MCP 能力；若某源无法或不适合封 server，退回 A 路线（内置 `@tool` + 显式 `approval_tools`）。
+
 ## in scope（按阶段）
 
 ### 阶段 0 · 业务数据盘点（前置，非编码，阻塞后续）
@@ -40,7 +49,7 @@
 - 验证（AC 见下）：agent 能回答「上月 X 区销售额」类业务问题，数据正确性由业务 owner 人工核对。
 
 ### 阶段 2 · 写操作与审批流——前置衍生 `spec-approval-callback`
-- ⚠️ **阻塞依赖**：V1 `APPROVAL_REQUIRED`＝阻断（`policy.py:52`），写操作落地前**必须先实现 human-in-the-loop 审批 callback**（外层授权后经 `RunContext.metadata.approved_tools` 注入，支持 `"*"` / `"__mcp__"` 通配，`policy.py:306-314`）。此为独立 spec，不在本规划内实现。
+- ✅ **前置依赖已满足（2026-09-15 复核）**：human-in-the-loop 审批 callback **已交付**——Epic 29 的 `engine/approval.py`（`ApprovalHandler` Protocol + CLI `ConsoleApprovalHandler` / 默认 `DenyAllApprovalHandler`），授权经 `RunContext.metadata["approved_tools"]`（支持 `"*"` / `"__mcp__"` 通配，见 `PolicyEngine._approval_granted`）。原「阶段 2 前置 spec `spec-approval-callback`」**无需再开**；CLI 之外的前端（GUI）如需审批 UI，另开小 spec 即可（GUI 侧审批输出接入仍是缺口）。
 - 写操作源封 MCP server 标 `destructiveHint=true` → PolicyEngine 自动 `APPROVAL_REQUIRED` → 审批 callback → 授权放行。
 - **审计**：`engine/ledger` 记录每次写工具调用（谁/何时/何参/裁决）；`EventBus` 发写操作事件。
 - 验证：写操作未经审批不得执行；ledger 全可追溯；试错注入「未授权写」必被拦。
@@ -50,9 +59,9 @@
 - 验证：端到端跑通一个真实跨系统业务流程（如「拉销量→算环比→写回看板→cron 每日推送」）。
 
 ### 阶段 4 · 安全硬化收口
-- **OS 级沙箱兜底**（CLAUDE.md 文首硬约束——`SafetyGuard`/`PolicyEngine`/`FirejailBackend`/MCP 围栏**均非真边界**）：业务数据 agent 须在容器/firejail 内运行，子进程与出站网络最小权限。
+- **OS 级沙箱兜底**（CLAUDE.md 文首硬约束——`SafetyGuard`/`PolicyEngine`/`FirejailBackend`/MCP 围栏**均非真边界**）：业务数据 agent 须在容器 / firejail 内运行，子进程与出站网络最小权限。项目已具备可用的挂载点（2026-09-15 复核）：`SANDBOX_BACKEND`（`passthrough` / `firejail` / `winjob` / `auto`）+ `sandbox_mode` 权限档位（`read-only` / `workspace-write` / `danger-full-access`）+ 沙箱会话目录（`SANDBOX_SESSION_WORKSPACE`）——**但 Linux firejail 仅隔离 `shell` 子进程、WinJob 零文件系统/网络隔离**，不得据此宣称已获安全边界。
 - **凭据**：DB 密码/API key 全走 `${ENV}` + vault，零硬编码（呼应全局安全准则）。
-- **返回内容围栏**：业务数据入 LLM 上下文视为不可信，复用 `guard_content` 启发式标记（DP-4，标记透传非真隔离）。
+- **返回内容围栏**：业务数据入 LLM 上下文视为不可信，复用 `guard_content` 启发式标记（DP-4；已接 MCP 返回与内置 `web_fetch`，**标记透传、非真隔离**；项目级签名可在 `.heagent/injection_signatures.json` 增补）。
 - **脱敏与合规**：PII/财务字段在 server 侧或 `db_query` 结果层脱敏；访问审计满足合规要求。
 - 验证：安全 review（经 `security-reviewer`）+ 审计日志完整性核对。
 
@@ -84,7 +93,7 @@
 ## 立场（不变，须诚实声明）
 - **业务运营数据＝高敏感**（含 PII / 财务），用 agent 统一读写比文件/shell 风险面更高：一次被污染的返回内容或 prompt injection 可经 agent 触发跨系统误写、或泄露敏感数据入上下文。
 - 与 CLAUDE.md 文首声明一致：`SafetyGuard` / `PolicyEngine` / `FirejailBackend` / MCP annotations 闸门 / `guard_content` **均非真正安全边界**。本 spec 的所有治理（annotations 闸门、approval 列表、ledger 审计、返回围栏）皆为 **defense-in-depth 标记/拦截/记录，非真正隔离**。
-- **缓解（defense-in-depth，非真正边界）**：MCP server 进程隔离 + 最小权限、写操作必审批、ledger 可审计、只读护栏、凭据 vault、返回内容标记。
+- **缓解（defense-in-depth，非真正边界）**：MCP server 进程隔离 + 最小权限、写操作必审批（`engine/approval.py`）、ledger 可审计、只读护栏（`sandbox_mode="read-only"` + row limit / 超时 / 列裁剪）、凭据 vault + `${ENV}` 插值、返回内容标记（`guard_content`）、凭证路径 deny 与子进程 env scrubbing（Epic 36-39）。
 - **硬立场**：业务数据 agent **必须在 OS 级沙箱（容器/firejail）内运行**并对子进程/出站网络限权；PII/财务数据须脱敏 + 访问审计。本 spec **不制造「agent 操作业务数据已安全」假象**——与项目教训「安全边界必须诚实声明」一致。
 
 ## 开放问题 / 待补充业务前置（阻塞阶段 0）
@@ -95,6 +104,6 @@
 5. **合规要求**：PII/财务数据的脱敏、留存、审计具体口径？
 
 ## 衍生 spec（后续会话）
-- `spec-approval-callback`（阶段 2 前置，阻塞写操作）——human-in-the-loop 审批 callback。
+- ~~`spec-approval-callback`~~（阶段 2 前置，**2026-09-15 复核：已由 Epic 29 `engine/approval.py` 满足，无需再开**；GUI 侧审批 UI 接入如需要可另开小 spec）。
 - `spec-business-data-mvp`（阶段 1）——`db_query` builtin + 核心 MCP 源 + skills/facts 沉淀。
 - 阶段 3/4 待阶段 1/2 落地后按需开。
