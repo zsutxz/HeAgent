@@ -274,6 +274,38 @@ def _apply_plan_mode(engine: EngineContainer, *, plan_mode: bool) -> str | None:
     )
 
 
+def _prepare_engine(
+    *,
+    sandbox_backend: str | None,
+    sandbox_session_workspace: bool | None,
+    sandbox_session_keep: bool | None,
+    plan_mode: bool,
+    system: str | None,
+    tty_approval: bool = False,
+) -> tuple[EngineContainer, str | None]:
+    """装配引擎容器：审批处理器 + plan mode 约束 + 系统提示词前缀。
+
+    ``tty_approval=True``（单次执行模式）只在**有 TTY** 时装 ``ConsoleApprovalHandler``：
+    管道 / CI 里没人能应答审批，装了会把 run 挂住；交互模式（``_run_chat``）本身就在 TTY 上，
+    无条件装。
+
+    返回 ``(容器, 可能已加 plan 前缀的 system)``——两者必须同源，拆分调用会出现
+    「容器已进只读档、提示词却没说」这类静默不一致。
+    """
+    engine = EngineContainer.default(
+        workspace_root=os.getcwd(),
+        sandbox_backend=sandbox_backend,
+        sandbox_session_workspace=sandbox_session_workspace,
+        sandbox_session_keep=sandbox_session_keep,
+    )
+    if engine.approval_handler is None and (not tty_approval or sys.stdin.isatty()):
+        engine.approval_handler = ConsoleApprovalHandler()
+    plan_hint = _apply_plan_mode(engine, plan_mode=plan_mode)
+    if plan_hint:
+        system = f"{plan_hint}\n\n{system}" if system else plan_hint
+    return engine, system
+
+
 async def _run_single(
     prompt: str,
     provider: BaseProvider,
@@ -294,17 +326,14 @@ async def _run_single(
     故管道消费方拿到的是干净的事件流。
     """
     settings = get_settings()
-    engine = EngineContainer.default(
-        workspace_root=os.getcwd(),
+    engine, system = _prepare_engine(
         sandbox_backend=sandbox_backend,
         sandbox_session_workspace=sandbox_session_workspace,
         sandbox_session_keep=sandbox_session_keep,
+        plan_mode=plan_mode,
+        system=system,
+        tty_approval=True,
     )
-    if sys.stdin.isatty() and engine.approval_handler is None:
-        engine.approval_handler = ConsoleApprovalHandler()
-    plan_hint = _apply_plan_mode(engine, plan_mode=plan_mode)
-    if plan_hint:
-        system = f"{plan_hint}\n\n{system}" if system else plan_hint
 
     sink = _build_event_sink(settings, json_output=json_output)
     if sink is not None:
@@ -456,17 +485,13 @@ async def _run_chat(
     """Run interactive chat mode."""
     _setup_readline()
     settings = get_settings()
-    engine = EngineContainer.default(
-        workspace_root=os.getcwd(),
+    engine, system = _prepare_engine(
         sandbox_backend=sandbox_backend,
         sandbox_session_workspace=sandbox_session_workspace,
         sandbox_session_keep=sandbox_session_keep,
+        plan_mode=plan_mode,
+        system=system,
     )
-    if engine.approval_handler is None:
-        engine.approval_handler = ConsoleApprovalHandler()
-    plan_hint = _apply_plan_mode(engine, plan_mode=plan_mode)
-    if plan_hint:
-        system = f"{plan_hint}\n\n{system}" if system else plan_hint
 
     async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
         session = SessionStore()
