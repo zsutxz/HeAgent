@@ -134,12 +134,6 @@ class SkillImporter:
         atomic_write_text(self.lock_path, lock_payload, lock=True)
         return planned
 
-    async def import_manifest_async(self) -> list[SkillLockEntry]:
-        """Async facade for callers that must keep blocking file I/O off-loop."""
-        import asyncio
-
-        return await asyncio.to_thread(self.import_manifest)
-
     def _read_manifest(self) -> list[SkillManifestEntry]:
         if not self.manifest_path.is_file():
             raise SkillImportError("manifest", f"manifest is missing: {self.manifest_path}")

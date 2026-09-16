@@ -740,20 +740,11 @@ def pop_session(run_id: str) -> SandboxSession | None:
     return _sandbox_sessions.pop(run_id, None)
 
 
-def clear_sandbox_sessions() -> None:
-    """清空会话缓存（测试用）。"""
-    _sandbox_sessions.clear()
-
-
 _sandbox_session_slot: RuntimeSlot[SandboxSession] = RuntimeSlot[SandboxSession]("heagent_sandbox_session")
 
 
 def get_sandbox_session() -> SandboxSession | None:
     return _sandbox_session_slot.get()
-
-
-def reset_sandbox_session() -> None:
-    _sandbox_session_slot.reset()
 
 
 @contextmanager

@@ -197,12 +197,6 @@ def _load_user_signatures(path: Path | None = None) -> list[tuple[re.Pattern[str
     return patterns
 
 
-def _reset_user_patterns_cache() -> None:
-    """Reset the project-signature cache for tests and explicit reconfiguration."""
-    global _USER_PATTERNS
-    _USER_PATTERNS = None
-
-
 def _user_patterns() -> list[tuple[re.Pattern[str], str, str]]:
     global _USER_PATTERNS
     if _USER_PATTERNS is None:

@@ -66,11 +66,6 @@ class JsonlSink:
         return self._seq
 
     @property
-    def last_run_id(self) -> str:
-        """最近一条事件携带的 ``run_id``（用于回填传输层补充事件）。"""
-        return self._last_run_id
-
-    @property
     def writes_stdout(self) -> bool:
         """是否输出到 stdout 流。"""
         return self._stream is not None

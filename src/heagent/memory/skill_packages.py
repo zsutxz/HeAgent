@@ -75,11 +75,6 @@ class WorkflowResource(BaseModel):
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
-# Descriptive aliases for callers that prefer the shorter names.
-WorkflowStep = WorkflowStepResource
-WorkflowDefinition = WorkflowResource
-
-
 class SkillCatalogError(ValueError):
     """Base error raised while indexing skill packages."""
 
@@ -318,10 +313,6 @@ class SkillPackage(BaseModel):
         )
 
     load_workflow = read_workflow
-
-    def read_workflow_steps(self, resource: str = "workflow.md") -> list[WorkflowStepResource]:
-        """Return only the validated, ordered steps from a workflow."""
-        return self.read_workflow(resource).steps
 
     def _discover_workflow_steps(self) -> list[str]:
         candidates = sorted(

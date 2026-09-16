@@ -691,11 +691,6 @@ class WorkflowRunner:
         """Parse the workflow's explicit comma/newline-delimited artifact references."""
         return [item.strip() for item in re.split(r"[,\n]", declaration) if item.strip()]
 
-    @classmethod
-    def validate_input(cls, step: WorkflowStepResource, values: Mapping[str, Any] | Iterable[str]) -> list[str]:
-        """Return declared inputs absent from a step invocation."""
-        return cls._missing_inputs(step, values)
-
     @staticmethod
     def validate_output(step: WorkflowStepResource, output: Any) -> None:
         """Validate a step output against its output and validation declarations."""
