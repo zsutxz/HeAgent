@@ -29,8 +29,8 @@ def gui_main(
     settings = get_settings()
 
     # ── Provider ────────────────────────────────────────────
-    from heagent.cli import _build_provider
     from heagent.providers.router import active_model, annotate_route
+    from heagent.wiring import _build_provider
 
     provider = _build_provider(settings, model)
 
