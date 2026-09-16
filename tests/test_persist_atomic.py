@@ -13,11 +13,35 @@ import os
 import sys
 import threading
 import time
+import types
 from pathlib import Path
 
 import pytest
 
 from heagent.engine import persist
+
+
+def _fake_msvcrt() -> types.ModuleType:
+    """最小 ``msvcrt`` 替身，供在 POSIX 上模拟 Windows 的测试使用。
+
+    ``persist._acquire_lock_windows`` 里 ``import msvcrt`` 是**真导入**；POSIX 上无此模块，
+    不注入替身就会 ``ModuleNotFoundError``（测不到被测的替换重试语义，而是直接报错）。
+    """
+    mod = types.ModuleType("msvcrt")
+    mod.LK_NBLCK = 1
+    mod.LK_UNLCK = 2
+    mod.locking = lambda fd, mode, nbytes: None  # noqa: ARG005 - 替身只需可调用
+    return mod
+
+
+def _fake_windows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """把当前测试伪装成 Windows 进程：平台钉 + ``msvcrt`` 替身。
+
+    平台钉让 ``persist`` 走 Windows 分支（共享冲突重试语义）；``msvcrt`` 替身使该分支在
+    POSIX 上也能跑完加锁/解锁——否则 CI 的 linux/macOS 矩阵必失败（仅 Windows 能过）。
+    """
+    monkeypatch.setattr(persist.sys, "platform", "win32")
+    monkeypatch.setitem(sys.modules, "msvcrt", _fake_msvcrt())
 
 
 def _permission_error(tmp: Path, target: Path) -> PermissionError:
@@ -30,7 +54,7 @@ class TestReplaceRetry:
     """重试语义：瞬时占用可恢复，持久失败与其它错误不吞。"""
 
     def test_write_retries_transient_sharing_violation(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(persist.sys, "platform", "win32")
+        _fake_windows(monkeypatch)
         target = tmp_path / "SKILL.md"
         real_replace = os.replace
         attempts: list[int] = []
@@ -48,7 +72,7 @@ class TestReplaceRetry:
         assert len(attempts) == 3  # 两次被占用 + 一次成功
 
     def test_update_retries_transient_sharing_violation(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(persist.sys, "platform", "win32")
+        _fake_windows(monkeypatch)
         target = tmp_path / "SKILL.md"
         target.write_text("count=1\n", encoding="utf-8")
         real_replace = os.replace
@@ -68,8 +92,8 @@ class TestReplaceRetry:
         assert len(attempts) == 2
 
     def test_persistent_occupation_fails_visibly(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(persist.sys, "platform", "win32")
         """持续占用不静默吞错：按次数重试后仍抛出最后一次异常。"""
+        _fake_windows(monkeypatch)
         target = tmp_path / "SKILL.md"
         attempts: list[int] = []
 
@@ -119,7 +143,7 @@ class TestTemporaryFiles:
     def test_failed_replace_cleans_its_unique_temporary_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr(persist.sys, "platform", "win32")
+        _fake_windows(monkeypatch)
         target = tmp_path / "SKILL.md"
 
         def always_busy(src: str | os.PathLike[str], dst: str | os.PathLike[str]) -> None:
