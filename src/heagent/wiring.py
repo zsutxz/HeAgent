@@ -137,41 +137,43 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     specs = settings.routing_pool_map
     continuity = settings.routing_reasoning_continuity
 
-    if settings.deepseek_api_key:
-        deepseek_url = settings.deepseek_base_url or _DEEPSEEK_BASE_URL
-        named["deepseek"] = _build_entry(
-            "deepseek",
-            specs.get("deepseek"),
+    def _entry(
+        name: str,
+        *,
+        default_model: str,
+        default_base_url: str | None,
+        build: ProviderBuilder,
+    ) -> None:
+        """把一个 provider 条目放进池。
+
+        ``specs`` / ``model`` / ``continuity`` 与调用形状在 7 个条目里完全相同，故就地绑定，
+        只留各条目的差异（守卫、默认模型、默认 base_url、构建器）。keyword-only 是刻意的：
+        ``default_model`` 与 ``default_base_url`` 极易位置传参互换（后者可为 None）。
+        """
+        named[name] = _build_entry(
+            name,
+            specs.get(name),
             model=model,
-            default_model=settings.deepseek_model,
-            default_base_url=deepseek_url,
-            build=_openai_builder(settings, key=settings.deepseek_api_key, base_url=deepseek_url),
+            default_model=default_model,
+            default_base_url=default_base_url,
+            build=build,
             continuity=continuity,
         )
+
+    if settings.deepseek_api_key:
+        url = settings.deepseek_base_url or _DEEPSEEK_BASE_URL
+        build = _openai_builder(settings, key=settings.deepseek_api_key, base_url=url)
+        _entry("deepseek", default_model=settings.deepseek_model, default_base_url=url, build=build)
 
     if settings.kimi_api_key:
-        kimi_url = settings.kimi_base_url or _KIMI_BASE_URL
-        named["kimi"] = _build_entry(
-            "kimi",
-            specs.get("kimi"),
-            model=model,
-            default_model=settings.kimi_model,
-            default_base_url=kimi_url,
-            build=_openai_builder(settings, key=settings.kimi_api_key, base_url=kimi_url),
-            continuity=continuity,
-        )
+        url = settings.kimi_base_url or _KIMI_BASE_URL
+        build = _openai_builder(settings, key=settings.kimi_api_key, base_url=url)
+        _entry("kimi", default_model=settings.kimi_model, default_base_url=url, build=build)
 
     if settings.glm_api_key:
-        glm_url = settings.glm_base_url or _GLM_BASE_URL
-        named["glm"] = _build_entry(
-            "glm",
-            specs.get("glm"),
-            model=model,
-            default_model=settings.glm_model,
-            default_base_url=glm_url,
-            build=_openai_builder(settings, key=settings.glm_api_key, base_url=glm_url),
-            continuity=continuity,
-        )
+        url = settings.glm_base_url or _GLM_BASE_URL
+        build = _openai_builder(settings, key=settings.glm_api_key, base_url=url)
+        _entry("glm", default_model=settings.glm_model, default_base_url=url, build=build)
 
     if settings.ollama_enabled:
         if not settings.ollama_model:
@@ -181,52 +183,28 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
                 err=True,
             )
             raise SystemExit(1)
-        ollama_url = settings.ollama_base_url or _OLLAMA_BASE_URL
-        named["ollama"] = _build_entry(
-            "ollama",
-            specs.get("ollama"),
-            model=model,
-            default_model=settings.ollama_model,
-            default_base_url=ollama_url,
-            build=_openai_builder(settings, key=settings.ollama_api_key or "ollama", base_url=ollama_url),
-            continuity=continuity,
-        )
+        url = settings.ollama_base_url or _OLLAMA_BASE_URL
+        build = _openai_builder(settings, key=settings.ollama_api_key or "ollama", base_url=url)
+        _entry("ollama", default_model=settings.ollama_model, default_base_url=url, build=build)
 
     if settings.openai_api_key or settings.openai_key_pool:
-        named["openai"] = _build_entry(
-            "openai",
-            specs.get("openai"),
-            model=model,
-            default_model=settings.default_model,
-            default_base_url=settings.openai_base_url,
-            build=_openai_pool_builder(settings),
-            continuity=continuity,
-        )
+        build = _openai_pool_builder(settings)
+        _entry("openai", default_model=settings.default_model, default_base_url=settings.openai_base_url, build=build)
 
     if settings.openai_responses_api_key:
-        named["gpt"] = _build_entry(
-            "gpt",
-            specs.get("gpt"),
-            model=model,
-            default_model=settings.openai_model,
-            default_base_url=settings.openai_responses_base_url,
-            build=_responses_builder(
-                settings,
-                key=settings.openai_responses_api_key,
-                base_url=settings.openai_responses_base_url,
-            ),
-            continuity=continuity,
+        build = _responses_builder(
+            settings,
+            key=settings.openai_responses_api_key,
+            base_url=settings.openai_responses_base_url,
+        )
+        _entry(
+            "gpt", default_model=settings.openai_model, default_base_url=settings.openai_responses_base_url, build=build
         )
 
     if settings.anthropic_api_key or settings.anthropic_key_pool:
-        named["anthropic"] = _build_entry(
-            "anthropic",
-            specs.get("anthropic"),
-            model=model,
-            default_model=settings.default_model,
-            default_base_url=settings.anthropic_base_url,
-            build=_anthropic_pool_builder(settings),
-            continuity=continuity,
+        build = _anthropic_pool_builder(settings)
+        _entry(
+            "anthropic", default_model=settings.default_model, default_base_url=settings.anthropic_base_url, build=build
         )
 
     for entry in specs:
