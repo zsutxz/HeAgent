@@ -8,6 +8,7 @@
 - [架构参考](frame.md)：当前数据流、模块边界、配置、运行时治理和已知缺口。
 - [敏捷工作流](workflow_intro.md)：当前 `/goal`、`workflow.md`、Epic/Story 和 checkpoint 的职责边界。
 - [部署说明](../deploy/README.md)：部署资产的真实适用范围和限制。
+- [HeAgent 与 Codex 的对照](codex-comparison.md)：两者的定位、边界和设计取向对照。
 
 ## 推荐阅读路径
 

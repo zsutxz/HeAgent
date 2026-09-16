@@ -104,18 +104,9 @@ class SessionStore:
         _validate_session_id(session_id)
         path = self._base / f"{session_id}.json"
 
-        # 读取现有 version，在此基础上递增
-        existing_version = 0
-        if path.exists():
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                existing_version = data.get("version", 0) or 0
-            except (json.JSONDecodeError, OSError):
-                pass  # 文件损坏则从头开始
-
         data = {
             "session_id": session_id,
-            "version": existing_version + 1,
+            "version": 1,
             "timestamp": time.time(),
             "messages": [m.model_dump() for m in _complete_tool_transactions(messages)],
         }

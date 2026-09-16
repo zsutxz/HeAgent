@@ -38,6 +38,7 @@ class TestSessionStore:
         assert "session_id" in data
         assert "timestamp" in data
         assert data["session_id"] == "fmt"
+        assert data["version"] == 1
         assert len(data["messages"]) == 1
 
     def test_roundtrip_with_tool_calls(self, tmp_path: object) -> None:
@@ -117,3 +118,5 @@ class TestSessionStore:
         loaded = store.load("ow")
         assert len(loaded) == 1
         assert loaded[0].content == "v2"
+        data = json.loads((tmp_path / "sessions" / "ow.json").read_text(encoding="utf-8"))  # type: ignore[operator]
+        assert data["version"] == 2
