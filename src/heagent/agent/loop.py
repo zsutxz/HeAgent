@@ -260,6 +260,26 @@ class AgentLoop:
             logger.warning("%s failed", label, exc_info=True)
             return []
 
+    async def _inject_steering(self, state: AgentState) -> None:
+        """把 steering 消息追加进上下文（每轮 LLM 调用前的边界）。
+
+        ``run``/``run_stream`` 共用——两条循环此前各持一份「轮询 → 逐条追加」的逐字副本。
+        """
+        for msg in await self._poll_steering():
+            state.messages.append(msg)
+
+    async def _inject_follow_up(self, state: AgentState) -> bool:
+        """把 follow-up 消息追加进上下文；返回**是否还有下一轮**（外层循环判据）。
+
+        返回 ``False`` 表示无 follow-up → 外层退出。``run``/``run_stream`` 共用。
+        """
+        follow_up = await self._poll_follow_up()
+        if not follow_up:
+            return False
+        for msg in follow_up:
+            state.messages.append(msg)
+        return True
+
     # ------------------------------------------------------------------
     # 暂停 / 恢复（协作式：在下一轮 LLM 调用前的边界生效）
     # ------------------------------------------------------------------
@@ -337,9 +357,8 @@ class AgentLoop:
                         # 暂停检查点（协作式）：pause() 后挂在此处，unpause() 继续。
                         await self._wait_if_paused(run_context)
 
-                        # Poll steering 回调（每轮 LLM 调用前），注入的消息作为用户指令进入下一轮上下文
-                        for msg in await self._poll_steering():
-                            state.messages.append(msg)
+                        # steering 注入的消息作为用户指令进入下一轮上下文
+                        await self._inject_steering(state)
 
                         self._begin_iteration(state, run_context)
                         response = await self._call_provider(state, run_context=run_context)
@@ -347,14 +366,7 @@ class AgentLoop:
                             accumulated = self._add_usage(accumulated, response.usage)
 
                         await self._maybe_compress(state, run_context, response.usage)
-                        state.messages.append(
-                            Message(
-                                role=Role.ASSISTANT,
-                                content=response.content,
-                                tool_calls=response.tool_calls or None,
-                                reasoning_content=response.reasoning_content,
-                            )
-                        )
+                        self._append_assistant_message(state, response)
                         await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
 
                         if not response.tool_calls:
@@ -362,39 +374,19 @@ class AgentLoop:
 
                         tool_results = await self._execute_tools(response.tool_calls, state, run_context=run_context)
                         for tool_result in tool_results:
-                            state.messages.append(
-                                Message(
-                                    role=Role.TOOL,
-                                    content=tool_result.content,
-                                    tool_call_id=tool_result.tool_call_id,
-                                )
-                            )
+                            self._append_tool_result(state, tool_result)
                         await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
                         await self._maybe_window_reset(
                             state, run_context, init.prompt, system_content, usage=response.usage
                         )
 
                     # ---- follow-up 检查 ----
-                    follow_up = await self._poll_follow_up()
-                    if not follow_up:
+                    if not await self._inject_follow_up(state):
                         break  # 无 follow-up，外层退出
-                    for msg in follow_up:
-                        state.messages.append(msg)
                     # 有 follow-up → 继续外层循环，启动新一轮 LLM 调用
 
                 final_answer = response.content if response is not None else ""
-                run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
-                await self._checkpoint(
-                    run_context,
-                    prompt=init.prompt,
-                    system=system_content,
-                    state=state,
-                    final_answer=final_answer,
-                )
-                self._emit("run_completed", run_context=run_context, details={"answer_length": len(final_answer)})
-                self.last_usage = accumulated
-                self.cumulative_tokens += accumulated.total_tokens
-                self.last_iteration = state.iteration
+                await self._finish_run(run_context, init, state, accumulated, final_answer=final_answer)
                 return final_answer
         except Exception as exc:
             await self._on_run_failed(run_context, init.prompt, system_content, state, exc)
@@ -415,6 +407,10 @@ class AgentLoop:
         与 ``run()`` 的区别：每轮 LLM 调用走 ``provider.stream`` 逐 chunk 消费，
         文本片段实时下推；工具调用与最终完成同样以事件形式产出。
         同样支持 steering/follow-up 双层循环。
+
+        末尾的 ``noqa: C901`` 是**实测必要**：抽出 ``_inject_*`` / ``_append_*`` / ``_finish_run``
+        后仍为 17 > 15，剩余复杂度全部来自流式分块消费与三处事件 ``yield``——再拆就得让
+        消费块回传终值（holder 参数或内部事件），那是绕路而非简化。
         """
         init = await self._init_or_resume(prompt, system, session_id, _resume, stream=True)
         state = init.state
@@ -432,9 +428,8 @@ class AgentLoop:
                         # 暂停检查点（协作式）：pause() 后挂在此处，unpause() 继续。
                         await self._wait_if_paused(run_context)
 
-                        # Poll steering 回调（每轮 LLM 调用前）
-                        for msg in await self._poll_steering():
-                            state.messages.append(msg)
+                        # steering 注入的消息作为用户指令进入下一轮上下文
+                        await self._inject_steering(state)
 
                         self._begin_iteration(state, run_context)
 
@@ -488,14 +483,7 @@ class AgentLoop:
                         )
 
                         await self._maybe_compress(state, run_context, response.usage)
-                        state.messages.append(
-                            Message(
-                                role=Role.ASSISTANT,
-                                content=response.content,
-                                tool_calls=response.tool_calls or None,
-                                reasoning_content=response.reasoning_content,
-                            )
-                        )
+                        self._append_assistant_message(state, response)
 
                         # P1-1 修复：流式 delta 累积未能捕获 tool_calls、
                         # 但 finish_reason 指示 tool_calls 时，回退到非流式调用。
@@ -504,14 +492,7 @@ class AgentLoop:
                         if not response.tool_calls and finish_reason == "tool_calls":
                             state.messages.pop()  # 移除残缺的流式 assistant 消息
                             response = await self._call_provider(state, run_context=run_context)
-                            state.messages.append(
-                                Message(
-                                    role=Role.ASSISTANT,
-                                    content=response.content,
-                                    tool_calls=response.tool_calls or None,
-                                    reasoning_content=response.reasoning_content,
-                                )
-                            )
+                            self._append_assistant_message(state, response)
                             accumulated = self._add_usage(accumulated, response.usage)
 
                         await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
@@ -538,44 +519,21 @@ class AgentLoop:
                                 tool_result_content=tool_result.content,
                                 tool_error=tool_result.is_error,
                             )
-                            state.messages.append(
-                                Message(
-                                    role=Role.TOOL,
-                                    content=tool_result.content,
-                                    tool_call_id=tool_result.tool_call_id,
-                                )
-                            )
+                            self._append_tool_result(state, tool_result)
                         await self._checkpoint(run_context, prompt=init.prompt, system=system_content, state=state)
                         await self._maybe_window_reset(
                             state, run_context, init.prompt, system_content, usage=response.usage
                         )
 
                     # ---- follow-up 检查 ----
-                    follow_up = await self._poll_follow_up()
-                    if not follow_up:
+                    if not await self._inject_follow_up(state):
                         break  # 无 follow-up，外层退出
-                    for msg in follow_up:
-                        state.messages.append(msg)
                     # 有 follow-up → 继续外层循环
 
                 # 真正完成：外层退出后统一收尾
-                run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
-                await self._checkpoint(
-                    run_context,
-                    prompt=init.prompt,
-                    system=system_content,
-                    state=state,
-                    final_answer=response.content if response is not None else "",
-                )
-                self._emit(
-                    "run_completed",
-                    run_context=run_context,
-                    details={"answer_length": len(response.content) if response and response.content else 0},
-                )
-                self.last_usage = accumulated
-                self.cumulative_tokens += accumulated.total_tokens
-                self.last_iteration = state.iteration
-                yield StreamEvent(type="done", final_answer=response.content if response is not None else "")
+                final_answer = response.content if response is not None else ""
+                await self._finish_run(run_context, init, state, accumulated, final_answer=final_answer)
+                yield StreamEvent(type="done", final_answer=final_answer)
         except Exception as exc:
             await self._on_run_failed(run_context, init.prompt, system_content, state, exc)
             raise
@@ -743,6 +701,34 @@ class AgentLoop:
     # 终结（run / run_stream 共享）
     # ------------------------------------------------------------------
 
+    async def _finish_run(
+        self,
+        run_context: RunContext,
+        init: _RunInit,
+        state: AgentState,
+        accumulated: TokenUsage,
+        *,
+        final_answer: str,
+    ) -> None:
+        """正常完成的统一收尾（``run``/``run_stream`` 共用）。
+
+        置 COMPLETED → 落最终检查点 → 发 ``run_completed`` 事件 → 更新 ``last_*`` 缓存。
+        两条循环此前各持一份逐字副本（连 ``answer_length`` 都有两种等价写法，此处统一）；
+        调用方随后的动作仍各自保留：``run`` 返回答案、``run_stream`` yield ``done`` 事件。
+        """
+        run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
+        await self._checkpoint(
+            run_context,
+            prompt=init.prompt,
+            system=init.system_content,
+            state=state,
+            final_answer=final_answer,
+        )
+        self._emit("run_completed", run_context=run_context, details={"answer_length": len(final_answer)})
+        self.last_usage = accumulated
+        self.cumulative_tokens += accumulated.total_tokens
+        self.last_iteration = state.iteration
+
     async def _persist_and_cache(
         self,
         session_id: str | None,
@@ -786,6 +772,28 @@ class AgentLoop:
         self._emit("iteration_started", run_context=run_context)
         if state.iteration > state.max_iterations:
             raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
+
+    def _append_assistant_message(self, state: AgentState, response: ProviderResponse) -> None:
+        """把助手回复追加进上下文（``run``/``run_stream`` 共用的循环步骤）。
+
+        含流式回退路径在内，本模块原有三处各写一份逐字段相同的 ``Message(role=ASSISTANT, ...)``。
+        """
+        state.messages.append(
+            Message(
+                role=Role.ASSISTANT,
+                content=response.content,
+                tool_calls=response.tool_calls or None,
+                reasoning_content=response.reasoning_content,
+            )
+        )
+
+    def _append_tool_result(self, state: AgentState, result: ToolResult) -> None:
+        """把单条工具结果追加进上下文（``run``/``run_stream`` 共用）。
+
+        逐条而非整批：流式路径需在每个结果事件 ``yield`` **之后**才落消息，
+        以保持「事件先于消息」的先后与重构前一致。
+        """
+        state.messages.append(Message(role=Role.TOOL, content=result.content, tool_call_id=result.tool_call_id))
 
     # ------------------------------------------------------------------
     # 上下文管理（压缩 / 窗口重置）
