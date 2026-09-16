@@ -27,7 +27,7 @@ import inspect
 import logging
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.exceptions import PolicyViolation, SafetyViolation
@@ -137,6 +137,57 @@ class ToolExecutor:
             emit=emit,
         )
 
+    def _emit_tool_event(
+        self,
+        emit: Callable[..., None] | None,
+        event: str,
+        call: ToolCall,
+        run_context: RunContext | None,
+        details: dict[str, Any],
+    ) -> None:
+        """工具生命周期事件的**唯一**发出点。
+
+        ``event`` 与 ``details`` 由调用方给出（各路径附加的键不同：``sandbox_profile`` /
+        ``sandbox_tier`` / ``content_length`` / ``error``），但 ``run_context`` / ``tool_name``
+        / ``target`` 的取值与字段约定在此单点固定——此前 8 处 emit 各自复制这段样板，
+        字段一改就得全改。``emit`` 为 None（未订阅可观测）时静默跳过。
+        """
+        if emit is None:
+            return
+        emit(
+            event,
+            run_context=run_context,
+            tool_name=call.name,
+            target=self._target(call),
+            details=details,
+        )
+
+    def _guard_or_blocked(
+        self,
+        call: ToolCall,
+        guard: SafetyGuard,
+        *,
+        run_context: RunContext | None,
+        emit: Callable[..., None] | None,
+    ) -> ToolResult | None:
+        """跑 ``SafetyGuard.check(call)``：拦下则发事件并返回错误结果，通过则返回 ``None``。
+
+        把「拦下 / 通过」固定为单一形状，避免 DIRECT 与 SANDBOX 两条路径各写一遍 try/except。
+        """
+        try:
+            guard.check(call)
+        except SafetyViolation as exc:
+            # P1-6：mode 标成 safety_blocked，以区分触发层（SafetyGuard）与策略层阻断。
+            self._emit_tool_event(
+                emit,
+                "tool_call_blocked",
+                call,
+                run_context,
+                {"reason": str(exc), "mode": "safety_blocked"},
+            )
+            return ToolResult(tool_call_id=call.id, content=str(exc), is_error=True)
+        return None
+
     async def _execute_direct(
         self,
         *,
@@ -151,51 +202,21 @@ class ToolExecutor:
         guard 抛 :class:`SafetyViolation` → 返回错误结果（不向上抛）；
         handler 抛任何异常 → 转成 ``is_error=True`` 的 ToolResult。
         """
-        try:
-            guard.check(call)
-        except SafetyViolation as exc:
-            if emit:
-                emit(
-                    "tool_call_blocked",
-                    run_context=run_context,
-                    tool_name=call.name,
-                    target=self._target(call),
-                    details={
-                        "reason": str(exc),
-                        "mode": "safety_blocked",  # P1-6 修复：标识触发层为 SafetyGuard 而非 Policy
-                    },
-                )
-            return ToolResult(tool_call_id=call.id, content=str(exc), is_error=True)
+        blocked = self._guard_or_blocked(call, guard, run_context=run_context, emit=emit)
+        if blocked is not None:
+            return blocked
 
+        mode = ToolExecutionMode.DIRECT.value
         try:
-            if emit:
-                emit(
-                    "tool_call_started",
-                    run_context=run_context,
-                    tool_name=call.name,
-                    target=self._target(call),
-                    details={"mode": ToolExecutionMode.DIRECT.value},
-                )
+            self._emit_tool_event(emit, "tool_call_started", call, run_context, {"mode": mode})
             result = await handler(call)
             content = str(result) if result is not None else ""
-            if emit:
-                emit(
-                    "tool_call_completed",
-                    run_context=run_context,
-                    tool_name=call.name,
-                    target=self._target(call),
-                    details={"mode": ToolExecutionMode.DIRECT.value, "content_length": len(content)},
-                )
+            self._emit_tool_event(
+                emit, "tool_call_completed", call, run_context, {"mode": mode, "content_length": len(content)}
+            )
             return ToolResult(tool_call_id=call.id, content=content)
         except Exception as exc:  # noqa: BLE001 - 任意工具异常都转成错误结果，避免中断循环
-            if emit:
-                emit(
-                    "tool_call_failed",
-                    run_context=run_context,
-                    tool_name=call.name,
-                    target=self._target(call),
-                    details={"mode": ToolExecutionMode.DIRECT.value, "error": str(exc)},
-                )
+            self._emit_tool_event(emit, "tool_call_failed", call, run_context, {"mode": mode, "error": str(exc)})
             return ToolResult(tool_call_id=call.id, content=f"Tool error: {exc}", is_error=True)
 
     async def _execute_in_sandbox(
@@ -215,37 +236,16 @@ class ToolExecutor:
         if not self._sandbox_granted(call, run_context, verdict):
             return self._policy_error(call, verdict, run_context=run_context, emit=emit)
 
-        try:
-            guard.check(call)
-        except SafetyViolation as exc:
-            if emit:
-                emit(
-                    "tool_call_blocked",
-                    run_context=run_context,
-                    tool_name=call.name,
-                    target=self._target(call),
-                    details={
-                        "reason": str(exc),
-                        "mode": "safety_blocked",  # P1-6 修复
-                    },
-                )
-            return ToolResult(tool_call_id=call.id, content=str(exc), is_error=True)
+        blocked = self._guard_or_blocked(call, guard, run_context=run_context, emit=emit)
+        if blocked is not None:
+            return blocked
 
         sandbox_mode = ToolExecutionMode.SANDBOX_REQUIRED.value
         sandbox_tier = self._runner_tier().value
+        # 沙箱路径的事件额外带上 profile / tier：「这条命令到底在哪层隔离下跑的」得能查。
+        sandbox_facts = {"sandbox_profile": verdict.sandbox_profile or "", "sandbox_tier": sandbox_tier}
         try:
-            if emit:
-                emit(
-                    "tool_call_started",
-                    run_context=run_context,
-                    tool_name=call.name,
-                    target=self._target(call),
-                    details={
-                        "mode": sandbox_mode,
-                        "sandbox_profile": verdict.sandbox_profile or "",
-                        "sandbox_tier": sandbox_tier,
-                    },
-                )
+            self._emit_tool_event(emit, "tool_call_started", call, run_context, {"mode": sandbox_mode, **sandbox_facts})
             # 子类 override 兼容：库消费者旧签名 execute_in_sandbox(*, call, profile, handler)
             # 不含 run_context——签名探测后按需传参，防 TypeError（FR-1 review patch 5）。
             if "run_context" in inspect.signature(self.execute_in_sandbox).parameters:
@@ -262,34 +262,22 @@ class ToolExecutor:
                     handler=handler,
                 )
             content = str(result) if result is not None else ""
-            if emit:
-                emit(
-                    "tool_call_completed",
-                    run_context=run_context,
-                    tool_name=call.name,
-                    target=self._target(call),
-                    details={
-                        "mode": sandbox_mode,
-                        "sandbox_profile": verdict.sandbox_profile or "",
-                        "sandbox_tier": sandbox_tier,
-                        "content_length": len(content),
-                    },
-                )
+            self._emit_tool_event(
+                emit,
+                "tool_call_completed",
+                call,
+                run_context,
+                {"mode": sandbox_mode, **sandbox_facts, "content_length": len(content)},
+            )
             return ToolResult(tool_call_id=call.id, content=content)
         except Exception as exc:  # noqa: BLE001 - 任意工具异常都转成错误结果，避免中断循环
-            if emit:
-                emit(
-                    "tool_call_failed",
-                    run_context=run_context,
-                    tool_name=call.name,
-                    target=self._target(call),
-                    details={
-                        "mode": sandbox_mode,
-                        "sandbox_profile": verdict.sandbox_profile or "",
-                        "sandbox_tier": sandbox_tier,
-                        "error": str(exc),
-                    },
-                )
+            self._emit_tool_event(
+                emit,
+                "tool_call_failed",
+                call,
+                run_context,
+                {"mode": sandbox_mode, **sandbox_facts, "error": str(exc)},
+            )
             return ToolResult(tool_call_id=call.id, content=f"Tool error: {exc}", is_error=True)
 
     async def execute_in_sandbox(
@@ -346,18 +334,14 @@ class ToolExecutor:
     ) -> ToolResult:
         """把 BLOCKED / APPROVAL_REQUIRED 裁决转成错误 ToolResult（不抛异常）。"""
         message = str(PolicyViolation(verdict.reason))
-        if emit:
-            emit(
-                "tool_call_blocked",
-                run_context=run_context,
-                tool_name=call.name,
-                target=self._target(call),
-                details={
-                    "reason": verdict.reason,
-                    "mode": verdict.mode.value,
-                    "sandbox_profile": verdict.sandbox_profile or "",
-                },
-            )
+        # 键序（reason → mode → sandbox_profile）与 SafetyGuard 拦截的事件形状不同，保持既有契约。
+        self._emit_tool_event(
+            emit,
+            "tool_call_blocked",
+            call,
+            run_context,
+            {"reason": verdict.reason, "mode": verdict.mode.value, "sandbox_profile": verdict.sandbox_profile or ""},
+        )
         return ToolResult(tool_call_id=call.id, content=message, is_error=True)
 
     @staticmethod
