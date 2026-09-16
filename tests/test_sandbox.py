@@ -46,22 +46,32 @@ class _FakeProcBase:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_command_runner(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest):
-    """每测试前后清进程级 fallback，防 ``configure`` 串扰。
+def _isolate_command_runner(monkeypatch: pytest.MonkeyPatch):
+    """每测试前后清进程级 fallback，防 ``configure`` 串扰；并 mock ``os.killpg``（永不发真实信号）。
 
-    另两道安全网（让 fake-based 测试在所有平台确定性、且不发真实信号）：
-    - 默认钉 ``sys.platform`` 为 win32：fake 无法承载真实进程组语义，统一走 else 分支
-      （``proc.kill()``、不加 ``start_new_session``，避免 fake_exec 因多余 kwarg 报错）。
-      Linux ``os.killpg`` 分支由 ``test_kill_and_reap_linux_uses_proc_pid_directly`` 专门覆盖。
-      ⚠ 该钉子改的是**进程全局** ``sys.platform``（``heagent.tools.sandbox.sys`` 就是全局
-      ``sys``），故凡断言「真实平台该用哪种 shell」的测试必须用 ``@pytest.mark.real_platform``
-      退出——否则在 Linux/macOS 上 ``SandboxSession`` 会误按 Windows cmd 包装喂给 ``/bin/sh``
-      （CI 上真实暴露：``cd: can't cd to /d`` / ``call: not found``）。
-    - mock ``os.killpg`` 为 no-op：永不让测试向真实进程组发信号。
+    ⚠ 这里**刻意不钉** ``sys.platform``：那改的是**进程全局** ``sys``（``heagent.tools.sandbox.sys``
+    就是全局 ``sys``），会让本模块所有测试在 POSIX 上误走 Windows 分支——CI 上已真实炸过两次：
+    ① ``SandboxSession`` 误用 Windows cmd 包装喂给 ``/bin/sh``（``cd: can't cd to /d``）；
+    ② Python 3.12+ 的 ``shutil.which`` 自带 ``sys.platform == "win32"`` 分支，钉住后走 ``_winapi``
+    （POSIX 上为 None）→ ``AttributeError: 'NoneType' object has no attribute
+    'NeedCurrentDirectoryForExePath'``。**默认即真实平台**，只有确实需要「伪 Windows 进程语义」的
+    fake-进程测试才显式请求 :func:`fake_process_platform`。
     """
-    if "real_platform" not in request.keywords:
-        monkeypatch.setattr("heagent.tools.sandbox.sys.platform", "win32")
     monkeypatch.setattr("os.killpg", lambda *args, **kwargs: None, raising=False)
+
+
+@pytest.fixture
+def fake_process_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    """把进程全局 ``sys.platform`` 钉成 win32——**仅供 fake-进程测试按需请求**。
+
+    为什么需要：这些测试用假 subprocess 对象替代真实子进程，而 fake 无法承载真实进程组语义
+    （``run`` 签名不接受 ``start_new_session`` 等额外 kwarg），统一走 else 分支最稳。
+    Linux ``os.killpg`` 分支由 ``test_kill_and_reap_linux_uses_proc_pid_directly`` 专门覆盖。
+
+    为什么必须 opt-in：钉子改的是进程全局 ``sys``，autouse 会让同模块「依赖真实平台」的测试
+    （真实 shell 包装、平台敏感的 ``shutil.which`` 等）在 POSIX 上走错分支（见 autouse fixture 的说明）。
+    """
+    monkeypatch.setattr("heagent.tools.sandbox.sys.platform", "win32")
     reset_command_runner()
     reset_sandbox_profile()
     reset_sandbox_workspace()
@@ -133,6 +143,7 @@ class TestPassthroughRunner:
         with pytest.raises(ValueError, match="timeout"):
             await PassthroughRunner().run("echo hi", timeout=bad_timeout)  # type: ignore[arg-type]
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_cancel_kill_and_reap(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """外层取消（CancelledError）也须 kill+wait 子进程，不泄漏（D1 回归）。"""
@@ -172,6 +183,7 @@ class TestPassthroughRunner:
         assert proc.killed, "CancelledError 路径未 kill 子进程"
         assert proc.communicate_calls == 2, "CancelledError 路径未再次 communicate 回收管道"
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_cancel_survives_reap_error(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -218,6 +230,7 @@ class TestPassthroughRunner:
             "reap 失败应记 debug 日志（D-1-A observability）"
         )
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_timeout_reap_failure_returns_timeout_result(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -255,6 +268,7 @@ class TestPassthroughRunner:
             "reap 失败应记 timeout cleanup debug 日志（item 1 observability）"
         )
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_reap_wait_is_bounded(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -303,6 +317,7 @@ class TestPassthroughRunner:
             "reap 逸出失败应记 debug 日志（证明 wait_for 兜住 D-state 后放弃 reap）"
         )
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_kill_failure_still_waits(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -349,6 +364,7 @@ class TestPassthroughRunner:
             "kill 失败应记 warning 日志（item 3 observability ~ 需人工关注非预期 kill 失败）"
         )
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_kill_block_does_not_swallow_keyboardinterrupt(self) -> None:
         """code review patch：kill 块用 ``except Exception``（非 BaseException）——KeyboardInterrupt
@@ -410,6 +426,7 @@ class TestPassthroughRunner:
 
 
 class TestFirejailBackend:
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_run_invokes_firejail_with_expected_argv(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """断言 FirejailBackend 用 create_subprocess_exec 启动
@@ -471,6 +488,7 @@ class TestFirejailBackend:
         with pytest.raises(ValueError, match=r"got -5$"):
             await backend.run("ls", timeout=-5)
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_cancel_survives_reap_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """D-1（exec 路径对称）：取消清理时 _kill_and_reap 抛错，CancelledError 仍须上抛。
@@ -507,6 +525,7 @@ class TestFirejailBackend:
         with pytest.raises(asyncio.CancelledError):  # 非 RuntimeError——取消信号须存活
             await task
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_timeout_reap_failure_returns_timeout_result(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -539,6 +558,7 @@ class TestFirejailBackend:
             "reap 失败应记 timeout cleanup debug 日志（item 1 observability）"
         )
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_kill_failure_still_waits(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -799,6 +819,7 @@ class TestFirejailAvailability:
         assert backend._resolved_path is None
         assert any("firejail not found" in rec.getMessage() for rec in caplog.records)
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_run_falls_back_when_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(shutil, "which", lambda p: None)
@@ -819,6 +840,7 @@ class TestFirejailAvailability:
         assert "exit_code=0" in result
         assert "hello" in result
 
+    @pytest.mark.usefixtures("fake_process_platform")
     @pytest.mark.asyncio
     async def test_run_uses_resolved_path_when_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(shutil, "which", lambda p: "/usr/bin/firejail")
@@ -985,6 +1007,7 @@ class TestSandboxWorkspaceSlot:
         assert get_sandbox_workspace() is None
 
 
+@pytest.mark.usefixtures("fake_process_platform")
 class TestFirejailSessionWorkspace:
     """FR-1: FirejailBackend 以 per-run 会话目录优先作 ``--private`` 根。"""
 
@@ -1148,7 +1171,6 @@ class TestSandboxSession:
         assert "HEAGENT_CWD" not in result
         assert "hello" in result
 
-    @pytest.mark.real_platform
     @pytest.mark.asyncio
     async def test_cwd_persists_across_commands(self, tmp_path: Path) -> None:
         """真实 shell：cd sub 后 session.cwd 正确更新，文件落在 sub 下（cwd 跨命令保持核心）。
@@ -1206,7 +1228,6 @@ class TestSandboxSession:
         assert "HEAGENT_CWD" not in result
         assert s.cwd == Path("/fake/sub")
 
-    @pytest.mark.real_platform
     @pytest.mark.asyncio
     async def test_run_failure_exit_code_preserved(self, tmp_path: Path) -> None:
         """失败命令退出码必须透传（真实 shell，LLM 靠 exit_code 判断失败；回归：包装后恒 0）。"""
@@ -1215,7 +1236,6 @@ class TestSandboxSession:
             result = await s.run('python -c "import sys; sys.exit(3)"', timeout=30)
         assert result.startswith("exit_code=3")
 
-    @pytest.mark.real_platform
     @pytest.mark.asyncio
     async def test_run_success_exit_code_zero(self, tmp_path: Path) -> None:
         """成功命令退出码保持 0（修复不引入反向回归）。"""
