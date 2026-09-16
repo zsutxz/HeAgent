@@ -372,7 +372,14 @@ async def test_cached_result_respects_policy_tightening(tmp_path) -> None:
     second = await loop._execute_one(call, run_context=rc)
     assert second.is_error is True
     assert second.content != "1"  # 缓存内容未被放行
+    # 归因必须准确：走 executor 的 _policy_error（而非误报「在途」——ledger 里此刻是
+    # 已 COMPLETED 的旧记录，"already in-flight (ledger: already completed)" 自相矛盾）。
+    assert second.content == "Tool 'bump' is blocked by policy."
+    assert "in-flight" not in second.content
     assert counter["n"] == 1  # handler 未再执行（BLOCKED 在 executor 拦截）
+    kinds = [event.event_type for event in loop.engine.events.recent_events if event.tool_name == "bump"]
+    assert "tool_call_blocked" in kinds
+    assert "tool_call_skipped_inflight" not in kinds
 
 
 # ══════════════════════════════════════════════════════════════════════

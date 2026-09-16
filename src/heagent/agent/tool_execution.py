@@ -194,27 +194,31 @@ async def execute_tool_call(
             if not claim.acquired:
                 cached = claim.record.metadata.get("result")
                 if cached is not None:
-                    # A: 缓存命中也复核 policy——若当前 policy 已收紧到 BLOCKED，不返回缓存，
-                    #    fall through 走正常链路（下方 evaluate 再算一次 BLOCKED，executor 拦截）。
+                    # A: 缓存命中也复核 policy——若当前 policy 已收紧到 BLOCKED，**不返回缓存**，
+                    #    落到正常链路（下方 evaluate 再算一次 BLOCKED，由 executor 的 _policy_error
+                    #    产出准确归因）。此分支**不能**沿用下面的「在途跳过」返回：ledger 里此刻是
+                    #    已 COMPLETED 的旧记录，谎称 in-flight 会给出自相矛盾的文案
+                    #    （"already in-flight (ledger: already completed)"）并掩盖真因。
                     schema = loop.registry.get_schema(call.name)
                     cached_verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context, schema=schema)
                     if cached_verdict.mode is not ToolExecutionMode.BLOCKED:
                         logger.debug("Ledger cache hit for tool_call %s", call.id)
                         loop._emit("tool_call_cached", run_context=run_context, tool_name=call.name, details={})
                         return ToolResult(tool_call_id=call.id, content=cached)
-                    logger.debug("Ledger cache bypass for blocked tool_call %s", call.id)
-                logger.debug("Ledger lease-active skip for tool_call %s (%s)", call.id, claim.reason)
-                loop._emit(
-                    "tool_call_skipped_inflight",
-                    run_context=run_context,
-                    tool_name=call.name,
-                    details={"reason": claim.reason},
-                )
-                return ToolResult(
-                    tool_call_id=call.id,
-                    content=f"tool '{call.name}' already in-flight (ledger: {claim.reason}); skipped",
-                    is_error=True,
-                )
+                    logger.debug("Ledger cache bypassed: tool_call %s is blocked by policy now", call.id)
+                else:
+                    logger.debug("Ledger lease-active skip for tool_call %s (%s)", call.id, claim.reason)
+                    loop._emit(
+                        "tool_call_skipped_inflight",
+                        run_context=run_context,
+                        tool_name=call.name,
+                        details={"reason": claim.reason},
+                    )
+                    return ToolResult(
+                        tool_call_id=call.id,
+                        content=f"tool '{call.name}' already in-flight (ledger: {claim.reason}); skipped",
+                        is_error=True,
+                    )
             # ①.5 占用成功 → 在途期间后台续租（工具可能跑数分钟，远超租约长度）。
             #     失败/取消都不影响工具执行，故不 await 结果、不 attach 回调。
             lease_task = asyncio.create_task(_renew_ledger_lease(loop.engine.ledger, cache_key))
