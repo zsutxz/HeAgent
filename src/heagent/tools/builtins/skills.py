@@ -50,6 +50,22 @@ def _store() -> SkillStore | None:
     return runtime.store if runtime is not None else None
 
 
+def _split_pipe(value: str) -> list[str] | None:
+    """Split a ``|``-separated tool argument (the shared parameter syntax of these tools).
+
+    - empty string → ``None``: the caller did not supply the field (create uses the
+      default; update keeps the existing value)
+    - non-empty → whitespace-stripped items; **may be an empty list** (e.g. ``"|"``),
+      which under update semantics means "clear this field"
+
+    ``|`` is a tool-layer contract shared by steps/tags/triggers/negative_triggers, so
+    those argument values cannot contain it.
+    """
+    if not value:
+        return None
+    return [item.strip() for item in value.split("|") if item.strip()]
+
+
 @tool
 async def skill_create(
     name: str,
@@ -67,14 +83,12 @@ async def skill_create(
         return "Error: skill tools not configured."
     if await asyncio.to_thread(store.load, name) is not None:
         return f"Error: skill '{name}' already exists. Use skill_update to modify it."
-    step_list = [step.strip() for step in steps.split("|") if step.strip()]
+    step_list = _split_pipe(steps)
     if not step_list:
         return "Error: at least one step is required."
-    tag_list = [tag.strip() for tag in tags.split("|") if tag.strip()] if tags else None
-    trigger_list = [item.strip() for item in triggers.split("|") if item.strip()] if triggers else None
-    negative_list = (
-        [item.strip() for item in negative_triggers.split("|") if item.strip()] if negative_triggers else None
-    )
+    tag_list = _split_pipe(tags)
+    trigger_list = _split_pipe(triggers)
+    negative_list = _split_pipe(negative_triggers)
     try:
         path = await asyncio.to_thread(
             store.save,
@@ -111,12 +125,10 @@ async def skill_update(
         return f"Error: skill '{name}' not found. Use skill_create first."
     description_value = description or None
     pattern_value = pattern or None
-    step_list = [step.strip() for step in steps.split("|") if step.strip()] if steps else None
-    tag_list = [tag.strip() for tag in tags.split("|") if tag.strip()] if tags else None
-    trigger_list = [item.strip() for item in triggers.split("|") if item.strip()] if triggers else None
-    negative_list = (
-        [item.strip() for item in negative_triggers.split("|") if item.strip()] if negative_triggers else None
-    )
+    step_list = _split_pipe(steps)
+    tag_list = _split_pipe(tags)
+    trigger_list = _split_pipe(triggers)
+    negative_list = _split_pipe(negative_triggers)
     try:
         path = await asyncio.to_thread(
             store.update,
