@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from heagent.engine import ApprovalDecision, ApprovalRequest, ToolExecutionMode
@@ -160,6 +161,75 @@ async def execute_tools(
     return safe_results
 
 
+@dataclass(slots=True)
+class _LedgerClaim:
+    """① 幂等闸门的产物（内部状态对象，与 ``AgentState`` / ``SubAgentResult`` 同为 dataclass 例外）。
+
+    - ``cache_key`` 为 None：本次调用无 run 上下文，不走记账；
+    - ``result`` 非 None：闸门已给出终局（幂等命中 / 并发在途跳过），调用方应直接返回；
+    - ``lease_task``：抢占成功后的后台续租任务，**取消责任在调用方的 ``finally``**。
+
+    三者皆空表示闸门放行（含「缓存因策略收紧被绕过」这一路：此时仍带 ``cache_key``，
+    以便 ④ 把收紧前产生的陈旧 COMPLETED 记录改写为可重试的 FAILED）。
+    """
+
+    cache_key: str | None = None
+    lease_task: asyncio.Task[None] | None = None
+    result: ToolResult | None = None
+
+
+async def _claim_ledger(loop: AgentLoop, call: ToolCall, run_context: RunContext | None) -> _LedgerClaim:
+    """① 幂等闸门：抢占缓存键，并按记录状态处理两条短路。
+
+    抢不到（``acquired=False``）时按记录分两路：
+    - 已 COMPLETED（带 result）→ 幂等命中，返回缓存；但**先复核 policy**（Commit A）——
+      若当前 policy 已收紧到 BLOCKED，不返回收紧前产生的陈旧成功结果，落到正常链路，
+      由 executor 的 ``_policy_error`` 产出准确归因；
+    - RUNNING 且租约未过期（并发重入）→ 跳过重复执行，返回 skip 提示。
+
+    抢到即起后台续租任务（①.5）并把任务交给调用方：工具可能跑数分钟，远超租约长度。
+    """
+    if run_context is None:
+        return _LedgerClaim()
+    cache_key = f"{run_context.run_id}:{call.id}"
+    claim = await loop.engine.ledger.acquire(cache_key, lease_seconds=_LEDGER_LEASE_SECONDS, run_id=run_context.run_id)
+    if claim.acquired:
+        # ①.5 占用成功 → 在途期间后台续租。失败/取消都不影响工具执行，故不 await 结果、
+        #     不 attach 回调；取消由调用方 finally 负责（见 _LedgerClaim）。
+        return _LedgerClaim(
+            cache_key=cache_key,
+            lease_task=asyncio.create_task(_renew_ledger_lease(loop.engine.ledger, cache_key)),
+        )
+    cached = claim.record.metadata.get("result")
+    if cached is None:
+        logger.debug("Ledger lease-active skip for tool_call %s (%s)", call.id, claim.reason)
+        loop._emit(
+            "tool_call_skipped_inflight",
+            run_context=run_context,
+            tool_name=call.name,
+            details={"reason": claim.reason},
+        )
+        return _LedgerClaim(
+            cache_key=cache_key,
+            result=ToolResult(
+                tool_call_id=call.id,
+                content=f"tool '{call.name}' already in-flight (ledger: {claim.reason}); skipped",
+                is_error=True,
+            ),
+        )
+    # A: 缓存命中也复核 policy。此分支**不能**沿用上面的「在途跳过」返回——ledger 里此刻是
+    #    已 COMPLETED 的旧记录，谎称 in-flight 会给出自相矛盾的文案
+    #    （"already in-flight (ledger: already completed)"）并掩盖真因。
+    schema = loop.registry.get_schema(call.name)
+    cached_verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context, schema=schema)
+    if cached_verdict.mode is not ToolExecutionMode.BLOCKED:
+        logger.debug("Ledger cache hit for tool_call %s", call.id)
+        loop._emit("tool_call_cached", run_context=run_context, tool_name=call.name, details={})
+        return _LedgerClaim(cache_key=cache_key, result=ToolResult(tool_call_id=call.id, content=cached))
+    logger.debug("Ledger cache bypassed: tool_call %s is blocked by policy now", call.id)
+    return _LedgerClaim(cache_key=cache_key)
+
+
 async def execute_tool_call(
     loop: AgentLoop,
     call: ToolCall,
@@ -179,49 +249,15 @@ async def execute_tool_call(
     ① 与 ④ 都是**旁路记账**：① 失败仍转 error ToolResult（P1-2）；④ 失败只记 warning，
     不影响已拿到的工具结果。① 成功后在途期间后台续租（见模块 docstring 第 1 条），
     避免长时调用被别的进程 prune 掉自己的记录。
+
+    ① 的闸门整体在 :func:`_claim_ledger`，其产物 :class:`_LedgerClaim` 把「在途续租任务」
+    交回本函数的 ``finally`` 取消——跨函数的所有权必须显式传递，否则每个调用都会漏掉心跳回收。
     """
-    cache_key: str | None = None
-    lease_task: asyncio.Task[None] | None = None
+    gate = _LedgerClaim()
     try:
-        if run_context is not None:
-            # ① 抢占缓存键。抢不到时按记录状态分两路：
-            #    - 已 COMPLETED（有 result）→ 幂等命中，返回缓存（Commit A 会在此复核 policy）。
-            #    - lease-active（RUNNING 未过期，并发重入）→ 跳过重复执行，返回 skip 提示。
-            cache_key = f"{run_context.run_id}:{call.id}"
-            claim = await loop.engine.ledger.acquire(
-                cache_key, lease_seconds=_LEDGER_LEASE_SECONDS, run_id=run_context.run_id
-            )
-            if not claim.acquired:
-                cached = claim.record.metadata.get("result")
-                if cached is not None:
-                    # A: 缓存命中也复核 policy——若当前 policy 已收紧到 BLOCKED，**不返回缓存**，
-                    #    落到正常链路（下方 evaluate 再算一次 BLOCKED，由 executor 的 _policy_error
-                    #    产出准确归因）。此分支**不能**沿用下面的「在途跳过」返回：ledger 里此刻是
-                    #    已 COMPLETED 的旧记录，谎称 in-flight 会给出自相矛盾的文案
-                    #    （"already in-flight (ledger: already completed)"）并掩盖真因。
-                    schema = loop.registry.get_schema(call.name)
-                    cached_verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context, schema=schema)
-                    if cached_verdict.mode is not ToolExecutionMode.BLOCKED:
-                        logger.debug("Ledger cache hit for tool_call %s", call.id)
-                        loop._emit("tool_call_cached", run_context=run_context, tool_name=call.name, details={})
-                        return ToolResult(tool_call_id=call.id, content=cached)
-                    logger.debug("Ledger cache bypassed: tool_call %s is blocked by policy now", call.id)
-                else:
-                    logger.debug("Ledger lease-active skip for tool_call %s (%s)", call.id, claim.reason)
-                    loop._emit(
-                        "tool_call_skipped_inflight",
-                        run_context=run_context,
-                        tool_name=call.name,
-                        details={"reason": claim.reason},
-                    )
-                    return ToolResult(
-                        tool_call_id=call.id,
-                        content=f"tool '{call.name}' already in-flight (ledger: {claim.reason}); skipped",
-                        is_error=True,
-                    )
-            # ①.5 占用成功 → 在途期间后台续租（工具可能跑数分钟，远超租约长度）。
-            #     失败/取消都不影响工具执行，故不 await 结果、不 attach 回调。
-            lease_task = asyncio.create_task(_renew_ledger_lease(loop.engine.ledger, cache_key))
+        gate = await _claim_ledger(loop, call, run_context)
+        if gate.result is not None:
+            return gate.result
 
         # ② 策略裁决；③ 查 handler。未知工具直接产出 error 结果，不走 executor。
         schema = loop.registry.get_schema(call.name)
@@ -274,8 +310,8 @@ async def execute_tool_call(
 
         # ④ 结果回写 ledger：成功记 complete（带结果供后续幂等），失败记 fail（允许重试）。
         #    记账失败不得改写工具结果——见 _record_ledger_outcome 的 docstring。
-        if cache_key is not None:
-            await _record_ledger_outcome(loop, cache_key, result)
+        if gate.cache_key is not None:
+            await _record_ledger_outcome(loop, gate.cache_key, result)
         return result
     except Exception as exc:
         # P1-2 修复：ledger acquire / policy evaluate 等非 handler 异常也转为 error ToolResult，
@@ -291,10 +327,10 @@ async def execute_tool_call(
     finally:
         # 收尾取消续租任务：**必须在回写之后**（回写期间记录仍需保持有效租约），
         # 且无论正常返回、异常返回还是被取消都要执行，否则会留下一个常驻心跳任务。
-        if lease_task is not None:
-            lease_task.cancel()
+        if gate.lease_task is not None:
+            gate.lease_task.cancel()
             with suppress(asyncio.CancelledError):
-                await lease_task
+                await gate.lease_task
 
 
 async def _resolve_approval(

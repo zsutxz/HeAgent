@@ -622,3 +622,47 @@ async def test_renewal_survives_heartbeat_io_failure(
 
     assert len(calls) >= 2  # 失败后仍重试（未因异常退出）
     assert any("renewal failed" in record.message for record in caplog.records)
+
+
+def _renewal_tasks() -> list[asyncio.Task[None]]:
+    """当前在途的续租心跳任务（按协程名识别，不依赖任务命名）。"""
+    current = asyncio.current_task()
+    return [
+        task
+        for task in asyncio.all_tasks()
+        if task is not current and not task.done() and getattr(task.get_coro(), "__name__", "") == "_renew_ledger_lease"
+    ]
+
+
+async def test_successful_call_leaves_no_lease_heartbeat(tmp_path) -> None:
+    """调用结束后续租任务必须已被取消。
+
+    续租任务的所有权从 ``asyncio.create_task`` 处跨越到 ``execute_tool_call`` 的 ``finally``
+    ——漏取消即每次工具调用都留下一个常驻心跳任务（且持有 ledger 引用），故在此钉死。
+    """
+    registry, counter = _bump_registry()
+    loop = AgentLoop(_StubProvider([]), registry=registry, engine=_engine(tmp_path))
+    rc = RunContext()
+    call = ToolCall(id="h1", name="bump", arguments={})
+
+    result = await loop._execute_one(call, run_context=rc)
+
+    assert result.is_error is False
+    assert result.content == "1"
+    assert counter["n"] == 1
+    assert _renewal_tasks() == []
+
+
+async def test_call_without_run_context_skips_ledger_entirely(tmp_path) -> None:
+    """无 run 上下文时完全不经 ledger：不建记录、不起续租任务，工具照常执行。"""
+    registry, counter = _bump_registry()
+    loop = AgentLoop(_StubProvider([]), registry=registry, engine=_engine(tmp_path))
+    call = ToolCall(id="n1", name="bump", arguments={})
+
+    result = await loop._execute_one(call)
+
+    assert result.is_error is False
+    assert result.content == "1"
+    assert counter["n"] == 1
+    assert _renewal_tasks() == []
+    assert await loop.engine.ledger.list_records() == []
