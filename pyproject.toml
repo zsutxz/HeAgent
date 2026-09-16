@@ -69,6 +69,7 @@ testpaths = ["tests"]
 addopts = ["-m", "not integration and not benchmark"]
 markers = [
     "no_auto_workspace: do not auto-set workspace root in path safety tests",
+    "real_platform: 需要真实进程平台（退出 test_sandbox 的 sys.platform=win32 钉子，该钉子改的是全局 sys）",
     "integration: 真实外部依赖 E2E（需凭据/网络，默认不进基线；显式 `pytest -m integration` 运行）",
     "benchmark: 性能基准测试（默认跳过，手动 `pytest -m benchmark` 运行）",
 ]

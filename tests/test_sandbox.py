@@ -46,16 +46,21 @@ class _FakeProcBase:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_command_runner(monkeypatch: pytest.MonkeyPatch):
+def _isolate_command_runner(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest):
     """每测试前后清进程级 fallback，防 ``configure`` 串扰。
 
     另两道安全网（让 fake-based 测试在所有平台确定性、且不发真实信号）：
-    - 钉 ``sys.platform`` 为非 linux：fake 无法承载真实进程组语义，统一走 else 分支
+    - 默认钉 ``sys.platform`` 为 win32：fake 无法承载真实进程组语义，统一走 else 分支
       （``proc.kill()``、不加 ``start_new_session``，避免 fake_exec 因多余 kwarg 报错）。
       Linux ``os.killpg`` 分支由 ``test_kill_and_reap_linux_uses_proc_pid_directly`` 专门覆盖。
+      ⚠ 该钉子改的是**进程全局** ``sys.platform``（``heagent.tools.sandbox.sys`` 就是全局
+      ``sys``），故凡断言「真实平台该用哪种 shell」的测试必须用 ``@pytest.mark.real_platform``
+      退出——否则在 Linux/macOS 上 ``SandboxSession`` 会误按 Windows cmd 包装喂给 ``/bin/sh``
+      （CI 上真实暴露：``cd: can't cd to /d`` / ``call: not found``）。
     - mock ``os.killpg`` 为 no-op：永不让测试向真实进程组发信号。
     """
-    monkeypatch.setattr("heagent.tools.sandbox.sys.platform", "win32")
+    if "real_platform" not in request.keywords:
+        monkeypatch.setattr("heagent.tools.sandbox.sys.platform", "win32")
     monkeypatch.setattr("os.killpg", lambda *args, **kwargs: None, raising=False)
     reset_command_runner()
     reset_sandbox_profile()
@@ -1143,6 +1148,7 @@ class TestSandboxSession:
         assert "HEAGENT_CWD" not in result
         assert "hello" in result
 
+    @pytest.mark.real_platform
     @pytest.mark.asyncio
     async def test_cwd_persists_across_commands(self, tmp_path: Path) -> None:
         """真实 shell：cd sub 后 session.cwd 正确更新，文件落在 sub 下（cwd 跨命令保持核心）。
@@ -1200,6 +1206,7 @@ class TestSandboxSession:
         assert "HEAGENT_CWD" not in result
         assert s.cwd == Path("/fake/sub")
 
+    @pytest.mark.real_platform
     @pytest.mark.asyncio
     async def test_run_failure_exit_code_preserved(self, tmp_path: Path) -> None:
         """失败命令退出码必须透传（真实 shell，LLM 靠 exit_code 判断失败；回归：包装后恒 0）。"""
@@ -1208,6 +1215,7 @@ class TestSandboxSession:
             result = await s.run('python -c "import sys; sys.exit(3)"', timeout=30)
         assert result.startswith("exit_code=3")
 
+    @pytest.mark.real_platform
     @pytest.mark.asyncio
     async def test_run_success_exit_code_zero(self, tmp_path: Path) -> None:
         """成功命令退出码保持 0（修复不引入反向回归）。"""
