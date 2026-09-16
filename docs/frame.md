@@ -703,7 +703,7 @@ HeAgentError (base)
 | `context_files_user_level` | False | 是否纳入用户级 `~/.heagent/AGENTS.md`（默认关闭，避免全局文件静默影响每个项目） |
 | `events_rollout_enabled` | False | 是否把每次 run 的事件落盘为 `.heagent/runs/<run_id>/rollout.jsonl`（默认关闭；内容含工具原始输出） |
 | `memory_nudge_enabled` | True | 是否注入记忆保存提醒 |
-| `skill_curator_stale_days` | 30 | 技能过期天数 |
+| `skill_curator_stale_days` | 30 | `skill_curate` 未显式传 `days` 时的过期天数默认值 |
 | `cron_enabled` | True | 是否启用 cron 调度 |
 | `cron_tick_seconds` | 60 | 调度器检查间隔（秒） |
 | `dream_enabled` | False | 是否启用 dreaming（离线记忆巩固，opt-in；无人监督后台跑+联网+改持久记忆） |

@@ -6,11 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from heagent.config import reset_settings
 from heagent.memory.skills import SkillStore
 from heagent.tools.builtins.skills import (
     configure_skill_tools,
     reset_skill_tools,
     skill_create,
+    skill_curate,
     skill_delete,
     skill_list,
     skill_load,
@@ -222,3 +224,39 @@ class TestSkillLoad:
 
         reset_settings()
         assert "exceeds" in await skill_load("large")
+
+
+class TestSkillCurate:
+    """skill_curate 的 days 解析：显式参数 > SKILL_CURATOR_STALE_DAYS 设置。"""
+
+    @pytest.mark.asyncio
+    async def test_omitted_days_falls_back_to_setting(self, skill_store: SkillStore, monkeypatch) -> None:
+        monkeypatch.setenv("SKILL_CURATOR_STALE_DAYS", "7")
+        reset_settings()
+        assert "within 7 days" in await skill_curate()
+
+    @pytest.mark.asyncio
+    async def test_default_setting_is_thirty_days(self, skill_store: SkillStore) -> None:
+        assert "within 30 days" in await skill_curate()
+
+    @pytest.mark.asyncio
+    async def test_explicit_days_overrides_setting(self, skill_store: SkillStore, monkeypatch) -> None:
+        monkeypatch.setenv("SKILL_CURATOR_STALE_DAYS", "7")
+        reset_settings()
+        assert "within 45 days" in await skill_curate("45")
+
+    @pytest.mark.asyncio
+    async def test_non_numeric_days_reports_error(self, skill_store: SkillStore) -> None:
+        assert await skill_curate("soon") == "Error: days must be a number."
+
+    @pytest.mark.asyncio
+    async def test_unconfigured_store_reports_error(self, skill_store: SkillStore) -> None:
+        reset_skill_tools()
+        assert await skill_curate() == "Error: skill tools not configured."
+
+    @pytest.mark.asyncio
+    async def test_reports_stale_skill_names(self, skill_store: SkillStore) -> None:
+        await skill_create("old-skill", "Old", "old", "step")
+        result = await skill_curate()
+        assert "Found 1 stale skill(s)" in result
+        assert "old-skill: used 0x, last: never" in result

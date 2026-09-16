@@ -199,15 +199,18 @@ async def skill_delete(name: str) -> str:
 
 
 @tool(read_only=True)
-async def skill_curate(days: str = "30") -> str:
-    """List stale skills that have not been used recently."""
+async def skill_curate(days: str | None = None) -> str:
+    """List stale skills that have not been used recently (defaults to SKILL_CURATOR_STALE_DAYS)."""
     store = _store()
     if store is None:
         return "Error: skill tools not configured."
-    try:
-        stale_days = int(days)
-    except ValueError:
-        return "Error: days must be a number."
+    if days is None:
+        stale_days = get_settings().skill_curator_stale_days
+    else:
+        try:
+            stale_days = int(days)
+        except ValueError:
+            return "Error: days must be a number."
     stale = await asyncio.to_thread(store.stale_skills, days=stale_days)
     if not stale:
         return f"No stale skills found (all used within {stale_days} days)."
