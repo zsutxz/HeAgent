@@ -570,6 +570,23 @@ class TestOpenaiModelSetting:
         assert settings.default_model == "gpt-4o"
 
 
+def test_every_settings_field_is_documented_in_env_example() -> None:
+    """.env.example 必须覆盖每个 Settings 字段——它是用户唯一的配置入口。
+
+    这条约定此前只靠人工同步（历史上多次「新增设置忘了补 .env.example」，每次都要人肉补）。
+    断言方向是「字段 ⊆ .env.example 的键」；反向不断言——注释里的说明文字可能含 ``=``，会把散文
+    误当键。注释掉的示例行（``# OPENAI_MODEL=...``）同样算已文档化：它就是给人照抄的样例。
+    """
+    example = Path(__file__).resolve().parents[1] / ".env.example"
+    keys: set[str] = set()
+    for raw in example.read_text(encoding="utf-8").splitlines():
+        line = raw.strip().lstrip("#").strip()
+        if "=" in line:
+            keys.add(line.split("=", 1)[0].strip().upper())
+    missing = sorted({name.upper() for name in Settings.model_fields} - keys)
+    assert missing == [], f"未在 .env.example 文档化：{missing}"
+
+
 def test_skill_auto_invoke_token_budget_env(monkeypatch) -> None:
     monkeypatch.setenv("SKILL_MAX_AUTO_INVOKE_TOKENS", "1024")
     reset_settings()
