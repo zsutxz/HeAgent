@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
+from heagent.frontmatter import FRONTMATTER_NEWLINE_RE, parse_inline_pairs
 from heagent.persist import atomic_update_text, atomic_write_text
 
 if TYPE_CHECKING:
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 # SKILL.md 的 frontmatter 分隔与捕获。``_parse_skill_md`` 与「只改计数、保留正文」的
 # 就地改写共用同一模式，避免两份可漂移的副本。
-_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+_FRONTMATTER_RE = FRONTMATTER_NEWLINE_RE
 
 
 class SkillRewriteError(ValueError):
@@ -515,29 +516,32 @@ class SkillStore:
         if fm_match:
             fm_text = fm_match.group(1)
             body = content[fm_match.end() :]
-            # 简单解析 frontmatter（不引入 yaml 依赖）
-            for line in fm_text.splitlines():
-                stripped = line.strip()
-                if stripped.startswith("description:"):
-                    description = stripped.split(":", 1)[1].strip().strip('"').strip("'")
-                elif stripped.startswith("created:"):
-                    created = stripped.split(":", 1)[1].strip()
-                elif stripped.startswith("tags:"):
-                    tag_part = stripped.split(":", 1)[1].strip()
-                    if tag_part.startswith("[") and tag_part.endswith("]"):
-                        tags = [t.strip() for t in tag_part[1:-1].split(",") if t.strip()]
-                elif stripped.startswith("triggers:"):
-                    triggers = _parse_inline_list(stripped.split(":", 1)[1])
-                elif stripped.startswith("negative_triggers:"):
-                    negative_triggers = _parse_inline_list(stripped.split(":", 1)[1])
-                elif stripped.startswith("priority:"):
-                    with contextlib.suppress(ValueError):
-                        priority = int(stripped.split(":", 1)[1].strip())
-                elif stripped.startswith("usage_count:"):
-                    with contextlib.suppress(ValueError):
-                        usage_count = int(stripped.split(":", 1)[1].strip())
-                elif stripped.startswith("last_used:"):
-                    last_used = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+            # 简单解析 frontmatter（不引入 yaml 依赖）：键识别移入共享宽档解析，值 coercion 留在本地。
+            pairs = parse_inline_pairs(
+                fm_text,
+                keys=(
+                    "description",
+                    "created",
+                    "tags",
+                    "triggers",
+                    "negative_triggers",
+                    "priority",
+                    "usage_count",
+                    "last_used",
+                ),
+            )
+            description = pairs.get("description", "").strip().strip('"').strip("'")
+            created = pairs.get("created", "").strip()
+            tag_part = pairs.get("tags", "").strip()
+            if tag_part.startswith("[") and tag_part.endswith("]"):
+                tags = [t.strip() for t in tag_part[1:-1].split(",") if t.strip()]
+            triggers = _parse_inline_list(pairs.get("triggers", ""))
+            negative_triggers = _parse_inline_list(pairs.get("negative_triggers", ""))
+            with contextlib.suppress(ValueError):
+                priority = int(pairs.get("priority", "").strip())
+            with contextlib.suppress(ValueError):
+                usage_count = int(pairs.get("usage_count", "").strip())
+            last_used = pairs.get("last_used", "").strip().strip('"').strip("'")
 
         # 解析正文
         section = ""

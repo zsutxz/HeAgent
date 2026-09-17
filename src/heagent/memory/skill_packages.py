@@ -11,6 +11,7 @@ from typing import Any, Iterable, Literal, cast  # noqa: UP035
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
+from heagent.frontmatter import FrontmatterSyntaxError, parse_inline_pairs, parse_strict_pairs, split_frontmatter
 from heagent.tools.path_safety import WorkspacePathError, resolve_under_root
 
 
@@ -438,19 +439,19 @@ class SkillPackage(BaseModel):
 
     @staticmethod
     def _parse_resource_frontmatter(text: str) -> tuple[dict[str, Any], str]:
-        match = re.match(r"^---\s*\n(.*?)\n---\s*(?:\n|\Z)", text, re.DOTALL)
-        if match is None:
+        split = split_frontmatter(text, closed_at_eof=True)
+        if split is None:
             return {}, text
+        raw_block, end, _body = split
+        try:
+            pairs = parse_strict_pairs(raw_block)
+        except FrontmatterSyntaxError as exc:
+            # 异常类型（裸 ValueError）与消息文案保持收敛前契约（测试锁定）。
+            if exc.kind == "invalid_line":
+                raise ValueError(f"invalid workflow frontmatter line: {exc.line}") from exc
+            raise ValueError(f"duplicate workflow frontmatter key: {exc.key}") from exc
         values: dict[str, Any] = {}
-        for line in match.group(1).splitlines():
-            if not line.strip() or line.lstrip().startswith("#"):
-                continue
-            if ":" not in line or line[:1].isspace():
-                raise ValueError(f"invalid workflow frontmatter line: {line}")
-            key, raw = line.split(":", 1)
-            key = key.strip()
-            if not key or key in values:
-                raise ValueError(f"duplicate workflow frontmatter key: {key}")
+        for key, raw in pairs.items():
             raw = raw.strip()
             if raw.startswith("[") and raw.endswith("]"):
                 values[key] = [item.strip().strip("\"'") for item in raw[1:-1].split(",") if item.strip()]
@@ -458,7 +459,7 @@ class SkillPackage(BaseModel):
                 values[key] = raw.lower() == "true"
             else:
                 values[key] = raw.strip("\"'")
-        return values, text[match.end() :]
+        return values, text[end:]
 
     def read_reference(self, resource: str) -> str:
         return self._read_in("references", resource)
@@ -506,12 +507,11 @@ class SkillPackage(BaseModel):
 
     def _parse_metadata(self, text: str) -> SkillPackageMetadata:
         values: dict[str, str] = {}
-        match = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
-        if match:
-            for line in match.group(1).splitlines():
-                if ":" in line:
-                    key, value = line.split(":", 1)
-                    values[key.strip()] = value.strip().strip("\"'")
+        split = split_frontmatter(text)
+        if split is not None:
+            raw_block, _end, _body = split
+            # 宽档 keys=() 模式（任意含冒号行、不跳注释），值还原历史语义：strip + 成对引号剥壳。
+            values = {key: value.strip().strip("\"'") for key, value in parse_inline_pairs(raw_block).items()}
         tags = [tag.strip() for tag in values.get("tags", "").strip("[]").split(",") if tag.strip()]
         aliases = [tag.strip().strip("\"'") for tag in values.get("aliases", "").strip("[]").split(",") if tag.strip()]
         canonical_id = values.get("canonical_id", values.get("canonicalId", ""))

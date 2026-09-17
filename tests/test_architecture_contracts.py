@@ -89,10 +89,13 @@ def _package_modules(package: str) -> Iterator[Path]:
 
 
 def test_no_reverse_dependency_on_agent() -> None:
-    """底层包运行期不得反向导入 ``agent``（events 另外不得导入 ``engine``）。
+    """底层包运行期不得反向导入 ``agent``（memory/events 另外不得导入 ``engine``）。
 
     反向依赖会破坏「新增 provider / 工具不得反向导入 agent」的可插拔性——``AgentLoop`` 应当零改动
     地接纳新 provider 与工具；一旦底层包开始 import agent，扩展点就变成了循环。
+    ``memory → engine`` 于 2026-09-17 收敛（``memory/dream.py`` 的整包导入改为入口层注入 +
+    TYPE_CHECKING 引用；engine→memory 的合法边是 ``workflow_runner`` 对 ``skill_packages``
+    资源模型的单向依赖）。
     """
     offenders: list[str] = []
     for package, forbidden in FORBIDDEN_RUNTIME_IMPORTS.items():
@@ -114,6 +117,22 @@ def test_types_only_imports_stay_types_only() -> None:
         _, typing_only = _imports(path)
         typing_refs += len(typing_only & {"heagent.engine"})
     assert typing_refs > 0, "events 对 engine 的类型期引用消失了？契约文档需要同步更新"
+
+
+def test_frontmatter_parsing_is_centralized() -> None:
+    """frontmatter 分隔正则只允许出现在共享模块 ``frontmatter.py`` 中。
+
+    2026-09-17 勘察发现六处手写 ``---`` frontmatter 解析器各自漂移（同一文档在不同模块
+    可能解析出不同结果），已收敛为 ``heagent.frontmatter``。此断言拒绝「明天又有人就地
+    手写一份」的静默回退——新增解析需求必须走共享模块。
+    """
+    needle = "---\\s*\\n"  # 源码中正则字面量的原始字符序列
+    offenders = [
+        path.relative_to(SRC).as_posix()
+        for path in sorted(SRC.rglob("*.py"))
+        if path.name != "frontmatter.py" and needle in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], "frontmatter 正则漂移出共享模块 heagent.frontmatter：" + ", ".join(offenders)
 
 
 def test_timestamps_are_naive_and_parseable() -> None:

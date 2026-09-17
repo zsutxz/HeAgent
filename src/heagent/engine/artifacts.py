@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import ast
-import json
 import re
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from heagent.frontmatter import FrontmatterSyntaxError, parse_scalar, parse_strict_pairs, split_frontmatter
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -107,49 +107,29 @@ class StoryArtifact(ArtifactContract):
 
 Artifact = GoalArtifact | EpicArtifact | StoryArtifact
 
-_FRONTMATTER = re.compile(r"\A---\s*\n(?P<raw>.*?)\n---\s*(?:\n|\Z)", re.DOTALL)
 _HEADING = re.compile(r"^##\s+(.+?)\s*$", re.MULTILINE)
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 _TBD = re.compile(r"\bTBD\b", re.IGNORECASE)
 _ID = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]*$")
 
 
-def _scalar(value: str) -> Any:
-    value = value.strip()
-    if not value:
-        return ""
-    if value.startswith(("[", "{")):
-        for parser in (json.loads, ast.literal_eval):
-            try:
-                return parser(value)
-            except (ValueError, SyntaxError, json.JSONDecodeError):
-                continue
-    if (len(value) >= 2 and value[0] == value[-1]) and value[0] in "\"'":
-        return value[1:-1]
-    if value.lower() in {"true", "false"}:
-        return value.lower() == "true"
-    return value
-
-
 def parse_frontmatter(text: str) -> Frontmatter:
     """Parse the constrained YAML frontmatter used by workflow artifacts."""
     if not isinstance(text, str) or not text.strip():
         raise ArtifactContractError("artifact must be non-empty Markdown")
-    match = _FRONTMATTER.match(text)
-    if match is None:
+    split = split_frontmatter(text, closed_at_eof=True)
+    if split is None:
         raise ArtifactContractError("artifact requires frontmatter")
-    values: dict[str, Any] = {}
-    for line_number, line in enumerate(match.group("raw").splitlines(), 1):
-        if not line.strip() or line.lstrip().startswith("#"):
-            continue
-        if ":" not in line or line[:1].isspace():
-            raise ArtifactContractError(f"invalid frontmatter line {line_number}")
-        key, value = line.split(":", 1)
-        key = key.strip()
-        if not key or key in values:
-            raise ArtifactContractError(f"duplicate or empty frontmatter key: {key!r}")
-        values[key] = _scalar(value)
-    return Frontmatter(values=values, body=text[match.end() :])
+    raw, _end, body = split
+    try:
+        pairs = parse_strict_pairs(raw)
+    except FrontmatterSyntaxError as exc:
+        # 异常类型与消息文案保持收敛前的契约（测试锁定）；结构判定移入共享模块。
+        if exc.kind == "invalid_line":
+            raise ArtifactContractError(f"invalid frontmatter line {exc.line_number}") from exc
+        raise ArtifactContractError(f"duplicate or empty frontmatter key: {exc.key!r}") from exc
+    values: dict[str, Any] = {key: parse_scalar(value) for key, value in pairs.items()}
+    return Frontmatter(values=values, body=body)
 
 
 def _sections(body: str) -> dict[str, str]:

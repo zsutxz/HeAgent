@@ -5,18 +5,19 @@
 ``~/.heagent/commands/*.md``（用户级）加载，frontmatter 声明 ``name``/``description``，
 正文为 prompt 模板，触发时作为一条用户消息提交给 AgentLoop。
 
-本模块是**零 heagent 依赖的纯数据/注册表模块**（仅依赖 pydantic），handler 由调用方
-（``cli.py``）以闭包注入，避免 ``slash`` 反向依赖 ``agent``/``providers``——对齐项目
-DAG 硬约束（新增能力不得从 ``agent/`` 导入核心）。
+本模块是**零 heagent 依赖的纯数据/注册表模块**（仅依赖 pydantic + 零依赖顶层模块
+``heagent.frontmatter``），handler 由调用方（``cli.py``）以闭包注入，避免 ``slash`` 反向依赖
+``agent``/``providers``——对齐项目 DAG 硬约束（新增能力不得从 ``agent/`` 导入核心）。
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from pydantic import BaseModel
+
+from heagent.frontmatter import parse_inline_pairs, split_frontmatter
 
 
 class CustomSlashCommand(BaseModel):
@@ -107,16 +108,12 @@ def _parse_command_md(path: Path) -> CustomSlashCommand | None:
     name = ""
     description = ""
     body = raw
-    frontmatter = re.match(r"^---\s*\n(.*?)\n---\s*\n", raw, re.DOTALL)
-    if frontmatter:
-        fm_text = frontmatter.group(1)
-        body = raw[frontmatter.end() :]
-        for line in fm_text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("name:"):
-                name = stripped.split(":", 1)[1].strip().strip('"').strip("'")
-            elif stripped.startswith("description:"):
-                description = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+    split = split_frontmatter(raw)
+    if split is not None:
+        fm_text, _end, body = split
+        pairs = parse_inline_pairs(fm_text, keys=("name", "description"))
+        name = pairs.get("name", "").strip().strip('"').strip("'")
+        description = pairs.get("description", "").strip().strip('"').strip("'")
     if not name:
         name = path.stem  # 无 frontmatter 时回退为文件名
     prompt = body.strip()

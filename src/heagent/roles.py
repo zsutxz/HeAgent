@@ -16,10 +16,11 @@
 from __future__ import annotations
 
 import contextlib
-import re
 from pathlib import Path
 
 from pydantic import BaseModel, Field
+
+from heagent.frontmatter import parse_inline_pairs, split_frontmatter
 
 
 class RoleSpec(BaseModel):
@@ -104,21 +105,15 @@ def _parse_role_md(path: Path) -> RoleSpec | None:
     tools: list[str] = []
     max_iterations: int | None = None
     body = raw
-    frontmatter = re.match(r"^---\s*\n(.*?)\n---\s*\n", raw, re.DOTALL)
-    if frontmatter:
-        fm_text = frontmatter.group(1)
-        body = raw[frontmatter.end() :]
-        for line in fm_text.splitlines():
-            stripped = line.strip()
-            if stripped.startswith("name:"):
-                name = stripped.split(":", 1)[1].strip().strip('"').strip("'")
-            elif stripped.startswith("description:"):
-                description = stripped.split(":", 1)[1].strip().strip('"').strip("'")
-            elif stripped.startswith("tools:"):
-                tools = [tkn.strip() for tkn in stripped.split(":", 1)[1].split(",") if tkn.strip()]
-            elif stripped.startswith("max_iterations:"):
-                with contextlib.suppress(ValueError):
-                    max_iterations = int(stripped.split(":", 1)[1].strip())
+    split = split_frontmatter(raw)
+    if split is not None:
+        fm_text, _end, body = split
+        pairs = parse_inline_pairs(fm_text, keys=("name", "description", "tools", "max_iterations"))
+        name = pairs.get("name", "").strip().strip('"').strip("'")
+        description = pairs.get("description", "").strip().strip('"').strip("'")
+        tools = [tkn.strip() for tkn in pairs.get("tools", "").split(",") if tkn.strip()]
+        with contextlib.suppress(ValueError):
+            max_iterations = int(pairs.get("max_iterations", "").strip())
     if not name:
         name = path.stem
     system = body.strip()
