@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -286,3 +287,153 @@ class TestCredentialDestructiveCommand:
     def test_allows_non_credential(self, cmd: str) -> None:
         guard = SafetyGuard()
         guard.check(_shell_call(cmd))  # 不应抛异常
+
+
+# ── 2026-09-17：项目级 deny 规则配置入口（.heagent/path_deny.json）──────────
+
+
+class TestUserDenyRules:
+    """项目级 path_deny.json：只允许收紧或放行显式列举项，无整体关闭入口（fail-safe 默认仍拒）。
+
+    测试模式对齐 test_mcp_mapping 的用户签名用例：显式 path 加载 + monkeypatch 灌注
+    进程级缓存（显式 path **不**写缓存是有意设计——缓存只走默认路径解析）。
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_cache(self) -> Generator[None, None, None]:
+        from heagent.tools.path_safety import reset_user_deny_rules
+
+        reset_user_deny_rules()
+        yield
+        reset_user_deny_rules()
+
+    @staticmethod
+    def _write_config(tmp_path: Path, payload: object) -> Path:
+        import json
+
+        config = tmp_path / "path_deny.json"
+        config.write_text(json.dumps(payload), encoding="utf-8")
+        return config
+
+    @staticmethod
+    def _prime(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, payload: object) -> None:
+        """加载配置并灌注缓存，使 check_* 函数走用户规则。"""
+        import heagent.tools.path_safety as ps
+
+        config = TestUserDenyRules._write_config(tmp_path, payload)
+        monkeypatch.setattr(ps, "_USER_DENY_RULES", ps.user_deny_rules(config))
+
+    def test_missing_file_yields_builtin_only(self, tmp_path: Path) -> None:
+        """无配置文件 → 静默空规则，内置表照常工作。"""
+        from heagent.tools.path_safety import user_deny_rules
+
+        assert check_write_denied("/etc/passwd") is not None  # 内置写 deny（绝对常量）
+        assert check_read_denied(str(tmp_path / ".env")) is not None  # 内置读 deny
+        rules = user_deny_rules(tmp_path / "nonexistent.json")
+        assert rules.deny_write_paths == frozenset()
+        assert rules.allow_write_paths == frozenset()
+
+    def test_user_deny_entries_tighten(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """收紧：用户追加的精确路径与前缀参与 deny，未知路径不受影响。"""
+        token = tmp_path / "project" / "secrets-token"
+        prefix_dir = tmp_path / "vault"
+        self._prime(
+            monkeypatch,
+            tmp_path,
+            {
+                "deny_write_paths": [str(token)],
+                "deny_write_prefixes": [str(prefix_dir)],
+            },
+        )
+        assert check_write_denied(str(token)) is not None
+        assert check_write_denied(str(prefix_dir / "key.bin")) is not None
+        assert check_write_denied(str(tmp_path / "notes.txt")) is None
+
+    def test_user_read_basename_tightens(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._prime(monkeypatch, tmp_path, {"deny_read_basenames": ["secrets.yml"]})
+        assert check_read_denied(str(tmp_path / "cfg" / "secrets.yml")) is not None
+        assert check_read_denied(str(tmp_path / "cfg" / "notes.yml")) is None
+
+    def test_allow_write_path_exempts_exact_builtin_only(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """放行：仅豁免显式列举的精确路径；内置前缀 deny 对其余路径照常生效。"""
+        from pathlib import Path as _Path
+
+        home = tmp_path / "home"
+        monkeypatch.setattr(_Path, "home", classmethod(lambda cls: home))
+        allowed = home / ".ssh" / "config"  # 内置 ~/.ssh/ 前缀 deny 内的显式放行项
+        self._prime(monkeypatch, tmp_path, {"allow_write_paths": [str(allowed)]})
+        assert check_write_denied(str(allowed)) is None
+        # 同目录其余文件仍被前缀 deny 拦截
+        assert check_write_denied(str(home / ".ssh" / "id_rsa")) is not None
+
+    def test_allow_read_basename_exempts_env(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """放行显式列举的 basename（如测试夹具目录的 .env 样例文件）；未列举项仍拒。"""
+        self._prime(monkeypatch, tmp_path, {"allow_read_basenames": [".env"]})
+        assert check_read_denied(str(tmp_path / "fixtures" / ".env")) is None
+        assert check_read_denied(str(tmp_path / "fixtures" / ".env.local")) is not None
+
+    def test_allow_does_not_weaken_internal_state_deny(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """内部状态目录 deny 不接受豁免（另一保护类，不随用户配置放松）。"""
+        self._prime(
+            monkeypatch,
+            tmp_path,
+            {"allow_read_basenames": ["ledger.json"], "allow_write_paths": [str(tmp_path / "ledger")]},
+        )
+        state_file = Path.cwd().resolve() / ".heagent" / "ledger" / "ledger.json"
+        assert check_read_denied(str(state_file)) is not None
+
+    def test_bad_json_falls_back_to_builtin(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        config = tmp_path / "broken.json"
+        config.write_text("{not json", encoding="utf-8")
+        from heagent.tools.path_safety import user_deny_rules
+
+        with caplog.at_level(logging.ERROR, logger="heagent.tools.path_safety"):
+            rules = user_deny_rules(config)
+        assert rules.deny_write_paths == frozenset()
+        assert any("path deny rules" in r.getMessage() for r in caplog.records)
+        assert check_read_denied(str(tmp_path / ".env")) is not None  # 内置表照常
+
+    def test_invalid_entries_skipped_individually(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._prime(
+            monkeypatch,
+            tmp_path,
+            {
+                "deny_write_paths": [123, "", "  ", str(tmp_path / "valid-token")],
+                "deny_read_basenames": [["nested"], "ok.yml"],
+            },
+        )
+        from heagent.tools.path_safety import user_deny_rules
+
+        # 直接验证解析结果（bad entries 已在 _prime 加载时跳过）
+        config = self._write_config(
+            tmp_path,
+            {
+                "deny_write_paths": [123, "", "  ", str(tmp_path / "valid-token")],
+                "deny_read_basenames": [["nested"], "ok.yml"],
+            },
+        )
+        rules = user_deny_rules(config)
+        assert rules.deny_write_paths == frozenset({str((tmp_path / "valid-token").resolve())})
+        assert rules.deny_read_basenames == frozenset({"ok.yml"})
+
+    def test_lazy_cache_loads_once_via_default_path(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """默认路径加载 + 进程级懒缓存：第二次 check 命中缓存（运行中改文件不生效，有意）。"""
+        import heagent.tools.path_safety as ps
+
+        config_dir = tmp_path / ".heagent"
+        config_dir.mkdir()
+        config = config_dir / "path_deny.json"
+        config.write_text('{"deny_read_basenames": ["one.yml"]}', encoding="utf-8")
+
+        calls: list[int] = []
+        original_read = Path.read_text
+
+        def counting_read(self: Path, *a: object, **k: object) -> str:
+            if self == config:
+                calls.append(1)
+            return original_read(self, *a, **k)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "read_text", counting_read)
+        assert check_read_denied(str(tmp_path / "a" / "one.yml")) is not None
+        assert check_read_denied(str(tmp_path / "b" / "one.yml")) is not None
+        assert len(calls) == 1, "第二次 check 应命中缓存"
