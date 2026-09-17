@@ -427,6 +427,11 @@ class RoutingProvider:
         """按路由决策委托给选中的 provider 完成单次调用。
 
         路由目标失败且为限流/瞬时错误时，回退到池内兄弟（见类 docstring）。
+
+        与 ``SwitchableProvider`` / ``ProviderChain`` / ``KeyRotatingProvider`` 的回退循环
+        结构同源但形态有意不同：本类是**单兄弟单次重试**、无索引/粘性状态（每次调用重新
+        路由）；判据共用 ``is_pool_fallback_error``（策略矩阵见 ``retry.py`` 模块 docstring，
+        护栏见 ``test_retry.py::TestPoolFallbackPolicy``），不共用模板。
         """
         name, provider = self._pick(messages, tools)
         logger.info("Routing → %s (reason=%s)", name, self.last_decision.reason if self.last_decision else "")
@@ -450,6 +455,8 @@ class RoutingProvider:
         """流式版：按路由决策委托，逐 chunk 透传。
 
         仅在**首个 chunk 产生前**失败才改道兄弟（已开始输出后无法重放前缀，不改道）。
+        回退形态与 send() 同——单兄弟单次重试、无粘性状态；与 chain/key_rotation/
+        switchable 的 stream 回退结构同源但有意不同（见 send() docstring），不共用模板。
         """
         name, provider = self._pick(messages, tools)
         logger.info("Routing (stream) → %s (reason=%s)", name, self.last_decision.reason if self.last_decision else "")

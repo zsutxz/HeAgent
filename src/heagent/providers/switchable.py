@@ -165,6 +165,12 @@ class SwitchableProvider:
         仅 RATE_LIMITED (429) 和 TRANSIENT (5xx/超时) 触发回退；
         AUTH_FAILED / NON_TRANSIENT 直接上抛，不浪费时间重试。
         成功回退后粘性停留在新 provider（后续调用不再重试已限流的旧 provider）。
+
+        与 ``ProviderChain`` / ``KeyRotatingProvider`` 的回退循环结构同构，但**判据与粘性
+        语义有意不同**（本类 AUTH_FAILED 不回退、回退成功才粘；chain 成功即复位、
+        key_rotation 判据含 AUTH_FAILED 且成功即粘）——策略矩阵见 ``retry.py`` 模块
+        docstring（「不要合并成一套」），护栏见 ``test_retry.py::TestPoolFallbackPolicy``。
+        不共用模板；改其一时请对照另几处。
         """
         async with self._lock:
             active_before = self._active
@@ -202,6 +208,9 @@ class SwitchableProvider:
         一旦当前 provider 已产出任意 chunk，后续异常不回退——否则下一个 provider
         从头重放会导致消费者收到重复前缀。
         成功回退后同样粘性停留在新 provider。
+
+        与 ``ProviderChain`` / ``KeyRotatingProvider`` 的 stream 回退结构同构，判据与粘性
+        语义有意不同（见 ``send()`` docstring 与 ``retry.py`` 策略矩阵），不共用模板。
         """
         # P2-2 修复：锁内读取 active 与获取 provider 实例，释放锁后迭代——
         # 避免长时间持锁串行化并发 consumer。
