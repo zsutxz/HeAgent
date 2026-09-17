@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
     from heagent.agent.loop import AgentLoop
     from heagent.cron.jobs import JobStore
+    from heagent.cron.scheduler import CronScheduler
     from heagent.engine import EngineContainer
     from heagent.gui.bridge import AgentBridge, BridgeMessage
     from heagent.gui.observers import GuiEventObserver
@@ -58,6 +59,7 @@ class HeAgentApp(App[None]):
         job_store: JobStore | None = None,
         fact_store: FactStore | None = None,
         profile_store: ProfileStore | None = None,
+        cron_scheduler: CronScheduler | None = None,
     ) -> None:
         super().__init__()
         self._bridge = bridge
@@ -68,6 +70,8 @@ class HeAgentApp(App[None]):
         self.job_store = job_store
         self.fact_store = fact_store
         self.profile_store = profile_store
+        # cron 自动推进（/goal auto 注册的 goal-advance job）由 GUI 会话驱动（2026-09-17 收口）。
+        self.cron_scheduler = cron_scheduler
         # 事件观察者引用（供 EventLog widget 拉取）
         self._event_observer: GuiEventObserver | None = None
         # 注册当前实例 + 回注给 bridge（Textual 1.0 无 get_current_app API）
@@ -91,9 +95,11 @@ class HeAgentApp(App[None]):
         """AgentLoop 实例，供外部 Screen/widget 访问。"""
         return self._agent_loop
 
-    def on_mount(self) -> None:
-        """Push the main chat screen on startup."""
+    async def on_mount(self) -> None:
+        """Push the main chat screen on startup; start the cron scheduler if configured."""
         self.push_screen(ChatScreen(self._bridge, self._state))
+        if self.cron_scheduler is not None:
+            await self.cron_scheduler.start()
 
     def compose(self) -> ComposeResult:
         yield Footer()
@@ -148,6 +154,8 @@ class HeAgentApp(App[None]):
         self.push_screen(screen)
 
     async def action_quit(self) -> None:
-        """Ctrl+Q 退出：先中断 Agent，再退出。"""
+        """Ctrl+Q 退出：先中断 Agent、停 cron 调度器，再退出。"""
         self._bridge.cancel()
+        if self.cron_scheduler is not None:
+            await self.cron_scheduler.stop()
         await super().action_quit()

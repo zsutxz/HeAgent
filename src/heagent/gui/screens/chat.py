@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
+from contextlib import redirect_stderr
 from typing import TYPE_CHECKING
 
 from rich.markup import escape
@@ -43,6 +45,40 @@ def _render_tool_result(event: StreamEvent) -> str:
     return f"  [green]✓[/] {result}"
 
 
+class _StderrToLogForwarder(io.TextIOBase):
+    """把 click.echo(err=True) 写入 stderr 的文本按行转发到 RichLog（/goal 专用）。
+
+    ``cli_goal`` 的进度/失败信息全部经 ``click.echo(..., err=True)`` 直写进程 stderr（文案为
+    冻结契约，不改），GUI 侧经 :func:`contextlib.redirect_stderr` 捕获后路由到聊天日志——
+    ``click.echo`` 在调用时查 ``sys.stderr``，重定向对它有效。同线程同 loop 直写安全；
+    无换行的不完整行缓冲到下一次 ``write``（click.echo 每次自带换行，尾巴仅 close 时输出）。
+    """
+
+    def __init__(self, log: RichLog) -> None:
+        self._log = log
+        self._pending: str = ""
+
+    def write(self, text: str) -> int:
+        self._pending += text
+        while "\n" in self._pending:
+            line, self._pending = self._pending.split("\n", 1)
+            self._write_line(line)
+        return len(text)
+
+    def flush(self) -> None:
+        """按行缓冲语义下无需动作（部分行留给下一次 write / close）。"""
+
+    def _write_line(self, raw_line: str) -> None:
+        line = raw_line.rstrip("\r")
+        if line.strip():
+            self._log.write(f"[dim]{escape(line)}[/]")
+
+    def close(self) -> None:
+        if self._pending.strip():
+            self._write_line(self._pending)
+        self._pending = ""
+
+
 class ChatScreen(Screen[None]):
     """主聊天界面。
 
@@ -50,7 +86,11 @@ class ChatScreen(Screen[None]):
         AgentBridge.post() → App.on_bridge_message() → ChatScreen.on_bridge_message()
     """
 
-    BINDINGS = [("ctrl+l", "clear_screen", "清屏")]
+    BINDINGS = [
+        ("ctrl+l", "clear_screen", "清屏"),
+        # 不用 ctrl+c：Textual 1.0 的 Input 占用 ctrl+c=copy（焦点在输入框时先于 Screen 触发）。
+        ("escape", "cancel_goal", "中止"),
+    ]
 
     CSS = """
     ChatScreen { layout: vertical; }
@@ -189,7 +229,7 @@ class ChatScreen(Screen[None]):
             log.write(WELCOME)
             return True
         if cmd == "/help":
-            log.write("[dim]/model /clear /help | Ctrl+L 清屏 | Ctrl+Q 退出[/]")
+            log.write("[dim]/model /goal /clear /help | Ctrl+L 清屏 | Esc 中止 | Ctrl+Q 退出[/]")
             return True
         if cmd == "/model":
             self._model_cmd(args)
@@ -212,15 +252,34 @@ class ChatScreen(Screen[None]):
                 log.write("[red]Goal runner unavailable[/]")
                 return
             self._state.is_running = True
+            forwarder = _StderrToLogForwarder(log)
             try:
-                await _goal_runner(app.agent_loop.provider, app.agent_loop.engine, args, cron_store=app.job_store)
-                log.write("[dim]Goal command completed; use /goal status to inspect progress.[/]")
+                # click.echo(err=True) 直写进程 stderr（文案冻结）；经重定向捕获后按行转发到
+                # RichLog，/goal 的进度与失败信息在 GUI 内可见（2026-09-17 收口）。
+                with redirect_stderr(forwarder):
+                    await _goal_runner(app.agent_loop.provider, app.agent_loop.engine, args, cron_store=app.job_store)
+            except asyncio.CancelledError:
+                log.write("[yellow]Goal command 中止（Esc）。[/]")
+                raise
             except Exception as exc:
                 log.write(f"[red]Goal command failed: {exc}[/]")
+            else:
+                log.write("[dim]Goal command completed; use /goal status to inspect progress.[/]")
             finally:
+                forwarder.close()
                 self._state.is_running = False
 
         self._pending_submit = asyncio.create_task(_run())
+
+    def action_cancel_goal(self) -> None:
+        """Esc：中止当前前台 task（/goal 与普通 submit 共用 ``_pending_submit`` 槽）。
+
+        普通对话路径的 CancelledError 由 ``AgentBridge.submit`` 自行捕获并播报中断；
+        goal 路径由 ``_goal_cmd._run`` 写「已中止」后复抛。
+        """
+        task = self._pending_submit
+        if task is not None and not task.done():
+            task.cancel()
 
     def _model_cmd(self, args: str) -> None:
         log = self.query_one("#chat-log", RichLog)

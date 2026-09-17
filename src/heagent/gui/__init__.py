@@ -20,11 +20,16 @@ def gui_main(
     sandbox_session_keep: bool | None = None,
 ) -> None:
     """Launch the HeAgent Textual TUI."""
+    from typing import TYPE_CHECKING
+
     from heagent.config import get_settings
     from heagent.gui.app import HeAgentApp
     from heagent.gui.bridge import AgentBridge
     from heagent.gui.observers import GuiEventObserver
     from heagent.gui.state import GuiState
+
+    if TYPE_CHECKING:
+        from heagent.engine.context import RunContext
 
     settings = get_settings()
 
@@ -81,6 +86,47 @@ def gui_main(
     observer = GuiEventObserver(state)
     engine.events.subscribe(observer)
 
+    # ── Cron 调度器（/goal auto 注册的 goal-advance job 由它驱动；镜像 cli.py 的 _run_job）──
+    cron_scheduler = None
+    if settings.cron_enabled:
+        from heagent.agent.middleware import make_retry_middleware
+        from heagent.cli_goal import _goal_auto_goal_id, _goal_cron_advance
+        from heagent.cron.scheduler import CronScheduler
+
+        retry_mw = make_retry_middleware(
+            max_attempts=settings.retry_max_attempts,
+            base_delay=settings.retry_base_delay,
+            max_delay=settings.retry_max_delay,
+        )
+
+        async def _run_job(prompt: str, run_context: RunContext) -> None:
+            goal_id = _goal_auto_goal_id(prompt)
+            if goal_id is not None:
+                await _goal_cron_advance(provider, engine, job_store, goal_id)
+                return
+            # 非 goal 的 cron prompt：构造一次性 loop（与 GUI 主 loop 共享 stores/engine，
+            # 事件经同一 EventBus 到达 GUI 观察者），不与交互中的主 loop 抢占 run_context。
+            await AgentLoop(
+                provider,
+                registry=ToolRegistry.get(),
+                engine=engine,
+                skills=skill_store,
+                facts=fact_store,
+                profile=profile_store,
+                cron_store=job_store,
+                context_dir=None,
+                run_context=run_context,
+                middlewares=[retry_mw],
+                subagent_announcer=SUBAGENT_ANNOUNCER,
+            ).run(prompt)
+
+        cron_scheduler = CronScheduler(
+            job_store,
+            tick_seconds=settings.cron_tick_seconds,
+            engine=engine,
+            job_runner=_run_job,
+        )
+
     # ── 启动 Textual ────────────────────────────────────────
     app = HeAgentApp(
         bridge,
@@ -90,6 +136,7 @@ def gui_main(
         job_store=job_store,
         fact_store=fact_store,
         profile_store=profile_store,
+        cron_scheduler=cron_scheduler,
     )
     app._event_observer = observer
     app.run()
