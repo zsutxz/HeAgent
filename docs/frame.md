@@ -375,6 +375,8 @@ SafetyGuard
 
 **FirejailBackend（2026-07-20 硬化）：** 新增 `profiles` dict（profile 名 → firejail 参数映射），使 `RoleSpec.sandbox_profile` 死字段激活；`shutil.which` 构造期检测 firejail 可用性，不可用时 `run()` 优雅降级到 Passthrough（warn + 不崩溃）；Linux 进程组 killing（`start_new_session` + `os.killpg`）解决 `sh -c "cmd &"` 子孙泄漏；自动 `--private=<workspace_root>` OS 级文件系统隔离。⚠ `FirejailBackend` 仅隔离 shell 子进程、Linux-only、非完美边界——须 OS 级沙箱兜底。
 
+**沙箱硬化配置接入（2026-09-17）：** 此前 `FirejailBackend.profiles` 与 `PolicyEngine.sandbox_profiles` 在生产装配下恒空（仅测试/库消费者手工注入），profile 名产生零参数。本次把两段映射接入配置（**默认全关闭，默认行为逐字节不变**）：① `SANDBOX_PROFILES`（JSON：profile 名 → firejail 参数表，如 `{"default": ["--seccomp", "--caps.drop=all"]}`）经 `container.default()` 传入 `FirejailBackend.profiles`——高级隔离参数（--seccomp/--caps 类）由此声明，默认关闭；② `SANDBOX_TOOL_PROFILES`（JSON：工具名 → profile 名）叠加进 `PolicyEngine.sandbox_profiles`，per-tool 差异化选用 profile（与代码内映射同形状，不引入新抽象）；③ 资源限额 `SANDBOX_MEMORY_LIMIT_MB` / `SANDBOX_CPU_SECONDS`（0=关闭）——firejail 映射 `--rlimit-as` / `--rlimit-cpu`（排在 profile 参数后、`--` 前），WinJob 映射 `JOB_OBJECT_LIMIT_JOB_MEMORY` / `JOB_OBJECT_LIMIT_PROCESS_TIME`（与恒开的 KILL_ON_JOB_CLOSE 按位或）。**限额触发为显性失败**：子进程被终止 → 非零退出码经正常结果回传（对齐超时 `exit_code=-1` 先例），不静默截断输出。JSON 配置坏行/坏条目告警丢弃（对齐 `routing_pool_map` 容错）。以上均 defense-in-depth，**非真正安全边界**，须 OS 级沙箱兜底。
+
 **沙箱会话目录（FR-1，2026-08-26）：** `Settings.sandbox_session_workspace`（env `SANDBOX_SESSION_WORKSPACE`，默认 False）开启后，`EngineContainer.create_run_context` 经 `sandbox_session_dir(run_id)`（幂等目录解析；run_id 非法——空串/含分隔符/`..`/绝对路径——抛 `ValueError`）为每个 run 幂等创建 `<workspace_root 回退链>/.heagent/sandboxes/<run_id>/` 并写入 `RunContext.metadata["sandbox_workspace"]`——**根锚定 workspace_root 回退链**（参数→container→policy→cwd）而非进程 cwd，目录落在 file 工具围栏内；目录创建失败**显性抛异常**（消息含 try 外预推导的目标路径）、严禁静默降级。开关关闭时清除 caller 预含键、不建目录、不 bind，argv/cwd 与现状逐字节一致。`ToolExecutor.execute_in_sandbox` 检测到该键并校验（非 str/空串不 bind；目录缺失 bind 前抛 `RuntimeError` 显性失败）后经 `bind_sandbox_workspace` 送达后端——Firejail 复用既有 `_build_argv(workspace_root=)` 通道**优先**作为 `--private` 根（优先于构造期 workspace_root），WinJob 将其作为子进程 cwd（**目录约定 only，零文件系统/网络隔离**，非安全边界）；`sandbox_runner=None` 时记 "sandbox_workspace ignored" warning 照旧透传；对子类 override 经 `inspect.signature` 探测做旧签名兼容。firejail 不可用时目录照常解析创建、后端照旧 warn + Passthrough 降级。
 
 **沙箱后端强度分级（FR-2，2026-08-26）：** 引入 `SandboxTier(StrEnum)` 四档强度枚举 `passthrough(0) < job(1) < firejail(2) < container(3)`——`PassthroughRunner`→`passthrough`、`WinJobBackend`→`job`、`FirejailBackend`→`firejail`；`container` 档（OS 级强隔离，如 Docker/bubblewrap/AppContainer）为预留枚举、当前无实现后端。`CommandRunner` Protocol 新增 `tier` 属性，执行路径经 `ToolExecutor._runner_tier()` 查询当前后端档位（无后端→`PASSTHROUGH`；自定义 runner 缺 `tier`→`PASSTHROUGH` fail-safe），并随 `SANDBOX_REQUIRED` emit 事件 `details["sandbox_tier"]` 可观测。审批降级（`SandboxTier.can_relax_approval`）仅 `container` 档返回 True——弱后端（passthrough/job/firejail）一律维持原审批要求（NFR-2 测试锁定）；该判定点当前**未接入** `PolicyEngine` 裁决（container 后端落地时的独立工作）。
@@ -738,6 +740,10 @@ HeAgentError (base)
 | `sandbox_session_workspace` | False | 是否为每个 run 建立会话工作目录；CLI/GUI `--sandbox-session-workspace` / `--no-...` 可**双向**覆盖（E40-D4，三态：未传则跟随本项） |
 | `sandbox_session_keep` | False | run 结束后是否保留会话目录；同上，CLI/GUI `--sandbox-session-keep` / `--no-...` 可覆盖 |
 | `sandbox_env_allowlist` | `""` | 逗号分隔的 env 豁免变量名（如 `GITHUB_TOKEN`）：命中者不参与 `scrub_sensitive_env` 的敏感剥离；空=全剥离 |
+| `sandbox_profiles` | `""` | JSON：profile 名 → firejail 参数表（如 `{"default": ["--seccomp", "--caps.drop=all"]}`），高级隔离参数由此声明、默认关闭；坏 JSON/坏条目告警丢弃 |
+| `sandbox_tool_profiles` | `""` | JSON：工具名 → profile 名（per-tool 参数粒度），叠加进 `PolicyEngine.sandbox_profiles`；空=现状（缺省落 `default`） |
+| `sandbox_memory_limit_mb` | 0 | 沙箱 shell 内存限额（MB；firejail `--rlimit-as` / winjob Job Memory）；0=关闭。触发=子进程被终止 → 非零退出码（显性失败） |
+| `sandbox_cpu_seconds` | 0 | 沙箱 shell CPU 时间限额（秒；firejail `--rlimit-cpu` / winjob Process Time）；触发行为同上 |
 | `approval_tools` | `""` | 需要交互审批的工具名列表 |
 | `hooks_enabled` | False | 是否启用 `.heagent/hooks.json` |
 | `plan_mode` | False | 是否启用只读计划模式 |
@@ -884,6 +890,7 @@ src/heagent/
 ├── __init__.py
 ├── __main__.py              # python -m heagent 入口
 ├── cli.py                   # Click CLI（单次/交互模式）
+├── cli_init.py              # heagent init 子命令（全局配置/项目上下文模板生成，2026-09-17 自 cli.py 拆出）
 ├── cli_goal.py              # /goal 命令族（声明式工作流分发 + 问卷门控 + cron 自动推进）
 ├── terminal.py              # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断，CLI 交互模式）
 ├── config.py                # pydantic-settings 配置

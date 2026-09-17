@@ -36,26 +36,32 @@
 - source_spec: 2026-09-17 架构与代码优化勘察
   summary: cli.py（1287 行）与 cli_goal.py（1150+ 行）职责混杂可再拆（斜杠 handler / 装配 / replay+init；goal/ 子包已有 questionnaire.py 先例）。触发条件：再改这两个文件的重复区；严重度：低（可用，可维护性项）；冻结边界：拆分只挪代码不改行为，wiring.py 先例（docstring 记录拆分理由）。
   evidence: `src/heagent/cli.py`（6+ 类职责）、`src/heagent/cli_goal.py`（_goal_runner noqa C901）、`src/heagent/wiring.py:1-6`（拆分先例 docstring）。
+  Progress（2026-09-17，保守拆分已落地，条目保持活动）：① cli.py init 块（模板 ×2 + `_init_project_context` + `init_cmd`，约 130 行）已拆至 `cli_init.py`（独立 click 命令 + `main.add_command` 注册，cli.py re-export 保 import 缝）；② cli_goal.py 的 GOAL.md 文档与命名层（常量块 + 9 个文档函数，约 150 行）已拆至 `goal/document.py`（cli_goal re-export，测试零改动）。**剩余**：装配块与斜杠 handler 仍留原处——大量测试 monkeypatch `heagent.cli._run_prompt` / `cli.sys` / `cli_goal._goal_session` 等**模块路径缝**（目标函数及其调用方必须同模块），且有钉死测试锁「cli 只留三个自用 goal 符号」；进一步拆分需同步迁移测试缝，收益低于风险，暂缓。
 
 - source_spec: 2026-09-17 架构与代码优化勘察
   summary: provider 委托骨架（chain/key_rotation/switchable 三套平行 send/stream 回退）是有文档的有意重复（chain.py:127 同构说明），可用「回退模板 + sticky/reset 索引策略参数」收敛；需对照测试。触发条件：三处任一改动时；严重度：低-中；冻结边界：不共用模板则至少保持 chain.py:127 的对照提醒注释。
   evidence: `src/heagent/providers/chain.py:77-171,127-129`、`src/heagent/providers/key_rotation.py:69-143`、`src/heagent/providers/switchable.py:156-247`。
+  Resolution: 2026-09-17 评估结论 = **不收敛**。勘察推翻收敛设想：三套（实为四套，含 router）骨架的分歧是有意设计且被护栏测试钉死——`retry.py` 模块 docstring 明言「不要合并成一套」（判据矩阵三方不同：chain 回退一切非 NON_TRANSIENT 含 AUTH_FAILED 跨 provider；key_rotation 仅 RATE_LIMITED+AUTH_FAILED；switchable/router 仅 RATE_LIMITED+TRANSIENT），索引语义两方不同（chain 复位 / key_rotation 成功即粘 / switchable 回退成功才粘 / router 无状态单兄弟重试），`test_retry.py::TestPoolFallbackPolicy`（`test_auth_failed_excluded_even_though_chain_falls_back_on_it` + `test_predicate_has_a_single_implementation`）把分歧钉死防止「误当漂移顺手统一」。交付：switchable.py send/stream 与 router.py send/stream 补齐互指注释（chain↔key_rotation 原有），形成四点互指网；行为零改动。
 
 - source_spec: `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/brief.md`（`### Deferred（未来考虑）`：「沙箱执行的资源限额」）
   summary: 沙箱 shell 无资源限额：内存/CPU/进程数无 `--rlimit-as` / `--rlimit-cpu` 之类上界，LLM 触发的大内存或长 CPU 命令可拖垮宿主。触发条件：沙箱内跑失控命令（内存炸弹 / 死循环）；严重度：中（可用性，非机密性）；冻结边界：限额触发须显性失败或显性标记，不得静默截断命令输出语义。
   evidence: 本次核实 `src/heagent/tools/sandbox.py` 全文件对 `rlimit` / `seccomp` / `caps` **零命中**；`FirejailBackend._build_argv` 当前只映射 profile → 参数 + `--private` + `--net=none`（`src/heagent/tools/sandbox.py:264`）。
+  Resolution: 2026-09-17 已闭合。新增 `SANDBOX_MEMORY_LIMIT_MB` / `SANDBOX_CPU_SECONDS`（默认 0=关闭，默认行为逐字节不变）：firejail 映射 `--rlimit-as` / `--rlimit-cpu`（profile 参数后、`--` 前），WinJob 映射 `JOB_OBJECT_LIMIT_JOB_MEMORY` / `JOB_OBJECT_LIMIT_PROCESS_TIME`（与恒开 KILL_ON_JOB_CLOSE 按位或，复用既有内联结构体零新增）；**触发即显性失败**（子进程被终止 → 非零退出码经正常结果回传，对齐超时 `exit_code=-1` 先例），不静默截断。进程数限额未做（两后端均无自然承载点，需要时另立条目）。
 
 - source_spec: `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/brief.md`（`### Deferred（未来考虑）`：「`FirejailBackend` 的 `--seccomp` / `--caps` 等高级参数」）
   summary: Firejail 高级隔离参数未启用：无 `--seccomp` / `--caps`（能力集收敛）等硬化参数，隔离强度停留在 `--private` + `--net=none` + 进程组 kill。触发条件：沙箱逃逸面评估 / 高对抗场景；严重度：低（当前立场本就是「非安全边界、须 OS 级沙箱兜底」）；冻结边界：新参数须经 `profiles` 映射声明、默认关闭，避免改变既有默认行为。
   evidence: 本次核实 `src/heagent/tools/sandbox.py` 无 `seccomp` / `caps` 命中；承载点已存在——profile → 参数映射（`src/heagent/tools/sandbox.py:264`、`src/heagent/engine/policy.py:148,165` 的 `sandbox_profiles`）。
+  Resolution: 2026-09-17 已闭合。新增 `SANDBOX_PROFILES`（JSON：profile 名 → firejail 参数表，如 `{"default": ["--seccomp", "--caps.drop=all"]}`）经 `container.default()` 传入 `FirejailBackend.profiles`——此前生产装配下 `profiles` 恒空（勘察确认），高级参数由此声明、**默认关闭**（冻结边界满足）；坏 JSON/坏条目告警丢弃（对齐 routing_pool_map 容错）。
 
 - source_spec: `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/brief.md`（`### Deferred（未来考虑）`：「per-tool 粒度的 firejail 参数（目前 per-profile 粒度）」）
   summary: firejail 参数只到 profile 粒度：**tool → profile 的选择已存在**（按工具名查 `sandbox_profiles`，MCP 工具默认落 `mcp` profile），但**参数集是 per-profile**——想给某一个工具单独加参数，必须为它新建一个 profile。触发条件：需要在同 profile 内区分工具参数时；严重度：低（表达力缺口）；冻结边界：不得为粒度而破坏「策略要求沙箱但未授权 → fail-safe 阻断」的既有契约。
   evidence: `src/heagent/engine/policy.py:371`–`:379`（`_sandbox_profile`：`self.sandbox_profiles.get(call.name, "default")`，MCP 分支 `"__mcp__"` → `"mcp"`）；`src/heagent/tools/sandbox.py:264`（profile → argv 映射）；`src/heagent/roles.py:41`（`RoleSpec.sandbox_profile`）。
+  Resolution: 2026-09-17 已闭合。新增 `SANDBOX_TOOL_PROFILES`（JSON：工具名 → profile 名）叠加进 `PolicyEngine.sandbox_profiles`（`container.default()` 注入），与 `SANDBOX_PROFILES` 两段配置组合即得 per-tool 参数差异——不引入新抽象（对齐 epic 边界「不引入 SandboxProfile 类」），fail-safe 阻断契约未动（executor 双重授权复核与 `context_grants_sandbox` 无 context 恒 False 均原样）。
 
 - source_spec: `_bmad-output/epics/epic-36-39-文件安全防护周期/brief.md`（`### Deferred（未来考虑）`：「凭证 deny 规则的用户可配置入口」）
   summary: 凭证路径 deny 规则是代码内硬编码表，没有项目级可配置入口：用户既不能补充自己的敏感路径，也不能放行误报（如把某测试夹具目录从 deny 中排除）。触发条件：项目有自定义凭证布局，或内置规则误伤合法路径；严重度：低-中；冻结边界：用户配置只允许**收紧或放行显式列举项**，不得整体关闭 deny（fail-safe 默认仍为拒）。
   evidence: `src/heagent/tools/path_safety.py:89`（「凭证 deny / 内部状态读 deny（借鉴 hermes file_safety.py，纯函数）」起的内置表）＋ `:160` `write_deny_reason`、`:172` `read_deny_reason`；同域已有可配置先例可照抄形状——项目级 `.heagent/injection_signatures.json`（注入签名入口）。
+  Resolution: 2026-09-17 已闭合（函数名勘误：实为 `check_write_denied` / `check_read_denied`）。新增项目级 `.heagent/path_deny.json`（workspace 围栏锚定 + 进程级懒缓存，对齐注入签名先例）：`deny_write_paths`/`deny_write_prefixes`/`deny_read_basenames` 收紧、`allow_write_paths`/`allow_read_basenames` 放行显式列举项（内部状态目录 deny **不接受豁免**）；**无整体关闭入口**，fail-safe 默认仍拒（冻结边界满足）。5 个消费点零改动（两层纵深自动生效）。
 
 - source_spec: `_bmad-output/epics/epic-36-39-文件安全防护周期/brief.md`（`### Deferred（未来考虑）`：「路径级审批分级（若未来引入非 workspace 的受控写场景）」）
   summary: 路径级审批分级（**条件性条目，前置未发生**）：当前审批粒度是工具级（destructive → 审批），file 工具一律被限制在 workspace 内，所以「按路径分级审批」暂无触发场景。触发条件：引入「非 workspace 的受控写场景」（例如经审批向 workspace 外写）；严重度：低（前置未发生）；冻结边界：分级只能是 `PolicyEngine` 的 defense-in-depth 标记，不得表述为 OS 级边界，也不得放松 workspace 围栏默认值。
