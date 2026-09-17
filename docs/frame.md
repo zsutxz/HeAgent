@@ -85,7 +85,8 @@ exceptions  types  config  persist  roles
 - `providers/` 和 `tools/` 互不依赖
 - `exceptions.py` 和 `types.py` 是叶子模块，无内部依赖
 - 新增 Provider 或 Tool **禁止**从 `agent/` 导入（**全仓无例外**：`builtins/subagent.py` 只持可注入委派回调，子 Agent 编排由 `agent/delegation.py` 提供、`AgentLoop._runtime_scope` 每 run 绑定；`tools/mcp/*` 同）
-- `persist.py` / `roles.py` 是顶层底层共用模块（与 exceptions/types/config 同层；2026-09 自 `engine/` 迁出，消除下层模块反向依赖）：`persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用
+- `persist.py` / `roles.py` / `frontmatter.py` 是顶层底层共用模块（与 exceptions/types/config 同层；persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖）：`persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages ×2 / slash / roles），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
+- `memory/` 运行期**不依赖 `engine/`**（`memory/dream.py` 的 `EngineContainer` 仅 TYPE_CHECKING 引用，实例由入口层注入、无 `default()` 回退；契约断言见 `test_architecture_contracts.py` FORBIDDEN_RUNTIME_IMPORTS）
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability），依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety` + `memory.skill_packages`（workflow_runner 的资源模型；container 另有 lazy `config` 导入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
 
@@ -890,6 +891,7 @@ src/heagent/
 ├── types.py                 # 共享 Pydantic 模型
 ├── persist.py               # 原子写 + 容错读 + 跨进程文件锁 + prune 批量内核（底层共用）
 ├── roles.py                 # RoleSpec + 内置角色注册表（agent/tools/engine 共用）
+├── frontmatter.py           # 共享 frontmatter 解析（零 heagent 依赖；六处手写解析器收敛，2026-09-17）
 │
 ├── agent/                   # 顶层编排
 │   ├── loop.py              # AgentLoop 核心循环（LLM ↔ 工具循环）
