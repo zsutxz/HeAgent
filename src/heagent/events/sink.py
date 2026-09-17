@@ -48,7 +48,12 @@ class JsonlSink:
     实现约束：
 
     * ``handle`` 由 :meth:`EventBus.emit` 在调用方协程内**同步**派发，协议要求不得阻塞——
-      因此这里只做「内存序列化 + 一次 write/flush」，不做压缩、轮转或额外 I/O。
+      stdout 流只做「内存序列化 + 一次 write/flush」；rollout 落盘则是**逐事件**
+      ``mkdir + open(append) + write + close``（close 即 flush），不做压缩、轮转或额外 I/O。
+    * rollout 的逐事件 open/close 是**有意的**（2026-09-17 评估：缓冲写 / 常驻句柄需引入句柄
+      生命周期与丢失窗口，而 replay 契约「crash 时已写前缀必须可回放」恰由每事件落盘天然
+      满足；当前事件吞吐（LLM 工具循环级）下逐事件 open 开销可忽略）。若未来吞吐成为瓶颈，
+      须先保住该契约再改。
     * rollout 按 ``<rollout_dir>/<run_id>/rollout.jsonl`` 分片：**每个 run 一个文件 ⇒ 单写者**，
       无需跨进程锁；同一 run_id 复跑（resume）为顺序追加。
     * 写盘失败只告警，不影响主循环（可观测性故障不得中断 agent 运行）。

@@ -199,9 +199,6 @@ class GoalWorkflowState(BaseModel):
     active_stories: list[str] = Field(default_factory=list)
     story_statuses: dict[str, str] = Field(default_factory=dict)
     status: WorkflowStatus = WorkflowStatus.PENDING
-    segment_index: int = Field(default=0, ge=0)
-    segment_tokens: int = Field(default=0, ge=0)
-    cumulative_tokens: int = Field(default=0, ge=0)
     artifact_refs: list[str] = Field(default_factory=list)
     blocked_reason: str | None = None
     transition_reason: str = ""

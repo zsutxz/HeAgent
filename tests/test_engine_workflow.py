@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from heagent.engine.workflow import (
@@ -19,6 +21,32 @@ def test_initial_state_owns_runtime_metadata_only() -> None:
     assert state.status is WorkflowStatus.PENDING
     assert state.artifact_refs == []
     assert "checkbox" not in state.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_workflow_state_tolerates_legacy_dead_fields(tmp_path) -> None:
+    """旧 workflow.json 携带已删除的 segment_* / cumulative_tokens 死字段仍可加载。
+
+    兼容策略 = 容错忽略（pydantic 默认 extra='ignore'）：2026-09-17 清理 legacy 阶段状态机
+    残留的三个无读者字段时，不得破坏存量 ``_he-output/goals/*/workflow.json`` 的读取。
+    """
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
+    legacy = {
+        "goal_id": "goal-legacy",
+        "phase": "sprint",
+        "status": "waiting_user",
+        "segment_index": 3,
+        "segment_tokens": 450,
+        "cumulative_tokens": 1200,
+        "updated_at": "2026-08-01T10:00:00",
+    }
+    (tmp_path / "workflow.json").write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
+
+    workflow = await store.load_workflow()
+
+    assert workflow is not None
+    assert workflow.goal_id == "goal-legacy"
+    assert "segment_tokens" not in workflow.model_dump()
 
 
 @pytest.mark.asyncio

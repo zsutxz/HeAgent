@@ -25,8 +25,6 @@ async def test_two_story_stub_smoke_leaves_checkpoint_and_audit_evidence(tmp_pat
         phase=WorkflowPhase.PLANNING,
         status=WorkflowStatus.RUNNING,
         artifact_refs=["prd.md", "architecture.md"],
-        segment_tokens=20,
-        cumulative_tokens=20,
     )
 
     for index, story in enumerate(("story-1", "story-2"), start=1):
@@ -53,8 +51,6 @@ async def test_two_story_stub_smoke_leaves_checkpoint_and_audit_evidence(tmp_pat
                 "active_story": story,
                 "active_skill": "he-build",
                 "active_step": index,
-                "segment_tokens": index * 15,
-                "cumulative_tokens": index * 15,
             }
         )
         await store.save(
