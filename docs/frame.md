@@ -1114,3 +1114,11 @@ Declarative BMad workflow artifacts have three layers with fixed ownership. `GOA
 ### 4.16 Declarative Agile Closure
 
 `.heagent/workflows/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `GOAL.md` is the standard GoalArtifact and replaces `goal.txt`; all durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The former imperative `goal.txt` story-board path has been removed, leaving the declarative runner as the sole `/goal` execution path. Transition policy remains owned by the active workflow and its deterministic runner.
+
+## 九、参考实现
+
+[hermes-agent](https://github.com/NousResearch/hermes-agent.git)（NousResearch）——同源自学习 agent 架构（skills/facts/profile/soul 记忆、MCP、cron、多 provider 容错），设计与约定可作参考。注意 hermes 为**同步单文件巨型架构**（`run_agent.py`/`cli.py` 各逾万行、多平台 gateway/TUI），HeAgent 为**异步模块化单库**——**不可直接照搬**，须按 HeAgent 栈（Pydantic / asyncio / pytest-asyncio）改造适配；仅硬约束级条目进 `CLAUDE.md`，细节以本文件为准。（2026-09-17 自 CLAUDE.md「参考实现」节原样迁入，常驻改按需查阅。）
+
+### path_safety 对 hermes 的借鉴
+
+`tools/path_safety.py` 的凭证 deny 与内部状态读 deny 借鉴自 hermes `file_safety.py`（2026-08-24），见 4.4。

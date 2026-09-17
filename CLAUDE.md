@@ -20,38 +20,6 @@ HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP s
 
 **后续（deferred / future，V2 未做）：** Resources 原语、返回内容围栏的全局级用户可配置签名入口（项目级 `.heagent/injection_signatures.json` 已交付；仍属 defense-in-depth，非真正安全边界）。（Prompts 原语已完成：Story 16-1/2/3/4 2026-07-20；写操作治理已交付 V2 2026-07-17：annotations 感知 `PolicyEngine` 闸门，见 `engine/policy.py`、`tools/mcp/mapping.py`；执行前工具名拦截已交付 DP-4 第一半 2026-07-08；返回内容启发式围栏已交付 DP-4 第二半 2026-07-10；运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
 
-## 构建与测试命令
-
-```bash
-# 安装（可编辑模式，含开发依赖）
-pip install -e ".[dev]"
-
-# 运行全部测试（pytest-asyncio auto 模式）
-pytest
-
-# 运行单个测试文件 / 单个测试
-pytest tests/test_config.py
-pytest tests/test_config.py::test_default_settings -v
-
-# Lint
-ruff check src tests
-
-# 格式化
-ruff format src tests
-
-# 类型检查
-mypy src
-
-# 运行 CLI（单次执行模式）
-python -m heagent "你的提示词"
-
-# 运行 CLI（交互式聊天模式）
-python -m heagent
-
-# 运行 TUI（Textual 终端界面，懒加载）
-python -m heagent gui
-```
-
 ## 文档布局
 
 **架构权威 = `docs/frame.md`**（活的中文总览，随代码更新；含数据流 / 模块依赖 DAG / 核心模块详解 4.1–4.12 / 已知缺口 / 完整调用链 / 技术规范）。
@@ -71,10 +39,6 @@ python -m heagent gui
 | `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录归档——原 `_bmad-output/patches/`（按领域分子目录）已于 2026-09-15 解散，映射见 consolidated-overview.md 十二 |
 
 > 进度：全部 10 个 epic 已完成（24 个 FR），详见 `_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml`；`engine/` 为 epic 外 P0 增量（见 frame.md 4.12）。
-
-## 参考实现
-
-[hermes-agent](https://github.com/NousResearch/hermes-agent.git)（NousResearch）——同源自学习 agent 架构（skills/facts/profile/soul 记忆、MCP、cron、多 provider 容错），设计与约定可作参考。注意 hermes 为**同步单文件巨型架构**（`run_agent.py`/`cli.py` 各逾万行、多平台 gateway/TUI），HeAgent 为**异步模块化单库**——**不可直接照搬**，须按 HeAgent 栈（Pydantic / asyncio / pytest-asyncio）改造适配；CLAUDE.md 仅采纳硬约束级条目，细节去 `docs/frame.md`。
 
 ## 架构骨架
 
@@ -126,8 +90,6 @@ exceptions  types  config  persist  roles  frontmatter
 - **数据模型**：一律使用 Pydantic `BaseModel`，不用 `dataclass` 或原始 `dict`。（例外：内部状态对象 `AgentState` 和 `SubAgentResult` 使用 `dataclass`。）
 - **异步**：全部异步。库代码中不出现同步 I/O。`click` CLI 通过 `asyncio.run()` 桥接。
 - **日志**：每个模块 `logging.getLogger(__name__)`，仅使用标准库。
-- **行宽**：120（ruff.toml）。
-- **Python 版本**：3.11+。
 
 ## 已知缺口
 
