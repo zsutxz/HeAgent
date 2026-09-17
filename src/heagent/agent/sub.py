@@ -28,12 +28,12 @@ from heagent.tools.safety import SafetyGuard
 if TYPE_CHECKING:
     from heagent.context.compressor import ContextCompressor
     from heagent.context.window_reset import WindowResetConfig
-    from heagent.engine.roles import RoleSpec
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
     from heagent.memory.skills import SkillStore
     from heagent.memory.soul import SoulStore
     from heagent.providers.base import BaseProvider
+    from heagent.roles import RoleSpec
 
 
 @dataclass

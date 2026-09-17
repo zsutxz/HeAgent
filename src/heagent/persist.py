@@ -18,7 +18,9 @@ V2 新增：可选的跨进程文件锁（``lock=True``），通过 ``.lock`` �
 多集合判定（记录 + 配套锁 + 产物目录）与 ``prune_sandbox_dirs`` 的目录判活语义不同，仍各自
 实现——见该函数 docstring 的「不合并的兄弟实现」段。
 
-属于 ``engine/`` 运行时治理层（见 ``docs/frame.md`` 4.12）。
+顶层底层模块（与 types / config 同层；2026-09 自 ``engine/`` 迁出——彼时 5 个下层模块
+反向导入 ``heagent.engine.persist``，形成 engine ↔ tools / memory 包级环），被
+engine / tools / context / memory / cron / goal / housekeeping / 入口层共用。
 """
 
 from __future__ import annotations

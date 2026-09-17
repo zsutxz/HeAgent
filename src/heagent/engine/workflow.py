@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from heagent.engine.persist import atomic_write_text, load_json_model
+from heagent.persist import atomic_write_text, load_json_model
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

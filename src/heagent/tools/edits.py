@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from heagent.engine.persist import prune_entries_by_mtime
+from heagent.persist import prune_entries_by_mtime
 from heagent.tools.path_safety import workspace_root
 from heagent.tools.runtime import RuntimeSlot
 

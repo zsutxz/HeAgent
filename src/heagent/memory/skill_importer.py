@@ -12,8 +12,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from heagent.engine.persist import atomic_write_text
 from heagent.memory.skill_packages import SkillCatalog, SkillPackage
+from heagent.persist import atomic_write_text
 from heagent.tools.path_safety import WorkspacePathError, resolve_under_root
 
 

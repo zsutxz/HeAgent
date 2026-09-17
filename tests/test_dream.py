@@ -23,7 +23,7 @@ import heagent.tools.builtins  # noqa: F401 — 注册内置工具（fact_add / 
 from heagent.agent.system_prompt import build_system_prompt
 from heagent.config import Settings, reset_settings
 from heagent.engine import EngineContainer
-from heagent.engine.roles import get_role
+from heagent.roles import get_role
 from heagent.memory.dream import DreamResult, DreamScheduler
 from heagent.memory.facts import FactStore
 from heagent.providers.base import ProviderMetadata
@@ -386,7 +386,7 @@ async def test_ac8_stop_returns_within_timeout_when_dream_in_progress() -> None:
 
 def test_dreamer_role_registered() -> None:
     """dreamer 内置角色在模块导入时注册。"""
-    from heagent.engine.roles import list_roles  # noqa: PLC0415
+    from heagent.roles import list_roles  # noqa: PLC0415
 
     assert "dreamer" in list_roles()
     role = get_role("dreamer")

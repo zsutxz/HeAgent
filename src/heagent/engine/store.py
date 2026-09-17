@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 # noqa: TC001 — RunContext/Message/ToolResult 是 Pydantic 模型字段类型，
 # 需运行期导入以构建 schema（ruff TC001 为误报）。
 from heagent.engine.context import RunContext, RunStatus  # noqa: TC001
-from heagent.engine.persist import (
+from heagent.persist import (
     atomic_write_text,
     delete_entries,
     load_json_model,

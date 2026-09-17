@@ -15,7 +15,7 @@ import pytest
 
 from heagent.agent.delegation import build_subagent_delegates
 from heagent.engine.context import RunContext
-from heagent.engine.roles import get_role
+from heagent.roles import get_role
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.builtins.subagent import (
     configure_subagent_tools,

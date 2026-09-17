@@ -73,7 +73,7 @@ AgentLoop.run(prompt)
 ## 三、模块依赖关系 (DAG)
 
 ```
-exceptions  types  config
+exceptions  types  config  persist  roles
     ↑          ↑       ↑
     └─ providers ─┴── tools ─┴── context ── engine ── agent
                             ↑              ↑
@@ -85,8 +85,9 @@ exceptions  types  config
 - `providers/` 和 `tools/` 互不依赖
 - `exceptions.py` 和 `types.py` 是叶子模块，无内部依赖
 - 新增 Provider 或 Tool **禁止**从 `agent/` 导入（**全仓无例外**：`builtins/subagent.py` 只持可注入委派回调，子 Agent 编排由 `agent/delegation.py` 提供、`AgentLoop._runtime_scope` 每 run 绑定；`tools/mcp/*` 同）
-- `engine/` 是运行时治理层（policy/executor/store/ledger/observability/persist），依赖 `types`/`exceptions`/`tools.safety`；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
-- `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `engine.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
+- `persist.py` / `roles.py` 是顶层底层共用模块（与 exceptions/types/config 同层；2026-09 自 `engine/` 迁出，消除下层模块反向依赖）：`persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用
+- `engine/` 是运行时治理层（policy/executor/store/ledger/observability），依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety` + `memory.skill_packages`（workflow_runner 的资源模型；container 另有 lazy `config` 导入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
+- `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
 
 ---
 
@@ -601,7 +602,7 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 | `DreamRunner` | agent 层注入的执行协议（`prompt → DreamResult`）；dreamer SubAgent 由 `cli.py` 组合根构造注入（`memory/` **不导入 `agent/`**，DAG 合规——与 `CronScheduler`+`JobRunner` 同构） |
 | idle 计时 | 经 `EventBus` 订阅 `run_completed` 更新 `last_active_ts`（不改 REPL 同步 `input()`）；`_run_dream` finally 兜底重置（防失败/取消 dream 不发 `run_completed` 致每 tick 重燃） |
 | session 预注入 | `SessionStore.recent_session_ids()` 按 timestamp 降序取最近 N，截断拼进 prompt（dreamer **不持 `file_read`**，最小权限） |
-| `dreamer` 角色 | `RoleSpec` allowed/blocked 双层（见 `engine/roles.py`）；`dream_enabled` 默认 `False`（opt-in） |
+| `dreamer` 角色 | `RoleSpec` allowed/blocked 双层（见顶层 `roles.py`）；`dream_enabled` 默认 `False`（opt-in） |
 
 事件：`dream_start` / `dream_end`（trigger / success / iterations / run_id）经 `EventBus` 发布，`LoggingObserver` 落日志。
 
@@ -771,13 +772,10 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `approval.py` | `ApprovalHandler` 协议 + `ApprovalDecision`/`ApprovalRequest` + `ConsoleApprovalHandler`/`DenyAllApprovalHandler` — 交互式审批闭环（Epic 29） |
 | `hooks.py` | `HookConfig`/`HookManager` — 用户可配置事件钩子（PreToolUse/PostToolUse/SessionStart/SessionEnd，Epic 32） |
 | `policy.py` | `PolicyEngine` — 准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
-| `roles.py` | `RoleSpec` + 内置角色（planner/coder/tester/supervisor/dreamer），`SubAgent` 构建角色专属 `PolicyEngine` |
 | `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端；FR-1 会话目录经 `bind_sandbox_workspace` 送达；FR-2 后端强度档位经 `_runner_tier()` 查询并随 emit 事件 `sandbox_tier` 可观测（见 4.4 sandbox.py） |
 | `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次 |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入；`heartbeat()` 由工具在途续租（`agent/tool_execution._renew_ledger_lease`）调用，使「过期 RUNNING = 孤儿」成为 prune 的可靠判据 |
-| `persist.py` | `atomic_write_text`（`*.tmp` + `os.replace` 原子写）+ `load_json_model`（损坏 JSON 容错跳过） |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布 |
-| `agile.py` | `ReviewVerdict`、`Retrospective`、`CorrectCourse` — 审查、回顾和纠偏工件模型；由声明式工作流或上层调用方消费，不自行推进 `/goal` 阶段 |
 
 **已完成：**
 
@@ -886,6 +884,8 @@ src/heagent/
 ├── config.py                # pydantic-settings 配置
 ├── exceptions.py            # 异常层级
 ├── types.py                 # 共享 Pydantic 模型
+├── persist.py               # 原子写 + 容错读 + 跨进程文件锁 + prune 批量内核（底层共用）
+├── roles.py                 # RoleSpec + 内置角色注册表（agent/tools/engine 共用）
 │
 ├── agent/                   # 顶层编排
 │   ├── loop.py              # AgentLoop 核心循环（LLM ↔ 工具循环）
@@ -911,6 +911,8 @@ src/heagent/
 │   ├── registry.py          # ToolRegistry 单例
 │   ├── safety.py            # SafetyGuard（shell 命令安全）
 │   ├── path_safety.py       # 工作区路径校验（文件工具）
+│   ├── edits.py             # 编辑原语：行尾/BOM 保真读写、diff 回执、落盘前快照
+│   ├── sandbox.py           # 沙箱后端抽象（Passthrough/Firejail/WinJob）+ SandboxSession
 │   ├── call_summary.py      # 工具调用「作用对象」摘要（展示层共用）
 │   ├── runtime.py           # 工具运行态绑定（_runtime_scope）
 │   ├── mcp/                 # MCP 适配层
@@ -950,15 +952,12 @@ src/heagent/
 │   ├── container.py         # EngineContainer（DI）
 │   ├── context.py           # RunContext / RunStatus
 │   ├── policy.py            # PolicyEngine 准入/审批/沙箱裁决
-│   ├── roles.py             # RoleSpec + 内置角色（P1/P2）
 │   ├── executor.py          # ToolExecutor 策略分发
 │   ├── store.py             # RunStore 运行快照（async I/O）
 │   ├── ledger.py            # ExecutionLedger 幂等/租约（async I/O）
-│   ├── persist.py           # 原子写 + 损坏 JSON 容错（store/ledger 共用）
 │   ├── workflow.py          # Goal workflow state / routing / checkpoint persistence
 │   ├── workflow_runner.py    # 声明式 workflow 单步执行器
 │   ├── artifacts.py          # Goal/Epic/Story 产物契约校验
-│   ├── agile.py              # review/retrospective/correct-course 工件
 │   ├── approval.py           # 交互式审批协议与状态
 │   ├── hooks.py              # 生命周期 Hook 调度
 │   └── observability.py     # EventBus / 事件
@@ -1100,4 +1099,4 @@ Declarative BMad workflow artifacts have three layers with fixed ownership. `GOA
 
 ### 4.16 Declarative Agile Closure
 
-`.heagent/workflows/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `GOAL.md` is the standard GoalArtifact and replaces `goal.txt`; all durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The former imperative `goal.txt` story-board path has been removed, leaving the declarative runner as the sole `/goal` execution path. `agile.py` provides review findings, retrospective evidence, and correct-course record models; transition policy remains owned by the active workflow and its deterministic runner.
+`.heagent/workflows/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `GOAL.md` is the standard GoalArtifact and replaces `goal.txt`; all durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The former imperative `goal.txt` story-board path has been removed, leaving the declarative runner as the sole `/goal` execution path. Transition policy remains owned by the active workflow and its deterministic runner.

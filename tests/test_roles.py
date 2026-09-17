@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.engine.roles import RoleSpec, get_role, list_roles, register_role
+from heagent.roles import RoleSpec, get_role, list_roles, register_role
 
 
 class TestRoleSpec:

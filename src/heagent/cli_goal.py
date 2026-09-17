@@ -30,7 +30,6 @@ from heagent.engine import (
     parse_story_list,
     required_sections,
 )
-from heagent.engine.persist import atomic_update_text, atomic_write_text
 from heagent.goal.questionnaire import (
     GoalQuestionnaire,
     GoalQuestionnaireSpec,
@@ -43,6 +42,7 @@ from heagent.goal.questionnaire import (
     _goal_show_questionnaire_prompt,
 )
 from heagent.memory.skill_packages import SkillPackage, SkillWorkflowError, WorkflowResource
+from heagent.persist import atomic_update_text, atomic_write_text
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

@@ -82,7 +82,7 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 模块依赖 DAG：
 
 ```
-exceptions  types  config
+exceptions  types  config  persist  roles
     ↑          ↑       ↑
     └─ providers ─┴── tools ─┴── context ── engine ── agent ── gui
                             ↑              ↑
@@ -93,8 +93,9 @@ exceptions  types  config
 
 - `agent/` — 顶层编排（`AgentLoop` 主循环 + `middleware` + `sub` 子 Agent）
 - `providers/` — LLM provider（OpenAI 兼容：DeepSeek / Kimi / GLM 等 + Anthropic 原生）+ 智能路由（`router` RoutingProvider）+ 多层容错（`chain` 跨 provider 回退 / `key_rotation` 多密钥轮换 / `retry` 指数退避 / `switchable` 运行时 vendor 切换）
-- `tools/` — `@tool` 注册（`registry`）+ `SafetyGuard`（shell 黑名单）+ `path_safety` + `builtins/`（25 工具）+ `mcp/` 桥接
+- `tools/` — `@tool` 注册（`registry`）+ `SafetyGuard`（shell 黑名单）+ `path_safety` + `edits`/`sandbox` + `builtins/`（25 工具）+ `mcp/` 桥接
 - `engine/` — 运行时治理（`PolicyEngine` 准入/审批/沙箱裁决 + `ToolExecutor` 分发 + `store`/`ledger`/`observability`），经 `EngineContainer` 注入 `AgentLoop`
+- `persist.py` / `roles.py` — 顶层底层共用模块：原子写/容错读/跨进程文件锁/prune 批量内核；`RoleSpec` 角色注册表（2026-09 自 `engine/` 迁出）
 - `context/` — 上下文压缩 / 会话持久化 / 上下文文件加载 / token 估算
 - `events/` — 事件传输层（`RunEvent` JSONL 对外契约 + `JsonlSink` 落盘 + `replay` 回放），运行时零 `engine/` 依赖
 - `memory/` — 自学习闭环（`skills`/`facts`/`profile`/`soul`）
@@ -105,7 +106,7 @@ exceptions  types  config
 硬约束（违反即架构错误）：
 
 - 新增 provider / tool **禁止**从 `agent/` 导入；`tools/mcp/` 同（`AgentLoop` 零改动，仅经 `ToolRegistry` 注入工具）。
-- `engine/` 依赖 `types`/`exceptions`/`tools.safety`，被 `agent/` 依赖。
+- `engine/` 依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety` + `memory.skill_packages`（container 另有 lazy `config`），被 `agent/` 依赖；`persist.py`/`roles.py` 为顶层底层模块，任何模块可依赖。
 - 跨模块数据用 Pydantic 模型（`types.py`），**禁止**原始 dict。
 - 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**。
 

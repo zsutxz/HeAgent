@@ -18,7 +18,7 @@ from heagent.agent.loop import AgentLoop, _delegation_details
 from heagent.agent.sub import SubAgent
 from heagent.config import get_settings, reset_settings
 from heagent.engine import EngineContainer
-from heagent.engine.roles import get_role
+from heagent.roles import get_role
 from heagent.memory.facts import FactStore
 from heagent.memory.soul import SoulStore
 from heagent.providers.base import ProviderMetadata

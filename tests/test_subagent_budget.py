@@ -11,7 +11,7 @@ from pathlib import Path
 from heagent.agent.loop import AgentLoop
 from heagent.agent.sub import SubAgent
 from heagent.config import Settings, get_settings
-from heagent.engine.roles import RoleSpec, get_role, load_agent_roles
+from heagent.roles import RoleSpec, get_role, load_agent_roles
 from heagent.providers.base import ProviderMetadata
 from heagent.types import Message, ProviderResponse, TokenUsage
 

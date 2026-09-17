@@ -229,7 +229,7 @@ class TestConfigureWorkspaceRoot:
 class TestResolveRole:
     def test_resolve_role_from_runtime_map(self) -> None:
         """_resolve_role 在 runtime.roles 中命中时返回该 RoleSpec。"""
-        from heagent.engine.roles import RoleSpec
+        from heagent.roles import RoleSpec
 
         runtime = SubagentToolRuntime()
         spec = RoleSpec(name="custom", system="custom system")

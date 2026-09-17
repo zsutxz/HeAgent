@@ -20,12 +20,12 @@ from heagent.tools.builtins.subagent import DelegateMany, DelegateOne, SubTaskOu
 if TYPE_CHECKING:
     from heagent.context.compressor import ContextCompressor
     from heagent.engine import EngineContainer
-    from heagent.engine.roles import RoleSpec
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
     from heagent.memory.skills import SkillStore
     from heagent.memory.soul import SoulStore
     from heagent.providers.base import BaseProvider
+    from heagent.roles import RoleSpec
     from heagent.tools.registry import ToolRegistry
     from heagent.tools.safety import SafetyGuard
 

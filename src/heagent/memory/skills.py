@@ -25,7 +25,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 
-from heagent.engine.persist import atomic_update_text, atomic_write_text
+from heagent.persist import atomic_update_text, atomic_write_text
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping

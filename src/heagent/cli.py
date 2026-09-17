@@ -36,7 +36,6 @@ from heagent.context.window_reset import WindowResetConfig
 from heagent.cron.jobs import JobStore
 from heagent.cron.scheduler import CronScheduler
 from heagent.engine import ConsoleApprovalHandler, EngineContainer
-from heagent.engine.roles import load_agent_roles
 from heagent.events.sink import JsonlSink, default_rollout_dir, read_rollout, render_event
 from heagent.exceptions import BudgetExceeded, HeAgentError
 from heagent.memory.facts import FactStore
@@ -45,6 +44,7 @@ from heagent.memory.skills import SkillStore
 from heagent.memory.soul import SoulStore
 from heagent.providers.router import RoutingProvider, active_model, display_reason
 from heagent.providers.switchable import SwitchableProvider
+from heagent.roles import load_agent_roles
 from heagent.slash import SlashRegistry, load_custom_commands
 from heagent.terminal import KeyInterruptMonitor
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
@@ -393,8 +393,8 @@ def _build_dream_scheduler(
     if not settings.dream_enabled:
         return None
     from heagent.agent.sub import SubAgent  # noqa: PLC0415
-    from heagent.engine.roles import get_role  # noqa: PLC0415
     from heagent.memory.dream import DreamResult, DreamScheduler  # noqa: PLC0415
+    from heagent.roles import get_role  # noqa: PLC0415
 
     context_dir = os.getcwd()
     role = get_role("dreamer")

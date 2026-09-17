@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from heagent.engine.persist import atomic_update_text
+from heagent.persist import atomic_update_text
 
 
 class FactStore:

@@ -82,7 +82,7 @@ python_version = "3.11"
 
 [[tool.mypy.overrides]]
 module = [
-    "heagent.engine.persist",
+    "heagent.persist",
     "heagent.tools.sandbox",
 ]
 disallow_untyped_defs = false

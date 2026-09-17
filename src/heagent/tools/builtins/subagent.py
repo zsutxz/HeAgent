@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel
 
-from heagent.engine.roles import RoleSpec, get_role, list_roles
+from heagent.roles import RoleSpec, get_role, list_roles
 from heagent.tools.decorator import tool
 from heagent.tools.runtime import RuntimeSlot
 

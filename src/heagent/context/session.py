@@ -15,7 +15,7 @@ import re
 import time
 from pathlib import Path
 
-from heagent.engine.persist import atomic_update_text, prune_entries_by_mtime
+from heagent.persist import atomic_update_text, prune_entries_by_mtime
 from heagent.types import Message, Role
 
 logger = logging.getLogger(__name__)

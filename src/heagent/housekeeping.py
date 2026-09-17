@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 
 from heagent.config import get_settings
 from heagent.context.session import SessionStore
-from heagent.engine.persist import (
+from heagent.persist import (
     delete_entries,
     prune_entries_by_mtime,
     prune_stamp_path,

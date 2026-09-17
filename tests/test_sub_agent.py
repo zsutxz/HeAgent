@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from heagent.agent.sub import SubAgent, run_parallel
-from heagent.engine.roles import RoleSpec
+from heagent.roles import RoleSpec
 from heagent.memory.facts import FactStore
 from heagent.memory.skills import SkillStore
 from heagent.memory.soul import SoulStore

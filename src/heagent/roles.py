@@ -1,6 +1,7 @@
 """角色化子 Agent 的命名角色规格（roles）。
 
-本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame.md`` 4.12，对应 P1 / P2）。
+顶层底层模块（2026-09 自 ``engine/`` 迁出——彼时 tools 下层模块反向导入形成包级环）；
+被 ``engine.policy``（对齐）/ ``agent.sub`` / ``tools.builtins.subagent`` / ``cli`` 消费。
 
 一个 :class:`RoleSpec` 把「系统提示词」与「执行级工具策略」（``allowed_tools`` /
 ``blocked_tools``）打包在一起。运行时 :class:`~heagent.agent.sub.SubAgent` 依据规格构建

@@ -4,7 +4,7 @@
 ``QUESTIONNAIRE.md`` 文件仍作兜底）描述 applies_when、问题清单与取值约束。本模块只实现
 「按声明校验」的通用规则，任何具体产品规则都不在这里。
 
-依赖：``heagent.engine.persist`` 的原子写 + ``click`` 的终端交互；不依赖 ``cli_goal``，
+依赖：``heagent.persist`` 的原子写 + ``click`` 的终端交互；不依赖 ``cli_goal``，
 故可被独立测试（此前这些函数与工作流驱动混在单文件里）。
 """
 
@@ -18,7 +18,7 @@ from typing import Any
 import click
 from pydantic import BaseModel
 
-from heagent.engine.persist import atomic_update_text
+from heagent.persist import atomic_update_text
 
 _GOAL_QUESTIONNAIRE_FILE = "QUESTIONNAIRE.md"
 

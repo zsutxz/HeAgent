@@ -13,7 +13,7 @@ from typing import Literal
 import pytest
 
 from heagent.engine.context import RunContext
-from heagent.engine.roles import RoleSpec
+from heagent.roles import RoleSpec
 from heagent.tools.builtins.subagent import (
     SubTaskOutcome,
     configure_subagent_tools,
