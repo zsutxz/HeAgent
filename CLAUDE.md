@@ -62,6 +62,7 @@ python -m heagent gui
 | `docs/design.md` | 功能设计与理念——项目要做什么 / 为什么（产品视角，区别于 frame.md 的代码实现） |
 | `docs/iteration.md` | 迭代开发指南与历程——怎么迭代过来的 / 怎么继续迭代（BMad 周期 / epic / 技术债 / 路线图） |
 | `docs/stock/` | 运行时股票报告输出，已 gitignore |
+| `_bmad-output/implementation-artifacts/deferred-work-archive.md` | **架构/代码优化台账**（活动遗留项 + 勘察类闭合归档）——被要求「优化项目」时先读此：条目含触发条件/严重度/冻结边界，闭合按归属 epic 归档（原 `deferred-work.md` 已于 2026-09-17 并入） |
 | `_bmad-output/consolidated-overview.md` | **统一整合总览（含 epic 总目录）**——全周期摘要 + 全 epic（1-35 + S1-S4）主题/状态/story/patch 映射（原 EPICS-INDEX.md 已并入） |
 | `_bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/` | 按 epic 归档的 story 文件，嵌套在所属周期目录内（仅建有 story 的 epic） |
 | `_bmad-output/epics/epic-01-10-主线规划周期/` | 主线规划周期（epics 1-10，冻结决策）：`architecture.md`·`brief.md`·`prd.md`·`epics.md`·`epics-self-learning.md`·`sprint-status.yaml`（story 已移至 epic 目录） |
@@ -82,7 +83,7 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 模块依赖 DAG：
 
 ```
-exceptions  types  config  persist  roles
+exceptions  types  config  persist  roles  frontmatter
     ↑          ↑       ↑
     └─ providers ─┴── tools ─┴── context ── engine ── agent ── gui
                             ↑              ↑
@@ -101,7 +102,7 @@ exceptions  types  config  persist  roles
 - `memory/` — 自学习闭环（`skills`/`facts`/`profile`/`soul`）
 - `cron/` — 后台定时调度
 - `gui/` — Textual TUI（`app`/`bridge`/`screens`/`widgets`），经 `AgentBridge` 持有并观察 `AgentLoop`
-- `cli.py` / `cli_goal.py` / `slash.py` / `terminal.py` — CLI 入口（单次 + 交互模式）；`cli_goal` 为 /goal 命令族（声明式工作流分发 + 问卷门控 + cron 自动推进）；`slash` 为注册表驱动斜杠命令 + 用户自定义命令（`.heagent/commands/*.md`），零 heagent 依赖
+- `cli.py` / `cli_init.py` / `cli_goal.py` / `slash.py` / `terminal.py` — CLI 入口（单次 + 交互模式）；`cli_init` 为 `heagent init` 子命令（2026-09-17 自 cli.py 拆出）；`cli_goal` 为 /goal 命令族（声明式工作流分发 + 问卷门控 + cron 自动推进；GOAL.md 文档与命名层在 `goal/document.py`，经 re-export 保持原命名空间）；`slash` 为注册表驱动斜杠命令 + 用户自定义命令（`.heagent/commands/*.md`），仅依赖 pydantic + 零依赖顶层模块 `heagent.frontmatter`
 
 硬约束（违反即架构错误）：
 
@@ -115,6 +116,9 @@ exceptions  types  config  persist  roles
 ## 测试
 
 - 测试平铺在 `tests/`（provider 测试在 `tests/providers/`）；agent loop 测试用 `StubProvider`；每个测试用 `reset_settings()` 重置 `Settings` 单例。
+- **架构契约测试** `tests/test_architecture_contracts.py`（FORBIDDEN_RUNTIME_IMPORTS 反向依赖断言、frontmatter 正则只允许存在于 `frontmatter.py` 等）——改包间依赖或新增解析器时**必须同步维护**，其职责是把只写在文档里的硬约束钉成可执行断言、拒绝「明天的静默漂移」。
+- **monkeypatch 模块路径缝是拆分/搬移红线**：测试大量 patch 字符串路径（`heagent.cli._run_prompt`、`heagent.cli_goal._goal_session`、`heagent.cli_goal._GOAL_LOCK_TIMEOUT`、`cli_goal._goal_auto_lock` 等）——被 patch 的目标函数**及其调用方**必须留在原模块（Python 模块全局查找语义）；`test_goal_declarative_workflow.py::test_cli_reexports_goal_runner_but_not_monkeypatch_seams` 钉死了 cli 的 re-export 面。搬代码前先 grep 缝。
+- GUI 测试经 `pytest.importorskip("textual")` 守卫（CI 只装 `.[dev]` 无 textual，自动跳过）；pilot 交互测试模板见 `tests/test_gui_goal.py`。
 
 ## 代码规范
 
@@ -127,16 +131,13 @@ exceptions  types  config  persist  roles
 
 ## 已知缺口
 
-- `SafetyGuard` / `path_safety` / `engine` sandbox 均非真正安全边界——须 OS 级沙箱兜底（见文首声明）。
-- 工作区路径围栏已收敛：policy 预检（`_validate_paths`）与 file 工具 handler 守卫（`resolve_workspace_path`）共用同一算法 `resolve_under_root`（`tools/path_safety.py`），两层有意纵深防御，不再有两份可漂移副本。
-- `ToolExecutor.execute_in_sandbox()` 默认 Passthrough 透传；可注入：Linux `FirejailBackend`（仅隔离 `shell` 子进程、非完美边界）/ Windows `WinJobBackend`（Job Objects 进程级隔离，`KILL_ON_JOB_CLOSE` 自动终止子孙进程）。file/memory 等宿主进程内 I/O 工具不 spawn 子进程、不受覆盖——须整体 OS 级沙箱兜底（`tools/sandbox.py`）。
-- **Sandbox 硬化（2026-07-20）：** `FirejailBackend` 新增 profile → 参数映射（`sandbox_profile` 死字段激活）、`.env`/CLI 配置入口（`SANDBOX_BACKEND` / `--sandbox`）、firejail 不可用时优雅降级（warn + Passthrough）、Linux 进程组 killing（`os.killpg`）、workspace_root OS 级文件系统隔离（`--private`）。**硬化配置接入（2026-09-17）**：`SANDBOX_PROFILES`（profile→firejail 参数，`--seccomp`/`--caps` 类高级参数由此声明、默认关闭）、`SANDBOX_TOOL_PROFILES`（工具→profile，per-tool 粒度）、`SANDBOX_MEMORY_LIMIT_MB`/`SANDBOX_CPU_SECONDS`（资源限额，默认 0=关闭；触发为非零退出码显性失败）。Firejail 仍非完美边界——上述强化均为 defense-in-depth，须 OS 级沙箱兜底。
-- **文件锁与 WinJob 硬化（2026-07-21）：** `persist.py` `atomic_write_text(lock=True)` 可选跨进程文件锁（POSIX `fcntl.flock` / Windows `msvcrt.locking`），`EngineContainer(enable_file_locks=True)` 自动开启 store/ledger 写锁。`WinJobBackend` 为 Windows 提供 Job Objects 进程级隔离（非完美边界，须 OS 级沙箱兜底）。跨进程持久化缺口已关闭（defense-in-depth，不防恶意进程）。
-- MCP 边界：`SafetyGuard` 执行前工具名拦截已覆盖 MCP（DP-4 第一半 2026-07-08），返回内容启发式围栏已落地（DP-4 第二半 2026-07-10，标记透传、非真正边界）；Tools/Resources/Prompts 三原语 + 写操作治理（Epic 14-16）均已交付。
-- **MCP 写操作治理 annotations 不可信**：`Tool.annotations`（`destructiveHint`/`readOnlyHint`/etc.）是 server 自声明，恶意 server 可谎报读写属性。`PolicyEngine` 的注解闸门（destructive→审批 / readOnly→放行 / 缺省→fail-safe）仅 defense-in-depth，非真正安全边界——须 OS 级沙箱兜底（参见 `engine/policy.py`、`tools/mcp/mapping.py`）。
-- **交互式审批（Epic 29）非真正安全边界**：审批闭环把「要不要执行」的决定权交给用户，是策略层 defense-in-depth 标记——`PolicyEngine` 本就非真边界（围栏可被绕过），审批不提供 OS 级隔离，须 OS 级沙箱兜底（参见 `engine/approval.py`、`engine/policy.py`）。
-- **文件安全与凭证防护（2026-08-24）**：`path_safety.py` 新增凭证文件写/读 deny（`.env` / `~/.ssh/*` / `~/.aws/*` 等）与 `.heagent/` 内部状态读 deny；**项目级可配置入口（2026-09-17）**：`.heagent/path_deny.json`（workspace 围栏锚定、进程级懒缓存）允许收紧（追加 deny 项）或放行显式列举项（精确路径/basename 豁免，内部状态 deny 不接受豁免），**无整体关闭入口**、fail-safe 默认仍拒；`sandbox.py` 新增 `scrub_sensitive_env`，shell 子进程 spawn 前剥离 `*_API_KEY` / `*_TOKEN` 等敏感环境变量；`SafetyGuard` 新增凭证路径破坏性命令拦截（`rm` / `mv` / 重定向 `>` 作用于凭证路径）。上述均为 defense-in-depth 启发式层，**非真正安全边界**——shell 工具仍可 `cat .env` 绕过，须 OS 级沙箱兜底。
-- **沙箱会话目录（2026-08-26，FR-1）**：`SANDBOX_SESSION_WORKSPACE`（`Settings.sandbox_session_workspace`，默认 False）开启后，每个 run 经 `sandbox_session_dir(run_id)`（幂等目录解析，非法 run_id 抛 `ValueError`）获得 `<workspace_root 回退链>/.heagent/sandboxes/<run_id>/`（根锚定 workspace_root 回退链而非进程 cwd，目录落围栏内），经 `RunContext.metadata["sandbox_workspace"]` + `bind_sandbox_workspace` 送达后端——Firejail 优先作 `--private` 根（优先于构造期 root）、WinJob 作子进程 cwd。WinJob 侧仅**目录约定，无文件系统/网络隔离**；目录创建失败/目录缺失均显性失败（不静默降级）；开关关闭时清除预含 metadata 键，argv/cwd 与现状逐字节一致。均为 defense-in-depth，**非安全边界**，须 OS 级沙箱兜底。
-- **沙箱会话生命周期（2026-08-26，FR-4）**：`SandboxSession` 提供同一 run 内 shell 命令的 cwd 跨命令保持（「cd 前缀 + 尾捕获」）、用户命令退出码保持（POSIX `exit "$__rc"` / Windows marker 回填）与 run 结束 teardown（`sandbox_session_keep` 默认删除目录）；会话非安全边界（WinJob 无 FS 隔离、Firejail 非完美边界），须 OS 级沙箱兜底。
-- **E40 补齐（2026-09-15）**：① crash / SIGKILL 的 run 遗留 `.heagent/sandboxes/<run_id>/` 孤儿目录由启动时 housekeeping 回收（`sandbox_dir_retention_days` 默认 7 天；按「目录 + 直接子项」最新 mtime 判活，不删正在写的 run，符号链接/非目录条目不动，单趟有上限、失败记 warning）；② 本 run 会话目录**真正生效**时经 system prompt `<shell-workspace>` 块告知模型（开关开但无真实后端则不报路径）；③ WinJob 子进程启动收敛为 `_winjob_spawn` 单点可测缝；④ `SANDBOX_SESSION_WORKSPACE` / `SANDBOX_SESSION_KEEP` 已有 CLI/GUI 三态开关（`--sandbox-session-workspace` / `--sandbox-session-keep` 及 `--no-...`）。均为 defense-in-depth，**非安全边界**，须 OS 级沙箱兜底。
-- 完整缺口表见 `docs/frame.md` 五。
+> 完整缺口表见 `docs/frame.md` 五；沙箱/文件安全机制与硬化履历见 frame.md 4.4、配置面见 `.env.example`。
+
+**核心立场（全部 defense-in-depth，非真正安全边界，须 OS 级沙箱兜底——机制细节见文首安全声明）：**
+`SafetyGuard` 黑名单、`path_safety` 凭证 deny、`PolicyEngine`（围栏 / 审批 / 注解闸门 / 沙箱裁决）、
+sandbox 后端（Firejail 仅隔离 shell 子进程且非完美边界；WinJob 无文件系统/网络隔离；会话目录仅目录约定；
+file/memory 等宿主进程内工具不受覆盖）、MCP 工具拦截与返回内容围栏（标记透传不阻断）。
+
+**活动缺口**（触发条件/严重度/冻结边界见 `_bmad-output/implementation-artifacts/deferred-work-archive.md`）：
+MCP stdio server 子进程不经沙箱（中-高）；技能资源 TOCTOU 残余竞态（专项评估）；沙箱进程数限额未做、
+`RoleSpec.sandbox_profile` 死字段（低）。

@@ -3,7 +3,7 @@
 > **归并来源**：`_bmad-output/patches/_meta/deferred-work.md`（原跨周期技术债台账，2026-09-15 整理后退役并删除）。
 > **归档规则**：按条目**归属的 epic** 归档；「闭合者」注明实际完成它的 epic / 补丁 spec / commit。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码、测试与 commit。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work.md`](../../implementation-artifacts/deferred-work.md)（工作流 append-only 入口）。
+> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）。
 > 立场不变：本文件涉及的安全相关结论均为 defense-in-depth，**非真正安全边界**，须 OS 级沙箱兜底。
 
 ## 状态总览

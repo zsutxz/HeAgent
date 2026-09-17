@@ -3,7 +3,7 @@
 > **归并来源**：`_bmad-output/patches/_meta/deferred-work.md`（原跨周期技术债台账，2026-09-15 整理后退役并删除）。
 > **归档规则**：按条目**归属的 epic** 归档；「闭合者」注明实际完成它的 epic / 补丁 spec / commit。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码、测试与 commit。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work.md`](../../implementation-artifacts/deferred-work.md)。
+> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)。
 >
 > **安全立场不变**：本文件中所有拦截 / 围栏 / 治理结论均为 **defense-in-depth，非真正安全边界**。
 > 外部 MCP server = 不可信代码（stdio server 拉起任意本地子进程、HTTP server 连任意远端端点）；

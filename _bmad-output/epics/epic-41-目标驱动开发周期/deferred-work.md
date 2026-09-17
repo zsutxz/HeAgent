@@ -3,8 +3,9 @@
 > **归并来源**：本目录原英文台账（2026-08-31 归档，commit `3c4faeb` `docs(bmad): archive epic 41 and 42 planning artifacts`），2026-09-15 按统一格式归并。
 > **归档规则**：按条目**归属的 epic** 归档；「闭合者」注明实际完成它的 spec / 测试。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码与测试。
-> **活动（未闭合）遗留项**：1 条（GUI `/goal` 收口）已移至
-> [`implementation-artifacts/deferred-work.md`](../../implementation-artifacts/deferred-work.md)（工作流 append-only 入口）。
+> **活动（未闭合）遗留项**：此前 1 条（GUI `/goal` 收口）移至
+> [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口），
+> 已于 2026-09-17 闭合归档回本台账（E41-D7），本周期在活动台账暂无未闭合项。
 > 立场不变：goal 跨进程锁（E41-D5）是**并发正确性**互斥，**不是 OS 级安全边界**（须 OS 级沙箱兜底的立场不变）。
 
 ## 状态总览
@@ -16,6 +17,8 @@
 | E41-D3 | Epic 41 · `/goal` 单步技能 | 交互式 REPL 斜杠命令异常围栏 | 已修复 | `spec-41-1-goal-skill-single-step` |
 | E41-D4 | Epic 41 · run metadata | `RoleSpec.metadata` 生命周期 | 已裁定（不并入 `RunContext.metadata`） | `spec-41-2-run-loop-run-metadata` |
 | E41-D5 | Epic 41 · goal 状态并发 | goal 状态无跨进程锁 | 已修复（2026-09-17） | 优化批次 4（`persist.file_lock` + `_goal_mutex`） |
+| E41-D6 | Epic 41 · 声明式工作流 | bmad-build Step 07 迭代预算未声明 | 已闭合（2026-09-17） | 优化批次 1（`max_iterations: 100`） |
+| E41-D7 | Epic 41 · GUI `/goal` | 输出转发 / 取消入口 / CronScheduler / 交互测试 | 已收口（2026-09-17） | 优化批次 1（commit `44ab001`） |
 
 ---
 
@@ -59,3 +62,17 @@
 - `src/heagent/config.py`
 - `src/heagent/cli.py`
 - `src/heagent/gui/screens/chat.py`
+
+## E41-D6 bmad-build Step 07 迭代预算未声明
+
+- **来源**：活动台账（source_spec `src/heagent/config.py` 的 `goal_max_iterations` 默认 20）。
+- **问题**：workflow step 已支持声明独立 `max_iterations`（1–1000），但 bmad-build 的 Step 07 未配置，回退全局 20；原子大 Story 撞上限后整批失败。
+- **结论**：**已闭合**（2026-09-17，优化批次 1）。`.heagent/workflows/workflow.md` Step 07 元数据块声明 `max_iterations: 100`（`/goal` 实际只加载该文件，`cli_goal.py:90`；`.claude`/`.agents` 的技能副本属另一管线不消费该字段），正文「本步骤预算」表述同步更新。
+- **证据**：真实文件解析验证 `step.max_iterations == 100`；覆盖机制由既有 `test_step_iteration_budget_overrides_the_global_default` 锁定。
+
+## E41-D7 GUI `/goal` 收口（输出转发 / 取消入口 / CronScheduler / 交互测试）
+
+- **来源**：活动台账（合并原 Epic 41 台账 3 条同源 bullet；spec-41-1）；2026-09-17 优化批次 1 闭合（commit `44ab001`）。
+- **问题**：GUI 里跑 `/goal` 时 `click.echo` 进度不进 `RichLog`（只见一行 completed）、无取消入口、GUI 不持有 `CronScheduler`（cron 自动推进不生效）、缺「/goal 不落 bridge.submit」的交互测试。
+- **结论**：**已收口**（冻结边界内：不改 CLI runner 语义、产物路径与 `click.echo` 文案）。① stderr→RichLog：`_StderrToLogForwarder`（`io.TextIOBase`，按行缓冲 + rich escape）经 `contextlib.redirect_stderr` 包裹 `_goal_runner`——`click.echo(err=True)` 调用时动态查 `sys.stderr`，重定向有效，cli_goal 零改动；② 取消：ChatScreen `Esc` 绑定 `action_cancel_goal()`（ctrl+c 被 Textual 1.0 Input 的 copy 绑定占用，实测后改 Esc）；③ GUI 持有 `CronScheduler`：`gui_main()` 在 `cron_enabled` 时装配（`_run_job` 镜像 cli.py，`goal-advance` 走 `_goal_cron_advance`），`HeAgentApp.on_mount` 启动、`action_quit` 停止；④ 新增 `tests/test_gui_goal.py`（含「`/goal status` 进 goal runner 不落 bridge.submit」锁定测试，pilot 交互驱动）。
+- **证据**：`src/heagent/gui/screens/chat.py`（`_StderrToLogForwarder` + `_goal_cmd` + `action_cancel_goal`）；`src/heagent/gui/__init__.py`（cron 装配）；`tests/test_gui_goal.py`（6 用例全绿）。

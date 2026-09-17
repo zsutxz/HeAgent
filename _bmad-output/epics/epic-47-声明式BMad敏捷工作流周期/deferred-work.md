@@ -5,7 +5,7 @@
 > 的归档（与 `epic-47-声明式工作流与产物治理/spec-runtime-hygiene.md` 同域，engine 层不挂 Epic 编号，
 > 进度另见 `docs/frame.md` 4.12）。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码、测试与 commit。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work.md`](../../implementation-artifacts/deferred-work.md)
+> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)
 > （例：bmad-build Step 07 未声明 step 级 `max_iterations`、Epic 46 资源读取的中间目录竞态后续）。
 
 ## 状态总览

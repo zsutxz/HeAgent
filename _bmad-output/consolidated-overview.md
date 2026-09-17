@@ -50,7 +50,7 @@
 | 补丁周期 | 计划外技术债 / 缺陷 | 补丁 spec 按归属 epic 归入 `_bmad-output/epics/<周期>/<epic-NN-主题>/`（原 `patches/` 2026-09-15 解散）+ 各周期 `deferred-work.md`（已闭合项归档） | spec 文件，不占 Epic 编号 |
 | epic 外增量 | 架构演进（engine 治理层） | 直接落代码 + `frame.md` 记录 | 按 P0/P1… 分批 |
 
-**标准工作流**：`brief → prd → architecture → epics → stories → quick-dev → code-review`，每步对应一个 `bmad-*` skill。技术债走 **deferral 机制**（发现 → 分类 fix-now/defer → 记录 `implementation-artifacts/deferred-work.md` 活动台账 → 开专门 spec 收尾写 Resolution 关闭 → **按归属 epic 归档**到各周期 `deferred-work.md`）。
+**标准工作流**：`brief → prd → architecture → epics → stories → quick-dev → code-review`，每步对应一个 `bmad-*` skill。技术债走 **deferral 机制**（发现 → 分类 fix-now/defer → 记录 `implementation-artifacts/deferred-work-archive.md` 活动台账 → 开专门 spec 收尾写 Resolution 关闭 → **按归属 epic 归档**到各周期 `deferred-work.md`）。
 
 ### 1.3 统一编号体系（2026-07-23 整合消歧）
 
@@ -693,20 +693,22 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ## 十三、补丁 spec 归档与技术债
 
-> **2026-09-15 重组**：原 `patches/`（按领域分子目录 provider/context/memory/cron/mcp/sandbox/_meta）**已解散**——计划外补丁 spec 按**归属 epic** 归档进 `epics/<周期>/<epic-NN-主题>/`（与它服务的 epic/story 同目录，逐文件映射见 `README.md`「补丁 spec」节；spec 不占 Epic 编号，故不进编号序列），不再单独成目录；`specs/` 为 quick-dev 本地工作件（gitignored）。**遗留项**：未闭合项在 `implementation-artifacts/deferred-work.md`；已闭合项按归属 epic 归档到各周期 `deferred-work.md`（2026-09-15 整理，原 `patches/_meta/deferred-work.md` 全部条目闭合后随目录一并退役删除）。
+> **2026-09-15 重组**：原 `patches/`（按领域分子目录 provider/context/memory/cron/mcp/sandbox/_meta）**已解散**——计划外补丁 spec 按**归属 epic** 归档进 `epics/<周期>/<epic-NN-主题>/`（与它服务的 epic/story 同目录，逐文件映射见 `README.md`「补丁 spec」节；spec 不占 Epic 编号，故不进编号序列），不再单独成目录；`specs/` 为 quick-dev 本地工作件（gitignored）。**遗留项**：未闭合项在 `implementation-artifacts/deferred-work-archive.md`；已闭合项按归属 epic 归档到各周期 `deferred-work.md`（2026-09-15 整理，原 `patches/_meta/deferred-work.md` 全部条目闭合后随目录一并退役删除）。
 
 ### 13.1 已闭合技术债（按归属 epic 归档，2026-09-15）
 
-原跨周期台账 `_bmad-output/patches/_meta/deferred-work.md`（2026-09-15 退役并删除）的条目**已全部闭合**，按归属 epic 归并进各周期 `deferred-work.md`（原始长文历史不再保留）。**活动（未闭合）项**仍在 `implementation-artifacts/deferred-work.md`。
+原跨周期台账 `_bmad-output/patches/_meta/deferred-work.md`（2026-09-15 退役并删除）的条目**已全部闭合**，按归属 epic 归并进各周期 `deferred-work.md`（原始长文历史不再保留）。**活动（未闭合）项**仍在 `implementation-artifacts/deferred-work-archive.md`。
 
 | 归档文件 | 条目（ID） | 要点 |
 |----------|-----------|------|
 | `epics/epic-01-10-主线规划周期/deferred-work.md` | E1-D1/D2、E4-D1/D2、E5-D1、E10-D1/D2 | ProviderChain 双层重包 + 流式 backstop 对称化；Dreaming AC6 `web_fetch` 接 `guard_content`（Epic 35）+ 3 个 LOW（抽 `cron/expr.py` 纯叶子 / 孤儿 task 取回 / 取消语义区分）；`SkillStore` 写竞态**核实不成立**；cron 关停硬上界 + cron expr 诊断 |
 | `epics/epic-11-18-MCP集成周期/deferred-work.md` | E11-D1、E11-D2、E11-D3 | FR-3 评审 6 项（4 修 / 2 决策关闭）；DP-4 返回内容启发式围栏**已交付**；注入签名 global/home 级**决策关闭（won't do）** |
-| `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md` | S-D1、S-D2、S-D3 | engine sandbox 后端评审 4 项（含进程组 kill **勘误：早已交付**）；取消信号保留（`suppress` 语义勘误）；reap 鲁棒性 3 项（超时串保护 / D-state 硬上界 / kill-wait 解耦） |
+| `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md` | S-D1..D6 | engine sandbox 后端评审 4 项（含进程组 kill **勘误：早已交付**）；取消信号保留（`suppress` 语义勘误）；reap 鲁棒性 3 项；**S-D4..D6（2026-09-17 优化批次 2）**：资源限额（`SANDBOX_MEMORY_LIMIT_MB`/`SANDBOX_CPU_SECONDS`）/ 高级参数（`SANDBOX_PROFILES` 声明 --seccomp/--caps）/ per-tool 粒度（`SANDBOX_TOOL_PROFILES`），均默认关闭 |
+| `epics/epic-36-39-文件安全防护周期/deferred-work.md` | F-D1 | **（2026-09-17 优化批次 2）**凭证 deny 项目级可配置入口 `.heagent/path_deny.json`（收紧或放行显式列举项，无整体关闭入口；含函数名勘误） |
 | `epics/epic-40-沙箱会话化周期/deferred-work.md` | E40-D1..D4、E40-C1 | 孤儿目录 GC / 目录对模型可见 / WinJob cwd 可测缝 / CLI 平权 |
-| `epics/epic-41-目标驱动开发周期/deferred-work.md` | E41-D1..D4 | goal 会话预算 / TUI 路由 / REPL 异常围栏 / role metadata 生命周期（GUI `/goal` 收口与 goal 跨进程锁为**活动项**，见活动台账） |
+| `epics/epic-41-目标驱动开发周期/deferred-work.md` | E41-D1..D7 | goal 会话预算 / TUI 路由 / REPL 异常围栏 / role metadata 生命周期 / goal 跨进程锁；**E41-D6/D7（2026-09-17 优化批次 1）**：Step 07 迭代预算（`max_iterations: 100`）/ GUI `/goal` 收口（stderr→RichLog、Esc 取消、GUI 持有 CronScheduler） |
 | `epics/epic-47-声明式BMad敏捷工作流周期/deferred-work.md` | E47-D1 | ledger 记录在途被删（在途续租 + 回写容错 + 可诊断性）——engine 运行时治理增量 |
+| `implementation-artifacts/deferred-work-archive.md` | Z-D1..D7 | **（2026-09-17 优化批次 1/2）**勘察类闭合条目归档：dream 反向边消除 / frontmatter 六处解析器收敛 / provider 骨架**不收敛**（护栏钉死）/ JsonlSink 保持现状 / cron store to_thread / 拦截日志 / 三死字段清理 |
 
 ### 13.2 补丁 spec 清单（已交付，按主题分组）
 
@@ -885,7 +887,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 ### 17.3 下一步（路线图）
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（release 0.4.0 + exe 打包已就绪，持续推进）。
-- ⏳ **Epic 46 后续 backlog**：descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox——中间目录替换竞态仍未闭合（见 `implementation-artifacts/deferred-work.md`）。
+- ⏳ **Epic 46 后续 backlog**：descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox——中间目录替换竞态仍未闭合（见 `implementation-artifacts/deferred-work-archive.md`）。
 - ⏳ **声明式工作流补强**：bmad-build Step 07 未声明 step 级 `max_iterations`（回落全局 20，原子大 Story 可能整批失败）；`skill_update` 遇富正文技能拒绝改写（须先备份）。
 - ⏳ **跨进程安全**：goal 指针 / `GOAL.md` 仅有进程内 asyncio 锁（双 CLI 进程可并发推进同一 story）；E47-D1 施动者未唯一归因（残余风险 LOW，契约已入 `tool_execution.py` docstring）。
 - ⏳ **技术债**：`agent/loop.py` C901 拆分、benchmark 数据入库（历史趋势）、sandbox 开箱即用 profile 库、Prompts 结构化注册表、`engine/workflow.py` legacy 相位机归档。
@@ -920,7 +922,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/` | 声明式 BMad 敏捷工作流（Epic 47，2026-09-01 → 09-15） |
 | `_bmad-output/epics/<周期>/epic-NN-主题/stories/` | 按 epic 归档的 story 文件（82 个，25 个 `stories/` 目录，嵌套于所属周期目录） |
 | `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录（原 `patches/<领域>/` 2026-09-15 解散） |
-| `_bmad-output/implementation-artifacts/deferred-work.md` | 工作流的跨周期 deferred **活动台账**（未闭合项） |
+| `_bmad-output/implementation-artifacts/deferred-work-archive.md` | 工作流的跨周期 deferred **活动条目**（未闭合项）+ 勘察类闭合归档（Z-D1..D7）——原活动台账 `deferred-work.md` 已于 2026-09-17 删除并入 |
 | `_bmad-output/implementation-artifacts/spec-business-data-integration.md` | 业务数据整合**母规划 spec**（未启动；多阶段跨周期，衍生实现 spec 完成后再按归属 epic 归档） |
 | `_bmad-output/epics/<周期>/deferred-work.md` | 已闭合遗留项按归属 epic 归档（含 40 / 41 / 01-10 / 11-18 / S1-S4 / 47） |
 | `_bmad-output/specs/` | quick-dev 本地工作件（gitignored；Epic 41 goal 契约已归档至 `_bmad-output/epics/epic-41-目标驱动开发周期/spec-goal-command/`） |

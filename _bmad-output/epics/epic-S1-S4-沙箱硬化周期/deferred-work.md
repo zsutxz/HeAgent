@@ -3,7 +3,7 @@
 > **归并来源**：`_bmad-output/patches/_meta/deferred-work.md`（原跨周期技术债台账，2026-09-15 整理后退役并删除）。
 > **归档规则**：按条目**归属的 epic** 归档（本周期 = sandbox 域，含 engine sandbox 后端）；「闭合者」注明实际完成它的 epic / 补丁 spec / commit。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码、测试与 commit。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work.md`](../../implementation-artifacts/deferred-work.md)。
+> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)。
 >
 > **立场不变**：以下全部为 defense-in-depth 硬化，**非完美边界**——`FirejailBackend` 仅隔离 `shell`
 > 子进程、`WinJobBackend` 无文件系统/网络隔离、file/memory 等宿主进程内 I/O 工具不受覆盖，
@@ -16,6 +16,9 @@
 | S-D1 | `spec-engine-sandbox-backend` 评审 4 项 `defer` | 4 项全部闭合（含 1 项**勘误：早已交付**） | `spec-sandbox-timeout-validation` + S1–S4 交付（`5a4a29e` / `6e526c9`） |
 | S-D2 | `spec-sandbox-timeout-validation` 评审 1 项 `defer` | 已修复 | `spec-sandbox-cancel-signal-preservation` |
 | S-D3 | `spec-sandbox-cancel-signal-preservation` 评审 3 项 `defer` | 3 项全部修复 | `spec-sandbox-reap-robustness` |
+| S-D4 | 沙箱执行的资源限额（内存/CPU） | 已闭合（2026-09-17；进程数限额另立活动条目） | 优化批次 2（`0582a03`） |
+| S-D5 | Firejail 高级隔离参数（--seccomp / --caps） | 已闭合（2026-09-17，`SANDBOX_PROFILES` 声明、默认关闭） | 优化批次 2（`0582a03`） |
+| S-D6 | per-tool 粒度的 firejail 参数 | 已闭合（2026-09-17，`SANDBOX_TOOL_PROFILES` 两段组合） | 优化批次 2（`0582a03`） |
 
 ---
 
@@ -54,3 +57,26 @@
 | 3 | `proc.kill()` 权限失败致子进程 + pipe FD 泄漏——抛非 `ProcessLookupError`（如 `PermissionError`；Windows `TerminateProcess` 对已退出进程亦可能抛 `ERROR_ACCESS_DENIED`）时逃出 `suppress(ProcessLookupError)`，`await proc.wait()` 不执行 | **已修复**：`proc.kill()` 包进 `try/except BaseException`（记 `kill failed` debug 日志）后**仍执行**带硬上界的 `wait`——kill 与 wait 解耦。**关键耦合**：item 3（解耦）只在 item 2（wait 硬上界）存在时才安全——kill 失败 → 子进程可能不死 → `wait()` 等其自然退出（可能永不返回）→ 须 item 2 的 `wait_for` 兜底；故两者同批在 `_kill_and_reap` 内修。**副作用**：kill 的 `PermissionError` 现被内部吞掉、不再逸出 caller，故 D-1-A 测试载体从 `kill→PermissionError` 迁移为 `wait→RuntimeError`。证据：`tests/test_sandbox.py::test_kill_failure_still_waits`（Passthrough + Firejail，fake `kill()` raise `PermissionError`，断言 `proc.waited=True` + `kill failed` 日志） |
 
 - **同构关闭**：本周期补齐 sandbox 侧后，另两处同构关停硬上界分别在 `epic-11-18-MCP集成周期/deferred-work.md`（E11-D1a，MCP `__aexit__`）与 `epic-01-10-主线规划周期/deferred-work.md`（E10-D1，`CronScheduler.stop`）——「不可靠外部子进程/连接/任务的关停必须有上界」立场（timeout 统一 5.0s）**三处补齐完毕**。
+
+---
+
+## S-D4 沙箱执行的资源限额
+
+- **来源**：`brief.md`「### Deferred（未来考虑）：沙箱执行的资源限额」；2026-09-17 第二轮优化批次闭合（commit `0582a03`）。
+- **问题**：沙箱 shell 无内存/CPU 上界，LLM 触发的大内存或长 CPU 命令可拖垮宿主。
+- **结论**：**已闭合**。新增 `SANDBOX_MEMORY_LIMIT_MB` / `SANDBOX_CPU_SECONDS`（默认 0=关闭，默认行为逐字节不变）：firejail 映射 `--rlimit-as` / `--rlimit-cpu`（profile 参数后、`--` 前）；WinJob 映射 `JOB_OBJECT_LIMIT_JOB_MEMORY` / `JOB_OBJECT_LIMIT_PROCESS_TIME`（与恒开 KILL_ON_JOB_CLOSE 按位或，复用既有内联结构体零新增）。**触发即显性失败**（子进程被终止 → 非零退出码经正常结果回传，对齐超时 `exit_code=-1` 先例），不静默截断。进程数限额未做→另立活动条目（`implementation-artifacts/deferred-work-archive.md`，fork bomb 现由 `_DANGEROUS_PATTERNS` 启发式覆盖）。
+- **证据**：`tests/test_sandbox_mode.py::TestSandboxHardeningConfig` / `::TestFirejailResourceLimitsArgv`（argv 位置与默认零参数）；`tests/test_coverage_sandbox.py::TestWinJobBackend::test_run_applies_resource_limits`（Windows 真跑断言 flags 与限额值）。
+
+## S-D5 Firejail 高级隔离参数（--seccomp / --caps）
+
+- **来源**：`brief.md`「### Deferred（未来考虑）」；2026-09-17 第二轮优化批次闭合（commit `0582a03`）。
+- **问题**：无 `--seccomp` / `--caps` 等高级参数，隔离强度停留在 `--private` + `--net=none` + 进程组 kill。
+- **结论**：**已闭合**。新增 `SANDBOX_PROFILES`（JSON：profile 名 → firejail 参数表，如 `{"default": ["--seccomp", "--caps.drop=all"]}`）经 `EngineContainer.default()` 传入 `FirejailBackend.profiles`——勘察确认此前生产装配下 `profiles` 恒空（仅测试/库消费者手工注入）；高级参数由此声明、**默认关闭**（冻结边界满足）；坏 JSON/坏条目告警丢弃（对齐 `routing_pool_map` 容错）。
+- **证据**：`tests/test_sandbox_mode.py::TestSandboxHardeningWiring::test_profiles_flow_into_firejail_backend`。
+
+## S-D6 per-tool 粒度的 firejail 参数
+
+- **来源**：`brief.md`「### Deferred（未来考虑）」；2026-09-17 第二轮优化批次闭合（commit `0582a03`）。
+- **问题**：参数集只到 profile 粒度——给单工具加参数必须新建 profile。
+- **结论**：**已闭合**。新增 `SANDBOX_TOOL_PROFILES`（JSON：工具名 → profile 名）叠加进 `PolicyEngine.sandbox_profiles`（`container.default()` 注入），与 `SANDBOX_PROFILES` 两段配置组合即得 per-tool 参数差异——不引入新抽象（对齐 epic 边界「不引入 SandboxProfile 类」），fail-safe 阻断契约未动（executor 双重授权复核与 `context_grants_sandbox` 无 context 恒 False 均原样）。
+- **证据**：`tests/test_sandbox_mode.py::TestSandboxHardeningWiring::test_tool_profiles_update_policy_mapping`（verdict 联动断言）。

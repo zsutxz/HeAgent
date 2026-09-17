@@ -170,7 +170,7 @@ executor 的 `emit` 事件现有 `sandbox_profile` 字段；新增 `sandbox_back
 
 ### Deferred（未来考虑）
 
-> 2026-09-15 逐条复核完毕：下列 4 条均未开发，已统一登记在 [`implementation-artifacts/deferred-work.md`](../../implementation-artifacts/deferred-work.md)（活动台账）。
+> 2026-09-15 逐条复核完毕：下列 4 条均未开发，已统一登记在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（活动台账）。
 
 - ⬜ `FirejailBackend` 的 `--seccomp` / `--caps` 等高级参数 — **已登记活动台账（2026-09-15）**：当前 `sandbox.py` 对 `seccomp` / `caps` 零命中，承载点 profile → 参数映射已就绪。
 - ⬜ per-tool 粒度的 firejail 参数（目前 per-profile 粒度） — **已登记活动台账（2026-09-15）**：tool → profile 选择已存在（`engine/policy.py:371`），缺的是 profile 内的 per-tool 参数。

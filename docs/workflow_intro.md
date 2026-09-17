@@ -137,7 +137,7 @@ _he-output/goals/<goal-id>/
   只对收口增量生效，故这两个章节靠步骤正文要求 + 步骤 08 复核。
 - 重任务步骤可用 `max_iterations: <1..1000>` 覆盖该步骤的 SubAgent 迭代预算（缺省继承
   `Settings.goal_max_iterations`）；原子大 Story 建议显式放宽，撞上限会让整步/整批以 `failed` 收场。
-- 遗留项台账由 bmad-build 模板写入 `_bmad-output/implementation-artifacts/deferred-work.md`（goal 内的
+- 遗留项台账由 bmad-build 模板写入 `_bmad-output/implementation-artifacts/deferred-work-archive.md`（goal 内的
   Epic 级台账落在 `_he-output/goals/<goal-id>/step-*/…/deferred-work.md`）；`/deferred` 是它的 reader，
   会列出全部台账的条目数与最新条目。
 - 需要机械保证的验收证据，用 `validation: section: <标题>; <说明>` 声明——`WorkflowRunner` 会校验输出

@@ -2,7 +2,7 @@
 
 本目录是 HeAgent 用 **BMad Method** 驱动迭代留下的**规划产物**（brief / prd / architecture / epics / stories / 补丁 / 回顾）。它是迭代历程的事实来源之一，**不是当前代码事实**——当代码与本文档冲突时，以 `src/` 实现为准（参见 `docs/frame.md`、`docs/iteration.md`）。
 
-> **BMad config 对齐说明：** `_bmad/config.toml [modules.bmm]` 与 `_bmad/bmm/config.yaml`（installer 托管）声明 `planning_artifacts` / `implementation_artifacts` 指向 `_bmad-output/{planning,implementation}-artifacts/`。本仓没有 `planning-artifacts/`；`implementation-artifacts/` 仅保留工作流的**活动**台账 [`deferred-work.md`](implementation-artifacts/deferred-work.md)（未闭合项），已闭合项按归属 epic 归档到各周期目录的 `deferred-work.md`，已完成的实现 spec 按所属 Epic 归档。全周期状态唯一写目标是根目录 [`sprint-status.yaml`](sprint-status.yaml)，不是某个周期子目录。部分旧周期保留只读状态快照，新增周期不保证含独立 `sprint-status.yaml`。HeAgent 刻意按周期而非按产物类型组织（见下方目录结构）。
+> **BMad config 对齐说明：** `_bmad/config.toml [modules.bmm]` 与 `_bmad/bmm/config.yaml`（installer 托管）声明 `planning_artifacts` / `implementation_artifacts` 指向 `_bmad-output/{planning,implementation}-artifacts/`。本仓没有 `planning-artifacts/`；`implementation-artifacts/` 仅保留工作流的**活动**台账 [`deferred-work.md`](implementation-artifacts/deferred-work-archive.md)（未闭合项），已闭合项按归属 epic 归档到各周期目录的 `deferred-work.md`，已完成的实现 spec 按所属 Epic 归档。全周期状态唯一写目标是根目录 [`sprint-status.yaml`](sprint-status.yaml)，不是某个周期子目录。部分旧周期保留只读状态快照，新增周期不保证含独立 `sprint-status.yaml`。HeAgent 刻意按周期而非按产物类型组织（见下方目录结构）。
 
 ## 目录结构（按周期）
 
@@ -181,14 +181,14 @@ _bmad-output/
 | `epics/epic-41-目标驱动开发周期/deferred-work.md` | E41-D1..D4（GUI `/goal` 收口、goal 跨进程锁为活动项） |
 | `epics/epic-47-声明式BMad敏捷工作流周期/deferred-work.md` | E47-D1（ledger 记录在途被删；engine 运行时治理增量，同域 `epic-47-声明式工作流与产物治理/spec-runtime-hygiene.md`） |
 
-活动（未闭合）遗留项仍在 `implementation-artifacts/deferred-work.md`。
+活动（未闭合）遗留项仍在 `implementation-artifacts/deferred-work-archive.md`。
 
 ## 当前状态摘要
 
 - **Epic 1–24 + S1–S4 全部 `done`**（详见 `_bmad-output/sprint-status.yaml`）。
 - **Epic 25–28（GUI）`done`**（12 stories，见 `_bmad-output/sprint-status.yaml`；周期目录旧状态为规划期快照）。
 - **MCP 三目录已合并**（2026-08-18）：`mcp-client/` + `mcp-v2-upgrade/` + `mcp-client-v2/` → `mcp/`，核心文档整合为 6 份，执行产物保留。
-- **deferred-work.md**：**活动台账**路径为 `implementation-artifacts/deferred-work.md`（未闭合项）；**已闭合项**按归属 epic 归档到各周期 `deferred-work.md`（2026-09-15 整理，原 `patches/_meta/deferred-work.md` 全部条目已闭合后退役并删除）。早期 3 条（SubAgent 写竞态 / ProviderChain 双层重包 / 流式 backstop）与 2026-07-01 FR-3 评审 6 项 `defer` 均已收尾——4 项修复（含 `__aexit__` 关停硬上界）、1 项核实不成立、2 项决策关闭（`_watch` `wait_for` 同名异义已修，`except Exception` 过宽经实测证明「收窄会更坏」故保持现状）。
+- **deferred-work.md**：**活动台账**路径为 `implementation-artifacts/deferred-work-archive.md`（未闭合项）；**已闭合项**按归属 epic 归档到各周期 `deferred-work.md`（2026-09-15 整理，原 `patches/_meta/deferred-work.md` 全部条目已闭合后退役并删除）。早期 3 条（SubAgent 写竞态 / ProviderChain 双层重包 / 流式 backstop）与 2026-07-01 FR-3 评审 6 项 `defer` 均已收尾——4 项修复（含 `__aexit__` 关停硬上界）、1 项核实不成立、2 项决策关闭（`_watch` `wait_for` 同名异义已修，`except Exception` 过宽经实测证明「收窄会更坏」故保持现状）。
 - **action_items（2026-09-15 移除）**：三项全 `closed` 后删除根 `sprint-status.yaml` 的 `action_items` 块 —— FR-3 auto-unregister（2026-07-01）、DP-4 第一半 SafetyGuard 执行前拦截（2026-07-08）、DP-4 第二半 MCP 返回内容启发式围栏（2026-07-10）；条目均已闭合，原始记录仅存 git 历史。
 - **补丁系列**：sandbox 健壮性系列（timeout 正整数校验 / CancelledError 不吞取消信号 / reap 鲁棒性）、关停硬上界三件套（MCP `__aexit__` / `CronScheduler.stop` / sandbox reap）、compressor 孤儿 TOOL 消息修复均已交付。
 - **epic 外增量**：`engine/` 运行时治理层（P0-P5）不挂 Epic 编号，进度记入 `docs/frame.md` 4.12。

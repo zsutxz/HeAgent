@@ -428,7 +428,7 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
 差异：policy 用 `context/self.workspace_root`（皆空则放行），handler 用 `workspace_root()`
 （RuntimeSlot → override → cwd）。
 
-另含**凭证 deny**与**内部状态读 deny**（借鉴 hermes `file_safety.py`，2026-08-24）：`build_write_denied_paths` / `build_write_denied_prefixes` 拦截对凭证文件（`~/.ssh/*` / `~/.aws/*` / `.env` / `.netrc` 等）的写入；`check_read_denied` 拦截对 secret-bearing 文件名（`.env` 等）与 `.heagent/` 内部状态目录（sessions/ledger/runs/memory/skills）的读取。deny 与围栏是**并列的独立层**（先围栏后 deny），git 工具只走围栏不接 deny。⚠ 均为 defense-in-depth 启发式层，非真正安全边界——shell 工具仍可 `cat .env` 绕过，须 OS 级沙箱兜底。
+另含**凭证 deny**与**内部状态读 deny**（借鉴 hermes `file_safety.py`，2026-08-24）：`build_write_denied_paths` / `build_write_denied_prefixes` 拦截对凭证文件（`~/.ssh/*` / `~/.aws/*` / `.env` / `.netrc` 等）的写入；`check_read_denied` 拦截对 secret-bearing 文件名（`.env` 等）与 `.heagent/` 内部状态目录（sessions/ledger/runs/memory/skills）的读取。**项目级可配置入口（2026-09-17）**：`.heagent/path_deny.json`（workspace 围栏锚定 + 进程级懒缓存）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒。deny 与围栏是**并列的独立层**（先围栏后 deny），git 工具只走围栏不接 deny。⚠ 均为 defense-in-depth 启发式层，非真正安全边界——shell 工具仍可 `cat .env` 绕过，须 OS 级沙箱兜底。
 
 #### edits.py — 编辑原语支撑（行尾保真 / diff 回执 / 落盘前快照）
 
@@ -873,6 +873,7 @@ defense-in-depth，OS sandbox 才能处理 hostile filesystem/process context。
 | 流式 tool_calls 回退 | `run_stream()` 流式模式不返回 `tool_calls`，命中时回退 `send()` 重取（已知设计权衡） |
 | MCP / engine sandbox 安全边界 | `SafetyGuard` / `PolicyEngine` / `FirejailBackend` / MCP 围栏均非真正安全边界，须 OS 级沙箱兜底（详见 CLAUDE.md 安全声明） |
 | 用户可配置 MCP 签名入口 | 项目级 `.heagent/injection_signatures.json` 已接入并进程内缓存；全局级配置仍 deferred；签名围栏仍是非真正安全边界 |
+| 凭证 deny 项目级配置入口 | `.heagent/path_deny.json`（2026-09-17）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒；非真正边界（见文件安全行） |
 | Dreaming 联网注入围栏 | `web_fetch` 返回路径已接 `guard_content`（Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；仍是非真正边界（标记仅 observable defense-in-depth），dreamer 须 OS 级沙箱兜底（见 4.6 dream.py） |
 | 交互式审批非安全边界 | 审批闭环（Epic 29）把「要不要执行」交给用户，**不是安全边界**——`PolicyEngine` 本就非真边界，须 OS 级沙箱兜底（见 4.12 approval.py） |
 | 文件安全与凭证防护非边界 | `path_safety` 凭证 deny / `scrub_sensitive_env` 均为 defense-in-depth 启发式层（2026-08-24），非真正边界——shell 工具仍可 `cat .env` 绕过，须 OS 级沙箱兜底 |

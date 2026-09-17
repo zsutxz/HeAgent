@@ -136,7 +136,7 @@ deny 与 env scrub 均为 defense-in-depth，**非真正安全边界**（shell �
 
 ### Deferred（未来考虑）
 
-> 2026-09-15 逐条复核完毕：未闭合项统一登记在 [`implementation-artifacts/deferred-work.md`](../../implementation-artifacts/deferred-work.md)（活动台账）；两条经核实「已覆盖、不成立」的已在下方就地标注。
+> 2026-09-15 逐条复核完毕：未闭合项统一登记在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（活动台账）；两条经核实「已覆盖、不成立」的已在下方就地标注。
 
 - ✅ MCP stdio server 子进程的 env scrubbing — **已覆盖，不成立（2026-09-15 核实）**：MCP SDK 默认只继承环境**白名单**（`mcp/client/stdio/__init__.py:28,127`；Windows 下仅 APPDATA/HOMEDRIVE/HOMEPATH/LOCALAPPDATA/PATH/PATHEXT/PROCESSOR_ARCHITECTURE/SYSTEMDRIVE/SYSTEMROOT/TEMP/USERNAME/USERPROFILE），不含任何 `*_API_KEY` / `*_TOKEN`；只有 `.mcp.json` 显式声明的 `env` 才会追加 → 不列入待办。
 - ✅ cron job 脚本子进程的 env scrubbing — **已覆盖，不成立（2026-09-15 核实）**：`src/heagent/cron/` 无 `Popen` / `create_subprocess_*`（job 在进程内跑 agent run），唯一子进程路径是 run 内的 shell 工具，已被 `tools/sandbox.py` 的 `scrub_sensitive_env` 覆盖 → 不列入待办。
