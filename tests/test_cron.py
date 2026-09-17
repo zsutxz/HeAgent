@@ -10,8 +10,9 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from heagent.cron.jobs import JobStore
+from heagent.cron.jobs import CronJob, JobStore
 from heagent.cron.scheduler import CronScheduler
+from heagent.engine import EngineContainer
 from heagent.tools.builtins.cron import (
     configure_cron_tools,
     cron_add,
@@ -22,6 +23,8 @@ from heagent.tools.builtins.cron import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from heagent.engine.context import RunContext
 
 
 # ---- JobStore 测试 ----
@@ -190,6 +193,55 @@ class TestCronTools:
 
 
 # ---- CronScheduler.stop 关停硬上界测试（task 挂死兜底，与 MCP __aexit__ 同构）----
+
+
+class TestCronSchedulerTickPath:
+    """tick 路径集成回归（2026-09-17 B1）：store 调用经 to_thread 卸载后，到期 job 仍被
+    正常执行且 last_run / one-shot 移除语义不变。"""
+
+    @staticmethod
+    def _store_with_job(tmp_path: Path, *, job_id: str, recurring: bool) -> JobStore:
+        store = JobStore(str(tmp_path / "jobs.json"))
+        store.add(
+            CronJob(
+                id=job_id,
+                prompt="hello",
+                cron="* * * * *",
+                recurring=recurring,
+                created=datetime.now().isoformat(),
+            )
+        )
+        return store
+
+    @pytest.mark.asyncio
+    async def test_due_job_executes_and_records_last_run(self, tmp_path: Path) -> None:
+        store = self._store_with_job(tmp_path, job_id="j-recurring", recurring=True)
+        executed: list[str] = []
+
+        async def runner(prompt: str, run_context: RunContext) -> None:
+            executed.append(prompt)
+
+        scheduler = CronScheduler(store, tick_seconds=60, engine=EngineContainer(), job_runner=runner)
+        await scheduler._check_and_execute()
+
+        assert executed == ["hello"]
+        jobs = store.list_jobs()
+        assert len(jobs) == 1
+        assert jobs[0].last_run is not None
+
+    @pytest.mark.asyncio
+    async def test_one_shot_job_removed_after_execution(self, tmp_path: Path) -> None:
+        # job_id 与上一测不同：ledger key 含分钟级时间戳且 EngineContainer() 共享默认 ledger
+        # 路径，同分钟内重复 id 会被幂等 lease 跳过（避免测试间伪共享）。
+        store = self._store_with_job(tmp_path, job_id="j-one-shot", recurring=False)
+
+        async def runner(prompt: str, run_context: RunContext) -> None:
+            pass
+
+        scheduler = CronScheduler(store, tick_seconds=60, engine=EngineContainer(), job_runner=runner)
+        await scheduler._check_and_execute()
+
+        assert store.list_jobs() == []
 
 
 class TestCronSchedulerStop:

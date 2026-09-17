@@ -114,7 +114,9 @@ class CronScheduler:
         """
         now = datetime.now()
         try:
-            jobs = self._store.list_jobs()
+            # store 的读写是同步文件 I/O（含 Windows 替换退避 time.sleep），经 to_thread 卸载，
+            # 不阻塞事件循环（对齐 273cb89 file/search 工具与 WorkflowCheckpointStore 先例）。
+            jobs = await asyncio.to_thread(self._store.list_jobs)
         except Exception:
             logger.exception("Failed to load cron jobs; skipping this tick")
             return
@@ -174,7 +176,7 @@ class CronScheduler:
             # last_run 不更新会导致同一个逻辑分钟被无限重入。
             from heagent.cron.jobs import _iso_now
 
-            self._store.update(job.id, last_run=_iso_now())
+            await asyncio.to_thread(self._store.update, job.id, last_run=_iso_now())
             logger.exception("Cron job '%s' execution failed", job.id)
             return
 
@@ -184,14 +186,14 @@ class CronScheduler:
         await self._engine.ledger.complete(key, metadata={"job_id": job.id, "cron": job.cron})
         from heagent.cron.jobs import _iso_now
 
-        self._store.update(job.id, last_run=_iso_now())
+        await asyncio.to_thread(self._store.update, job.id, last_run=_iso_now())
         self._engine.events.publish(
             "cron_job_completed",
             run_id=run_context.run_id,
             details={"job_id": job.id},
         )
         if not job.recurring:
-            self._store.remove(job.id)
+            await asyncio.to_thread(self._store.remove, job.id)
             logger.info("One-shot cron job '%s' removed after execution", job.id)
 
     @staticmethod
