@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections import deque
 from enum import StrEnum
@@ -22,6 +23,8 @@ from heagent.exceptions import SafetyViolation
 
 if TYPE_CHECKING:
     from heagent.types import ToolCall
+
+logger = logging.getLogger(__name__)
 
 
 class SafetyMode(StrEnum):
@@ -105,8 +108,13 @@ class SafetyGuard:
         self._violation_log: deque[str] = deque(maxlen=1000)
 
     def _block(self, msg: str) -> NoReturn:
-        """记录违规并抛出 SafetyViolation。"""
+        """记录违规并抛出 SafetyViolation。
+
+        全部拦截分支经此单点收口，此处同步落一条 warning 日志（拦截轨迹可观测，利于事后审计；
+        事件侧 ``tool_call_blocked`` 由 executor 层发射，两者互补）。
+        """
         self._violation_log.append(msg)
+        logger.warning("SafetyGuard blocked: %s", msg)
         raise SafetyViolation(msg)
 
     def check(self, call: ToolCall) -> None:

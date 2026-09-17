@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from heagent.exceptions import SafetyViolation
@@ -124,3 +126,10 @@ class TestViolationLog:
             guard.check(_shell_call("rm -rf /"))
         assert len(guard.violations) == 1
         assert "rm -rf /" in guard.violations[0]
+
+    def test_block_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """拦截轨迹可观测：全部拦截分支经 _block 单点收口同步落 warning。"""
+        guard = SafetyGuard()
+        with caplog.at_level(logging.WARNING, logger="heagent.tools.safety"), pytest.raises(SafetyViolation):
+            guard.check(_shell_call("rm -rf /"))
+        assert any("SafetyGuard blocked" in rec.getMessage() for rec in caplog.records)

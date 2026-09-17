@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import shutil
 import uuid
 from datetime import datetime
@@ -125,6 +126,28 @@ class TestPolicyEngine:
         )
         assert verdict.allowed is False
         assert "allowlist" in verdict.reason
+
+    def test_policy_block_logs_warning(self, workspace_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """BLOCKED 裁决落 warning（拦截轨迹可观测，事后可审计）。"""
+        policy = PolicyEngine(workspace_root=str(workspace_dir), blocked_tools=["shell"])
+        with caplog.at_level(logging.WARNING, logger="heagent.engine.policy"):
+            verdict = policy.evaluate_tool_call(
+                ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+                context=RunContext(workspace_root=str(workspace_dir)),
+            )
+        assert verdict.allowed is False
+        assert any("PolicyEngine blocked 'shell'" in rec.getMessage() for rec in caplog.records)
+
+    def test_policy_approval_logs_info(self, workspace_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """APPROVAL_REQUIRED 落 info（需人工介入，区别于硬阻断）。"""
+        policy = PolicyEngine(workspace_root=str(workspace_dir), approval_tools=["shell"])
+        with caplog.at_level(logging.INFO, logger="heagent.engine.policy"):
+            verdict = policy.evaluate_tool_call(
+                ToolCall(id="1", name="shell", arguments={"command": "dir"}),
+                context=RunContext(workspace_root=str(workspace_dir)),
+            )
+        assert verdict.requires_approval is True
+        assert any("requires approval for 'shell'" in rec.getMessage() for rec in caplog.records)
 
     def test_policy_requires_approval_when_configured(self, workspace_dir: Path) -> None:
         policy = PolicyEngine(workspace_root=str(workspace_dir), approval_tools=["shell"])

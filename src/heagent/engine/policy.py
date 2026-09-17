@@ -29,6 +29,7 @@ policy **不是安全边界**（围栏可被绕过），须 OS 级沙箱兜底�
 
 from __future__ import annotations
 
+import logging
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -45,6 +46,8 @@ from heagent.tools.path_safety import (
 if TYPE_CHECKING:
     from heagent.engine.context import RunContext
     from heagent.types import ToolCall, ToolSchema
+
+logger = logging.getLogger(__name__)
 
 
 class ToolExecutionMode(StrEnum):
@@ -188,31 +191,27 @@ class PolicyEngine:
         # 放在最前是有意的——档位是「这次 run 允许做什么」的上限，不应被后续任何放行
         # 路径（白名单命中 / 审批已授予 / 沙箱已授权）绕过。
         if self.sandbox_mode == "read-only" and not self._is_read_only(call, schema=schema):
-            return PolicyVerdict(
-                mode=ToolExecutionMode.BLOCKED,
-                reason=(f"Tool '{call.name}' is blocked: sandbox mode 'read-only' allows only read-only tools."),
-            )
+            reason = f"Tool '{call.name}' is blocked: sandbox mode 'read-only' allows only read-only tools."
+            logger.warning("PolicyEngine blocked '%s': %s", call.name, reason)
+            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason)
 
         # 1) 白名单：设了白名单且工具不在其中 → 阻断。
         if self.allowed_tools is not None and call.name not in self.allowed_tools:
-            return PolicyVerdict(
-                mode=ToolExecutionMode.BLOCKED,
-                reason=f"Tool '{call.name}' is not in the policy allowlist.",
-            )
+            reason = f"Tool '{call.name}' is not in the policy allowlist."
+            logger.warning("PolicyEngine blocked '%s': %s", call.name, reason)
+            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason)
 
         # 2) 黑名单：命中 → 阻断。
         if call.name in self.blocked_tools:
-            return PolicyVerdict(
-                mode=ToolExecutionMode.BLOCKED,
-                reason=f"Tool '{call.name}' is blocked by policy.",
-            )
+            reason = f"Tool '{call.name}' is blocked by policy."
+            logger.warning("PolicyEngine blocked '%s': %s", call.name, reason)
+            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason)
 
         # 3) MCP 门控：开启 block_mcp_tools 且调用的是 MCP 工具 → 阻断。
         if self.block_mcp_tools and self._is_mcp_tool(call):
-            return PolicyVerdict(
-                mode=ToolExecutionMode.BLOCKED,
-                reason=f"MCP tool '{call.name}' is blocked by policy.",
-            )
+            reason = f"MCP tool '{call.name}' is blocked by policy."
+            logger.warning("PolicyEngine blocked '%s': %s", call.name, reason)
+            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason)
 
         # 4) 工作区路径围栏：file/git 工具的路径参数越界 → 阻断。
         # danger-full-access 档（P0-2）显式跳过围栏 + 凭证 deny 预检——该档语义即
@@ -220,6 +219,7 @@ class PolicyEngine:
         if self.sandbox_mode != "danger-full-access":
             path_error = self._validate_paths(call, context=context)
             if path_error:
+                logger.warning("PolicyEngine blocked '%s': %s", call.name, path_error)
                 return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=path_error)
 
         # 计算沙箱配置（该工具需沙箱则非 None）。
@@ -227,9 +227,11 @@ class PolicyEngine:
 
         # 5) 审批：显式策略优先，注解感知 MCP 工具缺省行为（FR-A3/A4/A5）。
         if self._requires_approval(call, schema=schema) and not self._approval_granted(call, context=context):
+            reason = self._approval_reason(call, schema=schema)
+            logger.info("PolicyEngine requires approval for '%s': %s", call.name, reason)
             return PolicyVerdict(
                 mode=ToolExecutionMode.APPROVAL_REQUIRED,
-                reason=self._approval_reason(call, schema=schema),
+                reason=reason,
                 sandbox_profile=sandbox_profile,
             )
 
