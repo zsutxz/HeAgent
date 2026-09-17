@@ -9,7 +9,6 @@ from heagent.engine.workflow import (
     GoalWorkflowState,
     WorkflowCheckpoint,
     WorkflowCheckpointStore,
-    WorkflowOrchestrator,
     WorkflowPhase,
     WorkflowStatus,
 )
@@ -75,8 +74,15 @@ async def test_two_story_stub_smoke_leaves_checkpoint_and_audit_evidence(tmp_pat
             state,
         )
 
-    retrospective = WorkflowOrchestrator.transition(state, WorkflowPhase.RETROSPECTIVE, reason="two stories reviewed")
-    done = WorkflowOrchestrator.transition(retrospective, WorkflowPhase.DONE, reason="smoke acceptance complete")
+    done = GoalWorkflowState.model_validate(
+        state.model_copy(
+            update={
+                "phase": WorkflowPhase.DONE,
+                "status": WorkflowStatus.COMPLETED,
+                "transition_reason": "smoke acceptance complete",
+            }
+        )
+    )
     await store.save(
         WorkflowCheckpoint(
             checkpoint_id="cp-done",
@@ -96,13 +102,6 @@ async def test_two_story_stub_smoke_leaves_checkpoint_and_audit_evidence(tmp_pat
     assert await store.load_latest_unfinished(goal_id) is None
     assert len([r for r in await ledger.list_records() if r.metadata["goal_id"] == goal_id]) == 2
     assert len([e for e in events.recent_events if e.details.get("goal_id") == goal_id]) == 2
-
-    blocked = WorkflowOrchestrator.route(
-        GoalWorkflowState(goal_id="blocked-goal", phase=WorkflowPhase.SPRINT, status=WorkflowStatus.RUNNING),
-        available_artifacts=[],
-    )
-    assert blocked.status is WorkflowStatus.BLOCKED
-    assert "ready Story" in blocked.missing_artifacts
 
 
 @pytest.mark.asyncio

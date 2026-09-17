@@ -955,7 +955,7 @@ src/heagent/
 │   ├── executor.py          # ToolExecutor 策略分发
 │   ├── store.py             # RunStore 运行快照（async I/O）
 │   ├── ledger.py            # ExecutionLedger 幂等/租约（async I/O）
-│   ├── workflow.py          # Goal workflow state / routing / checkpoint persistence
+│   ├── workflow.py          # GoalWorkflowState + WorkflowCheckpointStore（legacy 阶段状态机已于 2026-09 删除）
 │   ├── workflow_runner.py    # 声明式 workflow 单步执行器
 │   ├── artifacts.py          # Goal/Epic/Story 产物契约校验
 │   ├── approval.py           # 交互式审批协议与状态
@@ -1087,7 +1087,7 @@ python -m heagent
 
 ### 4.13 目标工作流质量收口
 
-Epic 43-45 的目标级编排、checkpoint、恢复、Token 分段和 CLI 审计由确定性测试覆盖。`tests/test_goal_workflow_smoke.py` 使用无网络执行，验证两个 story 单元、workflow/checkpoint、ledger 与 EventBus 证据，并覆盖缺少产物时的 blocked 分支和损坏状态显式失败。
+Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测试覆盖。`tests/test_goal_workflow_smoke.py` 使用无网络执行，验证两个 story 单元、workflow/checkpoint、ledger 与 EventBus 证据，并覆盖损坏状态显式失败（legacy 阶段状态机与其 route 门控已于 2026-09 删除）。
 
 本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format 和 mypy；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal` 的步骤权威是 `.heagent/workflows/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 仍是 defense-in-depth，非 OS 安全边界。
 
