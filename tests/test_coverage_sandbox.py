@@ -741,11 +741,68 @@ class TestWinJobBackend:
         ):
             await task
 
-        assert killed, "取消后应 kill 子进程"
+        assert killed, "取消后应 kill 进程"
         assert (
             any(rec.levelno == logging.DEBUG and "cancel cleanup" in rec.getMessage() for rec in caplog.records)
             or waited
         ), "取消 cleanup 应执行（log 或 waited）"
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="需 ctypes.windll（Windows-only 内核 API）")
+    @pytest.mark.asyncio
+    async def test_run_applies_resource_limits(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """资源限额（2026-09-17 硬化批）：Job Memory / Process Time 标志与值写入 Job Object。
+
+        经 byref 的 ``_obj`` 回读结构体断言 flags 与限额值（默认关闭时 flags 仅
+        KILL_ON_JOB_CLOSE，由 ``test_run_available_normal_execution`` 等既有用例覆盖）。
+        """
+        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: True))
+
+        captured: dict[str, int] = {}
+
+        def fake_set_info(_handle: object, _cls: object, ref: object, _size: int) -> int:
+            info = ref._obj  # byref CArgObject 背后的原结构体
+            captured["flags"] = info.BasicLimitInformation.LimitFlags
+            captured["job_mem"] = info.JobMemoryLimit
+            captured["proc_time"] = info.BasicLimitInformation.PerProcessUserTimeLimit
+            return 1
+
+        monkeypatch.setattr(ctypes.windll.kernel32, "CreateJobObjectW", lambda a, b: 12345)
+        monkeypatch.setattr(ctypes.windll.kernel32, "SetInformationJobObject", fake_set_info)
+        monkeypatch.setattr(ctypes.windll.kernel32, "AssignProcessToJobObject", lambda *a: 1)
+        monkeypatch.setattr(ctypes.windll.kernel32, "CloseHandle", lambda *a: 1)
+
+        class _FakePopen:
+            def __init__(self, *args, **kwargs):
+                self.returncode = 0
+                self._handle = 1
+
+            def communicate(self):
+                return (b"limited_ok", b"")
+
+        async def fake_to_thread(func, *args, **kwargs):
+            name = getattr(func, "__name__", "")
+            if func is subprocess.Popen or name == "_winjob_spawn":
+                return _FakePopen()
+            if name == "communicate":
+                return (b"limited_ok", b"")
+            if name == "wait":
+                return None
+            return func(*args, **kwargs)
+
+        monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+        backend = WinJobBackend(memory_limit_mb=256, cpu_seconds=7)
+        result = await backend.run("echo hi", timeout=10)
+
+        assert "limited_ok" in result
+        assert captured["flags"] & 0x2000, "KILL_ON_JOB_CLOSE 恒开"
+        assert captured["flags"] & 0x200, "内存限额标志应置位"
+        assert captured["flags"] & 0x8, "CPU 时间限额标志应置位"
+        assert captured["job_mem"] == 256 * 1024 * 1024
+        assert captured["proc_time"] == 7 * 10_000_000
 
 
 # ──────────────────────────────────────────────────────────────────────────────

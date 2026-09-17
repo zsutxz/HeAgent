@@ -222,3 +222,124 @@ class TestContainerWiring:
         container = EngineContainer.default(workspace_root=str(tmp_path))
         metadata = container.create_run_context().metadata
         assert metadata["sandboxed_tools"] == ["shell"]
+
+
+class TestSandboxHardeningConfig:
+    """沙箱硬化配置（2026-09-17）：SANDBOX_PROFILES / SANDBOX_TOOL_PROFILES / 资源限额。"""
+
+    def test_defaults_are_all_off(self, tmp_path: Path) -> None:
+        """全部默认关闭——默认装配行为与硬化前逐字节一致。"""
+        s = Settings(_env_file=tmp_path / ".env")
+        assert s.sandbox_profiles == ""
+        assert s.sandbox_profiles_map == {}
+        assert s.sandbox_tool_profiles == ""
+        assert s.sandbox_tool_profiles_map == {}
+        assert s.sandbox_memory_limit_mb == 0
+        assert s.sandbox_cpu_seconds == 0
+
+    def test_profiles_map_parses_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SANDBOX_PROFILES", '{"default": ["--seccomp"], "mcp": ["--caps.drop=all", "--net=none"]}')
+        s = Settings(_env_file=tmp_path / ".env")
+        assert s.sandbox_profiles_map == {"default": ("--seccomp",), "mcp": ("--caps.drop=all", "--net=none")}
+
+    def test_tool_profiles_map_parses_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("SANDBOX_TOOL_PROFILES", '{"shell": "strict"}')
+        s = Settings(_env_file=tmp_path / ".env")
+        assert s.sandbox_tool_profiles_map == {"shell": "strict"}
+
+    def test_bad_json_degrades_to_empty_with_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """非法 JSON 告警后丢弃（对齐 routing_pool_map 容错），不阻断启动。"""
+        monkeypatch.setenv("SANDBOX_PROFILES", "{not json")
+        monkeypatch.setenv("SANDBOX_TOOL_PROFILES", "[]")
+        s = Settings(_env_file=tmp_path / ".env")
+        with caplog.at_level(logging.WARNING, logger="heagent.config"):
+            assert s.sandbox_profiles_map == {}
+            assert s.sandbox_tool_profiles_map == {}
+        assert any("SANDBOX_PROFILES" in r.message for r in caplog.records)
+        assert any("SANDBOX_TOOL_PROFILES" in r.message for r in caplog.records)
+
+    def test_invalid_entries_are_skipped_individually(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """逐条校验：坏条目仅跳过该条，好条目保留。"""
+        monkeypatch.setenv(
+            "SANDBOX_PROFILES",
+            '{"good": ["--seccomp"], "bad": "not-a-list", "empty": []}',
+        )
+        monkeypatch.setenv("SANDBOX_TOOL_PROFILES", '{"ok": "p1", "": "empty-name"}')
+        s = Settings(_env_file=tmp_path / ".env")
+        assert s.sandbox_profiles_map == {"good": ("--seccomp",)}
+        assert s.sandbox_tool_profiles_map == {"ok": "p1"}
+
+
+class TestSandboxHardeningWiring:
+    def test_profiles_flow_into_firejail_backend(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        monkeypatch.setenv("SANDBOX_BACKEND", "firejail")
+        monkeypatch.setenv("SANDBOX_PROFILES", '{"default": ["--seccomp"]}')
+        monkeypatch.setenv("SANDBOX_MEMORY_LIMIT_MB", "512")
+        monkeypatch.setenv("SANDBOX_CPU_SECONDS", "30")
+        monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/firejail")
+        container = EngineContainer.default(workspace_root=str(tmp_path))
+        runner = container.executor.sandbox_runner
+        assert isinstance(runner, FirejailBackend)
+        assert runner._profiles == {"default": ("--seccomp",)}
+        assert runner._memory_limit_mb == 512
+        assert runner._cpu_seconds == 30
+
+    def test_limits_flow_into_winjob_backend(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from heagent.tools.sandbox import WinJobBackend
+
+        monkeypatch.setenv("SANDBOX_BACKEND", "winjob")
+        monkeypatch.setenv("SANDBOX_MEMORY_LIMIT_MB", "256")
+        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: True))
+        container = EngineContainer.default(workspace_root=str(tmp_path))
+        runner = container.executor.sandbox_runner
+        assert isinstance(runner, WinJobBackend)
+        assert runner._memory_limit_mb == 256
+
+    def test_tool_profiles_update_policy_mapping(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """工具→profile 映射注入 PolicyEngine.sandbox_profiles（与 fail-safe 裁决兼容）。"""
+        monkeypatch.setenv("SANDBOX_BACKEND", "auto")
+        monkeypatch.setenv("SANDBOX_TOOL_PROFILES", '{"shell": "strict"}')
+        monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/firejail")
+        container = EngineContainer.default(workspace_root=str(tmp_path))
+        assert container.policy.sandbox_profiles == {"shell": "strict"}
+        # 裁决联动：shell 命中的 profile 名变为 strict（verdict 携带该 profile）。
+        verdict = container.policy.evaluate_tool_call(_call("shell", command="echo hi"))
+        assert verdict.sandbox_profile == "strict"
+
+    def test_empty_tool_profiles_keep_default_mapping_semantics(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """无配置时 policy.sandbox_profiles 恒空——工具名缺省落 "default"（现状不变）。"""
+        monkeypatch.setenv("SANDBOX_BACKEND", "auto")
+        monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/firejail")
+        container = EngineContainer.default(workspace_root=str(tmp_path))
+        assert container.policy.sandbox_profiles == {}
+        verdict = container.policy.evaluate_tool_call(_call("shell", command="echo hi"))
+        assert verdict.sandbox_profile == "default"
+
+
+class TestFirejailResourceLimitsArgv:
+    """--rlimit-as / --rlimit-cpu 注入（0=关闭，默认零参数 → 既有 argv 逐字节不变）。"""
+
+    def test_no_limits_by_default(self) -> None:
+        argv = FirejailBackend(workspace_root="/ws")._build_argv("echo hi", None)
+        assert not any(a.startswith("--rlimit") for a in argv)
+
+    def test_limits_appended_after_profile_before_separator(self) -> None:
+        backend = FirejailBackend(
+            workspace_root="/ws",
+            profiles={"default": ("--seccomp",)},
+            memory_limit_mb=512,
+            cpu_seconds=60,
+        )
+        argv = backend._build_argv("echo hi", "default")
+        assert argv[-4:] == ["--", "sh", "-c", "echo hi"]
+        assert argv.index("--rlimit-as=536870912") > argv.index("--seccomp")
+        assert argv.index("--rlimit-cpu=60") == len(argv) - 5
+
+    def test_zero_values_omit_flags(self) -> None:
+        backend = FirejailBackend(memory_limit_mb=0, cpu_seconds=0)
+        argv = backend._build_argv("echo hi", None)
+        assert not any(a.startswith("--rlimit") for a in argv)

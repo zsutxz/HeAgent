@@ -277,6 +277,23 @@ class Settings(BaseSettings):
     # 正常 teardown，由 CLI/GUI 启动时的 housekeeping 按本保留期回收（0=禁用）。
     # 7 天与编辑快照同档——它是 per-run 临时工作区，比 run 快照（30 天）短命得多。
     sandbox_dir_retention_days: int = Field(default=7, ge=0)
+    # 沙箱 profile → firejail 参数映射（2026-09-17 硬化批）：JSON 对象
+    # ``{"<profile名>": ["--seccomp", "--caps.drop=all"]}``。经 FirejailBackend.profiles
+    # 生效，使 "default"/"mcp"/自定义 profile 产生实际参数差异（高级隔离参数 --seccomp/
+    # --caps 由此声明，默认关闭）。空 = 零参数（现状）。均为 defense-in-depth，
+    # 非真正安全边界（见 CLAUDE.md 安全声明）。
+    sandbox_profiles: str = Field(default="")
+    # 工具 → 沙箱 profile 名映射（per-tool 参数粒度）：JSON 对象 ``{"<工具名>": "<profile名>"}``。
+    # 注入 PolicyEngine.sandbox_profiles（与代码内 sandbox_profiles 参数同形状、叠加生效），
+    # 使单个工具可差异化选用 profile。空 = 现状（工具名映射缺省落 "default"）。
+    sandbox_tool_profiles: str = Field(default="")
+    # 沙箱 shell 内存限额（MB，0=关闭）：firejail 映射 --rlimit-as；WinJob 映射
+    # JOB_OBJECT_LIMIT_JOB_MEMORY。限额触发 → 子进程被终止 → 非零退出码经正常结果回传
+    # （显性失败，对齐超时语义；不静默截断输出）。
+    sandbox_memory_limit_mb: int = Field(default=0, ge=0)
+    # 沙箱 shell CPU 时间限额（秒，0=关闭）：firejail 映射 --rlimit-cpu；WinJob 映射
+    # JOB_OBJECT_LIMIT_PROCESS_TIME。触发行为同内存限额（显性失败）。
+    sandbox_cpu_seconds: int = Field(default=0, ge=0)
 
     # ---- 审批参数（Epic 29） ----
     # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。
@@ -328,6 +345,61 @@ class Settings(BaseSettings):
     def sandbox_env_allowlist_set(self) -> frozenset[str]:
         """沙箱 env 豁免 allowlist 的大小写不敏感集合（供 scrub_sensitive_env 匹配）。"""
         return frozenset(name.upper() for name in _parse_comma_list(self.sandbox_env_allowlist))
+
+    @property
+    def sandbox_profiles_map(self) -> dict[str, tuple[str, ...]]:
+        """``SANDBOX_PROFILES``（JSON）解析结果：profile 名 → firejail 参数表。
+
+        非法内容告警后丢弃（对齐 ``routing_pool_map`` 容错风格，不阻断启动）；
+        逐条校验——单条非法仅跳过该条。
+        """
+        return self._parse_str_list_map(self.sandbox_profiles, "SANDBOX_PROFILES")
+
+    @property
+    def sandbox_tool_profiles_map(self) -> dict[str, str]:
+        """``SANDBOX_TOOL_PROFILES``（JSON）解析结果：工具名 → profile 名。"""
+        if not self.sandbox_tool_profiles.strip():
+            return {}
+        try:
+            payload = json.loads(self.sandbox_tool_profiles)
+        except json.JSONDecodeError as exc:
+            logger.warning("SANDBOX_TOOL_PROFILES is not valid JSON (%s); ignored", exc)
+            return {}
+        if not isinstance(payload, dict):
+            logger.warning("SANDBOX_TOOL_PROFILES must be a JSON object of {tool: profile}; ignored")
+            return {}
+        result: dict[str, str] = {}
+        for tool, profile in payload.items():
+            if not isinstance(tool, str) or not tool.strip() or not isinstance(profile, str) or not profile.strip():
+                logger.warning(
+                    "SANDBOX_TOOL_PROFILES[%r] invalid (tool/profile must be non-empty strings); skipped", tool
+                )
+                continue
+            result[tool] = profile.strip()
+        return result
+
+    def _parse_str_list_map(self, raw: str, env_name: str) -> dict[str, tuple[str, ...]]:
+        """解析 ``{name: [str, ...]}`` 形状的 JSON；坏条目跳过、整体非法告警丢弃。"""
+        if not raw.strip():
+            return {}
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            logger.warning("%s is not valid JSON (%s); ignored", env_name, exc)
+            return {}
+        if not isinstance(payload, dict):
+            logger.warning("%s must be a JSON object of {profile: [args]}; ignored", env_name)
+            return {}
+        result: dict[str, tuple[str, ...]] = {}
+        for name, args in payload.items():
+            if not isinstance(name, str) or not name.strip():
+                logger.warning("%s has a non-string or empty profile name; skipped", env_name)
+                continue
+            if not isinstance(args, list) or not args or not all(isinstance(a, str) and a for a in args):
+                logger.warning("%s[%r] must be a non-empty list of non-empty strings; skipped", env_name, name)
+                continue
+            result[name] = tuple(args)
+        return result
 
     @property
     def routing_pool_map(self) -> dict[str, RoutingPoolSpec]:

@@ -271,6 +271,8 @@ class FirejailBackend:
         profiles: Mapping[str, Sequence[str]] | None = None,
         workspace_root: str | None = None,
         network: bool = True,
+        memory_limit_mb: int = 0,
+        cpu_seconds: int = 0,
     ) -> None:
         self._firejail_path = firejail_path
         self._extra_args = tuple(extra_args)
@@ -280,6 +282,10 @@ class FirejailBackend:
         self._profiles: dict[str, tuple[str, ...]] = {}
         if profiles:
             self._profiles = {k: tuple(v) for k, v in profiles.items()}
+        # 资源限额（2026-09-17 硬化批，0=关闭）：映射 --rlimit-as / --rlimit-cpu。
+        # 限额触发 → 子进程被终止 → 非零退出码经正常结果回传（显性失败，不静默截断）。
+        self._memory_limit_mb = memory_limit_mb
+        self._cpu_seconds = cpu_seconds
 
         # FR-S3：构造期检测 firejail 可用性
         resolved = shutil.which(self._firejail_path)
@@ -325,6 +331,13 @@ class FirejailBackend:
 
         if profile is not None and profile in self._profiles:
             argv.extend(self._profiles[profile])
+
+        # 资源限额（0=关闭，默认零参数 → 既有 argv 逐字节不变）：排在 profile 参数之后、
+        # "--" 之前。触发为显性失败（子进程被终止 → 非零退出码），非静默截断。
+        if self._memory_limit_mb > 0:
+            argv.append(f"--rlimit-as={self._memory_limit_mb * 1024 * 1024}")
+        if self._cpu_seconds > 0:
+            argv.append(f"--rlimit-cpu={self._cpu_seconds}")
 
         argv.extend(["--", "sh", "-c", command])
         return argv
@@ -385,8 +398,12 @@ class WinJobBackend:
 
     tier = SandboxTier.JOB
 
-    def __init__(self) -> None:
+    def __init__(self, memory_limit_mb: int = 0, cpu_seconds: int = 0) -> None:
         self._available: bool | None = None
+        # 资源限额（2026-09-17 硬化批，0=关闭）：JOB_OBJECT_LIMIT_JOB_MEMORY /
+        # JOB_OBJECT_LIMIT_PROCESS_TIME。触发为显性失败（进程被终止 → 非零退出码）。
+        self._memory_limit_mb = memory_limit_mb
+        self._cpu_seconds = cpu_seconds
 
     @staticmethod
     def available() -> bool:
@@ -449,9 +466,19 @@ class WinJobBackend:
             return await PassthroughRunner().run(command, timeout=timeout)
 
         try:
-            # Configure job limits
+            # Configure job limits：KILL_ON_JOB_CLOSE 恒开；资源限额按配置叠加（0=关闭，
+            # flags 与现状一致）。限额触发 → 进程被终止 → 非零退出码（显性失败）。
+            JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
+            JOB_OBJECT_LIMIT_PROCESS_TIME = 0x00000008
             info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
             info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            if self._memory_limit_mb > 0:
+                info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_JOB_MEMORY
+                info.JobMemoryLimit = self._memory_limit_mb * 1024 * 1024
+            if self._cpu_seconds > 0:
+                info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_PROCESS_TIME
+                # PerProcessUserTimeLimit 单位为 100ns。
+                info.BasicLimitInformation.PerProcessUserTimeLimit = self._cpu_seconds * 10_000_000
 
             JobObjectExtendedLimitInformation = 9
             ret = kernel32.SetInformationJobObject(

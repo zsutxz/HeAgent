@@ -206,12 +206,18 @@ class EngineContainer:
                 firejail_path=settings.sandbox_firejail_path,
                 workspace_root=workspace_root,
                 network=settings.sandbox_network,
+                profiles=settings.sandbox_profiles_map,
+                memory_limit_mb=settings.sandbox_memory_limit_mb,
+                cpu_seconds=settings.sandbox_cpu_seconds,
             )
         elif backend == "winjob":
             from heagent.tools.sandbox import WinJobBackend
 
             if WinJobBackend.available():
-                command_runner = WinJobBackend()
+                command_runner = WinJobBackend(
+                    memory_limit_mb=settings.sandbox_memory_limit_mb,
+                    cpu_seconds=settings.sandbox_cpu_seconds,
+                )
             else:
                 logger.warning("WinJobBackend requested but not available; falling back to Passthrough")
 
@@ -247,6 +253,12 @@ class EngineContainer:
                     "network isolation is NOT in effect",
                     backend,
                 )
+        # per-tool 沙箱 profile 映射（2026-09-17 硬化批）：叠加进 policy 的 tool→profile
+        # 表（默认空 dict），配合 FirejailBackend.profiles 使单个工具差异化选用参数集。
+        # 无策略强制（passthrough / enforce=false）时纯配置零行为。
+        tool_profiles = settings.sandbox_tool_profiles_map
+        if tool_profiles:
+            container.policy.sandbox_profiles.update(tool_profiles)
         # hooks 是用户自配置的本地命令：默认**不**加载（HOOKS_ENABLED=false），防不可信
         # 仓库投放的 .heagent/hooks.json 在 clone 后自动执行；路径按 workspace_root 解析
         # （缺省回退 CWD）。文件存在但未开启时告警，避免「配置了却不生效」的静默失效。
