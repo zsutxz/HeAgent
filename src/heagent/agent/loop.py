@@ -49,6 +49,7 @@ from heagent.types import (
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
+    from heagent.agent.sub import SubAgentAnnouncer  # 仅类型引用：sub 模块级导入本模块，此处不得模块级互导
     from heagent.context.compressor import ContextCompressor
     from heagent.context.session import SessionStore
     from heagent.cron.jobs import JobStore
@@ -153,6 +154,7 @@ class AgentLoop:
         delegation_depth: int = 0,
         steering_callback: Callable[[], Awaitable[list[Message]]] | None = None,
         follow_up_callback: Callable[[], Awaitable[list[Message]]] | None = None,
+        subagent_announcer: SubAgentAnnouncer | None = None,
     ) -> None:
         """初始化 AgentLoop 主循环。
 
@@ -180,6 +182,9 @@ class AgentLoop:
                 以 USER 角色注入到下一轮上下文。用于在 Agent 运行中插入/重定向指令。
             follow_up_callback: follow-up 回调（参考 Pi）：内层循环自然退出（无 tool_calls）后被 poll，
                 返回消息则自动接续新轮次。用于任务完成后的自动追加。
+            subagent_announcer: 子 Agent 进度横幅注入口（``SubAgentAnnouncer``）；经
+                ``_runtime_scope`` 转传给委派回调。缺省 None=静默；终端/GUI 入口传
+                ``cli_display.SUBAGENT_ANNOUNCER`` 保持 stderr 横幅行为。
         """
         self.provider = provider
         self.registry = registry or ToolRegistry.get()
@@ -209,6 +214,8 @@ class AgentLoop:
         # steering / follow-up 回调（参考 Pi 双层循环设计）
         self.steering_callback = steering_callback
         self.follow_up_callback = follow_up_callback
+        # 子 Agent 进度横幅注入口（None=静默；入口层经 cli_display.SUBAGENT_ANNOUNCER 注入）。
+        self.subagent_announcer = subagent_announcer
         # 最近一次 run 的「事后产物」，供外部（如 SubAgent.run）读取，不参与循环逻辑。
         self.last_run_context: RunContext | None = None
         self.last_usage: TokenUsage | None = None
@@ -1107,6 +1114,7 @@ class AgentLoop:
                 engine=self.engine,
                 parent_run_id=run_context.run_id,
                 depth=self.delegation_depth,
+                announcer=self.subagent_announcer,
             )
             stack.enter_context(
                 bind_subagent_tools(

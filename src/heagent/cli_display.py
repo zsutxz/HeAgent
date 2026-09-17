@@ -5,11 +5,11 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
+from importlib.metadata import version
 from typing import TYPE_CHECKING
 
 import click
 
-from heagent import __version__
 from heagent.config import get_settings
 from heagent.context.tokens import estimate_cost
 from heagent.providers.router import active_model, annotate_route
@@ -21,9 +21,13 @@ if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
     from heagent.types import StreamEvent, TokenUsage
 
+# 版本取自安装元数据（pyproject [project].version），不经根包 import——
+# 根包 __init__ 链上任何模块级代码触碰本模块时避免形成根包回环（2026-09）。
+_VERSION = version("heagent")
+
 
 def _print_banner() -> None:
-    click.echo(f"HeAgent v{__version__} — A self-improving AI Agent core framework", err=True)
+    click.echo(f"HeAgent v{_VERSION} — A self-improving AI Agent core framework", err=True)
 
 
 def _print_usage(usage: TokenUsage | None, *, model: str | None = None) -> None:
@@ -223,3 +227,21 @@ def _announce_end(name: str, loop: AgentLoop, *, iterations: int | None = None, 
     suffix = f"（{iterations} 轮）" if iterations else ""
     _announce(f"{mark}[{name}] {'完成' if ok else '失败'}{suffix}")
     _announce(_format_status(loop))
+
+
+class _CliSubAgentAnnouncer:
+    """终端入口的 :class:`~heagent.agent.sub.SubAgentAnnouncer` 实现（stderr 横幅）。
+
+    复用既有 ``_announce_start`` / ``_announce_end``——子 Agent 横幅行为与
+    注入前逐字一致（含 ``ANNOUNCE_PROGRESS=false`` 静默开关）。
+    """
+
+    def started(self, name: str, purpose: str, *, run_id: str = "") -> None:
+        _announce_start(name, purpose, run_id=run_id)
+
+    def finished(self, name: str, loop: AgentLoop, *, iterations: int = 0, ok: bool = True) -> None:
+        _announce_end(name, loop, iterations=iterations, ok=ok)
+
+
+SUBAGENT_ANNOUNCER = _CliSubAgentAnnouncer()
+"""进程级单例：CLI / GUI 入口构造 ``SubAgent`` / ``AgentLoop`` 时注入，保持既有横幅行为。"""

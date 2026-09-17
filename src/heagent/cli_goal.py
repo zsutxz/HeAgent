@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
+from heagent.cli_display import SUBAGENT_ANNOUNCER
 from heagent.config import get_settings
 from heagent.context.loader import load_context_files
 from heagent.context.window_reset import WindowResetConfig
@@ -1025,6 +1026,7 @@ async def _goal_session(
         metadata=metadata,
         max_iterations=max_iterations if max_iterations is not None else get_settings().goal_max_iterations,
         window_reset=WindowResetConfig(threshold=get_settings().window_reset_threshold),
+        announcer=SUBAGENT_ANNOUNCER,
     )
     try:
         return await agent.run(prompt)

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from heagent.agent.sub import SubAgent, SubAgentResult, run_parallel
+from heagent.agent.sub import SubAgent, SubAgentAnnouncer, SubAgentResult, run_parallel
 from heagent.tools.builtins.subagent import DelegateMany, DelegateOne, SubTaskOutcome
 
 if TYPE_CHECKING:
@@ -44,6 +44,7 @@ def build_subagent_delegates(
     engine: EngineContainer | None = None,
     parent_run_id: str | None = None,
     depth: int = 0,
+    announcer: SubAgentAnnouncer | None = None,
 ) -> tuple[DelegateOne, DelegateMany]:
     """构造本次 run 的单任务 / 并行委派回调（闭包捕获父 Agent 的组件依赖）。
 
@@ -70,6 +71,7 @@ def build_subagent_delegates(
             role=spec,
             system=system,
             delegation_depth=depth + 1,
+            announcer=announcer,
         )
 
     def _to_outcome(result: SubAgentResult, spec: RoleSpec | None) -> SubTaskOutcome:

@@ -47,6 +47,7 @@ def gui_main(
 
     # ── AgentLoop ───────────────────────────────────────────
     from heagent.agent.loop import AgentLoop
+    from heagent.cli_display import SUBAGENT_ANNOUNCER
     from heagent.engine import EngineContainer
     from heagent.tools.registry import ToolRegistry
 
@@ -66,6 +67,7 @@ def gui_main(
         profile=profile_store,
         cron_store=job_store,
         context_dir=None,
+        subagent_announcer=SUBAGENT_ANNOUNCER,
     )
 
     # ── GUI 状态 + 桥接 ─────────────────────────────────────

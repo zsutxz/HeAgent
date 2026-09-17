@@ -19,6 +19,7 @@ import heagent.tools.builtins  # noqa: F401
 from heagent.agent.loop import AgentLoop
 from heagent.agent.middleware import make_retry_middleware
 from heagent.cli_display import (
+    SUBAGENT_ANNOUNCER,
     _echo_status,
     _format_status,
     _LineState,
@@ -225,6 +226,7 @@ def _build_loop(
                 cron_store=cron_store,
                 engine=engine,
                 run_context=run_context,
+                subagent_announcer=SUBAGENT_ANNOUNCER,
             )
             await loop.run(prompt)
 
@@ -249,6 +251,7 @@ def _build_loop(
         soul=soul,
         cron_store=cron_store,
         engine=engine,
+        subagent_announcer=SUBAGENT_ANNOUNCER,
     )
     return loop, scheduler
 
@@ -411,6 +414,7 @@ def _build_dream_scheduler(
             engine=engine,
             role=role,
             max_iterations=max_iterations,
+            announcer=SUBAGENT_ANNOUNCER,
         )
         result = await agent.run(prompt)
         return DreamResult(

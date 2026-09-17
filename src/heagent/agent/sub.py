@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 import copy
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from heagent.agent.loop import AgentLoop
 from heagent.config import get_settings
@@ -45,6 +45,20 @@ class SubAgentResult:
     success: bool  # 子任务是否成功完成
     iterations: int = 0  # 子 loop 实际跑的迭代轮数
     run_id: str = ""  # 子任务的运行 ID（挂在父 run 之下，便于追踪/恢复）
+
+
+class SubAgentAnnouncer(Protocol):
+    """子 Agent 进度横幅的注入口（依赖倒置：展示形态由入口层提供，agent 层零展示依赖）。
+
+    历史上 ``run()`` 函数体内反向 lazy 导入 ``cli_display`` 打 stderr 横幅——
+    agent → 入口展示层，方向违反 DAG；2026-09 改为构造时注入
+    （终端/GUI 入口传 ``cli_display.SUBAGENT_ANNOUNCER`` 保持原行为，测试可传
+    假实现捕获横幅），缺省 ``None`` 即静默。
+    """
+
+    def started(self, name: str, purpose: str, *, run_id: str = "") -> None: ...
+
+    def finished(self, name: str, loop: AgentLoop, *, iterations: int = 0, ok: bool = True) -> None: ...
 
 
 class SubAgent:
@@ -81,6 +95,7 @@ class SubAgent:
         window_reset: WindowResetConfig | None = None,
         metadata: dict[str, Any] | None = None,
         delegation_depth: int = 1,
+        announcer: SubAgentAnnouncer | None = None,
     ) -> None:
         # 组件依赖：缺省时回退到全局默认（与 AgentLoop 的兜底策略一致）。
         self._provider = provider
@@ -96,6 +111,8 @@ class SubAgent:
         self._parent_run_id = parent_run_id
         # 本子 Agent 自身所处的委派深度（根 loop 的委派产物=1）；由其创建的子 loop 继承。
         self._delegation_depth = delegation_depth
+        # 进度横幅注入口：None=静默；由入口层（cli_display / 测试）提供。
+        self._announcer = announcer
         self._role = role
         self._window_reset = window_reset
         self._metadata = copy.deepcopy(metadata) if metadata is not None else None
@@ -186,8 +203,6 @@ class SubAgent:
              （失败不抛出，而是 success=False、output=异常文本，便于父循环处理）。
         """
         engine = self._build_engine()
-        from heagent.cli_display import _announce_end, _announce_start
-
         reserved = {
             "kind",
             "role",
@@ -223,7 +238,8 @@ class SubAgent:
             workspace_root=self._context_dir,
         )
         name, purpose = self._announce_identity(task)
-        _announce_start(name, purpose, run_id=run_context.run_id)
+        if self._announcer is not None:
+            self._announcer.started(name, purpose, run_id=run_context.run_id)
         loop = AgentLoop(
             self._provider,
             registry=self._registry,
@@ -242,7 +258,8 @@ class SubAgent:
         )
         try:
             output = await loop.run(task, system=self._system)
-            _announce_end(name, loop, iterations=loop.last_iteration or 0, ok=True)
+            if self._announcer is not None:
+                self._announcer.finished(name, loop, iterations=loop.last_iteration or 0, ok=True)
             return SubAgentResult(
                 task=task,
                 output=output,
@@ -252,7 +269,8 @@ class SubAgent:
             )
         except Exception as exc:
             # 捕获所有异常：子任务失败不中断父循环，而是以失败结果回传。
-            _announce_end(name, loop, iterations=loop.last_iteration or 0, ok=False)
+            if self._announcer is not None:
+                self._announcer.finished(name, loop, iterations=loop.last_iteration or 0, ok=False)
             return SubAgentResult(
                 task=task,
                 output=str(exc),

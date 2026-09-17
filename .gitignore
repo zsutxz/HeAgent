@@ -58,3 +58,7 @@ uv.lock
 _he-output/goals
 projects/
 .pytest_tmp_templates_final/
+
+# 运行时/工具残留垃圾（2026-09）
+debug.log
+.pytest-session-*
