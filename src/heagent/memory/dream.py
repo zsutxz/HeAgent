@@ -10,10 +10,11 @@
 tick 调度逻辑**模仿而非塞进** :class:`~heagent.cron.scheduler.CronScheduler`——
 dream 不进 ``JobStore``、不是用户 prompt、有专属巩固流程；两者可并存于交互模式后台。
 
-DAG 合规：本模块属 ``memory/``，**不依赖 ``agent/``**（硬约束：仅 ``builtins/subagent.py``
-为例外）。dreamer SubAgent 的实际构造由上层（``cli.py``，组合根）经 ``dream_runner`` 闭包注入，
-本调度器只负责「何时 dream」与「prompt 构建」（session 预加载 + 巩固指令）。与
-``CronScheduler`` + ``JobRunner`` 同构——调度器不反向依赖 agent。
+DAG 合规：本模块属 ``memory/``，**运行期不依赖 ``agent/`` 与 ``engine/``**（硬约束：仅
+``builtins/subagent.py`` 为依赖 agent 的例外；``EngineContainer`` 仅 TYPE_CHECKING 引用，
+engine 实例由入口层（``cli.py``，组合根）构造时注入，缺省不回退构造）。dreamer SubAgent 的
+实际构造由上层经 ``dream_runner`` 闭包注入，本调度器只负责「何时 dream」与「prompt 构建」
+（session 预加载 + 巩固指令）。与 ``CronScheduler`` + ``JobRunner`` 同构——调度器不反向依赖 agent。
 
 设计要点：
 - ``_dreaming`` 互斥守卫：dream 进行中再命中触发条件则跳过（同一时刻最多一个 dream）。
@@ -44,11 +45,11 @@ from typing import TYPE_CHECKING
 
 from heagent.config import Settings, get_settings
 from heagent.cron.expr import cron_matches
-from heagent.engine import EngineContainer
 from heagent.task_shutdown import DEFAULT_STOP_TIMEOUT, await_task_stop, retrieve_task_exception
 
 if TYPE_CHECKING:
     from heagent.context.session import SessionStore
+    from heagent.engine.container import EngineContainer
     from heagent.engine.observability import EngineEvent
 
 logger = logging.getLogger(__name__)
@@ -100,7 +101,7 @@ class DreamScheduler:
         self,
         dream_runner: DreamRunner,
         *,
-        engine: EngineContainer | None = None,
+        engine: EngineContainer,
         session_store: SessionStore | None = None,
         settings: Settings | None = None,
         tick_seconds: float | None = None,
@@ -111,7 +112,9 @@ class DreamScheduler:
             # 机会即 ERROR 放弃（与 CronScheduler / MCP shutdown_timeout<=0 同构误用）。fail-closed。
             raise ValueError(f"stop_timeout 必须为正数（got {stop_timeout})")
         self._dream_runner = dream_runner
-        self._engine = engine or EngineContainer.default()
+        # engine 必传（memory 运行期零 engine 依赖——不再回退 EngineContainer.default() 隐式装配；
+        # 缺省即显性 TypeError，装配责任归入口层组合根）。
+        self._engine = engine
         self._session_store = session_store
         self._settings = settings or get_settings()
         self._tick_seconds = tick_seconds if tick_seconds is not None else self._settings.cron_tick_seconds
