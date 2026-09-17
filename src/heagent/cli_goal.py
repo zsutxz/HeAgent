@@ -7,6 +7,7 @@ import difflib
 import os
 import re
 import sys
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -43,10 +44,10 @@ from heagent.goal.questionnaire import (
     _goal_show_questionnaire_prompt,
 )
 from heagent.memory.skill_packages import SkillPackage, SkillWorkflowError, WorkflowResource
-from heagent.persist import atomic_update_text, atomic_write_text
+from heagent.persist import atomic_update_text, atomic_write_text, file_lock
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import AsyncIterator, Mapping
 
     from heagent.agent.sub import SubAgentResult
     from heagent.cron.jobs import JobStore
@@ -57,6 +58,25 @@ if TYPE_CHECKING:
 _GOAL_AUTO_DEFAULT_CRON = "*/15 * * * *"
 _GOAL_AUTO_PREFIX = "goal-advance "
 _goal_auto_lock = asyncio.Lock()
+
+# goal 域跨进程锁：竞态是「读 current 指针 → 读状态 → 推进 → 写 checkpoint /
+# workflow.json / GOAL.md」的整段读改写，per-file 锁防不了「两进程从同一状态各自
+# 推进后互相覆盖」，故 goal 域一把域级锁。锁文件随 cwd 锚定（与 _GOALS_DIR 同锚定
+# 方式），落在 .heagent/ 运行时状态区（见下文目录注释），不污染 _he-output/ 产物树。
+_GOAL_LOCK_PATH = Path(".heagent/goal.lock")
+_GOAL_LOCK_TIMEOUT = 5.0  # 并发方快速失败；cron 下一 tick 自动重试，手动方收到明确提示
+
+
+@asynccontextmanager
+async def _goal_mutex() -> AsyncIterator[None]:
+    """进程内 asyncio.Lock + 跨进程文件锁的复合互斥（/goal 全部变更入口共用）。
+
+    同进程两协程走 asyncio.Lock 快速路径，不排队文件锁；跨进程（双 CLI / CLI×GUI /
+    cron×手动）由 ``.heagent/goal.lock`` 互斥。文件锁超时抛 ``OSError``——显性失败，
+    由 ``_goal_runner`` / ``_goal_cron_advance`` 收口为用户可见提示。
+    """
+    async with _goal_auto_lock, file_lock(_GOAL_LOCK_PATH, timeout=_GOAL_LOCK_TIMEOUT):
+        yield
 
 
 # =============================================================================
@@ -861,7 +881,7 @@ async def _goal_declarative_run(
 ) -> None:
     try:
         for _ in range(_GOAL_RUN_MAX_ROUNDS):
-            async with _goal_auto_lock:
+            async with _goal_mutex():
                 outcome = await _goal_declarative_advance(provider, engine, workflow)
             if outcome != _GOAL_ADVANCED:
                 return
@@ -934,12 +954,12 @@ async def _goal_declarative_dispatch(
         if not rest:
             _goal_usage()
         else:
-            async with _goal_auto_lock:
+            async with _goal_mutex():
                 await _goal_declarative_new(provider, engine, workflow, rest, cron_store=cron_store)
     elif head in ("next", "status", "reset", "run", "pause", "audit") and rest:
         _goal_usage()
     elif head == "next":
-        async with _goal_auto_lock:
+        async with _goal_mutex():
             await _goal_declarative_advance(provider, engine, workflow)
     elif head == "run":
         await _goal_declarative_run(provider, engine, workflow)
@@ -948,20 +968,21 @@ async def _goal_declarative_dispatch(
     elif head == "pause":
         await _goal_declarative_pause_resume(workflow, resume=False)
     elif head == "resume":
-        async with _goal_auto_lock:
+        async with _goal_mutex():
             if await _goal_declarative_pause_resume(workflow, resume=True, response=rest):
                 await _goal_declarative_advance(provider, engine, workflow)
     elif head == "audit":
         await _goal_audit(engine)
     elif head == "reset":
-        _goal_reset()
+        async with _goal_mutex():
+            _goal_reset()
     elif head == "auto":
         await _goal_declarative_auto(workflow, rest, cron_store)
     elif (intended := _goal_typo_subcommand(args)) is not None:
         click.echo(f"[goal] unknown subcommand {args.strip()!r}; did you mean `/goal {intended}`?", err=True)
         _goal_usage()
     else:
-        async with _goal_auto_lock:
+        async with _goal_mutex():
             await _goal_declarative_new(provider, engine, workflow, args.strip(), cron_store=cron_store)
 
 
@@ -1096,27 +1117,31 @@ async def _goal_cron_advance(
     provider: BaseProvider, engine: EngineContainer | None, store: JobStore, goal_id: str
 ) -> None:
     """Run one scheduled goal step under the same process lock as manual commands."""
-    async with _goal_auto_lock:
-        current = _goal_active_md()
-        if current is None or current.parent.name != goal_id:
-            removed = _goal_auto_remove(store, goal_id)
-            if removed:
-                click.echo(f"[goal] auto 已收口：goal {goal_id} 已非当前 goal，注销 {removed} 个 job。", err=True)
-            return
-        try:
-            declarative_workflow = _goal_declarative_workflow()
-        except ValueError as exc:
-            click.echo(f"[goal] auto stopped: {exc}", err=True)
-            _goal_auto_remove(store, goal_id)
-            return
-        if declarative_workflow is not None:
-            outcome = await _goal_declarative_advance(provider, engine, declarative_workflow)
-            if outcome in {_GOAL_DONE, _GOAL_FAILED}:
+    try:
+        async with _goal_mutex():
+            current = _goal_active_md()
+            if current is None or current.parent.name != goal_id:
                 removed = _goal_auto_remove(store, goal_id)
-                click.echo(f"[goal] declarative auto closed: goal {goal_id}, removed {removed} job(s)", err=True)
-            return
-        click.echo("[goal] auto stopped: workflow.md is required; legacy goal fallback is unavailable", err=True)
-        _goal_auto_remove(store, goal_id)
+                if removed:
+                    click.echo(f"[goal] auto 已收口：goal {goal_id} 已非当前 goal，注销 {removed} 个 job。", err=True)
+                return
+            try:
+                declarative_workflow = _goal_declarative_workflow()
+            except ValueError as exc:
+                click.echo(f"[goal] auto stopped: {exc}", err=True)
+                _goal_auto_remove(store, goal_id)
+                return
+            if declarative_workflow is not None:
+                outcome = await _goal_declarative_advance(provider, engine, declarative_workflow)
+                if outcome in {_GOAL_DONE, _GOAL_FAILED}:
+                    removed = _goal_auto_remove(store, goal_id)
+                    click.echo(f"[goal] declarative auto closed: goal {goal_id}, removed {removed} job(s)", err=True)
+                return
+            click.echo("[goal] auto stopped: workflow.md is required; legacy goal fallback is unavailable", err=True)
+            _goal_auto_remove(store, goal_id)
+    except OSError:
+        # 另一进程正持 goal 锁：显性失败并提示，cron 下一 tick 自动重试。
+        click.echo("[goal] 另一进程正在推进 goal（锁等待超时）；本 tick 跳过，下一 tick 自动重试。", err=True)
 
 
 async def _goal_runner(  # noqa: C901
@@ -1136,7 +1161,14 @@ async def _goal_runner(  # noqa: C901
         click.echo(f"[goal] {exc}", err=True)
         return
     if declarative_workflow is not None:
-        await _goal_declarative_dispatch(provider, engine, declarative_workflow, args, cron_store=cron_store)
+        try:
+            await _goal_declarative_dispatch(provider, engine, declarative_workflow, args, cron_store=cron_store)
+        except OSError:
+            # 跨进程文件锁等待超时：显性失败（显性失败原则，不静默降级）。
+            click.echo(
+                "[goal] 另一进程正在推进同一 goal（.heagent/goal.lock 等待超时）；本次未执行，请稍后重试。",
+                err=True,
+            )
         return
     click.echo(
         "[goal] workflow.md is required; the legacy GOAL.md Story flow has been removed. "

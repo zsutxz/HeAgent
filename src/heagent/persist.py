@@ -33,7 +33,8 @@ import shutil
 import sys
 import tempfile
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import AsyncIterator, Callable, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
@@ -387,6 +388,37 @@ def atomic_update_text(path: Path, update: Callable[[str], tuple[str, R]], *, lo
             _release_lock(lock_fd)
         finally:
             os.close(lock_fd)
+
+
+@asynccontextmanager
+async def file_lock(path: Path, *, timeout: float = 5.0) -> AsyncIterator[None]:
+    """跨进程排他锁上下文管理器（平台自适应 flock / msvcrt.locking）。
+
+    与 :func:`atomic_write_text(lock=True)` 的单文件写锁不同，本原语保护**一段**
+    读改写临界区（如 goal 的「读 current 指针 → 推进 → 写 checkpoint / workflow.json /
+    GOAL.md」）——per-file 锁覆盖不了「两个进程从同一状态各自推进后互相覆盖」的竞态。
+
+    锁文件刻意保留不删（同 ``atomic_write_text`` 的 unlink 竞态论证）；advisory 锁随
+    进程退出自动释放，crash 不留死锁。获取/释放经 ``asyncio.to_thread`` 卸载（内部
+    锁轮询含 ``time.sleep``），不阻塞事件循环。超时抛 ``OSError``——显性失败，由调用方
+    决定重试或放弃，不静默降级。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = await asyncio.to_thread(os.open, str(path), os.O_CREAT | os.O_RDWR)
+    try:
+        await asyncio.to_thread(_acquire_lock, fd, timeout)
+    except BaseException:
+        os.close(fd)
+        raise
+    try:
+        yield
+    finally:
+        try:
+            await asyncio.to_thread(_release_lock, fd)
+        except Exception:
+            logger.debug("Failed to release lock on %s", path, exc_info=True)
+        finally:
+            os.close(fd)
 
 
 def load_json_model(path: Path, model_cls: type[T]) -> T | None:
