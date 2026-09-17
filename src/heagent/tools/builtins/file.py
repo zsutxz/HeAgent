@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from heagent.tools.decorator import tool
@@ -101,7 +102,9 @@ async def file_read(
         if resolved.is_dir():
             return f"Error: path is a directory: {path}"
 
-        text = read_text_file(resolved).text
+        # 阻塞读经线程卸载（项目全异步纪律，同 memory/skills 工具范式）；
+        # exists()/is_dir() 等控制流用的廉价元数据调用有意不包。
+        text = (await asyncio.to_thread(read_text_file, resolved)).text
 
         if offset is None and limit is None:
             return text
@@ -159,15 +162,15 @@ async def file_write(path: str, content: str) -> str:
     if isinstance(resolved, str):
         return resolved
     try:
-        resolved.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(resolved.parent.mkdir, parents=True, exist_ok=True)
     except OSError as exc:
         return f"Error writing file: {exc}"
 
-    existed = resolved.is_file()
-    previous = _read_for_diff(resolved)
-    snapshot = snapshot_before_write(resolved, op="write")
+    existed = await asyncio.to_thread(resolved.is_file)
+    previous = await asyncio.to_thread(_read_for_diff, resolved)
+    snapshot = await asyncio.to_thread(snapshot_before_write, resolved, op="write")
     try:
-        resolved.write_bytes(content.encode("utf-8"))
+        await asyncio.to_thread(resolved.write_bytes, content.encode("utf-8"))
     except OSError as exc:
         return f"Error writing file: {exc}"
 
@@ -219,7 +222,7 @@ async def file_edit(
     if not resolved.is_file():
         return f"Error: file not found: {path}"
     try:
-        current = read_text_file(resolved)
+        current = await asyncio.to_thread(read_text_file, resolved)
     except UnicodeDecodeError:
         return f"Error: {path} is not valid UTF-8 text; file_edit only handles text files."
     except OSError as exc:
@@ -240,9 +243,9 @@ async def file_edit(
 
     replacement = new_string.replace("\r\n", "\n")
     updated = current.text.replace(needle, replacement, -1 if replace_all else 1)
-    snapshot = snapshot_before_write(resolved, op="edit")
+    snapshot = await asyncio.to_thread(snapshot_before_write, resolved, op="edit")
     try:
-        write_text_file(resolved, updated, newline=current.newline, has_bom=current.has_bom)
+        await asyncio.to_thread(write_text_file, resolved, updated, newline=current.newline, has_bom=current.has_bom)
     except OSError as exc:
         return f"Error writing file: {exc}"
 

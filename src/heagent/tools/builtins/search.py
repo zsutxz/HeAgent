@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from typing import TYPE_CHECKING
 
@@ -43,17 +44,14 @@ def _resolve_searchable(path: str) -> Path | None:
     return resolved
 
 
-@tool(read_only=True)
-async def file_search(
-    pattern: str,
-    directory: str = ".",
-    max_results: int = 20,
-) -> str:
-    """Search for files by name pattern (glob) under a directory."""
-    root = _resolve_dir(directory)
-    if isinstance(root, str):
-        return root
+def _file_search_impl(root: Path, pattern: str, max_results: int) -> list[str]:
+    """同步内核：rglob 收集文件名匹配（含逐条 deny 校验）。
 
+    handler 经**单次** ``asyncio.to_thread`` 整体执行本内核——rglob / 逐文件
+    stat 在万级条目下若逐条跳线程，跳转成本远超 I/O 本身（同 ``persist.py``
+    批量内核的量化论证）。``resolve_workspace_path`` 读 RuntimeSlot contextvar，
+    ``asyncio.to_thread`` 会拷贝 context，线程内可见，安全。
+    """
     matches: list[str] = []
     for path in root.rglob(pattern):
         if _resolve_searchable(str(path)) is None:
@@ -61,28 +59,11 @@ async def file_search(
         matches.append(str(path))
         if len(matches) >= max_results:
             break
-    if not matches:
-        return f"No files matching '{pattern}' found in {directory}"
-    return "\n".join(matches)
+    return matches
 
 
-@tool(read_only=True)
-async def content_search(
-    query: str,
-    directory: str = ".",
-    file_pattern: str = "*.txt",
-    max_results: int = 20,
-) -> str:
-    """Search file contents for a regex pattern."""
-    root = _resolve_dir(directory)
-    if isinstance(root, str):
-        return root
-
-    try:
-        regex = re.compile(query, re.IGNORECASE)
-    except re.error as e:
-        return f"Error: invalid regex: {e}"
-
+def _content_search_impl(root: Path, regex: re.Pattern[str], file_pattern: str, max_results: int) -> list[str]:
+    """同步内核：rglob + 逐文件限流读取 + 按行正则匹配（单次线程跳转执行，见上）。"""
     results: list[str] = []
     for path in root.rglob(file_pattern):
         resolved = _resolve_searchable(str(path))
@@ -109,6 +90,44 @@ async def content_search(
                     break
         if len(results) >= max_results:
             break
+    return results
+
+
+@tool(read_only=True)
+async def file_search(
+    pattern: str,
+    directory: str = ".",
+    max_results: int = 20,
+) -> str:
+    """Search for files by name pattern (glob) under a directory."""
+    root = _resolve_dir(directory)
+    if isinstance(root, str):
+        return root
+
+    matches = await asyncio.to_thread(_file_search_impl, root, pattern, max_results)
+    if not matches:
+        return f"No files matching '{pattern}' found in {directory}"
+    return "\n".join(matches)
+
+
+@tool(read_only=True)
+async def content_search(
+    query: str,
+    directory: str = ".",
+    file_pattern: str = "*.txt",
+    max_results: int = 20,
+) -> str:
+    """Search file contents for a regex pattern."""
+    root = _resolve_dir(directory)
+    if isinstance(root, str):
+        return root
+
+    try:
+        regex = re.compile(query, re.IGNORECASE)
+    except re.error as e:
+        return f"Error: invalid regex: {e}"
+
+    results = await asyncio.to_thread(_content_search_impl, root, regex, file_pattern, max_results)
     if not results:
         return f"No matches for '{query}' in {file_pattern} files under {directory}"
     return "\n".join(results)
