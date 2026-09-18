@@ -49,19 +49,27 @@ _GOAL_NAME_WORDS = {
     "智能体": "agent",
     "代理": "agent",
 }
-_GOAL_RUN_MAX_ROUNDS = 10
-_GOAL_ADVANCED = "advanced"
-_GOAL_DONE = "done"
-_GOAL_FAILED = "failed"
-_GOAL_WAITING = "waiting"
+# 词表按长度降序展开为正则交替项（长词优先匹配），模块级编译一次；与 _GOAL_ID_RE 同属命名规则常量。
+_GOAL_WORDS_RE = re.compile(
+    rf"(?:{'|'.join(re.escape(item) for item in sorted(_GOAL_NAME_WORDS, key=len, reverse=True))})|[A-Za-z]+"
+)
+
+
+def _fenced_block(text: str) -> str:
+    """Wrap *text* in a code fence longer than any backtick run it contains."""
+    fence = "`" * max(3, max((len(run) for run in re.findall(r"`+", text)), default=0) + 1)
+    body = text if text.endswith("\n") else text + "\n"
+    return f"{fence}\n{body}{fence}"
+
+
+def _slug(text: str) -> str:
+    """Collapse non-alphanumeric runs to single hyphens and trim edge hyphens."""
+    return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
 
 
 def _goal_document(description: str, goal_id: str) -> str:
     """Create the standard BMad Goal artifact used as the durable goal record."""
     title = " ".join(description.split())
-    fence_size = max((len(run) for run in re.findall(r"`+", description)), default=0) + 1
-    fence = "`" * max(3, fence_size)
-    original = description if description.endswith("\n") else description + "\n"
     return (
         "---\n"
         f"id: goal-{goal_id}\n"
@@ -71,7 +79,7 @@ def _goal_document(description: str, goal_id: str) -> str:
         "---\n\n"
         f"# {title}\n\n"
         "## 原始需求（Original Request）\n\n"
-        f"{fence}\n{original}{fence}\n\n"
+        f"{_fenced_block(description)}\n\n"
         "## Epics\n\n"
         "- No epics have been decomposed yet.\n"
     )
@@ -80,11 +88,8 @@ def _goal_document(description: str, goal_id: str) -> str:
 def _goal_project_id(description: str) -> str:
     """Extract a stable English, letter-only project id from the request."""
     text = re.sub(r"^\s*/goal(?:\s+new)?\s*", "", description.strip(), flags=re.IGNORECASE)
-    terms = "|".join(re.escape(item) for item in sorted(_GOAL_NAME_WORDS, key=len, reverse=True))
-    words = [
-        _GOAL_NAME_WORDS.get(match.group(0), match.group(0)) for match in re.finditer(rf"(?:{terms})|[A-Za-z]+", text)
-    ]
-    slug = re.sub(r"-+", "-", "-".join(words).casefold()).strip("-")
+    words = [_GOAL_NAME_WORDS.get(match.group(0), match.group(0)) for match in _GOAL_WORDS_RE.finditer(text)]
+    slug = _slug("-".join(words).casefold())
     slug = re.sub(r"-?(?:19|20)\d{2}(?:-?\d{1,2}){0,2}$", "", slug).strip("-")
     return slug or "project"
 
@@ -96,7 +101,7 @@ def _goal_id_is_valid(goal_id: str) -> bool:
 
 def _epic_directory_name(epic: str) -> str:
     """Map an Epic reference from a story list (``E1``) to its directory (``epic-e1``)."""
-    slug = re.sub(r"[^a-z0-9]+", "-", str(epic).casefold()).strip("-")
+    slug = _slug(str(epic).casefold())
     return f"epic-{slug}" if slug else ""
 
 
@@ -107,12 +112,16 @@ def _goal_step_artifact_path(goal_dir: Path, step: Any, story: Any = None) -> Pa
     ``s-2/``, ...) under the step directory, grouped further by the story's Epic
     (``epic-e1/s-1/``) when the story list declares Epic grouping. Sources
     without grouping keep the flat ``s-<n>/`` layout.
+
+    命名契约：step 文件名由 ``memory/skill_packages.py`` 的 workflow.md 内联步骤解析生成
+    （同款 ``_slug`` 归一化，见其 ``step-NN-<slug>.md`` 组装处）；此处剥离前缀后重 slug，
+    两侧规则需保持一致，漂移会使产物路径偏离声明的步骤名。
     """
     name = re.sub(r"^step-\d+-", "", step.name.casefold())
     name = re.sub(r"\.md$", "", name)
-    slug = re.sub(r"[^a-z0-9]+", "-", name).strip("-") or "step"
+    slug = _slug(name) or "step"
     if story is not None:
-        story_slug = re.sub(r"[^a-z0-9]+", "-", story.id.casefold()).strip("-") or "story"
+        story_slug = _slug(story.id.casefold()) or "story"
         directory = goal_dir / f"step-{step.index:02d}-{slug}"
         epic_dir = _epic_directory_name(getattr(story, "epic", ""))
         if epic_dir:
@@ -143,16 +152,13 @@ def _goal_record_user_response(goal_dir: Path, response: str) -> None:
     """Append one exact user answer to the single durable Goal document."""
     if not response.strip():
         return
-    fence_size = max((len(run) for run in re.findall(r"`+", response)), default=0) + 1
-    fence = "`" * max(3, fence_size)
-    answer = response if response.endswith("\n") else response + "\n"
 
     def update(raw: str) -> tuple[str, None]:
         artifact = parse_artifact(raw)
         section_name = "用户补充（User Responses）"
         existing = artifact.sections.get(section_name.casefold(), "")
         response_number = len(re.findall(r"(?m)^### Response \d+\s*$", existing)) + 1
-        entry = f"### Response {response_number}\n\n{fence}\n{answer}{fence}\n"
+        entry = f"### Response {response_number}\n\n{_fenced_block(response)}\n"
         if existing:
             return raw.rstrip() + "\n\n" + entry, None
         return raw.rstrip() + f"\n\n## {section_name}\n\n" + entry, None

@@ -30,18 +30,9 @@ from heagent.engine import (
     parse_story_list,
     required_sections,
 )
-from heagent.goal.document import (  # noqa: F401
-    _GOAL_ADVANCED,
+from heagent.goal.document import (
     _GOAL_DECLARATIVE_WORKFLOW_PATH,
-    _GOAL_DONE,
-    _GOAL_FAILED,
-    _GOAL_HEX,
-    _GOAL_ID_RE,
-    _GOAL_NAME_WORDS,
-    _GOAL_RUN_MAX_ROUNDS,
-    _GOAL_WAITING,
     _GOALS_DIR,
-    _epic_directory_name,
     _goal_description,
     _goal_document,
     _goal_document_title,
@@ -84,6 +75,14 @@ _goal_auto_lock = asyncio.Lock()
 # 方式），落在 .heagent/ 运行时状态区（见下文目录注释），不污染 _he-output/ 产物树。
 _GOAL_LOCK_PATH = Path(".heagent/goal.lock")
 _GOAL_LOCK_TIMEOUT = 5.0  # 并发方快速失败；cron 下一 tick 自动重试，手动方收到明确提示
+
+# 工作流执行状态词汇与推进轮数上限：随编排分支（advance/execute 状态机）变，
+# 不随文档约定变，故留本模块（goal/document.py 只做文档与命名，见其 docstring）。
+_GOAL_RUN_MAX_ROUNDS = 10
+_GOAL_ADVANCED = "advanced"
+_GOAL_DONE = "done"
+_GOAL_FAILED = "failed"
+_GOAL_WAITING = "waiting"
 
 
 @asynccontextmanager
@@ -643,12 +642,13 @@ async def _goal_declarative_new(
 ) -> None:
     """Create the minimum durable declarative-goal identity, then run step one."""
     previous = _goal_declarative_active_dir()
-    goal_id = _goal_project_id(description)
+    base_id = _goal_project_id(description)
+    goal_id = base_id
     goal_dir = _GOALS_DIR / goal_id
     for suffix in [""] + [f"-{chr(ord('a') + index)}" for index in range(26)]:
         if not goal_dir.exists():
             break
-        goal_id = _goal_project_id(description) + suffix
+        goal_id = base_id + suffix
         goal_dir = _GOALS_DIR / goal_id
     else:
         click.echo("[goal] unable to allocate a unique project goal id", err=True)
