@@ -753,7 +753,8 @@ class TestWinJobBackend:
         self,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """资源限额（2026-09-17 硬化批）：Job Memory / Process Time 标志与值写入 Job Object。
+        """资源限额（2026-09-17 硬化批，2026-09-18 补进程数）：Job Memory / Process Time /
+        Active Process 的标志与值写入 Job Object。
 
         经 byref 的 ``_obj`` 回读结构体断言 flags 与限额值（默认关闭时 flags 仅
         KILL_ON_JOB_CLOSE，由 ``test_run_available_normal_execution`` 等既有用例覆盖）。
@@ -767,6 +768,7 @@ class TestWinJobBackend:
             captured["flags"] = info.BasicLimitInformation.LimitFlags
             captured["job_mem"] = info.JobMemoryLimit
             captured["proc_time"] = info.BasicLimitInformation.PerProcessUserTimeLimit
+            captured["active_proc"] = info.BasicLimitInformation.ActiveProcessLimit
             return 1
 
         monkeypatch.setattr(ctypes.windll.kernel32, "CreateJobObjectW", lambda a, b: 12345)
@@ -794,15 +796,19 @@ class TestWinJobBackend:
 
         monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
 
-        backend = WinJobBackend(memory_limit_mb=256, cpu_seconds=7)
+        backend = WinJobBackend(memory_limit_mb=256, cpu_seconds=7, nproc_limit=64)
         result = await backend.run("echo hi", timeout=10)
 
         assert "limited_ok" in result
         assert captured["flags"] & 0x2000, "KILL_ON_JOB_CLOSE 恒开"
         assert captured["flags"] & 0x200, "内存限额标志应置位"
-        assert captured["flags"] & 0x8, "CPU 时间限额标志应置位"
+        # ⚠ 常量取自 Windows SDK：PROCESS_TIME=0x2、ACTIVE_PROCESS=0x8。此前 PROCESS_TIME
+        # 误写为 0x8（ACTIVE_PROCESS 的位），本断言即用于钉死两者的区分。
+        assert captured["flags"] & 0x2, "CPU 时间限额标志应置位（PROCESS_TIME=0x2）"
+        assert captured["flags"] & 0x8, "进程数限额标志应置位（ACTIVE_PROCESS=0x8）"
         assert captured["job_mem"] == 256 * 1024 * 1024
         assert captured["proc_time"] == 7 * 10_000_000
+        assert captured["active_proc"] == 64
 
 
 # ──────────────────────────────────────────────────────────────────────────────

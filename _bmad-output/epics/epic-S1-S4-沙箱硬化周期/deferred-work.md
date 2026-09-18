@@ -16,7 +16,7 @@
 | S-D1 | `spec-engine-sandbox-backend` 评审 4 项 `defer` | 4 项全部闭合（含 1 项**勘误：早已交付**） | `spec-sandbox-timeout-validation` + S1–S4 交付（`5a4a29e` / `6e526c9`） |
 | S-D2 | `spec-sandbox-timeout-validation` 评审 1 项 `defer` | 已修复 | `spec-sandbox-cancel-signal-preservation` |
 | S-D3 | `spec-sandbox-cancel-signal-preservation` 评审 3 项 `defer` | 3 项全部修复 | `spec-sandbox-reap-robustness` |
-| S-D4 | 沙箱执行的资源限额（内存/CPU） | 已闭合（2026-09-17；进程数限额另立活动条目） | 优化批次 2（`0582a03`） |
+| S-D4 | 沙箱执行的资源限额（内存/CPU） | 已闭合（2026-09-17；进程数限额 2026-09-18 补闭于 Z-D9） | 优化批次 2（`0582a03`） |
 | S-D5 | Firejail 高级隔离参数（--seccomp / --caps） | 已闭合（2026-09-17，`SANDBOX_PROFILES` 声明、默认关闭） | 优化批次 2（`0582a03`） |
 | S-D6 | per-tool 粒度的 firejail 参数 | 已闭合（2026-09-17，`SANDBOX_TOOL_PROFILES` 两段组合） | 优化批次 2（`0582a03`） |
 

@@ -209,6 +209,7 @@ class EngineContainer:
                 profiles=settings.sandbox_profiles_map,
                 memory_limit_mb=settings.sandbox_memory_limit_mb,
                 cpu_seconds=settings.sandbox_cpu_seconds,
+                nproc_limit=settings.sandbox_nproc_limit,
             )
         elif backend == "winjob":
             from heagent.tools.sandbox import WinJobBackend
@@ -217,6 +218,7 @@ class EngineContainer:
                 command_runner = WinJobBackend(
                     memory_limit_mb=settings.sandbox_memory_limit_mb,
                     cpu_seconds=settings.sandbox_cpu_seconds,
+                    nproc_limit=settings.sandbox_nproc_limit,
                 )
             else:
                 logger.warning("WinJobBackend requested but not available; falling back to Passthrough")

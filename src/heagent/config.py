@@ -294,6 +294,12 @@ class Settings(BaseSettings):
     # 沙箱 shell CPU 时间限额（秒，0=关闭）：firejail 映射 --rlimit-cpu；WinJob 映射
     # JOB_OBJECT_LIMIT_PROCESS_TIME。触发行为同内存限额（显性失败）。
     sandbox_cpu_seconds: int = Field(default=0, ge=0)
+    # 沙箱 shell 进程数限额（0=关闭）：firejail 映射 --rlimit-nproc；WinJob 映射
+    # JOB_OBJECT_LIMIT_ACTIVE_PROCESS + ActiveProcessLimit。触发行为同内存限额（显性失败）。
+    # ⚠ 两个后端语义不对称（不掩盖）：firejail 的 --rlimit-nproc 底层是 setrlimit(RLIMIT_NPROC)，
+    # Linux 上按**真实 UID** 计数（非 cgroup/job 作用域），设小了会波及同一用户的其他进程；
+    # WinJob 的 ActiveProcessLimit 才是 job 作用域。故默认关闭，按需显式开启。
+    sandbox_nproc_limit: int = Field(default=0, ge=0)
 
     # ---- 审批参数（Epic 29） ----
     # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。

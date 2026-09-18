@@ -273,6 +273,7 @@ class FirejailBackend:
         network: bool = True,
         memory_limit_mb: int = 0,
         cpu_seconds: int = 0,
+        nproc_limit: int = 0,
     ) -> None:
         self._firejail_path = firejail_path
         self._extra_args = tuple(extra_args)
@@ -282,10 +283,14 @@ class FirejailBackend:
         self._profiles: dict[str, tuple[str, ...]] = {}
         if profiles:
             self._profiles = {k: tuple(v) for k, v in profiles.items()}
-        # 资源限额（2026-09-17 硬化批，0=关闭）：映射 --rlimit-as / --rlimit-cpu。
-        # 限额触发 → 子进程被终止 → 非零退出码经正常结果回传（显性失败，不静默截断）。
+        # 资源限额（2026-09-17 硬化批，2026-09-18 补进程数，0=关闭）：映射
+        # --rlimit-as / --rlimit-cpu / --rlimit-nproc。限额触发 → 子进程被终止 → 非零
+        # 退出码经正常结果回传（显性失败，不静默截断）。
         self._memory_limit_mb = memory_limit_mb
         self._cpu_seconds = cpu_seconds
+        # ⚠ --rlimit-nproc 底层是 setrlimit(RLIMIT_NPROC)：Linux 按**真实 UID** 计数，
+        # 不是 per-sandbox 作用域——设小了会波及同一用户的其他进程（WinJob 侧是 job 作用域）。
+        self._nproc_limit = nproc_limit
 
         # FR-S3：构造期检测 firejail 可用性
         resolved = shutil.which(self._firejail_path)
@@ -338,6 +343,8 @@ class FirejailBackend:
             argv.append(f"--rlimit-as={self._memory_limit_mb * 1024 * 1024}")
         if self._cpu_seconds > 0:
             argv.append(f"--rlimit-cpu={self._cpu_seconds}")
+        if self._nproc_limit > 0:
+            argv.append(f"--rlimit-nproc={self._nproc_limit}")
 
         argv.extend(["--", "sh", "-c", command])
         return argv
@@ -398,12 +405,14 @@ class WinJobBackend:
 
     tier = SandboxTier.JOB
 
-    def __init__(self, memory_limit_mb: int = 0, cpu_seconds: int = 0) -> None:
+    def __init__(self, memory_limit_mb: int = 0, cpu_seconds: int = 0, nproc_limit: int = 0) -> None:
         self._available: bool | None = None
-        # 资源限额（2026-09-17 硬化批，0=关闭）：JOB_OBJECT_LIMIT_JOB_MEMORY /
-        # JOB_OBJECT_LIMIT_PROCESS_TIME。触发为显性失败（进程被终止 → 非零退出码）。
+        # 资源限额（2026-09-17 硬化批，2026-09-18 补进程数，0=关闭）：
+        # JOB_OBJECT_LIMIT_JOB_MEMORY / PROCESS_TIME / ACTIVE_PROCESS。
+        # 触发为显性失败（进程被终止 → 非零退出码）。
         self._memory_limit_mb = memory_limit_mb
         self._cpu_seconds = cpu_seconds
+        self._nproc_limit = nproc_limit
 
     @staticmethod
     def available() -> bool:
@@ -468,8 +477,13 @@ class WinJobBackend:
         try:
             # Configure job limits：KILL_ON_JOB_CLOSE 恒开；资源限额按配置叠加（0=关闭，
             # flags 与现状一致）。限额触发 → 进程被终止 → 非零退出码（显性失败）。
+            # ⚠ 常量值以 Windows SDK（winnt.h）为准：PROCESS_TIME=0x2、ACTIVE_PROCESS=0x8。
+            # 2026-09-18 修正：此前 PROCESS_TIME 误写为 0x8（那是 ACTIVE_PROCESS 的位），
+            # 于是配了 CPU 限额时置位的是 ACTIVE_PROCESS 而 ActiveProcessLimit 仍为 0——
+            # 时间限额没生效，反而施加了「活动进程上限 0」。
             JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
-            JOB_OBJECT_LIMIT_PROCESS_TIME = 0x00000008
+            JOB_OBJECT_LIMIT_PROCESS_TIME = 0x00000002
+            JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
             info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
             info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             if self._memory_limit_mb > 0:
@@ -479,6 +493,9 @@ class WinJobBackend:
                 info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_PROCESS_TIME
                 # PerProcessUserTimeLimit 单位为 100ns。
                 info.BasicLimitInformation.PerProcessUserTimeLimit = self._cpu_seconds * 10_000_000
+            if self._nproc_limit > 0:
+                info.BasicLimitInformation.LimitFlags |= JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+                info.BasicLimitInformation.ActiveProcessLimit = self._nproc_limit
 
             JobObjectExtendedLimitInformation = 9
             ret = kernel32.SetInformationJobObject(

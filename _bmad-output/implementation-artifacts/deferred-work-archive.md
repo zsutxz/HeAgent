@@ -5,7 +5,7 @@
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
 > ② **勘察类闭合归档**（source_spec 为勘察批次、无归属 epic）。
 
-## 活动（未闭合）条目——6 条，2026-09-17 自活动台账迁入
+## 活动（未闭合）条目——4 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8 / Z-D9）
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
@@ -24,14 +24,6 @@
   summary: 路径级审批分级（**条件性条目，前置未发生**）：当前审批粒度是工具级（destructive → 审批），file 工具一律被限制在 workspace 内，所以「按路径分级审批」暂无触发场景。触发条件：引入「非 workspace 的受控写场景」（例如经审批向 workspace 外写）；严重度：低（前置未发生）；冻结边界：分级只能是 `PolicyEngine` 的 defense-in-depth 标记，不得表述为 OS 级边界，也不得放松 workspace 围栏默认值。
   evidence: `src/heagent/tools/path_safety.py`（`resolve_under_root`，policy 预检与 file 工具 handler 共用同一算法）；`src/heagent/engine/policy.py`（destructive 注解闸门）；`src/heagent/engine/approval.py`（审批闭环，同为非安全边界）。
 
-- source_spec: 2026-09-17 沙箱硬化勘察（第二轮优化批次）
-  summary: `RoleSpec.sandbox_profile`（`src/heagent/roles.py:43`）是**零消费方死字段**——全 src 检索 `role.sandbox_profile` / `spec.sandbox_profile` 仅 `sandbox.py` docstring 提及，无运行时读取；`SubAgent._build_engine` 克隆父 policy 时原样复制 `sandbox_tools`/`sandbox_profiles`/`sandbox_mcp_tools`，不读角色字段。两个方向二选一：**激活**（角色级 profile 进 SubAgent policy 装配，使 dreamer/coder 等角色可声明专属沙箱参数）或**删除字段**（连同 `sandbox.py` docstring 引用）。触发条件：需要角色级沙箱差异时（激活），或下次改动 `roles.py` / `RoleSpec` schema 时（清理）；严重度：低（API 表达力与实际不符）；冻结边界：激活路径不得放松 fail-safe（策略要求沙箱但未授权 → 阻断），不得为角色字段绕过 `SANDBOX_TOOL_PROFILES` 配置语义。
-  evidence: `src/heagent/roles.py:43`（字段定义）；`src/heagent/agent/sub.py`（`_build_engine` policy 克隆段，无角色 profile 读取）；`src/heagent/tools/sandbox.py` docstring（提及该字段的注释）；生产装配中 `PolicyEngine.sandbox_profiles` 现经 `SANDBOX_TOOL_PROFILES` 配置注入（2026-09-17 硬化批），但与角色字段无关。
-
-- source_spec: 2026-09-17 沙箱硬化勘察（第二轮优化批次；兑现资源限额 Resolution「进程数限额另立条目」）
-  summary: 沙箱 shell 无**进程数**限额：firejail 侧未映射 `--rlimit-nproc`，WinJob 侧 `JOBOBJECT_BASIC_LIMIT_INFORMATION.ActiveProcessLimit` 字段已内联定义但从未赋值/接配置（进程数限额无自然承载点，2026-09-17 内存/CPU 限额交付时有意识排除）。触发条件：沙箱内跑 fork bomb 类命令；严重度：低（fork bomb 已被 `_DANGEROUS_PATTERNS` 正则启发式覆盖，但那是黑名单非资源上界）；冻结边界：与其他限额同——触发须显性失败（非零退出码），不得静默；新配置项默认关闭。
-  evidence: `src/heagent/tools/sandbox.py`（`FirejailBackend._build_argv` 无 `--rlimit-nproc` 映射；`WinJobBackend.run()` 仅设 KILL_ON_JOB_CLOSE + 可选 JOB_MEMORY/PROCESS_TIME，`ActiveProcessLimit` 未赋值）；`src/heagent/tools/safety.py` `_DANGEROUS_PATTERNS`（fork bomb 正则，启发式层非上界）。
-
 ---
 
 ## 勘察类闭合归档
@@ -47,6 +39,8 @@
 | Z-D5 | CronScheduler 同步 store 调用 | 已闭合（4 处 to_thread，台账漏记 1 处） | `a633c5c` |
 | Z-D6 | SafetyGuard/PolicyEngine 拦截零日志 | 已闭合（_block 单点 warning + policy 分级） | `3dd1050` |
 | Z-D7 | GoalWorkflowState 三死字段 | 已闭合（容错忽略兼容策略） | `4b5f037` |
+| Z-D8 | `RoleSpec.sandbox_profile` 死字段 | 已闭合（取**删除**方向，非激活） | 待提交（2026-09-18） |
+| Z-D9 | 沙箱无进程数限额 + WinJob 常量误写 | 已闭合（`SANDBOX_NPROC_LIMIT` + 修正 `PROCESS_TIME=0x2`） | 待提交（2026-09-18） |
 
 ---
 
@@ -95,3 +89,17 @@
 - **来源**：2026-09-17 架构与代码优化勘察（读者已随 RecoveryEnvelope 删除）。
 - **问题**：`segment_index` / `segment_tokens` / `cumulative_tokens` 三字段无人读，仅落盘 schema 保留。
 - **结论**：**已闭合**（2026-09-17，commit `4b5f037`，兼容策略 = 容错忽略）。三字段删除；pydantic 默认 `extra='ignore'` 保证旧 workflow.json 仍可加载；`test_engine_workflow.py` 新增含三键旧文件的加载测试固化契约。
+
+## Z-D8 `RoleSpec.sandbox_profile` 死字段
+
+- **来源**：2026-09-17 沙箱硬化勘察（第二轮优化批次）；2026-09-18 处置。
+- **问题**：字段**既无消费方也无写入方**——全仓检索仅 `roles.py` 字段定义与 `sandbox.py` 一句 docstring；`_parse_role_md` 的 `keys=("name", "description", "tools", "max_iterations")` 从未解析它，故连从角色 `.md` 都设不了；`SubAgent._build_engine` 克隆父 policy 时不读该字段。
+- **结论**：**已闭合**（2026-09-18，取「**删除**」方向而非「激活」）。① 删除 `roles.py` 字段与其注释；② 改写 `tools/sandbox.py:260` docstring——profile 的真正入口是 `PolicyEngine` 裁决出的 profile 名（`SANDBOX_PROFILES` / `SANDBOX_TOOL_PROFILES`，2026-09-17 硬化批），不再谎称来自角色字段；③ 修正 `docs/frame.md` 4.4 里「使 `RoleSpec.sandbox_profile` 死字段激活」这句**从未成立**的旧表述。**未选激活**的理由：谓词为「角色声明了 profile 但沙箱未授权」时必须 fail-safe 阻断（冻结边界），于是该字段只剩「沙箱已强制时换参数集」这点表达力，低于维护成本（YAGNI）。
+- **证据**：`tests/test_roles.py` / `tests/test_architecture_contracts.py` / `tests/test_sandbox*.py` 全绿；`docs/frame.md` 4.4 与本文件引用同步。
+
+## Z-D9 沙箱无进程数限额 + WinJob 常量误写
+
+- **来源**：2026-09-17 沙箱硬化勘察（兑现资源限额 Resolution「进程数限额另立条目」）；2026-09-18 处置。
+- **问题**：① 沙箱 shell 无**进程数**上界——firejail 未映射 `--rlimit-nproc`，WinJob 的 `ActiveProcessLimit` 字段虽已内联定义却从未赋值；fork bomb 只被 `tools/safety.py` 黑名单正则启发式覆盖（非资源上界）。② **顺带查出的既有 bug**：`WinJobBackend.run()` 把 `JOB_OBJECT_LIMIT_PROCESS_TIME` 误写为 `0x00000008`——按 Windows SDK（winnt.h）该位是 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS`，`PROCESS_TIME` 的正确值是 `0x00000002`。后果：配了 `SANDBOX_CPU_SECONDS` 时置位的是 ACTIVE_PROCESS 而 `ActiveProcessLimit` 仍为 0——**CPU 时间限额完全不生效，反而施加了「活动进程上限 0」**。
+- **结论**：**已闭合**（2026-09-18，取「补齐」方向）。① 新增 `Settings.sandbox_nproc_limit`（`SANDBOX_NPROC_LIMIT`，默认 0=关闭），经 `container.default()` 同时透传两个后端；② `FirejailBackend._build_argv` 在 `--rlimit-cpu` 之后注入 `--rlimit-nproc`（0 时零参数，默认 argv 逐字节不变）；③ `WinJobBackend.run()` 置 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS` + `ActiveProcessLimit`；④ 修正 ②的常量误写（`PROCESS_TIME = 0x2`）。触发行为与内存/CPU 限额一致：**显性失败**（子进程被终止 → 非零退出码），不静默。⚠ **两个后端语义不对称（如实标注，不掩盖）**：firejail 的 `--rlimit-nproc` 底层是 `setrlimit(RLIMIT_NPROC)`，Linux 按**真实 UID** 计数（非 cgroup/job 作用域），设小了会波及同一用户的其他进程；WinJob 的 `ActiveProcessLimit` 才是 job 作用域——故默认关闭。
+- **证据**：`tests/test_sandbox_mode.py`（默认值 / 两后端装配 / argv 注入与零参数三条）、`tests/test_coverage_sandbox.py::test_run_applies_resource_limits`（0x2 与 0x8 分开断言，钉死常量区分）；`docs/frame.md` 4.4 与配置表、`.env.example` 同步。

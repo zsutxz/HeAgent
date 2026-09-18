@@ -236,6 +236,7 @@ class TestSandboxHardeningConfig:
         assert s.sandbox_tool_profiles_map == {}
         assert s.sandbox_memory_limit_mb == 0
         assert s.sandbox_cpu_seconds == 0
+        assert s.sandbox_nproc_limit == 0
 
     def test_profiles_map_parses_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("SANDBOX_PROFILES", '{"default": ["--seccomp"], "mcp": ["--caps.drop=all", "--net=none"]}')
@@ -278,6 +279,7 @@ class TestSandboxHardeningWiring:
         monkeypatch.setenv("SANDBOX_PROFILES", '{"default": ["--seccomp"]}')
         monkeypatch.setenv("SANDBOX_MEMORY_LIMIT_MB", "512")
         monkeypatch.setenv("SANDBOX_CPU_SECONDS", "30")
+        monkeypatch.setenv("SANDBOX_NPROC_LIMIT", "128")
         monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/firejail")
         container = EngineContainer.default(workspace_root=str(tmp_path))
         runner = container.executor.sandbox_runner
@@ -285,17 +287,20 @@ class TestSandboxHardeningWiring:
         assert runner._profiles == {"default": ("--seccomp",)}
         assert runner._memory_limit_mb == 512
         assert runner._cpu_seconds == 30
+        assert runner._nproc_limit == 128
 
     def test_limits_flow_into_winjob_backend(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         from heagent.tools.sandbox import WinJobBackend
 
         monkeypatch.setenv("SANDBOX_BACKEND", "winjob")
         monkeypatch.setenv("SANDBOX_MEMORY_LIMIT_MB", "256")
+        monkeypatch.setenv("SANDBOX_NPROC_LIMIT", "64")
         monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: True))
         container = EngineContainer.default(workspace_root=str(tmp_path))
         runner = container.executor.sandbox_runner
         assert isinstance(runner, WinJobBackend)
         assert runner._memory_limit_mb == 256
+        assert runner._nproc_limit == 64
 
     def test_tool_profiles_update_policy_mapping(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         """工具→profile 映射注入 PolicyEngine.sandbox_profiles（与 fail-safe 裁决兼容）。"""
@@ -321,7 +326,7 @@ class TestSandboxHardeningWiring:
 
 
 class TestFirejailResourceLimitsArgv:
-    """--rlimit-as / --rlimit-cpu 注入（0=关闭，默认零参数 → 既有 argv 逐字节不变）。"""
+    """--rlimit-as / --rlimit-cpu / --rlimit-nproc 注入（0=关闭，默认零参数 → 既有 argv 逐字节不变）。"""
 
     def test_no_limits_by_default(self) -> None:
         argv = FirejailBackend(workspace_root="/ws")._build_argv("echo hi", None)
@@ -333,13 +338,15 @@ class TestFirejailResourceLimitsArgv:
             profiles={"default": ("--seccomp",)},
             memory_limit_mb=512,
             cpu_seconds=60,
+            nproc_limit=128,
         )
         argv = backend._build_argv("echo hi", "default")
         assert argv[-4:] == ["--", "sh", "-c", "echo hi"]
         assert argv.index("--rlimit-as=536870912") > argv.index("--seccomp")
-        assert argv.index("--rlimit-cpu=60") == len(argv) - 5
+        assert argv.index("--rlimit-cpu=60") == len(argv) - 6
+        assert argv.index("--rlimit-nproc=128") == len(argv) - 5
 
     def test_zero_values_omit_flags(self) -> None:
-        backend = FirejailBackend(memory_limit_mb=0, cpu_seconds=0)
+        backend = FirejailBackend(memory_limit_mb=0, cpu_seconds=0, nproc_limit=0)
         argv = backend._build_argv("echo hi", None)
         assert not any(a.startswith("--rlimit") for a in argv)

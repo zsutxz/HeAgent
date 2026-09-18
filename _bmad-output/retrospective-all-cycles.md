@@ -42,10 +42,11 @@
 
 | 维度 | 要点 |
 |------|------|
-| 成就 | 死字段激活 (`sandbox_profile` → firejail 参数映射)、零门槛可及 (.env/CLI 启用)、Linux 进程组 kill + `--private` workspace 隔离、contextvar 同构注入 |
+| 成就 | profile → firejail 参数映射、零门槛可及 (.env/CLI 启用)、Linux 进程组 kill + `--private` workspace 隔离、contextvar 同构注入 |
 | 难点 | 纯函数可测性 vs 运行时 contextvar、降级不抛异常意味着静默失去保护、`--private` 参数插入位序 |
 | 做对 | 每个 FR 至少 1 独立单测+1 集成测试、模块边界严格 (不反依赖 agent/providers/memory)、`available` 属性暴露可观测性、安全声明始终诚实 |
 | 改进 | S4-1 emit 事件被跳过 (可观测性缺口)、降级为静默 (伪安全感)、无内置安全 profile 库、无人验证 profile 参数合法性 |
+| 更正 (2026-09-18) | 原记「死字段激活 (`sandbox_profile` → firejail 参数映射)」**不准确**：`RoleSpec.sandbox_profile` 从未被任何代码读取，profile 的真正入口是 2026-09-17 的 `SANDBOX_PROFILES` / `SANDBOX_TOOL_PROFILES` 配置；该死字段已于 2026-09-18 删除 |
 
 ### 5. 健壮性与质量硬化（Epic 19–20）· 2026-07-21
 
