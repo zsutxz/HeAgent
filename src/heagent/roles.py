@@ -39,8 +39,6 @@ class RoleSpec(BaseModel):
     blocked_tools: list[str] = Field(default_factory=list)
     # 该角色子 Agent 的最大迭代轮次；None = 未声明，跟随 Settings.subagent_max_iterations。
     max_iterations: int | None = None
-    # 沙箱配置名（可选）；为 None 表示不强制沙箱。
-    sandbox_profile: str | None = None
     # 附加元数据（如角色描述、标签）。
     metadata: dict[str, str] = Field(default_factory=dict)
 

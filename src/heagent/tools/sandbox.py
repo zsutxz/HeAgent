@@ -257,9 +257,9 @@ class FirejailBackend:
 
     用 ``create_subprocess_exec`` 启动 firejail。``extra_args`` 透传给 firejail；
     ``profiles`` 提供 per-profile 参数映射（如 ``{"network-isolated": ("--net=none",)}``），
-    使 ``RoleSpec.sandbox_profile`` 产生实际隔离差异。``workspace_root`` 自动映射为
-    ``--private`` 参数（OS 级文件系统隔离）。firejail 不可用时通过 :meth:`run` 优雅降级
-    到 PassthroughRunner。
+    由 ``PolicyEngine`` 裁决出的 profile 名（``SANDBOX_PROFILES`` / ``SANDBOX_TOOL_PROFILES``
+    配置注入）选用。``workspace_root`` 自动映射为 ``--private`` 参数（OS 级文件系统隔离）。
+    firejail 不可用时通过 :meth:`run` 优雅降级到 PassthroughRunner。
     """
 
     tier = SandboxTier.FIREJAIL
