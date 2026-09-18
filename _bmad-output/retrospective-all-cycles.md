@@ -1,11 +1,11 @@
 # HeAgent 全周期综合回顾
 
-> 生成: 2026-07-22（**2026-09-15 扩充**：补周期 8–15 / Epic 24–47 速览，指标与路径刷新至 2026-09-15）
+> 生成: 2026-07-22（**2026-09-15 扩充**：补周期 8–15 / Epic 24–47 速览；**2026-09-18 修订**：新增「五、待完成工作」，修正 6 处已闭环却仍列为待办的表述，指标刷新至 2026-09-18）
 > 覆盖: Epic 1–47 + S1–S4，**15 个开发周期**（51 个 Epic 条目）
-> 基准: **1896 passed / 9 skipped**（2026-09-15 实测）、ruff / mypy clean、覆盖率 ≈ 90%（gate 87）
+> 基准: **1983 passed / 9 skipped**（2026-09-18 实测）、ruff / mypy clean、覆盖率 **90.86%**（gate 87）
 >
 > 归档更新：2026-09-14 已完成实现 spec 按 Epic 40 / Epic 47 归档；2026-09-15 `patches/` 目录解散（补丁 spec 按归属 epic 归档）、跨周期 deferred 台账按 epic 归并。
-> **口径说明**：1.1–1.6 为 2026-07-22 的正式回顾；**1.7–1.14 是 2026-09-15 补录的速览**（这 8 个周期的 `epic-*-retrospective` 在 sprint-status 中多为 `optional`，未做正式回顾，明细见各周期目录与 `consolidated-overview.md` 十二）。
+> **口径说明**：1.1–1.6 为 2026-07-22 的正式回顾；**1.7–1.14 是 2026-09-15 补录的速览**（这 8 个周期的 `epic-*-retrospective` 在 sprint-status 中多为 `optional`，未做正式回顾，明细见各周期目录与 `consolidated-overview.md` 十二）。**2026-09-18 更新**：36、37、40、41、42 已补做正式回顾（5 份 `retrospective-epic-NN.md`），`sprint-status.yaml` 的状态字段仍为 `optional`。
 
 ---
 
@@ -73,7 +73,7 @@
 | 成就 | Textual TUI 四阶段 12 stories 全部 done（流式聊天 / 工具可视化 + 斜杠命令 / 管理面板 / 可观测性，FR-G1~G24） |
 | 难点 | 异步事件与 Textual 事件循环桥接、工具卡片状态机、run 树（supervisor → sub-agent）可视化与 resume |
 | 做对 | `AgentBridge` 持有并观察 `AgentLoop`（核心零改动）；`gui` 作可选依赖（textual）+ 懒加载 `heagent gui` |
-| 改进 | GUI 直到 2026-09-14 才有首个测试（`tests/test_gui_tool_state.py`）；retrospective 长期停在 `optional` |
+| 改进 | **（2026-09-18 复核）** GUI 测试自 2026-09-14 起（`tests/test_gui_tool_state.py`）、2026-09-17 增 `tests/test_gui_goal.py`；retrospective **仍为 `optional`** |
 
 ### 8. 交互与可扩展层（Epic 29–35）· 2026-08-19
 
@@ -82,7 +82,7 @@
 | 成就 | 运行时审批闭环（`engine/approval.py`：`APPROVAL_REQUIRED` 从「死判决」变可交互授权）、会话恢复（`--continue` / `--resume`）、斜杠命令注册表 + 用户自定义命令、Hooks、Plan Mode、配置驱动角色 + 成本估算、CLI 收尾；7 Epic / 27 story 项 |
 | 难点 | 审批的 run 粒度授权与幂等（授权写 `RunContext.metadata["approved_tools"]` 后重新裁决）、Plan Mode 排除不可信 MCP `readOnlyHint`、Hook 阻断语义只能显式 await |
 | 做对 | 全部经扩展点注入（`ApprovalHandler` / `hooks.json` / `commands/*.md` / `agents/*.md`），`AgentLoop` 与工具链零改动；安全立场一律标注 defense-in-depth 非真边界 |
-| 改进 | sprint-status 中 Epic 32 一度排在 35 之后（2026-09-15 修正顺序）；GUI 侧审批 / `/goal` 输出未完全接入 |
+| 改进 | **（2026-09-18 复核）** sprint-status 顺序已修正；GUI 侧 `/goal` 输出与取消已接入（E41-D7，`44ab001`）；**GUI 侧审批面板仍未接入**（`src/heagent/gui/**` 零 approval 引用，无对应 story） |
 
 ### 9. 文件安全与凭证防护（Epic 36–39）· 2026-08-24
 
@@ -91,7 +91,7 @@
 | 成就 | 凭证路径 deny（读 + 写）、shell 子进程 env scrubbing（`scrub_sensitive_env`）、`.heagent/` 内部状态读 deny；4 Epic / 6 story，commit `a1d886d`（25 files，+1881/−44），全量 1135 测试绿 |
 | 难点 | deny 与既有工作区围栏的分层关系（不污染 git 工具）、凭证路径在 shell（`rm`/`mv`/重定向）上的等价封堵、按模式剥离而非白名单透传 |
 | 做对 | deny 做成**与围栏并列的独立纯函数层**（可独立单测）、规则表刻意不开用户配置入口、内部状态只 deny 读、诚实标注非真边界 |
-| 改进 | 6 个 story 的 frontmatter 仍为 `backlog`（与实际交付不符）；MCP / cron 子进程的 scrub、凭证 deny 的用户入口仍缺 |
+| 改进 | **（2026-09-18 复核）** 6 个 story 的 frontmatter 仍为 `backlog`（`36-1`/`36-2`/`36-3`、`37-1`、`38-1`、`39-1`，**仍开**）；凭证 deny 用户入口**已交付**（`.heagent/path_deny.json`，2026-09-17）；MCP stdio 子进程 scrub 仍缺（与「子进程不经沙箱」同源），**cron 一半不成立**（`cron/` 无子进程路径） |
 
 ### 10. 沙箱会话化（Epic 40）· 2026-08-26
 
@@ -109,7 +109,7 @@
 | 成就 | `/goal` 命令族（new/next/run/auto/status/reset）：skill 承载方法论、`cli.py` 薄机制、逐 story 独立会话、`goal-advance` cron 无人值守；commit `81264bb` / `08a4294` / `2f53406` |
 | 难点 | 会话边界 = story 边界（fresh context + 阈值清窗续跑）、机器只扫三个标记的健壮性、无人值守下的显性失败 |
 | 做对 | 明令禁止 `goal.py` / Pydantic `GoalState` / runs.jsonl（方法论归文本）、run 观测经 `SubAgent(metadata)` 透传、41-D1~D4 全部闭合 |
-| 改进 | goal 指针 / `GOAL.md` 仅进程内 asyncio 锁（缺跨进程锁）；GUI 侧输出未进 RichLog、无取消控制 |
+| 改进 | **（2026-09-18 复核：均已闭合）** goal 跨进程锁由 E41-D5 补齐（`persist.file_lock` + `_goal_mutex`，`855d135`）；GUI `/goal` 输出转发与取消由 E41-D7 收口（`44ab001`） |
 
 ### 12. BMad 技能包运行时（Epic 42）· 2026-09-01
 
@@ -118,7 +118,7 @@
 | 成就 | 可安装可验证的技能包运行时：`he-*` canonical + `bmad-*` 别名、按需读 step/references/templates/assets/scripts、不跳步的单步执行、manifest 哈希锁；42-1~42-5（FR1~FR8），commit `6168100` |
 | 难点 | 五对象职责切分（Package / Catalog / Resolver / Runner / Importer）、包根围栏复用 vs 内部状态读限的取舍、导入幂等与显式失败 |
 | 做对 | 分层单一职责 + 复用 `resolve_under_root`（刻意不接 `check_read_denied` 以免误伤技能目录）、原子锁 + SHA-256 入口哈希、冲突不静默 |
-| 改进 | 资源读取竞态（`resolve`→`read`）显式转出为独立 story（后由 Epic 46 处理），但中间目录替换 / snapshot / OS sandbox 仍未闭合 |
+| 改进 | **（2026-09-18 复核：仍开）** 资源读取竞态已转出为独立 story，Epic 46.2 以 `O_NOFOLLOW` 加固最终组件；中间目录替换 / 可信导入 snapshot / OS sandbox 仍未闭合（§17.4-A1） |
 
 ### 13. 目标级工作流（Epic 43–46）· 2026-09-01
 
@@ -127,7 +127,7 @@
 | 成就 | `WorkflowOrchestrator` + checkpoint / 暂停恢复 / 幂等提交、Token 分段 rollover 与恢复信封、目标级 CLI 运维与审计、`scripts/quality_gate.py` 五门 + CI `goal-smoke`；Epic 46 TOCTOU 评估 + `O_NOFOLLOW` 加固；4 Epic / 11 story |
 | 难点 | 状态所有权切分（`GOAL.md` 看板 vs `workflow.json` 阶段）、「事务结束才 checkpoint」、rollover 的累计量与窗口量分离、恢复不注入完整历史 |
 | 做对 | 路由 / 阈值 / 幂等一律确定性代码裁决（LLM 不得决定阶段或伪造完成）、损坏状态显性失败（`blocked`/`failed`）、质量门单一入口 fail-fast |
-| 改进 | 45-1/45-2 无 story 文件、spec-45-3/46-1 已在归档提交中删除或改名（仅存 git 历史）；`engine/workflow.py` 自述 legacy 相位机待归档；Epic 46 后续 backlog 未闭合 |
+| 改进 | **（2026-09-18 复核）** 45-1/45-2 **确认仍无 story 文件**（该 epic 仅 `45-3`）、spec-45-3/46-1 已在归档提交中删除或改名（仅存 git 历史）；`engine/workflow.py` legacy 相位机**归档仍待排期**；Epic 46 后续 backlog 仍开（descriptor-relative / snapshot / OS sandbox） |
 
 ### 14. 声明式 BMad 敏捷工作流（Epic 47）· 2026-09-01 → 2026-09-15
 
@@ -136,7 +136,7 @@
 | 成就 | `/goal` 升级为 Goal→Epic→Story 全声明式流水线：`.heagent/workflows/workflow.md` + 角色 SKILL.md 承载方法论，`engine/workflow_runner.py`（单步 / story loop / resume / gate）+ `engine/artifacts.py`（产物契约）+ `engine/agile.py`（review/retro/correct-course）；47-1~47-10 |
 | 难点 | 方法论与确定性边界的分离到底、产物契约校验（frontmatter + 固定章节 + Given-When-Then + TBD 拒收）、同 Epic 批次并行与 checkpoint 恢复 |
 | 做对 | Agile Contract 钉死「`sprint-status.yaml` 是 Epic/Story 状态唯一写目标」「一 Story 一会话 WIP=1」「产物缺失/非法/冲突必须显式停止」；deferred 台账改为按归属 epic 归档 |
-| 改进 | E47-D1（ledger 记录在途被删）已修但施动者未唯一归因；bmad-build Step 07 未声明 step 级 `max_iterations`；`skill_update` 遇富正文技能拒绝改写 |
+| 改进 | **（2026-09-18 复核）** E47-D1 已修（`cc8cb3f`）但**施动者未唯一归因仍开**（LOW）；**Step 07 迭代预算已闭合**（`max_iterations: 100`，`d7dc758`）；`skill_update` 遇富正文技能拒绝改写**仍开** |
 
 ---
 
@@ -161,18 +161,20 @@
 
 ## 三、跨周期模式：可改进什么
 
-| # | 模式 | 建议 |
+> **2026-09-18 复核**：下表 10 条已按当前代码与台账逐条核对，标注**仍开 / 部分解决 / 已修复 / 已裁定接受**；逐条证据与完整待办清单见 `consolidated-overview.md` §17.4。
+
+| # | 模式 | 现状 |
 |---|------|------|
-| 1 | **安全边界诚实度** | SafetyGuard/engine sandbox 均非真边界但命名像边界——命名/文档应降低「安全」期望 |
-| 2 | **回顾不及时** | 仅 epic-13 做过实时回顾，其余事后补——epic 完成即回顾 |
-| 3 | **静默降级** | firejail 不可用仪 warn 不中断——用户可能误以为沙箱已开。应加首次加载提示或 CLI banner 标注 |
-| 4 | **编号冲突** | 两份 Epic 14 (mcp 阶段二与阶段三，原 mcp-v2-upgrade 与 mcp-client-v2) 同名异义——后续跨周期应统一编号空间 |
-| 5 | **复杂度接受** | agent/loop.py C901 超标不拆——长期应拆分 |
-| 6 | **可观测缺口** | S4-1 emit 事件跳过、benchmark 数据不入库——历史趋势和沙箱执行轨迹不可追溯 |
-| 7 | **内置预设缺失** | sandbox profiles 无开箱即用预设、cron 无常见模板——降低用户上手成本 |
-| 8 | **扩展点不足** | Prompts slash 分发器最简 `startswith("/")`、git 工具逐个加——未来可能需要结构化注册表 |
-| 9 | **规划产物滞后于交付** | 部分周期 story 文件缺失或命名漂移（45-1/45-2 无 story 文件）、6 个 Epic 36-39 story 的 frontmatter 仍是 `backlog`——交付即回写 status 与 frontmatter |
-| 10 | **跨进程互斥缺位** | goal 指针 / `GOAL.md` 仅进程内 asyncio 锁（双 CLI 进程可并发推进同一 story）；长时工具在途记录缺续租（E47-D1）同源 |
+| 1 | **安全边界诚实度** | **长期基调（非待办）**：命名/文档应持续降低「安全」期望，各文档已统一标注 defense-in-depth |
+| 2 | **回顾不及时** | **仍开**：**15 个 epic 的 retrospective 状态仍为 `optional`**（25-28 / 36-39 / 40 / 41 / 42 / 43-46；其中 36、37、40、41、42 已于 2026-09-18 补做，余 10 个未补做） |
+| 3 | **静默降级** | **仍开**：firejail / WinJob 不可用仅 `logger.warning` + 降级 Passthrough（`tools/sandbox.py:423`），无 CLI banner 或首次加载提示 |
+| 4 | **编号冲突** | 已 2026-07-23 统一编号空间，现无冲突 |
+| 5 | **复杂度接受** | **已裁定接受**：`run_stream` 的 `noqa: C901` 有实测依据（抽出共用步骤后仍 17 > 15），理由已写入 `agent/loop.py:404,418` docstring——不再作为待拆分项 |
+| 6 | **可观测缺口** | **仍开**：`S4-1` emit 事件仍 `skipped`（`engine/executor.py` 无 `sandbox_backend` / `sandbox_pid`）；benchmark 数据不入库（仅 CI artifact，7 天过期） |
+| 7 | **内置预设缺失** | **部分解决**：`SANDBOX_PROFILES`（2026-09-17）已可声明 `--seccomp`/`--caps` 等，但无开箱即用预设库；cron 仍无常见模板 |
+| 8 | **扩展点不足** | **部分解决**：`slash.py` 已是注册表驱动；CLI 入口仍最小 `startswith("/")` 分发（`cli.py:544,714`） |
+| 9 | **规划产物滞后于交付** | **仍开**（2026-09-18 实测）：6 个 36-39 story 的 frontmatter 仍为 `backlog`、45-1/45-2 无 story 文件 |
+| 10 | **跨进程互斥缺位** | **已修复**（2026-09-17）：goal 跨进程 `file_lock`（E41-D5，`855d135`）；在途记录续租（E47-D1，`cc8cb3f`）——剩余仅「施动者未唯一归因」（LOW） |
 
 ---
 
@@ -182,11 +184,49 @@
 |------|------|
 | 总 Epic 数 | **51**（47 个编号 Epic + S1–S4），分属 15 个开发周期 |
 | 总 Story 数 | 82 个 story 文件（25 个 `stories/` 目录）+ quick-dev 直接执行项（Epic 29–35 等无独立 story 文件） |
-| 总测试数 | **1896 passed / 9 skipped**（2026-09-15） |
-| 覆盖率 | ≈ 90%（gate 87；`scripts/quality_gate.py` 五门：goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy） |
-| 代码行数 | ~51,200（`src/` 24,061 + `tests/` 27,150，2026-09-15 计数） |
+| 总测试数 | **1983 passed / 9 skipped / 14 deselected**（2026-09-18） |
+| 覆盖率 | **90.86%**（gate 87；`scripts/quality_gate.py` 五门：goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy） |
+| 代码行数 | ~52,500（`src/` 24,182 + `tests/` 28,350，2026-09-18 计数；111 / 103 个 `.py`） |
 | 外部依赖 | 核心 5（openai / anthropic / pydantic / pydantic-settings / mcp）+ 可选（tiktoken 真实 tokenizer；textual GUI） |
-| 开发周期 | 2026-05-26 → 2026-09-15（**112 天**） |
+| 开发周期 | 2026-05-26 → 2026-09-18（**115 天**） |
+
+---
+
+## 五、待完成工作（2026-09-18）
+
+> **权威来源**：活动（未闭合）条目 = `_bmad-output/implementation-artifacts/deferred-work-archive.md`；Epic/Story 状态 = `_bmad-output/sprint-status.yaml`；安全缺口 = `docs/frame.md` 五。逐条证据与「已闭环却仍被列为待办」的修正表见 `consolidated-overview.md` §17.4。
+
+### 5.1 活动台账未闭合（4 条）
+
+| # | 条目 | 严重度 | 备注 |
+|---|------|--------|------|
+| A1 | Epic 46 技能资源 TOCTOU 后续（descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox） | 中 | 最终组件已有 `O_NOFOLLOW` 加固；残余竞态须如实标注 |
+| A2 | **MCP stdio server 子进程未接入沙箱** | **中-高** | SDK 自行 spawn，不经 `ToolExecutor.execute_in_sandbox`；不得改动 MCP 连接契约 |
+| A3 | `cli.py` / `cli_goal.py` 职责再拆（装配块 + 斜杠 handler） | 低 | 已落地 `cli_init.py`、`goal/document.py` 两批；剩余受 monkeypatch 模块路径缝约束，**暂缓** |
+| A4 | 路径级审批分级（条件性） | 低 | 前置「非 workspace 受控写」未发生 |
+
+> 2026-09-18：原 A5（`RoleSpec.sandbox_profile` 死字段）/ A6（沙箱进程数限额）已闭合——A5 删除字段，A6 新增 `SANDBOX_NPROC_LIMIT` + 修正 WinJob `JOB_OBJECT_LIMIT_PROCESS_TIME` 常量（原误写 `0x8`=ACTIVE_PROCESS 位）。
+
+### 5.2 纪律类滞后（非代码，2026-09-18 实测）
+
+- 6 个 36-39 story 的 frontmatter 仍为 `status: backlog`（`36-1`/`36-2`/`36-3`/`37-1`/`38-1`/`39-1`）。
+- `45-1` / `45-2` 无 story 文件（该 epic 仅 `45-3`）；`spec-45-3` / `spec-46-1` 已在归档提交中删除或改名。
+- **15 个 epic 的 retrospective 状态仍为 `optional`**（25-28 / 36-39 / 40 / 41 / 42 / 43-46）；其中 36、37、40、41、42 已于 2026-09-18 补做正式回顾，余 10 个未补做。
+- `S4-1`（executor emit `sandbox_backend` + `sandbox_pid`）仍 `skipped` —— 沙箱执行轨迹不可追溯。
+- `_bmad-output/README.md:13` 仍描述 `implementation-artifacts/` 含 `deferred-work.md` 与母规划 spec——两者均已不存在（现为 `deferred-work-archive.md`）。
+
+### 5.3 路线图与技术债候选（逐条已核实仍开）
+
+- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本 `0.6.1`；`.github/workflows` 只有 `ci.yml` + `codeql.yml`）。
+- ⏳ `engine/workflow.py` legacy 相位机归档；benchmark 数据入库（历史趋势）；sandbox 开箱即用 profile 预设；Prompts/slash 结构化注册表。
+- ⏳ 低优先技术债：`model_pricing` 抽独立模型 + 校验、`guard_content` 加 `source` 参数、Hook 事件集补齐（`UserPromptSubmit`/`Stop`/`SubagentStop`/`PreCompact`）、readline 在 Windows 的降级方案、firejail/WinJob 不可用的 CLI banner 提示、sandbox profile 参数合法性校验、`skill_update` 遇富正文技能拒绝改写。
+
+### 5.4 已决策关闭（不再排期）
+
+- 全局/home 级 MCP 注入签名入口（won't do；项目级 `.heagent/injection_signatures.json` 已交付）。
+- 把 MCP Resources / Prompts 增强纳入必要开发范围（MCP 后续不作必要功能）。
+- 业务数据整合母规划 spec（`spec-business-data-integration.md` 文件 2026-09-15 已删除）。
+- 2026-09-18 复核确认**已闭合、不再列为待办**：bmad-build Step 07 `max_iterations`（E41-D6）、GUI `/goal` 收口（E41-D7）、goal 跨进程锁（E41-D5）、凭证 deny 项目级入口（F-D1）、沙箱资源/高级参数/per-tool 粒度（S-D4..D6）、`agent/loop.py` C901（已裁定接受）、`RoleSpec.sandbox_profile` 死字段（原 A5，取删除方向）、沙箱进程数限额（原 A6，`SANDBOX_NPROC_LIMIT` + WinJob 常量修正）。
 
 ---
 
