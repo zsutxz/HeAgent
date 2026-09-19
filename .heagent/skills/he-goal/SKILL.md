@@ -11,6 +11,15 @@ priority: 3
 
 # goal（目标驱动开发工作流）
 
+## 边界
+
+- 本技能只做引导：不代替用户执行 `/goal` 斜杠命令，也不复述工作流契约（契约在 `he-workflow` 包里）。
+- 单点改动、一次性问答、一次探查都不要启动工作流——判据见 Steps 第 1 条。
+- 本节也是**刻意保留的额外章节**：正文若只剩 `## Pattern` / `## Steps` 两节，SkillStore 会在技能被
+  自动注入时整体重渲染正文（丢掉上面 H1 的注解与 frontmatter 的 `canonical_id`）；保留本节即走
+  「只改 frontmatter 计数、正文逐字节保留」的就地路径。代价：`pattern` / `steps` 要改就直接编辑本
+  文件，`skill_update` 会拒绝（抛 `SkillRewriteError`，防止静默丢章节）。
+
 ## Pattern
 
 多阶段大目标（从需求到交付的完整项目）走 `/goal` 声明式工作流；单点改动、一次性问答直接做，不要启动工作流。

@@ -277,7 +277,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 **历史快照（2026-08-19）**：当时记录的 9 个开发周期（主线 Epic 1-10、MCP 11-18、Sandbox 硬化 S1-S4、健壮性/质量 19-24、GUI 25-28、交互与可扩展层 29-35）已全部交付；该日期的测试统计仅代表当时状态。
 
-**当前状态（2026-09-08）**：后续文件安全、沙箱会话、目标驱动开发、BMad 技能包和声明式工作流周期已完成或有独立产物，状态以 [`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml) 为准。当前 `/goal` 的可执行契约是 [`.heagent/workflows/workflow.md`](../.heagent/workflows/workflow.md)，维护说明见 [`workflow_intro.md`](workflow_intro.md)；`pytest --collect-only -q` 收集数以本地运行结果为准，质量门禁仍需在可写临时目录下运行。
+**当前状态（2026-09-08）**：后续文件安全、沙箱会话、目标驱动开发、BMad 技能包和声明式工作流周期已完成或有独立产物，状态以 [`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml) 为准。当前 `/goal` 的可执行契约是 [`.heagent/skills/he-workflow/workflow.md`](../.heagent/skills/he-workflow/workflow.md)，维护说明见 [`workflow_intro.md`](workflow_intro.md)；`pytest --collect-only -q` 收集数以本地运行结果为准，质量门禁仍需在可写临时目录下运行。
 
 **当前缺口**（详见 `frame.md` 第五章）：
 
