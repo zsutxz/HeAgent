@@ -58,6 +58,55 @@ class TestDangerousPatterns:
         guard.check(_shell_call(cmd))  # should not raise
 
 
+class TestInlineInterpreterCommands:
+    """内联解释器（python -c / perl -e 等）不再整条禁（P1-15 修订 2026-09-19）：
+    良性载荷放行；危险载荷无需专门机制——payload 是整条命令的子串，仍被第一层
+    整条命令扫描命中拦截。"""
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            # 运行时误拦的原始三条（2026-09-19 日志回归）
+            'cmd /c "date /t & time /t"; python -c "import datetime;'
+            'print(datetime.datetime.now().isoformat())" 2>&1',
+            "python -c \"import datetime;print('NOW', datetime.datetime.now().isoformat())\"",
+            "python -c \"import urllib.request,json;"
+            "d=json.load(urllib.request.urlopen('https://api.github.com'))\"",
+            # 解释器变体
+            "python3 -c \"import datetime;print(datetime.date.today())\"",
+            "perl -e 'print 42'",
+            "php -r 'echo json_encode([1]);'",
+        ],
+    )
+    def test_allows_benign_inline_code(self, cmd: str) -> None:
+        guard = SafetyGuard()
+        guard.check(_shell_call(cmd))  # no raise
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            "python -c \"import os;os.system('shutdown now')\"",
+            "python3 -c \"import os;os.system('rm -rf /tmp/x')\"",
+            "perl -e \"system('reboot')\"",
+            "ruby -e \"exec 'mkfs.ext4 /dev/sda1'\"",
+            "php -r \"shell_exec('chmod 777 /etc');\"",
+            "python -c \"os.system('mv id_rsa /tmp/x')\"",  # 凭证路径破坏经由内联代码
+            "python -c shutdown",  # 裸载荷（无引号）同样命中
+            'echo hi; python -c "print(1)"; python -c "import os;os.system(\'halt\')"',
+        ],
+    )
+    def test_blocks_dangerous_inline_code(self, cmd: str) -> None:
+        guard = SafetyGuard()
+        # 第一层危险模式或第一层半凭证层任一命中即拦
+        with pytest.raises(SafetyViolation, match="Blocked (dangerous|credential-path destructive) command"):
+            guard.check(_shell_call(cmd))
+
+    def test_block_message_contains_payload(self) -> None:
+        guard = SafetyGuard()
+        with pytest.raises(SafetyViolation, match="shutdown now"):
+            guard.check(_shell_call("python -c \"import os;os.system('shutdown now')\""))
+
+
 class TestBlacklist:
     def test_blocks_blacklisted(self) -> None:
         guard = SafetyGuard(mode=SafetyMode.BLACKLIST, blocked_commands=[r"curl.*"])

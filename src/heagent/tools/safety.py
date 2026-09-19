@@ -2,8 +2,9 @@
 
 检查分两类：
   - 工具名 blacklist（对所有工具生效，含 MCP/内置/shell）：按 ``call.name`` 正则命中即拦截
-  - shell 命令检查（仅 "shell" 工具）：两层——内置危险模式（17 种）+
-    用户自定义规则（BLACKLIST 拦截匹配项 / WHITELIST 仅允许匹配项）
+  - shell 命令检查（仅 "shell" 工具）：两层——内置危险模式 + 用户自定义规则
+    （BLACKLIST 拦截匹配项 / WHITELIST 仅允许匹配项）。python -c / perl -e 等
+    内联解释器不整条禁：良性载荷放行，含危险关键词的载荷仍被整条命令扫描命中
   - 非 shell 工具的 command 参数检查（P1-14）：对参数中含 "command" 键的任意工具
     也执行命令级检查（defense-in-depth）
 
@@ -36,8 +37,10 @@ class SafetyMode(StrEnum):
 
 # 内置的危险命令正则模式（不区分大小写），P1-2 补全：新增 poweroff/halt/curl-pipe-sh/wget-pipe-sh/
 # /dev/tcp reverse shell/chmod 777/chmod +s/eval/source/fork bomb 通用形式/rm 分离标志位。
-# P1-15 扩展：新增 nc/ncat 反向 shell、python/perl/ruby/php -e/-r 内联执行、
-# iptables/systemctl 防火墙/服务篡改、crontab 持久化。
+# P1-15 扩展：新增 nc/ncat 反向 shell、iptables/systemctl 防火墙/服务篡改、crontab 持久化。
+# P1-15 修订（2026-09-19）：撤销 python -c / perl -e 等内联解释器的整条禁（Agent 日常良性
+# 使用频繁自伤）。危险载荷无需专门拦截机制——payload 是整条命令的子串，含危险关键词的
+# 内联代码仍被本表命中；仅 base64 / exec 等混淆形式不在覆盖内（本护栏非真正安全边界）。
 _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE)
     for p in [
@@ -63,10 +66,8 @@ _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
         r"/dev/tcp/",  # /dev/tcp reverse shell
         r"\beval\b",  # eval 动态代码执行
         r"\bsource\b\s+(?:/|~|\.\.)",  # source 执行外部脚本
-        # P1-15 新增：以下 6 条覆盖此前遗漏的常见攻击向量
+        # P1-15 新增：以下模式覆盖此前遗漏的常见攻击向量
         r"\b(?:nc|ncat|netcat)\b.*-e\b",  # netcat -e reverse shell
-        r"\bpython\d*\s+-c\b",  # python -c 内联执行
-        r"\b(?:perl|ruby|php)\d*\s+-[er]\b",  # perl/ruby/php -e/-r 内联执行
         r"\biptables\b\s+-F\b",  # iptables 清空所有规则
         r"\bsystemctl\b\s+disable\b",  # systemctl 禁用服务
         r"\bcrontab\b",  # crontab 修改持久化
@@ -122,7 +123,7 @@ class SafetyGuard:
 
         检查流程：
           0. 工具名 blacklist（对所有工具生效，含 MCP/内置/shell）→ 命中拦截
-          1. 内置危险模式匹配（仅 shell）→ 拦截
+          1. 内置危险模式匹配（仅 shell，对整条命令生效——含 python -c 等内联载荷）→ 拦截
           2. 黑名单模式：匹配用户自定义黑名单（仅 shell）→ 拦截
           3. 白名单模式：不在白名单中（仅 shell）→ 拦截
           4. P1-14：非 shell 但参数中含 "command" 键的工具，同样执行命令级检查
