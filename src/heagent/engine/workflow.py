@@ -185,8 +185,9 @@ class WorkflowCheckpointStore:
 class GoalWorkflowState(BaseModel):
     """Serializable runtime metadata for one goal.
 
-    ``GOAL.md`` remains the source of truth for story checkboxes. This model stores
-    only orchestration metadata and therefore never mirrors or edits that board.
+    The workflow's own artifacts stay the source of truth (``require.md`` for the request,
+    ``02-epics.md`` for the Epic/Story lists). This model stores only orchestration metadata
+    and therefore never mirrors or edits them.
     """
 
     model_config = ConfigDict(frozen=True, validate_assignment=True)

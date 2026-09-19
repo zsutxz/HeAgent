@@ -35,6 +35,7 @@ from heagent.goal.document import (
     _GOALS_DIR,
     _goal_description,
     _goal_document,
+    _goal_document_path,
     _goal_document_title,
     _goal_id_is_valid,
     _goal_project_id,
@@ -70,7 +71,7 @@ _GOAL_AUTO_PREFIX = "goal-advance "
 _goal_auto_lock = asyncio.Lock()
 
 # goal 域跨进程锁：竞态是「读 current 指针 → 读状态 → 推进 → 写 checkpoint /
-# workflow.json / GOAL.md」的整段读改写，per-file 锁防不了「两进程从同一状态各自
+# workflow.json / require.md」的整段读改写，per-file 锁防不了「两进程从同一状态各自
 # 推进后互相覆盖」，故 goal 域一把域级锁。锁文件随 cwd 锚定（与 _GOALS_DIR 同锚定
 # 方式），落在 .heagent/ 运行时状态区（见下文目录注释），不污染 _he-output/ 产物树。
 _GOAL_LOCK_PATH = Path(".heagent/goal.lock")
@@ -101,7 +102,7 @@ async def _goal_mutex() -> AsyncIterator[None]:
 # /goal 命令族（Story 41.1：目标驱动开发工作流——skill 正文直读 + 逐 story 会话）
 # =============================================================================
 
-# GOAL.md 文档与命名层（slug 词表 / goal_id 规则 / 目录命名 / GOAL.md 生成与增量更新）
+# 需求文档与命名层（slug 词表 / goal_id 规则 / 目录命名 / require.md 生成与增量更新）
 # 已拆至 goal/document.py（wiring.py 先例：文档约定与执行编排变化原因不同），见顶部
 # re-export——测试经 heagent.cli_goal 导入这些符号，内部引用点继续按模块全局名解析。
 
@@ -151,7 +152,7 @@ def _goal_declarative_workflow() -> WorkflowResource | None:
     """Load the explicitly configured declarative goal workflow, if enabled.
 
     The configuration file is the feature flag. A malformed configured workflow is
-    an error rather than a reason to silently run the incompatible GOAL.md flow.
+    an error rather than a reason to silently run the incompatible legacy flow.
     """
     if not _GOAL_DECLARATIVE_WORKFLOW_PATH.is_file():
         return None
@@ -403,10 +404,10 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
     try:
         description = _goal_description(goal_dir)
     except (OSError, ValueError) as exc:
-        click.echo(f"[goal] declarative GOAL.md is invalid: {exc}", err=True)
+        click.echo(f"[goal] declarative requirement document is invalid: {exc}", err=True)
         return _GOAL_FAILED, None
     if not description:
-        click.echo("[goal] declarative GOAL.md has no title", err=True)
+        click.echo("[goal] declarative requirement document has no title", err=True)
         return _GOAL_FAILED, None
     try:
         questionnaire_spec = _goal_questionnaire_spec(goal_dir)
@@ -559,7 +560,7 @@ async def _goal_declarative_advance(
         try:
             user_responses = _goal_user_responses(goal_dir)
         except OSError as exc:
-            click.echo(f"[goal] declarative GOAL.md is unreadable: {exc}", err=True)
+            click.echo(f"[goal] declarative requirement document is unreadable: {exc}", err=True)
             return _GOAL_FAILED
         inputs: dict[str, Any] = {
             "user intent": description,
@@ -656,7 +657,7 @@ async def _goal_declarative_new(
     try:
         goal_document = _goal_document(description, goal_id)
         _goal_document_title(goal_document)
-        atomic_write_text(goal_dir / "GOAL.md", goal_document)
+        atomic_write_text(_goal_document_path(goal_dir), goal_document)
         atomic_write_text(_GOALS_DIR / "current", goal_id)
     except (OSError, ValueError) as exc:
         click.echo(f"[goal] failed to persist declarative goal: {exc}", err=True)
@@ -869,7 +870,7 @@ def _goal_usage() -> None:
         "  /goal <目标描述>      新建 goal 并执行 planning 规程\n"
         "  /goal new <目标描述>  同上（显式 new 形式）\n"
         "  /goal next            推进下一条 story（每步全新会话）\n"
-        "  /goal status          查看进度与 GOAL.md 全文\n"
+        "  /goal status          查看进度\n"
         "  /goal reset           清除 current 指针（goal 目录保留）\n"
         f"  /goal run             连续推进 goal（最多 {_GOAL_RUN_MAX_ROUNDS} 步；Ctrl+C 可中断）\n"
         "  /goal resume [回复]   记录用户回答并继续 waiting_user 步骤\n"
@@ -879,7 +880,7 @@ def _goal_usage() -> None:
 
 
 def _goal_active_md() -> Path | None:
-    """解析活跃 goal 的 GOAL.md 路径；指针缺失/解码失败返回 None，内容非法显性报错。"""
+    """解析活跃 goal 的需求文档路径；指针缺失/解码失败返回 None，内容非法显性报错。"""
     try:
         goal_id = (_GOALS_DIR / "current").read_text(encoding="utf-8").strip()
     except FileNotFoundError:
@@ -890,7 +891,7 @@ def _goal_active_md() -> Path | None:
     if not goal_id:
         return None
     # 指针内容须为字母 slug 或既有 8 位小写十六进制：防手改指针越界。
-    # 把围栏外任意文件当 GOAL.md 注入 LLM prompt（仿 sandbox_session_dir 先例）。
+    # 把围栏外任意文件当需求文档注入 LLM prompt（仿 sandbox_session_dir 先例）。
     if not _goal_id_is_valid(goal_id):
         click.echo(f"[goal] current 指针内容非法：{goal_id!r}（须为英文字母 project id）。", err=True)
         return None
@@ -899,7 +900,7 @@ def _goal_active_md() -> Path | None:
     if not goal_root.is_relative_to(goals_root):
         click.echo("[goal] current 指针解析后越过 goals 根目录。", err=True)
         return None
-    return goal_root / "GOAL.md"
+    return _goal_document_path(goal_root)
 
 
 async def _goal_session(
@@ -928,7 +929,7 @@ async def _goal_session(
     try:
         return await agent.run(prompt)
     except (KeyboardInterrupt, asyncio.CancelledError):
-        click.echo("[goal] 已中断：状态在盘（GOAL.md），/goal next 可续跑。", err=True)
+        click.echo("[goal] 已中断：状态在盘（require.md），/goal next 可续跑。", err=True)
         return None
 
 
@@ -1047,7 +1048,7 @@ async def _goal_runner(  # noqa: C901
             )
         return
     click.echo(
-        "[goal] workflow.md is required; the legacy GOAL.md Story flow has been removed. "
+        "[goal] workflow.md is required; the legacy story-board flow has been removed. "
         f"Create {_GOAL_DECLARATIVE_WORKFLOW_PATH} to configure goal execution.",
         err=True,
     )

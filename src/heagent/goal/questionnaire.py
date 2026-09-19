@@ -1,11 +1,12 @@
 """``/goal`` 问卷 —— 声明式问题的解析、校验、收集与写回。
 
-问卷由工作流（而非 CLI 代码）**声明**：``GOAL.md`` 的 ``## Questionnaire`` 段（旧式独立
-``QUESTIONNAIRE.md`` 文件仍作兜底）描述 applies_when、问题清单与取值约束。本模块只实现
-「按声明校验」的通用规则，任何具体产品规则都不在这里。
+问卷由工作流（而非 CLI 代码）**声明**：goal 需求文档（``require.md``，存量 goal 为
+``GOAL.md``）的 ``## Questionnaire`` 段（旧式独立 ``QUESTIONNAIRE.md`` 文件仍作兜底）描述
+applies_when、问题清单与取值约束。本模块只实现「按声明校验」的通用规则，任何具体产品规则都
+不在这里。
 
-依赖：``heagent.persist`` 的原子写 + ``click`` 的终端交互；不依赖 ``cli_goal``，
-故可被独立测试（此前这些函数与工作流驱动混在单文件里）。
+依赖：``heagent.persist`` 的原子写 + ``heagent.goal.document`` 的文档定位 + ``click`` 的
+终端交互；不依赖 ``cli_goal``，故可被独立测试（此前这些函数与工作流驱动混在单文件里）。
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from typing import Any
 import click
 from pydantic import BaseModel
 
+from heagent.goal.document import _goal_document_path
 from heagent.persist import atomic_update_text
 
 _GOAL_QUESTIONNAIRE_FILE = "QUESTIONNAIRE.md"
@@ -62,11 +64,11 @@ class GoalQuestionnaire(BaseModel):
 def _goal_questionnaire_spec(goal_dir: Path) -> GoalQuestionnaireSpec | None:
     """Load a questionnaire owned by the concrete goal directory.
 
-    New goals keep the declarative questionnaire in ``GOAL.md``. The standalone
+    New goals keep the declarative questionnaire in ``require.md``. The standalone
     file fallback is retained for legacy/test packages that have not migrated.
     """
-    goal_path = goal_dir / "GOAL.md"
-    text = goal_path.read_text(encoding="utf-8") if goal_path.is_file() else ""
+    document = _goal_document_path(goal_dir)
+    text = document.read_text(encoding="utf-8") if document.is_file() else ""
     section = re.search(r"(?ms)^##? Questionnaire\s*$\n(.*?)(?=^##\s|\Z)", text)
     if section is None:
         legacy_path = Path(_GOAL_QUESTIONNAIRE_FILE)
@@ -173,7 +175,7 @@ def _goal_questionnaire_from_text(text: str, spec: GoalQuestionnaireSpec) -> tup
 
 
 def _goal_questionnaire(goal_dir: Path, spec: GoalQuestionnaireSpec) -> GoalQuestionnaire | None:
-    text = (goal_dir / "GOAL.md").read_text(encoding="utf-8")
+    text = _goal_document_path(goal_dir).read_text(encoding="utf-8")
     match = re.search(rf"(?ms)^## Questionnaire: {re.escape(spec.name)}\s*$\n(.*?)(?=^##\s|\Z)", text)
     if match is None:
         return None
@@ -190,7 +192,7 @@ def _goal_record_questionnaire(goal_dir: Path, questionnaire: GoalQuestionnaire,
     def update(raw: str) -> tuple[str, None]:
         return raw.rstrip() + f"\n\n## Questionnaire: {spec.name}\n\n{questionnaire.render(spec)}\n", None
 
-    atomic_update_text(goal_dir / "GOAL.md", update)
+    atomic_update_text(_goal_document_path(goal_dir), update)
 
 
 def _goal_collect_questionnaire(spec: GoalQuestionnaireSpec) -> GoalQuestionnaire | None:

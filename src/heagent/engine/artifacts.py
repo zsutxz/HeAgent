@@ -214,7 +214,7 @@ def parse_artifact(source: str | Path) -> Artifact:
     if kind is ArtifactKind.GOAL:
         epic_section = _required(sections, ("epics",))
         if any(name in sections for name in ("stories", "tasks")):
-            raise ArtifactContractError("GOAL.md may manage Epics only; Stories belong to EPIC.md")
+            raise ArtifactContractError("a goal artifact may manage Epics only; Stories belong to EPIC.md")
         return GoalArtifact(**common, epic_ids=_ids(epic_section))
     if kind is ArtifactKind.EPIC:
         goal_id = values.get("goal_id")

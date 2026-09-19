@@ -19,11 +19,9 @@ from heagent.cli_goal import (
 from heagent.cron.jobs import JobStore
 from heagent.config import reset_settings
 from heagent.engine import (
-    GoalArtifact,
     WorkflowGateError,
     WorkflowRunResult,
     WorkflowRunner,
-    parse_artifact,
     required_sections,
 )
 from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
@@ -89,15 +87,17 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     await _goal_runner(SimpleNamespace(), None, "new ship   the workflow")
     goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
     goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
-    goal_document = goal_dir / "GOAL.md"
+    goal_document = goal_dir / "require.md"
     assert goal_document.exists()
     goal_text = goal_document.read_text(encoding="utf-8")
     assert "## 原始需求（Original Request）" in goal_text
     assert "ship   the workflow" in goal_text
+    assert "## 总结的需求（Derived Requirements）" in goal_text
+    assert not (goal_dir / "GOAL.md").exists()
     assert not (goal_dir / "ORIGINAL_REQUEST.md").exists()
     assert not (goal_dir / "goal.txt").exists()
     assert (goal_dir / "step-01-plan.md").read_text(encoding="utf-8") == "output-1"
-    assert isinstance(parse_artifact(goal_document), GoalArtifact)
+    assert cli_goal._goal_document_title(goal_text) == "ship the workflow"
     assert len(successful_step) == 1
     assert "## user intent\nship   the workflow" in successful_step[0]
     assert "## existing project context" in successful_step[0]
@@ -422,7 +422,7 @@ async def test_resume_game_questionnaire_persists_answers_and_runs_first_step(
     assert len(successful_step) == 1
     assert "## questionnaire\nQ1 对手类型：A 本地双人" in successful_step[0]
     goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "GOAL.md").read_text(encoding="utf-8")
+    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "require.md").read_text(encoding="utf-8")
     assert "## Questionnaire: game-product-decisions" in goal_text
     assert "Q4 首版附加能力：重新开始" in goal_text
 
@@ -467,7 +467,7 @@ async def test_interactive_ai_game_questionnaire_collects_follow_up_answers(
 
     assert len(successful_step) == 1
     goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "GOAL.md").read_text(encoding="utf-8")
+    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "require.md").read_text(encoding="utf-8")
     assert "Q5 基础单难度是否可接受：可接受" in goal_text
     assert "Q6 电脑每步最长思考时间（秒）：2.5" in goal_text
 
@@ -486,9 +486,49 @@ async def test_completed_game_questionnaire_is_not_recorded_twice_on_resume(
     await _goal_runner(SimpleNamespace(), None, "resume continue with the current scope")
 
     goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "GOAL.md").read_text(encoding="utf-8")
+    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "require.md").read_text(encoding="utf-8")
     assert goal_text.count("## Questionnaire: game-product-decisions") == 1
     assert len(successful_step) == 2
+
+
+def _real_step_one() -> tuple[str, str]:
+    """Return the shipped workflow's step-01 block and its validation declaration."""
+    workflow_path = Path(__file__).resolve().parents[1] / ".heagent" / "workflows" / "workflow.md"
+    text = workflow_path.read_text(encoding="utf-8")
+    block = text.split("## Step 01:", 1)[1].split("## Step 02:", 1)[0]
+    return block, next(line for line in block.splitlines() if line.startswith("validation:"))
+
+
+def test_step_one_gate_requires_the_derived_requirements_summary() -> None:
+    """Step 01 is the initial analysis: it must write and return the summarized requirements."""
+    block, validation = _real_step_one()
+    assert required_sections(validation) == ["需求总结"]
+    assert "require.md" in block
+    assert "## 总结的需求（Derived Requirements）" in block
+    step = WorkflowStepResource(
+        index=1, name="step-01-market-research.md", instructions="", validation_rules=validation
+    )
+    WorkflowRunner.validate_output(step, "## 需求总结\n\n能验证的需求陈述")
+    with pytest.raises(WorkflowGateError):
+        WorkflowRunner.validate_output(step, "## 市场综述\n\n只有调研结论")
+
+
+def test_legacy_goal_document_is_read_and_written_in_place(tmp_path: Path) -> None:
+    """A goal created before the rename keeps GOAL.md as its single document."""
+    goal_dir = tmp_path / "legacy-goal"
+    goal_dir.mkdir()
+    goal_dir.joinpath("GOAL.md").write_text(
+        "---\nid: goal-legacy\ntype: goal\nstatus: planning\ntitle: 旧目标\n---\n\n"
+        "# 旧目标\n\n## 原始需求（Original Request）\n\n```\n旧目标描述\n```\n\n"
+        "## Epics\n\n- E1: 旧 Epic\n",
+        encoding="utf-8",
+    )
+
+    assert cli_goal._goal_description(goal_dir) == "旧目标描述"
+    cli_goal._goal_record_user_response(goal_dir, "继续推进")
+
+    assert "继续推进" in cli_goal._goal_user_responses(goal_dir)
+    assert not (goal_dir / "require.md").exists()
 
 
 def test_cli_reexports_goal_runner_but_not_monkeypatch_seams() -> None:
@@ -762,7 +802,7 @@ async def test_blocked_step_reports_the_way_out(
     """BLOCKED used to be a dead end: the CLI must print how to leave it."""
     goal_dir = tmp_path / "goal"
     goal_dir.mkdir()
-    (goal_dir / "GOAL.md").write_text(cli_goal._goal_document("demo goal", "demo"), encoding="utf-8")
+    (goal_dir / "require.md").write_text(cli_goal._goal_document("demo goal", "demo"), encoding="utf-8")
     step = WorkflowStepResource(index=1, name="step-01.md", instructions="")
     workflow = WorkflowResource(name="demo", instructions="", steps=[step])
 

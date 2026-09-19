@@ -116,9 +116,9 @@ diff 与重跑命令出发，不得采信自己先前写下的结论。独立于
 - **结论**：放行 / 不放行，以及不放行时的阻塞项
 
 最终响应返回完整报告，并在命中 Epic 收口时追加 `## 评审发现` 与 `## 收口结论` 章节。全部 story
-完成后，step 07 写顶层索引 `step-07-implement-story/index.md`（Epic 总览 + 逐 story 表格）并更新
-`GOAL.md` 的 **Epics** 段——`GOAL.md` 只管 Epic，story 状态活在逐 story 产物里，不要写
-`GOAL.md` 的 Stories 章节（`parse_artifact` 会因「GOAL.md may manage Epics only」硬失败）。
+完成后，step 07 写顶层索引 `step-07-implement-story/index.md`（Epic 总览 + 逐 story 表格）。**不要**
+改写 `require.md` 的需求段，也不要在那里登记 story 状态：原始需求与总结的需求是冻结输入，Epic 与
+Story 的权威清单在 `02-epics.md`，story 状态活在逐 story 产物里。
 
 ## 禁止
 

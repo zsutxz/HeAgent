@@ -396,7 +396,7 @@ async def file_lock(path: Path, *, timeout: float = 5.0) -> AsyncIterator[None]:
 
     与 :func:`atomic_write_text(lock=True)` 的单文件写锁不同，本原语保护**一段**
     读改写临界区（如 goal 的「读 current 指针 → 推进 → 写 checkpoint / workflow.json /
-    GOAL.md」）——per-file 锁覆盖不了「两个进程从同一状态各自推进后互相覆盖」的竞态。
+    require.md」）——per-file 锁覆盖不了「两个进程从同一状态各自推进后互相覆盖」的竞态。
 
     锁文件刻意保留不删（同 ``atomic_write_text`` 的 unlink 竞态论证）；advisory 锁随
     进程退出自动释放，crash 不留死锁。获取/释放经 ``asyncio.to_thread`` 卸载（内部
