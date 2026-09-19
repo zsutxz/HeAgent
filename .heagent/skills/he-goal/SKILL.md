@@ -1,6 +1,6 @@
 ---
 canonical_id: he-goal
-name: goal
+name: he-goal
 description: 多阶段大目标走 /goal 声明式 8 步工作流的触发与引导
 tags: [goal, workflow]
 created: 2026-09-19
@@ -18,7 +18,7 @@ priority: 3
 `/goal resume <回复>` 恢复并记录回答 · `/goal pause` 暂停 · `/goal auto [cron]` 定时推进 · `/goal reset` 清除当前指针。
 工作流共 8 步：市场调研、发散构思、需求分析、产品范围、架构设计、故事细化、逐故事实现、系统集成测试。
 持久产物落在 `_he-output/goals/<goal-id>/`；工作流契约（步骤、输入输出、门禁）的唯一权威是
-`.heagent/workflows/workflow.md`，不要在本技能里复述或修改它。
+`.heagent/skills/he-workflow/workflow.md`，不要在本技能里复述或修改它。
 
 ## Steps
 
@@ -26,6 +26,5 @@ priority: 3
 2. 提醒用户用 `/goal new <目标描述>` 启动；agent 不能代替用户执行斜杠命令，也不要伪造执行结果。
 3. 用户问进度用 `/goal status`；要一次推多步用 `/goal run`；想无人值守用 `/goal auto`。
 4. 步骤停在等用户输入时，提示 `/goal resume <回复>`；回答会写进需求文档的「用户补充」段。
-5. 不要手改需求文档（`require.md`，存量 goal 为 `GOAL.md`）的「原始需求」段，也不要改
-   `02-epics.md` 里已冻结的验收标准。
+5. 不要手改需求文档（`require.md`，存量 goal 为 `GOAL.md`）的「原始需求」段，也不要改 `02-epics.md` 里已冻结的验收标准。
 6. 中断不会丢进度（checkpoint 在盘）：提示用户 `/goal next` 或 `/goal resume` 续跑即可。
