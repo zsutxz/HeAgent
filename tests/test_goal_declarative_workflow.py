@@ -31,38 +31,21 @@ from heagent.memory.skill_packages import WorkflowResource, WorkflowStepResource
 @pytest.fixture()
 def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
-    workflow_root = tmp_path / ".heagent" / "workflows"
+    workflow_root = tmp_path / ".heagent" / "skills" / "he-workflow"
     workflow_root.mkdir(parents=True)
+    (workflow_root / "SKILL.md").write_text(
+        "---\ncanonical_id: he-workflow\nname: he-workflow\ndescription: test package\n---\n\n# test package\n",
+        encoding="utf-8",
+    )
     (workflow_root / "workflow.md").write_text(
         "---\nname: test-development\nentrypoint: goal\non_create: persist_goal_identity\n"
         "step_executor: subagent\n---\n\nworkflow instructions\n\n"
-        "## Questionnaire\n\nname: game-product-decisions\napplies_when: game\n\n"
-        "### Q1 对手类型\nid: opponent_type\noptions: A 本地双人|B 人机|C 两者\n\n"
-        "### Q2 平台\nid: platform\noptions: 桌面（操作系统）|浏览器|终端|其他\n\n"
-        "### Q3 规则\nid: rules\noptions: 标准完整规则|简化 MVP\n\n"
-        "### Q4 首版附加能力\nid: launch_features\noptions: 无|重新开始\n\n"
-        "### Q5 基础单难度是否可接受\nid: ai_single_difficulty\nwhen: opponent_type=B 人机|C 两者\n\n"
-        "### Q6 电脑每步最长思考时间（秒）\n"
-        "id: ai_think_seconds\ntype: number\nminimum: 0\nwhen: opponent_type=B 人机|C 两者\n"
-        "\n"
         "## Step 01: plan\ninput: user intent, existing project context\n"
         "output: requirements brief, story breakdown\ncheckpoint: true\n\nplan the story\n\n"
         "## Step 02: build\ninput: requirements brief\noutput: implementation\ncheckpoint: true\n\nbuild the story\n",
         encoding="utf-8",
     )
     (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
-    (tmp_path / "QUESTIONNAIRE.md").write_text(
-        "# Questionnaire\n\nname: game-product-decisions\napplies_when: game\n"
-        "include_in_step: step-01-plan.md\n\n"
-        "### Q1 对手类型\nid: opponent_type\noptions: A 本地双人|B 人机|C 两者\n\n"
-        "### Q2 平台\nid: platform\noptions: 桌面（操作系统）|浏览器|终端|其他\n\n"
-        "### Q3 规则\nid: rules\noptions: 标准完整规则|简化 MVP\n\n"
-        "### Q4 首版附加能力\nid: launch_features\noptions: 无|重新开始\n\n"
-        "### Q5 基础单难度是否可接受\nid: ai_single_difficulty\nwhen: opponent_type=B 人机|C 两者\n\n"
-        "### Q6 电脑每步最长思考时间（秒）\n"
-        "id: ai_think_seconds\ntype: number\nminimum: 0\nwhen: opponent_type=B 人机|C 两者\n",
-        encoding="utf-8",
-    )
     return tmp_path
 
 
@@ -124,8 +107,18 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     await _goal_runner(SimpleNamespace(), None, "run")
     assert len(successful_step) == 2
 
+
+@pytest.mark.asyncio
+async def test_removed_audit_subcommand_reports_usage_instead_of_creating_a_goal(
+    declarative_cwd: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A removed subcommand must fail loudly, not silently start a goal named after it."""
     await _goal_runner(SimpleNamespace(), None, "audit")
-    assert "audit unavailable without engine" in capsys.readouterr().err
+
+    assert "audit subcommand has been removed" in capsys.readouterr().err
+    assert not (declarative_cwd / "_he-output" / "goals" / "current").exists()
+    assert not (declarative_cwd / "_he-output" / "goals" / "audit").exists()
 
 
 def test_goal_project_id_uses_english_letters_without_numeric_suffix() -> None:
@@ -177,7 +170,7 @@ async def test_declarative_goal_rejects_unknown_workflow_declarations(
     declarative_cwd: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
     workflow.write_text(
         "---\nname: invalid\nentrypoint: unsupported\n---\n\n## Step 01: plan\noutput: plan\n\nPlan the work.\n",
         encoding="utf-8",
@@ -237,7 +230,7 @@ async def test_final_checkpoint_persists_completed_state(
     declarative_cwd: Path,
     successful_step: list[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
     workflow.write_text(
         "---\nname: final-checkpoint\nentrypoint: goal\non_create: persist_goal_identity\n"
         "step_executor: subagent\n---\n\nworkflow instructions\n\n"
@@ -258,7 +251,7 @@ async def test_checkpoint_auto_mode_advances_until_completion(
     declarative_cwd: Path,
     successful_step: list[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\ncheckpoint_mode: auto\n"
@@ -298,7 +291,7 @@ async def test_workflow_checkpoint_mode_overrides_environment(
 ) -> None:
     monkeypatch.setenv("GOAL_CHECKPOINT_MODE", "auto")
     reset_settings()
-    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\ncheckpoint_mode: prompt\n"
@@ -356,7 +349,7 @@ async def test_invalid_checkpoint_mode_fails_workflow_load(
     declarative_cwd: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\ncheckpoint_mode: always\n"
@@ -390,110 +383,9 @@ async def test_empty_subagent_output_fails_without_persisting_empty_artifact(
     assert not (goal_dir / "step-01-plan.md").exists()
 
 
-@pytest.mark.asyncio
-async def test_non_interactive_game_goal_waits_for_questionnaire(
-    declarative_cwd: Path,
-    successful_step: list[str],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    await _goal_runner(SimpleNamespace(), None, "new make a space game")
-
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
-    runner = await _goal_declarative_runner(_goal_declarative_workflow(), goal_dir)  # type: ignore[arg-type]
-    assert runner.state.status is WorkflowStatus.WAITING_USER
-    assert successful_step == []
-    assert "Q1 对手类型" in capsys.readouterr().err
-
-
-@pytest.mark.asyncio
-async def test_resume_game_questionnaire_persists_answers_and_runs_first_step(
-    declarative_cwd: Path,
-    successful_step: list[str],
-) -> None:
-    await _goal_runner(SimpleNamespace(), None, "new make a space game")
-
-    await _goal_runner(
-        SimpleNamespace(),
-        None,
-        "resume Q1 对手类型：A 本地双人\nQ2 平台：浏览器\nQ3 规则：简化 MVP\nQ4 首版附加能力：重新开始",
-    )
-
-    assert len(successful_step) == 1
-    assert "## questionnaire\nQ1 对手类型：A 本地双人" in successful_step[0]
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "require.md").read_text(encoding="utf-8")
-    assert "## Questionnaire: game-product-decisions" in goal_text
-    assert "Q4 首版附加能力：重新开始" in goal_text
-
-
-@pytest.mark.asyncio
-async def test_invalid_game_questionnaire_stays_waiting_for_user(
-    declarative_cwd: Path,
-    successful_step: list[str],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    await _goal_runner(SimpleNamespace(), None, "new make a space game")
-    await _goal_runner(SimpleNamespace(), None, "resume Q1 对手类型：B 人机\nQ2 平台：浏览器")
-
-    assert successful_step == []
-    assert "缺少 Q3" in capsys.readouterr().err
-    await _goal_runner(
-        SimpleNamespace(),
-        None,
-        "resume Q1 对手类型：A 本地双人\nQ2 平台：浏览器\nQ3 规则：简化 MVP\nQ4 首版附加能力：联网对战",
-    )
-    assert successful_step == []
-    assert "Q4 必须是" in capsys.readouterr().err
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    runner = await _goal_declarative_runner(
-        _goal_declarative_workflow(), declarative_cwd / "_he-output" / "goals" / goal_id
-    )  # type: ignore[arg-type]
-    assert runner.state.status is WorkflowStatus.WAITING_USER
-
-
-@pytest.mark.asyncio
-async def test_interactive_ai_game_questionnaire_collects_follow_up_answers(
-    declarative_cwd: Path,
-    successful_step: list[str],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(isatty=lambda: True))
-    answers = iter(["B 人机", "浏览器", "简化 MVP", "重新开始", "可接受", 2.5])
-    monkeypatch.setattr(cli.click, "prompt", lambda *_args, **_kwargs: next(answers))
-    monkeypatch.setattr(cli.click, "confirm", lambda *_args, **_kwargs: False)
-
-    await _goal_runner(SimpleNamespace(), None, "new make a space game")
-
-    assert len(successful_step) == 1
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "require.md").read_text(encoding="utf-8")
-    assert "Q5 基础单难度是否可接受：可接受" in goal_text
-    assert "Q6 电脑每步最长思考时间（秒）：2.5" in goal_text
-
-
-@pytest.mark.asyncio
-async def test_completed_game_questionnaire_is_not_recorded_twice_on_resume(
-    declarative_cwd: Path,
-    successful_step: list[str],
-) -> None:
-    await _goal_runner(SimpleNamespace(), None, "new make a space game")
-    await _goal_runner(
-        SimpleNamespace(),
-        None,
-        "resume Q1 对手类型：A 本地双人\nQ2 平台：浏览器\nQ3 规则：简化 MVP\nQ4 首版附加能力：无",
-    )
-    await _goal_runner(SimpleNamespace(), None, "resume continue with the current scope")
-
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    goal_text = (declarative_cwd / "_he-output" / "goals" / goal_id / "require.md").read_text(encoding="utf-8")
-    assert goal_text.count("## Questionnaire: game-product-decisions") == 1
-    assert len(successful_step) == 2
-
-
 def _real_step_one() -> tuple[str, str]:
     """Return the shipped workflow's step-01 block and its validation declaration."""
-    workflow_path = Path(__file__).resolve().parents[1] / ".heagent" / "workflows" / "workflow.md"
+    workflow_path = Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-workflow" / "workflow.md"
     text = workflow_path.read_text(encoding="utf-8")
     block = text.split("## Step 01:", 1)[1].split("## Step 02:", 1)[0]
     return block, next(line for line in block.splitlines() if line.startswith("validation:"))
@@ -556,59 +448,12 @@ async def test_declarative_auto_keeps_job_when_paused_at_checkpoint(
     assert "paused; use /goal resume first" in capsys.readouterr().err
 
 
-def test_interactive_questionnaire_skips_inactive_gap_without_reask(
-    declarative_cwd: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A valid answer must be accepted even when the next question is inactive and a later one is active."""
-    monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(isatty=lambda: True))
-    (declarative_cwd / "QUESTIONNAIRE.md").write_text(
-        "# Questionnaire\n\nname: gap-test\napplies_when: test\n\n"
-        "### Q1 模式\nid: mode\noptions: A 独行|B 组队\n\n"
-        "### Q2 队友\nid: teammate\nwhen: mode=B 组队\n\n"
-        "### Q3 备注\nid: note\n",
-        encoding="utf-8",
-    )
-    spec = cli_goal._goal_questionnaire_spec(declarative_cwd)
-    assert spec is not None
-    answers = iter(["A 独行", "ok"])
-    calls: list[str] = []
-
-    def fake_prompt(message: object, **kwargs: object) -> str:
-        calls.append(str(message))
-        return next(answers)
-
-    monkeypatch.setattr(cli.click, "prompt", fake_prompt)
-
-    questionnaire = cli_goal._goal_collect_questionnaire(spec)
-
-    assert questionnaire is not None
-    assert questionnaire.answers == {"mode": "A 独行", "note": "ok"}
-    assert len(calls) == 2
-
-
-@pytest.mark.asyncio
-async def test_declarative_new_reports_invalid_questionnaire_configuration(
-    declarative_cwd: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """A malformed questionnaire declaration must fail loudly at /goal new, not escape."""
-    (declarative_cwd / "QUESTIONNAIRE.md").write_text(
-        "# Questionnaire\n\nname: broken\napplies_when: ([unclosed\n\n### Q1 模式\nid: mode\n",
-        encoding="utf-8",
-    )
-
-    await _goal_runner(SimpleNamespace(), None, "new broken questionnaire game")
-
-    assert "declarative questionnaire configuration is invalid" in capsys.readouterr().err
-
-
 @pytest.mark.asyncio
 async def test_open_question_mode_default_injects_proceed_with_default(
     declarative_cwd: Path,
     successful_step: list[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\nopen_question_mode: default\n"
@@ -641,7 +486,7 @@ async def test_invalid_open_question_mode_fails_workflow_load(
     declarative_cwd: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\nopen_question_mode: always\n"
@@ -677,7 +522,7 @@ async def test_workflow_open_question_mode_overrides_environment(
 ) -> None:
     monkeypatch.setenv("GOAL_OPEN_QUESTION_MODE", "default")
     reset_settings()
-    workflow = declarative_cwd / ".heagent" / "workflows" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\nopen_question_mode: block\n"
@@ -771,8 +616,6 @@ async def test_step_iteration_budget_overrides_the_global_default(
             goal_dir,
             {"user intent": "ship it"},
             step,
-            None,
-            None,
         )
     assert seen == [40, None]
 
@@ -822,8 +665,6 @@ async def test_blocked_step_reports_the_way_out(
         runner=StubRunner(),  # type: ignore[arg-type]
         mode="auto",
         description="demo goal",
-        questionnaire=None,
-        questionnaire_spec=None,
         goal_dir=goal_dir,
     )
 
@@ -850,3 +691,89 @@ async def test_typo_subcommand_prints_usage_instead_of_creating_a_goal(
     assert "did you mean `/goal resume`" in err
     assert successful_step == []
     assert not (declarative_cwd / "_he-output" / "goals" / "current").exists()
+
+
+def test_bundled_workflow_declarations_and_templates_stay_aligned(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The shipped package owns the wording; the built-in fallbacks must not drift away from it."""
+    monkeypatch.chdir(Path(__file__).resolve().parents[1])
+
+    workflow = _goal_declarative_workflow()
+
+    assert workflow is not None
+    assert workflow.prompt_template == cli_goal._DEFAULT_PROMPT_TEMPLATE
+    assert workflow.gate_template == cli_goal._DEFAULT_GATE_TEMPLATE
+    assert workflow.max_rounds >= 1
+
+
+def test_declared_run_rounds_and_auto_schedule_override_cli_defaults(declarative_cwd: Path) -> None:
+    """``max_rounds`` / ``auto_schedule`` come from the workflow declaration, not from code."""
+    workflow_path = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
+    workflow_path.write_text(
+        workflow_path.read_text(encoding="utf-8").replace(
+            "step_executor: subagent\n",
+            'step_executor: subagent\nmax_rounds: 3\nauto_schedule: "0 3 * * *"\n',
+        ),
+        encoding="utf-8",
+    )
+
+    workflow = _goal_declarative_workflow()
+
+    assert workflow is not None
+    assert workflow.max_rounds == 3
+    assert workflow.auto_schedule == "0 3 * * *"
+
+
+def test_workflow_package_resolves_by_id_and_serves_its_own_templates(declarative_cwd: Path) -> None:
+    """A package entry makes the workflow addressable by id and lets it ship prompt/gate templates."""
+    root = declarative_cwd / ".heagent" / "skills" / "he-workflow"
+    (root / "SKILL.md").write_text(
+        "---\ncanonical_id: he-workflow\nname: he-workflow\ndescription: test package\n---\n\n# test package\n",
+        encoding="utf-8",
+    )
+    templates = root / "templates"
+    templates.mkdir(exist_ok=True)
+    (templates / "prompt-template.md").write_text("CUSTOM {goal} :: {step}\n{gate}", encoding="utf-8")
+    (templates / "gate-template.md").write_text("CUSTOM-GATE {rules}\n", encoding="utf-8")
+
+    package = cli_goal._goal_workflow_package()
+    assert package is not None
+    workflow = _goal_declarative_workflow()
+
+    assert package.skill_id == "he-workflow"
+    assert workflow is not None
+
+    prompt = cli_goal._goal_declarative_prompt(
+        workflow,
+        "step-01-plan.md",
+        "demo goal",
+        declarative_cwd / "goals" / "demo",
+        {"user intent": "ship it"},
+        validation_rules="section: Gate Title",
+        declared_inputs="user intent",
+    )
+
+    assert prompt.startswith("CUSTOM demo goal :: step-01-plan.md")
+    assert "CUSTOM-GATE" in prompt
+    assert "- Declared validation rules (verbatim): section: Gate Title" in prompt
+
+
+def test_missing_package_templates_fall_back_to_built_ins(declarative_cwd: Path) -> None:
+    """A package without templates must still run: the CLI falls back to its built-in wording."""
+    workflow = _goal_declarative_workflow()
+
+    assert workflow is not None
+    assert workflow.prompt_template == ""
+    assert workflow.gate_template == ""
+
+    prompt = cli_goal._goal_declarative_prompt(
+        workflow,
+        "step-01-plan.md",
+        "demo goal",
+        declarative_cwd / "goals" / "demo",
+        {"user intent": "x"},
+        validation_rules="section: Gate Title",
+        declared_inputs="user intent",
+    )
+
+    assert "# Declarative workflow step" in prompt
+    assert "Gate requirements (hard, enforced on your final response):" in prompt

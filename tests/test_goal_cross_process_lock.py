@@ -29,8 +29,12 @@ _WORKFLOW_MD = (
 @pytest.fixture()
 def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
-    workflow_root = tmp_path / ".heagent" / "workflows"
+    workflow_root = tmp_path / ".heagent" / "skills" / "he-workflow"
     workflow_root.mkdir(parents=True)
+    (workflow_root / "SKILL.md").write_text(
+        "---\ncanonical_id: he-workflow\nname: he-workflow\ndescription: test package\n---\n\n# test package\n",
+        encoding="utf-8",
+    )
     (workflow_root / "workflow.md").write_text(_WORKFLOW_MD, encoding="utf-8")
     (tmp_path / "_he-output" / "goals").mkdir(parents=True)
     # 缩短锁等待，测试不必真等 5s 超时。

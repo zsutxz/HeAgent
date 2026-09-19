@@ -124,3 +124,26 @@ def parse_scalar(value: str) -> Any:
     if value.lower() in {"true", "false"}:
         return value.lower() == "true"
     return value
+
+
+_H2_SECTION_RE = re.compile(r"(?m)^##\s+([^\n#]+?)\s*$")
+
+
+def extract_h2_section(text: str, name: str, *, closed_at_eof: bool = False) -> str:
+    """Return the body of the ``## <name>`` section (case-insensitive); ``""`` when absent.
+
+    段体从标题行结束处延伸到下一个 ``##`` 标题（或文本结束）并 strip；默认先剥去 frontmatter
+    （``closed_at_eof`` 选择分隔符变体，与 :func:`split_frontmatter` 一致）。本函数是
+    「Markdown H2 段提取」的单一实现：workflow 的模板段与 goal 文档段共用它。
+    """
+    split = split_frontmatter(text, closed_at_eof=closed_at_eof)
+    if split is not None:
+        text = split[2]
+    matches = list(_H2_SECTION_RE.finditer(text))
+    wanted = name.casefold()
+    for index, match in enumerate(matches):
+        if match.group(1).casefold() != wanted:
+            continue
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        return text[match.end() : end].strip()
+    return ""

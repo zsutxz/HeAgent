@@ -11,7 +11,12 @@ from typing import Any, Iterable, Literal, cast  # noqa: UP035
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from heagent.frontmatter import FrontmatterSyntaxError, parse_inline_pairs, parse_strict_pairs, split_frontmatter
+from heagent.frontmatter import (
+    FrontmatterSyntaxError,
+    parse_inline_pairs,
+    parse_strict_pairs,
+    split_frontmatter,
+)
 from heagent.tools.path_safety import WorkspacePathError, resolve_under_root
 
 
@@ -73,6 +78,16 @@ class WorkflowResource(BaseModel):
     checkpoint_mode: CheckpointMode = ""
     # Empty means the workflow defers to GOAL_OPEN_QUESTION_MODE/settings.
     open_question_mode: OpenQuestionMode = ""
+    # /goal run 单次连续推进的步数上限（声明优先；缺失用默认值）。
+    max_rounds: int = 10
+    # /goal auto 的默认 cron；空 = 用 CLI 内置默认。
+    auto_schedule: str = ""
+    # open_question_mode 各自对应的一段策略文案；空 = 用 CLI 内置默认。
+    open_question_default: str = ""
+    open_question_block: str = ""
+    # 包内 ``prompt-template.md`` / ``gate-template.md`` 的正文；空 = 用 CLI 内置默认。
+    prompt_template: str = ""
+    gate_template: str = ""
     frontmatter: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -310,10 +325,28 @@ class SkillPackage(BaseModel):
             step_executor=self._value_text(values, "step_executor", "executor") or "subagent",
             checkpoint_mode=cast("CheckpointMode", checkpoint_mode),
             open_question_mode=cast("OpenQuestionMode", open_question_mode),
+            max_rounds=self._bounded_int(values, resource, key="max_rounds", default=10, maximum=100),
+            auto_schedule=self._value_text(values, "auto_schedule", "auto_cron"),
+            open_question_default=self._value_text(values, "open_question_default", "question_policy_default"),
+            open_question_block=self._value_text(values, "open_question_block", "question_policy_block"),
+            prompt_template=self._read_optional_resource("templates/prompt-template.md"),
+            gate_template=self._read_optional_resource("templates/gate-template.md"),
             frontmatter=values,
         )
 
     load_workflow = read_workflow
+
+    def _read_optional_resource(self, resource: str) -> str:
+        """Read one package resource, returning ``""`` when it is absent or unreadable.
+
+        Optional resources (step prompt / gate templates) must not make an otherwise
+        valid workflow fail to load: the workflow declaration stays authoritative and
+        the CLI keeps a built-in default for each.
+        """
+        try:
+            return self.read_resource(resource).strip()
+        except SkillPackageResourceError:
+            return ""
 
     def _discover_workflow_steps(self) -> list[str]:
         candidates = sorted(

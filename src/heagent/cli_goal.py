@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import logging
 import os
 import re
 import sys
@@ -43,18 +44,14 @@ from heagent.goal.document import (
     _goal_step_artifact_path,
     _goal_user_responses,
 )
-from heagent.goal.questionnaire import (
-    GoalQuestionnaire,
-    GoalQuestionnaireSpec,
-    _goal_collect_questionnaire,
-    _goal_questionnaire,
-    _goal_questionnaire_applies,
-    _goal_questionnaire_from_text,
-    _goal_questionnaire_spec,
-    _goal_record_questionnaire,
-    _goal_show_questionnaire_prompt,
+from heagent.memory.skill_packages import (
+    SkillCatalog,
+    SkillCatalogError,
+    SkillPackage,
+    SkillResolver,
+    SkillWorkflowError,
+    WorkflowResource,
 )
-from heagent.memory.skill_packages import SkillPackage, SkillWorkflowError, WorkflowResource
 from heagent.persist import atomic_write_text, file_lock
 
 if TYPE_CHECKING:
@@ -65,6 +62,8 @@ if TYPE_CHECKING:
     from heagent.engine import EngineContainer
     from heagent.providers.base import BaseProvider
 
+
+logger = logging.getLogger(__name__)
 
 _GOAL_AUTO_DEFAULT_CRON = "*/15 * * * *"
 _GOAL_AUTO_PREFIX = "goal-advance "
@@ -79,7 +78,32 @@ _GOAL_LOCK_TIMEOUT = 5.0  # 并发方快速失败；cron 下一 tick 自动重�
 
 # 工作流执行状态词汇与推进轮数上限：随编排分支（advance/execute 状态机）变，
 # 不随文档约定变，故留本模块（goal/document.py 只做文档与命名，见其 docstring）。
-_GOAL_RUN_MAX_ROUNDS = 10
+# 工作流包 id：由 skill catalog 在技能库里按 id/别名解析（默认包 .heagent/skills/he-workflow/）。
+_GOAL_WORKFLOW_SKILL = "he-workflow"
+# /goal 的技能库根：工作流包与每个步骤的角色包都从这里按 id 解析（单一来源）。
+_GOAL_SKILLS_ROOT = Path(".heagent/skills")
+# 以下四段文案都是**兜底**：workflow 包声明了对应内容时以包为准（工作流逻辑尽量不进代码）。
+_DEFAULT_PROMPT_TEMPLATE = (
+    "{workflow_instructions}\n\n# Declarative workflow step\n"
+    "Goal: {goal}\n"
+    "Goal directory: {goal_dir}\n"
+    "Project output root: {output_root}\n"
+    "Step: {step}\n"
+    "{story_context}"
+    "Role instructions:\n{role}\n"
+    "Open question policy:\n{open_question_policy}\n"
+    "Declared inputs:\n{inputs}\n"
+    "{gate}"
+    "Execute only this declared step. Write every durable non-code project artifact under the project output root; "
+    "source code remains in its established repository location. Return the complete artifact body as your final "
+    "response; do not return a summary, link, or claim that you wrote it elsewhere."
+)
+_DEFAULT_GATE_TEMPLATE = "Gate requirements (hard, enforced on your final response):\n{sections}{acceptance}{rules}"
+_DEFAULT_OPEN_QUESTION_DEFAULT = (
+    "When a competing interpretation requires a stakeholder choice, proceed with the recommended "
+    "default and record the assumption explicitly; do not stop with waiting_user."
+)
+_DEFAULT_OPEN_QUESTION_BLOCK = "Stop with waiting_user when competing interpretations require stakeholder choice."
 _GOAL_ADVANCED = "advanced"
 _GOAL_DONE = "done"
 _GOAL_FAILED = "failed"
@@ -148,20 +172,39 @@ def _goal_checkpoint_prompt() -> bool:
         return False
 
 
-def _goal_declarative_workflow() -> WorkflowResource | None:
-    """Load the explicitly configured declarative goal workflow, if enabled.
+def _resolve_skill_package(skill_id: str) -> SkillPackage | None:
+    """Resolve one package from the skill library by canonical id or alias.
 
-    The configuration file is the feature flag. A malformed configured workflow is
-    an error rather than a reason to silently run the incompatible legacy flow.
+    The catalog owns the id/alias rules (``he-*`` canonical, ``bmad-*`` alias, plus each
+    package's own ``aliases`` metadata), so the workflow package and the per-step role
+    packages are addressed by id instead of by hand-built paths or a private alias table.
+    ``None`` means "not installed here"; callers decide whether that is a missing
+    configuration (workflow) or a hard failure (a role a step declared).
     """
-    if not _GOAL_DECLARATIVE_WORKFLOW_PATH.is_file():
+    try:
+        return SkillResolver(SkillCatalog([str(_GOAL_SKILLS_ROOT)]).scan()).resolve(skill_id)
+    except (SkillCatalogError, ValueError, OSError) as exc:
+        logger.debug("Skill package %r is unavailable under %s (%s)", skill_id, _GOAL_SKILLS_ROOT, exc)
+        return None
+
+
+def _goal_workflow_package() -> SkillPackage | None:
+    """Resolve the configured workflow package; ``None`` when it is not installed."""
+    return _resolve_skill_package(get_settings().goal_workflow_skill or _GOAL_WORKFLOW_SKILL)
+
+
+def _goal_declarative_workflow() -> WorkflowResource | None:
+    """Load the configured declarative goal workflow, if its package is installed.
+
+    A missing package means the workflow is not configured here (the caller says so);
+    a package that exists but declares an unusable workflow is an explicit error rather
+    than a reason to silently run the incompatible legacy flow.
+    """
+    package = _goal_workflow_package()
+    if package is None:
         return None
     try:
-        package = SkillPackage(
-            skill_id="goal-declarative-workflow",
-            root=_GOAL_DECLARATIVE_WORKFLOW_PATH.parent,
-        )
-        workflow = package.read_workflow(_GOAL_DECLARATIVE_WORKFLOW_PATH.name)
+        workflow = package.read_workflow("workflow.md")
         _validate_goal_workflow(workflow)
         return workflow
     except (SkillWorkflowError, ValueError, OSError) as exc:
@@ -228,52 +271,42 @@ async def _goal_declarative_runner(
     )
 
 
-async def _goal_wait_for_questionnaire(workflow: WorkflowResource, goal_dir: Path, error: str = "") -> None:
-    """Persist a recoverable questionnaire gate before any SubAgent can run."""
-    try:
-        runner = await _goal_declarative_runner(workflow, goal_dir)
-        runner.state = runner.state.model_copy(
-            update={"status": WorkflowStatus.WAITING_USER, "reason": "workflow questionnaire is required"}
-        )
-        await runner.persist_state()
-    except (WorkflowCheckpointError, ValueError) as exc:
-        click.echo(f"[goal] failed to persist questionnaire gate: {exc}", err=True)
-        return
-    try:
-        spec = _goal_questionnaire_spec(goal_dir)
-    except ValueError as exc:
-        click.echo(f"[goal] declarative questionnaire configuration is invalid: {exc}", err=True)
-        return
-    if spec is not None:
-        _goal_show_questionnaire_prompt(spec, error)
-
-
-def _goal_gate_requirements(validation_rules: str) -> str:
+def _goal_gate_requirements(workflow: WorkflowResource, validation_rules: str) -> str:
     """Render the step's post-hoc gate contract so the executor sees it beforehand.
 
     ``validation: section: <title>`` is enforced by ``WorkflowRunner`` only *after* the
     step returns.  Without this block a long step can finish all its work and still be
-    blocked on a heading it was never told to emit.
+    blocked on a heading it was never told to emit.  The wording lives in the workflow
+    package (``gate-template.md``), so it changes without touching code.
     """
     rules = (validation_rules or "").strip()
     sections = required_sections(rules)
     needs_given_when_then = "given" in rules.casefold()
-    lines = ["Gate requirements (hard, enforced on your final response):"] if sections or needs_given_when_then else []
+    if not sections and not needs_given_when_then:
+        return ""
+    headings = ""
     if sections:
-        lines.append(
+        headings = (
             "- Your final response must contain each of these Markdown headings exactly as written, each on its own "
-            "line with nothing else on that line:"
+            "line with nothing else on that line:\n"
+            + "\n".join(f"  - ## {section}" for section in sections)
+            + "\n- A missing, renamed, or suffixed heading blocks the whole step: the workflow will not advance and "
+            "this step's work has to be redone.\n"
         )
-        lines.extend(f"  - ## {section}" for section in sections)
-        lines.append(
-            "- A missing, renamed, or suffixed heading blocks the whole step: the workflow will not advance and "
-            "this step's work has to be redone."
-        )
-    if needs_given_when_then:
-        lines.append("- Acceptance criteria must be written as Given / When / Then.")
-    if lines:
-        lines.append(f"- Declared validation rules (verbatim): {rules}")
-    return "\n".join(lines)
+    acceptance = "- Acceptance criteria must be written as Given / When / Then.\n" if needs_given_when_then else ""
+    template = workflow.gate_template or _DEFAULT_GATE_TEMPLATE
+    return (
+        template.replace("{sections}", headings)
+        .replace("{acceptance}", acceptance)
+        .replace("{rules}", f"- Declared validation rules (verbatim): {rules}")
+    )
+
+
+def _goal_open_question_policy(workflow: WorkflowResource) -> str:
+    """Resolve the open-question policy wording: workflow declaration, then built-in default."""
+    if _goal_open_question_mode(workflow) == "default":
+        return workflow.open_question_default or _DEFAULT_OPEN_QUESTION_DEFAULT
+    return workflow.open_question_block or _DEFAULT_OPEN_QUESTION_BLOCK
 
 
 def _dedupe_inputs(inputs: Mapping[str, Any], declared: str = "") -> list[tuple[str, Any]]:
@@ -311,15 +344,10 @@ def _goal_declarative_prompt(
     declared_inputs: str = "",
 ) -> str:
     role = _goal_role_instructions(workflow, step_name)
-    gate = _goal_gate_requirements(validation_rules)
+    gate = _goal_gate_requirements(workflow, validation_rules)
     gate_block = f"{gate}\n\n" if gate else ""
     supplied_inputs = "\n\n".join(f"## {name}\n{value}" for name, value in _dedupe_inputs(inputs, declared_inputs))
-    open_question_policy = (
-        "When a competing interpretation requires a stakeholder choice, proceed with the recommended "
-        "default and record the assumption explicitly; do not stop with waiting_user."
-        if _goal_open_question_mode(workflow) == "default"
-        else "Stop with waiting_user when competing interpretations require stakeholder choice."
-    )
+    open_question_policy = _goal_open_question_policy(workflow)
     story_context = ""
     if story is not None:
         epic_ref = str(getattr(story, "epic", "") or "")
@@ -329,20 +357,18 @@ def _goal_declarative_prompt(
             + (f"\nParent epic: {epic_ref}" if epic_ref else "")
             + "\nWork only on this one story; leave all other stories for subsequent increments.\n"
         )
+    template = workflow.prompt_template or _DEFAULT_PROMPT_TEMPLATE
     return (
-        f"{workflow.instructions}\n\n# Declarative workflow step\n"
-        f"Goal: {description}\n"
-        f"Goal directory: {goal_dir.resolve()}\n"
-        f"Project output root: {goal_dir.parent.parent.resolve()}\n"
-        f"Step: {step_name}\n"
-        f"{story_context}"
-        f"Role instructions:\n{role}\n"
-        f"Open question policy:\n{open_question_policy}\n"
-        f"Declared inputs:\n{supplied_inputs}\n"
-        f"{gate_block}"
-        "Execute only this declared step. Write every durable non-code project artifact under the project output root; "
-        "source code remains in its established repository location. Return the complete artifact body as your final "
-        "response; do not return a summary, link, or claim that you wrote it elsewhere."
+        template.replace("{workflow_instructions}", workflow.instructions)
+        .replace("{goal}", description)
+        .replace("{goal_dir}", str(goal_dir.resolve()))
+        .replace("{output_root}", str(goal_dir.parent.parent.resolve()))
+        .replace("{step}", step_name)
+        .replace("{story_context}", story_context)
+        .replace("{role}", role)
+        .replace("{open_question_policy}", open_question_policy)
+        .replace("{inputs}", supplied_inputs)
+        .replace("{gate}", gate_block)
     )
 
 
@@ -367,20 +393,10 @@ def _goal_role_instructions(workflow: WorkflowResource, step_name: str) -> str:
     role_name = next((step.role for step in workflow.steps if step.name == step_name), "")
     if not role_name:
         return "No specialized BMad role assigned."
-    # Legacy workflow steps may still declare the pre-rename he-agent-* role
-    # ids; translate them to the canonical bmad-* package names.
-    aliases = {
-        "he-agent-analyst": "bmad-agent-analyst",
-        "he-agent-pm": "bmad-agent-pm",
-        "he-agent-ux": "bmad-agent-ux-designer",
-        "he-agent-architect": "bmad-agent-architect",
-        "he-agent-dev": "bmad-agent-dev",
-    }
-    package_id = aliases.get(role_name, role_name)
-    try:
-        return SkillPackage(skill_id=package_id, root=Path(".heagent/skills") / package_id).read_entry().text
-    except (SkillWorkflowError, ValueError, OSError) as exc:
-        raise ValueError(f"workflow role '{role_name}' is unavailable: {exc}") from exc
+    package = _resolve_skill_package(role_name)
+    if package is None:
+        raise ValueError(f"workflow role '{role_name}' is unavailable: no skill package named '{role_name}'")
+    return package.read_entry().text
 
 
 @dataclass
@@ -390,8 +406,6 @@ class _GoalAdvanceContext:
     runner: WorkflowRunner
     mode: str
     description: str
-    questionnaire: GoalQuestionnaire | None
-    questionnaire_spec: GoalQuestionnaireSpec | None
     goal_dir: Path
 
 
@@ -409,24 +423,6 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
     if not description:
         click.echo("[goal] declarative requirement document has no title", err=True)
         return _GOAL_FAILED, None
-    try:
-        questionnaire_spec = _goal_questionnaire_spec(goal_dir)
-    except (ValueError, OSError) as exc:
-        click.echo(f"[goal] declarative questionnaire configuration is invalid: {exc}", err=True)
-        return _GOAL_FAILED, None
-    try:
-        questionnaire = _goal_questionnaire(goal_dir, questionnaire_spec) if questionnaire_spec is not None else None
-    except (OSError, ValueError) as exc:
-        click.echo(f"[goal] declarative questionnaire is invalid: {exc}", err=True)
-        return _GOAL_FAILED, None
-    try:
-        applies = _goal_questionnaire_applies(questionnaire_spec, description)
-    except ValueError as exc:
-        click.echo(f"[goal] declarative questionnaire configuration is invalid: {exc}", err=True)
-        return _GOAL_FAILED, None
-    if applies and questionnaire is None:
-        await _goal_wait_for_questionnaire(workflow, goal_dir)
-        return _GOAL_WAITING, None
     try:
         runner = await _goal_declarative_runner(workflow, goal_dir)
     except WorkflowCheckpointError as exc:
@@ -452,8 +448,6 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
         runner=runner,
         mode=mode,
         description=description,
-        questionnaire=questionnaire,
-        questionnaire_spec=questionnaire_spec,
         goal_dir=goal_dir,
     )
 
@@ -466,8 +460,6 @@ async def _goal_execute_step(
     goal_dir: Path,
     inputs: Mapping[str, Any],
     step: Any,
-    questionnaire: GoalQuestionnaire | None,
-    questionnaire_spec: GoalQuestionnaireSpec | None,
     story: Any = None,
 ) -> WorkflowStepResult:
     """Execute one declared step through a fresh SubAgent session."""
@@ -507,17 +499,6 @@ async def _goal_execute_step(
                 status=WorkflowStatus.FAILED,
                 reason=f"step '{step.name}' produced empty output",
             )
-        if (
-            questionnaire is not None
-            and questionnaire_spec is not None
-            and questionnaire_spec.include_in_step == step.name
-        ):
-            output_text = (
-                "## Confirmed Questionnaire\n\n"
-                + questionnaire.render(questionnaire_spec)
-                + "\n\n---\n\n"
-                + output_text
-            )
         atomic_write_text(_goal_step_artifact_path(goal_dir, step, story), output_text)
     except OSError as exc:
         return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist step output: {exc}")
@@ -536,8 +517,6 @@ async def _goal_declarative_advance(
     runner = context.runner
     mode = context.mode
     description = context.description
-    questionnaire = context.questionnaire
-    questionnaire_spec = context.questionnaire_spec
     goal_dir = context.goal_dir
 
     async def execute_step(step: Any, story: Any = None) -> WorkflowStepResult:
@@ -549,8 +528,6 @@ async def _goal_declarative_advance(
             goal_dir,
             inputs,
             step,
-            questionnaire,
-            questionnaire_spec,
             story,
         )
 
@@ -569,8 +546,6 @@ async def _goal_declarative_advance(
             or "No project context file was found; inspect the current workspace before making assumptions.",
             **runner.state.outputs,
         }
-        if questionnaire is not None and questionnaire_spec is not None:
-            inputs["questionnaire"] = questionnaire.render(questionnaire_spec)
         active_step = runner.workflow.steps[runner.state.active_step]
         stories = None
         if active_step.story_loop.strip():
@@ -664,22 +639,6 @@ async def _goal_declarative_new(
         return
     if previous is not None and cron_store is not None:
         _goal_auto_remove(cron_store, previous.name)
-    try:
-        questionnaire_spec = _goal_questionnaire_spec(goal_dir)
-        applies = _goal_questionnaire_applies(questionnaire_spec, description)
-    except (ValueError, OSError) as exc:
-        click.echo(f"[goal] declarative questionnaire configuration is invalid: {exc}", err=True)
-        return
-    if applies and questionnaire_spec is not None:
-        questionnaire = _goal_collect_questionnaire(questionnaire_spec)
-        if questionnaire is None:
-            await _goal_wait_for_questionnaire(workflow, goal_dir)
-            return
-        try:
-            _goal_record_questionnaire(goal_dir, questionnaire, questionnaire_spec)
-        except (ValueError, OSError) as exc:
-            click.echo(f"[goal] failed to persist questionnaire: {exc}", err=True)
-            return
     await _goal_declarative_advance(provider, engine, workflow)
 
 
@@ -718,20 +677,7 @@ async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: 
             if runner.state.status not in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
                 click.echo(f"[goal] workflow status={runner.state.status.value}; resume is not required", err=True)
                 return False
-            description = _goal_description(goal_dir)
-            questionnaire_spec = _goal_questionnaire_spec(goal_dir)
-            questionnaire = (
-                _goal_questionnaire(goal_dir, questionnaire_spec) if questionnaire_spec is not None else None
-            )
-            if _goal_questionnaire_applies(questionnaire_spec, description) and questionnaire is None:
-                if questionnaire_spec is None:
-                    return False
-                parsed, error = _goal_questionnaire_from_text(response, questionnaire_spec)
-                if parsed is None:
-                    _goal_show_questionnaire_prompt(questionnaire_spec, error)
-                    return False
-                _goal_record_questionnaire(goal_dir, parsed, questionnaire_spec)
-            elif response:
+            if response:
                 _goal_record_user_response(goal_dir, response)
             runner.resume()
             action = "resumed"
@@ -757,7 +703,7 @@ async def _goal_declarative_run(
     workflow: WorkflowResource,
 ) -> None:
     try:
-        for _ in range(_GOAL_RUN_MAX_ROUNDS):
+        for _ in range(workflow.max_rounds):
             async with _goal_mutex():
                 outcome = await _goal_declarative_advance(provider, engine, workflow)
             if outcome != _GOAL_ADVANCED:
@@ -781,7 +727,7 @@ async def _goal_declarative_auto(
     if cron_store is None or goal_dir is None:
         click.echo("[goal] cron is not enabled or there is no active declarative goal", err=True)
         return
-    schedule = args or _GOAL_AUTO_DEFAULT_CRON
+    schedule = args or workflow.auto_schedule or _GOAL_AUTO_DEFAULT_CRON
     try:
         fields = schedule.split()
         if len(fields) != 5 or any(not field or any(not part.strip() for part in field.split(",")) for field in fields):
@@ -796,7 +742,7 @@ async def _goal_declarative_auto(
     click.echo(f"[goal] declarative auto registered: {job.id} workflow={workflow.name}", err=True)
 
 
-_GOAL_SUBCOMMAND_NAMES = ("new", "next", "run", "status", "pause", "resume", "audit", "auto", "reset")
+_GOAL_SUBCOMMAND_NAMES = ("new", "next", "run", "status", "pause", "resume", "auto", "reset")
 
 
 def _goal_typo_subcommand(args: str) -> str | None:
@@ -833,7 +779,7 @@ async def _goal_declarative_dispatch(
         else:
             async with _goal_mutex():
                 await _goal_declarative_new(provider, engine, workflow, rest, cron_store=cron_store)
-    elif head in ("next", "status", "reset", "run", "pause", "audit") and rest:
+    elif head in ("next", "status", "reset", "run", "pause") and rest:
         _goal_usage()
     elif head == "next":
         async with _goal_mutex():
@@ -849,7 +795,8 @@ async def _goal_declarative_dispatch(
             if await _goal_declarative_pause_resume(workflow, resume=True, response=rest):
                 await _goal_declarative_advance(provider, engine, workflow)
     elif head == "audit":
-        await _goal_audit(engine)
+        click.echo("[goal] audit subcommand has been removed; supported subcommands are listed below.", err=True)
+        _goal_usage()
     elif head == "reset":
         async with _goal_mutex():
             _goal_reset()
@@ -872,7 +819,7 @@ def _goal_usage() -> None:
         "  /goal next            推进下一条 story（每步全新会话）\n"
         "  /goal status          查看进度\n"
         "  /goal reset           清除 current 指针（goal 目录保留）\n"
-        f"  /goal run             连续推进 goal（最多 {_GOAL_RUN_MAX_ROUNDS} 步；Ctrl+C 可中断）\n"
+        "  /goal run             连续推进 goal（步数上限由 workflow 的 max_rounds 声明；Ctrl+C 可中断）\n"
         "  /goal resume [回复]   记录用户回答并继续 waiting_user 步骤\n"
         "  /goal auto [cron]     注册 cron 自动推进（默认 */15 * * * *；off 注销）",
         err=True,
@@ -931,35 +878,6 @@ async def _goal_session(
     except (KeyboardInterrupt, asyncio.CancelledError):
         click.echo("[goal] 已中断：状态在盘（require.md），/goal next 可续跑。", err=True)
         return None
-
-
-async def _goal_audit(engine: EngineContainer | None) -> None:
-    goal_md = _goal_active_md()
-    if goal_md is None:
-        click.echo("[goal] no active goal available for audit", err=True)
-        return
-    goal_id = goal_md.parent.name
-    if engine is None:
-        click.echo("[goal] audit unavailable without engine", err=True)
-        return
-    records = [record for record in await engine.ledger.list_records() if record.metadata.get("goal_id") == goal_id]
-    events = [
-        event
-        for event in engine.events.recent_events
-        if event.details.get("goal_id") == goal_id or event.run_id == goal_id
-    ]
-    click.echo(f"[goal] audit: goal={goal_id} records={len(records)} events={len(events)}", err=True)
-    for record in records:
-        click.echo(
-            f"  record={record.key} status={record.status.value} run={record.run_id or '-'} "
-            f"started={record.started_at} finished={record.finished_at or '-'} error={record.error or '-'}",
-            err=True,
-        )
-    for event in events:
-        click.echo(
-            f"  event={event.event_type} run={event.run_id or '-'} at={event.timestamp} details={event.details}",
-            err=True,
-        )
 
 
 def _goal_reset() -> None:
@@ -1049,7 +967,8 @@ async def _goal_runner(  # noqa: C901
         return
     click.echo(
         "[goal] workflow.md is required; the legacy story-board flow has been removed. "
-        f"Create {_GOAL_DECLARATIVE_WORKFLOW_PATH} to configure goal execution.",
+        f"Create {_GOAL_DECLARATIVE_WORKFLOW_PATH} (with a SKILL.md declaring its canonical_id) "
+        "to configure goal execution.",
         err=True,
     )
     return

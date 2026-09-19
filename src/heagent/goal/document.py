@@ -22,19 +22,17 @@ import re
 from pathlib import Path
 from typing import Any
 
-from heagent.frontmatter import parse_strict_pairs, split_frontmatter
+from heagent.frontmatter import extract_h2_section, parse_strict_pairs, split_frontmatter
 from heagent.persist import atomic_update_text
 
 # goal 状态目录与声明式 workflow 路径（相对路径，使用时锚定 Path.cwd()）。
 # Durable user-facing Goal and workflow artifacts belong under the project output
 # root. ``.heagent`` remains reserved for runtime configuration and skill code.
 _GOALS_DIR = Path("_he-output/goals")
-_GOAL_DECLARATIVE_WORKFLOW_PATH = Path(".heagent/workflows/workflow.md")
+_GOAL_DECLARATIVE_WORKFLOW_PATH = Path(".heagent/skills/he-workflow/workflow.md")
 # 需求文档名：新 goal 一律落 require.md；GOAL.md 只作存量 goal 的读取回落（见 _goal_document_path）。
 _GOAL_DOCUMENT_NAME = "require.md"
 _LEGACY_GOAL_DOCUMENT_NAME = "GOAL.md"
-# 段标题匹配：``## <标题>`` 独占一行（与 artifacts._sections 同形，但不引入 artifact 契约）。
-_DOCUMENT_SECTION_RE = re.compile(r"(?m)^##\s+(.+?)\s*$")
 # step 01 初步分析前「总结的需求」段的显式占位：它是待办标记，不是需求内容。
 _DERIVED_REQUIREMENTS_PLACEHOLDER = "待 step 01（market-research）完成初步分析后补写。"
 _GOAL_HEX = frozenset("0123456789abcdef")  # 兼容既有 8 位十六进制 goal_id
@@ -90,16 +88,7 @@ def _goal_document_path(goal_dir: Path) -> Path:
 
 def _document_section(text: str, name: str) -> str:
     """Return the body of the ``## <name>`` section of a goal document (case-insensitive)."""
-    split = split_frontmatter(text)
-    body = split[2] if split is not None else text
-    matches = list(_DOCUMENT_SECTION_RE.finditer(body))
-    wanted = name.casefold()
-    for index, match in enumerate(matches):
-        if match.group(1).casefold() != wanted:
-            continue
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
-        return body[match.end() : end].strip()
-    return ""
+    return extract_h2_section(text, name)
 
 
 def _slug(text: str) -> str:

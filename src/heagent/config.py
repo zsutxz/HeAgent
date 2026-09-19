@@ -135,6 +135,10 @@ class Settings(BaseSettings):
     # default=proceed with recommended defaults and record assumptions.
     # Workflow frontmatter may override this process-wide default.
     goal_open_question_mode: Literal["block", "default"] = "block"
+    # /goal 工作流包 id：由 skill catalog 在技能库里按 id/别名解析（默认包
+    # .heagent/skills/he-workflow/，其 SKILL.md 声明 canonical_id）。
+    # 换工作流只需换 id 或替换包内容，不必改代码。
+    goal_workflow_skill: str = "he-workflow"
     # 是否把「▶ 启动 / ✔ 完成 + 状态行」进度公告写到 stderr。嵌套子代理与交互输入行
     # 共用终端，公告可能被误提交为提示词；ANNOUNCE_PROGRESS=false 可静音。
     announce_progress: bool = Field(default=True)

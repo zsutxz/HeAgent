@@ -5,6 +5,10 @@ on_create: persist_goal_identity
 step_executor: subagent
 checkpoint_mode: auto
 open_question_mode: default
+max_rounds: 10
+auto_schedule: "*/15 * * * *"
+open_question_default: "有竞争性解释需要干系人拍板时，按推荐默认值推进并显式记录该假设；不要以 waiting_user 收尾。"
+open_question_block: "有竞争性解释需要干系人拍板时，以 waiting_user 停下来等用户裁决。"
 ---
 
 # development workflow（开发工作流）

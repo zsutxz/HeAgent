@@ -694,7 +694,7 @@ def _build_slash_registry(
     async def _goal(args: str) -> None:
         await _goal_runner(provider, loop.engine, args, cron_store=cron_store)
 
-    registry.register("goal", "目标驱动开发（new/next/run/status/pause/resume/auto/audit/reset）", _goal)
+    registry.register("goal", "目标驱动开发（new/next/run/status/pause/resume/auto/reset）", _goal)
 
     for command in load_custom_commands():
         prompt = command.prompt

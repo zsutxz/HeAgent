@@ -22,7 +22,7 @@
 | --- | --- |
 | LLM、工具和 Agent 如何串起来 | [`frame.md`](frame.md) 的“数据流”和“核心模块” |
 | 策略、审批、ledger、沙箱 | [`frame.md`](frame.md) 的 `engine/` 与“已知缺口” |
-| Epic/Story 如何由 Markdown 驱动 | [`workflow_intro.md`](workflow_intro.md) 与 [`.heagent/workflows/workflow.md`](../.heagent/workflows/workflow.md) |
+| Epic/Story 如何由 Markdown 驱动 | [`workflow_intro.md`](workflow_intro.md) 与 [`.heagent/skills/he-workflow/workflow.md`](../.heagent/skills/he-workflow/workflow.md) |
 | GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
 | 历史为什么这样演进 | [`iteration.md`](iteration.md) 与 [`_bmad-output/`](../_bmad-output/README.md) |
 
@@ -43,7 +43,7 @@
 
 1. 运行行为：`src/`。
 2. 配置默认值和 CLI 入口：`src/heagent/config.py`、`src/heagent/cli.py`、`pyproject.toml`。
-3. 当前 `/goal` 工作流：`.heagent/workflows/workflow.md`。
+3. 当前 `/goal` 工作流：`.heagent/skills/he-workflow/workflow.md`。
 4. 设计和历史说明：本目录与 `_bmad-output/`，不得覆盖前三项。
 
 新增或变更功能时，先更新对应的当前事实文档；历史规划只追加证据，不回写成“当前实现”。

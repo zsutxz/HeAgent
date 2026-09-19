@@ -299,7 +299,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 Epic 43-44 的实现已完成，Epic 45.3 补齐了无网络两-story 冒烟、checkpoint/ledger/EventBus 审计证据、损坏状态显式失败测试，以及 `scripts/quality_gate.py` 统一质量门。Epic 46.1 完成 TOCTOU assessment，Epic 46.2 为资源读取增加 descriptor + `O_NOFOLLOW` 最终组件加固；中间目录竞态、可信导入 snapshot 与 OS sandbox 仍保留为后续工作。
 
 - 架构权威：[`frame.md`](frame.md)（含 engine 模块 4.16、已知缺口第五章）
-- 当前工作流：[`workflow_intro.md`](workflow_intro.md)（`.heagent/workflows/workflow.md` 为可执行契约）
+- 当前工作流：[`workflow_intro.md`](workflow_intro.md)（`.heagent/skills/he-workflow/workflow.md` 为可执行契约）
 - 产品愿景：[`design.md`](design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
 - 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`（原 `_bmad-output/patches/` 已于 2026-09-15 解散，补丁 spec 已按归属 epic 归位）

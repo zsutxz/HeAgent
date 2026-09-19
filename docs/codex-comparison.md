@@ -19,7 +19,7 @@ HeAgent 在权限档位、分层上下文文件、机器可读事件流和编辑
 ## HeAgent 的取向
 
 1. **Provider 中立与多层容错。** 跨 Provider 回退、多密钥轮换、指数退避重试、运行时切换，以及由 `ROUTING_POOLS` 声明的 fast/mid/pro 路由池都可直接配置。
-2. **声明式 Goal 工作流。** `/goal` 从 `.heagent/workflows/workflow.md` 读取步骤、Story、checkpoint 和验收门禁，再以独立 SubAgent 会话推进。
+2. **声明式 Goal 工作流。** `/goal` 从 `.heagent/skills/he-workflow/workflow.md` 读取步骤、Story、checkpoint 和验收门禁，再以独立 SubAgent 会话推进。
 3. **文件化的记忆与技能。** 技能、事实记忆、用户画像与 `SOUL.md` 都是可审阅、可替换的本地文件。
 4. **作为库使用。** Provider、工具注册表、策略引擎、事件汇和存储均可注入，应用可只复用其中一部分。
 
