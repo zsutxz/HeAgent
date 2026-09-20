@@ -5,7 +5,7 @@
 # Why this exists — sprint-status.yaml write conflict:
 #
 #   * `_bmad-output/sprint-status.yaml` is the historical planning status record for
-#     this repository. `.heagent/skills/he-workflow/workflow.md` (the /goal contract) forbids
+#     this repository. `.heagent/skills/he-goal/workflow.md` (the /goal contract) forbids
 #     writing it, and no code under `src/` reads or writes it — `validate_sprint_status_path()`
 #     only enforces that status validation targets this one canonical file.
 #   * bmad-build's `sync-sprint-status.md` sub-step would otherwise advance the active

@@ -13,12 +13,27 @@ priority: 3
 
 ## 边界
 
-- 本技能只做引导：不代替用户执行 `/goal` 斜杠命令，也不复述工作流契约（契约在 `he-workflow` 包里）。
+- 本技能只做引导：不代替用户执行 `/goal` 斜杠命令，也不复述工作流契约（契约在本包 `workflow.md` 里）。
 - 单点改动、一次性问答、一次探查都不要启动工作流——判据见 Steps 第 1 条。
 - 本节也是**刻意保留的额外章节**：正文若只剩 `## Pattern` / `## Steps` 两节，SkillStore 会在技能被
   自动注入时整体重渲染正文（丢掉上面 H1 的注解与 frontmatter 的 `canonical_id`）；保留本节即走
   「只改 frontmatter 计数、正文逐字节保留」的就地路径。代价：`pattern` / `steps` 要改就直接编辑本
   文件，`skill_update` 会拒绝（抛 `SkillRewriteError`，防止静默丢章节）。
+
+## 运行时资源（勿删）
+
+本包除引导正文外还承载 `/goal` 的**运行时契约**——`Settings.goal_workflow_skill` 默认解析到本包
+（`canonical_id: he-goal`），CLI 读取下列资源执行工作流：
+
+- `workflow.md` —— 工作流契约：8 步的顺序、`input`/`output`、`checkpoint`、`validation` 门禁、`role`、
+  `story_loop`、`max_iterations` 与 frontmatter 策略声明（`max_rounds` / `auto_schedule` /
+  `open_question_*`）。**改工作流行为只改这个文件，不改代码。**
+- `templates/prompt-template.md`、`templates/gate-template.md` —— 步骤提示词与门禁模板（**运行时依赖**，
+  缺失会静默回退 CLI 内置兜底；清理时不要删）。
+
+> **不要用 `skill_delete` / `skill_archive` 删除或归档本包**——那会连同工作流契约一起移走，`/goal`
+> 将显性报「workflow.md is required」，且契约需从 git 还原。Curator 的过期归档若命中本包，同样后果。
+> `templates/EPIC.md` / `STORY.md` / `GOAL.md` 为结构参考模板，非运行时依赖。
 
 ## Pattern
 
@@ -27,7 +42,7 @@ priority: 3
 `/goal resume <回复>` 恢复并记录回答 · `/goal pause` 暂停 · `/goal auto [cron]` 定时推进 · `/goal reset` 清除当前指针。
 工作流共 8 步：市场调研、发散构思、需求分析、产品范围、架构设计、故事细化、逐故事实现、系统集成测试。
 持久产物落在 `_he-output/goals/<goal-id>/`；工作流契约（步骤、输入输出、门禁）的唯一权威是
-`.heagent/skills/he-workflow/workflow.md`，不要在本技能里复述或修改它。
+`.heagent/skills/he-goal/workflow.md`，不要在本技能正文里复述或修改它。
 
 ## Steps
 

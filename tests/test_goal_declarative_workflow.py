@@ -31,10 +31,10 @@ from heagent.memory.skill_packages import SkillPackage, WorkflowResource, Workfl
 @pytest.fixture()
 def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
-    workflow_root = tmp_path / ".heagent" / "skills" / "he-workflow"
+    workflow_root = tmp_path / ".heagent" / "skills" / "he-goal"
     workflow_root.mkdir(parents=True)
     (workflow_root / "SKILL.md").write_text(
-        "---\ncanonical_id: he-workflow\nname: he-workflow\ndescription: test package\n---\n\n# test package\n",
+        "---\ncanonical_id: he-goal\nname: he-goal\ndescription: test package\n---\n\n# test package\n",
         encoding="utf-8",
     )
     (workflow_root / "workflow.md").write_text(
@@ -170,7 +170,7 @@ async def test_declarative_goal_rejects_unknown_workflow_declarations(
     declarative_cwd: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow.write_text(
         "---\nname: invalid\nentrypoint: unsupported\n---\n\n## Step 01: plan\noutput: plan\n\nPlan the work.\n",
         encoding="utf-8",
@@ -230,7 +230,7 @@ async def test_final_checkpoint_persists_completed_state(
     declarative_cwd: Path,
     successful_step: list[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow.write_text(
         "---\nname: final-checkpoint\nentrypoint: goal\non_create: persist_goal_identity\n"
         "step_executor: subagent\n---\n\nworkflow instructions\n\n"
@@ -251,7 +251,7 @@ async def test_checkpoint_auto_mode_advances_until_completion(
     declarative_cwd: Path,
     successful_step: list[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\ncheckpoint_mode: auto\n"
@@ -291,7 +291,7 @@ async def test_workflow_checkpoint_mode_overrides_environment(
 ) -> None:
     monkeypatch.setenv("GOAL_CHECKPOINT_MODE", "auto")
     reset_settings()
-    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\ncheckpoint_mode: prompt\n"
@@ -349,7 +349,7 @@ async def test_invalid_checkpoint_mode_fails_workflow_load(
     declarative_cwd: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\ncheckpoint_mode: always\n"
@@ -386,8 +386,8 @@ async def test_empty_subagent_output_fails_without_persisting_empty_artifact(
 def _real_step_one() -> WorkflowStepResource:
     """Parse the shipped workflow with the production loader and return its step 01."""
     package = SkillPackage(
-        skill_id="he-workflow",
-        root=Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-workflow",
+        skill_id="he-goal",
+        root=Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal",
     )
     return package.read_workflow("workflow.md").steps[0]
 
@@ -451,7 +451,7 @@ async def test_open_question_mode_default_injects_proceed_with_default(
     declarative_cwd: Path,
     successful_step: list[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\nopen_question_mode: default\n"
@@ -484,7 +484,7 @@ async def test_invalid_open_question_mode_fails_workflow_load(
     declarative_cwd: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\nopen_question_mode: always\n"
@@ -520,7 +520,7 @@ async def test_workflow_open_question_mode_overrides_environment(
 ) -> None:
     monkeypatch.setenv("GOAL_OPEN_QUESTION_MODE", "default")
     reset_settings()
-    workflow = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
+    workflow = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow.write_text(
         workflow.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n", "step_executor: subagent\nopen_question_mode: block\n"
@@ -705,7 +705,7 @@ def test_bundled_workflow_declarations_and_templates_stay_aligned(monkeypatch: p
 
 def test_declared_run_rounds_and_auto_schedule_override_cli_defaults(declarative_cwd: Path) -> None:
     """``max_rounds`` / ``auto_schedule`` come from the workflow declaration, not from code."""
-    workflow_path = declarative_cwd / ".heagent" / "skills" / "he-workflow" / "workflow.md"
+    workflow_path = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow_path.write_text(
         workflow_path.read_text(encoding="utf-8").replace(
             "step_executor: subagent\n",
@@ -723,7 +723,7 @@ def test_declared_run_rounds_and_auto_schedule_override_cli_defaults(declarative
 
 def test_workflow_package_resolves_by_id_and_serves_its_own_templates(declarative_cwd: Path) -> None:
     """A package entry makes the workflow addressable by id and lets it ship prompt/gate templates."""
-    root = declarative_cwd / ".heagent" / "skills" / "he-workflow"
+    root = declarative_cwd / ".heagent" / "skills" / "he-goal"
     templates = root / "templates"
     templates.mkdir(exist_ok=True)
     (templates / "prompt-template.md").write_text("CUSTOM {goal} :: {step}\n{gate}", encoding="utf-8")
@@ -733,7 +733,7 @@ def test_workflow_package_resolves_by_id_and_serves_its_own_templates(declarativ
     assert package is not None
     workflow = _goal_declarative_workflow()
 
-    assert package.skill_id == "he-workflow"
+    assert package.skill_id == "he-goal"
     assert workflow is not None
 
     prompt = cli_goal._goal_declarative_prompt(

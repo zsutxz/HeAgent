@@ -107,7 +107,7 @@ heagent init --project
 
 ## Goal 工作流
 
-`/goal` 的权威契约是 [`.heagent/skills/he-workflow/workflow.md`](.heagent/skills/he-workflow/workflow.md)：Markdown 定义步骤、产物和门禁，Python 负责解析、checkpoint、状态迁移和 SubAgent 调度。
+`/goal` 的权威契约是 [`.heagent/skills/he-goal/workflow.md`](.heagent/skills/he-goal/workflow.md)：Markdown 定义步骤、产物和门禁，Python 负责解析、checkpoint、状态迁移和 SubAgent 调度。
 
 ```text
 /goal <目标描述>      创建目标并启动首个步骤

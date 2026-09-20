@@ -719,7 +719,7 @@ HeAgentError (base)
 | `subagent_max_iterations` | 20 | 嵌套子代理兜底迭代预算（角色未声明 `max_iterations` 时生效：显式参数 > 角色声明 > 本项） |
 | `goal_checkpoint_mode` | `prompt` | `/goal` 检查点策略：自动继续或等待用户 |
 | `goal_open_question_mode` | `block` | `/goal` 未决问题策略：阻塞或采用默认值 |
-| `goal_workflow_skill` | `he-workflow` | `/goal` 工作流包 id（包在自己 `SKILL.md` 里声明 `canonical_id`，按 id/别名解析） |
+| `goal_workflow_skill` | `he-goal` | `/goal` 工作流包 id（包在自己 `SKILL.md` 里声明 `canonical_id`，按 id/别名解析） |
 | `announce_progress` | True | 是否把「▶ 启动 / ✔ 完成 + 状态行」进度公告写到 stderr（false=静音） |
 | `dream_session_lookback` | 5 | 预加载近期 session 个数（按 timestamp 降序） |
 | `mcp_enabled` | True | 是否启用 MCP server 连接（门控，False 则跳过加载） |
@@ -819,7 +819,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 ### 4.13 Goal 驱动工作流 (`/goal`)
 
 `/goal` 是 CLI 层的机制入口（命令族实现位于 `cli_goal.py`）。当前工作流的唯一方法论入口是
-`.heagent/skills/he-workflow/workflow.md`（属 `he-workflow` 包，由 skill catalog 按 id/别名解析）；步骤声明中的 `role` 再解析对应的 `.heagent/skills/*/SKILL.md`。
+`.heagent/skills/he-goal/workflow.md`（属 `he-goal` 包，由 skill catalog 按 id/别名解析）；步骤声明中的 `role` 再解析对应的 `.heagent/skills/*/SKILL.md`。
 当前工作流的维护说明见[文档索引的「Goal 工作流」章节](README.md#goal-工作流)。
 
 - `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/require.md`（只含原始需求）
@@ -1105,17 +1105,17 @@ python -m heagent
 
 Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测试覆盖。`tests/test_goal_workflow_smoke.py` 使用无网络执行，验证两个 story 单元、workflow/checkpoint、ledger 与 EventBus 证据，并覆盖损坏状态显式失败（legacy 阶段状态机与其 route 门控已于 2026-09 删除）。
 
-本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format 和 mypy；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal` 的步骤权威是 `.heagent/skills/he-workflow/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 仍是 defense-in-depth，非 OS 安全边界。
+本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format 和 mypy；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal` 的步骤权威是 `.heagent/skills/he-goal/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 仍是 defense-in-depth，非 OS 安全边界。
 
 ### 4.15 Goal/Epic/Story artifact contract
 
 Declarative BMad workflow artifacts have three layers with fixed ownership. A goal artifact (`type: goal`) contains the Epic list only; `EPIC.md` contains Goal, Value, Scope, Dependencies, Acceptance Criteria, Stories, and Definition of Done; each Story document contains frontmatter, User Story, Given/When/Then acceptance criteria, Tasks, and Definition of Done. IDs and parent references are validated by `heagent.engine.artifacts.validate_hierarchy()`. The `/goal` CLI no longer writes a goal artifact: it persists the goal's requirement document `require.md`, and the Epic/Story lists live in the workflow's own `02-epics.md`.
 
-`parse_artifact()` fails loudly on missing or duplicate sections, unresolved `TBD`, invalid frontmatter type/status, and malformed parent metadata. Templates are in `.heagent/skills/he-workflow/templates/`. Historical Epic/Story status is owned solely by `_bmad-output/sprint-status.yaml`; `workflow.json` stores runtime metadata and is never a second status board. `validate_sprint_status_path()` enforces this canonical, read-only target.
+`parse_artifact()` fails loudly on missing or duplicate sections, unresolved `TBD`, invalid frontmatter type/status, and malformed parent metadata. Templates are in `.heagent/skills/he-goal/templates/`. Historical Epic/Story status is owned solely by `_bmad-output/sprint-status.yaml`; `workflow.json` stores runtime metadata and is never a second status board. `validate_sprint_status_path()` enforces this canonical, read-only target.
 
 ### 4.16 Declarative Agile Closure
 
-`.heagent/skills/he-workflow/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `require.md` is the goal's durable requirement document (the original request at creation, then the derived requirements step 01 writes after its initial analysis); it replaces `goal.txt` and is deliberately not a `parse_artifact()` goal artifact. All durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The former imperative `goal.txt` story-board path has been removed, leaving the declarative runner as the sole `/goal` execution path. Transition policy remains owned by the active workflow and its deterministic runner. The workflow itself is addressed as a skill package (`he-workflow`) resolved through `SkillCatalog`/`SkillResolver`, so per-run policy (`max_rounds`, `auto_schedule`, open-question wording) and the step prompt/gate wording are declarations inside the package (`workflow.md`, `templates/prompt-template.md`, `templates/gate-template.md`) with built-in CLI fallbacks.
+`.heagent/skills/he-goal/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `require.md` is the goal's durable requirement document (the original request at creation, then the derived requirements step 01 writes after its initial analysis); it replaces `goal.txt` and is deliberately not a `parse_artifact()` goal artifact. All durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The former imperative `goal.txt` story-board path has been removed, leaving the declarative runner as the sole `/goal` execution path. Transition policy remains owned by the active workflow and its deterministic runner. The workflow itself is addressed as a skill package (`he-goal`) resolved through `SkillCatalog`/`SkillResolver`, so per-run policy (`max_rounds`, `auto_schedule`, open-question wording) and the step prompt/gate wording are declarations inside the package (`workflow.md`, `templates/prompt-template.md`, `templates/gate-template.md`) with built-in CLI fallbacks.
 
 ## 九、参考实现
 

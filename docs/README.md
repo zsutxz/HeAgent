@@ -21,7 +21,7 @@
 | --- | --- |
 | LLM、工具和 Agent 如何串起来 | [`frame.md`](frame.md) 的“数据流”和“核心模块” |
 | 策略、审批、ledger、沙箱 | [`frame.md`](frame.md) 的 `engine/` 与“已知缺口” |
-| Epic/Story 如何由 Markdown 驱动 | [「Goal 工作流」](#goal-工作流) 与 [`.heagent/skills/he-workflow/workflow.md`](../.heagent/skills/he-workflow/workflow.md) |
+| Epic/Story 如何由 Markdown 驱动 | [「Goal 工作流」](#goal-工作流) 与 [`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md) |
 | GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
 | 历史为什么这样演进 | [`iteration.md`](iteration.md) 与 [`_bmad-output/`](../_bmad-output/README.md) |
 
@@ -42,7 +42,7 @@
 
 1. 运行行为：`src/`。
 2. 配置默认值和 CLI 入口：`src/heagent/config.py`、`src/heagent/cli.py`、`pyproject.toml`。
-3. 当前 `/goal` 工作流：`.heagent/skills/he-workflow/workflow.md`。
+3. 当前 `/goal` 工作流：`.heagent/skills/he-goal/workflow.md`。
 4. 设计和历史说明：本目录与 `_bmad-output/`，不得覆盖前三项。
 
 新增或变更功能时，先更新对应的当前事实文档；历史规划只追加证据，不回写成“当前实现”。
@@ -52,10 +52,10 @@
 ## Goal 工作流
 
 本文只描述当前代码已经支持的声明式 `/goal` 工作流。可执行契约的唯一来源是项目内的
-[`.heagent/skills/he-workflow/workflow.md`](../.heagent/skills/he-workflow/workflow.md)；本节是面向维护者的
+[`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md)；本节是面向维护者的
 导航和边界说明，不复制那份契约。
 
-`.heagent/skills/he-workflow/` 本身是一个**技能包**（其 `SKILL.md` 声明 `canonical_id: he-workflow`），
+`.heagent/skills/he-goal/` 本身是一个**技能包**（其 `SKILL.md` 声明 `canonical_id: he-goal`），
 CLI 按包 id 解析它。包内除 `workflow.md` 外还可提供 `templates/prompt-template.md`（步骤提示词模板）与
 `templates/gate-template.md`（门禁提示块模板）：改工作流行为应改包，而不是改 Python。
 
@@ -63,12 +63,12 @@ CLI 按包 id 解析它。包内除 `workflow.md` 外还可提供 `templates/pro
 
 | 内容 | 唯一权威 | 代码职责 |
 | --- | --- | --- |
-| 工作流步骤、角色、输入输出、检查点 | `.heagent/skills/he-workflow/workflow.md` | 读取、解析、校验并按声明执行 |
+| 工作流步骤、角色、输入输出、检查点 | `.heagent/skills/he-goal/workflow.md` | 读取、解析、校验并按声明执行 |
 | 步骤方法论 | 每个步骤均由 `role:` 指向 `.heagent/skills/*/SKILL.md` | 把声明和上下文交给 SubAgent |
 | 步骤提示词与门禁文案 | 包内 `templates/prompt-template.md`、`templates/gate-template.md`（**运行时依赖**） | 替换占位符渲染 prompt；资源缺失时静默回退 `cli_goal.py` 内置兜底 |
 | 运行策略参数（`max_rounds`、`auto_schedule`、未决问题文案） | `workflow.md` 的 frontmatter | 读取声明；代码只保留兜底默认值 |
 | Goal 身份与工作流产物 | `_he-output/goals/<goal-id>/` | 创建目录、保存输出、恢复 checkpoint |
-| Goal/Epic/Story 结构契约 | `src/heagent/engine/artifacts.py` 与 `.heagent/skills/he-workflow/templates/` | 解析和校验结构 |
+| Goal/Epic/Story 结构契约 | `src/heagent/engine/artifacts.py` 与 `.heagent/skills/he-goal/templates/` | 解析和校验结构 |
 | 运行时进度与恢复 | `<goal-dir>/checkpoints/` 下的 `workflow.json` | 保存状态，不取代规划看板 |
 | 全仓库 Epic/Story 状态 | `_bmad-output/sprint-status.yaml` | 规划历史的状态记录；不是 `/goal` 运行时状态 |
 
@@ -173,12 +173,12 @@ _he-output/goals/<goal-id>/
 └── checkpoints/                         # WorkflowRunner 运行时 checkpoint
 ```
 
-`.heagent/skills/he-workflow/templates/` 提供 Goal、Epic、Story 的结构模板。历史规划、验收和 retrospective
+`.heagent/skills/he-goal/templates/` 提供 Goal、Epic、Story 的结构模板。历史规划、验收和 retrospective
 仍归档在 [`_bmad-output/`](../_bmad-output/README.md)，不应被当作当前运行时配置。
 
 ### 修改工作流的规则
 
-- 变更流程顺序或阶段职责：修改 `.heagent/skills/he-workflow/workflow.md`。
+- 变更流程顺序或阶段职责：修改 `.heagent/skills/he-goal/workflow.md`。
 - 变更步骤提示词或门禁文案：改包内 `templates/prompt-template.md` / `templates/gate-template.md`
   （占位符清单见包 `SKILL.md`；这两个是**运行时依赖**，清理 `templates/` 时不要删——缺失不会报错，只会静默退回内置模板）；
   变更 `/goal run` 的步数上限、`/goal auto` 的默认 cron、未决问题策略文案：改 `workflow.md` 的 frontmatter

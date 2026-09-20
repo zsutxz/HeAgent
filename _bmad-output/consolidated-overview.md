@@ -689,7 +689,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 - **意图**：把 `/goal` 从 Goal→Story 轻量循环升级为 **Goal→Epic→Story 的 BMad 敏捷流程**——工作流规则、阶段顺序、产物契约由 Markdown 声明（`.heagent/workflows/workflow.md` + 角色 `SKILL.md`），通用 Runner 只负责解释执行；PM/Analyst/Architect/UX/Dev 以可改的本地 Agent 技能包提供。
 - **关键决策（Agile Contract）**：**方法论归 Markdown、确定性边界归代码**（步骤顺序 / 输入输出 / `validation` / checkpoint / 恢复 / 错误态不可交给 LLM）；`GOAL.md` 只管 Epic 看板、`sprint-status.yaml` 是 Epic/Story 状态**唯一写目标**；一个 Story 一个执行会话（WIP=1）、Review 失败退回实现、Epic 完成后 Retrospective；产物缺失 / 格式非法 / 验收失败 / 冲突 / 人工 checkpoint **必须显式停止**。
 - **落点**：`engine/workflow_runner.py`（单步推进 / story loop / resume / gate 不绕过）、`engine/artifacts.py`（frontmatter + 固定章节 + Given-When-Then + TBD 拒收 + 层级 ID 校验）（review / retrospective / correct-course 曾落 `engine/agile.py`，该文件已于 2026-09-03 删除 `f49c20a`）、`memory/skill_packages.py`（复用根目录围栏读资源）、`cli_goal.py`（装配 + `_goal_auto_lock`）。
-- **缺口**（2026-09-18 复核）：**E47-D1**「ledger 记录在途被删」已修复（在途每 40s 续租 + 回写失败只告警不吞结果 + 区分「不存在 / 损坏」）；**施动者未唯一归因仍开**（残余风险 LOW，契约写入 `tool_execution.py` 模块 docstring）；`skill_update` 遇富正文技能拒绝改写（须先备份）**仍开**；**bmad-build Step 07 迭代预算已于 2026-09-17 闭合**（`.heagent/skills/he-workflow/workflow.md:208` 声明 `max_iterations: 100`，`d7dc758`；E41-D6）。
+- **缺口**（2026-09-18 复核）：**E47-D1**「ledger 记录在途被删」已修复（在途每 40s 续租 + 回写失败只告警不吞结果 + 区分「不存在 / 损坏」）；**施动者未唯一归因仍开**（残余风险 LOW，契约写入 `tool_execution.py` 模块 docstring）；`skill_update` 遇富正文技能拒绝改写（须先备份）**仍开**；**bmad-build Step 07 迭代预算已于 2026-09-17 闭合**（`.heagent/skills/he-goal/workflow.md:208` 声明 `max_iterations: 100`，`d7dc758`；E41-D6）。
 - **教训**：「流程方法论 → Markdown，确定性规则 → 代码」必须分离到底——一旦把流程分支写回 CLI，声明式契约就开始漂移，checkpoint 与产物校验会失去单一可信源。
 
 ## 十三、补丁 spec 归档与技术债
@@ -835,7 +835,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | 8 | **分层门禁** | 本地 88/CI 90 coverage、bandit -ll 不阻塞 CI——差异化约束不互锁 |
 | 9 | **优雅降级模式** | Firejail/WinJobBackend 不可用 → warn + Passthrough，不 crash、不中断 |
 | 10 | **对称性审查** | send/stream、enter/exit、kill/wait——成对路径互相对照补齐 |
-| 11 | **方法论与机制分离** | `/goal` 工作流：流程规则归 Markdown（`.heagent/skills/he-workflow/workflow.md` + 角色 SKILL.md，人可直接改），确定性边界归代码——工作流演进零代码改动 |
+| 11 | **方法论与机制分离** | `/goal` 工作流：流程规则归 Markdown（`.heagent/skills/he-goal/workflow.md` + 角色 SKILL.md，人可直接改），确定性边界归代码——工作流演进零代码改动 |
 | 12 | **诚实门（honest gate）** | 能力「未真正生效」时宁可不报：`<shell-workspace>` 仅在真实后端就绪时注入；围栏 / 沙箱一律标注 defense-in-depth，不制造「已安全」假象 |
 
 ### 16.2 可改进什么（10 条，2026-09-18 逐条复核）
@@ -877,7 +877,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 ### 17.1 当前状态（截至 2026-09-20）
 
 - **规划产物**：**全部 15 个周期**（Epic 1-47 + S1-S4）在 `sprint-status.yaml` 中标记 `done`，**无 `backlog` / `in-progress` 项**；**15 个 epic 的 retrospective 状态仍为 `optional`**（25-28 / 36-39 / 40 / 41 / 42 / 43-46；其中 36、37、40、41、42 已于 2026-09-18 补做正式回顾，余 10 个仍未补做，交付记录见各周期目录与 `retrospective-all-cycles.md`）。产物整理：`patches/` 解散并按归属 epic 归档（2026-09-15）、跨周期 deferred 台账重组为「活动条目 + 勘察类闭合归档」（2026-09-17）、story 产物按 Epic 分组。
-- **代码现状**（2026-09-20，`src/` 最新提交 `600f4d1`，版本 `0.6.1`）：`engine/` 运行时治理（权限档位 `sandbox_mode` / `ToolExecutor` / store·ledger·observability）+ `events/` 机器可读事件流（rollout + replay）+ 分层上下文文件发现 + 真实 tokenizer / 结构化压缩 + `file_edit` 编辑原语；`/goal` 声明式工作流（`.heagent/skills/he-workflow/workflow.md` 技能包 + `engine/workflow_runner.py` / `engine/artifacts.py` + `cli_goal.py` / `goal/document.py`；原 `engine/agile.py` 已删、`engine/workflow.py` 仅存 state/checkpoint-store）；沙箱会话化 + 权限档位化 + **沙箱硬化配置接入**（`SANDBOX_PROFILES` / `SANDBOX_TOOL_PROFILES` / 内存·CPU 限额，2026-09-17）；技能包运行时（含 `O_NOFOLLOW` 加固）；凭证防护（deny 表 + **项目级 `.heagent/path_deny.json`** + `scrub_sensitive_env`）；**跨进程 goal 锁**（`persist.file_lock`）；provider 组合根抽出为 `wiring.py`；`cli_init.py` / `frontmatter.py` / `goal/document.py` 等拆分（2026-09-17）。
+- **代码现状**（2026-09-20，`src/` 最新提交 `600f4d1`，版本 `0.6.1`）：`engine/` 运行时治理（权限档位 `sandbox_mode` / `ToolExecutor` / store·ledger·observability）+ `events/` 机器可读事件流（rollout + replay）+ 分层上下文文件发现 + 真实 tokenizer / 结构化压缩 + `file_edit` 编辑原语；`/goal` 声明式工作流（`.heagent/skills/he-goal/workflow.md` 技能包 + `engine/workflow_runner.py` / `engine/artifacts.py` + `cli_goal.py` / `goal/document.py`；原 `engine/agile.py` 已删、`engine/workflow.py` 仅存 state/checkpoint-store）；沙箱会话化 + 权限档位化 + **沙箱硬化配置接入**（`SANDBOX_PROFILES` / `SANDBOX_TOOL_PROFILES` / 内存·CPU 限额，2026-09-17）；技能包运行时（含 `O_NOFOLLOW` 加固）；凭证防护（deny 表 + **项目级 `.heagent/path_deny.json`** + `scrub_sensitive_env`）；**跨进程 goal 锁**（`persist.file_lock`）；provider 组合根抽出为 `wiring.py`；`cli_init.py` / `frontmatter.py` / `goal/document.py` 等拆分（2026-09-17）。
 - **测试基线**：**1998 passed / 9 skipped / 14 deselected**（`pytest` 全量，2026-09-20 实测）；覆盖率 **90.86%**（gate 87，2026-09-18 值）；`scripts/quality_gate.py` 五门（goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy）；代码量 `src/` 23,988 行（110 个 `.py`）+ `tests/` 28,362 行（103 个 `.py`）。
 
 ### 17.2 已知缺口（详见 frame.md 第五章）
@@ -922,7 +922,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 | # | 原表述 / 出处 | 实际状态 | 证据 |
 |---|---------------|----------|------|
-| B1 | bmad-build Step 07 未声明 `max_iterations`（12.6、17.3、retro 1.14） | **已闭合** | `.heagent/skills/he-workflow/workflow.md:208` 声明 `max_iterations: 100`；`d7dc758`（E41-D6） |
+| B1 | bmad-build Step 07 未声明 `max_iterations`（12.6、17.3、retro 1.14） | **已闭合** | `.heagent/skills/he-goal/workflow.md:208` 声明 `max_iterations: 100`；`d7dc758`（E41-D6） |
 | B2 | GUI `/goal` 输出未进 RichLog、无取消控制（12.3） | **已收口** | stderr→RichLog + Esc 取消 + GUI 持有 `CronScheduler` + pilot 交互测试；`44ab001`（E41-D7） |
 | B3 | goal 指针 / `GOAL.md` 仅进程内 asyncio 锁（16.2 #10、17.3） | **已修复** | `persist.file_lock`（`persist.py:394`）+ `_goal_mutex`，7 个变更入口全接；`855d135`、`tests/test_goal_cross_process_lock.py`（E41-D5） |
 | B4 | 凭证 deny 缺用户入口（12.1） | **已交付** | `.heagent/path_deny.json`（`tools/path_safety.py:206-257`）；`63806d3`（F-D1） |

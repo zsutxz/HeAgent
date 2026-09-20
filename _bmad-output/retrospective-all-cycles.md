@@ -163,7 +163,7 @@
 | 8 | **分层门禁** | 本地 88/CI 90 coverage、bandit -ll 不阻塞 CI——差异化约束不互锁 |
 | 9 | **优雅降级模式** | Firejail/WinJobBackend 不可用→warn+Passthrough，不 crash、不中断 |
 | 10 | **对称性审查** | send/stream、enter/exit、kill/wait——成对路径互相对照补齐 |
-| 11 | **方法论与机制分离** | `/goal` / 声明式工作流：流程规则归 Markdown（`.heagent/skills/he-workflow/workflow.md` + 角色 SKILL.md，人可直接改），确定性边界归代码——工作流演进零代码改动 |
+| 11 | **方法论与机制分离** | `/goal` / 声明式工作流：流程规则归 Markdown（`.heagent/skills/he-goal/workflow.md` + 角色 SKILL.md，人可直接改），确定性边界归代码——工作流演进零代码改动 |
 | 12 | **诚实门（honest gate）** | 能力「未真正生效」时宁可不报：`<shell-workspace>` 仅在真实后端就绪时注入；围栏 / 沙箱一律标注 defense-in-depth，不制造「已安全」假象 |
 
 ---
