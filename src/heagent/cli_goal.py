@@ -97,14 +97,6 @@ _DEFAULT_PROMPT_TEMPLATE = (
     "response; do not return a summary, link, or claim that you wrote it elsewhere."
 )
 _DEFAULT_GATE_TEMPLATE = "Gate requirements (hard, enforced on your final response):\n{sections}{acceptance}{rules}"
-
-# 模板占位符单遍渲染：值里再出现 ``{xxx}`` 字样也不会被二次替换（链式 str.replace 会）。
-_TEMPLATE_FIELD_RE = re.compile(r"\{(\w+)\}")
-
-
-def _render_template(template: str, fields: Mapping[str, str]) -> str:
-    """Render ``{name}`` placeholders in one pass; unknown placeholders stay verbatim."""
-    return _TEMPLATE_FIELD_RE.sub(lambda match: fields.get(match.group(1), match.group(0)), template)
 _DEFAULT_OPEN_QUESTION_DEFAULT = (
     "When a competing interpretation requires a stakeholder choice, proceed with the recommended "
     "default and record the assumption explicitly; do not stop with waiting_user."
@@ -114,6 +106,14 @@ _GOAL_ADVANCED = "advanced"
 _GOAL_DONE = "done"
 _GOAL_FAILED = "failed"
 _GOAL_WAITING = "waiting"
+
+# 模板占位符单遍渲染：值里再出现 ``{xxx}`` 字样也不会被二次替换（链式 str.replace 会）。
+_TEMPLATE_FIELD_RE = re.compile(r"\{(\w+)\}")
+
+
+def _render_template(template: str, fields: Mapping[str, str]) -> str:
+    """Render ``{name}`` placeholders in one pass; unknown placeholders stay verbatim."""
+    return _TEMPLATE_FIELD_RE.sub(lambda match: fields.get(match.group(1), match.group(0)), template)
 
 
 @asynccontextmanager
@@ -973,10 +973,16 @@ async def _goal_runner(  # noqa: C901
                 err=True,
             )
         return
+    skill_id = get_settings().goal_workflow_skill
+    if skill_id:
+        hint = f"Create {_GOAL_SKILLS_ROOT / skill_id / 'workflow.md'} (with a SKILL.md declaring its canonical_id) "
+        "to configure goal execution."
+    else:
+        # 显式置空不会早于此崩溃（resolve("") 被捕获返回 None）；pathlib 丢弃空段会拼出
+        # catalog 永远解析不到的 ``.heagent/skills/workflow.md``，故单独提示配置错误。
+        hint = "GOAL_WORKFLOW_SKILL is set to an empty package id; unset it or set a valid skill package id."
     click.echo(
-        "[goal] workflow.md is required; the legacy story-board flow has been removed. "
-        f"Create {_GOAL_SKILLS_ROOT / get_settings().goal_workflow_skill / 'workflow.md'} "
-        "(with a SKILL.md declaring its canonical_id) to configure goal execution.",
+        "[goal] workflow.md is required; the legacy story-board flow has been removed. " + hint,
         err=True,
     )
     return

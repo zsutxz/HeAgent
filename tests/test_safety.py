@@ -67,13 +67,11 @@ class TestInlineInterpreterCommands:
         "cmd",
         [
             # 运行时误拦的原始三条（2026-09-19 日志回归）
-            'cmd /c "date /t & time /t"; python -c "import datetime;'
-            'print(datetime.datetime.now().isoformat())" 2>&1',
+            'cmd /c "date /t & time /t"; python -c "import datetime;print(datetime.datetime.now().isoformat())" 2>&1',
             "python -c \"import datetime;print('NOW', datetime.datetime.now().isoformat())\"",
-            "python -c \"import urllib.request,json;"
-            "d=json.load(urllib.request.urlopen('https://api.github.com'))\"",
+            "python -c \"import urllib.request,json;d=json.load(urllib.request.urlopen('https://api.github.com'))\"",
             # 解释器变体
-            "python3 -c \"import datetime;print(datetime.date.today())\"",
+            'python3 -c "import datetime;print(datetime.date.today())"',
             "perl -e 'print 42'",
             "php -r 'echo json_encode([1]);'",
         ],
