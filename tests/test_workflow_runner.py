@@ -11,7 +11,7 @@ from heagent.engine.workflow_runner import (
     parse_story_list,
     required_sections,
 )
-from heagent.memory.skill_packages import WorkflowResource, WorkflowStepResource
+from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 
 
 def _workflow(*steps: WorkflowStepResource) -> WorkflowResource:

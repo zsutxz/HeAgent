@@ -94,8 +94,9 @@ def test_no_reverse_dependency_on_agent() -> None:
     反向依赖会破坏「新增 provider / 工具不得反向导入 agent」的可插拔性——``AgentLoop`` 应当零改动
     地接纳新 provider 与工具；一旦底层包开始 import agent，扩展点就变成了循环。
     ``memory → engine`` 于 2026-09-17 收敛（``memory/dream.py`` 的整包导入改为入口层注入 +
-    TYPE_CHECKING 引用；engine→memory 的合法边是 ``workflow_runner`` 对 ``skill_packages``
-    资源模型的单向依赖）。
+    TYPE_CHECKING 引用）。engine→memory 的旧合法边（``workflow_runner`` 对 ``skill_packages``
+    资源模型）已于 2026-09-20 消除：工作流模型迁至 ``engine/workflow_resource.py``，声明解析
+    迁至 ``goal/workflow_loader.py``（入口层，goal→engine/memory 同向）。
     """
     offenders: list[str] = []
     for package, forbidden in FORBIDDEN_RUNTIME_IMPORTS.items():

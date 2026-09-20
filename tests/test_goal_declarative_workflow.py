@@ -26,7 +26,9 @@ from heagent.engine import (
     required_sections,
 )
 from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
-from heagent.memory.skill_packages import SkillPackage, WorkflowResource, WorkflowStepResource
+from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
+from heagent.goal.workflow_loader import read_workflow
+from heagent.memory.skill_packages import SkillPackage
 
 
 @pytest.fixture()
@@ -395,7 +397,7 @@ def _real_step_one() -> WorkflowStepResource:
         skill_id="he-goal",
         root=Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal",
     )
-    return package.read_workflow("workflow.md").steps[0]
+    return read_workflow(package, "workflow.md").steps[0]
 
 
 def test_step_one_gate_requires_the_derived_requirements_summary() -> None:

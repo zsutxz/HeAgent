@@ -18,7 +18,7 @@ from heagent.engine.workflow import (
     WorkflowPhase,
     WorkflowStatus,
 )
-from heagent.memory.skill_packages import WorkflowResource, WorkflowStepResource
+from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 
 _SECTION_RULE = re.compile(r"section\s*:\s*([^,;]+)", re.IGNORECASE)
 

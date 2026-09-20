@@ -13,7 +13,7 @@ from heagent.engine.workflow_runner import (
     WorkflowStepResult,
     parse_story_list,
 )
-from heagent.memory.skill_packages import WorkflowResource, WorkflowStepResource
+from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 from heagent.cli_goal import _goal_step_artifact_path
 
 STORIES = [

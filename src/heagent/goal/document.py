@@ -147,7 +147,7 @@ def _goal_step_artifact_path(goal_dir: Path, step: Any, story: Any = None) -> Pa
     (``epic-e1/s-1/``) when the story list declares Epic grouping. Sources
     without grouping keep the flat ``s-<n>/`` layout.
 
-    命名契约：step 文件名由 ``memory/skill_packages.py`` 的 workflow.md 内联步骤解析生成
+    命名契约：step 文件名由 ``goal/workflow_loader.py`` 的 workflow.md 内联步骤解析生成
     （同款 ``_slug`` 归一化，见其 ``step-NN-<slug>.md`` 组装处）；此处剥离前缀后重 slug，
     两侧规则需保持一致，漂移会使产物路径偏离声明的步骤名。
     """

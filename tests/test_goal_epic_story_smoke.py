@@ -7,7 +7,7 @@ import pytest
 from heagent.engine.artifacts import parse_artifact, validate_hierarchy
 from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
 from heagent.engine.workflow_runner import WorkflowRunner, WorkflowStepResult
-from heagent.memory.skill_packages import WorkflowResource, WorkflowStepResource
+from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 
 
 GOAL = """---

@@ -43,6 +43,12 @@ from heagent.engine.workflow import (
     WorkflowPhase,
     WorkflowStatus,
 )
+from heagent.engine.workflow_resource import (
+    CheckpointMode,
+    OpenQuestionMode,
+    WorkflowResource,
+    WorkflowStepResource,
+)
 from heagent.engine.workflow_runner import (
     StorySpec,
     WorkflowGateError,
@@ -98,6 +104,10 @@ __all__ = [
     "WorkflowCheckpointStore",
     "WorkflowPhase",
     "WorkflowStatus",
+    "CheckpointMode",
+    "OpenQuestionMode",
+    "WorkflowResource",
+    "WorkflowStepResource",
     "StorySpec",
     "parse_story_list",
     "required_sections",

@@ -25,6 +25,7 @@ from heagent.engine import (
     WorkflowCheckpointError,
     WorkflowCheckpointStore,
     WorkflowPhase,
+    WorkflowResource,
     WorkflowRunner,
     WorkflowStatus,
     WorkflowStepResult,
@@ -43,13 +44,12 @@ from heagent.goal.document import (
     _goal_step_artifact_path,
     _goal_user_responses,
 )
+from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
 from heagent.memory.skill_packages import (
     SkillCatalog,
     SkillCatalogError,
     SkillPackage,
     SkillResolver,
-    SkillWorkflowError,
-    WorkflowResource,
 )
 from heagent.persist import atomic_write_text, file_lock
 
@@ -196,7 +196,7 @@ def _goal_declarative_workflow() -> WorkflowResource | None:
     if package is None:
         return None
     try:
-        workflow = package.read_workflow("workflow.md")
+        workflow = read_workflow(package, "workflow.md")
         _validate_goal_workflow(workflow)
         return workflow
     except (SkillWorkflowError, ValueError, OSError) as exc:
