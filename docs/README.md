@@ -6,9 +6,9 @@
 ## 当前事实
 
 - [架构参考](frame.md)：当前数据流、模块边界、配置、运行时治理和已知缺口。
-- [敏捷工作流](workflow_intro.md)：当前 `/goal`、`workflow.md`、Epic/Story 和 checkpoint 的职责边界。
 - [部署说明](../deploy/README.md)：部署资产的真实适用范围和限制。
-- [HeAgent 与 Codex 的对照](codex-comparison.md)：两者的定位、边界和设计取向对照。
+- `/goal` 工作流的导航与维护规则并入[根 README 的「Goal 工作流」章节](../README.md#goal-工作流)；
+  可执行契约仍是 [`.heagent/skills/he-workflow/workflow.md`](../.heagent/skills/he-workflow/workflow.md)。
 
 ## 推荐阅读路径
 
@@ -22,7 +22,7 @@
 | --- | --- |
 | LLM、工具和 Agent 如何串起来 | [`frame.md`](frame.md) 的“数据流”和“核心模块” |
 | 策略、审批、ledger、沙箱 | [`frame.md`](frame.md) 的 `engine/` 与“已知缺口” |
-| Epic/Story 如何由 Markdown 驱动 | [`workflow_intro.md`](workflow_intro.md) 与 [`.heagent/skills/he-workflow/workflow.md`](../.heagent/skills/he-workflow/workflow.md) |
+| Epic/Story 如何由 Markdown 驱动 | [根 README「Goal 工作流」](../README.md#goal-工作流) 与 [`.heagent/skills/he-workflow/workflow.md`](../.heagent/skills/he-workflow/workflow.md) |
 | GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
 | 历史为什么这样演进 | [`iteration.md`](iteration.md) 与 [`_bmad-output/`](../_bmad-output/README.md) |
 
@@ -44,6 +44,6 @@
 1. 运行行为：`src/`。
 2. 配置默认值和 CLI 入口：`src/heagent/config.py`、`src/heagent/cli.py`、`pyproject.toml`。
 3. 当前 `/goal` 工作流：`.heagent/skills/he-workflow/workflow.md`。
-4. 设计和历史说明：本目录与 `_bmad-output/`，不得覆盖前三项。
+4. 设计和历史说明：根 README、本目录与 `_bmad-output/`，不得覆盖前三项。
 
 新增或变更功能时，先更新对应的当前事实文档；历史规划只追加证据，不回写成“当前实现”。
