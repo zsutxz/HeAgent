@@ -3,6 +3,7 @@ name: workflow
 entrypoint: goal
 on_create: persist_goal_identity
 step_executor: subagent
+required_resources: prompt-template.md, gate-template.md
 checkpoint_mode: auto
 open_question_mode: default
 max_rounds: 10
@@ -19,6 +20,28 @@ store，任何步骤都不得跳过。
 
 本工作流产出的**持久性非代码产物**（需求、PRD、架构记录、评审、验证报告等）一律写入项目输出
 根 `_he-output/` 之下；源代码仍留在仓库既有位置。全部正文与产物使用中文。
+
+## 模板契约（templates/）
+
+步骤提示词与门禁文案**全部由本包携带**，CLI 不内置任何模板兜底。两个模板的**必需性同样由本文件声明**：
+frontmatter 的 `required_resources: prompt-template.md, gate-template.md` 即生效开关——加载器执行该声明，
+列出的资源缺失（或只剩空白）时工作流在加载阶段即显性报错，不会以空提示词静默跑步骤；从清单里移除
+某项则该项退回可选。
+
+- `templates/prompt-template.md` —— 每步发给执行 SubAgent 的提示词骨架；
+- `templates/gate-template.md` —— 步骤门禁块骨架，渲染结果填入上者的 `{gate}`。
+
+**可用占位符**（渲染为单遍替换：未知占位符原样保留，字段值里的 `{xxx}` 不会被二次展开）：
+
+`prompt-template.md` —— `{workflow_instructions}`（本文件正文）、`{goal}`（目标描述）、`{goal_dir}`、
+`{output_root}`、`{step}`（步骤文件名）、`{story_context}`（story 循环上下文，非 story 步骤为空）、
+`{role}`（该步骤角色包指令）、`{open_question_policy}`（悬而未决问题的处理策略文案）、`{inputs}`
+（声明输入的渲染正文）、`{gate}`（门禁块，无门禁规则的步骤为空）。
+
+`gate-template.md` —— `{sections}`（必含标题清单）、`{acceptance}`（Given/When/Then 要求）、
+`{rules}`（本文件该步骤 `validation:` 声明的逐字引用）。
+
+改提示词或门禁文案只改这两个文件；新增字段需先在 CLI 侧扩展装配（字段清单即代码与包的契约面）。
 
 ## 全局标准
 

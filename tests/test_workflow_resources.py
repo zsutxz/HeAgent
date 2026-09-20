@@ -114,3 +114,37 @@ def test_next_reference_must_name_declared_step(tmp_path: Path) -> None:
     (tmp_path / "step-01-first.md").write_text("---\nnext: missing.md\n---\nFirst", encoding="utf-8")
     with pytest.raises(SkillWorkflowError, match="next step reference"):
         package.read_workflow()
+
+
+def test_templates_stay_optional_without_required_resources_declaration(tmp_path: Path) -> None:
+    """No ``required_resources`` line, no enforcement: a minimal package keeps loading."""
+    workflow = _package(tmp_path).read_workflow()
+    assert workflow.prompt_template == ""
+    assert workflow.gate_template == ""
+
+
+def test_declared_required_templates_load_when_present(tmp_path: Path) -> None:
+    package = _package(
+        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nrequired_resources: prompt-template.md\n"
+    )
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "prompt-template.md").write_text("PLAN {goal} :: {step}\n", encoding="utf-8")
+
+    workflow = package.read_workflow()
+
+    assert workflow.prompt_template == "PLAN {goal} :: {step}"
+    assert workflow.gate_template == ""
+
+
+@pytest.mark.parametrize("template_body", ["", "   \n"])
+def test_declared_required_templates_fail_when_missing_or_blank(tmp_path: Path, template_body: str) -> None:
+    package = _package(
+        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nrequired_resources: prompt-template.md\n"
+    )
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "prompt-template.md").write_text(template_body, encoding="utf-8")
+
+    with pytest.raises(SkillWorkflowError, match="required_resources"):
+        package.read_workflow()

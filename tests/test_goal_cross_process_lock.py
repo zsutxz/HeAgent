@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -36,6 +37,11 @@ def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         encoding="utf-8",
     )
     (workflow_root / "workflow.md").write_text(_WORKFLOW_MD, encoding="utf-8")
+    # 模板是硬性运行时依赖：fixture 复用仓库随包发布的真实模板（CLI 无内置兜底）。
+    shutil.copytree(
+        Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal" / "templates",
+        workflow_root / "templates",
+    )
     (tmp_path / "_he-output" / "goals").mkdir(parents=True)
     # 缩短锁等待，测试不必真等 5s 超时。
     monkeypatch.setattr(cli_goal, "_GOAL_LOCK_TIMEOUT", 0.2)

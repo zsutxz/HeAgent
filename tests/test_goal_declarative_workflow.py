@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -44,6 +45,11 @@ def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "output: requirements brief, story breakdown\ncheckpoint: true\n\nplan the story\n\n"
         "## Step 02: build\ninput: requirements brief\noutput: implementation\ncheckpoint: true\n\nbuild the story\n",
         encoding="utf-8",
+    )
+    # 模板是硬性运行时依赖：fixture 直接复用仓库随包发布的真实模板（CLI 无内置兜底）。
+    shutil.copytree(
+        Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal" / "templates",
+        workflow_root / "templates",
     )
     (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
     return tmp_path
@@ -537,7 +543,13 @@ async def test_workflow_open_question_mode_overrides_environment(
 def test_step_prompt_feeds_gate_headings_to_executor(tmp_path: Path) -> None:
     """The executor must be told the exact headings the post-step gate requires."""
     validation_rules = "section: 实现摘要; section: 测试证据; section: 验证结论; 记录确切命令与结果"
-    workflow = WorkflowResource(name="demo", instructions="workflow instructions", steps=[])
+    workflow = WorkflowResource(
+        name="demo",
+        instructions="workflow instructions",
+        steps=[],
+        prompt_template="{inputs}\n{gate}",
+        gate_template="Gate requirements (hard, enforced on your final response):\n{sections}{acceptance}{rules}",
+    )
     prompt = cli_goal._goal_declarative_prompt(
         workflow,
         "step-07-implement-story.md",
@@ -562,7 +574,13 @@ def test_step_prompt_gate_headings_satisfy_the_runner_gate(tmp_path: Path) -> No
         instructions="",
         validation_rules="section: 实现摘要; section: 测试证据",
     )
-    workflow = WorkflowResource(name="demo", instructions="workflow instructions", steps=[step])
+    workflow = WorkflowResource(
+        name="demo",
+        instructions="workflow instructions",
+        steps=[step],
+        prompt_template="{inputs}\n{gate}",
+        gate_template="Gate requirements (hard, enforced on your final response):\n{sections}{acceptance}{rules}",
+    )
     prompt = cli_goal._goal_declarative_prompt(
         workflow, step.name, "demo goal", tmp_path, {"user intent": "ship it"}, validation_rules=step.validation_rules
     )
@@ -580,7 +598,13 @@ def test_step_prompt_gate_headings_satisfy_the_runner_gate(tmp_path: Path) -> No
 
 def test_step_prompt_without_gate_rules_has_no_gate_block(tmp_path: Path) -> None:
     """Steps without ``section:`` rules keep the previous prompt shape."""
-    workflow = WorkflowResource(name="demo", instructions="workflow instructions", steps=[])
+    workflow = WorkflowResource(
+        name="demo",
+        instructions="workflow instructions",
+        steps=[],
+        prompt_template="{inputs}\n{gate}",
+        gate_template="Gate requirements (hard, enforced on your final response):\n{sections}{acceptance}{rules}",
+    )
     prompt = cli_goal._goal_declarative_prompt(
         workflow, "step-01-plan.md", "demo goal", tmp_path, {"user intent": "ship it"}
     )
@@ -621,7 +645,9 @@ async def test_step_iteration_budget_overrides_the_global_default(
 def test_step_prompt_renders_duplicate_artifact_text_once(tmp_path: Path) -> None:
     """Each artifact is stored under two keys; the prompt must not carry it twice."""
     artifact = "# 市场调研报告\n\n" + "证据" * 400
-    workflow = WorkflowResource(name="demo", instructions="workflow instructions", steps=[])
+    workflow = WorkflowResource(
+        name="demo", instructions="workflow instructions", steps=[], prompt_template="{inputs}\n{gate}"
+    )
     prompt = cli_goal._goal_declarative_prompt(
         workflow,
         "step-07-implement-story.md",
@@ -691,16 +717,20 @@ async def test_typo_subcommand_prints_usage_instead_of_creating_a_goal(
     assert not (declarative_cwd / "_he-output" / "goals" / "current").exists()
 
 
-def test_bundled_workflow_declarations_and_templates_stay_aligned(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The shipped package owns the wording; the built-in fallbacks must not drift away from it."""
+def test_bundled_workflow_ships_the_required_templates(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Templates are the package's alone: the bundled ones must carry the placeholder contract."""
     monkeypatch.chdir(Path(__file__).resolve().parents[1])
 
     workflow = _goal_declarative_workflow()
 
     assert workflow is not None
-    assert workflow.prompt_template == cli_goal._DEFAULT_PROMPT_TEMPLATE
-    assert workflow.gate_template == cli_goal._DEFAULT_GATE_TEMPLATE
     assert workflow.max_rounds >= 1
+    # 声明行是生效开关：frontmatter 不声明 required_resources 就没有加载期强制，钉死防漂移。
+    assert "prompt-template.md" in str(workflow.frontmatter.get("required_resources", ""))
+    for placeholder in ("{workflow_instructions}", "{goal}", "{step}", "{gate}"):
+        assert placeholder in workflow.prompt_template
+    for placeholder in ("{sections}", "{acceptance}", "{rules}"):
+        assert placeholder in workflow.gate_template
 
 
 def test_declared_run_rounds_and_auto_schedule_override_cli_defaults(declarative_cwd: Path) -> None:
@@ -751,23 +781,17 @@ def test_workflow_package_resolves_by_id_and_serves_its_own_templates(declarativ
     assert "- Declared validation rules (verbatim): section: Gate Title" in prompt
 
 
-def test_missing_package_templates_fall_back_to_built_ins(declarative_cwd: Path) -> None:
-    """A package without templates must still run: the CLI falls back to its built-in wording."""
-    workflow = _goal_declarative_workflow()
-
-    assert workflow is not None
-    assert workflow.prompt_template == ""
-    assert workflow.gate_template == ""
-
-    prompt = cli_goal._goal_declarative_prompt(
-        workflow,
-        "step-01-plan.md",
-        "demo goal",
-        declarative_cwd / "goals" / "demo",
-        {"user intent": "x"},
-        validation_rules="section: Gate Title",
-        declared_inputs="user intent",
+def test_missing_declared_required_templates_fail_explicitly(declarative_cwd: Path) -> None:
+    """``required_resources`` 声明驱动：声明了却缺失 → 加载即显性失败，不再有内置兜底。"""
+    workflow_md = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
+    workflow_md.write_text(
+        workflow_md.read_text(encoding="utf-8").replace(
+            "step_executor: subagent\n",
+            "step_executor: subagent\nrequired_resources: prompt-template.md, gate-template.md\n",
+        ),
+        encoding="utf-8",
     )
+    shutil.rmtree(declarative_cwd / ".heagent" / "skills" / "he-goal" / "templates")
 
-    assert "# Declarative workflow step" in prompt
-    assert "Gate requirements (hard, enforced on your final response):" in prompt
+    with pytest.raises(ValueError, match="prompt-template"):
+        _goal_declarative_workflow()

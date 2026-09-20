@@ -28,8 +28,9 @@ priority: 3
 - `workflow.md` —— 工作流契约：8 步的顺序、`input`/`output`、`checkpoint`、`validation` 门禁、`role`、
   `story_loop`、`max_iterations` 与 frontmatter 策略声明（`max_rounds` / `auto_schedule` /
   `open_question_*`）。**改工作流行为只改这个文件，不改代码。**
-- `templates/prompt-template.md`、`templates/gate-template.md` —— 步骤提示词与门禁模板（**运行时依赖**，
-  缺失会静默回退 CLI 内置兜底；清理时不要删）。
+- `templates/prompt-template.md`、`templates/gate-template.md` —— 步骤提示词与门禁模板（**硬性运行时依赖**，
+  必需性由 `workflow.md` frontmatter 的 `required_resources` 声明，缺失即在加载阶段显性报错；CLI 不内置
+  兜底；占位符契约见 `workflow.md` 的「模板契约」节；清理时不要删）。
 
 > **不要用 `skill_delete` / `skill_archive` 删除或归档本包**——那会连同工作流契约一起移走，`/goal`
 > 将显性报「workflow.md is required」，且契约需从 git 还原。Curator 的过期归档若命中本包，同样后果。

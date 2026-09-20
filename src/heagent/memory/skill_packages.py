@@ -85,7 +85,8 @@ class WorkflowResource(BaseModel):
     # open_question_mode 各自对应的一段策略文案；空 = 用 CLI 内置默认。
     open_question_default: str = ""
     open_question_block: str = ""
-    # 包内 ``prompt-template.md`` / ``gate-template.md`` 的正文；空 = 用 CLI 内置默认。
+    # 包内 ``prompt-template.md`` / ``gate-template.md`` 的正文；空 = 包未携带。
+    # 必需性由 workflow frontmatter 的 ``required_resources`` 声明，声明后缺失即加载失败。
     prompt_template: str = ""
     gate_template: str = ""
     frontmatter: dict[str, Any] = Field(default_factory=dict)
@@ -316,6 +317,7 @@ class SkillPackage(BaseModel):
                 resource,
                 f"invalid open_question_mode '{open_question_mode}'; expected block or default",
             )
+        required = self._required_templates(values, resource)
         return WorkflowResource(
             name=self._value_text(values, "name", "id") or self.skill_id,
             instructions=(body.split("\n## Step ", 1)[0] if inline else body).strip(),
@@ -329,8 +331,8 @@ class SkillPackage(BaseModel):
             auto_schedule=self._value_text(values, "auto_schedule"),
             open_question_default=self._value_text(values, "open_question_default"),
             open_question_block=self._value_text(values, "open_question_block"),
-            prompt_template=self._read_optional_resource("prompt-template.md"),
-            gate_template=self._read_optional_resource("gate-template.md"),
+            prompt_template=self._read_template_resource("prompt-template.md", required),
+            gate_template=self._read_template_resource("gate-template.md", required),
             frontmatter=values,
         )
 
@@ -340,13 +342,32 @@ class SkillPackage(BaseModel):
         """Read one ``templates/`` resource, returning ``""`` when it is absent or unreadable.
 
         Optional resources (step prompt / gate templates) must not make an otherwise
-        valid workflow fail to load: the workflow declaration stays authoritative and
-        the CLI keeps a built-in default for each.
+        valid workflow fail to load: requiredness, when it applies, is the workflow
+        declaration's call (``required_resources``), enforced by ``_read_template_resource``.
         """
         try:
             return self.read_template(resource).strip()
         except SkillPackageResourceError:
             return ""
+
+    def _required_templates(self, values: dict[str, Any], workflow: str) -> frozenset[str]:
+        """``templates/`` file names the workflow declaration marks required (``required_resources``)."""
+        declared = values.get("required_resources")
+        if not declared:
+            return frozenset()
+        return frozenset(self._resource_list(declared, workflow, "required_resources"))
+
+    def _read_template_resource(self, resource: str, required: frozenset[str]) -> str:
+        """Read one ``templates/`` resource; blank-or-missing is fatal when declared required.
+
+        Requiredness is the workflow declaration's call, not the loader's: a package that
+        lists a resource in ``required_resources`` fails the load without it, while a
+        package that stays silent keeps the resource optional.
+        """
+        text = self._read_optional_resource(resource)
+        if resource in required and not text:
+            raise SkillWorkflowError(self.skill_id, resource, "declared in required_resources but missing or blank")
+        return text
 
     def _discover_workflow_steps(self) -> list[str]:
         candidates = sorted(
@@ -422,16 +443,16 @@ class SkillPackage(BaseModel):
             raise ValueError(f"invalid step filename: {value}")
         return int(match.group(1)), value.lower()
 
-    def _resource_list(self, value: Any, workflow: str) -> list[str]:
+    def _resource_list(self, value: Any, workflow: str, label: str = "steps") -> list[str]:
         if isinstance(value, str):
             items = [item.strip() for item in value.strip("[]").split(",") if item.strip()]
         elif isinstance(value, list):
             items = [str(item).strip() for item in value if str(item).strip()]
         else:
-            raise SkillWorkflowError(self.skill_id, workflow, "steps must be a list")
+            raise SkillWorkflowError(self.skill_id, workflow, f"{label} must be a list")
         for item in items:
             if self._is_absolute(item) or self._has_parent(item):
-                raise SkillWorkflowError(self.skill_id, item, "step reference must stay within package root")
+                raise SkillWorkflowError(self.skill_id, item, f"{label} reference must stay within package root")
         return items
 
     @staticmethod

@@ -56,8 +56,9 @@
 导航和边界说明，不复制那份契约。
 
 `.heagent/skills/he-goal/` 本身是一个**技能包**（其 `SKILL.md` 声明 `canonical_id: he-goal`），
-CLI 按包 id 解析它。包内除 `workflow.md` 外还可提供 `templates/prompt-template.md`（步骤提示词模板）与
-`templates/gate-template.md`（门禁提示块模板）：改工作流行为应改包，而不是改 Python。
+CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt-template.md`（步骤提示词模板）与
+`templates/gate-template.md`（门禁提示块模板）——CLI 不内置模板兜底；模板的必需性由 `workflow.md`
+frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：改工作流行为应改包，而不是改 Python。
 
 ### 权威关系
 
@@ -65,7 +66,7 @@ CLI 按包 id 解析它。包内除 `workflow.md` 外还可提供 `templates/pro
 | --- | --- | --- |
 | 工作流步骤、角色、输入输出、检查点 | `.heagent/skills/he-goal/workflow.md` | 读取、解析、校验并按声明执行 |
 | 步骤方法论 | 每个步骤均由 `role:` 指向 `.heagent/skills/*/SKILL.md` | 把声明和上下文交给 SubAgent |
-| 步骤提示词与门禁文案 | 包内 `templates/prompt-template.md`、`templates/gate-template.md`（**运行时依赖**） | 替换占位符渲染 prompt；资源缺失时静默回退 `cli_goal.py` 内置兜底 |
+| 步骤提示词与门禁文案 | 包内 `templates/prompt-template.md`、`templates/gate-template.md`（必需性由 `workflow.md` 的 `required_resources` 声明） | 替换占位符渲染 prompt；执行声明的必需性（缺失即加载失败），代码不携带模板文案 |
 | 运行策略参数（`max_rounds`、`auto_schedule`、未决问题文案） | `workflow.md` 的 frontmatter | 读取声明；代码只保留兜底默认值 |
 | Goal 身份与工作流产物 | `_he-output/goals/<goal-id>/` | 创建目录、保存输出、恢复 checkpoint |
 | Goal/Epic/Story 结构契约 | `src/heagent/engine/artifacts.py` 与 `.heagent/skills/he-goal/templates/` | 解析和校验结构 |
@@ -180,7 +181,8 @@ _he-output/goals/<goal-id>/
 
 - 变更流程顺序或阶段职责：修改 `.heagent/skills/he-goal/workflow.md`。
 - 变更步骤提示词或门禁文案：改包内 `templates/prompt-template.md` / `templates/gate-template.md`
-  （占位符清单见包 `SKILL.md`；这两个是**运行时依赖**，清理 `templates/` 时不要删——缺失不会报错，只会静默退回内置模板）；
+  （占位符清单见包 `workflow.md` 的「模板契约」节；必需性由 frontmatter `required_resources` 声明，
+  清理 `templates/` 时不要删——缺失会让 `/goal` 在加载阶段显性报错）；
   变更 `/goal run` 的步数上限、`/goal auto` 的默认 cron、未决问题策略文案：改 `workflow.md` 的 frontmatter
   声明（`max_rounds` / `auto_schedule` / `open_question_default` / `open_question_block`）。两者都不需要改 Python。
 - 新增或重排步骤：在 `workflow.md` 加 `## Step NN: name` 区块，`NN` 必须从 1 连续递增；每个步骤的

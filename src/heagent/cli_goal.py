@@ -80,23 +80,9 @@ _GOAL_LOCK_TIMEOUT = 5.0  # 并发方快速失败；cron 下一 tick 自动重�
 # 工作流包 id 的默认值只在 Settings.goal_workflow_skill 一处声明；本模块一律从配置读。
 # /goal 的技能库根：工作流包与每个步骤的角色包都从这里按 id 解析（单一来源）。
 _GOAL_SKILLS_ROOT = Path(".heagent/skills")
-# 以下四段文案都是**兜底**：workflow 包声明了对应内容时以包为准（工作流逻辑尽量不进代码）。
-_DEFAULT_PROMPT_TEMPLATE = (
-    "{workflow_instructions}\n\n# Declarative workflow step\n"
-    "Goal: {goal}\n"
-    "Goal directory: {goal_dir}\n"
-    "Project output root: {output_root}\n"
-    "Step: {step}\n"
-    "{story_context}"
-    "Role instructions:\n{role}\n"
-    "Open question policy:\n{open_question_policy}\n"
-    "Declared inputs:\n{inputs}\n"
-    "{gate}"
-    "Execute only this declared step. Write every durable non-code project artifact under the project output root; "
-    "source code remains in its established repository location. Return the complete artifact body as your final "
-    "response; do not return a summary, link, or claim that you wrote it elsewhere."
-)
-_DEFAULT_GATE_TEMPLATE = "Gate requirements (hard, enforced on your final response):\n{sections}{acceptance}{rules}"
+# 以下两段文案是**兜底**：workflow 包 frontmatter 声明了对应内容时以包为准（工作流逻辑尽量不进代码）。
+# 提示词与门禁模板**不在代码里**：由 workflow 包的 templates/ 携带；必需性由包 frontmatter 的
+# ``required_resources`` 声明，缺失在包加载（read_workflow）时显性报错。
 _DEFAULT_OPEN_QUESTION_DEFAULT = (
     "When a competing interpretation requires a stakeholder choice, proceed with the recommended "
     "default and record the assumption explicitly; do not stop with waiting_user."
@@ -300,7 +286,7 @@ def _goal_gate_requirements(workflow: WorkflowResource, validation_rules: str) -
             "this step's work has to be redone.\n"
         )
     acceptance = "- Acceptance criteria must be written as Given / When / Then.\n" if needs_given_when_then else ""
-    template = workflow.gate_template or _DEFAULT_GATE_TEMPLATE
+    template = workflow.gate_template
     return _render_template(
         template,
         {"sections": headings, "acceptance": acceptance, "rules": f"- Declared validation rules (verbatim): {rules}"},
@@ -362,7 +348,7 @@ def _goal_declarative_prompt(
             + (f"\nParent epic: {epic_ref}" if epic_ref else "")
             + "\nWork only on this one story; leave all other stories for subsequent increments.\n"
         )
-    template = workflow.prompt_template or _DEFAULT_PROMPT_TEMPLATE
+    template = workflow.prompt_template
     return _render_template(
         template,
         {
