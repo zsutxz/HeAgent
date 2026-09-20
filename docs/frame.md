@@ -820,7 +820,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 
 `/goal` 是 CLI 层的机制入口（命令族实现位于 `cli_goal.py`）。当前工作流的唯一方法论入口是
 `.heagent/skills/he-workflow/workflow.md`（属 `he-workflow` 包，由 skill catalog 按 id/别名解析）；步骤声明中的 `role` 再解析对应的 `.heagent/skills/*/SKILL.md`。
-当前工作流的维护说明见[根 README 的「Goal 工作流」章节](../README.md#goal-工作流)。
+当前工作流的维护说明见[文档索引的「Goal 工作流」章节](README.md#goal-工作流)。
 
 - `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/require.md`（只含原始需求）
   和 `current` 指针，然后执行 workflow 的第一个声明步骤；「总结的需求」由 step 01 初步分析后写回同一文档。
