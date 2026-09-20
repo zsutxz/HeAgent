@@ -1,4 +1,4 @@
-"""/goal command family: declarative workflow dispatch, questionnaire gating, and cron auto-advance."""
+"""/goal command family: declarative workflow dispatch, cron auto-advance, and goal mutex."""
 
 from __future__ import annotations
 
@@ -32,7 +32,6 @@ from heagent.engine import (
     required_sections,
 )
 from heagent.goal.document import (
-    _GOAL_DECLARATIVE_WORKFLOW_PATH,
     _GOALS_DIR,
     _goal_description,
     _goal_document,
@@ -78,8 +77,7 @@ _GOAL_LOCK_TIMEOUT = 5.0  # 并发方快速失败；cron 下一 tick 自动重�
 
 # 工作流执行状态词汇与推进轮数上限：随编排分支（advance/execute 状态机）变，
 # 不随文档约定变，故留本模块（goal/document.py 只做文档与命名，见其 docstring）。
-# 工作流包 id：由 skill catalog 在技能库里按 id/别名解析（默认包 .heagent/skills/he-workflow/）。
-_GOAL_WORKFLOW_SKILL = "he-workflow"
+# 工作流包 id 的默认值只在 Settings.goal_workflow_skill 一处声明；本模块一律从配置读。
 # /goal 的技能库根：工作流包与每个步骤的角色包都从这里按 id 解析（单一来源）。
 _GOAL_SKILLS_ROOT = Path(".heagent/skills")
 # 以下四段文案都是**兜底**：workflow 包声明了对应内容时以包为准（工作流逻辑尽量不进代码）。
@@ -99,6 +97,14 @@ _DEFAULT_PROMPT_TEMPLATE = (
     "response; do not return a summary, link, or claim that you wrote it elsewhere."
 )
 _DEFAULT_GATE_TEMPLATE = "Gate requirements (hard, enforced on your final response):\n{sections}{acceptance}{rules}"
+
+# 模板占位符单遍渲染：值里再出现 ``{xxx}`` 字样也不会被二次替换（链式 str.replace 会）。
+_TEMPLATE_FIELD_RE = re.compile(r"\{(\w+)\}")
+
+
+def _render_template(template: str, fields: Mapping[str, str]) -> str:
+    """Render ``{name}`` placeholders in one pass; unknown placeholders stay verbatim."""
+    return _TEMPLATE_FIELD_RE.sub(lambda match: fields.get(match.group(1), match.group(0)), template)
 _DEFAULT_OPEN_QUESTION_DEFAULT = (
     "When a competing interpretation requires a stakeholder choice, proceed with the recommended "
     "default and record the assumption explicitly; do not stop with waiting_user."
@@ -190,7 +196,7 @@ def _resolve_skill_package(skill_id: str) -> SkillPackage | None:
 
 def _goal_workflow_package() -> SkillPackage | None:
     """Resolve the configured workflow package; ``None`` when it is not installed."""
-    return _resolve_skill_package(get_settings().goal_workflow_skill or _GOAL_WORKFLOW_SKILL)
+    return _resolve_skill_package(get_settings().goal_workflow_skill)
 
 
 def _goal_declarative_workflow() -> WorkflowResource | None:
@@ -295,10 +301,9 @@ def _goal_gate_requirements(workflow: WorkflowResource, validation_rules: str) -
         )
     acceptance = "- Acceptance criteria must be written as Given / When / Then.\n" if needs_given_when_then else ""
     template = workflow.gate_template or _DEFAULT_GATE_TEMPLATE
-    return (
-        template.replace("{sections}", headings)
-        .replace("{acceptance}", acceptance)
-        .replace("{rules}", f"- Declared validation rules (verbatim): {rules}")
+    return _render_template(
+        template,
+        {"sections": headings, "acceptance": acceptance, "rules": f"- Declared validation rules (verbatim): {rules}"},
     )
 
 
@@ -358,17 +363,20 @@ def _goal_declarative_prompt(
             + "\nWork only on this one story; leave all other stories for subsequent increments.\n"
         )
     template = workflow.prompt_template or _DEFAULT_PROMPT_TEMPLATE
-    return (
-        template.replace("{workflow_instructions}", workflow.instructions)
-        .replace("{goal}", description)
-        .replace("{goal_dir}", str(goal_dir.resolve()))
-        .replace("{output_root}", str(goal_dir.parent.parent.resolve()))
-        .replace("{step}", step_name)
-        .replace("{story_context}", story_context)
-        .replace("{role}", role)
-        .replace("{open_question_policy}", open_question_policy)
-        .replace("{inputs}", supplied_inputs)
-        .replace("{gate}", gate_block)
+    return _render_template(
+        template,
+        {
+            "workflow_instructions": workflow.instructions,
+            "goal": description,
+            "goal_dir": str(goal_dir.resolve()),
+            "output_root": str(goal_dir.parent.parent.resolve()),
+            "step": step_name,
+            "story_context": story_context,
+            "role": role,
+            "open_question_policy": open_question_policy,
+            "inputs": supplied_inputs,
+            "gate": gate_block,
+        },
     )
 
 
@@ -967,8 +975,8 @@ async def _goal_runner(  # noqa: C901
         return
     click.echo(
         "[goal] workflow.md is required; the legacy story-board flow has been removed. "
-        f"Create {_GOAL_DECLARATIVE_WORKFLOW_PATH} (with a SKILL.md declaring its canonical_id) "
-        "to configure goal execution.",
+        f"Create {_GOAL_SKILLS_ROOT / get_settings().goal_workflow_skill / 'workflow.md'} "
+        "(with a SKILL.md declaring its canonical_id) to configure goal execution.",
         err=True,
     )
     return

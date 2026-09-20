@@ -215,7 +215,7 @@ validation: section: 实现摘要; section: 测试证据; section: 验证结论;
 `implementation.md`、`test-report.md` 与 `verify-report.md`；CLI 保存该次步骤输出为同目录的
 `report.md`。命中 Sprint 或 Epic 的最后一条 Story 时，按 BMad 方法完成相应收口，并将证据写入报告。
 
-**验证工作区约定。** 需要临时副本或夹具（例如变异测试）时，请在工作区内创建并读写：用 `file_write` / `file_read` 操作 `.heagent/tmp/<goal-id>-verify/` 下的文件。**不要**用 shell 把项目拷到 `%TEMP%` 等工作区外的路径（会被工作区路径围栏拦下），也不要写 `python -c` / `node -e` 内联单行脚本（会被 `SafetyGuard` 判为危险命令）——要跑脚本就落盘成文件再执行。被拦下的命令不产生任何结果，只会白耗迭代预算：本步骤预算已声明为 step 级 `max_iterations: 100`（原子大 Story 不易撞全局 `GOAL_MAX_ITERATIONS` 上限），其验证子代理另受 `SUBAGENT_MAX_ITERATIONS` 约束。
+**验证工作区约定。** 需要临时副本或夹具（例如变异测试）时，请在工作区内创建并读写：用 `file_write` / `file_read` 操作 `.heagent/tmp/<goal-id>-verify/` 下的文件。**不要**用 shell 把项目拷到 `%TEMP%` 等工作区外的路径（会被工作区路径围栏拦下）。要跑脚本就落盘成文件再执行——内联 `python -c` / `node -e` 单行脚本难以审查与复跑，落盘脚本才可审计、可重放（含危险关键词的内联载荷仍会被整条命令扫描拦下，但良性内联命令本身不禁）。被拦下的命令不产生任何结果，只会白耗迭代预算：本步骤预算已声明为 step 级 `max_iterations: 100`（原子大 Story 不易撞全局 `GOAL_MAX_ITERATIONS` 上限），其验证子代理另受 `SUBAGENT_MAX_ITERATIONS` 约束。
 
 ## Step 08: system-integration-test（系统集成及测试）
 role: bmad-qa-generate-e2e-tests

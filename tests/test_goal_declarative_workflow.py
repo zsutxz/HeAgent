@@ -25,7 +25,7 @@ from heagent.engine import (
     required_sections,
 )
 from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
-from heagent.memory.skill_packages import WorkflowResource, WorkflowStepResource
+from heagent.memory.skill_packages import SkillPackage, WorkflowResource, WorkflowStepResource
 
 
 @pytest.fixture()
@@ -383,23 +383,21 @@ async def test_empty_subagent_output_fails_without_persisting_empty_artifact(
     assert not (goal_dir / "step-01-plan.md").exists()
 
 
-def _real_step_one() -> tuple[str, str]:
-    """Return the shipped workflow's step-01 block and its validation declaration."""
-    workflow_path = Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-workflow" / "workflow.md"
-    text = workflow_path.read_text(encoding="utf-8")
-    block = text.split("## Step 01:", 1)[1].split("## Step 02:", 1)[0]
-    return block, next(line for line in block.splitlines() if line.startswith("validation:"))
+def _real_step_one() -> WorkflowStepResource:
+    """Parse the shipped workflow with the production loader and return its step 01."""
+    package = SkillPackage(
+        skill_id="he-workflow",
+        root=Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-workflow",
+    )
+    return package.read_workflow("workflow.md").steps[0]
 
 
 def test_step_one_gate_requires_the_derived_requirements_summary() -> None:
     """Step 01 is the initial analysis: it must write and return the summarized requirements."""
-    block, validation = _real_step_one()
-    assert required_sections(validation) == ["需求总结"]
-    assert "require.md" in block
-    assert "## 总结的需求（Derived Requirements）" in block
-    step = WorkflowStepResource(
-        index=1, name="step-01-market-research.md", instructions="", validation_rules=validation
-    )
+    step = _real_step_one()
+    assert required_sections(step.validation_rules) == ["需求总结"]
+    assert "require.md" in step.instructions
+    assert "## 总结的需求（Derived Requirements）" in step.instructions
     WorkflowRunner.validate_output(step, "## 需求总结\n\n能验证的需求陈述")
     with pytest.raises(WorkflowGateError):
         WorkflowRunner.validate_output(step, "## 市场综述\n\n只有调研结论")
@@ -726,10 +724,6 @@ def test_declared_run_rounds_and_auto_schedule_override_cli_defaults(declarative
 def test_workflow_package_resolves_by_id_and_serves_its_own_templates(declarative_cwd: Path) -> None:
     """A package entry makes the workflow addressable by id and lets it ship prompt/gate templates."""
     root = declarative_cwd / ".heagent" / "skills" / "he-workflow"
-    (root / "SKILL.md").write_text(
-        "---\ncanonical_id: he-workflow\nname: he-workflow\ndescription: test package\n---\n\n# test package\n",
-        encoding="utf-8",
-    )
     templates = root / "templates"
     templates.mkdir(exist_ok=True)
     (templates / "prompt-template.md").write_text("CUSTOM {goal} :: {step}\n{gate}", encoding="utf-8")

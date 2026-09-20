@@ -326,25 +326,25 @@ class SkillPackage(BaseModel):
             checkpoint_mode=cast("CheckpointMode", checkpoint_mode),
             open_question_mode=cast("OpenQuestionMode", open_question_mode),
             max_rounds=self._bounded_int(values, resource, key="max_rounds", default=10, maximum=100),
-            auto_schedule=self._value_text(values, "auto_schedule", "auto_cron"),
-            open_question_default=self._value_text(values, "open_question_default", "question_policy_default"),
-            open_question_block=self._value_text(values, "open_question_block", "question_policy_block"),
-            prompt_template=self._read_optional_resource("templates/prompt-template.md"),
-            gate_template=self._read_optional_resource("templates/gate-template.md"),
+            auto_schedule=self._value_text(values, "auto_schedule"),
+            open_question_default=self._value_text(values, "open_question_default"),
+            open_question_block=self._value_text(values, "open_question_block"),
+            prompt_template=self._read_optional_resource("prompt-template.md"),
+            gate_template=self._read_optional_resource("gate-template.md"),
             frontmatter=values,
         )
 
     load_workflow = read_workflow
 
     def _read_optional_resource(self, resource: str) -> str:
-        """Read one package resource, returning ``""`` when it is absent or unreadable.
+        """Read one ``templates/`` resource, returning ``""`` when it is absent or unreadable.
 
         Optional resources (step prompt / gate templates) must not make an otherwise
         valid workflow fail to load: the workflow declaration stays authoritative and
         the CLI keeps a built-in default for each.
         """
         try:
-            return self.read_resource(resource).strip()
+            return self.read_template(resource).strip()
         except SkillPackageResourceError:
             return ""
 

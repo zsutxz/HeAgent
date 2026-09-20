@@ -25,11 +25,11 @@ from typing import Any
 from heagent.frontmatter import extract_h2_section, parse_strict_pairs, split_frontmatter
 from heagent.persist import atomic_update_text
 
-# goal 状态目录与声明式 workflow 路径（相对路径，使用时锚定 Path.cwd()）。
+# goal 状态目录（相对路径，使用时锚定 Path.cwd()）。workflow 包的定位由 cli_goal 经
+# Settings.goal_workflow_skill + skill catalog 解析，不在本模块硬编码。
 # Durable user-facing Goal and workflow artifacts belong under the project output
 # root. ``.heagent`` remains reserved for runtime configuration and skill code.
 _GOALS_DIR = Path("_he-output/goals")
-_GOAL_DECLARATIVE_WORKFLOW_PATH = Path(".heagent/skills/he-workflow/workflow.md")
 # 需求文档名：新 goal 一律落 require.md；GOAL.md 只作存量 goal 的读取回落（见 _goal_document_path）。
 _GOAL_DOCUMENT_NAME = "require.md"
 _LEGACY_GOAL_DOCUMENT_NAME = "GOAL.md"
