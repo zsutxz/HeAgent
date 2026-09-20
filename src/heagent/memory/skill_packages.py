@@ -336,8 +336,6 @@ class SkillPackage(BaseModel):
             frontmatter=values,
         )
 
-    load_workflow = read_workflow
-
     def _read_optional_resource(self, resource: str) -> str:
         """Read one ``templates/`` resource, returning ``""`` when it is absent or unreadable.
 
