@@ -18,7 +18,7 @@ HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP s
 - **同等约束**：MCP 工具走与内置工具一致的 `ToolError` 语义，享受同等的工具名黑名单预校验（DP-4 第一半 2026-07-08）与返回内容启发式标记（DP-4 第二半 2026-07-10），但**两者均非真正安全边界**。
 - **须 OS 级沙箱兜底**：连 MCP server 时同样必须在沙箱内运行，并对子进程 / 出站网络施加最小权限。
 
-**后续（deferred / future，V2 未做）：** Resources 原语、返回内容围栏的全局级用户可配置签名入口（项目级 `.heagent/injection_signatures.json` 已交付；仍属 defense-in-depth，非真正安全边界）。（Prompts 原语已完成：Story 16-1/2/3/4 2026-07-20；写操作治理已交付 V2 2026-07-17：annotations 感知 `PolicyEngine` 闸门，见 `engine/policy.py`、`tools/mcp/mapping.py`；执行前工具名拦截已交付 DP-4 第一半 2026-07-08；返回内容启发式围栏已交付 DP-4 第二半 2026-07-10；运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
+**后续（deferred / future，V2 未做）：** Resources 原语、返回内容围栏的全局级用户可配置签名入口（项目级 `.heagent/injection_signatures.json` 已交付；仍属 defense-in-depth，非真正安全边界）。（Prompts 原语已完成：Story 17-1/2/3/4 2026-07-20，story 归档文件沿用旧前缀 16-x、+1 偏移对照见该周期 README；写操作治理已交付 V2 2026-07-17：annotations 感知 `PolicyEngine` 闸门，见 `engine/policy.py`、`tools/mcp/mapping.py`；执行前工具名拦截已交付 DP-4 第一半 2026-07-08；返回内容启发式围栏已交付 DP-4 第二半 2026-07-10；运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
 
 ## 文档布局
 
@@ -31,14 +31,14 @@ HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP s
 | `docs/iteration.md` | 迭代开发指南与历程——怎么迭代过来的 / 怎么继续迭代（BMad 周期 / epic / 技术债 / 路线图） |
 | `docs/stock/` | 运行时股票报告输出，已 gitignore |
 | `_bmad-output/implementation-artifacts/deferred-work-archive.md` | **架构/代码优化台账**（活动遗留项 + 勘察类闭合归档）——被要求「优化项目」时先读此：条目含触发条件/严重度/冻结边界，闭合按归属 epic 归档（原 `deferred-work.md` 已于 2026-09-17 并入） |
-| `_bmad-output/consolidated-overview.md` | **统一整合总览（含 epic 总目录）**——全周期摘要 + 全 epic（1-35 + S1-S4）主题/状态/story/patch 映射（原 EPICS-INDEX.md 已并入） |
+| `_bmad-output/consolidated-overview.md` | **统一整合总览（含 epic 总目录）**——全周期摘要 + 全 epic（1-47 + S1-S4）主题/状态/story/patch 映射（原 EPICS-INDEX.md 已并入） |
 | `_bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/` | 按 epic 归档的 story 文件，嵌套在所属周期目录内（仅建有 story 的 epic） |
-| `_bmad-output/epics/epic-01-10-主线规划周期/` | 主线规划周期（epics 1-10，冻结决策）：`architecture.md`·`brief.md`·`prd.md`·`epics.md`·`epics-self-learning.md`·`sprint-status.yaml`（story 已移至 epic 目录） |
+| `_bmad-output/epics/epic-01-10-主线规划周期/` | 主线规划周期（epics 1-10，冻结决策）：`architecture.md`·`brief.md`·`prd.md`·`epics.md`·`epics-self-learning.md`（story 已移至 epic 目录；sprint-status 权威在顶层 `_bmad-output/sprint-status.yaml`） |
 | `_bmad-output/epics/epic-11-18-MCP集成周期/` | MCP Client 集成周期（epics 11-18，三阶段，2026-08-18 合并） |
-| `_bmad-output/epics/`（其余周期目录） | epic-S1-S4-沙箱硬化周期 / epic-19-20-健壮性硬化周期 / epic-21-24-质量工程周期 / epic-25-28-GUI界面周期 / epic-29-35-交互扩展周期 |
-| `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录归档——原 `_bmad-output/patches/`（按领域分子目录）已于 2026-09-15 解散，映射见 consolidated-overview.md 十二 |
+| `_bmad-output/epics/`（其余周期目录） | epic-S1-S4-沙箱硬化周期 / epic-19-20-健壮性硬化周期 / epic-21-24-质量工程周期 / epic-25-28-GUI界面周期 / epic-29-35-交互扩展周期 / epic-36-39-文件安全防护周期 / epic-40-沙箱会话化周期 / epic-41-目标驱动开发周期 / epic-42-BMad技能包运行时周期 / epic-43-46-目标级工作流周期 / epic-47-声明式BMad敏捷工作流周期 |
+| `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录归档——原 `_bmad-output/patches/`（按领域分子目录）已于 2026-09-15 解散，映射见 consolidated-overview.md 十三 |
 
-> 进度：全部 10 个 epic 已完成（24 个 FR），详见 `_bmad-output/epics/epic-01-10-主线规划周期/sprint-status.yaml`；`engine/` 为 epic 外 P0 增量（见 frame.md 4.12）。
+> 进度：全部 10 个 epic 已完成（24 个 FR），详见顶层 `_bmad-output/sprint-status.yaml`；`engine/` 为 epic 外 P0 增量（见 frame.md 4.12）。
 
 ## 架构骨架
 

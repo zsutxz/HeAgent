@@ -459,4 +459,7 @@ development_status:
   47-5-goal-epic-story-integration: done
   47-6-review-retrospective-correct-course: done
   47-7-sample-epic-regression-docs: done
+  47-8-story-parallel-config: done
+  47-9-story-parallel-batch: done
+  47-10-story-parallel-checkpoint: done
   epic-47-retrospective: done

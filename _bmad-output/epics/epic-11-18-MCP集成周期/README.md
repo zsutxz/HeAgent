@@ -12,6 +12,8 @@
 | **二 · v1→v2 升级准备** | Epic 14 | `mcp-v2-upgrade/` | 2026-07-12 | 兑现迁移预留：`session_api.py` 隔离层收敛 5 个 v2-sensitive 调用点、FR-3 断连机制选型、切换路径文档化 | `brief.md` §二、`prd.md` §二、`architecture.md` §二、`epics.md` §二 |
 | **三 · MCP Client V2** | Epic 15-18 | `mcp-client-v2/` | 2026-07-17 | 写操作治理（annotations → PolicyEngine）、Resources/Prompts 原语、内置 git 工具扩展 | `brief.md` §三、`prd.md` §三、`architecture.md` §三、`epics.md` §三 |
 
+> **编号对照（重要）**：本目录内 V2 各 epic 子目录与 story 文件前缀沿用**移出前的旧编号 14–17**，与主线统一编号存在 **+1 偏移**——写操作治理 / Resources / Prompts / 内置工具扩展的权威编号是 **Epic 15/16/17/18**（顶层 [`sprint-status.yaml`](../../sprint-status.yaml)）。即磁盘 `epic-14-MCP升级准备/stories/14-x` = 权威 15-x（写操作治理）、`epic-15-写操作治理/stories/15-x` = 权威 16-x（Resources）、`epic-16-Resources发现与读取/stories/16-x` = 权威 17-x（Prompts）；Epic 17-4 与 18-x 的 story 文件未随迁移归档（仅存 git 历史）。引用一律以 sprint-status 权威编号为准。
+
 ## 文件索引
 
 | 文件 | 用途 |
@@ -23,7 +25,7 @@
 | `decision-log.md` | 决策记录（整合）：brief D1-D7 / PRD DP-1~6 / V2 P1-P5 与 OQ 定稿 |
 | `retrospective-epic-13.md` | Epic 13 回顾（V1 周期收尾，2026-06-29） |
 | `poc-readiness-report.md` | 升级周期 POC 就绪度报告（实装 mcp 2.0.0b1 验证隔离层） |
-| `sprint-status.yaml` | 旧 sprint-status 归档（mcp-client-v2 版；全周期状态以 `../baseline/sprint-status.yaml` 为权威） |
+| `sprint-status.yaml` | 旧 sprint-status 归档（mcp-client-v2 版；全周期状态以顶层 [`../../sprint-status.yaml`](../../sprint-status.yaml) 为权威） |
 | `epics-integration.md` | **历史归档**：2026-06-03 的「Epic 6: AgentLoop 全模块集成」（INT-1~5），非 MCP 周期内容，编号已被占用，仅保留作历史 |
 | `stories/` | Story 文件（V2 周期 9 个：A.1~A.4 / B.1~B.3 / C.1~C.3 对应原 14-x/15-x/16-x 命名） |
 | `reviews/_v1/` | V1 PRD 评审 rubric |
@@ -49,5 +51,5 @@
 
 ## 历史注记
 
-- **mcp-client-v2 stories 编号偏移**：`stories/` 内文件名为原内部编号（14-1~16-3，对应内部 Epic A/B/C），与 `../baseline/sprint-status.yaml` 的统一主线编号（15-x/16-x/17-x）存在 +1 偏移——story 文件为历史快照，编号以 sprint-status.yaml 为权威。
-- **升级周期 vs V2 周期的 Epic 14 冲突**：曾有两份 Epic 14（升级准备 vs V2 内部编号），2026-07-23 整合后升级准备 = 主线 Epic 14、V2 = 主线 Epic 15-18（见 `../baseline/sprint-status.yaml` 合并说明）。
+- **mcp-client-v2 stories 编号偏移**：`stories/` 内文件名为原内部编号（14-1~16-3，对应内部 Epic A/B/C），与 `../../sprint-status.yaml` 的统一主线编号（15-x/16-x/17-x）存在 +1 偏移——story 文件为历史快照，编号以 sprint-status.yaml 为权威。
+- **升级周期 vs V2 周期的 Epic 14 冲突**：曾有两份 Epic 14（升级准备 vs V2 内部编号），2026-07-23 整合后升级准备 = 主线 Epic 14、V2 = 主线 Epic 15-18（见 `../../sprint-status.yaml` 合并说明）。

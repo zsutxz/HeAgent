@@ -217,11 +217,11 @@ FR-A1~A7 → Epic A；FR-B1~B4 → Epic B；FR-C1~C4 → Epic C。**16/16 全覆
 
 # 注记：主线 Epic 18（内置工具扩展，git + path safety）
 
-阶段三周期同期交付的主线 Epic 18（内部无独立 epic 文件，见 `../baseline/sprint-status.yaml` 与 `docs/frame.md`）：**内置工具扩展**——18-1 git-status-diff / 18-2 git-log-blame（git 工具，本质是 shell wrapper）/ 18-3 path-safety-integration（`resolve_under_root` 集成）/ 18-4 tests-docs。全部 `done`。
+阶段三周期同期交付的主线 Epic 18（内部无独立 epic 文件，见 `../../sprint-status.yaml` 与 `docs/frame.md`）：**内置工具扩展**——18-1 git-status-diff / 18-2 git-log-blame（git 工具，本质是 shell wrapper）/ 18-3 path-safety-integration（`resolve_under_root` 集成）/ 18-4 tests-docs。全部 `done`。
 
 ---
 
-# 三阶段 story 状态（权威 = `../baseline/sprint-status.yaml`）
+# 三阶段 story 状态（权威 = `../../sprint-status.yaml`）
 
 | 阶段 | 内部编号 | 主线编号 | Stories | 状态 |
 |------|---------|---------|---------|------|

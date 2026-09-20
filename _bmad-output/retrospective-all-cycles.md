@@ -1,6 +1,6 @@
 # HeAgent 全周期综合回顾
 
-> 生成: 2026-07-22（**2026-09-15 扩充**：补周期 8–15 / Epic 24–47 速览；**2026-09-18 修订**：新增「五、待完成工作」，修正 6 处已闭环却仍列为待办的表述，指标刷新至 2026-09-18）
+> 生成: 2026-07-22（**2026-09-15 扩充**：补周期 8–15 / Epic 24–47 速览；**2026-09-18 修订**：新增「五、待完成工作」，修正 6 处已闭环却仍列为待办的表述，指标刷新至 2026-09-18；2026-09-20 补录 §1b 自学习闭环速览并统一 §3 编号口径）
 > 覆盖: Epic 1–47 + S1–S4，**15 个开发周期**（51 个 Epic 条目）
 > 基准: **1983 passed / 9 skipped**（2026-09-18 实测）、ruff / mypy clean、覆盖率 **90.86%**（gate 87）
 >
@@ -20,6 +20,15 @@
 | 做对 | 协议优于实现 (Protocol+decorator)、deferred 编号化跟踪、「不成立」关闭+回归测试锁定、依赖最小化 |
 | 改进 | 安全边界诚实度、send/stream 对称测试、并发竞态先核实 await 交错再定级 |
 
+### 1b. 自学习闭环（Epic 6–10）· 2026-06
+
+> 2026-09-20 补录速览（此前遗漏；规划拆分见 `epics/epic-01-10-主线规划周期/epics-self-learning.md`）。
+
+| 维度 | 要点 |
+|------|------|
+| 交付 | Epic 6 Context Files 自动加载（FR-20）、Epic 7 SOUL.md 人格系统（FR-21）、Epic 8 Memory Nudge 记忆提醒（FR-22）、Epic 9 Skill Curator 技能策展（FR-23）、Epic 10 Cron 定时调度（FR-24）——主线 FR-20~24 全部交付，sprint-status 全 `done` |
+| 形态 | 仅 Epic 1/2/4/5/10 建有 story 子目录，Epic 6-9 无独立 story 文件（规划粒度到 epic 级） |
+
 ### 2. MCP Client 集成一（Epic 11–13）· 2026-06–07
 
 | 维度 | 要点 |
@@ -29,7 +38,7 @@
 | 做对 | 架构基于真实代码核实非臆断、YAGNI 克制 (不抽 Protocol/不新建异常/不新建重试)、deferred 编号化、安全声明同构 |
 | 改进 | FR-3 断连 auto-unregister (已补)、MCP 输出围栏 V1 缺位 (已补 DP-4)、回顾非实时 (应在 epic 完成后即做) |
 
-### 3. MCP V2 + 内置工具扩展（Epic 14–17）· 2026-07
+### 3. MCP V2 + 内置工具扩展（Epic 15–18）· 2026-07（story 归档沿用旧编号 14–17，+1 偏移对照见该周期 README）
 
 | 维度 | 要点 |
 |------|------|
@@ -154,7 +163,7 @@
 | 8 | **分层门禁** | 本地 88/CI 90 coverage、bandit -ll 不阻塞 CI——差异化约束不互锁 |
 | 9 | **优雅降级模式** | Firejail/WinJobBackend 不可用→warn+Passthrough，不 crash、不中断 |
 | 10 | **对称性审查** | send/stream、enter/exit、kill/wait——成对路径互相对照补齐 |
-| 11 | **方法论与机制分离** | `/goal` / 声明式工作流：流程规则归 Markdown（`.heagent/workflows/workflow.md` + 角色 SKILL.md，人可直接改），确定性边界归代码——工作流演进零代码改动 |
+| 11 | **方法论与机制分离** | `/goal` / 声明式工作流：流程规则归 Markdown（`.heagent/skills/he-workflow/workflow.md` + 角色 SKILL.md，人可直接改），确定性边界归代码——工作流演进零代码改动 |
 | 12 | **诚实门（honest gate）** | 能力「未真正生效」时宁可不报：`<shell-workspace>` 仅在真实后端就绪时注入；围栏 / 沙箱一律标注 defense-in-depth，不制造「已安全」假象 |
 
 ---
@@ -213,12 +222,12 @@
 - `45-1` / `45-2` 无 story 文件（该 epic 仅 `45-3`）；`spec-45-3` / `spec-46-1` 已在归档提交中删除或改名。
 - **15 个 epic 的 retrospective 状态仍为 `optional`**（25-28 / 36-39 / 40 / 41 / 42 / 43-46）；其中 36、37、40、41、42 已于 2026-09-18 补做正式回顾，余 10 个未补做。
 - `S4-1`（executor emit `sandbox_backend` + `sandbox_pid`）仍 `skipped` —— 沙箱执行轨迹不可追溯。
-- `_bmad-output/README.md:13` 仍描述 `implementation-artifacts/` 含 `deferred-work.md` 与母规划 spec——两者均已不存在（现为 `deferred-work-archive.md`）。
+- `_bmad-output/README.md:13` 仍描述 `implementation-artifacts/` 含 `deferred-work.md` 与母规划 spec——两者均已不存在（现为 `deferred-work-archive.md`；**2026-09-20 已修正该描述**）。
 
 ### 5.3 路线图与技术债候选（逐条已核实仍开）
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本 `0.6.1`；`.github/workflows` 只有 `ci.yml` + `codeql.yml`）。
-- ⏳ `engine/workflow.py` legacy 相位机归档；benchmark 数据入库（历史趋势）；sandbox 开箱即用 profile 预设；Prompts/slash 结构化注册表。
+- ⏳ ~~`engine/workflow.py` legacy 相位机归档~~（已删除：2026-09-17 `d835bd8`，文件仅存 state/checkpoint-store）；benchmark 数据入库（历史趋势）；sandbox 开箱即用 profile 预设；Prompts/slash 结构化注册表。
 - ⏳ 低优先技术债：`model_pricing` 抽独立模型 + 校验、`guard_content` 加 `source` 参数、Hook 事件集补齐（`UserPromptSubmit`/`Stop`/`SubagentStop`/`PreCompact`）、readline 在 Windows 的降级方案、firejail/WinJob 不可用的 CLI banner 提示、sandbox profile 参数合法性校验、`skill_update` 遇富正文技能拒绝改写。
 
 ### 5.4 已决策关闭（不再排期）

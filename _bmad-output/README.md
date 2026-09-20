@@ -10,7 +10,7 @@
 _bmad-output/
 ├── consolidated-overview.md  统一整合总览（全周期综合摘要 + epic 总目录；原 EPICS-INDEX.md 已并入，2026-08-19）
 ├── retrospective-all-cycles.md  全周期综合回顾（2026-07-22 生成 / 2026-09-15 扩充至 Epic 1-47 + S1-S4）
-├── implementation-artifacts/ 活动件：未闭合 deferred 台账（deferred-work.md）+ 未启动的母规划 spec（spec-business-data-integration.md）
+├── implementation-artifacts/ 活动件：未闭合 deferred 台账（deferred-work-archive.md，2026-09-17 自 deferred-work.md 改名重组）
 ├── epics/                  按周期组织（2026-08-19）：周期目录（epic-区间-周期/）内含周期文档 + 各 epic 的 story 子目录（epic-NN-主题/stories/，仅建有 story 的 epic）+ 已闭合遗留项台账（各周期 deferred-work.md）
 │   ├── epic-01-10-主线规划周期/   baseline 周期文档（Epic 1–10，FR-1~24）+ epic-01-基础设施与LLM通信/
 │   ├── epic-11-18-MCP集成周期/    mcp（三阶段：11-13 / 14 / 15-18，2026-08-18 合并）
@@ -65,7 +65,7 @@ _bmad-output/
 | `architecture.md` | 技术架构与冻结决策（交叉引用 frame.md） |
 | `epics.md` | Epic 1-5（MVP，FR-1~19）拆分 + 覆盖矩阵 |
 | `epics-self-learning.md` | Epic 6-10（自学习闭环，FR-20~24）拆分 |
-| `sprint-status.yaml` | **全周期 story/epic 状态流转**（事实来源，覆盖当前全部周期；`action_items` 块 2026-09-15 移除，三条均 `closed`） |
+| （顶层 `_bmad-output/sprint-status.yaml`） | **全周期 story/epic 状态流转**（事实来源；本周期目录内无副本，`action_items` 块 2026-09-15 移除，三条均 `closed`） |
 | `epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/stories/`（1-1~1-5） | Epic 1 的可执行 story（含 AC，2026-08-19 移出） |
 
 ## epics/epic-11-18-MCP集成周期/ — MCP Client 集成周期（三阶段统一，2026-08-18 合并）
@@ -177,6 +177,7 @@ _bmad-output/
 | `epics/epic-01-10-主线规划周期/deferred-work.md` | E1-D1/D2（ProviderChain 双层重包、流式 backstop）、E4-D1/D2（Dreaming AC6 端到端、对抗审查 3 个 LOW）、E5-D1（SkillStore 写竞态，核实不成立）、E10-D1/D2（cron 关停硬上界、cron expr 诊断） |
 | `epics/epic-11-18-MCP集成周期/deferred-work.md` | E11-D1（FR-3 评审 6 项）、E11-D2（DP-4 返回内容围栏）、E11-D3（注入签名全局级，决策关闭） |
 | `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md` | S-D1（engine sandbox 后端评审 4 项，含进程组 kill 勘误）、S-D2（取消信号保留）、S-D3（reap 鲁棒性 3 项） |
+| `epics/epic-36-39-文件安全防护周期/deferred-work.md` | F-D1（凭证 deny 项目级入口，已闭合 `63806d3`，2026-09-17） |
 | `epics/epic-40-沙箱会话化周期/deferred-work.md` | E40-D1..D4 + E40-C1 |
 | `epics/epic-41-目标驱动开发周期/deferred-work.md` | E41-D1..D4（GUI `/goal` 收口、goal 跨进程锁为活动项） |
 | `epics/epic-47-声明式BMad敏捷工作流周期/deferred-work.md` | E47-D1（ledger 记录在途被删；engine 运行时治理增量，同域 `epic-47-声明式工作流与产物治理/spec-runtime-hygiene.md`） |
