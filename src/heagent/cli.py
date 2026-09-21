@@ -203,7 +203,8 @@ def _build_loop(
         workspace_root=os.getcwd(), sandbox_backend=sandbox_backend, runtime_config=config
     )
     resolved = engine.runtime_config
-    assert resolved is not None  # __post_init__ 必然完成解析
+    if resolved is None:  # pragma: no cover —— 构造完成即已解析，此分支仅为类型收窄显性兜底
+        raise RuntimeError("EngineContainer.runtime_config 未解析：构造后不应为 None")
     config = resolved
     retry_mw = make_retry_middleware(
         max_attempts=config.retry_max_attempts,
