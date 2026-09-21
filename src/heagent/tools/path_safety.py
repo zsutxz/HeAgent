@@ -15,9 +15,11 @@ deny 规则支持**项目级配置** ``.heagent/path_deny.json``（2026-09-17，
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
 import os
+import stat
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -79,6 +81,65 @@ def resolve_under_root(path: str, root: Path) -> Path:
 def resolve_workspace_path(path: str) -> Path:
     """Resolve a path and ensure it stays inside the current workspace."""
     return resolve_under_root(path, workspace_root())
+
+
+def open_text_under_root(root: Path, relative: str | Path) -> str:
+    """「解析后安全打开」单一入口：围栏 → 加固 open → fstat 校验 → 读取解码（Phase 4 C4）。
+
+    全仓技能/包资源文本读取的**唯一**底层通道：
+
+    1. ``resolve_under_root`` 围栏（逃逸即 ``WorkspacePathError``）；
+    2. ``os.open`` 加固——``O_NOFOLLOW``（平台支持时拒绝最终组件符号链接替换；不支持
+       的平台回退普通 open，特征测试钉住）+ ``O_NONBLOCK``/``O_CLOEXEC``/``O_BINARY``；
+    3. ``fstat`` 校验普通文件（拒 FIFO/设备文件，防阻塞与非常规读取）；
+    4. 读取 + utf-8 解码 + universal newlines（对齐 ``Path.read_text`` 历史行为）。
+
+    错误语义：``FileNotFoundError`` / ``OSError`` / ``UnicodeDecodeError`` 原样上抛，
+    由调用方映射各自领域错误（如 ``SkillPackageResourceError``）。参数取 ``root`` +
+    包内相对路径（绝对路径亦可，kernel 二次围栏校验，防御调用方 resolve 后 open 前的
+    中间目录替换残余窗口——该残余仍挂台账，见 deferred-work TOCTOU 条目）。
+
+    ⚠ defense-in-depth 而非安全边界：竞态窗口收窄但未消除，须 OS 级沙箱兜底。
+    """
+    resolved = resolve_under_root(str(relative), root)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
+    nofollow = getattr(os, "O_NOFOLLOW", None)
+    if nofollow is not None:
+        flags |= nofollow
+    flags |= getattr(os, "O_BINARY", 0)
+    try:
+        try:
+            descriptor = os.open(resolved, flags)
+        except OSError as exc:
+            # Some platforms expose O_NOFOLLOW but their filesystem does not
+            # implement it. Preserve the compatibility read in that case.
+            unsupported = {
+                errno.EINVAL,
+                getattr(errno, "ENOTSUP", errno.EINVAL),
+                getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+            }
+            if nofollow is not None and exc.errno in unsupported:
+                descriptor = os.open(resolved, flags & ~nofollow)
+            else:
+                raise
+        try:
+            info = os.fstat(descriptor)
+            if not stat.S_ISREG(info.st_mode):
+                raise OSError(errno.EISDIR, "resource is not a regular file")
+            with os.fdopen(descriptor, "rb") as stream:
+                descriptor = -1
+                text = stream.read().decode("utf-8")
+                # Path.read_text() historically performed universal newline
+                # translation; retain that public behavior after decoding.
+                return text.replace("\r\n", "\n").replace("\r", "\n")
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.EMLINK}:
+            # 翻译成领域无关的显性消息（与 resolve 围栏同层的路径安全语义）。
+            raise OSError(errno.ELOOP, f"final path component is a symlink: {resolved}") from exc
+        raise
 
 
 def configure_workspace_root(path: Path | None) -> None:

@@ -2,7 +2,7 @@
 title: 'Phase 4 基础设施分层与并发边界'
 type: 'refactor'
 created: '2026-09-21'
-status: 'approved'
+status: 'done'
 baseline_commit: '52a7cba'
 review_loop_iteration: 0
 context: ['{project-root}/docs/frame.md', '{project-root}/docs/test.md', '{project-root}/_bmad-output/implementation-artifacts/spec-phase3-workflow-decoupling.md']
@@ -67,16 +67,24 @@ context: ['{project-root}/docs/frame.md', '{project-root}/docs/test.md', '{proje
 
 ## Tasks & Acceptance
 
-- [ ] C1 sandbox 包化：上述五文件拆分 + `__init__` re-export + `available` property 统一；行为零变化，sandbox/winjob/housekeeping/credential 系测试原样通过；7 处缝按清单处置。
-- [ ] C2 MCP 分层：client.py（TransportFactory Protocol）+ registry_bridge.py + manager façade 化；`discovery_failures` 结构化 + CLI stderr 渲染；单 server 失败隔离测试扩展（失败 server 出现在 discovery_failures 且其余 server 工具可用）。
-- [ ] C3 子进程内核统一：git/hooks 接 process.py 内核（bounded reap + 截断）；WinJob bounded wait（V2）+ env scrub（V1）；hooks 超时路径关管道（V3）；可观察语义冻结断言补齐。
-- [ ] C4 skills 拆分 + safe-open 单点：四文件拆分 + `open_text_under_root` 内核 + 全读取点接入 + os.open 单点 AST 契约；`test_skill_packages_toctou.py` 特征测试原样通过。
-- [ ] `docs/frame.md` 4.4/4.11/memory 模块地图与调用链同步；`docs/test.md` §12 记录执行结果；本 spec 状态 done。
+- [x] C1 sandbox 包化：上述五文件拆分 + `__init__` re-export + `available` property 统一；行为零变化，sandbox/winjob/housekeeping/credential 系测试原样通过；7 处缝按清单处置。（`15c8f61`）
+- [x] C2 MCP 分层：client.py（TransportFactory Protocol）+ registry_bridge.py + manager façade 化；`discovery_failures` 结构化 + CLI stderr 渲染；单 server 失败隔离测试扩展（失败 server 出现在 discovery_failures 且其余 server 工具可用）。（`5adde12`）
+- [x] C3 子进程内核统一：git/hooks 接 process.py 内核（bounded reap + 截断）；WinJob bounded wait（V2）+ env scrub（V1）；hooks 超时路径关管道（V3）；可观察语义冻结断言补齐。（`1380f0d`）
+- [x] C4 skills 拆分 + safe-open 单点：四文件拆分 + `open_text_under_root` 内核 + 全读取点接入 + os.open 单点 AST 契约；`test_skill_packages_toctou.py` 特征测试原样通过。
+- [x] `docs/frame.md` 4.4/4.11/memory 模块地图与调用链同步；`docs/test.md` §12 记录执行结果；本 spec 状态 done。（执行记录实落 test.md §13，沿编号顺延）
 
 验收：Given 既有 sandbox/winjob/MCP/skill package/path safety/housekeeping 测试，When 拆分后运行，Then 原样通过且无跳过（V1–V4 涉及断言按新语义更新并留档）；Given `os.open` 全仓扫描，Then 单点命中 path_safety；Given cli_goal 之前例，When 统计三源文件行数，Then sandbox.py/manager.py/skills.py 显著收缩且公共 import 面不变；quality_gate 全量通过（覆盖率 ≥87%）。
 
 ## Spec Change Log
 
+- 2026-09-21：C1–C4 全部完成（`15c8f61` / `5adde12` / `1380f0d` / C4 收尾提交），quality_gate 全量绿（2045 passed，相对基线 +7 全为新契约/新语义用例，无删减无跳过）。实施偏差与决策留档：
+  ① **C1**：`CommandRunner.available` 在 Protocol 中必须以 **property 形式**声明——可写属性声明（`available: bool`）与实现的只读 property 不兼容（mypy 实测三处 assignment/return-value 错），基线无此成员故未暴露。
+  ② **C3**：`reap_subprocess` 的 timeout 不得写成默认参数（def 时绑定 `_REAP_WAIT_TIMEOUT` 常量会使模块属性 patch 缝失效，`test_reap_wait_is_bounded` 实测红）——改为 `None` 缺省 + 调用时读模块属性。
+  ③ **C4**：`os.open` 白名单 = `tools/path_safety.py` + `persist.py`——spec 原文「全仓单点」未计入 persist 锁文件创建（`O_CREAT|O_RDWR`，非读取路径），强行并入读取内核属扭曲，契约按白名单落地。
+  ④ **C4**：importer 例外面扩大：`_read_manifest`（csv.DictReader 需 raw newline 语义，内核的 universal newlines 会破坏 csv）与 `_hash`（字节流哈希，文本内核抽象错误）保留直读；`_read_lock` 已接内核。spec Code Map「全部收敛接入」据此修正。
+  ⑤ **C4**：`SkillStore._render_skill_md`/`_body_survives_rerender` 以 staticmethod 别名留类上、call 点走 `self.`——测试既有**类名访问**与**实例级 patch 拦截 update 事务**两种缝共存所需（Phase 3「grep 属性访问面」教训的实例级变体）。
+  ⑥ **C2**：`TransportOpener` Protocol 落为构造期注入端口 + 新增注入端口测试；manager 保留 `_transport_and_session` 方法作 class-patch 缝宿主（test_mcp_manager 全部用例依赖），连接成功日志随 wrapper 保留（`type(cfg).__name__` 与原文案逐字一致）。
+  ⑦ **C4**：`SkillStore.load` 的 `FileNotFoundError→None` 语义不变；其余 OSError（如最终组件符号链接 ELOOP）由内核显性上抛——此前 read_text 会**跟随**符号链接读任意内容，属 V4 之外的加固方向变化（与 SkillPackage 既有行为对齐），留档。
 - 2026-09-21：用户批准冻结并执行（「按你推荐的来」，V1–V4 与四边界方案全盘通过；入口全量门禁已在 52a7cba 验证：2038 passed / 90.78%）。
 - 2026-09-21：spec 创建（draft）。勘察结论：① 三域缝面仅 sandbox 7 处字符串缝（MCP 类属性缝、skills 实例缝拆分免疫）；② `CommandRunner` Protocol 已存在，C1 只补形状统一（`available` property 化），不新增 Protocol 层级；③ MCP `resources.py` 不建（原语未交付，不造空模块）；④ skill 双体系（SkillStore 记忆型 / SkillPackage 声明式）共存且共用 `.heagent/skills` 根——`record_usage` 会改写声明式包 SKILL.md（skills.py:390-421），读写锁现状（实例 RLock + os.replace 原子性）冻结不改，理由：Windows 读者持句柄会使写者 `os.replace` 失败（skills.py:85-92 已留档）；⑤ WinJob env 全量继承判为凭证卫生缺口，纳入 V1 最小行为变化。
 

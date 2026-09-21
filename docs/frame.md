@@ -373,7 +373,9 @@ SafetyGuard
 
 工具名黑名单对所有工具生效；shell 命令检查仅对 `shell` 工具生效。违反时抛出 `SafetyViolation`。
 
-#### sandbox.py — 子进程沙箱后端（CommandRunner）
+#### tools/sandbox/ 包 — 子进程沙箱后端（CommandRunner）
+
+> **Phase 4 C1（2026-09-21）拆分**：原单文件 `sandbox.py` 拆为 `contracts.py`（SandboxTier / CommandRunner Protocol / profile+workspace 注入 slot）、`process.py`（进程监督内核：supervise / kill-reap / `cap_channel` 512KB 截断 / `scrub_sensitive_env` / `reap_subprocess` 有界回收 / `PassthroughRunner` / command_runner slot）、`firejail.py`、`winjob.py`、`session.py`（会话目录 + SandboxSession）；`__init__` re-export 全历史公共名，导入面不变。`CommandRunner` Protocol 补 `available` property（三 backend 形状统一）。`git.py` / `engine/hooks.py` 复用 `reap_subprocess`（有界回收）+ `cap_channel`（截断）内核——超时/取消/回收/截断语义全仓统一；WinJob 补 env 剥离（V1）与有界 wait（V2）。
 
 `shell` 等子进程工具的可注入执行抽象。默认 `PassthroughRunner`（等价 `create_subprocess_shell` 直接执行）；`SANDBOX_REQUIRED` 路径下 `ToolExecutor.execute_in_sandbox` 经 `bind_command_runner` + `bind_sandbox_profile` 注入配置的后端与 profile 名。注入走 `RuntimeSlot`（contextvar），与 memory/skills 等工具族一致；`DIRECT` 路径不 bind，取默认 Passthrough。
 
@@ -585,7 +587,9 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 `.heagent/memory/MEMORY.md`，70% 关键词重叠去重。通过 `fact_add` 工具由 LLM 自主保存。
 
-#### skills.py — 技能存储
+#### memory/skills* — 技能存储
+
+> **Phase 4 C4（2026-09-21）拆分**：原单文件 `skills.py` 拆为 `skill_models.py`（模型 + `parse_skill_md` + 名称校验）、`skill_rewrite.py`（渲染 / `body_survives_rerender` / frontmatter 就地改写）、`skill_catalog.py`（匹配 + 过期盘点，以 store 为数据源的纯函数）、`skill_store.py`（`SkillStore` 门面）；`skills.py` re-export 兼容。`SkillStore` 文件读取走 `path_safety.open_text_under_root` 单一安全入口（契约测试钉 `os.open` 白名单 = path_safety + persist 锁文件）。
 
 `.heagent/skills/<name>/SKILL.md`，HermesAgent 标准目录结构（可选 `templates/`、`references/`）。frontmatter 可选 `triggers`、`negative_triggers`、`priority`：负向触发优先排除，显式触发优先于常规相关度，随后按相关度、priority、名称稳定排序。常规匹配使用无依赖的混合 tokenizer：ASCII 标识符完整分词，CJK 使用二/三字片段（避免空格边界和单字高频误匹配）；旧 Skill 缺新字段时退化为原有 `pattern + tags` 相关度。自动注入同时受数量上限与可选总 token 预算限制，只注入完整正文、跳过超预算项且仅对最终注入项记录 usage；`skill_load` 可显式按名读取完整技能（同样不截断）。
 
@@ -769,7 +773,9 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 |------|------|
 | `config.py` | `MCPConfig` + `load_mcp_config()`（`.mcp.json` + `${ENV}` 插值） |
 | `mapping.py` | `mcp_tool_to_schema()`（namespace `<server>__<tool>`）、`bridge_result()` |
-| `manager.py` | `MCPClientManager` — 并发连接+发现+注册，单 server 失败隔离 |
+| `client.py` | `TransportOpener` Protocol + `default_transport_opener`（stdio/http 分派 + 握手），构造期可注入（Phase 4 C2） |
+| `registry_bridge.py` | `RegistryBridge` — server 工具 + 桥接工具注册/注销单一入口，命名冲突策略（Phase 4 C2） |
+| `manager.py` | `MCPClientManager`（生命周期 façade）— 并发连接+发现+注册，单 server 失败隔离；`discovery_failures` 结构化记录失败，cli 渲染 stderr（不隐藏发现错误） |
 
 ⚠ MCP 工具与内置工具同等不可信（执行前拦截 + 返回启发式围栏均已落地，但**均非真正安全边界**，须 OS 级沙箱兜底）。
 
@@ -875,7 +881,9 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 ### 4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）
 
 `SkillPackage` 的入口、step、reference、template、asset 和 script 均采用“`resolve_under_root` 解析 ->
-`os.open()`（平台支持时附加 `O_NOFOLLOW`）-> `fstat()` 常规文件校验 -> 已打开 descriptor 读取”。这能拒绝
+`os.open()`（平台支持时附加 `O_NOFOLLOW`）”。Phase 4 C4（2026-09-21）起该实现收敛为
+`tools/path_safety.open_text_under_root` 单一入口，`SkillPackage`、`SkillStore` 与 importer 的 manifest.lock
+读取全部接入（契约测试钉 `os.open` 白名单）；-> `fstat()` 常规文件校验 -> 已打开 descriptor 读取”。这能拒绝
 绝对路径、路径穿越、解析后越界符号链接，以及支持 `O_NOFOLLOW` 的平台上最终组件在打开前被替换为符号链接的情形。
 不支持该标志的平台保留兼容打开；特征证据与回退覆盖见 `tests/test_skill_packages_toctou.py`，评估与候选方案见
 `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/spec-skill-resource-toctou-assessment.md`，故事流程规格见
@@ -952,14 +960,16 @@ src/heagent/
 │   ├── safety.py            # SafetyGuard（shell 命令安全）
 │   ├── path_safety.py       # 工作区路径校验（文件工具）
 │   ├── edits.py             # 编辑原语：行尾/BOM 保真读写、diff 回执、落盘前快照
-│   ├── sandbox.py           # 沙箱后端抽象（Passthrough/Firejail/WinJob）+ SandboxSession
+│   ├── sandbox/             # 沙箱包（contracts/process/firejail/winjob/session，Phase 4 C1）
 │   ├── call_summary.py      # 工具调用「作用对象」摘要（展示层共用）
 │   ├── runtime.py           # 工具运行态绑定（_runtime_scope）
 │   ├── mcp/                 # MCP 适配层
 │   │   ├── config.py        # MCPConfig + load_mcp_config（.mcp.json + ${ENV} 插值）
 │   │   ├── mapping.py       # mcp_tool_to_schema + bridge_result
 │   │   ├── session_api.py   # MCP SDK 会话字段兼容访问
-│   │   └── manager.py       # MCPClientManager（连接生命周期 + 工具注册）
+│   │   ├── client.py        # TransportOpener Protocol + 默认实现（Phase 4 C2）
+│   │   ├── registry_bridge.py  # 注册/注销单一入口（Phase 4 C2）
+│   │   └── manager.py       # MCPClientManager（生命周期 façade + discovery_failures）
 │   └── builtins/            # 内置工具（24 个）
 │       ├── __init__.py      # 触发注册
 │       ├── shell.py         # shell 命令执行
@@ -981,7 +991,11 @@ src/heagent/
 │
 ├── memory/                  # 记忆系统
 │   ├── facts.py             # 事实存储 + 去重
-│   ├── skills.py            # 技能存储（HermesAgent 目录结构）
+│   ├── skills.py            # 技能存储兼容 shim（Phase 4 C4 拆四文件）
+│   ├── skill_models.py      # 技能模型 + SKILL.md 解析 + 名称校验
+│   ├── skill_rewrite.py     # 渲染 + frontmatter 就地改写（正文保真）
+│   ├── skill_catalog.py     # 匹配 + 过期盘点（纯检索）
+│   ├── skill_store.py       # SkillStore 门面（读经 open_text_under_root）
 │   ├── skill_packages.py    # BMad 技能包与安全资源读取（工作流装配已迁 goal/workflow_loader.py）
 │   ├── skill_importer.py    # 技能包导入与目录映射
 │   ├── profile.py           # 用户画像

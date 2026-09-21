@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import errno
-import os
 import re
-import stat
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Iterable, cast  # noqa: UP035
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from heagent.frontmatter import parse_inline_pairs, split_frontmatter
-from heagent.tools.path_safety import WorkspacePathError, resolve_under_root
+from heagent.tools.path_safety import WorkspacePathError, open_text_under_root, resolve_under_root
 
 
 class SkillPackageError(ValueError):
@@ -114,52 +112,24 @@ class SkillPackage(BaseModel):
         return self._read_text(resource)
 
     def _read_text(self, resource: str, *, entry: bool = False) -> str:
-        """Open and decode one resolved resource while retaining its descriptor lifetime."""
-        # Non-blocking open lets fstat reject FIFOs/devices without waiting for
-        # another process to provide a writer. Regular files ignore this flag.
-        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
-        nofollow = getattr(os, "O_NOFOLLOW", None)
-        if nofollow is not None:
-            flags |= nofollow
-        binary = getattr(os, "O_BINARY", 0)
-        flags |= binary
+        """Open and decode one resolved resource via the shared safe-open kernel.
+
+        Phase 4 C4：「解析后安全打开」收敛到 :func:`~heagent.tools.path_safety.open_text_under_root`
+        （围栏 + O_NOFOLLOW + fstat 普通文件校验），本方法只保留包域错误标注
+        （skill_id / entry 标签与既有 reason 文案，测试钉死）。
+        """
+        label = "entrypoint" if entry else "resource"
         try:
             path = self._resolve(resource, entry=entry)
-            try:
-                descriptor = os.open(path, flags)
-            except OSError as exc:
-                # Some platforms expose O_NOFOLLOW but their filesystem does not
-                # implement it. Preserve the compatibility read in that case.
-                unsupported = {
-                    errno.EINVAL,
-                    getattr(errno, "ENOTSUP", errno.EINVAL),
-                    getattr(errno, "EOPNOTSUPP", errno.EINVAL),
-                }
-                if nofollow is not None and exc.errno in unsupported:
-                    descriptor = os.open(path, flags & ~nofollow)
-                else:
-                    raise
-            try:
-                info = os.fstat(descriptor)
-                if not stat.S_ISREG(info.st_mode):
-                    raise OSError(errno.EISDIR, "resource is not a regular file")
-                with os.fdopen(descriptor, "rb") as stream:
-                    descriptor = -1
-                    text = stream.read().decode("utf-8")
-                    # Path.read_text() historically performed universal newline
-                    # translation; retain that public behavior after decoding.
-                    return text.replace("\r\n", "\n").replace("\r", "\n")
-            finally:
-                if descriptor >= 0:
-                    os.close(descriptor)
+            return open_text_under_root(self.root, path)
+        except SkillPackageResourceError:
+            raise
         except FileNotFoundError as exc:
             reason = "entrypoint is missing" if entry else "resource is missing"
             raise SkillPackageResourceError(self.skill_id, resource, reason) from exc
         except UnicodeDecodeError as exc:
-            label = "entrypoint" if entry else "resource"
             raise SkillPackageResourceError(self.skill_id, resource, f"cannot read {label}: {exc}") from exc
         except OSError as exc:
-            label = "entrypoint" if entry else "resource"
             if exc.errno in {errno.ELOOP, errno.EMLINK}:
                 reason = f"cannot read {label}: final path component is a symlink"
             elif exc.errno in {errno.EISDIR, errno.ENXIO}:

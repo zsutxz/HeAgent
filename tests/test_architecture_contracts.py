@@ -297,3 +297,49 @@ def test_sandbox_and_mcp_subpackages_are_click_free() -> None:
                 if is_click_import:
                     offenders.append(f"tools/{sub}/{path.relative_to(SRC / 'tools' / sub)}")
     assert offenders == [], "基础设施子包运行期依赖 Click（入口渲染职责泄漏）：" + ", ".join(offenders)
+
+
+def test_os_open_is_whitelisted_to_safe_open_and_lock_files() -> None:
+    """Phase 4：``os.open`` 仅允许出现在安全读取内核与锁文件两处。
+
+    ``tools/path_safety.open_text_under_root`` 是「解析后安全打开」的单一入口（围栏 +
+    O_NOFOLLOW + fstat）；``persist.py`` 的 ``os.open`` 是跨进程 ``.lock`` 文件创建
+    （O_CREAT|O_RDWR，非内容读取路径，强行并入读取内核属扭曲）。其余模块一律经这两处
+    ——分散的底层 open 即分散的 TOCTOU/符号链接暴露面。
+    """
+    allowed = {"tools/path_safety.py", "persist.py"}
+    offenders: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        rel = path.relative_to(SRC).as_posix()
+        if rel in allowed:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Attribute)
+                and node.attr == "open"
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "os"
+            ):
+                offenders.append(rel)
+    assert offenders == [], "os.open 逃出白名单（安全读取内核单点被稀释）：" + ", ".join(offenders)
+
+
+def test_skill_modules_do_not_read_files_directly() -> None:
+    """Phase 4：skill 拆分层四文件禁止裸 ``read_text`` / ``open`` 读取技能文件。
+
+    全部读取须走 ``path_safety.open_text_under_root``（TOCTOU/路径逃逸/并发替换的
+    统一覆盖面）。``skill_importer.py`` 的 manifest.csv（csv raw newline 语义）与
+    ``_hash``（字节流）是已留档的例外，不在本契约文件集合内。
+    """
+    guarded = ("skill_models.py", "skill_catalog.py", "skill_store.py", "skill_rewrite.py")
+    offenders: list[str] = []
+    for name in guarded:
+        path = SRC / "memory" / name
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr == "read_text":
+                offenders.append(name)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open":
+                offenders.append(name)
+    assert offenders == [], "skill 模块裸读文件（绕过 safe-open 单一入口）：" + ", ".join(offenders)
