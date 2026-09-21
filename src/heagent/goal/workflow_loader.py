@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 from heagent.engine.workflow_resource import (
     CheckpointMode,
@@ -104,18 +104,21 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
         if step.next and step.next not in known:
             raise SkillWorkflowError(package.skill_id, step.name, f"next step reference is not declared: {step.next}")
     checkpoint_mode = _value_text(values, "checkpoint_mode").casefold()
-    if checkpoint_mode not in {"", "auto", "prompt"}:
+    if checkpoint_mode not in set(get_args(CheckpointMode)):
+        # 合法值单一真源：CheckpointMode Literal（含空串=未声明），不在此手抄集合。
         raise SkillWorkflowError(
             package.skill_id,
             resource,
-            f"invalid checkpoint_mode '{checkpoint_mode}'; expected auto or prompt",
+            f"invalid checkpoint_mode '{checkpoint_mode}'; "
+            f"expected {' or '.join(mode for mode in get_args(CheckpointMode) if mode)}",
         )
     open_question_mode = _value_text(values, "open_question_mode", "open_questions").casefold()
-    if open_question_mode not in {"", "block", "default"}:
+    if open_question_mode not in set(get_args(OpenQuestionMode)):
         raise SkillWorkflowError(
             package.skill_id,
             resource,
-            f"invalid open_question_mode '{open_question_mode}'; expected block or default",
+            f"invalid open_question_mode '{open_question_mode}'; "
+            f"expected {' or '.join(mode for mode in get_args(OpenQuestionMode) if mode)}",
         )
     _required_templates(package, values, resource)  # 声明条目的存在性校验（有副作用：缺失即抛）
     return WorkflowResource(

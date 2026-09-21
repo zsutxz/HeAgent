@@ -39,26 +39,17 @@ def _shipped_gate_template() -> str:
 
 
 @pytest.fixture()
-def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def declarative_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_root: Path
+) -> Path:
     monkeypatch.chdir(tmp_path)
-    workflow_root = tmp_path / ".heagent" / "skills" / "he-goal"
-    workflow_root.mkdir(parents=True)
-    (workflow_root / "SKILL.md").write_text(
-        "---\ncanonical_id: he-goal\nname: he-goal\ndescription: test package\n---\n\n# test package\n",
-        encoding="utf-8",
-    )
-    (workflow_root / "workflow.md").write_text(
+    (goal_workflow_root / "workflow.md").write_text(
         "---\nname: test-development\nentrypoint: goal\non_create: persist_goal_identity\n"
         "step_executor: subagent\n---\n\nworkflow instructions\n\n"
         "## Step 01: plan\ninput: user intent, existing project context\n"
         "output: requirements brief, story breakdown\ncheckpoint: true\n\nplan the story\n\n"
         "## Step 02: build\ninput: requirements brief\noutput: implementation\ncheckpoint: true\n\nbuild the story\n",
         encoding="utf-8",
-    )
-    # 模板是硬性运行时依赖：fixture 直接复用仓库随包发布的真实模板（CLI 无内置兜底）。
-    shutil.copytree(
-        Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal" / "templates",
-        workflow_root / "templates",
     )
     (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
     return tmp_path

@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 
 import pytest
@@ -61,3 +62,24 @@ def _isolate_dotenv_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> li
     # GOAL_CHECKPOINT_MODE=auto 会污染后续断言默认值的用例）。
     reset_settings()
     return source_env_files
+
+
+@pytest.fixture()
+def goal_workflow_root(tmp_path: Path) -> Path:
+    """在 tmp_path 下搭 ``he-goal`` 技能包骨架，模板复用仓库随包发布的真实文件。
+
+    模板是 /goal 的硬性运行时依赖且 CLI 无内置兜底——此前两个 goal 测试文件各持一份
+    copytree 副本，provisioning 规则变化时极易只改一处（此处收敛为唯一定义）。
+    调用方 fixture 自行写入各自的 ``workflow.md`` 内容后 chdir 使用。
+    """
+    root = tmp_path / ".heagent" / "skills" / "he-goal"
+    root.mkdir(parents=True)
+    (root / "SKILL.md").write_text(
+        "---\ncanonical_id: he-goal\nname: he-goal\ndescription: test package\n---\n\n# test package\n",
+        encoding="utf-8",
+    )
+    shutil.copytree(
+        Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal" / "templates",
+        root / "templates",
+    )
+    return root
