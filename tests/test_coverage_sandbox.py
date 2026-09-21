@@ -51,7 +51,7 @@ def _isolate(monkeypatch: pytest.MonkeyPatch) -> None:
     - 钉 ``sys.platform`` 为非 linux：fake 无法承载真实进程组语义，统一走 else 分支。
     - mock ``os.killpg`` no-op：永不让测试向真实进程组发信号。
     """
-    monkeypatch.setattr("heagent.tools.sandbox.sys.platform", "win32")
+    monkeypatch.setattr("sys.platform", "win32")
     monkeypatch.setattr("os.killpg", lambda *args, **kwargs: None, raising=False)
     reset_sandbox_profile()
     yield
@@ -533,13 +533,13 @@ class TestWinJobBackend:
 
     def test_repr_when_available(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """available()=True → repr 含 True。"""
-        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: True))
+        monkeypatch.setattr(WinJobBackend, "available", True)
         backend = WinJobBackend()
         assert repr(backend) == "WinJobBackend(available=True)"
 
     def test_repr_when_unavailable(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """available()=False → repr 含 False。"""
-        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: False))
+        monkeypatch.setattr(WinJobBackend, "available", False)
         backend = WinJobBackend()
         assert repr(backend) == "WinJobBackend(available=False)"
 
@@ -560,7 +560,7 @@ class TestWinJobBackend:
         """
         if sys.platform == "win32":
             pytest.skip("本测需非 Windows 环境验证 available()=False")
-        assert WinJobBackend.available() is False
+        assert WinJobBackend().available is False
 
     # ── run fallback（行 279-281）──
 
@@ -571,7 +571,7 @@ class TestWinJobBackend:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """WinJobBackend.available()=False → 走 PassthroughRunner 降级 + warning 日志。"""
-        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: False))
+        monkeypatch.setattr(WinJobBackend, "available", False)
 
         shell_called = False
 
@@ -641,7 +641,7 @@ class TestWinJobBackend:
         kernel32 API mock 化 + ``asyncio.to_thread`` 注入 fake subprocess，
         验证返回 stdout 内容且 PassthroughRunner 未被使用。
         """
-        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: True))
+        monkeypatch.setattr(WinJobBackend, "available", True)
         self._mock_win32_kernel32(monkeypatch)
 
         shell_called = False
@@ -689,7 +689,7 @@ class TestWinJobBackend:
 
         子进程被取消后走 ``except CancelledError`` → kill + wait + 重抛。
         """
-        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: True))
+        monkeypatch.setattr(WinJobBackend, "available", True)
         self._mock_win32_kernel32(monkeypatch)
 
         killed = False
@@ -759,7 +759,7 @@ class TestWinJobBackend:
         经 byref 的 ``_obj`` 回读结构体断言 flags 与限额值（默认关闭时 flags 仅
         KILL_ON_JOB_CLOSE，由 ``test_run_available_normal_execution`` 等既有用例覆盖）。
         """
-        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: True))
+        monkeypatch.setattr(WinJobBackend, "available", True)
 
         captured: dict[str, int] = {}
 

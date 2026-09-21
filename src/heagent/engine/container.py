@@ -225,7 +225,7 @@ class EngineContainer:
         elif backend == "winjob":
             from heagent.tools.sandbox import WinJobBackend
 
-            if WinJobBackend.available():
+            if WinJobBackend().available:
                 command_runner = WinJobBackend(
                     memory_limit_mb=settings.sandbox_memory_limit_mb,
                     cpu_seconds=settings.sandbox_cpu_seconds,
@@ -250,7 +250,7 @@ class EngineContainer:
         effective_backend = "passthrough"
         if command_runner is not None:
             if backend == "firejail":
-                effective_backend = "firejail" if command_runner.available else "passthrough"  # type: ignore[attr-defined]
+                effective_backend = "firejail" if command_runner.available else "passthrough"
             else:
                 effective_backend = "winjob"
         container.sandbox_decision = SandboxDecision(

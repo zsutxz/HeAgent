@@ -16,15 +16,15 @@ class TestWinJobBackend:
         from heagent.tools.sandbox import WinJobBackend
 
         if sys.platform == "win32":
-            assert WinJobBackend.available() is True
+            assert WinJobBackend().available is True
         else:
-            assert WinJobBackend.available() is False
+            assert WinJobBackend().available is False
 
     def test_available_class_method(self):
-        """available() 为静态方法，无需实例化。"""
+        """available 为 property，实例访问返回 bool。"""
         from heagent.tools.sandbox import WinJobBackend
 
-        result = WinJobBackend.available()
+        result = WinJobBackend().available
         assert isinstance(result, bool)
 
     def test_instantiation(self):
@@ -41,7 +41,7 @@ class TestWinJobBackend:
         from heagent.tools.sandbox import WinJobBackend
 
         backend = WinJobBackend()
-        if not backend.available():
+        if not backend.available:
             pytest.skip("WinJobBackend not available on this platform")
 
         result = await backend.run("echo hello", timeout=10)
@@ -54,7 +54,7 @@ class TestWinJobBackend:
         from heagent.tools.sandbox import WinJobBackend
 
         backend = WinJobBackend()
-        if not backend.available():
+        if not backend.available:
             pytest.skip("WinJobBackend not available on this platform")
 
         result = await backend.run("exit /b 42", timeout=10)
@@ -66,7 +66,7 @@ class TestWinJobBackend:
         from heagent.tools.sandbox import _TIMEOUT_RESULT, WinJobBackend
 
         backend = WinJobBackend()
-        if not backend.available():
+        if not backend.available:
             pytest.skip("WinJobBackend not available on this platform")
 
         result = await backend.run("ping -n 30 127.0.0.1 > nul", timeout=1)
@@ -81,7 +81,7 @@ class TestWinJobBackend:
         backend = WinJobBackend()
         # 即使标记 'available' 为 False 也不影响——需要 mock
         # 实际上在非 Windows 上 available() 返回 False，run 会 fallback
-        if backend.available():
+        if backend.available:
             pytest.skip("Test requires non-Windows or mocked unavailable")
 
         # 非 Windows 上 fallback 到 PassthroughRunner
@@ -94,7 +94,7 @@ class TestWinJobBackend:
         from heagent.tools.sandbox import WinJobBackend
 
         backend = WinJobBackend()
-        if not backend.available():
+        if not backend.available:
             pytest.skip("WinJobBackend not available on this platform")
 
         async def long_run():

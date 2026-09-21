@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path  # noqa: TC003
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
@@ -359,7 +359,7 @@ class TestContainerWinJobFallback:
     def test_winjob_unavailable_falls_back(self, caplog) -> None:
         """EngineContainer.default(sandbox_backend='winjob') 在不可用时回退。"""
         with (
-            patch("heagent.tools.sandbox.WinJobBackend.available", return_value=False),
+            patch("heagent.tools.sandbox.WinJobBackend.available", new_callable=PropertyMock, return_value=False),
             caplog.at_level(logging.WARNING),
         ):
             container = EngineContainer.default(sandbox_backend="winjob")

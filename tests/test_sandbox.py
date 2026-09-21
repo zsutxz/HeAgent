@@ -49,8 +49,8 @@ class _FakeProcBase:
 def _isolate_command_runner(monkeypatch: pytest.MonkeyPatch):
     """每测试前后清进程级 fallback，防 ``configure`` 串扰；并 mock ``os.killpg``（永不发真实信号）。
 
-    ⚠ 这里**刻意不钉** ``sys.platform``：那改的是**进程全局** ``sys``（``heagent.tools.sandbox.sys``
-    就是全局 ``sys``），会让本模块所有测试在 POSIX 上误走 Windows 分支——CI 上已真实炸过两次：
+    ⚠ 这里**刻意不钉** ``sys.platform``：那改的是**进程全局** ``sys``，会让本模块所有测试在
+    POSIX 上误走 Windows 分支——CI 上已真实炸过两次：
     ① ``SandboxSession`` 误用 Windows cmd 包装喂给 ``/bin/sh``（``cd: can't cd to /d``）；
     ② Python 3.12+ 的 ``shutil.which`` 自带 ``sys.platform == "win32"`` 分支，钉住后走 ``_winapi``
     （POSIX 上为 None）→ ``AttributeError: 'NoneType' object has no attribute
@@ -71,7 +71,7 @@ def fake_process_platform(monkeypatch: pytest.MonkeyPatch) -> None:
     为什么必须 opt-in：钉子改的是进程全局 ``sys``，autouse 会让同模块「依赖真实平台」的测试
     （真实 shell 包装、平台敏感的 ``shutil.which`` 等）在 POSIX 上走错分支（见 autouse fixture 的说明）。
     """
-    monkeypatch.setattr("heagent.tools.sandbox.sys.platform", "win32")
+    monkeypatch.setattr("sys.platform", "win32")
     reset_command_runner()
     reset_sandbox_profile()
     reset_sandbox_workspace()
@@ -281,7 +281,7 @@ class TestPassthroughRunner:
         且 reap 逸出失败记 ``cancel cleanup`` debug 日志（无论 TimeoutError 还是 re-entrant cancel）。
         """
 
-        monkeypatch.setattr("heagent.tools.sandbox._REAP_WAIT_TIMEOUT", 0.05)
+        monkeypatch.setattr("heagent.tools.sandbox.process._REAP_WAIT_TIMEOUT", 0.05)
 
         class _FakeProc(_FakeProcBase):
             async def communicate(self) -> tuple[bytes, bytes]:
@@ -401,11 +401,11 @@ class TestPassthroughRunner:
         ``killpg`` 误杀无关进程组（PID 复用竞态）。本测钉 platform=linux 并断言：``getpgid``
         从未被调用、``killpg`` 以 ``(proc.pid, SIGKILL)`` 恰好调用一次。
         """
-        monkeypatch.setattr("heagent.tools.sandbox.sys.platform", "linux")
+        monkeypatch.setattr("sys.platform", "linux")
         # signal.SIGKILL / os.killpg / os.getpgid 均为 Unix-only，Windows 下不存在——
         # 既然已钉 platform=linux 强制走 Linux 分支，须一并注入这些符号（raising=False）。
         fake_sigkill = 9
-        monkeypatch.setattr("heagent.tools.sandbox.signal.SIGKILL", fake_sigkill, raising=False)
+        monkeypatch.setattr("signal.SIGKILL", fake_sigkill, raising=False)
 
         getpgid_calls: list[int] = []
         killpg_calls: list[tuple[int, int]] = []

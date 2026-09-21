@@ -59,7 +59,7 @@ def test_container_pins_settings_and_records_actual_backend(monkeypatch):
 
 
 def test_unavailable_explicit_backend_reports_passthrough(monkeypatch):
-    monkeypatch.setattr("heagent.tools.sandbox.WinJobBackend.available", lambda: False)
+    monkeypatch.setattr("heagent.tools.sandbox.WinJobBackend.available", False)
     engine = EngineContainer.default(settings=Settings(_env_file=None, sandbox_backend="winjob"))
     assert engine.sandbox_decision.requested_backend == "winjob"
     assert engine.sandbox_decision.effective_backend == "passthrough"
