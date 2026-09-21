@@ -46,7 +46,9 @@ _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
     for p in [
         r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|.*-rf\b|.*\s-f\b)",  # rm -rf / rm -f / rm ... -f
         r"\bformat\s+[a-zA-Z]:",  # format C:
-        r"\bdd\b",  # dd 磁盘操作（含 dd of=/dev/sda if=/dev/zero）
+        # dd 锚定命令位置（行首 / ;&| / $( / sudo|doas 之后）——裸 \bdd\b 会把
+        # 'yyyy/MM/dd' 等日期 token 误判为磁盘操作（2026-09-21 AiHome_Client 实测误伤）
+        r"(?:^|[;&|]\s*|\$\(\s*|\b(?:sudo|doas)\s+)dd\b",
         r"\bmkfs\b",  # 格式化文件系统
         r"\bshutdown\b",  # 关机
         r"\breboot\b",  # 重启

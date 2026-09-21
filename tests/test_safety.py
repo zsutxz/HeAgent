@@ -27,6 +27,9 @@ class TestDangerousPatterns:
             "rm -fr /home",
             "format C:",
             "dd if=/dev/zero of=/dev/sda",
+            "echo x | dd if=/dev/zero of=/dev/sda",
+            "sudo dd if=/dev/zero of=/dev/sda",
+            "cd /tmp; dd if=/dev/zero of=/dev/sda",
             "mkfs.ext4 /dev/sda1",
             "shutdown now",
             "reboot",
@@ -51,6 +54,9 @@ class TestDangerousPatterns:
             "cat file.txt",
             "git status",
             "python script.py",
+            # 回归（2026-09-21）：'yyyy/MM/dd' 中的 dd 不再命中 \bdd\b 误伤只读 powershell 命令
+            "powershell -NoProfile -Command \"Get-Date -Format 'yyyy/MM/dd HH:mm:ss'; "
+            "Get-ChildItem 'E:\\proj\\Temp' -Force | Out-String\"",
         ],
     )
     def test_allows_safe_commands(self, cmd: str) -> None:
