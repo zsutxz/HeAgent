@@ -9,7 +9,26 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+class RuntimeConfigSource(BaseModel):
+    """Origin of a resolved field, without its potentially sensitive value."""
+
+    model_config = ConfigDict(frozen=True)
+    field: str
+    source: Literal["settings", "override"]
+
+
+class SandboxDecision(BaseModel):
+    """Requested backend and capabilities actually available to the runtime."""
+
+    model_config = ConfigDict(frozen=True)
+    requested_backend: str
+    effective_backend: str
+    filesystem_isolation: bool = False
+    network_isolation: bool = False
+    reason: str = ""
 
 
 class Role(StrEnum):

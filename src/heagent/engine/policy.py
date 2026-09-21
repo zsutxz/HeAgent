@@ -72,6 +72,7 @@ class PolicyVerdict(BaseModel):
     mode: ToolExecutionMode = ToolExecutionMode.DIRECT
     reason: str = ""
     sandbox_profile: str | None = None
+    source: str = "policy"
 
     @property
     def allowed(self) -> bool:
@@ -193,25 +194,25 @@ class PolicyEngine:
         if self.sandbox_mode == "read-only" and not self._is_read_only(call, schema=schema):
             reason = f"Tool '{call.name}' is blocked: sandbox mode 'read-only' allows only read-only tools."
             logger.warning("PolicyEngine blocked '%s': %s", call.name, reason)
-            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason)
+            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason, source="sandbox_mode")
 
         # 1) 白名单：设了白名单且工具不在其中 → 阻断。
         if self.allowed_tools is not None and call.name not in self.allowed_tools:
             reason = f"Tool '{call.name}' is not in the policy allowlist."
             logger.warning("PolicyEngine blocked '%s': %s", call.name, reason)
-            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason)
+            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason, source="allowed_tools")
 
         # 2) 黑名单：命中 → 阻断。
         if call.name in self.blocked_tools:
             reason = f"Tool '{call.name}' is blocked by policy."
             logger.warning("PolicyEngine blocked '%s': %s", call.name, reason)
-            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason)
+            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason, source="blocked_tools")
 
         # 3) MCP 门控：开启 block_mcp_tools 且调用的是 MCP 工具 → 阻断。
         if self.block_mcp_tools and self._is_mcp_tool(call):
             reason = f"MCP tool '{call.name}' is blocked by policy."
             logger.warning("PolicyEngine blocked '%s': %s", call.name, reason)
-            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason)
+            return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason, source="block_mcp_tools")
 
         # 4) 工作区路径围栏：file/git 工具的路径参数越界 → 阻断。
         # danger-full-access 档（P0-2）显式跳过围栏 + 凭证 deny 预检——该档语义即
@@ -220,7 +221,7 @@ class PolicyEngine:
             path_error = self._validate_paths(call, context=context)
             if path_error:
                 logger.warning("PolicyEngine blocked '%s': %s", call.name, path_error)
-                return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=path_error)
+                return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=path_error, source="workspace_paths")
 
         # 计算沙箱配置（该工具需沙箱则非 None）。
         sandbox_profile = self._sandbox_profile(call)
@@ -231,6 +232,7 @@ class PolicyEngine:
             logger.info("PolicyEngine requires approval for '%s': %s", call.name, reason)
             return PolicyVerdict(
                 mode=ToolExecutionMode.APPROVAL_REQUIRED,
+                source="approval_tools" if call.name in self.approval_tools else "mcp_approval",
                 reason=reason,
                 sandbox_profile=sandbox_profile,
             )
@@ -239,6 +241,7 @@ class PolicyEngine:
         if sandbox_profile is not None and not self._sandbox_granted(call, context=context):
             return PolicyVerdict(
                 mode=ToolExecutionMode.SANDBOX_REQUIRED,
+                source="sandbox_tools" if call.name in self.sandbox_tools else "sandbox_mcp_tools",
                 reason=f"Tool '{call.name}' requires sandbox '{sandbox_profile}' by policy.",
                 sandbox_profile=sandbox_profile,
             )
@@ -246,11 +249,12 @@ class PolicyEngine:
         if sandbox_profile is not None:
             return PolicyVerdict(
                 mode=ToolExecutionMode.SANDBOX_REQUIRED,
+                source="sandbox_tools" if call.name in self.sandbox_tools else "sandbox_mcp_tools",
                 sandbox_profile=sandbox_profile,
             )
 
         # 7) 其余：直接执行。
-        return PolicyVerdict(mode=ToolExecutionMode.DIRECT, sandbox_profile=sandbox_profile)
+        return PolicyVerdict(mode=ToolExecutionMode.DIRECT, sandbox_profile=sandbox_profile, source="default")
 
     def _is_read_only(self, call: ToolCall, *, schema: ToolSchema | None) -> bool:
         """该调用是否只读（read-only 档的放行判定）。

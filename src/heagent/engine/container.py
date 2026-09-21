@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from heagent.config import ResolvedRuntimeConfig, Settings, resolve_runtime_config
 from heagent.engine.context import RunContext
 from heagent.engine.executor import ToolExecutor
 from heagent.engine.hooks import HookManager
@@ -27,6 +28,7 @@ from heagent.engine.ledger import ExecutionLedger
 from heagent.engine.observability import EventBus, LoggingObserver
 from heagent.engine.policy import PolicyEngine
 from heagent.engine.store import RunStore
+from heagent.types import SandboxDecision
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -63,12 +65,22 @@ class EngineContainer:
     # 沙箱会话目录 teardown 保留开关（E40-D4）：None = 跟随 Settings；True/False = 显式覆盖
     # （CLI `--sandbox-session-keep` / `--no-sandbox-session-keep`）。
     sandbox_session_keep: bool | None = None
+    runtime_config: ResolvedRuntimeConfig | None = field(default=None, repr=False)
+    sandbox_decision: SandboxDecision | None = None
     # 进程内去重标志：同一容器 prune_*_once 仅首次 run 触发（sub agent 继承父 engine 时不重复扫）。
     # 两者独立：ledger 与 runs 各自的清理互不阻塞。
     _ledger_pruned: bool = field(default=False, init=False, repr=False)
     _runs_pruned: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
+        self.runtime_config = resolve_runtime_config(
+            self.runtime_config,
+            workspace_root=self.workspace_root,
+            sandbox_session_workspace=self.sandbox_session_workspace,
+            sandbox_session_keep=self.sandbox_session_keep,
+        )
+        self.sandbox_session_workspace = self.runtime_config.sandbox_session_workspace
+        self.sandbox_session_keep = self.runtime_config.sandbox_session_keep
         # 注入 cross-process file locks（V2）
         if self.enable_file_locks:
             self.run_store._enable_locks = True
@@ -91,19 +103,11 @@ class EngineContainer:
 
         与 executor 授权同源：开关开启即写 metadata（后端是否真吃该目录由 executor 判定）。
         """
-        if self.sandbox_session_workspace is not None:
-            return self.sandbox_session_workspace
-        from heagent.config import get_settings
-
-        return get_settings().sandbox_session_workspace
+        return bool(self.sandbox_session_workspace)
 
     def _session_keep_enabled(self) -> bool:
         """run 结束后是否保留沙箱会话目录（E40-D4）：同上，CLI 值优先于 Settings。"""
-        if self.sandbox_session_keep is not None:
-            return self.sandbox_session_keep
-        from heagent.config import get_settings
-
-        return get_settings().sandbox_session_keep
+        return bool(self.sandbox_session_keep)
 
     async def _prune_once(self, prune: Callable[[], Awaitable[int]], *, label: str) -> int:
         """执行一次 prune 调用：``CancelledError`` 不吞（透传 task 取消语义），其余 IO 故障只记 error。
@@ -173,6 +177,8 @@ class EngineContainer:
         sandbox_backend: str | None = None,
         sandbox_session_workspace: bool | None = None,
         sandbox_session_keep: bool | None = None,
+        runtime_config: ResolvedRuntimeConfig | None = None,
+        settings: Settings | None = None,
     ) -> EngineContainer:
         """为当前工作区创建默认装配的容器。
 
@@ -185,10 +191,15 @@ class EngineContainer:
         ``sandbox_session_keep`` 为 ``None`` 时跟随 Settings（env），显式传值时覆盖
         （CLI 开关，E40-D4——三态语义使 ``--no-...`` 能反向覆盖 env 的 true）。
         """
-        from heagent.config import get_settings
-
-        settings = get_settings()
-        backend = sandbox_backend if sandbox_backend is not None else settings.sandbox_backend
+        settings = resolve_runtime_config(
+            runtime_config if runtime_config is not None else settings,
+            workspace_root=workspace_root,
+            sandbox_backend=sandbox_backend,
+            sandbox_session_workspace=sandbox_session_workspace,
+            sandbox_session_keep=sandbox_session_keep,
+        )
+        workspace_root = settings.workspace_root
+        backend = settings.sandbox_backend
         backend = backend.strip().lower()
         if backend == "auto":
             # P0-2：自动档只认 firejail（Linux/macOS 的真实 OS 级隔离）。Windows 的 Job
@@ -234,6 +245,26 @@ class EngineContainer:
             enable_file_locks=True,
             sandbox_session_workspace=sandbox_session_workspace,
             sandbox_session_keep=sandbox_session_keep,
+            runtime_config=settings,
+        )
+        effective_backend = "passthrough"
+        if command_runner is not None:
+            if backend == "firejail":
+                effective_backend = "firejail" if command_runner.available else "passthrough"  # type: ignore[attr-defined]
+            else:
+                effective_backend = "winjob"
+        container.sandbox_decision = SandboxDecision(
+            requested_backend=settings.sandbox_backend,
+            effective_backend=effective_backend,
+            filesystem_isolation=effective_backend == "firejail",
+            network_isolation=effective_backend == "firejail" and not settings.sandbox_network,
+            reason=(
+                "passthrough explicitly selected"
+                if settings.sandbox_backend.strip().lower() == "passthrough"
+                else "backend unavailable or auto fallback"
+                if effective_backend == "passthrough"
+                else "capabilities detected at construction; execution not yet attempted"
+            ),
         )
         container.ledger_retention_days = settings.ledger_retention_days
         container.run_retention_days = settings.run_retention_days
@@ -294,6 +325,8 @@ class EngineContainer:
             workspace_root=root,
             metadata=dict(metadata or {}),
         )
+        if self.sandbox_decision is not None:
+            ctx.metadata["sandbox_decision"] = self.sandbox_decision.model_dump()
         # P0-2：**仅在真实沙箱后端在位时**才自动授权（与 EngineContainer.default 的 enforce
         # 同条件）。后端缺席（passthrough）时不写该键——策略要求沙箱而无授权仍按既有
         # fail-safe 阻断，既不制造「已在沙箱里跑」的假象，也不放宽「未授权即拒绝」的契约。

@@ -19,7 +19,7 @@ from typing import Literal
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from heagent.types import RoutingPoolSpec
+from heagent.types import RoutingPoolSpec, RuntimeConfigSource
 
 logger = logging.getLogger(__name__)
 
@@ -467,6 +467,56 @@ class Settings(BaseSettings):
                     "output": float(prices.get("output", 0.0)),
                 }
         return result
+
+
+class ResolvedRuntimeConfig(Settings):
+    """Immutable construction-time copy; parsed properties return detached values.
+
+    JSON configuration remains immutable text, so routing/profile dictionaries
+    never alias the snapshot or another caller. Credentials are assembly-only.
+    """
+
+    model_config = SettingsConfigDict(**{**Settings.model_config, "frozen": True})
+    safety_blocked_tools: tuple[str, ...] = ()  # type: ignore[assignment]
+    workspace_root: str | None = None
+    sources: tuple[RuntimeConfigSource, ...] = ()
+    deepseek_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    openai_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    anthropic_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    kimi_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    glm_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    openai_responses_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    ollama_api_key: str | None = Field(default=None, repr=False, exclude=True)
+    openai_api_keys: str = Field(default="", repr=False, exclude=True)
+    anthropic_api_keys: str = Field(default="", repr=False, exclude=True)
+
+    def source_for(self, name: str) -> str:
+        for item in self.sources:
+            if item.field == name:
+                return item.source
+        raise ValueError(f"Unknown runtime configuration field: {name}")
+
+
+def resolve_runtime_config(settings: Settings | None = None, **overrides: object) -> ResolvedRuntimeConfig:
+    """Resolve explicit non-None overrides once, retaining explicit False."""
+    settings = settings if settings is not None else get_settings()
+    if isinstance(settings, ResolvedRuntimeConfig) and not any(value is not None for value in overrides.values()):
+        return settings
+    values = {name: getattr(settings, name) for name in Settings.model_fields}
+    values["safety_blocked_tools"] = tuple(settings.safety_blocked_tools)
+    values["workspace_root"] = getattr(settings, "workspace_root", None)
+    sources: dict[str, Literal["settings", "override"]] = {name: "settings" for name in values}
+    if isinstance(settings, ResolvedRuntimeConfig):
+        sources.update({item.field: item.source for item in settings.sources})
+    for name, value in overrides.items():
+        if name not in values:
+            raise ValueError(f"Unknown runtime configuration override: {name}")
+        if value is not None:
+            values[name] = value
+            sources[name] = "override"
+    values["sandbox_mode"] = Settings.model_construct(**values).sandbox_mode_resolved
+    values["sources"] = tuple(RuntimeConfigSource(field=name, source=source) for name, source in sources.items())
+    return ResolvedRuntimeConfig(**values)
 
 
 def get_settings() -> Settings:
