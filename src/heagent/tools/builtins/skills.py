@@ -23,14 +23,25 @@ class SkillToolRuntime:
     """Runtime dependencies for skill tools."""
 
     store: SkillStore | None
+    # 运行配置快照值（Phase 1）：由 loop 在 run 作用域绑定时传入；None = 无 run 绑定
+    # （配置期/独立脚本/测试），此时 handler 才回退全局设置。
+    manual_load_budget: int | None = None
+    curator_stale_days: int | None = None
 
 
 _skill_runtime = RuntimeSlot[SkillToolRuntime]("heagent_skill_tools")
 
 
-def configure_skill_tools(store: SkillStore | None) -> None:
+def configure_skill_tools(
+    store: SkillStore | None,
+    *,
+    manual_load_budget: int | None = None,
+    curator_stale_days: int | None = None,
+) -> None:
     """Set the fallback skill store used outside an agent run."""
-    _skill_runtime.configure(SkillToolRuntime(store=store))
+    _skill_runtime.configure(
+        SkillToolRuntime(store=store, manual_load_budget=manual_load_budget, curator_stale_days=curator_stale_days)
+    )
 
 
 def reset_skill_tools() -> None:
@@ -39,15 +50,38 @@ def reset_skill_tools() -> None:
 
 
 @contextmanager
-def bind_skill_tools(store: SkillStore | None) -> Iterator[None]:
-    """Bind a skill store for the current run context."""
-    with _skill_runtime.bind(SkillToolRuntime(store=store)):
+def bind_skill_tools(
+    store: SkillStore | None,
+    *,
+    manual_load_budget: int | None = None,
+    curator_stale_days: int | None = None,
+) -> Iterator[None]:
+    """Bind a skill store (and the run's config snapshot values) for the current run context."""
+    with _skill_runtime.bind(
+        SkillToolRuntime(store=store, manual_load_budget=manual_load_budget, curator_stale_days=curator_stale_days)
+    ):
         yield
 
 
 def _store() -> SkillStore | None:
     runtime = _skill_runtime.get()
     return runtime.store if runtime is not None else None
+
+
+def _manual_load_budget() -> int | None:
+    """手动加载预算：优先取 run 绑定的配置快照值；无 run 绑定才回退全局设置（Phase 1）。"""
+    runtime = _skill_runtime.get()
+    if runtime is not None and runtime.manual_load_budget is not None:
+        return runtime.manual_load_budget
+    return get_settings().skill_max_manual_load_tokens
+
+
+def _curator_stale_default() -> int:
+    """curate 的默认陈旧天数：优先取 run 绑定的配置快照值；无 run 绑定才回退全局设置（Phase 1）。"""
+    runtime = _skill_runtime.get()
+    if runtime is not None and runtime.curator_stale_days is not None:
+        return runtime.curator_stale_days
+    return get_settings().skill_curator_stale_days
 
 
 def _split_pipe(value: str) -> list[str] | None:
@@ -181,7 +215,7 @@ async def skill_load(name: str) -> str:
     content = await asyncio.to_thread(store.load, name)
     if content is None:
         return f"Error: skill '{name}' not found or has an invalid name."
-    budget = get_settings().skill_max_manual_load_tokens
+    budget = _manual_load_budget()
     if budget is not None and estimate_text_tokens(content) > budget:
         return f"Error: skill '{name}' exceeds the configured manual-load token budget ({budget})."
     return content
@@ -205,7 +239,7 @@ async def skill_curate(days: str | None = None) -> str:
     if store is None:
         return "Error: skill tools not configured."
     if days is None:
-        stale_days = get_settings().skill_curator_stale_days
+        stale_days = _curator_stale_default()
     else:
         try:
             stale_days = int(days)

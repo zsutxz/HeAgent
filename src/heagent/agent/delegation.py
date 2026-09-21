@@ -18,6 +18,7 @@ from heagent.agent.sub import SubAgent, SubAgentAnnouncer, SubAgentResult, run_p
 from heagent.tools.builtins.subagent import DelegateMany, DelegateOne, SubTaskOutcome
 
 if TYPE_CHECKING:
+    from heagent.config import ResolvedRuntimeConfig
     from heagent.context.compressor import ContextCompressor
     from heagent.engine import EngineContainer
     from heagent.memory.facts import FactStore
@@ -45,6 +46,7 @@ def build_subagent_delegates(
     parent_run_id: str | None = None,
     depth: int = 0,
     announcer: SubAgentAnnouncer | None = None,
+    runtime_config: ResolvedRuntimeConfig | None = None,
 ) -> tuple[DelegateOne, DelegateMany]:
     """构造本次 run 的单任务 / 并行委派回调（闭包捕获父 Agent 的组件依赖）。
 
@@ -72,6 +74,7 @@ def build_subagent_delegates(
             system=system,
             delegation_depth=depth + 1,
             announcer=announcer,
+            runtime_config=runtime_config,
         )
 
     def _to_outcome(result: SubAgentResult, spec: RoleSpec | None) -> SubTaskOutcome:

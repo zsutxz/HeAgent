@@ -1162,6 +1162,11 @@ class TestSandboxSessionSwitchPrecedence:
         assert keeping._session_keep_enabled() is True
 
         monkeypatch.setenv("SANDBOX_SESSION_KEEP", "true")
+        # Phase 1 新契约：配置在构造期解析——env 变更须显式重置单例后才会被后续构造采样
+        # （运行期惰性读取全局正是被移除的旧行为）。
+        from heagent.config import reset_settings
+
+        reset_settings()
         dropping = EngineContainer(workspace_root=str(tmp_path), sandbox_session_keep=False)
         assert dropping._session_keep_enabled() is False
         assert EngineContainer(workspace_root=str(tmp_path))._session_keep_enabled() is True

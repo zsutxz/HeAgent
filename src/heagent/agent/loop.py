@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, cast
 from heagent.agent.middleware import MiddlewareFn, Request, compose
 from heagent.agent.system_prompt import build_system_prompt
 from heagent.agent.tool_execution import execute_tool_call, execute_tools, invoke_handler
-from heagent.config import get_settings
+from heagent.config import ResolvedRuntimeConfig, resolve_runtime_config
 from heagent.context.window_reset import WindowReset, WindowResetConfig
 from heagent.engine import EngineContainer, RunContext, RunStatus
 from heagent.engine.hooks import SESSION_END, SESSION_START
@@ -155,6 +155,7 @@ class AgentLoop:
         steering_callback: Callable[[], Awaitable[list[Message]]] | None = None,
         follow_up_callback: Callable[[], Awaitable[list[Message]]] | None = None,
         subagent_announcer: SubAgentAnnouncer | None = None,
+        runtime_config: ResolvedRuntimeConfig | None = None,
     ) -> None:
         """初始化 AgentLoop 主循环。
 
@@ -185,10 +186,14 @@ class AgentLoop:
             subagent_announcer: 子 Agent 进度横幅注入口（``SubAgentAnnouncer``）；经
                 ``_runtime_scope`` 转传给委派回调。缺省 None=静默；终端/GUI 入口传
                 ``cli_display.SUBAGENT_ANNOUNCER`` 保持 stderr 横幅行为。
+            runtime_config: 已解析的运行配置快照（Phase 1）；缺省构造期从当前 Settings 一次性解析，
+                之后业务执行（压缩/窗口重置/委派/提示词/技能预算）只读快照，全局 Settings 漂移不影响已创建的 loop。
         """
         self.provider = provider
+        # 运行配置快照（Phase 1）：构造期一次性解析；业务执行期只读快照。
+        self._runtime = resolve_runtime_config(runtime_config)
         self.registry = registry or ToolRegistry.get()
-        self.guard = guard or SafetyGuard(blocked_tools=get_settings().safety_blocked_tools)
+        self.guard = guard or SafetyGuard(blocked_tools=list(self._runtime.safety_blocked_tools))
         self.middlewares = middlewares or []
         self.skills = skills
         self.facts = facts
@@ -237,8 +242,7 @@ class AgentLoop:
         self._pause_event: asyncio.Event = asyncio.Event()
         self._pause_event.set()
 
-        settings = get_settings()
-        self.max_iterations = max_iterations or settings.max_iterations
+        self.max_iterations = max_iterations or self._runtime.max_iterations
 
     # ------------------------------------------------------------------
     # steering / follow-up 消息队列（参考 Pi 双层循环设计）
@@ -819,11 +823,10 @@ class AgentLoop:
         """
         if not self.compressor or not usage:
             return
-        settings = get_settings()
         compressed = await self.compressor.compress(
             state.messages,
             token_count=usage.total_tokens,
-            max_tokens=settings.max_context_tokens,
+            max_tokens=self._runtime.max_context_tokens,
         )
         if compressed is not state.messages:
             before = len(state.messages)
@@ -857,14 +860,13 @@ class AgentLoop:
             return
         from heagent.context.tokens import count_tokens
 
-        settings = get_settings()
         # P1-3: usage reflects pre-call input tokens; count_tokens reflects current msg list
         # (including just-appended tool results); take max to avoid one-round lag.
         llm_tokens = usage.total_tokens if usage else 0
         current_tokens = max(llm_tokens, count_tokens(state.messages))
         if not self.window_reset.should_trigger(
             token_count=current_tokens,
-            max_tokens=settings.max_context_tokens,
+            max_tokens=self._runtime.max_context_tokens,
         ):
             return
         before = len(state.messages)
@@ -943,6 +945,7 @@ class AgentLoop:
             facts=self.facts,
             profile=self.profile,
             sandbox_workspace=sandbox_workspace,
+            settings=self._runtime,
         )
 
     def _bound_sandbox_workspace(self, run_context: RunContext) -> str | None:
@@ -1098,7 +1101,13 @@ class AgentLoop:
         with ExitStack() as stack:
             stack.enter_context(bind_workspace_root(Path(run_context.workspace_root)))
             stack.enter_context(bind_edit_snapshot_run(run_context.run_id))
-            stack.enter_context(bind_skill_tools(self.skills))
+            stack.enter_context(
+                bind_skill_tools(
+                    self.skills,
+                    manual_load_budget=self._runtime.skill_max_manual_load_tokens,
+                    curator_stale_days=self._runtime.skill_curator_stale_days,
+                )
+            )
             stack.enter_context(bind_memory_tools(facts=self.facts, profile=self.profile))
             stack.enter_context(bind_cron_tools(self.cron_store))
             delegate_one, delegate_many = build_subagent_delegates(
@@ -1115,6 +1124,7 @@ class AgentLoop:
                 parent_run_id=run_context.run_id,
                 depth=self.delegation_depth,
                 announcer=self.subagent_announcer,
+                runtime_config=self._runtime,
             )
             stack.enter_context(
                 bind_subagent_tools(
@@ -1122,7 +1132,7 @@ class AgentLoop:
                     delegate_many,
                     run_context=run_context,
                     depth=self.delegation_depth,
-                    max_depth=get_settings().subagent_max_depth,
+                    max_depth=self._runtime.subagent_max_depth,
                 )
             )
             yield

@@ -2,7 +2,7 @@
 title: 'Phase 1 运行配置快照与统一装配'
 type: 'refactor'
 created: '2026-09-21'
-status: 'in-progress'
+status: 'done'
 baseline_commit: '4cecfeac305b2df91295e6102f40b4ffda10f9a6'
 review_loop_iteration: 0
 context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md']
@@ -51,16 +51,18 @@ context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md']
 
 ## Tasks & Acceptance
 
-- [ ] `config.py`、`types.py`：定义不可变快照及覆盖来源，涵盖 provider/sandbox/policy/workspace/retention/hooks；私密凭证不得出现在 repr、日志或审计中。
-- [ ] `engine/container.py`、`engine/policy.py`：接收快照并记录 SandboxDecision、复用 PolicyVerdict；兼容构造入口可一次读取默认设置，业务方法不重新读取。
-- [ ] `wiring.py`、`cli.py`、`gui/__init__.py`：共享配置解析与 loop/runtime 工厂，cron 继承快照；不共享可变 run 状态。
-- [ ] 上述配置消费者：消除运行中隐式取全局设置；展示层入口设置另行保留，不扩大到 Phase 2 重写循环。
-- [ ] `tests/test_runtime_config.py`：覆盖矩阵全部场景；架构测试防止下层导入 wiring/CLI/GUI，保留已有契约。
-- [ ] `docs/frame.md`：同步已实现配置边界；`docs/test.md` 只更新临时进度和真实验证结果。
+- [x] `config.py`、`types.py`：定义不可变快照及覆盖来源，涵盖 provider/sandbox/policy/workspace/retention/hooks；私密凭证不得出现在 repr、日志或审计中。
+- [x] `engine/container.py`、`engine/policy.py`：接收快照并记录 SandboxDecision、复用 PolicyVerdict；兼容构造入口可一次读取默认设置，业务方法不重新读取。
+- [x] `wiring.py`、`cli.py`、`gui/__init__.py`：共享配置解析与 loop/runtime 工厂，cron 继承快照；不共享可变 run 状态。（配置解析与 engine.runtime_config 已共用；GUI loop 工厂合并归 Phase 2，见 test.md 遗留）
+- [x] 上述配置消费者：消除运行中隐式取全局设置；展示层入口设置另行保留，不扩大到 Phase 2 重写循环。（保留项及理由见 docs/test.md 核查表）
+- [x] `tests/test_runtime_config.py`：覆盖矩阵全部场景；架构测试防止下层导入 wiring/CLI/GUI，保留已有契约。
+- [x] `docs/frame.md`：同步已实现配置边界；`docs/test.md` 只更新临时进度和真实验证结果。
 
 验收：Given 相同设置及覆盖，When 从任一入口创建运行，Then 得到相同有效配置；Given 运行已创建，When 更改全局设置，Then 已创建运行不漂移；Given 新实现，When 运行既有测试与质量门禁，Then 行为兼容且覆盖率至少 87%。
 
 ## Spec Change Log
+
+- 2026-09-21：任务全部完成并验收通过（细节与保留项见 `docs/test.md` 第 10 节）。验收第三条「更改全局设置已创建运行不漂移」落为构造期解析新契约：env 变更须重置单例后才被后续构造采样；`test_engine_p0` 三态开关测试按新契约更新，意图不变。
 
 ## Design Notes
 

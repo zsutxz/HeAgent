@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from heagent.config import get_settings
+from heagent.config import Settings, get_settings
 from heagent.context.tokens import estimate_text_tokens
 
 if TYPE_CHECKING:
@@ -35,6 +35,7 @@ def build_system_prompt(
     facts: FactStore | None,
     profile: ProfileStore | None,
     sandbox_workspace: str | None = None,
+    settings: Settings | None = None,
 ) -> str | None:
     """合并生成一条系统提示词（含人格 / 项目上下文 / 沙箱工作目录 / 技能 / 记忆 / 用户画像）。
 
@@ -55,15 +56,18 @@ def build_system_prompt(
 
     ``sandbox_workspace`` 为「本 run 的 shell 工作目录」绝对路径；未绑定（或有开关但无真实
     沙箱后端）时传 None——**不可在未生效时报路径**，否则提示词与真实 cwd 不一致，比不提示更坏。
+
+    ``settings``：运行配置快照（Phase 1，由 loop 传入）；缺省回退全局 Settings（仅供直接调用的
+    测试/外部脚本，运行中路径必须显式传快照）。
     """
     blocks: list[str | None] = [
         _identity_block(soul),
         user_system,
-        _project_context_block(context_dir),
+        _project_context_block(context_dir, settings),
         _shell_workspace_block(sandbox_workspace),
-        _skills_block(skills, prompt),
+        _skills_block(skills, prompt, settings),
         _memory_block(facts),
-        _memory_nudge_block(facts),
+        _memory_nudge_block(facts, settings),
         _profile_block(profile),
     ]
     parts = [block for block in blocks if block]
@@ -81,16 +85,21 @@ def _identity_block(soul: SoulStore | None) -> str | None:
     return f"<identity>\n{soul_content}\n</identity>"
 
 
-def _project_context_block(context_dir: str | None) -> str | None:
+def _project_context_block(context_dir: str | None, settings: Settings | None = None) -> str | None:
     """``<project-context>``：分层发现的上下文文件（受 ``context_files_enabled`` 开关）。"""
     if not context_dir:
         return None
-    settings = get_settings()
+    settings = settings or get_settings()
     if not settings.context_files_enabled:
         return None
     from heagent.context.loader import load_context_files
 
-    context = load_context_files(context_dir)
+    # 显式传快照值：运行中不再由 loader 回读全局设置（Phase 1）。
+    context = load_context_files(
+        context_dir,
+        max_bytes=settings.context_files_max_bytes,
+        user_level=settings.context_files_user_level,
+    )
     if not context:
         return None
     logger.debug("Injected project context files into system prompt")
@@ -118,7 +127,7 @@ def _shell_workspace_block(sandbox_workspace: str | None) -> str | None:
     )
 
 
-def _skills_block(skills: SkillStore | None, prompt: str) -> str | None:
+def _skills_block(skills: SkillStore | None, prompt: str, settings: Settings | None = None) -> str | None:
     """``<skills>``：按 prompt 相似度匹配并注入技能正文（含 ``record_usage`` 副作用）。
 
     命中技能时按 ``skill_max_auto_invoke`` 限制条数、按 ``skill_max_auto_invoke_tokens``
@@ -126,7 +135,7 @@ def _skills_block(skills: SkillStore | None, prompt: str) -> str | None:
     """
     if not skills:
         return None
-    settings = get_settings()
+    settings = settings or get_settings()
     candidates = skills.match_skill_details(prompt, threshold=settings.skill_match_threshold)
     matched: list[str] = []
     contents: list[str] = []
@@ -187,14 +196,14 @@ def _memory_block(facts: FactStore | None) -> str | None:
     return f"<memory>\nThe following facts are remembered from previous conversations:\n\n{items}\n</memory>"
 
 
-def _memory_nudge_block(facts: FactStore | None) -> str | None:
+def _memory_nudge_block(facts: FactStore | None, settings: Settings | None = None) -> str | None:
     """``<memory-nudge>``：提醒模型主动落盘长期事实（受 ``memory_nudge_enabled`` 开关）。
 
     与 ``<memory>`` 是两个独立块：此块**不**依赖是否已有 facts，只依赖开关与 facts 存储是否可用。
     """
     if not facts:
         return None
-    if not get_settings().memory_nudge_enabled:
+    if not (settings or get_settings()).memory_nudge_enabled:
         return None
     return (
         "<memory-nudge>\n"

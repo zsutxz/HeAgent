@@ -30,7 +30,7 @@ from heagent.cli_display import (
     show_tool_activity,
 )
 from heagent.cli_goal import _goal_auto_goal_id, _goal_cron_advance, _goal_runner
-from heagent.config import GLOBAL_CONFIG_DIR, Settings, get_settings
+from heagent.config import GLOBAL_CONFIG_DIR, Settings, get_settings, resolve_runtime_config
 from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
 from heagent.context.window_reset import WindowResetConfig
@@ -191,21 +191,28 @@ def _build_loop(
     可选的预构建记忆存储（``skills``/``facts``/``profile``/``soul``）允许调用方与
     后台调度器（如 DreamScheduler）共享同一份存储实例；缺省时各自新建。
     """
+    # Phase 1：组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
+    config = resolve_runtime_config(settings)
     skills = skills or SkillStore()
     facts = facts or FactStore()
     profile = profile or ProfileStore()
     soul = soul or _build_soul(soul_path)
-    cron_store = JobStore() if settings.cron_enabled else None
-    compressor, window_reset = _build_context_strategy(settings, provider)
-    engine = engine or EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
+    cron_store = JobStore() if config.cron_enabled else None
+    compressor, window_reset = _build_context_strategy(config, provider)
+    engine = engine or EngineContainer.default(
+        workspace_root=os.getcwd(), sandbox_backend=sandbox_backend, runtime_config=config
+    )
+    resolved = engine.runtime_config
+    assert resolved is not None  # __post_init__ 必然完成解析
+    config = resolved
     retry_mw = make_retry_middleware(
-        max_attempts=settings.retry_max_attempts,
-        base_delay=settings.retry_base_delay,
-        max_delay=settings.retry_max_delay,
+        max_attempts=config.retry_max_attempts,
+        base_delay=config.retry_base_delay,
+        max_delay=config.retry_max_delay,
     )
 
     scheduler: CronScheduler | None = None
-    if session is not None and settings.cron_enabled and cron_store:
+    if session is not None and config.cron_enabled and cron_store:
 
         async def _run_job(prompt: str, run_context: RunContext) -> None:
             goal_id = _goal_auto_goal_id(prompt)
@@ -225,6 +232,7 @@ def _build_loop(
                 soul=soul,
                 cron_store=cron_store,
                 engine=engine,
+                runtime_config=config,
                 run_context=run_context,
                 subagent_announcer=SUBAGENT_ANNOUNCER,
             )
@@ -232,7 +240,7 @@ def _build_loop(
 
         scheduler = CronScheduler(
             cron_store,
-            tick_seconds=settings.cron_tick_seconds,
+            tick_seconds=config.cron_tick_seconds,
             engine=engine,
             job_runner=_run_job,
         )
@@ -251,6 +259,7 @@ def _build_loop(
         soul=soul,
         cron_store=cron_store,
         engine=engine,
+        runtime_config=config,
         subagent_announcer=SUBAGENT_ANNOUNCER,
     )
     return loop, scheduler

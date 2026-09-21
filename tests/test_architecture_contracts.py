@@ -23,16 +23,22 @@ if TYPE_CHECKING:
 SRC = Path(__file__).resolve().parents[1] / "src" / "heagent"
 
 # 包 → 运行期不得导入的 heagent 子模块（CLAUDE.md「硬约束（违反即架构错误）」）。
+# 入口层模块（wiring/cli/cli_goal/gui）：组合根与展示适配只属于入口层，下层一律不得反向导入
+# （Phase 1 组合根收敛的契约化；新增入口模块须同步此表）。
+_ENTRYPOINT_MODULES = ("heagent.wiring", "heagent.cli", "heagent.cli_goal", "heagent.gui")
+
 FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
-    "providers": ("heagent.agent",),
-    "tools": ("heagent.agent",),
+    "providers": ("heagent.agent", *_ENTRYPOINT_MODULES),
+    "tools": ("heagent.agent", *_ENTRYPOINT_MODULES),
     # goal/ 是入口层域模块（cli_goal 的装载/文档层），下层不得反向导入。
-    "engine": ("heagent.agent", "heagent.goal"),
-    "memory": ("heagent.agent", "heagent.engine", "heagent.goal"),
-    "context": ("heagent.agent",),
-    "cron": ("heagent.agent",),
+    "engine": ("heagent.agent", "heagent.goal", *_ENTRYPOINT_MODULES),
+    "memory": ("heagent.agent", "heagent.engine", "heagent.goal", *_ENTRYPOINT_MODULES),
+    "context": ("heagent.agent", *_ENTRYPOINT_MODULES),
+    "cron": ("heagent.agent", *_ENTRYPOINT_MODULES),
     # events/ 是事件传输层，运行期零 engine 依赖（引擎类型仅出现在 TYPE_CHECKING 里）。
-    "events": ("heagent.agent", "heagent.engine"),
+    "events": ("heagent.agent", "heagent.engine", *_ENTRYPOINT_MODULES),
+    # agent/ 是运行栈顶：不得导入任何入口层（组装是入口层单向伸手，不是运行栈反向伸手）。
+    "agent": _ENTRYPOINT_MODULES,
 }
 
 

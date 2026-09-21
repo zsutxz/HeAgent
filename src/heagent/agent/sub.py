@@ -19,7 +19,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Protocol
 
 from heagent.agent.loop import AgentLoop
-from heagent.config import get_settings
+from heagent.config import ResolvedRuntimeConfig, resolve_runtime_config
 from heagent.engine import EngineContainer
 from heagent.engine.policy import PolicyEngine
 from heagent.tools.registry import ToolRegistry
@@ -96,11 +96,14 @@ class SubAgent:
         metadata: dict[str, Any] | None = None,
         delegation_depth: int = 1,
         announcer: SubAgentAnnouncer | None = None,
+        runtime_config: ResolvedRuntimeConfig | None = None,
     ) -> None:
         # 组件依赖：缺省时回退到全局默认（与 AgentLoop 的兜底策略一致）。
         self._provider = provider
+        # 运行配置快照（Phase 1）：优先继承父 loop 传入的快照；构造期一次性解析，运行期不读全局。
+        self._runtime = resolve_runtime_config(runtime_config)
         self._registry = registry or ToolRegistry.get()
-        self._guard = guard or SafetyGuard(blocked_tools=get_settings().safety_blocked_tools)
+        self._guard = guard or SafetyGuard(blocked_tools=list(self._runtime.safety_blocked_tools))
         self._skills = skills
         self._facts = facts
         self._profile = profile
@@ -137,7 +140,7 @@ class SubAgent:
         self._max_iterations = (
             max_iterations
             if max_iterations is not None
-            else (role_iterations if role_iterations is not None else get_settings().subagent_max_iterations)
+            else (role_iterations if role_iterations is not None else self._runtime.subagent_max_iterations)
         )
 
     def _build_engine(self) -> EngineContainer:
@@ -253,6 +256,7 @@ class SubAgent:
             context_dir=self._context_dir,
             soul=self._soul,
             engine=engine,
+            runtime_config=self._runtime,
             delegation_depth=self._delegation_depth,
             run_context=run_context,
         )

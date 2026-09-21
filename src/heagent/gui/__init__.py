@@ -22,7 +22,7 @@ def gui_main(
     """Launch the HeAgent Textual TUI."""
     from typing import TYPE_CHECKING
 
-    from heagent.config import get_settings
+    from heagent.config import resolve_runtime_config
     from heagent.gui.app import HeAgentApp
     from heagent.gui.bridge import AgentBridge
     from heagent.gui.observers import GuiEventObserver
@@ -31,13 +31,14 @@ def gui_main(
     if TYPE_CHECKING:
         from heagent.engine.context import RunContext
 
-    settings = get_settings()
+    # Phase 1：组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
+    config = resolve_runtime_config()
 
     # ── Provider ────────────────────────────────────────────
     from heagent.providers.router import active_model, annotate_route
     from heagent.wiring import _build_provider
 
-    provider = _build_provider(settings, model)
+    provider = _build_provider(config, model)
 
     # ── Stores ──────────────────────────────────────────────
     from heagent.cron.jobs import JobStore
@@ -58,15 +59,20 @@ def gui_main(
 
     engine = EngineContainer.default(
         workspace_root=None,
-        sandbox_backend=sandbox or settings.sandbox_backend,
+        sandbox_backend=sandbox or config.sandbox_backend,
         sandbox_session_workspace=sandbox_session_workspace,
         sandbox_session_keep=sandbox_session_keep,
+        runtime_config=config,
     )
+    resolved = engine.runtime_config
+    assert resolved is not None  # __post_init__ 必然完成解析
+    config = resolved
 
     loop = AgentLoop(
         provider,
         registry=ToolRegistry.get(),
         engine=engine,
+        runtime_config=config,
         skills=skill_store,
         facts=fact_store,
         profile=profile_store,
@@ -78,7 +84,7 @@ def gui_main(
     # ── GUI 状态 + 桥接 ─────────────────────────────────────
     state = GuiState(
         model_name=annotate_route(provider, active_model(provider) or provider.get_metadata().model),
-        max_iterations=settings.max_iterations,
+        max_iterations=config.max_iterations,
     )
     bridge = AgentBridge(loop, state)
 
@@ -88,15 +94,15 @@ def gui_main(
 
     # ── Cron 调度器（/goal auto 注册的 goal-advance job 由它驱动；镜像 cli.py 的 _run_job）──
     cron_scheduler = None
-    if settings.cron_enabled:
+    if config.cron_enabled:
         from heagent.agent.middleware import make_retry_middleware
         from heagent.cli_goal import _goal_auto_goal_id, _goal_cron_advance
         from heagent.cron.scheduler import CronScheduler
 
         retry_mw = make_retry_middleware(
-            max_attempts=settings.retry_max_attempts,
-            base_delay=settings.retry_base_delay,
-            max_delay=settings.retry_max_delay,
+            max_attempts=config.retry_max_attempts,
+            base_delay=config.retry_base_delay,
+            max_delay=config.retry_max_delay,
         )
 
         async def _run_job(prompt: str, run_context: RunContext) -> None:
@@ -110,6 +116,7 @@ def gui_main(
                 provider,
                 registry=ToolRegistry.get(),
                 engine=engine,
+                runtime_config=config,
                 skills=skill_store,
                 facts=fact_store,
                 profile=profile_store,
@@ -122,7 +129,7 @@ def gui_main(
 
         cron_scheduler = CronScheduler(
             job_store,
-            tick_seconds=settings.cron_tick_seconds,
+            tick_seconds=config.cron_tick_seconds,
             engine=engine,
             job_runner=_run_job,
         )
