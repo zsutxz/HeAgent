@@ -46,6 +46,10 @@ class RunStatus(StrEnum):
     FAILED = "failed"  # 已失败：抛出异常或被门控终止
 
 
+# 终态集合：终态唯一写入口 ``RunContext.mark_terminal`` 的合法目标（Phase 2 C2）。
+_TERMINAL_STATUSES: frozenset[RunStatus] = frozenset({RunStatus.COMPLETED, RunStatus.FAILED})
+
+
 class RunContext(BaseModel):
     """与单次 loop 执行关联的可变元数据。
 
@@ -89,3 +93,24 @@ class RunContext(BaseModel):
         if status is not None:
             self.status = status
         self.updated_at = iso_now()
+
+    def mark_terminal(self, status: RunStatus, *, iteration: int | None = None) -> None:
+        """终态唯一写入口（Phase 2 C2 reducer）：RUNNING → COMPLETED/FAILED。
+
+        ``touch(status=...)`` 是裸 setter，供迭代期刷新；终态写入必须走本方法，
+        保证「每个 run 恰好一次终态、终态不可改写」：
+
+        - 传入非终态（``RUNNING``）→ ``ValueError``（用错方法）；
+        - 已处终态再写 → ``RuntimeError``（显性失败，不静默覆盖——双写终态属
+          编程错误，掩盖它会破坏 resume/审计对终态的信任）。
+
+        取消路径（``CancelledError``）**不**经本方法：status 保持 ``RUNNING``，
+        run 视为未完成、可 ``resume()`` 续跑（与 resume 设计一致）。
+        """
+        if status not in _TERMINAL_STATUSES:
+            raise ValueError(f"mark_terminal requires a terminal status, got {status!r}")
+        if self.status in _TERMINAL_STATUSES:
+            raise RuntimeError(
+                f"run {self.run_id} already terminal ({self.status}); refusing to overwrite with {status}"
+            )
+        self.touch(status=status, iteration=iteration)

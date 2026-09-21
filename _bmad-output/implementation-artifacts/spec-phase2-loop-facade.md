@@ -49,7 +49,7 @@ context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md', '{project-
 ## Tasks & Acceptance
 
 - [x] C1 模块路径拆分：run_lifecycle / context_runtime / stream_runtime / resume_runtime / message_ports 五组函数迁出，façade 保留同名委托与兼容导出；行为不变，既有 agent/streaming/window reset/session resume/steering 测试原样通过。（2026-09-21 完成：façade 1,199 → 707 行；定向测试 389 passed，见 test.md §11）
-- [ ] C2 状态收口：枚举 run 循环内散落布尔/状态写点，终态（completed/failed/cancelled/waiting_approval）只由一个 reducer 写入；新增状态转换契约测试（成功/失败/取消/审批等待四终态各恰好一次终态写点）。
+- [x] C2 状态收口：终态（COMPLETED/FAILED）只由一个 reducer 写入（`RunContext.mark_terminal`，engine/context.py）；新增状态转换契约测试 `tests/test_run_status_contract.py`（4 reducer 单元 + 3 loop 行为，取消路径语义显性钉死）。C2 完成时如实修正任务前提：`RunStatus` 仅 RUNNING/COMPLETED/FAILED 三值，cancelled/waiting_approval 终态不存在（见 Spec Change Log）；「散落布尔」枚举结果为空——pause 已是 asyncio.Event 端口（C1 迁 message_ports），展示态是 run 级重置而非布尔，布尔清理早在 P1-P5 周期完成。
 - [ ] C3 入口工厂合并：GUI 主 loop 构造并入共享工厂；CLI/GUI/cron 差异以参数表达；架构契约测试维持。
 - [ ] `docs/frame.md` 同步模块地图与调用链；`docs/test.md` 记录执行结果与遗留。
 
@@ -59,6 +59,8 @@ context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md', '{project-
 
 - 2026-09-21：spec 创建（draft）。拆分序遵循 test.md §3.3 原则：C1 只动模块路径，C2 再收状态模型，不并行。
 - 2026-09-21：用户批准冻结并执行。入口全量门禁暴露 Phase 1 两笔欠账（sub_agent 元数据断言回归 `23ef756` 修复；cli/gui S101 assert 改显性 raise），随后 C1 完成。偏差如实记录：① façade 707 行 > 预估 500——`__init__` 装配 docstring 与留守核心方法（`_call_provider`/`_runtime_scope`/`_emit` 等）体量超预估，test.md 验收（行数/分支数下降且可读性不降）满足；② `AgentState`/`_RunInit`/`_ResumeState`/`_delegation_details` 落位 `run_lifecycle.py`（lifecycle/resume 需运行期构造，且不得反向导入 loop），loop.py 经 `__all__` 显式再导出（mypy no_implicit_reexport 与 ruff PLC0414 的交集解）；③ C1 范围内新增 run_lifecycle 依赖方向铁律并写入模块 docstring。
+
+- 2026-09-21：C2 完成，任务前提如实修正：① `RunStatus` 仅 RUNNING/COMPLETED/FAILED 三值——spec 任务文本沿写 test.md 的「cancelled/waiting_approval 终态」在枚举中不存在；终态写点勘察确认恰好两处（finish_run/on_run_failed），已收敛到 `RunContext.mark_terminal`（engine/context.py）唯一 reducer：RUNNING→终态合法、终态再写 RuntimeError 显性失败、非终态入参 ValueError。② 「散落布尔标志」枚举为空：pause 已是 asyncio.Event 端口（C1 迁 message_ports），展示态（active_tool/tool_activity）是 run 级重置而非布尔——布尔清理在 P1-P5 周期已完成，test.md 前提基于旧文件静态阅读。③ 取消传播边界显性化：CancelledError 不被 `except Exception` 捕获、不写终态，status 保持 RUNNING 可 resume——由 `test_run_status_contract.py::test_cancelled_run_keeps_running_status` 钉死；审批等待不结束 run（阻塞在工具执行内），无独立终态。④ 新增架构契约：五个策略模块运行期禁止导入 loop façade（`test_architecture_contracts.py`，AST 全路径扫描）。⑤ 架构契约红线自检：tests patch 面未受影响（类级 `__init__` spy 与实例级 patch 均兼容）。
 
 ## Design Notes
 

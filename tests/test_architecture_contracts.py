@@ -168,3 +168,55 @@ def test_timestamps_are_naive_and_parseable() -> None:
     seconds = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$")
     for name, factory in (("engine.context.iso_now", iso_now), ("events.protocol._now_iso", events_now_iso)):
         assert seconds.match(factory()), f"{name} 与另一处不再同格式：{factory()!r}"
+
+
+def test_loop_strategy_modules_do_not_runtime_import_loop_facade() -> None:
+    """Phase 2：loop 策略模块**运行期**禁止导入 ``heagent.agent.loop``（反向导入即成环）。
+
+    ``loop.py``（façade）运行期导入五个策略模块；策略模块对 ``AgentLoop`` 的引用只允许
+    出现在 ``TYPE_CHECKING`` 下（首参类型注解需要）。包级 ``FORBIDDEN_RUNTIME_IMPORTS``
+    的粒度是包根（``heagent.agent``），会把策略模块间合法的兄弟导入一并误伤，故此处按
+    **完整模块路径**单独扫描。新增 loop 策略模块时必须同步 ``_LOOP_STRATEGY_MODULES``。
+    """
+    strategy_modules = (
+        "run_lifecycle.py",
+        "stream_runtime.py",
+        "resume_runtime.py",
+        "context_runtime.py",
+        "message_ports.py",
+    )
+
+    def runtime_imports(path: Path) -> set[str]:
+        """完整模块路径粒度的运行期导入集（TYPE_CHECKING 块不算）。"""
+        found: set[str] = set()
+
+        def record(node: ast.stmt) -> None:
+            if isinstance(node, ast.Import):
+                found.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                found.add(node.module)
+
+        def walk(body: list[ast.stmt]) -> None:
+            for node in body:
+                if isinstance(node, ast.If) and "TYPE_CHECKING" in ast.unparse(node.test):
+                    continue
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    walk(node.body)
+                elif isinstance(node, ast.Try):
+                    walk(node.body)
+                    walk(node.orelse)
+                    walk(node.finalbody)
+                    for handler in node.handlers:
+                        walk(handler.body)
+                else:
+                    record(node)
+
+        walk(ast.parse(path.read_text(encoding="utf-8")).body)
+        return found
+
+    offenders: list[str] = []
+    for name in strategy_modules:
+        path = SRC / "agent" / name
+        if "heagent.agent.loop" in runtime_imports(path):
+            offenders.append(f"agent/{name}")
+    assert offenders == [], "策略模块运行期导入 loop façade（成环）：" + ", ".join(offenders)

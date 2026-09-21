@@ -272,7 +272,7 @@ async def finish_run(
     两条循环此前各持一份逐字副本（连 ``answer_length`` 都有两种等价写法，此处统一）；
     调用方随后的动作仍各自保留：``run`` 返回答案、``run_stream`` yield ``done`` 事件。
     """
-    run_context.touch(status=RunStatus.COMPLETED, iteration=state.iteration)
+    run_context.mark_terminal(RunStatus.COMPLETED, iteration=state.iteration)
     await checkpoint(
         loop,
         run_context,
@@ -329,7 +329,7 @@ async def on_run_failed(
     ``run``/``run_stream`` 的 except 块共用；``raise`` 留在各自 except 末尾
     （显性失败，异常原样向上抛）。
     """
-    run_context.touch(status=RunStatus.FAILED, iteration=state.iteration)
+    run_context.mark_terminal(RunStatus.FAILED, iteration=state.iteration)
     await checkpoint(
         loop,
         run_context,
