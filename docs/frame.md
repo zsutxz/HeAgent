@@ -827,6 +827,9 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 
 - `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/require.md`（只含原始需求）
   和 `current` 指针，然后执行 workflow 的第一个声明步骤；「总结的需求」由 step 01 初步分析后写回同一文档。
+  `goal_id` 由 LLM 命名（`goal/naming.py` 一次性 provider 调用生成 kebab-case 名，清洗/校验/`-a`..`-z`
+  去重为代码内确定性逻辑）；调用失败或输出非法时 stderr 显性提示并回退固定名 `project`。
+  id 字符集锁定 `^[a-z][a-z-]*$`（current 指针校验、cron prompt 解析、旧 job 注销匹配三处下游依赖）。
 - `/goal next` 执行一个声明步骤，`story_loop`（当前为 `02-epics.md`）步骤则每次执行一条 Story；`/goal run` 可连续推进，遇到检查点、
   阻塞或失败即停止。
 - `/goal status` 只读回显运行状态和目标产物；`/goal reset` 只清除 current 指针并保留目标目录。
@@ -986,7 +989,8 @@ src/heagent/
 │   └── sink.py              # JsonlSink（stdout/rollout）+ read_rollout / render_event
 │
 ├── goal/                    # /goal 域层（入口层，供 cli_goal 使用，下层不得反向导入）
-│   ├── document.py          # require.md 定位/命名/增量更新
+│   ├── document.py          # require.md 定位/命名规则/增量更新（确定性部分）
+│   ├── naming.py            # /goal new 项目名 LLM 生成，失败显性回退 project（2026-09-21）
 │   └── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性）
 ├── slash.py                 # 交互模式斜杠命令注册与路由
 ├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）
