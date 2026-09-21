@@ -26,8 +26,9 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "heagent"
 FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
     "providers": ("heagent.agent",),
     "tools": ("heagent.agent",),
-    "engine": ("heagent.agent",),
-    "memory": ("heagent.agent", "heagent.engine"),
+    # goal/ 是入口层域模块（cli_goal 的装载/文档层），下层不得反向导入。
+    "engine": ("heagent.agent", "heagent.goal"),
+    "memory": ("heagent.agent", "heagent.engine", "heagent.goal"),
     "context": ("heagent.agent",),
     "cron": ("heagent.agent",),
     # events/ 是事件传输层，运行期零 engine 依赖（引擎类型仅出现在 TYPE_CHECKING 里）。

@@ -88,7 +88,7 @@ class SkillPackage(BaseModel):
         root = self.root.expanduser().resolve(strict=False)
         if not root.is_dir():
             raise SkillPackageError(self.skill_id, str(root), "package root is missing or not a directory")
-        if self._is_absolute(self.entrypoint) or self._has_parent(self.entrypoint):
+        if self.is_absolute(self.entrypoint) or self.has_parent(self.entrypoint):
             raise SkillPackageEntryError(self.skill_id, self.entrypoint, "entrypoint path is invalid")
         object.__setattr__(self, "root", root)
 
@@ -188,7 +188,7 @@ class SkillPackage(BaseModel):
         return self._read_in("scripts", resource)
 
     def _read_in(self, directory: str, resource: str) -> str:
-        if self._is_absolute(resource) or self._has_parent(resource):
+        if self.is_absolute(resource) or self.has_parent(resource):
             raise SkillPackageResourceError(
                 self.skill_id,
                 resource,
@@ -199,7 +199,7 @@ class SkillPackage(BaseModel):
         return self.read_resource(relative)
 
     def _resolve(self, resource: str, *, entry: bool = False) -> Path:
-        if self._is_absolute(resource) or self._has_parent(resource):
+        if self.is_absolute(resource) or self.has_parent(resource):
             reason = (
                 "entrypoint path is invalid" if entry else "resource path is absolute or traverses parent directory"
             )
@@ -212,11 +212,11 @@ class SkillPackage(BaseModel):
             ) from exc
 
     @staticmethod
-    def _is_absolute(resource: str) -> bool:
+    def is_absolute(resource: str) -> bool:
         return any(parser(resource).is_absolute() for parser in (PurePath, PurePosixPath, PureWindowsPath))
 
     @staticmethod
-    def _has_parent(resource: str) -> bool:
+    def has_parent(resource: str) -> bool:
         return any(".." in parser(resource).parts for parser in (PurePath, PurePosixPath, PureWindowsPath))
 
     def _parse_metadata(self, text: str) -> SkillPackageMetadata:

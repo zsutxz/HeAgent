@@ -255,7 +255,7 @@ def _resource_list(package: SkillPackage, value: Any, workflow: str, label: str 
     else:
         raise SkillWorkflowError(package.skill_id, workflow, f"{label} must be a list")
     for item in items:
-        if SkillPackage._is_absolute(item) or SkillPackage._has_parent(item):
+        if SkillPackage.is_absolute(item) or SkillPackage.has_parent(item):
             raise SkillWorkflowError(package.skill_id, item, f"{label} reference must stay within package root")
     return items
 

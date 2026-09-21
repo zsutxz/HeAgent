@@ -85,7 +85,7 @@ exceptions  types  config  persist  roles
 - `providers/` 和 `tools/` 互不依赖
 - `exceptions.py` 和 `types.py` 是叶子模块，无内部依赖
 - 新增 Provider 或 Tool **禁止**从 `agent/` 导入（**全仓无例外**：`builtins/subagent.py` 只持可注入委派回调，子 Agent 编排由 `agent/delegation.py` 提供、`AgentLoop._runtime_scope` 每 run 绑定；`tools/mcp/*` 同）
-- `persist.py` / `roles.py` / `frontmatter.py` 是顶层底层共用模块（与 exceptions/types/config 同层；persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖）：`persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages ×2 / slash / roles），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
+- `persist.py` / `roles.py` / `frontmatter.py` 是顶层底层共用模块（与 exceptions/types/config 同层；persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖）：`persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
 - `memory/` 运行期**不依赖 `engine/`**（`memory/dream.py` 的 `EngineContainer` 仅 TYPE_CHECKING 引用，实例由入口层注入、无 `default()` 回退；契约断言见 `test_architecture_contracts.py` FORBIDDEN_RUNTIME_IMPORTS）
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
@@ -820,6 +820,9 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 
 `/goal` 是 CLI 层的机制入口（命令族实现位于 `cli_goal.py`）。当前工作流的唯一方法论入口是
 `.heagent/skills/he-goal/workflow.md`（属 `he-goal` 包，由 skill catalog 按 id/别名解析）；步骤声明中的 `role` 再解析对应的 `.heagent/skills/*/SKILL.md`。
+声明的确定性装载在 `goal/workflow_loader.py`（`read_workflow(package)`：frontmatter 策略、内嵌步骤、
+`required_resources` 模板必需性），产出 `engine/workflow_resource.py` 的 `WorkflowResource` 供
+`WorkflowRunner` 消费——装载与执行分离，模板文案零代码副本。
 当前工作流的维护说明见[文档索引的「Goal 工作流」章节](README.md#goal-工作流)。
 
 - `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/require.md`（只含原始需求）
@@ -972,6 +975,7 @@ src/heagent/
 │   ├── store.py             # RunStore 运行快照（async I/O）
 │   ├── ledger.py            # ExecutionLedger 幂等/租约（async I/O）
 │   ├── workflow.py          # GoalWorkflowState + WorkflowCheckpointStore（legacy 阶段状态机已于 2026-09 删除）
+│   ├── workflow_resource.py # 工作流资源模型 WorkflowResource/Step（2026-09-20 自 memory.skill_packages 迁入）
 │   ├── workflow_runner.py    # 声明式 workflow 单步执行器
 │   ├── artifacts.py          # Goal/Epic/Story 产物契约校验
 │   ├── approval.py           # 交互式审批协议与状态
@@ -980,6 +984,10 @@ src/heagent/
 ├── events/                  # 事件传输层（JSONL 契约 / rollout 落盘 / replay）
 │   ├── protocol.py          # RunEvent + EngineEvent → RunEvent 映射
 │   └── sink.py              # JsonlSink（stdout/rollout）+ read_rollout / render_event
+│
+├── goal/                    # /goal 域层（入口层，供 cli_goal 使用，下层不得反向导入）
+│   ├── document.py          # require.md 定位/命名/增量更新
+│   └── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性）
 ├── slash.py                 # 交互模式斜杠命令注册与路由
 ├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）
 └── cron/                    # 定时调度
