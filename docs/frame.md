@@ -1,5 +1,7 @@
 # HeAgent 项目架构与工作流程
 
+> 状态：当前实现参考。历史来源与迁移索引见 [architecture-history.md](architecture-history.md)。维护责任：对应模块的变更提交者。
+
 > 相关文档：总览与快速开始见 [`README.md`](../README.md)，设计目标见 [`design.md`](design.md)，文档导航见 [`文档索引`](README.md)，部署边界见 [`deploy/README.md`](../deploy/README.md)，协作约定见 [`CLAUDE.md`](../CLAUDE.md)。本文为**代码实现层面的架构参考**，以当前 `src/` 实现为准。
 
 ## 一、项目定位
@@ -1113,26 +1115,22 @@ python -m heagent
 | 测试 | pytest + pytest-asyncio，`StubProvider` 模拟 |
 | Provider 接口 | Protocol（结构化子类型），不强制继承 |
 
-### 4.13 目标工作流质量收口
+### 8.1 目标工作流质量收口
 
 Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测试覆盖。`tests/test_goal_workflow_smoke.py` 使用无网络执行，验证两个 story 单元、workflow/checkpoint、ledger 与 EventBus 证据，并覆盖损坏状态显式失败（legacy 阶段状态机与其 route 门控已于 2026-09 删除）。
 
 本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format 和 mypy；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal` 的步骤权威是 `.heagent/skills/he-goal/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 仍是 defense-in-depth，非 OS 安全边界。
 
-### 4.15 Goal/Epic/Story artifact contract
+### 8.2 Goal/Epic/Story artifact contract
 
 Declarative BMad workflow artifacts have three layers with fixed ownership. A goal artifact (`type: goal`) contains the Epic list only; `EPIC.md` contains Goal, Value, Scope, Dependencies, Acceptance Criteria, Stories, and Definition of Done; each Story document contains frontmatter, User Story, Given/When/Then acceptance criteria, Tasks, and Definition of Done. IDs and parent references are validated by `heagent.engine.artifacts.validate_hierarchy()`. The `/goal` CLI no longer writes a goal artifact: it persists the goal's requirement document `require.md`, and the Epic/Story lists live in the workflow's own `02-epics.md`.
 
 `parse_artifact()` fails loudly on missing or duplicate sections, unresolved `TBD`, invalid frontmatter type/status, and malformed parent metadata. Templates are in `.heagent/skills/he-goal/templates/`. Historical Epic/Story status is owned solely by `_bmad-output/sprint-status.yaml`; `workflow.json` stores runtime metadata and is never a second status board. `validate_sprint_status_path()` enforces this canonical, read-only target.
 
-### 4.16 Declarative Agile Closure
+### 8.3 Declarative Agile Closure
 
 `.heagent/skills/he-goal/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `require.md` is the goal's durable requirement document (the original request at creation, then the derived requirements step 01 writes after its initial analysis); it replaces `goal.txt` and is deliberately not a `parse_artifact()` goal artifact. All durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The former imperative `goal.txt` story-board path has been removed, leaving the declarative runner as the sole `/goal` execution path. Transition policy remains owned by the active workflow and its deterministic runner. The workflow itself is addressed as a skill package (`he-goal`) resolved through `SkillCatalog`/`SkillResolver`, so per-run policy (`max_rounds`, `auto_schedule`, open-question wording) and the step prompt/gate wording are declarations inside the package (`workflow.md`, `templates/prompt-template.md`, `templates/gate-template.md`); template requiredness is itself declared in the workflow frontmatter (`required_resources`) — the loader fails the load explicitly when a declared template is missing or blank (entries are prefix-normalized and every entry is enforced: a typo'd name fails the load instead of being ignored), a blank-but-undeclared template fails loudly at prompt-render time instead of producing an empty step prompt/gate block, and the CLI carries no built-in template wording.
 
-## 九、参考实现
+## 九、历史与迁移
 
-[hermes-agent](https://github.com/NousResearch/hermes-agent.git)（NousResearch）——同源自学习 agent 架构（skills/facts/profile/soul 记忆、MCP、cron、多 provider 容错），设计与约定可作参考。注意 hermes 为**同步单文件巨型架构**（`run_agent.py`/`cli.py` 各逾万行、多平台 gateway/TUI），HeAgent 为**异步模块化单库**——**不可直接照搬**，须按 HeAgent 栈（Pydantic / asyncio / pytest-asyncio）改造适配；仅硬约束级条目进 `CLAUDE.md`，细节以本文件为准。（2026-09-17 自 CLAUDE.md「参考实现」节原样迁入，常驻改按需查阅。）
-
-### path_safety 对 hermes 的借鉴
-
-`tools/path_safety.py` 的凭证 deny 与内部状态读 deny 借鉴自 hermes `file_safety.py`（2026-08-24），见 4.4。
+参考实现来源和迁移索引已移至 [架构沿革](architecture-history.md)。本页保留当前行为、兼容约束和测试入口。

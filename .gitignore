@@ -49,6 +49,7 @@ benchmark-data/
 .session-resume/
 docs/stock/
 docs/news.md
+/docs/test.md
 docs/worldcup_prediction.md
 docs/claude-updater/
 

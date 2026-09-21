@@ -1,5 +1,7 @@
 # HeAgent 迭代开发指南与历程
 
+> 状态：历史历程与迭代方法。维护责任：各周期变更提交者。架构迁移索引见 [architecture-history.md](architecture-history.md)；历史测试数和状态不作为当前质量基线。
+
 > 这份文档回答两件事：**项目是怎么一步步迭代到现在的**（历程），以及**怎么继续迭代**（流程）。架构看 [`frame.md`](frame.md)，愿景看 [`design.md`](design.md)，本文只讲「迭代」这一维度。
 
 ## 这份文档的位置
