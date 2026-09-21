@@ -113,7 +113,9 @@ exceptions  types  config  persist  roles
 
 ### 4.2 Agent 核心 (`agent/`)
 
-#### loop.py — 主循环
+#### loop.py — 主循环（façade）
+
+> **Phase 2 façade 化（2026-09-21）**：`AgentLoop` 保留依赖注入装配、公共入口与同名委托；循环策略拆为 sibling 模块——`run_lifecycle.py`（状态数据类 `AgentState`/`_RunInit`/`_ResumeState` + 初始化分叉 + 非流式循环体 + 终结/检查点）、`stream_runtime.py`（流式循环体）、`resume_runtime.py`（快照重建续跑状态）、`context_runtime.py`（迭代控制/消息追加/压缩/窗口重置）、`message_ports.py`（steering/follow-up 注入 + 协作式暂停）。下表方法在 façade 上保留同名委托，实现位于对应策略模块；`AgentLoop` 与状态类的导入路径不变（策略模块运行期不反向导入 loop，仅 TYPE_CHECKING）。
 
 | 组件 | 说明 |
 |------|------|
@@ -913,7 +915,12 @@ src/heagent/
 ├── frontmatter.py           # 共享 frontmatter 解析（零 heagent 依赖；六处手写解析器收敛，2026-09-17）
 │
 ├── agent/                   # 顶层编排
-│   ├── loop.py              # AgentLoop 核心循环（LLM ↔ 工具循环）
+│   ├── loop.py              # AgentLoop façade（依赖注入装配 + 公共入口委托，Phase 2）
+│   ├── run_lifecycle.py     # run 生命周期策略（状态类 + 初始化/非流式循环体/终结/检查点）
+│   ├── stream_runtime.py    # 流式循环体策略（run_stream）
+│   ├── resume_runtime.py    # resume 快照重建策略
+│   ├── context_runtime.py   # 迭代控制/消息追加/压缩/窗口重置策略
+│   ├── message_ports.py     # steering/follow-up 端口 + 协作式暂停
 │   ├── system_prompt.py     # _build_system 拼装（人格/上下文/技能/记忆/画像）
 │   ├── tool_execution.py    # _execute_one 工具执行链（ledger → policy → executor）
 │   ├── middleware.py        # 中间件组合 + make_retry_middleware
