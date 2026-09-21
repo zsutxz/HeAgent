@@ -48,9 +48,7 @@ async def llm_project_id(provider: BaseProvider, description: str) -> str:
     ``_FALLBACK_ID`` 并向 stderr 显性提示。
     """
     try:
-        resp = await provider.send(
-            [Message(role=Role.USER, content=f"{_GOAL_NAME_PROMPT}{description}")]
-        )
+        resp = await provider.send([Message(role=Role.USER, content=f"{_GOAL_NAME_PROMPT}{description}")])
         candidate = _slug(resp.content.strip().strip("`").strip().casefold())
     except Exception as exc:  # provider 网络故障、假 provider 缺 send 等一律走回退
         logger.warning("goal naming via llm call failed: %s", exc)

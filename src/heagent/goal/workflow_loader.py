@@ -163,8 +163,7 @@ def _required_templates(package: SkillPackage, values: dict[str, Any], workflow:
     if not declared:
         return frozenset()
     names = frozenset(
-        name.removeprefix("templates/")
-        for name in _resource_list(package, declared, workflow, "required_resources")
+        name.removeprefix("templates/") for name in _resource_list(package, declared, workflow, "required_resources")
     )
     for name in sorted(names):
         if not _read_optional_resource(package, name):

@@ -39,9 +39,7 @@ def _shipped_gate_template() -> str:
 
 
 @pytest.fixture()
-def declarative_cwd(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_root: Path
-) -> Path:
+def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_root: Path) -> Path:
     monkeypatch.chdir(tmp_path)
     (goal_workflow_root / "workflow.md").write_text(
         "---\nname: test-development\nentrypoint: goal\non_create: persist_goal_identity\n"

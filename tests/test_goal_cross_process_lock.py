@@ -28,9 +28,7 @@ _WORKFLOW_MD = (
 
 
 @pytest.fixture()
-def declarative_cwd(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_root: Path
-) -> Path:
+def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_root: Path) -> Path:
     monkeypatch.chdir(tmp_path)
     (goal_workflow_root / "workflow.md").write_text(_WORKFLOW_MD, encoding="utf-8")
     (tmp_path / "_he-output" / "goals").mkdir(parents=True)
