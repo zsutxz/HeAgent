@@ -88,13 +88,14 @@ class TestSubAgent:
         ).run("task")
 
         assert result.success
-        assert captured["metadata"] == {
-            "description": "role description",
-            "scope": "caller",
-            "custom": "value",
-            "kind": "subagent",
-            "role": "reviewer",
-        }
+        # 意图断言按键而非全量相等：run_context.metadata 另含治理基础设施键
+        # （engine.create_context 写入的 sandbox_decision 等），不属于角色/调用方契约。
+        metadata = captured["metadata"]
+        assert metadata["description"] == "role description"  # 角色元数据可观察
+        assert metadata["scope"] == "caller"  # 调用方覆盖角色同名键
+        assert metadata["custom"] == "value"  # 调用方独有键透传
+        assert metadata["kind"] == "subagent"  # 结构键由子 agent 机制定，调用方不可伪装
+        assert metadata["role"] == "reviewer"
 
     async def test_separate_context(self) -> None:
         r1, r2 = await asyncio.gather(
