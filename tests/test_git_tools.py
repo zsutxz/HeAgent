@@ -328,3 +328,24 @@ class TestGitToolRegistration:
             assert schema.annotations is not None, f"annotations for {name} is None"
             assert schema.annotations.readOnlyHint is True, f"{name} 应为 readOnlyHint"
             assert schema.annotations.destructiveHint is None or schema.annotations.destructiveHint is False
+
+
+# --- Phase 4 C3：512KB/通道保头尾截断（巨型输出不进 LLM 上下文）---
+
+
+@pytest.mark.asyncio
+async def test_git_diff_output_truncated_on_huge_output(tmp_path: Path) -> None:
+    """巨型 diff（>512KB/通道）→ 结果截断且含 marker（与沙箱 shell 同一预算）。"""
+    from heagent.tools.builtins.git import git_diff
+
+    set_workspace_root(_init_git_repo(tmp_path))
+    try:
+        huge = "x" * (600 * 1024)
+        # 追加到已提交文件（未跟踪的新文件不出现在 git diff）
+        with open(tmp_path / "repo" / "README.md", "a", encoding="utf-8") as f:
+            f.write("\n" + huge + "\n")
+        result = await git_diff()
+    finally:
+        reset_workspace_root()
+    assert "[truncated]" in result
+    assert len(result) < 600 * 1024

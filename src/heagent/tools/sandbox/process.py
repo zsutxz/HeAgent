@@ -34,12 +34,15 @@ _MAX_CHANNEL_BYTES = 512 * 1024
 _TRUNCATION_MARKER = "[truncated]"
 
 
-def _cap_channel(raw: bytes, limit: int = _MAX_CHANNEL_BYTES) -> str:
+def cap_channel(raw: bytes, limit: int = _MAX_CHANNEL_BYTES) -> str:
     """Decode one channel, keeping head and tail once it exceeds ``limit`` bytes.
 
     The tail is preserved on purpose: ``SandboxSession`` reads its cwd/exit-code marker
     from the end of stdout.  A single unbounded shell result used to be fed back into
     the model verbatim (one 1.97 MB stdout blew a 1M-token context window).
+
+    公共内核（Phase 4 C3）：sandbox 三 backend、git 工具、hooks 执行器共用同一截断语义
+    与 512KB/通道预算，巨型输出不再整段进入 LLM 上下文。
     """
     if len(raw) <= limit:
         return raw.decode("utf-8", errors="replace")
@@ -74,9 +77,9 @@ def _cap_channel(raw: bytes, limit: int = _MAX_CHANNEL_BYTES) -> str:
 def _format_result(returncode: int | None, stdout: bytes, stderr: bytes) -> str:
     result = f"exit_code={returncode}\n"
     if stdout:
-        result += f"stdout:\n{_cap_channel(stdout)}"
+        result += f"stdout:\n{cap_channel(stdout)}"
     if stderr:
-        result += f"stderr:\n{_cap_channel(stderr)}"
+        result += f"stderr:\n{cap_channel(stderr)}"
     return result
 
 
@@ -122,6 +125,20 @@ def _env_allowlist() -> frozenset[str]:
     return get_settings().sandbox_env_allowlist_set
 
 
+async def reap_subprocess(proc: asyncio.subprocess.Process, *, timeout: float | None = None) -> None:
+    """有界回收子进程管道（kill 后必经的收尾）：``communicate()`` 至多等 ``timeout`` 秒。
+
+    ``timeout`` 缺省时读模块级 ``_REAP_WAIT_TIMEOUT``（调用时求值，模块属性 patch 缝
+    保持存活——默认参数会在 def 时绑定常量，缝即失效）。
+
+    公共内核（Phase 4 C3）：git 工具与 hooks 执行器的清理路径复用，替代各自无上界的
+    ``communicate()`` / ``wait()``——挂死的孙进程持有管道时，无界回收会让取消/超时
+    清理自身挂死，孤儿进程树得不到兜底。
+    """
+    wait = _REAP_WAIT_TIMEOUT if timeout is None else timeout
+    await asyncio.wait_for(proc.communicate(), timeout=wait)
+
+
 async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     try:
         if sys.platform == "linux":
@@ -135,7 +152,7 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
                 proc.kill()
     except OSError:
         logger.warning("kill failed; still attempt pipe cleanup", exc_info=True)
-    await asyncio.wait_for(proc.communicate(), timeout=_REAP_WAIT_TIMEOUT)
+    await reap_subprocess(proc)
 
 
 def _validate_timeout(timeout: int) -> None:

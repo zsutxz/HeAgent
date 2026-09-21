@@ -34,6 +34,8 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
+from heagent.tools.sandbox import reap_subprocess
+
 if TYPE_CHECKING:
     from heagent.engine.context import RunContext
     from heagent.types import ToolCall
@@ -174,7 +176,7 @@ class HookManager:
     async def _terminate_and_reap(self, proc: asyncio.subprocess.Process) -> None:
         """Terminate a hook process tree and close its pipe transports."""
         await self._terminate_process_tree(proc)
-        await proc.communicate()
+        await reap_subprocess(proc)
 
     async def _run(self, hook: HookConfig, *, tool_name: str, run_context: RunContext | None) -> tuple[int, str]:
         """执行一条 hook 命令，返回 (退出码, stdout)。执行异常 / 超时返回 (1, 说明)。"""
@@ -204,10 +206,14 @@ class HookManager:
             # - 直接子进程是 shell（cmd.exe / sh），kill 它杀不掉孙进程，且孙进程持有
             #   stdout 管道使 wait() 挂到孙进程退出——挂死的 hook 每次触发都泄漏进程。
             # - Windows 用 taskkill /T 按树终止；POSIX 用 killpg 杀整个进程组。
+            # - Phase 4 V3：与取消路径共用 _terminate_and_reap（管道回收有界 5s），
+            #   两条清理路径对称；此前超时路径不关管道且 wait() 无上界。
             # 竞态下进程组恰已消亡则跳过（ProcessLookupError / Windows 已退出竞态）。
             if proc is not None:
-                await self._terminate_process_tree(proc)
-                await proc.wait()
+                try:
+                    await self._terminate_and_reap(proc)
+                except Exception:
+                    logger.debug("timeout cleanup: hook subprocess/pipe may leak", exc_info=True)
             return 1, "hook timed out"
         except asyncio.CancelledError:
             if proc is not None:

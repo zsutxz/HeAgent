@@ -178,7 +178,7 @@ class TestWinJobSessionWorkspace:
 
         from heagent.tools.sandbox import WinJobBackend, bind_sandbox_workspace
 
-        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: True))
+        monkeypatch.setattr(WinJobBackend, "available", True)
         self._mock_kernel32(monkeypatch)
         popen_kwargs = self._capture_popen_kwargs(monkeypatch)
 
@@ -199,7 +199,7 @@ class TestWinJobSessionWorkspace:
 
         from heagent.tools.sandbox import WinJobBackend
 
-        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: True))
+        monkeypatch.setattr(WinJobBackend, "available", True)
         self._mock_kernel32(monkeypatch)
         popen_kwargs = self._capture_popen_kwargs(monkeypatch)
 
@@ -254,4 +254,25 @@ class TestWinJobSpawnSeam:
         _winjob_spawn("echo hi", None)
 
         assert "cwd" not in captured
-        assert set(captured) == {"argv", "stdout", "stderr"}
+        # Phase 4 V1：env kwarg 恒在（剥离敏感变量后的净化环境）。
+        assert set(captured) == {"argv", "stdout", "stderr", "env"}
+
+    def test_spawn_env_strips_sensitive_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Phase 4 V1：``_winjob_spawn`` 的 env 剥离 ``*_API_KEY``/``*_TOKEN`` 等敏感变量。
+
+        与 asyncio 路径（``_spawn_kwargs``）同一卫生基线——此前 WinJob 子进程继承全量
+        os.environ，API key 可随沙箱 shell 外泄到用户命令可见的进程环境。
+        """
+        from heagent.tools.sandbox import _winjob_spawn
+
+        captured = self._capture(monkeypatch)
+        monkeypatch.setenv("PATH", "C:\Windows")
+        monkeypatch.setenv("FAKE_API_KEY", "leak-me")
+        monkeypatch.setenv("MY_TOKEN", "leak-me")
+
+        _winjob_spawn("echo hi", None)
+
+        env = captured["env"]
+        assert "FAKE_API_KEY" not in env
+        assert "MY_TOKEN" not in env
+        assert "PATH" in env

@@ -17,7 +17,14 @@ import sys
 from typing import TYPE_CHECKING
 
 from heagent.tools.sandbox.contracts import SandboxTier, get_sandbox_workspace
-from heagent.tools.sandbox.process import _TIMEOUT_RESULT, PassthroughRunner, _format_result
+from heagent.tools.sandbox.process import (
+    _REAP_WAIT_TIMEOUT,
+    _TIMEOUT_RESULT,
+    PassthroughRunner,
+    _env_allowlist,
+    _format_result,
+    scrub_sensitive_env,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -45,12 +52,14 @@ def _winjob_spawn(command: str, workspace: Path | None) -> subprocess.Popen[byte
             ["cmd", "/c", command],  # noqa: S607
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=scrub_sensitive_env(allowlist=_env_allowlist()),
         )
     return subprocess.Popen(  # noqa: S603
         ["cmd", "/c", command],  # noqa: S607
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=str(workspace),
+        env=scrub_sensitive_env(allowlist=_env_allowlist()),  # Phase 4 V1：与 asyncio 路径同一卫生基线
     )
 
 
@@ -192,14 +201,16 @@ class WinJobBackend:
             except TimeoutError:
                 try:
                     proc.kill()
-                    await asyncio.to_thread(proc.wait)
+                    # Phase 4 V2：有界回收——无界 wait 在孙进程持管道时可无限挂起。
+                    await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=_REAP_WAIT_TIMEOUT)
                 except Exception as _exc:
                     logger.debug("timeout cleanup: kill/wait failed", exc_info=True)
                 return _TIMEOUT_RESULT.format(timeout=timeout)
             except asyncio.CancelledError:
                 try:
                     proc.kill()
-                    await asyncio.to_thread(proc.wait)
+                    # Phase 4 V2：同上，取消路径同样有界（对称）。
+                    await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=_REAP_WAIT_TIMEOUT)
                 except BaseException:
                     logger.debug("cancel cleanup: kill/wait failed", exc_info=True)
                 raise

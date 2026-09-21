@@ -2,6 +2,12 @@
 
 所有工具均经工作区路径校验，仅执行 ``git diff/log/status/blame`` 等只读子命令，
 标记 ``readOnlyHint=True`` 供 PolicyEngine 自动放行。
+
+子进程收尾语义复用 :mod:`heagent.tools.sandbox.process` 公共内核（Phase 4 C3）：
+``reap_subprocess`` 有界回收（5s 上界）+ ``cap_channel`` 512KB/通道保头尾截断——
+巨型 diff/log 不再整段进入 LLM 上下文。超时/失败仍抛 ``RuntimeError``（可观察
+语义冻结）；spawn 沿用 ``create_subprocess_exec``、不设 ``start_new_session``、
+env 全量继承——与沙箱的有意差异见 spec Design Notes。
 """
 
 from __future__ import annotations
@@ -12,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from heagent.tools.decorator import tool
 from heagent.tools.path_safety import resolve_under_root, workspace_root
+from heagent.tools.sandbox import cap_channel, reap_subprocess
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -23,7 +30,7 @@ _GIT_TIMEOUT = 60  # 只读 git 操作的硬上界（秒），防凭据提示/�
 
 
 async def _run_git(*args: str, cwd: Path | None = None) -> str:
-    """执行 git 子命令，返回 stdout 文本；失败或超时抛 RuntimeError。"""
+    """执行 git 子命令，返回 stdout 文本（512KB/通道截断）；失败或超时抛 RuntimeError。"""
     proc = await asyncio.create_subprocess_exec(
         "git",
         *args,
@@ -37,26 +44,26 @@ async def _run_git(*args: str, cwd: Path | None = None) -> str:
         # wait_for 仅取消 await、不杀子进程——须显式终止防僵尸，再报超时
         try:
             proc.kill()
-            await proc.communicate()
+            await reap_subprocess(proc)
         except ProcessLookupError:
             pass
         except Exception:
             pass
         raise RuntimeError(f"git {' '.join(args)} timed out after {_GIT_TIMEOUT}s") from None
     except asyncio.CancelledError:
-        # P1-5 修复：CancelledError 单独捕获，kill+reap 子进程防僵尸泄漏
+        # P1-5 修复：CancelledError 单独捕获，kill+有界 reap 子进程防僵尸泄漏
         try:
             proc.kill()
-            await proc.communicate()
+            await reap_subprocess(proc)
         except (ProcessLookupError, Exception):
             pass
         raise
 
     if proc.returncode != 0:
-        detail = stderr.decode("utf-8", errors="replace").strip()
+        detail = cap_channel(stderr).strip()
         err = detail or f"git {' '.join(args)} failed with code {proc.returncode}"
         raise RuntimeError(err)
-    return stdout.decode("utf-8", errors="replace").strip()
+    return cap_channel(stdout).strip()
 
 
 def _validate_git_path(file_path: str) -> str:

@@ -295,7 +295,7 @@ class TestSandboxHardeningWiring:
         monkeypatch.setenv("SANDBOX_BACKEND", "winjob")
         monkeypatch.setenv("SANDBOX_MEMORY_LIMIT_MB", "256")
         monkeypatch.setenv("SANDBOX_NPROC_LIMIT", "64")
-        monkeypatch.setattr(WinJobBackend, "available", staticmethod(lambda: True))
+        monkeypatch.setattr(WinJobBackend, "available", True)
         container = EngineContainer.default(workspace_root=str(tmp_path))
         runner = container.executor.sandbox_runner
         assert isinstance(runner, WinJobBackend)
