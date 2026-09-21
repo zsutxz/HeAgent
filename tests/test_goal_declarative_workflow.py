@@ -24,7 +24,15 @@ from heagent.engine import (
     WorkflowRunner,
     required_sections,
 )
-from heagent.engine.checkpoint import WorkflowCheckpointStore, WorkflowStatus
+from heagent.engine.checkpoint import (
+    GoalWorkflowState,
+    WorkflowCheckpoint,
+    WorkflowCheckpointError,
+    WorkflowCheckpointStore,
+    WorkflowPhase,
+    WorkflowStatus,
+)
+from heagent.goal.application import checkpoint_store, restore_runner
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 from heagent.goal.workflow_loader import read_workflow
 from heagent.memory.skill_packages import SkillPackage
@@ -308,6 +316,44 @@ async def test_declarative_resume_retries_a_blocked_step(
     resumed = await _goal_declarative_runner(workflow, goal_dir)
     assert resumed.state.status is WorkflowStatus.COMPLETED
     assert resumed.state.completed_steps == [0, 1]
+
+
+@pytest.mark.asyncio
+async def test_restore_runner_fails_loud_when_configuration_does_not_match_persisted_state(tmp_path: Path) -> None:
+    """恢复语义契约（Phase 3）：聚合状态与快照不匹配时显性失败，不静默重建。
+
+    恢复顺序（goal/application.restore_runner）：有 workflow.json 时按
+    ``active_step + active_skill + status`` 匹配快照；匹配落空且存在快照 →
+    ``WorkflowCheckpointError``。落盘其他形式（快照损坏 / workflow.json 损坏）由
+    ``test_engine_checkpoint.py`` 钉住。
+    """
+    goal_dir = tmp_path / "goal"
+    goal_dir.mkdir()
+    store = checkpoint_store(goal_dir)
+    await store.save(
+        WorkflowCheckpoint(
+            checkpoint_id="cp-1",
+            goal_id="goal",
+            phase=WorkflowPhase.IMPLEMENTATION,
+            status=WorkflowStatus.RUNNING,
+            run_id="run-1",
+            active_step=0,
+            active_skill="he-goal",
+        )
+    )
+    # 聚合状态指向另一条快照（手改 / 异版本写入）：与唯一快照不匹配。
+    mismatched = GoalWorkflowState(
+        goal_id="goal",
+        phase=WorkflowPhase.IMPLEMENTATION,
+        status=WorkflowStatus.RUNNING,
+        active_step=3,
+        active_skill="he-goal",
+    )
+    (goal_dir / "workflow.json").write_text(mismatched.model_dump_json(), encoding="utf-8")
+
+    workflow = WorkflowResource(name="demo", instructions="", steps=[])
+    with pytest.raises(WorkflowCheckpointError, match="does not match"):
+        await restore_runner(workflow, goal_dir)
 
 
 @pytest.mark.asyncio

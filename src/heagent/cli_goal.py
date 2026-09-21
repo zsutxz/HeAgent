@@ -6,10 +6,8 @@ import asyncio
 import difflib
 import logging
 import os
-import re
 import sys
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -23,14 +21,26 @@ from heagent.context.window_reset import WindowResetConfig
 from heagent.cron.expr import cron_matches
 from heagent.engine import (
     WorkflowCheckpointError,
-    WorkflowCheckpointStore,
-    WorkflowPhase,
     WorkflowResource,
-    WorkflowRunner,
     WorkflowStatus,
     WorkflowStepResult,
-    parse_story_list,
-    required_sections,
+)
+from heagent.goal.application import (
+    _GOAL_SKILLS_ROOT,
+    _GoalAdvanceContext,
+    advance,
+    checkpoint_mode,
+    declarative_prompt,
+    pause_resume,
+)
+from heagent.goal.application import (
+    resolve_skill_package as _resolve_skill_package,
+)
+from heagent.goal.application import (
+    restore_runner as _goal_declarative_runner,
+)
+from heagent.goal.application import (
+    validate_goal_workflow as _validate_goal_workflow,
 )
 from heagent.goal.document import (
     _GOALS_DIR,
@@ -45,12 +55,6 @@ from heagent.goal.document import (
 )
 from heagent.goal.naming import llm_project_id
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
-from heagent.memory.skill_packages import (
-    SkillCatalog,
-    SkillCatalogError,
-    SkillPackage,
-    SkillResolver,
-)
 from heagent.persist import atomic_write_text, file_lock
 
 if TYPE_CHECKING:
@@ -59,10 +63,16 @@ if TYPE_CHECKING:
     from heagent.agent.sub import SubAgentResult
     from heagent.cron.jobs import JobStore
     from heagent.engine import EngineContainer
+    from heagent.memory.skill_packages import SkillPackage
     from heagent.providers.base import BaseProvider
 
 
 logger = logging.getLogger(__name__)
+
+# 测试仍经 ``heagent.cli_goal`` 访问的 re-export 符号：Phase 3 起确定性内核迁
+# goal/application 后，这两个符号在本模块已无内部调用点，靠 ``__all__`` 钉住
+# ruff F401（防自动移除）与 mypy no_implicit_reexport 的再导出语义。
+__all__ = ["_goal_record_user_response", "_goal_user_responses"]
 
 _GOAL_AUTO_DEFAULT_CRON = "*/15 * * * *"
 _GOAL_AUTO_PREFIX = "goal-advance "
@@ -78,28 +88,12 @@ _GOAL_LOCK_TIMEOUT = 5.0  # 并发方快速失败；cron 下一 tick 自动重�
 # 工作流执行状态词汇与推进轮数上限：随编排分支（advance/execute 状态机）变，
 # 不随文档约定变，故留本模块（goal/document.py 只做文档与命名，见其 docstring）。
 # 工作流包 id 的默认值只在 Settings.goal_workflow_skill 一处声明；本模块一律从配置读。
-# /goal 的技能库根：工作流包与每个步骤的角色包都从这里按 id 解析（单一来源）。
-_GOAL_SKILLS_ROOT = Path(".heagent/skills")
-# 以下两段文案是**兜底**：workflow 包 frontmatter 声明了对应内容时以包为准（工作流逻辑尽量不进代码）。
-# 提示词与门禁模板**不在代码里**：由 workflow 包的 templates/ 携带；必需性由包 frontmatter 的
-# ``required_resources`` 声明，缺失在包加载（read_workflow）时显性报错。
-_DEFAULT_OPEN_QUESTION_DEFAULT = (
-    "When a competing interpretation requires a stakeholder choice, proceed with the recommended "
-    "default and record the assumption explicitly; do not stop with waiting_user."
-)
-_DEFAULT_OPEN_QUESTION_BLOCK = "Stop with waiting_user when competing interpretations require stakeholder choice."
+# 技能库根（_GOAL_SKILLS_ROOT）与 open-question 兜底文案已随确定性内核迁
+# goal/application.py，经顶部 import 保持本命名空间可用（Phase 3）。
 _GOAL_ADVANCED = "advanced"
 _GOAL_DONE = "done"
 _GOAL_FAILED = "failed"
 _GOAL_WAITING = "waiting"
-
-# 模板占位符单遍渲染：值里再出现 ``{xxx}`` 字样也不会被二次替换（链式 str.replace 会）。
-_TEMPLATE_FIELD_RE = re.compile(r"\{(\w+)\}")
-
-
-def _render_template(template: str, fields: Mapping[str, str]) -> str:
-    """Render ``{name}`` placeholders in one pass; unknown placeholders stay verbatim."""
-    return _TEMPLATE_FIELD_RE.sub(lambda match: fields.get(match.group(1), match.group(0)), template)
 
 
 @asynccontextmanager
@@ -123,30 +117,12 @@ async def _goal_mutex() -> AsyncIterator[None]:
 # re-export——测试经 heagent.cli_goal 导入这些符号，内部引用点继续按模块全局名解析。
 
 
-def _validate_goal_workflow(workflow: WorkflowResource) -> None:
-    """Restrict workflow declarations to deterministic CLI capabilities."""
-    if workflow.entrypoint not in {"", "goal"}:
-        raise ValueError(f"unsupported goal workflow entrypoint: {workflow.entrypoint}")
-    if workflow.on_create != "persist_goal_identity":
-        raise ValueError(f"unsupported goal workflow on_create hook: {workflow.on_create}")
-    if workflow.step_executor != "subagent":
-        raise ValueError(f"unsupported goal workflow step executor: {workflow.step_executor}")
-
-
 def _goal_checkpoint_mode(workflow: WorkflowResource) -> str:
-    """Resolve checkpoint policy: workflow declaration, env-backed settings, default."""
-    declared = workflow.checkpoint_mode.strip().casefold()
-    if declared:
-        return declared
-    return get_settings().goal_checkpoint_mode
+    """Resolve checkpoint policy: workflow declaration, then env-backed settings.
 
-
-def _goal_open_question_mode(workflow: WorkflowResource) -> str:
-    """Resolve open-question policy: workflow declaration, env-backed settings, default."""
-    declared = workflow.open_question_mode.strip().casefold()
-    if declared:
-        return declared
-    return get_settings().goal_open_question_mode
+    确定性内核（goal/application.checkpoint_mode）不读配置；settings 回退值在此注入。
+    """
+    return checkpoint_mode(workflow, get_settings().goal_checkpoint_mode)
 
 
 def _goal_checkpoint_prompt() -> bool:
@@ -162,22 +138,6 @@ def _goal_checkpoint_prompt() -> bool:
     except (EOFError, KeyboardInterrupt, click.Abort):
         click.echo("[goal] checkpoint paused; use /goal resume <answer> to continue", err=True)
         return False
-
-
-def _resolve_skill_package(skill_id: str) -> SkillPackage | None:
-    """Resolve one package from the skill library by canonical id or alias.
-
-    The catalog owns the id/alias rules (``he-*`` canonical, ``bmad-*`` alias, plus each
-    package's own ``aliases`` metadata), so the workflow package and the per-step role
-    packages are addressed by id instead of by hand-built paths or a private alias table.
-    ``None`` means "not installed here"; callers decide whether that is a missing
-    configuration (workflow) or a hard failure (a role a step declared).
-    """
-    try:
-        return SkillResolver(SkillCatalog([str(_GOAL_SKILLS_ROOT)]).scan()).resolve(skill_id)
-    except (SkillCatalogError, ValueError, OSError) as exc:
-        logger.debug("Skill package %r is unavailable under %s (%s)", skill_id, _GOAL_SKILLS_ROOT, exc)
-        return None
 
 
 def _goal_workflow_package() -> SkillPackage | None:
@@ -203,134 +163,9 @@ def _goal_declarative_workflow() -> WorkflowResource | None:
         raise ValueError(f"declarative workflow configuration is invalid: {exc}") from exc
 
 
-def _goal_declarative_store(goal_dir: Path) -> WorkflowCheckpointStore:
-    return WorkflowCheckpointStore(
-        str(goal_dir / "checkpoints"),
-        workflow_path=str(goal_dir / "workflow.json"),
-    )
-
-
 def _goal_declarative_active_dir() -> Path | None:
     goal_md = _goal_active_md()
     return goal_md.parent if goal_md is not None else None
-
-
-async def _goal_declarative_runner(
-    workflow: WorkflowResource,
-    goal_dir: Path,
-) -> WorkflowRunner:
-    """Restore the latest Runner snapshot or create a new one for this goal."""
-    store = _goal_declarative_store(goal_dir)
-    checkpoints = await store.list_checkpoints(goal_id=goal_dir.name)
-    workflow_state = await store.load_state()
-    if workflow_state is not None:
-        # Match against the persisted active_skill (workflow.json) rather than the
-        # current workflow.name, so a workflow rename does not strand existing goals.
-        matching = [
-            checkpoint
-            for checkpoint in checkpoints
-            if checkpoint.active_step == workflow_state.active_step
-            and checkpoint.active_skill == workflow_state.active_skill
-            and (
-                checkpoint.status is workflow_state.status
-                or (checkpoint.status is WorkflowStatus.COMPLETED and workflow_state.status is WorkflowStatus.RUNNING)
-            )
-        ]
-        if matching:
-            return WorkflowRunner.from_checkpoint(
-                workflow,
-                matching[-1],
-                checkpoint_store=store,
-                phase=WorkflowPhase.IMPLEMENTATION,
-            )
-        if checkpoints:
-            raise WorkflowCheckpointError("workflow configuration does not match the persisted goal state")
-    # Each goal owns its checkpoint directory, so the latest checkpoint for this
-    # goal is the authoritative recovery point. Do not make recovery contingent
-    # on optional descriptive metadata such as ``active_skill``.
-    if checkpoints:
-        return WorkflowRunner.from_checkpoint(
-            workflow,
-            checkpoints[-1],
-            checkpoint_store=store,
-            phase=WorkflowPhase.IMPLEMENTATION,
-        )
-    return WorkflowRunner(
-        workflow,
-        goal_id=goal_dir.name,
-        checkpoint_store=store,
-        phase=WorkflowPhase.IMPLEMENTATION,
-    )
-
-
-def _goal_gate_requirements(workflow: WorkflowResource, validation_rules: str) -> str:
-    """Render the step's post-hoc gate contract so the executor sees it beforehand.
-
-    ``validation: section: <title>`` is enforced by ``WorkflowRunner`` only *after* the
-    step returns.  Without this block a long step can finish all its work and still be
-    blocked on a heading it was never told to emit.  The wording lives in the workflow
-    package (``gate-template.md``), so it changes without touching code.
-    """
-    rules = (validation_rules or "").strip()
-    sections = required_sections(rules)
-    needs_given_when_then = "given" in rules.casefold()
-    if not sections and not needs_given_when_then:
-        return ""
-    if not workflow.gate_template.strip():
-        # 步骤声明了门禁规则却渲染不出门禁块：显性失败。产出空门禁会让执行者
-        # 干完全部工作、再被 WorkflowRunner 的事后闸门拦下重做（本函数要防的正是这个）。
-        raise SkillWorkflowError(
-            workflow.name,
-            "gate-template.md",
-            "step declares gate rules but the workflow package ships no gate template; "
-            "add templates/gate-template.md or declare it in required_resources to fail at load",
-        )
-    headings = ""
-    if sections:
-        headings = (
-            "- Your final response must contain each of these Markdown headings exactly as written, each on its own "
-            "line with nothing else on that line:\n"
-            + "\n".join(f"  - ## {section}" for section in sections)
-            + "\n- A missing, renamed, or suffixed heading blocks the whole step: the workflow will not advance and "
-            "this step's work has to be redone.\n"
-        )
-    acceptance = "- Acceptance criteria must be written as Given / When / Then.\n" if needs_given_when_then else ""
-    template = workflow.gate_template
-    return _render_template(
-        template,
-        {"sections": headings, "acceptance": acceptance, "rules": f"- Declared validation rules (verbatim): {rules}"},
-    )
-
-
-def _goal_open_question_policy(workflow: WorkflowResource) -> str:
-    """Resolve the open-question policy wording: workflow declaration, then built-in default."""
-    if _goal_open_question_mode(workflow) == "default":
-        return workflow.open_question_default or _DEFAULT_OPEN_QUESTION_DEFAULT
-    return workflow.open_question_block or _DEFAULT_OPEN_QUESTION_BLOCK
-
-
-def _dedupe_inputs(inputs: Mapping[str, Any], declared: str = "") -> list[tuple[str, Any]]:
-    """Render each distinct input body once, under its most meaningful key.
-
-    A completed step stores its artifact under both the declared output names and the
-    artifact file name, so rendering every key duplicated whole artifacts in the step
-    prompt (the step-07 prompt measured ~130k tokens with roughly half of it repeated
-    text).  Among keys sharing one body, the one this step declares in ``input:`` wins;
-    otherwise the first occurrence wins.  Nothing unique is dropped.
-    """
-    wanted = {item.strip() for item in re.split(r"[,\n]", declared) if item.strip()}
-    chosen: dict[str, str] = {}
-    for name, value in inputs.items():
-        if not (isinstance(value, str) and value):
-            continue
-        current = chosen.get(value)
-        if current is None or (name in wanted and current not in wanted):
-            chosen[value] = name
-    return [
-        (name, value)
-        for name, value in inputs.items()
-        if not (isinstance(value, str) and value) or chosen[value] == name
-    ]
 
 
 def _goal_declarative_prompt(
@@ -343,81 +178,18 @@ def _goal_declarative_prompt(
     validation_rules: str = "",
     declared_inputs: str = "",
 ) -> str:
-    role = _goal_role_instructions(workflow, step_name)
-    gate = _goal_gate_requirements(workflow, validation_rules)
-    gate_block = f"{gate}\n\n" if gate else ""
-    supplied_inputs = "\n\n".join(f"## {name}\n{value}" for name, value in _dedupe_inputs(inputs, declared_inputs))
-    open_question_policy = _goal_open_question_policy(workflow)
-    story_context = ""
-    if story is not None:
-        epic_ref = str(getattr(story, "epic", "") or "")
-        story_context = (
-            f"Active story: {story.id}"
-            + (f" - {story.summary}" if story.summary else "")
-            + (f"\nParent epic: {epic_ref}" if epic_ref else "")
-            + "\nWork only on this one story; leave all other stories for subsequent increments.\n"
-        )
-    if not workflow.prompt_template.strip():
-        # 未声明 required 的包缺提示词模板：拒绝渲染空提示词（goal/角色/门禁上下文将全部丢失）。
-        raise SkillWorkflowError(
-            workflow.name,
-            "prompt-template.md",
-            "workflow package ships no prompt template; add templates/prompt-template.md "
-            "or declare it in required_resources to fail at load",
-        )
-    template = workflow.prompt_template
-    return _render_template(
-        template,
-        {
-            "workflow_instructions": workflow.instructions,
-            "goal": description,
-            "goal_dir": str(goal_dir.resolve()),
-            "output_root": str(goal_dir.parent.parent.resolve()),
-            "step": step_name,
-            "story_context": story_context,
-            "role": role,
-            "open_question_policy": open_question_policy,
-            "inputs": supplied_inputs,
-            "gate": gate_block,
-        },
+    """渲染步骤执行提示词；确定性装配在 goal/application，settings 回退在此注入。"""
+    return declarative_prompt(
+        workflow,
+        step_name,
+        description,
+        goal_dir,
+        inputs,
+        story=story,
+        validation_rules=validation_rules,
+        declared_inputs=declared_inputs,
+        open_question_fallback=get_settings().goal_open_question_mode,
     )
-
-
-def _goal_load_stories(goal_dir: Path, step: Any) -> list[Any]:
-    """Load and parse the story list referenced by a story-loop step."""
-    source = step.story_loop.strip()
-    root = goal_dir.resolve()
-    path = (goal_dir / source).resolve()
-    if not path.is_relative_to(root):
-        raise ValueError(f"story source escapes the goal directory: {source}")
-    return parse_story_list(path.read_text(encoding="utf-8"))
-
-
-def _goal_role_instructions(workflow: WorkflowResource, step_name: str) -> str:
-    """Load the role contract assigned to a workflow step.
-
-    角色在**传入的 workflow** 上查——此前这里按 step 名重载全局 ``_goal_declarative_workflow()``，
-    而调用方本来就持有 workflow：等于把参数静默替换成另一份来源。后果是测试传合成 workflow 时
-    仍按**真实** workflow 解析 role，从而依赖本机 ``.heagent/skills/`` 技能库（该目录 gitignore），
-    在干净检出（CI）上必然报 "workflow role ... is unavailable" 而红。
-    """
-    role_name = next((step.role for step in workflow.steps if step.name == step_name), "")
-    if not role_name:
-        return "No specialized BMad role assigned."
-    package = _resolve_skill_package(role_name)
-    if package is None:
-        raise ValueError(f"workflow role '{role_name}' is unavailable: no skill package named '{role_name}'")
-    return package.read_entry().text
-
-
-@dataclass
-class _GoalAdvanceContext:
-    """Prepared state for one declarative advance invocation."""
-
-    runner: WorkflowRunner
-    mode: str
-    description: str
-    goal_dir: Path
 
 
 async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | None, _GoalAdvanceContext | None]:
@@ -521,102 +293,40 @@ async def _goal_declarative_advance(
     engine: EngineContainer | None,
     workflow: WorkflowResource,
 ) -> str:
-    """Advance deterministically through steps and resolve completed checkpoints."""
+    """推进声明式工作流：准备 → 注入端口调 use-case（goal/application.advance）→ 渲染 messages。
+
+    确定性推进循环已收敛 goal/application（Phase 3）；本函数是缝宿主（`_goal_session`
+    缝链的调用方）与渲染边界：messages 逐行经 click.echo(err=True) 原文输出。
+    """
     outcome, context = await _goal_declarative_prepare(workflow)
     if outcome is not None or context is None:
         return outcome or _GOAL_FAILED
-    runner = context.runner
-    mode = context.mode
-    description = context.description
-    goal_dir = context.goal_dir
 
-    async def execute_step(step: Any, story: Any = None) -> WorkflowStepResult:
+    async def execute_step(
+        inputs: Mapping[str, Any],
+        step: Any,
+        story: Any = None,
+    ) -> WorkflowStepResult:
         return await _goal_execute_step(
             provider,
             engine,
             workflow,
-            description,
-            goal_dir,
+            context.description,
+            context.goal_dir,
             inputs,
             step,
             story,
         )
 
-    # Input declarations describe the context supplied by this deterministic CLI
-    # boundary. Artifact names from completed steps remain available on resume.
-    while True:
-        try:
-            user_responses = _goal_user_responses(goal_dir)
-        except OSError as exc:
-            click.echo(f"[goal] declarative requirement document is unreadable: {exc}", err=True)
-            return _GOAL_FAILED
-        inputs: dict[str, Any] = {
-            "user intent": description,
-            "user responses": user_responses or "No user response has been recorded.",
-            "existing project context": load_context_files(os.getcwd())
-            or "No project context file was found; inspect the current workspace before making assumptions.",
-            **runner.state.outputs,
-        }
-        active_step = runner.workflow.steps[runner.state.active_step]
-        stories = None
-        if active_step.story_loop.strip():
-            try:
-                stories = _goal_load_stories(goal_dir, active_step)
-            except (OSError, ValueError) as exc:
-                click.echo(f"[goal] declarative story source failed: {exc}", err=True)
-                return _GOAL_FAILED
-        try:
-            result = await runner.run_step(execute_step, inputs=inputs, stories=stories)
-        except (WorkflowCheckpointError, ValueError, TypeError) as exc:
-            click.echo(f"[goal] declarative workflow failed: {exc}", err=True)
-            return _GOAL_FAILED
-        story_label = f" story={result.story_id}" if result.story_id else ""
-        click.echo(
-            f"[goal] declarative workflow: step={result.step_index if result.step_index is not None else '-'}"
-            f"{story_label} status={result.status.value}",
-            err=True,
-        )
-        if result.status is WorkflowStatus.COMPLETED:
-            return _GOAL_DONE
-        if result.status is WorkflowStatus.PENDING:
-            if mode == "auto":
-                continue
-            return _GOAL_ADVANCED
-        if result.status is not WorkflowStatus.WAITING_USER:
-            if result.status is WorkflowStatus.BLOCKED:
-                reason = result.reason or runner.state.reason or "the step output failed its gate"
-                click.echo(f"[goal] step blocked: {reason}", err=True)
-                click.echo(
-                    "[goal] the step must be re-run: record a human acknowledgement with "
-                    "`/goal resume <说明>` (the active step then executes again); `/goal status` shows the state.",
-                    err=True,
-                )
-            return _GOAL_FAILED
-
-        # WAITING_USER from a completed step is a checkpoint decision. An
-        # interrupted callback also uses WAITING_USER, but must never be treated
-        # as implicit approval.
-        step_checkpoint = result.step_index is not None and (result.step_index - 1) in runner.state.completed_steps
-        story_checkpoint = result.story_id is not None and result.story_id in runner.state.completed_stories
-        checkpoint_completed = step_checkpoint or story_checkpoint
-        if not checkpoint_completed:
-            return _GOAL_WAITING
-        if mode == "auto":
-            runner.resume()
-            try:
-                await runner.persist_state()
-            except (WorkflowCheckpointError, ValueError, TypeError) as exc:
-                click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
-                return _GOAL_FAILED
-            continue
-        if not _goal_checkpoint_prompt():
-            return _GOAL_WAITING
-        runner.resume()
-        try:
-            await runner.persist_state()
-        except (WorkflowCheckpointError, ValueError, TypeError) as exc:
-            click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
-            return _GOAL_FAILED
+    result = await advance(
+        context,
+        execute_step,
+        confirm_checkpoint=_goal_checkpoint_prompt,
+        load_project_context=lambda: load_context_files(os.getcwd()),
+    )
+    for message in result.messages:
+        click.echo(message, err=True)
+    return result.status.value
 
 
 async def _goal_declarative_new(
@@ -673,39 +383,18 @@ async def _goal_declarative_status(workflow: WorkflowResource) -> None:
 
 
 async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: bool, response: str = "") -> bool:
-    """Persist a pause or resume and report whether a step may now execute."""
+    """Persist a pause or resume and report whether a step may now execute.
+
+    决策内核在 goal/application.pause_resume；本函数只做指针解析与 message 渲染。
+    """
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
         click.echo("[goal] no active declarative goal", err=True)
         return False
-    action = "workflow"
-    try:
-        runner = await _goal_declarative_runner(workflow, goal_dir)
-        if runner.done:
-            click.echo("[goal] declarative workflow is already complete", err=True)
-            return False
-        if resume:
-            if runner.state.status not in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
-                click.echo(f"[goal] workflow status={runner.state.status.value}; resume is not required", err=True)
-                return False
-            if response:
-                _goal_record_user_response(goal_dir, response)
-            runner.resume()
-            action = "resumed"
-        else:
-            if runner.state.status is WorkflowStatus.WAITING_USER:
-                click.echo("[goal] already paused; use /goal resume to continue", err=True)
-                return False
-            runner.state = runner.state.model_copy(
-                update={"status": WorkflowStatus.WAITING_USER, "reason": "user requested pause; resume to continue"}
-            )
-            action = "paused"
-        await runner.persist_state()
-    except (WorkflowCheckpointError, ValueError, OSError) as exc:
-        click.echo(f"[goal] declarative {action} failed: {exc}", err=True)
-        return False
-    click.echo(f"[goal] declarative workflow {action}: step={runner.state.active_step}", err=True)
-    return resume
+    outcome = await pause_resume(workflow, goal_dir, resume=resume, response=response)
+    if outcome.message:
+        click.echo(outcome.message, err=True)
+    return outcome.proceed
 
 
 async def _goal_declarative_run(

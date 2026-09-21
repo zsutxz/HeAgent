@@ -220,3 +220,51 @@ def test_loop_strategy_modules_do_not_runtime_import_loop_facade() -> None:
         if "heagent.agent.loop" in runtime_imports(path):
             offenders.append(f"agent/{name}")
     assert offenders == [], "策略模块运行期导入 loop façade（成环）：" + ", ".join(offenders)
+
+
+def test_goal_application_use_case_is_click_free() -> None:
+    """Phase 3：goal/application.py 的 use-case **运行期**禁止依赖 Click 与入口模块。
+
+    workflow 校验 / gate 渲染 / story 选择 / checkpoint 恢复与推进全部收敛在
+    ``goal/application``；用户可见文案以结构化 outcome（messages）携带、由 cli_goal
+    统一渲染。该模块一旦 import ``click`` / ``heagent.cli*`` / ``heagent.gui*``，
+    use-case 就再也离不开 Click 环境（test.md Phase 3 验收「同一 workflow use-case
+    可在无 Click 环境下运行」），GUI 原生渲染的演进路径也被焊死。``goal/naming.py``
+    的 click.echo 是入口侧回退提示，不属 use-case，不在本契约内。
+    """
+    forbidden_prefixes = ("heagent.cli", "heagent.gui", "heagent.wiring")
+
+    def runtime_imports(path: Path) -> set[str]:
+        """完整模块路径粒度的运行期导入集（TYPE_CHECKING 块不算）。"""
+        found: set[str] = set()
+
+        def record(node: ast.stmt) -> None:
+            if isinstance(node, ast.Import):
+                found.update(alias.name for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                found.add(node.module)
+
+        def walk(body: list[ast.stmt]) -> None:
+            for node in body:
+                if isinstance(node, ast.If) and "TYPE_CHECKING" in ast.unparse(node.test):
+                    continue
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    walk(node.body)
+                elif isinstance(node, ast.Try):
+                    walk(node.body)
+                    walk(node.orelse)
+                    walk(node.finalbody)
+                    for handler in node.handlers:
+                        walk(handler.body)
+                else:
+                    record(node)
+
+        walk(ast.parse(path.read_text(encoding="utf-8")).body)
+        return found
+
+    offenders = [
+        name
+        for name in runtime_imports(SRC / "goal" / "application.py")
+        if name == "click" or name.startswith(forbidden_prefixes)
+    ]
+    assert offenders == [], "goal use-case 运行期依赖 Click/入口模块（无 Click 验收失效）：" + ", ".join(offenders)

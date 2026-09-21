@@ -828,6 +828,13 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 声明的确定性装载在 `goal/workflow_loader.py`（`read_workflow(package)`：frontmatter 策略、内嵌步骤、
 `required_resources` 模板必需性），产出 `engine/workflow_resource.py` 的 `WorkflowResource` 供
 `WorkflowRunner` 消费——装载与执行分离，模板文案零代码副本。
+**确定性内核与渲染分离（2026-09-21 Phase 3）**：workflow 校验、gate/prompt 装配、story 选择、
+checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 docstring）与推进 use-case
+（`advance`/`pause_resume`，用户可见文案以结构化 outcome.messages 携带）收敛在
+`goal/application.py`——click-free（架构契约测试钉死 import 图）；`cli_goal.py` 是渲染薄壳
+（messages 逐行 `click.echo(err=True)`）+ 缝宿主（`_goal_session`/`_goal_declarative_prepare`/
+`_goal_declarative_advance`/`_goal_runner` 等测试缝原位）+ settings 注入边界。CLI/GUI/cron
+三入口仍收敛同一 use-case（GUI 经 `_goal_runner`、cron 经 `_goal_cron_advance`），无复制推进逻辑。
 当前工作流的维护说明见[文档索引的「Goal 工作流」章节](README.md#goal-工作流)。
 
 - `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/require.md`（只含原始需求）
@@ -1000,6 +1007,7 @@ src/heagent/
 │   └── sink.py              # JsonlSink（stdout/rollout）+ read_rollout / render_event
 │
 ├── goal/                    # /goal 域层（入口层，供 cli_goal 使用，下层不得反向导入）
+│   ├── application.py       # workflow use-case 确定性内核（校验/gate/story/checkpoint 推进；click-free，Phase 3）
 │   ├── document.py          # require.md 定位/命名规则/增量更新（确定性部分）
 │   ├── naming.py            # /goal new 项目名 LLM 生成，失败显性回退 project（2026-09-21）
 │   └── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性）
