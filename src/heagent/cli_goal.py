@@ -39,11 +39,11 @@ from heagent.goal.document import (
     _goal_document_path,
     _goal_document_title,
     _goal_id_is_valid,
-    _goal_project_id,
     _goal_record_user_response,
     _goal_step_artifact_path,
     _goal_user_responses,
 )
+from heagent.goal.naming import llm_project_id
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
 from heagent.memory.skill_packages import (
     SkillCatalog,
@@ -629,7 +629,7 @@ async def _goal_declarative_new(
 ) -> None:
     """Create the minimum durable declarative-goal identity, then run step one."""
     previous = _goal_declarative_active_dir()
-    base_id = _goal_project_id(description)
+    base_id = await llm_project_id(provider, description)
     goal_id = base_id
     goal_dir = _GOALS_DIR / goal_id
     for suffix in [""] + [f"-{chr(ord('a') + index)}" for index in range(26)]:

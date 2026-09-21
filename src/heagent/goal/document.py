@@ -1,10 +1,10 @@
 """goal 需求文档（require.md）生成与 goal 命名约定（/goal 命令族的文档层）。
 
 **为什么单独成模块**（wiring.py 先例）：此前这段「goal 文档与命名」逻辑（约 150 行——
-slug 词表、goal_id 规则、目录命名、需求文档生成与增量更新）与工作流驱动（advance /
+goal_id 规则、目录命名、需求文档生成与增量更新）与工作流驱动（advance /
 execute / dispatch / cron）混在 cli_goal.py 里——前者随 BMad 产物约定变，后者随执行
-编排变，混在一起使 cli_goal.py 既难读也难测。本模块只做「文档与命名」：不依赖
-agent/providers/cron，可被独立测试。
+编排变，混在一起使 cli_goal.py 既难读也难测。本模块只做「文档与命名」的确定性部分
+（LLM 命名见 naming.py）：不依赖 agent/providers/cron，可被独立测试。
 
 **文档契约**：``/goal new`` 只落盘**原始需求**（``## 原始需求（Original Request）`` 段），
 创建时**不再直接写目标看板文档**；「总结的需求」等初步分析做完后由 step 01 补写同一文档的
@@ -37,32 +37,6 @@ _LEGACY_GOAL_DOCUMENT_NAME = "GOAL.md"
 _DERIVED_REQUIREMENTS_PLACEHOLDER = "待 step 01（market-research）完成初步分析后补写。"
 _GOAL_HEX = frozenset("0123456789abcdef")  # 兼容既有 8 位十六进制 goal_id
 _GOAL_ID_RE = re.compile(r"^[a-z][a-z-]*$")
-_GOAL_NAME_WORDS = {
-    "继续": "continue",
-    "开发": "development",
-    "项目": "project",
-    "功能": "feature",
-    "需求": "requirements",
-    "分析": "analysis",
-    "设计": "design",
-    "实现": "implementation",
-    "修复": "fix",
-    "增强": "enhancement",
-    "安全": "security",
-    "发布": "release",
-    "部署": "deployment",
-    "测试": "testing",
-    "数据": "data",
-    "服务": "service",
-    "界面": "interface",
-    "工作流": "workflow",
-    "智能体": "agent",
-    "代理": "agent",
-}
-# 词表按长度降序展开为正则交替项（长词优先匹配），模块级编译一次；与 _GOAL_ID_RE 同属命名规则常量。
-_GOAL_WORDS_RE = re.compile(
-    rf"(?:{'|'.join(re.escape(item) for item in sorted(_GOAL_NAME_WORDS, key=len, reverse=True))})|[A-Za-z]+"
-)
 
 
 def _fenced_block(text: str) -> str:
@@ -117,15 +91,6 @@ def _goal_document(description: str, goal_id: str) -> str:
         "## 总结的需求（Derived Requirements）\n\n"
         f"{_DERIVED_REQUIREMENTS_PLACEHOLDER}\n"
     )
-
-
-def _goal_project_id(description: str) -> str:
-    """Extract a stable English, letter-only project id from the request."""
-    text = re.sub(r"^\s*/goal(?:\s+new)?\s*", "", description.strip(), flags=re.IGNORECASE)
-    words = [_GOAL_NAME_WORDS.get(match.group(0), match.group(0)) for match in _GOAL_WORDS_RE.finditer(text)]
-    slug = _slug("-".join(words).casefold())
-    slug = re.sub(r"-?(?:19|20)\d{2}(?:-?\d{1,2}){0,2}$", "", slug).strip("-")
-    return slug or "project"
 
 
 def _goal_id_is_valid(goal_id: str) -> bool:

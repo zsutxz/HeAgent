@@ -1,7 +1,10 @@
 """``/goal`` 域层 —— 目标驱动工作流中可独立成模块的部分。
 
 - 需求文档层（:mod:`heagent.goal.document`）：goal 目录的 ``require.md``（存量 goal 为
-  ``GOAL.md``）的定位、命名与增量更新——文档约定一律不落进 CLI 代码。
+  ``GOAL.md``）的定位、命名规则与增量更新——文档约定一律不落进 CLI 代码。
+- LLM 项目命名（:mod:`heagent.goal.naming`）：``/goal new`` 的 goal_id 由一次性
+  provider 调用生成，失败/非法显性回退固定名 ``project``；清洗与校验复用
+  document.py 的确定性常量。
 - 声明式工作流装载（:mod:`heagent.goal.workflow_loader`，2026-09-20 自
   ``memory/skill_packages.py`` 迁入）：把技能包 ``workflow.md``（frontmatter 策略 / 内嵌
   步骤 / ``required_resources`` 模板必需性）确定性装配成 ``engine/workflow_resource.py``

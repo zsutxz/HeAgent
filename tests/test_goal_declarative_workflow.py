@@ -14,7 +14,6 @@ from heagent.cli_goal import (
     _goal_cron_advance,
     _goal_declarative_runner,
     _goal_declarative_workflow,
-    _goal_project_id,
     _goal_runner,
 )
 from heagent.cron.jobs import JobStore
@@ -29,6 +28,7 @@ from heagent.engine.checkpoint import WorkflowCheckpointStore, WorkflowStatus
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 from heagent.goal.workflow_loader import read_workflow
 from heagent.memory.skill_packages import SkillPackage
+from heagent.types import Message, ProviderResponse, TokenUsage
 
 # 随包发布的真实模板：测试消费包内真源，不在测试代码里留文案副本（防漂移）。
 _SHIPPED_TEMPLATES = Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal" / "templates"
@@ -127,9 +127,102 @@ async def test_removed_audit_subcommand_reports_usage_instead_of_creating_a_goal
     assert not (declarative_cwd / "_he-output" / "goals" / "audit").exists()
 
 
-def test_goal_project_id_uses_english_letters_without_numeric_suffix() -> None:
-    assert _goal_project_id("继续开发 MCP 安全功能 2026") == "continue-development-mcp-security-feature"
-    assert _goal_project_id("Build MCP security 2026") == "build-mcp-security"
+class _NamingProvider:
+    """LLM 命名路径的最小 provider：仅实现 send，按构造参数返回内容或抛错。"""
+
+    def __init__(self, *, content: str = "", error: Exception | None = None) -> None:
+        self._content = content
+        self._error = error
+        self.prompts: list[str] = []
+
+    async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
+        self.prompts.append(messages[-1].content)
+        if self._error is not None:
+            raise self._error
+        return ProviderResponse(
+            content=self._content,
+            usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+            model="stub",
+            finish_reason="stop",
+        )
+
+
+@pytest.fixture()
+def advance_noop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """命名测试只关心 goal 身份落盘：推进阶段置空，不跑 step。"""
+
+    async def noop_advance(*args: object, **kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr("heagent.cli_goal._goal_declarative_advance", noop_advance)
+
+
+@pytest.mark.asyncio
+async def test_goal_new_names_project_via_llm(
+    declarative_cwd: Path,
+    advance_noop: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    provider = _NamingProvider(content="  Stock-Picker \n")
+
+    await _goal_runner(provider, None, "new 做一个选股工具")
+
+    current = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    assert current == "stock-picker"
+    assert (declarative_cwd / "_he-output" / "goals" / "stock-picker" / "require.md").exists()
+    assert "做一个选股工具" in provider.prompts[0]
+    assert "using default id" not in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "content",
+    ["做一个好项目", "tool-2026", "a " * 40],
+)
+async def test_goal_new_falls_back_to_project_id_when_llm_output_unusable(
+    declarative_cwd: Path,
+    advance_noop: None,
+    capsys: pytest.CaptureFixture[str],
+    content: str,
+) -> None:
+    provider = _NamingProvider(content=content)
+
+    await _goal_runner(provider, None, "new whatever the goal is")
+
+    current = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    assert current == "project"
+    assert "using default id 'project'" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_goal_new_falls_back_to_project_id_when_provider_fails(
+    declarative_cwd: Path,
+    advance_noop: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    provider = _NamingProvider(error=RuntimeError("network down"))
+
+    await _goal_runner(provider, None, "new whatever the goal is")
+
+    current = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    assert current == "project"
+    assert "using default id 'project'" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_goal_new_appends_suffix_when_llm_name_collides(
+    declarative_cwd: Path,
+    advance_noop: None,
+) -> None:
+    provider = _NamingProvider(content="stock-picker")
+
+    await _goal_runner(provider, None, "new first goal")
+    await _goal_runner(provider, None, "new second goal")
+
+    goals = declarative_cwd / "_he-output" / "goals"
+    assert (goals / "stock-picker" / "require.md").exists()
+    assert (goals / "stock-picker-a" / "require.md").exists()
+    assert (goals / "current").read_text(encoding="utf-8") == "stock-picker-a"
 
 
 @pytest.mark.asyncio
