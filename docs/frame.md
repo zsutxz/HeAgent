@@ -906,6 +906,7 @@ src/heagent/
 ├── cli.py                   # Click CLI（单次/交互模式）
 ├── cli_init.py              # heagent init 子命令（全局配置/项目上下文模板生成，2026-09-17 自 cli.py 拆出）
 ├── cli_goal.py              # /goal 命令族（声明式工作流分发 + cron 自动推进）
+├── wiring.py                # 入口层装配共享缝：provider 组合根 + ensure_runtime_config + build_cron_job_runner（CLI/GUI 共用，Phase 2 C3）
 ├── terminal.py              # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断，CLI 交互模式）
 ├── config.py                # pydantic-settings 配置
 ├── exceptions.py            # 异常层级

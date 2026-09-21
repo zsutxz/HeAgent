@@ -2,7 +2,7 @@
 title: 'Phase 2 AgentLoop façade 化'
 type: 'refactor'
 created: '2026-09-21'
-status: 'draft'
+status: 'done'
 baseline_commit: 'a8ae5a6'
 review_loop_iteration: 0
 context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md', '{project-root}/docs/test.md']
@@ -50,7 +50,7 @@ context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md', '{project-
 
 - [x] C1 模块路径拆分：run_lifecycle / context_runtime / stream_runtime / resume_runtime / message_ports 五组函数迁出，façade 保留同名委托与兼容导出；行为不变，既有 agent/streaming/window reset/session resume/steering 测试原样通过。（2026-09-21 完成：façade 1,199 → 707 行；定向测试 389 passed，见 test.md §11）
 - [x] C2 状态收口：终态（COMPLETED/FAILED）只由一个 reducer 写入（`RunContext.mark_terminal`，engine/context.py）；新增状态转换契约测试 `tests/test_run_status_contract.py`（4 reducer 单元 + 3 loop 行为，取消路径语义显性钉死）。C2 完成时如实修正任务前提：`RunStatus` 仅 RUNNING/COMPLETED/FAILED 三值，cancelled/waiting_approval 终态不存在（见 Spec Change Log）；「散落布尔」枚举结果为空——pause 已是 asyncio.Event 端口（C1 迁 message_ports），展示态是 run 级重置而非布尔，布尔清理早在 P1-P5 周期完成。
-- [ ] C3 入口工厂合并：GUI 主 loop 构造并入共享工厂；CLI/GUI/cron 差异以参数表达；架构契约测试维持。
+- [x] C3 入口装配收口（形态调整见 Change Log）：`wiring.ensure_runtime_config`（engine 快照读回收窄单点）+ `wiring.build_cron_job_runner`（cli/gui 两处逐字镜像的 cron `_run_job` 合并，goal 分支短路 + 一次性 loop）+ GUI cron_store 统一到 CLI 语义（`cron_enabled=False` → None，cron 工具不激活——经用户批准的行为变化）+ 新增 `tests/test_wiring_loop_helpers.py`（4 例）。主 loop 工厂**未**全量合并：两入口每个旋钮均有真实产品差异（session/上下文策略/soul/retry/context_dir），参数化合并产出 17 参 + 4 布尔旗巨函，比两个显式构造点更难读。
 - [ ] `docs/frame.md` 同步模块地图与调用链；`docs/test.md` 记录执行结果与遗留。
 
 验收：Given 既有全部 agent 相关测试，When 在拆分后运行，Then 原样通过且无跳过；Given 新增状态契约测试，When 构造四终态场景，Then 每场景终态写点唯一；Given façade，When 统计行数与分支数，Then 较基线（1,199 行 / `run_stream` C901）下降且可读性不降；quality_gate 全量通过（覆盖率 ≥87%）。
@@ -61,6 +61,8 @@ context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md', '{project-
 - 2026-09-21：用户批准冻结并执行。入口全量门禁暴露 Phase 1 两笔欠账（sub_agent 元数据断言回归 `23ef756` 修复；cli/gui S101 assert 改显性 raise），随后 C1 完成。偏差如实记录：① façade 707 行 > 预估 500——`__init__` 装配 docstring 与留守核心方法（`_call_provider`/`_runtime_scope`/`_emit` 等）体量超预估，test.md 验收（行数/分支数下降且可读性不降）满足；② `AgentState`/`_RunInit`/`_ResumeState`/`_delegation_details` 落位 `run_lifecycle.py`（lifecycle/resume 需运行期构造，且不得反向导入 loop），loop.py 经 `__all__` 显式再导出（mypy no_implicit_reexport 与 ruff PLC0414 的交集解）；③ C1 范围内新增 run_lifecycle 依赖方向铁律并写入模块 docstring。
 
 - 2026-09-21：C2 完成，任务前提如实修正：① `RunStatus` 仅 RUNNING/COMPLETED/FAILED 三值——spec 任务文本沿写 test.md 的「cancelled/waiting_approval 终态」在枚举中不存在；终态写点勘察确认恰好两处（finish_run/on_run_failed），已收敛到 `RunContext.mark_terminal`（engine/context.py）唯一 reducer：RUNNING→终态合法、终态再写 RuntimeError 显性失败、非终态入参 ValueError。② 「散落布尔标志」枚举为空：pause 已是 asyncio.Event 端口（C1 迁 message_ports），展示态（active_tool/tool_activity）是 run 级重置而非布尔——布尔清理在 P1-P5 周期已完成，test.md 前提基于旧文件静态阅读。③ 取消传播边界显性化：CancelledError 不被 `except Exception` 捕获、不写终态，status 保持 RUNNING 可 resume——由 `test_run_status_contract.py::test_cancelled_run_keeps_running_status` 钉死；审批等待不结束 run（阻塞在工具执行内），无独立终态。④ 新增架构契约：五个策略模块运行期禁止导入 loop façade（`test_architecture_contracts.py`，AST 全路径扫描）。⑤ 架构契约红线自检：tests patch 面未受影响（类级 `__init__` spy 与实例级 patch 均兼容）。
+
+- 2026-09-21：C3 完成，形态相对任务文本调整并留档：任务原文「GUI 主 loop 构造并入共享工厂；差异以参数表达」在实现勘察后**否决全量合并**——通读 cli `_build_loop` 与 `gui_main` 后确认两入口在每个旋钮上都是真实产品差异（CLI 有 session/上下文策略/soul/retry 中间件/cwd 锚定，GUI 均无；cron 调度器门条件也不同），参数化合并 = 17 参 + 4 布尔旗巨函，违背验收「不以牺牲可读性为目标」。落地为三缝收口：① `wiring.ensure_runtime_config`（读回收窄单点，替换两入口的重复三分支）；② `wiring.build_cron_job_runner`（两处逐字镜像的 `_run_job` 合并——GUI 注释自认「镜像 cli.py」，正是漂移温床；goal 分支短路 + 一次性 loop 语义逐字保留）；③ GUI `job_store` 从无条件创建改为 `cron_enabled` 门控（**经用户批准的装配漂移修正**：cron 关闭时 GUI 不再激活 cron 工具，与 CLI 一致），scheduler 门随之加 `job_store is not None`。新增 `tests/test_wiring_loop_helpers.py`（ensure_runtime_config 两态 + runner goal/普通双分支）。验收「架构契约测试维持」由 C2 的策略模块环依赖契约一并覆盖。
 
 ## Design Notes
 

@@ -29,7 +29,7 @@ from heagent.cli_display import (
     show_deferred_work,
     show_tool_activity,
 )
-from heagent.cli_goal import _goal_auto_goal_id, _goal_cron_advance, _goal_runner
+from heagent.cli_goal import _goal_runner
 from heagent.config import GLOBAL_CONFIG_DIR, Settings, get_settings, resolve_runtime_config
 from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
@@ -50,13 +50,12 @@ from heagent.slash import SlashRegistry, load_custom_commands
 from heagent.terminal import KeyInterruptMonitor
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
 from heagent.tools.registry import ToolRegistry
-from heagent.wiring import _build_provider
+from heagent.wiring import _build_provider, build_cron_job_runner, ensure_runtime_config
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from contextlib import AbstractAsyncContextManager
 
-    from heagent.engine.context import RunContext
     from heagent.providers.base import BaseProvider
 
 logger = logging.getLogger(__name__)
@@ -202,10 +201,7 @@ def _build_loop(
     engine = engine or EngineContainer.default(
         workspace_root=os.getcwd(), sandbox_backend=sandbox_backend, runtime_config=config
     )
-    resolved = engine.runtime_config
-    if resolved is None:  # pragma: no cover —— 构造完成即已解析，此分支仅为类型收窄显性兜底
-        raise RuntimeError("EngineContainer.runtime_config 未解析：构造后不应为 None")
-    config = resolved
+    config = ensure_runtime_config(engine)
     retry_mw = make_retry_middleware(
         max_attempts=config.retry_max_attempts,
         base_delay=config.retry_base_delay,
@@ -214,36 +210,27 @@ def _build_loop(
 
     scheduler: CronScheduler | None = None
     if session is not None and config.cron_enabled and cron_store:
-
-        async def _run_job(prompt: str, run_context: RunContext) -> None:
-            goal_id = _goal_auto_goal_id(prompt)
-            if goal_id is not None:
-                await _goal_cron_advance(provider, engine, cron_store, goal_id)
-                return
-            loop = AgentLoop(
-                provider,
-                max_iterations=max_iterations,
-                middlewares=[retry_mw],
-                skills=skills,
-                facts=facts,
-                profile=profile,
-                compressor=compressor,
-                window_reset=window_reset,
-                context_dir=os.getcwd(),
-                soul=soul,
-                cron_store=cron_store,
-                engine=engine,
-                runtime_config=config,
-                run_context=run_context,
-                subagent_announcer=SUBAGENT_ANNOUNCER,
-            )
-            await loop.run(prompt)
-
+        job_runner = build_cron_job_runner(
+            provider,
+            engine,
+            config,
+            cron_store,
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            soul=soul,
+            max_iterations=max_iterations,
+            retry_mw=retry_mw,
+            compressor=compressor,
+            window_reset=window_reset,
+            context_dir=os.getcwd(),
+            subagent_announcer=SUBAGENT_ANNOUNCER,
+        )
         scheduler = CronScheduler(
             cron_store,
             tick_seconds=config.cron_tick_seconds,
             engine=engine,
-            job_runner=_run_job,
+            job_runner=job_runner,
         )
 
     loop = AgentLoop(

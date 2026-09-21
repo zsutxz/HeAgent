@@ -20,16 +20,11 @@ def gui_main(
     sandbox_session_keep: bool | None = None,
 ) -> None:
     """Launch the HeAgent Textual TUI."""
-    from typing import TYPE_CHECKING
-
     from heagent.config import resolve_runtime_config
     from heagent.gui.app import HeAgentApp
     from heagent.gui.bridge import AgentBridge
     from heagent.gui.observers import GuiEventObserver
     from heagent.gui.state import GuiState
-
-    if TYPE_CHECKING:
-        from heagent.engine.context import RunContext
 
     # Phase 1：组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
     config = resolve_runtime_config()
@@ -47,7 +42,10 @@ def gui_main(
     from heagent.memory.skills import SkillStore
 
     skill_store = SkillStore()
-    job_store = JobStore()
+    # Phase 2 C3（与 CLI 语义统一）：cron 关闭时不创建 JobStore——主 loop 的
+    # cron_store 为 None，cron 工具不激活（此前 GUI 无条件创建，cron 关闭时工具
+    # 仍可见但无调度器驱动，属装配漂移；经用户确认统一到 CLI 语义）。
+    job_store = JobStore() if config.cron_enabled else None
     fact_store = FactStore()
     profile_store = ProfileStore()
 
@@ -64,10 +62,9 @@ def gui_main(
         sandbox_session_keep=sandbox_session_keep,
         runtime_config=config,
     )
-    resolved = engine.runtime_config
-    if resolved is None:  # pragma: no cover —— 构造完成即已解析，此分支仅为类型收窄显性兜底
-        raise RuntimeError("EngineContainer.runtime_config 未解析：构造后不应为 None")
-    config = resolved
+    from heagent.wiring import build_cron_job_runner, ensure_runtime_config
+
+    config = ensure_runtime_config(engine)
 
     loop = AgentLoop(
         provider,
@@ -93,11 +90,10 @@ def gui_main(
     observer = GuiEventObserver(state)
     engine.events.subscribe(observer)
 
-    # ── Cron 调度器（/goal auto 注册的 goal-advance job 由它驱动；镜像 cli.py 的 _run_job）──
+    # ── Cron 调度器（/goal auto 注册的 goal-advance job 由它驱动；runner 与 CLI 共享 wiring 工厂）──
     cron_scheduler = None
-    if config.cron_enabled:
+    if config.cron_enabled and job_store is not None:
         from heagent.agent.middleware import make_retry_middleware
-        from heagent.cli_goal import _goal_auto_goal_id, _goal_cron_advance
         from heagent.cron.scheduler import CronScheduler
 
         retry_mw = make_retry_middleware(
@@ -105,34 +101,25 @@ def gui_main(
             base_delay=config.retry_base_delay,
             max_delay=config.retry_max_delay,
         )
-
-        async def _run_job(prompt: str, run_context: RunContext) -> None:
-            goal_id = _goal_auto_goal_id(prompt)
-            if goal_id is not None:
-                await _goal_cron_advance(provider, engine, job_store, goal_id)
-                return
-            # 非 goal 的 cron prompt：构造一次性 loop（与 GUI 主 loop 共享 stores/engine，
-            # 事件经同一 EventBus 到达 GUI 观察者），不与交互中的主 loop 抢占 run_context。
-            await AgentLoop(
-                provider,
-                registry=ToolRegistry.get(),
-                engine=engine,
-                runtime_config=config,
-                skills=skill_store,
-                facts=fact_store,
-                profile=profile_store,
-                cron_store=job_store,
-                context_dir=None,
-                run_context=run_context,
-                middlewares=[retry_mw],
-                subagent_announcer=SUBAGENT_ANNOUNCER,
-            ).run(prompt)
-
+        # 非 goal 的 cron prompt：一次性 loop 与 GUI 主 loop 共享 stores/engine，
+        # 事件经同一 EventBus 到达 GUI 观察者，不与交互中的主 loop 抢占 run_context。
+        job_runner = build_cron_job_runner(
+            provider,
+            engine,
+            config,
+            job_store,
+            skills=skill_store,
+            facts=fact_store,
+            profile=profile_store,
+            retry_mw=retry_mw,
+            context_dir=None,
+            subagent_announcer=SUBAGENT_ANNOUNCER,
+        )
         cron_scheduler = CronScheduler(
             job_store,
             tick_seconds=config.cron_tick_seconds,
             engine=engine,
-            job_runner=_run_job,
+            job_runner=job_runner,
         )
 
     # ── 启动 Textual ────────────────────────────────────────

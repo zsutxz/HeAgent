@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 import click
 
+from heagent.agent.loop import AgentLoop
 from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.openai import OpenAIProvider
@@ -24,14 +25,27 @@ from heagent.providers.router import HeuristicRouter, RoutingProvider
 from heagent.providers.switchable import SwitchableProvider
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
-    from heagent.config import Settings
+    from heagent.agent.middleware import MiddlewareFn
+    from heagent.agent.sub import SubAgentAnnouncer
+    from heagent.config import ResolvedRuntimeConfig, Settings
+    from heagent.context.compressor import ContextCompressor
+    from heagent.context.window_reset import WindowResetConfig
+    from heagent.cron.jobs import JobStore
+    from heagent.engine import EngineContainer, RunContext
+    from heagent.memory.facts import FactStore
+    from heagent.memory.profile import ProfileStore
+    from heagent.memory.skills import SkillStore
+    from heagent.memory.soul import SoulStore
     from heagent.providers.base import BaseProvider
     from heagent.types import RoutingPoolSpec
 
     # 单档 provider 构建器：(档位模型名, base_url 覆盖) → provider
     ProviderBuilder = Callable[[str, str | None], BaseProvider]
+
+    # cron job runner：(prompt, run_context) → None（Phase 2 C3 共享缝的返回类型）
+    CronJobRunner = Callable[[str, RunContext], Awaitable[None]]
 
 logger = logging.getLogger(__name__)
 
@@ -307,3 +321,81 @@ def _anthropic_pool_builder(settings: Settings) -> ProviderBuilder:
             max_tokens=settings.max_output_tokens or 4096,
         ),
     )
+
+
+# ----------------------------------------------------------------------
+# loop 装配共享缝（Phase 2 C3）：入口层各 loop 构造点真正共用、且漂移风险高的
+# 两段——engine 配置快照读回收窄与 cron job runner——收敛到此处。
+# 主 loop 本体仍由各入口显式构造：两入口在每个旋钮上都有真实产品差异
+# （session/上下文策略/soul/retry 中间件/context_dir），全量参数化会产出
+# 17 参 + 4 布尔旗的巨函，比两个显式构造点更难读（决策记录见 spec-phase2）。
+# ----------------------------------------------------------------------
+
+
+def ensure_runtime_config(engine: EngineContainer) -> ResolvedRuntimeConfig:
+    """读取 engine 的构造期配置快照并收窄类型（Phase 1：``engine.runtime_config`` 是权威）。
+
+    ``EngineContainer`` 构造完成即已完成解析；``None`` 只会出现在构造完成前的中间态，
+    此处显性失败（不静默兜底）。
+    """
+    resolved = engine.runtime_config
+    if resolved is None:  # pragma: no cover —— 构造完成即已解析，此分支仅为类型收窄显性兜底
+        raise RuntimeError("EngineContainer.runtime_config 未解析：构造后不应为 None")
+    return resolved
+
+
+def build_cron_job_runner(
+    provider: BaseProvider,
+    engine: EngineContainer,
+    runtime_config: ResolvedRuntimeConfig,
+    cron_store: JobStore,
+    *,
+    skills: SkillStore | None,
+    facts: FactStore | None,
+    profile: ProfileStore | None,
+    soul: SoulStore | None = None,
+    max_iterations: int | None = None,
+    retry_mw: MiddlewareFn,
+    compressor: ContextCompressor | None = None,
+    window_reset: WindowResetConfig | None = None,
+    context_dir: str | None = None,
+    subagent_announcer: SubAgentAnnouncer | None = None,
+) -> CronJobRunner:
+    """构造 cron 任务的 job runner（原 cli/gui 两处 ``_run_job`` 的逐字合并，Phase 2 C3）。
+
+    runner 语义：goal 自动推进 job（``_goal_auto_goal_id`` 命中）走 ``_goal_cron_advance``
+    续推 workflow；其余 prompt 构造**一次性 loop**（与入口主 loop 共享 provider/engine/
+    stores，事件经同一 EventBus 汇聚），使用传入的 ``run_context``，不与交互中的主 loop
+    抢占上下文。
+
+    ``heagent.cli_goal`` 经函数体内惰性导入：wiring 与 cli_goal 同属入口层，但 cli_goal
+    装载侧会经 wiring 建 provider，模块级互导即成环。
+    """
+
+    async def _run_job(prompt: str, run_context: RunContext) -> None:
+        from heagent.cli_goal import _goal_auto_goal_id, _goal_cron_advance
+
+        goal_id = _goal_auto_goal_id(prompt)
+        if goal_id is not None:
+            await _goal_cron_advance(provider, engine, cron_store, goal_id)
+            return
+        loop = AgentLoop(
+            provider,
+            max_iterations=max_iterations,
+            middlewares=[retry_mw],
+            skills=skills,
+            facts=facts,
+            profile=profile,
+            compressor=compressor,
+            window_reset=window_reset,
+            context_dir=context_dir,
+            soul=soul,
+            cron_store=cron_store,
+            engine=engine,
+            runtime_config=runtime_config,
+            run_context=run_context,
+            subagent_announcer=subagent_announcer,
+        )
+        await loop.run(prompt)
+
+    return _run_job
