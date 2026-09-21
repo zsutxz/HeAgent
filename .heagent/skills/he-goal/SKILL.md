@@ -30,7 +30,27 @@ priority: 3
   `open_question_*`）。**改工作流行为只改这个文件，不改代码。**
 - `templates/prompt-template.md`、`templates/gate-template.md` —— 步骤提示词与门禁模板（**硬性运行时依赖**，
   必需性由 `workflow.md` frontmatter 的 `required_resources` 声明，缺失即在加载阶段显性报错；CLI 不内置
-  兜底；占位符契约见 `workflow.md` 的「模板契约」节；清理时不要删）。
+  兜底；占位符契约见下方「模板契约」；清理时不要删）。
+
+**模板契约（templates/）**——步骤提示词与门禁文案全部由本包携带，CLI 不内置任何模板兜底。两个模板的
+必需性由 `workflow.md` frontmatter 的 `required_resources` 声明：列出的资源缺失（或只剩空白）时加载阶段
+即显性报错；未声明而缺失的模板在渲染期显性报错，不以空提示词静默跑步骤。从清单里移除某项则该项退回可选。
+
+- `templates/prompt-template.md` —— 每步发给执行 SubAgent 的提示词骨架；
+- `templates/gate-template.md` —— 步骤门禁块骨架，渲染结果填入上者的 `{gate}`。
+
+**可用占位符**（渲染为单遍替换：未知占位符原样保留，字段值里的 `{xxx}` 不会被二次展开）：
+
+`prompt-template.md` —— `{workflow_instructions}`（`workflow.md` 正文）、`{goal}`（目标描述）、`{goal_dir}`、
+`{output_root}`、`{step}`（步骤文件名）、`{story_context}`（story 循环上下文，非 story 步骤为空）、
+`{role}`（该步骤角色包指令）、`{open_question_policy}`（悬而未决问题的处理策略文案）、`{inputs}`
+（声明输入的渲染正文）、`{gate}`（门禁块，无门禁规则的步骤为空）。
+
+`gate-template.md` —— `{sections}`（必含标题清单）、`{acceptance}`（Given/When/Then 要求）、
+`{rules}`（该步骤 `validation:` 声明的逐字引用）。
+
+改提示词或门禁文案只改这两个文件；新增字段需先在 CLI 侧扩展装配（字段清单即代码与包的契约面）。
+本节是维护者文档，**刻意不放在 `workflow.md` 正文**——那里的内容会整体注入每步提示词。
 
 > **不要用 `skill_delete` / `skill_archive` 删除或归档本包**——那会连同工作流契约一起移走，`/goal`
 > 将显性报「workflow.md is required」，且契约需从 git 还原。Curator 的过期归档若命中本包，同样后果。

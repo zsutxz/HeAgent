@@ -30,6 +30,13 @@ from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResou
 from heagent.goal.workflow_loader import read_workflow
 from heagent.memory.skill_packages import SkillPackage
 
+# 随包发布的真实模板：测试消费包内真源，不在测试代码里留文案副本（防漂移）。
+_SHIPPED_TEMPLATES = Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal" / "templates"
+
+
+def _shipped_gate_template() -> str:
+    return (_SHIPPED_TEMPLATES / "gate-template.md").read_text(encoding="utf-8").strip()
+
 
 @pytest.fixture()
 def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -550,7 +557,7 @@ def test_step_prompt_feeds_gate_headings_to_executor(tmp_path: Path) -> None:
         instructions="workflow instructions",
         steps=[],
         prompt_template="{inputs}\n{gate}",
-        gate_template="Gate requirements (hard, enforced on your final response):\n{sections}{acceptance}{rules}",
+        gate_template=_shipped_gate_template(),
     )
     prompt = cli_goal._goal_declarative_prompt(
         workflow,
@@ -581,7 +588,7 @@ def test_step_prompt_gate_headings_satisfy_the_runner_gate(tmp_path: Path) -> No
         instructions="workflow instructions",
         steps=[step],
         prompt_template="{inputs}\n{gate}",
-        gate_template="Gate requirements (hard, enforced on your final response):\n{sections}{acceptance}{rules}",
+        gate_template=_shipped_gate_template(),
     )
     prompt = cli_goal._goal_declarative_prompt(
         workflow, step.name, "demo goal", tmp_path, {"user intent": "ship it"}, validation_rules=step.validation_rules
@@ -605,7 +612,7 @@ def test_step_prompt_without_gate_rules_has_no_gate_block(tmp_path: Path) -> Non
         instructions="workflow instructions",
         steps=[],
         prompt_template="{inputs}\n{gate}",
-        gate_template="Gate requirements (hard, enforced on your final response):\n{sections}{acceptance}{rules}",
+        gate_template=_shipped_gate_template(),
     )
     prompt = cli_goal._goal_declarative_prompt(
         workflow, "step-01-plan.md", "demo goal", tmp_path, {"user intent": "ship it"}
@@ -627,7 +634,7 @@ async def test_step_iteration_budget_overrides_the_global_default(
         return SimpleNamespace(success=True, output="body")
 
     monkeypatch.setattr("heagent.cli_goal._goal_session", run_step)
-    workflow = WorkflowResource(name="demo", instructions="", steps=[])
+    workflow = WorkflowResource(name="demo", instructions="", steps=[], prompt_template="step prompt")
     goal_dir = declarative_cwd / "_he-output" / "goals" / "demo"
     goal_dir.mkdir(parents=True, exist_ok=True)
     for declared in (40, 0):
@@ -728,7 +735,11 @@ def test_bundled_workflow_ships_the_required_templates(monkeypatch: pytest.Monke
     assert workflow is not None
     assert workflow.max_rounds >= 1
     # 声明行是生效开关：frontmatter 不声明 required_resources 就没有加载期强制，钉死防漂移。
-    assert "prompt-template.md" in str(workflow.frontmatter.get("required_resources", ""))
+    declared = str(workflow.frontmatter.get("required_resources", ""))
+    assert "prompt-template.md" in declared
+    assert "gate-template.md" in declared
+    # 维护者文档只能住在 SKILL.md：混进 workflow.md 正文会被注入每步提示词。
+    assert "模板契约" not in workflow.instructions
     for placeholder in ("{workflow_instructions}", "{goal}", "{step}", "{gate}"):
         assert placeholder in workflow.prompt_template
     for placeholder in ("{sections}", "{acceptance}", "{rules}"):
@@ -795,5 +806,59 @@ def test_missing_declared_required_templates_fail_explicitly(declarative_cwd: Pa
     )
     shutil.rmtree(declarative_cwd / ".heagent" / "skills" / "he-goal" / "templates")
 
+    with pytest.raises(ValueError, match="gate-template|prompt-template"):
+        _goal_declarative_workflow()
+
+
+def test_bulleted_inline_step_metadata_fails_loudly(declarative_cwd: Path) -> None:
+    """列表式元数据（``- input: x``）是常见笔误：显性拒绝，不静默收成 ``- input`` 键丢掉真实契约。"""
+    workflow_md = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
+    workflow_md.write_text(
+        "---\nname: test-development\nentrypoint: goal\non_create: persist_goal_identity\n"
+        "step_executor: subagent\n---\n\nworkflow instructions\n\n"
+        "## Step 01: plan\n- input: user intent\n- output: brief\n\nplan the story\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="markdown bullets"):
+        _goal_declarative_workflow()
+
+
+def test_undeclared_missing_templates_fail_loudly_at_render_time(tmp_path: Path) -> None:
+    """未声明 required 的包缺模板 → 渲染期显性失败，不以空提示词/空门禁静默跑步骤。"""
+    workflow = WorkflowResource(name="demo", instructions="", steps=[])
     with pytest.raises(ValueError, match="prompt-template"):
+        cli_goal._goal_declarative_prompt(workflow, "step-01-plan.md", "demo goal", tmp_path, {})
+    workflow = workflow.model_copy(update={"prompt_template": "{gate}"})
+    with pytest.raises(ValueError, match="gate-template"):
+        cli_goal._goal_declarative_prompt(
+            workflow, "step-01-plan.md", "demo goal", tmp_path, {}, validation_rules="section: 实现摘要"
+        )
+    # 无门禁规则的步骤不消费门禁模板：缺了也不拦（该步渲染不出门禁块本就是正确形态）。
+    assert cli_goal._goal_declarative_prompt(workflow, "step-01-plan.md", "demo goal", tmp_path, {}) == ""
+
+
+def test_required_resources_normalizes_prefix_and_rejects_typos(declarative_cwd: Path) -> None:
+    """声明带 ``templates/`` 前缀同样生效；拼错或未知的条目在加载期显性失败，不做静默忽略。"""
+    workflow_md = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
+    workflow_md.write_text(
+        workflow_md.read_text(encoding="utf-8").replace(
+            "step_executor: subagent\n",
+            "step_executor: subagent\nrequired_resources: templates/prompt-template.md, templates/gate-template.md\n",
+        ),
+        encoding="utf-8",
+    )
+
+    workflow = _goal_declarative_workflow()
+
+    assert workflow is not None
+    assert workflow.prompt_template  # 前缀归一化后命中真实模板
+    workflow_md.write_text(
+        workflow_md.read_text(encoding="utf-8").replace(
+            "required_resources: templates/prompt-template.md, templates/gate-template.md",
+            "required_resources: prompt-templates.md",
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="prompt-templates"):
         _goal_declarative_workflow()

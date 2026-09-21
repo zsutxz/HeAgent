@@ -276,6 +276,15 @@ def _goal_gate_requirements(workflow: WorkflowResource, validation_rules: str) -
     needs_given_when_then = "given" in rules.casefold()
     if not sections and not needs_given_when_then:
         return ""
+    if not workflow.gate_template.strip():
+        # 步骤声明了门禁规则却渲染不出门禁块：显性失败。产出空门禁会让执行者
+        # 干完全部工作、再被 WorkflowRunner 的事后闸门拦下重做（本函数要防的正是这个）。
+        raise SkillWorkflowError(
+            workflow.name,
+            "gate-template.md",
+            "step declares gate rules but the workflow package ships no gate template; "
+            "add templates/gate-template.md or declare it in required_resources to fail at load",
+        )
     headings = ""
     if sections:
         headings = (
@@ -347,6 +356,14 @@ def _goal_declarative_prompt(
             + (f" - {story.summary}" if story.summary else "")
             + (f"\nParent epic: {epic_ref}" if epic_ref else "")
             + "\nWork only on this one story; leave all other stories for subsequent increments.\n"
+        )
+    if not workflow.prompt_template.strip():
+        # 未声明 required 的包缺提示词模板：拒绝渲染空提示词（goal/角色/门禁上下文将全部丢失）。
+        raise SkillWorkflowError(
+            workflow.name,
+            "prompt-template.md",
+            "workflow package ships no prompt template; add templates/prompt-template.md "
+            "or declare it in required_resources to fail at load",
         )
     template = workflow.prompt_template
     return _render_template(

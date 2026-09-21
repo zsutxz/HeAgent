@@ -182,8 +182,8 @@ _he-output/goals/<goal-id>/
 
 - 变更流程顺序或阶段职责：修改 `.heagent/skills/he-goal/workflow.md`。
 - 变更步骤提示词或门禁文案：改包内 `templates/prompt-template.md` / `templates/gate-template.md`
-  （占位符清单见包 `workflow.md` 的「模板契约」节；必需性由 frontmatter `required_resources` 声明，
-  清理 `templates/` 时不要删——缺失会让 `/goal` 在加载阶段显性报错）；
+  （占位符清单见包 `SKILL.md` 的「模板契约」节；必需性由 frontmatter `required_resources` 声明，
+  清理 `templates/` 时不要删——缺失会让 `/goal` 在加载阶段或渲染期显性报错）；
   变更 `/goal run` 的步数上限、`/goal auto` 的默认 cron、未决问题策略文案：改 `workflow.md` 的 frontmatter
   声明（`max_rounds` / `auto_schedule` / `open_question_default` / `open_question_block`）。两者都不需要改 Python。
 - 新增或重排步骤：在 `workflow.md` 加 `## Step NN: name` 区块，`NN` 必须从 1 连续递增；每个步骤的

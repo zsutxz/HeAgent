@@ -117,7 +117,7 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
             resource,
             f"invalid open_question_mode '{open_question_mode}'; expected block or default",
         )
-    required = _required_templates(package, values, resource)
+    _required_templates(package, values, resource)  # 声明条目的存在性校验（有副作用：缺失即抛）
     return WorkflowResource(
         name=_value_text(values, "name", "id") or package.skill_id,
         instructions=(body.split("\n## Step ", 1)[0] if inline else body).strip(),
@@ -131,8 +131,8 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
         auto_schedule=_value_text(values, "auto_schedule"),
         open_question_default=_value_text(values, "open_question_default"),
         open_question_block=_value_text(values, "open_question_block"),
-        prompt_template=_read_template_resource(package, "prompt-template.md", required),
-        gate_template=_read_template_resource(package, "gate-template.md", required),
+        prompt_template=_read_optional_resource(package, "prompt-template.md"),
+        gate_template=_read_optional_resource(package, "gate-template.md"),
         frontmatter=values,
     )
 
@@ -142,7 +142,7 @@ def _read_optional_resource(package: SkillPackage, resource: str) -> str:
 
     Optional resources (step prompt / gate templates) must not make an otherwise
     valid workflow fail to load: requiredness, when it applies, is the workflow
-    declaration's call (``required_resources``), enforced by ``_read_template_resource``.
+    declaration's call (``required_resources``), enforced by ``_required_templates``.
     """
     try:
         return package.read_template(resource).strip()
@@ -151,24 +151,22 @@ def _read_optional_resource(package: SkillPackage, resource: str) -> str:
 
 
 def _required_templates(package: SkillPackage, values: dict[str, Any], workflow: str) -> frozenset[str]:
-    """``templates/`` file names the workflow declaration marks required (``required_resources``)."""
+    """``templates/`` file names the workflow declaration marks required (``required_resources``).
+
+    每个声明条目都是硬承诺：文件缺失（或只剩空白）即加载失败——拼错名字同样显性报错，
+    不做静默忽略。条目可带 ``templates/`` 前缀，装载时归一化后匹配。
+    """
     declared = values.get("required_resources")
     if not declared:
         return frozenset()
-    return frozenset(_resource_list(package, declared, workflow, "required_resources"))
-
-
-def _read_template_resource(package: SkillPackage, resource: str, required: frozenset[str]) -> str:
-    """Read one ``templates/`` resource; blank-or-missing is fatal when declared required.
-
-    Requiredness is the workflow declaration's call, not the loader's: a package that
-    lists a resource in ``required_resources`` fails the load without it, while a
-    package that stays silent keeps the resource optional.
-    """
-    text = _read_optional_resource(package, resource)
-    if resource in required and not text:
-        raise SkillWorkflowError(package.skill_id, resource, "declared in required_resources but missing or blank")
-    return text
+    names = frozenset(
+        name.removeprefix("templates/")
+        for name in _resource_list(package, declared, workflow, "required_resources")
+    )
+    for name in sorted(names):
+        if not _read_optional_resource(package, name):
+            raise SkillWorkflowError(package.skill_id, name, "declared in required_resources but missing or blank")
+    return names
 
 
 def _discover_workflow_steps(package: SkillPackage) -> list[str]:
@@ -214,6 +212,14 @@ def _parse_inline_workflow_steps(package: SkillPackage, body: str) -> list[Workf
             if ":" not in line or line[:1].isspace():
                 instruction_start = idx
                 break
+            if re.match(r"^[-*+]\s", line):
+                # 列表式元数据（``- input: x``）是常见笔误：收下会存成 ``- input`` 键、真实契约静默变空；
+                # 想用 bullet 写正文，空一行隔开即可（空行终止元数据区）。
+                raise SkillWorkflowError(
+                    package.skill_id,
+                    name,
+                    f"inline step metadata must be bare 'key: value' lines, not markdown bullets: {line}",
+                )
             key, value = line.split(":", 1)
             key = key.strip()
             if not key or key in metadata:
