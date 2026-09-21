@@ -268,3 +268,32 @@ def test_goal_application_use_case_is_click_free() -> None:
         if name == "click" or name.startswith(forbidden_prefixes)
     ]
     assert offenders == [], "goal use-case 运行期依赖 Click/入口模块（无 Click 验收失效）：" + ", ".join(offenders)
+
+
+def test_sandbox_and_mcp_subpackages_are_click_free() -> None:
+    """Phase 4：``tools/sandbox/*`` 与 ``tools/mcp/*`` 运行期禁止依赖 Click。
+
+    两子包是确定性基础设施（沙箱后端 / MCP 生命周期），用户可见文案属入口层职责
+    （如 MCP discovery_failures 由 cli 渲染）——一旦 import ``click``，基础设施就再也
+    离不开 Click 环境、无法在 GUI / cron / 库消费方下独立运行。heagent 侧入口模块
+    （``heagent.cli*`` / ``heagent.gui*`` / ``heagent.agent``）的反向导入已由
+    ``FORBIDDEN_RUNTIME_IMPORTS["tools"]`` 钉死，本契约只补第三方 Click 这一格。
+    """
+    offenders: list[str] = []
+    for sub in ("sandbox", "mcp"):
+        for path in sorted((SRC / "tools" / sub).rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.If) and "TYPE_CHECKING" in ast.unparse(node.test):
+                    continue
+                is_click_import = (
+                    isinstance(node, ast.Import)
+                    and any(alias.name == "click" or alias.name.startswith("click.") for alias in node.names)
+                ) or (
+                    isinstance(node, ast.ImportFrom)
+                    and node.module
+                    and (node.module == "click" or node.module.startswith("click."))
+                )
+                if is_click_import:
+                    offenders.append(f"tools/{sub}/{path.relative_to(SRC / 'tools' / sub)}")
+    assert offenders == [], "基础设施子包运行期依赖 Click（入口渲染职责泄漏）：" + ", ".join(offenders)

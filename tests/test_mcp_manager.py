@@ -1200,3 +1200,70 @@ async def test_list_prompts_after_disconnect(monkeypatch: pytest.MonkeyPatch) ->
     data = json.loads(output)
     assert len(data) == 1
     assert data[0]["server"] == "b"
+
+
+# --- 发现阶段失败结构化暴露（Phase 4 C2：单 server 隔离但不隐藏发现错误）---
+
+
+async def test_discovery_failures_exposed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """连接失败 server 出现在 discovery_failures（含原因），成功 server 不出现。"""
+    sessions = {
+        "bad": StubSession([], list_raises=RuntimeError("conn refused")),
+        "good": StubSession([_tool("run")]),
+    }
+    _patch_transport(monkeypatch, sessions)
+    reg = ToolRegistry()
+    async with MCPClientManager(
+        MCPConfig(
+            servers={
+                "bad": StdioServerConfig(command="x"),
+                "good": StdioServerConfig(command="y"),
+            }
+        ),
+        registry=reg,
+    ) as mgr:
+        failures = mgr.discovery_failures
+    assert len(failures) == 1
+    assert failures[0].server == "bad"
+    assert "conn refused" in failures[0].reason
+
+
+async def test_connect_timeout_recorded_in_discovery_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+    """连接超时同样进 discovery_failures（reason 含超时秒数）。"""
+
+    @asynccontextmanager
+    async def slow_transport(self: MCPClientManager, name: str, cfg: Any) -> Any:
+        await asyncio.sleep(0.3)
+        yield StubSession([])
+
+    monkeypatch.setattr(MCPClientManager, "_transport_and_session", slow_transport)
+    reg = ToolRegistry()
+    async with MCPClientManager(
+        MCPConfig(servers={"s": StdioServerConfig(command="x")}),
+        registry=reg,
+        connect_timeout=0.05,
+    ) as mgr:
+        assert mgr.discovery_failures[0].server == "s"
+        assert "0.05" in mgr.discovery_failures[0].reason
+
+
+# --- TransportOpener 注入端口（Phase 4 C2：最小 Protocol，无需 class-patch 缝）---
+
+
+async def test_transport_opener_injection() -> None:
+    """经构造期 transport_opener 注入 fake 即可驱动完整生命周期（不经 class patch）。"""
+    opened: list[str] = []
+
+    @asynccontextmanager
+    async def fake_opener(cfg: Any) -> Any:
+        opened.append(cfg.command)
+        yield StubSession([_tool("injected")])
+
+    reg = ToolRegistry()
+    async with MCPClientManager(
+        MCPConfig(servers={"s": StdioServerConfig(command="fake-cmd")}),
+        registry=reg,
+        transport_opener=fake_opener,
+    ):
+        assert reg.get_schema("s__injected") is not None
+    assert opened == ["fake-cmd"]

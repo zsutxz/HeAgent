@@ -20,12 +20,13 @@ from heagent.tools.mcp.config import (
     StdioServerConfig,
     load_mcp_config,
 )
-from heagent.tools.mcp.manager import MCPClientManager
+from heagent.tools.mcp.manager import MCPClientManager, MCPServerFailure
 
 __all__ = [
     "HttpServerConfig",
     "MCPClientManager",
     "MCPConfig",
+    "MCPServerFailure",
     "StdioServerConfig",
     "load_mcp_config",
 ]

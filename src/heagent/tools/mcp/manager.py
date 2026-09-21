@@ -1,7 +1,12 @@
 """MCPClientManager — MCP server 连接 + 工具桥接生命周期（FR-1~5）。
 
+manager 是**生命周期 façade**（2026-09-21 Phase 4 C2 分层，沿 AgentLoop façade 先例）：
+transport/session 开启委托 :mod:`.client`（:class:`~heagent.tools.mcp.client.TransportOpener`
+端口可注入），registry 注册/注销委托 :mod:`.registry_bridge`（单一入口）；本模块只承载
+per-server task 生命周期与健康探测。
+
 async ctx mgr：``__aenter__`` 并发连接所有 server（stdio / Streamable HTTP）+
-发现工具 + 注册进 ``ToolRegistry`` 单例（eager，LLM 首轮即见）；``__aexit__``
+发现工具 + 注册进 ``ToolRegistry``（eager，LLM 首轮即见）；``__aexit__``
 unregister 全部 MCP 工具 + 优雅关闭所有 session / 子进程（``shutdown_timeout`` 硬上界
 兜底，transport close 挂死时 force-cancel，不无限阻塞进程退出）。
 
@@ -14,12 +19,13 @@ transport + session context（``_transport_and_session`` @asynccontextmanager，
 ``RuntimeError: Attempted to exit cancel scope in a different task``）。
 
 - 单 server 连接失败 / 超时隔离（工具不注入，NFR-6，FR-3 建立失败路径）；
+  失败结构化记录进 :attr:`discovery_failures`（不隐藏发现错误，入口层渲染呈报）；
 - 运行时断连主动 unregister：持有期 ``send_ping`` 健康探测，ping 失败/超时即注销该 server
   全部工具（FR-3 收紧，工具不再滞留 LLM 工具列表）；
 - ``__aexit__`` 关停带硬上界：transport close（stdio 忽略 SIGTERM / HTTP 不 FIN）挂死时，
   ``shutdown_timeout`` 后 force-cancel 未退出 task，不无限阻塞进程退出；
 - 握手 / transport 封装内部（NFR-3，为 stateless 迁移留接口）；
-- DAG：仅从 types / exceptions / registry / config / mapping 导入，禁从 agent 导入。
+- DAG：仅从 types / exceptions / registry / config / mapping / client / registry_bridge 导入，禁从 agent 导入。
 """
 
 from __future__ import annotations
@@ -30,33 +36,36 @@ import logging
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
-import httpx
-from mcp import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
-from mcp.client.streamable_http import streamable_http_client
 from mcp.types import BlobResourceContents, TextContent, TextResourceContents
+from pydantic import BaseModel
 
 from heagent.exceptions import ToolError
-from heagent.tools.mcp.config import (
-    HttpServerConfig,
-    MCPConfig,
-    ServerConfig,
-    StdioServerConfig,
-)
+from heagent.tools.mcp.client import TransportOpener, default_transport_opener
 from heagent.tools.mcp.mapping import bridge_result, guard_content, mcp_tool_to_schema
-from heagent.tools.mcp.session_api import call_tool, handshake, list_tools, ping
+from heagent.tools.mcp.registry_bridge import RegistryBridge
+from heagent.tools.mcp.session_api import call_tool, list_tools, ping
 from heagent.tools.registry import ToolRegistry
-from heagent.types import ToolAnnotations, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable
     from typing import Any
+
+    from mcp import ClientSession
+
+    from heagent.tools.mcp.config import MCPConfig, ServerConfig
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_CONNECT_TIMEOUT: float = 10.0
 _DEFAULT_HEALTH_CHECK_INTERVAL: float = 5.0  # 运行时健康探测周期（FR-3 收紧：断连即注销）
 _DEFAULT_SHUTDOWN_TIMEOUT: float = 5.0  # __aexit__ 关停硬上界（transport close 挂死兜底）
+
+
+class MCPServerFailure(BaseModel):
+    """单 server 连接/发现失败的结构化记录（入口层渲染呈报，不隐藏发现错误）。"""
+
+    server: str
+    reason: str
 
 
 class MCPClientManager:
@@ -78,6 +87,7 @@ class MCPClientManager:
         connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
         health_check_interval: float = _DEFAULT_HEALTH_CHECK_INTERVAL,
         shutdown_timeout: float = _DEFAULT_SHUTDOWN_TIMEOUT,
+        transport_opener: TransportOpener | None = None,
     ) -> None:
         if health_check_interval <= 0:
             # 非正值会让 _watch 把 interval 直接当 wait_for timeout，首轮 ping 即超时 →
@@ -89,18 +99,25 @@ class MCPClientManager:
             raise ValueError(f"shutdown_timeout 必须为正数（got {shutdown_timeout}）")
         self._config = config
         self._registry = registry or ToolRegistry.get()
+        # registry 写入单一入口（server 工具 + 桥接工具的注册/注销与冲突策略收敛于此）
+        self._bridge = RegistryBridge(self._registry)
         self._connect_timeout = connect_timeout
         self._health_check_interval = health_check_interval
         self._shutdown_timeout = shutdown_timeout
+        # transport 开启端口：缺省 SDK 实现；注入点供测试/替换（无需 class-patch 缝）。
+        self._transport_opener = transport_opener
         self._server_tasks: list[asyncio.Task[None]] = []
         self._stops: list[asyncio.Event] = []
-        # server 原始名 → 其已注册的 namespaced 工具名（断连时按 server 精确摘除，FR-3 收紧）
-        self._registered: dict[str, list[str]] = {}
         # 已连 session 查找表：server 原始名 → ClientSession
         # 供 bridge 工具（list_resources / read_resource）跨 task 访问；连接失败 / 断连时 pop。
         self._sessions: dict[str, ClientSession] = {}
-        # 桥接工具是否已注册（mcp__list_resources + mcp__read_resource 两者统一标记）
-        self._bridge_registered = False
+        # 连接/发现失败的结构化记录（不隐藏发现错误；入口层经 discovery_failures 读取呈报）
+        self._discovery_failures: list[MCPServerFailure] = []
+
+    @property
+    def discovery_failures(self) -> list[MCPServerFailure]:
+        """连接/发现阶段失败的 server 清单（单 server 隔离后仍可见，快照副本）。"""
+        return list(self._discovery_failures)
 
     async def __aenter__(self) -> MCPClientManager:
         await self._connect_all()
@@ -174,7 +191,8 @@ class MCPClientManager:
         # 注意：_sessions 仅包含成功建立连接 + 完成工具发现的 server；
         # 连接/发现失败的 server 不会出现在 _sessions 中，其工具不会被注入。
         # 因此 bridge 注册天然跳过失败 server 的工具——这是设计意图而非 bug。
-        if self._sessions and not self._bridge_registered:
+        # （幂等守卫在 RegistryBridge.register_bridge_tools 内部。）
+        if self._sessions:
             self._register_bridge_tool()
 
     async def _server_loop(
@@ -205,10 +223,14 @@ class MCPClientManager:
             await self._watch(name, session, stop)
         except TimeoutError:
             logger.warning("MCP server '%s' 连接/发现超时（%ss），已隔离", name, self._connect_timeout)
+            self._discovery_failures.append(
+                MCPServerFailure(server=name, reason=f"连接/发现超时（{self._connect_timeout}s）")
+            )
             self._sessions.pop(name, None)  # 发现失败→清除 session，避免桥接注册虚假工具
             ready.set()
         except Exception as exc:  # noqa: BLE001 - 隔离任意连接 / 发现失败，不崩溃 agent
             logger.warning("MCP server '%s' 连接/发现失败，已隔离：%s", name, exc)
+            self._discovery_failures.append(MCPServerFailure(server=name, reason=str(exc)))
             self._sessions.pop(name, None)  # 发现失败→清除 session，避免桥接注册虚假工具
             ready.set()
         finally:
@@ -228,42 +250,24 @@ class MCPClientManager:
     ) -> AsyncIterator[ClientSession]:
         """建立 transport + ClientSession（同 task enter/exit，yield 已 initialize 的 session）。
 
-        transport 细节（stdio 子进程 / Streamable HTTP / 握手）封装于此，
-        为 2026-07-28 stateless 迁移留接口（NFR-3）。
+        开启逻辑委托注入的 ``transport_opener``（缺省 SDK 实现，见 :mod:`.client`）；
+        本方法保留为**monkeypatch 缝宿主**（测试 class-patch 此方法注入 fake transport）
+        并负责连接成功日志（带 server 名，属生命周期编排侧信息）。
         """
-        if isinstance(cfg, StdioServerConfig):
-            params = StdioServerParameters(command=cfg.command, args=cfg.args, env=cfg.env or None)
-            async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
-                await handshake(session)
-                logger.info("MCP server '%s' 已连接（StdioServerConfig）", name)
-                yield session
-        elif isinstance(cfg, HttpServerConfig):
-            # streamable_http_client 无 headers 形参；鉴权 header 经自定义 http_client 注入。
-            # 多 context with：顺序 enter，后置 context 可引用前置产物（transport[0]/[1]）。
-            async with (
-                httpx.AsyncClient(headers=cfg.headers) as http_client,
-                streamable_http_client(cfg.url, http_client=http_client) as transport,
-                ClientSession(transport[0], transport[1]) as session,
-            ):
-                await handshake(session)
-                logger.info("MCP server '%s' 已连接（HttpServerConfig）", name)
-                yield session
-        else:  # pragma: no cover - ServerConfig union 仅两型
-            raise TypeError(f"未知 MCP server 配置类型：{type(cfg).__name__}")
+        opener = self._transport_opener or default_transport_opener
+        async with opener(cfg) as session:
+            logger.info("MCP server '%s' 已连接（%s）", name, type(cfg).__name__)
+            yield session
 
     async def _discover_and_register(self, name: str, session: ClientSession) -> None:
-        """发现 server 工具并注册到 ToolRegistry（namespace 冲突跳过 + 告警，FR-6）。"""
+        """发现 server 工具并经 RegistryBridge 注册（namespace 冲突跳过 + 告警，FR-6）。"""
         tools = await list_tools(session)
         registered = 0
         for tool in tools:
             schema = mcp_tool_to_schema(name, tool)
-            if self._registry.get_schema(schema.name) is not None:
-                logger.warning("MCP 工具 '%s' 命名冲突（已注册），跳过", schema.name)
-                continue
             handler = self._make_handler(session, tool.name, name)
-            self._registry.register(schema, handler)
-            self._registered.setdefault(name, []).append(schema.name)
-            registered += 1
+            if self._bridge.register_server_tool(server_name=name, schema=schema, handler=handler):
+                registered += 1
         logger.info("MCP server '%s'：发现 %d 个工具，注册 %d 个", name, len(tools), registered)
 
     def _make_handler(self, session: ClientSession, tool_name: str, server_name: str = "") -> Callable[..., Any]:
@@ -291,68 +295,19 @@ class MCPClientManager:
         return session
 
     def _unregister_server(self, name: str) -> None:
-        """注销单个 server 的全部工具（运行时断连用）。``registry.unregister`` 幂等。"""
-        for tool_name in self._registered.pop(name, ()):
-            self._registry.unregister(tool_name)
+        """注销单个 server 的全部工具（运行时断连用）。委托 RegistryBridge 单一入口。"""
+        self._bridge.unregister_server(name)
         self._sessions.pop(name, None)
 
     def _unregister_all(self) -> None:
         """从 ToolRegistry 摘除全部 MCP 工具（还原纯内置状态，利于测试隔离）。"""
-        # 1. 摘除桥接工具（先于 server 工具，避免 server unregister 误判 bridge 存活）
-        if self._bridge_registered:
-            self._registry.unregister("mcp__list_resources")
-            self._registry.unregister("mcp__read_resource")
-            self._bridge_registered = False
-        # 2. 委托 _unregister_server：其 ``pop(name, ())`` 会清键，遍历完后 _registered 自然为空。
-        for name in list(self._registered):
-            self._unregister_server(name)
-        # 3. 兜底清理 _sessions（_unregister_server 已逐 server pop，此处作双重确认）
+        self._bridge.unregister_all()
+        # 兜底清理 _sessions（bridge 已不持有 session；此处清 manager 侧查找表）
         self._sessions.clear()
 
     def _register_bridge_tool(self) -> None:
         """注册 mcp__list_resources + mcp__read_resource 桥接工具（_connect_all 内惰性注册，幂等）。"""
-        if self._bridge_registered:
-            return
-        # --- mcp__list_resources ---
-        if self._registry.get_schema("mcp__list_resources") is not None:
-            # 命名冲突：server 名为 "mcp" 且其工具叫 "list_resources" 时，namespaced 名同为
-            # mcp__list_resources（registry.register 重复注册会静默覆盖）。不覆盖 server 工具——
-            # 告警跳过，保留 server 原工具（极端边缘情况，fail-safe 不静默丢工具）。
-            logger.warning(
-                "mcp__list_resources 命名冲突（registry 已有同名工具，疑似 server 'mcp' 注册），跳过桥接注册"
-            )
-            return
-        list_schema = ToolSchema(
-            name="mcp__list_resources",
-            description="列出所有已连 MCP server 暴露的资源。返回 JSON 数组，每元素含 server/uri/name/description。",
-            parameters={"type": "object", "properties": {}, "required": []},
-            annotations=ToolAnnotations(readOnlyHint=True),
-        )
-        self._registry.register(list_schema, self._handle_list_resources)
-
-        # --- mcp__read_resource ---
-        if self._registry.get_schema("mcp__read_resource") is not None:
-            logger.warning("mcp__read_resource 命名冲突（registry 已有同名工具），跳过桥接注册")
-            # 回滚已注册的 list_resources
-            self._registry.unregister("mcp__list_resources")
-            return
-        read_schema = ToolSchema(
-            name="mcp__read_resource",
-            description="读取指定 MCP server 上某 URI 的资源内容。server 必填，uri 为完整资源 URI。返回文本内容。",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "server": {"type": "string", "description": "目标 MCP server 名"},
-                    "uri": {"type": "string", "description": "资源 URI"},
-                },
-                "required": ["server", "uri"],
-            },
-            annotations=ToolAnnotations(readOnlyHint=True),
-        )
-        self._registry.register(read_schema, self._handle_read_resource)
-
-        self._bridge_registered = True
-        logger.info("MCP 桥接工具 'mcp__list_resources' 和 'mcp__read_resource' 已注册")
+        self._bridge.register_bridge_tools(self._handle_list_resources, self._handle_read_resource)
 
     async def _handle_list_resources(self) -> str:
         """mcp__list_resources handler：聚合所有已连 session 的 resources。"""

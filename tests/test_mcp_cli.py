@@ -148,3 +148,31 @@ class TestCLIMCPIntegration:
         result = CliRunner().invoke(main, input="\n")
         assert result.exit_code == 0
         assert events == ["enter", "exit"]
+
+
+# --- 发现阶段失败呈报（Phase 4 C2：不隐藏发现错误）---
+
+
+def test_report_mcp_discovery_failures_renders_stderr(clean_settings, capsys):
+    """manager 携带失败记录 → 逐条渲染到 stderr（server 名 + 原因）。"""
+    from heagent.cli import _report_mcp_discovery_failures
+    from heagent.tools.mcp import MCPServerFailure
+
+    manager = MCPClientManager.__new__(MCPClientManager)  # 不触发连接，仅承载记录
+    manager._discovery_failures = [
+        MCPServerFailure(server="bad", reason="conn refused"),
+        MCPServerFailure(server="slow", reason="连接/发现超时（10.0s）"),
+    ]
+    _report_mcp_discovery_failures(manager)
+    err = capsys.readouterr().err
+    assert "[mcp] server 'bad' 连接/发现失败，已隔离：conn refused" in err
+    assert "[mcp] server 'slow' 连接/发现失败，已隔离：连接/发现超时（10.0s）" in err
+
+
+def test_report_mcp_discovery_failures_noop_without_manager(capsys):
+    """nullcontext 场景（None）与无失败 manager 均零输出。"""
+    from heagent.cli import _report_mcp_discovery_failures
+
+    _report_mcp_discovery_failures(None)
+    _report_mcp_discovery_failures(object())
+    assert capsys.readouterr().err == ""

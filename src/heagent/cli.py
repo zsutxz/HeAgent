@@ -154,6 +154,17 @@ def _mcp_lifecycle(settings: Settings) -> AbstractAsyncContextManager[Any]:
     return MCPClientManager(config)
 
 
+def _report_mcp_discovery_failures(mcp_manager: object) -> None:
+    """MCP 发现阶段失败的结构化呈报（单 server 隔离后仍可见，不隐藏发现错误）。
+
+    manager 无失败时零输出；非 MCPClientManager（nullcontext 场景）不处理。
+    """
+    if not isinstance(mcp_manager, MCPClientManager):
+        return
+    for failure in mcp_manager.discovery_failures:
+        click.echo(f"[mcp] server '{failure.server}' 连接/发现失败，已隔离：{failure.reason}", err=True)
+
+
 def _build_context_strategy(
     settings: Settings, provider: BaseProvider
 ) -> tuple[ContextCompressor | None, WindowResetConfig | None]:
@@ -339,7 +350,8 @@ async def _run_single(
     if sink is not None:
         engine.events.subscribe(sink)
 
-    async with mcp_ctx or contextlib.nullcontext():
+    async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
+        _report_mcp_discovery_failures(mcp_manager)
         loop, _ = _build_loop(
             settings, provider, max_iterations, soul_path, engine=engine, sandbox_backend=sandbox_backend
         )
@@ -495,6 +507,7 @@ async def _run_chat(
     )
 
     async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
+        _report_mcp_discovery_failures(mcp_manager)
         session = SessionStore()
         # 会话复用（Epic 30）：--resume 指定 / --continue 最近 / 否则新建。
         session_id = _resolve_session_id(session, continue_session=continue_session, resume_session=resume_session)
