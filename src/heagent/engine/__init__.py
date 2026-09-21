@@ -27,6 +27,14 @@ from heagent.engine.artifacts import (
     validate_hierarchy,
     validate_sprint_status_path,
 )
+from heagent.engine.checkpoint import (
+    GoalWorkflowState,
+    WorkflowCheckpoint,
+    WorkflowCheckpointError,
+    WorkflowCheckpointStore,
+    WorkflowPhase,
+    WorkflowStatus,
+)
 from heagent.engine.container import EngineContainer
 from heagent.engine.context import RunContext, RunStatus
 from heagent.engine.executor import ToolExecutor
@@ -35,14 +43,6 @@ from heagent.engine.ledger import ExecutionLedger, ExecutionRecord, ExecutionSta
 from heagent.engine.observability import EngineEvent, EventBus, LoggingObserver
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.engine.store import RunSnapshot, RunStore
-from heagent.engine.workflow import (
-    GoalWorkflowState,
-    WorkflowCheckpoint,
-    WorkflowCheckpointError,
-    WorkflowCheckpointStore,
-    WorkflowPhase,
-    WorkflowStatus,
-)
 from heagent.engine.workflow_resource import (
     CheckpointMode,
     OpenQuestionMode,

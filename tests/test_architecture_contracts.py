@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from heagent.engine.context import iso_now
-from heagent.engine.workflow import _iso_now as workflow_iso_now
+from heagent.engine.checkpoint import _iso_now as workflow_iso_now
 from heagent.events.protocol import _now_iso as events_now_iso
 
 if TYPE_CHECKING:
@@ -144,7 +144,7 @@ def test_timestamps_are_naive_and_parseable() -> None:
 
       - ``engine.context.iso_now`` / ``events.protocol._now_iso``：秒精度。两者是「同一格式的独立
         实现」——``events/`` 运行期不得依赖 ``engine``（见上方断言），所以这份格式是照抄而非共用。
-      - ``engine.workflow._iso_now``：**微秒**精度（源码里显式写 ``timespec="microseconds"``，用途是
+      - ``engine.checkpoint._iso_now``：**微秒**精度（源码里显式写 ``timespec="microseconds"``，用途是
         状态迁移的 ``updated_at``）。它是否需要亚秒分辨率没有测试或注释佐证，故本测试**不锁定**其精度。
 
     真正会出事的是 **naive 与否**：某处一旦带上 tzinfo，与存量 naive 状态（checkpoint / rollout /
@@ -152,7 +152,7 @@ def test_timestamps_are_naive_and_parseable() -> None:
     """
     for name, factory in (
         ("engine.context.iso_now", iso_now),
-        ("engine.workflow._iso_now", workflow_iso_now),
+        ("engine.checkpoint._iso_now", workflow_iso_now),
         ("events.protocol._now_iso", events_now_iso),
     ):
         value = factory()

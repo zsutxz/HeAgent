@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from heagent.engine.workflow import (
+from heagent.engine.checkpoint import (
     GoalWorkflowState,
     WorkflowCheckpoint,
     WorkflowCheckpointError,
@@ -42,7 +42,7 @@ async def test_workflow_state_tolerates_legacy_dead_fields(tmp_path) -> None:
     }
     (tmp_path / "workflow.json").write_text(json.dumps(legacy, ensure_ascii=False), encoding="utf-8")
 
-    workflow = await store.load_workflow()
+    workflow = await store.load_state()
 
     assert workflow is not None
     assert workflow.goal_id == "goal-legacy"
@@ -67,7 +67,7 @@ async def test_checkpoint_save_is_atomic_and_idempotent(tmp_path) -> None:
     loaded = await store.load(checkpoint.checkpoint_id)
     assert loaded is not None
     assert loaded.next_action == "await user"
-    workflow = await store.load_workflow()
+    workflow = await store.load_state()
     assert workflow is not None
     assert workflow.goal_id == "goal1"
     assert (tmp_path / "workflow.json").exists()

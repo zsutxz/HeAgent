@@ -118,8 +118,12 @@ class WorkflowCheckpointStore:
             raise WorkflowCheckpointError(f"checkpoint is corrupted: {path}")
         return checkpoint
 
-    async def load_workflow(self) -> GoalWorkflowState | None:
-        """Load the aggregate workflow state; corruption is an explicit failure."""
+    async def load_state(self) -> GoalWorkflowState | None:
+        """Load the persisted aggregate run state (progress); corruption is an explicit failure.
+
+        2026-09-20 自 ``load_workflow`` 改名：旧名与 ``goal/workflow_loader.read_workflow``
+        （装载 workflow.md 声明）撞车，易误读为「加载工作流定义」。本方法只恢复运行时进度。
+        """
         state = await asyncio.to_thread(load_json_model, self._workflow_path, GoalWorkflowState)
         if self._workflow_path.exists() and state is None:
             raise WorkflowCheckpointError(f"workflow state is corrupted: {self._workflow_path}")

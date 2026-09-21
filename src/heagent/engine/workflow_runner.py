@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from heagent.engine.workflow import (
+from heagent.engine.checkpoint import (
     GoalWorkflowState,
     WorkflowCheckpoint,
     WorkflowCheckpointStore,

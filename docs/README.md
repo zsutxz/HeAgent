@@ -130,7 +130,8 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 `.heagent/skills/<role>/SKILL.md`。
 
 这些步骤不是 Python 中的固定状态机。`WorkflowRunner` 只负责顺序、输入缺失、输出结果、checkpoint
-和恢复；`cli_goal.py` 负责确定性装配和 SubAgent 调用。
+和恢复；声明的装载在 `goal/workflow_loader.py`（`read_workflow`），`cli_goal.py` 负责 SubAgent 调用
+与命令族编排。
 
 ### 运行方式
 

@@ -6,7 +6,7 @@ import asyncio
 
 import pytest
 
-from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowPhase, WorkflowStatus
+from heagent.engine.checkpoint import WorkflowCheckpointStore, WorkflowPhase, WorkflowStatus
 from heagent.engine.workflow_runner import (
     StorySpec,
     WorkflowRunner,

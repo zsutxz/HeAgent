@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from heagent.engine.artifacts import parse_artifact, validate_hierarchy
-from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
+from heagent.engine.checkpoint import WorkflowCheckpointStore, WorkflowStatus
 from heagent.engine.workflow_runner import WorkflowRunner, WorkflowStepResult
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 
@@ -107,7 +107,7 @@ async def test_two_story_epic_smoke_preserves_evidence_across_recovery(tmp_path)
     assert (await restored.run_step(execute)).status is WorkflowStatus.COMPLETED
     assert executed == ["story-one.md", "story-two.md"]
 
-    workflow_state = await store.load_workflow()
+    workflow_state = await store.load_state()
     assert workflow_state is not None
     # Non-DONE workflow phases persist completed runner state as RUNNING.
     assert workflow_state.status is WorkflowStatus.RUNNING

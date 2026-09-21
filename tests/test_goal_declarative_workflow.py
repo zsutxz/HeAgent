@@ -25,7 +25,7 @@ from heagent.engine import (
     WorkflowRunner,
     required_sections,
 )
-from heagent.engine.workflow import WorkflowCheckpointStore, WorkflowStatus
+from heagent.engine.checkpoint import WorkflowCheckpointStore, WorkflowStatus
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 from heagent.goal.workflow_loader import read_workflow
 from heagent.memory.skill_packages import SkillPackage

@@ -974,7 +974,7 @@ src/heagent/
 │   ├── executor.py          # ToolExecutor 策略分发
 │   ├── store.py             # RunStore 运行快照（async I/O）
 │   ├── ledger.py            # ExecutionLedger 幂等/租约（async I/O）
-│   ├── workflow.py          # GoalWorkflowState + WorkflowCheckpointStore（legacy 阶段状态机已于 2026-09 删除）
+│   ├── checkpoint.py        # WorkflowCheckpointStore + GoalWorkflowState 运行时进度（2026-09-20 自 workflow.py 改名；load_state 恢复进度，与装载声明区分）
 │   ├── workflow_resource.py # 工作流资源模型 WorkflowResource/Step（2026-09-20 自 memory.skill_packages 迁入）
 │   ├── workflow_runner.py    # 声明式 workflow 单步执行器
 │   ├── artifacts.py          # Goal/Epic/Story 产物契约校验

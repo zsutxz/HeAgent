@@ -222,7 +222,7 @@ async def _goal_declarative_runner(
     """Restore the latest Runner snapshot or create a new one for this goal."""
     store = _goal_declarative_store(goal_dir)
     checkpoints = await store.list_checkpoints(goal_id=goal_dir.name)
-    workflow_state = await store.load_workflow()
+    workflow_state = await store.load_state()
     if workflow_state is not None:
         # Match against the persisted active_skill (workflow.json) rather than the
         # current workflow.name, so a workflow rename does not strand existing goals.

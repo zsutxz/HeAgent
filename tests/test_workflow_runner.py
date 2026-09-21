@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.engine.workflow import WorkflowCheckpoint, WorkflowCheckpointStore, WorkflowPhase, WorkflowStatus
+from heagent.engine.checkpoint import WorkflowCheckpoint, WorkflowCheckpointStore, WorkflowPhase, WorkflowStatus
 from heagent.engine.workflow_runner import (
     WorkflowGateError,
     WorkflowRunResult,
@@ -68,7 +68,7 @@ async def test_checkpoint_waits_then_resume_advances_and_persists_state(tmp_path
     result = await runner.run_step(lambda _: WorkflowStepResult(output="ok"))
     assert result.status is WorkflowStatus.WAITING_USER
     assert runner.state.active_step == 1
-    state = await store.load_workflow()
+    state = await store.load_state()
     assert state is not None
     assert state.active_step == 1
     assert state.status is WorkflowStatus.WAITING_USER

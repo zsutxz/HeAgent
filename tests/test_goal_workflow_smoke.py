@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from heagent.engine.ledger import ExecutionLedger, ExecutionStatus
 from heagent.engine.observability import EventBus
-from heagent.engine.workflow import (
+from heagent.engine.checkpoint import (
     GoalWorkflowState,
     WorkflowCheckpoint,
     WorkflowCheckpointStore,
@@ -107,4 +107,4 @@ async def test_corrupt_workflow_evidence_fails_loudly(tmp_path) -> None:
     store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(workflow_path))
 
     with pytest.raises(ValueError, match="workflow state is corrupted"):
-        await store.load_workflow()
+        await store.load_state()
