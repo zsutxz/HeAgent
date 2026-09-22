@@ -71,7 +71,7 @@ exceptions  types  config  persist  roles  frontmatter
 硬约束（违反即架构错误）：
 
 - 新增 provider / tool **禁止**从 `agent/` 导入；`tools/mcp/` 同（`AgentLoop` 零改动，仅经 `ToolRegistry` 注入工具）。
-- `engine/` 依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config`），被 `agent/` 依赖；`persist.py`/`roles.py`/`frontmatter.py` 为顶层底层模块，任何模块可依赖。memory 运行期不反向依赖 `engine/`（`DreamScheduler` 的 engine 由入口层注入，仅 TYPE_CHECKING 引用）；工作流模型在 `engine/workflow_resource.py`、声明解析在 `goal/workflow_loader.py`（2026-09-20 自 `memory/skill_packages.py` 迁出，engine→memory 边已消除）。
+- `engine/` 依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety` + `events.protocol`（仅 `error_kind_for` 纯函数单点，2026-09-22；events.protocol 运行期仅依赖 exceptions，无环）（container 另有 lazy `config`），被 `agent/` 依赖；`persist.py`/`roles.py`/`frontmatter.py` 为顶层底层模块，任何模块可依赖。memory 运行期不反向依赖 `engine/`（`DreamScheduler` 的 engine 由入口层注入，仅 TYPE_CHECKING 引用）；工作流模型在 `engine/workflow_resource.py`、声明解析在 `goal/workflow_loader.py`（2026-09-20 自 `memory/skill_packages.py` 迁出，engine→memory 边已消除）。
 - 跨模块数据用 Pydantic 模型（`types.py`），**禁止**原始 dict。
 - 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**。
 

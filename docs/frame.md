@@ -90,6 +90,7 @@ exceptions  types  config  persist  roles
 - `persist.py` / `roles.py` / `frontmatter.py` 是顶层底层共用模块（与 exceptions/types/config 同层；persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖）：`persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
 - `memory/` 运行期**不依赖 `engine/`**（`memory/dream.py` 的 `EngineContainer` 仅 TYPE_CHECKING 引用，实例由入口层注入、无 `default()` 回退；契约断言见 `test_architecture_contracts.py` FORBIDDEN_RUNTIME_IMPORTS）
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
+- `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
 - `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
 
 ---
@@ -893,6 +894,44 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 该加固只保护最终路径组件，不能消除中间目录替换、恶意挂载或更高权限宿主进程造成的竞态；不声称已完成
 TOCTOU 防护。descriptor-relative/目录句柄、导入边界 snapshot 和 OS sandbox 仍须另立 story；所有方案仍是
 defense-in-depth，OS sandbox 才能处理 hostile filesystem/process context。
+
+
+### 4.15 事件契约 (`events/`)
+
+机器可读运行事件（JSONL）的对外契约。`RunEvent` 顶层 **11 字段**由黄金测试
+（`tests/test_events_jsonl.py::_EXPECTED_FIELDS`）锁死、`SCHEMA_VERSION="2"`（v2，2026-09-22
+Phase 5 C1：+`duration_ms`/`error_kind`；旧 rollout 缺省读、新字段被旧码 `extra=ignore`）。
+`kind` 是开集（`KNOWN_KINDS` 仅文档/黄金测试依据，不过滤）。
+
+| 字段 | 语义 |
+| --- | --- |
+| `schema_version` / `seq` / `ts` / `run_id` / `iteration` | 协议版本、sink 内单调序号、秒精度 ISO 时间、run/迭代关联 |
+| `kind` / `tool` / `target` | 事件名（引擎事件名同形）/ 工具名 / 作用对象摘要 |
+| `duration_ms` | 耗时（整数毫秒，`perf_counter` 源头测量）；0=未计时 |
+| `error_kind` | 失败分类（封闭映射：`timeout`/`cancelled`/`policy_denied`/`safety_blocked`/`tool_error`/`exception` 兜底；映射单点 `protocol.error_kind_for`） |
+| `details` | 自由扩展 dict（与工具返回同等不可信） |
+
+逐 kind 发射点与 details 约定（发射点把 `duration_ms`/`error_kind` 放 `EngineEvent.details`，
+由 `from_engine_event` 提升到顶层并摘除——EngineEvent 模型与 GUI 消费面不动）：
+
+| kind | 发射点 | details 关键键 | duration/error_kind |
+| --- | --- | --- | --- |
+| `run_started` / `run_paused` / `run_resumed` | `agent/run_lifecycle.py` | `stream`/`session_id`/`resume`/委派键 | — |
+| `run_completed` | `run_lifecycle.finish_run` | `answer_length` | duration（run 全程） |
+| `run_failed` | `run_lifecycle.on_run_failed` | `error` | duration + error_kind |
+| `iteration_started` | `agent/context_runtime.py` | — | — |
+| `provider_call_started` / `provider_call_completed` | `agent/loop.py` | `message_count,estimated_tokens` / `model,finish_reason,actual_tokens` | completed 带 duration（中间件链整体） |
+| `tool_call_started` / `tool_call_completed` / `tool_call_failed` / `tool_call_blocked` | `engine/executor.py`（`_emit_tool_event` 单点） | `mode`（+sandbox_profile/tier）/`content_length`/`error`/`reason` | completed/failed 带 duration；failed 带 error_kind |
+| `context_compressed` / `window_reset` | `agent/context_runtime.py` | `before,after` | — |
+| `workflow_step_started` / `workflow_step_completed` / `workflow_step_failed` | `engine/workflow_runner.run_step`（`emit` 注入端口，缺省 None=不发） | `step,story`（+`result`/`error`） | 三种带 duration；failed 带 error_kind |
+| `dream_start` / `dream_end`、`cron_job_*` | `memory/dream.py`、`cron/scheduler.py`（开集现状收编） | `success` 等 | — |
+| `assistant_message`（传输层补充） | `events/sink.py` | `content` | — |
+
+**持久化影响**：rollout 落盘 `<rollout_dir>/<run_id>/rollout.jsonl`（逐事件 append+close，
+crash 前缀可回放）；`heagent replay` 人读渲染有值时追加 `[Nms]` / `error_kind=`；
+黄金测试改字段须 bump `SCHEMA_VERSION` 并同步 `_EXPECTED_FIELDS`。
+workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._workflow_event_emitter`
+绑 `EngineContainer.events` 总线；emit 异常隔离（warning，不改变业务控制流）。
 
 ## 五、已知缺口
 
