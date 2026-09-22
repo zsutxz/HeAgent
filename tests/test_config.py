@@ -598,3 +598,68 @@ def test_skill_manual_load_token_budget_default_and_env(monkeypatch) -> None:
     assert Settings().skill_max_manual_load_tokens == 8192
     monkeypatch.setenv("SKILL_MAX_MANUAL_LOAD_TOKENS", "2048")
     assert Settings().skill_max_manual_load_tokens == 2048
+
+
+class TestTcpSettings:
+    """Epic 48 Story 48-4：TCP 入口的配置面（默认值 / env 解析 / 非法值显式失败）。"""
+
+    def test_defaults_are_localhost_and_bounded(self) -> None:
+        s = Settings(_env_file=None)
+
+        assert s.tcp_host == "127.0.0.1"
+        assert s.tcp_port == 8765
+        assert s.tcp_max_connections == 32
+        assert s.tcp_max_inflight_requests == 4
+        assert s.tcp_max_request_bytes == 1_048_576
+        assert s.tcp_idle_timeout == 60.0
+        assert s.tcp_request_timeout == 300.0
+        assert s.tcp_shutdown_timeout == 5.0
+
+    def test_env_overrides_every_field(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TCP_HOST", "0.0.0.0")
+        monkeypatch.setenv("TCP_PORT", "9100")
+        monkeypatch.setenv("TCP_MAX_CONNECTIONS", "5")
+        monkeypatch.setenv("TCP_MAX_INFLIGHT_REQUESTS", "1")
+        monkeypatch.setenv("TCP_MAX_REQUEST_BYTES", "2048")
+        monkeypatch.setenv("TCP_IDLE_TIMEOUT", "1.5")
+        monkeypatch.setenv("TCP_REQUEST_TIMEOUT", "2.5")
+        monkeypatch.setenv("TCP_SHUTDOWN_TIMEOUT", "3.5")
+
+        s = Settings(_env_file=None)
+
+        assert (s.tcp_host, s.tcp_port) == ("0.0.0.0", 9100)
+        assert (s.tcp_max_connections, s.tcp_max_inflight_requests) == (5, 1)
+        assert (s.tcp_max_request_bytes, s.tcp_idle_timeout) == (2048, 1.5)
+        assert (s.tcp_request_timeout, s.tcp_shutdown_timeout) == (2.5, 3.5)
+
+    def test_singleton_surfaces_env_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("TCP_PORT", "9200")
+        reset_settings()
+
+        assert get_settings().tcp_port == 9200
+
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        [
+            ("TCP_HOST", ""),
+            ("TCP_PORT", "0"),
+            ("TCP_PORT", "65536"),
+            ("TCP_PORT", "not-a-port"),
+            ("TCP_MAX_CONNECTIONS", "0"),
+            ("TCP_MAX_INFLIGHT_REQUESTS", "0"),
+            ("TCP_MAX_REQUEST_BYTES", "0"),
+            ("TCP_IDLE_TIMEOUT", "0"),
+            ("TCP_IDLE_TIMEOUT", "inf"),
+            ("TCP_IDLE_TIMEOUT", "nan"),
+            ("TCP_REQUEST_TIMEOUT", "-1"),
+            ("TCP_REQUEST_TIMEOUT", "inf"),
+            ("TCP_SHUTDOWN_TIMEOUT", "0"),
+            ("TCP_SHUTDOWN_TIMEOUT", "inf"),
+        ],
+    )
+    def test_invalid_values_fail_loudly(self, name: str, value: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """非法值显式失败——不静默变成「无限制」，也不接受 0 端口（客户端会无从连接）。"""
+        monkeypatch.setenv(name, value)
+
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None)

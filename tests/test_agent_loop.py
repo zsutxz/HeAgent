@@ -227,6 +227,21 @@ class TestAgentLoop:
         assert result == "system ok"
 
     @pytest.mark.asyncio
+    async def test_last_model_records_the_serving_model(self) -> None:
+        """``last_model`` 是「本次运行实际用了哪个模型」的唯一记录点（run 与 run_stream 都经漏斗）。"""
+        provider = StubProvider([_final("ok")])
+        loop = AgentLoop(provider, max_iterations=3)
+
+        assert loop.last_model is None
+        await loop.run("hi")
+        assert loop.last_model == "stub"
+
+        streaming = AgentLoop(StubProvider([_final("ok")]), max_iterations=3)
+        async for _event in streaming.run_stream("hi"):
+            pass
+        assert streaming.last_model == "stub"
+
+    @pytest.mark.asyncio
     async def test_async_tool_handler(self, fresh_registry: ToolRegistry) -> None:
         async def async_echo(text: str = "") -> str:
             return f"async:{text}"

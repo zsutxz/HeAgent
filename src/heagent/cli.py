@@ -1171,3 +1171,9 @@ main.set_default_command("run")
 from heagent.gui.cli import gui_cmd  # noqa: E402
 
 main.add_command(gui_cmd)
+
+# TCP Server 子命令（Epic 48 Story 48-3）同样随命令定义拆分到入口层模块：命令只在显式调用时
+# 才装配 Provider / Engine（普通 CLI 不监听任何端口），此处仅注册，保持 heagent.cli 命名空间可用。
+from heagent.cli_tcp import tcp_server_cmd  # noqa: E402
+
+main.add_command(tcp_server_cmd)

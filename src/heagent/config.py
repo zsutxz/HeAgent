@@ -322,6 +322,27 @@ class Settings(BaseSettings):
     # 模型价格表 JSON：{"<model>": {"input": <$/M tok>, "output": <$/M tok>}}；空 = 不显示成本。
     model_pricing: str = Field(default="")
 
+    # ---- TCP 网络入口（Epic 48 Story 48-4） ----
+    # 只被显式的 `heagent tcp-server` 命令读取：普通 CLI / GUI / 库用法不监听任何端口，
+    # 这些字段也不改变它们的行为（无隐式 TCP_ENABLED 开关——显式子命令是唯一启动方式）。
+    # 定位为**实验性、无认证**：默认只绑 localhost，公网部署不在支持范围内；TCP 入口不是
+    # 认证/安全边界（defense-in-depth 同 SafetyGuard/PolicyEngine，须 OS 级沙箱兜底）。
+    # 非法值（端口 0 / 连接数 0 / 非正超时）由 Pydantic 显式校验失败，不静默变成「无限制」。
+    tcp_host: str = Field(default="127.0.0.1", min_length=1)
+    tcp_port: int = Field(default=8765, ge=1, le=65535)
+    # 同时打开的客户端连接上限（保护 socket/连接对象）；超限的新连接立即收 rate_limited。
+    tcp_max_connections: int = Field(default=32, ge=1)
+    # 同时在途的 Agent 运行上限（保护 Provider/内存/工具）；超限的请求立即收 rate_limited。
+    tcp_max_inflight_requests: int = Field(default=4, ge=1)
+    # 单条请求行的最大字节数（StreamReader limit 与协议校验共用同一上限）。
+    tcp_max_request_bytes: int = Field(default=1_048_576, ge=1)
+    # 读取完整请求行的空闲超时（只覆盖读取阶段，不含 Agent 预算）。
+    tcp_idle_timeout: float = Field(default=60.0, gt=0, allow_inf_nan=False)
+    # 单次 Agent 运行的超时（只覆盖 handler 调用，不含响应写回与连接关闭）。
+    tcp_request_timeout: float = Field(default=300.0, gt=0, allow_inf_nan=False)
+    # 服务关闭时等待在途连接收尾的上限，超时后取消残留任务。
+    tcp_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+
     @property
     def openai_key_pool(self) -> list[str]:
         return _parse_comma_list(self.openai_api_keys)

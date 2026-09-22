@@ -471,7 +471,7 @@ development_status:
   epic-48: in-progress
   48-1-tcp-protocol-message-boundary: done
   48-2-async-tcp-server-lifecycle: done
-  48-3-agentloop-adapter-cli-wiring: ready-for-dev
-  48-4-concurrency-timeouts-resource-limits: ready-for-dev
+  48-3-agentloop-adapter-cli-wiring: done
+  48-4-concurrency-timeouts-resource-limits: done
   48-5-network-entry-security-observability: ready-for-dev
   48-6-tcp-regression-tests-docs: ready-for-dev

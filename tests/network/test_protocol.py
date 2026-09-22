@@ -7,6 +7,7 @@ from heagent.network.protocol import (
     TcpErrorCode,
     TcpRequest,
     TcpResponse,
+    TcpUsage,
     decode_request,
     encode_response,
     error_response,
@@ -76,6 +77,23 @@ def test_encode_success_response_is_one_utf8_json_line() -> None:
     assert payload.count(b"\n") == 1
     decoded = json.loads(payload)
     assert decoded == {"id": "r1", "ok": True, "result": "第一行\n第二行"}
+
+
+def test_success_response_carries_optional_usage_metadata() -> None:
+    """Story 48-3：handler 可把 loop 采集到的用量作为可选字段回传（不下发时字段省略）。"""
+    usage = TcpUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+
+    payload = encode_response(success_response("r1", "ok", model="stub", usage=usage))
+
+    decoded = json.loads(payload)
+    assert decoded == {
+        "id": "r1",
+        "ok": True,
+        "result": "ok",
+        "model": "stub",
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+    assert json.loads(encode_response(success_response("r1", "ok"))) == {"id": "r1", "ok": True, "result": "ok"}
 
 
 def test_success_and_error_response_invariants() -> None:

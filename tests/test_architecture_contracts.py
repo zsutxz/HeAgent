@@ -22,10 +22,15 @@ if TYPE_CHECKING:
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "heagent"
 
+# 真实子包名（大小写敏感）：用于识别 ``from heagent import <子包>`` 形态。
+# 不能直接用 ``(SRC / name).is_dir()``——Windows 文件系统大小写不敏感，
+# ``from heagent import Agent``（包根符号再导出）会被误判成 ``heagent/agent`` 子包。
+_SUBPACKAGE_NAMES = frozenset(path.name for path in SRC.iterdir() if path.is_dir())
+
 # 包 → 运行期不得导入的 heagent 子模块（CLAUDE.md「硬约束（违反即架构错误）」）。
-# 入口层模块（wiring/cli/cli_goal/gui）：组合根与展示适配只属于入口层，下层一律不得反向导入
-# （Phase 1 组合根收敛的契约化；新增入口模块须同步此表）。
-_ENTRYPOINT_MODULES = ("heagent.wiring", "heagent.cli", "heagent.cli_goal", "heagent.gui")
+# 入口层模块（wiring/cli/cli_goal/cli_tcp/gui）：组合根与展示适配只属于入口层，下层一律不得
+# 反向导入（Phase 1 组合根收敛的契约化；新增入口模块须同步此表）。
+_ENTRYPOINT_MODULES = ("heagent.wiring", "heagent.cli", "heagent.cli_goal", "heagent.cli_tcp", "heagent.gui")
 
 FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
     "providers": ("heagent.agent", *_ENTRYPOINT_MODULES),
@@ -37,6 +42,19 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
     "cron": ("heagent.agent", *_ENTRYPOINT_MODULES),
     # events/ 是事件传输层，运行期零 engine 依赖（引擎类型仅出现在 TYPE_CHECKING 里）。
     "events": ("heagent.agent", "heagent.engine", *_ENTRYPOINT_MODULES),
+    # network/ 是入口传输层（Epic 48）：只承载 framing / 协议 / 连接生命周期，运行期不得伸手进
+    # 运行时栈——Provider/Engine/AgentLoop 的装配是入口层（cli/wiring/cli_tcp）单向伸手。
+    "network": (
+        "heagent.agent",
+        "heagent.engine",
+        "heagent.providers",
+        "heagent.tools",
+        "heagent.memory",
+        "heagent.context",
+        "heagent.cron",
+        "heagent.events",
+        *_ENTRYPOINT_MODULES,
+    ),
     # agent/ 是运行栈顶：不得导入任何入口层（组装是入口层单向伸手，不是运行栈反向伸手）。
     "agent": _ENTRYPOINT_MODULES,
 }
@@ -47,6 +65,22 @@ def _heagent_root(module: str | None) -> str:
     return f"heagent.{parts[1]}" if parts[0] == "heagent" and len(parts) > 1 else ""
 
 
+def _imported_roots(node: ast.Import | ast.ImportFrom) -> set[str]:
+    """把一条 import 语句映射为「heagent 子模块」集合（两种等价写法同样处理）。
+
+    ``import heagent.providers.router``（子模块在 ``node.module`` 上）与
+    ``from heagent import providers``（子模块在 alias 上）必须都被识别——此前只识别前者，
+    后者可用于绕过反向依赖断言。只把**真实存在的子包名**计入，避免误伤
+    ``from heagent import Agent`` 这类包根符号再导出。
+    """
+    if isinstance(node, ast.Import):
+        return {root for alias in node.names if (root := _heagent_root(alias.name))}
+    if node.module == "heagent":
+        return {f"heagent.{alias.name}" for alias in node.names if alias.name in _SUBPACKAGE_NAMES}
+    root = _heagent_root(node.module)
+    return {root} if root else set()
+
+
 def _imports(path: Path) -> tuple[set[str], set[str]]:
     """返回 ``(运行期导入的 heagent 子模块, TYPE_CHECKING 内导入的)``。
 
@@ -54,19 +88,23 @@ def _imports(path: Path) -> tuple[set[str], set[str]]:
     需要、运行期不需要），若把类型期导入也算违反，这条契约就只能靠放宽来维持。
     函数体内的局部导入**算**运行期依赖——它同样构成模块间的层次耦合。
     """
+    return _module_imports(path.read_text(encoding="utf-8"))
+
+
+def _module_imports(source: str) -> tuple[set[str], set[str]]:
+    """按源码文本解析导入（``_imports`` 的可测内核：两种导入写法都必须被识别）。
+
+    两种等价写法都要记：``import heagent.providers.router``（子模块在 ``node.module`` 上）与
+    ``from heagent import providers``（子模块在 alias 上）。此前只识别前者，后者可用于绕过
+    反向依赖断言（如 ``from heagent import providers`` 在 ``network/`` 里不会被判违反）。
+    只把**真实存在的子包目录**计入，避免误伤 ``from heagent import Agent`` 这类包根符号再导出。
+    """
     runtime: set[str] = set()
     typing_only: set[str] = set()
 
     def record(node: ast.stmt, bucket: set[str]) -> None:
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                root = _heagent_root(alias.name)
-                if root:
-                    bucket.add(root)
-        elif isinstance(node, ast.ImportFrom):
-            root = _heagent_root(node.module)
-            if root:
-                bucket.add(root)
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            bucket |= _imported_roots(node)
 
     def walk(body: list[ast.stmt], bucket: set[str]) -> None:
         for node in body:
@@ -85,7 +123,7 @@ def _imports(path: Path) -> tuple[set[str], set[str]]:
             else:
                 record(node, bucket)
 
-    walk(ast.parse(path.read_text(encoding="utf-8")).body, runtime)
+    walk(ast.parse(source).body, runtime)
     return runtime, typing_only
 
 
@@ -125,6 +163,33 @@ def test_types_only_imports_stay_types_only() -> None:
         _, typing_only = _imports(path)
         typing_refs += len(typing_only & {"heagent.engine"})
     assert typing_refs > 0, "events 对 engine 的类型期引用消失了？契约文档需要同步更新"
+
+
+def test_forbidden_import_detection_covers_the_package_root_import_form() -> None:
+    """两种等价导入写法必须同样计入运行期依赖。
+
+    ``from heagent import providers``（子模块名在 alias 上）此前整条漏掉，新增的 network 反向
+    依赖断言因此存在形式绕过：``network/`` 里写 ``from heagent import providers`` 不会被判违反。
+    """
+    runtime, typing_only = _module_imports(
+        "import heagent.providers.router\n"
+        "from heagent import providers\n"
+        "from heagent.tools import registry\n"
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    from heagent.agent import AgentLoop\n"
+    )
+
+    assert runtime == {"heagent.providers", "heagent.tools"}
+    assert typing_only == {"heagent.agent"}
+
+
+def test_forbidden_import_detection_ignores_package_root_symbol_reexports() -> None:
+    """``from heagent import Agent`` 是包根符号再导出，不是子包依赖（不得误伤）。"""
+    runtime, typing_only = _module_imports("from heagent import Agent, Settings\n")
+
+    assert runtime == set()
+    assert typing_only == set()
 
 
 def test_frontmatter_parsing_is_centralized() -> None:

@@ -137,9 +137,15 @@ def encode_response(response: TcpResponse) -> bytes:
     return response.model_dump_json(exclude_none=True, ensure_ascii=False).encode("utf-8") + b"\n"
 
 
-def success_response(request_id: str, result: str, *, model: str | None = None) -> TcpResponse:
-    """Build a successful response."""
-    return TcpResponse(id=request_id, ok=True, result=result, model=model)
+def success_response(
+    request_id: str,
+    result: str,
+    *,
+    model: str | None = None,
+    usage: TcpUsage | None = None,
+) -> TcpResponse:
+    """Build a successful response; ``model`` / ``usage`` are optional metadata."""
+    return TcpResponse(id=request_id, ok=True, result=result, model=model, usage=usage)
 
 
 def error_response(

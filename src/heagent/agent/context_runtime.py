@@ -41,7 +41,13 @@ def append_assistant_message(loop: AgentLoop, state: AgentState, response: Provi
     """把助手回复追加进上下文（``run``/``run_stream`` 共用的循环步骤）。
 
     含流式回退路径在内，本模块原有三处各写一份逐字段相同的 ``Message(role=ASSISTANT, ...)``。
+
+    同时回填 ``loop.last_model``：两条运行路径（非流式 / 流式）都经此处落消息，故这里
+    是「本次运行实际用了哪个模型」的**唯一**记录点——共享 provider 的路由状态会被并发
+    运行覆盖，消费方不能依赖它（见 ``AgentLoop.last_model`` 的说明）。
     """
+    if response.model:
+        loop.last_model = response.model
     state.messages.append(
         Message(
             role=Role.ASSISTANT,
