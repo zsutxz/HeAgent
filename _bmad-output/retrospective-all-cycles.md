@@ -237,7 +237,7 @@
 
 ### 5.3 路线图与技术债候选（逐条已核实仍开）
 
-- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本 `0.6.1`；`.github/workflows` 只有 `ci.yml` + `codeql.yml`）。
+- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本 `0.6.2`；`.github/workflows` 只有 `ci.yml` + `codeql.yml`）。
 - ⏳ ~~`engine/workflow.py` legacy 相位机归档~~（已删除：2026-09-17 `d835bd8`，文件仅存 state/checkpoint-store）；benchmark 数据入库（历史趋势）；sandbox 开箱即用 profile 预设；Prompts/slash 结构化注册表。
 - ⏳ 低优先技术债：`model_pricing` 抽独立模型 + 校验、`guard_content` 加 `source` 参数、Hook 事件集补齐（`UserPromptSubmit`/`Stop`/`SubagentStop`/`PreCompact`）、readline 在 Windows 的降级方案、firejail/WinJob 不可用的 CLI banner 提示、sandbox profile 参数合法性校验、`skill_update` 遇富正文技能拒绝改写。
 

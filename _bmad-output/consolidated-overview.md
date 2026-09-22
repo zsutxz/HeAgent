@@ -883,7 +883,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 - **规划产物**：**全部 15 个周期**（Epic 1-47 + S1-S4）在 `sprint-status.yaml` 中标记 `done`，**无 `backlog` / `in-progress` 项**；**15 个 epic 的 retrospective 状态仍为 `optional`**（25-28 / 36-39 / 40 / 41 / 42 / 43-46；其中 36、37、40、41、42 已于 2026-09-18 补做正式回顾，余 10 个仍未补做，交付记录见各周期目录与 `retrospective-all-cycles.md`）。产物整理：`patches/` 解散并按归属 epic 归档（2026-09-15）、跨周期 deferred 台账重组为「活动条目 + 勘察类闭合归档」（2026-09-17）、story 产物按 Epic 分组。
 - **架构优化周期（2026-09-21~22 交付）**：6 阶段全部 done——组合根收敛（`ResolvedRuntimeConfig`）/ loop façade（策略五模块 + `mark_terminal`）/ workflow 解耦（`goal/application.py`，cli_goal 991→680）/ 三域拆分（`tools/sandbox/` 包、MCP `client`+`registry_bridge`+`discovery_failures`、skills 四文件）+ 子进程监督内核统一（`cap_channel`/`reap_subprocess`）+ safe-open 单点（`open_text_under_root`）/ **事件契约 v2**（`RunEvent.duration_ms`/`error_kind`，SCHEMA_VERSION=2 黄金测试锚定 + workflow_step_* 事件）+ benchmark 基建 + 文档收口（`docs/extending.md` / `docs/troubleshooting.md` / `docs/goal-workflow.md` / frame 4.15）。档案：`implementation-artifacts/arch-optimization-cycle/`。
-- **代码现状**（2026-09-22，`src/` 最新提交 `0fb3f2a`，版本 `0.6.1`）：`engine/` 运行时治理（权限档位 `sandbox_mode` / `ToolExecutor` / store·ledger·observability）+ `events/` 机器可读事件流（rollout + replay）+ 分层上下文文件发现 + 真实 tokenizer / 结构化压缩 + `file_edit` 编辑原语；`/goal` 声明式工作流（`.heagent/skills/he-goal/workflow.md` 技能包 + `engine/workflow_runner.py` / `engine/artifacts.py` + `cli_goal.py` / `goal/document.py`；原 `engine/agile.py` 已删、`engine/workflow.py` 仅存 state/checkpoint-store）；沙箱会话化 + 权限档位化 + **沙箱硬化配置接入**（`SANDBOX_PROFILES` / `SANDBOX_TOOL_PROFILES` / 内存·CPU 限额，2026-09-17）；技能包运行时（含 `O_NOFOLLOW` 加固）；凭证防护（deny 表 + **项目级 `.heagent/path_deny.json`** + `scrub_sensitive_env`）；**跨进程 goal 锁**（`persist.file_lock`）；provider 组合根抽出为 `wiring.py`；`cli_init.py` / `frontmatter.py` / `goal/document.py` 等拆分（2026-09-17）。
+- **代码现状**（2026-09-22，`src/` 最新提交 `0fb3f2a`，版本 `0.6.2`）：`engine/` 运行时治理（权限档位 `sandbox_mode` / `ToolExecutor` / store·ledger·observability）+ `events/` 机器可读事件流（rollout + replay）+ 分层上下文文件发现 + 真实 tokenizer / 结构化压缩 + `file_edit` 编辑原语；`/goal` 声明式工作流（`.heagent/skills/he-goal/workflow.md` 技能包 + `engine/workflow_runner.py` / `engine/artifacts.py` + `cli_goal.py` / `goal/document.py`；原 `engine/agile.py` 已删、`engine/workflow.py` 仅存 state/checkpoint-store）；沙箱会话化 + 权限档位化 + **沙箱硬化配置接入**（`SANDBOX_PROFILES` / `SANDBOX_TOOL_PROFILES` / 内存·CPU 限额，2026-09-17）；技能包运行时（含 `O_NOFOLLOW` 加固）；凭证防护（deny 表 + **项目级 `.heagent/path_deny.json`** + `scrub_sensitive_env`）；**跨进程 goal 锁**（`persist.file_lock`）；provider 组合根抽出为 `wiring.py`；`cli_init.py` / `frontmatter.py` / `goal/document.py` 等拆分（2026-09-17）。
 - **测试基线**：**2061 passed / 9 skipped / 18 deselected**（`pytest` 全量，2026-09-22 实测；deselect = integration + benchmark）；覆盖率 **90.88%**（gate 87，2026-09-22 值）；`scripts/quality_gate.py` 五门（goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy）；代码量 `src/` 25,768 行（130 个 `.py`）+ `tests/` 29,794 行（106 个 `.py`）。
 
 ### 17.2 已知缺口（详见 frame.md 第五章）
@@ -902,7 +902,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 > 完整清单（4 条活动台账项 + 纪律类产物滞后 + 技术债候选 + 已决策关闭）见 **17.4**；本节只列需要排期的路线级事项。
 
-- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本已 `0.6.1`；`.github/workflows` 目前只有 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
+- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本已 `0.6.2`；`.github/workflows` 目前只有 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
 - ⏳ **安全纵深**：MCP stdio server 子进程接入沙箱（§17.4-A2，中-高）。
 - ⏳ **技能资源 TOCTOU 后续**：descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox（§17.4-A1）。
 - ⏳ **技术债**：`engine/workflow.py` legacy 相位机归档、benchmark 数据入库（历史趋势）、sandbox 开箱即用 profile 预设、Prompts/slash 结构化注册表。
@@ -950,7 +950,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 | 项 | 现状证据 |
 |----|----------|
-| 生产化：PyPI 发布 / CI release workflow / Docker Hub | `.github/workflows` 仅 `ci.yml`、`codeql.yml`；版本 `0.6.1` |
+| 生产化：PyPI 发布 / CI release workflow / Docker Hub | `.github/workflows` 仅 `ci.yml`、`codeql.yml`；版本 `0.6.2` |
 | ~~`engine/workflow.py` legacy 相位机归档~~ | **已完成**（2026-09-17 `d835bd8` 删除，仅存 state/checkpoint-store） |
 | benchmark 数据入库（历史趋势） | 仅本地 autosave `./benchmark-data/`（gitignore）；**阈值入口已建**（Phase 5：`--benchmark-compare-fail=min:50%`，见 `docs/troubleshooting.md`） |
 | `model_pricing` 抽独立数据模型 + 校验 | 仍是 JSON 字符串 + `model_pricing_map`（`config.py:313,442`） |

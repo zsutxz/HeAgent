@@ -102,11 +102,11 @@ spec 要点：
 
 ```bash
 # 打与 pyproject.toml 一致的版本 tag 触发 CI release（PyPI + GHCR + Docker Hub）
-git tag v0.6.1
-git push origin v0.6.1
+git tag v0.6.2
+git push origin v0.6.2
 ```
 
-`v0.6.1` 是当前待创建的发布 tag；发布前应确认它与 `pyproject.toml` 和 `src/heagent/__init__.py` 的版本一致。Docker Hub 推送还依赖 CI secrets `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，未配置时该步骤不可用。
+`v0.6.2` 是当前待创建的发布 tag；发布前应确认它与 `pyproject.toml` 和 `src/heagent/__init__.py` 的版本一致。Docker Hub 推送还依赖 CI secrets `DOCKERHUB_USERNAME` 与 `DOCKERHUB_TOKEN`，未配置时该步骤不可用。
 
 CI release job 自动：
 1. `twine check` → PyPI（Trusted Publisher OIDC）
