@@ -222,3 +222,137 @@ class TestBulkTokenEstimation:
 
         tokens = benchmark(count_tokens, msgs)
         assert tokens > 0
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Phase 5 C2：provider 延迟 / 并发工具批次 / 会话恢复 / 事件写入吞吐
+# ═══════════════════════════════════════════════════════════════════
+
+
+@pytest.fixture()
+def _bench_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """基准隔离：重置 Settings 单例 + cwd 锚到 tmp（engine 默认装配不写真实 .heagent）。"""
+    from heagent.config import reset_settings
+
+    reset_settings()
+    monkeypatch.chdir(tmp_path)
+    yield
+    reset_settings()
+
+
+class _FinalStubProvider:
+    """单轮即返回最终答案的 stub（provider 延迟基准：测 loop 编排开销，非模型耗时）。"""
+
+    async def send(self, messages, *, tools=None):
+        from heagent.types import ProviderResponse, TokenUsage
+
+        return ProviderResponse(
+            content="final answer",
+            usage=TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15),
+            model="bench-stub",
+            finish_reason="stop",
+        )
+
+    async def stream(self, messages, *, tools=None):
+        yield await self.send(messages, tools=tools)
+
+    def get_metadata(self):
+        from heagent.providers.base import ProviderMetadata
+
+        return ProviderMetadata(name="bench-stub", model="bench-stub")
+
+
+class TestProviderCallLatency:
+    """provider 调用延迟基准：StubProvider 单迭代完整 ``loop.run``（含治理 + 事件发射）。"""
+
+    @pytest.mark.usefixtures("_bench_env")
+    def test_single_iteration_run(self, benchmark) -> None:
+        from heagent.agent.loop import AgentLoop
+
+        def run_once() -> str:
+            # 每轮新建 loop：隔离 run 状态（台账/运行快照是 per-run 的）
+            return (
+                asyncio.get_event_loop_policy()
+                .new_event_loop()
+                .run_until_complete(AgentLoop(_FinalStubProvider(), max_iterations=3).run("bench"))
+            )
+
+        answer = benchmark(run_once)
+        assert answer == "final answer"
+
+
+class TestConcurrentToolBatch:
+    """并发工具批次基准：gather N 个并发 sleep 工具，批次 wall ≈ 单工具耗时（并发生效）。"""
+
+    def test_batch_of_8_sleeping_tools(self, benchmark) -> None:
+        import time
+
+        async def run_batch() -> float:
+            async def fake_tool() -> None:
+                await asyncio.sleep(0.02)
+
+            started = time.perf_counter()
+            await asyncio.gather(*(fake_tool() for _ in range(8)))
+            return time.perf_counter() - started
+
+        wall = benchmark(lambda: _sync(run_batch))
+        # 并发生效断言：批次 wall 应接近单工具 sleep（0.02s）而非串行和（0.16s）。
+        # 宽松上界（< 0.10s）防 CI 抖动误报——数量级守护，非微优化门禁。
+        assert wall < 0.10, f"concurrent batch took {wall:.3f}s — concurrency degraded?"
+
+
+class TestSessionRestoreRun:
+    """会话恢复基准：带 20 条历史消息的 SessionStore 跑一轮完整 run。"""
+
+    @pytest.mark.usefixtures("_bench_env")
+    def test_run_with_restored_history(self, benchmark) -> None:
+        from heagent.agent.loop import AgentLoop
+        from heagent.context.session import SessionStore
+        from heagent.types import Message, Role
+
+        store = SessionStore()
+        history = [
+            Message(role=Role.USER if i % 2 == 0 else Role.ASSISTANT, content=f"历史消息 {i} " + "x" * 50)
+            for i in range(20)
+        ]
+        store.save("bench-session", history)
+
+        def run_once() -> str:
+            loop = asyncio.new_event_loop()
+            try:
+                agent = AgentLoop(_FinalStubProvider(), session=store, max_iterations=3)
+                return loop.run_until_complete(agent.run("bench restore", session_id="bench-session"))
+            finally:
+                loop.close()
+
+        answer = benchmark(run_once)
+        assert answer == "final answer"
+
+
+class TestEventSinkThroughput:
+    """事件写入吞吐基准：JsonlSink rollout 逐事件落盘（crash 前缀可回放契约的代价可见化）。"""
+
+    def test_rollout_write_50_events(self, benchmark, tmp_path: Path) -> None:
+        from heagent.engine.observability import EngineEvent
+        from heagent.events.sink import JsonlSink
+
+        events = [
+            EngineEvent(
+                event_type="tool_call_completed",
+                run_id="bench",
+                iteration=1,
+                tool_name="shell",
+                target="ls",
+                details={"mode": "direct", "duration_ms": i, "content_length": 10},
+            )
+            for i in range(50)
+        ]
+
+        def write_all() -> int:
+            sink = JsonlSink(rollout_dir=tmp_path / "rollouts")
+            for event in events:
+                sink.handle(event)
+            return sink.seq
+
+        seq = benchmark(write_all)
+        assert seq == len(events)

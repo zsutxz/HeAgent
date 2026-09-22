@@ -422,3 +422,24 @@ class TestProfileStore:
         p.save("data")
         p.clear()
         assert p.load() == ""
+
+
+# --- Phase 4/5 回归：safe-open 内核 + 相对根（生产默认 ``.heagent/skills`` 即相对）---
+
+
+def test_skill_store_default_relative_base_dir_roundtrip(tmp_path, monkeypatch) -> None:
+    """默认相对 base_dir（cwd 锚定）经 open_text_under_root 读写正常。
+
+    回归锚：resolve_under_root 曾对相对 root 恒拒（绝对化候选 vs 未 resolve 的 root），
+    仅 benchmark（大目录 + 相对根）暴露——默认构造 ``SkillStore()`` 是生产主路径。
+    """
+    import os
+
+    from heagent.memory.skills import SkillStore
+
+    monkeypatch.chdir(tmp_path)
+    store = SkillStore()  # 默认 ".heagent/skills"（相对路径）
+    store.save("rel_root_skill", "desc", "pattern body", ["step one"])
+    assert store.load("rel_root_skill") is not None
+    assert "pattern body" in (store.load("rel_root_skill") or "")
+    assert os.path.isdir(tmp_path / ".heagent" / "skills" / "rel_root_skill")

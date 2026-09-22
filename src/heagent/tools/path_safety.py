@@ -73,7 +73,10 @@ def resolve_under_root(path: str, root: Path) -> Path:
     raw = Path(path)
     candidate = raw if raw.is_absolute() else root / raw
     resolved = candidate.resolve(strict=False)
-    if not resolved.is_relative_to(root):
+    # root 也须 resolve 后再比较：生产默认根是相对路径（如 SkillStore 的
+    # ``.heagent/skills``，cwd 锚定）——拿已 resolve 的绝对候选与相对 root 比较会恒拒。
+    root_resolved = root.resolve(strict=False)
+    if not resolved.is_relative_to(root_resolved):
         raise WorkspacePathError(f"Path escapes current workspace: {path} (workspace: {root})")
     return resolved
 
@@ -95,13 +98,20 @@ def open_text_under_root(root: Path, relative: str | Path) -> str:
     4. 读取 + utf-8 解码 + universal newlines（对齐 ``Path.read_text`` 历史行为）。
 
     错误语义：``FileNotFoundError`` / ``OSError`` / ``UnicodeDecodeError`` 原样上抛，
-    由调用方映射各自领域错误（如 ``SkillPackageResourceError``）。参数取 ``root`` +
-    包内相对路径（绝对路径亦可，kernel 二次围栏校验，防御调用方 resolve 后 open 前的
-    中间目录替换残余窗口——该残余仍挂台账，见 deferred-work TOCTOU 条目）。
+    由调用方映射各自领域错误（如 ``SkillPackageResourceError``）。``relative`` 接受
+    **绝对路径或 cwd 相对路径**（可已含 root 前缀——如 ``SkillStore`` 的
+    ``<base>/<name>/SKILL.md``）；kernel 不再对相对输入二次 join root（那会把
+    「root/name」拼成「root/root/name」），而是 resolve 后按 ``root`` 围栏校验——
+    裸资源名（相对 root 的名字）会因 cwd join 不中而**显性报越界**，不猜。
 
     ⚠ defense-in-depth 而非安全边界：竞态窗口收窄但未消除，须 OS 级沙箱兜底。
     """
-    resolved = resolve_under_root(str(relative), root)
+    raw = Path(relative)
+    candidate = raw if raw.is_absolute() else Path.cwd() / raw
+    resolved = candidate.resolve(strict=False)
+    root_resolved = root.resolve(strict=False)
+    if not resolved.is_relative_to(root_resolved):
+        raise WorkspacePathError(f"Path escapes root: {relative} (root: {root})")
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     nofollow = getattr(os, "O_NOFOLLOW", None)
     if nofollow is not None:
