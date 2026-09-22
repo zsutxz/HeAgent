@@ -13,16 +13,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from heagent.exceptions import PolicyViolation, SafetyViolation, ToolError
+
 if TYPE_CHECKING:
     from heagent.engine.observability import EngineEvent
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 # 当前引擎事件全集（文档 + 黄金测试依据）。消费方须按「开集」处理未知 kind。
 KNOWN_KINDS: frozenset[str] = frozenset(
@@ -45,6 +48,16 @@ KNOWN_KINDS: frozenset[str] = frozenset(
         "tool_call_completed",
         "tool_call_failed",
         "tool_call_blocked",
+        # workflow 步骤（Phase 5 C1：run_step 补发，此前零事件）
+        "workflow_step_started",
+        "workflow_step_completed",
+        "workflow_step_failed",
+        # 记忆巩固 / cron（引擎实发现状收编，此前不在文档全集）
+        "dream_start",
+        "dream_end",
+        "cron_job_started",
+        "cron_job_completed",
+        "cron_job_failed",
     }
 )
 
@@ -59,6 +72,35 @@ def _now_iso() -> str:
     不依赖 ``engine/``（引擎类型仅在 TYPE_CHECKING 下引入），保持传输层可独立复用。
     """
     return datetime.now().isoformat(timespec="seconds")
+
+
+# error_kind 封闭映射（Phase 5 C1）：「败为何」的高频查询面，未匹配一律 ``exception``
+# 不猜（显性兜底）。映射表与 docs/frame.md 事件契约表同源——改这里须同步文档。
+ERROR_KIND_TIMEOUT = "timeout"
+ERROR_KIND_CANCELLED = "cancelled"
+ERROR_KIND_POLICY_DENIED = "policy_denied"
+ERROR_KIND_SAFETY_BLOCKED = "safety_blocked"
+ERROR_KIND_TOOL_ERROR = "tool_error"
+ERROR_KIND_UNKNOWN_TOOL = "unknown_tool"
+ERROR_KIND_EXCEPTION = "exception"
+
+_ERROR_KIND_BY_TYPE: tuple[tuple[type[BaseException], str], ...] = (
+    (TimeoutError, ERROR_KIND_TIMEOUT),
+    (asyncio.CancelledError, ERROR_KIND_CANCELLED),
+    (PolicyViolation, ERROR_KIND_POLICY_DENIED),
+    (SafetyViolation, ERROR_KIND_SAFETY_BLOCKED),
+    (ToolError, ERROR_KIND_TOOL_ERROR),
+)
+
+
+def error_kind_for(exc: BaseException, *, explicit: str | None = None) -> str:
+    """异常 → 失败分类（封闭映射）。``explicit`` 供发射点覆盖语义分类（如 ``unknown_tool``）。"""
+    if explicit is not None:
+        return explicit
+    for exc_type, kind in _ERROR_KIND_BY_TYPE:
+        if isinstance(exc, exc_type):
+            return kind
+    return ERROR_KIND_EXCEPTION
 
 
 class RunEvent(BaseModel):
@@ -77,6 +119,10 @@ class RunEvent(BaseModel):
     kind: str
     tool: str = ""
     target: str = ""
+    # Phase 5 C1：「慢在哪 / 败为何」的高频查询面提升为顶层契约（v1→v2，双向可读：
+    # 旧文件缺省读、新字段被旧代码 extra=ignore）。0 / 空串 = 未计时 / 无分类。
+    duration_ms: int = 0
+    error_kind: str = ""
     details: dict[str, Any] = Field(default_factory=dict)
 
     def to_jsonl(self) -> str:
@@ -98,6 +144,8 @@ def make_event(
     iteration: int = 0,
     tool: str = "",
     target: str = "",
+    duration_ms: int = 0,
+    error_kind: str = "",
     details: dict[str, Any] | None = None,
     ts: str | None = None,
 ) -> RunEvent:
@@ -110,12 +158,24 @@ def make_event(
         kind=kind,
         tool=tool,
         target=target,
+        duration_ms=duration_ms,
+        error_kind=error_kind,
         details=dict(details or {}),
     )
 
 
 def from_engine_event(event: EngineEvent, *, seq: int) -> RunEvent:
-    """把总线上的 :class:`EngineEvent` 映射为对外 :class:`RunEvent`（无信息丢失）。"""
+    """把总线上的 :class:`EngineEvent` 映射为对外 :class:`RunEvent`（无信息丢失）。
+
+    发射点把 ``duration_ms`` / ``error_kind`` 放进 ``EngineEvent.details``（EngineEvent
+    模型不动，GUI 消费面冻结）；本映射单点**提升**到 RunEvent 顶层并从 details 摘除
+    （单一事实来源，不重复携带）。
+    """
+    details = dict(event.details)
+    duration_ms = details.pop("duration_ms", 0)
+    error_kind = details.pop("error_kind", "")
+    if not isinstance(duration_ms, int) or isinstance(duration_ms, bool):
+        duration_ms = 0
     return make_event(
         event.event_type,
         seq=seq,
@@ -123,6 +183,8 @@ def from_engine_event(event: EngineEvent, *, seq: int) -> RunEvent:
         iteration=event.iteration,
         tool=event.tool_name,
         target=event.target,
-        details=event.details,
+        duration_ms=duration_ms,
+        error_kind=str(error_kind),
+        details=details,
         ts=event.timestamp or None,
     )

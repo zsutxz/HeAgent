@@ -25,11 +25,13 @@ from __future__ import annotations
 
 import inspect
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
+from heagent.events.protocol import error_kind_for
 from heagent.exceptions import PolicyViolation, SafetyViolation
 from heagent.tools.call_summary import summarize_tool_call
 from heagent.tools.sandbox import (
@@ -209,14 +211,34 @@ class ToolExecutor:
         mode = ToolExecutionMode.DIRECT.value
         try:
             self._emit_tool_event(emit, "tool_call_started", call, run_context, {"mode": mode})
+            _started = time.perf_counter()
             result = await handler(call)
             content = str(result) if result is not None else ""
             self._emit_tool_event(
-                emit, "tool_call_completed", call, run_context, {"mode": mode, "content_length": len(content)}
+                emit,
+                "tool_call_completed",
+                call,
+                run_context,
+                {
+                    "mode": mode,
+                    "content_length": len(content),
+                    "duration_ms": max(int((time.perf_counter() - _started) * 1000), 0),
+                },
             )
             return ToolResult(tool_call_id=call.id, content=content)
         except Exception as exc:  # noqa: BLE001 - 任意工具异常都转成错误结果，避免中断循环
-            self._emit_tool_event(emit, "tool_call_failed", call, run_context, {"mode": mode, "error": str(exc)})
+            self._emit_tool_event(
+                emit,
+                "tool_call_failed",
+                call,
+                run_context,
+                {
+                    "mode": mode,
+                    "error": str(exc),
+                    "error_kind": error_kind_for(exc),
+                    "duration_ms": max(int((time.perf_counter() - _started) * 1000), 0),
+                },
+            )
             return ToolResult(tool_call_id=call.id, content=f"Tool error: {exc}", is_error=True)
 
     async def _execute_in_sandbox(
@@ -246,6 +268,7 @@ class ToolExecutor:
         sandbox_facts = {"sandbox_profile": verdict.sandbox_profile or "", "sandbox_tier": sandbox_tier}
         try:
             self._emit_tool_event(emit, "tool_call_started", call, run_context, {"mode": sandbox_mode, **sandbox_facts})
+            _started = time.perf_counter()
             # 子类 override 兼容：库消费者旧签名 execute_in_sandbox(*, call, profile, handler)
             # 不含 run_context——签名探测后按需传参，防 TypeError（FR-1 review patch 5）。
             if "run_context" in inspect.signature(self.execute_in_sandbox).parameters:
@@ -267,7 +290,12 @@ class ToolExecutor:
                 "tool_call_completed",
                 call,
                 run_context,
-                {"mode": sandbox_mode, **sandbox_facts, "content_length": len(content)},
+                {
+                    "mode": sandbox_mode,
+                    **sandbox_facts,
+                    "content_length": len(content),
+                    "duration_ms": max(int((time.perf_counter() - _started) * 1000), 0),
+                },
             )
             return ToolResult(tool_call_id=call.id, content=content)
         except Exception as exc:  # noqa: BLE001 - 任意工具异常都转成错误结果，避免中断循环
@@ -276,7 +304,13 @@ class ToolExecutor:
                 "tool_call_failed",
                 call,
                 run_context,
-                {"mode": sandbox_mode, **sandbox_facts, "error": str(exc)},
+                {
+                    "mode": sandbox_mode,
+                    **sandbox_facts,
+                    "error": str(exc),
+                    "error_kind": error_kind_for(exc),
+                    "duration_ms": max(int((time.perf_counter() - _started) * 1000), 0),
+                },
             )
             return ToolResult(tool_call_id=call.id, content=f"Tool error: {exc}", is_error=True)
 

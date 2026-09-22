@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import re
+import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from typing import Any
 from uuid import uuid4
@@ -19,6 +21,45 @@ from heagent.engine.checkpoint import (
     WorkflowStatus,
 )
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
+from heagent.events.protocol import error_kind_for
+
+logger = logging.getLogger(__name__)
+
+
+def _elapsed_ms(started: float) -> int:
+    """``perf_counter`` 起点 → 整数毫秒（下取整，非负）。"""
+    return max(int((time.perf_counter() - started) * 1000), 0)
+
+
+def _emit_step_event(
+    emit: Callable[..., None] | None,
+    kind: str,
+    *,
+    step: WorkflowStepResource,
+    story: Any,
+    duration_ms: int = 0,
+    error_kind: str = "",
+    **extra: Any,
+) -> None:
+    """步骤粒度观测事件（Phase 5 C1）：emit 异常隔离，可观测性不得改变业务控制流。
+
+    ``duration_ms`` / ``error_kind`` 进 details，由传输层 ``from_engine_event`` 提升到
+    RunEvent 顶层（EngineEvent 模型与 GUI 消费面不动）。
+    """
+    if emit is None:
+        return
+    payload: dict[str, Any] = {
+        "step": step.name,
+        "story": story.id if story is not None else "",
+        "duration_ms": duration_ms,
+        "error_kind": error_kind,
+        **extra,
+    }
+    try:
+        emit(kind, details=payload)
+    except Exception:  # noqa: BLE001 - 观测失败仅告警
+        logger.warning("workflow step event %r emit failed; ignored", kind, exc_info=True)
+
 
 _SECTION_RULE = re.compile(r"section\s*:\s*([^,;]+)", re.IGNORECASE)
 
@@ -316,8 +357,15 @@ class WorkflowRunner:
         artifacts: Mapping[str, Any] | Iterable[str] | None = None,
         checkpoint: CheckpointCallback | None = None,
         stories: Iterable[StorySpec] | None = None,
+        emit: Callable[..., None] | None = None,
     ) -> WorkflowRunResult:
-        """Invoke the callback once for the active step (or the active story)."""
+        """Invoke the callback once for the active step (or the active story).
+
+        ``emit``（Phase 5 C1，可选注入）：``emit(kind, *, details=None)`` 形状的观测端口，
+        步骤粒度发 ``workflow_step_started/completed/failed``（``duration_ms`` / ``error_kind``
+        经 details 由传输层提升）。缺省 ``None`` = 零行为变化（既有调用方/测试不动）；
+        emit 内部异常隔离（对齐 sink 先例：可观测性不得改变业务控制流）。
+        """
         if not callable(callback):
             raise TypeError("step callback must be callable")
         if self.done:
@@ -340,17 +388,62 @@ class WorkflowRunner:
         active_story: StorySpec | None = None
         if is_story_loop:
             if step.max_parallel_stories > 1 and story_specs and all(story.epic for story in story_specs):
-                return await self._run_story_batch(callback, step, story_specs, checkpoint)
+                started = time.perf_counter()
+                _emit_step_event(emit, "workflow_step_started", step=step, story=None)
+                try:
+                    result = await self._run_story_batch(callback, step, story_specs, checkpoint)
+                except BaseException as exc:
+                    _emit_step_event(
+                        emit,
+                        "workflow_step_failed",
+                        step=step,
+                        story=None,
+                        duration_ms=_elapsed_ms(started),
+                        error_kind=error_kind_for(exc),
+                        error=str(exc),
+                    )
+                    raise
+                _emit_step_event(
+                    emit,
+                    "workflow_step_completed",
+                    step=step,
+                    story=None,
+                    duration_ms=_elapsed_ms(started),
+                    result=result.status.value,
+                )
+                return result
             active_story = story_specs[self.state.story_index]
             self.state = self.state.model_copy(
                 update={"active_story": active_story.id, "active_stories": [active_story.id]}
             )
 
-        result = self._invoke_callback(callback, step, active_story)
-        if inspect.isawaitable(result):
-            result = await result
-        if not isinstance(result, WorkflowStepResult):
-            raise TypeError("step callback must return WorkflowStepResult")
+        started = time.perf_counter()
+        _emit_step_event(emit, "workflow_step_started", step=step, story=active_story)
+        try:
+            result = self._invoke_callback(callback, step, active_story)
+            if inspect.isawaitable(result):
+                result = await result
+            if not isinstance(result, WorkflowStepResult):
+                raise TypeError("step callback must return WorkflowStepResult")
+        except BaseException as exc:
+            _emit_step_event(
+                emit,
+                "workflow_step_failed",
+                step=step,
+                story=active_story,
+                duration_ms=_elapsed_ms(started),
+                error_kind=error_kind_for(exc),
+                error=str(exc),
+            )
+            raise
+        _emit_step_event(
+            emit,
+            "workflow_step_completed",
+            step=step,
+            story=active_story,
+            duration_ms=_elapsed_ms(started),
+            result=result.status.value,
+        )
 
         executed_story_id: str | None = None
         executed_story_index: int | None = None

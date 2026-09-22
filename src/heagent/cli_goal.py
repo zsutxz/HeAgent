@@ -58,7 +58,7 @@ from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
 from heagent.persist import atomic_write_text, file_lock
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Mapping
+    from collections.abc import AsyncIterator, Callable, Mapping
 
     from heagent.agent.sub import SubAgentResult
     from heagent.cron.jobs import JobStore
@@ -288,6 +288,21 @@ async def _goal_execute_step(
     return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=result.output)
 
 
+def _workflow_event_emitter(engine: EngineContainer | None) -> Callable[[str], None] | None:
+    """workflow 步骤事件的入口侧发射器（Phase 5 C1）：绑 EngineContainer.events 总线。
+
+    ``engine=None``（部分库消费者）返回 None = 不发事件；观测失败由
+    ``WorkflowRunner._emit_step_event`` 隔离，不影响步骤执行。
+    """
+    if engine is None:
+        return None
+
+    def emit(kind: str, *, details: dict[str, Any] | None = None) -> None:
+        engine.events.publish(kind, details=details)
+
+    return emit
+
+
 async def _goal_declarative_advance(
     provider: BaseProvider,
     engine: EngineContainer | None,
@@ -323,6 +338,7 @@ async def _goal_declarative_advance(
         execute_step,
         confirm_checkpoint=_goal_checkpoint_prompt,
         load_project_context=lambda: load_context_files(os.getcwd()),
+        emit=_workflow_event_emitter(engine),
     )
     for message in result.messages:
         click.echo(message, err=True)

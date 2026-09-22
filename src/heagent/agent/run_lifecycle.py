@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from heagent.engine import RunContext, RunStatus
 from heagent.engine.hooks import SESSION_END, SESSION_START
+from heagent.events.protocol import error_kind_for
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolResult
 
 if TYPE_CHECKING:
@@ -63,6 +65,10 @@ class _RunInit:
     system_content: str | None
     accumulated: TokenUsage
     prompt: str  # 原始 prompt（恢复时可能已替换为 _resume.prompt）
+    # run 起点的 ``perf_counter``（Phase 5 C1：run_completed/run_failed 的 duration_ms
+    # 数据源）。``init_or_resume`` 两条分支（新 run / resume）各置一次；内部状态对象，
+    # 不落盘、不进事件 details 之外的面。
+    started_perf: float = 0.0
 
 
 _DELEGATION_DETAIL_KEYS = ("kind", "role", "workflow_step", "workflow_story", "goal_id", "goal_kind")
@@ -104,6 +110,7 @@ async def init_or_resume(
     # 跳过，会导致 resume 后的状态栏/台账残留上一段 run 的值。
     loop.active_tool = ""
     loop.tool_activity = []
+    _started = time.perf_counter()
     if _resume is not None:
         resume_details: dict[str, Any] = {"resume": True, "stream": stream}
         resume_details.update(_delegation_details(_resume.run_context))
@@ -114,6 +121,7 @@ async def init_or_resume(
             system_content=_resume.system,
             accumulated=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
             prompt=_resume.prompt,
+            started_perf=_started,
         )
     fresh = await init_new_run(loop, prompt, system, session_id, stream=stream)
     return _RunInit(
@@ -122,6 +130,7 @@ async def init_or_resume(
         system_content=fresh[2],
         accumulated=fresh[3],
         prompt=prompt,
+        started_perf=_started,
     )
 
 
@@ -246,7 +255,15 @@ async def execute_run(
             await finish_run(loop, run_context, init, state, accumulated, final_answer=final_answer)
             return final_answer
     except Exception as exc:
-        await on_run_failed(loop, run_context, init.prompt, system_content, state, exc)
+        await on_run_failed(
+            loop,
+            run_context,
+            init.prompt,
+            system_content,
+            state,
+            exc,
+            duration_ms=max(int((time.perf_counter() - init.started_perf) * 1000), 0),
+        )
         raise
     finally:
         await persist_and_cache(loop, session_id, state, accumulated, run_context)
@@ -281,7 +298,14 @@ async def finish_run(
         state=state,
         final_answer=final_answer,
     )
-    loop._emit("run_completed", run_context=run_context, details={"answer_length": len(final_answer)})
+    loop._emit(
+        "run_completed",
+        run_context=run_context,
+        details={
+            "answer_length": len(final_answer),
+            "duration_ms": max(int((time.perf_counter() - init.started_perf) * 1000), 0),
+        },
+    )
     loop.last_usage = accumulated
     loop.cumulative_tokens += accumulated.total_tokens
     loop.last_iteration = state.iteration
@@ -323,11 +347,14 @@ async def on_run_failed(
     system_content: str | None,
     state: AgentState,
     exc: Exception,
+    *,
+    duration_ms: int = 0,
 ) -> None:
     """异常收尾：置 FAILED、记错误快照、发布 run_failed 事件（不含 re-raise）。
 
     ``run``/``run_stream`` 的 except 块共用；``raise`` 留在各自 except 末尾
-    （显性失败，异常原样向上抛）。
+    （显性失败，异常原样向上抛）。``duration_ms``（Phase 5 C1）由调用方从
+    ``init.started_perf`` 计算，缺省 0=未计时；``error_kind`` 由 ``exc`` 推导。
     """
     run_context.mark_terminal(RunStatus.FAILED, iteration=state.iteration)
     await checkpoint(
@@ -341,7 +368,7 @@ async def on_run_failed(
     loop._emit(
         "run_failed",
         run_context=run_context,
-        details={"error": str(exc)},
+        details={"error": str(exc), "error_kind": error_kind_for(exc), "duration_ms": duration_ms},
     )
 
 

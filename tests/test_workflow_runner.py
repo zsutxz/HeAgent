@@ -263,3 +263,80 @@ def test_gate_error_names_the_headings_that_are_present() -> None:
     step = WorkflowStepResource(index=1, name="step-07.md", instructions="", validation_rules="section: 实现摘要")
     with pytest.raises(WorkflowGateError, match="present H2 headings: 3. 本轮实现动作"):
         WorkflowRunner.validate_output(step, "## 3. 本轮实现动作\n\ntext\n")
+
+
+# --- Phase 5 C1：步骤粒度观测事件（emit 注入端口）---
+
+
+@pytest.mark.asyncio
+async def test_run_step_emits_started_and_completed_with_duration() -> None:
+    """emit 注入 → started/completed 各一条（step/story/result + duration_ms）。"""
+    from typing import Any
+
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    runner = WorkflowRunner(workflow)
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def emit(kind: str, *, details: dict[str, Any] | None = None) -> None:
+        events.append((kind, details or {}))
+
+    async def callback(step):
+        return WorkflowStepResult(output={"plan": "x"})
+
+    await runner.run_step(callback, inputs={"brief": "x"}, emit=emit)
+    kinds = [kind for kind, _ in events]
+    assert kinds == ["workflow_step_started", "workflow_step_completed"]
+    started_details = events[0][1]
+    assert started_details["step"] == "step-01.md"
+    assert started_details["story"] == ""
+    assert isinstance(started_details["duration_ms"], int)
+    completed_details = events[1][1]
+    assert completed_details["result"] == "completed"
+    assert completed_details["duration_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_run_step_emits_failed_and_reraises() -> None:
+    """回调抛异常 → workflow_step_failed（error_kind=exception）且异常原样上抛。"""
+    from typing import Any
+
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    runner = WorkflowRunner(workflow)
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def emit(kind: str, *, details: dict[str, Any] | None = None) -> None:
+        events.append((kind, details or {}))
+
+    async def callback(step):
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await runner.run_step(callback, emit=emit)
+    kinds = [kind for kind, _ in events]
+    assert kinds == ["workflow_step_started", "workflow_step_failed"]
+    failed = events[1][1]
+    assert failed["error_kind"] == "exception"
+    assert "boom" in failed["error"]
+    assert failed["duration_ms"] >= 0
+
+
+@pytest.mark.asyncio
+async def test_run_step_without_emit_is_unchanged_and_emit_failure_isolated() -> None:
+    """emit=None 零行为变化；emit 抛异常被隔离（warning）且步骤结果不受影响。"""
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    runner = WorkflowRunner(workflow)
+
+    async def callback(step):
+        return WorkflowStepResult(output={"plan": "x"})
+
+    # emit=None：与既有行为一致（不发事件、不抛；单步工作流执行完即 COMPLETED）
+    result = await runner.run_step(callback, inputs={"brief": "x"})
+    assert result.status is WorkflowStatus.COMPLETED
+
+    # emit 抛异常 → 隔离
+    def bad_emit(kind: str, *, details=None) -> None:
+        raise RuntimeError("observer down")
+
+    runner2 = WorkflowRunner(workflow)
+    result2 = await runner2.run_step(callback, inputs={"brief": "x"}, emit=bad_emit)
+    assert result2.status is WorkflowStatus.COMPLETED

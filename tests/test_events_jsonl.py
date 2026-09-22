@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from io import StringIO
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import pytest
 from click.testing import CliRunner
@@ -14,6 +14,7 @@ from heagent.agent.loop import AgentLoop
 from heagent.cli import main
 from heagent.config import reset_settings
 from heagent.engine.observability import EngineEvent
+from heagent.exceptions import PolicyViolation, ToolError
 from heagent.events.protocol import (
     ASSISTANT_MESSAGE_KIND,
     KNOWN_KINDS,
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 # 对外契约的字段集（黄金测试基准）：改字段必须先 bump SCHEMA_VERSION 并更新此处。
+# v2（Phase 5 C1）：+duration_ms / error_kind（旧文件缺省读、新字段被旧码 extra=ignore）。
 _EXPECTED_FIELDS = {
     "schema_version",
     "seq",
@@ -39,6 +41,8 @@ _EXPECTED_FIELDS = {
     "kind",
     "tool",
     "target",
+    "duration_ms",
+    "error_kind",
     "details",
 }
 
@@ -86,7 +90,7 @@ class TestRunEventProtocol:
         """黄金测试：JSONL 的字段集是版本化契约，不得漂移。"""
         payload = json.loads(make_event("run_started", seq=1).to_jsonl())
         assert set(payload) == _EXPECTED_FIELDS
-        assert payload["schema_version"] == SCHEMA_VERSION == "1"
+        assert payload["schema_version"] == SCHEMA_VERSION == "2"  # v2（Phase 5 C1）
 
     def test_jsonl_is_a_single_line_even_with_newlines(self) -> None:
         """正文含换行/制表符时仍须是单行（JSON 转义），否则消费方按行解析会错位。"""
@@ -384,3 +388,119 @@ class TestEventStreamEndToEnd:
 
         assert result.exit_code == 0
         assert "--json" in result.output
+
+
+# --- Phase 5 C1：耗时/失败分类契约 ---
+
+
+class TestErrorKindMapping:
+    """error_kind_for：封闭映射 + exception 兜底 + explicit 覆盖。"""
+
+    def test_known_exception_types(self) -> None:
+        from asyncio import CancelledError
+
+        from heagent.events.protocol import (
+            ERROR_KIND_CANCELLED,
+            ERROR_KIND_POLICY_DENIED,
+            ERROR_KIND_TIMEOUT,
+            ERROR_KIND_TOOL_ERROR,
+            error_kind_for,
+        )
+
+        assert error_kind_for(TimeoutError("t")) == ERROR_KIND_TIMEOUT
+        assert error_kind_for(CancelledError()) == ERROR_KIND_CANCELLED
+        assert error_kind_for(PolicyViolation("p")) == ERROR_KIND_POLICY_DENIED
+        assert error_kind_for(ToolError("x")) == ERROR_KIND_TOOL_ERROR
+
+    def test_safety_violation_maps_to_safety_blocked(self) -> None:
+        from heagent.events.protocol import ERROR_KIND_SAFETY_BLOCKED, error_kind_for
+        from heagent.exceptions import SafetyViolation
+
+        assert error_kind_for(SafetyViolation("s")) == ERROR_KIND_SAFETY_BLOCKED
+
+    def test_unknown_exception_falls_back_to_exception(self) -> None:
+        from heagent.events.protocol import ERROR_KIND_EXCEPTION, error_kind_for
+
+        assert error_kind_for(RuntimeError("whatever")) == ERROR_KIND_EXCEPTION
+
+    def test_explicit_overrides_type_mapping(self) -> None:
+        from heagent.events.protocol import error_kind_for
+
+        assert error_kind_for(RuntimeError("unknown tool x"), explicit="unknown_tool") == "unknown_tool"
+
+
+class TestFromEngineEventPromotion:
+    """from_engine_event：details 中的 duration_ms/error_kind 提升到顶层并摘除。"""
+
+    def test_promotes_and_pops_timing_fields(self) -> None:
+        from heagent.events.protocol import from_engine_event
+
+        class _FakeEvent:
+            event_type = "tool_call_completed"
+            timestamp = ""
+            run_id = "r1"
+            iteration = 2
+            tool_name = "shell"
+            target = "ls"
+            details: ClassVar[dict] = {"mode": "direct", "duration_ms": 1234, "error_kind": ""}
+
+        event = from_engine_event(_FakeEvent(), seq=7)  # type: ignore[arg-type]
+        assert event.duration_ms == 1234
+        assert event.error_kind == ""
+        assert event.details == {"mode": "direct"}  # 已摘除，不重复携带
+        assert event.seq == 7
+
+    def test_non_int_duration_falls_back_to_zero(self) -> None:
+        from heagent.events.protocol import from_engine_event
+
+        class _FakeEvent:
+            event_type = "run_completed"
+            timestamp = ""
+            run_id = ""
+            iteration = 0
+            tool_name = ""
+            target = ""
+            details: ClassVar[dict] = {"duration_ms": "oops"}
+
+        event = from_engine_event(_FakeEvent(), seq=1)  # type: ignore[arg-type]
+        assert event.duration_ms == 0
+
+
+class TestV1RolloutBackCompat:
+    """v1 rollout（无 duration_ms/error_kind）被 v2 代码读取 → 缺省值。"""
+
+    def test_read_v1_line_with_defaults(self, tmp_path) -> None:
+        from heagent.events.sink import read_rollout
+
+        path = tmp_path / "rollout.jsonl"
+        v1_line = (
+            '{"schema_version": "1", "seq": 1, "ts": "2026-01-01T00:00:00", "run_id": "r", '
+            '"iteration": 0, "kind": "run_started", "tool": "", "target": "", "details": {}}'
+        )
+        path.write_text(v1_line + "\n", encoding="utf-8")
+        events = read_rollout(path)
+        assert len(events) == 1
+        assert events[0].duration_ms == 0
+        assert events[0].error_kind == ""
+        assert events[0].schema_version == "1"  # 溯源：文件声明什么版本就读回什么
+
+
+class TestRenderEventTiming:
+    """render_event：有值时追加 [Nms] / error_kind（V3）。"""
+
+    def test_renders_duration_and_error_kind(self) -> None:
+        from heagent.events.protocol import make_event
+        from heagent.events.sink import render_event
+
+        event = make_event("tool_call_failed", seq=1, tool="shell", duration_ms=250, error_kind="timeout")
+        rendered = render_event(event)
+        assert "[250ms]" in rendered
+        assert "error_kind=timeout" in rendered
+
+    def test_omits_defaults(self) -> None:
+        from heagent.events.protocol import make_event
+        from heagent.events.sink import render_event
+
+        rendered = render_event(make_event("run_started", seq=1))
+        assert "[0ms]" not in rendered
+        assert "error_kind=" not in rendered

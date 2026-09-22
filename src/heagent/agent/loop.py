@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -545,11 +546,14 @@ class AgentLoop:
         async def handler(req: Request) -> ProviderResponse:
             return await self.provider.send(req.messages, tools=req.tools or None)
 
+        # Phase 5 C1：provider 调用耗时（中间件链整体 wall time，perf_counter 单调钟）。
+        _provider_started = time.perf_counter()
         if self.middlewares:
             chain = compose(self.middlewares, handler)
             response = cast("ProviderResponse", await chain(Request(messages=state.messages, tools=tools)))
         else:
             response = await handler(Request(messages=state.messages, tools=tools))
+        _provider_duration_ms = max(int((time.perf_counter() - _provider_started) * 1000), 0)
 
         if response.usage and response.usage.total_tokens > 0:
             logger.info(
@@ -574,6 +578,7 @@ class AgentLoop:
                 "model": response.model,
                 "finish_reason": response.finish_reason,
                 "actual_tokens": response.usage.total_tokens,
+                "duration_ms": _provider_duration_ms,
             },
         )
         return response

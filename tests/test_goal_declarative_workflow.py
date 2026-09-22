@@ -815,7 +815,9 @@ async def test_blocked_step_reports_the_way_out(
             self.workflow = workflow
             self.state = SimpleNamespace(outputs={}, active_step=0, reason="gate rejected the output")
 
-        async def run_step(self, callback: object, *, inputs: object, stories: object = None) -> WorkflowRunResult:
+        async def run_step(
+            self, callback: object, *, inputs: object, stories: object = None, emit: object = None
+        ) -> WorkflowRunResult:
             return WorkflowRunResult(
                 status=WorkflowStatus.BLOCKED,
                 step_index=0,

@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from heagent.agent.run_lifecycle import (
@@ -166,7 +167,15 @@ async def stream_run(  # noqa: C901
             await finish_run(loop, run_context, init, state, accumulated, final_answer=final_answer)
             yield StreamEvent(type="done", final_answer=final_answer)
     except Exception as exc:
-        await on_run_failed(loop, run_context, init.prompt, system_content, state, exc)
+        await on_run_failed(
+            loop,
+            run_context,
+            init.prompt,
+            system_content,
+            state,
+            exc,
+            duration_ms=max(int((time.perf_counter() - init.started_perf) * 1000), 0),
+        )
         raise
     finally:
         await persist_and_cache(loop, session_id, state, accumulated, run_context)

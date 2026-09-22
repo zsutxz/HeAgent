@@ -156,6 +156,11 @@ def render_event(event: RunEvent) -> str:
         parts.append(f"iter={event.iteration}")
     if event.tool:
         parts.append(f"{event.tool} → {event.target}" if event.target else event.tool)
+    # Phase 5 C1（V3）：耗时 / 失败分类有值时追加渲染（缺省值不打扰）。
+    if event.duration_ms:
+        parts.append(f"[{event.duration_ms}ms]")
+    if event.error_kind:
+        parts.append(f"error_kind={event.error_kind}")
     if event.details:
         parts.append(json.dumps(event.details, ensure_ascii=False, default=str))
     return " ".join(parts)

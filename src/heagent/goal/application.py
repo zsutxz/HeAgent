@@ -413,13 +413,16 @@ async def advance(
     *,
     confirm_checkpoint: Callable[[], bool],
     load_project_context: Callable[[], str | None],
+    emit: Callable[[str], None] | None = None,
 ) -> GoalAdvanceOutcome:
     """Advance deterministically through steps and resolve completed checkpoints.
 
     端口注入：``execute_step``（LLM 会话，缝在 cli_goal）、``confirm_checkpoint``
     （manual 模式的 checkpoint 批准决策，CLI 为 TTY confirm 实现）、
-    ``load_project_context``（cwd 锚定属入口）。其余——inputs 装配、story 选择、
-    run_step 编排、BLOCKED 指路与 checkpoint 决策——全部确定性收敛于此。
+    ``load_project_context``（cwd 锚定属入口）、``emit``（步骤粒度观测端口，
+    Phase 5 C1：透传 ``WorkflowRunner.run_step`` 发 workflow_step_* 事件；缺省 None
+    = 零行为变化）。其余——inputs 装配、story 选择、run_step 编排、BLOCKED 指路
+    与 checkpoint 决策——全部确定性收敛于此。
     """
     runner = context.runner
     mode = context.mode
@@ -456,7 +459,7 @@ async def advance(
 
         try:
             callback = partial(_run_step_with_inputs, inputs, execute_step)
-            result = await runner.run_step(callback, inputs=inputs, stories=stories)
+            result = await runner.run_step(callback, inputs=inputs, stories=stories, emit=emit)
         except (WorkflowCheckpointError, ValueError, TypeError) as exc:
             messages.append(f"[goal] declarative workflow failed: {exc}")
             return outcome(GoalAdvanceStatus.FAILED)
