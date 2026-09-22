@@ -5,7 +5,7 @@ created: '2026-09-21'
 status: 'done'
 baseline_commit: 'a8ae5a6'
 review_loop_iteration: 0
-context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle-plan.md']
+context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle/arch-optimization-cycle-plan.md']
 ---
 
 <frozen-after-approval reason="用户已授权执行 Phase 2">

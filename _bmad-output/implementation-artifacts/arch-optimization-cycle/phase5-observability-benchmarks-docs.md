@@ -5,7 +5,7 @@ created: '2026-09-22'
 status: 'done'
 baseline_commit: 'c4c6622'
 review_loop_iteration: 0
-context: ['{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle-plan.md', '{project-root}/_bmad-output/implementation-artifacts/phase4-infra-layering-concurrency.md']
+context: ['{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle/arch-optimization-cycle-plan.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle/phase4-infra-layering-concurrency.md']
 ---
 
 <frozen-after-approval reason="待用户批准后冻结执行">

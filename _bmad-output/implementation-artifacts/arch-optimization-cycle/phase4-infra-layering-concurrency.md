@@ -5,7 +5,7 @@ created: '2026-09-21'
 status: 'done'
 baseline_commit: '52a7cba'
 review_loop_iteration: 0
-context: ['{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle-plan.md', '{project-root}/_bmad-output/implementation-artifacts/phase3-workflow-decoupling.md']
+context: ['{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle/arch-optimization-cycle-plan.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle/phase3-workflow-decoupling.md']
 ---
 
 <frozen-after-approval reason="待用户批准后冻结执行">

@@ -5,7 +5,7 @@ created: '2026-09-21'
 status: 'done'
 baseline_commit: '71d1674'
 review_loop_iteration: 0
-context: ['{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle-plan.md', '{project-root}/_bmad-output/implementation-artifacts/phase2-loop-facade.md']
+context: ['{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle/arch-optimization-cycle-plan.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle/phase2-loop-facade.md']
 ---
 
 <frozen-after-approval reason="待用户批准后冻结执行">
