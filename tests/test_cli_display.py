@@ -131,3 +131,41 @@ def test_show_tool_activity_folds_overflow(capsys: pytest.CaptureFixture[str]) -
         "  file_read → 1.md",
         "  … 另有 3 个目标",
     ]
+
+
+def test_current_version_matches_the_package_attribute() -> None:
+    """版本只有一处事实源：``heagent.__version__``。"""
+    import heagent
+
+    assert cli_display._current_version() == heagent.__version__
+
+
+def test_banner_ignores_stale_installed_metadata(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """回归锁（2026-09-22 实测故障）：横幅原读 ``importlib.metadata``，editable 安装未刷新时
+    报出旧版本（`.venv` dist-info=0.6.1 而源码=0.6.2）。把安装元数据打成哨兵值后，
+    横幅仍须输出源码版本——即不再依赖「已安装」这一前提。
+    """
+    import importlib.metadata
+
+    import heagent
+
+    monkeypatch.setattr(importlib.metadata, "version", lambda _name: "0.0.0-stale-metadata")
+    cli_display._print_banner()
+
+    banner = capsys.readouterr().err.strip()
+    assert banner == f"HeAgent v{heagent.__version__} — A self-improving AI Agent core framework"
+    assert "stale-metadata" not in banner
+
+
+def test_package_version_matches_pyproject() -> None:
+    """源码版本与 ``pyproject.toml`` 必须同步——两处漂移正是横幅撒谎的温床。"""
+    import tomllib
+
+    import heagent
+
+    pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
+    declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
+
+    assert heagent.__version__ == declared

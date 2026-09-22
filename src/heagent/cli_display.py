@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 import sys
 from dataclasses import dataclass
-from importlib.metadata import version
 from typing import TYPE_CHECKING
 
 import click
@@ -21,13 +20,22 @@ if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
     from heagent.types import StreamEvent, TokenUsage
 
-# 版本取自安装元数据（pyproject [project].version），不经根包 import——
-# 根包 __init__ 链上任何模块级代码触碰本模块时避免形成根包回环（2026-09）。
-_VERSION = version("heagent")
+
+def _current_version() -> str:
+    """源码版本号（``heagent.__version__``，与 ``pyproject.toml`` 同步）。
+
+    刻意**延迟**到调用时导入根包：本模块处于根包 ``__init__`` 链的可能下游，
+    模块级 import 根包会形成回环；函数内导入时根包必已初始化完成。
+    不再读 ``importlib.metadata``——安装元数据会滞后于源码（editable 安装
+    未刷新时横幅会报出旧版本），源码才是唯一事实源。
+    """
+    from heagent import __version__
+
+    return __version__
 
 
 def _print_banner() -> None:
-    click.echo(f"HeAgent v{_VERSION} — A self-improving AI Agent core framework", err=True)
+    click.echo(f"HeAgent v{_current_version()} — A self-improving AI Agent core framework", err=True)
 
 
 def _print_usage(usage: TokenUsage | None, *, model: str | None = None) -> None:
