@@ -53,6 +53,7 @@ _bmad-output/
 | Epic 42 | skill-runtime | BMad 技能包运行时 |
 | Epic 43–46 | goal-workflow | 目标工作流连续执行与资源安全 |
 | Epic 47 | declarative-workflow | 声明式 BMad 工作流与产物治理 |
+| Epic 48 | tcp-network-interface | TCP 网络接口与 CLI Agent 服务（in-progress，2026-09-22；6 Story ready-for-dev） |
 
 各自周期目录下的旧 sprint-status 保留作为只读归档；后续状态更新以 `_bmad-output/sprint-status.yaml` 为唯一写目标。
 
@@ -144,6 +145,10 @@ _bmad-output/
 ## epics/epic-47-声明式BMad敏捷工作流周期/ — 声明式工作流周期（Epic 47）
 
 记录 Goal/Epic/Story 产物契约、工作流执行闸门、审查/回顾闭环和示例回归文档。补充归档包括 checkpoint 恢复、运行时持久化治理、子代理依赖反转和仓库贡献指南（均位于 `epic-47-声明式工作流与产物治理/`）。
+
+## epics/epic-48-TCP网络接口周期/ — TCP 网络接口周期（Epic 48，in-progress）
+
+记录 CLI 作为 TCP Server 接收请求、调用 AgentLoop 并通过 TCP 返回结构化结果的产品需求、协议边界、资源限制、安全边界、Architecture、6 个 Story 与 Sprint Plan。当前 6 个 Story 均为 `ready-for-dev`，尚未开始代码实现。
 
 ## 补丁 spec（原 `patches/`，2026-09-15 解散）
 

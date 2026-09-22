@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-09-15
+# last_updated: 2026-09-22
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -463,3 +463,15 @@ development_status:
   47-9-story-parallel-batch: done
   47-10-story-parallel-checkpoint: done
   epic-47-retrospective: done
+
+  # ═══════════════════════════════════════════════════════════════
+  # TCP 网络接口周期 · Epic 48（2026-09-22 建立，in-progress）
+  # ═══════════════════════════════════════════════════════════════
+  # CLI 作为 TCP Server；JSON Lines；单请求单响应；默认 localhost；Story 已创建
+  epic-48: in-progress
+  48-1-tcp-protocol-message-boundary: ready-for-dev
+  48-2-async-tcp-server-lifecycle: ready-for-dev
+  48-3-agentloop-adapter-cli-wiring: ready-for-dev
+  48-4-concurrency-timeouts-resource-limits: ready-for-dev
+  48-5-network-entry-security-observability: ready-for-dev
+  48-6-tcp-regression-tests-docs: ready-for-dev

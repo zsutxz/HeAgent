@@ -73,6 +73,7 @@
 | Epic 42 | skill-package-runtime | 可安装、可验证的声明式技能包运行时（FR1-FR8：包发现 / 别名解析 / 资源围栏读取，2026-09-01 交付） |
 | Epic 43–46 | goal-workflow-continuation | 目标级编排/恢复、Token 分段、运维收口与技能资源 TOCTOU 评估（2026-09-01；Epic 43–46 评估/实现已完成） |
 | Epic 47 | declarative-bmad-agile-workflow | Goal→Epic→Story 产物契约、BMad 角色包、Markdown workflow/step、Runner、声明式 `/goal`、Review/Retrospective/Correct Course 与两 Story 冒烟（2026-09-01） |
+| Epic 48 | tcp-network-interface | TCP 网络接口与 CLI Agent 服务：CLI TCP Server、JSON Lines、AgentLoop 适配、资源限制与安全边界（2026-09-22；in-progress，6 Story ready-for-dev） |
 
 **FR 编号空间**（互不冲突，引用须写全限定）：主线 `FR-1~24`；MCP V1 `FR-1~11`；MCP 升级准备 `FR-1~5`；MCP V2 `FR-A1~A7 / FR-B1~B4 / FR-C1~C4`；Sandbox `FR-S1~S7`；健壮性 `FR-A1~A5 + FR-C1~C6`；质量工程 `FR-Q1~Q20`；GUI `FR-G1~G24`；interaction `FR-A1~A5 / FR-B1~B3 / FR-C~G 各 1~4`；文件安全 `FR-1~5`（本地）；沙箱会话化 `FR-1~5`（本地，FR-5 deferred）。
 
