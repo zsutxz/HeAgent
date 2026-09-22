@@ -5,7 +5,7 @@ created: '2026-09-21'
 status: 'done'
 baseline_commit: 'a8ae5a6'
 review_loop_iteration: 0
-context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md', '{project-root}/docs/test.md']
+context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle-plan.md']
 ---
 
 <frozen-after-approval reason="用户已授权执行 Phase 2">
@@ -73,3 +73,66 @@ context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md', '{project-
 - `python -m pytest tests/test_agent_loop.py tests/test_streaming.py tests/test_window_reset.py tests/test_steering_followup.py tests/test_plan_mode.py tests/test_agent_delegation.py tests/test_sub_agent.py tests/test_subagent_budget.py tests/test_subagent_role.py tests/test_approval.py tests/test_hooks.py tests/test_events_jsonl.py tests/test_architecture_contracts.py -q`
 - `python scripts/quality_gate.py` 全量。
 - `ruff check src tests scripts`、`ruff format --check src tests`、`mypy src`。
+
+## 执行记录（自 docs/test.md 迁入，2026-09-22 归档）
+
+### Phase 2 执行记录（已完成）
+
+spec：`_bmad-output/implementation-artifacts/phase2-loop-facade.md`。基线提交 `a8ae5a6`。
+
+### 入口全量门禁（2026-09-21）
+
+Phase 1 遗留的「下阶段入口先跑一次全量」执行，抓到两笔欠账并修复：
+
+1. `test_sub_agent.py::test_role_metadata_is_observable_and_caller_metadata_wins` 失败——Phase 1 在 `engine.create_context` 写入 `sandbox_decision` 治理键后，该测试 metadata 全量相等断言被打破（定向组 glob `subagent_*` 未覆盖 `test_sub_agent.py`）。按「测试验证意图」改为按键断言，注明基础设施键不属于角色/调用方契约。提交 `23ef756`。
+2. `ruff check` S101 两处——Phase 1 提交 `ca81123` 在 `cli.py:206`、`gui/__init__.py:68` 用 `assert` 收窄 `engine.runtime_config` 类型；上一会话「ruff check 通过」申报对这两行不准确。改为 `if resolved is None: raise RuntimeError(...)`（显性失败 + `pragma: no cover`），mypy 收窄语义不变。
+
+修复后全量门禁：2024 passed、9 skipped、14 deselected，覆盖率 91.02%；ruff/format/mypy 通过（详见本轮提交记录）。
+
+### C1 模块路径拆分（已完成）
+
+`agent/loop.py` 1,199 → 707 行（façade：装配 + 公共入口委托 + 留守核心方法），策略迁出五个 sibling 模块：
+
+| 新模块 | 行数 | 承载 |
+| --- | --- | --- |
+| `agent/run_lifecycle.py` | 387 | 状态数据类（AgentState/_RunInit/_ResumeState）+ `_delegation_details` + 初始化分叉 + 非流式循环体 `execute_run` + 终结/失败收尾 + run_store 检查点 |
+| `agent/stream_runtime.py` | 172 | 流式循环体 `stream_run`（noqa: C901 随迁） |
+| `agent/context_runtime.py` | 150 | 迭代控制/消息追加/add_usage/压缩/窗口重置 |
+| `agent/message_ports.py` | 118 | steering/follow-up poll+inject + pause/unpause/wait_if_paused |
+| `agent/resume_runtime.py` | 49 | `build_resume_state` 快照重建 |
+
+关键落位决策：状态数据类在 `run_lifecycle.py`（lifecycle/resume 需运行期构造且不得反向导入 loop）；loop.py 以 `__all__` 显式再导出（mypy `no_implicit_reexport` × ruff `PLC0414` 交集解）；`_delegation_details` 测试导入路径经 re-export 保持。所有迁移函数以 `loop` 为首参（TYPE_CHECKING 引用 AgentLoop），策略模块运行期不导入 loop。
+
+### C1 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| 定向第一批（agent_loop / streaming / window_reset / steering_followup / plan_mode） | 90 passed |
+| 定向第二批（delegation / sub_agent×3 / approval / hooks / events_jsonl / runtime_config / architecture_contracts / engine_p0 / call_summary / dream / run_store_prune / gui_goal / compressor） | 299 passed, 1 skipped（textual 守卫） |
+| `ruff check src tests scripts` / `ruff format` | 通过 |
+| `mypy src` | 118 文件通过 |
+| `scripts/quality_gate.py` 全量 | 待 C1 提交后执行（见下） |
+
+### C2 状态收口（已完成）
+
+- `RunContext.mark_terminal`（`engine/context.py`）：终态唯一 reducer——RUNNING→COMPLETED/FAILED 合法；终态再写 `RuntimeError`（显性失败，不静默覆盖）；非终态入参 `ValueError`。`touch` 保持裸 setter 供迭代期刷新；src 内 `touch(status=` 现仅剩 reducer 内部一处。
+- `run_lifecycle.py` 的 `finish_run`/`on_run_failed` 改经 reducer 写终态（替换原两处 `touch(status=...)`）。
+- 新增 `tests/test_run_status_contract.py`：4 个 reducer 单元契约 + 3 个真实 loop 行为契约（成功恰一次 COMPLETED / 失败恰一次 FAILED / 取消不写终态且 status 保持 RUNNING 可 resume——现状语义显性钉死）。
+- 新增架构契约 `test_architecture_contracts.py::test_loop_strategy_modules_do_not_runtime_import_loop_facade`：五个策略模块运行期禁止导入 loop façade（AST 按完整模块路径扫描；包级规则表粒度不够，单列）。
+- 任务前提修正（详见 spec Change Log）：`RunStatus` 无 cancelled/waiting_approval；「散落布尔」枚举为空（pause 已是 Event 端口、展示态是 run 级重置）。
+
+### C3 入口装配收口（已完成，形态调整）
+
+spec 任务原文「GUI 主 loop 工厂并入共享工厂」实现勘察后**否决全量合并**（17 参 + 4 布尔旗巨函，见 spec Change Log），改为三缝收口：
+
+- `wiring.ensure_runtime_config(engine)`：engine 快照读回收窄单点，替换 cli/gui 两处重复的 None 守卫三分支。
+- `wiring.build_cron_job_runner(...)`：cli `_build_loop._run_job` 与 `gui_main._run_job`（GUI 注释自认「镜像 cli.py」）的逐字合并——goal 分支短路 `_goal_cron_advance`、普通 prompt 一次性 loop，参数透传（CLI 传 soul/compressor/window_reset/cwd，GUI 不传）。
+- **GUI cron_store 统一到 CLI 语义（行为变化，用户批准）**：`job_store = JobStore() if config.cron_enabled else None`——cron 关闭时 GUI 不再激活 cron 工具（此前无条件创建属装配漂移：工具可见但无调度器驱动）；scheduler 门随之加 `job_store is not None`。
+- 新增 `tests/test_wiring_loop_helpers.py`（4 例：ensure_runtime_config 两态、runner goal/普通双分支）。
+- cli.py 顶部 `cli_goal` 导入收窄为 `_goal_runner`（goal cron 函数改由 wiring 惰性导入，规避 wiring↔cli_goal 模块级环）。
+
+### 待办（本阶段后续）
+
+- [x] C2 状态收口：终态唯一 reducer + 状态转换契约测试。
+- [x] C3 入口装配收口：ensure_runtime_config + build_cron_job_runner + GUI cron_store 统一。
+- [x] 架构契约测试扩展：断言策略模块运行期禁止导入 `heagent.agent.loop`。

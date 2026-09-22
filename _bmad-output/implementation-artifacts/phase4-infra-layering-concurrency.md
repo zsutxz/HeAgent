@@ -5,7 +5,7 @@ created: '2026-09-21'
 status: 'done'
 baseline_commit: '52a7cba'
 review_loop_iteration: 0
-context: ['{project-root}/docs/frame.md', '{project-root}/docs/test.md', '{project-root}/_bmad-output/implementation-artifacts/spec-phase3-workflow-decoupling.md']
+context: ['{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle-plan.md', '{project-root}/_bmad-output/implementation-artifacts/phase3-workflow-decoupling.md']
 ---
 
 <frozen-after-approval reason="待用户批准后冻结执行">
@@ -100,3 +100,62 @@ context: ['{project-root}/docs/frame.md', '{project-root}/docs/test.md', '{proje
 - 平台说明：本地 Windows 验证 WinJob 路径；Firejail/Linux 后端由 CI（Python 3.11 Linux）覆盖，本地仅静态可验证部分。
 
 </frozen-after-approval>
+
+## 执行记录（自 docs/test.md 迁入，2026-09-22 归档）
+
+### Phase 4 执行记录
+
+spec：`_bmad-output/implementation-artifacts/phase4-infra-layering-concurrency.md`。基线提交 `52a7cba`。
+
+### 入口全量门禁（2026-09-21）
+
+52a7cba 上全量默认回归：2038 passed、9 skipped、14 deselected，覆盖率 90.78%（≥87），ruff/format/mypy 干净。
+
+### C1 sandbox 包化（已完成，`15c8f61`）
+
+`tools/sandbox.py`（797 行）→ `tools/sandbox/` 包：`contracts.py`（tier/Protocol/slot）、`process.py`
+（监督内核）、`firejail.py`、`winjob.py`、`session.py`；`__init__` re-export 全历史公共名。
+`CommandRunner` Protocol 补 `available` property（Protocol 成员用 property 形式——可写属性声明会与
+只读 property 实现不兼容，mypy 实测）；三 backend `available` 形状统一为 property，消
+`container.py` 的 `type: ignore`。缝处置：`sys.platform`/`signal.SIGKILL` 字符串缝改写为全局路径
+（同一 sys 单例，语义等价）；`_REAP_WAIT_TIMEOUT` 缝随消费者迁 `process` 并同步 patch 路径；
+`WinJobBackend.available` 类身份缝经 re-export 自动存活。2038 passed 与基线完全一致。
+
+### C2 MCP 生命周期 façade 分层（已完成，`5adde12`）
+
+- `client.py`：`TransportOpener` 最小 Protocol + `default_transport_opener`（stdio/HTTP 分派 + 握手），
+  构造期 `transport_opener=` 注入；manager 保留 `_transport_and_session` 方法作 class-patch 缝宿主
+  （test_mcp_manager 全部用例的既有缝），连接成功日志随 wrapper 保留（`type(cfg).__name__` 文案逐字一致）。
+- `registry_bridge.py`：`RegistryBridge` 收敛注册/注销与命名冲突策略（含幂等守卫内聚化——manager 侧
+  `_bridge_registered` 守卫并入 bridge）。
+- `MCPServerFailure`（Pydantic）+ `discovery_failures` 属性；`cli._report_mcp_discovery_failures`
+  在两个入口（单发/交互）渲染 stderr。契约：`tools/sandbox` + `tools/mcp` 运行期禁 click（AST）。
+
+### C3 子进程监督内核统一（已完成，`1380f0d`）
+
+- `process.py`：`cap_channel` 转公共；新增 `reap_subprocess`（有界回收；`_REAP_WAIT_TIMEOUT`
+  **调用时求值**——默认参数 def 时绑定会废掉模块属性 patch 缝，实测红后修正）。
+- git：kill 后改用 `reap_subprocess`（原 `communicate()` 无上界）；stdout/stderr 经 `cap_channel`
+  截断；`RuntimeError` 语义冻结。
+- hooks：超时路径改走 `_terminate_and_reap`（与取消路径对称），管道回收有界。
+- WinJob：V1 env 剥离（`_winjob_spawn` 补 `scrub_sensitive_env`，与 asyncio 路径同基线）、
+  V2 超时/取消 wait 加 5s 上界。
+
+### C4 skills 拆分 + safe-open 单点（已完成）
+
+- `memory/skills.py`（687 行）→ `skill_models.py` / `skill_rewrite.py` / `skill_catalog.py` /
+  `skill_store.py`，`skills.py` re-export 兼容；`SkillStore._render_skill_md` /
+  `_body_survives_rerender` 以 staticmethod 别名留类上（测试类名访问缝 + update/record_usage 的
+  **实例级** patch 缝——call 点走 `self.` 使两者共存）。
+- safe-open 内核 `open_text_under_root(root, relative)` 落 `tools/path_safety.py`：围栏 →
+  O_NOFOLLOW（不支持平台回退，特征测试保留）→ fstat 普通文件校验 → utf-8 + universal newlines。
+  `SkillPackage._read_text`（保留包域错误标注）、`SkillStore._read_text`、importer `_read_lock`
+  全部接入。**留档例外**：importer `_read_manifest`（csv 需 raw newline 语义）与 `_hash`（字节流
+  哈希）保留直读；`persist.py` 的 `os.open` 是锁文件创建（非读取路径）。
+- 契约：① `os.open` 白名单 = `tools/path_safety.py` + `persist.py`（spec 原文「全仓单点」据此修正）；
+  ② skill 四文件禁裸 `read_text`/`open`；③ sandbox/mcp click-free（C2 已落地）。
+
+### 收尾门禁（Phase 4 全边界后）
+
+quality_gate 全量：2045 passed、9 skipped、14 deselected，覆盖率 ≥87%，ruff/format/mypy 干净。
+（相对基线 +7：C2 失败暴露/opener 注入/CLI 渲染/契约 + C3 env/截断 + C4 契约新增用例，无删减无跳过。）

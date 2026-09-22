@@ -5,7 +5,7 @@ created: '2026-09-21'
 status: 'done'
 baseline_commit: '71d1674'
 review_loop_iteration: 0
-context: ['{project-root}/docs/frame.md', '{project-root}/docs/test.md', '{project-root}/_bmad-output/implementation-artifacts/spec-phase2-loop-facade.md']
+context: ['{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle-plan.md', '{project-root}/_bmad-output/implementation-artifacts/phase2-loop-facade.md']
 ---
 
 <frozen-after-approval reason="待用户批准后冻结执行">
@@ -87,3 +87,78 @@ context: ['{project-root}/docs/frame.md', '{project-root}/docs/test.md', '{proje
 - `ruff check src tests scripts`、`ruff format --check src tests`、`mypy src`。
 
 </frozen-after-approval>
+
+## 执行记录（自 docs/test.md 迁入，2026-09-22 归档）
+
+### Phase 3 执行记录
+
+spec：`_bmad-output/implementation-artifacts/phase3-workflow-decoupling.md`。基线提交 `71d1674`。
+
+### 入口全量门禁（2026-09-21）
+
+71d1674 上全量默认回归：2036 passed、9 skipped、14 deselected（101.7s），干净起步。
+
+### C1 确定性内核抽取（已完成）
+
+新 `goal/application.py`（goal/document.py 先例：入口层子包、随文档/编排约定变化原因不同而分离）。
+纯函数迁入并去 settings 化（Phase 1 原则：内核不调 `get_settings()`，回退值由 cli_goal 注入参数）：
+
+| 迁入符号（application） | 原 cli_goal 符号 | 说明 |
+| --- | --- | --- |
+| `validate_goal_workflow` | `_validate_goal_workflow` | 声明校验 |
+| `checkpoint_mode(w, fallback)` / `open_question_mode(w, fallback)` | `_goal_checkpoint_mode` 等 | settings 回退改注入；cli 保留同名薄壳 |
+| `open_question_policy` / `gate_requirements` / `dedupe_inputs` / `render_template` / `declarative_prompt`（+keyword-only `open_question_fallback`） | `_goal_*` | prompt/gate 装配；cli 保留 `_goal_declarative_prompt` 薄壳 |
+| `role_instructions` / `resolve_skill_package` / `_GOAL_SKILLS_ROOT` | 同名 `_` 版 | 技能包解析随迁 |
+| `load_stories` | `_goal_load_stories` | story 选择（路径越界显性失败随迁） |
+| `checkpoint_store` / `restore_runner` | `_goal_declarative_store` / `_goal_declarative_runner` | checkpoint↔workflow.json↔指针 引用关系与恢复语义显式写入 docstring |
+
+cli_goal 经 re-export/别名保持命名空间；6 组 monkeypatch 缝全部原位（`_goal_session` 缝链的
+调用方 `_goal_execute_step` 留守）。
+
+### C2 advance use-case 结构化（已完成）
+
+- `GoalAdvanceStatus`（StrEnum，值 = `_GOAL_*`）/ `GoalAdvanceOutcome(status, messages: list[str])`
+  / `PauseResumeStatus` / `PauseResumeOutcome(status, proceed, message)`——跨模块数据用 Pydantic，
+  文案为完整行、由 cli 统一 `click.echo(err=True)` 原文渲染（capsys 断言全部原文通过）。
+- `advance(context, execute_step, *, confirm_checkpoint, load_project_context)`：inputs 装配、
+  story 选择、run_step 编排、BLOCKED 指路、checkpoint 决策（`_advance_checkpoint_decision`
+  helper 拆出以满足 C901）全部确定性收敛；端口注入三件：`execute_step`（LLM 会话缝，cli 侧
+  `_goal_execute_step`）、`confirm_checkpoint`（TTY confirm）、`load_project_context`（cwd 锚定）。
+  run_step 回调桥经 `functools.partial`（绑定值规避循环闭包晚绑定歧义 B023）。
+- `pause_resume(workflow, goal_dir, *, resume, response)`：决策内核（状态检查/迁移/持久化/
+  失败文案）迁入；cli 薄壳只解析指针 + 渲染 message + 透传 `proceed`（对应旧布尔返回值）。
+- cli_goal `_goal_declarative_advance` 991→薄壳：prepare（缝）→ 端口注入 → advance → 渲染。
+
+### C3 契约钉死（已完成）
+
+- 新增架构契约 `test_architecture_contracts.py::test_goal_application_use_case_is_click_free`：
+  goal/application.py 运行期禁止导入 `click` / `heagent.cli*` / `heagent.gui*` / `heagent.wiring`
+  （AST 扫描，沿 Phase 2 手法）——「use-case 可在无 Click 环境运行」的可执行钉死。
+  engine→goal 反向依赖已有包级规则表钉住（`FORBIDDEN_RUNTIME_IMPORTS["engine"]`），不重复。
+- 新增恢复语义契约 `test_goal_declarative_workflow.py::test_restore_runner_fails_loud_when_
+  configuration_does_not_match_persisted_state`：workflow.json 与快照不匹配 →
+  `WorkflowCheckpointError` 显性失败（此前该分支无测试）；快照/workflow.json 损坏路径由
+  test_engine_checkpoint 既有断言覆盖。
+- engine `WorkflowCallback`/`StoryWorkflowCallback` 类型别名已显名承载 run_step 回调契约，
+  未新增 Protocol（纯 ceremony，见 spec Change Log）；application 的 `StepExecutor` 别名
+  （inputs 前置形状）承载入口端口。
+- `goal/__init__.py` 模块清单、`docs/frame.md` §4.13 + 目录树同步。
+
+### Phase 3 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| goal 全系定向（declarative / story_loop / cross_process_lock / gui_goal / wiring_helpers / workflow_runner / engine_checkpoint） | 全部通过（C1 后 95 passed；C2/C3 后含新增契约 67+ passed） |
+| 架构契约测试 | 通过（含新增 click-free 契约） |
+| ruff check / format、mypy | 通过 |
+| `scripts/quality_gate.py` 全量 | 通过：2038 passed、9 skipped、14 deselected，覆盖率 90.76%（≥87%）；ruff lint/format、mypy 全绿 |
+
+### Phase 3 行数与缝核查
+
+- `cli_goal.py` 991 → 680 行（薄壳化 + 缝宿主 + 渲染边界；预估 ≤600 略超，超量为保留的
+  dispatch/usage/auto/cron 入口编排与注释，见 spec Change Log）；`goal/application.py` 547 行。
+- 缝清单全数原位：`_goal_session`（5 patch 点）、`_goal_declarative_advance`（2）、
+  `_goal_declarative_prepare`（1）、`_goal_runner`（GUI 3 + 锁 1）、`_goal_auto_goal_id`/
+  `_goal_cron_advance`（wiring 2）、`_GOAL_LOCK_TIMEOUT`/`_GOAL_LOCK_PATH`/`_goal_auto_lock`。
+- 新增 F401 钉子：`_goal_record_user_response`/`_goal_user_responses` 内部调用点随 C2 迁移后
+  无 cli 内调用，靠 `__all__` 钉住 re-export（测试仍经 `cli_goal` 访问）。

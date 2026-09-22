@@ -73,3 +73,52 @@ context: ['{project-root}/AGENTS.md', '{project-root}/docs/frame.md']
 - `python -m pytest tests/test_runtime_config.py tests/test_architecture_contracts.py tests/test_config.py tests/test_engine_p0.py tests/test_cli.py tests/test_cli_provider_build.py tests/test_gui_goal.py -q`
 - `python scripts/quality_gate.py`：全量门禁，Phase 0 已知四个格式问题需区分基线与本次引入。
 - `ruff check src tests scripts`、`mypy src`。
+
+## 执行记录（自 docs/test.md 迁入，2026-09-22 归档）
+
+### Phase 1 执行记录
+
+spec：`_bmad-output/implementation-artifacts/phase1-runtime-config.md`（状态 done）。分两笔提交：`9013f50`（快照类型 + engine 侧）、本笔（配置消费者收敛 + 入口共用解析 + 契约测试）。
+
+### 变更摘要
+
+- `config.py`/`types.py`：`ResolvedRuntimeConfig` 冻结快照 + `resolve_runtime_config()`（显式非 None 覆盖才生效、字段来源可查、凭证 exclude）；`RuntimeConfigSource`/`SandboxDecision` 冻结模型。
+- `engine/container.py`：构造期解析快照；`default()` 接受 `runtime_config`/`settings`；`create_context` 将 `sandbox_decision` 写入 run metadata。
+- `engine/policy.py`：`PolicyVerdict.source` 标记裁决来源（sandbox_mode/allowed_tools/blocked_tools/block_mcp_tools/workspace_paths/审批与沙箱分支）。
+- `agent/loop.py`/`sub.py`/`delegation.py`：构造期快照 `self._runtime`；压缩、窗口重置、委派深度、提示词块、技能预算运行期只读快照；父快照经委派链传给子 Agent（SubAgent → 内层 loop）。
+- `agent/system_prompt.py`：`build_system_prompt(..., settings=)` 显式快照；project-context 路径显式传 `max_bytes`/`user_level`。
+- `tools/builtins/skills.py`：`SkillToolRuntime` 扩展 `manual_load_budget`/`curator_stale_days`，loop 在 run 作用域绑定快照值；未绑定（独立脚本/测试）才回退全局。
+- `cli._build_loop` 与 `gui_main`：组装期 `resolve_runtime_config()` 一次，engine 与主/cron loop 共用 `engine.runtime_config`；cron 一次性 loop 继承快照。
+- 契约测试：`FORBIDDEN_RUNTIME_IMPORTS` 扩展入口层模块（wiring/cli/cli_goal/gui），新增 `agent` 包禁止导入入口层。
+
+### get_settings 运行期消费核查表
+
+| 位置 | 处置 |
+| --- | --- |
+| `agent/loop.py` 压缩/窗口重置/委派深度 | 改读构造期快照 |
+| `agent/sub.py` guard/max_iterations | 构造期快照（父快照优先；缺省时全局解析一次） |
+| `agent/system_prompt.py` 三个提示词块 | 显式 `settings` 参数，loop 传快照 |
+| `context/loader.load_context_files` | 提示词路径显式传值；其余调用方的参数缺省回退保留 |
+| `tools/builtins/skills.py` 预算/陈旧天数 | RuntimeSlot 绑定快照值；无 run 绑定才回退全局 |
+| `context/tokens._tokenizer_mode` | **保留**：观测/计量路径，已有显式防御回退（读失败按 auto）；改签名波及面大、收益低 |
+| `tools/sandbox._env_allowlist` | **保留**：进程拉起时读当前安全策略属 fail-safe 方向（策略收紧即时生效）；构造期冻结反而可能用过期放行清单 |
+| `housekeeping` / `memory/dream` | **保留**：显式 settings 参数优先、入口/构造期一次解析，无运行中漂移面 |
+
+### 验证
+
+| 检查 | 结果 |
+| --- | --- |
+| pytest 定向组（runtime_config / architecture_contracts / config / engine_p0 / cli / cli_provider_build / agent_loop / agent_delegation / subagent_* / skill_tools / gui_goal / compressor / window_reset / goal_declarative / goal_cross_process_lock） | 全部通过（最大组合 207 passed） |
+| `ruff check src tests scripts` | 通过 |
+| `ruff format --check src tests` | 通过——Phase 0 遗留 4 个格式欠账（`goal/naming.py`、`goal/workflow_loader.py`、`test_goal_cross_process_lock.py`、`test_goal_declarative_workflow.py`）本次一并格式化关闭 |
+| `mypy src` | 113 文件通过 |
+| `scripts/quality_gate.py` 全量 | 未完整执行（会话预算）；其组成项均已单独通过，全量门禁留待下阶段入口验证 |
+
+### 契约语义变化（重要）
+
+配置解析从「方法调用时惰性读全局/环境」改为「**构造期一次解析**」。env 变更后须 `reset_settings()`（或新进程）才会被后续构造采样；`test_engine_p0.py::TestSandboxSessionSwitchPrecedence::test_keep_switch_precedence` 按新契约更新（显式重置单例），测试意图（显式值压过 env、None 跟随 env）不变。
+
+### 遗留
+
+- GUI 主 loop 仍内联构造，未与 `cli._build_loop` 合并为共享工厂；两者已共用同一解析结果与 `engine.runtime_config`，工厂合并归 Phase 2 入口层收口。
+- `resolve_runtime_config` 全量复制 Settings 字段（含 hooks 相关），hooks 无独立来源标记测试；后续 hooks 配置复杂化时再补。

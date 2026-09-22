@@ -5,7 +5,7 @@ created: '2026-09-22'
 status: 'done'
 baseline_commit: 'c4c6622'
 review_loop_iteration: 0
-context: ['{project-root}/docs/frame.md', '{project-root}/docs/test.md', '{project-root}/_bmad-output/implementation-artifacts/spec-phase4-infra-layering-concurrency.md']
+context: ['{project-root}/docs/frame.md', '{project-root}/_bmad-output/implementation-artifacts/arch-optimization-cycle-plan.md', '{project-root}/_bmad-output/implementation-artifacts/phase4-infra-layering-concurrency.md']
 ---
 
 <frozen-after-approval reason="待用户批准后冻结执行">
@@ -96,3 +96,57 @@ context: ['{project-root}/docs/frame.md', '{project-root}/docs/test.md', '{proje
 - docs 链接人工核对（docs/README 索引 → 目标文件存在）
 
 </frozen-after-approval>
+
+## 执行记录（自 docs/test.md 迁入，2026-09-22 归档）
+
+### Phase 5 执行记录
+
+spec：`_bmad-output/implementation-artifacts/phase5-observability-benchmarks-docs.md`。基线提交 `c4c6622`。
+
+### 入口全量门禁（2026-09-22）
+
+c4c6622 上全量默认回归全绿（Phase 4 终态即 Phase 5 基线）。
+
+### C1 事件契约 v2（已完成）
+
+- `SCHEMA_VERSION` "1"→"2"；`RunEvent` 顶层 +`duration_ms`/`error_kind`（黄金测试 `_EXPECTED_FIELDS` 9→11 字段同步）。
+  发射点把两键放 `EngineEvent.details`（EngineEvent 模型/GUI 面冻结），`from_engine_event` 提升到顶层并摘除
+  （非 int duration 缺省 0）；v1 rollout 双向可读（缺省读 / extra=ignore，溯源版本保留）。
+- emit 接入：provider_call_completed（中间件链整体耗时）、tool_call_completed/failed（耗时+分类，
+  DIRECT/SANDBOX 两路径）、run_completed/run_failed（run 全程耗时，经 `_RunInit.started_perf` 携带起点）。
+- `workflow_runner.run_step` 补发 `workflow_step_started/completed/failed`（`emit` 注入端口，缺省 None=零
+  行为变化；emit 异常隔离 warning）：耗时 + `error_kind_for` 封闭映射（timeout/cancelled/policy_denied/
+  safety_blocked/tool_error/exception 兜底，explicit 覆盖 unknown_tool）。
+  接线：`application.advance(emit=)` → `cli_goal._workflow_event_emitter`（绑 EngineContainer.events）。
+- KNOWN_KINDS 收编 dream/cron 现状 + workflow 三种（仍不过滤）；`render_event` 有值时追加 `[Nms]`/`error_kind=`。
+- 实测红三连：CancelledError 并非内建名（3.13 实证，改 asyncio 导入）；`_emit_step_event` 误加 `self.` 前缀；
+  goal 测试 StubRunner.run_step 补 emit 形参。
+- **新增反向边（留档）**：`engine → events.protocol`（仅 `error_kind_for` 纯函数，运行期 events 仅依赖
+  exceptions，无环）——frame.md DAG 规则与 CLAUDE.md 硬约束同步。
+
+### C2 benchmark 基建（已完成）
+
+- 新增 4 基准（`tests/test_benchmarks.py`，`-m benchmark` 独立运行）：provider 延迟（StubProvider 单迭代
+  完整 loop.run）、并发工具批次（gather×8 sleep，断言 wall<0.10s 数量级守护）、会话恢复（SessionStore 20 条
+  历史完整 run）、事件写入吞吐（JsonlSink rollout 50 事件）。
+- 回归阈值入口：`pytest -m benchmark -q --benchmark-compare=0001 --benchmark-compare-fail=min:50%`
+  （数量级守护，非微优化门禁；基线 autosave `./benchmark-data/`，不强制入库）。
+- **benchmark 抓出 C4 真 bug 两连**（显性失败的价值）：① `resolve_under_root` 对相对 root 恒拒
+  （绝对化候选 vs 未 resolve root）——生产默认 `SkillStore(base_dir=".heagent/skills")` 即相对根，已修
+  （root 一并 resolve 后比较）+ 回归测试；② safe-open 内核对「已含 root 前缀的相对路径」二次 join root
+  （root/name → root/root/name）——kernel 语义改为「绝对或 cwd 相对 + root 围栏校验」，裸资源名显性报越界。
+
+### C3 文档收口（已完成）
+
+- 新 `docs/extending.md`（新增 Provider/Tool/Skill 包步骤 + 架构契约自检）、`docs/troubleshooting.md`
+  （16 症状表 + 诊断命令速查，含 benchmark 阈值入口）。
+- `docs/README.md`：「Goal 工作流」70% 长文迁 `docs/goal-workflow.md` 专题（一处定义）；索引补
+  观测/性能/扩展/排查条目；快速定位表补四行。
+- `docs/frame.md` 新增 4.15 事件契约（逐字段表 + 逐 kind 发射点/details/耗时分类表 + 持久化影响）；
+  DAG 规则补 events 边。CLAUDE.md engine 依赖行同步。
+- docs 相对链接核查：全部有效。
+
+### 收尾门禁（Phase 5 全边界后）
+
+quality_gate 全量绿；`pytest -m benchmark` 14 全绿（10 既有 + 4 新增）；默认回归 deselect 数不变
+（benchmark 均不进默认回归）。
