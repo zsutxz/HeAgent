@@ -1246,6 +1246,36 @@ class TestSandboxBackendTier:
         completed = [d for n, d in events if n == "tool_call_completed"]
         assert completed and completed[0]["sandbox_tier"] == "job"
 
+    @pytest.mark.asyncio
+    async def test_emit_failure_is_isolated_from_tool_result(self, caplog) -> None:
+        """emit 抛异常不得污染工具结果（与 WorkflowRunner._emit_step_event 同一约定）。
+
+        回归（2026-09-22）：此前 ``emit`` 的异常从 ``_emit_tool_event`` 直接抛出，被
+        ``_execute_direct`` 的 ``except Exception`` 记成 ``Tool error: ...``——观测层故障
+        被伪装成工具失败，且 ``_started`` 绑定在 emit 之后，异常分支还会 UnboundLocalError。
+        """
+
+        def bad_emit(*args, **kwargs) -> None:
+            raise RuntimeError("observer exploded")
+
+        async def handler(call):
+            return "payload"
+
+        call = ToolCall(id="1", name="file_read", arguments={"path": "a.txt"})
+        executor = ToolExecutor()
+        with caplog.at_level(logging.WARNING):
+            result = await executor.execute(
+                call=call,
+                verdict=PolicyEngine().evaluate_tool_call(call),
+                guard=type("Guard", (), {"check": lambda self, call: None})(),
+                handler=handler,
+                emit=bad_emit,
+            )
+
+        assert result.is_error is False
+        assert result.content == "payload"
+        assert "emit failed" in caplog.text
+
 
 class TestSandboxSessionBinding:
     """FR-4: execute_in_sandbox 绑定 SandboxSession（handler 可取到）。"""

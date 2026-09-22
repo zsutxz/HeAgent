@@ -319,6 +319,46 @@ async def test_declarative_resume_retries_a_blocked_step(
 
 
 @pytest.mark.asyncio
+async def test_stale_active_step_is_reported_as_checkpoint_failure(
+    declarative_cwd: Path,
+    successful_step: list[str],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """回归（2026-09-22）：活动步骤越界时必须像 ``/goal status`` 一样呈报 checkpoint 失败。
+
+    ``WorkflowRunner._validate_state`` 对 ``active_step > len(steps)`` 抛的是**裸
+    ``ValueError``**（``WorkflowCheckpointError`` 是它的子类，反向不成立），而推进路径
+    （``_goal_declarative_prepare``）此前只兜 ``WorkflowCheckpointError``——于是存量 goal
+    在「工作流收缩」（12→10→9→8 步）后执行 ``/goal next`` 会抛裸异常栈，而不是
+    ``[goal] declarative checkpoint failed: ...``。
+    """
+    await _goal_runner(SimpleNamespace(), None, "stale state workflow")
+    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
+    capsys.readouterr()
+
+    # 落在步骤数（2）之外的活动步骤：等价于工作流收缩后留下的历史状态。
+    store = checkpoint_store(goal_dir)
+    await store.save(
+        WorkflowCheckpoint(
+            checkpoint_id="stale-1",
+            goal_id=goal_id,
+            phase=WorkflowPhase.IMPLEMENTATION,
+            status=WorkflowStatus.RUNNING,
+            run_id="run-stale",
+            active_step=99,
+            active_skill="test-development",
+        )
+    )
+
+    await _goal_runner(SimpleNamespace(), None, "next")
+
+    err = capsys.readouterr().err
+    assert "declarative checkpoint failed" in err
+    assert "active step is out of range" in err
+
+
+@pytest.mark.asyncio
 async def test_restore_runner_fails_loud_when_configuration_does_not_match_persisted_state(tmp_path: Path) -> None:
     """恢复语义契约（Phase 3）：聚合状态与快照不匹配时显性失败，不静默重建。
 

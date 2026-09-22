@@ -30,6 +30,15 @@ class TestDangerousPatterns:
             "echo x | dd if=/dev/zero of=/dev/sda",
             "sudo dd if=/dev/zero of=/dev/sda",
             "cd /tmp; dd if=/dev/zero of=/dev/sda",
+            # 回归（2026-09-22）：锚定 dd 后必须保留空白/引号/括号/反引号这些
+            # 「命令位置」锚点，否则换行、包装器与内联形式会整体漏过。
+            "  dd if=/dev/zero of=/dev/sda",
+            "cd /tmp\ndd if=/dev/zero of=/dev/sda",
+            "xargs dd if=/dev/zero of=/dev/sda",
+            "env dd if=/dev/zero of=/dev/sda",
+            "sh -c 'dd if=/dev/zero of=/dev/sda'",
+            "(dd if=/dev/zero of=/dev/sda)",
+            "`dd if=/dev/zero of=/dev/sda`",
             "mkfs.ext4 /dev/sda1",
             "shutdown now",
             "reboot",

@@ -181,6 +181,32 @@ async def test_resume_rebuilds_from_progress_summary(tmp_path) -> None:
     assert loop.last_run_context.status == RunStatus.COMPLETED
 
 
+async def test_resume_after_failure_starts_a_new_attempt(tmp_path) -> None:
+    """FAILED 的 run 仍可 resume——重开一次尝试，不与终态 reducer 冲突。
+
+    回归（2026-09-22）：``mark_terminal`` 禁止同一 RunContext 二次写终态，而
+    ``build_resume_state`` 只对 COMPLETED 短路，于是续跑成功后的 COMPLETED 写入抛
+    ``RuntimeError``（再被 ``on_run_failed`` 用 FAILED 二次写入掩盖，真因消失）。
+    """
+    store = RunStore(str(tmp_path / "runs"))
+    rc = RunContext()
+    rc.touch(status=RunStatus.FAILED)
+    await store.start(rc, prompt="build app", system=None)
+    await store.checkpoint(
+        rc,
+        prompt="build app",
+        system=None,
+        messages=[Message(role=Role.USER, content="build app")],
+    )
+
+    provider = _StubProvider([_final("recovered")])
+    loop = AgentLoop(provider, engine=_engine(tmp_path, store=store))
+
+    assert await loop.resume(rc.run_id) == "recovered"
+    assert loop.last_run_context is not None
+    assert loop.last_run_context.status == RunStatus.COMPLETED
+
+
 async def test_resume_stream_completed_yields_done(tmp_path) -> None:
     """P5-5：COMPLETED 的 run 用 resume_stream 只产出一个携带缓存答案的 done 事件。"""
     store = RunStore(str(tmp_path / "runs"))

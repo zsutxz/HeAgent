@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextlib import ExitStack, contextmanager
+from contextlib import ExitStack, aclosing, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -87,7 +87,7 @@ from heagent.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+    from collections.abc import AsyncGenerator, Awaitable, Callable, Iterator
 
     from heagent.agent.sub import SubAgentAnnouncer  # 仅类型引用：sub 模块级导入本模块，此处不得模块级互导
     from heagent.context.compressor import ContextCompressor
@@ -267,15 +267,25 @@ class AgentLoop:
         system: str | None = None,
         session_id: str | None = None,
         _resume: _ResumeState | None = None,
-    ) -> AsyncIterator[StreamEvent]:
+    ) -> AsyncGenerator[StreamEvent, None]:
         """流式版循环：边跑边 yield ``StreamEvent``（text/tool_call/tool_result/done）。
 
         与 ``run()`` 的区别：每轮 LLM 调用走 ``provider.stream`` 逐 chunk 消费，
         文本片段实时下推；工具调用与最终完成同样以事件形式产出。
         同样支持 steering/follow-up 双层循环。实现见 ``stream_runtime.stream_run``。
+
+        ``aclosing`` 是**必需**的：本方法是 ``stream_run`` 生成器的包装层，而 ``async for``
+        在被提前关闭（消费者 ``break``、GUI 取消、外层任务取消）时**不会**关闭内层生成器。
+        没有 ``aclosing``，内层只能等 event loop 的 asyncgen finalizer 在**另一个 Context**
+        里收尾 → ``ContextVar.reset(token)`` 抛 ``ValueError(... created in a different Context)``
+        → 被 ``stream_run`` 的 ``except Exception`` 当成运行失败（写 FAILED 终态 + 发
+        run_failed 事件），且 session 落盘 / ``close_run`` 被推迟到调用方返回之后。
+        ``aclosing`` 把内层的 aclose 拉回同一 Context，收尾因此是确定性的。
         """
-        async for event in stream_run(self, prompt, system=system, session_id=session_id, _resume=_resume):
-            yield event
+        agen = stream_run(self, prompt, system=system, session_id=session_id, _resume=_resume)
+        async with aclosing(agen):
+            async for event in agen:
+                yield event
 
     # ------------------------------------------------------------------
     # 恢复入口：resume / resume_stream（重建逻辑见 resume_runtime）
@@ -295,7 +305,7 @@ class AgentLoop:
             return snapshot.final_answer or ""
         return await self.run(snapshot.prompt, system=snapshot.system, _resume=_resume)
 
-    async def resume_stream(self, run_id: str) -> AsyncIterator[StreamEvent]:
+    async def resume_stream(self, run_id: str) -> AsyncGenerator[StreamEvent, None]:
         """:meth:`resume` 的流式版。
 
         已 COMPLETED 的 run 直接 yield 单个 ``done`` 事件（带缓存答案）；未完成的
@@ -305,8 +315,10 @@ class AgentLoop:
         if _resume is None:
             yield StreamEvent(type="done", final_answer=snapshot.final_answer or "")
             return
-        async for event in self.run_stream(snapshot.prompt, system=snapshot.system, _resume=_resume):
-            yield event
+        agen = self.run_stream(snapshot.prompt, system=snapshot.system, _resume=_resume)
+        async with aclosing(agen):
+            async for event in agen:
+                yield event
 
     # ------------------------------------------------------------------
     # steering / follow-up / 暂停——委托 message_ports

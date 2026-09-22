@@ -208,7 +208,7 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
         return _GOAL_FAILED, None
     try:
         runner = await _goal_declarative_runner(workflow, goal_dir)
-    except WorkflowCheckpointError as exc:
+    except (WorkflowCheckpointError, ValueError) as exc:
         click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
         return _GOAL_FAILED, None
     if runner.done:

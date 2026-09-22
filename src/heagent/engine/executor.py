@@ -153,16 +153,24 @@ class ToolExecutor:
         ``sandbox_tier`` / ``content_length`` / ``error``），但 ``run_context`` / ``tool_name``
         / ``target`` 的取值与字段约定在此单点固定——此前 8 处 emit 各自复制这段样板，
         字段一改就得全改。``emit`` 为 None（未订阅可观测）时静默跳过。
+
+        emit 失败**只记 warning，不影响工具结果**——与 ``WorkflowRunner._emit_step_event``
+        和 ``EventBus.emit`` 同一约定：观测端口不得让业务失败。此前异常会从 ``emit``
+        直接抛出，被本类的 ``except Exception`` 记成 ``Tool error: ...``，把「观测失败」
+        伪装成「工具失败」。
         """
         if emit is None:
             return
-        emit(
-            event,
-            run_context=run_context,
-            tool_name=call.name,
-            target=self._target(call),
-            details=details,
-        )
+        try:
+            emit(
+                event,
+                run_context=run_context,
+                tool_name=call.name,
+                target=self._target(call),
+                details=details,
+            )
+        except Exception:
+            logger.warning("tool event %r emit failed; ignored (tool '%s')", event, call.name, exc_info=True)
 
     def _guard_or_blocked(
         self,
@@ -210,8 +218,11 @@ class ToolExecutor:
 
         mode = ToolExecutionMode.DIRECT.value
         try:
-            self._emit_tool_event(emit, "tool_call_started", call, run_context, {"mode": mode})
+            # ``_started`` 必须先绑定：它位于 ``try`` 内，而 ``except`` 分支无条件引用——
+            # emit 自身抛错时（ToolExecutor 是文档化的注入点）会变成 UnboundLocalError，
+            # 顶掉原始异常并丢掉事件。
             _started = time.perf_counter()
+            self._emit_tool_event(emit, "tool_call_started", call, run_context, {"mode": mode})
             result = await handler(call)
             content = str(result) if result is not None else ""
             self._emit_tool_event(
@@ -267,8 +278,8 @@ class ToolExecutor:
         # 沙箱路径的事件额外带上 profile / tier：「这条命令到底在哪层隔离下跑的」得能查。
         sandbox_facts = {"sandbox_profile": verdict.sandbox_profile or "", "sandbox_tier": sandbox_tier}
         try:
+            _started = time.perf_counter()  # 同上：先绑定，except 分支无条件引用
             self._emit_tool_event(emit, "tool_call_started", call, run_context, {"mode": sandbox_mode, **sandbox_facts})
-            _started = time.perf_counter()
             # 子类 override 兼容：库消费者旧签名 execute_in_sandbox(*, call, profile, handler)
             # 不含 run_context——签名探测后按需传参，防 TypeError（FR-1 review patch 5）。
             if "run_context" in inspect.signature(self.execute_in_sandbox).parameters:

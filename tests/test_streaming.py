@@ -225,3 +225,49 @@ class TestRunStream:
             assert "cannot read missing.txt" in results[0].tool_result_content
         finally:
             registry.unregister("boom_tool")
+
+
+class _EventRecorder:
+    """最小 EventBus 观察者（记录事件类型序列）。"""
+
+    def __init__(self) -> None:
+        self.events: list[str] = []
+
+    def handle(self, event) -> None:  # noqa: ANN001 - 引擎事件类型
+        self.events.append(event.event_type)
+
+
+class TestAbandonedStream:
+    """提前放弃流式输出（消费者 break / GUI 取消）必须确定性地收尾。
+
+    回归（2026-09-22）：``run_stream`` 是 ``stream_run`` 生成器的包装层，而 ``async for``
+    在被提前关闭时不会关闭内层生成器——内层只能等 event loop 的 asyncgen finalizer 在
+    **另一个 Context** 里收尾，``ContextVar.reset(token)`` 因此抛 ``ValueError``，被
+    ``stream_run`` 的 ``except Exception`` 当成运行失败：既写 FAILED 终态、又发
+    run_failed 事件，session 落盘还被推迟到调用方返回之后。修复靠 ``contextlib.aclosing``。
+    """
+
+    async def test_abandoned_stream_persists_and_is_not_marked_failed(self, tmp_path) -> None:
+        from heagent.engine.container import EngineContainer
+        from heagent.engine.context import RunStatus
+        from heagent.engine.ledger import ExecutionLedger
+        from heagent.engine.store import RunStore
+
+        engine = EngineContainer(
+            run_store=RunStore(str(tmp_path / "runs")),
+            ledger=ExecutionLedger(str(tmp_path / "ledger")),
+        )
+        recorder = _EventRecorder()
+        engine.events.subscribe(recorder)
+        loop = AgentLoop(StreamStubProvider(["Hello", " world"]), engine=engine)
+
+        stream = loop.run_stream("hi")
+        async for _event in stream:
+            break
+        await stream.aclose()
+
+        # 收尾在 aclose 处同步完成（修复前此处 last_run_context 仍为 None）。
+        assert loop.last_run_context is not None
+        assert loop.last_run_context.status is RunStatus.RUNNING  # 提前放弃≠失败，仍可 resume
+        assert "run_failed" not in recorder.events
+        assert "run_started" in recorder.events

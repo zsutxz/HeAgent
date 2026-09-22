@@ -27,7 +27,7 @@ from heagent.tools.call_summary import summarize_tool_call
 from heagent.types import ProviderResponse, StreamEvent, TokenUsage
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncGenerator
 
     from heagent.agent.loop import AgentLoop
     from heagent.types import ToolCall
@@ -42,7 +42,7 @@ async def stream_run(  # noqa: C901
     system: str | None = None,
     session_id: str | None = None,
     _resume: _ResumeState | None = None,
-) -> AsyncIterator[StreamEvent]:
+) -> AsyncGenerator[StreamEvent, None]:
     """``AgentLoop.run_stream`` 的循环体（行为与拆分前逐行等价）。"""
     init = await init_or_resume(loop, prompt, system, session_id, _resume, stream=True)
     state = init.state

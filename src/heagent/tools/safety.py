@@ -46,9 +46,12 @@ _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
     for p in [
         r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|.*-rf\b|.*\s-f\b)",  # rm -rf / rm -f / rm ... -f
         r"\bformat\s+[a-zA-Z]:",  # format C:
-        # dd 锚定命令位置（行首 / ;&| / $( / sudo|doas 之后）——裸 \bdd\b 会把
-        # 'yyyy/MM/dd' 等日期 token 误判为磁盘操作（2026-09-21 AiHome_Client 实测误伤）
-        r"(?:^|[;&|]\s*|\$\(\s*|\b(?:sudo|doas)\s+)dd\b",
+        # dd 锚定命令位置（行首 / 空白 / ;&| / 引号括号 / $( / sudo|doas 之后）——裸
+        # \bdd\b 会把 'yyyy/MM/dd' 等日期 token 误判为磁盘操作（2026-09-21 实测误伤）。
+        # 空白必须留在锚点集里：去掉它会让 `  dd ...` / `xargs dd` / `sh -c 'dd ...'`
+        # 这类换行、包装器与内联形式全部漏过（日期 token 前的分隔符只可能是 / - .，
+        # 故加入空白不会重新引入误伤）。已知残留缺口：路径限定的 `/bin/dd` 不再命中。
+        r"(?:^|[\s;&|`'\"(){}\[\]]|\$\()dd\b",
         r"\bmkfs\b",  # 格式化文件系统
         r"\bshutdown\b",  # 关机
         r"\breboot\b",  # 重启
