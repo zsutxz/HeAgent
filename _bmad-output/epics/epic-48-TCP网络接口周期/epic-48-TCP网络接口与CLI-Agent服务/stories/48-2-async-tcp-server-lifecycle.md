@@ -1,7 +1,7 @@
 ---
 id: 48-2
 title: 异步 TCP Server 生命周期
-status: ready-for-dev
+status: done
 parent_epic: E48
 priority: P0
 depends_on: [48-1]
@@ -88,11 +88,30 @@ created: '2026-09-22'
 - `tests/network/test_tcp_server.py`：socket 生命周期测试。
 - `tests/test_architecture_contracts.py`：如新增依赖规则，补网络层不得导入高层模块的断言。
 
-## 验证命令
+## Verification
 
-```text
-pytest tests/network/test_protocol.py tests/network/test_tcp_server.py -q
-ruff check src/heagent/network tests/network
-ruff format --check src/heagent/network tests/network
-mypy src --platform linux
-```
+**Commands and results (2026-09-22):**
+
+- `pytest tests/network/test_protocol.py tests/network/test_tcp_server.py tests/test_architecture_contracts.py -q` → **36 passed**
+- `ruff check src/heagent/network tests/network` → **All checks passed**
+- `ruff format --check src/heagent/network tests/network` → **5 files already formatted**
+- `mypy src/heagent/network --platform linux` → **Success: no issues found in 3 source files**
+
+**Implemented:**
+
+- `TcpServerConfig`：host/port、连接数、请求大小和 timeout 的 Pydantic 限制。
+- `TcpServer`：`start()`、`serve_forever()`、`close()`、单连接单请求、fake handler 注入、读写与生命周期管理。
+- `tests/network/test_tcp_server.py`：10 个 loopback 生命周期/边界测试。
+
+**Critical fix found by test:**
+
+关闭路径最初在停止 accept 后立即 `await server.wait_closed()`；活跃 client callback 会令该等待阻塞，后续 request task 取消逻辑永远不可达。现顺序固定为：停止 accept → 取消并回收 request/connection tasks → `wait_closed()`，并有长运行 handler 取消回归测试锁定。
+
+**Critical review fixes:**
+
+1. `StreamReader.readline()` 的超限路径可抛 `ValueError`，现与 `LimitOverrunError` 一起稳定映射为 `request_too_large`；新增超长行 loopback 回归。
+2. `close()` 曾直接等待取消后的任务，错误 handler 吞掉取消时会无限阻塞；现以 `shutdown_timeout` 有界等待、记录未退出任务并返回，新增“吞掉取消”回归。
+
+## Review Status
+
+Story 实现、对抗式生命周期评审和定向验证已通过；状态为 `done`。未提交 Git。

@@ -469,8 +469,8 @@ development_status:
   # ═══════════════════════════════════════════════════════════════
   # CLI 作为 TCP Server；JSON Lines；单请求单响应；默认 localhost；Story 已创建
   epic-48: in-progress
-  48-1-tcp-protocol-message-boundary: ready-for-dev
-  48-2-async-tcp-server-lifecycle: ready-for-dev
+  48-1-tcp-protocol-message-boundary: done
+  48-2-async-tcp-server-lifecycle: done
   48-3-agentloop-adapter-cli-wiring: ready-for-dev
   48-4-concurrency-timeouts-resource-limits: ready-for-dev
   48-5-network-entry-security-observability: ready-for-dev

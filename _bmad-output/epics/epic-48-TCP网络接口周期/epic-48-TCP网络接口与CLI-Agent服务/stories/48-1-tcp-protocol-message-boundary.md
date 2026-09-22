@@ -1,7 +1,7 @@
 ---
 id: 48-1
 title: TCP 协议模型与消息边界
-status: ready-for-dev
+status: done
 parent_epic: E48
 priority: P0
 depends_on: []
@@ -86,11 +86,29 @@ created: '2026-09-22'
 - `tests/network/test_protocol.py`：黄金协议测试。
 - `src/heagent/types.py`：仅在真正需要共享 `TokenUsage` 时引用，不移动既有模型。
 
-## 验证命令
+## Verification
 
-```text
-pytest tests/network/test_protocol.py -q
-ruff check src/heagent/network tests/network
-ruff format --check src/heagent/network tests/network
-mypy src --platform linux
-```
+**Commands and results (2026-09-22):**
+
+- `pytest tests/network/test_protocol.py -q` → **15 passed**
+- `pytest tests/test_architecture_contracts.py -q` → **9 passed**
+- `ruff check src/heagent/network tests/network` → **All checks passed**（Windows `.ruff_cache` 写入有 ACL warning，不影响检查结果）
+- `ruff format --check src/heagent/network tests/network` → **3 files already formatted**
+- `mypy src/heagent/network --platform linux` → **Success: no issues found in 2 source files**
+
+**Implemented:**
+
+- `src/heagent/network/protocol.py`：Pydantic TCP 请求/响应、错误码、`ProtocolError`、有界 UTF-8 JSON Lines 编解码。
+- `src/heagent/network/__init__.py`：稳定协议导出面。
+- `tests/network/test_protocol.py`：15 个协议与边界测试。
+
+**Implementation notes:**
+
+- 输入要求 LF 结尾；CRLF 可兼容，裸 CR 拒绝。
+- 单条 payload 内出现额外换行会返回 `invalid_request`，避免把多条消息合并解析。
+- 请求未知字段 fail-closed；成功/失败响应互斥由 Pydantic model validator 保证。
+- `TcpUsage` 保留在 network 域内，避免网络协议层反向依赖 Agent 运行时类型。
+
+## Review Status
+
+Story 实现、边界审查与定向验证已通过；状态为 `done`。
