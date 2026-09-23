@@ -73,6 +73,19 @@ def test_valid_hierarchy_and_frontmatter() -> None:
     validate_hierarchy([parse_artifact(GOAL), parse_artifact(EPIC), parse_artifact(STORY)])
 
 
+def test_bom_prefixed_artifact_parses_like_plain() -> None:
+    """文件头 UTF-8 BOM 的 artifacts：此前 loud 拒绝（requires frontmatter），现按同一契约解析。
+
+    钉住这条**行为变更**（2026-09-23 frontmatter 层 BOM 容忍的下游表现）：消费者侧不再
+    因 BOM 拒收，且 frontmatter/正文与无 BOM 版本完全一致。
+    """
+    parsed = parse_frontmatter("\ufeff" + STORY)
+
+    assert parsed.values == parse_frontmatter(STORY).values
+    assert parsed.body == parse_frontmatter(STORY).body
+    assert parse_artifact("\ufeff" + STORY).kind is ArtifactKind.STORY
+
+
 def test_missing_section_and_tbd_fail_loudly() -> None:
     with pytest.raises(ArtifactContractError, match="Definition of Done"):
         parse_artifact(EPIC.replace("## Definition of Done", "## Done"))

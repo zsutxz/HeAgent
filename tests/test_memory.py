@@ -604,6 +604,39 @@ class TestFactStoreNonUtf8File:
 
         assert "<memory>\n" not in (system or "")
 
+    def test_add_error_names_the_file(self, tmp_path: Path) -> None:
+        """``fact_add`` 路径的解码失败必须**点名文件**：codec 报错自身不含路径，否则无法定位。"""
+        store, path, _ = self._gbk_store(tmp_path)
+
+        with pytest.raises(ValueError) as exc_info:
+            store.add("新事实")
+
+        assert str(path) in str(exc_info.value)
+        assert "not valid UTF-8" in str(exc_info.value)
+
+    def test_unreadable_path_is_soft_skipped(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """路径被目录占据（权限类读取失败）⇒ 按同一原则降级，不得把整个 run 带崩。"""
+        path = tmp_path / "MEMORY.md"
+        path.mkdir()
+
+        with caplog.at_level(logging.WARNING, logger="heagent.memory.facts"):
+            assert FactStore(path=str(path)).load() == []
+
+        assert "Cannot read" in caplog.text
+        assert str(path) in caplog.text
+
+    def test_file_vanishing_between_exists_and_read_is_soft_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """``exists()`` 与 ``read_text()`` 之间被删（竞态）⇒ 同上降级，不升级为 run 失败。"""
+        store = FactStore(path=str(tmp_path / "MEMORY.md"))  # 该文件根本不存在
+        monkeypatch.setattr(Path, "exists", lambda self: True)  # 只把竞态窗口固定成确定性
+
+        with caplog.at_level(logging.WARNING, logger="heagent.memory.facts"):
+            assert store.load() == []
+
+        assert "Cannot read" in caplog.text
+
 
 class TestFactStoreBomFile:
     """MEMORY.md 带 UTF-8 BOM（记事本「UTF-8 with BOM」）时不得静默丢首条事实（方案 B）。"""
@@ -638,6 +671,13 @@ class TestFactStoreBomFile:
         assert store.add("第三条记忆") is True
         assert not path.read_bytes().startswith(b"\xef\xbb\xbf"), "写回归一化为 UTF-8 无 BOM"
         assert store.load() == ["第一条记忆", "第二条记忆", "第三条记忆"]
+
+    def test_duplicate_hit_returns_early_without_rewriting(self, tmp_path: Path) -> None:
+        """外层预读判重命中 ⇒ 直接返回、**不写盘**（盘上 BOM 保留）：归一化只发生在写入路径。"""
+        store, path, before = self._bom_store(tmp_path)
+
+        assert store.add("第一条记忆") is False
+        assert path.read_bytes() == before
 
 
 class TestSkillFrontmatterBom:
