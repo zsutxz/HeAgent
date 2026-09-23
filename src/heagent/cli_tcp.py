@@ -49,7 +49,6 @@ handler 时那条路径仍会失败。这是**既有框架特性**，已记入 `
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import math
 import os
@@ -67,6 +66,7 @@ from heagent.network.exposure import exposure_warning
 from heagent.network.protocol import TcpErrorCode, TcpUsage, error_response, success_response
 from heagent.network.tcp_server import TcpServer, TcpServerConfig
 from heagent.roles import load_agent_roles
+from heagent.safe_logging import safe_log
 from heagent.wiring import _build_provider
 
 if TYPE_CHECKING:
@@ -95,8 +95,7 @@ def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -
     （``emit`` 里抛出的异常直接传播，与 ``logging.raiseExceptions`` 取值无关，2026-09-22 实测），
     那条路径不在本 Story 的保证范围内（见 ``docs/frame.md`` 五、已知缺口）。
     """
-    with contextlib.suppress(Exception):
-        logger.log(level, message, *args, exc_info=exc_info)
+    safe_log(logger, level, message, *args, exc_info=exc_info)
 
 
 def _client_error_message(message: str) -> str:

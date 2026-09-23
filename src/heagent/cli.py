@@ -46,6 +46,7 @@ from heagent.memory.soul import SoulStore
 from heagent.providers.router import RoutingProvider, active_model, display_reason
 from heagent.providers.switchable import SwitchableProvider
 from heagent.roles import load_agent_roles
+from heagent.safe_logging import install_logging_fault_guard
 from heagent.slash import SlashRegistry, load_custom_commands
 from heagent.terminal import KeyInterruptMonitor
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
@@ -62,7 +63,12 @@ logger = logging.getLogger(__name__)
 
 
 def _setup_logging() -> None:
-    """Configure logging for CLI mode (stderr console + file)."""
+    """Configure logging for CLI mode (stderr console + file).
+
+    同时安装进程级日志故障守卫（:func:`~heagent.safe_logging.install_logging_fault_guard`）：
+    handler 写失败只降级成「少一条日志」，不得让成功的 run 因日志设施故障而失败。
+    """
+    install_logging_fault_guard()
     _settings = get_settings()
     _console_level = getattr(logging, _settings.log_level.upper(), logging.INFO)
     _file_level = getattr(logging, (_settings.log_file_level or _settings.log_level).upper(), _console_level)

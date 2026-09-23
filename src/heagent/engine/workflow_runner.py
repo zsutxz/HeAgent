@@ -22,6 +22,7 @@ from heagent.engine.checkpoint import (
 )
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 from heagent.events.protocol import error_kind_for
+from heagent.safe_logging import safe_log
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ def _emit_step_event(
     try:
         emit(kind, details=payload)
     except Exception:  # noqa: BLE001 - 观测失败仅告警
-        logger.warning("workflow step event %r emit failed; ignored", kind, exc_info=True)
+        safe_log(logger, logging.WARNING, "workflow step event %r emit failed; ignored", kind, exc_info=True)
 
 
 _SECTION_RULE = re.compile(r"section\s*:\s*([^,;]+)", re.IGNORECASE)
@@ -391,7 +392,7 @@ class WorkflowRunner:
                 started = time.perf_counter()
                 _emit_step_event(emit, "workflow_step_started", step=step, story=None)
                 try:
-                    result = await self._run_story_batch(callback, step, story_specs, checkpoint)
+                    result = await self._run_story_batch(callback, step, story_specs, checkpoint, emit=emit)
                 except BaseException as exc:
                     _emit_step_event(
                         emit,
@@ -483,8 +484,15 @@ class WorkflowRunner:
         step: WorkflowStepResource,
         story_specs: list[StorySpec],
         checkpoint: CheckpointCallback | None,
+        emit: Callable[..., None] | None = None,
     ) -> WorkflowRunResult:
-        """Run one bounded batch from the first incomplete Epic only."""
+        """Run one bounded batch from the first incomplete Epic only.
+
+        事件粒度：批级 started/completed 由 :meth:`run_step` 发（``story`` 为空，代表
+        「这一步」）；**批内每个 story** 另发一组 ``workflow_step_started/completed/
+        failed``（带自己的 ``story`` 与 ``duration_ms``）——否则并发批次下故事轨迹
+        只剩「整批一条」，消费方（GUI / replay）无法定位单个 story 的耗时与失败。
+        """
         completed = set(self.state.completed_stories)
         remaining = [story for story in story_specs if story.id not in completed]
         if not remaining:
@@ -504,15 +512,34 @@ class WorkflowRunner:
         await self._persist(step, checkpoint)
 
         async def execute(story: StorySpec) -> tuple[StorySpec, WorkflowStepResult | BaseException]:
+            started = time.perf_counter()
+            _emit_step_event(emit, "workflow_step_started", step=step, story=story)
             try:
                 result = self._invoke_callback(callback, step, story)
                 if inspect.isawaitable(result):
                     result = await result
                 if not isinstance(result, WorkflowStepResult):
                     raise TypeError("story callback must return WorkflowStepResult")
-                return story, result
             except Exception as exc:  # isolate one Story failure from its batch
+                _emit_step_event(
+                    emit,
+                    "workflow_step_failed",
+                    step=step,
+                    story=story,
+                    duration_ms=_elapsed_ms(started),
+                    error_kind=error_kind_for(exc),
+                    error=str(exc),
+                )
                 return story, exc
+            _emit_step_event(
+                emit,
+                "workflow_step_completed",
+                step=step,
+                story=story,
+                duration_ms=_elapsed_ms(started),
+                result=result.status.value,
+            )
+            return story, result
 
         results = await asyncio.gather(*(execute(story) for story in batch))
         completed_ids: list[str] = []

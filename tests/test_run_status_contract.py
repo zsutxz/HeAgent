@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from heagent.agent.loop import AgentLoop
+from heagent.agent.loop import AgentLoop, AgentState
 from heagent.config import reset_settings
 from heagent.engine import RunStatus
 from heagent.engine.context import RunContext
@@ -57,11 +57,14 @@ class _TerminalRecorder:
 class StubProvider:
     """可编程 provider：正常返回 / 抛错 / 挂起三模式。"""
 
-    def __init__(self, *, error: Exception | None = None, hang: bool = False) -> None:
+    def __init__(self, *, error: Exception | None = None, hang: bool = False, delay: float = 0.0) -> None:
         self._error = error
         self._hang = hang
+        self._delay = delay
 
     async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
+        if self._delay:
+            await asyncio.sleep(self._delay)  # 让耗时可测（duration_ms 断言用）
         if self._hang:
             await asyncio.Event().wait()  # 永不设置：只能被取消
         if self._error is not None:
@@ -82,6 +85,12 @@ class StubProvider:
 
 def _terminal_events(loop: AgentLoop) -> list[str]:
     return [e.event_type for e in loop.engine.events.recent_events if e.event_type in ("run_completed", "run_failed")]
+
+
+def _last_event_details(loop: AgentLoop, event_type: str) -> dict[str, object]:
+    events = [e for e in loop.engine.events.recent_events if e.event_type == event_type]
+    assert events, f"no {event_type} event recorded"
+    return events[-1].details
 
 
 # ----------------------------------------------------------------------
@@ -147,6 +156,27 @@ class TestLoopTerminalWriteContract:
         assert loop.last_run_context.status is RunStatus.FAILED
         assert recorder.status_writes == [RunStatus.FAILED]  # 恰好一次终态写点
         assert _terminal_events(loop) == ["run_failed"]
+
+    async def test_failed_run_reports_measured_duration(self) -> None:
+        """失败 run 的 ``run_failed`` 带真实耗时（provider 睡 30ms 后抛错）。"""
+        loop = AgentLoop(StubProvider(error=RuntimeError("boom"), delay=0.03), max_iterations=3)
+        with pytest.raises(RuntimeError, match="boom"):
+            await loop.run("hello")
+
+        details = _last_event_details(loop, "run_failed")
+        assert details["duration_ms"] >= 20  # 修复前 facade 路径恒 0；真实路径本就带耗时
+
+    async def test_facade_on_run_failed_reports_measured_duration(self) -> None:
+        """facade 路径（外部/子类直接调 ``_on_run_failed``）不再恒报 ``duration_ms=0``。"""
+        loop = AgentLoop(StubProvider(), max_iterations=3)
+        await loop.run("hello")  # init_or_resume 记下 run 起点
+        await asyncio.sleep(0.03)
+
+        context = loop._ensure_run_context(session_id=None)
+        await loop._on_run_failed(context, "hello", None, AgentState(), RuntimeError("boom"))
+
+        details = _last_event_details(loop, "run_failed")
+        assert details["duration_ms"] >= 20
 
     async def test_cancelled_run_keeps_running_status(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """取消不写终态：status 保持 RUNNING（可 resume），不发 run_completed/run_failed。"""

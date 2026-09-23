@@ -5,7 +5,7 @@
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
 > ② **勘察类闭合归档**（source_spec 为勘察批次、无归属 epic）。
 
-## 活动（未闭合）条目——9 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条 → TCP 入口不写 rollout / 运行栈日志非观测故障免疫 / 入口日志未脱敏）
+## 活动（未闭合）条目——7 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10/Z-D11）
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
@@ -36,12 +36,15 @@
 - source_spec: `_bmad-output/epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`（同记于 `docs/frame.md` 五）
   summary: **TCP 入口不写 rollout**：`EVENTS_ROLLOUT_ENABLED` 对 `heagent tcp-server` 是**死开关**——`JsonlSink` 唯一构造点在 `cli._build_event_sink`，网络入口不订阅 sink，故开关开启也不产生 `.heagent/runs/<run_id>/rollout.jsonl`。触发条件：需要回放/审计 TCP 入口的 run；严重度：低；冻结边界：接入不得让 TCP 输入改变服务端配置（`tcp_*` 唯一读取点保持 `cli_tcp.build_server_config`），且仍非安全边界。
   evidence: 48-5 评审 W-2 实测（`tests/test_tcp_agent_integration.py` 已把「不写 rollout」钉为现状）；`docs/frame.md` 五「TCP 入口不写 rollout」行。
+  Progress（2026-09-23 复核，**保持未闭合**）：接入前须先定并发语义——`JsonlSink` 的 `seq`/`_last_run_id` 是 sink 全局的，而 TCP 入口共享一个 `EngineContainer`/`EventBus` 并发服务多请求：单共享 sink 会让多 run 的 seq 交错、`assistant_message` 归属错误；每请求一 sink 则互相收到对方的全部事件（`EventBus` 无 `unsubscribe`）。修法二选一：sink 加 run 维度过滤，或 `EventBus.unsubscribe` + 每请求复用一个带过滤的 sink。
 
 - source_spec: `_bmad-output/epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`（同记于 `docs/frame.md` 五）
+  status: **已闭合（2026-09-23，commit 见下）** —— 见本文件「Z-D10」。
   summary: **运行栈日志非「观测故障免疫」**：入口层（`network/` + `cli_tcp`）经 `_safe_log` 插桩，日志设施抛异常不改写响应；但运行栈（`agent`/`engine`/…）自身的 `logger.*` 若命中「在 `emit` 里抛异常」的 handler 仍会传播（CPython `Handler.handle` 不捕获 emit 异常，与 `logging.raiseExceptions` 取值无关）⇒ 该 run 会失败。触发条件：第三方/自定义 logging handler 在 emit 中抛异常；严重度：低-中；冻结边界：给运行栈加安全日志不得改变既有日志文案与级别，也不得吞掉业务异常（异常仍须抵达调用方）。
   evidence: 48-5 评审 C-1（`probe_raise_exceptions.py` 实测证明 `logging.raiseExceptions=False` 拦不住）；`docs/frame.md` 五「运行栈日志非『观测故障免疫』」行。
 
 - source_spec: `_bmad-output/epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`（同记于 `docs/frame.md` 五）
+  status: **已闭合（2026-09-23）** —— 见本文件「Z-D11」。
   summary: **入口日志未脱敏**：TCP 入口复用 `EngineContainer.default` ⇒ 默认 `LoggingObserver` 在 INFO 打印 `tool=… target=…`，而 `shell` 的 target **不截断**（`call_summary._NO_TRUNCATE_TOOLS`），路径与命令原文（可能含凭证串）会进日志。触发条件：任意入口执行含凭证的 shell 命令；严重度：低-中；冻结边界：脱敏不得改变工具摘要对用户的既有语义与可观测字段集，且脱敏仍非安全边界（`README` 已提示「不要把凭证写进命令或路径」）。
   evidence: 48-5 评审 C-2（**既有引擎行为**，非 Epic 48 引入）；`src/heagent/tools/call_summary.py`；`docs/frame.md` 五「TCP 日志含工具摘要」行。
 
@@ -62,6 +65,8 @@
 | Z-D7 | GoalWorkflowState 三死字段 | 已闭合（容错忽略兼容策略） | `4b5f037` |
 | Z-D8 | `RoleSpec.sandbox_profile` 死字段 | 已闭合（取**删除**方向，非激活） | 已提交 `dfe6eef`（2026-09-18） |
 | Z-D9 | 沙箱无进程数限额 + WinJob 常量误写 | 已闭合（`SANDBOX_NPROC_LIMIT` + 修正 `PROCESS_TIME=0x2`） | 已提交 `8de6c63`（2026-09-18） |
+| Z-D10 | 运行栈日志的观测故障免疫 | 已闭合（进程级 `install_logging_fault_guard` + 插桩逐调用点 `safe_log`） | 本次批次（2026-09-23） |
+| Z-D11 | 日志行的凭证脱敏 | 已闭合（`LoggingObserver` 掩码 `target`/`details`；启发式，仍非边界） | 本次批次（2026-09-23） |
 
 ---
 
@@ -124,3 +129,21 @@
 - **问题**：① 沙箱 shell 无**进程数**上界——firejail 未映射 `--rlimit-nproc`，WinJob 的 `ActiveProcessLimit` 字段虽已内联定义却从未赋值；fork bomb 只被 `tools/safety.py` 黑名单正则启发式覆盖（非资源上界）。② **顺带查出的既有 bug**：`WinJobBackend.run()` 把 `JOB_OBJECT_LIMIT_PROCESS_TIME` 误写为 `0x00000008`——按 Windows SDK（winnt.h）该位是 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS`，`PROCESS_TIME` 的正确值是 `0x00000002`。后果：配了 `SANDBOX_CPU_SECONDS` 时置位的是 ACTIVE_PROCESS 而 `ActiveProcessLimit` 仍为 0——**CPU 时间限额完全不生效，反而施加了「活动进程上限 0」**。
 - **结论**：**已闭合**（2026-09-18，取「补齐」方向）。① 新增 `Settings.sandbox_nproc_limit`（`SANDBOX_NPROC_LIMIT`，默认 0=关闭），经 `container.default()` 同时透传两个后端；② `FirejailBackend._build_argv` 在 `--rlimit-cpu` 之后注入 `--rlimit-nproc`（0 时零参数，默认 argv 逐字节不变）；③ `WinJobBackend.run()` 置 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS` + `ActiveProcessLimit`；④ 修正 ②的常量误写（`PROCESS_TIME = 0x2`）。触发行为与内存/CPU 限额一致：**显性失败**（子进程被终止 → 非零退出码），不静默。⚠ **两个后端语义不对称（如实标注，不掩盖）**：firejail 的 `--rlimit-nproc` 底层是 `setrlimit(RLIMIT_NPROC)`，Linux 按**真实 UID** 计数（非 cgroup/job 作用域），设小了会波及同一用户的其他进程；WinJob 的 `ActiveProcessLimit` 才是 job 作用域——故默认关闭。
 - **证据**：`tests/test_sandbox_mode.py`（默认值 / 两后端装配 / argv 注入与零参数三条）、`tests/test_coverage_sandbox.py::test_run_applies_resource_limits`（0x2 与 0x8 分开断言，钉死常量区分）；`docs/frame.md` 4.4 与配置表、`.env.example` 同步。
+
+## Z-D10 运行栈日志的观测故障免疫
+
+- **来源**：Epic 48 Story 48-5 评审 C-1（2026-09-22）；`docs/frame.md` 五原「运行栈日志非『观测故障免疫』」。
+- **问题**：`logging` 的 `Handler.handle` **不**捕获 `emit` 抛出的异常（与 `logging.raiseExceptions` 取值无关，实测：自定义 handler 两种情况都传播；stdlib handler 走 `handleError` 故不传播）。于是第三方/自定义 handler 一旦在 `emit` 中抛错，运行栈**任意** `logger.*` 调用都会上抛——一次 run 里的进度日志（如 `Calling provider: …`）就能把成功的运行变成失败。
+- **结论**：**已闭合**（2026-09-23，可观测性与日志卫生批次）。两层防线：
+  1. **逐调用点** `safe_logging.safe_log`：插桩与 best-effort 路径（`EventBus.emit` 观察者兜底、`LoggingObserver`、`ToolExecutor._emit_tool_event`、`WorkflowRunner._emit_step_event`、ledger 三处旁路告警、run 快照落盘告警、`AgentLoop._emit`）全部改走它；`network/tcp_server.py` 与 `cli_tcp.py` 各自的 `_safe_log` 收敛为它的薄封装（调用点零改动）。
+  2. **进程级** `safe_logging.install_logging_fault_guard()`：把 `logging.Handler.handle` 包一层，失败仍调 stdlib `handleError`（照旧按 `raiseExceptions` 打印 `--- Logging error ---` 与 traceback，故「不抛」不等于「无声」）但不传播；由 CLI `_setup_logging()`（TCP 入口复用同一函数）与 `gui/cli.py` 在配置 logging 时安装。逐调用点收口只能覆盖「记得改」的地方，运行栈进度日志数量多且会新增，故必须有这一层。
+- **证据**：`tests/test_safe_logging.py` 34 例——含两个**对照** e2e（装守卫时坏 handler 不影响 run；显式拆守卫时同一 run 抛 `RuntimeError`，证明守卫承重）、守卫幂等、诊断不被吞。负向验证：把 `LoggingObserver.handle`/`EventBus.emit`/`AgentLoop._emit` 三处守卫同时还原 → e2e 复现失败；还原后按 sha256 逐字节复位。
+- **残留（如实标注）**：守卫安装前打的日志、或宿主自行把 `Handler.handle` 还原成 `safe_logging.ORIGINAL_HANDLER_HANDLE`（公开常量，供想自行掌控 logging 语义的 embedder 使用）时不在保证内。
+
+## Z-D11 日志行的凭证脱敏
+
+- **来源**：Epic 48 Story 48-5 评审 C-2（2026-09-22）；`docs/frame.md` 五原「TCP 日志含工具摘要」。
+- **问题**：入口复用 `EngineContainer.default` ⇒ 默认 `LoggingObserver` 在 INFO 打印 `tool=… target=…`，而 `shell` 的 target **不截断**（`call_summary._NO_TRUNCATE_TOOLS`，审查需要原文）：路径与命令原文（可能含 `API_KEY=…` 等凭证串）会进 `logs/heagent-*.log`。
+- **结论**：**已闭合**（2026-09-23，同一批次）。`LoggingObserver` 打印前对 `target` 与 `details` 掩码：`redact_secrets`（键值形态 / CLI 旗标 / 厂商前缀 `sk-`·`ghp_`·`AKIA`·`AIza`·JWT / `Bearer` / URL userinfo）+ `redact_details`（按键名掩码，覆盖 `{"secret": "x"}` 这类无形状可认的短值；浅层遍历、深度上限 3）。选择**掩码而非截断**：`shell` 命令结构对审查有价值，不该丢；也不依赖调用方自觉。
+- **证据**：`tests/test_safe_logging.py` 的参数化用例（12 种凭证形态逐个掩码、7 类普通文本零误伤、幂等）+ `LoggingObserver` 经 caplog 断言日志行不含原文。
+- **边界（如实标注）**：模式匹配**非完备**，必有漏网形态；`shell` target 仍不截断；`logs/`、`.heagent/runs/`（run 快照与 rollout JSONL）按设计保存完整 prompt 与消息，**不在**本次覆盖内——仍须 OS 级沙箱兜底并避免把凭证写进命令或路径。

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time
 from collections.abc import Awaitable, Callable
@@ -21,6 +20,7 @@ from heagent.network.protocol import (
     encode_response,
     error_response,
 )
+from heagent.safe_logging import safe_log
 
 if TYPE_CHECKING:
     from asyncio import StreamReader, StreamWriter
@@ -37,8 +37,7 @@ def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -
     观测故障只该降级成「少一条日志」，不允许把成功的请求变成失败或让连接悬挂。
     此时无法再「warning 一下」（出故障的就是日志设施本身），故显式吞掉异常。
     """
-    with contextlib.suppress(Exception):  # 见 docstring：日志设施自身故障不作为业务失败
-        logger.log(level, message, *args, exc_info=exc_info)
+    safe_log(logger, level, message, *args, exc_info=exc_info)
 
 
 def _elapsed_ms(started_at: float) -> int:

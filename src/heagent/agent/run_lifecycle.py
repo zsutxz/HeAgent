@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 from heagent.engine import RunContext, RunStatus
 from heagent.engine.hooks import SESSION_END, SESSION_START
 from heagent.events.protocol import error_kind_for
+from heagent.safe_logging import safe_log
 from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolResult
 
 if TYPE_CHECKING:
@@ -65,10 +66,20 @@ class _RunInit:
     system_content: str | None
     accumulated: TokenUsage
     prompt: str  # 原始 prompt（恢复时可能已替换为 _resume.prompt）
-    # run 起点的 ``perf_counter``（Phase 5 C1：run_completed/run_failed 的 duration_ms
-    # 数据源）。``init_or_resume`` 两条分支（新 run / resume）各置一次；内部状态对象，
-    # 不落盘、不进事件 details 之外的面。
-    started_perf: float = 0.0
+
+
+def run_elapsed_ms(loop: AgentLoop) -> int:
+    """本次 run 从起点到现在的整数毫秒（**唯一**计算式）。
+
+    起点由 :func:`init_or_resume` 写在 ``loop._run_started_perf``——放在 loop 上而非
+    ``_RunInit`` 里，是为了让 ``AgentLoop._on_run_failed`` 这类**拿不到 init 的
+    façade 路径**也能算出真实耗时（此前那条路径恒报 ``duration_ms=0``）。
+    未开始过 run（起点为 0）时返回 0。
+    """
+    started = loop._run_started_perf
+    if not started:
+        return 0
+    return max(int((time.perf_counter() - started) * 1000), 0)
 
 
 _DELEGATION_DETAIL_KEYS = ("kind", "role", "workflow_step", "workflow_story", "goal_id", "goal_kind")
@@ -111,6 +122,8 @@ async def init_or_resume(
     loop.active_tool = ""
     loop.tool_activity = []
     _started = time.perf_counter()
+    # run 起点：``run_elapsed_ms`` 的唯一数据源（含 facade 的 _on_run_failed 路径）。
+    loop._run_started_perf = _started
     if _resume is not None:
         resume_details: dict[str, Any] = {"resume": True, "stream": stream}
         resume_details.update(_delegation_details(_resume.run_context))
@@ -121,7 +134,6 @@ async def init_or_resume(
             system_content=_resume.system,
             accumulated=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
             prompt=_resume.prompt,
-            started_perf=_started,
         )
     fresh = await init_new_run(loop, prompt, system, session_id, stream=stream)
     return _RunInit(
@@ -130,7 +142,6 @@ async def init_or_resume(
         system_content=fresh[2],
         accumulated=fresh[3],
         prompt=prompt,
-        started_perf=_started,
     )
 
 
@@ -262,7 +273,6 @@ async def execute_run(
             system_content,
             state,
             exc,
-            duration_ms=max(int((time.perf_counter() - init.started_perf) * 1000), 0),
         )
         raise
     finally:
@@ -303,7 +313,7 @@ async def finish_run(
         run_context=run_context,
         details={
             "answer_length": len(final_answer),
-            "duration_ms": max(int((time.perf_counter() - init.started_perf) * 1000), 0),
+            "duration_ms": run_elapsed_ms(loop),
         },
     )
     loop.last_usage = accumulated
@@ -348,14 +358,17 @@ async def on_run_failed(
     state: AgentState,
     exc: Exception,
     *,
-    duration_ms: int = 0,
+    duration_ms: int | None = None,
 ) -> None:
     """异常收尾：置 FAILED、记错误快照、发布 run_failed 事件（不含 re-raise）。
 
     ``run``/``run_stream`` 的 except 块共用；``raise`` 留在各自 except 末尾
-    （显性失败，异常原样向上抛）。``duration_ms``（Phase 5 C1）由调用方从
-    ``init.started_perf`` 计算，缺省 0=未计时；``error_kind`` 由 ``exc`` 推导。
+    （显性失败，异常原样向上抛）。``duration_ms`` 缺省 ``None`` = 由
+    :func:`run_elapsed_ms` 现算（facade 路径因此不再恒报 0）；``error_kind`` 由
+    ``exc`` 推导。
     """
+    if duration_ms is None:
+        duration_ms = run_elapsed_ms(loop)
     run_context.mark_terminal(RunStatus.FAILED, iteration=state.iteration)
     await checkpoint(
         loop,
@@ -382,7 +395,13 @@ async def start_run_record(loop: AgentLoop, run_context: RunContext, *, prompt: 
     try:
         await loop.engine.run_store.start(run_context, prompt=prompt, system=system)
     except Exception:
-        logger.exception("Failed to start run record for '%s'", run_context.run_id)
+        safe_log(
+            logger,
+            logging.ERROR,
+            "Failed to start run record for '%s'",
+            run_context.run_id,
+            exc_info=True,
+        )
 
 
 async def checkpoint(
@@ -411,4 +430,4 @@ async def checkpoint(
             error=error,
         )
     except Exception:
-        logger.exception("Failed to checkpoint run '%s'", run_context.run_id)
+        safe_log(logger, logging.ERROR, "Failed to checkpoint run '%s'", run_context.run_id, exc_info=True)

@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import TYPE_CHECKING
 
 from heagent.agent.run_lifecycle import (
@@ -174,7 +173,6 @@ async def stream_run(  # noqa: C901
             system_content,
             state,
             exc,
-            duration_ms=max(int((time.perf_counter() - init.started_perf) * 1000), 0),
         )
         raise
     finally:

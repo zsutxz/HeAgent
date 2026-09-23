@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.events.protocol import error_kind_for
 from heagent.exceptions import PolicyViolation, SafetyViolation
+from heagent.safe_logging import safe_log
 from heagent.tools.call_summary import summarize_tool_call
 from heagent.tools.sandbox import (
     CommandRunner,
@@ -170,7 +171,14 @@ class ToolExecutor:
                 details=details,
             )
         except Exception:
-            logger.warning("tool event %r emit failed; ignored (tool '%s')", event, call.name, exc_info=True)
+            safe_log(
+                logger,
+                logging.WARNING,
+                "tool event %r emit failed; ignored (tool '%s')",
+                event,
+                call.name,
+                exc_info=True,
+            )
 
     def _guard_or_blocked(
         self,

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from pydantic import BaseModel, Field
 
 from heagent.engine.context import iso_now
+from heagent.safe_logging import redact_mapping, redact_secrets, safe_log
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -62,21 +63,35 @@ class EventObserver(Protocol):
 
 
 class LoggingObserver:
-    """默认观察者：把事件镜像到 logger（默认 INFO 级）。"""
+    """默认观察者：把事件镜像到 logger（默认 INFO 级），并对载荷做启发式脱敏。
+
+    两处刻意选择：
+
+    - **脱敏而非截断**：``target`` 对 ``shell`` 是**不截断**的完整命令
+      （:data:`~heagent.tools.call_summary._NO_TRUNCATE_TOOLS`，审查需要原文），
+      故这里按凭证**形态**掩码（:func:`~heagent.safe_logging.redact_secrets`），
+      既不丢命令结构，也不把 ``API_KEY=…`` / ``sk-…`` 写进日志文件。
+    - **故障隔离**：走 :func:`~heagent.safe_logging.safe_log`——日志设施故障
+      只该降级成「少一条日志」，不得让 ``EventBus.emit`` 的调用方失败。
+
+    ⚠ 脱敏是启发式，**非安全边界**；``.heagent/runs/`` 的 run 快照与 rollout
+    按设计保存完整 prompt（见 ``safe_logging`` 模块 docstring）。
+    """
 
     def __init__(self, *, level: int = logging.INFO) -> None:
         self._level = level
 
     def handle(self, event: EngineEvent) -> None:
-        logger.log(
+        safe_log(
+            logger,
             self._level,
             "engine event=%s run=%s iteration=%s tool=%s target=%s details=%s",
             event.event_type,
             event.run_id or "-",
             event.iteration,
             event.tool_name or "-",
-            event.target or "-",
-            event.details,
+            redact_secrets(event.target) or "-",
+            redact_mapping(event.details),
         )
 
 
@@ -108,7 +123,13 @@ class EventBus:
             try:
                 observer.handle(event)
             except Exception:
-                logger.exception("Event observer failed for event '%s'", event.event_type)
+                safe_log(
+                    logger,
+                    logging.ERROR,
+                    "Event observer failed for event '%s'",
+                    event.event_type,
+                    exc_info=True,
+                )
 
     def publish(
         self,

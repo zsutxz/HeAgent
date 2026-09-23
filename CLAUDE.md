@@ -60,6 +60,7 @@ exceptions  types  config  persist  roles  frontmatter
 - `providers/` — LLM provider（OpenAI 兼容：DeepSeek / Kimi / GLM 等 + Anthropic 原生）+ 智能路由（`router` RoutingProvider）+ 多层容错（`chain` 跨 provider 回退 / `key_rotation` 多密钥轮换 / `retry` 指数退避 / `switchable` 运行时 vendor 切换）
 - `tools/` — `@tool` 注册（`registry`）+ `SafetyGuard`（shell 黑名单）+ `path_safety` + `edits`/`sandbox` + `builtins/`（25 工具）+ `mcp/` 桥接
 - `engine/` — 运行时治理（`PolicyEngine` 准入/审批/沙箱裁决 + `ToolExecutor` 分发 + `store`/`ledger`/`observability`），经 `EngineContainer` 注入 `AgentLoop`
+- `safe_logging.py` — 顶层底层共用模块（零 heagent 依赖，2026-09-23）：`safe_log`（日志故障不传播）、`install_logging_fault_guard()`（进程级 handler 守卫，入口层装）、`redact_secrets`/`redact_details`（日志行启发式脱敏，非安全边界）
 - `persist.py` / `roles.py` / `frontmatter.py` — 顶层底层共用模块：原子写/容错读/跨进程文件锁/prune 批量内核；`RoleSpec` 角色注册表（2026-09 自 `engine/` 迁出）；共享 frontmatter 解析（两个分隔符变体 + 严/宽两档键值 + 标量 coercion，收敛原六处手写解析器，2026-09-17）
 - `context/` — 上下文压缩 / 会话持久化 / 上下文文件加载 / token 估算
 - `events/` — 事件传输层（`RunEvent` JSONL 对外契约 + `JsonlSink` 落盘 + `replay` 回放），运行时零 `engine/` 依赖

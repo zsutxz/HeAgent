@@ -111,6 +111,60 @@ async def test_parallel_story_loop_batches_one_epic_and_keeps_epics_serial() -> 
 
 
 @pytest.mark.asyncio
+async def test_parallel_batch_emits_per_story_events() -> None:
+    """批级事件之外，批内每条 story 各发一组（带自己的 story 与 duration_ms）。
+
+    修复前并发批次只有「整批一条」started/completed，消费方无法定位单个 story。
+    """
+    from typing import Any
+
+    runner = WorkflowRunner(_parallel_workflow(2))
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def emit(kind: str, *, details: dict[str, Any] | None = None) -> None:
+        events.append((kind, details or {}))
+
+    await runner.run_step(_story_callback([]), stories=PARALLEL_STORIES, emit=emit)
+
+    batch_level = [kind for kind, details in events if details["story"] == ""]
+    assert batch_level == ["workflow_step_started", "workflow_step_completed"]  # 整批一条
+    per_story = [(kind, details["story"]) for kind, details in events if details["story"] != ""]
+    assert per_story == [
+        ("workflow_step_started", "S-1"),
+        ("workflow_step_completed", "S-1"),
+        ("workflow_step_started", "S-2"),
+        ("workflow_step_completed", "S-2"),
+    ]
+    for _kind, details in events:
+        assert isinstance(details["duration_ms"], int)
+        assert details["step"] == "step-06-implement.md"
+
+
+@pytest.mark.asyncio
+async def test_parallel_batch_failed_story_reports_its_own_failure_event() -> None:
+    """批内失败的 story 发自己的 ``workflow_step_failed``（带 error_kind），不与其他 story 混。"""
+    from typing import Any
+
+    runner = WorkflowRunner(_parallel_workflow(2))
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def emit(kind: str, *, details: dict[str, Any] | None = None) -> None:
+        events.append((kind, details or {}))
+
+    async def callback(step, story):
+        if story.id == "S-2":
+            raise RuntimeError("broken story")
+        return WorkflowStepResult(output=f"impl {story.id}")
+
+    await runner.run_step(callback, stories=PARALLEL_STORIES, emit=emit)
+
+    failed = [details for kind, details in events if kind == "workflow_step_failed"]
+    assert [details["story"] for details in failed] == ["S-2"]
+    assert failed[0]["error_kind"] == "exception"
+    assert "broken story" in failed[0]["error"]
+
+
+@pytest.mark.asyncio
 async def test_parallel_story_failure_isolated_and_checkpointed() -> None:
     runner = WorkflowRunner(_parallel_workflow(2))
 

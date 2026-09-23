@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from heagent.engine import ApprovalDecision, ApprovalRequest, ToolExecutionMode
+from heagent.safe_logging import safe_log
 from heagent.tools.call_summary import activity_label, summarize_tool_call
 from heagent.types import ToolCall, ToolResult
 
@@ -68,11 +69,11 @@ async def _renew_ledger_lease(ledger: ExecutionLedger, key: str) -> None:
         except Exception:
             # 注意 CancelledError 是 BaseException，不会被这里吞掉——取消续租任务
             # （execute_tool_call 的 finally）仍按取消语义退出。
-            logger.warning("Ledger lease renewal failed for %s; will retry", key, exc_info=True)
+            safe_log(logger, logging.WARNING, "Ledger lease renewal failed for %s; will retry", key, exc_info=True)
             continue
         if record is None:
             # 记录已被清理（或已终态）：续租已无意义，退出让回写路径去报告。
-            logger.warning("Ledger record %s vanished while the tool was in flight", key)
+            safe_log(logger, logging.WARNING, "Ledger record %s vanished while the tool was in flight", key)
             return
 
 
@@ -93,7 +94,9 @@ async def _record_ledger_outcome(loop: AgentLoop, cache_key: str, result: ToolRe
         else:
             await loop.engine.ledger.complete(cache_key, metadata={"result": result.content}, recreate_if_missing=True)
     except Exception:
-        logger.warning(
+        safe_log(
+            logger,
+            logging.WARNING,
             "Failed to record ledger outcome for %s (tool result kept; idempotency cache lost)",
             cache_key,
             exc_info=True,

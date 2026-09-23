@@ -94,7 +94,7 @@ exceptions  types  config  persist  roles
 - `providers/` 和 `tools/` 互不依赖
 - `exceptions.py` 和 `types.py` 是叶子模块，无内部依赖
 - 新增 Provider 或 Tool **禁止**从 `agent/` 导入（**全仓无例外**：`builtins/subagent.py` 只持可注入委派回调，子 Agent 编排由 `agent/delegation.py` 提供、`AgentLoop._runtime_scope` 每 run 绑定；`tools/mcp/*` 同）
-- `persist.py` / `roles.py` / `frontmatter.py` 是顶层底层共用模块（与 exceptions/types/config 同层；persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖）：`persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
+- `persist.py` / `roles.py` / `frontmatter.py` 是顶层底层共用模块（与 exceptions/types/config 同层；persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖）：`persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`safe_logging.py`（零 heagent 依赖，2026-09-23）收敛日志卫生：`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，`network/`（不得依赖 engine）与 engine/agent 共用同一实现；`frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
 - `memory/` 运行期**不依赖 `engine/`**（`memory/dream.py` 的 `EngineContainer` 仅 TYPE_CHECKING 引用，实例由入口层注入、无 `default()` 回退；契约断言见 `test_architecture_contracts.py` FORBIDDEN_RUNTIME_IMPORTS）
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
@@ -813,13 +813,14 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端；FR-1 会话目录经 `bind_sandbox_workspace` 送达；FR-2 后端强度档位经 `_runner_tier()` 查询并随 emit 事件 `sandbox_tier` 可观测（见 4.4 sandbox.py） |
 | `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次 |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入；`heartbeat()` 由工具在途续租（`agent/tool_execution._renew_ledger_lease`）调用，使「过期 RUNNING = 孤儿」成为 prune 的可靠判据 |
-| `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布 |
+| `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布；`LoggingObserver` 经 `safe_logging.safe_log` 落日志（日志故障不改写调用方），并对 `target`/`details` 做启发式脱敏（`redact_secrets`/`redact_mapping`）；`EventBus.emit` 的观察者兜底同样走 `safe_log` |
 
 **已完成：**
 
 - **策略门控链**：`PolicyEngine.evaluate()` → `ToolExecutor.execute()` → `SafetyGuard.check()`，串行执行，职责分离
 - **角色化 + checkpoint-resume**：supervisor 委派角色化 `SubAgent`，结构化结果写 `metadata['completed_steps']`；`window_reset` 清窗重建 + `resume`/`resume_stream` 跨窗口续跑；`build_run_tree()` 树形聚合；Schema 级工具隐藏
 - **持久化健壮性**：store/ledger 全部 async I/O + 原子写 + 损坏 JSON 容错；可选跨进程文件锁（`EngineContainer(enable_file_locks=True)`）
+- **日志卫生（2026-09-23）**：`safe_logging` 两层防线——插桩/best-effort 路径逐调用点 `safe_log`；入口层（CLI/GUI/TCP）配置 logging 时调 `install_logging_fault_guard()`，把 `logging.Handler.handle` 包一层（失败仍走 stdlib `handleError` 诊断，但不向业务传播），故运行栈任意 `logger.*` 不再中断 run。同时 `LoggingObserver` 对 `target`/`details` 按凭证形态掩码——日志行不再出现 `API_KEY=…`/`sk-…` 原文 |
 
 **已知限制：**
 
@@ -908,6 +909,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`，
 实现规格见 `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/spec-46-2-skill-resource-open-hardening.md`。
 
+
 该加固只保护最终路径组件，不能消除中间目录替换、恶意挂载或更高权限宿主进程造成的竞态；不声称已完成
 TOCTOU 防护。descriptor-relative/目录句柄、导入边界 snapshot 和 OS sandbox 仍须另立 story；所有方案仍是
 defense-in-depth，OS sandbox 才能处理 hostile filesystem/process context。
@@ -990,9 +992,9 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 | SandboxSession 非安全边界 | `SandboxSession`（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 非完美边界——须 OS 级沙箱兜底；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（`housekeeping.prune_sandbox_dirs` + `sandbox_dir_retention_days`），仍非安全边界 |
 | TCP 入口非安全边界 | `heagent tcp-server`（Epic 48，实验性）**无认证、无 TLS**：回环判定（`network/exposure.py`）与启动告警只是提示，不构成认证或隔离；默认绑回环也**不**为客户端建立信任——须 OS 级沙箱兜底并限制出站网络（见 4.16） |
 | TCP 入口不接 MCP | 网络入口**不连接** `.mcp.json` 声明的 server（48-5 决策）：入口无认证，而 MCP server 属不可信代码 / 端点，自动连接会把触达面暴露给任何能连上端口的人；需要 MCP 只能在可控交互式会话里显式启用 |
-| TCP 入口不写 rollout | `EVENTS_ROLLOUT_ENABLED` 只作用于 CLI 单次模式：`JsonlSink` 唯一构造点在 `cli._build_event_sink`，TCP 入口不订阅 sink ⇒ 该开关在 `tcp-server` 下不产生 `.heagent/runs/<run_id>/rollout.jsonl`（48-5 评审 W-2 实测；接入属后续工作） |
-| 运行栈日志非「观测故障免疫」 | 入口层（`network/` + `cli_tcp`）插桩经 `_safe_log`，日志设施抛异常不改写响应；但运行栈（`agent`/`engine`/…）自身的 `logger.*` 若命中**在 `emit` 里抛异常**的 handler 仍会传播（CPython `Handler.handle` 不捕获，与 `logging.raiseExceptions` 取值无关，48-5 评审 C-1 实测）⇒ 该 run 会失败。全局收口（给运行栈加安全日志）属后续工作 |
-| TCP 日志含工具摘要 | 入口复用 `EngineContainer.default` ⇒ 默认 `LoggingObserver` 在 INFO 打印 `tool=… target=…`，而 `shell` 的 target **不截断**：路径与命令原文（可能含凭证串）会进日志。属既有引擎行为，48-5 只在 README 提示「不要把凭证写进命令或路径」；日志脱敏属后续工作（48-5 评审 C-2） |
+| TCP 入口不写 rollout | `EVENTS_ROLLOUT_ENABLED` 只作用于 CLI 单次模式：`JsonlSink` 唯一构造点在 `cli._build_event_sink`，TCP 入口不订阅 sink ⇒ 该开关在 `tcp-server` 下不产生 `.heagent/runs/<run_id>/rollout.jsonl`（48-5 评审 W-2 实测）。**接入前须先定并发语义**（2026-09-23 复核）：`JsonlSink` 的 `seq` 与 `_last_run_id` 是**sink 全局**的，而 TCP 入口共享一个 `EngineContainer`/`EventBus` 并发服务多请求——单共享 sink 会让多 run 的 seq 交错、`assistant_message` 归属错误；每请求一 sink 则互相收到对方的全部事件（`EventBus` 无 `unsubscribe`）。故接入需先给 sink 加 run 维度过滤或给总线加退订 |
+| 运行栈日志的故障免疫（**已交付，2026-09-23**） | 入口层插桩经 `_safe_log`；运行栈任意 `logger.*` 由进程级守卫 `safe_logging.install_logging_fault_guard()` 兜底（包 `logging.Handler.handle`，失败仍走 stdlib `handleError` 诊断但不抛——CPython 的 `Handler.handle` 本不捕获 `emit` 异常，与 `raiseExceptions` 无关，48-5 评审 C-1 实测）。**残留**：宿主在守卫安装前打日志、或自行还原 `Handler.handle`（`safe_logging.ORIGINAL_HANDLER_HANDLE`）时不在此保证内 |
+| 日志行的凭证脱敏（**启发式，非边界**；2026-09-23 交付） | `LoggingObserver` 打印前对 `target`/`details` 掩码：键值（`API_KEY=…`/`token: …`）、CLI 旗标、厂商前缀（`sk-`/`ghp_`/`AKIA`/`AIza`/JWT）、`Bearer`、URL userinfo，以及**凭证命名的键**（短值无形状可认）。**肯定漏网**：模式匹配非完备，`shell` target 仍不截断（审查需要原文），且 `logs/`、`.heagent/runs/`（快照/rollout）按设计保存完整 prompt 与消息——仍须 OS 级沙箱与「不要把凭证写进命令或路径」 |
 
 ---
 
@@ -1014,6 +1016,7 @@ src/heagent/
 ├── persist.py               # 原子写 + 容错读 + 跨进程文件锁 + prune 批量内核（底层共用）
 ├── roles.py                 # RoleSpec + 内置角色注册表（agent/tools/engine 共用）
 ├── frontmatter.py           # 共享 frontmatter 解析（零 heagent 依赖；六处手写解析器收敛，2026-09-17）
+├── safe_logging.py           # 日志卫生（safe_log 容错 + 故障守卫 + 启发式脱敏；零 heagent 依赖，2026-09-23）
 │
 ├── agent/                   # 顶层编排
 │   ├── loop.py              # AgentLoop façade（依赖注入装配 + 公共入口委托，Phase 2）

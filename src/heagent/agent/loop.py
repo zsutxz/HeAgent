@@ -74,6 +74,7 @@ from heagent.agent.tool_execution import execute_tool_call, execute_tools, invok
 from heagent.config import ResolvedRuntimeConfig, resolve_runtime_config
 from heagent.context.window_reset import WindowReset, WindowResetConfig
 from heagent.engine import EngineContainer, RunContext
+from heagent.safe_logging import safe_log
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
 from heagent.types import (
@@ -204,6 +205,9 @@ class AgentLoop:
         self.soul = soul
         self.cron_store = cron_store
         self.engine = engine or EngineContainer.default(workspace_root=context_dir)
+        # 本次 run 的起点（perf_counter）：``run_elapsed_ms`` 的唯一数据源，
+        # 由 ``init_or_resume`` 写入；0.0 表示「尚未开始过 run」。
+        self._run_started_perf = 0.0
         # 外部可预置一个 RunContext（SubAgent 委派时用）；run() 取用后即清空，保证一次性。
         self._run_context_template = run_context
         # 委派深度：根 loop 为 0，SubAgent 创建的子 loop 为父深度+1（递归闸门用）。
@@ -423,9 +427,14 @@ class AgentLoop:
         system_content: str | None,
         state: AgentState,
         exc: Exception,
+        duration_ms: int | None = None,
     ) -> None:
-        """异常收尾：置 FAILED、记错误快照、发布 run_failed 事件（不含 re-raise）。"""
-        await on_run_failed(self, run_context, prompt, system_content, state, exc)
+        """异常收尾：置 FAILED、记错误快照、发布 run_failed 事件（不含 re-raise）。
+
+        ``duration_ms`` 缺省 ``None`` = 由 loop 记录的 run 起点现算（``run_elapsed_ms``）——
+        此前这条 façade 路径不传耗时，``run_failed`` 事件恒报 ``duration_ms=0``。
+        """
+        await on_run_failed(self, run_context, prompt, system_content, state, exc, duration_ms=duration_ms)
 
     async def _start_run_record(self, run_context: RunContext, *, prompt: str, system: str | None) -> None:
         """写入初始运行快照（best-effort：失败仅记日志，不阻断主循环）。"""
@@ -726,4 +735,5 @@ class AgentLoop:
                 details=details or {},
             )
         except Exception:
-            logger.exception("Failed to emit engine event '%s'", event_type)
+            # 观测插桩的兜底日志自身也必须免于日志故障（否则「发事件失败」会把 run 带走）。
+            safe_log(logger, logging.ERROR, "Failed to emit engine event '%s'", event_type, exc_info=True)
