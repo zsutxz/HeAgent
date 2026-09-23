@@ -1016,9 +1016,13 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 | 安全响应头 | 每个响应带 `Content-Security-Policy: default-src 'none'; script-src 'self'; …; frame-ancestors 'none'`、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`；页面**不加载任何第三方脚本**（CSP 不允许内联；测试断言页面所有 `src` / `href` 都是同源绝对路径） |
 | 渲染纪律 | 页面脚本只用 `textContent` / `createTextNode` 渲染提示词、回答与工具输出（**永不** `.innerHTML`）；HTML 里没有内联脚本或样式 |
 | 默认 CLI 自启动 | `heagent` / `heagent "prompt"` / `heagent run ...` 在**同一个 asyncio 生命周期**内启动内嵌服务（`cli._embedded_http_service` + `cli_http.EmbeddedHttpService`）：交互模式与 REPL 共存、单次模式与那次 run 并存且 run 结束即关闭并释放端口。`gui` / `tcp-server` / `http-server` / `init` / `replay` 都不经过该路径（**不派生第二个实例**）。启动失败（端口冲突 / 缺 `heagent[http]`）转成命令级错误（exit 1），绝不出现「聊天正常但页面打不开」；serve 循环意外结束时交互模式如实报出并退出（AD-5 的假可用状态禁令）|
-| 运行 API | `POST /api/runs`（请求体**只认** `prompt`，`extra="forbid"` ⇒ 塞 provider/model/system/沙箱/迭代预算一律 400；单运行约束：已有在途 run 时 409 `run_conflict`，**不排队不覆盖**）、`GET /api/runs/{run_id}/events`（SSE）、`GET /api/session`（会话 id / 当前运行状态 / 已完成历史）。请求体按块读取，超过 `HTTP_MAX_REQUEST_BYTES` 立即中断（413 `request_too_large`），不用 ``request.body()`` 把大小交给客户端决定 |
-| 事件与投影 | 事件类型 `text` / `tool_call` / `tool_result` / `done` / `error`（49-4 补 `cancelled` / `timed_out`）；`id` 从 1 单调递增、`data` 是单行 JSON；文本字段入缓冲前截断到 16384 字符并显式标记；`done` 带**该次运行**的 model 与 usage。会话投影只有一条路径：仅 `COMPLETED` 的 run 投影 prompt + 最终回答，失败 / 取消 / 超时**绝不**把部分文本写进历史（AD-3）；运行记录按 `HTTP_RUN_HISTORY_SIZE` 保留，淘汰后按 id 订阅得 `unknown_run` |
+| 运行 API | `POST /api/runs`（请求体**只认** `prompt`，`extra="forbid"` ⇒ 塞 provider/model/system/沙箱/迭代预算一律 400；单运行约束：已有在途 run 时 409 `run_conflict`，**不排队不覆盖**）、`GET /api/runs/{run_id}/events`（SSE）、`DELETE /api/runs/{run_id}`（协作式取消，只作用于该 run，幂等）、`GET /api/session`（会话 id / 当前运行状态 / 已完成历史）。请求体按块读取，超过 `HTTP_MAX_REQUEST_BYTES` 立即中断（413 `request_too_large`），不用 ``request.body()`` 把大小交给客户端决定 |
+| 事件与投影 | 事件类型 `text` / `tool_call` / `tool_result` / `done` / `error` / `cancelled` / `timed_out`；`id` 从 1 单调递增、`data` 是单行 JSON；文本字段入缓冲前截断到 16384 字符并显式标记；`done` 带**该次运行**的 model 与 usage。会话投影只有一条路径：仅 `COMPLETED` 的 run 投影 prompt + 最终回答，失败 / 取消 / 超时**绝不**把部分文本写进历史（AD-3）；运行记录按 `HTTP_RUN_HISTORY_SIZE` 保留，淘汰后按 id 订阅得 `unknown_run` |
+| 取消、重连与终态 | 终态转换**首个获胜**（AD-10）：完成 / `DELETE` / 运行超时 / 关停竞争时只产生一个终态事件，名额在 done callback 里归还（**含「任务未被调度就被取消」的病态路径**——那时协程体不执行，靠 callback 兜底补写 `cancelled`）。`Last-Event-ID: N` 只重放**严格大于** N 的事件；游标早于缓冲窗口（`N < oldest_seq - 1`）返回 409 `resync_required`（不发看似连续的流），客户端据此拉 `/api/session` 快照；空闲流每 15 秒发一条 SSE 注释心跳（`yield None` → `: ping`，不占 ID）。**断线只释放订阅者、绝不取消运行**（取消只能走 `DELETE`） |
+| 限额与超时 | 运行时长 `HTTP_REQUEST_TIMEOUT`（超时 → `timed_out` 终态 + 事件 + 归还名额）；每 run 的 SSE 订阅者数上限复用 `HTTP_MAX_CONNECTIONS`（超出 429 `rate_limited`）；在途运行数 `HTTP_MAX_INFLIGHT_RUNS`（非等待式，满即 409）；客户端连接数交给 Uvicorn `limit_concurrency` |
 | 运行隔离 | 入口层 `cli_http.HttpAgentHandler`：**每次运行新建独立 `AgentLoop`**（loop 持跨 run 可变展示态），handler 自建 engine（`approval_handler=None` ⇒ 需要审批的调用维持既有 fail-safe 阻断，**绝不**读服务进程 stdin）、不自动连接 MCP；传输层只认注入的可调用对象，不认识 `AgentLoop`（AD-1 的接缝） |
+| 来源校验 | 同源防线（AD-6；**defense-in-depth，不是认证**）：所有请求必须带**唯一**且匹配本 listener 的 `Host`（规范化小写、http 默认端口省略；**回环绑定时**接受 `127.0.0.1` / `localhost` / `[::1]` 三个等价写法，非回环只认配置的那个名字）；带 `Origin` 时必须等于 `http://<该 authority>`（拒绝 `null` 与跨站）；重复 `Host` 与任何 `forwarded` / `x-forwarded-*` / `x-real-ip` 头一律 403 `origin_forbidden`（**不信任代理**，Uvicorn 侧也已 `proxy_headers=False`）。被拒的**状态变更不产生任何副作用**（提交不建 run、取消不动 run，有测试钉住） |
+| 可观测性 | 每条请求一条日志（`event=request`：不透明 `request_id` / method / path / status / `elapsed_ms`），并在响应头回 `x-request-id`；每次运行在启动与终态各一条（`event=run_started` / `event=run_finished`：`run_id` / status / `elapsed_ms`）。**日志不含** prompt、回答或工具输出正文（工具名与作用对象仍会出现——那是既有引擎 `LoggingObserver` 的行为，与 CLI/GUI 一致）；入口层插桩经 `_safe_log`，日志设施故障不影响协议行为 |
 
 ⚠ **安全立场**：与 TCP 入口一致——本入口**无认证、无 TLS**，回环绑定不是认证边界，回环客户端同样
 不可信；运行本入口须放在容器 / VM 等 OS 级隔离中（见五、已知缺口与 CLAUDE.md 安全声明）。
@@ -1041,6 +1045,9 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 | TCP 入口非安全边界 | `heagent tcp-server`（Epic 48，实验性）**无认证、无 TLS**：回环判定（`network/exposure.py`）与启动告警只是提示，不构成认证或隔离；默认绑回环也**不**为客户端建立信任——须 OS 级沙箱兜底并限制出站网络（见 4.16） |
 | TCP 入口不接 MCP | 网络入口**不连接** `.mcp.json` 声明的 server（48-5 决策）：入口无认证，而 MCP server 属不可信代码 / 端点，自动连接会把触达面暴露给任何能连上端口的人；需要 MCP 只能在可控交互式会话里显式启用 |
 | TCP 入口不写 rollout | `EVENTS_ROLLOUT_ENABLED` 只作用于 CLI 单次模式：`JsonlSink` 唯一构造点在 `cli._build_event_sink`，TCP 入口不订阅 sink ⇒ 该开关在 `tcp-server` 下不产生 `.heagent/runs/<run_id>/rollout.jsonl`（48-5 评审 W-2 实测）。**接入前须先定并发语义**（2026-09-23 复核）：`JsonlSink` 的 `seq` 与 `_last_run_id` 是**sink 全局**的，而 TCP 入口共享一个 `EngineContainer`/`EventBus` 并发服务多请求——单共享 sink 会让多 run 的 seq 交错、`assistant_message` 归属错误；每请求一 sink 则互相收到对方的全部事件（`EventBus` 无 `unsubscribe`）。故接入需先给 sink 加 run 维度过滤或给总线加退订 |
+| HTTP 入口非安全边界 | `heagent http-server` 与默认 CLI 的内嵌网页入口（Epic 49，实验性）**无认证、无 TLS**：回环绑定与启动告警同样只是提示。网页运行走的仍是既有治理链（`PolicyEngine` → `ToolExecutor` → `SafetyGuard` → handler），但入口本身不构成边界——须 OS 级沙箱兜底，且不要把端口暴露给不可信网络（见 4.17） |
+| HTTP 入口不接 MCP | 网页入口**不连接** `.mcp.json` 声明的 server（与 TCP 入口同一决策）：入口无认证，自动拉起第三方 stdio 子进程 / 连远端端点等于把触达面暴露给任何能连上端口的人 |
+| HTTP 会话/事件无持久化 | 网页入口的会话投影、运行记录与 SSE 事件缓冲都是**进程内状态**：进程退出即丢；事件缓冲按 `HTTP_EVENT_BUFFER_SIZE` 有界，越过窗口的重连只能得到 `resync_required` 并改拉 `/api/session` 快照。首版有意如此（持久化见 4.17 与架构脊柱的延后决策） |
 | 运行栈日志的故障免疫（**已交付，2026-09-23**） | 入口层插桩经 `_safe_log`；运行栈任意 `logger.*` 由进程级守卫 `safe_logging.install_logging_fault_guard()` 兜底（包 `logging.Handler.handle`，失败仍走 stdlib `handleError` 诊断但不抛——CPython 的 `Handler.handle` 本不捕获 `emit` 异常，与 `raiseExceptions` 无关，48-5 评审 C-1 实测）。**残留**：宿主在守卫安装前打日志、或自行还原 `Handler.handle`（`safe_logging.ORIGINAL_HANDLER_HANDLE`）时不在此保证内 |
 | 日志行的凭证脱敏（**启发式，非边界**；2026-09-23 交付） | `LoggingObserver` 打印前对 `target`/`details` 掩码：键值（`API_KEY=…`/`token: …`）、CLI 旗标、厂商前缀（`sk-`/`ghp_`/`AKIA`/`AIza`/JWT）、`Bearer`、URL userinfo，以及**凭证命名的键**（短值无形状可认）。**肯定漏网**：模式匹配非完备，`shell` target 仍不截断（审查需要原文），且 `logs/`、`.heagent/runs/`（快照/rollout）按设计保存完整 prompt 与消息——仍须 OS 级沙箱与「不要把凭证写进命令或路径」 |
 
@@ -1321,20 +1328,23 @@ python -m heagent http-server [--host H] [--port P] [--max-inflight-runs N] ...
         │     └── 就绪门禁：真实 TCP 请求一次 /api/health，非 200/连不上 → 回滚并抛错
         ├── stderr: listening on http://<host>:<port>
         └── serve_forever() → Uvicorn main_loop
-              ├── GET  /api/health            → HealthResponse（字段封闭，不含密钥/路径/traceback）
-              ├── POST /api/runs              → 有界非空 prompt ⇒ 201 {run_id,status}；在途 ⇒ 409 run_conflict
-              │       └── start_run → 后台任务 `_execute` → handler(prompt, publisher) → AgentLoop.run_stream
-              │             └── 事件映射：text / tool_call / tool_result（seq 单调、文本截断、广播给订阅者）
-              │                  终态（首个 claim_terminal 获胜）：done（带 model/usage）/ error（脱敏）
-              ├── GET  /api/runs/{id}/events  → SSE：先重放 ring buffer，再跟随实时事件；终态后立即结束
-              ├── GET  /api/session           → 会话 id / 当前状态 / 已完成历史（只有 completed 投影）
-              ├── GET  /                      → 包内 index.html；GET /{asset} → 白名单资源（app.js / styles.css）
-              └── 每个响应补 CSP / nosniff / 禁 framing；错误一律稳定信封
+              └── 中间件（由外到内）：安全响应头 → 请求日志（x-request-id）→ 同源防线（Host/Origin）
+                    └── 路由：
+                        ├── GET  /api/health            → HealthResponse（字段封闭，不含密钥/路径/traceback）
+                        ├── POST /api/runs              → 有界非空 prompt ⇒ 201 {run_id,status}；在途 ⇒ 409 run_conflict
+                        │       └── start_run → 后台任务 `_execute` → handler(prompt, publisher) → AgentLoop.run_stream
+                        │             └── 事件映射：text / tool_call / tool_result（seq 单调、文本截断、广播给订阅者）
+                        │                  终态（首个 claim_terminal 获胜）：done（带 model/usage）/ error / cancelled / timed_out
+                        ├── GET  /api/runs/{id}/events  → SSE：按 Last-Event-ID 重放（游标越窗 ⇒ 409 resync_required）
+                        │                                    → 跟随实时事件；空闲 15s 发心跳；终态后立即结束
+                        ├── DELETE /api/runs/{id}       → 协作式取消该 run（首个终态获胜；幂等；不触碰其它 run）
+                        ├── GET  /api/session           → 会话 id / 当前状态 / 已完成历史（只有 completed 投影）
+                        ├── GET  /                      → 包内 index.html；GET /{asset} → 白名单资源（app.js / styles.css）
+                        └── 每个响应补 CSP / nosniff / 禁 framing；错误一律稳定信封
         └── finally: await server.close()   # service.close()（取消在途 run → cancelled 终态）→ Uvicorn shutdown（有界）
 ```
 
-（取消 `DELETE /api/runs/{id}`、`Last-Event-ID` 重连与 resync、各项限额在 Story 49-4 接入；
-Origin/Host 同源校验与观测字段在 49-5；打包与浏览器手工验收在 49-6。）
+（浏览器体验、wheel 打包验收与文档收口在 Story 49-6。）
 
 ---
 
