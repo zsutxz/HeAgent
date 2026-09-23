@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import Any
 
 import pytest
@@ -22,6 +23,7 @@ from heagent.network.http_protocol import (
     MAX_EVENT_TEXT_CHARS,
     HttpErrorCode,
     HttpUsage,
+    RunEventKind,
     RunOutcome,
     RunStatus,
 )
@@ -29,6 +31,8 @@ from heagent.network.http_server import (
     HttpRunConflictError,
     HttpRunService,
     HttpServerConfig,
+    _parse_last_event_id,
+    _RunRecord,
     build_http_app,
 )
 
@@ -561,3 +565,164 @@ class TestRunTimeout:
         assert snapshot["status"] == RunStatus.TIMED_OUT
         assert snapshot["messages"] == []
         gate.set()
+
+
+class TestRunFailureObservability:
+    """运行是后台任务：失败必须留下服务端诊断，归因不得被改写。"""
+
+    async def test_run_failure_is_logged_with_traceback(self, caplog: pytest.LogCaptureFixture) -> None:
+        service = HttpRunService(_config(), _executor(error=RuntimeError("boom")))
+        with caplog.at_level(logging.ERROR, logger="heagent.network.http_server"):
+            async with _client(service) as client:
+                created = await client.post("/api/runs", json={"prompt": "x"})
+                await client.get(f"/api/runs/{created.json()['run_id']}/events")
+
+        failed = [record for record in caplog.records if "event=run_failed" in record.getMessage()]
+        assert failed, caplog.text
+        assert any(record.exc_info for record in failed), "运行失败的 traceback 只该出现在服务端日志里"
+
+    async def test_inner_timeout_error_is_not_attributed_to_the_deadline(self) -> None:
+        """provider / 网络自己抛的 ``TimeoutError`` 不是「超过配置时限」。"""
+        service = HttpRunService(
+            _config(request_timeout=30.0),
+            _executor(error=TimeoutError("connect timeout to the provider endpoint")),
+        )
+        async with _client(service) as client:
+            created = await client.post("/api/runs", json={"prompt": "x"})
+            body = (await client.get(f"/api/runs/{created.json()['run_id']}/events")).text
+
+        assert [event for _id, event, _data in _parse_sse(body)] == ["error"]
+        assert "configured time limit" not in body
+
+    async def test_ignored_deadline_is_recorded(self, caplog: pytest.LogCaptureFixture) -> None:
+        """executor 吞掉取消 ⇒ 时限并未生效：终态按实际结果，但不能静默。"""
+
+        async def stubborn(prompt: str, publisher: Any) -> RunOutcome:
+            try:
+                await asyncio.sleep(0.5)
+            except asyncio.CancelledError:
+                await asyncio.sleep(0.05)
+            return RunOutcome(answer="finished anyway")
+
+        service = HttpRunService(_config(request_timeout=0.05), stubborn)
+        with caplog.at_level(logging.WARNING, logger="heagent.network.http_server"):
+            async with _client(service) as client:
+                created = await client.post("/api/runs", json={"prompt": "x"})
+                body = (await client.get(f"/api/runs/{created.json()['run_id']}/events")).text
+
+        assert "event=timeout_ignored" in caplog.text
+        assert [event for _id, event, _data in _parse_sse(body)] == ["done"]
+        assert service.active_runs == 0
+
+
+class TestEventIdCursorParsing:
+    """``Last-Event-ID`` 判据必须是「ASCII 十进制 + 位数有界」（畸形游标不得变成 500）。"""
+
+    class _Request:
+        def __init__(self, raw: str) -> None:
+            self.headers = {"last-event-id": raw}
+
+    @pytest.mark.parametrize("raw", ["²", "9" * 20, "", "  ", "1.5", "-3", "abc", "１２３"])
+    def test_malformed_cursors_are_treated_as_absent(self, raw: str) -> None:
+        assert _parse_last_event_id(self._Request(raw)) is None
+
+    def test_ascii_decimal_cursor_is_parsed(self) -> None:
+        assert _parse_last_event_id(self._Request("42")) == 42
+
+    async def test_superscript_cursor_does_not_break_the_stream(self) -> None:
+        """``'²'`` 是 ``isdigit()`` 为真而 ``int()`` 会抛的字符（可经 latin-1 请求头塞进来）。"""
+        service = HttpRunService(_config(), _executor())
+        async with _client(service) as client:
+            created = await client.post("/api/runs", json={"prompt": "x"})
+            response = await client.get(
+                f"/api/runs/{created.json()['run_id']}/events",
+                headers={"last-event-id": b"\xb2"},
+            )
+
+        assert response.status_code == 200
+        assert [event for _id, event, _data in _parse_sse(response.text)][-1] == "done"
+
+
+class TestSubscriberBackpressure:
+    """订阅者跟不上时必须有界：结束它的流（客户端重连 → ring buffer / resync），而不是无限堆积。"""
+
+    def test_lagging_subscriber_is_dropped_and_its_stream_ends(self) -> None:
+        record = _RunRecord("run-1", "prompt", buffer_size=4)
+        queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=record.subscriber_queue_size)
+        record.subscribers.add(queue)
+
+        for index in range(20):
+            record.append(RunEventKind.TEXT, text=f"e{index}")
+
+        assert record.subscribers == set(), "掉队订阅者必须被摘掉，队列不能继续增长"
+        drained: list[Any] = []
+        while True:
+            try:
+                drained.append(queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        assert drained == [None], "队列只剩「结束流」哨兵：客户端据此重连并走 resync 路径"
+
+    async def test_healthy_subscriber_receives_every_event(self) -> None:
+        """有界队列不得伤到跟得上的订阅者（真实路径里每帧之间都有 await）。"""
+        service = HttpRunService(_config(event_buffer_size=4), _executor())
+        record = _RunRecord("run-1", "prompt", buffer_size=4)
+        received: list[Any] = []
+
+        async def consume() -> None:
+            async for payload in service.stream_events(record, heartbeat_seconds=30):
+                received.append(payload)
+                if len(received) >= 6:
+                    return
+
+        task = asyncio.create_task(consume())
+        await asyncio.sleep(0)
+        for index in range(6):
+            record.append(RunEventKind.TEXT, text=f"e{index}")
+            await asyncio.sleep(0)
+        await asyncio.wait_for(task, timeout=5)
+
+        assert [payload.text for payload in received] == [f"e{index}" for index in range(6)]
+
+    def test_subscriber_queue_is_bounded_like_the_event_window(self) -> None:
+        record = _RunRecord("run-1", "prompt", buffer_size=8)
+
+        assert record.subscriber_queue_size == 8
+
+
+class TestRunHistoryRetention:
+    """``run_history_size`` 的语义是「已终结 run 的保留条数」：在途记录不得被淘汰。"""
+
+    async def test_in_flight_record_is_never_evicted(self) -> None:
+        gate = asyncio.Event()
+        config = _config(run_history_size=1, max_inflight_runs=2)
+        service = HttpRunService(config, _blocking_executor(gate))
+        async with _client(service, config=config) as client:
+            first = (await client.post("/api/runs", json={"prompt": "first"})).json()["run_id"]
+            second = (await client.post("/api/runs", json={"prompt": "second"})).json()["run_id"]
+
+            assert service.run(first) is not None
+            assert service.run(second) is not None
+            cancelled = await client.delete(f"/api/runs/{first}")
+
+            assert cancelled.status_code == 200
+            assert cancelled.json()["status"] == RunStatus.CANCELLED
+            assert service.active_runs == 1
+
+        gate.set()
+        for _ in range(100):
+            if service.active_runs == 0:
+                break
+            await asyncio.sleep(0.02)
+        assert service.active_runs == 0
+
+    async def test_terminal_records_are_still_evicted(self) -> None:
+        config = _config(run_history_size=1)
+        service = HttpRunService(config, _executor())
+        async with _client(service, config=config) as client:
+            first = (await client.post("/api/runs", json={"prompt": "1"})).json()["run_id"]
+            await client.get(f"/api/runs/{first}/events")
+            second = (await client.post("/api/runs", json={"prompt": "2"})).json()["run_id"]
+
+        assert service.run(first) is None
+        assert service.run(second) is not None

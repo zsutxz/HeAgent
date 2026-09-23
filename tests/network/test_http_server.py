@@ -26,8 +26,9 @@ import httpx
 from pydantic import ValidationError
 
 from heagent.network import http_server
-from heagent.network.http_protocol import HttpErrorCode
+from heagent.network.http_protocol import HttpErrorCode, RunOutcome
 from heagent.network.http_server import (
+    HttpRunService,
     HttpServer,
     HttpServerConfig,
     HttpStartupError,
@@ -345,3 +346,120 @@ class TestPackagedAssets:
         }
 
         assert shipped == set(http_server._WEB_ASSETS)
+
+
+def _ok_executor():
+    """立即返回的假 executor（listener 层只需要「能跑完的入口」）。"""
+
+    async def run(prompt: str, publisher: object) -> RunOutcome:
+        return RunOutcome(answer="ok")
+
+    return run
+
+
+def _stubborn_executor(delay: float):
+    """吞掉取消的假 executor：模拟忽略取消的长工具，让关闭真的需要等待。"""
+
+    async def run(prompt: str, publisher: object) -> RunOutcome:
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            await asyncio.sleep(delay)
+        return RunOutcome(answer="late")
+
+    return run
+
+
+class TestBindingAndConcurrencyBudget:
+    """绑定地址与连接额度的边界（评审修复回归）。"""
+
+    async def test_wildcard_host_binds_and_serves_over_loopback(self) -> None:
+        """``HTTP_HOST=0.0.0.0`` 必须真能起来。
+
+        就绪探测走回环地址（连 ``0.0.0.0`` 在多数平台是未定义行为），因此同源防线必须接受等价
+        本机写法——否则探测被自己的 Host 校验拒掉（403），入口永远起不来。
+        """
+        server = HttpServer(_config(host="0.0.0.0"), version=_VERSION)
+        await server.start()
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"http://127.0.0.1:{server.port}/api/health")
+            assert response.status_code == 200
+        finally:
+            await server.close()
+
+    async def test_max_connections_one_still_starts(self) -> None:
+        """``HTTP_MAX_CONNECTIONS=1`` 是合法配置：就绪探测不得把自己挡在额度之外。"""
+        server = HttpServer(_config(max_connections=1), version=_VERSION)
+        await server.start()
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"http://127.0.0.1:{server.port}/api/health")
+            assert response.status_code == 200
+        finally:
+            await server.close()
+
+    def test_wildcard_binding_only_adds_loopback_aliases(self) -> None:
+        """通配绑定额外接受等价本机写法；普通非回环 host 不额外放宽（反 DNS-rebinding）。"""
+        assert http_server._allowed_hosts(_config(host="0.0.0.0")) >= {
+            "0.0.0.0",
+            "127.0.0.1",
+            "localhost",
+            "[::1]",
+        }
+        assert http_server._allowed_hosts(_config(host="::")) >= {"::", "[::1]"}
+        assert http_server._allowed_hosts(_config(host="192.168.1.5")) == frozenset({"192.168.1.5"})
+
+    @pytest.mark.parametrize(("host", "expected"), [("0.0.0.0", "127.0.0.1"), ("::", "::1")])
+    def test_wildcards_are_probed_over_loopback(self, host: str, expected: str) -> None:
+        assert http_server._probe_host(host) == expected
+
+
+class TestCloseAndRestartSemantics:
+    """``close()`` 的幂等语义与 ``close()`` → ``start()`` 的重启语义。"""
+
+    async def test_concurrent_close_waits_for_the_same_shutdown(self) -> None:
+        """并发 ``close()`` 必须等到**同一次**收尾完成，不能提前返回假的「已关闭」。"""
+        config = _config(shutdown_timeout=2.0)
+        server = HttpServer(
+            config,
+            version=_VERSION,
+            run_service=HttpRunService(config, _stubborn_executor(0.6)),
+        )
+        await server.start()
+        port = server.port
+        try:
+            async with httpx.AsyncClient() as client:
+                created = await client.post(f"http://127.0.0.1:{port}/api/runs", json={"prompt": "stuck"})
+                assert created.status_code == 201
+
+            first = asyncio.create_task(server.close())
+            await asyncio.sleep(0.2)  # 让第一次 close 进入「等在途运行进入终态」
+            second = asyncio.create_task(server.close())
+            await asyncio.sleep(0.2)
+
+            assert not first.done()
+            assert not second.done(), "后到的 close 不得在收尾完成前返回"
+            await asyncio.wait_for(asyncio.gather(first, second), timeout=15)
+        finally:
+            await server.close()
+
+        with pytest.raises((httpx.ConnectError, httpx.ConnectTimeout)):
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                await client.get(f"http://127.0.0.1:{port}/api/health")
+
+    async def test_restart_after_close_accepts_runs_again(self) -> None:
+        """``close()`` → ``start()`` 之后运行入口必须被重新武装（否则健康检查 200 而提交恒 409）。"""
+        config = _config()
+        server = HttpServer(config, version=_VERSION, run_service=HttpRunService(config, _ok_executor()))
+        await server.start()
+        await server.close()
+        await server.start()
+        try:
+            async with httpx.AsyncClient() as client:
+                health = await client.get(f"http://127.0.0.1:{server.port}/api/health")
+                created = await client.post(f"http://127.0.0.1:{server.port}/api/runs", json={"prompt": "hi"})
+            assert health.status_code == 200
+            assert created.status_code == 201, created.text
+        finally:
+            await server.close()

@@ -355,6 +355,7 @@ class Settings(BaseSettings):
     # 默认 8766：与 TCP 入口默认端口 8765 错开，两个入口可同时开。
     http_port: int = Field(default=8766, ge=1, le=65535)
     # 同时打开的客户端连接上限（uvicorn limit_concurrency）；超限的连接收 503，不排队。
+    # 内部另预留 1 条给就绪探测 / 健康检查——探测自己也要占一条连接，否则设为 1 时入口永远起不来。
     http_max_connections: int = Field(default=16, ge=1)
     # 同时在途的网页 Agent 运行上限；MVP 固定为 1（单会话单运行），超限的提交收 run_conflict。
     http_max_inflight_runs: int = Field(default=1, ge=1)

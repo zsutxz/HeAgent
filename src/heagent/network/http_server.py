@@ -112,6 +112,15 @@ _IPV6_WILDCARDS = frozenset({"::", "[::]"})
 _PROBE_TIMEOUT = 5.0
 _SHUTDOWN_GRACE_MARGIN = 1.0
 
+# Uvicorn 的 ``limit_concurrency`` 计的是**已建立的连接**，而 ``start()`` 的就绪探测自己也要占
+# 一条（见 :meth:`HttpServer._probe_health`）。若把限额直接设为配置值，``HTTP_MAX_CONNECTIONS=1``
+# 会让探测自己撞上限额（Uvicorn 直接回裸 503）→ 判为「未就绪」→ 入口永远起不来。预留一条。
+_CONCURRENCY_PROBE_RESERVE = 1
+
+# ``Last-Event-ID`` 的最大位数：够放 int64，且远小于 CPython 对 ``int()`` 的位数上限（3.11+ 起
+# 超长数字串会直接 ValueError）。位数为界既是语义约束也是拒绝面约束。
+_MAX_EVENT_ID_DIGITS = 19
+
 
 class HttpDependencyError(RuntimeError):
     """缺少可选 HTTP 依赖（``heagent[http]``）。"""
@@ -215,6 +224,9 @@ class _RunRecord:
         # 有界 ring buffer：越过窗口的重连（49-4）据此判定 resync_required。
         self.events: deque[RunEventPayload] = deque(maxlen=buffer_size)
         self.subscribers: set[asyncio.Queue[RunEventPayload | None]] = set()
+        # 订阅者队列与事件窗口**同界**：消费端（SSE 响应写 socket）被背压卡住时不能无限堆积，
+        # 到界即结束该订阅者的流（见 :meth:`_drop_lagging_subscriber`）。
+        self.subscriber_queue_size = buffer_size
         self._next_seq = 1
 
     def elapsed_ms(self) -> int:
@@ -236,8 +248,28 @@ class _RunRecord:
         self._next_seq += 1
         self.events.append(payload)
         for queue in list(self.subscribers):
-            queue.put_nowait(payload)
+            try:
+                queue.put_nowait(payload)
+            except asyncio.QueueFull:
+                self._drop_lagging_subscriber(queue)
         return payload
+
+    def _drop_lagging_subscriber(self, queue: asyncio.Queue[RunEventPayload | None]) -> None:
+        """订阅者跟不上（有界队列已满）：**结束它的流**，而不是无限堆积或静默丢事件。
+
+        队列与事件窗口同界，因此「队列满」等价于「该订阅者落后整整一个窗口」——它无论如何都要走
+        重新同步路径，此时丢掉队列里的旧事件并不可惜：客户端会带 ``Last-Event-ID`` 重连，服务端
+        按 ring buffer 补齐；若游标已越出窗口，``needs_resync`` 回 409，客户端拉 ``/api/session``
+        快照收敛（AD-4 的既有恢复路径）。哨兵 ``None`` 让生成器**立即**结束该流（客户端据此重连），
+        而不是干等心跳超时。规则：宁可让客户端重连，也不静默跳过事件。
+        """
+        self.subscribers.discard(queue)
+        while True:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        queue.put_nowait(None)
 
     def claim_terminal(self, status: RunStatus) -> bool:
         """抢占终态转换：**第一个调用者获胜**（AD-10），后续调用是 no-op 并返回 ``False``。
@@ -337,6 +369,14 @@ class HttpRunService:
         )
 
     # ---- 生命周期 ----
+
+    def reopen(self) -> None:
+        """重新武装运行入口（``close()`` 的反操作）：清除「正在关闭」标记。
+
+        只有 :meth:`HttpServer.start` 在启动成功后调用。若不复位，``close()`` → ``start()`` 重启
+        同一实例会得到一个「健康检查 200、每次提交都 409 shutting_down」的假可用状态。
+        """
+        self._closing = False
 
     async def start_run(self, prompt: str) -> _RunRecord:
         """创建并启动一次运行；名额已满或正在关闭 → :class:`HttpRunConflictError`（不排队）。"""
@@ -445,25 +485,51 @@ class HttpRunService:
 
         超时（``HTTP_REQUEST_TIMEOUT``）与取消都经这里的终态转换收口：**第一个**拿到终态的转换
         获胜，只发一条终态事件，并且在 ``finally`` 里归还唯一的在途名额。
+
+        ``asyncio.timeout`` 只能**请求**取消：吞掉 ``CancelledError`` 的 executor（长工具 / 子代理
+        可能如此）会让块正常返回，此时时限并未真正生效——终态仍按实际结果走，但必须留下观测痕迹。
+        ``deadline.expired()`` 因此承担两件事：区分「本模块的时限到了」与「上游自己抛的
+        ``TimeoutError``」，以及在超时被忽略时留下 ``event=timeout_ignored``。
         """
+        deadline = asyncio.timeout(self.config.request_timeout)
         try:
-            async with asyncio.timeout(self.config.request_timeout):
+            async with deadline:
                 outcome = await self._executor(record.prompt, RunEventPublisher(record))
         except asyncio.CancelledError:
             if record.claim_terminal(RunStatus.CANCELLED):
                 record.append(RunEventKind.CANCELLED, message="run cancelled")
                 record.close_subscribers()
             raise
-        except TimeoutError:
-            if record.claim_terminal(RunStatus.TIMED_OUT):
-                record.append(RunEventKind.TIMED_OUT, message="run exceeded the configured time limit")
-                record.close_subscribers()
+        except TimeoutError as exc:
+            if deadline.expired():
+                if record.claim_terminal(RunStatus.TIMED_OUT):
+                    record.append(RunEventKind.TIMED_OUT, message="run exceeded the configured time limit")
+                    record.close_subscribers()
+            else:
+                # 运行内部（provider / 网络 / MCP ping）自己抛的 TimeoutError 不是本模块的时限：
+                # 归因保持原样，否则运维会按「超过配置时限」去排查一个 100ms 就失败的运行。
+                _safe_log(logging.ERROR, "http event=run_failed run_id=%s", record.run_id, exc_info=True)
+                if record.claim_terminal(RunStatus.FAILED):
+                    record.error_message = _client_error_message(exc)
+                    record.append(RunEventKind.ERROR, message=record.error_message)
+                    record.close_subscribers()
         except Exception as exc:
+            # 运行是后台任务，异常不会走 Starlette / Uvicorn 的 traceback 通道：诊断细节只进服务端
+            # 日志（客户端拿脱敏文案），否则真实缺陷的栈会被彻底丢掉。
+            _safe_log(logging.ERROR, "http event=run_failed run_id=%s", record.run_id, exc_info=True)
             if record.claim_terminal(RunStatus.FAILED):
                 record.error_message = _client_error_message(exc)
                 record.append(RunEventKind.ERROR, message=record.error_message)
                 record.close_subscribers()
         else:
+            if deadline.expired():
+                # 时限已过但 executor 吞掉取消正常返回：终态按实际结果，但「时限没生效」必须可见。
+                _safe_log(
+                    logging.WARNING,
+                    "http event=timeout_ignored run_id=%s elapsed_ms=%d",
+                    record.run_id,
+                    record.elapsed_ms(),
+                )
             if record.claim_terminal(RunStatus.COMPLETED):
                 record.outcome = outcome
                 record.append(
@@ -478,10 +544,19 @@ class HttpRunService:
             self._active.discard(record.run_id)
 
     def _store(self, record: _RunRecord) -> None:
-        """记住运行记录；超出 ``run_history_size`` 时淘汰最旧的（之后按其 id 订阅得 ``unknown_run``）。"""
+        """记住运行记录；超出 ``run_history_size`` 时淘汰**最旧的终态记录**。
+
+        只淘汰终态记录（``run_history_size`` 的语义是「已终结 run 的保留条数」）：在途运行必须
+        始终可按 id 找到——否则 ``DELETE`` 与 SSE 订阅会回 ``unknown_run``，而它仍占着在途名额、
+        ``_finalize`` 也因查不到记录而连一行终态日志都不写，等于从系统里凭空消失。全部记录都在途
+        时宁可暂时超出上限（在途数本身受 ``max_inflight_runs`` 约束），也不淘汰活记录。
+        """
         self._runs[record.run_id] = record
         while len(self._runs) > self.config.run_history_size:
-            self._runs.popitem(last=False)
+            victim = next((run_id for run_id, rec in self._runs.items() if rec.is_terminal), None)
+            if victim is None:
+                return
+            del self._runs[victim]
 
     def _project(self, record: _RunRecord) -> None:
         """终态 → 会话的唯一 reducer：只投影成功完成运行的 prompt 与最终回答（AD-3）。"""
@@ -507,7 +582,7 @@ class HttpRunService:
         - ``yield None`` 表示**心跳**（注释帧，不占事件 ID、不推进游标）；
         - 订阅者只读：断线只移除本队列，**绝不**取消运行——取消只能通过 ``DELETE``。
         """
-        queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue()
+        queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue(maxsize=record.subscriber_queue_size)
         record.subscribers.add(queue)
         try:
             # 注册订阅者与快照之间没有 ``await`` ⇒ 在单线程事件循环里是原子的：不会有事件
@@ -583,7 +658,12 @@ def _allowed_hosts(config: HttpServerConfig) -> frozenset[str]:
     """
     host = config.host.strip().lower()
     names = {host}
-    if is_loopback_host(host):
+    # 通配绑定（``0.0.0.0`` / ``::`` / ``*``）没有单一主机名：就绪探测与浏览器都是从回环地址
+    # 打进这个 listener 的（见 :func:`_probe_host`），因此把等价本机写法一并接受——否则探测会
+    # 撞上自己的 Host 校验（403），``HTTP_HOST=0.0.0.0`` 永远起不来。
+    # 这不削弱反 DNS-rebinding：伪造的域名（``evil.example``）仍在拒绝之列；通配绑定的其它网卡
+    # 地址也仍按「不匹配 listener 名」拒绝（非回环联网不受支持，见 CLI help 与 exposure 告警）。
+    if is_loopback_host(host) or host in _WILDCARD_HOSTS or host in _IPV6_WILDCARDS:
         names.update(_LOOPBACK_HOST_ALIASES)
     return frozenset(names)
 
@@ -823,6 +903,10 @@ def _parse_last_event_id(request: Any) -> int | None:
     非数字 / 负数 / 空值一律当作「没有游标」（不报错）：游标只是客户端自述的进度，格式可疑时
     按「从头读」处理并由 ``needs_resync`` 决定是否需要重新同步，**不**把畸形头变成 400——
     否则一个坏游标会让客户端再也订阅不上。
+
+    判据必须是「ASCII 十进制 + 位数有界」，不能只用 ``str.isdigit()``：它对 Unicode 数字
+    （``'²'`` 这类 latin-1 单字节就能塞进请求头的字符）为真，而 ``int()`` 会抛 ``ValueError``
+    → 客户端可控的 500；超长数字串还会撞 CPython 3.11+ 的 ``int()`` 位数上限，同样 500。
     """
     raw = getattr(request, "headers", None)
     if raw is None:
@@ -831,7 +915,7 @@ def _parse_last_event_id(request: Any) -> int | None:
     if value is None:
         return None
     text = str(value).strip()
-    if not text.isdigit():
+    if not text.isascii() or not text.isdecimal() or len(text) > _MAX_EVENT_ID_DIGITS:
         return None
     return int(text)
 
@@ -1042,7 +1126,11 @@ class HttpServer:
         self.run_service = run_service
         self._app: ASGIApp | None = None
         self._server: Any = None
-        self._closing = False
+        # 生命周期锁与「已关闭」标记：``close()`` 必须**等到**收尾真正完成才返回。只用一个布尔
+        # 标记的话，并发/重复调用会拿到「已关闭」的假成功，而 listener 仍在接受并服务请求
+        # （与 ``TcpServer._lifecycle_lock`` 同形）。
+        self._lifecycle_lock = asyncio.Lock()
+        self._closed = False
 
     @property
     def app(self) -> ASGIApp:
@@ -1076,7 +1164,7 @@ class HttpServer:
         if self._server is not None:
             return
         uvicorn = _require_module("uvicorn")
-        self._closing = False
+        self._closed = False
         server = uvicorn.Server(
             uvicorn.Config(
                 self.app,
@@ -1092,7 +1180,7 @@ class HttpServer:
                 server_header=False,
                 # 绝不信任 forwarded-* 头（AD-6）：同源判定必须基于真实 listener 地址。
                 proxy_headers=False,
-                limit_concurrency=self.config.max_connections,
+                limit_concurrency=self.config.max_connections + _CONCURRENCY_PROBE_RESERVE,
                 # 关闭时连接排空的硬上界（Uvicorn 默认 None = 无限等待）。
                 timeout_graceful_shutdown=max(1, math.ceil(self.config.shutdown_timeout)),
             )
@@ -1120,6 +1208,12 @@ class HttpServer:
             self._server = None
             await self._stop_listener(server)
             raise HttpStartupError(f"HTTP server started but {_HEALTH_PATH} is not servable")
+        if self.run_service is not None:
+            # 重新武装运行入口：``close()`` 会把「停止接收」标记置上且不可逆，于是
+            # ``close()`` → ``start()`` 之后健康检查照常 200，而每次 ``POST /api/runs`` 都被
+            # 409 ``run_conflict``（`server is shutting down`）拒绝——正是 AD-5 要消除的
+            # 「看起来正常但不可用」。
+            self.run_service.reopen()
 
     async def serve_forever(self) -> None:
         """阻塞式服务循环；Uvicorn 主循环退出（``should_exit``）或异常时返回/抛出。"""
@@ -1135,18 +1229,24 @@ class HttpServer:
         关闭订阅 → 关闭 listener → 有界等待**。Uvicorn 的 ``shutdown()`` 负责最后两步（关闭监听、
         请求既有连接收尾，受 ``timeout_graceful_shutdown`` 约束），本方法另加一层 ``wait_for`` 兜底，
         保证即使框架内部出现无界等待也不会把 CLI 退出卡死。
+
+        幂等指「重复/并发调用都等到**同一次**收尾完成」：后到者持锁排队，不会在本方法仍在等待
+        在途运行时提前返回一个「已关闭」的假成功。收尾中途被取消（如 Ctrl+C 二次打断）时不置
+        ``_closed``，让下一次调用可以接着收尾。
         """
-        if self._closing:
-            return
-        self._closing = True
-        service = self.run_service
-        if service is not None:
-            await service.close()
-        server, self._server = self._server, None
-        if server is None:
-            return
-        server.should_exit = True
-        await self._stop_listener(server)
+        async with self._lifecycle_lock:
+            if self._closed:
+                return
+            service = self.run_service
+            if service is not None:
+                await service.close()
+            server, self._server = self._server, None
+            if server is None:
+                self._closed = True
+                return
+            server.should_exit = True
+            await self._stop_listener(server)
+            self._closed = True
 
     async def _stop_listener(self, server: Any) -> None:
         budget = self.config.shutdown_timeout + _SHUTDOWN_GRACE_MARGIN
@@ -1178,7 +1278,10 @@ class HttpServer:
             _safe_log(logging.WARNING, "http event=probe_failed phase=connect error=%r", exc)
             return False
         try:
-            request = (f"GET {_HEALTH_PATH} HTTP/1.1\r\nhost: {host}:{port}\r\nconnection: close\r\n\r\n").encode()
+            # IPv6 字面量的 authority 必须带方括号：``::1:8766`` 会被拆成 host ``::1`` +
+            # port 8766（恰好侥幸通过），而 ``[::1]:8766`` 才是浏览器与校验两侧都认的写法。
+            authority = f"[{host}]" if ":" in host else host
+            request = (f"GET {_HEALTH_PATH} HTTP/1.1\r\nhost: {authority}:{port}\r\nconnection: close\r\n\r\n").encode()
             writer.write(request)
             await writer.drain()
             status_line = await asyncio.wait_for(reader.readline(), timeout=_PROBE_TIMEOUT)
