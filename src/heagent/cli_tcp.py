@@ -21,11 +21,35 @@ Epic 48 Story 48-3。本模块属**入口层**（与 ``cli`` / ``cli_init`` / ``
 它读取**服务进程的 stdin**——网络入口无人应答，一旦挂起就把请求卡死。故这里直接从
 ``EngineContainer.default`` 构造容器（``approval_handler`` 留 ``None``）：需要审批的工具调用维持
 既有 fail-safe 语义（等同阻断），而不是把服务变成交互终端。
+
+**不连接 MCP server（Story 48-5 的安全决策）**：``cli`` 的单次 / 交互模式会经 ``_mcp_lifecycle``
+连接 ``.mcp.json`` 声明的外部 server（stdio 会拉起任意本地子进程、HTTP 会连任意远端端点），
+而网络入口**有意不做**这一步——入口无认证、客户端不可信，自动连接等于把不可信代码的触达面
+暴露给任何能连上端口的人。需要 MCP 时请在可控的交互式会话里显式启用；
+``tests/test_cli_tcp.py::test_tcp_entry_never_connects_mcp_servers`` 钉住该决策。
+
+**三条输出通道互不串线（Story 48-5）**：
+
+- **TCP 响应**：socket 上只出现「一条请求 → 一条 JSON Lines 响应」，不掺事件流；
+- **CLI stdout/stderr**：启动告警、监听地址、用量与横幅只走 stderr（``--json`` 事件流是
+  ``cli.py`` 单次模式的 stdout 契约，本入口不启用）；
+- **rollout JSONL**：只由 ``events.JsonlSink`` 按 ``EVENTS_ROLLOUT_ENABLED`` 落盘到
+  ``.heagent/runs/<run_id>/rollout.jsonl``，与响应通道无关。
+
+**非回环绑定**：启动时向 stderr 打印一次明确告警（文案与 ``TcpServer.start()`` 的
+``event=exposed`` 日志同源，见 :mod:`heagent.network.exposure`）。
+
+**观测故障的保证边界（48-5 评审 C-1）**：入口层两处插桩（本模块 + ``network/tcp_server.py``）
+的日志调用全部经 ``_safe_log``——日志设施抛异常时业务响应**不变**（成功仍成功、``agent_error``
+不会被改写成 ``server_error``）。但**运行栈**（``agent`` / ``engine`` / …）自身的 ``logger.*``
+不在保护范围内：CPython 的 ``Handler.handle`` 不捕获 ``emit`` 里抛出的异常，故安装了会抛异常的
+handler 时那条路径仍会失败。这是**既有框架特性**，已记入 ``docs/frame.md`` 五、已知缺口。
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import math
 import os
@@ -39,6 +63,7 @@ from heagent.exceptions import HeAgentError
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.memory.skills import SkillStore
+from heagent.network.exposure import exposure_warning
 from heagent.network.protocol import TcpErrorCode, TcpUsage, error_response, success_response
 from heagent.network.tcp_server import TcpServer, TcpServerConfig
 from heagent.roles import load_agent_roles
@@ -61,8 +86,26 @@ _GENERIC_AGENT_ERROR = "agent request failed"
 _MAX_ERROR_MESSAGE_CHARS = 500
 
 
+def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -> None:
+    """记一条日志，**绝不**让观测故障影响协议行为（story 48-5 的 Always 项）。
+
+    与 ``network/tcp_server.py::_safe_log`` 同义、同样刻意吞掉异常：出故障的就是日志设施本身，
+    再「warning 一下」只会二次抛错。**边界**：这里保护的是**入口层插桩**；运行栈（agent/engine/…）
+    自身的 ``logger.*`` 调用点若有抛异常的 handler，CPython 的 ``Handler.handle`` 不会捕获
+    （``emit`` 里抛出的异常直接传播，与 ``logging.raiseExceptions`` 取值无关，2026-09-22 实测），
+    那条路径不在本 Story 的保证范围内（见 ``docs/frame.md`` 五、已知缺口）。
+    """
+    with contextlib.suppress(Exception):
+        logger.log(level, message, *args, exc_info=exc_info)
+
+
 def _client_error_message(message: str) -> str:
-    """把内部错误文案收敛为单行、有界、非空的客户端文案。"""
+    """把内部错误文案收敛为单行、有界、非空的客户端文案。
+
+    只做「折叠空白 + 截断」，**不做**路径 / URI 净化：上游 ``HeAgentError.message`` 是项目自产的
+    面向用户文本（当前全部为固定串，无路径与类名）。若将来出现带路径的上游文案，净化必须加在这里
+    ——协议边界不能假设上游永远干净（story 48-5 评审的结构性风险项，见 story 的 Deviation）。
+    """
     collapsed = " ".join(message.split())
     if not collapsed:
         return _GENERIC_AGENT_ERROR
@@ -163,11 +206,13 @@ class TcpAgentHandler:
         except HeAgentError as exc:
             # 已知框架异常（含 BudgetExceeded / ProviderError）：由协议层给出稳定 agent_error，
             # message 是项目自产的面向用户文本（不含 traceback / 异常类名）。
-            logger.warning("TCP agent run failed (request_id=%s): %s", request.id, exc.message)
+            # 用 _safe_log：否则「日志设施抛异常」会在这里把 agent_error 改写成 server_error
+            # （story 48-5 评审 C-1 实测复现）。
+            _safe_log(logging.WARNING, "TCP agent run failed (request_id=%s): %s", request.id, exc.message)
             return error_response(request.id, TcpErrorCode.AGENT_ERROR, _client_error_message(exc.message))
         except Exception:
             # 未知异常：只记服务端日志，客户端拿固定文案（不泄漏类型名 / 路径 / traceback）。
-            logger.exception("TCP agent run failed (request_id=%s)", request.id)
+            _safe_log(logging.ERROR, "TCP agent run failed (request_id=%s)", request.id, exc_info=True)
             return error_response(request.id, TcpErrorCode.AGENT_ERROR, _GENERIC_AGENT_ERROR)
         return success_response(
             request.id,
@@ -348,6 +393,12 @@ def tcp_server_cmd(
         shutdown_timeout=shutdown_timeout,
     )
     server = TcpServer(config, handler)
+    # 非回环绑定：启动前先向 stderr 打印一次明确告警（无认证 / 无 TLS / 非生产安全边界）。
+    # 判定与文案来自 ``network.exposure``——与 ``TcpServer.start()`` 的 ``event=exposed``
+    # 同源，两处各写一套「算不算本地」的逻辑迟早漏报暴露。
+    warning = exposure_warning(config.host)
+    if warning is not None:
+        click.echo(f"[tcp] WARNING: {warning}", err=True)
     try:
         # 绑定失败（端口占用 / 地址不可用）显式失败：只给一行可诊断文案，不打印任何「已监听」，
         # 也不吐 traceback（story 48-2 的启动语义 + CLI 的 UX 约定）。

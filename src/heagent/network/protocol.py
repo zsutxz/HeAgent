@@ -21,6 +21,11 @@ class TcpErrorCode(StrEnum):
     SERVER_ERROR = "server_error"
 
 
+# ``id`` 是**客户端可控**的关联标识，会被原样写进服务端日志 ⇒ 有界（否则一条请求可把日志
+# 放大约 3 倍请求体）。128 字符足够表达 UUID / 序号 / 前缀组合。
+_MAX_REQUEST_ID_CHARS = 128
+
+
 class ProtocolError(ValueError):
     """A client-facing protocol error with a stable error code."""
 
@@ -35,7 +40,9 @@ class TcpRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
 
-    id: str = Field(min_length=1)
+    # id 进入服务端日志，故必须有界且拒绝控制字符：换行可让客户端**伪造整条日志记录**，
+    # 超长 id 可把日志体积放大约 3 倍请求体（48-5 评审 W-4，实测可注入一条假 completed 行）。
+    id: str = Field(min_length=1, max_length=_MAX_REQUEST_ID_CHARS)
     prompt: str = Field(min_length=1)
 
     @field_validator("id")
@@ -43,6 +50,8 @@ class TcpRequest(BaseModel):
     def _validate_id(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("id must not be blank")
+        if any(char < " " or "\x7f" <= char <= "\x9f" for char in value):
+            raise ValueError("id must not contain control characters")
         return value
 
     @field_validator("prompt")

@@ -1,7 +1,9 @@
 import asyncio
+import logging
 
 import pytest
 
+from heagent.network import tcp_server
 from heagent.network.protocol import TcpRequest, TcpResponse, TcpErrorCode, success_response
 from heagent.network.tcp_server import TcpServer, TcpServerConfig
 
@@ -460,4 +462,337 @@ async def test_idle_timeout_releases_the_connection() -> None:
     finally:
         writer.close()
         await writer.wait_closed()
+        await server.close()
+
+
+# --- Story 48-5: 安全边界与可观测性 ---
+
+
+async def _ok_handler(request: TcpRequest) -> TcpResponse:
+    return success_response(request.id, "ok")
+
+
+class _ExplodingLogger:
+    """所有日志调用都抛异常：验证「观测故障不得改写业务响应」。"""
+
+    def log(self, *_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("logging backend is broken")
+
+
+@pytest.mark.asyncio
+async def test_loopback_binding_logs_no_exposure_warning(caplog: pytest.LogCaptureFixture) -> None:
+    """默认回环绑定不告警——否则告警会退化成噪音被忽略。"""
+    caplog.set_level(logging.INFO)
+
+    server, port = await _start(_ok_handler)
+    try:
+        await _request(port, b'{"id":"r1","prompt":"hello"}\n')
+    finally:
+        await server.close()
+
+    assert "tcp event=started host=127.0.0.1" in caplog.text
+    assert "event=exposed" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_non_loopback_binding_logs_exactly_one_exposure_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """非回环绑定：日志恰一条 ``event=exposed``，含宿主与三个风险事实。
+
+    这里替换 ``asyncio.start_server``：测试不该真的在开发机 / CI 上打开一个对外可达的监听口。
+    """
+    caplog.set_level(logging.INFO)
+
+    class _FakeListener:
+        sockets: tuple[object, ...] = ()
+
+        def close(self) -> None:
+            return None
+
+        async def wait_closed(self) -> None:
+            return None
+
+    async def _fake_start_server(*_args: object, **_kwargs: object) -> _FakeListener:
+        return _FakeListener()
+
+    monkeypatch.setattr(asyncio, "start_server", _fake_start_server)
+
+    server = TcpServer(TcpServerConfig(host="0.0.0.0", port=0), _ok_handler)
+    await server.start()
+    await server.close()
+
+    exposed = [record for record in caplog.records if "event=exposed" in record.getMessage()]
+    assert len(exposed) == 1
+    message = exposed[0].getMessage()
+    assert "host=0.0.0.0" in message
+    assert "no authentication" in message
+    assert "no TLS" in message
+    assert "not a production security boundary" in message
+    assert exposed[0].levelno == logging.WARNING
+
+
+@pytest.mark.asyncio
+async def test_request_stages_are_correlatable_by_request_id(caplog: pytest.LogCaptureFixture) -> None:
+    """accepted → processing → completed 可由 request id 串起来，且完成日志带耗时。"""
+    caplog.set_level(logging.INFO)
+
+    server, port = await _start(_ok_handler)
+    try:
+        assert b'"ok":true' in await _request(port, b'{"id":"corr-1","prompt":"hello"}\n')
+    finally:
+        await server.close()
+
+    lines = [record.getMessage() for record in caplog.records]
+    accepted = [line for line in lines if "event=accepted" in line]
+    processing = [line for line in lines if "event=processing" in line]
+    completed = [line for line in lines if "event=completed" in line]
+    assert len(accepted) == len(processing) == len(completed) == 1
+    for line in (accepted[0], processing[0], completed[0]):
+        assert "request_id=corr-1" in line
+    assert "status=ok" in completed[0]
+    assert "elapsed_ms=" in completed[0]
+    assert "peer=127.0.0.1:" in accepted[0]
+
+
+@pytest.mark.asyncio
+async def test_prompt_body_never_reaches_the_logs(caplog: pytest.LogCaptureFixture) -> None:
+    """Never 列表：不记录完整 prompt 正文——只记 request id / 对端 / 字节数这类有界元数据。"""
+    caplog.set_level(logging.DEBUG)
+
+    server, port = await _start(_ok_handler)
+    try:
+        await _request(port, b'{"id":"p1","prompt":"PROMPT-SENTINEL-9d3f"}\n')
+    finally:
+        await server.close()
+
+    assert "PROMPT-SENTINEL-9d3f" not in caplog.text
+    assert "bytes=" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_decode_rejection_logs_reason_and_stable_code(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+
+    server, port = await _start(_ok_handler)
+    try:
+        assert b'"code":"invalid_json"' in await _request(port, b"not-json\n")
+    finally:
+        await server.close()
+
+    assert "event=rejected" in caplog.text
+    assert "reason=decode_failed" in caplog.text
+    assert "code=invalid_json" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_inflight_rejection_logs_reason_and_stable_code(caplog: pytest.LogCaptureFixture) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def handler(request: TcpRequest) -> TcpResponse:
+        started.set()
+        await release.wait()
+        return success_response(request.id, "ok")
+
+    caplog.set_level(logging.INFO)
+    server, port = await _start(handler, max_inflight_requests=1)
+    _first_reader, first = await asyncio.open_connection("127.0.0.1", port)
+    second_reader, second = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        first.write(b'{"id":"r1","prompt":"one"}\n')
+        await first.drain()
+        await started.wait()
+        second.write(b'{"id":"r2","prompt":"two"}\n')
+        await second.drain()
+        assert b'"code":"rate_limited"' in await second_reader.readline()
+    finally:
+        release.set()
+        first.close()
+        second.close()
+        await first.wait_closed()
+        await second.wait_closed()
+        await server.close()
+
+    assert "reason=inflight_limit" in caplog.text
+    assert "code=rate_limited" in caplog.text
+    assert "request_id=r2" in caplog.text
+    assert "event=accepted request_id=r2" not in caplog.text  # 未被接纳的请求不记 accepted
+
+
+@pytest.mark.asyncio
+async def test_idle_timeout_rejection_logs_reason(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO)
+
+    server, port = await _start(_ok_handler, idle_timeout=0.01)
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        assert b'"code":"timeout"' in await reader.readline()
+    finally:
+        writer.close()
+        await writer.wait_closed()
+        await server.close()
+
+    assert "reason=idle_timeout" in caplog.text
+    assert "code=timeout" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_broken_logging_cannot_change_a_successful_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """日志设施抛异常时，成功请求仍必须回正常响应（观测故障 ≠ 业务失败）。"""
+    monkeypatch.setattr(tcp_server, "logger", _ExplodingLogger())
+
+    server, port = await _start(_ok_handler)
+    try:
+        response = await _request(port, b'{"id":"r1","prompt":"hello"}\n')
+    finally:
+        await server.close()
+
+    assert b'"ok":true' in response
+
+
+@pytest.mark.asyncio
+async def test_broken_logging_keeps_the_failure_mapping_intact(monkeypatch: pytest.MonkeyPatch) -> None:
+    """handler 抛异常 + 日志损坏：仍回稳定 server_error，且不泄漏内部细节。"""
+    monkeypatch.setattr(tcp_server, "logger", _ExplodingLogger())
+
+    async def handler(request: TcpRequest) -> TcpResponse:
+        raise RuntimeError("secret internal detail")
+
+    server, port = await _start(handler)
+    try:
+        response = await _request(port, b'{"id":"r1","prompt":"x"}\n')
+    finally:
+        await server.close()
+
+    assert b'"code":"server_error"' in response
+    assert b"secret internal detail" not in response
+
+
+@pytest.mark.asyncio
+async def test_socket_channel_carries_exactly_one_response_line(capsys: pytest.CaptureFixture[str]) -> None:
+    """通道隔离：socket 上只有一条 JSON Lines 响应（读到 EOF 无剩余字节），stdout 零写入。"""
+    server, port = await _start(_ok_handler)
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        writer.write(b'{"id":"r1","prompt":"hello"}\n')
+        await writer.drain()
+        payload = await reader.read()  # 读到 EOF：响应之后不得再有字节
+    finally:
+        writer.close()
+        await writer.wait_closed()
+        await server.close()
+
+    assert payload.endswith(b"\n")
+    assert payload.count(b"\n") == 1
+    assert capsys.readouterr().out == ""
+
+
+@pytest.mark.asyncio
+async def test_cancelled_request_gets_a_terminal_log(caplog: pytest.LogCaptureFixture) -> None:
+    """取消同样要留终态日志：否则 request id 只到 processing 就断线（48-5 评审 W-3）。"""
+    caplog.set_level(logging.INFO)
+    started = asyncio.Event()
+    wait_forever = asyncio.get_running_loop().create_future()
+
+    async def handler(request: TcpRequest) -> TcpResponse:
+        started.set()
+        await wait_forever
+        return success_response(request.id, "never")
+
+    server, port = await _start(handler, shutdown_timeout=0.05)
+    _reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        writer.write(b'{"id":"cancel-1","prompt":"slow"}\n')
+        await writer.drain()
+        await started.wait()
+        await server.close()
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+    assert "event=cancelled request_id=cancel-1" in caplog.text
+    assert "elapsed_ms=" in caplog.text
+    assert "event=completed" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_oversized_requests_share_one_reason(caplog: pytest.LogCaptureFixture) -> None:
+    """同一违规（请求过大）只用一个 reason：行超 StreamReader limit 与超 max_request_bytes 归一。
+
+    否则按 reason 做指标会把一半的 oversized 记成 decode 失败（48-5 评审 W-5）。
+    """
+    caplog.set_level(logging.INFO)
+    server, port = await _start(_ok_handler, max_request_bytes=64)
+    try:
+        # (a) 整行越过 StreamReader limit（max+2 = 66）
+        assert b'"code":"request_too_large"' in await _request(port, b"{" + b'"x"' * 80 + b"}\n")
+        # (b) 行落在 limit 内（65 字节 ≤ max+2）但超过 max_request_bytes，由协议层拦下
+        oversized = b'{"id":"r1","prompt":"' + b"x" * 41 + b'"}\n'
+        assert len(oversized) == 65
+        assert b'"code":"request_too_large"' in await _request(port, oversized)
+    finally:
+        await server.close()
+
+    rejected = [line for line in caplog.text.splitlines() if "event=rejected" in line]
+    assert len(rejected) == 2
+    assert all("reason=oversized_line" in line for line in rejected)
+    assert "reason=decode_failed" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_start_propagates_the_original_bind_error() -> None:
+    """48-2 AC6：绑定失败时调用方拿到**原始可诊断**异常（不是被包装过的文案）。
+
+    用确定性不可绑定的地址（无效 IP 字面量）而不是「端口被占」——后者在开启 ``SO_REUSEADDR``
+    的平台上可能反而绑定成功，会让这条测试变成平台相关的假绿。
+    """
+    server = TcpServer(TcpServerConfig(host="256.256.256.256", port=0), _ok_handler)
+
+    with pytest.raises(OSError) as excinfo:
+        await server.start()
+
+    assert str(excinfo.value).strip()  # 原始异常带可诊断信息
+    assert server.sockets == ()  # 失败不留半成品监听
+
+
+@pytest.mark.asyncio
+async def test_client_disconnect_before_response_reclaims_resources() -> None:
+    """48-2 AC4 / 48-6 任务 4：客户端在响应写回前断开 → 服务不崩溃、连接与在途名额都回收。
+
+    断开发生在 handler **在途** 时（不是写完响应后），所以覆盖的是「写回失败 + finally 归还」这条路。
+    """
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def handler(request: TcpRequest) -> TcpResponse:
+        started.set()
+        await release.wait()
+        return success_response(request.id, "late")
+
+    server, port = await _start(handler, max_inflight_requests=1)
+    _reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        writer.write(b'{"id":"gone","prompt":"x"}\n')
+        await writer.drain()
+        await started.wait()
+        assert server.active_connections == 1
+        assert server.active_inflight == 1
+
+        writer.close()
+        await writer.wait_closed()
+        release.set()
+
+        async with asyncio.timeout(5):
+            while server.active_connections or server.active_inflight:
+                await asyncio.sleep(0)
+
+        assert server.active_connections == 0
+        assert server.active_inflight == 0
+        assert server._request_tasks == set()
+        # 服务未受影响：下一连接照常服务
+        assert b'"ok":true' in await _request(port, b'{"id":"after","prompt":"y"}\n')
+    finally:
+        release.set()
+        writer.close()
         await server.close()

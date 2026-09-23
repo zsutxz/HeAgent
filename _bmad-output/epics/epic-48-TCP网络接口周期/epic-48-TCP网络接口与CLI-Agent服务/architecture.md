@@ -354,11 +354,12 @@ heagent tcp-server [OPTIONS]
 
 ### 7.2 `TCP_ENABLED`
 
-`TCP_ENABLED=false` 可作为配置可见性和未来自动化入口的开关，但显式 `heagent tcp-server` 是唯一启动方式。推荐：
+**实现结果（48-4 冻结，2026-09-22）：不引入 `TCP_ENABLED`。** 显式子命令 `heagent tcp-server` 是
+唯一启动方式，普通 CLI 不读任何开关去隐式监听（`tests/test_cli_tcp.py::test_plain_cli_never_creates_a_tcp_listener`
+钉住）；`tcp_*` 设置全部只作用于该子命令（全仓唯一读取点 `cli_tcp.build_server_config`）。理由：
+「配置可见性」由 `.env.example` + `frame.md` 配置表承担，多一个开关只会制造「配置含义不明」的第三态。
 
-- 普通 CLI 不读取该开关来自动启动 TCP。
-- `tcp-server` 命令若显式发现 `TCP_ENABLED=false`，仍可启动并以 CLI 参数作为明确意图；或在 Story 中冻结为拒绝启动。两者必须选定并测试，不能出现“配置含义不明”。
-- 当前推荐：显式子命令优先，`TCP_ENABLED` 只作为默认配置开关，不阻止显式命令。
+规划期的备选（供追溯）：`TCP_ENABLED=false` + 显式命令优先，或显式命令拒绝启动——两者均未被采纳。
 
 ### 7.3 日志
 
@@ -608,4 +609,12 @@ docs/README.md
 
 ## 当前状态
 
-Architecture 已建立，Epic 48 仍为 `backlog`。下一步进入 BMad Story 细化与 Sprint Plan，之后才能开始代码实现。
+**Epic 48 已交付（2026-09-22）**：6 个 Story 全部 `done`，实现落在
+`src/heagent/network/`（`protocol.py` / `tcp_server.py` / `exposure.py`）+ `src/heagent/cli_tcp.py`，
+文档收口在 `README.md`「TCP 入口（实验性）」与 `docs/frame.md` 4.16 + 五（已知缺口）。
+实测：全量 **2214 passed / 9 skipped / 覆盖率 90.97%**（gate 87%）、干净 Linux 检出
+**2201 passed / 17 skipped / 0 failed**、`ruff` + `ruff format`（247 files）+ `mypy --platform linux`
+（135 files）全绿；逐 Story 的验证与评审记录见 `stories/48-*.md` 的 Verification / Review Status 段。
+
+仍未交付的边界（与实现一致的诚实清单）：无认证 / 无 TLS（默认仅回环）、网络入口不连接 MCP、
+网络入口不写 rollout、运行栈日志不在「观测故障免疫」范围内——详见 `docs/frame.md` 五。

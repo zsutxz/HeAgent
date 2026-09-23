@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
+import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from heagent.network.exposure import exposure_warning
 from heagent.network.protocol import (
     ProtocolError,
     TcpErrorCode,
@@ -17,7 +20,6 @@ from heagent.network.protocol import (
     decode_request,
     encode_response,
     error_response,
-    response_from_protocol_error,
 )
 
 if TYPE_CHECKING:
@@ -26,6 +28,33 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 TcpRequestHandler = Callable[[TcpRequest], Awaitable[TcpResponse]]
+
+
+def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -> None:
+    """记一条日志，**绝不**让观测故障影响协议行为（story 48-5 验收项）。
+
+    ``logger`` 被替换 / handler 抛异常 / logging 配置损坏时，请求仍必须拿到正常响应：
+    观测故障只该降级成「少一条日志」，不允许把成功的请求变成失败或让连接悬挂。
+    此时无法再「warning 一下」（出故障的就是日志设施本身），故显式吞掉异常。
+    """
+    with contextlib.suppress(Exception):  # 见 docstring：日志设施自身故障不作为业务失败
+        logger.log(level, message, *args, exc_info=exc_info)
+
+
+def _elapsed_ms(started_at: float) -> int:
+    """自 ``started_at``（``time.perf_counter``）起的整数毫秒。"""
+    return int((time.perf_counter() - started_at) * 1000)
+
+
+def _peer_label(writer: StreamWriter) -> str:
+    """对端标签 ``host:port``（诊断用）；取不到时返回 ``-``，不因诊断缺失而失败。"""
+    try:
+        peer = writer.get_extra_info("peername")
+    except Exception:  # noqa: BLE001 —— 取不到对端信息不影响请求处理
+        return "-"
+    if isinstance(peer, tuple) and len(peer) >= 2:
+        return f"{peer[0]}:{peer[1]}"
+    return str(peer) if peer else "-"
 
 
 class TcpServerConfig(BaseModel):
@@ -80,7 +109,11 @@ class TcpServer:
         return len(self._inflight_tasks)
 
     async def start(self) -> None:
-        """Bind the configured address, propagating startup errors."""
+        """Bind the configured address, propagating startup errors.
+
+        绑定成功后记一条 ``event=started``；若地址非回环，再记一条 ``event=exposed``
+        告警（文案与 CLI 的 stderr 告警同源，见 :mod:`heagent.network.exposure`）。
+        """
         if self._server is not None:
             return
         self._closing = False
@@ -90,7 +123,10 @@ class TcpServer:
             self.config.port,
             limit=self.config.max_request_bytes + self._FRAMING_MARGIN,
         )
-        logger.info("TCP server listening on %s:%s", self.config.host, self.config.port)
+        _safe_log(logging.INFO, "tcp event=started host=%s port=%s", self.config.host, self.config.port)
+        warning = exposure_warning(self.config.host)
+        if warning is not None:
+            _safe_log(logging.WARNING, "tcp event=exposed host=%s %s", self.config.host, warning)
 
     async def serve_forever(self) -> None:
         """Run until cancelled or closed."""
@@ -122,9 +158,9 @@ class TcpServer:
         if tasks:
             done, pending = await asyncio.wait(tasks, timeout=self.config.shutdown_timeout)
             if pending:
-                logger.warning(
-                    "TCP shutdown timed out with %d task(s) still running; accounting reset (they cannot be "
-                    "force-killed by asyncio)",
+                _safe_log(
+                    logging.WARNING,
+                    "tcp event=shutdown_timeout pending_tasks=%d note=accounting_reset",
                     len(pending),
                 )
             for task in done:
@@ -137,7 +173,7 @@ class TcpServer:
             try:
                 await asyncio.wait_for(server.wait_closed(), timeout=self.config.shutdown_timeout)
             except TimeoutError:
-                logger.warning("TCP listener shutdown timed out")
+                _safe_log(logging.WARNING, "tcp event=shutdown_timeout phase=listener")
 
     async def _handle_client(self, reader: StreamReader, writer: StreamWriter) -> None:
         task = asyncio.current_task()
@@ -145,9 +181,13 @@ class TcpServer:
             await self._close_writer(writer)
             return
         if len(self._connection_tasks) >= self.config.max_connections:
-            await self._write_response(
+            await self._reject(
                 writer,
-                error_response("", TcpErrorCode.RATE_LIMITED, "server connection limit reached"),
+                request_id="",
+                peer=_peer_label(writer),
+                reason="connection_limit",
+                code=TcpErrorCode.RATE_LIMITED,
+                message="server connection limit reached",
             )
             await self._close_writer(writer)
             return
@@ -158,28 +198,70 @@ class TcpServer:
         except asyncio.CancelledError:
             raise
         except (ConnectionError, BrokenPipeError) as exc:
-            logger.debug("TCP client disconnected: %s", exc)
+            _safe_log(logging.DEBUG, "tcp event=client_disconnected error=%r", exc)
         except Exception:
-            logger.exception("Unhandled TCP client error")
+            # 详细 traceback 只进服务端 error 日志（不向客户端泄漏类型名 / 路径）。
+            _safe_log(logging.ERROR, "tcp event=client_error", exc_info=True)
         finally:
             self._connection_tasks.discard(task)
             await self._close_writer(writer)
 
+    async def _reject(
+        self,
+        writer: StreamWriter,
+        *,
+        request_id: str,
+        peer: str,
+        reason: str,
+        code: TcpErrorCode,
+        message: str,
+    ) -> None:
+        """``rejected`` 阶段的唯一出口：先记一条结构化日志，再回稳定错误码。
+
+        ``reason`` 是本服务的**阶段判据**（idle_timeout / oversized_line / decode_failed /
+        inflight_limit / connection_limit），``code`` 是客户端可见的稳定协议码——两者分开，
+        日志可按 reason 归因，客户端只看到有界、无内部细节的 ``code``。
+        """
+        _safe_log(
+            logging.WARNING,
+            "tcp event=rejected request_id=%s peer=%s reason=%s code=%s",
+            request_id or "-",
+            peer,
+            reason,
+            code,
+        )
+        await self._write_response(writer, error_response(request_id, code, message))
+
     async def _process_client(self, reader: StreamReader, writer: StreamWriter) -> None:
+        """读取一条请求并回一条响应，全程记 ``accepted / rejected / processing / completed|failed``。
+
+        ``elapsed_ms`` 覆盖「读到完整请求行 → 产出响应」；**永不**记录 prompt 正文或工具原始输出
+        （story 48-5 的 Never 列表），需要定位时用 request id / 字节数 / 稳定错误码关联。
+        """
+        started_at = time.perf_counter()
+        peer = _peer_label(writer)
         request_id = ""
         try:
             async with asyncio.timeout(self.config.idle_timeout):
                 raw = await reader.readline()
         except TimeoutError:
-            await self._write_response(
+            await self._reject(
                 writer,
-                error_response(request_id, TcpErrorCode.TIMEOUT, "request read timed out"),
+                request_id=request_id,
+                peer=peer,
+                reason="idle_timeout",
+                code=TcpErrorCode.TIMEOUT,
+                message="request read timed out",
             )
             return
         except (asyncio.LimitOverrunError, ValueError):
-            await self._write_response(
+            await self._reject(
                 writer,
-                error_response(request_id, TcpErrorCode.REQUEST_TOO_LARGE, "request exceeds maximum size"),
+                request_id=request_id,
+                peer=peer,
+                reason="oversized_line",
+                code=TcpErrorCode.REQUEST_TOO_LARGE,
+                message="request exceeds maximum size",
             )
             return
 
@@ -189,33 +271,69 @@ class TcpServer:
             request = decode_request(raw, max_bytes=self.config.max_request_bytes)
             request_id = request.id
         except ProtocolError as exc:
-            await self._write_response(writer, response_from_protocol_error(request_id, exc))
+            await self._reject(
+                writer,
+                request_id=request_id,
+                peer=peer,
+                # 同一违规只用一个 reason：行超出 StreamReader limit 或越限由协议层拦下，
+                # 对客户端都是「请求过大」，归一到 oversized_line（否则按 reason 做指标会低估）。
+                reason="oversized_line" if exc.code is TcpErrorCode.REQUEST_TOO_LARGE else "decode_failed",
+                code=exc.code,
+                message=exc.message,
+            )
             return
 
         current = asyncio.current_task()
         if not self._admit_request(current):
             # 非等待式 admission：名额已满时立即回 rate_limited 并关闭连接，**不排队等待**
             # （排队会把并发洪峰变成无界等待与内存增长）。
-            await self._write_response(
+            await self._reject(
                 writer,
-                error_response(
-                    request_id,
-                    TcpErrorCode.RATE_LIMITED,
-                    "server is at its in-flight request limit",
-                ),
+                request_id=request_id,
+                peer=peer,
+                reason="inflight_limit",
+                code=TcpErrorCode.RATE_LIMITED,
+                message="server is at its in-flight request limit",
             )
             return
 
+        _safe_log(
+            logging.INFO,
+            "tcp event=accepted request_id=%s peer=%s bytes=%d",
+            request_id,
+            peer,
+            len(raw),
+        )
         try:
+            _safe_log(logging.INFO, "tcp event=processing request_id=%s", request_id)
             request_task = asyncio.create_task(self._run_request(request, request_id))
             self._request_tasks.add(request_task)
             try:
                 response = await request_task
+            except asyncio.CancelledError:
+                # 取消（服务关闭 / 客户端断开）也留终态日志：否则 request id 只到 processing 就断线，
+                # 「accepted → … → 终态」的串联在取消路径不成立（48-5 评审 W-3）。
+                _safe_log(
+                    logging.WARNING,
+                    "tcp event=cancelled request_id=%s elapsed_ms=%d",
+                    request_id,
+                    _elapsed_ms(started_at),
+                )
+                raise
             finally:
                 self._request_tasks.discard(request_task)
         finally:
             # 成功 / 超时 / 取消 / handler 异常 / 写回失败都经此释放名额（顺序：先归还，再写回）。
             self._release_request(current)
+        _safe_log(
+            logging.INFO if response.ok else logging.WARNING,
+            "tcp event=%s request_id=%s status=%s code=%s elapsed_ms=%d",
+            "completed" if response.ok else "failed",
+            request_id,
+            "ok" if response.ok else "error",
+            response.error.code if response.error is not None else "-",
+            _elapsed_ms(started_at),
+        )
         await self._write_response(writer, response)
 
     def _admit_request(self, task: asyncio.Task[Any] | None) -> bool:
@@ -245,7 +363,8 @@ class TcpServer:
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("TCP request handler failed for request_id=%s", request_id)
+            # 内部异常 → 稳定协议码 server_error；详细 traceback 只进服务端 error 日志。
+            _safe_log(logging.ERROR, "tcp event=request_error request_id=%s", request_id, exc_info=True)
             return error_response(request_id, TcpErrorCode.SERVER_ERROR, "request processing failed")
 
     async def _write_response(self, writer: StreamWriter, response: TcpResponse) -> None:
@@ -253,9 +372,9 @@ class TcpServer:
             writer.write(encode_response(response))
             await writer.drain()
         except (ConnectionError, BrokenPipeError) as exc:
-            logger.debug("TCP response could not be written: %s", exc)
+            _safe_log(logging.DEBUG, "tcp event=response_write_failed error=%r", exc)
         except Exception:
-            logger.warning("TCP response write failed", exc_info=True)
+            _safe_log(logging.WARNING, "tcp event=response_write_failed", exc_info=True)
 
     @staticmethod
     async def _close_writer(writer: StreamWriter) -> None:
@@ -263,9 +382,9 @@ class TcpServer:
         try:
             await writer.wait_closed()
         except (ConnectionError, BrokenPipeError) as exc:
-            logger.debug("TCP writer close failed: %s", exc)
+            _safe_log(logging.DEBUG, "tcp event=writer_close_failed error=%r", exc)
         except Exception:
-            logger.warning("TCP writer close failed", exc_info=True)
+            _safe_log(logging.WARNING, "tcp event=writer_close_failed", exc_info=True)
 
 
 __all__ = ["TcpRequestHandler", "TcpServer", "TcpServerConfig"]

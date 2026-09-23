@@ -31,17 +31,20 @@ _SUBPACKAGE_NAMES = frozenset(path.name for path in SRC.iterdir() if path.is_dir
 # 入口层模块（wiring/cli/cli_goal/cli_tcp/gui）：组合根与展示适配只属于入口层，下层一律不得
 # 反向导入（Phase 1 组合根收敛的契约化；新增入口模块须同步此表）。
 _ENTRYPOINT_MODULES = ("heagent.wiring", "heagent.cli", "heagent.cli_goal", "heagent.cli_tcp", "heagent.gui")
+# goal/ 是入口层**域模块**（cli_goal 的装载/文档层，frame.md 六）：与组合根同属「下层不得反向导入」
+# 的入口面。此前只有 engine/memory 条目显式列它，其余包存在形式绕过（48-5 评审 W-7，AST 实测
+# 运行期只有 cli_goal 导入 goal/）。
+_ENTRY_LAYER_MODULES = (*_ENTRYPOINT_MODULES, "heagent.goal")
 
 FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
-    "providers": ("heagent.agent", *_ENTRYPOINT_MODULES),
-    "tools": ("heagent.agent", *_ENTRYPOINT_MODULES),
-    # goal/ 是入口层域模块（cli_goal 的装载/文档层），下层不得反向导入。
-    "engine": ("heagent.agent", "heagent.goal", *_ENTRYPOINT_MODULES),
-    "memory": ("heagent.agent", "heagent.engine", "heagent.goal", *_ENTRYPOINT_MODULES),
-    "context": ("heagent.agent", *_ENTRYPOINT_MODULES),
-    "cron": ("heagent.agent", *_ENTRYPOINT_MODULES),
+    "providers": ("heagent.agent", *_ENTRY_LAYER_MODULES),
+    "tools": ("heagent.agent", *_ENTRY_LAYER_MODULES),
+    "engine": ("heagent.agent", *_ENTRY_LAYER_MODULES),
+    "memory": ("heagent.agent", "heagent.engine", *_ENTRY_LAYER_MODULES),
+    "context": ("heagent.agent", *_ENTRY_LAYER_MODULES),
+    "cron": ("heagent.agent", *_ENTRY_LAYER_MODULES),
     # events/ 是事件传输层，运行期零 engine 依赖（引擎类型仅出现在 TYPE_CHECKING 里）。
-    "events": ("heagent.agent", "heagent.engine", *_ENTRYPOINT_MODULES),
+    "events": ("heagent.agent", "heagent.engine", *_ENTRY_LAYER_MODULES),
     # network/ 是入口传输层（Epic 48）：只承载 framing / 协议 / 连接生命周期，运行期不得伸手进
     # 运行时栈——Provider/Engine/AgentLoop 的装配是入口层（cli/wiring/cli_tcp）单向伸手。
     "network": (
@@ -53,10 +56,10 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
         "heagent.context",
         "heagent.cron",
         "heagent.events",
-        *_ENTRYPOINT_MODULES,
+        *_ENTRY_LAYER_MODULES,
     ),
     # agent/ 是运行栈顶：不得导入任何入口层（组装是入口层单向伸手，不是运行栈反向伸手）。
-    "agent": _ENTRYPOINT_MODULES,
+    "agent": _ENTRY_LAYER_MODULES,
 }
 
 

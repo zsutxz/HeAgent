@@ -69,6 +69,13 @@ AgentLoop.run(prompt)
 > 并携带 `tool_target`——该调用作用对象的单行摘要（读写的文件 / 命令 / URL / 子 Agent 角色），
 > 由 `tools/call_summary.py` 统一产出；`tool_result` 事件携带 `tool_name` 与 `tool_error`
 > 供失败归因（批次并发执行，结果按调用顺序返回）。
+>
+> **TCP 入口路径（Epic 48，实验性）**：`heagent tcp-server` **不走** CLI 循环——
+> `TcpServer`（`network/tcp_server.py`：一行一条 JSON Lines 请求）→ 解析 + 非等待式在途名额
+> → `TcpAgentHandler.__call__`（`cli_tcp.py`，**每请求新建一个 `AgentLoop`**）→ 与上面同一条
+> `AgentLoop.run` → 响应经 `network/protocol.py` 映射为**一条** JSON 行。
+> 通道隔离：响应只走 socket、启动告警与监听地址走 stderr、rollout 由 `events.JsonlSink`
+> 按 `EVENTS_ROLLOUT_ENABLED` 落盘（详见 4.16）。
 
 ---
 
@@ -92,6 +99,7 @@ exceptions  types  config  persist  roles
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
 - `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
+- `network/` 是**入口传输层**（Epic 48，2026-09-22）：只承载 framing / 协议模型 / 连接与超时生命周期 / 暴露判定，运行期**不依赖运行栈**（`agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`）与任何入口层模块（`wiring`/`cli`/`cli_goal`/`cli_tcp`/`gui`）；Provider 与 `AgentLoop` 的装配由入口层 `cli_tcp.py` 单向伸手（契约断言：`test_architecture_contracts.py` 的 FORBIDDEN_RUNTIME_IMPORTS["network"]）
 
 ---
 
@@ -111,6 +119,7 @@ exceptions  types  config  persist  roles
 | 重试中间件 | 通过 `make_retry_middleware()` 接入 AgentLoop |
 | Token 统计 | 每次回答后显示 `[tokens: N in + M out = T total]` |
 | 运行暂停/恢复/中断 | 交互模式运行期间按 Esc 暂停当前 run、Enter 恢复、双击 Esc 打断（取消当前 run、回到输入状态，见 `terminal.py`） |
+| TCP 入口 | `heagent tcp-server`（实验性，实现拆在 `cli_tcp.py` + `network/`，协议与安全立场见 4.16） |
 
 ### 4.2 Agent 核心 (`agent/`)
 
@@ -756,6 +765,14 @@ HeAgentError (base)
 | `sandbox_memory_limit_mb` | 0 | 沙箱 shell 内存限额（MB；firejail `--rlimit-as` / winjob Job Memory）；0=关闭。触发=子进程被终止 → 非零退出码（显性失败） |
 | `sandbox_cpu_seconds` | 0 | 沙箱 shell CPU 时间限额（秒；firejail `--rlimit-cpu` / winjob Process Time）；触发行为同上 |
 | `sandbox_nproc_limit` | 0 | 沙箱 shell 进程数限额（firejail `--rlimit-nproc` / winjob Active Process）；触发行为同上。⚠ 语义不对称：firejail 侧按**真实 UID** 计数（非 per-sandbox），winjob 侧为 job 作用域 |
+| `tcp_host` | `127.0.0.1` | TCP 入口绑定地址；非回环值启动时日志记一条 `event=exposed` 且 stderr 打印一行告警（判定单点 `network/exposure.py`，不解析 DNS） |
+| `tcp_port` | 8765 | TCP 入口端口（1..65535） |
+| `tcp_max_connections` | 32 | 同时打开的客户端连接上限（超限的新连接立即收 `rate_limited`，不排队） |
+| `tcp_max_inflight_requests` | 4 | 同时在途的 Agent 运行上限（**非等待式**：满即 `rate_limited`，绝不排队） |
+| `tcp_max_request_bytes` | 1048576 | 单条请求行最大字节数（`StreamReader` limit 与协议校验共用同一上限） |
+| `tcp_idle_timeout` | 60 | 等待完整请求行的秒数（只覆盖读取阶段，不含 Agent 预算） |
+| `tcp_request_timeout` | 300 | 单次 Agent 运行的秒数（只覆盖 handler，不含写回与关连接） |
+| `tcp_shutdown_timeout` | 5 | `close()` 等待在途任务收尾的秒数；超时后结算登记并记 warning（`asyncio` 无法强杀忽略取消的任务） |
 | `approval_tools` | `""` | 需要交互审批的工具名列表 |
 | `hooks_enabled` | False | 是否启用 `.heagent/hooks.json` |
 | `plan_mode` | False | 是否启用只读计划模式 |
@@ -933,6 +950,29 @@ crash 前缀可回放）；`heagent replay` 人读渲染有值时追加 `[Nms]` 
 workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._workflow_event_emitter`
 绑 `EngineContainer.events` 总线；emit 异常隔离（warning，不改变业务控制流）。
 
+### 4.16 TCP 入口 (`network/` + `cli_tcp.py`)
+
+实验性入口（Epic 48）：把 agent 暴露成「一行请求 / 一行响应」的 UTF-8 JSON Lines 服务。
+分层是硬约束——`network/` 只承载传输（framing / 协议模型 / 连接与超时生命周期 / 暴露判定），
+装配放在入口层 `cli_tcp.py`（provider 经 `wiring._build_provider`、loop 经 `cli._build_loop`，
+**函数内延迟导入**：`cli` 在模块尾部 import 本模块注册命令，模块级互相导入会成环）。
+
+| 关注点 | 实现事实 |
+| --- | --- |
+| 协议 | `network/protocol.py`：请求只读 `id` / `prompt`（`extra="forbid"`）；响应 `ok` / `result` / `error` / `model` / `usage`；`TcpErrorCode` 为封闭 8 码（`invalid_json` / `invalid_request` / `empty_prompt` / `request_too_large` / `rate_limited` / `timeout` / `agent_error` / `server_error`），客户端**拿不到** traceback、异常类名或绝对路径 |
+| 限额与生命周期 | 连接上限 + **非等待式**在途名额（满即 `rate_limited`，不排队；用任务集合而非计数/Semaphore）+ 空闲/单请求/关闭三类超时；`close()` 有界返回并**结算**残留登记（`asyncio` 无法强杀忽略取消的任务） |
+| 每请求一个 loop | `AgentLoop` 持有跨 run 可变展示态（`last_usage` / `last_model` / `active_tool` / 暂停 Event…），共享单实例并发会互相覆盖 ⇒ 每请求 `new_loop()`，共享 provider / engine / 4 个记忆存储（48-3 决策，含并发回归测试） |
+| 审批 | **不装**交互式审批处理器（`ConsoleApprovalHandler` 读服务进程 stdin，无人应答会把请求挂死）⇒ 需要审批的调用维持既有 fail-safe 阻断，而不是把服务变成交互终端 |
+| MCP | **不连接** `.mcp.json` 声明的 server（48-5 决策）：入口无认证、客户端不可信，自动拉起第三方 stdio 子进程 / 连远端端点等于把触达面暴露给任何能连上端口的人；需要 MCP 时在可控交互式会话里显式启用（回归测试钉死） |
+| 暴露判定 | `network/exposure.py` 单点：IP 字面量走 `ipaddress.is_loopback`（含 `[::1]`），字面量 `localhost` 直接判回环，**其余主机名不解析 DNS**（解析是阻塞 I/O，且「解析到本机」≠「实际绑定到本机」）⇒ fail-safe 按暴露处理；非回环绑定向 stderr 与 logger 各出一条明确告警 |
+| 可观测性 | 阶段日志 `event=started/exposed/accepted/rejected/processing/completed` 与 `event=failed`/`event=cancelled`，字段为 request_id / peer / bytes / reason / 稳定 code / `elapsed_ms`；**永不**记录 prompt 正文或工具原始输出；入口层所有日志经 `_safe_log`——日志设施抛异常时业务响应不变（成功仍成功、`agent_error` 不会被改写成 `server_error`）；详细 traceback 只进服务端 error 日志。⚠ 运行栈（agent/engine/…）自身的 `logger.*` 不在该保护内（见五、已知缺口） |
+| 通道隔离 | 三条通道互不串线：TCP 响应（socket，一次请求只一条 JSON 行）／CLI stderr（启动告警、监听地址、用量）／rollout JSONL（`events.JsonlSink`，`EVENTS_ROLLOUT_ENABLED`）——注意 rollout 目前**只属于 CLI 单次模式**，TCP 入口不构造 sink |
+| 输入卫生 | 客户端可控的 `id` 有界（≤128 字符）且禁止控制字符：它会被原样写进 3 个日志点，换行可**伪造日志记录**、超长可把日志放大约 3 倍请求体（48-5 评审 W-4 实测） |
+
+⚠ **安全立场**：本入口**无认证、无 TLS**；回环判定与启动告警都**不是**安全边界——默认只绑
+`127.0.0.1` 只是减少暴露面，回环客户端同样不可信。运行本入口须放在容器 / VM 等 OS 级隔离中，
+并收紧出站网络与文件系统权限（与 `SafetyGuard` / `PolicyEngine` / sandbox 的立场一致）。
+
 ## 五、已知缺口
 
 | 缺口 | 说明 |
@@ -948,6 +988,11 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 | 沙箱后端分级预留 | `SandboxTier`（FR-2，2026-08-26）`container` 档仅预留枚举、无实现后端；审批降级（`can_relax_approval`）未接入 `PolicyEngine` 裁决，弱后端一律维持原审批要求——分级不产生新安全边界 |
 | 沙箱 env 豁免非安全边界 | `sandbox_env_allowlist`（FR-3，2026-08-26）仅豁免 `scrub_sensitive_env` 剥离，非真正边界——shell 工具仍可读任意环境变量，须 OS 级沙箱兜底 |
 | SandboxSession 非安全边界 | `SandboxSession`（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 非完美边界——须 OS 级沙箱兜底；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（`housekeeping.prune_sandbox_dirs` + `sandbox_dir_retention_days`），仍非安全边界 |
+| TCP 入口非安全边界 | `heagent tcp-server`（Epic 48，实验性）**无认证、无 TLS**：回环判定（`network/exposure.py`）与启动告警只是提示，不构成认证或隔离；默认绑回环也**不**为客户端建立信任——须 OS 级沙箱兜底并限制出站网络（见 4.16） |
+| TCP 入口不接 MCP | 网络入口**不连接** `.mcp.json` 声明的 server（48-5 决策）：入口无认证，而 MCP server 属不可信代码 / 端点，自动连接会把触达面暴露给任何能连上端口的人；需要 MCP 只能在可控交互式会话里显式启用 |
+| TCP 入口不写 rollout | `EVENTS_ROLLOUT_ENABLED` 只作用于 CLI 单次模式：`JsonlSink` 唯一构造点在 `cli._build_event_sink`，TCP 入口不订阅 sink ⇒ 该开关在 `tcp-server` 下不产生 `.heagent/runs/<run_id>/rollout.jsonl`（48-5 评审 W-2 实测；接入属后续工作） |
+| 运行栈日志非「观测故障免疫」 | 入口层（`network/` + `cli_tcp`）插桩经 `_safe_log`，日志设施抛异常不改写响应；但运行栈（`agent`/`engine`/…）自身的 `logger.*` 若命中**在 `emit` 里抛异常**的 handler 仍会传播（CPython `Handler.handle` 不捕获，与 `logging.raiseExceptions` 取值无关，48-5 评审 C-1 实测）⇒ 该 run 会失败。全局收口（给运行栈加安全日志）属后续工作 |
+| TCP 日志含工具摘要 | 入口复用 `EngineContainer.default` ⇒ 默认 `LoggingObserver` 在 INFO 打印 `tool=… target=…`，而 `shell` 的 target **不截断**：路径与命令原文（可能含凭证串）会进日志。属既有引擎行为，48-5 只在 README 提示「不要把凭证写进命令或路径」；日志脱敏属后续工作（48-5 评审 C-2） |
 
 ---
 
@@ -960,6 +1005,7 @@ src/heagent/
 ├── cli.py                   # Click CLI（单次/交互模式）
 ├── cli_init.py              # heagent init 子命令（全局配置/项目上下文模板生成，2026-09-17 自 cli.py 拆出）
 ├── cli_goal.py              # /goal 命令族（声明式工作流分发 + cron 自动推进）
+├── cli_tcp.py               # tcp-server 子命令 + Agent 请求适配（入口层组合根；Epic 48）
 ├── wiring.py                # 入口层装配共享缝：provider 组合根 + ensure_runtime_config + build_cron_job_runner（CLI/GUI 共用，Phase 2 C3）
 ├── terminal.py              # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断，CLI 交互模式）
 ├── config.py                # pydantic-settings 配置
@@ -1058,6 +1104,11 @@ src/heagent/
 ├── events/                  # 事件传输层（JSONL 契约 / rollout 落盘 / replay）
 │   ├── protocol.py          # RunEvent + EngineEvent → RunEvent 映射
 │   └── sink.py              # JsonlSink（stdout/rollout）+ read_rollout / render_event
+│
+├── network/                 # TCP 入口传输层（Epic 48；framing/协议/连接生命周期/暴露判定，不依赖运行栈）
+│   ├── protocol.py          # JSON Lines 请求/响应模型 + 8 个稳定错误码 + 有界编解码
+│   ├── tcp_server.py        # TcpServer（两档限额 / 三类超时 / 阶段日志；日志经 _safe_log 不影响协议）
+│   └── exposure.py          # 回环判定 + 「无认证 / 无 TLS / 非生产边界」告警文案（单点，不解析 DNS）
 │
 ├── goal/                    # /goal 域层（入口层，供 cli_goal 使用，下层不得反向导入）
 │   ├── application.py       # workflow use-case 确定性内核（校验/gate/story/checkpoint 推进；click-free，Phase 3）
@@ -1168,6 +1219,29 @@ python -m heagent
   │           └── finally: scheduler.stop()
   │
   └── 一次性 Cron 任务成功后自动从 JobStore 删除
+```
+
+**TCP 入口流程（Epic 48，实验性）：**
+
+```
+python -m heagent tcp-server [--host H] [--port P] [--max-inflight N] ...
+  │
+  ├── _setup_logging() → get_settings() → _prune_runtime_artifacts()
+  ├── load_agent_roles() → wiring._build_provider()        # 服务级共享 provider
+  ├── TcpAgentHandler(...)                                  # 共享 engine + 4 个记忆存储（不装审批、不接 MCP）
+  ├── build_server_config(settings, **overrides)            # CLI 覆盖不写回 Settings 单例
+  ├── exposure_warning(config.host) → 非回环则 stderr 一行告警（logger 侧一条 event=exposed）
+  └── asyncio.run(_serve_tcp(server))
+        ├── await server.start()        # 绑定 + event=started
+        ├── stderr: listening on <host>:<port> → serve_forever()
+        │     └── 每条连接：_process_client
+        │           ├── 读一行（idle_timeout；超限 → rejected reason=oversized_line）
+        │           ├── decode_request（失败 → rejected reason=decode_failed + 稳定 code）
+        │           ├── 非等待式在途名额（满 → rejected reason=inflight_limit，不排队）
+        │           ├── TcpAgentHandler.__call__ → new_loop() → AgentLoop.run
+        │           │     └── 与 CLI 同一条 Provider→Tool 执行链（PolicyEngine → ToolExecutor → SafetyGuard）
+        │           └── 写回一条 JSON 行 + event=completed / event=failed（含 elapsed_ms，不记正文）
+        └── finally: await server.close()   # 有界收尾并结算残留登记
 ```
 
 ---

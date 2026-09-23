@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -15,6 +16,8 @@ from click.testing import CliRunner
 from heagent.cli import main
 from heagent.cli_tcp import TcpAgentHandler, build_server_config
 from heagent.config import get_settings, reset_settings
+from heagent.exceptions import HeAgentError
+from heagent.network.protocol import TcpErrorCode, TcpRequest
 from heagent.network.tcp_server import TcpServer, TcpServerConfig
 from heagent.providers.base import ProviderMetadata
 from heagent.types import Message, ProviderResponse, TokenUsage
@@ -229,3 +232,104 @@ def test_plain_cli_never_creates_a_tcp_listener(
     assert result.exit_code == 0, result.output
     assert ran == ["run_single"]
     assert "server" not in captured_server
+
+
+# --- Story 48-5: 安全边界与可观测性 ---
+
+
+def test_default_loopback_binding_prints_no_exposure_warning(captured_server: dict[str, TcpServer]) -> None:
+    """回环绑定不告警：告警一旦常见就会退化成被忽略的噪音。"""
+    result = CliRunner().invoke(main, ["tcp-server"])
+
+    assert result.exit_code == 0, result.output
+    assert "WARNING" not in result.output
+
+
+def test_non_loopback_host_prints_one_exposure_warning(captured_server: dict[str, TcpServer]) -> None:
+    """``--host 0.0.0.0`` 启动时 CLI 向 stderr 打**一行**告警（含无认证 / 无 TLS / 非生产安全边界）。
+
+    注意通道分工：CLI 这一行是给操作者的显式提示；``TcpServer.start()`` 另记一条
+    ``event=exposed`` 日志（默认 logging 配置把它也写到 stderr，故默认下 stderr 会出现两行——
+    这是刻意冗余：``LOG_LEVEL=ERROR`` 时仍保证 stderr 有提示）。日志侧「恰一条」由
+    ``tests/network/test_tcp_server.py::test_non_loopback_binding_logs_exactly_one_exposure_warning`` 钉住。
+    """
+    result = CliRunner().invoke(main, ["tcp-server", "--host", "0.0.0.0"])
+
+    assert result.exit_code == 0, result.output
+    warnings = [line for line in result.output.splitlines() if "[tcp] WARNING:" in line]
+    assert len(warnings) == 1
+    line = warnings[0]
+    assert "0.0.0.0" in line
+    assert "no authentication" in line
+    assert "no TLS" in line
+    assert "not a production security boundary" in line
+
+
+def test_hostname_binding_is_warned_about_conservatively(captured_server: dict[str, TcpServer]) -> None:
+    """非字面量主机名不做 DNS 解析：按「可能对外暴露」处理（fail-safe 方向）。"""
+    result = CliRunner().invoke(main, ["tcp-server", "--host", "heagent.example.invalid"])
+
+    assert result.exit_code == 0, result.output
+    assert "[tcp] WARNING:" in result.output
+
+
+def test_tcp_entry_never_connects_mcp_servers(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, TcpServer]
+) -> None:
+    """Story 48-5 的安全决策：网络入口**不**自动连接 ``.mcp.json`` 声明的外部 server。
+
+    入口无认证、客户端不可信——自动拉起第三方 stdio 子进程 / 连远端端点，等于把不可信代码的
+    触达面暴露给任何能连上端口的人。这里把 MCP 生命周期打成「一被调用就炸」：命令启动与
+    请求级 loop 的装配路径都不得触碰它（需要 MCP 时应在可控的交互式会话里显式启用）。
+    """
+
+    def _explode(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("TCP 入口不得构造 MCP 生命周期")
+
+    monkeypatch.setattr("heagent.cli._mcp_lifecycle", _explode)
+
+    result = CliRunner().invoke(main, ["tcp-server"])
+
+    assert result.exit_code == 0, result.output
+    handler = captured_server["server"].handler
+    assert isinstance(handler, TcpAgentHandler)
+    assert handler.new_loop() is not None
+
+
+# --- Story 48-5 评审 C-1：入口层插桩的日志故障不得改写协议结果 ---
+
+
+class _ExplodingLogger:
+    """所有日志调用都抛异常（``emit`` 里抛异常的 handler 会传播，与 raiseExceptions 无关）。"""
+
+    def log(self, *_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("logging backend is broken")
+
+
+class _FailingProvider:
+    """``send`` 抛 ``HeAgentError``：走 ``__call__`` 的「已知框架异常 → agent_error」分支。"""
+
+    async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
+        raise HeAgentError("provider is not configured")
+
+    async def stream(self, messages: list[Message], *, tools: list[object] | None = None) -> Any:
+        raise HeAgentError("provider is not configured")
+
+    def get_metadata(self) -> ProviderMetadata:
+        return ProviderMetadata(name="failing", model="failing")
+
+
+def test_logging_failure_does_not_rewrite_the_agent_error_code(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """反例（评审实测复现）：``logger.warning`` 抛异常时，兜底 ``except`` 把 agent_error 改写成 server_error。
+
+    入口层插桩全部经 ``_safe_log`` 后，协议码必须保持 ``agent_error``。
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("heagent.cli_tcp.logger", _ExplodingLogger())
+    handler = TcpAgentHandler(_FailingProvider(), get_settings())
+
+    response = asyncio.run(handler(TcpRequest(id="r1", prompt="hi")))
+
+    assert response.ok is False
+    assert response.error is not None
+    assert response.error.code is TcpErrorCode.AGENT_ERROR

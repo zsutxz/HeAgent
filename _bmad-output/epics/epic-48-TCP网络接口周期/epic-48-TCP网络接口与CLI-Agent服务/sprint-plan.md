@@ -117,3 +117,14 @@ ready-for-dev → in-progress → review → done
 - TCP 输入不能修改服务端 Provider、system prompt、工具或沙箱配置。
 - 原有 CLI、GUI、`/goal`、Python API 和质量门禁无回归。
 - 安全边界与非生产定位在代码、CLI 和文档中一致。
+
+## 实测结果（2026-09-22 收口，Story 48-6）
+
+| 验收项 | 证据 |
+| --- | --- |
+| 外部客户端可调用并拿到结果 | `tests/test_tcp_agent_integration.py::test_serve_tcp_listens_serves_and_closes`（真实 loopback + StubProvider，无需凭据） |
+| 异常输入不崩溃 / 不泄漏资源 | `tests/network/test_tcp_server.py`：非法 JSON、超长行（两档）、idle/request timeout、连接与在途上限、**客户端中途断开**、关闭超时后结算与重启 |
+| TCP 输入不改服务端配置 | 请求模型 `extra="forbid"` + 仅读 `id`/`prompt`（`test_decode_request_rejects_invalid_payloads` 的 `system` 字段用例）；`tcp_*` 唯一读取点 `cli_tcp.build_server_config` |
+| 原 CLI / GUI / `/goal` / API 无回归 | 全量 **2214 passed / 9 skipped / 覆盖率 90.97%**；干净 Linux 检出 **2201 passed / 17 skipped / 0 failed**；`tests/test_architecture_contracts.py` 全绿 |
+| 安全边界与定位一致 | README「TCP 入口（实验性）」+ `docs/frame.md` 4.16 / 五；`tests/test_cli_tcp.py`（非回环告警、回环不告警、不连 MCP、普通 CLI 不监听）与 `tests/network/test_exposure.py`（判定语义） |
+| 质量门禁 | `ruff check src tests scripts` / `ruff format --check src tests scripts`（247 files）/ `mypy src --platform linux`（135 files）全绿 |

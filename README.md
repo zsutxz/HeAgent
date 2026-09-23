@@ -90,6 +90,7 @@ heagent init --project
 | `heagent init [--project]` | 初始化用户配置；可选创建项目上下文模板 |
 | `heagent gui` | 启动终端 UI，需要 `pip install -e ".[gui]"` |
 | `heagent replay FILE` | 回放 JSONL rollout 或事件文件 |
+| `heagent tcp-server` | 实验性 TCP 入口（UTF-8 JSON Lines）；默认只绑 `127.0.0.1:8765` |
 
 常用 `run` 选项：
 
@@ -104,6 +105,34 @@ heagent init --project
 | `--json` | 单次执行时将 JSONL 事件流输出到 stdout |
 
 交互模式支持 `/model`、`/route`、`/goal`、`/clear` 和 `/help`。自定义命令放在 `.heagent/commands/*.md`，自定义角色放在 `.heagent/agents/*.md`。
+
+## TCP 入口（实验性）
+
+`heagent tcp-server` 把 agent 暴露成「一行请求 / 一行响应」的 UTF-8 JSON Lines 服务，默认只绑 `127.0.0.1:8765`：
+
+```bash
+heagent tcp-server                                # 127.0.0.1:8765（默认，仅本机可见）
+heagent tcp-server --port 9000 --max-inflight 2    # 改端口 / 在途请求上限
+heagent tcp-server --host 0.0.0.0                  # ⚠ 对外暴露：启动会打「无认证 / 无 TLS」告警
+```
+
+```bash
+# 一条请求（连接上只出现下面这一条响应行，不掺事件流）
+{"id":"req-1","prompt":"用一句话解释 asyncio"}
+{"id":"req-1","ok":true,"result":"...","model":"deepseek-flash","usage":{"prompt_tokens":12,"completion_tokens":34,"total_tokens":46}}
+```
+
+失败时返回稳定错误码（`invalid_json` / `invalid_request` / `empty_prompt` / `request_too_large` / `rate_limited` / `timeout` / `agent_error` / `server_error`），**不**返回 traceback、异常类型名或绝对路径。请求体只读 `id` 与 `prompt`：system、provider、model、工具策略、沙箱后端、迭代预算一律取自**服务端**配置。连接 / 在途 / 请求体 / 空闲 / 单请求 / 关闭六类限额由 `TCP_*` 设置控制（见 `.env.example`）。
+
+**这不是生产级服务，也不是安全边界**：
+
+- 默认仅回环可见；绑非回环地址时启动会明确告警（CLI 向 stderr 打印一行 + 服务端记一条 `event=exposed` 日志，默认 logging 配置下 stderr 会看到两次）——告警只是提示，不改变事实。
+- 没有认证与 TLS，且**回环客户端也不可信**：请在容器 / VM 等 OS 级隔离中运行，并限制出站网络与文件系统权限。
+- 网络入口**不连接** `.mcp.json` 声明的 MCP server（避免把第三方子进程 / 远端端点的触达面暴露给任何能连上端口的人）；需要 MCP 时请在可控的交互式会话里显式启用。
+- 每个请求新建一个 `AgentLoop`（共享 provider / engine / 记忆存储）；交互式审批处理器**不安装**（无人应答 stdin），需要审批的工具调用按既有 fail-safe 语义阻断。
+- 服务端日志会记录工具调用摘要（`engine event=tool_call_* … target=…`，含文件路径与 `shell` 命令原文）——这是引擎既有行为，故**不要把凭证写进命令或路径**；客户端可控的 `id` 已限制为 128 字符且禁止控制字符（防日志伪造与放大）。
+
+三条输出通道互不串线：**TCP 响应**只走 socket（一次请求一条 JSON 行）、**启动 / 告警 / 用量**只走 stderr、**rollout JSONL** 仅在 CLI 单次模式下按 `EVENTS_ROLLOUT_ENABLED` 落盘到 `.heagent/runs/<run_id>/rollout.jsonl`（本入口目前不写 rollout）。
 
 ## Goal 工作流
 
@@ -166,6 +195,7 @@ HeAgent 能执行 shell、读写文件、调用外部 API，并把工具返回�
 - 处理不可信任务时，请在容器、VM 或其他 OS 级隔离中运行，并限制文件系统和出站网络。
 - `firejail` 仅适用于 Linux；不可用时回退到 `passthrough`。Windows `winjob` 仅做进程级约束，不隔离文件系统。
 - Hooks 以当前用户权限执行本地命令，默认关闭；启用前必须确认仓库可信。
+- `heagent tcp-server` 是实验性入口：**无认证、无 TLS**，默认只绑回环；绑非回环地址只多一条告警，不构成任何认证或隔离。
 
 MCP 从 `.mcp.json` 加载，密钥应保存在环境变量中而非配置文件里。详细安全边界、工具链和已知缺口见 [架构参考](docs/frame.md) 与 [部署说明](deploy/README.md)。
 

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from heagent.cli_tcp import TcpAgentHandler, _serve_tcp
-from heagent.config import get_settings
+from heagent.config import get_settings, reset_settings
 from heagent.exceptions import HeAgentError
 from heagent.network.protocol import TcpErrorCode, TcpRequest, TcpResponse, TcpUsage
 from heagent.network.tcp_server import TcpServer, TcpServerConfig
@@ -377,3 +377,41 @@ async def test_serve_tcp_listens_serves_and_closes(monkeypatch, tmp_path, capsys
     assert task.done()
     assert server.sockets == ()
     assert server.active_connections == 0
+
+
+# --- Story 48-5: 通道隔离（rollout 事件流不混进 TCP 响应） ---
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("rollout_enabled", [False, True])
+async def test_tcp_response_is_one_line_regardless_of_rollout_setting(
+    monkeypatch, tmp_path, capsys, rollout_enabled: bool
+) -> None:
+    """``EVENTS_ROLLOUT_ENABLED`` 任一状态：socket 上只有一条 JSON 响应行，且 stdout 零写入。
+
+    同时钉住**当前边界**（48-5 评审 W-2）：TCP 入口**不构造** ``JsonlSink``，故该开关在本入口
+    不产生 rollout 文件——第三条通道目前只属于 CLI 单次模式。这里断言「开关打开也不会凭空多出
+    rollout 产物」，避免文档与事实漂移（要接入是后续工作，见 story 的 Deviation）。
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EVENTS_ROLLOUT_ENABLED", "true" if rollout_enabled else "false")
+    reset_settings()
+    try:
+        server, port = await _start(_build_handler(_ScriptedProvider([_final("served")])))
+        reader, writer = await asyncio.open_connection("127.0.0.1", port)
+        try:
+            writer.write(b'{"id":"r1","prompt":"hi"}\n')
+            await writer.drain()
+            payload = await reader.read()  # 读到 EOF：响应之后不得再有字节
+        finally:
+            writer.close()
+            await writer.wait_closed()
+            await server.close()
+    finally:
+        reset_settings()
+
+    assert payload.endswith(b"\n")
+    assert payload.count(b"\n") == 1
+    assert TcpResponse.model_validate_json(payload).result == "served"
+    assert capsys.readouterr().out == ""
+    assert list((tmp_path / ".heagent" / "runs").rglob("rollout.jsonl")) == []
