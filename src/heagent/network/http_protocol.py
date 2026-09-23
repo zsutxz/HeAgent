@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Literal
 
@@ -95,16 +96,37 @@ class HealthResponse(BaseModel):
     schema_version: Literal["1"] = "1"
 
 
-def sanitize_message(message: str, *, fallback: str = GENERIC_ERROR_MESSAGE) -> str:
-    """把内部错误文案收敛为单行、有界、非空的客户端文案。
+# 宿主绝对路径的掩码（协议承诺：客户端文案不含绝对路径，见 ``docs/frame.md`` 4.17）。
+#
+# 刻意只认「几乎不可能是自然语言」的形态——宁可漏网，也不误伤正常文案：
+#
+# - Windows 盘符路径（``C:\\…``）与 UNC（``\\\\host\\share``）：形态唯一，且用
+#   ``(?<![\w])`` 排除 ``http://`` 这类伪命中（其 ``p`` 前是词字符，故整个 ``://`` 不参与匹配）；
+# - POSIX 绝对路径要求**至少三段**（``/a/b/c``）且斜杠前不是词字符/冒号/斜杠：``and/or``
+#   （只有一个斜杠、斜杠前是词字符）、``/api/health``（两段路由）、``http://…`` 都不会命中。
+#
+# 与 ``safe_logging`` 的脱敏同一立场：启发式、非安全边界。掩码只兜住「宿主目录结构外泄」这一条
+# 有明确承诺的形态；上游文案本身仍应是面向用户的文本。
+_ABS_PATH_RE = re.compile(
+    r"(?<![\w])[A-Za-z]:[\\/][^\s\"'<>|]*"
+    r"|\\\\[^\s\"'<>|]+"
+    r"|(?<![\w:/])/(?:[\w.\-]+/){2,}[\w.\-]*"
+)
+_MASKED_PATH = "<path>"
 
-    只做「折叠空白 + 截断」，**不做**路径/凭据净化——上游文案应当是项目自产的面向用户文本。
-    若将来出现带路径或类名的上游文案，净化必须加在这里：协议边界不能假设上游永远干净
+
+def sanitize_message(message: str, *, fallback: str = GENERIC_ERROR_MESSAGE) -> str:
+    """把内部错误文案收敛为单行、有界、非空、**不含宿主绝对路径**的客户端文案。
+
+    只做「折叠空白 + 掩码绝对路径 + 截断」，**不做**通用脱敏——上游文案应当是项目自产的面向
+    用户文本，凭据类信息由 ``safe_logging`` 负责（那是日志通道）；这里只兜住有明确承诺的那一条
+    （见 :data:`_ABS_PATH_RE` 的说明）。协议边界不能假设上游永远干净
     （与 ``cli_tcp._client_error_message`` 同一立场，两处刻意各自持有，避免入口层互相导入）。
     """
     collapsed = " ".join(message.split())
     if not collapsed:
         return fallback
+    collapsed = _ABS_PATH_RE.sub(_MASKED_PATH, collapsed)
     if len(collapsed) > MAX_ERROR_MESSAGE_CHARS:
         # 截断到「上限 - 1」再补省略号，保证**返回长度不超过上限本身**——模型字段的
         # ``max_length`` 与这里必须同界，否则净化后的文案反而通不过自己的校验。

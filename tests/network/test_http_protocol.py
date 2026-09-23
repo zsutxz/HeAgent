@@ -128,3 +128,39 @@ class TestPromptBound:
 
     def test_bound_is_meaningful(self) -> None:
         assert 1024 <= MAX_PROMPT_CHARS <= 1_000_000
+
+
+class TestSanitizeMessageMasksHostPaths:
+    """客户端文案不得带宿主绝对路径（``docs/frame.md`` 4.17 的协议承诺）。"""
+
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (r"provider failed at C:\Users\me\secret\keys.json", "provider failed at <path>"),
+            (r"cannot read \\srv\share\creds.txt", "cannot read <path>"),
+            ("cannot read /home/user/.ssh/id_rsa now", "cannot read <path> now"),
+            ("project /usr/local/lib/python3.12 is unusable", "project <path> is unusable"),
+        ],
+    )
+    def test_absolute_paths_are_masked(self, raw: str, expected: str) -> None:
+        assert sanitize_message(raw) == expected
+
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            "HTTP server started but /api/health is not servable",
+            "see and/or for details",
+            "fetch https://api.example.com/v1/models failed",
+            "shell: git commit -m 'fix: a/b'",
+            "run_conflict: another run is already in flight",
+        ],
+    )
+    def test_route_like_and_prose_text_is_left_alone(self, raw: str) -> None:
+        """掩码只认「几乎不可能是自然语言」的形态：路由、URL、``and/or`` 一律不动。"""
+        assert sanitize_message(raw) == raw
+
+    def test_masked_message_still_respects_the_length_cap(self) -> None:
+        out = sanitize_message(r"C:\Users\me\a\b\c.txt " + "x" * 600)
+
+        assert len(out) <= MAX_ERROR_MESSAGE_CHARS
+        assert out.startswith("<path>")

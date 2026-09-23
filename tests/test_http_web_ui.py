@@ -8,11 +8,19 @@
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
 
 import pytest
 
 from heagent.network.http_server import read_web_asset
+
+_NODE = shutil.which("node")
+_PROBE = Path(__file__).parent / "js" / "app_probe.js"
 
 _HTML = read_web_asset("index.html").decode("utf-8")
 _JS = read_web_asset("app.js").decode("utf-8")
@@ -106,9 +114,68 @@ class TestRunFlowContract:
         assert "offline:" in _JS  # 服务关闭/不可达（UX-DR6）
 
     def test_duplicate_submissions_are_blocked_client_side(self) -> None:
+        """忙状态下的提交必须被挡下**且如实说明**，不能静默吞掉这次点击。"""
         assert "BUSY_STATES" in _JS
-        assert "if (activeRunId) return;" in _JS
+        assert "已有运行进行中" in _JS
 
     def test_health_polling_reports_service_loss(self) -> None:
         assert '"/api/health"' in _JS
         assert "HEALTH_POLL_MS" in _JS
+
+
+def _run_probe(case: str, tmp_path: Path) -> dict[str, Any]:
+    """在 node 里跑一次前端行为探针（真实脚本 + 最小 DOM / EventSource / fetch 替身）。
+
+    探针脚本输出一行 ``PROBE_RESULT {json}``；断言落在可观察结果上（DOM 行、状态栏、是否发请求），
+    而不是「源码里有没有某个字符串」。
+    """
+    asset = tmp_path / "app.js"
+    asset.write_bytes(read_web_asset("app.js"))
+    # 固定 argv（node + 仓库内的探针脚本 + 临时文件路径），不经 shell、不含外部输入。
+    completed = subprocess.run(  # noqa: S603
+        [_NODE, str(_PROBE), str(asset), case],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=60,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    marker = "PROBE_RESULT "
+    line = next((line for line in completed.stdout.splitlines() if line.startswith(marker)), None)
+    assert line is not None, completed.stdout
+    return json.loads(line[len(marker) :])
+
+
+@pytest.mark.skipif(_NODE is None, reason="需要 node 才能执行前端行为回归（CI 镜像自带 node）")
+class TestWebUiBehaviour:
+    """前端可执行回归：状态文案、同名工具配对、刷新接手在途运行、忙时提交不静默。
+
+    这四条以前都只靠「源码字符串匹配」间接保证，实测在缺陷存在时字符串断言照样全绿。
+    """
+
+    def test_same_name_tool_results_are_paired_in_order(self, tmp_path: Path) -> None:
+        result = _run_probe("A", tmp_path)
+
+        assert result["pairing"] == ["✔ shell：first result", "✔ shell：second result"]
+
+    def test_resync_after_completion_shows_the_server_side_fact(self, tmp_path: Path) -> None:
+        result = _run_probe("B", tmp_path)
+
+        assert result["state"] == "done"
+        assert result["text"] == "已完成"
+
+    def test_in_flight_run_is_adopted_on_load(self, tmp_path: Path) -> None:
+        result = _run_probe("C", tmp_path)
+
+        assert result["state"] == "running"
+        assert result["sendDisabled"] is True
+        assert result["stopDisabled"] is False
+        assert result["subscribed"] == "/api/runs/run-9/events"
+
+    def test_busy_submission_reports_instead_of_silently_doing_nothing(self, tmp_path: Path) -> None:
+        result = _run_probe("D", tmp_path)
+
+        assert result["posted"] is False
+        assert result["newEntries"] >= 1
+        assert "已有运行进行中" in result["lastLine"]

@@ -251,7 +251,7 @@ class TestSseStream:
 
 class TestRunFailures:
     async def test_failure_emits_sanitized_error_event(self) -> None:
-        """失败事件只带脱敏文案：无 traceback、无异常类名。"""
+        """失败事件只带脱敏文案：无 traceback、无异常类名、**无宿主绝对路径**。"""
 
         class _Boom(Exception):
             def __init__(self) -> None:
@@ -265,7 +265,9 @@ class TestRunFailures:
 
         frames = _parse_sse(body)
         assert frames[-1][1] == "error"
-        assert frames[-1][2]["message"] == "provider exploded at C:\\secret\\key.txt"
+        # 宿主路径被掩码（frame.md 4.17 的承诺：客户端文案不含绝对路径）。
+        assert frames[-1][2]["message"] == "provider exploded at <path>"
+        assert "secret" not in body and "key.txt" not in body
         assert "_Boom" not in body
         assert "Traceback" not in body
 

@@ -95,13 +95,23 @@
     const label = payload.tool_target
       ? `${asText(payload.tool_name)} → ${asText(payload.tool_target)}`
       : asText(payload.tool_name);
-    pendingToolEntries.set(asText(payload.tool_name), appendEntry("tool", `▶ ${label}`));
+    // 同一工具名会被连续/并发调用多次（工具结果事件里没有 call id），所以按「先到先配」排队：
+    // 用「一名一条队列」而不是「一名一条」，否则后一次调用会覆盖前一次的条目，
+    // 结果被写到错误的行上、前一行永远停在「运行中」。
+    const key = asText(payload.tool_name);
+    const queue = pendingToolEntries.get(key);
+    if (queue) {
+      queue.push(appendEntry("tool", `▶ ${label}`));
+    } else {
+      pendingToolEntries.set(key, [appendEntry("tool", `▶ ${label}`)]);
+    }
   }
 
   function showToolResult(payload) {
     const key = asText(payload.tool_name);
-    const entry = pendingToolEntries.get(key);
-    pendingToolEntries.delete(key);
+    const queue = pendingToolEntries.get(key);
+    const entry = queue && queue.length ? queue.shift() : null;
+    if (queue && queue.length === 0) pendingToolEntries.delete(key);
     const isError = Boolean(payload.tool_error);
     const output = asText(payload.tool_output);
     const line = `${isError ? "✘" : "✔"} ${key}${output ? `：${output}` : ""}`;
@@ -201,7 +211,9 @@
       closeStream();
       await restoreSession();
       appendEntry("error", "连接中断后已与服务端重新同步（可能有事件未送达）。");
-      setRunState(snapshot.status === "completed" ? "done" : "failed", RUN_TEXT.failed);
+      // 文案要与服务端事实一致：completed 就是「已完成」，不能让状态词表里的「失败」顶上去。
+      const state = snapshot.status === "completed" ? "done" : "failed";
+      setRunState(state, RUN_TEXT[state]);
     }
   }
 
@@ -271,6 +283,13 @@
       for (const message of messages) {
         appendEntry(message.role === "user" ? "user" : "assistant", message.text);
       }
+      // 服务端仍有在途运行时不能显示「空闲」：接手它的事件流（终态仍由 SSE 给出），
+      // 否则用户以为可以提交，实际只会收到 run_conflict。
+      if (!activeRunId && snapshot.status === "running" && snapshot.run_id) {
+        activeRunId = snapshot.run_id;
+        setRunState("running");
+        subscribe(snapshot.run_id);
+      }
     } catch (error) {
       // 服务不可达时保持空态：不伪造历史。
     }
@@ -292,7 +311,12 @@
 
   el.form.addEventListener("submit", (event) => {
     event.preventDefault();
-    if (activeRunId) return; // 运行中禁止重复提交（服务端也会回 run_conflict）
+    if (activeRunId) {
+      // 运行中禁止重复提交（服务端也会回 run_conflict），但**不静默吞掉**这次点击：
+      // 取消失败或连接中断时发送按钮可能已解禁，用户需要一个可读的原因。
+      appendEntry("error", "已有运行进行中：请等待它结束，或点「停止」后再提交。");
+      return;
+    }
     const prompt = asText(el.input.value).trim();
     if (!prompt) return;
     el.input.value = "";
