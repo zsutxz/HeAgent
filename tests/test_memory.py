@@ -638,3 +638,18 @@ class TestFactStoreBomFile:
         assert store.add("第三条记忆") is True
         assert not path.read_bytes().startswith(b"\xef\xbb\xbf"), "写回归一化为 UTF-8 无 BOM"
         assert store.load() == ["第一条记忆", "第二条记忆", "第三条记忆"]
+
+
+class TestSkillFrontmatterBom:
+    """带 UTF-8 BOM 的 SKILL.md 不得让元数据静默消失（triggers 是自动注入的唯一快速通道）。"""
+
+    def test_bom_does_not_hide_triggers(self, tmp_path: Path) -> None:
+        store = SkillStore(base_dir=str(tmp_path / "skills"))
+        store.save("bom_skill", "desc", "pattern body", ["step one"], tags=["bomtag"], triggers=["bomtrigger"])
+        skill_md = tmp_path / "skills" / "bom_skill" / "SKILL.md"
+        skill_md.write_bytes("\ufeff".encode() + skill_md.read_bytes())  # 模拟「UTF-8 with BOM」另存
+
+        matched = store.match_skill_details("bomtrigger", threshold=0.3)
+
+        assert [m.name for m in matched] == ["bom_skill"]
+        assert matched[0].matched_triggers == ["bomtrigger"]

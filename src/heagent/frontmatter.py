@@ -30,10 +30,17 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 # 变体一（EOF）：闭合 ``---`` 后允许换行或文件结束。artifacts / skill_packages workflow 现状。
-FRONTMATTER_EOF_RE = re.compile(r"^---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.DOTALL)
+# ``\ufeff?`` 容忍**文件头 UTF-8 BOM**（Windows 记事本「UTF-8 with BOM」另存）：两个变体都
+# 锚定文本头（``^---``），BOM 一顶就整段解析失败 ⇒ 该文件的 frontmatter 元数据（如技能的
+# ``triggers``/``tags``/``negative_triggers``）**静默不可见**（自动注入通道永久 miss，无任何
+# 告警）。BOM 由匹配本身消费、``match.end()`` 仍在原文本坐标（匹配始于位置 0），且 group(1)
+# 跨度不含 BOM ⇒ 调用方（skills 的就地改写 / workflow 的 body 切片）行为不变，仅「带 BOM 的
+# 文件此前解析失败、现在解析成功」。BOM 不被剥离写回：`patch_frontmatter` 按 group(1) 跨度
+# 替换，``raw[:match.start(1)]`` 仍含 BOM ⇒ 就地改写保留原文件的 BOM。
+FRONTMATTER_EOF_RE = re.compile(r"^\ufeff?---\s*\n(.*?)\n---\s*(?:\n|\Z)", re.DOTALL)
 # 变体二（换行）：闭合 ``---`` 后必须有换行。skills / slash / roles / metadata 现状
 # （skills 另依赖其 match.end() 字节跨度做就地改写，行为不可变）。
-FRONTMATTER_NEWLINE_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+FRONTMATTER_NEWLINE_RE = re.compile(r"^\ufeff?---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 
 class FrontmatterSyntaxError(ValueError):
@@ -57,6 +64,8 @@ def split_frontmatter(text: str, *, closed_at_eof: bool = False) -> tuple[str, i
 
     返回 ``(raw 块, match.end() 字节位, body)``——``match.end()`` 供 skills 的就地改写按
     字节跨度保留正文。``closed_at_eof`` 选择分隔符变体（见模块 docstring，两变体有意并存）。
+    文件头 UTF-8 BOM 由正则容忍（``^\\ufeff?---``）：BOM 被匹配消费，故 ``end`` 仍是**原文本**
+    坐标、body 不含 BOM。
     """
     match = (FRONTMATTER_EOF_RE if closed_at_eof else FRONTMATTER_NEWLINE_RE).match(text)
     if match is None:
@@ -135,7 +144,11 @@ def extract_h2_section(text: str, name: str) -> str:
     段体从标题行结束处延伸到下一个 ``##`` 标题（或文本结束）并 strip；先剥去 frontmatter
     （NEWLINE 分隔符变体）。当前消费方是 goal 需求文档（``goal/document.py``）；
     ``engine/artifacts.py`` 的段提取另带 fence 跳过与重复/空段校验，语义不同，未收敛到此。
+    头部 UTF-8 BOM 同样不算正文：**无 frontmatter** 且首行即 ``## 标题`` 的文档，BOM 会让
+    ``(?m)^##`` 的首个匹配点失效、该段静默取空（有 frontmatter 时由 ``split_frontmatter``
+    的 BOM 容忍覆盖）。
     """
+    text = text.lstrip("\ufeff")
     split = split_frontmatter(text)
     if split is not None:
         text = split[2]

@@ -11,6 +11,7 @@ import pytest
 
 from heagent.frontmatter import (
     FrontmatterSyntaxError,
+    extract_h2_section,
     parse_inline_pairs,
     parse_scalar,
     parse_strict_pairs,
@@ -52,6 +53,50 @@ class TestSplitFrontmatter:
 
     def test_frontmatter_must_start_at_first_line(self) -> None:
         assert split_frontmatter("前言\n---\nid: a\n---\n") is None
+
+
+class TestBomTolerance:
+    """文件头 UTF-8 BOM（记事本「UTF-8 with BOM」另存）不得让 frontmatter 解析失败。
+
+    锚定文本头的 ``^---`` 一旦被 BOM 顶掉，整段解析失败 ⇒ 元数据（技能的 triggers/tags/
+    negative_triggers、命令与角色的声明）静默不可见且无告警。BOM 只应被「忽略」，不应改变
+    调用方按 ``end`` 切片正文的坐标语义。
+    """
+
+    def test_newline_variant_parses_bom_prefixed_frontmatter(self) -> None:
+        text = "\ufeff---\nid: a\n---\n正文"
+        split = split_frontmatter(text)
+
+        assert split is not None
+        raw, end, body = split
+        assert raw == "id: a"
+        assert body == "正文"
+        assert text[end:] == body, "end 必须是**原文本**（含 BOM）坐标，否则调用方切片错位"
+
+    def test_eof_variant_parses_bom_prefixed_frontmatter(self) -> None:
+        text = "\ufeff---\nid: a\n---"
+        split = split_frontmatter(text, closed_at_eof=True)
+
+        assert split is not None
+        assert split == ("id: a", len(text), "")
+
+    def test_bom_result_differs_from_plain_only_by_the_offset(self) -> None:
+        plain = "---\nid: a\n---\n正文"
+        bommed = "\ufeff" + plain
+        plain_split = split_frontmatter(plain)
+        bom_split = split_frontmatter(bommed)
+
+        assert plain_split is not None and bom_split is not None
+        assert (plain_split[0], plain_split[2]) == (bom_split[0], bom_split[2])
+        assert bom_split[1] == plain_split[1] + 1
+
+    def test_bom_without_frontmatter_still_returns_none(self) -> None:
+        assert split_frontmatter("\ufeff没有 frontmatter 的正文") is None
+
+    def test_extract_h2_section_tolerates_leading_bom(self) -> None:
+        """无 frontmatter 且首行即 ``## 标题`` 时，BOM 会让 ``(?m)^##`` 失配、该段静默为空。"""
+        assert extract_h2_section("\ufeff## 需求\n内容\n", "需求") == "内容"
+        assert extract_h2_section("\ufeff---\nid: a\n---\n## 需求\n内容\n", "需求") == "内容"
 
 
 class TestParseStrictPairs:
