@@ -343,6 +343,32 @@ class Settings(BaseSettings):
     # 服务关闭时等待在途连接收尾的上限，超时后取消残留任务。
     tcp_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 
+    # ---- HTTP 网页入口（Epic 49 Story 49-1） ----
+    # 默认 CLI（`heagent` / `heagent "prompt"` / `heagent run ...`）在**同一进程**内自动启动 HTTP
+    # 服务并把本地地址打到 stderr；`heagent http-server` 也能单独拉起只提供网页服务的进程。
+    # 显式 `gui` / `tcp-server` / `http-server` / `init` / `replay` 子命令不会附带启动第二实例。
+    # 定位与 TCP 入口一致：**实验性、无认证、无 TLS**，默认只绑 loopback；非回环绑定必须显式告警
+    # （复用 `network.exposure` 的判定与文案）。这里刻意**没有** `HTTP_ENABLED` 开关：启动语义由
+    # 「调用了哪个命令」唯一决定，配置里不出现第二套状态。
+    # 非法值（端口越界、计数为 0、非正超时）由 Pydantic 显式校验失败，不静默变成「无限制」。
+    http_host: str = Field(default="127.0.0.1", min_length=1)
+    # 默认 8766：与 TCP 入口默认端口 8765 错开，两个入口可同时开。
+    http_port: int = Field(default=8766, ge=1, le=65535)
+    # 同时打开的客户端连接上限（uvicorn limit_concurrency）；超限的连接收 503，不排队。
+    http_max_connections: int = Field(default=16, ge=1)
+    # 同时在途的网页 Agent 运行上限；MVP 固定为 1（单会话单运行），超限的提交收 run_conflict。
+    http_max_inflight_runs: int = Field(default=1, ge=1)
+    # 单个请求体的字节上限（JSON body；超限收 request_too_large，不读完再拒绝）。
+    http_max_request_bytes: int = Field(default=65_536, ge=1)
+    # 每个 run 的 SSE 事件环形缓冲条数；超出窗口的重连收 resync_required（AD-4）。
+    http_event_buffer_size: int = Field(default=512, ge=1)
+    # 已终结 run 记录的保留条数；淘汰后按其 id 订阅得 unknown_run（AD-4）。
+    http_run_history_size: int = Field(default=64, ge=1)
+    # 单次网页 Agent 运行的超时（秒）；超时按 timed_out 终结并释放 In-flight 名额。
+    http_request_timeout: float = Field(default=300.0, gt=0, allow_inf_nan=False)
+    # 服务关闭时「停止接收 → 终结在途 run → 关闭订阅 → 关闭 listener」全程的等待上限（秒）。
+    http_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+
     @property
     def openai_key_pool(self) -> list[str]:
         return _parse_comma_list(self.openai_api_keys)

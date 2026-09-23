@@ -22,7 +22,9 @@ jobs:
 
       - name: Install
         # gui extra 必装：mypy 检查 src/heagent/gui/**，缺 textual 会报 import-not-found
-        run: pip install -e ".[dev,gui]"
+        # http extra 必装：mypy 检查 src/heagent/network/http_server.py 与 cli_http.py，
+        # 缺 starlette/uvicorn 同样会报 import-not-found（Epic 49）
+        run: pip install -e ".[dev,gui,http]"
 
       - name: Ruff lint
         run: ruff check src tests
@@ -60,7 +62,7 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,http]"
 
       - name: Test
         # 3.14-dev 允许失败（预发布不稳定）
@@ -78,7 +80,7 @@ jobs:
           python-version: "3.11"
           cache: pip
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,http]"
       - name: Goal workflow smoke
         run: pytest -q tests/test_goal_workflow_smoke.py
 
@@ -96,7 +98,7 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,http]"
 
       - name: Test + coverage
         run: pytest --cov=heagent --cov-fail-under=87 -m "not integration and not benchmark"
@@ -125,7 +127,7 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,http]"
 
       - name: Download previous benchmark data
         uses: actions/download-artifact@v4
@@ -177,7 +179,7 @@ jobs:
           cache: pip
 
       - name: Install
-        run: pip install -e ".[dev]"
+        run: pip install -e ".[dev,http]"
 
       - name: Integration tests
         run: pytest -q --tb=long -m "integration"

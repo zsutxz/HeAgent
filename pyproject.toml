@@ -58,6 +58,14 @@ gui = [
     "textual>=1.0,<2.0",
 ]
 
+# HTTP 网页入口（Epic 49）的可选依赖：**直接声明**，不依赖 mcp 的传递依赖（AD-11）。
+# 缺依赖时 `heagent http-server` 与默认 CLI 的自动启动都会给出安装诊断；
+# 基础安装、库用法与其它子命令不需要它们。
+http = [
+    "starlette>=1.3.1,<1.4",
+    "uvicorn>=0.50.1,<0.51",
+]
+
 [project.scripts]
 heagent = "heagent.cli:main"
 
@@ -71,6 +79,7 @@ markers = [
     "no_auto_workspace: do not auto-set workspace root in path safety tests",
     "integration: 真实外部依赖 E2E（需凭据/网络，默认不进基线；显式 `pytest -m integration` 运行）",
     "benchmark: 性能基准测试（默认跳过，手动 `pytest -m benchmark` 运行）",
+    "embedded_http_service: 用真实 HTTP 服务与随机端口（退出 conftest 的默认替身；Epic 49）",
 ]
 
 [tool.hatch.build.targets.wheel]

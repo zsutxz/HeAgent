@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <title>HeAgent</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="bar">
+      <h1>HeAgent</h1>
+      <span id="service-status" class="badge badge-unknown" data-state="unknown">连接中…</span>
+    </header>
+
+    <main class="workspace">
+      <ol id="chat-log" class="chat-log" aria-live="polite" aria-label="对话记录"></ol>
+      <p id="empty-state" class="empty">还没有对话。提交一个提示词开始。</p>
+    </main>
+
+    <form id="prompt-form" class="composer" autocomplete="off">
+      <label class="visually-hidden" for="prompt-input">提示词</label>
+      <textarea
+        id="prompt-input"
+        name="prompt"
+        rows="3"
+        maxlength="32768"
+        placeholder="输入提示词（Ctrl+Enter 发送）"
+      ></textarea>
+      <div class="composer-actions">
+        <span id="run-status" class="status" data-state="idle">空闲</span>
+        <button id="stop-button" type="button" disabled>停止</button>
+        <button id="send-button" type="submit" disabled>发送</button>
+      </div>
+    </form>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

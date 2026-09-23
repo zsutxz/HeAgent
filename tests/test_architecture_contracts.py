@@ -30,7 +30,14 @@ _SUBPACKAGE_NAMES = frozenset(path.name for path in SRC.iterdir() if path.is_dir
 # 包 → 运行期不得导入的 heagent 子模块（CLAUDE.md「硬约束（违反即架构错误）」）。
 # 入口层模块（wiring/cli/cli_goal/cli_tcp/gui）：组合根与展示适配只属于入口层，下层一律不得
 # 反向导入（Phase 1 组合根收敛的契约化；新增入口模块须同步此表）。
-_ENTRYPOINT_MODULES = ("heagent.wiring", "heagent.cli", "heagent.cli_goal", "heagent.cli_tcp", "heagent.gui")
+_ENTRYPOINT_MODULES = (
+    "heagent.wiring",
+    "heagent.cli",
+    "heagent.cli_goal",
+    "heagent.cli_tcp",
+    "heagent.cli_http",
+    "heagent.gui",
+)
 # goal/ 是入口层**域模块**（cli_goal 的装载/文档层，frame.md 六）：与组合根同属「下层不得反向导入」
 # 的入口面。此前只有 engine/memory 条目显式列它，其余包存在形式绕过（48-5 评审 W-7，AST 实测
 # 运行期只有 cli_goal 导入 goal/）。
@@ -411,3 +418,51 @@ def test_skill_modules_do_not_read_files_directly() -> None:
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "open":
                 offenders.append(name)
     assert offenders == [], "skill 模块裸读文件（绕过 safe-open 单一入口）：" + ", ".join(offenders)
+
+
+# ── Epic 49：HTTP 网页入口的可选依赖与投递面 ──
+
+# 可选 HTTP 栈的顶层包名（pyproject 的 ``http`` extra 直接声明）。
+_OPTIONAL_ASGI_ROOTS = frozenset({"starlette", "uvicorn"})
+
+
+def _top_level_runtime_imports(tree: ast.Module) -> set[str]:
+    """模块顶层的**运行期**导入的顶层包名（``if TYPE_CHECKING:`` 块内的不算）。"""
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.If) and isinstance(node.test, ast.Name) and node.test.id == "TYPE_CHECKING":
+            continue
+        if isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module.split(".")[0])
+    return names
+
+
+def test_optional_asgi_stack_is_only_imported_lazily() -> None:
+    """starlette / uvicorn 只能**延迟导入**（``importlib.import_module``，在真要服务时才加载）。
+
+    机械保证「基础安装（不含 ``heagent[http]``）下，普通 CLI 用法、gui、tcp-server、init、
+    replay 与库用法都不会因为导入而拉起 ASGI 栈，也不会因为缺依赖而失败」：源码里不存在
+    顶层的 starlette/uvicorn 导入——传输层刻意用 ``importlib`` 在函数体内加载它们。
+    """
+    offenders: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        if _top_level_runtime_imports(tree) & _OPTIONAL_ASGI_ROOTS:
+            offenders.append(path.relative_to(SRC).as_posix())
+    assert offenders == [], "可选 ASGI 栈被顶层导入（可选依赖会变成硬依赖）：" + ", ".join(offenders)
+
+
+def test_web_package_has_no_runtime_imports() -> None:
+    """``heagent/web/`` 只是投递面（HTML/CSS/JS + 包标记）：不得依赖任何 heagent 运行时模块。
+
+    页面资源经 ``importlib.resources`` 读取（AD-11），因此这个包被导入时必须没有任何副作用，
+    也不能把传输层/运行栈拖进来。
+    """
+    offenders: list[str] = []
+    for path in sorted((SRC / "web").rglob("*.py")):
+        runtime, typing_only = _module_imports(path.read_text(encoding="utf-8"))
+        if runtime or typing_only:
+            offenders.append(path.relative_to(SRC).as_posix())
+    assert offenders == [], "web 包出现了 heagent 运行时导入：" + ", ".join(offenders)

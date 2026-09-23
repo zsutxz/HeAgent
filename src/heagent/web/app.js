@@ -1,0 +1,278 @@
+/* HeAgent 内置网页脚本（Epic 49）。
+ *
+ * 约束（改这里前先读 docs/frame.md 4.17）：
+ *   - 纯原生 JS：不加载、不依赖任何第三方脚本（严格 CSP 下也只允许同源 /app.js）；
+ *   - 提示词、回答、工具名与工具输出**一律按纯文本渲染**（createTextNode / textContent），
+ *     绝不使用 innerHTML —— Agent 输出是不可信内容，HTML 注入会变成页面内的脚本执行；
+ *   - 所有请求同源（页面与 /api/* 由同一个 ASGI app 提供），不配置 CORS、不带凭据；
+ *   - 状态词表集中在 SERVICE_TEXT / RUN_TEXT，UI 只映射服务端给出的事实，不自行推断
+ *     「大概成功了」——服务端没说的状态一律如实显示为「未知/断开」。
+ */
+(() => {
+  "use strict";
+
+  const HEALTH_POLL_MS = 5000;
+  const MAX_LOG_ENTRIES = 500;
+
+  const SERVICE_TEXT = {
+    connecting: "连接中…",
+    ready: "服务就绪",
+    offline: "服务不可达",
+  };
+
+  const RUN_TEXT = {
+    idle: "空闲",
+    starting: "提交中…",
+    running: "运行中…",
+    done: "已完成",
+    failed: "失败",
+    disconnected: "连接已断开",
+  };
+
+  const el = {
+    service: document.getElementById("service-status"),
+    log: document.getElementById("chat-log"),
+    empty: document.getElementById("empty-state"),
+    form: document.getElementById("prompt-form"),
+    input: document.getElementById("prompt-input"),
+    send: document.getElementById("send-button"),
+    stop: document.getElementById("stop-button"),
+    run: document.getElementById("run-status"),
+  };
+
+  let activeRunId = null;
+  let stream = null;
+  let assistantEntry = null;
+  const pendingToolEntries = new Map();
+
+  /** 只把字符串交给 textContent；其它类型（数字/对象/undefined）一律折叠为可读文本。 */
+  function asText(value) {
+    if (typeof value === "string") return value;
+    if (value === null || value === undefined) return "";
+    return String(value);
+  }
+
+  function setServiceState(state) {
+    el.service.dataset.state = state;
+    el.service.textContent = SERVICE_TEXT[state] || SERVICE_TEXT.connecting;
+  }
+
+  function setRunState(state, text) {
+    el.run.dataset.state = state;
+    el.run.textContent = text || RUN_TEXT[state] || state;
+    const busy = state === "starting" || state === "running";
+    el.send.disabled = busy;
+    el.input.disabled = busy;
+  }
+
+  /** 往对话记录追加一条纯文本条目（种类只影响样式，从不影响内容解释方式）。 */
+  function appendEntry(kind, text) {
+    const item = document.createElement("li");
+    item.className = "entry entry-" + kind;
+    if (kind === "tool") item.dataset.error = "false";
+    item.appendChild(document.createTextNode(asText(text)));
+    el.log.appendChild(item);
+    while (el.log.children.length > MAX_LOG_ENTRIES) {
+      el.log.removeChild(el.log.firstChild);
+    }
+    el.empty.hidden = el.log.children.length > 0;
+    el.log.scrollTop = el.log.scrollHeight;
+    return item;
+  }
+
+  function appendText(node, text) {
+    node.appendChild(document.createTextNode(asText(text)));
+    el.log.scrollTop = el.log.scrollHeight;
+  }
+
+  function toolKey(name) {
+    return String(name || "tool");
+  }
+
+  function showToolCall(payload) {
+    const label = payload.tool_target
+      ? `${asText(payload.tool_name)} → ${asText(payload.tool_target)}`
+      : asText(payload.tool_name);
+    const entry = appendEntry("tool", `▶ ${label}`);
+    pendingToolEntries.set(toolKey(payload.tool_name), entry);
+  }
+
+  function showToolResult(payload) {
+    const key = toolKey(payload.tool_name);
+    const entry = pendingToolEntries.get(key);
+    pendingToolEntries.delete(key);
+    const isError = Boolean(payload.tool_error);
+    const output = asText(payload.tool_output);
+    const prefix = isError ? "✘" : "✔";
+    if (entry) {
+      entry.dataset.error = isError ? "true" : "false";
+      entry.textContent = `${prefix} ${asText(payload.tool_name)}${output ? `：${output}` : ""}`;
+      el.log.scrollTop = el.log.scrollHeight;
+      return;
+    }
+    const fresh = appendEntry("tool", `${prefix} ${asText(payload.tool_name)}${output ? `：${output}` : ""}`);
+    fresh.dataset.error = isError ? "true" : "false";
+  }
+
+  function closeStream() {
+    if (stream) {
+      stream.close();
+      stream = null;
+    }
+    activeRunId = null;
+    assistantEntry = null;
+    pendingToolEntries.clear();
+  }
+
+  function finishRun(state, text) {
+    closeStream();
+    setRunState(state, text);
+  }
+
+  function handleEvent(payload) {
+    switch (payload && payload.kind) {
+      case "text":
+        if (!assistantEntry) assistantEntry = appendEntry("assistant", "");
+        appendText(assistantEntry, payload.text);
+        break;
+      case "tool_call":
+        showToolCall(payload);
+        break;
+      case "tool_result":
+        showToolResult(payload);
+        break;
+      case "done":
+        if (!assistantEntry && payload.text) assistantEntry = appendEntry("assistant", payload.text);
+        finishRun("done");
+        break;
+      case "error":
+        appendEntry("error", asText(payload.message) || "运行失败");
+        finishRun("failed");
+        break;
+      case "cancelled":
+        appendEntry("error", asText(payload.message) || "已取消");
+        finishRun("failed", "已取消");
+        break;
+      case "timed_out":
+        appendEntry("error", asText(payload.message) || "运行超时");
+        finishRun("failed", "运行超时");
+        break;
+      default:
+        // 未知事件类型不猜语义（服务端新增事件时旧页面保持可用，只忽略）。
+        break;
+    }
+  }
+
+  function subscribe(runId) {
+    stream = new EventSource(`/api/runs/${runId}/events`);
+    const kinds = ["text", "tool_call", "tool_result", "done", "error", "cancelled", "timed_out"];
+    for (const kind of kinds) {
+      stream.addEventListener(kind, (event) => {
+        let payload = null;
+        try {
+          payload = JSON.parse(event.data);
+        } catch (error) {
+          payload = null;
+        }
+        handleEvent(payload);
+      });
+    }
+    stream.addEventListener("error", () => {
+      // EventSource 的 error 既用于「服务端 error 事件」（已由上面的监听器处理并关闭流），
+      // 也用于连接层故障。这里只处理「流还在、但连接断了」的情形：如实显示，且不假装运行完成。
+      if (stream) {
+        closeStream();
+        appendEntry("error", "与服务端的连接已断开");
+        setRunState("disconnected");
+      }
+    });
+  }
+
+  async function readError(response) {
+    try {
+      const payload = await response.json();
+      return asText(payload && payload.error && payload.error.message);
+    } catch (error) {
+      return "";
+    }
+  }
+
+  async function submitPrompt(prompt) {
+    setRunState("starting");
+    appendEntry("user", prompt);
+    let response;
+    try {
+      response = await fetch("/api/runs", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+    } catch (error) {
+      appendEntry("error", "无法连接到服务");
+      setRunState("failed");
+      return;
+    }
+    if (!response.ok) {
+      const message = await readError(response);
+      appendEntry("error", message || `请求被拒绝（HTTP ${response.status}）`);
+      setRunState("failed");
+      return;
+    }
+    const created = await response.json();
+    activeRunId = created.run_id;
+    setRunState("running");
+    subscribe(created.run_id);
+  }
+
+  async function restoreSession() {
+    try {
+      const response = await fetch("/api/session", { headers: { accept: "application/json" } });
+      if (!response.ok) return;
+      const snapshot = await response.json();
+      const messages = Array.isArray(snapshot.messages) ? snapshot.messages : [];
+      el.log.replaceChildren();
+      assistantEntry = null;
+      for (const message of messages) {
+        appendEntry(message.role === "user" ? "user" : "assistant", message.text);
+      }
+    } catch (error) {
+      // 服务不可达时保持空态：不伪造历史。
+    }
+  }
+
+  async function checkHealth() {
+    try {
+      const response = await fetch("/api/health", { headers: { accept: "application/json" } });
+      if (!response.ok) {
+        setServiceState("offline");
+        return;
+      }
+      const payload = await response.json();
+      setServiceState(payload && payload.status === "ok" ? "ready" : "offline");
+    } catch (error) {
+      setServiceState("offline");
+    }
+  }
+
+  el.form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (activeRunId) return; // 运行中禁止重复提交（服务端也会回 run_conflict）
+    const prompt = asText(el.input.value).trim();
+    if (!prompt) return;
+    el.input.value = "";
+    submitPrompt(prompt);
+  });
+
+  el.input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      el.form.requestSubmit();
+    }
+  });
+
+  setServiceState("connecting");
+  setRunState("idle");
+  checkHealth();
+  restoreSession();
+  window.setInterval(checkHealth, HEALTH_POLL_MS);
+})();

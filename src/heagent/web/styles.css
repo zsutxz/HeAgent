@@ -1,0 +1,196 @@
+/* HeAgent 内置网页样式（Epic 49）。纯本地：不引用任何外部字体/图片资源。 */
+
+:root {
+  color-scheme: light dark;
+  --bg: #faf9f7;
+  --panel: #ffffff;
+  --border: #d9d6d0;
+  --text: #23201c;
+  --muted: #6b6660;
+  --accent: #2f6f4f;
+  --warn: #8a5a00;
+  --error: #a3312a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #16181a;
+    --panel: #1e2124;
+    --border: #33383d;
+    --text: #e8e6e3;
+    --muted: #9aa0a6;
+    --accent: #7ec49a;
+    --warn: #e0b154;
+    --error: #f08b83;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.55 ui-sans-serif, system-ui, "Segoe UI", "Microsoft YaHei", sans-serif;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.bar h1 {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+}
+
+.badge,
+.status {
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.badge[data-state="ready"],
+.status[data-state="done"] {
+  color: var(--accent);
+}
+
+.badge[data-state="offline"],
+.status[data-state="failed"] {
+  color: var(--error);
+}
+
+.badge[data-state="warning"],
+.status[data-state="cancelled"],
+.status[data-state="cancelling"] {
+  color: var(--warn);
+}
+
+.workspace {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem;
+}
+
+.chat-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.chat-log:empty {
+  display: none;
+}
+
+.empty {
+  margin: 2rem 0;
+  text-align: center;
+  color: var(--muted);
+}
+
+.entry {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 0.55rem 0.75rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.entry-user {
+  border-left: 3px solid var(--accent);
+}
+
+.entry-assistant {
+  border-left: 3px solid var(--border);
+}
+
+.entry-tool {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  font-size: 0.86rem;
+  color: var(--muted);
+}
+
+.entry-tool[data-error="true"] {
+  color: var(--error);
+}
+
+.entry-error {
+  border-left: 3px solid var(--error);
+  color: var(--error);
+}
+
+.composer {
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  padding: 0.7rem 1rem 0.9rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.composer textarea {
+  width: 100%;
+  resize: vertical;
+  font: inherit;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.6rem;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.6rem;
+}
+
+.composer-actions .status {
+  margin-right: auto;
+}
+
+button {
+  font: inherit;
+  padding: 0.35rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button[type="submit"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

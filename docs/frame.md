@@ -99,7 +99,7 @@ exceptions  types  config  persist  roles
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
 - `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
-- `network/` 是**入口传输层**（Epic 48，2026-09-22）：只承载 framing / 协议模型 / 连接与超时生命周期 / 暴露判定，运行期**不依赖运行栈**（`agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`）与任何入口层模块（`wiring`/`cli`/`cli_goal`/`cli_tcp`/`gui`）；Provider 与 `AgentLoop` 的装配由入口层 `cli_tcp.py` 单向伸手（契约断言：`test_architecture_contracts.py` 的 FORBIDDEN_RUNTIME_IMPORTS["network"]）
+- `network/` 是**入口传输层**（Epic 48，2026-09-22）：只承载 framing（TCP JSON Lines）与 HTTP 协议 / 路由 / 静态资源 / 连接与超时生命周期 / 暴露判定，运行期**不依赖运行栈**（`agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`）与任何入口层模块（`wiring`/`cli`/`cli_goal`/`cli_tcp`/`cli_http`/`gui`）；Provider 与 `AgentLoop` 的装配由入口层 `cli_tcp.py` / `cli_http.py` 单向伸手（契约断言：`test_architecture_contracts.py` 的 FORBIDDEN_RUNTIME_IMPORTS["network"]）
 
 ---
 
@@ -120,6 +120,7 @@ exceptions  types  config  persist  roles
 | Token 统计 | 每次回答后显示 `[tokens: N in + M out = T total]` |
 | 运行暂停/恢复/中断 | 交互模式运行期间按 Esc 暂停当前 run、Enter 恢复、双击 Esc 打断（取消当前 run、回到输入状态，见 `terminal.py`） |
 | TCP 入口 | `heagent tcp-server`（实验性，实现拆在 `cli_tcp.py` + `network/`，协议与安全立场见 4.16） |
+| HTTP 入口 | `heagent http-server`（实验性，实现拆在 `cli_http.py` + `network/http_*.py` + 包内 `web/`，协议、静态页与安全立场见 4.17） |
 
 ### 4.2 Agent 核心 (`agent/`)
 
@@ -773,6 +774,15 @@ HeAgentError (base)
 | `tcp_idle_timeout` | 60 | 等待完整请求行的秒数（只覆盖读取阶段，不含 Agent 预算） |
 | `tcp_request_timeout` | 300 | 单次 Agent 运行的秒数（只覆盖 handler，不含写回与关连接） |
 | `tcp_shutdown_timeout` | 5 | `close()` 等待在途任务收尾的秒数；超时后结算登记并记 warning（`asyncio` 无法强杀忽略取消的任务） |
+| `http_host` | `127.0.0.1` | HTTP 网页入口绑定地址；非回环值启动时日志记一条 `event=exposed` 且 stderr 打印一行告警（判定单点复用 `network/exposure.py`） |
+| `http_port` | 8766 | HTTP 网页入口端口（1..65535；与 TCP 默认 8765 错开，两个入口可同时开） |
+| `http_max_connections` | 16 | 同时打开的 HTTP 客户端连接上限（交给 Uvicorn `limit_concurrency`，超限连接被直接拒绝而非排队） |
+| `http_max_inflight_runs` | 1 | 同时在途的网页 Agent 运行上限（MVP 单会话单运行；超限提交收 `run_conflict`） |
+| `http_max_request_bytes` | 65536 | 单个 JSON 请求体的字节上限（超限收 `request_too_large`） |
+| `http_event_buffer_size` | 512 | 每个 run 的 SSE 事件环形缓冲条数（越过窗口的重连收 `resync_required`） |
+| `http_run_history_size` | 64 | 已终结 run 记录的保留条数（淘汰后按其 id 订阅收 `unknown_run`） |
+| `http_request_timeout` | 300 | 单次网页 Agent 运行的秒数（超时按 `timed_out` 终结并释放 In-flight 名额） |
+| `http_shutdown_timeout` | 5 | 关闭时「停止接收 → 终结在途 run → 关订阅 → 关 listener」全过程的等待上限 |
 | `approval_tools` | `""` | 需要交互审批的工具名列表 |
 | `hooks_enabled` | False | 是否启用 `.heagent/hooks.json` |
 | `plan_mode` | False | 是否启用只读计划模式 |
@@ -988,6 +998,31 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 `127.0.0.1` 只是减少暴露面，回环客户端同样不可信。运行本入口须放在容器 / VM 等 OS 级隔离中，
 并收紧出站网络与文件系统权限（与 `SafetyGuard` / `PolicyEngine` / sandbox 的立场一致）。
 
+### 4.17 HTTP 网页入口 (`network/http_*` + `cli_http.py` + `web/`)
+
+本机网页入口（Epic 49）：`heagent http-server` 起来后，浏览器打开 stderr 提示的地址即可使用内置
+聊天页；默认 CLI 也会在同一进程内自动提供该入口（见下表「默认 CLI 自启动」）。分层与 TCP 入口同构
+——`network/` 只承载传输（HTTP 协议模型 / 路由 / 运行服务 / 安全响应头 / 静态资源 / listener
+生命周期），装配在入口层 `cli_http.py`；`network/` 不构造 Agent，运行入口由入口层以可调用对象注入。
+
+| 关注点 | 实现事实（Story 49-1/49-2/49-3 已交付部分） |
+| --- | --- |
+| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 14 码、`{"error":{"code","message"}}` 信封、`HealthResponse`（字段封闭：`status` / `service` / `version` / `schema_version`）；`sanitize_message` 是客户端文案唯一出口（折叠空白 + 截断到 `MAX_ERROR_MESSAGE_CHARS`），**不含** traceback / 异常类名 / 绝对路径 |
+| 传输层 | `network/http_server.py`：`HttpServerConfig`（9 个有界字段，默认值与 `HTTP_*` 一致）+ `HttpServer`（`start` / `serve_forever` / `close`，与 `TcpServer` 同 API 形状）；`build_http_app` 组装健康检查 + 静态资源 + 安全头 |
+| 可选依赖 | starlette / uvicorn 由 `pyproject.toml` 的 `http` extra **直接声明**，且只在真要服务时经 `importlib.import_module` 加载；缺依赖抛 `HttpDependencyError` → 命令给出 `pip install 'heagent[http]'`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`（源码中不存在顶层 starlette/uvicorn 导入） |
+| 就绪门禁 | `start()` 只在「listener 已绑定**且**真实 TCP 打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」 |
+| 关闭 | `close()` 幂等且全程有界：设 `should_exit` → Uvicorn `shutdown()`（连接排空受 `timeout_graceful_shutdown` 约束）→ 等待 serve 循环退出（超时则取消），整体再包一层 `wait_for`。信号**不归 Uvicorn 管**（不调 `serve()` / `capture_signals`）：`KeyboardInterrupt` 由 CLI 接住并安静退出 |
+| 静态资源 | `src/heagent/web/` 内 `index.html` / `app.js` / `styles.css`，经 `importlib.resources.files("heagent.web")` 读取（AD-11 唯一查找方式；wheel 里以 `zipimport` 加载已实测）；**白名单**路由同时挡掉路径穿越与「散落文件被意外发布」 |
+| 安全响应头 | 每个响应带 `Content-Security-Policy: default-src 'none'; script-src 'self'; …; frame-ancestors 'none'`、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`；页面**不加载任何第三方脚本**（CSP 不允许内联；测试断言页面所有 `src` / `href` 都是同源绝对路径） |
+| 渲染纪律 | 页面脚本只用 `textContent` / `createTextNode` 渲染提示词、回答与工具输出（**永不** `.innerHTML`）；HTML 里没有内联脚本或样式 |
+| 默认 CLI 自启动 | `heagent` / `heagent "prompt"` / `heagent run ...` 在**同一个 asyncio 生命周期**内启动内嵌服务（`cli._embedded_http_service` + `cli_http.EmbeddedHttpService`）：交互模式与 REPL 共存、单次模式与那次 run 并存且 run 结束即关闭并释放端口。`gui` / `tcp-server` / `http-server` / `init` / `replay` 都不经过该路径（**不派生第二个实例**）。启动失败（端口冲突 / 缺 `heagent[http]`）转成命令级错误（exit 1），绝不出现「聊天正常但页面打不开」；serve 循环意外结束时交互模式如实报出并退出（AD-5 的假可用状态禁令）|
+| 运行 API | `POST /api/runs`（请求体**只认** `prompt`，`extra="forbid"` ⇒ 塞 provider/model/system/沙箱/迭代预算一律 400；单运行约束：已有在途 run 时 409 `run_conflict`，**不排队不覆盖**）、`GET /api/runs/{run_id}/events`（SSE）、`GET /api/session`（会话 id / 当前运行状态 / 已完成历史）。请求体按块读取，超过 `HTTP_MAX_REQUEST_BYTES` 立即中断（413 `request_too_large`），不用 ``request.body()`` 把大小交给客户端决定 |
+| 事件与投影 | 事件类型 `text` / `tool_call` / `tool_result` / `done` / `error`（49-4 补 `cancelled` / `timed_out`）；`id` 从 1 单调递增、`data` 是单行 JSON；文本字段入缓冲前截断到 16384 字符并显式标记；`done` 带**该次运行**的 model 与 usage。会话投影只有一条路径：仅 `COMPLETED` 的 run 投影 prompt + 最终回答，失败 / 取消 / 超时**绝不**把部分文本写进历史（AD-3）；运行记录按 `HTTP_RUN_HISTORY_SIZE` 保留，淘汰后按 id 订阅得 `unknown_run` |
+| 运行隔离 | 入口层 `cli_http.HttpAgentHandler`：**每次运行新建独立 `AgentLoop`**（loop 持跨 run 可变展示态），handler 自建 engine（`approval_handler=None` ⇒ 需要审批的调用维持既有 fail-safe 阻断，**绝不**读服务进程 stdin）、不自动连接 MCP；传输层只认注入的可调用对象，不认识 `AgentLoop`（AD-1 的接缝） |
+
+⚠ **安全立场**：与 TCP 入口一致——本入口**无认证、无 TLS**，回环绑定不是认证边界，回环客户端同样
+不可信；运行本入口须放在容器 / VM 等 OS 级隔离中（见五、已知缺口与 CLAUDE.md 安全声明）。
+
 ## 五、已知缺口
 
 | 缺口 | 说明 |
@@ -1021,6 +1056,8 @@ src/heagent/
 ├── cli_init.py              # heagent init 子命令（全局配置/项目上下文模板生成，2026-09-17 自 cli.py 拆出）
 ├── cli_goal.py              # /goal 命令族（声明式工作流分发 + cron 自动推进）
 ├── cli_tcp.py               # tcp-server 子命令 + Agent 请求适配（入口层组合根；Epic 48）
+├── cli_http.py              # http-server 子命令 + HTTP 服务装配（入口层组合根；Epic 49）
+├── web/                     # 内置网页资源包（HTML/CSS/JS，随 wheel 分发；经 importlib.resources 读取）
 ├── wiring.py                # 入口层装配共享缝：provider 组合根 + ensure_runtime_config + build_cron_job_runner（CLI/GUI 共用，Phase 2 C3）
 ├── terminal.py              # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断，CLI 交互模式）
 ├── config.py                # pydantic-settings 配置
@@ -1121,9 +1158,11 @@ src/heagent/
 │   ├── protocol.py          # RunEvent + EngineEvent → RunEvent 映射
 │   └── sink.py              # JsonlSink（stdout/rollout）+ read_rollout / render_event
 │
-├── network/                 # TCP 入口传输层（Epic 48；framing/协议/连接生命周期/暴露判定，不依赖运行栈）
+├── network/                 # 网络入口传输层（Epic 48 TCP / Epic 49 HTTP；协议/生命周期/暴露判定，不依赖运行栈）
 │   ├── protocol.py          # JSON Lines 请求/响应模型 + 8 个稳定错误码 + 有界编解码
 │   ├── tcp_server.py        # TcpServer（两档限额 / 三类超时 / 阶段日志；日志经 _safe_log 不影响协议）
+│   ├── http_protocol.py     # HTTP 协议模型：14 个稳定错误码 + 错误信封 + HealthResponse + 运行/事件/会话模型（Epic 49）
+│   ├── http_server.py       # HttpServer（就绪门禁/有界关闭/静态资源白名单/安全响应头）+ HttpRunService（单用户会话、运行记录与事件 ring buffer、SSE 订阅）
 │   └── exposure.py          # 回环判定 + 「无认证 / 无 TLS / 非生产边界」告警文案（单点，不解析 DNS）
 │
 ├── goal/                    # /goal 域层（入口层，供 cli_goal 使用，下层不得反向导入）
@@ -1259,6 +1298,43 @@ python -m heagent tcp-server [--host H] [--port P] [--max-inflight N] ...
         │           └── 写回一条 JSON 行 + event=completed / event=failed（含 elapsed_ms，不记正文）
         └── finally: await server.close()   # 有界收尾并结算残留登记
 ```
+
+**HTTP 网页入口流程（Epic 49，实验性；Story 49-1/49-2/49-3 已交付部分）：**
+
+默认 CLI（`heagent` / `heagent "prompt"` / `heagent run ...`）会**内嵌**启动同一个服务——生命周期
+包在 `cli._embedded_http_service`（`cli_http.EmbeddedHttpService`）里，与 CLI 共享一个
+`asyncio.run`：交互模式与 REPL 共存，单次模式与那次 run 并存、run 结束即关闭并释放端口；
+`gui` / `tcp-server` / `http-server` / `init` / `replay` 都不经过该路径（不派生第二实例）。
+
+```
+python -m heagent http-server [--host H] [--port P] [--max-inflight-runs N] ...
+  │
+  ├── _setup_logging() → get_settings() → _prune_runtime_artifacts()
+  ├── load_agent_roles() → wiring._build_provider()          # 服务级共享 provider
+  ├── HttpAgentHandler(...)                                   # 每次运行新建 AgentLoop（不装审批、不连 MCP）
+  ├── HttpRunService(config, handler)                         # 单用户会话 + 运行记录/事件缓冲的唯一所有者
+  ├── HttpServer(config, version=heagent.__version__, run_service=service)
+  ├── exposure_warning(config.host) → 非回环则 stderr 一行告警（logger 侧一条 event=exposed）
+  └── asyncio.run(_serve_http(server))
+        ├── await server.start()
+        │     ├── uvicorn Server.startup()（绑定；失败 → HttpStartupError，不打印「已监听」）
+        │     └── 就绪门禁：真实 TCP 请求一次 /api/health，非 200/连不上 → 回滚并抛错
+        ├── stderr: listening on http://<host>:<port>
+        └── serve_forever() → Uvicorn main_loop
+              ├── GET  /api/health            → HealthResponse（字段封闭，不含密钥/路径/traceback）
+              ├── POST /api/runs              → 有界非空 prompt ⇒ 201 {run_id,status}；在途 ⇒ 409 run_conflict
+              │       └── start_run → 后台任务 `_execute` → handler(prompt, publisher) → AgentLoop.run_stream
+              │             └── 事件映射：text / tool_call / tool_result（seq 单调、文本截断、广播给订阅者）
+              │                  终态（首个 claim_terminal 获胜）：done（带 model/usage）/ error（脱敏）
+              ├── GET  /api/runs/{id}/events  → SSE：先重放 ring buffer，再跟随实时事件；终态后立即结束
+              ├── GET  /api/session           → 会话 id / 当前状态 / 已完成历史（只有 completed 投影）
+              ├── GET  /                      → 包内 index.html；GET /{asset} → 白名单资源（app.js / styles.css）
+              └── 每个响应补 CSP / nosniff / 禁 framing；错误一律稳定信封
+        └── finally: await server.close()   # service.close()（取消在途 run → cancelled 终态）→ Uvicorn shutdown（有界）
+```
+
+（取消 `DELETE /api/runs/{id}`、`Last-Event-ID` 重连与 resync、各项限额在 Story 49-4 接入；
+Origin/Host 同源校验与观测字段在 49-5；打包与浏览器手工验收在 49-6。）
 
 ---
 

@@ -54,7 +54,7 @@ from heagent.tools.registry import ToolRegistry
 from heagent.wiring import _build_provider, build_cron_job_runner, ensure_runtime_config
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import AsyncIterator, Callable, Coroutine
     from contextlib import AbstractAsyncContextManager
 
     from heagent.providers.base import BaseProvider
@@ -323,6 +323,49 @@ def _prepare_engine(
     return engine, system
 
 
+@contextlib.asynccontextmanager
+async def _embedded_http_service(settings: Settings, provider: BaseProvider) -> AsyncIterator[Any]:
+    """默认 CLI 的内嵌 HTTP 服务（Epic 49 Story 49-2/49-3）。
+
+    交互模式与 REPL 共存、单次模式与那次 run 并存；两种模式都在**同一个 asyncio 生命周期**内启动
+    与收尾（AD-5：``cli_http`` 是唯一生命周期所有者）。`heagent gui` / `tcp-server` / `http-server` /
+    `init` / `replay` 都不经过本函数，因此**不会**派生第二个 HTTP 实例。
+
+    运行入口是入口层的 ``HttpAgentHandler``（每运行新建独立 ``AgentLoop``、自建 engine 不装审批、
+    不连 MCP）；它只共享 ``provider`` 与 CLI 进程，不共享 CLI 终端的引擎与会话。
+
+    启动失败（端口被占 / 缺 ``heagent[http]``）直接抛出——由 :func:`_run_with_embedded_http` 转成
+    命令级错误并退出，绝不进入「聊天看着正常、网页入口其实没起来」的半启动状态。
+
+    ``build_http_service`` / ``HttpAgentHandler`` 在**函数内**导入：``cli_http`` 在模块尾部 import 本
+    模块注册命令，模块级互相导入会成环。测试缝因此落在 ``heagent.cli_http.build_http_service``
+    （**不要**在本模块顶部绑定该名字，否则缝会漂到 cli 上、既有 patch 目标失效）。
+    """
+    from heagent.cli_http import HttpAgentHandler, build_http_service  # noqa: PLC0415
+
+    handler = HttpAgentHandler(provider, settings)
+    async with build_http_service(settings, executor=handler) as service:
+        yield service
+
+
+def _run_with_embedded_http(awaitable_factory: Callable[[], Coroutine[Any, Any, None]]) -> None:
+    """跑默认 CLI 的 asyncio 生命周期（单次 / 交互），把内嵌 HTTP 的启动失败转成命令错误。
+
+    用**工厂**而不是现成 coroutine：``asyncio.run`` 自建事件循环，awaitable 必须在它内部创建，
+    否则会以「attached to a different loop」这类 `RuntimeError` 的形式炸出来。
+    """
+    from heagent.cli_http import embedded_http_error_message  # noqa: PLC0415
+
+    try:
+        asyncio.run(awaitable_factory())
+    except Exception as exc:
+        message = embedded_http_error_message(exc)
+        if message is None:
+            raise
+        # 绑定冲突 / 缺可选依赖：一行可诊断文案 + 非零退出（exit 1），不吐 traceback。
+        raise click.ClickException(message) from None
+
+
 async def _run_single(
     prompt: str,
     provider: BaseProvider,
@@ -356,7 +399,7 @@ async def _run_single(
     if sink is not None:
         engine.events.subscribe(sink)
 
-    async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
+    async with _embedded_http_service(settings, provider), mcp_ctx or contextlib.nullcontext() as mcp_manager:
         _report_mcp_discovery_failures(mcp_manager)
         loop, _ = _build_loop(
             settings, provider, max_iterations, soul_path, engine=engine, sandbox_backend=sandbox_backend
@@ -512,7 +555,7 @@ async def _run_chat(
         system=system,
     )
 
-    async with mcp_ctx or contextlib.nullcontext() as mcp_manager:
+    async with _embedded_http_service(settings, provider) as http, mcp_ctx or contextlib.nullcontext() as mcp_manager:
         _report_mcp_discovery_failures(mcp_manager)
         session = SessionStore()
         # 会话复用（Epic 30）：--resume 指定 / --continue 最近 / 否则新建。
@@ -547,6 +590,11 @@ async def _run_chat(
             if dream_scheduler:
                 await dream_scheduler.start()
             while True:
+                # 网页入口挂掉后 CLI 继续正常聊天 = 「页面打不开但看着一切正常」的假可用
+                # 状态（AD-5）。每轮检查一次：把 serve 循环的意外结束如实报出并退出交互。
+                if http.failure is not None:
+                    click.echo(f"[http] service stopped unexpectedly: {http.failure}", err=True)
+                    break
                 try:
                     status = _format_status(loop)
                     user_input = await asyncio.to_thread(input, f"{status}\n> ")
@@ -969,8 +1017,8 @@ def _run_cli_impl(
         raise SystemExit(1) from None
 
     if prompt:
-        asyncio.run(
-            _run_single(
+        _run_with_embedded_http(
+            lambda: _run_single(
                 prompt,
                 provider,
                 system,
@@ -985,8 +1033,8 @@ def _run_cli_impl(
             )
         )
     else:
-        asyncio.run(
-            _run_chat(
+        _run_with_embedded_http(
+            lambda: _run_chat(
                 provider,
                 system,
                 resolved_iterations,
@@ -1183,3 +1231,11 @@ main.add_command(gui_cmd)
 from heagent.cli_tcp import tcp_server_cmd  # noqa: E402
 
 main.add_command(tcp_server_cmd)
+
+# HTTP 网页入口子命令（Epic 49 Story 49-1）：与 tcp-server 同理——只有显式调用该命令才导入
+# 可选 HTTP 栈（`heagent[http]`）并绑定端口；普通 CLI 用法、gui、init、replay 都不监听 HTTP，
+# 也都不因缺 starlette/uvicorn 而失败。49-2 起默认 CLI 会**在同一进程内**另起 HTTP 服务，
+# 而显式 http-server 永远只起这一份（不派生子实例）。
+from heagent.cli_http import http_server_cmd  # noqa: E402
+
+main.add_command(http_server_cmd)

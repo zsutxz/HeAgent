@@ -37,6 +37,66 @@ os.environ.setdefault("EDIT_SNAPSHOT_RETENTION_DAYS", "0")
 os.environ.setdefault("SANDBOX_DIR_RETENTION_DAYS", "0")
 
 
+# ── 默认 CLI 的内嵌 HTTP 服务（Epic 49 Story 49-2） ──
+#
+# Story 49-2 起，默认 CLI（`heagent` / `heagent "prompt"` / `heagent run ...`）会在**同一个
+# asyncio 生命周期**里启动 HTTP 服务。若每个走 CLI 的测试都真的绑定端口，测试之间会互相抢端口、
+# 明显变慢，还会被防火墙与执行顺序放大成 flaky。故此处**默认把构造替换成轻量替身**：只记录调用，
+# 不绑定、不导入 ASGI 栈。
+#
+# 真实实现（绑定、就绪门禁、有界关闭、serve 循环 failure 传播、端口释放）由
+# `tests/test_cli_http_lifecycle.py` 覆盖——那里的用例加 `@pytest.mark.embedded_http_service`
+# 退出本替身，并使用随机空闲端口。
+
+_EMBEDDED_HTTP_SERVICES: list[_StubEmbeddedHttp] = []
+
+
+class _StubEmbeddedHttp:
+    """默认 CLI 内嵌 HTTP 服务的替身：只记录生命周期，不绑定端口、不起 ASGI 栈。"""
+
+    def __init__(self) -> None:
+        self.address = "127.0.0.1:0"
+        self.failure: BaseException | None = None
+        self.started = False
+        self.closed = False
+
+    async def start(self) -> None:
+        self.started = True
+
+    async def close(self) -> None:
+        self.closed = True
+
+    async def __aenter__(self) -> _StubEmbeddedHttp:
+        await self.start()
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        await self.close()
+
+
+@pytest.fixture(autouse=True)
+def _stub_embedded_http_service(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    """把默认 CLI 的内嵌 HTTP 服务替换成替身（理由见上方注释）。"""
+    _EMBEDDED_HTTP_SERVICES.clear()
+    if "embedded_http_service" in request.keywords:
+        return
+
+    from heagent import cli_http
+
+    def _build(_settings: object, **_kwargs: object) -> _StubEmbeddedHttp:
+        service = _StubEmbeddedHttp()
+        _EMBEDDED_HTTP_SERVICES.append(service)
+        return service
+
+    monkeypatch.setattr(cli_http, "build_http_service", _build)
+
+
+@pytest.fixture()
+def embedded_http_services() -> list[_StubEmbeddedHttp]:
+    """本次测试里被构造的替身服务（真实模式下为空——真实构造不经过替身工厂）。"""
+    return _EMBEDDED_HTTP_SERVICES
+
+
 @pytest.fixture(autouse=True)
 def _isolate_dotenv_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
     """隔离全局（``~/.heagent/.env``）与项目（``.env``）两层配置加载。
