@@ -449,7 +449,7 @@ def test_skill_store_default_relative_base_dir_roundtrip(tmp_path, monkeypatch) 
 
 
 def _facts_file(tmp_path: Path, count: int, *, size: int = 100) -> FactStore:
-    """写一个含 ``count`` 条等长事实的 MEMORY.md（每条约 ``size + 20`` 字节）。"""
+    """写一个含 ``count`` 条等长事实的 MEMORY.md（``size=100`` 时每行 112 字节 = ``size + 12``）。"""
     path = tmp_path / "MEMORY.md"
     path.write_text(
         "".join(f"- fact-{index:03d}-{'x' * size}\n" for index in range(count)),
@@ -494,6 +494,10 @@ class TestMemoryInjectionBudget:
         assert "未注入" in marker
         assert "MEMORY.md 共 20 条" in marker
         assert "MEMORY_INJECT_MAX_BYTES=500" in marker
+        # 保留前部 ⇒ 省略的是**尾部（较新）**条目，标注不得把方向写反成「较早」。
+        assert "较新" in marker and "较早" not in marker
+        # 标注是陈述事实而非对模型的指令：`.heagent/memory` 读拒 + fact_add 只增不减 ⇒ 模型无法自行整理。
+        assert "需由用户整理" in marker and "请整理" not in marker
         assert "Memory injection exceeds" in caplog.text
         # 预算只计注入的条目（标注不计入），且文件本体一字未动。
         injected = sum(len(line.encode()) + 1 for line in lines[:-1])
@@ -506,6 +510,10 @@ class TestMemoryInjectionBudget:
 
         assert block is not None
         assert "未注入" in block and "共 3 条" in block
+        assert "本次注入 0 条" in block
+        # 保留为空时不得留下空的事实行（否则块内会出现连续空行）。
+        assert "\n\n\n" not in block
+        assert len([line for line in block.splitlines() if line.startswith("- ")]) == 1
         assert len(store.load()) == 3
 
     def test_build_system_prompt_uses_the_passed_snapshot_budget(self, tmp_path: Path) -> None:
@@ -529,3 +537,28 @@ class TestMemoryInjectionBudget:
 
         assert tight is not None and "未注入" in tight
         assert wide is not None and "未注入" not in wide
+
+    def test_budget_boundary_is_inclusive(self, tmp_path: Path) -> None:
+        """``used + size > budget`` 的等号边界：恰好等于前 N 条的字节和时保留这 N 条。"""
+        store = _facts_file(tmp_path, 3, size=10)
+        per_item = len(f"- fact-000-{'x' * 10}\n".encode())
+
+        exact = _memory_block(store, Settings(memory_inject_max_bytes=per_item * 2))
+        assert exact is not None
+        assert "fact-001" in exact and "fact-002" not in exact
+
+        one_byte_short = _memory_block(store, Settings(memory_inject_max_bytes=per_item * 2 - 1))
+        assert one_byte_short is not None
+        assert "fact-000" in one_byte_short and "fact-001" not in one_byte_short
+
+    def test_budget_counts_bytes_not_characters(self, tmp_path: Path) -> None:
+        """CJK 事实按**字节**计预算：``中``×10 的一条是 33 字节（字符只有 13 个）。"""
+        path = tmp_path / "MEMORY.md"
+        path.write_text("".join(f"- {'中' * 10}\n" for _ in range(3)), encoding="utf-8", newline="")
+        store = FactStore(path=str(path))
+
+        block = _memory_block(store, Settings(memory_inject_max_bytes=66))
+
+        assert block is not None
+        assert block.count("中") == 20, "66 字节恰好容纳两条 33 字节的 CJK 事实（按字符计会容纳三条）"
+        assert "未注入" in block

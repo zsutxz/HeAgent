@@ -192,11 +192,16 @@ def _memory_block(facts: FactStore | None, settings: Settings | None = None) -> 
     MEMORY.md 是 append-only、**整份**注入、且 `fact_add` 只增不减——没有预算时它会无界增长
     （2026-09-23 实测 336 KB / 170 条 = 每轮 89K token 的 SYSTEM 前缀）。超预算时：
 
-    - **按文件顺序保留前部条目**（整理后的长期约定在文件头部、会话学习记录追加在尾部）；
+    - **按文件顺序保留前部条目**（整理后的长期约定在文件头部、会话学习记录追加在尾部），
+      故被省略的是**较新的尾部条目**；
     - 在块尾追加一条**省略标注**（说明省略条数、总条数与预算值），并打一条 warning——绝不静默；
     - **不改动文件本体**：超预算条目仍在盘上，`fact_add` 仍可追加，整理 MEMORY.md 即释放预算。
 
     预算只计被注入的条目（`- {fact}` 序列化后的字节，含换行），省略标注本身不计入。
+
+    标注是**陈述事实**、不是对模型的指令：`.heagent/memory/` 属内部状态，文件工具读拒
+    （``path_safety.check_read_denied``），`fact_add` 亦只增不减——**模型无法自行整理该文件**；
+    故标注只说明「需由用户整理」，以免诱导模型盲写整份文件（那会抹掉未注入的尾部条目）。
     """
     if not facts:
         return None
@@ -213,10 +218,12 @@ def _memory_block(facts: FactStore | None, settings: Settings | None = None) -> 
             len(facts_list),
             budget,
         )
-        items += (
-            f"\n- （另有 {omitted} 条较早记忆未注入：MEMORY.md 共 {len(facts_list)} 条，本次注入前 "
-            f"{len(kept)} 条；MEMORY_INJECT_MAX_BYTES={budget}，需要时请整理该文件以释放预算）"
+        note = (
+            f"- （另有 {omitted} 条较新记忆未注入：MEMORY.md 共 {len(facts_list)} 条，本次注入 {len(kept)} 条；"
+            f"MEMORY_INJECT_MAX_BYTES={budget}。该文件不对工具开放，需由用户整理以释放预算）"
         )
+        # 保留为空时不留空的事实行（否则块内会出现连续空行）。
+        items = f"{items}\n{note}" if items else note
     logger.debug("Injected %d fact(s) into system prompt (%d omitted)", len(kept), omitted)
     return f"<memory>\nThe following facts are remembered from previous conversations:\n\n{items}\n</memory>"
 
