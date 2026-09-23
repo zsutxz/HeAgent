@@ -5,7 +5,7 @@
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
 > ② **勘察类闭合归档**（source_spec 为勘察批次、无归属 epic）。
 
-## 活动（未闭合）条目——7 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10/Z-D11）
+## 活动（未闭合）条目——8 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10/Z-D11；2026-09-23 代码评审新增 1 条）
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
@@ -49,6 +49,10 @@
   status: **已闭合（2026-09-23）** —— 见本文件「Z-D11」。
   summary: **入口日志未脱敏**：TCP 入口复用 `EngineContainer.default` ⇒ 默认 `LoggingObserver` 在 INFO 打印 `tool=… target=…`，而 `shell` 的 target **不截断**（`call_summary._NO_TRUNCATE_TOOLS`），路径与命令原文（可能含凭证串）会进日志。触发条件：任意入口执行含凭证的 shell 命令；严重度：低-中；冻结边界：脱敏不得改变工具摘要对用户的既有语义与可观测字段集，且脱敏仍非安全边界（`README` 已提示「不要把凭证写进命令或路径」）。
   evidence: 48-5 评审 C-2（**既有引擎行为**，非 Epic 48 引入）；`src/heagent/tools/call_summary.py`；`docs/frame.md` 五「TCP 日志含工具摘要」行。
+
+- source_spec: 2026-09-23 代码评审（commit `7b95e56`，`<memory>` 注入字节预算）
+  summary: **MEMORY.md 非 UTF-8 会让整个 run 起不来**：`FactStore._load_facts` 以 `read_text(encoding="utf-8")` 读取，文件若被非 UTF-8 编辑器（如 GBK）保存即抛 `UnicodeDecodeError`；`_memory_block` 不捕获 ⇒ 异常经 `build_system_prompt` 逃到 `run_lifecycle` 的新 run 初始化，该 run 直接失败。触发条件：用户手工编辑 `.heagent/memory/MEMORY.md` 并以非 UTF-8 保存；严重度：低（记忆是非关键资产，却造成硬失败）；冻结边界：加载失败必须 fail-loud **且错误可定位到该文件**，但不得吞掉内容或改写文件本体（与「超预算绝不静默」同立场）。
+  evidence: 探针 `.heagent/tmp/gbk_probe.py` 实测 `RAISED UnicodeDecodeError: 'utf-8' codec can't decode byte 0xd6 in position 2`；`src/heagent/memory/facts.py`（`load()` → `_load_facts()` 无 try/except）；`src/heagent/agent/system_prompt.py`（`_memory_block` 直调 `facts.load()`）；`src/heagent/agent/run_lifecycle.py`（`asyncio.to_thread(loop._build_system, …)` 无捕获）。**非本次改动引入**（改动前同样直调 `facts.load()`），故按 defer 记录。
 
 ---
 
