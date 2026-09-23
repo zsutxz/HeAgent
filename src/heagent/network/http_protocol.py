@@ -33,6 +33,19 @@ MAX_ERROR_MESSAGE_CHARS = 500
 # （字节级），此处是模型级上限，保证「有界」在两层都成立。
 MAX_PROMPT_CHARS = 32_768
 
+# JSON 信封余量（键名、引号、逗号与结构性开销；prompt 之外的字节都算这里）。
+JSON_ENVELOPE_ALLOWANCE_BYTES = 1_024
+
+# **传输层上限必须容纳协议允许的最大 prompt**，否则两层口径互相矛盾：32768 个中文字按 UTF-8
+# 就是 98 304 字节，而旧默认值 65 536 ⇒ 中文用户实际只能用到约 2.18 万字就撞
+# ``request_too_large``（远未触及这里写明的字符上限）。
+#
+# 按「每字符最坏 12 字节」取上界：非 BMP 字符（emoji 等）UTF-8 占 4 字节，经 ``ensure_ascii``
+# 类客户端转义后是两个 ``\uXXXX`` 共 12 字节；ASCII 控制字符 6 字节（``\u0001``）；CJK 3 字节。
+# 于是任何合法 prompt 在任何客户端编码下都发得进来。394 240 字节仍小于 TCP 入口的
+# ``TCP_MAX_REQUEST_BYTES``（1 MiB），量级一致、不构成新的资源面。
+MAX_REQUEST_BYTES_FOR_MAX_PROMPT = 12 * MAX_PROMPT_CHARS + JSON_ENVELOPE_ALLOWANCE_BYTES
+
 # 兜底文案：上游异常没有可用 message 时使用（绝不回吐异常类型名）。
 GENERIC_ERROR_MESSAGE = "request failed"
 
@@ -285,9 +298,11 @@ __all__ = [
     "GENERIC_ERROR_MESSAGE",
     "HTTP_SCHEMA_VERSION",
     "HTTP_SERVICE_NAME",
+    "JSON_ENVELOPE_ALLOWANCE_BYTES",
     "MAX_ERROR_MESSAGE_CHARS",
     "MAX_EVENT_TEXT_CHARS",
     "MAX_PROMPT_CHARS",
+    "MAX_REQUEST_BYTES_FOR_MAX_PROMPT",
     "SSE_HEARTBEAT_FRAME",
     "SSE_HEARTBEAT_SECONDS",
     "TERMINAL_RUN_STATUSES",

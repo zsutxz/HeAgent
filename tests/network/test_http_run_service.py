@@ -21,6 +21,7 @@ import httpx
 
 from heagent.network.http_protocol import (
     MAX_EVENT_TEXT_CHARS,
+    MAX_PROMPT_CHARS,
     HttpErrorCode,
     HttpUsage,
     RunEventKind,
@@ -198,6 +199,22 @@ class TestRequestBounds:
 
         assert response.status_code == 413
         assert response.json()["error"]["code"] == HttpErrorCode.REQUEST_TOO_LARGE
+
+    async def test_maximal_cjk_prompt_is_deliverable(self) -> None:
+        """协议允许的最大提示词必须真的发得进来：中文（3 字节/字）曾先撞传输层 413。
+
+        这是「字符上限 vs 字节上限」口径矛盾的行为级判据：旧默认 65 536 字节时，32768 个
+        中文字（98 304 字节）会被传输层拒——用户看到的上限写着 32 768 字，实际约 2.18 万字
+        就到顶。修法见 ``http_protocol.MAX_REQUEST_BYTES_FOR_MAX_PROMPT``。
+        """
+        prompt = "中" * MAX_PROMPT_CHARS
+        assert len(prompt.encode()) > 65_536, "回归判据：该 prompt 必须大于旧默认上限"
+
+        service = HttpRunService(_config(), _executor())
+        async with _client(service) as client:
+            response = await client.post("/api/runs", json={"prompt": prompt})
+
+        assert response.status_code == 201
 
     async def test_event_text_is_bounded(self) -> None:
         """事件文本有界：超长工具输出/增量在写入缓冲前就被截断并显式标记。"""

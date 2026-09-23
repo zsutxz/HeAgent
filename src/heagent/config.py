@@ -366,7 +366,11 @@ class Settings(BaseSettings):
     # 同时在途的网页 Agent 运行上限；MVP 固定为 1（单会话单运行），超限的提交收 run_conflict。
     http_max_inflight_runs: int = Field(default=1, ge=1)
     # 单个请求体的字节上限（JSON body；超限收 request_too_large，不读完再拒绝）。
-    http_max_request_bytes: int = Field(default=65_536, ge=1)
+    # 默认 394 240 = 12 × MAX_PROMPT_CHARS(32 768) + 1 KiB 信封——**必须**容纳协议允许的最大
+    # prompt，否则会出现「字符上限远未到、却先撞传输层 413」的口径矛盾（旧默认 65 536 时，
+    # 中文实际只能用到约 2.18 万字）。`config` 是底层模块、不得依赖 `network/`，故此处写具体
+    # 数字；它与 `network.http_protocol` 的关系由 `tests/network/test_http_protocol.py` 钉住。
+    http_max_request_bytes: int = Field(default=394_240, ge=1)
     # 每个 run 的 SSE 事件环形缓冲条数；超出窗口的重连收 resync_required（AD-4）。
     http_event_buffer_size: int = Field(default=512, ge=1)
     # 已终结 run 记录的保留条数；淘汰后按其 id 订阅得 unknown_run（AD-4）。

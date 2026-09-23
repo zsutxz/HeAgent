@@ -38,6 +38,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from heagent.network.exposure import exposure_warning, is_loopback_host
 from heagent.network.http_protocol import (
     GENERIC_ERROR_MESSAGE,
+    MAX_REQUEST_BYTES_FOR_MAX_PROMPT,
     SSE_HEARTBEAT_FRAME,
     SSE_HEARTBEAT_SECONDS,
     TERMINAL_RUN_STATUSES,
@@ -147,7 +148,7 @@ class HttpServerConfig(BaseModel):
     port: int = Field(default=8766, ge=0, le=65535)
     max_connections: int = Field(default=16, ge=1)
     max_inflight_runs: int = Field(default=1, ge=1)
-    max_request_bytes: int = Field(default=65_536, ge=1)
+    max_request_bytes: int = Field(default=MAX_REQUEST_BYTES_FOR_MAX_PROMPT, ge=1)
     event_buffer_size: int = Field(default=512, ge=1)
     run_history_size: int = Field(default=64, ge=1)
     request_timeout: float = Field(default=300.0, gt=0, allow_inf_nan=False)

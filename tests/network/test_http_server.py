@@ -26,7 +26,7 @@ import httpx
 from pydantic import ValidationError
 
 from heagent.network import http_server
-from heagent.network.http_protocol import HttpErrorCode, RunOutcome
+from heagent.network.http_protocol import MAX_REQUEST_BYTES_FOR_MAX_PROMPT, HttpErrorCode, RunOutcome
 from heagent.network.http_server import (
     HttpRunService,
     HttpServer,
@@ -189,7 +189,8 @@ class TestConfig:
         assert config.port == 8766
         assert config.max_connections == 16
         assert config.max_inflight_runs == 1
-        assert config.max_request_bytes == 65_536
+        assert config.max_request_bytes == MAX_REQUEST_BYTES_FOR_MAX_PROMPT
+        assert config.max_request_bytes == 394_240
         assert config.event_buffer_size == 512
         assert config.run_history_size == 64
         assert config.request_timeout == 300.0

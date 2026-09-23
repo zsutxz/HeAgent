@@ -9,12 +9,15 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from heagent.config import Settings
 from heagent.network.http_protocol import (
     GENERIC_ERROR_MESSAGE,
     HTTP_SCHEMA_VERSION,
     HTTP_SERVICE_NAME,
+    JSON_ENVELOPE_ALLOWANCE_BYTES,
     MAX_ERROR_MESSAGE_CHARS,
     MAX_PROMPT_CHARS,
+    MAX_REQUEST_BYTES_FOR_MAX_PROMPT,
     HealthResponse,
     HttpErrorCode,
     HttpErrorDetail,
@@ -22,7 +25,7 @@ from heagent.network.http_protocol import (
     error_envelope,
     sanitize_message,
 )
-from heagent.network.http_server import read_web_asset
+from heagent.network.http_server import HttpServerConfig, read_web_asset
 
 
 class TestErrorCodes:
@@ -128,6 +131,18 @@ class TestPromptBound:
 
     def test_bound_is_meaningful(self) -> None:
         assert 1024 <= MAX_PROMPT_CHARS <= 1_000_000
+
+    def test_transport_limit_and_prompt_bound_are_consistent(self) -> None:
+        """两层口径必须自洽：传输层装得下协议允许的最大 prompt（任何客户端编码）。
+
+        历史上两处各写一个数、谁也不校验谁：字符上限 32 768、字节上限 65 536 ⇒ 32768 个中文
+        字（UTF-8 98 304 字节）在远未触及字符上限时就撞 ``request_too_large``。本测试把
+        「config 默认 / HttpServerConfig 默认 / 派生常量」三处一起钉住，防止再次漂移。
+        """
+        assert MAX_REQUEST_BYTES_FOR_MAX_PROMPT >= 12 * MAX_PROMPT_CHARS + JSON_ENVELOPE_ALLOWANCE_BYTES
+        assert HttpServerConfig().max_request_bytes == MAX_REQUEST_BYTES_FOR_MAX_PROMPT
+        # 断言**字段默认值**而非 ``Settings()``：后者会被开发机 .env / 环境变量覆盖。
+        assert Settings.model_fields["http_max_request_bytes"].default == MAX_REQUEST_BYTES_FOR_MAX_PROMPT
 
 
 class TestSanitizeMessageMasksHostPaths:
