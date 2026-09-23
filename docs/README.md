@@ -30,7 +30,7 @@
 
 1. 先读本索引了解文档职责和权威顺序。
 2. 再读 [`design.md`](design.md) 了解项目定位、目标和非目标。
-3. 最后按需读 [`frame.md`](frame.md) 的数据流、模块 DAG、`engine/`、TCP 入口（4.16）、`/goal` 和已知缺口。
+3. 最后按需读 [`frame.md`](frame.md) 的数据流、模块 DAG、`engine/`、网络入口（TCP 4.16 / HTTP 4.17）、`/goal` 和已知缺口。
 
 ## 快速定位
 
@@ -41,6 +41,7 @@
 | Epic/Story 如何由 Markdown 驱动 | [「Goal 工作流」专题](goal-workflow.md) 与 [`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md) |
 | 事件流 / rollout 字段含义 | [`frame.md`](frame.md) 的「事件契约」小节（4.15） |
 | 把 agent 暴露成 TCP 服务 / 写外部客户端 | [README「TCP 入口（实验性）」](../README.md) 与 [`frame.md`](frame.md) 的 4.16（协议 / 限额 / 安全立场） |
+| 网页入口 / 写浏览器端 / HTTP API | [README「HTTP 网页入口（实验性）」](../README.md) 与 [`frame.md`](frame.md) 的 4.17（SSE 重连 / 同源防线 / 限额 / 观测） |
 | 如何新增 provider / tool / 技能包 | [扩展指南](extending.md) |
 | 报错/行为异常先查哪 | [故障排查](troubleshooting.md) |
 | GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |

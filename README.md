@@ -91,6 +91,7 @@ heagent init --project
 | `heagent gui` | 启动终端 UI，需要 `pip install -e ".[gui]"` |
 | `heagent replay FILE` | 回放 JSONL rollout 或事件文件 |
 | `heagent tcp-server` | 实验性 TCP 入口（UTF-8 JSON Lines）；默认只绑 `127.0.0.1:8765` |
+| `heagent http-server` | 实验性网页入口（内置聊天页 + 同源 JSON/SSE API）；默认只绑 `127.0.0.1:8766` |
 
 常用 `run` 选项：
 
@@ -133,6 +134,50 @@ heagent tcp-server --host 0.0.0.0                  # ⚠ 对外暴露：启动�
 - 服务端日志会记录工具调用摘要（`engine event=tool_call_* … target=…`，含文件路径与 `shell` 命令原文）——这是引擎既有行为，故**不要把凭证写进命令或路径**；客户端可控的 `id` 已限制为 128 字符且禁止控制字符（防日志伪造与放大）。
 
 三条输出通道互不串线：**TCP 响应**只走 socket（一次请求一条 JSON 行）、**启动 / 告警 / 用量**只走 stderr、**rollout JSONL** 仅在 CLI 单次模式下按 `EVENTS_ROLLOUT_ENABLED` 落盘到 `.heagent/runs/<run_id>/rollout.jsonl`（本入口目前不写 rollout）。
+
+## HTTP 网页入口（实验性）
+
+默认 CLI 会在**同一进程内**起一个本机网页入口，浏览器打开 stderr 提示的地址即可聊天：
+
+```bash
+heagent                        # 交互模式：终端 REPL 与网页入口同时可用
+heagent "用一句话解释 asyncio"  # 单次模式：网页入口随这次运行存活，run 结束即关闭
+heagent http-server            # 只起网页服务（不进 CLI 循环）
+```
+
+网页栈是可选依赖，缺失时命令会提示安装方式：`pip install "heagent[http]"`。默认只绑 `127.0.0.1:8766`：
+
+```bash
+heagent http-server --port 9100 --max-inflight-runs 1
+heagent http-server --host 0.0.0.0                       # ⚠ 对外暴露：启动会打「无认证 / 无 TLS」告警
+heagent http-server --model deepseek-v4-pro --sandbox firejail
+```
+
+网页里可以提交提示词、逐步看到回答与**工具调用/结果**、停止在途运行、刷新后恢复进程内历史。
+
+API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","message"}}`）：
+
+| 方法与路径 | 用途 |
+| --- | --- |
+| `GET /api/health` | 健康检查（服务名 / 版本 / schema 版本；不含路径与凭据） |
+| `POST /api/runs` | 提交一次运行（body 只有 `prompt`；已有在途运行时 409 `run_conflict`，不排队） |
+| `GET /api/runs/{id}/events` | SSE：`text` / `tool_call` / `tool_result` / `done` / `error` / `cancelled` / `timed_out` |
+| `DELETE /api/runs/{id}` | 取消指定运行（协作式；不触碰其它运行） |
+| `GET /api/session` | 当前进程内会话快照（历史 + 运行状态） |
+
+- 事件带从 1 开始的单调 `id`；断线重连带 `Last-Event-ID: N` 即可续读，越过缓存窗口会得到 `409 resync_required`（页面会自动拉会话快照重新同步，**不**伪造连续流）。
+- 断线**不会**取消运行；要停止必须显式 `DELETE`。空闲事件流每 15 秒一条心跳（SSE 注释帧）。
+
+**这不是生产级服务，也不是安全边界**：
+
+- 无认证、无 TLS；默认仅回环可见，绑非回环地址时启动会明确告警——告警只是提示，回环绑定也不构成信任。请在容器 / VM 等 OS 级隔离中运行，并限制出站网络与文件系统权限。
+- 请求必须打在**本 listener** 的 `Host` 上，且状态变更请求的 `Origin` 必须同源（`null` / 跨站 / 重复 Host / `forwarded-*` 头一律 403）。这是 defense-in-depth：**能连上回环端口的本机进程照样可以伪造请求头直接调 API**。
+- 页面不加载任何第三方脚本、带严格 CSP、提示词与 Agent 输出**按纯文本渲染**（不注入 HTML）。
+- 网络入口**不连接** `.mcp.json` 的 MCP server、**不安装** stdin 审批处理器（需要审批的工具按既有 fail-safe 语义阻断）。
+- 运行走的仍是既有治理链（`PolicyEngine` → `ToolExecutor` → `SafetyGuard` → handler）；请求体**不能**改 provider / model / system / 工具策略 / 沙箱 / 迭代预算。
+- 会话投影与事件缓冲是**进程内状态**（进程退出即丢）；限额（连接 / 在途运行 / 请求体 / 事件缓存 / 运行时长 / 关闭等待）由 `HTTP_*` 设置控制（见 `.env.example`）。
+
+`gui` / `tcp-server` / `http-server` / `init` / `replay` 都不会附带启动第二份 HTTP 服务；默认 CLI 起的就是这一份，随 CLI 退出而关闭。
 
 ## Goal 工作流
 

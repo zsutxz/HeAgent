@@ -33,7 +33,7 @@ def main() -> int:
     for label, command in COMMANDS:
         print(f"[quality-gate] {label}: {' '.join(command)}", flush=True)
         try:
-            result = subprocess.run(command, check=False, cwd=ROOT, timeout=GATE_TIMEOUT_SECONDS)  # noqa: S603
+            result = subprocess.run(command, check=False, cwd=ROOT, timeout=GATE_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired:
             print(f"[quality-gate] failed: {label} (timed out)", file=sys.stderr, flush=True)
             return 124
