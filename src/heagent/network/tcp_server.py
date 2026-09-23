@@ -88,7 +88,12 @@ class TcpServer:
         # 「满即 rate_limited」）；而纯计数在「关闭超时后残留任务迟到自己结束」时会被减成负数
         # ——集合的 ``discard`` 是幂等的，且 ``close()`` 结算后不会残留容量损失。
         self._inflight_tasks: set[asyncio.Task[Any]] = set()
+        # 与 ``_connection_tasks`` 同步登记的客户端 writer：``close()`` 结算时用它们强制关闭
+        # 挂死任务的连接（见 ``close()``）——任务的 ``finally`` 可能永远不会运行，但 transport
+        # 可以从外部关闭，不需要任务配合。
+        self._writers: set[StreamWriter] = set()
         self._closing = False
+        self._lifecycle_lock = asyncio.Lock()
 
     @property
     def sockets(self) -> tuple[object, ...]:
@@ -113,19 +118,20 @@ class TcpServer:
         绑定成功后记一条 ``event=started``；若地址非回环，再记一条 ``event=exposed``
         告警（文案与 CLI 的 stderr 告警同源，见 :mod:`heagent.network.exposure`）。
         """
-        if self._server is not None:
-            return
-        self._closing = False
-        self._server = await asyncio.start_server(
-            self._handle_client,
-            self.config.host,
-            self.config.port,
-            limit=self.config.max_request_bytes + self._FRAMING_MARGIN,
-        )
-        _safe_log(logging.INFO, "tcp event=started host=%s port=%s", self.config.host, self.config.port)
-        warning = exposure_warning(self.config.host)
-        if warning is not None:
-            _safe_log(logging.WARNING, "tcp event=exposed host=%s %s", self.config.host, warning)
+        async with self._lifecycle_lock:
+            if self._server is not None:
+                return
+            self._closing = False
+            self._server = await asyncio.start_server(
+                self._handle_client,
+                self.config.host,
+                self.config.port,
+                limit=self.config.max_request_bytes + self._FRAMING_MARGIN,
+            )
+            _safe_log(logging.INFO, "tcp event=started host=%s port=%s", self.config.host, self.config.port)
+            warning = exposure_warning(self.config.host)
+            if warning is not None:
+                _safe_log(logging.WARNING, "tcp event=exposed host=%s %s", self.config.host, warning)
 
     async def serve_forever(self) -> None:
         """Run until cancelled or closed."""
@@ -140,43 +146,69 @@ class TcpServer:
         覆盖该病态路径）：超时后 ``close()`` 仍会返回，并**结算**连接登记与在途名额——残留任务
         随后自行结束时，它们 ``finally`` 里的 ``discard`` 是幂等的 no-op。若不结算，同一实例
         重启后会永久少一份并发容量（真实故障模式，非纯理论）。
-        """
-        if self._closing:
-            return
-        self._closing = True
-        server = self._server
-        self._server = None
-        if server is not None:
-            server.close()
 
-        request_tasks = tuple(self._request_tasks)
-        connection_tasks = tuple(self._connection_tasks)
-        for task in request_tasks + connection_tasks:
-            task.cancel()
-        tasks = request_tasks + connection_tasks
-        if tasks:
-            done, pending = await asyncio.wait(tasks, timeout=self.config.shutdown_timeout)
-            if pending:
+        记账之外还要结算**连接本身**：吞掉取消的 handler 会让等待它的连接任务永久挂起
+        （取消经 ``await request_task`` 转发吸收，``finally`` 不会运行），故仍登记的 writer
+        由本方法直接关闭——客户端立即收到 EOF，连接不会随 ``close()`` 返回而泄漏。
+        """
+        async with self._lifecycle_lock:
+            if self._closing:
+                return
+            self._closing = True
+            server = self._server
+            self._server = None
+            if server is not None:
+                server.close()
+
+            request_tasks = tuple(self._request_tasks)
+            connection_tasks = tuple(self._connection_tasks)
+            for task in request_tasks + connection_tasks:
+                task.cancel()
+            tasks = request_tasks + connection_tasks
+            if tasks:
+                done, pending = await asyncio.wait(tasks, timeout=self.config.shutdown_timeout)
+                if pending:
+                    _safe_log(
+                        logging.WARNING,
+                        "tcp event=shutdown_timeout pending_tasks=%d note=accounting_reset",
+                        len(pending),
+                    )
+                for task in done:
+                    if not task.cancelled():
+                        task.exception()
+            # handler 吞掉取消时，「等待它的连接任务」会永久挂起（``await request_task`` 把取消
+            # 转发给 request task，取消被吞后连接任务既收不到 CancelledError 也等不到结果），
+            # 其 ``finally`` 里的 ``_close_writer`` 永远不会运行 —— 主动关闭仍登记的 writer，
+            # 让客户端立即收到 EOF。``writer.close()`` 幂等且不等待：残留任务随后自己结束时
+            # ``finally`` 里的关闭是 no-op；不 ``await wait_closed()`` 以保持 ``close()`` 有界。
+            leaked_writers = tuple(self._writers)
+            for writer in leaked_writers:
+                writer.close()
+            self._writers.clear()
+            if leaked_writers:
                 _safe_log(
                     logging.WARNING,
-                    "tcp event=shutdown_timeout pending_tasks=%d note=accounting_reset",
-                    len(pending),
+                    "tcp event=leaked_connections_closed count=%d",
+                    len(leaked_writers),
                 )
-            for task in done:
-                if not task.cancelled():
-                    task.exception()
-        self._connection_tasks.clear()
-        self._request_tasks.clear()
-        self._inflight_tasks.clear()
-        if server is not None:
-            try:
-                await asyncio.wait_for(server.wait_closed(), timeout=self.config.shutdown_timeout)
-            except TimeoutError:
-                _safe_log(logging.WARNING, "tcp event=shutdown_timeout phase=listener")
+            self._connection_tasks.clear()
+            self._request_tasks.clear()
+            self._inflight_tasks.clear()
+            if server is not None:
+                try:
+                    await asyncio.wait_for(server.wait_closed(), timeout=self.config.shutdown_timeout)
+                except TimeoutError:
+                    _safe_log(logging.WARNING, "tcp event=shutdown_timeout phase=listener")
 
     async def _handle_client(self, reader: StreamReader, writer: StreamWriter) -> None:
         task = asyncio.current_task()
         if task is None:
+            await self._close_writer(writer)
+            return
+        # ``Server.close()`` stops accepting sockets, but callbacks already queued by
+        # the event loop may still start afterwards. Do not let them register new
+        # state after ``close()`` has taken its task snapshot.
+        if self._closing:
             await self._close_writer(writer)
             return
         if len(self._connection_tasks) >= self.config.max_connections:
@@ -192,6 +224,7 @@ class TcpServer:
             return
 
         self._connection_tasks.add(task)
+        self._writers.add(writer)
         try:
             await self._process_client(reader, writer)
         except asyncio.CancelledError:
@@ -203,6 +236,7 @@ class TcpServer:
             _safe_log(logging.ERROR, "tcp event=client_error", exc_info=True)
         finally:
             self._connection_tasks.discard(task)
+            self._writers.discard(writer)
             await self._close_writer(writer)
 
     async def _reject(

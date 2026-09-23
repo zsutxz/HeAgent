@@ -773,7 +773,7 @@ HeAgentError (base)
 | `tcp_max_request_bytes` | 1048576 | 单条请求行最大字节数（`StreamReader` limit 与协议校验共用同一上限） |
 | `tcp_idle_timeout` | 60 | 等待完整请求行的秒数（只覆盖读取阶段，不含 Agent 预算） |
 | `tcp_request_timeout` | 300 | 单次 Agent 运行的秒数（只覆盖 handler，不含写回与关连接） |
-| `tcp_shutdown_timeout` | 5 | `close()` 等待在途任务收尾的秒数；超时后结算登记并记 warning（`asyncio` 无法强杀忽略取消的任务） |
+| `tcp_shutdown_timeout` | 5 | `close()` 等待在途任务收尾的秒数；超时后结算登记、强制关闭残留 writer 并记 warning（`asyncio` 无法强杀忽略取消的任务） |
 | `http_host` | `127.0.0.1` | HTTP 网页入口绑定地址；非回环值启动时日志记一条 `event=exposed` 且 stderr 打印一行告警（判定单点复用 `network/exposure.py`） |
 | `http_port` | 8766 | HTTP 网页入口端口（1..65535；与 TCP 默认 8765 错开，两个入口可同时开） |
 | `http_max_connections` | 16 | 同时打开的 HTTP 客户端连接上限（交给 Uvicorn `limit_concurrency`，超限连接被直接拒绝而非排队） |
@@ -985,7 +985,7 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 | 关注点 | 实现事实 |
 | --- | --- |
 | 协议 | `network/protocol.py`：请求只读 `id` / `prompt`（`extra="forbid"`）；响应 `ok` / `result` / `error` / `model` / `usage`；`TcpErrorCode` 为封闭 8 码（`invalid_json` / `invalid_request` / `empty_prompt` / `request_too_large` / `rate_limited` / `timeout` / `agent_error` / `server_error`），客户端**拿不到** traceback、异常类名或绝对路径 |
-| 限额与生命周期 | 连接上限 + **非等待式**在途名额（满即 `rate_limited`，不排队；用任务集合而非计数/Semaphore）+ 空闲/单请求/关闭三类超时；`close()` 有界返回并**结算**残留登记（`asyncio` 无法强杀忽略取消的任务） |
+| 限额与生命周期 | 连接上限 + **非等待式**在途名额（满即 `rate_limited`，不排队；用任务集合而非计数/Semaphore）+ 空闲/单请求/关闭三类超时；`close()` 有界返回并**结算**残留登记（`asyncio` 无法强杀忽略取消的任务），且主动关闭仍登记的 writer——吞掉取消的 handler 会让等待它的连接任务永久挂起（取消经 `await request_task` 转发吸收，`finally` 不运行），不强制关 writer 客户端连接会随 `close()` 返回而泄漏 |
 | 每请求一个 loop | `AgentLoop` 持有跨 run 可变展示态（`last_usage` / `last_model` / `active_tool` / 暂停 Event…），共享单实例并发会互相覆盖 ⇒ 每请求 `new_loop()`，共享 provider / engine / 4 个记忆存储（48-3 决策，含并发回归测试） |
 | 审批 | **不装**交互式审批处理器（`ConsoleApprovalHandler` 读服务进程 stdin，无人应答会把请求挂死）⇒ 需要审批的调用维持既有 fail-safe 阻断，而不是把服务变成交互终端 |
 | MCP | **不连接** `.mcp.json` 声明的 server（48-5 决策）：入口无认证、客户端不可信，自动拉起第三方 stdio 子进程 / 连远端端点等于把触达面暴露给任何能连上端口的人；需要 MCP 时在可控交互式会话里显式启用（回归测试钉死） |

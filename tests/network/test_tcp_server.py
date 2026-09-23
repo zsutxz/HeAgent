@@ -210,6 +210,130 @@ async def test_close_returns_after_timeout_when_handler_suppresses_cancellation(
 
 
 @pytest.mark.asyncio
+async def test_close_after_timeout_closes_leaked_client_writers() -> None:
+    """handler 吞掉取消时，``close()`` 超时返回后客户端连接必须收到 EOF（writer 不得泄漏）。
+
+    取消经 ``await request_task`` 被**转发**给 request task；handler 吞掉 ``CancelledError``
+    后 request task 永不完成，连接任务因此永远挂起——其 ``finally`` 里负责关闭 writer 的
+    ``_close_writer`` 永远不会运行。48-4 只结算了**记账**（登记与在途名额），连接本身仍会
+    泄漏；故 ``close()`` 必须主动关闭仍登记的 writer。
+    """
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def handler(request: TcpRequest) -> TcpResponse:
+        started.set()
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            await release.wait()  # 病态：吞掉取消，直到测试放行
+        return success_response(request.id, "late")
+
+    server, port = await _start(handler, shutdown_timeout=0.01)
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        writer.write(b'{"id":"zombie","prompt":"slow"}\n')
+        await writer.drain()
+        await started.wait()
+
+        await server.close()
+
+        # close() 已返回（有界），而 handler 仍挂在 release 上——若服务端不主动关 writer，
+        # 客户端将永远读不到 EOF（1s 内收不到即视为泄漏，而不是让测试挂死）。
+        async with asyncio.timeout(1):
+            assert await reader.read() == b""
+        assert server.active_connections == 0
+        assert server._writers == set()
+    finally:
+        # 放行残留任务：它的 finally 再次关闭同一个 writer 必须是幂等 no-op（不炸、
+        # 登记不变坏）。
+        release.set()
+        writer.close()
+        await writer.wait_closed()
+        for _ in range(3):
+            await asyncio.sleep(0)
+        assert server.active_connections == 0
+        assert server._writers == set()
+        await server.close()
+
+
+@pytest.mark.asyncio
+async def test_client_callback_started_during_shutdown_is_closed() -> None:
+    class _Writer:
+        closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+        async def wait_closed(self) -> None:
+            return None
+
+    server = TcpServer(TcpServerConfig(port=0), _ok_handler)
+    server._closing = True
+    writer = _Writer()
+
+    await server._handle_client(None, writer)  # type: ignore[arg-type]
+
+    assert writer.closed
+    assert server.active_connections == 0
+    assert server._writers == set()
+
+
+@pytest.mark.asyncio
+async def test_start_waits_for_close_cleanup_before_reusing_server_state() -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def handler(request: TcpRequest) -> TcpResponse:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                await release.wait()
+        return success_response(request.id, "ok")
+
+    server, old_port = await _start(handler, shutdown_timeout=0.02)
+    old_reader, old_writer = await asyncio.open_connection("127.0.0.1", old_port)
+    old_writer.write(b'{"id":"old","prompt":"slow"}\n')
+    await old_writer.drain()
+    await started.wait()
+
+    close_task = asyncio.create_task(server.close())
+    start_task: asyncio.Task[None] | None = None
+    try:
+        # Wait until close has begun and holds its lifecycle lock while waiting for cancellation.
+        for _ in range(100):
+            if server._closing:
+                break
+            await asyncio.sleep(0)
+        assert server._closing
+
+        start_task = asyncio.create_task(server.start())
+        await asyncio.sleep(0)
+        assert not start_task.done()
+
+        await close_task
+        await start_task
+        new_port = server.sockets[0].getsockname()[1]
+        assert b'"ok":true' in await _request(new_port, b'{"id":"new","prompt":"fast"}\n')
+        async with asyncio.timeout(1):
+            assert await old_reader.read() == b""
+    finally:
+        release.set()
+        old_writer.close()
+        await old_writer.wait_closed()
+        if not close_task.done():
+            await close_task
+        if start_task is not None and not start_task.done():
+            await start_task
+        await server.close()
+
+
+@pytest.mark.asyncio
 async def test_close_cancels_long_running_handler() -> None:
     cancelled = asyncio.Event()
     started = asyncio.Event()
