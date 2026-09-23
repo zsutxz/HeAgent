@@ -370,6 +370,47 @@ def _stubborn_executor(delay: float):
     return run
 
 
+def _app_client(app: Any) -> httpx.AsyncClient:
+    """直接打 ASGI 应用的客户端；``raise_app_exceptions=False`` 让我们断言应用给出的 500 响应。"""
+    transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+    return httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8766")
+
+
+class TestFallbackErrorEnvelope:
+    """**唯一**挡住 traceback 外泄的通道：未预期异常与资源读失败也必须走统一信封（AD-8）。"""
+
+    async def test_unexpected_route_exception_returns_a_sanitized_500(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """未预期异常 ⇒ 固定文案 + 稳定错误码；异常细节只进服务端日志。"""
+
+        def _boom(_name: str) -> bytes:
+            raise RuntimeError("disk exploded at C:\\secret\\page.html")
+
+        monkeypatch.setattr(http_server, "read_web_asset", _boom)
+        async with _app_client(build_http_app(_config(), version=_VERSION)) as client:
+            response = await client.get("/")
+
+        assert response.status_code == 500
+        assert response.json() == {"error": {"code": "server_error", "message": "internal server error"}}
+        assert "disk exploded" not in response.text
+        assert "secret" not in response.text
+        # 失败响应同样带安全头（安全头中间件在最外层）。
+        assert response.headers["x-content-type-options"] == "nosniff"
+
+    async def test_unavailable_asset_returns_a_stable_500(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """包内资源缺失（例如 wheel 漏打）⇒ 稳定 500，不吐 traceback、不暴露路径。"""
+
+        def _missing(_name: str) -> bytes:
+            raise OSError("missing packaged asset")
+
+        monkeypatch.setattr(http_server, "read_web_asset", _missing)
+        async with _app_client(build_http_app(_config(), version=_VERSION)) as client:
+            response = await client.get("/app.js")
+
+        assert response.status_code == 500
+        assert response.json()["error"]["code"] == "server_error"
+        assert "Traceback" not in response.text
+
+
 class TestBindingAndConcurrencyBudget:
     """绑定地址与连接额度的边界（评审修复回归）。"""
 

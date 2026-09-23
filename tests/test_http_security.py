@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 from collections.abc import AsyncIterator
 from typing import Any
@@ -326,13 +327,41 @@ class TestGovernanceChain:
 
         assert handler.engine.approval_handler is None
 
-    async def test_handler_does_not_connect_mcp_servers(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr(
-            "heagent.cli._mcp_lifecycle",
-            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("HTTP 入口不得构造 MCP 生命周期")),
+    async def test_handler_does_not_connect_mcp_servers(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+        """HTTP 入口不得构造 MCP 生命周期。
+
+        旧的写法打桩 ``cli._mcp_lifecycle``——HTTP 路径根本不会调用它，所以那条断言**恒真**、
+        什么都证明不了。这里改为打桩真正被构造的类 ``MCPClientManager.__init__``，并先用 CLI 侧
+        的生命周期做**正面控制**（证明该缝隙是活的），再断言一次 HTTP 运行从未碰到它。
+        """
+        from heagent import cli
+        from heagent.tools.mcp import MCPClientManager
+
+        constructed: list[str] = []
+        original_init = MCPClientManager.__init__
+
+        def _spy(manager: Any, *args: Any, **kwargs: Any) -> None:
+            constructed.append("mcp")
+            original_init(manager, *args, **kwargs)
+
+        monkeypatch.setattr(MCPClientManager, "__init__", _spy)
+
+        # 正面控制：同样的 patch 下，配置非空时 CLI 的 MCP 生命周期确实会构造 manager。
+        config_path = tmp_path / ".mcp.json"
+        config_path.write_text(
+            json.dumps({"mcpServers": {"local": {"command": "python", "args": ["-m", "srv"]}}}),
+            encoding="utf-8",
         )
+        monkeypatch.setenv("MCP_ENABLED", "true")
+        monkeypatch.setenv("MCP_CONFIG_PATH", str(config_path))
+        reset_settings()
+        cli._mcp_lifecycle(get_settings())
+        assert constructed == ["mcp"], "正面控制失败：该缝隙没有被 CLI 路径触达"
+
+        constructed.clear()
         async with _client_with_service() as (client, _service):
             created = await client.post("/api/runs", json={"prompt": "hi"})
             await client.get(f"/api/runs/{created.json()['run_id']}/events")
 
         assert created.status_code == 201
+        assert constructed == [], "HTTP 入口不得构造 MCP 生命周期"

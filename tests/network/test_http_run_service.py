@@ -80,6 +80,26 @@ def _blocking_executor(gate: asyncio.Event):
     return run
 
 
+def _stubborn_executor(delay: float):
+    """吞掉一次取消的假 executor：模拟忽略取消的长工具 / 子代理（asyncio 无法强杀）。"""
+
+    async def run(prompt: str, publisher: Any) -> RunOutcome:
+        try:
+            await asyncio.sleep(delay)
+        except asyncio.CancelledError:
+            await asyncio.sleep(delay)
+        return RunOutcome(answer="finished anyway")
+
+    return run
+
+
+async def _drain(service: HttpRunService, *, budget: float = 5.0) -> None:
+    """等残留任务自己结束（避免测试结束时留悬挂任务 / 未归还名额）。"""
+    deadline = asyncio.get_running_loop().time() + budget
+    while service.active_runs and asyncio.get_running_loop().time() < deadline:
+        await asyncio.sleep(0.02)
+
+
 def _client(service: HttpRunService | None, *, config: HttpServerConfig | None = None) -> httpx.AsyncClient:
     resolved = config or _config()
     app = build_http_app(resolved, version=_VERSION, run_service=service)
@@ -690,6 +710,41 @@ class TestSubscriberBackpressure:
         record = _RunRecord("run-1", "prompt", buffer_size=8)
 
         assert record.subscriber_queue_size == 8
+
+
+class TestCancellationHonesty:
+    """executor 吞掉取消时，``DELETE`` / 关停都只能**有界放弃**并如实反映状态（AD-10 的诚实边界）。"""
+
+    async def test_cancel_is_bounded_and_reports_the_real_status(self, caplog: pytest.LogCaptureFixture) -> None:
+        """忽略取消的运行：``cancel_run`` 不在 ``shutdown_timeout`` 之外等待，也不谎报已取消。"""
+        config = _config(shutdown_timeout=0.05)
+        service = HttpRunService(config, _stubborn_executor(0.5))
+        record = await service.start_run("hi")
+        await asyncio.sleep(0.05)  # 让运行任务真正开始跑（否则取消发生在协程体执行之前）
+        with caplog.at_level(logging.WARNING, logger="heagent.network.http_server"):
+            returned = await asyncio.wait_for(service.cancel_run(record.run_id), timeout=5)
+
+        assert returned is not None
+        assert "event=cancel_timeout" in caplog.text
+        # 如实返回 running（取消未被响应），名额仍由该运行持有——不假装它已经结束。
+        assert returned.status is RunStatus.RUNNING
+        assert service.active_runs == 1
+
+        await _drain(service)
+
+    async def test_shutdown_is_bounded_when_a_run_ignores_cancellation(self, caplog: pytest.LogCaptureFixture) -> None:
+        """关停同样不得无界等待：超时后返回并记日志，运行最终自行结束后名额归还。"""
+        config = _config(shutdown_timeout=0.05)
+        service = HttpRunService(config, _stubborn_executor(0.5))
+        record = await service.start_run("hi")
+        await asyncio.sleep(0.05)  # 同上：先让运行进入「在途」状态
+        with caplog.at_level(logging.WARNING, logger="heagent.network.http_server"):
+            await asyncio.wait_for(service.close(), timeout=5)
+
+        assert "event=run_shutdown_timeout" in caplog.text
+        assert not record.is_terminal, "忽略取消的运行在关停超时后仍在跑（asyncio 无法强杀）"
+
+        await _drain(service)
 
 
 class TestRunHistoryRetention:
