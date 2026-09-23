@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 
 import pytest
 
+from heagent.agent.system_prompt import _memory_block, build_system_prompt
+from heagent.config import Settings
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.memory.skills import SkillRewriteError, SkillStore
@@ -443,3 +446,86 @@ def test_skill_store_default_relative_base_dir_roundtrip(tmp_path, monkeypatch) 
     assert store.load("rel_root_skill") is not None
     assert "pattern body" in (store.load("rel_root_skill") or "")
     assert os.path.isdir(tmp_path / ".heagent" / "skills" / "rel_root_skill")
+
+
+def _facts_file(tmp_path: Path, count: int, *, size: int = 100) -> FactStore:
+    """写一个含 ``count`` 条等长事实的 MEMORY.md（每条约 ``size + 20`` 字节）。"""
+    path = tmp_path / "MEMORY.md"
+    path.write_text(
+        "".join(f"- fact-{index:03d}-{'x' * size}\n" for index in range(count)),
+        encoding="utf-8",
+        newline="",
+    )
+    return FactStore(path=str(path))
+
+
+class TestMemoryInjectionBudget:
+    """``<memory>`` 注入受 ``memory_inject_max_bytes`` 约束：保留前部 + 显式标注，绝不静默。"""
+
+    def test_zero_budget_injects_every_fact(self, tmp_path: Path) -> None:
+        store = _facts_file(tmp_path, 5)
+        block = _memory_block(store, Settings(memory_inject_max_bytes=0))
+
+        assert block is not None
+        for index in range(5):
+            assert f"fact-{index:03d}" in block
+        assert "未注入" not in block
+
+    def test_facts_within_budget_are_all_injected_without_marker(self, tmp_path: Path) -> None:
+        store = _facts_file(tmp_path, 3)
+        block = _memory_block(store, Settings(memory_inject_max_bytes=100_000))
+
+        assert block is not None
+        assert len([line for line in block.splitlines() if line.startswith("- ")]) == 3
+        assert "未注入" not in block
+
+    def test_over_budget_keeps_the_head_and_marks_omissions(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        store = _facts_file(tmp_path, 20)
+        with caplog.at_level(logging.WARNING, logger="heagent.agent.system_prompt"):
+            block = _memory_block(store, Settings(memory_inject_max_bytes=500))
+
+        assert block is not None
+        lines = [line for line in block.splitlines() if line.startswith("- ")]
+        assert any("fact-000" in line for line in lines)
+        assert not any("fact-019" in line for line in lines), "尾部（最新）条目超预算时被省略"
+        marker = lines[-1]
+        assert "未注入" in marker
+        assert "MEMORY.md 共 20 条" in marker
+        assert "MEMORY_INJECT_MAX_BYTES=500" in marker
+        assert "Memory injection exceeds" in caplog.text
+        # 预算只计注入的条目（标注不计入），且文件本体一字未动。
+        injected = sum(len(line.encode()) + 1 for line in lines[:-1])
+        assert 0 < injected <= 500
+        assert len(store.load()) == 20
+
+    def test_budget_smaller_than_one_fact_omits_all_but_reports(self, tmp_path: Path) -> None:
+        store = _facts_file(tmp_path, 3)
+        block = _memory_block(store, Settings(memory_inject_max_bytes=10))
+
+        assert block is not None
+        assert "未注入" in block and "共 3 条" in block
+        assert len(store.load()) == 3
+
+    def test_build_system_prompt_uses_the_passed_snapshot_budget(self, tmp_path: Path) -> None:
+        """运行路径必须用传入的配置快照（Phase 1），不回读全局 Settings。"""
+        store = _facts_file(tmp_path, 10)
+
+        def build(budget: int) -> str | None:
+            return build_system_prompt(
+                None,
+                "prompt",
+                soul=None,
+                context_dir=None,
+                skills=None,
+                facts=store,
+                profile=None,
+                settings=Settings(memory_inject_max_bytes=budget),
+            )
+
+        tight = build(300)
+        wide = build(0)
+
+        assert tight is not None and "未注入" in tight
+        assert wide is not None and "未注入" not in wide

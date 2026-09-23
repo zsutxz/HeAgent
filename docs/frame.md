@@ -596,7 +596,9 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 #### facts.py — 事实存储
 
-`.heagent/memory/MEMORY.md`，70% 关键词重叠去重。通过 `fact_add` 工具由 LLM 自主保存。
+`.heagent/memory/MEMORY.md`，70% 关键词重叠去重。通过 `fact_add` 工具由 LLM 自主保存（**append-only**）。
+
+注入侧有字节预算 `memory_inject_max_bytes`（默认 49152，0=不限制）：`_memory_block` 按文件顺序累计`- <fact>` 的字节数，超预算保留**前部**条目并在块尾追加省略标注（含省略条数/总条数/预算值）同时打 warning——绝不静默；文件本体不被修改，超预算条目仍在盘上，整理该文件即释放预算。（2026-09-23 实测：无预算时 336 KB / 170 条 = 每轮 89 183 token 的 SYSTEM 前缀，整理后 33 KB / 81 条 = 8 591 token。）
 
 #### memory/skills* — 技能存储
 
@@ -727,6 +729,7 @@ HeAgentError (base)
 | `context_files_user_level` | False | 是否纳入用户级 `~/.heagent/AGENTS.md`（默认关闭，避免全局文件静默影响每个项目） |
 | `events_rollout_enabled` | False | 是否把每次 run 的事件落盘为 `.heagent/runs/<run_id>/rollout.jsonl`（默认关闭；内容含工具原始输出） |
 | `memory_nudge_enabled` | True | 是否注入记忆保存提醒 |
+| `memory_inject_max_bytes` | 49152 | 注入 `<memory>` 的字节预算（0=不限制）；超预算**按文件顺序保留前部条目**并在块尾显式标注省略条数 + warning，文件本体不改动（`MEMORY.md` 是 append-only 且整份注入，无预算会无界增长） |
 | `skill_curator_stale_days` | 30 | `skill_curate` 未显式传 `days` 时的过期天数默认值 |
 | `cron_enabled` | True | 是否启用 cron 调度 |
 | `cron_tick_seconds` | 60 | 调度器检查间隔（秒） |

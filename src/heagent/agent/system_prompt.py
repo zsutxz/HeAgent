@@ -49,7 +49,9 @@ def build_system_prompt(
                            避免 shell 写入位置与 file 工具的相对路径假设分叉（E40-D2）；
       5. ``<skills>``      按 prompt 相似度自动匹配的技能（命中则注入内容；未命中但
                            存在技能时给一条引导提示）；
-      6. ``<memory>``      facts 长期记忆；若开启 memory_nudge 再追加 ``<memory-nudge>`` 提醒；
+      6. ``<memory>``      facts 长期记忆（受 ``memory_inject_max_bytes`` 预算：超预算保留文件
+                           前部条目并在块尾显式标注省略条数）；若开启 memory_nudge 再追加
+                           ``<memory-nudge>`` 提醒；
       7. ``<profile>``     用户画像。
 
     无任何内容时返回 None（不插入空 SYSTEM 消息）。``prompt`` 仅用于技能相似度匹配。
@@ -66,7 +68,7 @@ def build_system_prompt(
         _project_context_block(context_dir, settings),
         _shell_workspace_block(sandbox_workspace),
         _skills_block(skills, prompt, settings),
-        _memory_block(facts),
+        _memory_block(facts, settings),
         _memory_nudge_block(facts, settings),
         _profile_block(profile),
     ]
@@ -184,16 +186,58 @@ def _skills_block(skills: SkillStore | None, prompt: str, settings: Settings | N
     )
 
 
-def _memory_block(facts: FactStore | None) -> str | None:
-    """``<memory>``：facts 长期记忆条目。"""
+def _memory_block(facts: FactStore | None, settings: Settings | None = None) -> str | None:
+    """``<memory>``：facts 长期记忆条目（受 ``memory_inject_max_bytes`` 字节预算约束）。
+
+    MEMORY.md 是 append-only、**整份**注入、且 `fact_add` 只增不减——没有预算时它会无界增长
+    （2026-09-23 实测 336 KB / 170 条 = 每轮 89K token 的 SYSTEM 前缀）。超预算时：
+
+    - **按文件顺序保留前部条目**（整理后的长期约定在文件头部、会话学习记录追加在尾部）；
+    - 在块尾追加一条**省略标注**（说明省略条数、总条数与预算值），并打一条 warning——绝不静默；
+    - **不改动文件本体**：超预算条目仍在盘上，`fact_add` 仍可追加，整理 MEMORY.md 即释放预算。
+
+    预算只计被注入的条目（`- {fact}` 序列化后的字节，含换行），省略标注本身不计入。
+    """
     if not facts:
         return None
     facts_list = facts.load()
     if not facts_list:
         return None
-    items = "\n".join(f"- {fact}" for fact in facts_list)
-    logger.debug("Injected %d fact(s) into system prompt", len(facts_list))
+    budget = (settings or get_settings()).memory_inject_max_bytes
+    kept, omitted = _fit_facts(facts_list, budget)
+    items = "\n".join(f"- {fact}" for fact in kept)
+    if omitted:
+        logger.warning(
+            "Memory injection exceeds MEMORY_INJECT_MAX_BYTES: %d of %d fact(s) omitted (budget=%d bytes)",
+            omitted,
+            len(facts_list),
+            budget,
+        )
+        items += (
+            f"\n- （另有 {omitted} 条较早记忆未注入：MEMORY.md 共 {len(facts_list)} 条，本次注入前 "
+            f"{len(kept)} 条；MEMORY_INJECT_MAX_BYTES={budget}，需要时请整理该文件以释放预算）"
+        )
+    logger.debug("Injected %d fact(s) into system prompt (%d omitted)", len(kept), omitted)
     return f"<memory>\nThe following facts are remembered from previous conversations:\n\n{items}\n</memory>"
+
+
+def _fit_facts(facts: list[str], budget: int) -> tuple[list[str], int]:
+    """按字节预算取文件顺序的前 N 条；``budget <= 0`` 表示不限制。返回 ``(保留, 省略数)``。
+
+    单条事实**要么整条注入、要么整条省略**（不截断）：一条被切掉后半句的约定比没有它更危险。
+    因此预算小于首条事实时保留为空——由调用方的省略标注如实说明。
+    """
+    if budget <= 0:
+        return list(facts), 0
+    kept: list[str] = []
+    used = 0
+    for fact in facts:
+        size = len(f"- {fact}\n".encode())
+        if used + size > budget:
+            break
+        kept.append(fact)
+        used += size
+    return kept, len(facts) - len(kept)
 
 
 def _memory_nudge_block(facts: FactStore | None, settings: Settings | None = None) -> str | None:

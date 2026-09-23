@@ -199,6 +199,12 @@ class Settings(BaseSettings):
 
     # ---- 记忆提醒参数 ----
     memory_nudge_enabled: bool = Field(default=True)
+    # 注入 system prompt 的 <memory> 字节预算（0 = 不限制）。MEMORY.md 是 append-only 且**整份**注入，
+    # 无预算时它会无界增长（2026-09-23 实测：336 KB / 170 条 = 每轮 89K token 的 SYSTEM 前缀）。
+    # 超预算时按**文件顺序**保留前部条目（整理后的长期约定在文件头部、会话学习记录追加在尾部），
+    # 并在块尾显式标注省略条数 + 打一条 warning——绝不静默丢内容；文件本体不被修改，
+    # 超预算的条目仍在盘上，整理 MEMORY.md 即可释放。默认 49152（整理后约 33 KB 的 1.5 倍余量）。
+    memory_inject_max_bytes: int = Field(default=49_152, ge=0)
 
     # ---- 技能策展参数 ----
     skill_curator_stale_days: int = Field(default=30, ge=1)
