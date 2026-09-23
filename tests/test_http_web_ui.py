@@ -49,6 +49,16 @@ class TestPageStructure:
         assert re.search(r'id="prompt-input"[\s\S]*?rows="\d+"', _HTML), "输入框应当是多行输入"
         assert "maxlength=" in _HTML, "输入框必须有长度上限（与服务端协议上限一致）"
 
+    def test_keyboard_contract_is_documented_and_ime_safe(self) -> None:
+        """Enter 发送 / Shift+Enter 换行必须写进 placeholder，且实现里有输入法组合态防护。
+
+        没有 ``isComposing`` 防护时，中文/日文选词时敲回车会把**半个词**当提示词发出去。
+        """
+        assert "Enter 发送" in _HTML
+        assert "Shift+Enter 换行" in _HTML
+        assert "isComposing" in _JS
+        assert "event.shiftKey" in _JS
+
     def test_page_is_self_contained(self) -> None:
         """只引用同源绝对路径的样式与脚本，且不写死端口/域名。"""
         refs = re.findall(r'(?:src|href)\s*=\s*"([^"]+)"', _HTML)
@@ -179,3 +189,16 @@ class TestWebUiBehaviour:
         assert result["posted"] is False
         assert result["newEntries"] >= 1
         assert "已有运行进行中" in result["lastLine"]
+
+    def test_enter_sends_shift_enter_newlines_and_ime_does_not_send(self, tmp_path: Path) -> None:
+        """真实键盘语义：Enter 发送、Shift+Enter 保留换行、组合输入中的回车不发送。"""
+        result = _run_probe("E", tmp_path)
+
+        assert result["enterPosted"] is True, "Enter 应当发送"
+        assert result["enterPrevented"] is True, "Enter 必须被接管（否则会同时插入一个换行）"
+        assert result["enterCleared"] is True, "发送后输入框应当清空"
+        assert result["shiftPosted"] is False, "Shift+Enter 不得发送"
+        assert result["shiftPrevented"] is False, "Shift+Enter 必须保留浏览器默认的换行行为"
+        assert result["shiftValue"] == "想在这里换行", "Shift+Enter 后输入内容不得被清空"
+        assert result["composingPosted"] is False, "输入法组合中的回车不得发送"
+        assert result["composingPrevented"] is False

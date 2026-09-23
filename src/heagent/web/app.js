@@ -328,10 +328,15 @@
   });
 
   el.input.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      el.form.requestSubmit();
-    }
+    if (event.key !== "Enter") return;
+    // 输入法组合中（中文/日文选词时敲回车）绝不当作发送：交给 IME 完成候选词。
+    // keyCode === 229 是组合态的老式信号（部分浏览器/输入法仍只给这个）。
+    if (event.isComposing || event.keyCode === 229) return;
+    // Shift+Enter 不拦截 ⇒ 走浏览器在 textarea 内的默认行为（插入换行）。
+    if (event.shiftKey) return;
+    // 其余 Enter 一律等同点击「发送」（Ctrl/Cmd+Enter 因此仍是等价快捷键，行为不变）。
+    event.preventDefault();
+    el.form.requestSubmit();
   });
 
   setServiceState("connecting");

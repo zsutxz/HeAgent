@@ -4,7 +4,7 @@
  * 加载真实脚本，再驱动真实分支（提交 → SSE 事件 → 重连 → 刷新载入）并打印可观察结果。这样前端
  * 契约就不再只能靠「字符串是否出现在源码里」来证明。
  *
- * 用法：node app_probe.js <app.js 路径> <A|B|C|D>
+ * 用法：node app_probe.js <app.js 路径> <A|B|C|D|E>
  * 输出：一行 ``PROBE_RESULT {json}``（由 tests/test_http_web_ui.py 解析并断言）。
  */
 "use strict";
@@ -147,6 +147,27 @@ async function submit(text) {
   await tick();
 }
 
+/** 在输入框上敲一次 Enter，返回「是否被 preventDefault」（= 是否吞掉了浏览器默认行为）。 */
+async function pressEnter(overrides = {}) {
+  const handler = els["prompt-input"]._handlers.keydown;
+  if (!handler) throw new Error("app.js 未注册 prompt-input 的 keydown 监听");
+  let prevented = false;
+  handler({
+    key: "Enter",
+    preventDefault() {
+      prevented = true;
+    },
+    ...overrides,
+  });
+  await tick();
+  await tick();
+  return prevented;
+}
+
+function postedRuns() {
+  return net.calls.some((call) => call.startsWith("POST /api/runs"));
+}
+
 (async () => {
   let result = {};
   if (CASE === "A") {
@@ -193,6 +214,37 @@ async function submit(text) {
       newEntries: els["chat-log"].children.length - before,
       posted: net.calls.some((call) => call.startsWith("POST /api/runs")),
       lastLine: lines()[lines().length - 1],
+    };
+  } else if (CASE === "E") {
+    // 键盘语义：Enter 发送 / Shift+Enter 换行（不吞默认行为）/ 组合输入（IME）不发送。
+    await load();
+    els["prompt-input"].value = "靠回车发送";
+    const enterPrevented = await pressEnter();
+    const enterPosted = postedRuns();
+    const enterCleared = els["prompt-input"].value === "";
+
+    net.calls.length = 0;
+    await load();
+    els["prompt-input"].value = "想在这里换行";
+    const shiftPrevented = await pressEnter({ shiftKey: true });
+    const shiftPosted = postedRuns();
+    const shiftValue = els["prompt-input"].value;
+
+    net.calls.length = 0;
+    await load();
+    els["prompt-input"].value = "选词中的回车";
+    const composingPrevented = await pressEnter({ isComposing: true });
+    const composingPosted = postedRuns();
+
+    result = {
+      enterPrevented,
+      enterPosted,
+      enterCleared,
+      shiftPrevented,
+      shiftPosted,
+      shiftValue,
+      composingPrevented,
+      composingPosted,
     };
   }
   console.log(`PROBE_RESULT ${JSON.stringify(result)}`);
