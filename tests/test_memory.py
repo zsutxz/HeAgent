@@ -562,3 +562,44 @@ class TestMemoryInjectionBudget:
         assert block is not None
         assert block.count("中") == 20, "66 字节恰好容纳两条 33 字节的 CJK 事实（按字符计会容纳三条）"
         assert "未注入" in block
+
+
+class TestFactStoreNonUtf8File:
+    """MEMORY.md 非 UTF-8（被 GBK 等编辑器保存）：跳过注入 + WARNING，绝不把整个 run 带崩（Z-D12）。"""
+
+    @staticmethod
+    def _gbk_store(tmp_path: Path) -> tuple[FactStore, Path, bytes]:
+        path = tmp_path / "MEMORY.md"
+        raw = "- 中文记忆条目\n".encode("gbk")
+        path.write_bytes(raw)
+        return FactStore(path=str(path)), path, path.read_bytes()
+
+    def test_load_returns_empty_and_warns(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        store, path, _ = self._gbk_store(tmp_path)
+
+        with caplog.at_level(logging.WARNING, logger="heagent.memory.facts"):
+            assert store.load() == []
+
+        assert "not valid UTF-8" in caplog.text
+        assert str(path) in caplog.text, "告警须点名该文件，否则用户无从定位"
+
+    def test_memory_block_skipped_and_file_untouched(self, tmp_path: Path) -> None:
+        store, path, before = self._gbk_store(tmp_path)
+
+        assert _memory_block(store, Settings(memory_inject_max_bytes=0)) is None
+        assert path.read_bytes() == before, "fail-soft 不得改写文件本体"
+
+    def test_system_prompt_has_no_memory_block(self, tmp_path: Path) -> None:
+        store, _, _ = self._gbk_store(tmp_path)
+
+        system = build_system_prompt(
+            None,
+            "prompt",
+            soul=None,
+            context_dir=None,
+            skills=None,
+            facts=store,
+            profile=None,
+        )
+
+        assert "<memory>\n" not in (system or "")

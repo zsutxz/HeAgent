@@ -9,9 +9,12 @@ LLM 可经 ``fact_add`` 内置工具（``tools/builtins/memory.py``）写入。
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from heagent.persist import atomic_update_text
+
+logger = logging.getLogger(__name__)
 
 
 class FactStore:
@@ -63,10 +66,27 @@ class FactStore:
             self._path.unlink()
 
     def _load_facts(self) -> list[str]:
-        """从 MEMORY.md 解析所有 `- ` 开头的行。"""
+        """从 MEMORY.md 解析所有 `- ` 开头的行。
+
+        文件被非 UTF-8 编辑器（如 GBK）保存时**跳过本次加载**并打一条 WARNING，而不是抛出：
+        本方法在 run 初始化链上（``system_prompt._memory_block`` ← ``AgentLoop._build_system``
+        ← ``run_lifecycle`` 的新 run 初始化），抛出会把**整个 run** 带崩，而 MEMORY.md 是非
+        关键资产（deferred-work 条目 Z-D12，2026-09-23 用户裁定按 fail-soft 闭合）。
+        文件本体**一字不动**——用户以 UTF-8 重存后记忆即恢复（写路径 ``add`` 的同类失败由
+        ``ToolExecutor`` 的 catch-all 兜成工具错误，不会中断循环）。
+        """
         if not self._path.exists():
             return []
-        return self._parse_facts(self._path.read_text(encoding="utf-8"))
+        try:
+            raw = self._path.read_text(encoding="utf-8")
+        except UnicodeDecodeError as exc:
+            logger.warning(
+                "MEMORY.md is not valid UTF-8 (%s); skipping memory injection until %s is re-saved as UTF-8",
+                exc,
+                self._path,
+            )
+            return []
+        return self._parse_facts(raw)
 
     @staticmethod
     def _parse_facts(raw: str) -> list[str]:

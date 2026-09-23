@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ from heagent.agent.middleware import Request, compose
 from heagent.config import reset_settings
 from heagent.context.session import SessionStore
 from heagent.exceptions import BudgetExceeded
+from heagent.memory.facts import FactStore
 from heagent.memory.skills import SkillStore
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
@@ -225,6 +227,24 @@ class TestAgentLoop:
         loop = AgentLoop(provider, max_iterations=10)
         result = await loop.run("test", system="you are a helper")
         assert result == "system ok"
+
+    @pytest.mark.asyncio
+    async def test_run_survives_undecodable_memory_file(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """MEMORY.md 非 UTF-8 ⇒ 记忆注入跳过（fail-soft），但 run 必须照常完成（Z-D12）。"""
+        path = tmp_path / "MEMORY.md"
+        raw = "- 中文记忆条目\n".encode("gbk")
+        path.write_bytes(raw)
+
+        with caplog.at_level(logging.WARNING, logger="heagent.memory.facts"):
+            result = await AgentLoop(
+                StubProvider([_final("ok")]),
+                facts=FactStore(path=str(path)),
+                max_iterations=3,
+            ).run("hi")
+
+        assert result == "ok"
+        assert "not valid UTF-8" in caplog.text
+        assert path.read_bytes() == raw, "fail-soft 不得改写文件本体"
 
     @pytest.mark.asyncio
     async def test_last_model_records_the_serving_model(self) -> None:
