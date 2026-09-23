@@ -603,3 +603,38 @@ class TestFactStoreNonUtf8File:
         )
 
         assert "<memory>\n" not in (system or "")
+
+
+class TestFactStoreBomFile:
+    """MEMORY.md 带 UTF-8 BOM（记事本「UTF-8 with BOM」）时不得静默丢首条事实（方案 B）。"""
+
+    @staticmethod
+    def _bom_store(tmp_path: Path) -> tuple[FactStore, Path, bytes]:
+        path = tmp_path / "MEMORY.md"
+        raw = "\ufeff- 第一条记忆\n- 第二条记忆\n".encode()
+        path.write_bytes(raw)
+        return FactStore(path=str(path)), path, raw
+
+    def test_load_keeps_the_bom_prefixed_first_fact(self, tmp_path: Path) -> None:
+        store, path, before = self._bom_store(tmp_path)
+
+        assert store.load() == ["第一条记忆", "第二条记忆"]
+        assert path.read_bytes() == before, "读路径不得改写文件（BOM 保留在盘上）"
+
+    def test_memory_block_injects_the_first_fact(self, tmp_path: Path) -> None:
+        store, _, _ = self._bom_store(tmp_path)
+
+        block = _memory_block(store, Settings(memory_inject_max_bytes=0))
+
+        assert block is not None
+        assert "第一条记忆" in block
+
+    def test_add_dedupes_against_the_first_fact_and_normalizes_bom(self, tmp_path: Path) -> None:
+        store, path, _ = self._bom_store(tmp_path)
+
+        assert store.add("第一条记忆") is False, "首条事实已参与去重，不得被当成新事实重复追加"
+        assert store.load() == ["第一条记忆", "第二条记忆"]
+
+        assert store.add("第三条记忆") is True
+        assert not path.read_bytes().startswith(b"\xef\xbb\xbf"), "写回归一化为 UTF-8 无 BOM"
+        assert store.load() == ["第一条记忆", "第二条记忆", "第三条记忆"]
