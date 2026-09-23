@@ -46,6 +46,10 @@ def _shipped_gate_template() -> str:
     return (_SHIPPED_TEMPLATES / "gate-template.md").read_text(encoding="utf-8").strip()
 
 
+def _shipped_prompt_template() -> str:
+    return (_SHIPPED_TEMPLATES / "prompt-template.md").read_text(encoding="utf-8").strip()
+
+
 @pytest.fixture()
 def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_root: Path) -> Path:
     monkeypatch.chdir(tmp_path)
@@ -82,7 +86,7 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     await _goal_runner(SimpleNamespace(), None, "new ship   the workflow")
     goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
     goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
-    goal_document = goal_dir / "require.md"
+    goal_document = goal_dir / "brief.md"
     assert goal_document.exists()
     goal_text = goal_document.read_text(encoding="utf-8")
     assert "## 原始需求（Original Request）" in goal_text
@@ -175,7 +179,7 @@ async def test_goal_new_names_project_via_llm(
 
     current = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
     assert current == "stock-picker"
-    assert (declarative_cwd / "_he-output" / "goals" / "stock-picker" / "require.md").exists()
+    assert (declarative_cwd / "_he-output" / "goals" / "stock-picker" / "brief.md").exists()
     assert "做一个选股工具" in provider.prompts[0]
     assert "using default id" not in capsys.readouterr().err
 
@@ -226,8 +230,8 @@ async def test_goal_new_appends_suffix_when_llm_name_collides(
     await _goal_runner(provider, None, "new second goal")
 
     goals = declarative_cwd / "_he-output" / "goals"
-    assert (goals / "stock-picker" / "require.md").exists()
-    assert (goals / "stock-picker-a" / "require.md").exists()
+    assert (goals / "stock-picker" / "brief.md").exists()
+    assert (goals / "stock-picker-a" / "brief.md").exists()
     assert (goals / "current").read_text(encoding="utf-8") == "stock-picker-a"
 
 
@@ -579,7 +583,10 @@ def test_step_one_gate_requires_the_derived_requirements_summary() -> None:
     """Step 01 is the initial analysis: it must write and return the summarized requirements."""
     step = _real_step_one()
     assert required_sections(step.validation_rules) == ["需求总结"]
-    assert "require.md" in step.instructions
+    # 需求文档文件名不得写进散文：代码按 goal 解析后经 prompt 的 `Goal document` 行注入。
+    assert "`Goal document`" in step.instructions
+    assert "brief.md" not in step.instructions
+    assert "require.md" not in step.instructions
     assert "## 总结的需求（Derived Requirements）" in step.instructions
     WorkflowRunner.validate_output(step, "## 需求总结\n\n能验证的需求陈述")
     with pytest.raises(WorkflowGateError):
@@ -601,7 +608,44 @@ def test_legacy_goal_document_is_read_and_written_in_place(tmp_path: Path) -> No
     cli_goal._goal_record_user_response(goal_dir, "继续推进")
 
     assert "继续推进" in cli_goal._goal_user_responses(goal_dir)
-    assert not (goal_dir / "require.md").exists()
+    assert not (goal_dir / "brief.md").exists()
+
+
+def test_prior_generation_goal_document_is_read_and_written_in_place(tmp_path: Path) -> None:
+    """The earlier rename (require.md -> brief.md) must not split existing goals either."""
+    goal_dir = tmp_path / "prior-goal"
+    goal_dir.mkdir()
+    goal_dir.joinpath("require.md").write_text(cli_goal._goal_document("旧一代目标", "prior"), encoding="utf-8")
+
+    assert cli_goal._goal_description(goal_dir) == "旧一代目标"
+    cli_goal._goal_record_user_response(goal_dir, "继续推进")
+
+    assert "继续推进" in cli_goal._goal_user_responses(goal_dir)
+    assert not (goal_dir / "brief.md").exists()
+
+
+@pytest.mark.parametrize(
+    ("existing", "expected"),
+    [(None, "brief.md"), ("brief.md", "brief.md"), ("require.md", "require.md"), ("GOAL.md", "GOAL.md")],
+)
+def test_step_prompt_names_the_goal_document_resolved_in_code(
+    tmp_path: Path,
+    existing: str | None,
+    expected: str,
+) -> None:
+    """The filename comes from code, not from the prose: renaming it is a one-file change."""
+    goal_dir = tmp_path / "goal"
+    goal_dir.mkdir()
+    if existing is not None:
+        (goal_dir / existing).write_text(cli_goal._goal_document("demo goal", "demo"), encoding="utf-8")
+    workflow = WorkflowResource(
+        name="demo", instructions="workflow instructions", steps=[], prompt_template=_shipped_prompt_template()
+    )
+
+    prompt = cli_goal._goal_declarative_prompt(workflow, "step-01-market-research.md", "demo goal", goal_dir, {})
+
+    assert f"Goal document: {expected}\n" in prompt
+    assert "{goal_document}" not in prompt
 
 
 def test_cli_reexports_goal_runner_but_not_monkeypatch_seams() -> None:
@@ -846,7 +890,7 @@ async def test_blocked_step_reports_the_way_out(
     """BLOCKED used to be a dead end: the CLI must print how to leave it."""
     goal_dir = tmp_path / "goal"
     goal_dir.mkdir()
-    (goal_dir / "require.md").write_text(cli_goal._goal_document("demo goal", "demo"), encoding="utf-8")
+    (goal_dir / "brief.md").write_text(cli_goal._goal_document("demo goal", "demo"), encoding="utf-8")
     step = WorkflowStepResource(index=1, name="step-01.md", instructions="")
     workflow = WorkflowResource(name="demo", instructions="", steps=[step])
 
@@ -910,7 +954,7 @@ def test_bundled_workflow_ships_the_required_templates(monkeypatch: pytest.Monke
     assert "gate-template.md" in declared
     # 维护者文档只能住在 SKILL.md：混进 workflow.md 正文会被注入每步提示词。
     assert "模板契约" not in workflow.instructions
-    for placeholder in ("{workflow_instructions}", "{goal}", "{step}", "{gate}"):
+    for placeholder in ("{workflow_instructions}", "{goal}", "{goal_document}", "{step}", "{gate}"):
         assert placeholder in workflow.prompt_template
     for placeholder in ("{sections}", "{acceptance}", "{rules}"):
         assert placeholder in workflow.gate_template

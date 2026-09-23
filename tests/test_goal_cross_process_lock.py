@@ -1,7 +1,7 @@
 """Cross-process file lock coverage for /goal state (deferred-work 高严重度项).
 
 双进程并发（CLI cron × 手动命令、CLI × GUI）此前仅由进程内 ``asyncio.Lock``
-保护，会互相覆盖 require.md / current 指针丢进度；本文件锁定复合互斥
+保护，会互相覆盖 brief.md / current 指针丢进度；本文件锁定复合互斥
 （``_goal_mutex``：进程内快速路径 + ``.heagent/goal.lock`` 文件锁）的对外语义：
 抢占失败显性报错、无争用时行为不变、锁文件残留无害。
 """

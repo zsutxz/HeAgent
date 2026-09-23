@@ -189,7 +189,7 @@ class WorkflowCheckpointStore:
 class GoalWorkflowState(BaseModel):
     """Serializable runtime metadata for one goal.
 
-    The workflow's own artifacts stay the source of truth (``require.md`` for the request,
+    The workflow's own artifacts stay the source of truth (``brief.md`` for the request,
     ``02-epics.md`` for the Epic/Story lists). This model stores only orchestration metadata
     and therefore never mirrors or edits them.
     """

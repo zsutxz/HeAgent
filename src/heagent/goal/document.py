@@ -1,4 +1,4 @@
-"""goal 需求文档（require.md）生成与 goal 命名约定（/goal 命令族的文档层）。
+"""goal 需求文档（brief.md）生成与 goal 命名约定（/goal 命令族的文档层）。
 
 **为什么单独成模块**（wiring.py 先例）：此前这段「goal 文档与命名」逻辑（约 150 行——
 goal_id 规则、目录命名、需求文档生成与增量更新）与工作流驱动（advance /
@@ -8,8 +8,8 @@ execute / dispatch / cron）混在 cli_goal.py 里——前者随 BMad 产物约
 
 **文档契约**：``/goal new`` 只落盘**原始需求**（``## 原始需求（Original Request）`` 段），
 创建时**不再直接写目标看板文档**；「总结的需求」等初步分析做完后由 step 01 补写同一文档的
-``## 总结的需求（Derived Requirements）`` 段。存量 goal 的 ``GOAL.md`` 仍可读
-（见 :func:`_goal_document_path`），写入落在解析出的那一份上，不会分裂成两份。
+``## 总结的需求（Derived Requirements）`` 段。改名前的 ``require.md`` 与更早的 ``GOAL.md``
+仍可读（见 :func:`_goal_document_path`，按新名在前探测），写入落在解析出的那一份上，不会分裂成两份。
 
 分层：本子包属入口层（与 cli/gui 同级，供 cli_goal 消费），不被任何下层模块导入。
 cli_goal 经 re-export 保持原命名空间可用（``test_goal_declarative_workflow`` /
@@ -30,8 +30,10 @@ from heagent.persist import atomic_update_text
 # Durable user-facing Goal and workflow artifacts belong under the project output
 # root. ``.heagent`` remains reserved for runtime configuration and skill code.
 _GOALS_DIR = Path("_he-output/goals")
-# 需求文档名：新 goal 一律落 require.md；GOAL.md 只作存量 goal 的读取回落（见 _goal_document_path）。
-_GOAL_DOCUMENT_NAME = "require.md"
+# 需求文档名：新 goal 一律落 brief.md；前两代名字只作存量 goal 的读取回落，按新名在前探测
+# （见 _goal_document_path）——命中存量文件时读写都落在它上面，不把同一 goal 拆成两份文档。
+_GOAL_DOCUMENT_NAME = "brief.md"
+_PRIOR_GOAL_DOCUMENT_NAME = "require.md"
 _LEGACY_GOAL_DOCUMENT_NAME = "GOAL.md"
 # step 01 初步分析前「总结的需求」段的显式占位：它是待办标记，不是需求内容。
 _DERIVED_REQUIREMENTS_PLACEHOLDER = "待 step 01（market-research）完成初步分析后补写。"
@@ -49,15 +51,20 @@ def _fenced_block(text: str) -> str:
 def _goal_document_path(goal_dir: Path) -> Path:
     """Resolve which requirement document this goal owns.
 
-    New goals write ``require.md``. A goal created before the rename still owns its
-    ``GOAL.md``, so an existing file wins over the new name; that keeps reads *and*
-    writes on the same document instead of splitting the goal across two files.
+    New goals write ``brief.md``. A goal created before either rename still owns its
+    ``require.md`` (or the older ``GOAL.md``), so an existing file wins over the new
+    name, probed newest-name-first; that keeps reads *and* writes on the same document
+    instead of splitting the goal across two files. With no candidate on disk the new
+    name is returned as the write target.
     """
     document = goal_dir / _GOAL_DOCUMENT_NAME
     if document.is_file():
         return document
-    legacy = goal_dir / _LEGACY_GOAL_DOCUMENT_NAME
-    return legacy if legacy.is_file() else document
+    for fallback in (_PRIOR_GOAL_DOCUMENT_NAME, _LEGACY_GOAL_DOCUMENT_NAME):
+        candidate = goal_dir / fallback
+        if candidate.is_file():
+            return candidate
+    return document
 
 
 def _document_section(text: str, name: str) -> str:

@@ -39,7 +39,7 @@ from heagent.engine import (
     parse_story_list,
     required_sections,
 )
-from heagent.goal.document import _goal_record_user_response, _goal_user_responses
+from heagent.goal.document import _goal_document_path, _goal_record_user_response, _goal_user_responses
 from heagent.goal.workflow_loader import SkillWorkflowError
 from heagent.memory.skill_packages import (
     SkillCatalog,
@@ -124,8 +124,9 @@ async def restore_runner(workflow: WorkflowResource, goal_dir: Path) -> Workflow
 
     **checkpoint ↔ 运行状态的引用关系与恢复语义**（Phase 3 显式化）：一个 goal 目录内，
     ``checkpoints/*.json`` 是逐步的原子快照，``workflow.json``（GoalWorkflowState）是
-    聚合进度；``require.md`` 的「原始需求」段与 ``.heagent/goals/current`` 指针由入口层
-    解析后传入 ``goal_dir``，本函数不回读指针。恢复顺序：① 有 workflow.json 时按
+    聚合进度；``brief.md``（存量 goal 为 ``require.md`` / ``GOAL.md``）的「原始需求」段与
+    ``.heagent/goals/current`` 指针由入口层解析后传入 ``goal_dir``，本函数不回读指针。恢复顺序：
+    ① 有 workflow.json 时按
     ``active_step + active_skill + status`` 匹配快照（status 宽容一个「快照已完成但聚合
     仍在跑」的相位差，见下），工作流改名靠 active_skill 而非 name 兜住；② 匹配落空且
     存在快照 → 配置与持久化状态不一致，显性抛
@@ -306,6 +307,7 @@ def declarative_prompt(
             "workflow_instructions": workflow.instructions,
             "goal": description,
             "goal_dir": str(goal_dir.resolve()),
+            "goal_document": _goal_document_path(goal_dir).name,
             "output_root": str(goal_dir.parent.parent.resolve()),
             "step": step_name,
             "story_context": story_context,

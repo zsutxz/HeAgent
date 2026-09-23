@@ -19,6 +19,7 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 | 步骤提示词与门禁文案 | 包内 `templates/prompt-template.md`、`templates/gate-template.md`（必需性由 `workflow.md` 的 `required_resources` 声明） | 替换占位符渲染 prompt；执行声明的必需性（缺失即加载失败），代码不携带模板文案 |
 | 运行策略参数（`max_rounds`、`auto_schedule`、未决问题文案） | `workflow.md` 的 frontmatter | 读取声明；代码只保留兜底默认值 |
 | Goal 身份与工作流产物 | `_he-output/goals/<goal-id>/` | 创建目录、保存输出、恢复 checkpoint |
+| 需求文档文件名（`brief.md`；存量 goal 回落 `require.md` / `GOAL.md`） | `src/heagent/goal/document.py` 的 `_goal_document_path()` | 解析出的文件名经 prompt 的 `Goal document` 行（占位符 `{goal_document}`）注入；workflow.md 散文与模板都不写文件名，改名只动代码一处 |
 | Goal/Epic/Story 结构契约 | `src/heagent/engine/artifacts.py` 与 `.heagent/skills/he-goal/templates/` | 解析和校验结构 |
 | 运行时进度与恢复 | `<goal-dir>/checkpoints/` 下的 `workflow.json` | 保存状态，不取代规划看板 |
 | 全仓库 Epic/Story 状态 | `_bmad-output/sprint-status.yaml` | 规划历史的状态记录；不是 `/goal` 运行时状态 |
@@ -37,7 +38,7 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 
 项目默认工作流目前包含八步：
 
-1. `market-research`：由 `bmad-agent-analyst` 产出市场、竞品、替代方案与用户证据摘要，以及决策驱动和证据缺口（只读、headless）；它是**唯一写入 goal 需求文档的步骤**——把初步分析后的「总结的需求」写进 `require.md` 的对应段（原始需求段逐字冻结，只读）。
+1. `market-research`：由 `bmad-agent-analyst` 产出市场、竞品、替代方案与用户证据摘要，以及决策驱动和证据缺口（只读、headless）；它是**唯一写入 goal 需求文档的步骤**——把初步分析后的「总结的需求」写进 prompt 中 `Goal document` 行指明的需求文档的对应段（原始需求段逐字冻结，只读）。
 2. `brainstorm-options`：由 `bmad-brainstorming` 以 headless「ideate for me」立场发散并收敛出候选方向排序（只读）。
 3. `analyze-requirements`：分析需求并产出可验证的需求与初步 story-sized 拆分（正式 Story 清单由 step 06 产出）。
 4. `define-product-scope`：形成 PRD 和有序 Epic 提案（Epic 级，不做 Story 拆分）。
@@ -46,7 +47,7 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 7. `implement-story`：由 `bmad-build` 执行的**重任务步骤**（`story_loop: 02-epics.md`）。每次只实现一个 Story，并产出实现、测试与验证证据；它是唯一创建实现产物、唯一新增或修改测试文件的步骤。
 8. `system-integration-test`：由 `bmad-qa-generate-e2e-tests` 执行的**全系统最终验收步骤**，只在全部 Story 完成后运行一次，覆盖逐 Epic 集成与跨 Epic 端到端测试，并给出质量门禁结论。
 
-**写权限边界**：步骤 01–02 只读，唯一例外是步骤 01 把初步分析结论写回 goal 目录的 `require.md`（原始需求段逐字冻结，仅补写「总结的需求」段）；步骤 06 只写规划产物（`02-epics.md`），不改代码；步骤 07 是唯一
+**写权限边界**：步骤 01–02 只读，唯一例外是步骤 01 把初步分析结论写回该 goal 的需求文档（文件名由 prompt 的 `Goal document` 行给出；原始需求段逐字冻结，仅补写「总结的需求」段）；步骤 06 只写规划产物（`02-epics.md`），不改代码；步骤 07 是唯一
 创建实现产物、唯一新增或修改测试文件的步骤（实现、测试、验证三阶段都在这一步内完成；Sprint 收口
 与 Epic 收口评审也在这一步的边界增量内完成，评审只可为修复自己报告的 Critical 与规格偏离改代码）；
 步骤 08 只做最小集成修复，不重新设计实现。任何改代码的步骤都必须重跑受影响测试并写明确切命令与
@@ -65,7 +66,7 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 
 | 敏捷环节 | 工作流体现 | 机械保证 |
 | --- | --- | --- |
-| 需求初析与落盘 | 步骤 01（初步分析，只读步骤的唯一写操作） | `validation` 强制输出含 `## 需求总结` 章节，缺一即 BLOCKED；正文要求把「总结的需求」写进 `require.md`（原始需求段逐字冻结，只补写总结段） |
+| 需求初析与落盘 | 步骤 01（初步分析，只读步骤的唯一写操作） | `validation` 强制输出含 `## 需求总结` 章节，缺一即 BLOCKED；正文要求把「总结的需求」写进 prompt 的 `Goal document` 行指明的需求文档（原始需求段逐字冻结，只补写总结段） |
 | Story 拆分 + Sprint 计划 | 步骤 06（规划步骤，只写 `02-epics.md`） | `validation` 强制输出含 `## Story 拆分` 与 `## Sprint 计划` 两个章节；Story 编号从 S-1 连续且即执行顺序（`parse_story_list` 按编号后缀排序），Sprint 成员须与编号连续单调，Story 须归在 `## E<N> — <标题>` Epic 段内且段内编号连续 |
 | Story 开发 + 测试 + 验证 | 步骤 07（`story_loop`，重任务） | 每 Story 独立 checkpoint；`validation` 一次强制三个章节：`## 实现摘要` / `## 测试证据` / `## 验证结论`，缺一即 BLOCKED |
 | Sprint 退出验证 | 步骤 07（该 Sprint 最后一条 Story 的增量内） | 步骤正文要求跑该 Sprint 的可演示切片、核对进入与退出准则，并把结果写进该增量的 `## 收口结论` |
@@ -104,7 +105,8 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 
 ```text
 _he-output/goals/<goal-id>/
-├── require.md                           # 需求文档：原始需求（创建时写入）+ 总结的需求（step 01 初步分析后写入）
+├── brief.md                             # 需求文档：原始需求（创建时写入）+ 总结的需求（step 01 初步分析后写入）
+│                                        #   存量 goal 沿用 require.md / GOAL.md（由 _goal_document_path 解析）
 ├── 02-epics.md                          # 由 step 06 写入的 Epic/Story 清单（## E<N> 分段 + ### S-N，编号即执行顺序）+ ## Sprint 计划
 ├── step-01-market-research.md           # 市场调研摘要与证据缺口
 ├── step-02-brainstorm-options.md        # 头脑风暴与候选方向

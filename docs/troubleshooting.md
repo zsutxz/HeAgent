@@ -16,7 +16,7 @@
 | `Path escapes current workspace` | 文件工具路径越出工作区围栏；检查相对路径基准（cwd 锚定）与符号链接 | `tools/path_safety.py` |
 | skill 读取报 `final path component is a symlink` / `not a regular file` | safe-open 内核拒绝符号链接替换 / 非常规文件（安全加固，非 bug） | `tools/path_safety.open_text_under_root` |
 | `/goal` 步骤 BLOCKED：`output is missing section: ...` | 输出缺 `validation:` 声明的章节（标题须独占一行）；prompt 的 "Gate requirements" 段已提前告知 | `engine/workflow_runner.py`（`required_sections`）、`goal/application.py` |
-| `/goal` 恢复报 checkpoint 不匹配 | `workflow.json` 与当前 `workflow.md`/require.md 引用关系落空 → `WorkflowCheckpointError` 显性失败（不回退 legacy） | `engine/checkpoint.py`、`goal/application.py:restore_runner` |
+| `/goal` 恢复报 checkpoint 不匹配 | `workflow.json` 与当前 `workflow.md`/brief.md 引用关系落空 → `WorkflowCheckpointError` 显性失败（不回退 legacy） | `engine/checkpoint.py`、`goal/application.py:restore_runner` |
 | replay 打不开 rollout | `heagent replay <path>`；坏行跳过并告警（crash 前缀可回放）；字段版本见 `schema_version` | `events/sink.py`、`events/protocol.py` |
 | 覆盖率门禁失败（本地 Py3.13 --cov） | 已知 pydantic-settings + coverage 组合 bug，非代码问题；CI（3.11）不受影响 | `scripts/quality_gate.py`、memory/项目记录 |
 | GUI 看不到工具进度 | GUI 读 EngineEvent 总线（非 RunEvent）；确认入口把 GuiEventObserver 挂上了 `engine.events` | `gui/observers.py`、`gui/widgets/event_log.py` |

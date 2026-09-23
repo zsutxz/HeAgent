@@ -79,7 +79,7 @@ _GOAL_AUTO_PREFIX = "goal-advance "
 _goal_auto_lock = asyncio.Lock()
 
 # goal 域跨进程锁：竞态是「读 current 指针 → 读状态 → 推进 → 写 checkpoint /
-# workflow.json / require.md」的整段读改写，per-file 锁防不了「两进程从同一状态各自
+# workflow.json / brief.md」的整段读改写，per-file 锁防不了「两进程从同一状态各自
 # 推进后互相覆盖」，故 goal 域一把域级锁。锁文件随 cwd 锚定（与 _GOALS_DIR 同锚定
 # 方式），落在 .heagent/ 运行时状态区（见下文目录注释），不污染 _he-output/ 产物树。
 _GOAL_LOCK_PATH = Path(".heagent/goal.lock")
@@ -112,7 +112,7 @@ async def _goal_mutex() -> AsyncIterator[None]:
 # /goal 命令族（Story 41.1：目标驱动开发工作流——skill 正文直读 + 逐 story 会话）
 # =============================================================================
 
-# 需求文档与命名层（slug 词表 / goal_id 规则 / 目录命名 / require.md 生成与增量更新）
+# 需求文档与命名层（slug 词表 / goal_id 规则 / 目录命名 / brief.md 生成与增量更新）
 # 已拆至 goal/document.py（wiring.py 先例：文档约定与执行编排变化原因不同），见顶部
 # re-export——测试经 heagent.cli_goal 导入这些符号，内部引用点继续按模块全局名解析。
 
@@ -592,7 +592,7 @@ async def _goal_session(
     try:
         return await agent.run(prompt)
     except (KeyboardInterrupt, asyncio.CancelledError):
-        click.echo("[goal] 已中断：状态在盘（require.md），/goal next 可续跑。", err=True)
+        click.echo("[goal] 已中断：状态在盘（brief.md），/goal next 可续跑。", err=True)
         return None
 
 

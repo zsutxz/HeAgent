@@ -67,7 +67,7 @@ exceptions  types  config  persist  roles  frontmatter
 - `memory/` — 自学习闭环（`skills`/`facts`/`profile`/`soul`）
 - `cron/` — 后台定时调度
 - `gui/` — Textual TUI（`app`/`bridge`/`screens`/`widgets`），经 `AgentBridge` 持有并观察 `AgentLoop`
-- `cli.py` / `cli_init.py` / `cli_goal.py` / `slash.py` / `terminal.py` — CLI 入口（单次 + 交互模式）；`cli_init` 为 `heagent init` 子命令（2026-09-17 自 cli.py 拆出）；`cli_goal` 为 /goal 命令族（声明式工作流分发 + cron 自动推进；需求文档 require.md 在 `goal/document.py`、LLM 项目命名在 `goal/naming.py`、工作流声明装载在 `goal/workflow_loader.py`，均经 import 保持 `cli_goal` 原命名空间）；`slash` 为注册表驱动斜杠命令 + 用户自定义命令（`.heagent/commands/*.md`），仅依赖 pydantic + 零依赖顶层模块 `heagent.frontmatter`
+- `cli.py` / `cli_init.py` / `cli_goal.py` / `slash.py` / `terminal.py` — CLI 入口（单次 + 交互模式）；`cli_init` 为 `heagent init` 子命令（2026-09-17 自 cli.py 拆出）；`cli_goal` 为 /goal 命令族（声明式工作流分发 + cron 自动推进；需求文档 brief.md 在 `goal/document.py`、LLM 项目命名在 `goal/naming.py`、工作流声明装载在 `goal/workflow_loader.py`，均经 import 保持 `cli_goal` 原命名空间）；`slash` 为注册表驱动斜杠命令 + 用户自定义命令（`.heagent/commands/*.md`），仅依赖 pydantic + 零依赖顶层模块 `heagent.frontmatter`
 
 硬约束（违反即架构错误）：
 

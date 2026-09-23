@@ -862,7 +862,7 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
 三入口仍收敛同一 use-case（GUI 经 `_goal_runner`、cron 经 `_goal_cron_advance`），无复制推进逻辑。
 当前工作流的维护说明见[文档索引的「Goal 工作流」章节](README.md#goal-工作流)。
 
-- `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/require.md`（只含原始需求）
+- `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/brief.md`（只含原始需求）
   和 `current` 指针，然后执行 workflow 的第一个声明步骤；「总结的需求」由 step 01 初步分析后写回同一文档。
   `goal_id` 由 LLM 命名（`goal/naming.py` 一次性 provider 调用生成 kebab-case 名，清洗/校验/`-a`..`-z`
   去重为代码内确定性逻辑）；调用失败或输出非法时 stderr 显性提示并回退固定名 `project`。
@@ -874,7 +874,7 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
 - **跨进程互斥（2026-09）**：`/goal` 全部变更入口（new/next/run/resume/reset/cron 推进）经 `_goal_mutex()`
   复合互斥——进程内 `asyncio.Lock`（`_goal_auto_lock`，快速路径）+ `.heagent/goal.lock` 跨进程文件锁
   （`persist.file_lock`，5s 超时显性失败：手动方收到「另一进程正在推进」提示，cron 下一 tick 自动重试）。
-  锁文件刻意保留不删（规避 unlink 竞态）；防「双进程从同一状态各自推进后互相覆盖 require.md」丢进度。
+  锁文件刻意保留不删（规避 unlink 竞态）；防「双进程从同一状态各自推进后互相覆盖 brief.md」丢进度。
 
 每个步骤或 Story 都由新的 SubAgent/RunContext 执行。`WorkflowRunner` 负责顺序、输入、输出、checkpoint
 和恢复；它不决定 Epic/Story 的拆分方法。
@@ -1128,7 +1128,7 @@ src/heagent/
 │
 ├── goal/                    # /goal 域层（入口层，供 cli_goal 使用，下层不得反向导入）
 │   ├── application.py       # workflow use-case 确定性内核（校验/gate/story/checkpoint 推进；click-free，Phase 3）
-│   ├── document.py          # require.md 定位/命名规则/增量更新（确定性部分）
+│   ├── document.py          # brief.md 定位/命名规则/增量更新（存量回落 require.md/GOAL.md）
 │   ├── naming.py            # /goal new 项目名 LLM 生成，失败显性回退 project（2026-09-21）
 │   └── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性）
 ├── slash.py                 # 交互模式斜杠命令注册与路由
@@ -1283,13 +1283,13 @@ Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测
 
 ### 8.2 Goal/Epic/Story artifact contract
 
-Declarative BMad workflow artifacts have three layers with fixed ownership. A goal artifact (`type: goal`) contains the Epic list only; `EPIC.md` contains Goal, Value, Scope, Dependencies, Acceptance Criteria, Stories, and Definition of Done; each Story document contains frontmatter, User Story, Given/When/Then acceptance criteria, Tasks, and Definition of Done. IDs and parent references are validated by `heagent.engine.artifacts.validate_hierarchy()`. The `/goal` CLI no longer writes a goal artifact: it persists the goal's requirement document `require.md`, and the Epic/Story lists live in the workflow's own `02-epics.md`.
+Declarative BMad workflow artifacts have three layers with fixed ownership. A goal artifact (`type: goal`) contains the Epic list only; `EPIC.md` contains Goal, Value, Scope, Dependencies, Acceptance Criteria, Stories, and Definition of Done; each Story document contains frontmatter, User Story, Given/When/Then acceptance criteria, Tasks, and Definition of Done. IDs and parent references are validated by `heagent.engine.artifacts.validate_hierarchy()`. The `/goal` CLI no longer writes a goal artifact: it persists the goal's requirement document `brief.md`, and the Epic/Story lists live in the workflow's own `02-epics.md`.
 
 `parse_artifact()` fails loudly on missing or duplicate sections, unresolved `TBD`, invalid frontmatter type/status, and malformed parent metadata. Templates are in `.heagent/skills/he-goal/templates/`. Historical Epic/Story status is owned solely by `_bmad-output/sprint-status.yaml`; `workflow.json` stores runtime metadata and is never a second status board. `validate_sprint_status_path()` enforces this canonical, read-only target.
 
 ### 8.3 Declarative Agile Closure
 
-`.heagent/skills/he-goal/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `require.md` is the goal's durable requirement document (the original request at creation, then the derived requirements step 01 writes after its initial analysis); it replaces `goal.txt` and is deliberately not a `parse_artifact()` goal artifact. All durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The former imperative `goal.txt` story-board path has been removed, leaving the declarative runner as the sole `/goal` execution path. Transition policy remains owned by the active workflow and its deterministic runner. The workflow itself is addressed as a skill package (`he-goal`) resolved through `SkillCatalog`/`SkillResolver`, so per-run policy (`max_rounds`, `auto_schedule`, open-question wording) and the step prompt/gate wording are declarations inside the package (`workflow.md`, `templates/prompt-template.md`, `templates/gate-template.md`); template requiredness is itself declared in the workflow frontmatter (`required_resources`) — the loader fails the load explicitly when a declared template is missing or blank (entries are prefix-normalized and every entry is enforced: a typo'd name fails the load instead of being ignored), a blank-but-undeclared template fails loudly at prompt-render time instead of producing an empty step prompt/gate block, and the CLI carries no built-in template wording.
+`.heagent/skills/he-goal/workflow.md` is the required, self-contained `/goal` workflow. It declares initialization and the complete ordered steps; the CLI only maps supported declarations to deterministic operations. `WorkflowRunner` executes one declared step per invocation, persists zero-based completed-step checkpoints, and rejects missing inputs, invalid outputs, and mismatched workflow recovery state. `brief.md` is the goal's durable requirement document (the original request at creation, then the derived requirements step 01 writes after its initial analysis); goals created before the rename keep their own `require.md` (or older `GOAL.md`), resolved newest-name-first by `goal/document.py`, and its resolved filename is injected into the step prompt as `{goal_document}` so the workflow declarations never hardcode it; it replaces `goal.txt` and is deliberately not a `parse_artifact()` goal artifact. All durable goal and workflow artifacts are written under `_he-output/`; a missing workflow is an explicit failure. The former imperative `goal.txt` story-board path has been removed, leaving the declarative runner as the sole `/goal` execution path. Transition policy remains owned by the active workflow and its deterministic runner. The workflow itself is addressed as a skill package (`he-goal`) resolved through `SkillCatalog`/`SkillResolver`, so per-run policy (`max_rounds`, `auto_schedule`, open-question wording) and the step prompt/gate wording are declarations inside the package (`workflow.md`, `templates/prompt-template.md`, `templates/gate-template.md`); template requiredness is itself declared in the workflow frontmatter (`required_resources`) — the loader fails the load explicitly when a declared template is missing or blank (entries are prefix-normalized and every entry is enforced: a typo'd name fails the load instead of being ignored), a blank-but-undeclared template fails loudly at prompt-render time instead of producing an empty step prompt/gate block, and the CLI carries no built-in template wording.
 
 ## 九、历史与迁移
 
