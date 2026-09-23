@@ -72,6 +72,22 @@ class _ScriptedProvider:
         return ProviderMetadata(name="stub", model="stub")
 
 
+class _BlockingProvider(_ScriptedProvider):
+    """一直等门的 provider：模拟「跑到一半的真实运行」，用于取消与断线语义。"""
+
+    def __init__(self, gate: asyncio.Event) -> None:
+        super().__init__([_answer("late")])
+        self._gate = gate
+
+    async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
+        await self._gate.wait()
+        return await super().send(messages, tools=tools)
+
+    async def stream(self, messages: list[Message], *, tools: list[object] | None = None) -> Any:
+        # 必须同时覆盖 stream：运行入口走 ``run_stream``，只用父类的 ``stream`` 会绕过这里的门。
+        yield await self.send(messages, tools=tools)
+
+
 @contextlib.asynccontextmanager
 async def _served(provider: Any, **config_overrides: Any) -> AsyncIterator[tuple[str, HttpRunService]]:
     """起一个真实 listener（随机端口）+ 真实 ``HttpAgentHandler``，退出时关闭。"""
@@ -219,3 +235,42 @@ async def test_each_run_uses_a_fresh_agent_loop() -> None:
 
     assert first is not second
     assert first.provider is second.provider  # provider 是服务级共享
+
+
+async def test_delete_cancels_a_real_run() -> None:
+    """``DELETE`` 取消真实运行：真 loop 收到取消信号、终态是 ``cancelled``、历史不投影。"""
+    gate = asyncio.Event()
+    provider = _BlockingProvider(gate)
+    async with _served(provider) as (base_url, service), httpx.AsyncClient(timeout=15.0) as client:
+        created = await client.post(f"{base_url}/api/runs", json={"prompt": "hi"})
+        run_id = created.json()["run_id"]
+        await asyncio.sleep(0.1)  # 让运行真的进入 provider 调用
+        cancelled = await client.delete(f"{base_url}/api/runs/{run_id}")
+        events = await client.get(f"{base_url}/api/runs/{run_id}/events")
+        snapshot = (await client.get(f"{base_url}/api/session")).json()
+
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert [event for _id, event, _data in _parse_sse(events.text)][-1] == "cancelled"
+    assert snapshot["messages"] == []
+    assert service.active_runs == 0
+    gate.set()
+
+
+async def test_disconnect_does_not_cancel_the_run() -> None:
+    """SSE 断开只是释放订阅者，**绝不**取消运行（取消只能通过 DELETE，AD-4）。"""
+    gate = asyncio.Event()
+    provider = _BlockingProvider(gate)
+    async with _served(provider) as (base_url, service), httpx.AsyncClient(timeout=15.0) as client:
+        created = await client.post(f"{base_url}/api/runs", json={"prompt": "hi"})
+        run_id = created.json()["run_id"]
+        async with client.stream("GET", f"{base_url}/api/runs/{run_id}/events") as response:
+            assert response.status_code == 200
+        await asyncio.sleep(0.05)  # 给服务端释放订阅者的时间
+        record = service.run(run_id)
+        assert record is not None
+        assert service.subscriber_count(record) == 0
+        snapshot = (await client.get(f"{base_url}/api/session")).json()
+
+    assert snapshot["status"] == "running"
+    gate.set()

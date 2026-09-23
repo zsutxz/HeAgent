@@ -124,6 +124,13 @@ def error_envelope(code: HttpErrorCode, message: str) -> HttpErrorEnvelope:
 MAX_EVENT_TEXT_CHARS = 16_384
 _TRUNCATION_SUFFIX = "…[truncated]"
 
+# SSE 活跃流的心跳间隔（秒）：`id:` 与事件 ID 之外的注释帧（`: ping`），只用来保活连接、
+# 不占事件序号、不改变客户端游标（AD-4）。
+SSE_HEARTBEAT_SECONDS = 15.0
+
+# SSE 心跳帧（注释行；客户端按 SSE 规范忽略，仅用于探测连接是否还活着）。
+SSE_HEARTBEAT_FRAME = b": ping\n\n"
+
 
 class RunStatus(StrEnum):
     """一次网页 Agent 运行的状态机取值（49-4 起其中四个为终态）。"""
@@ -181,8 +188,8 @@ class RunRequest(BaseModel):
         return value
 
 
-class RunCreatedResponse(BaseModel):
-    """``POST /api/runs`` 的成功响应。"""
+class RunStatusResponse(BaseModel):
+    """运行状态响应（``POST /api/runs`` 创建成功、``DELETE /api/runs/{id}`` 取消结果共用）。"""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -259,18 +266,20 @@ __all__ = [
     "MAX_ERROR_MESSAGE_CHARS",
     "MAX_EVENT_TEXT_CHARS",
     "MAX_PROMPT_CHARS",
+    "SSE_HEARTBEAT_FRAME",
+    "SSE_HEARTBEAT_SECONDS",
     "TERMINAL_RUN_STATUSES",
     "HealthResponse",
     "HttpErrorCode",
     "HttpErrorDetail",
     "HttpErrorEnvelope",
     "HttpUsage",
-    "RunCreatedResponse",
     "RunEventKind",
     "RunEventPayload",
     "RunOutcome",
     "RunRequest",
     "RunStatus",
+    "RunStatusResponse",
     "SessionMessage",
     "SessionResponse",
     "clip_text",

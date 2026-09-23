@@ -6,7 +6,7 @@
  *     绝不使用 innerHTML —— Agent 输出是不可信内容，HTML 注入会变成页面内的脚本执行；
  *   - 所有请求同源（页面与 /api/* 由同一个 ASGI app 提供），不配置 CORS、不带凭据；
  *   - 状态词表集中在 SERVICE_TEXT / RUN_TEXT，UI 只映射服务端给出的事实，不自行推断
- *     「大概成功了」——服务端没说的状态一律如实显示为「未知/断开」。
+ *     「大概成功了」——终态一律等 SSE 的终态事件（或重新同步后的会话快照），不提前宣布。
  */
 (() => {
   "use strict";
@@ -24,10 +24,15 @@
     idle: "空闲",
     starting: "提交中…",
     running: "运行中…",
+    cancelling: "取消中…",
+    reconnecting: "连接中断，正在重连…",
     done: "已完成",
     failed: "失败",
     disconnected: "连接已断开",
   };
+
+  // 「忙」状态：这些状态下禁止重复提交（服务端也会回 run_conflict）。
+  const BUSY_STATES = new Set(["starting", "running", "cancelling", "reconnecting"]);
 
   const el = {
     service: document.getElementById("service-status"),
@@ -60,9 +65,10 @@
   function setRunState(state, text) {
     el.run.dataset.state = state;
     el.run.textContent = text || RUN_TEXT[state] || state;
-    const busy = state === "starting" || state === "running";
+    const busy = BUSY_STATES.has(state);
     el.send.disabled = busy;
     el.input.disabled = busy;
+    el.stop.disabled = !(state === "running" || state === "reconnecting");
   }
 
   /** 往对话记录追加一条纯文本条目（种类只影响样式，从不影响内容解释方式）。 */
@@ -85,33 +91,24 @@
     el.log.scrollTop = el.log.scrollHeight;
   }
 
-  function toolKey(name) {
-    return String(name || "tool");
-  }
-
   function showToolCall(payload) {
     const label = payload.tool_target
       ? `${asText(payload.tool_name)} → ${asText(payload.tool_target)}`
       : asText(payload.tool_name);
-    const entry = appendEntry("tool", `▶ ${label}`);
-    pendingToolEntries.set(toolKey(payload.tool_name), entry);
+    pendingToolEntries.set(asText(payload.tool_name), appendEntry("tool", `▶ ${label}`));
   }
 
   function showToolResult(payload) {
-    const key = toolKey(payload.tool_name);
+    const key = asText(payload.tool_name);
     const entry = pendingToolEntries.get(key);
     pendingToolEntries.delete(key);
     const isError = Boolean(payload.tool_error);
     const output = asText(payload.tool_output);
-    const prefix = isError ? "✘" : "✔";
-    if (entry) {
-      entry.dataset.error = isError ? "true" : "false";
-      entry.textContent = `${prefix} ${asText(payload.tool_name)}${output ? `：${output}` : ""}`;
-      el.log.scrollTop = el.log.scrollHeight;
-      return;
-    }
-    const fresh = appendEntry("tool", `${prefix} ${asText(payload.tool_name)}${output ? `：${output}` : ""}`);
-    fresh.dataset.error = isError ? "true" : "false";
+    const line = `${isError ? "✘" : "✔"} ${key}${output ? `：${output}` : ""}`;
+    const target = entry || appendEntry("tool", line);
+    target.dataset.error = isError ? "true" : "false";
+    if (entry) target.textContent = line;
+    el.log.scrollTop = el.log.scrollHeight;
   }
 
   function closeStream() {
@@ -178,14 +175,34 @@
       });
     }
     stream.addEventListener("error", () => {
-      // EventSource 的 error 既用于「服务端 error 事件」（已由上面的监听器处理并关闭流），
-      // 也用于连接层故障。这里只处理「流还在、但连接断了」的情形：如实显示，且不假装运行完成。
-      if (stream) {
-        closeStream();
-        appendEntry("error", "与服务端的连接已断开");
-        setRunState("disconnected");
-      }
+      if (!stream) return;
+      // EventSource 会在连接断开时自动重连（并带上 Last-Event-ID）；服务端对越过缓存窗口的
+      // 游标回 409，浏览器无法读到该响应体，所以这里统一「如实显示重连中 + 拉一次会话快照」：
+      // 若服务端已终结或事件已淘汰，快照会告诉我们真实状态，页面据此收敛而不是无限重试。
+      setRunState("reconnecting");
+      void resyncFromSession();
     });
+  }
+
+  async function resyncFromSession() {
+    const runId = activeRunId;
+    if (!runId) return;
+    let snapshot;
+    try {
+      const response = await fetch("/api/session", { headers: { accept: "application/json" } });
+      if (!response.ok) return;
+      snapshot = await response.json();
+    } catch (error) {
+      return; // 服务不可达：保持「重连中」，由 EventSource 继续尝试。
+    }
+    if (activeRunId !== runId) return; // 已经切到别的运行，别用旧快照覆盖。
+    const terminal = ["completed", "failed", "cancelled", "timed_out"].includes(snapshot.status);
+    if (terminal || snapshot.run_id !== runId) {
+      closeStream();
+      await restoreSession();
+      appendEntry("error", "连接中断后已与服务端重新同步（可能有事件未送达）。");
+      setRunState(snapshot.status === "completed" ? "done" : "failed", RUN_TEXT.failed);
+    }
   }
 
   async function readError(response) {
@@ -222,6 +239,25 @@
     activeRunId = created.run_id;
     setRunState("running");
     subscribe(created.run_id);
+  }
+
+  async function cancelRun() {
+    if (!activeRunId) return;
+    const runId = activeRunId;
+    setRunState("cancelling");
+    try {
+      const response = await fetch(`/api/runs/${runId}`, { method: "DELETE" });
+      if (!response.ok) {
+        const message = await readError(response);
+        appendEntry("error", message || `取消失败（HTTP ${response.status}）`);
+        setRunState("failed");
+        return;
+      }
+      // 成功时不在这里宣布结果：终态由 SSE 的 `cancelled` 事件给出（服务端是唯一事实源）。
+    } catch (error) {
+      appendEntry("error", "无法连接到服务");
+      setRunState("disconnected");
+    }
   }
 
   async function restoreSession() {
@@ -261,6 +297,10 @@
     if (!prompt) return;
     el.input.value = "";
     submitPrompt(prompt);
+  });
+
+  el.stop.addEventListener("click", () => {
+    void cancelRun();
   });
 
   el.input.addEventListener("keydown", (event) => {

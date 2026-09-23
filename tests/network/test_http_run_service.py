@@ -67,6 +67,8 @@ def _executor(
 
 
 def _blocking_executor(gate: asyncio.Event):
+    """阻塞在 ``gate`` 上的 executor（测试用它模拟「跑到一半的运行」）。"""
+
     async def run(prompt: str, publisher: Any) -> RunOutcome:
         await gate.wait()
         return RunOutcome(answer="late")
@@ -353,3 +355,209 @@ class TestRunServiceShutdown:
         # 关闭后不再接受新运行。
         with pytest.raises(HttpRunConflictError):
             await service.start_run("again")
+
+
+class TestCancellation:
+    """``DELETE /api/runs/{id}``：只取消指定运行，且释放名额。"""
+
+    async def test_delete_cancels_the_inflight_run(self) -> None:
+        gate = asyncio.Event()
+        service = HttpRunService(_config(), _blocking_executor(gate))
+        async with _client(service) as client:
+            created = await client.post("/api/runs", json={"prompt": "slow"})
+            run_id = created.json()["run_id"]
+            cancelled = await client.delete(f"/api/runs/{run_id}")
+            body = (await client.get(f"/api/runs/{run_id}/events")).text
+
+        assert cancelled.status_code == 200
+        assert cancelled.json() == {"run_id": run_id, "status": RunStatus.CANCELLED}
+        assert [event for _id, event, _data in _parse_sse(body)][-1] == "cancelled"
+        assert service.active_runs == 0
+
+    async def test_deleted_run_frees_the_slot_for_the_next_run(self) -> None:
+        gate = asyncio.Event()
+        service = HttpRunService(_config(), _blocking_executor(gate))
+        async with _client(service) as client:
+            first = await client.post("/api/runs", json={"prompt": "slow"})
+            await client.delete(f"/api/runs/{first.json()['run_id']}")
+            # 放行「门」：证明取消确实归还了唯一名额（否则第二次提交会收 409）。
+            gate.set()
+            second = await client.post("/api/runs", json={"prompt": "fast"})
+            await client.get(f"/api/runs/{second.json()['run_id']}/events")
+
+        assert second.status_code == 201
+        assert service.active_runs == 0
+
+    async def test_delete_unknown_run_is_a_stable_404(self) -> None:
+        service = HttpRunService(_config(), _executor())
+        async with _client(service) as client:
+            response = await client.delete("/api/runs/nope")
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == HttpErrorCode.UNKNOWN_RUN
+
+    async def test_delete_after_completion_is_idempotent(self) -> None:
+        """已完成（或已取消）的运行再被 DELETE：返回其真实终态，不报错、不改成 cancelled。"""
+        service = HttpRunService(_config(), _executor())
+        async with _client(service) as client:
+            created = await client.post("/api/runs", json={"prompt": "hi"})
+            run_id = created.json()["run_id"]
+            await client.get(f"/api/runs/{run_id}/events")
+            response = await client.delete(f"/api/runs/{run_id}")
+
+        assert response.status_code == 200
+        assert response.json()["status"] == RunStatus.COMPLETED
+
+    async def test_cancelled_run_is_not_projected_into_session(self) -> None:
+        gate = asyncio.Event()
+        service = HttpRunService(_config(), _blocking_executor(gate))
+        async with _client(service) as client:
+            created = await client.post("/api/runs", json={"prompt": "slow"})
+            await client.delete(f"/api/runs/{created.json()['run_id']}")
+            snapshot = (await client.get("/api/session")).json()
+
+        assert snapshot["status"] == RunStatus.CANCELLED
+        assert snapshot["messages"] == []
+
+
+class TestReconnect:
+    """``Last-Event-ID`` 续读与窗口外重同步（AD-4）。"""
+
+    async def test_last_event_id_replays_only_newer_events(self) -> None:
+        service = HttpRunService(_config(), _executor(with_tool=True))
+        async with _client(service) as client:
+            created = await client.post("/api/runs", json={"prompt": "hi"})
+            run_id = created.json()["run_id"]
+            full = _parse_sse((await client.get(f"/api/runs/{run_id}/events")).text)
+            resumed = _parse_sse((await client.get(f"/api/runs/{run_id}/events", headers={"last-event-id": "2"})).text)
+
+        assert [frame_id for frame_id, _event, _data in full] == [1, 2, 3, 4]
+        # 严格大于：2 之后的事件全部、且只有它们（不重复、顺序稳定）。
+        assert [frame_id for frame_id, _event, _data in resumed] == [3, 4]
+
+    async def test_stale_cursor_requires_resync(self) -> None:
+        """游标早于缓冲窗口 ⇒ 409 ``resync_required``（不发一条看似连续的流）。"""
+        service = HttpRunService(_config(event_buffer_size=2), _executor(with_tool=True))
+        async with _client(service) as client:
+            created = await client.post("/api/runs", json={"prompt": "hi"})
+            run_id = created.json()["run_id"]
+            await client.get(f"/api/runs/{run_id}/events")  # 等运行结束（缓冲只剩最后 2 条）
+            stale = await client.get(f"/api/runs/{run_id}/events", headers={"last-event-id": "1"})
+            boundary = await client.get(f"/api/runs/{run_id}/events", headers={"last-event-id": "2"})
+
+        assert stale.status_code == 409
+        assert stale.json()["error"]["code"] == HttpErrorCode.RESYNC_REQUIRED
+        # 边界值（下一条正好还在缓冲里）允许续读。
+        assert boundary.status_code == 200
+        assert [frame_id for frame_id, _event, _data in _parse_sse(boundary.text)] == [3, 4]
+
+    async def test_evicted_cursor_overrun_requires_resync(self) -> None:
+        """完全不带到 ``Last-Event-ID`` 的订阅在窗口已淘汰开头时同样要求重新同步。"""
+        service = HttpRunService(_config(event_buffer_size=1), _executor(with_tool=True))
+        async with _client(service) as client:
+            created = await client.post("/api/runs", json={"prompt": "hi"})
+            run_id = created.json()["run_id"]
+            await client.get(f"/api/runs/{run_id}/events")
+            response = await client.get(f"/api/runs/{run_id}/events")
+
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == HttpErrorCode.RESYNC_REQUIRED
+
+    @pytest.mark.parametrize("header", ["abc", "", "-3", "1.5"])
+    async def test_invalid_last_event_id_is_treated_as_no_cursor(self, header: str) -> None:
+        """畸形游标不变成 400：按「从头读」处理（否则一个坏游标会让客户端再也订阅不上）。"""
+        service = HttpRunService(_config(), _executor())
+        async with _client(service) as client:
+            created = await client.post("/api/runs", json={"prompt": "hi"})
+            run_id = created.json()["run_id"]
+            await client.get(f"/api/runs/{run_id}/events")
+            response = await client.get(f"/api/runs/{run_id}/events", headers={"last-event-id": header})
+
+        assert response.status_code == 200
+        assert [event for _id, event, _data in _parse_sse(response.text)][-1] == "done"
+
+    async def test_heartbeat_is_emitted_while_idle(self) -> None:
+        """空闲期的保活帧：``yield None``（不占事件 ID、不推进游标）。"""
+        gate = asyncio.Event()
+        service = HttpRunService(_config(), _blocking_executor(gate))
+        record = await service.start_run("hi")
+        stream = service.stream_events(record, heartbeat_seconds=0.05)
+        try:
+            assert await asyncio.wait_for(stream.__anext__(), timeout=2) is None
+        finally:
+            await stream.aclose()
+            gate.set()
+            await service.close()
+
+    async def test_subscription_limit_is_enforced(self) -> None:
+        config = _config(max_connections=1)
+        service = HttpRunService(config, _executor())
+        record = await service.start_run("hi")
+        # 手动占住唯一名额（等价于一个已建立的 SSE 流）。
+        record.subscribers.add(asyncio.Queue())
+        async with _client(service, config=config) as client:
+            response = await client.get(f"/api/runs/{record.run_id}/events")
+
+        assert response.status_code == 429
+        assert response.json()["error"]["code"] == HttpErrorCode.RATE_LIMITED
+
+    async def test_disconnect_releases_the_subscription(self) -> None:
+        """客户端断线（生成器被关闭）必须释放订阅者，否则名额会被死连接吃光。"""
+        gate = asyncio.Event()
+        service = HttpRunService(_config(), _blocking_executor(gate))
+        record = await service.start_run("hi")
+        stream = service.stream_events(record, heartbeat_seconds=0.05)
+        try:
+            await stream.__anext__()  # 启动生成器 ⇒ 订阅已登记
+            assert service.subscriber_count(record) == 1
+        finally:
+            await stream.aclose()
+        assert service.subscriber_count(record) == 0
+        gate.set()
+        await service.close()
+
+
+class TestRunTimeout:
+    async def test_run_timeout_marks_timed_out_and_emits_the_event(self) -> None:
+        gate = asyncio.Event()
+        service = HttpRunService(_config(request_timeout=0.05), _blocking_executor(gate))
+        record = await service.start_run("hi")
+        async with _client(service) as client:
+            body = (await client.get(f"/api/runs/{record.run_id}/events")).text
+
+        assert record.status == RunStatus.TIMED_OUT
+        assert [event for _id, event, _data in _parse_sse(body)][-1] == "timed_out"
+        assert service.active_runs == 0
+        gate.set()
+
+    async def test_timeout_then_shutdown_is_a_noop(self) -> None:
+        """超时已写下终态：随后的关停不得改写它、也不得再发一条终态事件（AD-10）。"""
+        gate = asyncio.Event()
+        service = HttpRunService(_config(request_timeout=0.05), _blocking_executor(gate))
+        record = await service.start_run("hi")
+        for _ in range(100):
+            if record.is_terminal:
+                break
+            await asyncio.sleep(0.02)
+        await service.close()
+
+        assert record.status == RunStatus.TIMED_OUT
+        terminal = [
+            event.kind.value
+            for event in record.events
+            if event.kind.value in {"done", "error", "cancelled", "timed_out"}
+        ]
+        assert terminal == ["timed_out"]
+        gate.set()
+
+    async def test_timed_out_run_is_not_projected_into_session(self) -> None:
+        gate = asyncio.Event()
+        service = HttpRunService(_config(request_timeout=0.05), _blocking_executor(gate))
+        async with _client(service) as client:
+            created = await client.post("/api/runs", json={"prompt": "slow"})
+            await client.get(f"/api/runs/{created.json()['run_id']}/events")
+            snapshot = (await client.get("/api/session")).json()
+
+        assert snapshot["status"] == RunStatus.TIMED_OUT
+        assert snapshot["messages"] == []
+        gate.set()

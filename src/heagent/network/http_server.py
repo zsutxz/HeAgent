@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import importlib
+import json
 import logging
 import math
 import time
@@ -34,18 +35,20 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from heagent.network.exposure import exposure_warning
+from heagent.network.exposure import exposure_warning, is_loopback_host
 from heagent.network.http_protocol import (
     GENERIC_ERROR_MESSAGE,
+    SSE_HEARTBEAT_FRAME,
+    SSE_HEARTBEAT_SECONDS,
     TERMINAL_RUN_STATUSES,
     HealthResponse,
     HttpErrorCode,
-    RunCreatedResponse,
     RunEventKind,
     RunEventPayload,
     RunOutcome,
     RunRequest,
     RunStatus,
+    RunStatusResponse,
     SessionMessage,
     SessionResponse,
     clip_text,
@@ -97,6 +100,7 @@ _SECURITY_HEADERS: tuple[tuple[bytes, bytes], ...] = (
 
 _HEALTH_PATH = "/api/health"
 _RUNS_PATH = "/api/runs"
+_RUN_DETAIL_PATH = "/api/runs/{run_id}"
 _RUN_EVENTS_PATH = "/api/runs/{run_id}/events"
 _SESSION_PATH = "/api/session"
 
@@ -207,14 +211,24 @@ class _RunRecord:
         self.status = RunStatus.RUNNING
         self.outcome: RunOutcome | None = None
         self.error_message: str | None = None
+        self.created_at = time.perf_counter()
         # 有界 ring buffer：越过窗口的重连（49-4）据此判定 resync_required。
         self.events: deque[RunEventPayload] = deque(maxlen=buffer_size)
         self.subscribers: set[asyncio.Queue[RunEventPayload | None]] = set()
         self._next_seq = 1
 
+    def elapsed_ms(self) -> int:
+        """自创建起的整数毫秒（终态日志用；不含任何内容字段）。"""
+        return int((time.perf_counter() - self.created_at) * 1000)
+
     @property
     def is_terminal(self) -> bool:
         return self.status in TERMINAL_RUN_STATUSES
+
+    @property
+    def oldest_seq(self) -> int | None:
+        """缓冲里最老事件的序号（空缓冲 → ``None``）——``resync`` 判定的下界。"""
+        return self.events[0].seq if self.events else None
 
     def append(self, kind: RunEventKind, **fields: Any) -> RunEventPayload:
         """追加一条事件：分配单调 ``seq``、入缓冲、广播给当前订阅者（同步，无 ``await``）。"""
@@ -294,7 +308,8 @@ class HttpRunService:
         self.session_id = session_id or uuid.uuid4().hex
         self._executor = executor
         self._runs: OrderedDict[str, _RunRecord] = OrderedDict()
-        self._tasks: set[asyncio.Task[None]] = set()
+        # run_id → 运行任务：取消与关停都要按 id 找到它（``set`` 无法表达「取消哪一个」）。
+        self._run_tasks: dict[str, asyncio.Task[None]] = {}
         self._active: set[str] = set()
         self._messages: list[SessionMessage] = []
         self._current_run_id: str | None = None
@@ -333,10 +348,78 @@ class HttpRunService:
         self._store(record)
         self._active.add(record.run_id)
         self._current_run_id = record.run_id
+        _safe_log(logging.INFO, "http event=run_started run_id=%s", record.run_id)
         task: asyncio.Task[None] = asyncio.create_task(self._execute(record), name=f"heagent-http-run-{record.run_id}")
-        self._tasks.add(task)
-        task.add_done_callback(self._tasks.discard)
+        self._run_tasks[record.run_id] = task
+
+        def _on_done(finished: asyncio.Task[None]) -> None:
+            self._finalize(finished, record.run_id)
+
+        task.add_done_callback(_on_done)
         return record
+
+    def _finalize(self, task: asyncio.Task[None], run_id: str) -> None:
+        """运行任务的**兜底收尾**：注销任务、归还在途名额、并补写「未启动即被取消」的终态。
+
+        ``asyncio`` 里 ``create_task`` 之后立刻 ``cancel()``（同一个事件循环 tick 内）会让协程体
+        **完全不执行**——``_execute`` 的 ``except CancelledError`` 与 ``finally`` 都不会跑，于是
+        记录会永远停在 ``running``、名额也永远不归还（实测：DELETE 立即返回 200 但状态是 running，
+        后续订阅等不到终态事件而挂住）。这里把「终态 + 名额」放进 done callback，任何结束路径
+        （正常、异常、取消、未启动即取消）都覆盖；正常路径下 ``claim_terminal`` 是 no-op。
+        """
+        self._run_tasks.pop(run_id, None)
+        self._active.discard(run_id)
+        record = self._runs.get(run_id)
+        if record is None:
+            return
+        if record.claim_terminal(RunStatus.CANCELLED):
+            record.append(RunEventKind.CANCELLED, message="run cancelled")
+            record.close_subscribers()
+        # 统一终态观测（AD-9）：只有不透明 run id、状态与耗时——**不含** prompt、回答或工具输出。
+        _safe_log(
+            logging.INFO if record.status is RunStatus.COMPLETED else logging.WARNING,
+            "http event=run_finished run_id=%s status=%s elapsed_ms=%d",
+            run_id,
+            record.status.value,
+            record.elapsed_ms(),
+        )
+
+    async def cancel_run(self, run_id: str) -> _RunRecord | None:
+        """协作式取消**指定**运行并等待它进入终态（有界）；未知 run 返回 ``None``。
+
+        - 只取消该 run 的任务：不触碰其它运行，也不关服务（49-4 的 Always 项）；
+        - 幂等：任务已结束（或已是终态）时直接返回记录——终态由 ``claim_terminal`` 保证唯一；
+        - 等待有界（``shutdown_timeout``）：忽略取消的运行不会把 ``DELETE`` 挂住，此时如实返回
+          ``running``，由运行超时或关停兜底（AD-10「第一个终态获胜」不变）。
+        """
+        record = self._runs.get(run_id)
+        if record is None:
+            return None
+        task = self._run_tasks.get(run_id)
+        if task is not None and not task.done():
+            task.cancel()
+            _done, pending = await asyncio.wait({task}, timeout=self.config.shutdown_timeout)
+            if pending:
+                _safe_log(logging.WARNING, "http event=cancel_timeout run_id=%s", run_id)
+        return record
+
+    def needs_resync(self, record: _RunRecord, last_event_id: int | None) -> bool:
+        """客户端的游标是否已落在事件窗口之外（AD-4 的 ``resync_required`` 判据）。
+
+        语义（严格大于）：客户端说「我收到 N」时，只要 N+1 之后的事件都还在缓冲里就能无缝续读，
+        即 ``N >= oldest_seq - 1``；更小的 N 意味着中间事件已被 ring buffer 淘汰，**必须**重新
+        同步而不是发一条看似连续的流。没有游标（或 0）等价于「从头读」：若窗口已淘汰开头
+        （``oldest_seq > 1``），同样要求重新同步。
+        """
+        cursor = 0 if last_event_id is None else max(0, last_event_id)
+        oldest = record.oldest_seq
+        if oldest is None:
+            return False
+        return cursor < oldest - 1
+
+    def subscriber_count(self, record: _RunRecord) -> int:
+        """该运行当前的 SSE 订阅者数（限额判定与测试用）。"""
+        return len(record.subscribers)
 
     async def close(self) -> None:
         """停止接收新运行、使在途运行进入终态、等待运行任务退出（有界，AD-5 的关闭序列）。
@@ -346,32 +429,40 @@ class HttpRunService:
         忽略取消的任务，残留由容器退出兜底。
         """
         self._closing = True
-        tasks = tuple(self._tasks)
+        tasks = tuple(self._run_tasks.values())
         for task in tasks:
             task.cancel()
         if tasks:
             _done, pending = await asyncio.wait(tasks, timeout=self.config.shutdown_timeout)
             if pending:
                 _safe_log(logging.WARNING, "http event=run_shutdown_timeout pending=%d", len(pending))
-        self._tasks.clear()
+        self._run_tasks.clear()
 
     # ---- 运行执行 ----
 
     async def _execute(self, record: _RunRecord) -> None:
-        """跑一次运行并把结果写进记录（唯一写终态的地方，AD-10）。"""
+        """跑一次运行并把结果写进记录（唯一写终态的地方，AD-10）。
+
+        超时（``HTTP_REQUEST_TIMEOUT``）与取消都经这里的终态转换收口：**第一个**拿到终态的转换
+        获胜，只发一条终态事件，并且在 ``finally`` 里归还唯一的在途名额。
+        """
         try:
-            outcome = await self._executor(record.prompt, RunEventPublisher(record))
+            async with asyncio.timeout(self.config.request_timeout):
+                outcome = await self._executor(record.prompt, RunEventPublisher(record))
         except asyncio.CancelledError:
             if record.claim_terminal(RunStatus.CANCELLED):
                 record.append(RunEventKind.CANCELLED, message="run cancelled")
                 record.close_subscribers()
             raise
+        except TimeoutError:
+            if record.claim_terminal(RunStatus.TIMED_OUT):
+                record.append(RunEventKind.TIMED_OUT, message="run exceeded the configured time limit")
+                record.close_subscribers()
         except Exception as exc:
             if record.claim_terminal(RunStatus.FAILED):
                 record.error_message = _client_error_message(exc)
                 record.append(RunEventKind.ERROR, message=record.error_message)
                 record.close_subscribers()
-            _safe_log(logging.WARNING, "http event=run_failed run_id=%s", record.run_id)
         else:
             if record.claim_terminal(RunStatus.COMPLETED):
                 record.outcome = outcome
@@ -406,12 +497,15 @@ class HttpRunService:
         self,
         record: _RunRecord,
         last_event_id: int | None = None,
-    ) -> AsyncIterator[RunEventPayload]:
+        *,
+        heartbeat_seconds: float = SSE_HEARTBEAT_SECONDS,
+    ) -> AsyncIterator[RunEventPayload | None]:
         """SSE 的事件源：先重放缓冲，再跟随实时事件；终态事件之后流立即结束（AD-4）。
 
-        - ``last_event_id``（``Last-Event-ID``）只重放**严格大于**它的序号；
-        - 订阅者只读：断线只移除本队列，**绝不**取消运行；
-        - 复位扫描（resync 判定）在 49-4 接入调用方——那里才有「游标早于窗口」的语义。
+        - ``last_event_id``（``Last-Event-ID``）只重放**严格大于**它的序号（缺口的判定由调用方
+          在建立流之前用 :meth:`needs_resync` 做完，这里只管「不重复」）；
+        - ``yield None`` 表示**心跳**（注释帧，不占事件 ID、不推进游标）；
+        - 订阅者只读：断线只移除本队列，**绝不**取消运行——取消只能通过 ``DELETE``。
         """
         queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue()
         record.subscribers.add(queue)
@@ -426,7 +520,13 @@ class HttpRunService:
             if is_terminal:
                 return
             while True:
-                item = await queue.get()
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
+                except TimeoutError:
+                    # 空闲期的保活帧：客户端（及中间层）据此判定连接仍然活着。超时取消的是
+                    # ``queue.get()`` 本身，不会丢掉已在队列里的事件。
+                    yield None
+                    continue
                 if item is None:
                     return
                 if last_event_id is not None and item.seq <= last_event_id:
@@ -434,6 +534,211 @@ class HttpRunService:
                 yield item
         finally:
             record.subscribers.discard(queue)
+
+
+# ── 同源防线与请求观测（Story 49-5） ──
+
+# 我们不信任任何代理头：反向代理部署不在 MVP 支持范围（AD-6），出现这些头即拒绝请求——
+# 否则 `X-Forwarded-Host` 就能把「跨站请求」伪装成本机同源请求（DNS rebinding 的常见变体）。
+_UNTRUSTED_FORWARD_HEADERS = frozenset(
+    {b"forwarded", b"x-forwarded-for", b"x-forwarded-host", b"x-forwarded-proto", b"x-real-ip"}
+)
+
+# 回环绑定时接受的等价本机写法：三者指向同一个 listener（浏览器地址栏习惯不同），拒绝其中
+# 任何一个都会让「本机自用」这个主用例失效。**非回环绑定只用配置的那个名字**（不额外放宽）。
+_LOOPBACK_HOST_ALIASES = ("127.0.0.1", "localhost", "[::1]")
+
+
+def _canonical_authority(value: str) -> str | None:
+    """规范化 ``Host`` 的 authority：小写、省略 http 默认端口 80。
+
+    返回 ``None`` 表示格式不可信（含路径/查询、非数字端口、越界端口、空值）——调用方按拒绝处理。
+    IPv6 字面量写成 ``[::1]:8766``（方括号是 authority 的一部分）。
+    """
+    text = value.strip().lower()
+    if not text or "/" in text or "?" in text:
+        return None
+    if text.startswith("["):
+        end = text.find("]")
+        if end < 0:
+            return None
+        host = text[: end + 1]
+        rest = text[end + 1 :]
+        port = rest[1:] if rest.startswith(":") else ""
+    elif ":" in text:
+        host, _, port = text.rpartition(":")
+    else:
+        host, port = text, ""
+    if port and (not port.isdigit() or int(port) > 65535):
+        return None
+    effective = int(port) if port else 80
+    return host if effective == 80 else f"{host}:{effective}"
+
+
+def _allowed_hosts(config: HttpServerConfig) -> frozenset[str]:
+    """允许的 host 名集合：配置 host + （**仅当它是回环时**）等价本机写法。
+
+    这是「请求必须打在本 listener 上」的判据，用于挡住 Host 伪装（例如把 ``evil.example`` 解析到
+    127.0.0.1 的 DNS rebinding）。**不是认证**：能连上端口的本机进程可以随便伪造 Host。
+    """
+    host = config.host.strip().lower()
+    names = {host}
+    if is_loopback_host(host):
+        names.update(_LOOPBACK_HOST_ALIASES)
+    return frozenset(names)
+
+
+def _allowed_ports(config: HttpServerConfig) -> frozenset[int] | None:
+    """允许的端口集合；``None`` 表示「任意端口」。
+
+    ``port=0``（操作系统分配随机端口，只用于程序化/测试）时构建 app 还不知道实际端口，故不限制
+    端口；CLI 与 ``HTTP_PORT`` 都限定 1..65535，生产路径永远有确定的端口。
+    """
+    return None if config.port == 0 else frozenset({config.port})
+
+
+def _split_authority(authority: str) -> tuple[str, int]:
+    """把规范化后的 authority 拆成 ``(host, port)``；无端口视为 http 默认端口 80。"""
+    if authority.startswith("["):
+        end = authority.find("]")
+        host = authority[: end + 1]
+        rest = authority[end + 1 :]
+        return host, int(rest[1:]) if rest.startswith(":") else 80
+    host, sep, port = authority.rpartition(":")
+    if not sep:
+        return authority, 80
+    return host, int(port)
+
+
+def _request_origin_violation(
+    scope: MutableMapping[str, Any],
+    *,
+    hosts: frozenset[str],
+    ports: frozenset[int] | None,
+) -> str | None:
+    """请求是否违反同源防线；返回违规原因（供日志），``None`` 表示通过。
+
+    规则（AD-6）：
+
+    1. 出现任何 forwarded-* 头 ⇒ 拒绝（见 :data:`_UNTRUSTED_FORWARD_HEADERS`）；
+    2. ``Host`` 必须恰好一个、且规范化后的 host/port 都在允许集合内；
+    3. 若带 ``Origin``：不得为 ``null``/空，且必须等于 ``http://`` 加该 authority（同源）。
+       **缺少 Origin** 只表示「非浏览器客户端」（curl / 脚本），Host 已校验故放行。
+    """
+    headers = scope.get("headers") or []
+    if any(name.lower() in _UNTRUSTED_FORWARD_HEADERS for name, _value in headers):
+        return "untrusted forwarded header"
+    host_headers = [value.decode("latin-1") for name, value in headers if name.lower() == b"host"]
+    if len(host_headers) != 1:
+        return "missing or duplicated Host header"
+    authority = _canonical_authority(host_headers[0])
+    if authority is None:
+        return "malformed Host header"
+    host, port = _split_authority(authority)
+    if host not in hosts:
+        return "host not allowed"
+    if ports is not None and port not in ports:
+        return "port not allowed"
+    for name, value in headers:
+        if name.lower() != b"origin":
+            continue
+        origin = value.decode("latin-1").strip().lower()
+        if not origin or origin == "null":
+            return "null Origin"
+        if origin != f"http://{authority}":
+            return "origin mismatch"
+    return None
+
+
+async def _send_json(
+    send: Send, status_code: int, payload: dict[str, Any], *, extra: tuple[tuple[bytes, bytes], ...] = ()
+) -> None:
+    """在**没有 Starlette 响应对象**的中间件层发一个 JSON 响应（保持错误信封一致）。"""
+    body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    headers = [
+        (b"content-type", b"application/json; charset=utf-8"),
+        (b"content-length", str(len(body)).encode("ascii")),
+        *extra,
+    ]
+    await send({"type": "http.response.start", "status": status_code, "headers": headers})
+    await send({"type": "http.response.body", "body": body})
+
+
+class _OriginGuardMiddleware:
+    """同源防线（AD-6）：校验 Host，并在带 Origin 时要求它与 listener 同源。
+
+    **defense-in-depth，不是认证**：能连上回环端口的本机进程可以伪造请求头直接调 API；
+    这里的价值是挡住浏览器发起的跨站请求（CSRF）与 Host 伪装（DNS rebinding），并把
+    forwarded-* 头这类「代理欺骗」明确拒掉。
+    """
+
+    def __init__(self, app: ASGIApp, *, hosts: frozenset[str], ports: frozenset[int] | None) -> None:
+        self.app = app
+        self.hosts = hosts
+        self.ports = ports
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        violation = _request_origin_violation(scope, hosts=self.hosts, ports=self.ports)
+        if violation is None:
+            await self.app(scope, receive, send)
+            return
+        # 违规原因只进服务端日志；客户端拿固定的脱敏文案（不透露允许的 host 集合）。
+        _safe_log(
+            logging.WARNING,
+            "http event=origin_rejected method=%s path=%s reason=%s",
+            scope.get("method"),
+            scope.get("path"),
+            violation,
+        )
+        await _send_json(
+            send,
+            403,
+            error_envelope(HttpErrorCode.ORIGIN_FORBIDDEN, "request origin rejected").model_dump(mode="json"),
+        )
+
+
+class _AccessLogMiddleware:
+    """请求级观测（AD-9）：每条请求一条日志 + 响应头 ``x-request-id``。
+
+    只记 **方法 / 路径 / 状态码 / 耗时 / 不透明 request id**；**绝不**记请求体、请求头、
+    提示词、回答或工具输出——内容字段一律排除，而不是靠脱敏去打补丁。
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+        request_id = uuid.uuid4().hex[:12]
+        started = time.perf_counter()
+        status = 0
+
+        async def send_with_headers(message: MutableMapping[str, Any]) -> None:
+            nonlocal status
+            if message.get("type") == "http.response.start":
+                status = int(message.get("status", 0))
+                raw = list(message.get("headers") or [])
+                raw.append((b"x-request-id", request_id.encode("ascii")))
+                message = {**message, "headers": raw}
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_with_headers)
+        finally:
+            _safe_log(
+                logging.INFO if status < 400 else logging.WARNING,
+                "http event=request request_id=%s method=%s path=%s status=%s elapsed_ms=%d",
+                request_id,
+                scope.get("method"),
+                scope.get("path"),
+                status,
+                int((time.perf_counter() - started) * 1000),
+            )
 
 
 class _SecurityHeadersMiddleware:
@@ -500,18 +805,43 @@ def format_sse(payload: RunEventPayload) -> bytes:
     return f"id: {payload.seq}\nevent: {payload.kind.value}\ndata: {data}\n\n".encode()
 
 
-async def _sse_stream(service: HttpRunService, record: _RunRecord) -> AsyncIterator[bytes]:
-    """SSE 响应体：只读订阅运行事件；订阅者清理由生成器的 ``finally`` 保证（断线即回收）。"""
-    async for payload in service.stream_events(record):
-        yield format_sse(payload)
+async def _sse_stream(
+    service: HttpRunService,
+    record: _RunRecord,
+    last_event_id: int | None = None,
+    *,
+    heartbeat_seconds: float = SSE_HEARTBEAT_SECONDS,
+) -> AsyncIterator[bytes]:
+    """SSE 响应体：只读订阅运行事件；``None`` 转成心跳注释帧；断线即回收订阅者（生成器 finally）。"""
+    async for payload in service.stream_events(record, last_event_id, heartbeat_seconds=heartbeat_seconds):
+        yield SSE_HEARTBEAT_FRAME if payload is None else format_sse(payload)
+
+
+def _parse_last_event_id(request: Any) -> int | None:
+    """解析 ``Last-Event-ID`` 请求头（SSE 规范里是字符串）。
+
+    非数字 / 负数 / 空值一律当作「没有游标」（不报错）：游标只是客户端自述的进度，格式可疑时
+    按「从头读」处理并由 ``needs_resync`` 决定是否需要重新同步，**不**把畸形头变成 400——
+    否则一个坏游标会让客户端再也订阅不上。
+    """
+    raw = getattr(request, "headers", None)
+    if raw is None:
+        return None
+    value = raw.get("last-event-id")
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text.isdigit():
+        return None
+    return int(text)
 
 
 def _build_run_endpoints(
     responses: Any,
     config: HttpServerConfig,
     service: HttpRunService,
-) -> tuple[Any, Any, Any]:
-    """构造运行 API 的三个端点（``POST /api/runs`` / 事件流 / 会话快照）。
+) -> tuple[Any, Any, Any, Any]:
+    """构造运行 API 的四个端点（创建 / 事件流 / 取消 / 会话快照）。
 
     以**具体类型**的 ``service`` 为参数（而不是让端点闭包捕获 ``Optional`` 再在体内断言）：
     「路由只在注入 service 时注册」这条前提写在签名里比写在断言里可靠，也让
@@ -544,7 +874,7 @@ def _build_run_endpoints(
         except HttpRunConflictError as exc:
             return _json_error(responses, HttpErrorCode.RUN_CONFLICT, str(exc), status_code=409)
         return responses.JSONResponse(
-            RunCreatedResponse(run_id=record.run_id, status=record.status).model_dump(mode="json"),
+            RunStatusResponse(run_id=record.run_id, status=record.status).model_dump(mode="json"),
             status_code=201,
         )
 
@@ -554,17 +884,44 @@ def _build_run_endpoints(
         record = service.run(run_id)
         if record is None:
             return _json_error(responses, HttpErrorCode.UNKNOWN_RUN, "no such run", status_code=404)
+        cursor = _parse_last_event_id(request)
+        if service.needs_resync(record, cursor):
+            # 游标早于缓冲窗口：**不**发一条「看起来连续」的流，明确要求重新同步（AD-4）。
+            # 客户端应改拉 `/api/session` 快照，而不是把缺口当作没发生。
+            return _json_error(
+                responses,
+                HttpErrorCode.RESYNC_REQUIRED,
+                "event cursor is older than the buffered window; reload the session snapshot",
+                status_code=409,
+            )
+        if service.subscriber_count(record) >= config.max_connections:
+            return _json_error(
+                responses,
+                HttpErrorCode.RATE_LIMITED,
+                "too many event subscribers for this run",
+                status_code=429,
+            )
         return responses.StreamingResponse(
-            _sse_stream(service, record),
+            _sse_stream(service, record, cursor),
             media_type="text/event-stream",
             headers={"cache-control": "no-store", "x-accel-buffering": "no"},
+        )
+
+    async def cancel_run(request: Any) -> Any:
+        """``DELETE /api/runs/{run_id}``：协作式取消指定运行（幂等；不触碰其它运行）。"""
+        run_id = str(request.path_params.get("run_id", ""))
+        record = await service.cancel_run(run_id)
+        if record is None:
+            return _json_error(responses, HttpErrorCode.UNKNOWN_RUN, "no such run", status_code=404)
+        return responses.JSONResponse(
+            RunStatusResponse(run_id=record.run_id, status=record.status).model_dump(mode="json")
         )
 
     async def session(request: Any) -> Any:  # noqa: ARG001
         """``GET /api/session``：进程内单用户会话的可展示快照（刷新后恢复用）。"""
         return responses.JSONResponse(service.session_snapshot().model_dump(mode="json"))
 
-    return create_run, run_events, session
+    return create_run, run_events, cancel_run, session
 
 
 def build_http_app(config: HttpServerConfig, *, version: str, run_service: HttpRunService | None = None) -> ASGIApp:
@@ -635,11 +992,12 @@ def build_http_app(config: HttpServerConfig, *, version: str, run_service: HttpR
         routing.Route("/", endpoint=index, methods=["GET"]),
     ]
     if run_service is not None:
-        create_run, run_events, session_endpoint = _build_run_endpoints(responses, config, run_service)
+        create_run, run_events, cancel_run, session_endpoint = _build_run_endpoints(responses, config, run_service)
         routes.extend(
             [
                 routing.Route(_RUNS_PATH, endpoint=create_run, methods=["POST"]),
                 routing.Route(_RUN_EVENTS_PATH, endpoint=run_events, methods=["GET"]),
+                routing.Route(_RUN_DETAIL_PATH, endpoint=cancel_run, methods=["DELETE"]),
                 routing.Route(_SESSION_PATH, endpoint=session_endpoint, methods=["GET"]),
             ]
         )
@@ -651,7 +1009,10 @@ def build_http_app(config: HttpServerConfig, *, version: str, run_service: HttpR
             Exception: server_error,
         },
     )
-    return _SecurityHeadersMiddleware(app, _SECURITY_HEADERS)
+    # 包装顺序（由外到内）：安全头（保证连被拒的响应也带）→ 请求观测 → 同源防线 → 应用路由。
+    guarded = _OriginGuardMiddleware(app, hosts=_allowed_hosts(config), ports=_allowed_ports(config))
+    logged = _AccessLogMiddleware(guarded)
+    return _SecurityHeadersMiddleware(logged, _SECURITY_HEADERS)
 
 
 def _probe_host(host: str) -> str:
