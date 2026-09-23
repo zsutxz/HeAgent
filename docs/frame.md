@@ -905,14 +905,27 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 读取全部接入（契约测试钉 `os.open` 白名单）；-> `fstat()` 常规文件校验 -> 已打开 descriptor 读取”。这能拒绝
 绝对路径、路径穿越、解析后越界符号链接，以及支持 `O_NOFOLLOW` 的平台上最终组件在打开前被替换为符号链接的情形。
 不支持该标志的平台保留兼容打开；特征证据与回退覆盖见 `tests/test_skill_packages_toctou.py`，评估与候选方案见
-`_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/spec-skill-resource-toctou-assessment.md`，故事流程规格见
+`_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/spec-skill-resource-toctou-assessment.md`，2026-09-23 的复核与决策见同目录 `assessment-toctou-residual-2026-09-23.md`，故事流程规格见
 `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`，
 实现规格见 `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/spec-46-2-skill-resource-open-hardening.md`。
 
+**内容完整性校验（2026-09-23 交付）**：读路径不再只做围栏与常规文件校验——若包根有合法的
+`manifest.json`（**复用**渲染器 `_bmad/scripts/render_skill.py` 的既有产物，其 `outputs` 为
+「相对 POSIX 路径 → sha256」，不为本特性新增文件或 lock 字段），则读到的**原始字节**摘要必须与清单一致，
+否则 `SkillPackageResourceError("content hash differs from manifest.json")` 显性失败。
+摘要取原始字节（`path_safety.read_text_with_digest_under_root`）而非归一化文本——固有 CRLF 的文件同样可校验；
+无 `manifest.json` 的包（手写技能占多数）行为**逐字节不变**——凭据读取**先 stat 再读**（`is_file()` 门控），
+未托管包零额外 `os.open`（读取次数刻画测试与 `O_NOFOLLOW` 的 EINVAL 兼容回退测试依赖此点，
+2026-09-23 由 Linux 等价验证抓出：无门控时会多开一次文件），凭据不可用（损坏 / `outputs` 形状不符）时
+跳过并记 warning（`manifest.json` 是通用文件名，可能属于别的工具，不据此拒读）。
+代价与边界：渲染/导入后被**手工编辑**的包将拒读（有意，fail-loud；渲染器对漂移本就 `RenderError`）；
+清单只钉它列出的文件，包内新增文件不在校验范围；能写该目录者本就能直接改写 `SKILL.md`，故本项是
+defense-in-depth 而非边界。
 
 该加固只保护最终路径组件，不能消除中间目录替换、恶意挂载或更高权限宿主进程造成的竞态；不声称已完成
-TOCTOU 防护。descriptor-relative/目录句柄、导入边界 snapshot 和 OS sandbox 仍须另立 story；所有方案仍是
-defense-in-depth，OS sandbox 才能处理 hostile filesystem/process context。
+TOCTOU 防护。descriptor-relative/目录句柄与 OS sandbox 仍须另立 story（2026-09-23 复核仍维持该结论：
+逐组件 `openat` 仅 POSIX 可用且仍是收窄）；所有方案仍是 defense-in-depth，OS sandbox 才能处理
+hostile filesystem/process context。
 
 
 ### 4.15 事件契约 (`events/`)
@@ -937,12 +950,12 @@ Phase 5 C1：+`duration_ms`/`error_kind`；旧 rollout 缺省读、新字段被�
 | --- | --- | --- | --- |
 | `run_started` / `run_paused` / `run_resumed` | `agent/run_lifecycle.py` | `stream`/`session_id`/`resume`/委派键 | — |
 | `run_completed` | `run_lifecycle.finish_run` | `answer_length` | duration（run 全程） |
-| `run_failed` | `run_lifecycle.on_run_failed` | `error` | duration + error_kind |
+| `run_failed` | `run_lifecycle.on_run_failed` | `error` | duration（缺省由 `run_elapsed_ms(loop)` 现算——facade `_on_run_failed` 路径 2026-09-23 前恒 0）+ error_kind |
 | `iteration_started` | `agent/context_runtime.py` | — | — |
 | `provider_call_started` / `provider_call_completed` | `agent/loop.py` | `message_count,estimated_tokens` / `model,finish_reason,actual_tokens` | completed 带 duration（中间件链整体） |
 | `tool_call_started` / `tool_call_completed` / `tool_call_failed` / `tool_call_blocked` | `engine/executor.py`（`_emit_tool_event` 单点） | `mode`（+sandbox_profile/tier）/`content_length`/`error`/`reason` | completed/failed 带 duration；failed 带 error_kind |
 | `context_compressed` / `window_reset` | `agent/context_runtime.py` | `before,after` | — |
-| `workflow_step_started` / `workflow_step_completed` / `workflow_step_failed` | `engine/workflow_runner.run_step`（`emit` 注入端口，缺省 None=不发） | `step,story`（+`result`/`error`） | 三种带 duration；failed 带 error_kind |
+| `workflow_step_started` / `workflow_step_completed` / `workflow_step_failed` | `engine/workflow_runner`（`emit` 注入端口，缺省 None=不发） | `step,story`（+`result`/`error`） | 三种带 duration；failed 带 error_kind。并发批次（`max_parallel_stories>1`）除批级一条（`story` 空）外，**批内每条 story 各发一组**（2026-09-23 起，`story` 非空） |
 | `dream_start` / `dream_end`、`cron_job_*` | `memory/dream.py`、`cron/scheduler.py`（开集现状收编） | `success` 等 | — |
 | `assistant_message`（传输层补充） | `events/sink.py` | `content` | — |
 

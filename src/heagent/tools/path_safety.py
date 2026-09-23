@@ -16,6 +16,7 @@ deny 规则支持**项目级配置** ``.heagent/path_deny.json``（2026-09-17，
 from __future__ import annotations
 
 import errno
+import hashlib
 import json
 import logging
 import os
@@ -86,23 +87,20 @@ def resolve_workspace_path(path: str) -> Path:
     return resolve_under_root(path, workspace_root())
 
 
-def open_text_under_root(root: Path, relative: str | Path) -> str:
-    """「解析后安全打开」单一入口：围栏 → 加固 open → fstat 校验 → 读取解码（Phase 4 C4）。
+def read_bytes_under_root(root: Path, relative: str | Path) -> bytes:
+    """「解析后安全打开」内核：围栏 → 加固 open → fstat 校验 → 返回**原始字节**。
 
-    全仓技能/包资源文本读取的**唯一**底层通道：
+    全仓技能/包资源读取的**唯一**底层通道（文本读取是其薄封装）：
 
     1. ``resolve_under_root`` 围栏（逃逸即 ``WorkspacePathError``）；
     2. ``os.open`` 加固——``O_NOFOLLOW``（平台支持时拒绝最终组件符号链接替换；不支持
        的平台回退普通 open，特征测试钉住）+ ``O_NONBLOCK``/``O_CLOEXEC``/``O_BINARY``；
     3. ``fstat`` 校验普通文件（拒 FIFO/设备文件，防阻塞与非常规读取）；
-    4. 读取 + utf-8 解码 + universal newlines（对齐 ``Path.read_text`` 历史行为）。
+    4. 读满并返回原始字节（**不做**解码与换行归一）。
 
-    错误语义：``FileNotFoundError`` / ``OSError`` / ``UnicodeDecodeError`` 原样上抛，
-    由调用方映射各自领域错误（如 ``SkillPackageResourceError``）。``relative`` 接受
-    **绝对路径或 cwd 相对路径**（可已含 root 前缀——如 ``SkillStore`` 的
-    ``<base>/<name>/SKILL.md``）；kernel 不再对相对输入二次 join root（那会把
-    「root/name」拼成「root/root/name」），而是 resolve 后按 ``root`` 围栏校验——
-    裸资源名（相对 root 的名字）会因 cwd join 不中而**显性报越界**，不猜。
+    独立暴露字节通道的原因：内容完整性校验必须对**磁盘上的原始字节**取哈希——文本通道
+    会做 CRLF→LF 归一，拿它算哈希会让固有 CRLF 的文件永远对不上（见
+    :func:`read_text_with_digest_under_root`）。
 
     ⚠ defense-in-depth 而非安全边界：竞态窗口收窄但未消除，须 OS 级沙箱兜底。
     """
@@ -138,10 +136,7 @@ def open_text_under_root(root: Path, relative: str | Path) -> str:
                 raise OSError(errno.EISDIR, "resource is not a regular file")
             with os.fdopen(descriptor, "rb") as stream:
                 descriptor = -1
-                text = stream.read().decode("utf-8")
-                # Path.read_text() historically performed universal newline
-                # translation; retain that public behavior after decoding.
-                return text.replace("\r\n", "\n").replace("\r", "\n")
+                return stream.read()
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
@@ -150,6 +145,36 @@ def open_text_under_root(root: Path, relative: str | Path) -> str:
             # 翻译成领域无关的显性消息（与 resolve 围栏同层的路径安全语义）。
             raise OSError(errno.ELOOP, f"final path component is a symlink: {resolved}") from exc
         raise
+
+
+def _decode_text(raw: bytes) -> str:
+    """utf-8 解码 + universal newlines（对齐 ``Path.read_text`` 的历史行为）。"""
+    return raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def open_text_under_root(root: Path, relative: str | Path) -> str:
+    """读取并解码一个受围栏保护的文本文件（:func:`read_bytes_under_root` 的薄封装）。
+
+    语义与拆分前逐字节一致：解码 + CRLF/CR → LF 归一。错误语义：``FileNotFoundError`` /
+    ``OSError`` / ``UnicodeDecodeError`` 原样上抛，由调用方映射各自领域错误（如
+    ``SkillPackageResourceError``）。``relative`` 接受**绝对路径或 cwd 相对路径**（可已含
+    root 前缀——如 ``SkillStore`` 的 ``<base>/<name>/SKILL.md``）；kernel 不再对相对输入二次
+    join root（那会把「root/name」拼成「root/root/name」），而是 resolve 后按 ``root`` 围栏
+    校验——裸资源名（相对 root 的名字）会因 cwd join 不中而**显性报越界**，不猜。
+
+    ⚠ defense-in-depth 而非安全边界：竞态窗口收窄但未消除，须 OS 级沙箱兜底。
+    """
+    return _decode_text(read_bytes_under_root(root, relative))
+
+
+def read_text_with_digest_under_root(root: Path, relative: str | Path) -> tuple[str, str]:
+    """文本 + **原始字节**的 sha256 十六进制摘要（内容完整性校验专用）。
+
+    调用方（如 ``SkillPackage`` 对 ``manifest.json`` 的校验）拿它一次性完成「读内容」与
+    「算摘要」，避免读两遍文件（读两遍既慢，又人为制造第二个竞态窗口）。
+    """
+    raw = read_bytes_under_root(root, relative)
+    return _decode_text(raw), hashlib.sha256(raw).hexdigest()
 
 
 def configure_workspace_root(path: Path | None) -> None:

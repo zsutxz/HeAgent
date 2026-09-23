@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import errno
+import json
+import logging
 import re
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Iterable, cast  # noqa: UP035
@@ -10,7 +12,19 @@ from typing import Iterable, cast  # noqa: UP035
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from heagent.frontmatter import parse_inline_pairs, split_frontmatter
-from heagent.tools.path_safety import WorkspacePathError, open_text_under_root, resolve_under_root
+from heagent.tools.path_safety import (
+    WorkspacePathError,
+    read_bytes_under_root,
+    read_text_with_digest_under_root,
+    resolve_under_root,
+)
+
+logger = logging.getLogger(__name__)
+
+# 完整性凭据文件名：**复用**渲染器 `_bmad/scripts/render_skill.py` 在生成目录写下的
+# `manifest.json`（其 `outputs` 为「相对 POSIX 路径 → sha256」），不为本特性新增文件或字段。
+_MANIFEST_NAME = "manifest.json"
+_SHA256_HEX = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
 class SkillPackageError(ValueError):
@@ -81,6 +95,7 @@ class SkillPackage(BaseModel):
     root: Path
     entrypoint: str = "SKILL.md"
     _metadata: SkillPackageMetadata | None = PrivateAttr(default=None)
+    _pinned: dict[str, str] | None = PrivateAttr(default=None)
 
     def model_post_init(self, __context: object) -> None:
         root = self.root.expanduser().resolve(strict=False)
@@ -117,11 +132,17 @@ class SkillPackage(BaseModel):
         Phase 4 C4：「解析后安全打开」收敛到 :func:`~heagent.tools.path_safety.open_text_under_root`
         （围栏 + O_NOFOLLOW + fstat 普通文件校验），本方法只保留包域错误标注
         （skill_id / entry 标签与既有 reason 文案，测试钉死）。
+
+        2026-09-23 起增加**内容完整性校验**：包内若有合法的 ``manifest.json``（渲染器产物），
+        读到的**原始字节**摘要必须与该清单一致，否则显性失败（见 :meth:`_pinned_hashes`）。
+        摘要取原始字节而非归一化文本，故固有 CRLF 的文件同样可校验。
         """
         label = "entrypoint" if entry else "resource"
         try:
             path = self._resolve(resource, entry=entry)
-            return open_text_under_root(self.root, path)
+            text, digest = read_text_with_digest_under_root(self.root, path)
+            self._verify_pinned_hash(resource, path, digest)
+            return text
         except SkillPackageResourceError:
             raise
         except FileNotFoundError as exc:
@@ -167,6 +188,83 @@ class SkillPackage(BaseModel):
         parts = PurePath(resource).parts
         relative = resource if parts and parts[0] == directory else f"{directory}/{resource}"
         return self.read_resource(relative)
+
+    def _pinned_hashes(self) -> dict[str, str]:
+        """本包的完整性凭据（``<root>/manifest.json`` 的 ``outputs`` 表）；无凭据返回 ``{}``。
+
+        凭据**复用**渲染器既有产物（``_bmad/scripts/render_skill.py`` 在生成目录写
+        ``manifest.json``，``outputs`` 即逐文件 sha256），不为本特性新增文件或 lock 字段。
+
+        判定语义（刻意保守，避免误伤其他生产者）：
+
+        - **无** ``manifest.json``：未托管包（手写技能占多数）⇒ ``{}``，读取行为与改动前逐字节一致；
+        - **有但** JSON 损坏 / ``outputs`` 形状不符：记一条 warning 后返回 ``{}``——``manifest.json``
+          是通用文件名，可能属于别的工具，不能据此拒读（代价：攻击者可借此关闭校验；但能写该目录者
+          本就能直接改写 ``SKILL.md``，这仍属 defense-in-depth 而非边界）；
+        - **有且合法**：返回 ``{相对 POSIX 路径: sha256}``，读取时逐资源比对。
+        """
+        if self._pinned is not None:
+            return self._pinned
+        pinned: dict[str, str] = {}
+        raw = b""
+        # 先 stat 再读：未托管包（手写技能占多数）因此**零额外 open**——读取次数的刻画测试
+        # （tests/test_skill_packages_toctou.py 的「恰好一个描述符」与 EINVAL 回退）依赖这一点。
+        # 门控只是「要不要尝试读凭据」，真正的读取仍走围栏内核；探测后被删的竞态等同未托管。
+        manifest_path = self.root / _MANIFEST_NAME
+        if manifest_path.is_file():
+            try:
+                raw = read_bytes_under_root(self.root, manifest_path)
+            except FileNotFoundError:
+                raw = b""  # 竞态：stat 后、open 前被删 → 等同未托管
+            except OSError as exc:
+                logger.warning(
+                    "Skill package '%s' manifest unreadable, skipping integrity check: %s", self.skill_id, exc
+                )
+        if raw:
+            try:
+                payload = json.loads(raw.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                logger.warning(
+                    "Skill package '%s' manifest is not valid JSON, skipping integrity check: %s", self.skill_id, exc
+                )
+            else:
+                outputs = payload.get("outputs") if isinstance(payload, dict) else None
+                if isinstance(outputs, dict):
+                    pinned = {
+                        str(name): str(value)
+                        for name, value in outputs.items()
+                        if isinstance(name, str) and isinstance(value, str) and _SHA256_HEX.match(value)
+                    }
+                if not pinned:
+                    logger.warning(
+                        "Skill package '%s' manifest has no usable 'outputs' hashes, skipping integrity check",
+                        self.skill_id,
+                    )
+        object.__setattr__(self, "_pinned", pinned)
+        return pinned
+
+    def _verify_pinned_hash(self, resource: str, path: Path, digest: str) -> None:
+        """把刚读到的原始字节摘要与该资源的凭据比对；不一致即显性失败。
+
+        **未列出**的文件不比对：渲染器只钉自己生成的那批文件，包内出现新文件不是本校验的
+        对象（是否允许新增属包目录写权限的问题，见模块与 frame 的非边界声明）。
+        """
+        pinned = self._pinned_hashes()
+        if not pinned:
+            return
+        try:
+            key = path.relative_to(self.root).as_posix()
+        except ValueError:  # pragma: no cover - _resolve 已保证落在 root 内
+            return
+        expected = pinned.get(key)
+        if expected is None:
+            return
+        if expected.lower() != digest.lower():
+            raise SkillPackageResourceError(
+                self.skill_id,
+                resource,
+                f"content hash differs from {_MANIFEST_NAME} (file changed after generation)",
+            )
 
     def _resolve(self, resource: str, *, entry: bool = False) -> Path:
         if self.is_absolute(resource) or self.has_parent(resource):
