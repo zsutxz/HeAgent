@@ -1,7 +1,7 @@
 ---
 id: 49-5
 title: HTTP 安全边界与可观测性
-status: backlog
+status: done
 parent_epic: E49
 priority: P0
 depends_on: [49-3, 49-4]
@@ -40,11 +40,11 @@ created: '2026-09-23'
 
 ## 任务
 
-- [ ] 接入 `exposure_warning` 并统一 HTTP 启动告警。
-- [ ] 实现 Host/Origin 校验和状态变更请求拒绝。
-- [ ] 添加安全响应头和静态资源 CSP，确认页面纯文本渲染。
-- [ ] 实现 HTTP 错误映射、日志脱敏和 request/run 观测字段。
-- [ ] 增加 MCP 未连接、审批 fail-safe 和 Agent 治理链回归测试。
+- [x] 接入 `exposure_warning` 并统一 HTTP 启动告警。
+- [x] 实现 Host/Origin 校验和状态变更请求拒绝。
+- [x] 添加安全响应头和静态资源 CSP，确认页面纯文本渲染。
+- [x] 实现 HTTP 错误映射、日志脱敏和 request/run 观测字段。
+- [x] 增加 MCP 未连接、审批 fail-safe 和 Agent 治理链回归测试。
 
 ## 验收标准
 
@@ -72,7 +72,32 @@ created: '2026-09-23'
 
 ## Review Status
 
-Story 范围与验收标准已确认，待实现验证。
+**已实现并验证（2026-09-23）。**
+
+### 实现记录
+
+| 变更 | 说明 |
+| --- | --- |
+| `src/heagent/network/http_server.py` | 新增同源防线与观测：`_OriginGuardMiddleware`（Host 唯一且匹配本 listener、Origin 同源、拒绝 `null`/跨站/重复 Host/forwarded-* 头，403 `origin_forbidden`）、`_AccessLogMiddleware`（每请求一条 `event=request` 日志 + 响应头 `x-request-id`：只记 id/method/path/status/elapsed_ms）、`_canonical_authority` / `_allowed_hosts` / `_allowed_ports` / `_split_authority` / `_request_origin_violation` / `_send_json`（中间件层发 JSON 信封）、`_UNTRUSTED_FORWARD_HEADERS` / `_LOOPBACK_HOST_ALIASES`；`_RunRecord.created_at` + `elapsed_ms()`；`_finalize` 统一终态观测（`event=run_started` / `event=run_finished`，含状态与耗时） |
+| `tests/test_http_security.py`（新增 28 例） | Host 允许/拒绝矩阵（含等价回环写法、端口不符、DNS rebinding 域名、重复 Host、forwarded 头）、Origin 矩阵（同源、缺 Origin 放行、`null`、跨站、https 变体）、**被拒状态变更无副作用**（提交不建 run、DELETE 不取消）、403 仍带安全头与 request id、日志不含 prompt/answer/工具输出正文、`x-request-id` 唯一、审批型工具 fail-safe 阻断（含「文件确实没被写」断言）、不装 stdin 审批、不连 MCP |
+| `docs/frame.md` | 4.17 新增「来源校验」「可观测性」两行；调用链补中间件层级顺序 |
+
+### 验证证据（本机 2026-09-23）
+
+| 项 | 命令 | 结果 |
+| --- | --- | --- |
+| 定向测试 | `pytest tests/test_http_security.py` | **28 passed** |
+| 全量回归 + 覆盖率 | `pytest --cov=heagent --cov-fail-under=87` | **2445 passed, 9 skipped, 18 deselected；91.12%** |
+| Lint / 格式 / 类型 | `ruff check`；`ruff format --check`（261 files）；`mypy src --platform linux` | 全部通过（140 source files） |
+
+### 决策与边界（如实记录）
+
+1. **回环绑定时接受三个等价本机写法**（`127.0.0.1` / `localhost` / `[::1]`）：AD-6 要求「唯一 authority」，但三者在浏览器地址栏里都指向同一 listener，只认一个会让「本机自用」这个主用例莫名其妙地 403。**非回环绑定不额外放宽**（只认配置的那个名字），DNS rebinding 防护（`evil.example` 被拒）不受影响。
+2. **`port=0`（随机端口，仅程序化/测试）时不再校验端口**：构建 app 时还不知道实际端口；CLI 与 `HTTP_PORT` 都限定 1..65535，生产路径永远有确定端口。
+3. **缺少 `Origin` 视为非浏览器客户端并放行**：Host 已校验；curl / 脚本不带 Origin，硬性要求会让「本机自动化」不可用（AD-6 明确允许这一分支）。
+4. **转发头一律拒绝而非忽略**：MVP 不支持反向代理部署；拒绝比忽略更可诊断（日志里会是 `reason=untrusted forwarded header`）。
+5. **日志的既有边界**：工具名与作用对象（路径/命令摘要）仍会经引擎的 `LoggingObserver` 进日志——这是 CLI/GUI 同样存在的行为（frame 五已有条目）；本 Story 保证的是**不记 prompt / 回答 / 工具输出正文**，有 caplog 断言钉住。
+6. **同源防线不是认证**：能连上回环端口的本机进程可以伪造 Header 直接调 API（frame 的「HTTP 入口非安全边界」条目已写明）。
 
 ## Requirement Traceability
 
