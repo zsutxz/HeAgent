@@ -1,13 +1,13 @@
 ---
 stepsCompleted: [step-01-validate-prerequisites, step-02-define-product-scope, step-03-define-requirements]
-status: planning
+status: final
 ---
 
 # Epic 48 PRD：TCP 网络接口与 CLI Agent 服务
 
 > 规划日期：2026-09-22（中国标准时间）
 > 对应 Epic：Epic 48
-> 当前状态：in-progress；Story 已就绪，尚未开始实现
+> 当前状态：**已交付**（2026-09-22 交付，2026-09-23 回写状态）；「MVP 不包含」段的排除项仍为有意排除，周期回顾见 `../../retrospective-epic-48.md`
 > 本文是需求契约，不是实现方案；详细模块设计在后续 architecture 阶段完成。
 
 ## 1. 产品概述

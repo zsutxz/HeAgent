@@ -1,8 +1,8 @@
 # Epic 48：TCP 网络接口与 CLI Agent 服务
 
 > 规划日期：2026-09-22（中国标准时间）
-> 状态：in-progress
-> 规划阶段：PRD、Architecture、Story 与 Sprint Plan 已完成；待进入 Story 48-1 实现
+> 状态：done（2026-09-22 交付，2026-09-23 回写状态）
+> 规划阶段：PRD、Architecture、Story 与 Sprint Plan 已完成；48-1 ~ 48-6 全部交付，Epic 已收口（周期回顾见 `../../retrospective-epic-48.md`）
 
 ## Epic Goal
 

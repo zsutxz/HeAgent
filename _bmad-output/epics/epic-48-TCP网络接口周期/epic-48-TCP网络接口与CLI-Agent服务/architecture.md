@@ -1,13 +1,13 @@
 ---
 stepsCompleted: [step-01-validate-prerequisites, step-02-define-boundaries, step-03-design-components, step-04-define-lifecycle-and-tests]
-status: planning
+status: final
 ---
 
 # Epic 48 Architecture：TCP 网络接口与 CLI Agent 服务
 
 > 设计日期：2026-09-22（中国标准时间）
 > 对应 PRD：`prd.md`
-> 当前状态：in-progress；Architecture 已建立，Story 已细化
+> 当前状态：**已交付并冻结**（2026-09-22 交付，2026-09-23 回写状态）；实现的最终形态以 `docs/frame.md` §4.16 为准，周期回顾见 `../../retrospective-epic-48.md`
 > 代码事实仍以 `src/` 和 `docs/frame.md` 为准；本文是实现前的架构契约。
 
 ## 1. 架构目标

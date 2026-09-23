@@ -115,3 +115,11 @@ created: '2026-09-22'
 ## Review Status
 
 Story 实现、对抗式生命周期评审和定向验证已通过；状态为 `done`。未提交 Git。
+
+## 后续契约变更（跨 Story）
+
+**2026-09-22，Story 48-4**：上方「验收标准 / 生命周期矩阵」中「shutdown timeout 到达后 `close()` 返回」的**登记语义被收紧**——48-4 要求超时后必须**释放连接与在途名额登记**（`active_connections` / `active_inflight` 归零），否则复用/重启同一实例会永久少一份容量；handler 吞掉取消时任务无法强杀，但登记仍须结算并记 warning。
+
+- 受影响测试：`tests/network/test_tcp_server.py::test_close_returns_after_timeout_when_handler_suppresses_cancellation`，断言由「超时后 `active_connections == 1`」改为 `== 0` 且在途为 0。
+- 归属证据：`_bmad-output/epics/epic-48-TCP网络接口周期/…/stories/48-4-concurrency-timeouts-resource-limits.md`（Review 段 W1）与 `docs/frame.md` §4.16。
+- 本 Story 的其余 AC 与矩阵语义不变；改读本 Story 时以此节为准。

@@ -1,7 +1,7 @@
 # Epic 48 Sprint Plan：TCP 网络接口与 CLI Agent 服务
 
 > 制定日期：2026-09-22（中国标准时间）
-> Epic 状态：in-progress
+> Epic 状态：done（2026-09-22 交付；实测结果见本文末「实测结果」表，周期回顾见 `../../retrospective-epic-48.md`）
 > 执行策略：单 Story WIP=1；依赖完成后再进入下一 Story
 
 ## Sprint Goal
