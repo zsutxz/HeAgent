@@ -325,5 +325,5 @@ UX 缺陷：刷新失败时状态行原本会被「已保存」覆盖（现在�
 正是这一行的价值）。正向 —— `ACCEPTANCE {"rows":18,"failed":0}`；`pytest tests/test_http_web_ui.py tests/network -q`
 → 421 passed；`ruff check` / `ruff format --check` 全绿。
 
-**登记**：台账 `deferred-work-archive.md` Z-D15（含残余：真实命中测试目前只有 A1b 一行，`click()` 仍用 DOM API）。
+**登记**：本周期台账 `deferred-work.md` Z-D15（2026-09-24 自活动台账 `deferred-work-archive.md` 按归属 epic 回填；含残余：真实命中测试目前只有 A1b 一行，`click()` 仍用 DOM API）。
 

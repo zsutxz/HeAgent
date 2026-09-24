@@ -258,7 +258,7 @@ FR-5；NFR-4–NFR-9, NFR-11；UX-DR3, UX-DR4；脊柱 I4, I5, I6, I7, I8, I9, I
   Linux 矩阵覆盖，本机跳过——Windows 无 POSIX 模式位，硬测只会假绿）。
 - **R3 结论**：两线程 + 同一起点指纹 ⇒ 恰好一个 `ok`、一个 `config_conflict`，文件是赢家的值，审计只有一条。
 
-**已知缺口（2026-09-24 当日已随「顺手闭合」批次全部闭合 —— 详见台账 Z-D13 / Z-D14）**
+**已知缺口（2026-09-24 当日已随「顺手闭合」批次全部闭合 —— 详见本周期台账 `deferred-work.md` Z-D13 / Z-D14）**
 
 1. `MAX_ITERATIONS` / `GOAL_MAX_ITERATIONS` / `SUBAGENT_MAX_ITERATIONS` / `MAX_OUTPUT_TOKENS` /
    `MAX_CONTEXT_TOKENS` 等**没有上界**（`Settings` 只给 `ge`，D3 也未要求守卫）⇒ 写通道可以把它们设成

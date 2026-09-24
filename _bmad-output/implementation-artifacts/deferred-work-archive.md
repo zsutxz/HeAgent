@@ -1,11 +1,22 @@
-# Deferred Work——活动条目 + 勘察类闭合归档
+# Deferred Work——活动条目 + 闭合归档
 
 > 本文件自 2026-09-17 起承接两类条目（原活动台账 `deferred-work.md` 已删除，用户裁定）：
 > ① **活动（未闭合）条目**——工作流的 append-only 入口，闭合后按归属 epic 归档至各周期
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
-> ② **勘察类闭合归档**（source_spec 为勘察批次、无归属 epic）。
+> ② **闭合归档**——正文分两处落（2026-09-24 起）：**勘察类**（source_spec 为勘察批次、无归属 epic）留在本文件；**有归属 epic 的**按规则回填到各周期 `deferred-work.md`（`Z-D10` / `Z-D11` → [`epic-48-TCP网络接口周期/deferred-work.md`](../epics/epic-48-TCP网络接口周期/deferred-work.md)，`Z-D13`~`Z-D15` → [`epic-50-网页控制台周期/deferred-work.md`](../epics/epic-50-网页控制台周期/deferred-work.md)）。本文件仍登记**全部 `Z-Dn` 的 ID 索引**（见下状态总览），但不保留已回填条目的正文副本。
 
-## 活动（未闭合）条目——13 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10/Z-D11；2026-09-23 代码评审新增 1 条，同日以 fail-soft 闭合 → Z-D12；2026-09-24 Epic 50 规划评审新增 1 条——跨项目并发无全局上限（D9 采纳后的已知缺口），**计划期登记，待 Epic 50 实现后复核**；2026-09-24 Epic 50 收口评审新增 3 条（运行时归因与兜底族 / 控制台阻塞 I/O 与会话列表成本 / 非回环运行姿态**待裁决**），评审报告见 `_bmad-output/epics/epic-50-网页控制台周期/reviews/review-epic-50-implementation.md`；2026-09-24 Story 50-5 实现新增 2 条——写通道可把无上界的「资源旋钮」键设成极端值 / 审计文件无保留期上限；2026-09-24 Story 50-6 实现新增 2 条——浏览器级 UI 验收不在 CI 且不含真实 LLM 运行 / 「高影响键的差异化确认」缺后端风险标记；2026-09-24 同日闭合 2 条（Story 50-5 的「资源旋钮上界」与「审计行数上限」→ Z-D13/Z-D14）；2026-09-24 Story 50-6 收口后由用户实测发现并当日修复 1 条——首页加载即弹出关不掉的确认遮罩（`.overlay{display:flex}` 压过 `hidden` 属性）→ Z-D15））
+## 活动（未闭合）条目——14 条
+
+> **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
+>
+> - 2026-09-17：自活动台账 `deferred-work.md` 迁入 6 条
+> - 2026-09-18：闭合 2 条 → Z-D8 / Z-D9
+> - 2026-09-22：架构优化周期新增 2 条（本文旧编号 A7 / A8，现按下列顺序编号）
+> - 2026-09-23：Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10 / Z-D11；代码评审新增 1 条，同日以 fail-soft 闭合 → Z-D12
+> - 2026-09-24：Epic 50 规划评审新增 1 条（跨项目并发无全局上限——D9 采纳后的已知缺口，计划期登记，待 Epic 50 实现后复核）；Epic 50 收口评审新增 3 条（运行时归因与兜底族 / 控制台阻塞 I/O 与会话列表成本 / 非回环运行姿态**待裁决**；报告 `epics/epic-50-网页控制台周期/reviews/review-epic-50-implementation.md`）
+> - 2026-09-24：Story 50-5 实现新增 2 条（写通道可把无上界的「资源旋钮」键设成极端值 / 审计文件无保留期上限），同日闭合 → Z-D13 / Z-D14；Story 50-6 实现新增 2 条（浏览器级 UI 验收不在 CI 且不含真实 LLM 运行 / 「高影响键的差异化确认」缺后端风险标记）；Story 50-6 收口后由用户实测发现并当日修复 1 条（首页加载即弹出关不掉的确认遮罩，`.overlay{display:flex}` 压过 `hidden` 属性）→ Z-D15；Epic 50 收口评审（第二轮）新增 1 条（写入通道与保真写的四类低危残余；报告 `epics/epic-50-网页控制台周期/reviews/review-epic-50-closure.md`）
+> - 2026-09-24：**整理**——删除 5 条已闭合条目在本区的副本（Z-D10 / Z-D11 / Z-D12 / Z-D13 / Z-D14），正文并入下方同名小节（**Z-D12 小节此前缺失**，本次由副本改写补建）
+> - 2026-09-24：**回填**——`Z-D10` / `Z-D11`（Epic 48）与 `Z-D13` / `Z-D14` / `Z-D15`（Epic 50）的**正文**按「归属 epic」移入各自周期 `deferred-work.md`（本文件只留 ID 索引，不再留副本）
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
@@ -40,22 +51,6 @@
   evidence: 48-5 评审 W-2 实测（`tests/test_tcp_agent_integration.py` 已把「不写 rollout」钉为现状）；`docs/frame.md` 五「TCP 入口不写 rollout」行。
   Progress（2026-09-23 复核，**保持未闭合**）：接入前须先定并发语义——`JsonlSink` 的 `seq`/`_last_run_id` 是 sink 全局的，而 TCP 入口共享一个 `EngineContainer`/`EventBus` 并发服务多请求：单共享 sink 会让多 run 的 seq 交错、`assistant_message` 归属错误；每请求一 sink 则互相收到对方的全部事件（`EventBus` 无 `unsubscribe`）。修法二选一：sink 加 run 维度过滤，或 `EventBus.unsubscribe` + 每请求复用一个带过滤的 sink。
 
-- source_spec: `_bmad-output/epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`（同记于 `docs/frame.md` 五）
-  status: **已闭合（2026-09-23，commit 见下）** —— 见本文件「Z-D10」。
-  summary: **运行栈日志非「观测故障免疫」**：入口层（`network/` + `cli_tcp`）经 `_safe_log` 插桩，日志设施抛异常不改写响应；但运行栈（`agent`/`engine`/…）自身的 `logger.*` 若命中「在 `emit` 里抛异常」的 handler 仍会传播（CPython `Handler.handle` 不捕获 emit 异常，与 `logging.raiseExceptions` 取值无关）⇒ 该 run 会失败。触发条件：第三方/自定义 logging handler 在 emit 中抛异常；严重度：低-中；冻结边界：给运行栈加安全日志不得改变既有日志文案与级别，也不得吞掉业务异常（异常仍须抵达调用方）。
-  evidence: 48-5 评审 C-1（`probe_raise_exceptions.py` 实测证明 `logging.raiseExceptions=False` 拦不住）；`docs/frame.md` 五「运行栈日志非『观测故障免疫』」行。
-
-- source_spec: `_bmad-output/epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`（同记于 `docs/frame.md` 五）
-  status: **已闭合（2026-09-23）** —— 见本文件「Z-D11」。
-  summary: **入口日志未脱敏**：TCP 入口复用 `EngineContainer.default` ⇒ 默认 `LoggingObserver` 在 INFO 打印 `tool=… target=…`，而 `shell` 的 target **不截断**（`call_summary._NO_TRUNCATE_TOOLS`），路径与命令原文（可能含凭证串）会进日志。触发条件：任意入口执行含凭证的 shell 命令；严重度：低-中；冻结边界：脱敏不得改变工具摘要对用户的既有语义与可观测字段集，且脱敏仍非安全边界（`README` 已提示「不要把凭证写进命令或路径」）。
-  evidence: 48-5 评审 C-2（**既有引擎行为**，非 Epic 48 引入）；`src/heagent/tools/call_summary.py`；`docs/frame.md` 五「TCP 日志含工具摘要」行。
-
-- source_spec: 2026-09-23 代码评审（commit `7b95e56`，`<memory>` 注入字节预算）
-  status: **已闭合（2026-09-23）** —— 见本文件「Z-D12」。
-  summary: **MEMORY.md 非 UTF-8 会让整个 run 起不来**：`FactStore._load_facts` 以 `read_text(encoding="utf-8")` 读取，文件若被非 UTF-8 编辑器（如 GBK）保存即抛 `UnicodeDecodeError`；`_memory_block` 不捕获 ⇒ 异常经 `build_system_prompt` 逃到 `run_lifecycle` 的新 run 初始化，该 run 直接失败。触发条件：用户手工编辑 `.heagent/memory/MEMORY.md` 并以非 UTF-8 保存；严重度：低（记忆是非关键资产，却造成硬失败）；冻结边界：加载失败必须 fail-loud **且错误可定位到该文件**，但不得吞掉内容或改写文件本体（与「超预算绝不静默」同立场）。
-  evidence: 探针 `.heagent/tmp/gbk_probe.py` 实测 `RAISED UnicodeDecodeError: 'utf-8' codec can't decode byte 0xd6 in position 2`；`src/heagent/memory/facts.py`（`load()` → `_load_facts()` 无 try/except）；`src/heagent/agent/system_prompt.py`（`_memory_block` 直调 `facts.load()`）；`src/heagent/agent/run_lifecycle.py`（`asyncio.to_thread(loop._build_system, …)` 无捕获）。**非本次改动引入**（改动前同样直调 `facts.load()`），故按 defer 记录。
-  Progress（2026-09-23 同日闭合，**用户裁定 = fail-soft**）：`_load_facts` 捕获 `UnicodeDecodeError` → WARNING（**点名该文件**）+ 返回空列表 ⇒ `<memory>` 块不注入、run 照常完成；文件字节一字不动（只降级注入、不改写内容）。**冻结边界更新**：原「必须 fail-loud」改为「注入路径 fail-soft + 可定位告警；写路径（`fact_add` → `FactStore.add`）的同类失败已由 `ToolExecutor` 的 catch-all 兜成 `is_error=True` 的工具错误、不中断循环」——两条路径都不得吞掉或改写文件内容。改动 = `src/heagent/memory/facts.py`（+19/−2）+ 4 例测试（`tests/test_memory.py::TestFactStoreNonUtf8File` 3 例 + `tests/test_agent_loop.py::TestAgentLoop::test_run_survives_undecodable_memory_file` run 级端到端）；commit `b01e09c`。负向验证：回退该守卫（HEAD 版 facts.py）+ 新 4 例 → **4 failed**，run 级用例的 traceback 正是本条目声称的链路（`run_lifecycle.init_new_run` → `_build_system` → `build_system_prompt` → `_memory_block` → `read_text`）；全量 `pytest -q` 2530 passed。**同域后续（非本条范围，仅备查指针）**：`95fe8f6` 修「MEMORY.md 带 UTF-8 BOM 时首条事实被静默丢弃」（新增 `_strip_bom`，读路径与写路径统一剥离、写回归一化为 UTF-8 无 BOM）；`1b8aa8f` 单点修 frontmatter 层同类 BOM（两个分隔符变体的正则容忍文件头 BOM，skills/slash/roles/artifacts/goal/skill_packages/workflow 一次覆盖）；两者均**未另立台账条目**（2026-09-23 用户裁定）。
-
 - source_spec: `_bmad-output/epics/epic-50-网页控制台周期/ARCHITECTURE-SPINE.md`（§6「并发口径」+ §15 D9；对偶义务见 50-7 T10⑨）
   summary: **跨项目并发无全局上限（Epic 50 D9 采纳后的已知缺口）**：D9 裁定采纳「并发随项目数线性增长」——在途运行上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认项目上限 32 × 1 ⇒ **最多 32 个并发 run**），跨项目不共享名额、不做全局调度；而 `HTTP_MAX_CONNECTIONS`（默认 16，由 Uvicorn `limit_concurrency` 承担）**不随项目数放大**。触发条件：登记接近上限的项目数、并对多个项目同时发起运行；严重度：低-中（资源占用线性上升——每项目一套 `EngineContainer` / 事件缓冲 512 / run 历史 64 / SSE 订阅，外加真实 LLM 并发、沙箱进程与磁盘写入；且连接层可能先于运行层成为瓶颈）；冻结边界：不得为此改回「跨项目共享在途名额」（D9 已裁定为**有意语义**），也不得改每项目内部的单运行约束与会话在途保护；若要引入上限，只允许**新增**全局限流键（如 `HTTP_CONSOLE_MAX_TOTAL_INFLIGHT`），不得复用或改写既有 `HTTP_MAX_INFLIGHT_RUNS` 的 per-service 语义。
   evidence: `ARCHITECTURE-SPINE.md` §6（并发口径：32 × 1 的乘数关系 + 已知缺口声明）；`src/heagent/network/http_server.py:150`（`max_inflight_runs` 是 **service 级**字段）、`:386`（`len(self._active) >= self.config.max_inflight_runs` 按 service 判定）；Epic 49 遗留的连接层口径（`HTTP_MAX_CONNECTIONS` 与 SSE 订阅上限复用、由 Uvicorn 在 ASGI 之前拒绝，见 `docs/frame.md` 五）；本周期内对偶义务：50-2 T4（项目数上限 32 即并发乘数，改它等于改整体资源上限）、50-3 T9（须正面断言「A 项目在跑时 B 可起跑」**且**「同项目第二个 run 仍被拒」）、50-7 T10⑨（文档须写明口径与缺口）。
@@ -76,23 +71,6 @@
   evidence: `src/heagent/network/http_server.py:1320`（register 有 `_loopback_error`）vs `:1332`/`:1400`/`:1420`/`:1433`/`:1447`（rename / create_session / rename_session / delete_session / create_project_run 均无）；`src/heagent/cli.py:226`（`cron_store = JobStore(...) if config.cron_enabled else None`）+ `:275`（传给 loop）+ `src/heagent/agent/loop.py:686`（`stack.enter_context(bind_cron_tools(self.cron_store))`）；`src/heagent/cli_http.py:292-310`（`enable_cron=False` 与不可达的 scheduler 守卫）。
   Progress（2026-09-24 登记，**blocked 待人裁决**）：① 属「设计姿态」选择（49 已如此），② 的修法有两条互斥路径——「网页运行一律不绑 cron 工具（连写都不允许）」或「允许写但明确标注任务不执行」；两条都改变可观察行为，非评审可单方决定，故按契约标 `blocked` 交人裁决，未擅自改。
 
-- source_spec: 2026-09-24 Story 50-5 实现（网页控制台配置写入通道）
-  status: **已闭合（2026-09-24）** —— 见本文件「Z-D13」。
-  summary: **写通道可把「资源旋钮」键设成无界值**：`MAX_ITERATIONS` / `GOAL_MAX_ITERATIONS` / `SUBAGENT_MAX_ITERATIONS` / `MAX_OUTPUT_TOKENS` / `MAX_CONTEXT_TOKENS` 在 `Settings` 里只有下界（`ge=1`），而 D3 的守卫清单只收了 `LOG_LEVEL` / `LOG_FILE_LEVEL` / `RETRY_*`（那 5 个是**已验证**会让进程挂死 / 无限重试的键）⇒ 白名单内的写入可以把它们设成 `10^9`（一次 run 的迭代 / 输出 / 上下文预算被拉到不可完成）。触发条件：写闸门被开启（`HTTP_CONSOLE_WRITE_ENABLED=true`）+ 任意回环客户端（或未来对非回环开放）；严重度：低（本机资源旋钮，且闸门默认关、只写项目 `.env`、有备份与审计）；冻结边界：修法只能是**补 `config_catalog.VALUE_GUARDS` 上界**（与面板同一常量、只读侧展示同一守卫），不得改 `Settings` 的字段定义语义（那会改变既有配置文件的可加载性），也不得把它表述为安全边界。
-  evidence: `src/heagent/config_catalog.py`（`VALUE_GUARDS` 只有 6 个键）；`src/heagent/config.py:121/122/126/129/154/158/159`（`ge=1` 且无上界）；`src/heagent/config_write.py::guard_reason`（守卫就是闸门——缺守卫即候选构造放行）；Story 50-5 的 T9 参数化用例删掉了原计划里的「`MAX_ITERATIONS=100000` 必须被拒」（实测无上界，断言不成立）。
-  Progress（2026-09-24 登记，**未修**）：实现期实测发现；补上界会同时改变面板展示的 `guards`，需与 50-6 的 UI 提示口径一起过一遍，故未在 50-5 内顺手加。
-  Progress（2026-09-24 补充，50-6 侧口径已就位）：面板的取值提示完全由后端 `guards` 派生（`app.js::guardHint`——enum 列可选值、range 显示上下界、`allow_empty` 显示「空 = 回退」），前端**不硬编码**任何键名或边界 ⇒ 日后补 `VALUE_GUARDS` 上界时 UI 自动跟随，无需同步改前端；探针用例 `test_enum_guard_renders_a_select_with_the_allowed_values` 与验收清单 A11 钉住了「提示来自后端」这一口径。
-  Progress（2026-09-24 闭合，**用户裁定 = 顺手闭合**）：`config_catalog.VALUE_GUARDS` 补 5 个上界 —— `MAX_ITERATIONS` / `GOAL_MAX_ITERATIONS` / `SUBAGENT_MAX_ITERATIONS` = **10000**、`MAX_OUTPUT_TOKENS` = **1000000**、`MAX_CONTEXT_TOKENS` = **16000000**。口径 = 人类尺度理性上限（迭代类 ≈ 默认值 200–500 倍；`MAX_CONTEXT_TOKENS` ≈ 默认 512k 的 31 倍；`MAX_OUTPUT_TOKENS` 无默认值，取最大真实模型输出窗口的约 8 倍），只挡 `10^9` 这类手滑 / 恶意极值。**冻结边界逐条守住**：① 未给任何 `Settings` 字段加 `le=`（既有配置文件的可加载性不变 —— 配 `Settings(max_iterations=10_000_000)` 仍可构造的用例钉住）；② 只改这一个常量 ⇒ 写入通道（`guard_reason`）与面板（`guards_for` → `ConfigItemResponse.guards` → 前端 `guardHint`）自动同步，**前端零改动**（这正是上一条 Progress 预告的形态）。**同批未收进 → 同日 follow-up 已一并闭合**（用户裁定「要处理」）：另外 **16** 个「同样只有下界」的键（保留期族 / 字节预算族 / 秒级间隔与超时 / 技能条数）已由新增的 `config_catalog.RESOURCE_CEILINGS`（单一事实源，`VALUE_GUARDS` 由它合并）按「同族同刻度 + ≥ 默认值 10 倍」补齐 ⇒ 上界表从 5 键扩到 **21 键**，**白名单数值键全部有上界**（完备性由 `test_no_whitelisted_numeric_key_is_left_unbounded` 钉住）。注意：本条首轮把残余记成「13 个」是**错的**（盘点脚本按类型注解判数值型，漏掉 3 个 `int | None` 键）—— 实为 16 个，纠正记录见「Z-D13」。
-  Progress（2026-09-24 负向验证）：`.heagent/tmp/mutate_guards_audit.py` M1/M2 两条变异 —— 撤掉整块上界 / 把上界改成 `1e15`（形同虚设）——分别让 18 / 16 条指定用例精确变红后复原（sha256 断言；M1/M2 的含义随 follow-up 改为「上界表整表清空」与「全部值改成 `1e15`」）。follow-up 又补 4 条上界类变异体，全部精确变红：少给一个键（3 红：完备性 + 口径固化 + 该键参数用例）/ 上界低于默认值（2 红）/ 单键形同虚设（2 红）/ 误给 `_DAYS` 键加 `minimum=1` 破坏「0 = 禁用回收」（1 红）。**M1 是本条的实测收获**：首轮它只红 4 条，查因发现我新加的 4 个参数用例写的是 `1e9`，而 `int` 字段的候选构造本来就会拒掉 `1e9` ⇒「有上界」与「没上界」都通过，**用例不具区分性**；改成合法整数字面量 `1000000000` 后 5 条全部变红。该教训已写进用例注释。
-
-- source_spec: 2026-09-24 Story 50-5 实现（网页控制台配置写入通道）
-  status: **已闭合（2026-09-24）** —— 见本文件「Z-D14」。
-  summary: **审计文件无保留期 / 条数上限**：`<项目>/.heagent/console/audit.jsonl` 每次成功写入追加一行（约 300 B），只有 `append_audit` 的「失败不阻断已成功的写」语义，没有任何回收；对照之下备份目录有 `MAX_CONFIG_BACKUPS=50` + 30 天保留期。触发条件：回环客户端反复成功写入 × 长时间运行；严重度：低-中（审计资产反噬磁盘）；冻结边界：回收必须**按后缀筛 `.jsonl`**——`console_dir` 同目录还住着 `projects.json`（项目注册表），套用通用 mtime 回收会连注册表一起删掉（该目录已在内部状态读拒集合内，误删不会有读取报错兜底）。
-  evidence: `src/heagent/config_write.py::append_audit`（只 append、无 prune）；`src/heagent/envfile.py::prune_backups`（备份侧上限的对照实现）；`src/heagent/workspace.py::console_dir`（审计与 `projects.json` 同目录）；`src/heagent/projects.py::default_project_registry`（注册表落点）。
-  Progress（2026-09-24 登记，**未修**）：修法 = 复用 `persist.scan_dir` / `delete_entries` 做「`.jsonl` 后缀 + 条数上限」的专用回收（与 `prune_backups` 同款内核）；本次未做（story 的 T2 只要求备份侧有上限）。
-  Progress（2026-09-24 闭合，**用户裁定 = 顺手闭合**）：**台账给的修法形状不对，已就地纠正** —— 原文写的是「复用 `persist.scan_dir` / `delete_entries` 做『按 `.jsonl` 后缀 + 条数上限』的专用回收（与 `prune_backups` 同款内核）」，但审计根本不是「一目录多文件」：`append_audit` 一直往**同一个** `console_dir/audit.jsonl` 追加，目录里永远只有 1 个 `.jsonl` ⇒ 那套文件级回收的候选集合恒为空，**等于没做**（会「闭合」在纸面上）。实际修法 = `config_write.prune_audit`：超 `MAX_CONFIG_AUDIT_ENTRIES=500` 行即整体重写（`persist.atomic_write_bytes`）只留**最近 500 条**，保留 LF 行尾；追加成功后调用。**冻结边界守得更紧**：不做 glob、不做后缀扫描，只认 `console_dir / AUDIT_FILENAME` 这一个已知文件名 —— 同目录的项目注册表 `projects.json` 连候选都进不去（配 M6 变异体证明「按目录泛化」会让该测试精确变红）。`max_entries=0` 语义与 `prune_backups` 对齐（保留 0 条）。**失败立场**：裁剪是维护动作，任何异常只 WARNING、绝不让「已追加成功 + 已生效的写」变成错误（否则写已落盘而响应 500，用户重试又撞指纹冲突），调用点包 catch-all，配 M7 变异体钉住。
-  Progress（2026-09-24 负向验证）：`.heagent/tmp/mutate_guards_audit.py` M3–M7 五条变异全部精确变红并复原 —— 回收缺席（恒 0，5 红）/ 边界错位（多留一条，5 红）/ 方向错（留旧丢新，4 红）/ 越界删邻居（按目录泛化 ⇒ 注册表测试 1 红）/ 失败向外传播（1 红）。上行行数：11 例新用例（含端到端「写通道自己的路径也受上限约束」与「裁剪不吃掉最新那条」）。
-
 - source_spec: 2026-09-24 Story 50-6 实现（网页控制台 UI）
   summary: **浏览器级 UI 验收不在 CI、也不含真实 LLM 运行**：`tests/js/console_acceptance.mjs` 需要真实 Chrome/Edge（CDP）+ `heagent[http]`，而 CI 只装 `.[dev]`（`pyproject.toml` 里 `http` 与 `dev` 分离）⇒ 它只能手动跑，story 50-6 的验收清单正是由它产出的；同时该次验收**没有**跑「真实模型 → SSE → 对话区流式渲染」这条链（本机无可用 provider，Ollama 未运行），该链的前端侧由 node 探针（`tests/js/app_probe.js` 用例 A/B/C/D/E/N）与 Epic 49 的服务端用例覆盖。触发条件：改 `app.js`/`index.html`/`styles.css` 后要确认「真浏览器里也没坏」；严重度：低（改动有探针兜底，但探针是 DOM 替身——CSP 是否被违反、有没有第三方请求、窄屏计算样式只有真浏览器能证明）；冻结边界：不得为让浏览器验收进 CI 而给 dev 依赖加 playwright/puppeteer（保持零构建链与「GUI / 浏览器不进 CI」的既有立场），也不得把 `console_acceptance.mjs` 的一次通过当作「UI 无回归」的充分证据。**2026-09-24 实例（这条「不够充分」的最强证据）**：50-6 的 17/17 通过之后仍漏掉「首页确认遮罩吞掉真实鼠标点击」（`hidden` 属性为真而计算样式 `display:flex`）—— 因为清单只断言属性、且 `click()` 走 DOM API（绕过命中测试）；修复后清单新增 A1b（计算样式 + CDP `Input.dispatchMouseEvent` 真实点击）为 **18 行**，详见 Z-D15。
   evidence: `tests/js/console_acceptance.mjs`（自起真实 http-server + headless Chrome，CDP 驱动真实点击；17 行清单含窄屏/凭证零明文/磁盘副作用断言）；`tests/test_http_web_ui.py`（探针用例的 skipif 只要求 node，不要求浏览器）；`pyproject.toml`（可选依赖分组）。
@@ -103,11 +81,18 @@
   evidence: `src/heagent/network/http_console_protocol.py`（`ConfigItemResponse` 字段集：无风险/影响字段）；`src/heagent/web/app.js::saveConfig`（写入前一律 `askConfirm`）；`src/heagent/config_catalog.py`（分类常量只产出 group / writable / reason）；探针用例 `TestConsoleSettingsPanel` 钉住确认框文案与「未确认不发请求」。
   Progress（2026-09-24 登记，**未闭合**）：该口径裁定记录在 story 50-6 的 Dev Agent Record（「与 story 文本的偏离」条）；若后续要分级，需先定影响分级的事实源。
 
+- source_spec: 2026-09-24 Epic 50 收口评审（第二轮）· 写入通道与保真写的低危残余（`reviews/review-epic-50-closure.md`）
+  summary: **四类 low 级残余**（都在写入通道 / 保真写面上，均不阻塞收口）：① **`.env.lock` 落在用户项目根** —— `persist.atomic_update_bytes` 的锁文件与目标**同目录**，故写项目 `.env` 会在**用户的项目根**留下 0 字节 `.env.lock`（评审探针实测：`['.env','.env.lock','.heagent']`）；HeAgent 自己的仓库有 `.gitignore` 条目，**用户的项目没有**。② **回滚失败时的文案不实** —— 回读不符时无条件回 `the project .env was rolled back to its previous content`，而回滚本身失败只 `logger.error`（`persist._restore_bytes`）⇒ 对直接调 API 的客户端是假话（UI 侧文案诚实：「服务端已尝试恢复备份」，且该码不在 JS 的 `DETAIL_CODES` 里、不显示服务端 message）。③ **写锁内 I/O 时长** —— `validate_candidate`（构造 `Settings` ⇒ 读候选临时文件 + 全局 `.env` + 环境）与备份目录扫描都在**跨进程锁内**完成 ⇒ 并发热点下写方可能得到 `config_write_failed`（锁超时 5s）而非 `config_conflict`（**fail-closed：无损坏、无部分写入**）。④ **无末行换行文件的追加约定** —— 追加新键沿用「文件无末行换行」这一属性（实测 `MAX_ITERATIONS=5\nSHELL_TIMEOUT=60`），是有意保真，但部分工具约定「文件必须以换行结尾」⇒ 记入备查。
+  evidence: `src/heagent/persist.py::atomic_update_bytes`（`lock_path = path.with_name(path.name + ".lock")`）；`src/heagent/config_write.py::_verify` 与 `_apply_locked`（候选构造 / 备份回收在 `atomic_update_bytes` 的回调内）；`src/heagent/envfile.py::replace_or_append`（末行换行跟随文件）；探针 `.heagent/tmp/review50_probe.py` 的 B / E / K 三例实测输出；评审报告镜头一 #1/#2/#3 与镜头二 ⑤。
+  Progress（2026-09-24 登记，**未修**，冻结边界）: ① 锁文件**刻意不删**（删除会引入「B 等旧 inode、C 拿新文件加锁成功」的竞态，见 `persist` 模块注释），挪到状态目录会改变锁语义 ⇒ 修法只能是「写入方提示 / 文档说明」，**不得**改锁的落点语义；② 精确文案需把回滚结果从 `persist` 回传（新增返回值或异常类型），属改造；③ 收窄需「锁外构造候选 + 锁内复检指纹」的乐观重试，属流水线结构调整。三条都超出「评审期最小修复」范围，故如实登记而非草率改动。
+
 ---
 
-## 勘察类闭合归档
+## 闭合归档（勘察类正文 + 回填索引）
 
 ## 状态总览
+
+**① 勘察类（正文在本文件）——10 条**
 
 | ID | 条目 | 结论 | 闭合 commit |
 |----|------|------|-------------|
@@ -120,12 +105,19 @@
 | Z-D7 | GoalWorkflowState 三死字段 | 已闭合（容错忽略兼容策略） | `4b5f037` |
 | Z-D8 | `RoleSpec.sandbox_profile` 死字段 | 已闭合（取**删除**方向，非激活） | 已提交 `dfe6eef`（2026-09-18） |
 | Z-D9 | 沙箱无进程数限额 + WinJob 常量误写 | 已闭合（`SANDBOX_NPROC_LIMIT` + 修正 `PROCESS_TIME=0x2`） | 已提交 `8de6c63`（2026-09-18） |
-| Z-D10 | 运行栈日志的观测故障免疫 | 已闭合（进程级 `install_logging_fault_guard` + 插桩逐调用点 `safe_log`） | 本次批次（2026-09-23） |
-| Z-D11 | 日志行的凭证脱敏 | 已闭合（`LoggingObserver` 掩码 `target`/`details`；启发式，仍非边界） | 本次批次（2026-09-23） |
 | Z-D12 | MEMORY.md 非 UTF-8 让整个 run 起不来 | 已闭合（fail-soft：跳过注入 + **点名文件**的告警；文件字节一字不动） | `b01e09c`（2026-09-23） |
-| Z-D13 | 写通道可把「资源旋钮」键设成无界值 | 已闭合（`RESOURCE_CEILINGS` 21 键上界，白名单数值键**全部**有界；**未**改 `Settings` 语义 ⇒ 既有配置可加载性不变） | 本次批次（2026-09-24） |
-| Z-D14 | 审计文件无保留期 / 条数上限 | 已闭合（**行级**裁剪到最近 500 条；台账原拟的「按后缀筛文件」对本形状无效，已纠正） | 本次批次（2026-09-24） |
-| Z-D15 | 首页加载即弹出关不掉的确认遮罩（作者级 `display` 压过 `hidden` 属性） | 已闭合（`[hidden]{display:none!important}` 全局守卫 + `settleConfirm` 先隐藏再结算 + CI 不变量断言 + 浏览器 A1b） | 本次批次（2026-09-24） |
+
+**② 已按归属 epic 回填（正文在各自周期目录）——5 条**
+
+| ID | 归属 epic | 条目 | 正文位置 |
+|----|-----------|------|----------|
+| Z-D10 | Epic 48（Story 48-5 评审 C-1） | 运行栈日志的观测故障免疫 | `epics/epic-48-TCP网络接口周期/deferred-work.md` |
+| Z-D11 | Epic 48（Story 48-5 评审 C-2） | 日志行的凭证脱敏 | 同上 |
+| Z-D13 | Epic 50（Story 50-5 实现） | 写通道可把「资源旋钮」键设成无界值 | `epics/epic-50-网页控制台周期/deferred-work.md` |
+| Z-D14 | Epic 50（Story 50-5 实现） | 审计文件无保留期 / 条数上限 | 同上 |
+| Z-D15 | Epic 50（Story 50-6 实现，用户实测发现） | 首页加载即弹出关不掉的确认遮罩 | 同上 |
+
+> `Z-Dn` 编号在**本文件**登记（跨文档引用如 `Z-D8` / `Z-D15` 仍以此为索引），但**正文只有一份**，在上表第二列指向的文件里；本文件不留副本（2026-09-24 回填）。
 
 ---
 
@@ -189,73 +181,10 @@
 - **结论**：**已闭合**（2026-09-18，取「补齐」方向）。① 新增 `Settings.sandbox_nproc_limit`（`SANDBOX_NPROC_LIMIT`，默认 0=关闭），经 `container.default()` 同时透传两个后端；② `FirejailBackend._build_argv` 在 `--rlimit-cpu` 之后注入 `--rlimit-nproc`（0 时零参数，默认 argv 逐字节不变）；③ `WinJobBackend.run()` 置 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS` + `ActiveProcessLimit`；④ 修正 ②的常量误写（`PROCESS_TIME = 0x2`）。触发行为与内存/CPU 限额一致：**显性失败**（子进程被终止 → 非零退出码），不静默。⚠ **两个后端语义不对称（如实标注，不掩盖）**：firejail 的 `--rlimit-nproc` 底层是 `setrlimit(RLIMIT_NPROC)`，Linux 按**真实 UID** 计数（非 cgroup/job 作用域），设小了会波及同一用户的其他进程；WinJob 的 `ActiveProcessLimit` 才是 job 作用域——故默认关闭。
 - **证据**：`tests/test_sandbox_mode.py`（默认值 / 两后端装配 / argv 注入与零参数三条）、`tests/test_coverage_sandbox.py::test_run_applies_resource_limits`（0x2 与 0x8 分开断言，钉死常量区分）；`docs/frame.md` 4.4 与配置表、`.env.example` 同步。
 
-## Z-D10 运行栈日志的观测故障免疫
+## Z-D12 MEMORY.md 非 UTF-8 让整个 run 起不来
 
-- **来源**：Epic 48 Story 48-5 评审 C-1（2026-09-22）；`docs/frame.md` 五原「运行栈日志非『观测故障免疫』」。
-- **问题**：`logging` 的 `Handler.handle` **不**捕获 `emit` 抛出的异常（与 `logging.raiseExceptions` 取值无关，实测：自定义 handler 两种情况都传播；stdlib handler 走 `handleError` 故不传播）。于是第三方/自定义 handler 一旦在 `emit` 中抛错，运行栈**任意** `logger.*` 调用都会上抛——一次 run 里的进度日志（如 `Calling provider: …`）就能把成功的运行变成失败。
-- **结论**：**已闭合**（2026-09-23，可观测性与日志卫生批次）。两层防线：
-  1. **逐调用点** `safe_logging.safe_log`：插桩与 best-effort 路径（`EventBus.emit` 观察者兜底、`LoggingObserver`、`ToolExecutor._emit_tool_event`、`WorkflowRunner._emit_step_event`、ledger 三处旁路告警、run 快照落盘告警、`AgentLoop._emit`）全部改走它；`network/tcp_server.py` 与 `cli_tcp.py` 各自的 `_safe_log` 收敛为它的薄封装（调用点零改动）。
-  2. **进程级** `safe_logging.install_logging_fault_guard()`：把 `logging.Handler.handle` 包一层，失败仍调 stdlib `handleError`（照旧按 `raiseExceptions` 打印 `--- Logging error ---` 与 traceback，故「不抛」不等于「无声」）但不传播；由 CLI `_setup_logging()`（TCP 入口复用同一函数）与 `gui/cli.py` 在配置 logging 时安装。逐调用点收口只能覆盖「记得改」的地方，运行栈进度日志数量多且会新增，故必须有这一层。
-- **证据**：`tests/test_safe_logging.py` 34 例——含两个**对照** e2e（装守卫时坏 handler 不影响 run；显式拆守卫时同一 run 抛 `RuntimeError`，证明守卫承重）、守卫幂等、诊断不被吞。负向验证：把 `LoggingObserver.handle`/`EventBus.emit`/`AgentLoop._emit` 三处守卫同时还原 → e2e 复现失败；还原后按 sha256 逐字节复位。
-- **残留（如实标注）**：守卫安装前打的日志、或宿主自行把 `Handler.handle` 还原成 `safe_logging.ORIGINAL_HANDLER_HANDLE`（公开常量，供想自行掌控 logging 语义的 embedder 使用）时不在保证内。
-
-## Z-D11 日志行的凭证脱敏
-
-- **来源**：Epic 48 Story 48-5 评审 C-2（2026-09-22）；`docs/frame.md` 五原「TCP 日志含工具摘要」。
-- **问题**：入口复用 `EngineContainer.default` ⇒ 默认 `LoggingObserver` 在 INFO 打印 `tool=… target=…`，而 `shell` 的 target **不截断**（`call_summary._NO_TRUNCATE_TOOLS`，审查需要原文）：路径与命令原文（可能含 `API_KEY=…` 等凭证串）会进 `logs/heagent-*.log`。
-- **结论**：**已闭合**（2026-09-23，同一批次）。`LoggingObserver` 打印前对 `target` 与 `details` 掩码：`redact_secrets`（键值形态 / CLI 旗标 / 厂商前缀 `sk-`·`ghp_`·`AKIA`·`AIza`·JWT / `Bearer` / URL userinfo）+ `redact_details`（按键名掩码，覆盖 `{"secret": "x"}` 这类无形状可认的短值；浅层遍历、深度上限 3）。选择**掩码而非截断**：`shell` 命令结构对审查有价值，不该丢；也不依赖调用方自觉。
-- **证据**：`tests/test_safe_logging.py` 的参数化用例（12 种凭证形态逐个掩码、7 类普通文本零误伤、幂等）+ `LoggingObserver` 经 caplog 断言日志行不含原文。
-- **边界（如实标注）**：模式匹配**非完备**，必有漏网形态；`shell` target 仍不截断；`logs/`、`.heagent/runs/`（run 快照与 rollout JSONL）按设计保存完整 prompt 与消息，**不在**本次覆盖内——仍须 OS 级沙箱兜底并避免把凭证写进命令或路径。
-
-## Z-D13 写通道可把「资源旋钮」键设成无界值
-
-- **来源**：Story 50-5 实现期实测（2026-09-24）发现；登记于活动区「Story 50-5 实现（网页控制台配置写入通道）」条目（该条目 2026-09-24 同日闭合）。
-- **问题**：`MAX_ITERATIONS` / `GOAL_MAX_ITERATIONS` / `SUBAGENT_MAX_ITERATIONS` / `MAX_OUTPUT_TOKENS` / `MAX_CONTEXT_TOKENS` 在 `Settings` 里只有下界（`ge=1`），而 `VALUE_GUARDS` 只收了 5 个弱校验键 ⇒ 一旦开启写闸门（`HTTP_CONSOLE_WRITE_ENABLED=true`），白名单内的写入就能把它们设成 `10^9`：一次 run 的迭代 / 输出 / 上下文预算变成「不可完成」。这不是安全边界问题，是「本机资源旋钮」问题（闸门默认关、只写项目 `.env`、有备份与审计）。
-- **结论**：**已闭合**（2026-09-24，用户裁定「顺手闭合」）。`VALUE_GUARDS` 补 5 个上界：`MAX_ITERATIONS` / `GOAL_MAX_ITERATIONS` / `SUBAGENT_MAX_ITERATIONS` = **10000**、`MAX_OUTPUT_TOKENS` = **1000000**、`MAX_CONTEXT_TOKENS` = **16000000**。口径 = 人类尺度理性上限（迭代类 ≈ 默认值 200–500 倍；上下文 ≈ 默认 512k 的 31 倍；输出无默认值、取最大真实模型输出窗口的约 8 倍），只挡手滑与恶意极值。**同日 follow-up 把同域残余一并闭合**（用户裁定「要处理」）：新增 `config_catalog.RESOURCE_CEILINGS` 作**单一事实源**（`VALUE_GUARDS` 由它合并），上界表从 5 键扩到 **21 键**，按族给刻度 —— `days` **3650**（10 年）/ `seconds` **604800**（7 天）/ `bytes` **8388608**（8 MiB）/ `tokens` **1000000** / `count` **100**；迭代预算 **10000** 与上下文窗口 **16000000** 量纲不同，自成刻度。
-- **冻结边界（逐条守住）**：① **不改 `Settings` 字段定义**（不给任何字段加 `le=`）⇒ 既有配置文件的可加载性不变；② 守卫只作用于**写入通道**（`config_write.guard_reason`）与**面板展示**（`guards_for` → `ConfigItemResponse.guards` → 前端 `guardHint`）—— 手工改 `.env` 仍不受该上界约束；③ 不把它表述为安全边界（沿用全项目立场）。
-- **证据**：`src/heagent/config_catalog.py::RESOURCE_CEILINGS`（21 键 → `VALUE_GUARDS` 合并，与面板同一常量）；`tests/test_config_catalog.py::TestGuards` 三条 —— `test_every_ceiling_is_generous_and_actually_applied`（遍历常量表本体：上界真的进了 `guards_for` + 「≥ 默认值的 10 倍」）、`test_no_whitelisted_numeric_key_is_left_unbounded`（**完备性**：白名单数值键一个都不能漏）、`test_the_ceiling_table_is_exactly_the_agreed_one`（**口径固化**：逐条比对键与刻度 —— 规则挡不住「604800 悄悄改成 999999999」这种仍然 ≥10 倍、仍然完备的改动）；`::test_ceilings_do_not_change_what_settings_accepts`（`Settings(max_iterations=10_000_000)` 仍可构造 ⇒ 不改 `Settings` 语义）；`tests/test_config_write.py`（11 条越界参数用例 + `test_resource_ceilings_block_only_extremes` 双侧断言 + `test_a_retention_ceiling_applies_once_it_is_not_environment_provided`）；`tests/network/test_http_console_config.py::test_panel_shows_the_resource_knob_ceilings`（**遍历同一常量表**断言面板逐条展示，前端零改动）。负向验证：`.heagent/tmp/mutate_guards_audit.py` 6 条上界类变异体全部精确变红后复原 —— 整表清空（18 红）/ 全部改成 `1e15`（16 红）/ 少给一个键（3 红）/ 上界低于默认值（2 红）/ 单键形同虚设（2 红）/ 误给 `_DAYS` 键加 `minimum=1` 破坏「0 = 禁用回收」（1 红）。
-- **发现并纠正的一处计数错误**：首轮盘点脚本按 `annotation` 判「数值型」，而 `int | None` 没有 `__name__` ⇒ 漏掉了 `MAX_OUTPUT_TOKENS` / `SKILL_MAX_AUTO_INVOKE_TOKENS` / `SKILL_MAX_MANUAL_LOAD_TOKENS` 三个键，于是本条目一度把残余记成「13 个」。改用守卫判据复核（`guards_for(key).kind == "range" and maximum is None`）得**真实为 16 个**（本条的 5 个 + 其余 16 = 21 键）。教训：盘点「某类键还有几个」时，判据要跟着**实际生效的那条路径**（守卫）走，不要跟着类型注解走；探针 `.heagent/tmp/ceiling_survey.py` 已改为守卫判据。
-- **残余（同域）—— 2026-09-24 同日 follow-up 已闭合**：另外 16 个「只有下界」的键（磁盘保留期族 `*_RETENTION_DAYS`、字节预算族 `CONTEXT_FILES_MAX_BYTES` / `MEMORY_INJECT_MAX_BYTES`、秒级间隔与超时 `SHELL_TIMEOUT` / `CRON_TICK_SECONDS` / `PRUNE_MIN_INTERVAL_SECONDS`、技能条数与深度 `SKILL_MAX_AUTO_INVOKE` / `SUBAGENT_MAX_DEPTH`、`SKILL_*_TOKENS`、`SKILL_CURATOR_STALE_DAYS`）已由 `RESOURCE_CEILINGS` 按「同族同刻度 + ≥ 默认值 10 倍」补齐；**白名单数值键现在全部有上界**（`test_no_whitelisted_numeric_key_is_left_unbounded` 钉住完备性，`config_catalog.VALUE_GUARDS` 的 docstring 第 2 点已从「本表不是全部」改写为「完备性已闭合」）。这批键的两条**额外**理由：① 它们全都支持 `0`（= 禁用回收 / 不限制）⇒ 上界**不剥夺任何合法意图**（「永久保留」写 `0` 比写 `36500` 更明确）；② 测试环境里 7 个键被 `tests/conftest.py` 的 `os.environ.setdefault` 钉成 0 ⇒ 写通道会先按 F1 判 `field_not_writable`（对，但会掩盖守卫），故保留期族的端到端验证另有用例显式 `delenv` 后再测。
-
-## Z-D14 审计文件无保留期 / 条数上限
-
-- **来源**：Story 50-5 实现期实测（2026-09-24）发现；登记于活动区同名条目（2026-09-24 同日闭合）。
-- **问题**：`<项目>/.heagent/console/audit.jsonl` 每次成功写入追加一行（约 300 B），只有 `append_audit` 的「失败不阻断已成功的写」语义、没有任何回收；对照之下备份目录有 `MAX_CONFIG_BACKUPS=50` + 30 天保留期。触发条件：回环客户端反复成功写入 × 长时间运行 ⇒ 审计资产反噬磁盘。
-- **结论**：**已闭合**（2026-09-24，用户裁定「顺手闭合」）。新增 `config_write.prune_audit`：超 `MAX_CONFIG_AUDIT_ENTRIES=500` 行即整体重写（`persist.atomic_write_bytes`）只留**最近 500 条**、保留 LF 行尾；由 `append_audit` 在追加成功后调用（无跨进程节流，理由同备份目录：一次 scandir / 一次读的代价远小于节流标记的维护成本）。
-- **修正了台账原拟修法的形状**：原条目写的是「按 `.jsonl` 后缀 + 条数上限」的**文件级**回收（与 `prune_backups` 同款内核）—— 但审计是**一个持续追加的文件**：目录里永远只有 1 个 `.jsonl`，那套内核的候选集合恒为空（照做等于没做，会「闭合」在纸面上）。实际做在**行**级。
-- **冻结边界（守得更紧）**：不做 glob、不做后缀扫描，只认 `console_dir / AUDIT_FILENAME` 这一个已知文件名 ⇒ 同目录的项目注册表 `projects.json` 连候选都进不去（该目录在内部状态读拒集合内，误删不会有读取报错兜底）。`max_entries=0` 的语义与 `prune_backups` 对齐（保留 0 条）。
-- **失败立场**：裁剪是**维护动作** —— 任何异常只 WARNING，绝不让「已追加成功且写已生效」的响应变成错误（否则文件已改而响应 500，用户重试又撞 `config_conflict`）；调用点包 catch-all。
-- **证据**：`src/heagent/config_write.py::prune_audit` / `append_audit` / `MAX_CONFIG_AUDIT_ENTRIES`；`tests/test_config_write.py::TestAuditRetention`（11 例：只留最近 N 条 / 未超限则字节不变 / 文件缺失不报错 / 读失败与写失败各自降级为 0 / 裁剪后仍是 LF + JSONL / 末行无换行也算一条 / **同目录注册表不被触碰** / 裁剪失败不改写 `audit_recorded` / 端到端追加即触发裁剪 / 写通道自身路径亦受上限约束）。负向验证：`.heagent/tmp/mutate_guards_audit.py` M3–M7（回收缺席 / 边界错位 / 方向错 / 越界删邻居 / 失败外传）→ 6 / 6 / 5 / 1 / 1 条精确变红后复原。
-
-
-## Z-D15 首页加载即弹出关不掉的确认遮罩（`hidden` 属性被作者样式压过）
-
-- **来源**：Story 50-6 交付（`f5f4c3f`）之后由**用户实测**发现（2026-09-24：打开网页即弹对话框）；非评审发现。
-- **问题**：`styles.css` 的 `.overlay { display: flex }`（50-6 的 UI 改造引入）是**作者级**声明，压过 UA 样式表的
-  `[hidden] { display: none }` ⇒ `#confirm-overlay` 带着 `hidden` 属性照样渲染：`position: fixed` + `inset: 0` +
-  `z-index: 20` 的全屏遮罩在首页加载时就盖住整页并吞掉全部真实鼠标点击；且「取消 / 确认」都关不掉
-  （`settleConfirm` 当时在隐藏遮罩**之前** `if (!pending) return;`，而加载时本就没有 pending）⇒ 只能刷新页面脱身。
-  真浏览器实测（headless Edge + CDP）：属性 `hidden=true` 而计算样式 `display=flex`、有盒子；`elementFromPoint`
-  （发送按钮处 / 侧栏处）= `confirm-overlay`；真实点「取消」之后 `display` 仍是 `flex`。
-- **为什么 17/17 的浏览器验收没抓住（三条判据问题）**：① 清单只断言 `element.hidden`（属性），属性翻回去就算过，
-  看计算样式的只有 A1（安全声明）与 A15（侧栏）；② 其 `click()` 用 `node.click()`（DOM API）——**绕过命中测试**，
-  全屏遮罩吞点击在它眼里不存在；③ `app_probe.js` 是 node 的最小 DOM 替身，**没有 CSS 级联**。加之 Story 49-6 的
-  人工浏览器点选验收当时并未执行，「看得见却点不动」这类问题此前没有任何一层覆盖。
-- **结论**：**已闭合**（2026-09-24，用户裁定按 1/2/3 三件一并处置）。① `styles.css` 加全局守卫
-  `[hidden] { display: none !important; }`（作者级 `!important` 压过其余作者规则 ⇒ 新增遮罩 / 面板不必各自再配
-  `[hidden]` 分支）；② `settleConfirm` 改为**先隐藏遮罩、再处理 pending**（失败模式从「关不掉」降级为
-  「点一下关掉」；CSS 守卫已使该组合不可达，属 defense-in-depth）；③ 判据补强 —— CI 内
-  `tests/test_http_web_ui.py::TestHiddenAttributeSemantics`（守卫必须存在且 `!important`；交叉扫描 `index.html`
-  的 10 个 `hidden` 元素与 `styles.css` 的 display 规则，任何能压过 hidden 的元素都必须有守卫兜底）+ 探针用例
-  `O`（可见但无 pending 时取消 / 确认必须关掉遮罩）+ 真实浏览器验收新增 **A1b**（计算样式 `display === "none"`、
-  `getClientRects().length === 0`、`elementFromPoint` 与 CDP 真实鼠标点击的落点都不是遮罩）。
-- **证据（全部实跑）**：负向 —— `git checkout HEAD -- styles.css` → 恰好 2 条断言变红并报出
-  `#confirm-overlay <- .overlay`（还原后 sha256 一致）；回退 `settleConfirm` 顺序 → 探针用例 O 变红
-  （`afterCancel=False`）；无守卫时整份浏览器清单**只有 A1b 变红**（exit 1，其余 17 行照旧 PASS）。正向 ——
-  `ACCEPTANCE {"rows":18,"failed":0}`；`pytest tests/test_http_web_ui.py tests/network -q` → 421 passed；
-  `ruff check` / `ruff format --check` 全绿。
-- **残余（如实标注）**：① 真实命中测试目前只有 A1b 一行 —— 其余用例仍用 `node.click()`（有意保留：真鼠标点击对
-  布局变化更脆），故「全屏元素遮挡」类缺陷只有这一行覆盖；② 本条不改变「浏览器验收不进 CI」的既有立场；
-  ③ 静态断言只做「守卫存在 + 是否存在能压过 hidden 的作者规则」这一层，**不解析级联优先级**：若有人显式写
-  `.overlay[hidden] { display: flex !important }`（或更具体的 `[hidden]` 复合选择器），静态断言与守卫都放行 ——
-  此时只有真浏览器 A1b 拦得住（而它不在 CI）。
+- **来源**：2026-09-23 代码评审（commit `7b95e56`，`<memory>` 注入字节预算）。**本节 2026-09-24 由活动区同名条目的副本改写而成**——此前状态总览表已有 Z-D12 行、正文却缺该小节。
+- **问题**：`FactStore._load_facts` 以 `read_text(encoding="utf-8")` 读取，文件若被非 UTF-8 编辑器（如 GBK）保存即抛 `UnicodeDecodeError`；`_memory_block` 不捕获 ⇒ 异常经 `build_system_prompt` 逃到 `run_lifecycle` 的新 run 初始化，该 run 直接失败。触发条件：用户手工编辑 `.heagent/memory/MEMORY.md` 并以非 UTF-8 保存；严重度：低（记忆是非关键资产，却造成硬失败）；冻结边界：加载失败必须 fail-loud **且错误可定位到该文件**，但不得吞掉内容或改写文件本体（与「超预算绝不静默」同立场）。
+- **结论**：**已闭合**（2026-09-23，**用户裁定 = fail-soft**）。`_load_facts` 捕获 `UnicodeDecodeError` → WARNING（**点名该文件**）+ 返回空列表 ⇒ `<memory>` 块不注入、run 照常完成；文件字节一字不动（只降级注入、不改写内容）。**冻结边界更新**：原「必须 fail-loud」改为「注入路径 fail-soft + 可定位告警；写路径（`fact_add` → `FactStore.add`）的同类失败已由 `ToolExecutor` 的 catch-all 兜成 `is_error=True` 的工具错误、不中断循环」——两条路径都不得吞掉或改写文件内容。
+- **证据**：探针 `.heagent/tmp/gbk_probe.py` 实测 `RAISED UnicodeDecodeError: 'utf-8' codec can't decode byte 0xd6 in position 2`；改动 = `src/heagent/memory/facts.py`（+19/−2）+ 4 例测试（`tests/test_memory.py::TestFactStoreNonUtf8File` 3 例 + `tests/test_agent_loop.py::TestAgentLoop::test_run_survives_undecodable_memory_file` run 级端到端），commit `b01e09c`；`src/heagent/agent/run_lifecycle.py`（`asyncio.to_thread(loop._build_system, …)` 无捕获）。负向验证：回退该守卫（HEAD 版 `facts.py`）+ 新 4 例 → **4 failed**，run 级用例的 traceback 正是本条目声称的链路（`run_lifecycle.init_new_run` → `_build_system` → `build_system_prompt` → `_memory_block` → `read_text`）；全量 `pytest -q` 2530 passed。**非本次改动引入**（改动前同样直调 `facts.load()`），故按 defer 记录。
+- **同域后续（非本条范围，仅备查指针）**：`95fe8f6` 修「MEMORY.md 带 UTF-8 BOM 时首条事实被静默丢弃」（新增 `_strip_bom`，读路径与写路径统一剥离、写回归一化为 UTF-8 无 BOM）；`1b8aa8f` 单点修 frontmatter 层同类 BOM（两个分隔符变体的正则容忍文件头 BOM，skills/slash/roles/artifacts/goal/skill_packages/workflow 一次覆盖）；两者均**未另立台账条目**（2026-09-23 用户裁定）。
