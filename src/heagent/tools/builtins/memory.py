@@ -56,9 +56,18 @@ def _runtime() -> MemoryToolRuntime | None:
     return _memory_runtime.get()
 
 
-@tool
+@tool(
+    # 显式 description 而非依赖 docstring：`@tool` 只取 docstring **首行**，而写入准则需要完整两句。
+    # 这是唯一能触达模型的**写侧**闸门——MEMORY.md 的头部注记不进 system prompt（只有 `- ` 行被注入）。
+    description=(
+        "Save one long-term fact: behavior-changing conclusions only (user preferences, code invariants, "
+        "environment quirks, reusable techniques). Do not record session narration, status bookkeeping "
+        "(pending work, commit/test bookkeeping), or probe details — they crowd durable facts out of the "
+        "injection budget."
+    ),
+)
 async def fact_add(fact: str) -> str:
-    """Save one long-term fact."""
+    """Save one long-term fact (behavior-changing conclusions only; guidance lives in the description)."""
     runtime = _runtime()
     store = runtime.facts if runtime is not None else None
     if store is None:

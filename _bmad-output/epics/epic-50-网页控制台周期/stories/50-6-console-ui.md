@@ -268,7 +268,7 @@ UX 缺陷：刷新失败时状态行原本会被「已保存」覆盖（现在�
 
 | 路径 | 行数 | 说明 |
 |---|---|---|
-| `tests/js/console_acceptance.mjs` | 632 | 真实浏览器验收驱动（自起 http-server + headless Chrome + CDP，17 行清单，退出码即结论） |
+| `tests/js/console_acceptance.mjs` | 683 | 真实浏览器验收驱动（自起 http-server + headless Chrome + CDP，**18 行**清单 —— A1b 为收口后补入，见文末「收口后修复」，退出码即结论） |
 | `_bmad-output/epics/epic-50-网页控制台周期/reviews/acceptance-50-6-console-ui.md` | 66 | T10 的四列清单（含实测结果、复跑命令、已知缺口） |
 
 **修改**（`git diff --stat`：见 Change Log）
@@ -295,4 +295,35 @@ UX 缺陷：刷新失败时状态行原本会被「已保存」覆盖（现在�
 | 日期 | 变更 |
 |---|---|
 | 2026-09-24 | 实现 Story 50-6：两栏控制台 UI（项目 / 会话 / 设置三层）+ 真实浏览器验收驱动（17/17 PASS）+ 10 个变异体负向验证全红；协议加 1 个字段（`write_enabled`）；全量 3012 passed / 覆盖率 92%；缺口 2 条登记活动台账（浏览器验收不进 CI、高影响键确认缺后端标记）。 |
+| 2026-09-24 | **收口后修复（用户实测发现）**：首页加载即弹出关不掉的确认遮罩 —— `[hidden]` 全局守卫 + `settleConfirm` 先隐藏再结算 + 2 条 CI 不变量断言 + 探针用例 O + 浏览器验收 A1b（清单 17 → 18 行，18/18 PASS）。台账 Z-D15。 |
+
+### 收口后修复（2026-09-24）
+
+**用户实测缺陷（非评审发现）**：打开控制台首页即弹出「请确认」对话框，且点「取消 / 确认」都关不掉、整页真实鼠标点击被吞。
+
+**根因**：50-6 的 UI 改造给 `styles.css` 引入的 `.overlay { display: flex }` 是**作者级**声明，压过 UA 样式表的
+`[hidden] { display: none }` ⇒ `#confirm-overlay` 带着 `hidden` 属性照常渲染（`position: fixed` + `inset: 0` +
+`z-index: 20`）；而 `settleConfirm` 当时在隐藏遮罩**之前** `if (!pending) return;`，加载时又没有 pending ⇒ 关不掉。
+
+**为什么本故事的 17/17 验收没抓住**（三条判据问题，逐条已补）：① 清单只断言 `element.hidden`（属性），不看
+计算样式；② `click()` 用 `node.click()`（DOM API）**绕过命中测试**，全屏遮罩吞点击在它眼里不存在；③ node 探针
+是 DOM 替身、**没有 CSS 级联**。（真浏览器实测修复前：属性 `hidden=true` 而计算样式 `display=flex`、有盒子，
+`elementFromPoint`（发送按钮处 / 侧栏处）= `confirm-overlay`。）
+
+**处置**（三件，均已实跑验证）：
+
+1. `styles.css`：加全局守卫 `[hidden] { display: none !important; }`（作者级 `!important` 压过其余作者规则 ⇒
+   新增遮罩/面板不必各自再配 `[hidden]` 分支）。
+2. `app.js`：`settleConfirm` 改为**先隐藏遮罩、再处理 pending**（失败模式从「关不掉」降级为「点一下关掉」）。
+3. 判据补强：CI 侧 `tests/test_http_web_ui.py::TestHiddenAttributeSemantics`（2 例：守卫存在且 `!important`；
+   交叉扫描 `index.html` 的 10 个 `hidden` 元素 ↔ `styles.css` 的 display 规则）+ 探针用例 O（无 pending 时
+   取消/确认必须关掉遮罩）+ 浏览器侧新增 **A1b**（计算样式 `display === "none"`、0 个盒子、`elementFromPoint`
+   与 CDP `Input.dispatchMouseEvent` 真实点击都不落在遮罩上）。
+
+**验证（实测）**：负向 —— `git checkout HEAD -- styles.css` → 恰好 2 条断言变红（报 `#confirm-overlay <- .overlay`）；
+回退 `settleConfirm` 顺序 → 探针用例 O 变红；无守卫时真实浏览器验收**只有 A1b 变红**（其余 17 行照旧全绿 ——
+正是这一行的价值）。正向 —— `ACCEPTANCE {"rows":18,"failed":0}`；`pytest tests/test_http_web_ui.py tests/network -q`
+→ 421 passed；`ruff check` / `ruff format --check` 全绿。
+
+**登记**：台账 `deferred-work-archive.md` Z-D15（含残余：真实命中测试目前只有 A1b 一行，`click()` 仍用 DOM API）。
 

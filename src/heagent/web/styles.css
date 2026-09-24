@@ -3,6 +3,15 @@
  * 纯本地：不引用任何外部字体/图片资源（CSP 只允许同源样式表，且页面里没有内联样式）。
  */
 
+/* `hidden` 属性必须真的隐藏元素（2026-09-24 修复：首页一打开就渲染出关不掉的确认框）。
+   UA 样式表的 `[hidden] { display: none }` 会被**任何**作者级 `display:` 压过 ——
+   `.overlay { display: flex }`（50-6 的 UI 改造引入）让 `#confirm-overlay` 带着 hidden 属性照常
+   渲染：position fixed + inset 0 + z-index 20 ⇒ 吞掉整页真实鼠标点击，而「取消 / 确认」在无 pending
+   时直接 return ⇒ 关不掉。这里用 !important 统一兜住，新增遮罩 / 面板不必各自再配一个 `[hidden]` 分支。 */
+[hidden] {
+  display: none !important;
+}
+
 :root {
   color-scheme: light dark;
   --bg: #faf9f7;

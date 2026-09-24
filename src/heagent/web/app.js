@@ -305,9 +305,11 @@
 
   function settleConfirm(confirmed) {
     const pending = confirmPending;
-    if (!pending) return;
     confirmPending = null;
+    // 先隐藏遮罩、再处理 pending：用户点了「取消 / 确认」，遮罩就必须消失。
+    // 否则一旦出现「遮罩可见但没有 pending」的组合，两个按钮会永久失效（只能靠刷新页面脱身）。
     el.confirmOverlay.hidden = true;
+    if (!pending) return;
     const value = pending.wantsInput ? asText(el.confirmInput.value) : "";
     pending.resolve({ confirmed, value });
   }

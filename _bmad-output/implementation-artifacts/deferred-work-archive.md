@@ -5,7 +5,7 @@
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
 > ② **勘察类闭合归档**（source_spec 为勘察批次、无归属 epic）。
 
-## 活动（未闭合）条目——13 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10/Z-D11；2026-09-23 代码评审新增 1 条，同日以 fail-soft 闭合 → Z-D12；2026-09-24 Epic 50 规划评审新增 1 条——跨项目并发无全局上限（D9 采纳后的已知缺口），**计划期登记，待 Epic 50 实现后复核**；2026-09-24 Epic 50 收口评审新增 3 条（运行时归因与兜底族 / 控制台阻塞 I/O 与会话列表成本 / 非回环运行姿态**待裁决**），评审报告见 `_bmad-output/epics/epic-50-网页控制台周期/reviews/review-epic-50-implementation.md`；2026-09-24 Story 50-5 实现新增 2 条——写通道可把无上界的「资源旋钮」键设成极端值 / 审计文件无保留期上限；2026-09-24 Story 50-6 实现新增 2 条——浏览器级 UI 验收不在 CI 且不含真实 LLM 运行 / 「高影响键的差异化确认」缺后端风险标记；2026-09-24 同日闭合 2 条（Story 50-5 的「资源旋钮上界」与「审计行数上限」→ Z-D13/Z-D14））
+## 活动（未闭合）条目——13 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10/Z-D11；2026-09-23 代码评审新增 1 条，同日以 fail-soft 闭合 → Z-D12；2026-09-24 Epic 50 规划评审新增 1 条——跨项目并发无全局上限（D9 采纳后的已知缺口），**计划期登记，待 Epic 50 实现后复核**；2026-09-24 Epic 50 收口评审新增 3 条（运行时归因与兜底族 / 控制台阻塞 I/O 与会话列表成本 / 非回环运行姿态**待裁决**），评审报告见 `_bmad-output/epics/epic-50-网页控制台周期/reviews/review-epic-50-implementation.md`；2026-09-24 Story 50-5 实现新增 2 条——写通道可把无上界的「资源旋钮」键设成极端值 / 审计文件无保留期上限；2026-09-24 Story 50-6 实现新增 2 条——浏览器级 UI 验收不在 CI 且不含真实 LLM 运行 / 「高影响键的差异化确认」缺后端风险标记；2026-09-24 同日闭合 2 条（Story 50-5 的「资源旋钮上界」与「审计行数上限」→ Z-D13/Z-D14）；2026-09-24 Story 50-6 收口后由用户实测发现并当日修复 1 条——首页加载即弹出关不掉的确认遮罩（`.overlay{display:flex}` 压过 `hidden` 属性）→ Z-D15））
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
@@ -94,7 +94,7 @@
   Progress（2026-09-24 负向验证）：`.heagent/tmp/mutate_guards_audit.py` M3–M7 五条变异全部精确变红并复原 —— 回收缺席（恒 0，5 红）/ 边界错位（多留一条，5 红）/ 方向错（留旧丢新，4 红）/ 越界删邻居（按目录泛化 ⇒ 注册表测试 1 红）/ 失败向外传播（1 红）。上行行数：11 例新用例（含端到端「写通道自己的路径也受上限约束」与「裁剪不吃掉最新那条」）。
 
 - source_spec: 2026-09-24 Story 50-6 实现（网页控制台 UI）
-  summary: **浏览器级 UI 验收不在 CI、也不含真实 LLM 运行**：`tests/js/console_acceptance.mjs` 需要真实 Chrome/Edge（CDP）+ `heagent[http]`，而 CI 只装 `.[dev]`（`pyproject.toml` 里 `http` 与 `dev` 分离）⇒ 它只能手动跑，story 50-6 的验收清单正是由它产出的；同时该次验收**没有**跑「真实模型 → SSE → 对话区流式渲染」这条链（本机无可用 provider，Ollama 未运行），该链的前端侧由 node 探针（`tests/js/app_probe.js` 用例 A/B/C/D/E/N）与 Epic 49 的服务端用例覆盖。触发条件：改 `app.js`/`index.html`/`styles.css` 后要确认「真浏览器里也没坏」；严重度：低（改动有探针兜底，但探针是 DOM 替身——CSP 是否被违反、有没有第三方请求、窄屏计算样式只有真浏览器能证明）；冻结边界：不得为让浏览器验收进 CI 而给 dev 依赖加 playwright/puppeteer（保持零构建链与「GUI / 浏览器不进 CI」的既有立场），也不得把 `console_acceptance.mjs` 的一次通过当作「UI 无回归」的充分证据。
+  summary: **浏览器级 UI 验收不在 CI、也不含真实 LLM 运行**：`tests/js/console_acceptance.mjs` 需要真实 Chrome/Edge（CDP）+ `heagent[http]`，而 CI 只装 `.[dev]`（`pyproject.toml` 里 `http` 与 `dev` 分离）⇒ 它只能手动跑，story 50-6 的验收清单正是由它产出的；同时该次验收**没有**跑「真实模型 → SSE → 对话区流式渲染」这条链（本机无可用 provider，Ollama 未运行），该链的前端侧由 node 探针（`tests/js/app_probe.js` 用例 A/B/C/D/E/N）与 Epic 49 的服务端用例覆盖。触发条件：改 `app.js`/`index.html`/`styles.css` 后要确认「真浏览器里也没坏」；严重度：低（改动有探针兜底，但探针是 DOM 替身——CSP 是否被违反、有没有第三方请求、窄屏计算样式只有真浏览器能证明）；冻结边界：不得为让浏览器验收进 CI 而给 dev 依赖加 playwright/puppeteer（保持零构建链与「GUI / 浏览器不进 CI」的既有立场），也不得把 `console_acceptance.mjs` 的一次通过当作「UI 无回归」的充分证据。**2026-09-24 实例（这条「不够充分」的最强证据）**：50-6 的 17/17 通过之后仍漏掉「首页确认遮罩吞掉真实鼠标点击」（`hidden` 属性为真而计算样式 `display:flex`）—— 因为清单只断言属性、且 `click()` 走 DOM API（绕过命中测试）；修复后清单新增 A1b（计算样式 + CDP `Input.dispatchMouseEvent` 真实点击）为 **18 行**，详见 Z-D15。
   evidence: `tests/js/console_acceptance.mjs`（自起真实 http-server + headless Chrome，CDP 驱动真实点击；17 行清单含窄屏/凭证零明文/磁盘副作用断言）；`tests/test_http_web_ui.py`（探针用例的 skipif 只要求 node，不要求浏览器）；`pyproject.toml`（可选依赖分组）。
   Progress（2026-09-24 登记，**未闭合**）：验收输出见 `_bmad-output/epics/epic-50-网页控制台周期/reviews/acceptance-50-6-console-ui.md`（17/17 PASS，Chrome 153.0.8010.48）；该报告同时给出复跑命令与依赖前提。
 
@@ -125,6 +125,7 @@
 | Z-D12 | MEMORY.md 非 UTF-8 让整个 run 起不来 | 已闭合（fail-soft：跳过注入 + **点名文件**的告警；文件字节一字不动） | `b01e09c`（2026-09-23） |
 | Z-D13 | 写通道可把「资源旋钮」键设成无界值 | 已闭合（`RESOURCE_CEILINGS` 21 键上界，白名单数值键**全部**有界；**未**改 `Settings` 语义 ⇒ 既有配置可加载性不变） | 本次批次（2026-09-24） |
 | Z-D14 | 审计文件无保留期 / 条数上限 | 已闭合（**行级**裁剪到最近 500 条；台账原拟的「按后缀筛文件」对本形状无效，已纠正） | 本次批次（2026-09-24） |
+| Z-D15 | 首页加载即弹出关不掉的确认遮罩（作者级 `display` 压过 `hidden` 属性） | 已闭合（`[hidden]{display:none!important}` 全局守卫 + `settleConfirm` 先隐藏再结算 + CI 不变量断言 + 浏览器 A1b） | 本次批次（2026-09-24） |
 
 ---
 
@@ -225,3 +226,36 @@
 - **冻结边界（守得更紧）**：不做 glob、不做后缀扫描，只认 `console_dir / AUDIT_FILENAME` 这一个已知文件名 ⇒ 同目录的项目注册表 `projects.json` 连候选都进不去（该目录在内部状态读拒集合内，误删不会有读取报错兜底）。`max_entries=0` 的语义与 `prune_backups` 对齐（保留 0 条）。
 - **失败立场**：裁剪是**维护动作** —— 任何异常只 WARNING，绝不让「已追加成功且写已生效」的响应变成错误（否则文件已改而响应 500，用户重试又撞 `config_conflict`）；调用点包 catch-all。
 - **证据**：`src/heagent/config_write.py::prune_audit` / `append_audit` / `MAX_CONFIG_AUDIT_ENTRIES`；`tests/test_config_write.py::TestAuditRetention`（11 例：只留最近 N 条 / 未超限则字节不变 / 文件缺失不报错 / 读失败与写失败各自降级为 0 / 裁剪后仍是 LF + JSONL / 末行无换行也算一条 / **同目录注册表不被触碰** / 裁剪失败不改写 `audit_recorded` / 端到端追加即触发裁剪 / 写通道自身路径亦受上限约束）。负向验证：`.heagent/tmp/mutate_guards_audit.py` M3–M7（回收缺席 / 边界错位 / 方向错 / 越界删邻居 / 失败外传）→ 6 / 6 / 5 / 1 / 1 条精确变红后复原。
+
+
+## Z-D15 首页加载即弹出关不掉的确认遮罩（`hidden` 属性被作者样式压过）
+
+- **来源**：Story 50-6 交付（`f5f4c3f`）之后由**用户实测**发现（2026-09-24：打开网页即弹对话框）；非评审发现。
+- **问题**：`styles.css` 的 `.overlay { display: flex }`（50-6 的 UI 改造引入）是**作者级**声明，压过 UA 样式表的
+  `[hidden] { display: none }` ⇒ `#confirm-overlay` 带着 `hidden` 属性照样渲染：`position: fixed` + `inset: 0` +
+  `z-index: 20` 的全屏遮罩在首页加载时就盖住整页并吞掉全部真实鼠标点击；且「取消 / 确认」都关不掉
+  （`settleConfirm` 当时在隐藏遮罩**之前** `if (!pending) return;`，而加载时本就没有 pending）⇒ 只能刷新页面脱身。
+  真浏览器实测（headless Edge + CDP）：属性 `hidden=true` 而计算样式 `display=flex`、有盒子；`elementFromPoint`
+  （发送按钮处 / 侧栏处）= `confirm-overlay`；真实点「取消」之后 `display` 仍是 `flex`。
+- **为什么 17/17 的浏览器验收没抓住（三条判据问题）**：① 清单只断言 `element.hidden`（属性），属性翻回去就算过，
+  看计算样式的只有 A1（安全声明）与 A15（侧栏）；② 其 `click()` 用 `node.click()`（DOM API）——**绕过命中测试**，
+  全屏遮罩吞点击在它眼里不存在；③ `app_probe.js` 是 node 的最小 DOM 替身，**没有 CSS 级联**。加之 Story 49-6 的
+  人工浏览器点选验收当时并未执行，「看得见却点不动」这类问题此前没有任何一层覆盖。
+- **结论**：**已闭合**（2026-09-24，用户裁定按 1/2/3 三件一并处置）。① `styles.css` 加全局守卫
+  `[hidden] { display: none !important; }`（作者级 `!important` 压过其余作者规则 ⇒ 新增遮罩 / 面板不必各自再配
+  `[hidden]` 分支）；② `settleConfirm` 改为**先隐藏遮罩、再处理 pending**（失败模式从「关不掉」降级为
+  「点一下关掉」；CSS 守卫已使该组合不可达，属 defense-in-depth）；③ 判据补强 —— CI 内
+  `tests/test_http_web_ui.py::TestHiddenAttributeSemantics`（守卫必须存在且 `!important`；交叉扫描 `index.html`
+  的 10 个 `hidden` 元素与 `styles.css` 的 display 规则，任何能压过 hidden 的元素都必须有守卫兜底）+ 探针用例
+  `O`（可见但无 pending 时取消 / 确认必须关掉遮罩）+ 真实浏览器验收新增 **A1b**（计算样式 `display === "none"`、
+  `getClientRects().length === 0`、`elementFromPoint` 与 CDP 真实鼠标点击的落点都不是遮罩）。
+- **证据（全部实跑）**：负向 —— `git checkout HEAD -- styles.css` → 恰好 2 条断言变红并报出
+  `#confirm-overlay <- .overlay`（还原后 sha256 一致）；回退 `settleConfirm` 顺序 → 探针用例 O 变红
+  （`afterCancel=False`）；无守卫时整份浏览器清单**只有 A1b 变红**（exit 1，其余 17 行照旧 PASS）。正向 ——
+  `ACCEPTANCE {"rows":18,"failed":0}`；`pytest tests/test_http_web_ui.py tests/network -q` → 421 passed；
+  `ruff check` / `ruff format --check` 全绿。
+- **残余（如实标注）**：① 真实命中测试目前只有 A1b 一行 —— 其余用例仍用 `node.click()`（有意保留：真鼠标点击对
+  布局变化更脆），故「全屏元素遮挡」类缺陷只有这一行覆盖；② 本条不改变「浏览器验收不进 CI」的既有立场；
+  ③ 静态断言只做「守卫存在 + 是否存在能压过 hidden 的作者规则」这一层，**不解析级联优先级**：若有人显式写
+  `.overlay[hidden] { display: flex !important }`（或更具体的 `[hidden]` 复合选择器），静态断言与守卫都放行 ——
+  此时只有真浏览器 A1b 拦得住（而它不在 CI）。

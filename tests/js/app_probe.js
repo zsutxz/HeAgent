@@ -1057,6 +1057,20 @@ const CASES = {
     world.configReadFails = false;
     return result;
   },
+
+  async O() {
+    // 遮罩「可见但没有 pending」（历史缺陷：CSS 的 `.overlay{display:flex}` 压过 hidden 属性，
+    // 于是首页加载即弹出）时，点「取消 / 确认」都必须真的把它关掉。
+    // settleConfirm 曾在隐藏遮罩**之前** return ⇒ 两个按钮永久失效、只能刷新页面脱身。
+    await load();
+    els["confirm-overlay"].hidden = false;
+    await clickCancel();
+    const afterCancel = els["confirm-overlay"].hidden;
+    els["confirm-overlay"].hidden = false;
+    await clickOk();
+    const afterOk = els["confirm-overlay"].hidden;
+    return { afterCancel, afterOk };
+  },
 };
 
 function walkFind(root, predicate) {

@@ -259,7 +259,8 @@ def _memory_nudge_block(facts: FactStore | None, settings: Settings | None = Non
     return (
         "<memory-nudge>\n"
         "After completing a complex task or learning something important, "
-        "consider using fact_add to save key insights for future sessions.\n"
+        "consider using fact_add to save key insights that will change future behavior "
+        "(not session narration or status bookkeeping).\n"
         "</memory-nudge>"
     )
 

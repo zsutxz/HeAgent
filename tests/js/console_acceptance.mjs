@@ -292,6 +292,57 @@ row("A1", "首页骨架 + 常驻安全声明", "两栏骨架、设置入口、�
   return "两栏 + 设置入口 + 声明常驻可见";
 });
 
+row("A1b", "首页无阻塞遮罩（计算样式 + 真实鼠标命中）", "确认遮罩计算样式为 none，且真实鼠标点击落到页面元素而不是遮罩", async () => {
+  // 判据必须是**计算样式 + 命中测试**，不能只看 element.hidden：作者级 display 会压过 UA 的
+  // `[hidden]{display:none}`（2026-09-24 实测：`.overlay{display:flex}` 让首页加载即弹出关不掉的全屏
+  // 遮罩，而当时全部用例只断言属性、且用 node.click() 绕过命中测试，17/17 照样 PASS）。
+  const state = await evaluate(`(() => {
+    const overlay = document.getElementById("confirm-overlay");
+    const center = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+    const at = (x, y) => { const node = document.elementFromPoint(x, y); return node ? (node.id || node.tagName) : null; };
+    // 发送按钮常常落在首屏之下（elementFromPoint 对视口外的点返回 null）——只有它真的在视口内才纳入判据。
+    const send = document.getElementById("send-button").getBoundingClientRect();
+    const sendVisible = send.width > 0 && send.top >= 0 && send.bottom <= window.innerHeight;
+    return {
+      hiddenAttribute: overlay.hidden,
+      computedDisplay: getComputedStyle(overlay).display,
+      renderedBoxes: overlay.getClientRects().length,
+      topmostAtCenter: at(center.x, center.y),
+      topmostAtSend: sendVisible ? at(send.left + send.width / 2, send.top + send.height / 2) : "",
+      sendVisible,
+      center,
+    };
+  })()`);
+  if (state.computedDisplay !== "none" || state.renderedBoxes !== 0) {
+    throw new Error(
+      `确认遮罩在首页就渲染出来了（hidden=${state.hiddenAttribute}，display=${state.computedDisplay}，盒子=${state.renderedBoxes}）`,
+    );
+  }
+  if (state.topmostAtCenter === "confirm-overlay" || state.topmostAtSend === "confirm-overlay") {
+    throw new Error(`遮罩吞掉了鼠标命中：视口中心=${state.topmostAtCenter}，发送按钮=${state.topmostAtSend || "(不在视口内)"}`);
+  }
+  // 再用 CDP 派发一次真实鼠标点击（走完整命中测试；DOM 的 node.click() 不做命中测试）。
+  // 捕捉层只记录落点并 preventDefault，避免误提交一次运行。
+  await evaluate(`(() => {
+    window.__hitProbe = (event) => { window.__hitTarget = event.target.id || event.target.tagName; event.preventDefault(); };
+    document.addEventListener("click", window.__hitProbe, true);
+  })()`);
+  await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x: state.center.x, y: state.center.y, button: "left", clickCount: 1 });
+  await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x: state.center.x, y: state.center.y, button: "left", clickCount: 1 });
+  await sleep(150);
+  const hit = await evaluate(`(() => {
+    document.removeEventListener("click", window.__hitProbe, true);
+    const target = window.__hitTarget;
+    delete window.__hitProbe;
+    delete window.__hitTarget;
+    return target || "";
+  })()`);
+  if (!hit) throw new Error("真实鼠标点击没有落到任何元素（命中测试异常）");
+  if (hit === "confirm-overlay") throw new Error("真实鼠标点击被确认遮罩吞掉");
+  const sendNote = state.sendVisible ? `发送按钮处最上层=${state.topmostAtSend}` : "发送按钮在首屏之下（未纳入判据）";
+  return `display=none、0 个盒子、视口中心最上层=${state.topmostAtCenter}、真实点击落点=${hit}、${sendNote}`;
+});
+
 row("A2", "无第三方请求", "浏览器发出的全部请求都同源（CSP + 页面无外链）", async () => {
   const foreign = requests.filter((url) => !url.startsWith(origin) && !url.startsWith("data:"));
   if (foreign.length) throw new Error(`出现跨源请求：${foreign.join(", ")}`);

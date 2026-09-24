@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from heagent.agent.system_prompt import _memory_block, build_system_prompt
+from heagent.agent.system_prompt import _memory_block, _memory_nudge_block, build_system_prompt
 from heagent.config import Settings
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
@@ -693,3 +693,36 @@ class TestSkillFrontmatterBom:
 
         assert [m.name for m in matched] == ["bom_skill"]
         assert matched[0].matched_triggers == ["bomtrigger"]
+
+
+class TestFactAddWriteGuardrail:
+    """``fact_add`` 的**工具描述**是唯一能触达模型的写侧闸门（2026-09-24 追加）。
+
+    MEMORY.md 的头部注记**不进** system prompt（只有 ``- `` 行被注入），所以「只写改变未来行为的结论」
+    这条要求只能落在工具描述与 ``<memory-nudge>`` 里。背景：文件涨到 55 KB / 99 条，其中 41% 是过程
+    叙述与状态记账，把最新的 4 条挤出了注入预算。本测试把准则钉成契约，防止被精简回
+    「Save one long-term fact.」——那正是它长成 55 KB 的原因。
+    """
+
+    def test_schema_description_carries_the_write_guardrail(self) -> None:
+        from heagent.tools.builtins import memory as _memory_tools  # noqa: F401  导入即注册
+        from heagent.tools.registry import ToolRegistry
+
+        schema = ToolRegistry.get().get_schema("fact_add")
+
+        assert schema is not None, "fact_add 必须已注册"
+        description = schema.description
+        assert "long-term fact" in description
+        assert "behavior-changing" in description
+        assert "Do not record" in description and "narration" in description
+        assert "injection budget" in description, "须点明挤占预算的代价，否则模型无从权衡"
+        assert len(description) < 500, "描述随工具表每轮注入，须保持精简"
+
+    def test_memory_nudge_repeats_the_criterion(self, tmp_path: Path) -> None:
+        store = FactStore(path=str(tmp_path / "MEMORY.md"))
+
+        block = _memory_nudge_block(store, Settings())
+
+        assert block is not None
+        assert "change future behavior" in block
+        assert "not session narration" in block

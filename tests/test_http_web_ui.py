@@ -142,6 +142,92 @@ class TestConsoleLayout:
                 assert pattern not in text, f"{name} 引用了第三方资源：{pattern}"
 
 
+# ── `hidden` 属性的可见性语义 ──
+
+_TAG_RE = re.compile(r"<([a-zA-Z][-\w]*)((?:\s+[^<>]*?)?)/?>", re.S)
+
+
+def _elements_with_hidden_attribute(html: str) -> list[tuple[str, list[str]]]:
+    """``index.html`` 里带 ``hidden`` 属性的元素：``(id, [class…])``。"""
+    found: list[tuple[str, list[str]]] = []
+    for match in _TAG_RE.finditer(html):
+        attrs = match.group(2)
+        if not re.search(r"(?:^|\s)hidden(?:\s|=|$)", attrs):
+            continue
+        id_match = re.search(r'id="([^"]*)"', attrs)
+        class_match = re.search(r'class="([^"]*)"', attrs)
+        classes = (class_match.group(1) if class_match else "").split()
+        found.append((id_match.group(1) if id_match else "", classes))
+    return found
+
+
+def _author_display_rules(css: str) -> list[tuple[str, str]]:
+    """``(选择器, 声明块)``：所有声明了 display 的作者级规则（含 @media 的内层规则）。"""
+    rules: list[tuple[str, str]] = []
+    for match in re.finditer(r"([^{}]+)\{([^{}]*)\}", css):
+        selector, body = match.group(1).strip(), match.group(2)
+        if re.search(r"(^|;)\s*display\s*:", body):
+            rules.append((selector, body))
+    return rules
+
+
+def _hidden_guard_is_enforced(css: str) -> bool:
+    """是否存在 ``[hidden] { display: none !important }`` 这类守卫（只有 !important 才压过其它作者规则）。"""
+    return any(
+        "[hidden]" in selector and re.search(r"display\s*:\s*none\s*!important", body)
+        for selector, body in _author_display_rules(css)
+    )
+
+
+def _display_rules_matching(element_id: str, classes: list[str], rules: list[tuple[str, str]]) -> list[str]:
+    """可能把该元素显示出来的作者规则（只看每段选择器最后一个复合选择器：保守，宁多报不漏报）。"""
+    hits: list[str] = []
+    for selector, body in rules:
+        if "[hidden]" in selector or re.search(r"display\s*:\s*none", body):
+            continue
+        for part in selector.split(","):
+            compounds = part.split()
+            if not compounds:
+                continue
+            tail = compounds[-1]
+            if element_id and re.search(r"#" + re.escape(element_id) + r"(?![-\w])", tail):
+                hits.append(selector)
+                break
+            if any(re.search(r"\." + re.escape(name) + r"(?![-\w])", tail) for name in classes):
+                hits.append(selector)
+                break
+    return hits
+
+
+class TestHiddenAttributeSemantics:
+    """`hidden` 属性必须真的隐藏元素 —— 作者级 `display:` 压得过 UA 的 `[hidden] { display: none }`。
+
+    真实浏览器实测（Edge headless + CDP，2026-09-24 修复前）：`#confirm-overlay` 的 hidden 属性为 true，
+    计算样式却是 `display: flex` ⇒ 首页一打开就渲染出「请确认」遮罩（`position: fixed` + `inset: 0` +
+    `z-index: 20`）：命中测试显示发送按钮与侧栏位置的最上层元素都是 `confirm-overlay`（真实鼠标点击被吞），
+    点「取消」也不消失（无 pending 时 `settleConfirm` 提前 return）。当时 17/17 的浏览器验收没抓到，是因为
+    它只断言 `element.hidden`（属性）且用 `node.click()`（DOM API，绕过命中测试）。
+
+    结论：光有 hidden 属性不足以证明「看不见」，所以把下面两件事钉成断言。
+    """
+
+    def test_hidden_guard_is_present_and_important(self) -> None:
+        assert _hidden_guard_is_enforced(_CSS), "styles.css 必须有 `[hidden] { display: none !important }` 守卫"
+
+    def test_author_display_rules_cannot_defeat_hidden_elements(self) -> None:
+        rules = _author_display_rules(_CSS)
+        offenders: list[str] = []
+        for element_id, classes in _elements_with_hidden_attribute(_HTML):
+            hits = _display_rules_matching(element_id, classes, rules)
+            if hits:
+                label = f"#{element_id}" if element_id else f".{classes[0] if classes else '?'}"
+                offenders.append(f"{label} <- {', '.join(sorted(set(hits)))}")
+        assert not offenders or _hidden_guard_is_enforced(_CSS), (
+            "以下带 hidden 属性的元素会被作者级 display 规则显示出来，且没有 [hidden] !important 守卫兜底：\n  "
+            + "\n  ".join(offenders)
+        )
+
+
 class TestCspCompatibility:
     def test_no_inline_script_or_style(self) -> None:
         """严格 CSP（无 'unsafe-inline'）要求 HTML 里没有内联脚本/样式。"""
@@ -534,6 +620,13 @@ class TestConsoleChrome:
 
         assert result["collapsed"] == {"flag": "true", "aria": "false", "label": "展开侧栏"}
         assert result["expanded"] == {"flag": "false", "aria": "true", "label": "收起侧栏"}
+
+    def test_confirm_overlay_is_dismissible_without_a_pending_prompt(self, tmp_path: Path) -> None:
+        """遮罩可见但**没有 pending** 时，取消/确认都必须关掉它（否则按钮永久失效，只能刷新脱身）。"""
+        result = _run_probe("O", tmp_path)
+
+        assert result["afterCancel"] is True
+        assert result["afterOk"] is True
 
 
 @pytest.mark.skipif(_NODE is None, reason="需要 node 才能执行前端行为回归（CI 镜像自带 node）")

@@ -3,7 +3,10 @@
 - 日期：2026-09-24
 - 驱动：`tests/js/console_acceptance.mjs`（自起**真实** `heagent http-server` + headless Chrome，CDP 驱动真实点击）
 - 环境：Chrome **153.0.8010.48**；`heagent-http` 0.6.2；Windows；工作区 = 临时目录（脚本自动创建/删除，`--keep` 保留）
-- 结论：**17 / 17 PASS**（`ACCEPTANCE {"rows":17,"failed":0}`）
+- 结论：**17 / 17 PASS**（`ACCEPTANCE {"rows":17,"failed":0}`）—— 首次交付（2026-09-24）
+- **收口后补记（2026-09-24）**：新增 **A1b**（首页无阻塞遮罩）后为 **18 / 18 PASS**（`ACCEPTANCE {"rows":18,"failed":0}`）。
+  补入原因：原 17 行**没有一行**能发现「打开首页即弹出关不掉的确认遮罩」（`hidden` 属性为真却照样渲染，且吞掉
+  整页真实鼠标点击）—— 判据问题逐条分析见文末「收口后新增的判据」。
 
 ## 怎么复跑
 
@@ -24,6 +27,7 @@ A/B/C/D/E/N 用例，注入 SSE 事件断言渲染结果）与 Epic 49 的服务
 | # | 步骤（页面） | 期望 | 实测 | 结论 |
 |---|---|---|---|---|
 | A1 | 首页加载 | 两栏骨架、设置入口、安全声明三条事实同时可见 | 两栏 + 设置入口 + 声明常驻可见 | PASS |
+| A1b | 首页加载后立刻查遮罩（计算样式 + 真实命中测试） | 确认遮罩 `display:none`、0 个盒子，真实鼠标点击落到页面元素 | display=none、0 个盒子、视口中心最上层=DIV、真实点击落点=DIV、发送按钮在首屏之下（未纳入判据） | PASS |
 | A2 | 观察浏览器网络请求 | 全部请求都同源（CSP + 页面无外链） | 7 个请求全部同源 | PASS |
 | A3 | 观察 console / CSP 违规 | 没有 error 级 console 消息或 CSP 拦截 | 0 条 error（favicon 404 按无害过滤） | PASS |
 | A4 | 项目列表 | 侧栏列出服务工作区项目且标记为可用 | `default=heagent-console-AtEPbP`（服务工作区徽标），共 1 个 | PASS |
@@ -64,3 +68,20 @@ A/B/C/D/E/N 用例，注入 SSE 事件断言渲染结果）与 Epic 49 的服务
 2. **无真实 LLM 的浏览器运行验收**：本机无可用 provider，AC3 的「真浏览器里看着流式回答出现」未做；
    建议在有 provider 的环境用同一脚本补一行（提交提示词 → 断言对话区出现文本且终态为已完成）。
 3. 窄屏断言的粒度：A15 只验证「侧栏可收起 + 声明可见」，未逐项验证每个控件的可点性（截图人工比对补充）。
+4. **`click()` 用 DOM API，绕过命中测试**：清单里除 A1b 外都用 `node.click()`，因此「全屏元素遮挡点击」这类缺陷
+   只有 A1b 能发现（2026-09-24 那条遮罩缺陷 17/17 照旧全绿正是此因）。保留 DOM 点击是**有意**的（真鼠标点击对
+   布局变化更脆），代价是遮挡类问题只靠 A1b 一行覆盖。
+
+## 收口后新增的判据（2026-09-24）
+
+**A1b：首页无阻塞遮罩（计算样式 + 真实鼠标命中）** —— 触发背景：用户实测发现打开首页即弹出「请确认」且关不掉。
+根因是 `styles.css` 的 `.overlay { display: flex }`（作者级声明）压过 UA 样式表的 `[hidden] { display: none }`，
+`#confirm-overlay` 带着 `hidden` 属性照常渲染（`position: fixed` + `inset: 0` + `z-index: 20`）并吞掉整页真实鼠标
+点击；`settleConfirm` 又在隐藏遮罩**之前** `if (!pending) return;`，加载时没有 pending ⇒ 关不掉。详见 Story 50-6
+「收口后修复」与台账 Z-D15。
+
+判据（三者同时成立才 PASS）：① `getComputedStyle(overlay).display === "none"`；② `overlay.getClientRects().length === 0`；
+③ `elementFromPoint`（视口中心，及在视口内时的发送按钮处）与 CDP `Input.dispatchMouseEvent` 派发的**真实点击**落点
+都不是 `confirm-overlay`（真实点击用捕捉层记录落点并 `preventDefault`，避免误提交一次运行）。
+
+负向验证：把 `styles.css` 退回无守卫版本重跑整份清单 → **只有 A1b 变红**（exit 1），其余 17 行照旧 PASS。

@@ -495,7 +495,7 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
 
 | 工具 | 功能 |
 |------|------|
-| `fact_add` | 保存一条事实到长期记忆 |
+| `fact_add` | 保存一条事实到长期记忆（**工具描述即写侧闸门**：只写改变未来行为的结论，不收过程叙述/状态记账——`@tool` 只取 docstring 首行，故该准则走显式 `description=`；2026-09-24 追加，见 4.6） |
 | `profile_update` | 更新用户画像的指定部分 |
 
 **Cron 管理工具（3 个，`cron.py`）：**
@@ -599,6 +599,8 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 `.heagent/memory/MEMORY.md`，70% 关键词重叠去重。通过 `fact_add` 工具由 LLM 自主保存（**append-only**）。
 
 注入侧有字节预算 `memory_inject_max_bytes`（默认 49152，0=不限制）：`_memory_block` 按文件顺序累计`- <fact>` 的字节数，超预算保留**前部**条目并在块尾追加省略标注（含省略条数/总条数/预算值）同时打 warning——绝不静默；文件本体不被修改，超预算条目仍在盘上，整理该文件即释放预算。（2026-09-23 实测：无预算时 336 KB / 170 条 = 每轮 89 183 token 的 SYSTEM 前缀，整理后 33 KB / 81 条 = 8 591 token。）
+
+**写侧闸门**：预算只在读侧刹车，故 `fact_add` 的工具描述（**唯一能触达模型的写侧入口**——本文件头部注记不进 system prompt）明确「只写改变未来行为的结论，不收过程叙述 / 状态记账 / 探针细节」，`<memory-nudge>` 同口径复述；`tests/test_memory.py::TestFactAddWriteGuardrail` 钉住该契约。2026-09-24 实测：MEMORY.md 涨到 55 177 字节 / 99 条，其中 41%（22 575 字节 / 24 条）是过程叙述与状态记账，把最新的 4 条挤出预算 ⇒ 整理为 44 876 字节 / 94 条：每轮注入 **12 912 token（99 条只注入 95 条）→ 12 120 token（94 条全部注入）**，预算余量 4 276 字节。（压缩原则与工具见该文件头部「整理历史」与 `.heagent/tmp/mem_curate.py`。）
 
 #### memory/skills* — 技能存储
 
