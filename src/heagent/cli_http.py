@@ -151,6 +151,7 @@ def build_server_config(
     event_buffer_size: int | None = None,
     run_history_size: int | None = None,
     request_timeout: float | None = None,
+    idle_timeout: float | None = None,
     shutdown_timeout: float | None = None,
 ) -> HttpServerConfig:
     """把 CLI 覆盖（``None`` = 未覆盖）合并到 ``Settings`` 的 HTTP 配置。
@@ -170,6 +171,7 @@ def build_server_config(
         event_buffer_size=settings.http_event_buffer_size if event_buffer_size is None else event_buffer_size,
         run_history_size=settings.http_run_history_size if run_history_size is None else run_history_size,
         request_timeout=settings.http_request_timeout if request_timeout is None else request_timeout,
+        idle_timeout=settings.http_idle_timeout if idle_timeout is None else idle_timeout,
         shutdown_timeout=settings.http_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
     )
 
@@ -769,10 +771,18 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
 )
 @click.option(
     "--request-timeout",
-    type=click.FloatRange(min=0, min_open=True),
+    type=click.FloatRange(min=0),
     callback=_reject_non_finite,
     default=None,
-    help="Seconds allowed per agent run (default: HTTP_REQUEST_TIMEOUT / 300)",
+    help="Hard ceiling in seconds for one agent run; 0 = unlimited (default: HTTP_REQUEST_TIMEOUT / 0)",
+)
+@click.option(
+    "--idle-timeout",
+    type=click.FloatRange(min=0),
+    callback=_reject_non_finite,
+    default=None,
+    help="Seconds without events or an in-flight tool before a run is treated as stalled; 0 = off "
+    "(default: HTTP_IDLE_TIMEOUT / 300)",
 )
 @click.option(
     "--shutdown-timeout",
@@ -800,6 +810,7 @@ def http_server_cmd(
     event_buffer_size: int | None,
     run_history_size: int | None,
     request_timeout: float | None,
+    idle_timeout: float | None,
     shutdown_timeout: float | None,
     model: str | None,
     system: str | None,
@@ -828,6 +839,7 @@ def http_server_cmd(
         event_buffer_size=event_buffer_size,
         run_history_size=run_history_size,
         request_timeout=request_timeout,
+        idle_timeout=idle_timeout,
         shutdown_timeout=shutdown_timeout,
     )
     handler = HttpAgentHandler(

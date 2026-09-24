@@ -100,6 +100,7 @@ def test_build_server_config_uses_settings_defaults() -> None:
         event_buffer_size=settings.http_event_buffer_size,
         run_history_size=settings.http_run_history_size,
         request_timeout=settings.http_request_timeout,
+        idle_timeout=settings.http_idle_timeout,
         shutdown_timeout=settings.http_shutdown_timeout,
     )
     assert (config.host, config.port) == ("127.0.0.1", 8766)
@@ -108,9 +109,9 @@ def test_build_server_config_uses_settings_defaults() -> None:
 def test_build_server_config_overrides_only_the_given_fields() -> None:
     settings = get_settings()
 
-    config = build_server_config(settings, port=9999, max_inflight_runs=2, request_timeout=1.5)
+    config = build_server_config(settings, port=9999, max_inflight_runs=2, request_timeout=1.5, idle_timeout=2.5)
 
-    assert (config.port, config.max_inflight_runs, config.request_timeout) == (9999, 2, 1.5)
+    assert (config.port, config.max_inflight_runs, config.request_timeout, config.idle_timeout) == (9999, 2, 1.5, 2.5)
     # 未覆盖的字段仍取 Settings（不因某几项覆盖而整体重置）
     assert (config.host, config.max_connections) == (settings.http_host, settings.http_max_connections)
 
@@ -123,7 +124,9 @@ def test_defaults_reach_the_listening_config(captured_server: dict[str, HttpServ
     assert (server.config.host, server.config.port) == ("127.0.0.1", 8766)
     assert (server.config.max_connections, server.config.max_inflight_runs) == (16, 1)
     assert (server.config.event_buffer_size, server.config.run_history_size) == (512, 64)
-    assert (server.config.request_timeout, server.config.shutdown_timeout) == (300.0, 5.0)
+    # 默认**不设**总时长硬上限（0 = 不限制），卡死交给 300s 的静默判定（2026-09-24 修复）。
+    assert (server.config.request_timeout, server.config.idle_timeout) == (0.0, 300.0)
+    assert server.config.shutdown_timeout == 5.0
     # 健康检查对外报告的版本号取自包元数据（不硬编码在传输层）。
     assert server.version == __version__
 
@@ -133,6 +136,7 @@ def test_settings_env_drives_defaults(monkeypatch: pytest.MonkeyPatch, captured_
     monkeypatch.setenv("HTTP_PORT", "9100")
     monkeypatch.setenv("HTTP_MAX_INFLIGHT_RUNS", "3")
     monkeypatch.setenv("HTTP_RUN_HISTORY_SIZE", "8")
+    monkeypatch.setenv("HTTP_IDLE_TIMEOUT", "7")
     reset_settings()
 
     result = CliRunner().invoke(main, ["http-server"])
@@ -140,6 +144,7 @@ def test_settings_env_drives_defaults(monkeypatch: pytest.MonkeyPatch, captured_
     assert result.exit_code == 0, result.output
     server = captured_server["server"]
     assert (server.config.port, server.config.max_inflight_runs, server.config.run_history_size) == (9100, 3, 8)
+    assert server.config.idle_timeout == 7.0
 
 
 def test_cli_overrides_reach_the_config_without_mutating_settings(
@@ -159,13 +164,20 @@ def test_cli_overrides_reach_the_config_without_mutating_settings(
             "2",
             "--shutdown-timeout",
             "1.5",
+            "--idle-timeout",
+            "0",
+            "--request-timeout",
+            "0",
         ],
     )
 
     assert result.exit_code == 0, result.output
     server = captured_server["server"]
     assert (server.config.port, server.config.max_inflight_runs, server.config.shutdown_timeout) == (9401, 2, 1.5)
+    # ``0`` 是**合法**取值（关掉该时限 / 不设总时长上限），CLI 边界不得比配置层更严（2026-09-24）。
+    assert (server.config.idle_timeout, server.config.request_timeout) == (0.0, 0.0)
     assert (settings.http_port, settings.http_max_inflight_runs, settings.http_shutdown_timeout) == (8766, 1, 5.0)
+    assert settings.http_idle_timeout == 300.0
 
 
 @pytest.mark.parametrize(
@@ -181,12 +193,18 @@ def test_cli_overrides_reach_the_config_without_mutating_settings(
         ["--request-timeout", "-1"],
         ["--request-timeout", "inf"],
         ["--request-timeout", "nan"],
+        ["--idle-timeout", "-1"],
+        ["--idle-timeout", "nan"],
         ["--shutdown-timeout", "0"],
         ["--shutdown-timeout", "nan"],
     ],
 )
 def test_invalid_limits_are_rejected_before_serving(args: list[str], captured_server: dict[str, HttpServer]) -> None:
-    """CLI 侧用同一套范围规则拦下非法值（端口 1..65535、计数 >=1、超时 >0）。"""
+    """CLI 侧用同一套范围规则拦下非法值（端口 1..65535、计数 >=1）。
+
+    超时里只有 ``--shutdown-timeout`` 仍要求 ``>0``（0 会让「有界关闭」变成无界等待）；
+    两条运行时限的 ``0`` 是**合法语义**（0 = 关掉该时限），故不在此列表（2026-09-24）。
+    """
     result = CliRunner().invoke(main, ["http-server", *args])
 
     assert result.exit_code == 2

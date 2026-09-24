@@ -94,6 +94,29 @@ def _stubborn_executor(delay: float):
     return run
 
 
+def _ticking_executor(*, interval: float, total: float, in_call: float = 0.0):
+    """按固定间隔持续推事件的假 executor：模拟「跑得久但在持续进展」的运行。
+
+    ``in_call > 0`` 时先发一条 ``tool_call``、静默 ``in_call`` 秒再发 ``tool_result``——
+    模拟一次长时间没有事件、但在途工具仍活着的 shell / 子代理调用。
+    """
+
+    async def run(prompt: str, publisher: Any) -> RunOutcome:
+        if in_call > 0:
+            publisher.tool_call("shell", "pytest -q")
+            await asyncio.sleep(in_call)
+            publisher.tool_result("shell", "1 passed", is_error=False)
+            return RunOutcome(answer="tool done")
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + total
+        while loop.time() < deadline:
+            publisher.text("tick")
+            await asyncio.sleep(interval)
+        return RunOutcome(answer="ticked")
+
+    return run
+
+
 async def _drain(service: HttpRunService, *, budget: float = 5.0) -> None:
     """等残留任务自己结束（避免测试结束时留悬挂任务 / 未归还名额）。"""
     deadline = asyncio.get_running_loop().time() + budget
@@ -561,6 +584,13 @@ class TestReconnect:
 
 
 class TestRunTimeout:
+    """时限语义（2026-09-24 修复：**墙钟 → 静默 + 可选总时长上限**）。
+
+    旧实现把 ``request_timeout``（默认 300s）当**墙钟**上限，于是长任务（多轮工具 / 子代理 /
+    goal 工作流）会被误杀成 ``timed_out``；现在默认**不设**总时长上限，卡死由 ``idle_timeout``
+    判定（默认 300s：既没有新事件、也没有在途工具才算静默）。
+    """
+
     async def test_run_timeout_marks_timed_out_and_emits_the_event(self) -> None:
         gate = asyncio.Event()
         service = HttpRunService(_config(request_timeout=0.05), _blocking_executor(gate))
@@ -604,6 +634,75 @@ class TestRunTimeout:
         assert snapshot["status"] == RunStatus.TIMED_OUT
         assert snapshot["messages"] == []
         gate.set()
+
+    async def test_stalled_run_reports_a_stall_not_a_configured_limit(self) -> None:
+        """**卡死**（无事件、无在途工具）→ ``timed_out``，文案必须说「静默」而不是「超过配置时限」。"""
+        gate = asyncio.Event()
+        service = HttpRunService(_config(idle_timeout=0.05, request_timeout=0.0), _blocking_executor(gate))
+        record = await service.start_run("hi")
+        async with _client(service) as client:
+            body = (await client.get(f"/api/runs/{record.run_id}/events")).text
+
+        assert record.status is RunStatus.TIMED_OUT
+        assert [event for _id, event, _data in _parse_sse(body)][-1] == "timed_out"
+        assert "stalled" in body and "configured time limit" not in body
+        assert service.active_runs == 0
+        gate.set()
+
+    async def test_steady_activity_outlives_many_idle_windows(self) -> None:
+        """持续有进展的运行**不会**因为「跑得久」被杀（本次修复的核心回归）。"""
+        service = HttpRunService(
+            _config(idle_timeout=0.05, request_timeout=0.0),
+            _ticking_executor(interval=0.02, total=0.3),
+        )
+        record = await service.start_run("hi")
+        await _drain(service)
+
+        assert record.status is RunStatus.COMPLETED
+        assert record.elapsed_ms() >= 300  # 实际跑满 0.3s ≫ 6 个静默窗口（旧墙钟语义下这里会 0.05s 被杀）
+        assert [event.kind.value for event in record.events][-1] == "done"
+
+    async def test_in_flight_tool_stretches_the_idle_window(self) -> None:
+        """在途工具期间没有事件，但运行没有卡死 ⇒ 不得被判静默（长 shell / 子代理的常见形态）。"""
+        service = HttpRunService(
+            _config(idle_timeout=0.05, request_timeout=0.0),
+            _ticking_executor(interval=0.02, total=0.0, in_call=0.2),
+        )
+        record = await service.start_run("hi")
+        await _drain(service)
+
+        assert record.status is RunStatus.COMPLETED
+        assert record.deadline_reason is None
+        assert [event.kind.value for event in record.events] == ["tool_call", "tool_result", "done"]
+
+    async def test_hard_ceiling_still_kills_an_active_run_when_configured(self) -> None:
+        """总时长上限是运维**显式**设的兜底闸门：设了就按它杀，且文案点名「配置的时限」。"""
+        service = HttpRunService(
+            _config(request_timeout=0.05, idle_timeout=0.0),
+            _ticking_executor(interval=0.01, total=0.4),
+        )
+        record = await service.start_run("hi")
+        async with _client(service) as client:
+            body = (await client.get(f"/api/runs/{record.run_id}/events")).text
+
+        assert record.status is RunStatus.TIMED_OUT
+        assert record.deadline_reason == "hard"
+        assert "configured time limit" in body and "stalled" not in body
+        await _drain(service)
+
+    async def test_disabling_both_deadlines_leaves_a_silent_run_running(self) -> None:
+        """两个时限都设 0 ⇒ 完全不设时限（看门狗不启动）：静默运行照样 ``running``，由关停收尾。"""
+        gate = asyncio.Event()
+        service = HttpRunService(_config(request_timeout=0.0, idle_timeout=0.0), _blocking_executor(gate))
+        record = await service.start_run("hi")
+        await asyncio.sleep(0.2)
+
+        assert record.status is RunStatus.RUNNING
+        assert record.deadline_reason is None
+
+        gate.set()
+        await service.close()
+        assert record.status is RunStatus.CANCELLED
 
 
 class TestRunFailureObservability:

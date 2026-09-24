@@ -172,7 +172,14 @@ class HttpServerConfig(BaseModel):
     max_request_bytes: int = Field(default=MAX_REQUEST_BYTES_FOR_MAX_PROMPT, ge=1)
     event_buffer_size: int = Field(default=512, ge=1)
     run_history_size: int = Field(default=64, ge=1)
-    request_timeout: float = Field(default=300.0, gt=0, allow_inf_nan=False)
+    # 单次运行的**总时长**硬上限（秒）：0 = 不限制（默认）。它只该是运维显式设的兜底闸门——
+    # 「跑得久」不等于「卡死」，把墙钟上限当默认会在长任务（多轮工具 / 子代理 / goal 工作流）上
+    # 误杀，而卡死判定是 idle_timeout 的职责。
+    request_timeout: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    # 单次运行的**静默**上限（秒）：既没有新事件、也没有在途工具时才开始计时，到点按 ``timed_out``
+    # 终结（0 = 关闭静默判定）。在途工具（``tool_call`` 已发、``tool_result`` 未到）算「有进展」：
+    # 一次长的 shell / 子代理调用期间没有事件，但它显然没有卡死。
+    idle_timeout: float = Field(default=300.0, ge=0, allow_inf_nan=False)
     shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 
 
@@ -255,6 +262,14 @@ class _RunRecord:
         self.outcome: RunOutcome | None = None
         self.error_message: str | None = None
         self.created_at = time.perf_counter()
+        # 最近一次「有进展」的时刻与在途工具数：:meth:`append` 是唯一写者，看门狗只读。
+        # 「在途工具」（tool_call 已发、tool_result 未到）同样算进展——一次长的 shell / 子代理调用
+        # 期间没有事件，但运行并没有卡死；漏配对时最坏也只是回到「纯事件判定」。
+        self.last_activity_at = self.created_at
+        self.tools_in_flight = 0
+        # 看门狗终结本次运行的原因（"idle" / "hard" / None）：终态归因与文案据此区分
+        # 「卡死」与「超过运维设的总时长上限」。
+        self.deadline_reason: str | None = None
         # 有界 ring buffer：越过窗口的重连（49-4）据此判定 resync_required。
         self.events: deque[RunEventPayload] = deque(maxlen=buffer_size)
         self.subscribers: set[asyncio.Queue[RunEventPayload | None]] = set()
@@ -277,7 +292,16 @@ class _RunRecord:
         return self.events[0].seq if self.events else None
 
     def append(self, kind: RunEventKind, **fields: Any) -> RunEventPayload:
-        """追加一条事件：分配单调 ``seq``、入缓冲、广播给当前订阅者（同步，无 ``await``）。"""
+        """追加一条事件：分配单调 ``seq``、入缓冲、广播给当前订阅者（同步，无 ``await``）。
+
+        全程只在事件循环线程里执行，故顺带维护看门狗读的「有进展」信号（:attr:`last_activity_at`
+        与 :attr:`tools_in_flight`）无需加锁：事件本身就是进展的证据。
+        """
+        self.last_activity_at = time.perf_counter()
+        if kind is RunEventKind.TOOL_CALL:
+            self.tools_in_flight += 1
+        elif kind is RunEventKind.TOOL_RESULT:
+            self.tools_in_flight = max(0, self.tools_in_flight - 1)
         payload = RunEventPayload(kind=kind, seq=self._next_seq, **fields)
         self._next_seq += 1
         self.events.append(payload)
@@ -591,39 +615,88 @@ class HttpRunService:
 
     # ---- 运行执行 ----
 
+    def _deadline_tick(self) -> float | None:
+        """看门狗的巡检间隔；两个时限都没开时返回 ``None``（不启动看门狗）。
+
+        取最小时限的 1/4（夹在 10ms..5s）：到点后最多晚一个 tick 发现，又不会为长时限空转占 CPU。
+        ``inf``/``nan`` 已被 :class:`HttpServerConfig` 拒掉，故此处不必再防。
+        """
+        limits = [value for value in (self.config.request_timeout, self.config.idle_timeout) if value > 0]
+        if not limits:
+            return None
+        return min(5.0, max(0.01, min(limits) / 4))
+
+    def _deadline_message(self, record: _RunRecord) -> str:
+        """时限终态的客户端文案：**区分**「卡死」与「超过运维显式设的总时长上限」。"""
+        if record.deadline_reason == "idle":
+            return f"run stalled: no activity for {self.config.idle_timeout:g}s"
+        return f"run exceeded the configured time limit ({self.config.request_timeout:g}s)"
+
+    async def _watch_deadlines(self, record: _RunRecord, task: asyncio.Task[Any], tick: float) -> None:
+        """时限看门狗：判据成立就 ``task.cancel()``，并把**原因**写进记录（终态归因用）。
+
+        两条判据（各自 > 0 才生效）：
+
+        - ``request_timeout``：总时长硬上限——运维显式设的兜底闸门，默认 0（不限制）；
+        - ``idle_timeout``：静默上限——**既没有新事件、也没有在途工具**才开始计时。
+
+        为什么不用墙钟 ``asyncio.timeout``：Agent 运行「跑得久」是常态（多轮工具 / 子代理 / goal
+        工作流），墙钟当默认会误杀正常长任务；真正该杀的是**卡死**（provider 挂住、吞掉取消）。
+        取消仍统一走 ``_execute`` 的 ``CancelledError`` 分支（终态唯一），由 ``deadline_reason``
+        区分「看门狗杀的」与「关停 / DELETE 杀的」。
+        """
+        while True:
+            await asyncio.sleep(tick)
+            if record.is_terminal:
+                return
+            now = time.perf_counter()
+            hard = self.config.request_timeout
+            if hard > 0 and now - record.created_at >= hard:
+                record.deadline_reason = "hard"
+                break
+            idle = self.config.idle_timeout
+            if idle > 0 and record.tools_in_flight == 0 and now - record.last_activity_at >= idle:
+                record.deadline_reason = "idle"
+                break
+        if record.is_terminal:
+            # 收尾竞态：判据成立的同时运行自己终结了——终态第一个赢，这里不碰它。
+            return
+        task.cancel()
+
     async def _execute(self, record: _RunRecord, executor: RunExecutor) -> None:
         """跑一次运行并把结果写进记录（唯一写终态的地方，AD-10）。
 
-        超时（``HTTP_REQUEST_TIMEOUT``）与取消都经这里的终态转换收口：**第一个**拿到终态的转换
-        获胜，只发一条终态事件，并且在 ``finally`` 里归还唯一的在途名额。
+        时限（``HTTP_IDLE_TIMEOUT`` 静默 / ``HTTP_REQUEST_TIMEOUT`` 总时长，二者都可关）与取消都经
+        这里的终态转换收口：**第一个**拿到终态的转换获胜，只发一条终态事件，并且在 ``finally`` 里
+        归还唯一的在途名额。
 
-        ``asyncio.timeout`` 只能**请求**取消：吞掉 ``CancelledError`` 的 executor（长工具 / 子代理
-        可能如此）会让块正常返回，此时时限并未真正生效——终态仍按实际结果走，但必须留下观测痕迹。
-        ``deadline.expired()`` 因此承担两件事：区分「本模块的时限到了」与「上游自己抛的
-        ``TimeoutError``」，以及在超时被忽略时留下 ``event=timeout_ignored``。
+        时限由 :meth:`_watch_deadlines` 以「取消运行任务」实现：``cancel()`` 只能**请求**取消，吞掉
+        ``CancelledError`` 的 executor（长工具 / 子代理可能如此）会让它正常返回，此时时限并未真正
+        生效——终态仍按实际结果走，但必须留下 ``event=timeout_ignored``。运行内部（provider / 网络）
+        自己抛的 ``TimeoutError`` 只是普通异常 ⇒ 按 **failed** 归因，不会谎报「超过配置时限」。
         """
-        deadline = asyncio.timeout(self.config.request_timeout)
+        task = asyncio.current_task()
+        tick = self._deadline_tick()
+        watchdog: asyncio.Task[None] | None = None
+        if task is not None and tick is not None:
+            watchdog = asyncio.create_task(
+                self._watch_deadlines(record, task, tick),
+                name=f"heagent-http-deadline-{record.run_id}",
+            )
         try:
-            async with deadline:
-                outcome = await executor(record.prompt, RunEventPublisher(record))
+            outcome = await executor(record.prompt, RunEventPublisher(record))
         except asyncio.CancelledError:
+            if record.deadline_reason is not None and not self._closing:
+                # 看门狗杀的：终态按时限走，并**吞掉**这次取消——与旧实现（``asyncio.timeout`` 把
+                # CancelledError 转成 TimeoutError）同义：任务正常结束，不是 cancelled。
+                if record.claim_terminal(RunStatus.TIMED_OUT):
+                    record.append(RunEventKind.TIMED_OUT, message=self._deadline_message(record))
+                    record.close_subscribers()
+                return
             if record.claim_terminal(RunStatus.CANCELLED):
                 record.append(RunEventKind.CANCELLED, message="run cancelled")
                 record.close_subscribers()
             raise
-        except TimeoutError as exc:
-            if deadline.expired():
-                if record.claim_terminal(RunStatus.TIMED_OUT):
-                    record.append(RunEventKind.TIMED_OUT, message="run exceeded the configured time limit")
-                    record.close_subscribers()
-            else:
-                # 运行内部（provider / 网络 / MCP ping）自己抛的 TimeoutError 不是本模块的时限：
-                # 归因保持原样，否则运维会按「超过配置时限」去排查一个 100ms 就失败的运行。
-                _safe_log(logging.ERROR, "http event=run_failed run_id=%s", record.run_id, exc_info=True)
-                if record.claim_terminal(RunStatus.FAILED):
-                    record.error_message = _client_error_message(exc)
-                    record.append(RunEventKind.ERROR, message=record.error_message)
-                    record.close_subscribers()
         except Exception as exc:
             # 运行是后台任务，异常不会走 Starlette / Uvicorn 的 traceback 通道：诊断细节只进服务端
             # 日志（客户端拿脱敏文案），否则真实缺陷的栈会被彻底丢掉。
@@ -633,12 +706,13 @@ class HttpRunService:
                 record.append(RunEventKind.ERROR, message=record.error_message)
                 record.close_subscribers()
         else:
-            if deadline.expired():
-                # 时限已过但 executor 吞掉取消正常返回：终态按实际结果，但「时限没生效」必须可见。
+            if record.deadline_reason is not None and not self._closing:
+                # 时限已到但 executor 吞掉取消正常返回：终态按实际结果，但「时限没生效」必须可见。
                 _safe_log(
                     logging.WARNING,
-                    "http event=timeout_ignored run_id=%s elapsed_ms=%d",
+                    "http event=timeout_ignored run_id=%s reason=%s elapsed_ms=%d",
                     record.run_id,
+                    record.deadline_reason,
                     record.elapsed_ms(),
                 )
             if record.claim_terminal(RunStatus.COMPLETED):
@@ -652,6 +726,8 @@ class HttpRunService:
                 record.close_subscribers()
                 self._project(record)
         finally:
+            if watchdog is not None:
+                watchdog.cancel()
             self._active.discard(record.run_id)
 
     def _store(self, record: _RunRecord) -> None:

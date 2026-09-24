@@ -375,8 +375,12 @@ class Settings(BaseSettings):
     http_event_buffer_size: int = Field(default=512, ge=1)
     # 已终结 run 记录的保留条数；淘汰后按其 id 订阅得 unknown_run（AD-4）。
     http_run_history_size: int = Field(default=64, ge=1)
-    # 单次网页 Agent 运行的超时（秒）；超时按 timed_out 终结并释放 In-flight 名额。
-    http_request_timeout: float = Field(default=300.0, gt=0, allow_inf_nan=False)
+    # 单次网页 Agent 运行的**总时长**硬上限（秒）；0 = 不限制（默认）。它只该是运维显式设的兜底
+    # 闸门——「跑得久」不等于「卡死」，墙钟当默认会误杀长任务（多轮工具 / 子代理 / goal 工作流）。
+    http_request_timeout: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    # 单次网页 Agent 运行的**静默**上限（秒）：既没有新事件、也没有在途工具时才开始计时，到点按
+    # timed_out 终结并释放 In-flight 名额；0 = 关闭静默判定。
+    http_idle_timeout: float = Field(default=300.0, ge=0, allow_inf_nan=False)
     # 服务关闭时「停止接收 → 终结在途 run → 关闭订阅 → 关闭 listener」全程的等待上限（秒）。
     http_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 

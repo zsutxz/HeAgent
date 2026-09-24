@@ -193,7 +193,9 @@ class TestConfig:
         assert config.max_request_bytes == 394_240
         assert config.event_buffer_size == 512
         assert config.run_history_size == 64
-        assert config.request_timeout == 300.0
+        # 默认**不设**总时长硬上限（长任务不该被墙钟误杀），卡死由静默上限兜底（见 TestRunTimeout）。
+        assert config.request_timeout == 0.0
+        assert config.idle_timeout == 300.0
         assert config.shutdown_timeout == 5.0
 
     @pytest.mark.parametrize(
@@ -207,17 +209,30 @@ class TestConfig:
             {"max_request_bytes": 0},
             {"event_buffer_size": 0},
             {"run_history_size": 0},
-            {"request_timeout": 0},
+            {"request_timeout": -1.0},
             {"request_timeout": float("inf")},
             {"request_timeout": float("nan")},
+            {"idle_timeout": -1.0},
+            {"idle_timeout": float("inf")},
+            {"idle_timeout": float("nan")},
             {"shutdown_timeout": -1.0},
             {"shutdown_timeout": float("inf")},
         ],
     )
     def test_invalid_values_are_rejected(self, overrides: dict[str, Any]) -> None:
-        """非法值必须显性失败，不能静默变成「无限制」。"""
+        """非法值必须显性失败；唯一被接受的 0 是**文档化的**「关掉该时限」，不是静默降级。"""
         with pytest.raises(ValidationError):
             HttpServerConfig(**overrides)
+
+    def test_zero_disables_each_deadline_explicitly(self) -> None:
+        """``0`` 的语义由文档与测试钉住：两个时限各自可关（不设则用默认值）。
+
+        「都关掉 ⇒ 完全不设时限（看门狗不启动）」的行为判据在
+        ``tests/network/test_http_run_service.py::TestRunTimeout`` 里跑真实运行验证。
+        """
+        config = HttpServerConfig(request_timeout=0.0, idle_timeout=0.0)
+
+        assert (config.request_timeout, config.idle_timeout) == (0.0, 0.0)
 
 
 class TestLifecycle:
