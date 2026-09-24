@@ -1,7 +1,8 @@
 ---
 id: 50-6
 title: 网页控制台 UI
-status: ready-for-dev
+status: review
+baseline_commit: a1012d8a9333ad4b7c93519bad115d272cb731bd
 parent_epic: E50
 priority: P0
 phase: E（整体验收）
@@ -59,25 +60,31 @@ created: '2026-09-23'
 
 ## 任务（细分）
 
-- [ ] **T1** `index.html`：两栏骨架 + 设置面板入口 + 常驻安全声明条；`lang="zh-CN"`；不引入外部资源。
-- [ ] **T2** `styles.css`：侧栏/对话/面板布局（含窄屏降级）、来源徽标样式、只读态与禁用态、二次确认对话框。
-- [ ] **T3** `app.js` 项目层：`GET/POST/PATCH/DELETE /api/projects*` 接线；项目切换作用于本地状态（**不动进程状态**）；
-      目录失效项显示 `available=false` 的可见标记。
-- [ ] **T4** `app.js` 会话层：列表/新建/切换/重命名/删除；删除走确认；`session_conflict` / `session_busy` /
-      `confirm_required` / **`session_unreadable`（D1 新增：会话文件损坏，文案须与「冲突」区分开，引导用户
-      处理或删除该文件而不是当作空会话继续）** 映射为可理解文案（复用 49 的稳定错误文案映射函数）。
-- [ ] **T5** `app.js` 设置面板：分组渲染（后端给的分组 + 来源 + `writable` + `read_only_reason`）；
-      凭证只渲染 `configured` + 掩码；只读项显示原因；未知键单列且标明「不生效」。
-- [ ] **T6** 保存流程：提交 `{changes, fingerprint}`；成功后展示结果 + 「下一次运行生效」并在**同一页**刷新该项来源徽标；
+- [x] **T1** `index.html`：两栏骨架 + 设置面板入口 + 常驻安全声明条；`lang="zh-CN"`；不引入外部资源。
+      声明条**没有**折叠/关闭控件（`#security-notice` 常驻），仍只引用 `/styles.css` 与 `/app.js` 两个同源资源。
+- [x] **T2** `styles.css`：侧栏/对话/面板布局（含窄屏降级）、来源徽标样式、只读态与禁用态、二次确认对话框。
+      加 `.config-item[data-editable="false"]` 只读态、`.badge-source[data-source=…]` 四层来源色、
+      `@media (max-width: 1000px)` 单列堆叠 + `.console[data-sidebar-collapsed="true"] .sidebar{display:none}`。
+- [x] **T3** `app.js` 项目层：`GET/POST/PATCH/DELETE /api/projects*` 接线；项目切换作用于本地状态（**不动进程状态**）；
+      目录失效项显示 `available=false` 的可见标记。切换走「切换中」态（禁用交互 + 可见进度），
+      离开有在途运行的项目时只断本页事件流并留提示（不取消运行）。
+- [x] **T4** `app.js` 会话层：列表/新建/切换/重命名/删除；删除走确认；`session_conflict` / `session_busy` /
+      `confirm_required` / **`session_unreadable`** 映射为可理解文案。`session_unreadable` 单列一条分支：
+      清空对话区 + 可操作说明 + **禁用提交**，绝不显示成空会话（与「冲突」文案互不混用）。
+- [x] **T5** `app.js` 设置面板：分组渲染（后端给的分组 + 来源 + `writable` + `read_only_reason`）；
+      凭证只渲染 `configured` + 掩码；只读项显示原因（文案取自后端 `labels`）；未知键单列且标明「不生效」。
+      另渲染 `env_file` 诊断（路径/存在/可读/行数/指纹/BOM/重复键/空值键）与响应级 `notes`、`ROUTING_POOLS` 有效池摘要。
+- [x] **T6** 保存流程：提交 `{changes, fingerprint}`；成功后展示结果 + 「下一次运行生效」并在**同一页**刷新该项来源徽标；
       失败（`invalid_value` / `config_conflict` / `field_not_writable` / `write_disabled` / `loopback_required`）逐类给文案。
-- [ ] **T7** 状态反馈：项目切换中（禁用交互 + 可见进度）、会话冲突（提示重新加载）、写入结果、只读原因四类状态
-      都有可见反馈（不允许只在 console 里打日志）。
-- [ ] **T8** 无回归检查：流式/工具活动/停止/重连路径按 49 的行为逐条手工复核（作为验收清单的一部分）。
-- [ ] **T9** 静态资源测试：`tests/test_http_web_ui.py` 扩展——资源白名单命中、CSP 生效、无第三方 URL
-      （对 `index.html` / `app.js` / `styles.css` 做 `http://` / `https://` / `//cdn` 的**排除性断言**）、
-      源码运行与 wheel 安装两条路径都能取到资源。
-- [ ] **T10** 手工验收清单（写入本 story 产物或 `reviews/`）：页面 → 步骤 → 期望 → **实测结果**四列，
-      至少覆盖 brief §9 的 9 条验收标准中与 UI 相关的部分。
+      退回旧值 = 撒谎，因此写响应里的写后条目会**就地**更新对应行（面板随后刷新失败时仍显示写后事实）。
+- [x] **T7** 状态反馈：项目切换中、会话冲突、写入结果、只读原因四类状态都有可见反馈（无 `console.log` 兜底）。
+- [x] **T8** 无回归检查：流式/工具活动/停止/重连按 49 的行为逐条复核。前端侧由 node 探针用例 A–E 断言
+      （同名工具配对、终态文案、接手在途运行、忙时提交不静默、键盘语义），服务端侧由 49 的既有用例覆盖。
+- [x] **T9** 静态资源测试：`tests/test_http_web_ui.py` 扩展——白名单命中、CSP 生效（无内联脚本/样式/事件属性）、
+      无第三方 URL（三份资源都做 `http://` / `https://` / `//cdn` / CDN 主机名排除性断言）、
+      源码运行与 wheel 安装两条路径都能取到资源（`read_web_asset` + `TestPackagedAssets`）。
+- [x] **T10** 手工验收清单：`reviews/acceptance-50-6-console-ui.md`（17 行，四列含**实测结果**），
+      由 `tests/js/console_acceptance.mjs`（真实 http-server + headless Chrome + CDP 驱动真实点击）产出。
 
 ## 验收标准
 
@@ -142,3 +149,150 @@ python -m pip install -e . && python -c "from heagent.network.http_server import
 ## Requirement Traceability
 
 FR-6；NFR-9, NFR-10；UX-DR1–UX-DR7；脊柱 I9, I12, I13；brief §4 FR-6、§2 场景表。
+
+## Dev Agent Record
+
+### Implementation Plan
+
+1. **后端最小补充**（先说清为什么必须动协议）：面板需要知道「写入闸门」状态，否则 AC5 无法诚实渲染
+   —— `ProjectConfigResponse` 加 `write_enabled`（入口层填写，无默认值 ⇒ 漏传即构造失败），
+   `config_catalog.LABELS` 加 `write_channel_disabled` 文案。
+2. **三份静态资源**：`index.html`（两栏 + 设置面板 + 常驻声明 + 确认层）、`styles.css`（布局 / 徽标 /
+   只读态 / 窄屏降级）、`app.js`（项目层 / 会话层 / 设置层 / 状态反馈；49 的对话区行为原样保留）。
+3. **测试**：扩展 `tests/js/app_probe.js`（真实 app.js + 最小 DOM 替身，用例 A–N）与
+   `tests/test_http_web_ui.py`（静态契约 + 行为断言）。
+4. **真实浏览器验收驱动**：新增 `tests/js/console_acceptance.mjs`（自起 http-server + headless Chrome +
+   CDP 真实点击）产出 T10 的四列清单。
+5. **负向验证**：`.heagent/tmp/mutate_50_6.py` 十条变异体（含 DoD 要求的三条），逐条确认精确变红。
+
+### Completion Notes
+
+**与 story 文本 / 代码地图的偏离（3 处，均有理由）**
+
+1. **`ProjectConfigResponse.write_enabled`（新增协议字段，超出「只改三份资源」的代码地图）**：
+   AC5 要求「闸门关闭 ⇒ 所有可写项显示为不可编辑 + 说明原因」，而条目上的 `writable` 只表达
+   「在显式白名单内且未被系统环境变量提供」（实测：闸门关着时 `MAX_ITERATIONS.writable` 仍为 `True`）
+   ——只凭它渲染必然出现「面板说可编辑、保存必被拒」。该字段由**持有闸门的入口层**填写（与 PUT 的裁决
+   同一事实源，不是第二份副本），**无默认值**（漏传即构造期失败，逼调用方正面回答）。
+2. **「写入被标记为高影响的键」在协议里没有标记** ⇒ 口径裁定为**所有写入都二次确认**（确认框列出将改的
+   键、写入路径、备份语义与「只对下一次运行生效」）。方向是宁多确认；若日后要分级，只能新增后端字段，
+   不得在前端硬编码键名清单（已登记活动台账）。
+3. **两条 49 契约断言随交互面变更而更新**（`tests/test_http_web_ui.py`）：提交端点从 `POST /api/runs`
+   改为项目内运行入口 `POST /api/projects/{id}/runs`；刷新恢复从 `GET /api/session` 改为
+   「项目列表 + 该项目会话详情」。**行为不变**（刷新继续对话、接手在途运行、忙时不静默、键盘语义、
+   同名工具配对、终态文案全部由探针逐条钉住），变的是「会话由项目承载」（D2 每请求带项目参数）。
+   另 `tests/network/test_http_server.py` 的 `<title>` 断言同步为 `HeAgent 控制台`。
+
+**关键设计点（供评审复核）**
+
+- **切换项目只改本页状态**：唯一的持久偏好是 `localStorage` 里的一个项目 id；不改进程 cwd / 环境变量，
+  也不取消在途运行。离开「正在运行的项目」时**只断本页 SSE**（服务端断线不取消运行）并留一条常驻提示
+  （「仍在继续…切回即接手」），切回该项目时由会话详情的 `status=running` 重新接手事件流。
+- **面板文案一律由后端派生**：只读原因 / 诊断 / 来源 / 守卫提示都来自 `labels`、`guards`、`source`
+  与 `env_file`（`guardHint` 由 `guards` 生成枚举或上下界提示）；前端不硬编码键名、原因或边界
+  ⇒ 后端补 `VALUE_GUARDS` 上界时 UI 自动跟随。
+- **闸门关闭时零开启入口**：可写项渲染为**禁用输入框 + 原因**，开关自身也不可编辑（验收 B1 断言
+  `#settings-groups` 内可编辑控件数为 0）。
+- **写响应里的写后条目就地更新对应行**：面板随后的全量刷新失败时，写过的行仍显示服务端返回的写后值与
+  来源（退回旧值 = 对用户撒谎），状态行同时说明「面板刷新失败、其余项可能过时」。
+- **凭证零明文**：只渲染 `configured` + 定长掩码，不提供输入框；真实浏览器验收（A12）用一个假密钥标记
+  同时在页面文本、`documentElement.outerHTML` 与凭证行里做排除性断言。
+- **纯文本渲染**：项目名 / 会话标题 / 配置值 / 错误文案全部经 `createTextNode`；确认框文案（含项目路径）
+  同样走 `textContent`，无 `innerHTML` / 内联事件属性（静态契约断言钉住）。
+
+### 验证（实测命令 + 输出）
+
+```bash
+$ python -m pytest tests/test_http_web_ui.py -q
+96 passed in 1.58s            # 静态契约 + 14 个前端行为用例（node 探针）
+
+$ python -m pytest -q
+3012 passed, 11 skipped, 18 deselected, 8 warnings in 142.99s (0:02:22)
+
+$ python -m pytest -q --cov --cov-report=term | findstr /c:"TOTAL"
+TOTAL                                          12857    869   3500    392    92%
+3012 passed, 11 skipped, 18 deselected, 8 warnings in 162.59s (0:02:42)
+
+$ ruff check src tests && ruff format --check src tests
+All checks passed! / 276 files already formatted
+
+$ mypy src && mypy src --platform linux
+Success: no issues found in 146 source files        # 两次均干净
+
+$ node tests/js/console_acceptance.mjs             # T10：真实浏览器验收（17 行）
+# Chrome 153.0.8010.48；heagent-http 0.6.2
+✓ A1 首页骨架 + 常驻安全声明 — 两栏 + 设置入口 + 声明常驻可见
+✓ A2 无第三方请求 — 7 个请求全部同源
+✓ A3 无 console 错误 / CSP 违规 — 0 条 error（favicon 404 按无害过滤）
+✓ A4 项目列表渲染 — default=heagent-console-AtEPbP（服务工作区），共 1 个
+✓ A5 登记项目（真实 POST） — 侧栏与 /api/projects 都有「验收项目 B」（id=p817fb93b，共 2 个）
+✓ A6 目录失效可见标记 — available=false + 「目录已失效」徽标
+✓ A7 切换项目刷新会话（隔离） — B 的会话 1 个、服务工作区 0 个，无交集
+✓ A8 会话持久化 — 刷新前后都回到「验收项目 B」且会话为 cd6b9068…
+✓ A9 重命名会话 — cd6b9068….json 的 title = 验收重命名
+✓ A10 删除会话（先取消后确认） — 取消保留、确认后文件消失（2 → 1）
+✓ A11 设置面板 — 20 组 / 113 条（= 后端 113 字段）/ default+global_env+project_env / 67 个只读项全部给了原因
+✓ A12 凭证零明文 — 页面/DOM/行内都没有标记；凭证行只有「已配置 ********」
+✓ A13 保存配置 — 25 → 321（磁盘 + 面板），来源 project_env，备份 1 个
+✓ A14 非法值被拒且文件不变 — 「值不合法…MAX_ITERATIONS: must be a number」，文件未变（115 字节）
+✓ A15 窄屏降级 + 侧栏可收起 — sidebar display:none，声明仍可见
+✓ A16 截图留档 — …\heagent-console-AtEPbP\console.png（49 KB）
+✓ B1 闸门关闭：全只读 + 原因 + 无开启入口 — 0 个可编辑控件、开关自身只读（无输入框）
+ACCEPTANCE {"rows":17,"failed":0,"workspace":"C:\\Users\\skype\\AppData\\Local\\Temp\\heagent-console-AtEPbP","chrome":"Chrome/153.0.8010.48"}
+# 全程结论见 reviews/acceptance-50-6-console-ui.md
+
+$ python .heagent/tmp/mutate_50_6.py                # 负向验证（10 个变异体）
+[OK] M1 index.html 注入第三方外链（DoD 负向验证①）  -> FAILED test_page_is_self_contained / test_no_third_party_resources_in_any_asset
+[OK] M2 CSP 放宽（script-src 加 'unsafe-inline'）（②） -> 3 failed（TestSecurityHeaders 三个参数）
+[OK] M3 从 _WEB_ASSETS 删除 styles.css（③）        -> ERROR（KeyError: 'styles.css'）
+[OK] M4 UI 无视写闸门                              -> FAILED test_closed_gate_makes_every_writable_field_read_only_with_a_reason
+[OK] M5 错误映射退化（退回英文文案）                -> FAILED test_each_stable_code_gets_its_own_text
+[OK] M6 删除会话跳过二次确认                        -> FAILED test_delete_requires_confirmation_and_sends_confirm
+[OK] M7 损坏会话被当空会话                          -> FAILED test_unreadable_session_is_not_shown_as_an_empty_conversation
+[OK] M8 切项目时静默丢弃在途运行                    -> FAILED test_leaving_a_running_project_detaches_the_stream_without_cancelling
+[OK] M9 入口层谎报闸门状态                          -> FAILED test_panel_reports_the_write_gate_so_the_ui_can_disable_editing
+[OK] M10 保存后不就地刷新来源徽标                   -> FAILED test_write_result_keeps_the_row_truthful_when_the_panel_refresh_fails
+合计 10 条变异，异常 0 条   # 每条回退后 sha256 与变异前一致（脚本内断言）
+
+$ python .heagent/tmp/check_eol.py <全部改动文件>
+# 全部 LF / 无 BOM / 末行换行（含 3 份资源、探针、验收驱动、story 之外的 11 个文件）
+```
+
+**M10 是本次负向验证的真实收获**：第一轮它**没有变红** —— 说明「用写响应就地刷新徽标」这条路径当时
+没有任何用例钉住（全量刷新会掩盖它）。补了用例 N（写成功但面板刷新失败）后才变红，并顺带修出一处
+UX 缺陷：刷新失败时状态行原本会被「已保存」覆盖（现在会明确说「面板刷新失败，其余项可能过时」）。
+
+### File List
+
+**新增**
+
+| 路径 | 行数 | 说明 |
+|---|---|---|
+| `tests/js/console_acceptance.mjs` | 632 | 真实浏览器验收驱动（自起 http-server + headless Chrome + CDP，17 行清单，退出码即结论） |
+| `_bmad-output/epics/epic-50-网页控制台周期/reviews/acceptance-50-6-console-ui.md` | 66 | T10 的四列清单（含实测结果、复跑命令、已知缺口） |
+
+**修改**（`git diff --stat`：见 Change Log）
+
+| 路径 | 说明 |
+|---|---|
+| `src/heagent/web/index.html` | 两栏 + 设置面板 + 常驻安全声明 + 二次确认层；仍只引用两个同源资源 |
+| `src/heagent/web/app.js` | 项目 / 会话 / 设置三层接线 + 状态反馈 + 错误码文案表 + 来源词表；49 的对话区行为原样保留 |
+| `src/heagent/web/styles.css` | 三栏网格 / 窄屏单列 / 来源徽标 / 只读态 / 确认框 |
+| `src/heagent/network/http_console_protocol.py` | +`ProjectConfigResponse.write_enabled`（入口层填写，无默认值） |
+| `src/heagent/cli_http.py` | `_config_response(..., write_enabled=...)` 显式透传闸门状态 |
+| `src/heagent/config_catalog.py` | `LABELS` +`write_channel_disabled`（闸门关闭的原因文案由后端给） |
+| `tests/js/app_probe.js` | 重写：DOM 替身自 index.html 派生 id、按路由的 fetch 替身、用例 F–N（控制台各层） |
+| `tests/test_http_web_ui.py` | +静态契约（布局/CSP/事件属性/第三方 URL 排除）+ 14 个行为用例；49 的两条端点断言随交互面更新 |
+| `tests/network/test_http_console_config.py` | `_sample_response` 补 `write_enabled` + 新增闸门一致性用例 |
+| `tests/network/test_http_server.py` | `<title>` 断言 → `HeAgent 控制台` |
+
+**探测 / 验证脚本**（未跟踪，`.heagent/tmp/`）：`mutate_50_6.py`（10 个变异体）、
+`src_probe.py` / `src_probe2.py` / `src_probe3.py`（面板来源分布与闸门字段的诊断探针）、
+`patch_ledger_50_6.py`（台账 CRLF 字节级补丁）。
+
+### Change Log
+
+| 日期 | 变更 |
+|---|---|
+| 2026-09-24 | 实现 Story 50-6：两栏控制台 UI（项目 / 会话 / 设置三层）+ 真实浏览器验收驱动（17/17 PASS）+ 10 个变异体负向验证全红；协议加 1 个字段（`write_enabled`）；全量 3012 passed / 覆盖率 92%；缺口 2 条登记活动台账（浏览器验收不进 CI、高影响键确认缺后端标记）。 |
+

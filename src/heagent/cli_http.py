@@ -366,16 +366,20 @@ def _config_item_response(item: ConfigItem) -> ConfigItemResponse:
     return ConfigItemResponse.model_validate(item.model_dump(mode="json"))
 
 
-def _config_response(project_id: str, report: ConfigReport) -> ProjectConfigResponse:
+def _config_response(project_id: str, report: ConfigReport, *, write_enabled: bool) -> ProjectConfigResponse:
     """域模型（``config_catalog``）→ 协议模型（网络层）。
 
     两类模型各自归属一层（``config_catalog`` 是顶层模块，不得 import 网络层），因此这里按字段名
     做一次**显式**映射；叶子模型用 ``model_validate(model_dump(mode="json"))`` 镜像，两侧字段一旦
     漂移就会立刻失败（``extra="forbid"``），并由契约测试钉住。
+
+    ``write_enabled`` 由调用方（持有写闸门的入口层）**显式**传入，**没有默认值**：闸门状态一旦漏传，
+    面板就会把「可写」谎报成「只读」（或反之），故让它在构造期就失败，而不是给一个可能撒谎的兜底值。
     """
     return ProjectConfigResponse(
         project_id=project_id,
         field_count=report.field_count,
+        write_enabled=write_enabled,
         groups=tuple(
             ConfigGroupResponse(
                 id=group.id,
@@ -650,7 +654,9 @@ class HttpProjectConsole:
         """
         runtime = self._runtime_for(project_id)
         return _config_response(
-            project_id, build_config_report(runtime.paths.env_file, global_env_file=self.global_env_file)
+            project_id,
+            build_config_report(runtime.paths.env_file, global_env_file=self.global_env_file),
+            write_enabled=self.write_enabled,
         )
 
     # ── 配置写入（Story 50-5） ──

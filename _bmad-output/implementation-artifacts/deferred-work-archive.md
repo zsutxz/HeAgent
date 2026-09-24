@@ -5,7 +5,7 @@
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
 > ② **勘察类闭合归档**（source_spec 为勘察批次、无归属 epic）。
 
-## 活动（未闭合）条目——13 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10/Z-D11；2026-09-23 代码评审新增 1 条，同日以 fail-soft 闭合 → Z-D12；2026-09-24 Epic 50 规划评审新增 1 条——跨项目并发无全局上限（D9 采纳后的已知缺口），**计划期登记，待 Epic 50 实现后复核**；2026-09-24 Epic 50 收口评审新增 3 条（运行时归因与兜底族 / 控制台阻塞 I/O 与会话列表成本 / 非回环运行姿态**待裁决**），评审报告见 `_bmad-output/epics/epic-50-网页控制台周期/reviews/review-epic-50-implementation.md`；2026-09-24 Story 50-5 实现新增 2 条——写通道可把无上界的「资源旋钮」键设成极端值 / 审计文件无保留期上限）
+## 活动（未闭合）条目——15 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10/Z-D11；2026-09-23 代码评审新增 1 条，同日以 fail-soft 闭合 → Z-D12；2026-09-24 Epic 50 规划评审新增 1 条——跨项目并发无全局上限（D9 采纳后的已知缺口），**计划期登记，待 Epic 50 实现后复核**；2026-09-24 Epic 50 收口评审新增 3 条（运行时归因与兜底族 / 控制台阻塞 I/O 与会话列表成本 / 非回环运行姿态**待裁决**），评审报告见 `_bmad-output/epics/epic-50-网页控制台周期/reviews/review-epic-50-implementation.md`；2026-09-24 Story 50-5 实现新增 2 条——写通道可把无上界的「资源旋钮」键设成极端值 / 审计文件无保留期上限；2026-09-24 Story 50-6 实现新增 2 条——浏览器级 UI 验收不在 CI 且不含真实 LLM 运行 / 「高影响键的差异化确认」缺后端风险标记）
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
@@ -86,6 +86,18 @@
   summary: **审计文件无保留期 / 条数上限**：`<项目>/.heagent/console/audit.jsonl` 每次成功写入追加一行（约 300 B），只有 `append_audit` 的「失败不阻断已成功的写」语义，没有任何回收；对照之下备份目录有 `MAX_CONFIG_BACKUPS=50` + 30 天保留期。触发条件：回环客户端反复成功写入 × 长时间运行；严重度：低-中（审计资产反噬磁盘）；冻结边界：回收必须**按后缀筛 `.jsonl`**——`console_dir` 同目录还住着 `projects.json`（项目注册表），套用通用 mtime 回收会连注册表一起删掉（该目录已在内部状态读拒集合内，误删不会有读取报错兜底）。
   evidence: `src/heagent/config_write.py::append_audit`（只 append、无 prune）；`src/heagent/envfile.py::prune_backups`（备份侧上限的对照实现）；`src/heagent/workspace.py::console_dir`（审计与 `projects.json` 同目录）；`src/heagent/projects.py::default_project_registry`（注册表落点）。
   Progress（2026-09-24 登记，**未修**）：修法 = 复用 `persist.scan_dir` / `delete_entries` 做「`.jsonl` 后缀 + 条数上限」的专用回收（与 `prune_backups` 同款内核）；本次未做（story 的 T2 只要求备份侧有上限）。
+
+- source_spec: 2026-09-24 Story 50-6 实现（网页控制台 UI）
+  summary: **浏览器级 UI 验收不在 CI、也不含真实 LLM 运行**：`tests/js/console_acceptance.mjs` 需要真实 Chrome/Edge（CDP）+ `heagent[http]`，而 CI 只装 `.[dev]`（`pyproject.toml` 里 `http` 与 `dev` 分离）⇒ 它只能手动跑，story 50-6 的验收清单正是由它产出的；同时该次验收**没有**跑「真实模型 → SSE → 对话区流式渲染」这条链（本机无可用 provider，Ollama 未运行），该链的前端侧由 node 探针（`tests/js/app_probe.js` 用例 A/B/C/D/E/N）与 Epic 49 的服务端用例覆盖。触发条件：改 `app.js`/`index.html`/`styles.css` 后要确认「真浏览器里也没坏」；严重度：低（改动有探针兜底，但探针是 DOM 替身——CSP 是否被违反、有没有第三方请求、窄屏计算样式只有真浏览器能证明）；冻结边界：不得为让浏览器验收进 CI 而给 dev 依赖加 playwright/puppeteer（保持零构建链与「GUI / 浏览器不进 CI」的既有立场），也不得把 `console_acceptance.mjs` 的一次通过当作「UI 无回归」的充分证据。
+  evidence: `tests/js/console_acceptance.mjs`（自起真实 http-server + headless Chrome，CDP 驱动真实点击；17 行清单含窄屏/凭证零明文/磁盘副作用断言）；`tests/test_http_web_ui.py`（探针用例的 skipif 只要求 node，不要求浏览器）；`pyproject.toml`（可选依赖分组）。
+  Progress（2026-09-24 登记，**未闭合**）：验收输出见 `_bmad-output/epics/epic-50-网页控制台周期/reviews/acceptance-50-6-console-ui.md`（17/17 PASS，Chrome 153.0.8010.48）；该报告同时给出复跑命令与依赖前提。
+
+- source_spec: 2026-09-24 Story 50-6 实现（网页控制台 UI）· AC7 / UX-DR3
+  summary: **「高影响键的差异化确认」缺后端风险标记**：UX-DR3 要求「写入被标记为高影响的键必须显式确认」，但 `ConfigItemResponse` 没有任何 per-key 风险/影响字段（`config_catalog` 的分组只表达来源与只读原因）⇒ 50-6 的实现口径是**所有写入都二次确认**（确认框列出将改的键、「只对下一次运行生效」、写入路径与备份语义），既不漏确认也不做分级。触发条件：写闸门开启 + 用户频繁改配置（每次都弹确认框 = 体验摩擦）；严重度：低（偏体验、不影响正确性，且「宁多确认」方向是安全的）；冻结边界：若要分级，只能**新增后端字段**（如 `ConfigItemResponse.impact` 或写进 `config_catalog` 的分类常量）并由服务端声明，**不得**在前端硬编码键名清单（那是第二个事实源，必然与白名单漂移）；分级仍是 defense-in-depth 提示，不改变写通道的 fail-closed 校验。
+  evidence: `src/heagent/network/http_console_protocol.py`（`ConfigItemResponse` 字段集：无风险/影响字段）；`src/heagent/web/app.js::saveConfig`（写入前一律 `askConfirm`）；`src/heagent/config_catalog.py`（分类常量只产出 group / writable / reason）；探针用例 `TestConsoleSettingsPanel` 钉住确认框文案与「未确认不发请求」。
+  Progress（2026-09-24 登记，**未闭合**）：该口径裁定记录在 story 50-6 的 Dev Agent Record（「与 story 文本的偏离」条）；若后续要分级，需先定影响分级的事实源。
+
+---
 
 ## 勘察类闭合归档
 

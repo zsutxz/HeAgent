@@ -439,6 +439,10 @@ LABELS: dict[str, str] = {
     "bom_prefixed_keys": "存在带 BOM 前缀的键名 ⇒ 这些键不生效（见对应条目）",
     "unknown_keys_truncated": f"未知键过多，只列出前 {MAX_UNKNOWN_KEYS} 条",
     "file_diagnostics_truncated": f"文件级诊断（重复键 / 空值键）过多，只列出前 {MAX_FILE_DIAGNOSTIC_KEYS} 条",
+    "write_channel_disabled": (
+        "服务启动时未开启配置写入（HTTP_CONSOLE_WRITE_ENABLED）：所有可写项在本页只读；"
+        "网页无法自行开启，需在启动配置（系统环境变量 / 项目 .env / 全局 .env）里开启后重启服务"
+    ),
     # 写入通道（Story 50-5）：写已生效但审计没落盘 —— 必须显式，不能让人误以为「已审计」。
     "audit_not_recorded": "写入已生效，但审计记录未能落盘（服务端有 ERROR 日志；请检查 console 目录写权限）",
 }

@@ -82,6 +82,7 @@ def _sample_response() -> ProjectConfigResponse:
     return ProjectConfigResponse(
         project_id="default",
         field_count=len(Settings.model_fields),
+        write_enabled=True,
         groups=(ConfigGroupResponse(id="limits", label="迭代与限额", items=(_sample_item(),)),),
         env_file=EnvFileStatusResponse(path="/tmp/.env", exists=True, readable=True, fingerprint="abc"),
         unknown_keys=(UnknownKeyResponse(key="UNKNOWN_X", source=ConfigSourceValue.PROJECT_ENV),),
@@ -171,6 +172,7 @@ async def test_config_route_returns_the_console_payload() -> None:
     body = response.json()
     assert console.seen == ["default"]
     assert body["project_id"] == "default"
+    assert body["write_enabled"] is True  # 闸门状态随面板一起回（AC5 的判据，见 50-6）
     assert body["groups"][0]["id"] == "limits"
     assert body["groups"][0]["items"][0]["key"] == "MAX_ITERATIONS"
     assert body["env_file"]["fingerprint"] == "abc"
@@ -246,6 +248,36 @@ async def test_real_console_serves_the_config_panel(tmp_path: Path) -> None:
     assert flattened["KIMI_API_KEY"]["writable"] is False
     assert flattened["KIMI_API_KEY"]["read_only_reason"] == "credential"
     assert marker not in json.dumps(body, ensure_ascii=False)
+
+
+async def test_panel_reports_the_write_gate_so_the_ui_can_disable_editing(tmp_path: Path) -> None:
+    """AC5（Story 50-6）：闸门关着时**面板自己**要说得出来，UI 不必靠「写一次被拒」才能发现。
+
+    闸门关闭时条目上的 ``writable`` 仍是「白名单 + 非系统环境变量」的判定结果（``True``）——UI 只看
+    ``writable`` 会显示「可编辑、保存必被拒」。``write_enabled`` 必须与入口层真正执行 PUT 时判的那个
+    闸门**同一事实源**（这里直接与方法上的属性比对，而不是与一个字面量比对）。
+    """
+    from heagent.cli_http import HttpProjectConsole
+
+    (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
+    closed = HttpProjectConsole(tmp_path, global_env_file=None)
+    opened = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+
+    async with _client(_app(closed)) as client:
+        closed_body = (await client.get("/api/projects/default/config")).json()
+    async with _client(_app(opened)) as client:
+        opened_body = (await client.get("/api/projects/default/config")).json()
+
+    assert closed_body["write_enabled"] is closed.write_enabled is False
+    assert opened_body["write_enabled"] is opened.write_enabled is True
+
+    def item(body: dict, key: str) -> dict:
+        return {entry["key"]: entry for group in body["groups"] for entry in group["items"]}[key]
+
+    # 两种情况下的白名单项都可写 ⇒ 区分「能否编辑」的只有 write_enabled，面板文案由后端给。
+    assert item(closed_body, "MAX_ITERATIONS")["writable"] is True
+    assert item(opened_body, "MAX_ITERATIONS")["writable"] is True
+    assert closed_body["labels"]["write_channel_disabled"].strip()
 
 
 async def test_real_console_reports_unavailable_project(tmp_path: Path) -> None:

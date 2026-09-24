@@ -331,12 +331,20 @@ class UnknownKeyResponse(BaseModel):
 
 
 class ProjectConfigResponse(BaseModel):
-    """``GET /api/projects/{id}/config`` 的响应：分组条目 + 文件状态 + 未知键 + 文案表。"""
+    """``GET /api/projects/{id}/config`` 的响应：分组条目 + 文件状态 + 未知键 + 文案表。
+
+    ``write_enabled`` 是**服务启动时**解析的写闸门（``HTTP_CONSOLE_WRITE_ENABLED``，D4）：闸门关着时
+    条目上的 ``writable`` 仍然是「白名单 + 非系统环境变量」的判定结果，因此 UI **不能**只靠 ``writable``
+    决定「可编辑」——否则会出现「面板显示可编辑、保存必被拒」（AC5 要求闸门关闭时所有可写项显示为不可
+    编辑并说明原因）。该字段由**持有闸门的入口层**填写（不是传输层、也不是 ``config_catalog`` 的第二份
+    副本），与 ``PUT`` 的裁决**同一事实源**；它是给 UI 的**提示**，服务端仍逐次 fail-closed 校验。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(min_length=1)
     field_count: int = Field(ge=0)
+    write_enabled: bool
     groups: tuple[ConfigGroupResponse, ...] = ()
     env_file: EnvFileStatusResponse
     unknown_keys: tuple[UnknownKeyResponse, ...] = Field(default=(), max_length=MAX_CONFIG_UNKNOWN_KEYS)

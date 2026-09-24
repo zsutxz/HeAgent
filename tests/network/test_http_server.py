@@ -92,7 +92,7 @@ class TestStaticPage:
         assert response.status_code == 200
         assert response.headers["content-type"].startswith("text/html")
         assert "<!DOCTYPE html>" in response.text
-        assert "<title>HeAgent</title>" in response.text
+        assert "<title>HeAgent 控制台</title>" in response.text
 
     async def test_page_loads_no_third_party_resources(self, client: httpx.AsyncClient) -> None:
         """页面所有 src/href 都是同源绝对路径，且 HTML 里没有任何外链域名。"""

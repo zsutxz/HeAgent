@@ -4,35 +4,118 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
-    <title>HeAgent</title>
+    <title>HeAgent 控制台</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <header class="bar">
-      <h1>HeAgent</h1>
-      <span id="service-status" class="badge badge-unknown" data-state="unknown">连接中…</span>
+      <h1>HeAgent 控制台</h1>
+      <div class="bar-actions">
+        <span id="service-status" class="badge badge-unknown" data-state="unknown">连接中…</span>
+        <button id="sidebar-toggle" type="button" aria-expanded="true" aria-controls="sidebar">收起侧栏</button>
+        <button id="settings-button" type="button" aria-expanded="false" aria-controls="settings-panel">设置</button>
+      </div>
     </header>
 
-    <main class="workspace">
-      <ol id="chat-log" class="chat-log" aria-live="polite" aria-label="对话记录"></ol>
-      <p id="empty-state" class="empty">还没有对话。提交一个提示词开始。</p>
+    <!-- 常驻安全声明（UX-DR6）：刻意不提供折叠入口，任何布局/窄屏降级下都必须可见。 -->
+    <p id="security-notice" class="notice notice-security" role="note">
+      无认证 · 无 TLS · 非安全边界：任何能连上本端口的人都能读取这些会话；若服务启动时开启了配置写入闸门，
+      同一批人也能改写所选项目的 <code>.env</code>。请只在容器 / VM / firejail 等 OS 级沙箱内运行。
+    </p>
+
+    <main id="console" class="console">
+      <aside id="sidebar" class="sidebar">
+        <section class="panel" aria-labelledby="projects-heading">
+          <h2 id="projects-heading">项目</h2>
+          <ul id="project-list" class="list"></ul>
+          <p id="project-empty" class="empty" hidden>还没有登记项目。</p>
+          <form id="project-form" class="stack" autocomplete="off">
+            <label class="visually-hidden" for="project-path">项目目录（绝对路径）</label>
+            <input id="project-path" name="path" type="text" maxlength="4096" placeholder="登记已有目录的绝对路径" />
+            <label class="visually-hidden" for="project-name">显示名（可选）</label>
+            <input id="project-name" name="name" type="text" maxlength="64" placeholder="显示名（可选）" />
+            <button id="project-register" type="submit">登记项目</button>
+          </form>
+          <p id="project-status" class="status" data-state="idle"></p>
+        </section>
+
+        <section class="panel" aria-labelledby="sessions-heading">
+          <h2 id="sessions-heading">会话</h2>
+          <div class="row">
+            <span id="active-project" class="badge badge-project">未选择项目</span>
+            <button id="session-create" type="button">新建会话</button>
+          </div>
+          <ul id="session-list" class="list"></ul>
+          <p id="session-empty" class="empty" hidden>该项目还没有会话。</p>
+          <p id="session-status" class="status" data-state="idle"></p>
+        </section>
+      </aside>
+
+      <section class="chat" aria-labelledby="chat-heading">
+        <h2 id="chat-heading" class="visually-hidden">对话</h2>
+        <div id="chat-head" class="chat-head">
+          <span id="chat-title" class="badge badge-project">未选择会话</span>
+          <span id="chat-meta" class="status" data-state="idle"></span>
+        </div>
+        <p id="other-run-note" class="notice notice-warn" hidden></p>
+        <ol id="chat-log" class="chat-log" aria-live="polite" aria-label="对话记录"></ol>
+        <p id="empty-state" class="empty">还没有对话。提交一个提示词开始。</p>
+
+        <form id="prompt-form" class="composer" autocomplete="off">
+          <label class="visually-hidden" for="prompt-input">提示词</label>
+          <textarea
+            id="prompt-input"
+            name="prompt"
+            rows="3"
+            maxlength="32768"
+            placeholder="输入提示词（Enter 发送，Shift+Enter 换行）"
+          ></textarea>
+          <div class="composer-actions">
+            <span id="run-status" class="status" data-state="idle">空闲</span>
+            <button id="stop-button" type="button" disabled>停止</button>
+            <button id="send-button" type="submit" disabled>发送</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="settings-panel" class="settings" aria-labelledby="settings-heading" hidden>
+        <div class="settings-head">
+          <h2 id="settings-heading">项目设置</h2>
+          <span id="settings-project" class="badge badge-project">-</span>
+          <button id="settings-refresh" type="button">刷新</button>
+          <button id="settings-close" type="button">关闭</button>
+        </div>
+        <p id="settings-status" class="status" data-state="idle"></p>
+        <p id="settings-gate" class="notice notice-warn" hidden></p>
+        <div id="settings-result" class="result panel" hidden></div>
+        <div id="settings-diagnostics" class="diagnostics"></div>
+        <h3 class="section-title">有效配置</h3>
+        <div id="settings-groups" class="groups"></div>
+        <div class="settings-unknown panel">
+          <h3 class="section-title">未知键（不生效）</h3>
+          <ul id="unknown-keys" class="list"></ul>
+          <p id="unknown-empty" class="empty" hidden>没有发现未知键或拼错的键。</p>
+        </div>
+        <div class="settings-actions">
+          <span id="settings-pending" class="status" data-state="idle">没有未保存的改动</span>
+          <button id="settings-save" type="button" disabled>保存更改</button>
+        </div>
+      </section>
     </main>
 
-    <form id="prompt-form" class="composer" autocomplete="off">
-      <label class="visually-hidden" for="prompt-input">提示词</label>
-      <textarea
-        id="prompt-input"
-        name="prompt"
-        rows="3"
-        maxlength="32768"
-        placeholder="输入提示词（Enter 发送，Shift+Enter 换行）"
-      ></textarea>
-      <div class="composer-actions">
-        <span id="run-status" class="status" data-state="idle">空闲</span>
-        <button id="stop-button" type="button" disabled>停止</button>
-        <button id="send-button" type="submit" disabled>发送</button>
+    <!-- 二次确认（UX-DR3）：危险操作与配置写入都经这里，文案必须说明影响范围。 -->
+    <div id="confirm-overlay" class="overlay" hidden>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <h2 id="confirm-title">请确认</h2>
+        <p id="confirm-text" class="dialog-text"></p>
+        <label id="confirm-input-label" class="visually-hidden" for="confirm-input" hidden>输入</label>
+        <input id="confirm-input" type="text" maxlength="120" hidden />
+        <div class="dialog-actions">
+          <button id="confirm-cancel" type="button">取消</button>
+          <button id="confirm-ok" type="button">确认</button>
+        </div>
       </div>
-    </form>
+    </div>
 
     <script src="/app.js"></script>
   </body>
