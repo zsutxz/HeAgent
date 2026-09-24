@@ -19,7 +19,9 @@
 9. 回读：重新读盘 + 指纹比对（**在同一把锁内**）→ 不符则还原原内容并 ``config_write_failed``；
 10. 审计：一行 JSONL 到 ``<项目状态根>/console/audit.jsonl``（时间 / 来源 / 键名 / 旧新值**哈希与
     长度** / 结果 —— **不含值**，I9）。审计追加失败**不阻断**已成功的写，但结果里如实带
-    ``audit_recorded=false``（绝不让人误以为「已审计」）。
+    ``audit_recorded=false``（绝不让人误以为「已审计」）。文件本身有条数上限
+    （``MAX_CONFIG_AUDIT_ENTRIES``，超出即裁到最近 N 条；单个追加文件的形状决定了回收做在**行**级，
+    见 :func:`prune_audit`）。
 
 第 11 项是**生效语义**（I10）：写成功后由控制台把该项目运行时的配置代标记过期 —— 当前在途 run 继续
 用旧快照，下一次 run 重新解析。本模块只负责「落盘」，不假装知道谁在跑。
@@ -53,7 +55,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from heagent import envfile
 from heagent.config import GLOBAL_CONFIG_FILE, Settings
 from heagent.config_catalog import classify, guards_for, routing_report, system_env_keys
-from heagent.persist import atomic_update_bytes
+from heagent.persist import atomic_update_bytes, atomic_write_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -67,6 +69,10 @@ MAX_CONFIG_WRITE_CHANGES = 64
 
 #: 审计文件名（落在 ``WorkspacePaths.console_dir`` 内）。
 AUDIT_FILENAME = "audit.jsonl"
+
+#: 审计文件的**行数**上限：超出即裁到最近 N 条（``max_entries=0`` = 保留 0 条，与
+#: :func:`heagent.envfile.prune_backups` 同义）。单个追加文件的形状决定了回收方式，见 :func:`prune_audit`。
+MAX_CONFIG_AUDIT_ENTRIES = 500
 
 #: ``ROUTING_POOLS`` —— 唯一需要「额外语义校验」的键（JSON + 池条目）。
 ROUTING_POOLS_KEY = "ROUTING_POOLS"
@@ -315,11 +321,51 @@ def validate_candidate(candidate: bytes, *, global_env_file: Path | None, change
 # ── 第 10 步：审计 ──
 
 
+def prune_audit(console_dir: Path, *, max_entries: int = MAX_CONFIG_AUDIT_ENTRIES) -> int:
+    """把 ``console_dir/audit.jsonl`` 裁到最近 ``max_entries`` 条，返回丢弃的行数。
+
+    这里刻意**不用**备份那套内核（``envfile.prune_backups`` 的「按后缀筛文件 + 条数上限」）：审计与备份
+    是两种形状 —— 备份是「一个目录里很多个文件」，审计是**一个持续追加的文件**，所以「筛出 N 个
+    ``.jsonl`` 再删旧的」在本目录里永远凑不出第二个候选（裁掉 0 次）。因此回收做在**行**这一级。
+
+    只碰 ``console_dir / AUDIT_FILENAME`` 这一个**已知文件名**：不做 glob、不做后缀扫描，比台账冻结
+    边界要求的「按 ``.jsonl`` 后缀筛」更紧 —— 同目录还住着项目注册表 ``projects.json``，任何按目录
+    泛化的回收都可能把它一起删掉（该目录在内部状态读拒集合内，误删不会有读取报错兜底）。
+
+    过限即整体重写（``persist.atomic_write_bytes``）并保留 LF 行尾。失败只 WARNING 并返回 0 —— 裁剪是
+    **维护动作**，绝不能把「已经写成功的审计」变成失败（与 :func:`append_audit` 同一立场）。
+    """
+    path = console_dir / AUDIT_FILENAME
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return 0
+    except OSError:
+        logger.warning("Failed to read the config audit log at %s", path, exc_info=True)
+        return 0
+    lines = raw.split(b"\n")
+    if lines and lines[-1] == b"":  # 末行换行产生的空元素，不是一条记录
+        lines.pop()
+    if len(lines) <= max_entries:
+        return 0
+    keep = lines[-max_entries:] if max_entries > 0 else []
+    try:
+        atomic_write_bytes(path, b"".join(line + b"\n" for line in keep))
+    except OSError:
+        logger.warning("Failed to prune the config audit log at %s", path, exc_info=True)
+        return 0
+    return len(lines) - len(keep)
+
+
 def append_audit(console_dir: Path, record: ConfigAuditRecord) -> bool:
     """追加一行 JSONL 到 ``console_dir/audit.jsonl``；失败只 WARNING 并返回 ``False``（不阻断已成功的写）。
 
     与 ledger 回写失败的立场一致：把「已经发生的事实」记不下来，不该让事实本身变成错误。但**调用方
     必须把 ``False`` 体现在响应里**（``audit_recorded=false``），否则会给人「已审计」的错觉（T3）。
+
+    追加成功后按 :func:`prune_audit` 收一次行数上限。裁剪**包在 catch-all 里**是刻意的：它发生在一个
+    已经成功的写之后，任何异常若逃出去，调用方会把「文件已改」的响应变成 500，用户重试又撞指纹冲突
+    —— 那比「审计多留几行」糟得多。
     """
     path = console_dir / AUDIT_FILENAME
     try:
@@ -330,6 +376,13 @@ def append_audit(console_dir: Path, record: ConfigAuditRecord) -> bool:
     except OSError:
         logger.warning("Failed to append config audit record to %s", path, exc_info=True)
         return False
+    try:
+        pruned = prune_audit(console_dir)
+    except Exception:  # noqa: BLE001 - 见 docstring：维护动作不得让已成功的写变成错误
+        logger.warning("Failed to enforce the config audit retention at %s", path, exc_info=True)
+        pruned = 0
+    if pruned:
+        logger.info("Pruned %d config audit record(s) in %s", pruned, path)
     return True
 
 
@@ -507,6 +560,7 @@ def apply_config_write(
 
 __all__ = [
     "AUDIT_FILENAME",
+    "MAX_CONFIG_AUDIT_ENTRIES",
     "MAX_CONFIG_WRITE_CHANGES",
     "MAX_REASON_CHARS",
     "ROUTING_POOLS_KEY",
@@ -520,6 +574,7 @@ __all__ = [
     "append_audit",
     "apply_config_write",
     "guard_reason",
+    "prune_audit",
     "validate_candidate",
     "validate_changes",
 ]

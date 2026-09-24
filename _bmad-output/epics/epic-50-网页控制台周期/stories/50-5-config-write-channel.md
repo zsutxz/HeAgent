@@ -258,15 +258,20 @@ FR-5；NFR-4–NFR-9, NFR-11；UX-DR3, UX-DR4；脊柱 I4, I5, I6, I7, I8, I9, I
   Linux 矩阵覆盖，本机跳过——Windows 无 POSIX 模式位，硬测只会假绿）。
 - **R3 结论**：两线程 + 同一起点指纹 ⇒ 恰好一个 `ok`、一个 `config_conflict`，文件是赢家的值，审计只有一条。
 
-**已知缺口（未闭合，建议进台账）**
+**已知缺口（2026-09-24 当日已随「顺手闭合」批次全部闭合 —— 详见台账 Z-D13 / Z-D14）**
 
 1. `MAX_ITERATIONS` / `GOAL_MAX_ITERATIONS` / `SUBAGENT_MAX_ITERATIONS` / `MAX_OUTPUT_TOKENS` /
    `MAX_CONTEXT_TOKENS` 等**没有上界**（`Settings` 只给 `ge`，D3 也未要求守卫）⇒ 写通道可以把它们设成
    `10^9`（本机资源旋钮）。触发条件：写通道对非回环来源开放或多用户；严重度低；修法：给这几个键补
    `VALUE_GUARDS` 上界。
+   → **已闭合（Z-D13）**：上界表 `RESOURCE_CEILINGS` 覆盖**全部 21 个**「只有下界」的数值键 —— 本条点名的 5 个（迭代 10000 / 输出 1000000 / 上下文 16000000）+ 同日 follow-up 的 16 个（days 3650、seconds 604800、bytes 8388608、tokens 1000000、count 100），
+   未改 `Settings` 语义；面板与写通道同一常量自动同步，前端零改动；完备性由 `test_no_whitelisted_numeric_key_is_left_unbounded` 钉住。
 2. `console/audit.jsonl` **无保留期/条数上限**（`console_dir` 同时住着 `projects.json`，通用 mtime 回收会
    误删注册表）⇒ 回环客户端反复成功写入可让审计文件无界增长。严重度低-中；修法：按 `.jsonl` 后缀 + 条数上限
    的专用回收（与备份同款内核）。
+   → **已闭合（Z-D14）**：修法形状**已纠正** —— 审计是**单个追加文件**，文件级回收（本行原拟的「按后缀筛
+   + 条数上限」）候选集合恒为空；实际为 `config_write.prune_audit` 的**行级**裁剪（只留最近 500 条），
+   且只认 `AUDIT_FILENAME` 一个文件名 ⇒ 同目录的 `projects.json` 连候选都进不去。
 
 ### 验证（实测命令 + 输出）
 

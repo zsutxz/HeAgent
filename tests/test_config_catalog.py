@@ -19,6 +19,7 @@ from heagent.config_catalog import (
     MASK,
     MAX_FILE_DIAGNOSTIC_KEYS,
     MAX_UNKNOWN_KEYS,
+    RESOURCE_CEILINGS,
     UNKNOWN_GROUP,
     VALUE_GUARDS,
     WHITELIST_GROUPS,
@@ -421,6 +422,83 @@ class TestGuards:
         assert guards_for("HTTP_PORT").maximum == 65535.0  # type: ignore[union-attr]
         assert guards_for("HTTP_MAX_CONNECTIONS").min_length is None  # type: ignore[union-attr]
         assert guards_for("NOT_A_FIELD") is None
+
+    def test_every_ceiling_is_generous_and_actually_applied(self) -> None:
+        """上界表**逐条**过一遍（口径的可执行判据）：① 真的进了 ``guards_for``；② 至少是默认值的 10 倍
+        （「远高于任何真实用法」不是散文）；③ 字段元数据派生的下界仍被合并保留。
+
+        遍历 :data:`RESOURCE_CEILINGS` 本体而不是在测试里抄一份 —— 单一事实源，新增键自动纳入。
+        """
+        assert len(RESOURCE_CEILINGS) >= 20, "上界表应覆盖全部「只有下界」的数值键"
+        for key, ceiling in RESOURCE_CEILINGS.items():
+            guard = guards_for(key)
+            assert guard is not None, key
+            assert guard.kind == "range" and guard.maximum == ceiling, key
+            default = Settings.model_fields[key.lower()].default
+            if default is not None:
+                assert default * 10 <= ceiling, f"{key}: 上界 {ceiling} 离默认值 {default} 太近，会绑住正常用法"
+        assert guards_for("MAX_ITERATIONS").minimum == 1.0  # type: ignore[union-attr]
+
+    def test_no_whitelisted_numeric_key_is_left_unbounded(self) -> None:
+        """**完备性**：白名单里的数值键必须**全部**有上界 —— 这是「一处处补」变成「一类问题闭合」的判据。
+
+        没有它，「明天新增一个白名单数值键但忘了给上界」只会静默漂移（本缺口正是这样被登记两遍的）。
+        若某键确实无需上界，把它显式豁免在下方的集合里并写清理由，而不是让本断言松掉。
+        """
+        exempt: set[str] = set()
+        unbounded = {
+            key
+            for key in whitelist()
+            if (guard := guards_for(key)) is not None and guard.kind == "range" and guard.maximum is None
+        }
+        assert unbounded - exempt == set(), f"白名单里仍有无数值上界的键：{sorted(unbounded - exempt)}"
+
+    def test_the_ceiling_table_is_exactly_the_agreed_one(self) -> None:
+        """口径固化：上界表的**完整内容**（键 → 上限）逐条钉住。
+
+        上面两条用**规则**钉（≥ 10 × 默认、完备性），但规则挡不住「把 604800 悄悄改成 999999999」——
+        它仍然 ≥ 10 × 默认、也仍然完备。而同族同刻度（3650 / 604800 / 8388608 / 1000000 / 100 / 10000 /
+        16000000）正是本表的核心口径，故必须逐条比对。
+        """
+        assert RESOURCE_CEILINGS == {
+            # days = 3650（10 年；这批键都支持 0 = 禁用回收，「永久保留」用 0 表达）
+            "EDIT_SNAPSHOT_RETENTION_DAYS": 3650.0,
+            "LEDGER_RETENTION_DAYS": 3650.0,
+            "LOG_RETENTION_DAYS": 3650.0,
+            "RUN_RETENTION_DAYS": 3650.0,
+            "SANDBOX_DIR_RETENTION_DAYS": 3650.0,
+            "SESSION_RETENTION_DAYS": 3650.0,
+            "SKILL_CURATOR_STALE_DAYS": 3650.0,
+            # seconds = 604800（7 天）
+            "CRON_TICK_SECONDS": 604800.0,
+            "PRUNE_MIN_INTERVAL_SECONDS": 604800.0,
+            "SHELL_TIMEOUT": 604800.0,
+            # bytes = 8388608（8 MiB）
+            "CONTEXT_FILES_MAX_BYTES": 8_388_608.0,
+            "MEMORY_INJECT_MAX_BYTES": 8_388_608.0,
+            # tokens = 1000000
+            "MAX_OUTPUT_TOKENS": 1_000_000.0,
+            "SKILL_MAX_AUTO_INVOKE_TOKENS": 1_000_000.0,
+            "SKILL_MAX_MANUAL_LOAD_TOKENS": 1_000_000.0,
+            # count = 100
+            "SKILL_MAX_AUTO_INVOKE": 100.0,
+            "SUBAGENT_MAX_DEPTH": 100.0,
+            # 迭代预算 = 10000（自成刻度）
+            "MAX_ITERATIONS": 10_000.0,
+            "GOAL_MAX_ITERATIONS": 10_000.0,
+            "SUBAGENT_MAX_ITERATIONS": 10_000.0,
+            # 上下文窗口 = 16000000（模型属性量级，自成刻度）
+            "MAX_CONTEXT_TOKENS": 16_000_000.0,
+        }
+
+    def test_ceilings_do_not_change_what_settings_accepts(self) -> None:
+        """冻结边界：守卫只作用于写入通道与面板展示 —— ``Settings`` 仍接受任意 ``≥1`` 的值。
+
+        给字段加 ``le=`` 会改变**既有配置文件的可加载性**（盘上一个 ``MAX_ITERATIONS=999999`` 会从
+        「能起」变成「起不来」），那是另一个决定；本表刻意不做。
+        """
+        assert Settings(max_iterations=10_000_000, _env_file=None).max_iterations == 10_000_000
+        assert guards_for("MAX_ITERATIONS").maximum == 10_000.0  # type: ignore[union-attr]
 
 
 # ── 凭证掩码（AC4） ──

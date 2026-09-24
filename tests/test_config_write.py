@@ -20,6 +20,7 @@ import pytest
 from heagent import envfile
 from heagent.config_write import (
     AUDIT_FILENAME,
+    MAX_CONFIG_AUDIT_ENTRIES,
     ConfigAuditRecord,
     ConfigChange,
     ConfigWriteCode,
@@ -27,6 +28,7 @@ from heagent.config_write import (
     append_audit,
     apply_config_write,
     guard_reason,
+    prune_audit,
 )
 from heagent.workspace import WorkspacePaths
 
@@ -259,6 +261,26 @@ class TestValueValidation:
             ("RETRY_MAX_ATTEMPTS", "1000000"),
             ("RETRY_BASE_DELAY", "1e9"),
             ("RETRY_MAX_DELAY", "1e9"),
+            # 资源旋钮上界（缺口闭合）：这几条此前**断言不成立**（Settings 只给下界 ⇒ 白名单写入能设成
+            # 10^9，一次 run 的迭代 / 输出 / 上下文预算变成「不可完成」），故当时从 T9 里删掉。
+            # 值必须是**合法的整数字面量**：写 "1e9" 会先被候选构造（int 解析）拒掉，于是「有上界」与
+            # 「没上界」都通过 —— 那样这条用例就不具区分性了（实测：撤掉上界后它照样绿）。
+            ("MAX_ITERATIONS", "1000000000"),
+            ("GOAL_MAX_ITERATIONS", "1000000000"),
+            ("SUBAGENT_MAX_ITERATIONS", "1000000000"),
+            ("MAX_OUTPUT_TOKENS", "1000000000"),
+            ("MAX_CONTEXT_TOKENS", "1000000000"),
+            # 同族批次（保留期 / 间隔 / 预算 / 条数）：这 16 个键此前同样只有下界。每族取代表键。
+            # 注意**不能用** `*_RETENTION_DAYS` / `PRUNE_MIN_INTERVAL_SECONDS`：`tests/conftest.py`
+            # 用 `os.environ.setdefault` 把它们钉成 0，于是写通道按 F1 规则先判 `field_not_writable`
+            # （那条规则本身是对的）。这几个键的守卫由上方的 catalog 用例覆盖，端到端另见
+            # `test_a_retention_ceiling_applies_once_it_is_not_environment_provided`。
+            ("SKILL_CURATOR_STALE_DAYS", "1000000000"),  # days 族
+            ("SHELL_TIMEOUT", "1000000000"),  # seconds 族
+            ("MEMORY_INJECT_MAX_BYTES", "1000000000"),  # bytes 族
+            ("SKILL_MAX_MANUAL_LOAD_TOKENS", "1000000000"),  # tokens 族
+            ("SUBAGENT_MAX_DEPTH", "1000000000"),  # count 族
+            ("SKILL_MAX_AUTO_INVOKE", "1000000000"),  # count 族
             ("CONTEXT_STRATEGY", "banana"),
             ("ANNOUNCE_PROGRESS", "maybe"),  # bool 字段
             ("COMPRESSION_THRESHOLD", "2"),  # 上界 1
@@ -277,6 +299,55 @@ class TestValueValidation:
         assert key in str(excinfo.value).upper()  # 字段级原因必须点名该键
         assert paths.env_file.read_bytes() == before
         assert _side_effects(paths) == []
+
+    def test_resource_ceilings_block_only_extremes(self, paths: WorkspacePaths) -> None:
+        """上界是「挡极值」而不是「管正常用法」：人类尺度内的值必须照写，且原因文案要点名上界。
+
+        两侧都断言，否则「把上限设成 1」这种把合法配置全拒掉的回退也能让上一条用例通过。
+        """
+        _seed(paths)
+
+        with pytest.raises(ConfigWriteRejection) as excinfo:
+            _run(paths, [("MAX_ITERATIONS", "999999")])
+        assert excinfo.value.code == ConfigWriteCode.INVALID_VALUE
+        assert "must be at most 10000" in str(excinfo.value)
+
+        _run(paths, [("MAX_ITERATIONS", "500"), ("MAX_CONTEXT_TOKENS", "2000000")])
+        raw = paths.env_file.read_bytes()
+        assert b"MAX_ITERATIONS=500\r\n" in raw
+        assert b"MAX_CONTEXT_TOKENS=2000000" in raw
+
+        # 保留期 / 间隔族同样：真在人类尺度内的值必须照写（含「0 = 禁用回收 / 不限制」这一既有语义）。
+        _run(
+            paths,
+            [("SKILL_CURATOR_STALE_DAYS", "365"), ("SHELL_TIMEOUT", "7200"), ("MEMORY_INJECT_MAX_BYTES", "0")],
+            fingerprint=envfile.fingerprint(raw),
+        )
+        raw = paths.env_file.read_bytes()
+        assert b"SKILL_CURATOR_STALE_DAYS=365" in raw
+        assert b"SHELL_TIMEOUT=7200" in raw
+        assert b"MEMORY_INJECT_MAX_BYTES=0" in raw
+
+    def test_a_retention_ceiling_applies_once_it_is_not_environment_provided(
+        self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """保留期族的上界**确实接在写通道上**（不只是驻留在常量表里）。
+
+        这批键在测试环境里被 ``tests/conftest.py`` 用 ``os.environ.setdefault`` 钉成 0 ⇒ 默认情况下
+        写通道先按 F1 判 ``field_not_writable``（对，但会掩盖守卫）。这里显式摘掉环境变量，验证两件事：
+        ① 越界值被守卫拒（不是被候选构造/白名单拒）；② 「0 = 禁用该族回收」这一既有语义仍然可写。
+        """
+        monkeypatch.delenv("LOG_RETENTION_DAYS", raising=False)
+        before = _seed(paths)
+
+        with pytest.raises(ConfigWriteRejection) as excinfo:
+            _run(paths, [("LOG_RETENTION_DAYS", "999999")])
+        assert excinfo.value.code == ConfigWriteCode.INVALID_VALUE
+        assert "must be at most 3650" in str(excinfo.value)
+        assert paths.env_file.read_bytes() == before
+
+        _run(paths, [("LOG_RETENTION_DAYS", "0")], fingerprint=envfile.fingerprint(before))
+        assert b"LOG_RETENTION_DAYS=0" in paths.env_file.read_bytes()
 
     def test_empty_value_is_allowed_for_optional_log_file_level(self, paths: WorkspacePaths) -> None:
         _seed(paths)
@@ -532,6 +603,144 @@ class TestAuditAndBackup:
 
         backups = [path for path in paths.config_backups.iterdir() if path.name.endswith(".bak")]
         assert len(backups) == 5  # 默认上限 50，未触发回收
+
+
+class TestAuditRetention:
+    """缺口闭合：审计文件**有过限回收**。
+
+    形状很重要：审计是**一个持续追加的文件**（``audit.jsonl``），不是「一目录多文件」——所以回收必须
+    做在**行**级（备份那套「按后缀筛文件 + 条数上限」在这里永远凑不出第二个候选，等于没做）。
+    """
+
+    @staticmethod
+    def _seed_lines(console_dir: Path, count: int) -> bytes:
+        console_dir.mkdir(parents=True, exist_ok=True)
+        raw = b"".join(f'{{"n":{index}}}\n'.encode() for index in range(count))
+        (console_dir / AUDIT_FILENAME).write_bytes(raw)
+        return raw
+
+    def test_over_limit_keeps_only_the_most_recent_entries(self, paths: WorkspacePaths) -> None:
+        self._seed_lines(paths.console_dir, 7)
+
+        assert prune_audit(paths.console_dir, max_entries=3) == 4
+
+        raw = (paths.console_dir / AUDIT_FILENAME).read_bytes()
+        assert [json.loads(line)["n"] for line in raw.splitlines()] == [4, 5, 6]
+
+    def test_under_limit_is_a_byte_identical_no_op(self, paths: WorkspacePaths) -> None:
+        before = self._seed_lines(paths.console_dir, 3)
+
+        assert prune_audit(paths.console_dir, max_entries=3) == 0
+
+        assert (paths.console_dir / AUDIT_FILENAME).read_bytes() == before
+
+    def test_missing_file_is_not_an_error(self, paths: WorkspacePaths) -> None:
+        assert prune_audit(paths.console_dir) == 0
+
+    def test_a_read_failure_is_reported_as_zero(self, paths: WorkspacePaths) -> None:
+        """审计位置读不了（此处用一个**同名目录**占位，Windows/POSIX 都抛 ``OSError``）⇒ 只告警 + 返回 0。"""
+        (paths.console_dir / AUDIT_FILENAME).mkdir(parents=True)
+
+        assert prune_audit(paths.console_dir, max_entries=0) == 0
+
+    def test_a_write_failure_is_reported_as_zero(self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch) -> None:
+        """行级裁剪的**写**失败（磁盘满 / 被占用）⇒ 同样只告警 + 返回 0，且盘上内容一字不动。
+
+        刻意用 monkeypatch 而不是只读文件：POSIX 上 ``os.replace`` 到只读**文件**是允许的（权限看目录），
+        那样写出来的用例在 CI 的 Linux 矩阵上会得出相反结论。
+        """
+        before = self._seed_lines(paths.console_dir, 4)
+
+        def boom(*args: object, **kwargs: object) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr("heagent.config_write.atomic_write_bytes", boom)
+
+        assert prune_audit(paths.console_dir, max_entries=1) == 0
+        assert (paths.console_dir / AUDIT_FILENAME).read_bytes() == before
+
+    def test_the_trimmed_file_is_still_jsonl_with_lf_only(self, paths: WorkspacePaths) -> None:
+        """裁剪后必须仍是「一行一 JSON + LF」：CRLF 会让 JSONL 消费方（与我们的审计断言）读错行。"""
+        self._seed_lines(paths.console_dir, 5)
+
+        prune_audit(paths.console_dir, max_entries=2)
+
+        raw = (paths.console_dir / AUDIT_FILENAME).read_bytes()
+        assert b"\r" not in raw
+        assert raw.endswith(b"\n")
+        assert [json.loads(line) for line in raw.splitlines()] == [{"n": 3}, {"n": 4}]
+
+    def test_a_final_line_without_a_newline_is_still_counted(self, paths: WorkspacePaths) -> None:
+        """末行没有换行（上次写入被中断 / 手改过）也必须算作一条记录。
+
+        否则「最后一行」会被静默丢弃：不换行的形态既不进 ``lines`` 也不进任何裁剪路径。
+        """
+        paths.console_dir.mkdir(parents=True, exist_ok=True)
+        (paths.console_dir / AUDIT_FILENAME).write_bytes(b'{"n":0}\n{"n":1}')
+
+        assert prune_audit(paths.console_dir, max_entries=2) == 0  # 两条都在 ⇒ 未超限、字节不动
+        assert (paths.console_dir / AUDIT_FILENAME).read_bytes() == b'{"n":0}\n{"n":1}'
+
+        assert prune_audit(paths.console_dir, max_entries=1) == 1  # 超限 ⇒ 留最近一条，并补上 LF
+        assert (paths.console_dir / AUDIT_FILENAME).read_bytes() == b'{"n":1}\n'
+
+    def test_the_project_registry_next_to_it_is_never_touched(self, paths: WorkspacePaths) -> None:
+        """**台账冻结边界**：``console_dir`` 同目录住着项目注册表 ``projects.json``。
+
+        任何「按目录泛化的回收」（glob ``*.json`` / 按后缀筛 / 按 mtime 清）都会把它一起删掉，而该目录
+        在内部状态读拒集合内 —— 误删不会有任何读取报错兜底。所以裁剪只认 ``AUDIT_FILENAME`` 一个名字。
+        """
+        self._seed_lines(paths.console_dir, 6)
+        registry = paths.console_dir / "projects.json"
+        registry.write_bytes(b'{"projects": [{"id": "p1"}]}')
+
+        assert prune_audit(paths.console_dir, max_entries=1) == 5
+
+        assert registry.read_bytes() == b'{"projects": [{"id": "p1"}]}'
+        assert sorted(path.name for path in paths.console_dir.iterdir()) == ["audit.jsonl", "projects.json"]
+
+    def test_prune_failure_never_turns_a_recorded_audit_into_a_failure(
+        self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """裁剪发生在一个**已经成功**的写之后：它炸了也绝不能让 ``audit_recorded`` 变成 False。
+
+        否则调用方会把「文件已改 + 审计已落盘」的响应变成 500，用户重试又撞指纹冲突 —— 比「多留几行」
+        糟得多。
+        """
+
+        def boom(*args: object, **kwargs: object) -> int:
+            raise RuntimeError("prune exploded")
+
+        monkeypatch.setattr("heagent.config_write.prune_audit", boom)
+
+        assert (
+            append_audit(paths.console_dir, ConfigAuditRecord(timestamp="T", source="test", result="applied")) is True
+        )
+
+        lines = (paths.console_dir / AUDIT_FILENAME).read_text(encoding="utf-8").splitlines()
+        assert [json.loads(line)["result"] for line in lines] == ["applied"]
+
+    def test_append_audit_enforces_the_retention(self, paths: WorkspacePaths) -> None:
+        """端到端：追加到超过上限时，文件被裁到上限且**刚追加的那条仍在**（裁剪不得吃掉最新事实）。"""
+        self._seed_lines(paths.console_dir, MAX_CONFIG_AUDIT_ENTRIES)
+
+        assert append_audit(paths.console_dir, ConfigAuditRecord(timestamp="T", source="test", result="applied"))
+
+        lines = (paths.console_dir / AUDIT_FILENAME).read_bytes().splitlines()
+        assert len(lines) == MAX_CONFIG_AUDIT_ENTRIES
+        assert json.loads(lines[-1])["result"] == "applied"
+        assert json.loads(lines[0])["n"] == 1  # 最旧的一条被丢掉（原第 0 条）
+
+    def test_the_pipeline_keeps_the_audit_bounded(self, paths: WorkspacePaths) -> None:
+        """写通道自己的路径也要过一遍：审计增长受上限约束，不是「只有直接调 prune 才有效」。"""
+        _seed(paths)
+        self._seed_lines(paths.console_dir, MAX_CONFIG_AUDIT_ENTRIES)
+
+        _run(paths, [("MAX_ITERATIONS", "30")])
+
+        lines = (paths.console_dir / AUDIT_FILENAME).read_bytes().splitlines()
+        assert len(lines) == MAX_CONFIG_AUDIT_ENTRIES
+        assert json.loads(lines[-1])["result"] == "applied"
 
 
 class TestFailureRecovery:

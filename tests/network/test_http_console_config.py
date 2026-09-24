@@ -280,6 +280,32 @@ async def test_panel_reports_the_write_gate_so_the_ui_can_disable_editing(tmp_pa
     assert closed_body["labels"]["write_channel_disabled"].strip()
 
 
+async def test_panel_shows_the_resource_knob_ceilings(tmp_path: Path) -> None:
+    """缺口闭合（只读侧）：面板展示的守卫必须与写入通道**同一常量** —— 逐条覆盖整张上界表。
+
+    面板是用户「这里该填多少」的唯一提示来源，所以上界一落进 ``config_catalog.RESOURCE_CEILINGS`` 就必须
+    自己出现在 ``guards`` 里 —— 前端不硬编码任何边界（``app.js::guardHint`` 只渲染后端给的结构）。
+    遍历常量表本体而不是在测试里抄几个键：新增上界自动纳入（面板漏传会立刻红）。
+    """
+    from heagent.cli_http import HttpProjectConsole
+    from heagent.config_catalog import RESOURCE_CEILINGS
+
+    (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
+    console = HttpProjectConsole(tmp_path, global_env_file=None)
+    async with _client(_app(console)) as client:
+        body = (await client.get("/api/projects/default/config")).json()
+
+    items = {entry["key"]: entry for group in body["groups"] for entry in group["items"]}
+    for key, ceiling in RESOURCE_CEILINGS.items():
+        guard = items[key]["guards"]
+        assert guard["kind"] == "range", key
+        assert guard["maximum"] == ceiling, key
+    guard = items["MAX_ITERATIONS"]["guards"]
+    assert guard["minimum"] == 1.0  # 字段元数据派生的下界仍在
+    assert items["MAX_ITERATIONS"]["guards"]["maximum"] == 10_000.0
+    assert items["MAX_CONTEXT_TOKENS"]["guards"]["maximum"] == 16_000_000.0
+
+
 async def test_real_console_reports_unavailable_project(tmp_path: Path) -> None:
     """项目目录被删 ⇒ ``project_unavailable``（409），而不是 500 或空面板。"""
     from heagent.cli_http import HttpProjectConsole
