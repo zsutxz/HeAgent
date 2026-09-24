@@ -67,7 +67,7 @@
 | Epic 21–24 | quality-engineering | Coverage 工程化 / Benchmark / Docker 硬化 / CI 安全 |
 | Epic 25–28 | gui | GUI 终端界面（流式聊天 / 工具可视化 / 管理面板 / 可观测性） |
 | Epic 29–35 | interaction | 交互与可扩展层（审批 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 角色配置 / CLI 收尾） |
-| Epic 36–39 | file-security | 文件安全与凭证防护（凭证路径 deny / scrub_sensitive_env / SafetyGuard 凭证拦截，2026-08-24 交付） |
+| Epic 36–39 | file-safety-hardening | 文件安全与凭证防护（凭证路径 deny / scrub_sensitive_env / SafetyGuard 凭证拦截，2026-08-24 交付） |
 | Epic 40 | sandbox-session | 沙箱会话化执行（会话目录 / 后端强度分级 / env 豁免 / SandboxSession，2026-08-26 规划） |
 | Epic 41 | goal-driven-dev | /goal 启动 skill 执行工作流（机制薄代码 + skill 承载方法论 + cron 无人值守，2026-08-29 已交付） |
 | Epic 42 | skill-package-runtime | 可安装、可验证的声明式技能包运行时（FR1-FR8：包发现 / 别名解析 / 资源围栏读取，2026-09-01 交付） |
@@ -647,7 +647,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### 12.1 周期 10：文件安全与凭证防护（Epic 36-39）· 2026-08-24
 
-> 目录：`epics/epic-36-39-文件安全防护周期/`。交付 4 Epic / 6 story（FR-F1~F5），commit `a1d886d`（25 files，+1881/−44），全量 1135 测试通过。
+> 目录：`epics/epic-36-39-文件安全防护周期/`。交付 4 Epic / 7 story（FR-F1~F5），commit `a1d886d`（25 files，+1881/−44），全量 1135 测试通过。
 
 - **意图**：文件层原本只有「工作区围栏」一个维度；本轮补**凭证路径 deny（读 + 写）**、shell 子进程 **env scrubbing**、`.heagent/` **内部状态读 deny** 三类纵深防御。成果：`file_read(".env")` / `file_write("~/.ssh/id_rsa")` 被拦、`shell("env")` 泄不出 API key。
 - **关键决策**：deny 是**与围栏并列的新层**（不并入 `resolve_under_root`，故 git 工具不受影响），顺序固定「先围栏后 deny」，handler 与 policy 两层各自守卫（AD-F1）；规则表为纯函数、**刻意不开用户配置入口**（防无意放宽，AD-F2）；scrub 采「按模式剥离敏感 key」而非白名单透传（AD-F3）；内部状态只 deny 读（AD-F4）。
@@ -793,7 +793,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | 21-24 | 质量工程深化（FR-Q） | 18 | done |
 | 25-28 | GUI 终端界面（FR-G） | 12 | done（retrospective optional） |
 | 29-35 | 交互与可扩展层（FR-A~G） | 27 | done（2026-08-19；无独立 story 文件，quick-dev 执行） |
-| 36-39 | 文件安全与凭证防护（FR-F） | 6 | done（2026-08-24；retrospective optional） |
+| 36-39 | 文件安全与凭证防护（FR-F） | 7 | done（2026-08-24；retrospective optional） |
 | 40 | 沙箱会话化执行（FR-1~4；FR-5 deferred） | 4 | done（2026-08-26；retrospective optional） |
 | 41 | 目标驱动开发 / `/goal`（FR-1~4） | 4 | done（2026-08-29；retrospective optional） |
 | 42 | BMad 技能包运行时（FR1~FR8） | 5 | done（2026-09-01；retrospective optional） |
@@ -822,7 +822,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | quality-engineering | FR-Q1~Q20 + NFR-Q1~Q4 | 20 | 全部实现 |
 | gui | FR-G1~G24 + NFR-G1~G8 | 24 | 全部实现 |
 | interaction | FR-A1~A5 / FR-B1~B3 / FR-C1~C4 / FR-D1~D4 / FR-E1~E4 / FR-F1~F4 / FR-G1~G4 | 28 | 全部实现 |
-| file-safety（Epic 36-39） | FR-F1~F5 + NFR-F1~F5 | 5 | 全部实现（2026-08-24） |
+| file-safety-hardening（Epic 36-39） | FR-F1~F5 + NFR-F1~F5 | 5 | 全部实现（2026-08-24） |
 | sandbox-session（Epic 40） | FR-1~4 + NFR-1~4 | 4 | 全部实现（FR-5 `execute_code` RPC deferred） |
 | goal-driven（Epic 41） | FR-1~4 | 4 | 全部实现（2026-08-29） |
 | skill-package（Epic 42） | FR1~FR8 + NFR1~NFR6 | 8 | 全部实现（2026-09-01） |

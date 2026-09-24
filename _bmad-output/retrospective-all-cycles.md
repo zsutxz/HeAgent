@@ -97,7 +97,7 @@
 
 | 维度 | 要点 |
 |------|------|
-| 成就 | 凭证路径 deny（读 + 写）、shell 子进程 env scrubbing（`scrub_sensitive_env`）、`.heagent/` 内部状态读 deny；4 Epic / 6 story，commit `a1d886d`（25 files，+1881/−44），全量 1135 测试绿 |
+| 成就 | 凭证路径 deny（读 + 写）、shell 子进程 env scrubbing（`scrub_sensitive_env`）、`.heagent/` 内部状态读 deny；4 Epic / 7 story，commit `a1d886d`（25 files，+1881/−44），全量 1135 测试绿 |
 | 难点 | deny 与既有工作区围栏的分层关系（不污染 git 工具）、凭证路径在 shell（`rm`/`mv`/重定向）上的等价封堵、按模式剥离而非白名单透传 |
 | 做对 | deny 做成**与围栏并列的独立纯函数层**（可独立单测）、规则表刻意不开用户配置入口、内部状态只 deny 读、诚实标注非真边界 |
 | 改进 | **（2026-09-18 复核）** 6 个 story 的 frontmatter 仍为 `backlog`（`36-1`/`36-2`/`36-3`、`37-1`、`38-1`、`39-1`，**仍开**）；凭证 deny 用户入口**已交付**（`.heagent/path_deny.json`，2026-09-17）；MCP stdio 子进程 scrub 仍缺（与「子进程不经沙箱」同源），**cron 一半不成立**（`cron/` 无子进程路径） |

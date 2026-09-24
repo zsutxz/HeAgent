@@ -50,7 +50,7 @@ _bmad-output/
 | Epic 21–24 | quality-engineering | Coverage 工程化 / Benchmark / Docker 硬化 / CI 安全 |
 | Epic 25–28 | gui | GUI 终端界面（流式聊天 / 工具可视化 / 管理面板 / 可观测性） |
 | Epic 29–35 | interaction | 交互与可扩展层（审批 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 角色配置 / CLI 收尾） |
-| Epic 36–39 | file-security | 文件与凭证安全防护 |
+| Epic 36–39 | file-safety-hardening | 文件与凭证安全防护 |
 | Epic 40 | sandbox-session | 沙箱会话目录与生命周期 |
 | Epic 41 | goal-driven-dev | 目标驱动开发入口与产物 |
 | Epic 42 | skill-package-runtime | BMad 技能包运行时 |
@@ -60,7 +60,7 @@ _bmad-output/
 | Epic 49 | http-web-entry | HTTP 网页入口（自启动监听 + SSE 流式与取消重连 + Host/Origin 同源防线；2026-09-23 交付，6 Story done） |
 | Epic 50 | web-console | 网页控制台（工作区一等化 / 项目注册表 / 会话 API / 配置四层来源与写入通道 / 两栏 UI；2026-09-24 实现，7 Story `review`） |
 
-> **2026-09-24 口径对齐**：本表「周期」列的代号已与 [`consolidated-overview.md`](consolidated-overview.md) §1.3（统一编号体系）逐行对齐——此前 5 行用的是各自缩写（`file-safety` / `goal` / `skill-runtime` / `goal-workflow` / `declarative-workflow`），同一代号在仓内出现两种写法必然漂移。
+> **2026-09-24 口径对齐**：本表「周期」列的代号已与 [`consolidated-overview.md`](consolidated-overview.md) §1.3（统一编号体系）逐行对齐；此前 5 行用的是各自缩写（`file-safety` / `goal` / `skill-runtime` / `goal-workflow` / `declarative-workflow`），同一代号在仓内出现多种写法必然漂移。其中 **Epic 36–39 取周期自述名 `file-safety-hardening`**——该周期 brief / prd / architecture / epics 与 **7 个 story**（`36-1`~`36-4` / `37-1` / `38-1` / `39-1`，与交付 commit `a1d886d` 同批）的 frontmatter（实测 11 份文档）以及 `tests/test_credential_guard.py` 的 docstring 一致用它，§1.3 原写的 `file-security` 已一并改为自述名。
 
 各自周期目录下的旧 sprint-status 保留作为只读归档；后续状态更新以 `_bmad-output/sprint-status.yaml` 为唯一写目标。
 
