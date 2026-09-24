@@ -74,7 +74,8 @@ class WorkspacePaths(BaseModel):          # frozen
     sandboxes        = state_dir/"sandboxes"
     edit_snapshots   = state_dir/"tmp"/"edit-snapshots"
     console_dir      = state_dir/"console"          # 审计
-    config_backups   = state_dir/"backups"/"env"    # 配置备份
+    config_backups   = state_dir/"backups"          # 配置备份（2026-09-24 评审校正：原写 "backups"/"env"，
+                                                     #   代码 workspace.py 与 path_safety 的 deny 集都按 "backups"）
     projects_file    = console_dir/"projects.json"  # 可被 HTTP_CONSOLE_PROJECTS_FILE 覆盖
 ```
 
@@ -304,7 +305,7 @@ layers = [
 （**实测冲突**）。裁定 = **显式白名单优先于模式排除**，并把 `SANDBOX_*` 的模式语义收窄为「执行姿态键」而非宽 glob；
 该裁定必须体现在 `config_catalog.py` 的常量与测试里，且与 50.4 的展示口径一致。
 
-**划分完整性（D3 裁定后实测，2026-09-24）**：**110 = 46 白名单 + 64 排除**（64 = 60 模式命中 + 4 个 dream 显式），
+**划分完整性（D3 裁定后实测；数字于 2026-09-24 评审校正为 111 / 65）**：**111 = 46 白名单 + 65 排除**（65 = 61 模式命中 + 4 个 dream 显式；`4f67397` 新增 `HTTP_IDLE_TIMEOUT` 后字段数 110 → 111），
 **残留 0**；白名单 46 键**全部**存在于 `Settings`。完备性由 50-4 的 AC9 测试钉住（白名单 ∪ 排除 = 全字段）。
 
 ## 9. 安全立场
@@ -373,6 +374,8 @@ SSE 事件全量持久化；服务重启后续跑中断任务；跨项目共享�
 | **C6** | 白名单以 `Settings.model_fields` 表达 | `model_fields` 的键是**小写**字段名、零 alias ⇒ 直接用小写/大写混写会静默 miss | 已改 §7 增加「键名口径」段；50-4 的 T3 |
 | **C7** | `epics.md` Story 50.1 的验证命令含 `tests/test_path_safety.py` | **该文件不存在**（实测 `MISS`）；内部状态 deny 的测试在 `tests/test_credential_guard.py`（`test_build_internal_state_dirs`，`:66`） | 已修 `epics.md` 的 DoD 命令 |
 | **C8** | `epics.md` 的 Additional Requirements 写 `HTTP_CONSOLE_PROJECTS_FILE` 默认 `~/.heagent/projects.json` | 与本文件 §4「落点 = `<服务启动工作区>/.heagent/console/projects.json`，**默认不写用户 home**」冲突 | 已修 `epics.md`，以本文件 §4 为准 |
+| **C9** | §8 写「划分完整性 **110 = 46 + 64**」 | `4f67397` 新增 `HTTP_IDLE_TIMEOUT` 后实测 **111 = 46 + 65**（残留 0）；同文件 §15 的 D3 行早已写 111/65（自相矛盾） | 已就地校正 §8（story 50-4 的数字同步校正）|
+| **C10** | §3.1 写 `config_backups = state_dir/"backups"/"env"` | 实测代码是 `workspace.py` 的 `state_dir/"backups"`（`tools/path_safety.py` 的 I14 deny 集同）——备份写入方（Story 50-5）尚未落地，两处口径必须先定死 | 已就地校正 §3.1为代码口径；50-5 必须经 `WorkspacePaths.config_backups` 取路径（不得另拼字符串）|
 
 **顺带确认（无需改动）**：`network.exposure.is_loopback_host()` 直接可用于**写通道来源判定**——
 实测 11 种输入全对，含 IPv4 映射形式 `::ffff:127.0.0.1` 与 `[::ffff:127.0.0.1]`（本机 Python 3.13.5）；
