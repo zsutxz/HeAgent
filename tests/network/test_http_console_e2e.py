@@ -476,3 +476,32 @@ async def test_each_project_run_uses_its_own_state_root(tmp_path: Path) -> None:
     assert runtime_default.paths.root == workspace.resolve()
     assert Path(str(runtime_a.sessions._base)) == root_a.resolve() / ".heagent" / "sessions"  # noqa: SLF001
     assert Path(str(runtime_a.sessions._base)) != Path(str(runtime_default.sessions._base))  # noqa: SLF001
+
+
+# ── 收口评审补证（镜头三：可达却零覆盖的分支） ─────────────────────
+
+
+async def test_a_run_cannot_be_started_in_an_unreadable_session(tmp_path: Path) -> None:
+    """损坏会话在**运行入口**上必须回 ``session_unreadable``（而不是当成空会话接着写）。
+
+    会话详情那条路径已有用例；但「用损坏会话 id 起 run」（`_resolve_session` 的
+    `SessionUnreadableError` 分支）此前**零覆盖**（收口评审·镜头三实测）。该分支可达且必须在
+    **起 run 之前**挡住，否则会在损坏文件上继续写。
+    """
+    root = _project(tmp_path / "proj")
+    provider = _ScriptedProvider([_answer("nope")])
+    handler = HttpAgentHandler(provider, get_settings())
+    broken = root / ".heagent" / "sessions" / "deadbeef.json"
+    broken.write_bytes(b"{not json")
+
+    async with _console_server(root, handler) as (_console, base_url), httpx.AsyncClient(timeout=15.0) as client:
+        created = await client.post(
+            f"{base_url}/api/projects/default/runs", json={"prompt": "hi", "session_id": "deadbeef"}
+        )
+        sessions = await client.get(f"{base_url}/api/projects/default/sessions")
+
+    assert created.status_code == 409, created.text
+    assert created.json()["error"]["code"] == HttpErrorCode.SESSION_UNREADABLE
+    assert broken.read_bytes() == b"{not json"  # 损坏文件一字未动
+    # 而且没有「顺手」建出一个新会话（起 run 失败不该留下副作用）。
+    assert [entry["session_id"] for entry in sessions.json()["sessions"]] == ["deadbeef"]

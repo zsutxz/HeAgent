@@ -289,6 +289,10 @@
   function askConfirm(options) {
     return new Promise((resolve) => {
       const wantsInput = Boolean(options.input);
+      // 同一时刻只允许一个确认框：被顶掉的那个**以「取消」结算**，绝不留下悬着的 promise
+      // （悬着 = 那次危险操作既没执行也不会走到后面的代码，未来任何 `await askConfirm` 之后
+      // 的分支都会静默不执行 —— 与 49 的「忙时不静默」同一条纪律）。
+      if (confirmPending) settleConfirm(false);
       confirmPending = { resolve, wantsInput };
       el.confirmTitle.textContent = asText(options.title) || "请确认";
       el.confirmText.textContent = asText(options.text);

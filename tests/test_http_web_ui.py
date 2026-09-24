@@ -23,6 +23,7 @@ from typing import Any
 
 import pytest
 
+from heagent.network.http_protocol import HttpErrorCode
 from heagent.network.http_server import _WEB_ASSETS, read_web_asset
 
 _NODE = shutil.which("node")
@@ -326,27 +327,13 @@ class TestConsoleApiContract:
     def test_endpoint_vocabulary_is_present(self, path: str) -> None:
         assert path in _JS, path
 
-    @pytest.mark.parametrize(
-        "code",
-        [
-            "session_unreadable",
-            "session_conflict",
-            "session_busy",
-            "project_busy",
-            "project_unavailable",
-            "project_not_removable",
-            "run_conflict",
-            "write_disabled",
-            "field_not_writable",
-            "invalid_value",
-            "config_conflict",
-            "config_write_failed",
-            "loopback_required",
-            "confirm_required",
-        ],
-    )
+    @pytest.mark.parametrize("code", sorted(member.value for member in HttpErrorCode))
     def test_every_console_error_code_has_a_readable_text(self, code: str) -> None:
-        """稳定码必须有中文文案（静默失败 = 用户不知道发生了什么）。"""
+        """**每个**后端稳定码都必须有中文文案（静默失败 = 用户不知道发生了什么）。
+
+        参数从 :class:`HttpErrorCode` 枚举派生，**不是**手写清单 —— 此前这里只枚举了 14/32 个码，
+        却挂着「every」的名字（评审发现·镜头三）：新增一个码而忘了补文案时，本用例现在会自动变红。
+        """
         assert f"{code}:" in _JS
 
     def test_source_badges_cover_all_four_layers(self) -> None:
