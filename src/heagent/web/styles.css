@@ -22,7 +22,7 @@
   --accent: #2f6f4f;
   --warn: #8a5a00;
   --error: #a3312a;
-  --sidebar-width: 300px;
+  --sidebar-width: 280px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -162,7 +162,7 @@ pre {
   margin: 0.5rem;
 }
 
-/* ── 三栏主体 ── */
+/* ── 两栏主体（Story 50-8 R6：**项目与会话同在一列**，布局参考 ChatGPT） ── */
 
 .console {
   flex: 1;
@@ -172,7 +172,8 @@ pre {
 }
 
 .console[data-settings-open="true"] {
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1.05fr) minmax(0, 1.2fr);
+  /* 设置面板打开时**对话列仍是最宽的一列**（Story 50-8 R7：显示字的中间列可以宽、占满）。 */
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1.6fr) minmax(0, 1fr);
 }
 
 .sidebar {
@@ -323,6 +324,12 @@ pre {
   gap: 0.6rem;
 }
 
+/* Story 50-8 R7（用户 2026-09-24 裁决）：对话区**占满所在列** —— 不再限宽居中
+   （R6 的 `--chat-content-width: 48rem` 阅读列已撤销）。`width: 100%` 保留为显式口径。 */
+.chat-log > * {
+  width: 100%;
+}
+
 .chat-log:empty {
   display: none;
 }
@@ -372,6 +379,11 @@ pre {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+/* 输入区与对话区同宽（R7：铺满该列，底部输入条与上方正文左右对齐）。 */
+.composer > * {
+  width: 100%;
 }
 
 .composer textarea {
@@ -555,6 +567,31 @@ pre {
 
 .settings-unknown .list {
   margin-top: 0.3rem;
+}
+
+/* R4：诊断与未知键默认收起（`<details>`）——标题行显示条数，收起也不丢「有几条需要注意」。
+   `.settings-details` 曾是 `.settings-unknown.panel`：折叠后不再需要独立卡片边框，故与卡片解耦。 */
+.settings-details {
+  margin: 0.5rem 0;
+}
+
+.settings-details > summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  color: var(--muted);
+  padding: 0.25rem 0;
+}
+
+.settings-details > summary[data-state="failed"] {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+/* 逐项说明由长段文案压成短徽标（完整文案在 `title` 上；信息仍可达，只是不占版面）。 */
+.badge-note {
+  border-color: var(--warn);
+  color: var(--warn);
+  margin: 0.15rem 0.25rem 0 0;
 }
 
 .settings-actions {

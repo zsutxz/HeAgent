@@ -42,6 +42,9 @@ _ENTRYPOINT_MODULES = (
     "heagent.cli_goal",
     "heagent.cli_tcp",
     "heagent.cli_http",
+    # cli_dialogs 是入口层的宿主进程拉起面（Story 50-8）：它复用 tools/sandbox 的子进程内核，
+    # 因此**更不能**被下层反向导入（network 只认协议模型，不认它拉窗口的能力）。
+    "heagent.cli_dialogs",
     "heagent.gui",
 )
 # goal/ 是入口层**域模块**（cli_goal 的装载/文档层，frame.md 六）：与组合根同属「下层不得反向导入」

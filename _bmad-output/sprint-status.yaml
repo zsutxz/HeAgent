@@ -503,4 +503,6 @@ development_status:
   50-5-config-write-channel: review
   50-6-console-ui: review
   50-7-security-acceptance-docs: review
+  # 2026-09-24 追加（收口放行后的增量优化轮，同时充当 Epic 50 后续新需求的统一落点）
+  50-8-console-ux-refinement: review
   epic-50-retrospective: optional

@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
+from heagent.cli_dialogs import DialogBusyError, DialogUnavailableError, DirectoryPicker
 from heagent.config import GLOBAL_CONFIG_FILE, Settings, get_settings
 from heagent.config_catalog import LABELS, ConfigItem, ConfigReport, build_config_report
 from heagent.config_write import ConfigChange, ConfigWriteRejection, ConfigWriteResult, apply_config_write
@@ -49,6 +50,7 @@ from heagent.network.http_console_protocol import (
     ConfigWriteRequest,
     ConfigWriteResponse,
     ConsoleOperationError,
+    DirectoryPickResponse,
     EnvFileStatusResponse,
     ProjectConfigResponse,
     ProjectEntryResponse,
@@ -201,6 +203,35 @@ async def _serve_http(server: HttpServer) -> None:
         await server.close()
 
 
+#: **网页展示策略**（Story 50-8 R5，非安全边界、也不改变任何有界口径）：这些工具的**成功**结果内容
+#: 不进网页事件流——``file_read`` 会把整份文件正文灌进对话区，而网页只需要「读了哪个文件」。
+#: 三条范围约束：
+#:
+#: - **只影响网页**：会话文件、``rollout.jsonl``、CLI、GUI 一律保留全文（审计与回放不受影响）；
+#: - **失败结果不收敛**：错误消息是诊断必需，原样回传（``tool_error=True`` 时走原内容）；
+#: - **作用对象照旧**：文件名/路径仍由 ``tool_call`` 事件的 ``tool_target`` 提供（网页结果行复用
+#:   同一 ``tool_target``），这里只是不放**内容**。
+_WEB_QUIET_TOOLS: frozenset[str] = frozenset({"file_read"})
+
+#: 内置工具的**可预期失败约定**：失败以返回值 ``Error: ...`` 表达（不是异常）⇒ 执行器的 ``is_error``
+#: 仍为 ``False``（见 ``tools/builtins/*`` 与 ``engine/executor.py`` 的异常约定）。网页收敛必须让这些
+#: 消息照旧可见，否则「文件不存在 / 路径越界」这类诊断会从页面上消失——那是展示层的**退化**，不是精简。
+_FAILURE_PREFIX = "Error:"
+
+
+def _looks_like_a_failure(content: str) -> bool:
+    """内容是「工具自己报的失败」吗（**展示层判据，非安全边界**）。"""
+    return content.lstrip().startswith(_FAILURE_PREFIX)
+
+
+def _web_tool_output(event: Any) -> str:
+    """按 :data:`_WEB_QUIET_TOOLS` 决定进网页的工具结果内容（见该常量的范围说明）。"""
+    content = str(event.tool_result_content)
+    if event.tool_name in _WEB_QUIET_TOOLS and not event.tool_error and not _looks_like_a_failure(content):
+        return ""
+    return content
+
+
 class HttpAgentHandler:
     """``prompt`` → 一次 ``AgentLoop.run_stream`` 的适配器（网络层只认这个可调用对象）。
 
@@ -335,7 +366,7 @@ class HttpAgentHandler:
             elif event.type == "tool_call":
                 publisher.tool_call(event.tool_name, event.tool_target)
             elif event.type == "tool_result":
-                publisher.tool_result(event.tool_name, event.tool_result_content, is_error=event.tool_error)
+                publisher.tool_result(event.tool_name, _web_tool_output(event), is_error=event.tool_error)
             elif event.type == "done":
                 answer = event.final_answer
         return RunOutcome(
@@ -485,6 +516,7 @@ class HttpProjectConsole:
         handler_factory: ProjectHandlerFactory | None = None,
         write_enabled: bool = False,
         global_env_file: str | Path | None = GLOBAL_CONFIG_FILE,
+        dialog_backend: str = "auto",
     ) -> None:
         self.registry = default_project_registry(workspace, projects_file)
         self.workspace = workspace
@@ -497,6 +529,10 @@ class HttpProjectConsole:
         # 的每一层判定都必须与面板 / 运行期同源，否则会出现「面板说可写、写下去不生效」。
         self.write_enabled = write_enabled
         self.global_env_file = Path(global_env_file).expanduser() if global_env_file is not None else None
+        # 原生目录选择（Story 50-8）：后端口径来自**启动配置**（`--dialog-backend`），单在途由入口层持有。
+        # 它会拉起宿主进程（弹窗），因此只服务「登记项目」这条链路；返回值不是权限——拿到路径后仍要过
+        # ``registry.register`` 的存在性 / 目录性 / 规范化 / 去重 / 上限全套校验。
+        self._picker = DirectoryPicker(dialog_backend)
         # 每个项目的**配置代**：写成功后自增（UI 与测试用它观测「下一次运行生效」，I10）。
         self._config_generations: dict[str, int] = {}
         if write_enabled:
@@ -726,6 +762,27 @@ class HttpProjectConsole:
         """
         self._config_generations[project_id] = self._config_generations.get(project_id, 0) + 1
         self._runtimes.pop(project_id, None)
+
+    # ── 原生目录选择（Story 50-8） ──
+
+    async def pick_directory(self) -> DirectoryPickResponse:
+        """在**服务端所在机器**弹一次原生目录选择窗口（登记项目的便捷入口）。
+
+        三条语义（都**不是**安全边界）：
+
+        - 返回值只是「用户输入的一种」：UI 拿到后仍走 ``POST /api/projects`` ⇒ 此处不校验路径、
+          不碰注册表、不写任何文件（校验链只有一条，不新增第二条）；
+        - 「取消 / 超时 / 后端脏值」统一为 ``cancelled=True``（UI 只需两条分支）；
+        - 后端不可用（容器 / 缺 tkinter / ``--dialog-backend none``）与「已有一次在途」分别转成稳定码
+          ``dialog_unavailable`` / ``dialog_busy``——不静默失败、也不排队（原生窗口不能叠着开）。
+        """
+        try:
+            path = await self._picker.pick()
+        except DialogBusyError as exc:
+            raise ConsoleOperationError(HttpErrorCode.DIALOG_BUSY, "a directory dialog is already open") from exc
+        except DialogUnavailableError as exc:
+            raise ConsoleOperationError(HttpErrorCode.DIALOG_UNAVAILABLE, str(exc)) from exc
+        return DirectoryPickResponse(path=path, cancelled=path is None, backend=self._picker.backend)
 
     # ── 内部 ──
 
@@ -981,6 +1038,13 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     default=None,
     help="Sandbox backend for shell execution (default: auto = probe firejail)",
 )
+@click.option(
+    "--dialog-backend",
+    type=click.Choice(["auto", "tkinter", "powershell", "none"]),
+    default="auto",
+    help="Native folder picker for 'select directory' (default: auto = tkinter then PowerShell; "
+    "none disables it, e.g. in containers)",
+)
 def http_server_cmd(
     host: str | None,
     port: int | None,
@@ -997,6 +1061,7 @@ def http_server_cmd(
     max_iterations: int | None,
     soul: str | None,
     sandbox: str | None,
+    dialog_backend: str,
 ) -> None:
     """Serve the built-in HeAgent web UI over HTTP (experimental; no authentication)."""
     # 函数内导入：``cli`` 在模块尾部 import 本模块注册命令，模块级互相导入会成环。
@@ -1038,6 +1103,7 @@ def http_server_cmd(
         runs=run_service,
         handler_factory=handler.for_workspace,
         write_enabled=settings.http_console_write_enabled,
+        dialog_backend=dialog_backend,
     )
     server = HttpServer(
         config,

@@ -59,6 +59,9 @@ class HttpErrorCode(StrEnum):
     - **项目与会话类**：``unknown_project`` / ``invalid_project_path`` / ``project_unavailable`` /
       ``project_not_removable`` / ``project_busy`` / ``project_limit_reached`` / ``unknown_session`` /
       ``invalid_session_id`` / ``session_conflict`` / ``session_busy`` / ``session_unreadable``；
+    - **原生选择类**：``dialog_unavailable``（无图形后端 / 被 ``--dialog-backend none`` 禁用）/
+      ``dialog_busy``（已有一次选择在途）——「用户取消」与「超时」都用成功响应里的
+      ``cancelled=true`` 表达，不占用错误码；
     - **运行类**：``run_conflict`` / ``unknown_run`` / ``resync_required``；
     - **资源类**：``rate_limited`` / ``timeout``；
     - **边界类**：``origin_forbidden`` / ``not_found`` / ``method_not_allowed``；
@@ -83,6 +86,9 @@ class HttpErrorCode(StrEnum):
     SESSION_UNREADABLE = "session_unreadable"
     CONFIRM_REQUIRED = "confirm_required"
     LOOPBACK_REQUIRED = "loopback_required"
+    # 原生目录选择（Epic 50 Story 50-8）：后端不可用 / 已有一次在途。
+    DIALOG_UNAVAILABLE = "dialog_unavailable"
+    DIALOG_BUSY = "dialog_busy"
     # 配置写入通道（Epic 50 Story 50-5）：闸门关 / 键只读 / 值非法 / 指纹冲突 / 写失败。
     WRITE_DISABLED = "write_disabled"
     FIELD_NOT_WRITABLE = "field_not_writable"

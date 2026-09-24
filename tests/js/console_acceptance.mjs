@@ -121,8 +121,8 @@ writeFileSync(join(closedWorkspace, ".env"), "HTTP_CONSOLE_WRITE_ENABLED=false\n
 
 const servers = [];
 
-function startServer(root, port) {
-  const proc = spawn(PYTHON, ["-m", "heagent", "http-server", "--port", String(port)], {
+function startServer(root, port, extraArgs = []) {
+  const proc = spawn(PYTHON, ["-m", "heagent", "http-server", "--port", String(port), ...extraArgs], {
     cwd: root,
     env: { ...process.env, PYTHONIOENCODING: "utf-8" },
     stdio: ["ignore", "pipe", "pipe"],
@@ -378,6 +378,28 @@ row("A5", "登记项目（真实 POST）", "提交目录后侧栏出现该项目
   return `侧栏与 /api/projects 都有「验收项目 B」（id=${entry.id}，共 ${server.projects.length} 个）`;
 });
 
+row("A5b", "「选择文件夹…」入口（R2）", "登记表单里有服务端原生选择按钮，且与手工输入共存（不自动登记）", async () => {
+  const shape = await evaluate(`(() => {
+    const button = document.getElementById("project-pick");
+    const register = document.getElementById("project-register");
+    return {
+      exists: Boolean(button),
+      label: button ? button.textContent : null,
+      disabled: button ? button.disabled : null,
+      type: button ? button.type : null,
+      title: button ? button.title : null,
+      sameForm: Boolean(button && register && button.parentNode === register.parentNode),
+      pathInputStillEditable: !document.getElementById("project-path").disabled,
+    };
+  })()`);
+  if (!shape.exists || shape.type !== "button") throw new Error(`选择按钮缺失或类型不对：${JSON.stringify(shape)}`);
+  if (!shape.label.includes("选择文件夹")) throw new Error(`按钮文案不对：${shape.label}`);
+  if (shape.disabled) throw new Error("按钮不该初始禁用");
+  if (!shape.title.includes("服务端")) throw new Error(`缺少「在服务端机器上打开」的说明：${shape.title}`);
+  if (!shape.sameForm || !shape.pathInputStillEditable) throw new Error("手工输入必须与按钮共存");
+  return `「${shape.label}」与「登记项目」同表单、手工输入仍可编辑；真实点击见 B2（用 --dialog-backend none 走确定性不可用路径）`;
+});
+
 row("A6", "目录失效可见标记", "目录被删后项目标记为 available=false 且显示「目录已失效」", async () => {
   rmSync(projectB, { recursive: true, force: true });
   await reload();
@@ -486,6 +508,72 @@ row("A11", "设置面板（分组 / 来源 / 只读原因）", "按后端分组�
   return `${summary.groups.length} 组 / ${summary.items} 条（= 后端 ${declared} 字段）/ ${summary.sources.join("+")} / ${summary.readOnly} 个只读项全部给了原因 / 未知键 ${summary.unknownKeys.join(",")}`;
 });
 
+row("A11b", "会话列表只显示最近 10 条（R1）", "同一项目写满 10+ 会话后：侧栏只渲染 10 条、显示总数、展开后全部可见", async () => {
+  await selectProjectById(projectBId);
+  await waitFor(`document.getElementById("active-project").textContent === "验收项目 B"`, { label: "切回项目 B" });
+  // 用**真实 API** 造会话（不直接编文件）：这样断言的是真实落盘格式与真实列表端点。
+  await evaluate(`(async () => {
+    for (let index = 0; index < 21; index += 1) {
+      await fetch("/api/projects/${projectBId}/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "列表会话 " + index }),
+      });
+    }
+    return true;
+  })()`);
+  const total = await evaluate(
+    `fetch("/api/projects/${projectBId}/sessions").then((r) => r.json()).then((p) => p.sessions.length)`,
+  );
+  await reload();
+  await waitFor(`document.getElementById("active-project").textContent === "验收项目 B"`, { label: "刷新后仍在项目 B" });
+  const truncated = await evaluate(`({
+    rendered: document.querySelectorAll("#session-list > li").length,
+    countText: document.getElementById("session-count").textContent,
+    moreHidden: document.getElementById("session-more").hidden,
+  })`);
+  if (total <= 10) throw new Error(`前置条件不成立：项目 B 只有 ${total} 个会话`);
+  if (truncated.rendered !== 10) throw new Error(`默认应只渲染 10 条，实际 ${truncated.rendered}`);
+  if (!truncated.countText.includes(`共 ${total} 个会话`)) throw new Error(`未显示总数：${truncated.countText}`);
+  if (!truncated.countText.includes("只显示最近 10 条")) throw new Error(`未显示截断口径：${truncated.countText}`);
+  if (truncated.moreHidden) throw new Error("超出部分必须可展开（不能静默藏起来）");
+  await click("#session-more");
+  await waitFor(`document.querySelectorAll("#session-list > li").length === ${total}`, { label: "展开后全部可见" });
+  const expandedLabel = await evaluate(`document.getElementById("session-more").textContent`);
+  if (!expandedLabel.includes("只看最近 10 条")) throw new Error(`展开后按钮文案未变：${expandedLabel}`);
+  return `共 ${total} 个会话：默认渲染 10 条（「${truncated.countText}」），展开后 ${total} 条全部可见`;
+});
+
+row("A11c", "设置面板瘦身（R4）", "无整句长解释；诊断/未知键默认收起且标题带条数；只读原因是短标签", async () => {
+  await selectProjectById("default");
+  await click("#settings-button");
+  await waitFor(`document.querySelectorAll("#settings-groups .config-item").length > 0`, { label: "配置面板已渲染" });
+  const state = await evaluate(`({
+    panelText: document.getElementById("settings-panel").textContent,
+    diagnosticsOpen: document.getElementById("settings-diagnostics-wrap").open,
+    diagnosticsSummary: document.getElementById("settings-diagnostics-summary").textContent,
+    unknownOpen: document.getElementById("settings-unknown-wrap").open,
+    unknownSummary: document.getElementById("settings-unknown-summary").textContent,
+    reasons: Array.from(document.querySelectorAll("#settings-groups .config-item .config-reason")).map((node) => node.textContent),
+    noteParagraphs: document.querySelectorAll("#settings-groups .config-notes").length,
+  })`);
+  // 只盯**横幅专属**的两句（「改动需要重启服务」是监听面键的合法短原因，不能误判）。
+  const offenders = ["网页无法自行开启", "需在启动配置"].filter((phrase) => state.panelText.includes(phrase));
+  if (offenders.length) {
+    const index = state.panelText.indexOf(offenders[0]);
+    const context = state.panelText.slice(Math.max(0, index - 80), index + 80);
+    throw new Error(`长句解释仍然出现在面板文本里（${offenders.join(" / ")}）：…${context}…`);
+  }
+  if (state.diagnosticsOpen || state.unknownOpen) throw new Error("诊断/未知键必须默认收起");
+  if (!state.diagnosticsSummary.includes("诊断")) throw new Error(`诊断标题缺失：${state.diagnosticsSummary}`);
+  if (!state.unknownSummary.includes("未知键")) throw new Error(`未知键标题缺失：${state.unknownSummary}`);
+  if (!state.reasons.length) throw new Error("只读原因必须仍然可见（UX-DR5）");
+  const longForm = state.reasons.filter((text) => !text.startsWith("只读："));
+  if (longForm.length) throw new Error(`只读原因不是短标签：${longForm.slice(0, 3).join(" | ")}`);
+  if (state.noteParagraphs !== 0) throw new Error("逐项说明不该再铺成长段文案");
+  return `诊断「${state.diagnosticsSummary}」与未知键「${state.unknownSummary}」默认收起；${state.reasons.length} 条只读原因均为「只读：…」短标签；无长句解释`;
+});
+
 row("A12", "凭证零明文", "项目 .env 里的密钥标记不出现在页面文本、DOM 与前端响应里", async () => {
   const text = await evaluate(
     `({ body: document.body.textContent, html: document.documentElement.outerHTML, panel: document.getElementById("settings-panel").textContent })`,
@@ -587,6 +675,7 @@ row("B1", "闸门关闭：全只读 + 原因 + 无开启入口", "面板说明�
   await waitFor(`document.querySelectorAll("#settings-groups .config-item").length > 0`);
   const state = await evaluate(`({
     gate: document.getElementById("settings-gate").hidden ? "" : document.getElementById("settings-gate").textContent,
+    panelText: document.getElementById("settings-panel").textContent,
     saveDisabled: document.getElementById("settings-save").disabled,
     enabledInputs: Array.from(document.querySelectorAll("#settings-groups .config-input")).filter((node) => !node.disabled).length,
     editableRows: document.querySelectorAll('#settings-groups .config-item[data-editable="true"]').length,
@@ -594,6 +683,10 @@ row("B1", "闸门关闭：全只读 + 原因 + 无开启入口", "面板说明�
     gateKey: (() => { const row = Array.from(document.querySelectorAll("#settings-groups .config-item")).find((node) => node.dataset.key === "HTTP_CONSOLE_WRITE_ENABLED"); return row ? { editable: row.dataset.editable, inputs: row.querySelectorAll("input").length, reason: row.querySelector(".config-reason") ? row.querySelector(".config-reason").textContent : null } : null; })(),
   })`);
   if (!state.gate.includes("未开启配置写入")) throw new Error(`面板未说明闸门关闭：${state.gate}`);
+  if (state.panelText.includes("网页无法自行开启") || state.panelText.includes("需在启动配置")) {
+    throw new Error("闸门关闭时也只允许一行短状态（R4：长解释不该回来）");
+  }
+  if (!state.panelText.includes("只读：未开启配置写入")) throw new Error("可写项应给出一句短原因");
   if (!state.saveDisabled) throw new Error("保存按钮应当禁用");
   if (state.enabledInputs !== 0 || state.editableRows !== 0) throw new Error(`仍有可编辑项：${JSON.stringify(state)}`);
   if (!state.reasonSamples.every((text) => text && text.includes("未开启配置写入"))) {
@@ -603,6 +696,114 @@ row("B1", "闸门关闭：全只读 + 原因 + 无开启入口", "面板说明�
     throw new Error(`开关自身应当是只读且无输入框：${JSON.stringify(state.gateKey)}`);
   }
   return `闸门说明可见、0 个可编辑控件、可写项原因一致、开关自身只读（无输入框）`;
+});
+
+row("A11d", "布局：一列侧栏 + 对话区占满所在列（R6/R7/R8）", "项目与会话同栏堆叠；对话正文与输入条铺满该列（不再限宽居中）；设置面板打开时对话列仍最宽；会话控件在列表之上", async () => {
+  // B1 之后页面停在「闸门关闭」的服务上 ⇒ 显式回到主控制台，并切到有 21 个会话的项目 B。
+  await open(`http://127.0.0.1:${PORT}/`);
+  await selectProjectById(projectBId);
+  await click("#settings-close"); // 量的是**默认两栏**布局：先把设置面板收起来
+  // 必须先把视口放宽：容器不够宽时「占满 vs 限宽」测不出差别（旧口径下只会得到恒定的 768px）。
+  await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1600, height: 900, deviceScaleFactor: 1, mobile: false });
+  await sleep(200);
+  await waitFor(`document.getElementById("sidebar").offsetParent !== null`, { label: "侧栏可见" });
+  // ① R8：会话规模/展开控件必须在**会话列表之上**（几何判据 = 位置，不是 DOM 顺序）。
+  const controls = await evaluate(`(() => {
+    const more = document.getElementById("session-more");
+    const moreRect = more.getBoundingClientRect();
+    const listRect = document.getElementById("session-list").getBoundingClientRect();
+    return { hidden: more.hidden, moreBottom: Math.round(moreRect.bottom), listTop: Math.round(listRect.top) };
+  })()`);
+  if (controls.hidden) throw new Error("项目 B 应有 >10 个会话，「显示全部」必须可见（前置条件被破坏）");
+  if (!(controls.moreBottom <= controls.listTop + 1)) {
+    throw new Error(`会话控件不在会话列表之上（R8）：${JSON.stringify(controls)}`);
+  }
+  // ② R7：设置面板打开时三列里**对话列仍是最宽的**（旧口径下设置面板比对话列宽）。
+  await click("#settings-button");
+  await waitFor(`document.querySelectorAll("#settings-groups .config-item").length > 0`, { label: "配置面板已渲染" });
+  const threeColumn = await evaluate(`({
+    chat: Math.round(document.querySelector(".chat").getBoundingClientRect().width),
+    settings: Math.round(document.getElementById("settings-panel").getBoundingClientRect().width),
+  })`);
+  if (!(threeColumn.chat > threeColumn.settings)) {
+    throw new Error(`设置面板打开时对话列不再是最宽的一列：${JSON.stringify(threeColumn)}`);
+  }
+  // 布局是**给人看**的：把两种状态各留一张图（`--keep` 时随工作区保留，便于人眼复核）。
+  const threeShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+  const threePath = join(workspace, "console-a11d-3col-settings-open.png");
+  writeFileSync(threePath, Buffer.from(threeShot.data, "base64"));
+  await click("#settings-close");
+  await waitFor(`document.getElementById("settings-panel").hidden`, { label: "设置面板已收起" });
+  await sleep(200);
+  const layout = await evaluate(`(() => {
+    const sidebar = document.getElementById("sidebar");
+    const sidebarStyle = getComputedStyle(sidebar);
+    const projects = document.getElementById("project-list").parentNode;
+    const sessions = document.getElementById("session-list").parentNode;
+    const log = document.getElementById("chat-log");
+    // 对话区此刻可能没有消息（本清单不跑真实 LLM 运行）⇒ 用一个探针元素量**真实 CSS 规则**
+    // （.chat-log > * 的宽度），量完立刻移除，不留痕迹。
+    const probe = document.createElement("li");
+    probe.className = "entry";
+    log.appendChild(probe);
+    const probeRect = probe.getBoundingClientRect();
+    const logRect = log.getBoundingClientRect();
+    const logStyle = getComputedStyle(log);
+    log.removeChild(probe);
+    const composerRect = document.getElementById("prompt-input").getBoundingClientRect();
+    return {
+      sidebarDisplay: sidebarStyle.display,
+      sidebarDirection: sidebarStyle.flexDirection,
+      containsBoth: sidebar.contains(projects) && sidebar.contains(sessions),
+      stacked: projects.getBoundingClientRect().bottom <= sessions.getBoundingClientRect().top + 1,
+      probeWidth: Math.round(probeRect.width),
+      logWidth: Math.round(logRect.width),
+      paddingLeft: Math.round(parseFloat(logStyle.paddingLeft)),
+      paddingRight: Math.round(parseFloat(logStyle.paddingRight)),
+      leftGap: Math.round(probeRect.left - logRect.left),
+      rightGap: Math.round(logRect.right - probeRect.right),
+      composerWidth: Math.round(composerRect.width),
+    };
+  })()`);
+  if (layout.sidebarDisplay !== "flex" || layout.sidebarDirection !== "column") {
+    throw new Error(`侧栏不是一列：${JSON.stringify(layout)}`);
+  }
+  if (!layout.containsBoth || !layout.stacked) throw new Error(`项目与会话必须同栏纵向堆叠：${JSON.stringify(layout)}`);
+  // 「占满」的**判别性**判据：1600px 视口下 280px 侧栏 ⇒ 对话列 1320px，去掉该列 1rem 内边距后正文应 ≈1288px。
+  // 旧口径（48rem 限宽居中）只会得到恒定 768px，两侧各留一大块空白 ⇒ 这几条会精确变红。
+  const contentWidth = layout.logWidth - layout.paddingLeft - layout.paddingRight;
+  if (layout.probeWidth <= 768) throw new Error(`对话正文没占满该列（还被限宽？）：${JSON.stringify(layout)}`);
+  if (Math.abs(layout.probeWidth - contentWidth) > 1) throw new Error(`对话正文未铺满该列：${JSON.stringify(layout)}`);
+  if (Math.abs(layout.leftGap - layout.paddingLeft) > 1 || Math.abs(layout.rightGap - layout.paddingRight) > 1) {
+    throw new Error(`对话正文两侧余量应等于该列内边距（不是居中余量）：${JSON.stringify(layout)}`);
+  }
+  if (Math.abs(layout.composerWidth - layout.probeWidth) > 2) {
+    throw new Error(`输入条与正文不同宽：${JSON.stringify(layout)}`);
+  }
+  const twoShot = await cdp.send("Page.captureScreenshot", { format: "png" });
+  const twoPath = join(workspace, "console-a11d-2col-chat-fullwidth.png");
+  writeFileSync(twoPath, Buffer.from(twoShot.data, "base64"));
+  await cdp.send("Emulation.clearDeviceMetricsOverride");
+  return `${controls.moreBottom} ≤ ${controls.listTop}（控件在列表之上）；设置面板打开时对话 ${threeColumn.chat}px > 设置 ${threeColumn.settings}px；1600px 视口下侧栏 ${layout.sidebarDisplay}/${layout.sidebarDirection} 且项目与会话同栏堆叠、对话正文 ${layout.probeWidth}px（= 该列 ${layout.logWidth} - 内边距 ${layout.paddingLeft}/${layout.paddingRight}）、输入条 ${layout.composerWidth}px；截图 console-a11d-2col-chat-fullwidth.png / console-a11d-3col-settings-open.png`;
+});
+
+row("B2", "选择文件夹：不可用路径（R2）", "``--dialog-backend none`` 的服务上点击按钮：给出原因、不回填、不登记", async () => {
+  const port = PORT + 2;
+  startServer(closedWorkspace, port, ["--dialog-backend", "none"]);
+  await waitForHealth(port);
+  await open(`http://127.0.0.1:${port}/`);
+  await click("#project-pick");
+  await waitFor(`document.getElementById("project-status").dataset.state === "failed"`, { label: "给出失败原因" });
+  const state = await evaluate(`({
+    text: document.getElementById("project-status").textContent,
+    path: document.getElementById("project-path").value,
+    disabled: document.getElementById("project-pick").disabled,
+  })`);
+  if (!state.text.includes("目录选择器")) throw new Error(`文案不可理解：${state.text}`);
+  if (!state.text.includes("服务端说明")) throw new Error(`未回传服务端原因：${state.text}`);
+  if (state.path !== "") throw new Error("不可用时不该回填任何路径");
+  if (state.disabled) throw new Error("请求结束后按钮必须恢复可用");
+  return `「${state.text}」且输入框未被改动`;
 });
 
 // ── 执行 ──

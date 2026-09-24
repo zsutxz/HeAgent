@@ -1015,7 +1015,7 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 
 | 关注点 | 实现事实（Story 49-1/49-2/49-3 已交付部分） |
 | --- | --- |
-| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **32** 码（含项目注册表 / 会话 / 控制台稳定错误码；2026-09-24 评审校正：原先写 22，实测 27；Story 50-5 的写通道再加 5 ⇒ **32**，口径与分组见 4.18）、`{"error":{"code","message"}}` 信封、`HealthResponse`（字段封闭：`status` / `service` / `version` / `schema_version`）；`sanitize_message` 是客户端文案唯一出口（折叠空白 + **掩码宿主绝对路径** + 截断到 `MAX_ERROR_MESSAGE_CHARS`），**不含** traceback / 异常类名 / 绝对路径——掩码是启发式（Windows 盘符与 UNC 全掩；POSIX 要求 ≥3 段，以免误伤 `/api/health`、`and/or`、URL），与 `safe_logging` 同一立场：**非安全边界**（2026-09-23 评审修复：此前上游 `HeAgentError.message` 里带的路径会原样透传）|
+| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **34** 码（含项目注册表 / 会话 / 控制台稳定错误码；2026-09-24 评审校正：原先写 22，实测 27；Story 50-5 的写通道再加 5 ⇒ **32**；Story 50-8 的原生目录选择再加 2 ⇒ **34**，口径与分组见 4.18）、`{"error":{"code","message"}}` 信封、`HealthResponse`（字段封闭：`status` / `service` / `version` / `schema_version`）；`sanitize_message` 是客户端文案唯一出口（折叠空白 + **掩码宿主绝对路径** + 截断到 `MAX_ERROR_MESSAGE_CHARS`），**不含** traceback / 异常类名 / 绝对路径——掩码是启发式（Windows 盘符与 UNC 全掩；POSIX 要求 ≥3 段，以免误伤 `/api/health`、`and/or`、URL），与 `safe_logging` 同一立场：**非安全边界**（2026-09-23 评审修复：此前上游 `HeAgentError.message` 里带的路径会原样透传）|
 | 传输层 | `network/http_server.py`：`HttpServerConfig`（9 个有界字段，默认值与 `HTTP_*` 一致）+ `HttpServer`（`start` / `serve_forever` / `close`，与 `TcpServer` 同 API 形状）；`build_http_app` 组装健康检查 + 静态资源 + 安全头 |
 | 可选依赖 | starlette / uvicorn 由 `pyproject.toml` 的 `http` extra **直接声明**，且只在真要服务时经 `importlib.import_module` 加载；缺依赖抛 `HttpDependencyError` → 命令给出 `pip install 'heagent[http]'`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`（源码中不存在顶层 starlette/uvicorn 导入） |
 | 就绪门禁 | `start()` 只在「listener 已绑定**且**真实 TCP 打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」。**通配绑定**（`0.0.0.0` / `::`）的探测改走回环地址（连 `0.0.0.0` 是未定义行为），故允许集对通配值额外接受 `127.0.0.1` / `localhost` / `[::1]`（探测的 Host 头按 authority 语法给 IPv6 加方括号）——通配绑定可从本机浏览器访问，但经其它网卡地址访问仍被 `origin_forbidden` 拒绝（非回环联网不受支持）。连接的 `limit_concurrency` 额外预留 1 条给就绪探测，否则 `HTTP_MAX_CONNECTIONS=1` 会让入口**永远起不来**（以上两项为 2026-09-23 评审修复）|
@@ -1036,7 +1036,7 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 ⚠ **安全立场**：与 TCP 入口一致——本入口**无认证、无 TLS**，回环绑定不是认证边界，回环客户端同样
 不可信；运行本入口须放在容器 / VM 等 OS 级隔离中（见五、已知缺口与 CLAUDE.md 安全声明）。
 
-### 4.18 网页控制台 (`workspace.py` + `projects.py` + `config_catalog.py` + `config_write.py` + `cli_http.py` + `web/`)
+### 4.18 网页控制台 (`workspace.py` + `projects.py` + `config_catalog.py` + `config_write.py` + `cli_http.py` + `cli_dialogs.py` + `web/`)
 
 Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左栏项目与会话、右栏对话、设置独立成面板
 （项目 / 会话 / 配置三层，全部走**项目内**路由）。分层不变——网络层只承载传输与路由，装配 / 注册表 /
@@ -1053,8 +1053,11 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 资源旋钮上界 | `config_catalog.RESOURCE_CEILINGS`：21 个「只有下界」的数值键按族给上界（days 3650 / seconds 604800 / bytes 8 MiB / tokens 1M / count 100；迭代 10000 与上下文窗口 16M 自成刻度）。**只作用于写通道与面板展示**，不改 `Settings` 定义语义（手工改 `.env` 不受约束） |
 | 生效语义 | 写成功后**丢该项目运行时缓存** ⇒ 下一次 run 重新解析快照、**在途 run 继续用旧快照**（无热生效；响应里 `applied=next_run`） |
 | 审计 | `<项目根>/.heagent/console/audit.jsonl`：一行一 JSON，只有键名 / 值的**哈希与长度** / 结果，**不含值**；行数上限 500（超限裁到最近 500 条，且只认这一个文件名 ⇒ 不碰同目录的 `projects.json`）；追加失败不阻断已成功的写，但响应如实带 `audit_recorded=false` |
-| 路由 | 项目 `GET/POST/PATCH/DELETE /api/projects*`；会话 `…/sessions*`；项目内运行 `POST /api/projects/{id}/runs`；配置 `GET/PUT /api/projects/{id}/config`；运行事件与取消沿用 4.17 的 `GET /api/runs/{id}/events`（SSE）与 `DELETE /api/runs/{id}` |
-| 错误码 | `HttpErrorCode` 封闭 **32** 码 = Epic 49 的 **14** + Epic 50 新增 **18**（项目注册表 6 / 会话 5 / 写通道 5 / 运行与边界 2：`confirm_required`、`loopback_required`）。口径与实测方法：对 Epic 50 开工前提交做成员名 diff，不靠人工计数 |
+| 路由 | 项目 `GET/POST/PATCH/DELETE /api/projects*`；会话 `…/sessions*`；项目内运行 `POST /api/projects/{id}/runs`；配置 `GET/PUT /api/projects/{id}/config`；原生目录选择 `POST /api/dialogs/pick-directory`（Story 50-8，**非项目作用域**）；运行事件与取消沿用 4.17 的 `GET /api/runs/{id}/events`（SSE）与 `DELETE /api/runs/{id}` |
+| 原生目录选择（Story 50-8 R2） | `cli_dialogs.py`：浏览器**拿不到**本机绝对路径，故「选文件夹」由**服务端所在机器**弹原生窗口。后端顺序 `tkinter` → `powershell`（PS 5.1 `FolderBrowserDialog`）→ `none`（`--dialog-backend` 可钉死），对话框跑在**子进程**里（`asyncio.create_subprocess_exec` + 冻结 argv + 超时 300s + kill + 有界回收 + 凭证剥离 env），只解析 stdout 的 ASCII 标记行并复验 `is_dir()`（脏值 / 取消 / 超时一律 `cancelled=true`）；入口层持有**单在途**（并发 → `dialog_busy`）。返回值**不是权限**：登记仍走 `POST /api/projects` 的全套校验 |
+| 网页侧工具结果收敛（Story 50-8 R5） | `cli_http._web_tool_output`：`file_read` 的**成功**结果内容不进网页事件流（对话区只显示「工具名 → 作用对象」），**失败消息照旧**（内置工具用返回值 `Error: ...` 表达可预期失败，故判据 = `is_error` **或** 该前缀）；会话文件 / `rollout.jsonl` / CLI / GUI **一字不变**（审计与回放不受影响），模型侧也照旧拿到全文 |
+| 控制台体验约束（Story 50-8 R1/R3/R4/R6/R7/R8） | 会话列表**默认只渲染最近 10 条**（服务端仍按时间降序给全量、硬上限 200；展开是本地 slice，且**当前会话永远可见**——落在窗口外时自动展开并隐藏展开按钮），规模提示与「显示全部」放在**会话面板最上面**（列表之上，R8）；侧栏**一列**：项目在上、会话在下（`display:flex`/`column`，**用户 2026-09-24 裁决，不得回退成多栏**）；对话区**占满所在列**（R7，2026-09-24 撤销 R6 的 48rem 限宽居中阅读列：`.chat-log > *` 与 `.composer > *` 只留 `width:100%`；设置面板打开时**对话列仍是三列里最宽的**）；侧栏 280px；设置面板只留**一行短状态**与逐项短只读标签，诊断 / 未知键折进默认收起的 `<details>`（标题带告警条数），逐项长说明压成徽标 + `title` |
+| 错误码 | `HttpErrorCode` 封闭 **34** 码 = Epic 49 的 **14** + Epic 50 新增 **20**（项目注册表 6 / 会话 5 / 写通道 5 / 运行与边界 2：`confirm_required`、`loopback_required` / 原生目录选择 2：`dialog_unavailable`（503）、`dialog_busy`（409））。口径与实测方法：对 Epic 50 开工前提交做成员名 diff，不靠人工计数 |
 | 前端纪律 | 纯文本渲染（`createTextNode`，永不 `innerHTML`）；面板文案 / 只读原因 / 取值提示全部由后端 `labels` / `guards` / `source` 派生，**前端零硬编码**；零第三方资源、零内联脚本 / 事件属性；`[hidden]{display:none!important}` 全局兜底（作者样式的 `display:flex` 会压过 UA 的 `[hidden]`） |
 
 ⚠ **安全立场**（与 4.16 / 4.17 同构，**均非安全边界**）：控制台**无认证、无 TLS**；绑定告警
@@ -1065,6 +1068,11 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 （启动时 stderr + 日志双通道告警），且网页**无法通过任何请求**打开它自己。**并发口径（D9）**：在途上限
 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32），**无全局软上限** —— 多项目并行是有意能力，代价是
 资源占用线性上升（见五）。
+
+⚠ **新增的宿主进程拉起面（Story 50-8 R2，同样不是安全边界）**：`POST /api/dialogs/pick-directory` 会让
+**服务端所在机器**弹出一个原生窗口（子进程 `tkinter` / `powershell`）。防线是「回环来源 + 单在途 + 冻结
+argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「只有本机用户能触发」的保证：回环 peer 不等于
+可信（见上），能连上端口的本机进程都能让服务机弹窗（骚扰面）——这是本 Epic 有意引入的**新暴露面**，已登记在五。
 
 ## 五、已知缺口
 
@@ -1099,6 +1107,9 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 非回环运行姿态**未裁决**（intent_gap，blocked） | 项目**重命名**、四个**会话**写操作与项目内**运行入口**当前**没有**回环门（登记 / 移除 / 配置写入有）。两条互斥修法（一律拒绝 / 允许但标注）都改变可观察行为，非实现方可单方决定 ⇒ 按契约标 blocked 待人裁决，未擅自改 |
 | 控制台 UI 无自动化回归 | `tests/js/console_acceptance.mjs` 需要真实浏览器（CDP）与 `heagent[http]`，而 CI 只装 `.[dev]` ⇒ 只能**手动**跑（清单见 `epics/epic-50-网页控制台周期/reviews/`）。CI 里跑得动的是 node 探针（最小 DOM 替身）；DOM API 的 `click()` 会绕过命中测试，故「真浏览器」这一步不可省略 |
 | `cli_console.py` 从未落地（脊柱 D7 的覆盖率口径作废） | 脊柱 §10 / D7 预判控制台逻辑会拆到独立模块 `cli_console.py` 并「默认不 omit」；实现期它**没有存在过**——控制台装配在 `cli_http.py`（**不在**覆盖率 omit 列表里，靠测试覆盖，实测 `cli_http.py` 计入总量）。若将来拆分，口径随模块走并在此更新 |
+| 网页请求可拉起**宿主 GUI 进程**（Story 50-8 R2，**新暴露面**） | `POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹原生窗口（子进程 `tkinter` / `powershell`）。防线只有「回环来源 + 单在途 + 冻结 argv + 300s 超时 kill」——回环 peer ≠ 可信（见上），任何能连上端口的本机进程都能让服务机弹窗（骚扰面）；它**不是**安全边界，也不改变「须 OS 级沙箱兜底」的立场 |
+| 原生目录选择在部分环境**不可用**（Story 50-8 R2） | ①无图形后端（容器 / 缺 `_tkinter` 的 Linux）；②服务跑在远程机器而浏览器在别处（窗口弹在服务机，对调用者无用）；③`--dialog-backend none` 显式禁用。三种都回 `dialog_unavailable` 并**保留手工输入**（不静默失败、也没有服务端目录浏览 API —— 那会把宿主目录结构开放给回环客户端） |
+| 网页侧读取结果收敛是**展示策略**，不是数据边界（Story 50-8 R5） | 只是「`file_read` 的成功内容不进网页事件流」；同一份内容仍写进**会话文件**与 `rollout.jsonl`（审计 / 回放需要），模型侧也照旧收到全文；失败消息靠 `Error:` 前缀约定识别（内置工具的既有约定，若将来改结构化错误，该判据可退化为只看 `is_error`） |
 
 ---
 
@@ -1415,8 +1426,17 @@ heagent http-server（同一入口；console 由入口层装配后注入 HttpSer
         ├── POST   /api/projects/{id}/runs           → 项目内运行（**每项目**单运行，超限 ⇒ 409 run_conflict）
         │       └── handler_factory(项目路径) → 该项目自己的 AgentLoop（构造期冻结 ResolvedRuntimeConfig）
         ├── GET    /api/projects/{id}/config         → 配置面板（四层来源 / 可写性 / 只读原因 / 凭证掩码 / 行级诊断）
-        └── PUT    /api/projects/{id}/config         → 写通道（**回环门** → 10 步流水线，见下）
+        ├── PUT    /api/projects/{id}/config         → 写通道（**回环门** → 10 步流水线，见下）
+        └── POST   /api/dialogs/pick-directory       → 原生目录选择（**回环门** + 单在途；50-8）
+              └── cli_dialogs.DirectoryPicker：后端 auto(tkinter→powershell) ⇒ 子进程弹窗
+                    ├── 冻结 argv（无 shell / 无用户输入）+ 凭证剥离 env + 300s 超时 ⇒ kill + 有界回收
+                    ├── 只认 stdout 的 ASCII 标记行 + `is_dir()` 复验 ⇒ 取消/超时/脏值统一 cancelled=true
+                    └── 返回值不是权限：仍要 POST /api/projects 走完整套校验
 ```
+
+其余 Story 50-8 的体验约束（会话列表只渲染最近 **10** 条 / 侧栏**一列** / 对话区**占满所在列**（R7，撤销 48rem
+限宽阅读列，2026-09-24） / 会话规模与展开控件置于面板最上面（R8） / 设置面板瘦身 / 网页侧读取结果收敛）
+见 4.18 表格末三行与 4.18 的安全声明段——它们**不新增路由**，只改前端渲染与网页桥的收敛判据。
 
 写通道（`config_write.apply_config_write`，**10 步 + 1 项生效语义**；任一步失败即拒绝且文件不变）：
 

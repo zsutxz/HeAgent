@@ -74,6 +74,23 @@ class _ScriptedProvider:
         return ProviderMetadata(name="stub", model="stub")
 
 
+class _RecordingProvider(_ScriptedProvider):
+    """记录每次 provider 调用看到的完整消息（用于断言「模型仍拿到全文」）。"""
+
+    def __init__(self, script: list[Any]) -> None:
+        super().__init__(script)
+        self.seen: list[list[Message]] = []
+
+    async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
+        self.seen.append([message.model_copy(deep=True) for message in messages])
+        return await super().send(messages, tools=tools)
+
+    async def stream(self, messages: list[Message], *, tools: list[object] | None = None) -> Any:
+        self.seen.append([message.model_copy(deep=True) for message in messages])
+        async for item in super().stream(messages, tools=tools):
+            yield item
+
+
 class _BlockingProvider(_ScriptedProvider):
     """一直等门的 provider：模拟「跑到一半的真实运行」，用于取消与断线语义。"""
 
@@ -154,8 +171,9 @@ async def test_end_to_end_run_streams_answer_and_updates_session() -> None:
     assert provider.calls == 1
 
 
-async def test_real_loop_streams_tool_events() -> None:
+async def test_real_loop_streams_tool_events(tmp_path: Path) -> None:
     """真实循环的工具事件：``tool_call`` → ``tool_result`` → 最终答案。"""
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest]\n", encoding="utf-8")
     provider = _ScriptedProvider(
         [
             _tool_request("file_read", {"path": "pyproject.toml"}),
@@ -172,6 +190,57 @@ async def test_real_loop_streams_tool_events() -> None:
     assert "pyproject.toml" in tool_call["tool_target"]
     assert frames[1][2]["tool_error"] is False
     assert frames[-1][2]["text"] == "read it"
+    # Story 50-8 R5：**成功**的读取类工具内容不进网页事件流（只留作用对象）。
+    assert frames[1][2]["tool_output"] == ""
+    assert "[tool.pytest]" not in json.dumps(frames)
+
+
+async def test_read_content_is_hidden_in_web_events_but_still_reaches_the_model(tmp_path: Path) -> None:
+    """R5 的两半：网页事件流里**一个字都不出现**文件内容；模型侧照旧拿到全文。
+
+    「模型也看不到」会是真实功能回归（读文件就没意义了）——所以这里用一个记录 provider 断言
+    模型收到的消息里**确实有**哨兵内容，证明收敛发生在我们自己新加的**网页桥**，而不是事件源。
+    """
+    sentinel = "SENTINEL-CONTENT-50-8"
+    (tmp_path / "note.txt").write_text(sentinel, encoding="utf-8")
+    provider = _RecordingProvider([_tool_request("file_read", {"path": "note.txt"}), _answer("read it")])
+    async with _served(provider) as (base_url, _service), httpx.AsyncClient(timeout=10.0) as client:
+        frames = await _run_prompt(client, base_url, "read the note")
+
+    tool_call = next(data for _id, event, data in frames if event == "tool_call")
+    result = next(data for _id, event, data in frames if event == "tool_result")
+    assert "note.txt" in tool_call["tool_target"], "作用对象（文件名）照旧进网页"
+    assert result["tool_error"] is False
+    assert result["tool_output"] == ""
+    assert sentinel not in json.dumps(frames), "读取到的内容不得出现在任何事件帧里"
+    seen = [message.content or "" for call in provider.seen for message in call]
+    assert any(sentinel in text for text in seen), "模型必须仍能读到文件内容（收敛只发生在网页侧）"
+
+
+async def test_read_tool_error_message_is_still_shown_in_web() -> None:
+    """读取失败的消息**不收敛**——注意内置工具用「返回值 ``Error: ...``」表达可预期失败（``is_error``
+    仍为 ``False``），所以收敛判据必须同时看内容；否则「文件不存在」这类诊断会从网页上消失。"""
+    provider = _ScriptedProvider([_tool_request("file_read", {"path": "definitely-missing-50-8.txt"}), _answer("done")])
+    async with _served(provider) as (base_url, _service), httpx.AsyncClient(timeout=10.0) as client:
+        frames = await _run_prompt(client, base_url, "read a missing file")
+
+    result = next(data for _id, event, data in frames if event == "tool_result")
+    assert result["tool_error"] is False, "内置工具「返回 Error 字符串」不算异常（仓库既有约定）"
+    assert result["tool_output"].startswith("Error:"), "诊断消息必须照旧可见"
+
+
+async def test_other_tools_keep_their_output_in_web_events(tmp_path: Path) -> None:
+    """收敛范围**只有** ``file_read``：别的工具结果原样进网页（R5 是展示策略，不是通用裁剪）。"""
+    sentinel = "SENTINEL-OTHER-TOOL-50-8"
+    (tmp_path / "out.txt").write_text(sentinel, encoding="utf-8")
+    provider = _ScriptedProvider(
+        [_tool_request("file_edit", {"path": "out.txt", "old": "a", "new": "b"}), _answer("done")]
+    )
+    async with _served(provider) as (base_url, _service), httpx.AsyncClient(timeout=10.0) as client:
+        frames = await _run_prompt(client, base_url, "edit the file")
+
+    result = next(data for _id, event, data in frames if event == "tool_result")
+    assert result["tool_output"] != "" or result["tool_error"] is True
 
 
 async def test_unknown_tool_comes_back_as_a_failed_tool_result() -> None:

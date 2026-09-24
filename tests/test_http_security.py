@@ -40,15 +40,18 @@ _OUTPUT_MARKER = "OUTPUT-MARKER-77c1"
 
 
 class _StubProvider:
-    """按脚本应答的 provider（首个响应重复）。"""
+    """按脚本应答的 provider（首个响应重复）；顺带记录**每次调用看到的完整消息**。"""
 
     def __init__(self, responses: list[ProviderResponse] | None = None) -> None:
         self._responses = responses or [_response(_ANSWER_MARKER)]
+        self.seen: list[list[Message]] = []
 
     async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
+        self.seen.append([message.model_copy(deep=True) for message in messages])
         return self._responses[0]
 
     async def stream(self, messages: list[Message], *, tools: list[object] | None = None) -> Any:
+        self.seen.append([message.model_copy(deep=True) for message in messages])
         yield self._responses[0]
 
     def get_metadata(self) -> ProviderMetadata:
@@ -256,7 +259,12 @@ class TestObservability:
         assert _ANSWER_MARKER not in log_text
 
     async def test_tool_output_is_not_logged(self, caplog: pytest.LogCaptureFixture, tmp_path: Any) -> None:
-        """工具**输出正文**不进日志（工具名与作用对象是诊断字段，内容不是）。"""
+        """工具**输出正文**不进日志（工具名与作用对象是诊断字段，内容不是）。
+
+        Story 50-8 R5 起 ``file_read`` 的成功结果**在网页事件流里也被收敛**（只留作用对象），
+        所以「输出确实存在」这一半改由 provider 侧证明：内容到达了模型，但既不在日志里、
+        也不在网页帧里。
+        """
         target = tmp_path / "note.txt"
         target.write_text(_OUTPUT_MARKER, encoding="utf-8")
         provider = _StubProvider(
@@ -276,8 +284,11 @@ class TestObservability:
                 created = await client.post("/api/runs", json={"prompt": _PROMPT_MARKER})
                 events = await client.get(f"/api/runs/{created.json()['run_id']}/events")
 
-        assert _OUTPUT_MARKER in events.text  # 客户端能拿到（那才是它的用途）
-        assert _OUTPUT_MARKER not in caplog.text  # 但日志里不该出现
+        assert _OUTPUT_MARKER not in caplog.text  # 日志里不该出现
+        assert _OUTPUT_MARKER not in events.text  # R5：网页事件流也不携带读取内容
+        assert any(  # 但模型确实拿到了全文（否则是功能回归，不是隐私收益）
+            _OUTPUT_MARKER in (message.content or "") for call in provider.seen for message in call
+        ), "读取内容必须仍然到达模型"
 
     async def test_request_id_header_is_present_and_unique(self) -> None:
         async with _static_client() as client:

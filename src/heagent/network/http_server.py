@@ -125,6 +125,8 @@ _PROJECT_SESSION_PATH = "/api/projects/{project_id}/sessions/{session_id}"
 _PROJECT_SESSION_EXTRA_PATH = "/api/projects/{project_id}/sessions/{session_id}/{extra:path}"
 _PROJECT_RUNS_PATH = "/api/projects/{project_id}/runs"
 _PROJECT_CONFIG_PATH = "/api/projects/{project_id}/config"
+# 非项目作用域的控制台端点（Story 50-8）：在**服务端所在机器**弹原生目录选择窗口。
+_DIALOG_PICK_PATH = "/api/dialogs/pick-directory"
 
 # 通配绑定地址：就绪探测改走回环（见 :func:`_probe_host`）。这里**只识别**，不在此绑定。
 _WILDCARD_HOSTS = frozenset({"", "0.0.0.0", "*"})  # noqa: S104 - 识别通配地址，非绑定
@@ -1123,6 +1125,9 @@ _CONSOLE_ERROR_STATUS: dict[HttpErrorCode, int] = {
     HttpErrorCode.SESSION_UNREADABLE: 409,
     HttpErrorCode.RUN_CONFLICT: 409,
     HttpErrorCode.LOOPBACK_REQUIRED: 403,
+    # 原生目录选择（Story 50-8）：后端不可用 → 503（不是客户端错误）；已有一次在途 → 409。
+    HttpErrorCode.DIALOG_UNAVAILABLE: 503,
+    HttpErrorCode.DIALOG_BUSY: 409,
     # 配置写入通道（Story 50-5）：闸门关 / 键只读 → 403；值非法 → 400；指纹冲突 → 409；写失败 → 500。
     HttpErrorCode.WRITE_DISABLED: 403,
     HttpErrorCode.FIELD_NOT_WRITABLE: 400,
@@ -1528,6 +1533,33 @@ def _build_config_endpoint(responses: Any, console: ConsoleHandler, config: Http
     return get_project_config, update_project_config
 
 
+def _build_dialog_endpoint(responses: Any, console: ConsoleHandler) -> Any:
+    """``POST /api/dialogs/pick-directory``：在**服务端所在机器**弹出原生目录选择窗口（Story 50-8）。
+
+    三条边界（都不是安全边界）：
+
+    - **回环来源**：非回环 → 403 ``loopback_required``（复用 :func:`_loopback_error`）。远程客户端不该让
+      服务机弹窗——那是窗口注入 / 骚扰面，而且弹在别人机器上的窗口对调用者毫无用处；
+    - **只回用户明确选中的那一个目录**：取消 / 超时 / 后端脏值一律 ``cancelled=true``，**不回传任何
+      目录列表**（这里没有目录浏览能力）；
+    - **单在途**由入口层持有（原生窗口不能叠着开），并发 → 409 ``dialog_busy``。
+
+    用 ``POST`` 而不是 ``GET``：避免被 ``<img>`` / 链接意外触发（与写类端点同一姿态）。
+    """
+
+    async def pick_directory(request: Any) -> Any:
+        denied = _loopback_error(responses, request)
+        if denied is not None:
+            return denied
+        try:
+            result = await console.pick_directory()
+        except Exception as exc:
+            return _console_error_response(responses, exc, event="dialog_pick_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"))
+
+    return pick_directory
+
+
 def build_http_app(
     config: HttpServerConfig,
     *,
@@ -1625,6 +1657,7 @@ def build_http_app(
             session_malformed,
         ) = _build_session_endpoints(responses, console, config)
         project_config, project_config_write = _build_config_endpoint(responses, console, config)
+        pick_directory = _build_dialog_endpoint(responses, console)
         routes.extend(
             [
                 routing.Route(_PROJECTS_PATH, endpoint=list_projects, methods=["GET"]),
@@ -1646,6 +1679,8 @@ def build_http_app(
                 routing.Route(_PROJECT_CONFIG_PATH, endpoint=project_config, methods=["GET"]),
                 # 写入通道（Story 50-5）：与 GET 同一路径、不同方法（Starlette 按 method 匹配）。
                 routing.Route(_PROJECT_CONFIG_PATH, endpoint=project_config_write, methods=["PUT"]),
+                # 原生目录选择（Story 50-8）：非项目作用域 + 回环门 + 单在途（入口层持有）。
+                routing.Route(_DIALOG_PICK_PATH, endpoint=pick_directory, methods=["POST"]),
             ]
         )
     routes.append(routing.Route("/{asset}", endpoint=asset, methods=["GET"]))

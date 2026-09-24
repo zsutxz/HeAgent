@@ -240,6 +240,9 @@ const world = {
   failConfigReadAfterWrite: false,
   configReadFails: false,
   writeFingerprint: "fp-1",
+  // 原生目录选择（Story 50-8 R2）：默认「取消」；用例可改成选中路径或改造成错误响应。
+  pickResult: { path: null, cancelled: true, backend: "auto" },
+  pickError: null,
 };
 
 const LABELS = {
@@ -248,7 +251,9 @@ const LABELS = {
   console_itself: "控制台自身开关：写入面不得给自己解锁",
   project_env_missing: "项目 .env 不存在：全部字段回退到全局 .env / 默认值",
   audit_not_recorded: "写入已生效，但审计记录未能落盘（服务端有 ERROR 日志）",
-  write_channel_disabled: "服务启动时未开启配置写入（HTTP_CONSOLE_WRITE_ENABLED）：所有可写项在本页只读",
+  write_channel_disabled:
+    "服务启动时未开启配置写入（HTTP_CONSOLE_WRITE_ENABLED）：所有可写项在本页只读；网页无法自行开启，需在启动配置（系统环境变量 / 项目 .env / 全局 .env）里开启后重启服务",
+  write_channel_short: "未开启配置写入：可写项在本页只读",
 };
 
 function guardRange(minimum, maximum) {
@@ -388,6 +393,14 @@ function installRoutes() {
     world.sessions.pNew = [];
     return jsonResponse(201, created);
   });
+  // 原生目录选择（Story 50-8 R2）：只回一个路径或取消；错误按注入的稳定码回。
+  route("POST", "/api/dialogs/pick-directory", () => {
+    if (world.pickError) {
+      const { status, code, message } = world.pickError;
+      return jsonResponse(status, { error: { code, message } });
+    }
+    return jsonResponse(200, world.pickResult);
+  });
   route("PATCH", "/api/projects/pB", (options) => {
     const body = JSON.parse(options.body || "{}");
     world.projects = world.projects.map((item) => (item.id === "pB" ? { ...item, name: body.name } : item));
@@ -514,6 +527,16 @@ function findByDataset(root, key, value) {
 
 function findConfigRow(key) {
   return findByDataset(els["settings-groups"], "key", key);
+}
+
+/** 侧栏当前**渲染出来**的会话 id（顺序即服务端顺序；截断时只应看到前 N 个）。 */
+function sessionIds() {
+  return els["session-list"].children.map((child) => child.dataset.sessionId);
+}
+
+function findByClass(root, className) {
+  // class 属性是空格分隔的多个类名（`badge badge-note`）⇒ 按词匹配，不做整串比较。
+  return walkFind(root, (node) => String(node.className || "").split(" ").includes(className));
 }
 
 function textOf(node) {
@@ -1070,6 +1093,147 @@ const CASES = {
     await clickOk();
     const afterOk = els["confirm-overlay"].hidden;
     return { afterCancel, afterOk };
+  },
+
+  async P() {
+    // R1：会话列表默认只渲染最近 20 条；规模提示可见、「显示全部 / 只看最近 N 条」可来回切。
+    world.sessions.default = Array.from({ length: 35 }, (_item, index) =>
+      session(`s${index + 1}`, `会话 ${index + 1}`),
+    );
+    await load();
+    const truncated = sessionIds();
+    const first = {
+      rendered: truncated.length,
+      firstId: truncated[0],
+      lastId: truncated[truncated.length - 1],
+      countText: els["session-count"].textContent,
+      moreHidden: els["session-more"].hidden,
+      moreText: els["session-more"].textContent,
+    };
+    els["session-more"].click();
+    await settle();
+    const expanded = sessionIds();
+    const expandedMoreText = els["session-more"].textContent;
+    const expandedCountText = els["session-count"].textContent;
+    els["session-more"].click();
+    await settle();
+    return {
+      ...first,
+      expandedCount: expanded.length,
+      expandedFirstId: expanded[0],
+      expandedMoreText,
+      expandedCountText,
+      collapsedAgain: sessionIds().length,
+      sessionRequests: callsMatching("/sessions").length, // 展开是本地 slice：不得多发请求
+    };
+  },
+
+  async Q() {
+    // R1 边界：当前会话落在「最近 N 条」窗口之外（N 个损坏会话排在它前面）⇒ 自动展开，
+    // 且不显示一个「点了也不会收起」的按钮（点了没反应比没有按钮更糟）。
+    world.sessions.default = [
+      ...Array.from({ length: 11 }, (_item, index) =>
+        session(`bad${index + 1}`, `损坏会话 ${index + 1}`, { unreadable: true }),
+      ),
+      session("s12", "可用会话 12"),
+    ];
+    world.details.s12 = { ...world.details.s1, session_id: "s12", title: "可用会话 12", messages: [] };
+    await load();
+    return {
+      rendered: sessionIds().length,
+      moreHidden: els["session-more"].hidden,
+      countText: els["session-count"].textContent,
+      activeVisible: sessionIds().includes("s12"),
+    };
+  },
+
+  async R() {
+    // R2：选择文件夹 ⇒ 只回填输入框（**不**自动登记）；取消与不可用各有可读反馈。
+    world.pickResult = { path: "C:/ws/picked", cancelled: false, backend: "auto" };
+    await load();
+    els["project-pick"].click();
+    await settle(4);
+    const picked = {
+      filled: els["project-path"].value,
+      status: els["project-status"].textContent,
+      registerCalls: callsMatching("POST /api/projects").length,
+      pickCalls: callsMatching("POST /api/dialogs/pick-directory").length,
+      disabled: els["project-pick"].disabled,
+    };
+
+    world.pickResult = { path: null, cancelled: true, backend: "auto" };
+    els["project-pick"].click();
+    await settle(4);
+    const cancelledStatus = els["project-status"].textContent;
+
+    world.pickError = {
+      status: 503,
+      code: "dialog_unavailable",
+      message: "no native directory dialog backend is available on this machine",
+    };
+    els["project-pick"].click();
+    await settle(4);
+    return {
+      ...picked,
+      cancelledStatus,
+      unavailableStatus: els["project-status"].textContent,
+      unavailableState: els["project-status"].dataset.state,
+    };
+  },
+
+  async S() {
+    // R4：设置面板瘦身——长横幅消失、诊断/未知键折叠且带条数、逐项只读原因是短标签、
+    // 逐项说明压成徽标（完整文案在 title 上，信息不丢）。
+    configWriteEnabled = false;
+    await load();
+    await openSettings();
+    const panelText = els["settings-panel"].textContent;
+    const iterationsRow = findConfigRow("MAX_ITERATIONS");
+    const sandboxRow = findConfigRow("SANDBOX_MODE");
+    const gatedReason = iterationsRow
+      ? iterationsRow.children.find((child) => child.className === "config-reason")
+      : null;
+    const noteChip = findByClass(iterationsRow, "badge-note");
+    return {
+      gateText: els["settings-gate"].textContent,
+      hasLongExplanation:
+        panelText.includes("网页无法自行开启") || panelText.includes("需在启动配置") || panelText.includes("重启服务"),
+      hasLongReadOnlySentence: panelText.includes("本页只读，且写入通道同样会拒绝"),
+      diagnosticsSummary: els["settings-diagnostics-summary"].textContent,
+      diagnosticsSummaryState: els["settings-diagnostics-summary"].dataset.state,
+      diagnosticsText: els["settings-diagnostics"].textContent,
+      unknownSummary: els["settings-unknown-summary"].textContent,
+      unknownSummaryState: els["settings-unknown-summary"].dataset.state,
+      unknownFirstKey: els["unknown-keys"].children.length
+        ? els["unknown-keys"].children[0].children[0].children[0].textContent
+        : null,
+      gatedReasonText: textOf(gatedReason),
+      gatedReasonTitle: gatedReason ? gatedReason.title : null,
+      readOnlyReasonText: textOf(sandboxRow ? sandboxRow.children[2] : null),
+      noteChipText: noteChip ? noteChip.textContent : null,
+      noteChipTitle: noteChip ? noteChip.title : null,
+      noteParagraphs: iterationsRow
+        ? iterationsRow.children.filter((child) => child.className === "config-notes").length
+        : null,
+    };
+  },
+
+  async T() {
+    // R5 前端侧：服务端对读取类工具做了收敛（无内容）⇒ 结果行显示「工具名 → 作用对象」；
+    // 其它工具（有内容）保持既有 `✔ 工具名：输出` 格式不变。
+    await load();
+    await submit("hi");
+    const stream = lastStream();
+    stream.emit("tool_call", { kind: "tool_call", tool_name: "file_read", tool_target: "C:/ws/note.txt" });
+    stream.emit("tool_result", { kind: "tool_result", tool_name: "file_read", tool_output: "", tool_error: false });
+    stream.emit("tool_call", { kind: "tool_call", tool_name: "shell", tool_target: "pytest -q" });
+    stream.emit("tool_result", { kind: "tool_result", tool_name: "shell", tool_output: "1 passed", tool_error: false });
+    return {
+      toolLines: lines().filter((line) => line.includes("file_read") || line.includes("shell")),
+      errorFlags: els["chat-log"].children
+        .filter((child) => child.dataset.toolTarget !== undefined)
+        .map((child) => child.dataset.error),
+    };
   },
 };
 

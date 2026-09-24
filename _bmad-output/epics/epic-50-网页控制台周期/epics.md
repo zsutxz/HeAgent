@@ -27,11 +27,11 @@ inputDocuments:
 | brief 断言 | 证据（本次核实） |
 |---|---|
 | HTTP 入口一个进程固定一个工作区 | `cli_http.py:197` 与 `cli.py:263` 各硬编码一次 `os.getcwd()`；`HttpServerConfig`（`http_server.py:138-155`）、`http-server` 的 15 个 CLI 选项（`cli_http.py:357-420`）、`HttpAgentHandler.__init__`（`cli_http.py:180-190`）**均无** workspace 字段 |
-| `.heagent/*` 全部是 cwd / home 相对 | 8 个 store 的默认值是**相对字面量**（`context/session.py:83`、`memory/skill_store.py:47`、`memory/facts.py:41`、`memory/profile.py:21`、`cron/jobs.py:36`、`engine/store.py:91`、`engine/ledger.py:122`、`engine/checkpoint.py:85`）；`EngineContainer.default()`（`engine/container.py:173-182`）**不暴露** base_dir ⇒ `run_store`/`ledger` 是唯一无注入面的状态根 |
+| `.heagent/*` 全部是 cwd / home 相对 | 8 个 store 的默认值是**相对字面量**（`context/session.py:83`、`memory/skill_store.py:47`、`memory/facts.py:41`、`memory/profile.py:21`、`cron/jobs.py:36`、`engine/store.py:91`、`engine/ledger.py:122`、`engine/checkpoint.py:85`）；`EngineContainer.default()`（`engine/container.py:173-182`）**不暴露** base_dir → `run_store`/`ledger` 是唯一无注入面的状态根 |
 | 网页运行不写会话文件 | `http_server.py` 模块内零文件写；`new_loop()` 传 `session=None`（`cli_http.py:207-214`）；`session_id` 是进程内 `uuid4`（`http_server.py:341`） |
 | （新查出）内部状态读拒集合不全 | `build_internal_state_dirs()`（`tools/path_safety.py:248-261`）硬编码 `Path.cwd()`+`Path.home()` 与 5 个子目录 `("sessions","ledger","runs","memory","skills")`；`user/USER.md`、`cron/jobs.json`、`checkpoints/`、`tmp/edit-snapshots`、`sandboxes/<run_id>`、`_he-output/goals/**` **均不在** deny 集合内，工作区围栏（只挡工作区之外）对其零保护 |
 
-配置面关键事实：`Settings` 共 **110 字段、零 alias**（`config.py:45-57`）⇒ env 键名 = 字段名大写，
+配置面关键事实：`Settings` 共 **110 字段、零 alias**（`config.py:45-57`）→ env 键名 = 字段名大写，
 纯机械映射；**不存在**来源追踪（`types.py:15-20` 的 `"settings"|"override"` 只服务快照，且仅测试消费，
 `config.py:566-576`）；逐层来源求解**已实测可行**（显式构造 1×`EnvSettingsSource` + 2×`DotEnvSettingsSource`
 自下而上 diff，输出 39 键全部落 `project_env`）；项目 `.env` 实测 **77 行 / 全 CRLF / 无 BOM / 40 KV /
@@ -107,7 +107,7 @@ NFR-12（测试与文档同步）: `.env.example` 覆盖全部 `Settings` 字段
   按 D2 可写，原 12 个未分类键按 D3 拆为「8 键开放 / 4 个 dream 参数键只读」，5 个弱校验键须补字段级守卫。
   完整决策见 `ARCHITECTURE-SPINE.md` §15。
 - 项目切换用**每请求参数 + 服务端项目路由**，不依赖服务端「当前项目」可变状态；`HttpRunService` 实例按项目池化。
-- **并发语义（D9 裁定，2026-09-24，原评审 F4）**：`HttpRunService` 按项目池化 ⇒ 在途运行上限 =
+- **并发语义（D9 裁定，2026-09-24，原评审 F4）**：`HttpRunService` 按项目池化 → 在途运行上限 =
   **项目数 × `HTTP_MAX_INFLIGHT_RUNS`**（默认最多 **32**）；多项目**并行**是有意能力，每项目内部的
   单运行 / 会话在途保护不变；**无全局并发上限**（已知缺口，见脊柱 §6）。原 brief §5
   「多项目切换不等于并行运行」已作废（brief 同处已标注）。
@@ -186,7 +186,7 @@ memory / user / cron / runs / ledger / checkpoints / sandboxes / edit-snapshots 
 - 新增 `WorkspacePaths`（Pydantic，单一来源）并新增顶层模块承载它；`path_safety.build_internal_state_dirs()`
   改为从同一来源派生（含新增子目录）。
 - `EngineContainer.default()` **已**接受 `workspace_root=`（校正 C1）；改造点是把该根接到
-  `RunStore` / `ExecutionLedger`（二者现由 `field(default_factory=…)` 无参构造 ⇒ cwd 相对）。
+  `RunStore` / `ExecutionLedger`（二者现由 `field(default_factory=…)` 无参构造 → cwd 相对）。
 - `SessionStore` / `SkillStore` / `FactStore` / `ProfileStore` / `JobStore` 的装配点全部改为传派生路径。
 - 架构契约测试新增断言：禁止新增裸 `os.getcwd()` 装配点、`WorkspacePaths` 为路径字符串唯一来源。
 - 定向验证：`pytest tests/test_workspace_paths.py tests/test_credential_guard.py tests/test_engine_p0.py -q`；
@@ -260,7 +260,7 @@ memory / user / cron / runs / ledger / checkpoints / sandboxes / edit-snapshots 
 
 **Definition of Done:**
 
-- `SessionStore` 增加可选「期望版本」冲突检测（CLI 侧不传 ⇒ 行为不变），并保持既有原子写与跨进程锁。
+- `SessionStore` 增加可选「期望版本」冲突检测（CLI 侧不传 → 行为不变），并保持既有原子写与跨进程锁。
 - 会话标题派生规则明确（首条用户消息截断），重命名的落点明确（写回会话文件的可选字段或独立索引，二选一并写测试）。
 - 删除会话与移除项目登记都受「在途运行」约束。
 - 覆盖：列表 / 新建 / 继续 / 恢复 / 冲突 / 在途删除拒绝 / 确认缺失 / 非法 id。
@@ -345,7 +345,7 @@ memory / user / cron / runs / ledger / checkpoints / sandboxes / edit-snapshots 
 
 - 新增 `.env` 行级保真读写（顶层模块）：键定位、值替换/追加、EOL 与 BOM 保真、原子替换（复用 `persist` 原语），
   不解析整份文件重写。
-- 写白名单以显式允许子集定义（fail-closed），并有测试断言「白名单 ⊆ `Settings.model_fields`」与
+- 写白名单以显式允许子集定义（fail-closed），并有测试断言「白名单是 `Settings.model_fields` 的子集」与
   「凭证/监听/沙箱/未知键均不在白名单」。
 - 备份与审计的落点、上限、保留期写入 `WorkspacePaths`；两目录进入内部状态读拒集合。
 - 写通道额外要求本机回环来源；非回环来源的写入被拒。
@@ -428,9 +428,63 @@ memory / user / cron / runs / ledger / checkpoints / sandboxes / edit-snapshots 
 
 **Requirement Traceability:** FR-7; NFR-4, NFR-9, NFR-10, NFR-12; brief §9、§6.1、§10。
 
-## Story 产物（本周期，2026-09-23 细分）
+## Story 50.8: 控制台体验优化与增量需求收口（2026-09-24 追加）
 
-7 条 story 的开发者就绪产物已建立，文件名与 `sprint-status.yaml` 的 key 一一对应：
+> **定位**：Story 50-1…50-7 已交付并收口放行（`reviews/review-epic-50-closure.md`：verdict 放行）。
+> 本 story 是**收口后的增量优化轮**，由用户实测体验口述驱动（R1–R6），并**充当 Epic 50 后续新需求的统一落点**
+> —— 新需求按 `R7`、`R8`… 追加到 story 的「需求并入区」，不为此新开 story。
+
+作为控制台使用者，我希望侧栏与设置面板更少噪音、更少手工输入，以便这个控制台在真实使用中顺手。
+
+**Acceptance Criteria（摘要，权威文本见 story 产物）：**
+
+**Given** 某项目有 35 个会话，**When** 打开侧栏，**Then** 只渲染最近 10 条并显示总数，展开可见全部，
+且已选中会话在任何截断状态下都可定位（R1）。
+
+**Given** 控制台运行在有图形后端的本机、来源为回环客户端，**When** 点击「选择文件夹…」并选定目录，
+**Then** 路径填入既有输入框，随后登记仍走既有 `POST /api/projects` 校验链；取消无副作用（R2）。
+
+**Given** ①无图形后端（`--dialog-backend none`）②已有一次选择在途 ③非回环来源，**When** 请求选择目录，
+**Then** 分别得 `dialog_unavailable` / `dialog_busy` / `loopback_required`，不拉起进程、不写文件、不改注册表（R2 边界）。
+
+**Given** 打开项目设置面板，**When** 面板加载，**Then** 不出现「服务启动时未开启配置写入（…）」长横幅、
+不逐项重复长解释，同时只读原因仍以短标签可见、凭证仍只显示掩码、诊断与未知键**折叠可见且带计数**（R4）。
+
+**Given** **项目与会话同在一列**（用户 2026-09-24 裁决，取代原「会话框尽量往右挪」），
+**When** 在宽屏（1600px）与窄屏（≤420px）两种视口查看，**Then** 两个面板在同一栏内纵向堆叠（计算样式
+`display:flex`/`column`，不出现多栏写法）、对话区**占满所在列**（用户 2026-09-24 第三轮裁决**撤销** R6 的
+48rem 限宽居中阅读列：正文实测 1288px = 该列 1320px − 内边距 16/16，输入条与之同宽；设置面板打开时
+对话列仍是三列里最宽的 812px > 508px）、会话规模与「显示全部」控件在**会话面板最上面**（列表之上），
+且窄屏降级可用（R3 + R7 + R8）。
+
+**Given** 一次成功的 `file_read` 调用，**When** 观看网页对话区，**Then** 只显示工具名与文件名 / 作用对象、
+**不出现文件内容**；失败时错误消息仍可见；会话文件与 `rollout.jsonl` 仍**逐字保留**全文，CLI / GUI 显示不变（R5）。
+
+**Definition of Done（摘要）：**
+
+- 新增**入口层**模块 `src/heagent/cli_dialogs.py`（`asyncio.create_subprocess_exec` + 固定 argv + 超时终止 + kill 回收 + 路径复验；
+  **偏离 story 原计划**：原写顶层 `os_dialogs.py`「stdlib only」，实现期改为入口层以复用 `tools.sandbox.process`
+  的凭证剥离与有界回收——顶层模块不得反向依赖 `tools/`，见 story 的 Dev Agent Record）；
+  协议加 `pick_directory()` + `DirectoryPickResponse` + 2 个错误码；路由 `POST /api/dialogs/pick-directory`（回环门 + 单在途）；
+  CLI 选项 `--dialog-backend auto|tkinter|powershell|none`（**不新增 `Settings` 字段**，故 `.env.example` 无需改动）。
+- UI：会话 **10 条**截断 + 展开（控件置于**会话面板最上面**，R8）；登记表单「选择文件夹…」；**项目与会话同栏一列**，
+  对话区**占满所在列**（R7：2026-09-24 撤销 R6 的 48rem 限宽居中阅读列；设置面板打开时对话列仍最宽）；
+  设置面板瘦身（长横幅删除、短只读标签、`<details>` 折叠）；
+  读取类工具（`file_read`）的结果在网页**只显示文件名**（仅网页侧收敛，不落盘、不影响 CLI/GUI/回放）。
+- 测试：`tests/test_cli_dialogs.py`、`tests/network/test_http_console_dialogs.py`（假后端注入）、`tests/js/app_probe.js` 与
+  `tests/test_http_web_ui.py` 探针增量；真浏览器清单 `tests/js/console_acceptance.mjs` 改行并复跑；错误码用例由
+  `HttpErrorCode` 枚举派生（32 → 34 条）→ 新增码缺 JS 文案即精确变红。
+- 文档与台账：`docs/frame.md` 4.18 增补端点与安全立场、五 新增「宿主进程拉起面」缺口；活动台账新增 2 条；
+  50-6 的 AC5 表述按 R4 收窄并加注记。
+- **口径已全部裁决（2026-09-24）**：Q1 = **项目与会话同栏一列 + 参考 ChatGPT**（三栏实现已回退）；Q2 = 默认 **10** 条 +
+  可展开；Q3 = 保留手工输入 + 明确原因（不做服务端目录浏览 API）。
+
+**Requirement Traceability:** FR-6; NFR-1, NFR-4, NFR-5, NFR-9, NFR-10, NFR-11, NFR-12;
+UX-DR1, UX-DR3, UX-DR5, UX-DR6, UX-DR7; 脊柱 §6、§9; brief §2、§9。
+
+## Story 产物（本周期，2026-09-23 细分；50-8 于 2026-09-24 追加）
+
+8 条 story 的开发者就绪产物已建立，文件名与 `sprint-status.yaml` 的 key 一一对应：
 
 | story | 文件 | 阶段 | 依赖 |
 |---|---|---|---|
@@ -441,6 +495,7 @@ memory / user / cron / runs / ledger / checkpoints / sandboxes / edit-snapshots 
 | 50-5 | `stories/50-5-config-write-channel.md` | D 配置可编辑 | 50-1..50-4 |
 | 50-6 | `stories/50-6-console-ui.md` | E 整体验收 | 50-2..50-5 |
 | 50-7 | `stories/50-7-security-acceptance-docs.md` | E 整体验收 | 50-1..50-6 |
+| 50-8 | `stories/50-8-console-ux-refinement.md` | F 增量优化轮（2026-09-24 收口后追加） | 50-1..50-7 |
 
 每份产物含：用户故事 / 范围 / 边界与约束（Always-Never）/ 任务清单 / 验收标准 / Definition of Done
 （含可复现命令与负向验证）/ 代码地图 / 风险与未决 / 需求追溯，以及**实测**的侦察证据表
@@ -449,5 +504,12 @@ memory / user / cron / runs / ledger / checkpoints / sandboxes / edit-snapshots 
 > **本文件原拆分中的 8 处不准确/冲突已在细分阶段校正**（含 1 处不存在的测试文件、1 处配置默认值互相矛盾、
 > 12 个未分类配置键、1 处白名单与排除模式冲突等），逐条证据与处置见
 > `ARCHITECTURE-SPINE.md` §14「侦察校正」。实现请以 story 产物 + 校正后的脊柱为准。
+
+> **2026-09-24 追加 Story 50.8**：Epic 50 收口放行（`reviews/review-epic-50-closure.md`）后，用户实测体验提出
+> 6 条优化（会话列表只显示最近 **10** 条 / 登记项目改用本机资源管理器选文件夹 / **项目与会话同在一列** /
+> 项目设置面板瘦身 / 读取类工具结果只显示文件名 / **界面布局参考 ChatGPT**），统一落入
+> `stories/50-8-console-ux-refinement.md`；该 story 同时作为 **Epic 50 后续新需求的落点**（R7、R8… 追加在
+> 其「需求并入区」）。本文件的 FR/NFR 编号空间与阶段映射不变，50.8 只做体验与增量面（FR-6 之下），
+> 并引入 1 个新端点与 2 个新错误码。
 
 <!-- Subsequent BMad steps append implementation evidence per story. -->

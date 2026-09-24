@@ -34,13 +34,22 @@
             <input id="project-path" name="path" type="text" maxlength="4096" placeholder="登记已有目录的绝对路径" />
             <label class="visually-hidden" for="project-name">显示名（可选）</label>
             <input id="project-name" name="name" type="text" maxlength="64" placeholder="显示名（可选）" />
-            <button id="project-register" type="submit">登记项目</button>
+            <div class="row">
+              <button id="project-register" type="submit">登记项目</button>
+              <!-- 服务端弹原生目录选择窗口（Story 50-8 R2）：本页拿不到本机路径，只能由服务端选。 -->
+              <button id="project-pick" type="button" title="在服务端所在机器上打开系统目录选择窗口">选择文件夹…</button>
+            </div>
           </form>
           <p id="project-status" class="status" data-state="idle"></p>
         </section>
 
         <section class="panel" aria-labelledby="sessions-heading">
           <h2 id="sessions-heading">会话</h2>
+          <!-- R1/R8：规模提示与展开/收起入口放在**会话面板最上面**（列表之上），不再压在列表底下。 -->
+          <div class="row">
+            <span id="session-count" class="status" data-state="idle"></span>
+            <button id="session-more" type="button" hidden>显示全部</button>
+          </div>
           <div class="row">
             <span id="active-project" class="badge badge-project">未选择项目</span>
             <button id="session-create" type="button">新建会话</button>
@@ -88,14 +97,18 @@
         <p id="settings-status" class="status" data-state="idle"></p>
         <p id="settings-gate" class="notice notice-warn" hidden></p>
         <div id="settings-result" class="result panel" hidden></div>
-        <div id="settings-diagnostics" class="diagnostics"></div>
+        <!-- R4：诊断与未知键折进默认收起的 `<details>`（告警条数写在 summary 上，收起也不丢信息）。 -->
+        <details id="settings-diagnostics-wrap" class="settings-details">
+          <summary id="settings-diagnostics-summary">项目 .env 诊断</summary>
+          <div id="settings-diagnostics" class="diagnostics"></div>
+        </details>
         <h3 class="section-title">有效配置</h3>
         <div id="settings-groups" class="groups"></div>
-        <div class="settings-unknown panel">
-          <h3 class="section-title">未知键（不生效）</h3>
+        <details id="settings-unknown-wrap" class="settings-details">
+          <summary id="settings-unknown-summary">未知键（不生效）</summary>
           <ul id="unknown-keys" class="list"></ul>
           <p id="unknown-empty" class="empty" hidden>没有发现未知键或拼错的键。</p>
-        </div>
+        </details>
         <div class="settings-actions">
           <span id="settings-pending" class="status" data-state="idle">没有未保存的改动</span>
           <button id="settings-save" type="button" disabled>保存更改</button>

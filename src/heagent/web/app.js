@@ -69,6 +69,8 @@
     session_unreadable: "会话文件无法解析（这不是空会话）：请备份后删除它，不要继续往它上面写。",
     confirm_required: "服务端要求显式确认：本次操作没有执行。",
     loopback_required: "该操作只允许来自本机回环地址。",
+    dialog_unavailable: "本机没有可用的图形目录选择器（或服务启动时禁用了它）：请手工填写目录的绝对路径。",
+    dialog_busy: "已经有一个目录选择窗口开着：请先完成或关掉它，再点一次。",
     write_disabled: "服务启动时未开启配置写入（HTTP_CONSOLE_WRITE_ENABLED）：本次没有改动任何文件。",
     field_not_writable: "该键当前不可写（不在白名单，或被系统环境变量提供）：本次没有改动任何文件。",
     invalid_value: "值不合法：本次没有改动任何文件。",
@@ -92,7 +94,11 @@
     "invalid_project_path",
     "session_conflict",
     "project_limit_reached",
+    "dialog_unavailable",
   ]);
+
+  // 侧栏会话列表默认只渲染最近这么多条（服务端已按时间降序给出；展开是本地 slice，不再发请求）。
+  const SESSION_VISIBLE_DEFAULT = 10;
 
   const el = {
     service: document.getElementById("service-status"),
@@ -106,10 +112,13 @@
     projectPath: document.getElementById("project-path"),
     projectName: document.getElementById("project-name"),
     projectRegister: document.getElementById("project-register"),
+    projectPick: document.getElementById("project-pick"),
     projectStatus: document.getElementById("project-status"),
     activeProject: document.getElementById("active-project"),
     sessionList: document.getElementById("session-list"),
     sessionEmpty: document.getElementById("session-empty"),
+    sessionCount: document.getElementById("session-count"),
+    sessionMore: document.getElementById("session-more"),
     sessionCreate: document.getElementById("session-create"),
     sessionStatus: document.getElementById("session-status"),
     chatTitle: document.getElementById("chat-title"),
@@ -128,9 +137,11 @@
     settingsGate: document.getElementById("settings-gate"),
     settingsResult: document.getElementById("settings-result"),
     settingsDiagnostics: document.getElementById("settings-diagnostics"),
+    settingsDiagnosticsSummary: document.getElementById("settings-diagnostics-summary"),
     settingsGroups: document.getElementById("settings-groups"),
     unknownList: document.getElementById("unknown-keys"),
     unknownEmpty: document.getElementById("unknown-empty"),
+    unknownSummary: document.getElementById("settings-unknown-summary"),
     settingsPending: document.getElementById("settings-pending"),
     settingsSave: document.getElementById("settings-save"),
     settingsRefresh: document.getElementById("settings-refresh"),
@@ -150,6 +161,10 @@
     sessions: [],
     activeSessionId: null,
     sessionUnreadable: false,
+    /** 会话列表是否展开显示全部（默认只渲染最近 SESSION_VISIBLE_DEFAULT 条）。 */
+    sessionShowAll: false,
+    /** 原生目录选择是否在途（按钮禁用用；原生窗口不能叠着开）。 */
+    picking: false,
     runSessionId: null,
     activeRunId: null,
     runState: "idle",
@@ -381,18 +396,21 @@
   }
 
   function showToolCall(payload) {
-    const label = payload.tool_target
-      ? `${asText(payload.tool_name)} → ${asText(payload.tool_target)}`
-      : asText(payload.tool_name);
+    const target = asText(payload.tool_target);
+    const label = target ? `${asText(payload.tool_name)} → ${target}` : asText(payload.tool_name);
     // 同一工具名会被连续/并发调用多次（工具结果事件里没有 call id），所以按「先到先配」排队：
     // 用「一名一条队列」而不是「一名一条」，否则后一次调用会覆盖前一次的条目，
     // 结果被写到错误的行上、前一行永远停在「运行中」。
     const key = asText(payload.tool_name);
+    const node = appendEntry("tool", `▶ ${label}`);
+    // 结果事件不带作用对象，而 Story 50-8 R5 要求「不显示读取内容」时仍能看到**读了哪个文件**，
+    // 所以把作用对象留在条目节点上，结果行复用它（不新增第二处箭头拼接）。
+    node.dataset.toolTarget = target;
     const queue = pendingToolEntries.get(key);
     if (queue) {
-      queue.push(appendEntry("tool", `▶ ${label}`));
+      queue.push(node);
     } else {
-      pendingToolEntries.set(key, [appendEntry("tool", `▶ ${label}`)]);
+      pendingToolEntries.set(key, [node]);
     }
   }
 
@@ -403,10 +421,15 @@
     if (queue && queue.length === 0) pendingToolEntries.delete(key);
     const isError = Boolean(payload.tool_error);
     const output = asText(payload.tool_output);
-    const line = `${isError ? "✘" : "✔"} ${key}${output ? `：${output}` : ""}`;
-    const target = entry || appendEntry("tool", line);
-    target.dataset.error = isError ? "true" : "false";
-    if (entry) target.textContent = line;
+    const target = entry ? asText(entry.dataset.toolTarget) : "";
+    // 无内容 = 服务端对读取类工具做了收敛（R5）：这时改显示「工具名 → 作用对象」，避免退化成空行；
+    // 有内容时维持既有格式（`✔ 工具名：输出`），其它工具因此零变化。
+    const line = output
+      ? `${isError ? "✘" : "✔"} ${key}：${output}`
+      : `${isError ? "✘" : "✔"} ${key}${target ? ` → ${target}` : ""}`;
+    const node = entry || appendEntry("tool", line);
+    node.dataset.error = isError ? "true" : "false";
+    if (entry) node.textContent = line;
     el.log.scrollTop = el.log.scrollHeight;
   }
 
@@ -624,6 +647,7 @@
     state.activeSessionId = null;
     state.sessionUnreadable = false;
     state.sessions = [];
+    state.sessionShowAll = false; // 切项目回到「只显示最近 N 条」的默认（截断是每项目的视图状态）
     storageSet(SELECTION_KEY, projectId);
     renderProjects();
     renderSessions();
@@ -684,6 +708,46 @@
     await loadProjects();
     setStatus(el.projectStatus, `已登记「${asText(entry.name)}」`, "done");
     await selectProject(entry.id);
+  }
+
+  /**
+   * 「选择文件夹…」：请**服务端所在机器**弹出原生目录选择窗口（Story 50-8 R2）。
+   *
+   * 页面拿不到本机路径（浏览器没有这个能力），所以这一步只能由服务端做；选中后填入既有路径输入框，
+   * 之后仍走**同一套** `POST /api/projects` 校验（选择器不是权限）。取消/超时按「没选」处理，
+   * 后端不可用时把原因说清楚（本机无图形界面 / 服务启动时用了 `--dialog-backend none`）。
+   */
+  async function pickProjectDirectory() {
+    if (state.picking) return;
+    state.picking = true;
+    el.projectPick.disabled = true;
+    el.projectRegister.disabled = true;
+    setStatus(el.projectStatus, "已在服务端打开目录选择窗口…", "busy");
+    let response;
+    try {
+      response = await fetch("/api/dialogs/pick-directory", { method: "POST" });
+    } catch (error) {
+      state.picking = false;
+      el.projectPick.disabled = false;
+      el.projectRegister.disabled = false;
+      setStatus(el.projectStatus, "无法连接到服务", "failed");
+      return;
+    }
+    state.picking = false;
+    el.projectPick.disabled = false;
+    el.projectRegister.disabled = false;
+    if (!response.ok) {
+      setStatus(el.projectStatus, describeError(await readError(response)), "failed");
+      return;
+    }
+    const payload = await response.json();
+    const path = asText(payload.path);
+    if (!path) {
+      setStatus(el.projectStatus, "没有选择目录（已取消或等待超时）", "idle");
+      return;
+    }
+    el.projectPath.value = path;
+    setStatus(el.projectStatus, `已选中：${path}（确认无误后点「登记项目」）`, "done");
   }
 
   async function renameProject(projectId) {
@@ -760,7 +824,14 @@
   function renderSessions() {
     clearChildren(el.sessionList);
     el.sessionEmpty.hidden = state.sessions.length > 0;
-    for (const session of state.sessions) {
+    const total = state.sessions.length;
+    const activeIndex = state.sessions.findIndex((item) => item.session_id === state.activeSessionId);
+    // 截断规则（R1）：默认只渲染最近 N 条；**当前选中的会话永远可见**——它落在窗口之外时自动展开
+    // 并把展开按钮藏起来（按钮点了也不会收起，留着只会误导），展开状态因此不会出现「点了没反应」。
+    const overflows = total > SESSION_VISIBLE_DEFAULT;
+    const autoExpanded = activeIndex >= SESSION_VISIBLE_DEFAULT;
+    const visible = state.sessionShowAll || autoExpanded ? state.sessions : state.sessions.slice(0, SESSION_VISIBLE_DEFAULT);
+    for (const session of visible) {
       const item = makeEl("li", "list-item");
       item.dataset.sessionId = session.session_id;
       item.dataset.unreadable = session.unreadable ? "true" : "false";
@@ -794,6 +865,25 @@
       item.appendChild(actions);
       el.sessionList.appendChild(item);
     }
+    renderSessionCount(total, overflows, autoExpanded);
+  }
+
+  /** 列表规模提示 + 展开/收起按钮（R1：默认只显示最近 20 条，超出部分可展开）。 */
+  function renderSessionCount(total, overflows, autoExpanded) {
+    const expanded = state.sessionShowAll || autoExpanded;
+    if (!overflows) {
+      el.sessionCount.textContent = total ? `共 ${total} 个会话` : "";
+      el.sessionCount.dataset.state = "idle";
+    } else {
+      el.sessionCount.textContent = expanded
+        ? autoExpanded && !state.sessionShowAll
+          ? `共 ${total} 个会话（当前会话不在最近 ${SESSION_VISIBLE_DEFAULT} 条内，已展开）`
+          : `共 ${total} 个会话（已展开）`
+        : `共 ${total} 个会话 · 只显示最近 ${SESSION_VISIBLE_DEFAULT} 条`;
+      el.sessionCount.dataset.state = "idle";
+    }
+    el.sessionMore.hidden = !overflows || autoExpanded;
+    el.sessionMore.textContent = state.sessionShowAll ? `只看最近 ${SESSION_VISIBLE_DEFAULT} 条` : `显示全部（${total}）`;
   }
 
   async function loadSessions(projectId) {
@@ -1130,8 +1220,10 @@
       el.settingsGate.hidden = true;
       el.settingsGate.textContent = "";
     } else {
+      // R4：闸门关闭只留**一行短状态**。长句（「…网页无法自行开启，需在启动配置里开启后重启服务」）
+      // 已删除——同一事实在每一项上还会以短标签出现，重复三遍只是噪音，不是信息。
       el.settingsGate.hidden = false;
-      el.settingsGate.textContent = asText(labels.write_channel_disabled) || "服务启动时未开启配置写入：所有可写项在本页只读，且本页不提供开启入口。";
+      el.settingsGate.textContent = asText(labels.write_channel_short) || "写入未开启：可写项在本页只读";
     }
     renderDiagnostics(config);
     clearChildren(el.settingsGroups);
@@ -1175,19 +1267,28 @@
       const hint = guardHint(item.guards);
       if (hint) row.appendChild(makeEl("p", "config-guard", hint));
     } else if (item.writable) {
-      // 白名单内、但写入闸门关着：**显示为不可编辑并说明原因**，且本页不提供任何开启入口（AC5）。
-      const reason = makeEl("p", "config-reason", asText((state.config.labels || {}).write_channel_disabled) || "服务启动时未开启配置写入");
+      // 白名单内、但写入闸门关着：**仍然显示为不可编辑并给出原因**（AC5 / UX-DR5 不变），
+      // 只是原因从「整句解释」收窄成一句短标签，完整解释挂在 `title` 上（R4：降噪不丢信息）。
+      const reason = makeEl("p", "config-reason", "只读：未开启配置写入");
+      reason.title = asText((state.config.labels || {}).write_channel_disabled) || "";
       row.appendChild(reason);
       const editor = buildEditor(item, false);
       editor.disabled = true;
       row.appendChild(editor);
     } else {
-      row.appendChild(
-        makeEl("p", "config-reason", `受限：${labelFor(item.read_only_reason)}（本页只读，且写入通道同样会拒绝）`),
-      );
+      // 只读原因同样只留一句（含「为什么」的短标签），解释性长句移进 title。
+      const reason = makeEl("p", "config-reason", `只读：${labelFor(item.read_only_reason)}`);
+      reason.title = "本页只读，且写入通道同样会拒绝该键";
+      row.appendChild(reason);
     }
 
-    for (const note of item.notes || []) row.appendChild(makeEl("p", "config-notes", labelFor(note)));
+    // 逐项说明（notes）压缩成短徽标 + title：信息还在（悬停可见），但不再每个键都铺一段长文案。
+    for (const note of item.notes || []) {
+      const text = labelFor(note);
+      const chip = makeEl("span", "badge badge-note", text);
+      chip.title = text;
+      row.appendChild(chip);
+    }
     return row;
   }
 
@@ -1309,15 +1410,24 @@
     }
     if (asText(envFile.fingerprint)) facts.push(`指纹 ${asText(envFile.fingerprint).slice(0, 12)}…`);
     el.settingsDiagnostics.appendChild(makeEl("p", null, facts.join(" · ")));
-    if (envFile.has_bom) el.settingsDiagnostics.appendChild(makeEl("p", "diag-warn", "文件带 UTF-8 BOM：按容差读取（盘上字节未改）"));
+    // R4：诊断块折进「默认收起的 `<details>`」，但**收起时也要能看出有几条告警**——否则
+    // 「以为生效其实没生效」（重复键 / 空值键 / BOM / 无效 JSON）就被折叠藏掉了。
+    const warnings = [];
+    if (envFile.exists && !envFile.readable) warnings.push("项目 .env 不可读");
+    if (envFile.has_bom) warnings.push("文件带 UTF-8 BOM：按容差读取（盘上字节未改）");
     if (Array.isArray(envFile.duplicate_keys) && envFile.duplicate_keys.length) {
-      el.settingsDiagnostics.appendChild(makeEl("p", "diag-warn", `重复键（后者生效）：${envFile.duplicate_keys.join("、")}`));
+      warnings.push(`重复键（后者生效）：${envFile.duplicate_keys.join("、")}`);
     }
     if (Array.isArray(envFile.blank_keys) && envFile.blank_keys.length) {
-      el.settingsDiagnostics.appendChild(makeEl("p", "diag-warn", `空值键（显式置空，不生效）：${envFile.blank_keys.join("、")}`));
+      warnings.push(`空值键（显式置空，不生效）：${envFile.blank_keys.join("、")}`);
     }
-    for (const note of config.notes || []) {
-      el.settingsDiagnostics.appendChild(makeEl("p", "diag-warn", labelFor(note, config.labels)));
+    for (const note of config.notes || []) warnings.push(labelFor(note, config.labels));
+    for (const text of warnings) el.settingsDiagnostics.appendChild(makeEl("p", "diag-warn", text));
+    if (el.settingsDiagnosticsSummary) {
+      el.settingsDiagnosticsSummary.textContent = warnings.length
+        ? `项目 .env 诊断（${warnings.length} 条需要注意）`
+        : "项目 .env 诊断";
+      el.settingsDiagnosticsSummary.dataset.state = warnings.length ? "failed" : "idle";
     }
   }
 
@@ -1325,6 +1435,10 @@
     clearChildren(el.unknownList);
     const keys = config.unknown_keys || [];
     el.unknownEmpty.hidden = keys.length > 0;
+    if (el.unknownSummary) {
+      el.unknownSummary.textContent = keys.length ? `未知键（${keys.length} 条，不生效）` : "未知键（不生效）";
+      el.unknownSummary.dataset.state = keys.length ? "failed" : "idle";
+    }
     for (const entry of keys) {
       const item = makeEl("li", "list-item");
       item.dataset.unknownKey = asText(entry.key);
@@ -1535,7 +1649,12 @@
   el.settingsRefresh.addEventListener("click", () => void loadConfig());
   el.settingsSave.addEventListener("click", () => void saveConfig());
   el.sessionCreate.addEventListener("click", () => void createSession());
+  el.sessionMore.addEventListener("click", () => {
+    state.sessionShowAll = !state.sessionShowAll;
+    renderSessions();
+  });
   el.projectForm.addEventListener("submit", (event) => void registerProject(event));
+  el.projectPick.addEventListener("click", () => void pickProjectDirectory());
 
   setServiceState("connecting");
   setRunState("idle");

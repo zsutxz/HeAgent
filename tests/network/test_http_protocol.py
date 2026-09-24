@@ -57,6 +57,8 @@ class TestErrorCodes:
             "session_unreadable",
             "confirm_required",
             "loopback_required",
+            "dialog_unavailable",
+            "dialog_busy",
             "write_disabled",
             "field_not_writable",
             "invalid_value",

@@ -38,6 +38,11 @@ _ASSETS = {"index.html": _HTML, "app.js": _JS, "styles.css": _CSS}
 _REMOTE_PATTERNS = ("http://", "https://", "//cdn", "cdn.", "unpkg", "jsdelivr", "googleapis")
 
 
+def _css_without_comments() -> str:
+    """去掉 CSS 注释后的样式表：注释里提到某个旧变量名，不该让「口径护栏」变红。"""
+    return re.sub(r"/\*.*?\*/", "", _CSS, flags=re.S)
+
+
 class TestPageStructure:
     @pytest.mark.parametrize(
         "element_id",
@@ -95,14 +100,19 @@ class TestConsoleLayout:
             "sidebar-toggle",  # 窄屏降级时的侧栏开合
             "project-list",  # 项目列表
             "project-form",  # 登记入口
+            "project-pick",  # 服务端原生目录选择（Story 50-8 R2）
             "session-list",  # 会话列表
             "session-create",  # 新建会话
+            "session-count",  # 会话规模提示（Story 50-8 R1）
+            "session-more",  # 展开/收起（Story 50-8 R1）
             "settings-button",  # 设置入口
             "settings-panel",  # 独立设置面板
             "settings-groups",  # 分组条目容器
             "settings-save",  # 保存
             "settings-gate",  # 写入闸门说明
             "settings-result",  # 保存结果反馈
+            "settings-diagnostics-summary",  # 诊断折叠标题（Story 50-8 R4）
+            "settings-unknown-summary",  # 未知键折叠标题（Story 50-8 R4）
             "unknown-keys",  # 未知键单列
             "confirm-overlay",  # 二次确认
             "confirm-text",
@@ -135,6 +145,51 @@ class TestConsoleLayout:
         # 窄屏规则必须真的把网格收成一列（否则「降级」只是句空话）。
         narrow = _CSS.split("@media (max-width: 1000px)", 1)[1]
         assert "grid-template-columns: minmax(0, 1fr)" in narrow
+
+    def test_sidebar_keeps_projects_and_sessions_in_one_column(self) -> None:
+        """R6：**项目与会话同在一列**（参考 ChatGPT 的左栏）。
+
+        这条是**口径护栏**：Story 50-8 第一轮曾按「会话独立成中栏」实现（`.sidebar{display:contents}`
+        让两个面板直接进父网格），用户裁定改回一列 ⇒ 用断言把方向钉住，避免下一轮又漂回去。
+        """
+        sidebar = _CSS.split(".sidebar {", 1)[1].split("}", 1)[0]
+        assert "display: flex" in sidebar
+        assert "flex-direction: column" in sidebar
+        assert "display: contents" not in _CSS, "一列是明确口径：多栏写法不得回来"
+        # 两个面板都在同一个 `<aside id="sidebar">` 里（结构层面的「同一列」）。
+        inside = _HTML.split('<aside id="sidebar"', 1)[1].split("</aside>", 1)[0]
+        assert 'id="project-list"' in inside and 'id="session-list"' in inside
+
+    def test_chat_content_fills_the_column(self) -> None:
+        """R7：对话区**占满所在列**，不再限宽居中。
+
+        这条是**口径护栏**：R6 曾把正文做成 `--chat-content-width: 48rem` 限宽居中的阅读列，
+        用户随后裁决「显示字的中间列可以宽、占满」⇒ 用断言把方向钉住（限宽变量不得回来）。
+        """
+        assert "--chat-content-width" not in _css_without_comments(), "限宽阅读列是明确撤销的口径：不得回来"
+        rules = _css_without_comments()
+        reading = rules.split(".chat-log > * {", 1)[1].split("}", 1)[0]
+        assert "width: 100%" in reading
+        assert "max-width" not in reading
+        composer = rules.split(".composer > * {", 1)[1].split("}", 1)[0]
+        assert "width: 100%" in composer
+        assert "max-width" not in composer
+
+    def test_settings_open_keeps_the_chat_column_the_widest(self) -> None:
+        """R7：设置面板打开时**对话列仍是三列里最宽的一列**（不再被设置面板挤窄）。"""
+        rules = _css_without_comments()
+        rule = rules.split('.console[data-settings-open="true"] {', 1)[1].split("}", 1)[0]
+        tracks = rule.split("grid-template-columns:", 1)[1].split(";", 1)[0]
+        fractions = [float(value) for value in re.findall(r"([\d.]+)fr", tracks)]
+        assert len(fractions) == 2, tracks
+        assert fractions[0] > fractions[1], f"对话列必须比设置面板宽：{tracks.strip()}"
+
+    def test_session_scale_controls_sit_at_the_top_of_the_sessions_panel(self) -> None:
+        """R8：会话规模 / 展开控件在**会话面板最上面**（列表之上），不再压在列表底下。"""
+        panel = _HTML.split('aria-labelledby="sessions-heading"', 1)[1].split("</section>", 1)[0]
+        assert panel.index('id="sessions-heading"') < panel.index('id="session-count"')
+        assert panel.index('id="session-count"') < panel.index('id="session-more"')
+        assert panel.index('id="session-more"') < panel.index('id="session-list"'), "控件必须在会话列表之前"
 
     def test_no_third_party_resources_in_any_asset(self) -> None:
         """三份资源都不得出现任何远程 URL（严格 CSP 下也加载不了；出现即是坏味道）。"""
@@ -596,6 +651,84 @@ class TestConsoleProjectRemoval:
         result = _run_probe("K", tmp_path)
 
         assert result["defaultHasRemove"] is False
+
+
+@pytest.mark.skipif(_NODE is None, reason="需要 node 才能执行前端行为回归（CI 镜像自带 node）")
+class TestConsoleRefinement:
+    """Story 50-8 的体验收敛：会话截断（R1）、原生目录选择（R2）、面板瘦身（R4）、读取结果收敛（R5）。"""
+
+    def test_session_list_is_truncated_to_ten_but_expandable(self, tmp_path: Path) -> None:
+        """R1：默认只渲染最近 **10** 条；规模提示可见、展开/收起可来回切、且**不再发请求**。"""
+        result = _run_probe("P", tmp_path)
+
+        assert result["rendered"] == 10
+        assert (result["firstId"], result["lastId"]) == ("s1", "s10"), "截断必须取**最近**的一批"
+        assert "共 35 个会话" in result["countText"]
+        assert "只显示最近 10 条" in result["countText"]
+        assert result["moreHidden"] is False
+        assert "显示全部（35）" in result["moreText"]
+        assert result["expandedCount"] == 35
+        assert result["expandedFirstId"] == "s1", "展开后顺序不变（不重排，服务端顺序即事实）"
+        assert "只看最近 10 条" in result["expandedMoreText"]
+        assert "已展开" in result["expandedCountText"]
+        assert result["collapsedAgain"] == 10
+        assert result["sessionRequests"] == 2, "展开/收起是本地 slice，不得再请求会话列表"
+
+    def test_active_session_outside_the_window_is_always_visible(self, tmp_path: Path) -> None:
+        """R1 边界：当前会话排在「最近 10 条」之外时自动展开（并隐藏一个点了不会收起的按钮）。"""
+        result = _run_probe("Q", tmp_path)
+
+        assert result["rendered"] == 12
+        assert result["activeVisible"] is True
+        assert result["moreHidden"] is True, "自动展开时不该留一个点了没反应的按钮"
+        assert "已展开" in result["countText"]
+        assert "不在最近 10 条内" in result["countText"]
+
+    def test_pick_directory_fills_the_path_without_registering(self, tmp_path: Path) -> None:
+        """R2：选择器只回填输入框（**不**自动登记）；取消与不可用各有可读反馈。"""
+        result = _run_probe("R", tmp_path)
+
+        assert result["filled"] == "C:/ws/picked"
+        assert result["pickCalls"] == 1
+        assert result["registerCalls"] == 0, "选择器不是权限：登记仍须用户点「登记项目」走同一套校验"
+        assert "已选中" in result["status"]
+        assert result["disabled"] is False, "请求结束后按钮必须恢复可用"
+        assert "没有选择目录" in result["cancelledStatus"]
+        assert "目录选择器" in result["unavailableStatus"]
+        assert "no native directory dialog backend" in result["unavailableStatus"], "不可用要给服务端原因"
+        assert result["unavailableState"] == "failed"
+
+    def test_settings_panel_is_compact_without_losing_reasons(self, tmp_path: Path) -> None:
+        """R4：长横幅与逐项长句消失；只读原因、诊断条数、逐项说明（徽标）一个都不少。"""
+        result = _run_probe("S", tmp_path)
+
+        assert result["hasLongExplanation"] is False, "长解释不得再出现在面板文本里"
+        assert result["hasLongReadOnlySentence"] is False
+        assert result["gateText"] == "未开启配置写入：可写项在本页只读", "面板级只允许一行**短**状态（R4）"
+        assert "未开启配置写入" in result["gateText"], "但「为什么只读」必须仍然可见（UX-DR5）"
+        assert result["gatedReasonText"] == "只读：未开启配置写入"
+        assert "HTTP_CONSOLE_WRITE_ENABLED" in result["gatedReasonTitle"], "完整解释移到 title（信息仍可达）"
+        assert result["readOnlyReasonText"].startswith("只读：")
+        assert result["diagnosticsSummaryState"] == "failed"
+        assert "2 条需要注意" in result["diagnosticsSummary"], "折叠标题要显示告警条数"
+        assert "重复键" in result["diagnosticsText"], "折叠不等于丢信息"
+        assert result["unknownSummary"] == "未知键（1 条，不生效）"
+        assert result["unknownFirstKey"] == "TOTALLY_UNKNOWN"
+        assert result["noteParagraphs"] == 0, "逐项说明不再铺成长段文案"
+        assert result["noteChipText"], "但说明仍在（短徽标 + title）"
+
+    def test_diagnostics_and_unknown_keys_are_collapsed_by_default(self) -> None:
+        """折叠是 HTML 的静态事实（没有 `open` 属性 = 默认收起）——直接看页面源码。"""
+        assert not re.search(r'id="settings-diagnostics-wrap"[^>]*\bopen\b', _HTML), "诊断块默认应收起"
+        assert not re.search(r'id="settings-unknown-wrap"[^>]*\bopen\b', _HTML), "未知键块默认应收起"
+
+    def test_read_tool_result_shows_only_the_target(self, tmp_path: Path) -> None:
+        """R5 前端侧：读取类工具没有内容时显示「工具名 → 作用对象」；其它工具格式不变。"""
+        result = _run_probe("T", tmp_path)
+
+        assert result["toolLines"][0] == "✔ file_read → C:/ws/note.txt"
+        assert result["toolLines"][1] == "✔ shell：1 passed", "其它工具的既有格式必须不变"
+        assert result["errorFlags"] == ["false", "false"]
 
 
 @pytest.mark.skipif(_NODE is None, reason="需要 node 才能执行前端行为回归（CI 镜像自带 node）")

@@ -5,7 +5,7 @@
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
 > ② **闭合归档**——正文分两处落（2026-09-24 起）：**勘察类**（source_spec 为勘察批次、无归属 epic）留在本文件；**有归属 epic 的**按规则回填到各周期 `deferred-work.md`（`Z-D10` / `Z-D11` → [`epic-48-TCP网络接口周期/deferred-work.md`](../epics/epic-48-TCP网络接口周期/deferred-work.md)，`Z-D13`~`Z-D15` → [`epic-50-网页控制台周期/deferred-work.md`](../epics/epic-50-网页控制台周期/deferred-work.md)）。本文件仍登记**全部 `Z-Dn` 的 ID 索引**（见下状态总览），但不保留已回填条目的正文副本。
 
-## 活动（未闭合）条目——14 条
+## 活动（未闭合）条目——16 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -17,6 +17,7 @@
 > - 2026-09-24：Story 50-5 实现新增 2 条（写通道可把无上界的「资源旋钮」键设成极端值 / 审计文件无保留期上限），同日闭合 → Z-D13 / Z-D14；Story 50-6 实现新增 2 条（浏览器级 UI 验收不在 CI 且不含真实 LLM 运行 / 「高影响键的差异化确认」缺后端风险标记）；Story 50-6 收口后由用户实测发现并当日修复 1 条（首页加载即弹出关不掉的确认遮罩，`.overlay{display:flex}` 压过 `hidden` 属性）→ Z-D15；Epic 50 收口评审（第二轮）新增 1 条（写入通道与保真写的四类低危残余；报告 `epics/epic-50-网页控制台周期/reviews/review-epic-50-closure.md`）
 > - 2026-09-24：**整理**——删除 5 条已闭合条目在本区的副本（Z-D10 / Z-D11 / Z-D12 / Z-D13 / Z-D14），正文并入下方同名小节（**Z-D12 小节此前缺失**，本次由副本改写补建）
 > - 2026-09-24：**回填**——`Z-D10` / `Z-D11`（Epic 48）与 `Z-D13` / `Z-D14` / `Z-D15`（Epic 50）的**正文**按「归属 epic」移入各自周期 `deferred-work.md`（本文件只留 ID 索引，不再留副本）
+> - 2026-09-24：**Story 50-8（Epic 50 收口后的体验优化轮）实现新增 2 条**——①「网页请求可拉起宿主 GUI 进程」的新暴露面（弹窗，有意引入，含不可用环境与「回环 ≠ 可信」口径）；②真实原生窗口的验收不可自动化 + 网页侧读取结果收敛所依赖的 `Error:` 前缀判据是展示层启发式。报告与实测见 `epics/epic-50-网页控制台周期/reviews/acceptance-50-8-refinement.md`
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
@@ -85,6 +86,16 @@
   summary: **四类 low 级残余**（都在写入通道 / 保真写面上，均不阻塞收口）：① **`.env.lock` 落在用户项目根** —— `persist.atomic_update_bytes` 的锁文件与目标**同目录**，故写项目 `.env` 会在**用户的项目根**留下 0 字节 `.env.lock`（评审探针实测：`['.env','.env.lock','.heagent']`）；HeAgent 自己的仓库有 `.gitignore` 条目，**用户的项目没有**。② **回滚失败时的文案不实** —— 回读不符时无条件回 `the project .env was rolled back to its previous content`，而回滚本身失败只 `logger.error`（`persist._restore_bytes`）⇒ 对直接调 API 的客户端是假话（UI 侧文案诚实：「服务端已尝试恢复备份」，且该码不在 JS 的 `DETAIL_CODES` 里、不显示服务端 message）。③ **写锁内 I/O 时长** —— `validate_candidate`（构造 `Settings` ⇒ 读候选临时文件 + 全局 `.env` + 环境）与备份目录扫描都在**跨进程锁内**完成 ⇒ 并发热点下写方可能得到 `config_write_failed`（锁超时 5s）而非 `config_conflict`（**fail-closed：无损坏、无部分写入**）。④ **无末行换行文件的追加约定** —— 追加新键沿用「文件无末行换行」这一属性（实测 `MAX_ITERATIONS=5\nSHELL_TIMEOUT=60`），是有意保真，但部分工具约定「文件必须以换行结尾」⇒ 记入备查。
   evidence: `src/heagent/persist.py::atomic_update_bytes`（`lock_path = path.with_name(path.name + ".lock")`）；`src/heagent/config_write.py::_verify` 与 `_apply_locked`（候选构造 / 备份回收在 `atomic_update_bytes` 的回调内）；`src/heagent/envfile.py::replace_or_append`（末行换行跟随文件）；探针 `.heagent/tmp/review50_probe.py` 的 B / E / K 三例实测输出；评审报告镜头一 #1/#2/#3 与镜头二 ⑤。
   Progress（2026-09-24 登记，**未修**，冻结边界）: ① 锁文件**刻意不删**（删除会引入「B 等旧 inode、C 拿新文件加锁成功」的竞态，见 `persist` 模块注释），挪到状态目录会改变锁语义 ⇒ 修法只能是「写入方提示 / 文档说明」，**不得**改锁的落点语义；② 精确文案需把回滚结果从 `persist` 回传（新增返回值或异常类型），属改造；③ 收窄需「锁外构造候选 + 锁内复检指纹」的乐观重试，属流水线结构调整。三条都超出「评审期最小修复」范围，故如实登记而非草率改动。
+
+- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R2 原生目录选择，2026-09-24 实现）
+  summary: **网页请求可拉起宿主 GUI 进程（有意引入的新暴露面）**：`POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹出一个原生目录选择窗口（子进程 `tkinter` / `powershell`）。它带来的是便利而非权限（返回值仍要过 `POST /api/projects` 全套校验），但暴露面是实打实的：**任何能连上该端口的本机进程都能让服务机弹窗**（骚扰面），而「回环 peer」不等于可信（用户自己浏览器里的任意页面 peer 也是 `127.0.0.1`，见 frame 五同名条目）。另有三种**不可用**环境：无图形后端（容器 / 缺 `_tkinter` 的 Linux）、服务在远程机器而浏览器在别处（窗口弹在服务机，对调用者无用）、`--dialog-backend none` 显式禁用。触发条件：把服务绑到可被其它本机进程访问的端口 / 在无 GUI 环境部署；严重度：低-中（不崩、不改数据，最坏是弹窗骚扰与一次失败的登记尝试）；冻结边界：**不得**把它表述为安全边界，**不得**为「更安全」而改成服务端目录浏览 API（那会把宿主目录结构开放给回环客户端），也**不得**让它绕过 `POST /api/projects` 的任何校验（选择器不是权限来源）。
+  evidence: `src/heagent/cli_dialogs.py`（后端顺序 `resolve_backend` / 冻结脚本 `_TK_SCRIPT`+`_POWERSHELL_SCRIPT` / `DirectoryPicker` 单在途 + 300s 超时 + kill + 有界回收 / 只认 ASCII 标记行 + `is_dir()` 复验）；`src/heagent/network/http_server.py::_build_dialog_endpoint`（`_loopback_error` + POST-only + 新码 `dialog_unavailable` 503 / `dialog_busy` 409）；`src/heagent/cli_http.py::HttpProjectConsole.pick_directory`（入口层持有单在途）。实测：真机探针 `.heagent/tmp/probe_50_8_dialog_real.py`（`auto → tkinter`，2s 超时后 kill + 归还名额 + WARNING）；浏览器清单 `acceptance-50-8-refinement.md` 的 A5b / B2 两行（不可用路径端到端）。
+  Progress（2026-09-24 登记，**未修**，冻结边界）：本暴露面是**有意引入**并已在 `docs/frame.md` 4.18（安全声明段）与五（已知缺口）双处如实登记；三条防线（回环门 / 单在途 / 冻结 argv + 超时）都在测试与浏览器清单里有可见判据，负向验证见 `.heagent/tmp/mutate_50_8.py` 的 M1–M4。**未做**（如实记录）：没有「谁能让服务机弹窗」的更强授权（如每会话令牌），也不打算做——那属于「把非安全边界做厚」的范畴，真正的边界仍是 OS 级沙箱。
+
+- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R2/R5 的验收与判据残余，2026-09-24 实现）
+  summary: **两处「判据/验收」残余（不影响功能，但会在改动时静默失效）**：① **真实原生窗口无法自动化验收** —— 选中并确认需要人眼与人手，浏览器清单只能覆盖「按钮存在」「不可用路径」「取消/超时」；`tkinter` 子进程脚本在 CI 里**永不执行**（Linux 镜像可能无 `python-tk`），只钉了「能编译 + 标记行 / 标题插值唯一」；② **网页侧读取结果收敛依赖 `Error:` 前缀约定** —— 内置工具用**返回值** `Error: ...` 表达可预期失败（`is_error` 仍为 `False`），`file_read` 的失败消息因此靠 `_looks_like_a_failure()` 的字符串前缀识别；若将来把工具改成结构化错误（抛 `ToolError` / 返回带 `is_error` 的对象），该判据应退化为只看 `is_error`，否则前缀写成别的样式的失败会**静默从页面上消失**。触发条件：改动 `cli_dialogs` 的冻结脚本 / 改造内置工具的错误返回形态；严重度：低（都有测试兜底，但兜的是「现在的形态」）；冻结边界：不得为了「可自动化」而给 dev 依赖加 playwright/puppeteer（保持零构建链与「浏览器不进 CI」的既有立场），也不得把真实弹窗的一次人工通过当作「选择器无回归」的充分证据。
+  evidence: `tests/js/console_acceptance.mjs` 的 A5b / A11b / A11c / B2（真实浏览器，无真实弹窗点击）；`tests/test_cli_dialogs.py::TestSpawnDiscipline::test_frozen_scripts_are_valid_python_syntax`（只 compile 不执行）；`src/heagent/cli_http.py::_looks_like_a_failure` 与 `tests/test_http_agent_api.py::test_read_tool_error_message_is_still_shown_in_web`（**明写**「内置工具返回 Error 字符串不算异常」这一约定）；浏览器清单里「真浏览器 LLM 运行」仍是既有缺口（Z-D15 同处登记）。
+  Progress（2026-09-24 登记，**未修**）：两条都已在 `docs/frame.md` 五 与验收报告里如实登记；`file_read` 失败路径有专门的真实装配用例（`tool_output` 仍可见），负向验证见 `.heagent/tmp/mutate_50_8.py` 的 M10（去掉前缀判据 ⇒ 精确变红）。
 
 ---
 

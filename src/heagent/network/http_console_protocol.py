@@ -418,6 +418,24 @@ class ConfigWriteResponse(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
 
 
+class DirectoryPickResponse(BaseModel):
+    """``POST /api/dialogs/pick-directory`` 的响应：本机原生目录选择的**唯一**回传通道。
+
+    - ``path``：用户选中的绝对路径；取消 / 超时 / 后端回传脏值时**为 ``None``**；
+    - ``cancelled``：是否为「未选择」——取消、超时、脏值三种都归为未选择（UI 只需两条分支）；
+    - ``backend``：启动配置里的后端取值（``auto`` 原样回传），用于诊断「为什么弹不出来」。
+
+    返回值**不是权限**：拿到路径后仍走 ``POST /api/projects`` 的全套校验（存在 / 是目录 / 规范化 /
+    去重 / 上限），选择器不绕过任何既有闸门。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str | None = Field(default=None, max_length=MAX_PROJECT_PATH_CHARS)
+    cancelled: bool = False
+    backend: str = Field(min_length=1, max_length=32)
+
+
 class ConsoleHandler(Protocol):
     """Project operations supplied by the entry layer; network knows no registry."""
 
@@ -455,6 +473,10 @@ class ConsoleHandler(Protocol):
 
     async def update_project_config(self, project_id: str, request: ConfigWriteRequest) -> ConfigWriteResponse: ...
 
+    # ── 原生目录选择（Story 50-8） ──
+
+    async def pick_directory(self) -> DirectoryPickResponse: ...
+
 
 __all__ = [
     "MAX_CONFIG_FILE_DIAGNOSTIC_KEYS",
@@ -479,6 +501,7 @@ __all__ = [
     "ConfigWriteResponse",
     "ConsoleHandler",
     "ConsoleOperationError",
+    "DirectoryPickResponse",
     "EnvFileStatusResponse",
     "ProjectConfigResponse",
     "ProjectEntryResponse",
