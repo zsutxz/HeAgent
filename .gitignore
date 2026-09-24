@@ -7,6 +7,9 @@ build/
 
 # Environment
 .env
+# 配置写入通道的跨进程锁文件（persist 刻意保留不删，见 heagent/persist.py）：
+# 不忽略的话，每次写入尝试都会在 git status 里留下一个 0 字节未跟踪文件。
+.env.lock
 .venv/
 venv/
 

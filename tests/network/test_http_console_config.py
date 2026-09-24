@@ -28,11 +28,18 @@ from heagent.config_catalog import (
 )
 from heagent.network.http_console_protocol import (
     MAX_CONFIG_FILE_DIAGNOSTIC_KEYS,
+    MAX_CONFIG_FINGERPRINT_CHARS,
+    MAX_CONFIG_KEY_CHARS,
     MAX_CONFIG_UNKNOWN_KEYS,
+    MAX_CONFIG_VALUE_CHARS,
+    MAX_CONFIG_WRITE_CHANGES,
     ConfigGroupResponse,
     ConfigGuardResponse,
     ConfigItemResponse,
     ConfigSourceValue,
+    ConfigWriteChangeRequest,
+    ConfigWriteRequest,
+    ConfigWriteResponse,
     ConsoleOperationError,
     EnvFileStatusResponse,
     ProjectConfigResponse,
@@ -44,6 +51,15 @@ from heagent.network.http_protocol import HttpErrorCode
 from heagent.network.http_server import HttpServerConfig, build_http_app
 
 ENV_KEYS = frozenset(name.upper() for name in Settings.model_fields)
+
+FINGERPRINT = "a" * 64
+
+
+def envfile_fingerprint(raw: bytes) -> str:
+    """项目 ``.env`` 的内容指纹（与面板 ``env_file.fingerprint`` 同一算法）。"""
+    import hashlib
+
+    return hashlib.sha256(raw).hexdigest()
 
 
 def _sample_item(*, secret: bool = False) -> ConfigItemResponse:
@@ -105,6 +121,18 @@ def _client(app) -> httpx.AsyncClient:
 def test_bounded_constants_mirror_the_catalog() -> None:
     assert MAX_CONFIG_UNKNOWN_KEYS == MAX_UNKNOWN_KEYS
     assert MAX_CONFIG_FILE_DIAGNOSTIC_KEYS == MAX_FILE_DIAGNOSTIC_KEYS
+
+
+def test_write_bounds_mirror_the_write_channel() -> None:
+    """写入通道的上界两边必须一致（网络层不得 import 顶层写通道模块，故只能镜像 + 钉住）。"""
+    from heagent import envfile
+    from heagent.config_write import MAX_CONFIG_WRITE_CHANGES as CHANNEL_MAX_CHANGES
+
+    assert MAX_CONFIG_WRITE_CHANGES == CHANNEL_MAX_CHANGES
+    assert MAX_CONFIG_KEY_CHARS == envfile.MAX_KEY_CHARS
+    assert MAX_CONFIG_VALUE_CHARS == envfile.MAX_VALUE_CHARS
+    assert MAX_CONFIG_FINGERPRINT_CHARS >= 64  # sha256 十六进制必然放得下
+    assert MAX_CONFIG_WRITE_CHANGES >= 1
 
 
 def test_protocol_models_mirror_the_domain_models() -> None:
@@ -247,3 +275,334 @@ async def test_real_console_rejects_non_loopback_project_registration() -> None:
         response = await client.post("/api/projects", json={"path": "/tmp/x"})
     assert response.status_code == 403
     assert response.json()["error"]["code"] == HttpErrorCode.LOOPBACK_REQUIRED
+
+
+# ── PUT /api/projects/{id}/config（Story 50-5 的传输契约） ──
+
+
+class FakeWriteConsole:
+    """实现写入端点的最小 console（传输层契约用；真正的流水线在 ``tests/test_config_write.py``）。"""
+
+    def __init__(self, *, code: str | None = None, boom: bool = False) -> None:
+        self.code = code
+        self.boom = boom
+        self.seen: list[tuple[str, dict[str, object]]] = []
+
+    async def update_project_config(self, project_id: str, request: ConfigWriteRequest) -> ConfigWriteResponse:
+        self.seen.append((project_id, request.model_dump(mode="json")))
+        if self.boom:
+            raise RuntimeError("internal detail that must not leak")
+        if self.code is not None:
+            raise ConsoleOperationError(self.code, "write channel refused the change")
+        return ConfigWriteResponse(
+            project_id=project_id,
+            fingerprint="f" * 64,
+            backup="env-20260924T164712123456Z-abcdef01.bak",
+            audit_recorded=False,
+            changes=(_sample_item(),),
+            notes=("audit_not_recorded",),
+            labels={"audit_not_recorded": "写入已生效，但审计记录未能落盘"},
+        )
+
+
+def _write_app(console=None, *, host: str = "127.0.0.1"):
+    return build_http_app(HttpServerConfig(port=0, host=host), version="test", console=console)
+
+
+def _non_loopback_client(app):
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, client=("10.0.0.2", 9000)), base_url="http://10.0.0.4"
+    )
+
+
+async def test_write_route_is_absent_without_injected_handler() -> None:
+    async with _client(_write_app()) as client:
+        response = await client.put(
+            "/api/projects/default/config", json={"changes": [{"key": "MAX_ITERATIONS", "value": "30"}]}
+        )
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == HttpErrorCode.NOT_FOUND
+
+
+async def test_write_route_passes_the_parsed_request_and_id() -> None:
+    console = FakeWriteConsole()
+    async with _client(_write_app(console)) as client:
+        response = await client.put(
+            "/api/projects/p3f7a1b2c/config",
+            json={
+                "changes": [{"key": "max_iterations", "value": "30"}, {"key": "LOG_LEVEL", "value": "DEBUG"}],
+                "fingerprint": FINGERPRINT,
+            },
+        )
+
+    assert response.status_code == 200
+    project_id, payload = console.seen[0]
+    assert project_id == "p3f7a1b2c"  # 项目 id 对网络层始终不透明
+    assert payload["changes"] == [
+        {"key": "MAX_ITERATIONS", "value": "30"},  # 键归一化为大写
+        {"key": "LOG_LEVEL", "value": "DEBUG"},
+    ]
+    assert payload["fingerprint"] == FINGERPRINT
+    body = response.json()
+    assert body["fingerprint"] == "f" * 64
+    assert body["applied"] == "next_run"  # I10：不得声称立即生效
+    assert body["backup"].endswith(".bak")
+    assert body["audit_recorded"] is False
+    assert body["notes"] == ["audit_not_recorded"]  # 审计没落盘必须显式可见
+    assert body["labels"]["audit_not_recorded"]
+    assert body["changes"][0]["key"] == "MAX_ITERATIONS"
+
+
+async def test_write_route_can_omit_the_fingerprint() -> None:
+    """指纹缺省 = 「客户端认为文件不存在」；传输层不替它做冲突判定（那是流水线第 5 步）。"""
+    console = FakeWriteConsole()
+    async with _client(_write_app(console)) as client:
+        response = await client.put("/api/projects/default/config", json={"changes": [{"key": "A_KEY", "value": "1"}]})
+
+    assert response.status_code == 200
+    assert console.seen[0][1]["fingerprint"] is None
+
+
+async def test_write_route_requires_a_loopback_client() -> None:
+    """AC10：非回环来源一律 403，且**根本不会调到 console**（⇒ 文件 / 备份 / 审计都不会变）。"""
+    console = FakeWriteConsole()
+    async with _non_loopback_client(_write_app(console, host="10.0.0.4")) as client:
+        response = await client.put(
+            "/api/projects/default/config", json={"changes": [{"key": "MAX_ITERATIONS", "value": "30"}]}
+        )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == HttpErrorCode.LOOPBACK_REQUIRED
+    assert console.seen == []
+
+
+@pytest.mark.parametrize(
+    ("code", "status"),
+    [
+        (HttpErrorCode.WRITE_DISABLED, 403),
+        (HttpErrorCode.FIELD_NOT_WRITABLE, 400),
+        (HttpErrorCode.INVALID_VALUE, 400),
+        (HttpErrorCode.CONFIG_CONFLICT, 409),
+        (HttpErrorCode.CONFIG_WRITE_FAILED, 500),
+        (HttpErrorCode.UNKNOWN_PROJECT, 404),
+        (HttpErrorCode.PROJECT_UNAVAILABLE, 409),
+    ],
+)
+async def test_write_route_maps_stable_codes(code: str, status: int) -> None:
+    async with _client(_write_app(FakeWriteConsole(code=code))) as client:
+        response = await client.put(
+            "/api/projects/default/config", json={"changes": [{"key": "MAX_ITERATIONS", "value": "30"}]}
+        )
+
+    assert response.status_code == status
+    assert response.json()["error"]["code"] == code
+
+
+async def test_write_route_hides_unexpected_failures() -> None:
+    async with _client(_write_app(FakeWriteConsole(boom=True))) as client:
+        response = await client.put(
+            "/api/projects/default/config", json={"changes": [{"key": "MAX_ITERATIONS", "value": "30"}]}
+        )
+
+    assert response.status_code == 500
+    assert response.json()["error"]["code"] == HttpErrorCode.SERVER_ERROR
+    assert "internal detail" not in response.text
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},  # 缺 changes
+        {"changes": []},  # 空批次
+        {"changes": [{"key": "MAX_ITERATIONS", "value": "30"}], "extra": 1},  # 未知字段（extra=forbid）
+        {"changes": [{"key": "MAX_ITERATIONS", "value": 30}]},  # 值必须是字符串（.env 是文本）
+        {"changes": [{"key": "A", "value": "1"}, {"key": "A", "value": "2"}]},  # 同批重复键
+        {"changes": [{"key": "", "value": "1"}]},  # 空键
+        {"changes": [{"key": "A" * (MAX_CONFIG_KEY_CHARS + 1), "value": "1"}]},
+        {"changes": [{"key": "A", "value": "x" * (MAX_CONFIG_VALUE_CHARS + 1)}]},
+        {"changes": [{"key": "A", "value": "1"}], "fingerprint": "x" * (MAX_CONFIG_FINGERPRINT_CHARS + 1)},
+        {"changes": [{"key": f"K{i}", "value": "1"} for i in range(MAX_CONFIG_WRITE_CHANGES + 1)]},  # 超批量上限
+    ],
+)
+async def test_write_route_rejects_malformed_bodies(payload: object) -> None:
+    console = FakeWriteConsole()
+    async with _client(_write_app(console)) as client:
+        response = await client.put("/api/projects/default/config", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == HttpErrorCode.INVALID_REQUEST
+    assert console.seen == []  # 传输层挡下的请求不进 console
+
+
+async def test_write_route_rejects_wrong_method_on_the_same_path() -> None:
+    """同一路径上 GET（面板）/ PUT（写入）共存：POST 仍是 405（回归）。"""
+    async with _client(_write_app(FakeWriteConsole())) as client:
+        response = await client.post("/api/projects/default/config", json={})
+    assert response.status_code == 405
+    assert response.json()["error"]["code"] == HttpErrorCode.METHOD_NOT_ALLOWED
+
+
+class TestWriteRequestModel:
+    def test_key_is_stripped_and_uppercased(self) -> None:
+        request = ConfigWriteRequest(changes=[ConfigWriteChangeRequest(key=" max_iterations ", value="30")])
+        assert request.changes[0].key == "MAX_ITERATIONS"
+
+    def test_value_is_not_normalised(self) -> None:
+        request = ConfigWriteRequest(changes=[ConfigWriteChangeRequest(key="DEFAULT_MODEL", value=" gpt-4o ")])
+        assert request.changes[0].value == " gpt-4o "
+
+    def test_duplicate_keys_are_rejected(self) -> None:
+        with pytest.raises(Exception, match="duplicate key"):
+            ConfigWriteRequest(changes=[ConfigWriteChangeRequest(key="A", value="1")] * 2)
+
+
+# ── 端到端：真入口层（真流水线 + 真路由） ──
+
+
+async def test_real_console_refuses_writes_while_the_gate_is_closed(tmp_path: Path) -> None:
+    """AC1：默认（``HTTP_CONSOLE_WRITE_ENABLED`` 未开）任何写入都是 ``write_disabled``，文件不变。"""
+    from heagent.cli_http import HttpProjectConsole
+
+    raw = b"MAX_ITERATIONS=25\n"
+    (tmp_path / ".env").write_bytes(raw)
+    console = HttpProjectConsole(tmp_path, global_env_file=None)
+    async with _client(_app(console)) as client:
+        response = await client.put(
+            "/api/projects/default/config", json={"changes": [{"key": "MAX_ITERATIONS", "value": "30"}]}
+        )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == HttpErrorCode.WRITE_DISABLED
+    assert (tmp_path / ".env").read_bytes() == raw
+    assert not (tmp_path / ".heagent").exists()  # 连状态目录都没建
+
+
+async def test_real_console_writes_when_the_gate_is_open(tmp_path: Path) -> None:
+    """端到端：指纹 → 保真写 → 备份 → 审计 → 响应含新指纹与新来源（AC2/AC3/AC7）。"""
+    from heagent import envfile
+    from heagent.cli_http import HttpProjectConsole
+
+    raw = b"# project\r\nMAX_ITERATIONS=25\r\n"
+    (tmp_path / ".env").write_bytes(raw)
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    async with _client(_app(console)) as client:
+        panel = await client.get("/api/projects/default/config")
+        fingerprint = panel.json()["env_file"]["fingerprint"]
+        response = await client.put(
+            "/api/projects/default/config",
+            json={"changes": [{"key": "MAX_ITERATIONS", "value": "30"}], "fingerprint": fingerprint},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    written = (tmp_path / ".env").read_bytes()
+    assert written == b"# project\r\nMAX_ITERATIONS=30\r\n"  # 只有目标行变了
+    assert body["fingerprint"] == envfile.fingerprint(written)
+    assert body["changes"][0]["key"] == "MAX_ITERATIONS"
+    assert body["changes"][0]["value"] == 30  # 写后条目取自面板同源求解（类型化）
+    assert body["changes"][0]["source"] == "project_env"
+    assert body["changes"][0]["writable"] is True
+    assert body["audit_recorded"] is True and body["notes"] == []
+    assert (tmp_path / ".heagent" / "backups" / body["backup"]).read_bytes() == raw
+    assert (tmp_path / ".heagent" / "console" / "audit.jsonl").read_text(encoding="utf-8").strip()
+
+
+async def test_real_console_has_no_side_effects_for_non_loopback_clients(tmp_path: Path) -> None:
+    """AC10 的端到端版本：非回环 + 闸门开 —— 文件 / 备份 / 审计三者都不变。"""
+    from heagent.cli_http import HttpProjectConsole
+
+    raw = b"MAX_ITERATIONS=25\n"
+    (tmp_path / ".env").write_bytes(raw)
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    async with _non_loopback_client(_write_app(console, host="10.0.0.4")) as client:
+        response = await client.put(
+            "/api/projects/default/config", json={"changes": [{"key": "MAX_ITERATIONS", "value": "30"}]}
+        )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == HttpErrorCode.LOOPBACK_REQUIRED
+    assert (tmp_path / ".env").read_bytes() == raw
+    assert not (tmp_path / ".heagent").exists()
+
+
+async def test_real_console_conflict_keeps_the_other_editors_change(tmp_path: Path) -> None:
+    """AC6：指纹过期 → 409 ``config_conflict``，**不覆盖**对方的修改。"""
+    from heagent.cli_http import HttpProjectConsole
+
+    (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    async with _client(_app(console)) as client:
+        response = await client.put(
+            "/api/projects/default/config",
+            json={"changes": [{"key": "MAX_ITERATIONS", "value": "30"}], "fingerprint": "0" * 64},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == HttpErrorCode.CONFIG_CONFLICT
+    assert (tmp_path / ".env").read_bytes() == b"MAX_ITERATIONS=25\n"
+
+
+async def test_real_console_refuses_read_only_keys(tmp_path: Path) -> None:
+    """AC4：白名单之外的键由入口层（而非 UI）拒绝，文件不变。"""
+    from heagent.cli_http import HttpProjectConsole
+
+    (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    async with _client(_app(console)) as client:
+        panel = await client.get("/api/projects/default/config")
+        fingerprint = panel.json()["env_file"]["fingerprint"]
+        response = await client.put(
+            "/api/projects/default/config",
+            json={"changes": [{"key": "KIMI_API_KEY", "value": "sk-x"}], "fingerprint": fingerprint},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == HttpErrorCode.FIELD_NOT_WRITABLE
+    assert "credential" in response.json()["error"]["message"]
+    assert b"sk-x" not in (tmp_path / ".env").read_bytes()
+    assert (tmp_path / ".env").read_bytes() == b"MAX_ITERATIONS=25\n"
+
+
+async def test_real_panel_marks_the_write_switch_itself_read_only(tmp_path: Path) -> None:
+    """I12 的端到端版本：连**开启时**，面板也把 ``HTTP_CONSOLE_*`` 标成只读并给出原因（无法自我解锁）。"""
+    from heagent.cli_http import HttpProjectConsole
+
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    async with _client(_app(console)) as client:
+        panel = await client.get("/api/projects/default/config")
+
+    items = {item["key"]: item for group in panel.json()["groups"] for item in group["items"]}
+    for key in ("HTTP_CONSOLE_WRITE_ENABLED", "HTTP_CONSOLE_PROJECTS_FILE"):
+        assert items[key]["writable"] is False
+        assert items[key]["read_only_reason"] == "console_itself"
+        assert panel.json()["labels"]["console_itself"]
+
+
+async def test_no_endpoint_serves_backups_or_the_audit_log(tmp_path: Path) -> None:
+    """AC7：备份「不提供任何网页下载端点」。审计同理——两者都在内部状态读拒集合内。"""
+    from heagent.cli_http import HttpProjectConsole
+
+    raw = b"MAX_ITERATIONS=25\n"
+    (tmp_path / ".env").write_bytes(raw)
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    async with _client(_app(console)) as client:
+        written = await client.put(
+            "/api/projects/default/config",
+            json={
+                "changes": [{"key": "MAX_ITERATIONS", "value": "30"}],
+                "fingerprint": envfile_fingerprint(raw),
+            },
+        )
+        backup_name = written.json()["backup"]
+        probes = [
+            f"/.heagent/backups/{backup_name}",
+            "/.heagent/backups/",
+            "/.heagent/console/audit.jsonl",
+            f"/api/projects/default/backups/{backup_name}",
+        ]
+        responses = [await client.get(path) for path in probes]
+
+    assert backup_name.endswith(".bak")
+    for response in responses:
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == HttpErrorCode.NOT_FOUND

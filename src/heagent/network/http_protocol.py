@@ -83,6 +83,12 @@ class HttpErrorCode(StrEnum):
     SESSION_UNREADABLE = "session_unreadable"
     CONFIRM_REQUIRED = "confirm_required"
     LOOPBACK_REQUIRED = "loopback_required"
+    # 配置写入通道（Epic 50 Story 50-5）：闸门关 / 键只读 / 值非法 / 指纹冲突 / 写失败。
+    WRITE_DISABLED = "write_disabled"
+    FIELD_NOT_WRITABLE = "field_not_writable"
+    INVALID_VALUE = "invalid_value"
+    CONFIG_CONFLICT = "config_conflict"
+    CONFIG_WRITE_FAILED = "config_write_failed"
     RESYNC_REQUIRED = "resync_required"
     RATE_LIMITED = "rate_limited"
     TIMEOUT = "timeout"

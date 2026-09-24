@@ -219,3 +219,93 @@ class TestWindowsReaderSharingRegression:
         assert not reader_thread.is_alive() and not writer_thread.is_alive()
         assert writer_error == []
         assert target.read_text(encoding="utf-8") == "payload\n"
+
+
+class TestAtomicUpdateBytes:
+    """``atomic_update_bytes``（Story 50-5）：字节级读改写 + 锁内回读校验 + 回滚。"""
+
+    def test_missing_file_is_reported_as_none_and_created(self, tmp_path: Path) -> None:
+        path = tmp_path / ".env"
+        seen: list[bytes | None] = []
+
+        def update(current: bytes | None) -> tuple[bytes, int]:
+            seen.append(current)
+            return b"A=1\n", 7
+
+        assert persist.atomic_update_bytes(path, update) == 7
+        assert seen == [None]  # 文本版会把「不存在」折叠成 ""，字节版必须能区分
+        assert path.read_bytes() == b"A=1\n"
+
+    def test_bytes_are_written_verbatim_without_newline_translation(self, tmp_path: Path) -> None:
+        """文本模式会做行尾翻译；字节版必须原样落盘（这正是保真写的前提）。"""
+        path = tmp_path / ".env"
+        persist.atomic_update_bytes(path, lambda current: (b"A=1\r\nB=2\n", None))
+
+        assert path.read_bytes() == b"A=1\r\nB=2\n"
+
+    def test_update_failure_leaves_the_file_untouched(self, tmp_path: Path) -> None:
+        path = tmp_path / ".env"
+        path.write_bytes(b"A=1\n")
+
+        def boom(current: bytes | None) -> tuple[bytes, None]:
+            raise RuntimeError("nope")
+
+        with pytest.raises(RuntimeError):
+            persist.atomic_update_bytes(path, boom)
+
+        assert path.read_bytes() == b"A=1\n"
+
+    def test_verify_failure_restores_the_previous_content(self, tmp_path: Path) -> None:
+        path = tmp_path / ".env"
+        path.write_bytes(b"A=1\n")
+
+        def reject(written: bytes) -> None:
+            raise RuntimeError(f"not what I expected: {written!r}")
+
+        with pytest.raises(RuntimeError, match="not what I expected"):
+            persist.atomic_update_bytes(path, lambda current: (b"A=2\n", None), verify=reject)
+
+        assert path.read_bytes() == b"A=1\n"  # 已还原
+
+    def test_verify_failure_removes_a_newly_created_file(self, tmp_path: Path) -> None:
+        path = tmp_path / ".env"
+
+        def reject(written: bytes) -> None:
+            raise RuntimeError("nope")
+
+        with pytest.raises(RuntimeError):
+            persist.atomic_update_bytes(path, lambda current: (b"A=2\n", None), verify=reject)
+
+        assert not path.exists()
+
+    def test_verify_sees_the_written_bytes_and_can_read_them_back(self, tmp_path: Path) -> None:
+        path = tmp_path / ".env"
+        observed: list[bytes] = []
+
+        def verify(written: bytes) -> None:
+            observed.append(written)
+            assert path.read_bytes() == written  # 校验发生在锁内、替换之后
+
+        persist.atomic_update_bytes(path, lambda current: (b"A=9\n", None), verify=verify)
+
+        assert observed == [b"A=9\n"]
+
+    @pytest.mark.skipif(os.name != "posix", reason="Windows 无 POSIX 模式位（ACL 随目录继承）")
+    def test_posix_mode_is_preserved(self, tmp_path: Path) -> None:
+        path = tmp_path / ".env"
+        path.write_bytes(b"A=1\n")
+        os.chmod(path, 0o600)
+
+        persist.atomic_update_bytes(path, lambda current: (b"A=2\n", None))
+
+        assert os.stat(path).st_mode & 0o777 == 0o600  # mkstemp 的 0600 不能反向覆盖用户原有的模式
+        os.chmod(path, 0o644)
+        persist.atomic_update_bytes(path, lambda current: (b"A=3\n", None))
+        assert os.stat(path).st_mode & 0o777 == 0o644
+
+    def test_atomic_write_bytes_creates_a_new_file(self, tmp_path: Path) -> None:
+        path = tmp_path / "sub" / ".env"
+
+        persist.atomic_write_bytes(path, b"A=1\r\n")
+
+        assert path.read_bytes() == b"A=1\r\n"

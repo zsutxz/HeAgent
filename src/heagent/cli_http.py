@@ -33,7 +33,8 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from heagent.config import GLOBAL_CONFIG_FILE, Settings, get_settings
-from heagent.config_catalog import ConfigReport, build_config_report
+from heagent.config_catalog import LABELS, ConfigItem, ConfigReport, build_config_report
+from heagent.config_write import ConfigChange, ConfigWriteRejection, ConfigWriteResult, apply_config_write
 from heagent.context.session import SessionMetadata, SessionStore
 from heagent.engine import EngineContainer
 from heagent.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
@@ -45,6 +46,8 @@ from heagent.network.http_console_protocol import (
     MAX_SESSION_MESSAGES_IN_RESPONSE,
     ConfigGroupResponse,
     ConfigItemResponse,
+    ConfigWriteRequest,
+    ConfigWriteResponse,
     ConsoleOperationError,
     EnvFileStatusResponse,
     ProjectConfigResponse,
@@ -358,6 +361,11 @@ def _project_settings(root: Path, *, fallback: Settings) -> Settings:
         return fallback
 
 
+def _config_item_response(item: ConfigItem) -> ConfigItemResponse:
+    """域模型（``config_catalog``）→ 协议模型（网络层）的单条映射（叶子模型按字段名镜像）。"""
+    return ConfigItemResponse.model_validate(item.model_dump(mode="json"))
+
+
 def _config_response(project_id: str, report: ConfigReport) -> ProjectConfigResponse:
     """域模型（``config_catalog``）→ 协议模型（网络层）。
 
@@ -372,7 +380,7 @@ def _config_response(project_id: str, report: ConfigReport) -> ProjectConfigResp
             ConfigGroupResponse(
                 id=group.id,
                 label=group.label,
-                items=tuple(ConfigItemResponse.model_validate(item.model_dump(mode="json")) for item in group.items),
+                items=tuple(_config_item_response(item) for item in group.items),
             )
             for group in report.groups
         ),
@@ -456,6 +464,12 @@ class HttpProjectConsole:
     Story 50-3 起它同时是**会话面与项目内运行**的入口层实现：项目 id → 该项目运行时（路径派生 /
     ``SessionStore`` / 运行入口）的解析全部在这里单点完成，网络层只看到不透明 id 与 Pydantic 模型
     （脊柱 I1）。会话 JSON 的解析一律留在 ``SessionStore``（脊柱「Never」项）。
+
+    Story 50-5 起它还是**配置写入**的入口层实现：10 步流水线的同步内核在
+    :func:`heagent.config_write.apply_config_write`（顶层模块），这里负责三件事——提供项目 ``.env``
+    的绝对路径（脊柱 I2）、持有**服务启动时**解析的写闸门（D4：开关只能由启动配置决定，网页任何
+    请求都改不到它自己）、以及写成功后的**生效语义**（I10：让该项目的运行时缓存失效，下一次 run
+    重新解析；在途 run 持有的旧快照不受影响）。
     """
 
     def __init__(
@@ -465,6 +479,8 @@ class HttpProjectConsole:
         projects_file: str | None = None,
         runs: HttpRunService | None = None,
         handler_factory: ProjectHandlerFactory | None = None,
+        write_enabled: bool = False,
+        global_env_file: str | Path | None = GLOBAL_CONFIG_FILE,
     ) -> None:
         self.registry = default_project_registry(workspace, projects_file)
         self.workspace = workspace
@@ -473,6 +489,25 @@ class HttpProjectConsole:
         self._runs = runs
         self._handler_factory = handler_factory
         self._runtimes: dict[str, _ProjectRuntime] = {}
+        # 写闸门与「全局 .env 层」路径是**服务级**事实（按启动配置解析一次），不是项目级：写入通道
+        # 的每一层判定都必须与面板 / 运行期同源，否则会出现「面板说可写、写下去不生效」。
+        self.write_enabled = write_enabled
+        self.global_env_file = Path(global_env_file).expanduser() if global_env_file is not None else None
+        # 每个项目的**配置代**：写成功后自增（UI 与测试用它观测「下一次运行生效」，I10）。
+        self._config_generations: dict[str, int] = {}
+        if write_enabled:
+            # D4：开关一旦打开就必须**在启动时**说清楚代价（stderr + 日志），不能只写在文档里。
+            _safe_log(
+                logging.WARNING,
+                "Config write channel enabled (HTTP_CONSOLE_WRITE_ENABLED): anyone who can reach this "
+                "port can modify the project .env. This entry has no authentication and is not a "
+                "security boundary.",
+            )
+            click.echo(
+                "[http] WARNING: config write channel is ENABLED — anyone who can reach this port can "
+                "modify the project .env (no authentication, not a security boundary)",
+                err=True,
+            )
 
     # ── 项目（Story 50-2） ──
 
@@ -614,7 +649,77 @@ class HttpProjectConsole:
         映射成网络层协议模型。
         """
         runtime = self._runtime_for(project_id)
-        return _config_response(project_id, build_config_report(runtime.paths.root / ".env"))
+        return _config_response(
+            project_id, build_config_report(runtime.paths.env_file, global_env_file=self.global_env_file)
+        )
+
+    # ── 配置写入（Story 50-5） ──
+
+    async def update_project_config(self, project_id: str, request: ConfigWriteRequest) -> ConfigWriteResponse:
+        """执行配置写入流水线：闸门 → 项目 → 10 步（顶层模块）→ 生效语义（I10）。
+
+        三处顺序/归属有意如此：
+
+        - **闸门先于项目解析**：开关关着时连「该项目是否存在」都不回答（不把项目登记表变成未授权
+          的信息探测面）；
+        - **回环来源判定在传输层**（流水线第 2 步）——非回环请求根本到不了这里，因此也不会有任何
+          副作用（AC10）；
+        - **同步内核经 ``asyncio.to_thread`` 卸载**：锁与文件 I/O 都是阻塞的，事件循环里不能直跑。
+        """
+        if not self.write_enabled:
+            raise ConsoleOperationError(
+                HttpErrorCode.WRITE_DISABLED,
+                "config writing is disabled; enable HTTP_CONSOLE_WRITE_ENABLED when starting the service",
+            )
+        runtime = self._runtime_for(project_id)
+        try:
+            result = await asyncio.to_thread(
+                apply_config_write,
+                [ConfigChange(key=change.key, value=change.value) for change in request.changes],
+                env_file=runtime.paths.env_file,
+                backups_dir=runtime.paths.config_backups,
+                audit_dir=runtime.paths.console_dir,
+                write_enabled=True,
+                expected_fingerprint=request.fingerprint,
+                global_env_file=self.global_env_file,
+            )
+        except ConfigWriteRejection as exc:
+            raise ConsoleOperationError(exc.code, str(exc)) from exc
+        self._invalidate_runtime(project_id)
+        return self._write_response(project_id, runtime, result)
+
+    def _write_response(
+        self, project_id: str, runtime: _ProjectRuntime, result: ConfigWriteResult
+    ) -> ConfigWriteResponse:
+        """写后条目：与面板**同源求解**（复用 50-4 的求解器，绝不自己拼装来源 / 可写性）。"""
+        report = build_config_report(runtime.paths.env_file, global_env_file=self.global_env_file)
+        items = {item.key: item for item in report.items}
+        return ConfigWriteResponse(
+            project_id=project_id,
+            fingerprint=result.fingerprint,
+            backup=result.backup,
+            audit_recorded=result.audit_recorded,
+            changes=tuple(_config_item_response(items[key]) for key in result.keys if key in items),
+            notes=() if result.audit_recorded else ("audit_not_recorded",),
+            labels=dict(LABELS),
+        )
+
+    def config_generation(self, project_id: str) -> int:
+        """该项目的**配置代**（0 = 尚未经网页改过；每次成功写入 +1）。
+
+        生效语义的观测点（I10）：写成功后运行时缓存被丢弃，下一次 run 用重新解析的快照；在途 run
+        继续用它自己构造期的快照。
+        """
+        return self._config_generations.get(project_id, 0)
+
+    def _invalidate_runtime(self, project_id: str) -> None:
+        """把该项目标记为「配置代已过期」：丢缓存 → 下一次 ``_runtime_for`` 重新解析设置与引擎。
+
+        **只丢缓存**，不触碰在途运行：run 持有自己的 ``AgentLoop``（构造期已从旧设置解析出
+        ``ResolvedRuntimeConfig`` 快照），因此「当前 run 用旧值 / 下一次用新值」天然成立。
+        """
+        self._config_generations[project_id] = self._config_generations.get(project_id, 0) + 1
+        self._runtimes.pop(project_id, None)
 
     # ── 内部 ──
 
@@ -773,10 +878,12 @@ def build_http_service(settings: Settings, *, executor: Any | None = None) -> Em
     workspace = WorkspacePaths.from_root(getattr(settings, "workspace_root", None) or os.getcwd())
     console = HttpProjectConsole(
         workspace.root,
+        projects_file=settings.http_console_projects_file,
         runs=run_service,
         # 只有入口层的真实 handler 知道怎么为「另一个项目根」派生运行时；注入的是别的可调用对象
         # （测试替身）时**不**假装能给项目起跑——会话 API 仍可用，项目内运行回 project_unavailable。
         handler_factory=executor.for_workspace if isinstance(executor, HttpAgentHandler) else None,
+        write_enabled=settings.http_console_write_enabled,
     )
     return EmbeddedHttpService(HttpServer(config, version=_current_version(), run_service=run_service, console=console))
 
@@ -919,7 +1026,13 @@ def http_server_cmd(
     )
     workspace = WorkspacePaths.from_root(os.getcwd())
     run_service = HttpRunService(config, handler)
-    console = HttpProjectConsole(workspace.root, runs=run_service, handler_factory=handler.for_workspace)
+    console = HttpProjectConsole(
+        workspace.root,
+        projects_file=settings.http_console_projects_file,
+        runs=run_service,
+        handler_factory=handler.for_workspace,
+        write_enabled=settings.http_console_write_enabled,
+    )
     server = HttpServer(
         config,
         version=_current_version(),

@@ -18,7 +18,7 @@ import re
 from enum import StrEnum
 from typing import Any, Literal, Protocol
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from heagent.network.http_protocol import MAX_PROMPT_CHARS, RunStatus, SessionMessage
 
@@ -30,6 +30,15 @@ MAX_PROJECT_PATH_CHARS = 4096
 # （未知键 / 重复键 / 空值键），因此必须有界——响应体不得随 `.env` 内容膨胀。
 MAX_CONFIG_UNKNOWN_KEYS = 64
 MAX_CONFIG_FILE_DIAGNOSTIC_KEYS = 64
+
+# 写入通道的上界（镜像 ``heagent.config_write`` / ``heagent.envfile`` 的同名常量；网络层不得
+# import 它们，故各自持有并由 ``tests/network/test_http_console_config.py`` 钉住一致性）。
+# 一次请求的键数、键名长度、值长度都来自客户端 ⇒ 必须有界（请求体与写锁持有时间都不随输入膨胀）。
+MAX_CONFIG_WRITE_CHANGES = 64
+MAX_CONFIG_KEY_CHARS = 64
+MAX_CONFIG_VALUE_CHARS = 8192
+# sha256 十六进制（64 字符）是唯一合法形态，留一点余量以便未来换算法时前后端不致同时改动。
+MAX_CONFIG_FINGERPRINT_CHARS = 128
 
 # 会话相关上限（镜像 ``heagent.context.session``；见模块 docstring）。
 MAX_SESSION_ID_CHARS = 128
@@ -335,6 +344,72 @@ class ProjectConfigResponse(BaseModel):
     notes: tuple[str, ...] = ()
 
 
+class ConfigWriteChangeRequest(BaseModel):
+    """要写入的一个键（``value`` 一律字符串：``.env`` 是文本，类型/范围由服务端校验）。
+
+    ``key`` 归一化为**大写**并去空白（env 键大小写不敏感）；``value`` **不做任何归一化**——
+    首尾空白会被服务端显式拒绝（``invalid_value``），静默裁剪会让「写进去的值」与「解析出的值」不一致。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1, max_length=MAX_CONFIG_KEY_CHARS)
+    value: str = Field(max_length=MAX_CONFIG_VALUE_CHARS)
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def _normalize_key(cls, value: object) -> object:
+        return value.strip().upper() if isinstance(value, str) else value
+
+
+class ConfigWriteRequest(BaseModel):
+    """``PUT /api/projects/{id}/config`` 的请求体（整批**原子**：任一键被拒则整批拒绝、文件不变）。
+
+    ``fingerprint`` 是客户端**当前持有的项目 ``.env`` 内容指纹**（即配置面板响应里
+    ``env_file.fingerprint``）：与盘上不符 → ``config_conflict``，绝不覆盖对方的修改。
+    ``None`` 表示「客户端认为文件尚不存在」——此时若盘上确有文件同样是冲突（fail-closed，
+    不存在「没给指纹就随便覆盖」的通道）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    changes: list[ConfigWriteChangeRequest] = Field(min_length=1, max_length=MAX_CONFIG_WRITE_CHANGES)
+    fingerprint: str | None = Field(default=None, max_length=MAX_CONFIG_FINGERPRINT_CHARS)
+
+    @model_validator(mode="after")
+    def _reject_duplicate_keys(self) -> ConfigWriteRequest:
+        seen: set[str] = set()
+        for change in self.changes:
+            if change.key in seen:
+                raise ValueError(f"duplicate key {change.key}")
+            seen.add(change.key)
+        return self
+
+
+class ConfigWriteResponse(BaseModel):
+    """一次成功写入的结果。
+
+    - ``fingerprint``：写入后的项目 ``.env`` 内容指纹（UI 据此刷新冲突判据）；
+    - ``changes``：被改键的**写后**条目（与面板同源求解）——``source`` / ``writable`` 供 UI 刷新徽标；
+    - ``applied``：恒为 ``next_run`` —— 生效语义是「下一次运行」（I10：在途 run 继续用旧快照）；
+    - ``backup``：写前备份的文件名（不含目录；备份无任何网页下载端点）；
+    - ``audit_recorded``：审计是否**真的**落盘。``False`` 时 ``notes`` 含 ``audit_not_recorded``——
+      绝不让人误以为「已审计」（审计失败不阻断已成功的写，但必须在响应里可见）。
+    - ``labels``：``notes`` 稳定码的中文文案表（与配置面板同源），UI 无需硬编码。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(min_length=1)
+    fingerprint: str
+    applied: Literal["next_run"] = "next_run"
+    backup: str | None = None
+    audit_recorded: bool = False
+    changes: tuple[ConfigItemResponse, ...] = ()
+    notes: tuple[str, ...] = ()
+    labels: dict[str, str] = Field(default_factory=dict)
+
+
 class ConsoleHandler(Protocol):
     """Project operations supplied by the entry layer; network knows no registry."""
 
@@ -368,10 +443,18 @@ class ConsoleHandler(Protocol):
 
     async def get_project_config(self, project_id: str) -> ProjectConfigResponse: ...
 
+    # ── 配置写入（Story 50-5） ──
+
+    async def update_project_config(self, project_id: str, request: ConfigWriteRequest) -> ConfigWriteResponse: ...
+
 
 __all__ = [
     "MAX_CONFIG_FILE_DIAGNOSTIC_KEYS",
+    "MAX_CONFIG_FINGERPRINT_CHARS",
+    "MAX_CONFIG_KEY_CHARS",
     "MAX_CONFIG_UNKNOWN_KEYS",
+    "MAX_CONFIG_VALUE_CHARS",
+    "MAX_CONFIG_WRITE_CHANGES",
     "MAX_PROJECT_NAME_CHARS",
     "MAX_PROJECT_PATH_CHARS",
     "MAX_SESSION_ID_CHARS",
@@ -383,6 +466,9 @@ __all__ = [
     "ConfigGuardResponse",
     "ConfigItemResponse",
     "ConfigSourceValue",
+    "ConfigWriteChangeRequest",
+    "ConfigWriteRequest",
+    "ConfigWriteResponse",
     "ConsoleHandler",
     "ConsoleOperationError",
     "EnvFileStatusResponse",

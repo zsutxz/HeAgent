@@ -1,7 +1,8 @@
 ---
 id: 50-5
 title: 配置写入通道（白名单 / 保真写 / 备份 / 冲突 / 审计）
-status: ready-for-dev
+status: review
+baseline_commit: a1012d8a9333ad4b7c93519bad115d272cb731bd
 parent_epic: E50
 priority: P0
 phase: D（配置可编辑）
@@ -65,43 +66,43 @@ created: '2026-09-23'
 
 ## 任务（细分）
 
-- [ ] **T1** `envfile.py`：`parse_index(text)`（逐行定位键、记录重复键的**最后一行**、识别注释/空行、记录 EOL 与 BOM 状态）；
+- [x] **T1** `envfile.py`：`parse_index(text)`（逐行定位键、记录重复键的**最后一行**、识别注释/空行、记录 EOL 与 BOM 状态）；
       `fingerprint(bytes) -> str`（sha256）；`replace_or_append(text, key, value) -> str`（**保真**：只重写目标行，
       EOL 跟随文件，BOM 保留，追加时附带文件既有 EOL 风格）；纯函数 + `bytes` 出入，便于逐字节单测。
       ⚠️ **评审 F6**：`parse_index` 必须剥离**首行 BOM** 再取键名——否则首个键定位不到（键名变成
       `\ufeffMAX_ITERATIONS`）⇒ 会「追加一条重复行」而不是替换既有行，盘上留下一条永不生效的死行。
-- [ ] **T2** 备份：`backup(path, backups_dir, fingerprint)` → 文件名含时间戳与指纹前缀；清理走既有 `prune_entries_by_mtime`
+- [x] **T2** 备份：`backup(path, backups_dir, fingerprint)` → 文件名含时间戳与指纹前缀；清理走既有 `prune_entries_by_mtime`
       内核（`persist`），上限与保留期写成常量并落 `WorkspacePaths`。
-- [ ] **T3** 审计：`append_audit(console_dir, record)`（JSONL，原子追加，失败只 WARNING 不阻断已成功的写——
+- [x] **T3** 审计：`append_audit(console_dir, record)`（JSONL，原子追加，失败只 WARNING 不阻断已成功的写——
       与 ledger 回写失败的立场一致，但**失败必须在响应里体现为「审计未记录」**，不得静默）。
-- [ ] **T4** 流水线 10 步实现（`config_write.py` 或 `config_catalog.py` 的写侧；由入口层注入到协议 handler）：
+- [x] **T4** 流水线 10 步实现（`config_write.py` 或 `config_catalog.py` 的写侧；由入口层注入到协议 handler）：
       闸门（`HTTP_CONSOLE_WRITE_ENABLED`）→ 回环（`is_loopback_host(request.client.host)`）→ 白名单
       （与 50-4 同一常量）→ 值校验（pydantic + `ROUTING_POOLS` 池解析）→ 指纹 → 候选构造（`Settings(_env_file=候选)`）
       → 备份 → `atomic_update_text` → 回读（重读 + 解析 + 指纹）→ 审计。
-- [ ] **T5** 设置新增：`http_console_write_enabled: bool = False`、`http_console_projects_file: str | None = None`；
+- [x] **T5** 设置新增：`http_console_write_enabled: bool = False`、`http_console_projects_file: str | None = None`；
       两者进 `ResolvedRuntimeConfig`；`.env.example` 同步（50-7 收口，本 story 先加键）；
       **并**纳入 50-4 的「控制台自身」排除组（只读、给原因）。
-- [ ] **T6** 写入白名单常量：显式枚举 **46 键**（与 50-4 共用同一常量），并定义**优先级**（**D2**：显式白名单 > 模式排除）。
-- [ ] **T6b** **弱校验键的字段级守卫（D3 强制前提）**：`LOG_LEVEL` / `LOG_FILE_LEVEL` 限定枚举
+- [x] **T6** 写入白名单常量：显式枚举 **46 键**（与 50-4 共用同一常量），并定义**优先级**（**D2**：显式白名单 > 模式排除）。
+- [x] **T6b** **弱校验键的字段级守卫（D3 强制前提）**：`LOG_LEVEL` / `LOG_FILE_LEVEL` 限定枚举
       `{DEBUG,INFO,WARNING,ERROR,CRITICAL}`（空 = 回退）；`RETRY_MAX_ATTEMPTS ≤ 10`、`RETRY_BASE_DELAY ≤ 60`、
       `RETRY_MAX_DELAY ≤ 600`。**理由**：实测 `Settings(_env_file=候选)` 对弱校验字段是**空门**
       （`retry_*` 仅 `Ge` 下界、`LOG_LEVEL` 无 metadata）⇒ 只靠 I6 会让写通道变成「挂死 / 无限重试」旋钮。
       守卫失败一律 `invalid_value` + 字段级原因，文件不变。
-- [ ] **T7** `PUT /api/projects/{id}/config`：`{changes:[{key,value}], fingerprint}`；错误码
+- [x] **T7** `PUT /api/projects/{id}/config`：`{changes:[{key,value}], fingerprint}`；错误码
       `write_disabled` / `loopback_required` / `field_not_writable` / `invalid_value` / `config_conflict` /
       `config_write_failed`；成功响应含新指纹与新值来源（供 UI 刷新徽标）。
-- [ ] **T8** 生效语义：写成功后把该项目运行时的**配置代（generation）**标记过期；下一次 run 重新解析快照，
+- [x] **T8** 生效语义：写成功后把该项目运行时的**配置代（generation）**标记过期；下一次 run 重新解析快照，
       在途 run 继续用旧快照（I10）。配一条端到端测试钉住「当前 run 用旧值 / 下一次用新值」。
-- [ ] **T9** 测试（覆盖 9 类拒绝 + 弱校验守卫 + 保真 + 恢复）：闸门关闭 / 白名单成功 / 新增键追加 / 凭证键 /
+- [x] **T9** 测试（覆盖 9 类拒绝 + 弱校验守卫 + 保真 + 恢复）：闸门关闭 / 白名单成功 / 新增键追加 / 凭证键 /
       监听面键 / **沙箱执行姿态键**（`SANDBOX_BACKEND`、`SANDBOX_MODE`、`SANDBOX_FIREJAIL_PATH`…；注意
       `SANDBOX_DIR_RETENTION_DAYS` 按 **D2** 属**可写**，测试须断言其成功）/ 进程拉起开关 / 路径类 /
       控制台自身开关 / 未知键 / 非法值（类型、越界、**弱校验键的枚举与上界**：`LOG_LEVEL=BANANA`、
       `RETRY_BASE_DELAY=1e9`、`RETRY_MAX_ATTEMPTS=1000000`）/ list 字段 / 非法 JSON 的 `ROUTING_POOLS` /
       指纹冲突 / 备份与审计内容（无值）/ 回读失败恢复 / 非回环来源拒绝 / 生效语义端到端 /
       **系统 env 覆盖键被拒**（评审 F1：与面板 `writable=false` 同源）/ **BOM 首行替换而非追加**（评审 F6）。
-- [ ] **T10** 保真逐字节断言：以真实样本形态构造（CRLF + 无末行换行 + 行内注释 + 重复键 + BOM 四个变体），
+- [x] **T10** 保真逐字节断言：以真实样本形态构造（CRLF + 无末行换行 + 行内注释 + 重复键 + BOM 四个变体），
       断言「未修改行字节不变」；BOM 变体断言 **BOM 保留**。
-- [ ] **T11** 负向验证：去掉白名单过滤、去掉指纹校验、去掉备份、把备份目录移出 deny 集合、把回读校验短路——
+- [x] **T11** 负向验证：去掉白名单过滤、去掉指纹校验、去掉备份、把备份目录移出 deny 集合、把回读校验短路——
       对应测试**逐条必须变红**后复原。
 
 ## 验收标准
@@ -183,3 +184,175 @@ ruff check src tests && mypy src && mypy src --platform linux
 ## Requirement Traceability
 
 FR-5；NFR-4–NFR-9, NFR-11；UX-DR3, UX-DR4；脊柱 I4, I5, I6, I7, I8, I9, I10, I12；brief §4 FR-5、§6.1–6.3、§6.6、§7 D1/D4。
+
+## Dev Agent Record
+
+### Implementation Plan
+
+1. **写入原语**（`persist.py`）：新增 `atomic_update_bytes` / `atomic_write_bytes`。
+   文本版不够用——`read_text`/`write_text` 会做行尾翻译（POSIX 上 CRLF 被改成 LF、Windows 上反向），
+   「未修改行字节不变」（I7）不可能建立在会被翻译的 I/O 上。字节版三点增强：`update` 收到
+   `None` = 文件不存在（指纹判据需要区分「空文件」与「无文件」）；`verify` 在**释放锁之前**收到刚写入
+   的字节，失败即**还原**（原本不存在则删除）——回读若放在解锁之后，回滚会变成「覆盖别人的修改」；
+   临时文件继承目标文件的**权限位**（否则 `os.replace` 会把用户的 `0644` 静默换成 mkstemp 的 `0600`）。
+2. **`envfile.py`**（新顶层模块）：`parse_index` / `parse_value` / `read_value` / `check_key` / `check_value` /
+   `replace_or_append` / `fingerprint` / `backup` / `prune_backups`。全部纯字符串 + `bytes` 出入，便于逐字节断言。
+3. **`config_write.py`**（新顶层模块）：脊柱 §8 的 10 步流水线（同步内核，调用方经 `asyncio.to_thread` 卸载）
+   + 审计 JSONL 追加。
+4. **接线**：`http_protocol` 加 5 个稳定码；`http_console_protocol` 加写请求/响应模型与 handler 方法；
+   `http_server` 加 `PUT .../config` 路由（回环门 + 错误码映射）；`cli_http.HttpProjectConsole` 持写闸门与
+   全局 `.env` 层路径、实现 `update_project_config` 与**配置代失效**；`config.py` / `.env.example` 加两个键。
+5. **测试**：`tests/test_envfile.py`（保真逐字节 + 与 dotenv 解析口径对齐）、`tests/test_config_write.py`
+   （9 类拒绝 + 守卫 + 备份/审计/回滚）、`tests/network/test_http_console_config.py`（+PUT 契约与端到端）、
+   `tests/test_cli_http.py`（闸门接线 + 生效语义）、`tests/test_persist_atomic.py`（新原语）、
+   `tests/test_credential_guard.py`（I14 的 12 目录**全量**断言，见下）。
+
+### Completion Notes
+
+**与 story 文本的偏离（3 处，均有理由）**
+
+1. **流水线第 2 步（回环来源）留在传输层**：`network.http_server._loopback_error`（与 50-2 项目登记同一
+   辅助函数）。理由：网络层不认识 `Settings`（I1），若把闸门状态的副本塞进 `HttpServerConfig` 就会制造
+   第二个事实源（过期副本会「谎报已开启」）。可观察差异只有一处：非回环 + 闸门关闭时先回 `loopback_required`
+   而非 `write_disabled`——对远端客户端少说一句本机策略，方向是收紧。AC1/AC10 各自仍精确成立。
+2. **闸门先于项目解析**：`update_project_config` 在解析项目运行时**之前**判闸门（关着时连「该项目是否存在」
+   都不回答，不把项目登记表变成未授权的信息探测面）。
+3. **备份回收不调用 `prune_entries_by_mtime`**：那是 async 且只按 mtime（本目录的主边界是**条数**——
+   写入通道可被反复触发）。改为复用它的同一批量 I/O 内核（`persist.scan_dir` / `delete_entries`）+ 条数上限；
+   且**不加跨进程节流**（目录被 50 条钉死，一次 scandir 远小于节流标记的维护成本，节流是给万级产物目录的）。
+
+**story 中不适用的项（如实登记）**
+
+- T9/AC5 的「非 JSON 的 **list 字段**」：白名单 46 键里**没有** list 类型字段（`SAFETY_BLOCKED_TOOLS` /
+  `APPROVAL_TOOLS` / `MODEL_PRICING` 等复合字段全在只读排除组）。等价覆盖 = 那些键被拒（`field_not_writable`）
+  + 类型强校验字段（`int`/`bool`）由候选构造拦下（`MAX_ITERATIONS=abc`、`ANNOUNCE_PROGRESS=maybe`、
+  `MAX_CONTEXT_TOKENS=1.5`）。
+- T6b 的「空 = 回退」：`LOG_FILE_LEVEL` 允许空（= 关掉文件日志，运行期 `log_file_level or log_level`
+  是真实哨兵）；`LOG_LEVEL` **不允许**空（进程级日志级别没有「回退」语义）——沿用 50-4 已冻结的
+  `config_catalog.VALUE_GUARDS`（脊柱 §8 的括号是简写）。
+
+**顺带闭合的缺口（负向验证逼出来的）**
+
+- T11 的变异体 M4（把备份目录移出内部状态读拒集合）**首轮没有变红**：`tests/test_credential_guard.py`
+  只断言了 5 个目录 ⇒ 50-1 声称的「12 个子目录全覆盖」在测试上是**假绿**。已补
+  `test_build_internal_state_dirs_covers_all_twelve_for_an_explicit_workspace`（集合相等，一个都不能少）。
+- `.env.lock`（persist 刻意保留不删的锁文件）会在项目根留下未跟踪的 0 字节文件 ⇒ `.gitignore` 补 `.env.lock`。
+- 首行 BOM：`parse_index` 剥离头部 BOM 再取键名（F6），改写首行时 BOM 原样保留 ⇒ 不会再「追加一条永不生效的死行」。
+
+**分辨得出的设计要点（供评审复核）**
+
+- **值必须能无损表达**（fail-closed，四条实测依据）：控制字符 / 首尾空白 / 「空白 + `#`」/ 配对引号一律拒。
+  实测口径（探针 `env_parse_probe*.py`，对照 `DotEnvSettingsSource`）：`INFO  # c` → `INFO`；`a#b` → `a#b`；
+  `a #b` → `a`；`"a # b"` → `a # b`；`"a"b"` → **整行作废**；`` `x` `` → 原样。`envfile.parse_value` 与这一层
+  **逐字对齐**，并由 `TestParseValueAlignment` 用 dotenv 自身当参照钉住（审计里的旧值哈希因此与运行期同源）。
+- **只重写值区**：键名写法、`export ` 前缀、`=` 周围空白、行内注释、行尾（`\r`）原样保留；同键取**最后一行**
+  （真实 `.env` 里 `SKILL_MAX_AUTO_INVOKE_TOKENS` 出现两次）。
+- **候选构造只是必要条件**：弱校验键（`LOG_LEVEL` / `RETRY_*`）的真实闸门是 `guard_reason`（D3）；派生的
+  字段元数据边界也先在这里给出可读原因（比 `ValidationError` 文本更可操作）。
+- **审计口径**：只有真的改动了文件的路径落审计（`applied` / `rolled_back`）；闸门/白名单/值/指纹这些
+  **文件未变**的拒绝不落审计——它们可被一个回环客户端无限重放，逐条落盘等于给审计文件开灌水口。
+- **生效语义**：写成功后丢该项目运行时缓存（下一次 run 重新解析）+ 配置代 +1（`config_generation`）。
+  在途 run 的快照在 `AgentLoop` 构造期就已冻结，因此「当前 run 用旧值 / 下一次用新值」是结构性的。
+- **R2 结论**：Windows 上 `st_mode` 写入前后一致（`0o100666`；真实 ACL 由同目录临时文件继承）；
+  POSIX 侧由 `_inherit_mode` 复制模式位，配 `@pytest.mark.skipif(os.name != "posix")` 的专项用例（CI 的
+  Linux 矩阵覆盖，本机跳过——Windows 无 POSIX 模式位，硬测只会假绿）。
+- **R3 结论**：两线程 + 同一起点指纹 ⇒ 恰好一个 `ok`、一个 `config_conflict`，文件是赢家的值，审计只有一条。
+
+**已知缺口（未闭合，建议进台账）**
+
+1. `MAX_ITERATIONS` / `GOAL_MAX_ITERATIONS` / `SUBAGENT_MAX_ITERATIONS` / `MAX_OUTPUT_TOKENS` /
+   `MAX_CONTEXT_TOKENS` 等**没有上界**（`Settings` 只给 `ge`，D3 也未要求守卫）⇒ 写通道可以把它们设成
+   `10^9`（本机资源旋钮）。触发条件：写通道对非回环来源开放或多用户；严重度低；修法：给这几个键补
+   `VALUE_GUARDS` 上界。
+2. `console/audit.jsonl` **无保留期/条数上限**（`console_dir` 同时住着 `projects.json`，通用 mtime 回收会
+   误删注册表）⇒ 回环客户端反复成功写入可让审计文件无界增长。严重度低-中；修法：按 `.jsonl` 后缀 + 条数上限
+   的专用回收（与备份同款内核）。
+
+### 验证（实测命令 + 输出）
+
+```bash
+$ pytest tests/test_envfile.py tests/test_config_write.py tests/test_config.py tests/network -q
+584 passed in 14.15s
+
+$ pytest -q          # 全量（含 --cov，见下）
+2949 passed, 11 skipped, 18 deselected, 8 warnings in 215.56s (0:03:35)
+
+$ pytest -q --cov --cov-report=term | findstr TOTAL
+TOTAL                                          12856    870   3500    393    92%
+# 新模块单跑：envfile.py 100%（163 stmts），config_write.py 99%（233 stmts，仅 1 条防御分支半覆盖）
+
+$ ruff check src tests && ruff format --check src tests
+All checks passed! / 276 files already formatted
+
+$ mypy src && mypy src --platform linux
+Success: no issues found in 146 source files   (两次)
+
+$ python .heagent/tmp/mutate_50_5.py            # T11 负向验证（9 个变异体）
+[OK ] M1 白名单过滤关掉（改任何键都放行）          -> 27 failed, 7 passed
+[OK ] M2 指纹校验关掉（外部改动被静默覆盖）        -> 4 failed
+[OK ] M3 写前备份去掉                            -> 3 failed, 35 passed
+[OK ] M4 备份目录移出内部状态读拒集合             -> 1 failed, 50 passed
+[OK ] M5 回读校验短路（写坏不留痕、不还原）        -> 2 failed, 2 passed
+[OK ] M6 首行 BOM 不剥离（键名被污染 ⇒ 追加死行）  -> 3 failed, 40 passed
+[OK ] M7 行内注释被吞掉（整行重写）               -> 2 failed, 34 passed
+[OK ] M8 审计失败被静默（响应仍声称已审计）        -> 1 failed, 5 passed
+[OK ] M9 流水线闸门关掉（关着也能写）             -> 1 failed, 1 passed
+变异体 9 个；未按预期变红：0 个
+# 每个变异体回退后 sha256 与变异前一致（脚本内断言）
+
+$ python .heagent/tmp/rehearsal_50_5.py         # DoD：真实 .env 副本的保真写演练
+真实 .env: 4442 字节 / crlf=77 / bare_lf=0 / bom=False
+索引: 行数=77 键数=39 EOL='\r\n' 末行换行=True
+重复键=('SKILL_MAX_AUTO_INVOKE_TOKENS',) 行内注释键=（10 个，含 LOG_LEVEL / MAX_CONTEXT_TOKENS …）
+白名单内但文件里没有的键（前 5 个）=['ANNOUNCE_PROGRESS', 'ANTHROPIC_PROMPT_CACHING', …]
+变化行号=[48, 77]      # 48 = 最后一次 SKILL_MAX_AUTO_INVOKE_TOKENS；77 = 追加行
+未修改行逐字节一致=True
+CRLF 计数: 写前=77 写后=78
+SKILL_MAX_AUTO_INVOKE_TOKENS 出现次数: 写前=2 写后=2      # 第一条（4000）原样保留
+内联注释行全部保留=True
+权限: before=0o100666 after=0o100666 相同=True
+备份字节 = 写前字节: True      审计已落盘=True
+重解析: skill_max_auto_invoke_tokens=4096     # 写后续用新值解析
+```
+
+### File List
+
+**新增**
+
+| 路径 | 行数 | 说明 |
+|---|---|---|
+| `src/heagent/envfile.py` | 368 | `.env` 行级保真读写 / 指纹 / 备份 / 备份回收（纯函数，依赖仅 stdlib + pydantic + `persist`） |
+| `src/heagent/config_write.py` | 525 | 10 步写入流水线 + 审计 + 字段级守卫 + 候选校验 |
+| `tests/test_envfile.py` | 401 | 保真逐字节（CRLF/BOM/注释/重复键/无末行换行）+ dotenv 解析口径对齐 |
+| `tests/test_config_write.py` | 706 | 9 类拒绝 / 守卫 / 备份 / 审计 / 回读回滚 / 并发 / 目的地守卫 |
+
+**修改**（`git diff --stat`：17 files changed, 979 insertions(+), 26 deletions(-)）
+
+| 路径 | 说明 |
+|---|---|
+| `src/heagent/persist.py` | +`atomic_update_bytes` / `atomic_write_bytes` / `_write_temp_bytes` / `_inherit_mode` / `_restore_bytes` |
+| `src/heagent/config.py` | +`HTTP_CONSOLE_WRITE_ENABLED`（默认 False）/ `HTTP_CONSOLE_PROJECTS_FILE` |
+| `src/heagent/config_catalog.py` | +`system_env_keys()`（与面板同一求解器）+ `audit_not_recorded` 文案 |
+| `src/heagent/workspace.py` | +`env_file` 属性（写入通道唯一目的地，I2/I4） |
+| `src/heagent/network/http_protocol.py` | +5 个稳定错误码 |
+| `src/heagent/network/http_console_protocol.py` | +写请求/响应模型、上界常量、`ConsoleHandler.update_project_config` |
+| `src/heagent/network/http_server.py` | +`PUT .../config` 路由、回环门、错误码 → 状态码映射 |
+| `src/heagent/cli_http.py` | 控制台持写闸门 / 全局 `.env` 层、`update_project_config`、配置代失效、启动告警、注册表落点接线 |
+| `.env.example` | +2 键（含「开启即等于任何人可改项目 .env」的告警文案） |
+| `.gitignore` | +`.env.lock`（锁文件刻意保留不删 ⇒ 不忽略会留下未跟踪垃圾） |
+| `tests/test_persist_atomic.py` | +`TestAtomicUpdateBytes`（含 POSIX 模式保留，CI 侧跑） |
+| `tests/test_cli_http.py` | 闸门默认关 / 启动渠道可开 + 告警 / 注册表落点 / 生效语义 |
+| `tests/network/test_http_console_config.py` | +PUT 传输契约 + 真 console 端到端（含 AC7「无下载端点」与 I12 面板只读） |
+| `tests/network/test_http_protocol.py` | 错误码闭集 +5 |
+| `tests/test_architecture_contracts.py` | `network/` 反向依赖列表 +`config_write` / `envfile` |
+| `tests/test_credential_guard.py` | I14 的 12 个运行态目录**全量**断言（补齐 50-1 的假绿） |
+
+**探测脚本**（未跟踪，`.heagent/tmp/`）：`env_parse_probe.py` / `env_parse_probe2.py`（dotenv 解析口径实测）、
+`non_utf8_probe.py`、`mutate_50_5.py`（T11）、`rehearsal_50_5.py`（DoD 真实样本演练）。
+
+### Change Log
+
+| 日期 | 变更 |
+|---|---|
+| 2026-09-24 | 实现 Story 50-5：`envfile.py` + `config_write.py` + `PUT /api/projects/{id}/config` + 两个设置键；9 个变异体负向验证全红；真实 `.env` 副本保真演练通过；全量 2949 passed / 覆盖率 92%；缺口 2 条如实登记。 |
+

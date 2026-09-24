@@ -37,6 +37,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from heagent.network.exposure import exposure_warning, is_loopback_host
 from heagent.network.http_console_protocol import (
+    ConfigWriteRequest,
     ConsoleOperationError,
     ProjectRegisterRequest,
     ProjectRenameRequest,
@@ -1122,6 +1123,12 @@ _CONSOLE_ERROR_STATUS: dict[HttpErrorCode, int] = {
     HttpErrorCode.SESSION_UNREADABLE: 409,
     HttpErrorCode.RUN_CONFLICT: 409,
     HttpErrorCode.LOOPBACK_REQUIRED: 403,
+    # 配置写入通道（Story 50-5）：闸门关 / 键只读 → 403；值非法 → 400；指纹冲突 → 409；写失败 → 500。
+    HttpErrorCode.WRITE_DISABLED: 403,
+    HttpErrorCode.FIELD_NOT_WRITABLE: 400,
+    HttpErrorCode.INVALID_VALUE: 400,
+    HttpErrorCode.CONFIG_CONFLICT: 409,
+    HttpErrorCode.CONFIG_WRITE_FAILED: 500,
     # 服务端状态类失败（如注册表内容无法解析 ⇒ 拒绝改写）：显式 500，别落到默认 400。
     HttpErrorCode.SERVER_ERROR: 500,
 }
@@ -1273,10 +1280,13 @@ def _project_source(request: Any) -> str:
 
 
 def _loopback_error(responses: Any, request: Any) -> Any | None:
-    """写操作要求本机回环来源；非回环 → 403 ``loopback_required``（脊柱 §9）。
+    """**写类**操作要求本机回环来源；非回环 → 403 ``loopback_required``（脊柱 §9）。
 
     判定复用 ``network.exposure.is_loopback_host``（含 IPv4 映射形式 ``::ffff:127.0.0.1``）。
     这是 defense-in-depth 而**不是认证**：能连上回环端口的本机进程可以伪造请求头。
+
+    适用面：项目登记 / 重命名 / 移除（Story 50-2）与**配置写入**（Story 50-5 流水线第 2 步——那一步
+    留在传输层，因为网络层不认识 ``Settings``，见 ``heagent.config_write`` 的模块 docstring）。
     """
     client = getattr(request, "client", None)
     host = getattr(client, "host", "") if client is not None else ""
@@ -1285,7 +1295,7 @@ def _loopback_error(responses: Any, request: Any) -> Any | None:
     return _json_error(
         responses,
         HttpErrorCode.LOOPBACK_REQUIRED,
-        "project registration changes require a loopback client",
+        "this change requires a loopback client",
         status_code=403,
     )
 
@@ -1484,11 +1494,14 @@ def _build_session_endpoints(  # noqa: C901 - 六个端点闭包共享同一套�
     )
 
 
-def _build_config_endpoint(responses: Any, console: ConsoleHandler) -> Any:
-    """``GET /api/projects/{id}/config``（Story 50-4）：只读配置面板。
+def _build_config_endpoint(responses: Any, console: ConsoleHandler, config: HttpServerConfig) -> tuple[Any, Any]:
+    """配置面板的两条路由（``GET`` 只读 / ``PUT`` 写入；Story 50-4 + 50-5）。
 
-    网络层只把不透明的项目 id 交给注入的 console，并把稳定错误码映射为状态码；分组、来源求解、
-    凭证掩码一律留在入口层与 :mod:`heagent.config_catalog`（脊柱 I1：网络层不认识配置）。
+    网络层只把不透明的项目 id 与协议模型交给注入的 console，并把稳定错误码映射为状态码；分组、
+    来源求解、白名单、保真写、备份与审计一律留在入口层与顶层模块（脊柱 I1：网络层不认识配置）。
+
+    ``PUT`` 另外要求本机回环来源（流水线第 2 步；非回环时**不触碰** console ⇒ 文件 / 备份 / 审计
+    三者都不会变，AC10）。
     """
 
     async def get_project_config(request: Any) -> Any:
@@ -1498,7 +1511,21 @@ def _build_config_endpoint(responses: Any, console: ConsoleHandler) -> Any:
             return _console_error_response(responses, exc, event="project_config_failed")
         return responses.JSONResponse(result.model_dump(mode="json"))
 
-    return get_project_config
+    async def update_project_config(request: Any) -> Any:
+        """``PUT /api/projects/{id}/config``：白名单内的项目级非凭证配置，fail-closed 写入。"""
+        denied = _loopback_error(responses, request)
+        if denied is not None:
+            return denied
+        parsed, error = await _read_model(request, model=ConfigWriteRequest, config=config, responses=responses)
+        if error is not None:
+            return error
+        try:
+            result = await console.update_project_config(_project_source(request), parsed)
+        except Exception as exc:
+            return _console_error_response(responses, exc, event="project_config_write_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"))
+
+    return get_project_config, update_project_config
 
 
 def build_http_app(
@@ -1597,7 +1624,7 @@ def build_http_app(
             create_project_run,
             session_malformed,
         ) = _build_session_endpoints(responses, console, config)
-        project_config = _build_config_endpoint(responses, console)
+        project_config, project_config_write = _build_config_endpoint(responses, console, config)
         routes.extend(
             [
                 routing.Route(_PROJECTS_PATH, endpoint=list_projects, methods=["GET"]),
@@ -1617,6 +1644,8 @@ def build_http_app(
                 ),
                 routing.Route(_PROJECT_RUNS_PATH, endpoint=create_project_run, methods=["POST"]),
                 routing.Route(_PROJECT_CONFIG_PATH, endpoint=project_config, methods=["GET"]),
+                # 写入通道（Story 50-5）：与 GET 同一路径、不同方法（Starlette 按 method 匹配）。
+                routing.Route(_PROJECT_CONFIG_PATH, endpoint=project_config_write, methods=["PUT"]),
             ]
         )
     routes.append(routing.Route("/{asset}", endpoint=asset, methods=["GET"]))

@@ -73,6 +73,30 @@ class TestDenyRuleBuilders:
         assert str(tmp_path / ".heagent" / "memory") in dirs
         assert str(tmp_path / ".heagent" / "skills") in dirs
 
+    def test_build_internal_state_dirs_covers_all_twelve_for_an_explicit_workspace(self, tmp_path: Path) -> None:
+        """I14（50-1 收紧）：显式工作区下 12 个运行态子目录**全部**读拒，一个都不能少。
+
+        此前只断言 5 个（sessions/ledger/runs/memory/skills）⇒「把 backups / console 移出 deny 集合」
+        这类回退不会被任何测试发现（50-5 的负向验证把它暴露成假绿：备份与审计目录里是**原样配置**，
+        被工具读进上下文等于把写通道自己刚写的凭证一起端出来）。
+        """
+        dirs = build_internal_state_dirs(tmp_path)
+        base = (tmp_path / ".heagent").resolve()
+        assert {Path(path).resolve().relative_to(base).as_posix() for path in dirs} == {
+            "sessions",
+            "ledger",
+            "runs",
+            "skills",
+            "memory",
+            "user",
+            "cron",
+            "checkpoints",
+            "sandboxes",
+            "tmp/edit-snapshots",
+            "console",
+            "backups",
+        }
+
 
 # ── FR-F1 / FR-F2 / FR-F4：check 函数 ──────────────────────────────
 

@@ -401,3 +401,95 @@ def test_http_server_command_wires_the_console_for_project_runs(captured_server:
     runtime = console._runtime_for("default")  # noqa: SLF001 - 接线点本身就是要断言的事实
     assert runtime.executor is not None
     assert Path(str(runtime.sessions._base)) == Path.cwd() / ".heagent" / "sessions"  # noqa: SLF001
+
+
+# ── Story 50-5：写入闸门 / 注册表落点 / 生效语义 ──
+
+
+def test_write_gate_defaults_to_closed(captured_server: dict[str, HttpServer]) -> None:
+    """D4/I12：默认关；网页任何请求都改不到它（它自己不在白名单里）。"""
+    result = CliRunner().invoke(main, ["http-server"])
+
+    assert result.exit_code == 0, result.output
+    console = captured_server["server"].console
+    assert isinstance(console, HttpProjectConsole)
+    assert console.write_enabled is False
+    assert "write channel is ENABLED" not in (result.stderr or "")
+
+
+def test_write_gate_can_be_opened_by_startup_configuration(
+    captured_server: dict[str, HttpServer], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D4：任何**启动**配置渠道都能开（此处用系统环境变量），且启动时必须打高亮告警（stderr + 日志）。"""
+    monkeypatch.setenv("HTTP_CONSOLE_WRITE_ENABLED", "true")
+
+    result = CliRunner().invoke(main, ["http-server"])
+
+    assert result.exit_code == 0, result.output
+    console = captured_server["server"].console
+    assert isinstance(console, HttpProjectConsole)
+    assert console.write_enabled is True
+    assert "config write channel is ENABLED" in (result.stderr or "")
+
+
+def test_console_honours_the_configured_registry_path(
+    captured_server: dict[str, HttpServer], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``HTTP_CONSOLE_PROJECTS_FILE`` 必须真的被接线（否则该键是死的）；缺省仍是启动工作区内那份。"""
+    shared = tmp_path / "shared-projects.json"
+    monkeypatch.setenv("HTTP_CONSOLE_PROJECTS_FILE", str(shared))
+    result = CliRunner().invoke(main, ["http-server"])
+
+    assert result.exit_code == 0, result.output
+    console = captured_server["server"].console
+    assert isinstance(console, HttpProjectConsole)
+    assert Path(str(console.registry._path)) == shared  # noqa: SLF001 - 落点即契约
+
+
+def test_write_channel_applies_on_the_next_run_only(tmp_path: Path) -> None:
+    """T8/I10：写成功后运行时缓存失效 ⇒ **下一次** run 用新快照，在途 run 的旧快照不受影响。
+
+    「在途 run」在实现上就是「已经构造出 ``AgentLoop`` 的那次运行」——loop 在构造期把
+    ``ResolvedRuntimeConfig`` 冻进 ``_runtime``，因此本用例直接钉住两件事：旧 loop 的快照仍是旧值、
+    下一次取到的 handler 已经解析出新值。
+    """
+    import asyncio
+
+    from heagent import envfile
+    from heagent.network.http_console_protocol import ConfigWriteChangeRequest, ConfigWriteRequest
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / ".env").write_bytes(b"MAX_ITERATIONS=5\n")
+    base = HttpAgentHandler(
+        _StubProvider(),
+        get_settings(),
+        workspace_root=tmp_path,
+        session_store=SessionStore(str(tmp_path / "sessions")),
+    )
+    console = HttpProjectConsole(root, handler_factory=base.for_workspace, write_enabled=True, global_env_file=None)
+
+    before = console._runtime_for("default")  # noqa: SLF001 - 运行时切片本身就是要断言的事实
+    assert before.executor is not None
+    running = before.executor.new_loop()  # 在途 run（构造期快照）
+    fingerprint = envfile.fingerprint((root / ".env").read_bytes())
+
+    written = asyncio.run(
+        console.update_project_config(
+            "default",
+            ConfigWriteRequest(
+                changes=[ConfigWriteChangeRequest(key="MAX_ITERATIONS", value="42")],
+                fingerprint=fingerprint,
+            ),
+        )
+    )
+
+    assert written.applied == "next_run"
+    assert console.config_generation("default") == 1
+    after = console._runtime_for("default")  # noqa: SLF001
+    assert after is not before  # 缓存已失效 ⇒ 重新解析
+    assert after.executor is not None and after.executor.settings.max_iterations == 42
+    assert running._runtime.max_iterations == 5  # noqa: SLF001 - 在途 run 继续用旧快照
+    assert before.executor.settings.max_iterations == 5  # 旧 handler 不被就地改写
+    assert written.changes[0].key == "MAX_ITERATIONS" and written.changes[0].value == 42
+    assert written.changes[0].source.value == "project_env"

@@ -74,6 +74,8 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
         "heagent.events",
         "heagent.config",
         "heagent.config_catalog",
+        "heagent.config_write",
+        "heagent.envfile",
         "heagent.projects",
         "heagent.workspace",
         *_ENTRY_LAYER_MODULES,

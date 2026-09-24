@@ -439,6 +439,8 @@ LABELS: dict[str, str] = {
     "bom_prefixed_keys": "存在带 BOM 前缀的键名 ⇒ 这些键不生效（见对应条目）",
     "unknown_keys_truncated": f"未知键过多，只列出前 {MAX_UNKNOWN_KEYS} 条",
     "file_diagnostics_truncated": f"文件级诊断（重复键 / 空值键）过多，只列出前 {MAX_FILE_DIAGNOSTIC_KEYS} 条",
+    # 写入通道（Story 50-5）：写已生效但审计没落盘 —— 必须显式，不能让人误以为「已审计」。
+    "audit_not_recorded": "写入已生效，但审计记录未能落盘（服务端有 ERROR 日志；请检查 console 目录写权限）",
 }
 
 #: 弱校验键的**字段级守卫**（脊柱 §8「开放弱校验键的强制前提」；不改 ``Settings`` 定义）。
@@ -748,6 +750,16 @@ def _system_layer() -> dict[str, str | None]:
     except Exception as exc:  # noqa: BLE001 - 同上
         logger.warning("system environment layer is unusable: %s", exc)
         return {}
+
+
+def system_env_keys() -> frozenset[str]:
+    """当前进程环境里**提供了值**的字段名集合（小写字段名）。
+
+    单一求解器：与 :func:`_solve` 的 ``system_env`` 层同一实现。写通道用它与面板的 ``writable=false``
+    同源判定（脊柱 §8 第 3 步 / AC12）——系统环境变量优先级高于 ``.env``，因此写进 ``.env`` 的值
+    当下**不生效**（实测：候选文件里的同名值根本不会被解析），必须拒绝而不是「写个日后生效的坏值」。
+    """
+    return frozenset(_system_layer())
 
 
 def _solve(global_file: Path | None, project_file: Path) -> _Solved:
@@ -1095,5 +1107,6 @@ __all__ = [
     "is_secret_key",
     "routing_report",
     "scan_env_file",
+    "system_env_keys",
     "whitelist",
 ]

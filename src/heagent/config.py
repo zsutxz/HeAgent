@@ -383,6 +383,16 @@ class Settings(BaseSettings):
     http_idle_timeout: float = Field(default=300.0, ge=0, allow_inf_nan=False)
     # 服务关闭时「停止接收 → 终结在途 run → 关闭订阅 → 关闭 listener」全程的等待上限（秒）。
     http_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+    # ---- 网页控制台的配置写入通道（Epic 50 Story 50-5） ----
+    # **默认关**（I12）：关闭时配置面全只读，且**网页无法通过任何请求打开它**——它不在白名单里
+    # （配置目录把它列进「控制台自身」排除组），写入通道因此改不到自己。
+    # 开启渠道 = 任何**启动**配置（系统环境变量 / 项目 .env / 全局 .env）；开启时入口层会在 stderr
+    # 与日志打一条高亮告警：任何能连上该端口的人都能改项目 .env。写通道本身**不是安全边界**
+    # （沿用 Epic 49 的立场：无认证、无 TLS）。
+    http_console_write_enabled: bool = False
+    # 项目注册表落点覆盖（缺省 = `<服务启动工作区>/.heagent/console/projects.json`，见脊柱 §4）。
+    # 需要机器级共享时显式指向 `~/.heagent/projects.json`；缺省**不写用户 home**。
+    http_console_projects_file: str | None = None
 
     @property
     def openai_key_pool(self) -> list[str]:

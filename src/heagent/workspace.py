@@ -72,6 +72,11 @@ class WorkspacePaths(BaseModel):
         return self.state_dir / "console"
 
     @property
+    def env_file(self) -> Path:
+        """项目级 ``.env`` —— 配置写入通道**唯一**的目的地（I4：全局 ``~/.heagent/.env`` 永久只读）。"""
+        return self.root / ".env"
+
+    @property
     def config_backups(self) -> Path:
         return self.state_dir / "backups"
 

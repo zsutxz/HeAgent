@@ -307,6 +307,52 @@ def _write_temp_text(path: Path, text: str) -> Path:
     return tmp
 
 
+def _write_temp_bytes(path: Path, data: bytes) -> Path:
+    """Write bytes to a unique temporary sibling so concurrent writers cannot alias it."""
+    fd, raw_tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    tmp = Path(raw_tmp)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(data)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+    return tmp
+
+
+def _inherit_mode(tmp: Path, path: Path) -> None:
+    """让临时文件继承目标文件的权限位（**仅**字节级原语用）。
+
+    ``tempfile.mkstemp`` 建出来的是 ``0600``，而 ``os.replace`` 会用新 inode 顶掉旧文件 ⇒ 若不
+    处理，一次原子写就会把用户原本的 ``0644`` 悄悄改成 ``0600``（权限面漂移）。POSIX 上按
+    ``stat.S_IMODE`` 位复制；Windows 上 ``os.chmod`` 只能切只读位、真正的 ACL 随目录继承（同目录
+    临时文件因此天然继承同一 ACL），故此处无害。
+    """
+    try:
+        mode = path.stat().st_mode
+    except OSError:
+        return
+    try:
+        os.chmod(tmp, mode & 0o7777)
+    except OSError:
+        logger.debug("Cannot inherit permissions of %s", path, exc_info=True)
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """原子写**字节**：同目录临时文件 → ``os.replace``（语义与 :func:`atomic_write_text` 同）。
+
+    存在的理由是保真：文本模式会做行尾翻译（``\n`` ↔ ``os.linesep``），而「未修改行的字节不变」
+    这类断言只能建立在字节读写之上。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = _write_temp_bytes(path, data)
+    try:
+        _inherit_mode(tmp, path)
+        _replace_with_retry(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
 # ── 公开 API ─────────────────────────────────────────────────────
 
 
@@ -388,6 +434,67 @@ def atomic_update_text(path: Path, update: Callable[[str], tuple[str, R]], *, lo
             _release_lock(lock_fd)
         finally:
             os.close(lock_fd)
+
+
+def atomic_update_bytes(
+    path: Path,
+    update: Callable[[bytes | None], tuple[bytes, R]],
+    *,
+    verify: Callable[[bytes], None] | None = None,
+    lock_timeout: float = 5.0,
+) -> R:
+    """Read, update, verify, and replace a **binary** file while holding one cross-process lock.
+
+    与 :func:`atomic_update_text` 的三点差异都是「保真写」的硬需求，不是风格选择：
+
+    1. **字节**进出：文本模式会做行尾翻译（``\\n`` ↔ ``os.linesep``），CRLF 的 ``.env`` 在 POSIX 上
+       会被改写成 LF、纯 LF 文件在 Windows 上会被改写成 CRLF ⇒ 「未修改行的字节不变」不可能建立在
+       会被翻译的读写之上。
+    2. ``update`` 收到 ``None`` 表示**文件不存在**（文本版把它折叠成 ``""``，因而无法表达
+       「客户端声明文件不存在」这类指纹判据）。
+    3. ``verify`` 在**释放锁之前**收到刚写入的字节（可自行重新读盘做回读校验）；它抛错时刚写入的
+       内容会被**还原**（文件原本不存在则删除）再把异常原样抛出。回读若放在解锁之后，与他人写入
+       的竞态会把「回滚」变成「覆盖对方的修改」——把校验收进同一把锁是这一条的根因修复。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(path.name + ".lock")
+    lock_fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    try:
+        _acquire_lock(lock_fd, lock_timeout)
+        try:
+            current = path.read_bytes()
+        except FileNotFoundError:
+            current = None
+        replacement, result = update(current)
+        tmp = _write_temp_bytes(path, replacement)
+        try:
+            _inherit_mode(tmp, path)
+            _replace_with_retry(tmp, path)
+        finally:
+            tmp.unlink(missing_ok=True)
+        if verify is not None:
+            try:
+                verify(replacement)
+            except BaseException:
+                try:
+                    _restore_bytes(path, current)
+                except OSError as restore_exc:
+                    logger.error("Rollback failed for %s: %s", path, restore_exc)
+                raise
+        return result
+    finally:
+        try:
+            _release_lock(lock_fd)
+        finally:
+            os.close(lock_fd)
+
+
+def _restore_bytes(path: Path, previous: bytes | None) -> None:
+    """还原 ``atomic_update_bytes`` 刚写下的内容：有原内容则原子写回，原本不存在则删除。"""
+    if previous is None:
+        path.unlink(missing_ok=True)
+        return
+    atomic_write_bytes(path, previous)
 
 
 @asynccontextmanager

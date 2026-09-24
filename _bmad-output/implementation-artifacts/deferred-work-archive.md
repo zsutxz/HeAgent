@@ -5,7 +5,7 @@
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
 > ② **勘察类闭合归档**（source_spec 为勘察批次、无归属 epic）。
 
-## 活动（未闭合）条目——11 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10/Z-D11；2026-09-23 代码评审新增 1 条，同日以 fail-soft 闭合 → Z-D12；2026-09-24 Epic 50 规划评审新增 1 条——跨项目并发无全局上限（D9 采纳后的已知缺口），**计划期登记，待 Epic 50 实现后复核**；2026-09-24 Epic 50 收口评审新增 3 条（运行时归因与兜底族 / 控制台阻塞 I/O 与会话列表成本 / 非回环运行姿态**待裁决**），评审报告见 `_bmad-output/epics/epic-50-网页控制台周期/reviews/review-epic-50-implementation.md`）
+## 活动（未闭合）条目——13 条（2026-09-17 自活动台账迁入 6 条，2026-09-18 闭合 2 条 → Z-D8/Z-D9；2026-09-22 架构优化周期新增 2 条 → A7/A8；2026-09-23 Epic 48 收口新增 3 条，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」同日随可观测性与日志卫生批次闭合 → Z-D10/Z-D11；2026-09-23 代码评审新增 1 条，同日以 fail-soft 闭合 → Z-D12；2026-09-24 Epic 50 规划评审新增 1 条——跨项目并发无全局上限（D9 采纳后的已知缺口），**计划期登记，待 Epic 50 实现后复核**；2026-09-24 Epic 50 收口评审新增 3 条（运行时归因与兜底族 / 控制台阻塞 I/O 与会话列表成本 / 非回环运行姿态**待裁决**），评审报告见 `_bmad-output/epics/epic-50-网页控制台周期/reviews/review-epic-50-implementation.md`；2026-09-24 Story 50-5 实现新增 2 条——写通道可把无上界的「资源旋钮」键设成极端值 / 审计文件无保留期上限）
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
@@ -76,7 +76,16 @@
   evidence: `src/heagent/network/http_server.py:1320`（register 有 `_loopback_error`）vs `:1332`/`:1400`/`:1420`/`:1433`/`:1447`（rename / create_session / rename_session / delete_session / create_project_run 均无）；`src/heagent/cli.py:226`（`cron_store = JobStore(...) if config.cron_enabled else None`）+ `:275`（传给 loop）+ `src/heagent/agent/loop.py:686`（`stack.enter_context(bind_cron_tools(self.cron_store))`）；`src/heagent/cli_http.py:292-310`（`enable_cron=False` 与不可达的 scheduler 守卫）。
   Progress（2026-09-24 登记，**blocked 待人裁决**）：① 属「设计姿态」选择（49 已如此），② 的修法有两条互斥路径——「网页运行一律不绑 cron 工具（连写都不允许）」或「允许写但明确标注任务不执行」；两条都改变可观察行为，非评审可单方决定，故按契约标 `blocked` 交人裁决，未擅自改。
 
----
+- source_spec: 2026-09-24 Story 50-5 实现（网页控制台配置写入通道）
+  summary: **写通道可把「资源旋钮」键设成无界值**：`MAX_ITERATIONS` / `GOAL_MAX_ITERATIONS` / `SUBAGENT_MAX_ITERATIONS` / `MAX_OUTPUT_TOKENS` / `MAX_CONTEXT_TOKENS` 在 `Settings` 里只有下界（`ge=1`），而 D3 的守卫清单只收了 `LOG_LEVEL` / `LOG_FILE_LEVEL` / `RETRY_*`（那 5 个是**已验证**会让进程挂死 / 无限重试的键）⇒ 白名单内的写入可以把它们设成 `10^9`（一次 run 的迭代 / 输出 / 上下文预算被拉到不可完成）。触发条件：写闸门被开启（`HTTP_CONSOLE_WRITE_ENABLED=true`）+ 任意回环客户端（或未来对非回环开放）；严重度：低（本机资源旋钮，且闸门默认关、只写项目 `.env`、有备份与审计）；冻结边界：修法只能是**补 `config_catalog.VALUE_GUARDS` 上界**（与面板同一常量、只读侧展示同一守卫），不得改 `Settings` 的字段定义语义（那会改变既有配置文件的可加载性），也不得把它表述为安全边界。
+  evidence: `src/heagent/config_catalog.py`（`VALUE_GUARDS` 只有 6 个键）；`src/heagent/config.py:121/122/126/129/154/158/159`（`ge=1` 且无上界）；`src/heagent/config_write.py::guard_reason`（守卫就是闸门——缺守卫即候选构造放行）；Story 50-5 的 T9 参数化用例删掉了原计划里的「`MAX_ITERATIONS=100000` 必须被拒」（实测无上界，断言不成立）。
+  Progress（2026-09-24 登记，**未修**）：实现期实测发现；补上界会同时改变面板展示的 `guards`，需与 50-6 的 UI 提示口径一起过一遍，故未在 50-5 内顺手加。
+  Progress（2026-09-24 补充，50-6 侧口径已就位）：面板的取值提示完全由后端 `guards` 派生（`app.js::guardHint`——enum 列可选值、range 显示上下界、`allow_empty` 显示「空 = 回退」），前端**不硬编码**任何键名或边界 ⇒ 日后补 `VALUE_GUARDS` 上界时 UI 自动跟随，无需同步改前端；探针用例 `test_enum_guard_renders_a_select_with_the_allowed_values` 与验收清单 A11 钉住了「提示来自后端」这一口径。
+
+- source_spec: 2026-09-24 Story 50-5 实现（网页控制台配置写入通道）
+  summary: **审计文件无保留期 / 条数上限**：`<项目>/.heagent/console/audit.jsonl` 每次成功写入追加一行（约 300 B），只有 `append_audit` 的「失败不阻断已成功的写」语义，没有任何回收；对照之下备份目录有 `MAX_CONFIG_BACKUPS=50` + 30 天保留期。触发条件：回环客户端反复成功写入 × 长时间运行；严重度：低-中（审计资产反噬磁盘）；冻结边界：回收必须**按后缀筛 `.jsonl`**——`console_dir` 同目录还住着 `projects.json`（项目注册表），套用通用 mtime 回收会连注册表一起删掉（该目录已在内部状态读拒集合内，误删不会有读取报错兜底）。
+  evidence: `src/heagent/config_write.py::append_audit`（只 append、无 prune）；`src/heagent/envfile.py::prune_backups`（备份侧上限的对照实现）；`src/heagent/workspace.py::console_dir`（审计与 `projects.json` 同目录）；`src/heagent/projects.py::default_project_registry`（注册表落点）。
+  Progress（2026-09-24 登记，**未修**）：修法 = 复用 `persist.scan_dir` / `delete_entries` 做「`.jsonl` 后缀 + 条数上限」的专用回收（与 `prune_backups` 同款内核）；本次未做（story 的 T2 只要求备份侧有上限）。
 
 ## 勘察类闭合归档
 
