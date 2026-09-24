@@ -28,6 +28,7 @@ from heagent.tools.path_safety import (
     check_read_denied,
     check_write_denied,
     resolve_workspace_path,
+    workspace_root,
 )
 
 if TYPE_CHECKING:
@@ -94,7 +95,7 @@ async def file_read(
     """
     try:
         resolved = resolve_workspace_path(path)
-        denied = check_read_denied(path)
+        denied = check_read_denied(path, workspace_root())
         if denied is not None:
             return f"Error: {denied}"
         if not resolved.exists():

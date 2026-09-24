@@ -1,7 +1,8 @@
 ---
 id: 50-2
 title: 项目注册表与项目 API
-status: ready-for-dev
+status: review
+baseline_commit: 33adba02c0dd80fcfd506c9716b0651b994f90a1
 parent_epic: E50
 priority: P0
 phase: B（项目与会话闭环）
@@ -58,29 +59,29 @@ created: '2026-09-23'
 
 ## 任务（细分）
 
-- [ ] **T1** `projects.py`：`ProjectEntry`（`id` / `name` / `path` / `available` / `last_opened_at` / `is_default`）
+- [x] **T1** `projects.py`：`ProjectEntry`（`id` / `name` / `path` / `available` / `last_opened_at` / `is_default`）
       与 `ProjectRegistry`（`load` / `list` / `register` / `rename` / `remove` / `touch`），全部经
       `persist.atomic_update_text` 落盘（跨进程锁贯穿读改写）。
-- [ ] **T2** 路径身份：`normalize_project_path()`（`expanduser` → `resolve` → 去尾分隔符）+
+- [x] **T2** 路径身份：`normalize_project_path()`（`expanduser` → `resolve` → 去尾分隔符）+
       `project_id_for(path)`（`"p" + sha256(normcase(path))[:8]`）；**重复登记必须返回既有条目**（不是新建）。
-- [ ] **T3** 默认项目：`id="default"`、不落盘、`remove` 抛 `project_not_removable`；作为既有端点的语义锚点。
-- [ ] **T4** 上限与失效：条目上限常数（**D5：32**，写进常量与测试）；`available` 在**列表时**由
+- [x] **T3** 默认项目：`id="default"`、不落盘、`remove` 抛 `project_not_removable`；作为既有端点的语义锚点。
+- [x] **T4** 上限与失效：条目上限常数（**D5：32**，写进常量与测试）；`available` 在**列表时**由
       `is_dir()` 实时判定（不在落盘数据里缓存，避免陈旧）；`available=false` 的条目在列表里保留。
       **另有界（评审 F10，NFR-11）**：显示名长度上限（如 64 字符）与路径长度上限（如 4096 字符）须显式校验并
       给出稳定错误——否则注册表可被超长输入撑大，且超长名称会原样进 UI。
       **与并发的关系（D9）**：项目数上限 **32** 同时是在途运行上限的乘数（32 × `HTTP_MAX_INFLIGHT_RUNS`）
       ⇒ 该常数不是纯 UI 限制，改动它等于改整体资源上限，必须同时更新脊柱 §6 与文档。
-- [ ] **T5** `network/http_console_protocol.py`：`ConsoleHandler` Protocol（`list_projects` / `register_project` /
+- [x] **T5** `network/http_console_protocol.py`：`ConsoleHandler` Protocol（`list_projects` / `register_project` /
       `rename_project` / `remove_project`）+ 请求/响应 Pydantic 模型（`extra="forbid"`）+ 有界字段长度。
-- [ ] **T6** `http_server.py`：`build_http_app(..., console=None)` 与 4 条路由；错误信封与安全头复用 49-5 的中间件；
+- [x] **T6** `http_server.py`：`build_http_app(..., console=None)` 与 4 条路由；错误信封与安全头复用 49-5 的中间件；
       非回环来源的项目**登记/移除**按脊柱 §9 要求回环（与 50-5 共用同一个来源判定）。
-- [ ] **T7** `HttpErrorCode` 新增：`unknown_project` / `invalid_project_path` / `project_unavailable` /
+- [x] **T7** `HttpErrorCode` 新增：`unknown_project` / `invalid_project_path` / `project_unavailable` /
       `project_not_removable` / `project_busy` / `project_limit_reached`（闭集扩展；同步 `__all__` 与文档）。
-- [ ] **T8** 在途运行保护：`DELETE /api/projects/{id}` 在项目有在途 run 时 → `project_busy`
+- [x] **T8** 在途运行保护：`DELETE /api/projects/{id}` 在项目有在途 run 时 → `project_busy`
       （依赖 50-3 的全局 run 索引；本 story 先接**注入的**查询协议，索引由 50-3 提供）。
-- [ ] **T9** 测试：登记 / 重复登记（四种写法归一）/ 非目录 / 不存在 / 失效目录 / 重命名 / 移除保留数据 /
+- [x] **T9** 测试：登记 / 重复登记（四种写法归一）/ 非目录 / 不存在 / 失效目录 / 重命名 / 移除保留数据 /
       损坏注册表 fail-soft / 上限 / 默认项目不可移除 / `console=None` 时不注册路由 / network 层依赖面。
-- [ ] **T10** 负向验证：去掉 `normcase` 比较、去掉「只登记已存在目录」校验、把「移除」实现成删目录、
+- [x] **T10** 负向验证：去掉 `normcase` 比较、去掉「只登记已存在目录」校验、把「移除」实现成删目录、
       去掉上限——对应测试逐条变红后复原。
 
 ## 验收标准
@@ -148,3 +149,34 @@ ruff check src tests && mypy src && mypy src --platform linux
 ## Requirement Traceability
 
 FR-2；NFR-1, NFR-5, NFR-8, NFR-11；UX-DR3, UX-DR5；脊柱 I1, I2, I13, I14；brief §4 FR-2、§6.4、§7 D3。
+
+## Dev Agent Record
+
+### Implementation Plan
+
+- Build a root-level project registry using atomic read-modify-write persistence.
+- Keep network transport dependent only on Pydantic protocol models and an injected console handler.
+- Preserve the default project as an implicit entry and reserve project capacity for it.
+
+### Completion Notes
+
+- Added project registration, canonical path identity, availability checks, bounded names and paths, atomic registry updates, and non-destructive removal.
+- Added conditional project API routes with stable errors, loopback gating for registration/removal, confirmation, and injected busy-run protection.
+- Added registry, protocol, and ASGI route tests. Targeted validation passed: 110 passed, 1 skipped. Ruff, format checks, and mypy on Windows/Linux passed.
+- Full regression passed after final wiring: 2587 passed, 10 skipped, 18 deselected, 8 existing warnings.
+
+### File List
+
+- src/heagent/projects.py
+- src/heagent/network/http_console_protocol.py
+- src/heagent/network/http_protocol.py
+- src/heagent/network/http_server.py
+- src/heagent/cli_http.py
+- tests/test_projects.py
+- tests/network/test_http_console_projects.py
+- tests/network/test_http_protocol.py
+- docs/frame.md
+
+### Change Log
+
+- 2026-09-24: Implemented project registry and injected project API routes.

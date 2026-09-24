@@ -29,6 +29,7 @@ from heagent.engine.observability import EventBus, LoggingObserver
 from heagent.engine.policy import PolicyEngine
 from heagent.engine.store import RunStore
 from heagent.types import SandboxDecision
+from heagent.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -199,6 +200,10 @@ class EngineContainer:
             sandbox_session_keep=sandbox_session_keep,
         )
         workspace_root = settings.workspace_root
+        paths = WorkspacePaths.from_root(workspace_root) if workspace_root is not None else None
+        if paths is not None:
+            workspace_root = str(paths.root)
+            settings = resolve_runtime_config(settings, workspace_root=workspace_root)
         backend = settings.sandbox_backend
         backend = backend.strip().lower()
         if backend == "auto":
@@ -241,6 +246,8 @@ class EngineContainer:
         # 故不会无限累积——但前提是 retention 未被禁用（0）。
         container = cls(
             workspace_root=workspace_root,
+            run_store=RunStore(base_dir=str(paths.runs)) if paths is not None else RunStore(),
+            ledger=ExecutionLedger(base_dir=str(paths.ledger)) if paths is not None else ExecutionLedger(),
             command_runner=command_runner,
             enable_file_locks=True,
             sandbox_session_workspace=sandbox_session_workspace,

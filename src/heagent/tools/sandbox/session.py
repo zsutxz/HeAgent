@@ -36,7 +36,9 @@ def sandbox_sessions_root(workspace: Path | None = None) -> Path:
     注意与 ``sandbox_session_dir(base=...)`` 的区别：后者的 ``base`` 是**整个根**的替代
     （测试注入通道，不再追加 ``.heagent/sandboxes``），本函数才是「工作区 → 约定根」的映射。
     """
-    return (workspace if workspace is not None else Path.cwd()) / ".heagent" / "sandboxes"
+    from heagent.workspace import WorkspacePaths
+
+    return WorkspacePaths.from_root(workspace if workspace is not None else Path.cwd()).sandboxes
 
 
 def sandbox_session_dir(run_id: str, *, base: Path | None = None) -> Path:

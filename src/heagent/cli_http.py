@@ -24,6 +24,7 @@ import contextlib
 import logging
 import math
 import os
+from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -34,6 +35,13 @@ from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.memory.skills import SkillStore
 from heagent.network.exposure import exposure_warning
+from heagent.network.http_console_protocol import (
+    ConsoleOperationError,
+    ProjectEntryResponse,
+    ProjectListResponse,
+    ProjectRegisterRequest,
+    ProjectRenameRequest,
+)
 from heagent.network.http_protocol import HttpUsage, RunOutcome
 from heagent.network.http_server import (
     HttpDependencyError,
@@ -43,8 +51,10 @@ from heagent.network.http_server import (
     HttpStartupError,
     RunEventPublisher,
 )
+from heagent.projects import ProjectRegistryError, default_project_registry
 from heagent.safe_logging import safe_log
 from heagent.wiring import _build_provider
+from heagent.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
@@ -194,10 +204,13 @@ class HttpAgentHandler:
         self.max_iterations = max_iterations
         self.sandbox_backend = sandbox_backend
         # 网络入口不装审批处理器（见类 docstring）；engine 可注入（测试）但默认自建。
-        self.engine = engine or EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
-        self.skills = SkillStore()
-        self.facts = FactStore()
-        self.profile = ProfileStore()
+        paths = WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd())
+        self.engine = engine or EngineContainer.default(
+            workspace_root=str(paths.root), sandbox_backend=sandbox_backend, settings=settings
+        )
+        self.skills = SkillStore(str(paths.skills))
+        self.facts = FactStore(str(paths.memory_file))
+        self.profile = ProfileStore(str(paths.profile_file))
         self.soul = _build_soul(soul_path)
 
     def new_loop(self) -> AgentLoop:
@@ -240,6 +253,42 @@ class HttpAgentHandler:
             model=_resolve_model(loop),
             usage=_to_http_usage(loop.last_usage),
         )
+
+
+class HttpProjectConsole:
+    """Entry-layer adapter that exposes the workspace project registry to HTTP."""
+
+    def __init__(self, workspace: Path, *, projects_file: str | None = None) -> None:
+        self.registry = default_project_registry(workspace, projects_file)
+        self._busy: set[str] = set()
+
+    async def list_projects(self) -> ProjectListResponse:
+        return ProjectListResponse(
+            projects=[ProjectEntryResponse(**entry.model_dump()) for entry in self.registry.list()]
+        )
+
+    async def register_project(self, request: ProjectRegisterRequest) -> ProjectEntryResponse:
+        try:
+            entry = self.registry.register(request.path, request.name)
+        except ProjectRegistryError as exc:
+            raise ConsoleOperationError(exc.code, str(exc)) from exc
+        return ProjectEntryResponse(**entry.model_dump())
+
+    async def rename_project(self, project_id: str, request: ProjectRenameRequest) -> ProjectEntryResponse:
+        try:
+            entry = self.registry.rename(project_id, request.name)
+        except ProjectRegistryError as exc:
+            raise ConsoleOperationError(exc.code, str(exc)) from exc
+        return ProjectEntryResponse(**entry.model_dump())
+
+    async def project_has_inflight_run(self, project_id: str) -> bool:
+        return project_id in self._busy
+
+    async def remove_project(self, project_id: str) -> None:
+        try:
+            self.registry.remove(project_id)
+        except ProjectRegistryError as exc:
+            raise ConsoleOperationError(exc.code, str(exc)) from exc
 
 
 class EmbeddedHttpService:
@@ -337,7 +386,9 @@ def build_http_service(settings: Settings, *, executor: Any | None = None) -> Em
     """
     config = build_server_config(settings)
     run_service = HttpRunService(config, executor) if executor is not None else None
-    return EmbeddedHttpService(HttpServer(config, version=_current_version(), run_service=run_service))
+    workspace = WorkspacePaths.from_root(getattr(settings, "workspace_root", None) or os.getcwd())
+    console = HttpProjectConsole(workspace.root)
+    return EmbeddedHttpService(HttpServer(config, version=_current_version(), run_service=run_service, console=console))
 
 
 def embedded_http_error_message(exc: BaseException) -> str | None:
@@ -466,7 +517,14 @@ def http_server_cmd(
         sandbox_backend=sandbox,
         soul_path=soul,
     )
-    server = HttpServer(config, version=_current_version(), run_service=HttpRunService(config, handler))
+    workspace = WorkspacePaths.from_root(os.getcwd())
+    console = HttpProjectConsole(workspace.root)
+    server = HttpServer(
+        config,
+        version=_current_version(),
+        run_service=HttpRunService(config, handler),
+        console=console,
+    )
     # 非回环绑定：启动前先向 stderr 打印一次明确告警（无认证 / 无 TLS / 非生产安全边界）。
     # 判定与文案来自 ``network.exposure``——与 ``HttpServer.start()`` 的 ``event=exposed`` 同源。
     warning = exposure_warning(config.host)

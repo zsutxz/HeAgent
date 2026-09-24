@@ -226,7 +226,9 @@ async def run_housekeeping(
         logger.warning("log retention cleanup failed", exc_info=True)
 
     try:
-        session_store = SessionStore(str(root / ".heagent" / "sessions"))
+        from heagent.workspace import WorkspacePaths
+
+        session_store = SessionStore(str(WorkspacePaths.from_root(root).sessions))
         targets["sessions"] = await session_store.prune(conf.session_retention_days, min_interval_seconds=interval)
     except Exception:
         logger.warning("session retention cleanup failed", exc_info=True)

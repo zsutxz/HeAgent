@@ -7,6 +7,7 @@ AgentBridge / GuiState / HeAgentApp + 全部 Stores + 事件观察者，然后�
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 import heagent.tools.builtins  # noqa: F401 — 触发 @tool 注册
 
@@ -25,8 +26,10 @@ def gui_main(
     from heagent.gui.bridge import AgentBridge
     from heagent.gui.observers import GuiEventObserver
     from heagent.gui.state import GuiState
+    from heagent.workspace import WorkspacePaths
 
     # Phase 1：组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
+    paths = WorkspacePaths.from_root(Path.cwd())
     config = resolve_runtime_config()
 
     # ── Provider ────────────────────────────────────────────
@@ -41,13 +44,13 @@ def gui_main(
     from heagent.memory.profile import ProfileStore
     from heagent.memory.skills import SkillStore
 
-    skill_store = SkillStore()
+    skill_store = SkillStore(str(paths.skills))
     # Phase 2 C3（与 CLI 语义统一）：cron 关闭时不创建 JobStore——主 loop 的
     # cron_store 为 None，cron 工具不激活（此前 GUI 无条件创建，cron 关闭时工具
     # 仍可见但无调度器驱动，属装配漂移；经用户确认统一到 CLI 语义）。
-    job_store = JobStore() if config.cron_enabled else None
-    fact_store = FactStore()
-    profile_store = ProfileStore()
+    job_store = JobStore(str(paths.cron_file)) if config.cron_enabled else None
+    fact_store = FactStore(str(paths.memory_file))
+    profile_store = ProfileStore(str(paths.profile_file))
 
     # ── AgentLoop ───────────────────────────────────────────
     from heagent.agent.loop import AgentLoop

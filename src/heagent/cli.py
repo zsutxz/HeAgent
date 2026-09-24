@@ -52,6 +52,7 @@ from heagent.terminal import KeyInterruptMonitor
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
 from heagent.tools.registry import ToolRegistry
 from heagent.wiring import _build_provider, build_cron_job_runner, ensure_runtime_config
+from heagent.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Coroutine
@@ -208,15 +209,19 @@ def _build_loop(
     后台调度器（如 DreamScheduler）共享同一份存储实例；缺省时各自新建。
     """
     # Phase 1：组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
-    config = resolve_runtime_config(settings)
-    skills = skills or SkillStore()
-    facts = facts or FactStore()
-    profile = profile or ProfileStore()
+    config = ensure_runtime_config(engine) if engine is not None else resolve_runtime_config(settings)
+    paths = WorkspacePaths.from_root(
+        (engine.workspace_root if engine else None) or config.workspace_root or os.getcwd()
+    )
+    config = resolve_runtime_config(config, workspace_root=str(paths.root))
+    skills = skills or SkillStore(str(paths.skills))
+    facts = facts or FactStore(str(paths.memory_file))
+    profile = profile or ProfileStore(str(paths.profile_file))
     soul = soul or _build_soul(soul_path)
-    cron_store = JobStore() if config.cron_enabled else None
+    cron_store = JobStore(str(paths.cron_file)) if config.cron_enabled else None
     compressor, window_reset = _build_context_strategy(config, provider)
     engine = engine or EngineContainer.default(
-        workspace_root=os.getcwd(), sandbox_backend=sandbox_backend, runtime_config=config
+        workspace_root=str(paths.root), sandbox_backend=sandbox_backend, runtime_config=config
     )
     config = ensure_runtime_config(engine)
     retry_mw = make_retry_middleware(
@@ -240,7 +245,7 @@ def _build_loop(
             retry_mw=retry_mw,
             compressor=compressor,
             window_reset=window_reset,
-            context_dir=os.getcwd(),
+            context_dir=str(paths.root),
             subagent_announcer=SUBAGENT_ANNOUNCER,
         )
         scheduler = CronScheduler(
@@ -260,7 +265,7 @@ def _build_loop(
         session=session,
         compressor=compressor,
         window_reset=window_reset,
-        context_dir=os.getcwd(),
+        context_dir=str(paths.root),
         soul=soul,
         cron_store=cron_store,
         engine=engine,
@@ -310,7 +315,7 @@ def _prepare_engine(
     「容器已进只读档、提示词却没说」这类静默不一致。
     """
     engine = EngineContainer.default(
-        workspace_root=os.getcwd(),
+        workspace_root=str(WorkspacePaths.from_root(os.getcwd()).root),
         sandbox_backend=sandbox_backend,
         sandbox_session_workspace=sandbox_session_workspace,
         sandbox_session_keep=sandbox_session_keep,
@@ -457,7 +462,7 @@ def _build_dream_scheduler(
     from heagent.memory.dream import DreamResult, DreamScheduler  # noqa: PLC0415
     from heagent.roles import get_role  # noqa: PLC0415
 
-    context_dir = os.getcwd()
+    context_dir = str(WorkspacePaths.from_root(os.getcwd()).root)
     role = get_role("dreamer")
     max_iterations = settings.dream_max_iterations
 
@@ -557,13 +562,14 @@ async def _run_chat(
 
     async with _embedded_http_service(settings, provider) as http, mcp_ctx or contextlib.nullcontext() as mcp_manager:
         _report_mcp_discovery_failures(mcp_manager)
-        session = SessionStore()
+        paths = WorkspacePaths.from_root(os.getcwd())
+        session = SessionStore(str(paths.sessions))
         # 会话复用（Epic 30）：--resume 指定 / --continue 最近 / 否则新建。
         session_id = _resolve_session_id(session, continue_session=continue_session, resume_session=resume_session)
         # 预构建记忆存储，与 DreamScheduler 共享同一份实例（dream 回写即主 loop 可见）。
-        skills = SkillStore()
-        facts = FactStore()
-        profile = ProfileStore()
+        skills = SkillStore(str(paths.skills))
+        facts = FactStore(str(paths.memory_file))
+        profile = ProfileStore(str(paths.profile_file))
         soul = _build_soul(soul_path)
         loop, scheduler = _build_loop(
             settings,

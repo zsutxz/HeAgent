@@ -36,6 +36,11 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from heagent.network.exposure import exposure_warning, is_loopback_host
+from heagent.network.http_console_protocol import (
+    ConsoleOperationError,
+    ProjectRegisterRequest,
+    ProjectRenameRequest,
+)
 from heagent.network.http_protocol import (
     GENERIC_ERROR_MESSAGE,
     MAX_REQUEST_BYTES_FOR_MAX_PROMPT,
@@ -62,6 +67,8 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, MutableMapping
 
     from starlette.types import ASGIApp, Receive, Scope, Send
+
+    from heagent.network.http_console_protocol import ConsoleHandler
 
     # 入口层交回的可调用对象：把 prompt 跑成 Agent 运行，并通过 publisher 推事件。
     #
@@ -104,6 +111,8 @@ _RUNS_PATH = "/api/runs"
 _RUN_DETAIL_PATH = "/api/runs/{run_id}"
 _RUN_EVENTS_PATH = "/api/runs/{run_id}/events"
 _SESSION_PATH = "/api/session"
+_PROJECTS_PATH = "/api/projects"
+_PROJECT_PATH = "/api/projects/{project_id}"
 
 # 通配绑定地址：就绪探测改走回环（见 :func:`_probe_host`）。这里**只识别**，不在此绑定。
 _WILDCARD_HOSTS = frozenset({"", "0.0.0.0", "*"})  # noqa: S104 - 识别通配地址，非绑定
@@ -1009,12 +1018,130 @@ def _build_run_endpoints(
     return create_run, run_events, cancel_run, session
 
 
-def build_http_app(config: HttpServerConfig, *, version: str, run_service: HttpRunService | None = None) -> ASGIApp:
+def _build_console_endpoints(  # noqa: C901
+    responses: Any, console: ConsoleHandler, config: HttpServerConfig
+) -> tuple[Any, ...]:
+    """Construct project endpoints around the injected entry-layer handler."""
+
+    def failure(exc: BaseException) -> Any:
+        if isinstance(exc, ConsoleOperationError):
+            code = HttpErrorCode(exc.code)
+            statuses = {
+                HttpErrorCode.INVALID_PROJECT_PATH: 400,
+                HttpErrorCode.UNKNOWN_PROJECT: 404,
+                HttpErrorCode.PROJECT_UNAVAILABLE: 409,
+                HttpErrorCode.PROJECT_NOT_REMOVABLE: 409,
+                HttpErrorCode.PROJECT_BUSY: 409,
+                HttpErrorCode.PROJECT_LIMIT_REACHED: 409,
+                HttpErrorCode.CONFIRM_REQUIRED: 400,
+                HttpErrorCode.LOOPBACK_REQUIRED: 403,
+            }
+            return _json_error(responses, code, str(exc), status_code=statuses.get(code, 400))
+        _safe_log(logging.ERROR, "HTTP console handler failed", exc_info=True)
+        return _json_error(responses, HttpErrorCode.SERVER_ERROR, "request failed", status_code=500)
+
+    def loopback_error(request: Any) -> Any | None:
+        client = getattr(request, "client", None)
+        host = getattr(client, "host", "") if client is not None else ""
+        if is_loopback_host(str(host)):
+            return None
+        return _json_error(
+            responses,
+            HttpErrorCode.LOOPBACK_REQUIRED,
+            "project registration changes require a loopback client",
+            status_code=403,
+        )
+
+    async def list_projects(request: Any) -> Any:  # noqa: ARG001
+        try:
+            result = await console.list_projects()
+            return responses.JSONResponse(result.model_dump(mode="json"))
+        except Exception as exc:
+            return failure(exc)
+
+    async def register_project(request: Any) -> Any:
+        denied = loopback_error(request)
+        if denied is not None:
+            return denied
+        try:
+            raw = await _read_body(request, limit=config.max_request_bytes)
+            parsed = ProjectRegisterRequest.model_validate_json(raw)
+        except HttpRequestTooLargeError:
+            return _json_error(
+                responses,
+                HttpErrorCode.REQUEST_TOO_LARGE,
+                "request body exceeds the configured limit",
+                status_code=413,
+            )
+        except ValidationError:
+            return _json_error(responses, HttpErrorCode.INVALID_REQUEST, "request body is invalid", status_code=400)
+        try:
+            result = await console.register_project(parsed)
+            return responses.JSONResponse(result.model_dump(mode="json"), status_code=201)
+        except Exception as exc:
+            return failure(exc)
+
+    async def rename_project(request: Any) -> Any:
+        project_id = str(request.path_params.get("project_id", ""))
+        try:
+            raw = await _read_body(request, limit=config.max_request_bytes)
+            parsed = ProjectRenameRequest.model_validate_json(raw)
+        except HttpRequestTooLargeError:
+            return _json_error(
+                responses,
+                HttpErrorCode.REQUEST_TOO_LARGE,
+                "request body exceeds the configured limit",
+                status_code=413,
+            )
+        except ValidationError:
+            return _json_error(responses, HttpErrorCode.INVALID_REQUEST, "request body is invalid", status_code=400)
+        try:
+            result = await console.rename_project(project_id, parsed)
+            return responses.JSONResponse(result.model_dump(mode="json"))
+        except Exception as exc:
+            return failure(exc)
+
+    async def remove_project(request: Any) -> Any:
+        project_id = str(request.path_params.get("project_id", ""))
+        if request.query_params.get("confirm") != "true":
+            return _json_error(
+                responses,
+                HttpErrorCode.CONFIRM_REQUIRED,
+                "project removal requires confirm=true",
+                status_code=400,
+            )
+        if project_id != "default":
+            denied = loopback_error(request)
+            if denied is not None:
+                return denied
+        try:
+            if project_id != "default" and await console.project_has_inflight_run(project_id):
+                return _json_error(
+                    responses,
+                    HttpErrorCode.PROJECT_BUSY,
+                    "project has a run in progress",
+                    status_code=409,
+                )
+            await console.remove_project(project_id)
+            return responses.Response(status_code=204)
+        except Exception as exc:
+            return failure(exc)
+
+    return list_projects, register_project, rename_project, remove_project
+
+
+def build_http_app(
+    config: HttpServerConfig,
+    *,
+    version: str,
+    run_service: HttpRunService | None = None,
+    console: ConsoleHandler | None = None,
+) -> ASGIApp:
     """构造网页入口的 ASGI 应用（健康检查 + 运行 API/SSE + 包内静态页 + 安全头）。
 
     ``version`` 由入口层注入（来自 ``heagent.__version__``）：传输层因此不需要知道版本从哪来，
     也不需要在导入期触碰包元数据。``run_service`` 是**注入的运行服务**（AD-1 的接缝）——为 ``None``
-    时不注册 ``/api/runs*`` 与 ``/api/session``（那些路径回 404），Story 49-1 的用法因此保持不变。
+    时不注册 ``/api/runs*``、``/api/session`` 或 ``/api/projects*``（那些路径回 404），Story 49-1 的用法因此保持不变。
     错误响应一律走 :func:`_json_error`，异常细节只进服务端日志。
     """
     applications = _require_module("starlette.applications")
@@ -1086,6 +1213,18 @@ def build_http_app(config: HttpServerConfig, *, version: str, run_service: HttpR
                 routing.Route(_SESSION_PATH, endpoint=session_endpoint, methods=["GET"]),
             ]
         )
+    if console is not None:
+        list_projects, register_project, rename_project, remove_project = _build_console_endpoints(
+            responses, console, config
+        )
+        routes.extend(
+            [
+                routing.Route(_PROJECTS_PATH, endpoint=list_projects, methods=["GET"]),
+                routing.Route(_PROJECTS_PATH, endpoint=register_project, methods=["POST"]),
+                routing.Route(_PROJECT_PATH, endpoint=rename_project, methods=["PATCH"]),
+                routing.Route(_PROJECT_PATH, endpoint=remove_project, methods=["DELETE"]),
+            ]
+        )
     routes.append(routing.Route("/{asset}", endpoint=asset, methods=["GET"]))
     app = applications.Starlette(
         routes=routes,
@@ -1121,10 +1260,18 @@ class HttpServer:
     ``serve_forever`` / ``close``），入口层的装配代码因此可以逐行对照。
     """
 
-    def __init__(self, config: HttpServerConfig, *, version: str, run_service: HttpRunService | None = None) -> None:
+    def __init__(
+        self,
+        config: HttpServerConfig,
+        *,
+        version: str,
+        run_service: HttpRunService | None = None,
+        console: ConsoleHandler | None = None,
+    ) -> None:
         self.config = config
         self.version = version
         self.run_service = run_service
+        self.console = console
         self._app: ASGIApp | None = None
         self._server: Any = None
         # 生命周期锁与「已关闭」标记：``close()`` 必须**等到**收尾真正完成才返回。只用一个布尔
@@ -1137,7 +1284,9 @@ class HttpServer:
     def app(self) -> ASGIApp:
         """ASGI 应用（延迟构造一次；测试可用 ASGI transport 直接打，无需真实 listener）。"""
         if self._app is None:
-            self._app = build_http_app(self.config, version=self.version, run_service=self.run_service)
+            self._app = build_http_app(
+                self.config, version=self.version, run_service=self.run_service, console=self.console
+            )
         return self._app
 
     @property

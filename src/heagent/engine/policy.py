@@ -305,7 +305,7 @@ class PolicyEngine:
         elif call.name in self._DENY_READ_TOOLS:
             value = call.arguments.get(fields[0])
             if isinstance(value, str):
-                denied = check_read_denied(value)
+                denied = check_read_denied(value, root)
                 if denied is not None:
                     return f"Tool '{call.name}': {denied}"
         return ""

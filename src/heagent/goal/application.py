@@ -47,6 +47,8 @@ from heagent.memory.skill_packages import (
     SkillPackage,
     SkillResolver,
 )
+from heagent.persist import atomic_write_text
+from heagent.workspace import WorkspacePaths
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +114,34 @@ def resolve_skill_package(skill_id: str) -> SkillPackage | None:
         return None
 
 
+_CHECKPOINT_WORKSPACE_FILE = "checkpoint-workspace.txt"
+
+
+def external_checkpoint_dir(goal_id: str, workspace: Path) -> Path:
+    """Return the new-goal checkpoint directory for one workspace."""
+    return WorkspacePaths.from_root(workspace).checkpoints / goal_id
+
+
+def initialize_checkpoint_workspace(goal_dir: Path, workspace: Path) -> None:
+    """Record the checkpoint workspace once, only when creating a new goal."""
+    marker = goal_dir / _CHECKPOINT_WORKSPACE_FILE
+    if marker.exists() or (goal_dir / "workflow.json").exists() or (goal_dir / "checkpoints").exists():
+        raise ValueError("checkpoint workspace cannot be changed for an existing goal")
+    atomic_write_text(marker, str(WorkspacePaths.from_root(workspace).root))
+
+
 def checkpoint_store(goal_dir: Path) -> WorkflowCheckpointStore:
+    """Legacy goals keep local checkpoints; new goals persist their workspace binding."""
+    try:
+        recorded_root = (goal_dir / _CHECKPOINT_WORKSPACE_FILE).read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        base = goal_dir / "checkpoints"
+    else:
+        if not recorded_root or not Path(recorded_root).is_absolute():
+            raise ValueError("checkpoint workspace must be an absolute path")
+        base = external_checkpoint_dir(goal_dir.name, Path(recorded_root))
     return WorkflowCheckpointStore(
-        str(goal_dir / "checkpoints"),
+        str(base),
         workflow_path=str(goal_dir / "workflow.json"),
     )
 

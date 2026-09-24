@@ -101,7 +101,9 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     assert "## user intent\nship   the workflow" in successful_step[0]
     assert "## existing project context" in successful_step[0]
     assert f"Project output root: {declarative_cwd / '_he-output'}" in successful_step[0]
-    checkpoints = await WorkflowCheckpointStore(str(goal_dir / "checkpoints")).list_checkpoints(goal_id=goal_id)
+    checkpoint_dir = declarative_cwd / ".heagent" / "checkpoints" / goal_id
+    assert not (goal_dir / "checkpoints").exists()
+    checkpoints = await WorkflowCheckpointStore(str(checkpoint_dir)).list_checkpoints(goal_id=goal_id)
     assert len(checkpoints) == 1
     assert checkpoints[0].completed_steps == [0]
     assert checkpoints[0].active_skill == "test-development"
@@ -117,7 +119,7 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     persisted_goal = goal_document.read_text(encoding="utf-8")
     assert "## 用户补充（User Responses）" in persisted_goal
     assert "confirmed: use the requested scope" in persisted_goal
-    persisted = await WorkflowCheckpointStore(str(goal_dir / "checkpoints")).list_checkpoints(goal_id=goal_id)
+    persisted = await WorkflowCheckpointStore(str(checkpoint_dir)).list_checkpoints(goal_id=goal_id)
     assert len({checkpoint.checkpoint_id for checkpoint in persisted}) == len(persisted)
 
     await _goal_runner(SimpleNamespace(), None, "run")

@@ -1,7 +1,7 @@
 ---
 id: 50-1
 title: 工作区一等化与状态根单一来源
-status: ready-for-dev
+status: review
 parent_epic: E50
 priority: P0
 phase: A（工作区基础）
@@ -67,32 +67,41 @@ created: '2026-09-23'
 
 ## 任务（细分）
 
-- [ ] **T1** 新建 `src/heagent/workspace.py`：`WorkspacePaths`（`frozen=True`）以 `root` 为唯一输入派生
+- [x] **T1** 新建 `src/heagent/workspace.py`：`WorkspacePaths`（`frozen=True`）以 `root` 为唯一输入派生
       12 条路径（`state_dir`/`sessions`/`skills`/`memory_file`/`profile_file`/`cron_file`/`runs`/`ledger`/
       `checkpoints`/`sandboxes`/`edit_snapshots`/`console_dir`/`config_backups`/`projects_file`），
       并提供一个把 `root` 归一为 `resolve()` 绝对路径的构造校验（`field_validator`）。
-- [ ] **T2** `build_internal_state_dirs(workspace_root: str | Path | None = None)`：`None` 时保持
+- [x] **T2** `build_internal_state_dirs(workspace_root: str | Path | None = None)`：`None` 时保持
       `(cwd, home)` 双根语义；显式传入时从 `WorkspacePaths` 派生并覆盖 12 个子目录（I14）。同步更新 docstring
       （现文案说「与 session/ledger/store/memory/skills 的默认 base_dir 一致」——收紧后不再只是这 5 个）。
-- [ ] **T3** `EngineContainer.default()`：把解析出的 `workspace_root` 落到 `run_store`/`ledger` 实例
+- [x] **T3** `EngineContainer.default()`：把解析出的 `workspace_root` 落到 `run_store`/`ledger` 实例
       （`RunStore(base_dir=paths.runs)` / `ExecutionLedger(base_dir=paths.ledger)`）；`None` 时保持
       `default_factory` 现状。**同时**核对 `container.workspace_root` 与 `policy.workspace_root` 同值（`:303-304`）。
-- [ ] **T4** 装配点替换：`cli.py`（5 处）、`cli_http.py:197`、`cli_tcp.py:170`、`cli_goal.py:340` 全部改为
+- [x] **T4** 装配点替换：`cli.py`（5 处）、`cli_http.py:197`、`cli_tcp.py:170`、`cli_goal.py:340` 全部改为
       从该入口自己的 `WorkspacePaths` 取值；`os.getcwd()` 只允许出现在 `WorkspacePaths` 的缺省构造处（入口层兜底）。
-- [ ] **T5** store 装配：`SkillStore` / `FactStore` / `ProfileStore` / `SessionStore` / `JobStore` /
+- [x] **T5** store 装配：`SkillStore` / `FactStore` / `ProfileStore` / `SessionStore` / `JobStore` /
       `WorkflowCheckpointStore` 的构造点改为传 `WorkspacePaths` 派生路径（含 `cli_http` 的 handler 与 `cli._build_loop` 的 `cron_store`）。
-- [ ] **T6** `edit_snapshots`：`tools/edits.py:136/144` 现走 `workspace_root()`（cwd 兜底）；改为优先使用已绑定
+- [x] **T6** `edit_snapshots`：`tools/edits.py:136/144` 现走 `workspace_root()`（cwd 兜底）；改为优先使用已绑定
       run 的路径，保持 `bind_edit_snapshot_run` 语义不变。
-- [ ] **T7** `AgentLoop.context_dir`：所有多项目路径必须传具体根；新增断言/测试禁止 `context_dir=None` 从
+- [x] **T7** `AgentLoop.context_dir`：所有多项目路径必须传具体根；新增断言/测试禁止 `context_dir=None` 从
       `cli_http` / `cli_console` 进入（GUI 的 `None` 语义保留并记录为既有行为，见「风险与未决」R2）。
-- [ ] **T8** 测试：跨工作区隔离（同一进程先后装配 `W1`/`W2`，写技能/事实/会话/运行快照后互不可见）、
+- [x] **T8** 测试：跨工作区隔离（同一进程先后装配 `W1`/`W2`，写技能/事实/会话/运行快照后互不可见）、
       `chdir` 后围栏与状态根仍锚定绑定工作区、deny 集合新增子目录逐条读拒、工作区内普通文件仍可读（不误伤）、
       「两层围栏同根」断言。
-- [ ] **T9** 架构契约测试：`tests/test_architecture_contracts.py` 增加
+- [x] **T9** 架构契约测试：`tests/test_architecture_contracts.py` 增加
       ① `os.getcwd()` 装配点白名单（超集即失败）；② `WorkspacePaths` 是路径字符串单一来源（禁止新增
       `".heagent/<sub>"` 字面量拼接）；③ `workspace.py` 的导入面只有 stdlib + pydantic。
-- [ ] **T10** 负向验证：临时回退 T2 的收紧项（`subdirs` 退回 5 个）与 T3 的接线（恢复 `default_factory`），
+- [x] **T10** 负向验证：临时回退 T2 的收紧项（`subdirs` 退回 5 个）与 T3 的接线（恢复 `default_factory`），
       确认 T8/T9 新增测试**逐条变红**，然后复原。
+
+### Review Findings
+
+- [x] [Review][Patch][High] 相对路径绕过新增内部状态拒读：已让拒读检查使用绑定工作区根，并补实际 file tool 测试。
+- [x] [Review][Patch][High] 同名 goal 重建可能恢复旧目标进度：新 goal 名称分配现在检查外置 checkpoint 目录，避免残留快照复用。
+- [x] [Review][Patch][Medium] HTTP/TCP 的显式 settings 被默认 engine 的全局快照覆盖：默认 engine 现在接收 handler settings，并补回归测试。
+- [x] [Review][Patch][Medium] T9 架构测试范围不足：扩展装配模块、状态目录和 WorkspacePaths 构造检查，并约束 cwd 使用位置。
+- [x] [Review][Patch][Medium] T8 同根与隔离测试证据不足：增加跨工作区绝对路径拒绝和实际工具读取验证。
+- [x] [Review][Patch][Medium] 文档中文被问号替换：恢复 docs/frame.md 与 Completion Notes 的 UTF-8 中文记录。
 
 ## 验收标准
 
@@ -154,6 +163,57 @@ mypy src --platform linux     # 本地必跑双平台（CI 是 ubuntu + py3.11�
 - **R3**：`housekeeping.py` 是否有重复拼串需在实现时核对（侦察未逐行确认，标为待查，不得当作已知为零）。
 - **R4**：`settings.workspace_root`（`ResolvedRuntimeConfig` 字段，`config.py:539`）与新 `WorkspacePaths` 的关系
   必须在实现中定死：**入口层构造 `WorkspacePaths` 并回填 `ResolvedRuntimeConfig.workspace_root`**，不允许两处各算一次。
+
+## Dev Agent Record
+
+### Completion Notes
+
+- 完成 WorkspacePaths 单根模型、入口/store/沙箱/编辑快照路径接线、运行围栏绑定与内部状态拒读保护；GUI 的 `context_dir=None` 既有语义保留。
+- 旧 goal 保留 `goal_dir/checkpoints`；新 goal 通过 `checkpoint-workspace.txt` 绑定工作区，快照写入 `.heagent/checkpoints/<goal_id>`；`workflow.json` 仍留在 goal 目录。
+- 全量验证：2573 passed / 9 skipped / 18 deselected，覆盖率 91.32%，超过 87% 门槛。ruff、格式检查、Windows/Linux mypy 通过。
+- 负向验证确认删除新增 deny 目录和 run/ledger 接线时相应用例失败；代码随后已恢复。
+- 全量回归使用仓库外独立临时目录，避免上下文发现误读仓库 AGENTS.md。
+- 代码审查发现的 6 项问题已全部修复并通过 140 项定向测试；审查任务已关闭。
+
+### File List
+
+- `src/heagent/tools/builtins/file.py`
+- `src/heagent/tools/builtins/search.py`
+- `tests/test_architecture_contracts.py`
+- `tests/test_workspace_paths.py`
+
+- `src/heagent/housekeeping.py`
+- `src/heagent/tools/sandbox/session.py`
+
+- `src/heagent/goal/application.py`
+- `tests/test_goal_checkpoint_location.py`
+- `tests/test_goal_declarative_workflow.py`
+- `docs/frame.md`
+
+- `src/heagent/cli_goal.py`
+- `src/heagent/gui/__init__.py`
+- `src/heagent/tools/edits.py`
+- `tests/test_architecture_contracts.py`
+- `_bmad-output/sprint-status.yaml`
+- `_bmad-output/epics/epic-50-网页控制台周期/stories/50-1-workspace-first-class.md`
+
+- `src/heagent/workspace.py`
+- `src/heagent/tools/path_safety.py`
+- `src/heagent/engine/container.py`
+- `src/heagent/cli.py`
+- `src/heagent/cli_http.py`
+- `src/heagent/cli_tcp.py`
+- `tests/test_workspace_paths.py`
+
+### Change Log
+
+- 2026-09-24：修复代码审查发现的相对路径拒读、显式配置覆盖、goal checkpoint 重名复用和契约测试缺口；全量回归通过，状态恢复为 review。
+
+- 2026-09-24????????????? checkpoint?????????????????????? review?
+
+- 2026-09-24：按用户指示保留全部 goal 原 checkpoint 存储及恢复方式，本次不迁移至 .heagent/checkpoints。
+
+- 2026-09-24: Started implementation; completed canonical workspace model and initial engine/CLI wiring.
 
 ## Requirement Traceability
 

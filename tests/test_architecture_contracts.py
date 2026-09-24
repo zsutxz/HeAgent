@@ -162,6 +162,30 @@ def test_no_reverse_dependency_on_agent() -> None:
     assert offenders == [], "运行期反向依赖：" + ", ".join(offenders)
 
 
+def test_workspace_paths_is_the_only_state_path_module() -> None:
+    source = (SRC / "workspace.py").read_text(encoding="utf-8")
+    assert "from heagent" not in source
+    assert "import os" not in source
+
+
+def test_getcwd_configuration_is_limited_to_entrypoints() -> None:
+    offenders: list[str] = []
+    for path in SRC.rglob("*.py"):
+        if path.name == "workspace.py":
+            continue
+        text = path.read_text(encoding="utf-8")
+        entrypoints = {"cli.py", "cli_http.py", "cli_tcp.py", "cli_goal.py"}
+        if "os.getcwd()" in text and path.relative_to(SRC).parts[0] not in entrypoints:
+            offenders.append(path.relative_to(SRC).as_posix())
+        for line in text.splitlines():
+            if "os.getcwd()" in line and "WorkspacePaths.from_root" not in line:
+                position = text.find(line)
+                window = text[max(0, position - 160) : position + len(line) + 160]
+                if "WorkspacePaths.from_root" not in window:
+                    offenders.append(path.relative_to(SRC).as_posix())
+    assert offenders == []
+
+
 def test_types_only_imports_stay_types_only() -> None:
     """``events`` 对 ``engine`` 的引用必须仍只出现在 ``TYPE_CHECKING`` 下。
 
@@ -466,3 +490,36 @@ def test_web_package_has_no_runtime_imports() -> None:
         if runtime or typing_only:
             offenders.append(path.relative_to(SRC).as_posix())
     assert offenders == [], "web 包出现了 heagent 运行时导入：" + ", ".join(offenders)
+
+
+def test_workspace_module_only_imports_stdlib_and_pydantic() -> None:
+    import sys
+
+    tree = ast.parse((SRC / "workspace.py").read_text(encoding="utf-8"))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            assert node.module.split(".")[0] in sys.stdlib_module_names | {"pydantic"}
+        elif isinstance(node, ast.Import):
+            assert all(alias.name.split(".")[0] in sys.stdlib_module_names | {"pydantic"} for alias in node.names)
+
+
+def test_entrypoints_do_not_duplicate_runtime_store_paths() -> None:
+    modules = [
+        "cli.py",
+        "cli_goal.py",
+        "cli_http.py",
+        "cli_tcp.py",
+        "engine/container.py",
+        "gui/__init__.py",
+        "housekeeping.py",
+        "tools/edits.py",
+        "tools/sandbox/session.py",
+    ]
+    for module in modules:
+        tree = ast.parse((SRC / module).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                assert not re.match(
+                    r"^\.heagent[\\/](sessions|skills|runs|ledger|memory|user|cron|checkpoints|sandboxes|tmp|console|backups)([\\/]|$)",
+                    node.value,
+                ), module

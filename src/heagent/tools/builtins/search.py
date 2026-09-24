@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING
 
 from heagent.tools.decorator import tool
-from heagent.tools.path_safety import WorkspacePathError, check_read_denied, resolve_workspace_path
+from heagent.tools.path_safety import WorkspacePathError, check_read_denied, resolve_workspace_path, workspace_root
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -23,7 +23,7 @@ def _resolve_dir(directory: str) -> Path | str:
         root = resolve_workspace_path(directory)
     except WorkspacePathError as e:
         return f"Error: {e}"
-    denied = check_read_denied(directory)
+    denied = check_read_denied(directory, workspace_root())
     if denied is not None:
         return f"Error: {denied}"
     if not root.exists():
@@ -39,7 +39,7 @@ def _resolve_searchable(path: str) -> Path | None:
         resolved = resolve_workspace_path(path)
     except WorkspacePathError:
         return None
-    if check_read_denied(path) is not None:
+    if check_read_denied(path, workspace_root()) is not None:
         return None
     return resolved
 

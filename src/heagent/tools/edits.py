@@ -133,15 +133,19 @@ def render_new_file(new_text: str) -> str:
 
 def snapshot_root() -> Path:
     """当前 run 的快照目录；无 run 绑定时退化为工作区级的共享目录。"""
-    base = workspace_root() / ".heagent" / "tmp" / SNAPSHOT_DIRNAME
+    from heagent.workspace import WorkspacePaths
+
+    base = WorkspacePaths.from_root(workspace_root()).edit_snapshots
     run_id = _snapshot_run.get()
     return base / run_id if run_id else base
 
 
 def snapshot_base(workspace: Path | None = None) -> Path:
     """快照的根目录（所有 ``<run_id>/`` 目录的父目录）——回收时以它为扫描起点。"""
+    from heagent.workspace import WorkspacePaths
+
     root = workspace if workspace is not None else workspace_root()
-    return root / ".heagent" / "tmp" / SNAPSHOT_DIRNAME
+    return WorkspacePaths.from_root(root).edit_snapshots
 
 
 async def prune_snapshots(retention_days: int, *, workspace: Path | None = None, min_interval_seconds: int = 0) -> int:

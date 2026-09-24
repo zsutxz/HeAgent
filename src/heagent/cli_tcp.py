@@ -68,6 +68,7 @@ from heagent.network.tcp_server import TcpServer, TcpServerConfig
 from heagent.roles import load_agent_roles
 from heagent.safe_logging import safe_log
 from heagent.wiring import _build_provider
+from heagent.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
@@ -167,10 +168,13 @@ class TcpAgentHandler:
         self.max_iterations = max_iterations
         self.sandbox_backend = sandbox_backend
         # 网络入口不装审批处理器（见模块 docstring）：需要审批的调用按既有 fail-safe 语义阻断。
-        self.engine = engine or EngineContainer.default(workspace_root=os.getcwd(), sandbox_backend=sandbox_backend)
-        self.skills = SkillStore()
-        self.facts = FactStore()
-        self.profile = ProfileStore()
+        paths = WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd())
+        self.engine = engine or EngineContainer.default(
+            workspace_root=str(paths.root), sandbox_backend=sandbox_backend, settings=settings
+        )
+        self.skills = SkillStore(str(paths.skills))
+        self.facts = FactStore(str(paths.memory_file))
+        self.profile = ProfileStore(str(paths.profile_file))
         self.soul = _build_soul(soul_path)
 
     def new_loop(self) -> AgentLoop:

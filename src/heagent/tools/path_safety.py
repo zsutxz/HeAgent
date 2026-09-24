@@ -245,12 +245,33 @@ def build_read_denied_basenames() -> set[str]:
     }
 
 
-def build_internal_state_dirs() -> set[str]:
+def build_internal_state_dirs(workspace_root: str | Path | None = None) -> set[str]:
     """Return HeAgent internal state directories that must not be read into context.
 
-    覆盖两个根（``cwd`` 与 ``home``）下的 ``.heagent`` 状态子目录，与 ``session.py`` /
-    ``ledger.py`` / ``store.py`` / ``memory`` / ``skills`` 的默认 ``base_dir`` 一致。
+    Explicit workspaces protect all twelve runtime directories from WorkspacePaths.
+    Without a workspace, preserve the legacy cwd/home roots and five directories.
     """
+    if workspace_root is not None:
+        from heagent.workspace import WorkspacePaths
+
+        paths = WorkspacePaths.from_root(workspace_root)
+        return {
+            str(path.resolve())
+            for path in (
+                paths.sessions,
+                paths.ledger,
+                paths.runs,
+                paths.skills,
+                paths.memory_file.parent,
+                paths.profile_file.parent,
+                paths.cron_file.parent,
+                paths.checkpoints,
+                paths.sandboxes,
+                paths.edit_snapshots,
+                paths.console_dir,
+                paths.config_backups,
+            )
+        }
     roots = (Path.cwd().resolve(), Path.home().resolve())
     subdirs = ("sessions", "ledger", "runs", "memory", "skills")
     dirs: set[str] = set()
@@ -279,13 +300,14 @@ def check_write_denied(path: str) -> str | None:
     return None
 
 
-def check_read_denied(path: str) -> str | None:
+def check_read_denied(path: str, root: Path | None = None) -> str | None:
     """Return a deny reason if reading ``path`` is blocked, else ``None``.
 
     用户 basename 豁免仅作用于 secret-bearing 文件名档；内部状态目录 deny
     **不接受豁免**（另一保护类，不随用户配置放松）。
     """
-    resolved = Path(path).expanduser().resolve()
+    candidate = Path(path).expanduser()
+    resolved = (candidate if candidate.is_absolute() else (root or workspace_root()) / candidate).resolve()
     rules = user_deny_rules()
     basename = resolved.name.lower()
     if basename not in rules.allow_read_basenames and basename in (
@@ -293,7 +315,7 @@ def check_read_denied(path: str) -> str | None:
     ):
         return f"Read denied: '{path}' is a secret-bearing environment file. Read .env.example instead."
     resolved_str = str(resolved)
-    for d in build_internal_state_dirs():
+    for d in build_internal_state_dirs() | build_internal_state_dirs(workspace_root()):
         if resolved_str == d or resolved_str.startswith(d + os.sep):
             return f"Read denied: '{path}' is internal HeAgent state and cannot be read directly."
     return None

@@ -45,7 +45,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-09-15
+last_updated: 2026-09-24
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -496,8 +496,8 @@ development_status:
   # （HTTP_CONSOLE_WRITE_ENABLED 默认关）。无认证 / 无 TLS / 非安全边界，须 OS 级沙箱兜底。
   # 阶段映射：A=50-1；B=50-2,50-3；C=50-4；D=50-5；E=50-6,50-7
   epic-50: in-progress
-  50-1-workspace-first-class: ready-for-dev
-  50-2-project-registry-api: ready-for-dev
+  50-1-workspace-first-class: review
+  50-2-project-registry-api: review
   50-3-session-persistence-api: ready-for-dev
   50-4-config-sources-readonly-api: ready-for-dev
   50-5-config-write-channel: ready-for-dev

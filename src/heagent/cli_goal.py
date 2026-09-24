@@ -31,6 +31,8 @@ from heagent.goal.application import (
     advance,
     checkpoint_mode,
     declarative_prompt,
+    external_checkpoint_dir,
+    initialize_checkpoint_workspace,
     pause_resume,
 )
 from heagent.goal.application import (
@@ -56,6 +58,7 @@ from heagent.goal.document import (
 from heagent.goal.naming import llm_project_id
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
 from heagent.persist import atomic_write_text, file_lock
+from heagent.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Mapping
@@ -333,11 +336,12 @@ async def _goal_declarative_advance(
             story,
         )
 
+    paths = WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd())
     result = await advance(
         context,
         execute_step,
         confirm_checkpoint=_goal_checkpoint_prompt,
-        load_project_context=lambda: load_context_files(os.getcwd()),
+        load_project_context=lambda: load_context_files(str(paths.root)),
         emit=_workflow_event_emitter(engine),
     )
     for message in result.messages:
@@ -356,10 +360,11 @@ async def _goal_declarative_new(
     """Create the minimum durable declarative-goal identity, then run step one."""
     previous = _goal_declarative_active_dir()
     base_id = await llm_project_id(provider, description)
+    workspace = WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd())
     goal_id = base_id
     goal_dir = _GOALS_DIR / goal_id
     for suffix in [""] + [f"-{chr(ord('a') + index)}" for index in range(26)]:
-        if not goal_dir.exists():
+        if not goal_dir.exists() and not external_checkpoint_dir(goal_id, workspace.root).exists():
             break
         goal_id = base_id + suffix
         goal_dir = _GOALS_DIR / goal_id
@@ -370,6 +375,8 @@ async def _goal_declarative_new(
         goal_document = _goal_document(description, goal_id)
         _goal_document_title(goal_document)
         atomic_write_text(_goal_document_path(goal_dir), goal_document)
+        paths = WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd())
+        initialize_checkpoint_workspace(goal_dir, paths.root)
         atomic_write_text(_GOALS_DIR / "current", goal_id)
     except (OSError, ValueError) as exc:
         click.echo(f"[goal] failed to persist declarative goal: {exc}", err=True)
