@@ -202,11 +202,16 @@ def _build_loop(
     facts: FactStore | None = None,
     profile: ProfileStore | None = None,
     soul: SoulStore | None = None,
+    enable_cron: bool = True,
 ) -> tuple[AgentLoop, CronScheduler | None]:
     """Build the loop runtime and optional cron scheduler.
 
     可选的预构建记忆存储（``skills``/``facts``/``profile``/``soul``）允许调用方与
     后台调度器（如 DreamScheduler）共享同一份存储实例；缺省时各自新建。
+
+    ``enable_cron=False`` 让调用方**显式拒绝**构造 ``CronScheduler``（HTTP 入口用）：注意
+    scheduler 的构造条件里含 ``session is not None``，因此「网页侧没有后台调度」在传入会话后
+    再也不是 `session=None` 的副作用——必须显式关掉（Story 50-3 的 T6 / 评审 F2）。
     """
     # Phase 1：组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
     config = ensure_runtime_config(engine) if engine is not None else resolve_runtime_config(settings)
@@ -231,7 +236,7 @@ def _build_loop(
     )
 
     scheduler: CronScheduler | None = None
-    if session is not None and config.cron_enabled and cron_store:
+    if enable_cron and session is not None and config.cron_enabled and cron_store:
         job_runner = build_cron_job_runner(
             provider,
             engine,

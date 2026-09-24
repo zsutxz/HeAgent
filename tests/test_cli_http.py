@@ -1,24 +1,29 @@
-"""Story 49-1：``heagent http-server`` CLI 接线（命令注册 / 参数映射 / 不隐式监听）。
+"""Story 49-1 / 50-3：``heagent http-server`` CLI 接线（命令注册 / 参数映射 / 不隐式监听 / 单项目运行时）。
 
-本文件只测**入口层**：命令注册、参数映射、绑定失败的可读错误，以及「导入 CLI 不会拉起可选
-HTTP 栈」。HTTP 传输层与生命周期行为在 ``tests/network/test_http_server.py``。
+本文件只测**入口层**：命令注册、参数映射、绑定失败的可读错误、「导入 CLI 不会拉起可选 HTTP 栈」，
+以及 Story 50-3 的两条接线不变量——**HTTP 进程内不构造 ``CronScheduler``**（评审 F2）与**每个项目
+各自独立的运行时切片**。HTTP 传输层与生命周期行为在 ``tests/network/test_http_server.py``。
 """
 
 from __future__ import annotations
 
 import socket
+from pathlib import Path
 from typing import Any
 
 import pytest
 from click.testing import CliRunner
 
 from heagent import __version__
+from heagent import cli as cli_module
 from heagent.cli import main
-from heagent.cli_http import build_server_config
+from heagent.cli_http import HttpAgentHandler, HttpProjectConsole, build_server_config
 from heagent.config import get_settings, reset_settings
+from heagent.context.session import SessionStore
 from heagent.network.http_server import HttpServer, HttpServerConfig
 from heagent.providers.base import ProviderMetadata
 from heagent.types import Message, ProviderResponse, TokenUsage
+from heagent.workspace import WorkspacePaths
 
 
 class _StubProvider:
@@ -146,7 +151,15 @@ def test_cli_overrides_reach_the_config_without_mutating_settings(
 
     result = CliRunner().invoke(
         main,
-        ["http-server", "--port", "9401", "--max-inflight-runs", "2", "--shutdown-timeout", "1.5"],
+        [
+            "http-server",
+            "--port",
+            "9401",
+            "--max-inflight-runs",
+            "2",
+            "--shutdown-timeout",
+            "1.5",
+        ],
     )
 
     assert result.exit_code == 0, result.output
@@ -173,7 +186,7 @@ def test_cli_overrides_reach_the_config_without_mutating_settings(
     ],
 )
 def test_invalid_limits_are_rejected_before_serving(args: list[str], captured_server: dict[str, HttpServer]) -> None:
-    """CLI 侧用同一套范围规则拦下非法值（与 Settings 校验同义：端口 1..65535、计数 >=1、超时 >0）。"""
+    """CLI 侧用同一套范围规则拦下非法值（端口 1..65535、计数 >=1、超时 >0）。"""
     result = CliRunner().invoke(main, ["http-server", *args])
 
     assert result.exit_code == 2
@@ -253,3 +266,74 @@ def test_explicit_subcommand_paths_do_not_go_through_the_embedded_service(
     assert result.exit_code == 0, result.output
     assert "server" in captured_server
     assert embedded_http_services == []
+
+
+# ── Story 50-3：单项目运行时的接线不变量 ──
+
+
+def test_new_loop_refuses_to_own_a_cron_scheduler(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """评审 F2：传入 session 后，「HTTP 侧没有后台调度」必须靠**显式** ``enable_cron=False``。
+
+    两半都钉住：①``new_loop()`` 真的把 ``enable_cron=False`` 与 ``session`` 传下去；②即便
+    ``_build_loop`` 将来不听话地回了调度器，``new_loop()`` 也必须**显式失败**——把带无人监督执行面的
+    运行时装进 HTTP 进程是 49-5 明令禁止的形态，静默忽略等于把 forbid 变成注释。
+    """
+    seen: dict[str, Any] = {}
+    real_build = cli_module._build_loop  # noqa: SLF001 - 本用例的意义就是钉住「谁调它、怎么调」
+
+    def spy(*args: Any, **kwargs: Any) -> Any:
+        seen.update(kwargs)
+        return real_build(*args, **kwargs)
+
+    monkeypatch.setattr("heagent.cli._build_loop", spy)
+    store = SessionStore(str(tmp_path / "sessions"))
+    handler = HttpAgentHandler(_StubProvider(), get_settings(), workspace_root=tmp_path, session_store=store)
+
+    loop = handler.new_loop()
+
+    assert seen["enable_cron"] is False
+    assert seen["session"] is store
+    assert loop.session is store  # 运行因此真的会写这个会话存储（此前是 session=None）
+
+    monkeypatch.setattr("heagent.cli._build_loop", lambda *args, **kwargs: (loop, object()))
+    with pytest.raises(RuntimeError, match="must not own a CronScheduler"):
+        handler.new_loop()
+
+
+def test_for_workspace_rebinds_paths_and_sessions_per_project(tmp_path: Path) -> None:
+    """跨项目零共享可变状态：路径派生、会话存储、引擎都指向各自的项目根（脊柱 §6）。
+
+    连接与策略参数（provider / settings / system / 迭代与沙箱参数）**共享**——它们不含项目数据。
+    """
+    root_a = tmp_path / "a"
+    root_b = tmp_path / "b"
+    root_a.mkdir()
+    root_b.mkdir()
+    base = HttpAgentHandler(
+        _StubProvider(),
+        get_settings(),
+        workspace_root=root_a,
+        session_store=SessionStore(str(root_a / ".heagent" / "sessions")),
+    )
+
+    other = base.for_workspace(WorkspacePaths.from_root(root_b), SessionStore(str(root_b / ".heagent" / "sessions")))
+
+    assert (base.paths.root, other.paths.root) == (Path(root_a), Path(root_b))
+    assert base.session_store is not other.session_store
+    assert base.session_store is not None and other.session_store is not None
+    assert Path(str(other.session_store._base)) == root_b / ".heagent" / "sessions"  # noqa: SLF001 - 落点即契约
+    assert base.engine is not other.engine
+    assert base.provider is other.provider
+
+
+def test_http_server_command_wires_the_console_for_project_runs(captured_server: dict[str, HttpServer]) -> None:
+    """``http-server`` 把运行服务与 per-project 工厂一起交给 console（否则项目内运行永远 409）。"""
+    result = CliRunner().invoke(main, ["http-server"])
+
+    assert result.exit_code == 0, result.output
+    server = captured_server["server"]
+    console = server.console
+    assert isinstance(console, HttpProjectConsole)
+    runtime = console._runtime_for("default")  # noqa: SLF001 - 接线点本身就是要断言的事实
+    assert runtime.executor is not None
+    assert Path(str(runtime.sessions._base)) == Path.cwd() / ".heagent" / "sessions"  # noqa: SLF001

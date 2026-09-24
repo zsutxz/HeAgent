@@ -1,7 +1,8 @@
 ---
 id: 50-3
 title: 会话持久化、会话 API 与运行绑定
-status: ready-for-dev
+status: review
+baseline_commit: 7ef2c920c25903944946243a63be90a041c3c4ea
 parent_epic: E50
 priority: P0
 phase: B（项目与会话闭环）
@@ -60,44 +61,44 @@ created: '2026-09-23'
 
 ## 任务（细分）
 
-- [ ] **T1** `SessionStore.save(..., expected_version: int | None = None)`：在 `update(raw)` 闭包内比对磁盘
+- [x] **T1** `SessionStore.save(..., expected_version: int | None = None)`：在 `update(raw)` 闭包内比对磁盘
       `version`，不匹配则抛新异常 `SessionConflictError`（放在 `exceptions.py`，保持异常单点）；
       `None` = 现状。**注意**：异常必须在 `atomic_update_text` 之外可见（不要在闭包里吞掉）。
-- [ ] **T2** 新增元数据读 API（建议 `load_metadata(session_id) -> SessionMetadata | None`，Pydantic），
+- [x] **T2** 新增元数据读 API（建议 `load_metadata(session_id) -> SessionMetadata | None`，Pydantic），
       返回 `session_id` / `title`（可选字段，缺省回退派生值）/ `message_count` / `version` / `timestamp` / `updated_at`。
       `list()` 用一次目录遍历 + 逐文件元数据读实现，**列表上限**由常量约束。
-- [ ] **T3** 标题派生：`derive_title(messages)`（首条 user 消息，截断 + 折叠空白；空则 `未命名会话`），纯函数、可单测。
-- [ ] **T4** 重命名：新增 `SessionStore.rename(session_id, title, *, expected_version=None)`，**就地**改 `title` 字段、
+- [x] **T3** 标题派生：`derive_title(messages)`（首条 user 消息，截断 + 折叠空白；空则 `未命名会话`），纯函数、可单测。
+- [x] **T4** 重命名：新增 `SessionStore.rename(session_id, title, *, expected_version=None)`，**就地**改 `title` 字段、
       不动 `messages`；同时确保 `save()` 在重写时**保留**磁盘上已有的 `title`（T4 的两个方向都要测，
       见 AC8 与「侦察实证」第 6 行）。
-- [ ] **T5** 损坏文件处置（**D1 已裁定**：新增 `session_unreadable`）：元数据读遇到不可解析 JSON 时**不得**静默当作空会话；
+- [x] **T5** 损坏文件处置（**D1 已裁定**：新增 `session_unreadable`）：元数据读遇到不可解析 JSON 时**不得**静默当作空会话；
       返回显式状态并在 API 层映射为稳定错误码。
-- [ ] **T6** `cli_http.HttpAgentHandler`：新增 `workspace_paths` / `session_store` 形参；`new_loop()` 传
+- [x] **T6** `cli_http.HttpAgentHandler`：新增 `workspace_paths` / `session_store` 形参；`new_loop()` 传
       `session=self.session_store`；`__call__` 传入 `session_id`（新增形参，缺省 `None` 时行为同今日，保证 49 回归）。
       ⚠️ **评审 F2（必做）**：`cli._build_loop` 的 `session is not None and config.cron_enabled and cron_store`
       分支会在**传入 session 时顺带构造 `CronScheduler`**（实测 `cli.py:229` 条件 → `cli.py:246` 构造）⇒ 今日 HTTP 侧「无后台调度」
       是**因为 `session=None` 才偶然成立**的。传 session 后必须**显式**禁止 HTTP 侧构造/启动
       `CronScheduler`（与 49-5 的「不装 stdin 审批、不连 MCP」同一立场），并加一条测试断言
       `new_loop()` 不产生 scheduler / HTTP 进程内无 cron 任务。
-- [ ] **T7** `POST /api/projects/{id}/runs`：`{prompt, session_id?}` → 缺省取该项目「当前会话」（无则新建），
+- [x] **T7** `POST /api/projects/{id}/runs`：`{prompt, session_id?}` → 缺省取该项目「当前会话」（无则新建），
       校验会话存在性（`unknown_session`）与项目可用性（`project_unavailable`），返回 `run_id` 复用既有 SSE 端点。
-- [ ] **T8** 会话 API：`GET/POST /api/projects/{id}/sessions`、`GET/PATCH/DELETE /api/projects/{id}/sessions/{sid}`；
+- [x] **T8** 会话 API：`GET/POST /api/projects/{id}/sessions`、`GET/PATCH/DELETE /api/projects/{id}/sessions/{sid}`；
       `DELETE` 需 `?confirm=true`（缺则 `confirm_required`）+ 在途检查（`session_busy`）；
       `PATCH` 支持可选 `fingerprint`（不匹配 → `session_conflict`）。
-- [ ] **T9** 在途保护：维护「会话 → 在途 run」映射（供 `session_busy`）与「项目 → 在途 run」计数（供 50-2 的 `project_busy`）。
+- [x] **T9** 在途保护：维护「会话 → 在途 run」映射（供 `session_busy`）与「项目 → 在途 run」计数（供 50-2 的 `project_busy`）。
       **并发口径（D9）**：名额**按项目各自生效**，跨项目不共享 ⇒ 全局在途上限 = 项目数 ×
       `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32）。这是**有意语义**，测试须正面断言「A 项目在跑时 B 项目可起跑」，
       以及「同一项目内的第二个 run 仍被拒」（`run_conflict`）——两条一起才算钉住 D9。
-- [ ] **T9b** **失败 / 取消运行的落盘口径（评审 F5，必做）**：`persist_and_cache` 在 **finally** 块里
+- [x] **T9b** **失败 / 取消运行的落盘口径（评审 F5，必做）**：`persist_and_cache` 在 **finally** 块里
       `if loop.session and session_id: save(...)`（实测 `agent/run_lifecycle.py:324-350`）⇒ 失败与取消的 run
       **也会写入会话文件**；而 Epic 49 的进程内投影只在 `COMPLETED` 时写历史（AD-3「失败不投影」）。
       两者并存会让「同一段对话」在 `/api/session` 与会话文件里给出**两个答案**。
       必须显式定义并实现：①失败/取消的 run 是否算「对话的一部分」（建议算——用户看到过这些消息）；
       ②UI 不得因读取来源不同而显示矛盾历史（同一页面只用一种口径，并在文案上区分「已完成 / 失败」）。
       配测试：失败 run 后 `GET .../sessions/{sid}` 与服务端投影的口径一致且可解释。
-- [ ] **T10** 测试：列表 / 新建 / 继续 / 恢复（刷新与重启语义）/ 冲突 / 在途删除拒绝 / 确认缺失 / 非法 id /
+- [x] **T10** 测试：列表 / 新建 / 继续 / 恢复（刷新与重启语义）/ 冲突 / 在途删除拒绝 / 确认缺失 / 非法 id /
       损坏文件 / 标题派生与重命名保真 / CLI 不传 `expected_version` 行为不变。
-- [ ] **T11** 负向验证：去掉 `expected_version` 比对、让 `save()` 丢弃 `title`、去掉在途检查、去掉 id 校验——
+- [x] **T11** 负向验证：去掉 `expected_version` 比对、让 `save()` 丢弃 `title`、去掉在途检查、去掉 id 校验——
       对应测试逐条变红后复原。
 
 ## 验收标准
@@ -177,3 +178,82 @@ ruff check src tests && mypy src && mypy src --platform linux
 ## Requirement Traceability
 
 FR-3；NFR-6, NFR-7, NFR-8, NFR-10；UX-DR3, UX-DR4；脊柱 I3, I11, I13；brief §4 FR-3、§6.8、§7 D5。
+
+## Dev Agent Record
+
+### Implementation Plan
+
+- 存储层（T1–T5）在 ``context/session.py`` 增量交付：冲突检测、元数据读、标题派生与保真重命名。
+- 网络层只做「形态校验 + 注入 console + 稳定码映射」，会话 JSON 解析一律留在 ``SessionStore``。
+- 入口层（T6–T9）以「一个 handler = 一个项目根」为不变量：``HttpProjectHandler.for_workspace`` 派生
+  per-project 运行时（重建 engine 与四个记忆存储），``HttpProjectConsole`` 解析项目 id 并绑定会话。
+- 并发口径按 D9 落在**运行服务**里（名额按项目分桶），而不是给每个项目各起一个 ``HttpRunService``——
+  这样「在途事实」仍然只有一份（评审 R2/R4）。
+
+### Completion Notes
+
+- T1–T5：``save(expected_version=...)``（不符即 ``SessionConflictError`` 且不写文件）、``load_metadata`` /
+  ``list_metadata``（列表上限 200、超 1 MiB 不数消息、损坏文件 ``unreadable`` 仍列出）、``derive_title`` /
+  ``validate_title``、``rename``（就地改标题、不动 ``messages``）、``save`` 保留磁盘 ``title``；``create``
+  拒绝覆盖既有会话。存储层测试 35 例（``tests/test_session.py``），该模块覆盖率 89%。
+- T6：``HttpAgentHandler`` 新增 ``workspace_root`` / ``session_store`` 与 ``for_workspace``；``new_loop()``
+  传 ``session=self.session_store`` 并**显式** ``enable_cron=False``，返回值里真出现 ``CronScheduler`` 时
+  **raise**（评审 F2；``cli._build_loop`` 相应新增 ``enable_cron`` 形参）。
+- T7/T8：``POST /api/projects/{id}/runs``（返回 ``run_id`` 复用既有 SSE / 取消端点）+ 五条会话路由；
+  ``DELETE`` 需 ``?confirm=true``（服务端把关）、``PATCH`` 支持 ``fingerprint``（不匹配 → ``session_conflict``）。
+- T9（D9）：``HttpRunService._inflight_in_scope()`` 把名额按 ``project_id`` 分桶 ⇒ 「A 项目在跑不挡 B 项目」，
+  「同一项目内第二个 run 仍被拒」；在途查询（``has_inflight_run`` / ``session_run_state``）新增项目维度。
+- T9b/AC10：失败运行的会话文件由 ``persist_and_cache``（finally）落盘，详情接口如实报 ``failed``，而 49 的
+  ``/api/session`` 投影不收录项目内运行 ⇒ 同一页面只有一个口径（测试断言两侧）。
+- T10：新增 ``tests/network/test_http_console_sessions.py``（34 例：路由契约 / 错误码映射 / 请求体边界 /
+  常量镜像 / D9 / 在途保护 / 损坏文件 / 截断标注 / 缺省会话跳过损坏文件 / 无运行入口形态）；``tests/test_cli_http.py``
+  增加 F2 与 per-project 运行时隔离；``tests/test_http_agent_api.py`` 增加真实 ``AgentLoop`` 的端到端
+  （项目运行真的把对话写进 ``<项目根>/.heagent/sessions/``，并用 ``SessionStore`` 直接读回）。
+- T11：变异体探针 ``.heagent/tmp/mutate_50_3.py`` 逐个拆掉本次行为，**7/7 精确变红**后自动复位：
+  ①在途判据退回 OR；②名额退回全局共享；③去掉 ``run_conflict``→409 映射；④去掉多段路径兜底路由；
+  ⑤缺省会话不跳过损坏文件；⑥HTTP 入口重开 cron；⑦console 不再拿到 per-project 工厂。
+- 实现期发现并修掉三个真实缺陷（均由新测试暴露，非测试迁就实现）：
+  ①``has_inflight_run`` 曾对（项目 / 会话）取 **OR** ⇒ 同项目里**别的**会话在跑会把删除请求误判成
+  ``session_busy``；改为逐项 AND。
+  ②``run_conflict`` 未进 ``_CONSOLE_ERROR_STATUS`` ⇒ 项目内并发冲突回 400 而不是 409；已补。
+  ③``%2F`` 在路由前被解码 ⇒ ``sessions/..%2Fescape`` 落成多段路径、退化成 404 ``not_found``；补
+  ``_PROJECT_SESSION_EXTRA_PATH`` 兜底路由回 AC7 承诺的 ``invalid_session_id``（且不泄露路由结构）。
+- 未决/交接：R1 取「列表可退化」口径（超 1 MiB 的会话 ``message_count=None``，详情仍给）；R5 取
+  「运行落盘**不传** ``expected_version``」= last-write-wins（并发写入仍可能丢消息，口径已写进测试与注释）；
+  端点级用户文档按 epic 排期归 Story 50-7。
+- 同批（**非本 story 范围**）另修了 HTTP 运行时限语义：墙钟 300s 默认会误杀长任务，已改为「静默上限
+  ``HTTP_IDLE_TIMEOUT``（默认 300s，无事件且无在途工具才算卡死）+ 可选总时长上限 ``HTTP_REQUEST_TIMEOUT``
+  （默认 0 = 不限制）」，见 ``docs/frame.md`` 4.17 与 ``tests/network/test_http_run_service.py``。
+
+### 验证（实测命令与输出）
+
+- `pytest tests/test_session.py tests/network tests/test_http_agent_api.py tests/test_cli_http.py -q` → **355 passed**
+- 全量 `pytest -q` → **2671 passed, 10 skipped, 18 deselected**
+- `ruff check src tests` → All checks passed；`ruff format --check src tests` → 269 files already formatted
+- `mypy src` 与 `mypy src --platform linux` → 均 `Success: no issues found in 143 source files`
+- `pytest -q --cov` → TOTAL **91%**（门限 87%；`network/http_server.py` 93%、`context/session.py` 89%、`cli_http.py` 82%）
+
+### File List
+
+- src/heagent/context/session.py
+- src/heagent/exceptions.py
+- src/heagent/cli.py
+- src/heagent/cli_http.py
+- src/heagent/config.py
+- src/heagent/network/http_console_protocol.py
+- src/heagent/network/http_protocol.py
+- src/heagent/network/http_server.py
+- tests/test_session.py
+- tests/network/test_http_console_sessions.py（新增）
+- tests/network/test_http_protocol.py
+- tests/network/test_http_run_service.py
+- tests/network/test_http_server.py
+- tests/test_cli_http.py
+- tests/test_http_agent_api.py
+- .env.example
+- docs/frame.md
+
+### Change Log
+
+- 2026-09-24: 完成会话持久化 / 会话 API / 项目内运行绑定（T1–T11），并修掉三个实现期缺陷（OR 判据、
+  run_conflict 状态码、多段路径兜底）。

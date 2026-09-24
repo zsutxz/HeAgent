@@ -40,6 +40,10 @@ from heagent.network.http_console_protocol import (
     ConsoleOperationError,
     ProjectRegisterRequest,
     ProjectRenameRequest,
+    ProjectRunRequest,
+    SessionCreateRequest,
+    SessionRenameRequest,
+    is_valid_session_id,
 )
 from heagent.network.http_protocol import (
     GENERIC_ERROR_MESSAGE,
@@ -113,6 +117,12 @@ _RUN_EVENTS_PATH = "/api/runs/{run_id}/events"
 _SESSION_PATH = "/api/session"
 _PROJECTS_PATH = "/api/projects"
 _PROJECT_PATH = "/api/projects/{project_id}"
+_PROJECT_SESSIONS_PATH = "/api/projects/{project_id}/sessions"
+_PROJECT_SESSION_PATH = "/api/projects/{project_id}/sessions/{session_id}"
+# 会话路径下**多出来的段**（``%2F`` 在路由前被解码 ⇒ ``../`` 之类会落成多段）：兜底回
+# ``invalid_session_id``（AC7），而不是让「路由存不存在」的差异变成 404。
+_PROJECT_SESSION_EXTRA_PATH = "/api/projects/{project_id}/sessions/{session_id}/{extra:path}"
+_PROJECT_RUNS_PATH = "/api/projects/{project_id}/runs"
 
 # 通配绑定地址：就绪探测改走回环（见 :func:`_probe_host`）。这里**只识别**，不在此绑定。
 _WILDCARD_HOSTS = frozenset({"", "0.0.0.0", "*"})  # noqa: S104 - 识别通配地址，非绑定
@@ -156,6 +166,8 @@ class HttpServerConfig(BaseModel):
     host: str = Field(default="127.0.0.1", min_length=1)
     port: int = Field(default=8766, ge=0, le=65535)
     max_connections: int = Field(default=16, ge=1)
+    # **每个项目各自**的在途运行上限（Story 50-3 的 D9）：全局上限 = 项目数 × 该值，因此「A 项目在跑」
+    # 不挡 B 项目；``POST /api/runs``（无项目归属）自己算一档，语义与 Epic 49 逐字相同。
     max_inflight_runs: int = Field(default=1, ge=1)
     max_request_bytes: int = Field(default=MAX_REQUEST_BYTES_FOR_MAX_PROMPT, ge=1)
     event_buffer_size: int = Field(default=512, ge=1)
@@ -224,9 +236,21 @@ class _RunRecord:
     本对象**不**持有 ``AgentLoop``，也不碰 Provider——那些属于入口层注入的 executor。
     """
 
-    def __init__(self, run_id: str, prompt: str, *, buffer_size: int) -> None:
+    def __init__(
+        self,
+        run_id: str,
+        prompt: str,
+        *,
+        buffer_size: int,
+        project_id: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
         self.run_id = run_id
         self.prompt = prompt
+        # 不透明的归属 id（入口层在建立运行时注入）：供「项目 / 会话是否有在途运行」与「会话最近
+        # 一次运行状态」查询使用。传输层不解释它们的语义，只做字符串比对（AD-1 的接缝）。
+        self.project_id = project_id
+        self.session_id = session_id
         self.status = RunStatus.RUNNING
         self.outcome: RunOutcome | None = None
         self.error_message: str | None = None
@@ -333,6 +357,8 @@ class HttpRunService:
 
     - **单运行**：``max_inflight_runs``（MVP 默认 1）用**非等待式**名额限制——满即
       ``run_conflict``，绝不排队；名额在 ``finally`` 里归还（成功 / 失败 / 取消 / 超时都归还）。
+      **名额按项目各自生效**（Story 50-3 的 D9）：作用域 = 项目（``project_id is None`` 是「无项目归属」
+      的 49 端点那一档），因此「A 项目在跑」不挡 B 项目，同一项目内的第二个 run 仍被拒。
     - **每 run 独立 ``AgentLoop``**：由注入的 executor 负责；服务层不持有 loop，也不共享任何
       每运行可变状态（模型与用量只从该运行的结果复制，不读共享 provider 的最近状态）。
     - **会话投影只有一条路径**：:meth:`_project` 只在 ``COMPLETED`` 时追加 prompt + 最终回答；
@@ -388,18 +414,41 @@ class HttpRunService:
         """
         self._closing = False
 
-    async def start_run(self, prompt: str) -> _RunRecord:
-        """创建并启动一次运行；名额已满或正在关闭 → :class:`HttpRunConflictError`（不排队）。"""
+    async def start_run(
+        self,
+        prompt: str,
+        *,
+        executor: RunExecutor | None = None,
+        project_id: str | None = None,
+        session_id: str | None = None,
+    ) -> _RunRecord:
+        """创建并启动一次运行；名额已满或正在关闭 → :class:`HttpRunConflictError`（不排队）。
+
+        ``executor`` 缺省为服务级 executor（``POST /api/runs`` 的路径）；项目内运行（Story 50-3）
+        传入**按项目 / 会话绑定**的 executor，同时带上不透明的 ``project_id`` / ``session_id`` 供
+        在途查询使用（名额仍按**本 service** 计，即每项目各一份 —— 见脊柱 §6 的 D9 口径）。
+        """
         if self._closing:
             raise HttpRunConflictError("server is shutting down")
-        if len(self._active) >= self.config.max_inflight_runs:
+        if self._inflight_in_scope(project_id) >= self.config.max_inflight_runs:
             raise HttpRunConflictError("another run is already in flight")
-        record = _RunRecord(uuid.uuid4().hex, prompt, buffer_size=self.config.event_buffer_size)
+        record = _RunRecord(
+            uuid.uuid4().hex,
+            prompt,
+            buffer_size=self.config.event_buffer_size,
+            project_id=project_id,
+            session_id=session_id,
+        )
         self._store(record)
         self._active.add(record.run_id)
-        self._current_run_id = record.run_id
+        if project_id is None:
+            # 只有「无项目归属」的运行（Epic 49 的 ``POST /api/runs``）驱动 ``/api/session`` 投影，
+            # 项目内运行不改变它——49 端点的语义因此逐字不变（R3/I13）。
+            self._current_run_id = record.run_id
         _safe_log(logging.INFO, "http event=run_started run_id=%s", record.run_id)
-        task: asyncio.Task[None] = asyncio.create_task(self._execute(record), name=f"heagent-http-run-{record.run_id}")
+        task: asyncio.Task[None] = asyncio.create_task(
+            self._execute(record, executor or self._executor), name=f"heagent-http-run-{record.run_id}"
+        )
         self._run_tasks[record.run_id] = task
 
         def _on_done(finished: asyncio.Task[None]) -> None:
@@ -407,6 +456,58 @@ class HttpRunService:
 
         task.add_done_callback(_on_done)
         return record
+
+    def _inflight_in_scope(self, project_id: str | None) -> int:
+        """该作用域内的在途运行数（作用域 = 项目；``None`` 是 49 端点的「无项目归属」档）。
+
+        D9：名额按项目各自生效、跨项目不共享（全局上限 = 项目数 × ``max_inflight_runs``）。在途集合
+        与运行记录同源，**不额外建索引**——判定与「属于谁」永远是同一个事实。
+        """
+        count = 0
+        for run_id in self._active:
+            record = self._runs.get(run_id)
+            if record is not None and record.project_id == project_id:
+                count += 1
+        return count
+
+    def has_inflight_run(self, *, project_id: str | None = None, session_id: str | None = None) -> bool:
+        """是否有在途运行同时满足给出的（项目 / 会话）条件：50-2 的 ``project_busy`` 与 50-3 的
+        ``session_busy`` 共用。
+
+        判据是**逐项 AND**（给几项就必须全中）：只给项目 = 「该项目有在跑」（项目移除闸门）；两项都给 =
+        「这个会话正在被写」（会话删除闸门）。若两项之间取 OR，同一项目里**别的**会话在跑就会把删除
+        请求误判成 ``session_busy``（评审发现，2026-09-24 修）。在途集合（``_active``）与运行记录同源，
+        因此查询就是单点事实——不需要控制台另建索引（评审 R2 要求的「console 级单点」在此天然成立）。
+        """
+        for run_id in self._active:
+            record = self._runs.get(run_id)
+            if record is None:
+                continue
+            if project_id is not None and record.project_id != project_id:
+                continue
+            if session_id is not None and record.session_id != session_id:
+                continue
+            return True
+        return False
+
+    def session_run_state(
+        self, session_id: str, *, project_id: str | None = None
+    ) -> tuple[str | None, RunStatus | None]:
+        """该会话**最近一次**运行的 ``(run_id, status)``；没有则 ``(None, None)``。
+
+        ``project_id`` 给定时同时要求归属匹配：会话文件按项目分目录存放，跨项目的同名 id 记录不该被
+        当作「这个会话的运行」（Story 50-3 的 per-project 口径）。「run → 会话」的索引就在运行记录里
+        （``OrderedDict`` 按建立顺序），因此上限与回收天然跟随 ``run_history_size``（NFR-11 的有界
+        要求 / 评审 R4），不需要第二份会泄漏的映射表。
+        """
+        for run_id in reversed(self._runs):
+            record = self._runs[run_id]
+            if record.session_id != session_id:
+                continue
+            if project_id is not None and record.project_id != project_id:
+                continue
+            return record.run_id, record.status
+        return None, None
 
     def _finalize(self, task: asyncio.Task[None], run_id: str) -> None:
         """运行任务的**兜底收尾**：注销任务、归还在途名额、并补写「未启动即被取消」的终态。
@@ -490,7 +591,7 @@ class HttpRunService:
 
     # ---- 运行执行 ----
 
-    async def _execute(self, record: _RunRecord) -> None:
+    async def _execute(self, record: _RunRecord, executor: RunExecutor) -> None:
         """跑一次运行并把结果写进记录（唯一写终态的地方，AD-10）。
 
         超时（``HTTP_REQUEST_TIMEOUT``）与取消都经这里的终态转换收口：**第一个**拿到终态的转换
@@ -504,7 +605,7 @@ class HttpRunService:
         deadline = asyncio.timeout(self.config.request_timeout)
         try:
             async with deadline:
-                outcome = await self._executor(record.prompt, RunEventPublisher(record))
+                outcome = await executor(record.prompt, RunEventPublisher(record))
         except asyncio.CancelledError:
             if record.claim_terminal(RunStatus.CANCELLED):
                 record.append(RunEventKind.CANCELLED, message="run cancelled")
@@ -569,7 +670,13 @@ class HttpRunService:
             del self._runs[victim]
 
     def _project(self, record: _RunRecord) -> None:
-        """终态 → 会话的唯一 reducer：只投影成功完成运行的 prompt 与最终回答（AD-3）。"""
+        """终态 → 会话的唯一 reducer：只投影成功完成运行的 prompt 与最终回答（AD-3）。
+
+        只对**无项目归属**的运行生效（``POST /api/runs``）：项目内运行的历史以**会话文件**为唯一
+        权威（Story 50-3），两套口径因此不会在同一页面上互相矛盾。
+        """
+        if record.project_id is not None:
+            return
         if record.status is not RunStatus.COMPLETED or record.outcome is None:
             return
         self._messages.append(SessionMessage(role="user", text=record.prompt))
@@ -886,6 +993,79 @@ async def _read_body(request: Any, *, limit: int) -> bytes:
     return b"".join(chunks)
 
 
+async def _read_model(
+    request: Any,
+    *,
+    model: Any,
+    config: HttpServerConfig,
+    responses: Any,
+    blank_code: HttpErrorCode | None = None,
+) -> tuple[Any, Any | None]:
+    """读请求体并校验为 ``model``：返回 ``(parsed, error_response)``（恰有一个非 ``None``）。
+
+    把「有界读 + Pydantic 校验 + 统一错误信封」收在一处：``POST /api/runs`` 与三条控制台写路由
+    因此共用同一套 413/400 语义（取值与 49-3 一致，不因重构而漂移）。
+
+    ``parsed`` 的类型是 ``Any`` 而不是 ``| None``：契约是「要么拿到了模型、要么调用方已经被
+    ``if error is not None: return error`` 短路掉」。让类型带上 ``| None`` 只会逼 9 处调用点重复同一句
+    收窄断言，换不来任何真实保证（错误路径返回的 ``None`` 永远到不了使用点）。
+    """
+    try:
+        raw = await _read_body(request, limit=config.max_request_bytes)
+    except HttpRequestTooLargeError:
+        return None, _json_error(
+            responses,
+            HttpErrorCode.REQUEST_TOO_LARGE,
+            "request body exceeds the configured limit",
+            status_code=413,
+        )
+    try:
+        return model.model_validate_json(raw), None
+    except ValidationError as exc:
+        code = HttpErrorCode.INVALID_REQUEST
+        if blank_code is not None and any("blank" in str(error.get("msg", "")) for error in exc.errors()):
+            code = blank_code
+        return None, _json_error(responses, code, "request body is invalid", status_code=400)
+
+
+# 控制台稳定错误码 → HTTP 状态码（未列出的码按 400 处理；未知码由下面的函数降级为 500）。
+_CONSOLE_ERROR_STATUS: dict[HttpErrorCode, int] = {
+    HttpErrorCode.INVALID_REQUEST: 400,
+    HttpErrorCode.INVALID_PROJECT_PATH: 400,
+    HttpErrorCode.INVALID_SESSION_ID: 400,
+    HttpErrorCode.CONFIRM_REQUIRED: 400,
+    HttpErrorCode.UNKNOWN_PROJECT: 404,
+    HttpErrorCode.UNKNOWN_SESSION: 404,
+    HttpErrorCode.PROJECT_UNAVAILABLE: 409,
+    HttpErrorCode.PROJECT_NOT_REMOVABLE: 409,
+    HttpErrorCode.PROJECT_BUSY: 409,
+    HttpErrorCode.PROJECT_LIMIT_REACHED: 409,
+    HttpErrorCode.SESSION_CONFLICT: 409,
+    HttpErrorCode.SESSION_BUSY: 409,
+    HttpErrorCode.SESSION_UNREADABLE: 409,
+    HttpErrorCode.RUN_CONFLICT: 409,
+    HttpErrorCode.LOOPBACK_REQUIRED: 403,
+}
+
+
+def _console_error_response(responses: Any, exc: BaseException, *, event: str) -> Any:
+    """注入的控制台失败时的统一响应。
+
+    ``ConsoleOperationError`` 携带**稳定码**，映射为固定状态码；其它异常一律 500 + 固定文案，
+    诊断细节只进服务端日志（AD-8/AD-9）。码不在闭集内（入口层写错）时降级为 500 并留下 ERROR，
+    绝不把未知码原样回给客户端。
+    """
+    if isinstance(exc, ConsoleOperationError):
+        try:
+            code = HttpErrorCode(exc.code)
+        except ValueError:
+            _safe_log(logging.ERROR, "http event=%s unknown_console_code=%s", event, exc.code)
+            return _json_error(responses, HttpErrorCode.SERVER_ERROR, "request failed", status_code=500)
+        return _json_error(responses, code, str(exc), status_code=_CONSOLE_ERROR_STATUS.get(code, 400))
+    _safe_log(logging.ERROR, "http event=%s handler_failed", event, exc_info=True)
+    return _json_error(responses, HttpErrorCode.SERVER_ERROR, "request failed", status_code=500)
+
+
 def format_sse(payload: RunEventPayload) -> bytes:
     """把一条事件编码为 SSE 帧（``id`` / ``event`` / ``data``，以空行结束）。
 
@@ -944,25 +1124,15 @@ def _build_run_endpoints(
 
     async def create_run(request: Any) -> Any:
         """``POST /api/runs``：有界非空 prompt → 创建一次运行（单运行约束，不排队）。"""
-        try:
-            raw = await _read_body(request, limit=config.max_request_bytes)
-        except HttpRequestTooLargeError:
-            return _json_error(
-                responses,
-                HttpErrorCode.REQUEST_TOO_LARGE,
-                "request body exceeds the configured limit",
-                status_code=413,
-            )
-        try:
-            parsed = RunRequest.model_validate_json(raw)
-        except ValidationError as exc:
-            messages = [str(error.get("msg", "")) for error in exc.errors()]
-            code = (
-                HttpErrorCode.EMPTY_PROMPT
-                if any("blank" in message for message in messages)
-                else HttpErrorCode.INVALID_REQUEST
-            )
-            return _json_error(responses, code, "request body is invalid", status_code=400)
+        parsed, error = await _read_model(
+            request,
+            model=RunRequest,
+            config=config,
+            responses=responses,
+            blank_code=HttpErrorCode.EMPTY_PROMPT,
+        )
+        if error is not None:
+            return error
         try:
             record = await service.start_run(parsed.prompt)
         except HttpRunConflictError as exc:
@@ -1018,100 +1188,87 @@ def _build_run_endpoints(
     return create_run, run_events, cancel_run, session
 
 
-def _build_console_endpoints(  # noqa: C901
+def _project_source(request: Any) -> str:
+    """路径里的项目 id（不透明字符串；缺失/未知由注入的 console 判为 ``unknown_project``）。"""
+    return str(request.path_params.get("project_id", ""))
+
+
+def _loopback_error(responses: Any, request: Any) -> Any | None:
+    """写操作要求本机回环来源；非回环 → 403 ``loopback_required``（脊柱 §9）。
+
+    判定复用 ``network.exposure.is_loopback_host``（含 IPv4 映射形式 ``::ffff:127.0.0.1``）。
+    这是 defense-in-depth 而**不是认证**：能连上回环端口的本机进程可以伪造请求头。
+    """
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", "") if client is not None else ""
+    if is_loopback_host(str(host)):
+        return None
+    return _json_error(
+        responses,
+        HttpErrorCode.LOOPBACK_REQUIRED,
+        "project registration changes require a loopback client",
+        status_code=403,
+    )
+
+
+def _confirm_required(responses: Any, request: Any, *, action: str) -> Any | None:
+    """危险操作的服务端确认闸门（缺 ``?confirm=true`` → 400 ``confirm_required``）。
+
+    确认放在**服务端**而不只靠 UI：项目移除与会话删除都走这里，缺一即拒（story 50-2 AC6 /
+    50-3 AC6 同一口径）。
+    """
+    if request.query_params.get("confirm") == "true":
+        return None
+    return _json_error(
+        responses,
+        HttpErrorCode.CONFIRM_REQUIRED,
+        f"{action} requires confirm=true",
+        status_code=400,
+    )
+
+
+def _build_project_endpoints(  # noqa: C901 - 四个端点闭包共享同一套分支（与 50-2 原实现同口径）
     responses: Any, console: ConsoleHandler, config: HttpServerConfig
 ) -> tuple[Any, ...]:
-    """Construct project endpoints around the injected entry-layer handler."""
-
-    def failure(exc: BaseException) -> Any:
-        if isinstance(exc, ConsoleOperationError):
-            code = HttpErrorCode(exc.code)
-            statuses = {
-                HttpErrorCode.INVALID_PROJECT_PATH: 400,
-                HttpErrorCode.UNKNOWN_PROJECT: 404,
-                HttpErrorCode.PROJECT_UNAVAILABLE: 409,
-                HttpErrorCode.PROJECT_NOT_REMOVABLE: 409,
-                HttpErrorCode.PROJECT_BUSY: 409,
-                HttpErrorCode.PROJECT_LIMIT_REACHED: 409,
-                HttpErrorCode.CONFIRM_REQUIRED: 400,
-                HttpErrorCode.LOOPBACK_REQUIRED: 403,
-            }
-            return _json_error(responses, code, str(exc), status_code=statuses.get(code, 400))
-        _safe_log(logging.ERROR, "HTTP console handler failed", exc_info=True)
-        return _json_error(responses, HttpErrorCode.SERVER_ERROR, "request failed", status_code=500)
-
-    def loopback_error(request: Any) -> Any | None:
-        client = getattr(request, "client", None)
-        host = getattr(client, "host", "") if client is not None else ""
-        if is_loopback_host(str(host)):
-            return None
-        return _json_error(
-            responses,
-            HttpErrorCode.LOOPBACK_REQUIRED,
-            "project registration changes require a loopback client",
-            status_code=403,
-        )
+    """项目注册表的四条路由（Story 50-2），全部围绕注入的入口层 handler 构造。"""
 
     async def list_projects(request: Any) -> Any:  # noqa: ARG001
         try:
             result = await console.list_projects()
-            return responses.JSONResponse(result.model_dump(mode="json"))
         except Exception as exc:
-            return failure(exc)
+            return _console_error_response(responses, exc, event="project_list_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"))
 
     async def register_project(request: Any) -> Any:
-        denied = loopback_error(request)
+        denied = _loopback_error(responses, request)
         if denied is not None:
             return denied
-        try:
-            raw = await _read_body(request, limit=config.max_request_bytes)
-            parsed = ProjectRegisterRequest.model_validate_json(raw)
-        except HttpRequestTooLargeError:
-            return _json_error(
-                responses,
-                HttpErrorCode.REQUEST_TOO_LARGE,
-                "request body exceeds the configured limit",
-                status_code=413,
-            )
-        except ValidationError:
-            return _json_error(responses, HttpErrorCode.INVALID_REQUEST, "request body is invalid", status_code=400)
+        parsed, error = await _read_model(request, model=ProjectRegisterRequest, config=config, responses=responses)
+        if error is not None:
+            return error
         try:
             result = await console.register_project(parsed)
-            return responses.JSONResponse(result.model_dump(mode="json"), status_code=201)
         except Exception as exc:
-            return failure(exc)
+            return _console_error_response(responses, exc, event="project_register_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"), status_code=201)
 
     async def rename_project(request: Any) -> Any:
-        project_id = str(request.path_params.get("project_id", ""))
+        parsed, error = await _read_model(request, model=ProjectRenameRequest, config=config, responses=responses)
+        if error is not None:
+            return error
         try:
-            raw = await _read_body(request, limit=config.max_request_bytes)
-            parsed = ProjectRenameRequest.model_validate_json(raw)
-        except HttpRequestTooLargeError:
-            return _json_error(
-                responses,
-                HttpErrorCode.REQUEST_TOO_LARGE,
-                "request body exceeds the configured limit",
-                status_code=413,
-            )
-        except ValidationError:
-            return _json_error(responses, HttpErrorCode.INVALID_REQUEST, "request body is invalid", status_code=400)
-        try:
-            result = await console.rename_project(project_id, parsed)
-            return responses.JSONResponse(result.model_dump(mode="json"))
+            result = await console.rename_project(_project_source(request), parsed)
         except Exception as exc:
-            return failure(exc)
+            return _console_error_response(responses, exc, event="project_rename_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"))
 
     async def remove_project(request: Any) -> Any:
-        project_id = str(request.path_params.get("project_id", ""))
-        if request.query_params.get("confirm") != "true":
-            return _json_error(
-                responses,
-                HttpErrorCode.CONFIRM_REQUIRED,
-                "project removal requires confirm=true",
-                status_code=400,
-            )
+        project_id = _project_source(request)
+        denied = _confirm_required(responses, request, action="project removal")
+        if denied is not None:
+            return denied
         if project_id != "default":
-            denied = loopback_error(request)
+            denied = _loopback_error(responses, request)
             if denied is not None:
                 return denied
         try:
@@ -1123,11 +1280,129 @@ def _build_console_endpoints(  # noqa: C901
                     status_code=409,
                 )
             await console.remove_project(project_id)
-            return responses.Response(status_code=204)
         except Exception as exc:
-            return failure(exc)
+            return _console_error_response(responses, exc, event="project_remove_failed")
+        return responses.Response(status_code=204)
 
     return list_projects, register_project, rename_project, remove_project
+
+
+def _build_session_endpoints(  # noqa: C901 - 六个端点闭包共享同一套分支（与 50-2 同口径）
+    responses: Any, console: ConsoleHandler, config: HttpServerConfig
+) -> tuple[Any, ...]:
+    """会话 API 与项目内运行入口（Story 50-3）：五条会话路由 + 一条运行入口。
+
+    网络层在这里只做三件事：**校验会话 id 形态**（非法即回 ``invalid_session_id``，不触碰文件
+    系统）、把不透明 id 交给注入的 console、把稳定码映射为状态码。会话 JSON 的解析、标题派生、
+    在途判定与项目路径解析一律在入口层（脊柱 I1 的「网络层不认识项目」）。
+    """
+
+    def session_source(request: Any) -> tuple[str, Any | None]:
+        """路径里的会话 id（已过形态校验；错误路径回 ``("", error)``，调用方必须先短路 error）。
+
+        形态校验放在**网络层**（非法即 ``invalid_session_id``，且**不触碰文件系统**）；入口层还有第二道
+        同样的守卫（``cli_http._guarded_session_id``），两点各自 fail-closed。
+        """
+        session_id = str(request.path_params.get("session_id", ""))
+        if not is_valid_session_id(session_id):
+            return "", _json_error(
+                responses,
+                HttpErrorCode.INVALID_SESSION_ID,
+                "session id is invalid",
+                status_code=400,
+            )
+        return session_id, None
+
+    async def list_sessions(request: Any) -> Any:
+        try:
+            result = await console.list_sessions(_project_source(request))
+        except Exception as exc:
+            return _console_error_response(responses, exc, event="session_list_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"))
+
+    async def create_session(request: Any) -> Any:
+        parsed, error = await _read_model(request, model=SessionCreateRequest, config=config, responses=responses)
+        if error is not None:
+            return error
+        try:
+            result = await console.create_session(_project_source(request), parsed)
+        except Exception as exc:
+            return _console_error_response(responses, exc, event="session_create_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"), status_code=201)
+
+    async def get_session(request: Any) -> Any:
+        session_id, error = session_source(request)
+        if error is not None:
+            return error
+        try:
+            result = await console.get_session(_project_source(request), session_id)
+        except Exception as exc:
+            return _console_error_response(responses, exc, event="session_read_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"))
+
+    async def rename_session(request: Any) -> Any:
+        session_id, error = session_source(request)
+        if error is not None:
+            return error
+        parsed, error = await _read_model(request, model=SessionRenameRequest, config=config, responses=responses)
+        if error is not None:
+            return error
+        try:
+            result = await console.rename_session(_project_source(request), session_id, parsed)
+        except Exception as exc:
+            return _console_error_response(responses, exc, event="session_rename_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"))
+
+    async def delete_session(request: Any) -> Any:
+        """删除会话：危险操作，确认由**服务端**把关（与会话 / 项目删除同一口径）。"""
+        session_id, error = session_source(request)
+        if error is not None:
+            return error
+        denied = _confirm_required(responses, request, action="session removal")
+        if denied is not None:
+            return denied
+        try:
+            await console.delete_session(_project_source(request), session_id)
+        except Exception as exc:
+            return _console_error_response(responses, exc, event="session_delete_failed")
+        return responses.Response(status_code=204)
+
+    async def create_project_run(request: Any) -> Any:
+        """``POST /api/projects/{id}/runs``：项目内运行，``run_id`` 复用既有 SSE/取消端点。"""
+        parsed, error = await _read_model(
+            request,
+            model=ProjectRunRequest,
+            config=config,
+            responses=responses,
+            blank_code=HttpErrorCode.EMPTY_PROMPT,
+        )
+        if error is not None:
+            return error
+        try:
+            result = await console.start_project_run(_project_source(request), parsed)
+        except Exception as exc:
+            return _console_error_response(responses, exc, event="project_run_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"), status_code=201)
+
+    async def session_malformed(request: Any) -> Any:  # noqa: ARG001 - 端点的固定签名
+        """会话路径下多出来的段 ⇒ 会话 id 必然非法（AC7：拒绝且不触碰 console / 文件系统）。
+
+        必须存在这条兜底路由：``%2F`` 会在**路由之前**被解码成 ``/``，于是 ``sessions/..%2Fescape``
+        落成 5 段路径——不兜底就回 404 ``not_found``，与 AC7 承诺的稳定码 ``invalid_session_id`` 不符
+        （且把「路由存不存在」的差异暴露给客户端）。注册顺序在具体会话路由**之后**，因此绝不会遮蔽
+        正常的单段 id。
+        """
+        return _json_error(responses, HttpErrorCode.INVALID_SESSION_ID, "session id is invalid", status_code=400)
+
+    return (
+        list_sessions,
+        create_session,
+        get_session,
+        rename_session,
+        delete_session,
+        create_project_run,
+        session_malformed,
+    )
 
 
 def build_http_app(
@@ -1214,15 +1489,36 @@ def build_http_app(
             ]
         )
     if console is not None:
-        list_projects, register_project, rename_project, remove_project = _build_console_endpoints(
+        list_projects, register_project, rename_project, remove_project = _build_project_endpoints(
             responses, console, config
         )
+        (
+            list_sessions,
+            create_session,
+            get_session,
+            rename_session,
+            delete_session,
+            create_project_run,
+            session_malformed,
+        ) = _build_session_endpoints(responses, console, config)
         routes.extend(
             [
                 routing.Route(_PROJECTS_PATH, endpoint=list_projects, methods=["GET"]),
                 routing.Route(_PROJECTS_PATH, endpoint=register_project, methods=["POST"]),
                 routing.Route(_PROJECT_PATH, endpoint=rename_project, methods=["PATCH"]),
                 routing.Route(_PROJECT_PATH, endpoint=remove_project, methods=["DELETE"]),
+                routing.Route(_PROJECT_SESSIONS_PATH, endpoint=list_sessions, methods=["GET"]),
+                routing.Route(_PROJECT_SESSIONS_PATH, endpoint=create_session, methods=["POST"]),
+                routing.Route(_PROJECT_SESSION_PATH, endpoint=get_session, methods=["GET"]),
+                routing.Route(_PROJECT_SESSION_PATH, endpoint=rename_session, methods=["PATCH"]),
+                routing.Route(_PROJECT_SESSION_PATH, endpoint=delete_session, methods=["DELETE"]),
+                # 兜底路由**必须在具体会话路由之后**注册：先匹配到具体的单段 id 语义。
+                routing.Route(
+                    _PROJECT_SESSION_EXTRA_PATH,
+                    endpoint=session_malformed,
+                    methods=["GET", "POST", "PATCH", "DELETE"],
+                ),
+                routing.Route(_PROJECT_RUNS_PATH, endpoint=create_project_run, methods=["POST"]),
             ]
         )
     routes.append(routing.Route("/{asset}", endpoint=asset, methods=["GET"]))

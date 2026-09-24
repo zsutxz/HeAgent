@@ -56,6 +56,9 @@ class HttpErrorCode(StrEnum):
     语义分组（同一分组内的码可被客户端用同一套文案处理）：
 
     - **输入类**：``invalid_request`` / ``empty_prompt`` / ``request_too_large``；
+    - **项目与会话类**：``unknown_project`` / ``invalid_project_path`` / ``project_unavailable`` /
+      ``project_not_removable`` / ``project_busy`` / ``project_limit_reached`` / ``unknown_session`` /
+      ``invalid_session_id`` / ``session_conflict`` / ``session_busy`` / ``session_unreadable``；
     - **运行类**：``run_conflict`` / ``unknown_run`` / ``resync_required``；
     - **资源类**：``rate_limited`` / ``timeout``；
     - **边界类**：``origin_forbidden`` / ``not_found`` / ``method_not_allowed``；
@@ -73,6 +76,11 @@ class HttpErrorCode(StrEnum):
     PROJECT_NOT_REMOVABLE = "project_not_removable"
     PROJECT_BUSY = "project_busy"
     PROJECT_LIMIT_REACHED = "project_limit_reached"
+    UNKNOWN_SESSION = "unknown_session"
+    INVALID_SESSION_ID = "invalid_session_id"
+    SESSION_CONFLICT = "session_conflict"
+    SESSION_BUSY = "session_busy"
+    SESSION_UNREADABLE = "session_unreadable"
     CONFIRM_REQUIRED = "confirm_required"
     LOOPBACK_REQUIRED = "loopback_required"
     RESYNC_REQUIRED = "resync_required"

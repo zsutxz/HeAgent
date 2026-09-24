@@ -11,6 +11,7 @@ import asyncio
 import contextlib
 import json
 from collections.abc import AsyncIterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -19,12 +20,13 @@ pytest.importorskip("starlette")
 
 import httpx
 
-from heagent.cli_http import HttpAgentHandler
+from heagent.cli_http import HttpAgentHandler, HttpProjectConsole
 from heagent.config import get_settings, reset_settings
+from heagent.context.session import SessionStore
 from heagent.exceptions import HeAgentError
 from heagent.network.http_server import HttpRunService, HttpServer, HttpServerConfig
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall
+from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
 
 
 def _answer(text: str, *, model: str = "stub-1", total: int = 5) -> ProviderResponse:
@@ -274,3 +276,41 @@ async def test_disconnect_does_not_cancel_the_run() -> None:
 
     assert snapshot["status"] == "running"
     gate.set()
+
+
+async def test_project_run_persists_the_conversation_into_the_project_sessions_dir() -> None:
+    """Story 50-3 的 AC1/AC2/AC3：项目内运行把对话写进**该项目**的会话文件，且与 CLI 同库同格式。
+
+    与前两个用例（49 的 ``POST /api/runs`` 只做进程内投影、不落盘）刻意对照：这里真的起了一个带
+    console 的 listener，运行走 ``HttpProjectHandler.for_workspace`` 派生的 per-project 运行时，
+    会话文件落在 ``<项目根>/.heagent/sessions/`` —— 用 ``SessionStore`` 直接读（就是 CLI 的读取路径）。
+    """
+    session_dir = Path.cwd() / ".heagent" / "sessions"
+    provider = _ScriptedProvider([_answer("project answer")])
+    config = HttpServerConfig(port=0)
+    handler = HttpAgentHandler(provider, get_settings())
+    service = HttpRunService(config, handler)
+    console = HttpProjectConsole(Path.cwd(), runs=service, handler_factory=handler.for_workspace)
+    server = HttpServer(config, version="9.9.9", run_service=service, console=console)
+    await server.start()
+    task = asyncio.create_task(server.serve_forever())
+    base_url = f"http://127.0.0.1:{server.port}"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            created = await client.post(f"{base_url}/api/projects/default/runs", json={"prompt": "remember me"})
+            assert created.status_code == 201, created.text
+            run_id, session_id = created.json()["run_id"], created.json()["session_id"]
+            events = await client.get(f"{base_url}/api/runs/{run_id}/events")
+            detail = await client.get(f"{base_url}/api/projects/default/sessions/{session_id}")
+    finally:
+        await server.close()
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(task, timeout=5)
+
+    assert [event for _id, event, _data in _parse_sse(events.text)][-1] == "done"
+    assert (session_dir / f"{session_id}.json").exists()
+    loaded = SessionStore(str(session_dir)).load(session_id)
+    assert [message.content for message in loaded if message.role == Role.USER] == ["remember me"]
+    body = detail.json()
+    assert [message["text"] for message in body["messages"]] == ["remember me", "project answer"]
+    assert (body["run_id"], body["status"]) == (run_id, "completed")
