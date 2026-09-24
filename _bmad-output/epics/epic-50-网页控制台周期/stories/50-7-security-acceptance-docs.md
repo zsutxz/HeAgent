@@ -1,7 +1,8 @@
 ---
 id: 50-7
 title: 安全收口、端到端验收与文档同步
-status: ready-for-dev
+status: review
+baseline_commit: 4193eac095adf4507a83d37b191a579cbb93c5e2
 parent_epic: E50
 priority: P0
 phase: E（整体验收）
@@ -56,27 +57,27 @@ created: '2026-09-23'
 
 ## 任务（细分）
 
-- [ ] **T1** 绑定告警收口：非回环绑定时沿用 `exposure_warning()` 的 stderr + 日志双通道；UI 常驻声明与之同文案要点。
-- [ ] **T2** 写通道来源门回归：非回环来源访问写通道 / 项目登记 / 项目移除 → `loopback_required`，且
+- [x] **T1** 绑定告警收口：非回环绑定时沿用 `exposure_warning()` 的 stderr + 日志双通道；UI 常驻声明与之同文案要点。
+- [x] **T2** 写通道来源门回归：非回环来源访问写通道 / 项目登记 / 项目移除 → `loopback_required`，且
       **无副作用**（文件、备份、审计、注册表三者都不变）。
-- [ ] **T3** 凭证零回传系统性检查（逐面）：
+- [x] **T3** 凭证零回传系统性检查（逐面）：
       ①`GET .../config` 响应体；②所有错误信封（含 6 类写失败）；③SSE 帧；④日志（caplog）；
       ⑤审计 JSONL。覆盖**短密钥**、**多密钥**、以及「备份内容不经任何网页端点可下载」的负向断言。
-- [ ] **T4** 跨项目不串味端到端：两项目 A/B 交替「提交 → 切换 → 运行 → 删除」，断言会话、项目级记忆、
+- [x] **T4** 跨项目不串味端到端：两项目 A/B 交替「提交 → 切换 → 运行 → 删除」，断言会话、项目级记忆、
       运行快照归属正确；**用 A 的请求无法读取或修改 B 的会话与配置**（含越权路径：A 的 project id + B 的 session id）。
-- [ ] **T5** 无回归端到端：Epic 49 的流式 / 工具活动 / 停止 / 重连 / 来源校验 / 会话快照逐项目；
+- [x] **T5** 无回归端到端：Epic 49 的流式 / 工具活动 / 停止 / 重连 / 来源校验 / 会话快照逐项目；
       `HTTP_CONSOLE_WRITE_ENABLED` 默认关闭时新增面**只读**。
-- [ ] **T6** 契约测试：`tests/test_architecture_contracts.py` 增加——`network/` 不得 import `projects` / `config`（非延迟）
+- [x] **T6** 契约测试：`tests/test_architecture_contracts.py` 增加——`network/` 不得 import `projects` / `config`（非延迟）
       / `engine` / `agent` / `tools`；`workspace.py` 只依赖 stdlib（+ pydantic）；`config_catalog.py` 不依赖 engine/agent；
       写白名单 ⊆ `Settings.model_fields`（用 env 大写口径映射）。
-- [ ] **T7** `docs/frame.md`：新增 `### 4.18 网页控制台`（落 1004–1034 之间），覆盖工作区模型、项目注册表、
+- [x] **T7** `docs/frame.md`：新增 `### 4.18 网页控制台`（落 1004–1034 之间），覆盖工作区模型、项目注册表、
       会话持久化、配置来源求解、写通道 10 步流水线、生效语义、安全立场；配置表新增 `HTTP_CONSOLE_WRITE_ENABLED`
       与 `HTTP_CONSOLE_PROJECTS_FILE` 两行；错误码表补 **18 个新成员**（含 **D1** 的 `session_unreadable`）；
       配置可写面按 **D2/D3** 的划分（46 白名单 / 64 排除）表述；调用链补控制台路由与写通道。
-- [ ] **T8** `.env.example`：按注释风格补 2 键（默认 `false` / 默认落点说明），跑 `tests/test_config.py` 断言。
-- [ ] **T9** `consolidated-overview.md` 增 Epic 50 条目；`sprint-status.yaml` 把 7 条 story 推进到最终状态；
+- [x] **T8** `.env.example`：按注释风格补 2 键（默认 `false` / 默认落点说明），跑 `tests/test_config.py` 断言。
+- [x] **T9** `consolidated-overview.md` 增 Epic 50 条目；`sprint-status.yaml` 把 7 条 story 推进到最终状态；
       `ARCHITECTURE-SPINE.md` §14 校正表确认最终结论（若实现中发现新校正，一并回写并注明理由）。
-- [ ] **T10** 已知缺口登记：写入 `docs/frame.md` 五 与/或 `deferred-work-archive.md`——至少包含
+- [x] **T10** 已知缺口登记：写入 `docs/frame.md` 五 与/或 `deferred-work-archive.md`——至少包含
       ①网页入口非安全边界（无认证 / 无 TLS）；②全局 `~/.heagent/.env` 永久只读；
       ③配置改动只对下一次 run 生效（无热生效）；④UI 无自动化回归（手工清单）；
       ⑤备份/审计不被工具读取（deny 集合）但仍在宿主文件系统上；⑥`cli_console.py` 的覆盖率口径；
@@ -87,9 +88,9 @@ created: '2026-09-23'
       ⑨**跨项目并发（D9 已裁定）**：文档须写明「在途上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`
       （默认最多 32）」。**多项目并行是有意能力**，并如实登记已知缺口：无全局并发软上限、
       `HTTP_MAX_CONNECTIONS` 不随项目数放大（多项目并行时连接层可能先成为瓶颈）。
-- [ ] **T11** 全量质量门实跑并记录数字：`pytest`（含覆盖率）、`ruff check`、`ruff format --check`、
+- [x] **T11** 全量质量门实跑并记录数字：`pytest`（含覆盖率）、`ruff check`、`ruff format --check`、
       `mypy src`、`mypy src --platform linux`。
-- [ ] **T12** brief §9 的 9 条验收标准逐条落「命令 + 实测结果」表（本 story 的产物主体）。
+- [x] **T12** brief §9 的 9 条验收标准逐条落「命令 + 实测结果」表（本 story 的产物主体）。
 
 ## 验收标准
 
@@ -157,3 +158,115 @@ findstr /c:"HTTP_CONSOLE_WRITE_ENABLED" .env.example
 ## Requirement Traceability
 
 FR-7；NFR-4, NFR-9, NFR-10, NFR-12；脊柱 §9、§10、§13；brief §9（9 条）、§6.1、§10。
+
+## Dev Agent Record
+
+### Implementation Plan
+
+1. **先侦察再动手**：逐条复核 story「侦察实证」表的事实（行号 / 键 / 口径 / 文件是否存在），
+   实测出 3 处与计划期的差异（见 Completion Notes 的偏离 1–3），全部写进脊柱 §14「实现期校正」。
+2. **端到端验收测试**（T1–T5）：新增 `tests/network/test_http_console_e2e.py`，一律走**真装配**
+   （真 `HttpProjectConsole` + 真注册表 + 真 `SessionStore` + 真写通道 + 真 listener），只在 LLM 侧用
+   stub provider —— 理由：本 story 要证的是「跨项目归属」「凭证不外泄」这类**整体性质**，替身会把
+   要证的东西证掉。
+3. **契约测试**（T6）：`config_catalog` / `envfile` / `config_write` / `projects` 四个顶层模块的依赖面，
+   以及「白名单 ⊆ `Settings` 字段（大写口径）且不含凭证」。
+4. **文档同步**（T7–T10）：`docs/frame.md` 4.18 + 配置表 2 行 + 错误码计数校正 + 调用链控制台段与
+   写通道 10 步 + 五 的 9 条新缺口；`consolidated-overview.md` 补 Epic 49/50 两行；`sprint-status.yaml`
+   推进 50-7；脊柱 §14/§15 回写实现期校正（C11–C13 + D8 落定）。
+5. **验收表 + 负向验证**（T11/T12）：`reviews/acceptance-50-7-epic-acceptance.md`（§9 九条逐条
+   命令 + 实测输出）；`.heagent/tmp/mutate_50_7.py`（DoD 四条 + 2 条凭证面）逐条确认变红后复原。
+
+### Completion Notes
+
+**与 story 文本的偏离（4 处，均有理由）**
+
+1. **端到端测试落在 `tests/network/test_http_console_e2e.py`**（story 代码地图写 `tests/test_http_console_e2e.py`）：
+   另外两个控制台测试（`test_http_console_{projects,sessions,config}.py`）都在 `tests/network/`，同目录
+   才有同一套夹具风格（`pytest.importorskip("starlette")` + ASGI client 助手 + 真 console 装配）。放别处
+   会为了「照抄路径」而把同类测试拆成两半。
+2. **错误码计数与可写面划分按实测校正**（story 的 T7 沿用计划期数字）：`HttpErrorCode` 实为 **32** 码
+   （计划期写「27 + 18 个新成员」；实测 = 49 的 14 + Epic 50 的 18，Story 50-5 的写通道再 +5 ⇒ 32）；
+   可写面实为 **113 = 46 白名单 + 67 排除**（计划期写 111/65）。两处均按「文档与代码不一致时改文档」
+   就地更正，并登记进脊柱 §14（C12/C13）。
+3. **`cli_console.py` 从未落地**（R1 的前提不成立）：脊柱 §10 与 D7 预判控制台逻辑会拆到该模块并
+   「默认不 omit」，但实现期它**没有存在过** —— 控制台装配全在 `cli_http.py`，而它本就不在
+   `pyproject.toml` 的 omit 列表里。故 **D7 作废**（§15 已标注），口径记录在 `docs/frame.md` 五。
+4. **T2 的范围严格照 story 文本**（写通道 / 项目登记 / 项目移除三处）。实测发现同一路径上的
+   **项目重命名**与四个**会话**写操作、项目内运行入口**当前没有**回环门 —— 那是台账里已登记的
+   「非回环运行姿态（intent_gap，**blocked 待人裁决**）」条目，本 story 不擅自扩大裁定范围，
+   也**不把现状钉成断言**（否则等于把这个缺口冻结）；已写入 `docs/frame.md` 五 与验收报告。
+
+**关键设计点（供评审复核）**
+
+- **T3 的口径是「凭证值五面一律不得出现」，不是「任何值都不许出现」**：非凭证键的**有效值**在配置面板
+  与写入响应里本该出现（那是面板的用途），但**不得**进 SSE 帧 / 日志 / 审计。首轮我把两者混成一条
+  断言，被实测打回（写入响应回显了刚写入的 `DEFAULT_MODEL` 值）—— 已改成两段式断言并在用例里写明理由。
+- **T4 特意包含一条真实工具路径**（R2）：只断言 HTTP 层「取不到 B 的会话」不够，工具层（workspace 围栏）
+  才是拦住「让 A 的 agent 去读 B 的盘」的那道门。用例让 stub provider 发 `file_read`，断言 SSE 里
+  `tool_error=True` 且 B 的文件内容一个字都没进事件流。
+- **非回环来源的 ASGI 伪造**：`httpx.ASGITransport(client=None)` 会把 peer 变成空串 ⇒ `is_loopback_host("")`
+  判非回环（fail-safe），所以「回环那一档」必须**显式**给回环 peer，不能靠 httpx 默认值。这一坑写在
+  测试助手 docstring 里。
+
+### 验证（实测命令 + 输出）
+
+```bash
+$ python -m pytest -q --cov=heagent --cov-fail-under=87 --cov-report=term
+TOTAL                                          12887    865   3506    390    92%
+Required test coverage of 87% reached. Total coverage: 91.82%
+3057 passed, 11 skipped, 18 deselected, 8 warnings in 189.36s (0:03:09)
+
+$ ruff check src tests            → All checks passed!
+$ ruff format --check src tests   → 277 files already formatted
+$ mypy src                        → Success: no issues found in 146 source files
+$ mypy src --platform linux       → Success: no issues found in 146 source files
+
+$ node tests/js/console_acceptance.mjs
+ACCEPTANCE {"rows":18,"failed":0,"workspace":"C:\\Users\\skype\\AppData\\Local\\Temp\\heagent-console-acZEgv","chrome":"Chrome/153.0.8010.48"}
+
+$ python -m pytest tests/network/test_http_console_e2e.py -q          → 9 passed
+$ python -m pytest tests/network/test_http_console_sessions.py tests/network/test_http_console_projects.py -q  → 41 passed
+$ python -m pytest tests/test_config_catalog.py tests/test_config_write.py tests/network/test_http_console_config.py -q  → 216 passed
+$ python -m pytest tests/test_http_web_ui.py tests/test_config.py -q  → 206 passed
+$ python -m pytest tests/test_cli_http.py tests/test_http_agent_api.py tests/test_http_security.py tests/network/test_http_server.py -q  → 128 passed
+
+$ python .heagent/tmp/mutate_50_7.py          # 负向验证（DoD 四条 + 2 条凭证面）
+[OK] ① 网络层 import projects（依赖面契约）      -> 1 failed
+[OK] ② 白名单塞凭证键                            -> 3 failed
+[OK] ③ 从 .env.example 删字段名                  -> 1 failed
+[OK] ④ 非回环判定短路                            -> 5 failed
+[OK] ⑤ 面板回传凭证原值                          -> 5 failed
+[OK] ⑥ 审计写原值而非哈希                        -> 2 failed
+合计 6 条变异，异常 0 条   # 每条回退后 sha256 与变异前一致
+```
+
+`docs/frame.md` 的结构复核（内容检索）：`### 4.18` 落于 `:1039`（4.17 之后、`## 五、已知缺口` 之前）；
+五 的表格新增 9 行且与既有行**连续**（插入时曾误删 `## 六、目录结构` 标题与空行，当场修复并复核）。
+
+### File List
+
+**新增**
+
+| 路径 | 行数 | 说明 |
+|---|---|---|
+| `tests/network/test_http_console_e2e.py` | 470 | 端到端验收（T1–T5：声明口径一致 / 非回环零副作用 / 凭证五面 / 跨项目不串味含真实工具路径 / 闸门只读与运行链路 / 每项目状态根） |
+| `_bmad-output/epics/epic-50-网页控制台周期/reviews/acceptance-50-7-epic-acceptance.md` | 68 | §9 九条逐条「命令 + 实测输出」表 + 质量门 + 负向验证 + 已知缺口 |
+
+**修改**
+
+| 路径 | 说明 |
+|---|---|
+| `docs/frame.md` | +4.18 小节（16 行表格 + 安全立场）；4.10 配置表 +2 行；4.17 错误码计数 27→32；七 调用链 +控制台流程与写通道 10 步；五 已知缺口 +9 行 |
+| `docs/README.md` | 文档索引补 4.18 两处（阅读顺序一行 + 快速定位一行） |
+| `tests/test_architecture_contracts.py` | +`test_config_layer_stays_out_of_the_runtime_stack`、+`test_write_whitelist_is_a_subset_of_settings_and_holds_no_credentials` |
+| `_bmad-output/consolidated-overview.md` | Epic 48 行状态更新 + Epic 49 / 50 两行 |
+| `_bmad-output/sprint-status.yaml` | `50-7-security-acceptance-docs: ready-for-dev → review` |
+| `_bmad-output/epics/epic-50-网页控制台周期/ARCHITECTURE-SPINE.md` | §14 +实现期校正（C11–C13、D8 与 D5/D6/D1–D4/D9 的落定确认）；§15 的 D7 标注作废 |
+| 本 story | frontmatter `status/baseline_commit` + 12 个任务勾选 + 本记录 |
+
+### Change Log
+
+| 日期 | 变更 |
+|---|---|
+| 2026-09-24 | 实现 Story 50-7：端到端验收测试 9 例 + 契约测试 2 例；`docs/frame.md` 4.18 与配置表/调用链/已知缺口同步；错误码计数与可写面划分按实测校正（27→32、111/65→113/67）；`cli_console.py` 从未落定 ⇒ D7 作废；§9 九条逐条落验收表；全量 3057 passed / 覆盖率 91.82%；真浏览器 18/18；6 条变异负向验证全红。 |

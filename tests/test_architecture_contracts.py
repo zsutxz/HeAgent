@@ -557,3 +557,48 @@ def test_entrypoints_do_not_duplicate_runtime_store_paths() -> None:
                     r"^\.heagent[\\/](sessions|skills|runs|ledger|memory|user|cron|checkpoints|sandboxes|tmp|console|backups)([\\/]|$)",
                     node.value,
                 ), module
+
+
+def test_config_layer_stays_out_of_the_runtime_stack() -> None:
+    """Story 50-7 T6：配置面（catalog / envfile / config_write / projects）不得伸手进运行时栈。
+
+    ``network/`` 的依赖面已由 ``FORBIDDEN_RUNTIME_IMPORTS`` 钉住；这几个**顶层模块**是 Epic 50 新加的
+    同层面（配置来源求解 / 保真写 / 写流水线 / 项目注册表），同样只允许依赖 stdlib + pydantic + 底层
+    共用模块。漏掉它们的话，``config_write`` 这类模块顺手 ``import heagent.engine`` 不会触发任何断言。
+    """
+    forbidden = {
+        "heagent.agent",
+        "heagent.engine",
+        "heagent.providers",
+        "heagent.tools",
+        "heagent.memory",
+        "heagent.context",
+        "heagent.cron",
+        "heagent.events",
+        *_ENTRY_LAYER_MODULES,
+    }
+    for module in ("config_catalog", "envfile", "config_write", "projects"):
+        runtime, _typing = _imports(SRC / f"{module}.py")
+        assert runtime & forbidden == set(), f"{module}: {sorted(runtime & forbidden)}"
+
+
+def test_write_whitelist_is_a_subset_of_settings_and_holds_no_credentials() -> None:
+    """Story 50-7 T6 / 负向验证②：白名单 ⊆ ``Settings`` 字段（env 大写口径）**且**不含凭证键。
+
+    两个方向都要断言：① 白名单里出现一个不存在（或拼错）的字段名 ⇒ 用户会看到一个永远写不进去的项
+    （静默走「未知键」分支）；② 白名单里混进 `*_API_KEY` ⇒ 直接打破「凭证永不回传、永不写入」的承诺。
+    另加一条「白名单里的键必须真的被判成可写」，防止靠「没被分类」蒙混过关。
+    """
+    from heagent import config_catalog
+    from heagent.config import Settings
+
+    whitelist = config_catalog.whitelist()
+    env_keys = {name.upper() for name in Settings.model_fields}
+    assert whitelist <= env_keys, f"白名单里有不存在的字段名：{sorted(whitelist - env_keys)}"
+    assert [key for key in whitelist if key.endswith(("_API_KEY", "_API_KEYS"))] == []
+    assert {key for key in whitelist if not config_catalog.classify(key).writable} == set()
+
+    for key in ("KIMI_API_KEY", "OPENAI_API_KEYS", "ANTHROPIC_API_KEY"):
+        verdict = config_catalog.classify(key)
+        assert verdict.writable is False
+        assert verdict.reason is not None and verdict.reason in config_catalog.LABELS, key

@@ -789,6 +789,8 @@ HeAgentError (base)
 | `http_request_timeout` | 0 | 单次网页 Agent 运行的**总时长**硬上限（秒）；0 = 不限制（运维显式兜底闸门，2026-09-24） |
 | `http_idle_timeout` | 300 | 单次网页 Agent 运行的**静默**上限（秒）：无事件且无在途工具才算卡死，按 `timed_out` 终结并释放名额；0 = 关闭 |
 | `http_shutdown_timeout` | 5 | 关闭时「停止接收 → 终结在途 run → 关订阅 → 关 listener」全过程的等待上限 |
+| `http_console_write_enabled` | False | 网页控制台的**配置写入通道**开关（Story 50-5）。关闭时配置面全只读，且网页**无法通过任何请求**打开它自己；开启渠道只有启动配置（系统环境变量 / 项目 `.env` / 全局 `.env`），开启时入口层 stderr + 日志双通道高亮告警。**开启即等于任何能连上该端口的人都能改项目 `.env`**（无认证 / 无 TLS，非安全边界；见 4.18） |
+| `http_console_projects_file` | None | 项目注册表落点覆盖（缺省 `<服务启动工作区>/.heagent/console/projects.json`）。需要机器级共享时显式指向 `~/.heagent/projects.json`；缺省**不写用户 home** |
 | `approval_tools` | `""` | 需要交互审批的工具名列表 |
 | `hooks_enabled` | False | 是否启用 `.heagent/hooks.json` |
 | `plan_mode` | False | 是否启用只读计划模式 |
@@ -1013,7 +1015,7 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 
 | 关注点 | 实现事实（Story 49-1/49-2/49-3 已交付部分） |
 | --- | --- |
-| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **27** 码（含项目注册表 / 会话 / 控制台稳定错误码；2026-09-24 评审校正：原先写 22，实测 27）、`{"error":{"code","message"}}` 信封、`HealthResponse`（字段封闭：`status` / `service` / `version` / `schema_version`）；`sanitize_message` 是客户端文案唯一出口（折叠空白 + **掩码宿主绝对路径** + 截断到 `MAX_ERROR_MESSAGE_CHARS`），**不含** traceback / 异常类名 / 绝对路径——掩码是启发式（Windows 盘符与 UNC 全掩；POSIX 要求 ≥3 段，以免误伤 `/api/health`、`and/or`、URL），与 `safe_logging` 同一立场：**非安全边界**（2026-09-23 评审修复：此前上游 `HeAgentError.message` 里带的路径会原样透传）|
+| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **32** 码（含项目注册表 / 会话 / 控制台稳定错误码；2026-09-24 评审校正：原先写 22，实测 27；Story 50-5 的写通道再加 5 ⇒ **32**，口径与分组见 4.18）、`{"error":{"code","message"}}` 信封、`HealthResponse`（字段封闭：`status` / `service` / `version` / `schema_version`）；`sanitize_message` 是客户端文案唯一出口（折叠空白 + **掩码宿主绝对路径** + 截断到 `MAX_ERROR_MESSAGE_CHARS`），**不含** traceback / 异常类名 / 绝对路径——掩码是启发式（Windows 盘符与 UNC 全掩；POSIX 要求 ≥3 段，以免误伤 `/api/health`、`and/or`、URL），与 `safe_logging` 同一立场：**非安全边界**（2026-09-23 评审修复：此前上游 `HeAgentError.message` 里带的路径会原样透传）|
 | 传输层 | `network/http_server.py`：`HttpServerConfig`（9 个有界字段，默认值与 `HTTP_*` 一致）+ `HttpServer`（`start` / `serve_forever` / `close`，与 `TcpServer` 同 API 形状）；`build_http_app` 组装健康检查 + 静态资源 + 安全头 |
 | 可选依赖 | starlette / uvicorn 由 `pyproject.toml` 的 `http` extra **直接声明**，且只在真要服务时经 `importlib.import_module` 加载；缺依赖抛 `HttpDependencyError` → 命令给出 `pip install 'heagent[http]'`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`（源码中不存在顶层 starlette/uvicorn 导入） |
 | 就绪门禁 | `start()` 只在「listener 已绑定**且**真实 TCP 打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」。**通配绑定**（`0.0.0.0` / `::`）的探测改走回环地址（连 `0.0.0.0` 是未定义行为），故允许集对通配值额外接受 `127.0.0.1` / `localhost` / `[::1]`（探测的 Host 头按 authority 语法给 IPv6 加方括号）——通配绑定可从本机浏览器访问，但经其它网卡地址访问仍被 `origin_forbidden` 拒绝（非回环联网不受支持）。连接的 `limit_concurrency` 额外预留 1 条给就绪探测，否则 `HTTP_MAX_CONNECTIONS=1` 会让入口**永远起不来**（以上两项为 2026-09-23 评审修复）|
@@ -1033,6 +1035,36 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 
 ⚠ **安全立场**：与 TCP 入口一致——本入口**无认证、无 TLS**，回环绑定不是认证边界，回环客户端同样
 不可信；运行本入口须放在容器 / VM 等 OS 级隔离中（见五、已知缺口与 CLAUDE.md 安全声明）。
+
+### 4.18 网页控制台 (`workspace.py` + `projects.py` + `config_catalog.py` + `config_write.py` + `cli_http.py` + `web/`)
+
+Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左栏项目与会话、右栏对话、设置独立成面板
+（项目 / 会话 / 配置三层，全部走**项目内**路由）。分层不变——网络层只承载传输与路由，装配 / 注册表 /
+会话 / 配置来源求解 / 写入流水线留在入口层 `cli_http.py` 与顶层模块（脊柱 I1：网络层不认识 `Settings`）。
+
+| 关注点 | 实现事实 |
+|---|---|
+| 工作区模型 | `workspace.WorkspacePaths.from_root(root)` 是运行态路径（sessions / ledger / runs / memory / skills / user / cron / checkpoints / sandboxes / tmp / console / backups）的**唯一**来源；入口层装配期解析一次并注入 engine 与主 / cron loop，不在每次请求时重读 cwd |
+| 项目注册表 | `projects.py`：`<服务启动工作区>/.heagent/console/projects.json`（可用 `HTTP_CONSOLE_PROJECTS_FILE` 覆盖；**默认不写用户 home**）。条目上限 **32**；id 不透明（`p` + 8 位十六进制，由路径规范化派生）；**写侧 fail-closed**（内容无法解析时拒绝改写，绝不回写空表）；目录失效不删登记而是标 `available=false` |
+| 会话持久化 | `context/session.py` 的 `SessionStore` 按项目派生（`<项目根>/.heagent/sessions/<sid>.json`），与 CLI **同库同格式**；列表只读轻量元数据（D6）；**损坏文件回 `session_unreadable`**（D1），绝不当空会话覆盖 |
+| 配置来源求解（只读面） | `config_catalog.build_config_report`：四层来源 **系统环境变量 > 项目 `.env` > 全局 `~/.heagent/.env` > 字段默认值**，逐项给出有效值 / 来源徽标 / 可写性 / 只读原因；凭证只回「已配置 + 定长掩码」；行级诊断（重复键 / 空值键 / 行内注释 / BOM / 未知键）逐条标注 |
+| 可写面划分（D2/D3） | 实测 **113 字段 = 白名单 46 + 排除 67、残留 0**；优先级 **显式白名单 > 模式排除**，排除之间**显式行 > 模式行**（`HTTP_CONSOLE_*` 因此归「控制台自身」而非「监听面」） |
+| 配置写入通道 | `config_write.apply_config_write`：**10 步 + 1 项生效语义** —— 闸门 → 回环来源 → 键白名单 → 值守卫 → 指纹 → 候选构造（`Settings(_env_file=候选)` 必须能构造）→ 备份 → 保真写 → 回读 → 审计；第 11 项 = 让该项目运行时缓存失效。**回环判定留在传输层**（网络层不认识 Settings），`envfile.py` 做行级保真（**只重写值区**：EOL / BOM / 注释 / 未修改行字节逐一不变），`persist.atomic_update_bytes` 做字节级原子写 + **锁内**回读校验与回滚 |
+| 资源旋钮上界 | `config_catalog.RESOURCE_CEILINGS`：21 个「只有下界」的数值键按族给上界（days 3650 / seconds 604800 / bytes 8 MiB / tokens 1M / count 100；迭代 10000 与上下文窗口 16M 自成刻度）。**只作用于写通道与面板展示**，不改 `Settings` 定义语义（手工改 `.env` 不受约束） |
+| 生效语义 | 写成功后**丢该项目运行时缓存** ⇒ 下一次 run 重新解析快照、**在途 run 继续用旧快照**（无热生效；响应里 `applied=next_run`） |
+| 审计 | `<项目根>/.heagent/console/audit.jsonl`：一行一 JSON，只有键名 / 值的**哈希与长度** / 结果，**不含值**；行数上限 500（超限裁到最近 500 条，且只认这一个文件名 ⇒ 不碰同目录的 `projects.json`）；追加失败不阻断已成功的写，但响应如实带 `audit_recorded=false` |
+| 路由 | 项目 `GET/POST/PATCH/DELETE /api/projects*`；会话 `…/sessions*`；项目内运行 `POST /api/projects/{id}/runs`；配置 `GET/PUT /api/projects/{id}/config`；运行事件与取消沿用 4.17 的 `GET /api/runs/{id}/events`（SSE）与 `DELETE /api/runs/{id}` |
+| 错误码 | `HttpErrorCode` 封闭 **32** 码 = Epic 49 的 **14** + Epic 50 新增 **18**（项目注册表 6 / 会话 5 / 写通道 5 / 运行与边界 2：`confirm_required`、`loopback_required`）。口径与实测方法：对 Epic 50 开工前提交做成员名 diff，不靠人工计数 |
+| 前端纪律 | 纯文本渲染（`createTextNode`，永不 `innerHTML`）；面板文案 / 只读原因 / 取值提示全部由后端 `labels` / `guards` / `source` 派生，**前端零硬编码**；零第三方资源、零内联脚本 / 事件属性；`[hidden]{display:none!important}` 全局兜底（作者样式的 `display:flex` 会压过 UA 的 `[hidden]`） |
+
+⚠ **安全立场**（与 4.16 / 4.17 同构，**均非安全边界**）：控制台**无认证、无 TLS**；绑定告警
+（`network.exposure`，判定单点）与写通道 / 项目登记 / 项目移除的**回环门**都只是 defense-in-depth。
+**「回环来源」不等于安全**：用户自己浏览器里打开的任意网页，其 peer 同样是 `127.0.0.1` —— 回环门对
+「本机浏览器发起的跨站写入」**不构成防护**；真正的同源防线是 4.17 的 `Origin` / `Host` 校验。写通道
+默认关闭（`HTTP_CONSOLE_WRITE_ENABLED=false`），**开启即等于「任何能连上该端口的人都能改项目 `.env`」**
+（启动时 stderr + 日志双通道告警），且网页**无法通过任何请求**打开它自己。**并发口径（D9）**：在途上限
+= 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32），**无全局软上限** —— 多项目并行是有意能力，代价是
+资源占用线性上升（见五）。
 
 ## 五、已知缺口
 
@@ -1058,6 +1090,15 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli_goal._work
 | HTTP 会话/事件无持久化 | 网页入口的会话投影、运行记录与 SSE 事件缓冲都是**进程内状态**：进程退出即丢；事件缓冲按 `HTTP_EVENT_BUFFER_SIZE` 有界，越过窗口的重连只能得到 `resync_required` 并改拉 `/api/session` 快照。首版有意如此（持久化见 4.17 与架构脊柱的延后决策） |
 | 运行栈日志的故障免疫（**已交付，2026-09-23**） | 入口层插桩经 `_safe_log`；运行栈任意 `logger.*` 由进程级守卫 `safe_logging.install_logging_fault_guard()` 兜底（包 `logging.Handler.handle`，失败仍走 stdlib `handleError` 诊断但不抛——CPython 的 `Handler.handle` 本不捕获 `emit` 异常，与 `raiseExceptions` 无关，48-5 评审 C-1 实测）。**残留**：宿主在守卫安装前打日志、或自行还原 `Handler.handle`（`safe_logging.ORIGINAL_HANDLER_HANDLE`）时不在此保证内 |
 | 日志行的凭证脱敏（**启发式，非边界**；2026-09-23 交付） | `LoggingObserver` 打印前对 `target`/`details` 掩码：键值（`API_KEY=…`/`token: …`）、CLI 旗标、厂商前缀（`sk-`/`ghp_`/`AKIA`/`AIza`/JWT）、`Bearer`、URL userinfo，以及**凭证命名的键**（短值无形状可认）。**肯定漏网**：模式匹配非完备，`shell` target 仍不截断（审查需要原文），且 `logs/`、`.heagent/runs/`（快照/rollout）按设计保存完整 prompt 与消息——仍须 OS 级沙箱与「不要把凭证写进命令或路径」 |
+| 控制台「回环来源」不等于安全（**评审 F9**，2026-09-24） | 写通道 / 项目登记 / 项目移除要求**回环来源**（`_loopback_error`），但用户自己浏览器里打开的任意网页其 peer 同为 `127.0.0.1` ⇒ 回环门**防不住「本机浏览器发起的跨站写入」**。真正的同源防线是 4.17 的 `Origin` / `Host` 校验（AD-6，同样非认证）；文档不得把回环门写成信任依据 |
+| 控制台「只读」不是安全边界 | 面板上的「只读 / 只读原因」是**用户体验标记**（`classify()` 的划分），不是访问控制：白名单之外的键照样能被任何能改 `.env` 的进程改动。写通道的 fail-closed 校验同样只作用于这条通道 |
+| 配置改动无热生效（**有意**） | 写成功后只丢该项目运行时缓存 ⇒ **下一次 run** 才用新值，在途 run 继续用旧快照（响应 `applied=next_run`）。没有「立即生效」通道；要即时生效只能新起一次 run |
+| 全局 `~/.heagent/.env` 永久只读 | 写入通道**只写项目 `.env`**（I4）；全局那份（`heagent init` 生成、对所有项目生效）只能手工编辑，网页改不到 |
+| 备份与审计仍在宿主文件系统上 | 两者都在项目状态根内、已进内部状态读拒集合（工具读不到、也无任何网页下载端点），但**没有加密**：备份是写入前的**原样配置**（可能含凭证），审计含键名与值的哈希。仍须 OS 级沙箱 + 磁盘权限兜底 |
+| 跨项目并发无全局上限（**D9 已裁定**） | 在途上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32），**无全局软上限**；`HTTP_MAX_CONNECTIONS` 不随项目数放大 ⇒ 多项目并行时连接层可能先成为瓶颈（既有限制面的延续）。多项目并行是有意能力，见 4.18 |
+| 非回环运行姿态**未裁决**（intent_gap，blocked） | 项目**重命名**、四个**会话**写操作与项目内**运行入口**当前**没有**回环门（登记 / 移除 / 配置写入有）。两条互斥修法（一律拒绝 / 允许但标注）都改变可观察行为，非实现方可单方决定 ⇒ 按契约标 blocked 待人裁决，未擅自改 |
+| 控制台 UI 无自动化回归 | `tests/js/console_acceptance.mjs` 需要真实浏览器（CDP）与 `heagent[http]`，而 CI 只装 `.[dev]` ⇒ 只能**手动**跑（清单见 `epics/epic-50-网页控制台周期/reviews/`）。CI 里跑得动的是 node 探针（最小 DOM 替身）；DOM API 的 `click()` 会绕过命中测试，故「真浏览器」这一步不可省略 |
+| `cli_console.py` 从未落地（脊柱 D7 的覆盖率口径作废） | 脊柱 §10 / D7 预判控制台逻辑会拆到独立模块 `cli_console.py` 并「默认不 omit」；实现期它**没有存在过**——控制台装配在 `cli_http.py`（**不在**覆盖率 omit 列表里，靠测试覆盖，实测 `cli_http.py` 计入总量）。若将来拆分，口径随模块走并在此更新 |
 
 ---
 
@@ -1353,6 +1394,46 @@ python -m heagent http-server [--host H] [--port P] [--max-inflight-runs N] ...
 ```
 
 （浏览器体验、wheel 打包验收与文档收口在 Story 49-6。）
+
+**控制台流程（Epic 50，多项目；Story 50-1…50-7）：**
+
+```
+heagent http-server（同一入口；console 由入口层装配后注入 HttpServer，网络层只看到不透明 id 与协议模型）
+  ├── HttpProjectConsole(workspace, projects_file=settings.http_console_projects_file,
+  │                      runs=service, handler_factory=handler.for_workspace,
+  │                      write_enabled=settings.http_console_write_enabled)
+  │     └── 闸门开启 → stderr + 日志双通道高亮告警；网页**无法通过任何请求**打开它自己
+  ├── 每请求按项目解析运行时：项目 id → WorkspacePaths.from_root(项目根) → SessionStore / Settings / EngineContainer
+  │     └── settings 显式带 `_env_file=[全局 .env, 项目 .env]`（不依赖进程 cwd，坏文件回退 + WARNING）
+  └── 路由（在 49 的路由之上追加；错误一律稳定信封 + 与 49 相同的安全响应头）
+        ├── GET    /api/projects                     → 注册表列表（含 available / is_default）
+        ├── POST   /api/projects                     → 登记（**回环门**；路径须为已存在目录的绝对路径）
+        ├── PATCH  /api/projects/{id}                → 重命名显示名（当前**无**回环门，见五）
+        ├── DELETE /api/projects/{id}?confirm=true   → 移除登记（**回环门**；保留目录与项目数据）
+        ├── …/sessions*                              → 会话列表 / 新建 / 详情 / 重命名（version 冲突 ⇒ session_conflict）
+        │                                              / 删除（?confirm=true）；损坏文件 ⇒ session_unreadable
+        ├── POST   /api/projects/{id}/runs           → 项目内运行（**每项目**单运行，超限 ⇒ 409 run_conflict）
+        │       └── handler_factory(项目路径) → 该项目自己的 AgentLoop（构造期冻结 ResolvedRuntimeConfig）
+        ├── GET    /api/projects/{id}/config         → 配置面板（四层来源 / 可写性 / 只读原因 / 凭证掩码 / 行级诊断）
+        └── PUT    /api/projects/{id}/config         → 写通道（**回环门** → 10 步流水线，见下）
+```
+
+写通道（`config_write.apply_config_write`，**10 步 + 1 项生效语义**；任一步失败即拒绝且文件不变）：
+
+```
+PUT /api/projects/{id}/config  {changes:[{key,value}], fingerprint}
+  1  闸门       HTTP_CONSOLE_WRITE_ENABLED 关 ⇒ 403 write_disabled（连「项目是否存在」都不回答）
+  2  回环来源   传输层 `_loopback_error`（网络层不认识 Settings）⇒ 403 loopback_required，且零副作用
+  3  键白名单   classify()：非白名单 / 凭证键 / 被系统环境变量提供 ⇒ 400 field_not_writable
+  4  值校验     VALUE_GUARDS + RESOURCE_CEILINGS（枚举 / 上下界）+ envfile.check_value（能否无损表达）
+  5  指纹       与盘上不符 ⇒ 409 config_conflict（绝不覆盖他人的修改）
+  6  候选构造   Settings(_env_file=候选) 必须能构造 + ROUTING_POOLS 池解析 ⇒ 否则 400 invalid_value
+  7  备份       当前内容 → `.heagent/backups/<name>-<utc微秒>-<指纹前缀>.bak`（条数与保留期有上限）
+  8  保真写     persist.atomic_update_bytes（跨进程锁贯穿读改写；只重写值区，字节级保真）
+  9  回读       同一把锁内重读 + 指纹比对；不符 ⇒ 还原原内容并 500 config_write_failed
+  10 审计       `.heagent/console/audit.jsonl` 追加一行（键名 / 值的哈希与长度 / 结果，**不含值**；上限 500 行）
+  11 生效语义   丢该项目运行时缓存 ⇒ 下一次 run 用新值、**在途 run 继续用旧快照**（响应 applied=next_run）
+```
 
 ---
 

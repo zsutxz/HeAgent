@@ -502,5 +502,5 @@ development_status:
   50-4-config-sources-readonly-api: review
   50-5-config-write-channel: review
   50-6-console-ui: review
-  50-7-security-acceptance-docs: ready-for-dev
+  50-7-security-acceptance-docs: review
   epic-50-retrospective: optional
