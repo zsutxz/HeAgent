@@ -570,6 +570,21 @@ class TestOpenaiModelSetting:
         assert settings.default_model == "gpt-4o"
 
 
+def test_env_keys_are_bijective_with_model_fields() -> None:
+    """env 键 ↔ 字段名是**双射**（Story 50-4 T3）。
+
+    ``config_catalog`` 的键名映射依赖这条性质：白名单/排除表一律以大写 env 键表达，映射回字段集
+    时只做 ``.upper()`` / ``.lower()``。一旦将来给某个字段加了 alias 或出现「大小写不同但语义相同」
+    的两个字段，映射会**静默 miss**（面板上表现为「该项永远落 default」）——故钉死在此。
+    """
+    fields = Settings.model_fields
+    assert [name for name, info in fields.items() if info.alias] == []
+    assert all(name == name.lower() for name in fields)  # 字段名一律小写
+    env_keys = {name.upper() for name in fields}
+    assert len(env_keys) == len(fields)  # 无大小写碰撞
+    assert "MAX_ITERATIONS" in env_keys and "max_iterations" in fields
+
+
 def test_every_settings_field_is_documented_in_env_example() -> None:
     """.env.example 必须覆盖每个 Settings 字段——它是用户唯一的配置入口。
 
