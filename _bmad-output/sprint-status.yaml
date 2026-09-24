@@ -499,7 +499,7 @@ development_status:
   50-1-workspace-first-class: review
   50-2-project-registry-api: review
   50-3-session-persistence-api: review
-  50-4-config-sources-readonly-api: ready-for-dev
+  50-4-config-sources-readonly-api: review
   50-5-config-write-channel: ready-for-dev
   50-6-console-ui: ready-for-dev
   50-7-security-acceptance-docs: ready-for-dev
