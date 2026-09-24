@@ -28,7 +28,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from heagent.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
 from heagent.persist import atomic_update_text, prune_entries_by_mtime
@@ -221,7 +221,15 @@ def _metadata_from_data(
     if isinstance(raw_title, str) and " ".join(raw_title.split()):
         title = " ".join(raw_title.split())[:MAX_SESSION_TITLE_CHARS]
     else:
-        title = derive_title([Message(**item) for item in message_list if isinstance(item, dict)])
+        # 消息项不合法（缺字段 / 旧 schema / 类型不符）与「JSON 坏了」同属「不可解析」：必须抛
+        # :class:`SessionUnreadableError` 而不是让 pydantic 的 ``ValidationError`` 逃出去——否则
+        # 一条畸形消息会让**整页会话列表** 500（与 :meth:`list_metadata` 的 fail-soft 承诺矛盾），
+        # 详情接口也会退化成不透明 500 而不是稳定的 ``session_unreadable``。
+        try:
+            well_formed = [Message(**item) for item in message_list if isinstance(item, dict)]
+        except ValidationError as exc:
+            raise SessionUnreadableError(f"session {session_id!r} has invalid message entries") from exc
+        title = derive_title(well_formed)
     return SessionMetadata(
         session_id=session_id,
         title=title,

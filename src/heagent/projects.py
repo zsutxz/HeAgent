@@ -33,6 +33,10 @@ class ProjectRegistryError(ValueError):
         self.code = code
 
 
+class _RegistryCorrupt(Exception):
+    """注册表内容无法解析（写路径必须据此**拒绝**改写，见 ``_decode_or_raise``）。"""
+
+
 class ProjectEntry(BaseModel):
     """Bounded public project metadata. Availability is computed when listing."""
 
@@ -130,7 +134,7 @@ class ProjectRegistry:
 
         def update(raw: str) -> tuple[str, None]:
             nonlocal result
-            entries = self._decode(raw)
+            entries = self._decode_or_raise(raw)
             identity = os.path.normcase(normalized)
             for entry in entries:
                 if os.path.normcase(entry.path) == identity:
@@ -157,7 +161,7 @@ class ProjectRegistry:
 
         def update(raw: str) -> tuple[str, None]:
             nonlocal result
-            entries = self._decode(raw)
+            entries = self._decode_or_raise(raw)
             for index, entry in enumerate(entries):
                 if entry.id == project_id:
                     result = entry.model_copy(update={"name": display_name})
@@ -177,7 +181,7 @@ class ProjectRegistry:
 
         def update(raw: str) -> tuple[str, None]:
             nonlocal result
-            entries = self._decode(raw)
+            entries = self._decode_or_raise(raw)
             result = next((entry for entry in entries if entry.id == project_id), None)
             if result is None:
                 raise ProjectRegistryError("unknown_project", "no such project")
@@ -196,7 +200,7 @@ class ProjectRegistry:
 
         def update(raw: str) -> tuple[str, None]:
             nonlocal result
-            entries = self._decode(raw)
+            entries = self._decode_or_raise(raw)
             for index, entry in enumerate(entries):
                 if entry.id == project_id:
                     result = entry.model_copy(update={"last_opened_at": timestamp})
@@ -211,6 +215,32 @@ class ProjectRegistry:
 
     @classmethod
     def _decode(cls, raw: str) -> builtins_list[_StoredProject]:
+        """**读路径**口径：fail-soft —— 解析失败返回空表（脊柱 §4：不阻断 HTTP 服务）。"""
+        try:
+            return cls._parse(raw)
+        except _RegistryCorrupt as exc:
+            logger.warning("Invalid project registry; using an empty registry (%s)", exc)
+            return []
+
+    @classmethod
+    def _decode_or_raise(cls, raw: str) -> builtins_list[_StoredProject]:
+        """**写路径**口径：fail-closed —— 绝不在自己解析不了的内容上做「解码 → 改 → 编码」写回。
+
+        评审发现（镜头一 H2）：写路径原先复用 fail-soft 的 ``_decode``，于是「解析失败 ⇒ 空表」
+        被回写进文件——一次坏字节（BOM / 超 32 条 / 重复 id / 任何一条缺字段）就会在下次
+        register / rename / remove / touch 时**静默清空全部已登记项目**（只留一行 WARNING）。
+        读到脏数据时宁可让这次写失败（响亮），也不要把用户的注册表变成空表。
+        """
+        try:
+            return cls._parse(raw)
+        except _RegistryCorrupt as exc:
+            raise ProjectRegistryError(
+                "server_error", "project registry file is unreadable; refusing to overwrite it"
+            ) from exc
+
+    @staticmethod
+    def _parse(raw: str) -> builtins_list[_StoredProject]:
+        """严格解析（读写的公共内核）；不可解析一律抛 :class:`_RegistryCorrupt`。"""
         if not raw:
             return []
         try:
@@ -222,8 +252,7 @@ class ProjectRegistry:
                 raise ValueError("registry entries are invalid")
             return entries
         except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
-            logger.warning("Invalid project registry; using an empty registry (%s)", exc)
-            return []
+            raise _RegistryCorrupt(str(exc)) from exc
 
     @staticmethod
     def _encode(entries: builtins_list[_StoredProject]) -> str:

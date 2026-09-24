@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from heagent.config import get_settings
+from heagent.config import GLOBAL_CONFIG_FILE, Settings, get_settings
 from heagent.config_catalog import ConfigReport, build_config_report
 from heagent.context.session import SessionMetadata, SessionStore
 from heagent.engine import EngineContainer
@@ -80,7 +80,6 @@ from heagent.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
-    from heagent.config import Settings
     from heagent.providers.base import BaseProvider
     from heagent.types import TokenUsage
 
@@ -257,8 +256,12 @@ class HttpAgentHandler:
     def for_workspace(self, paths: WorkspacePaths, session_store: SessionStore) -> HttpAgentHandler:
         """派生一个绑定到**另一个项目根**的同款运行时（控制台的 per-project 工厂，Story 50-3）。
 
-        - **共享** ``provider`` / ``settings`` / ``system`` / 迭代与沙箱参数：它们是连接与策略参数，
-          不含任何项目数据（provider 上的路由状态是「最近一次决策」，不写入项目）。
+        - **共享** ``provider`` / ``system``：它们是连接参数（provider 上的路由状态是「最近一次决策」，
+          不写入项目）。
+        - **按项目解析** ``settings``（脊柱 §7）：显式 ``_env_file=[全局, <项目根>/.env]``——项目
+          ``.env`` 才是「该项目的配置」，绝不能让运行端继续读**服务器 cwd** 的 ``.env``（那会让
+          50-4 的配置面板报出与运行期不符的来源与取值）。解析失败时回退服务级 settings 并留
+          WARNING（坏掉的 ``项目 .env`` 不该让控制台整个不可用，面板会独立标注 ``project_env_invalid``）。
         - **重建** engine 与四个记忆存储：围栏基址、run/ledger 落点、技能与记忆全都指向该项目根，
           跨项目因此零共享可变状态（脊柱 §6）。
         - ``soul`` 沿用同一构造口径（``soul_path=None`` ⇒ 默认两级 SOUL.md）：项目级 SOUL.md 的解析
@@ -266,7 +269,7 @@ class HttpAgentHandler:
         """
         return HttpAgentHandler(
             self.provider,
-            self.settings,
+            _project_settings(paths.root, fallback=self.settings),
             system=self.system,
             max_iterations=self.max_iterations,
             sandbox_backend=self.sandbox_backend,
@@ -337,6 +340,22 @@ class HttpAgentHandler:
             model=_resolve_model(loop),
             usage=_to_http_usage(loop.last_usage),
         )
+
+
+def _project_settings(root: Path, *, fallback: Settings) -> Settings:
+    """按**项目工作区**解析 ``Settings``（脊柱 §7：必须显式传 ``_env_file``）。
+
+    相对 ``.env`` 会按**进程 cwd** 解析（``Settings.model_config`` 的 ``env_file`` 就是
+    ``[全局, ".env"]``），多项目下「项目的配置」会静默退化成服务器 cwd 的配置——这正是配置面板与
+    运行期口径分叉的根因。解析失败（值非法 / 编码不可解析）时回退服务级 settings 并留 WARNING：
+    坏掉的项目 ``.env`` 只该影响它自己（面板会标注 ``project_env_invalid``），不该让控制台不可用。
+    """
+    try:
+        # ``_env_file`` 是 pydantic-settings 的运行时参数（mypy 按字段合成的签名看不到它）。
+        return Settings(_env_file=[str(GLOBAL_CONFIG_FILE), str(root / ".env")])  # type: ignore[call-arg]
+    except Exception as exc:  # noqa: BLE001 - 降级而非带崩：项目配置坏了不该让控制台整体失败
+        _safe_log(logging.WARNING, "Project %s .env is unusable; using server settings: %s", root, exc)
+        return fallback
 
 
 def _config_response(project_id: str, report: ConfigReport) -> ProjectConfigResponse:
@@ -506,6 +525,9 @@ class HttpProjectConsole:
             meta = runtime.sessions.create(session_id, title=request.title)
         except ValueError as exc:  # 标题边界（协议层已挡一次）——入口层 fail-closed，不落半成品
             raise ConsoleOperationError(HttpErrorCode.INVALID_REQUEST, "session title is invalid") from exc
+        except SessionConflictError as exc:
+            # 评审发现·镜头一⑩：``SessionConflictError`` 不是 ``ValueError``，漏捕会退化成不透明 500。
+            raise ConsoleOperationError(HttpErrorCode.SESSION_CONFLICT, str(exc)) from exc
         return _session_entry(meta)
 
     async def get_session(self, project_id: str, session_id: str) -> SessionDetailResponse:

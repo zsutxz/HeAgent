@@ -227,6 +227,25 @@ class TestEnvFilePitfalls:
         # 整层摘掉 ⇒ 不再逐项刷「未解析」噪声（响应级一条足够）。
         assert all("ineffective_in_project_env" not in item.notes for item in report.items)
 
+    def test_unknown_keys_survive_layer_degradation(self, tmp_path: Path) -> None:
+        """AC5 的诊断不得因「整层被降级摘掉」而消失（评审发现·镜头二③）。
+
+        原先未知键取自参与归属的层，而整层降级会把该层清空 ⇒ 恰在值最可疑的输入上丢掉「键名拼错」
+        这条最该给的诊断。现改依据行级扫描（文件里写了什么），与降级无关。
+        """
+        project = _write(tmp_path / ".env", ["MAX_ITERATIONS=abc", "TYPO_KEY=1", "OTHER_TYPO=2"])
+        report = _report(project)
+        assert "project_env_invalid" in report.notes
+        assert [entry.key for entry in report.unknown_keys] == ["TYPO_KEY", "OTHER_TYPO"]
+        assert all(entry.source is ConfigSource.PROJECT_ENV for entry in report.unknown_keys)
+
+    def test_unknown_keys_are_skipped_for_non_utf8_files(self, tmp_path: Path) -> None:
+        """非 UTF-8 文件的键名会被替换字符污染 ⇒ 不得据此报「未知键」（避免乱码键名）。"""
+        project = _write(tmp_path / ".env", raw=b"MAX_ITERATIONS=7\n\xff\xfe=1\n")
+        report = _report(project)
+        assert report.unknown_keys == ()
+        assert report.env_file.readable is True
+
     def test_non_utf8_project_env_is_fail_soft(self, tmp_path: Path) -> None:
         """非 UTF-8 的 .env：不抛（与 Z-D12 同立场），如实降级到上层。"""
         global_env = _write(tmp_path / "global.env", ["MAX_ITERATIONS=77"])
@@ -532,7 +551,13 @@ class TestReportShape:
         project = _write(tmp_path / ".env", raw=raw)
         report = _report(project)
         assert report.env_file.fingerprint == hashlib.sha256(raw).hexdigest()
-        assert report.env_file.line_count == 2  # 末行换行 ⇒ 多一个空段（与行级扫描同口径）
+        assert report.env_file.line_count == 1  # 末行换行不额外算一行（评审发现·镜头二⑤）
+
+    def test_empty_env_file_counts_zero_lines(self, tmp_path: Path) -> None:
+        """0 字节的 .env 是 0 行（原先按 ``split("\\n")`` 段数计会谎报 1 行）。"""
+        report = _report(_write(tmp_path / ".env", raw=b""))
+        assert (report.env_file.exists, report.env_file.line_count) == (True, 0)
+        assert report.notes == ()  # 空文件不是错误：全字段落 global/default，无诊断噪声
 
     def test_scan_classifies_lines_without_parsing_values(self, tmp_path: Path) -> None:
         project = _write(

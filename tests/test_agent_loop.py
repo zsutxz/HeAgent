@@ -370,6 +370,36 @@ class TestAgentLoop:
         loop.unpause()
         assert loop.is_paused is False
 
+    @pytest.mark.asyncio
+    async def test_failed_run_still_persists_the_history(self, tmp_path: Path) -> None:
+        """失败运行也要把已发生的对话写进会话文件（50-3 AC10 的**真实链路**证据）。
+
+        评审发现·镜头三①：原先唯一相关的用例用替身 handler「先 ``save`` 再 ``raise``」，被验证的
+        前提被写死在替身里（循环论证）⇒ 把 ``persist_and_cache`` 从 ``finally`` 挪进成功分支也
+        不会有任何测试变红。本用例走真实 ``AgentLoop`` + 真实 ``SessionStore``。
+        """
+        store = SessionStore(base_dir=str(tmp_path / "sessions"))
+        loop = AgentLoop(_ExplodingProvider(), session=store, max_iterations=3)
+
+        with pytest.raises(RuntimeError, match="provider exploded"):
+            await loop.run("hello", session_id="s1")
+
+        assert [message.content for message in store.load("s1") if message.role is Role.USER] == ["hello"]
+
+
+class _ExplodingProvider:
+    """始终失败的 provider（模拟网络/鉴权失败，钉住失败路径的落盘契约）。"""
+
+    async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> object:  # noqa: ARG002
+        raise RuntimeError("provider exploded")
+
+    async def stream(self, messages: list[Message], *, tools: list[object] | None = None):  # noqa: ANN201, ARG002
+        raise RuntimeError("provider exploded")
+        yield  # pragma: no cover - 使本方法成为 async generator（异常在首个 __anext__ 抛出）
+
+    def get_metadata(self) -> object:  # pragma: no cover - 失败路径不会读元数据
+        return None
+
 
 class TestParallelExecution:
     @pytest.mark.asyncio

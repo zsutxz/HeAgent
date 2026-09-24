@@ -73,6 +73,35 @@ async def test_console_routes_are_absent_without_injected_handler() -> None:
     assert _error(response) == HttpErrorCode.NOT_FOUND
 
 
+async def test_project_limit_is_reported_with_a_stable_code_over_http(tmp_path) -> None:
+    """AC9 的真实链路：上限后再登记 ⇒ 409 ``project_limit_reached``（不是 400 / 500）。
+
+    评审发现·镜头三②：网络层项目用例此前全部注入假 console，真实 ``HttpProjectConsole`` 的注册表
+    方法没有任何 HTTP 级证据 ⇒ 该码只活在闭集清单里（``registry.code → ConsoleOperationError →
+    HTTP`` 这段无断言）。
+    """
+    from heagent.cli_http import HttpProjectConsole
+    from heagent.projects import MAX_PROJECTS
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    console = HttpProjectConsole(workspace)
+    for index in range(MAX_PROJECTS - 1):  # 上限含隐式 default ⇒ 可登记 MAX_PROJECTS - 1 条
+        target = tmp_path / f"p{index}"
+        target.mkdir()
+        console.registry.register(str(target))
+    overflow = tmp_path / "overflow"
+    overflow.mkdir()
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=_app(console)), base_url="http://127.0.0.1"
+    ) as client:
+        response = await client.post("/api/projects", json={"path": str(overflow)})
+
+    assert response.status_code == 409
+    assert _error(response) == HttpErrorCode.PROJECT_LIMIT_REACHED
+
+
 async def test_project_routes_list_register_rename_and_remove() -> None:
     console = FakeConsole()
     transport = httpx.ASGITransport(app=_app(console))

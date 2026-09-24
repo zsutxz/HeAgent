@@ -344,6 +344,52 @@ def test_for_workspace_rebinds_paths_and_sessions_per_project(tmp_path: Path) ->
     assert base.provider is other.provider
 
 
+def test_for_workspace_resolves_settings_from_the_project_env(tmp_path: Path) -> None:
+    """脊柱 §7：项目运行时的配置解析必须显式传 ``_env_file``（不得退化成服务器 cwd 的 `.env`）。
+
+    评审发现（镜头一 H4，high）：派生 handler 原先**共享**服务级 settings，而服务级 settings 是按
+    **进程 cwd** 解析的 ⇒ 非 default 项目的运行读不到该项目 `.env`，而配置面板（50-4）却按项目
+    `.env` 报来源与取值——同一键在「面板」与「运行期」两个口径下不一致，且运行端拿的是别的项目的
+    配置。本用例钉住「运行端按项目 `.env` 取值」。
+    """
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / ".env").write_bytes(b"MAX_ITERATIONS=7\nMAX_CONTEXT_TOKENS=1234\n")
+    base = HttpAgentHandler(
+        _StubProvider(),
+        get_settings(),
+        workspace_root=tmp_path,
+        session_store=SessionStore(str(tmp_path / "sessions")),
+    )
+
+    derived = base.for_workspace(WorkspacePaths.from_root(root), SessionStore(str(root / ".heagent" / "sessions")))
+
+    assert derived.settings.max_iterations == 7
+    assert derived.settings.max_context_tokens == 1234
+    assert derived.settings is not base.settings  # 按项目解析，不再共享 cwd 口径的那一份
+    assert derived.provider is base.provider  # 连接参数仍共享（脊柱 §6）
+
+
+def test_for_workspace_falls_back_when_the_project_env_is_invalid(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """坏掉的项目 `.env` 只影响它自己：回退服务级 settings 并留 WARNING，不阻断控制台。"""
+    root = tmp_path / "bad"
+    root.mkdir()
+    (root / ".env").write_bytes(b"MAX_ITERATIONS=not-a-number\n")
+    base = HttpAgentHandler(
+        _StubProvider(),
+        get_settings(),
+        workspace_root=tmp_path,
+        session_store=SessionStore(str(tmp_path / "sessions")),
+    )
+
+    derived = base.for_workspace(WorkspacePaths.from_root(root), SessionStore(str(root / ".heagent" / "sessions")))
+
+    assert derived.settings is base.settings
+    assert "is unusable" in caplog.text
+
+
 def test_http_server_command_wires_the_console_for_project_runs(captured_server: dict[str, HttpServer]) -> None:
     """``http-server`` 把运行服务与 per-project 工厂一起交给 console（否则项目内运行永远 409）。"""
     result = CliRunner().invoke(main, ["http-server"])

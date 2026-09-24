@@ -253,6 +253,33 @@ class TestMetadataRead:
         assert len(store.list_metadata(limit=2)) == 2
         assert store.list_metadata(limit=0) == []
 
+    def test_list_metadata_treats_invalid_message_entry_as_unreadable(self, tmp_path: Path) -> None:
+        """畸形消息条目 = 不可解析：该会话标 unreadable，**不得**让整页列表抛异常。
+
+        评审发现（镜头一 H1）：``_metadata_from_data`` 直接 ``Message(**item)``，pydantic 的
+        ``ValidationError`` 会穿透 ``list_metadata`` 的 ``except SessionUnreadableError``——一条
+        ``{"role": "user"}``（缺 ``content``）就能让 ``GET /api/projects/{id}/sessions`` 对**全部**
+        会话回 500，与类 docstring 的 fail-soft 承诺矛盾。
+        """
+        store = _store(tmp_path)
+        store.save("good", [Message(role=Role.USER, content="ok")])
+        (tmp_path / "sessions" / "broken.json").write_text(
+            json.dumps({"version": 1, "timestamp": 1.0, "messages": [{"role": "user"}]}), encoding="utf-8"
+        )
+        listed = {item.session_id: item for item in store.list_metadata()}
+        assert set(listed) == {"good", "broken"}
+        assert listed["good"].unreadable is False
+        assert listed["broken"].unreadable is True
+        assert listed["broken"].title == UNREADABLE_SESSION_TITLE
+
+    def test_load_metadata_raises_unreadable_for_invalid_message_entry(self, tmp_path: Path) -> None:
+        """同一份文件走详情路径 → 稳定 ``session_unreadable``（而不是不透明 500）。"""
+        path = tmp_path / "sessions" / "broken.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"version": 1, "messages": [{"role": "user", "content": 42}]}), encoding="utf-8")
+        with pytest.raises(SessionUnreadableError):
+            _store(tmp_path).load_metadata("broken")
+
     def test_list_metadata_keeps_unreadable_file_visible(self, tmp_path: Path) -> None:
         """损坏文件**不得**从列表消失（否则等于静默丢数据，AC9）。"""
         store = _store(tmp_path)

@@ -204,6 +204,7 @@ class EnvScan(BaseModel):
     path: str | None = None
     exists: bool = False
     readable: bool = False
+    encoding_ok: bool = True
     has_bom: bool = False
     fingerprint: str | None = None
     line_count: int = 0
@@ -597,12 +598,21 @@ def scan_env_file(path: str | Path | None) -> EnvScan:
     except OSError:
         return EnvScan(path=str(file_path), exists=file_path.exists(), readable=False)
 
+    try:
+        raw.decode("utf-8")
+        encoding_ok = True
+    except UnicodeDecodeError:
+        # 非 UTF-8（编码坏了）：值求解会整体降级，行级诊断也只能 best-effort——键名可能被替换字符
+        # 污染，因此**不用它**判定「未知键」（否则会报出乱码键名）。
+        encoding_ok = False
     text = raw.decode("utf-8", errors="replace")
     has_bom = text.startswith(BOM)
     if has_bom:
         text = text[len(BOM) :]
 
-    lines = text.replace("\r\n", "\n").split("\n")
+    # ``splitlines()``：0 字节文件算 0 行、末行换行不额外算一行（评审发现·镜头二⑤：原先按
+    # ``split("\n")`` 段数计，0 字节 .env 会谎报 1 行）。
+    lines = text.replace("\r\n", "\n").splitlines()
     counts: dict[str, int] = {}
     names: dict[str, str] = {}
     blanks: set[str] = set()
@@ -629,6 +639,7 @@ def scan_env_file(path: str | Path | None) -> EnvScan:
         path=str(file_path),
         exists=True,
         readable=True,
+        encoding_ok=encoding_ok,
         has_bom=has_bom,
         fingerprint=hashlib.sha256(raw).hexdigest(),
         line_count=len(lines),
@@ -924,20 +935,23 @@ def _bounded(names: tuple[str, ...], limit: int = MAX_FILE_DIAGNOSTIC_KEYS) -> t
 
 
 def _unknown_keys(
-    layers: LayerMap, scans: dict[ConfigSource, EnvScan], known: frozenset[str]
+    scans: dict[ConfigSource, EnvScan], known: frozenset[str]
 ) -> tuple[tuple[UnknownKeyReport, ...], tuple[str, ...]]:
     """未知 / 拼错的键（AC5）+ 是否发生截断。
 
-    只从两层 ``.env`` 取——``EnvSettingsSource`` 会**丢掉**未知的系统环境变量（实测），所以系统层
-    不可能贡献未知键。归属降级**不影响**这里：未知键说的是文件本身的事，与「值能否求解」无关。
+    依据**行级扫描**（文件里写了什么）而不是「参与归属的层」：整层因降级被摘掉时，文件里的未知键
+    仍必须报出来——否则 AC5 的诊断恰在最需要它的输入上消失（评审发现·镜头二③）。两个门：文件不可读
+    或**非 UTF-8**（键名会被替换字符污染）时不报。注意 ``EnvSettingsSource`` 会**丢掉**未知的系统
+    环境变量（实测），因此系统层不可能贡献未知键。
     """
     found: list[UnknownKeyReport] = []
-    for source in (ConfigSource.PROJECT_ENV, ConfigSource.GLOBAL_ENV):
-        for key in sorted(layers[source]):
-            if key in known:
+    for source, scan in scans.items():
+        if not scan.readable or not scan.encoding_ok:
+            continue
+        for name in scan.declared_keys:
+            if name.lower() in known:
                 continue
-            as_written = scans[source].name_by_lower.get(key, key)
-            found.append(UnknownKeyReport(key=as_written, source=source))
+            found.append(UnknownKeyReport(key=name, source=source))
     truncated = len(found) > MAX_UNKNOWN_KEYS
     return tuple(found[:MAX_UNKNOWN_KEYS]), (("unknown_keys_truncated",) if truncated else ())
 
@@ -1017,7 +1031,7 @@ def build_config_report(
 
     values: dict[str, Any] = solved.settings.model_dump(mode="json")
     known = frozenset(key.lower() for key in Settings.model_fields)
-    unknown, unknown_notes = _unknown_keys(layers, scans, known)
+    unknown, unknown_notes = _unknown_keys(scans, known)
     notes.extend(unknown_notes)
     duplicate_keys, duplicates_truncated = _bounded(project_scan.duplicate_keys)
     blank_keys, blanks_truncated = _bounded(project_scan.blank_keys)

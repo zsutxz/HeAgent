@@ -546,6 +546,35 @@ async def test_sessions_without_a_run_entry_are_still_readable(tmp_path: Path) -
     assert _error(started) == HttpErrorCode.PROJECT_UNAVAILABLE
 
 
+async def test_stale_fingerprint_conflicts_through_the_real_store(tmp_path: Path) -> None:
+    """AC4 的真实链路：PATCH 携带过期版本 ⇒ 409 ``session_conflict``，且文件不被改写。
+
+    评审发现·镜头三④：该码此前只有「假 console 直接抛码」的用例覆盖，真实
+    ``fingerprint → expected_version → SessionConflictError → 409`` 链路零证据——把
+    ``expected_version=request.fingerprint`` 摘掉也不会有测试变红。
+    """
+    harness = _Harness(tmp_path)
+    async with harness.client() as client:
+        created = await client.post("/api/projects/default/sessions", json={"title": "原始标题"})
+        session_id = created.json()["session_id"]
+        version = (await client.get(f"/api/projects/default/sessions/{session_id}")).json()["version"]
+        stale = await client.patch(
+            f"/api/projects/default/sessions/{session_id}", json={"title": "改标题", "fingerprint": version + 7}
+        )
+        after_stale = await client.get(f"/api/projects/default/sessions/{session_id}")
+        fresh = await client.patch(
+            f"/api/projects/default/sessions/{session_id}", json={"title": "改标题", "fingerprint": version}
+        )
+    try:
+        assert created.status_code == 201
+        assert _error(stale) == HttpErrorCode.SESSION_CONFLICT
+        assert after_stale.json()["title"] == "原始标题"  # 过期版本不得改写
+        assert fresh.status_code == 200
+        assert fresh.json()["title"] == "改标题"
+    finally:
+        await harness.release()
+
+
 def _touch_timestamp(store: SessionStore, session_id: str, timestamp: float) -> None:
     """就地改写磁盘 ``timestamp``：排序断言不依赖真实时钟粒度（两次保存可能同毫秒）。"""
     path = Path(store._base) / f"{session_id}.json"  # noqa: SLF001 - 测试内省磁盘布局

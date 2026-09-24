@@ -81,16 +81,42 @@ def test_default_project_is_implicit_and_cannot_be_removed(tmp_path: Path) -> No
     assert not (tmp_path / "registry.json").exists()
 
 
-def test_corrupt_registry_warns_and_recovers_empty(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_corrupt_registry_is_read_fail_soft_but_never_overwritten(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """读 fail-soft（列表仍可用）**且**写 fail-closed（绝不把自己解析不了的内容回写成空表）。
+
+    评审发现（镜头一 H2）：本用例原先断言「损坏后 ``register`` 会把文件重写成新表」——那等于把
+    「一次坏字节（BOM / 超 32 条 / 重复 id / 缺字段）在下次改动时清空全部已登记项目」钉成预期。
+    现改为断言：读路径照旧 fail-soft，写路径**拒绝**改写且原字节一字未动（失败要响亮）。
+    """
     path = tmp_path / "registry.json"
     path.write_text("{broken", encoding="utf-8")
     registry = ProjectRegistry(path, default_path=tmp_path)
-    assert len(registry.list()) == 1
+    assert len(registry.list()) == 1  # 读：只剩隐式 default，服务不阻断
     assert "Invalid project registry" in caplog.text
     project = tmp_path / "project"
     project.mkdir()
-    registry.register(str(project))
-    assert json.loads(path.read_text(encoding="utf-8"))[0]["path"] == str(project.resolve())
+    with pytest.raises(ProjectRegistryError) as failure:
+        registry.register(str(project))
+    assert failure.value.code == "server_error"
+    assert path.read_text(encoding="utf-8") == "{broken"
+
+
+def test_corrupt_registry_never_loses_registered_projects(tmp_path: Path) -> None:
+    """带 BOM 的注册表（本项目对 BOM 有前科）不得让已登记项目在下次写入时消失。"""
+    good = tmp_path / "good"
+    good.mkdir()
+    path = tmp_path / "registry.json"
+    registry = ProjectRegistry(path, default_path=tmp_path)
+    registry.register(str(good))
+    before = path.read_text(encoding="utf-8")
+    path.write_text("\ufeff" + before, encoding="utf-8")  # 外部编辑 / 编辑器加 BOM
+    other = tmp_path / "other"
+    other.mkdir()
+    with pytest.raises(ProjectRegistryError):
+        registry.register(str(other))
+    assert path.read_text(encoding="utf-8") == "\ufeff" + before  # 原字节保留，未清空
 
 
 def test_project_limit_including_default_is_enforced_atomically(tmp_path: Path) -> None:

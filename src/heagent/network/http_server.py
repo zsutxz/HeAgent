@@ -1122,6 +1122,8 @@ _CONSOLE_ERROR_STATUS: dict[HttpErrorCode, int] = {
     HttpErrorCode.SESSION_UNREADABLE: 409,
     HttpErrorCode.RUN_CONFLICT: 409,
     HttpErrorCode.LOOPBACK_REQUIRED: 403,
+    # 服务端状态类失败（如注册表内容无法解析 ⇒ 拒绝改写）：显式 500，别落到默认 400。
+    HttpErrorCode.SERVER_ERROR: 500,
 }
 
 

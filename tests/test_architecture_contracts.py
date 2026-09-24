@@ -27,6 +27,12 @@ SRC = Path(__file__).resolve().parents[1] / "src" / "heagent"
 # ``from heagent import Agent``（包根符号再导出）会被误判成 ``heagent/agent`` 子包。
 _SUBPACKAGE_NAMES = frozenset(path.name for path in SRC.iterdir() if path.is_dir())
 
+# 顶层**模块**名（``src/heagent/*.py``）：``from heagent import config`` 与 ``from heagent import providers``
+# 是同款绕过路径，两者的可执行识别必须对称（评审发现·镜头三③：I1「网络层不得不认识 config / projects」
+# 此前只覆盖子包，``heagent.config`` / ``heagent.projects`` / ``heagent.config_catalog`` 写在
+# ``network/`` 里不会被判违反）。
+_TOP_LEVEL_MODULES = frozenset(path.stem for path in SRC.glob("*.py") if path.stem != "__init__")
+
 # 包 → 运行期不得导入的 heagent 子模块（CLAUDE.md「硬约束（违反即架构错误）」）。
 # 入口层模块（wiring/cli/cli_goal/cli_tcp/gui）：组合根与展示适配只属于入口层，下层一律不得
 # 反向导入（Phase 1 组合根收敛的契约化；新增入口模块须同步此表）。
@@ -54,6 +60,9 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
     "events": ("heagent.agent", "heagent.engine", *_ENTRY_LAYER_MODULES),
     # network/ 是入口传输层（Epic 48）：只承载 framing / 协议 / 连接生命周期，运行期不得伸手进
     # 运行时栈——Provider/Engine/AgentLoop 的装配是入口层（cli/wiring/cli_tcp）单向伸手。
+    # Epic 50 的 I1 再收紧一档：**网络层不认识项目与配置**——新顶层模块 projects（注册表）/
+    # config_catalog（配置目录）/ workspace（状态根）/ config（Settings）一律不得出现在 network/ 里
+    # （唯一例外是 ``safe_logging``：它是零依赖的底层共用模块，见模块 docstring 的允许面）。
     "network": (
         "heagent.agent",
         "heagent.engine",
@@ -63,6 +72,10 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
         "heagent.context",
         "heagent.cron",
         "heagent.events",
+        "heagent.config",
+        "heagent.config_catalog",
+        "heagent.projects",
+        "heagent.workspace",
         *_ENTRY_LAYER_MODULES,
     ),
     # agent/ 是运行栈顶：不得导入任何入口层（组装是入口层单向伸手，不是运行栈反向伸手）。
@@ -86,7 +99,11 @@ def _imported_roots(node: ast.Import | ast.ImportFrom) -> set[str]:
     if isinstance(node, ast.Import):
         return {root for alias in node.names if (root := _heagent_root(alias.name))}
     if node.module == "heagent":
-        return {f"heagent.{alias.name}" for alias in node.names if alias.name in _SUBPACKAGE_NAMES}
+        return {
+            f"heagent.{alias.name}"
+            for alias in node.names
+            if alias.name in _SUBPACKAGE_NAMES or alias.name in _TOP_LEVEL_MODULES
+        }
     root = _heagent_root(node.module)
     return {root} if root else set()
 
@@ -223,6 +240,21 @@ def test_forbidden_import_detection_ignores_package_root_symbol_reexports() -> N
     runtime, typing_only = _module_imports("from heagent import Agent, Settings\n")
 
     assert runtime == set()
+    assert typing_only == set()
+
+
+def test_forbidden_import_detection_covers_top_level_modules() -> None:
+    """顶层**模块**的两种写法同样计入运行期依赖（与子包识别对称）。
+
+    评审发现（镜头三③）：I1 要求「网络层不认识项目与配置」，但可执行断言此前只列子包 ⇒
+    ``heagent.config`` / ``heagent.projects`` / ``heagent.config_catalog`` 写进 ``network/`` 不会被
+    判违反，契约形同虚设。本用例钉住识别器本身（谁漏了这两种写法，这里先红）。
+    """
+    runtime, typing_only = _module_imports(
+        "from heagent import config\nfrom heagent.projects import ProjectRegistry\nfrom heagent import config_catalog\n"
+    )
+
+    assert runtime == {"heagent.config", "heagent.projects", "heagent.config_catalog"}
     assert typing_only == set()
 
 
