@@ -123,6 +123,7 @@ _PROJECT_SESSION_PATH = "/api/projects/{project_id}/sessions/{session_id}"
 # ``invalid_session_id``（AC7），而不是让「路由存不存在」的差异变成 404。
 _PROJECT_SESSION_EXTRA_PATH = "/api/projects/{project_id}/sessions/{session_id}/{extra:path}"
 _PROJECT_RUNS_PATH = "/api/projects/{project_id}/runs"
+_PROJECT_CONFIG_PATH = "/api/projects/{project_id}/config"
 
 # 通配绑定地址：就绪探测改走回环（见 :func:`_probe_host`）。这里**只识别**，不在此绑定。
 _WILDCARD_HOSTS = frozenset({"", "0.0.0.0", "*"})  # noqa: S104 - 识别通配地址，非绑定
@@ -1481,6 +1482,23 @@ def _build_session_endpoints(  # noqa: C901 - 六个端点闭包共享同一套�
     )
 
 
+def _build_config_endpoint(responses: Any, console: ConsoleHandler) -> Any:
+    """``GET /api/projects/{id}/config``（Story 50-4）：只读配置面板。
+
+    网络层只把不透明的项目 id 交给注入的 console，并把稳定错误码映射为状态码；分组、来源求解、
+    凭证掩码一律留在入口层与 :mod:`heagent.config_catalog`（脊柱 I1：网络层不认识配置）。
+    """
+
+    async def get_project_config(request: Any) -> Any:
+        try:
+            result = await console.get_project_config(_project_source(request))
+        except Exception as exc:
+            return _console_error_response(responses, exc, event="project_config_failed")
+        return responses.JSONResponse(result.model_dump(mode="json"))
+
+    return get_project_config
+
+
 def build_http_app(
     config: HttpServerConfig,
     *,
@@ -1577,6 +1595,7 @@ def build_http_app(
             create_project_run,
             session_malformed,
         ) = _build_session_endpoints(responses, console, config)
+        project_config = _build_config_endpoint(responses, console)
         routes.extend(
             [
                 routing.Route(_PROJECTS_PATH, endpoint=list_projects, methods=["GET"]),
@@ -1595,6 +1614,7 @@ def build_http_app(
                     methods=["GET", "POST", "PATCH", "DELETE"],
                 ),
                 routing.Route(_PROJECT_RUNS_PATH, endpoint=create_project_run, methods=["POST"]),
+                routing.Route(_PROJECT_CONFIG_PATH, endpoint=project_config, methods=["GET"]),
             ]
         )
     routes.append(routing.Route("/{asset}", endpoint=asset, methods=["GET"]))

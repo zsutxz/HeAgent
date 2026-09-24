@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from heagent.config import get_settings
+from heagent.config_catalog import ConfigReport, build_config_report
 from heagent.context.session import SessionMetadata, SessionStore
 from heagent.engine import EngineContainer
 from heagent.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
@@ -42,7 +43,11 @@ from heagent.memory.skills import SkillStore
 from heagent.network.exposure import exposure_warning
 from heagent.network.http_console_protocol import (
     MAX_SESSION_MESSAGES_IN_RESPONSE,
+    ConfigGroupResponse,
+    ConfigItemResponse,
     ConsoleOperationError,
+    EnvFileStatusResponse,
+    ProjectConfigResponse,
     ProjectEntryResponse,
     ProjectListResponse,
     ProjectRegisterRequest,
@@ -54,6 +59,7 @@ from heagent.network.http_console_protocol import (
     SessionEntryResponse,
     SessionListResponse,
     SessionRenameRequest,
+    UnknownKeyResponse,
     is_valid_session_id,
 )
 from heagent.network.http_protocol import HttpErrorCode, HttpUsage, RunOutcome, RunStatus, SessionMessage
@@ -333,6 +339,33 @@ class HttpAgentHandler:
         )
 
 
+def _config_response(project_id: str, report: ConfigReport) -> ProjectConfigResponse:
+    """域模型（``config_catalog``）→ 协议模型（网络层）。
+
+    两类模型各自归属一层（``config_catalog`` 是顶层模块，不得 import 网络层），因此这里按字段名
+    做一次**显式**映射；叶子模型用 ``model_validate(model_dump(mode="json"))`` 镜像，两侧字段一旦
+    漂移就会立刻失败（``extra="forbid"``），并由契约测试钉住。
+    """
+    return ProjectConfigResponse(
+        project_id=project_id,
+        field_count=report.field_count,
+        groups=tuple(
+            ConfigGroupResponse(
+                id=group.id,
+                label=group.label,
+                items=tuple(ConfigItemResponse.model_validate(item.model_dump(mode="json")) for item in group.items),
+            )
+            for group in report.groups
+        ),
+        env_file=EnvFileStatusResponse.model_validate(report.env_file.model_dump(mode="json")),
+        unknown_keys=tuple(
+            UnknownKeyResponse.model_validate(item.model_dump(mode="json")) for item in report.unknown_keys
+        ),
+        labels=dict(report.labels),
+        notes=report.notes,
+    )
+
+
 def _guarded_session_id(session_id: str) -> str:
     """入口层的**第二道**会话 id 校验（网络层已挡一次）：非法即稳定错误，且不触碰文件系统。
 
@@ -548,6 +581,18 @@ class HttpProjectConsole:
             raise ConsoleOperationError(HttpErrorCode.RUN_CONFLICT, str(exc)) from exc
         self._touch(project_id)
         return ProjectRunResponse(run_id=record.run_id, session_id=session_id, status=record.status)
+
+    # ── 配置可见性（Story 50-4） ──
+
+    async def get_project_config(self, project_id: str) -> ProjectConfigResponse:
+        """该项目的**有效**配置：值 + 来源 + 可写性 + 只读原因 + 诊断（只读；凭证仅掩码）。
+
+        求解完全交给 :func:`heagent.config_catalog.build_config_report`（单一求解器，NFR-3）；
+        这里只做两件事：解析项目运行时（拿 ``<项目根>/.env`` 的绝对路径，脊柱 I2）与把域模型
+        映射成网络层协议模型。
+        """
+        runtime = self._runtime_for(project_id)
+        return _config_response(project_id, build_config_report(runtime.paths.root / ".env"))
 
     # ── 内部 ──
 

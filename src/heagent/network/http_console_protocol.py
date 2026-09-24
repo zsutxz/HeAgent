@@ -7,13 +7,16 @@ Pydantic 模型 + :class:`ConsoleHandler` Protocol 注入，``http_server.py`` �
 两条与 ``context/session.py`` 的**常量镜像**（网络层不得 import 运行时模块，故只能各自持有）：
 :data:`MAX_SESSION_TITLE_CHARS` 与 :data:`MAX_SESSION_LIST_ENTRIES` 必须与
 ``heagent.context.session`` 的同名常量一致——由 ``tests/network/test_http_console_sessions.py``
-的可执行断言钉住，避免两处漂移。
+的可执行断言钉住，避免两处漂移。同理 :data:`MAX_CONFIG_UNKNOWN_KEYS` 与
+:data:`MAX_CONFIG_FILE_DIAGNOSTIC_KEYS` 镜像 ``heagent.config_catalog`` 的同名常量（配置面板的
+条目也来自文件内容，必须有界），由 ``tests/network/test_http_console_config.py`` 钉住。
 """
 
 from __future__ import annotations
 
 import re
-from typing import Protocol
+from enum import StrEnum
+from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -21,6 +24,12 @@ from heagent.network.http_protocol import MAX_PROMPT_CHARS, RunStatus, SessionMe
 
 MAX_PROJECT_NAME_CHARS = 64
 MAX_PROJECT_PATH_CHARS = 4096
+
+# 配置面板的上界（镜像 ``heagent.config_catalog`` 的同名常量；由
+# ``tests/network/test_http_console_config.py`` 的可执行断言钉住）。条目本身来自文件内容
+# （未知键 / 重复键 / 空值键），因此必须有界——响应体不得随 `.env` 内容膨胀。
+MAX_CONFIG_UNKNOWN_KEYS = 64
+MAX_CONFIG_FILE_DIAGNOSTIC_KEYS = 64
 
 # 会话相关上限（镜像 ``heagent.context.session``；见模块 docstring）。
 MAX_SESSION_ID_CHARS = 128
@@ -201,6 +210,131 @@ class ConsoleOperationError(Exception):
         self.code = code
 
 
+class ConfigSourceValue(StrEnum):
+    """有效值的来源层（镜像 ``heagent.config_catalog.ConfigSource`` 的取值）。"""
+
+    DEFAULT = "default"
+    GLOBAL_ENV = "global_env"
+    PROJECT_ENV = "project_env"
+    SYSTEM_ENV = "system_env"
+
+
+class ConfigGuardResponse(BaseModel):
+    """某项的合法约束（枚举集合或上下界），供 UI 提示与写通道复用。
+
+    ``kind="enum"`` 时看 ``values``（``allow_empty`` 表示「空 = 回退」也合法）；
+    ``kind="range"`` 时看 ``minimum`` / ``maximum``（``exclusive_*`` 表示开区间）与 ``min_length``。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["enum", "range"]
+    values: tuple[str, ...] = ()
+    minimum: float | None = None
+    maximum: float | None = None
+    exclusive_minimum: bool = False
+    exclusive_maximum: bool = False
+    min_length: int | None = None
+    allow_empty: bool = False
+
+
+class RoutingPoolResponse(BaseModel):
+    """一条**有效**路由池（池名 / 档位映射 / 角色映射 / 默认档 / 追加关键词）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entry: str = Field(min_length=1)
+    tiers: dict[str, str] = Field(default_factory=dict)
+    roles: dict[str, str] = Field(default_factory=dict)
+    default: str | None = None
+    keywords: dict[str, str] = Field(default_factory=dict)
+
+
+class RoutingPoolsResponse(BaseModel):
+    """``ROUTING_POOLS`` 的**有效**结果：非法 JSON / 被整条忽略的条目不再是「只有一串 JSON」。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    declared_entries: tuple[str, ...] = ()
+    effective: tuple[RoutingPoolResponse, ...] = ()
+    ignored_entries: tuple[str, ...] = ()
+    invalid_json: bool = False
+
+
+class ConfigItemResponse(BaseModel):
+    """配置面板里的一条。
+
+    - ``value``：有效值（取自 ``Settings`` 快照）。**凭证项恒为 ``None``**。
+    - ``source``：最后写入层；``configured`` = 有非默认来源提供了值。
+    - ``writable`` / ``read_only_reason``：``False`` 时原因必非空（UX-DR5：只读必须给原因）。
+    - ``is_secret`` / ``masked``：凭证只回 ``configured`` + **定长**掩码（常量、零信息量）。
+    - ``read_only_reason`` 与 ``notes`` 都是**稳定码**；中文文案见响应里的 ``labels``。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    group: str = Field(min_length=1)
+    value: Any = None
+    source: ConfigSourceValue
+    writable: bool
+    read_only_reason: str | None = None
+    is_secret: bool = False
+    configured: bool = False
+    masked: str | None = None
+    guards: ConfigGuardResponse | None = None
+    notes: tuple[str, ...] = ()
+    routing: RoutingPoolsResponse | None = None
+
+
+class ConfigGroupResponse(BaseModel):
+    """一组配置项（分组由后端声明式常量驱动，UI 不做任何猜测）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    items: tuple[ConfigItemResponse, ...] = ()
+
+
+class EnvFileStatusResponse(BaseModel):
+    """项目 ``.env`` 的文件状态与文件级诊断（``fingerprint`` = 内容 sha256，写通道的冲突判据）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    exists: bool
+    readable: bool
+    fingerprint: str | None = None
+    has_bom: bool = False
+    line_count: int = Field(default=0, ge=0)
+    duplicate_keys: tuple[str, ...] = Field(default=(), max_length=MAX_CONFIG_FILE_DIAGNOSTIC_KEYS)
+    blank_keys: tuple[str, ...] = Field(default=(), max_length=MAX_CONFIG_FILE_DIAGNOSTIC_KEYS)
+
+
+class UnknownKeyResponse(BaseModel):
+    """未知 / 拼错的键（不生效，单列——**不并入**有效值列表）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    key: str = Field(min_length=1)
+    source: ConfigSourceValue
+
+
+class ProjectConfigResponse(BaseModel):
+    """``GET /api/projects/{id}/config`` 的响应：分组条目 + 文件状态 + 未知键 + 文案表。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(min_length=1)
+    field_count: int = Field(ge=0)
+    groups: tuple[ConfigGroupResponse, ...] = ()
+    env_file: EnvFileStatusResponse
+    unknown_keys: tuple[UnknownKeyResponse, ...] = Field(default=(), max_length=MAX_CONFIG_UNKNOWN_KEYS)
+    labels: dict[str, str] = Field(default_factory=dict)
+    notes: tuple[str, ...] = ()
+
+
 class ConsoleHandler(Protocol):
     """Project operations supplied by the entry layer; network knows no registry."""
 
@@ -230,8 +364,14 @@ class ConsoleHandler(Protocol):
 
     async def start_project_run(self, project_id: str, request: ProjectRunRequest) -> ProjectRunResponse: ...
 
+    # ── 配置可见性（Story 50-4） ──
+
+    async def get_project_config(self, project_id: str) -> ProjectConfigResponse: ...
+
 
 __all__ = [
+    "MAX_CONFIG_FILE_DIAGNOSTIC_KEYS",
+    "MAX_CONFIG_UNKNOWN_KEYS",
     "MAX_PROJECT_NAME_CHARS",
     "MAX_PROJECT_PATH_CHARS",
     "MAX_SESSION_ID_CHARS",
@@ -239,18 +379,27 @@ __all__ = [
     "MAX_SESSION_MESSAGES_IN_RESPONSE",
     "MAX_SESSION_TITLE_CHARS",
     "SESSION_ID_PATTERN",
+    "ConfigGroupResponse",
+    "ConfigGuardResponse",
+    "ConfigItemResponse",
+    "ConfigSourceValue",
     "ConsoleHandler",
     "ConsoleOperationError",
+    "EnvFileStatusResponse",
+    "ProjectConfigResponse",
     "ProjectEntryResponse",
     "ProjectListResponse",
     "ProjectRegisterRequest",
     "ProjectRenameRequest",
     "ProjectRunRequest",
     "ProjectRunResponse",
+    "RoutingPoolResponse",
+    "RoutingPoolsResponse",
     "SessionCreateRequest",
     "SessionDetailResponse",
     "SessionEntryResponse",
     "SessionListResponse",
     "SessionRenameRequest",
+    "UnknownKeyResponse",
     "is_valid_session_id",
 ]
