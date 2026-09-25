@@ -130,6 +130,52 @@ $ .venv\Scripts\python.exe .heagent/tmp/mutate_50_8.py
 > 上一轮（第二轮）的对应数字为 `3137 passed / 91.88%`、真浏览器 23/23、变异 14/14；本轮把 U/I 判据改向
 > （R7 撤销限宽、R8 控件置顶）后复跑，数字如上。
 
+## 第四轮复跑（2026-09-25，Story 50-8 R9）
+
+用户看过第三轮结果后又给了两条：①「"只看最近10条"，排版修改，共195个会话显示在它下面」②「"只读：未开启配置
+写入"不用显示，显示在项目的后面，不独立占一行」。改动只落在**版面**上（无新端点、无新错误码），清单**加严后复跑**：
+
+| 行 | 第三轮 | 第四轮（R9） |
+|---|---|---|
+| **A11b** 会话列表截断 | 只断言文案与条数 | **加真实几何判据**：展开按钮必须**单行**（内容盒高 ÷ 行高 ≤ 1.5）、右边界不得越出会话面板、规模提示必须在按钮**下面**。实测「按钮 36px/单行、提示在其下 6px」 |
+| **B1** 闸门关闭 | 断言「面板含一句 `只读：未开启配置写入`」+ 逐项原因一致 | 断言**徽标在项目名之后且同一行**（`getBoundingClientRect` 比较）、可见文案 = `只读`、`title` 含 `未开启配置写入` + `HTTP_CONSOLE_WRITE_ENABLED`、**可写项 `.config-reason` 计数 = 0**、保存禁用、0 个可编辑控件、开关自身无输入框 |
+
+```bash
+$ node tests/js/console_acceptance.mjs --port 8922 --python E:/AI/HeAgent/.venv/Scripts/python.exe
+ACCEPTANCE {"rows":23,"failed":0,"workspace":"…\\heagent-console-f61eX3","chrome":"Chrome/153.0.8010.48"}
+# A11b：共 21 个会话：默认渲染 10 条（「共 21 个会话 · 只显示最近 10 条」），展开后 21 条全部可见；按钮 36px/单行、提示在其下 6px
+# B1  ：项目名后「只读」徽标（title 含完整原因）、0 个可编辑控件、46 个可写项无逐项重复、开关自身只读（无输入框）
+# A11 ：20 组 / 113 条 / 67 个只读项全部给了原因（113 → 67：可写项不再逐项铺同一句）
+
+$ node tests/js/console_acceptance.mjs --port 8919      # 负向：先把会话控件 revert 回并排（M18）
+ACCEPTANCE {"rows":23,"failed":1,…}
+# A11b 精确变红：「规模提示必须在展开按钮**下面**（R9）：{…,"stacked":false,"gap":-28}」
+
+$ .venv\Scripts\python.exe .heagent/tmp/mutate_50_8.py
+合计 22 条变异，未变红 0 条：[]      # 原 17 条 + R9 的 M18–M22（22/22 全红）
+```
+
+> 另一条**只有真浏览器能看见**的缺陷也在这轮被抓到：并排布局下 `.status`（`white-space: nowrap`，不可收缩）
+> 会把展开按钮挤成 **87×83px / 三行**、右边界 **308px 越过 280px 侧栏**——单测/字符串断言对此完全无感，
+> 所以 A11b 的判据从此包含**几何**。195 个会话的真机几何数据见 story 第四轮记录。
+
+### R10（同批第二条）：值跟在键名后面（A11 加几何判据）
+
+同一批反馈的第二条是「配置项的值不要另起一行」（`DEEPSEEK_MODEL` 的值跟在键名后面）。改动只在
+`app.js::renderConfigItem`（`.config-value` 由 `<p>` 降为 `.config-head` 内的 `<span>`，类名保留），
+清单里给 **A11** 加了一条**几何**判据——键与值的 rect 必须纵向重叠且值在键右侧：
+
+```bash
+$ node tests/js/console_acceptance.mjs --port 8923 --python E:/AI/HeAgent/.venv/Scripts/python.exe
+ACCEPTANCE {"rows":23,"failed":0,"workspace":"…\\heagent-console-JIb9dS","chrome":"Chrome/153.0.8010.48"}
+# A11：20 组 / 113 条（= 后端 113 字段）/ default+global_env+project_env / 67 个只读项全部给了原因 /
+#      未知键 TOTALLY_UNKNOWN / 值内联（键 y=1829、值 y=1830）
+
+$ .venv\Scripts\python.exe -m pytest tests/test_http_web_ui.py -q     → 137 passed
+$ .venv\Scripts\python.exe .heagent/tmp/mutate_50_8.py
+合计 23 条变异，未变红 0 条：[]      # +M23「值退回另起一行的 <p>」精确变红
+```
+
 ## 已知缺口（同时登记在 `docs/frame.md` 五 与活动台账）
 
 1. **网页请求可拉起宿主 GUI 进程**（本 story 有意引入的新暴露面）：回环门 + 单在途 + 冻结 argv + 超时都

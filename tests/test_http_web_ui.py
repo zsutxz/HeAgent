@@ -185,11 +185,38 @@ class TestConsoleLayout:
         assert fractions[0] > fractions[1], f"对话列必须比设置面板宽：{tracks.strip()}"
 
     def test_session_scale_controls_sit_at_the_top_of_the_sessions_panel(self) -> None:
-        """R8：会话规模 / 展开控件在**会话面板最上面**（列表之上），不再压在列表底下。"""
+        """R8/R9：会话规模 / 展开控件在**会话面板最上面**（列表之上），且**按钮在上、规模提示在其下**。
+
+        R9 之前两者并排（`.row`）：`.status` 的 `nowrap` 让提示不可收缩 ⇒ 按钮被挤成三行
+        （真实浏览器实测 195 个会话：按钮 87×83px、右边界 308px 越过 280px 的侧栏）。顺序因此被钉成
+        「按钮 → 提示」，且两者都必须仍在会话列表之前。
+        """
         panel = _HTML.split('aria-labelledby="sessions-heading"', 1)[1].split("</section>", 1)[0]
-        assert panel.index('id="sessions-heading"') < panel.index('id="session-count"')
-        assert panel.index('id="session-count"') < panel.index('id="session-more"')
-        assert panel.index('id="session-more"') < panel.index('id="session-list"'), "控件必须在会话列表之前"
+        assert panel.index('id="sessions-heading"') < panel.index('id="session-more"')
+        assert panel.index('id="session-more"') < panel.index('id="session-count"'), "规模提示在展开按钮**下面**"
+        assert panel.index('id="session-count"') < panel.index('id="session-list"'), "控件必须在会话列表之前"
+
+    def test_session_scale_controls_stack_and_let_the_hint_wrap(self) -> None:
+        """R9 口径护栏：两者**纵向堆叠**，且规模提示允许换行（并排必然在 280px 侧栏里溢出）。"""
+        rules = _css_without_comments()
+        stack = rules.split(".session-scale {", 1)[1].split("}", 1)[0]
+        assert "flex-direction: column" in stack
+        assert "align-items: stretch" in stack, "按钮应当吃满面板宽度（否则还会被挤瘦）"
+        count_rule = rules.split(".session-scale #session-count {", 1)[1].split("}", 1)[0]
+        assert "white-space: normal" in count_rule, "自动展开那句很长，必须能换行"
+        panel = _HTML.split('aria-labelledby="sessions-heading"', 1)[1].split("</section>", 1)[0]
+        assert 'class="session-scale"' in panel, "两个控件必须在同一个堆叠容器里"
+        scale = panel.split('class="session-scale"', 1)[1].split("</div>", 1)[0]
+        assert 'class="row"' not in scale, "并排的 `.row` 是 R9 明确撤销的形态"
+
+    def test_write_gate_is_an_inline_badge_right_after_the_project_name(self) -> None:
+        """R9：闸门关闭的只读状态挂在**项目名后面的紧凑徽标**上，不再独自占一行。"""
+        head = _HTML.split('class="settings-head"', 1)[1].split("</div>", 1)[0]
+        assert 'id="settings-gate"' in head, "闸门说明必须在设置面板头部（与项目名同一行）"
+        assert head.index('id="settings-project"') < head.index('id="settings-gate"'), "徽标跟在项目名之后"
+        assert not re.search(r'<p[^>]*id="settings-gate"', head), "块级 <p> 就是「独占一行」，不得再用"
+        assert re.search(r'<span[^>]*id="settings-gate"[^>]*class="badge[^"]*"', head), "应当是个行内徽标"
+        assert re.search(r'id="settings-gate"[^>]*data-state="warning"', head), "警示色由 data-state 驱动"
 
     def test_no_third_party_resources_in_any_asset(self) -> None:
         """三份资源都不得出现任何远程 URL（严格 CSP 下也加载不了；出现即是坏味道）。"""
@@ -509,16 +536,22 @@ class TestConsoleSettingsPanel:
         assert "重复键" in result["diagnostics"]
         assert "项目 .env 不存在" in result["diagnostics"], "响应级诊断也要渲染出来"
 
-    def test_closed_gate_makes_every_writable_field_read_only_with_a_reason(self, tmp_path: Path) -> None:
-        """AC5：闸门关闭 ⇒ 全部可写项不可编辑 + 原因 + **没有任何开启入口**。"""
+    def test_closed_gate_makes_every_writable_field_read_only_with_a_reason_stated_once(self, tmp_path: Path) -> None:
+        """AC5（R9 修订）：闸门关闭 ⇒ 全部可写项不可编辑 + **没有任何开启入口** + 原因说一次。
+
+        R9 之前每个可写项各铺一句「只读：未开启配置写入」（实测 195 个会话的页面上有 100+ 条）；
+        现在只在**项目名后面的徽标**上说一次，完整原因挂该徽标的 `title`（信息仍可达）。
+        """
         result = _run_probe("G", tmp_path)
 
         assert result["gateHidden"] is False
-        assert "未开启配置写入" in result["gateText"]
+        assert result["gateText"] == "只读", "面板级只读状态只留一个紧凑徽标（R9）"
+        assert "未开启配置写入" in result["gateTitle"], "但「为什么只读」必须仍然可达（UX-DR5）"
+        assert "HTTP_CONSOLE_WRITE_ENABLED" in result["gateTitle"], "完整解释在 title 里"
         assert result["writable"] == "true", "白名单判定本身仍是「可写」——差异只能来自闸门状态"
         assert result["editable"] == "false"
         assert result["inputDisabled"] is True
-        assert "未开启配置写入" in result["reasonText"]
+        assert result["gateReasonParagraphs"] == 0, "可写项不再逐项重复同一句只读原因（R9）"
         assert result["saveDisabled"] is True
         assert result["gateKeyEditable"] == "false", "开关自身也是只读（不能给自己解锁）"
         assert result["enabledInputs"] == 0, "面板里不得留下任何一个可编辑的配置控件"
@@ -543,6 +576,7 @@ class TestConsoleSettingsPanel:
         assert "已保存" in result["statusText"]
         assert result["rowValue"] == "30"
         assert result["rowSource"] == "来源：项目 .env", "保存后要用服务端事实刷新该项的来源徽标"
+        assert result["valueInsideHead"] is True, "闸门开启（可编辑）时值同样在键名那一行（R10）"
         assert result["inputAfterSave"] == "30"
         assert result["pendingAfterSave"] == "没有未保存的改动"
         assert result["saveDisabledAfterSave"] is True
@@ -699,16 +733,16 @@ class TestConsoleRefinement:
         assert result["unavailableState"] == "failed"
 
     def test_settings_panel_is_compact_without_losing_reasons(self, tmp_path: Path) -> None:
-        """R4：长横幅与逐项长句消失；只读原因、诊断条数、逐项说明（徽标）一个都不少。"""
+        """R4/R9：长横幅与逐项长句消失；只读原因（逐项一次 + 面板级一次）、诊断条数、说明徽标一个都不少。"""
         result = _run_probe("S", tmp_path)
 
         assert result["hasLongExplanation"] is False, "长解释不得再出现在面板文本里"
         assert result["hasLongReadOnlySentence"] is False
-        assert result["gateText"] == "未开启配置写入：可写项在本页只读", "面板级只允许一行**短**状态（R4）"
-        assert "未开启配置写入" in result["gateText"], "但「为什么只读」必须仍然可见（UX-DR5）"
-        assert result["gatedReasonText"] == "只读：未开启配置写入"
-        assert "HTTP_CONSOLE_WRITE_ENABLED" in result["gatedReasonTitle"], "完整解释移到 title（信息仍可达）"
-        assert result["readOnlyReasonText"].startswith("只读：")
+        assert result["gateText"] == "只读", "面板级只读状态只留一个紧凑徽标（R9）"
+        assert "未开启配置写入" in result["gateTitle"], "但「为什么只读」必须仍然可见（UX-DR5）"
+        assert "HTTP_CONSOLE_WRITE_ENABLED" in result["gateTitle"], "完整解释移到 title（信息仍可达）"
+        assert result["writableRowReasonParagraphs"] == 0, "可写项不再逐项铺一句只读原因（R9）"
+        assert result["readOnlyReasonText"].startswith("只读："), "不可写的键仍要逐项给原因（与闸门无关）"
         assert result["diagnosticsSummaryState"] == "failed"
         assert "2 条需要注意" in result["diagnosticsSummary"], "折叠标题要显示告警条数"
         assert "重复键" in result["diagnosticsText"], "折叠不等于丢信息"
@@ -716,6 +750,16 @@ class TestConsoleRefinement:
         assert result["unknownFirstKey"] == "TOTALLY_UNKNOWN"
         assert result["noteParagraphs"] == 0, "逐项说明不再铺成长段文案"
         assert result["noteChipText"], "但说明仍在（短徽标 + title）"
+
+    def test_config_value_sits_on_the_key_line(self, tmp_path: Path) -> None:
+        """R10：值**跟在键名后面、同一行**（`config-head` 内的 `<span class="config-value">`），不再独占一行。"""
+        result = _run_probe("S", tmp_path)
+
+        assert result["valueInsideHead"] is True, "值必须挂在头部行里（与键名同一行）"
+        assert result["headClasses"][:3] == ["config-key", "config-value", "badge badge-source"], (
+            "顺序应为 键 → 值 → 来源徽标",
+        )
+        assert result["valueText"] == "25", "值本身不变（只是换了位置）"
 
     def test_diagnostics_and_unknown_keys_are_collapsed_by_default(self) -> None:
         """折叠是 HTML 的静态事实（没有 `open` 属性 = 默认收起）——直接看页面源码。"""

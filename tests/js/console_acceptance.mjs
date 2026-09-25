@@ -493,6 +493,19 @@ row("A11", "设置面板（分组 / 来源 / 只读原因）", "按后端分组�
     secrets: Array.from(document.querySelectorAll("#settings-groups .config-item")).filter((node) => node.querySelector(".badge") && node.textContent.includes("凭证")).length,
     unknownKeys: Array.from(document.querySelectorAll("#unknown-keys > li")).map((node) => node.dataset.unknownKey),
     status: document.getElementById("settings-status").textContent,
+    inlineValue: (() => {
+      // R10：值必须与键名**同一行**，判据是几何（两个 rect 纵向重叠且值在键右侧），不是 DOM 顺序。
+      const row = document.querySelector('#settings-groups .config-item[data-key="MAX_ITERATIONS"]');
+      if (!row) return null;
+      const key = row.querySelector(".config-key").getBoundingClientRect();
+      const value = row.querySelector(".config-value").getBoundingClientRect();
+      return {
+        sameLine: key.top < value.bottom && value.top < key.bottom,
+        rightOfKey: value.left >= key.right - 1,
+        keyY: Math.round(key.top),
+        valueY: Math.round(value.top),
+      };
+    })(),
   })`);
   const declared = Number((summary.status.match(/(\d+) 个字段/) || [])[1] || 0);
   if (summary.groups.length < 5 || summary.items < 46) throw new Error(`分组/条目过少：${JSON.stringify(summary)}`);
@@ -505,7 +518,10 @@ row("A11", "设置面板（分组 / 来源 / 只读原因）", "按后端分组�
   if (declared !== summary.items) throw new Error(`状态行说 ${declared} 个字段，面板渲染了 ${summary.items} 条`);
   if (summary.secrets < 1) throw new Error("凭证行没有被标出来");
   if (!summary.unknownKeys.includes("TOTALLY_UNKNOWN")) throw new Error(`未知键未单列：${summary.unknownKeys}`);
-  return `${summary.groups.length} 组 / ${summary.items} 条（= 后端 ${declared} 字段）/ ${summary.sources.join("+")} / ${summary.readOnly} 个只读项全部给了原因 / 未知键 ${summary.unknownKeys.join(",")}`;
+  if (!summary.inlineValue || !summary.inlineValue.sameLine || !summary.inlineValue.rightOfKey) {
+    throw new Error(`值必须跟在键名后面、同一行（R10）：${JSON.stringify(summary.inlineValue)}`);
+  }
+  return `${summary.groups.length} 组 / ${summary.items} 条（= 后端 ${declared} 字段）/ ${summary.sources.join("+")} / ${summary.readOnly} 个只读项全部给了原因 / 未知键 ${summary.unknownKeys.join(",")} / 值内联（键 y=${summary.inlineValue.keyY}、值 y=${summary.inlineValue.valueY}）`;
 });
 
 row("A11b", "会话列表只显示最近 10 条（R1）", "同一项目写满 10+ 会话后：侧栏只渲染 10 条、显示总数、展开后全部可见", async () => {
@@ -532,16 +548,47 @@ row("A11b", "会话列表只显示最近 10 条（R1）", "同一项目写满 10
     countText: document.getElementById("session-count").textContent,
     moreHidden: document.getElementById("session-more").hidden,
   })`);
+  // R9：真实几何（字符串断言看不出「按钮被挤成三行 / 越出侧栏」这类版面缺陷，只有真浏览器能量）。
+  const geometry = await evaluate(`(() => {
+    const panel = document.getElementById("sidebar").querySelector("section:nth-of-type(2)").getBoundingClientRect();
+    const moreNode = document.getElementById("session-more");
+    const more = moreNode.getBoundingClientRect();
+    const count = document.getElementById("session-count").getBoundingClientRect();
+    const style = getComputedStyle(moreNode);
+    const lineHeight = parseFloat(style.lineHeight) || 1;
+    // 内容盒高度 ÷ 行高 = 文字占了几行（盒子高度含 padding/border，直接除会假报折行）。
+    const contentHeight =
+      more.height -
+      parseFloat(style.paddingTop) -
+      parseFloat(style.paddingBottom) -
+      parseFloat(style.borderTopWidth) -
+      parseFloat(style.borderBottomWidth);
+    return {
+      moreHeight: Math.round(more.height),
+      moreLines: Math.round((contentHeight / lineHeight) * 10) / 10,
+      moreRight: Math.round(more.right),
+      panelRight: Math.round(panel.right),
+      stacked: count.top >= more.bottom - 1,
+      gap: Math.round(count.top - more.bottom),
+    };
+  })()`);
   if (total <= 10) throw new Error(`前置条件不成立：项目 B 只有 ${total} 个会话`);
   if (truncated.rendered !== 10) throw new Error(`默认应只渲染 10 条，实际 ${truncated.rendered}`);
   if (!truncated.countText.includes(`共 ${total} 个会话`)) throw new Error(`未显示总数：${truncated.countText}`);
   if (!truncated.countText.includes("只显示最近 10 条")) throw new Error(`未显示截断口径：${truncated.countText}`);
   if (truncated.moreHidden) throw new Error("超出部分必须可展开（不能静默藏起来）");
+  if (geometry.moreLines > 1.5) {
+    throw new Error(`展开按钮被挤压折行（${geometry.moreLines} 行 / ${geometry.moreHeight}px，R9 已撤销该形态）`);
+  }
+  if (geometry.moreRight > geometry.panelRight) {
+    throw new Error(`展开按钮越出会话面板：${geometry.moreRight} > ${geometry.panelRight}`);
+  }
+  if (!geometry.stacked) throw new Error(`规模提示必须在展开按钮**下面**（R9）：${JSON.stringify(geometry)}`);
   await click("#session-more");
   await waitFor(`document.querySelectorAll("#session-list > li").length === ${total}`, { label: "展开后全部可见" });
   const expandedLabel = await evaluate(`document.getElementById("session-more").textContent`);
   if (!expandedLabel.includes("只看最近 10 条")) throw new Error(`展开后按钮文案未变：${expandedLabel}`);
-  return `共 ${total} 个会话：默认渲染 10 条（「${truncated.countText}」），展开后 ${total} 条全部可见`;
+  return `共 ${total} 个会话：默认渲染 10 条（「${truncated.countText}」），展开后 ${total} 条全部可见；按钮 ${geometry.moreHeight}px/单行、提示在其下 ${geometry.gap}px`;
 });
 
 row("A11c", "设置面板瘦身（R4）", "无整句长解释；诊断/未知键默认收起且标题带条数；只读原因是短标签", async () => {
@@ -666,36 +713,51 @@ row("A16", "截图留档", "控制台整页截图写入临时工作区", async (
 
 // B 段：写入闸门关闭的服务（另一个工作区 + 另一个端口）
 
-row("B1", "闸门关闭：全只读 + 原因 + 无开启入口", "面板说明闸门关闭，所有可写项不可编辑，且没有任何开启入口", async () => {
+row("B1", "闸门关闭：全只读 + 原因 + 无开启入口", "闸门徽标挂在项目名后面（同一行）说明闸门关闭，所有可写项不可编辑，且没有任何开启入口", async () => {
   const closedPort = PORT + 1;
   startServer(closedWorkspace, closedPort);
   await waitForHealth(closedPort);
   await open(`http://127.0.0.1:${closedPort}/`);
   await click("#settings-button");
   await waitFor(`document.querySelectorAll("#settings-groups .config-item").length > 0`);
-  const state = await evaluate(`({
-    gate: document.getElementById("settings-gate").hidden ? "" : document.getElementById("settings-gate").textContent,
-    panelText: document.getElementById("settings-panel").textContent,
-    saveDisabled: document.getElementById("settings-save").disabled,
-    enabledInputs: Array.from(document.querySelectorAll("#settings-groups .config-input")).filter((node) => !node.disabled).length,
-    editableRows: document.querySelectorAll('#settings-groups .config-item[data-editable="true"]').length,
-    reasonSamples: Array.from(document.querySelectorAll("#settings-groups .config-item")).filter((node) => node.dataset.writable === "true").slice(0, 3).map((node) => { const reason = node.querySelector(".config-reason"); return reason ? reason.textContent : null; }),
-    gateKey: (() => { const row = Array.from(document.querySelectorAll("#settings-groups .config-item")).find((node) => node.dataset.key === "HTTP_CONSOLE_WRITE_ENABLED"); return row ? { editable: row.dataset.editable, inputs: row.querySelectorAll("input").length, reason: row.querySelector(".config-reason") ? row.querySelector(".config-reason").textContent : null } : null; })(),
-  })`);
-  if (!state.gate.includes("未开启配置写入")) throw new Error(`面板未说明闸门关闭：${state.gate}`);
+  const state = await evaluate(`(() => {
+    const gate = document.getElementById("settings-gate");
+    const project = document.getElementById("settings-project").getBoundingClientRect();
+    const gateBox = gate.getBoundingClientRect();
+    const writableRows = Array.from(document.querySelectorAll('#settings-groups .config-item[data-writable="true"]'));
+    return {
+      gateText: gate.hidden ? "" : gate.textContent,
+      gateTitle: gate.title,
+      gateSameLineAsProject: gateBox.top < project.bottom && gateBox.bottom > project.top,
+      gateRightOfProject: gateBox.left >= project.right,
+      writableReasons: writableRows.reduce((sum, row) => sum + row.querySelectorAll(".config-reason").length, 0),
+      writableRows: writableRows.length,
+      panelText: document.getElementById("settings-panel").textContent,
+      saveDisabled: document.getElementById("settings-save").disabled,
+      enabledInputs: Array.from(document.querySelectorAll("#settings-groups .config-input")).filter((node) => !node.disabled).length,
+      editableRows: document.querySelectorAll('#settings-groups .config-item[data-editable="true"]').length,
+      gateKey: (() => { const row = Array.from(document.querySelectorAll("#settings-groups .config-item")).find((node) => node.dataset.key === "HTTP_CONSOLE_WRITE_ENABLED"); return row ? { editable: row.dataset.editable, inputs: row.querySelectorAll("input").length } : null; })(),
+    };
+  })()`);
+  if (state.gateText !== "只读") throw new Error(`闸门徽标文案异常：${JSON.stringify(state.gateText)}`);
+  if (!state.gateTitle.includes("未开启配置写入") || !state.gateTitle.includes("HTTP_CONSOLE_WRITE_ENABLED")) {
+    throw new Error(`「为什么只读」必须仍然可达（title）：${state.gateTitle}`);
+  }
+  if (!state.gateSameLineAsProject || !state.gateRightOfProject) {
+    throw new Error(`闸门徽标必须跟在项目名之后、同一行（R9）：${JSON.stringify(state)}`);
+  }
   if (state.panelText.includes("网页无法自行开启") || state.panelText.includes("需在启动配置")) {
     throw new Error("闸门关闭时也只允许一行短状态（R4：长解释不该回来）");
   }
-  if (!state.panelText.includes("只读：未开启配置写入")) throw new Error("可写项应给出一句短原因");
   if (!state.saveDisabled) throw new Error("保存按钮应当禁用");
   if (state.enabledInputs !== 0 || state.editableRows !== 0) throw new Error(`仍有可编辑项：${JSON.stringify(state)}`);
-  if (!state.reasonSamples.every((text) => text && text.includes("未开启配置写入"))) {
-    throw new Error(`可写项未给原因：${JSON.stringify(state.reasonSamples)}`);
+  if (state.writableReasons !== 0) {
+    throw new Error(`可写项不该再逐项铺同一句只读原因（R9）：${state.writableReasons} 条`);
   }
   if (!state.gateKey || state.gateKey.editable !== "false" || state.gateKey.inputs !== 0) {
     throw new Error(`开关自身应当是只读且无输入框：${JSON.stringify(state.gateKey)}`);
   }
-  return `闸门说明可见、0 个可编辑控件、可写项原因一致、开关自身只读（无输入框）`;
+  return `项目名后「${state.gateText}」徽标（title 含完整原因）、0 个可编辑控件、${state.writableRows} 个可写项无逐项重复、开关自身只读（无输入框）`;
 });
 
 row("A11d", "布局：一列侧栏 + 对话区占满所在列（R6/R7/R8）", "项目与会话同栏堆叠；对话正文与输入条铺满该列（不再限宽居中）；设置面板打开时对话列仍最宽；会话控件在列表之上", async () => {

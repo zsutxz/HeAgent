@@ -45,10 +45,13 @@
 
         <section class="panel" aria-labelledby="sessions-heading">
           <h2 id="sessions-heading">会话</h2>
-          <!-- R1/R8：规模提示与展开/收起入口放在**会话面板最上面**（列表之上），不再压在列表底下。 -->
-          <div class="row">
-            <span id="session-count" class="status" data-state="idle"></span>
+          <!-- R1/R8/R9：规模提示与展开/收起入口放在**会话面板最上面**（列表之上），不再压在列表底下；
+               两者**纵向堆叠**（按钮在上、规模提示在其下）。并排时 `.status` 的 `nowrap` 让提示不可
+               收缩，按钮被挤到只剩几十像素并折成三行（真实浏览器实测 195 个会话 ⇒ 按钮高 83px、
+               右边界 308px 越过 280px 的侧栏）。 -->
+          <div class="session-scale">
             <button id="session-more" type="button" hidden>显示全部</button>
+            <span id="session-count" class="status" data-state="idle"></span>
           </div>
           <div class="row">
             <span id="active-project" class="badge badge-project">未选择项目</span>
@@ -91,11 +94,13 @@
         <div class="settings-head">
           <h2 id="settings-heading">项目设置</h2>
           <span id="settings-project" class="badge badge-project">-</span>
+          <!-- R9：闸门关闭的只读状态挂在**项目名后面的紧凑徽标**上（不再独自占一行，也不再逐项重复）；
+               完整解释见徽标的 `title`（`write_channel_short` + `write_channel_disabled`）。 -->
+          <span id="settings-gate" class="badge badge-gate" data-state="warning" hidden></span>
           <button id="settings-refresh" type="button">刷新</button>
           <button id="settings-close" type="button">关闭</button>
         </div>
         <p id="settings-status" class="status" data-state="idle"></p>
-        <p id="settings-gate" class="notice notice-warn" hidden></p>
         <div id="settings-result" class="result panel" hidden></div>
         <!-- R4：诊断与未知键折进默认收起的 `<details>`（告警条数写在 summary 上，收起也不丢信息）。 -->
         <details id="settings-diagnostics-wrap" class="settings-details">

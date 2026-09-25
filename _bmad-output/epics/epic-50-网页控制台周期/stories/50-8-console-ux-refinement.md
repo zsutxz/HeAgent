@@ -202,6 +202,18 @@ Story 50-1…50-7 已把 Epic 50 建完并收口放行。本 story 是**收口�
 - **AC12（R8）** Given 项目有 21 个会话（超出 10 条截断），When 查看侧栏会话面板，Then 规模提示与
   「显示全部」位于**会话列表之上**（判据是几何位置，不只看 DOM 顺序）；Given 会话不足 10 条，
   Then 只显示「共 N 个会话」、展开按钮隐藏（不出现「只显示最近 10 条」字样）。
+- **AC13（R9）** Given 某项目有 **195** 个会话（提示文字最长的一档），When 查看侧栏会话面板，
+  Then 展开/收起按钮**单行**且不越出面板（实测 36px 高、右边界 242 ≤ 面板 242 —— 旧形态为 87×83px、
+  右边界 308 越过 280px 侧栏），`共 195 个会话 · 只显示最近 10 条` 在其**下方**（实测 gap 6px，且
+  自动展开那句长提示允许换行）；Given 写入闸门关闭，When 打开项目设置面板，Then 只读状态是**跟在项目名
+  徽标之后、同一行**的紧凑徽标（实测 `项目设置 ｜ 项目名 ｜ 只读 ｜ 刷新 ｜ 关闭` 全在 y≈112 一行、
+  右边界 1327 ≤ 面板 1340），完整原因（`write_channel_short` + `write_channel_disabled`）挂在徽标 `title`；
+  **可写项不再各自铺**「只读：未开启配置写入」（实测面板内 `.config-reason` 由 **113 → 67** 条，
+  剩下的都是**键自身**的只读原因），可写项仍为不可编辑、开关自身仍无输入框。
+- **AC14（R10）** Given 打开项目设置面板，When 看任一条目，Then **值跟在键名之后、同一行**
+  （真机实测 `MAX_ITERATIONS` 键 y=1829 / 值 y=1830，纵向重叠且值在键右侧），不再有独占一行的值段落；
+  值的展示口径（凭证掩码 `已配置 ********` / 超长截断 / `（未设置）`）与「来源」「凭证」徽标、编辑框一律不变——
+  `config-value` 类名保留（验收脚本与面板自测的选择器不用改）。
 
 ## Definition of Done
 
@@ -280,6 +292,8 @@ JS 探针变红；⑥ 截断时不保证「选中会话可见」→ 探针变红
 | R6 | **界面布局参考 ChatGPT**（一列侧栏 + 限宽居中阅读列 + 同宽输入条） | 用户口述 2026-09-24（第二轮） | UI（CSS 变量与两条规则）/ 单测护栏 / 真浏览器 A11d | **已实现**，其中「限宽居中阅读列」于 2026-09-24 **第三轮被 R7 撤销**（一列侧栏保留） |
 | R7 | **对话区占满所在列**（撤销限宽居中的阅读列；设置面板打开时对话列仍是最宽的一列） | 用户口述 2026-09-24（第三轮「中间一列,显示字的可以宽,占满」） | UI（CSS：删变量与两条限宽规则 + 三列份额）/ 单测护栏 / 真浏览器 A11d | **已实现**（AC10 作废 → AC11） |
 | R8 | **会话规模 / 展开控件放到最上面**（原先压在会话列表底下） | 用户口述 2026-09-24（第三轮「最左边的显示全部 要放到最上面」） | UI（`index.html` DOM 顺序）/ 单测护栏 / 真浏览器 A11d | **已实现**（AC12）——本机默认理解为**会话面板最上面**；若你要的是整个左栏最顶部（项目面板之上），一句话即可再挪 |
+| R9 | **①会话规模提示与展开按钮纵向堆叠**（按钮一行、`共 N 个会话…` 提示在其**下**，提示允许换行）；**②闸门关闭的只读状态改为「项目名后面的紧凑徽标」**（不再独占一行、也**不再逐项重复**同一句） | 用户口述 2026-09-25（「"只看最近10条"，排版修改，共195个会话显示在它下面」/「"只读：未开启配置写入"不用显示…显示在项目的后面，不独立占一行」） | UI（`index.html` 结构 + `styles.css` 堆叠规则 + `app.js` 徽标）+ `config_catalog.LABELS` + 单测护栏 + 真浏览器 A11b / B1 **几何判据** | **已实现**（AC13；50-6 AC5 的「逐项说明」由本条收窄——原因改在徽标 `title` 里可达） |
+| R10 | **配置项的值跟在键名后面（同一行）**，不再另起一行（澄清 R9 待确认项「默认值…不独立占一行」的确切含义） | 用户口述 2026-09-25（同批第二条：「设置中，DEEPSEEK_MODEL 默认的 deepseek-flash 放到 DEEPSEEK_MODEL 后面，不要另外起一行」） | UI（`app.js::renderConfigItem`；`.config-value` 由 `<p>` 降为 `.config-head` 内的 `<span>`）+ 探针判据 + 真浏览器 A11 **几何判据** | **已实现**（AC14；类名保留 ⇒ 既有选择器/判据零改动） |
 
 **候选并入（来自台账，**只引用不复制**；需要时由用户点名并入为 R6…）**：
 
@@ -444,6 +458,118 @@ $ .venv\Scripts\python.exe .heagent/tmp/mutate_50_8.py
 合计 17 条变异，未变红 0 条：[]
 ```
 
+### 第四轮调整（2026-09-25，用户裁决：R9）
+
+用户原文：①「"只看最近10条"，排版修改，共195个会话显示在它下面」②「"只读：未开启配置写入"不用显示，
+显示在项目的后面，不独立占一行」。按「需求并入区」机制记为 **R9**，并把 **50-6 AC5 的「逐项说明」收窄**（新 **AC13**）。
+
+**先量后改（`.heagent/tmp/ui_layout_probe.mjs`：真实 headless Edge + CDP，临时工作区里 195 个会话）**
+
+| 靶点 | 旧形态（实测） | 新形态（实测） |
+|---|---|---|
+| 会话面板两个控件 | **并排**（`.row` + `justify-content: space-between`）：`.status` 是 `white-space: nowrap` ⇒ 提示不可收缩，按钮被挤成 **87×83px / 约 3 行**，右边界 **308px 越过 280px 侧栏**；提示盒子（y 507–527）**套在按钮盒子**（y 476–558）里面 | **纵向堆叠**（`.session-scale`）：按钮 **220×36px / 单行**（`align-items: stretch` 吃满面板宽度）、右边界 **242 = 面板右边界**；提示在其下 **6px**，`white-space: normal` ⇒ 自动展开那句长提示可换行 |
+| 设置面板只读状态 | 面板级**独占一行**的块 `未开启配置写入：可写项在本页只读`（364×39px、y≈187）+ **逐项** `只读：未开启配置写入`（面板内 `.config-reason` = **113** 条） | 项目名后面**同一行**的紧凑徽标 `只读`（45×23px，与项目徽标同在 y≈112）；`.config-reason` → **67** 条（剩下的全是**键自身**的只读原因） |
+
+**为什么徽标只能是「只读」两个字（宽度算术 + 实测）**：设置列内容宽 **364px**，`项目设置`(64) + 项目名徽标(96) +
+`刷新`(61) + `关闭`(61) + 4 个间隙(32) 已占 **314px**；那句短状态需 ~205px ⇒ **必然换行**（`.settings-head`
+是 `flex-wrap: wrap`，会把「刷新/关闭」挤到第二行——那还是「独占一行」）。故徽标显示 `只读`，
+**完整原因（短状态 + 长解释）挂 `title`**（沿用 R4「降噪不丢信息」口径）；文案走服务端
+`LABELS["write_channel_badge"]`（前端只做缺失兜底，不硬编码中文）。
+
+**一处口径变更（需你知悉）**：50-6 的 **AC5** 原文要求「所有可写项…**说明**『服务启动时未开启配置写入』」。
+R9 之后**可写项不再逐项说明**（同一句在 400+ 项的面板上重复纯属噪音），改为**面板级说一次**（项目名后的徽标 +
+`title` 里的完整原因），逐项仍保持**不可编辑**。若你希望逐项留一个两字小标记，一句话即可加回。
+
+**同批追问已澄清（→ R10）**：原文里「**默认值**」三字当天已问清——指的是**值那一行**（原话：「设置中，
+DEEPSEEK_MODEL 默认的 deepseek-flash 放到 DEEPSEEK_MODEL 后面，不要另外起一行」）。落地见下 **R10**。
+
+#### R10（同批第二条）：配置项的值跟在键名后面
+
+`app.js::renderConfigItem` 里值由**独立的 `<p class="config-value">` 一行**改为**塞进 `.config-head` 的
+`<span class="config-value">`**（顺序：**键 → 值 → 来源徽标 → 凭证徽标**），每个条目少一行。要点：
+
+- **类名保留，只换标签**：验收脚本（`row.querySelector(".config-value")`）与面板自测的选择器、判据**零改动**；
+  为免以后又有人靠「第几个子节点」取值，本轮顺手把探针里所有位置型判据（`children[1]` / `children[2]`）
+  换成了 `findByClass`。
+- **几何判据进真浏览器清单**（A11）：`键` 与 `值` 两个 rect 必须纵向重叠且值在键右侧（实测键 y=1829 / 值 y=1830）；
+  这条能抓住「值又跑回下一行」——单测里的 DOM 结构断言抓不到观感。
+- 值的展示口径一字未改（掩码 / 截断 / `（未设置）`）；`.config-value` 的 `white-space: pre-wrap` 保留，
+  JSON 值（`ROUTING_POOLS`）里的换行照旧，长值靠 `overflow-wrap: anywhere` 断行。
+
+**验证（R10，实测命令 + 输出）**
+
+```bash
+$ .venv\Scripts\python.exe -m pytest tests/test_http_web_ui.py -q
+137 passed in 2.31s                      # +1（test_config_value_sits_on_the_key_line）
+
+$ .venv\Scripts\python.exe -m pytest -q --cov=heagent --cov-fail-under=87 --cov-report=term --no-header -p no:randomly
+Required test coverage of 87% reached. Total coverage: 91.87%
+3142 passed, 11 skipped, 18 deselected, 8 warnings in 169.72s (0:02:49)
+
+$ node tests/js/console_acceptance.mjs --port 8923 --python E:/AI/HeAgent/.venv/Scripts/python.exe
+ACCEPTANCE {"rows":23,"failed":0,"workspace":"…\\heagent-console-JIb9dS","chrome":"Chrome/153.0.8010.48"}
+# A11：… / 值内联（键 y=1829、值 y=1830）
+
+$ .venv\Scripts\python.exe .heagent/tmp/mutate_50_8.py
+合计 23 条变异，未变红 0 条：[]      # R10 的 M23「值退回另起一行的 <p>」精确变红（2 failed）
+```
+
+#### 第四轮（R9）文件清单
+
+#### 验证（第四轮，实测命令 + 输出）
+
+```bash
+$ node .heagent/tmp/ui_layout_probe.mjs http://127.0.0.1:8955/      # headless Edge 153 + CDP
+# 旧：more={x:221,y:476,w:87,h:83,right:308}、count={y:507,h:20}(嵌在按钮盒内)、reasonCount=113(含「只读：未开启配置写入」)
+# 新：more={x:22,y:476,w:220,h:36,right:242}、count={y:518,h:20,whiteSpace:normal}(gap 6)、reasonCount=67
+#     设置头一行：项目设置 968–1032 ｜[ui_layout_ws] 1040–1137 ｜[只读] 1145–1190 ｜ 刷新 1198–1259 ｜ 关闭 1267–1327（≤ 面板 1340）
+
+$ .venv\Scripts\python.exe .heagent/tmp/venv_asset_probe.py         # 核准验收跑的确实是工作区前端
+package: E:\AI\HeAgent\src\heagent\__init__.py；resources → E:\AI\HeAgent\src\heagent\web（index.html 7943 字节）
+
+$ .venv\Scripts\python.exe -m pytest tests/test_http_web_ui.py -q
+136 passed in 2.00s
+
+$ .venv\Scripts\python.exe -m pytest -q --cov=heagent --cov-fail-under=87 --cov-report=term --no-header -p no:randomly
+Required test coverage of 87% reached. Total coverage: 91.88%
+3141 passed, 11 skipped, 18 deselected, 8 warnings in 165.54s (0:02:45)
+
+$ .venv\Scripts\python.exe -m ruff check src tests            → All checks passed!
+$ .venv\Scripts\python.exe -m ruff format --check src tests    → 280 files already formatted
+$ .venv\Scripts\python.exe -m mypy src                         → Success: no issues found in 147 source files
+$ .venv\Scripts\python.exe -m mypy src --platform linux        → Success: no issues found in 147 source files
+
+$ node tests/js/console_acceptance.mjs --port 8922 --python E:/AI/HeAgent/.venv/Scripts/python.exe
+ACCEPTANCE {"rows":23,"failed":0,"workspace":"…\\heagent-console-f61eX3","chrome":"Chrome/153.0.8010.48"}
+# A11b：共 21 个会话：默认渲染 10 条（「共 21 个会话 · 只显示最近 10 条」），展开后 21 条全部可见；按钮 36px/单行、提示在其下 6px
+# B1  ：项目名后「只读」徽标（title 含完整原因）、0 个可编辑控件、46 个可写项无逐项重复、开关自身只读（无输入框）
+
+$ node tests/js/console_acceptance.mjs --port 8919      # 负向：先把会话控件 revert 回并排
+ACCEPTANCE {"rows":23,"failed":1,…} → A11b「规模提示必须在展开按钮**下面**（R9）：{"moreHeight":36,"moreLines":1,"moreRight":712,"panelRight":724,"stacked":false,"gap":-28}」
+
+$ .venv\Scripts\python.exe .heagent/tmp/mutate_50_8.py
+合计 22 条变异，未变红 0 条：[]      # 原 17 条 + R9 的 M18–M22
+# M18 会话控件退回并排、M19 堆叠改横排、M20 闸门退回独占一行、M21 徽标丢 title、M22 逐项原因加回 —— 5/5 精确变红
+```
+
+**判据细节（当场踩到）**：真浏览器几何断言最初用「按钮盒高 ÷ 行高 > 1.5 行 ⇒ 折行」判据，
+结果把**正常的单行按钮**（36px = 11.2px padding + 23.25px 行高）判成 1.6 行而误报 ⇒ 改为
+**内容盒高度**（盒子高 − padding − border）÷ 行高，才是一条不会撒谎的判据。
+
+#### 第四轮（R9）文件清单
+
+| 路径 | 变更 |
+|---|---|
+| `src/heagent/web/index.html` | 会话面板那两个控件换成 `.session-scale` 容器（按钮在前、提示在后）；`#settings-gate` 由 `<p class="notice">`（独占一行）改为 `.settings-head` 里的 `<span class="badge badge-gate" data-state="warning">`（项目名之后） |
+| `src/heagent/web/styles.css` | 新增 `.session-scale`（纵向堆叠 + `align-items: stretch` + gap）与 `.session-scale #session-count { white-space: normal }`；新增 `.badge-gate { border-color: var(--warn) }`；**R10**：`.config-value` 注释改写（说明它现在是头部行内的 `<span>`），规则本身不变 |
+| `src/heagent/web/app.js` | 闸门徽标：文案取 `labels.write_channel_badge`（兜底「只读」）+ `title` 拼（短状态 + 长解释）；可写项**不再** append `config-reason`；**R10**：值由独立 `<p class="config-value">` 改为 `.config-head` 内的 `<span class="config-value">`（键 → 值 → 来源 → 凭证） |
+| `src/heagent/config_catalog.py` | `LABELS` +`write_channel_badge`（附「宽度是硬约束」的注释）；`write_channel_short` 的注释随 R9 改写（逐项那份重复已撤） |
+| `tests/test_http_web_ui.py` | 改 `test_session_scale_controls_sit_at_the_top_of_the_sessions_panel`（顺序倒过来）；+`test_session_scale_controls_stack_and_let_the_hint_wrap`、+`test_write_gate_is_an_inline_badge_right_after_the_project_name`；两条探针用例改判据（`gateText/title` + 逐项原因计数）；**R10**：+`test_config_value_sits_on_the_key_line`、H 用例加 `valueInsideHead` 断言 |
+| `tests/js/app_probe.js` | 探针 G / S 改判据：`gateText` / `gateTitle` / `gateReasonParagraphs` / `writableRowReasonParagraphs`（去掉 `reasonText` / `gatedReasonText`）；**R10**：位置型判据（`children[1]` / `children[2]`）全换成 `findByClass`，+`valueInsideHead` / `headClasses` / `valueText` |
+| `tests/js/console_acceptance.mjs` | A11b 加**真实几何**判据（单行 / 不越界 / 提示在其下）；B1 改判据（徽标在项目名之后同一行 + title 可达 + 可写项无逐项原因）；**R10**：A11 加「键与值必须同一行且值在键右侧」的几何判据 |
+| `.heagent/tmp/mutate_50_8.py` | M15 锚点随 R9 更新（否则锚点命中 0 次）；M7 锚点更新；+M18–M22；**R10**：+M23「值退回另起一行的 `<p>`」 |
+| 本 story | 需求并入区 +R9/R10、AC +AC13/AC14、本轮记录 |
+
 ### File List
 
 **新增**
@@ -488,3 +614,5 @@ $ .venv\Scripts\python.exe .heagent/tmp/mutate_50_8.py
 | 2026-09-24 | 实现 Story 50-8（R1–R5）：新增 `cli_dialogs.py` 与 `POST /api/dialogs/pick-directory`（回环门 + 单在途 + 超时 kill，2 个新错误码）、网页侧 `file_read` 结果收敛、会话列表 20 条截断、三栏布局、设置面板瘦身；全量 **3135 passed / 覆盖率 91.87%**、ruff / format / mypy 双平台干净、真浏览器清单 **22/22**、**11/11** 变异精确变红；真机探针验证 tkinter 子进程可拉起并可被超时终止 |
 | 2026-09-24 | **第二轮调整（用户裁决）**：项目与会话**回到一列**（撤销三栏 + 加口径护栏）、会话默认 **10** 条、布局**参考 ChatGPT**（新增 `--chat-content-width` 限宽居中阅读列与同宽输入条，侧栏 300 → 280px）；真浏览器清单 22 → **23 行**（+A11d，1600px 视口实测）、变异 11 → **14 条**（+M12/M13/M14，全红）；全量 **3137 passed / 91.88%** |
 | 2026-09-24 | **第三轮调整（用户裁决 R7/R8）**：对话区**撤销限宽居中、改为占满所在列**（并让设置面板打开时对话列仍最宽：三列份额 `1.05/1.2fr` → `1.6/1fr`）、**会话规模与「显示全部」移到会话面板最上面**；AC10 作废 → 新增 **AC11/AC12**；`test_http_web_ui.py` 134 例（+3 护栏、-1 旧阅读列护栏）、变异 14 → **17 条**（M13 改写为「把限宽加回来」、+M15/M16/M17，17/17 全红）；真浏览器 A11d 改判据后 **23/23**（正文 1288px = 该列 1320 − 16/16；三列里对话 812 > 设置 508；控件 687 ≤ 列表 740）；全量 **3139 passed / 91.88%**、ruff / format / mypy 双平台全绿 |
+| 2026-09-25 | **第四轮调整（用户裁决 R9）**：①会话面板两个控件**纵向堆叠**（按钮在上、规模提示在其下、提示允许换行）——并排时 `.status` 的 nowrap 把按钮挤成 **87×83px / 3 行**且右边界 **308px 越过 280px 侧栏**（真机实测）；②闸门关闭的只读状态改为**项目名后面的紧凑徽标 `只读`**（`title` 里是完整原因），**可写项不再逐项铺**同一句（面板内 `.config-reason` **113 → 67** 条）；新增 **AC13**、`LABELS["write_channel_badge"]`；真浏览器 A11b/B1 加**几何判据**后仍 **23/23**（负向跑：旧布局下 A11b 精确变红 `stacked:false, gap:-28`）、变异 17 → **22 条（22/22 全红）**；全量 **3141 passed / 覆盖率 91.88%**、ruff / format / mypy 双平台全绿 |
+| 2026-09-25 | **第四轮补充（用户裁决 R10，与 R9 同批的第二条）**：**配置项的值跟在键名后面、同一行**（`.config-value` 由独立 `<p>` 降为 `.config-head` 内的 `<span>`，顺序 键 → 值 → 来源 → 凭证），每个条目少一行；新增 **AC14**；真浏览器 A11 加「键与值同一行」的**几何判据**（实测键 y=1829 / 值 y=1830）；顺手把探针里所有位置型判据（`children[1]`/`children[2]`）换成 `findByClass`；变异 22 → **23 条（23/23 全红）**；全量 **3142 passed / 覆盖率 91.87%**、真浏览器 **23/23**、ruff / format / mypy 双平台全绿 |

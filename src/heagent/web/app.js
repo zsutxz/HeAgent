@@ -1219,11 +1219,15 @@
     if (gateOpen) {
       el.settingsGate.hidden = true;
       el.settingsGate.textContent = "";
+      el.settingsGate.title = "";
     } else {
-      // R4：闸门关闭只留**一行短状态**。长句（「…网页无法自行开启，需在启动配置里开启后重启服务」）
-      // 已删除——同一事实在每一项上还会以短标签出现，重复三遍只是噪音，不是信息。
+      // R9：闸门关闭只在**项目名后面**挂一个紧凑徽标（不再独占一行，也不再逐项各铺一句）。
+      // 「为什么只读」没有丢：短状态 + 长解释都挂在 title 上（悬停可达），逐项则保持不可编辑。
       el.settingsGate.hidden = false;
-      el.settingsGate.textContent = asText(labels.write_channel_short) || "写入未开启：可写项在本页只读";
+      el.settingsGate.textContent = asText(labels.write_channel_badge) || "只读";
+      el.settingsGate.title = [asText(labels.write_channel_short), asText(labels.write_channel_disabled)]
+        .filter(Boolean)
+        .join("\n");
     }
     renderDiagnostics(config);
     clearChildren(el.settingsGroups);
@@ -1252,13 +1256,14 @@
 
     const head = makeEl("div", "config-head");
     head.appendChild(makeEl("code", "config-key", item.key));
+    // R10：值**直接跟在键名后面**（不再另起一行）。类名沿用 `config-value`（只是从 `<p>` 变成 `<span>`），
+    // 因此外部选择器（验收脚本、面板自测）与既有判据都不用改。
+    head.appendChild(makeEl("span", "config-value", describeValue(item)));
     const badge = makeEl("span", "badge badge-source", `来源：${SOURCE_TEXT[asText(item.source)] || asText(item.source)}`);
     badge.dataset.source = asText(item.source);
     head.appendChild(badge);
     if (item.is_secret) head.appendChild(makeEl("span", "badge", "凭证"));
     row.appendChild(head);
-
-    row.appendChild(makeEl("p", "config-value", describeValue(item)));
 
     if (item.routing) row.appendChild(renderRouting(item.routing));
 
@@ -1267,11 +1272,9 @@
       const hint = guardHint(item.guards);
       if (hint) row.appendChild(makeEl("p", "config-guard", hint));
     } else if (item.writable) {
-      // 白名单内、但写入闸门关着：**仍然显示为不可编辑并给出原因**（AC5 / UX-DR5 不变），
-      // 只是原因从「整句解释」收窄成一句短标签，完整解释挂在 `title` 上（R4：降噪不丢信息）。
-      const reason = makeEl("p", "config-reason", "只读：未开启配置写入");
-      reason.title = asText((state.config.labels || {}).write_channel_disabled) || "";
-      row.appendChild(reason);
+      // 白名单内、但写入闸门关着：**仍然显示为不可编辑**（AC5 / UX-DR5 不变）。
+      // R9：**不再逐项铺「只读：未开启配置写入」**——同一句在面板头部（项目名后面的徽标）已经挂过一次，
+      // 上百个可写项各铺一遍只是噪音；「为什么只读」在 `#settings-gate` 的 `title` 里完整可达。
       const editor = buildEditor(item, false);
       editor.disabled = true;
       row.appendChild(editor);

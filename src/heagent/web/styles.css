@@ -141,6 +141,11 @@ pre {
   border-color: var(--warn);
 }
 
+/* R9：写入闸门关闭时挂在项目名后面的紧凑徽标（文字用 `data-state="warning"` 的黄，这里补描边）。 */
+.badge-gate {
+  border-color: var(--warn);
+}
+
 /* ── 安全声明（UX-DR6：常驻，无折叠入口） ── */
 
 .notice {
@@ -217,6 +222,22 @@ pre {
 .row .badge {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* R9：会话规模提示与展开/收起按钮**纵向堆叠**（按钮一行、提示在它下面）。
+   并排（`.row`）时排不下：`.status` 是 `white-space: nowrap`，不可收缩 ⇒ 按钮被挤到只剩几十像素、
+   文案折成三行（真实浏览器实测 195 个会话：按钮 87×83px，右边界 308px 越过 280px 的侧栏）。
+   `align-items: stretch` 让按钮吃满面板宽度；提示允许换行（「当前会话不在最近 10 条内」那句很长）。 */
+.session-scale {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.session-scale #session-count {
+  white-space: normal;
 }
 
 .stack {
@@ -483,6 +504,8 @@ pre {
   overflow-wrap: anywhere;
 }
 
+/* R10：值**跟在键名后面同一行**（`.config-head` 内的 `<span>`，不再是独立的 `<p>` 一行）。
+   `pre-wrap` 保留 JSON 值（ROUTING_POOLS 等）里的换行；`anywhere` 让长值能断行、不撑破行。 */
 .config-value {
   font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
   font-size: 0.8rem;

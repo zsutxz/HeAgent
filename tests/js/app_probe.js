@@ -731,7 +731,7 @@ const CASES = {
   },
 
   async G() {
-    // 设置面板：闸门关闭时全部可写项不可编辑 + 原因 + 无任何开启入口（AC5）。
+    // 设置面板：闸门关闭时全部可写项不可编辑 + 原因（**只在项目名后面的徽标上说一次**，R9）+ 无任何开启入口（AC5）。
     configWriteEnabled = false;
     await load();
     await openSettings();
@@ -740,8 +740,8 @@ const CASES = {
     const secretRow = findConfigRow("KIMI_API_KEY");
     const sandboxRow = findConfigRow("SANDBOX_MODE");
     const gateRow = findConfigRow("HTTP_CONSOLE_WRITE_ENABLED");
-    const reason = iterationsRow
-      ? iterationsRow.children.find((child) => child.className === "config-reason")
+    const gateReasonParagraphs = iterationsRow
+      ? iterationsRow.children.filter((child) => child.className === "config-reason").length
       : null;
     const sourceBadge = iterationsRow
       ? iterationsRow.children[0].children.find((child) => child.className === "badge badge-source")
@@ -749,15 +749,16 @@ const CASES = {
     return {
       gateHidden: els["settings-gate"].hidden,
       gateText: els["settings-gate"].textContent,
+      gateTitle: els["settings-gate"].title,
       saveDisabled: els["settings-save"].disabled,
       editable: iterationsRow ? iterationsRow.dataset.editable : null,
       writable: iterationsRow ? iterationsRow.dataset.writable : null,
       inputDisabled: iterationsInput ? iterationsInput.disabled : null,
-      reasonText: textOf(reason),
-      secretText: secretRow ? secretRow.children[1].textContent : null,
+      gateReasonParagraphs,
+      secretText: secretRow ? textOf(findByClass(secretRow, "config-value")) : null,
       secretHasInput: secretRow ? inputsOf(secretRow).length : null,
       sandboxReasonState: sandboxRow ? sandboxRow.dataset.readOnlyReason : null,
-      sandboxReasonText: textOf(sandboxRow ? sandboxRow.children[2] : null),
+      sandboxReasonText: textOf(sandboxRow ? findByClass(sandboxRow, "config-reason") : null),
       gateKeyEditable: gateRow ? gateRow.dataset.editable : null,
       enabledInputs: inputsOf(els["settings-panel"]).filter(
         (node) => !node.disabled && node.dataset.key !== undefined,
@@ -806,8 +807,9 @@ const CASES = {
       resultState: els["settings-result"].dataset.state,
       resultText: els["settings-result"].textContent,
       statusText: els["settings-status"].textContent,
-      rowValue: row ? row.children[1].textContent : null,
-      rowSource: row ? row.children[0].children[1].textContent : null,
+      rowValue: row ? textOf(findByClass(row, "config-value")) : null,
+      rowSource: row ? textOf(findByClass(row, "badge-source")) : null,
+      valueInsideHead: row ? Boolean(findByClass(row, "config-value").parentNode === row.children[0]) : null,
       inputAfterSave: badge ? badge.value : null,
       pendingAfterSave: els["settings-pending"].textContent,
       saveDisabledAfterSave: els["settings-save"].disabled,
@@ -1057,7 +1059,7 @@ const CASES = {
     await load();
     await openSettings();
     const before = findConfigRow("MAX_ITERATIONS");
-    const sourceBefore = before.children[0].children[1].textContent;
+    const sourceBefore = textOf(findByClass(before, "badge-source"));
     setInput(findByDataset(before, "key", "MAX_ITERATIONS"), "30");
     world.failConfigReadAfterWrite = true;
     els["settings-save"].click();
@@ -1067,8 +1069,8 @@ const CASES = {
     const row = findConfigRow("MAX_ITERATIONS");
     const result = {
       sourceBefore,
-      rowValue: row.children[1].textContent,
-      rowSource: row.children[0].children[1].textContent,
+      rowValue: textOf(findByClass(row, "config-value")),
+      rowSource: textOf(findByClass(row, "badge-source")),
       rowInput: findByDataset(row, "key", "MAX_ITERATIONS").value,
       resultState: els["settings-result"].dataset.state,
       resultText: els["settings-result"].textContent,
@@ -1182,20 +1184,18 @@ const CASES = {
   },
 
   async S() {
-    // R4：设置面板瘦身——长横幅消失、诊断/未知键折叠且带条数、逐项只读原因是短标签、
-    // 逐项说明压成徽标（完整文案在 title 上，信息不丢）。
+    // R4/R9：设置面板瘦身——长横幅消失、诊断/未知键折叠且带条数、逐项只读原因是短标签（不可写的键）、
+    // 闸门关闭只在项目名后面挂一个紧凑徽标（可写项不再逐项重复）、逐项说明压成徽标。
     configWriteEnabled = false;
     await load();
     await openSettings();
     const panelText = els["settings-panel"].textContent;
     const iterationsRow = findConfigRow("MAX_ITERATIONS");
     const sandboxRow = findConfigRow("SANDBOX_MODE");
-    const gatedReason = iterationsRow
-      ? iterationsRow.children.find((child) => child.className === "config-reason")
-      : null;
     const noteChip = findByClass(iterationsRow, "badge-note");
     return {
       gateText: els["settings-gate"].textContent,
+      gateTitle: els["settings-gate"].title,
       hasLongExplanation:
         panelText.includes("网页无法自行开启") || panelText.includes("需在启动配置") || panelText.includes("重启服务"),
       hasLongReadOnlySentence: panelText.includes("本页只读，且写入通道同样会拒绝"),
@@ -1207,9 +1207,15 @@ const CASES = {
       unknownFirstKey: els["unknown-keys"].children.length
         ? els["unknown-keys"].children[0].children[0].children[0].textContent
         : null,
-      gatedReasonText: textOf(gatedReason),
-      gatedReasonTitle: gatedReason ? gatedReason.title : null,
-      readOnlyReasonText: textOf(sandboxRow ? sandboxRow.children[2] : null),
+      writableRowReasonParagraphs: iterationsRow
+        ? iterationsRow.children.filter((child) => child.className === "config-reason").length
+        : null,
+      valueInsideHead: iterationsRow
+        ? Boolean(findByClass(iterationsRow, "config-value").parentNode === iterationsRow.children[0])
+        : null,
+      headClasses: iterationsRow ? iterationsRow.children[0].children.map((child) => child.className) : null,
+      valueText: iterationsRow ? textOf(findByClass(iterationsRow, "config-value")) : null,
+      readOnlyReasonText: textOf(sandboxRow ? findByClass(sandboxRow, "config-reason") : null),
       noteChipText: noteChip ? noteChip.textContent : null,
       noteChipTitle: noteChip ? noteChip.title : null,
       noteParagraphs: iterationsRow
