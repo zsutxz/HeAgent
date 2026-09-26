@@ -49,7 +49,7 @@ MAX_SESSION_MESSAGES_IN_RESPONSE = 500
 # session_id 的字符集与长度（与 ``context/session.py`` 的 ``_SESSION_ID_RE`` 同义）。
 # 网络层先用它做**第一道**校验：非法 id 直接回 ``invalid_session_id``，**不触碰文件系统**
 # （入口层的 ``SessionStore`` 仍会再校验一次，两点各自 fail-closed）。
-SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,128}$")
+SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,128}\Z")
 
 
 def is_valid_session_id(value: str) -> bool:

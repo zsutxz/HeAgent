@@ -419,7 +419,7 @@ class TestSessionIdGuards:
         assert target.name == "ok-1.json"
         assert not target.exists()
 
-    @pytest.mark.parametrize("session_id", ["../escape", "a/b", "a\\b", "", "x" * 129, "ab.cd"])
+    @pytest.mark.parametrize("session_id", ["../escape", "a/b", "a\\b", "", "x" * 129, "ab.cd", "abc\n"])
     def test_invalid_ids_are_rejected_before_any_write(self, tmp_path: Path, session_id: str) -> None:
         store = _store(tmp_path)
         for call in (

@@ -260,7 +260,7 @@ def test_session_limits_are_mirrored_not_drifted() -> None:
 def test_session_id_shape_matches_the_store(tmp_path: Path) -> None:
     """网络层判据与 ``SessionStore`` 的判据必须**同义**（否则会出现「路由放行、存储拒绝」的 500）。"""
     store = SessionStore(base_dir=str(tmp_path / "sessions"))
-    candidates = ["ok-1", "ABC_def", "x" * 128, "../escape", "a/b", "a\\b", "", "x" * 129, "ab.cd", "a b"]
+    candidates = ["ok-1", "ABC_def", "x" * 128, "../escape", "a/b", "a\\b", "", "x" * 129, "ab.cd", "a b", "abc\n"]
     for candidate in candidates:
         try:
             store.path_for(candidate)

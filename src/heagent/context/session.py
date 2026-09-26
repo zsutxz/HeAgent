@@ -37,7 +37,9 @@ from heagent.types import Message, Role
 logger = logging.getLogger(__name__)
 
 # session_id 允许的字符集：字母数字 + 连字符/下划线，防止路径遍历（如 ../etc/passwd）。
-_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+# 用 ``\Z`` 而不是 ``$``：``$`` 还会匹配「末尾换行之前」⇒ ``"abc\n"`` 会被放行（实测），而带换行的名字
+# 在 Windows 上直接 ``OSError(22)``（500），在 POSIX 上会写出一个谁也列不出来的文件。
+_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+\Z")
 # 合理长度上限：UUID hex 最大 32 字符，加上前缀/后缀留有余额，超过视为异常拒绝。
 _MAX_SESSION_ID_LEN = 128
 
