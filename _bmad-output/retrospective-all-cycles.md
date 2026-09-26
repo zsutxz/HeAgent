@@ -5,7 +5,7 @@
 > 基准: **2061 passed / 9 skipped / 18 deselected**（2026-09-22 实测）、ruff / mypy clean、覆盖率 **90.88%**（gate 87）
 >
 > 归档更新：2026-09-14 已完成实现 spec 按 Epic 40 / Epic 47 归档；2026-09-15 `patches/` 目录解散（补丁 spec 按归属 epic 归档）、跨周期 deferred 台账按 epic 归并。
-> **口径说明**：1.1–1.6 为 2026-07-22 的正式回顾；**1.7–1.14 是 2026-09-15 补录的速览**（这 8 个周期的 `epic-*-retrospective` 在 sprint-status 中多为 `optional`，未做正式回顾，明细见各周期目录与 `consolidated-overview.md` 十二）。**2026-09-18 更新**：36、37、40、41、42 已补做正式回顾（5 份 `retrospective-epic-NN.md`），`sprint-status.yaml` 的状态字段仍为 `optional`。**2026-09-24 更新**：§16 为 Epic 48–50 速览——**48 有正式回顾**（`epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`，2026-09-23 补做）故按其摘录；**49 / 50 仍为 `optional`**（50 尚 `in-progress`），故按交付记录与 `reviews/` 产物摘录并标注来源。
+> **口径说明**：1.1–1.6 为 2026-07-22 的正式回顾；**1.7–1.14 是 2026-09-15 补录的速览**（这 8 个周期的 `epic-*-retrospective` 在 sprint-status 中多为 `optional`，未做正式回顾，明细见各周期目录与 `consolidated-overview.md` 十二）。**2026-09-18 更新**：36、37、40、41、42 已补做正式回顾（5 份 `retrospective-epic-NN.md`），`sprint-status.yaml` 的状态字段仍为 `optional`。**2026-09-24 更新**：§16 为 Epic 48–50 速览——**48 有正式回顾**（`epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`，2026-09-23 补做）故按其摘录；**49 / 50 仍为 `optional`**（50 尚 `in-progress`），故按交付记录与评审产物（Epic 49 `reviews/` 3 份；Epic 50 单文件 `reviews.md`——2026-09-26 由 8 份合并）摘录并标注来源。
 
 ---
 
@@ -160,11 +160,11 @@
 
 ### 16. 网络入口三周期（Epic 48–50）· 2026-09-22 – 2026-09-24
 
-> **来源（逐条可查，不做推测式回顾）**：**Epic 48** 按其正式回顾 `epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`（2026-09-23 补做）摘录；**Epic 49 / 50 的 retrospective 仍为 `optional`**（50 尚 `in-progress`），故按其交付记录、`epics/epic-49-HTTP网页访问周期/`、`epics/epic-50-网页控制台周期/` 与其 `reviews/` 产物摘录。状态口径以 `sprint-status.yaml` 为准。
+> **来源（逐条可查，不做推测式回顾）**：**Epic 48** 按其正式回顾 `epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`（2026-09-23 补做）摘录；**Epic 49 / 50 的 retrospective 仍为 `optional`**（50 尚 `in-progress`），故按其交付记录、`epics/epic-49-HTTP网页访问周期/`（含 `reviews/` 3 份）、`epics/epic-50-网页控制台周期/`（含单文件 `reviews.md`，2026-09-26 由 8 份评审 / 验收文档合并）产物摘录。状态口径以 `sprint-status.yaml` 为准。
 
 | 维度 | 要点 |
 |------|------|
-| 交付 | **Epic 48 · TCP 网络接口（2026-09-22 建立并同日交付，6 story）**：`network/protocol.py`（请求/成功/失败模型 + 黄金 JSONL）+ `network/tcp_server.py`（`asyncio.start_server` 生命周期）+ `cli_tcp.py`（`TcpAgentHandler` / `build_server_config` / `tcp-server` 子命令）+ `network/exposure.py`（回环判定单点）；`network/` 运行期不依赖 `cli` / `agent` / `providers` / `engine`。**Epic 49 · HTTP 网页入口（2026-09-23，6 story）**：`network/http_*` + `cli_http.py` + 包内 `web/`（自启动监听 / 就绪门禁 / SSE 流式运行与取消重连 / Host-Origin 同源防线 / 安全响应头 / 静态资源白名单）。**Epic 50 · 网页控制台（2026-09-23 建立 → 09-24 实现，7 story 均 `review`）**：工作区一等化 + 项目注册表 + 会话持久化与会话 API + 配置四层来源与只读面板 + 闸门约束下的项目 `.env` 保真写（备份 / 冲突 / 审计）+ 两栏 UI 与真实浏览器验收。 |
+| 交付 | **Epic 48 · TCP 网络接口（2026-09-22 建立并同日交付，6 story）**：`network/protocol.py`（请求/成功/失败模型 + 黄金 JSONL）+ `network/tcp_server.py`（`asyncio.start_server` 生命周期）+ `cli_tcp.py`（`TcpAgentHandler` / `build_server_config` / `tcp-server` 子命令）+ `network/exposure.py`（回环判定单点）；`network/` 运行期不依赖 `cli` / `agent` / `providers` / `engine`。**Epic 49 · HTTP 网页入口（2026-09-23，6 story）**：`network/http_*` + `cli_http.py` + 包内 `web/`（自启动监听 / 就绪门禁 / SSE 流式运行与取消重连 / Host-Origin 同源防线 / 安全响应头 / 静态资源白名单）。**Epic 50 · 网页控制台（2026-09-23 建立 → 09-24 实现，8 story 均 `review`；含 09-24 追加的 50-8 体验优化轮）**：工作区一等化 + 项目注册表 + 会话持久化与会话 API + 配置四层来源与只读面板 + 闸门约束下的项目 `.env` 保真写（备份 / 冲突 / 审计）+ 两栏 UI 与真实浏览器验收。 |
 | 难点 | 协议 / 传输层与 agent 彻底解耦（`network/` 运行期零反向依赖，被架构契约测试钉住）；**「非等待式」是限额的语义要求而非实现细节**（`Semaphore` 无 `try_acquire` ⇒ 限额退化成排队，名额记账必须用幂等集合，整数计数会在迟到任务上减成负数）；**三个危险默认值被实测证伪**（在途限额 / `click.FloatRange` 放行 `nan`·`inf` / 裸 `logger.*` 抛异常会把 `agent_error` 改写成 `server_error`）；相近命名通道必须显式区分（TCP JSONL ≠ `rollout.jsonl`）；只有真浏览器 + 计算样式才看得见的缺陷（作者级 `display` 压过 `hidden` 属性，且 `node.click()` 绕过命中测试）。 |
 | 做对 | `close()` 坚持「有界返回 + warning + 结算登记」（无法强杀时如实写进 docstring，而非假装干净）；`_safe_log` 单点收口 + 注入式测试（Epic 48 共 10 个变异体全部精确变红后按 sha256 逐字节还原）；配置 / 协议各自唯一读取点（`tcp_*`、`HTTP_*`）；收口分两轮（先实现、后收口）并把评审发现当场分成「已修 / 未修如实登记」两栏；Epic 50 写通道沿用全项目纪律（fail-closed 校验 + 备份 + 审计 + 冻结边界 + 前端不硬编码键名）。 |
 | 改进（2026-09-24 复核） | ① **Epic 48 回顾自己点名的「5 条缺口只进 `frame.md`、未进活动台账」已处理**——2026-09-23 补登活动台账，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」当日闭合（**Z-D10 / Z-D11**，2026-09-24 已按归属 epic 回填 `epics/epic-48-TCP网络接口周期/deferred-work.md`），「TCP 入口不写 rollout」仍在活动区（**A7**）。② **Epic 49 / 50 的 retrospective 仍未补做**（`optional`；50 尚 `in-progress`）——宜按 Epic 48 先例在收口时一并补登，避免重复「交付时才补做」。③ Epic 50 两轮收口评审的发现被如实分成两栏：**3 条已闭合**（`Z-D13` / `Z-D14` / `Z-D15`，2026-09-24 回填 `epics/epic-50-网页控制台周期/deferred-work.md`）与 **7 条仍开**（活动台账 **A8~A14**，其中 **A11「非回环运行姿态 + cron 跨会话后置执行」标 `blocked` 待人裁决**）。④ 立场不变：三个入口**都不是安全边界**（无认证 / 无 TLS；回环判定与启动告警只是提示），须 OS 级沙箱兜底。 |
@@ -214,7 +214,7 @@
 | 指标 | 数值 |
 |------|------|
 | 总 Epic 数 | **54**（Epic 1–50 + S1–S4），分属 **19 个周期**（18 个 BMad 周期 + 1 个架构优化） |
-| 总 Story 数 | **101 个 story 文件（28 个 `stories/` 目录）**（2026-09-24 按 `_bmad-output/**/stories/` 全深度实测；原记 82 / 25 的计数口径未留档）+ quick-dev 直接执行项（Epic 29–35 等无独立 story 文件） |
+| 总 Story 数 | **102 个 story 文件（28 个 `stories/` 目录）**（2026-09-26 按 `_bmad-output/**/stories/` 全深度实测；原记 82 / 25 的计数口径未留档，101 为 2026-09-24 追加 Story 50-8 之前的值）+ quick-dev 直接执行项（Epic 29–35 等无独立 story 文件） |
 | 总测试数 | **2061 passed / 9 skipped / 18 deselected**（2026-09-22；deselect = integration + benchmark） |
 | 覆盖率 | **90.88%**（gate 87；`scripts/quality_gate.py` 五门：goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy） |
 | 代码行数 | ~55,600（`src/` 25,768 + `tests/` 29,794，2026-09-22 计数；130 / 106 个 `.py`） |

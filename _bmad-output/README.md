@@ -31,7 +31,7 @@ _bmad-output/
 └── specs/                  quick-dev / spec 产物（本地工作件，gitignored；2026-08-18 已清空，目录暂不存在）
 ```
 
-> **2026-08-19 起持续重组**：`epics/` 按周期组织；当前共有 **16 个**周期目录（`epic-区间-周期/`，覆盖 Epic 1-50 + S1-S4），收纳周期级 prd/brief/architecture/epics/sprint-status，**各 epic 的 story 子目录（`epic-NN-主题/stories/`）嵌套在所属周期目录内**；**补丁 spec 按归属 epic 归档进 `epic-NN-主题/`**（原 `patches/` 按领域分子目录于 2026-09-15 解散，映射见本文件「补丁 spec」节）。各 epic 的状态矩阵与文档地图见 [`consolidated-overview.md`](consolidated-overview.md)（原 EPICS-INDEX.md 已并入其导航层）。
+> **2026-08-19 起持续重组**：`epics/` 按周期组织；当前共有 **16 个**周期目录（`epic-区间-周期/`，覆盖 Epic 1-50 + S1-S4；与 `consolidated-overview.md` §1.3 的 **18 个**编号周期**不矛盾**——MCP 集成周期一个目录内含阶段一/二/三三条编号），收纳周期级 prd/brief/architecture/epics/sprint-status，**各 epic 的 story 子目录（`epic-NN-主题/stories/`）嵌套在所属周期目录内**；**补丁 spec 按归属 epic 归档进 `epic-NN-主题/`**（原 `patches/` 按领域分子目录于 2026-09-15 解散，映射见本文件「补丁 spec」节）。各 epic 的状态矩阵与文档地图见 [`consolidated-overview.md`](consolidated-overview.md)（原 EPICS-INDEX.md 已并入其导航层）。
 
 ## sprint-status 单一权威
 
@@ -58,7 +58,7 @@ _bmad-output/
 | Epic 47 | declarative-bmad-agile-workflow | 声明式 BMad 工作流与产物治理 |
 | Epic 48 | tcp-network-interface | TCP 网络接口与 CLI Agent 服务（2026-09-22 建立并同日交付；6 Story done，retrospective 09-23 补做） |
 | Epic 49 | http-web-entry | HTTP 网页入口（自启动监听 + SSE 流式与取消重连 + Host/Origin 同源防线；2026-09-23 交付，6 Story done） |
-| Epic 50 | web-console | 网页控制台（工作区一等化 / 项目注册表 / 会话 API / 配置四层来源与写入通道 / 两栏 UI；2026-09-24 实现，7 Story `review`） |
+| Epic 50 | web-console | 网页控制台（工作区一等化 / 项目注册表 / 会话 API / 配置四层来源与写入通道 / 两栏 UI；2026-09-24 实现，8 Story `review`——含收口后追加的体验优化轮 50-8） |
 
 > **2026-09-24 口径对齐**：本表「周期」列的代号已与 [`consolidated-overview.md`](consolidated-overview.md) §1.3（统一编号体系）逐行对齐；此前 5 行用的是各自缩写（`file-safety` / `goal` / `skill-runtime` / `goal-workflow` / `declarative-workflow`），同一代号在仓内出现多种写法必然漂移。其中 **Epic 36–39 取周期自述名 `file-safety-hardening`**——该周期 brief / prd / architecture / epics 与 **7 个 story**（`36-1`~`36-4` / `37-1` / `38-1` / `39-1`，与交付 commit `a1d886d` 同批）的 frontmatter（实测 11 份文档）以及 `tests/test_credential_guard.py` 的 docstring 一致用它，§1.3 原写的 `file-security` 已一并改为自述名。
 
@@ -153,7 +153,7 @@ _bmad-output/
 
 记录 Goal/Epic/Story 产物契约、工作流执行闸门、审查/回顾闭环和示例回归文档。补充归档包括 checkpoint 恢复、运行时持久化治理、子代理依赖反转和仓库贡献指南（均位于 `epic-47-声明式工作流与产物治理/`）。
 
-## epics/epic-48-TCP网络接口周期/ — TCP 网络接口周期（Epic 48，in-progress）
+## epics/epic-48-TCP网络接口周期/ — TCP 网络接口周期（Epic 48）
 
 记录 CLI 作为 TCP Server 接收请求、调用 AgentLoop 并通过 TCP 返回结构化结果的产品需求、协议边界、资源限制、安全边界、Architecture、6 个 Story 与 Sprint Plan。6 个 Story 已于 2026-09-22 全部交付（retrospective 2026-09-23 补做）；已闭合遗留项见本周期 `deferred-work.md`（Z-D10 / Z-D11）。
 
@@ -163,7 +163,7 @@ _bmad-output/
 
 ## epics/epic-50-网页控制台周期/ — 网页控制台周期（Epic 50）
 
-记录 Epic 49 显式推迟的切片：工作区一等化、项目注册表、会话持久化与会话 API、配置四层来源与只读面板、闸门约束下的项目 `.env` 保真写（备份 / 冲突 / 审计）、两栏 UI 与真实浏览器验收。7 个 Story 均处 `review`（2026-09-24）；`reviews/` 含两轮收口评审与两份验收记录，`ARCHITECTURE-SPINE.md` 为冻结架构（§6 并发口径 = 每项目单运行 × 项目数，已知缺口见台账 A8）。
+记录 Epic 49 显式推迟的切片：工作区一等化、项目注册表、会话持久化与会话 API、配置四层来源与只读面板、闸门约束下的项目 `.env` 保真写（备份 / 冲突 / 审计）、两栏 UI 与真实浏览器验收。8 个 Story 均处 `review`（2026-09-24，含收口放行后追加的体验优化轮 50-8）；评审与验收文档 2026-09-26 合并为单文件 [`epics/epic-50-网页控制台周期/reviews.md`](epics/epic-50-网页控制台周期/reviews.md)（规划评审 + 四轮评审 + 三份验收，正文逐字保留），`ARCHITECTURE-SPINE.md` 为冻结架构（§6 并发口径 = 每项目单运行 × 项目数，已知缺口见台账 A8）。
 
 ## 补丁 spec（原 `patches/`，2026-09-15 解散）
 
@@ -208,7 +208,7 @@ _bmad-output/
 
 ## 当前状态摘要
 
-- **Epic 1–49 + S1–S4 全部 `done`；Epic 50 `in-progress`**（7 Story 均 `review`，两轮收口评审已出）——详见 `_bmad-output/sprint-status.yaml`（全周期唯一权威）。
+- **Epic 1–49 + S1–S4 全部 `done`；Epic 50 `in-progress`**（8 Story 均 `review`，两轮收口评审已出并放行）——详见 `_bmad-output/sprint-status.yaml`（全周期唯一权威）。
 - **Epic 25–28（GUI）`done`**（12 stories，见 `_bmad-output/sprint-status.yaml`；周期目录旧状态为规划期快照）。
 - **MCP 三目录已合并**（2026-08-18）：`mcp-client/` + `mcp-v2-upgrade/` + `mcp-client-v2/` → `mcp/`，核心文档整合为 6 份，执行产物保留。
 - **deferred-work.md**：**活动台账**路径为 `implementation-artifacts/deferred-work-archive.md`（未闭合项）；**已闭合项**按归属 epic 归档到各周期 `deferred-work.md`（2026-09-15 整理，原 `patches/_meta/deferred-work.md` 全部条目已闭合后退役并删除）。早期 3 条（SubAgent 写竞态 / ProviderChain 双层重包 / 流式 backstop）与 2026-07-01 FR-3 评审 6 项 `defer` 均已收尾——4 项修复（含 `__aexit__` 关停硬上界）、1 项核实不成立、2 项决策关闭（`_watch` `wait_for` 同名异义已修，`except Exception` 过宽经实测证明「收窄会更坏」故保持现状）。
