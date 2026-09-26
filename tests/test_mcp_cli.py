@@ -155,7 +155,7 @@ class TestCLIMCPIntegration:
 
 def test_report_mcp_discovery_failures_renders_stderr(clean_settings, capsys):
     """manager 携带失败记录 → 逐条渲染到 stderr（server 名 + 原因）。"""
-    from heagent.cli.console import _report_mcp_discovery_failures
+    from heagent.cli.interactive import _report_mcp_discovery_failures
     from heagent.tools.mcp import MCPServerFailure
 
     manager = MCPClientManager.__new__(MCPClientManager)  # 不触发连接，仅承载记录
@@ -171,7 +171,7 @@ def test_report_mcp_discovery_failures_renders_stderr(clean_settings, capsys):
 
 def test_report_mcp_discovery_failures_noop_without_manager(capsys):
     """nullcontext 场景（None）与无失败 manager 均零输出。"""
-    from heagent.cli.console import _report_mcp_discovery_failures
+    from heagent.cli.interactive import _report_mcp_discovery_failures
 
     _report_mcp_discovery_failures(None)
     _report_mcp_discovery_failures(object())

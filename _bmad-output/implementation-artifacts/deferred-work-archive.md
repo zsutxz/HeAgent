@@ -5,7 +5,7 @@
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
 > ② **闭合归档**——正文分两处落（2026-09-24 起）：**勘察类**（source_spec 为勘察批次、无归属 epic）留在本文件；**有归属 epic 的**按规则回填到各周期 `deferred-work.md`（`Z-D10` / `Z-D11` → [`epic-48-TCP网络接口周期/deferred-work.md`](../epics/epic-48-TCP网络接口周期/deferred-work.md)，`Z-D13`~`Z-D15` → [`epic-50-网页控制台周期/deferred-work.md`](../epics/epic-50-网页控制台周期/deferred-work.md)）。本文件仍登记**全部 `Z-Dn` 的 ID 索引**（见下状态总览），但不保留已回填条目的正文副本。
 
-## 活动（未闭合）条目——24 条
+## 活动（未闭合）条目——23 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -20,6 +20,7 @@
 > - 2026-09-24：**Story 50-8（Epic 50 收口后的体验优化轮）实现新增 2 条**——①「网页请求可拉起宿主 GUI 进程」的新暴露面（弹窗，有意引入，含不可用环境与「回环 ≠ 可信」口径）；②真实原生窗口的验收不可自动化 + 网页侧读取结果收敛所依赖的 `Error:` 前缀判据是展示层启发式。报告与实测见 `epics/epic-50-网页控制台周期/reviews.md#acceptance-50-8-refinement`
 > - 2026-09-26：**Story 50-8 的收口后评审（增量轮）新增 2 条**（均为 `intent_gap / blocked 待人裁决`）——① R5 的收敛判据对「正文以 `Error:` 开头的文件」失效（AC9 两句话在该输入类上互斥）；②「共 N 个会话」在 N > 200 时静默少报（服务端硬上限截断且协议无 `total`）。报告见 `epics/epic-50-网页控制台周期/reviews.md#review-epic-50-story-50-8`；同轮就地修复 4 处判据/口径（含 AC13 的 195 档进可复跑清单），负向验证 5/5 精确变红
 > - 2026-09-26：**Epic 50 收口后第四轮评审**（对 HEAD 全量复核：`pytest` 3144 passed / 覆盖率 92% / ruff·mypy 双平台全绿 均为亲跑；报告 `epics/epic-50-网页控制台周期/reviews.md#review-epic-50-round4`）**新增 5 条**——① 会话 id 放行 Windows 保留设备名（`--resume NUL` 读成空历史、`save` 写向空设备 ⇒ 整段对话静默丢弃；既有）；② `.heagent/sessions/<id>.json.lock` 无回收方（`prune` 只认 `.json`）；③ 同一会话文件的两个写者（CLI 与内嵌网页共享同一 cwd 工作区）**整份覆盖**对方历史（**中**，静默数据丢失）；④ 诊断「N 条需要注意」把信息性 note 计入告警且 BOM 一事双计（`intent_gap`）；⑤ `*_BASE_URL` 等非后缀载体的值原样回显（掩码域 = `_API_KEY(S)` 后缀；`intent_gap`，文档口径同轮已补）。同轮**就地修复 2 处并带负向验证**：跨项目配置写入（`web/app.js` 面板归属守卫——无修复时桩实测 `writeCalls=1`，把 A 的未保存改动写进 B 的 `.env`）、会话 id 正则 `$`→`\Z`（两处同源校验，尾随 `\n` 实测被双放行）
+> - 2026-09-26：**闭合 1 条 → A3**（入口层职责再拆）。分两批交付：七个平铺 `cli*.py` 收进 `heagent/cli/` 包（`__init__.py` 零 import、入口脚本改指 `heagent.cli.console:main`、契约按包根收敛），再把 `cli.py` 拆为 `console.py`/`composition.py`/`interactive.py`、`cli_http.py` 拆为 `http.py`/`http_console.py`；正文移入下方「A3」小节（本区不留副本）。实测：全量 3149 passed / 覆盖率 92% / ruff·mypy 双平台全绿 / 拆分批负向验证 3/3 精确变红
 
 - source_spec: `src/heagent/context/session.py`（`_SESSION_ID_RE`，2026-07-21 `cc7fd5d` 引入；Epic 50 第四轮评审发现——Epic 50 只把同一字符集镜像进 `http_console_protocol.SESSION_ID_PATTERN`，故按「非本 Epic 引起的既有问题」登记）
   summary: **会话 id 放行 Windows 保留设备名 ⇒ 整段对话静默丢弃**：`[a-zA-Z0-9_-]+` 字符集天然放行 `NUL` / `CON` / `PRN` / `AUX` / `COM1`，而 Windows 把 `NUL`（含 `NUL.json` 这类带扩展名的形式）解析为**空设备**：`exists()` 恒 True、读取得空串 ⇒ `load()` 静默返回「空历史」（伪装成没有历史），`save()` 写向空设备 ⇒ 对话既不落盘、也永远不出现在 `list_metadata`（既不列表也不在盘上）。触发条件：`heagent --resume NUL`（或 `CON` / `PRN` / `AUX` / `COM1`，`cli.py` 的 `--resume` 不过任何额外校验）；严重度：低（需用户显式输入保留名；无权限后果，是**静默丢数据**）；冻结边界：**不得**因此放松 id 字符集（那是路径遍历防线），只允许在字符集之外**追加**保留名拒绝。
@@ -55,11 +56,6 @@
   summary: MCP stdio server 子进程未接入沙箱后端：MCP server 由 SDK 自行 spawn，不经过 `ToolExecutor.execute_in_sandbox`，因此 Firejail/WinJob 对它零覆盖（无 FS 隔离、无 `--net=none`）。触发条件：连接任意 `.mcp.json` 声明的 stdio server（第三方不可信代码）；严重度：中-高；冻结边界：不得为接沙箱而改变 MCP 连接/握手契约，且即便接入仍非安全边界（须整体 OS 级沙箱兜底）。注：「cron 子进程」一半不成立——`cron/` 无子进程路径。
   evidence: `src/heagent/tools/mcp/client.py` `default_transport_opener`（Phase 4 C2 后的 stdio 分派单点）`StdioServerParameters(command=cfg.command, args=cfg.args, env=cfg.env or None)` → SDK 在 `mcp/client/stdio/__init__.py` 直接 `anyio.open_process`；其 `env` 亦不经 `scrub_sensitive_env`；沙箱侧只把 `shell` 纳入授权范围（`engine/container.default` 的 `policy.sandbox_tools`）。
   Progress（2026-09-22 复核）：Phase 4 未改变该缺口（冻结边界：不为接沙箱改连接/握手契约）；事件契约 v2 的失败分类（`error_kind`）已让 stdio server 失败可观测。
-
-- source_spec: 2026-09-17 架构与代码优化勘察
-  summary: cli.py 与 cli_goal.py 职责混杂可再拆（斜杠 handler / 装配 / replay+init；goal/ 子包已有 document.py 拆分先例（原 questionnaire.py 已随 2026-09-19 问卷删除））。触发条件：再改这两个文件的重复区；严重度：低（可用，可维护性项）；冻结边界：拆分只挪代码不改行为，wiring.py 先例（docstring 记录拆分理由）。
-  evidence: `src/heagent/cli.py`（6+ 类职责）、`src/heagent/cli_goal.py`（_goal_runner noqa C901）、`src/heagent/wiring.py:1-6`（拆分先例 docstring）。
-  Progress（2026-09-22 复核，保守拆分已落地，条目保持活动；当前行数：cli.py **1163**、cli_goal.py 1150+→988→**680**（2026-09-21 Phase 3：确定性内核迁 `goal/application.py`，cli_goal 收缩为渲染薄壳；2026-09-22 Phase 5 增 `emit` 发射器 ~20 行））：① cli.py init 块（模板 ×2 + `_init_project_context` + `init_cmd`，约 130 行）已拆至 `cli_init.py`（独立 click 命令 + `main.add_command` 注册，cli.py re-export 保 import 缝）；② cli_goal.py 的 GOAL.md 文档与命名层（常量块 + 9 个文档函数，约 150 行）已拆至 `goal/document.py`（cli_goal re-export，测试零改动）。**剩余**：装配块与斜杠 handler 仍留原处——大量测试 monkeypatch `heagent.cli._run_prompt` / `cli.sys` / `cli_goal._goal_session` 等**模块路径缝**（目标函数及其调用方必须同模块），且有钉死测试锁「cli 只留三个自用 goal 符号」；进一步拆分需同步迁移测试缝，收益低于风险，暂缓。
 
 - source_spec: `_bmad-output/implementation-artifacts/arch-optimization-cycle/phase5-observability-benchmarks-docs.md`（V-系列排除项 + C3 文档收口结论）
   summary: **GUI 原生事件渲染**：GUI 观测仍走 stderr 转发（行为冻结，`gui/screens/chat.py` 自述「文案冻结」）；事件契约 v2（`RunEvent.duration_ms`/`error_kind` 顶层字段 + workflow_step_* kind）已为此铺路——GUI EventLog 可直接读事件渲染耗时/失败分类/步骤轨迹，不再受 CLI 文案约束。触发条件：GUI 观测升级需求；严重度：低-中；冻结边界：EngineEvent 模型与 GUI 既有消费面不破坏。
@@ -144,7 +140,7 @@
 
 ## 状态总览
 
-**① 勘察类（正文在本文件）——10 条**
+**① 勘察类（正文在本文件）——11 条**
 
 | ID | 条目 | 结论 | 闭合 commit |
 |----|------|------|-------------|
@@ -158,6 +154,7 @@
 | Z-D8 | `RoleSpec.sandbox_profile` 死字段 | 已闭合（取**删除**方向，非激活） | 已提交 `dfe6eef`（2026-09-18） |
 | Z-D9 | 沙箱无进程数限额 + WinJob 常量误写 | 已闭合（`SANDBOX_NPROC_LIMIT` + 修正 `PROCESS_TIME=0x2`） | 已提交 `8de6c63`（2026-09-18） |
 | Z-D12 | MEMORY.md 非 UTF-8 让整个 run 起不来 | 已闭合（fail-soft：跳过注入 + **点名文件**的告警；文件字节一字不动） | `b01e09c`（2026-09-23） |
+| A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26：收进 `heagent/cli/` 包 + 包内再拆三个模块；正文见下方「A3」小节） | 待提交（2026-09-26 工作区） |
 
 **② 已按归属 epic 回填（正文在各自周期目录）——5 条**
 
@@ -240,3 +237,16 @@
 - **结论**：**已闭合**（2026-09-23，**用户裁定 = fail-soft**）。`_load_facts` 捕获 `UnicodeDecodeError` → WARNING（**点名该文件**）+ 返回空列表 ⇒ `<memory>` 块不注入、run 照常完成；文件字节一字不动（只降级注入、不改写内容）。**冻结边界更新**：原「必须 fail-loud」改为「注入路径 fail-soft + 可定位告警；写路径（`fact_add` → `FactStore.add`）的同类失败已由 `ToolExecutor` 的 catch-all 兜成 `is_error=True` 的工具错误、不中断循环」——两条路径都不得吞掉或改写文件内容。
 - **证据**：探针 `.heagent/tmp/gbk_probe.py` 实测 `RAISED UnicodeDecodeError: 'utf-8' codec can't decode byte 0xd6 in position 2`；改动 = `src/heagent/memory/facts.py`（+19/−2）+ 4 例测试（`tests/test_memory.py::TestFactStoreNonUtf8File` 3 例 + `tests/test_agent_loop.py::TestAgentLoop::test_run_survives_undecodable_memory_file` run 级端到端），commit `b01e09c`；`src/heagent/agent/run_lifecycle.py`（`asyncio.to_thread(loop._build_system, …)` 无捕获）。负向验证：回退该守卫（HEAD 版 `facts.py`）+ 新 4 例 → **4 failed**，run 级用例的 traceback 正是本条目声称的链路（`run_lifecycle.init_new_run` → `_build_system` → `build_system_prompt` → `_memory_block` → `read_text`）；全量 `pytest -q` 2530 passed。**非本次改动引入**（改动前同样直调 `facts.load()`），故按 defer 记录。
 - **同域后续（非本条范围，仅备查指针）**：`95fe8f6` 修「MEMORY.md 带 UTF-8 BOM 时首条事实被静默丢弃」（新增 `_strip_bom`，读路径与写路径统一剥离、写回归一化为 UTF-8 无 BOM）；`1b8aa8f` 单点修 frontmatter 层同类 BOM（两个分隔符变体的正则容忍文件头 BOM，skills/slash/roles/artifacts/goal/skill_packages/workflow 一次覆盖）；两者均**未另立台账条目**（2026-09-23 用户裁定）。
+
+---
+
+## A3 入口层职责再拆（cli.py / cli_goal.py）
+
+- **来源**：2026-09-17 架构与代码优化勘察（活动编号 A3；原编号见该轮勘察表）。
+- **问题**：`cli.py`（2026-09 中旬 1163~1565 行，6+ 类职责：Click 命令层 / provider 装配 / REPL 与斜杠命令 / 会话与展示辅助）与 `cli_goal.py`（1150+ 行）职责混杂，难读难测；`wiring.py` 先例（docstring 记录拆分理由）已给出拆分范式。
+- **冻结边界**：只挪代码不改行为；大量测试 monkeypatch **模块路径缝**（`heagent.cli._run_prompt`、`cli.sys`、`cli_goal._goal_session` 等）——被 patch 的目标函数**及其调用方**必须留在同一模块。
+- **结论**：**已闭合**（2026-09-26，工作区待提交）。分两批交付：
+  1. **收进包**：七个平铺 `cli*.py` → `heagent/cli/` 包（`console.py`/`init.py`/`goal.py`/`http.py`/`tcp.py`/`dialogs.py`/`display.py`），`__init__.py` **零 import**，入口脚本改指 `heagent.cli.console:main`；契约测试按**包根** `heagent.cli` 收敛入口层判据，并新增「包壳零 import」「布局钉死」「入口点可导入」三条断言。
+  2. **包内再拆**：`cli.py`（1252 行）拆为 `console.py`（443：命令层 + 启动编排）/ `composition.py`（322：装配）/ `interactive.py`（587：单次/交互执行 + 斜杠命令族）；`cli_http.py`（1139 行）拆为 `http.py`（454：服务与生命周期装配）/ `http_console.py`（740：项目/会话/配置面）。缝按**调用方**分模块落位：`_run_prompt`/`_run_single` 在 interactive（console 侧用函数内导入读 `_run_single`）、`_build_loop` 在 composition（网络侧函数内导入）、`_run_cli_impl`/`_mcp_lifecycle`/`_build_provider` 留在 console（其调用方在此）。
+- **验证（实测）**：全量 `pytest` **3149 passed** / 覆盖率 **92%**（门限 87；`interactive.py` 按交互层口径 omit）/ `ruff check`+`format --check` 全绿 / `mypy src` 与 `--platform linux` 双绿（151 files）；拆分批次的负向验证 **3/3 精确变红**（① console 把函数内导入改成模块级 ⇒ `test_cli_tcp` 红；② `cli/http_console.py` 的 `_build_loop` 延迟导入改指 interactive ⇒ `test_cli_http` 3 例红；③ interactive 多导入 `_goal_session` ⇒ 缝钉死用例红），全部字节还原并复核 sha256。
+- **剩余口径**：`console.py` 仍是命令层与启动杂务的合理归处（443 行）；`composition.py`/`interactive.py` 如需再分，须同样按「缝随调用方」迁移并同步 `tests/test_architecture_contracts.py` 的布局表。

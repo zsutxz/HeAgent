@@ -547,8 +547,11 @@ def test_workspace_module_only_imports_stdlib_and_pydantic() -> None:
 def test_entrypoints_do_not_duplicate_runtime_store_paths() -> None:
     modules = [
         "cli/console.py",
+        "cli/composition.py",
+        "cli/interactive.py",
         "cli/goal.py",
         "cli/http.py",
+        "cli/http_console.py",
         "cli/tcp.py",
         "engine/container.py",
         "gui/__init__.py",
@@ -629,7 +632,18 @@ def test_cli_package_shell_stays_thin() -> None:
 def test_cli_package_layout_is_pinned() -> None:
     """布局即契约：新增/重命名入口子模块必须同步本表与 frame.md 的目录树。"""
     actual = sorted(path.stem for path in (SRC / "cli").glob("*.py") if path.stem != "__init__")
-    assert actual == ["console", "dialogs", "display", "goal", "http", "init", "tcp"]
+    assert actual == [
+        "composition",
+        "console",
+        "dialogs",
+        "display",
+        "goal",
+        "http",
+        "http_console",
+        "init",
+        "interactive",
+        "tcp",
+    ]
 
 
 def test_entrypoint_script_points_at_an_importable_module() -> None:

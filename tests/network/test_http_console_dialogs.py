@@ -124,7 +124,7 @@ class TestRealAssembly:
     """真 console（入口层实现）+ 真路由 + 假子进程：验证接线与「什么都没改」。"""
 
     def _console(self, tmp_path: Path, *, backend: str = "auto") -> Any:
-        from heagent.cli.http import HttpProjectConsole
+        from heagent.cli.http_console import HttpProjectConsole
 
         workspace = tmp_path / "ws"
         workspace.mkdir(parents=True, exist_ok=True)

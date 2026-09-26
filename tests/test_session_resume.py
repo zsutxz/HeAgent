@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from click.testing import CliRunner
 
-from heagent.cli.console import _resolve_session_id
+from heagent.cli.interactive import _resolve_session_id
 from heagent.cli.console import main
 from heagent.context.session import SessionStore
 

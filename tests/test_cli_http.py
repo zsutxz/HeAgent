@@ -15,9 +15,9 @@ import pytest
 from click.testing import CliRunner
 
 from heagent import __version__
-from heagent.cli import console as cli_module
+from heagent.cli import composition as cli_module
 from heagent.cli.console import main
-from heagent.cli.http import HttpAgentHandler, HttpProjectConsole
+from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.cli.http import build_server_config
 from heagent.config import get_settings, reset_settings
 from heagent.context.session import SessionStore
@@ -304,7 +304,7 @@ def test_new_loop_refuses_to_own_a_cron_scheduler(monkeypatch: pytest.MonkeyPatc
         seen.update(kwargs)
         return real_build(*args, **kwargs)
 
-    monkeypatch.setattr("heagent.cli.console._build_loop", spy)
+    monkeypatch.setattr("heagent.cli.composition._build_loop", spy)
     store = SessionStore(str(tmp_path / "sessions"))
     handler = HttpAgentHandler(_StubProvider(), get_settings(), workspace_root=tmp_path, session_store=store)
 
@@ -314,7 +314,7 @@ def test_new_loop_refuses_to_own_a_cron_scheduler(monkeypatch: pytest.MonkeyPatc
     assert seen["session"] is store
     assert loop.session is store  # 运行因此真的会写这个会话存储（此前是 session=None）
 
-    monkeypatch.setattr("heagent.cli.console._build_loop", lambda *args, **kwargs: (loop, object()))
+    monkeypatch.setattr("heagent.cli.composition._build_loop", lambda *args, **kwargs: (loop, object()))
     with pytest.raises(RuntimeError, match="must not own a CronScheduler"):
         handler.new_loop()
 

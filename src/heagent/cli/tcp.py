@@ -140,7 +140,7 @@ def _resolve_model(loop: AgentLoop) -> str | None:
 
 def _build_soul(soul_path: str | None) -> SoulStore | None:
     """复用 ``cli._build_soul`` 的路径语义（global/project SOUL.md），不在此重复一份。"""
-    from heagent.cli.console import _build_soul as _cli_build_soul  # noqa: PLC0415 —— 见模块 docstring 的成环说明
+    from heagent.cli.composition import _build_soul as _cli_build_soul  # noqa: PLC0415 —— 见模块 docstring 的成环说明
 
     return _cli_build_soul(soul_path)
 
@@ -183,7 +183,7 @@ class TcpAgentHandler:
 
         ``session=None``：TCP 请求是**无状态单请求单响应**，不复用会话文件（也就不创建 cron 调度器）。
         """
-        from heagent.cli.console import _build_loop  # noqa: PLC0415 —— patch 缝落在此模块（见其 docstring）
+        from heagent.cli.composition import _build_loop  # noqa: PLC0415 —— patch 缝落在此模块（见其 docstring）
 
         loop, _scheduler = _build_loop(
             self.settings,

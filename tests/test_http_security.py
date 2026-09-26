@@ -25,7 +25,7 @@ pytest.importorskip("starlette")
 
 import httpx
 
-from heagent.cli.http import HttpAgentHandler
+from heagent.cli.http_console import HttpAgentHandler
 from heagent.config import get_settings, reset_settings
 from heagent.network.http_protocol import HttpErrorCode
 from heagent.network.http_server import HttpRunService, HttpServerConfig, build_http_app

@@ -80,7 +80,7 @@ async def test_project_limit_is_reported_with_a_stable_code_over_http(tmp_path) 
     方法没有任何 HTTP 级证据 ⇒ 该码只活在闭集清单里（``registry.code → ConsoleOperationError →
     HTTP`` 这段无断言）。
     """
-    from heagent.cli.http import HttpProjectConsole
+    from heagent.cli.http_console import HttpProjectConsole
     from heagent.projects import MAX_PROJECTS
 
     workspace = tmp_path / "ws"

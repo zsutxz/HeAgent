@@ -650,10 +650,12 @@ def test_step_prompt_names_the_goal_document_resolved_in_code(
     assert "{goal_document}" not in prompt
 
 
-def test_console_reexports_goal_runner_but_not_monkeypatch_seams() -> None:
-    """cli/console.py 只持有自己用到的 goal 符号；patch 缝留在 cli/goal.py。"""
-    assert cli._goal_runner is cli_goal._goal_runner
-    assert not hasattr(cli, "_goal_session")
+def test_interactive_reexports_goal_runner_but_not_monkeypatch_seams() -> None:
+    """interactive.py 只持有自己用到的 goal 符号；patch 缝留在 cli/goal.py。"""
+    import heagent.cli.interactive as interactive
+
+    assert interactive._goal_runner is cli_goal._goal_runner
+    assert not hasattr(interactive, "_goal_session")
 
 
 @pytest.mark.asyncio

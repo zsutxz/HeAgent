@@ -224,7 +224,7 @@ def test_plain_cli_never_creates_a_tcp_listener(
             raise AssertionError("普通 CLI 不得构造 TCP listener")
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr("heagent.cli.console._run_single", fake_run_single)
+    monkeypatch.setattr("heagent.cli.interactive._run_single", fake_run_single)
     monkeypatch.setattr("heagent.cli.tcp.TcpServer", _ExplodingServer)
 
     result = CliRunner().invoke(main, ["hi"])

@@ -169,7 +169,7 @@ def test_interactive_mode_serves_alongside_the_repl(monkeypatch: pytest.MonkeyPa
     async def fake_run_prompt(_loop: object, _prompt: str, _system: object, _session_id: str) -> None:
         observed.append(await _fetch_health(port))
 
-    monkeypatch.setattr("heagent.cli.console._run_prompt", fake_run_prompt)
+    monkeypatch.setattr("heagent.cli.interactive._run_prompt", fake_run_prompt)
 
     result = CliRunner().invoke(main, [], input="hi\n")
 
@@ -251,7 +251,7 @@ def test_plain_cli_goes_through_the_embedded_service(
     async def fake_run_prompt(_loop: object, prompt: str, _system: object, _session_id: str) -> None:
         prompted.append(prompt)
 
-    monkeypatch.setattr("heagent.cli.console._run_prompt", fake_run_prompt)
+    monkeypatch.setattr("heagent.cli.interactive._run_prompt", fake_run_prompt)
 
     result = CliRunner().invoke(main, [], input="hi\n")
 
@@ -350,7 +350,7 @@ def test_default_cli_exposes_the_run_api(monkeypatch: pytest.MonkeyPatch, tmp_pa
                 observed.append((await client.get(f"http://127.0.0.1:{port}/api/runs/{run_id}/events")).text)
                 observed.append((await client.get(f"http://127.0.0.1:{port}/api/session")).json())
 
-    monkeypatch.setattr("heagent.cli.console._run_prompt", fake_run_prompt)
+    monkeypatch.setattr("heagent.cli.interactive._run_prompt", fake_run_prompt)
 
     result = CliRunner().invoke(main, [], input="hi\n")
 

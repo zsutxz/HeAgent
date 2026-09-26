@@ -50,8 +50,8 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 底层共用（零 heagent 依赖）：exceptions · types · config · persist · roles · frontmatter · safe_logging
 
 主脊：  providers ─┐
-        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli · cli_init · cli_goal · cli_http · cli_tcp ·
-        context ───┘                        cli_dialogs · wiring · gui · goal/）
+        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ 包 · wiring · gui · goal/）
+        context ───┘
 
 旁支：  memory（依赖 tools/context/persist；对 engine 仅 TYPE_CHECKING，实例由入口层注入）
         cron/expr.py（零 heagent 依赖的纯叶子，被 memory 与 cron/scheduler 共用）
@@ -74,14 +74,14 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 - `memory/` — 自学习闭环（`skills`/`facts`/`profile`/`soul`）
 - `cron/` — 后台定时调度
 - `gui/` — Textual TUI（`app`/`bridge`/`screens`/`widgets`），经 `AgentBridge` 持有并观察 `AgentLoop`
-- **入口层与展示辅助**——契约钉住的入口层模块 = `wiring.py`（provider 组合根）/ `cli.py`（单次 + 交互模式）/ `cli_init.py`（`heagent init`，2026-09-17 自 cli.py 拆出）/ `cli_goal.py`（/goal 命令族：声明式工作流分发 + cron 自动推进）/ `cli_http.py` / `cli_tcp.py`（两个网络入口的装配与服务生命周期）/ `cli_dialogs.py`（服务端原生「选择目录」对话框，Story 50-8）/ `gui/` / `goal/`（`cli_goal` 的域模块：需求文档 brief.md 在 `goal/document.py`、LLM 项目命名在 `goal/naming.py`、工作流声明装载在 `goal/workflow_loader.py`）——**下层一律不得反向导入**（`tests/test_architecture_contracts.py` 的 `FORBIDDEN_RUNTIME_IMPORTS`）；`cli_display.py`（CLI 渲染）/ `slash.py`（注册表驱动斜杠命令 + `.heagent/commands/*.md`，仅依赖 pydantic + 零依赖顶层模块 `heagent.frontmatter`）/ `terminal.py` 是展示与命令辅助，**不在该表内**
+- **入口层与展示辅助**——`heagent/cli/` **包**（2026-09-26 收编原七个平铺 `cli*.py`；`__init__.py` 零 import，入口脚本 `heagent.cli.console:main`）：`console.py`（Click 命令组 + 参数解析 + 启动编排，原 `cli.py`）/ `composition.py`（装配：provider→engine→loop、soul、上下文策略、plan mode、dream、事件 sink）/ `interactive.py`（单次/交互**执行**：REPL + 斜杠命令族 + 内嵌 HTTP 挂载点）/ `init.py`（`heagent init`，2026-09-17 自 cli.py 拆出）/ `goal.py`（/goal 命令族：声明式工作流分发 + cron 自动推进）/ `http.py`（HTTP 服务与生命周期装配）/ `http_console.py`（网页控制台的项目/会话/配置面）/ `tcp.py`（Agent 请求适配）/ `dialogs.py`（服务端原生「选择目录」对话框，Story 50-8）/ `display.py`（CLI 渲染，与 GUI 共用）；与 `wiring.py`（provider 组合根）/ `gui/` / `goal/`（`cli/goal.py` 的域模块：需求文档 brief.md 在 `goal/document.py`、LLM 项目命名在 `goal/naming.py`、工作流声明装载在 `goal/workflow_loader.py`）同属入口层——**下层一律不得反向导入**（`tests/test_architecture_contracts.py` 的 `FORBIDDEN_RUNTIME_IMPORTS`：入口层判据现按**包根** `heagent.cli` 收敛，故 `display.py` 也被覆盖）；`slash.py`（注册表驱动斜杠命令 + `.heagent/commands/*.md`，仅依赖 pydantic + 零依赖顶层模块 `heagent.frontmatter`）/ `terminal.py` 是展示与命令辅助，**不在该表内**
 - 其它顶层模块 — `workspace.py`（状态根派生的规范路径）、`projects.py`（网页控制台项目注册表）、`config_catalog.py`（配置四层来源求解）、`config_write.py` + `envfile.py`（受闸门的项目 `.env` 保真写通道，Story 50-5）、`housekeeping.py`（保留期回收内核）、`task_shutdown.py`（后台调度 task 关停内核，cron/dream 共用）
 
 硬约束（违反即架构错误）：
 
 - 新增 provider / tool **禁止**从 `agent/` 导入；`tools/mcp/` 同（`AgentLoop` 零改动，仅经 `ToolRegistry` 注入工具）。
 - `engine/` 依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety` + `events.protocol`（仅 `error_kind_for` 纯函数单点，2026-09-22；events.protocol 运行期仅依赖 exceptions，无环）（container 另有 lazy `config`），被 `agent/` 依赖；`persist.py`/`roles.py`/`frontmatter.py` 为顶层底层模块，任何模块可依赖。memory 运行期不反向依赖 `engine/`（`DreamScheduler` 的 engine 由入口层注入，仅 TYPE_CHECKING 引用）；工作流模型在 `engine/workflow_resource.py`、声明解析在 `goal/workflow_loader.py`（2026-09-20 自 `memory/skill_packages.py` 迁出，engine→memory 边已消除）。
-- `network/` **不认识运行栈与配置**：不得导入 `agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`，也不得导入 `config`/`config_catalog`/`config_write`/`envfile`/`projects`/`workspace` 与任何入口层模块（唯一例外是零依赖的 `safe_logging`）——装配由 `cli_tcp.py`/`cli_http.py` 单向伸手（契约断言：`FORBIDDEN_RUNTIME_IMPORTS["network"]`）。
+- `network/` **不认识运行栈与配置**：不得导入 `agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`，也不得导入 `config`/`config_catalog`/`config_write`/`envfile`/`projects`/`workspace` 与任何入口层模块（唯一例外是零依赖的 `safe_logging`）——装配由 `cli/tcp.py`/`cli/http.py` 单向伸手（契约断言：`FORBIDDEN_RUNTIME_IMPORTS["network"]`）。
 - 跨模块数据用 Pydantic 模型（`types.py`），**禁止**原始 dict。
 - 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**。
 
@@ -91,7 +91,7 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 
 - 测试平铺在 `tests/`（provider 测试在 `tests/providers/`）；agent loop 测试用 `StubProvider`；每个测试用 `reset_settings()` 重置 `Settings` 单例。
 - **架构契约测试** `tests/test_architecture_contracts.py`（FORBIDDEN_RUNTIME_IMPORTS 反向依赖断言、frontmatter 正则只允许存在于 `frontmatter.py` 等）——改包间依赖或新增解析器时**必须同步维护**，其职责是把只写在文档里的硬约束钉成可执行断言、拒绝「明天的静默漂移」。
-- **monkeypatch 模块路径缝是拆分/搬移红线**：测试大量 patch 字符串路径（`heagent.cli._run_prompt`、`heagent.cli_goal._goal_session`、`heagent.cli_goal._GOAL_LOCK_TIMEOUT`、`cli_goal._goal_auto_lock` 等）——被 patch 的目标函数**及其调用方**必须留在原模块（Python 模块全局查找语义）；`test_goal_declarative_workflow.py::test_cli_reexports_goal_runner_but_not_monkeypatch_seams` 钉死了 cli 的 re-export 面。搬代码前先 grep 缝。
+- **monkeypatch 模块路径缝是拆分/搬移红线**：测试大量 patch 字符串路径（`heagent.cli.console._run_prompt`、`heagent.cli.goal._goal_session`、`heagent.cli.goal._GOAL_LOCK_TIMEOUT`、`cli.goal._goal_auto_lock` 等）——被 patch 的目标函数**及其调用方**必须留在原模块（Python 模块全局查找语义）；`test_goal_declarative_workflow.py::test_console_reexports_goal_runner_but_not_monkeypatch_seams` 钉死了 console 的 re-export 面。搬代码前先 grep 缝。**包内文件**另有两条缝纪律：`heagent/cli/__init__.py` 永不放 import（`test_cli_package_shell_stays_thin`）；子模块间的函数体内延迟导入（避开成环）必须指向**实模块**（`from heagent.cli.console import _build_loop`），不能指回包壳。
 - GUI 测试经 `pytest.importorskip("textual")` 守卫（CI 只装 `.[dev]` 无 textual，自动跳过）；pilot 交互测试模板见 `tests/test_gui_goal.py`。
 
 ## 代码规范

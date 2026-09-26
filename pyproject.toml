@@ -114,6 +114,7 @@ omit = [
     # 口径随模块走——`cli/composition.py`（装配）、`cli/init.py`、`cli/http.py`、`cli/http_console.py`、
     # `cli/tcp.py`、`cli/dialogs.py` **不** omit。
     "*/cli/console.py",
+    "*/cli/interactive.py",
     "*/cli/goal.py",
     "*/cli/display.py",
     "*/terminal.py",

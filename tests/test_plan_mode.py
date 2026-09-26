@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from heagent.agent.loop import AgentLoop
-from heagent.cli.console import _apply_plan_mode
+from heagent.cli.composition import _apply_plan_mode
 from heagent.engine import EngineContainer
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
