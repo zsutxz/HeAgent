@@ -430,7 +430,7 @@ memory / user / cron / runs / ledger / checkpoints / sandboxes / edit-snapshots 
 
 ## Story 50.8: 控制台体验优化与增量需求收口（2026-09-24 追加）
 
-> **定位**：Story 50-1…50-7 已交付并收口放行（`reviews/review-epic-50-closure.md`：verdict 放行）。
+> **定位**：Story 50-1…50-7 已交付并收口放行（`reviews.md#review-epic-50-closure`：verdict 放行）。
 > 本 story 是**收口后的增量优化轮**，由用户实测体验口述驱动（R1–R6），并**充当 Epic 50 后续新需求的统一落点**
 > —— 新需求按 `R7`、`R8`… 追加到 story 的「需求并入区」，不为此新开 story。
 
@@ -505,7 +505,7 @@ UX-DR1, UX-DR3, UX-DR5, UX-DR6, UX-DR7; 脊柱 §6、§9; brief §2、§9。
 > 12 个未分类配置键、1 处白名单与排除模式冲突等），逐条证据与处置见
 > `ARCHITECTURE-SPINE.md` §14「侦察校正」。实现请以 story 产物 + 校正后的脊柱为准。
 
-> **2026-09-24 追加 Story 50.8**：Epic 50 收口放行（`reviews/review-epic-50-closure.md`）后，用户实测体验提出
+> **2026-09-24 追加 Story 50.8**：Epic 50 收口放行（`reviews.md#review-epic-50-closure`）后，用户实测体验提出
 > 6 条优化（会话列表只显示最近 **10** 条 / 登记项目改用本机资源管理器选文件夹 / **项目与会话同在一列** /
 > 项目设置面板瘦身 / 读取类工具结果只显示文件名 / **界面布局参考 ChatGPT**），统一落入
 > `stories/50-8-console-ux-refinement.md`；该 story 同时作为 **Epic 50 后续新需求的落点**（R7、R8… 追加在

@@ -151,7 +151,7 @@ Story 50-1…50-7 已把 Epic 50 建完并收口放行。本 story 是**收口�
 - [x] **T10** 台账：活动台账新增（或并入既有「控制台」族）条目——「网页请求触发的宿主进程拉起面（弹窗）」
       含触发条件 / 严重度 / 冻结边界与本次实现口径。
 - [x] **T11** AC 回写：50-6 的 AC5 表述按 R4 收窄，并在 `stories/50-6-console-ui.md` 与
-      `reviews/acceptance-50-6-console-ui.md` 加一行「2026-09-24 由 Story 50-8 调整表述」的注记（不重写其历史记录）。
+      `reviews.md#acceptance-50-6-console-ui` 加一行「2026-09-24 由 Story 50-8 调整表述」的注记（不重写其历史记录）。
 - [x] **T12** 质量门与负向验证：全量 `pytest`（含覆盖率 ≥ 87%）、`ruff check` / `ruff format --check`、
       `mypy src` + `mypy src --platform linux`；变异体逐条确认变红。
 - [x] **T13** R5 实现：
@@ -352,7 +352,7 @@ FR-6（网页 UI）；NFR-1, NFR-4, NFR-5, NFR-9, NFR-10, NFR-11, NFR-12；UX-DR
    frame 五 与台账登记「将来改结构化错误时应退化」）。
 3. **面板级文案改用新增的 `config_catalog.LABELS["write_channel_short"]`**（原长文案一字未删，改挂 `title`）——
    这样「短状态」仍是**服务端声明**，前端不硬编码第二份文案。50-6 的 AC5 表述按 R4 收窄，已在
-   `reviews/acceptance-50-6-console-ui.md` 加注记。
+   `reviews.md#acceptance-50-6-console-ui` 加注记。
 4. **A11c 的判据首轮是瞎的（当场修）**：首轮真浏览器跑出 A11c 红，原因是断言把「重启服务」当成长解释特征——
    它其实是我方**合法**的只读原因标签（监听面键）。改成只盯横幅专属的两句（「网页无法自行开启」「需在启动配置」），
    并把失败时的**上下文**打进报错（下次再红一眼能看出是哪一段文本）。
@@ -579,7 +579,7 @@ $ .venv\Scripts\python.exe .heagent/tmp/mutate_50_8.py
 | `src/heagent/cli_dialogs.py` | 约 250 | 原生目录选择（后端解析 / 冻结脚本 / 单在途 / 超时 kill 回收 / 标记行解析） |
 | `tests/test_cli_dialogs.py` | 约 250 | 31 例：后端选择 / spawn 纪律 / 解析 / 单在途 / 超时与取消清理 / 冻结脚本可编译 |
 | `tests/network/test_http_console_dialogs.py` | 约 220 | 12 例：端点层（状态码 / 回环门 / POST-only / 路由缺席）+ 真 console 装配（成功 / 取消 / 503 / 409 / 无副作用） |
-| `_bmad-output/epics/epic-50-网页控制台周期/reviews/acceptance-50-8-refinement.md` | 114 | 22 行真浏览器清单 + AC 覆盖 + 真机探针 + 11 条变异 + 质量门 + 已知缺口 |
+| `_bmad-output/epics/epic-50-网页控制台周期/reviews.md#acceptance-50-8-refinement` | 114 | 22 行真浏览器清单 + AC 覆盖 + 真机探针 + 11 条变异 + 质量门 + 已知缺口 |
 
 **修改**
 
@@ -604,7 +604,7 @@ $ .venv\Scripts\python.exe .heagent/tmp/mutate_50_8.py
 | `_bmad-output/consolidated-overview.md` | §17.3 / §17.4-A 计数 14 → 16 与 A15 / A16 两行、文档地图行 |
 | `_bmad-output/epics/epic-50-网页控制台周期/epics.md` | Story 50.8 段补 R5 摘要与 DoD 行 |
 | `_bmad-output/sprint-status.yaml` | `50-8-console-ux-refinement: ready-for-dev → review` |
-| `_bmad-output/epics/epic-50-网页控制台周期/reviews/acceptance-50-6-console-ui.md` | 追加「AC5 表述由 Story 50-8 收窄」注记 |
+| `_bmad-output/epics/epic-50-网页控制台周期/reviews.md#acceptance-50-6-console-ui` | 追加「AC5 表述由 Story 50-8 收窄」注记 |
 | 本 story | frontmatter（status / baseline_commit）+ 执行期默认表 + 15 个任务勾选 + 本记录 |
 
 ### Change Log

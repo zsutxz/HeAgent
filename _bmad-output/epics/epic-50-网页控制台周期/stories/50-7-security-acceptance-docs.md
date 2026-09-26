@@ -174,7 +174,7 @@ FR-7；NFR-4, NFR-9, NFR-10, NFR-12；脊柱 §9、§10、§13；brief §9（9 �
 4. **文档同步**（T7–T10）：`docs/frame.md` 4.18 + 配置表 2 行 + 错误码计数校正 + 调用链控制台段与
    写通道 10 步 + 五 的 9 条新缺口；`consolidated-overview.md` 补 Epic 49/50 两行；`sprint-status.yaml`
    推进 50-7；脊柱 §14/§15 回写实现期校正（C11–C13 + D8 落定）。
-5. **验收表 + 负向验证**（T11/T12）：`reviews/acceptance-50-7-epic-acceptance.md`（§9 九条逐条
+5. **验收表 + 负向验证**（T11/T12）：`reviews.md#acceptance-50-7-epic-acceptance`（§9 九条逐条
    命令 + 实测输出）；`.heagent/tmp/mutate_50_7.py`（DoD 四条 + 2 条凭证面）逐条确认变红后复原。
 
 ### Completion Notes
@@ -251,7 +251,7 @@ $ python .heagent/tmp/mutate_50_7.py          # 负向验证（DoD 四条 + 2 �
 | 路径 | 行数 | 说明 |
 |---|---|---|
 | `tests/network/test_http_console_e2e.py` | 470 | 端到端验收（T1–T5：声明口径一致 / 非回环零副作用 / 凭证五面 / 跨项目不串味含真实工具路径 / 闸门只读与运行链路 / 每项目状态根） |
-| `_bmad-output/epics/epic-50-网页控制台周期/reviews/acceptance-50-7-epic-acceptance.md` | 68 | §9 九条逐条「命令 + 实测输出」表 + 质量门 + 负向验证 + 已知缺口 |
+| `_bmad-output/epics/epic-50-网页控制台周期/reviews.md#acceptance-50-7-epic-acceptance` | 68 | §9 九条逐条「命令 + 实测输出」表 + 质量门 + 负向验证 + 已知缺口 |
 
 **修改**
 

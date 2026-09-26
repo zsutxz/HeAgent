@@ -83,7 +83,7 @@ created: '2026-09-23'
 - [x] **T9** 静态资源测试：`tests/test_http_web_ui.py` 扩展——白名单命中、CSP 生效（无内联脚本/样式/事件属性）、
       无第三方 URL（三份资源都做 `http://` / `https://` / `//cdn` / CDN 主机名排除性断言）、
       源码运行与 wheel 安装两条路径都能取到资源（`read_web_asset` + `TestPackagedAssets`）。
-- [x] **T10** 手工验收清单：`reviews/acceptance-50-6-console-ui.md`（17 行，四列含**实测结果**），
+- [x] **T10** 手工验收清单：`reviews.md#acceptance-50-6-console-ui`（17 行，四列含**实测结果**），
       由 `tests/js/console_acceptance.mjs`（真实 http-server + headless Chrome + CDP 驱动真实点击）产出。
 
 ## 验收标准
@@ -239,7 +239,7 @@ $ node tests/js/console_acceptance.mjs             # T10：真实浏览器验收
 ✓ A16 截图留档 — …\heagent-console-AtEPbP\console.png（49 KB）
 ✓ B1 闸门关闭：全只读 + 原因 + 无开启入口 — 0 个可编辑控件、开关自身只读（无输入框）
 ACCEPTANCE {"rows":17,"failed":0,"workspace":"C:\\Users\\skype\\AppData\\Local\\Temp\\heagent-console-AtEPbP","chrome":"Chrome/153.0.8010.48"}
-# 全程结论见 reviews/acceptance-50-6-console-ui.md
+# 全程结论见 reviews.md#acceptance-50-6-console-ui
 
 $ python .heagent/tmp/mutate_50_6.py                # 负向验证（10 个变异体）
 [OK] M1 index.html 注入第三方外链（DoD 负向验证①）  -> FAILED test_page_is_self_contained / test_no_third_party_resources_in_any_asset
@@ -269,7 +269,7 @@ UX 缺陷：刷新失败时状态行原本会被「已保存」覆盖（现在�
 | 路径 | 行数 | 说明 |
 |---|---|---|
 | `tests/js/console_acceptance.mjs` | 683 | 真实浏览器验收驱动（自起 http-server + headless Chrome + CDP，**18 行**清单 —— A1b 为收口后补入，见文末「收口后修复」，退出码即结论） |
-| `_bmad-output/epics/epic-50-网页控制台周期/reviews/acceptance-50-6-console-ui.md` | 66 | T10 的四列清单（含实测结果、复跑命令、已知缺口） |
+| `_bmad-output/epics/epic-50-网页控制台周期/reviews.md#acceptance-50-6-console-ui` | 66 | T10 的四列清单（含实测结果、复跑命令、已知缺口） |
 
 **修改**（`git diff --stat`：见 Change Log）
 
