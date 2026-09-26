@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from heagent.cli_display import SUBAGENT_ANNOUNCER
+from heagent.cli.display import SUBAGENT_ANNOUNCER
 from heagent.config import get_settings
 from heagent.context.loader import load_context_files
 from heagent.context.window_reset import WindowResetConfig
@@ -72,7 +72,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 测试仍经 ``heagent.cli_goal`` 访问的 re-export 符号：Phase 3 起确定性内核迁
+# 测试仍经 ``heagent.cli.goal`` 访问的 re-export 符号：Phase 3 起确定性内核迁
 # goal/application 后，这两个符号在本模块已无内部调用点，靠 ``__all__`` 钉住
 # ruff F401（防自动移除）与 mypy no_implicit_reexport 的再导出语义。
 __all__ = ["_goal_record_user_response", "_goal_user_responses"]
@@ -117,7 +117,7 @@ async def _goal_mutex() -> AsyncIterator[None]:
 
 # 需求文档与命名层（slug 词表 / goal_id 规则 / 目录命名 / brief.md 生成与增量更新）
 # 已拆至 goal/document.py（wiring.py 先例：文档约定与执行编排变化原因不同），见顶部
-# re-export——测试经 heagent.cli_goal 导入这些符号，内部引用点继续按模块全局名解析。
+# re-export——测试经 heagent.cli.goal 导入这些符号，内部引用点继续按模块全局名解析。
 
 
 def _goal_checkpoint_mode(workflow: WorkflowResource) -> str:

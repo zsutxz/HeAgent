@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from heagent import cli_display
-from heagent.cli_display import show_deferred_work, show_tool_activity
+from heagent.cli import display as cli_display
+from heagent.cli.display import show_deferred_work, show_tool_activity
 from heagent.config import get_settings, reset_settings
 
 if TYPE_CHECKING:
@@ -111,7 +111,7 @@ def test_show_tool_activity_dedupes_repeated_targets(capsys: pytest.CaptureFixtu
 
 def test_icon_degrades_when_the_console_cannot_encode_it() -> None:
     """GBK（cp936）控制台 / 重定向下 emoji 与几何符号不可编码——必须降级而非抛异常。"""
-    from heagent.cli_display import _icon
+    from heagent.cli.display import _icon
 
     assert _icon("🔧", "[tool]", encoding="cp936") == "[tool]"
     assert _icon("🔧", "[tool]", encoding="utf-8") == "🔧"

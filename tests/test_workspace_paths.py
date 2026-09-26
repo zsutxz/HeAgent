@@ -26,7 +26,7 @@ def test_default_engine_keeps_legacy_relative_stores() -> None:
 
 
 def test_handler_keeps_injected_workspace_after_chdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from heagent.cli_http import HttpAgentHandler
+    from heagent.cli.http import HttpAgentHandler
     from heagent.config import Settings
     from tests.test_agent_loop import StubProvider
 
@@ -40,7 +40,7 @@ def test_handler_keeps_injected_workspace_after_chdir(tmp_path: Path, monkeypatc
 
 
 def test_network_handler_uses_explicit_settings(tmp_path: Path) -> None:
-    from heagent.cli_http import HttpAgentHandler
+    from heagent.cli.http import HttpAgentHandler
     from heagent.config import Settings
     from tests.test_agent_loop import StubProvider
 
@@ -97,7 +97,7 @@ async def test_runtime_state_reads_are_denied(tmp_path: Path, subdir: str) -> No
 async def test_two_workspace_runs_keep_state_and_fences_isolated(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from heagent.cli_http import HttpAgentHandler
+    from heagent.cli.http import HttpAgentHandler
     from heagent.config import Settings
     from heagent.engine.policy import ToolExecutionMode
     from heagent.tools.path_safety import resolve_workspace_path, workspace_root

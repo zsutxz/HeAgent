@@ -8,9 +8,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import heagent.cli as cli
-import heagent.cli_goal as cli_goal
-from heagent.cli_goal import (
+import heagent.cli.console as cli
+import heagent.cli.goal as cli_goal
+from heagent.cli.goal import (
     _goal_cron_advance,
     _goal_declarative_runner,
     _goal_declarative_workflow,
@@ -73,7 +73,7 @@ def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls.append(prompt)
         return SimpleNamespace(success=True, output=f"output-{len(calls)}")
 
-    monkeypatch.setattr("heagent.cli_goal._goal_session", run_step)
+    monkeypatch.setattr("heagent.cli.goal._goal_session", run_step)
     return calls
 
 
@@ -166,7 +166,7 @@ def advance_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     async def noop_advance(*args: object, **kwargs: object) -> None:
         return None
 
-    monkeypatch.setattr("heagent.cli_goal._goal_declarative_advance", noop_advance)
+    monkeypatch.setattr("heagent.cli.goal._goal_declarative_advance", noop_advance)
 
 
 @pytest.mark.asyncio
@@ -650,8 +650,8 @@ def test_step_prompt_names_the_goal_document_resolved_in_code(
     assert "{goal_document}" not in prompt
 
 
-def test_cli_reexports_goal_runner_but_not_monkeypatch_seams() -> None:
-    """cli.py keeps only the three self-used goal symbols; patch seams live in cli_goal."""
+def test_console_reexports_goal_runner_but_not_monkeypatch_seams() -> None:
+    """cli/console.py 只持有自己用到的 goal 符号；patch 缝留在 cli/goal.py。"""
     assert cli._goal_runner is cli_goal._goal_runner
     assert not hasattr(cli, "_goal_session")
 
@@ -847,7 +847,7 @@ async def test_step_iteration_budget_overrides_the_global_default(
         seen.append(kwargs.get("max_iterations"))
         return SimpleNamespace(success=True, output="body")
 
-    monkeypatch.setattr("heagent.cli_goal._goal_session", run_step)
+    monkeypatch.setattr("heagent.cli.goal._goal_session", run_step)
     workflow = WorkflowResource(name="demo", instructions="", steps=[], prompt_template="step prompt")
     goal_dir = declarative_cwd / "_he-output" / "goals" / "demo"
     goal_dir.mkdir(parents=True, exist_ok=True)

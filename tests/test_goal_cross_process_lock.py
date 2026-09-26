@@ -14,8 +14,8 @@ from types import SimpleNamespace
 
 import pytest
 
-import heagent.cli_goal as cli_goal
-from heagent.cli_goal import _goal_runner
+import heagent.cli.goal as cli_goal
+from heagent.cli.goal import _goal_runner
 from heagent.persist import file_lock
 
 _WORKFLOW_MD = (
@@ -45,7 +45,7 @@ def step_spy(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls.append(prompt)
         return SimpleNamespace(success=True, output=f"output-{len(calls)}")
 
-    monkeypatch.setattr("heagent.cli_goal._goal_session", run_step)
+    monkeypatch.setattr("heagent.cli.goal._goal_session", run_step)
     return calls
 
 

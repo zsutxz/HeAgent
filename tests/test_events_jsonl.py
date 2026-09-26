@@ -11,7 +11,7 @@ import pytest
 from click.testing import CliRunner
 
 from heagent.agent.loop import AgentLoop
-from heagent.cli import main
+from heagent.cli.console import main
 from heagent.config import reset_settings
 from heagent.engine.observability import EngineEvent
 from heagent.exceptions import PolicyViolation, ToolError

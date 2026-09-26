@@ -115,7 +115,7 @@ def test_default_setting_preserves_legacy_behavior() -> None:
 
 async def test_cli_dream_runner_passes_dream_max_iterations(monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
     """cli 组合根把 Settings.dream_max_iterations 真的传给了 dreamer SubAgent（防退化为死字段）。"""
-    from heagent import cli
+    from heagent.cli import console
     from heagent.context.session import SessionStore
     from heagent.engine import EngineContainer
     from heagent.memory.facts import FactStore
@@ -132,7 +132,7 @@ async def test_cli_dream_runner_passes_dream_max_iterations(monkeypatch, tmp_pat
 
     monkeypatch.setattr(SubAgent, "__init__", spy)
 
-    scheduler = cli._build_dream_scheduler(
+    scheduler = console._build_dream_scheduler(
         settings,
         _OneShotProvider(),
         EngineContainer(),

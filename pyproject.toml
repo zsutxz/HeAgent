@@ -67,7 +67,7 @@ http = [
 ]
 
 [project.scripts]
-heagent = "heagent.cli:main"
+heagent = "heagent.cli.console:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -109,9 +109,13 @@ omit = [
     # （dev 组不含、CI 不安装，tests/ 无覆盖）；CLI 入口 / 终端键盘监听 /
     # 显示层以人工与 E2E 验证为主。排除后默认回归覆盖率约 89%（门限 87%）。
     "*/gui/*",
-    "*/cli.py",
-    "*/cli_goal.py",
-    "*/cli_display.py",
+    # CLI 入口层（`heagent/cli/` 包）：控制台命令层 / 交互执行层（REPL + 斜杠命令族）/ goal 命令族 /
+    # 展示层以人工与 E2E 验证为主，不计入覆盖率。
+    # 口径随模块走——`cli/composition.py`（装配）、`cli/init.py`、`cli/http.py`、`cli/http_console.py`、
+    # `cli/tcp.py`、`cli/dialogs.py` **不** omit。
+    "*/cli/console.py",
+    "*/cli/goal.py",
+    "*/cli/display.py",
     "*/terminal.py",
     "*/__main__.py",
 ]

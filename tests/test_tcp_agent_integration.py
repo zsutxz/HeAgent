@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from heagent.cli_tcp import TcpAgentHandler, _serve_tcp
+from heagent.cli.tcp import TcpAgentHandler, _serve_tcp
 from heagent.config import get_settings, reset_settings
 from heagent.exceptions import HeAgentError
 from heagent.network.protocol import TcpErrorCode, TcpRequest, TcpResponse, TcpUsage

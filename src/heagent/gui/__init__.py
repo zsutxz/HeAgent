@@ -54,7 +54,7 @@ def gui_main(
 
     # ── AgentLoop ───────────────────────────────────────────
     from heagent.agent.loop import AgentLoop
-    from heagent.cli_display import SUBAGENT_ANNOUNCER
+    from heagent.cli.display import SUBAGENT_ANNOUNCER
     from heagent.engine import EngineContainer
     from heagent.tools.registry import ToolRegistry
 

@@ -1,4 +1,4 @@
-"""``heagent.cli_dialogs`` 的单测：**假子进程**（绝不开真窗口）+ 后端选择 + 边界。
+"""``heagent.cli.dialogs`` 的单测：**假子进程**（绝不开真窗口）+ 后端选择 + 边界。
 
 为什么假造子进程：真对话框需要图形后端与人工点击，CI 与本地自动化都不能依赖它。被测的**不是**
 tkinter / PowerShell 本身，而是我们自己写的四条纪律——单在途、超时后 kill + 回收、只解析标记行、
@@ -14,8 +14,8 @@ from typing import Any
 
 import pytest
 
-from heagent import cli_dialogs
-from heagent.cli_dialogs import (
+from heagent.cli import dialogs as cli_dialogs
+from heagent.cli.dialogs import (
     BACKENDS,
     DEFAULT_TIMEOUT_SECONDS,
     MARKER,
@@ -48,7 +48,7 @@ class FakeProcess:
 
 
 class FakeSpawner:
-    """``cli_dialogs._spawn`` 的替身：记录 argv / script，可注入失败。"""
+    """``cli.dialogs._spawn`` 的替身：记录 argv / script，可注入失败。"""
 
     def __init__(self, proc: FakeProcess | None = None, *, error: OSError | None = None) -> None:
         self.proc = proc if proc is not None else FakeProcess()

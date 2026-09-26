@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.cli import _handle_slash
+from heagent.cli.console import _handle_slash
 from heagent.slash import SlashRegistry, load_custom_commands
 
 

@@ -89,8 +89,8 @@ class TestBuildCronJobRunner:
         async def fake_advance(provider, engine, store, goal_id) -> None:  # noqa: ANN001
             advanced.append(goal_id)
 
-        monkeypatch.setattr("heagent.cli_goal._goal_auto_goal_id", fake_auto_goal_id)
-        monkeypatch.setattr("heagent.cli_goal._goal_cron_advance", fake_advance)
+        monkeypatch.setattr("heagent.cli.goal._goal_auto_goal_id", fake_auto_goal_id)
+        monkeypatch.setattr("heagent.cli.goal._goal_cron_advance", fake_advance)
 
         config = resolve_runtime_config()
         provider = _RecordingProvider()
@@ -117,7 +117,7 @@ class TestBuildCronJobRunner:
         from heagent.context.compressor import ContextCompressor
         from heagent.cron.jobs import JobStore
 
-        monkeypatch.setattr("heagent.cli_goal._goal_auto_goal_id", lambda prompt: None)
+        monkeypatch.setattr("heagent.cli.goal._goal_auto_goal_id", lambda prompt: None)
 
         config = resolve_runtime_config()
         provider = _RecordingProvider()

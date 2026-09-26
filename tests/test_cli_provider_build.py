@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.cli import _build_provider, _extract_routing
+from heagent.cli.console import _build_provider
+from heagent.cli.console import _extract_routing
 from heagent.config import Settings, reset_settings
 from heagent.providers.anthropic import AnthropicProvider
 from heagent.providers.openai import OpenAIProvider

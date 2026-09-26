@@ -2,8 +2,8 @@
 
 **为什么单独成模块**（wiring.py 先例）：此前这段「goal 文档与命名」逻辑（约 150 行——
 goal_id 规则、目录命名、需求文档生成与增量更新）与工作流驱动（advance /
-execute / dispatch / cron）混在 cli_goal.py 里——前者随 BMad 产物约定变，后者随执行
-编排变，混在一起使 cli_goal.py 既难读也难测。本模块只做「文档与命名」的确定性部分
+execute / dispatch / cron）混在 cli/goal.py 里——前者随 BMad 产物约定变，后者随执行
+编排变，混在一起使 cli/goal.py 既难读也难测。本模块只做「文档与命名」的确定性部分
 （LLM 命名见 naming.py）：不依赖 agent/providers/cron，可被独立测试。
 
 **文档契约**：``/goal new`` 只落盘**原始需求**（``## 原始需求（Original Request）`` 段），
@@ -11,9 +11,9 @@ execute / dispatch / cron）混在 cli_goal.py 里——前者随 BMad 产物约
 ``## 总结的需求（Derived Requirements）`` 段。改名前的 ``require.md`` 与更早的 ``GOAL.md``
 仍可读（见 :func:`_goal_document_path`，按新名在前探测），写入落在解析出的那一份上，不会分裂成两份。
 
-分层：本子包属入口层（与 cli/gui 同级，供 cli_goal 消费），不被任何下层模块导入。
-cli_goal 经 re-export 保持原命名空间可用（``test_goal_declarative_workflow`` /
-``test_story_loop`` 经 cli_goal 导入这些私有符号）。
+分层：本子包属入口层（与 cli/gui 同级，供 cli/goal 消费），不被任何下层模块导入。
+cli/goal 经 re-export 保持原命名空间可用（``test_goal_declarative_workflow`` /
+``test_story_loop`` 经 cli/goal 导入这些私有符号）。
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ from typing import Any
 from heagent.frontmatter import extract_h2_section, parse_strict_pairs, split_frontmatter
 from heagent.persist import atomic_update_text
 
-# goal 状态目录（相对路径，使用时锚定 Path.cwd()）。workflow 包的定位由 cli_goal 经
+# goal 状态目录（相对路径，使用时锚定 Path.cwd()）。workflow 包的定位由 cli/goal 经
 # Settings.goal_workflow_skill + skill catalog 解析，不在本模块硬编码。
 # Durable user-facing Goal and workflow artifacts belong under the project output
 # root. ``.heagent`` remains reserved for runtime configuration and skill code.

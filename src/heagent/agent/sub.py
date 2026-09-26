@@ -50,9 +50,9 @@ class SubAgentResult:
 class SubAgentAnnouncer(Protocol):
     """子 Agent 进度横幅的注入口（依赖倒置：展示形态由入口层提供，agent 层零展示依赖）。
 
-    历史上 ``run()`` 函数体内反向 lazy 导入 ``cli_display`` 打 stderr 横幅——
+    历史上 ``run()`` 函数体内反向 lazy 导入 ``cli/display`` 打 stderr 横幅——
     agent → 入口展示层，方向违反 DAG；2026-09 改为构造时注入
-    （终端/GUI 入口传 ``cli_display.SUBAGENT_ANNOUNCER`` 保持原行为，测试可传
+    （终端/GUI 入口传 ``cli.display.SUBAGENT_ANNOUNCER`` 保持原行为，测试可传
     假实现捕获横幅），缺省 ``None`` 即静默。
     """
 
@@ -114,7 +114,7 @@ class SubAgent:
         self._parent_run_id = parent_run_id
         # 本子 Agent 自身所处的委派深度（根 loop 的委派产物=1）；由其创建的子 loop 继承。
         self._delegation_depth = delegation_depth
-        # 进度横幅注入口：None=静默；由入口层（cli_display / 测试）提供。
+        # 进度横幅注入口：None=静默；由入口层（cli/display / 测试）提供。
         self._announcer = announcer
         self._role = role
         self._window_reset = window_reset

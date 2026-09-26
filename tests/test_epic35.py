@@ -51,7 +51,7 @@ class TestWebFetchGuardContent:
 class TestInitProjectContext:
     def test_creates_context_template(self, tmp_path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
-        from heagent.cli import _init_project_context
+        from heagent.cli.init import _init_project_context
 
         _init_project_context()
         ctx = tmp_path / ".heagent" / "CONTEXT.md"
@@ -64,7 +64,7 @@ class TestInitProjectContext:
         ctx = tmp_path / ".heagent" / "CONTEXT.md"
         ctx.parent.mkdir(parents=True, exist_ok=True)
         ctx.write_text("custom content", encoding="utf-8")
-        from heagent.cli import _init_project_context
+        from heagent.cli.init import _init_project_context
 
         _init_project_context()
         assert ctx.read_text(encoding="utf-8") == "custom content"

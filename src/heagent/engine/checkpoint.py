@@ -5,7 +5,7 @@
 declarative runner lives in ``workflow_runner.py``. The legacy phase machine
 (``WorkflowOrchestrator`` / ``TokenBudgetManager`` / ``RolloverCoordinator`` /
 ``RecoveryEnvelope`` / ``WorkflowRoute``) was removed in 2026-09 — the same
-cleanup that retired the legacy GOAL.md Story flow in ``cli_goal.py``.
+cleanup that retired the legacy GOAL.md Story flow in ``cli/goal.py``.
 """
 
 from __future__ import annotations

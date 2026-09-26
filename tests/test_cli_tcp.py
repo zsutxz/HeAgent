@@ -13,8 +13,8 @@ from typing import TYPE_CHECKING, Any
 import pytest
 from click.testing import CliRunner
 
-from heagent.cli import main
-from heagent.cli_tcp import TcpAgentHandler, build_server_config
+from heagent.cli.console import main
+from heagent.cli.tcp import TcpAgentHandler, build_server_config
 from heagent.config import get_settings, reset_settings
 from heagent.exceptions import HeAgentError
 from heagent.network.protocol import TcpErrorCode, TcpRequest
@@ -50,8 +50,8 @@ def captured_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> dict[str,
     async def fake_serve(server: TcpServer) -> None:
         captured["server"] = server
 
-    monkeypatch.setattr("heagent.cli_tcp._serve_tcp", fake_serve)
-    monkeypatch.setattr("heagent.cli_tcp._build_provider", lambda settings, model: _StubProvider())
+    monkeypatch.setattr("heagent.cli.tcp._serve_tcp", fake_serve)
+    monkeypatch.setattr("heagent.cli.tcp._build_provider", lambda settings, model: _StubProvider())
     monkeypatch.chdir(tmp_path)
     return captured
 
@@ -200,7 +200,7 @@ def test_startup_failure_is_reported_without_a_listening_banner(
     async def failing_serve(server: TcpServer) -> None:
         raise OSError("address already in use")
 
-    monkeypatch.setattr("heagent.cli_tcp._serve_tcp", failing_serve)
+    monkeypatch.setattr("heagent.cli.tcp._serve_tcp", failing_serve)
 
     result = CliRunner().invoke(main, ["tcp-server"])
 
@@ -224,8 +224,8 @@ def test_plain_cli_never_creates_a_tcp_listener(
             raise AssertionError("普通 CLI 不得构造 TCP listener")
 
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    monkeypatch.setattr("heagent.cli._run_single", fake_run_single)
-    monkeypatch.setattr("heagent.cli_tcp.TcpServer", _ExplodingServer)
+    monkeypatch.setattr("heagent.cli.console._run_single", fake_run_single)
+    monkeypatch.setattr("heagent.cli.tcp.TcpServer", _ExplodingServer)
 
     result = CliRunner().invoke(main, ["hi"])
 
@@ -286,7 +286,7 @@ def test_tcp_entry_never_connects_mcp_servers(
     def _explode(*_args: object, **_kwargs: object) -> object:
         raise AssertionError("TCP 入口不得构造 MCP 生命周期")
 
-    monkeypatch.setattr("heagent.cli._mcp_lifecycle", _explode)
+    monkeypatch.setattr("heagent.cli.console._mcp_lifecycle", _explode)
 
     result = CliRunner().invoke(main, ["tcp-server"])
 
@@ -325,7 +325,7 @@ def test_logging_failure_does_not_rewrite_the_agent_error_code(monkeypatch: pyte
     入口层插桩全部经 ``_safe_log`` 后，协议码必须保持 ``agent_error``。
     """
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("heagent.cli_tcp.logger", _ExplodingLogger())
+    monkeypatch.setattr("heagent.cli.tcp.logger", _ExplodingLogger())
     handler = TcpAgentHandler(_FailingProvider(), get_settings())
 
     response = asyncio.run(handler(TcpRequest(id="r1", prompt="hi")))

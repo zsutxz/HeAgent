@@ -100,7 +100,7 @@ async def _submit_and_wait(pilot: object, text: str, *, until: Callable[[], bool
 @pytest.mark.asyncio
 async def test_goal_command_routes_to_goal_runner_not_bridge_submit(monkeypatch: pytest.MonkeyPatch) -> None:
     """台账锁定测试：GUI 里 ``/goal status`` 进 goal runner，不当普通提示词提交。"""
-    import heagent.cli_goal as cli_goal
+    import heagent.cli.goal as cli_goal
 
     goal_calls: list[str] = []
     bridge_calls: list[str] = []
@@ -128,7 +128,7 @@ async def test_goal_command_routes_to_goal_runner_not_bridge_submit(monkeypatch:
 @pytest.mark.asyncio
 async def test_stderr_progress_is_forwarded_to_richlog(monkeypatch: pytest.MonkeyPatch) -> None:
     """click.echo(err=True) 的进度行出现在 RichLog（原先用户只看到一行 completed）。"""
-    import heagent.cli_goal as cli_goal
+    import heagent.cli.goal as cli_goal
 
     async def echo_runner(provider: object, engine: object, args: str, *, cron_store: object = None) -> None:
         click.echo("[goal] step 1/3 running", err=True)
@@ -160,7 +160,7 @@ async def test_stderr_progress_is_forwarded_to_richlog(monkeypatch: pytest.Monke
 @pytest.mark.asyncio
 async def test_escape_cancels_running_goal_task(monkeypatch: pytest.MonkeyPatch) -> None:
     """Esc 触发取消：goal task cancelled、is_running 复位（原先无任何取消入口）。"""
-    import heagent.cli_goal as cli_goal
+    import heagent.cli.goal as cli_goal
 
     async def hanging_runner(provider: object, engine: object, args: str, *, cron_store: object = None) -> None:
         await asyncio.Event().wait()  # 永不完成

@@ -178,7 +178,7 @@ class AgentLoop:
                 返回消息则自动接续新轮次。用于任务完成后的自动追加。
             subagent_announcer: 子 Agent 进度横幅注入口（``SubAgentAnnouncer``）；经
                 ``_runtime_scope`` 转传给委派回调。缺省 None=静默；终端/GUI 入口传
-                ``cli_display.SUBAGENT_ANNOUNCER`` 保持 stderr 横幅行为。
+                ``cli.display.SUBAGENT_ANNOUNCER`` 保持 stderr 横幅行为。
             runtime_config: 已解析的运行配置快照（Phase 1）；缺省构造期从当前 Settings 一次性解析，
                 之后业务执行（压缩/窗口重置/委派/提示词/技能预算）只读快照，全局 Settings 漂移不影响已创建的 loop。
         """
@@ -215,7 +215,7 @@ class AgentLoop:
         # steering / follow-up 回调（参考 Pi 双层循环设计）
         self.steering_callback = steering_callback
         self.follow_up_callback = follow_up_callback
-        # 子 Agent 进度横幅注入口（None=静默；入口层经 cli_display.SUBAGENT_ANNOUNCER 注入）。
+        # 子 Agent 进度横幅注入口（None=静默；入口层经 cli.display.SUBAGENT_ANNOUNCER 注入）。
         self.subagent_announcer = subagent_announcer
         # 最近一次 run 的「事后产物」，供外部（如 SubAgent.run）读取，不参与循环逻辑。
         self.last_run_context: RunContext | None = None

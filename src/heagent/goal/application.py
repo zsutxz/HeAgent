@@ -1,18 +1,18 @@
 """``/goal`` 工作流的确定性内核（click-free use-case 层，Phase 3）。
 
 **为什么单独成模块**（goal/document.py 先例）：此前 workflow 校验、gate 渲染、
-story 选择、checkpoint 恢复、prompt 装配与推进编排全部混在 ``cli_goal.py``，与
+story 选择、checkpoint 恢复、prompt 装配与推进编排全部混在 ``cli/goal.py``，与
 ``click.echo`` 渲染交织——确定性内核无法在无 Click 环境运行与测试，GUI 只能靠
 stderr 重定向获知进度。本模块承载与渲染无关的确定性部分：**不导入 click /
 heagent.cli* / heagent.gui***（架构契约测试钉死 import 图）；用户可见文案以
-结构化 message 返回，由 ``cli_goal`` 统一渲染。
+结构化 message 返回，由 ``cli/goal`` 统一渲染。
 
 **配置注入原则**（Phase 1 延续）：本模块不调用 ``get_settings()``——checkpoint /
-open-question 策略的 settings 回退值由入口（cli_goal）作为参数注入。
+open-question 策略的 settings 回退值由入口（cli/goal）作为参数注入。
 
-分层：本子包属入口层（与 cli/gui 同级，供 cli_goal 消费），依赖 ``heagent.engine``
+分层：本子包属入口层（与 cli/gui 同级，供 cli/goal 消费），依赖 ``heagent.engine``
 / ``heagent.memory`` / ``heagent.persist`` 等下层模块，不被任何下层模块导入。
-cli_goal 经 re-export / 薄壳保持原命名空间可用（monkeypatch 缝见 spec-phase3）。
+cli/goal 经 re-export / 薄壳保持原命名空间可用（monkeypatch 缝见 spec-phase3）。
 """
 
 from __future__ import annotations
@@ -367,7 +367,7 @@ class _GoalAdvanceContext:
 
 
 class GoalAdvanceStatus(StrEnum):
-    """One declarative advance invocation's terminal word（值与 cli_goal 的 ``_GOAL_*`` 一致）."""
+    """One declarative advance invocation's terminal word（值与 cli/goal 的 ``_GOAL_*`` 一致）."""
 
     ADVANCED = "advanced"
     DONE = "done"
@@ -446,7 +446,7 @@ async def advance(
 ) -> GoalAdvanceOutcome:
     """Advance deterministically through steps and resolve completed checkpoints.
 
-    端口注入：``execute_step``（LLM 会话，缝在 cli_goal）、``confirm_checkpoint``
+    端口注入：``execute_step``（LLM 会话，缝在 cli/goal）、``confirm_checkpoint``
     （manual 模式的 checkpoint 批准决策，CLI 为 TTY confirm 实现）、
     ``load_project_context``（cwd 锚定属入口）、``emit``（步骤粒度观测端口，
     Phase 5 C1：透传 ``WorkflowRunner.run_step`` 发 workflow_step_* 事件；缺省 None

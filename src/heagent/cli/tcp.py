@@ -1,12 +1,13 @@
 """``heagent tcp-server`` 子命令与 Agent 请求适配（入口层组合根）。
 
-Epic 48 Story 48-3。本模块属**入口层**（与 ``cli`` / ``cli_init`` / ``cli_goal`` / ``wiring`` 同级）：
+Epic 48 Story 48-3。本模块属**入口层**（``heagent/cli/`` 包内，与 ``console`` / ``init`` / ``goal``
+及顶层 ``wiring`` 同级）：
 把现有 Provider / Engine / AgentLoop 装配成 :data:`~heagent.network.tcp_server.TcpRequestHandler`，
 再交给 ``network`` 层的 :class:`~heagent.network.tcp_server.TcpServer`。边界：
 
 - ``network/`` 不反向依赖本模块（``tests/test_architecture_contracts.py`` 有可执行断言）；
 - 本模块不复制 Provider 构造分支——一律经 ``heagent.wiring._build_provider`` 与
-  ``heagent.cli._build_loop``（**函数内延迟导入**：``cli`` 在模块尾部 import 本模块注册命令，
+  ``heagent.cli.console._build_loop``（**函数内延迟导入**：``cli`` 在模块尾部 import 本模块注册命令，
   模块级互相导入会成环）；
 - 请求体只读取 ``id`` / ``prompt``：system / provider / model / 工具策略 / 沙箱 / 迭代预算
   全部取自**服务端**配置（见 story 48-3 的 Never 列表）。
@@ -139,7 +140,7 @@ def _resolve_model(loop: AgentLoop) -> str | None:
 
 def _build_soul(soul_path: str | None) -> SoulStore | None:
     """复用 ``cli._build_soul`` 的路径语义（global/project SOUL.md），不在此重复一份。"""
-    from heagent.cli import _build_soul as _cli_build_soul  # noqa: PLC0415 —— 见模块 docstring 的成环说明
+    from heagent.cli.console import _build_soul as _cli_build_soul  # noqa: PLC0415 —— 见模块 docstring 的成环说明
 
     return _cli_build_soul(soul_path)
 
@@ -182,7 +183,7 @@ class TcpAgentHandler:
 
         ``session=None``：TCP 请求是**无状态单请求单响应**，不复用会话文件（也就不创建 cron 调度器）。
         """
-        from heagent.cli import _build_loop  # noqa: PLC0415 —— 见模块 docstring 的成环说明
+        from heagent.cli.console import _build_loop  # noqa: PLC0415 —— patch 缝落在此模块（见其 docstring）
 
         loop, _scheduler = _build_loop(
             self.settings,
@@ -369,7 +370,7 @@ def tcp_server_cmd(
     sandbox: str | None,
 ) -> None:
     """Serve HeAgent over TCP with UTF-8 JSON Lines (experimental; no authentication)."""
-    from heagent.cli import _prune_runtime_artifacts, _setup_logging  # noqa: PLC0415
+    from heagent.cli.console import _prune_runtime_artifacts, _setup_logging  # noqa: PLC0415
 
     _setup_logging()
     settings = get_settings()

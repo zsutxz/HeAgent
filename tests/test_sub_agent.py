@@ -7,7 +7,7 @@ import asyncio
 import pytest
 
 from heagent.agent.sub import SubAgent, run_parallel
-from heagent.cli_display import SUBAGENT_ANNOUNCER
+from heagent.cli.display import SUBAGENT_ANNOUNCER
 from heagent.roles import RoleSpec
 from heagent.memory.facts import FactStore
 from heagent.memory.skills import SkillStore
@@ -241,7 +241,7 @@ class TestParallel:
 @pytest.mark.asyncio
 class TestSubAgentAnnouncements:
     async def test_run_announces_start_and_end(self, capsys) -> None:
-        # 横幅改为显式注入（默认静默）；终端行为经 cli_display.SUBAGENT_ANNOUNCER 等价保持。
+        # 横幅改为显式注入（默认静默）；终端行为经 cli.display.SUBAGENT_ANNOUNCER 等价保持。
         agent = SubAgent(StubProvider("result"), max_iterations=5, announcer=SUBAGENT_ANNOUNCER)
         await agent.run("analyze the requirements")
         err = capsys.readouterr().err

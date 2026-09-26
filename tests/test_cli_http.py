@@ -15,9 +15,10 @@ import pytest
 from click.testing import CliRunner
 
 from heagent import __version__
-from heagent import cli as cli_module
-from heagent.cli import main
-from heagent.cli_http import HttpAgentHandler, HttpProjectConsole, build_server_config
+from heagent.cli import console as cli_module
+from heagent.cli.console import main
+from heagent.cli.http import HttpAgentHandler, HttpProjectConsole
+from heagent.cli.http import build_server_config
 from heagent.config import get_settings, reset_settings
 from heagent.context.session import SessionStore
 from heagent.network.http_server import HttpServer, HttpServerConfig
@@ -52,8 +53,8 @@ def captured_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> dict[str,
     async def fake_serve(server: HttpServer) -> None:
         captured["server"] = server
 
-    monkeypatch.setattr("heagent.cli_http._serve_http", fake_serve)
-    monkeypatch.setattr("heagent.cli_http._build_provider", lambda settings, model: _StubProvider())
+    monkeypatch.setattr("heagent.cli.http._serve_http", fake_serve)
+    monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: _StubProvider())
     monkeypatch.chdir(tmp_path)
     return captured
 
@@ -213,7 +214,7 @@ def test_invalid_limits_are_rejected_before_serving(args: list[str], captured_se
 
 def test_startup_failure_is_reported_without_a_listening_banner(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     """绑定失败（端口占用 / 地址不可用）必须显性失败，且不谎报「已监听」。"""
-    monkeypatch.setattr("heagent.cli_http._build_provider", lambda settings, model: _StubProvider())
+    monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: _StubProvider())
     monkeypatch.chdir(tmp_path)
     holder = socket.socket()
     holder.bind(("127.0.0.1", 0))
@@ -239,7 +240,7 @@ def test_missing_http_extra_reports_the_install_hint(monkeypatch: pytest.MonkeyP
         raise HttpDependencyError(f"missing {name!r}; install with: pip install 'heagent[http]'")
 
     monkeypatch.setattr(http_server_module, "_require_module", _missing)
-    monkeypatch.setattr("heagent.cli_http._build_provider", lambda settings, model: _StubProvider())
+    monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: _StubProvider())
     monkeypatch.chdir(tmp_path)
 
     result = CliRunner().invoke(main, ["http-server"])
@@ -303,7 +304,7 @@ def test_new_loop_refuses_to_own_a_cron_scheduler(monkeypatch: pytest.MonkeyPatc
         seen.update(kwargs)
         return real_build(*args, **kwargs)
 
-    monkeypatch.setattr("heagent.cli._build_loop", spy)
+    monkeypatch.setattr("heagent.cli.console._build_loop", spy)
     store = SessionStore(str(tmp_path / "sessions"))
     handler = HttpAgentHandler(_StubProvider(), get_settings(), workspace_root=tmp_path, session_store=store)
 
@@ -313,7 +314,7 @@ def test_new_loop_refuses_to_own_a_cron_scheduler(monkeypatch: pytest.MonkeyPatc
     assert seen["session"] is store
     assert loop.session is store  # 运行因此真的会写这个会话存储（此前是 session=None）
 
-    monkeypatch.setattr("heagent.cli._build_loop", lambda *args, **kwargs: (loop, object()))
+    monkeypatch.setattr("heagent.cli.console._build_loop", lambda *args, **kwargs: (loop, object()))
     with pytest.raises(RuntimeError, match="must not own a CronScheduler"):
         handler.new_loop()
 

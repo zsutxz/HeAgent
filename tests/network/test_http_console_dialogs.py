@@ -22,8 +22,8 @@ pytest.importorskip("starlette")
 
 import httpx
 
-from heagent import cli_dialogs
-from heagent.cli_dialogs import MARKER
+from heagent.cli import dialogs as cli_dialogs
+from heagent.cli.dialogs import MARKER
 from heagent.network.http_console_protocol import ConsoleOperationError, DirectoryPickResponse
 from heagent.network.http_protocol import HttpErrorCode
 from heagent.network.http_server import HttpServerConfig, build_http_app
@@ -124,7 +124,7 @@ class TestRealAssembly:
     """真 console（入口层实现）+ 真路由 + 假子进程：验证接线与「什么都没改」。"""
 
     def _console(self, tmp_path: Path, *, backend: str = "auto") -> Any:
-        from heagent.cli_http import HttpProjectConsole
+        from heagent.cli.http import HttpProjectConsole
 
         workspace = tmp_path / "ws"
         workspace.mkdir(parents=True, exist_ok=True)

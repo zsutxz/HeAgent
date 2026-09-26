@@ -223,7 +223,7 @@ async def test_config_route_rejects_wrong_method() -> None:
 
 async def test_real_console_serves_the_config_panel(tmp_path: Path) -> None:
     """真 ``HttpProjectConsole``：项目 ``.env`` 的键必须盖过全局层，凭证只回掩码。"""
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     marker = "sk-live-MARKER-abcdef"
     (tmp_path / ".env").write_bytes(f"MAX_ITERATIONS=321\nKIMI_API_KEY={marker}\nTOTALLY_UNKNOWN=1\n".encode())
@@ -257,7 +257,7 @@ async def test_panel_reports_the_write_gate_so_the_ui_can_disable_editing(tmp_pa
     ``writable`` 会显示「可编辑、保存必被拒」。``write_enabled`` 必须与入口层真正执行 PUT 时判的那个
     闸门**同一事实源**（这里直接与方法上的属性比对，而不是与一个字面量比对）。
     """
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
     closed = HttpProjectConsole(tmp_path, global_env_file=None)
@@ -287,7 +287,7 @@ async def test_panel_shows_the_resource_knob_ceilings(tmp_path: Path) -> None:
     自己出现在 ``guards`` 里 —— 前端不硬编码任何边界（``app.js::guardHint`` 只渲染后端给的结构）。
     遍历常量表本体而不是在测试里抄几个键：新增上界自动纳入（面板漏传会立刻红）。
     """
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
     from heagent.config_catalog import RESOURCE_CEILINGS
 
     (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
@@ -308,7 +308,7 @@ async def test_panel_shows_the_resource_knob_ceilings(tmp_path: Path) -> None:
 
 async def test_real_console_reports_unavailable_project(tmp_path: Path) -> None:
     """项目目录被删 ⇒ ``project_unavailable``（409），而不是 500 或空面板。"""
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     workspace = tmp_path / "sub"
     workspace.mkdir()
@@ -323,7 +323,7 @@ async def test_real_console_reports_unavailable_project(tmp_path: Path) -> None:
 
 async def test_real_console_rejects_non_loopback_project_registration() -> None:
     """既有安全面未受影响（回归）：非回环来源登记项目仍被拒。"""
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     console = HttpProjectConsole(Path("."))
     async with httpx.AsyncClient(
@@ -519,7 +519,7 @@ class TestWriteRequestModel:
 
 async def test_real_console_refuses_writes_while_the_gate_is_closed(tmp_path: Path) -> None:
     """AC1：默认（``HTTP_CONSOLE_WRITE_ENABLED`` 未开）任何写入都是 ``write_disabled``，文件不变。"""
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     raw = b"MAX_ITERATIONS=25\n"
     (tmp_path / ".env").write_bytes(raw)
@@ -538,7 +538,7 @@ async def test_real_console_refuses_writes_while_the_gate_is_closed(tmp_path: Pa
 async def test_real_console_writes_when_the_gate_is_open(tmp_path: Path) -> None:
     """端到端：指纹 → 保真写 → 备份 → 审计 → 响应含新指纹与新来源（AC2/AC3/AC7）。"""
     from heagent import envfile
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     raw = b"# project\r\nMAX_ITERATIONS=25\r\n"
     (tmp_path / ".env").write_bytes(raw)
@@ -567,7 +567,7 @@ async def test_real_console_writes_when_the_gate_is_open(tmp_path: Path) -> None
 
 async def test_real_console_has_no_side_effects_for_non_loopback_clients(tmp_path: Path) -> None:
     """AC10 的端到端版本：非回环 + 闸门开 —— 文件 / 备份 / 审计三者都不变。"""
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     raw = b"MAX_ITERATIONS=25\n"
     (tmp_path / ".env").write_bytes(raw)
@@ -585,7 +585,7 @@ async def test_real_console_has_no_side_effects_for_non_loopback_clients(tmp_pat
 
 async def test_real_console_conflict_keeps_the_other_editors_change(tmp_path: Path) -> None:
     """AC6：指纹过期 → 409 ``config_conflict``，**不覆盖**对方的修改。"""
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
     console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
@@ -602,7 +602,7 @@ async def test_real_console_conflict_keeps_the_other_editors_change(tmp_path: Pa
 
 async def test_real_console_refuses_read_only_keys(tmp_path: Path) -> None:
     """AC4：白名单之外的键由入口层（而非 UI）拒绝，文件不变。"""
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
     console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
@@ -623,7 +623,7 @@ async def test_real_console_refuses_read_only_keys(tmp_path: Path) -> None:
 
 async def test_real_panel_marks_the_write_switch_itself_read_only(tmp_path: Path) -> None:
     """I12 的端到端版本：连**开启时**，面板也把 ``HTTP_CONSOLE_*`` 标成只读并给出原因（无法自我解锁）。"""
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
     async with _client(_app(console)) as client:
@@ -638,7 +638,7 @@ async def test_real_panel_marks_the_write_switch_itself_read_only(tmp_path: Path
 
 async def test_no_endpoint_serves_backups_or_the_audit_log(tmp_path: Path) -> None:
     """AC7：备份「不提供任何网页下载端点」。审计同理——两者都在内部状态读拒集合内。"""
-    from heagent.cli_http import HttpProjectConsole
+    from heagent.cli.http import HttpProjectConsole
 
     raw = b"MAX_ITERATIONS=25\n"
     (tmp_path / ".env").write_bytes(raw)

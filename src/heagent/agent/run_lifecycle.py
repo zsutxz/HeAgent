@@ -88,7 +88,7 @@ _DELEGATION_DETAIL_KEYS = ("kind", "role", "workflow_step", "workflow_story", "g
 def _delegation_details(run_context: RunContext) -> dict[str, Any]:
     """Return a delegated run's identity for the ``run_started`` log line.
 
-    Progress banners (``cli_display._announce_*``) are stderr-only, so the log file could
+    Progress banners (``cli.display._announce_*``) are stderr-only, so the log file could
     not answer "which agent/step ran when" after the fact.  These keys make a delegated run
     reconstructible from ``logs/heagent-*.log``; a root run carries no such metadata and
     therefore logs exactly as before.

@@ -1,6 +1,6 @@
 """``heagent http-server`` 子命令与 HTTP 服务装配（入口层组合根，Epic 49）。
 
-本模块属**入口层**（与 ``cli`` / ``cli_init`` / ``cli_goal`` / ``cli_tcp`` / ``wiring`` 同级）：
+本模块属**入口层**（与 ``cli`` / ``cli/init`` / ``cli/goal`` / ``cli/tcp`` / ``wiring`` 同级）：
 它读设置、构造可选 HTTP 栈下的 :class:`~heagent.network.http_server.HttpServer`、注册 Click
 命令；``network/`` 侧不反向依赖本模块（``tests/test_architecture_contracts.py`` 有可执行断言）。
 
@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
-from heagent.cli_dialogs import DialogBusyError, DialogUnavailableError, DirectoryPicker
+from heagent.cli.dialogs import DialogBusyError, DialogUnavailableError, DirectoryPicker
 from heagent.config import GLOBAL_CONFIG_FILE, Settings, get_settings
 from heagent.config_catalog import LABELS, ConfigItem, ConfigReport, build_config_report
 from heagent.config_write import ConfigChange, ConfigWriteRejection, ConfigWriteResult, apply_config_write
@@ -102,7 +102,7 @@ def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -
 
 def _build_soul(soul_path: str | None) -> Any:
     """复用 ``cli._build_soul`` 的路径语义（global/project SOUL.md），不在此重复一份。"""
-    from heagent.cli import _build_soul as _cli_build_soul  # noqa: PLC0415 —— 见模块 docstring 的成环说明
+    from heagent.cli.console import _build_soul as _cli_build_soul  # noqa: PLC0415 —— 见模块 docstring 的成环说明
 
     return _cli_build_soul(soul_path)
 
@@ -123,7 +123,7 @@ def _resolve_model(loop: AgentLoop) -> str | None:
 
     只读**本次运行 loop** 的记录（``last_model``，由 provider 响应回填）：共享 provider 的路由状态
     （``active_model`` → ``RoutingProvider.last_decision``）是实例级「最近一次决策」，并发下会把
-    兄弟请求的档位串味（与 ``cli_tcp._resolve_model`` 同一立场）。
+    兄弟请求的档位串味（与 ``cli.tcp._resolve_model`` 同一立场）。
     """
     return loop.last_model or loop.provider.get_metadata().model
 
@@ -132,7 +132,7 @@ def _current_version() -> str:
     """当前包版本（健康检查对外报告用）。
 
     在**函数内**导入根包：模块级导入根包会与 ``cli`` 的命令注册形成回环风险，而这里只在真正
-    启动 HTTP 服务时才需要版本号（与 ``cli_display._current_version`` 同一手法）。
+    启动 HTTP 服务时才需要版本号（与 ``cli.display._current_version`` 同一手法）。
     """
     from heagent import __version__
 
@@ -166,7 +166,7 @@ def build_server_config(
 ) -> HttpServerConfig:
     """把 CLI 覆盖（``None`` = 未覆盖）合并到 ``Settings`` 的 HTTP 配置。
 
-    两个不变量（与 ``cli_tcp.build_server_config`` 同义）：
+    两个不变量（与 ``cli.tcp.build_server_config`` 同义）：
 
     - **不写回 Settings**：覆盖只作用于本次服务实例，设置单例保持 env / 文件默认值；
     - **范围规则唯一**：CLI 侧先用 ``click`` 的 range 类型拦一道，最终仍由
@@ -235,13 +235,13 @@ def _web_tool_output(event: Any) -> str:
 class HttpAgentHandler:
     """``prompt`` → 一次 ``AgentLoop.run_stream`` 的适配器（网络层只认这个可调用对象）。
 
-    与 :class:`~heagent.cli_tcp.TcpAgentHandler` 同构——服务级共享 ``provider`` / ``engine`` /
+    与 :class:`~heagent.cli.tcp.TcpAgentHandler` 同构——服务级共享 ``provider`` / ``engine`` /
     四个记忆存储（构造便宜、以只读为主），**每次运行新建 ``AgentLoop``**（loop 持有跨 run 可变展示态：
     ``last_usage`` / ``last_model`` / ``active_tool`` / 暂停 Event，共享单实例并发会互相覆盖）。
 
     **独立引擎，不装审批处理器**：HTTP handler 自建 ``EngineContainer``（``approval_handler=None``），
     因此需要审批的工具调用维持既有 fail-safe 阻断语义，而**不会**去读 CLI / 服务进程的 stdin——
-    网络入口无人应答，装了只会把请求挂死（与 ``cli_tcp`` 同一决策）。代价是网页侧与 CLI 终端各有一份
+    网络入口无人应答，装了只会把请求挂死（与 ``cli/tcp`` 同一决策）。代价是网页侧与 CLI 终端各有一份
     引擎与事件总线（记忆存储同样各自一份），互不干扰。
 
     **不连接 MCP**：``.mcp.json`` 声明的 server 属不可信代码 / 端点，网络入口自动连接等于把触达面
@@ -324,7 +324,7 @@ class HttpAgentHandler:
         偶然成立（评审 F2）。返回值里若真出现调度器，本方法**显式失败**——把带无人监督执行面的
         运行时装进 HTTP 进程是 49-5 明令禁止的形态，绝不静默忽略。
         """
-        from heagent.cli import _build_loop  # noqa: PLC0415 —— 见模块 docstring 的成环说明
+        from heagent.cli.console import _build_loop  # noqa: PLC0415 —— 见模块 docstring 的成环说明
 
         loop, scheduler = _build_loop(
             self.settings,
@@ -1065,7 +1065,7 @@ def http_server_cmd(
 ) -> None:
     """Serve the built-in HeAgent web UI over HTTP (experimental; no authentication)."""
     # 函数内导入：``cli`` 在模块尾部 import 本模块注册命令，模块级互相导入会成环。
-    from heagent.cli import _prune_runtime_artifacts, _setup_logging  # noqa: PLC0415
+    from heagent.cli.console import _prune_runtime_artifacts, _setup_logging  # noqa: PLC0415
     from heagent.roles import load_agent_roles  # noqa: PLC0415
 
     _setup_logging()

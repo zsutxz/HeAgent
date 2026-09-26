@@ -81,7 +81,7 @@ def _stub_embedded_http_service(request: pytest.FixtureRequest, monkeypatch: pyt
     if "embedded_http_service" in request.keywords:
         return
 
-    from heagent import cli_http
+    from heagent.cli import http as cli_http
 
     def _build(_settings: object, **_kwargs: object) -> _StubEmbeddedHttp:
         service = _StubEmbeddedHttp()

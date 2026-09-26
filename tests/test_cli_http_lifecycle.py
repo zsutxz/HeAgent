@@ -28,8 +28,8 @@ pytest.importorskip("starlette")
 import httpx
 from click.testing import CliRunner
 
-from heagent.cli import main
-from heagent.cli_http import build_http_service
+from heagent.cli.console import main
+from heagent.cli.http import build_http_service
 from heagent.config import get_settings, reset_settings
 from heagent.providers.base import ProviderMetadata
 from heagent.types import Message, ProviderResponse, TokenUsage
@@ -109,7 +109,7 @@ def _drive(
     if port is not None:
         monkeypatch.setenv("HTTP_PORT", str(port))
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr("heagent.cli._build_provider", lambda settings, model: provider)
+    monkeypatch.setattr("heagent.cli.console._build_provider", lambda settings, model: provider)
     reset_settings()
 
 
@@ -169,7 +169,7 @@ def test_interactive_mode_serves_alongside_the_repl(monkeypatch: pytest.MonkeyPa
     async def fake_run_prompt(_loop: object, _prompt: str, _system: object, _session_id: str) -> None:
         observed.append(await _fetch_health(port))
 
-    monkeypatch.setattr("heagent.cli._run_prompt", fake_run_prompt)
+    monkeypatch.setattr("heagent.cli.console._run_prompt", fake_run_prompt)
 
     result = CliRunner().invoke(main, [], input="hi\n")
 
@@ -251,7 +251,7 @@ def test_plain_cli_goes_through_the_embedded_service(
     async def fake_run_prompt(_loop: object, prompt: str, _system: object, _session_id: str) -> None:
         prompted.append(prompt)
 
-    monkeypatch.setattr("heagent.cli._run_prompt", fake_run_prompt)
+    monkeypatch.setattr("heagent.cli.console._run_prompt", fake_run_prompt)
 
     result = CliRunner().invoke(main, [], input="hi\n")
 
@@ -264,7 +264,7 @@ def test_plain_cli_goes_through_the_embedded_service(
 
 def test_interactive_mode_stops_when_the_embedded_service_fails(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     """网页入口挂掉后不得继续假装可用：交互模式如实报出并退出（AD-5）。"""
-    monkeypatch.setattr("heagent.cli_http.build_http_service", _failing_service)
+    monkeypatch.setattr("heagent.cli.http.build_http_service", _failing_service)
     provider = _RecordingProvider()
     _drive(monkeypatch, tmp_path, provider)
 
@@ -289,11 +289,11 @@ def test_explicit_subcommands_never_start_the_embedded_service(
     async def fake_serve_http(_server: object) -> None:
         served.append("http")
 
-    monkeypatch.setattr("heagent.cli_tcp._serve_tcp", fake_serve_tcp)
-    monkeypatch.setattr("heagent.cli_http._serve_http", fake_serve_http)
-    # cli_tcp / cli_http 各自模块级绑定了 `_build_provider`（与 cli 是三处名字），逐一打桩。
-    monkeypatch.setattr("heagent.cli_tcp._build_provider", lambda settings, model: provider)
-    monkeypatch.setattr("heagent.cli_http._build_provider", lambda settings, model: provider)
+    monkeypatch.setattr("heagent.cli.tcp._serve_tcp", fake_serve_tcp)
+    monkeypatch.setattr("heagent.cli.http._serve_http", fake_serve_http)
+    # cli/tcp.py / cli/http.py 各自模块级绑定了 `_build_provider`（与 cli/console.py 是三处名字），逐一打桩。
+    monkeypatch.setattr("heagent.cli.tcp._build_provider", lambda settings, model: provider)
+    monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: provider)
     rollout = tmp_path / "rollout.jsonl"
     rollout.write_text("", encoding="utf-8")
 
@@ -350,7 +350,7 @@ def test_default_cli_exposes_the_run_api(monkeypatch: pytest.MonkeyPatch, tmp_pa
                 observed.append((await client.get(f"http://127.0.0.1:{port}/api/runs/{run_id}/events")).text)
                 observed.append((await client.get(f"http://127.0.0.1:{port}/api/session")).json())
 
-    monkeypatch.setattr("heagent.cli._run_prompt", fake_run_prompt)
+    monkeypatch.setattr("heagent.cli.console._run_prompt", fake_run_prompt)
 
     result = CliRunner().invoke(main, [], input="hi\n")
 

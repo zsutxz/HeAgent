@@ -30,7 +30,7 @@ pytest.importorskip("starlette")
 
 import httpx
 
-from heagent.cli_http import HttpAgentHandler, HttpProjectConsole
+from heagent.cli.http import HttpAgentHandler, HttpProjectConsole
 from heagent.config import get_settings, reset_settings
 from heagent.network.exposure import exposure_warning
 from heagent.network.http_protocol import HttpErrorCode

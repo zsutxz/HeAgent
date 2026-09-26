@@ -95,7 +95,7 @@ class TestPrintUsageCost:
     def test_print_usage_shows_cost(self, capsys, monkeypatch) -> None:
         monkeypatch.setenv("MODEL_PRICING", '{"deepseek-chat": {"input": 0.27, "output": 1.1}}')
         reset_settings()
-        from heagent.cli import _print_usage
+        from heagent.cli.display import _print_usage
 
         usage = TokenUsage(prompt_tokens=1_000_000, completion_tokens=1_000_000, total_tokens=2_000_000)
         _print_usage(usage, model="deepseek-chat")

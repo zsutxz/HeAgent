@@ -1,7 +1,7 @@
 """ASGI HTTP 传输层：静态资源、安全响应头与有界生命周期（Epic 49）。
 
 **职责边界（AD-1）**：本模块只做 HTTP 协议与生命周期——路由、安全响应头、包内静态资源、
-listener 的 start/close。它**不**构造 Agent：任何 Agent 能力都由入口层（``cli_http.py``）以
+listener 的 start/close。它**不**构造 Agent：任何 Agent 能力都由入口层（``cli/http.py``）以
 注入对象的方式交进来。因此本模块的导入面被刻意限制在：标准库、Pydantic、可选 ASGI 栈
 （Starlette / Uvicorn，延迟导入）、``heagent.network.exposure``、``heagent.safe_logging`` 与
 同层协议模型。``tests/test_architecture_contracts.py`` 对此有可执行断言。
@@ -78,7 +78,7 @@ if TYPE_CHECKING:
     # 入口层交回的可调用对象：把 prompt 跑成 Agent 运行，并通过 publisher 推事件。
     #
     # ``network/`` 只认这个形状，不认 ``AgentLoop``——这是 AD-1（传输层不构造 Agent）与 AD-7
-    # （治理链由既有 Agent 路径负责）的接缝；实现见入口层 ``cli_http.HttpAgentHandler``。
+    # （治理链由既有 Agent 路径负责）的接缝；实现见入口层 ``cli.http.HttpAgentHandler``。
     RunExecutor = Callable[[str, "RunEventPublisher"], Awaitable[RunOutcome]]
 
 logger = logging.getLogger(__name__)
@@ -1395,7 +1395,7 @@ def _build_session_endpoints(  # noqa: C901 - 六个端点闭包共享同一套�
         """路径里的会话 id（已过形态校验；错误路径回 ``("", error)``，调用方必须先短路 error）。
 
         形态校验放在**网络层**（非法即 ``invalid_session_id``，且**不触碰文件系统**）；入口层还有第二道
-        同样的守卫（``cli_http._guarded_session_id``），两点各自 fail-closed。
+        同样的守卫（``cli.http._guarded_session_id``），两点各自 fail-closed。
         """
         session_id = str(request.path_params.get("session_id", ""))
         if not is_valid_session_id(session_id):

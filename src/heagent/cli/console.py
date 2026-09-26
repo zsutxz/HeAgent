@@ -18,7 +18,7 @@ import click
 import heagent.tools.builtins  # noqa: F401
 from heagent.agent.loop import AgentLoop
 from heagent.agent.middleware import make_retry_middleware
-from heagent.cli_display import (
+from heagent.cli.display import (
     SUBAGENT_ANNOUNCER,
     _echo_status,
     _format_status,
@@ -29,7 +29,7 @@ from heagent.cli_display import (
     show_deferred_work,
     show_tool_activity,
 )
-from heagent.cli_goal import _goal_runner
+from heagent.cli.goal import _goal_runner
 from heagent.config import GLOBAL_CONFIG_DIR, Settings, get_settings, resolve_runtime_config
 from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
@@ -338,7 +338,7 @@ async def _embedded_http_service(settings: Settings, provider: BaseProvider) -> 
     """默认 CLI 的内嵌 HTTP 服务（Epic 49 Story 49-2/49-3）。
 
     交互模式与 REPL 共存、单次模式与那次 run 并存；两种模式都在**同一个 asyncio 生命周期**内启动
-    与收尾（AD-5：``cli_http`` 是唯一生命周期所有者）。`heagent gui` / `tcp-server` / `http-server` /
+    与收尾（AD-5：``cli/http`` 是唯一生命周期所有者）。`heagent gui` / `tcp-server` / `http-server` /
     `init` / `replay` 都不经过本函数，因此**不会**派生第二个 HTTP 实例。
 
     运行入口是入口层的 ``HttpAgentHandler``（每运行新建独立 ``AgentLoop``、自建 engine 不装审批、
@@ -347,11 +347,11 @@ async def _embedded_http_service(settings: Settings, provider: BaseProvider) -> 
     启动失败（端口被占 / 缺 ``heagent[http]``）直接抛出——由 :func:`_run_with_embedded_http` 转成
     命令级错误并退出，绝不进入「聊天看着正常、网页入口其实没起来」的半启动状态。
 
-    ``build_http_service`` / ``HttpAgentHandler`` 在**函数内**导入：``cli_http`` 在模块尾部 import 本
-    模块注册命令，模块级互相导入会成环。测试缝因此落在 ``heagent.cli_http.build_http_service``
+    ``build_http_service`` / ``HttpAgentHandler`` 在**函数内**导入：``cli/http`` 在模块尾部 import 本
+    模块注册命令，模块级互相导入会成环。测试缝因此落在 ``heagent.cli.http.build_http_service``
     （**不要**在本模块顶部绑定该名字，否则缝会漂到 cli 上、既有 patch 目标失效）。
     """
-    from heagent.cli_http import HttpAgentHandler, build_http_service  # noqa: PLC0415
+    from heagent.cli.http import HttpAgentHandler, build_http_service  # noqa: PLC0415
 
     handler = HttpAgentHandler(provider, settings)
     async with build_http_service(settings, executor=handler) as service:
@@ -364,7 +364,7 @@ def _run_with_embedded_http(awaitable_factory: Callable[[], Coroutine[Any, Any, 
     用**工厂**而不是现成 coroutine：``asyncio.run`` 自建事件循环，awaitable 必须在它内部创建，
     否则会以「attached to a different loop」这类 `RuntimeError` 的形式炸出来。
     """
-    from heagent.cli_http import embedded_http_error_message  # noqa: PLC0415
+    from heagent.cli.http import embedded_http_error_message  # noqa: PLC0415
 
     try:
         asyncio.run(awaitable_factory())
@@ -1222,10 +1222,10 @@ def replay_cmd(path: Path, as_json: bool) -> None:
         click.echo(event.to_jsonl() if as_json else render_event(event))
 
 
-# Init 子命令已拆至 cli_init.py（wiring.py 先例：模板文案与命令定义随配置项变，
+# Init 子命令已拆至 cli/init.py（wiring.py 先例：模板文案与命令定义随配置项变，
 # 与交互编排变化原因不同）。此处 re-export 保持 heagent.cli 命名空间可用
 # （test_epic35 直接 import），命令经下方 add_command 注册（与 gui_cmd 同模式）。
-from heagent.cli_init import _init_project_context, init_cmd  # noqa: E402, F401
+from heagent.cli.init import _init_project_context, init_cmd  # noqa: E402, F401
 
 main.add_command(init_cmd)
 
@@ -1239,7 +1239,7 @@ main.add_command(gui_cmd)
 
 # TCP Server 子命令（Epic 48 Story 48-3）同样随命令定义拆分到入口层模块：命令只在显式调用时
 # 才装配 Provider / Engine（普通 CLI 不监听任何端口），此处仅注册，保持 heagent.cli 命名空间可用。
-from heagent.cli_tcp import tcp_server_cmd  # noqa: E402
+from heagent.cli.tcp import tcp_server_cmd  # noqa: E402
 
 main.add_command(tcp_server_cmd)
 
@@ -1247,6 +1247,6 @@ main.add_command(tcp_server_cmd)
 # 可选 HTTP 栈（`heagent[http]`）并绑定端口；普通 CLI 用法、gui、init、replay 都不监听 HTTP，
 # 也都不因缺 starlette/uvicorn 而失败。49-2 起默认 CLI 会**在同一进程内**另起 HTTP 服务，
 # 而显式 http-server 永远只起这一份（不派生子实例）。
-from heagent.cli_http import http_server_cmd  # noqa: E402
+from heagent.cli.http import http_server_cmd  # noqa: E402
 
 main.add_command(http_server_cmd)

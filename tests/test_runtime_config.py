@@ -152,7 +152,7 @@ def test_skill_tools_read_bound_snapshot_values():
 
 def test_build_loop_shares_engine_resolved_config():
     """CLI/GUI/cron 组装共用同一解析结果：loop 的快照就是 engine 装配用的那份。"""
-    from heagent.cli import _build_loop
+    from heagent.cli.console import _build_loop
 
     loop, scheduler = _build_loop(
         Settings(_env_file=None, cron_enabled=False), object(), max_iterations=5, soul_path=None

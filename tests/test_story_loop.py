@@ -14,7 +14,7 @@ from heagent.engine.workflow_runner import (
     parse_story_list,
 )
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
-from heagent.cli_goal import _goal_step_artifact_path
+from heagent.cli.goal import _goal_step_artifact_path
 
 STORIES = [
     StorySpec(id="S-1", summary="Scene rendering"),

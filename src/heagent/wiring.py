@@ -368,12 +368,12 @@ def build_cron_job_runner(
     stores，事件经同一 EventBus 汇聚），使用传入的 ``run_context``，不与交互中的主 loop
     抢占上下文。
 
-    ``heagent.cli_goal`` 经函数体内惰性导入：wiring 与 cli_goal 同属入口层，但 cli_goal
+    ``heagent.cli.goal`` 经函数体内惰性导入：wiring 与 cli/goal 同属入口层，但 cli/goal
     装载侧会经 wiring 建 provider，模块级互导即成环。
     """
 
     async def _run_job(prompt: str, run_context: RunContext) -> None:
-        from heagent.cli_goal import _goal_auto_goal_id, _goal_cron_advance
+        from heagent.cli.goal import _goal_auto_goal_id, _goal_cron_advance
 
         goal_id = _goal_auto_goal_id(prompt)
         if goal_id is not None:

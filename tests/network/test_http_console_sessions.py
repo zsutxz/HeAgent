@@ -27,7 +27,7 @@ pytest.importorskip("starlette")
 
 import httpx
 
-from heagent.cli_http import HttpProjectConsole
+from heagent.cli.http import HttpProjectConsole
 from heagent.context.session import MAX_SESSION_LIST_LIMIT, MAX_SESSION_TITLE_CHARS, SessionStore
 from heagent.network.http_console_protocol import (
     MAX_SESSION_ID_CHARS,

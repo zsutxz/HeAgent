@@ -13,7 +13,7 @@ from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, Input, RichLog, Static
 
-from heagent.cli_display import format_tokens_k
+from heagent.cli.display import format_tokens_k
 from heagent.config import get_settings
 from heagent.gui.bridge import MSG_AGENT_ERROR, MSG_AGENT_INTERRUPTED, MSG_STREAM_EVENT, BridgeMessage
 from heagent.providers.router import active_model, annotate_route
@@ -48,7 +48,7 @@ def _render_tool_result(event: StreamEvent) -> str:
 class _StderrToLogForwarder(io.TextIOBase):
     """把 click.echo(err=True) 写入 stderr 的文本按行转发到 RichLog（/goal 专用）。
 
-    ``cli_goal`` 的进度/失败信息全部经 ``click.echo(..., err=True)`` 直写进程 stderr（文案为
+    ``cli/goal`` 的进度/失败信息全部经 ``click.echo(..., err=True)`` 直写进程 stderr（文案为
     冻结契约，不改），GUI 侧经 :func:`contextlib.redirect_stderr` 捕获后路由到聊天日志——
     ``click.echo`` 在调用时查 ``sys.stderr``，重定向对它有效。同线程同 loop 直写安全；
     无换行的不完整行缓冲到下一次 ``write``（click.echo 每次自带换行，尾巴仅 close 时输出）。
@@ -244,7 +244,7 @@ class ChatScreen(Screen[None]):
         log = self.query_one("#chat-log", RichLog)
 
         async def _run() -> None:
-            from heagent.cli_goal import _goal_runner
+            from heagent.cli.goal import _goal_runner
             from heagent.gui.app import HeAgentApp
 
             app = HeAgentApp.get_current_app()

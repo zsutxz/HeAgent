@@ -20,7 +20,7 @@ pytest.importorskip("starlette")
 
 import httpx
 
-from heagent.cli_http import HttpAgentHandler, HttpProjectConsole
+from heagent.cli.http import HttpAgentHandler, HttpProjectConsole
 from heagent.config import get_settings, reset_settings
 from heagent.context.session import SessionStore
 from heagent.exceptions import HeAgentError
@@ -287,7 +287,7 @@ async def test_each_run_reports_its_own_model_and_usage() -> None:
 async def test_handler_keeps_the_network_entry_decisions(monkeypatch: pytest.MonkeyPatch) -> None:
     """网络入口的两条安全决策：**不装 stdin 审批处理器**、**不自动连接 MCP server**。"""
     monkeypatch.setattr(
-        "heagent.cli._mcp_lifecycle",
+        "heagent.cli.console._mcp_lifecycle",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("HTTP 入口不得构造 MCP 生命周期")),
     )
     provider = _ScriptedProvider([_answer("ok")])

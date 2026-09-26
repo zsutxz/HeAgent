@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import ast
+import importlib
 import re
 from datetime import datetime
 from pathlib import Path
@@ -34,22 +35,20 @@ _SUBPACKAGE_NAMES = frozenset(path.name for path in SRC.iterdir() if path.is_dir
 _TOP_LEVEL_MODULES = frozenset(path.stem for path in SRC.glob("*.py") if path.stem != "__init__")
 
 # 包 → 运行期不得导入的 heagent 子模块（CLAUDE.md「硬约束（违反即架构错误）」）。
-# 入口层模块（wiring/cli/cli_goal/cli_tcp/gui）：组合根与展示适配只属于入口层，下层一律不得
-# 反向导入（Phase 1 组合根收敛的契约化；新增入口模块须同步此表）。
+# 入口层模块（wiring / cli 包 / gui）：组合根与展示适配只属于入口层，下层一律不得反向导入
+# （Phase 1 组合根收敛的契约化；新增入口模块须同步此表）。
+# 2026-09-26：原七个平铺模块 ``cli*.py`` 收进 ``heagent/cli/`` 包 ⇒ 本表按**包根**收敛为一条
+# ``heagent.cli``（``_heagent_root`` 取模块路径第二段，故 ``heagent.cli.display`` 也归它）。
+# 这比原先更严：``cli_display``（展示辅助）与 ``cli_dialogs``（原生目录选择）此前各自单列，
+# 现在同属入口层——两者实测都只被入口层导入（GUI / cli/http.py）。
 _ENTRYPOINT_MODULES = (
     "heagent.wiring",
     "heagent.cli",
-    "heagent.cli_goal",
-    "heagent.cli_tcp",
-    "heagent.cli_http",
-    # cli_dialogs 是入口层的宿主进程拉起面（Story 50-8）：它复用 tools/sandbox 的子进程内核，
-    # 因此**更不能**被下层反向导入（network 只认协议模型，不认它拉窗口的能力）。
-    "heagent.cli_dialogs",
     "heagent.gui",
 )
-# goal/ 是入口层**域模块**（cli_goal 的装载/文档层，frame.md 六）：与组合根同属「下层不得反向导入」
-# 的入口面。此前只有 engine/memory 条目显式列它，其余包存在形式绕过（48-5 评审 W-7，AST 实测
-# 运行期只有 cli_goal 导入 goal/）。
+# goal/ 是入口层**域模块**（cli/goal.py 的装载/文档层，frame.md 六）：与组合根同属「下层不得反向
+# 导入」的入口面。此前只有 engine/memory 条目显式列它，其余包存在形式绕过（48-5 评审 W-7，
+# AST 实测运行期只有 cli/goal.py 导入 goal/）。
 _ENTRY_LAYER_MODULES = (*_ENTRYPOINT_MODULES, "heagent.goal")
 
 FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
@@ -62,7 +61,7 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
     # events/ 是事件传输层，运行期零 engine 依赖（引擎类型仅出现在 TYPE_CHECKING 里）。
     "events": ("heagent.agent", "heagent.engine", *_ENTRY_LAYER_MODULES),
     # network/ 是入口传输层（Epic 48）：只承载 framing / 协议 / 连接生命周期，运行期不得伸手进
-    # 运行时栈——Provider/Engine/AgentLoop 的装配是入口层（cli/wiring/cli_tcp）单向伸手。
+    # 运行时栈——Provider/Engine/AgentLoop 的装配是入口层（cli / wiring）单向伸手。
     # Epic 50 的 I1 再收紧一档：**网络层不认识项目与配置**——新顶层模块 projects（注册表）/
     # config_catalog（配置目录）/ workspace（状态根）/ config（Settings）一律不得出现在 network/ 里
     # （唯一例外是 ``safe_logging``：它是零依赖的底层共用模块，见模块 docstring 的允许面）。
@@ -191,13 +190,18 @@ def test_workspace_paths_is_the_only_state_path_module() -> None:
 
 
 def test_getcwd_configuration_is_limited_to_entrypoints() -> None:
+    """cwd 兜底只许出现在入口层 ``heagent/cli/`` 包内（其余一律经 ``WorkspacePaths.from_root``）。
+
+    判据按**包**而不是文件白名单：2026-09-26 起入口层是 ``cli/`` 包（console/composition/
+    interactive/http/tcp/…），逐个文件名列举会在每次拆分时静默失效（漏掉的文件就变成豁免）。
+    """
     offenders: list[str] = []
     for path in SRC.rglob("*.py"):
         if path.name == "workspace.py":
             continue
         text = path.read_text(encoding="utf-8")
-        entrypoints = {"cli.py", "cli_http.py", "cli_tcp.py", "cli_goal.py"}
-        if "os.getcwd()" in text and path.relative_to(SRC).parts[0] not in entrypoints:
+        is_entry_layer = path.relative_to(SRC).parts[0] == "cli"
+        if "os.getcwd()" in text and not is_entry_layer:
             offenders.append(path.relative_to(SRC).as_posix())
         for line in text.splitlines():
             if "os.getcwd()" in line and "WorkspacePaths.from_root" not in line:
@@ -362,7 +366,7 @@ def test_goal_application_use_case_is_click_free() -> None:
     """Phase 3：goal/application.py 的 use-case **运行期**禁止依赖 Click 与入口模块。
 
     workflow 校验 / gate 渲染 / story 选择 / checkpoint 恢复与推进全部收敛在
-    ``goal/application``；用户可见文案以结构化 outcome（messages）携带、由 cli_goal
+    ``goal/application``；用户可见文案以结构化 outcome（messages）携带、由 cli/goal.py
     统一渲染。该模块一旦 import ``click`` / ``heagent.cli*`` / ``heagent.gui*``，
     use-case 就再也离不开 Click 环境（test.md Phase 3 验收「同一 workflow use-case
     可在无 Click 环境下运行」），GUI 原生渲染的演进路径也被焊死。``goal/naming.py``
@@ -542,10 +546,10 @@ def test_workspace_module_only_imports_stdlib_and_pydantic() -> None:
 
 def test_entrypoints_do_not_duplicate_runtime_store_paths() -> None:
     modules = [
-        "cli.py",
-        "cli_goal.py",
-        "cli_http.py",
-        "cli_tcp.py",
+        "cli/console.py",
+        "cli/goal.py",
+        "cli/http.py",
+        "cli/tcp.py",
         "engine/container.py",
         "gui/__init__.py",
         "housekeeping.py",
@@ -605,3 +609,39 @@ def test_write_whitelist_is_a_subset_of_settings_and_holds_no_credentials() -> N
         verdict = config_catalog.classify(key)
         assert verdict.writable is False
         assert verdict.reason is not None and verdict.reason in config_catalog.LABELS, key
+
+
+# ── 2026-09-26：CLI 入口层收进 `heagent/cli/` 包（原七个平铺 ``cli*.py``）──
+
+
+def test_cli_package_shell_stays_thin() -> None:
+    """``heagent/cli/__init__.py`` 必须零 import。
+
+    包一旦在 ``__init__`` 里导入子模块，``import heagent.cli.display``（GUI 的轻量用法）就会先执行
+    ``console.py`` 的整条入口装配图（click + wiring + provider + engine），把「展示辅助」变成重型
+    导入；同时包 ``__init__`` 会成为后端子模块函数体内延迟导入的必经节点，扩大既有的成环面。
+    """
+    tree = ast.parse((SRC / "cli" / "__init__.py").read_text(encoding="utf-8"))
+    offenders = [node.lineno for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))]
+    assert offenders == [], f"cli/__init__.py 出现 import（第 {offenders} 行）——包壳必须保持零 import"
+
+
+def test_cli_package_layout_is_pinned() -> None:
+    """布局即契约：新增/重命名入口子模块必须同步本表与 frame.md 的目录树。"""
+    actual = sorted(path.stem for path in (SRC / "cli").glob("*.py") if path.stem != "__init__")
+    assert actual == ["console", "dialogs", "display", "goal", "http", "init", "tcp"]
+
+
+def test_entrypoint_script_points_at_an_importable_module() -> None:
+    """``[project.scripts]`` 的目标必须可导入且 ``main`` 可调用。
+
+    这条断言的价值：入口点字符串是**纯文本**，改包结构时最容易漏——``heagent.cli:main`` 在
+    ``cli/__init__.py`` 不再 re-export 之后会静默坏掉，直到有人真的敲 ``heagent`` 才发现。
+    """
+    pyproject = (SRC.parents[1] / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^heagent = "([^"]+)"$', pyproject, re.MULTILINE)
+    assert match is not None, "pyproject 里找不到 heagent 入口脚本声明"
+    target = match.group(1)
+    assert target == "heagent.cli.console:main", target
+    module_name, _, attr = target.partition(":")
+    assert callable(getattr(importlib.import_module(module_name), attr))

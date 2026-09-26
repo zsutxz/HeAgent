@@ -25,7 +25,7 @@ pytest.importorskip("starlette")
 
 import httpx
 
-from heagent.cli_http import HttpAgentHandler
+from heagent.cli.http import HttpAgentHandler
 from heagent.config import get_settings, reset_settings
 from heagent.network.http_protocol import HttpErrorCode
 from heagent.network.http_server import HttpRunService, HttpServerConfig, build_http_app
@@ -341,11 +341,11 @@ class TestGovernanceChain:
     async def test_handler_does_not_connect_mcp_servers(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
         """HTTP 入口不得构造 MCP 生命周期。
 
-        旧的写法打桩 ``cli._mcp_lifecycle``——HTTP 路径根本不会调用它，所以那条断言**恒真**、
+        旧的写法打桩 ``console._mcp_lifecycle``——HTTP 路径根本不会调用它，所以那条断言**恒真**、
         什么都证明不了。这里改为打桩真正被构造的类 ``MCPClientManager.__init__``，并先用 CLI 侧
         的生命周期做**正面控制**（证明该缝隙是活的），再断言一次 HTTP 运行从未碰到它。
         """
-        from heagent import cli
+        from heagent.cli import console
         from heagent.tools.mcp import MCPClientManager
 
         constructed: list[str] = []
@@ -366,7 +366,7 @@ class TestGovernanceChain:
         monkeypatch.setenv("MCP_ENABLED", "true")
         monkeypatch.setenv("MCP_CONFIG_PATH", str(config_path))
         reset_settings()
-        cli._mcp_lifecycle(get_settings())
+        console._mcp_lifecycle(get_settings())
         assert constructed == ["mcp"], "正面控制失败：该缝隙没有被 CLI 路径触达"
 
         constructed.clear()
