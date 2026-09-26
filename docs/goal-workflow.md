@@ -81,7 +81,7 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 `.heagent/skills/<role>/SKILL.md`。
 
 这些步骤不是 Python 中的固定状态机。`WorkflowRunner` 只负责顺序、输入缺失、输出结果、checkpoint
-和恢复；声明的装载在 `goal/workflow_loader.py`（`read_workflow`），`cli_goal.py` 负责 SubAgent 调用
+和恢复；声明的装载在 `goal/workflow_loader.py`（`read_workflow`），`cli/goal.py` 负责 SubAgent 调用
 与命令族编排。
 
 ### 运行方式
@@ -171,4 +171,4 @@ _he-output/goals/<goal-id>/
 - 变更产物字段或父子关系：同步修改 `engine/artifacts.py`、模板和测试。
 - 变更恢复、checkpoint、路径安全或工具执行：修改 `src/heagent/` 机制代码，并同步 `frame.md`。
 - 重排已有步骤编号会让存量未完成 goal 的 checkpoint 索引错位；改动前先确认没有活跃 goal 指针。
-- 不要在 `cli_goal.py` 增加与 `workflow.md` 平行的业务流程分支。
+- 不要在 `cli/goal.py` 增加与 `workflow.md` 平行的业务流程分支。

@@ -64,7 +64,7 @@
 ## 权威规则
 
 1. 运行行为：`src/`。
-2. 配置默认值和 CLI 入口：`src/heagent/config.py`、`src/heagent/cli.py`、`pyproject.toml`。
+2. 配置默认值和 CLI 入口：`src/heagent/config/__init__.py`、`src/heagent/cli/console.py`、`pyproject.toml`。
 3. 当前 `/goal` 工作流：`.heagent/skills/he-goal/workflow.md`。
 4. 设计和历史说明：本目录与 `_bmad-output/`，不得覆盖前三项。
 

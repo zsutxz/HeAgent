@@ -29,7 +29,7 @@
 
 - source_spec: `src/heagent/context/session.py`（`prune` / `delete` 只认 `.json`；Epic 50 第四轮评审发现）
   summary: **`.heagent/sessions/<id>.json.lock` 没有回收方，随会话数单调增长**：每次 `save` / `create` / `rename` 都经 `persist.atomic_update_text` 建一个 0 字节锁文件，而 `SessionStore.prune` 走 `prune_entries_by_mtime(suffix=".json")`（`str.endswith(".json")` 对 `X.json.lock` 为 False）、`delete()` 也只删 `.json` ⇒ 锁文件永久留存。触发条件：任何会话写入；严重度：低（inode / 目录项累积，无功能影响；历史同类账：runs 目录曾累积 6 万文件 / 703 MB）；冻结边界：**不得**用「删掉锁文件」当回收手段——`persist` 的注释已写明删除会引入「B 等旧 inode、C 拿新文件加锁成功」的竞态；要修就得给锁文件定寿命策略（例如按 `st_mtime` 判「无人持有」后删除），属 `persist` 层设计决策。
-  evidence: 实测（`.heagent/tmp/rev50_probe2.py`）：构造 400 天前的 `deadbeef.json` + `deadbeef.json.lock` 后 `prune(retention_days=30)` 返回 1，目录残留 `['deadbeef.json.lock']`；`persist.py` 注释声称「过期 `.lock` 由各自的 prune 随记录一并回收」——对 sessions 不成立（`engine/store.py` 才是正确做法的先例）。
+  evidence: 实测（`.heagent/tmp/rev50_probe2.py`）：构造 400 天前的 `deadbeef.json` + `deadbeef.json.lock` 后 `prune(retention_days=30)` 返回 1，目录残留 `['deadbeef.json.lock']`；`pub/persist.py` 注释声称「过期 `.lock` 由各自的 prune 随记录一并回收」——对 sessions 不成立（`engine/store.py` 才是正确做法的先例）。
 
 - source_spec: `src/heagent/context/session.py::save` + `src/heagent/agent/run_lifecycle.py`（Epic 50 Story 50-3 把「网页运行 → 会话落盘」接进同一 `.heagent/sessions`）
   summary: **同一会话文件的两个写者会整份覆盖对方的历史（静默数据丢失）**：运行落盘的 `save()` 不传 `expected_version`（last-write-wins），而文件锁只覆盖「单次读改写」、不覆盖 `load → … → save` 的整个跨度 ⇒ CLI 与内嵌网页入口（默认项目根 = 进程 cwd = 同一工作区，`.heagent/sessions` 同一目录）并发写同一会话时，后写者用 `_session_payload` **替换整份消息列表**，对方的整轮对话消失，且 `version` 照样单调递增（没有任何一方能发现）。触发条件：同 cwd 下 CLI 与会话页并存，且网页 `POST /api/projects/default/runs` 不带 `session_id`（`_resolve_session(None)` 取**最近**会话，往往正是 CLI 正在写的那个）；严重度：中（静默数据丢失）；冻结边界：**不得**改成「版本冲突即让运行落盘失败」（那会丢**当前**对话）；正确方向是单写者化 / 合并语义，或把冲突降级为可观测告警。
@@ -43,7 +43,7 @@
 
 - source_spec: `_bmad-output/epics/epic-50-网页控制台周期/ARCHITECTURE-SPINE.md`（§288 把「凭证」定义为 `*_API_KEY` / `*_API_KEYS`；Epic 50 第四轮评审发现**设计边界**而非实现偏离）
   summary: **掩码域是名字后缀制：写进 `*_BASE_URL` 的凭证会被原样回显**——`is_secret_key` 只认 `_API_KEY` / `_API_KEYS` 后缀，而 `*_BASE_URL` 走的是排除组的**模式**（`patterns=("*_BASE_URL",)`）⇒ 面板会把 `DEEPSEEK_BASE_URL=https://user:token@relay/v1` 这类「token 写在 URL userinfo / 查询串」的值**整串**放进 `ConfigItem.value` 并渲染进页面；`GET /api/projects/{id}/config` **没有**回环门（写通道才有）⇒ 任何能连到服务的客户端都能读到（服务默认回环，但支持非回环绑定）。触发条件：把中转站 token 写进 base URL（常见写法）；严重度：低（无认证 / 无 TLS 是既有姿态，键本身也不以凭证命名）；冻结边界：**不得**对 URL 做部分掩码（会让 base URL 不可复制，破坏「为什么连不上」的诊断用途），也**不得**据此给只读的 GET 加回环门（与 49/50 的只读面姿态冲突）。
-  evidence: `config_catalog.py`（`_SECRET_SUFFIXES` / `is_secret_key` / `_build_item` 的 `value=None if secret else values.get(...)`；`EXCLUSION_GROUPS` 的 `patterns=("*_BASE_URL",)`）；脊柱 §288 明确把「凭证」定义为 `*_API_KEY` / `*_API_KEYS` ⇒ 与规格**一致**；对照：`safe_logging` / `LoggingObserver` 的日志脱敏**包含 URL userinfo**（同仓对「URL 里的凭证」另有更宽口径）。
+  evidence: `config/catalog.py`（`_SECRET_SUFFIXES` / `is_secret_key` / `_build_item` 的 `value=None if secret else values.get(...)`；`EXCLUSION_GROUPS` 的 `patterns=("*_BASE_URL",)`）；脊柱 §288 明确把「凭证」定义为 `*_API_KEY` / `*_API_KEYS` ⇒ 与规格**一致**；对照：`safe_logging` / `LoggingObserver` 的日志脱敏**包含 URL userinfo**（同仓对「URL 里的凭证」另有更宽口径）。
   Progress（2026-09-26 登记）：文档侧口径已在本轮补正（`docs/frame.md` 的配置来源行补注「掩码域 = `*_API_KEY(S)` 后缀」）；**是否扩大掩码域（URL userinfo / 查询串 token）待人裁决**。
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`

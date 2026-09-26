@@ -768,7 +768,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 **工具执行链（冻结）**：`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler。
 
-**engine 承重设计**：`PolicyEngine` 产出 `PolicyVerdict`（mode ∈ {DIRECT, APPROVAL_REQUIRED, SANDBOX_REQUIRED, BLOCKED}）；`ExecutionLedger` 缓存命中仍须复核最新 policy；lease-active 命中跳过重复执行；`persist.py` 原子写 + 损坏 JSON 容错 + 可选跨进程文件锁；`observability.py` EventBus 派发引擎事件。
+**engine 承重设计**：`PolicyEngine` 产出 `PolicyVerdict`（mode ∈ {DIRECT, APPROVAL_REQUIRED, SANDBOX_REQUIRED, BLOCKED}）；`ExecutionLedger` 缓存命中仍须复核最新 policy；lease-active 命中跳过重复执行；`pub/persist.py` 原子写 + 损坏 JSON 容错 + 可选跨进程文件锁；`observability.py` EventBus 派发引擎事件。
 
 ---
 

@@ -3,7 +3,7 @@
 > 状态：当前实现指南（2026-09-22，Phase 5 C3）。代码事实以 `src/` 为准；硬约束见
 > [`frame.md`](frame.md) 三（模块依赖 DAG）与项目根 [`CLAUDE.md`](../CLAUDE.md)。
 > **通用前置**：新增 provider/tool **禁止**从 `heagent.agent` 导入（全仓无例外）；
-> 跨模块数据一律 Pydantic 模型（`types.py`）；业务执行只读构造期配置快照（Phase 1 原则，
+> 跨模块数据一律 Pydantic 模型（`pub/types.py`）；业务执行只读构造期配置快照（Phase 1 原则，
 > 不在业务方法里调 `get_settings()`）。
 
 ## 一、新增 LLM Provider
@@ -12,7 +12,7 @@
    （async）、`stream(...) -> AsyncIterator[StreamEvent]`、`get_metadata() -> ProviderMetadata`。
    参考最小实现：`tests/test_agent_loop.py::StubProvider`（结构兼容即可，Protocol 风格）。
 2. **接入方式**（三选一）：
-   - OpenAI 兼容端点：复用 `providers/openai_compat.py`，仅加配置（`config.py` 的 provider 段 + `.env`）；
+   - OpenAI 兼容端点：复用 `providers/openai_compat.py`，仅加配置（`config/__init__.py` 的 provider 段 + `.env`）；
    - 新协议：在 `providers/` 下新建 `snake_case.py`，实现上述契约，别忘流式 `usage`/`tool_calls`
      的最终 chunk 补全（先例：Anthropic 流式实现，见 `providers/anthropic*`）；
    - 智能路由/容错：跨 provider 回退挂 `providers/chain.py`，多密钥轮换挂 `providers/key_rotation.py`。
