@@ -5,7 +5,7 @@
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
 > ② **闭合归档**——正文分两处落（2026-09-24 起）：**勘察类**（source_spec 为勘察批次、无归属 epic）留在本文件；**有归属 epic 的**按规则回填到各周期 `deferred-work.md`（`Z-D10` / `Z-D11` → [`epic-48-TCP网络接口周期/deferred-work.md`](../epics/epic-48-TCP网络接口周期/deferred-work.md)，`Z-D13`~`Z-D15` → [`epic-50-网页控制台周期/deferred-work.md`](../epics/epic-50-网页控制台周期/deferred-work.md)）。本文件仍登记**全部 `Z-Dn` 的 ID 索引**（见下状态总览），但不保留已回填条目的正文副本。
 
-## 活动（未闭合）条目——19 条
+## 活动（未闭合）条目——24 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -19,7 +19,31 @@
 > - 2026-09-24：**回填**——`Z-D10` / `Z-D11`（Epic 48）与 `Z-D13` / `Z-D14` / `Z-D15`（Epic 50）的**正文**按「归属 epic」移入各自周期 `deferred-work.md`（本文件只留 ID 索引，不再留副本）
 > - 2026-09-24：**Story 50-8（Epic 50 收口后的体验优化轮）实现新增 2 条**——①「网页请求可拉起宿主 GUI 进程」的新暴露面（弹窗，有意引入，含不可用环境与「回环 ≠ 可信」口径）；②真实原生窗口的验收不可自动化 + 网页侧读取结果收敛所依赖的 `Error:` 前缀判据是展示层启发式。报告与实测见 `epics/epic-50-网页控制台周期/reviews.md#acceptance-50-8-refinement`
 > - 2026-09-26：**Story 50-8 的收口后评审（增量轮）新增 2 条**（均为 `intent_gap / blocked 待人裁决`）——① R5 的收敛判据对「正文以 `Error:` 开头的文件」失效（AC9 两句话在该输入类上互斥）；②「共 N 个会话」在 N > 200 时静默少报（服务端硬上限截断且协议无 `total`）。报告见 `epics/epic-50-网页控制台周期/reviews.md#review-epic-50-story-50-8`；同轮就地修复 4 处判据/口径（含 AC13 的 195 档进可复跑清单），负向验证 5/5 精确变红
-> - 2026-09-26：**续轮**（同一评审，又探了前端探针桩保真度 / 真实弹窗路径 / 新端点的入口宽度）**新增 1 条**——③ 原生目录选择端点**默认开且比登记范围宽**：默认 CLI 的内嵌服务同样生效，而 `--dialog-backend` 只挂在 `http-server`、无 `Settings` 字段 ⇒ 内嵌路径**无关闭手段**（与写通道 `HTTP_CONSOLE_WRITE_ENABLED` 默认 False 的惯例相反）。`docs/frame.md` 4.18 / 五 已按实测补正；真实弹窗路径独立复现通过；前端探针桩的保真边界已写进桩首注释
+> - 2026-09-26：**Epic 50 收口后第四轮评审**（对 HEAD 全量复核：`pytest` 3144 passed / 覆盖率 92% / ruff·mypy 双平台全绿 均为亲跑；报告 `epics/epic-50-网页控制台周期/reviews.md#review-epic-50-round4`）**新增 5 条**——① 会话 id 放行 Windows 保留设备名（`--resume NUL` 读成空历史、`save` 写向空设备 ⇒ 整段对话静默丢弃；既有）；② `.heagent/sessions/<id>.json.lock` 无回收方（`prune` 只认 `.json`）；③ 同一会话文件的两个写者（CLI 与内嵌网页共享同一 cwd 工作区）**整份覆盖**对方历史（**中**，静默数据丢失）；④ 诊断「N 条需要注意」把信息性 note 计入告警且 BOM 一事双计（`intent_gap`）；⑤ `*_BASE_URL` 等非后缀载体的值原样回显（掩码域 = `_API_KEY(S)` 后缀；`intent_gap`，文档口径同轮已补）。同轮**就地修复 2 处并带负向验证**：跨项目配置写入（`web/app.js` 面板归属守卫——无修复时桩实测 `writeCalls=1`，把 A 的未保存改动写进 B 的 `.env`）、会话 id 正则 `$`→`\Z`（两处同源校验，尾随 `\n` 实测被双放行）
+
+- source_spec: `src/heagent/context/session.py`（`_SESSION_ID_RE`，2026-07-21 `cc7fd5d` 引入；Epic 50 第四轮评审发现——Epic 50 只把同一字符集镜像进 `http_console_protocol.SESSION_ID_PATTERN`，故按「非本 Epic 引起的既有问题」登记）
+  summary: **会话 id 放行 Windows 保留设备名 ⇒ 整段对话静默丢弃**：`[a-zA-Z0-9_-]+` 字符集天然放行 `NUL` / `CON` / `PRN` / `AUX` / `COM1`，而 Windows 把 `NUL`（含 `NUL.json` 这类带扩展名的形式）解析为**空设备**：`exists()` 恒 True、读取得空串 ⇒ `load()` 静默返回「空历史」（伪装成没有历史），`save()` 写向空设备 ⇒ 对话既不落盘、也永远不出现在 `list_metadata`（既不列表也不在盘上）。触发条件：`heagent --resume NUL`（或 `CON` / `PRN` / `AUX` / `COM1`，`cli.py` 的 `--resume` 不过任何额外校验）；严重度：低（需用户显式输入保留名；无权限后果，是**静默丢数据**）；冻结边界：**不得**因此放松 id 字符集（那是路径遍历防线），只允许在字符集之外**追加**保留名拒绝。
+  evidence: 实测（2026-09-26 亲跑 `.heagent/tmp/rev50_probe.py`）：`os.path.exists('NUL.json') = True`、`os.path.exists('CON.json') = True`（`PRN` / `AUX` / `COM1` 为 False）、`SessionStore.path_for('NUL')` 通过校验；`session.py::_validate_session_id` 只查字符集与长度，`cli.py` 的 `--resume` 无额外守卫。
+  Progress（2026-09-26 登记，**未修**）：修法很小（追加一个保留名元组 + 单测），但属既有缺陷类，第四轮评审按纪律只登记不顺手改（评审不做范围外重构）。
+
+- source_spec: `src/heagent/context/session.py`（`prune` / `delete` 只认 `.json`；Epic 50 第四轮评审发现）
+  summary: **`.heagent/sessions/<id>.json.lock` 没有回收方，随会话数单调增长**：每次 `save` / `create` / `rename` 都经 `persist.atomic_update_text` 建一个 0 字节锁文件，而 `SessionStore.prune` 走 `prune_entries_by_mtime(suffix=".json")`（`str.endswith(".json")` 对 `X.json.lock` 为 False）、`delete()` 也只删 `.json` ⇒ 锁文件永久留存。触发条件：任何会话写入；严重度：低（inode / 目录项累积，无功能影响；历史同类账：runs 目录曾累积 6 万文件 / 703 MB）；冻结边界：**不得**用「删掉锁文件」当回收手段——`persist` 的注释已写明删除会引入「B 等旧 inode、C 拿新文件加锁成功」的竞态；要修就得给锁文件定寿命策略（例如按 `st_mtime` 判「无人持有」后删除），属 `persist` 层设计决策。
+  evidence: 实测（`.heagent/tmp/rev50_probe2.py`）：构造 400 天前的 `deadbeef.json` + `deadbeef.json.lock` 后 `prune(retention_days=30)` 返回 1，目录残留 `['deadbeef.json.lock']`；`persist.py` 注释声称「过期 `.lock` 由各自的 prune 随记录一并回收」——对 sessions 不成立（`engine/store.py` 才是正确做法的先例）。
+
+- source_spec: `src/heagent/context/session.py::save` + `src/heagent/agent/run_lifecycle.py`（Epic 50 Story 50-3 把「网页运行 → 会话落盘」接进同一 `.heagent/sessions`）
+  summary: **同一会话文件的两个写者会整份覆盖对方的历史（静默数据丢失）**：运行落盘的 `save()` 不传 `expected_version`（last-write-wins），而文件锁只覆盖「单次读改写」、不覆盖 `load → … → save` 的整个跨度 ⇒ CLI 与内嵌网页入口（默认项目根 = 进程 cwd = 同一工作区，`.heagent/sessions` 同一目录）并发写同一会话时，后写者用 `_session_payload` **替换整份消息列表**，对方的整轮对话消失，且 `version` 照样单调递增（没有任何一方能发现）。触发条件：同 cwd 下 CLI 与会话页并存，且网页 `POST /api/projects/default/runs` 不带 `session_id`（`_resolve_session(None)` 取**最近**会话，往往正是 CLI 正在写的那个）；严重度：中（静默数据丢失）；冻结边界：**不得**改成「版本冲突即让运行落盘失败」（那会丢**当前**对话）；正确方向是单写者化 / 合并语义，或把冲突降级为可观测告警。
+  evidence: 读码 `session.py::save`（`expected_version: int | None = None` 默认，仅非 None 时比对并抛 `SessionConflictError`）与 `run_lifecycle` 的落盘调用（只传 `session_id` + 消息列表）；`tests/network/test_http_console_sessions.py` 的替身**刻意**按「不传 `expected_version`」建模（把 last-write-wins 钉成现状），`tests/test_session.py` 只覆盖单写者覆盖。
+  Progress（2026-09-26 登记，**未修**）：修法需要跨 `agent/`（落盘调用点）与 `context/`（合并语义）设计，超出评审的最小修复范围。
+
+- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R4 的诊断折叠标题；Epic 50 第四轮评审发现）
+  summary: **诊断折叠标题把信息性 note 计入「需要注意」并把块标成 `failed`**：`app.js::renderDiagnostics` 把 `config.notes` **整条** push 进 `warnings`，而 notes 里混着纯信息项（`project_env_missing` = 「项目 .env 不存在：全部字段回退到全局 .env / 默认值」，新项目的**常态**）⇒ 一个刚登记、没有任何 `.env` 的项目一打开设置面板就看到红色的「1 条需要注意」；同一事实还会**双计**（BOM：前端硬编码的 `env_file.has_bom` 告警 + `project_env_bom_stripped` 这条 note 各推一条）。触发条件：项目无 `.env`（或带 BOM）；严重度：低（显示口径，不误导到危险动作，但会把常态渲染成告警）；冻结边界：**不得**因此把 note 整类删掉（它是 AC5 的诊断面），要改就改**分级**。
+  evidence: 读码 `app.js::renderDiagnostics`（`for (const note of config.notes || []) warnings.push(labelFor(note, config.labels))` + `dataset.state = warnings.length ? "failed" : "idle"`）、`config_catalog.build_config_report`（`if not project_scan.exists: notes.append("project_env_missing")`）；判据把现状钉住：`tests/test_http_web_ui.py::test_settings_panel_is_compact_without_losing_reasons` 断言「2 条需要注意」，`tests/js/app_probe.js` 的 S 用例 fixture 正是「重复键 + `project_env_missing`」。
+  Progress（2026-09-26 登记，**未修**，**intent_gap / blocked 待人裁决**）：要裁「哪些 note 属『需要注意』、信息性 note 用什么样式（中性 / 折叠内仍可见）」；口径定了以后，BOM 双计一并处理。
+
+- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/ARCHITECTURE-SPINE.md`（§288 把「凭证」定义为 `*_API_KEY` / `*_API_KEYS`；Epic 50 第四轮评审发现**设计边界**而非实现偏离）
+  summary: **掩码域是名字后缀制：写进 `*_BASE_URL` 的凭证会被原样回显**——`is_secret_key` 只认 `_API_KEY` / `_API_KEYS` 后缀，而 `*_BASE_URL` 走的是排除组的**模式**（`patterns=("*_BASE_URL",)`）⇒ 面板会把 `DEEPSEEK_BASE_URL=https://user:token@relay/v1` 这类「token 写在 URL userinfo / 查询串」的值**整串**放进 `ConfigItem.value` 并渲染进页面；`GET /api/projects/{id}/config` **没有**回环门（写通道才有）⇒ 任何能连到服务的客户端都能读到（服务默认回环，但支持非回环绑定）。触发条件：把中转站 token 写进 base URL（常见写法）；严重度：低（无认证 / 无 TLS 是既有姿态，键本身也不以凭证命名）；冻结边界：**不得**对 URL 做部分掩码（会让 base URL 不可复制，破坏「为什么连不上」的诊断用途），也**不得**据此给只读的 GET 加回环门（与 49/50 的只读面姿态冲突）。
+  evidence: `config_catalog.py`（`_SECRET_SUFFIXES` / `is_secret_key` / `_build_item` 的 `value=None if secret else values.get(...)`；`EXCLUSION_GROUPS` 的 `patterns=("*_BASE_URL",)`）；脊柱 §288 明确把「凭证」定义为 `*_API_KEY` / `*_API_KEYS` ⇒ 与规格**一致**；对照：`safe_logging` / `LoggingObserver` 的日志脱敏**包含 URL userinfo**（同仓对「URL 里的凭证」另有更宽口径）。
+  Progress（2026-09-26 登记）：文档侧口径已在本轮补正（`docs/frame.md` 的配置来源行补注「掩码域 = `*_API_KEY(S)` 后缀」）；**是否扩大掩码域（URL userinfo / 查询串 token）待人裁决**。
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
