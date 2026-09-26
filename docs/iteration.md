@@ -160,9 +160,11 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 2.7 GUI 终端界面周期 · Epic 25-28
 
-来源 `_bmad-output/epics/epic-25-28-GUI界面周期/`，2026-07-23 启动。Textual 终端界面，含流式聊天、工具可视化、管理面板、可观测性：
+来源 `_bmad-output/epics/epic-25-28-GUI界面周期/`，2026-07-23 启动。Textual 终端界面，含流式聊天、工具可视化、管理面板、可观测性。
 
-| Epic | 主题 | 状态 |
+> 下表是 **2026-07-23 规划期快照**（当时尚未动工）；实际状态：**Epic 25-28 全部 `done`**（12 story），以 `_bmad-output/sprint-status.yaml` 为准。
+
+| Epic | 主题 | 状态（规划期快照） |
 |------|------|------|
 | 25 | 流式聊天 — 最小可跑（FR-G1~G6） | **in-progress** — 25-1/2/3 ready-for-dev |
 | 26 | 工具可视化 + 斜杠命令（FR-G7~G14） | backlog |
@@ -218,8 +220,8 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 | 2026-07-22 | **质量工程深化（Epic 21-24）**：coverage 工程化 + benchmark 重构 + Docker 硬化 + CI 效能/安全 + pre-commit 加固 + Ruff 扩展——全部 4 个 Epic、20 个 FR 交付，零业务代码改动，922 测试全绿 |
 | 2026-07-22 | **全周期回顾完成**：`_bmad-output/retrospective-all-cycles.md` 覆盖全部 24 个已完成 Epic + S1-S4，所有 sprint-status 的 `epic-N-retrospective` 标记 `done` |
 | 2026-07-23 | **GUI 终端界面周期启动**：BMad 规划冻结（brief→prd→architecture→epics），Epic 25-28 开始，流式聊天为当前焦点 |
-| 2026-08-19 | **交互与可扩展层周期（Epic 29-35）全部交付**：审批闭环 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 配置文件驱动角色 + 成本估算 / CLI 体验 + 技术债收尾——7 个 Epic、28 个 story、7 次提交，全量 1052 测试通过 |
-| 2026-08-24 | **文件安全与凭证防护周期（Epic 36-39）全部交付**：凭证 deny（读+写）/ env scrubbing / 内部状态读 deny / 文档同步——4 个 Epic、6 个 story，全量 1135 测试通过 |
+| 2026-08-19 | **交互与可扩展层周期（Epic 29-35）全部交付**：审批闭环 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 配置文件驱动角色 + 成本估算 / CLI 体验 + 技术债收尾——7 个 Epic、27 个 story、7 次提交，全量 1052 测试通过 |
+| 2026-08-24 | **文件安全与凭证防护周期（Epic 36-39）全部交付**：凭证 deny（读+写）/ env scrubbing / 内部状态读 deny / 文档同步——4 个 Epic、7 个 story，全量 1135 测试通过 |
 | 2026-09-14 | **工具调用可见性：CLI 显示「读写的文件 / 委派的子 Agent」**——新增 `tools/call_summary.py`（`summarize_tool_call`，纯函数、零 heagent 依赖，是该信息的唯一来源）；`StreamEvent` 新增 `tool_target`（`tool_call` 提前到执行前发出，长耗时工具实时可见）+ `tool_error`/`tool_name`（失败归因）；CLI 渲染 `[calling file_read → src/a.py]`、失败另起 `[failed shell]`（成功不再逐条 `[done]`——批次并发执行会挤成一串无主语标记）；TUI 聊天日志同步附摘要。**同日续作三件**：①`EngineEvent.target` 提为独立字段（日志按段渲染 `target=…`，不再埋进 `details`；`ToolExecutor` 的全部工具事件都带），GUI 事件日志屏同步；②`AgentLoop.active_tool`（在途批次摘要，批次结束/取消即清空）+ 状态栏 `🔧 …` 段，暂停/恢复行同时打印状态行，一眼看出卡在哪个工具；③`AgentLoop.tool_activity` run 级台账 + `cli_display.show_tool_activity`（单次模式跑完回显「读了哪些文件、跑了哪些命令」，同目标去重、超 20 条折叠）。**同日续作**：④CLI 提示行的 **shell 命令改为显示全文**（`_NO_TRUNCATE_TOOLS`：只折叠空白不截断——截断后无法判断「它到底跑了什么」，审查与审计场景信息损失最大），其余参数仍按 72 / 40 截断；⑤修掉 `call_summary` 兜底分支的**测试假绿**——`_BrokenArguments.__len__` 返回 0 使 `arguments or {}` 短路成空字典，损坏映射根本不被迭代，`except` 兜底（`call_summary.py:66-67`）从未被覆盖，改为 truthy 后该分支由真实异常路径覆盖。**同日复核修复 P2–P7**：⑥GUI 状态栏口径统一——`gui/bridge.py`（流式事件路径）原先只写裸工具名，与 `gui/observers.py`（引擎事件路径）的 `tool → target` 互相覆盖，现两条路径都走新增的 `call_summary.activity_label`（拼接唯一来源，先前四处重复的箭头拼接收敛为一处）；⑦GUI 失败不再画绿勾（抽出 `_render_tool_result`：按 `tool_error` 输出红叉并归因、成功仍绿勾），工具输出与 target 经 `rich.markup.escape`（`#chat-log` 是 `markup=True`，不可信文本里的 `[red]` 曾被当标记解释）；⑧`_TARGET_FIELDS` 删除三个**不可达表项**（file_write / git_diff / task_delegate 被 `_describe` 特殊分支抢先命中 → 改表不生效的死配置），并加参数化回归 `test_every_table_entry_is_reachable`（哨兵字段名）自动拦截未来新增的死表项；⑨`resume` 路径补上展示态重置（原先只在 `_init_new_run`，恢复分支提前 return 会跳过，状态栏/台账会残留上一段 run 的值）；⑩台账语义澄清为「调用尝试」（头部文案 + docstring + `loop.tool_activity` 注释，不再暗示「执行成功」）；⑪GBK 控制台图标降级——`🔧 ▶ ✔ ✘` 在 cp936 下均不可编码（实测），`cli_display._icon` 按 `sys.stderr.encoding` 降级为 ASCII，避免重定向到 GBK 日志时抛 `UnicodeEncodeError` 打断 run；⑫`docs/langchain-migration-feasibility.md` 纳入 docs/README 索引。93 个新测试，全量 1678 通过，覆盖率 89.62% |
 
 ### 2.11 交互与可扩展层周期 · Epic 29-35
@@ -304,7 +306,7 @@ Epic 43-44 的实现已完成，Epic 45.3 补齐了无网络两-story 冒烟、c
 - 当前工作流：[文档索引「Goal 工作流」](README.md#goal-工作流)（`.heagent/skills/he-goal/workflow.md` 为可执行契约）
 - 产品愿景：[`design.md`](design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
-- 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`（原 `_bmad-output/patches/` 已于 2026-09-15 解散，补丁 spec 已按归属 epic 归位）
+- 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`、`_bmad-output/epics/epic-48-TCP网络接口周期/`、`_bmad-output/epics/epic-49-HTTP网页访问周期/`、`_bmad-output/epics/epic-50-网页控制台周期/`（原 `_bmad-output/patches/` 已于 2026-09-15 解散，补丁 spec 已按归属 epic 归位）
 - **sprint 状态（单一权威）**：[`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml)（持续更新，覆盖当前全部周期与 Epic）
 - 技术债登记：活动台账 `_bmad-output/implementation-artifacts/deferred-work-archive.md`；已闭合项按归属 epic 归档到 `_bmad-output/epics/<周期>/deferred-work.md`（原 `_bmad-output/patches/_meta/deferred-work.md` 已于 2026-09-15 退役并删除）
 - 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/epic-47-声明式工作流与产物治理/retrospective-engine-p5.md`、`_bmad-output/epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/retrospective-p0-tech-debt.md`

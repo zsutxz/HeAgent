@@ -14,9 +14,9 @@
 | 产品设计 | [design.md](design.md) | 产品需求变更提交者同步目标与非目标 |
 | 迁移记录 | [架构沿革](architecture-history.md) | 实施者在修改边界前核验兼容性与迁移测试 |
 | 历史 | [迭代历程](iteration.md)、[架构沿革](architecture-history.md) | 架构变更提交者追加事实和来源 |
-| 外部资料 | [新闻归档](news.md) | 资料提交者保留采集日期与来源，不作为项目实现依据 |
+| 外部资料 | [新闻归档](news.md)（`docs/news.md` 已被 gitignore，属本地运行时产物，克隆后可能不存在） | 资料提交者保留采集日期与来源，不作为项目实现依据 |
 | 观测 | [frame.md 事件契约](frame.md) | 事件字段/发射点变更提交者同步逐 kind 表与黄金测试 |
-| 性能 | [基准入口](#诊断命令速查不适用请看-troubleshooting) → [troubleshooting.md](troubleshooting.md) | 基准/阈值入口随测试基建变更更新 |
+| 性能 | [诊断命令速查](troubleshooting.md#诊断命令速查) | 基准/阈值入口随测试基建变更更新 |
 
 维护责任按变更角色定义，不虚构个人负责人。专题中的日期是分析或采集时间，不代表持续更新承诺。
 

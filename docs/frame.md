@@ -4,6 +4,37 @@
 
 > 相关文档：总览与快速开始见 [`README.md`](../README.md)，设计目标见 [`design.md`](design.md)，文档导航见 [`文档索引`](README.md)，部署边界见 [`deploy/README.md`](../deploy/README.md)，协作约定见 [`CLAUDE.md`](../CLAUDE.md)。本文为**代码实现层面的架构参考**，以当前 `src/` 实现为准。
 
+## 目录
+
+- [一、项目定位](#一项目定位)
+- [二、数据流](#二数据流)
+- [三、模块依赖关系 (DAG)](#三模块依赖关系-dag)
+- [四、核心模块详解](#四核心模块详解)
+  - [4.1 CLI 入口 (`cli.py`)](#41-cli-入口-clipy)
+  - [4.2 Agent 核心 (`agent/`)](#42-agent-核心-agent)
+  - [4.3 Provider 层 (`providers/`)](#43-provider-层-providers)
+  - [4.4 Tool 系统 (`tools/`)](#44-tool-系统-tools)
+  - [4.5 上下文管理 (`context/`)](#45-上下文管理-context)
+  - [4.6 记忆系统 (`memory/`)](#46-记忆系统-memory)
+  - [4.7 Cron 调度 (`cron/`)](#47-cron-调度-cron)
+  - [4.8 共享类型 (`types.py`)](#48-共享类型-typespy)
+  - [4.9 异常体系 (`exceptions.py`)](#49-异常体系-exceptionspy)
+  - [4.10 配置管理 (`config.py`)](#410-配置管理-configpy)
+  - [4.11 MCP 集成 (`tools/mcp/`)](#411-mcp-集成-toolsmcp)
+  - [4.12 运行时引擎 (`engine/`)](#412-运行时引擎-engine)
+  - [4.13 Goal 驱动工作流 (`/goal`)](#413-goal-驱动工作流-goal)
+  - [4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）](#414-技能资源读取-toctou-评估与安全打开加固epic-461462)
+  - [4.15 事件契约 (`events/`)](#415-事件契约-events)
+  - [4.16 TCP 入口 (`network/` + `cli_tcp.py`)](#416-tcp-入口-network--cli_tcppy)
+  - [4.17 HTTP 网页入口 (`network/http_*` + `cli_http.py` + `web/`)](#417-http-网页入口-networkhttp_--cli_httppy--web)
+  - [4.18 网页控制台 (`workspace.py` + `projects.py` + `config_catalog.py` + `config_write.py` + `cli_http.py` + `cli_dialogs.py` + `web/`)](#418-网页控制台-workspacepy--projectspy--config_catalogpy--config_writepy--cli_httppy--cli_dialogspy--web)
+- [五、已知缺口](#五已知缺口)
+- [六、目录结构](#六目录结构)
+- [七、完整调用链](#七完整调用链)
+- [八、技术规范](#八技术规范)
+- [九、历史与迁移](#九历史与迁移)
+
+
 ## 一、项目定位
 
 HeAgent 是一个**自学习 AI Agent 框架**——单进程异步 Python 库，编排 LLM ↔ 工具执行循环。所有 I/O 均为 `async/await`，CLI 通过 `asyncio.run()` 桥接入口。
@@ -82,11 +113,16 @@ AgentLoop.run(prompt)
 ## 三、模块依赖关系 (DAG)
 
 ```
-exceptions  types  config  persist  roles
-    ↑          ↑       ↑
-    └─ providers ─┴── tools ─┴── context ── engine ── agent
-                            ↑              ↑
-                        memory ───── cron ──┘
+底层共用（零 heagent 依赖）：exceptions · types · config · persist · roles · frontmatter · safe_logging
+
+主脊：  providers ─┐
+        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli · cli_init · cli_goal · cli_http · cli_tcp ·
+        context ───┘                        cli_dialogs · wiring · gui · goal/）
+
+旁支：  memory（依赖 tools/context/persist；对 engine 仅 TYPE_CHECKING，实例由入口层注入）
+        cron/expr.py（零 heagent 依赖的纯叶子，被 memory 与 cron/scheduler 共用）
+        events（运行期仅依赖 exceptions；engine 单向借用 events.protocol.error_kind_for）
+        network/（传输叶子：仅 stdlib + pydantic + safe_logging，被入口层单向使用，禁止伸手进运行栈）
 ```
 
 **依赖规则：**
@@ -466,7 +502,7 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
   （回执不出现 snapshot 行，仅记日志）。快照 GC 见「五、已知缺口」。
 - ⚠ 行尾保真与快照均属**可用性**护栏，非安全边界：快照目录位于 workspace 内、可被 shell 删除。
 
-#### builtins/ — 25 个内置工具
+#### builtins/ — 26 个内置工具
 
 **基础工具（6 个）：**
 
@@ -1181,7 +1217,7 @@ src/heagent/
 │   │   ├── client.py        # TransportOpener Protocol + 默认实现（Phase 4 C2）
 │   │   ├── registry_bridge.py  # 注册/注销单一入口（Phase 4 C2）
 │   │   └── manager.py       # MCPClientManager（生命周期 façade + discovery_failures）
-│   └── builtins/            # 内置工具（24 个）
+│   └── builtins/            # 内置工具（26 个）
 │       ├── __init__.py      # 触发注册
 │       ├── shell.py         # shell 命令执行
 │       ├── file.py          # 文件读写

@@ -2,7 +2,7 @@
 
 ## 项目结构
 
-- `src/heagent/`：Python 包源码。主要模块包括 `agent/`（编排）、`providers/`（LLM 适配与容错）、`tools/`（工具与 MCP）、`engine/`（策略、执行与审计）、`context/`、`memory/` 和 `cron/`。
+- `src/heagent/`：Python 包源码。主要模块包括 `agent/`（编排）、`providers/`（LLM 适配与容错）、`tools/`（工具与 MCP）、`engine/`（策略、执行与审计）、`context/`、`events/`（事件流）、`memory/`、`cron/`、`network/`（TCP/HTTP 传输层）、`goal/` 与 `gui/`；入口层为 `cli*.py` / `wiring.py`。
 - `tests/`：pytest 测试，按功能平铺；provider 相关测试位于 `tests/providers/`。
 - `docs/`：架构与开发文档；`docs/frame.md` 是实现架构的权威说明。
 - `_bmad-output/`：规划和 story 产物；运行时状态通常写入 `.heagent/`，不要提交生成文件或密钥。
@@ -42,4 +42,4 @@ python -m heagent              # 交互式 CLI
 
 ## 架构与文档导航
 
-依赖方向为 `exceptions/types/config → providers/tools/context → engine → agent`；新增 provider 或工具不得反向导入 `agent`，MCP 工具必须经 `ToolRegistry` 注入。跨模块接口优先查看 `src/heagent/types.py` 和 `docs/frame.md`，产品设计见 `docs/design.md`，迭代流程见 `docs/iteration.md`。参考其他 agent 项目时要适配 HeAgent 的 asyncio 与模块化结构，不要直接复制同步单文件实现。
+依赖方向为 `exceptions/types/config/persist/roles/frontmatter/safe_logging → providers/tools/context → engine → agent → 入口层（cli* / wiring / gui / goal）`；新增 provider 或工具不得反向导入 `agent`，MCP 工具必须经 `ToolRegistry` 注入；`network/` 是传输叶子，不得导入运行栈与配置（可执行的依赖断言见 `tests/test_architecture_contracts.py`）。跨模块接口优先查看 `src/heagent/types.py` 和 `docs/frame.md`，产品设计见 `docs/design.md`，迭代流程见 `docs/iteration.md`。参考其他 agent 项目时要适配 HeAgent 的 asyncio 与模块化结构，不要直接复制同步单文件实现。
