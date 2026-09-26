@@ -20,7 +20,7 @@ from heagent.network.protocol import (
     encode_response,
     error_response,
 )
-from heagent.safe_logging import safe_log
+from heagent.pub.safe_logging import safe_log
 
 if TYPE_CHECKING:
     from asyncio import StreamReader, StreamWriter

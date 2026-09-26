@@ -41,9 +41,9 @@ from heagent.memory.skills import SkillStore
 from heagent.memory.soul import SoulStore
 from heagent.providers.router import RoutingProvider
 from heagent.providers.switchable import SwitchableProvider
+from heagent.pub.workspace import WorkspacePaths
 from heagent.tools.registry import ToolRegistry
 from heagent.wiring import build_cron_job_runner, ensure_runtime_config
-from heagent.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from heagent.context.session import SessionStore
@@ -255,7 +255,7 @@ def _build_dream_scheduler(
         return None
     from heagent.agent.sub import SubAgent  # noqa: PLC0415
     from heagent.memory.dream import DreamResult, DreamScheduler  # noqa: PLC0415
-    from heagent.roles import get_role  # noqa: PLC0415
+    from heagent.pub.roles import get_role  # noqa: PLC0415
 
     context_dir = str(WorkspacePaths.from_root(os.getcwd()).root)
     role = get_role("dreamer")

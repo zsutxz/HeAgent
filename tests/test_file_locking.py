@@ -13,7 +13,7 @@ class TestFileLocking:
 
     def test_atomic_write_with_lock_basic(self, tmp_path):
         """lock=True 正常写入 → 文件内容完整。"""
-        from heagent.persist import atomic_write_text
+        from heagent.pub.persist import atomic_write_text
 
         target = tmp_path / "sub" / "f.json"
         atomic_write_text(target, '{"a": 1}', lock=True)
@@ -21,7 +21,7 @@ class TestFileLocking:
 
     def test_atomic_write_without_lock_zero_regression(self, tmp_path):
         """lock=False（默认）行为与 V1 完全一致。"""
-        from heagent.persist import atomic_write_text
+        from heagent.pub.persist import atomic_write_text
 
         target = tmp_path / "sub" / "f.json"
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -35,7 +35,7 @@ class TestFileLocking:
     @pytest.mark.asyncio
     async def test_concurrent_writes_with_lock_serialized(self, tmp_path):
         """两个并发写入同一文件（lock=True）→ 串行执行，最终完整。"""
-        from heagent.persist import atomic_write_text
+        from heagent.pub.persist import atomic_write_text
 
         target = tmp_path / "sub" / "concurrent.json"
         order = []
@@ -52,7 +52,7 @@ class TestFileLocking:
     @pytest.mark.asyncio
     async def test_concurrent_writes_no_lock_no_crash(self, tmp_path):
         """两个并发写入同一文件（lock=False）→ 至少不抛非预期异常。"""
-        from heagent.persist import atomic_write_text
+        from heagent.pub.persist import atomic_write_text
 
         target = tmp_path / "sub" / "concurrent_nolock.json"
         errors = []
@@ -73,7 +73,7 @@ class TestFileLocking:
 
     def test_lock_timeout_raises_oserror(self, tmp_path):
         """锁超时 → 抛 OSError。"""
-        from heagent.persist import _acquire_lock, atomic_write_text
+        from heagent.pub.persist import _acquire_lock, atomic_write_text
 
         target = tmp_path / "sub" / "f.json"
         target.parent.mkdir(parents=True, exist_ok=True)

@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from heagent.types import (
+from heagent.pub.types import (
     RoutingPoolSpec,
     Message,
     ProviderResponse,

@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _workspace_override: Path | None = None
-_workspace_runtime = RuntimeSlot[Path]("heagent_workspace_root")
+_workspace_runtime = RuntimeSlot[Path]("heagent.pub.workspace_root")
 
 
 class WorkspacePathError(ValueError):
@@ -252,7 +252,7 @@ def build_internal_state_dirs(workspace_root: str | Path | None = None) -> set[s
     Without a workspace, preserve the legacy cwd/home roots and five directories.
     """
     if workspace_root is not None:
-        from heagent.workspace import WorkspacePaths
+        from heagent.pub.workspace import WorkspacePaths
 
         paths = WorkspacePaths.from_root(workspace_root)
         return {

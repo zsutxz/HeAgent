@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from heagent.exceptions import PolicyViolation, SafetyViolation, ToolError
+from heagent.pub.exceptions import PolicyViolation, SafetyViolation, ToolError
 
 if TYPE_CHECKING:
     from heagent.engine.observability import EngineEvent

@@ -57,8 +57,8 @@ from heagent.goal.document import (
 )
 from heagent.goal.naming import llm_project_id
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
-from heagent.persist import atomic_write_text, file_lock
-from heagent.workspace import WorkspacePaths
+from heagent.pub.persist import atomic_write_text, file_lock
+from heagent.pub.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Callable, Mapping

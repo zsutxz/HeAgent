@@ -18,7 +18,7 @@ from heagent.config import reset_settings
 from heagent.engine import EngineContainer, HookConfig, HookManager
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall, ToolSchema
+from heagent.pub.types import Message, ProviderResponse, TokenUsage, ToolCall, ToolSchema
 
 
 class StubProvider:

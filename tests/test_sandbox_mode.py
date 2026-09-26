@@ -28,7 +28,7 @@ from heagent.engine.container import EngineContainer
 from heagent.engine.policy import PolicyEngine, ToolExecutionMode
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.sandbox import FirejailBackend
-from heagent.types import ToolAnnotations, ToolCall, ToolSchema
+from heagent.pub.types import ToolAnnotations, ToolCall, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import Generator

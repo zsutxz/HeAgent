@@ -23,10 +23,10 @@ import httpx
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.config import get_settings, reset_settings
 from heagent.context.session import SessionStore
-from heagent.exceptions import HeAgentError
+from heagent.pub.exceptions import HeAgentError
 from heagent.network.http_server import HttpRunService, HttpServer, HttpServerConfig
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
 
 
 def _answer(text: str, *, model: str = "stub-1", total: int = 5) -> ProviderResponse:

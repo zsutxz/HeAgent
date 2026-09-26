@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from heagent.persist import atomic_write_text, load_json_model
+from heagent.pub.persist import atomic_write_text, load_json_model
 
 
 def _iso_now() -> str:

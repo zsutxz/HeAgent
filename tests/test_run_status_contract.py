@@ -20,7 +20,7 @@ from heagent.config import reset_settings
 from heagent.engine import RunStatus
 from heagent.engine.context import RunContext
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage
+from heagent.pub.types import Message, ProviderResponse, TokenUsage
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

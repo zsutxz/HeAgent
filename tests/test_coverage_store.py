@@ -14,7 +14,7 @@ import pytest
 
 from heagent.engine.context import RunContext
 from heagent.engine.store import RunStore
-from heagent.types import Message, ToolResult
+from heagent.pub.types import Message, ToolResult
 
 
 # ── checkpoint ────────────────────────────────────────────────────

@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from heagent.persist import atomic_update_text
-from heagent.workspace import WorkspacePaths
+from heagent.pub.persist import atomic_update_text
+from heagent.pub.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from builtins import list as builtins_list

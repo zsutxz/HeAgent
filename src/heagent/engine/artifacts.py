@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from heagent.frontmatter import FrontmatterSyntaxError, parse_scalar, parse_strict_pairs, split_frontmatter
+from heagent.pub.frontmatter import FrontmatterSyntaxError, parse_scalar, parse_strict_pairs, split_frontmatter
 
 if TYPE_CHECKING:
     from collections.abc import Iterable

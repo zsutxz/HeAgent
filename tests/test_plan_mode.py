@@ -13,7 +13,7 @@ from heagent.cli.composition import _apply_plan_mode
 from heagent.engine import EngineContainer
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, TokenUsage, ToolCall
 
 
 class StubProvider:

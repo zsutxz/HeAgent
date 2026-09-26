@@ -11,7 +11,7 @@ from typing import Iterable, cast  # noqa: UP035
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
-from heagent.frontmatter import parse_inline_pairs, split_frontmatter
+from heagent.pub.frontmatter import parse_inline_pairs, split_frontmatter
 from heagent.tools.path_safety import (
     WorkspacePathError,
     read_bytes_under_root,

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 import click
 
 from heagent.goal.document import _GOAL_ID_RE, _slug
-from heagent.types import Message, Role
+from heagent.pub.types import Message, Role
 
 if TYPE_CHECKING:
     from heagent.providers.base import BaseProvider

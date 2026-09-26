@@ -24,8 +24,8 @@ import logging
 import types
 from typing import TYPE_CHECKING, Any, Union, get_args, get_origin, get_type_hints
 
+from heagent.pub.types import ToolAnnotations, ToolSchema
 from heagent.tools.registry import ToolRegistry
-from heagent.types import ToolAnnotations, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import Callable

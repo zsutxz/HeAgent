@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from heagent.context.compressor import STRUCTURED_SUMMARY_PROMPT, render_message_for_summary
-from heagent.types import Message, ProviderResponse, Role
+from heagent.pub.types import Message, ProviderResponse, Role
 
 if TYPE_CHECKING:
     from heagent.engine.context import RunContext

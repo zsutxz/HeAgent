@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING, Any
 from heagent.engine import RunContext, RunStatus
 from heagent.engine.hooks import SESSION_END, SESSION_START
 from heagent.events.protocol import error_kind_for
-from heagent.safe_logging import safe_log
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolResult
+from heagent.pub.safe_logging import safe_log
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolResult
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop

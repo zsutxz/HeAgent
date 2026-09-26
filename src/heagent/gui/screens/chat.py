@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 
     from heagent.gui.bridge import AgentBridge
     from heagent.gui.state import GuiState
-    from heagent.types import StreamEvent
+    from heagent.pub.types import StreamEvent
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ import contextlib
 
 from pydantic import BaseModel, Field
 
-from heagent.frontmatter import FRONTMATTER_NEWLINE_RE, parse_inline_pairs
+from heagent.pub.frontmatter import FRONTMATTER_NEWLINE_RE, parse_inline_pairs
 
 # SKILL.md 的 frontmatter 分隔与捕获。解析与「只改计数、保留正文」的就地改写（skill_rewrite）
 # 共用同一模式，避免两份可漂移的副本。

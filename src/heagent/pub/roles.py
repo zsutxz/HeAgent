@@ -20,7 +20,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from heagent.frontmatter import parse_inline_pairs, split_frontmatter
+from heagent.pub.frontmatter import parse_inline_pairs, split_frontmatter
 
 
 class RoleSpec(BaseModel):

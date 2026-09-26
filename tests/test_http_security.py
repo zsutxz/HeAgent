@@ -30,7 +30,7 @@ from heagent.config import get_settings, reset_settings
 from heagent.network.http_protocol import HttpErrorCode
 from heagent.network.http_server import HttpRunService, HttpServerConfig, build_http_app
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, TokenUsage, ToolCall
 
 _VERSION = "9.9.9"
 _PORT = 8766

@@ -18,7 +18,7 @@ from heagent.agent.loop import AgentLoop
 from heagent.config import reset_settings
 from heagent.engine.observability import EngineEvent, EventBus, LoggingObserver
 from heagent.providers.base import ProviderMetadata
-from heagent.safe_logging import (
+from heagent.pub.safe_logging import (
     ORIGINAL_HANDLER_HANDLE,
     install_logging_fault_guard,
     redact_details,
@@ -27,7 +27,7 @@ from heagent.safe_logging import (
     safe_log,
 )
 from heagent.tools.registry import ToolRegistry
-from heagent.types import ProviderResponse, TokenUsage
+from heagent.pub.types import ProviderResponse, TokenUsage
 
 
 class _RaisingHandler(logging.Handler):

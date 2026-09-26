@@ -18,12 +18,12 @@ from heagent.agent.loop import AgentLoop, _delegation_details
 from heagent.agent.sub import SubAgent
 from heagent.config import get_settings, reset_settings
 from heagent.engine import EngineContainer
-from heagent.roles import get_role
+from heagent.pub.roles import get_role
 from heagent.memory.facts import FactStore
 from heagent.memory.soul import SoulStore
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.builtins.subagent import reset_subagent_tools, task_delegate
-from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, TokenUsage, ToolCall
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

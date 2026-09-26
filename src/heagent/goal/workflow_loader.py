@@ -18,12 +18,12 @@ from heagent.engine.workflow_resource import (
     WorkflowResource,
     WorkflowStepResource,
 )
-from heagent.frontmatter import (
+from heagent.memory.skill_packages import SkillPackage, SkillPackageResourceError
+from heagent.pub.frontmatter import (
     FrontmatterSyntaxError,
     parse_strict_pairs,
     split_frontmatter,
 )
-from heagent.memory.skill_packages import SkillPackage, SkillPackageResourceError
 
 
 class SkillWorkflowError(SkillPackageResourceError):

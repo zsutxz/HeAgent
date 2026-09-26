@@ -23,16 +23,20 @@ if TYPE_CHECKING:
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "heagent"
 
-# 真实子包名（大小写敏感）：用于识别 ``from heagent import <子包>`` 形态。
+# 已知的 heagent 模块路径（``src/heagent`` 下的 .py 文件与包目录，点分形式、去 ``heagent.`` 前缀）：
+# 用于识别 ``from heagent import <名>`` / ``from heagent.pub import <名>`` 这类**别名形态**。
 # 不能直接用 ``(SRC / name).is_dir()``——Windows 文件系统大小写不敏感，
 # ``from heagent import Agent``（包根符号再导出）会被误判成 ``heagent/agent`` 子包。
-_SUBPACKAGE_NAMES = frozenset(path.name for path in SRC.iterdir() if path.is_dir())
-
-# 顶层**模块**名（``src/heagent/*.py``）：``from heagent import config`` 与 ``from heagent import providers``
-# 是同款绕过路径，两者的可执行识别必须对称（评审发现·镜头三③：I1「网络层不得不认识 config / projects」
-# 此前只覆盖子包，``heagent.config`` / ``heagent.projects`` / ``heagent.config_catalog`` 写在
-# ``network/`` 里不会被判违反）。
-_TOP_LEVEL_MODULES = frozenset(path.stem for path in SRC.glob("*.py") if path.stem != "__init__")
+# 2026-09-26 分层收敛后本表是识别器的唯一依据：包与模块、任意深度一视同仁
+# （``pub.types`` / ``config.catalog`` 与 ``providers`` 同款处理，不再区分「子包」与「顶层模块」）。
+_KNOWN_MODULES = frozenset(
+    entry
+    for entry in (
+        {path.relative_to(SRC).with_suffix("").as_posix().replace("/", ".") for path in SRC.rglob("*.py")}
+        | {path.relative_to(SRC).as_posix().replace("/", ".") for path in SRC.rglob("*") if path.is_dir()}
+    )
+    if not entry.endswith(("__init__", "__main__"))
+)
 
 # 包 → 运行期不得导入的 heagent 子模块（CLAUDE.md「硬约束（违反即架构错误）」）。
 # 入口层模块（wiring / cli 包 / gui）：组合根与展示适配只属于入口层，下层一律不得反向导入
@@ -62,9 +66,11 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
     "events": ("heagent.agent", "heagent.engine", *_ENTRY_LAYER_MODULES),
     # network/ 是入口传输层（Epic 48）：只承载 framing / 协议 / 连接生命周期，运行期不得伸手进
     # 运行时栈——Provider/Engine/AgentLoop 的装配是入口层（cli / wiring）单向伸手。
-    # Epic 50 的 I1 再收紧一档：**网络层不认识项目与配置**——新顶层模块 projects（注册表）/
-    # config_catalog（配置目录）/ workspace（状态根）/ config（Settings）一律不得出现在 network/ 里
-    # （唯一例外是 ``safe_logging``：它是零依赖的底层共用模块，见模块 docstring 的允许面）。
+    # Epic 50 的 I1 再收紧一档：**网络层不认识项目与配置**——``heagent.config``（Settings 本体 +
+    # 配置目录 + 写通道 + envfile，一条覆盖整包）/ ``projects``（注册表）/ ``heagent.pub.workspace``
+    # （状态根）一律不得出现在 network/ 里。
+    # 粒度必须细到**模块**：``heagent.pub.safe_logging`` 是网络层唯一合法的 pub 依赖
+    # （零依赖的日志安全模块），所以这里不能写成 ``heagent.pub``。
     "network": (
         "heagent.agent",
         "heagent.engine",
@@ -75,11 +81,37 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
         "heagent.cron",
         "heagent.events",
         "heagent.config",
-        "heagent.config_catalog",
-        "heagent.config_write",
-        "heagent.envfile",
         "heagent.projects",
-        "heagent.workspace",
+        "heagent.pub.workspace",
+        *_ENTRY_LAYER_MODULES,
+    ),
+    # 公共层 ``heagent/pub/``（2026-09-26 自顶层平铺模块收敛）：只许依赖标准库、Pydantic 与**同层**
+    # 公共模块。这是「任何层都可以依赖 pub；pub 不依赖任何层」的可执行面——漏了这条，
+    # ``pub/*.py`` 顺手 ``import heagent.engine`` 不会触发任何断言。
+    "pub": (
+        "heagent.providers",
+        "heagent.tools",
+        "heagent.context",
+        "heagent.engine",
+        "heagent.agent",
+        "heagent.memory",
+        "heagent.cron",
+        "heagent.events",
+        "heagent.network",
+        "heagent.config",
+        *_ENTRY_LAYER_MODULES,
+    ),
+    # 配置包 ``heagent/config/``：依赖 ``pub`` + stdlib/pydantic，不得伸手进运行栈。
+    "config": (
+        "heagent.providers",
+        "heagent.tools",
+        "heagent.context",
+        "heagent.engine",
+        "heagent.agent",
+        "heagent.memory",
+        "heagent.cron",
+        "heagent.events",
+        "heagent.network",
         *_ENTRY_LAYER_MODULES,
     ),
     # agent/ 是运行栈顶：不得导入任何入口层（组装是入口层单向伸手，不是运行栈反向伸手）。
@@ -87,9 +119,18 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _heagent_root(module: str | None) -> str:
+def _module_prefixes(module: str | None) -> set[str]:
+    """``heagent.a.b`` → ``{"heagent.a", "heagent.a.b"}``（逐级前缀，供「按包禁依赖」匹配）。
+
+    返回**全部前缀**而不是「只取前两段」，是 2026-09-26 分层收敛的硬需求：``pub`` / ``config``
+    两包内部还有子模块（``heagent.pub.workspace`` / ``heagent.config.catalog``），只取两段会让
+    「禁 ``heagent.pub.workspace`` 而放行 ``heagent.pub.safe_logging``」这类精确条目无法表达——
+    ``network/`` 恰好是这个形状（它对 pub 的唯一合法依赖就是 ``safe_logging``）。
+    """
     parts = (module or "").split(".")
-    return f"heagent.{parts[1]}" if parts[0] == "heagent" and len(parts) > 1 else ""
+    if parts[0] != "heagent" or len(parts) < 2:
+        return set()
+    return {".".join(parts[:size]) for size in range(2, len(parts) + 1)}
 
 
 def _imported_roots(node: ast.Import | ast.ImportFrom) -> set[str]:
@@ -97,19 +138,21 @@ def _imported_roots(node: ast.Import | ast.ImportFrom) -> set[str]:
 
     ``import heagent.providers.router``（子模块在 ``node.module`` 上）与
     ``from heagent import providers``（子模块在 alias 上）必须都被识别——此前只识别前者，
-    后者可用于绕过反向依赖断言。只把**真实存在的子包名**计入，避免误伤
-    ``from heagent import Agent`` 这类包根符号再导出。
+    后者可用于绕过反向依赖断言。别名形态只把**真实存在的模块路径**（``_KNOWN_MODULES``）计入，
+    避免误伤 ``from heagent import Agent`` 这类包根符号再导出；``from heagent.pub import types``
+    同样展开出 ``heagent.pub.types``。
     """
     if isinstance(node, ast.Import):
-        return {root for alias in node.names if (root := _heagent_root(alias.name))}
-    if node.module == "heagent":
-        return {
-            f"heagent.{alias.name}"
-            for alias in node.names
-            if alias.name in _SUBPACKAGE_NAMES or alias.name in _TOP_LEVEL_MODULES
-        }
-    root = _heagent_root(node.module)
-    return {root} if root else set()
+        return {prefix for alias in node.names for prefix in _module_prefixes(alias.name)}
+    if not node.module or not node.module.startswith("heagent"):
+        return set()
+    prefixes = _module_prefixes(node.module)
+    tail = node.module.removeprefix("heagent").lstrip(".")
+    for alias in node.names:
+        candidate = f"{tail}.{alias.name}".strip(".")
+        if candidate in _KNOWN_MODULES:
+            prefixes |= _module_prefixes(f"heagent.{candidate}")
+    return prefixes
 
 
 def _imports(path: Path) -> tuple[set[str], set[str]]:
@@ -128,7 +171,7 @@ def _module_imports(source: str) -> tuple[set[str], set[str]]:
     两种等价写法都要记：``import heagent.providers.router``（子模块在 ``node.module`` 上）与
     ``from heagent import providers``（子模块在 alias 上）。此前只识别前者，后者可用于绕过
     反向依赖断言（如 ``from heagent import providers`` 在 ``network/`` 里不会被判违反）。
-    只把**真实存在的子包目录**计入，避免误伤 ``from heagent import Agent`` 这类包根符号再导出。
+    只把**真实存在的模块路径**计入，避免误伤 ``from heagent import Agent`` 这类包根符号再导出。
     """
     runtime: set[str] = set()
     typing_only: set[str] = set()
@@ -179,12 +222,12 @@ def test_no_reverse_dependency_on_agent() -> None:
         for path in _package_modules(package):
             runtime, _ = _imports(path)
             rel = path.relative_to(SRC).as_posix()
-            offenders.extend(f"{rel} → {target}" for target in forbidden if target in runtime)
+            offenders.extend(f"{rel} → {target}" for target in sorted(runtime & set(forbidden)))
     assert offenders == [], "运行期反向依赖：" + ", ".join(offenders)
 
 
 def test_workspace_paths_is_the_only_state_path_module() -> None:
-    source = (SRC / "workspace.py").read_text(encoding="utf-8")
+    source = (SRC / "pub" / "workspace.py").read_text(encoding="utf-8")
     assert "from heagent" not in source
     assert "import os" not in source
 
@@ -240,7 +283,12 @@ def test_forbidden_import_detection_covers_the_package_root_import_form() -> Non
         "    from heagent.agent import AgentLoop\n"
     )
 
-    assert runtime == {"heagent.providers", "heagent.tools"}
+    assert runtime == {
+        "heagent.providers",
+        "heagent.providers.router",
+        "heagent.tools",
+        "heagent.tools.registry",
+    }
     assert typing_only == {"heagent.agent"}
 
 
@@ -253,17 +301,28 @@ def test_forbidden_import_detection_ignores_package_root_symbol_reexports() -> N
 
 
 def test_forbidden_import_detection_covers_top_level_modules() -> None:
-    """顶层**模块**的两种写法同样计入运行期依赖（与子包识别对称）。
+    """模块/包的别名写法与分层路径同样计入运行期依赖。
 
     评审发现（镜头三③）：I1 要求「网络层不认识项目与配置」，但可执行断言此前只列子包 ⇒
-    ``heagent.config`` / ``heagent.projects`` / ``heagent.config_catalog`` 写进 ``network/`` 不会被
-    判违反，契约形同虚设。本用例钉住识别器本身（谁漏了这两种写法，这里先红）。
+    ``heagent.config`` / ``heagent.projects`` / ``heagent.config.catalog`` 写进 ``network/`` 不会被
+    判违反，契约形同虚设。本用例钉住识别器本身（谁漏了这几种写法，这里先红）——
+    2026-09-26 分层收敛后还要覆盖 ``from heagent.pub import types`` 与 ``heagent.pub.workspace``
+    这类**三层**路径（network 禁 workspace 而放行 safe_logging 全靠这个粒度）。
     """
     runtime, typing_only = _module_imports(
-        "from heagent import config\nfrom heagent.projects import ProjectRegistry\nfrom heagent import config_catalog\n"
+        "from heagent import config\n"
+        "from heagent.projects import ProjectRegistry\n"
+        "from heagent.pub import types\n"
+        "import heagent.pub.workspace\n"
     )
 
-    assert runtime == {"heagent.config", "heagent.projects", "heagent.config_catalog"}
+    assert runtime == {
+        "heagent.config",
+        "heagent.projects",
+        "heagent.pub",
+        "heagent.pub.types",
+        "heagent.pub.workspace",
+    }
     assert typing_only == set()
 
 
@@ -271,7 +330,7 @@ def test_frontmatter_parsing_is_centralized() -> None:
     """frontmatter 分隔正则只允许出现在共享模块 ``frontmatter.py`` 中。
 
     2026-09-17 勘察发现六处手写 ``---`` frontmatter 解析器各自漂移（同一文档在不同模块
-    可能解析出不同结果），已收敛为 ``heagent.frontmatter``。此断言拒绝「明天又有人就地
+    可能解析出不同结果），已收敛为 ``heagent.pub.frontmatter``。此断言拒绝「明天又有人就地
     手写一份」的静默回退——新增解析需求必须走共享模块。
     """
     needle = "---\\s*\\n"  # 源码中正则字面量的原始字符序列
@@ -280,7 +339,7 @@ def test_frontmatter_parsing_is_centralized() -> None:
         for path in sorted(SRC.rglob("*.py"))
         if path.name != "frontmatter.py" and needle in path.read_text(encoding="utf-8")
     ]
-    assert offenders == [], "frontmatter 正则漂移出共享模块 heagent.frontmatter：" + ", ".join(offenders)
+    assert offenders == [], "frontmatter 正则漂移出共享模块 heagent.pub.frontmatter：" + ", ".join(offenders)
 
 
 def test_timestamps_are_naive_and_parseable() -> None:
@@ -447,7 +506,7 @@ def test_os_open_is_whitelisted_to_safe_open_and_lock_files() -> None:
     （O_CREAT|O_RDWR，非内容读取路径，强行并入读取内核属扭曲）。其余模块一律经这两处
     ——分散的底层 open 即分散的 TOCTOU/符号链接暴露面。
     """
-    allowed = {"tools/path_safety.py", "persist.py"}
+    allowed = {"tools/path_safety.py", "pub/persist.py"}
     offenders: list[str] = []
     for path in sorted(SRC.rglob("*.py")):
         rel = path.relative_to(SRC).as_posix()
@@ -536,7 +595,7 @@ def test_web_package_has_no_runtime_imports() -> None:
 def test_workspace_module_only_imports_stdlib_and_pydantic() -> None:
     import sys
 
-    tree = ast.parse((SRC / "workspace.py").read_text(encoding="utf-8"))
+    tree = ast.parse((SRC / "pub" / "workspace.py").read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             assert node.module.split(".")[0] in sys.stdlib_module_names | {"pydantic"}
@@ -574,7 +633,7 @@ def test_config_layer_stays_out_of_the_runtime_stack() -> None:
 
     ``network/`` 的依赖面已由 ``FORBIDDEN_RUNTIME_IMPORTS`` 钉住；这几个**顶层模块**是 Epic 50 新加的
     同层面（配置来源求解 / 保真写 / 写流水线 / 项目注册表），同样只允许依赖 stdlib + pydantic + 底层
-    共用模块。漏掉它们的话，``config_write`` 这类模块顺手 ``import heagent.engine`` 不会触发任何断言。
+    共用模块。漏掉它们的话，``config/write.py`` 这类模块顺手 ``import heagent.engine`` 不会触发任何断言。
     """
     forbidden = {
         "heagent.agent",
@@ -587,8 +646,14 @@ def test_config_layer_stays_out_of_the_runtime_stack() -> None:
         "heagent.events",
         *_ENTRY_LAYER_MODULES,
     }
-    for module in ("config_catalog", "envfile", "config_write", "projects"):
-        runtime, _typing = _imports(SRC / f"{module}.py")
+    for module in (
+        "config/__init__.py",
+        "config/catalog.py",
+        "config/envfile.py",
+        "config/write.py",
+        "projects.py",
+    ):
+        runtime, _typing = _imports(SRC / module)
         assert runtime & forbidden == set(), f"{module}: {sorted(runtime & forbidden)}"
 
 
@@ -599,19 +664,19 @@ def test_write_whitelist_is_a_subset_of_settings_and_holds_no_credentials() -> N
     （静默走「未知键」分支）；② 白名单里混进 `*_API_KEY` ⇒ 直接打破「凭证永不回传、永不写入」的承诺。
     另加一条「白名单里的键必须真的被判成可写」，防止靠「没被分类」蒙混过关。
     """
-    from heagent import config_catalog
+    from heagent.config import catalog
     from heagent.config import Settings
 
-    whitelist = config_catalog.whitelist()
+    whitelist = catalog.whitelist()
     env_keys = {name.upper() for name in Settings.model_fields}
     assert whitelist <= env_keys, f"白名单里有不存在的字段名：{sorted(whitelist - env_keys)}"
     assert [key for key in whitelist if key.endswith(("_API_KEY", "_API_KEYS"))] == []
-    assert {key for key in whitelist if not config_catalog.classify(key).writable} == set()
+    assert {key for key in whitelist if not catalog.classify(key).writable} == set()
 
     for key in ("KIMI_API_KEY", "OPENAI_API_KEYS", "ANTHROPIC_API_KEY"):
-        verdict = config_catalog.classify(key)
+        verdict = catalog.classify(key)
         assert verdict.writable is False
-        assert verdict.reason is not None and verdict.reason in config_catalog.LABELS, key
+        assert verdict.reason is not None and verdict.reason in catalog.LABELS, key
 
 
 # ── 2026-09-26：CLI 入口层收进 `heagent/cli/` 包（原七个平铺 ``cli*.py``）──
@@ -659,3 +724,64 @@ def test_entrypoint_script_points_at_an_importable_module() -> None:
     assert target == "heagent.cli.console:main", target
     module_name, _, attr = target.partition(":")
     assert callable(getattr(importlib.import_module(module_name), attr))
+
+
+# ── 2026-09-26：公共层 ``pub/`` 与配置包 ``config/`` 的分层收敛（原顶层平铺模块）──
+
+
+def test_shared_layer_layout_is_pinned() -> None:
+    """布局即契约：``pub/``（零运行栈依赖）与 ``config/``（配置面）的文件清单。
+
+    2026-09-26 自顶层平铺模块收敛为两个包：``pub/`` 收零依赖公共模块（任何层可依赖），
+    ``heagent.config`` 收配置面四件套（依赖 ``pub``、被运行栈与入口层共同依赖）。
+    ``heagent.config`` 的名字**刻意保持不变**（模块 → 包）——``from heagent.config import Settings``
+    这条最大宗的导入面因此零改动。新增/搬移模块必须同步本表与 ``docs/frame.md`` 的目录树。
+    """
+    pub_modules = sorted(path.stem for path in (SRC / "pub").glob("*.py") if path.stem != "__init__")
+    config_modules = sorted(path.stem for path in (SRC / "config").glob("*.py") if path.stem != "__init__")
+
+    assert pub_modules == [
+        "exceptions",
+        "frontmatter",
+        "persist",
+        "roles",
+        "safe_logging",
+        "task_shutdown",
+        "types",
+        "workspace",
+    ]
+    assert config_modules == ["catalog", "envfile", "write"]
+
+
+def test_pub_package_shell_stays_thin() -> None:
+    """``pub/__init__.py`` 必须零 import（与 ``cli/__init__.py`` 同款理由）。
+
+    ``pub`` 是公共层：``from heagent.pub import types`` 不应该顺带把其余公共模块全拉起来。
+    包壳一旦 import 子模块，「导入一个公共模块」的成本就不再可控。
+    """
+    tree = ast.parse((SRC / "pub" / "__init__.py").read_text(encoding="utf-8"))
+    offenders = [node.lineno for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))]
+    assert offenders == [], f"pub/__init__.py 出现 import（第 {offenders} 行）——包壳必须保持零 import"
+
+
+def test_config_package_only_depends_on_the_public_layer() -> None:
+    """``config/__init__.py``（``Settings`` 本体）只许依赖 ``pub`` 与 stdlib/pydantic。
+
+    它是原顶层 ``config.py`` 整体迁入的包壳，因此「包壳零 import」不适用（它就是实现本体），
+    但**不得伸手进运行栈**——配置面一旦依赖 engine/agent，「配置」就成了运行栈的下游环路，
+    入口层与运行栈共用同一份 Settings 的快照前提随之破坏。
+    """
+    forbidden = {
+        "heagent.providers",
+        "heagent.tools",
+        "heagent.context",
+        "heagent.engine",
+        "heagent.agent",
+        "heagent.memory",
+        "heagent.cron",
+        "heagent.events",
+        "heagent.network",
+        *_ENTRY_LAYER_MODULES,
+    }
+    runtime, _typing = _imports(SRC / "config" / "__init__.py")
+    assert runtime & forbidden == set(), f"config/__init__.py: {sorted(runtime & forbidden)}"

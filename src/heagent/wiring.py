@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from heagent.memory.skills import SkillStore
     from heagent.memory.soul import SoulStore
     from heagent.providers.base import BaseProvider
-    from heagent.types import RoutingPoolSpec
+    from heagent.pub.types import RoutingPoolSpec
 
     # 单档 provider 构建器：(档位模型名, base_url 覆盖) → provider
     ProviderBuilder = Callable[[str, str | None], BaseProvider]

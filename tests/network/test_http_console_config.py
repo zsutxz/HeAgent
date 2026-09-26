@@ -16,7 +16,7 @@ pytest.importorskip("starlette")
 import httpx
 
 from heagent.config import Settings
-from heagent.config_catalog import (
+from heagent.config.catalog import (
     MAX_FILE_DIAGNOSTIC_KEYS,
     MAX_UNKNOWN_KEYS,
     ConfigGuard,
@@ -126,8 +126,8 @@ def test_bounded_constants_mirror_the_catalog() -> None:
 
 def test_write_bounds_mirror_the_write_channel() -> None:
     """写入通道的上界两边必须一致（网络层不得 import 顶层写通道模块，故只能镜像 + 钉住）。"""
-    from heagent import envfile
-    from heagent.config_write import MAX_CONFIG_WRITE_CHANGES as CHANNEL_MAX_CHANGES
+    from heagent.config import envfile
+    from heagent.config.write import MAX_CONFIG_WRITE_CHANGES as CHANNEL_MAX_CHANGES
 
     assert MAX_CONFIG_WRITE_CHANGES == CHANNEL_MAX_CHANGES
     assert MAX_CONFIG_KEY_CHARS == envfile.MAX_KEY_CHARS
@@ -288,7 +288,7 @@ async def test_panel_shows_the_resource_knob_ceilings(tmp_path: Path) -> None:
     遍历常量表本体而不是在测试里抄几个键：新增上界自动纳入（面板漏传会立刻红）。
     """
     from heagent.cli.http_console import HttpProjectConsole
-    from heagent.config_catalog import RESOURCE_CEILINGS
+    from heagent.config.catalog import RESOURCE_CEILINGS
 
     (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
     console = HttpProjectConsole(tmp_path, global_env_file=None)
@@ -537,7 +537,7 @@ async def test_real_console_refuses_writes_while_the_gate_is_closed(tmp_path: Pa
 
 async def test_real_console_writes_when_the_gate_is_open(tmp_path: Path) -> None:
     """端到端：指纹 → 保真写 → 备份 → 审计 → 响应含新指纹与新来源（AC2/AC3/AC7）。"""
-    from heagent import envfile
+    from heagent.config import envfile
     from heagent.cli.http_console import HttpProjectConsole
 
     raw = b"# project\r\nMAX_ITERATIONS=25\r\n"

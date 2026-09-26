@@ -22,8 +22,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from heagent.frontmatter import extract_h2_section, parse_strict_pairs, split_frontmatter
-from heagent.persist import atomic_update_text
+from heagent.pub.frontmatter import extract_h2_section, parse_strict_pairs, split_frontmatter
+from heagent.pub.persist import atomic_update_text
 
 # goal 状态目录（相对路径，使用时锚定 Path.cwd()）。workflow 包的定位由 cli/goal 经
 # Settings.goal_workflow_skill + skill catalog 解析，不在本模块硬编码。

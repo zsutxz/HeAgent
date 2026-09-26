@@ -26,7 +26,7 @@ import random
 from enum import StrEnum
 from typing import TYPE_CHECKING, NoReturn
 
-from heagent.exceptions import ProviderError
+from heagent.pub.exceptions import ProviderError
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

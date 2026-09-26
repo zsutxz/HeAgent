@@ -22,7 +22,7 @@ from heagent.tools.builtins.subagent import (
 )
 from heagent.tools.decorator import tool
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

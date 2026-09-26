@@ -14,7 +14,7 @@ from heagent.agent.loop import AgentLoop
 from heagent.cli.console import main
 from heagent.config import reset_settings
 from heagent.engine.observability import EngineEvent
-from heagent.exceptions import PolicyViolation, ToolError
+from heagent.pub.exceptions import PolicyViolation, ToolError
 from heagent.events.protocol import (
     ASSISTANT_MESSAGE_KIND,
     KNOWN_KINDS,
@@ -24,7 +24,7 @@ from heagent.events.protocol import (
 )
 from heagent.events.sink import JsonlSink, default_rollout_dir, read_rollout, render_event
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage
+from heagent.pub.types import Message, ProviderResponse, TokenUsage
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -414,7 +414,7 @@ class TestErrorKindMapping:
 
     def test_safety_violation_maps_to_safety_blocked(self) -> None:
         from heagent.events.protocol import ERROR_KIND_SAFETY_BLOCKED, error_kind_for
-        from heagent.exceptions import SafetyViolation
+        from heagent.pub.exceptions import SafetyViolation
 
         assert error_kind_for(SafetyViolation("s")) == ERROR_KIND_SAFETY_BLOCKED
 

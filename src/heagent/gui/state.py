@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from heagent.types import TokenUsage
+from heagent.pub.types import TokenUsage
 
 
 class GuiState(BaseModel):

@@ -39,9 +39,9 @@ from heagent.network.http_server import (
     HttpServerConfig,
     HttpStartupError,
 )
-from heagent.safe_logging import safe_log
+from heagent.pub.safe_logging import safe_log
+from heagent.pub.workspace import WorkspacePaths
 from heagent.wiring import _build_provider
-from heagent.workspace import WorkspacePaths
 
 logger = logging.getLogger(__name__)
 
@@ -349,7 +349,7 @@ def http_server_cmd(
     """Serve the built-in HeAgent web UI over HTTP (experimental; no authentication)."""
     # 函数内导入：``console`` 在模块尾部 import 本模块注册命令，模块级互相导入会成环。
     from heagent.cli.console import _prune_runtime_artifacts, _setup_logging  # noqa: PLC0415
-    from heagent.roles import load_agent_roles  # noqa: PLC0415
+    from heagent.pub.roles import load_agent_roles  # noqa: PLC0415
 
     _setup_logging()
     settings = get_settings()

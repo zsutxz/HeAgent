@@ -29,7 +29,7 @@ from heagent.context.tokens import (
 )
 from heagent.engine.container import EngineContainer
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, Role, TokenUsage
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage
 
 if TYPE_CHECKING:
     from collections.abc import Generator, Sequence

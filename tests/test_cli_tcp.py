@@ -16,11 +16,11 @@ from click.testing import CliRunner
 from heagent.cli.console import main
 from heagent.cli.tcp import TcpAgentHandler, build_server_config
 from heagent.config import get_settings, reset_settings
-from heagent.exceptions import HeAgentError
+from heagent.pub.exceptions import HeAgentError
 from heagent.network.protocol import TcpErrorCode, TcpRequest
 from heagent.network.tcp_server import TcpServer, TcpServerConfig
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage
+from heagent.pub.types import Message, ProviderResponse, TokenUsage
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

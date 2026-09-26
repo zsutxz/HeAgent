@@ -29,7 +29,7 @@ from heagent.memory.skill_rewrite import (
     render_skill_md,
     update_usage_frontmatter,
 )
-from heagent.persist import atomic_update_text, atomic_write_text
+from heagent.pub.persist import atomic_update_text, atomic_write_text
 from heagent.tools.path_safety import open_text_under_root
 
 if TYPE_CHECKING:

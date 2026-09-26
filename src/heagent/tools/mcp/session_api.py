@@ -11,7 +11,7 @@ deprecated + camelCase→snake_case + types 包拆分）落地时，**只改本�
 前后 diff 为空），改动限于 ``MCPClientManager`` 内部、不波及 ``AgentLoop``
 （兑现 mcp-client NFR-3）。本周期在 v1 SDK 上实现（NFR-4 纯 v1）。
 
-DAG（AD-6）：仅依赖 mcp SDK（+ 按需 ``heagent.types`` / ``exceptions``），
+DAG（AD-6）：仅依赖 mcp SDK（+ 按需 ``heagent.pub.types`` / ``exceptions``），
 **禁从 ``agent`` 导入，禁从 ``mapping`` 导入**（``mapping`` 反向从本模块取类型
 别名，单向防循环）。全 async，passthrough SDK 原生类型，不新造 Pydantic 模型。
 """

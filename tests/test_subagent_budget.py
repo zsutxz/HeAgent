@@ -11,9 +11,9 @@ from pathlib import Path
 from heagent.agent.loop import AgentLoop
 from heagent.agent.sub import SubAgent
 from heagent.config import Settings, get_settings
-from heagent.roles import RoleSpec, get_role, load_agent_roles
+from heagent.pub.roles import RoleSpec, get_role, load_agent_roles
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage
+from heagent.pub.types import Message, ProviderResponse, TokenUsage
 
 
 class _OneShotProvider:

@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from heagent.persist import prune_entries_by_mtime
+from heagent.pub.persist import prune_entries_by_mtime
 from heagent.tools.path_safety import workspace_root
 from heagent.tools.runtime import RuntimeSlot
 
@@ -133,7 +133,7 @@ def render_new_file(new_text: str) -> str:
 
 def snapshot_root() -> Path:
     """当前 run 的快照目录；无 run 绑定时退化为工作区级的共享目录。"""
-    from heagent.workspace import WorkspacePaths
+    from heagent.pub.workspace import WorkspacePaths
 
     base = WorkspacePaths.from_root(workspace_root()).edit_snapshots
     run_id = _snapshot_run.get()
@@ -142,7 +142,7 @@ def snapshot_root() -> Path:
 
 def snapshot_base(workspace: Path | None = None) -> Path:
     """快照的根目录（所有 ``<run_id>/`` 目录的父目录）——回收时以它为扫描起点。"""
-    from heagent.workspace import WorkspacePaths
+    from heagent.pub.workspace import WorkspacePaths
 
     root = workspace if workspace is not None else workspace_root()
     return WorkspacePaths.from_root(root).edit_snapshots

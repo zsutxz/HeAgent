@@ -33,13 +33,13 @@ from pydantic import BaseModel
 
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.retry import is_pool_fallback_error
-from heagent.types import Role
+from heagent.pub.types import Role
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from heagent.providers.base import BaseProvider
-    from heagent.types import Message, ProviderResponse, ToolSchema
+    from heagent.pub.types import Message, ProviderResponse, ToolSchema
 
 logger = logging.getLogger(__name__)
 

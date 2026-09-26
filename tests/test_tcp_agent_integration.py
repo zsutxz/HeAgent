@@ -19,12 +19,12 @@ import pytest
 
 from heagent.cli.tcp import TcpAgentHandler, _serve_tcp
 from heagent.config import get_settings, reset_settings
-from heagent.exceptions import HeAgentError
+from heagent.pub.exceptions import HeAgentError
 from heagent.network.protocol import TcpErrorCode, TcpRequest, TcpResponse, TcpUsage
 from heagent.network.tcp_server import TcpServer, TcpServerConfig
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.router import RouteDecision, RoutingProvider
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator

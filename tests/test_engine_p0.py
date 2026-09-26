@@ -21,7 +21,7 @@ from heagent.tools.builtins.memory import bind_memory_tools, fact_add
 from heagent.tools.builtins.skills import bind_skill_tools, configure_skill_tools, reset_skill_tools, skill_create
 from heagent.tools.sandbox import SandboxTier
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, TokenUsage, ToolAnnotations, ToolCall, ToolSchema
+from heagent.pub.types import Message, ProviderResponse, TokenUsage, ToolAnnotations, ToolCall, ToolSchema
 
 
 class StubProvider:
@@ -287,7 +287,7 @@ class TestExecutionLedger:
 
     def test_atomic_write_leaves_target_intact_on_crash(self, workspace_dir: Path, monkeypatch) -> None:
         """C：os.replace 前崩溃 → 目标保持旧内容，不留半截文件。"""
-        from heagent.persist import atomic_write_text
+        from heagent.pub.persist import atomic_write_text
 
         def _boom(*args: object, **kwargs: object) -> None:
             raise OSError("simulated crash before replace")
@@ -296,7 +296,7 @@ class TestExecutionLedger:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text('{"old": true}', encoding="utf-8")
 
-        monkeypatch.setattr("heagent.persist.os.replace", _boom)
+        monkeypatch.setattr("heagent.pub.persist.os.replace", _boom)
         with pytest.raises(OSError, match="simulated crash"):
             atomic_write_text(target, '{"new": true}')
         assert target.read_text(encoding="utf-8") == '{"old": true}'

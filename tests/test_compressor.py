@@ -6,7 +6,7 @@ import pytest
 
 from heagent.context.compressor import ContextCompressor
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
 
 
 class StubProvider:

@@ -6,8 +6,8 @@ import pytest
 
 from heagent.config import Settings, reset_settings
 from heagent.context.tokens import estimate_cost
-from heagent.roles import _parse_role_md, get_role, load_agent_roles
-from heagent.types import TokenUsage
+from heagent.pub.roles import _parse_role_md, get_role, load_agent_roles
+from heagent.pub.types import TokenUsage
 
 
 class TestEstimateCost:

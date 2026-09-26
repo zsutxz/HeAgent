@@ -13,7 +13,7 @@ from pydantic import BaseModel
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from heagent.types import Message, ProviderResponse, ToolSchema
+    from heagent.pub.types import Message, ProviderResponse, ToolSchema
 
 
 class ProviderMetadata(BaseModel):

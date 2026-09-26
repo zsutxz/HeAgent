@@ -10,7 +10,7 @@ from types import ModuleType
 import pytest
 from pydantic import BaseModel
 
-import heagent.persist as persist_mod
+import heagent.pub.persist as persist_mod
 
 
 # ── 行 47: posix retry loop body ──

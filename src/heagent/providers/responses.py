@@ -24,7 +24,7 @@ from openai import AsyncOpenAI
 
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.retry import wrap_provider_error
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

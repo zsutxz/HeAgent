@@ -16,7 +16,7 @@ import pytest
 from click.testing import CliRunner
 
 from heagent.cli.console import _mcp_lifecycle, main
-from heagent.exceptions import ToolError
+from heagent.pub.exceptions import ToolError
 from heagent.tools.mcp import MCPClientManager
 
 

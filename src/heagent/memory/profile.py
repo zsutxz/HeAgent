@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from heagent.persist import atomic_update_text, atomic_write_text
+from heagent.pub.persist import atomic_update_text, atomic_write_text
 
 
 class ProfileStore:

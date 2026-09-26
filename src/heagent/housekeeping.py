@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 
 from heagent.config import get_settings
 from heagent.context.session import SessionStore
-from heagent.persist import (
+from heagent.pub.persist import (
     delete_entries,
     prune_entries_by_mtime,
     prune_stamp_path,
@@ -226,7 +226,7 @@ async def run_housekeeping(
         logger.warning("log retention cleanup failed", exc_info=True)
 
     try:
-        from heagent.workspace import WorkspacePaths
+        from heagent.pub.workspace import WorkspacePaths
 
         session_store = SessionStore(str(WorkspacePaths.from_root(root).sessions))
         targets["sessions"] = await session_store.prune(conf.session_retention_days, min_interval_seconds=interval)

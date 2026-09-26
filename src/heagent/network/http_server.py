@@ -3,7 +3,7 @@
 **职责边界（AD-1）**：本模块只做 HTTP 协议与生命周期——路由、安全响应头、包内静态资源、
 listener 的 start/close。它**不**构造 Agent：任何 Agent 能力都由入口层（``cli/http.py``）以
 注入对象的方式交进来。因此本模块的导入面被刻意限制在：标准库、Pydantic、可选 ASGI 栈
-（Starlette / Uvicorn，延迟导入）、``heagent.network.exposure``、``heagent.safe_logging`` 与
+（Starlette / Uvicorn，延迟导入）、``heagent.network.exposure``、``heagent.pub.safe_logging`` 与
 同层协议模型。``tests/test_architecture_contracts.py`` 对此有可执行断言。
 
 **可选依赖（AD-11）**：Starlette / Uvicorn 由 ``pyproject.toml`` 的 ``http`` extra 直接声明，
@@ -66,7 +66,7 @@ from heagent.network.http_protocol import (
     error_envelope,
     sanitize_message,
 )
-from heagent.safe_logging import safe_log
+from heagent.pub.safe_logging import safe_log
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, MutableMapping
@@ -231,7 +231,7 @@ def _client_error_message(exc: BaseException) -> str:
 
     用 duck-typing 取 ``HeAgentError.message``（项目自产的面向用户文本）；拿不到就用固定兜底
     文案——协议边界**绝不**回吐异常类型名、traceback 或路径。传输层因此不需要 import
-    ``heagent.exceptions``（AD-1）。
+    ``heagent.pub.exceptions``（AD-1）。
     """
     message = getattr(exc, "message", None)
     if isinstance(message, str) and message.strip():
@@ -1291,7 +1291,7 @@ def _loopback_error(responses: Any, request: Any) -> Any | None:
     这是 defense-in-depth 而**不是认证**：能连上回环端口的本机进程可以伪造请求头。
 
     适用面：项目登记 / 重命名 / 移除（Story 50-2）与**配置写入**（Story 50-5 流水线第 2 步——那一步
-    留在传输层，因为网络层不认识 ``Settings``，见 ``heagent.config_write`` 的模块 docstring）。
+    留在传输层，因为网络层不认识 ``Settings``，见 ``heagent.config.write`` 的模块 docstring）。
     """
     client = getattr(request, "client", None)
     host = getattr(client, "host", "") if client is not None else ""

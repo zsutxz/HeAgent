@@ -8,12 +8,12 @@ import pytest
 
 from heagent.agent.sub import SubAgent, run_parallel
 from heagent.cli.display import SUBAGENT_ANNOUNCER
-from heagent.roles import RoleSpec
+from heagent.pub.roles import RoleSpec
 from heagent.memory.facts import FactStore
 from heagent.memory.skills import SkillStore
 from heagent.memory.soul import SoulStore
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage
+from heagent.pub.types import Message, ProviderResponse, TokenUsage
 
 
 class StubProvider:

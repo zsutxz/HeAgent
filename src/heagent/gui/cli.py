@@ -59,7 +59,7 @@ def gui_cmd(
 
     # ── 日志配置（stderr + 文件双写，与 CLI 模式 `_setup_logging` 同构）──
     from heagent.config import get_settings
-    from heagent.safe_logging import install_logging_fault_guard
+    from heagent.pub.safe_logging import install_logging_fault_guard
 
     install_logging_fault_guard()  # 日志设施故障不得中断会话（与 CLI 同一边界）
 

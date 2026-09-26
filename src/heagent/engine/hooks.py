@@ -38,7 +38,7 @@ from heagent.tools.sandbox import reap_subprocess
 
 if TYPE_CHECKING:
     from heagent.engine.context import RunContext
-    from heagent.types import ToolCall
+    from heagent.pub.types import ToolCall
 
 logger = logging.getLogger(__name__)
 

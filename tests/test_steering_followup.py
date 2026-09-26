@@ -8,7 +8,7 @@ from heagent.agent.loop import AgentLoop
 from heagent.config import reset_settings
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
-from heagent.types import (
+from heagent.pub.types import (
     Message,
     ProviderResponse,
     Role,
@@ -322,7 +322,7 @@ class TestCombinedSteeringFollowUp:
         provider = StubProvider([_final("r1"), _final("r2"), _final("r3")])
         loop = AgentLoop(provider, max_iterations=2, follow_up_callback=infinite_follow_up)
 
-        from heagent.exceptions import BudgetExceeded
+        from heagent.pub.exceptions import BudgetExceeded
 
         with pytest.raises(BudgetExceeded):
             await loop.run("test")

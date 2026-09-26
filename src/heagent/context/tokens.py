@@ -20,7 +20,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from heagent.types import Message, TokenUsage, ToolCall
+    from heagent.pub.types import Message, TokenUsage, ToolCall
 
 logger = logging.getLogger(__name__)
 

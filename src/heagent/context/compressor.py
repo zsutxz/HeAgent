@@ -16,7 +16,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
-from heagent.types import Message, ProviderResponse, Role
+from heagent.pub.types import Message, ProviderResponse, Role
 
 if TYPE_CHECKING:
     from heagent.providers.base import BaseProvider

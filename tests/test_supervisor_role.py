@@ -15,7 +15,7 @@ import pytest
 
 from heagent.agent.delegation import build_subagent_delegates
 from heagent.engine.context import RunContext
-from heagent.roles import get_role
+from heagent.pub.roles import get_role
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.builtins.subagent import (
     configure_subagent_tools,
@@ -23,7 +23,7 @@ from heagent.tools.builtins.subagent import (
     task_delegate,
     task_status,
 )
-from heagent.types import ProviderResponse, TokenUsage
+from heagent.pub.types import ProviderResponse, TokenUsage
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

@@ -25,7 +25,7 @@ class _StubProvider:
     """最小 stub——满足 ContextCompressor 构造签名。"""
 
     async def send(self, messages, tools, *, token_counter=None):
-        from heagent.types import ProviderResponse, TokenUsage
+        from heagent.pub.types import ProviderResponse, TokenUsage
 
         return ProviderResponse(
             content="Compressed summary.",
@@ -83,7 +83,7 @@ class TestTokenEstimationAccuracy:
 
     def test_message_list_basic(self, benchmark):
         from heagent.context.tokens import count_tokens
-        from heagent.types import Message, Role
+        from heagent.pub.types import Message, Role
 
         msgs = [Message(role=Role.USER, content="Hello")]
         tokens = benchmark(count_tokens, msgs)
@@ -103,7 +103,7 @@ class TestCompressionEfficiency:
 
     def test_compression_reduces_message_count(self, benchmark):
         from heagent.context.compressor import ContextCompressor
-        from heagent.types import Message, Role
+        from heagent.pub.types import Message, Role
 
         msgs = []
         for i in range(50):
@@ -119,7 +119,7 @@ class TestCompressionEfficiency:
 
     def test_compression_preserves_latest(self, benchmark):
         from heagent.context.compressor import ContextCompressor
-        from heagent.types import Message, Role
+        from heagent.pub.types import Message, Role
 
         msgs = []
         for i in range(20):
@@ -145,7 +145,7 @@ class TestToolRegistrationPerf:
 
     def test_many_tool_registration(self, benchmark):
         from heagent.tools.registry import ToolRegistry
-        from heagent.types import ToolSchema
+        from heagent.pub.types import ToolSchema
 
         registry = ToolRegistry()
         for i in range(100):
@@ -209,7 +209,7 @@ class TestBulkTokenEstimation:
 
     def test_large_message_list(self, benchmark):
         from heagent.context.tokens import count_tokens
-        from heagent.types import Message, Role
+        from heagent.pub.types import Message, Role
 
         msgs = []
         for i in range(100):
@@ -244,7 +244,7 @@ class _FinalStubProvider:
     """单轮即返回最终答案的 stub（provider 延迟基准：测 loop 编排开销，非模型耗时）。"""
 
     async def send(self, messages, *, tools=None):
-        from heagent.types import ProviderResponse, TokenUsage
+        from heagent.pub.types import ProviderResponse, TokenUsage
 
         return ProviderResponse(
             content="final answer",
@@ -308,7 +308,7 @@ class TestSessionRestoreRun:
     def test_run_with_restored_history(self, benchmark) -> None:
         from heagent.agent.loop import AgentLoop
         from heagent.context.session import SessionStore
-        from heagent.types import Message, Role
+        from heagent.pub.types import Message, Role
 
         store = SessionStore()
         history = [

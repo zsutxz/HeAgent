@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from heagent.agent.loop import AgentLoop
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, StreamEvent, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, StreamEvent, TokenUsage, ToolCall
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from heagent.exceptions import ProviderError
+from heagent.pub.exceptions import ProviderError
 from heagent.providers.base import BaseProvider
 from heagent.providers.openai import OpenAIProvider, _parse_tool_calls, _to_openai_messages, _to_openai_tools
 from heagent.providers.retry import retry_with_backoff
-from heagent.types import Message, Role, ToolSchema
+from heagent.pub.types import Message, Role, ToolSchema
 
 
 def _mock_usage(p: int = 10, c: int = 5, t: int = 15) -> SimpleNamespace:

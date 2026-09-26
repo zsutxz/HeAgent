@@ -8,7 +8,7 @@ Pydantic 模型 + :class:`ConsoleHandler` Protocol 注入，``http_server.py`` �
 :data:`MAX_SESSION_TITLE_CHARS` 与 :data:`MAX_SESSION_LIST_ENTRIES` 必须与
 ``heagent.context.session`` 的同名常量一致——由 ``tests/network/test_http_console_sessions.py``
 的可执行断言钉住，避免两处漂移。同理 :data:`MAX_CONFIG_UNKNOWN_KEYS` 与
-:data:`MAX_CONFIG_FILE_DIAGNOSTIC_KEYS` 镜像 ``heagent.config_catalog`` 的同名常量（配置面板的
+:data:`MAX_CONFIG_FILE_DIAGNOSTIC_KEYS` 镜像 ``heagent.config.catalog`` 的同名常量（配置面板的
 条目也来自文件内容，必须有界），由 ``tests/network/test_http_console_config.py`` 钉住。
 """
 
@@ -25,13 +25,13 @@ from heagent.network.http_protocol import MAX_PROMPT_CHARS, RunStatus, SessionMe
 MAX_PROJECT_NAME_CHARS = 64
 MAX_PROJECT_PATH_CHARS = 4096
 
-# 配置面板的上界（镜像 ``heagent.config_catalog`` 的同名常量；由
+# 配置面板的上界（镜像 ``heagent.config.catalog`` 的同名常量；由
 # ``tests/network/test_http_console_config.py`` 的可执行断言钉住）。条目本身来自文件内容
 # （未知键 / 重复键 / 空值键），因此必须有界——响应体不得随 `.env` 内容膨胀。
 MAX_CONFIG_UNKNOWN_KEYS = 64
 MAX_CONFIG_FILE_DIAGNOSTIC_KEYS = 64
 
-# 写入通道的上界（镜像 ``heagent.config_write`` / ``heagent.envfile`` 的同名常量；网络层不得
+# 写入通道的上界（镜像 ``heagent.config.write`` / ``heagent.config.envfile`` 的同名常量；网络层不得
 # import 它们，故各自持有并由 ``tests/network/test_http_console_config.py`` 钉住一致性）。
 # 一次请求的键数、键名长度、值长度都来自客户端 ⇒ 必须有界（请求体与写锁持有时间都不随输入膨胀）。
 MAX_CONFIG_WRITE_CHANGES = 64
@@ -220,7 +220,7 @@ class ConsoleOperationError(Exception):
 
 
 class ConfigSourceValue(StrEnum):
-    """有效值的来源层（镜像 ``heagent.config_catalog.ConfigSource`` 的取值）。"""
+    """有效值的来源层（镜像 ``heagent.config.catalog.ConfigSource`` 的取值）。"""
 
     DEFAULT = "default"
     GLOBAL_ENV = "global_env"

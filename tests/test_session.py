@@ -17,8 +17,8 @@ from heagent.context.session import (
     derive_title,
     validate_title,
 )
-from heagent.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
-from heagent.types import Message, Role, ToolCall
+from heagent.pub.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
+from heagent.pub.types import Message, Role, ToolCall
 
 
 def _msgs(*contents: str) -> list[Message]:

@@ -39,7 +39,7 @@ class _RecordingProvider:
 
     async def send(self, messages, *, tools=None):  # noqa: ANN001, ANN202
         self.calls.append(messages[-1].content)
-        from heagent.types import ProviderResponse, TokenUsage
+        from heagent.pub.types import ProviderResponse, TokenUsage
 
         return ProviderResponse(
             content="done",

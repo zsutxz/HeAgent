@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
-from heagent.types import ToolCall  # noqa: TC001
+from heagent.pub.types import ToolCall  # noqa: TC001
 
 if TYPE_CHECKING:
     from collections.abc import Callable

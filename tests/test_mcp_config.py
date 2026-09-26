@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from heagent.exceptions import ToolError
+from heagent.pub.exceptions import ToolError
 from heagent.tools.mcp import HttpServerConfig, MCPConfig, StdioServerConfig, load_mcp_config
 
 if TYPE_CHECKING:

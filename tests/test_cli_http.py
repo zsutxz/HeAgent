@@ -23,8 +23,8 @@ from heagent.config import get_settings, reset_settings
 from heagent.context.session import SessionStore
 from heagent.network.http_server import HttpServer, HttpServerConfig
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage
-from heagent.workspace import WorkspacePaths
+from heagent.pub.types import Message, ProviderResponse, TokenUsage
+from heagent.pub.workspace import WorkspacePaths
 
 
 class _StubProvider:
@@ -456,7 +456,7 @@ def test_write_channel_applies_on_the_next_run_only(tmp_path: Path) -> None:
     """
     import asyncio
 
-    from heagent import envfile
+    from heagent.config import envfile
     from heagent.network.http_console_protocol import ConfigWriteChangeRequest, ConfigWriteRequest
 
     root = tmp_path / "proj"

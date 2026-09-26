@@ -2,7 +2,7 @@
 
 本模块属于 ``engine/`` 运行时治理层（见 ``docs/frame.md`` 4.12）。工具执行链固定为
 ``PolicyEngine.evaluate() → ToolExecutor → SafetyGuard.check() → handler``（项目硬约束）。
-``PolicyEngine`` 在**任何实际执行之前**对一次 :class:`~heagent.types.ToolCall` 做裁决，
+``PolicyEngine`` 在**任何实际执行之前**对一次 :class:`~heagent.pub.types.ToolCall` 做裁决，
 产出 :class:`PolicyVerdict`，交由 :class:`~heagent.engine.executor.ToolExecutor` 分发。
 
 裁决维度（按 :meth:`PolicyEngine.evaluate_tool_call` 内的先后顺序，前者优先短路）：
@@ -45,7 +45,7 @@ from heagent.tools.path_safety import (
 
 if TYPE_CHECKING:
     from heagent.engine.context import RunContext
-    from heagent.types import ToolCall, ToolSchema
+    from heagent.pub.types import ToolCall, ToolSchema
 
 logger = logging.getLogger(__name__)
 

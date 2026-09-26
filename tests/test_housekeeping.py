@@ -18,7 +18,7 @@ import pytest
 from heagent import housekeeping as hk
 from heagent.config import Settings, reset_settings
 from heagent.context.session import SessionStore
-from heagent import persist
+from heagent.pub import persist
 from heagent.housekeeping import prune_logs, prune_runtime_artifacts_sync, prune_sandbox_dirs, run_housekeeping
 from heagent.tools.edits import prune_snapshots
 from heagent.tools.sandbox import sandbox_sessions_root

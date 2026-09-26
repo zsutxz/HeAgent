@@ -20,7 +20,7 @@ from heagent.providers.openai import OpenAIProvider
 from heagent.providers.responses import OpenAIResponsesProvider
 from heagent.providers.router import RoutingProvider
 from heagent.providers.switchable import SwitchableProvider
-from heagent.types import Message, Role
+from heagent.pub.types import Message, Role
 
 # 测试用池规格：deepseek 二分（池内名 fast/pro）、gpt 三档（terra/luna/sol + 显式 roles）。
 _DEEPSEEK_POOL = '{"deepseek": {"tiers": {"fast": "deepseek-flash", "pro": "deepseek-v4-pro"}}}'

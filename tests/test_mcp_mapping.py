@@ -22,7 +22,7 @@ from mcp.types import (
     ToolAnnotations as McpToolAnnotations,
 )
 
-from heagent.exceptions import ToolError
+from heagent.pub.exceptions import ToolError
 from heagent.tools.mcp import mapping
 from heagent.tools.mcp.mapping import (
     bridge_result,

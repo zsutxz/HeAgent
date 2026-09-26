@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 from mcp.types import BlobResourceContents, TextContent, TextResourceContents
 from pydantic import BaseModel
 
-from heagent.exceptions import ToolError
+from heagent.pub.exceptions import ToolError
 from heagent.tools.mcp.client import TransportOpener, default_transport_opener
 from heagent.tools.mcp.mapping import bridge_result, guard_content, mcp_tool_to_schema
 from heagent.tools.mcp.registry_bridge import RegistryBridge

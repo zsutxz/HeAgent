@@ -43,7 +43,7 @@ def test_stream_event_path_uses_the_same_label() -> None:
     """
     pytest.importorskip("textual")
     from heagent.gui.bridge import AgentBridge
-    from heagent.types import StreamEvent
+    from heagent.pub.types import StreamEvent
 
     state = GuiState()
     bridge = AgentBridge(loop=None, state=state)  # type: ignore[arg-type]
@@ -56,7 +56,7 @@ def test_stream_event_path_uses_the_same_label() -> None:
 def test_stream_event_path_clears_on_result() -> None:
     pytest.importorskip("textual")
     from heagent.gui.bridge import AgentBridge
-    from heagent.types import StreamEvent
+    from heagent.pub.types import StreamEvent
 
     state = GuiState(active_tool="file_read → docs/frame.md")
     bridge = AgentBridge(loop=None, state=state)  # type: ignore[arg-type]
@@ -71,7 +71,7 @@ class TestToolResultRendering:
 
     @staticmethod
     def _event(**kwargs: object) -> object:
-        from heagent.types import StreamEvent
+        from heagent.pub.types import StreamEvent
 
         return StreamEvent(type="tool_result", **kwargs)  # type: ignore[arg-type]
 

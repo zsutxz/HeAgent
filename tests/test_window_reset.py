@@ -32,7 +32,7 @@ from heagent.engine.ledger import ExecutionLedger, _lease_deadline
 from heagent.engine.store import RunStore
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence

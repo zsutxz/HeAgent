@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.exceptions import ProviderError
+from heagent.pub.exceptions import ProviderError
 from heagent.providers.retry import (
     ErrorCategory,
     classify_error,

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from heagent.config import Settings
-from heagent.config_catalog import (
+from heagent.config.catalog import (
     BOM,
     EXCLUSION_GROUPS,
     LABELS,
@@ -691,7 +691,7 @@ class TestReportShape:
 
     def test_catalog_has_no_runtime_imports(self) -> None:
         """脊柱 §2：``config_catalog`` 不得依赖 engine / agent / 入口层。"""
-        source = (Path(__file__).resolve().parents[1] / "src" / "heagent" / "config_catalog.py").read_text(
+        source = (Path(__file__).resolve().parents[1] / "src" / "heagent" / "config" / "catalog.py").read_text(
             encoding="utf-8"
         )
         for forbidden in ("heagent.engine", "heagent.agent", "heagent.cli", "heagent.network"):

@@ -1,7 +1,7 @@
 """配置写入通道：脊柱 §8 的 **10 步执行 + 1 项生效语义**（Story 50-5）。
 
-本模块是**顶层**模块——只依赖标准库、Pydantic、:mod:`heagent.config`、:mod:`heagent.config_catalog`、
-:mod:`heagent.envfile` 与 :mod:`heagent.persist`；不得依赖 ``network`` / ``engine`` / ``agent`` /
+本模块是**顶层**模块——只依赖标准库、Pydantic、:mod:`heagent.config`、:mod:`heagent.config.catalog`、
+:mod:`heagent.config.envfile` 与 :mod:`heagent.pub.persist`；不得依赖 ``network`` / ``engine`` / ``agent`` /
 入口层（网络层只把不透明项目 id 与协议模型交给注入的 console，脊柱 I1）。
 
 流水线（顺序固定，任一步失败即拒绝且**文件不变**）：
@@ -52,10 +52,9 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from heagent import envfile
-from heagent.config import GLOBAL_CONFIG_FILE, Settings
-from heagent.config_catalog import classify, guards_for, routing_report, system_env_keys
-from heagent.persist import atomic_update_bytes, atomic_write_bytes
+from heagent.config import GLOBAL_CONFIG_FILE, Settings, envfile
+from heagent.config.catalog import classify, guards_for, routing_report, system_env_keys
+from heagent.pub.persist import atomic_update_bytes, atomic_write_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -71,7 +70,7 @@ MAX_CONFIG_WRITE_CHANGES = 64
 AUDIT_FILENAME = "audit.jsonl"
 
 #: 审计文件的**行数**上限：超出即裁到最近 N 条（``max_entries=0`` = 保留 0 条，与
-#: :func:`heagent.envfile.prune_backups` 同义）。单个追加文件的形状决定了回收方式，见 :func:`prune_audit`。
+#: :func:`heagent.config.envfile.prune_backups` 同义）。单个追加文件的形状决定了回收方式，见 :func:`prune_audit`。
 MAX_CONFIG_AUDIT_ENTRIES = 500
 
 #: ``ROUTING_POOLS`` —— 唯一需要「额外语义校验」的键（JSON + 池条目）。

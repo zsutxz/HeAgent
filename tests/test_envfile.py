@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from heagent import envfile
+from heagent.config import envfile
 
 # 真实项目 .env 的形态：CRLF + 行内注释 + 重复键（后者生效）+ 末行无换行。
 CRLF_SAMPLE = (
@@ -386,8 +386,10 @@ class TestPruneBackups:
 
 class TestModuleBoundary:
     def test_envfile_has_no_runtime_imports_of_the_stack(self) -> None:
-        """顶层模块（脊柱 §2）：只允许标准库 / pydantic / ``persist``。"""
-        source = (Path(__file__).resolve().parents[1] / "src" / "heagent" / "envfile.py").read_text(encoding="utf-8")
+        """配置包模块（脊柱 §2）：只允许标准库 / pydantic / ``pub.persist``。"""
+        source = (Path(__file__).resolve().parents[1] / "src" / "heagent" / "config" / "envfile.py").read_text(
+            encoding="utf-8"
+        )
         tree = ast.parse(source)
         roots = set()
         for node in tree.body:
@@ -398,4 +400,4 @@ class TestModuleBoundary:
         assert {"heagent"} <= roots
         for forbidden in ("heagent.engine", "heagent.agent", "heagent.cli", "heagent.network", "heagent.config"):
             assert f"from {forbidden}" not in source, forbidden
-        assert "heagent.persist" in source
+        assert "heagent.pub.persist" in source

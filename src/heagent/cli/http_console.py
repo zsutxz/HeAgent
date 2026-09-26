@@ -30,11 +30,10 @@ import click
 
 from heagent.cli.dialogs import DialogBusyError, DialogUnavailableError, DirectoryPicker
 from heagent.config import GLOBAL_CONFIG_FILE, Settings
-from heagent.config_catalog import LABELS, ConfigItem, ConfigReport, build_config_report
-from heagent.config_write import ConfigChange, ConfigWriteRejection, ConfigWriteResult, apply_config_write
+from heagent.config.catalog import LABELS, ConfigItem, ConfigReport, build_config_report
+from heagent.config.write import ConfigChange, ConfigWriteRejection, ConfigWriteResult, apply_config_write
 from heagent.context.session import SessionMetadata, SessionStore
 from heagent.engine import EngineContainer
-from heagent.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.memory.skills import SkillStore
@@ -69,14 +68,15 @@ from heagent.network.http_server import (
     RunEventPublisher,
 )
 from heagent.projects import ProjectEntry, ProjectRegistryError, default_project_registry
-from heagent.safe_logging import safe_log
-from heagent.types import Message, Role
-from heagent.workspace import WorkspacePaths
+from heagent.pub.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
+from heagent.pub.safe_logging import safe_log
+from heagent.pub.types import Message, Role
+from heagent.pub.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
     from heagent.providers.base import BaseProvider
-    from heagent.types import TokenUsage
+    from heagent.pub.types import TokenUsage
 
 logger = logging.getLogger(__name__)
 
@@ -417,7 +417,7 @@ class HttpProjectConsole:
     （脊柱 I1）。会话 JSON 的解析一律留在 ``SessionStore``（脊柱「Never」项）。
 
     Story 50-5 起它还是**配置写入**的入口层实现：10 步流水线的同步内核在
-    :func:`heagent.config_write.apply_config_write`（顶层模块），这里负责三件事——提供项目 ``.env``
+    :func:`heagent.config.write.apply_config_write`（顶层模块），这里负责三件事——提供项目 ``.env``
     的绝对路径（脊柱 I2）、持有**服务启动时**解析的写闸门（D4：开关只能由启动配置决定，网页任何
     请求都改不到它自己）、以及写成功后的**生效语义**（I10：让该项目的运行时缓存失效，下一次 run
     重新解析；在途 run 持有的旧快照不受影响）。
@@ -600,7 +600,7 @@ class HttpProjectConsole:
     async def get_project_config(self, project_id: str) -> ProjectConfigResponse:
         """该项目的**有效**配置：值 + 来源 + 可写性 + 只读原因 + 诊断（只读；凭证仅掩码）。
 
-        求解完全交给 :func:`heagent.config_catalog.build_config_report`（单一求解器，NFR-3）；
+        求解完全交给 :func:`heagent.config.catalog.build_config_report`（单一求解器，NFR-3）；
         这里只做两件事：解析项目运行时（拿 ``<项目根>/.env`` 的绝对路径，脊柱 I2）与把域模型
         映射成网络层协议模型。
         """

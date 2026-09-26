@@ -41,7 +41,7 @@ from heagent.tools.path_safety import (
 )
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
-from heagent.types import ToolCall
+from heagent.pub.types import ToolCall
 
 # ── Stub provider for subagent tests ─────────────────────────────────
 
@@ -140,7 +140,7 @@ class TestMappingUnknownBlock:
 class TestMCPConfigInvalidServer:
     def test_parse_server_no_command_no_url_raises(self) -> None:
         """_parse_server：无 command 且无 url → ToolError。"""
-        from heagent.exceptions import ToolError
+        from heagent.pub.exceptions import ToolError
 
         with pytest.raises(ToolError, match="缺少 command"):
             _parse_server("broken", {"type": "stdio"})
@@ -229,7 +229,7 @@ class TestConfigureWorkspaceRoot:
 class TestResolveRole:
     def test_resolve_role_from_runtime_map(self) -> None:
         """_resolve_role 在 runtime.roles 中命中时返回该 RoleSpec。"""
-        from heagent.roles import RoleSpec
+        from heagent.pub.roles import RoleSpec
 
         runtime = SubagentToolRuntime()
         spec = RoleSpec(name="custom", system="custom system")

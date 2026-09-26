@@ -1,6 +1,6 @@
 """Tests for HeAgent exception hierarchy."""
 
-from heagent.exceptions import (
+from heagent.pub.exceptions import (
     BudgetExceeded,
     HeAgentError,
     ProviderError,

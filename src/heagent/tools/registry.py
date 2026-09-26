@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from heagent.types import ToolSchema
+    from heagent.pub.types import ToolSchema
 
 
 class ToolRegistry:

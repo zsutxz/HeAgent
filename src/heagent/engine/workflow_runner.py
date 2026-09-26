@@ -22,7 +22,7 @@ from heagent.engine.checkpoint import (
 )
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 from heagent.events.protocol import error_kind_for
-from heagent.safe_logging import safe_log
+from heagent.pub.safe_logging import safe_log
 
 logger = logging.getLogger(__name__)
 

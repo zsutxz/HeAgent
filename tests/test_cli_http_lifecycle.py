@@ -32,7 +32,7 @@ from heagent.cli.console import main
 from heagent.cli.http import build_http_service
 from heagent.config import get_settings, reset_settings
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage
+from heagent.pub.types import Message, ProviderResponse, TokenUsage
 
 
 def _free_port() -> int:

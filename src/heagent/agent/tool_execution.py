@@ -32,9 +32,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from heagent.engine import ApprovalDecision, ApprovalRequest, ToolExecutionMode
-from heagent.safe_logging import safe_log
+from heagent.pub.safe_logging import safe_log
+from heagent.pub.types import ToolCall, ToolResult
 from heagent.tools.call_summary import activity_label, summarize_tool_call
-from heagent.types import ToolCall, ToolResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable

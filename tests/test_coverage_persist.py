@@ -19,7 +19,7 @@ import types
 
 import pytest
 
-from heagent.persist import (
+from heagent.pub.persist import (
     _acquire_lock,
     _acquire_lock_posix,
     _acquire_lock_windows,
@@ -202,7 +202,7 @@ class TestAcquireLockDispatch:
         """sys.platform='linux' → _acquire_lock 走 POSIX 分支。"""
         posix_called = []
         monkeypatch.setattr(
-            "heagent.persist._acquire_lock_posix",
+            "heagent.pub.persist._acquire_lock_posix",
             lambda fd, timeout: posix_called.append(fd),
         )
         monkeypatch.setattr(sys, "platform", "linux")
@@ -220,7 +220,7 @@ class TestAcquireLockDispatch:
         """sys.platform='win32' → _acquire_lock 走 Windows 分支。"""
         win_called = []
         monkeypatch.setattr(
-            "heagent.persist._acquire_lock_windows",
+            "heagent.pub.persist._acquire_lock_windows",
             lambda fd, timeout: win_called.append(fd),
         )
         monkeypatch.setattr(sys, "platform", "win32")
@@ -240,7 +240,7 @@ class TestReleaseLockDispatch:
         """sys.platform='linux' → _release_lock 走 POSIX 分支。"""
         posix_called = []
         monkeypatch.setattr(
-            "heagent.persist._release_lock_posix",
+            "heagent.pub.persist._release_lock_posix",
             lambda fd: posix_called.append(fd),
         )
         monkeypatch.setattr(sys, "platform", "linux")
@@ -258,7 +258,7 @@ class TestReleaseLockDispatch:
         """sys.platform='win32' → _release_lock 走 Windows 分支。"""
         win_called = []
         monkeypatch.setattr(
-            "heagent.persist._release_lock_windows",
+            "heagent.pub.persist._release_lock_windows",
             lambda fd: win_called.append(fd),
         )
         monkeypatch.setattr(sys, "platform", "win32")
@@ -285,7 +285,7 @@ class TestAtomicWriteTextErrorPaths:
         def _fail_acquire(fd, timeout):
             raise KeyboardInterrupt()
 
-        monkeypatch.setattr("heagent.persist._acquire_lock", _fail_acquire)
+        monkeypatch.setattr("heagent.pub.persist._acquire_lock", _fail_acquire)
 
         target = tmp_path / "f.json"
         with pytest.raises(KeyboardInterrupt):
@@ -297,15 +297,15 @@ class TestAtomicWriteTextErrorPaths:
     def test_release_lock_failure_logs_debug(self, tmp_path, monkeypatch, caplog):
         """_release_lock 抛 Exception → logger.debug + 写仍然成功（覆盖 lines 175-177）。"""
         # _acquire_lock 正常返回
-        monkeypatch.setattr("heagent.persist._acquire_lock", lambda fd, timeout: None)
+        monkeypatch.setattr("heagent.pub.persist._acquire_lock", lambda fd, timeout: None)
 
         def _fail_release(fd):
             raise RuntimeError("unlock error")
 
-        monkeypatch.setattr("heagent.persist._release_lock", _fail_release)
+        monkeypatch.setattr("heagent.pub.persist._release_lock", _fail_release)
 
         target = tmp_path / "f.json"
-        with caplog.at_level(logging.DEBUG, logger="heagent.persist"):
+        with caplog.at_level(logging.DEBUG, logger="heagent.pub.persist"):
             atomic_write_text(target, '{"a": 1}', lock=True)
 
         assert target.read_text(encoding="utf-8") == '{"a": 1}'

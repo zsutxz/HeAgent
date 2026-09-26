@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from heagent.exceptions import ProviderError
+from heagent.pub.exceptions import ProviderError
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.router import (
     HeuristicRouter,
@@ -17,7 +17,7 @@ from heagent.providers.router import (
     annotate_route,
     display_reason,
 )
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

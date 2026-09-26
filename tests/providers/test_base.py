@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from heagent.providers.base import BaseProvider, ProviderMetadata
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

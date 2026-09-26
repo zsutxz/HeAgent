@@ -18,7 +18,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from heagent.exceptions import ToolError
+from heagent.pub.exceptions import ToolError
 
 logger = logging.getLogger(__name__)
 

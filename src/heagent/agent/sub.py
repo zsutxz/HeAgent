@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from heagent.memory.skills import SkillStore
     from heagent.memory.soul import SoulStore
     from heagent.providers.base import BaseProvider
-    from heagent.roles import RoleSpec
+    from heagent.pub.roles import RoleSpec
 
 
 @dataclass

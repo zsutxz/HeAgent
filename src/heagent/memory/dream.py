@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING
 
 from heagent.config import Settings, get_settings
 from heagent.cron.expr import cron_matches
-from heagent.task_shutdown import DEFAULT_STOP_TIMEOUT, await_task_stop, retrieve_task_exception
+from heagent.pub.task_shutdown import DEFAULT_STOP_TIMEOUT, await_task_stop, retrieve_task_exception
 
 if TYPE_CHECKING:
     from heagent.context.session import SessionStore
@@ -61,7 +61,7 @@ _SESSION_MSG_COUNT_CAP: int = 20
 
 
 def _retrieve_task_exception(task: asyncio.Task[None]) -> None:
-    """done callback：取回关停超时后孤儿 task 的异常（实现见 ``heagent.task_shutdown``）。
+    """done callback：取回关停超时后孤儿 task 的异常（实现见 ``heagent.pub.task_shutdown``）。
 
     保留本薄包装而非直接传 ``functools.partial``：``add_done_callback`` 因此拿到签名严格为
     ``(task) -> None`` 的可调用对象，同时保住 ``owner`` 日志前缀；两侧同名薄包装也让
@@ -199,7 +199,7 @@ class DreamScheduler:
     async def _await_stop(self, task: asyncio.Task[None]) -> None:
         """带硬上界等待 scheduler task 退出；立即 cancel 后单轮 bounded 收尾，绝不无限阻塞。
 
-        走 ``heagent.task_shutdown.await_task_stop``（与
+        走 ``heagent.pub.task_shutdown.await_task_stop``（与
         :class:`~heagent.cron.scheduler.CronScheduler` 共用同一内核）：立即 cancel + bounded wait +
         超时记 ERROR 放弃；超时分支另挂 done callback 取回孤儿 task 异常（避免「Task exception
         was never retrieved」）。

@@ -59,17 +59,17 @@ import click
 
 from heagent.config import get_settings
 from heagent.engine import EngineContainer
-from heagent.exceptions import HeAgentError
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.memory.skills import SkillStore
 from heagent.network.exposure import exposure_warning
 from heagent.network.protocol import TcpErrorCode, TcpUsage, error_response, success_response
 from heagent.network.tcp_server import TcpServer, TcpServerConfig
-from heagent.roles import load_agent_roles
-from heagent.safe_logging import safe_log
+from heagent.pub.exceptions import HeAgentError
+from heagent.pub.roles import load_agent_roles
+from heagent.pub.safe_logging import safe_log
+from heagent.pub.workspace import WorkspacePaths
 from heagent.wiring import _build_provider
-from heagent.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
@@ -77,7 +77,7 @@ if TYPE_CHECKING:
     from heagent.memory.soul import SoulStore
     from heagent.network.protocol import TcpRequest, TcpResponse
     from heagent.providers.base import BaseProvider
-    from heagent.types import TokenUsage
+    from heagent.pub.types import TokenUsage
 
 logger = logging.getLogger(__name__)
 

@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 from pydantic import BaseModel, Field
 
 from heagent.engine.context import iso_now
-from heagent.safe_logging import redact_mapping, redact_secrets, safe_log
+from heagent.pub.safe_logging import redact_mapping, redact_secrets, safe_log
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -69,9 +69,9 @@ class LoggingObserver:
 
     - **脱敏而非截断**：``target`` 对 ``shell`` 是**不截断**的完整命令
       （:data:`~heagent.tools.call_summary._NO_TRUNCATE_TOOLS`，审查需要原文），
-      故这里按凭证**形态**掩码（:func:`~heagent.safe_logging.redact_secrets`），
+      故这里按凭证**形态**掩码（:func:`~heagent.pub.safe_logging.redact_secrets`），
       既不丢命令结构，也不把 ``API_KEY=…`` / ``sk-…`` 写进日志文件。
-    - **故障隔离**：走 :func:`~heagent.safe_logging.safe_log`——日志设施故障
+    - **故障隔离**：走 :func:`~heagent.pub.safe_logging.safe_log`——日志设施故障
       只该降级成「少一条日志」，不得让 ``EventBus.emit`` 的调用方失败。
 
     ⚠ 脱敏是启发式，**非安全边界**；``.heagent/runs/`` 的 run 快照与 rollout

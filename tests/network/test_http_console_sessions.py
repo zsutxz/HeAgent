@@ -44,7 +44,7 @@ from heagent.network.http_console_protocol import (
 )
 from heagent.network.http_protocol import HttpErrorCode, RunOutcome, RunStatus
 from heagent.network.http_server import HttpRunService, HttpServerConfig, build_http_app
-from heagent.types import Message, Role
+from heagent.pub.types import Message, Role
 
 _VERSION = "9.9.9"
 

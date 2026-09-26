@@ -36,7 +36,7 @@ from heagent.network.exposure import exposure_warning
 from heagent.network.http_protocol import HttpErrorCode
 from heagent.network.http_server import HttpRunService, HttpServer, HttpServerConfig, build_http_app, read_web_asset
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, TokenUsage, ToolCall
 
 # 假密钥标记：短密钥与多密钥各一份（§9.7 要求覆盖这两种形态）；MARKER 放在普通键的值里。
 # noqa: S105 —— 这两个常量**故意**长得像密钥：它们的用途就是证明「任何一面都回传不出它们」。

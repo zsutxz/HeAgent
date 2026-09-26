@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from heagent.providers.retry import retry_with_backoff
 
 if TYPE_CHECKING:
-    from heagent.types import Message, ToolSchema
+    from heagent.pub.types import Message, ToolSchema
 
 logger = logging.getLogger(__name__)
 

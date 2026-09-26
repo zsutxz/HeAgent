@@ -4,7 +4,7 @@
 assistant/tool 消息追加、token 用量叠加、就地压缩（``maybe_compress``）与窗口重置
 （``maybe_window_reset``）。``AgentLoop`` 保留同名方法委托至此。
 
-依赖方向：运行期只依赖 ``run_lifecycle``（checkpoint）与 ``heagent.types``/``engine``
+依赖方向：运行期只依赖 ``run_lifecycle``（checkpoint）与 ``heagent.pub.types``/``engine``
 类型，不导入 ``heagent.agent.loop``（仅 TYPE_CHECKING）。
 """
 
@@ -14,8 +14,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from heagent.agent.run_lifecycle import AgentState, checkpoint
-from heagent.exceptions import BudgetExceeded
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolResult
+from heagent.pub.exceptions import BudgetExceeded
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolResult
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop

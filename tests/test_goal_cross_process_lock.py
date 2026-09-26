@@ -16,7 +16,7 @@ import pytest
 
 import heagent.cli.goal as cli_goal
 from heagent.cli.goal import _goal_runner
-from heagent.persist import file_lock
+from heagent.pub.persist import file_lock
 
 _WORKFLOW_MD = (
     "---\nname: test-development\nentrypoint: goal\non_create: persist_goal_identity\n"

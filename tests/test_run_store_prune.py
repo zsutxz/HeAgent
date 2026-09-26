@@ -16,11 +16,11 @@ import pytest
 
 from heagent.agent.loop import AgentLoop
 from heagent.config import get_settings, reset_settings
-from heagent import persist as persist_mod
+from heagent.pub import persist as persist_mod
 from heagent.engine.container import EngineContainer
 from heagent.engine.store import RunStore
 from heagent.providers.base import ProviderMetadata
-from heagent.types import Message, ProviderResponse, TokenUsage
+from heagent.pub.types import Message, ProviderResponse, TokenUsage
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

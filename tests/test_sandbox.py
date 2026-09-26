@@ -909,7 +909,7 @@ class TestExecutorIntegration:
         from heagent.engine.executor import ToolExecutor
         from heagent.engine.policy import PolicyEngine, ToolExecutionMode
         from heagent.tools.builtins.shell import shell
-        from heagent.types import ToolCall
+        from heagent.pub.types import ToolCall
 
         async def handler(call: ToolCall) -> str:
             return await shell(**call.arguments)

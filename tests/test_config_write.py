@@ -17,8 +17,8 @@ from pathlib import Path
 
 import pytest
 
-from heagent import envfile
-from heagent.config_write import (
+from heagent.config import envfile
+from heagent.config.write import (
     AUDIT_FILENAME,
     MAX_CONFIG_AUDIT_ENTRIES,
     ConfigAuditRecord,
@@ -30,7 +30,7 @@ from heagent.config_write import (
     guard_reason,
     prune_audit,
 )
-from heagent.workspace import WorkspacePaths
+from heagent.pub.workspace import WorkspacePaths
 
 _MISSING = object()
 
@@ -76,7 +76,7 @@ def _seed(paths: WorkspacePaths, raw: bytes = SAMPLE) -> bytes:
 def _side_effects(paths: WorkspacePaths) -> list[str]:
     """写通道可能留下的副作用（备份 / 审计 / 临时文件）——拒绝路径上必须为空。
 
-    **不含** ``.env.lock``：跨进程锁文件由 :mod:`heagent.persist` 刻意保留（删除会引入「B 等旧 inode、
+    **不含** ``.env.lock``：跨进程锁文件由 :mod:`heagent.pub.persist` 刻意保留（删除会引入「B 等旧 inode、
     C 拿着新文件加锁成功」的经典竞态，见该模块注释），因此任何一次尝试都会留下一个 0 字节锁文件。
     """
     found: list[str] = []
@@ -565,7 +565,7 @@ class TestAuditAndBackup:
         def boom(candidate: bytes, global_env_file: Path | None) -> object:
             raise RuntimeError("exotic settings failure")
 
-        monkeypatch.setattr("heagent.config_write._candidate_settings", boom)
+        monkeypatch.setattr("heagent.config.write._candidate_settings", boom)
         with pytest.raises(ConfigWriteRejection) as excinfo:
             _run(paths, [("MAX_ITERATIONS", "30")])
 
@@ -654,7 +654,7 @@ class TestAuditRetention:
         def boom(*args: object, **kwargs: object) -> None:
             raise OSError("disk full")
 
-        monkeypatch.setattr("heagent.config_write.atomic_write_bytes", boom)
+        monkeypatch.setattr("heagent.config.write.atomic_write_bytes", boom)
 
         assert prune_audit(paths.console_dir, max_entries=1) == 0
         assert (paths.console_dir / AUDIT_FILENAME).read_bytes() == before
@@ -711,7 +711,7 @@ class TestAuditRetention:
         def boom(*args: object, **kwargs: object) -> int:
             raise RuntimeError("prune exploded")
 
-        monkeypatch.setattr("heagent.config_write.prune_audit", boom)
+        monkeypatch.setattr("heagent.config.write.prune_audit", boom)
 
         assert (
             append_audit(paths.console_dir, ConfigAuditRecord(timestamp="T", source="test", result="applied")) is True
@@ -754,7 +754,7 @@ class TestFailureRecovery:
         def boom(*args: object, **kwargs: object) -> None:
             raise OSError("disk on fire")
 
-        monkeypatch.setattr("heagent.config_write.atomic_update_bytes", boom)
+        monkeypatch.setattr("heagent.config.write.atomic_update_bytes", boom)
         with pytest.raises(ConfigWriteRejection) as excinfo:
             _run(paths, [("MAX_ITERATIONS", "30")])
 
@@ -765,7 +765,7 @@ class TestFailureRecovery:
         self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         before = _seed(paths)
-        monkeypatch.setattr("heagent.config_write._read_back", lambda path: before)  # 盘上不是刚写的内容
+        monkeypatch.setattr("heagent.config.write._read_back", lambda path: before)  # 盘上不是刚写的内容
 
         with pytest.raises(ConfigWriteRejection) as excinfo:
             _run(paths, [("MAX_ITERATIONS", "30")])
@@ -778,7 +778,7 @@ class TestFailureRecovery:
     def test_readback_failure_for_a_new_file_removes_it(
         self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setattr("heagent.config_write._read_back", lambda path: b"something else")
+        monkeypatch.setattr("heagent.config.write._read_back", lambda path: b"something else")
 
         with pytest.raises(ConfigWriteRejection):
             _run(paths, [("MAX_ITERATIONS", "30")], fingerprint=None)
@@ -879,7 +879,7 @@ class TestGuards:
 
     def test_exclusive_bounds_are_reported_verbatim(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """开区间报「greater than / less than」（合成守卫：``Settings`` 现无 ``gt`` / ``lt`` 字段）。"""
-        from heagent.config_catalog import VALUE_GUARDS, ConfigGuard
+        from heagent.config.catalog import VALUE_GUARDS, ConfigGuard
 
         monkeypatch.setitem(
             VALUE_GUARDS, "DEFAULT_MODEL", ConfigGuard(kind="range", minimum=1.0, exclusive_minimum=True)
@@ -903,13 +903,14 @@ class TestChangeModel:
 
 class TestModuleBoundary:
     def test_config_write_has_no_runtime_imports_of_the_stack(self) -> None:
-        source = (Path(__file__).resolve().parents[1] / "src" / "heagent" / "config_write.py").read_text(
+        source = (Path(__file__).resolve().parents[1] / "src" / "heagent" / "config" / "write.py").read_text(
             encoding="utf-8"
         )
         for forbidden in ("heagent.engine", "heagent.agent", "heagent.cli", "heagent.network"):
             assert f"from {forbidden}" not in source, forbidden
         tree = ast.parse(source)
         assert any(
-            (isinstance(node, ast.ImportFrom) and node.module in {"heagent.envfile", "heagent"}) for node in tree.body
+            (isinstance(node, ast.ImportFrom) and node.module in {"heagent.config.envfile", "heagent.config"})
+            for node in tree.body
         ), "写入流水线必须经 envfile 做行级改写（不得自带第二套 .env 解析）"
         assert "envfile.replace_or_append" in source

@@ -1,8 +1,8 @@
 """``.env`` 的**行级保真**读写：定位键、替换/追加、指纹、备份（Story 50-5 / 脊柱 I7-I8）。
 
-本模块是**顶层**模块——只依赖标准库、Pydantic 与 :mod:`heagent.persist`；不得依赖
+本模块是**顶层**模块——只依赖标准库、Pydantic 与 :mod:`heagent.pub.persist`；不得依赖
 ``config`` / ``config_catalog`` / ``engine`` / ``agent`` / 入口层（写入流水线
-:mod:`heagent.config_write` 才认识白名单与设置）。
+:mod:`heagent.config.write` 才认识白名单与设置）。
 
 为什么必须自己做行级改写，而不是用 ``python-dotenv`` 的 ``set_key`` 或「整文件重写」：
 
@@ -23,7 +23,7 @@
   行内注释截断的 ``" #"`` 一律拒（否则「客户端写的值」与「解析出的值」不一致）。
 - **键名不得含分隔符**：``=`` / 空白 / 控制字符一律拒（否则会写出结构性坏行）。
 
-文本以 ``str`` 进出（便于逐字节断言），落盘一律经 :mod:`heagent.persist` 的**字节级**原语——
+文本以 ``str`` 进出（便于逐字节断言），落盘一律经 :mod:`heagent.pub.persist` 的**字节级**原语——
 文本模式的行尾翻译（``\\n`` ↔ ``os.linesep``）会让「未修改行字节不变」在跨平台上不可能成立。
 """
 
@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from heagent.persist import atomic_write_bytes, delete_entries, scan_dir
+from heagent.pub.persist import atomic_write_bytes, delete_entries, scan_dir
 
 if TYPE_CHECKING:
     from pathlib import Path

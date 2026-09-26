@@ -14,7 +14,7 @@
   步骤 / ``required_resources`` 模板必需性）确定性装配成 ``engine/workflow_resource.py``
   的运行时模型。
 
-分层：本子包属**入口层**（供 ``cli/goal`` 使用），依赖 ``heagent.persist`` /
+分层：本子包属**入口层**（供 ``cli/goal`` 使用），依赖 ``heagent.pub.persist`` /
 ``heagent.engine`` / ``heagent.memory`` 等下层模块，不被任何下层模块导入，不构成反向依赖。
 application/document/workflow_loader 不依赖 Click；naming 的 click.echo 是入口侧回退提示。
 """

@@ -19,7 +19,7 @@ import pytest
 
 from heagent.context.compressor import ContextCompressor, render_message_for_summary
 from heagent.context.window_reset import WindowReset
-from heagent.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
 
 
 class _RecordingProvider:

@@ -28,8 +28,8 @@ from heagent.engine.ledger import ExecutionLedger
 from heagent.engine.observability import EventBus, LoggingObserver
 from heagent.engine.policy import PolicyEngine
 from heagent.engine.store import RunStore
-from heagent.types import SandboxDecision
-from heagent.workspace import WorkspacePaths
+from heagent.pub.types import SandboxDecision
+from heagent.pub.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable

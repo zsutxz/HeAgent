@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from heagent.exceptions import ProviderError
+from heagent.pub.exceptions import ProviderError
 from heagent.providers.base import BaseProvider
 from heagent.providers.responses import (
     OpenAIResponsesProvider,
@@ -17,7 +17,7 @@ from heagent.providers.responses import (
     _to_responses_input,
     _to_responses_tools,
 )
-from heagent.types import Message, Role, ToolCall, ToolSchema
+from heagent.pub.types import Message, Role, ToolCall, ToolSchema
 
 
 def _mock_usage(i: int = 10, o: int = 5, t: int = 15) -> SimpleNamespace:

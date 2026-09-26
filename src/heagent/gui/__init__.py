@@ -26,7 +26,7 @@ def gui_main(
     from heagent.gui.bridge import AgentBridge
     from heagent.gui.observers import GuiEventObserver
     from heagent.gui.state import GuiState
-    from heagent.workspace import WorkspacePaths
+    from heagent.pub.workspace import WorkspacePaths
 
     # Phase 1：组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
     paths = WorkspacePaths.from_root(Path.cwd())

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.types import Message, ProviderResponse, Role, TokenUsage
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage
 
 
 class _FakeProvider:

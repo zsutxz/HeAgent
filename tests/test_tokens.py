@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from heagent.context.tokens import _estimate_text_tokens, count_tokens
-from heagent.types import Message, Role
+from heagent.pub.types import Message, Role
 
 
 class TestEstimateTextTokens:
@@ -80,7 +80,7 @@ class TestCountTokens:
 
     def test_message_with_tool_calls(self) -> None:
         """包含工具调用的消息：估算工具名称和参数。"""
-        from heagent.types import ToolCall
+        from heagent.pub.types import ToolCall
 
         msg = Message(
             role=Role.ASSISTANT,
@@ -129,7 +129,7 @@ class TestEstimateCompletionTokens:
 
     def test_tool_calls_without_text(self) -> None:
         from heagent.context.tokens import estimate_completion_tokens
-        from heagent.types import ToolCall
+        from heagent.pub.types import ToolCall
 
         calls = [ToolCall(id="call_1", name="shell", arguments={"command": "ls -la"})]
         assert estimate_completion_tokens("", calls) > 0

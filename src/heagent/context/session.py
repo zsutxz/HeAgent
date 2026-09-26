@@ -9,7 +9,7 @@
 **控制台（Epic 50 / Story 50-3）新增的三件事——全部是增量，CLI 语义逐字节不变**：
 
 - :meth:`SessionStore.save` 支持可选 ``expected_version``：磁盘版本不符即抛
-  :class:`~heagent.exceptions.SessionConflictError`，网页据此回 ``session_conflict`` 而不是静默
+  :class:`~heagent.pub.exceptions.SessionConflictError`，网页据此回 ``session_conflict`` 而不是静默
   覆盖（CLI 不传该参数 ⇒ 与改造前行为一致，脊柱 I11/I13）；
 - :meth:`SessionStore.load_metadata` / :meth:`SessionStore.list_metadata` 供网页列会话——
   **元数据解析留在本模块**，网络层不得自己解析会话 JSON（脊柱「Never」项）；
@@ -30,9 +30,9 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from heagent.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
-from heagent.persist import atomic_update_text, prune_entries_by_mtime
-from heagent.types import Message, Role
+from heagent.pub.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
+from heagent.pub.persist import atomic_update_text, prune_entries_by_mtime
+from heagent.pub.types import Message, Role
 
 logger = logging.getLogger(__name__)
 

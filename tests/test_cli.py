@@ -490,7 +490,7 @@ class TestToolActivityDisplay:
 
     def test_renders_target(self, capsys) -> None:
         from heagent.cli.display import _LineState, _print_stream_event
-        from heagent.types import StreamEvent
+        from heagent.pub.types import StreamEvent
 
         state = _LineState()
         _print_stream_event(
@@ -505,7 +505,7 @@ class TestToolActivityDisplay:
         """shell 命令在提示行显示全文——截断会让「跑了什么」不可判断。"""
         from heagent.cli.display import _LineState, _print_stream_event
         from heagent.tools.call_summary import summarize_tool_call
-        from heagent.types import StreamEvent
+        from heagent.pub.types import StreamEvent
 
         command = "cd /d E:\\AI\\HeAgent && git diff src/heagent/agent/loop.py"
         _print_stream_event(
@@ -522,7 +522,7 @@ class TestToolActivityDisplay:
     def test_degrades_without_target(self, capsys) -> None:
         """无摘要（无参工具）时保持旧形态，不出现悬空箭头。"""
         from heagent.cli.display import _LineState, _print_stream_event
-        from heagent.types import StreamEvent
+        from heagent.pub.types import StreamEvent
 
         _print_stream_event(StreamEvent(type="tool_call", tool_name="task_status"), _LineState())
 
@@ -531,7 +531,7 @@ class TestToolActivityDisplay:
     def test_successful_result_stays_silent(self, capsys) -> None:
         """成功结果不逐条回显（并发批次会挤成一串无主语标记）。"""
         from heagent.cli.display import _LineState, _print_stream_event
-        from heagent.types import StreamEvent
+        from heagent.pub.types import StreamEvent
 
         _print_stream_event(
             StreamEvent(type="tool_result", tool_name="file_read", tool_result_content="content"),
@@ -543,7 +543,7 @@ class TestToolActivityDisplay:
     def test_failed_result_is_attributed(self, capsys) -> None:
         """失败结果必须指出是哪个工具失败。"""
         from heagent.cli.display import _LineState, _print_stream_event
-        from heagent.types import StreamEvent
+        from heagent.pub.types import StreamEvent
 
         _print_stream_event(
             StreamEvent(type="tool_result", tool_name="shell", tool_result_content="Tool error: x", tool_error=True),

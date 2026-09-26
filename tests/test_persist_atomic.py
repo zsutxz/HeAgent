@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from heagent import persist
+from heagent.pub import persist
 
 
 def _fake_msvcrt() -> types.ModuleType:

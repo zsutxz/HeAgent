@@ -9,7 +9,7 @@ from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.memory.skill_store import SkillStore
 from heagent.tools.path_safety import build_internal_state_dirs
-from heagent.workspace import WorkspacePaths
+from heagent.pub.workspace import WorkspacePaths
 
 
 def test_root_is_the_only_path_input(tmp_path: Path) -> None:
@@ -102,7 +102,7 @@ async def test_two_workspace_runs_keep_state_and_fences_isolated(
     from heagent.engine.policy import ToolExecutionMode
     from heagent.tools.path_safety import resolve_workspace_path, workspace_root
     from heagent.tools.edits import snapshot_root
-    from heagent.types import ToolCall
+    from heagent.pub.types import ToolCall
     from tests.test_engine_p0 import StubProvider, _final
 
     handlers = []

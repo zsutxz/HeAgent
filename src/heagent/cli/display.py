@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from heagent.agent.loop import AgentLoop
-    from heagent.types import StreamEvent, TokenUsage
+    from heagent.pub.types import StreamEvent, TokenUsage
 
 
 def _current_version() -> str:

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from heagent.exceptions import ProviderError
+from heagent.pub.exceptions import ProviderError
 from heagent.providers.anthropic import (
     AnthropicProvider,
     _extract_system,
@@ -16,7 +16,7 @@ from heagent.providers.anthropic import (
     _to_anthropic_messages,
 )
 from heagent.providers.base import BaseProvider
-from heagent.types import Message, Role, ToolCall, ToolSchema
+from heagent.pub.types import Message, Role, ToolCall, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

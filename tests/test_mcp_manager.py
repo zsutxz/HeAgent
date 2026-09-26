@@ -35,7 +35,7 @@ from mcp.types import (
     Tool,
 )
 
-from heagent.exceptions import ToolError
+from heagent.pub.exceptions import ToolError
 from heagent.tools.mcp.config import (
     HttpServerConfig,
     MCPConfig,
@@ -43,7 +43,7 @@ from heagent.tools.mcp.config import (
 )
 from heagent.tools.mcp.manager import MCPClientManager
 from heagent.tools.registry import ToolRegistry
-from heagent.types import ToolSchema
+from heagent.pub.types import ToolSchema
 
 
 class StubSession:

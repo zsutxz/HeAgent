@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
     from heagent.agent.loop import AgentLoop
     from heagent.gui.state import GuiState
-    from heagent.types import StreamEvent
+    from heagent.pub.types import StreamEvent
 
 from heagent.config import get_settings
 from heagent.tools.call_summary import activity_label

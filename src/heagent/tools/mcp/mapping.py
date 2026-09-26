@@ -18,7 +18,8 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from heagent.exceptions import ToolError
+from heagent.pub.exceptions import ToolError
+from heagent.pub.types import ToolAnnotations, ToolSchema
 from heagent.tools.mcp.session_api import (
     CallToolResult,
     EmbeddedResource,
@@ -29,7 +30,6 @@ from heagent.tools.mcp.session_api import (
     result_is_error,
 )
 from heagent.tools.path_safety import WorkspacePathError, resolve_under_root, workspace_root
-from heagent.types import ToolAnnotations, ToolSchema
 
 if TYPE_CHECKING:
     from mcp.types import ToolAnnotations as McpToolAnnotations

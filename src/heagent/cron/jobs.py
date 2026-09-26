@@ -13,7 +13,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
-from heagent.persist import atomic_write_text
+from heagent.pub.persist import atomic_write_text
 
 logger = logging.getLogger(__name__)
 

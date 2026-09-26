@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from heagent.tools.decorator import tool
 from heagent.tools.registry import ToolRegistry
-from heagent.types import ToolSchema
+from heagent.pub.types import ToolSchema
 
 
 class TestToolDecorator:

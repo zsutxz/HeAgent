@@ -11,7 +11,7 @@ heagent.cli* / heagent.gui***（架构契约测试钉死 import 图）；用户�
 open-question 策略的 settings 回退值由入口（cli/goal）作为参数注入。
 
 分层：本子包属入口层（与 cli/gui 同级，供 cli/goal 消费），依赖 ``heagent.engine``
-/ ``heagent.memory`` / ``heagent.persist`` 等下层模块，不被任何下层模块导入。
+/ ``heagent.memory`` / ``heagent.pub.persist`` 等下层模块，不被任何下层模块导入。
 cli/goal 经 re-export / 薄壳保持原命名空间可用（monkeypatch 缝见 spec-phase3）。
 """
 
@@ -47,8 +47,8 @@ from heagent.memory.skill_packages import (
     SkillPackage,
     SkillResolver,
 )
-from heagent.persist import atomic_write_text
-from heagent.workspace import WorkspacePaths
+from heagent.pub.persist import atomic_write_text
+from heagent.pub.workspace import WorkspacePaths
 
 logger = logging.getLogger(__name__)
 

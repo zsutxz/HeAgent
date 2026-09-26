@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from heagent.persist import atomic_update_text
+from heagent.pub.persist import atomic_update_text
 
 logger = logging.getLogger(__name__)
 

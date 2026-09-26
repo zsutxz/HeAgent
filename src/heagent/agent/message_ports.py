@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
     from heagent.agent.run_lifecycle import AgentState
     from heagent.engine import RunContext
-    from heagent.types import Message
+    from heagent.pub.types import Message
 
 logger = logging.getLogger(__name__)
 

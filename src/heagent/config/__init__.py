@@ -19,7 +19,7 @@ from typing import Literal
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from heagent.types import RoutingPoolSpec, RuntimeConfigSource
+from heagent.pub.types import RoutingPoolSpec, RuntimeConfigSource
 
 logger = logging.getLogger(__name__)
 

@@ -22,14 +22,14 @@ from heagent.agent.run_lifecycle import (
     on_run_failed,
     persist_and_cache,
 )
+from heagent.pub.types import ProviderResponse, StreamEvent, TokenUsage
 from heagent.tools.call_summary import summarize_tool_call
-from heagent.types import ProviderResponse, StreamEvent, TokenUsage
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
     from heagent.agent.loop import AgentLoop
-    from heagent.types import ToolCall
+    from heagent.pub.types import ToolCall
 
 logger = logging.getLogger(__name__)
 

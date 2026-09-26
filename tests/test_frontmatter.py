@@ -1,4 +1,4 @@
-"""共享 frontmatter 解析模块（``heagent.frontmatter``）的直测。
+"""共享 frontmatter 解析模块（``heagent.pub.frontmatter``）的直测。
 
 六个历史调用方（artifacts / skills / skill_packages ×2 / slash / roles）的行为由各自既有
 测试锁定；本文件锁定共享内核自身的关键边界——尤其是**两个分隔符变体的差异**（收敛时有意
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.frontmatter import (
+from heagent.pub.frontmatter import (
     FrontmatterSyntaxError,
     extract_h2_section,
     parse_inline_pairs,
