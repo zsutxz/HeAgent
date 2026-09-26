@@ -497,6 +497,27 @@ function installRoutes() {
       labels: LABELS,
     });
   });
+  // 项目 B 的配置面（评审补）：读取可按 `world.pBConfigFails` 注入失败，写入只记账——用于验证
+  // 「切项目时配置读取失败 ⇒ 面板残留上一个项目的行与未保存改动」时不会把改动写进 B。
+  route("GET", "/api/projects/pB/config", () => {
+    if (world.pBConfigFails) {
+      return jsonResponse(500, { error: { code: "server_error", message: "config panel exploded" } });
+    }
+    return jsonResponse(200, { ...configPayload(configWriteEnabled), project_id: "pB" });
+  });
+  route("PUT", "/api/projects/pB/config", (options) => {
+    world.lastWrite = JSON.parse(options.body || "{}");
+    return jsonResponse(200, {
+      project_id: "pB",
+      fingerprint: "fp-pB",
+      applied: "next_run",
+      backup: null,
+      audit_recorded: true,
+      changes: [],
+      notes: [],
+      labels: LABELS,
+    });
+  });
 }
 
 installRoutes();
@@ -1257,6 +1278,50 @@ const CASES = {
         .filter((child) => child.dataset.toolTarget !== undefined)
         .map((child) => child.dataset.error),
     };
+  },
+
+  async U() {
+    // 评审补（第四轮）：切项目时配置读取失败 ⇒ 面板残留 A 的行与未保存改动，而写路径取
+    // `state.activeProjectId`。「保存」必须被拒（否则 A 的改动会写进 B 的 `.env`；两侧都没有 `.env`
+    // 时指纹都是 null，服务端的指纹闸门拦不住），且面板头不得在读取失败时改写成 B——那会让
+    // 「B 的名字 + A 的内容」看起来像 B 的配置。
+    configWriteEnabled = true;
+    world.pBConfigFails = true;
+    await load();
+    await openSettings();
+    const row = findConfigRow("MAX_ITERATIONS");
+    setInput(findByDataset(row, "key", "MAX_ITERATIONS"), "30");
+    const pendingBefore = els["settings-pending"].textContent;
+    const headerBefore = els["settings-project"].textContent;
+
+    projectButton("pB").click();
+    await settle(10);
+    const headerAfterSwitch = els["settings-project"].textContent;
+    const activeProject = els["active-project"].textContent;
+
+    els["settings-save"].click();
+    await settle();
+    const confirmShown = !els["confirm-overlay"].hidden;
+    // 确认对话框在桩里**恒可见**（替身不解析 index.html 的 `hidden` 属性，见桩首「保真边界」）⇒
+    // 「有没有弹框」不是可判据的事实；真正要判的是**确认之后有没有发出写入**。
+    await clickOk();
+    await settle(8);
+    const result = {
+      pendingBefore,
+      headerBefore,
+      headerAfterSwitch,
+      activeProject,
+      confirmShown,
+      writeCalls:
+        callsMatching("PUT /api/projects/pB/config").length + callsMatching("PUT /api/projects/default/config").length,
+      writtenKeys: world.lastWrite ? (world.lastWrite.changes || []).map((change) => change.key) : [],
+      statusState: els["settings-status"].dataset.state,
+      statusText: els["settings-status"].textContent,
+      rowValue: textOf(findByClass(findConfigRow("MAX_ITERATIONS"), "config-value")),
+    };
+    world.lastWrite = null;
+    world.pBConfigFails = false;
+    return result;
   },
 };
 

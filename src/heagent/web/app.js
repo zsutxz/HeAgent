@@ -1183,7 +1183,9 @@
       setStatus(el.settingsStatus, "请先选择项目", "failed");
       return false;
     }
-    el.settingsProject.textContent = projectName(projectId);
+    // 面板头**只跟随已载入的配置**（由 renderConfig 写 `state.configProjectId` 的名字）：读失败时
+    // 头部保持上一个项目的名字，与仍在屏上的行一致——否则会出现「头部写着 B、内容与徽标都是 A」的
+    // 撒谎状态（切项目时读取失败/在途都会命中）。
     setStatus(el.settingsStatus, "正在读取有效配置…", "busy");
     el.settingsRefresh.disabled = true;
     let response;
@@ -1489,6 +1491,13 @@
     const projectId = state.activeProjectId;
     const config = state.config;
     if (!projectId || !config || state.saving) return;
+    // 屏上的行必须属于**当前**项目。切换项目时若配置读取失败（或仍在途），面板会留着上一个项目的行与
+    // 未保存改动，而写路径取 `state.activeProjectId` ⇒ 会把 A 的改动写进 B 的 `.env`（两侧都没有
+    // `.env` 时指纹都是 null，服务端的指纹闸门拦不住这种组合）。归属不符就拒绝，并把原因说出来。
+    if (state.configProjectId !== projectId) {
+      setStatus(el.settingsStatus, "面板显示的不是当前项目的配置，请先重新载入设置再保存", "failed");
+      return;
+    }
     const changes = collectChanges();
     if (!changes.length) return;
     const keys = changes.map((change) => change.key);

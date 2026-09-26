@@ -556,6 +556,25 @@ class TestConsoleSettingsPanel:
         assert result["gateKeyEditable"] == "false", "开关自身也是只读（不能给自己解锁）"
         assert result["enabledInputs"] == 0, "面板里不得留下任何一个可编辑的配置控件"
 
+    def test_a_stale_panel_cannot_write_into_another_project(self, tmp_path: Path) -> None:
+        """评审补（第四轮）：切项目时配置读取失败 ⇒ 面板仍留着上一个项目的行与未保存改动。
+
+        写路径取 `state.activeProjectId`，所以必须由「面板归属」守卫拦住——否则 A 的改动会被写进 B 的
+        `.env`（两侧都没有 `.env` 时指纹都是 `null`，服务端的指纹闸门拦不住这种组合）。同时面板头不得在
+        读取失败时改写成 B：那会把「B 的名字 + A 的内容」伪装成 B 的配置。
+        """
+        result = _run_probe("U", tmp_path)
+
+        assert result["pendingBefore"] == "有 1 项未保存"
+        assert result["activeProject"] == "项目 B", "项目确实切到了 B，否则本用例不具区分性"
+        assert result["writeCalls"] == 0, "面板属于别的项目时不得发出任何写入"
+        assert result["writtenKeys"] == []
+        assert result["statusState"] == "failed"
+        assert "不是当前项目的配置" in result["statusText"]
+        assert result["headerBefore"] == result["headerAfterSwitch"] == "服务工作区", (
+            "读取失败时面板头保持与仍在屏上的内容一致（不得改写成 B）"
+        )
+
     def test_saving_writes_with_fingerprint_and_refreshes_the_badge(self, tmp_path: Path) -> None:
         result = _run_probe("H", tmp_path)
 
