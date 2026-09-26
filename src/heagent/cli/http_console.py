@@ -67,8 +67,8 @@ from heagent.network.http_server import (
     HttpRunService,
     RunEventPublisher,
 )
-from heagent.projects import ProjectEntry, ProjectRegistryError, default_project_registry
 from heagent.pub.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
+from heagent.pub.projects import ProjectEntry, ProjectRegistryError, default_project_registry
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import Message, Role
 from heagent.pub.workspace import WorkspacePaths

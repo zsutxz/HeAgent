@@ -82,7 +82,7 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
         "heagent.cron",
         "heagent.events",
         "heagent.config",
-        "heagent.projects",
+        "heagent.pub.projects",
         "heagent.pub.workspace",
         *_ENTRY_LAYER_MODULES,
     ),
@@ -305,22 +305,22 @@ def test_forbidden_import_detection_covers_top_level_modules() -> None:
     """模块/包的别名写法与分层路径同样计入运行期依赖。
 
     评审发现（镜头三③）：I1 要求「网络层不认识项目与配置」，但可执行断言此前只列子包 ⇒
-    ``heagent.config`` / ``heagent.projects`` / ``heagent.config.catalog`` 写进 ``network/`` 不会被
+    ``heagent.config`` / ``heagent.pub.projects`` / ``heagent.config.catalog`` 写进 ``network/`` 不会被
     判违反，契约形同虚设。本用例钉住识别器本身（谁漏了这几种写法，这里先红）——
     2026-09-26 分层收敛后还要覆盖 ``from heagent.pub import types`` 与 ``heagent.pub.workspace``
     这类**三层**路径（network 禁 workspace 而放行 safe_logging 全靠这个粒度）。
     """
     runtime, typing_only = _module_imports(
         "from heagent import config\n"
-        "from heagent.projects import ProjectRegistry\n"
+        "from heagent.pub.projects import ProjectRegistry\n"
         "from heagent.pub import types\n"
         "import heagent.pub.workspace\n"
     )
 
     assert runtime == {
         "heagent.config",
-        "heagent.projects",
         "heagent.pub",
+        "heagent.pub.projects",
         "heagent.pub.types",
         "heagent.pub.workspace",
     }
@@ -652,7 +652,7 @@ def test_config_layer_stays_out_of_the_runtime_stack() -> None:
         "config/catalog.py",
         "config/envfile.py",
         "config/write.py",
-        "projects.py",
+        "pub/projects.py",
     ):
         runtime, _typing = _imports(SRC / module)
         assert runtime & forbidden == set(), f"{module}: {sorted(runtime & forbidden)}"
@@ -739,6 +739,8 @@ def test_shared_layer_layout_is_pinned() -> None:
 
     2026-09-26 自顶层平铺模块收敛为两个包：``pub/`` 收零依赖公共模块（任何层可依赖），
     ``heagent.config`` 收配置面四件套（依赖 ``pub``、被运行栈与入口层共同依赖）。
+    2026-09-26 同日：``projects``（网页控制台项目注册表）自顶层迁入 ``pub/``——它零运行栈依赖，
+    本就是数据面；network 侧仍**显式**禁导 ``heagent.pub.projects``（见下表 network 条目）。
     ``heagent.config`` 的名字**刻意保持不变**（模块 → 包）——``from heagent.config import Settings``
     这条最大宗的导入面因此零改动。新增/搬移模块必须同步本表与 ``docs/frame.md`` 的目录树。
     """
@@ -749,6 +751,7 @@ def test_shared_layer_layout_is_pinned() -> None:
         "exceptions",
         "frontmatter",
         "persist",
+        "projects",
         "roles",
         "safe_logging",
         "task_shutdown",

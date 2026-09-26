@@ -66,7 +66,7 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 - `providers/` — LLM provider（OpenAI 兼容：DeepSeek / Kimi / GLM 等 + Anthropic 原生）+ 智能路由（`router` RoutingProvider）+ 多层容错（`chain` 跨 provider 回退 / `key_rotation` 多密钥轮换 / `retry` 指数退避 / `switchable` 运行时 vendor 切换）
 - `tools/` — `@tool` 注册（`registry`）+ `SafetyGuard`（shell 黑名单）+ `path_safety` + `edits`/`sandbox` + `builtins/`（26 工具）+ `mcp/` 桥接
 - `engine/` — 运行时治理（`PolicyEngine` 准入/审批/沙箱裁决 + `ToolExecutor` 分发 + `store`/`ledger`/`observability`），经 `EngineContainer` 注入 `AgentLoop`
-- `pub/` — **公共层**（2026-09-26 收敛；零 heagent 运行栈依赖，**任何层都可依赖它、它不依赖任何层**，`__init__.py` 零 import）：`exceptions`（异常层级）/ `types`（共享 Pydantic 模型）/ `persist`（原子写 + 容错读 + 跨进程文件锁 + prune 批量内核）/ `roles`（`RoleSpec` 角色注册表，2026-09 自 `engine/` 迁出）/ `frontmatter`（共享 frontmatter 解析：两个分隔符变体 + 严/宽两档键值，收敛原六处手写解析器）/ `safe_logging`（`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，非安全边界）/ `workspace`（状态根派生的规范路径）/ `task_shutdown`（后台调度 task 关停内核，cron/dream 共用）
+- `pub/` — **公共层**（2026-09-26 收敛；零 heagent 运行栈依赖，**任何层都可依赖它、它不依赖任何层**，`__init__.py` 零 import）：`exceptions`（异常层级）/ `types`（共享 Pydantic 模型）/ `persist`（原子写 + 容错读 + 跨进程文件锁 + prune 批量内核）/ `roles`（`RoleSpec` 角色注册表，2026-09 自 `engine/` 迁出）/ `frontmatter`（共享 frontmatter 解析：两个分隔符变体 + 严/宽两档键值，收敛原六处手写解析器）/ `safe_logging`（`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，非安全边界）/ `workspace`（状态根派生的规范路径）/ `task_shutdown`（后台调度 task 关停内核，cron/dream 共用）/ `projects`（网页控制台项目注册表，2026-09-26 自顶层迁入）
 - `config/` — **配置面（顶层包，依赖 `pub/`）**：`__init__.py` 承载 `Settings`/`get_settings`/`resolve_runtime_config`（名字刻意不变 ⇒ `from heagent.config import Settings` 零改动）、`catalog`（配置四层来源求解）、`write`（受闸门的项目 `.env` 写流水线，Story 50-5）、`envfile`（`.env` 行级保真读写）
 - `context/` — 上下文压缩 / 会话持久化 / 上下文文件加载 / token 估算
 - `events/` — 事件传输层（`RunEvent` JSONL 对外契约 + `JsonlSink` 落盘 + `replay` 回放），运行时零 `engine/` 依赖
@@ -82,7 +82,7 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 
 - 新增 provider / tool **禁止**从 `agent/` 导入；`tools/mcp/` 同（`AgentLoop` 零改动，仅经 `ToolRegistry` 注入工具）。
 - `engine/` 依赖 `pub.types`/`pub.exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety` + `events.protocol`（仅 `error_kind_for` 纯函数单点，2026-09-22；events.protocol 运行期仅依赖 exceptions，无环）（container 另有 lazy `config`），被 `agent/` 依赖；`pub/` 是公共层，任何模块都可依赖它（它不依赖任何层）；`config/` 只依赖 `pub/`（不得伸手进运行栈）。memory 运行期不反向依赖 `engine/`（`DreamScheduler` 的 engine 由入口层注入，仅 TYPE_CHECKING 引用）；工作流模型在 `engine/workflow_resource.py`、声明解析在 `goal/workflow_loader.py`（2026-09-20 自 `memory/skill_packages.py` 迁出，engine→memory 边已消除）。
-- `network/` **不认识运行栈与配置**：不得导入 `agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`，也不得导入 `config`（整包：Settings/catalog/write/envfile）/ `projects` / `pub.workspace` 与任何入口层模块（唯一例外是零依赖的 `pub.safe_logging`——所以禁止面必须细到**模块**，不能整包写 `heagent.pub`）——装配由 `cli/tcp.py`/`cli/http.py` 单向伸手（契约断言：`FORBIDDEN_RUNTIME_IMPORTS["network"]`）。
+- `network/` **不认识运行栈与配置**：不得导入 `agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`，也不得导入 `config`（整包：Settings/catalog/write/envfile）/ `pub.projects` / `pub.workspace` 与任何入口层模块（唯一例外是零依赖的 `pub.safe_logging`——所以禁止面必须细到**模块**，不能整包写 `heagent.pub`）——装配由 `cli/tcp.py`/`cli/http.py` 单向伸手（契约断言：`FORBIDDEN_RUNTIME_IMPORTS["network"]`）。
 - 跨模块数据用 Pydantic 模型（`pub/types.py`），**禁止**原始 dict。
 - 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**。
 

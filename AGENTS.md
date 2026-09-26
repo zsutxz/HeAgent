@@ -2,7 +2,7 @@
 
 ## 项目结构
 
-- `src/heagent/`：Python 包源码。最底层是公共层 `pub/`（`exceptions`/`types`/`safe_logging`/`persist`/`frontmatter`/`roles`/`workspace`/`task_shutdown`，零运行栈依赖，任何层可依赖）与配置面 `config/`（`__init__.py` 承载 Settings + `catalog` 来源求解 + `write` 写通道 + `envfile` 保真读写）；其余模块包括 `agent/`（编排）、`providers/`（LLM 适配与容错）、`tools/`（工具与 MCP）、`engine/`（策略、执行与审计）、`context/`、`events/`（事件流）、`memory/`、`cron/`、`network/`（TCP/HTTP 传输层）、`goal/` 与 `gui/`；入口层为 `cli/` 包（`console.py` 命令层 / `composition.py` 装配 / `interactive.py` 交互执行 / `init.py` / `goal.py` / `http.py` / `http_console.py` / `tcp.py` / `dialogs.py` / `display.py` / `wiring.py` 组合根）。
+- `src/heagent/`：Python 包源码。最底层是公共层 `pub/`（`exceptions`/`types`/`safe_logging`/`persist`/`frontmatter`/`roles`/`workspace`/`task_shutdown`/`projects`，零运行栈依赖，任何层可依赖）与配置面 `config/`（`__init__.py` 承载 Settings + `catalog` 来源求解 + `write` 写通道 + `envfile` 保真读写）；其余模块包括 `agent/`（编排）、`providers/`（LLM 适配与容错）、`tools/`（工具与 MCP）、`engine/`（策略、执行与审计）、`context/`、`events/`（事件流）、`memory/`、`cron/`、`network/`（TCP/HTTP 传输层）、`goal/` 与 `gui/`；入口层为 `cli/` 包（`console.py` 命令层 / `composition.py` 装配 / `interactive.py` 交互执行 / `init.py` / `goal.py` / `http.py` / `http_console.py` / `tcp.py` / `dialogs.py` / `display.py` / `wiring.py` 组合根）。
 - `tests/`：pytest 测试，按功能平铺；provider 相关测试位于 `tests/providers/`。
 - `docs/`：架构与开发文档；`docs/frame.md` 是实现架构的权威说明。
 - `_bmad-output/`：规划和 story 产物；运行时状态通常写入 `.heagent/`，不要提交生成文件或密钥。

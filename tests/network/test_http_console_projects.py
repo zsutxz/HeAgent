@@ -81,7 +81,7 @@ async def test_project_limit_is_reported_with_a_stable_code_over_http(tmp_path) 
     HTTP`` 这段无断言）。
     """
     from heagent.cli.http_console import HttpProjectConsole
-    from heagent.projects import MAX_PROJECTS
+    from heagent.pub.projects import MAX_PROJECTS
 
     workspace = tmp_path / "ws"
     workspace.mkdir()

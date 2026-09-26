@@ -27,7 +27,7 @@
   - [4.15 事件契约 (`events/`)](#415-事件契约-events)
   - [4.16 TCP 入口 (`network/` + `cli/tcp.py`)](#416-tcp-入口-network--clitcppy)
   - [4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)](#417-http-网页入口-networkhttp_--clihttppy--web)
-  - [4.18 网页控制台 (`pub/workspace.py` + `projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#418-网页控制台-pubworkspacepy--projectspy--configcatalogpy--configwritepy--clihttppy--clidialogspy--web)
+  - [4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#418-网页控制台-pubworkspacepy--pubprojectspy--configcatalogpy--configwritepy--clihttppy--clidialogspy--web)
 - [五、已知缺口](#五已知缺口)
 - [六、目录结构](#六目录结构)
 - [七、完整调用链](#七完整调用链)
@@ -136,7 +136,7 @@ AgentLoop.run(prompt)
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `pub.types`/`pub.exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `pub.exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
 - `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.pub.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
-- `network/` 是**入口传输层**（Epic 48，2026-09-22）：只承载 framing（TCP JSON Lines）与 HTTP 协议 / 路由 / 静态资源 / 连接与超时生命周期 / 暴露判定，运行期**不依赖运行栈**（`agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`）与任何配置面模块（`config`（整包：Settings/catalog/write/envfile）/`projects`/`pub.workspace`——粒度必须细到模块，唯一例外是零依赖的 `pub.safe_logging`）、任何入口层模块（`cli` 包（含 `cli/wiring.py`）/`cli/goal`/`cli/tcp`/`cli/http`/`gui`）；Provider 与 `AgentLoop` 的装配由入口层 `cli/tcp.py` / `cli/http.py` 单向伸手（契约断言：`test_architecture_contracts.py` 的 FORBIDDEN_RUNTIME_IMPORTS["network"]）
+- `network/` 是**入口传输层**（Epic 48，2026-09-22）：只承载 framing（TCP JSON Lines）与 HTTP 协议 / 路由 / 静态资源 / 连接与超时生命周期 / 暴露判定，运行期**不依赖运行栈**（`agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`）与任何配置面模块（`config`（整包：Settings/catalog/write/envfile）/`pub.projects`/`pub.workspace`——粒度必须细到模块，唯一例外是零依赖的 `pub.safe_logging`）、任何入口层模块（`cli` 包（含 `cli/wiring.py`）/`cli/goal`/`cli/tcp`/`cli/http`/`gui`）；Provider 与 `AgentLoop` 的装配由入口层 `cli/tcp.py` / `cli/http.py` 单向伸手（契约断言：`test_architecture_contracts.py` 的 FORBIDDEN_RUNTIME_IMPORTS["network"]）
 
 ---
 
@@ -1098,7 +1098,7 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 ⚠ **安全立场**：与 TCP 入口一致——本入口**无认证、无 TLS**，回环绑定不是认证边界，回环客户端同样
 不可信；运行本入口须放在容器 / VM 等 OS 级隔离中（见五、已知缺口与 CLAUDE.md 安全声明）。
 
-### 4.18 网页控制台 (`pub/workspace.py` + `projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)
+### 4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)
 
 Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左栏项目与会话、右栏对话、设置独立成面板
 （项目 / 会话 / 配置三层，全部走**项目内**路由）。分层不变——网络层只承载传输与路由，装配 / 注册表 /
@@ -1107,7 +1107,7 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 关注点 | 实现事实 |
 |---|---|
 | 工作区模型 | `workspace.WorkspacePaths.from_root(root)` 是运行态路径（sessions / ledger / runs / memory / skills / user / cron / checkpoints / sandboxes / tmp / console / backups）的**唯一**来源；入口层装配期解析一次并注入 engine 与主 / cron loop，不在每次请求时重读 cwd |
-| 项目注册表 | `projects.py`：`<服务启动工作区>/.heagent/console/projects.json`（可用 `HTTP_CONSOLE_PROJECTS_FILE` 覆盖；**默认不写用户 home**）。条目上限 **32**；id 不透明（`p` + 8 位十六进制，由路径规范化派生）；**写侧 fail-closed**（内容无法解析时拒绝改写，绝不回写空表）；目录失效不删登记而是标 `available=false` |
+| 项目注册表 | `pub/projects.py`：`<服务启动工作区>/.heagent/console/projects.json`（可用 `HTTP_CONSOLE_PROJECTS_FILE` 覆盖；**默认不写用户 home**）。条目上限 **32**；id 不透明（`p` + 8 位十六进制，由路径规范化派生）；**写侧 fail-closed**（内容无法解析时拒绝改写，绝不回写空表）；目录失效不删登记而是标 `available=false` |
 | 会话持久化 | `context/session.py` 的 `SessionStore` 按项目派生（`<项目根>/.heagent/sessions/<sid>.json`），与 CLI **同库同格式**；列表只读轻量元数据（D6）；**损坏文件回 `session_unreadable`**（D1），绝不当空会话覆盖 |
 | 配置来源求解（只读面） | `config_catalog.build_config_report`：四层来源 **系统环境变量 > 项目 `.env` > 全局 `~/.heagent/.env` > 字段默认值**，逐项给出有效值 / 来源徽标 / 可写性 / 只读原因；凭证只回「已配置 + 定长掩码」（**掩码域 = `*_API_KEY` / `*_API_KEYS` 后缀**；`*_BASE_URL` 等键的值**原样回传**——凭证写在 URL userinfo 里不会被打码，见台账同名条目）；行级诊断（重复键 / 空值键 / 行内注释 / BOM / 未知键）逐条标注 |
 | 可写面划分（D2/D3） | 实测 **113 字段 = 白名单 46 + 排除 67、残留 0**；优先级 **显式白名单 > 模式排除**，排除之间**显式行 > 模式行**（`HTTP_CONSOLE_*` 因此归「控制台自身」而非「监听面」） |
@@ -1211,7 +1211,8 @@ src/heagent/
 │   ├── frontmatter.py       # 共享 frontmatter 解析（零 heagent 依赖；六处手写解析器收敛，2026-09-17）
 │   ├── safe_logging.py      # 日志卫生（safe_log 容错 + 故障守卫 + 启发式脱敏；零 heagent 依赖，2026-09-23）
 │   ├── workspace.py         # 状态根派生的规范路径（WorkspacePaths）
-│   └── task_shutdown.py     # 后台调度 task 关停内核（cron/dream 共用）
+│   ├── task_shutdown.py     # 后台调度 task 关停内核（cron/dream 共用）
+│   └── projects.py          # 网页控制台项目注册表（零运行栈依赖；2026-09-26 自顶层迁入）
 ├── config/                  # 配置面（依赖 pub/，2026-09-26 自顶层平铺收敛）
 │   ├── __init__.py          # pydantic-settings 配置（Settings / get_settings / resolve_runtime_config；原 config.py）
 │   ├── catalog.py           # 配置四层来源求解（原 config_catalog.py）

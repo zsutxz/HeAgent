@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from heagent.projects import MAX_PROJECTS, ProjectRegistry, ProjectRegistryError, normalize_project_path, project_id_for
+from heagent.pub.projects import (
+    MAX_PROJECTS,
+    ProjectRegistry,
+    ProjectRegistryError,
+    normalize_project_path,
+    project_id_for,
+)
 
 
 def test_normalized_path_identity_handles_relative_and_trailing_separator(tmp_path: Path, monkeypatch) -> None:
