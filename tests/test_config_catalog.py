@@ -624,6 +624,19 @@ class TestReportShape:
         assert codes <= set(report.labels)
         assert report.labels == LABELS
 
+    def test_write_gate_badge_label_is_declared_and_stays_short(self) -> None:
+        """设置面板头部的闸门徽标文案由服务端声明，且**短到不会把同一行挤换行**（Story 50-8 R9）。
+
+        为什么需要这条：前端对该键有**逐字相同**的兜底（`app.js` 里 `|| "只读"`），所以这个键一旦
+        消失，页面看不出差别、前端用例也照绿（评审实测：把兜底写死后 `tests/test_http_web_ui.py`
+        **137 passed / 0 failed**）。这里的服务端判据钉两件事：①声明存在；②长度受控——设置列内容
+        宽约 364px，「项目设置 + 项目名徽标」已占约 160px，文案再长就会换行（那正是 R9 撤销的
+        「独占一行」形态）。
+        """
+        badge = LABELS["write_channel_badge"]
+        assert badge, "闸门徽标不得为空（空串会让 UI 回落到兜底，声明形同虚设）"
+        assert len(badge) <= 4, f"闸门徽标必须够短（宽度是硬约束）：{badge!r}"
+
     def test_env_file_fingerprint_is_sha256_of_bytes(self, tmp_path: Path) -> None:
         raw = b"MAX_ITERATIONS=123\n"
         project = _write(tmp_path / ".env", raw=raw)

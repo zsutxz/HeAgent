@@ -229,18 +229,22 @@ async def test_read_tool_error_message_is_still_shown_in_web() -> None:
     assert result["tool_output"].startswith("Error:"), "诊断消息必须照旧可见"
 
 
-async def test_other_tools_keep_their_output_in_web_events(tmp_path: Path) -> None:
-    """收敛范围**只有** ``file_read``：别的工具结果原样进网页（R5 是展示策略，不是通用裁剪）。"""
-    sentinel = "SENTINEL-OTHER-TOOL-50-8"
-    (tmp_path / "out.txt").write_text(sentinel, encoding="utf-8")
+async def test_other_tools_keep_their_output_in_web_events() -> None:
+    """收敛范围**只有** ``file_read``：别的工具的**成功**结果原样进网页（R5 是展示策略，不是通用裁剪）。
+
+    必须落在一次**成功**调用上：原先的写法是 ``output != "" or tool_error is True``，而当时那条
+    调用其实**失败**了（``file_edit`` 的 kwargs 拼错）⇒ 断言靠第二个析取项成立，把任何工具加进
+    ``_WEB_QUIET_TOOLS`` 都不会让它变红（评审实测：加 ``file_edit`` 后仍绿，判据无牙）。
+    """
     provider = _ScriptedProvider(
-        [_tool_request("file_edit", {"path": "out.txt", "old": "a", "new": "b"}), _answer("done")]
+        [_tool_request("file_write", {"path": "out.txt", "content": "written\n"}), _answer("done")]
     )
     async with _served(provider) as (base_url, _service), httpx.AsyncClient(timeout=10.0) as client:
-        frames = await _run_prompt(client, base_url, "edit the file")
+        frames = await _run_prompt(client, base_url, "write the file")
 
     result = next(data for _id, event, data in frames if event == "tool_result")
-    assert result["tool_output"] != "" or result["tool_error"] is True
+    assert result["tool_error"] is False, "这条用例必须落在**成功**调用上，否则证明不了「非收敛工具照旧」"
+    assert result["tool_output"] != "", "非收敛工具的内容必须照旧进网页"
 
 
 async def test_unknown_tool_comes_back_as_a_failed_tool_result() -> None:
@@ -383,3 +387,43 @@ async def test_project_run_persists_the_conversation_into_the_project_sessions_d
     body = detail.json()
     assert [message["text"] for message in body["messages"]] == ["remember me", "project answer"]
     assert (body["run_id"], body["status"]) == (run_id, "completed")
+
+
+async def test_read_content_is_hidden_from_the_web_but_still_persisted_on_disk() -> None:
+    """Story 50-8 R5 / AC9 的「不落盘」那一半：网页收敛**只发生在网页事件桥**。
+
+    AC9 要求「run 结束后检查会话文件…工具结果逐字保留」，而这条在实现报告里只有「模型仍拿到全文」
+    的等价证据（``test_read_content_is_hidden_in_web_events_but_still_reaches_the_model``）——
+    两者不是一回事（模型侧走 ``state.messages``，会话文件走 ``SessionStore.save``）。这里走**项目内
+    运行**（唯一把对话写进 ``<项目根>/.heagent/sessions/`` 的路径；非项目 ``/api/runs`` 只做进程内
+    投影、不落盘），实测「网页帧空 / 会话文件有全文」。
+    """
+    sentinel = "SENTINEL-ON-DISK-50-8"
+    (Path.cwd() / "note.txt").write_text(sentinel, encoding="utf-8")
+    session_dir = Path.cwd() / ".heagent" / "sessions"
+    provider = _ScriptedProvider([_tool_request("file_read", {"path": "note.txt"}), _answer("read it")])
+    config = HttpServerConfig(port=0)
+    handler = HttpAgentHandler(provider, get_settings())
+    service = HttpRunService(config, handler)
+    console = HttpProjectConsole(Path.cwd(), runs=service, handler_factory=handler.for_workspace)
+    server = HttpServer(config, version="9.9.9", run_service=service, console=console)
+    await server.start()
+    task = asyncio.create_task(server.serve_forever())
+    base_url = f"http://127.0.0.1:{server.port}"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            created = await client.post(f"{base_url}/api/projects/default/runs", json={"prompt": "read the note"})
+            assert created.status_code == 201, created.text
+            run_id, session_id = created.json()["run_id"], created.json()["session_id"]
+            frames = _parse_sse((await client.get(f"{base_url}/api/runs/{run_id}/events")).text)
+    finally:
+        await server.close()
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(task, timeout=5)
+
+    result = next(data for _id, event, data in frames if event == "tool_result")
+    assert result["tool_output"] == "", "网页事件流里不得出现读取内容（R5 的收敛点）"
+    stored = SessionStore(str(session_dir)).load(session_id)
+    assert any(sentinel in (message.content or "") for message in stored if message.role == Role.TOOL), (
+        "会话文件必须逐字保留工具结果：网页侧收敛**不落盘**（CLI / 回放仍能读到）"
+    )

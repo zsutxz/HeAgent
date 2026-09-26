@@ -9,6 +9,19 @@
  *
  * 元素清单**从 index.html 解析**：脚本里 getElementById 拿不到的 id 会返回 null（而不是凭空造一个
  * 假元素），因此「JS 引用了页面上不存在的 id」会立刻炸成 PROBE_ERROR，而不是静默通过。
+ *
+ * **这个替身证明不了什么（保真边界，2026-09-26 评审补记）**——误用会得到**假绿**：
+ * ① **没有 DOM 树**：`els[id]` 是**扁平注册表**，index.html 里的嵌套关系**不存在**（父子关系只对
+ *    app.js 自己 appendChild 出来的节点成立）⇒ 别用本替身验「某个 id 在某个容器内」；
+ * ② **不含 HTML 里的静态文本**：`<summary id="…">项目 .env 诊断</summary>` 在替身里初始
+ *    `textContent` 是**空串**（真 DOM 是那段文字）⇒ 别用它验**静态**文案，那类断言请直接读 `_HTML`；
+ * ③ **没有 CSS**：样式、以及 `hidden` 与作者样式表的相互作用（Z-D15：`.overlay{display:flex}` 压过
+ *    `[hidden]`）**只能**靠真浏览器清单 `console_acceptance.mjs`；
+ * ④ `children` **含文本节点**（真 DOM 的 `children` 只含元素）⇒ 按 `children` 计数/取值时要心里有数。
+ *
+ * 现有断言全部落在 app.js **动态创建**的结构上（`li` / config row / chat entry / group），故当前不受 ①④
+ * 影响；`app.js` 也不使用本替身未实现的 API（无 `querySelector*` / `.style` / `classList` / `.remove()` /
+ * `insertBefore`）——这条「两侧同时收窄」是前提，改 `app.js` 时请一并检查。
  */
 "use strict";
 
@@ -254,6 +267,10 @@ const LABELS = {
   write_channel_disabled:
     "服务启动时未开启配置写入（HTTP_CONSOLE_WRITE_ENABLED）：所有可写项在本页只读；网页无法自行开启，需在启动配置（系统环境变量 / 项目 .env / 全局 .env）里开启后重启服务",
   write_channel_short: "未开启配置写入：可写项在本页只读",
+  // 闸门徽标是**服务端声明**（`config_catalog.LABELS["write_channel_badge"]`）。桩里刻意用一个
+  // **与前端兜底不同的钩子值**：兜底恰好也是「只读」（逐字相同 ⇒ 断言会空转，改硬编码也照样绿），
+  // 只有钩子值才能证明「页面渲染的是服务端给的文案」。真值的长度约束由服务端用例钉住。
+  write_channel_badge: "只读（桩）",
 };
 
 function guardRange(minimum, maximum) {

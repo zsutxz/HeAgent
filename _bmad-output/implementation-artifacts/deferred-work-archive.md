@@ -5,7 +5,7 @@
 > `deferred-work.md`（勘察类留在本文件，索引见 `consolidated-overview.md` 13.1）；
 > ② **闭合归档**——正文分两处落（2026-09-24 起）：**勘察类**（source_spec 为勘察批次、无归属 epic）留在本文件；**有归属 epic 的**按规则回填到各周期 `deferred-work.md`（`Z-D10` / `Z-D11` → [`epic-48-TCP网络接口周期/deferred-work.md`](../epics/epic-48-TCP网络接口周期/deferred-work.md)，`Z-D13`~`Z-D15` → [`epic-50-网页控制台周期/deferred-work.md`](../epics/epic-50-网页控制台周期/deferred-work.md)）。本文件仍登记**全部 `Z-Dn` 的 ID 索引**（见下状态总览），但不保留已回填条目的正文副本。
 
-## 活动（未闭合）条目——16 条
+## 活动（未闭合）条目——19 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -18,6 +18,8 @@
 > - 2026-09-24：**整理**——删除 5 条已闭合条目在本区的副本（Z-D10 / Z-D11 / Z-D12 / Z-D13 / Z-D14），正文并入下方同名小节（**Z-D12 小节此前缺失**，本次由副本改写补建）
 > - 2026-09-24：**回填**——`Z-D10` / `Z-D11`（Epic 48）与 `Z-D13` / `Z-D14` / `Z-D15`（Epic 50）的**正文**按「归属 epic」移入各自周期 `deferred-work.md`（本文件只留 ID 索引，不再留副本）
 > - 2026-09-24：**Story 50-8（Epic 50 收口后的体验优化轮）实现新增 2 条**——①「网页请求可拉起宿主 GUI 进程」的新暴露面（弹窗，有意引入，含不可用环境与「回环 ≠ 可信」口径）；②真实原生窗口的验收不可自动化 + 网页侧读取结果收敛所依赖的 `Error:` 前缀判据是展示层启发式。报告与实测见 `epics/epic-50-网页控制台周期/reviews/acceptance-50-8-refinement.md`
+> - 2026-09-26：**Story 50-8 的收口后评审（增量轮）新增 2 条**（均为 `intent_gap / blocked 待人裁决`）——① R5 的收敛判据对「正文以 `Error:` 开头的文件」失效（AC9 两句话在该输入类上互斥）；②「共 N 个会话」在 N > 200 时静默少报（服务端硬上限截断且协议无 `total`）。报告见 `epics/epic-50-网页控制台周期/reviews/review-epic-50-story-50-8.md`；同轮就地修复 4 处判据/口径（含 AC13 的 195 档进可复跑清单），负向验证 5/5 精确变红
+> - 2026-09-26：**续轮**（同一评审，又探了前端探针桩保真度 / 真实弹窗路径 / 新端点的入口宽度）**新增 1 条**——③ 原生目录选择端点**默认开且比登记范围宽**：默认 CLI 的内嵌服务同样生效，而 `--dialog-backend` 只挂在 `http-server`、无 `Settings` 字段 ⇒ 内嵌路径**无关闭手段**（与写通道 `HTTP_CONSOLE_WRITE_ENABLED` 默认 False 的惯例相反）。`docs/frame.md` 4.18 / 五 已按实测补正；真实弹窗路径独立复现通过；前端探针桩的保真边界已写进桩首注释
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 后续评估 descriptor-relative/目录句柄、可信导入 snapshot 或 OS sandbox 加固。
@@ -96,6 +98,21 @@
   summary: **两处「判据/验收」残余（不影响功能，但会在改动时静默失效）**：① **真实原生窗口无法自动化验收** —— 选中并确认需要人眼与人手，浏览器清单只能覆盖「按钮存在」「不可用路径」「取消/超时」；`tkinter` 子进程脚本在 CI 里**永不执行**（Linux 镜像可能无 `python-tk`），只钉了「能编译 + 标记行 / 标题插值唯一」；② **网页侧读取结果收敛依赖 `Error:` 前缀约定** —— 内置工具用**返回值** `Error: ...` 表达可预期失败（`is_error` 仍为 `False`），`file_read` 的失败消息因此靠 `_looks_like_a_failure()` 的字符串前缀识别；若将来把工具改成结构化错误（抛 `ToolError` / 返回带 `is_error` 的对象），该判据应退化为只看 `is_error`，否则前缀写成别的样式的失败会**静默从页面上消失**。触发条件：改动 `cli_dialogs` 的冻结脚本 / 改造内置工具的错误返回形态；严重度：低（都有测试兜底，但兜的是「现在的形态」）；冻结边界：不得为了「可自动化」而给 dev 依赖加 playwright/puppeteer（保持零构建链与「浏览器不进 CI」的既有立场），也不得把真实弹窗的一次人工通过当作「选择器无回归」的充分证据。
   evidence: `tests/js/console_acceptance.mjs` 的 A5b / A11b / A11c / B2（真实浏览器，无真实弹窗点击）；`tests/test_cli_dialogs.py::TestSpawnDiscipline::test_frozen_scripts_are_valid_python_syntax`（只 compile 不执行）；`src/heagent/cli_http.py::_looks_like_a_failure` 与 `tests/test_http_agent_api.py::test_read_tool_error_message_is_still_shown_in_web`（**明写**「内置工具返回 Error 字符串不算异常」这一约定）；浏览器清单里「真浏览器 LLM 运行」仍是既有缺口（Z-D15 同处登记）。
   Progress（2026-09-24 登记，**未修**）：两条都已在 `docs/frame.md` 五 与验收报告里如实登记；`file_read` 失败路径有专门的真实装配用例（`tool_output` 仍可见），负向验证见 `.heagent/tmp/mutate_50_8.py` 的 M10（去掉前缀判据 ⇒ 精确变红）。
+
+- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R5 收敛判据，2026-09-26 收口后评审发现）
+  summary: **R5 的收敛判据对「正文以 `Error:` 开头的文件」失效（AC9 两句话在该输入类上互斥）** —— `cli_http._web_tool_output` 用 `_looks_like_a_failure()`（字符串前缀 `Error:`）区分「工具自己报的失败」与「读到的内容」，于是**成功**读取一份以 `Error:` 开头的文件（日志 / 错误报告 / 栈转储，都是 `file_read` 的常见目标）时，整份正文照旧进网页对话区。AC9 同时要求「成功的 `file_read` 只显示文件名、不出现内容」**与**「失败的 `file_read` 错误消息仍可见」，而这两者在事件里都表现为 `Error: ...` 字符串 ⇒ 在不改内置工具错误信号的前提下**无法同时满足**。触发条件：`file_read` 读任何以 `Error:` 开头的文件；严重度：低（观感未改善，不是数据/安全回归——网页本就不在安全边界内，会话文件与 rollout 照旧保留全文）；冻结边界：**不得**为消除歧义而把「失败的读取」也收敛（那会让诊断从页面上消失），也**不得**引入第二套错误信号（要动就动内置工具的返回形态，并同步退化该判据）。
+  evidence: 评审探针实测（`tool_error=False`、`tool_output='Error: SENTINEL-LEAK-50-8\nstack trace follows\n'`，哨兵进了网页帧）；对照组：路径不存在的 `file_read` → `tool_output.startswith("Error:")` 且诊断可见（既有用例 `tests/test_http_agent_api.py::test_read_tool_error_message_is_still_shown_in_web` 亦钉住）；判据落点 `src/heagent/cli_http.py::_looks_like_a_failure`（`_FAILURE_PREFIX = "Error:"`）。
+  Progress（2026-09-26 登记，**未修**，**intent_gap / blocked 待人裁决**）：口径需裁一次——(a) 收紧 AC9（写明「正文以 `Error:` 开头的文件不在收敛范围内」）并把该残余补进 `docs/frame.md` 五，或 (b) 让内置工具用结构化错误表达失败（`file_read` 改抛 `ToolError` / 返回带 `is_error` 的对象），届时判据退化为只看 `is_error`、歧义消失。本条与 A16 ② 是**同一判据的两个方向**：A16 ② 是「换成别的错误形态后会静默隐藏」（fail-closed 风险），本条是「前缀撞车时照旧显示」（fail-open 现实）。
+
+- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R1/AC12 的会话计数，2026-09-26 收口后评审发现）
+  summary: **「共 N 个会话」在 N > 200 时是下界而非总数（静默少报）** —— 服务端列表硬上限 `context.session.MAX_SESSION_LIST_LIMIT` / `http_console_protocol.MAX_SESSION_LIST_ENTRIES = 200`，按时间降序截断，响应里**没有** `total` / `truncated` 字段；Story 50-8 新增的规模提示（`共 N 个会话 · 只显示最近 10 条`）与展开按钮文案（`显示全部（N）`）直接把 `sessions.length` 当总数 ⇒ 项目累计超过 200 个会话时，页面显示「共 200 个会话」并宣称「显示全部」，第 201 条起既不可达、又被这句话说成不存在（它们本来就不可达，是本次新增的**文案断言**让它变成「说错话」）。触发条件：单个项目累计 > 200 个会话；严重度：低（显示口径，不是数据丢失；CLI 与 API 仍可达）；冻结边界：**不得**因此改 `MAX_SESSION_LIST_ENTRIES` 的语义（服务端硬上限是既有契约，UI 的 10 只是展示默认值），也**不得**在前端硬编码 200（第二份事实源）。
+  evidence: `src/heagent/context/session.py`（`MAX_SESSION_LIST_LIMIT = 200`、`list_metadata` 的 `entries[:limit]`、按 `(timestamp, session_id)` 降序）；`src/heagent/network/http_console_protocol.py:121`（`sessions: list[...] = Field(max_length=MAX_SESSION_LIST_ENTRIES)`，无 total）；`src/heagent/web/app.js::renderSessionCount`（`total = state.sessions.length` 直接当总数）；真浏览器清单 A11b 实测 195 档（未越界，故本条当前**无判据**）。
+  Progress（2026-09-26 登记，**未修**，**intent_gap / blocked 待人裁决**）：两条修法都改变可观察行为——(a) 协议加 `total` / `truncated`（`SessionListResponse` 字段 + 入口层赋值 + UI 分支 + 探针用例），或 (b) 改文案（去掉「共」的全称含义 / 按钮不带计数）。属产品取舍，非实现方可单方决定。
+
+- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R2 的默认姿态与暴露面宽度，2026-09-26 续轮发现）
+  summary: **原生目录选择端点「默认开」且比登记范围更宽：默认 CLI 的内嵌服务也生效，而内嵌路径没有关闭手段** —— 故事 T2 只把 `--dialog-backend` 接到 `heagent http-server` 子命令，而 `HttpProjectConsole` 的默认值 `"auto"` 于是同时走进了**默认 CLI 的内嵌服务**（`python -m heagent` 交互 / 单次模式各起一份）；又因 `cli_dialogs` 有意**不新增 `Settings` 字段**，内嵌路径既无 CLI 选项也无 env 开关 ⇒ **无法关闭**（只能靠「本机没有 tkinter / powershell」自然失败）。这与配置写入通道的既有惯例相反：`HTTP_CONSOLE_WRITE_ENABLED` 默认 **False**（新控制台能力默认关）。触发条件：任何本机进程在默认 CLI 运行期间 POST 该端点；严重度：低（回环门 + 单在途 + 冻结 argv + 300s 超时 kill；无数据/权限后果，最坏是服务机上弹一个窗口）；冻结边界：**不得**为「更保险」而放宽回环门或改成「凭 Origin 即可信」，也**不得**图省事在内嵌路径硬编码 `none`（那会砍掉本机便利性）；要动就动**默认姿态**或**开关面**，属产品取舍。
+  evidence: 真实 `build_http_service(settings, executor=None)` 装配 + 假 spawn 实测（2026-09-26 亲跑，探针 `.heagent/tmp/review50_8_embedded_probe.py`）：`GET /api/health → 200`、`POST /api/dialogs/pick-directory → 200 {"path":null,"cancelled":true,"backend":"auto"}`、且**真的拉起了子进程**（`argv=[<venv>\Scripts\python.exe, '-c']`）；`cli_http.build_http_service` 不传 `dialog_backend`；`config.py` `http_console_write_enabled: bool = False`。
+  Progress（2026-09-26 登记，**未修**，**intent_gap / blocked 待人裁决**）：`docs/frame.md` 4.18 安全声明段与五 的缺口行已按实测**补正**（写明「默认开 / 两个入口都生效 / 内嵌路径无开关」），故「暴露面比文档记载更宽」那一半已闭合；剩下的是姿态裁决——(a) 维持默认开但给内嵌路径一个开关（env 或设置字段），或 (b) 默认改成按需（`--dialog-backend` 默认 `none`，需要时显式开）。两条都改变可观察行为。
 
 ---
 

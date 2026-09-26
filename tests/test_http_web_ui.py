@@ -545,7 +545,7 @@ class TestConsoleSettingsPanel:
         result = _run_probe("G", tmp_path)
 
         assert result["gateHidden"] is False
-        assert result["gateText"] == "只读", "面板级只读状态只留一个紧凑徽标（R9）"
+        assert result["gateText"] == "只读（桩）", "徽标文案必须来自服务端声明（桩里是钩子值，兜底是「只读」）"
         assert "未开启配置写入" in result["gateTitle"], "但「为什么只读」必须仍然可达（UX-DR5）"
         assert "HTTP_CONSOLE_WRITE_ENABLED" in result["gateTitle"], "完整解释在 title 里"
         assert result["writable"] == "true", "白名单判定本身仍是「可写」——差异只能来自闸门状态"
@@ -738,7 +738,7 @@ class TestConsoleRefinement:
 
         assert result["hasLongExplanation"] is False, "长解释不得再出现在面板文本里"
         assert result["hasLongReadOnlySentence"] is False
-        assert result["gateText"] == "只读", "面板级只读状态只留一个紧凑徽标（R9）"
+        assert result["gateText"] == "只读（桩）", "徽标文案必须来自服务端声明（桩里是钩子值，兜底是「只读」）"
         assert "未开启配置写入" in result["gateTitle"], "但「为什么只读」必须仍然可见（UX-DR5）"
         assert "HTTP_CONSOLE_WRITE_ENABLED" in result["gateTitle"], "完整解释移到 title（信息仍可达）"
         assert result["writableRowReasonParagraphs"] == 0, "可写项不再逐项铺一句只读原因（R9）"

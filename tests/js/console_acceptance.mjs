@@ -524,19 +524,23 @@ row("A11", "设置面板（分组 / 来源 / 只读原因）", "按后端分组�
   return `${summary.groups.length} 组 / ${summary.items} 条（= 后端 ${declared} 字段）/ ${summary.sources.join("+")} / ${summary.readOnly} 个只读项全部给了原因 / 未知键 ${summary.unknownKeys.join(",")} / 值内联（键 y=${summary.inlineValue.keyY}、值 y=${summary.inlineValue.valueY}）`;
 });
 
-row("A11b", "会话列表只显示最近 10 条（R1）", "同一项目写满 10+ 会话后：侧栏只渲染 10 条、显示总数、展开后全部可见", async () => {
+row("A11b", "会话列表只显示最近 10 条（R1）", "同一项目有 195 个会话（AC13 点名的最长提示档）时：侧栏只渲染 10 条、显示总数、展开后全部可见", async () => {
   await selectProjectById(projectBId);
   await waitFor(`document.getElementById("active-project").textContent === "验收项目 B"`, { label: "切回项目 B" });
   // 用**真实 API** 造会话（不直接编文件）：这样断言的是真实落盘格式与真实列表端点。
+  // 造到 **195** 条（R9 / AC13 点名的那一档，此前只有一次性探针验过、清单里只造到 21）：
+  // 「共 195 个会话 · 只显示最近 10 条」与「显示全部（195）」是最长的那一档。
   await evaluate(`(async () => {
-    for (let index = 0; index < 21; index += 1) {
+    let count = (await (await fetch("/api/projects/${projectBId}/sessions")).json()).sessions.length;
+    while (count < 195) {
       await fetch("/api/projects/${projectBId}/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: "列表会话 " + index }),
+        body: JSON.stringify({ title: "列表会话 " + count }),
       });
+      count += 1;
     }
-    return true;
+    return count;
   })()`);
   const total = await evaluate(
     `fetch("/api/projects/${projectBId}/sessions").then((r) => r.json()).then((p) => p.sessions.length)`,
@@ -761,7 +765,7 @@ row("B1", "闸门关闭：全只读 + 原因 + 无开启入口", "闸门徽标�
 });
 
 row("A11d", "布局：一列侧栏 + 对话区占满所在列（R6/R7/R8）", "项目与会话同栏堆叠；对话正文与输入条铺满该列（不再限宽居中）；设置面板打开时对话列仍最宽；会话控件在列表之上", async () => {
-  // B1 之后页面停在「闸门关闭」的服务上 ⇒ 显式回到主控制台，并切到有 21 个会话的项目 B。
+  // B1 之后页面停在「闸门关闭」的服务上 ⇒ 显式回到主控制台，并切到有 195 个会话的项目 B。
   await open(`http://127.0.0.1:${PORT}/`);
   await selectProjectById(projectBId);
   await click("#settings-close"); // 量的是**默认两栏**布局：先把设置面板收起来

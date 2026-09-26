@@ -868,7 +868,7 @@
     renderSessionCount(total, overflows, autoExpanded);
   }
 
-  /** 列表规模提示 + 展开/收起按钮（R1：默认只显示最近 20 条，超出部分可展开）。 */
+  /** 列表规模提示 + 展开/收起按钮（R1：默认只显示最近 `SESSION_VISIBLE_DEFAULT` 条，超出部分可展开）。 */
   function renderSessionCount(total, overflows, autoExpanded) {
     const expanded = state.sessionShowAll || autoExpanded;
     if (!overflows) {
