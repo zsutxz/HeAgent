@@ -5,9 +5,9 @@
 ``~/.heagent/commands/*.md``（用户级）加载，frontmatter 声明 ``name``/``description``，
 正文为 prompt 模板，触发时作为一条用户消息提交给 AgentLoop。
 
-本模块是**零 heagent 依赖的纯数据/注册表模块**（仅依赖 pydantic + 零依赖顶层模块
-``heagent.pub.frontmatter``），handler 由调用方（``cli.py``）以闭包注入，避免 ``slash`` 反向依赖
-``agent``/``providers``——对齐项目 DAG 硬约束（新增能力不得从 ``agent/`` 导入核心）。
+本模块是**零 heagent 依赖的纯数据/注册表模块**（仅依赖 pydantic + 零依赖公共模块
+``heagent.pub.frontmatter``），handler 由调用方（``cli/interactive.py``）以闭包注入，避免 ``slash``
+反向依赖 ``agent``/``providers``——对齐项目 DAG 硬约束（新增能力不得从 ``agent/`` 导入核心）。
 """
 
 from __future__ import annotations

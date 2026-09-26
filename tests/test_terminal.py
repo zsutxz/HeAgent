@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
-from heagent.terminal import ENTER, ESC, LF, KeyInterruptMonitor
+from heagent.cli.terminal import ENTER, ESC, LF, KeyInterruptMonitor
 
 
 class _FakeLoop:
@@ -74,7 +74,7 @@ def test_start_inactive_when_stdin_not_tty(monkeypatch) -> None:
         def isatty(self) -> bool:
             return False
 
-    monkeypatch.setattr("heagent.terminal.sys.stdin", _FakeStdin())
+    monkeypatch.setattr("heagent.cli.terminal.sys.stdin", _FakeStdin())
     monitor = KeyInterruptMonitor()
     loop = asyncio.new_event_loop()
     try:
@@ -119,9 +119,9 @@ def test_unix_raw_mode_clears_and_restores_flags(monkeypatch) -> None:
         def fileno(self) -> int:
             return 0
 
-    monkeypatch.setattr("heagent.terminal.sys.stdin", _FakeStdin())
+    monkeypatch.setattr("heagent.cli.terminal.sys.stdin", _FakeStdin())
 
-    from heagent.terminal import _unix_raw_mode
+    from heagent.cli.terminal import _unix_raw_mode
 
     with _unix_raw_mode():
         assert len(calls) == 1
@@ -153,7 +153,7 @@ def test_read_key_posix_esc_alone(monkeypatch) -> None:
         # 第一次 select（主循环等待）：可读；第二次 select（转义探测）：不可读
         return (list(rlist), [], []) if call["n"] == 1 else ([], [], [])
 
-    monkeypatch.setattr("heagent.terminal.sys.stdin", _Stdin())
+    monkeypatch.setattr("heagent.cli.terminal.sys.stdin", _Stdin())
     monkeypatch.setattr(_select, "select", _fake_select)
 
     monitor = KeyInterruptMonitor()
@@ -177,7 +177,7 @@ def test_read_key_posix_arrow_sequence_skipped(monkeypatch) -> None:
         # 转义探测始终可读（存在后续字节），验证 Esc 首字节被跳过
         return (list(rlist), [], [])
 
-    monkeypatch.setattr("heagent.terminal.sys.stdin", _Stdin())
+    monkeypatch.setattr("heagent.cli.terminal.sys.stdin", _Stdin())
     monkeypatch.setattr(_select, "select", _fake_select)
 
     monitor = KeyInterruptMonitor()
@@ -201,7 +201,7 @@ def test_read_key_posix_double_escape(monkeypatch) -> None:
         # 主循环等待与转义探测均始终可读（存在第二个 Esc）
         return (list(rlist), [], [])
 
-    monkeypatch.setattr("heagent.terminal.sys.stdin", _Stdin())
+    monkeypatch.setattr("heagent.cli.terminal.sys.stdin", _Stdin())
     monkeypatch.setattr(_select, "select", _fake_select)
 
     monitor = KeyInterruptMonitor()

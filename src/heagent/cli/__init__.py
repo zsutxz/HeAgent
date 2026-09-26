@@ -1,6 +1,6 @@
 """CLI 入口层命名空间（Epic 48/49/50 之后的入口层模块群）。
 
-层级：本包与 ``goal/`` / ``gui/`` / ``wiring.py`` 同属**入口层**——组合根与展示适配只在这里，
+层级：本包与 ``goal/`` / ``gui/`` 同属**入口层**——组合根与展示适配只在这里，
 下层（providers/tools/engine/agent/memory/context/cron/events/network）一律不得反向导入。
 
 布局（2026-09-26 起，原 ``src/heagent/cli*.py`` 七个平铺模块收进本包）：

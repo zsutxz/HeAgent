@@ -27,6 +27,7 @@ from heagent.agent.middleware import make_retry_middleware
 from heagent.cli.display import (
     SUBAGENT_ANNOUNCER,
 )
+from heagent.cli.wiring import build_cron_job_runner, ensure_runtime_config
 from heagent.config import Settings, resolve_runtime_config
 from heagent.context.compressor import ContextCompressor
 from heagent.context.session import SessionStore
@@ -43,7 +44,6 @@ from heagent.providers.router import RoutingProvider
 from heagent.providers.switchable import SwitchableProvider
 from heagent.pub.workspace import WorkspacePaths
 from heagent.tools.registry import ToolRegistry
-from heagent.wiring import build_cron_job_runner, ensure_runtime_config
 
 if TYPE_CHECKING:
     from heagent.context.session import SessionStore

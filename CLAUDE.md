@@ -47,16 +47,17 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 模块依赖 DAG（**运行期实测**；详细规则与契约断言见 frame.md 三）：
 
 ```
-底层共用（零 heagent 依赖）：exceptions · types · config · persist · roles · frontmatter · safe_logging
+公共层 pub/（零 heagent 依赖）：exceptions · types · safe_logging · persist · frontmatter · roles · workspace · task_shutdown
+配置面 config/（依赖 pub/）：__init__ = Settings · catalog = 来源求解 · write = 受闸门写通道 · envfile = .env 保真读写
 
 主脊：  providers ─┐
-        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ 包 · wiring · gui · goal/）
+        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ 包 · gui · goal/）
         context ───┘
 
-旁支：  memory（依赖 tools/context/persist；对 engine 仅 TYPE_CHECKING，实例由入口层注入）
+旁支：  memory（依赖 tools/context/pub.persist；对 engine 仅 TYPE_CHECKING，实例由入口层注入）
         cron/expr.py（零 heagent 依赖的纯叶子，被 memory 与 cron/scheduler 共用）
-        events（运行期仅依赖 exceptions；engine 单向借用 events.protocol.error_kind_for）
-        network/（传输叶子：仅 stdlib + pydantic + safe_logging，被入口层单向使用，禁止伸手进运行栈）
+        events（运行期仅依赖 pub.exceptions；engine 单向借用 events.protocol.error_kind_for）
+        network/（传输叶子：仅 stdlib + pydantic + pub.safe_logging，被入口层单向使用，禁止伸手进运行栈）
 ```
 
 模块一句话清单：
@@ -65,24 +66,24 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 - `providers/` — LLM provider（OpenAI 兼容：DeepSeek / Kimi / GLM 等 + Anthropic 原生）+ 智能路由（`router` RoutingProvider）+ 多层容错（`chain` 跨 provider 回退 / `key_rotation` 多密钥轮换 / `retry` 指数退避 / `switchable` 运行时 vendor 切换）
 - `tools/` — `@tool` 注册（`registry`）+ `SafetyGuard`（shell 黑名单）+ `path_safety` + `edits`/`sandbox` + `builtins/`（26 工具）+ `mcp/` 桥接
 - `engine/` — 运行时治理（`PolicyEngine` 准入/审批/沙箱裁决 + `ToolExecutor` 分发 + `store`/`ledger`/`observability`），经 `EngineContainer` 注入 `AgentLoop`
-- `safe_logging.py` — 顶层底层共用模块（零 heagent 依赖，2026-09-23）：`safe_log`（日志故障不传播）、`install_logging_fault_guard()`（进程级 handler 守卫，入口层装）、`redact_secrets`/`redact_details`（日志行启发式脱敏，非安全边界）
-- `persist.py` / `roles.py` / `frontmatter.py` — 顶层底层共用模块：原子写/容错读/跨进程文件锁/prune 批量内核；`RoleSpec` 角色注册表（2026-09 自 `engine/` 迁出）；共享 frontmatter 解析（两个分隔符变体 + 严/宽两档键值 + 标量 coercion，收敛原六处手写解析器，2026-09-17）
+- `pub/` — **公共层**（2026-09-26 收敛；零 heagent 运行栈依赖，**任何层都可依赖它、它不依赖任何层**，`__init__.py` 零 import）：`exceptions`（异常层级）/ `types`（共享 Pydantic 模型）/ `persist`（原子写 + 容错读 + 跨进程文件锁 + prune 批量内核）/ `roles`（`RoleSpec` 角色注册表，2026-09 自 `engine/` 迁出）/ `frontmatter`（共享 frontmatter 解析：两个分隔符变体 + 严/宽两档键值，收敛原六处手写解析器）/ `safe_logging`（`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，非安全边界）/ `workspace`（状态根派生的规范路径）/ `task_shutdown`（后台调度 task 关停内核，cron/dream 共用）
+- `config/` — **配置面（顶层包，依赖 `pub/`）**：`__init__.py` 承载 `Settings`/`get_settings`/`resolve_runtime_config`（名字刻意不变 ⇒ `from heagent.config import Settings` 零改动）、`catalog`（配置四层来源求解）、`write`（受闸门的项目 `.env` 写流水线，Story 50-5）、`envfile`（`.env` 行级保真读写）
 - `context/` — 上下文压缩 / 会话持久化 / 上下文文件加载 / token 估算
 - `events/` — 事件传输层（`RunEvent` JSONL 对外契约 + `JsonlSink` 落盘 + `replay` 回放），运行时零 `engine/` 依赖
-- `network/` — 入口传输层（Epic 48–49）：TCP JSON Lines framing / HTTP 协议·路由·静态资源·SSE / 连接与超时生命周期 / 暴露判定（`exposure.py`）；**只依赖标准库 + pydantic + `safe_logging`**（延迟导入 starlette/uvicorn），被入口层单向使用
+- `network/` — 入口传输层（Epic 48–49）：TCP JSON Lines framing / HTTP 协议·路由·静态资源·SSE / 连接与超时生命周期 / 暴露判定（`exposure.py`）；**只依赖标准库 + pydantic + `pub.safe_logging`**（延迟导入 starlette/uvicorn），被入口层单向使用
 - `web/` — 包内网页静态资源（`index.html`/`app.js`/`styles.css`，Story 50-6/50-8 的两栏控制台 UI）；由 `network/http_server.py` 白名单投递，零 Python 依赖
 - `memory/` — 自学习闭环（`skills`/`facts`/`profile`/`soul`）
 - `cron/` — 后台定时调度
 - `gui/` — Textual TUI（`app`/`bridge`/`screens`/`widgets`），经 `AgentBridge` 持有并观察 `AgentLoop`
-- **入口层与展示辅助**——`heagent/cli/` **包**（2026-09-26 收编原七个平铺 `cli*.py`；`__init__.py` 零 import，入口脚本 `heagent.cli.console:main`）：`console.py`（Click 命令组 + 参数解析 + 启动编排，原 `cli.py`）/ `composition.py`（装配：provider→engine→loop、soul、上下文策略、plan mode、dream、事件 sink）/ `interactive.py`（单次/交互**执行**：REPL + 斜杠命令族 + 内嵌 HTTP 挂载点）/ `init.py`（`heagent init`，2026-09-17 自 cli.py 拆出）/ `goal.py`（/goal 命令族：声明式工作流分发 + cron 自动推进）/ `http.py`（HTTP 服务与生命周期装配）/ `http_console.py`（网页控制台的项目/会话/配置面）/ `tcp.py`（Agent 请求适配）/ `dialogs.py`（服务端原生「选择目录」对话框，Story 50-8）/ `display.py`（CLI 渲染，与 GUI 共用）；与 `wiring.py`（provider 组合根）/ `gui/` / `goal/`（`cli/goal.py` 的域模块：需求文档 brief.md 在 `goal/document.py`、LLM 项目命名在 `goal/naming.py`、工作流声明装载在 `goal/workflow_loader.py`）同属入口层——**下层一律不得反向导入**（`tests/test_architecture_contracts.py` 的 `FORBIDDEN_RUNTIME_IMPORTS`：入口层判据现按**包根** `heagent.cli` 收敛，故 `display.py` 也被覆盖）；`slash.py`（注册表驱动斜杠命令 + `.heagent/commands/*.md`，仅依赖 pydantic + 零依赖顶层模块 `heagent.frontmatter`）/ `terminal.py` 是展示与命令辅助，**不在该表内**
-- 其它顶层模块 — `workspace.py`（状态根派生的规范路径）、`projects.py`（网页控制台项目注册表）、`config_catalog.py`（配置四层来源求解）、`config_write.py` + `envfile.py`（受闸门的项目 `.env` 保真写通道，Story 50-5）、`housekeeping.py`（保留期回收内核）、`task_shutdown.py`（后台调度 task 关停内核，cron/dream 共用）
+- **入口层与展示辅助**——`heagent/cli/` **包**（2026-09-26 收编原七个平铺 `cli*.py` + 顶层辅助 `slash.py`/`terminal.py`；`__init__.py` 零 import，入口脚本 `heagent.cli.console:main`）：`console.py`（Click 命令组 + 参数解析 + 启动编排，原 `cli.py`）/ `composition.py`（装配：provider→engine→loop、soul、上下文策略、plan mode、dream、事件 sink）/ `interactive.py`（单次/交互**执行**：REPL + 斜杠命令族 + 内嵌 HTTP 挂载点）/ `init.py`（`heagent init`，2026-09-17 自 cli.py 拆出）/ `goal.py`（/goal 命令族：声明式工作流分发 + cron 自动推进）/ `http.py`（HTTP 服务与生命周期装配）/ `http_console.py`（网页控制台的项目/会话/配置面）/ `tcp.py`（Agent 请求适配）/ `dialogs.py`（服务端原生「选择目录」对话框，Story 50-8）/ `display.py`（CLI 渲染，与 GUI 共用）/ `slash.py`（注册表驱动斜杠命令 + `.heagent/commands/*.md`，仅依赖 pydantic + 零依赖公共模块 `heagent.pub.frontmatter`）/ `terminal.py`（终端键盘监听：Esc 暂停 / Enter 恢复 / 双击 Esc 打断）/ `wiring.py`（provider 组合根：`_build_provider` / `ensure_runtime_config` / `build_cron_job_runner`）/ `housekeeping.py`（启动期运行时产物回收：日志 / 会话 / 编辑快照 / 崩溃 run 的沙箱会话目录）；与 `gui/` / `goal/`（`cli/goal.py` 的域模块：需求文档 brief.md 在 `goal/document.py`、LLM 项目命名在 `goal/naming.py`、工作流声明装载在 `goal/workflow_loader.py`）同属入口层——**下层一律不得反向导入**（`tests/test_architecture_contracts.py` 的 `FORBIDDEN_RUNTIME_IMPORTS`：入口层判据现按**包根** `heagent.cli` 收敛，故 `display.py` 也被覆盖）
+- 顶层不再有独立模块（除 `__init__.py` / `__main__.py`）：`projects.py` 归 `pub/`、`wiring.py` 与 `housekeeping.py` 归 `cli/`（2026-09-26）。
 
 硬约束（违反即架构错误）：
 
 - 新增 provider / tool **禁止**从 `agent/` 导入；`tools/mcp/` 同（`AgentLoop` 零改动，仅经 `ToolRegistry` 注入工具）。
-- `engine/` 依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety` + `events.protocol`（仅 `error_kind_for` 纯函数单点，2026-09-22；events.protocol 运行期仅依赖 exceptions，无环）（container 另有 lazy `config`），被 `agent/` 依赖；`persist.py`/`roles.py`/`frontmatter.py` 为顶层底层模块，任何模块可依赖。memory 运行期不反向依赖 `engine/`（`DreamScheduler` 的 engine 由入口层注入，仅 TYPE_CHECKING 引用）；工作流模型在 `engine/workflow_resource.py`、声明解析在 `goal/workflow_loader.py`（2026-09-20 自 `memory/skill_packages.py` 迁出，engine→memory 边已消除）。
-- `network/` **不认识运行栈与配置**：不得导入 `agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`，也不得导入 `config`/`config_catalog`/`config_write`/`envfile`/`projects`/`workspace` 与任何入口层模块（唯一例外是零依赖的 `safe_logging`）——装配由 `cli/tcp.py`/`cli/http.py` 单向伸手（契约断言：`FORBIDDEN_RUNTIME_IMPORTS["network"]`）。
-- 跨模块数据用 Pydantic 模型（`types.py`），**禁止**原始 dict。
+- `engine/` 依赖 `pub.types`/`pub.exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety` + `events.protocol`（仅 `error_kind_for` 纯函数单点，2026-09-22；events.protocol 运行期仅依赖 exceptions，无环）（container 另有 lazy `config`），被 `agent/` 依赖；`pub/` 是公共层，任何模块都可依赖它（它不依赖任何层）；`config/` 只依赖 `pub/`（不得伸手进运行栈）。memory 运行期不反向依赖 `engine/`（`DreamScheduler` 的 engine 由入口层注入，仅 TYPE_CHECKING 引用）；工作流模型在 `engine/workflow_resource.py`、声明解析在 `goal/workflow_loader.py`（2026-09-20 自 `memory/skill_packages.py` 迁出，engine→memory 边已消除）。
+- `network/` **不认识运行栈与配置**：不得导入 `agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`，也不得导入 `config`（整包：Settings/catalog/write/envfile）/ `projects` / `pub.workspace` 与任何入口层模块（唯一例外是零依赖的 `pub.safe_logging`——所以禁止面必须细到**模块**，不能整包写 `heagent.pub`）——装配由 `cli/tcp.py`/`cli/http.py` 单向伸手（契约断言：`FORBIDDEN_RUNTIME_IMPORTS["network"]`）。
+- 跨模块数据用 Pydantic 模型（`pub/types.py`），**禁止**原始 dict。
 - 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**。
 
 **何时读 `docs/frame.md`（按需，不常驻）：** 改 `agent`/`providers`/`tools`/`engine` 行为、查数据流或模块内部、查 Provider 容错分层（FR-4）、技能匹配算法、系统提示词注入顺序（`_build_system()`）、完整调用链时。源码是最终权威。
@@ -90,7 +91,7 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 ## 测试
 
 - 测试平铺在 `tests/`（provider 测试在 `tests/providers/`）；agent loop 测试用 `StubProvider`；每个测试用 `reset_settings()` 重置 `Settings` 单例。
-- **架构契约测试** `tests/test_architecture_contracts.py`（FORBIDDEN_RUNTIME_IMPORTS 反向依赖断言、frontmatter 正则只允许存在于 `frontmatter.py` 等）——改包间依赖或新增解析器时**必须同步维护**，其职责是把只写在文档里的硬约束钉成可执行断言、拒绝「明天的静默漂移」。
+- **架构契约测试** `tests/test_architecture_contracts.py`（FORBIDDEN_RUNTIME_IMPORTS 反向依赖断言、frontmatter 正则只允许存在于 `pub/frontmatter.py` 等）——改包间依赖或新增解析器时**必须同步维护**，其职责是把只写在文档里的硬约束钉成可执行断言、拒绝「明天的静默漂移」。
 - **monkeypatch 模块路径缝是拆分/搬移红线**：测试大量 patch 字符串路径（`heagent.cli.console._run_prompt`、`heagent.cli.goal._goal_session`、`heagent.cli.goal._GOAL_LOCK_TIMEOUT`、`cli.goal._goal_auto_lock` 等）——被 patch 的目标函数**及其调用方**必须留在原模块（Python 模块全局查找语义）；`test_goal_declarative_workflow.py::test_console_reexports_goal_runner_but_not_monkeypatch_seams` 钉死了 console 的 re-export 面。搬代码前先 grep 缝。**包内文件**另有两条缝纪律：`heagent/cli/__init__.py` 永不放 import（`test_cli_package_shell_stays_thin`）；子模块间的函数体内延迟导入（避开成环）必须指向**实模块**（`from heagent.cli.console import _build_loop`），不能指回包壳。
 - GUI 测试经 `pytest.importorskip("textual")` 守卫（CI 只装 `.[dev]` 无 textual，自动跳过）；pilot 交互测试模板见 `tests/test_gui_goal.py`。
 

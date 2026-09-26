@@ -1,6 +1,6 @@
 """goal 需求文档（brief.md）生成与 goal 命名约定（/goal 命令族的文档层）。
 
-**为什么单独成模块**（wiring.py 先例）：此前这段「goal 文档与命名」逻辑（约 150 行——
+**为什么单独成模块**（cli/wiring.py 先例）：此前这段「goal 文档与命名」逻辑（约 150 行——
 goal_id 规则、目录命名、需求文档生成与增量更新）与工作流驱动（advance /
 execute / dispatch / cron）混在 cli/goal.py 里——前者随 BMad 产物约定变，后者随执行
 编排变，混在一起使 cli/goal.py 既难读也难测。本模块只做「文档与命名」的确定性部分

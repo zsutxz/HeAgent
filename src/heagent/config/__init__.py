@@ -236,7 +236,7 @@ class Settings(BaseSettings):
     # 都是新进程）在这层节流下能省掉几乎全部扫描成本；保留期以天计，延迟清理无副作用。
     prune_min_interval_seconds: int = Field(default=900, ge=0)
 
-    # ---- 运行时产物保留期（日志 / 会话 / 编辑快照，由 CLI 启动时的 housekeeping 回收）----
+    # ---- 运行时产物保留期（日志 / 会话 / 编辑快照，由 CLI 启动时的 cli/housekeeping 回收）----
     # 这三类此前没有回收方，会随使用单调增长（实测 84 天：logs 21 MiB、sessions 83 MiB、
     # edit-snapshots 只增不减）。0=禁用该类清理。
     log_retention_days: int = Field(default=14, ge=0)
@@ -284,7 +284,7 @@ class Settings(BaseSettings):
     # 沙箱会话目录保留开关（FR-4）：True = run 结束后保留会话目录；False（默认）= 删除。
     sandbox_session_keep: bool = Field(default=False)
     # 沙箱会话目录保留天数（E40-D1）：崩溃 run 留下的 `.heagent/sandboxes/<run_id>/` 不经过
-    # 正常 teardown，由 CLI/GUI 启动时的 housekeeping 按本保留期回收（0=禁用）。
+    # 正常 teardown，由 CLI/GUI 启动时的 cli/housekeeping 按本保留期回收（0=禁用）。
     # 7 天与编辑快照同档——它是 per-run 临时工作区，比 run 快照（30 天）短命得多。
     sandbox_dir_retention_days: int = Field(default=7, ge=0)
     # 沙箱 profile → firejail 参数映射（2026-09-17 硬化批）：JSON 对象

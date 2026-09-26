@@ -17,9 +17,9 @@
   - [4.5 上下文管理 (`context/`)](#45-上下文管理-context)
   - [4.6 记忆系统 (`memory/`)](#46-记忆系统-memory)
   - [4.7 Cron 调度 (`cron/`)](#47-cron-调度-cron)
-  - [4.8 共享类型 (`types.py`)](#48-共享类型-typespy)
-  - [4.9 异常体系 (`exceptions.py`)](#49-异常体系-exceptionspy)
-  - [4.10 配置管理 (`config.py`)](#410-配置管理-configpy)
+  - [4.8 共享类型 (`pub/types.py`)](#48-共享类型-pubtypespy)
+  - [4.9 异常体系 (`pub/exceptions.py`)](#49-异常体系-pubexceptionspy)
+  - [4.10 配置管理 (`config/`)](#410-配置管理-config)
   - [4.11 MCP 集成 (`tools/mcp/`)](#411-mcp-集成-toolsmcp)
   - [4.12 运行时引擎 (`engine/`)](#412-运行时引擎-engine)
   - [4.13 Goal 驱动工作流 (`/goal`)](#413-goal-驱动工作流-goal)
@@ -27,7 +27,7 @@
   - [4.15 事件契约 (`events/`)](#415-事件契约-events)
   - [4.16 TCP 入口 (`network/` + `cli/tcp.py`)](#416-tcp-入口-network--clitcppy)
   - [4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)](#417-http-网页入口-networkhttp_--clihttppy--web)
-  - [4.18 网页控制台 (`workspace.py` + `projects.py` + `config_catalog.py` + `config_write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#418-网页控制台-workspacepy--projectspy--config_catalogpy--config_writepy--clihttppy--clidialogspy--web)
+  - [4.18 网页控制台 (`pub/workspace.py` + `projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#418-网页控制台-pubworkspacepy--projectspy--configcatalogpy--configwritepy--clihttppy--clidialogspy--web)
 - [五、已知缺口](#五已知缺口)
 - [六、目录结构](#六目录结构)
 - [七、完整调用链](#七完整调用链)
@@ -113,29 +113,30 @@ AgentLoop.run(prompt)
 ## 三、模块依赖关系 (DAG)
 
 ```
-底层共用（零 heagent 依赖）：exceptions · types · config · persist · roles · frontmatter · safe_logging
+公共层 pub/（零 heagent 依赖）：exceptions · types · safe_logging · persist · frontmatter · roles · workspace · task_shutdown
+配置面 config/（依赖 pub/）：__init__ = Settings · catalog = 来源求解 · write = 受闸门写通道 · envfile = .env 保真读写
 
 主脊：  providers ─┐
-        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ 包 · wiring · gui · goal/）
+        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ 包 · gui · goal/）
         context ───┘
 
-旁支：  memory（依赖 tools/context/persist；对 engine 仅 TYPE_CHECKING，实例由入口层注入）
+旁支：  memory（依赖 tools/context/pub.persist；对 engine 仅 TYPE_CHECKING，实例由入口层注入）
         cron/expr.py（零 heagent 依赖的纯叶子，被 memory 与 cron/scheduler 共用）
-        events（运行期仅依赖 exceptions；engine 单向借用 events.protocol.error_kind_for）
-        network/（传输叶子：仅 stdlib + pydantic + safe_logging，被入口层单向使用，禁止伸手进运行栈）
+        events（运行期仅依赖 pub.exceptions；engine 单向借用 events.protocol.error_kind_for）
+        network/（传输叶子：仅 stdlib + pydantic + pub.safe_logging，被入口层单向使用，禁止伸手进运行栈）
 ```
 
 **依赖规则：**
 - `agent/` 是顶层编排器，依赖所有其他模块
 - `providers/` 和 `tools/` 互不依赖
-- `exceptions.py` 和 `types.py` 是叶子模块，无内部依赖
+- `pub/exceptions.py` 和 `pub/types.py` 是叶子模块，无内部依赖
 - 新增 Provider 或 Tool **禁止**从 `agent/` 导入（**全仓无例外**：`builtins/subagent.py` 只持可注入委派回调，子 Agent 编排由 `agent/delegation.py` 提供、`AgentLoop._runtime_scope` 每 run 绑定；`tools/mcp/*` 同）
-- `persist.py` / `roles.py` / `frontmatter.py` 是顶层底层共用模块（与 exceptions/types/config 同层；persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖）：`persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`safe_logging.py`（零 heagent 依赖，2026-09-23）收敛日志卫生：`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，`network/`（不得依赖 engine）与 engine/agent 共用同一实现；`frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
+- **分层（2026-09-26 收敛）**：`pub/` 是**公共层**——收零 heagent 运行栈依赖的共用模块（exceptions/types/safe_logging/persist/frontmatter/roles/workspace/task_shutdown），**任何层都可依赖它、它不依赖任何层**（`pub/__init__.py` 零 import）；`config/` 是其**上一层**的配置面（`__init__.py` 即 Settings 本体 + catalog 来源求解 + write 写通道 + envfile 保真读写），只依赖 `pub/` 与 stdlib/pydantic。persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖：`pub/persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`pub/roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`pub/safe_logging.py`（零 heagent 依赖，2026-09-23）收敛日志卫生：`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，`network/`（不得依赖 engine）与 engine/agent 共用同一实现；`pub/frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
 - `memory/` 运行期**不依赖 `engine/`**（`memory/dream.py` 的 `EngineContainer` 仅 TYPE_CHECKING 引用，实例由入口层注入、无 `default()` 回退；契约断言见 `test_architecture_contracts.py` FORBIDDEN_RUNTIME_IMPORTS）
-- `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `types`/`exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
-- `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
-- `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
-- `network/` 是**入口传输层**（Epic 48，2026-09-22）：只承载 framing（TCP JSON Lines）与 HTTP 协议 / 路由 / 静态资源 / 连接与超时生命周期 / 暴露判定，运行期**不依赖运行栈**（`agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`）与任何入口层模块（`wiring`/`cli`/`cli/goal`/`cli/tcp`/`cli/http`/`gui`）；Provider 与 `AgentLoop` 的装配由入口层 `cli/tcp.py` / `cli/http.py` 单向伸手（契约断言：`test_architecture_contracts.py` 的 FORBIDDEN_RUNTIME_IMPORTS["network"]）
+- `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `pub.types`/`pub.exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
+- `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `pub.exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
+- `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.pub.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
+- `network/` 是**入口传输层**（Epic 48，2026-09-22）：只承载 framing（TCP JSON Lines）与 HTTP 协议 / 路由 / 静态资源 / 连接与超时生命周期 / 暴露判定，运行期**不依赖运行栈**（`agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`）与任何配置面模块（`config`（整包：Settings/catalog/write/envfile）/`projects`/`pub.workspace`——粒度必须细到模块，唯一例外是零依赖的 `pub.safe_logging`）、任何入口层模块（`cli` 包（含 `cli/wiring.py`）/`cli/goal`/`cli/tcp`/`cli/http`/`gui`）；Provider 与 `AgentLoop` 的装配由入口层 `cli/tcp.py` / `cli/http.py` 单向伸手（契约断言：`test_architecture_contracts.py` 的 FORBIDDEN_RUNTIME_IMPORTS["network"]）
 
 ---
 
@@ -158,6 +159,10 @@ AgentLoop.run(prompt)
 | `tcp.py` | `tcp-server` 子命令 + Agent 请求适配（Epic 48） | `cli_tcp.py` |
 | `dialogs.py` | 服务端原生「选择目录」对话框（Story 50-8） | `cli_dialogs.py` |
 | `display.py` | 终端渲染辅助（CLI 与 GUI 共用） | `cli_display.py` |
+| `slash.py` | 交互模式斜杠命令注册表 + `.heagent/commands/*.md` 用户自定义命令加载 | 顶层 `slash.py` |
+| `terminal.py` | 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断） | 顶层 `terminal.py` |
+| `wiring.py` | Provider 组合根 + `ensure_runtime_config` / `build_cron_job_runner`（CLI/GUI 共用） | 顶层 `wiring.py` |
+| `housekeeping.py` | 启动期运行时产物保留期回收（日志 / 会话 / 编辑快照 / 沙箱会话目录） | 顶层 `housekeeping.py` |
 
 **缝（monkeypatch 模块路径）按调用方分模块**：`_run_prompt` / `_run_single` 在 `interactive`（其调用方
 `_run_chat` 同模块）；console 的命令层用**函数内导入**读 `_run_single`；`_build_loop` 在 `composition`
@@ -175,7 +180,7 @@ AgentLoop.run(prompt)
 | Cron 调度 | 交互模式下启动 CronScheduler 后台任务 |
 | 重试中间件 | 通过 `make_retry_middleware()` 接入 AgentLoop |
 | Token 统计 | 每次回答后显示 `[tokens: N in + M out = T total]` |
-| 运行暂停/恢复/中断 | 交互模式运行期间按 Esc 暂停当前 run、Enter 恢复、双击 Esc 打断（取消当前 run、回到输入状态，见 `terminal.py`） |
+| 运行暂停/恢复/中断 | 交互模式运行期间按 Esc 暂停当前 run、Enter 恢复、双击 Esc 打断（取消当前 run、回到输入状态，见 `cli/terminal.py`） |
 | TCP 入口 | `heagent tcp-server`（实验性，实现拆在 `cli/tcp.py` + `network/`，协议与安全立场见 4.16） |
 | HTTP 入口 | `heagent http-server`（实验性，实现拆在 `cli/http.py` + `cli/http_console.py` + `network/http_*.py` + 包内 `web/`，协议、静态页与安全立场见 4.17） |
 
@@ -390,7 +395,7 @@ AgentLoop
 - CLI：路由池是**声明式**的——`ROUTING_POOLS`（JSON）按 provider 条目名声明池：
   档位（池内名 → 模型名）、角色映射（fast/mid/pro → 池内名）、默认档、各档追加关键词、
   `base_url` 覆盖。`_build_provider` 对每个条目查 `Settings.routing_pool_map`：命中即构建
-  `RoutingProvider`（规格由 `RoutingPoolSpec` 校验，`types.py`），否则单模型条目；两种情况
+  `RoutingProvider`（规格由 `RoutingPoolSpec` 校验，`pub/types.py`），否则单模型条目；两种情况
   都照常放入 `SwitchableProvider` 池（Multiple providers Choose / `/model` 切换不受影响）。
   **新增/调整档位、模型名、角色、关键词全部只改配置，无需改代码**（新增 provider 条目仍需
   代码接入凭据）。路由池**只有这一个入口**：条目出现在 `ROUTING_POOLS` 里即为启用该池；
@@ -459,7 +464,7 @@ SafetyGuard
 
 **SandboxSession 会话生命周期（FR-4，2026-08-26）：** 引入 `SandboxSession` 会话作用域——同一 run 的连续 shell 命令共享同一 session workspace（40.1 目录）并**跨命令保持 cwd**：`run()` 以「cd 前缀 + 末尾上报（POSIX `printf $PWD` / cmd `cd`）回填 `session.cwd`」包装命令，多步操作（写→编译→运行）自然衔接；包装同时**保持用户命令退出码**（POSIX `exit "$__rc"` 复原 / Windows `call echo %^ERRORLEVEL%` 经 marker 行带回并由 `run()` 回填 `exit_code=`，修复包装后失败命令恒 `exit_code=0` 的缺陷；`exit N` 直退类命令 marker 缺失属固有限制，rc 仍正确）。会话经 `get_or_create_session(run_id)` 按 run 缓存、`bind_sandbox_session` 送达 shell handler（handler 优先走 session）；`EngineContainer.close_run`（`AgentLoop._persist_and_cache` 尾部调用）teardown 按 `sandbox_session_keep`（默认 False=删除）清理会话目录。⚠ 会话非安全边界：cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无文件系统隔离、Firejail 亦非完美边界——须 OS 级沙箱兜底。
 
-**E40 补齐（2026-09-15，四项）：** ① **孤儿目录 GC（E40-D1）**——crash / SIGKILL 的 run 不走 teardown，其 `<workspace>/.heagent/sandboxes/<run_id>/` 由 CLI/GUI 启动时的 `housekeeping.prune_sandbox_dirs` 按 `sandbox_dir_retention_days`（默认 7 天）回收：判活取「目录 + **直接子项**」最新 mtime（正在写的 run 不被删；只扫一层，成本有界），非目录条目与符号链接一律不动（符号链接记 warning，绝不穿透），单趟删除数有上限、删除失败记 warning 留待下次启动。约定根由 `tools.sandbox.sandbox_sessions_root(workspace)` 单一表达（创建方与回收方共用，防空漂移）。② **目录对模型可见（E40-D2）**——`_build_system()` 在本 run 会话目录**真正生效**（存在真实沙箱后端）时注入 `<shell-workspace>` 块，告知绝对路径与「file 工具相对路径按 workspace root 解析」的差异；开关开但后端缺席（passthrough）时**不报路径**（与真实 cwd 不一致比不提示更坏）。③ **WinJob cwd 可测缝（E40-D3）**——子进程启动收敛到 `_winjob_spawn(command, workspace)` 单点（未 bind 时不传 `cwd`，与改动前逐字段一致），使该决定可在非 Windows 平台被断言（原实现写在 `run()` 两条 `Popen` 分支里，Linux CI 整段跳过）。④ **CLI/GUI 平权（E40-D4）**——`--sandbox-session-workspace` / `--sandbox-session-keep`（含 `--no-...`）三态覆盖 `Settings`（未传标志时行为与改动前逐字节一致）。
+**E40 补齐（2026-09-15，四项）：** ① **孤儿目录 GC（E40-D1）**——crash / SIGKILL 的 run 不走 teardown，其 `<workspace>/.heagent/sandboxes/<run_id>/` 由 CLI/GUI 启动时的 `cli/housekeeping.prune_sandbox_dirs` 按 `sandbox_dir_retention_days`（默认 7 天）回收：判活取「目录 + **直接子项**」最新 mtime（正在写的 run 不被删；只扫一层，成本有界），非目录条目与符号链接一律不动（符号链接记 warning，绝不穿透），单趟删除数有上限、删除失败记 warning 留待下次启动。约定根由 `tools.sandbox.sandbox_sessions_root(workspace)` 单一表达（创建方与回收方共用，防空漂移）。② **目录对模型可见（E40-D2）**——`_build_system()` 在本 run 会话目录**真正生效**（存在真实沙箱后端）时注入 `<shell-workspace>` 块，告知绝对路径与「file 工具相对路径按 workspace root 解析」的差异；开关开但后端缺席（passthrough）时**不报路径**（与真实 cwd 不一致比不提示更坏）。③ **WinJob cwd 可测缝（E40-D3）**——子进程启动收敛到 `_winjob_spawn(command, workspace)` 单点（未 bind 时不传 `cwd`，与改动前逐字段一致），使该决定可在非 Windows 平台被断言（原实现写在 `run()` 两条 `Popen` 分支里，Linux CI 整段跳过）。④ **CLI/GUI 平权（E40-D4）**——`--sandbox-session-workspace` / `--sandbox-session-keep`（含 `--no-...`）三态覆盖 `Settings`（未传标志时行为与改动前逐字节一致）。
 
 #### call_summary.py — 工具调用「作用对象」摘要（纯展示辅助）
 
@@ -685,7 +690,7 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 | `DreamRunner` | agent 层注入的执行协议（`prompt → DreamResult`）；dreamer SubAgent 由 `cli.py` 组合根构造注入（`memory/` **不导入 `agent/`**，DAG 合规——与 `CronScheduler`+`JobRunner` 同构） |
 | idle 计时 | 经 `EventBus` 订阅 `run_completed` 更新 `last_active_ts`（不改 REPL 同步 `input()`）；`_run_dream` finally 兜底重置（防失败/取消 dream 不发 `run_completed` 致每 tick 重燃） |
 | session 预注入 | `SessionStore.recent_session_ids()` 按 timestamp 降序取最近 N，截断拼进 prompt（dreamer **不持 `file_read`**，最小权限） |
-| `dreamer` 角色 | `RoleSpec` allowed/blocked 双层（见顶层 `roles.py`）；`dream_enabled` 默认 `False`（opt-in） |
+| `dreamer` 角色 | `RoleSpec` allowed/blocked 双层（见顶层 `pub/roles.py`）；`dream_enabled` 默认 `False`（opt-in） |
 
 事件：`dream_start` / `dream_end`（trigger / success / iterations / run_id）经 `EventBus` 发布，`LoggingObserver` 落日志。
 
@@ -710,7 +715,7 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 一次性任务（`recurring=False`）成功后自动删除。
 
-### 4.8 共享类型 (`types.py`)
+### 4.8 共享类型 (`pub/types.py`)
 
 所有模块间数据流通过 Pydantic 模型传递，**禁止**跨模块传递原始 dict。
 
@@ -724,7 +729,7 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 | `ProviderResponse` | Provider 返回（content, tool_calls, usage, model） |
 | `TokenUsage` | Token 使用量（prompt, completion, total） |
 
-### 4.9 异常体系 (`exceptions.py`)
+### 4.9 异常体系 (`pub/exceptions.py`)
 
 ```
 HeAgentError (base)
@@ -737,12 +742,12 @@ HeAgentError (base)
 
 **禁止**抛出裸 `Exception`。
 
-### 4.10 配置管理 (`config.py`)
+### 4.10 配置管理 (`config/` 包)
 
 - `pydantic-settings` 的 `Settings` 类，从 `.env` + 环境变量加载
 - **加载优先级（2026-07-14 反转）**：`init > dotenv > env > secrets`——同 key 冲突时 `.env` 胜出，系统环境变量退居兜底（仅填充 `.env` 未声明的键）。此前为 `env > dotenv`（环境变量胜出）
 - `get_settings()` 单例访问，`reset_settings()` 用于测试重置
-- **运行配置快照（Phase 1，2026-09-21）**：`ResolvedRuntimeConfig`（冻结 `Settings` 子类，集合深拷贝、凭证 `exclude` 不入 repr/JSON）+ `resolve_runtime_config(settings=None, **overrides)`——显式非 `None` 覆盖才生效（保留「显式 `False` 反向压过 env `True`」三态语义），每个字段经 `RuntimeConfigSource` 记录来源（`settings`/`override`）。入口层（`cli.composition._build_loop`/`gui_main`）组装期解析一次，engine（`EngineContainer.runtime_config`，并把实际生效后端记入 `SandboxDecision` 写入 run metadata）与两类 loop（主/cron）共用同一份；`AgentLoop`/`SubAgent` 业务执行（压缩/窗口重置/委派深度/提示词块/技能预算）只读快照，运行中全局 Settings 漂移不影响已创建的运行。`PolicyVerdict.source` 标记裁决来源。业务方法禁止隐式 `get_settings()`；构造期回退与无 run 绑定的工具路径（housekeeping/dream/skills 未绑定回退）除外，详见下表口径。
+- **运行配置快照（Phase 1，2026-09-21）**：`ResolvedRuntimeConfig`（冻结 `Settings` 子类，集合深拷贝、凭证 `exclude` 不入 repr/JSON）+ `resolve_runtime_config(settings=None, **overrides)`——显式非 `None` 覆盖才生效（保留「显式 `False` 反向压过 env `True`」三态语义），每个字段经 `RuntimeConfigSource` 记录来源（`settings`/`override`）。入口层（`cli.composition._build_loop`/`gui_main`）组装期解析一次，engine（`EngineContainer.runtime_config`，并把实际生效后端记入 `SandboxDecision` 写入 run metadata）与两类 loop（主/cron）共用同一份；`AgentLoop`/`SubAgent` 业务执行（压缩/窗口重置/委派深度/提示词块/技能预算）只读快照，运行中全局 Settings 漂移不影响已创建的运行。`PolicyVerdict.source` 标记裁决来源。业务方法禁止隐式 `get_settings()`；构造期回退与无 run 绑定的工具路径（cli/housekeeping/dream/skills 未绑定回退）除外，详见下表口径。
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
@@ -811,7 +816,7 @@ HeAgentError (base)
 | `sandbox_firejail_path` | `firejail` | firejail 可执行文件路径（PATH 查找或绝对路径） |
 | `sandbox_mode` | `workspace-write` | 权限档位：`read-only`（只放行只读工具，未知工具 fail-closed）/ `workspace-write` / `danger-full-access`（跳过围栏与凭证 deny 预检）；非法值回退并告警 |
 | `sandbox_network` | False | 是否允许子进程出站；False 时 firejail 追加 `--net=none`，其余后端记「网络隔离未生效」 |
-| `run_retention_days` | 7 | `.heagent/runs/` 运行快照（`<run_id>.json` + 配套 `.lock` + `<run_id>/` 产物目录）保留天数；全新 run 启动时清理一次（0=禁用）。`persist.py` 刻意保留 `.lock`（规避 unlink 竞态），本项是 runs 侧唯一回收时机 |
+| `run_retention_days` | 7 | `.heagent/runs/` 运行快照（`<run_id>.json` + 配套 `.lock` + `<run_id>/` 产物目录）保留天数；全新 run 启动时清理一次（0=禁用）。`pub/persist.py` 刻意保留 `.lock`（规避 unlink 竞态），本项是 runs 侧唯一回收时机 |
 | `ledger_retention_days` | 7 | `.heagent/ledger/` 幂等记录保留天数；全新 run 启动时清理一次（0=禁用） |
 | `prune_min_interval_seconds` | 900 | 过期清理的**跨进程节流**：距上次清理不足此间隔就跳过扫描（0=每次都扫）。短命 CLI 进程靠它省掉「每次启动重扫万级目录」 |
 | `log_retention_days` | 14 | `logs/` 日志文件保留天数（CLI/GUI 启动时回收；0=禁用） |
@@ -895,7 +900,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 - **策略门控链**：`PolicyEngine.evaluate()` → `ToolExecutor.execute()` → `SafetyGuard.check()`，串行执行，职责分离
 - **角色化 + checkpoint-resume**：supervisor 委派角色化 `SubAgent`，结构化结果写 `metadata['completed_steps']`；`window_reset` 清窗重建 + `resume`/`resume_stream` 跨窗口续跑；`build_run_tree()` 树形聚合；Schema 级工具隐藏
 - **持久化健壮性**：store/ledger 全部 async I/O + 原子写 + 损坏 JSON 容错；可选跨进程文件锁（`EngineContainer(enable_file_locks=True)`）
-- **日志卫生（2026-09-23）**：`safe_logging` 两层防线——插桩/best-effort 路径逐调用点 `safe_log`；入口层（CLI/GUI/TCP）配置 logging 时调 `install_logging_fault_guard()`，把 `logging.Handler.handle` 包一层（失败仍走 stdlib `handleError` 诊断，但不向业务传播），故运行栈任意 `logger.*` 不再中断 run。同时 `LoggingObserver` 对 `target`/`details` 按凭证形态掩码——日志行不再出现 `API_KEY=…`/`sk-…` 原文 |
+- **日志卫生（2026-09-23）**：`pub/safe_logging` 两层防线——插桩/best-effort 路径逐调用点 `safe_log`；入口层（CLI/GUI/TCP）配置 logging 时调 `install_logging_fault_guard()`，把 `logging.Handler.handle` 包一层（失败仍走 stdlib `handleError` 诊断，但不向业务传播），故运行栈任意 `logger.*` 不再中断 run。同时 `LoggingObserver` 对 `target`/`details` 按凭证形态掩码——日志行不再出现 `API_KEY=…`/`sk-…` 原文 |
 
 **已知限制：**
 
@@ -1044,7 +1049,7 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 
 实验性入口（Epic 48）：把 agent 暴露成「一行请求 / 一行响应」的 UTF-8 JSON Lines 服务。
 分层是硬约束——`network/` 只承载传输（framing / 协议模型 / 连接与超时生命周期 / 暴露判定），
-装配放在入口层 `cli/tcp.py`（provider 经 `wiring._build_provider`、loop 经 `cli.composition._build_loop`，
+装配放在入口层 `cli/tcp.py`（provider 经 `cli/wiring._build_provider`、loop 经 `cli.composition._build_loop`，
 **函数内延迟导入**：`cli` 在模块尾部 import 本模块注册命令，模块级互相导入会成环）。
 
 | 关注点 | 实现事实 |
@@ -1072,7 +1077,7 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 
 | 关注点 | 实现事实（Story 49-1/49-2/49-3 已交付部分） |
 | --- | --- |
-| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **34** 码（含项目注册表 / 会话 / 控制台稳定错误码；2026-09-24 评审校正：原先写 22，实测 27；Story 50-5 的写通道再加 5 ⇒ **32**；Story 50-8 的原生目录选择再加 2 ⇒ **34**，口径与分组见 4.18）、`{"error":{"code","message"}}` 信封、`HealthResponse`（字段封闭：`status` / `service` / `version` / `schema_version`）；`sanitize_message` 是客户端文案唯一出口（折叠空白 + **掩码宿主绝对路径** + 截断到 `MAX_ERROR_MESSAGE_CHARS`），**不含** traceback / 异常类名 / 绝对路径——掩码是启发式（Windows 盘符与 UNC 全掩；POSIX 要求 ≥3 段，以免误伤 `/api/health`、`and/or`、URL），与 `safe_logging` 同一立场：**非安全边界**（2026-09-23 评审修复：此前上游 `HeAgentError.message` 里带的路径会原样透传）|
+| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **34** 码（含项目注册表 / 会话 / 控制台稳定错误码；2026-09-24 评审校正：原先写 22，实测 27；Story 50-5 的写通道再加 5 ⇒ **32**；Story 50-8 的原生目录选择再加 2 ⇒ **34**，口径与分组见 4.18）、`{"error":{"code","message"}}` 信封、`HealthResponse`（字段封闭：`status` / `service` / `version` / `schema_version`）；`sanitize_message` 是客户端文案唯一出口（折叠空白 + **掩码宿主绝对路径** + 截断到 `MAX_ERROR_MESSAGE_CHARS`），**不含** traceback / 异常类名 / 绝对路径——掩码是启发式（Windows 盘符与 UNC 全掩；POSIX 要求 ≥3 段，以免误伤 `/api/health`、`and/or`、URL），与 `pub/safe_logging` 同一立场：**非安全边界**（2026-09-23 评审修复：此前上游 `HeAgentError.message` 里带的路径会原样透传）|
 | 传输层 | `network/http_server.py`：`HttpServerConfig`（9 个有界字段，默认值与 `HTTP_*` 一致）+ `HttpServer`（`start` / `serve_forever` / `close`，与 `TcpServer` 同 API 形状）；`build_http_app` 组装健康检查 + 静态资源 + 安全头 |
 | 可选依赖 | starlette / uvicorn 由 `pyproject.toml` 的 `http` extra **直接声明**，且只在真要服务时经 `importlib.import_module` 加载；缺依赖抛 `HttpDependencyError` → 命令给出 `pip install 'heagent[http]'`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`（源码中不存在顶层 starlette/uvicorn 导入） |
 | 就绪门禁 | `start()` 只在「listener 已绑定**且**真实 TCP 打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」。**通配绑定**（`0.0.0.0` / `::`）的探测改走回环地址（连 `0.0.0.0` 是未定义行为），故允许集对通配值额外接受 `127.0.0.1` / `localhost` / `[::1]`（探测的 Host 头按 authority 语法给 IPv6 加方括号）——通配绑定可从本机浏览器访问，但经其它网卡地址访问仍被 `origin_forbidden` 拒绝（非回环联网不受支持）。连接的 `limit_concurrency` 额外预留 1 条给就绪探测，否则 `HTTP_MAX_CONNECTIONS=1` 会让入口**永远起不来**（以上两项为 2026-09-23 评审修复）|
@@ -1093,7 +1098,7 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 ⚠ **安全立场**：与 TCP 入口一致——本入口**无认证、无 TLS**，回环绑定不是认证边界，回环客户端同样
 不可信；运行本入口须放在容器 / VM 等 OS 级隔离中（见五、已知缺口与 CLAUDE.md 安全声明）。
 
-### 4.18 网页控制台 (`workspace.py` + `projects.py` + `config_catalog.py` + `config_write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)
+### 4.18 网页控制台 (`pub/workspace.py` + `projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)
 
 Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左栏项目与会话、右栏对话、设置独立成面板
 （项目 / 会话 / 配置三层，全部走**项目内**路由）。分层不变——网络层只承载传输与路由，装配 / 注册表 /
@@ -1106,7 +1111,7 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 会话持久化 | `context/session.py` 的 `SessionStore` 按项目派生（`<项目根>/.heagent/sessions/<sid>.json`），与 CLI **同库同格式**；列表只读轻量元数据（D6）；**损坏文件回 `session_unreadable`**（D1），绝不当空会话覆盖 |
 | 配置来源求解（只读面） | `config_catalog.build_config_report`：四层来源 **系统环境变量 > 项目 `.env` > 全局 `~/.heagent/.env` > 字段默认值**，逐项给出有效值 / 来源徽标 / 可写性 / 只读原因；凭证只回「已配置 + 定长掩码」（**掩码域 = `*_API_KEY` / `*_API_KEYS` 后缀**；`*_BASE_URL` 等键的值**原样回传**——凭证写在 URL userinfo 里不会被打码，见台账同名条目）；行级诊断（重复键 / 空值键 / 行内注释 / BOM / 未知键）逐条标注 |
 | 可写面划分（D2/D3） | 实测 **113 字段 = 白名单 46 + 排除 67、残留 0**；优先级 **显式白名单 > 模式排除**，排除之间**显式行 > 模式行**（`HTTP_CONSOLE_*` 因此归「控制台自身」而非「监听面」） |
-| 配置写入通道 | `config_write.apply_config_write`：**10 步 + 1 项生效语义** —— 闸门 → 回环来源 → 键白名单 → 值守卫 → 指纹 → 候选构造（`Settings(_env_file=候选)` 必须能构造）→ 备份 → 保真写 → 回读 → 审计；第 11 项 = 让该项目运行时缓存失效。**回环判定留在传输层**（网络层不认识 Settings），`envfile.py` 做行级保真（**只重写值区**：EOL / BOM / 注释 / 未修改行字节逐一不变），`persist.atomic_update_bytes` 做字节级原子写 + **锁内**回读校验与回滚 |
+| 配置写入通道 | `config/write.apply_config_write`：**10 步 + 1 项生效语义** —— 闸门 → 回环来源 → 键白名单 → 值守卫 → 指纹 → 候选构造（`Settings(_env_file=候选)` 必须能构造）→ 备份 → 保真写 → 回读 → 审计；第 11 项 = 让该项目运行时缓存失效。**回环判定留在传输层**（网络层不认识 Settings），`envfile.py` 做行级保真（**只重写值区**：EOL / BOM / 注释 / 未修改行字节逐一不变），`pub/persist.atomic_update_bytes` 做字节级原子写 + **锁内**回读校验与回滚 |
 | 资源旋钮上界 | `config_catalog.RESOURCE_CEILINGS`：21 个「只有下界」的数值键按族给上界（days 3650 / seconds 604800 / bytes 8 MiB / tokens 1M / count 100；迭代 10000 与上下文窗口 16M 自成刻度）。**只作用于写通道与面板展示**，不改 `Settings` 定义语义（手工改 `.env` 不受约束） |
 | 生效语义 | 写成功后**丢该项目运行时缓存** ⇒ 下一次 run 重新解析快照、**在途 run 继续用旧快照**（无热生效；响应里 `applied=next_run`） |
 | 审计 | `<项目根>/.heagent/console/audit.jsonl`：一行一 JSON，只有键名 / 值的**哈希与长度** / 结果，**不含值**；行数上限 500（超限裁到最近 500 条，且只认这一个文件名 ⇒ 不碰同目录的 `projects.json`）；追加失败不阻断已成功的写，但响应如实带 `audit_recorded=false` |
@@ -1152,7 +1157,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 沙箱会话目录非安全边界 | `sandbox_session_workspace`（FR-1，2026-08-26）只提供 per-run 目录约定：WinJob 仅把目录作为子进程 cwd（**零文件系统/网络隔离**），Firejail `--private` 亦非完美边界——须 OS 级沙箱兜底（见 4.4 sandbox.py） |
 | 沙箱后端分级预留 | `SandboxTier`（FR-2，2026-08-26）`container` 档仅预留枚举、无实现后端；审批降级（`can_relax_approval`）未接入 `PolicyEngine` 裁决，弱后端一律维持原审批要求——分级不产生新安全边界 |
 | 沙箱 env 豁免非安全边界 | `sandbox_env_allowlist`（FR-3，2026-08-26）仅豁免 `scrub_sensitive_env` 剥离，非真正边界——shell 工具仍可读任意环境变量，须 OS 级沙箱兜底 |
-| SandboxSession 非安全边界 | `SandboxSession`（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 非完美边界——须 OS 级沙箱兜底；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（`housekeeping.prune_sandbox_dirs` + `sandbox_dir_retention_days`），仍非安全边界 |
+| SandboxSession 非安全边界 | `SandboxSession`（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 非完美边界——须 OS 级沙箱兜底；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（`cli/housekeeping.prune_sandbox_dirs` + `sandbox_dir_retention_days`），仍非安全边界 |
 | TCP 入口非安全边界 | `heagent tcp-server`（Epic 48，实验性）**无认证、无 TLS**：回环判定（`network/exposure.py`）与启动告警只是提示，不构成认证或隔离；默认绑回环也**不**为客户端建立信任——须 OS 级沙箱兜底并限制出站网络（见 4.16） |
 | TCP 入口不接 MCP | 网络入口**不连接** `.mcp.json` 声明的 server（48-5 决策）：入口无认证，而 MCP server 属不可信代码 / 端点，自动连接会把触达面暴露给任何能连上端口的人；需要 MCP 只能在可控交互式会话里显式启用 |
 | TCP 入口不写 rollout | `EVENTS_ROLLOUT_ENABLED` 只作用于 CLI 单次模式：`JsonlSink` 唯一构造点在 `cli.composition._build_event_sink`，TCP 入口不订阅 sink ⇒ 该开关在 `tcp-server` 下不产生 `.heagent/runs/<run_id>/rollout.jsonl`（48-5 评审 W-2 实测）。**接入前须先定并发语义**（2026-09-23 复核）：`JsonlSink` 的 `seq` 与 `_last_run_id` 是**sink 全局**的，而 TCP 入口共享一个 `EngineContainer`/`EventBus` 并发服务多请求——单共享 sink 会让多 run 的 seq 交错、`assistant_message` 归属错误；每请求一 sink 则互相收到对方的全部事件（`EventBus` 无 `unsubscribe`）。故接入需先给 sink 加 run 维度过滤或给总线加退订 |
@@ -1192,17 +1197,26 @@ src/heagent/
 │   ├── http.py              # http-server 子命令 + HTTP 服务装配（入口层组合根；Epic 49）
 │   ├── http_console.py      # 网页控制台的项目/会话/配置面（Epic 50；2026-09-26 自 cli_http.py 拆出）
 │   ├── dialogs.py           # 服务端原生「选择目录」对话框（Story 50-8）
-│   └── display.py           # 终端渲染辅助（CLI 与 GUI 共用；原 cli_display.py）
+│   ├── display.py           # 终端渲染辅助（CLI 与 GUI 共用；原 cli_display.py）
+│   ├── slash.py             # 交互模式斜杠命令注册与路由（2026-09-26 自顶层迁入）
+│   ├── terminal.py          # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断；2026-09-26 自顶层迁入）
+│   ├── wiring.py            # Provider 组合根 + ensure_runtime_config / build_cron_job_runner（CLI/GUI 共用；2026-09-26 自顶层迁入）
+│   └── housekeeping.py      # 启动期运行时产物回收：日志 / 会话 / 编辑快照 / 崩溃 run 的沙箱会话目录（2026-09-26 自顶层迁入）
 ├── web/                     # 内置网页资源包（HTML/CSS/JS，随 wheel 分发；经 importlib.resources 读取）
-├── wiring.py                # 入口层装配共享缝：provider 组合根 + ensure_runtime_config + build_cron_job_runner（CLI/GUI 共用，Phase 2 C3）
-├── terminal.py              # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断，CLI 交互模式）
-├── config.py                # pydantic-settings 配置
-├── exceptions.py            # 异常层级
-├── types.py                 # 共享 Pydantic 模型
-├── persist.py               # 原子写 + 容错读 + 跨进程文件锁 + prune 批量内核（底层共用）
-├── roles.py                 # RoleSpec + 内置角色注册表（agent/tools/engine 共用）
-├── frontmatter.py           # 共享 frontmatter 解析（零 heagent 依赖；六处手写解析器收敛，2026-09-17）
-├── safe_logging.py           # 日志卫生（safe_log 容错 + 故障守卫 + 启发式脱敏；零 heagent 依赖，2026-09-23）
+├── pub/                     # 公共层：零 heagent 运行栈依赖（任何层可依赖；`__init__.py` 零 import，2026-09-26）
+│   ├── exceptions.py        # 异常层级
+│   ├── types.py             # 共享 Pydantic 模型
+│   ├── persist.py           # 原子写 + 容错读 + 跨进程文件锁 + prune 批量内核
+│   ├── roles.py             # RoleSpec + 内置角色注册表（agent/tools/engine 共用）
+│   ├── frontmatter.py       # 共享 frontmatter 解析（零 heagent 依赖；六处手写解析器收敛，2026-09-17）
+│   ├── safe_logging.py      # 日志卫生（safe_log 容错 + 故障守卫 + 启发式脱敏；零 heagent 依赖，2026-09-23）
+│   ├── workspace.py         # 状态根派生的规范路径（WorkspacePaths）
+│   └── task_shutdown.py     # 后台调度 task 关停内核（cron/dream 共用）
+├── config/                  # 配置面（依赖 pub/，2026-09-26 自顶层平铺收敛）
+│   ├── __init__.py          # pydantic-settings 配置（Settings / get_settings / resolve_runtime_config；原 config.py）
+│   ├── catalog.py           # 配置四层来源求解（原 config_catalog.py）
+│   ├── write.py             # 受闸门的项目 .env 写流水线（原 config_write.py；Story 50-5）
+│   └── envfile.py           # .env 行级保真读写（原 envfile.py；Story 50-5）
 │
 ├── agent/                   # 顶层编排
 │   ├── loop.py              # AgentLoop façade（依赖注入装配 + 公共入口委托，Phase 2）
@@ -1306,7 +1320,6 @@ src/heagent/
 │   ├── document.py          # brief.md 定位/命名规则/增量更新（存量回落 require.md/GOAL.md）
 │   ├── naming.py            # /goal new 项目名 LLM 生成，失败显性回退 project（2026-09-21）
 │   └── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性）
-├── slash.py                 # 交互模式斜杠命令注册与路由
 ├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）
 └── cron/                    # 定时调度
     ├── jobs.py              # CronJob 模型 + JobStore 持久化
@@ -1418,7 +1431,7 @@ python -m heagent
 python -m heagent tcp-server [--host H] [--port P] [--max-inflight N] ...
   │
   ├── _setup_logging() → get_settings() → _prune_runtime_artifacts()
-  ├── load_agent_roles() → wiring._build_provider()        # 服务级共享 provider
+  ├── load_agent_roles() → cli/wiring._build_provider()        # 服务级共享 provider
   ├── TcpAgentHandler(...)                                  # 共享 engine + 4 个记忆存储（不装审批、不接 MCP）
   ├── build_server_config(settings, **overrides)            # CLI 覆盖不写回 Settings 单例
   ├── exposure_warning(config.host) → 非回环则 stderr 一行告警（logger 侧一条 event=exposed）
@@ -1446,7 +1459,7 @@ python -m heagent tcp-server [--host H] [--port P] [--max-inflight N] ...
 python -m heagent http-server [--host H] [--port P] [--max-inflight-runs N] ...
   │
   ├── _setup_logging() → get_settings() → _prune_runtime_artifacts()
-  ├── load_agent_roles() → wiring._build_provider()          # 服务级共享 provider
+  ├── load_agent_roles() → cli/wiring._build_provider()          # 服务级共享 provider
   ├── HttpAgentHandler(...)                                   # 每次运行新建 AgentLoop（不装审批、不连 MCP）
   ├── HttpRunService(config, handler)                         # 单用户会话 + 运行记录/事件缓冲的唯一所有者
   ├── HttpServer(config, version=heagent.__version__, run_service=service)
@@ -1507,18 +1520,18 @@ heagent http-server（同一入口；console 由入口层装配后注入 HttpSer
 限宽阅读列，2026-09-24） / 会话规模与展开控件置于面板最上面（R8） / 设置面板瘦身 / 网页侧读取结果收敛）
 见 4.18 表格末三行与 4.18 的安全声明段——它们**不新增路由**，只改前端渲染与网页桥的收敛判据。
 
-写通道（`config_write.apply_config_write`，**10 步 + 1 项生效语义**；任一步失败即拒绝且文件不变）：
+写通道（`config/write.apply_config_write`，**10 步 + 1 项生效语义**；任一步失败即拒绝且文件不变）：
 
 ```
 PUT /api/projects/{id}/config  {changes:[{key,value}], fingerprint}
   1  闸门       HTTP_CONSOLE_WRITE_ENABLED 关 ⇒ 403 write_disabled（连「项目是否存在」都不回答）
   2  回环来源   传输层 `_loopback_error`（网络层不认识 Settings）⇒ 403 loopback_required，且零副作用
   3  键白名单   classify()：非白名单 / 凭证键 / 被系统环境变量提供 ⇒ 400 field_not_writable
-  4  值校验     VALUE_GUARDS + RESOURCE_CEILINGS（枚举 / 上下界）+ envfile.check_value（能否无损表达）
+  4  值校验     VALUE_GUARDS + RESOURCE_CEILINGS（枚举 / 上下界）+ config/envfile.check_value（能否无损表达）
   5  指纹       与盘上不符 ⇒ 409 config_conflict（绝不覆盖他人的修改）
   6  候选构造   Settings(_env_file=候选) 必须能构造 + ROUTING_POOLS 池解析 ⇒ 否则 400 invalid_value
   7  备份       当前内容 → `.heagent/backups/<name>-<utc微秒>-<指纹前缀>.bak`（条数与保留期有上限）
-  8  保真写     persist.atomic_update_bytes（跨进程锁贯穿读改写；只重写值区，字节级保真）
+  8  保真写     pub/persist.atomic_update_bytes（跨进程锁贯穿读改写；只重写值区，字节级保真）
   9  回读       同一把锁内重读 + 指纹比对；不符 ⇒ 还原原内容并 500 config_write_failed
   10 审计       `.heagent/console/audit.jsonl` 追加一行（键名 / 值的哈希与长度 / 结果，**不含值**；上限 500 行）
   11 生效语义   丢该项目运行时缓存 ⇒ 下一次 run 用新值、**在途 run 继续用旧快照**（响应 applied=next_run）

@@ -1,7 +1,7 @@
 """共享 frontmatter 解析工具——收敛此前散落六处的手写解析器。
 
 历史：``engine/artifacts.py``、``memory/skills.py``、``memory/skill_packages.py``（×2）、
-``slash.py``、``roles.py`` 各自维护一份 ``---`` frontmatter 正则与键值解析，同一文档在
+``cli/slash.py``、``roles.py`` 各自维护一份 ``---`` frontmatter 正则与键值解析，同一文档在
 不同模块可能解析出不同结果（2026-09-17 勘察登记的架构债）。本模块把「分隔符识别 + 键值
 拆分 + 标量 coercion」收敛为单一实现，调用方按各自的宽容度选用：
 

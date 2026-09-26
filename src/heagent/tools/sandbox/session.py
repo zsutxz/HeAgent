@@ -1,7 +1,7 @@
 """沙箱会话目录与 per-run 会话作用域。
 
 「会话目录」是目录**约定**而非安全边界：``sandbox_sessions_root`` 是工作区 →
-约定根的唯一定义（EngineContainer 创建 / housekeeping 回收共用），``sandbox_session_dir``
+约定根的唯一定义（EngineContainer 创建 / cli/housekeeping 回收共用），``sandbox_session_dir``
 做 run_id 校验与幂等创建。:class:`SandboxSession` 提供同一 run 内 cwd 跨命令保持与
 teardown；会话实例经 RuntimeSlot 注入（``bind_sandbox_session``）。
 """
@@ -30,7 +30,7 @@ def sandbox_sessions_root(workspace: Path | None = None) -> Path:
     """工作区下的沙箱会话目录**约定根**：``<workspace 或进程 cwd>/.heagent/sandboxes``。
 
     纯路径计算、无 I/O。调用方必须看同一个根：``EngineContainer.create_run_context`` 在此
-    创建 per-run 目录（经 ``sandbox_session_dir(..., base=...)``），``housekeeping.prune_sandbox_dirs``
+    创建 per-run 目录（经 ``sandbox_session_dir(..., base=...)``），``cli/housekeeping.prune_sandbox_dirs``
     在此回收崩溃 run 的孤儿目录——两处共用本函数，避免「目录约定」漂移成两份字面量。
 
     注意与 ``sandbox_session_dir(base=...)`` 的区别：后者的 ``base`` 是**整个根**的替代

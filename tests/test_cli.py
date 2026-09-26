@@ -9,7 +9,7 @@ from click.testing import CliRunner
 
 from heagent.cli.interactive import _dispatch_slash_interactive
 from heagent.cli.console import main
-from heagent.slash import SlashRegistry
+from heagent.cli.slash import SlashRegistry
 
 
 def _clear_all_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:

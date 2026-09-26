@@ -33,8 +33,8 @@ def gui_main(
     config = resolve_runtime_config()
 
     # ── Provider ────────────────────────────────────────────
+    from heagent.cli.wiring import _build_provider
     from heagent.providers.router import active_model, annotate_route
-    from heagent.wiring import _build_provider
 
     provider = _build_provider(config, model)
 
@@ -65,7 +65,7 @@ def gui_main(
         sandbox_session_keep=sandbox_session_keep,
         runtime_config=config,
     )
-    from heagent.wiring import build_cron_job_runner, ensure_runtime_config
+    from heagent.cli.wiring import build_cron_job_runner, ensure_runtime_config
 
     config = ensure_runtime_config(engine)
 

@@ -39,14 +39,15 @@ _KNOWN_MODULES = frozenset(
 )
 
 # 包 → 运行期不得导入的 heagent 子模块（CLAUDE.md「硬约束（违反即架构错误）」）。
-# 入口层模块（wiring / cli 包 / gui）：组合根与展示适配只属于入口层，下层一律不得反向导入
+# 入口层模块（cli 包 / gui）：组合根与展示适配只属于入口层，下层一律不得反向导入
 # （Phase 1 组合根收敛的契约化；新增入口模块须同步此表）。
 # 2026-09-26：原七个平铺模块 ``cli*.py`` 收进 ``heagent/cli/`` 包 ⇒ 本表按**包根**收敛为一条
 # ``heagent.cli``（``_heagent_root`` 取模块路径第二段，故 ``heagent.cli.display`` 也归它）。
 # 这比原先更严：``cli_display``（展示辅助）与 ``cli_dialogs``（原生目录选择）此前各自单列，
 # 现在同属入口层——两者实测都只被入口层导入（GUI / cli/http.py）。
+# 2026-09-26 同日：顶层 ``wiring.py``（provider 组合根）迁入 ``heagent/cli/wiring.py``——
+# 它此前已单列在本表里，迁入后由 ``heagent.cli`` 包根覆盖，故条目删除（位置追上判据）。
 _ENTRYPOINT_MODULES = (
-    "heagent.wiring",
     "heagent.cli",
     "heagent.gui",
 )
@@ -431,7 +432,7 @@ def test_goal_application_use_case_is_click_free() -> None:
     可在无 Click 环境下运行」），GUI 原生渲染的演进路径也被焊死。``goal/naming.py``
     的 click.echo 是入口侧回退提示，不属 use-case，不在本契约内。
     """
-    forbidden_prefixes = ("heagent.cli", "heagent.gui", "heagent.wiring")
+    forbidden_prefixes = ("heagent.cli", "heagent.gui")
 
     def runtime_imports(path: Path) -> set[str]:
         """完整模块路径粒度的运行期导入集（TYPE_CHECKING 块不算）。"""
@@ -614,7 +615,7 @@ def test_entrypoints_do_not_duplicate_runtime_store_paths() -> None:
         "cli/tcp.py",
         "engine/container.py",
         "gui/__init__.py",
-        "housekeeping.py",
+        "cli/housekeeping.py",
         "tools/edits.py",
         "tools/sandbox/session.py",
     ]
@@ -703,11 +704,15 @@ def test_cli_package_layout_is_pinned() -> None:
         "dialogs",
         "display",
         "goal",
+        "housekeeping",
         "http",
         "http_console",
         "init",
         "interactive",
+        "slash",
         "tcp",
+        "terminal",
+        "wiring",
     ]
 
 

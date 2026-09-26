@@ -117,7 +117,7 @@ omit = [
     "*/cli/interactive.py",
     "*/cli/goal.py",
     "*/cli/display.py",
-    "*/terminal.py",
+    "*/cli/terminal.py",
     "*/__main__.py",
 ]
 

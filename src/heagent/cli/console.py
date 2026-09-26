@@ -16,6 +16,7 @@ import heagent.tools.builtins  # noqa: F401
 from heagent.cli.display import (
     _print_banner,
 )
+from heagent.cli.wiring import _build_provider
 from heagent.config import Settings, get_settings
 from heagent.events.sink import read_rollout, render_event
 from heagent.providers.router import active_model
@@ -24,7 +25,6 @@ from heagent.pub.exceptions import HeAgentError
 from heagent.pub.roles import load_agent_roles
 from heagent.pub.safe_logging import install_logging_fault_guard
 from heagent.tools.mcp import MCPClientManager, load_mcp_config
-from heagent.wiring import _build_provider
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -65,10 +65,10 @@ def _setup_logging() -> None:
 def _prune_runtime_artifacts(settings: Settings) -> None:
     """启动时回收运行时产物（日志 / 会话 / 编辑快照）：best-effort，绝不阻断启动。
 
-    具体实现在 ``heagent.housekeeping``（单独成模块便于直接测试）；这里只做「失败不上抛」。
+    具体实现在 ``heagent.cli.housekeeping``（单独成模块便于直接测试）；这里只做「失败不上抛」。
     """
     try:
-        from heagent.housekeeping import prune_runtime_artifacts_sync
+        from heagent.cli.housekeeping import prune_runtime_artifacts_sync
 
         prune_runtime_artifacts_sync(settings)
     except Exception:
@@ -403,7 +403,7 @@ def replay_cmd(path: Path, as_json: bool) -> None:
         click.echo(event.to_jsonl() if as_json else render_event(event))
 
 
-# Init 子命令在 cli/init.py（wiring.py 先例：模板文案与命令定义随配置项变，与交互编排变化原因不同）。
+# Init 子命令在 cli/init.py（cli/wiring.py 先例：模板文案与命令定义随配置项变，与交互编排变化原因不同）。
 # 尾部导入而非模块顶部：`main` 命令组要先定义，子模块才能挂命令（模块级互导会成环）。
 from heagent.cli.init import init_cmd  # noqa: E402
 

@@ -116,7 +116,7 @@ async def _goal_mutex() -> AsyncIterator[None]:
 # =============================================================================
 
 # 需求文档与命名层（slug 词表 / goal_id 规则 / 目录命名 / brief.md 生成与增量更新）
-# 已拆至 goal/document.py（wiring.py 先例：文档约定与执行编排变化原因不同），见顶部
+# 已拆至 goal/document.py（cli/wiring.py 先例：文档约定与执行编排变化原因不同），见顶部
 # re-export——测试经 heagent.cli.goal 导入这些符号，内部引用点继续按模块全局名解析。
 
 

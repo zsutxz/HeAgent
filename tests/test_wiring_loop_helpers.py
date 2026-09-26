@@ -13,7 +13,7 @@ import pytest
 
 from heagent.config import reset_settings, resolve_runtime_config
 from heagent.engine import EngineContainer
-from heagent.wiring import build_cron_job_runner, ensure_runtime_config
+from heagent.cli.wiring import build_cron_job_runner, ensure_runtime_config
 
 if TYPE_CHECKING:
     from pathlib import Path

@@ -1,6 +1,6 @@
 """``heagent init`` 子命令——全局配置模板与项目上下文模板生成。
 
-**为什么单独成模块**（wiring.py 先例）：此前这段 init 逻辑（约 130 行——两份模板字符串 +
+**为什么单独成模块**（cli/wiring.py 先例）：此前这段 init 逻辑（约 130 行——两份模板字符串 +
 命令定义）与 console.py 的 run/replay/交互编排混在一起——前者随配置项与模板文案变，后者随
 交互体验变。拆出后 console.py 只保留命令注册（``main.add_command(init_cmd)``，与尾部
 ``gui_cmd`` 注册同模式）；测试直接 ``from heagent.cli.init import _init_project_context``。

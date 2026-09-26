@@ -6,7 +6,7 @@ Epic 48 Story 48-3。本模块属**入口层**（``heagent/cli/`` 包内，与 `
 再交给 ``network`` 层的 :class:`~heagent.network.tcp_server.TcpServer`。边界：
 
 - ``network/`` 不反向依赖本模块（``tests/test_architecture_contracts.py`` 有可执行断言）；
-- 本模块不复制 Provider 构造分支——一律经 ``heagent.wiring._build_provider`` 与
+- 本模块不复制 Provider 构造分支——一律经 ``heagent.cli.wiring._build_provider`` 与
   ``heagent.cli.console._build_loop``（**函数内延迟导入**：``cli`` 在模块尾部 import 本模块注册命令，
   模块级互相导入会成环）；
 - 请求体只读取 ``id`` / ``prompt``：system / provider / model / 工具策略 / 沙箱 / 迭代预算
@@ -57,6 +57,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
+from heagent.cli.wiring import _build_provider
 from heagent.config import get_settings
 from heagent.engine import EngineContainer
 from heagent.memory.facts import FactStore
@@ -69,7 +70,6 @@ from heagent.pub.exceptions import HeAgentError
 from heagent.pub.roles import load_agent_roles
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.workspace import WorkspacePaths
-from heagent.wiring import _build_provider
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop

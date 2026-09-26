@@ -89,7 +89,7 @@ def gui_cmd(
 
     # 启动时回收运行时产物（日志 / 会话 / 编辑快照）：与 CLI 同一实现，best-effort。
     try:
-        from heagent.housekeeping import prune_runtime_artifacts_sync
+        from heagent.cli.housekeeping import prune_runtime_artifacts_sync
 
         prune_runtime_artifacts_sync(_settings)
     except Exception:

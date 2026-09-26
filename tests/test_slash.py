@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from heagent.cli.interactive import _handle_slash
-from heagent.slash import SlashRegistry, load_custom_commands
+from heagent.cli.slash import SlashRegistry, load_custom_commands
 
 
 class TestSlashRegistry:

@@ -30,6 +30,7 @@ from typing import Any
 import click
 
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
+from heagent.cli.wiring import _build_provider
 from heagent.config import Settings, get_settings
 from heagent.network.exposure import exposure_warning
 from heagent.network.http_server import (
@@ -41,7 +42,6 @@ from heagent.network.http_server import (
 )
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.workspace import WorkspacePaths
-from heagent.wiring import _build_provider
 
 logger = logging.getLogger(__name__)
 

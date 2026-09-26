@@ -369,7 +369,7 @@ class EngineContainer:
         """run 结束 teardown：清理该 run 的沙箱会话目录（保留/删除）。
 
         FR-4：正常结束路径（AgentLoop._persist_and_cache 调用）。crash 孤儿目录由
-        ``housekeeping.prune_sandbox_dirs``（CLI/GUI 启动时，E40-D1）按保留期回收。
+        ``cli/housekeeping.prune_sandbox_dirs``（CLI/GUI 启动时，E40-D1）按保留期回收。
         会话非安全边界（须 OS 级沙箱兜底）。
         """
         from heagent.tools.sandbox import pop_session

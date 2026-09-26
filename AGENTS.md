@@ -2,7 +2,7 @@
 
 ## 项目结构
 
-- `src/heagent/`：Python 包源码。主要模块包括 `agent/`（编排）、`providers/`（LLM 适配与容错）、`tools/`（工具与 MCP）、`engine/`（策略、执行与审计）、`context/`、`events/`（事件流）、`memory/`、`cron/`、`network/`（TCP/HTTP 传输层）、`goal/` 与 `gui/`；入口层为 `cli/` 包（`console.py` 命令层 / `composition.py` 装配 / `interactive.py` 交互执行 / `init.py` / `goal.py` / `http.py` / `http_console.py` / `tcp.py` / `dialogs.py` / `display.py`）/ `wiring.py`。
+- `src/heagent/`：Python 包源码。最底层是公共层 `pub/`（`exceptions`/`types`/`safe_logging`/`persist`/`frontmatter`/`roles`/`workspace`/`task_shutdown`，零运行栈依赖，任何层可依赖）与配置面 `config/`（`__init__.py` 承载 Settings + `catalog` 来源求解 + `write` 写通道 + `envfile` 保真读写）；其余模块包括 `agent/`（编排）、`providers/`（LLM 适配与容错）、`tools/`（工具与 MCP）、`engine/`（策略、执行与审计）、`context/`、`events/`（事件流）、`memory/`、`cron/`、`network/`（TCP/HTTP 传输层）、`goal/` 与 `gui/`；入口层为 `cli/` 包（`console.py` 命令层 / `composition.py` 装配 / `interactive.py` 交互执行 / `init.py` / `goal.py` / `http.py` / `http_console.py` / `tcp.py` / `dialogs.py` / `display.py` / `wiring.py` 组合根）。
 - `tests/`：pytest 测试，按功能平铺；provider 相关测试位于 `tests/providers/`。
 - `docs/`：架构与开发文档；`docs/frame.md` 是实现架构的权威说明。
 - `_bmad-output/`：规划和 story 产物；运行时状态通常写入 `.heagent/`，不要提交生成文件或密钥。
@@ -26,7 +26,7 @@ python -m heagent              # 交互式 CLI
 
 ## 编码规范
 
-使用 Python 3.11+、4 空格缩进和 120 列行宽；格式化与检查以 `ruff.toml` 为准。模块、函数和文件使用 `snake_case`，类使用 `PascalCase`。库代码保持异步，不使用同步 I/O；跨模块数据使用 `types.py` 中的 Pydantic 模型，避免裸字典。日志使用 `logging.getLogger(__name__)`。工具执行链必须保持 `PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler。
+使用 Python 3.11+、4 空格缩进和 120 列行宽；格式化与检查以 `ruff.toml` 为准。模块、函数和文件使用 `snake_case`，类使用 `PascalCase`。库代码保持异步，不使用同步 I/O；跨模块数据使用 `pub/types.py` 中的 Pydantic 模型，避免裸字典。日志使用 `logging.getLogger(__name__)`。工具执行链必须保持 `PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler。
 
 ## 测试要求
 
@@ -42,4 +42,4 @@ python -m heagent              # 交互式 CLI
 
 ## 架构与文档导航
 
-依赖方向为 `exceptions/types/config/persist/roles/frontmatter/safe_logging → providers/tools/context → engine → agent → 入口层（cli / wiring / gui / goal）`；新增 provider 或工具不得反向导入 `agent`，MCP 工具必须经 `ToolRegistry` 注入；`network/` 是传输叶子，不得导入运行栈与配置（可执行的依赖断言见 `tests/test_architecture_contracts.py`）。跨模块接口优先查看 `src/heagent/types.py` 和 `docs/frame.md`，产品设计见 `docs/design.md`，迭代流程见 `docs/iteration.md`。参考其他 agent 项目时要适配 HeAgent 的 asyncio 与模块化结构，不要直接复制同步单文件实现。
+依赖方向为 `pub/（exceptions/types/safe_logging/persist/frontmatter/roles/workspace/task_shutdown）→ config/（Settings・catalog・write・envfile）→ providers/tools/context → engine → agent → 入口层（cli / gui / goal）`；新增 provider 或工具不得反向导入 `agent`，MCP 工具必须经 `ToolRegistry` 注入；`network/` 是传输叶子，不得导入运行栈与配置（可执行的依赖断言见 `tests/test_architecture_contracts.py`）。跨模块接口优先查看 `src/heagent/pub/types.py` 和 `docs/frame.md`，产品设计见 `docs/design.md`，迭代流程见 `docs/iteration.md`。参考其他 agent 项目时要适配 HeAgent 的 asyncio 与模块化结构，不要直接复制同步单文件实现。
