@@ -571,6 +571,11 @@ pre {
   color: var(--warn);
 }
 
+.diagnostics .diag-info {
+  color: var(--muted);
+  font-style: italic;
+}
+
 .result {
   margin: 0.5rem 0;
   font-size: 0.85rem;

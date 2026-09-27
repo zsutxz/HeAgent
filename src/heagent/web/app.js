@@ -1403,6 +1403,9 @@
     return list;
   }
 
+  // 信息性 note（非告警）：新项目的正常状态，不应计入"需要注意"
+  const INFORMATIONAL_NOTES = new Set(["project_env_missing"]);
+
   function renderDiagnostics(config) {
     clearChildren(el.settingsDiagnostics);
     const envFile = config.env_file || {};
@@ -1418,16 +1421,31 @@
     // R4：诊断块折进「默认收起的 `<details>`」，但**收起时也要能看出有几条告警**——否则
     // 「以为生效其实没生效」（重复键 / 空值键 / BOM / 无效 JSON）就被折叠藏掉了。
     const warnings = [];
+    const infos = [];
     if (envFile.exists && !envFile.readable) warnings.push("项目 .env 不可读");
-    if (envFile.has_bom) warnings.push("文件带 UTF-8 BOM：按容差读取（盘上字节未改）");
+    // BOM 去重：envFile.has_bom 与 config.notes 的 project_env_bom_stripped 是同一事实
+    if (envFile.has_bom) {
+      warnings.push("文件带 UTF-8 BOM：按容差读取（盘上字节未改）");
+    }
     if (Array.isArray(envFile.duplicate_keys) && envFile.duplicate_keys.length) {
       warnings.push(`重复键（后者生效）：${envFile.duplicate_keys.join("、")}`);
     }
     if (Array.isArray(envFile.blank_keys) && envFile.blank_keys.length) {
       warnings.push(`空值键（显式置空，不生效）：${envFile.blank_keys.join("、")}`);
     }
-    for (const note of config.notes || []) warnings.push(labelFor(note, config.labels));
+    // 分级处理 notes：信息性的进 infos，其余进 warnings
+    const seenBom = envFile.has_bom; // 避免 BOM 双计
+    for (const note of config.notes || []) {
+      if (note === "project_env_bom_stripped" && seenBom) continue; // 已在上面处理
+      const label = labelFor(note, config.labels);
+      if (INFORMATIONAL_NOTES.has(note)) {
+        infos.push(label);
+      } else {
+        warnings.push(label);
+      }
+    }
     for (const text of warnings) el.settingsDiagnostics.appendChild(makeEl("p", "diag-warn", text));
+    for (const text of infos) el.settingsDiagnostics.appendChild(makeEl("p", "diag-info", text));
     if (el.settingsDiagnosticsSummary) {
       el.settingsDiagnosticsSummary.textContent = warnings.length
         ? `项目 .env 诊断（${warnings.length} 条需要注意）`

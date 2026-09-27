@@ -490,6 +490,66 @@ class TestValidateSessionIdShape:
                     validate_session_id(candidate)
 
 
+class TestConcurrentWriteObservability:
+    """会话并发写入可观测性测试（台账条目：同一会话文件的两个写者会整份覆盖对方的历史）。"""
+
+    def test_version_jump_warning_when_last_known_version_provided(self, tmp_path: Path, caplog) -> None:
+        """当提供 last_known_version 且磁盘版本跳过多个版本时，发出 WARNING 日志。"""
+        import logging
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+
+        store = _store(tmp_path)
+        # 写者 A：初始保存，version=1
+        store.save("s1", _msgs("a"))
+        # 写者 B：中间保存两次，version=2, 3
+        store.save("s1", _msgs("b1", "b2"))
+        store.save("s1", _msgs("b1", "b2", "b3"))
+        # 写者 A：以为自己的 version=1 之后应该是 2，但磁盘已经是 3 了（跳过了 version=2）
+        store.save("s1", _msgs("a", "a2"), last_known_version=1)
+
+        assert "version jumped from 1 to 3" in caplog.text
+        assert "Another writer may have modified this session concurrently" in caplog.text
+
+    def test_no_warning_when_version_increments_normally(self, tmp_path: Path, caplog) -> None:
+        """正常递增时不发出告警。"""
+        import logging
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+
+        store = _store(tmp_path)
+        store.save("s1", _msgs("a"))
+        # 从 version=1 到 version=2 是正常递增，不算跳跃
+        store.save("s1", _msgs("a", "b"), last_known_version=1)
+
+        assert "version jumped" not in caplog.text
+
+    def test_no_warning_when_last_known_version_not_provided(self, tmp_path: Path, caplog) -> None:
+        """不提供 last_known_version 时不检测（保持既有 last-write-wins 行为）。"""
+        import logging
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+
+        store = _store(tmp_path)
+        store.save("s1", _msgs("a"))
+        store.save("s1", _msgs("b1", "b2"))
+        store.save("s1", _msgs("c"))
+
+        assert "version jumped" not in caplog.text
+
+    def test_warning_includes_session_id_and_versions(self, tmp_path: Path, caplog) -> None:
+        """告警消息包含会话 ID 和具体版本号，便于诊断。"""
+        import logging
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+
+        store = _store(tmp_path)
+        store.save("my-session", _msgs("a"))
+        store.save("my-session", _msgs("b"))
+        store.save("my-session", _msgs("c"))
+        # 从 version=1 直接到 version=3，跳过了 version=2
+        store.save("my-session", _msgs("d"), last_known_version=1)
+
+        assert "'my-session'" in caplog.text
+        assert "from 1 to 3" in caplog.text
+
+
 class TestOversizedSessionListing:
     """超过 `MAX_SESSION_METADATA_BYTES` 的会话必须**有界**读取（台账「控制台阻塞 I/O」条目）。
 

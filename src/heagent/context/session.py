@@ -391,12 +391,18 @@ class SessionStore:
         validate_session_id(session_id)
         return self._base / f"{session_id}.json"
 
-    def save(self, session_id: str, messages: list[Message], *, expected_version: int | None = None) -> str:
+    def save(
+        self, session_id: str, messages: list[Message], *, expected_version: int | None = None, last_known_version: int | None = None
+    ) -> str:
         """保存对话历史到 JSON 文件（原子写 + version 递增）。
 
         返回保存的文件路径。``expected_version`` 是**增量**语义：``None``（缺省）= 既有的
         last-write-wins（CLI 与运行落盘用这条）；给了数字则要求磁盘 ``version`` 相等，否则抛
         :class:`SessionConflictError` 且**不写文件**（网页的显式冲突检测）。
+
+        ``last_known_version`` 用于**可观测性**：如果提供且磁盘版本跳过了多个版本（说明有其他写者
+        介入），会发出 WARNING 日志。这不会阻止写入（last-write-wins 语义保持不变），但让并发写入
+        变得可观测。这是针对台账条目「同一会话文件的两个写者会整份覆盖对方的历史」的防御性改进。
 
         磁盘上已有的 ``title`` 会被原样保留（由 :meth:`rename` 拥有）——否则「重命名后再对话，
         标题被抹掉」。
@@ -410,6 +416,17 @@ class SessionStore:
             if expected_version is not None and version != expected_version:
                 raise SessionConflictError(
                     f"session {session_id!r} changed on disk (expected version {expected_version}, found {version})"
+                )
+            # 可观测性：检测版本跳跃（说明有其他写者介入）
+            # 跳跃的定义：磁盘版本 > last_known_version + 1（说明中间有其他写入）
+            if last_known_version is not None and version > last_known_version + 1:
+                logger.warning(
+                    "Session %r: version jumped from %d to %d (expected %d). "
+                    "Another writer may have modified this session concurrently, and their changes will be overwritten.",
+                    session_id,
+                    last_known_version,
+                    version,
+                    last_known_version + 1,
                 )
             payload = _session_payload(session_id, version + 1, written_at, messages, title)
             return json.dumps(payload, ensure_ascii=False, indent=2), None
