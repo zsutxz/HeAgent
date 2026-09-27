@@ -791,6 +791,23 @@ class TestConsoleRefinement:
         assert "服务端仅返回最近" in result["countText"], "被硬上限截断时必须说明"
         assert result["moreHidden"] is True, "「显示全部」在截断时是假承诺"
 
+    def test_high_impact_keys_are_marked_and_named_in_the_confirm(self, tmp_path: Path) -> None:
+        """A13：高影响徽标与确认文案都取自**服务端**（桩里是钩子值 ⇒ 前端硬编码过不了）。
+
+        冻结边界：前端不得硬编码键名清单 —— 徽标只按 ``item.impact`` 渲染、文案只按 ``labels`` 取；
+        非资源旋钮的键不得挂徽标；未确认前不得发出任何写请求。
+        """
+        result = _run_probe("X", tmp_path)
+
+        assert result["highBadgeText"] == "高影响（桩）"
+        assert result["highBadgeTitle"] == "资源旋钮（桩）"
+        assert result["highBadgeDataset"] == "high"
+        assert result["normalHasBadge"] is False, "桩里报 normal 的键不得挂高影响徽标（哪怕它真是资源旋钮）"
+        assert "其中高影响键：CONTEXT_STRATEGY" in result["confirmText"]
+        assert "资源旋钮（桩）" in result["confirmText"]
+        assert result["writesBeforeConfirm"] == 0
+        assert result["writesAfterCancel"] == 0
+
     def test_config_value_sits_on_the_key_line(self, tmp_path: Path) -> None:
         """R10：值**跟在键名后面、同一行**（`config-head` 内的 `<span class="config-value">`），不再独占一行。"""
         result = _run_probe("S", tmp_path)

@@ -140,6 +140,7 @@ class ConfigItem(BaseModel):
     configured: bool = False
     masked: str | None = None
     guards: ConfigGuard | None = None
+    impact: str = "normal"  # 高影响标记（A13）：由 ``impact_for`` 从 ``RESOURCE_CEILINGS`` 派生
     notes: tuple[str, ...] = ()
     routing: RoutingPoolsReport | None = None
 
@@ -403,6 +404,9 @@ UNKNOWN_GROUP = ConfigGroupSpec(id="unclassified", label="未分类", reason="un
 
 #: 只读原因 / 诊断码的中文文案（响应随 ``labels`` 一并回给客户端，UI 无需硬编码）。
 LABELS: dict[str, str] = {
+    # 高影响键（A13）：徽标短文案 + 说明长文案
+    "impact_high": "高影响",
+    "impact_high_note": "有上界的资源旋钮：极端值会让下一次运行不可完成",
     # 只读原因
     "system_env": "被系统环境变量提供：改 .env 不会影响本次进程",
     "credential": "凭证项：永不回传、永不写入",
@@ -648,6 +652,23 @@ def _merge_guard(explicit: ConfigGuard, derived: ConfigGuard | None) -> ConfigGu
         min_length=explicit.min_length if explicit.min_length is not None else derived.min_length,
         allow_empty=explicit.allow_empty,
     )
+
+
+#: 高影响键的**事实源**：与 ``RESOURCE_CEILINGS`` 同源 —— 有上界的键就是「极端值能让一次运行不可
+#: 完成」的资源旋钮（台账 A13：UX-DR3 要求「写入被标记为高影响的键必须显式确认」的后端风险标记）。
+#: 刻意**不新造分类表**：``RESOURCE_CEILINGS`` 已被测试钉死，且它的语义正是这个分级要表达的东西。
+IMPACT_HIGH = "high"
+IMPACT_NORMAL = "normal"
+
+
+def impact_for(env_key: str) -> str:
+    """该键的风险标记：``high`` = 资源旋钮（有上界），否则 ``normal``。
+
+    **只作用于面板提示**（defense-in-depth）：写通道的值守卫与 fail-closed 校验不因它改变。
+    分级完全由服务端声明 —— 前端不得硬编码任何键名（冻结边界：硬编码清单是第二份事实源，
+    必然与 :func:`whitelist` / :data:`RESOURCE_CEILINGS` 漂移）。
+    """
+    return IMPACT_HIGH if env_key in RESOURCE_CEILINGS else IMPACT_NORMAL
 
 
 def guards_for(env_key: str) -> ConfigGuard | None:
@@ -1028,6 +1049,7 @@ def _build_item(
         configured=configured,
         masked=MASK if secret and configured else None,
         guards=guards_for(env_key),
+        impact=impact_for(env_key),
         notes=tuple(notes),
         routing=routing_view,
     )
@@ -1197,6 +1219,7 @@ __all__ = [
     "build_config_report",
     "classify",
     "guards_for",
+    "impact_for",
     "is_secret_key",
     "routing_report",
     "scan_env_file",

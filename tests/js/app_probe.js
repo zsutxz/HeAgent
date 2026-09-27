@@ -276,6 +276,10 @@ const LABELS = {
   // **与前端兜底不同的钩子值**：兜底恰好也是「只读」（逐字相同 ⇒ 断言会空转，改硬编码也照样绿），
   // 只有钩子值才能证明「页面渲染的是服务端给的文案」。真值的长度约束由服务端用例钉住。
   write_channel_badge: "只读（桩）",
+  // A13：高影响文案同样用**钩子值**（与前端任何兜底都不同）—— 只有服务端真给了这段文案，
+  // 页面才会渲染出它；前端硬编码键名/文案都过不了用例。
+  impact_high: "高影响（桩）",
+  impact_high_note: "资源旋钮（桩）",
 };
 
 function guardRange(minimum, maximum) {
@@ -305,6 +309,9 @@ const configItems = {
     configured: true,
     masked: null,
     guards: guardRange(1, 100),
+    // 倒钩：真实世界里 MAX_ITERATIONS **是**资源旋钮，但桩里刻意报 `normal` —— 页面必须听服务端的，
+    // 任何前端硬编码的键名清单（或按名字猜分级）都会在这里翻车。
+    impact: "normal",
     notes: ["duplicate_in_project_env"],
     routing: null,
   },
@@ -318,6 +325,8 @@ const configItems = {
     is_secret: false,
     configured: false,
     masked: null,
+    // 倒钩的另一半：这个键**不是**资源旋钮，桩里报 `high` —— 页面必须给它挂高影响徽标。
+    impact: "high",
     guards: {
       kind: "enum",
       values: ["compressor", "reset"],
@@ -1109,6 +1118,35 @@ const CASES = {
       moreText: els["session-more"].textContent,
     };
     world.sessionTotalOverride = null;
+    return result;
+  },
+
+  async X() {
+    // A13：高影响键由**服务端**声明（`item.impact`）—— 徽标与确认文案都取服务端 labels，
+    // 前端既不硬编码键名、也不硬编码文案。
+    configWriteEnabled = true;
+    await load();
+    await openSettings();
+    // 注意方向：桩里 `CONTEXT_STRATEGY` 才是 high（见上面的倒钩注释），`MAX_ITERATIONS` 是 normal。
+    const normalRow = findConfigRow("MAX_ITERATIONS");
+    const highRow = findConfigRow("CONTEXT_STRATEGY");
+    const highBadge = highRow ? findByClass(highRow, "badge-impact") : null;
+    const normalBadge = normalRow ? findByClass(normalRow, "badge-impact") : null;
+    setInput(findByDataset(highRow, "key", "CONTEXT_STRATEGY"), "reset");
+    resetCalls();
+    els["settings-save"].click();
+    await settle();
+    const result = {
+      highBadgeText: highBadge ? highBadge.textContent : null,
+      highBadgeTitle: highBadge ? highBadge.title : null,
+      highBadgeDataset: highBadge ? highBadge.dataset.impact : null,
+      normalHasBadge: Boolean(normalBadge),
+      confirmText: els["confirm-text"].textContent,
+      writesBeforeConfirm: callsMatching("PUT /api/projects/default/config").length,
+    };
+    await clickCancel();
+    await settle();
+    result.writesAfterCancel = callsMatching("PUT /api/projects/default/config").length;
     return result;
   },
 

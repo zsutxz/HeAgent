@@ -332,6 +332,22 @@ class TestBomTolerance:
 
 
 class TestClassification:
+    def test_high_impact_is_derived_from_the_resource_ceiling_table(self, tmp_path: Path) -> None:
+        """A13：高影响键的**唯一事实源**是 ``RESOURCE_CEILINGS``（不新造分类表、不硬编码键名）。
+
+        分级只作用于面板提示，不改变写通道的 fail-closed 校验 —— 因此判据也只看展示面：
+        上界表里的键逐个为 ``high``，其余全为 ``normal``（遍历常量表本体，新增上界自动纳入）。
+        """
+        report = _report(_write(tmp_path / ".env", []))
+        by_key = {item.key: item for item in report.items}
+        for key in sorted(set(RESOURCE_CEILINGS) & ENV_KEYS):
+            assert by_key[key].impact == "high", key
+        for key in sorted(ENV_KEYS - set(RESOURCE_CEILINGS)):
+            assert by_key[key].impact == "normal", key
+        # 文案由后端给（前端只按 impact 取 labels，不硬编码任何中文）
+        assert "资源旋钮" in report.labels["impact_high_note"]
+        assert report.labels["impact_high"]
+
     def test_whitelist_keys_all_exist(self) -> None:
         assert whitelist() <= ENV_KEYS
         assert len(whitelist()) == 48  # D3 裁定后的口径（38 + 8）+ 2026-09-27 记忆归档 2 键

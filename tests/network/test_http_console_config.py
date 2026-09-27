@@ -280,6 +280,28 @@ async def test_panel_reports_the_write_gate_so_the_ui_can_disable_editing(tmp_pa
     assert closed_body["labels"]["write_channel_disabled"].strip()
 
 
+async def test_panel_marks_high_impact_keys_from_the_same_constant(tmp_path: Path) -> None:
+    """A13：``impact`` 必须随协议到达面板，且与上界表**同一事实源**（服务端声明，前端零硬编码）。
+
+    与 ``test_panel_shows_the_resource_knob_ceilings`` 同款：遍历常量表本体而不是抄几个键。
+    """
+    from heagent.cli.http_console import HttpProjectConsole
+    from heagent.config.catalog import RESOURCE_CEILINGS
+
+    (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\nLOG_LEVEL=INFO\n")
+    console = HttpProjectConsole(tmp_path, global_env_file=None)
+    async with _client(_app(console)) as client:
+        body = (await client.get("/api/projects/default/config")).json()
+
+    items = {entry["key"]: entry for group in body["groups"] for entry in group["items"]}
+    for key, _ceiling in RESOURCE_CEILINGS.items():
+        assert items[key]["impact"] == "high", key
+    assert items["LOG_LEVEL"]["impact"] == "normal"
+    assert items["MAX_ITERATIONS"]["impact"] == "high"
+    # 文案在 labels 里（UI 不硬编码）
+    assert "impact_high_note" in body["labels"]
+
+
 async def test_panel_shows_the_resource_knob_ceilings(tmp_path: Path) -> None:
     """缺口闭合（只读侧）：面板展示的守卫必须与写入通道**同一常量** —— 逐条覆盖整张上界表。
 

@@ -295,6 +295,8 @@ class ConfigItemResponse(BaseModel):
     - ``writable`` / ``read_only_reason``：``False`` 时原因必非空（UX-DR5：只读必须给原因）。
     - ``is_secret`` / ``masked``：凭证只回 ``configured`` + **定长**掩码（常量、零信息量）。
     - ``read_only_reason`` 与 ``notes`` 都是**稳定码**；中文文案见响应里的 ``labels``。
+    - ``impact``：``high`` 表示该键是**资源旋钮**（有上界，极端值可让一次运行不可完成）——
+      面板据此给出差异化确认；分级由服务端声明，UI 不硬编码键名（UX-DR3 / 台账 A13）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -309,6 +311,7 @@ class ConfigItemResponse(BaseModel):
     configured: bool = False
     masked: str | None = None
     guards: ConfigGuardResponse | None = None
+    impact: str = "normal"  # ``high`` = 资源旋钮（由服务端 ``config_catalog.impact_for`` 声明，A13）
     notes: tuple[str, ...] = ()
     routing: RoutingPoolsResponse | None = None
 

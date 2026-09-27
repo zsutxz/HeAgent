@@ -1271,6 +1271,13 @@
     badge.dataset.source = asText(item.source);
     head.appendChild(badge);
     if (item.is_secret) head.appendChild(makeEl("span", "badge", "凭证"));
+    // 高影响键：由服务端 `impact` 声明（不硬编码键名），徽标文案同样取自服务端 labels。
+    if (asText(item.impact) === "high") {
+      const impact = makeEl("span", "badge badge-impact", labelFor("impact_high"));
+      impact.dataset.impact = "high";
+      impact.title = labelFor("impact_high_note");
+      head.appendChild(impact);
+    }
     row.appendChild(head);
 
     if (item.routing) row.appendChild(renderRouting(item.routing));
@@ -1324,6 +1331,18 @@
       return `${rendered.slice(0, MAX_VALUE_CHARS)}…（已截断显示，共 ${rendered.length} 字符）`;
     }
     return rendered;
+  }
+
+  // 某个键的风险标记（服务端在配置项上声明）。找不到该键时按 `normal` 处理（不渲染、不阻断）。
+  function impactOf(key) {
+    const loaded = state.config;
+    if (!loaded) return "normal";
+    for (const group of loaded.groups || []) {
+      for (const item of group.items || []) {
+        if (asText(item.key) === key) return asText(item.impact) || "normal";
+      }
+    }
+    return "normal";
   }
 
   function guardHint(guards) {
@@ -1525,10 +1544,14 @@
     const changes = collectChanges();
     if (!changes.length) return;
     const keys = changes.map((change) => change.key);
+    const highImpact = keys.filter((key) => impactOf(key) === "high");
     const answer = await askConfirm({
       title: `写入项目 .env：${projectName(projectId)}`,
       text:
         `将修改这些键：${keys.join("、")}\n` +
+        (highImpact.length
+          ? `其中高影响键：${highImpact.join("、")}（${labelFor("impact_high_note")}）\n`
+          : "") +
         `写入路径：${asText((config.env_file || {}).path) || ".env"}\n` +
         "生效范围：只对下一次运行生效——正在进行的运行继续使用旧配置快照。写前自动备份，写后回读校验。",
       okText: "写入",
