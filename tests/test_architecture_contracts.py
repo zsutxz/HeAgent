@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "heagent"
+TARGET_ROOT = Path(__file__).resolve().parents[1]  # 仓库根（TCP 残留判据用）
 
 # 已知的 heagent 模块路径（``src/heagent`` 下的 .py 文件与包目录，点分形式、去 ``heagent.`` 前缀）：
 # 用于识别 ``from heagent import <名>`` / ``from heagent.pub import <名>`` 这类**别名形态**。
@@ -237,7 +238,7 @@ def test_getcwd_configuration_is_limited_to_entrypoints() -> None:
     """cwd 兜底只许出现在入口层 ``heagent/cli/`` 包内（其余一律经 ``WorkspacePaths.from_root``）。
 
     判据按**包**而不是文件白名单：2026-09-26 起入口层是 ``cli/`` 包（console/composition/
-    interactive/http/tcp/…），逐个文件名列举会在每次拆分时静默失效（漏掉的文件就变成豁免）。
+    interactive/http/…），逐个文件名列举会在每次拆分时静默失效（漏掉的文件就变成豁免）。
     """
     offenders: list[str] = []
     for path in SRC.rglob("*.py"):
@@ -567,7 +568,7 @@ def _top_level_runtime_imports(tree: ast.Module) -> set[str]:
 def test_optional_asgi_stack_is_only_imported_lazily() -> None:
     """starlette / uvicorn 只能**延迟导入**（``importlib.import_module``，在真要服务时才加载）。
 
-    机械保证「基础安装（不含 ``heagent[http]``）下，普通 CLI 用法、gui、tcp-server、init、
+    机械保证「基础安装（不含 ``heagent[http]``）下，普通 CLI 用法、gui、init、
     replay 与库用法都不会因为导入而拉起 ASGI 栈，也不会因为缺依赖而失败」：源码里不存在
     顶层的 starlette/uvicorn 导入——传输层刻意用 ``importlib`` 在函数体内加载它们。
     """
@@ -792,3 +793,43 @@ def test_config_package_only_depends_on_the_public_layer() -> None:
     }
     runtime, _typing = _imports(SRC / "config" / "__init__.py")
     assert runtime & forbidden == set(), f"config/__init__.py: {sorted(runtime & forbidden)}"
+
+
+#: Epic 48 的 TCP 入口（2026-09-27 `4217b5d` 整体删除）留下的**活文件残留**判据。
+#: 只禁「专有名词」令牌，不禁裸词 ``TCP``——``http_server`` 的「真实 TCP 连接」与
+#: ``tools/safety.py`` 的 ``/dev/tcp/`` 反连模式都是正当用法。
+_TCP_RESIDUE_TOKENS_CI = (
+    "tcp_server",  # network/tcp_server.py
+    "tcp-server",  # heagent tcp-server 子命令
+    "cli/tcp",  # heagent/cli/tcp.py
+    "cli.tcp",  # 同上（点分写法）
+    "tcpserver",  # TcpServer 类
+    "tcpagenthandler",  # TcpAgentHandler 类
+)
+#: 大小写**敏感**：8 个 `TCP_*` 设置随入口一并删除，不得再出现在代码或配置样例里。
+_TCP_RESIDUE_TOKENS_EXACT = ("TCP_",)
+
+
+def test_live_files_hold_no_reference_to_the_removed_tcp_entry() -> None:
+    """TCP 入口删除后，活文件里不得再出现它的模块名 / 子命令 / 设置键。
+
+    为什么需要这条：`4217b5d` 只清了 `docs/frame.md`，而 `README.md`（整节使用说明）、
+    `CLAUDE.md`（常用命令表）、`.env.example`（8 个已不存在的 `TCP_*` 键）与十来处 docstring
+    仍在大面积宣告一个不存在的入口——2026-09-27 实测全仓扫出 493 处命中，其中非历史面 40 余处。
+    **没有判据的清理会在下一次改文档时静默漂回去**。
+    """
+    root = TARGET_ROOT
+    targets = sorted((root / "src" / "heagent").rglob("*.py"))
+    targets += [root / name for name in ("README.md", "AGENTS.md", "CLAUDE.md", ".env.example")]
+    # 显式列举而非 `docs/*.md`：`docs/news.md` 是**生成物**（且被 gitignore），新闻正文里出现
+    # `tcp` 完全正常，把它扫进来只会产生假红。`docs/iteration.md` 是历史日志，按「历史不动」豁免。
+    targets += [root / "docs" / name for name in ("README.md", "frame.md", "design.md", "goal-workflow.md")]
+    offenders: dict[str, list[str]] = {}
+    for path in targets:
+        rel = path.relative_to(root).as_posix()
+        text = path.read_text(encoding="utf-8")
+        hit = [token for token in _TCP_RESIDUE_TOKENS_CI if token in text.lower()]
+        hit += [token for token in _TCP_RESIDUE_TOKENS_EXACT if token in text]
+        if hit:
+            offenders[rel] = hit
+    assert offenders == {}, f"活文件里仍有已删除 TCP 入口的引用：{offenders}"
