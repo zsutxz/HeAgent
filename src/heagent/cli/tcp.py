@@ -430,11 +430,6 @@ def tcp_server_cmd(
             raise click.Abort from exc
 
     server = TcpServer(config, handler)
-        idle_timeout=idle_timeout,
-        request_timeout=request_timeout,
-        shutdown_timeout=shutdown_timeout,
-    )
-    server = TcpServer(config, handler)
     # 非回环绑定：启动前先向 stderr 打印一次明确告警（无认证 / 无 TLS / 非生产安全边界）。
     # 判定与文案来自 ``network.exposure``——与 ``TcpServer.start()`` 的 ``event=exposed``
     # 同源，两处各写一套「算不算本地」的逻辑迟早漏报暴露。
