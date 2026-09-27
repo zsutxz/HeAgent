@@ -612,7 +612,6 @@ def test_entrypoints_do_not_duplicate_runtime_store_paths() -> None:
         "cli/goal.py",
         "cli/http.py",
         "cli/http_console.py",
-        "cli/tcp.py",
         "engine/container.py",
         "gui/__init__.py",
         "cli/housekeeping.py",
@@ -709,8 +708,8 @@ def test_cli_package_layout_is_pinned() -> None:
         "http_console",
         "init",
         "interactive",
+        "port_finder",
         "slash",
-        "tcp",
         "terminal",
         "wiring",
     ]

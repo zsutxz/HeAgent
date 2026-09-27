@@ -37,6 +37,6 @@ _bmad-output/
 - 未闭合 deferred 只写入 `implementation-artifacts/deferred-work-archive.md`；闭合后，有明确归属的条目正文移入对应周期的 `deferred-work.md`，本文件保留 ID 索引。
 - 不要把运行时状态、日志、密钥或 `.env` 写入并提交本目录。
 
-## 当前状态（2026-09-26）
+## 当前状态（2026-09-27）
 
-Epic 1–49 与 S1–S4 已完成；Epic 50 仍为 `in-progress`，8 个 Story 均为 `review`。完整状态以 [`sprint-status.yaml`](sprint-status.yaml) 为准。活动台账当前 23 条；其中需要产品或架构决策的条目标记为 `blocked`，不得在回顾文档中复制正文。
+Epic 1–49 与 S1–S4 已完成；**Epic 48（TCP 网络接口）已于 2026-09-27 删除**（commit `4217b5d`，删除原因：使用率极低、维护成本高、HTTP 入口已充分覆盖需求）；Epic 50 仍为 `in-progress`，8 个 Story 均为 `review`。完整状态以 [`sprint-status.yaml`](sprint-status.yaml) 为准。活动台账当前 20 条（1 条标记为 OBSOLETE）；其中需要产品或架构决策的条目标记为 `blocked`，不得在回顾文档中复制正文。

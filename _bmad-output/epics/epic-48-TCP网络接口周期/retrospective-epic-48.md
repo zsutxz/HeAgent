@@ -1,5 +1,9 @@
 # TCP 网络接口周期 · Retrospective（Epic 48）
 
+> **⚠️ REMOVED (2026-09-27)**: Epic 48 TCP 网络接口已于 commit `4217b5d` 完全删除（~2,800 行代码）。
+> 删除原因：使用率极低、维护成本高、HTTP 入口（Epic 49）已充分覆盖需求。
+> 本回顾文档保留作为历史记录和设计参考。
+
 > 日期：2026-09-23（**补做**：`_bmad-output/sprint-status.yaml` 中 Epic 48 交付时未登记 `epic-48-retrospective` 行，与 epic-40..47 先例不一致）
 > 范围：`_bmad-output/epics/epic-48-TCP网络接口周期/`（Epic 48，6 个 story：`48-1-tcp-protocol-message-boundary`、`48-2-async-tcp-server-lifecycle`、`48-3-agentloop-adapter-cli-wiring`、`48-4-concurrency-timeouts-resource-limits`、`48-5-network-entry-security-observability`、`48-6-tcp-regression-tests-docs`）
 > 动机：为 HeAgent 增加**可选**的 TCP 服务入口——CLI 作为 TCP Server 经 UTF-8 JSON Lines 接收外部客户端请求，交给现有 `AgentLoop` 处理并回传结构化结果（`epics.md` Epic Goal）。明确非生产级 Web/API 服务。
@@ -57,3 +61,73 @@
 Epic 48 在一天内从规划走到收口，并把「非生产边界」这条项目立场同时落进代码（默认绑回环 + 启动告警 + 入口不连 MCP + 明确不引入 `TCP_ENABLED`）与文档（README 实验性章节 + `frame.md` 五），这是本周期最扎实的部分；**三个危险默认值都被实测证伪过一次**，是比实现本身更值钱的产出。
 
 短板不在实现而在收口纪律：缺口只写进 `frame.md` 未进活动台账、规划文档状态字段滞后、跨 Story 契约变更缺少反向指针、主题外改动夹在 Epic 窗口内。**下一轮同类周期的 Definition of Done 应加两条**：① 交付时把触发条件明确的缺口登记进活动台账（不能只写 frame）；② 规划文档的状态字段随 sprint-status 一并回写。
+
+---
+
+## 七、删除后记（2026-09-27）
+
+### 删除决策
+
+**时间**：2026-09-27  
+**提交**：`4217b5dcdee0fafe14238d15ad90ad09281db1ee`  
+**来源**：架构简化计划评估结果
+
+### 删除范围（~2,800 行）
+
+**代码文件**：
+- `src/heagent/cli/tcp.py` (459 行)
+- `src/heagent/network/tcp_server.py` (423 行)
+- `src/heagent/network/protocol.py` (186 行)
+
+**测试文件**：
+- `tests/network/test_tcp_server.py` (922 行)
+- `tests/test_cli_tcp.py` (335 行)
+- `tests/test_tcp_agent_integration.py` (417 行)
+
+**配置**：Settings 中 10 个 TCP 配置字段
+
+### 删除理由
+
+1. **使用率极低**：TCP 入口在实际使用中几乎未被采用
+2. **维护成本高**：独立的协议层、并发治理、测试和文档
+3. **功能重叠**：HTTP 网页入口（Epic 49）已充分覆盖网络访问需求
+4. **架构简化**：减少 ~2,800 行代码，降低维护负担
+
+### 影响与替代
+
+**不可用**：
+- `heagent tcp-server` 命令
+- TCP JSON Lines 协议
+- 基于 TCP 的客户端集成
+
+**不受影响**：
+- ✅ 核心 CLI 功能
+- ✅ HTTP 网页入口（Epic 49）- **推荐替代方案**
+- ✅ GUI 终端界面（Epic 25-28）
+- ✅ 所有工具、Provider、Agent 核心功能
+
+**推荐替代**：使用 HTTP 网页入口
+```bash
+heagent http-server  # 或直接 heagent（自动启动）
+```
+
+### 遗留项处理
+
+| 条目 | 原状态 | 删除后状态 |
+|------|--------|-----------|
+| A7 "TCP 入口不写 rollout" | 未闭合 | **OBSOLETE**（随删除失效） |
+| Z-D10 "运行栈日志观测故障免疫" | 已闭合 | 改进保留（惠及其他入口） |
+| Z-D11 "日志行凭证脱敏" | 已闭合 | 改进保留（惠及其他入口） |
+
+### 历史文档保留
+
+本周期的所有规划、实现、回顾文档**完整保留**：
+- `epic-48-TCP网络接口与CLI-Agent服务/` - 完整规划与实现文档
+- `retrospective-epic-48.md` - 本文件
+- `deferred-work.md` - 遗留项台账
+
+这些文档对理解设计决策和实现模式仍有参考价值，特别是：
+- 协议设计经验
+- 并发治理模式
+- 网络入口安全边界的思考
+- 三个危险默认值的实测证伪过程

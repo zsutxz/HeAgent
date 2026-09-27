@@ -73,7 +73,7 @@
 | Epic 42 | skill-package-runtime | 可安装、可验证的声明式技能包运行时（FR1-FR8：包发现 / 别名解析 / 资源围栏读取，2026-09-01 交付） |
 | Epic 43–46 | goal-workflow-continuation | 目标级编排/恢复、Token 分段、运维收口与技能资源 TOCTOU 评估（2026-09-01；Epic 43–46 评估/实现已完成） |
 | Epic 47 | declarative-bmad-agile-workflow | Goal→Epic→Story 产物契约、BMad 角色包、Markdown workflow/step、Runner、声明式 `/goal`、Review/Retrospective/Correct Course 与两 Story 冒烟（2026-09-01） |
-| Epic 48 | tcp-network-interface | TCP 网络接口与 CLI Agent 服务：CLI TCP Server、JSON Lines、AgentLoop 适配、资源限制与安全边界（2026-09-22；6 Story done） |
+| Epic 48 | tcp-network-interface | **⚠️ REMOVED (2026-09-27)**：TCP 网络接口已删除（commit `4217b5d`，~2,800 行代码）。删除原因：使用率极低、维护成本高、HTTP 入口已充分覆盖需求。历史文档保留于 `epics/epic-48-TCP网络接口周期/` |
 | Epic 49 | http-web-entry | HTTP 网页入口：`network/http_*` + `cli_http.py` + 包内 `web/`（自启动监听 / 就绪门禁 / SSE 流式运行与取消重连 / Host-Origin 同源防线 / 安全响应头 / 静态资源白名单）。本机单用户，无认证无 TLS（2026-09-23 交付；6 Story done） |
 | Epic 50 | web-console | 网页控制台（Epic 49 显式推迟的切片）：工作区一等化 + 项目注册表 + 会话持久化 + 四层配置来源与只读面板 + 闸门约束下的项目 `.env` 写入（保真写 / 备份 / 冲突 / 审计）+ 两栏 UI 与真实浏览器验收 + 安全收口与文档同步（2026-09-23 建立，2026-09-24 实现；**8 Story 均 `review`**，两轮收口评审已出并**放行**（评审/验收文档 2026-09-26 合并为单文件 `reviews.md`），retrospective 待做）。**2026-09-24 追加 Story 50-8**（收口后体验优化轮：会话列表精简 / 原生目录选择 / 布局调整 / 设置面板瘦身 / 读取结果只显示文件名，已实现并进入 `review`），该 story 同时是**本 Epic 后续新需求的统一落点** |
 
@@ -115,7 +115,7 @@
 | 2026-09-15 | **规划产物整理**：`patches/` 解散并按归属 epic 归档（22 个 spec）、跨周期 deferred 台账按 epic 归并（E1/E4/E5/E10/E11/S-D/E40/E47 全部闭合）、story 产物按 Epic 分组；全量 1896 passed / 9 skipped |
 | 2026-09-17~20 | **架构与代码优化批次**：persist/roles/frontmatter 自 engine 迁出（Z-D1/D2）、cli_init.py / goal/document.py 拆分、沙箱硬化配置接入（SANDBOX_PROFILES 等）、凭证 deny 项目级入口（F-D1）、goal 跨进程锁（E41-D5）、O_NOFOLLOW 加固（Epic 46.2）、问卷删除 + /simplify 收敛 |
 | 2026-09-21~22 | **架构优化周期（Phase 0–5）交付**：组合根收敛 / loop façade / workflow 解耦（goal/application）/ sandbox·MCP·skills 三域拆分 + 子进程内核统一 + safe-open 单点 / **事件契约 v2**（duration_ms·error_kind + workflow_step_*）+ 4 新 benchmark + 文档收口（extending/troubleshooting/goal-workflow/frame 4.15）；周期档案 `implementation-artifacts/arch-optimization-cycle/`；全量 2061 passed / 90.88% |
-| 2026-09-22~24 | **网络入口三周期（Epic 48-50）**：Epic 48 TCP 网络接口（6 story，09-22 建立并交付，09-23 补做 retrospective）；Epic 49 HTTP 网页入口（6 story，09-23 交付）；Epic 50 网页控制台（8 story，09-23 建立 / 09-24 实现，状态 `review`，两轮收口评审已出并放行、retrospective 待做；09-24 追加 **Story 50-8** 体验优化轮，已实现并进入 `review`） |
+| 2026-09-22~24 | **网络入口三周期（Epic 48-50）**：Epic 48 TCP 网络接口（6 story，09-22 建立并交付，**09-27 删除**，commit `4217b5d`）；Epic 49 HTTP 网页入口（6 story，09-23 交付）；Epic 50 网页控制台（8 story，09-23 建立 / 09-24 实现，状态 `review`，两轮收口评审已出并放行、retrospective 待做；09-24 追加 **Story 50-8** 体验优化轮，已实现并进入 `review`） |
 
 > **文档滞后说明（2026-09-15 更新）**：`docs/iteration.md` 已补齐至 2026-09-15（含 8-9 月增量与整理记录），8 月上旬增量（Dreaming / steering / 发布）亦已回写 `sprint-status.yaml` 与各周期目录。**若本文与 `docs/iteration.md` / `sprint-status.yaml` 冲突，以后二者为准**；代码现状以 `docs/frame.md` 为准。
 
@@ -641,7 +641,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 >
 > **周期 16-18（Epic 48 / 49 / 50）不另设小节**——同一事实已在 §1.3 编号表、§15.1 状态矩阵与 §17.1 当前状态各记一次，此处只留产物地图（2026-09-24 实测）：
 >
-> - **Epic 48（TCP 网络接口）** → `epics/epic-48-TCP网络接口周期/`：`epic-48-TCP网络接口与CLI-Agent服务/` 下有 prd / architecture / epics / sprint-plan + 6 个 story，周期根另有 `retrospective-epic-48.md`
+> - **Epic 48（TCP 网络接口，已删除）** → `epics/epic-48-TCP网络接口周期/`：历史文档完整保留（prd / architecture / epics / sprint-plan + 6 个 story + retrospective），新增 `REMOVAL-NOTICE.md` 记录删除详情（commit `4217b5d`，2026-09-27）
 > - **Epic 49（HTTP 网页入口）** → `epics/epic-49-HTTP网页访问周期/`：brief + epics + ARCHITECTURE-SPINE + 6 个 story + 评审产物
 > - **Epic 50（网页控制台）** → `epics/epic-50-网页控制台周期/`：brief + epics + ARCHITECTURE-SPINE + 8 个 story（含 2026-09-24 追加的 50-8 体验优化轮）+ 单文件 `reviews.md`（2026-09-26 由 8 份文档合并：规划评审 + 四轮评审 + 三份验收）
 
@@ -828,7 +828,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | skill-package（Epic 42） | FR1~FR8 + NFR1~NFR6 | 8 | 全部实现（2026-09-01） |
 | goal-workflow（Epic 43-46） | FR1~FR5 | 5 | 全部实现（Epic 46 后续 backlog 见 17.3） |
 | declarative-workflow（Epic 47） | 无 FR 编号（Agile Contract + 47-1~47-10） | — | 全部实现（2026-09-15） |
-| 网络入口（Epic 48-50） | 无 FR 编号（story 级需求，走 sprint-status） | — | 48 / 49 已交付；50 `in-progress`（8 story `review`） |
+| 网络入口（Epic 48-50） | 无 FR 编号（story 级需求，走 sprint-status） | — | 48 已删除（2026-09-27）；49 已交付；50 `in-progress`（8 story `review`） |
 | **合计** | | **~171 FR** | |
 
 ### 15.3 关键 deferred 决策锚点

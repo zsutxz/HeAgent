@@ -466,6 +466,10 @@ development_status:
 
   # ═══════════════════════════════════════════════════════════════
   # TCP 网络接口周期 · Epic 48（2026-09-22 建立，同日全部交付）
+  # ⚠️ REMOVED (2026-09-27)：commit 4217b5d 完全删除 TCP 入口（~2,800 行代码）
+  # 删除原因：使用率极低、维护成本高、HTTP 入口（Epic 49）已充分覆盖需求
+  # 影响：`heagent tcp-server` 命令不再可用，仅保留 HTTP 网页入口
+  # 详见：_bmad-output/epics/epic-48-TCP网络接口周期/REMOVAL-NOTICE.md
   # ═══════════════════════════════════════════════════════════════
   # CLI 作为 TCP Server；JSON Lines；单请求单响应；默认 localhost；无认证/无 TLS（非生产边界）
   epic-48: done
