@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-09-24
+# last_updated: 2026-09-27
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -45,7 +45,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-09-24
+last_updated: 2026-09-27
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -499,14 +499,14 @@ development_status:
   # 多项目工作区一等化 + 会话持久化 + 配置有效值/来源可视 + 闸门约束下的项目 .env 写入
   # （HTTP_CONSOLE_WRITE_ENABLED 默认关）。无认证 / 无 TLS / 非安全边界，须 OS 级沙箱兜底。
   # 阶段映射：A=50-1；B=50-2,50-3；C=50-4；D=50-5；E=50-6,50-7
-  epic-50: in-progress
-  50-1-workspace-first-class: review
-  50-2-project-registry-api: review
-  50-3-session-persistence-api: review
-  50-4-config-sources-readonly-api: review
-  50-5-config-write-channel: review
-  50-6-console-ui: review
-  50-7-security-acceptance-docs: review
+  epic-50: done  # 2026-09-27 收口：8 story 全部 done + retrospective 补做 + 主干质量门全绿
+  50-1-workspace-first-class: done
+  50-2-project-registry-api: done
+  50-3-session-persistence-api: done
+  50-4-config-sources-readonly-api: done
+  50-5-config-write-channel: done
+  50-6-console-ui: done
+  50-7-security-acceptance-docs: done
   # 2026-09-24 追加（收口放行后的增量优化轮，同时充当 Epic 50 后续新需求的统一落点）
-  50-8-console-ux-refinement: review
-  epic-50-retrospective: optional
+  50-8-console-ux-refinement: done
+  epic-50-retrospective: done  # 2026-09-27 补做：epic-50-网页控制台周期/retrospective-epic-50.md

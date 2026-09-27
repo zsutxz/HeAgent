@@ -1,7 +1,7 @@
 ---
 id: 50-4
 title: 配置来源求解与只读配置 API
-status: review
+status: done
 baseline_commit: 4f673973be4a97acab3be1f058eabdbd4e673e49
 parent_epic: E50
 priority: P0

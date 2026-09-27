@@ -1,7 +1,7 @@
 ---
 id: 50-3
 title: 会话持久化、会话 API 与运行绑定
-status: review
+status: done
 baseline_commit: 7ef2c920c25903944946243a63be90a041c3c4ea
 parent_epic: E50
 priority: P0

@@ -1,7 +1,7 @@
 ---
 id: 50-7
 title: 安全收口、端到端验收与文档同步
-status: review
+status: done
 baseline_commit: 4193eac095adf4507a83d37b191a579cbb93c5e2
 parent_epic: E50
 priority: P0

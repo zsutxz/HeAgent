@@ -1,7 +1,7 @@
 ---
 id: 50-8
 title: 控制台体验优化（会话列表精简 / 原生目录选择 / 布局调整 / 设置面板瘦身 / 读取结果收敛）
-status: review
+status: done
 baseline_commit: e4d56cf3562b75dbdcfe3d716db5dfa1b8f85181
 parent_epic: E50
 priority: P1

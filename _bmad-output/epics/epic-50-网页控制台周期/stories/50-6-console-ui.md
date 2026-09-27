@@ -1,7 +1,7 @@
 ---
 id: 50-6
 title: 网页控制台 UI
-status: review
+status: done
 baseline_commit: a1012d8a9333ad4b7c93519bad115d272cb731bd
 parent_epic: E50
 priority: P0

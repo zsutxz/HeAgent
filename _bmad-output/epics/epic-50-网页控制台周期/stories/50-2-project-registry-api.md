@@ -1,7 +1,7 @@
 ---
 id: 50-2
 title: 项目注册表与项目 API
-status: review
+status: done
 baseline_commit: 33adba02c0dd80fcfd506c9716b0651b994f90a1
 parent_epic: E50
 priority: P0

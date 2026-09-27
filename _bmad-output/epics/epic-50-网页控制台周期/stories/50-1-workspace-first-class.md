@@ -1,7 +1,7 @@
 ---
 id: 50-1
 title: 工作区一等化与状态根单一来源
-status: review
+status: done
 parent_epic: E50
 priority: P0
 phase: A（工作区基础）

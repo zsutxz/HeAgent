@@ -1,7 +1,7 @@
 ---
 id: 50-5
 title: 配置写入通道（白名单 / 保真写 / 备份 / 冲突 / 审计）
-status: review
+status: done
 baseline_commit: a1012d8a9333ad4b7c93519bad115d272cb731bd
 parent_epic: E50
 priority: P0
