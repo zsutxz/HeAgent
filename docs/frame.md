@@ -643,10 +643,17 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 `.heagent/sessions/<session_id>.json` 存储/恢复**对话历史**（消息列表）。交互模式下通过 `session_id` 自动保存/恢复。
 
-四条与文件路径直接相关的判据（都属 defense-in-depth，不是安全边界）：
+五条判据（与文件路径 / 并发写直接相关；都属 defense-in-depth，不是安全边界）：
 
 - **id 判据**：`^[a-zA-Z0-9_-]{1,128}\Z`（路径遍历防线）+ **Windows 保留设备名**拒绝（`WINDOWS_RESERVED_DEVICE_NAMES` 22 项 = CON/PRN/AUX/NUL + COM1-9 + LPT1-9；`NUL` 在字符集**之内**，放行即在 Windows 上写向空设备、静默丢整段对话）。网络层持同义镜像 `SESSION_ID_RESERVED_NAMES`（不得 import 运行栈，靠测试钉逐元素相等）；CLI `--resume` 在构造 provider 前用同一个`validate_session_id()` fail-fast。
 - **写入**：`pub.persist.atomic_update_text`（跨进程锁 = 同目录 `<id>.json.lock`）。**写入路径刻意不删锁文件**（删除会让「B 等旧 inode、C 拿新文件」的经典竞态失效互斥）。
+- **并发写（2026-09-27 修）**：运行落盘把「本次 run 起步时**磁盘上**的消息」作为**内容基线**传给
+  `SessionStore.save(base=...)`。锁内若发现别的写者追加过消息，**不再整份覆盖**——把本次新增的消息接在
+  对方新增的之后（两段都保留，`_merge_concurrent_writes`）；无法**安全**判定的形态（磁盘上的共享前缀
+  被改写 / 比基线短 / 调用方给的基线对不上 / 文件不可解析）一律退回 last-write-wins 并记 WARNING
+  ——最坏情况与改造前逐字一致。触发场景：CLI 与网页入口共享同一 `.heagent/sessions`，网页
+  `POST /api/projects/{id}/runs` 不带 `session_id` 时取**最近**会话（往往正是 CLI 在写的那个）。
+  SYSTEM 消息不参与比对（每次 run 重建、`load` 时会剔除），合并结果只保留本次 writer 的 SYSTEM。
 - **回收**：`prune(retention_days)` 按 mtime 回收 `*.json`，并顺带用 `pub.persist.reap_dangling_locks`回收**孤儿锁**（三判据全中才删：同名记录已不存在 + 锁 mtime 超限 + `timeout=0` 非阻塞加锁证明无人持有）；`delete()` 不回收（新锁过不了年龄门槛）。
 - **列表**：`list_metadata` 对超过 `MAX_SESSION_METADATA_BYTES`（1 MiB）的会话**只读头部**（`_read_head` 有界读 + 严格解码；`_metadata_from_head` 只在 `"messages"` **之前**的元数据区取值——落盘键序保证 `session_id`/`version`/`timestamp`/`title` 都在那里），`message_count` 退化为 `None`（D6 口径）。
 
@@ -1078,11 +1085,11 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 |---|---|
 | 工作区模型 | `workspace.WorkspacePaths.from_root(root)` 是运行态路径（sessions / ledger / runs / memory / skills / user / cron / checkpoints / sandboxes / tmp / console / backups）的**唯一**来源；入口层装配期解析一次并注入 engine 与主 / cron loop，不在每次请求时重读 cwd |
 | 项目注册表 | `pub/projects.py`：`<服务启动工作区>/.heagent/console/projects.json`（可用 `HTTP_CONSOLE_PROJECTS_FILE` 覆盖；**默认不写用户 home**）。条目上限 **32**；id 不透明（`p` + 8 位十六进制，由路径规范化派生）；**写侧 fail-closed**（内容无法解析时拒绝改写，绝不回写空表）；目录失效不删登记而是标 `available=false` |
-| 会话持久化 | `context/session.py` 的 `SessionStore` 按项目派生（`<项目根>/.heagent/sessions/<sid>.json`），与 CLI **同库同格式**；列表只读轻量元数据（D6）；**损坏文件回 `session_unreadable`**（D1），绝不当空会话覆盖 |
+| 会话持久化 | `context/session.py` 的 `SessionStore` 按项目派生（`<项目根>/.heagent/sessions/<sid>.json`），与 CLI **同库同格式**；列表只读轻量元数据（D6）；**损坏文件回 `session_unreadable`**（D1），绝不当空会话覆盖。**并发写不再整份覆盖**（2026-09-27 修，见 4.5）：运行落盘带**内容基线** `base=`，别的写者追加过的消息会被保守合并（两段都保留），判不出来则退回 last-write-wins + WARNING |
 | 配置来源求解（只读面） | `config_catalog.build_config_report`：四层来源 **系统环境变量 > 项目 `.env` > 全局 `~/.heagent/.env` > 字段默认值**，逐项给出有效值 / 来源徽标 / 可写性 / 只读原因；凭证只回「已配置 + 定长掩码」（**掩码域 = `*_API_KEY` / `*_API_KEYS` 后缀**；`*_BASE_URL` 等键的值**原样回传**——凭证写在 URL userinfo 里不会被打码，见台账同名条目）；行级诊断（重复键 / 空值键 / 行内注释 / BOM / 未知键）逐条标注 |
 | 可写面划分（D2/D3） | 实测 **109 字段 = 白名单 48 + 排除 61、残留 0**（2026-09-27 复测）；优先级 **显式白名单 > 模式排除**，排除之间**显式行 > 模式行**（`HTTP_CONSOLE_*` 因此归「控制台自身」而非「监听面」） |
-| 配置写入通道 | `config/write.apply_config_write`：**10 步 + 1 项生效语义** —— 闸门 → 回环来源 → 键白名单 → 值守卫 → 指纹 → 候选构造（`Settings(_env_file=候选)` 必须能构造）→ 备份 → 保真写 → 回读 → 审计；第 11 项 = 让该项目运行时缓存失效。**回环判定留在传输层**（网络层不认识 Settings），`envfile.py` 做行级保真（**只重写值区**：EOL / BOM / 注释 / 未修改行字节逐一不变），`pub/persist.atomic_update_bytes` 做字节级原子写 + **锁内**回读校验与回滚——**回滚本身失败**时抛 `persist.RollbackFailedError`（`__cause__` = 原回读异常，`rollback_error` = 回滚失败原因），写通道据此给出如实文案（不再无条件宣称「已回滚」）并落 `rollback_failed` 审计（2026-09-27 修，台账 A14②）。⚠ **副作用**：锁文件与目标**同目录**（`<项目根>/.env.lock`），即写一次项目配置就在**用户的项目根**留下一个锁文件——HeAgent 自己的仓库有 `.gitignore` 条目，用户的项目没有；锁的落点语义不改（改落点会破坏「同一把锁贯穿读改写」），故这里只作说明（台账同名条目记录） |
-| 资源旋钮上界 | `config_catalog.RESOURCE_CEILINGS`：21 个「只有下界」的数值键按族给上界（days 3650 / seconds 604800 / bytes 8 MiB / tokens 1M / count 100；迭代 10000 与上下文窗口 16M 自成刻度）。**只作用于写通道与面板展示**，不改 `Settings` 定义语义（手工改 `.env` 不受约束） |
+| 配置写入通道 | `config/write.apply_config_write`：**10 步 + 1 项生效语义** —— 闸门 → 回环来源 → 键白名单 → 值守卫 → 指纹 → 候选构造（`Settings(_env_file=候选)` 必须能构造）→ 备份 → 保真写 → 回读 → 审计；第 11 项 = 让该项目运行时缓存失效。**回环判定留在传输层**（网络层不认识 Settings），`envfile.py` 做行级保真（**只重写值区**：EOL / BOM / 注释 / 未修改行字节逐一不变），`pub/persist.atomic_update_bytes` 做字节级原子写 + **锁内**回读校验与回滚。**跨进程锁内只做「指纹判定 + 备份 + 落盘」**（2026-09-27 收窄，台账 A14③）：候选构造（`Settings(_env_file=候选)` 会读候选临时文件 + 全局 `.env` + 环境，是整条流水线最贵的一步）与**备份目录回收**都移到锁外；锁外用文件快照构造的候选会在锁内**复检内容基线**，快照过期（含「改走又改回」这种病态形态）则在锁内重做一次，绝不把基于旧内容的候选写下去。回收失败只告警（维护动作），不把已经落盘的写改写成错误——**回滚本身失败**时抛 `persist.RollbackFailedError`（`__cause__` = 原回读异常，`rollback_error` = 回滚失败原因），写通道据此给出如实文案（不再无条件宣称「已回滚」）并落 `rollback_failed` 审计（2026-09-27 修，台账 A14②）。⚠ **副作用**：锁文件与目标**同目录**（`<项目根>/.env.lock`），即写一次项目配置就在**用户的项目根**留下一个锁文件——HeAgent 自己的仓库有 `.gitignore` 条目，用户的项目没有；锁的落点语义不改（改落点会破坏「同一把锁贯穿读改写」），故这里只作说明（台账同名条目记录） |
+| 资源旋钮上界 | `config_catalog.RESOURCE_CEILINGS`：21 个「只有下界」的数值键按族给上界（days 3650 / seconds 604800 / bytes 8 MiB / tokens 1M / count 100；迭代 10000 与上下文窗口 16M 自成刻度）。**只作用于写通道与面板展示**，不改 `Settings` 定义语义（手工改 `.env` 不受约束）。**同一常量还是「高影响键」的事实源**（2026-09-27，台账 A13）：`impact_for(key)` → 配置项的 `impact` 字段（`high` / `normal`），面板据此挂徽标并在写入确认框里点名 —— 文案取自后端 `labels`，**前端零硬编码键名**（UX-DR3 的差异化确认） |
 | 生效语义 | 写成功后**丢该项目运行时缓存** ⇒ 下一次 run 重新解析快照、**在途 run 继续用旧快照**（无热生效；响应里 `applied=next_run`） |
 | 审计 | `<项目根>/.heagent/console/audit.jsonl`：一行一 JSON，只有键名 / 值的**哈希与长度** / 结果（`applied` / `rolled_back` / `rollback_failed`——后两者分别表示「回读不符但已还原」与「回读不符**且还原也失败**」，2026-09-27 补），**不含值**；行数上限 500（超限裁到最近 500 条，且只认这一个文件名 ⇒ 不碰同目录的 `projects.json`）；追加失败不阻断已成功的写，但响应如实带 `audit_recorded=false` |
 | 路由 | 项目 `GET/POST/PATCH/DELETE /api/projects*`；会话 `…/sessions*`；项目内运行 `POST /api/projects/{id}/runs`；配置 `GET/PUT /api/projects/{id}/config`；原生目录选择 `POST /api/dialogs/pick-directory`（Story 50-8，**非项目作用域**）；运行事件与取消沿用 4.17 的 `GET /api/runs/{id}/events`（SSE）与 `DELETE /api/runs/{id}` |
