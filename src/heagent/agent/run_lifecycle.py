@@ -242,7 +242,9 @@ async def execute_run(
                     if response.usage:
                         accumulated = loop._add_usage(accumulated, response.usage)
 
-                    await loop._maybe_compress(state, run_context, response.usage)
+                    from heagent.agent.context_runtime import maybe_compress, maybe_window_reset
+
+                    await maybe_compress(loop, state, run_context, response.usage)
                     loop._append_assistant_message(state, response)
                     await checkpoint(loop, run_context, prompt=init.prompt, system=system_content, state=state)
 
@@ -253,7 +255,7 @@ async def execute_run(
                     for tool_result in tool_results:
                         loop._append_tool_result(state, tool_result)
                     await checkpoint(loop, run_context, prompt=init.prompt, system=system_content, state=state)
-                    await loop._maybe_window_reset(
+                    await maybe_window_reset(loop,
                         state, run_context, init.prompt, system_content, usage=response.usage
                     )
 

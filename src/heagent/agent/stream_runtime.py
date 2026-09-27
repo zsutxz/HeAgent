@@ -113,7 +113,9 @@ async def stream_run(  # noqa: C901
                         reasoning_content=reasoning_content or None,
                     )
 
-                    await loop._maybe_compress(state, run_context, response.usage)
+                    from heagent.agent.context_runtime import maybe_compress, maybe_window_reset
+
+                    await maybe_compress(loop, state, run_context, response.usage)
                     loop._append_assistant_message(state, response)
 
                     # P1-1 修复：流式 delta 累积未能捕获 tool_calls、
@@ -152,8 +154,8 @@ async def stream_run(  # noqa: C901
                         )
                         loop._append_tool_result(state, tool_result)
                     await checkpoint(loop, run_context, prompt=init.prompt, system=system_content, state=state)
-                    await loop._maybe_window_reset(
-                        state, run_context, init.prompt, system_content, usage=response.usage
+                    await maybe_window_reset(
+                        loop, state, run_context, init.prompt, system_content, usage=response.usage
                     )
 
                 # ---- follow-up 检查 ----

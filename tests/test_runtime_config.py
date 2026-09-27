@@ -94,6 +94,7 @@ async def test_loop_pins_snapshot_for_business_execution():
     """运行中的压缩路径读构造期快照；运行开始后再改全局 Settings 不影响已创建的 loop。"""
     from types import SimpleNamespace
 
+    from heagent.agent.context_runtime import maybe_compress
     from heagent.agent.loop import AgentLoop, AgentState
 
     snapshot = resolve_runtime_config(Settings(_env_file=None, max_context_tokens=123))
@@ -103,7 +104,7 @@ async def test_loop_pins_snapshot_for_business_execution():
 
     get_settings().max_context_tokens = 9999  # 模拟运行中全局配置漂移
     state = AgentState(messages=[])
-    await loop._maybe_compress(state, None, SimpleNamespace(total_tokens=10_000))
+    await maybe_compress(loop, state, None, SimpleNamespace(total_tokens=10_000))
     assert compressor.max_tokens == 123
 
 

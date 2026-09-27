@@ -477,21 +477,9 @@ class AgentLoop:
         """把单条工具结果追加进上下文（``run``/``run_stream`` 共用）。"""
         append_tool_result(self, state, result)
 
-    async def _maybe_compress(self, state: AgentState, run_context: RunContext, usage: TokenUsage | None) -> None:
-        """就地压缩上下文（compressor 启用时）。实现见 ``context_runtime``。"""
-        await maybe_compress(self, state, run_context, usage)
-
-    async def _maybe_window_reset(
-        self,
-        state: AgentState,
-        run_context: RunContext,
-        prompt: str,
-        system_content: str | None,
-        *,
-        usage: TokenUsage | None = None,
-    ) -> None:
-        """窗口重置（window_reset 启用时）；达阈值折叠为「原始 prompt + 进度摘要」。"""
-        await maybe_window_reset(self, state, run_context, prompt, system_content, usage=usage)
+    # 上下文管理委托方法已移除，直接调用 context_runtime 函数：
+    # - maybe_compress(loop, state, run_context, usage)
+    # - maybe_window_reset(loop, state, run_context, prompt, system_content, usage=usage)
 
     @staticmethod
     def _add_usage(a: TokenUsage, b: TokenUsage) -> TokenUsage:
