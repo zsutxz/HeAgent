@@ -5,7 +5,7 @@
 - **默认路径**（`heagent` / `heagent "prompt"` / `heagent run ...`）在**同一个 asyncio 生命周期**里
   启动 HTTP 服务：交互模式与 REPL 共存，单次模式与那次 run 并存并在结束后释放端口；绑定失败让
   命令显式失败（不进入聊天）。
-- **显式非 HTTP 子命令**（`gui` / `tcp-server` / `http-server` / `replay` …）不会派生第二个实例。
+- **显式非 HTTP 子命令**（`gui` / `http-server` / `replay` …）不会派生第二个实例。
 
 测试手法：**替换 provider 而不是 `_run_single` / `_run_chat`**。HTTP 生命周期就在这两个入口内部，
 把它们整体打桩等于把被测代码一并打桩（第一版就这么踩过：`_run_single` 被 fake 掉后服务根本没起，
@@ -278,32 +278,26 @@ def test_interactive_mode_stops_when_the_embedded_service_fails(monkeypatch: pyt
 def test_explicit_subcommands_never_start_the_embedded_service(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any, embedded_http_services: list[Any]
 ) -> None:
-    """`gui` / `tcp-server` / `http-server` / `replay` 都不派生内嵌实例（Story 49-2 AC）。"""
+    """`gui` / `http-server` / `replay` 都不派生内嵌实例（Story 49-2 AC；2026-09-27 TCP 入口删除后同步）。"""
     provider = _RecordingProvider()
     _drive(monkeypatch, tmp_path, provider)
     served: list[str] = []
 
-    async def fake_serve_tcp(_server: object) -> None:
-        served.append("tcp")
-
     async def fake_serve_http(_server: object) -> None:
         served.append("http")
 
-    monkeypatch.setattr("heagent.cli.tcp._serve_tcp", fake_serve_tcp)
     monkeypatch.setattr("heagent.cli.http._serve_http", fake_serve_http)
-    # cli/tcp.py / cli/http.py 各自模块级绑定了 `_build_provider`（与 cli/console.py 是三处名字），逐一打桩。
-    monkeypatch.setattr("heagent.cli.tcp._build_provider", lambda settings, model: provider)
+    # cli/http.py 模块级绑定了 `_build_provider`（与 cli/console.py 是两处名字），逐一打桩。
     monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: provider)
     rollout = tmp_path / "rollout.jsonl"
     rollout.write_text("", encoding="utf-8")
 
     runner = CliRunner()
-    assert runner.invoke(main, ["tcp-server"]).exit_code == 0
     assert runner.invoke(main, ["http-server"]).exit_code == 0
     assert runner.invoke(main, ["replay", str(rollout)]).exit_code == 0
     assert runner.invoke(main, ["gui", "--help"]).exit_code == 0
 
-    assert served == ["tcp", "http"]
+    assert served == ["http"]
     assert embedded_http_services == []
 
 
