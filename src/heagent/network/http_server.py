@@ -660,7 +660,7 @@ class HttpRunService:
     # ---- 运行执行 ----
 
     def _deadline_tick(self) -> float | None:
-        """看门狗的巡检间隔；两个时限都没开时返回 ``None``（不启动看门狗）。
+        """看门狗的巡检间隔；三个时限全关时返回 ``None``（不启动看门狗）。
 
         取最小时限的 1/4（夹在 10ms..5s）：到点后最多晚一个 tick 发现，又不会为长时限空转占 CPU。
         ``inf``/``nan`` 已被 :class:`HttpServerConfig` 拒掉，故此处不必再防。
@@ -679,7 +679,7 @@ class HttpRunService:
         return min(5.0, max(0.01, min(limits) / 4))
 
     def _deadline_message(self, record: _RunRecord) -> str:
-        """时限终态的客户端文案：**区分**「卡死」与「超过运维显式设的总时长上限」。"""
+        """时限终态的客户端文案：**区分**「静默卡死」「工具卡死」与「超过运维显式设的总时长上限」。"""
         if record.deadline_reason == "idle":
             return f"run stalled: no activity for {self.config.idle_timeout:g}s"
         if record.deadline_reason == "tool":
@@ -689,7 +689,7 @@ class HttpRunService:
     async def _watch_deadlines(self, record: _RunRecord, task: asyncio.Task[Any], tick: float) -> None:
         """时限看门狗：判据成立就 ``task.cancel()``，并把**原因**写进记录（终态归因用）。
 
-        两条判据（各自 > 0 才生效）：
+        三条判据（各自 > 0 才生效）：
 
         - ``request_timeout``：总时长硬上限——运维显式设的兜底闸门，默认 0（不限制）；
         - ``idle_timeout``：静默上限——**既没有新事件、也没有在途工具**才开始计时；
@@ -735,7 +735,7 @@ class HttpRunService:
     async def _execute(self, record: _RunRecord, executor: RunExecutor) -> None:
         """跑一次运行并把结果写进记录（唯一写终态的地方，AD-10）。
 
-        时限（``HTTP_IDLE_TIMEOUT`` 静默 / ``HTTP_REQUEST_TIMEOUT`` 总时长，二者都可关）与取消都经
+        时限（``HTTP_IDLE_TIMEOUT`` 静默 / ``HTTP_TOOL_INFLIGHT_TIMEOUT`` 单个在途工具 / ``HTTP_REQUEST_TIMEOUT`` 总时长，三者都可关）与取消都经
         这里的终态转换收口：**第一个**拿到终态的转换获胜，只发一条终态事件，并且在 ``finally`` 里
         归还唯一的在途名额。
 
