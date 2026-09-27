@@ -554,6 +554,164 @@ class TestConcurrentWriteObservability:
         assert "from 1 to 3" in caplog.text
 
 
+def _users(*texts: str) -> list[Message]:
+    """只有 USER 轮次的消息序列（``_msgs`` 会循环出 SYSTEM/TOOL，会干扰并发合并的比对语义）。"""
+    return [Message(role=Role.USER, content=text) for text in texts]
+
+
+class TestConcurrentWriteMerge:
+    """台账条目「同一会话文件的两个写者会整份覆盖对方的历史」的**修复**判据。
+
+    场景：CLI 与网页入口共享同一 ``.heagent/sessions``，两边各自 ``load → … → save``，后写者用
+    整份消息列表替换掉对方的整轮对话（静默数据丢失）。``save(base=...)`` 给定时改为**保守合并**
+    ——只在「三方的非 SYSTEM 投影构成同一前缀」时把两段接起来；任何无法安全判定的形态都退回
+    last-write-wins（最坏情况与改造前逐字一致）并记 WARNING。
+    """
+
+    def test_another_writers_tail_is_merged_not_overwritten(self, tmp_path: Path, caplog) -> None:
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+        store = _store(tmp_path)
+        store.save("s1", _users("base"))
+        base = store.load("s1")  # 两个写者各自 load 到的同一份基线
+
+        store.save("s1", base + _users("A1", "A2"), base=base)  # 写者 A（CLI）
+        store.save("s1", base + _users("B1"), base=base)  # 写者 B（网页运行，同一基线）
+
+        assert [m.content for m in store.load("s1")] == ["base", "A1", "A2", "B1"]
+        assert "another writer appended 2 message(s)" in caplog.text
+
+    def test_merge_keeps_our_system_header_only(self, tmp_path: Path) -> None:
+        """合并后的列表只保留**本次** writer 的 SYSTEM（SYSTEM 由每次 run 重建，load 时会被剔除）。"""
+        store = _store(tmp_path)
+        store.save("s1", [Message(role=Role.SYSTEM, content="old system"), Message(role=Role.USER, content="base")])
+        base = store.load("s1")
+
+        store.save("s1", base + _users("A1"), base=base)
+        store.save(
+            "s1",
+            [Message(role=Role.SYSTEM, content="new system"), *base, *_users("B1")],
+            base=base,
+        )
+
+        loaded = store.load("s1")
+        assert loaded[0].role is Role.SYSTEM and loaded[0].content == "new system"
+        assert [m.role for m in loaded[1:]] == [Role.USER, Role.USER, Role.USER]
+        assert [m.content for m in loaded] == ["new system", "base", "A1", "B1"]
+
+    def test_a_rewritten_shared_prefix_falls_back_instead_of_guessing(self, tmp_path: Path, caplog) -> None:
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+        store = _store(tmp_path)
+        store.save("s1", _users("base", "second"))
+        base = store.load("s1")
+
+        # 关键：改写后的历史**比基线更长** —— 否则「磁盘比基线短」会由另一条分支兜住，
+        # 这条判据就测不出「共享前缀必须一致」这个护栏本身。
+        store.save("s1", _users("rewritten-a", "rewritten-b", "rewritten-c"))
+        store.save("s1", base + _users("B1"), base=base)
+
+        assert [m.content for m in store.load("s1")] == ["base", "second", "B1"]  # 回退到 last-write-wins
+        assert "last-write-wins" in caplog.text
+        assert "kept both conversations" not in caplog.text
+
+    def test_a_truncated_file_falls_back(self, tmp_path: Path, caplog) -> None:
+        """磁盘比基线**短**（对方删了历史）：同样无法判定，回退而不是拼出个四不像。"""
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+        store = _store(tmp_path)
+        store.save("s1", _users("a", "b", "c"))
+        base = store.load("s1")
+
+        store.save("s1", _users("a"))
+        store.save("s1", base + _users("B1"), base=base)
+
+        assert [m.content for m in store.load("s1")] == ["a", "b", "c", "B1"]
+        assert "last-write-wins" in caplog.text
+
+    def test_an_unreadable_file_never_blocks_the_save(self, tmp_path: Path, caplog) -> None:
+        """损坏文件不得让保存失败（与 ``_read_header`` 的既有立场一致）：判别不出 ⇒ 原样写入。"""
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+        store = _store(tmp_path)
+        store.save("s1", _users("base"))
+        base = store.load("s1")
+        (tmp_path / "s1.json").write_bytes(b"{not json")
+
+        store.save("s1", base + _users("B1"), base=base)
+
+        assert [m.content for m in store.load("s1")] == ["base", "B1"]
+
+    def test_an_unchanged_file_takes_the_plain_path(self, tmp_path: Path, caplog) -> None:
+        """基线与磁盘一致（最常见）：零额外行为、零告警。"""
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+        store = _store(tmp_path)
+        store.save("s1", _users("base"))
+        base = store.load("s1")
+
+        path = store.save("s1", base + _users("B1"), base=base)
+
+        assert [m.content for m in store.load("s1")] == ["base", "B1"]
+        assert "kept both conversations" not in caplog.text and "last-write-wins" not in caplog.text
+        assert path.endswith("s1.json")
+
+    def test_a_base_that_is_not_a_prefix_of_ours_falls_back(self, tmp_path: Path, caplog) -> None:
+        """调用方给的 base 与要写的内容对不上（陈旧/错配）：不得据此合并，回退并告警。"""
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+        store = _store(tmp_path)
+        store.save("s1", _users("x", "y"))
+
+        # base 声明「磁盘上本来是 [z]」，但它既不是磁盘内容、也不是我们要写的内容的前缀
+        store.save("s1", _users("ours"), base=_users("z"))
+
+        assert [m.content for m in store.load("s1")] == ["ours"]
+        assert "last-write-wins" in caplog.text
+
+    def test_an_identical_tail_is_not_appended_twice(self, tmp_path: Path) -> None:
+        """两个写者产出**同一条尾巴**（重复写）时不追加第二份。"""
+        store = _store(tmp_path)
+        store.save("s1", _users("base"))
+        base = store.load("s1")
+
+        store.save("s1", base + _users("same"), base=base)
+        store.save("s1", base + _users("same"), base=base)
+
+        assert [m.content for m in store.load("s1")] == ["base", "same"]
+
+    def test_expected_version_still_wins_over_merging(self, tmp_path: Path) -> None:
+        """显式的 ``expected_version`` 冲突检测优先：给了它就必须抛，不得被合并悄悄放行。"""
+        store = _store(tmp_path)
+        store.save("s1", _users("base"))
+        base = store.load("s1")
+        store.save("s1", base + _users("A1"), base=base)
+
+        with pytest.raises(SessionConflictError):
+            store.save("s1", base + _users("B1"), expected_version=1, base=base)
+
+    def test_without_base_the_legacy_behaviour_is_unchanged(self, tmp_path: Path, caplog) -> None:
+        """不传 ``base`` = 既有 last-write-wins（CLI 单写者与库调用方的现状逐字不变）。"""
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+        store = _store(tmp_path)
+        store.save("s1", _users("base"))
+        base = store.load("s1")
+
+        store.save("s1", base + _users("A1"))
+        store.save("s1", base + _users("B1"))
+
+        assert [m.content for m in store.load("s1")] == ["base", "B1"]
+        assert "kept both conversations" not in caplog.text
+
+
 class TestOversizedSessionListing:
     """超过 `MAX_SESSION_METADATA_BYTES` 的会话必须**有界**读取（台账「控制台阻塞 I/O」条目）。
 

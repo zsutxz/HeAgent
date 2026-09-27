@@ -352,6 +352,93 @@ def _unreadable_metadata(session_id: str, mtime: float) -> SessionMetadata:
     )
 
 
+def _without_system(messages: list[Message]) -> list[Message]:
+    """去掉 SYSTEM 投影——SYSTEM 由每次 run 重建、``load`` 时会被剔除，不参与「谁写了什么」的比对。"""
+    return [m for m in messages if m.role is not Role.SYSTEM]
+
+
+def _messages_from_raw(session_id: str, raw: str) -> list[Message] | None:
+    """把锁内读到的原始文本解析成消息列表；**不可解析返回 ``None``**（绝不抛）。
+
+    锁内绝不能因「文件坏了」而阻断写入：那与 ``_read_header`` 的既有立场（损坏的文件不阻断写入）
+    矛盾，而且会把一次正常的保存变成异常。判别不出来时调用方回落到 last-write-wins。
+    """
+    if not raw.strip():
+        return None
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(data, dict) or not isinstance(data.get("messages"), list):
+        return None
+    try:
+        parsed = [Message(**item) for item in data["messages"] if isinstance(item, dict)]
+    except ValidationError:
+        return None
+    return _complete_tool_transactions(parsed)
+
+
+def _merge_concurrent_writes(
+    disk: list[Message], base: list[Message], ours: list[Message]
+) -> tuple[list[Message], int] | None:
+    """并发写的**保守合并**：把我们新增的消息接在对方新增的消息之后（两侧都保留）。
+
+    只在「三方的非 SYSTEM 投影构成**同一前缀**」时才合并——任何一条不成立（有人在共享前缀上
+    改写、对方截断了历史、我们自己的基线不完整、对方只是重复写了同一条尾巴）都返回 ``None``，
+    由调用方回落到 last-write-wins。这样最坏情况与改造前**逐字一致**，而最常见的那种丢失
+    （两个入口从同一份历史各自追加）被救回来。
+
+    返回 ``(合并后的列表, 对方被保住的条数)``；列表已做过 ``_complete_tool_transactions``
+    （两段各自完整 ⇒ 拼接后仍完整），调用方可以直接落盘（``_session_payload`` 会再跑一次，
+    幂等且不会重复告警）。
+    """
+    shared = _without_system(base)
+    on_disk = _without_system(disk)
+    mine = _without_system(ours)
+    if mine[: len(shared)] != shared:
+        return None  # 我们的基线本身不成立（调用方给的 base 与写出的内容对不上）
+    if on_disk[: len(shared)] != shared:
+        # 磁盘上的共享前缀已被改写、或磁盘比基线**短**（历史被截断）——两种情况都判别不出谁丢了
+        # 什么，交给 last-write-wins（切片比较同时覆盖「短」与「不同」：短列表的切片不可能等于
+        # 更长的 shared）。
+        return None
+    other_added = on_disk[len(shared) :]
+    my_added = mine[len(shared) :]
+    if not other_added or other_added == my_added:
+        return None  # 对方没追加 / 是同一条尾巴（重复写）：不值得改写磁盘
+    head = [m for m in ours if m.role is Role.SYSTEM][:1]
+    return head + on_disk + my_added, len(other_added)
+
+
+def _resolve_concurrent_write(session_id: str, raw: str, base: list[Message], ours: list[Message]) -> list[Message]:
+    """锁内决策：磁盘内容与我们的内容基线不一致时，尽量保住两边的消息（台账同名条目）。
+
+    - 磁盘内容与基线**一致**（或判别不出磁盘内容）⇒ 没有别的写者，按原样写入（零开销快路径）；
+    - 判别出对方追加了内容且能**安全**合并 ⇒ 返回合并结果并记一条 WARNING（点名条数）；
+    - 判别出内容变了但**不能**安全合并 ⇒ 返回原样并记一条 WARNING 说明这次是 last-write-wins。
+
+    三条分支都不抛异常：合并是为了少丢数据，不该把一次正常的保存变成失败。
+    """
+    on_disk = _messages_from_raw(session_id, raw)
+    if on_disk is None or _without_system(on_disk) == _without_system(base):
+        return ours
+    outcome = _merge_concurrent_writes(on_disk, base, ours)
+    if outcome is None:
+        logger.warning(
+            "Session %r: another writer changed it during this run; falling back to last-write-wins "
+            "(the shared prefix no longer matches, so merging would be a guess).",
+            session_id,
+        )
+        return ours
+    merged, kept = outcome
+    logger.warning(
+        "Session %r: another writer appended %d message(s) during this run; kept both conversations.",
+        session_id,
+        kept,
+    )
+    return merged
+
+
 class SessionStore:
     """会话存储管理器，支持对话历史的持久化和恢复。
 
@@ -398,6 +485,7 @@ class SessionStore:
         *,
         expected_version: int | None = None,
         last_known_version: int | None = None,
+        base: list[Message] | None = None,
     ) -> str:
         """保存对话历史到 JSON 文件（原子写 + version 递增）。
 
@@ -406,8 +494,18 @@ class SessionStore:
         :class:`SessionConflictError` 且**不写文件**（网页的显式冲突检测）。
 
         ``last_known_version`` 用于**可观测性**：如果提供且磁盘版本跳过了多个版本（说明有其他写者
-        介入），会发出 WARNING 日志。这不会阻止写入（last-write-wins 语义保持不变），但让并发写入
-        变得可观测。这是针对台账条目「同一会话文件的两个写者会整份覆盖对方的历史」的防御性改进。
+        介入），会发出 WARNING 日志。这是针对台账条目「同一会话文件的两个写者会整份覆盖对方的
+        历史」的早期防御性改进；现在更有力的一层是下面的 ``base``。
+
+        ``base`` 是**内容基线**：调用方 ``load`` 到的那份磁盘消息。给定时，若锁内发现磁盘内容与
+        它不同（说明有别的写者介入了）：
+        **不再整份覆盖**——把本 writer 新增的消息接在对方新增的消息之后，两段都保留（``_merge_concurrent_writes``）；
+        无法**安全**合并时退回 last-write-wins 并记 WARNING（最坏情况与改造前逐字一致，绝不更坏）。
+        缺省 ``None`` = 既有语义（CLI 单写者、测试与库调用方的现状）。
+
+        触发场景（台账同名条目）：CLI 与网页入口共享同一 ``.heagent/sessions``，且网页
+        ``POST /api/projects/{id}/runs`` 不带 ``session_id`` 时会取**最近**会话——往往正是 CLI
+        正在写的那个；两边各自 ``load → … → save``，后写者用整份消息列表替换掉对方的整轮对话。
 
         磁盘上已有的 ``title`` 会被原样保留（由 :meth:`rename` 拥有）——否则「重命名后再对话，
         标题被抹掉」。
@@ -415,6 +513,9 @@ class SessionStore:
         validate_session_id(session_id)
         path = self._base / f"{session_id}.json"
         written_at = time.time()
+        # 先把本 writer 要写的内容收敛成「完整工具事务的前缀」：合并判定与落盘必须基于同一份列表，
+        # 否则「我要写的」与「我判定的」会漂移（也避免同一次截断被告警两遍）。
+        finished = _complete_tool_transactions(messages)
 
         def update(raw: str) -> tuple[str, None]:
             version, title = _read_header(raw)
@@ -433,7 +534,10 @@ class SessionStore:
                     version,
                     last_known_version + 1,
                 )
-            payload = _session_payload(session_id, version + 1, written_at, messages, title)
+            to_write = finished
+            if base is not None:
+                to_write = _resolve_concurrent_write(session_id, raw, base, finished)
+            payload = _session_payload(session_id, version + 1, written_at, to_write, title)
             return json.dumps(payload, ensure_ascii=False, indent=2), None
 
         atomic_update_text(path, update)

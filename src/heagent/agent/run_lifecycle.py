@@ -37,6 +37,9 @@ class AgentState:
     iteration: int = 0  # 当前已执行的迭代轮数（每轮 +1）
     max_iterations: int = 50  # 迭代硬上限，超过即抛 BudgetExceeded
     results: list[ToolResult] = field(default_factory=list)  # 本轮累计的工具执行结果
+    # 本次 run 起步时**磁盘上**的会话消息（``None`` = 无会话 / 恢复路径）。落盘时作为内容基线
+    # 交给 ``SessionStore.save(base=...)``：并发写者新增的消息不再被整份覆盖（台账同名条目）。
+    session_base: list[Message] | None = None
 
 
 @dataclass
@@ -184,6 +187,9 @@ async def init_new_run(
     # 置于 SYSTEM 之后、新 USER 提示词之前。
     if loop.session and session_id:
         prior = await asyncio.to_thread(loop.session.load, session_id)
+        # 内容基线：**无论 prior 是否为空都要记**——空也表达「我读到的是空」，否则并发写者
+        # 在这之后追加的内容会被本次收尾的整份覆盖（这正是台账那条静默丢数据的形状）。
+        state.session_base = list(prior)
         if prior:
             state.messages.extend(m for m in prior if m.role != Role.SYSTEM)
             logger.debug("Restored %d messages from session '%s'", len(prior), session_id)
@@ -339,7 +345,9 @@ async def persist_and_cache(
     loop._pause_event.set()
     if loop.session and session_id:
         try:
-            await asyncio.to_thread(loop.session.save, session_id, state.messages)
+            # ``base`` = 本 run 起步时的磁盘内容：别的写者若在我们之后追加了消息，存盘时会
+            # 保守合并（两段都保留）而不是整份覆盖（台账同名条目）。
+            await asyncio.to_thread(loop.session.save, session_id, state.messages, base=state.session_base)
             logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
         except RuntimeError as exc:
             # 中断时事件循环可能已关闭，to_thread() 会抛 RuntimeError

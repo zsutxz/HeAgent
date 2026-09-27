@@ -158,6 +158,45 @@ class TestAgentLoop:
         assert contents[-1] == "q2"
 
     @pytest.mark.asyncio
+    async def test_run_save_merges_messages_appended_by_another_writer(self, tmp_path, caplog) -> None:
+        """台账②：本次 run 收尾落盘时，另一写者（CLI / 另一个入口）期间追加的消息必须保住。
+
+        这是生产路径的判据：``init_new_run`` 记下内容基线 → ``persist_and_cache`` 把它交给
+        ``SessionStore.save(base=...)``。改造前这里把整份消息列表写回去，对方的整轮对话静默消失。
+        """
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="heagent.context.session")
+        store = SessionStore(base_dir=str(tmp_path))
+        store.save(
+            "sess1",
+            [Message(role=Role.USER, content="q1"), Message(role=Role.ASSISTANT, content="a1")],
+        )
+
+        class ConcurrentWriter(StubProvider):
+            """在本次 run 进行中，从同一份基线写同一个会话文件（模拟 CLI 那一侧）。"""
+
+            async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
+                store.save(
+                    "sess1",
+                    [
+                        Message(role=Role.USER, content="q1"),
+                        Message(role=Role.ASSISTANT, content="a1"),
+                        Message(role=Role.USER, content="from-cli"),
+                    ],
+                )
+                return await super().send(messages, tools=tools)
+
+        loop = AgentLoop(ConcurrentWriter([_final("answer")]), session=store, max_iterations=10)
+        await loop.run("q2", session_id="sess1")
+
+        contents = [m.content for m in store.load("sess1")]
+        assert "from-cli" in contents, "另一写者的整轮对话被整份覆盖了"
+        assert "q2" in contents and "answer" in contents, "本次 run 的对话丢了"
+        assert contents[-1] == "answer"
+        assert "another writer appended 1 message(s)" in caplog.text
+
+    @pytest.mark.asyncio
     async def test_single_tool_call(self, fresh_registry: ToolRegistry) -> None:
         fresh_registry.register(
             ToolSchema(name="echo", description="echo", parameters={"type": "object", "properties": {}}),
