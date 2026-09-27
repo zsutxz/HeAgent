@@ -184,6 +184,9 @@ class HttpServerConfig(BaseModel):
     # 终结（0 = 关闭静默判定）。在途工具（``tool_call`` 已发、``tool_result`` 未到）算「有进展」：
     # 一次长的 shell / 子代理调用期间没有事件，但它显然没有卡死。
     idle_timeout: float = Field(default=300.0, ge=0, allow_inf_nan=False)
+    # 单个在途工具的最长在途时间（秒）：超过即按「工具卡死」终结（活动台账 A9② 的独立阈值）。
+    # 默认 1 小时——远高于任何真实工具调用，但让「永不返回的工具」不再无界占住在途名额。
+    tool_inflight_timeout: float = Field(default=3600.0, ge=0, allow_inf_nan=False)
     shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 
 
@@ -271,9 +274,17 @@ class _RunRecord:
         # 期间没有事件，但运行并没有卡死；漏配对时最坏也只是回到「纯事件判定」。
         self.last_activity_at = self.created_at
         self.tools_in_flight = 0
-        # 看门狗终结本次运行的原因（"idle" / "hard" / None）：终态归因与文案据此区分
-        # 「卡死」与「超过运维设的总时长上限」。
+        # 第一条在途工具的时刻（None = 当前无在途工具）：看门狗据此把「工具卡死」也判进静默
+        # 上限（A9②）——只数「有没有在途工具」会让永不返回的工具把名额无界占住。
+        self.tools_in_flight_since: float | None = None
+        # 看门狗终结本次运行的原因（"idle" / "tool" / "hard" / None）：终态归因与文案据此
+        # 区分「卡死」「工具卡死」与「超过运维设的总时长上限」。字段**不清空**（终态文案、
+        # 日志与测试都要读它），「是否已被那次取消消费」由 :attr:`deadline_consumed` 表达。
         self.deadline_reason: str | None = None
+        self.deadline_consumed = False
+        # 用户显式 DELETE 的取消（A9①）：取消可能被 executor 吞过一次，那时
+        # ``deadline_reason`` 仍在——归因必须看「谁发的取消」，不能只看它。
+        self.user_cancel_requested = False
         # 有界 ring buffer：越过窗口的重连（49-4）据此判定 resync_required。
         self.events: deque[RunEventPayload] = deque(maxlen=buffer_size)
         self.subscribers: set[asyncio.Queue[RunEventPayload | None]] = set()
@@ -303,9 +314,13 @@ class _RunRecord:
         """
         self.last_activity_at = time.perf_counter()
         if kind is RunEventKind.TOOL_CALL:
+            if self.tools_in_flight == 0:
+                self.tools_in_flight_since = self.last_activity_at
             self.tools_in_flight += 1
         elif kind is RunEventKind.TOOL_RESULT:
             self.tools_in_flight = max(0, self.tools_in_flight - 1)
+            if self.tools_in_flight == 0:
+                self.tools_in_flight_since = None
         payload = RunEventPayload(kind=kind, seq=self._next_seq, **fields)
         self._next_seq += 1
         self.events.append(payload)
@@ -315,6 +330,29 @@ class _RunRecord:
             except asyncio.QueueFull:
                 self._drop_lagging_subscriber(queue)
         return payload
+
+    def consume_deadline_reason(self) -> str | None:
+        """返回看门狗写入的原因并标记**已消费**（一次性）；已消费则回 ``None``。
+
+        旧实现把 ``deadline_reason`` 当常驻标记：一旦看门狗写过，**之后**任何取消（用户的
+        ``DELETE`` 或关停）都会被归因成 ``timed_out`` 并把取消吞掉（活动台账 A9①）。
+        ``deadline_reason`` **不清空**——终态文案 / 日志 / 测试仍要读它。
+        """
+        if self.deadline_consumed:
+            return None
+        self.deadline_consumed = True
+        return self.deadline_reason
+
+    def try_add_subscriber(self, queue: asyncio.Queue[RunEventPayload | None], limit: int) -> bool:
+        """检查限额与登记订阅者**同一步**完成（同步、无 ``await`` ⇒ 事件循环里原子）。
+
+        旧实现「先查后加」跨两处（端点数、生成器登记）⇒ 并发 ``GET .../events`` 能一起
+        穿过限额，每个订阅者还驻留一个事件队列（活动台账 A9③）。返回 ``False`` 表示已满。
+        """
+        if len(self.subscribers) >= limit:
+            return False
+        self.subscribers.add(queue)
+        return True
 
     def _drop_lagging_subscriber(self, queue: asyncio.Queue[RunEventPayload | None]) -> None:
         """订阅者跟不上（有界队列已满）：**结束它的流**，而不是无限堆积或静默丢事件。
@@ -576,6 +614,8 @@ class HttpRunService:
             return None
         task = self._run_tasks.get(run_id)
         if task is not None and not task.done():
+            # 标记「这是用户发的取消」（A9①），供 ``_execute`` 与看门狗归因区分。
+            record.user_cancel_requested = True
             task.cancel()
             _done, pending = await asyncio.wait({task}, timeout=self.config.shutdown_timeout)
             if pending:
@@ -625,7 +665,15 @@ class HttpRunService:
         取最小时限的 1/4（夹在 10ms..5s）：到点后最多晚一个 tick 发现，又不会为长时限空转占 CPU。
         ``inf``/``nan`` 已被 :class:`HttpServerConfig` 拒掉，故此处不必再防。
         """
-        limits = [value for value in (self.config.request_timeout, self.config.idle_timeout) if value > 0]
+        limits = [
+            value
+            for value in (
+                self.config.request_timeout,
+                self.config.idle_timeout,
+                self.config.tool_inflight_timeout,
+            )
+            if value > 0
+        ]
         if not limits:
             return None
         return min(5.0, max(0.01, min(limits) / 4))
@@ -634,6 +682,8 @@ class HttpRunService:
         """时限终态的客户端文案：**区分**「卡死」与「超过运维显式设的总时长上限」。"""
         if record.deadline_reason == "idle":
             return f"run stalled: no activity for {self.config.idle_timeout:g}s"
+        if record.deadline_reason == "tool":
+            return f"run stalled: a tool has been in flight for over {self.config.tool_inflight_timeout:g}s"
         return f"run exceeded the configured time limit ({self.config.request_timeout:g}s)"
 
     async def _watch_deadlines(self, record: _RunRecord, task: asyncio.Task[Any], tick: float) -> None:
@@ -642,7 +692,9 @@ class HttpRunService:
         两条判据（各自 > 0 才生效）：
 
         - ``request_timeout``：总时长硬上限——运维显式设的兜底闸门，默认 0（不限制）；
-        - ``idle_timeout``：静默上限——**既没有新事件、也没有在途工具**才开始计时。
+        - ``idle_timeout``：静默上限——**既没有新事件、也没有在途工具**才开始计时；
+        - ``tool_inflight_timeout``：单个在途工具的最长在途时间（默认 1 小时）——
+          永不返回的工具不再无界占住名额（A9②）。
 
         为什么不用墙钟 ``asyncio.timeout``：Agent 运行「跑得久」是常态（多轮工具 / 子代理 / goal
         工作流），墙钟当默认会误杀正常长任务；真正该杀的是**卡死**（provider 挂住、吞掉取消）。
@@ -661,6 +713,19 @@ class HttpRunService:
             idle = self.config.idle_timeout
             if idle > 0 and record.tools_in_flight == 0 and now - record.last_activity_at >= idle:
                 record.deadline_reason = "idle"
+                break
+            # 在途工具也要有**上限**：只数「有没有在途工具」会让永不返回的工具把在途名额无界
+            # 占住（活动台账 A9②）。阈值**独立**于 idle_timeout——长 shell / 子代理期间同样没有
+            # 事件，用静默阈值判工具卡死会误杀正常长调用（既有用例
+            # ``test_in_flight_tool_stretches_the_idle_window`` 钉的正是这一点）。
+            tool_limit = self.config.tool_inflight_timeout
+            if (
+                tool_limit > 0
+                and record.tools_in_flight > 0
+                and record.tools_in_flight_since is not None
+                and now - record.tools_in_flight_since >= tool_limit
+            ):
+                record.deadline_reason = "tool"
                 break
         if record.is_terminal:
             # 收尾竞态：判据成立的同时运行自己终结了——终态第一个赢，这里不碰它。
@@ -690,7 +755,16 @@ class HttpRunService:
         try:
             outcome = await executor(record.prompt, RunEventPublisher(record))
         except asyncio.CancelledError:
-            if record.deadline_reason is not None and not self._closing:
+            # 用户显式 DELETE 优先于看门狗归因（A9①）：看门狗的第一次取消可能已被 executor
+            # 吞掉（``deadline_reason`` 仍在且未被消费），此时单看它会把这次 DELETE 记成
+            # ``timed_out`` 并吞掉取消——归因必须看「谁发的取消」。
+            if record.user_cancel_requested and not self._closing:
+                if record.claim_terminal(RunStatus.CANCELLED):
+                    record.append(RunEventKind.CANCELLED, message="run cancelled")
+                    record.close_subscribers()
+                raise
+            reason = record.consume_deadline_reason()
+            if reason is not None and not self._closing:
                 # 看门狗杀的：终态按时限走，并**吞掉**这次取消——与旧实现（``asyncio.timeout`` 把
                 # CancelledError 转成 TimeoutError）同义：任务正常结束，不是 cancelled。
                 if record.claim_terminal(RunStatus.TIMED_OUT):
@@ -710,13 +784,14 @@ class HttpRunService:
                 record.append(RunEventKind.ERROR, message=record.error_message)
                 record.close_subscribers()
         else:
-            if record.deadline_reason is not None and not self._closing:
+            reason = record.consume_deadline_reason()
+            if reason is not None and not self._closing:
                 # 时限已到但 executor 吞掉取消正常返回：终态按实际结果，但「时限没生效」必须可见。
                 _safe_log(
                     logging.WARNING,
                     "http event=timeout_ignored run_id=%s reason=%s elapsed_ms=%d",
                     record.run_id,
-                    record.deadline_reason,
+                    reason,
                     record.elapsed_ms(),
                 )
             if record.claim_terminal(RunStatus.COMPLETED):
@@ -770,6 +845,7 @@ class HttpRunService:
         record: _RunRecord,
         last_event_id: int | None = None,
         *,
+        queue: asyncio.Queue[RunEventPayload | None] | None = None,
         heartbeat_seconds: float = SSE_HEARTBEAT_SECONDS,
     ) -> AsyncIterator[RunEventPayload | None]:
         """SSE 的事件源：先重放缓冲，再跟随实时事件；终态事件之后流立即结束（AD-4）。
@@ -777,10 +853,13 @@ class HttpRunService:
         - ``last_event_id``（``Last-Event-ID``）只重放**严格大于**它的序号（缺口的判定由调用方
           在建立流之前用 :meth:`needs_resync` 做完，这里只管「不重复」）；
         - ``yield None`` 表示**心跳**（注释帧，不占事件 ID、不推进游标）；
-        - 订阅者只读：断线只移除本队列，**绝不**取消运行——取消只能通过 ``DELETE``。
+        - 订阅者只读：断线只移除本队列，**绝不**取消运行——取消只能通过 ``DELETE``；
+        - ``queue`` 由调用方传入时表示**已经登记过**（限额检查与登记必须同一步完成，
+          见 :meth:`_RunRecord.try_add_subscriber`，活动台账 A9③）。
         """
-        queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue(maxsize=record.subscriber_queue_size)
-        record.subscribers.add(queue)
+        if queue is None:
+            queue = asyncio.Queue(maxsize=record.subscriber_queue_size)
+            record.subscribers.add(queue)
         try:
             # 注册订阅者与快照之间没有 ``await`` ⇒ 在单线程事件循环里是原子的：不会有事件
             # 「既在快照里、又被投进队列」而重复发送。
@@ -1171,10 +1250,11 @@ async def _sse_stream(
     record: _RunRecord,
     last_event_id: int | None = None,
     *,
+    queue: asyncio.Queue[RunEventPayload | None] | None = None,
     heartbeat_seconds: float = SSE_HEARTBEAT_SECONDS,
 ) -> AsyncIterator[bytes]:
     """SSE 响应体：只读订阅运行事件；``None`` 转成心跳注释帧；断线即回收订阅者（生成器 finally）。"""
-    async for payload in service.stream_events(record, last_event_id, heartbeat_seconds=heartbeat_seconds):
+    async for payload in service.stream_events(record, last_event_id, queue=queue, heartbeat_seconds=heartbeat_seconds):
         yield SSE_HEARTBEAT_FRAME if payload is None else format_sse(payload)
 
 
@@ -1249,7 +1329,10 @@ def _build_run_endpoints(
                 "event cursor is older than the buffered window; reload the session snapshot",
                 status_code=409,
             )
-        if service.subscriber_count(record) >= config.max_connections:
+        # 限额检查与登记**同一步**完成（同步、无 await ⇒ 事件循环里原子）：旧实现把「先查后加」
+        # 拆在端点与生成器两处，并发 GET /events 能一起穿过限额（活动台账 A9③）。
+        queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue(maxsize=record.subscriber_queue_size)
+        if not record.try_add_subscriber(queue, config.max_connections):
             return _json_error(
                 responses,
                 HttpErrorCode.RATE_LIMITED,
@@ -1257,7 +1340,7 @@ def _build_run_endpoints(
                 status_code=429,
             )
         return responses.StreamingResponse(
-            _sse_stream(service, record, cursor),
+            _sse_stream(service, record, cursor, queue=queue),
             media_type="text/event-stream",
             headers={"cache-control": "no-store", "x-accel-buffering": "no"},
         )

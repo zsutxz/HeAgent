@@ -369,6 +369,9 @@ class Settings(BaseSettings):
     # 单次网页 Agent 运行的**静默**上限（秒）：既没有新事件、也没有在途工具时才开始计时，到点按
     # timed_out 终结并释放 In-flight 名额；0 = 关闭静默判定。
     http_idle_timeout: float = Field(default=300.0, ge=0, allow_inf_nan=False)
+    # 单个在途工具的最长在途时间（秒）：超时按「工具卡死」终结该 run（默认 1 小时）。
+    # 与 http_idle_timeout 分开：长工具期间同样没有事件，用静默阈值会误杀正常长调用。
+    http_tool_inflight_timeout: float = Field(default=3600.0, ge=0, allow_inf_nan=False)
     # 服务关闭时「停止接收 → 终结在途 run → 关闭订阅 → 关闭 listener」全程的等待上限（秒）。
     http_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
     # ---- 网页控制台的配置写入通道（Epic 50 Story 50-5） ----

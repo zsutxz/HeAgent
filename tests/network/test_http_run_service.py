@@ -899,3 +899,64 @@ class TestRunHistoryRetention:
 
         assert service.run(first) is None
         assert service.run(second) is not None
+
+
+# ── A9：运行时归因与兜底族（2026-09-27） ──
+
+
+async def test_a_consumed_deadline_does_not_blame_a_later_delete() -> None:
+    """A9①：看门狗的原因**消费一次**——之后的 DELETE 必须归因成 ``cancelled``，不是超时。"""
+    swallowed = asyncio.Event()
+
+    async def stubborn(prompt: str, publisher: Any) -> RunOutcome:
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            swallowed.set()  # 吞掉**看门狗**的那次取消，继续跑（长工具 / 子代理的常见形态）
+        await asyncio.sleep(3600)
+        return RunOutcome(answer="never")
+
+    service = HttpRunService(_config(idle_timeout=0.05, request_timeout=0.0), stubborn)
+    record = await service.start_run("hi")
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + 2.0
+    # 等到「看门狗的取消已被吞掉、运行仍在跑」这一**可观测条件**成立（不用固定墙钟猜时序）。
+    while not swallowed.is_set() and loop.time() < deadline:
+        await asyncio.sleep(0.01)
+    assert swallowed.is_set(), "executor 应已吞掉看门狗的那次取消"
+    assert record.deadline_reason == "idle"
+    assert record.deadline_consumed is False, "取消被吞时 _execute 根本没跑到 ⇒ 令牌尚未消费"
+
+    await service.cancel_run(record.run_id)
+    await _drain(service)
+
+    assert record.status is RunStatus.CANCELLED, "第二次取消不是看门狗发的，不得记成 timed_out"
+
+
+async def test_a_tool_in_flight_longer_than_its_own_limit_is_reaped() -> None:
+    """A9②：在途工具有**自己的**上限——永不返回的工具不再无界占住名额。"""
+    gate = asyncio.Event()
+
+    async def stuck(prompt: str, publisher: Any) -> RunOutcome:
+        publisher.tool_call("shell", "sleep forever")
+        await gate.wait()
+        return RunOutcome(answer="never")
+
+    service = HttpRunService(_config(idle_timeout=0.0, request_timeout=0.0, tool_inflight_timeout=0.05), stuck)
+    record = await service.start_run("hi")
+    await _drain(service)
+
+    assert record.status is RunStatus.TIMED_OUT
+    assert record.deadline_reason == "tool"
+    assert "a tool has been in flight" in record.events[-1].message
+
+
+def test_subscriber_limit_is_checked_and_registered_in_one_step() -> None:
+    """A9③：限额检查与登记同一步——旧实现「先查后加」让并发订阅能一起穿过限额。"""
+    record = _RunRecord("run-1", "prompt", buffer_size=4)
+    first: asyncio.Queue[Any] = asyncio.Queue()
+    second: asyncio.Queue[Any] = asyncio.Queue()
+
+    assert record.try_add_subscriber(first, 1) is True
+    assert record.try_add_subscriber(second, 1) is False
+    assert record.subscribers == {first}

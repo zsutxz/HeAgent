@@ -131,6 +131,7 @@ def build_server_config(
         run_history_size=settings.http_run_history_size if run_history_size is None else run_history_size,
         request_timeout=settings.http_request_timeout if request_timeout is None else request_timeout,
         idle_timeout=settings.http_idle_timeout if idle_timeout is None else idle_timeout,
+        tool_inflight_timeout=settings.http_tool_inflight_timeout,
         shutdown_timeout=settings.http_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
     )
 
