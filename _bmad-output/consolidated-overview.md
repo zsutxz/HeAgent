@@ -913,7 +913,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### 17.3 下一步（路线图）
 
-> 完整清单（**17 条**活动台账项 + 纪律类产物滞后 + 技术债候选 + 已决策关闭）见 **17.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（**16 条**活动台账项 + 纪律类产物滞后 + 技术债候选 + 已决策关闭）见 **17.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本已 `0.6.2`；`.github/workflows` 目前只有 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
 - ⏳ **安全纵深**：MCP stdio server 子进程接入沙箱（§17.4-A2，中-高）。
@@ -924,9 +924,9 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 > **权威层级**：活动（未闭合）条目以 `implementation-artifacts/deferred-work-archive.md`（append-only 入口）为准；Epic/Story 状态以 `sprint-status.yaml` 为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（17 条，**索引**）
+#### A. 活动台账未闭合条目（16 条，**索引**）
 
-> 完整正文（触发条件 / 严重度理由 / 冻结边界 / evidence / Progress）一律以 `implementation-artifacts/deferred-work-archive.md` 的**活动区**为准（append-only 入口）。本表只做导航、**不再复制**；活动区当前 **17 条**（2026-09-27 实测），编号按台账顺序对应。下表另保留 4 行**已闭合 / 已失效**的编号（A3 / A7 / A9 / A18），供旧引用追溯。
+> 完整正文（触发条件 / 严重度理由 / 冻结边界 / evidence / Progress）一律以 `implementation-artifacts/deferred-work-archive.md` 的**活动区**为准（append-only 入口）。本表只做导航、**不再复制**；活动区当前 **16 条**（2026-09-27 实测），编号按台账顺序对应。下表另保留 5 行**已闭合 / 已失效**的编号（A3 / A5 / A7 / A9 / A18），供旧引用追溯。
 
 | # | 条目 | 严重度 |
 |---|------|--------|
@@ -934,7 +934,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | A2 | MCP stdio server 子进程未接入沙箱（其 env 亦不经 `scrub_sensitive_env`） | **中-高** |
 | A3 | ~~`cli.py` / `cli_goal.py` 职责再拆~~ —— **已闭合**（2026-09-26，`49168b4` + `42d7331`；正文见 `deferred-work-archive.md` 的 A3 小节） | — |
 | A4 | GUI 原生事件渲染（改消费事件契约 v2，替掉 stderr 转发） | 低-中 |
-| A5 | 观测粒度残余（façade 路径 `run_failed` 恒 `duration_ms=0`；story batch 为整批一条事件） | 低 |
+| A5 | ~~观测粒度残余（façade 路径 `run_failed` 恒 `duration_ms=0`；story batch 为整批一条事件）~~ —— **已闭合**（2026-09-23 `1f99cc0`，2026-09-27 台账复核；正文见 `deferred-work-archive.md` 的 A5 小节） | — |
 | A6 | 路径级审批分级（条件性，前置未发生） | 低 |
 | A7 | ~~TCP 入口不写 rollout（`EVENTS_ROLLOUT_ENABLED` 对 `tcp-server` 是死开关）~~ —— **OBSOLETE**（2026-09-27，入口随 Epic 48 整体删除 → 归档为 Z-D18） | — |
 | A8 | 跨项目并发无全局上限（D9 采纳后的已知缺口，计划期登记） | 低-中 |
@@ -943,7 +943,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | A11 | 非回环运行姿态 + cron 跨会话后置执行（**intent_gap，blocked 待人裁决**） | 中 / 中-高 |
 | A12 | 浏览器级 UI 验收不在 CI、也不含真实 LLM 运行 | 低 |
 | A13 | 「高影响键的差异化确认」缺后端风险标记 | 低 |
-| A14 | 写入通道与保真写的四类低危残余（`.env.lock` 落点 / 回滚失败文案 / 写锁内 I/O / 末行无换行） | 低 |
+| A14 | 写入通道与保真写的四类低危残余（`.env.lock` 落点 / 回滚失败文案 / 写锁内 I/O / 末行无换行）——① 已文档化、**② 已闭合（2026-09-27）**、③④ 未修 | 低 |
 | A15 | 网页请求可拉起宿主 GUI 进程（Story 50-8 R2 有意引入的新暴露面；含三种不可用环境） | 低-中 |
 | A16 | 真实原生窗口无法自动化验收 + 网页侧读取结果收敛依赖 `Error:` 前缀判据（Story 50-8 R2/R5） | 低 |
 | A17 | R5 收敛判据对「正文以 `Error:` 开头的文件」失效（AC9 两句话互斥；**intent_gap，blocked 待人裁决**） | 低 |

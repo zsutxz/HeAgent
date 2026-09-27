@@ -4,7 +4,7 @@
 > **归档规则**：按条目**归属的 epic** 归档；「闭合者」注明实际完成它的批次 / commit。
 > **2026-09-27 再回填 2 条**（均为「代码先修、台账后补」）：A9 运行时归因与兜底族（收口评审三镜头）、A18「共 N 个会话」在 N > 200 时少报（Story 50-8 收口后评审）。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码与测试。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）——本周期相关未闭合条目 = 台账 **A8 跨项目并发无全局上限（已随本周期交付成为既成事实，仍无全局上限）/ A10 控制台端点阻塞 I/O（唯一残余 `_runtime_for`，有意保留并有升级条件）/ A11 非回环运行姿态 + cron 跨会话后置执行（`blocked`）/ A12 浏览器级 UI 验收不在 CI / A13 高影响键缺后端风险标记 / A14 写入通道与保真写的四类低危残余 / A15 网页请求可拉起宿主 GUI 进程 / A16 真实原生窗口不可自动化 + `Error:` 前缀判据 / A17 R5 收敛判据对以 `Error:` 开头的文件失效（`blocked`）/ A19 原生目录选择端点默认开（`blocked`）**，编号与正文以台账为准。
+> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）——本周期相关未闭合条目 = 台账 **A8 跨项目并发无全局上限（已随本周期交付成为既成事实，仍无全局上限）/ A10 控制台端点阻塞 I/O（唯一残余 `_runtime_for`，有意保留并有升级条件）/ A11 非回环运行姿态 + cron 跨会话后置执行（`blocked`）/ A12 浏览器级 UI 验收不在 CI / A13 高影响键缺后端风险标记 / A14 写入通道与保真写的四类低危残余（① 已文档化、② 已闭合 2026-09-27、③④ 未修） / A15 网页请求可拉起宿主 GUI 进程 / A16 真实原生窗口不可自动化 + `Error:` 前缀判据 / A17 R5 收敛判据对以 `Error:` 开头的文件失效（`blocked`）/ A19 原生目录选择端点默认开（`blocked`）**，编号与正文以台账为准。
 
 ## 状态总览
 

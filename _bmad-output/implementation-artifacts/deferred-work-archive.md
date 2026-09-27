@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——17 条
+## 活动（未闭合）条目——16 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -33,6 +33,7 @@
 > - 2026-09-27：**闭合 1 条 → Z-D19**（诊断折叠标题把信息性 note 计入「需要注意」并双计 BOM）——`5f4324b` 已实现 `INFORMATIONAL_NOTES` 分级与 BOM 去重，本轮补上缺失的判据（前端探针桩自洽化 + 新用例 `V`：信息性 note 不计入告警、说明仍可见；变异体精确变红）；正文移入 `epics/epic-50-网页控制台周期/deferred-work.md`。活动条目数 21 → 19。
 > - 2026-09-27：**闭合 2 条 → A9 / A18**（★ 均为**代码先修、台账后补**）——A9 运行时归因与兜底族（`a1f7c67`：用户 `DELETE` 优先归因 + `deadline_reason` 一次性消费 / 新增 `HTTP_TOOL_INFLIGHT_TIMEOUT` 独立阈值 / 订阅限额检查与登记同步一步）、A18「共 N 个会话」在 N > 200 时少报（`7b9015f`：`count_sessions` + 协议 `total` + 前端 capped 分支）。正文按归属移入 `epics/epic-50-网页控制台周期/deferred-work.md`；活动条目数 19 → 17。
 > - 2026-09-27：**部分闭合 1 条 → A11②**（cron 跨会话后置执行，`5a8a21e`：`enable_cron=False` 时连 `JobStore` 都不构造 + `new_loop` 守卫）；**① 非回环运行姿态仍 `blocked`**，故本条**留在活动区**。
+> - 2026-09-27：**闭合 1 条 → A5**（观测粒度残余）——两半其实早在 `1f99cc0`（2026-09-23「补齐事件耗时与 逐 story 观测粒度」）就已修掉并带判据，只是台账一直没同步；本轮复核后按勘察类移入下方闭合归档，活动条目数 17 → 16。
 > - 2026-09-27：**归档 1 条 → Z-D20**（TCP 入口删除后的活文件残留，当日勘察 + 当日闭合）——`4217b5d` 只清了 `docs/frame.md`，README 整节 / CLAUDE.md 命令表 / `.env.example` 8 个 `TCP_*` 键 / 12 处 docstring 仍在宣告该入口（全仓 493 处命中、非历史面 40 余处）；分层清理后新增可执行判据（变异体 3/3 精确变红）。正文移入 `epics/epic-48-TCP网络接口周期/deferred-work.md`。活动条目数不变（17）——该条**登记即闭合**，未进活动区。
 
 - source_spec: `src/heagent/context/session.py::save` + `src/heagent/agent/run_lifecycle.py`（Epic 50 Story 50-3 把「网页运行 → 会话落盘」接进同一 `.heagent/sessions`）
@@ -60,10 +61,6 @@
 - source_spec: `_bmad-output/implementation-artifacts/arch-optimization-cycle/phase5-observability-benchmarks-docs.md`（V-系列排除项 + C3 文档收口结论）
   summary: **GUI 原生事件渲染**：GUI 观测仍走 stderr 转发（行为冻结，`gui/screens/chat.py` 自述「文案冻结」）；事件契约 v2（`RunEvent.duration_ms`/`error_kind` 顶层字段 + workflow_step_* kind）已为此铺路——GUI EventLog 可直接读事件渲染耗时/失败分类/步骤轨迹，不再受 CLI 文案约束。触发条件：GUI 观测升级需求；严重度：低-中；冻结边界：EngineEvent 模型与 GUI 既有消费面不破坏。
   evidence: `src/heagent/events/protocol.py`（v2 字段）、`src/heagent/gui/observers.py`（读 EngineEvent）、`gui/bridge.py`（StreamEvent 通道）；Phase 3 spec「不把 GUI 的 stderr 转发升级为原生渲染」排除项。
-
-- source_spec: `_bmad-output/implementation-artifacts/arch-optimization-cycle/phase5-observability-benchmarks-docs.md`（Change Log ② + C1 测试注释）
-  summary: **观测粒度残余**：① `AgentLoop._on_run_failed` façade 包装路径的 `run_failed` 事件恒 `duration_ms=0`（未计时；真实路径 `execute_run`/`stream_run` 已带全程耗时）；② workflow story batch（`max_parallel_stories>1`）路径事件为**整批一条** started/completed，非逐 story。触发条件：消费方（GUI/replay 分析）需要该粒度时；严重度：低；冻结边界：不加字段不改既有事件语义，仅补测量与发射。
-  evidence: `src/heagent/agent/loop.py:_on_run_failed`（未透传 duration）；`engine/workflow_runner.py:_run_story_batch`（批内 gather 不逐 story emit）。
 
 - source_spec: `_bmad-output/epics/epic-36-39-文件安全防护周期/brief.md`（`### Deferred（未来考虑）`：「路径级审批分级（若未来引入非 workspace 的受控写场景）」）
   summary: 路径级审批分级（**条件性条目，前置未发生**）：当前审批粒度是工具级（destructive → 审批），file 工具一律被限制在 workspace 内，所以「按路径分级审批」暂无触发场景。触发条件：引入「非 workspace 的受控写场景」（例如经审批向 workspace 外写）；严重度：低（前置未发生）；冻结边界：分级只能是 `PolicyEngine` 的 defense-in-depth 标记，不得表述为 OS 级边界，也不得放松 workspace 围栏默认值。
@@ -104,7 +101,20 @@
 - source_spec: 2026-09-24 Epic 50 收口评审（第二轮）· 写入通道与保真写的低危残余（`reviews.md#review-epic-50-closure`）
   summary: **四类 low 级残余**（都在写入通道 / 保真写面上，均不阻塞收口）：① **`.env.lock` 落在用户项目根** —— `pub.persist.atomic_update_bytes` 的锁文件与目标**同目录**，故写项目 `.env` 会在**用户的项目根**留下 0 字节 `.env.lock`（评审探针实测：`['.env','.env.lock','.heagent']`）；HeAgent 自己的仓库有 `.gitignore` 条目，**用户的项目没有**。② **回滚失败时的文案不实** —— 回读不符时无条件回 `the project .env was rolled back to its previous content`，而回滚本身失败只 `logger.error`（`persist._restore_bytes`）⇒ 对直接调 API 的客户端是假话（UI 侧文案诚实：「服务端已尝试恢复备份」，且该码不在 JS 的 `DETAIL_CODES` 里、不显示服务端 message）。③ **写锁内 I/O 时长** —— `validate_candidate`（构造 `Settings` ⇒ 读候选临时文件 + 全局 `.env` + 环境）与备份目录扫描都在**跨进程锁内**完成 ⇒ 并发热点下写方可能得到 `config_write_failed`（锁超时 5s）而非 `config_conflict`（**fail-closed：无损坏、无部分写入**）。④ **无末行换行文件的追加约定** —— 追加新键沿用「文件无末行换行」这一属性（实测 `MAX_ITERATIONS=5\nSHELL_TIMEOUT=60`），是有意保真，但部分工具约定「文件必须以换行结尾」⇒ 记入备查。
   evidence: `src/heagent/pub/persist.py::atomic_update_bytes`（`lock_path = path.with_name(path.name + ".lock")`）；`src/heagent/config/write.py::_verify` 与 `_apply_locked`（候选构造 / 备份回收在 `atomic_update_bytes` 的回调内）；`src/heagent/config/envfile.py::replace_or_append`（末行换行跟随文件）；探针 `.heagent/tmp/review50_probe.py` 的 B / E / K 三例实测输出；评审报告镜头一 #1/#2/#3 与镜头二 ⑤。
-  Progress（2026-09-24 登记；**2026-09-27 ① 按允许的「文档说明」修法落地**）：① 已在 `docs/frame.md` §4.18 的写通道行如实写明副作用（锁与目标同目录 ⇒ 写项目配置会在**用户项目根**留 `<项目根>/.env.lock`；HeAgent 自带 `.gitignore` 条目、用户项目没有），并重申**锁的落点语义不改**。②③④ 仍未修（冻结边界）: ① 锁文件**刻意不删**（删除会引入「B 等旧 inode、C 拿新文件加锁成功」的竞态，见 `persist` 模块注释），挪到状态目录会改变锁语义 ⇒ 修法只能是「写入方提示 / 文档说明」，**不得**改锁的落点语义；② 精确文案需把回滚结果从 `persist` 回传（新增返回值或异常类型），属改造；③ 收窄需「锁外构造候选 + 锁内复检指纹」的乐观重试，属流水线结构调整。三条都超出「评审期最小修复」范围，故如实登记而非草率改动。
+  Progress（2026-09-24 登记；**2026-09-27 ① 按允许的「文档说明」修法落地**）：① 已在 `docs/frame.md` §4.18 的写通道行如实写明副作用（锁与目标同目录 ⇒ 写项目配置会在**用户项目根**留 `<项目根>/.env.lock`；HeAgent 自带 `.gitignore` 条目、用户项目没有），并重申**锁的落点语义不改**。③④ 仍未修（冻结边界；② 的改造已在 2026-09-27 落地）: ① 锁文件**刻意不删**（删除会引入「B 等旧 inode、C 拿新文件加锁成功」的竞态，见 `persist` 模块注释），挪到状态目录会改变锁语义 ⇒ 修法只能是「写入方提示 / 文档说明」，**不得**改锁的落点语义；③ 收窄需「锁外构造候选 + 锁内复检指纹」的乐观重试，属流水线结构调整。三条都超出「评审期最小修复」范围，故如实登记而非草率改动。
+  Progress（2026-09-27，**② 已闭合**，commit `a1b9403`）：回滚失败不再是内部细节——`persist` 新增 `RollbackFailedError`
+  （`__cause__` = 原回读异常、`rollback_error` = 回滚失败原因），`atomic_update_bytes` 在「``verify`` 抛错
+  且 ``_restore_bytes`` 也抛错」时抛它；写通道据此给出**如实**文案（`post-write verification failed and the
+  previous content could not be restored (<原因>)`，不再无条件宣称「已回滚」）并落 `rollback_failed` 审计。
+  判据 3 条（`tests/test_persist_atomic.py::TestAtomicUpdateBytes::test_verify_failure_with_a_failed_rollback_is_reported`、
+  `tests/test_config_write.py::TestFailureRecovery::test_failed_rollback_is_reported_truthfully`、
+  `::test_rollback_failure_is_audited_even_without_the_readback_flag`），变异体 **4/4 精确变红**
+  （`.heagent/tmp/mutate_a14_rollback.py`：吞掉回滚失败 / 不接住新异常 / 审计退回 `rolled_back` /
+  审计退回「只在 `readback_failed` 时落痕」的漏记窗口）；`docs/frame.md` §4.18 的审计行与写通道行同步。
+  **实现期的一处自我修正**：新 handler 起初照抄兄弟分支写了 `if state.readback_failed:`，覆盖率暴露出该 False
+  分支永不执行（`RollbackFailedError` 只可能来自设过标志的 `_verify`）——与其留一条测不到的分支，改为
+  **无条件落审计**并写明理由（「回滚失败」本身即足以构成留痕理由，漏记才是错），第 3 条判据钉住这一点。
+  **③④ 仍未修**（冻结边界不变）。
 
 - source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R2 原生目录选择，2026-09-24 实现）
   summary: **网页请求可拉起宿主 GUI 进程（有意引入的新暴露面）**：`POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹出一个原生目录选择窗口（子进程 `tkinter` / `powershell`）。它带来的是便利而非权限（返回值仍要过 `POST /api/projects` 全套校验），但暴露面是实打实的：**任何能连上该端口的本机进程都能让服务机弹窗**（骚扰面），而「回环 peer」不等于可信（用户自己浏览器里的任意页面 peer 也是 `127.0.0.1`，见 frame 五同名条目）。另有三种**不可用**环境：无图形后端（容器 / 缺 `_tkinter` 的 Linux）、服务在远程机器而浏览器在别处（窗口弹在服务机，对调用者无用）、`--dialog-backend none` 显式禁用。触发条件：把服务绑到可被其它本机进程访问的端口 / 在无 GUI 环境部署；严重度：低-中（不崩、不改数据，最坏是弹窗骚扰与一次失败的登记尝试）；冻结边界：**不得**把它表述为安全边界，**不得**为「更安全」而改成服务端目录浏览 API（那会把宿主目录结构开放给回环客户端），也**不得**让它绕过 `POST /api/projects` 的任何校验（选择器不是权限来源）。
@@ -130,11 +140,11 @@
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 23 条：13 条勘察类正文保留在本文件，10 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 17 条未闭合条目。
+> 当前闭合归档共 24 条：14 条勘察类正文保留在本文件，10 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 16 条未闭合条目。
 
 ## 状态总览
 
-**① 勘察类（正文在本文件）——13 条**
+**① 勘察类（正文在本文件）——14 条**
 
 | ID | 条目 | 结论 | 闭合 commit |
 |----|------|------|-------------|
@@ -151,6 +161,7 @@
 | Z-D17 | 会话 `.json.lock` 无回收方（随会话数单调增长） | 已闭合（孤儿 + 年龄超限 + **非阻塞加锁证明无人持有**三判据；残余 µs 级竞态如实记录） | `8c3cbc1`（2026-09-27） |
 | Z-D16 | 会话 id 放行 Windows 保留设备名（静默丢数据） | 已闭合（存储侧 + 网络层镜像 + CLI 三处；字符集不放宽，只**追加**保留名拒绝） | `8c3cbc1`（2026-09-27） |
 | A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26：收进 `heagent/cli/` 包 + 包内再拆三个模块；正文见下方「A3」小节） | `49168b4` + `42d7331`（另 `ea2e347` 收纳入口辅助）（2026-09-26） |
+| A5 | 观测粒度残余（facade `run_failed` 恒 `duration_ms=0` / 并行批次只发整批一条事件） | 已闭合（2026-09-23 修为 + 2026-09-27 台账复核；正文见下方「A5」小节） | `1f99cc0` |
 
 **② 已按归属 epic 回填（正文在各自周期目录）——5 条**
 
@@ -284,3 +295,20 @@
 - **验证（2026-09-27 亲跑）**：新增 4 例测试（`tests/test_file_locking.py::TestReapDanglingLocks` 3 例：只回收超龄孤儿 / **持有中的锁绝不回收** / 缺目录与空目录返回 0；`tests/test_session.py::TestSessionPruneReapsOrphanLocks` 1 例：prune 回收超龄孤儿锁且不动在用会话的锁）。变异体 **4/4 精确变红**（`.heagent/tmp/mutate_reap_locks.py`）：M1 去掉孤儿判据 / M2 去掉年龄门槛 / M3 去掉「无人持有」证明 / M4 去掉 prune 接线；**M3 首轮不红**——Windows 上「持有句柄的文件本就 unlink 不掉」把缺证明的形态遮住了，故给该用例加一条 spy 断言（回收前必须发生 `timeout=0` 的加锁尝试），据此 M3 变红；每处字节还原后基线复绿。全量 `pytest -q` **3183 passed / 11 skipped / 18 deselected**；`ruff check` + `format --check`（285 files）与 `mypy`（本机 + `--platform linux`）全绿。
 - **复审补强（2026-09-27 同日后复审）**：回收前先 `is_symlink()` 跳过——与本项目其它 GC（沙箱会话目录、编辑快照）同立场「符号链接一律不动、绝不穿透」：删除链接会误伤别人的锁，跟随链接还会删到目标。回归 `tests/test_file_locking.py::TestReapDanglingLocksSymlinkGuard`（本机无法建真符号链接，判据钉在 `Path.is_symlink` 桩上）；变异体去掉该护栏 ⇒ 精确变红。
 - **残余（如实记录，未消除）**：Windows 无法在持有句柄时 `os.unlink`（句柄会让 unlink 报 `PermissionError`），故先 `close` 再 `unlink`，其间存在 **µs 级窗口**；POSIX 则在持有期内 unlink。两种形态都仍需「写入方已打开旧 inode 但尚未加锁」与「第三个写入方落在同一窗口」同时成立，且对象必须是孤儿 id（记录已回收、锁年龄超限）才会失效。触发概率极低、后果仅是该 id 的一次并发写覆盖，故按低危接受。**要彻底消除需改变锁的落点协议**（每目录固定分桶锁：锁文件数恒定、永不需要回收），属独立设计决策，未在本次擅自实施。
+
+## A5 观测粒度残余（facade `run_failed` 无耗时 / 并行批次不逐 story 发事件）
+
+- **来源**：架构优化周期 phase5（`arch-optimization-cycle/phase5-observability-benchmarks-docs.md` 的 Change Log ② + C1 测试注释）；2026-09-27 复核时按「条目闭合后归入勘察类闭合归档」规则由活动区移入本文件。
+- **原条目正文（保留原文以存证）**：
+
+- source_spec: `_bmad-output/implementation-artifacts/arch-optimization-cycle/phase5-observability-benchmarks-docs.md`（Change Log ② + C1 测试注释）
+  summary: **观测粒度残余**：① `AgentLoop._on_run_failed` façade 包装路径的 `run_failed` 事件恒 `duration_ms=0`（未计时；真实路径 `execute_run`/`stream_run` 已带全程耗时）；② workflow story batch（`max_parallel_stories>1`）路径事件为**整批一条** started/completed，非逐 story。触发条件：消费方（GUI/replay 分析）需要该粒度时；严重度：低；冻结边界：不加字段不改既有事件语义，仅补测量与发射。
+  evidence: `src/heagent/agent/loop.py:_on_run_failed`（未透传 duration）；`engine/workflow_runner.py:_run_story_batch`（批内 gather 不逐 story emit）。
+
+- **结论**：**已闭合**（2026-09-23，commit `1f99cc0`「补齐事件耗时与逐 story 观测粒度」）——**两半都在那一次交付里修掉了，只是台账未同步**：
+  ① `AgentLoop._on_run_failed` 增加 `duration_ms: int | None = None`，缺省时由 `run_lifecycle.on_run_failed` 用 `run_elapsed_ms(loop)` **现算**（run 起点记在 `_run_started`，注释明确写「含 facade 的 `_on_run_failed` 路径」）⇒ façade 路径不再恒报 0；
+  ② `WorkflowRunner._run_story_batch` 在**批级事件之外**为批内每条 story 各发一组 `workflow_step_started/completed/failed`（带自己的 `story` / `duration_ms` / `error_kind`）。
+- **冻结边界（守住）**：不加字段、不改既有事件语义，只补测量与发射——**批级那条 started/completed 仍在**（它标记「这一步」，测试注释写明「整批一条」），逐 story 事件是**新增的另一组**，不是替换。
+- **证据**：`tests/test_run_status_contract.py::TestRunStatusContract::test_failed_run_reports_measured_duration`（provider 睡 30ms 后抛错 ⇒ `duration_ms >= 20`）与 `::test_facade_on_run_failed_reports_measured_duration`（直接调 façade 的同名断言）；`tests/test_story_loop.py::test_parallel_batch_emits_per_story_events`（同时断言批级一条与逐 story 两条）与 `::test_parallel_batch_failed_story_reports_its_own_failure_event`；文档已记在 `docs/frame.md` 的事件契约表（`run_failed` 的「duration（缺省由 `run_elapsed_ms(loop)` 现算——facade `_on_run_failed`…」与 `workflow_step_*` 行）。
+- **本轮复核（2026-09-27 亲跑）**：`pytest -q` 全量 3097 passed；`grep` 复核台账原登记的三个落点（`agent/loop.py:_on_run_failed`、`engine/workflow_runner.py:_run_story_batch`、事件契约表）均已符合结论。
+
