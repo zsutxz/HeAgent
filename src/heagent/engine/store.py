@@ -114,7 +114,14 @@ class RunStore:
 
         各可选参数为 None 时保留原值；深拷贝入参，避免外部对象被后续修改污染快照。
         """
-        snapshot = await self.load(context.run_id)
+        try:
+            snapshot = await self.load(context.run_id)
+        except RuntimeError as exc:
+            # 中断时事件循环可能已关闭，to_thread() 会抛 RuntimeError
+            if "no running event loop" not in str(exc):
+                raise
+            # 静默返回空路径 - 快照未保存，但不阻断清理流程
+            return ""
         if snapshot is None:
             snapshot = RunSnapshot(context=context.model_copy(deep=True), prompt=prompt, system=system)
         snapshot.context = context.model_copy(deep=True)
@@ -137,7 +144,13 @@ class RunStore:
         path = self._path(snapshot.context.run_id)
         payload = snapshot.model_dump(mode="json")
         text = json.dumps(payload, ensure_ascii=False, indent=2)
-        await asyncio.to_thread(atomic_write_text, path, text, lock=self._enable_locks)
+        try:
+            await asyncio.to_thread(atomic_write_text, path, text, lock=self._enable_locks)
+        except RuntimeError as exc:
+            # 中断时事件循环可能已关闭，to_thread() 会抛 RuntimeError
+            if "no running event loop" not in str(exc):
+                raise
+            # 静默返回路径 - 快照未保存，但不阻断清理流程
         return str(path)
 
     async def load(self, run_id: str) -> RunSnapshot | None:

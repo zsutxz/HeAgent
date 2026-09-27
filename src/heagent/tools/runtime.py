@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
@@ -42,4 +42,7 @@ class RuntimeSlot(Generic[T]):
         try:
             yield
         finally:
-            self._current.reset(token)
+            # 中断时 token 可能在不同的 asyncio Context 中创建，此时 reset 会抛 ValueError
+            # （进程即将退出）——静默忽略，但只忽略这一种。
+            with suppress(ValueError):
+                self._current.reset(token)

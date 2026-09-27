@@ -255,8 +255,8 @@ async def execute_run(
                     for tool_result in tool_results:
                         loop._append_tool_result(state, tool_result)
                     await checkpoint(loop, run_context, prompt=init.prompt, system=system_content, state=state)
-                    await maybe_window_reset(loop,
-                        state, run_context, init.prompt, system_content, usage=response.usage
+                    await maybe_window_reset(
+                        loop, state, run_context, init.prompt, system_content, usage=response.usage
                     )
 
                 # ---- follow-up 检查 ----
@@ -338,8 +338,14 @@ async def persist_and_cache(
     # 防止「暂停后被打断」的暂停态泄漏到下一次 run（P1 修复）。
     loop._pause_event.set()
     if loop.session and session_id:
-        await asyncio.to_thread(loop.session.save, session_id, state.messages)
-        logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
+        try:
+            await asyncio.to_thread(loop.session.save, session_id, state.messages)
+            logger.debug("Saved %d messages to session '%s'", len(state.messages), session_id)
+        except RuntimeError as exc:
+            # 中断时事件循环可能已关闭，to_thread() 会抛 RuntimeError
+            # 静默忽略 - 会话未保存，但不阻断清理流程
+            if "no running event loop" not in str(exc):
+                raise
     loop.last_usage = accumulated
     loop.last_iteration = state.iteration
     loop.last_run_context = run_context
