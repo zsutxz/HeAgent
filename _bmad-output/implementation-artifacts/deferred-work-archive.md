@@ -159,9 +159,9 @@
 | Z-D8 | `RoleSpec.sandbox_profile` 死字段 | 已闭合（取**删除**方向，非激活） | 已提交 `dfe6eef`（2026-09-18） |
 | Z-D9 | 沙箱无进程数限额 + WinJob 常量误写 | 已闭合（`SANDBOX_NPROC_LIMIT` + 修正 `PROCESS_TIME=0x2`） | 已提交 `8de6c63`（2026-09-18） |
 | Z-D12 | MEMORY.md 非 UTF-8 让整个 run 起不来 | 已闭合（fail-soft：跳过注入 + **点名文件**的告警；文件字节一字不动） | `b01e09c`（2026-09-23） |
-| Z-D17 | 会话 `.json.lock` 无回收方（随会话数单调增长） | 已闭合（孤儿 + 年龄超限 + **非阻塞加锁证明无人持有**三判据；残余 µs 级竞态如实记录） | 待提交（2026-09-27 工作区） |
-| Z-D16 | 会话 id 放行 Windows 保留设备名（静默丢数据） | 已闭合（存储侧 + 网络层镜像 + CLI 三处；字符集不放宽，只**追加**保留名拒绝） | 待提交（2026-09-27 工作区） |
-| A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26：收进 `heagent/cli/` 包 + 包内再拆三个模块；正文见下方「A3」小节） | 待提交（2026-09-26 工作区） |
+| Z-D17 | 会话 `.json.lock` 无回收方（随会话数单调增长） | 已闭合（孤儿 + 年龄超限 + **非阻塞加锁证明无人持有**三判据；残余 µs 级竞态如实记录） | `8c3cbc1`（2026-09-27） |
+| Z-D16 | 会话 id 放行 Windows 保留设备名（静默丢数据） | 已闭合（存储侧 + 网络层镜像 + CLI 三处；字符集不放宽，只**追加**保留名拒绝） | `8c3cbc1`（2026-09-27） |
+| A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26：收进 `heagent/cli/` 包 + 包内再拆三个模块；正文见下方「A3」小节） | `49168b4` + `42d7331`（另 `ea2e347` 收纳入口辅助）（2026-09-26） |
 
 **② 已按归属 epic 回填（正文在各自周期目录）——5 条**
 
@@ -252,7 +252,7 @@
 - **来源**：2026-09-17 架构与代码优化勘察（活动编号 A3；原编号见该轮勘察表）。
 - **问题**：`cli.py`（2026-09 中旬 1163~1565 行，6+ 类职责：Click 命令层 / provider 装配 / REPL 与斜杠命令 / 会话与展示辅助）与 `cli_goal.py`（1150+ 行）职责混杂，难读难测；`wiring.py` 先例（docstring 记录拆分理由）已给出拆分范式。
 - **冻结边界**：只挪代码不改行为；大量测试 monkeypatch **模块路径缝**（`heagent.cli._run_prompt`、`cli.sys`、`cli_goal._goal_session` 等）——被 patch 的目标函数**及其调用方**必须留在同一模块。
-- **结论**：**已闭合**（2026-09-26，工作区待提交）。分两批交付：
+- **结论**：**已闭合**（2026-09-26；commits `49168b4`（收进包）+ `42d7331`（包内再拆），另 `ea2e347` 收纳入口辅助 `slash`/`terminal`/`wiring`/`housekeeping`）。分两批交付：
   1. **收进包**：七个平铺 `cli*.py` → `heagent/cli/` 包（`console.py`/`init.py`/`goal.py`/`http.py`/`tcp.py`/`dialogs.py`/`display.py`），`__init__.py` **零 import**，入口脚本改指 `heagent.cli.console:main`；契约测试按**包根** `heagent.cli` 收敛入口层判据，并新增「包壳零 import」「布局钉死」「入口点可导入」三条断言。
   2. **包内再拆**：`cli.py`（1252 行）拆为 `console.py`（443：命令层 + 启动编排）/ `composition.py`（322：装配）/ `interactive.py`（587：单次/交互执行 + 斜杠命令族）；`cli_http.py`（1139 行）拆为 `http.py`（454：服务与生命周期装配）/ `http_console.py`（740：项目/会话/配置面）。缝按**调用方**分模块落位：`_run_prompt`/`_run_single` 在 interactive（console 侧用函数内导入读 `_run_single`）、`_build_loop` 在 composition（网络侧函数内导入）、`_run_cli_impl`/`_mcp_lifecycle`/`_build_provider` 留在 console（其调用方在此）。
 - **验证（实测）**：全量 `pytest` **3149 passed** / 覆盖率 **92%**（门限 87；`interactive.py` 按交互层口径 omit）/ `ruff check`+`format --check` 全绿 / `mypy src` 与 `--platform linux` 双绿（151 files）；拆分批次的负向验证 **3/3 精确变红**（① console 把函数内导入改成模块级 ⇒ `test_cli_tcp` 红；② `cli/http_console.py` 的 `_build_loop` 延迟导入改指 interactive ⇒ `test_cli_http` 3 例红；③ interactive 多导入 `_goal_session` ⇒ 缝钉死用例红），全部字节还原并复核 sha256。
