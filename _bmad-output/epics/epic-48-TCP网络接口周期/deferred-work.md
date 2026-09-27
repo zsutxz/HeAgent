@@ -11,6 +11,7 @@
 |----|------|------|------|--------|
 | Z-D10 | Epic 48 · Story 48-5 评审 C-1 | 运行栈日志的观测故障免疫 | 已闭合（2026-09-23） | 可观测性与日志卫生批次（`safe_log` 逐调用点 + 进程级 `install_logging_fault_guard`） |
 | Z-D11 | Epic 48 · Story 48-5 评审 C-2 | 日志行的凭证脱敏 | 已闭合（2026-09-23） | 同批次（`LoggingObserver` 掩码 `target` / `details`） |
+| Z-D18 | Epic 48 · Story 48-5 评审 W-2 | TCP 入口不写 rollout（`EVENTS_ROLLOUT_ENABLED` 死开关） | **OBSOLETE**（2026-09-27，随入口删除失效） | 入口已由 `4217b5d` 整体删除，不再需要修复 |
 
 ---
 
@@ -33,3 +34,10 @@
 - **结论**：**已闭合**（2026-09-23，同一批次）。`LoggingObserver` 打印前对 `target` 与 `details` 掩码：`redact_secrets`（键值形态 / CLI 旗标 / 厂商前缀 `sk-`·`ghp_`·`AKIA`·`AIza`·JWT / `Bearer` / URL userinfo）+ `redact_details`（按键名掩码，覆盖 `{"secret": "x"}` 这类无形状可认的短值；浅层遍历、深度上限 3）。选择**掩码而非截断**：`shell` 命令结构对审查有价值，不该丢；也不依赖调用方自觉。
 - **证据**：`tests/test_safe_logging.py` 的参数化用例（12 种凭证形态逐个掩码、7 类普通文本零误伤、幂等）+ `LoggingObserver` 经 caplog 断言日志行不含原文。
 - **边界（如实标注）**：模式匹配**非完备**，必有漏网形态；`shell` target 仍不截断；`logs/`、`.heagent/runs/`（run 快照与 rollout JSONL）按设计保存完整 prompt 与消息，**不在**本次覆盖内——仍须 OS 级沙箱兜底并避免把凭证写进命令或路径。
+
+## Z-D18 TCP 入口不写 rollout（OBSOLETE）
+
+- **来源**：Epic 48 Story 48-5 评审 W-2（活动区条目，2026-09-27 归档时标记失效）。
+- **原问题**：`EVENTS_ROLLOUT_ENABLED` 对 `heagent tcp-server` 是**死开关**——`JsonlSink` 唯一构造点在 `cli/composition._build_event_sink`，网络入口不订阅 sink ⇒ 开关开启也不产生 `.heagent/runs/<run_id>/rollout.jsonl`。接入前须先定并发语义（`JsonlSink` 的 `seq` / `_last_run_id` 是 sink 全局的，而 TCP 入口共享一个 `EngineContainer` / `EventBus` 并发服务多请求）。
+- **结论**：**OBSOLETE（2026-09-27）**——Epic 48 TCP 网络接口已于 `4217b5d` 整体删除，本条目随入口一并失效，不再需要修复。删除记录见本周期 `REMOVAL-NOTICE.md` 与 `retrospective-epic-48.md` 第七节。
+- **证据**：原活动条目（`implementation-artifacts/deferred-work-archive.md` 的 Z-D18 索引行）；`tests/test_tcp_agent_integration.py` 随入口删除。

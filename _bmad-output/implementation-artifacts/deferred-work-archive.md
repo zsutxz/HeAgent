@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——20 条
+## 活动（未闭合）条目——19 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -28,18 +28,15 @@
 > - 2026-09-27：**证据路径刷新**（对照 `src/` 实测）——活动条目里 2026-09-26 包化重构前的路径（`cli_http.py` / `cli.py` / `cli_dialogs.py` / `config_catalog.py` / `config_write.py` / `envfile.py` / `persist.py` / `config.py`）与逐点行号更新为现名现址；同步 `epics/epic-50-网页控制台周期/deferred-work.md` 的 Z-D13 / Z-D14 两处
 > - 2026-09-27：**闭合 1 条 → Z-D16**（会话 id 放行 Windows 保留设备名）——存储侧 `WINDOWS_RESERVED_DEVICE_NAMES` + 校验器转公开、网络层镜像同判据、CLI `--resume` 早期 fail-loud；新增 19 例测试，变异体负向验证 **4/4 精确变红**，全量 3173 passed；正文见下方同名小节
 > - 2026-09-26：**闭合 1 条 → A3**（入口层职责再拆）。分两批交付：七个平铺 `cli*.py` 收进 `heagent/cli/` 包（`__init__.py` 零 import、入口脚本改指 `heagent.cli.console:main`、契约按包根收敛），再把 `cli.py` 拆为 `console.py`/`composition.py`/`interactive.py`、`cli_http.py` 拆为 `http.py`/`http_console.py`；正文移入下方「A3」小节（本区不留副本）。实测：全量 3149 passed / 覆盖率 92% / ruff·mypy 双平台全绿 / 拆分批负向验证 3/3 精确变红
-> - 2026-09-27：**标记 1 条为 OBSOLETE**（TCP 入口不写 rollout）——Epic 48 TCP 网络接口已于 commit `4217b5d` 完全删除，本条目随之失效。活动条目数从 21 降至 20。
+> - 2026-09-27：**标记 1 条为 OBSOLETE**（TCP 入口不写 rollout）——Epic 48 TCP 网络接口已于 commit `4217b5d` 完全删除，本条目随之失效。
+> - 2026-09-27：**归档 1 条 → Z-D18**（TCP 入口不写 rollout，OBSOLETE）——正文按归属移入 `epics/epic-48-TCP网络接口周期/deferred-work.md`，本区不再留副本。
+> - 2026-09-27：**闭合 1 条 → Z-D19**（诊断折叠标题把信息性 note 计入「需要注意」并双计 BOM）——`5f4324b` 已实现 `INFORMATIONAL_NOTES` 分级与 BOM 去重，本轮补上缺失的判据（前端探针桩自洽化 + 新用例 `V`：信息性 note 不计入告警、说明仍可见；变异体精确变红）；正文移入 `epics/epic-50-网页控制台周期/deferred-work.md`。活动条目数 21 → 19。
 
 - source_spec: `src/heagent/context/session.py::save` + `src/heagent/agent/run_lifecycle.py`（Epic 50 Story 50-3 把「网页运行 → 会话落盘」接进同一 `.heagent/sessions`）
   summary: **同一会话文件的两个写者会整份覆盖对方的历史（静默数据丢失）**：运行落盘的 `save()` 不传 `expected_version`（last-write-wins），而文件锁只覆盖「单次读改写」、不覆盖 `load → … → save` 的整个跨度 ⇒ CLI 与内嵌网页入口（默认项目根 = 进程 cwd = 同一工作区，`.heagent/sessions` 同一目录）并发写同一会话时，后写者用 `_session_payload` **替换整份消息列表**，对方的整轮对话消失，且 `version` 照样单调递增（没有任何一方能发现）。触发条件：同 cwd 下 CLI 与会话页并存，且网页 `POST /api/projects/default/runs` 不带 `session_id`（`_resolve_session(None)` 取**最近**会话，往往正是 CLI 正在写的那个）；严重度：中（静默数据丢失）；冻结边界：**不得**改成「版本冲突即让运行落盘失败」（那会丢**当前**对话）；正确方向是单写者化 / 合并语义，或把冲突降级为可观测告警。
   evidence: 读码 `session.py::save`（`expected_version: int | None = None` 默认，仅非 None 时比对并抛 `SessionConflictError`）与 `run_lifecycle` 的落盘调用（只传 `session_id` + 消息列表）；`tests/network/test_http_console_sessions.py` 的替身**刻意**按「不传 `expected_version`」建模（把 last-write-wins 钉成现状），`tests/test_session.py` 只覆盖单写者覆盖。
   Progress（2026-09-26 登记）：修法需要跨 `agent/`（落盘调用点）与 `context/`（合并语义）设计，超出评审的最小修复范围。
   Progress（2026-09-27 部分改进）：**已添加可观测性机制**——`SessionStore.save()` 新增可选参数 `last_known_version`，当提供且磁盘版本跳过多个版本时（说明有其他写者介入），发出 WARNING 日志。这不会阻止写入（last-write-wins 语义保持不变），但让并发写入变得可观测，便于诊断和审计。新增 4 例测试（`TestConcurrentWriteObservability`）验证版本跳跃检测、正常递增、无参数时的行为。**根本修复仍需单写者化或合并语义**，当前为防御性改进。
-
-- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R4 的诊断折叠标题；Epic 50 第四轮评审发现）
-  summary: **诊断折叠标题把信息性 note 计入「需要注意」并把块标成 `failed`**：`app.js::renderDiagnostics` 把 `config.notes` **整条** push 进 `warnings`，而 notes 里混着纯信息项（`project_env_missing` = 「项目 .env 不存在：全部字段回退到全局 .env / 默认值」，新项目的**常态**）⇒ 一个刚登记、没有任何 `.env` 的项目一打开设置面板就看到红色的「1 条需要注意」；同一事实还会**双计**（BOM：前端硬编码的 `env_file.has_bom` 告警 + `project_env_bom_stripped` 这条 note 各推一条）。触发条件：项目无 `.env`（或带 BOM）；严重度：低（显示口径，不误导到危险动作，但会把常态渲染成告警）；冻结边界：**不得**因此把 note 整类删掉（它是 AC5 的诊断面），要改就改**分级**。
-  evidence: 读码 `app.js::renderDiagnostics`（`for (const note of config.notes || []) warnings.push(labelFor(note, config.labels))` + `dataset.state = warnings.length ? "failed" : "idle"`）、`config.catalog.build_config_report`（`if not project_scan.exists: notes.append("project_env_missing")`）；判据把现状钉住：`tests/test_http_web_ui.py::test_settings_panel_is_compact_without_losing_reasons` 断言「2 条需要注意」，`tests/js/app_probe.js` 的 S 用例 fixture 正是「重复键 + `project_env_missing`」。
-  Progress（2026-09-26 登记，**未修**，**intent_gap / blocked 待人裁决**）：要裁「哪些 note 属『需要注意』、信息性 note 用什么样式（中性 / 折叠内仍可见）」；口径定了以后，BOM 双计一并处理。
 
 - source_spec: `_bmad-output/epics/epic-50-网页控制台周期/ARCHITECTURE-SPINE.md`（§288 把「凭证」定义为 `*_API_KEY` / `*_API_KEYS`；Epic 50 第四轮评审发现**设计边界**而非实现偏离）
   summary: **掩码域是名字后缀制：写进 `*_BASE_URL` 的凭证会被原样回显**——`is_secret_key` 只认 `_API_KEY` / `_API_KEYS` 后缀，而 `*_BASE_URL` 走的是排除组的**模式**（`patterns=("*_BASE_URL",)`）⇒ 面板会把 `DEEPSEEK_BASE_URL=https://user:token@relay/v1` 这类「token 写在 URL userinfo / 查询串」的值**整串**放进 `ConfigItem.value` 并渲染进页面；`GET /api/projects/{id}/config` **没有**回环门（写通道才有）⇒ 任何能连到服务的客户端都能读到（服务默认回环，但支持非回环绑定）。触发条件：把中转站 token 写进 base URL（常见写法）；严重度：低（无认证 / 无 TLS 是既有姿态，键本身也不以凭证命名）；冻结边界：**不得**对 URL 做部分掩码（会让 base URL 不可复制，破坏「为什么连不上」的诊断用途），也**不得**据此给只读的 GET 加回环门（与 49/50 的只读面姿态冲突）。
@@ -69,16 +66,10 @@
   summary: 路径级审批分级（**条件性条目，前置未发生**）：当前审批粒度是工具级（destructive → 审批），file 工具一律被限制在 workspace 内，所以「按路径分级审批」暂无触发场景。触发条件：引入「非 workspace 的受控写场景」（例如经审批向 workspace 外写）；严重度：低（前置未发生）；冻结边界：分级只能是 `PolicyEngine` 的 defense-in-depth 标记，不得表述为 OS 级边界，也不得放松 workspace 围栏默认值。
   evidence: `src/heagent/tools/path_safety.py`（`resolve_under_root`，policy 预检与 file 工具 handler 共用同一算法）；`src/heagent/engine/policy.py`（destructive 注解闸门）；`src/heagent/engine/approval.py`（审批闭环，同为非安全边界）。
 
-- source_spec: `_bmad-output/epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`（同记于 `docs/frame.md` 五）
-  summary: **TCP 入口不写 rollout**：`EVENTS_ROLLOUT_ENABLED` 对 `heagent tcp-server` 是**死开关**——`JsonlSink` 唯一构造点在 `cli/composition._build_event_sink`，网络入口不订阅 sink，故开关开启也不产生 `.heagent/runs/<run_id>/rollout.jsonl`。触发条件：需要回放/审计 TCP 入口的 run；严重度：低；冻结边界：接入不得让 TCP 输入改变服务端配置（`tcp_*` 唯一读取点保持 `cli_tcp.build_server_config`），且仍非安全边界。
-  evidence: 48-5 评审 W-2 实测（`tests/test_tcp_agent_integration.py` 已把「不写 rollout」钉为现状）；`docs/frame.md` 五「TCP 入口不写 rollout」行。
-  Progress（2026-09-23 复核，**保持未闭合**）：接入前须先定并发语义——`JsonlSink` 的 `seq`/`_last_run_id` 是 sink 全局的，而 TCP 入口共享一个 `EngineContainer`/`EventBus` 并发服务多请求：单共享 sink 会让多 run 的 seq 交错、`assistant_message` 归属错误；每请求一 sink 则互相收到对方的全部事件（`EventBus` 无 `unsubscribe`）。修法二选一：sink 加 run 维度过滤，或 `EventBus.unsubscribe` + 每请求复用一个带过滤的 sink。
-  **Status（2026-09-27）**：**OBSOLETE** — Epic 48 TCP 网络接口已于 commit `4217b5d` 完全删除（删除原因：使用率极低、维护成本高、HTTP 入口已充分覆盖需求）。本条目随 TCP 入口删除而失效，不再需要修复。详见 `_bmad-output/epics/epic-48-TCP网络接口周期/REMOVAL-NOTICE.md`。
-
 - source_spec: `_bmad-output/epics/epic-50-网页控制台周期/ARCHITECTURE-SPINE.md`（§6「并发口径」+ §15 D9；对偶义务见 50-7 T10⑨）
   summary: **跨项目并发无全局上限（Epic 50 D9 采纳后的已知缺口）**：D9 裁定采纳「并发随项目数线性增长」——在途运行上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认项目上限 32 × 1 ⇒ **最多 32 个并发 run**），跨项目不共享名额、不做全局调度；而 `HTTP_MAX_CONNECTIONS`（默认 16，由 Uvicorn `limit_concurrency` 承担）**不随项目数放大**。触发条件：登记接近上限的项目数、并对多个项目同时发起运行；严重度：低-中（资源占用线性上升——每项目一套 `EngineContainer` / 事件缓冲 512 / run 历史 64 / SSE 订阅，外加真实 LLM 并发、沙箱进程与磁盘写入；且连接层可能先于运行层成为瓶颈）；冻结边界：不得为此改回「跨项目共享在途名额」（D9 已裁定为**有意语义**），也不得改每项目内部的单运行约束与会话在途保护；若要引入上限，只允许**新增**全局限流键（如 `HTTP_CONSOLE_MAX_TOTAL_INFLIGHT`），不得复用或改写既有 `HTTP_MAX_INFLIGHT_RUNS` 的 per-service 语义。
   evidence: `ARCHITECTURE-SPINE.md` §6（并发口径：32 × 1 的乘数关系 + 已知缺口声明）；`src/heagent/network/http_server.py:150`（`max_inflight_runs` 是 **service 级**字段）、`:386`（`len(self._active) >= self.config.max_inflight_runs` 按 service 判定）；Epic 49 遗留的连接层口径（`HTTP_MAX_CONNECTIONS` 与 SSE 订阅上限复用、由 Uvicorn 在 ASGI 之前拒绝，见 `docs/frame.md` 五）；本周期内对偶义务：50-2 T4（项目数上限 32 即并发乘数，改它等于改整体资源上限）、50-3 T9（须正面断言「A 项目在跑时 B 可起跑」**且**「同项目第二个 run 仍被拒」）、50-7 T10⑨（文档须写明口径与缺口）。
-  Progress（2026-09-24 登记，**计划期条目**）：Epic 50 **尚未实现**（7 条 story 均 `ready-for-dev`，建集 commit `5878e92`），故本条是对**已裁定设计**的缺口登记，**不代表当前代码存在该问题**；50-7 落地时须在 `docs/frame.md` 五 增对应行，并把本条目迁移到该 Epic 的收口归档。
+  Progress（2026-09-24 登记，**计划期条目**；2026-09-27 复核）：Epic 50 已于 2026-09-27 收口（8 story 全 `done`），本条描述的缺口**已成为既成事实**——在途上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32），`docs/frame.md` 五 的对应行已存在（对偶义务 50-7 T10⑨ 已完成）。截至本轮**仍未引入全局上限**；若要引入，只允许新增全局限流键（如 `HTTP_CONSOLE_MAX_TOTAL_INFLIGHT`），不得改写既有 per-service 语义。
 
 - source_spec: 2026-09-24 Epic 50 收口评审（三镜头）· 运行时归因与兜底族
   summary: **HTTP 运行时的三处归因/兜底薄弱点（同一族）**：① 看门狗的 `deadline_reason` 一经写入便永久保留，`_execute` 仅凭「非 None 且未在关停」判定「是超时杀的」⇒ 若 executor 吞掉第一次取消并继续跑，**之后**用户的 `DELETE` 会被记成 `timed_out` 并吞掉取消（`reopen()` 还能把 `_closing` 清回 False，理论上让旧任务上报 `timed_out`）；② `tools_in_flight` 只由 `tool_call`/`tool_result` 增减、永不衰减 ⇒ 一个**永不返回**的工具会让「静默上限」判据恒不成立，该项目的在途名额被无界占用（`HTTP_REQUEST_TIMEOUT` 默认 0）；③ SSE 订阅者上限是「先查后加」（检查在端点、登记在生成器首个 `__anext__`）⇒ 并发 `GET .../events` 可穿过限额，每个订阅者驻留一个 512 事件队列。触发条件：吞取消的 executor / 卡死的工具 / 并发订阅；严重度：中（不崩、名额最终仍可人工回收，但会静默错归因或放大内存）；冻结边界：不得改变「首位获胜」的终态语义与每项目单运行约束；①②的修法是「取消来源令牌（消费一次）」与「在途工具计龄」，③需在单次事件循环内把检查与登记合到同一步。
@@ -102,8 +93,8 @@
   Progress（2026-09-24 登记，**blocked 待人裁决**）：① 属「设计姿态」选择（49 已如此），② 的修法有两条互斥路径——「网页运行一律不绑 cron 工具（连写都不允许）」或「允许写但明确标注任务不执行」；两条都改变可观察行为，非评审可单方决定，故按契约标 `blocked` 交人裁决，未擅自改。
 
 - source_spec: 2026-09-24 Story 50-6 实现（网页控制台 UI）
-  summary: **浏览器级 UI 验收不在 CI、也不含真实 LLM 运行**：`tests/js/console_acceptance.mjs` 需要真实 Chrome/Edge（CDP）+ `heagent[http]`，而 CI 只装 `.[dev]`（`pyproject.toml` 里 `http` 与 `dev` 分离）⇒ 它只能手动跑，story 50-6 的验收清单正是由它产出的；同时该次验收**没有**跑「真实模型 → SSE → 对话区流式渲染」这条链（本机无可用 provider，Ollama 未运行），该链的前端侧由 node 探针（`tests/js/app_probe.js` 用例 A/B/C/D/E/N）与 Epic 49 的服务端用例覆盖。触发条件：改 `app.js`/`index.html`/`styles.css` 后要确认「真浏览器里也没坏」；严重度：低（改动有探针兜底，但探针是 DOM 替身——CSP 是否被违反、有没有第三方请求、窄屏计算样式只有真浏览器能证明）；冻结边界：不得为让浏览器验收进 CI 而给 dev 依赖加 playwright/puppeteer（保持零构建链与「GUI / 浏览器不进 CI」的既有立场），也不得把 `console_acceptance.mjs` 的一次通过当作「UI 无回归」的充分证据。**2026-09-24 实例（这条「不够充分」的最强证据）**：50-6 的 17/17 通过之后仍漏掉「首页确认遮罩吞掉真实鼠标点击」（`hidden` 属性为真而计算样式 `display:flex`）—— 因为清单只断言属性、且 `click()` 走 DOM API（绕过命中测试）；修复后清单新增 A1b（计算样式 + CDP `Input.dispatchMouseEvent` 真实点击）为 **18 行**，详见 Z-D15。
-  evidence: `tests/js/console_acceptance.mjs`（自起真实 http-server + headless Chrome，CDP 驱动真实点击；17 行清单含窄屏/凭证零明文/磁盘副作用断言）；`tests/test_http_web_ui.py`（探针用例的 skipif 只要求 node，不要求浏览器）；`pyproject.toml`（可选依赖分组）。
+  summary: **浏览器级 UI 验收不在 CI、也不含真实 LLM 运行**：`tests/js/console_acceptance.mjs` 需要真实 Chrome/Edge（CDP）+ `heagent[http]`，而 CI 只装 `.[dev]`（`pyproject.toml` 里 `http` 与 `dev` 分离）⇒ 它只能手动跑，story 50-6 的验收清单正是由它产出的；同时该次验收**没有**跑「真实模型 → SSE → 对话区流式渲染」这条链（本机无可用 provider，Ollama 未运行），该链的前端侧由 node 探针（`tests/js/app_probe.js` 用例 A/B/C/D/E/N）与 Epic 49 的服务端用例覆盖。触发条件：改 `app.js`/`index.html`/`styles.css` 后要确认「真浏览器里也没坏」；严重度：低（改动有探针兜底，但探针是 DOM 替身——CSP 是否被违反、有没有第三方请求、窄屏计算样式只有真浏览器能证明）；冻结边界：不得为让浏览器验收进 CI 而给 dev 依赖加 playwright/puppeteer（保持零构建链与「GUI / 浏览器不进 CI」的既有立场），也不得把 `console_acceptance.mjs` 的一次通过当作「UI 无回归」的充分证据。**2026-09-24 实例（这条「不够充分」的最强证据）**：50-6 的 17/17 通过之后仍漏掉「首页确认遮罩吞掉真实鼠标点击」（`hidden` 属性为真而计算样式 `display:flex`）—— 因为清单只断言属性、且 `click()` 走 DOM API（绕过命中测试）；修复后清单新增 A1b（计算样式 + CDP `Input.dispatchMouseEvent` 真实点击）为 **18 行**；Story 50-8 的增量轮再扩至 **23 行**（2026-09-25 加 A5b / A11b / A11c / A11d / B2），详见 Z-D15 与 `reviews.md#acceptance-50-8-refinement`。
+  evidence: `tests/js/console_acceptance.mjs`（自起真实 http-server + headless Chrome，CDP 驱动真实点击；23 行清单含窄屏/凭证零明文/磁盘副作用断言，2026-09-25 起）；`tests/test_http_web_ui.py`（探针用例的 skipif 只要求 node，不要求浏览器）；`pyproject.toml`（可选依赖分组）。
   Progress（2026-09-24 登记，**未闭合**）：验收输出见 `_bmad-output/epics/epic-50-网页控制台周期/reviews.md#acceptance-50-6-console-ui`（17/17 PASS，Chrome 153.0.8010.48）；该报告同时给出复跑命令与依赖前提。
 
 - source_spec: 2026-09-24 Story 50-6 实现（网页控制台 UI）· AC7 / UX-DR3
@@ -145,7 +136,7 @@
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 18 条：13 条勘察类正文保留在本文件，5 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 21 条未闭合条目。
+> 当前闭合归档共 20 条：13 条勘察类正文保留在本文件，7 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 19 条未闭合条目。
 
 ## 状态总览
 
@@ -176,6 +167,8 @@
 | Z-D13 | Epic 50（Story 50-5 实现） | 写通道可把「资源旋钮」键设成无界值 | `epics/epic-50-网页控制台周期/deferred-work.md` |
 | Z-D14 | Epic 50（Story 50-5 实现） | 审计文件无保留期 / 条数上限 | 同上 |
 | Z-D15 | Epic 50（Story 50-6 实现，用户实测发现） | 首页加载即弹出关不掉的确认遮罩 | 同上 |
+| Z-D18 | Epic 48（Story 48-5 评审 W-2） | TCP 入口不写 rollout（**OBSOLETE**，随入口删除失效） | `epics/epic-48-TCP网络接口周期/deferred-work.md` |
+| Z-D19 | Epic 50（第四轮评审发现，2026-09-26 登记） | 诊断折叠标题把信息性 note 计入「需要注意」（并双计 BOM） | `epics/epic-50-网页控制台周期/deferred-work.md` |
 
 > `Z-Dn` 编号在**本文件**登记（跨文档引用如 `Z-D8` / `Z-D15` 仍以此为索引），但**正文只有一份**，在上表第二列指向的文件里；本文件不留副本（2026-09-24 回填）。
 

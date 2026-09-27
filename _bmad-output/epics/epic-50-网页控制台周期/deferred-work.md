@@ -3,7 +3,7 @@
 > **归并来源**：`implementation-artifacts/deferred-work-archive.md` 的 **Z-D13 / Z-D14 / Z-D15**（Story 50-5 配置写入通道 ×2、Story 50-6 控制台 UI ×1）；2026-09-24 按「**条目闭合后按归属 epic 归档**」规则从活动台账的闭合归档区回填至本文件。
 > **归档规则**：按条目**归属的 epic** 归档；「闭合者」注明实际完成它的批次 / commit。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码与测试。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）——本周期相关未闭合条目 = 台账 **A8 跨项目并发无全局上限 / A9 运行时归因与兜底族 / A10 控制台端点阻塞 I/O / A11 非回环运行姿态 + cron 跨会话后置执行（`blocked` 待人裁决）/ A12 浏览器级 UI 验收不在 CI / A13 高影响键缺后端风险标记 / A14 写入通道与保真写的四类低危残余**，编号与正文以台账为准。
+> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）——本周期相关未闭合条目 = 台账 **A8 跨项目并发无全局上限（已随本周期交付成为既成事实，仍无全局上限）/ A9 运行时归因与兜底族 / A10 控制台端点阻塞 I/O（唯一残余 `_runtime_for`，有意保留并有升级条件）/ A11 非回环运行姿态 + cron 跨会话后置执行（`blocked`）/ A12 浏览器级 UI 验收不在 CI / A13 高影响键缺后端风险标记 / A14 写入通道与保真写的四类低危残余 / A15 网页请求可拉起宿主 GUI 进程 / A16 真实原生窗口不可自动化 + `Error:` 前缀判据 / A17 R5 收敛判据对以 `Error:` 开头的文件失效（`blocked`）/ A18「共 N 个会话」在 N > 200 时少报（`blocked`）/ A19 原生目录选择端点默认开（`blocked`）**，编号与正文以台账为准。
 
 ## 状态总览
 
@@ -12,6 +12,7 @@
 | Z-D13 | Epic 50 · Story 50-5 | 写通道可把「资源旋钮」键设成无界值 | 已闭合（2026-09-24） | `config.catalog.RESOURCE_CEILINGS` 21 键上界（用户裁定「顺手闭合」） |
 | Z-D14 | Epic 50 · Story 50-5 | 审计文件无保留期 / 条数上限 | 已闭合（2026-09-24） | `config.write.prune_audit` 行级裁剪至最近 500 条（同批） |
 | Z-D15 | Epic 50 · Story 50-6 | 首页加载即弹出关不掉的确认遮罩（作者级 `display` 压过 `hidden` 属性） | 已闭合（2026-09-24） | `[hidden]{display:none!important}` 全局守卫 + `settleConfirm` 先隐藏再结算（用户实测发现） |
+| Z-D19 | Epic 50 · 第四轮评审 | 诊断折叠标题把信息性 note 计入「需要注意」（并双计 BOM） | 已闭合（2026-09-27） | `5f4324b` 的 `INFORMATIONAL_NOTES` 分级 + BOM 去重；同日收口批 `d7f8c75` 补齐判据（探针桩自洽化 + 用例 `V`） |
 
 ---
 
@@ -66,3 +67,11 @@
   ③ 静态断言只做「守卫存在 + 是否存在能压过 hidden 的作者规则」这一层，**不解析级联优先级**：若有人显式写
   `.overlay[hidden] { display: flex !important }`（或更具体的 `[hidden]` 复合选择器），静态断言与守卫都放行 ——
   此时只有真浏览器 A1b 拦得住（而它不在 CI）。
+
+## Z-D19 诊断折叠标题把信息性 note 计入「需要注意」（并双计 BOM）
+
+- **来源**：Epic 50 第四轮评审发现（2026-09-26 登记于活动区，标 `intent_gap / blocked 待人裁决`）。
+- **问题**：`app.js::renderDiagnostics` 把 `config.notes` **整条** push 进 `warnings`，而 notes 里混着纯信息项（`project_env_missing` = 「项目 `.env` 不存在：全部字段回退到全局 `.env` / 默认值」，新项目的**常态**）⇒ 一个刚登记、没有任何 `.env` 的项目一打开设置面板就看到红色的「1 条需要注意」；同一事实还会**双计**（BOM：前端硬编码的 `env_file.has_bom` 告警 + `project_env_bom_stripped` 这条 note 各推一条）。
+- **结论**：**已闭合**（2026-09-27）。`5f4324b` 引入分级与 BOM 去重——`INFORMATIONAL_NOTES = new Set(["project_env_missing"])`（信息性 note 进 `infos`，只有非信息性 note 进 `warnings`）+ `seenBom` 跳过同源的 `project_env_bom_stripped`；同日收口批（`d7f8c75`）补上**缺失的判据**：前端探针桩自洽化（`exists: true` 不再同时给 `project_env_missing`；告警改由「重复键 + 空值键」两条真实来源产生）+ 新增用例 `V`（断言信息性 note **不计入**告警条数、`dataset.state == "idle"`、说明仍以 `.diag-info` 可见）。
+- **冻结边界（守住）**：不得因此把 note 整类删掉（它是 50-6 AC5 的诊断面），只改**分级**；信息性 note 必须**仍然可见**（降级 ≠ 删除）——该侧由用例 `V` 的 `infoTexts` 断言钉住。
+- **证据**：`src/heagent/web/app.js`（`INFORMATIONAL_NOTES` / `seenBom` / `warnings` vs `infos` 分流）；`tests/js/app_probe.js`（`configPayload` 的 `envMissing` 分支 + 用例 `V`）；`tests/test_http_web_ui.py::TestConsoleRefinement::test_informational_notes_do_not_count_as_warnings`。负向验证：把 `INFORMATIONAL_NOTES` 清空 → 用例 `V` 精确变红（`.heagent/tmp/e50_mutate2.py`）。
