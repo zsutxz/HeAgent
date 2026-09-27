@@ -301,6 +301,10 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
             # D2 裁定：显式白名单 > 模式排除 ⇒ 本键可写（保留天数是运维可调项，非隔离姿态）。
             "SANDBOX_DIR_RETENTION_DAYS",
             "PRUNE_MIN_INTERVAL_SECONDS",
+            # 记忆自动归档（2026-09-27 新增字段的登记）：归档天数与节流间隔同属「数据生命周期旋钮」，
+            # 与上面几项同型 —— 都支持 0 = 禁用，且都由 RESOURCE_CEILINGS 给上界。
+            "MEMORY_AUTO_ARCHIVE_DAYS",
+            "MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS",
         ),
     ),
     ConfigGroupSpec(id="cron", label="定时调度", keys=("CRON_TICK_SECONDS",)),
@@ -477,12 +481,14 @@ LABELS: dict[str, str] = {
 #: - **``count`` = 100**：条数与嵌套深度（一次注入 100 个技能、嵌套 100 层都已是不可完成量级）；
 #: - **自成刻度（不并入上面任何一族，量纲不同）**：迭代预算 ``10000`` 次（无人值守的长任务确实需要
 #:   很多轮，与「条数」不是一回事）、上下文窗口 ``16000000`` tokens（那是**模型属性**量级，
-#:   ``MAX_OUTPUT_TOKENS`` 则取最大真实模型输出窗口的约 8 倍）。
+#:   ``MAX_OUTPUT_TOKENS`` 则取最大真实模型输出窗口的约 8 倍）、归档节流 ``31536000`` 秒（1 年；
+#:   其默认值 1 天已比 seconds 族高两个量级，理由见 :data:`RESOURCE_CEILINGS` 表尾）。
 RESOURCE_CEILINGS: dict[str, float] = {
     # days = 3650：保留期 / 时间窗（默认值 7–30 天）
     "EDIT_SNAPSHOT_RETENTION_DAYS": 3650.0,
     "LEDGER_RETENTION_DAYS": 3650.0,
     "LOG_RETENTION_DAYS": 3650.0,
+    "MEMORY_AUTO_ARCHIVE_DAYS": 3650.0,
     "RUN_RETENTION_DAYS": 3650.0,
     "SANDBOX_DIR_RETENTION_DAYS": 3650.0,
     "SESSION_RETENTION_DAYS": 3650.0,
@@ -507,6 +513,9 @@ RESOURCE_CEILINGS: dict[str, float] = {
     "SUBAGENT_MAX_ITERATIONS": 10_000.0,
     # 上下文窗口 = 16000000（默认值 512000）
     "MAX_CONTEXT_TOKENS": 16_000_000.0,
+    # 归档节流（自成刻度）= 31536000（1 年）：默认值 1 天（86 400 s）比 seconds 族其它键（60–900 s）
+    # 高两个量级 —— 套用 604800 会违反「上界 ≥ 10 × 默认值」这条护栏；「禁用节流」用 0 表达。
+    "MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS": 31_536_000.0,
 }
 
 

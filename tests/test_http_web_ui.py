@@ -534,7 +534,7 @@ class TestConsoleSettingsPanel:
         assert result["unknownKeys"] == ["TOTALLY_UNKNOWN"]
         assert result["unknownEmptyHidden"] is True
         assert "重复键" in result["diagnostics"]
-        assert "项目 .env 不存在" in result["diagnostics"], "响应级诊断也要渲染出来"
+        assert "空值键（显式置空，不生效）：ORPHAN_KEY" in result["diagnostics"], "响应级诊断也要渲染出来"
 
     def test_closed_gate_makes_every_writable_field_read_only_with_a_reason_stated_once(self, tmp_path: Path) -> None:
         """AC5（R9 修订）：闸门关闭 ⇒ 全部可写项不可编辑 + **没有任何开启入口** + 原因说一次。
@@ -769,6 +769,19 @@ class TestConsoleRefinement:
         assert result["unknownFirstKey"] == "TOTALLY_UNKNOWN"
         assert result["noteParagraphs"] == 0, "逐项说明不再铺成长段文案"
         assert result["noteChipText"], "但说明仍在（短徽标 + title）"
+
+    def test_informational_notes_do_not_count_as_warnings(self, tmp_path: Path) -> None:
+        """`project_env_missing` 是**信息性** note：不进「N 条需要注意」，但说明仍可见（信息不丢）。
+
+        背景：2026-09-27 加入 `INFORMATIONAL_NOTES` 后，「新项目还没有 `.env`」从告警降级为说明——
+        否则每个新项目的诊断标题都挂着一条吓人的「1 条需要注意」。
+        """
+        result = _run_probe("V", tmp_path)
+
+        assert result["diagnosticsSummary"] == "项目 .env 诊断", "信息性 note 不得计入告警条数"
+        assert result["diagnosticsSummaryState"] == "idle"
+        assert "项目 .env 不存在" in result["diagnosticsText"], "降级 ≠ 删除：说明必须仍然可见"
+        assert len(result["infoTexts"]) == 1, "说明应以 .diag-info 单独成行"
 
     def test_config_value_sits_on_the_key_line(self, tmp_path: Path) -> None:
         """R10：值**跟在键名后面、同一行**（`config-head` 内的 `<span class="config-value">`），不再独占一行。"""

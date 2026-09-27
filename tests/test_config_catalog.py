@@ -334,7 +334,7 @@ class TestBomTolerance:
 class TestClassification:
     def test_whitelist_keys_all_exist(self) -> None:
         assert whitelist() <= ENV_KEYS
-        assert len(whitelist()) == 46  # D3 裁定后的口径（38 + 8）
+        assert len(whitelist()) == 48  # D3 裁定后的口径（38 + 8）+ 2026-09-27 记忆归档 2 键
 
     def test_partition_is_complete(self) -> None:
         """AC9：每个字段都落在白名单或某条排除规则里 —— 残留 0（没有「只读但无原因」）。"""
@@ -458,13 +458,14 @@ class TestGuards:
 
         上面两条用**规则**钉（≥ 10 × 默认、完备性），但规则挡不住「把 604800 悄悄改成 999999999」——
         它仍然 ≥ 10 × 默认、也仍然完备。而同族同刻度（3650 / 604800 / 8388608 / 1000000 / 100 / 10000 /
-        16000000）正是本表的核心口径，故必须逐条比对。
+        16000000 / 31536000）正是本表的核心口径，故必须逐条比对。
         """
         assert RESOURCE_CEILINGS == {
             # days = 3650（10 年；这批键都支持 0 = 禁用回收，「永久保留」用 0 表达）
             "EDIT_SNAPSHOT_RETENTION_DAYS": 3650.0,
             "LEDGER_RETENTION_DAYS": 3650.0,
             "LOG_RETENTION_DAYS": 3650.0,
+            "MEMORY_AUTO_ARCHIVE_DAYS": 3650.0,
             "RUN_RETENTION_DAYS": 3650.0,
             "SANDBOX_DIR_RETENTION_DAYS": 3650.0,
             "SESSION_RETENTION_DAYS": 3650.0,
@@ -489,6 +490,8 @@ class TestGuards:
             "SUBAGENT_MAX_ITERATIONS": 10_000.0,
             # 上下文窗口 = 16000000（模型属性量级，自成刻度）
             "MAX_CONTEXT_TOKENS": 16_000_000.0,
+            # 归档节流 = 31536000（1 年，自成刻度：默认值 1 天比 seconds 族高两个量级）
+            "MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS": 31_536_000.0,
         }
 
     def test_ceilings_do_not_change_what_settings_accepts(self) -> None:

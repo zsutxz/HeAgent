@@ -253,6 +253,9 @@ const world = {
   failConfigReadAfterWrite: false,
   configReadFails: false,
   writeFingerprint: "fp-1",
+  // 信息性 note 场景（用例 N）：项目 `.env` 不存在 ⇒ 只有 project_env_missing 这一条 note，
+  // 它**不得**计入「N 条需要注意」（app.js 的 INFORMATIONAL_NOTES）。
+  envMissing: false,
   // 原生目录选择（Story 50-8 R2）：默认「取消」；用例可改成选中路径或改造成错误响应。
   pickResult: { path: null, cancelled: true, backend: "auto" },
   pickError: null,
@@ -384,17 +387,18 @@ function configPayload(writeEnabled) {
     ],
     env_file: {
       path: "C:/ws/.env",
-      exists: true,
+      exists: !world.envMissing,
       readable: true,
-      fingerprint: world.writeFingerprint,
+      fingerprint: world.envMissing ? null : world.writeFingerprint,
       has_bom: false,
-      line_count: 12,
-      duplicate_keys: ["MAX_ITERATIONS"],
-      blank_keys: [],
+      line_count: world.envMissing ? 0 : 12,
+      duplicate_keys: world.envMissing ? [] : ["MAX_ITERATIONS"],
+      blank_keys: world.envMissing ? [] : ["ORPHAN_KEY"],
     },
     unknown_keys: [{ key: "TOTALLY_UNKNOWN", source: "project_env" }],
     labels: LABELS,
-    notes: ["project_env_missing"],
+    // 桩必须**自洽**：文件存在就不会有 project_env_missing（后端只在文件缺失时给这条 note）。
+    notes: world.envMissing ? ["project_env_missing"] : [],
   };
 }
 
@@ -1260,6 +1264,28 @@ const CASES = {
         ? iterationsRow.children.filter((child) => child.className === "config-notes").length
         : null,
     };
+  },
+
+  async V() {
+    // 诊断分级（2026-09-27 的 INFORMATIONAL_NOTES）：项目 `.env` 不存在属**信息性** note，
+    // 不得计入「N 条需要注意」；但说明本身必须仍然可见（`.diag-info`），信息不丢。
+    configWriteEnabled = false;
+    world.envMissing = true;
+    await load();
+    await openSettings();
+    const diagnostics = els["settings-diagnostics"];
+    const infos = [];
+    walk(diagnostics, (node) => {
+      if (node.className === "diag-info") infos.push(node.textContent);
+    });
+    const result = {
+      diagnosticsSummary: els["settings-diagnostics-summary"].textContent,
+      diagnosticsSummaryState: els["settings-diagnostics-summary"].dataset.state,
+      diagnosticsText: diagnostics.textContent,
+      infoTexts: infos,
+    };
+    world.envMissing = false;
+    return result;
   },
 
   async T() {
