@@ -10,7 +10,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, NoReturn
 
-from heagent.providers.retry import ErrorCategory, classify_exception, raise_provider_error
+from heagent.providers.fallback_base import FallbackPolicy, raise_as_provider_error
+from heagent.providers.retry import classify_exception
 from heagent.pub.exceptions import ProviderError
 
 if TYPE_CHECKING:
@@ -20,17 +21,6 @@ if TYPE_CHECKING:
     from heagent.pub.types import Message, ProviderResponse, ToolSchema
 
 logger = logging.getLogger(__name__)
-
-
-def _raise_provider_error(error: Exception) -> NoReturn:
-    """抛出统一的 ProviderError，保证回退链抛出的始终是 HeAgentError 体系内的异常。
-
-    已是 ProviderError（P0-2 后 provider 源头已把 SDK 异常包装为此类型）则原样抛出——
-    保留其既有 cause 链，避免二次包装产生 ProviderError→ProviderError→原始 SDK 的冗余链；
-    否则把 SDK/未知异常包装为 ProviderError，并以原始异常为 cause，供上层中间件分类重试、
-    CLI 统一捕获，避免裸 SDK 异常穿透导致未处理崩溃。
-    """
-    raise_provider_error(error)
 
 
 class ProviderChain:
@@ -100,15 +90,15 @@ class ProviderChain:
                         e,
                     )
                     # 客户端错误 → 不回退，立即抛出
-                    if category == ErrorCategory.NON_TRANSIENT:
+                    if not FallbackPolicy.should_fallback_chain(e):
                         self._current_index = start
-                        _raise_provider_error(e)
+                        raise_as_provider_error(e)
                     last_error = e
 
             # 所有 Provider 均失败（均为可回退错误）→ 恢复索引，抛出最后的错误
             self._current_index = start
             if last_error is not None:
-                _raise_provider_error(last_error)
+                raise_as_provider_error(last_error)
             # 理论不可达：providers 非空（__init__ 保证）且任意迭代要么 return 要么设 last_error。
             # 仍以 ProviderError 兜底以遵守「禁止裸 Exception」契约。
             raise ProviderError("All providers failed")
@@ -150,7 +140,7 @@ class ProviderChain:
                 if delivered:
                     async with self._lock:
                         self._current_index = start
-                    _raise_provider_error(e)
+                    raise_as_provider_error(e)
                 category = classify_exception(e)
                 logger.warning(
                     "Provider %s stream failed (%s): %s",
@@ -158,15 +148,15 @@ class ProviderChain:
                     category.value,
                     e,
                 )
-                if category == ErrorCategory.NON_TRANSIENT:
+                if not FallbackPolicy.should_fallback_chain(e):
                     async with self._lock:
                         self._current_index = start
-                    _raise_provider_error(e)
+                    raise_as_provider_error(e)
                 last_error = e
         async with self._lock:
             self._current_index = start
         if last_error is not None:
-            _raise_provider_error(last_error)
+            raise_as_provider_error(last_error)
         # 理论不可达：见 send() 同款注释。
         raise ProviderError("All providers failed for stream")
 

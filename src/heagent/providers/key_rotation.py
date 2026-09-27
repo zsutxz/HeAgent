@@ -11,7 +11,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from heagent.providers.base import BaseProvider, ProviderMetadata
-from heagent.providers.retry import ErrorCategory, classify_exception, raise_provider_error
+from heagent.providers.fallback_base import FallbackPolicy, raise_as_provider_error
 from heagent.pub.exceptions import ProviderError
 
 if TYPE_CHECKING:
@@ -20,15 +20,6 @@ if TYPE_CHECKING:
     from heagent.pub.types import Message, ProviderResponse, ToolSchema
 
 logger = logging.getLogger(__name__)
-
-
-def _raise_wrapped(error: Exception) -> None:
-    """Raise ``error``, wrapping non-ProviderError into ProviderError (P1-3 修复)。
-
-    统一保证 key_rotation chain 抛出的始终是 HeAgent Error 体系内的异常，
-    不裸抛 SDK 异常穿透上层 ProviderChain。
-    """
-    raise_provider_error(error)
 
 
 class KeyRotatingProvider:
@@ -60,11 +51,9 @@ class KeyRotatingProvider:
     def _is_rotation_error(error: Exception) -> bool:
         """判断是否为可触发密钥轮换的错误（RATE_LIMITED 或 AUTH_FAILED）。
 
-        委托 :func:`classify_exception`（retry.py 唯一分类源）避免两套分类漂移（H-4）。
+        委托 :class:`FallbackPolicy` 避免两套分类漂移（H-4）。
         """
-        if not isinstance(error, ProviderError):
-            return False
-        return classify_exception(error) in (ErrorCategory.RATE_LIMITED, ErrorCategory.AUTH_FAILED)
+        return FallbackPolicy.should_fallback_key_rotation(error)
 
     async def send(
         self,
@@ -85,14 +74,14 @@ class KeyRotatingProvider:
                     return resp
                 except Exception as e:
                     if not self._is_rotation_error(e):
-                        _raise_wrapped(e)  # P1-3 修复：统一包装为 ProviderError
+                        raise_as_provider_error(e)
                     last_error = e
                     logger.warning("Key #%d failed (rotatable): %s", idx, e)
 
             # 恢复原始索引
             self._current_index = start
             if last_error is not None:
-                _raise_wrapped(last_error)
+                raise_as_provider_error(last_error)
             raise ProviderError("All keys exhausted")
 
     async def stream(
@@ -130,15 +119,15 @@ class KeyRotatingProvider:
                 if delivered:
                     async with self._lock:
                         self._current_index = start
-                    _raise_wrapped(e)
+                    raise_as_provider_error(e)
                 if not self._is_rotation_error(e):
-                    _raise_wrapped(e)
+                    raise_as_provider_error(e)
                 last_error = e
                 logger.warning("Key #%d stream failed (rotatable): %s", idx, e)
         async with self._lock:
             self._current_index = start
         if last_error is not None:
-            _raise_wrapped(last_error)
+            raise_as_provider_error(last_error)
         raise ProviderError("All keys exhausted for stream")
 
     def get_metadata(self) -> ProviderMetadata:

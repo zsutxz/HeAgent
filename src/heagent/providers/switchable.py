@@ -19,7 +19,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from heagent.providers.base import BaseProvider, ProviderMetadata, ProviderSummary
-from heagent.providers.retry import classify_exception, is_pool_fallback_error, wrap_provider_error
+from heagent.providers.fallback_base import FallbackPolicy, raise_as_provider_error
+from heagent.providers.retry import classify_exception
 from heagent.pub.exceptions import ProviderError
 
 if TYPE_CHECKING:
@@ -185,7 +186,7 @@ class SwitchableProvider:
                         self._active = name  # 粘性停留
                     return resp
                 except Exception as e:
-                    if not is_pool_fallback_error(e):
+                    if not FallbackPolicy.should_fallback_pool(e):
                         raise
                     logger.warning("Provider '%s' unavailable (%s), trying next...", name, classify_exception(e).value)
                     last_error = e
@@ -193,7 +194,7 @@ class SwitchableProvider:
             # 池耗尽：重置到原始活跃 provider，上抛最后一个错误
             self._active = active_before
         if last_error is not None:
-            raise wrap_provider_error(last_error) from last_error
+            raise_as_provider_error(last_error)
         raise ProviderError("All providers exhausted")
 
     async def stream(
@@ -239,7 +240,7 @@ class SwitchableProvider:
                     async with self._lock:
                         self._active = active_before
                     raise
-                if not is_pool_fallback_error(e):
+                if not FallbackPolicy.should_fallback_pool(e):
                     raise
                 logger.warning(
                     "Provider '%s' stream unavailable (%s), trying next...",
@@ -251,7 +252,7 @@ class SwitchableProvider:
         async with self._lock:
             self._active = active_before
         if last_error is not None:
-            raise wrap_provider_error(last_error) from last_error
+            raise_as_provider_error(last_error)
         raise ProviderError("All providers exhausted for stream")
 
     def get_metadata(self) -> ProviderMetadata:

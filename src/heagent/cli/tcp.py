@@ -285,7 +285,19 @@ async def _serve_tcp(server: TcpServer) -> None:
     启动消息只走 stderr / 日志（TCP 通道只承载协议响应）；退出路径必须关闭监听与在途连接，
     否则 Ctrl+C / 服务取消会留下悬挂的 writer 与 request task（48-2 的 ``close()`` 语义）。
     """
+    import warnings
+    warnings.warn(
+        "The TCP entry (heagent tcp-server) is deprecated and will be removed in 6 months. "
+        "Please migrate to HTTP entry (heagent http-server) which provides all TCP functionality "
+        "plus web console, SSE streaming, and better error handling.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     await server.start()
+    click.echo(
+        "[tcp] DEPRECATED: This entry will be removed in 6 months. Use 'heagent http-server' instead.",
+        err=True,
+    )
     click.echo(f"[tcp] listening on {_listen_address(server)} (UTF-8 JSON Lines; one request per connection)", err=True)
     try:
         await server.serve_forever()
