@@ -257,9 +257,101 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 详见 `_bmad-output/epics/epic-36-39-文件安全防护周期/`（brief/prd/architecture/epics/stories）。
 
+
 ---
 
-## 三、经验教训（轻量 retrospective）
+## 三、架构优化与维护
+
+### 3.1 架构简化计划（2026-09-27）
+
+**目标**：在保持功能完整性和架构契约的前提下，简化代码结构、减少冗余、提升可维护性。
+
+#### 执行摘要
+
+**基线状态**：
+- 总代码量：154 个 Python 文件，约 35,579 行代码
+- 最大模块：`cli/` (5,483 行)、`tools/` (4,960 行)、`engine/` (4,095 行)
+
+**完成工作**：
+- ✅ **P0-1: Provider 容错栈统一** - 错误分类器和 FallbackPolicy 已在早期工作中完成统一
+- ✅ **P0-3: TCP 入口删除** - 删除 2,800 行代码（6 个文件 + 10 个配置字段）
+- ✅ **P0-4: 上下文管理统一** - 删除 AgentLoop 委托方法（-15 行），直接调用 context_runtime 函数
+- ✅ **P1: 配置/Engine/Memory 评估** - 职责分离清晰，当前设计已优化，不建议进一步合并
+
+**累计成果**：
+- 代码减少：2,815 行（7.9%）
+- 文件减少：6 个
+- 架构改进：统一容错栈、统一上下文管理
+- 测试通过：无回归
+
+**CLI 重组评估**：
+评估后决定不执行 CLI 重组，原因：
+- 预期收益不足（仅 100-200 行，2-4%）
+- 风险高（15 个 monkeypatch 缝需迁移）
+- 当前结构已经合理（2026-09-26 刚完成重组）
+
+详见已删除文档 `architecture-simplification-plan.md`（内容已归档到本节）。
+
+---
+
+### 3.2 内存注入预算解决方案
+
+**问题**：MEMORY.md 采用 append-only 策略，条目持续增长导致超出默认预算（49152 字节），29 条最新事实被省略。
+
+**解决方案**（三层防御）：
+
+#### 1. 扩大默认预算（立即缓解）
+- 默认预算从 49152 字节扩大到 **98304 字节（96 KB）**
+- 配置参数：`MEMORY_INJECT_MAX_BYTES=98304`
+
+#### 2. 自动归档机制（长期解决）
+- 模块：`src/heagent/memory/auto_archive.py`
+- 自动识别超过 90 天的旧事实条目
+- 保留文件头部的前 20 条（核心约定）
+- 归档到 `.heagent/memory/archive/<YYYY-MM>.md`
+- 配置参数：
+  - `MEMORY_AUTO_ARCHIVE_DAYS=90` - 超过此天数的条目自动归档，0=禁用
+  - `MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS=86400` - 跨进程节流间隔（默认 1 天）
+
+**特性**：
+- ✅ 跨进程节流：避免多个 CLI 实例同时归档
+- ✅ Fail-soft：归档失败不中断启动流程
+- ✅ 保留核心约定：文件头部的前 20 条永久保留
+- ✅ 按月归档：归档文件按月命名（如 `2026-09.md`）
+- ✅ 可追溯：归档文件保留完整历史记录
+
+#### 3. 手动整理工具（按需使用）
+- 工具脚本：`.heagent/tmp/clean_memory.py`
+- 用于立即清理冗余条目或删除已固化的过程性记录
+
+**文件结构**：
+```
+.heagent/
+├── memory/
+│   ├── MEMORY.md              # 主记忆文件（自动维护）
+│   ├── .archive-stamp         # 归档时间戳（跨进程节流）
+│   └── archive/               # 归档目录
+│       ├── 2026-09.md         # 2026年9月归档
+│       └── ...
+└── tmp/
+    └── clean_memory.py        # 手动整理工具
+```
+
+**配置建议**：
+```bash
+# 默认配置（推荐）
+MEMORY_INJECT_MAX_BYTES=98304          # 96 KB 预算
+MEMORY_AUTO_ARCHIVE_DAYS=90            # 90 天自动归档
+MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS=86400  # 1 天节流
+```
+
+**测试覆盖**：`tests/memory/test_auto_archive.py`（8 例测试全部通过）
+
+详见已删除文档 `memory-budget-solution.md`（内容已归档到本节）。
+
+---
+
+## 四、经验教训（轻量 retrospective）
 
 > 下面是从 `deferred-work.md`（原跨周期台账，2026-09-15 退役并删除）、`frame.md` 已知缺口、git log 反推的跨 epic 教训。
 > **2026-07-22 更新**：全部 24 个已完成 Epic + S1-S4 的正式回顾已完成（产物 `_bmad-output/retrospective-all-cycles.md`），所有 sprint-status 的 `epic-N-retrospective` 均已标记 `done`。以下 10 条为跨周期课纲，详尽「做对/可改进」见全周期回顾。
