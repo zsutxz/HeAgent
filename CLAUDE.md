@@ -2,116 +2,121 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> 本文件只放**常驻必备**（安全声明 / 命令 / 规范 / 架构骨架 / 硬约束）。**架构详解（数据流、模块详解、调用链、容错分层等）见 [`docs/frame.md`](docs/frame.md)，按需查阅。**
-
 ## ⚠️ 安全声明
 
-HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP server**（其进程、命令、HTTP transport 均由 `.mcp.json` 声明，可能来自任意第三方）。`SafetyGuard` **不是真正的安全边界**（命令黑名单可绕过、工具返回内容无围栏进入上下文、prompt injection 无隔离）。**不可在不可信内容或不可信 LLM 输出下裸跑**——必须配 OS 级沙箱（容器/firejail）。修改安全相关代码时勿将其当作有效边界。
+HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP server**。`SafetyGuard`、`PolicyEngine`、`ToolExecutor` 和 sandbox 后端**均非真正安全边界**（命令黑名单可绕过、工具返回内容无围栏进入上下文、prompt injection 无隔离）。
 
-**引擎执行层（`engine/`）同样非安全边界**：`ToolExecutor` 的 `SANDBOX_REQUIRED` 模式 `execute_in_sandbox()` 默认 Passthrough **透传**，可经 `EngineContainer(command_runner=FirejailBackend())` 注入 OS 级后端（仅隔离 `shell` 子进程、Linux-only、非完美边界，见 `tools/sandbox.py`）；`PolicyEngine` 的审批/沙箱裁决仅产出 `PolicyVerdict`，不强制 OS 级隔离。与 `SafetyGuard` 一视同仁——不可作为有效边界。
+**不可在不可信内容或不可信 LLM 输出下裸跑**——必须配 OS 级沙箱（容器/firejail）。修改安全相关代码时勿将其当作有效边界。
 
-**MCP 特定风险（FR-10/11，与上述立场同构，不制造「接 MCP 更安全」假象）：**
-
-- **外部 MCP server = 不可信代码**：stdio server 会拉起任意本地子进程，HTTP server 会连任意远程端点；`SafetyGuard` 工具名黑名单已覆盖 MCP 工具（执行前拦截，DP-4 第一半 2026-07-08 落地），返回内容亦经启发式围栏（标记透传，DP-4 第二半 2026-07-10 落地）——但两者均非真正边界，立场不变。
-- **Tool.annotations 是 server 自声明、不可信**：MCP `Tool.annotations`（`destructiveHint`/`readOnlyHint`/etc.）由 server 自行声明，恶意/错误 server 可把 `delete_repository` 谎报为 `readOnlyHint=true`。`PolicyEngine` 的写操作治理闸门（destructive→审批 / readOnly→放行 / 缺省→fail-safe）仅 defense-in-depth 确定性标记，**非真正安全边界**，不改变「须 OS 级沙箱兜底」的核心立场。
-- **MCP 工具输出进入 LLM 上下文有启发式围栏但非隔离**：server 返回内容（含远端响应）经 `mapping.bridge_result` 启发式扫描，命中注入签名则加 warning 标记后透传（不阻断）；标记仅 observable defense-in-depth，prompt injection 仍无可靠围栏——视为与内置工具返回**同等不可信**，须 OS 级沙箱兜底。
-- **同等约束**：MCP 工具走与内置工具一致的 `ToolError` 语义，享受同等的工具名黑名单预校验（DP-4 第一半 2026-07-08）与返回内容启发式标记（DP-4 第二半 2026-07-10），但**两者均非真正安全边界**。
-- **须 OS 级沙箱兜底**：连 MCP server 时同样必须在沙箱内运行，并对子进程 / 出站网络施加最小权限。
-
-**后续（deferred / future，V2 未做）：** Resources 原语、返回内容围栏的全局级用户可配置签名入口（项目级 `.heagent/injection_signatures.json` 已交付；仍属 defense-in-depth，非真正安全边界）。（Prompts 原语已完成：Story 17-1/2/3/4 2026-07-20，story 归档文件沿用旧前缀 16-x、+1 偏移对照见该周期 README；写操作治理已交付 V2 2026-07-17：annotations 感知 `PolicyEngine` 闸门，见 `engine/policy.py`、`tools/mcp/mapping.py`；执行前工具名拦截已交付 DP-4 第一半 2026-07-08；返回内容启发式围栏已交付 DP-4 第二半 2026-07-10；运行时断连主动 unregister 已交付：`tools/mcp/manager.py` `_watch` 持有期 `send_ping` 健康探测，ping 失败即注销该 server 工具。）
+MCP 特定风险：stdio server 拉起任意本地子进程、HTTP server 连任意远程端点、`Tool.annotations` 是 server 自声明不可信、工具输出启发式围栏不阻断——须 OS 级沙箱兜底。
 
 ## 文档布局
 
-**架构权威 = `docs/frame.md`**（活的中文总览，随代码更新；含数据流 / 模块依赖 DAG / 核心模块详解 4.1–4.18 / 已知缺口 / 完整调用链 / 技术规范）。
+**架构权威 = `docs/frame.md`**（数据流 / 模块依赖 DAG / 核心模块详解 / 调用链 / 技术规范）
 
 | 路径 | 用途 |
 |------|------|
-| `docs/frame.md` | **架构权威**——改架构 / 数据流 / 模块内部前先读此 |
-| `docs/design.md` | 功能设计与理念——项目要做什么 / 为什么（产品视角，区别于 frame.md 的代码实现） |
-| `docs/iteration.md` | 迭代开发指南与历程——怎么迭代过来的 / 怎么继续迭代（BMad 周期 / epic / 技术债 / 路线图） |
-| `docs/stock/` | 运行时股票报告输出，已 gitignore |
-| `_bmad-output/implementation-artifacts/deferred-work-archive.md` | **架构/代码优化台账**（活动遗留项 + 勘察类闭合归档）——被要求「优化项目」时先读此：条目含触发条件/严重度/冻结边界，闭合按归属 epic 归档（原 `deferred-work.md` 已于 2026-09-17 并入） |
-| `_bmad-output/consolidated-overview.md` | **统一整合总览（含 epic 总目录）**——全周期摘要 + 全 epic（1-50 + S1-S4）主题/状态/story/patch 映射（原 EPICS-INDEX.md 已并入） |
-| `_bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/` | 按 epic 归档的 story 文件，嵌套在所属周期目录内（仅建有 story 的 epic） |
-| `_bmad-output/epics/epic-01-10-主线规划周期/` | 主线规划周期（epics 1-10，冻结决策）：`architecture.md`·`brief.md`·`prd.md`·`epics.md`·`epics-self-learning.md`（story 已移至 epic 目录；sprint-status 权威在顶层 `_bmad-output/sprint-status.yaml`） |
-| `_bmad-output/epics/epic-11-18-MCP集成周期/` | MCP Client 集成周期（epics 11-18，三阶段，2026-08-18 合并） |
-| `_bmad-output/epics/`（其余周期目录） | epic-S1-S4-沙箱硬化周期 / epic-19-20-健壮性硬化周期 / epic-21-24-质量工程周期 / epic-25-28-GUI界面周期 / epic-29-35-交互扩展周期 / epic-36-39-文件安全防护周期 / epic-40-沙箱会话化周期 / epic-41-目标驱动开发周期 / epic-42-BMad技能包运行时周期 / epic-43-46-目标级工作流周期 / epic-47-声明式BMad敏捷工作流周期 / epic-48-TCP网络接口周期 / epic-49-HTTP网页访问周期 / epic-50-网页控制台周期 |
-| `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录归档——原 `_bmad-output/patches/`（按领域分子目录）已于 2026-09-15 解散，映射见 consolidated-overview.md 十三 |
-
-> 进度：全周期 **Epic 1-50 + S1-S4** 中仅 **Epic 50（网页控制台）** 未收口（其 story 当前处 `review`），其余全部 `done`——**本行不复述计数**，唯一权威见顶层 [`_bmad-output/sprint-status.yaml`](_bmad-output/sprint-status.yaml)；`engine/` 为 epic 外 P0 增量（见 frame.md 4.12）。
+| `docs/frame.md` | 架构权威——改架构/数据流/模块内部前先读此 |
+| `docs/design.md` | 功能设计与理念 |
+| `_bmad-output/implementation-artifacts/deferred-work-archive.md` | 架构/代码优化台账（触发条件/严重度/冻结边界） |
+| `_bmad-output/consolidated-overview.md` | 统一整合总览（Epic 1-50 + S1-S4 主题/状态/story 映射） |
 
 ## 架构骨架
 
-HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编排 LLM ↔ 工具执行循环；CLI 入口经 `asyncio.run()` 桥接，`heagent gui` 子命令懒加载 Textual TUI。**完整数据流、模块详解、调用链见 `docs/frame.md`。**
+HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**完整数据流、模块详解、调用链见 `docs/frame.md`。**
 
-模块依赖 DAG（**运行期实测**；详细规则与契约断言见 frame.md 三）：
+### 模块依赖 DAG
 
 ```
-公共层 pub/（零 heagent 依赖）：exceptions · types · safe_logging · persist · frontmatter · roles · workspace · task_shutdown
-配置面 config/（依赖 pub/）：__init__ = Settings · catalog = 来源求解 · write = 受闸门写通道 · envfile = .env 保真读写
+公共层 pub/（零 heagent 依赖）：exceptions · types · safe_logging · persist · frontmatter · roles · workspace · task_shutdown · projects
+配置面 config/（依赖 pub/）：Settings · catalog · write · envfile
 
 主脊：  providers ─┐
-        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ 包 · gui · goal/）
+        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ · gui · goal/）
         context ───┘
 
-旁支：  memory（依赖 tools/context/pub.persist；对 engine 仅 TYPE_CHECKING，实例由入口层注入）
-        cron/expr.py（零 heagent 依赖的纯叶子，被 memory 与 cron/scheduler 共用）
-        events（运行期仅依赖 pub.exceptions；engine 单向借用 events.protocol.error_kind_for）
-        network/（传输叶子：仅 stdlib + pydantic + pub.safe_logging，被入口层单向使用，禁止伸手进运行栈）
+旁支：  memory（对 engine 仅 TYPE_CHECKING）
+        events（运行期仅依赖 pub.exceptions）
+        network/（仅 stdlib + pydantic + pub.safe_logging，被入口层单向使用）
 ```
 
-模块一句话清单：
+### 核心模块
 
-- `agent/` — 顶层编排（`AgentLoop` 主循环 + `middleware` + `sub` 子 Agent）
-- `providers/` — LLM provider（OpenAI 兼容：DeepSeek / Kimi / GLM 等 + Anthropic 原生）+ 智能路由（`router` RoutingProvider）+ 多层容错（`chain` 跨 provider 回退 / `key_rotation` 多密钥轮换 / `retry` 指数退避 / `switchable` 运行时 vendor 切换）
-- `tools/` — `@tool` 注册（`registry`）+ `SafetyGuard`（shell 黑名单）+ `path_safety` + `edits`/`sandbox` + `builtins/`（26 工具）+ `mcp/` 桥接
-- `engine/` — 运行时治理（`PolicyEngine` 准入/审批/沙箱裁决 + `ToolExecutor` 分发 + `store`/`ledger`/`observability`），经 `EngineContainer` 注入 `AgentLoop`
-- `pub/` — **公共层**（2026-09-26 收敛；零 heagent 运行栈依赖，**任何层都可依赖它、它不依赖任何层**，`__init__.py` 零 import）：`exceptions`（异常层级）/ `types`（共享 Pydantic 模型）/ `persist`（原子写 + 容错读 + 跨进程文件锁 + prune 批量内核）/ `roles`（`RoleSpec` 角色注册表，2026-09 自 `engine/` 迁出）/ `frontmatter`（共享 frontmatter 解析：两个分隔符变体 + 严/宽两档键值，收敛原六处手写解析器）/ `safe_logging`（`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，非安全边界）/ `workspace`（状态根派生的规范路径）/ `task_shutdown`（后台调度 task 关停内核，cron/dream 共用）/ `projects`（网页控制台项目注册表，2026-09-26 自顶层迁入）
-- `config/` — **配置面（顶层包，依赖 `pub/`）**：`__init__.py` 承载 `Settings`/`get_settings`/`resolve_runtime_config`（名字刻意不变 ⇒ `from heagent.config import Settings` 零改动）、`catalog`（配置四层来源求解）、`write`（受闸门的项目 `.env` 写流水线，Story 50-5）、`envfile`（`.env` 行级保真读写）
-- `context/` — 上下文压缩 / 会话持久化 / 上下文文件加载 / token 估算
-- `events/` — 事件传输层（`RunEvent` JSONL 对外契约 + `JsonlSink` 落盘 + `replay` 回放），运行时零 `engine/` 依赖
-- `network/` — 入口传输层（Epic 48–49）：TCP JSON Lines framing / HTTP 协议·路由·静态资源·SSE / 连接与超时生命周期 / 暴露判定（`exposure.py`）；**只依赖标准库 + pydantic + `pub.safe_logging`**（延迟导入 starlette/uvicorn），被入口层单向使用
-- `web/` — 包内网页静态资源（`index.html`/`app.js`/`styles.css`，Story 50-6/50-8 的两栏控制台 UI）；由 `network/http_server.py` 白名单投递，零 Python 依赖
-- `memory/` — 自学习闭环（`skills`/`facts`/`profile`/`soul`）
-- `cron/` — 后台定时调度
-- `gui/` — Textual TUI（`app`/`bridge`/`screens`/`widgets`），经 `AgentBridge` 持有并观察 `AgentLoop`
-- **入口层与展示辅助**——`heagent/cli/` **包**（2026-09-26 收编原七个平铺 `cli*.py` + 顶层辅助 `slash.py`/`terminal.py`；`__init__.py` 零 import，入口脚本 `heagent.cli.console:main`）：`console.py`（Click 命令组 + 参数解析 + 启动编排，原 `cli.py`）/ `composition.py`（装配：provider→engine→loop、soul、上下文策略、plan mode、dream、事件 sink）/ `interactive.py`（单次/交互**执行**：REPL + 斜杠命令族 + 内嵌 HTTP 挂载点）/ `init.py`（`heagent init`，2026-09-17 自 cli.py 拆出）/ `goal.py`（/goal 命令族：声明式工作流分发 + cron 自动推进）/ `http.py`（HTTP 服务与生命周期装配）/ `http_console.py`（网页控制台的项目/会话/配置面）/ `tcp.py`（Agent 请求适配）/ `dialogs.py`（服务端原生「选择目录」对话框，Story 50-8）/ `display.py`（CLI 渲染，与 GUI 共用）/ `slash.py`（注册表驱动斜杠命令 + `.heagent/commands/*.md`，仅依赖 pydantic + 零依赖公共模块 `heagent.pub.frontmatter`）/ `terminal.py`（终端键盘监听：Esc 暂停 / Enter 恢复 / 双击 Esc 打断）/ `wiring.py`（provider 组合根：`_build_provider` / `ensure_runtime_config` / `build_cron_job_runner`）/ `housekeeping.py`（启动期运行时产物回收：日志 / 会话 / 编辑快照 / 崩溃 run 的沙箱会话目录）；与 `gui/` / `goal/`（`cli/goal.py` 的域模块：需求文档 brief.md 在 `goal/document.py`、LLM 项目命名在 `goal/naming.py`、工作流声明装载在 `goal/workflow_loader.py`）同属入口层——**下层一律不得反向导入**（`tests/test_architecture_contracts.py` 的 `FORBIDDEN_RUNTIME_IMPORTS`：入口层判据现按**包根** `heagent.cli` 收敛，故 `display.py` 也被覆盖）
-- 顶层不再有独立模块（除 `__init__.py` / `__main__.py`）：`projects.py` 归 `pub/`、`wiring.py` 与 `housekeeping.py` 归 `cli/`（2026-09-26）。
+- `agent/` — `AgentLoop` 主循环 + middleware + 子 Agent
+- `providers/` — LLM provider + 智能路由 + 多层容错（chain / key_rotation / retry / switchable）
+- `tools/` — `@tool` 注册 + `SafetyGuard` + `path_safety` + `builtins/` + `mcp/` 桥接
+- `engine/` — 运行时治理（`PolicyEngine` + `ToolExecutor` + store/ledger/observability）
+- `pub/` — 公共层（异常/类型/日志/持久化/frontmatter/角色/工作区/任务关停/项目）
+- `config/` — 配置面（Settings / catalog / write / envfile）
+- `context/` — 上下文压缩/会话持久化/token 估算
+- `memory/` — 自学习闭环（skills / facts / profile / soul）
+- `network/` — 入口传输层（TCP JSON Lines / HTTP + SSE）
+- `cli/` — 入口层包（console / composition / interactive / goal / http / tcp / display / slash / terminal / wiring / housekeeping）
 
-硬约束（违反即架构错误）：
+### 硬约束
 
-- 新增 provider / tool **禁止**从 `agent/` 导入；`tools/mcp/` 同（`AgentLoop` 零改动，仅经 `ToolRegistry` 注入工具）。
-- `engine/` 依赖 `pub.types`/`pub.exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety` + `events.protocol`（仅 `error_kind_for` 纯函数单点，2026-09-22；events.protocol 运行期仅依赖 exceptions，无环）（container 另有 lazy `config`），被 `agent/` 依赖；`pub/` 是公共层，任何模块都可依赖它（它不依赖任何层）；`config/` 只依赖 `pub/`（不得伸手进运行栈）。memory 运行期不反向依赖 `engine/`（`DreamScheduler` 的 engine 由入口层注入，仅 TYPE_CHECKING 引用）；工作流模型在 `engine/workflow_resource.py`、声明解析在 `goal/workflow_loader.py`（2026-09-20 自 `memory/skill_packages.py` 迁出，engine→memory 边已消除）。
-- `network/` **不认识运行栈与配置**：不得导入 `agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`，也不得导入 `config`（整包：Settings/catalog/write/envfile）/ `pub.projects` / `pub.workspace` 与任何入口层模块（唯一例外是零依赖的 `pub.safe_logging`——所以禁止面必须细到**模块**，不能整包写 `heagent.pub`）——装配由 `cli/tcp.py`/`cli/http.py` 单向伸手（契约断言：`FORBIDDEN_RUNTIME_IMPORTS["network"]`）。
-- 跨模块数据用 Pydantic 模型（`pub/types.py`），**禁止**原始 dict。
-- 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**。
+- 新增 provider / tool **禁止**从 `agent/` 导入
+- `engine/` 依赖 `pub` + `tools` 部分 + `events.protocol`，被 `agent/` 依赖
+- `network/` 不得导入运行栈（agent/engine/providers/tools/memory/context/cron/events）与配置（config/pub.projects/pub.workspace）
+- 跨模块数据用 Pydantic 模型（`pub/types.py`），**禁止**原始 dict
+- 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**
 
-**何时读 `docs/frame.md`（按需，不常驻）：** 改 `agent`/`providers`/`tools`/`engine` 行为、查数据流或模块内部、查 Provider 容错分层（FR-4）、技能匹配算法、系统提示词注入顺序（`_build_system()`）、完整调用链时。源码是最终权威。
+## 常用命令
 
-## 测试
+```bash
+# 开发环境安装
+pip install -e ".[dev]"
 
-- 测试平铺在 `tests/`（provider 测试在 `tests/providers/`）；agent loop 测试用 `StubProvider`；每个测试用 `reset_settings()` 重置 `Settings` 单例。
-- **架构契约测试** `tests/test_architecture_contracts.py`（FORBIDDEN_RUNTIME_IMPORTS 反向依赖断言、frontmatter 正则只允许存在于 `pub/frontmatter.py` 等）——改包间依赖或新增解析器时**必须同步维护**，其职责是把只写在文档里的硬约束钉成可执行断言、拒绝「明天的静默漂移」。
-- **monkeypatch 模块路径缝是拆分/搬移红线**：测试大量 patch 字符串路径（`heagent.cli.console._run_prompt`、`heagent.cli.goal._goal_session`、`heagent.cli.goal._GOAL_LOCK_TIMEOUT`、`cli.goal._goal_auto_lock` 等）——被 patch 的目标函数**及其调用方**必须留在原模块（Python 模块全局查找语义）；`test_goal_declarative_workflow.py::test_console_reexports_goal_runner_but_not_monkeypatch_seams` 钉死了 console 的 re-export 面。搬代码前先 grep 缝。**包内文件**另有两条缝纪律：`heagent/cli/__init__.py` 永不放 import（`test_cli_package_shell_stays_thin`）；子模块间的函数体内延迟导入（避开成环）必须指向**实模块**（`from heagent.cli.console import _build_loop`），不能指回包壳。
-- GUI 测试经 `pytest.importorskip("textual")` 守卫（CI 只装 `.[dev]` 无 textual，自动跳过）；pilot 交互测试模板见 `tests/test_gui_goal.py`。
+# 运行测试（跳过 integration/benchmark）
+pytest
+
+# 单个测试文件/用例
+pytest tests/test_agent_loop.py
+pytest tests/test_agent_loop.py::test_basic_run
+
+# 覆盖率（门限 87%）
+pytest --cov --cov-report=term-missing
+
+# 集成测试/性能基准
+pytest -m integration
+pytest -m benchmark
+
+# 静态检查
+ruff check src tests
+ruff format --check src tests
+mypy src
+
+# 自动修复格式
+ruff format src tests
+
+# 运行 HeAgent
+heagent "写一个快速排序"           # 单次执行
+heagent                            # 交互模式
+heagent init --project             # 初始化项目配置
+heagent gui                        # TUI（需 pip install -e ".[gui]"）
+heagent tcp-server                 # TCP 入口（127.0.0.1:8765）
+heagent http-server                # HTTP 网页入口（127.0.0.1:8766，需 pip install "heagent[http]"）
+```
 
 ## 代码规范
 
-- **命名**：PEP 8——`snake_case.py`、`PascalCase` 类名，不加 `Protocol`/`Interface` 后缀，async 方法不加 `_async` 后缀。
-- **数据模型**：一律使用 Pydantic `BaseModel`，不用 `dataclass` 或原始 `dict`。（例外：内部状态对象 `AgentState` 和 `SubAgentResult` 使用 `dataclass`。）
-- **异步**：全部异步。库代码中不出现同步 I/O。`click` CLI 通过 `asyncio.run()` 桥接。
-- **日志**：每个模块 `logging.getLogger(__name__)`，仅使用标准库。
+- **命名**：PEP 8——`snake_case.py`、`PascalCase` 类名，不加后缀
+- **数据模型**：一律 Pydantic `BaseModel`（例外：`AgentState`/`SubAgentResult` 用 `dataclass`）
+- **异步**：全部异步，库代码无同步 I/O，CLI 通过 `asyncio.run()` 桥接
+- **日志**：`logging.getLogger(__name__)`，仅标准库
+- **Git 提交**：执行 `git commit` 前必须先向用户呈报提交信息与文件清单，获得明确同意后才执行
+
+## 测试约束
+
+- `tests/test_architecture_contracts.py` **必须同步维护**——改包间依赖或新增解析器时更新 `FORBIDDEN_RUNTIME_IMPORTS`
+- **monkeypatch 缝是搬移红线**——搬代码前先 `grep` patch 字符串路径（如 `heagent.cli.console._run_prompt`）
+- `heagent/cli/__init__.py` 永不放 import（`test_cli_package_shell_stays_thin`）
+- 子模块延迟导入必须指向实模块，不能指回包壳
 
 ## 已知缺口
 
-> 完整缺口表见 `docs/frame.md` 五；沙箱/文件安全机制与硬化履历见 frame.md 4.4、配置面见 `.env.example`。
+完整清单见 `docs/frame.md` 五与 `_bmad-output/implementation-artifacts/deferred-work-archive.md`。
 
-**核心立场（全部 defense-in-depth，非真正安全边界，须 OS 级沙箱兜底——机制细节见文首安全声明）：**
-`SafetyGuard` 黑名单、`path_safety` 凭证 deny、`PolicyEngine`（围栏 / 审批 / 注解闸门 / 沙箱裁决）、
-sandbox 后端（Firejail 仅隔离 shell 子进程且非完美边界；WinJob 无文件系统/网络隔离；会话目录仅目录约定；
-file/memory 等宿主进程内工具不受覆盖）、MCP 工具拦截与返回内容围栏（标记透传不阻断）。
+核心立场：`SafetyGuard`/`PolicyEngine`/sandbox 均非真正安全边界，须 OS 级沙箱兜底。
 
-**活动缺口**（权威清单与触发条件/严重度/冻结边界见 `_bmad-output/implementation-artifacts/deferred-work-archive.md`；2026-09-27 校正——原列的「沙箱进程数限额未做」〔已由 `SANDBOX_NPROC_LIMIT` 交付〕与「`RoleSpec.sandbox_profile` 死字段」〔已取删除方向〕两项**均已闭合**，不再属活动缺口）：
-MCP stdio server 子进程不经沙箱（中-高）；同一会话文件的**两个写者整份覆盖**对方历史（中，静默丢数据）；
-技能资源 TOCTOU 残余竞态（专项评估）；非回环运行姿态与 R5 收敛判据（**待人裁决**）；
-控制台 `_runtime_for` 每请求一次注册表读、孤儿锁回收的 µs 级竞态窗口（低，残余与升级条件见台账）。
+活动缺口：MCP stdio server 子进程不经沙箱（中-高）；同一会话文件的两个写者整份覆盖对方历史（中）；技能资源 TOCTOU 残余竞态（专项评估）。
