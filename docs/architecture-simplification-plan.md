@@ -405,19 +405,32 @@ Dream 调度评估：
 
 ### 🔄 进行中
 
-无当前进行中任务
+#### P1-1: 配置系统统一评估（2026-09-27）
+- **状态**: 🔄 评估中
+- **发现**: 
+  - `catalog.py` (1,196 行) 负责读取和分类配置
+  - `write.py` (579 行) 负责写入和校验配置
+  - 职责已清晰分离，无明显代码重复
+  - `write.py` 仅导入 `catalog.py` 的 4 个函数（classify, guards_for, routing_report, system_env_keys）
+- **建议**: 当前架构合理，**不建议合并** catalog + write
+- **替代方案**: 跳过此项，转向更有价值的 P1-2 Engine 容器简化
 
 ### 📋 待开始
 
 #### P0-3: CLI 入口层重组（剩余部分）
 - **状态**: 暂停，需要决策
 - **问题**: `http_console.py` 内部实现与提取的适配器有差异
-- **建议**: 先验证当前更改，再继续重组
+- **风险**: 15 个 monkeypatch 缝（涉及 7 个测试文件）
+- **建议**: 推迟到 P2 阶段，优先完成更安全的简化
 
-#### P1 任务
-- 配置系统统一
-- Engine 容器简化  
-- Memory 模块重构
+#### P1-2: Engine 容器简化（待评估）
+- **状态**: 待开始
+- `EngineContainer` 持有 8 个组件（policy, executor, run_store, ledger, events, hooks, approval_handler, command_runner）
+- 考虑延迟初始化优化
+
+#### P1-3: Memory 模块重构（待评估）
+- 4 个 Store (skills/facts/profile/soul) 实现高度相似
+- 考虑提取 BaseStore 统一逻辑
 
 ---
 
