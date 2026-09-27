@@ -94,10 +94,34 @@ def build_server_config(
     - **不写回 Settings**：覆盖只作用于本次服务实例，设置单例保持 env / 文件默认值；
     - **范围规则唯一**：CLI 侧先用 ``click`` 的 range 类型拦一道，最终仍由
       :class:`HttpServerConfig`（Pydantic）统一校验，避免 CLI 与 env 两套规则漂移。
+
+    端口自动查找：当配置的端口被占用且 http_port_auto_find_attempts > 0 时，
+    自动尝试后续端口（port+1, port+2...）。
     """
+    # 解析端口，支持自动查找
+    target_port = settings.http_port if port is None else port
+    target_host = settings.http_host if host is None else host
+
+    # 尝试自动查找可用端口
+    if settings.http_port_auto_find_attempts > 0:
+        from heagent.cli.port_finder import find_available_port
+
+        try:
+            final_port = find_available_port(
+                target_port,
+                host=target_host,
+                max_attempts=settings.http_port_auto_find_attempts,
+            )
+        except RuntimeError:
+            # 所有尝试都失败，使用原端口（让后续绑定失败并报错）
+            final_port = target_port
+    else:
+        # 禁用自动查找
+        final_port = target_port
+
     return HttpServerConfig(
-        host=settings.http_host if host is None else host,
-        port=settings.http_port if port is None else port,
+        host=target_host,
+        port=final_port,
         max_connections=settings.http_max_connections if max_connections is None else max_connections,
         max_inflight_runs=settings.http_max_inflight_runs if max_inflight_runs is None else max_inflight_runs,
         max_request_bytes=settings.http_max_request_bytes if max_request_bytes is None else max_request_bytes,
