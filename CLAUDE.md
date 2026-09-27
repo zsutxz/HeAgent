@@ -111,6 +111,7 @@ HeAgent 是一个自学习 AI Agent 框架——单进程异步 Python 库，编
 sandbox 后端（Firejail 仅隔离 shell 子进程且非完美边界；WinJob 无文件系统/网络隔离；会话目录仅目录约定；
 file/memory 等宿主进程内工具不受覆盖）、MCP 工具拦截与返回内容围栏（标记透传不阻断）。
 
-**活动缺口**（触发条件/严重度/冻结边界见 `_bmad-output/implementation-artifacts/deferred-work-archive.md`）：
-MCP stdio server 子进程不经沙箱（中-高）；技能资源 TOCTOU 残余竞态（专项评估）；沙箱进程数限额未做、
-`RoleSpec.sandbox_profile` 死字段（低）。
+**活动缺口**（权威清单与触发条件/严重度/冻结边界见 `_bmad-output/implementation-artifacts/deferred-work-archive.md`；2026-09-27 校正——原列的「沙箱进程数限额未做」〔已由 `SANDBOX_NPROC_LIMIT` 交付〕与「`RoleSpec.sandbox_profile` 死字段」〔已取删除方向〕两项**均已闭合**，不再属活动缺口）：
+MCP stdio server 子进程不经沙箱（中-高）；同一会话文件的**两个写者整份覆盖**对方历史（中，静默丢数据）；
+技能资源 TOCTOU 残余竞态（专项评估）；非回环运行姿态与 R5 收敛判据（**待人裁决**）；
+控制台 `_runtime_for` 每请求一次注册表读、孤儿锁回收的 µs 级竞态窗口（低，残余与升级条件见台账）。

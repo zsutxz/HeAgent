@@ -652,6 +652,13 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 `.heagent/sessions/<session_id>.json` 存储/恢复**对话历史**（消息列表）。交互模式下通过 `session_id` 自动保存/恢复。
 
+四条与文件路径直接相关的判据（都属 defense-in-depth，不是安全边界）：
+
+- **id 判据**：`^[a-zA-Z0-9_-]{1,128}\Z`（路径遍历防线）+ **Windows 保留设备名**拒绝（`WINDOWS_RESERVED_DEVICE_NAMES` 22 项 = CON/PRN/AUX/NUL + COM1-9 + LPT1-9；`NUL` 在字符集**之内**，放行即在 Windows 上写向空设备、静默丢整段对话）。网络层持同义镜像 `SESSION_ID_RESERVED_NAMES`（不得 import 运行栈，靠测试钉逐元素相等）；CLI `--resume` 在构造 provider 前用同一个`validate_session_id()` fail-fast。
+- **写入**：`pub.persist.atomic_update_text`（跨进程锁 = 同目录 `<id>.json.lock`）。**写入路径刻意不删锁文件**（删除会让「B 等旧 inode、C 拿新文件」的经典竞态失效互斥）。
+- **回收**：`prune(retention_days)` 按 mtime 回收 `*.json`，并顺带用 `pub.persist.reap_dangling_locks`回收**孤儿锁**（三判据全中才删：同名记录已不存在 + 锁 mtime 超限 + `timeout=0` 非阻塞加锁证明无人持有）；`delete()` 不回收（新锁过不了年龄门槛）。
+- **列表**：`list_metadata` 对超过 `MAX_SESSION_METADATA_BYTES`（1 MiB）的会话**只读头部**（`_read_head` 有界读 + 严格解码；`_metadata_from_head` 只在 `"messages"` **之前**的元数据区取值——落盘键序保证 `session_id`/`version`/`timestamp`/`title` 都在那里），`message_count` 退化为 `None`（D6 口径）。
+
 > 注意：另有一套 `engine/store.py` 的 `RunStore`（`.heagent/runs/<run_id>.json`）保存**单次运行快照**（含上下文 / 结果 / 最终答案），见 4.12。两者用途不同——session 是跨轮对话历史，RunStore 是单次 run 的可恢复快照。
 
 ### 4.6 记忆系统 (`memory/`)
@@ -1112,7 +1119,7 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 会话持久化 | `context/session.py` 的 `SessionStore` 按项目派生（`<项目根>/.heagent/sessions/<sid>.json`），与 CLI **同库同格式**；列表只读轻量元数据（D6）；**损坏文件回 `session_unreadable`**（D1），绝不当空会话覆盖 |
 | 配置来源求解（只读面） | `config_catalog.build_config_report`：四层来源 **系统环境变量 > 项目 `.env` > 全局 `~/.heagent/.env` > 字段默认值**，逐项给出有效值 / 来源徽标 / 可写性 / 只读原因；凭证只回「已配置 + 定长掩码」（**掩码域 = `*_API_KEY` / `*_API_KEYS` 后缀**；`*_BASE_URL` 等键的值**原样回传**——凭证写在 URL userinfo 里不会被打码，见台账同名条目）；行级诊断（重复键 / 空值键 / 行内注释 / BOM / 未知键）逐条标注 |
 | 可写面划分（D2/D3） | 实测 **113 字段 = 白名单 46 + 排除 67、残留 0**；优先级 **显式白名单 > 模式排除**，排除之间**显式行 > 模式行**（`HTTP_CONSOLE_*` 因此归「控制台自身」而非「监听面」） |
-| 配置写入通道 | `config/write.apply_config_write`：**10 步 + 1 项生效语义** —— 闸门 → 回环来源 → 键白名单 → 值守卫 → 指纹 → 候选构造（`Settings(_env_file=候选)` 必须能构造）→ 备份 → 保真写 → 回读 → 审计；第 11 项 = 让该项目运行时缓存失效。**回环判定留在传输层**（网络层不认识 Settings），`envfile.py` 做行级保真（**只重写值区**：EOL / BOM / 注释 / 未修改行字节逐一不变），`pub/persist.atomic_update_bytes` 做字节级原子写 + **锁内**回读校验与回滚 |
+| 配置写入通道 | `config/write.apply_config_write`：**10 步 + 1 项生效语义** —— 闸门 → 回环来源 → 键白名单 → 值守卫 → 指纹 → 候选构造（`Settings(_env_file=候选)` 必须能构造）→ 备份 → 保真写 → 回读 → 审计；第 11 项 = 让该项目运行时缓存失效。**回环判定留在传输层**（网络层不认识 Settings），`envfile.py` 做行级保真（**只重写值区**：EOL / BOM / 注释 / 未修改行字节逐一不变），`pub/persist.atomic_update_bytes` 做字节级原子写 + **锁内**回读校验与回滚。⚠ **副作用**：锁文件与目标**同目录**（`<项目根>/.env.lock`），即写一次项目配置就在**用户的项目根**留下一个锁文件——HeAgent 自己的仓库有 `.gitignore` 条目，用户的项目没有；锁的落点语义不改（改落点会破坏「同一把锁贯穿读改写」），故这里只作说明（台账同名条目记录） |
 | 资源旋钮上界 | `config_catalog.RESOURCE_CEILINGS`：21 个「只有下界」的数值键按族给上界（days 3650 / seconds 604800 / bytes 8 MiB / tokens 1M / count 100；迭代 10000 与上下文窗口 16M 自成刻度）。**只作用于写通道与面板展示**，不改 `Settings` 定义语义（手工改 `.env` 不受约束） |
 | 生效语义 | 写成功后**丢该项目运行时缓存** ⇒ 下一次 run 重新解析快照、**在途 run 继续用旧快照**（无热生效；响应里 `applied=next_run`） |
 | 审计 | `<项目根>/.heagent/console/audit.jsonl`：一行一 JSON，只有键名 / 值的**哈希与长度** / 结果，**不含值**；行数上限 500（超限裁到最近 500 条，且只认这一个文件名 ⇒ 不碰同目录的 `projects.json`）；追加失败不阻断已成功的写，但响应如实带 `audit_recorded=false` |
