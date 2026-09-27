@@ -189,6 +189,8 @@ class TestConfig:
         assert config.port == 8766
         assert config.max_connections == 16
         assert config.max_inflight_runs == 1
+        # 服务级在途总额**默认不限**（0）：D9 的「并发随项目数线性」是有意语义，收紧必须显式。
+        assert config.max_total_inflight == 0
         assert config.max_request_bytes == MAX_REQUEST_BYTES_FOR_MAX_PROMPT
         assert config.max_request_bytes == 394_240
         assert config.event_buffer_size == 512
@@ -206,6 +208,7 @@ class TestConfig:
             {"port": 70_000},
             {"max_connections": 0},
             {"max_inflight_runs": 0},
+            {"max_total_inflight": -1},
             {"max_request_bytes": 0},
             {"event_buffer_size": 0},
             {"run_history_size": 0},

@@ -339,12 +339,14 @@ class _FakeProjectHandler:
 class _Harness:
     """真实 console + 真实运行服务 + 临时工作区（项目注册表直接写，不经 HTTP）。"""
 
-    def __init__(self, tmp_path: Path, *, max_inflight_runs: int = 1) -> None:
+    def __init__(self, tmp_path: Path, *, max_inflight_runs: int = 1, max_total_inflight: int = 0) -> None:
         self.workspace = tmp_path / "ws"
         self.workspace.mkdir(parents=True, exist_ok=True)
         self.other_root = tmp_path / "other"
         self.other_root.mkdir(parents=True, exist_ok=True)
-        self.config = HttpServerConfig(port=0, max_inflight_runs=max_inflight_runs)
+        self.config = HttpServerConfig(
+            port=0, max_inflight_runs=max_inflight_runs, max_total_inflight=max_total_inflight
+        )
         self.gate: asyncio.Event | None = None
         self.failure: BaseException | None = None
         self.service = HttpRunService(self.config, self._unexpected_direct_executor)
@@ -398,6 +400,27 @@ async def test_inflight_quota_is_per_project(tmp_path: Path) -> None:
         assert third.status_code == 409
         assert _error(third) == HttpErrorCode.RUN_CONFLICT
         assert harness.service.active_runs == 2  # 两个项目各占一个名额
+    finally:
+        await harness.release()
+
+
+async def test_total_inflight_cap_is_shared_across_projects(tmp_path: Path) -> None:
+    """可选的服务级总额：A 项目在跑时 B 项目也起不来——**叠加**在 D9 的按项目语义上。
+
+    与 ``test_inflight_quota_is_per_project`` 成对：那条跑在默认（总额 0 = 不限）上，这条把
+    总额设成 1，于是跨项目名额**不再**独立——两条一起钉住「默认不变 / 显式才收紧」。
+    """
+    harness = _Harness(tmp_path, max_inflight_runs=2, max_total_inflight=1)
+    harness.gate = asyncio.Event()
+    async with harness.client() as client:
+        first = await client.post("/api/projects/default/runs", json={"prompt": "A"})
+        second = await client.post(f"/api/projects/{harness.other_id}/runs", json={"prompt": "B"})
+
+    try:
+        assert first.status_code == 201, first.text
+        assert second.status_code == 409, second.text
+        assert _error(second) == HttpErrorCode.TOTAL_INFLIGHT_LIMIT
+        assert harness.service.active_runs == 1
     finally:
         await harness.release()
 

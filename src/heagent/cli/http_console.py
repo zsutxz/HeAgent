@@ -605,7 +605,7 @@ class HttpProjectConsole:
                 session_id=session_id,
             )
         except HttpRunConflictError as exc:
-            raise ConsoleOperationError(HttpErrorCode.RUN_CONFLICT, str(exc)) from exc
+            raise ConsoleOperationError(exc.code, str(exc)) from exc
         # 跨进程文件锁 + 原子写，留在循环里会卡住其余的 SSE 流 ⇒ 卸载到线程池。
         await asyncio.to_thread(self._touch, project_id)
         return ProjectRunResponse(run_id=record.run_id, session_id=session_id, status=record.status)

@@ -55,6 +55,7 @@
     empty_prompt: "提示词不能为空。",
     request_too_large: "请求体过大：请缩短提示词。",
     run_conflict: "该项目已有运行在进行：请等它结束，或先点「停止」。",
+    total_inflight_limit: "服务端同时在途的运行数已达上限：请等其中一次结束，或先点「停止」。",
     unknown_run: "运行不存在或已结束。",
     unknown_project: "项目不存在或已被移除：请刷新项目列表。",
     invalid_project_path: "目录无效：必须是已存在的目录的绝对路径。",

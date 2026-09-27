@@ -57,17 +57,20 @@ class TestSkillPackage:
         make_package(tmp_path)
         (tmp_path / "step-01.md").write_text("first", encoding="utf-8")
         (tmp_path / "step-02.md").write_text("second", encoding="utf-8")
-        reads: list[Path] = []
+        reads: list[str] = []
         original_open = os.open
 
-        def record_open(path: str | os.PathLike[str], flags: int, *args: object) -> int:
-            reads.append(Path(path).resolve())
-            return original_open(path, flags, *args)
+        def record_open(path: str | os.PathLike[str], flags: int, *args: object, **kwargs: object) -> int:
+            # 逐组件通道会为 root 与中间目录各开一次（带 O_DIRECTORY，路径是**组件名**）；
+            # 判据只关心「真正读出内容的那个叶组件」，故按名字记、并按名字断言（跨通道同义）。
+            if not flags & getattr(os, "O_DIRECTORY", 0):
+                reads.append(Path(path).name)
+            return original_open(path, flags, *args, **kwargs)
 
         monkeypatch.setattr(os, "open", record_open)
 
         assert SkillPackage(skill_id="he-build", root=tmp_path).read_step("step-01.md") == "first"
-        assert reads == [(tmp_path / "step-01.md").resolve()]
+        assert reads == ["step-01.md"], "只允许打开被请求的那一个资源文件（不得顺手读别的步骤）"
 
     @pytest.mark.parametrize("path", ["/tmp/outside.md", "C:/outside.md", "../outside.md"])
     def test_rejects_absolute_and_traversal_resource_paths(self, tmp_path: Path, path: str) -> None:

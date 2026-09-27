@@ -3,6 +3,8 @@
 > 上游评估：`spec-skill-resource-toctou-assessment.md`（Epic 46 Story 46.1，决策「assessment only；
 > 不做跨平台运行时改动」）+ Story 46.2 的 `O_NOFOLLOW` 加固。
 > 本文件是台账活动条目「技能资源 TOCTOU 残余」的复核与更新，**不含代码改动**
+>
+> **2026-09-27 addendum（本文结论已被部分推翻，先读这段）**：第一节「① 竞态类残余维持 Story 46.1 决策」里的「逐组件 `openat` 仅 POSIX 可用且仍是收窄 / 命中 Ask First」已被用户裁定**授权引入平台专用代码**，随后**已交付**：`src/heagent/tools/path_safety.py` 的 `_open_walked` / `_open_dir_component`（中间目录 `O_DIRECTORY|O_NOFOLLOW`、叶 `O_NOFOLLOW`，能力门 `_WALK_SUPPORTED` 导入期冻结），Windows 无 `dir_fd` ⇒ 回退整路径 `open`。判据与变异体见 `tests/test_skill_packages_toctou.py` 与 `.heagent/tmp/mutate_walk_posix.py`；交付细节、实测数字与残余见活动台账同名条目与 `docs/frame.md` 4.14。本文余下内容为**当时**的评估，保留不动。
 > （实施需按 Story 46.1 的 Ask First 单独授权）。
 
 ## 一、结论摘要

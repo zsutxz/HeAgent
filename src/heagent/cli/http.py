@@ -80,6 +80,7 @@ def build_server_config(
     port: int | None = None,
     max_connections: int | None = None,
     max_inflight_runs: int | None = None,
+    max_total_inflight: int | None = None,
     max_request_bytes: int | None = None,
     event_buffer_size: int | None = None,
     run_history_size: int | None = None,
@@ -126,6 +127,7 @@ def build_server_config(
         port=final_port,
         max_connections=settings.http_max_connections if max_connections is None else max_connections,
         max_inflight_runs=settings.http_max_inflight_runs if max_inflight_runs is None else max_inflight_runs,
+        max_total_inflight=(settings.http_max_total_inflight if max_total_inflight is None else max_total_inflight),
         max_request_bytes=settings.http_max_request_bytes if max_request_bytes is None else max_request_bytes,
         event_buffer_size=settings.http_event_buffer_size if event_buffer_size is None else event_buffer_size,
         run_history_size=settings.http_run_history_size if run_history_size is None else run_history_size,
@@ -299,6 +301,12 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     help="Max concurrent agent runs; extra submissions get run_conflict (default: HTTP_MAX_INFLIGHT_RUNS / 1)",
 )
 @click.option(
+    "--max-total-inflight",
+    type=click.IntRange(min=0),
+    default=None,
+    help="Max concurrent agent runs across ALL projects; 0 = unlimited (default: HTTP_MAX_TOTAL_INFLIGHT / 0)",
+)
+@click.option(
     "--max-request-bytes",
     type=click.IntRange(min=1),
     default=None,
@@ -360,6 +368,7 @@ def http_server_cmd(
     port: int | None,
     max_connections: int | None,
     max_inflight_runs: int | None,
+    max_total_inflight: int | None,
     max_request_bytes: int | None,
     event_buffer_size: int | None,
     run_history_size: int | None,
@@ -390,6 +399,7 @@ def http_server_cmd(
         port=port,
         max_connections=max_connections,
         max_inflight_runs=max_inflight_runs,
+        max_total_inflight=max_total_inflight,
         max_request_bytes=max_request_bytes,
         event_buffer_size=event_buffer_size,
         run_history_size=run_history_size,

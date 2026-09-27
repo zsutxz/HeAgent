@@ -97,6 +97,7 @@ def test_build_server_config_uses_settings_defaults() -> None:
         port=settings.http_port,
         max_connections=settings.http_max_connections,
         max_inflight_runs=settings.http_max_inflight_runs,
+        max_total_inflight=settings.http_max_total_inflight,
         max_request_bytes=settings.http_max_request_bytes,
         event_buffer_size=settings.http_event_buffer_size,
         run_history_size=settings.http_run_history_size,
@@ -110,9 +111,12 @@ def test_build_server_config_uses_settings_defaults() -> None:
 def test_build_server_config_overrides_only_the_given_fields() -> None:
     settings = get_settings()
 
-    config = build_server_config(settings, port=9999, max_inflight_runs=2, request_timeout=1.5, idle_timeout=2.5)
+    config = build_server_config(
+        settings, port=9999, max_inflight_runs=2, max_total_inflight=3, request_timeout=1.5, idle_timeout=2.5
+    )
 
-    assert (config.port, config.max_inflight_runs, config.request_timeout, config.idle_timeout) == (9999, 2, 1.5, 2.5)
+    assert (config.port, config.max_inflight_runs, config.max_total_inflight) == (9999, 2, 3)
+    assert (config.request_timeout, config.idle_timeout) == (1.5, 2.5)
     # 未覆盖的字段仍取 Settings（不因某几项覆盖而整体重置）
     assert (config.host, config.max_connections) == (settings.http_host, settings.http_max_connections)
 
@@ -124,6 +128,8 @@ def test_defaults_reach_the_listening_config(captured_server: dict[str, HttpServ
     server = captured_server["server"]
     assert (server.config.host, server.config.port) == ("127.0.0.1", 8766)
     assert (server.config.max_connections, server.config.max_inflight_runs) == (16, 1)
+    # 服务级总额默认不限（0）——不设即保持「每项目各一份」的 D9 语义。
+    assert server.config.max_total_inflight == 0
     assert (server.config.event_buffer_size, server.config.run_history_size) == (512, 64)
     # 默认**不设**总时长硬上限（0 = 不限制），卡死交给 300s 的静默判定（2026-09-24 修复）。
     assert (server.config.request_timeout, server.config.idle_timeout) == (0.0, 300.0)
@@ -136,6 +142,7 @@ def test_settings_env_drives_defaults(monkeypatch: pytest.MonkeyPatch, captured_
     """未传 CLI 参数时用 Settings（env）的值——CLI 与 env 走同一套字段。"""
     monkeypatch.setenv("HTTP_PORT", "9100")
     monkeypatch.setenv("HTTP_MAX_INFLIGHT_RUNS", "3")
+    monkeypatch.setenv("HTTP_MAX_TOTAL_INFLIGHT", "4")
     monkeypatch.setenv("HTTP_RUN_HISTORY_SIZE", "8")
     monkeypatch.setenv("HTTP_IDLE_TIMEOUT", "7")
     reset_settings()
@@ -145,6 +152,7 @@ def test_settings_env_drives_defaults(monkeypatch: pytest.MonkeyPatch, captured_
     assert result.exit_code == 0, result.output
     server = captured_server["server"]
     assert (server.config.port, server.config.max_inflight_runs, server.config.run_history_size) == (9100, 3, 8)
+    assert server.config.max_total_inflight == 4
     assert server.config.idle_timeout == 7.0
 
 
@@ -163,6 +171,8 @@ def test_cli_overrides_reach_the_config_without_mutating_settings(
             "9401",
             "--max-inflight-runs",
             "2",
+            "--max-total-inflight",
+            "3",
             "--shutdown-timeout",
             "1.5",
             "--idle-timeout",
@@ -175,9 +185,12 @@ def test_cli_overrides_reach_the_config_without_mutating_settings(
     assert result.exit_code == 0, result.output
     server = captured_server["server"]
     assert (server.config.port, server.config.max_inflight_runs, server.config.shutdown_timeout) == (9401, 2, 1.5)
+    assert server.config.max_total_inflight == 3
     # ``0`` 是**合法**取值（关掉该时限 / 不设总时长上限），CLI 边界不得比配置层更严（2026-09-24）。
     assert (server.config.idle_timeout, server.config.request_timeout) == (0.0, 0.0)
     assert (settings.http_port, settings.http_max_inflight_runs, settings.http_shutdown_timeout) == (8766, 1, 5.0)
+    # CLI 覆盖不写回 Settings：服务级总额仍是 env / 默认值。
+    assert settings.http_max_total_inflight == 0
     assert settings.http_idle_timeout == 300.0
 
 
@@ -188,6 +201,7 @@ def test_cli_overrides_reach_the_config_without_mutating_settings(
         ["--port", "70000"],
         ["--max-connections", "0"],
         ["--max-inflight-runs", "0"],
+        ["--max-total-inflight", "-1"],
         ["--max-request-bytes", "0"],
         ["--event-buffer-size", "0"],
         ["--run-history-size", "0"],

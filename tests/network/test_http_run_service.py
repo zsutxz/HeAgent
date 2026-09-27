@@ -863,6 +863,79 @@ class TestCancellationHonesty:
         await _drain(service)
 
 
+class TestTotalInflightLimit:
+    """可选的服务级在途总额（``max_total_inflight``）：名额**跨项目共享**，默认 0 = 不限。
+
+    它与 ``max_inflight_runs``（每项目）**同时**生效。三条各钉一面：默认不改变 D9 语义、
+    设了上限后跨项目也起不来（且回**独立**错误码）、名额随终结归还。
+    """
+
+    async def test_zero_means_unlimited_across_projects(self) -> None:
+        """默认 0：两个项目各占一个名额（D9 语义的回归护栏）。"""
+        gate = asyncio.Event()
+        config = _config(max_inflight_runs=1)
+        service = HttpRunService(config, _blocking_executor(gate))
+        try:
+            first = await service.start_run("a", executor=_blocking_executor(gate), project_id="p1")
+            second = await service.start_run("b", executor=_blocking_executor(gate), project_id="p2")
+
+            assert config.max_total_inflight == 0
+            assert service.active_runs == 2
+            assert (first.project_id, second.project_id) == ("p1", "p2")
+        finally:
+            gate.set()
+            await _drain(service)
+
+    async def test_cap_rejects_another_project_with_its_own_code(self) -> None:
+        """总额满时跨项目也拒，且错误码与「本项目已有运行」**不同**（等的是任何一次运行）。"""
+        gate = asyncio.Event()
+        service = HttpRunService(_config(max_inflight_runs=2, max_total_inflight=1), _blocking_executor(gate))
+        try:
+            await service.start_run("a", executor=_blocking_executor(gate), project_id="p1")
+
+            with pytest.raises(HttpRunConflictError) as caught:
+                await service.start_run("b", executor=_blocking_executor(gate), project_id="p2")
+
+            assert caught.value.code is HttpErrorCode.TOTAL_INFLIGHT_LIMIT
+            assert "total in-flight" in str(caught.value)
+            assert service.active_runs == 1, "被拒的提交不得占用名额"
+        finally:
+            gate.set()
+            await _drain(service)
+
+    async def test_anonymous_endpoint_reports_the_total_limit_code(self) -> None:
+        """``/api/runs``（无项目归属）吃**同一份**服务级总额，且回的是同一个稳定码。
+
+        这一条钉的是传输层的映射（``HttpRunConflictError.code`` → 错误信封），与项目内运行那条
+        （走控制台）成对：两处 catch 各自把码透传，谁退化成写死 ``run_conflict`` 都会变红。
+        """
+        gate = asyncio.Event()
+        config = _config(max_inflight_runs=2, max_total_inflight=1)
+        service = HttpRunService(config, _blocking_executor(gate))
+        try:
+            await service.start_run("project run", executor=_blocking_executor(gate), project_id="p1")
+            async with _client(service, config=config) as client:
+                response = await client.post("/api/runs", json={"prompt": "anonymous"})
+
+            assert response.status_code == 409
+            assert response.json()["error"]["code"] == HttpErrorCode.TOTAL_INFLIGHT_LIMIT
+        finally:
+            gate.set()
+            await _drain(service)
+
+    async def test_slot_is_returned_when_a_run_finishes(self) -> None:
+        """总额按**在途**计数：前一次终结后名额归还（不是一次性的启动闸门）。"""
+        service = HttpRunService(_config(max_total_inflight=1), _executor())
+        first = await service.start_run("a", executor=_executor(), project_id="p1")
+        await _drain(service)  # 等第一次终结（名额归还）
+
+        second = await service.start_run("b", executor=_executor(), project_id="p2")
+
+        assert first.is_terminal
+        assert second.project_id == "p2"
+        await _drain(service)
+
+
 class TestRunHistoryRetention:
     """``run_history_size`` 的语义是「已终结 run 的保留条数」：在途记录不得被淘汰。"""
 

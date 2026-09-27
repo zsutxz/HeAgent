@@ -62,7 +62,7 @@ class HttpErrorCode(StrEnum):
     - **原生选择类**：``dialog_unavailable``（无图形后端 / 被 ``--dialog-backend none`` 禁用）/
       ``dialog_busy``（已有一次选择在途）——「用户取消」与「超时」都用成功响应里的
       ``cancelled=true`` 表达，不占用错误码；
-    - **运行类**：``run_conflict`` / ``unknown_run`` / ``resync_required``；
+    - **运行类**：``run_conflict`` / ``total_inflight_limit`` / ``unknown_run`` / ``resync_required``；
     - **资源类**：``rate_limited`` / ``timeout``；
     - **边界类**：``origin_forbidden`` / ``not_found`` / ``method_not_allowed``；
     - **服务类**：``agent_error`` / ``shutting_down`` / ``server_error``。
@@ -72,6 +72,9 @@ class HttpErrorCode(StrEnum):
     EMPTY_PROMPT = "empty_prompt"
     REQUEST_TOO_LARGE = "request_too_large"
     RUN_CONFLICT = "run_conflict"
+    # 服务级在途总额（跨项目共享的可选 ``HTTP_MAX_TOTAL_INFLIGHT``）已满：与「本项目已有运行」是
+    # 不同语义（等**任何**一次运行结束 vs 等本项目/本会话），故独立成码（2026-09-27）。
+    TOTAL_INFLIGHT_LIMIT = "total_inflight_limit"
     UNKNOWN_RUN = "unknown_run"
     UNKNOWN_PROJECT = "unknown_project"
     INVALID_PROJECT_PATH = "invalid_project_path"

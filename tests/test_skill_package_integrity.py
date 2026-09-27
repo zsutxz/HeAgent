@@ -196,12 +196,13 @@ class TestCredentialProbe:
 
     def test_credential_is_probed_once_at_package_root(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _managed_package(tmp_path)
-        opened: list[Path] = []
+        opened: list[str] = []
         original_open = os.open
 
-        def record_open(path: str | os.PathLike[str], flags: int, *args: object) -> int:
-            opened.append(Path(path).resolve())
-            return original_open(path, flags, *args)
+        def record_open(path: str | os.PathLike[str], flags: int, *args: object, **kwargs: object) -> int:
+            # 逐组件通道下路径是**组件名**（中间目录带 O_DIRECTORY）⇒ 按名字记，跨通道同义。
+            opened.append(Path(path).name)
+            return original_open(path, flags, *args, **kwargs)
 
         monkeypatch.setattr(os, "open", record_open)
         package = SkillPackage(skill_id="he-build", root=tmp_path)
@@ -209,8 +210,8 @@ class TestCredentialProbe:
         assert package.read_reference("note.md") == _NOTE
         assert package.read_template("x.md") == _TEMPLATE
 
-        manifest_reads = [path for path in opened if path.name == "manifest.json"]
-        assert manifest_reads == [(tmp_path / "manifest.json").resolve()]  # 懒加载 + 缓存：至多一次
+        manifest_reads = [name for name in opened if name == "manifest.json"]
+        assert manifest_reads == ["manifest.json"]  # 懒加载 + 缓存：至多一次
 
 
 def test_skill_package_reads_go_through_the_digest_channel() -> None:

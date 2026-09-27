@@ -93,8 +93,14 @@ def read_bytes_under_root(root: Path, relative: str | Path) -> bytes:
     全仓技能/包资源读取的**唯一**底层通道（文本读取是其薄封装）：
 
     1. ``resolve_under_root`` 围栏（逃逸即 ``WorkspacePathError``）；
-    2. ``os.open`` 加固——``O_NOFOLLOW``（平台支持时拒绝最终组件符号链接替换；不支持
-       的平台回退普通 open，特征测试钉住）+ ``O_NONBLOCK``/``O_CLOEXEC``/``O_BINARY``；
+    2. **加固打开**——两个通道（2026-09-27 硬化）：
+       - **POSIX 逐组件 ``openat``**（``os.supports_dir_fd`` 含 ``os.open`` 且有
+         ``O_NOFOLLOW``）：从 root 起**每个中间目录组件**都用 ``O_DIRECTORY|O_NOFOLLOW``
+         打开，叶组件用 ``O_NOFOLLOW``。围栏之后、打开之前把中间目录换成符号链接的
+         替换因此在该组件上直接 ``ELOOP``（旧通道会跟着链接走出去）；
+       - **整路径``open``回退**（Windows 无 ``dir_fd``）：语义与硬化前逐字一致，窗口更宽。
+       两条通道都带 ``O_NONBLOCK``/``O_CLOEXEC``/``O_BINARY``，且都保留「文件系统不支持
+       ``O_NOFOLLOW``（``EINVAL``/``ENOTSUP``）时去掉该标志重试一次」的兼容分支；
     3. ``fstat`` 校验普通文件（拒 FIFO/设备文件，防阻塞与非常规读取）；
     4. 读满并返回原始字节（**不做**解码与换行归一）。
 
@@ -115,21 +121,12 @@ def read_bytes_under_root(root: Path, relative: str | Path) -> bytes:
     if nofollow is not None:
         flags |= nofollow
     flags |= getattr(os, "O_BINARY", 0)
+    parts = _walkable_parts(resolved, root_resolved) if _WALK_SUPPORTED else None
     try:
-        try:
-            descriptor = os.open(resolved, flags)
-        except OSError as exc:
-            # Some platforms expose O_NOFOLLOW but their filesystem does not
-            # implement it. Preserve the compatibility read in that case.
-            unsupported = {
-                errno.EINVAL,
-                getattr(errno, "ENOTSUP", errno.EINVAL),
-                getattr(errno, "EOPNOTSUPP", errno.EINVAL),
-            }
-            if nofollow is not None and exc.errno in unsupported:
-                descriptor = os.open(resolved, flags & ~nofollow)
-            else:
-                raise
+        if parts is None or nofollow is None:
+            descriptor = _open_resolved(resolved, flags, nofollow=nofollow)
+        else:
+            descriptor = _open_walked(root_resolved, parts, flags, nofollow=nofollow)
         try:
             info = os.fstat(descriptor)
             if not stat.S_ISREG(info.st_mode):
@@ -141,9 +138,126 @@ def read_bytes_under_root(root: Path, relative: str | Path) -> bytes:
             if descriptor >= 0:
                 os.close(descriptor)
     except OSError as exc:
-        if exc.errno in {errno.ELOOP, errno.EMLINK}:
-            # 翻译成领域无关的显性消息（与 resolve 围栏同层的路径安全语义）。
+        if exc.errno in {errno.ELOOP, errno.EMLINK} and "is a symlink" not in str(exc):
+            # 翻译成领域无关的显性消息（与 resolve 围栏同层的路径安全语义）。逐组件通道抛出的
+            # ELOOP 已经点名了具体组件（`path component is a symlink: X`），不在这里改写。
             raise OSError(errno.ELOOP, f"final path component is a symlink: {resolved}") from exc
+        raise
+
+
+# ── 「解析后安全打开」的两个内核（POSIX 逐组件 / 整路径回退）───────────────────────────
+#
+# 2026-09-27（活动台账「技能资源 TOCTOU 残余」的 Ask First 授权项，用户裁定「授权引入平台
+# 专用代码」）：把「解析一次 + 整路径 open」换成 **POSIX 逐组件 openat**——每个中间组件都用
+# ``O_DIRECTORY | O_NOFOLLOW`` 打开，叶组件用 ``O_NOFOLLOW``。被收窄的窗口是「resolve 之后、
+# open 之前把中间目录换成符号链接」：整路径 open 会跟着链接走出去，逐组件 open 在该组件上
+# 直接 ``ELOOP``。
+#
+# ⚠ 仍是**收窄**而非边界：每个组件各自一次原子 open，组件之间仍有时间差（组件级竞态不为零），
+# 且 Windows 无 ``dir_fd`` ⇒ 回退整路径 open、窗口与硬化前一样宽。须 OS 级沙箱兜底。
+
+_O_DIRECTORY = getattr(os, "O_DIRECTORY", 0)
+_NOFOLLOW_UNSUPPORTED = frozenset(
+    {
+        errno.EINVAL,
+        getattr(errno, "ENOTSUP", errno.EINVAL),
+        getattr(errno, "EOPNOTSUPP", errno.EINVAL),
+    }
+)
+
+
+# 平台是否支持逐组件通道：有 ``O_DIRECTORY`` / ``O_NOFOLLOW`` 且 ``os.open`` 收 ``dir_fd``
+# （Windows 的 ``os.supports_dir_fd`` 不含 ``os.open`` ⇒ False，走整路径回退通道）。
+#
+# **在导入期算一次**，不是每次调用重算：`os.open in os.supports_dir_fd` 是**函数对象身份**比较，
+# 任何把 ``os.open`` 包一层的代码（测试探针、观测装饰器）都会让它变 False ⇒ 整条逐组件硬化被
+# **静默**降级回宽窗口通道（2026-09-27 实测：`monkeypatch.setattr(os, "open", ...)` 后新通道
+# 一次都没走）。能力只描述「这个解释器/平台有没有 dir_fd 版 open」，与谁当前挂在 ``os.open`` 上
+# 无关，故冻结为常量。
+_WALK_SUPPORTED = (
+    _O_DIRECTORY != 0
+    and getattr(os, "O_NOFOLLOW", None) is not None
+    and os.open in getattr(os, "supports_dir_fd", frozenset())
+)
+
+
+def _walkable_parts(resolved: Path, root_resolved: Path) -> tuple[str, ...] | None:
+    """``resolved`` 相对 ``root_resolved`` 的组件元组；无法逐组件表达时返回 ``None``（走回退通道）。
+
+    纯路径逻辑（平台能力由 :func:`_walk_supported` 判定）。``resolved`` 已由围栏 resolve 过（无
+    ``..`` / ``.`` / 符号链接），这里仍显式拒一次 ``..``——逐组件 open 的路径语义完全由组件名
+    序列决定，任何 ``..`` 都会让它指到 root 之外。
+    """
+    try:
+        relative = resolved.relative_to(root_resolved)
+    except ValueError:
+        return None
+    parts = tuple(part for part in relative.parts if part not in {"", "."})
+    if not parts or ".." in parts:
+        return None
+    return parts
+
+
+def _is_symlink_at(directory: int, part: str) -> bool:
+    """该组件在**这个目录句柄**上是不是符号链接（仅在 open 失败后调用，用于归因）。"""
+    try:
+        os.readlink(part, dir_fd=directory)
+    except (OSError, TypeError, NotImplementedError):
+        return False
+    return True
+
+
+def _open_dir_component(directory: int, part: str, nofollow: int) -> int:
+    """打开一个**中间目录**组件（相对 ``directory``）：``O_DIRECTORY|O_NOFOLLOW``。
+
+    「该组件被换成符号链接」在内核侧有**两种**表现：普通 open 带 ``O_NOFOLLOW`` 是 ``ELOOP``，
+    而 ``O_DIRECTORY|O_NOFOLLOW`` 撞上符号链接时 Linux 回 ``ENOTDIR``（链接本身不是目录）——
+    两条都做一次「到底是不是链接」的归因，是就统一成**点名组件**的 ``ELOOP`` 消息（Windows
+    回退通道没有这一层，故该消息只会在 POSIX 出现）；真实文件组件（非链接）仍按原样 ``ENOTDIR``
+    上抛。文件系统不支持 ``O_NOFOLLOW`` 时去掉该标志重试一次，与叶组件同口径。
+    """
+    flags = os.O_RDONLY | _O_DIRECTORY | nofollow | getattr(os, "O_CLOEXEC", 0)
+    try:
+        return os.open(part, flags, dir_fd=directory)
+    except OSError as exc:
+        if exc.errno in {errno.ELOOP, errno.EMLINK, errno.ENOTDIR} and _is_symlink_at(directory, part):
+            raise OSError(errno.ELOOP, f"path component is a symlink: {part}") from exc
+        if exc.errno in _NOFOLLOW_UNSUPPORTED:
+            return os.open(part, flags & ~nofollow, dir_fd=directory)
+        raise
+
+
+def _open_walked(root_resolved: Path, parts: tuple[str, ...], flags: int, *, nofollow: int) -> int:
+    """POSIX 逐组件 ``openat``：中间组件 ``O_DIRECTORY|O_NOFOLLOW``，叶组件沿用 ``flags``。
+
+    root 自身**不做** ``O_NOFOLLOW``：调用方给的 root 可能本身就是符号链接（例如工作区经链接
+    指向真实目录），对它加 ``NOFOLLOW`` 会把合法布局判死；加固只针对 root **之内**的组件。
+    """
+    directory = os.open(root_resolved, os.O_RDONLY | _O_DIRECTORY | getattr(os, "O_CLOEXEC", 0))
+    try:
+        for part in parts[:-1]:
+            child = _open_dir_component(directory, part, nofollow)
+            os.close(directory)
+            directory = child
+        try:
+            return os.open(parts[-1], flags, dir_fd=directory)
+        except OSError as exc:
+            if exc.errno in _NOFOLLOW_UNSUPPORTED:
+                return os.open(parts[-1], flags & ~nofollow, dir_fd=directory)
+            raise
+    finally:
+        os.close(directory)
+
+
+def _open_resolved(resolved: Path, flags: int, *, nofollow: int | None) -> int:
+    """整路径 ``open``——Windows 与不支持 ``dir_fd`` 的环境；语义与 2026-09-27 前逐字一致。"""
+    try:
+        return os.open(resolved, flags)
+    except OSError as exc:
+        # Some platforms expose O_NOFOLLOW but their filesystem does not
+        # implement it. Preserve the compatibility read in that case.
+        if nofollow is not None and exc.errno in _NOFOLLOW_UNSUPPORTED:
+            return os.open(resolved, flags & ~nofollow)
         raise
 
 

@@ -859,6 +859,9 @@ class TestConsoleErrorMapping:
         texts = {entry["code"]: entry["text"] for entry in result["conflicts"]}
 
         assert "该项目已有运行在进行" in texts["run_conflict"]
+        # 服务级总额与「本项目已有运行」是不同语义：不得回落成服务端的英文原文。
+        assert "服务端同时在途的运行数已达上限" in texts["total_inflight_limit"]
+        assert "total in-flight" not in texts["total_inflight_limit"]
         assert "项目目录已失效" in texts["project_unavailable"]
         assert "该会话正被一次运行使用" in texts["session_busy"]
         assert "已被其它地方" in texts["session_conflict"]
@@ -876,5 +879,6 @@ class TestConsoleErrorMapping:
     def test_rejected_submissions_do_not_retry_or_hide_the_failure(self, tmp_path: Path) -> None:
         result = _run_probe("M", tmp_path)
 
-        assert result["callsAfterSubmitErrors"] == 3, "每次被拒的提交恰好发一次请求（不重试、不静默）"
+        # 4 = run_conflict / total_inflight_limit / project_unavailable / weird_code 各一次
+        assert result["callsAfterSubmitErrors"] == 4, "每次被拒的提交恰好发一次请求（不重试、不静默）"
         assert result["projectCalls"] >= 1

@@ -155,7 +155,15 @@ class HttpStartupError(RuntimeError):
 
 
 class HttpRunConflictError(RuntimeError):
-    """已有在途运行（或服务正在关闭），拒绝新运行（AD-3 的单运行约束）。"""
+    """已有在途运行（或服务正在关闭 / **服务级总额已满**），拒绝新运行（AD-3 的单运行约束）。
+
+    ``code`` 是给客户端的稳定码：项目级冲突与服务关闭都是 ``run_conflict``，服务级总额（跨项目
+    共享的 ``max_total_inflight``）是 ``total_inflight_limit``——两者「等谁结束」的语义不同。
+    """
+
+    def __init__(self, message: str, *, code: HttpErrorCode = HttpErrorCode.RUN_CONFLICT) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class HttpServerConfig(BaseModel):
@@ -173,6 +181,10 @@ class HttpServerConfig(BaseModel):
     # **每个项目各自**的在途运行上限（Story 50-3 的 D9）：全局上限 = 项目数 × 该值，因此「A 项目在跑」
     # 不挡 B 项目；``POST /api/runs``（无项目归属）自己算一档，语义与 Epic 49 逐字相同。
     max_inflight_runs: int = Field(default=1, ge=1)
+    # **服务级**在途运行总额（跨项目共享）：``0`` = 不限（默认 ⇒ D9 的「并发随项目数线性」语义逐字
+    # 不变）。设 N > 0 后所有项目加总不得超过 N；它与 ``max_inflight_runs`` **同时**生效，先撞谁按谁
+    # 拒（总额这一路回 ``total_inflight_limit``，见 :class:`HttpRunConflictError`）。
+    max_total_inflight: int = Field(default=0, ge=0)
     max_request_bytes: int = Field(default=MAX_REQUEST_BYTES_FOR_MAX_PROMPT, ge=1)
     event_buffer_size: int = Field(default=512, ge=1)
     run_history_size: int = Field(default=64, ge=1)
@@ -498,6 +510,13 @@ class HttpRunService:
             raise HttpRunConflictError("server is shutting down")
         if self._inflight_in_scope(project_id) >= self.config.max_inflight_runs:
             raise HttpRunConflictError("another run is already in flight")
+        if self.config.max_total_inflight and len(self._active) >= self.config.max_total_inflight:
+            # 服务级总额：**跨**项目共享。``_active`` 装着所有项目的在途运行，与运行记录同源，
+            # 因此判定不需要另建索引，也不会与 ``_inflight_in_scope`` 的事实分叉。
+            raise HttpRunConflictError(
+                "server is at its total in-flight limit",
+                code=HttpErrorCode.TOTAL_INFLIGHT_LIMIT,
+            )
         record = _RunRecord(
             uuid.uuid4().hex,
             prompt,
@@ -1203,6 +1222,8 @@ _CONSOLE_ERROR_STATUS: dict[HttpErrorCode, int] = {
     HttpErrorCode.SESSION_BUSY: 409,
     HttpErrorCode.SESSION_UNREADABLE: 409,
     HttpErrorCode.RUN_CONFLICT: 409,
+    # 服务级总额（跨项目共享）已满：同样是「等一次运行结束」，但等的是**任何**一次运行。
+    HttpErrorCode.TOTAL_INFLIGHT_LIMIT: 409,
     HttpErrorCode.LOOPBACK_REQUIRED: 403,
     # 原生目录选择（Story 50-8）：后端不可用 → 503（不是客户端错误）；已有一次在途 → 409。
     HttpErrorCode.DIALOG_UNAVAILABLE: 503,
@@ -1307,7 +1328,7 @@ def _build_run_endpoints(
         try:
             record = await service.start_run(parsed.prompt)
         except HttpRunConflictError as exc:
-            return _json_error(responses, HttpErrorCode.RUN_CONFLICT, str(exc), status_code=409)
+            return _json_error(responses, exc.code, str(exc), status_code=409)
         return responses.JSONResponse(
             RunStatusResponse(run_id=record.run_id, status=record.status).model_dump(mode="json"),
             status_code=201,

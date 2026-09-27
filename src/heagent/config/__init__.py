@@ -353,6 +353,10 @@ class Settings(BaseSettings):
     http_max_connections: int = Field(default=16, ge=1)
     # 同时在途的网页 Agent 运行上限；MVP 固定为 1（单会话单运行），超限的提交收 run_conflict。
     http_max_inflight_runs: int = Field(default=1, ge=1)
+    # **服务级**在途运行总额（跨项目共享）；0 = 不限（默认 ⇒ D9 的「并发随项目数线性」语义不变）。
+    # 设正数后所有项目加总不得超过它，超限的提交收 total_inflight_limit（409）。它与
+    # `http_max_inflight_runs` **同时**生效：那个是每项目上限，这个是服务总额。
+    http_max_total_inflight: int = Field(default=0, ge=0)
     # 单个请求体的字节上限（JSON body；超限收 request_too_large，不读完再拒绝）。
     # 默认 394 240 = 12 × MAX_PROMPT_CHARS(32 768) + 1 KiB 信封——**必须**容纳协议允许的最大
     # prompt，否则会出现「字符上限远未到、却先撞传输层 413」的口径矛盾（旧默认 65 536 时，

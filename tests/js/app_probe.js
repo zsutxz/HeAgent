@@ -1056,6 +1056,12 @@ const CASES = {
       ),
     });
     conflicts.push({
+      code: "total_inflight_limit",
+      text: await submitAndRead(() =>
+        jsonResponse(409, { error: { code: "total_inflight_limit", message: "server is at its total in-flight limit" } }),
+      ),
+    });
+    conflicts.push({
       code: "project_unavailable",
       text: await submitAndRead(() =>
         jsonResponse(409, { error: { code: "project_unavailable", message: "project dir is gone" } }),

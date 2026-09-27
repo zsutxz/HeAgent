@@ -19,6 +19,7 @@
 | S-D4 | 沙箱执行的资源限额（内存/CPU） | 已闭合（2026-09-17；进程数限额 2026-09-18 补闭于 Z-D9） | 优化批次 2（`0582a03`） |
 | S-D5 | Firejail 高级隔离参数（--seccomp / --caps） | 已闭合（2026-09-17，`SANDBOX_PROFILES` 声明、默认关闭） | 优化批次 2（`0582a03`） |
 | S-D6 | per-tool 粒度的 firejail 参数 | 已闭合（2026-09-17，`SANDBOX_TOOL_PROFILES` 两段组合） | 优化批次 2（`0582a03`） |
+| Z-D24 | MCP stdio 子进程接入沙箱（brief `### Deferred`） | **裁定 (c) 不实施**（2026-09-27 用户裁定：保持现状，登记为已知暴露面） | 裁定记录见下节 |
 
 ---
 
@@ -80,3 +81,14 @@
 - **问题**：参数集只到 profile 粒度——给单工具加参数必须新建 profile。
 - **结论**：**已闭合**。新增 `SANDBOX_TOOL_PROFILES`（JSON：工具名 → profile 名）叠加进 `PolicyEngine.sandbox_profiles`（`container.default()` 注入），与 `SANDBOX_PROFILES` 两段配置组合即得 per-tool 参数差异——不引入新抽象（对齐 epic 边界「不引入 SandboxProfile 类」），fail-safe 阻断契约未动（executor 双重授权复核与 `context_grants_sandbox` 无 context 恒 False 均原样）。
 - **证据**：`tests/test_sandbox_mode.py::TestSandboxHardeningWiring::test_tool_profiles_update_policy_mapping`（verdict 联动断言）。
+
+---
+
+## Z-D24 MCP stdio 子进程接入沙箱 —— **裁定 (c) 不实施**（2026-09-27 用户裁定）
+
+- **来源**：本周期 `brief.md` 的 `### Deferred（未来考虑）`：「MCP server / cron 子进程接入沙箱」；条目自 2026-09-22 起在活动台账（`implementation-artifacts/deferred-work-archive.md`），2026-09-27 裁定后按归属回填到本节。
+- **缺口（spawn 面）**：MCP stdio server 由 SDK 自行 spawn（`mcp/client/stdio/__init__.py` 的 `anyio.open_process`），不经过 `ToolExecutor.execute_in_sandbox` ⇒ Firejail/WinJob 对它零覆盖（无 FS 隔离、无 `--net=none`）。严重度 **中-高**。
+- **env 面经实测排除（2026-09-27）**：我们传 `env=cfg.env or None`，但 SDK 在 `env=None` 时只回 `get_default_environment()`（`DEFAULT_INHERITED_ENV_VARS`：win32 12 项 / POSIX 6 项），有显式 `env` 时取 `{**default_env, **server.env}` 合并 ⇒ **不继承父进程的 `*_API_KEY` 等**；「其 `env` 亦不经 `scrub_sensitive_env`」字面为真但含义误导（继承面比该函数更窄）。需要凭证的 server 走 `.mcp.json` 的显式 `env` + `${VAR}` 插值。
+- **为什么不是「给 command 套个 wrapper」**：① 既有沙箱后端实现的是 `CommandRunner`（`tools/sandbox/contracts.py` 的 `async run(command: str, *, timeout: int) -> str`——短命命令 + 捕获字符串 + 512KB 截断），而 MCP stdio 需要**长命双向管道**（JSON-RPC 流），`FirejailBackend._build_argv` 恒以 `["--", "sh", "-c", command]` 收尾，形状上容不下；要收必须新开「包裹 argv → 返回活进程」的 seam。② 还必须先裁决 **隔离档**：`--net=none` 会让靠网络连上游 API 的 stdio server 全失效，`--private=<ws>` 换掉 HOME 会影响 token / 缓存落点——隔离强度与可用性方向相反，属产品取舍。③ Windows 的 job 对象必须在**创建时**指定，SDK 不提供该缝（除非自建包装进程），跨平台不可能全覆盖。④ 即便全做完仍是 defense-in-depth，**非安全边界**。
+- **裁定**：**(c) 不做**——保持现状，作为**已知暴露面**登记（`docs/frame.md` 五 与 `CLAUDE.md` 安全声明已声明 MCP 的不可信性与「须 OS 级沙箱兜底」立场）；若将来要做，前置是「隔离档裁决（按 server 粒度可配）」+「新的活进程 seam」，两者都不是单轮工作量。
+- **证据**：`src/heagent/tools/mcp/client.py::default_transport_opener`（分派单点）；`src/heagent/tools/sandbox/contracts.py`（`CommandRunner` 形状）；`src/heagent/tools/sandbox/firejail.py::_build_argv`（`sh -c` 收尾）；`src/heagent/engine/container.py`（`policy.sandbox_tools` 只含 `shell`）；`.venv`…`mcp/client/stdio/__init__.py` 的 `DEFAULT_INHERITED_ENV_VARS` / `get_default_environment`。
