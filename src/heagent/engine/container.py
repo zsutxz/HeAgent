@@ -111,14 +111,15 @@ class EngineContainer:
         return bool(self.sandbox_session_keep)
 
     async def _prune_once(self, prune: Callable[[], Awaitable[int]], *, label: str) -> int:
-        """执行一次 prune 调用：``CancelledError`` 不吞（透传 task 取消语义），其余 IO 故障只记 error。
+        """执行一次 prune 调用：``CancelledError`` / ``KeyboardInterrupt`` 不吞（透传取消/中断语义），其余 IO 故障只记 error。
 
         两处 prune（ledger / run 快照）的**故障立场一致**：清理是维护动作，失败不得中断 run。
         调用方负责「已跑过 / 保留期 <= 0」的短路与去重标志置位——两侧标志**相互独立**，互不阻塞。
         """
         try:
             return await prune()
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            # 取消/中断时透传，不记录为清理失败
             raise
         except Exception as exc:
             logger.error("%s prune failed (%s: %s); skipping this run", label, type(exc).__name__, exc)

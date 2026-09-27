@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -167,6 +168,9 @@ async def stream_run(  # noqa: C901
             final_answer = response.content if response is not None else ""
             await finish_run(loop, run_context, init, state, accumulated, final_answer=final_answer)
             yield StreamEvent(type="done", final_answer=final_answer)
+    except (GeneratorExit, asyncio.CancelledError):
+        # 取消/中断时静默清理，不记录为失败
+        raise
     except Exception as exc:
         await on_run_failed(
             loop,

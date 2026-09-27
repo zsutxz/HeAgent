@@ -380,11 +380,16 @@ def _is_path_stale(path: Path, cutoff_naive: datetime, *, index: int = 0, total:
     失败视为不可删（保守保留）。``cutoff_naive`` 已去除 tzinfo，可直接比较。
     设计成同步函数是为了让它整批跑在**一个**工作线程里（逐条 ``to_thread`` 的跳转成本
     在万级文件下远高于解析本身）。
+
+    KeyboardInterrupt 透传——中断清理应立即停止，不应被当作「保留文件」处理。
     """
     if index > 0 and index % _PRUNE_PROGRESS_INTERVAL == 0:
         logger.info("ledger prune: scanned %d/%d files", index, total)
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+    except (KeyboardInterrupt, GeneratorExit):
+        # 中断/取消时透传，不当作解析失败
+        raise
     except (OSError, ValueError, json.JSONDecodeError):
         return False
 

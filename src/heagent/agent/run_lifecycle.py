@@ -431,5 +431,8 @@ async def checkpoint(
             final_answer=final_answer,
             error=error,
         )
+    except (GeneratorExit, asyncio.CancelledError):
+        # 取消/中断时静默传播，不记录
+        raise
     except Exception:
         safe_log(logger, logging.ERROR, "Failed to checkpoint run '%s'", run_context.run_id, exc_info=True)
