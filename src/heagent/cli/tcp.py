@@ -371,6 +371,7 @@ def tcp_server_cmd(
 ) -> None:
     """Serve HeAgent over TCP with UTF-8 JSON Lines (experimental; no authentication)."""
     from heagent.cli.console import _prune_runtime_artifacts, _setup_logging  # noqa: PLC0415
+    from heagent.cli.port_finder import find_available_port  # noqa: PLC0415
 
     _setup_logging()
     settings = get_settings()
@@ -385,6 +386,8 @@ def tcp_server_cmd(
         sandbox_backend=sandbox,
         soul_path=soul,
     )
+
+    # 构建服务器配置（使用用户指定或默认端口）
     config = build_server_config(
         settings,
         host=host,
@@ -392,6 +395,41 @@ def tcp_server_cmd(
         max_connections=max_connections,
         max_inflight=max_inflight,
         max_request_bytes=max_request_bytes,
+        idle_timeout=idle_timeout,
+        request_timeout=request_timeout,
+    )
+
+    # 动态查找可用端口（避免端口冲突）
+    actual_port = config.port
+    if settings.tcp_port_auto_find_attempts > 0:
+        try:
+            actual_port = find_available_port(
+                config.port,
+                host=config.host,
+                max_attempts=settings.tcp_port_auto_find_attempts
+            )
+            if actual_port != config.port:
+                # 端口发生变化，更新配置并通知用户
+                click.echo(
+                    f"[tcp] Port {config.port} is in use, using port {actual_port} instead",
+                    err=True,
+                )
+                config = build_server_config(
+                    settings,
+                    host=host,
+                    port=actual_port,
+                    max_connections=max_connections,
+                    max_inflight=max_inflight,
+                    max_request_bytes=max_request_bytes,
+                    idle_timeout=idle_timeout,
+                    request_timeout=request_timeout,
+                )
+        except RuntimeError as exc:
+            # 找不到可用端口
+            click.echo(f"[tcp] Error: {exc}", err=True)
+            raise click.Abort from exc
+
+    server = TcpServer(config, handler)
         idle_timeout=idle_timeout,
         request_timeout=request_timeout,
         shutdown_timeout=shutdown_timeout,

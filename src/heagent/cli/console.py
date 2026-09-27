@@ -64,9 +64,10 @@ def _setup_logging() -> None:
 
 
 def _prune_runtime_artifacts(settings: Settings) -> None:
-    """启动时回收运行时产物（日志 / 会话 / 编辑快照）：best-effort，绝不阻断启动。
+    """启动时回收运行时产物（日志 / 会话 / 编辑快照 / 记忆归档）：best-effort，绝不阻断启动。
 
     具体实现在 ``heagent.cli.housekeeping``（单独成模块便于直接测试）；这里只做「失败不上抛」。
+    记忆归档由 ``heagent.memory.auto_archive`` 处理。
     """
     try:
         from heagent.cli.housekeeping import prune_runtime_artifacts_sync
@@ -74,6 +75,20 @@ def _prune_runtime_artifacts(settings: Settings) -> None:
         prune_runtime_artifacts_sync(settings)
     except Exception:
         logger.warning("runtime artifact cleanup failed; continuing", exc_info=True)
+
+    # 记忆自动归档（独立 try-except，确保失败不影响其他清理）
+    try:
+        from heagent.memory.auto_archive import maybe_archive_old_facts
+
+        result = maybe_archive_old_facts(settings=settings)
+        if not result["skipped"] and result["archived"] > 0:
+            logger.info(
+                "Memory auto-archive: archived %d facts, kept %d facts",
+                result["archived"],
+                result["kept"],
+            )
+    except Exception:
+        logger.warning("memory auto-archive failed; continuing", exc_info=True)
 
 
 async def _prompt_startup_provider(provider: SwitchableProvider) -> None:

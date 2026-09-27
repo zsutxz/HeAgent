@@ -203,8 +203,13 @@ class Settings(BaseSettings):
     # 无预算时它会无界增长（2026-09-23 实测：336 KB / 170 条 = 每轮 89K token 的 SYSTEM 前缀）。
     # 超预算时按**文件顺序**保留前部条目（整理后的长期约定在文件头部、会话学习记录追加在尾部），
     # 并在块尾显式标注省略条数 + 打一条 warning——绝不静默丢内容；文件本体不被修改，
-    # 超预算的条目仍在盘上，整理 MEMORY.md 即可释放。默认 49152（整理后约 33 KB 的 1.5 倍余量）。
-    memory_inject_max_bytes: int = Field(default=49_152, ge=0)
+    # 超预算的条目仍在盘上，整理 MEMORY.md 即可释放。默认 98304（96 KB，约 2 倍当前使用量）。
+    memory_inject_max_bytes: int = Field(default=98_304, ge=0)
+    # MEMORY.md 自动清理参数：超过此天数的事实条目在启动时自动归档到 .heagent/memory/archive/；
+    # 0=禁用自动清理。归档文件按月命名（如 2026-09.md），保留文件头部的核心约定（前 20 条）。
+    memory_auto_archive_days: int = Field(default=90, ge=0)
+    # 自动清理的跨进程节流（秒）：距上次清理不足该间隔就跳过扫描（0=每次都扫）。
+    memory_archive_min_interval_seconds: int = Field(default=86400, ge=0)  # 默认 1 天
 
     # ---- 技能策展参数 ----
     skill_curator_stale_days: int = Field(default=30, ge=1)
@@ -336,6 +341,8 @@ class Settings(BaseSettings):
     # 非法值（端口 0 / 连接数 0 / 非正超时）由 Pydantic 显式校验失败，不静默变成「无限制」。
     tcp_host: str = Field(default="127.0.0.1", min_length=1)
     tcp_port: int = Field(default=8765, ge=1, le=65535)
+    # 端口冲突时自动查找可用端口的最大尝试次数（0=禁用自动查找，端口被占用时直接失败）
+    tcp_port_auto_find_attempts: int = Field(default=10, ge=0, le=100)
     # 同时打开的客户端连接上限（保护 socket/连接对象）；超限的新连接立即收 rate_limited。
     tcp_max_connections: int = Field(default=32, ge=1)
     # 同时在途的 Agent 运行上限（保护 Provider/内存/工具）；超限的请求立即收 rate_limited。
