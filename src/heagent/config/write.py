@@ -414,28 +414,50 @@ def _read_back(path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _apply_locked(
+@dataclass(frozen=True)
+class _Prepared:
+    """锁外预备好的候选：**最贵的步骤**（候选构造，含 ``Settings`` 读候选 / 全局 ``.env`` / 环境）已完成。"""
+
+    fingerprint_before: str | None
+    replacement: bytes
+    entries: tuple[ConfigAuditEntry, ...]
+
+
+def _read_target_bytes(path: Path) -> bytes | None:
+    """锁外快照读；文件不存在返回 ``None``（与 ``atomic_update_bytes`` 的 ``current`` 语义一致）。"""
+    try:
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
+def _prune_backups_best_effort(backups_dir: Path, *, retention_days: int, max_entries: int) -> None:
+    """锁外回收备份目录：**维护动作** —— 失败只告警，绝不把已生效的写改写成错误。
+
+    与审计裁剪同一立场（``prune_audit`` 失败不阻断已追加成功的写）：目录回收是维护，不是写入的
+    前置条件；反过来让一次成功的写因为「删不掉旧备份」而报错，会把已经改好的文件说成失败。
+    """
+    try:
+        pruned = envfile.prune_backups(backups_dir, retention_days=retention_days, max_entries=max_entries)
+    except Exception as exc:  # noqa: BLE001 - 维护动作失败不得影响已生效的写
+        logger.warning("Config backup pruning failed in %s: %s", backups_dir, exc)
+        return
+    if pruned:
+        logger.info("Pruned %d config backup(s) in %s", pruned, backups_dir)
+
+
+def _prepare_candidate(
     current: bytes | None,
     *,
-    target: Path,
-    state: _WriteState,
     changes: Sequence[ConfigChange],
     global_env_file: Path | None,
-    backups_dir: Path,
-    max_backups: int,
-    backup_retention_days: int,
-) -> bytes:
-    """锁内的读改写：指纹冲突 → 行级替换 → 候选构造 → 备份 → 返回待写入字节。
+) -> _Prepared:
+    """行级替换 + 审计条目 + **候选构造**（`validate_candidate`）——全部是纯计算或只读 I/O。
 
-    抛出的任何异常都会在 ``atomic_update_bytes`` 写盘**之前**传播出去 ⇒ 文件、备份、审计三者都不变
-    （fail-closed 的落点就在这里：校验全部发生在替换文件之前）。
+    这里**不**做指纹冲突判定（必须在锁内读到的内容上做）、也**不**做备份（必须发生在写盘之前，
+    且拒绝路径上不得留下副作用）。抛出的异常同样在写盘之前传播 ⇒ fail-closed 的落点不变。
     """
-    state.fingerprint_before = envfile.fingerprint(current) if current is not None else None
-    if state.expected_fingerprint != state.fingerprint_before:
-        raise ConfigWriteRejection(
-            ConfigWriteCode.CONFIG_CONFLICT,
-            "the project .env changed since it was loaded; reload the panel before writing",
-        )
+    fingerprint_before = envfile.fingerprint(current) if current is not None else None
     if current is None:
         text = ""
     else:
@@ -447,12 +469,13 @@ def _apply_locked(
                 "the project .env is not valid UTF-8; refusing to rewrite it",
             ) from exc
 
+    entries: list[ConfigAuditEntry] = []
     for change in changes:
         old_value = envfile.read_value(text, change.key)
         text = envfile.replace_or_append(text, change.key, change.value)
         old_hash, old_length = _value_hash(old_value)
         new_hash, new_length = _value_hash(change.value)
-        state.entries.append(
+        entries.append(
             ConfigAuditEntry(
                 key=change.key,
                 old_hash=old_hash,
@@ -464,16 +487,18 @@ def _apply_locked(
     replacement = text.encode("utf-8")
 
     validate_candidate(replacement, global_env_file=global_env_file, changes=changes)
+    return _Prepared(
+        fingerprint_before=fingerprint_before,
+        replacement=replacement,
+        entries=tuple(entries),
+    )
 
-    if current is not None:
-        backup_path = envfile.backup(target, backups_dir, state.fingerprint_before or "")
-        state.backup_name = backup_path.name if backup_path is not None else None
-        pruned = envfile.prune_backups(backups_dir, retention_days=backup_retention_days, max_entries=max_backups)
-        if pruned:
-            logger.info("Pruned %d config backup(s) in %s", pruned, backups_dir)
 
-    state.fingerprint_after = envfile.fingerprint(replacement)
-    return replacement
+def _conflict() -> ConfigWriteRejection:
+    return ConfigWriteRejection(
+        ConfigWriteCode.CONFIG_CONFLICT,
+        "the project .env changed since it was loaded; reload the panel before writing",
+    )
 
 
 def _guard_destination(env_file: Path) -> Path:
@@ -513,19 +538,30 @@ def apply_config_write(
         )
     validated = validate_changes(changes)
     state = _WriteState(expected_fingerprint=expected_fingerprint, source=source)
+    snapshot = _read_target_bytes(target)
+
+    # ── 锁外预备（台账 A14③）：行级替换 + **候选构造**是整条流水线最贵的一步（``Settings`` 会读
+    # 候选临时文件 / 全局 ``.env`` / 环境），此前它在跨进程锁内完成 ⇒ 并发热点下写方会撞锁超时，
+    # 拿到 ``config_write_failed`` 而不是 ``config_conflict``。现在锁内只剩「判定 + 备份 + 落盘」。
+    prepared = _prepare_candidate(snapshot, changes=validated, global_env_file=global_env_file)
 
     def _update(current: bytes | None) -> tuple[bytes, None]:
-        replacement = _apply_locked(
-            current,
-            target=target,
-            state=state,
-            changes=validated,
-            global_env_file=global_env_file,
-            backups_dir=backups_dir,
-            max_backups=max_backups,
-            backup_retention_days=backup_retention_days,
-        )
-        return replacement, None
+        state.fingerprint_before = envfile.fingerprint(current) if current is not None else None
+        if state.expected_fingerprint != state.fingerprint_before:
+            raise _conflict()
+        chosen = prepared
+        if chosen.fingerprint_before != state.fingerprint_before:
+            # 快照过期：锁外预备期间文件被改过，**又恰好变回**客户端看到的内容（否则上面那条冲突
+            # 检测已经拦下）。此时绝不能把基于旧内容的候选写下去——那会把第三方刚写入的改动回退掉。
+            # 在锁内重做一次（贵，但这条路径极罕见；正确性优先于锁占用时长）。
+            logger.info("Config write: snapshot went stale; rebuilding the candidate while holding the lock")
+            chosen = _prepare_candidate(current, changes=validated, global_env_file=global_env_file)
+        state.entries = list(chosen.entries)
+        if current is not None:
+            backup_path = envfile.backup(target, backups_dir, state.fingerprint_before or "")
+            state.backup_name = backup_path.name if backup_path is not None else None
+        state.fingerprint_after = envfile.fingerprint(chosen.replacement)
+        return chosen.replacement, None
 
     def _verify(written: bytes) -> None:
         """第 9 步：回读比对（**锁内**，见 ``persist.atomic_update_bytes`` 的 ``verify`` 语义）。"""
@@ -558,6 +594,10 @@ def apply_config_write(
         raise
     except OSError as exc:
         raise ConfigWriteRejection(ConfigWriteCode.CONFIG_WRITE_FAILED, f"config write failed: {_short(exc)}") from exc
+
+    # ── 备份回收移到锁外（台账 A14③）：单次目录扫描不再占用跨进程锁（锁内只剩判定 / 备份 / 落盘）。
+    if state.fingerprint_before is not None:
+        _prune_backups_best_effort(backups_dir, retention_days=backup_retention_days, max_entries=max_backups)
 
     recorded = _audit(state, console_dir=audit_dir, result="applied")
     if not recorded:

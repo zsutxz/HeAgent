@@ -960,3 +960,123 @@ class TestModuleBoundary:
             for node in tree.body
         ), "写入流水线必须经 envfile 做行级改写（不得自带第二套 .env 解析）"
         assert "envfile.replace_or_append" in source
+
+
+class TestLockScope:
+    """台账 A14③：跨进程锁内只留「判定 + 备份 + 落盘」，贵的那部分（候选构造 / 目录回收）移到锁外。
+
+    改造前 ``validate_candidate``（``Settings`` 会读候选临时文件 / 全局 ``.env`` / 环境）与
+    ``prune_backups``（目录扫描）都在锁内完成 ⇒ 并发热点下写方会撞 5s 锁超时，拿到
+    ``config_write_failed`` 而不是 ``config_conflict``（fail-closed 无损坏，但归因与耗时都不对）。
+    """
+
+    def test_candidate_validation_happens_before_the_lock_is_taken(
+        self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """候选构造必须在**取锁之前**完成（用事件顺序断言，而不是计时）。"""
+        import heagent.config.write as write_mod
+        import heagent.pub.persist as persist_mod
+
+        _seed(paths)
+        events: list[str] = []
+        real_validate = write_mod.validate_candidate
+        real_acquire = persist_mod._acquire_lock
+
+        def spy_validate(*args: object, **kwargs: object) -> object:
+            events.append("validate")
+            return real_validate(*args, **kwargs)  # type: ignore[arg-type]
+
+        def spy_acquire(fd: int, timeout: float) -> None:
+            events.append("lock")
+            real_acquire(fd, timeout)
+
+        monkeypatch.setattr(write_mod, "validate_candidate", spy_validate)
+        monkeypatch.setattr(persist_mod, "_acquire_lock", spy_acquire)
+
+        _run(paths, [("MAX_ITERATIONS", "30")])
+
+        assert "lock" in events, f"没有观察到取锁：{events}"
+        lock_at = events.index("lock")
+        assert "validate" in events[:lock_at], f"候选构造没有在取锁前完成：{events}"
+        # 只看「首次出现」是不够的：锁内**又跑一遍**（例如快照过期时的兜底路径被写成了常态路径）
+        # 同样违背本条目 —— 必须断言取锁之后再没有候选构造。
+        assert "validate" not in events[lock_at:], f"锁内又跑了一遍候选构造：{events}"
+
+    def test_a_stale_snapshot_is_rebuilt_while_holding_the_lock(
+        self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """锁外预备期间文件被改过、又恰好变回客户端看到的内容 ⇒ 必须**在锁内重做**候选。
+
+        若不重做，写下去的会是「基于过期快照」的内容，把第三方刚写入的改动整体回退掉——这正是
+        「把候选构造移出锁」必须配一条锁内复检的原因。
+        """
+        import heagent.pub.persist as persist_mod
+
+        original = b"MAX_ITERATIONS=25\nLOG_LEVEL=INFO\n"
+        _seed(paths, original)
+        fingerprint_seen_by_client = envfile.fingerprint(paths.env_file.read_bytes())
+
+        # 快照 = 这份（锁外读到它）；随后在取锁的瞬间被改回 original
+        paths.env_file.write_bytes(b"MAX_ITERATIONS=5\n")
+        real_acquire = persist_mod._acquire_lock
+        restored = {"done": False}
+
+        def spy(fd: int, timeout: float) -> None:
+            if not restored["done"]:
+                restored["done"] = True
+                paths.env_file.write_bytes(original)
+            real_acquire(fd, timeout)
+
+        monkeypatch.setattr(persist_mod, "_acquire_lock", spy)
+        _run(paths, [("MAX_ITERATIONS", "30")], fingerprint=fingerprint_seen_by_client)
+
+        text = paths.env_file.read_text(encoding="utf-8")
+        assert "MAX_ITERATIONS=30" in text
+        assert "LOG_LEVEL=INFO" in text, "基于过期快照的候选把第三方的内容回退了"
+        assert "MAX_ITERATIONS=5" not in text
+
+    def test_backup_pruning_runs_after_the_lock_is_released(
+        self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """备份目录回收在**释放锁之后**发生（目录扫描不再占用跨进程锁）。"""
+        import heagent.pub.persist as persist_mod
+
+        _seed(paths)
+        events: list[str] = []
+        real_release = persist_mod._release_lock
+        real_prune = envfile.prune_backups
+
+        def spy_release(fd: int) -> None:
+            events.append("release")
+            real_release(fd)
+
+        def spy_prune(*args: object, **kwargs: object) -> int:
+            events.append("prune")
+            return real_prune(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(persist_mod, "_release_lock", spy_release)
+        monkeypatch.setattr(envfile, "prune_backups", spy_prune)
+
+        _run(paths, [("MAX_ITERATIONS", "30")])
+
+        assert "prune" in events and "release" in events
+        assert events.index("prune") > events.index("release"), f"回收仍在锁内：{events}"
+
+    def test_backup_pruning_failure_does_not_fail_the_write(
+        self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch, caplog
+    ) -> None:
+        """回收是**维护动作**：它失败不得把已经成功落盘的写改写成错误（与审计裁剪同一立场）。"""
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="heagent.config.write")
+        _seed(paths)
+
+        def boom(*args: object, **kwargs: object) -> int:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(envfile, "prune_backups", boom)
+        result = _run(paths, [("MAX_ITERATIONS", "30")])
+
+        assert "MAX_ITERATIONS=30" in paths.env_file.read_text(encoding="utf-8")
+        assert result.keys == ("MAX_ITERATIONS",)  # type: ignore[attr-defined]
+        assert "pruning failed" in caplog.text
