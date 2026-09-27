@@ -256,6 +256,8 @@ const world = {
   // 信息性 note 场景（用例 N）：项目 `.env` 不存在 ⇒ 只有 project_env_missing 这一条 note，
   // 它**不得**计入「N 条需要注意」（app.js 的 INFORMATIONAL_NOTES）。
   envMissing: false,
+  // A18：把服务端 total 抬到高于列出条数，模拟「硬上限截断」（用例 W）。
+  sessionTotalOverride: null,
   // 原生目录选择（Story 50-8 R2）：默认「取消」；用例可改成选中路径或改造成错误响应。
   pickResult: { path: null, cancelled: true, backend: "auto" },
   pickError: null,
@@ -433,7 +435,10 @@ function installRoutes() {
   });
   for (const projectId of ["default", "pB", "pGone", "pNew"]) {
     route("GET", `/api/projects/${projectId}/sessions`, () =>
-      jsonResponse(200, { sessions: (world.sessions[projectId] || []).map((item) => ({ ...item })) }),
+      jsonResponse(200, {
+      sessions: (world.sessions[projectId] || []).map((item) => ({ ...item })),
+      total: world.sessionTotalOverride ?? (world.sessions[projectId] || []).length,
+    }),
     );
   }
   route("POST", "/api/projects/default/sessions", () => {
@@ -1092,6 +1097,19 @@ const CASES = {
     await settle(6);
     conflicts.push({ code: "invalid_project_path", text: els["project-status"].textContent });
     return { conflicts, callsAfterSubmitErrors, projectCalls: callsMatching("POST /api/projects").length };
+  },
+
+  async W() {
+    // A18：服务端 total > 列出条数（硬上限截断）⇒ 不得声称「显示全部」。
+    world.sessionTotalOverride = 500;
+    await load();
+    const result = {
+      countText: els["session-count"].textContent,
+      moreHidden: els["session-more"].hidden,
+      moreText: els["session-more"].textContent,
+    };
+    world.sessionTotalOverride = null;
+    return result;
   },
 
   async N() {

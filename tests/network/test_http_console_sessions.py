@@ -262,6 +262,9 @@ def test_session_limits_are_mirrored_not_drifted() -> None:
     """网络层不许 import 运行时模块，只能各持一份常量 —— 漂移必须由断言挡住。"""
     assert PROTOCOL_TITLE_CHARS == MAX_SESSION_TITLE_CHARS  # 协议侧 ↔ 存储侧
     assert MAX_SESSION_LIST_ENTRIES == MAX_SESSION_LIST_LIMIT
+    # A18：列表响应必须带 total——列表本身有硬上限，长度不等于总数（UI 曾据此少报）。
+    assert SessionListResponse(sessions=[]).total == 0
+    assert "total" in SessionListResponse.model_fields
     assert MAX_SESSION_ID_CHARS == 128  # 存储侧 ``_MAX_SESSION_ID_LEN``：由下面的同义性测试钉住
 
 
@@ -732,3 +735,26 @@ async def test_registry_and_config_solver_run_off_the_event_loop(tmp_path: Path,
         assert started.session_id
     finally:
         await harness.release()
+
+
+async def test_session_list_total_counts_files_not_the_page_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A18：``total`` 来自**数文件**，不是在途列表长度（列表有 200 条硬上限）。
+
+    可执行判据：把 ``count_sessions`` 换成一个大数后 ``total`` 必须跟着变；若实现退回
+    「``total`` = ``len(sessions)``」，本用例精确变红。
+    """
+    workspace = tmp_path / "ws"
+    workspace.mkdir(parents=True, exist_ok=True)
+    console = HttpProjectConsole(workspace)
+    SessionStore(str(workspace / ".heagent" / "sessions")).save("s1", [Message(role=Role.USER, content="hi")])
+
+    payload = await console.list_sessions("default")
+    assert payload.total == 1
+    assert len(payload.sessions) == 1
+
+    monkeypatch.setattr(SessionStore, "count_sessions", lambda self: 500)
+    capped = await console.list_sessions("default")
+    assert len(capped.sessions) == 1
+    assert capped.total == 500, "total 必须来自计数（硬上限截断时列表长度会说谎）"

@@ -125,9 +125,17 @@ class SessionEntryResponse(BaseModel):
 
 
 class SessionListResponse(BaseModel):
+    """会话列表响应。
+
+    ``total`` 是该项目会话文件的**总数**；``sessions`` 可能因 ``MAX_SESSION_LIST_ENTRIES``
+    被截断 ⇒ 规模事实以 ``total`` 为准，UI **不得**再用 ``sessions.length`` 当总数
+    （活动台账 A18：「共 N 个会话」曾在 N > 200 时静默少报）。
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     sessions: list[SessionEntryResponse] = Field(max_length=MAX_SESSION_LIST_ENTRIES)
+    total: int = Field(default=0, ge=0)
 
 
 class SessionCreateRequest(BaseModel):

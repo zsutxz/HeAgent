@@ -514,7 +514,12 @@ class HttpProjectConsole:
         # 会话读是同步整份文件 I/O（随会话数线性增长）⇒ 经 to_thread 卸载，避免卡住同一循环里的
         # 在途 SSE 流与其余请求（活动台账「控制台阻塞 I/O 与会话列表成本」条目）。
         items = await asyncio.to_thread(runtime.sessions.list_metadata)
-        return SessionListResponse(sessions=[_session_entry(item) for item in items])
+        # 规模事实取自「数文件」而非列表长度：列表有 MAX_SESSION_LIST_ENTRIES 硬上限（A18）。
+        counted = await asyncio.to_thread(runtime.sessions.count_sessions)
+        return SessionListResponse(
+            sessions=[_session_entry(item) for item in items],
+            total=max(counted, len(items)),
+        )
 
     async def create_session(self, project_id: str, request: SessionCreateRequest) -> SessionEntryResponse:
         """新建空会话。断言「绝不复用已有 id」（uuid4），也就不会覆盖既有对话。"""

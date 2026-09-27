@@ -783,6 +783,14 @@ class TestConsoleRefinement:
         assert "项目 .env 不存在" in result["diagnosticsText"], "降级 ≠ 删除：说明必须仍然可见"
         assert len(result["infoTexts"]) == 1, "说明应以 .diag-info 单独成行"
 
+    def test_session_count_never_claims_to_show_everything_when_capped(self, tmp_path: Path) -> None:
+        """A18：服务端 total > 列出条数时，文案不得声称「显示全部」，展开按钮也应隐藏。"""
+        result = _run_probe("W", tmp_path)
+
+        assert "共 500 个会话" in result["countText"]
+        assert "服务端仅返回最近" in result["countText"], "被硬上限截断时必须说明"
+        assert result["moreHidden"] is True, "「显示全部」在截断时是假承诺"
+
     def test_config_value_sits_on_the_key_line(self, tmp_path: Path) -> None:
         """R10：值**跟在键名后面、同一行**（`config-head` 内的 `<span class="config-value">`），不再独占一行。"""
         result = _run_probe("S", tmp_path)

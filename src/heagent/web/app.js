@@ -163,6 +163,7 @@
     sessionUnreadable: false,
     /** 会话列表是否展开显示全部（默认只渲染最近 SESSION_VISIBLE_DEFAULT 条）。 */
     sessionShowAll: false,
+  sessionTotal: 0,
     /** 原生目录选择是否在途（按钮禁用用；原生窗口不能叠着开）。 */
     picking: false,
     runSessionId: null,
@@ -824,7 +825,7 @@
   function renderSessions() {
     clearChildren(el.sessionList);
     el.sessionEmpty.hidden = state.sessions.length > 0;
-    const total = state.sessions.length;
+    const total = Math.max(state.sessionTotal, state.sessions.length);
     const activeIndex = state.sessions.findIndex((item) => item.session_id === state.activeSessionId);
     // 截断规则（R1）：默认只渲染最近 N 条；**当前选中的会话永远可见**——它落在窗口之外时自动展开
     // 并把展开按钮藏起来（按钮点了也不会收起，留着只会误导），展开状态因此不会出现「点了没反应」。
@@ -871,18 +872,21 @@
   /** 列表规模提示 + 展开/收起按钮（R1：默认只显示最近 `SESSION_VISIBLE_DEFAULT` 条，超出部分可展开）。 */
   function renderSessionCount(total, overflows, autoExpanded) {
     const expanded = state.sessionShowAll || autoExpanded;
+    // A18：服务端硬上限让「列出的条数」可能 < 总数 ⇒ 不得声称「显示全部」。
+    const capped = state.sessions.length < total;
+    const capNote = capped ? `（服务端仅返回最近 ${state.sessions.length} 条）` : "";
     if (!overflows) {
-      el.sessionCount.textContent = total ? `共 ${total} 个会话` : "";
+      el.sessionCount.textContent = total ? `共 ${total} 个会话${capNote}` : "";
       el.sessionCount.dataset.state = "idle";
     } else {
       el.sessionCount.textContent = expanded
         ? autoExpanded && !state.sessionShowAll
-          ? `共 ${total} 个会话（当前会话不在最近 ${SESSION_VISIBLE_DEFAULT} 条内，已展开）`
-          : `共 ${total} 个会话（已展开）`
-        : `共 ${total} 个会话 · 只显示最近 ${SESSION_VISIBLE_DEFAULT} 条`;
+          ? `共 ${total} 个会话（当前会话不在最近 ${SESSION_VISIBLE_DEFAULT} 条内，已展开）${capNote}`
+          : `共 ${total} 个会话（已展开）${capNote}`
+        : `共 ${total} 个会话 · 只显示最近 ${SESSION_VISIBLE_DEFAULT} 条${capNote}`;
       el.sessionCount.dataset.state = "idle";
     }
-    el.sessionMore.hidden = !overflows || autoExpanded;
+    el.sessionMore.hidden = !overflows || autoExpanded || capped;
     el.sessionMore.textContent = state.sessionShowAll ? `只看最近 ${SESSION_VISIBLE_DEFAULT} 条` : `显示全部（${total}）`;
   }
 
@@ -902,6 +906,8 @@
     const payload = await response.json();
     if (projectId !== state.activeProjectId) return; // 期间已切走：不把别的项目的会话画到这儿
     state.sessions = Array.isArray(payload.sessions) ? payload.sessions : [];
+    // A18：规模事实来自服务端 total（列表可能被硬上限截断），不是本地数组长度。
+    state.sessionTotal = typeof payload.total === "number" ? payload.total : state.sessions.length;
     renderSessions();
     if (state.activeSessionId && !state.sessions.some((item) => item.session_id === state.activeSessionId)) {
       state.activeSessionId = null;

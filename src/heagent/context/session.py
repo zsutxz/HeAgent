@@ -539,6 +539,17 @@ class SessionStore:
         entries.sort(key=lambda item: (item.timestamp, item.session_id), reverse=True)
         return entries[:limit]
 
+    def count_sessions(self) -> int:
+        """返回会话文件总数（**不解析任何文件**）。
+
+        Story 50-8 的规模提示把列表长度当总数，而 :meth:`list_metadata` 有
+        ``MAX_SESSION_LIST_LIMIT`` 硬上限 ⇒ 超过该上限时页面会显示「共 200 个会话」
+        并宣称「显示全部」（活动台账 A18）。真实规模只能数文件：本方法只列目录 + 计数。
+        """
+        if not self._base.exists():
+            return 0
+        return sum(1 for _ in self._base.glob("*.json"))
+
     def list_sessions(self) -> list[str]:
         """返回所有已保存的会话 ID（按文件名字母序）。"""
         if not self._base.exists():

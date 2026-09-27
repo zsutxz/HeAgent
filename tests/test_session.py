@@ -678,3 +678,15 @@ class TestHeadMetadataScope:
         meta = SessionStore(base_dir=str(base)).list_metadata()[0]
 
         assert meta.title == UNNAMED_SESSION_TITLE, meta.title
+
+
+def test_count_sessions_counts_files_without_parsing(tmp_path: Path) -> None:
+    """A18：真实规模只能数文件——列表接口有硬上限，列表长度不等于总数。"""
+    store = SessionStore(base_dir=str(tmp_path / "sessions"))
+    assert store.count_sessions() == 0
+    store.save("s0", _msgs("a"))
+    store.save("s1", _msgs("b"))
+    assert store.count_sessions() == 2
+    # `.lock`（以及任何非 `.json` 文件）不计入
+    (tmp_path / "sessions" / "s0.json.lock").write_text("", encoding="utf-8")
+    assert store.count_sessions() == 2
