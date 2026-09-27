@@ -375,7 +375,7 @@ EXCLUSION_GROUPS: tuple[ConfigGroupSpec, ...] = (
     ConfigGroupSpec(
         id="listening",
         label="监听面",
-        patterns=("HTTP_*", "TCP_*"),
+        patterns=("HTTP_*",),
         reason="listening_surface",
     ),
     ConfigGroupSpec(

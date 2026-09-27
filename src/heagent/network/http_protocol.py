@@ -23,7 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # HTTP API 的信封版本：出现在健康检查响应里，供客户端判断兼容性（不随 HeAgent 版本走）。
 HTTP_SCHEMA_VERSION = "1"
 
-# 服务标识：与 ``heagent tcp-server`` 的协议名区分，便于浏览器侧做「连对服务了没」的判据。
+# 服务标识：便于浏览器侧做「连对服务了没」的判据。
 HTTP_SERVICE_NAME = "heagent-http"
 
 # 单条客户端可见文案的上限（字符）。客户端文案是项目自产的短句，截断只为兜住上游异常文本。
@@ -42,8 +42,8 @@ JSON_ENVELOPE_ALLOWANCE_BYTES = 1_024
 #
 # 按「每字符最坏 12 字节」取上界：非 BMP 字符（emoji 等）UTF-8 占 4 字节，经 ``ensure_ascii``
 # 类客户端转义后是两个 ``\uXXXX`` 共 12 字节；ASCII 控制字符 6 字节（``\u0001``）；CJK 3 字节。
-# 于是任何合法 prompt 在任何客户端编码下都发得进来。394 240 字节仍小于 TCP 入口的
-# ``TCP_MAX_REQUEST_BYTES``（1 MiB），量级一致、不构成新的资源面。
+# 于是任何合法 prompt 在任何客户端编码下都发得进来。394 240 字节在 1 MiB 量级之内，
+# 不构成新的资源面。
 MAX_REQUEST_BYTES_FOR_MAX_PROMPT = 12 * MAX_PROMPT_CHARS + JSON_ENVELOPE_ALLOWANCE_BYTES
 
 # 兜底文案：上游异常没有可用 message 时使用（绝不回吐异常类型名）。
@@ -162,7 +162,7 @@ def sanitize_message(message: str, *, fallback: str = GENERIC_ERROR_MESSAGE) -> 
     只做「折叠空白 + 掩码绝对路径 + 截断」，**不做**通用脱敏——上游文案应当是项目自产的面向
     用户文本，凭据类信息由 ``safe_logging`` 负责（那是日志通道）；这里只兜住有明确承诺的那一条
     （见 :data:`_ABS_PATH_RE` 的说明）。协议边界不能假设上游永远干净
-    （与 ``cli.tcp._client_error_message`` 同一立场，两处刻意各自持有，避免入口层互相导入）。
+    （与 ``http_server._client_error_message`` 同一立场，两处刻意各自持有，避免网络层内部互相导入）。
     """
     collapsed = " ".join(message.split())
     if not collapsed:
@@ -285,7 +285,7 @@ class RunOutcome(BaseModel):
     """入口层交回的运行结果（服务层据此写终态记录与会话投影）。
 
     只带**该次运行**的答案与元数据：共享 provider 的路由状态是实例级「最近一次决策」，并发下会
-    串味（与 ``cli.tcp._resolve_model`` 同一立场）。
+    串味（故只带**本次运行**的元数据）。
     """
 
     model_config = ConfigDict(extra="forbid")

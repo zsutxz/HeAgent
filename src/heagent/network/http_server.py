@@ -7,7 +7,7 @@ listener 的 start/close。它**不**构造 Agent：任何 Agent 能力都由入
 同层协议模型。``tests/test_architecture_contracts.py`` 对此有可执行断言。
 
 **可选依赖（AD-11）**：Starlette / Uvicorn 由 ``pyproject.toml`` 的 ``http`` extra 直接声明，
-且**只在需要时才导入**——普通 CLI 用法、库用法与 ``gui`` / ``tcp-server`` / ``init`` / ``replay``
+且**只在需要时才导入**——普通 CLI 用法、库用法与 ``gui`` / ``init`` / ``replay``
 子命令都不应因为「存在这个模块」而拉起 ASGI 栈，更不该因为缺依赖而失败。缺依赖时抛
 :class:`HttpDependencyError`（带 ``pip install 'heagent[http]'`` 诊断），由入口层转成可读的
 命令错误。
@@ -191,7 +191,7 @@ class HttpServerConfig(BaseModel):
 
 
 def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -> None:
-    """记一条日志，**绝不让观测故障影响协议行为**（与 ``network/tcp_server.py`` 同一立场）。
+    """记一条日志，**绝不让观测故障影响协议行为**（网络传输层的既有立场）。
 
     ``logger`` 被替换 / handler 抛异常 / logging 配置损坏时，请求仍必须拿到正常响应：
     观测故障只该降级成「少一条日志」。
@@ -1797,8 +1797,7 @@ def _probe_host(host: str) -> str:
 class HttpServer:
     """一个 HTTP listener 的所有者：绑定、服务、有界关闭。
 
-    与 :class:`~heagent.network.tcp_server.TcpServer` 保持同一 API 形状（``start`` /
-    ``serve_forever`` / ``close``），入口层的装配代码因此可以逐行对照。
+    API 形状是 ``start`` / ``serve_forever`` / ``close`` 三件套：入口层的装配代码只依赖这三个方法。
     """
 
     def __init__(
@@ -1817,7 +1816,7 @@ class HttpServer:
         self._server: Any = None
         # 生命周期锁与「已关闭」标记：``close()`` 必须**等到**收尾真正完成才返回。只用一个布尔
         # 标记的话，并发/重复调用会拿到「已关闭」的假成功，而 listener 仍在接受并服务请求
-        # （与 ``TcpServer._lifecycle_lock`` 同形）。
+        # （生命周期锁 + 布尔标记是本项目入口服务的既有形态）。
         self._lifecycle_lock = asyncio.Lock()
         self._closed = False
 

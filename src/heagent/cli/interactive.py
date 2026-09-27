@@ -82,7 +82,7 @@ async def _embedded_http_service(settings: Settings, provider: BaseProvider) -> 
     """默认 CLI 的内嵌 HTTP 服务（Epic 49 Story 49-2/49-3）。
 
     交互模式与 REPL 共存、单次模式与那次 run 并存；两种模式都在**同一个 asyncio 生命周期**内启动
-    与收尾（AD-5：``cli/http`` 是唯一生命周期所有者）。`heagent gui` / `tcp-server` / `http-server` /
+    与收尾（AD-5：``cli/http`` 是唯一生命周期所有者）。`heagent gui` / `http-server` /
     `init` / `replay` 都不经过本函数，因此**不会**派生第二个 HTTP 实例。
 
     运行入口是入口层的 ``HttpAgentHandler``（每运行新建独立 ``AgentLoop``、自建 engine 不装审批、

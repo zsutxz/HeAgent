@@ -380,7 +380,6 @@ class TestClassification:
             verdict = classify(key)
             assert (verdict.group, verdict.reason) == ("console", "console_itself")
         assert classify("HTTP_PORT").reason == "listening_surface"
-        assert classify("TCP_PORT").reason == "listening_surface"
 
     def test_credential_and_dream_and_redirect_groups(self) -> None:
         assert classify("DEEPSEEK_API_KEY").reason == "credential"

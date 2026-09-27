@@ -175,7 +175,6 @@ class TestWhitelist:
             "KIMI_API_KEY",
             "OPENAI_API_KEYS",
             "HTTP_PORT",
-            "TCP_PORT",
             "SANDBOX_BACKEND",
             "SANDBOX_MODE",
             "SANDBOX_NETWORK",

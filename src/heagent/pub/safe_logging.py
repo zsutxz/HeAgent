@@ -150,7 +150,7 @@ def install_logging_fault_guard() -> bool:
     本守卫覆盖**运行期全部** logger 调用（含将来新增的）。
 
     返回本次是否完成安装；已经装过（或已由调用方替换）时返回 ``False``。
-    **副作用是进程级的**（改的是 stdlib 类的类属性），故由入口层（``cli``/GUI/TCP）
+    **副作用是进程级的**（改的是 stdlib 类的类属性），故由入口层（``cli``/GUI）
     在配置 logging 时显式调用，而不是在 import 时自动生效；库消费者想自行掌控
     logging 语义时可以不装。
     """

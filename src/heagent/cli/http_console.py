@@ -114,7 +114,7 @@ def _resolve_model(loop: AgentLoop) -> str | None:
 
     只读**本次运行 loop** 的记录（``last_model``，由 provider 响应回填）：共享 provider 的路由状态
     （``active_model`` → ``RoutingProvider.last_decision``）是实例级「最近一次决策」，并发下会把
-    兄弟请求的档位串味（与 ``cli.tcp._resolve_model`` 同一立场）。
+    兄弟请求的档位串味（故只读 loop 自己的 ``last_model``，不读 provider 实例级的 ``active_model``）。
     """
     return loop.last_model or loop.provider.get_metadata().model
 
@@ -151,13 +151,13 @@ def _web_tool_output(event: Any) -> str:
 class HttpAgentHandler:
     """``prompt`` → 一次 ``AgentLoop.run_stream`` 的适配器（网络层只认这个可调用对象）。
 
-    与 :class:`~heagent.cli.tcp.TcpAgentHandler` 同构——服务级共享 ``provider`` / ``engine`` /
+    服务级共享 ``provider`` / ``engine`` /
     四个记忆存储（构造便宜、以只读为主），**每次运行新建 ``AgentLoop``**（loop 持有跨 run 可变展示态：
     ``last_usage`` / ``last_model`` / ``active_tool`` / 暂停 Event，共享单实例并发会互相覆盖）。
 
     **独立引擎，不装审批处理器**：HTTP handler 自建 ``EngineContainer``（``approval_handler=None``），
     因此需要审批的工具调用维持既有 fail-safe 阻断语义，而**不会**去读 CLI / 服务进程的 stdin——
-    网络入口无人应答，装了只会把请求挂死（与 ``cli/tcp`` 同一决策）。代价是网页侧与 CLI 终端各有一份
+    网络入口无人应答，装了只会把请求挂死（网络入口的既有决策）。代价是网页侧与 CLI 终端各有一份
     引擎与事件总线（记忆存储同样各自一份），互不干扰。
 
     **不连接 MCP**：``.mcp.json`` 声明的 server 属不可信代码 / 端点，网络入口自动连接等于把触达面

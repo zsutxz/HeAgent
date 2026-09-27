@@ -151,7 +151,7 @@ def test_settings_env_drives_defaults(monkeypatch: pytest.MonkeyPatch, captured_
 def test_cli_overrides_reach_the_config_without_mutating_settings(
     monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer]
 ) -> None:
-    """CLI 覆盖只作用于本次实例：Settings 单例保持 env 默认值（与 TCP 入口同语义）。"""
+    """CLI 覆盖只作用于本次实例：Settings 单例保持 env 默认值。"""
     reset_settings()
     settings = get_settings()
 

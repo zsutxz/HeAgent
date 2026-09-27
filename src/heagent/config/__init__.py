@@ -336,13 +336,13 @@ class Settings(BaseSettings):
     # ---- HTTP 网页入口（Epic 49 Story 49-1） ----
     # 默认 CLI（`heagent` / `heagent "prompt"` / `heagent run ...`）在**同一进程**内自动启动 HTTP
     # 服务并把本地地址打到 stderr；`heagent http-server` 也能单独拉起只提供网页服务的进程。
-    # 显式 `gui` / `tcp-server` / `http-server` / `init` / `replay` 子命令不会附带启动第二实例。
-    # 定位与 TCP 入口一致：**实验性、无认证、无 TLS**，默认只绑 loopback；非回环绑定必须显式告警
+    # 显式 `gui` / `http-server` / `init` / `replay` 子命令不会附带启动第二实例。
+    # 定位：**实验性、无认证、无 TLS**，默认只绑 loopback；非回环绑定必须显式告警
     # （复用 `network.exposure` 的判定与文案）。这里刻意**没有** `HTTP_ENABLED` 开关：启动语义由
     # 「调用了哪个命令」唯一决定，配置里不出现第二套状态。
     # 非法值（端口越界、计数为 0、非正超时）由 Pydantic 显式校验失败，不静默变成「无限制」。
     http_host: str = Field(default="127.0.0.1", min_length=1)
-    # 默认 8766：与 TCP 入口默认端口 8765 错开，两个入口可同时开。
+    # 默认 8766。
     http_port: int = Field(default=8766, ge=1, le=65535)
     # HTTP 端口自动查找尝试次数：端口被占用时自动尝试后续端口（8767, 8768...）
     # **默认 0 = 关闭**：绑定失败必须显性（Epic 49 Story 49-2 的契约 —— 脚本与状态行靠它判断服务起没起来）。

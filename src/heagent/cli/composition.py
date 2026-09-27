@@ -6,7 +6,7 @@
 
 **缝（monkeypatch 模块路径）纪律**：``_build_loop`` 是测试缝，patch 目标随**调用方**分模块——
 
-- 网络入口（``cli/http.py`` / ``cli/tcp.py``）在**函数内**导入它 ⇒ patch 落在本模块
+- 网络入口（``cli/http.py``）在**函数内**导入它 ⇒ patch 落在本模块
   （``heagent.cli.composition._build_loop``），调用期按属性查找才生效；
 - CLI 路径（``cli/interactive.py``）模块级导入 ⇒ 它持有自己的全局，patch 落在
   ``heagent.cli.interactive._build_loop``。

@@ -220,7 +220,7 @@ class AgentLoop:
         self.last_usage: TokenUsage | None = None
         self.last_iteration: int | None = None
         # 最近一次助手回复所用的**实际模型名**（由 provider 响应回填，跨包装解包后的真名）。
-        # 与 ``last_usage`` 同属「本次运行的事后产物」：并发消费方（TCP 每请求一个 loop、
+        # 与 ``last_usage`` 同属「本次运行的事后产物」：并发消费方（网络入口每请求一个 loop、
         # cron + 交互共享 loop）**必须读这里**，不要去读共享 provider 的路由状态
         # （``RoutingProvider.last_decision`` 是实例级最近一次决策，会被兄弟运行覆盖）。
         self.last_model: str | None = None

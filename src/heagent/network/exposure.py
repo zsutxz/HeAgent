@@ -1,8 +1,8 @@
-"""监听地址的暴露判定与告警文案（Epic 48 Story 48-5）。
+"""监听地址的暴露判定与告警文案（Epic 48 Story 48-5 引入，现由 HTTP 网页入口使用）。
 
-TCP 入口**无认证、无 TLS**，只适合本机实验。本模块是「这个绑定地址是否只对本机可见」的
-**唯一判定点**，供 :meth:`~heagent.network.tcp_server.TcpServer.start` 与 ``heagent tcp-server``
-共用——两处各写一套「算不算本地」的逻辑迟早会漂移，而漂移的代价是漏报暴露。
+网络入口**无认证、无 TLS**，只适合本机实验。本模块是「这个绑定地址是否只对本机可见」的
+**唯一判定点**，供 :class:`~heagent.network.http_server.HttpServer` 的启动路径与
+``heagent http-server`` 共用——两处各写一套「算不算本地」的逻辑迟早会漂移，而漂移的代价是漏报暴露。
 
 判定语义（刻意保守）：
 

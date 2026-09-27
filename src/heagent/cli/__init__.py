@@ -9,7 +9,6 @@
 - ``init.py``    —— ``heagent init`` 子命令（旧 ``cli_init.py``）
 - ``goal.py``    —— ``/goal`` 命令族（旧 ``cli_goal.py``）
 - ``http.py``    —— ``http-server`` 子命令与 HTTP/控制台装配（旧 ``cli_http.py``）
-- ``tcp.py``     —— ``tcp-server`` 子命令与 Agent 请求适配（旧 ``cli_tcp.py``）
 - ``dialogs.py`` —— 服务端原生目录选择（旧 ``cli_dialogs.py``）
 - ``display.py`` —— 终端渲染辅助（旧 ``cli_display.py``，CLI 与 GUI 共用）
 

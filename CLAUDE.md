@@ -50,8 +50,8 @@ HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**�
 - `config/` — 配置面（Settings / catalog / write / envfile）
 - `context/` — 上下文压缩/会话持久化/token 估算
 - `memory/` — 自学习闭环（skills / facts / profile / soul）
-- `network/` — 入口传输层（TCP JSON Lines / HTTP + SSE）
-- `cli/` — 入口层包（console / composition / interactive / goal / http / tcp / display / slash / terminal / wiring / housekeeping）
+- `network/` — 入口传输层（HTTP + SSE；TCP 入口已于 2026-09-27 删除，勿按旧文档恢复）
+- `cli/` — 入口层包（console / composition / interactive / goal / http / http_console / dialogs / init / display / slash / terminal / wiring / housekeeping / port_finder）
 
 ### 硬约束
 
@@ -94,7 +94,6 @@ heagent "写一个快速排序"           # 单次执行
 heagent                            # 交互模式
 heagent init --project             # 初始化项目配置
 heagent gui                        # TUI（需 pip install -e ".[gui]"）
-heagent tcp-server                 # TCP 入口（127.0.0.1:8765）
 heagent http-server                # HTTP 网页入口（127.0.0.1:8766，需 pip install "heagent[http]"）
 ```
 

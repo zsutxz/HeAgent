@@ -301,7 +301,7 @@ async def test_handler_keeps_the_network_entry_decisions(monkeypatch: pytest.Mon
 
 
 async def test_each_run_uses_a_fresh_agent_loop() -> None:
-    """每次运行新建 ``AgentLoop``：loop 持有跨 run 可变态，共享实例会互相覆盖（与 TCP 入口同决策）。"""
+    """每次运行新建 ``AgentLoop``：loop 持有跨 run 可变态，共享实例会互相覆盖。"""
     provider = _ScriptedProvider([_answer("ok")])
     async with _served(provider) as (_base_url, service):
         handler = service._executor  # noqa: SLF001 - 直接核对入口对象

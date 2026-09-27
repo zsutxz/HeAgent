@@ -1,6 +1,6 @@
 """``heagent http-server`` 子命令与 HTTP 服务装配（入口层组合根，Epic 49）。
 
-本模块属**入口层**（``heagent/cli/`` 包内，与 ``console`` / ``init`` / ``goal`` / ``tcp`` 及顶层
+本模块属**入口层**（``heagent/cli/`` 包内，与 ``console`` / ``init`` / ``goal`` 及顶层
 ``wiring`` 同级）：
 它读设置、构造可选 HTTP 栈下的 :class:`~heagent.network.http_server.HttpServer`、注册 Click
 命令；``network/`` 侧不反向依赖本模块（``tests/test_architecture_contracts.py`` 有可执行断言）。
@@ -15,7 +15,7 @@ Story 49-1 的职责只有「把服务拉起来、打得开网页、失败要显
 **默认 CLI 自启动（Story 49-2）、运行 API 与 SSE（49-3）、取消与限额（49-4）**都建立在本模块的
 装配方式上；为了让那些 Story 不必重写这段编排，这里已经确定了两条边界：HTTP 服务与 CLI 共用
 同一个 asyncio 生命周期（本模块只提供 ``_serve_http`` 这一种「跑到底」的形态），以及 CLI 覆盖
-只作用于本次实例（``build_server_config`` 不写回 ``Settings`` 单例，与 TCP 入口一致）。
+只作用于本次实例（``build_server_config`` 不写回 ``Settings`` 单例）。
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -> None:
-    """记一条日志，**绝不让观测故障影响生命周期行为**（与 TCP / HTTP 传输层同一立场）。"""
+    """记一条日志，**绝不让观测故障影响生命周期行为**（与网络传输层同一立场）。"""
     safe_log(logger, level, message, *args, exc_info=exc_info)
 
 
@@ -65,7 +65,7 @@ def _current_version() -> str:
 def _reject_non_finite(ctx: click.Context, param: click.Parameter, value: float | None) -> float | None:
     """拒绝 ``NaN`` / ``Inf`` 超时值（``click.FloatRange`` 本身会放行它们）。
 
-    不拦的后果与 TCP 入口一致：``Inf`` 让「有界关闭」静默变成无界等待，``NaN`` 绕过范围比较后
+    不拦的后果是显性的：``Inf`` 让「有界关闭」静默变成无界等待，``NaN`` 绕过范围比较后
     直到 Pydantic 才以 traceback 炸掉（与其它非法值的 usage error 语义不一致）。
     """
     if value is not None and not math.isfinite(value):
@@ -89,7 +89,7 @@ def build_server_config(
 ) -> HttpServerConfig:
     """把 CLI 覆盖（``None`` = 未覆盖）合并到 ``Settings`` 的 HTTP 配置。
 
-    两个不变量（与 ``cli.tcp.build_server_config`` 同义）：
+    两个不变量：
 
     - **不写回 Settings**：覆盖只作用于本次服务实例，设置单例保持 env / 文件默认值；
     - **范围规则唯一**：CLI 侧先用 ``click`` 的 range 类型拦一道，最终仍由
