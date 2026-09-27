@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import math
@@ -31,7 +32,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from heagent.pub.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
-from heagent.pub.persist import atomic_update_text, prune_entries_by_mtime
+from heagent.pub.persist import atomic_update_text, prune_entries_by_mtime, reap_dangling_locks
 from heagent.pub.types import Message, Role
 
 logger = logging.getLogger(__name__)
@@ -42,6 +43,13 @@ logger = logging.getLogger(__name__)
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+\Z")
 # 合理长度上限：UUID hex 最大 32 字符，加上前缀/后缀留有余额，超过视为异常拒绝。
 _MAX_SESSION_ID_LEN = 128
+# Windows 保留设备名：**大小写不敏感**，且带扩展名同样被解析为设备（`NUL.json` 也是空设备）。
+# id 字符集本身已很严（无点号、无空格），但 `NUL` / `CON` / `COM1` 恰好**全在合法字符集内** ⇒ 必须显式拒绝：
+# 否则 Windows 上 `exists()` 恒真、读取得空串（伪装成「没有历史」）、写入被丢进空设备 ⇒ 整段对话静默消失。
+# 字符集是路径遍历防线，**不得**为这条放宽；这里只在字符集之外**追加**拒绝（见活动台账同名条目冻结边界）。
+WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+)
 
 # 会话标题上限（字符）：标题进控制台列表、详情与页面，必须有界。
 MAX_SESSION_TITLE_CHARS = 120
@@ -97,10 +105,72 @@ def _complete_tool_transactions(messages: list[Message]) -> list[Message]:
     return complete
 
 
-def _validate_session_id(session_id: str) -> None:
-    """校验 session_id 仅含安全字符，拒绝路径遍历 payload。"""
+def _read_head(path: Path, cap: int) -> str:
+    """读取文件头部至多 ``cap`` 字节并**严格**解码（截断在多字节字符中间时只裁掉不完整的尾序列）。
+
+    严格解码保持既有语义：编码坏掉的文件仍旧按「不可读」列出，而不是被静默降级成未命名会话。
+    """
+    with path.open("rb") as handle:
+        head = handle.read(cap)
+    if len(head) == cap:
+        # UTF-8 单字符最多 4 字节 ⇒ 只可能差 1..3 字节；逐字节回退即可（真坏编码最后一次仍抛）。
+        for trim in range(4):
+            try:
+                return (head[: len(head) - trim] if trim else head).decode("utf-8")
+            except UnicodeDecodeError:
+                continue
+    return head.decode("utf-8")
+
+
+def _extract_head_scalar(head: str, key: str) -> object | None:
+    """从（可能是截断的）文件头部取出一个 JSON 标量字段；取不到 / 不是合法标量时返回 ``None``。"""
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*("(?:[^"\\]|\\.)*"|[-+0-9.eE]+)', head)
+    if match is None:
+        return None
+    try:
+        value: object = json.loads(match.group(1))
+    except json.JSONDecodeError:
+        return None
+    return value
+
+
+def _metadata_from_head(session_id: str, head: str) -> SessionMetadata:
+    """超 ``MAX_SESSION_METADATA_BYTES`` 的大会话：**有界**头部元数据，``message_count`` 恒为 ``None``。
+
+    落盘键序（``_session_payload``）保证 ``session_id`` / ``version`` / ``timestamp`` / [``title``] 都排在
+    ``messages`` 之前，故头部足以还原列表所需的一切，不必读整份文件、也不必解析 megabyte 级消息数组。
+    标题取不到时退回 :data:`UNNAMED_SESSION_TITLE`（会话**照旧列出**，不静默消失）；时间戳取不到按既有
+    口径退化为 0.0（沉底）。
+    """
+    raw_title = _extract_head_scalar(head, "title")
+    title = (
+        " ".join(raw_title.split())[:MAX_SESSION_TITLE_CHARS]
+        if isinstance(raw_title, str) and raw_title.split()
+        else UNNAMED_SESSION_TITLE
+    )
+    timestamp = _coerce_timestamp(_extract_head_scalar(head, "timestamp"))
+    return SessionMetadata(
+        session_id=session_id,
+        title=title,
+        message_count=None,
+        version=_coerce_version(_extract_head_scalar(head, "version")),
+        timestamp=timestamp,
+        updated_at=_iso_timestamp(timestamp),
+    )
+
+
+def validate_session_id(session_id: str) -> None:
+    """校验 session_id 可安全用作文件名，非法时抛 ``ValueError``。
+
+    三道判据：非空 + 长度上限 + 字符集（路径遍历防线）+ **Windows 保留设备名**。保留名在字符集**之内**
+    （`NUL` / `COM1` 都是合法字符），故只能显式拒绝——放行的后果是在 Windows 上读写空设备，既不报错
+    也不落盘（静默丢整段对话）。公开此函数供入口层（CLI ``--resume``）在触碰文件系统前 fail-fast，
+    存储自身的 7 处调用点走同一实现。
+    """
     if not session_id or len(session_id) > _MAX_SESSION_ID_LEN or not _SESSION_ID_RE.match(session_id):
         raise ValueError(f"Invalid session_id: {session_id!r}")
+    if session_id.upper() in WINDOWS_RESERVED_DEVICE_NAMES:
+        raise ValueError(f"Invalid session_id (reserved device name): {session_id!r}")
 
 
 def validate_title(title: str) -> str:
@@ -285,14 +355,24 @@ class SessionStore:
         单条删除失败不中断整批；``min_interval_seconds > 0`` 时走跨进程节流（见
         ``engine.persist.stamp_is_recent``）。序列实现在 ``prune_entries_by_mtime``
         （与 logs / edit-snapshots 共用，仅后缀不同）。
+
+        顺带回收**孤儿锁**：记录被删后同名 ``.json.lock`` 失去回收方（会话写入刻意不删锁，见
+        ``pub/persist``），故按「同名记录不存在 + 锁年龄超过保留期 + 非阻塞加锁证明无人持有」
+        三判据交给 :func:`~heagent.pub.persist.reap_dangling_locks`；在用会话的锁两条门槛都不满足，
+        绝不会被误删。
         """
-        return await prune_entries_by_mtime(
+        removed = await prune_entries_by_mtime(
             self._base, retention_days=retention_days, suffix=".json", min_interval_seconds=min_interval_seconds
         )
+        if retention_days > 0:
+            reaped = await asyncio.to_thread(reap_dangling_locks, self._base, min_age_seconds=retention_days * 86400)
+            if reaped:
+                logger.debug("Reaped %d dangling session lock file(s)", reaped)
+        return removed
 
     def path_for(self, session_id: str) -> Path:
         """会话文件路径（校验 id 后给出；调用方可据此探测存在性，不写盘）。"""
-        _validate_session_id(session_id)
+        validate_session_id(session_id)
         return self._base / f"{session_id}.json"
 
     def save(self, session_id: str, messages: list[Message], *, expected_version: int | None = None) -> str:
@@ -305,7 +385,7 @@ class SessionStore:
         磁盘上已有的 ``title`` 会被原样保留（由 :meth:`rename` 拥有）——否则「重命名后再对话，
         标题被抹掉」。
         """
-        _validate_session_id(session_id)
+        validate_session_id(session_id)
         path = self._base / f"{session_id}.json"
         written_at = time.time()
 
@@ -327,7 +407,7 @@ class SessionStore:
         已存在（非空文件）时抛 :class:`SessionConflictError`——新建绝不能覆盖既有对话。空文件
         （0 字节）视为「不存在」，与 :func:`atomic_update_text` 的「缺失即空串」语义一致。
         """
-        _validate_session_id(session_id)
+        validate_session_id(session_id)
         normalized = validate_title(title) if title is not None else None
         path = self._base / f"{session_id}.json"
         created_at = time.time()
@@ -356,7 +436,7 @@ class SessionStore:
         **损坏文件仍返回空列表**（既有 CLI 语义，不改）；需要区分「损坏」与「空」的调用方走
         :meth:`load_metadata`（它抛 :class:`SessionUnreadableError`）。
         """
-        _validate_session_id(session_id)
+        validate_session_id(session_id)
         path = self._base / f"{session_id}.json"
         if not path.exists():
             return []
@@ -369,7 +449,7 @@ class SessionStore:
 
     def load_metadata(self, session_id: str) -> SessionMetadata | None:
         """读单个会话的元数据；文件不存在返回 ``None``，不可解析抛 :class:`SessionUnreadableError`。"""
-        _validate_session_id(session_id)
+        validate_session_id(session_id)
         path = self._base / f"{session_id}.json"
         try:
             raw = path.read_text(encoding="utf-8")
@@ -395,6 +475,10 @@ class SessionStore:
         for path in self._base.glob("*.json"):
             try:
                 info = path.stat()
+                if info.st_size > MAX_SESSION_METADATA_BYTES:
+                    # 大会话：只读**头部**（键序保证元数据在前），不读整份文件、不解析消息数组（D6 口径）。
+                    entries.append(_metadata_from_head(path.stem, _read_head(path, MAX_SESSION_METADATA_BYTES)))
+                    continue
                 raw = path.read_text(encoding="utf-8")
             except (OSError, UnicodeError):
                 try:
@@ -452,7 +536,7 @@ class SessionStore:
         - 写入会**递增 version**（标题变更也是一次写入，客户端据此知道自己持有的版本已过期）；
         - ``messages`` 与文件里的未知键原样保留（只增/改 ``title``、``version`` 两个键）。
         """
-        _validate_session_id(session_id)
+        validate_session_id(session_id)
         normalized = validate_title(title)
         path = self._base / f"{session_id}.json"
         result: SessionMetadata | None = None
@@ -483,7 +567,7 @@ class SessionStore:
 
     def delete(self, session_id: str) -> bool:
         """删除指定会话文件。返回是否成功删除。"""
-        _validate_session_id(session_id)
+        validate_session_id(session_id)
         path = self._base / f"{session_id}.json"
         if path.exists():
             path.unlink()

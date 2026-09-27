@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from pathlib import Path
 
 import pytest
 
 from heagent.context.session import (
+    _read_head,
+    WINDOWS_RESERVED_DEVICE_NAMES,
+    validate_session_id,
     MAX_DERIVED_TITLE_CHARS,
     MAX_SESSION_METADATA_BYTES,
     MAX_SESSION_TITLE_CHARS,
@@ -431,3 +436,146 @@ class TestSessionIdGuards:
             with pytest.raises(ValueError):
                 call()
         assert not (tmp_path / "sessions").exists()
+
+
+class TestReservedDeviceNames:
+    """Windows 保留设备名必须被拒（2026-09-27 闭合台账同名条目）。
+
+    判据是**拒绝**而不是「能不能写」：Windows 上 `NUL.json` 解析为空设备，`exists()` 恒真、
+    读取得空串、写入被丢弃——所以只有拒绝才能在两个平台上给出同一结论。
+    """
+
+    @pytest.mark.parametrize("name", ["NUL", "nul", "Nul", "CON", "PRN", "AUX", "COM1", "lpt9"])
+    def test_path_for_rejects_reserved_device_names(self, tmp_path: object, name: str) -> None:
+        store = SessionStore(base_dir=str(tmp_path / "sessions"))  # type: ignore[operator]
+        with pytest.raises(ValueError, match="reserved device name"):
+            store.path_for(name)
+
+    def test_save_refuses_instead_of_writing_to_the_null_device(self, tmp_path: object) -> None:
+        """回归原缺陷：放行 `NUL` 时 `save` 在 Windows 上写向空设备——不报错、不落盘、也列不出来。"""
+        base = tmp_path / "sessions"  # type: ignore[operator]
+        store = SessionStore(base_dir=str(base))
+        with pytest.raises(ValueError, match="reserved device name"):
+            store.save("NUL", _msgs("secret"))
+        assert not base.exists() or not list(base.iterdir())
+
+    @pytest.mark.parametrize("name", ["abc123", "NUL2", "CONS", "com0", "lpt", "x" * 128])
+    def test_lookalikes_are_still_accepted(self, tmp_path: object, name: str) -> None:
+        """只有**精确**的保留名是设备：`NUL2` / `CONS` / `com0` 都是普通文件，不得误伤。"""
+        store = SessionStore(base_dir=str(tmp_path / "sessions"))  # type: ignore[operator]
+        assert store.path_for(name).name == f"{name}.json"
+
+    def test_reserved_set_is_the_windows_one(self) -> None:
+        """22 项：4 个经典名 + COM1-9 + LPT1-9（大小写不敏感由 `.upper()` 比较承担）。"""
+        assert len(WINDOWS_RESERVED_DEVICE_NAMES) == 22
+        assert {"CON", "PRN", "AUX", "NUL"} <= WINDOWS_RESERVED_DEVICE_NAMES
+        assert all(name == name.upper() for name in WINDOWS_RESERVED_DEVICE_NAMES)
+
+
+class TestValidateSessionIdShape:
+    """公开校验器与存储路径解析必须同源（CLI `--resume` 直接用前者 fail-fast）。"""
+
+    def test_validator_matches_path_for(self, tmp_path: object) -> None:
+        store = SessionStore(base_dir=str(tmp_path / "sessions"))  # type: ignore[operator]
+        for candidate in ["ok-1", "NUL", "nul", "../escape", "x" * 129, "", "a b"]:
+            try:
+                store.path_for(candidate)
+                accepted = True
+            except ValueError:
+                accepted = False
+            if accepted:
+                validate_session_id(candidate)
+            else:
+                with pytest.raises(ValueError):
+                    validate_session_id(candidate)
+
+
+class TestOversizedSessionListing:
+    """超过 `MAX_SESSION_METADATA_BYTES` 的会话必须**有界**读取（台账「控制台阻塞 I/O」条目）。
+
+    原实现：列表对每个文件 `read_text` 整份（200 × MB 级）；`count_messages=False` 只省了计数、
+    没省读。现改为只读头部——落盘键序保证元数据都排在 `messages` 之前。
+    """
+
+    def _write_big(self, base: Path, *, title: str = "Big one", fill: int = 300) -> Path:
+        base.mkdir(parents=True, exist_ok=True)
+        path = base / "big.json"
+        payload = {
+            "session_id": "big",
+            "version": 3,
+            "timestamp": 1700000000.5,
+            "title": title,
+            "messages": [{"role": "user", "content": "x" * 4096} for _ in range(fill)],
+        }
+        path.write_bytes(json.dumps(payload).encode("utf-8"))
+        assert path.stat().st_size > MAX_SESSION_METADATA_BYTES
+        return path
+
+    def test_head_read_never_exceeds_the_cap(self, tmp_path: object) -> None:
+        path = self._write_big(tmp_path / "sessions")  # type: ignore[operator]
+        head = _read_head(path, 1024)
+        assert len(head.encode("utf-8")) <= 1024
+        assert '"title"' in head
+
+    def test_listing_of_a_big_session_does_not_read_it_in_full(self, tmp_path: object, monkeypatch) -> None:  # noqa: ANN001
+        base = tmp_path / "sessions"  # type: ignore[operator]
+        path = self._write_big(base)
+        store = SessionStore(base_dir=str(base))
+        original = Path.read_text
+
+        def guarded(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+            if self == path:
+                raise AssertionError("oversized session was read in full")
+            return original(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", guarded)
+        listed = store.list_metadata()
+
+        assert [item.session_id for item in listed] == ["big"]
+        meta = listed[0]
+        assert meta.title == "Big one"  # 头部字段照旧可用
+        assert meta.message_count is None  # D6：大会话详情才给
+        assert meta.version == 3
+        assert meta.timestamp == 1700000000.5
+
+    def test_cap_boundary_inside_a_multibyte_character_is_tolerated(self, tmp_path: object) -> None:
+        """cap 落在多字节字符中间时只裁掉不完整尾序列，不得把文件判成「不可读」。"""
+        path = tmp_path / "cjk.txt"  # type: ignore[operator]
+        path.write_bytes(("中" * 10).encode("utf-8"))  # 每字符 3 字节
+        assert _read_head(path, 4) == "中"
+        assert _read_head(path, 5) == "中"
+        assert _read_head(path, 6) == "中中"
+
+    def test_broken_encoding_still_lists_as_unreadable(self, tmp_path: object) -> None:
+        """严格解码语义不变：真坏编码的大文件仍旧是「不可读会话」，不被静默降级成未命名。"""
+        base = tmp_path / "sessions"  # type: ignore[operator]
+        base.mkdir(parents=True, exist_ok=True)
+        path = base / "bad.json"
+        path.write_bytes(b"\xff\xfe" + b"x" * (MAX_SESSION_METADATA_BYTES + 10))
+        listed = SessionStore(base_dir=str(base)).list_metadata()
+        assert [item.session_id for item in listed] == ["bad"]
+        assert listed[0].unreadable is True
+
+
+class TestSessionPruneReapsOrphanLocks:
+    """会话 prune 顺带回收**孤儿**锁（在用会话的锁两条门槛都不满足，绝不误删）。"""
+
+    async def test_prune_reaps_aged_orphan_lock_and_keeps_live_ones(self, tmp_path) -> None:
+        base = tmp_path / "sessions"
+        base.mkdir(parents=True, exist_ok=True)
+        store = SessionStore(base_dir=str(base))
+        store.save("live", _msgs("hi"))
+        live_lock = base / "live.json.lock"
+        assert live_lock.exists(), "会话写入应产生同名锁（persist 的既有形态）"
+
+        orphan = base / "gone.json.lock"
+        orphan.write_bytes(b"\n")
+        stale = time.time() - 40 * 86400  # 超过 30 天保留期
+        os.utime(orphan, (stale, stale))
+
+        removed = await store.prune(retention_days=30)
+
+        assert removed == 0, "live 会话未过期，不应被回收"
+        assert not orphan.exists(), "超龄孤儿锁应随 prune 回收"
+        assert live_lock.exists(), "在用会话的锁不得被回收"
+        assert (base / "live.json").exists()

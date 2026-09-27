@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 
 import asyncio
 import contextlib
+import threading
 import time
 
 import pytest
@@ -24,10 +25,11 @@ from heagent.agent.system_prompt import build_system_prompt
 from heagent.config import Settings, reset_settings
 from heagent.engine import EngineContainer
 from heagent.pub.roles import get_role
+from heagent.context.session import SessionStore
 from heagent.memory.dream import DreamResult, DreamScheduler
 from heagent.memory.facts import FactStore
 from heagent.providers.base import ProviderMetadata
-from heagent.pub.types import Message, ProviderResponse, TokenUsage, ToolCall
+from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable
@@ -582,3 +584,31 @@ async def test_run_dream_stop_cancel_marked() -> None:
     assert end, "stop cancel should publish dream_end"
     assert end[-1].details.get("aborted") is True
     assert end[-1].details.get("internal_cancel") is False
+
+
+async def test_session_preload_runs_off_the_event_loop(tmp_path) -> None:  # noqa: ANN001
+    """会话预注入（列全部 session + 读近 N 个）必须离线，否则 dream 会把整个循环卡住。"""
+
+    class _RecordingStore(SessionStore):
+        def __init__(self, base_dir: str) -> None:
+            super().__init__(base_dir=base_dir)
+            self.threads: list[int] = []
+
+        def recent_session_ids(self, limit: int) -> list[str]:
+            self.threads.append(threading.get_ident())
+            return super().recent_session_ids(limit)
+
+    store = _RecordingStore(str(tmp_path / "sessions"))
+    store.save("abc123", [Message(role=Role.USER, content="hi")])
+
+    async def _runner(prompt: str) -> DreamResult:
+        return DreamResult(success=True, iterations=1, run_id="run-1")
+
+    settings = Settings(_env_file=None, dream_enabled=True, dream_cron="* * * * *", dream_idle_minutes=0)
+    scheduler = DreamScheduler(_runner, engine=EngineContainer(), session_store=store, settings=settings)
+    loop_thread = threading.get_ident()
+
+    await scheduler._run_dream("cron")
+
+    assert store.threads, "预注入至少读一次会话索引"
+    assert all(thread != loop_thread for thread in store.threads), store.threads

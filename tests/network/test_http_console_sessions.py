@@ -28,8 +28,14 @@ pytest.importorskip("starlette")
 
 import httpx
 
+import heagent.cli.http_console as http_console_module
 from heagent.cli.http_console import HttpProjectConsole
-from heagent.context.session import MAX_SESSION_LIST_LIMIT, MAX_SESSION_TITLE_CHARS, SessionStore
+from heagent.context.session import (
+    MAX_SESSION_LIST_LIMIT,
+    MAX_SESSION_TITLE_CHARS,
+    WINDOWS_RESERVED_DEVICE_NAMES,
+    SessionStore,
+)
 from heagent.network.http_console_protocol import (
     MAX_SESSION_ID_CHARS,
     MAX_SESSION_LIST_ENTRIES,
@@ -40,6 +46,7 @@ from heagent.network.http_console_protocol import (
     SessionDetailResponse,
     SessionEntryResponse,
     SessionListResponse,
+    SESSION_ID_RESERVED_NAMES,
     SessionRenameRequest,
     is_valid_session_id,
 )
@@ -261,7 +268,24 @@ def test_session_limits_are_mirrored_not_drifted() -> None:
 def test_session_id_shape_matches_the_store(tmp_path: Path) -> None:
     """网络层判据与 ``SessionStore`` 的判据必须**同义**（否则会出现「路由放行、存储拒绝」的 500）。"""
     store = SessionStore(base_dir=str(tmp_path / "sessions"))
-    candidates = ["ok-1", "ABC_def", "x" * 128, "../escape", "a/b", "a\\b", "", "x" * 129, "ab.cd", "a b", "abc\n"]
+    # Windows 保留设备名全在合法字符集内（`NUL` / `COM1`），放行即在 Windows 上静默丢数据 ⇒ 两侧都必须拒。
+    candidates = [
+        "ok-1",
+        "ABC_def",
+        "x" * 128,
+        "../escape",
+        "a/b",
+        "a\\b",
+        "",
+        "x" * 129,
+        "ab.cd",
+        "a b",
+        "abc\n",
+        *sorted(WINDOWS_RESERVED_DEVICE_NAMES),
+        "nul",
+        "Con",
+        "NUL2",  # 合法：只有精确的保留名才是设备
+    ]
     for candidate in candidates:
         try:
             store.path_for(candidate)
@@ -269,6 +293,8 @@ def test_session_id_shape_matches_the_store(tmp_path: Path) -> None:
         except ValueError:
             store_accepts = False
         assert store_accepts is is_valid_session_id(candidate), candidate
+    # 两侧的保留名集合是**镜像副本**（网络层不得 import 运行栈），必须逐元素相同。
+    assert SESSION_ID_RESERVED_NAMES == WINDOWS_RESERVED_DEVICE_NAMES
 
 
 # ── 入口层 + 运行服务集成（D9 / 在途保护 / AC10） ──
@@ -647,5 +673,62 @@ async def test_session_reads_are_offloaded_off_the_event_loop(tmp_path: Path) ->
         assert all(thread != loop_thread for thread in recorder.read_threads), (
             f"会话读仍在事件循环线程上执行：{recorder.read_threads} vs loop={loop_thread}"
         )
+    finally:
+        await harness.release()
+
+
+class _ThreadRecordingRegistry:
+    """真实 ``ProjectRegistry`` 的薄包装：记录 ``list`` / ``touch`` 落在哪个线程。"""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.calls: list[tuple[str, int]] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def list(self) -> Any:
+        self.calls.append(("list", threading.get_ident()))
+        return self._inner.list()
+
+    def touch(self, project_id: str) -> Any:
+        self.calls.append(("touch", threading.get_ident()))
+        return self._inner.touch(project_id)
+
+
+async def test_registry_and_config_solver_run_off_the_event_loop(tmp_path: Path, monkeypatch: Any) -> None:
+    """项目列表 / 「最近打开」写入 / 配置求解三处同步 I/O 必须离线（台账同名条目）。
+
+    ``_runtime_for`` → ``_project_entry`` 的注册表读**有意**留在调用线程（≤32 次 ``Path.is_dir()``，
+    亚毫秒量级；改 async 会波及 8 个调用点与 6 处测试），故本用例只断言本批卸载的落点，该残余记在台账。
+    """
+    harness = _Harness(tmp_path)
+    recorder = _ThreadRecordingRegistry(harness.console.registry)
+    harness.console.registry = recorder
+    loop_thread = threading.get_ident()
+
+    solver_threads: list[int] = []
+    real_solver = http_console_module.build_config_report
+
+    def recording_solver(*args: Any, **kwargs: Any) -> Any:
+        solver_threads.append(threading.get_ident())
+        return real_solver(*args, **kwargs)
+
+    monkeypatch.setattr(http_console_module, "build_config_report", recording_solver)
+
+    marker = len(recorder.calls)
+    await harness.console.list_projects()
+    listed_calls = recorder.calls[marker:]
+    await harness.console.get_project_config("default")
+    started = await harness.console.start_project_run("default", ProjectRunRequest(prompt="hi"))
+
+    try:
+        assert listed_calls, "list_projects 应读一次注册表"
+        assert all(thread != loop_thread for _, thread in listed_calls), listed_calls
+        assert solver_threads and all(thread != loop_thread for thread in solver_threads), solver_threads
+        touch_calls = [thread for name, thread in recorder.calls if name == "touch"]
+        assert touch_calls, "start_project_run 应更新一次「最近打开」"
+        assert all(thread != loop_thread for thread in touch_calls), touch_calls
+        assert started.session_id
     finally:
         await harness.release()

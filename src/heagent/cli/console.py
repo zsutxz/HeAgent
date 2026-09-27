@@ -18,6 +18,7 @@ from heagent.cli.display import (
 )
 from heagent.cli.wiring import _build_provider
 from heagent.config import Settings, get_settings
+from heagent.context.session import validate_session_id
 from heagent.events.sink import read_rollout, render_event
 from heagent.providers.router import active_model
 from heagent.providers.switchable import SwitchableProvider
@@ -162,6 +163,14 @@ def _run_cli_impl(
     sandbox_session_keep: bool | None = None,
 ) -> None:
     """Core CLI routine — logging, provider, MCP, dispatch to single/chat."""
+    if resume_session:
+        # id 直接决定会话文件路径，且是**用户输入**：先按存储侧同一判据校验并在命令层给可读错误。
+        # 否则 `--resume NUL` 在 Windows 上写向空设备：不报错、不落盘、也不出现在会话列表（静默丢数据）。
+        try:
+            validate_session_id(resume_session)
+        except ValueError as exc:
+            raise click.ClickException(f"invalid --resume session id: {exc}") from exc
+
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 

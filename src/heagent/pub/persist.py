@@ -145,6 +145,62 @@ def delete_entries(files: Sequence[Path], dirs: Sequence[Path]) -> tuple[int, in
     return deleted_files, deleted_dirs
 
 
+def reap_dangling_locks(directory: Path, *, min_age_seconds: float = 0.0, limit: int = 512) -> int:
+    """回收**孤儿**锁文件（``<记录>.lock``），返回回收数。
+
+    三条判据**全中**才删：① 同名记录（去掉 ``.lock`` 后的路径）已不存在；② 锁文件自身 mtime 早于
+    ``min_age_seconds``；③ **当前无人持有**——用 ``timeout=0`` 的**非阻塞**排他加锁证明，拿不到即跳过
+    （沿用 ``persist`` 的立场：不猜测、不凭 mtime 推断持有状态）。扫描与回收数都有上界（``limit``）。
+
+    **残余竞态（如实记录，不是「已修好」）**：Windows 无法在持有句柄时 ``os.unlink``（打开的句柄会让
+    unlink 报 ``PermissionError``），故先 close 再 unlink，其间有 µs 级窗口；POSIX 则在持有期内完成
+    unlink。两种形态都仍需「写入方已打开旧 inode 但尚未加锁」与「第三个写入方落在同一窗口」同时成立，
+    且对象必须是**孤儿** id（记录已被回收、锁年龄超过保留期）才会失效。触发概率极低、后果仅是该 id
+    的一次并发写覆盖，故按低危接受；**要彻底消除需改变锁的落点协议**（每目录固定分桶锁，使锁文件数
+    恒定、永不需回收），属独立设计决策，见活动台账同条目。
+    """
+    if not directory.is_dir():
+        return 0
+    cutoff = time.time() - max(min_age_seconds, 0.0)
+    reaped = 0
+    for entry in sorted(directory.iterdir()):
+        if reaped >= limit:
+            break
+        name = entry.name
+        if not name.endswith(_LOCK_SUFFIX):
+            continue
+        record = entry.with_name(name[: -len(_LOCK_SUFFIX)])
+        try:
+            if record.exists() or not entry.is_file() or entry.stat().st_mtime > cutoff:
+                continue
+            fd = os.open(str(entry), os.O_RDWR)
+        except OSError:
+            continue
+
+        acquired = False
+        try:
+            try:
+                _acquire_lock(fd, 0.0)
+                acquired = True
+            except OSError:
+                continue  # 有人持有 ⇒ 一定不是孤儿
+            if sys.platform == "win32":
+                _release_lock(fd)
+                acquired = False
+                os.close(fd)
+                fd = -1
+            entry.unlink()
+            reaped += 1
+        except OSError as exc:
+            logger.debug("Unable to reap dangling lock %s: %s", entry, exc)
+        finally:
+            if acquired:
+                _release_lock(fd)
+            if fd >= 0:
+                os.close(fd)
+    return reaped
+
+
 async def prune_entries_by_mtime(
     base: Path,
     *,
@@ -190,6 +246,8 @@ async def prune_entries_by_mtime(
 # ── 平台自适应文件锁 ──────────────────────────────────────────────
 
 _LOCK_POLL_INTERVAL = 0.1
+# 锁文件后缀（<记录>.lock）：写入路径按它建、回收路径按它认。
+_LOCK_SUFFIX = ".lock"
 
 
 def _acquire_lock_posix(fd: int, timeout: float) -> None:
@@ -405,10 +463,12 @@ def atomic_write_text(
                 logger.debug("Failed to release lock on %s", path, exc_info=True)
             finally:
                 os.close(lock_fd)
-                # 注意：刻意不删除 .lock 文件。删除锁文件存在经典竞态——进程 B 可能
-                # 正在等待旧 inode 上的锁，进程 C 新建 .lock 并加锁成功，导致 B/C 的
-                # 互斥失效。保留 0 字节锁文件换取跨进程互斥的正确性；过期 .lock 由各自的
-                # prune 随记录一并回收（ledger → engine/ledger.py；runs → engine/store.py）。
+                # 注意：**写入路径刻意不删除** .lock 文件。删除锁文件存在经典竞态——进程 B 可能
+                # 正在等待旧 inode 上的锁，进程 C 新建 .lock 并加锁成功，导致 B/C 的互斥失效。
+                # 保留（Windows 侧含 1 字节哨兵）锁文件换取跨进程互斥的正确性。回收只走**两条**
+                # 明确路径：① 与记录同批回收（runs → engine/store.py；ledger → engine/ledger.py）；
+                # ② 孤儿锁回收 :func:`reap_dangling_locks`（同名记录已不存在 + 年龄超限 + 非阻塞
+                # 加锁证明无人持有），由 ``SessionStore.prune`` 调用。
 
 
 def atomic_update_text(path: Path, update: Callable[[str], tuple[str, R]], *, lock_timeout: float = 5.0) -> R:

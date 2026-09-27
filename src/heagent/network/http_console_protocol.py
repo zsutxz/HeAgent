@@ -51,10 +51,19 @@ MAX_SESSION_MESSAGES_IN_RESPONSE = 500
 # （入口层的 ``SessionStore`` 仍会再校验一次，两点各自 fail-closed）。
 SESSION_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{1,128}\Z")
 
+# Windows 保留设备名的**镜像**：`context/session.py::WINDOWS_RESERVED_DEVICE_NAMES` 的同义副本。
+# 网络层不得 import 运行栈（架构契约），故只能各持一份；两者必须逐元素相同，由
+# `tests/network/test_http_console_sessions.py::test_session_id_shape_matches_the_store` 钉住不漂移。
+SESSION_ID_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+)
+
 
 def is_valid_session_id(value: str) -> bool:
-    """会话 id 是否合法（路径遍历 / 超长 / 空值一律不合法）。"""
-    return bool(SESSION_ID_PATTERN.match(value))
+    """会话 id 是否合法（路径遍历 / 超长 / 空值 / Windows 保留设备名一律不合法）。"""
+    if not SESSION_ID_PATTERN.match(value):
+        return False
+    return value.upper() not in SESSION_ID_RESERVED_NAMES
 
 
 class ProjectEntryResponse(BaseModel):
@@ -492,6 +501,7 @@ __all__ = [
     "MAX_SESSION_MESSAGES_IN_RESPONSE",
     "MAX_SESSION_TITLE_CHARS",
     "SESSION_ID_PATTERN",
+    "SESSION_ID_RESERVED_NAMES",
     "ConfigGroupResponse",
     "ConfigGuardResponse",
     "ConfigItemResponse",

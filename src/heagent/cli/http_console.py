@@ -468,9 +468,9 @@ class HttpProjectConsole:
     # ── 项目（Story 50-2） ──
 
     async def list_projects(self) -> ProjectListResponse:
-        return ProjectListResponse(
-            projects=[ProjectEntryResponse(**entry.model_dump()) for entry in self.registry.list()]
-        )
+        # 注册表读 + 每条目的 `Path.is_dir()` 都是同步 I/O（≤32 条）⇒ 经线程池卸载。
+        entries = await asyncio.to_thread(self.registry.list)
+        return ProjectListResponse(projects=[ProjectEntryResponse(**entry.model_dump()) for entry in entries])
 
     async def register_project(self, request: ProjectRegisterRequest) -> ProjectEntryResponse:
         try:
@@ -596,7 +596,8 @@ class HttpProjectConsole:
             )
         except HttpRunConflictError as exc:
             raise ConsoleOperationError(HttpErrorCode.RUN_CONFLICT, str(exc)) from exc
-        self._touch(project_id)
+        # 跨进程文件锁 + 原子写，留在循环里会卡住其余的 SSE 流 ⇒ 卸载到线程池。
+        await asyncio.to_thread(self._touch, project_id)
         return ProjectRunResponse(run_id=record.run_id, session_id=session_id, status=record.status)
 
     # ── 配置可见性（Story 50-4） ──
@@ -609,11 +610,12 @@ class HttpProjectConsole:
         映射成网络层协议模型。
         """
         runtime = self._runtime_for(project_id)
-        return _config_response(
-            project_id,
-            build_config_report(runtime.paths.env_file, global_env_file=self.global_env_file),
-            write_enabled=self.write_enabled,
+        # 求解器要读四层来源（项目 / 全局 .env + 进程环境 + 字段默认值），实测中位 ~14ms：留在循环里
+        # 会卡住在途 SSE 流 ⇒ 卸载到线程池（与写通道 §I10 同口径）。
+        report = await asyncio.to_thread(
+            build_config_report, runtime.paths.env_file, global_env_file=self.global_env_file
         )
+        return _config_response(project_id, report, write_enabled=self.write_enabled)
 
     # ── 配置写入（Story 50-5） ──
 
@@ -648,7 +650,8 @@ class HttpProjectConsole:
         except ConfigWriteRejection as exc:
             raise ConsoleOperationError(exc.code, str(exc)) from exc
         self._invalidate_runtime(project_id)
-        return self._write_response(project_id, runtime, result)
+        # 写后条目要复用同一求解器（同源），故整块响应构造一并卸载（写已在锁内完成，这里只是读回）。
+        return await asyncio.to_thread(self._write_response, project_id, runtime, result)
 
     def _write_response(
         self, project_id: str, runtime: _ProjectRuntime, result: ConfigWriteResult

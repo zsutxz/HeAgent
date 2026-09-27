@@ -260,7 +260,8 @@ class DreamScheduler:
             self._dreaming = True
             self._engine.events.publish("dream_start", details={"trigger": trigger})
             logger.info("Dream started (trigger=%s)", trigger)
-            prompt = self._build_dream_prompt()
+            # 预注入会列全部 session 并整份读近来 N 个（同步 I/O，随会话数线性）⇒ 卸载到线程池。
+            prompt = await asyncio.to_thread(self._build_dream_prompt)
             result = await self._dream_runner(prompt)
             self._engine.events.publish(
                 "dream_end",

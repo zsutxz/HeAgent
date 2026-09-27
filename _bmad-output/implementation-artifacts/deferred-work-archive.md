@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——23 条
+## 活动（未闭合）条目——21 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -22,18 +22,12 @@
 > - 2026-09-24：**Story 50-8（Epic 50 收口后的体验优化轮）实现新增 2 条**——①「网页请求可拉起宿主 GUI 进程」的新暴露面（弹窗，有意引入，含不可用环境与「回环 ≠ 可信」口径）；②真实原生窗口的验收不可自动化 + 网页侧读取结果收敛所依赖的 `Error:` 前缀判据是展示层启发式。报告与实测见 `epics/epic-50-网页控制台周期/reviews.md#acceptance-50-8-refinement`
 > - 2026-09-26：**Story 50-8 的收口后评审（增量轮）新增 2 条**（均为 `intent_gap / blocked 待人裁决`）——① R5 的收敛判据对「正文以 `Error:` 开头的文件」失效（AC9 两句话在该输入类上互斥）；②「共 N 个会话」在 N > 200 时静默少报（服务端硬上限截断且协议无 `total`）。报告见 `epics/epic-50-网页控制台周期/reviews.md#review-epic-50-story-50-8`；同轮就地修复 4 处判据/口径（含 AC13 的 195 档进可复跑清单），负向验证 5/5 精确变红
 > - 2026-09-26：**Epic 50 收口后第四轮评审**（对 HEAD 全量复核：`pytest` 3144 passed / 覆盖率 92% / ruff·mypy 双平台全绿 均为亲跑；报告 `epics/epic-50-网页控制台周期/reviews.md#review-epic-50-round4`）**新增 5 条**——① 会话 id 放行 Windows 保留设备名（`--resume NUL` 读成空历史、`save` 写向空设备 ⇒ 整段对话静默丢弃；既有）；② `.heagent/sessions/<id>.json.lock` 无回收方（`prune` 只认 `.json`）；③ 同一会话文件的两个写者（CLI 与内嵌网页共享同一 cwd 工作区）**整份覆盖**对方历史（**中**，静默数据丢失）；④ 诊断「N 条需要注意」把信息性 note 计入告警且 BOM 一事双计（`intent_gap`）；⑤ `*_BASE_URL` 等非后缀载体的值原样回显（掩码域 = `_API_KEY(S)` 后缀；`intent_gap`，文档口径同轮已补）。同轮**就地修复 2 处并带负向验证**：跨项目配置写入（`web/app.js` 面板归属守卫——无修复时桩实测 `writeCalls=1`，把 A 的未保存改动写进 B 的 `.env`）、会话 id 正则 `$`→`\Z`（两处同源校验，尾随 `\n` 实测被双放行）
-> - 2026-09-27：**部分闭合 1 条**——「控制台阻塞 I/O 与会话列表成本」的**会话读**三处离线到 `asyncio.to_thread`（含 `start_project_run` 前的会话解析）+ 线程身份回归用例（负向验证 1 failed → 恢复 101 passed，全量 3154 passed）；同条目其余落点（`registry.touch` / `build_config_report` / `registry.list()` / >1 MiB 列表读 / dream 全列读）仍在活动区
+> - 2026-09-27：**闭合 1 条 → Z-D17**（会话 `.json.lock` 无回收方）——`persist.reap_dangling_locks`（三条判据：同名记录不存在 + mtime 超限 + 非阻塞加锁证明无人持有）接入 `SessionStore.prune`；同时修正 `persist` 里「过期 `.lock` 由各自 prune 随记录一并回收」那句对 sessions 不成立的注释；变异体 **4/4 精确变红**，全量 3183 passed；**残余**：Windows 先 close 再 unlink 的 µs 级窗口（如实记录，彻底消除需改锁的落点协议）
+> - 2026-09-27：**续修 1 条（第二轮）**——「控制台阻塞 I/O 与会话列表成本」补齐其余落点（`build_config_report` / `registry.touch` / `list_projects` 的注册表读 / dream 会话预注入），并把 >1 MiB 会话改为**有界头部读**（列表不再整份读入）；新增 6 例线程身份用例，变异体 **5/5 精确变红**，全量 3179 passed；唯一残余 = `_runtime_for` 每请求一次注册表读（已量化、有意保留，升级条件写在条目里）
+> - 2026-09-27：**部分闭合 1 条（第一轮）**——同一「控制台阻塞 I/O 与会话列表成本」的**会话读**三处离线到 `asyncio.to_thread`（含 `start_project_run` 前的会话解析）+ 线程身份回归用例（负向验证 1 failed → 恢复 101 passed，全量 3154 passed）
 > - 2026-09-27：**证据路径刷新**（对照 `src/` 实测）——活动条目里 2026-09-26 包化重构前的路径（`cli_http.py` / `cli.py` / `cli_dialogs.py` / `config_catalog.py` / `config_write.py` / `envfile.py` / `persist.py` / `config.py`）与逐点行号更新为现名现址；同步 `epics/epic-50-网页控制台周期/deferred-work.md` 的 Z-D13 / Z-D14 两处
+> - 2026-09-27：**闭合 1 条 → Z-D16**（会话 id 放行 Windows 保留设备名）——存储侧 `WINDOWS_RESERVED_DEVICE_NAMES` + 校验器转公开、网络层镜像同判据、CLI `--resume` 早期 fail-loud；新增 19 例测试，变异体负向验证 **4/4 精确变红**，全量 3173 passed；正文见下方同名小节
 > - 2026-09-26：**闭合 1 条 → A3**（入口层职责再拆）。分两批交付：七个平铺 `cli*.py` 收进 `heagent/cli/` 包（`__init__.py` 零 import、入口脚本改指 `heagent.cli.console:main`、契约按包根收敛），再把 `cli.py` 拆为 `console.py`/`composition.py`/`interactive.py`、`cli_http.py` 拆为 `http.py`/`http_console.py`；正文移入下方「A3」小节（本区不留副本）。实测：全量 3149 passed / 覆盖率 92% / ruff·mypy 双平台全绿 / 拆分批负向验证 3/3 精确变红
-
-- source_spec: `src/heagent/context/session.py`（`_SESSION_ID_RE`，2026-07-21 `cc7fd5d` 引入；Epic 50 第四轮评审发现——Epic 50 只把同一字符集镜像进 `http_console_protocol.SESSION_ID_PATTERN`，故按「非本 Epic 引起的既有问题」登记）
-  summary: **会话 id 放行 Windows 保留设备名 ⇒ 整段对话静默丢弃**：`[a-zA-Z0-9_-]+` 字符集天然放行 `NUL` / `CON` / `PRN` / `AUX` / `COM1`，而 Windows 把 `NUL`（含 `NUL.json` 这类带扩展名的形式）解析为**空设备**：`exists()` 恒 True、读取得空串 ⇒ `load()` 静默返回「空历史」（伪装成没有历史），`save()` 写向空设备 ⇒ 对话既不落盘、也永远不出现在 `list_metadata`（既不列表也不在盘上）。触发条件：`heagent --resume NUL`（或 `CON` / `PRN` / `AUX` / `COM1`，`cli.py` 的 `--resume` 不过任何额外校验）；严重度：低（需用户显式输入保留名；无权限后果，是**静默丢数据**）；冻结边界：**不得**因此放松 id 字符集（那是路径遍历防线），只允许在字符集之外**追加**保留名拒绝。
-  evidence: 实测（2026-09-26 亲跑 `.heagent/tmp/rev50_probe.py`）：`os.path.exists('NUL.json') = True`、`os.path.exists('CON.json') = True`（`PRN` / `AUX` / `COM1` 为 False）、`SessionStore.path_for('NUL')` 通过校验；`session.py::_validate_session_id` 只查字符集与长度，`cli.py` 的 `--resume` 无额外守卫。
-  Progress（2026-09-26 登记，**未修**）：修法很小（追加一个保留名元组 + 单测），但属既有缺陷类，第四轮评审按纪律只登记不顺手改（评审不做范围外重构）。
-
-- source_spec: `src/heagent/context/session.py`（`prune` / `delete` 只认 `.json`；Epic 50 第四轮评审发现）
-  summary: **`.heagent/sessions/<id>.json.lock` 没有回收方，随会话数单调增长**：每次 `save` / `create` / `rename` 都经 `pub.persist.atomic_update_text` 建一个 0 字节锁文件，而 `SessionStore.prune` 走 `prune_entries_by_mtime(suffix=".json")`（`str.endswith(".json")` 对 `X.json.lock` 为 False）、`delete()` 也只删 `.json` ⇒ 锁文件永久留存。触发条件：任何会话写入；严重度：低（inode / 目录项累积，无功能影响；历史同类账：runs 目录曾累积 6 万文件 / 703 MB）；冻结边界：**不得**用「删掉锁文件」当回收手段——`persist` 的注释已写明删除会引入「B 等旧 inode、C 拿新文件加锁成功」的竞态；要修就得给锁文件定寿命策略（例如按 `st_mtime` 判「无人持有」后删除），属 `persist` 层设计决策。
-  evidence: 实测（`.heagent/tmp/rev50_probe2.py`）：构造 400 天前的 `deadbeef.json` + `deadbeef.json.lock` 后 `prune(retention_days=30)` 返回 1，目录残留 `['deadbeef.json.lock']`；`pub/persist.py` 注释声称「过期 `.lock` 由各自的 prune 随记录一并回收」——对 sessions 不成立（`engine/store.py` 才是正确做法的先例）。
 
 - source_spec: `src/heagent/context/session.py::save` + `src/heagent/agent/run_lifecycle.py`（Epic 50 Story 50-3 把「网页运行 → 会话落盘」接进同一 `.heagent/sessions`）
   summary: **同一会话文件的两个写者会整份覆盖对方的历史（静默数据丢失）**：运行落盘的 `save()` 不传 `expected_version`（last-write-wins），而文件锁只覆盖「单次读改写」、不覆盖 `load → … → save` 的整个跨度 ⇒ CLI 与内嵌网页入口（默认项目根 = 进程 cwd = 同一工作区，`.heagent/sessions` 同一目录）并发写同一会话时，后写者用 `_session_payload` **替换整份消息列表**，对方的整轮对话消失，且 `version` 照样单调递增（没有任何一方能发现）。触发条件：同 cwd 下 CLI 与会话页并存，且网页 `POST /api/projects/default/runs` 不带 `session_id`（`_resolve_session(None)` 取**最近**会话，往往正是 CLI 正在写的那个）；严重度：中（静默数据丢失）；冻结边界：**不得**改成「版本冲突即让运行落盘失败」（那会丢**当前**对话）；正确方向是单写者化 / 合并语义，或把冲突降级为可观测告警。
@@ -91,7 +85,12 @@
 - source_spec: 2026-09-24 Epic 50 收口评审（三镜头）· 控制台阻塞 I/O 与会话列表成本
   summary: **控制台端点在唯一事件循环里做同步 I/O**：`list_sessions`（逐文件全量读 + 无 title 时全量校验）、`build_config_report`（实测中位 14 ms）、`registry.list()`（每请求每条一次 `Path.is_dir()`）、`registry.touch()`（跨进程文件锁 + 原子写）都是 `async def` 体内的阻塞调用，会卡住在途 SSE 流与其余请求；且 >1 MiB 的会话仍在列表时被整份读入（`count_messages` 只跳过计数，与 `SessionMetadata` docstring 的「避免列表时校验整份历史」不符）。触发条件：会话数/体积增长、面板被频繁刷新；严重度：低-中（单用户本机场景下不致命，属可伸缩性债务）；冻结边界：不得为此改变会话文件格式或列表接口的有界口径（D6 的「列表可退化」语义保留）。
   evidence: `src/heagent/cli/http_console.py:509`（`runtime.sessions.list_metadata()`）、`:610`（`build_config_report`）、`:705`（`_project_entry` 每请求遍历）、`:757`（`registry.touch`）；`src/heagent/context/session.py:398`（`read_text` 无视 `info.st_size`）、`:411`。
-  Progress（2026-09-24 登记；**2026-09-27 部分闭合**）：会话**读**路径已按最小修复离线到线程池——`cli/http_console.py:509`（列表）/ `:535`+`:540`（详情：元数据 + 整份消息）/ `:584`（运行前 `_resolve_session`，缺省分支会列全部会话）均改经 `asyncio.to_thread`（不改任何公共签名，`_resolve_session` 仍是同步纯助手，只在 async 调用点卸载）；回归 `tests/network/test_http_console_sessions.py::test_session_reads_are_offloaded_off_the_event_loop`（判据取线程身份，非耗时）。**负向验证**：`git stash push -- src/heagent/cli/http_console.py` 后该用例 1 failed，恢复后 101 passed；全量 3154 passed / 11 skipped（2026-09-27 亲跑）。**仍未修**（同条目其余落点，留给后续）：`registry.touch`（`:757`，跨进程锁 + 原子写）、`build_config_report`（`:610`）、`registry.list()` 每请求遍历（`:706`）、`>1 MiB` 会话仍在列表时整份读入（`context/session.py:398`，`count_messages` 只跳过计数）、`memory/dream` 的 `recent_session_ids` 同步全列读（`memory/dream.py:338`，随会话数线性）。
+  Progress（2026-09-24 登记；**2026-09-27 两轮续修，仅剩一处已量化残余**）：
+  ① **会话读**离线到 `asyncio.to_thread`——`list_sessions` / `get_session`（元数据 + 整份消息）/ `start_project_run` 前的 `_resolve_session`（缺省分支会列全部会话）；不改任何公共签名（`_resolve_session` 仍是同步纯助手）；
+  ② **其余落点补齐**——`build_config_report`（`get_project_config` 与写后响应两处）、`registry.touch`（`_touch`）、`list_projects` 的 `registry.list()`、`memory/dream` 的会话预注入（`_build_dream_prompt`）；
+  ③ **`>1 MiB` 会话不再整份读入**——`SessionStore.list_metadata` 改走 `_read_head`（有界读 `MAX_SESSION_METADATA_BYTES` 字节 + 严格解码，cap 落在多字节字符中间时只裁掉不完整尾序列）+ `_metadata_from_head`（落盘键序保证 `session_id` / `version` / `timestamp` / `title` 都排在 `messages` 之前 ⇒ 列表所需字段照旧可得；`message_count` 恒 `None`，D6 口径与 `SessionMetadata` docstring 从此一致）。
+  **验证（2026-09-27 亲跑）**：新增 6 例测试（`tests/test_session.py::TestOversizedSessionListing` 4 例——含「任何整份读即抛」的守卫、cap 落在 CJK 字符中间的容错、坏编码仍列不可读；`tests/network/test_http_console_sessions.py::test_registry_and_config_solver_run_off_the_event_loop`；`tests/test_dream.py::test_session_preload_runs_off_the_event_loop`），判据一律取**线程身份**而非耗时；变异体 **5/5 精确变红**（`.heagent/tmp/mutate_console_io.py`：回退有界读 / 回退 `list_projects` 卸载 / 回退 `_touch` 卸载 / 回退配置求解卸载 / 回退 dream 卸载），每处字节还原后基线复绿；全量 `pytest -q` **3179 passed / 11 skipped**；`ruff check` + `format --check` 与 `mypy`（本机 + `--platform linux`）全绿。
+  **仍未修（唯一残余，有意保留）**：`_runtime_for` → `_project_entry` 每请求一次 `registry.list()`（= 1 次注册表文件读 + ≤33 次 `Path.is_dir()`，亚毫秒量级）。停手理由：它是**同步私有助手**，被 8 个 async 端点与 6 处测试（其中 5 处是同步 CliRunner 用例）调用，改 async 要连带包 `asyncio.run`，churn 大于收益。**升级条件**：控制台端点 P95 超过 SSE 心跳（15s）的 1%，或 `MAX_PROJECTS` 从 32 上调。
 
 - source_spec: 2026-09-24 Epic 50 收口评审（三镜头）· 非回环运行姿态（**intent_gap，待裁决**）
   summary: **两条相关的主张冲突，需要人裁决**：① 回环闸门只装在「登记 / 移除项目」，而**危害更大的** `POST /api/projects/{id}/runs`（可跑 shell / 文件工具）、会话增删改都没有闸门——脊柱 §9 的「写通道额外要求本机回环来源」说的是配置写通道（50-5），而 49 的 `/api/runs` 本来也无闸门，故**暴露面未因本 Epic 扩大**；② 更该关注的是 `enable_cron=False` 只拒了调度器：`cron_store` 仍被绑进 loop（`cron_enabled` 默认 True）⇒ 网页运行**可以成功写入** `<项目>/.heagent/cron/jobs.json`，任务在本进程 IDLE 永不触发，却会在**后续 CLI 会话**里无人监督地执行——与 `cli_http.new_loop` docstring 自称「把带无人监督执行面的运行时装进 HTTP 进程是明令禁止的形态，绝不静默忽略」直接冲突。触发条件：把服务绑到非回环地址 + 任意客户端；严重度：中（非回环姿态）／中-高（cron 任务跨会话后置执行）；冻结边界：不得把这些闸门表述为安全边界（网页入口无认证无 TLS，须 OS 级沙箱兜底）；不得为「更安全」而破坏既有端点契约。
@@ -142,11 +141,11 @@
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 16 条：11 条勘察类正文保留在本文件，5 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 23 条未闭合条目。
+> 当前闭合归档共 18 条：13 条勘察类正文保留在本文件，5 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 21 条未闭合条目。
 
 ## 状态总览
 
-**① 勘察类（正文在本文件）——11 条**
+**① 勘察类（正文在本文件）——13 条**
 
 | ID | 条目 | 结论 | 闭合 commit |
 |----|------|------|-------------|
@@ -160,6 +159,8 @@
 | Z-D8 | `RoleSpec.sandbox_profile` 死字段 | 已闭合（取**删除**方向，非激活） | 已提交 `dfe6eef`（2026-09-18） |
 | Z-D9 | 沙箱无进程数限额 + WinJob 常量误写 | 已闭合（`SANDBOX_NPROC_LIMIT` + 修正 `PROCESS_TIME=0x2`） | 已提交 `8de6c63`（2026-09-18） |
 | Z-D12 | MEMORY.md 非 UTF-8 让整个 run 起不来 | 已闭合（fail-soft：跳过注入 + **点名文件**的告警；文件字节一字不动） | `b01e09c`（2026-09-23） |
+| Z-D17 | 会话 `.json.lock` 无回收方（随会话数单调增长） | 已闭合（孤儿 + 年龄超限 + **非阻塞加锁证明无人持有**三判据；残余 µs 级竞态如实记录） | 待提交（2026-09-27 工作区） |
+| Z-D16 | 会话 id 放行 Windows 保留设备名（静默丢数据） | 已闭合（存储侧 + 网络层镜像 + CLI 三处；字符集不放宽，只**追加**保留名拒绝） | 待提交（2026-09-27 工作区） |
 | A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26：收进 `heagent/cli/` 包 + 包内再拆三个模块；正文见下方「A3」小节） | 待提交（2026-09-26 工作区） |
 
 **② 已按归属 epic 回填（正文在各自周期目录）——5 条**
@@ -256,3 +257,35 @@
   2. **包内再拆**：`cli.py`（1252 行）拆为 `console.py`（443：命令层 + 启动编排）/ `composition.py`（322：装配）/ `interactive.py`（587：单次/交互执行 + 斜杠命令族）；`cli_http.py`（1139 行）拆为 `http.py`（454：服务与生命周期装配）/ `http_console.py`（740：项目/会话/配置面）。缝按**调用方**分模块落位：`_run_prompt`/`_run_single` 在 interactive（console 侧用函数内导入读 `_run_single`）、`_build_loop` 在 composition（网络侧函数内导入）、`_run_cli_impl`/`_mcp_lifecycle`/`_build_provider` 留在 console（其调用方在此）。
 - **验证（实测）**：全量 `pytest` **3149 passed** / 覆盖率 **92%**（门限 87；`interactive.py` 按交互层口径 omit）/ `ruff check`+`format --check` 全绿 / `mypy src` 与 `--platform linux` 双绿（151 files）；拆分批次的负向验证 **3/3 精确变红**（① console 把函数内导入改成模块级 ⇒ `test_cli_tcp` 红；② `cli/http_console.py` 的 `_build_loop` 延迟导入改指 interactive ⇒ `test_cli_http` 3 例红；③ interactive 多导入 `_goal_session` ⇒ 缝钉死用例红），全部字节还原并复核 sha256。
 - **剩余口径**：`console.py` 仍是命令层与启动杂务的合理归处（443 行）；`composition.py`/`interactive.py` 如需再分，须同样按「缝随调用方」迁移并同步 `tests/test_architecture_contracts.py` 的布局表。
+
+---
+
+## Z-D16 会话 id 放行 Windows 保留设备名（静默丢数据）
+
+- **来源**：2026-09-26 Epic 50 第四轮评审（探针 `.heagent/tmp/rev50_probe.py`）。按「非本 Epic 引起的既有问题」登记——`_SESSION_ID_RE` 由 2026-07-21 `cc7fd5d` 引入，Epic 50 只是把同一字符集镜像进 `http_console_protocol`。
+- **原条目正文（保留原文以存证）**：
+
+- source_spec: `src/heagent/context/session.py`（`_SESSION_ID_RE`，2026-07-21 `cc7fd5d` 引入；Epic 50 第四轮评审发现——Epic 50 只把同一字符集镜像进 `http_console_protocol.SESSION_ID_PATTERN`，故按「非本 Epic 引起的既有问题」登记）
+  summary: **会话 id 放行 Windows 保留设备名 ⇒ 整段对话静默丢弃**：`[a-zA-Z0-9_-]+` 字符集天然放行 `NUL` / `CON` / `PRN` / `AUX` / `COM1`，而 Windows 把 `NUL`（含 `NUL.json` 这类带扩展名的形式）解析为**空设备**：`exists()` 恒 True、读取得空串 ⇒ `load()` 静默返回「空历史」（伪装成没有历史），`save()` 写向空设备 ⇒ 对话既不落盘、也永远不出现在 `list_metadata`（既不列表也不在盘上）。触发条件：`heagent --resume NUL`（或 `CON` / `PRN` / `AUX` / `COM1`，`cli.py` 的 `--resume` 不过任何额外校验）；严重度：低（需用户显式输入保留名；无权限后果，是**静默丢数据**）；冻结边界：**不得**因此放松 id 字符集（那是路径遍历防线），只允许在字符集之外**追加**保留名拒绝。
+  evidence: 实测（2026-09-26 亲跑 `.heagent/tmp/rev50_probe.py`）：`os.path.exists('NUL.json') = True`、`os.path.exists('CON.json') = True`（`PRN` / `AUX` / `COM1` 为 False）、`SessionStore.path_for('NUL')` 通过校验；`session.py::_validate_session_id` 只查字符集与长度，`cli.py` 的 `--resume` 无额外守卫。
+  Progress（2026-09-26 登记，**未修**）：修法很小（追加一个保留名元组 + 单测），但属既有缺陷类，第四轮评审按纪律只登记不顺手改（评审不做范围外重构）。
+
+- **结论**：**已闭合**（2026-09-27）。三处同步（缺一即漂移）：① `context/session.py` 新增 `WINDOWS_RESERVED_DEVICE_NAMES`（22 项 = `CON` / `PRN` / `AUX` / `NUL` + `COM1-9` + `LPT1-9`，用 `.upper()` 比较承担大小写不敏感），私有 `_validate_session_id` 转公开 `validate_session_id`（存储内 7 处调用点同源），**在字符集之外追加**保留名拒绝——字符集与长度判据一字未动；② `network/http_console_protocol.py` 加镜像 `SESSION_ID_RESERVED_NAMES` 并让 `is_valid_session_id` 用同一判据（网络层不得 import 运行栈 ⇒ 只能各持一份，靠测试钉住逐元素相等）；③ `cli/console.py::_run_cli_impl` 对 `--resume` 早期校验，非法时命令层给 `ClickException`（可读错误 + exit 1）而非 traceback，且校验发生在 provider 构造**之前**（零副作用、无密钥也能复现）。
+- **验证（实测）**：新增 19 例测试（`tests/test_session.py::TestReservedDeviceNames` 14 例 + `::TestValidateSessionIdShape` 1 例；`tests/network/test_http_console_sessions.py` 语料扩到含全部保留名与 `nul` / `Con` 大小写变体 + 集合相等断言；`tests/test_cli.py` 正反对照 2 例）。**变异体负向验证 4/4 精确变红**（`.heagent/tmp/mutate_reserved_names.py`）：M1 存储侧集合清空 → 11 failed；M2 删除拒绝分支 → 9 failed；M3 网络层退回纯字符集 → 1 failed；M4 删除 CLI 校验 → 1 failed；每处字节还原后基线复绿。全量 `pytest -q` **3173 passed / 11 skipped / 18 deselected**；`ruff check` + `ruff format --check`（285 files）全绿；`mypy src --platform linux` 无 issue。
+- **残余（同族，已核实无落地点，仅备查）**：会话**标题**是 JSON 字段、不参与文件名构造；项目 **id** 由路径规范化派生（`p` + 8 位十六进制）⇒ 两处都不受保留设备名影响，无需同类检查。
+
+---
+
+## Z-D17 会话 `.json.lock` 无回收方（随会话数单调增长）
+
+- **来源**：2026-09-26 Epic 50 第四轮评审（探针 `.heagent/tmp/rev50_probe2.py`）。按「非本 Epic 引起的既有问题」登记。
+- **原条目正文（保留原文以存证）**：
+
+- source_spec: `src/heagent/context/session.py`（`prune` / `delete` 只认 `.json`；Epic 50 第四轮评审发现）
+  summary: **`.heagent/sessions/<id>.json.lock` 没有回收方，随会话数单调增长**：每次 `save` / `create` / `rename` 都经 `pub.persist.atomic_update_text` 建一个 0 字节锁文件，而 `SessionStore.prune` 走 `prune_entries_by_mtime(suffix=".json")`（`str.endswith(".json")` 对 `X.json.lock` 为 False）、`delete()` 也只删 `.json` ⇒ 锁文件永久留存。触发条件：任何会话写入；严重度：低（inode / 目录项累积，无功能影响；历史同类账：runs 目录曾累积 6 万文件 / 703 MB）；冻结边界：**不得**用「删掉锁文件」当回收手段——`persist` 的注释已写明删除会引入「B 等旧 inode、C 拿新文件加锁成功」的竞态；要修就得给锁文件定寿命策略（例如按 `st_mtime` 判「无人持有」后删除），属 `persist` 层设计决策。
+  evidence: 实测（`.heagent/tmp/rev50_probe2.py`）：构造 400 天前的 `deadbeef.json` + `deadbeef.json.lock` 后 `prune(retention_days=30)` 返回 1，目录残留 `['deadbeef.json.lock']`；`pub/persist.py` 注释声称「过期 `.lock` 由各自的 prune 随记录一并回收」——对 sessions 不成立（`engine/store.py` 才是正确做法的先例）。
+
+- **结论**：**已闭合**（2026-09-27）。新增 `pub/persist.reap_dangling_locks(directory, *, min_age_seconds, limit)`（三条判据**全中**才回收：① 同名记录已不存在；② 锁文件自身 mtime 早于门槛；③ **当前无人持有**——`timeout=0` 非阻塞排他加锁证明，拿不到即跳过，沿用 `persist`「不猜测」的立场），由 `SessionStore.prune` 以 `min_age_seconds=retention_days × 86400` 调用（`retention_days <= 0` = 关闭时不回收，与 prune 语义一致）。**冻结边界守住了**：回收只作用于**孤儿**（在用会话的锁两条门槛都不满足：同名记录仍在、且年龄未超限），且不使用「按 mtime 猜持有状态」这种弱判据——这正是原冻结点名的方向（「给锁文件定寿命策略」）的强化版。顺带修正 `persist` 注释里一句**不成立**的论断（原称「过期 `.lock` 由各自的 prune 随记录一并回收」，对 sessions 为假；runs / ledger 才是「随记录同批回收」，sessions 走本条的孤儿回收）。
+- **证据（2026-09-27 亲跑）**：探针 `.heagent/tmp/lock_probe3.py` 实测——50 次 `save` ⇒ 50 个 `.json` + 50 个 `.json.lock`（各 1 字节，Windows 侧哨兵）；记录老化后 `prune(30 天)` 删除 50 条记录、锁**因年龄未到而保留**（符合设计）；`delete()` 不回收（新锁，年龄门槛挡住）；一个老化到 2001 年的孤儿锁 `deadbeef.json.lock` 在 `prune` 后被回收（`存在=False`）。真实工作区（同日只读统计）：`.heagent/sessions` 341 目录项 / 322 个 `.lock` / **12 个孤儿**；对照 `.heagent/runs` 40 096 个锁、孤儿 0，`.heagent/ledger` 37 000 个锁、孤儿 2 —— 与「runs/ledger 随记录同批回收、sessions 不回收」的判断一致。
+- **验证（2026-09-27 亲跑）**：新增 4 例测试（`tests/test_file_locking.py::TestReapDanglingLocks` 3 例：只回收超龄孤儿 / **持有中的锁绝不回收** / 缺目录与空目录返回 0；`tests/test_session.py::TestSessionPruneReapsOrphanLocks` 1 例：prune 回收超龄孤儿锁且不动在用会话的锁）。变异体 **4/4 精确变红**（`.heagent/tmp/mutate_reap_locks.py`）：M1 去掉孤儿判据 / M2 去掉年龄门槛 / M3 去掉「无人持有」证明 / M4 去掉 prune 接线；**M3 首轮不红**——Windows 上「持有句柄的文件本就 unlink 不掉」把缺证明的形态遮住了，故给该用例加一条 spy 断言（回收前必须发生 `timeout=0` 的加锁尝试），据此 M3 变红；每处字节还原后基线复绿。全量 `pytest -q` **3183 passed / 11 skipped / 18 deselected**；`ruff check` + `format --check`（285 files）与 `mypy`（本机 + `--platform linux`）全绿。
+- **残余（如实记录，未消除）**：Windows 无法在持有句柄时 `os.unlink`（句柄会让 unlink 报 `PermissionError`），故先 `close` 再 `unlink`，其间存在 **µs 级窗口**；POSIX 则在持有期内 unlink。两种形态都仍需「写入方已打开旧 inode 但尚未加锁」与「第三个写入方落在同一窗口」同时成立，且对象必须是孤儿 id（记录已回收、锁年龄超限）才会失效。触发概率极低、后果仅是该 id 的一次并发写覆盖，故按低危接受。**要彻底消除需改变锁的落点协议**（每目录固定分桶锁：锁文件数恒定、永不需要回收），属独立设计决策，未在本次擅自实施。

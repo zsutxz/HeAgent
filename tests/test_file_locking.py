@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import time
 
 import pytest
 
@@ -131,3 +132,81 @@ class TestFileLocking:
         record = await container.ledger.get(key)
         assert record is not None
         assert record.status.value == "completed"
+
+
+class TestReapDanglingLocks:
+    """孤儿锁回收（台账「`.json.lock` 无回收方」条目，2026-09-27 闭合）。
+
+    三条判据必须**同时**满足才回收：同名记录不存在 / 锁年龄超限 / 非阻塞加锁证明无人持有。
+    本类逐条钉住，缺一条都会被某个用例抓到。
+    """
+
+    @staticmethod
+    def _age(path, seconds: float) -> None:
+        stamp = time.time() - seconds
+        os.utime(path, (stamp, stamp))
+
+    def test_reaps_only_old_orphans(self, tmp_path):
+        from heagent.pub.persist import reap_dangling_locks
+
+        old_orphan = tmp_path / "gone.json.lock"
+        old_orphan.write_bytes(b"\n")
+        self._age(old_orphan, 10 * 86400)
+        fresh_orphan = tmp_path / "fresh.json.lock"
+        fresh_orphan.write_bytes(b"\n")
+        live_lock = tmp_path / "live.json.lock"
+        live_lock.write_bytes(b"\n")
+        (tmp_path / "live.json").write_text("{}", encoding="utf-8")
+        self._age(live_lock, 10 * 86400)
+        unrelated = tmp_path / "notes.txt"
+        unrelated.write_text("x", encoding="utf-8")
+        self._age(unrelated, 10 * 86400)
+
+        reaped = reap_dangling_locks(tmp_path, min_age_seconds=86400)
+
+        assert reaped == 1
+        assert not old_orphan.exists(), "孤儿 + 超龄 ⇒ 回收"
+        assert fresh_orphan.exists(), "年龄门槛：新锁一律不动"
+        assert live_lock.exists(), "同名记录仍在 ⇒ 不是孤儿"
+        assert unrelated.exists(), "非锁文件不参与回收"
+
+    def test_never_reaps_a_held_lock(self, tmp_path, monkeypatch):
+        """「无人持有」必须由加锁**证明**（且是**非阻塞**尝试），不能靠 mtime 猜。
+
+        Windows 上「持有句柄的文件本就 unlink 不掉」，故仅断言「文件仍在」无法区分「有证明」与
+        「没证明」——这里额外 spy 加锁调用：没有这一步，判据被系统行为遮住（实测 M3 变异体不红）。
+        """
+        import heagent.pub.persist as persist_mod
+        from heagent.pub.persist import _acquire_lock, reap_dangling_locks
+
+        held = tmp_path / "held.json.lock"
+        held.write_bytes(b"\n")
+        self._age(held, 10 * 86400)
+
+        attempts: list[float] = []
+        real_acquire = persist_mod._acquire_lock
+
+        def spy(fd: int, timeout: float) -> None:
+            attempts.append(timeout)
+            real_acquire(fd, timeout)
+
+        monkeypatch.setattr(persist_mod, "_acquire_lock", spy)
+        fd = os.open(str(held), os.O_RDWR)
+        try:
+            _acquire_lock(fd, 0.0)
+            assert reap_dangling_locks(tmp_path, min_age_seconds=0) == 0
+            assert held.exists(), "持有中的锁绝不能被删"
+            assert attempts, "回收前必须先尝试加锁证明「无人持有」"
+            assert all(timeout == 0 for timeout in attempts), "必须是非阻塞尝试（timeout=0）"
+        finally:
+            os.close(fd)
+        # 释放后再跑：这次才允许回收（证明判据而非年龄门槛在起作用）
+        attempts.clear()
+        assert reap_dangling_locks(tmp_path, min_age_seconds=0) == 1
+        assert attempts, "回收仍须走加锁证明"
+
+    def test_missing_directory_and_empty_dir_are_zero(self, tmp_path):
+        from heagent.pub.persist import reap_dangling_locks
+
+        assert reap_dangling_locks(tmp_path / "nope") == 0
+        assert reap_dangling_locks(tmp_path) == 0

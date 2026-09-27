@@ -41,6 +41,25 @@ class TestCLI:
         assert result.exit_code != 0
         assert "No API key" in result.output
 
+    def test_resume_rejects_reserved_device_name(self, monkeypatch, clean_settings, tmp_path):
+        """``--resume NUL`` 必须在命令层以可读错误失败。
+
+        放行的后果是 Windows 上写向空设备：不报错、不落盘、也不出现在会话列表（静默丢整段对话）。
+        断言在**构造 provider 之前**失败——所以本用例不需要任何密钥或桩。
+        """
+        _clear_all_api_keys(monkeypatch)
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(main, ["run", "hi", "--resume", "NUL"])
+        assert result.exit_code != 0
+        assert "invalid --resume session id" in result.output
+
+    def test_resume_accepts_a_normal_session_id(self, monkeypatch, clean_settings, tmp_path):
+        """反面对照：正常 id 不被这次收紧误伤（错误只可能出在后面缺密钥那步）。"""
+        _clear_all_api_keys(monkeypatch)
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(main, ["run", "hi", "--resume", "abc123"])
+        assert "invalid --resume session id" not in result.output
+
     def test_help_shows_usage(self):
         runner = CliRunner()
         result = runner.invoke(main, ["--help"])
