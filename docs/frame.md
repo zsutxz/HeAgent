@@ -745,7 +745,7 @@ HeAgentError (base)
 ### 4.10 配置管理 (`config/` 包)
 
 - `pydantic-settings` 的 `Settings` 类，从 `.env` + 环境变量加载
-- **加载优先级（2026-07-14 反转）**：`init > dotenv > env > secrets`——同 key 冲突时 `.env` 胜出，系统环境变量退居兜底（仅填充 `.env` 未声明的键）。此前为 `env > dotenv`（环境变量胜出）
+- **加载优先级**：系统环境变量 > 项目 `.env` > 用户全局 `~/.heagent/.env` > 字段默认值；同 key 冲突时高优先级来源胜出。顺序由 `Settings.model_config.env_file` 与 `pydantic-settings` 的默认来源顺序决定。
 - `get_settings()` 单例访问，`reset_settings()` 用于测试重置
 - **运行配置快照（Phase 1，2026-09-21）**：`ResolvedRuntimeConfig`（冻结 `Settings` 子类，集合深拷贝、凭证 `exclude` 不入 repr/JSON）+ `resolve_runtime_config(settings=None, **overrides)`——显式非 `None` 覆盖才生效（保留「显式 `False` 反向压过 env `True`」三态语义），每个字段经 `RuntimeConfigSource` 记录来源（`settings`/`override`）。入口层（`cli.composition._build_loop`/`gui_main`）组装期解析一次，engine（`EngineContainer.runtime_config`，并把实际生效后端记入 `SandboxDecision` 写入 run metadata）与两类 loop（主/cron）共用同一份；`AgentLoop`/`SubAgent` 业务执行（压缩/窗口重置/委派深度/提示词块/技能预算）只读快照，运行中全局 Settings 漂移不影响已创建的运行。`PolicyVerdict.source` 标记裁决来源。业务方法禁止隐式 `get_settings()`；构造期回退与无 run 绑定的工具路径（cli/housekeeping/dream/skills 未绑定回退）除外，详见下表口径。
 
@@ -894,6 +894,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次 |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入；`heartbeat()` 由工具在途续租（`agent/tool_execution._renew_ledger_lease`）调用，使「过期 RUNNING = 孤儿」成为 prune 的可靠判据 |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布；`LoggingObserver` 经 `safe_logging.safe_log` 落日志（日志故障不改写调用方），并对 `target`/`details` 做启发式脱敏（`redact_secrets`/`redact_mapping`）；`EventBus.emit` 的观察者兜底同样走 `safe_log` |
+| 其余四个模块 | `checkpoint.py` / `workflow_resource.py` / `workflow_runner.py` / `artifacts.py`——职责见 4.13 与「六、目录结构」（本表不重复，避免两处漂移） |
 
 **已完成：**
 
@@ -1312,8 +1313,9 @@ src/heagent/
 ├── network/                 # 网络入口传输层（Epic 48 TCP / Epic 49 HTTP；协议/生命周期/暴露判定，不依赖运行栈）
 │   ├── protocol.py          # JSON Lines 请求/响应模型 + 8 个稳定错误码 + 有界编解码
 │   ├── tcp_server.py        # TcpServer（两档限额 / 三类超时 / 阶段日志；日志经 _safe_log 不影响协议）
-│   ├── http_protocol.py     # HTTP 协议模型：14 个稳定错误码 + 错误信封 + HealthResponse + 运行/事件/会话模型（Epic 49）
+│   ├── http_protocol.py     # HTTP 协议模型：34 个稳定错误码 + 错误信封 + HealthResponse + 运行/事件/会话模型（Epic 49；`HttpErrorCode` 实测 34 成员，含项目/会话/控制台/目录选择码，口径见 4.17/4.18）
 │   ├── http_server.py       # HttpServer（就绪门禁/有界关闭/静态资源白名单/安全响应头）+ HttpRunService（单用户会话、运行记录与事件 ring buffer、SSE 订阅）
+│   ├── http_console_protocol.py  # 网页控制台协议模型：项目/会话/配置面板与写通道的请求-响应契约（Epic 50）
 │   └── exposure.py          # 回环判定 + 「无认证 / 无 TLS / 非生产边界」告警文案（单点，不解析 DNS）
 │
 ├── goal/                    # /goal 域层（入口层，供 cli/goal 使用，下层不得反向导入）
@@ -1323,6 +1325,7 @@ src/heagent/
 │   └── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性）
 ├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）
 └── cron/                    # 定时调度
+    ├── expr.py              # 5-field cron 表达式解析纯叶子（零 heagent 导入；memory/dream 与 cron/scheduler 共用）
     ├── jobs.py              # CronJob 模型 + JobStore 持久化
     └── scheduler.py         # CronScheduler 后台调度器
 ```
@@ -1335,9 +1338,9 @@ src/heagent/
 python -m heagent "your prompt"
   │
   ▼
-__main__.py → cli.main()
+__main__.py → heagent.cli.console:main()（`heagent.cli` 包的命令组；原 `cli.py`）
   │
-  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（24 个工具）
+  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（26 个工具）
   ├── get_settings() → 读取 DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY（+ OLLAMA_ENABLED 本地条目）
   ├── _build_provider() → OpenAIProvider（含本地 ollama）/ AnthropicProvider / ProviderChain
   │

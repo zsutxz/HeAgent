@@ -1,13 +1,13 @@
 # 架构沿革与参考来源
 
-> 状态：历史索引；整理日期：2026-09-21。维护责任：架构变更提交者。当前行为以 [frame.md](frame.md) 和源码为准。
+> 状态：历史索引；整理日期：2026-09-27。维护责任：架构变更提交者。当前行为以 [frame.md](frame.md) 和源码为准。
 
 ## 迁移记录
 
 | 时间 | 变化 | 当前实现与证据 |
 | --- | --- | --- |
-| 2026-09 | persist、roles 从 engine 迁出 | `src/heagent/persist.py`、`src/heagent/roles.py`；共享底层能力 |
-| 2026-09-17 | 集中 frontmatter 解析 | `src/heagent/frontmatter.py`、`tests/test_architecture_contracts.py` |
+| 2026-09 | persist、roles 从 engine 迁出 | `src/heagent/pub/persist.py`、`src/heagent/pub/roles.py`；共享底层能力 |
+| 2026-09-17 | 集中 frontmatter 解析 | `src/heagent/pub/frontmatter.py`、`tests/test_architecture_contracts.py` |
 | 2026-09-20 | workflow 资源模型和装载职责分离 | `engine/workflow_resource.py`、`goal/workflow_loader.py`，路径均相对于 `src/heagent/` |
 
 原始周期与验收证据见 [迭代历程](iteration.md) 和 [规划归档](../_bmad-output/README.md)。本表是历史摘要，不是新一轮待办。

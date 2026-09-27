@@ -25,6 +25,7 @@ logs/
 .pytest-tmp/
 .pytest-tmp-local/
 .review-tmp/
+.review-tmp*/
 .test-workdirs/
 workflow_test_tmp*/
 .tmp/
