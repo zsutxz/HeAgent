@@ -3,7 +3,7 @@
 > **归并来源**：`implementation-artifacts/deferred-work-archive.md` 的 **Z-D10 / Z-D11**（两条均出自本周期 **Story 48-5** 收口评审 C-1 / C-2）；2026-09-24 按「**条目闭合后按归属 epic 归档**」规则从活动台账的闭合归档区回填至本文件。
 > **归档规则**：按条目**归属的 epic** 归档；「闭合者」注明实际完成它的批次 / commit。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码与测试。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）——本周期相关未闭合条目 = 台账编号 **A7「TCP 入口不写 rollout」**（`EVENTS_ROLLOUT_ENABLED` 对 `tcp-server` 是死开关），正文以台账为准。
+> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）——本周期相关未闭合条目 = **无**（原 A7「TCP 入口不写 rollout」已随入口删除标记 OBSOLETE → **Z-D18**）。
 
 ## 状态总览
 
@@ -12,6 +12,7 @@
 | Z-D10 | Epic 48 · Story 48-5 评审 C-1 | 运行栈日志的观测故障免疫 | 已闭合（2026-09-23） | 可观测性与日志卫生批次（`safe_log` 逐调用点 + 进程级 `install_logging_fault_guard`） |
 | Z-D11 | Epic 48 · Story 48-5 评审 C-2 | 日志行的凭证脱敏 | 已闭合（2026-09-23） | 同批次（`LoggingObserver` 掩码 `target` / `details`） |
 | Z-D18 | Epic 48 · Story 48-5 评审 W-2 | TCP 入口不写 rollout（`EVENTS_ROLLOUT_ENABLED` 死开关） | **OBSOLETE**（2026-09-27，随入口删除失效） | 入口已由 `4217b5d` 整体删除，不再需要修复 |
+| Z-D20 | Epic 48 · 删除后的收尾勘察 | TCP 入口删除后，README / CLAUDE.md / `.env.example` / docstring 仍在宣告该入口 | 已闭合（2026-09-27） | 分层清理 + 新判据 `test_live_files_hold_no_reference_to_the_removed_tcp_entry`（变异体 3/3 精确变红） |
 
 ---
 
@@ -41,3 +42,19 @@
 - **原问题**：`EVENTS_ROLLOUT_ENABLED` 对 `heagent tcp-server` 是**死开关**——`JsonlSink` 唯一构造点在 `cli/composition._build_event_sink`，网络入口不订阅 sink ⇒ 开关开启也不产生 `.heagent/runs/<run_id>/rollout.jsonl`。接入前须先定并发语义（`JsonlSink` 的 `seq` / `_last_run_id` 是 sink 全局的，而 TCP 入口共享一个 `EngineContainer` / `EventBus` 并发服务多请求）。
 - **结论**：**OBSOLETE（2026-09-27）**——Epic 48 TCP 网络接口已于 `4217b5d` 整体删除，本条目随入口一并失效，不再需要修复。删除记录见本周期 `REMOVAL-NOTICE.md` 与 `retrospective-epic-48.md` 第七节。
 - **证据**：原活动条目（`implementation-artifacts/deferred-work-archive.md` 的 Z-D18 索引行）；`tests/test_tcp_agent_integration.py` 随入口删除。
+
+## Z-D20 TCP 入口删除后的**活文件残留**（README / CLAUDE.md / .env.example / docstring）
+
+- **来源**：2026-09-27 本轮优化勘察（对 HEAD 全仓扫描：tracked 文件 + 未跟踪活文件，正则 `tcp` 忽略大小写）。
+- **问题**：`4217b5d` 删除 TCP 入口时**只清了 `docs/frame.md`**，于是「当前仍然生效」的文件继续宣告一个不存在的入口——
+  ① `README.md`：整节「## TCP 入口（实验性）」（命令示例 / 黄金报文 / 8 个错误码 / 五条风险 / 三通道说明）、命令表一行、安全说明一条；
+  ② `CLAUDE.md`：模块 DAG 写「`network/` — TCP JSON Lines」、`cli/` 模块表含 `tcp`、常用命令表列 `heagent tcp-server`；
+  ③ `.env.example`：整节「18 TCP 网络入口」+ **8 个 `TCP_*` 键**（这些 `Settings` 字段已随入口删除，实测 `TCP_*: []`）；
+  ④ `docs/README.md`：阅读路径与快速定位行指向 **frame 4.16**，而 4.16 已不存在（4.15 → 4.17）；
+  ⑤ 12 个源文件 docstring 引用已删模块（`cli/tcp.py`、`network/tcp_server.py`）与已删类（`TcpAgentHandler` / `TcpServer`）；
+  ⑥ `config/catalog.py` 的 `patterns=("HTTP_*", "TCP_*")` 成了匹配不到任何键的死模式，`pyproject.toml` 的覆盖率注释仍写 `cli/tcp.py` 不 omit。
+  全仓扫出 **493 处命中 / 57 文件**，其中 **非历史面 40 余处**（其余为 `_bmad-output/` 周期产物与 `docs/iteration.md` 的历史记录）。
+- **结论**：**已闭合**（2026-09-27，本轮）。**分层清理**——用户文档（README / CLAUDE.md / docs/README.md）、配置样例（`.env.example` 删 TCP 整节并把 HTTP 段号 19 → 18）、代码 docstring（12 文件）、配置分类（删 `TCP_*` 死模式，两个测试改用仍存在的键）、打包注释（`pyproject.toml`）；并把「index 也要跟着动」一起做掉（`consolidated-overview.md` 17.4-A 的活动条目数 23 → 17，A3 / A7 / A9 / A18 四行标注已闭合 / 失效）。
+- **新增可执行判据**：`tests/test_architecture_contracts.py::test_live_files_hold_no_reference_to_the_removed_tcp_entry` —— 扫 `src/heagent/**/*.py` + `README.md` / `AGENTS.md` / `CLAUDE.md` / `.env.example` + `docs/*.md`，禁专有名词令牌（`tcp_server` / `tcp-server` / `cli/tcp` / `cli.tcp` / `Tcpserver` / `tcpagenthandler`，大小写不敏感）+ `TCP_`（敏感）。**只禁令牌、不禁裸词 `TCP`**：`tools/safety.py` 的 `/dev/tcp/` 反连模式与 `http_server.py` 的「真实 TCP 连接」（就绪探测）都是正当用法。
+- **冻结边界（守住）**：① 历史产物按「历史不动」惯例**不动**——`_bmad-output/**` 与 `docs/iteration.md` 是当时的记录，判据对它们豁免；② 不删任何代码路径，只删「指向已删物的文字」与一个零命中的分类模式；③ 不把该清理表述成安全边界相关的改动（纯文档 / 注释面）。
+- **验证（2026-09-27 亲跑）**：`ruff check` + `format --check`（283 files）全绿；`mypy src` 与 `mypy src --platform linux` 双绿（152 files）；全量 `pytest -q` **3094 passed / 11 skipped / 18 deselected**（区间 `8c3cbc1..HEAD` 净减 80 个测试函数来自 `4217b5d` 删入口与 `d6d6b4a` 清残留，本轮只贡献 −1 = 移除 `TCP_PORT` 那条参数化用例）；残留扫描由 **493 处 → 0 处**（非历史面）。**变异体 3/3 精确变红**（`.heagent/tmp/mutate_tcp_residue.py`：README 命令表重新宣告 `tcp-server` / `.env.example` 重新出现 `TCP_PORT` / docstring 重新引用 `network/tcp_server.py`），每条都点名残留文件，字节还原后基线复绿。

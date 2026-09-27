@@ -2,8 +2,9 @@
 
 > **归并来源**：`implementation-artifacts/deferred-work-archive.md` 的 **Z-D13 / Z-D14 / Z-D15**（Story 50-5 配置写入通道 ×2、Story 50-6 控制台 UI ×1）；2026-09-24 按「**条目闭合后按归属 epic 归档**」规则从活动台账的闭合归档区回填至本文件。
 > **归档规则**：按条目**归属的 epic** 归档；「闭合者」注明实际完成它的批次 / commit。
+> **2026-09-27 再回填 2 条**（均为「代码先修、台账后补」）：A9 运行时归因与兜底族（收口评审三镜头）、A18「共 N 个会话」在 N > 200 时少报（Story 50-8 收口后评审）。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码与测试。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）——本周期相关未闭合条目 = 台账 **A8 跨项目并发无全局上限（已随本周期交付成为既成事实，仍无全局上限）/ A9 运行时归因与兜底族 / A10 控制台端点阻塞 I/O（唯一残余 `_runtime_for`，有意保留并有升级条件）/ A11 非回环运行姿态 + cron 跨会话后置执行（`blocked`）/ A12 浏览器级 UI 验收不在 CI / A13 高影响键缺后端风险标记 / A14 写入通道与保真写的四类低危残余 / A15 网页请求可拉起宿主 GUI 进程 / A16 真实原生窗口不可自动化 + `Error:` 前缀判据 / A17 R5 收敛判据对以 `Error:` 开头的文件失效（`blocked`）/ A18「共 N 个会话」在 N > 200 时少报（`blocked`）/ A19 原生目录选择端点默认开（`blocked`）**，编号与正文以台账为准。
+> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）——本周期相关未闭合条目 = 台账 **A8 跨项目并发无全局上限（已随本周期交付成为既成事实，仍无全局上限）/ A10 控制台端点阻塞 I/O（唯一残余 `_runtime_for`，有意保留并有升级条件）/ A11 非回环运行姿态 + cron 跨会话后置执行（`blocked`）/ A12 浏览器级 UI 验收不在 CI / A13 高影响键缺后端风险标记 / A14 写入通道与保真写的四类低危残余 / A15 网页请求可拉起宿主 GUI 进程 / A16 真实原生窗口不可自动化 + `Error:` 前缀判据 / A17 R5 收敛判据对以 `Error:` 开头的文件失效（`blocked`）/ A19 原生目录选择端点默认开（`blocked`）**，编号与正文以台账为准。
 
 ## 状态总览
 
@@ -13,6 +14,8 @@
 | Z-D14 | Epic 50 · Story 50-5 | 审计文件无保留期 / 条数上限 | 已闭合（2026-09-24） | `config.write.prune_audit` 行级裁剪至最近 500 条（同批） |
 | Z-D15 | Epic 50 · Story 50-6 | 首页加载即弹出关不掉的确认遮罩（作者级 `display` 压过 `hidden` 属性） | 已闭合（2026-09-24） | `[hidden]{display:none!important}` 全局守卫 + `settleConfirm` 先隐藏再结算（用户实测发现） |
 | Z-D19 | Epic 50 · 第四轮评审 | 诊断折叠标题把信息性 note 计入「需要注意」（并双计 BOM） | 已闭合（2026-09-27） | `5f4324b` 的 `INFORMATIONAL_NOTES` 分级 + BOM 去重；同日收口批 `d7f8c75` 补齐判据（探针桩自洽化 + 用例 `V`） |
+| A9 | Epic 50 · 收口评审三镜头 | 运行时归因与兜底族（取消归因 / 工具卡死 / 订阅限额） | 已闭合（2026-09-27） | `a1f7c67`（三处独立修复 + 新增 `HTTP_TOOL_INFLIGHT_TIMEOUT`；变异体 3/3 精确变红） |
+| A18 | Epic 50 · Story 50-8 收口后评审 | 「共 N 个会话」在 N > 200 时少报 | 已闭合（2026-09-27） | `7b9015f`（`count_sessions` + 协议 `total` + 前端 capped 分支；变异体 2/2 精确变红） |
 
 ---
 
@@ -75,3 +78,76 @@
 - **结论**：**已闭合**（2026-09-27）。`5f4324b` 引入分级与 BOM 去重——`INFORMATIONAL_NOTES = new Set(["project_env_missing"])`（信息性 note 进 `infos`，只有非信息性 note 进 `warnings`）+ `seenBom` 跳过同源的 `project_env_bom_stripped`；同日收口批（`d7f8c75`）补上**缺失的判据**：前端探针桩自洽化（`exists: true` 不再同时给 `project_env_missing`；告警改由「重复键 + 空值键」两条真实来源产生）+ 新增用例 `V`（断言信息性 note **不计入**告警条数、`dataset.state == "idle"`、说明仍以 `.diag-info` 可见）。
 - **冻结边界（守住）**：不得因此把 note 整类删掉（它是 50-6 AC5 的诊断面），只改**分级**；信息性 note 必须**仍然可见**（降级 ≠ 删除）——该侧由用例 `V` 的 `infoTexts` 断言钉住。
 - **证据**：`src/heagent/web/app.js`（`INFORMATIONAL_NOTES` / `seenBom` / `warnings` vs `infos` 分流）；`tests/js/app_probe.js`（`configPayload` 的 `envMissing` 分支 + 用例 `V`）；`tests/test_http_web_ui.py::TestConsoleRefinement::test_informational_notes_do_not_count_as_warnings`。负向验证：把 `INFORMATIONAL_NOTES` 清空 → 用例 `V` 精确变红（`.heagent/tmp/e50_mutate2.py`）。
+
+---
+
+## A9 运行时归因与兜底族（取消归因 / 工具卡死 / 订阅限额）
+
+- **来源**：2026-09-24 Epic 50 收口评审（三镜头）· 运行时归因与兜底族；2026-09-27 闭合后按「条目闭合后按归属
+  epic 归档」规则由活动台账回填至本文件（活动区只留索引）。
+- **原条目正文（保留原文以存证）**：
+
+- source_spec: 2026-09-24 Epic 50 收口评审（三镜头）· 运行时归因与兜底族
+  summary: **HTTP 运行时的三处归因/兜底薄弱点（同一族）**：① 看门狗的 `deadline_reason` 一经写入便永久保留，`_execute` 仅凭「非 None 且未在关停」判定「是超时杀的」⇒ 若 executor 吞掉第一次取消并继续跑，**之后**用户的 `DELETE` 会被记成 `timed_out` 并吞掉取消（`reopen()` 还能把 `_closing` 清回 False，理论上让旧任务上报 `timed_out`）；② `tools_in_flight` 只由 `tool_call`/`tool_result` 增减、永不衰减 ⇒ 一个**永不返回**的工具会让「静默上限」判据恒不成立，该项目的在途名额被无界占用（`HTTP_REQUEST_TIMEOUT` 默认 0）；③ SSE 订阅者上限是「先查后加」（检查在端点、登记在生成器首个 `__anext__`）⇒ 并发 `GET .../events` 可穿过限额，每个订阅者驻留一个 512 事件队列。触发条件：吞取消的 executor / 卡死的工具 / 并发订阅；严重度：中（不崩、名额最终仍可人工回收，但会静默错归因或放大内存）；冻结边界：不得改变「首位获胜」的终态语义与每项目单运行约束；①②的修法是「取消来源令牌（消费一次）」与「在途工具计龄」，③需在单次事件循环内把检查与登记合到同一步。
+  evidence: `src/heagent/network/http_server.py:659`（静默判据含 `tools_in_flight == 0`）、`:665`（`record.deadline_reason = ...` 后 `task.cancel()`）、`:690`/`:710`（`deadline_reason is not None and not self._closing`）、`:780`（`record.subscribers.add(queue)`）、`:1238`（端点的先查后加）；探针证据见评审报告「镜头一④⑤ / 镜头二①②」（含实际行号与代码引用）。
+  Progress（2026-09-24 登记，**未修**）：三处均**在本 Epic 增量内引入或触碰**（看门狗=commit `4f67397`），但修复后都需要新的时序测试（吞取消的 executor / 卡死工具 / 并发订阅），本次评审范围内未做——如实登记而非假装修好。
+
+- **结论**：**已闭合**（2026-09-27，commit `a1f7c67`）。三处同族缺陷各自独立修复：
+  ① **取消归因** —— `_RunRecord.user_cancel_requested` 标记「用户显式 `DELETE`」（归因时**优先**于看门狗），
+  `deadline_reason` 配一次性消费器 `consume_deadline_reason()`（字段**不清空**——终态文案 / 日志 / 测试仍读它）；
+  `_execute` 的 `CancelledError` 分支先看用户标记，再看待消费的原因。
+  ② **工具在途无上限** —— 新增独立配置键 `HTTP_TOOL_INFLIGHT_TIMEOUT`（`Settings.http_tool_inflight_timeout`，
+  默认 3600s，归因 `reason=tool`，文案 `run stalled: a tool has been in flight for over Ns`）；
+  `_RunRecord.tools_in_flight_since` 记「第一条在途工具的时刻」，看门狗据它判「工具卡死」。
+  **刻意不复用** `idle_timeout`：长 shell / 子代理期间同样没有事件，用静默阈值会误杀正常长调用
+  （既有用例 `test_in_flight_tool_stretches_the_idle_window` 钉的正是这一点）；`_deadline_tick()` 一并把新阈值
+  纳入启动判据，否则设了也不会启动看门狗。
+  ③ **订阅限额「先查后加」** —— `_RunRecord.try_add_subscriber(queue, limit)` 把检查与登记合成**同步一步**
+  （同步、无 `await` ⇒ 事件循环里原子）；端点先建队列再登记，`stream_events` / `_sse_stream` 接受调用方
+  已登记的队列（自建路径仍保留）。
+- **冻结边界（守住）**：「首位获胜」的终态语义、每项目单运行约束、`deadline_reason` 字段本身一字未动
+  （只加「是否已消费」的标志）。
+- **证据**：`src/heagent/network/http_server.py`（`_RunRecord.tools_in_flight_since` / `consume_deadline_reason` /
+  `try_add_subscriber`；`cancel_run` 打标记；`_watch_deadlines` 第三条判据；`_deadline_message` 的 `tool` 分支；
+  `_execute` 的两处归因）；`src/heagent/config/__init__.py` 的 `http_tool_inflight_timeout`；
+  `src/heagent/cli/http.py` 的装配行；`.env.example` 的 `HTTP_TOOL_INFLIGHT_TIMEOUT`。
+- **验证（2026-09-27 亲跑；本轮复跑）**：定向
+  `pytest tests/network/test_http_run_service.py tests/network/test_http_console_sessions.py tests/test_session.py tests/test_http_web_ui.py tests/test_cli_http.py -q`
+  → **357 passed**；三条判据 = `test_a_consumed_deadline_does_not_blame_a_later_delete` /
+  `test_a_tool_in_flight_longer_than_its_own_limit_is_reaped` /
+  `test_subscriber_limit_is_checked_and_registered_in_one_step`；变异体 **3/3 精确变红**
+  （`.heagent/tmp/e50_mutate_a9.py`：用户取消不再优先 / 在途工具不再有独立上限 / 订阅限额退回「只查不登记」），
+  每处字节还原后基线复绿。**文档同步**：`docs/frame.md` §4.17「限额与超时」（补第三条时限 + 取消归因 + 订阅
+  限额同步登记）、「运行隔离」（补「不绑定 cron 工具」）、同节配置表新增 `http_tool_inflight_timeout` 行、
+  `HttpServerConfig` 字段数 9 → 11。
+
+## A18「共 N 个会话」在 N > 200 时少报
+
+- **来源**：2026-09-26 Story 50-8 的收口后评审（增量轮）；2026-09-27 闭合后回填至本文件。
+- **原条目正文（保留原文以存证）**：
+
+- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R1/AC12 的会话计数，2026-09-26 收口后评审发现）
+  summary: **「共 N 个会话」在 N > 200 时是下界而非总数（静默少报）** —— 服务端列表硬上限 `context.session.MAX_SESSION_LIST_LIMIT` / `http_console_protocol.MAX_SESSION_LIST_ENTRIES = 200`，按时间降序截断，响应里**没有** `total` / `truncated` 字段；Story 50-8 新增的规模提示（`共 N 个会话 · 只显示最近 10 条`）与展开按钮文案（`显示全部（N）`）直接把 `sessions.length` 当总数 ⇒ 项目累计超过 200 个会话时，页面显示「共 200 个会话」并宣称「显示全部」，第 201 条起既不可达、又被这句话说成不存在（它们本来就不可达，是本次新增的**文案断言**让它变成「说错话」）。触发条件：单个项目累计 > 200 个会话；严重度：低（显示口径，不是数据丢失；CLI 与 API 仍可达）；冻结边界：**不得**因此改 `MAX_SESSION_LIST_ENTRIES` 的语义（服务端硬上限是既有契约，UI 的 10 只是展示默认值），也**不得**在前端硬编码 200（第二份事实源）。
+  evidence: `src/heagent/context/session.py`（`MAX_SESSION_LIST_LIMIT = 200`、`list_metadata` 的 `entries[:limit]`、按 `(timestamp, session_id)` 降序）；`src/heagent/network/http_console_protocol.py:121`（`sessions: list[...] = Field(max_length=MAX_SESSION_LIST_ENTRIES)`，无 total）；`src/heagent/web/app.js::renderSessionCount`（`total = state.sessions.length` 直接当总数）；真浏览器清单 A11b 实测 195 档（未越界，故本条当前**无判据**）。
+  Progress（2026-09-26 登记，**未修**，**intent_gap / blocked 待人裁决**）：两条修法都改变可观察行为——(a) 协议加 `total` / `truncated`（`SessionListResponse` 字段 + 入口层赋值 + UI 分支 + 探针用例），或 (b) 改文案（去掉「共」的全称含义 / 按钮不带计数）。属产品取舍，非实现方可单方决定。
+
+- **结论**：**已闭合**（2026-09-27，commit `7b9015f`）。三条同步（缺一即漂移）：
+  ① `SessionStore.count_sessions()` —— 只列目录计数、**不解析任何文件**（规模事实的唯一来源）；
+  ② `SessionListResponse.total`（协议层首次携带规模事实），入口层用 `max(计数, len(sessions))` 赋值
+  （容忍「列表读完后又有新会话落盘」）；
+  ③ `web/app.js` 的规模取自 `payload.total`；列出条数 < 总数时文案注明「服务端仅返回最近 N 条」
+  并**隐藏「显示全部」**（截断时它是假承诺）。
+- **冻结边界（守住）**：`MAX_SESSION_LIST_ENTRIES = 200` 的硬上限语义未改（UI 的 10 只是展示默认值）；
+  前端**零硬编码** 200 —— 规模数字全部由协议给。
+- **证据**：`src/heagent/context/session.py::count_sessions`；`src/heagent/network/http_console_protocol.py`
+  的 `SessionListResponse.total`；`src/heagent/cli/http_console.py::list_sessions`；`src/heagent/web/app.js`
+  的 capped 分支；`tests/js/app_probe.js` 用例 `W`。
+- **验证（2026-09-27 亲跑；本轮复跑补全第二条变异体）**：判据 4 条 ——
+  `tests/test_session.py::test_count_sessions_counts_files_without_parsing`（`.lock` 不计入）、
+  `tests/network/test_http_console_sessions.py::test_session_limits_are_mirrored_not_drifted`（协议必须带 `total`）、
+  `::test_session_list_total_counts_files_not_the_page_window`（把 `count_sessions` 换成 500 后 `total` 必须跟着变）、
+  `tests/test_http_web_ui.py::TestConsoleRefinement::test_session_count_never_claims_to_show_everything_when_capped`
+  （capped 文案 + 按钮隐藏）。变异体 **2/2 精确变红**
+  （`.heagent/tmp/e50_mutate_a18.py` 的前端 `capped` 判定被抹平、
+  `.heagent/tmp/e50_mutate_a18b.py` 的「入口层退回 `total = 列表长度`」），字节还原后基线复绿。
+

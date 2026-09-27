@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——19 条
+## 活动（未闭合）条目——17 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -31,6 +31,9 @@
 > - 2026-09-27：**标记 1 条为 OBSOLETE**（TCP 入口不写 rollout）——Epic 48 TCP 网络接口已于 commit `4217b5d` 完全删除，本条目随之失效。
 > - 2026-09-27：**归档 1 条 → Z-D18**（TCP 入口不写 rollout，OBSOLETE）——正文按归属移入 `epics/epic-48-TCP网络接口周期/deferred-work.md`，本区不再留副本。
 > - 2026-09-27：**闭合 1 条 → Z-D19**（诊断折叠标题把信息性 note 计入「需要注意」并双计 BOM）——`5f4324b` 已实现 `INFORMATIONAL_NOTES` 分级与 BOM 去重，本轮补上缺失的判据（前端探针桩自洽化 + 新用例 `V`：信息性 note 不计入告警、说明仍可见；变异体精确变红）；正文移入 `epics/epic-50-网页控制台周期/deferred-work.md`。活动条目数 21 → 19。
+> - 2026-09-27：**闭合 2 条 → A9 / A18**（★ 均为**代码先修、台账后补**）——A9 运行时归因与兜底族（`a1f7c67`：用户 `DELETE` 优先归因 + `deadline_reason` 一次性消费 / 新增 `HTTP_TOOL_INFLIGHT_TIMEOUT` 独立阈值 / 订阅限额检查与登记同步一步）、A18「共 N 个会话」在 N > 200 时少报（`7b9015f`：`count_sessions` + 协议 `total` + 前端 capped 分支）。正文按归属移入 `epics/epic-50-网页控制台周期/deferred-work.md`；活动条目数 19 → 17。
+> - 2026-09-27：**部分闭合 1 条 → A11②**（cron 跨会话后置执行，`5a8a21e`：`enable_cron=False` 时连 `JobStore` 都不构造 + `new_loop` 守卫）；**① 非回环运行姿态仍 `blocked`**，故本条**留在活动区**。
+> - 2026-09-27：**归档 1 条 → Z-D20**（TCP 入口删除后的活文件残留，当日勘察 + 当日闭合）——`4217b5d` 只清了 `docs/frame.md`，README 整节 / CLAUDE.md 命令表 / `.env.example` 8 个 `TCP_*` 键 / 12 处 docstring 仍在宣告该入口（全仓 493 处命中、非历史面 40 余处）；分层清理后新增可执行判据（变异体 3/3 精确变红）。正文移入 `epics/epic-48-TCP网络接口周期/deferred-work.md`。活动条目数不变（17）——该条**登记即闭合**，未进活动区。
 
 - source_spec: `src/heagent/context/session.py::save` + `src/heagent/agent/run_lifecycle.py`（Epic 50 Story 50-3 把「网页运行 → 会话落盘」接进同一 `.heagent/sessions`）
   summary: **同一会话文件的两个写者会整份覆盖对方的历史（静默数据丢失）**：运行落盘的 `save()` 不传 `expected_version`（last-write-wins），而文件锁只覆盖「单次读改写」、不覆盖 `load → … → save` 的整个跨度 ⇒ CLI 与内嵌网页入口（默认项目根 = 进程 cwd = 同一工作区，`.heagent/sessions` 同一目录）并发写同一会话时，后写者用 `_session_payload` **替换整份消息列表**，对方的整轮对话消失，且 `version` 照样单调递增（没有任何一方能发现）。触发条件：同 cwd 下 CLI 与会话页并存，且网页 `POST /api/projects/default/runs` 不带 `session_id`（`_resolve_session(None)` 取**最近**会话，往往正是 CLI 正在写的那个）；严重度：中（静默数据丢失）；冻结边界：**不得**改成「版本冲突即让运行落盘失败」（那会丢**当前**对话）；正确方向是单写者化 / 合并语义，或把冲突降级为可观测告警。
@@ -71,11 +74,6 @@
   evidence: `ARCHITECTURE-SPINE.md` §6（并发口径：32 × 1 的乘数关系 + 已知缺口声明）；`src/heagent/network/http_server.py:150`（`max_inflight_runs` 是 **service 级**字段）、`:386`（`len(self._active) >= self.config.max_inflight_runs` 按 service 判定）；Epic 49 遗留的连接层口径（`HTTP_MAX_CONNECTIONS` 与 SSE 订阅上限复用、由 Uvicorn 在 ASGI 之前拒绝，见 `docs/frame.md` 五）；本周期内对偶义务：50-2 T4（项目数上限 32 即并发乘数，改它等于改整体资源上限）、50-3 T9（须正面断言「A 项目在跑时 B 可起跑」**且**「同项目第二个 run 仍被拒」）、50-7 T10⑨（文档须写明口径与缺口）。
   Progress（2026-09-24 登记，**计划期条目**；2026-09-27 复核）：Epic 50 已于 2026-09-27 收口（8 story 全 `done`），本条描述的缺口**已成为既成事实**——在途上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32），`docs/frame.md` 五 的对应行已存在（对偶义务 50-7 T10⑨ 已完成）。截至本轮**仍未引入全局上限**；若要引入，只允许新增全局限流键（如 `HTTP_CONSOLE_MAX_TOTAL_INFLIGHT`），不得改写既有 per-service 语义。
 
-- source_spec: 2026-09-24 Epic 50 收口评审（三镜头）· 运行时归因与兜底族
-  summary: **HTTP 运行时的三处归因/兜底薄弱点（同一族）**：① 看门狗的 `deadline_reason` 一经写入便永久保留，`_execute` 仅凭「非 None 且未在关停」判定「是超时杀的」⇒ 若 executor 吞掉第一次取消并继续跑，**之后**用户的 `DELETE` 会被记成 `timed_out` 并吞掉取消（`reopen()` 还能把 `_closing` 清回 False，理论上让旧任务上报 `timed_out`）；② `tools_in_flight` 只由 `tool_call`/`tool_result` 增减、永不衰减 ⇒ 一个**永不返回**的工具会让「静默上限」判据恒不成立，该项目的在途名额被无界占用（`HTTP_REQUEST_TIMEOUT` 默认 0）；③ SSE 订阅者上限是「先查后加」（检查在端点、登记在生成器首个 `__anext__`）⇒ 并发 `GET .../events` 可穿过限额，每个订阅者驻留一个 512 事件队列。触发条件：吞取消的 executor / 卡死的工具 / 并发订阅；严重度：中（不崩、名额最终仍可人工回收，但会静默错归因或放大内存）；冻结边界：不得改变「首位获胜」的终态语义与每项目单运行约束；①②的修法是「取消来源令牌（消费一次）」与「在途工具计龄」，③需在单次事件循环内把检查与登记合到同一步。
-  evidence: `src/heagent/network/http_server.py:659`（静默判据含 `tools_in_flight == 0`）、`:665`（`record.deadline_reason = ...` 后 `task.cancel()`）、`:690`/`:710`（`deadline_reason is not None and not self._closing`）、`:780`（`record.subscribers.add(queue)`）、`:1238`（端点的先查后加）；探针证据见评审报告「镜头一④⑤ / 镜头二①②」（含实际行号与代码引用）。
-  Progress（2026-09-24 登记，**未修**）：三处均**在本 Epic 增量内引入或触碰**（看门狗=commit `4f67397`），但修复后都需要新的时序测试（吞取消的 executor / 卡死工具 / 并发订阅），本次评审范围内未做——如实登记而非假装修好。
-
 - source_spec: 2026-09-24 Epic 50 收口评审（三镜头）· 控制台阻塞 I/O 与会话列表成本
   summary: **控制台端点在唯一事件循环里做同步 I/O**：`list_sessions`（逐文件全量读 + 无 title 时全量校验）、`build_config_report`（实测中位 14 ms）、`registry.list()`（每请求每条一次 `Path.is_dir()`）、`registry.touch()`（跨进程文件锁 + 原子写）都是 `async def` 体内的阻塞调用，会卡住在途 SSE 流与其余请求；且 >1 MiB 的会话仍在列表时被整份读入（`count_messages` 只跳过计数，与 `SessionMetadata` docstring 的「避免列表时校验整份历史」不符）。触发条件：会话数/体积增长、面板被频繁刷新；严重度：低-中（单用户本机场景下不致命，属可伸缩性债务）；冻结边界：不得为此改变会话文件格式或列表接口的有界口径（D6 的「列表可退化」语义保留）。
   evidence: `src/heagent/cli/http_console.py:509`（`runtime.sessions.list_metadata()`）、`:610`（`build_config_report`）、`:705`（`_project_entry` 每请求遍历）、`:757`（`registry.touch`）；`src/heagent/context/session.py:398`（`read_text` 无视 `info.st_size`）、`:411`。
@@ -91,6 +89,7 @@
   summary: **两条相关的主张冲突，需要人裁决**：① 回环闸门只装在「登记 / 移除项目」，而**危害更大的** `POST /api/projects/{id}/runs`（可跑 shell / 文件工具）、会话增删改都没有闸门——脊柱 §9 的「写通道额外要求本机回环来源」说的是配置写通道（50-5），而 49 的 `/api/runs` 本来也无闸门，故**暴露面未因本 Epic 扩大**；② 更该关注的是 `enable_cron=False` 只拒了调度器：`cron_store` 仍被绑进 loop（`cron_enabled` 默认 True）⇒ 网页运行**可以成功写入** `<项目>/.heagent/cron/jobs.json`，任务在本进程 IDLE 永不触发，却会在**后续 CLI 会话**里无人监督地执行——与 `cli_http.new_loop` docstring 自称「把带无人监督执行面的运行时装进 HTTP 进程是明令禁止的形态，绝不静默忽略」直接冲突。触发条件：把服务绑到非回环地址 + 任意客户端；严重度：中（非回环姿态）／中-高（cron 任务跨会话后置执行）；冻结边界：不得把这些闸门表述为安全边界（网页入口无认证无 TLS，须 OS 级沙箱兜底）；不得为「更安全」而破坏既有端点契约。
   evidence: `src/heagent/network/http_server.py:1320`（register 有 `_loopback_error`）vs `:1332`/`:1400`/`:1420`/`:1433`/`:1447`（rename / create_session / rename_session / delete_session / create_project_run 均无）；`src/heagent/cli/composition.py:113`（`cron_store = JobStore(...) if config.cron_enabled else None`）+ `:162`（传给 loop）+ `src/heagent/agent/loop.py:686`（`stack.enter_context(bind_cron_tools(self.cron_store))`）；`src/heagent/cli/http_console.py:257`（`enable_cron=False`）与 `:259`（不可达的 scheduler 守卫）。
   Progress（2026-09-24 登记，**blocked 待人裁决**）：① 属「设计姿态」选择（49 已如此），② 的修法有两条互斥路径——「网页运行一律不绑 cron 工具（连写都不允许）」或「允许写但明确标注任务不执行」；两条都改变可观察行为，非评审可单方决定，故按契约标 `blocked` 交人裁决，未擅自改。
+  Progress（2026-09-27，**② 已闭合**）：人裁决走「网页运行一律不绑 cron 工具」那条路径——commit `5a8a21e`：`cli/composition._build_loop` 在 `enable_cron=False` 时**连 `JobStore` 都不构造**（docstring 同步），`HttpAgentHandler.new_loop()` 新增守卫（loop 若绑了 cron 工具即显式失败 `must not bind cron tools`）。判据 = `tests/test_cli_http.py::test_new_loop_refuses_to_own_a_cron_scheduler` 扩为两半（`loop.cron_store is None` + 「绑了即抛」）；本轮复跑变异体 **1/1 精确变红**（`.heagent/tmp/e50_mutate_a11.py` 把 store 构造条件退回 `config.cron_enabled`）。`docs/frame.md` §4.17「运行隔离」已补该不变量。**①（非回环运行姿态）仍 `blocked`**。
 
 - source_spec: 2026-09-24 Story 50-6 实现（网页控制台 UI）
   summary: **浏览器级 UI 验收不在 CI、也不含真实 LLM 运行**：`tests/js/console_acceptance.mjs` 需要真实 Chrome/Edge（CDP）+ `heagent[http]`，而 CI 只装 `.[dev]`（`pyproject.toml` 里 `http` 与 `dev` 分离）⇒ 它只能手动跑，story 50-6 的验收清单正是由它产出的；同时该次验收**没有**跑「真实模型 → SSE → 对话区流式渲染」这条链（本机无可用 provider，Ollama 未运行），该链的前端侧由 node 探针（`tests/js/app_probe.js` 用例 A/B/C/D/E/N）与 Epic 49 的服务端用例覆盖。触发条件：改 `app.js`/`index.html`/`styles.css` 后要确认「真浏览器里也没坏」；严重度：低（改动有探针兜底，但探针是 DOM 替身——CSP 是否被违反、有没有第三方请求、窄屏计算样式只有真浏览器能证明）；冻结边界：不得为让浏览器验收进 CI 而给 dev 依赖加 playwright/puppeteer（保持零构建链与「GUI / 浏览器不进 CI」的既有立场），也不得把 `console_acceptance.mjs` 的一次通过当作「UI 无回归」的充分证据。**2026-09-24 实例（这条「不够充分」的最强证据）**：50-6 的 17/17 通过之后仍漏掉「首页确认遮罩吞掉真实鼠标点击」（`hidden` 属性为真而计算样式 `display:flex`）—— 因为清单只断言属性、且 `click()` 走 DOM API（绕过命中测试）；修复后清单新增 A1b（计算样式 + CDP `Input.dispatchMouseEvent` 真实点击）为 **18 行**；Story 50-8 的增量轮再扩至 **23 行**（2026-09-25 加 A5b / A11b / A11c / A11d / B2），详见 Z-D15 与 `reviews.md#acceptance-50-8-refinement`。
@@ -122,11 +121,6 @@
   evidence: 评审探针实测（`tool_error=False`、`tool_output='Error: SENTINEL-LEAK-50-8\nstack trace follows\n'`，哨兵进了网页帧）；对照组：路径不存在的 `file_read` → `tool_output.startswith("Error:")` 且诊断可见（既有用例 `tests/test_http_agent_api.py::test_read_tool_error_message_is_still_shown_in_web` 亦钉住）；判据落点 `src/heagent/cli/http_console.py::_looks_like_a_failure`（`_FAILURE_PREFIX = "Error:"`）。
   Progress（2026-09-26 登记，**未修**，**intent_gap / blocked 待人裁决**）：口径需裁一次——(a) 收紧 AC9（写明「正文以 `Error:` 开头的文件不在收敛范围内」）并把该残余补进 `docs/frame.md` 五，或 (b) 让内置工具用结构化错误表达失败（`file_read` 改抛 `ToolError` / 返回带 `is_error` 的对象），届时判据退化为只看 `is_error`、歧义消失。本条与 A16 ② 是**同一判据的两个方向**：A16 ② 是「换成别的错误形态后会静默隐藏」（fail-closed 风险），本条是「前缀撞车时照旧显示」（fail-open 现实）。
 
-- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R1/AC12 的会话计数，2026-09-26 收口后评审发现）
-  summary: **「共 N 个会话」在 N > 200 时是下界而非总数（静默少报）** —— 服务端列表硬上限 `context.session.MAX_SESSION_LIST_LIMIT` / `http_console_protocol.MAX_SESSION_LIST_ENTRIES = 200`，按时间降序截断，响应里**没有** `total` / `truncated` 字段；Story 50-8 新增的规模提示（`共 N 个会话 · 只显示最近 10 条`）与展开按钮文案（`显示全部（N）`）直接把 `sessions.length` 当总数 ⇒ 项目累计超过 200 个会话时，页面显示「共 200 个会话」并宣称「显示全部」，第 201 条起既不可达、又被这句话说成不存在（它们本来就不可达，是本次新增的**文案断言**让它变成「说错话」）。触发条件：单个项目累计 > 200 个会话；严重度：低（显示口径，不是数据丢失；CLI 与 API 仍可达）；冻结边界：**不得**因此改 `MAX_SESSION_LIST_ENTRIES` 的语义（服务端硬上限是既有契约，UI 的 10 只是展示默认值），也**不得**在前端硬编码 200（第二份事实源）。
-  evidence: `src/heagent/context/session.py`（`MAX_SESSION_LIST_LIMIT = 200`、`list_metadata` 的 `entries[:limit]`、按 `(timestamp, session_id)` 降序）；`src/heagent/network/http_console_protocol.py:121`（`sessions: list[...] = Field(max_length=MAX_SESSION_LIST_ENTRIES)`，无 total）；`src/heagent/web/app.js::renderSessionCount`（`total = state.sessions.length` 直接当总数）；真浏览器清单 A11b 实测 195 档（未越界，故本条当前**无判据**）。
-  Progress（2026-09-26 登记，**未修**，**intent_gap / blocked 待人裁决**）：两条修法都改变可观察行为——(a) 协议加 `total` / `truncated`（`SessionListResponse` 字段 + 入口层赋值 + UI 分支 + 探针用例），或 (b) 改文案（去掉「共」的全称含义 / 按钮不带计数）。属产品取舍，非实现方可单方决定。
-
 - source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R2 的默认姿态与暴露面宽度，2026-09-26 续轮发现）
   summary: **原生目录选择端点「默认开」且比登记范围更宽：默认 CLI 的内嵌服务也生效，而内嵌路径没有关闭手段** —— 故事 T2 只把 `--dialog-backend` 接到 `heagent http-server` 子命令，而 `HttpProjectConsole` 的默认值 `"auto"` 于是同时走进了**默认 CLI 的内嵌服务**（`python -m heagent` 交互 / 单次模式各起一份）；又因 `cli_dialogs` 有意**不新增 `Settings` 字段**，内嵌路径既无 CLI 选项也无 env 开关 ⇒ **无法关闭**（只能靠「本机没有 tkinter / powershell」自然失败）。这与配置写入通道的既有惯例相反：`HTTP_CONSOLE_WRITE_ENABLED` 默认 **False**（新控制台能力默认关）。触发条件：任何本机进程在默认 CLI 运行期间 POST 该端点；严重度：低（回环门 + 单在途 + 冻结 argv + 300s 超时 kill；无数据/权限后果，最坏是服务机上弹一个窗口）；冻结边界：**不得**为「更保险」而放宽回环门或改成「凭 Origin 即可信」，也**不得**图省事在内嵌路径硬编码 `none`（那会砍掉本机便利性）；要动就动**默认姿态**或**开关面**，属产品取舍。
   evidence: 真实 `build_http_service(settings, executor=None)` 装配 + 假 spawn 实测（2026-09-26 亲跑，探针 `.heagent/tmp/review50_8_embedded_probe.py`）：`GET /api/health → 200`、`POST /api/dialogs/pick-directory → 200 {"path":null,"cancelled":true,"backend":"auto"}`、且**真的拉起了子进程**（`argv=[<venv>\Scripts\python.exe, '-c']`）；`cli_http.build_http_service` 不传 `dialog_backend`；`config.py` `http_console_write_enabled: bool = False`。
@@ -136,7 +130,7 @@
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 20 条：13 条勘察类正文保留在本文件，7 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 19 条未闭合条目。
+> 当前闭合归档共 23 条：13 条勘察类正文保留在本文件，10 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 17 条未闭合条目。
 
 ## 状态总览
 
@@ -169,6 +163,9 @@
 | Z-D15 | Epic 50（Story 50-6 实现，用户实测发现） | 首页加载即弹出关不掉的确认遮罩 | 同上 |
 | Z-D18 | Epic 48（Story 48-5 评审 W-2） | TCP 入口不写 rollout（**OBSOLETE**，随入口删除失效） | `epics/epic-48-TCP网络接口周期/deferred-work.md` |
 | Z-D19 | Epic 50（第四轮评审发现，2026-09-26 登记） | 诊断折叠标题把信息性 note 计入「需要注意」（并双计 BOM） | `epics/epic-50-网页控制台周期/deferred-work.md` |
+| Z-D20 | Epic 48（删除后的收尾勘察，2026-09-27 发现并当日闭合） | TCP 入口删除后活文件仍在宣告该入口（README / CLAUDE.md / `.env.example` / docstring） | `epics/epic-48-TCP网络接口周期/deferred-work.md` |
+| A9 | Epic 50（收口评审三镜头，2026-09-24 登记） | 运行时归因与兜底族（取消归因 / 工具卡死 / 订阅限额） | `epics/epic-50-网页控制台周期/deferred-work.md` |
+| A18 | Epic 50（Story 50-8 收口后评审，2026-09-26 登记） | 「共 N 个会话」在 N > 200 时少报 | `epics/epic-50-网页控制台周期/deferred-work.md` |
 
 > `Z-Dn` 编号在**本文件**登记（跨文档引用如 `Z-D8` / `Z-D15` 仍以此为索引），但**正文只有一份**，在上表第二列指向的文件里；本文件不留副本（2026-09-24 回填）。
 
