@@ -1,6 +1,6 @@
 # HeAgent 架构简化计划
 
-> 状态：计划阶段 | 日期：2026-09-27 | 审查范围：全项目架构
+> 状态：执行中 | 日期：2026-09-27 | 审查范围：全项目架构
 > 
 > 目标：在保持功能完整性和架构契约的前提下，简化代码结构、减少冗余、提升可维护性
 
@@ -10,18 +10,29 @@
 
 ### 当前状态
 
-- **总代码量**：154 个 Python 文件，约 35,579 行代码
+- **总代码量**：154 个 Python 文件，约 35,579 行代码（基线）
+- **已完成简化**：-2,815 行（TCP 删除 -2,800 行 + Window Reset 统一 -15 行）
 - **模块复杂度**：
-  - 最大模块：`cli/` (5,483 行)、`tools/` (4,960 行)、`engine/` (4,095 行)、`network/` (3,529 行)
+  - 最大模块：`cli/` (5,483 行)、`tools/` (4,960 行)、`engine/` (4,095 行)、`network/` (729 行，-2,800)
   - Epic 1-50 + S1-S4 已全部完成（除 Epic 50 部分 story 在 review）
   - 21 个活动缺口条目（deferred-work-archive）
 
-### 简化目标
+### 简化目标与实际结果
 
-1. **代码量减少**：目标削减 15-20%（约 5,000-7,000 行）
-2. **模块精简**：合并冗余模块、删除死代码、统一重复实现
-3. **架构收敛**：强化分层边界、消除循环依赖倾向、简化入口层
-4. **可维护性提升**：减少 monkeypatch 缝、统一配置机制、简化测试
+1. **代码量减少**：
+   - 原目标：15-20%（约 5,000-7,000 行）
+   - 实际完成：2,815 行（7.9%）
+   - 评估结论：原目标过于激进，实际可行简化空间更小
+
+2. **模块精简**：✅ 部分完成
+   - TCP 入口删除（-2,800 行，包含测试）
+   - Window Reset 委托层移除（-15 行）
+
+3. **架构收敛**：✅ 进行中
+   - Provider 容错栈已统一（P0-1 已完成）
+   - 上下文管理已统一（调用方直接使用 context_runtime）
+
+4. **可维护性提升**：持续进行
 
 ---
 
@@ -29,32 +40,19 @@
 
 ### 🔴 P0 - 高价值简化（立即执行）
 
-#### 2.1 Provider 层容错栈简化
+#### 2.1 Provider 层容错栈简化 ✅
 
-**现状问题**：
-- 四层容错（retry → key_rotation → chain → switchable）导致复杂的错误分类和回退逻辑
-- `retry.py` 的错误分类器被三层共用但语义有重叠
-- `switchable.py` 与 `chain.py` 的回退精度相同但独立维护
+**执行状态**：✅ 已完成（P0-1 工作中已统一）
 
-**简化方案**：
-```
-方案 A（激进）：合并 switchable 与 chain
-- switchable 只保留手动切换接口，回退逻辑委托给内层 chain
-- 删除 switchable 的自动回退代码（~150 行）
-- 优点：单一回退策略，易于理解和测试
-- 风险：改变用户选择"粘性停留"的语义
+**现状确认**（2026-09-27）：
+- `retry.py` 已包含统一的 `ErrorCategory` 和 `classify_exception()`
+- `fallback_base.py` 已定义统一的 `FallbackPolicy`（`should_fallback_chain` / `should_fallback_key_rotation` / `should_fallback_pool`）
+- 四层容错（retry → key_rotation → chain → switchable）都使用统一分类器
 
-方案 B（保守）：统一错误分类与决策点
-- 保留四层但抽取共享的 ErrorClassifier 类
-- 在 base.py 定义统一的回退决策接口
-- 优点：保持现有语义，减少重复代码（~200 行）
-- 推荐：此方案，风险更低
-```
-
-**预估收益**：
-- 代码减少：200-300 行
-- 测试简化：providers/ 测试从当前 ~800 行减少到 ~600 行
-- 可维护性：回退逻辑单一事实源
+**实际收益**：
+- ✅ 统一错误分类与决策点
+- ✅ 回退逻辑单一事实源
+- 无需额外代码删减（已在早期工作中完成）
 
 ---
 
@@ -67,57 +65,125 @@
 
 **简化方案**：
 ```
-重组结构：
-cli/
-  ├── core/          # 核心命令与装配
-  │   ├── commands.py      # 合并 console.py 的命令定义
-  │   ├── composition.py   # 保留，但移除与 wiring 重复的部分
-  │   └── wiring.py        # 保留
-  ├── modes/         # 执行模式
-  │   ├── interactive.py   # 保留
-  │   └── single.py        # 从 interactive 拆出单次模式
-  ├── network/       # 网络入口
-  │   ├── http_server.py   # 仅协议适配（从 http.py 提取）
-  │   ├── http_handlers.py # 业务逻辑（从 http_console.py 提取）
-  │   └── tcp_server.py    # 从 tcp.py 重命名
-  └── ui/            # 界面辅助
-      ├── display.py       # 保留
-      ├── slash.py         # 保留
-      └── terminal.py      # 保留
-
-合并候选：
-1. console.py 的命令定义 + interactive.py 的 REPL → 统一入口
-2. http.py (装配) + http_console.py (处理器) → 单一职责分离
-3. dialogs.py 并入 ui/ （仅 200 行，不值得独立）
+保守方案（用户决策：接受更激进的合并）：
+- 保持 15 个模块的基本结构，逐步消除重复
+- 重点：composition + wiring 合并、http_console 职责分离
+- monkeypatch 缝谨慎迁移（15 个测试路径依赖）
 ```
 
 **预估收益**：
 - 代码减少：800-1,000 行（消除重复装配逻辑）
 - 文件减少：15 → 10-12 个
-- monkeypatch 缝减少：`cli.goal._goal_session` 等路径统一
+- monkeypatch 缝减少：路径统一
+
+**执行状态**：📋 待执行
 
 ---
 
-#### 2.3 删除休眠/实验性功能
+#### 2.3 TCP 入口删除 ✅
 
-**现状问题**：
-- 多个功能模块处于"实验性"或"未完全激活"状态
-- Epic 48 (TCP) / Epic 49 (HTTP) 标记为"实验性"但已完整实现
-- deferred-work 显示多个"触发条件未发生"的条件性缺口
+**执行状态**：✅ 已完成（2026-09-27）
 
-**删除候选**：
+**删除内容**：
+- `src/heagent/cli/tcp.py`（459 行）
+- `src/heagent/network/tcp_server.py`（423 行）
+- `src/heagent/network/protocol.py`（186 行）
+- `tests/test_cli_tcp.py`（335 行）
+- `tests/test_tcp_agent_integration.py`（417 行）
+- `tests/network/test_tcp_server.py`（922 行）
+- `src/heagent/config/__init__.py`：移除 10 个 TCP 配置字段
+- `src/heagent/cli/console.py`：移除 TCP 命令注册
+- `src/heagent/network/__init__.py`：移除 TCP 导出，修复 exposure 函数导出
 
-1. **TCP 入口**（network/tcp_server.py + cli/tcp.py，~800 行）
-   - 标记为"实验性"且不写 rollout（deferred Z-D11）
-   - HTTP 入口已覆盖所有用例
-   - 删除后简化 network/ 的并发模型
+**实际收益**：
+- ✅ 代码减少：2,800 行（含测试）
+- ✅ 配置简化：删除 10 个字段
+- ✅ 网络层统一：仅保留 HTTP 入口
+- ✅ 测试通过：无回归
 
-2. **Window Reset**（context/window_reset.py，~300 行）
-   - 与 ContextCompressor 互斥但都保留
-   - 使用场景不明确（deferred-work 未提及实际使用）
-   - AgentLoop 需同时支持两种策略增加复杂度
+**决策依据**（用户明确指令）：
+- TCP 标记为"实验性"且不写 rollout
+- HTTP 入口已覆盖所有用例
+- 立即删除，不等待 6 个月废弃期
 
-3. **未使用的 MCP 特性**
+---
+
+#### 2.4 上下文管理统一 ✅
+
+**执行状态**：✅ 已完成（2026-09-27）
+
+**简化内容**：
+- 移除 `AgentLoop._maybe_compress()` 委托方法
+- 移除 `AgentLoop._maybe_window_reset()` 委托方法
+- 调用方直接使用 `context_runtime.maybe_compress()` 和 `maybe_window_reset()`
+- 使用延迟导入避免 `run_lifecycle.py` ↔ `context_runtime.py` 循环依赖
+
+**修改文件**：
+- `src/heagent/agent/loop.py`：删除委托方法（-15 行）
+- `src/heagent/agent/run_lifecycle.py`：函数内延迟导入 + 直接调用
+- `src/heagent/agent/stream_runtime.py`：函数内延迟导入 + 直接调用
+- `tests/test_runtime_config.py`：更新测试使用直接调用
+
+**实际收益**：
+- ✅ 代码减少：15 行
+- ✅ 架构清晰：context_runtime 作为独立策略模块
+- ✅ 调用统一：消除不必要的委托层
+- ✅ 测试通过：`test_agent_loop.py` (41 passed), `test_runtime_config.py` (10 passed)
+
+**技术要点**：
+```python
+# run_lifecycle.py 和 stream_runtime.py 中
+# 函数内延迟导入避免循环依赖
+from heagent.agent.context_runtime import maybe_compress, maybe_window_reset
+```
+
+---
+
+### 🟡 P1 - 中等优先级（按需执行）
+
+#### 2.5 配置系统评估 ✅
+
+**执行状态**：✅ 已评估（2026-09-27）
+
+**评估结论**：
+- `config/catalog.py`（配置来源求解）与 `config/write.py`（受闸门写通道）**职责清晰分离**
+- catalog 负责四层来源求解（CLI 参数 > 项目 .env > 全局 .env > 默认值）
+- write 负责项目 .env 的写流水线（指纹校验 + 行级保真 + 原子写）
+- **不建议合并**：分离关注点优于代码行数节省
+
+**预估收益**：无（保持现状）
+
+---
+
+#### 2.6 Engine 容器评估 ✅
+
+**执行状态**：✅ 已评估（2026-09-27）
+
+**评估结论**：
+- `EngineContainer` 已实现延迟初始化（lazy loading）
+- 组件按需创建，不使用子 Agent 时无额外开销
+- **无需进一步简化**：当前设计已优化
+
+**预估收益**：无（保持现状）
+
+---
+
+#### 2.7 Memory 模块评估 ✅
+
+**执行状态**：✅ 已评估（2026-09-27）
+
+**评估结论**：
+- skills / facts / profile / soul 四个 Store 确实有相似模式
+- 但抽取 BaseStore 仅节省 10-20 行（每个 Store 约 150-200 行，共享部分占比小）
+- **不建议提取**：增加继承层次的复杂度不值得微小的代码节省
+
+**预估收益**：无（保持现状）
+
+---
+
+### 🟢 P2 - 长期优化（未来考虑）
+
+#### 2.8 测试基础设施
    - Resources 原语（deferred，未交付）
    - MCP server 子进程沙箱（deferred Z-D6，中-高危但未实施）
 
@@ -223,6 +289,7 @@ Dream 调度评估：
 
 #### 2.7 测试基础设施
 
+
 **现状问题**：
 - 3,144 passed 测试，覆盖率 92%，但测试代码本身较重
 - 大量 monkeypatch 路径依赖（`heagent.cli.console._run_prompt` 等）
@@ -239,7 +306,7 @@ Dream 调度评估：
 
 ---
 
-#### 2.8 文档收敛
+#### 2.9 文档收敛
 
 **现状问题**：
 - `docs/` + `_bmad-output/` 包含大量历史文档
@@ -259,35 +326,44 @@ Dream 调度评估：
 
 ## 三、执行策略
 
-### 3.1 分阶段实施
+### 3.1 已完成工作（2026-09-27）
 
-```
-第 1 周：P0 高价值简化
-├─ 2.1 Provider 层容错栈（方案 B）
-├─ 2.3 标记 TCP 为 deprecated
-└─ 验证：全量测试通过，覆盖率不降
+#### ✅ P0-1: Provider 容错栈统一
+- 错误分类器 `classify_exception()` 和 `FallbackPolicy` 已在早期工作中完成
+- 四层容错都使用统一分类器
+- 无额外代码删减需求
 
-第 2-3 周：P0 CLI 重组
-├─ 2.2 CLI 入口层重组
-├─ 更新 monkeypatch 缝
-└─ 验证：架构契约测试通过
+#### ✅ P0-3: TCP 入口删除
+- 删除 6 个文件（2,800 行，含测试）
+- 移除 10 个配置字段
+- 修复 network/__init__.py 导出
+- 测试通过，无回归
 
-第 4 周：P1 配置与 Engine
-├─ 2.4 配置系统统一
-├─ 2.5 Engine 容器简化（方案 A）
-└─ 验证：集成测试通过
+#### ✅ P0-4: 上下文管理统一
+- 删除 `AgentLoop` 委托方法（15 行）
+- 调用方直接使用 `context_runtime` 函数
+- 使用延迟导入避免循环依赖
+- 测试通过：41 + 10 passed
 
-第 5-6 周：P1 Memory + 清理
-├─ 2.6 Memory 模块重构
-├─ 删除 TCP 入口（阶段 2）
-└─ 全量回归测试
+#### ✅ P1-1/2/3: 配置/Engine/Memory 评估
+- 配置系统：职责分离清晰，不建议合并
+- Engine 容器：已实现延迟加载，无需优化
+- Memory Store：共享部分占比小，不建议抽取 BaseStore
 
-未来：P2 长期优化
-├─ 按需执行
-└─ 不阻塞当前迭代
-```
+**累计成果**：
+- 代码减少：2,815 行（7.9%）
+- 文件减少：6 个
+- 架构改进：统一容错栈、统一上下文管理
+- 测试通过：无回归
 
-### 3.2 验证标准
+### 3.2 待执行工作
+
+#### 📋 P0-2: CLI 入口层重组
+- 用户决策：接受更激进的合并
+- 预计减少：800-1,000 行
+- 风险：monkeypatch 缝迁移（15 个测试路径）
+
+### 3.3 验证标准
 
 每个阶段完成后必须满足：
 
