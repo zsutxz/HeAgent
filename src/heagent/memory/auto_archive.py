@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from heagent.config import Settings, get_settings
@@ -36,7 +36,7 @@ def _should_skip_prune(stamp_path: Path, min_interval_seconds: int) -> bool:
         return False
 
 
-def maybe_archive_old_facts(
+def maybe_archive_old_facts(  # noqa: C901 - 线性流水线（解析 → 筛选 → 分月 → 写归档 → 更新）
     memory_path: Path | str = ".heagent/memory/MEMORY.md",
     settings: Settings | None = None,
 ) -> dict[str, int]:
@@ -124,7 +124,7 @@ def maybe_archive_old_facts(
         to_keep = []
         to_archive = []
 
-        for i, (fact, est_ts) in enumerate(zip(facts, estimated_timestamps)):
+        for i, (fact, est_ts) in enumerate(zip(facts, estimated_timestamps, strict=False)):
             # 前 CORE_FACTS_TO_KEEP 条永久保留
             if i < CORE_FACTS_TO_KEEP:
                 to_keep.append(fact)
@@ -144,7 +144,7 @@ def maybe_archive_old_facts(
         # 按月份分组归档文件
         archive_by_month: dict[str, list[str]] = {}
         for fact, est_ts in to_archive:
-            month_key = datetime.fromtimestamp(est_ts, tz=timezone.utc).strftime("%Y-%m")
+            month_key = datetime.fromtimestamp(est_ts, tz=UTC).strftime("%Y-%m")
             if month_key not in archive_by_month:
                 archive_by_month[month_key] = []
             archive_by_month[month_key].append(fact)
@@ -164,7 +164,7 @@ def maybe_archive_old_facts(
                 new_content = (
                     f"# MEMORY.md 归档 - {month_key}\n\n"
                     f"> 本文件包含从 MEMORY.md 自动归档的旧事实条目。\n"
-                    f"> 归档时间：{datetime.now(tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
+                    f"> 归档时间：{datetime.now(tz=UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}\n\n"
                     + "\n".join(month_facts)
                     + "\n"
                 )

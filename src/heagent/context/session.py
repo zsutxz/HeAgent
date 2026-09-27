@@ -392,7 +392,12 @@ class SessionStore:
         return self._base / f"{session_id}.json"
 
     def save(
-        self, session_id: str, messages: list[Message], *, expected_version: int | None = None, last_known_version: int | None = None
+        self,
+        session_id: str,
+        messages: list[Message],
+        *,
+        expected_version: int | None = None,
+        last_known_version: int | None = None,
     ) -> str:
         """保存对话历史到 JSON 文件（原子写 + version 递增）。
 

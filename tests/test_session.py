@@ -496,6 +496,7 @@ class TestConcurrentWriteObservability:
     def test_version_jump_warning_when_last_known_version_provided(self, tmp_path: Path, caplog) -> None:
         """当提供 last_known_version 且磁盘版本跳过多个版本时，发出 WARNING 日志。"""
         import logging
+
         caplog.set_level(logging.WARNING, logger="heagent.context.session")
 
         store = _store(tmp_path)
@@ -513,6 +514,7 @@ class TestConcurrentWriteObservability:
     def test_no_warning_when_version_increments_normally(self, tmp_path: Path, caplog) -> None:
         """正常递增时不发出告警。"""
         import logging
+
         caplog.set_level(logging.WARNING, logger="heagent.context.session")
 
         store = _store(tmp_path)
@@ -525,6 +527,7 @@ class TestConcurrentWriteObservability:
     def test_no_warning_when_last_known_version_not_provided(self, tmp_path: Path, caplog) -> None:
         """不提供 last_known_version 时不检测（保持既有 last-write-wins 行为）。"""
         import logging
+
         caplog.set_level(logging.WARNING, logger="heagent.context.session")
 
         store = _store(tmp_path)
@@ -537,6 +540,7 @@ class TestConcurrentWriteObservability:
     def test_warning_includes_session_id_and_versions(self, tmp_path: Path, caplog) -> None:
         """告警消息包含会话 ID 和具体版本号，便于诊断。"""
         import logging
+
         caplog.set_level(logging.WARNING, logger="heagent.context.session")
 
         store = _store(tmp_path)

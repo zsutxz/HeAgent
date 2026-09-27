@@ -9,13 +9,10 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, NoReturn
+from typing import NoReturn
 
 from heagent.providers.retry import ErrorCategory, classify_exception
 from heagent.pub.exceptions import ProviderError
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 def raise_as_provider_error(error: Exception) -> NoReturn:
@@ -71,6 +68,7 @@ class FallbackPolicy:
         委托给 retry.is_pool_fallback_error 保持向后兼容。
         """
         from heagent.providers.retry import is_pool_fallback_error
+
         return is_pool_fallback_error(error)
 
 

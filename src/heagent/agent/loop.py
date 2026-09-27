@@ -39,8 +39,6 @@ from heagent.agent.context_runtime import (
     append_assistant_message,
     append_tool_result,
     begin_iteration,
-    maybe_compress,
-    maybe_window_reset,
 )
 from heagent.agent.message_ports import (
     inject_follow_up,

@@ -101,7 +101,7 @@ class TestAutoArchive:
         )
 
         # 第一次归档
-        result1 = maybe_archive_old_facts(memory_path, settings)
+        maybe_archive_old_facts(memory_path, settings)
         # 第一次可能因为没有旧条目而跳过，但会更新标记文件
 
         # 立即第二次归档（应该被节流跳过）

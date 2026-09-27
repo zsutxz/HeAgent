@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING
 
 from heagent.providers.fallback_base import FallbackPolicy, raise_as_provider_error
 from heagent.providers.retry import classify_exception
