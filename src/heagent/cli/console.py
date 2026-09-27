@@ -441,13 +441,7 @@ from heagent.gui.cli import gui_cmd  # noqa: E402
 
 main.add_command(gui_cmd)
 
-# TCP Server 子命令（Epic 48 Story 48-3）同样随命令定义拆分到入口层模块：命令只在显式调用时
-# 才装配 Provider / Engine（普通 CLI 不监听任何端口），此处仅注册，保持 heagent.cli 命名空间可用。
-from heagent.cli.tcp import tcp_server_cmd  # noqa: E402
-
-main.add_command(tcp_server_cmd)
-
-# HTTP 网页入口子命令（Epic 49 Story 49-1）：与 tcp-server 同理——只有显式调用该命令才导入
+# HTTP 网页入口子命令（Epic 49 Story 49-1）：只有显式调用该命令才导入
 # 可选 HTTP 栈（`heagent[http]`）并绑定端口；普通 CLI 用法、gui、init、replay 都不监听 HTTP，
 # 也都不因缺 starlette/uvicorn 而失败。49-2 起默认 CLI 会**在同一进程内**另起 HTTP 服务，
 # 而显式 http-server 永远只起这一份（不派生子实例）。

@@ -1,33 +1,11 @@
-"""Network entry-point protocols."""
+"""Network entry-point protocols (HTTP only, TCP removed 2026-09-27)."""
 
-from heagent.network.protocol import (
-    ProtocolError,
-    TcpError,
-    TcpErrorCode,
-    TcpRequest,
-    TcpResponse,
-    TcpUsage,
-    decode_request,
-    encode_response,
-    error_response,
-    response_from_protocol_error,
-    success_response,
-)
-from heagent.network.tcp_server import TcpRequestHandler, TcpServer, TcpServerConfig
+from heagent.network.exposure import exposure_warning, is_loopback_host
+from heagent.network.http_server import HttpServer, HttpServerConfig
 
 __all__ = [
-    "ProtocolError",
-    "TcpError",
-    "TcpErrorCode",
-    "TcpRequest",
-    "TcpResponse",
-    "TcpUsage",
-    "decode_request",
-    "encode_response",
-    "error_response",
-    "response_from_protocol_error",
-    "success_response",
-    "TcpRequestHandler",
-    "TcpServer",
-    "TcpServerConfig",
+    "HttpServer",
+    "HttpServerConfig",
+    "exposure_warning",
+    "is_loopback_host",
 ]
