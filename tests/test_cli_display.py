@@ -65,6 +65,18 @@ def test_show_deferred_work_reads_the_canonical_ledger(tmp_path: Path, capsys: p
     assert "spec-1.md" not in err
 
 
+def test_show_deferred_work_reads_the_archive_ledger(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """2026-09-17 起项目台账正名为 ``deferred-work-archive.md``（原 ``deferred-work.md`` 已并入）。
+
+    只认旧名的读法会让 /deferred 静默漏掉整份项目台账（本仓当前正是这个形态）。
+    """
+    _ledger(tmp_path, "_bmad-output/implementation-artifacts/deferred-work-archive.md", 2)
+    show_deferred_work(tmp_path, tail=1)
+    err = capsys.readouterr().err
+    assert "deferred-work-archive.md: 2 entries" in err
+    assert "spec-2.md — finding 2" in err
+
+
 def test_show_deferred_work_includes_legacy_and_goal_local_ledgers(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
