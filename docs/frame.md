@@ -25,7 +25,6 @@
   - [4.13 Goal 驱动工作流 (`/goal`)](#413-goal-驱动工作流-goal)
   - [4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）](#414-技能资源读取-toctou-评估与安全打开加固epic-461462)
   - [4.15 事件契约 (`events/`)](#415-事件契约-events)
-  - [4.16 TCP 入口（已删除）](#416-tcp-入口已删除)
   - [4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)](#417-http-网页入口-networkhttp_--clihttppy--web)
   - [4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#418-网页控制台-pubworkspacepy--pubprojectspy--configcatalogpy--configwritepy--clihttppy--clidialogspy--web)
 - [五、已知缺口](#五已知缺口)
@@ -833,7 +832,7 @@ HeAgentError (base)
 | `sandbox_cpu_seconds` | 0 | 沙箱 shell CPU 时间限额（秒；firejail `--rlimit-cpu` / winjob Process Time）；触发行为同上 |
 | `sandbox_nproc_limit` | 0 | 沙箱 shell 进程数限额（firejail `--rlimit-nproc` / winjob Active Process）；触发行为同上。⚠ 语义不对称：firejail 侧按**真实 UID** 计数（非 per-sandbox），winjob 侧为 job 作用域 |
 | `http_host` | `127.0.0.1` | HTTP 网页入口绑定地址；非回环值启动时日志记一条 `event=exposed` 且 stderr 打印一行告警（判定单点复用 `network/exposure.py`） |
-| `http_port` | 8766 | HTTP 网页入口端口（1..65535；默认 8766 —— 旧 TCP 入口的 8765 已于 2026-09-27 随该入口删除） |
+| `http_port` | 8766 | HTTP 网页入口端口（1..65535；默认 8766） |
 | `http_port_auto_find_attempts` | 0 | 端口被占用时自动**顺延**的尝试次数（`port+1…`）；**默认 0 = 关闭**（绑定失败必须显性——脚本靠退出码判断服务起没起来，Epic 49 Story 49-2 契约）。开启后**只对未显式传 `--port` 的路径生效**：显式端口是契约，冲突仍 fail-loud。2026-09-27 加入 |
 | `http_max_connections` | 16 | 同时打开的 HTTP 客户端连接上限（交给 Uvicorn `limit_concurrency`，超限连接被直接拒绝而非排队） |
 | `http_max_inflight_runs` | 1 | 同时在途的网页 Agent 运行上限（MVP 单会话单运行；超限提交收 `run_conflict`） |
@@ -1038,18 +1037,10 @@ crash 前缀可回放）；`heagent replay` 人读渲染有值时追加 `[Nms]` 
 workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._workflow_event_emitter`
 绑 `EngineContainer.events` 总线；emit 异常隔离（warning，不改变业务控制流）。
 
-### 4.16 TCP 入口（已删除）
-
-Epic 48 的 `heagent tcp-server`（UTF-8 JSON Lines 服务：`network/protocol.py` + `network/tcp_server.py` +
-`cli/tcp.py`）已于 **2026-09-27 整体删除**（commit `4217b5d`；约 2,800 行代码、10 个 `tcp_*` 配置字段、
-8 个稳定错误码一并移除）。删除理由：使用率极低、维护成本高，而 HTTP 入口（4.17）已覆盖网络访问需求。
-历史设计与安全立场的完整记录见 `_bmad-output/epics/epic-48-TCP网络接口周期/`（`REMOVAL-NOTICE.md` +
-`retrospective-epic-48.md`）。本页 4.17 / 4.18 的能力**不依赖**该入口。
-
 ### 4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)
 
 本机网页入口（Epic 49）：`heagent http-server` 起来后，浏览器打开 stderr 提示的地址即可使用内置
-聊天页；默认 CLI 也会在同一进程内自动提供该入口（见下表「默认 CLI 自启动」）。分层与已删除的 TCP 入口同构（设计沿用）
+聊天页；默认 CLI 也会在同一进程内自动提供该入口（见下表「默认 CLI 自启动」）。分层与 HTTP 家族既有实现同构
 ——`network/` 只承载传输（HTTP 协议模型 / 路由 / 运行服务 / 安全响应头 / 静态资源 / listener
 生命周期），装配在入口层 `cli/http.py`；`network/` 不构造 Agent，运行入口由入口层以可调用对象注入。
 
@@ -1058,7 +1049,7 @@ Epic 48 的 `heagent tcp-server`（UTF-8 JSON Lines 服务：`network/protocol.p
 | 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **34** 码（含项目注册表 / 会话 / 控制台稳定错误码；2026-09-24 评审校正：原先写 22，实测 27；Story 50-5 的写通道再加 5 ⇒ **32**；Story 50-8 的原生目录选择再加 2 ⇒ **34**，口径与分组见 4.18）、`{"error":{"code","message"}}` 信封、`HealthResponse`（字段封闭：`status` / `service` / `version` / `schema_version`）；`sanitize_message` 是客户端文案唯一出口（折叠空白 + **掩码宿主绝对路径** + 截断到 `MAX_ERROR_MESSAGE_CHARS`），**不含** traceback / 异常类名 / 绝对路径——掩码是启发式（Windows 盘符与 UNC 全掩；POSIX 要求 ≥3 段，以免误伤 `/api/health`、`and/or`、URL），与 `pub/safe_logging` 同一立场：**非安全边界**（2026-09-23 评审修复：此前上游 `HeAgentError.message` 里带的路径会原样透传）|
 | 传输层 | `network/http_server.py`：`HttpServerConfig`（9 个有界字段，默认值与 `HTTP_*` 一致）+ `HttpServer`（`start` / `serve_forever` / `close`）；`build_http_app` 组装健康检查 + 静态资源 + 安全头 |
 | 可选依赖 | starlette / uvicorn 由 `pyproject.toml` 的 `http` extra **直接声明**，且只在真要服务时经 `importlib.import_module` 加载；缺依赖抛 `HttpDependencyError` → 命令给出 `pip install 'heagent[http]'`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`（源码中不存在顶层 starlette/uvicorn 导入） |
-| 就绪门禁 | `start()` 只在「listener 已绑定**且**真实 TCP 打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」。**通配绑定**（`0.0.0.0` / `::`）的探测改走回环地址（连 `0.0.0.0` 是未定义行为），故允许集对通配值额外接受 `127.0.0.1` / `localhost` / `[::1]`（探测的 Host 头按 authority 语法给 IPv6 加方括号）——通配绑定可从本机浏览器访问，但经其它网卡地址访问仍被 `origin_forbidden` 拒绝（非回环联网不受支持）。连接的 `limit_concurrency` 额外预留 1 条给就绪探测，否则 `HTTP_MAX_CONNECTIONS=1` 会让入口**永远起不来**（以上两项为 2026-09-23 评审修复）|
+| 就绪门禁 | `start()` 只在「listener 已绑定**且**用真实网络连接打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」。**通配绑定**（`0.0.0.0` / `::`）的探测改走回环地址（连 `0.0.0.0` 是未定义行为），故允许集对通配值额外接受 `127.0.0.1` / `localhost` / `[::1]`（探测的 Host 头按 authority 语法给 IPv6 加方括号）——通配绑定可从本机浏览器访问，但经其它网卡地址访问仍被 `origin_forbidden` 拒绝（非回环联网不受支持）。连接的 `limit_concurrency` 额外预留 1 条给就绪探测，否则 `HTTP_MAX_CONNECTIONS=1` 会让入口**永远起不来**（以上两项为 2026-09-23 评审修复）|
 | 关闭 | `close()` 幂等且全程有界：设 `should_exit` → Uvicorn `shutdown()`（连接排空受 `timeout_graceful_shutdown` 约束）→ 等待 serve 循环退出（超时则取消），整体再包一层 `wait_for`。信号**不归 Uvicorn 管**（不调 `serve()` / `capture_signals`）：`KeyboardInterrupt` 由 CLI 接住并安静退出 |
 | 静态资源 | `src/heagent/web/` 内 `index.html` / `app.js` / `styles.css`，经 `importlib.resources.files("heagent.web")` 读取（AD-11 唯一查找方式；wheel 里以 `zipimport` 加载已实测）；**白名单**路由同时挡掉路径穿越与「散落文件被意外发布」 |
 | 安全响应头 | 每个响应带 `Content-Security-Policy: default-src 'none'; script-src 'self'; …; frame-ancestors 'none'`、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`；页面**不加载任何第三方脚本**（CSP 不允许内联；测试断言页面所有 `src` / `href` 都是同源绝对路径） |
@@ -1419,7 +1410,7 @@ python -m heagent http-server [--host H] [--port P] [--max-inflight-runs N] ...
   └── asyncio.run(_serve_http(server))
         ├── await server.start()
         │     ├── uvicorn Server.startup()（绑定；失败 → HttpStartupError，不打印「已监听」）
-        │     └── 就绪门禁：真实 TCP 请求一次 /api/health，非 200/连不上 → 回滚并抛错
+        │     └── 就绪门禁：真实请求一次 /api/health，非 200/连不上 → 回滚并抛错
         ├── stderr: listening on http://<host>:<port>
         └── serve_forever() → Uvicorn main_loop
               └── 中间件（由外到内）：安全响应头 → 请求日志（x-request-id）→ 同源防线（Host/Origin）
