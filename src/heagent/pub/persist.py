@@ -169,6 +169,11 @@ def reap_dangling_locks(directory: Path, *, min_age_seconds: float = 0.0, limit:
         name = entry.name
         if not name.endswith(_LOCK_SUFFIX):
             continue
+        if entry.is_symlink():
+            # 与本项目其它 GC 同一立场（沙箱会话目录 / 编辑快照）：**符号链接一律不动、绝不穿透**。
+            # 回收 `*_suffix` 类文件时更要如此——删除链接会误伤"别人的"锁，跟随链接还会删到目标。
+            logger.debug("Skipping symlink while reaping dangling locks: %s", entry)
+            continue
         record = entry.with_name(name[: -len(_LOCK_SUFFIX)])
         try:
             if record.exists() or not entry.is_file() or entry.stat().st_mtime > cutoff:

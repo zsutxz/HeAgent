@@ -210,3 +210,33 @@ class TestReapDanglingLocks:
 
         assert reap_dangling_locks(tmp_path / "nope") == 0
         assert reap_dangling_locks(tmp_path) == 0
+
+
+class TestReapDanglingLocksSymlinkGuard:
+    """孤儿锁回收的符号链接护栏（2026-09-27 复审发现）。"""
+
+    def test_symlinked_lock_is_never_reaped(self, tmp_path, monkeypatch):
+        """符号链接一律不动（与沙箱会话目录 / 编辑快照的 GC 同立场）。
+
+        本机无法创建真实符号链接（WinError 1314），故用 `Path.is_symlink` 桩把这条判据钉在
+        **代码动作**上，而不是依赖平台能力。
+        """
+        from pathlib import Path as _Path
+
+        from heagent.pub.persist import reap_dangling_locks
+
+        link_like = tmp_path / "someone-else.json.lock"
+        link_like.write_bytes(b"\n")
+        stamp = time.time() - 40 * 86400
+        os.utime(link_like, (stamp, stamp))
+        real_is_symlink = _Path.is_symlink
+
+        def fake_is_symlink(self):
+            if self.name == "someone-else.json.lock":
+                return True
+            return real_is_symlink(self)
+
+        monkeypatch.setattr(_Path, "is_symlink", fake_is_symlink)
+
+        assert reap_dangling_locks(tmp_path, min_age_seconds=86400) == 0
+        assert link_like.exists(), "符号链接（即使超龄且无同名记录）也必须跳过"

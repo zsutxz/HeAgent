@@ -579,3 +579,38 @@ class TestSessionPruneReapsOrphanLocks:
         assert not orphan.exists(), "超龄孤儿锁应随 prune 回收"
         assert live_lock.exists(), "在用会话的锁不得被回收"
         assert (base / "live.json").exists()
+
+
+class TestHeadMetadataScope:
+    """`_metadata_from_head` 的作用域与真实性（2026-09-27 复审发现）。"""
+
+    def test_message_payload_cannot_forge_the_listed_title(self, tmp_path: object) -> None:
+        """消息里的 `"title"` 是**数据**：头部提取必须限定在 `messages` 之前。
+
+        工具参数是**未转义**的 JSON 键，故消息体里的 `"title": …` 会与元数据字段同形；不限定作用域
+        时列表标题会被它顶掉（正文里的转义引号 `\"title\"` 反而安全，故这条走 arguments 而非 content）。
+        """
+        base = tmp_path / "sessions"  # type: ignore[operator]
+        base.mkdir(parents=True, exist_ok=True)
+        path = base / "forged.json"
+        payload = {
+            "session_id": "forged",
+            "version": 1,
+            "timestamp": 1700000000.0,
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "",
+                    "tool_calls": [
+                        {"id": "c1", "name": "demo", "arguments": {"title": "FORGED-FROM-ARGS", "blob": "x" * 4096}}
+                    ],
+                },
+                *[{"role": "user", "content": "x" * 4096} for _ in range(300)],
+            ],
+        }
+        path.write_bytes(json.dumps(payload).encode("utf-8"))
+        assert path.stat().st_size > MAX_SESSION_METADATA_BYTES
+
+        meta = SessionStore(base_dir=str(base)).list_metadata()[0]
+
+        assert meta.title == UNNAMED_SESSION_TITLE, meta.title

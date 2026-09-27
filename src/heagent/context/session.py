@@ -122,8 +122,16 @@ def _read_head(path: Path, cap: int) -> str:
     return head.decode("utf-8")
 
 
+# 元数据区的右边界：`_session_payload` 把 `messages` 排在所有元数据字段之后。
+_MESSAGES_KEY = '"messages"'
+
+
 def _extract_head_scalar(head: str, key: str) -> object | None:
-    """从（可能是截断的）文件头部取出一个 JSON 标量字段；取不到 / 不是合法标量时返回 ``None``。"""
+    """从（可能是截断的）文件头部取出一个 JSON 标量字段；取不到 / 不是合法标量时返回 ``None``。
+
+    **调用方必须先限定作用域**（见 :func:`_metadata_from_head`）：`cap` 窗口通常已越过
+    ``messages`，而消息正文 / 工具参数里出现的 `"title"` 之类字面量是**数据**、不是元数据。
+    """
     match = re.search(rf'"{re.escape(key)}"\s*:\s*("(?:[^"\\]|\\.)*"|[-+0-9.eE]+)', head)
     if match is None:
         return None
@@ -141,19 +149,27 @@ def _metadata_from_head(session_id: str, head: str) -> SessionMetadata:
     ``messages`` 之前，故头部足以还原列表所需的一切，不必读整份文件、也不必解析 megabyte 级消息数组。
     标题取不到时退回 :data:`UNNAMED_SESSION_TITLE`（会话**照旧列出**，不静默消失）；时间戳取不到按既有
     口径退化为 0.0（沉底）。
+
+    **与详情判据不同源（有意）**：大会话的 ``messages`` 结构**不在列表期校验**——畸形消息只会在读详情
+    （:meth:`load_metadata` / :meth:`load`）时报 ``session_unreadable``。若要在列表期也标出，就必须读完整份
+    文件，正是本条要消除的成本；故列表的 ``unreadable=False`` 只表示「文件读得到且头部可用」。
     """
-    raw_title = _extract_head_scalar(head, "title")
+    # 只在**元数据区**提取（`messages` 之前）：1 MiB 的窗口通常已包含若干条消息，
+    # 而工具参数这类**未转义**的 `"title"` 键一旦命中就会被当成会话标题。
+    messages_at = head.find(_MESSAGES_KEY)
+    scope = head if messages_at < 0 else head[:messages_at]
+    raw_title = _extract_head_scalar(scope, "title")
     title = (
         " ".join(raw_title.split())[:MAX_SESSION_TITLE_CHARS]
         if isinstance(raw_title, str) and raw_title.split()
         else UNNAMED_SESSION_TITLE
     )
-    timestamp = _coerce_timestamp(_extract_head_scalar(head, "timestamp"))
+    timestamp = _coerce_timestamp(_extract_head_scalar(scope, "timestamp"))
     return SessionMetadata(
         session_id=session_id,
         title=title,
         message_count=None,
-        version=_coerce_version(_extract_head_scalar(head, "version")),
+        version=_coerce_version(_extract_head_scalar(scope, "version")),
         timestamp=timestamp,
         updated_at=_iso_timestamp(timestamp),
     )
