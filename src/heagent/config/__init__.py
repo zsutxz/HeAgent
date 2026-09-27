@@ -345,8 +345,9 @@ class Settings(BaseSettings):
     # 默认 8766：与 TCP 入口默认端口 8765 错开，两个入口可同时开。
     http_port: int = Field(default=8766, ge=1, le=65535)
     # HTTP 端口自动查找尝试次数：端口被占用时自动尝试后续端口（8767, 8768...）
-    # 0=禁用自动查找，端口冲突直接失败；默认 10 次
-    http_port_auto_find_attempts: int = Field(default=10, ge=0, le=100)
+    # **默认 0 = 关闭**：绑定失败必须显性（Epic 49 Story 49-2 的契约 —— 脚本与状态行靠它判断服务起没起来）。
+    # 需要「冲突就顺延」时显式设置（例如 =10）；顺延只对**未显式传 `--port`** 的路径生效。
+    http_port_auto_find_attempts: int = Field(default=0, ge=0, le=100)
     # 同时打开的客户端连接上限（uvicorn limit_concurrency）；超限的连接收 503，不排队。
     # 内部另预留 1 条给就绪探测 / 健康检查——探测自己也要占一条连接，否则设为 1 时入口永远起不来。
     http_max_connections: int = Field(default=16, ge=1)

@@ -19,7 +19,7 @@ from heagent.cli import composition as cli_module
 from heagent.cli.console import main
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.cli.http import build_server_config
-from heagent.config import get_settings, reset_settings
+from heagent.config import Settings, get_settings, reset_settings
 from heagent.context.session import SessionStore
 from heagent.network.http_server import HttpServer, HttpServerConfig
 from heagent.providers.base import ProviderMetadata
@@ -229,6 +229,30 @@ def test_startup_failure_is_reported_without_a_listening_banner(monkeypatch: pyt
     assert "HTTP server failed to start" in result.output
     assert "listening on" not in result.output
     assert "Traceback" not in result.output
+
+
+def test_explicit_port_is_never_silently_replaced() -> None:
+    """端口顺延的两条边界：**默认关闭**，且**显式 ``--port`` 永不被改写**。
+
+    2026-09-27 的「端口自动查找」最初默认开启、对**显式端口**也顺延 ⇒ 占用端口时服务照常起来，
+    上面那条「启动失败必须显性」的用例于是永久 hang（全量套件跑不完）。现在：默认
+    ``HTTP_PORT_AUTO_FIND_ATTEMPTS=0``（绑定失败显性），显式开启后也只对「未显式指定端口」生效。
+    """
+    holder = socket.socket()
+    holder.bind(("127.0.0.1", 0))
+    holder.listen(1)
+    busy = holder.getsockname()[1]
+    try:
+        assert Settings(_env_file=None).http_port_auto_find_attempts == 0, "默认必须是关闭的（绑定失败要显性）"
+
+        settings = Settings(_env_file=None, http_port=busy, http_port_auto_find_attempts=10)
+        assert build_server_config(settings, port=busy).port == busy, "显式端口被静默改写"
+
+        moved = build_server_config(settings).port
+        assert moved != busy, "未显式指定端口时应顺延到空闲端口"
+        assert moved > busy
+    finally:
+        holder.close()
 
 
 def test_missing_http_extra_reports_the_install_hint(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:

@@ -850,6 +850,7 @@ HeAgentError (base)
 | `tcp_shutdown_timeout` | 5 | `close()` 等待在途任务收尾的秒数；超时后结算登记、强制关闭残留 writer 并记 warning（`asyncio` 无法强杀忽略取消的任务） |
 | `http_host` | `127.0.0.1` | HTTP 网页入口绑定地址；非回环值启动时日志记一条 `event=exposed` 且 stderr 打印一行告警（判定单点复用 `network/exposure.py`） |
 | `http_port` | 8766 | HTTP 网页入口端口（1..65535；与 TCP 默认 8765 错开，两个入口可同时开） |
+| `http_port_auto_find_attempts` | 0 | 端口被占用时自动**顺延**的尝试次数（`port+1…`）；**默认 0 = 关闭**（绑定失败必须显性——脚本靠退出码判断服务起没起来，Epic 49 Story 49-2 契约）。开启后**只对未显式传 `--port` 的路径生效**：显式端口是契约，冲突仍 fail-loud。2026-09-27 加入 |
 | `http_max_connections` | 16 | 同时打开的 HTTP 客户端连接上限（交给 Uvicorn `limit_concurrency`，超限连接被直接拒绝而非排队） |
 | `http_max_inflight_runs` | 1 | 同时在途的网页 Agent 运行上限（MVP 单会话单运行；超限提交收 `run_conflict`） |
 | `http_max_request_bytes` | 394240 | 单个 JSON 请求体的字节上限（超限收 `request_too_large`）。默认 = `12 × MAX_PROMPT_CHARS(32768) + 1 KiB` 信封，**保证协议允许的最大 prompt 在任何客户端编码下都发得进来**（旧默认 65536 使中文约 2.18 万字就撞 413——2026-09-23 修复；三处默认值的关系由 `tests/network/test_http_protocol.py` 钉住） |

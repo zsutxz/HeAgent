@@ -95,15 +95,17 @@ def build_server_config(
     - **范围规则唯一**：CLI 侧先用 ``click`` 的 range 类型拦一道，最终仍由
       :class:`HttpServerConfig`（Pydantic）统一校验，避免 CLI 与 env 两套规则漂移。
 
-    端口自动查找：当配置的端口被占用且 http_port_auto_find_attempts > 0 时，
-    自动尝试后续端口（port+1, port+2...）。
+    端口自动查找：当端口**不是调用方显式指定**（``port is None``）且被占用、
+    且 ``http_port_auto_find_attempts > 0`` 时，自动尝试后续端口（port+1, port+2...）。
+    显式 ``--port`` 是契约：冲突时保持原端口、交由绑定失败显性报错——否则「启动失败」
+    会静默变成「服务跑在另一个端口上」，脚本与状态行都无从知晓（NFR-10 无回归）。
     """
     # 解析端口，支持自动查找
     target_port = settings.http_port if port is None else port
     target_host = settings.http_host if host is None else host
 
-    # 尝试自动查找可用端口
-    if settings.http_port_auto_find_attempts > 0:
+    # 只在端口未由调用方显式指定时才顺延（显式端口的冲突必须 fail-loud）
+    if port is None and settings.http_port_auto_find_attempts > 0:
         from heagent.cli.port_finder import find_available_port
 
         try:

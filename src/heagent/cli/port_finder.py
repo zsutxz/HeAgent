@@ -50,5 +50,5 @@ def find_available_port(preferred_port: int, host: str = "127.0.0.1", max_attemp
     raise RuntimeError(
         f"No available port found in range {preferred_port}-{preferred_port + max_attempts - 1}. "
         f"All {max_attempts} ports are in use. "
-        f"Please specify a different port with --port or TCP_PORT environment variable."
+        f"Please specify a different port with --port or HTTP_PORT environment variable."
     )
