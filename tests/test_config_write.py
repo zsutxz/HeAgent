@@ -30,6 +30,7 @@ from heagent.config.write import (
     guard_reason,
     prune_audit,
 )
+from heagent.pub.persist import RollbackFailedError
 from heagent.pub.workspace import WorkspacePaths
 
 _MISSING = object()
@@ -773,6 +774,52 @@ class TestFailureRecovery:
         assert "verification failed" in str(excinfo.value)
         assert paths.env_file.read_bytes() == before  # 已还原
         assert _audit_lines(paths)[0]["result"] == "rolled_back"  # 磁盘级异常留痕
+
+    def test_failed_rollback_is_reported_truthfully(
+        self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A14②：回读不符**且还原失败**时，文案不得再声称「已回滚」，审计要记 ``rollback_failed``。
+
+        这是「服务端对客户端说谎」的那条路径：文件已经改坏、又没能还原，而响应却说
+        ``the project .env was rolled back to its previous content``。
+        """
+        before = _seed(paths)
+        monkeypatch.setattr("heagent.config.write._read_back", lambda path: before)  # 盘上不是刚写的内容
+
+        def broken_restore(*args: object, **kwargs: object) -> None:
+            raise OSError("disk on fire")
+
+        monkeypatch.setattr("heagent.pub.persist._restore_bytes", broken_restore)
+        with pytest.raises(ConfigWriteRejection) as excinfo:
+            _run(paths, [("MAX_ITERATIONS", "30")])
+
+        assert excinfo.value.code == ConfigWriteCode.CONFIG_WRITE_FAILED
+        message = str(excinfo.value)
+        assert "could not be restored" in message
+        assert "rolled back" not in message, "还原失败时不得再宣称已回滚"
+        assert "disk on fire" in message, "原因必须可诊断（不是一句笼统的失败）"
+        assert _audit_lines(paths)[0]["result"] == "rollback_failed"
+
+    def test_rollback_failure_is_audited_even_without_the_readback_flag(
+        self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A14②：「回滚失败」这一事实**自身**就足够落审计——不依赖 verify 是否设过标志。
+
+        直接让 ``atomic_update_bytes`` 抛 ``RollbackFailedError``（模拟「换了个不设标志的
+        verify」这类将来形态）：文案仍须如实，且必须留下 ``rollback_failed`` 痕迹。
+        """
+        _seed(paths)
+
+        def broken(*args: object, **kwargs: object) -> None:
+            raise RollbackFailedError(RuntimeError("verify said no"), OSError("disk on fire"))
+
+        monkeypatch.setattr("heagent.config.write.atomic_update_bytes", broken)
+        with pytest.raises(ConfigWriteRejection) as excinfo:
+            _run(paths, [("MAX_ITERATIONS", "30")])
+
+        assert "could not be restored" in str(excinfo.value)
+        assert "disk on fire" in str(excinfo.value)
+        assert _audit_lines(paths)[0]["result"] == "rollback_failed"
 
     def test_readback_failure_for_a_new_file_removes_it(
         self, paths: WorkspacePaths, monkeypatch: pytest.MonkeyPatch

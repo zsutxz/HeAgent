@@ -31,8 +31,9 @@
 事实源（过期副本会「谎报已开启」）。代价是「非回环 + 闸门关闭」时先回 ``loopback_required``：对远端
 客户端少说一句本机策略，方向是收紧而不是放松。
 
-审计口径：只有**真的改动了文件**的路径落审计 —— 成功（``applied``）与「写下去但回读不符、已还原」
-（``rolled_back``，磁盘级异常必须留下痕迹）。闸门/白名单/值/指纹这些**文件未变**的拒绝不落审计：
+审计口径：只有**真的改动了文件**的路径落审计 —— 成功（``applied``）、「写下去但回读不符、已还原」
+（``rolled_back``）与「回读不符且**还原也失败**」（``rollback_failed``；后两者都是磁盘级异常，
+必须留下痕迹）。闸门/白名单/值/指纹这些**文件未变**的拒绝不落审计：
 它们可以由一个回环客户端无限重放，逐条落盘等于给审计文件开了个灌水口。
 """
 
@@ -54,7 +55,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from heagent.config import GLOBAL_CONFIG_FILE, Settings, envfile
 from heagent.config.catalog import classify, guards_for, routing_report, system_env_keys
-from heagent.pub.persist import atomic_update_bytes, atomic_write_bytes
+from heagent.pub.persist import RollbackFailedError, atomic_update_bytes, atomic_write_bytes
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -393,7 +394,7 @@ def _value_hash(value: str | None) -> tuple[str | None, int | None]:
 
 
 def _audit(state: _WriteState, *, console_dir: Path, result: str) -> bool:
-    """落一条审计（``applied`` / ``rolled_back``）。时间戳显式 UTC（``Z`` 后缀，无时区歧义）。"""
+    """落一条审计（``applied`` / ``rolled_back`` / ``rollback_failed``）。时间戳显式 UTC（``Z`` 后缀）。"""
     record = ConfigAuditRecord(
         timestamp=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         source=state.source,
@@ -538,6 +539,18 @@ def apply_config_write(
 
     try:
         atomic_update_bytes(target, _update, verify=_verify, lock_timeout=WRITE_LOCK_TIMEOUT)
+    except RollbackFailedError as exc:
+        # **还原也失败**：盘上已不是写入前的内容 —— 文案与审计都不得再宣称「已回滚」
+        # （台账 A14②：旧实现对直接调 API 的客户端是假话）。原因随文案一并给出，便于定位。
+        # 这里**不**像下面那个 handler 那样查 ``readback_failed``：本类型的唯一来源就是「回读抛错
+        # + 还原也抛错」，而回读一定先设过标志；即便将来换了别的 verify（不设标志），「回滚失败」
+        # 本身也足以构成落审计的理由（文件已是中间态），漏记才是错。
+        _audit(state, console_dir=audit_dir, result="rollback_failed")
+        raise ConfigWriteRejection(
+            ConfigWriteCode.CONFIG_WRITE_FAILED,
+            "post-write verification failed and the previous content could not be restored"
+            f" ({_short(exc.rollback_error)})",
+        ) from exc
     except ConfigWriteRejection:
         if state.readback_failed:
             # 写下去又还原 = 磁盘级异常，必须留痕（审计追加失败只能告警，绝不再抛）。

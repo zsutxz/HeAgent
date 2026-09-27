@@ -501,6 +501,23 @@ def atomic_update_text(path: Path, update: Callable[[str], tuple[str, R]], *, lo
             os.close(lock_fd)
 
 
+class RollbackFailedError(Exception):
+    """``verify`` 抛错**且回滚也失败**：磁盘上的内容已不是写入前的内容。
+
+        旧实现把回滚失败降级成一条 ``logger.error`` 后原样抛出 ``verify`` 的异常，调用方因此
+    无法区分「已还原」与「还原失败」——只能无条件宣称前者（活动台账 A14②：对直接调 API 的
+    客户端是假话）。本类型是那条边界的显式出口：
+
+        - ``__cause__``（``raise ... from``）是原来的 ``verify`` 异常；
+        - :attr:`rollback_error` 是回滚失败的原因（调用方可据它给出可诊断的文案）。
+    """
+
+    def __init__(self, original: BaseException, rollback_error: BaseException) -> None:
+        super().__init__(f"rollback failed: {rollback_error}")
+        self.original = original
+        self.rollback_error = rollback_error
+
+
 def atomic_update_bytes(
     path: Path,
     update: Callable[[bytes | None], tuple[bytes, R]],
@@ -520,6 +537,9 @@ def atomic_update_bytes(
     3. ``verify`` 在**释放锁之前**收到刚写入的字节（可自行重新读盘做回读校验）；它抛错时刚写入的
        内容会被**还原**（文件原本不存在则删除）再把异常原样抛出。回读若放在解锁之后，与他人写入
        的竞态会把「回滚」变成「覆盖对方的修改」——把校验收进同一把锁是这一条的根因修复。
+    4. **回滚本身也可能失败**（磁盘满 / 权限 / 只读介质）：那时抛 :class:`RollbackFailedError`
+       （``__cause__`` = 原来的 ``verify`` 异常，``rollback_error`` = 回滚失败原因），**不**假装
+       还原成功——调用方据此给出如实文案（活动台账 A14②）。
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     lock_path = path.with_name(path.name + ".lock")
@@ -540,11 +560,14 @@ def atomic_update_bytes(
         if verify is not None:
             try:
                 verify(replacement)
-            except BaseException:
+            except BaseException as verify_exc:
                 try:
                     _restore_bytes(path, current)
                 except OSError as restore_exc:
+                    # 回滚失败**不是**内部细节：盘上已是中间态，调用方必须能如实上报
+                    # （台账 A14②）。日志照旧留一条，异常换成显式的出口类型。
                     logger.error("Rollback failed for %s: %s", path, restore_exc)
+                    raise RollbackFailedError(verify_exc, restore_exc) from verify_exc
                 raise
         return result
     finally:

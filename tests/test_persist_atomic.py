@@ -278,6 +278,33 @@ class TestAtomicUpdateBytes:
 
         assert not path.exists()
 
+    def test_verify_failure_with_a_failed_rollback_is_reported(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A14②：``verify`` 抛错**且回滚也失败**时抛 ``RollbackFailedError``——不假装已还原。
+
+        旧实现把回滚失败降级成一条 ``logger.error`` 后原样抛 ``verify`` 的异常，调用方无从区分
+        「已还原」与「还原失败」，只能无条件宣称前者。本用例把「还原」这一步打坏，断言：
+        异常类型换了、两个原因都还拿得到、盘上确实是**没有还原**的状态。
+        """
+        path = tmp_path / ".env"
+        path.write_bytes(b"A=1\n")
+
+        def reject(written: bytes) -> None:
+            raise RuntimeError(f"not what I expected: {written!r}")
+
+        def broken_restore(*args: object, **kwargs: object) -> None:
+            raise OSError("disk on fire")
+
+        monkeypatch.setattr(persist, "_restore_bytes", broken_restore)
+        with pytest.raises(persist.RollbackFailedError) as excinfo:
+            persist.atomic_update_bytes(path, lambda current: (b"A=2\n", None), verify=reject)
+
+        assert isinstance(excinfo.value.rollback_error, OSError)
+        assert isinstance(excinfo.value.original, RuntimeError)  # 原来的 verify 异常仍可见
+        assert isinstance(excinfo.value.__cause__, RuntimeError)
+        assert path.read_bytes() == b"A=2\n"  # 盘上就是刚写下的内容 —— 确实**没**还原成功
+
     def test_verify_sees_the_written_bytes_and_can_read_them_back(self, tmp_path: Path) -> None:
         path = tmp_path / ".env"
         observed: list[bytes] = []
