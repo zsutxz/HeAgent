@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——16 条
+## 活动（未闭合）条目——13 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -34,13 +34,9 @@
 > - 2026-09-27：**闭合 2 条 → A9 / A18**（★ 均为**代码先修、台账后补**）——A9 运行时归因与兜底族（`a1f7c67`：用户 `DELETE` 优先归因 + `deadline_reason` 一次性消费 / 新增 `HTTP_TOOL_INFLIGHT_TIMEOUT` 独立阈值 / 订阅限额检查与登记同步一步）、A18「共 N 个会话」在 N > 200 时少报（`7b9015f`：`count_sessions` + 协议 `total` + 前端 capped 分支）。正文按归属移入 `epics/epic-50-网页控制台周期/deferred-work.md`；活动条目数 19 → 17。
 > - 2026-09-27：**部分闭合 1 条 → A11②**（cron 跨会话后置执行，`5a8a21e`：`enable_cron=False` 时连 `JobStore` 都不构造 + `new_loop` 守卫）；**① 非回环运行姿态仍 `blocked`**，故本条**留在活动区**。
 > - 2026-09-27：**闭合 1 条 → A5**（观测粒度残余）——两半其实早在 `1f99cc0`（2026-09-23「补齐事件耗时与 逐 story 观测粒度」）就已修掉并带判据，只是台账一直没同步；本轮复核后按勘察类移入下方闭合归档，活动条目数 17 → 16。
+> - 2026-09-27：**闭合 2 条 → A13 / A14**（均为 Epic 50 的收口评审遗留）——A13「高影响键缺后端风险标记」（事实源 = `RESOURCE_CEILINGS`，新增 `impact` 后端字段 + 面板徽标 + 确认框点名，前端零硬编码；变异体 4/4，其中两条专门抓「按键名硬编码」）；A14 写入通道与保真写的四类残余**四面全部处置**（① 文档说明、② 回滚失败文案、③ 写锁内 I/O 收窄、④ 备查）。正文移入 `epics/epic-50-网页控制台周期/deferred-work.md`；活动条目数 15 → 13。
+> - 2026-09-27：**闭合 1 条 → Z-D21**（同一会话文件的两个写者整份覆盖对方历史）——运行落盘改为带**内容基线**（`save(base=...)`）落盘：能安全判定的形态**保守合并**（两段都保留），判不出来退回 last-write-wins + WARNING；判据 11 条（含 run 级），变异体 **5/5 精确变红**（其中 M4 首轮没红，暴露出我原来那条判据的输入形状不具区分度）。正文按归属移入 `epics/epic-50-网页控制台周期/deferred-work.md`；活动条目数 16 → 15。
 > - 2026-09-27：**归档 1 条 → Z-D20**（TCP 入口删除后的活文件残留，当日勘察 + 当日闭合）——`4217b5d` 只清了 `docs/frame.md`，README 整节 / CLAUDE.md 命令表 / `.env.example` 8 个 `TCP_*` 键 / 12 处 docstring 仍在宣告该入口（全仓 493 处命中、非历史面 40 余处）；分层清理后新增可执行判据（变异体 3/3 精确变红）。正文移入 `epics/epic-48-TCP网络接口周期/deferred-work.md`。活动条目数不变（17）——该条**登记即闭合**，未进活动区。
-
-- source_spec: `src/heagent/context/session.py::save` + `src/heagent/agent/run_lifecycle.py`（Epic 50 Story 50-3 把「网页运行 → 会话落盘」接进同一 `.heagent/sessions`）
-  summary: **同一会话文件的两个写者会整份覆盖对方的历史（静默数据丢失）**：运行落盘的 `save()` 不传 `expected_version`（last-write-wins），而文件锁只覆盖「单次读改写」、不覆盖 `load → … → save` 的整个跨度 ⇒ CLI 与内嵌网页入口（默认项目根 = 进程 cwd = 同一工作区，`.heagent/sessions` 同一目录）并发写同一会话时，后写者用 `_session_payload` **替换整份消息列表**，对方的整轮对话消失，且 `version` 照样单调递增（没有任何一方能发现）。触发条件：同 cwd 下 CLI 与会话页并存，且网页 `POST /api/projects/default/runs` 不带 `session_id`（`_resolve_session(None)` 取**最近**会话，往往正是 CLI 正在写的那个）；严重度：中（静默数据丢失）；冻结边界：**不得**改成「版本冲突即让运行落盘失败」（那会丢**当前**对话）；正确方向是单写者化 / 合并语义，或把冲突降级为可观测告警。
-  evidence: 读码 `session.py::save`（`expected_version: int | None = None` 默认，仅非 None 时比对并抛 `SessionConflictError`）与 `run_lifecycle` 的落盘调用（只传 `session_id` + 消息列表）；`tests/network/test_http_console_sessions.py` 的替身**刻意**按「不传 `expected_version`」建模（把 last-write-wins 钉成现状），`tests/test_session.py` 只覆盖单写者覆盖。
-  Progress（2026-09-26 登记）：修法需要跨 `agent/`（落盘调用点）与 `context/`（合并语义）设计，超出评审的最小修复范围。
-  Progress（2026-09-27 部分改进）：**已添加可观测性机制**——`SessionStore.save()` 新增可选参数 `last_known_version`，当提供且磁盘版本跳过多个版本时（说明有其他写者介入），发出 WARNING 日志。这不会阻止写入（last-write-wins 语义保持不变），但让并发写入变得可观测，便于诊断和审计。新增 4 例测试（`TestConcurrentWriteObservability`）验证版本跳跃检测、正常递增、无参数时的行为。**根本修复仍需单写者化或合并语义**，当前为防御性改进。
 
 - source_spec: `_bmad-output/epics/epic-50-网页控制台周期/ARCHITECTURE-SPINE.md`（§288 把「凭证」定义为 `*_API_KEY` / `*_API_KEYS`；Epic 50 第四轮评审发现**设计边界**而非实现偏离）
   summary: **掩码域是名字后缀制：写进 `*_BASE_URL` 的凭证会被原样回显**——`is_secret_key` 只认 `_API_KEY` / `_API_KEYS` 后缀，而 `*_BASE_URL` 走的是排除组的**模式**（`patterns=("*_BASE_URL",)`）⇒ 面板会把 `DEEPSEEK_BASE_URL=https://user:token@relay/v1` 这类「token 写在 URL userinfo / 查询串」的值**整串**放进 `ConfigItem.value` 并渲染进页面；`GET /api/projects/{id}/config` **没有**回环门（写通道才有）⇒ 任何能连到服务的客户端都能读到（服务默认回环，但支持非回环绑定）。触发条件：把中转站 token 写进 base URL（常见写法）；严重度：低（无认证 / 无 TLS 是既有姿态，键本身也不以凭证命名）；冻结边界：**不得**对 URL 做部分掩码（会让 base URL 不可复制，破坏「为什么连不上」的诊断用途），也**不得**据此给只读的 GET 加回环门（与 49/50 的只读面姿态冲突）。
@@ -93,29 +89,6 @@
   evidence: `tests/js/console_acceptance.mjs`（自起真实 http-server + headless Chrome，CDP 驱动真实点击；23 行清单含窄屏/凭证零明文/磁盘副作用断言，2026-09-25 起）；`tests/test_http_web_ui.py`（探针用例的 skipif 只要求 node，不要求浏览器）；`pyproject.toml`（可选依赖分组）。
   Progress（2026-09-24 登记，**未闭合**）：验收输出见 `_bmad-output/epics/epic-50-网页控制台周期/reviews.md#acceptance-50-6-console-ui`（17/17 PASS，Chrome 153.0.8010.48）；该报告同时给出复跑命令与依赖前提。
 
-- source_spec: 2026-09-24 Story 50-6 实现（网页控制台 UI）· AC7 / UX-DR3
-  summary: **「高影响键的差异化确认」缺后端风险标记**：UX-DR3 要求「写入被标记为高影响的键必须显式确认」，但 `ConfigItemResponse` 没有任何 per-key 风险/影响字段（`config_catalog` 的分组只表达来源与只读原因）⇒ 50-6 的实现口径是**所有写入都二次确认**（确认框列出将改的键、「只对下一次运行生效」、写入路径与备份语义），既不漏确认也不做分级。触发条件：写闸门开启 + 用户频繁改配置（每次都弹确认框 = 体验摩擦）；严重度：低（偏体验、不影响正确性，且「宁多确认」方向是安全的）；冻结边界：若要分级，只能**新增后端字段**（如 `ConfigItemResponse.impact` 或写进 `config_catalog` 的分类常量）并由服务端声明，**不得**在前端硬编码键名清单（那是第二个事实源，必然与白名单漂移）；分级仍是 defense-in-depth 提示，不改变写通道的 fail-closed 校验。
-  evidence: `src/heagent/network/http_console_protocol.py`（`ConfigItemResponse` 字段集：无风险/影响字段）；`src/heagent/web/app.js::saveConfig`（写入前一律 `askConfirm`）；`src/heagent/config/catalog.py`（分类常量只产出 group / writable / reason）；探针用例 `TestConsoleSettingsPanel` 钉住确认框文案与「未确认不发请求」。
-  Progress（2026-09-24 登记，**未闭合**）：该口径裁定记录在 story 50-6 的 Dev Agent Record（「与 story 文本的偏离」条）；若后续要分级，需先定影响分级的事实源。
-
-- source_spec: 2026-09-24 Epic 50 收口评审（第二轮）· 写入通道与保真写的低危残余（`reviews.md#review-epic-50-closure`）
-  summary: **四类 low 级残余**（都在写入通道 / 保真写面上，均不阻塞收口）：① **`.env.lock` 落在用户项目根** —— `pub.persist.atomic_update_bytes` 的锁文件与目标**同目录**，故写项目 `.env` 会在**用户的项目根**留下 0 字节 `.env.lock`（评审探针实测：`['.env','.env.lock','.heagent']`）；HeAgent 自己的仓库有 `.gitignore` 条目，**用户的项目没有**。② **回滚失败时的文案不实** —— 回读不符时无条件回 `the project .env was rolled back to its previous content`，而回滚本身失败只 `logger.error`（`persist._restore_bytes`）⇒ 对直接调 API 的客户端是假话（UI 侧文案诚实：「服务端已尝试恢复备份」，且该码不在 JS 的 `DETAIL_CODES` 里、不显示服务端 message）。③ **写锁内 I/O 时长** —— `validate_candidate`（构造 `Settings` ⇒ 读候选临时文件 + 全局 `.env` + 环境）与备份目录扫描都在**跨进程锁内**完成 ⇒ 并发热点下写方可能得到 `config_write_failed`（锁超时 5s）而非 `config_conflict`（**fail-closed：无损坏、无部分写入**）。④ **无末行换行文件的追加约定** —— 追加新键沿用「文件无末行换行」这一属性（实测 `MAX_ITERATIONS=5\nSHELL_TIMEOUT=60`），是有意保真，但部分工具约定「文件必须以换行结尾」⇒ 记入备查。
-  evidence: `src/heagent/pub/persist.py::atomic_update_bytes`（`lock_path = path.with_name(path.name + ".lock")`）；`src/heagent/config/write.py::_verify` 与 `_apply_locked`（候选构造 / 备份回收在 `atomic_update_bytes` 的回调内）；`src/heagent/config/envfile.py::replace_or_append`（末行换行跟随文件）；探针 `.heagent/tmp/review50_probe.py` 的 B / E / K 三例实测输出；评审报告镜头一 #1/#2/#3 与镜头二 ⑤。
-  Progress（2026-09-24 登记；**2026-09-27 ① 按允许的「文档说明」修法落地**）：① 已在 `docs/frame.md` §4.18 的写通道行如实写明副作用（锁与目标同目录 ⇒ 写项目配置会在**用户项目根**留 `<项目根>/.env.lock`；HeAgent 自带 `.gitignore` 条目、用户项目没有），并重申**锁的落点语义不改**。③④ 仍未修（冻结边界；② 的改造已在 2026-09-27 落地）: ① 锁文件**刻意不删**（删除会引入「B 等旧 inode、C 拿新文件加锁成功」的竞态，见 `persist` 模块注释），挪到状态目录会改变锁语义 ⇒ 修法只能是「写入方提示 / 文档说明」，**不得**改锁的落点语义；③ 收窄需「锁外构造候选 + 锁内复检指纹」的乐观重试，属流水线结构调整。三条都超出「评审期最小修复」范围，故如实登记而非草率改动。
-  Progress（2026-09-27，**② 已闭合**，commit `a1b9403`）：回滚失败不再是内部细节——`persist` 新增 `RollbackFailedError`
-  （`__cause__` = 原回读异常、`rollback_error` = 回滚失败原因），`atomic_update_bytes` 在「``verify`` 抛错
-  且 ``_restore_bytes`` 也抛错」时抛它；写通道据此给出**如实**文案（`post-write verification failed and the
-  previous content could not be restored (<原因>)`，不再无条件宣称「已回滚」）并落 `rollback_failed` 审计。
-  判据 3 条（`tests/test_persist_atomic.py::TestAtomicUpdateBytes::test_verify_failure_with_a_failed_rollback_is_reported`、
-  `tests/test_config_write.py::TestFailureRecovery::test_failed_rollback_is_reported_truthfully`、
-  `::test_rollback_failure_is_audited_even_without_the_readback_flag`），变异体 **4/4 精确变红**
-  （`.heagent/tmp/mutate_a14_rollback.py`：吞掉回滚失败 / 不接住新异常 / 审计退回 `rolled_back` /
-  审计退回「只在 `readback_failed` 时落痕」的漏记窗口）；`docs/frame.md` §4.18 的审计行与写通道行同步。
-  **实现期的一处自我修正**：新 handler 起初照抄兄弟分支写了 `if state.readback_failed:`，覆盖率暴露出该 False
-  分支永不执行（`RollbackFailedError` 只可能来自设过标志的 `_verify`）——与其留一条测不到的分支，改为
-  **无条件落审计**并写明理由（「回滚失败」本身即足以构成留痕理由，漏记才是错），第 3 条判据钉住这一点。
-  **③④ 仍未修**（冻结边界不变）。
-
 - source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R2 原生目录选择，2026-09-24 实现）
   summary: **网页请求可拉起宿主 GUI 进程（有意引入的新暴露面）**：`POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹出一个原生目录选择窗口（子进程 `tkinter` / `powershell`）。它带来的是便利而非权限（返回值仍要过 `POST /api/projects` 全套校验），但暴露面是实打实的：**任何能连上该端口的本机进程都能让服务机弹窗**（骚扰面），而「回环 peer」不等于可信（用户自己浏览器里的任意页面 peer 也是 `127.0.0.1`，见 frame 五同名条目）。另有三种**不可用**环境：无图形后端（容器 / 缺 `_tkinter` 的 Linux）、服务在远程机器而浏览器在别处（窗口弹在服务机，对调用者无用）、`--dialog-backend none` 显式禁用。触发条件：把服务绑到可被其它本机进程访问的端口 / 在无 GUI 环境部署；严重度：低-中（不崩、不改数据，最坏是弹窗骚扰与一次失败的登记尝试）；冻结边界：**不得**把它表述为安全边界，**不得**为「更安全」而改成服务端目录浏览 API（那会把宿主目录结构开放给回环客户端），也**不得**让它绕过 `POST /api/projects` 的任何校验（选择器不是权限来源）。
   evidence: `src/heagent/cli/dialogs.py`（后端顺序 `resolve_backend` / 冻结脚本 `_TK_SCRIPT`+`_POWERSHELL_SCRIPT` / `DirectoryPicker` 单在途 + 300s 超时 + kill + 有界回收 / 只认 ASCII 标记行 + `is_dir()` 复验）；`src/heagent/network/http_server.py::_build_dialog_endpoint`（`_loopback_error` + POST-only + 新码 `dialog_unavailable` 503 / `dialog_busy` 409）；`src/heagent/cli/http_console.py::HttpProjectConsole.pick_directory`（入口层持有单在途）。实测：真机探针 `.heagent/tmp/probe_50_8_dialog_real.py`（`auto → tkinter`，2s 超时后 kill + 归还名额 + WARNING）；浏览器清单 `reviews.md#acceptance-50-8-refinement` 的 A5b / B2 两行（不可用路径端到端）。
@@ -140,7 +113,7 @@
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 24 条：14 条勘察类正文保留在本文件，10 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 16 条未闭合条目。
+> 当前闭合归档共 27 条：14 条勘察类正文保留在本文件，13 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 13 条未闭合条目。
 
 ## 状态总览
 
@@ -163,7 +136,7 @@
 | A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26：收进 `heagent/cli/` 包 + 包内再拆三个模块；正文见下方「A3」小节） | `49168b4` + `42d7331`（另 `ea2e347` 收纳入口辅助）（2026-09-26） |
 | A5 | 观测粒度残余（facade `run_failed` 恒 `duration_ms=0` / 并行批次只发整批一条事件） | 已闭合（2026-09-23 修为 + 2026-09-27 台账复核；正文见下方「A5」小节） | `1f99cc0` |
 
-**② 已按归属 epic 回填（正文在各自周期目录）——5 条**
+**② 已按归属 epic 回填（正文在各自周期目录）——13 条**
 
 | ID | 归属 epic | 条目 | 正文位置 |
 |----|-----------|------|----------|
@@ -177,6 +150,9 @@
 | Z-D20 | Epic 48（删除后的收尾勘察，2026-09-27 发现并当日闭合） | TCP 入口删除后活文件仍在宣告该入口（README / CLAUDE.md / `.env.example` / docstring） | `epics/epic-48-TCP网络接口周期/deferred-work.md` |
 | A9 | Epic 50（收口评审三镜头，2026-09-24 登记） | 运行时归因与兜底族（取消归因 / 工具卡死 / 订阅限额） | `epics/epic-50-网页控制台周期/deferred-work.md` |
 | A18 | Epic 50（Story 50-8 收口后评审，2026-09-26 登记） | 「共 N 个会话」在 N > 200 时少报 | `epics/epic-50-网页控制台周期/deferred-work.md` |
+| Z-D21 | Epic 50（Story 50-3 的并发写，2026-09-26 登记） | 同一会话文件的两个写者整份覆盖对方历史 | `epics/epic-50-网页控制台周期/deferred-work.md` |
+| Z-D22 | Epic 50（收口评审第二轮，2026-09-24 登记） | 写入通道与保真写的四类低危残余（①文档 ②文案 ③锁内 I/O ④备查） | `epics/epic-50-网页控制台周期/deferred-work.md` |
+| Z-D23 | Epic 50（Story 50-6 AC7/UX-DR3，2026-09-24 登记） | 「高影响键的差异化确认」缺后端风险标记 | `epics/epic-50-网页控制台周期/deferred-work.md` |
 
 > `Z-Dn` 编号在**本文件**登记（跨文档引用如 `Z-D8` / `Z-D15` 仍以此为索引），但**正文只有一份**，在上表第二列指向的文件里；本文件不留副本（2026-09-24 回填）。
 

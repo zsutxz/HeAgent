@@ -4,7 +4,7 @@
 > **归档规则**：按条目**归属的 epic** 归档；「闭合者」注明实际完成它的批次 / commit。
 > **2026-09-27 再回填 2 条**（均为「代码先修、台账后补」）：A9 运行时归因与兜底族（收口评审三镜头）、A18「共 N 个会话」在 N > 200 时少报（Story 50-8 收口后评审）。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码与测试。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）——本周期相关未闭合条目 = 台账 **A8 跨项目并发无全局上限（已随本周期交付成为既成事实，仍无全局上限）/ A10 控制台端点阻塞 I/O（唯一残余 `_runtime_for`，有意保留并有升级条件）/ A11 非回环运行姿态 + cron 跨会话后置执行（`blocked`）/ A12 浏览器级 UI 验收不在 CI / A13 高影响键缺后端风险标记 / A14 写入通道与保真写的四类低危残余（① 已文档化、② 已闭合 2026-09-27、③④ 未修） / A15 网页请求可拉起宿主 GUI 进程 / A16 真实原生窗口不可自动化 + `Error:` 前缀判据 / A17 R5 收敛判据对以 `Error:` 开头的文件失效（`blocked`）/ A19 原生目录选择端点默认开（`blocked`）**，编号与正文以台账为准。
+> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)（工作流 append-only 入口）——本周期相关未闭合条目 = 台账 **A8 跨项目并发无全局上限（已随本周期交付成为既成事实，仍无全局上限）/ A10 控制台端点阻塞 I/O（唯一残余 `_runtime_for`，有意保留并有升级条件）/ A11 非回环运行姿态 + cron 跨会话后置执行（`blocked`）/ A12 浏览器级 UI 验收不在 CI / A15 网页请求可拉起宿主 GUI 进程 / A16 真实原生窗口不可自动化 + `Error:` 前缀判据 / A17 R5 收敛判据对以 `Error:` 开头的文件失效（`blocked`）/ A19 原生目录选择端点默认开（`blocked`）**，编号与正文以台账为准。
 
 ## 状态总览
 
@@ -16,6 +16,9 @@
 | Z-D19 | Epic 50 · 第四轮评审 | 诊断折叠标题把信息性 note 计入「需要注意」（并双计 BOM） | 已闭合（2026-09-27） | `5f4324b` 的 `INFORMATIONAL_NOTES` 分级 + BOM 去重；同日收口批 `d7f8c75` 补齐判据（探针桩自洽化 + 用例 `V`） |
 | A9 | Epic 50 · 收口评审三镜头 | 运行时归因与兜底族（取消归因 / 工具卡死 / 订阅限额） | 已闭合（2026-09-27） | `a1f7c67`（三处独立修复 + 新增 `HTTP_TOOL_INFLIGHT_TIMEOUT`；变异体 3/3 精确变红） |
 | A18 | Epic 50 · Story 50-8 收口后评审 | 「共 N 个会话」在 N > 200 时少报 | 已闭合（2026-09-27） | `7b9015f`（`count_sessions` + 协议 `total` + 前端 capped 分支；变异体 2/2 精确变红） |
+| Z-D21 | Epic 50 · Story 50-3 并发写 | 同一会话文件的两个写者整份覆盖对方历史（静默数据丢失） | 已闭合（2026-09-27） | `SessionStore.save(base=...)` 内容基线 + 保守合并 + WARNING 回退；判据 11 条（含 run 级），变异体 5/5 精确变红 |
+| Z-D22 | Epic 50 · 收口评审第二轮 | 写入通道与保真写的四类低危残余 | 已闭合（2026-09-27，四面全处置） | `a1b9403`（回滚失败文案）+ 锁作用域收窄（台账 A14③）；判据 7 条，变异体 4/4 + 4/4 |
+| Z-D23 | Epic 50 · Story 50-6 AC7/UX-DR3 | 「高影响键的差异化确认」缺后端风险标记 | 已闭合（2026-09-27） | `impact_for` ← `RESOURCE_CEILINGS`（既有常量作事实源）+ 面板徽标 + 确认框点名；判据 3 条，变异体 4/4 |
 
 ---
 
@@ -150,4 +153,75 @@
   （capped 文案 + 按钮隐藏）。变异体 **2/2 精确变红**
   （`.heagent/tmp/e50_mutate_a18.py` 的前端 `capped` 判定被抹平、
   `.heagent/tmp/e50_mutate_a18b.py` 的「入口层退回 `total = 列表长度`」），字节还原后基线复绿。
+
+## Z-D21 同一会话文件的两个写者整份覆盖对方历史（静默数据丢失）
+
+- **来源**：Epic 50 Story 50-3（网页运行 → 会话落盘接进同一 `.heagent/sessions`）暴露的并发写；2026-09-26 第四轮评审登记，2026-09-27 闭合后按「条目闭合后按归属 epic 归档」规则回填至本文件。
+- **原条目正文（保留原文以存证）**：
+
+- source_spec: `src/heagent/context/session.py::save` + `src/heagent/agent/run_lifecycle.py`（Epic 50 Story 50-3 把「网页运行 → 会话落盘」接进同一 `.heagent/sessions`）
+  summary: **同一会话文件的两个写者会整份覆盖对方的历史（静默数据丢失）**：运行落盘的 `save()` 不传 `expected_version`（last-write-wins），而文件锁只覆盖「单次读改写」、不覆盖 `load → … → save` 的整个跨度 ⇒ CLI 与内嵌网页入口（默认项目根 = 进程 cwd = 同一工作区，`.heagent/sessions` 同一目录）并发写同一会话时，后写者用 `_session_payload` **替换整份消息列表**，对方的整轮对话消失，且 `version` 照样单调递增（没有任何一方能发现）。触发条件：同 cwd 下 CLI 与会话页并存，且网页 `POST /api/projects/default/runs` 不带 `session_id`（`_resolve_session(None)` 取**最近**会话，往往正是 CLI 正在写的那个）；严重度：中（静默数据丢失）；冻结边界：**不得**改成「版本冲突即让运行落盘失败」（那会丢**当前**对话）；正确方向是单写者化 / 合并语义，或把冲突降级为可观测告警。
+  evidence: 读码 `session.py::save`（`expected_version: int | None = None` 默认，仅非 None 时比对并抛 `SessionConflictError`）与 `run_lifecycle` 的落盘调用（只传 `session_id` + 消息列表）；`tests/network/test_http_console_sessions.py` 的替身**刻意**按「不传 `expected_version`」建模（把 last-write-wins 钉成现状），`tests/test_session.py` 只覆盖单写者覆盖。
+  Progress（2026-09-26 登记）：修法需要跨 `agent/`（落盘调用点）与 `context/`（合并语义）设计，超出评审的最小修复范围。
+  Progress（2026-09-27 部分改进）：**已添加可观测性机制**——`SessionStore.save()` 新增可选参数 `last_known_version`，当提供且磁盘版本跳过多个版本时（说明有其他写者介入），发出 WARNING 日志。这不会阻止写入（last-write-wins 语义保持不变），但让并发写入变得可观测，便于诊断和审计。新增 4 例测试（`TestConcurrentWriteObservability`）验证版本跳跃检测、正常递增、无参数时的行为。**根本修复仍需单写者化或合并语义**，当前为防御性改进。
+
+- **结论**：**已闭合**（2026-09-27，commit `9860a17`）。`SessionStore.save` 新增**内容基线**参数 `base`（= 调用方 `load` 到的那份磁盘消息），运行落盘侧两处接线：`run_lifecycle.AgentState.session_base`（`init_new_run` 里**无论 prior 是否为空都记**——空也表达「我读到的是空」）+ `persist_and_cache` 把它传给 `save(base=...)`。锁内发现磁盘内容与基线不同时：
+  - 能**安全**判定（三方的非 SYSTEM 投影构成同一前缀，且对方确实追加了不同内容）⇒ **保守合并**：把本次新增的消息接在对方新增的之后，**两段都保留**，并记一条点名条数的 WARNING；
+  - 判不出来（磁盘共享前缀被改写 / 磁盘比基线短 / 调用方给的基线对不上 / 文件不可解析）⇒ 退回 last-write-wins + 点名原因的 WARNING（**最坏情况与改造前逐字一致，绝不更坏**）。
+  SYSTEM 消息不参与比对（每次 run 重建、`load` 时剔除），合并结果只保留本次 writer 的 SYSTEM。
+- **冻结边界（守住）**：① **没有**改成「版本冲突即让运行落盘失败」（那会丢当前对话）——合并/回退都不抛；② 不传 `base` 的调用方（CLI 单写者、库调用方）语义**逐字不变**（有判据钉住）；③ 显式 `expected_version` 的冲突检测**优先于**合并（有判据）。
+- **残余（如实标注，未消除）**：① 判不出来时仍会丢对方那一侧（但**不再静默**：有 WARNING 点名原因）；② 只接线了**运行落盘**这一条路径（`rename` / `create` / 库调用方不传 `base`，维持 last-write-wins）；③ 2026-09-26 加的 `last_known_version` 可观测参数被更强的**内容比对**取代，本仓生产路径不再传它（保留供外部调用方，docstring 已注明）；④ 合并按「对方的分支在前、本次的分支在后」拼接——时间上通常成立（对方先写），但**同一时刻**的交叉追加无法定序（不丢数据，顺序不保证）。
+- **证据**：`src/heagent/context/session.py`（`_without_system` / `_messages_from_raw` / `_merge_concurrent_writes` / `_resolve_concurrent_write` / `save(base=...)`）；`src/heagent/agent/run_lifecycle.py`（`AgentState.session_base`、`init_new_run`、`persist_and_cache`）；`docs/frame.md` 4.5 的第五条判据与 4.18 的会话持久化行。
+- **验证（2026-09-27 亲跑）**：判据 **11 条**（`tests/test_session.py::TestConcurrentWriteMerge` 10 条：合并 / SYSTEM 头归属 / 前缀被改写回退 / 磁盘比基线短回退 / 基线对不上回退 / 坏文件不阻断 / 快路径零告警 / 同尾巴不重复 / `expected_version` 优先 / 不传 `base` 逐字不变；`tests/test_agent_loop.py::TestAgentLoop::test_run_save_merges_messages_appended_by_another_writer` **run 级**——让 provider 在 run 进行中写同一会话，模拟 CLI 那一侧）。变异体 **5/5 精确变红**（`.heagent/tmp/mutate_session_merge.py`：生产路径不传 `base` / 不记基线 / 合并被关掉 / 去掉「共享前缀必须一致」护栏 / 合并后取磁盘的 SYSTEM）。
+  **首轮 M4 没变红**——我原来的「前缀被改写」判据里，改写后的磁盘**比基线短**，于是被另一条分支兜住了，测不出护栏本身；改成「改写后更长」并顺手删掉与切片比较**冗余**的长度判断后，M4 精确变红。教训：判据要选**能区分被测行为**的输入形状。
+  全量 `pytest -q` → **3109 passed / 11 skipped / 18 deselected**；`ruff check` + `format --check`、`mypy src` + `--platform linux` 全绿。
+
+## Z-D23 「高影响键的差异化确认」缺后端风险标记
+
+- **来源**：Epic 50 Story 50-6 实现（AC7 / UX-DR3）；2026-09-24 登记，2026-09-27 闭合后按「条目闭合后按归属 epic 归档」规则回填至本文件。
+- **原条目正文（保留原文以存证）**：
+
+- source_spec: 2026-09-24 Story 50-6 实现（网页控制台 UI）· AC7 / UX-DR3
+  summary: **「高影响键的差异化确认」缺后端风险标记**：UX-DR3 要求「写入被标记为高影响的键必须显式确认」，但 `ConfigItemResponse` 没有任何 per-key 风险/影响字段（`config_catalog` 的分组只表达来源与只读原因）⇒ 50-6 的实现口径是**所有写入都二次确认**（确认框列出将改的键、「只对下一次运行生效」、写入路径与备份语义），既不漏确认也不做分级。触发条件：写闸门开启 + 用户频繁改配置（每次都弹确认框 = 体验摩擦）；严重度：低（偏体验、不影响正确性，且「宁多确认」方向是安全的）；冻结边界：若要分级，只能**新增后端字段**（如 `ConfigItemResponse.impact` 或写进 `config_catalog` 的分类常量）并由服务端声明，**不得**在前端硬编码键名清单（那是第二个事实源，必然与白名单漂移）；分级仍是 defense-in-depth 提示，不改变写通道的 fail-closed 校验。
+  evidence: `src/heagent/network/http_console_protocol.py`（`ConfigItemResponse` 字段集：无风险/影响字段）；`src/heagent/web/app.js::saveConfig`（写入前一律 `askConfirm`）；`src/heagent/config/catalog.py`（分类常量只产出 group / writable / reason）；探针用例 `TestConsoleSettingsPanel` 钉住确认框文案与「未确认不发请求」。
+  Progress（2026-09-24 登记，**未闭合**）：该口径裁定记录在 story 50-6 的 Dev Agent Record（「与 story 文本的偏离」条）；若后续要分级，需先定影响分级的事实源。
+
+- **结论**：**已闭合**（2026-09-27）。**影响分级的事实源 = `config_catalog.RESOURCE_CEILINGS`**（既有、已被测试钉死的常量）：它的语义正是这个分级要表达的东西——「有上界的键就是极端值能让一次运行不可完成的资源旋钮」。新增 `IMPACT_HIGH` / `IMPACT_NORMAL` 与 `impact_for(env_key)`，`ConfigItem.impact` → 协议 `ConfigItemResponse.impact` → 面板渲染徽标 + 写入确认框里点名「其中高影响键：…」。**刻意不新造分类表**（人工列举的清单必然与白名单 / 上界表漂移）。
+- **冻结边界（守住）**：① 分级只**新增后端字段**并由服务端声明，**前端零硬编码键名**（徽标只按 `item.impact` 渲染、文案只按后端 `labels` 取；两条「按键名硬编码」的变异体都被判据精确抓住）；② 分级仍是 defense-in-depth 提示，**不改变写通道的 fail-closed 校验与既有「所有写入都二次确认」口径**（UX-DR3 只要求高影响键必须确认，不禁止全量确认）。
+- **残余（如实标注）**：① 23/48 个白名单键被标为 `high`（近半数）—— 信号强度有限；更细的分级需要重新裁定事实源（可选：新增显式 `HIGH_IMPACT_KEYS` 常量 / 按「是否影响整服务而非一次运行」划分）；② 只作用于**面板**，命令行 / 库调用方看不到该标记。
+- **证据**：`src/heagent/config/catalog.py`（`IMPACT_HIGH` / `IMPACT_NORMAL` / `impact_for` / `ConfigItem.impact` / `LABELS["impact_high"]` / `LABELS["impact_high_note"]`）；`src/heagent/network/http_console_protocol.py` 的 `ConfigItemResponse.impact`（`extra="forbid"` ⇒ 域模型加了字段而不镜像会立刻失败）；`src/heagent/web/app.js`（徽标 `badge-impact` + `impactOf` + 确认文案）；`docs/frame.md` §4.18 的「资源旋钮上界」行。
+- **验证（2026-09-27 亲跑）**：判据 3 条——`tests/test_config_catalog.py::TestClassification::test_high_impact_is_derived_from_the_resource_ceiling_table`（**遍历上界表本体**：表内键逐个 `high`、其余全 `normal` + `labels` 有文案）、`tests/network/test_http_console_config.py::test_panel_marks_high_impact_keys_from_the_same_constant`（同款遍历，证明字段真的到达面板）、`tests/test_http_web_ui.py::TestConsoleRefinement::test_high_impact_keys_are_marked_and_named_in_the_confirm`（node 探针用例 `X`）。变异体 **4/4 精确变红**（`.heagent/tmp/mutate_a13.py`：分级不再派生 / **徽标按键名硬编码** / **确认文案按键名硬编码** / 徽标整块去掉）。
+  **探针桩刻意用「倒钩值」**：桩里 `CONTEXT_STRATEGY` 报 `high`、`MAX_ITERATIONS` 报 `normal`（与真实世界相反）—— 前端任何按名字猜分级或硬编码清单的实现都会在这里翻车；文案同理用钩子值 `高影响（桩）`。
+
+## Z-D22 写入通道与保真写的四类低危残余
+
+- **来源**：Epic 50 收口评审（第二轮，`reviews.md#review-epic-50-closure`）· 写入通道与保真写的低危残余；2026-09-24 登记，2026-09-27 四面全部处置后按「条目闭合后按归属 epic 归档」规则回填至本文件。
+- **原条目正文（保留原文以存证）**：
+
+- source_spec: 2026-09-24 Epic 50 收口评审（第二轮）· 写入通道与保真写的低危残余（`reviews.md#review-epic-50-closure`）
+  summary: **四类 low 级残余**（都在写入通道 / 保真写面上，均不阻塞收口）：① **`.env.lock` 落在用户项目根** —— `pub.persist.atomic_update_bytes` 的锁文件与目标**同目录**，故写项目 `.env` 会在**用户的项目根**留下 0 字节 `.env.lock`（评审探针实测：`['.env','.env.lock','.heagent']`）；HeAgent 自己的仓库有 `.gitignore` 条目，**用户的项目没有**。② **回滚失败时的文案不实** —— 回读不符时无条件回 `the project .env was rolled back to its previous content`，而回滚本身失败只 `logger.error`（`persist._restore_bytes`）⇒ 对直接调 API 的客户端是假话（UI 侧文案诚实：「服务端已尝试恢复备份」，且该码不在 JS 的 `DETAIL_CODES` 里、不显示服务端 message）。③ **写锁内 I/O 时长** —— `validate_candidate`（构造 `Settings` ⇒ 读候选临时文件 + 全局 `.env` + 环境）与备份目录扫描都在**跨进程锁内**完成 ⇒ 并发热点下写方可能得到 `config_write_failed`（锁超时 5s）而非 `config_conflict`（**fail-closed：无损坏、无部分写入**）。④ **无末行换行文件的追加约定** —— 追加新键沿用「文件无末行换行」这一属性（实测 `MAX_ITERATIONS=5\nSHELL_TIMEOUT=60`），是有意保真，但部分工具约定「文件必须以换行结尾」⇒ 记入备查。
+  evidence: `src/heagent/pub/persist.py::atomic_update_bytes`（`lock_path = path.with_name(path.name + ".lock")`）；`src/heagent/config/write.py::_verify` 与 `_apply_locked`（候选构造 / 备份回收在 `atomic_update_bytes` 的回调内）；`src/heagent/config/envfile.py::replace_or_append`（末行换行跟随文件）；探针 `.heagent/tmp/review50_probe.py` 的 B / E / K 三例实测输出；评审报告镜头一 #1/#2/#3 与镜头二 ⑤。
+  Progress（2026-09-24 登记；**2026-09-27 ① 按允许的「文档说明」修法落地**）：① 已在 `docs/frame.md` §4.18 的写通道行如实写明副作用（锁与目标同目录 ⇒ 写项目配置会在**用户项目根**留 `<项目根>/.env.lock`；HeAgent 自带 `.gitignore` 条目、用户项目没有），并重申**锁的落点语义不改**。③④ 仍未修（冻结边界；② 的改造已在 2026-09-27 落地）: ① 锁文件**刻意不删**（删除会引入「B 等旧 inode、C 拿新文件加锁成功」的竞态，见 `persist` 模块注释），挪到状态目录会改变锁语义 ⇒ 修法只能是「写入方提示 / 文档说明」，**不得**改锁的落点语义；③ 收窄需「锁外构造候选 + 锁内复检指纹」的乐观重试，属流水线结构调整。三条都超出「评审期最小修复」范围，故如实登记而非草率改动。
+  Progress（2026-09-27，**② 已闭合**，commit `a1b9403`）：回滚失败不再是内部细节——`persist` 新增 `RollbackFailedError`
+  （`__cause__` = 原回读异常、`rollback_error` = 回滚失败原因），`atomic_update_bytes` 在「``verify`` 抛错
+  且 ``_restore_bytes`` 也抛错」时抛它；写通道据此给出**如实**文案（`post-write verification failed and the
+  previous content could not be restored (<原因>)`，不再无条件宣称「已回滚」）并落 `rollback_failed` 审计。
+  判据 3 条（`tests/test_persist_atomic.py::TestAtomicUpdateBytes::test_verify_failure_with_a_failed_rollback_is_reported`、
+  `tests/test_config_write.py::TestFailureRecovery::test_failed_rollback_is_reported_truthfully`、
+  `::test_rollback_failure_is_audited_even_without_the_readback_flag`），变异体 **4/4 精确变红**
+  （`.heagent/tmp/mutate_a14_rollback.py`：吞掉回滚失败 / 不接住新异常 / 审计退回 `rolled_back` /
+  审计退回「只在 `readback_failed` 时落痕」的漏记窗口）；`docs/frame.md` §4.18 的审计行与写通道行同步。
+  **实现期的一处自我修正**：新 handler 起初照抄兄弟分支写了 `if state.readback_failed:`，覆盖率暴露出该 False
+  分支永不执行（`RollbackFailedError` 只可能来自设过标志的 `_verify`）——与其留一条测不到的分支，改为
+  **无条件落审计**并写明理由（「回滚失败」本身即足以构成留痕理由，漏记才是错），第 3 条判据钉住这一点。
+  **③④ 仍未修**（冻结边界不变）。
+
+- **结论**：**已闭合**（2026-09-27，四面各有处置）：
+  ① **`.env.lock` 落在用户项目根** —— 按允许的「文档说明」修法落地（`docs/frame.md` §4.18 如实写明副作用；**锁的落点语义不改**——挪走会破坏「同一把锁贯穿读改写」）；
+  ② **回滚失败时的文案不实** —— **已修**（commit `a1b9403`）：`persist` 新增 `RollbackFailedError`（`__cause__` = 原回读异常、`rollback_error` = 回滚失败原因），写通道据此给出如实文案并落 `rollback_failed` 审计；
+  ③ **写锁内 I/O 时长** —— **已修**（commit `1959b9e`）：候选构造（`Settings` 读候选 / 全局 `.env` / 环境，整条流水线最贵的一步）与备份目录回收移到**锁外**；锁外用快照构造的候选在锁内复检内容基线，过期则在锁内重做（绝不把基于旧内容的候选写下去）；回收失败只告警（维护动作），不把已落盘的写改写成错误；
+  ④ **无末行换行文件的追加约定** —— 维持「跟随文件属性」的保真语义，已在 §4.18 记入备查（非缺陷）。
+- **冻结边界（守住）**：锁的落点语义不变；`ROLLBACK` 路径仍**不写文件**（文案与审计都不得宣称已回滚，除非真的还原成功）；写通道的 fail-closed 校验（键白名单 / 值守卫 / 候选构造 / 回读）一步未减。
+- **证据**：`src/heagent/pub/persist.py`（`RollbackFailedError`）、`src/heagent/config/write.py`（`_prepare_candidate` / `_Prepared` / `_prune_backups_best_effort` / 锁内 `_update` 的基线复检）、`docs/frame.md` §4.18（写通道行：锁作用域；审计行：三个结果枚举）。
+- **验证（2026-09-27 亲跑）**：② 判据 3 条 + 变异体 **4/4**（`.heagent/tmp/mutate_a14_rollback.py`）；③ 判据 4 条 + 变异体 **4/4**（`.heagent/tmp/mutate_a14_lock_scope.py`：候选构造搬回锁内 / 去掉锁内复检 / 回收搬回锁内 / 回收失败重新变成写失败）。全量 `pytest --cov` → **3116 passed / 11 skipped / 18 deselected**、覆盖率 **91.92%**（`config/write.py` 291 stmt / 0 missed）。
 
