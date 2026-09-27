@@ -16,14 +16,12 @@
 | 历史 | [迭代历程](iteration.md)、[架构沿革](architecture-history.md) | 架构变更提交者追加事实和来源 |
 | 外部资料 | [新闻归档](news.md)（`docs/news.md` 已被 gitignore，属本地运行时产物，克隆后可能不存在） | 资料提交者保留采集日期与来源，不作为项目实现依据 |
 | 观测 | [frame.md 事件契约](frame.md) | 事件字段/发射点变更提交者同步逐 kind 表与黄金测试 |
-| 性能 | [诊断命令速查](troubleshooting.md#诊断命令速查) | 基准/阈值入口随测试基建变更更新 |
+| 性能 | [性能基准](#性能基准) | 基准/阈值入口随测试基建变更更新 |
 
 维护责任按变更角色定义，不虚构个人负责人。专题中的日期是分析或采集时间，不代表持续更新承诺。
 
 - [架构参考](frame.md)：当前数据流、模块边界、配置、运行时治理和已知缺口。
 - [部署说明](../deploy/README.md)：部署资产的真实适用范围和限制。
-- [扩展指南](extending.md)：新增 Provider / Tool / Skill 包的步骤与契约自检。
-- [故障排查](troubleshooting.md)：症状 → 诊断命令 → 相关模块速查。
 - [「Goal 工作流」专题](goal-workflow.md)：`/goal`、`workflow.md`、Epic/Story 和 checkpoint 的职责边界。
 
 ## 推荐阅读路径
@@ -43,8 +41,7 @@
 | 把 agent 暴露成 TCP 服务 / 写外部客户端 | [README「TCP 入口（实验性）」](../README.md) 与 [`frame.md`](frame.md) 的 4.16（协议 / 限额 / 安全立场） |
 | 网页入口 / 写浏览器端 / HTTP API | [README「HTTP 网页入口（实验性）」](../README.md) 与 [`frame.md`](frame.md) 的 4.17（SSE 重连 / 同源防线 / 限额 / 观测） |
 | 网页控制台：多项目 / 会话 / 配置面板与写入 | [`frame.md`](frame.md) 的 4.18（工作区模型 / 项目注册表 / 会话持久化 / 四层配置来源 / 写通道 10 步 / 生效语义 / 安全立场与已知缺口） |
-| 如何新增 provider / tool / 技能包 | [扩展指南](extending.md) |
-| 报错/行为异常先查哪 | [故障排查](troubleshooting.md) |
+| 如何新增 provider / tool / 技能包 | [项目协作规则](../AGENTS.md) 的「新增扩展点」章 |
 | GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
 | 历史为什么这样演进 | [`iteration.md`](iteration.md) 与 [`_bmad-output/`](../_bmad-output/README.md) |
 
@@ -53,6 +50,21 @@
 - [设计说明](design.md)：项目定位、设计动机、非目标和成熟度判断。
 - [迭代指南](iteration.md)：如何继续迭代，以及已完成周期的历史索引。
 - [质量门禁脚本](../scripts/quality_gate.py)：冒烟、回归与覆盖率、lint、format 和类型检查的执行入口。
+
+## 性能基准
+
+基准用例不进默认回归（`pyproject.toml` 的 `addopts` 已 deselect `benchmark` 标记），要显式运行：
+
+```bash
+# 跑一遍看数字
+python -m pytest -m benchmark -q
+
+# 入库基线 → 后续与它对比做阈值检查（超出即失败：数量级守护）
+python -m pytest -m benchmark -q --benchmark-autosave --benchmark-storage=./benchmark-data
+python -m pytest -m benchmark -q --benchmark-storage=./benchmark-data --benchmark-compare=0001 --benchmark-compare-fail=min:50%
+```
+
+`--benchmark-autosave` / `--benchmark-storage` / `--benchmark-compare` 都是**命令行选项**（pytest-benchmark 不从 `pyproject.toml` 读基准设置），因此入库与阈值检查都要显式传参；基线目录 `./benchmark-data/` 是本地产物，已在 `.gitignore`。
 
 ## 规划归档
 

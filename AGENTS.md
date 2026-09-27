@@ -43,3 +43,35 @@ python -m heagent              # 交互式 CLI
 ## 架构与文档导航
 
 依赖方向为 `pub/（exceptions/types/safe_logging/persist/frontmatter/roles/workspace/task_shutdown）→ config/（Settings・catalog・write・envfile）→ providers/tools/context → engine → agent → 入口层（cli / gui / goal）`；新增 provider 或工具不得反向导入 `agent`，MCP 工具必须经 `ToolRegistry` 注入；`network/` 是传输叶子，不得导入运行栈与配置（可执行的依赖断言见 `tests/test_architecture_contracts.py`）。跨模块接口优先查看 `src/heagent/pub/types.py` 和 `docs/frame.md`，产品设计见 `docs/design.md`，迭代流程见 `docs/iteration.md`。参考其他 agent 项目时要适配 HeAgent 的 asyncio 与模块化结构，不要直接复制同步单文件实现。
+
+## 新增扩展点
+
+新增 Provider / Tool / Skill 包时按下面走；通用前置（不反向导入 `agent/`、跨模块数据用
+`pub/types.py` 的 Pydantic 模型、业务执行只读构造期配置快照）见上文与 `CLAUDE.md`。改完跑
+`pytest tests/test_architecture_contracts.py -q`——新增边界必须同步维护该文件。
+
+**Provider（`providers/`）**：实现 `providers/base.BaseProvider` 协议三件（`send` / `stream` /
+`get_metadata`；最小参考 `tests/test_agent_loop.py::StubProvider`）。OpenAI 兼容端点复用
+`providers/openai.py` 只加配置；新协议在 `providers/` 下新建模块（流式 `usage` / `tool_calls` 的末块
+补全别漏，先例 `providers/anthropic.py`）；容错按职责挂 `chain.py`（跨 provider 回退）或
+`key_rotation.py`（多密钥轮换）；中间件实现 `agent/middleware.MiddlewareFn` 经
+`AgentLoop(middlewares=[...])` 注入。测试放 `tests/providers/`（agent loop 交互一律 `StubProvider`，
+不打真实 API）；新增配置项同步 `.env.example` 与 `docs/frame.md` 4.10。
+
+**Tool（`tools/builtins/`）**：新建模块，用 `@tool(read_only=...)` 装饰 async 函数，并挂到
+`tools/builtins/__init__.py`（import 即注册）。治理面由 `engine/policy.py` 自动裁决（`read_only=True`
+⇒ `readOnlyHint=True` 可放行；有副作用者考虑 `SANDBOX_TOOL_PROFILES` 档位或审批）。文件读写必须经
+`tools/path_safety` 围栏（`resolve_workspace_path` / `open_text_under_root`；`os.open` 有 AST 白名单），
+拉起子进程复用 `tools/sandbox/process.py` 的 `reap_subprocess` / `cap_channel` / `scrub_sensitive_env`。
+「作用对象」摘要由 `tools/call_summary.summarize_tool_call` 单点生成。测试 `tests/test_<tool>.py`
+（monkeypatch 的内部函数必须与调用方同模块）；`docs/frame.md` 4.4 的表追加一行。
+
+**Skill 包（`.heagent/skills/<package-id>/`）**：`SKILL.md` 必需（frontmatter 含 `canonical_id` 等），
+工作流包再加 `workflow.md`（`## Step NN` 从 1 连续；`role:` 指向存在的包，缺失硬失败不降级），
+`templates/` / `references/` / `assets/` / `scripts/` 经 `SkillPackage.read_template` 等类型化读取。
+声明契约：`input:` 只能引用 CLI 注入键（`user intent` / `user responses` / `existing project context`）
+或前序步骤 `output:`，否则该步 BLOCKED；`validation: section: <标题>` 由 `WorkflowRunner` 机械校验；
+`required_resources` 声明必需模板（缺失在加载期失败）。导入外部包走 `memory/skill_importer.py`。
+测试 `tests/test_skill_packages.py` / `tests/test_workflow_resources.py` /
+`tests/test_skill_packages_toctou.py`，技能文件禁止裸 `read_text` / `open`（AST 契约钉死）；包行为
+变更改包声明，运行时进度与恢复语义见 `docs/frame.md` 4.13。
