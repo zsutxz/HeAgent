@@ -99,6 +99,9 @@ def _build_loop(
     ``enable_cron=False`` 让调用方**显式拒绝**构造 ``CronScheduler``（HTTP 入口用）：注意
     scheduler 的构造条件里含 ``session is not None``，因此「网页侧没有后台调度」在传入会话后
     再也不是 `session=None` 的副作用——必须显式关掉（Story 50-3 的 T6 / 评审 F2）。
+    2026-09-27 加固（活动台账 A11②）：`enable_cron=False` **同时**不再构造 `JobStore`——
+    只拒调度器不够，绑进 loop 的 cron 工具仍能写 `<项目>/.heagent/cron/jobs.json`，
+    而那些任务在本进程 IDLE 永不触发、却会在后续 CLI 会话里无人监督地执行。
     """
     # Phase 1：组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
     config = ensure_runtime_config(engine) if engine is not None else resolve_runtime_config(settings)
@@ -110,7 +113,7 @@ def _build_loop(
     facts = facts or FactStore(str(paths.memory_file))
     profile = profile or ProfileStore(str(paths.profile_file))
     soul = soul or _build_soul(soul_path)
-    cron_store = JobStore(str(paths.cron_file)) if config.cron_enabled else None
+    cron_store = JobStore(str(paths.cron_file)) if (config.cron_enabled and enable_cron) else None
     compressor, window_reset = _build_context_strategy(config, provider)
     engine = engine or EngineContainer.default(
         workspace_root=str(paths.root), sandbox_backend=sandbox_backend, runtime_config=config

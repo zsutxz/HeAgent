@@ -337,9 +337,17 @@ def test_new_loop_refuses_to_own_a_cron_scheduler(monkeypatch: pytest.MonkeyPatc
     assert seen["enable_cron"] is False
     assert seen["session"] is store
     assert loop.session is store  # 运行因此真的会写这个会话存储（此前是 session=None）
+    # A11②（2026-09-27）：只拒调度器不够——cron 工具会把任务写进项目的 jobs.json，
+    # 而它们在本进程 IDLE 永不触发、却在后续 CLI 会话里无人监督地执行。
+    assert loop.cron_store is None
 
     monkeypatch.setattr("heagent.cli.composition._build_loop", lambda *args, **kwargs: (loop, object()))
     with pytest.raises(RuntimeError, match="must not own a CronScheduler"):
+        handler.new_loop()
+
+    monkeypatch.setattr("heagent.cli.composition._build_loop", lambda *args, **kwargs: (loop, None))
+    monkeypatch.setattr(loop, "cron_store", object())
+    with pytest.raises(RuntimeError, match="must not bind cron tools"):
         handler.new_loop()
 
 

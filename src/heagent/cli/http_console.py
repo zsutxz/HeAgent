@@ -239,6 +239,9 @@ class HttpAgentHandler:
         ``session is not None`` 条件，传入会话后「HTTP 侧没有后台调度」再也不能靠 ``session=None``
         偶然成立（评审 F2）。返回值里若真出现调度器，本方法**显式失败**——把带无人监督执行面的
         运行时装进 HTTP 进程是 49-5 明令禁止的形态，绝不静默忽略。
+        2026-09-27 加固（活动台账 A11②）：只拒调度器不够——绑进 loop 的 cron 工具仍能写
+        `<项目>/.heagent/cron/jobs.json`，任务在本进程 IDLE 永不触发、却会在后续 CLI
+        会话里无人监督地执行；故这里**同时**断言 loop 未绑 cron 工具。
         """
         from heagent.cli.composition import _build_loop  # noqa: PLC0415 —— patch 缝落在此模块（见其 docstring）
 
@@ -258,6 +261,8 @@ class HttpAgentHandler:
         )
         if scheduler is not None:
             raise RuntimeError("HTTP runtime must not own a CronScheduler")
+        if loop.cron_store is not None:
+            raise RuntimeError("HTTP runtime must not bind cron tools")
         return loop
 
     async def __call__(
