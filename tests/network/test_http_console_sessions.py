@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -591,3 +592,60 @@ def test_rename_request_normalizes_and_bounds_the_title() -> None:
     with pytest.raises(ValueError):
         SessionRenameRequest(title="x" * (MAX_SESSION_TITLE_CHARS + 1))
     assert SessionRenameRequest(title="t", fingerprint=3).fingerprint == 3
+
+
+# ── 阻塞 I/O 卸载（活动台账「控制台阻塞 I/O 与会话列表成本」，2026-09-27 修复）──
+
+
+class _ThreadRecordingSessions:
+    """真实 ``SessionStore`` 的薄包装，记录每次**读**调用发生在哪个线程。
+
+    判据取**线程身份**而非耗时：``asyncio.to_thread`` 必然把调用挪到工作线程，而「有没有卡住循环」
+    在单进程测试里既难计时也不稳定。
+    """
+
+    def __init__(self, store: SessionStore) -> None:
+        self._store = store
+        self.read_threads: list[int] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._store, name)
+
+    def list_metadata(self, **kwargs: Any) -> list[Any]:
+        self.read_threads.append(threading.get_ident())
+        return self._store.list_metadata(**kwargs)
+
+    def load_metadata(self, session_id: str) -> Any:
+        self.read_threads.append(threading.get_ident())
+        return self._store.load_metadata(session_id)
+
+    def load(self, session_id: str) -> list[Message]:
+        self.read_threads.append(threading.get_ident())
+        return self._store.load(session_id)
+
+
+async def test_session_reads_are_offloaded_off_the_event_loop(tmp_path: Path) -> None:
+    """会话列表 / 详情 / 运行前解析三条读路径都必须离线到线程池。
+
+    会话读是**同步整份文件 I/O**（``list_metadata`` 逐文件全量读，随会话数线性放大），留在唯一事件
+    循环里会卡住在途 SSE 流与其余请求。无修复时本用例的可观察差异：``read_threads`` 恒等于事件循环线程。
+    """
+    harness = _Harness(tmp_path)
+    runtime = harness.console._runtime_for("default")
+    recorder = _ThreadRecordingSessions(runtime.sessions)
+    runtime.sessions = recorder
+    session_id = recorder.create("abc123", title="t").session_id
+    loop_thread = threading.get_ident()
+
+    await harness.console.list_sessions("default")
+    await harness.console.get_session("default", session_id)
+    started = await harness.console.start_project_run("default", ProjectRunRequest(prompt="hi"))
+
+    try:
+        assert started.session_id == session_id  # 解析出的会话就是既有那个（非新建）
+        assert len(recorder.read_threads) >= 3, recorder.read_threads
+        assert all(thread != loop_thread for thread in recorder.read_threads), (
+            f"会话读仍在事件循环线程上执行：{recorder.read_threads} vs loop={loop_thread}"
+        )
+    finally:
+        await harness.release()

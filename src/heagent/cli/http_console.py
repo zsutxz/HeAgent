@@ -506,7 +506,10 @@ class HttpProjectConsole:
     async def list_sessions(self, project_id: str) -> SessionListResponse:
         """该项目的会话列表（时间降序）。损坏文件也列出（``unreadable=true``），不静默消失。"""
         runtime = self._runtime_for(project_id)
-        return SessionListResponse(sessions=[_session_entry(item) for item in runtime.sessions.list_metadata()])
+        # 会话读是同步整份文件 I/O（随会话数线性增长）⇒ 经 to_thread 卸载，避免卡住同一循环里的
+        # 在途 SSE 流与其余请求（活动台账「控制台阻塞 I/O 与会话列表成本」条目）。
+        items = await asyncio.to_thread(runtime.sessions.list_metadata)
+        return SessionListResponse(sessions=[_session_entry(item) for item in items])
 
     async def create_session(self, project_id: str, request: SessionCreateRequest) -> SessionEntryResponse:
         """新建空会话。断言「绝不复用已有 id」（uuid4），也就不会覆盖既有对话。"""
@@ -532,12 +535,12 @@ class HttpProjectConsole:
         sid = _guarded_session_id(session_id)
         store = runtime.sessions
         try:
-            meta = store.load_metadata(sid)
+            meta = await asyncio.to_thread(store.load_metadata, sid)
         except SessionUnreadableError as exc:
             raise ConsoleOperationError(HttpErrorCode.SESSION_UNREADABLE, "session file cannot be parsed") from exc
         if meta is None:
             raise ConsoleOperationError(HttpErrorCode.UNKNOWN_SESSION, f"no session {sid!r}")
-        messages, truncated = _project_messages(store.load(sid))
+        messages, truncated = _project_messages(await asyncio.to_thread(store.load, sid))
         run_id, status = self._run_state(project_id, sid)
         return SessionDetailResponse(
             session_id=sid,
@@ -581,7 +584,8 @@ class HttpProjectConsole:
             raise ConsoleOperationError(
                 HttpErrorCode.PROJECT_UNAVAILABLE, "this server has no run entry for the project"
             )
-        session_id = self._resolve_session(runtime, request.session_id)
+        # `_resolve_session` 缺省分支会列全部会话（同步整份读）⇒ 同样卸载到线程池。
+        session_id = await asyncio.to_thread(self._resolve_session, runtime, request.session_id)
         executor = functools.partial(runtime.executor, session_id=session_id)
         try:
             record = await self._runs.start_run(
