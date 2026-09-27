@@ -1,6 +1,6 @@
 # HeAgent BMad 开发文档整合总览
 
-> **生成**：2026-08-18（2026-08-19 修订：并入原 EPICS-INDEX.md 导航层，补周期 9；**2026-09-15 整理**：补周期 10-15（Epic 36-47）速览、`patches/` 解散后的 spec 归档说明、状态矩阵与当前状态刷新至 2026-09-15；**2026-09-18 整理**：新增 §17.4「待完成工作」，修正 9 处「已闭环却仍列为待办」的表述，指标刷新至 2026-09-18；**2026-09-22 整理**：补 2026-09-17~22 时间线（优化批次 + 架构优化周期 Phase 0–5）、§17 当前状态刷新至 2026-09-22、附录补周期档案子文件夹；**2026-09-24 整理**：与 `implementation-artifacts/deferred-work-archive.md` 去重（§13.1 / §15.3 / §16.2 / §17.4-A 统一为「一处正文 + 其余指路」）、补 Epic 48-50 的时间线·状态矩阵·编号表·目录地图、修正失效计数与失效区间（`15 个周期`、`Z-D1..D7`、`25 个 stories 目录 / 82 个 story 文件`、`4 条活动台账项`）；**2026-09-24 追加**：Epic 50 收口放行后新增 **Story 50-8**（体验优化轮，兼作该 Epic 后续需求统一落点），同步 `epics.md` / `sprint-status.yaml` / 本文件（Epic 50 由 7 → 8 条 story；周期 story 文件数 101 → 102，已实测复核）；**2026-09-26 追加**：Story 50-8 的**收口后评审**（三镜头，覆盖 50-1…50-8）落地——就地修 4 处判据/口径（含把 AC13 的 **195** 档写进可复跑的真浏览器清单）、台账 +3 条 blocked（A17 / A18 / A19，活动区 16 → **19**），报告见 `epics/epic-50-网页控制台周期/reviews.md#review-epic-50-story-50-8`；同一评审的**续轮**独立复现了「真实原生弹窗」链路（`auto→tkinter` + 真拉起 + 2s 超时 kill + 名额归还），并实测出「新端点**默认开且默认 CLI 内嵌服务也生效**」（`docs/frame.md` 4.18 / 五 已补正）；**2026-09-26 整理**：Epic 50 的 `reviews/` 目录（8 份评审 / 验收文档：规划评审 + 四轮评审 + 三份验收）**合并为单文件** `epics/epic-50-网页控制台周期/reviews.md`（正文逐字保留，仅标题层级下移一级、指向旧文件的 2 处链接改锚点；章节锚点 = 旧文件名去 `.md`，如 `#review-epic-50-closure`），本文件、`implementation-artifacts/deferred-work-archive.md`、`epics.md`、`docs/frame.md` 与 Epic 50 三份 story 的引用已同步改指）；**2026-09-26 全仓开发文档整理**：修正 Epic 50 计数与状态残留（§1.3 / §二时间线 / §14 状态矩阵 / §15.1 / §15.2 / 附录目录地图 / §17.1 的「7 story」与「50-8 `ready-for-dev`」→ **8 story 均 `review`**）、`reviews/` → 单文件 `reviews.md` 的引用；并同步 `docs/` 侧事实（frame.md 内置工具数 26、模块 DAG 重绘、4.10 表与 `Settings` 复核）、`CLAUDE.md` / `AGENTS.md` 的模块清单与依赖方向、`docs/README.md` 死锚点、`iteration.md` 产物索引缺 Epic 48-50）
+> **生成与维护**：2026-08-18 建立，持续按代码和 `sprint-status.yaml` 校正；最近一次全仓整理为 2026-09-26。本文只保留全周期摘要、状态索引和文档地图；活动 deferred 的正文以 [`implementation-artifacts/deferred-work-archive.md`](implementation-artifacts/deferred-work-archive.md) 为准，周期级闭合条目以各自 `deferred-work.md` 为准。
 > **范围**：`_bmad-output/` 全部 **18 个开发周期**（Epic 1-50 + S1-S4）+ 补丁 spec 归档（原 `patches/`）+ engine 增量，整合自各周期 brief / prd / architecture / epics / stories / sprint-status / retrospective / deferred-work 与补丁 spec 共 90+ 份文档。
 > **定位**：本文是 BMad 规划产物的**统一导航与综合摘要**（兼 epic 总目录，原 EPICS-INDEX.md 已并入）——按周期纵向梳理「意图 → 需求 → 架构 → 拆分 → 状态」，横向提供**统一编号索引**与**跨周期模式**。它**不是当前代码事实**：代码现状以 `docs/frame.md` 为准，规划与实现冲突时以 `src/` 为准。
 > **权威状态**：所有 Epic/Story 状态以 `_bmad-output/sprint-status.yaml`（2026-07-23 整合，唯一写目标）为单一权威。
@@ -642,7 +642,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 > **周期 16-18（Epic 48 / 49 / 50）不另设小节**——同一事实已在 §1.3 编号表、§15.1 状态矩阵与 §17.1 当前状态各记一次，此处只留产物地图（2026-09-24 实测）：
 >
 > - **Epic 48（TCP 网络接口）** → `epics/epic-48-TCP网络接口周期/`：`epic-48-TCP网络接口与CLI-Agent服务/` 下有 prd / architecture / epics / sprint-plan + 6 个 story，周期根另有 `retrospective-epic-48.md`
-> - **Epic 49（HTTP 网页入口）** → `epics/epic-49-HTTP网页访问周期/`：brief + epics + ARCHITECTURE-SPINE + 6 个 story + `reviews/` 3 份
+> - **Epic 49（HTTP 网页入口）** → `epics/epic-49-HTTP网页访问周期/`：brief + epics + ARCHITECTURE-SPINE + 6 个 story + 评审产物
 > - **Epic 50（网页控制台）** → `epics/epic-50-网页控制台周期/`：brief + epics + ARCHITECTURE-SPINE + 8 个 story（含 2026-09-24 追加的 50-8 体验优化轮）+ 单文件 `reviews.md`（2026-09-26 由 8 份文档合并：规划评审 + 四轮评审 + 三份验收）
 
 ### 12.1 周期 10：文件安全与凭证防护（Epic 36-39）· 2026-08-24
@@ -913,7 +913,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### 17.3 下一步（路线图）
 
-> 完整清单（**19 条**活动台账项 + 纪律类产物滞后 + 技术债候选 + 已决策关闭）见 **17.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（**23 条**活动台账项 + 纪律类产物滞后 + 技术债候选 + 已决策关闭）见 **17.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本已 `0.6.2`；`.github/workflows` 目前只有 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
 - ⏳ **安全纵深**：MCP stdio server 子进程接入沙箱（§17.4-A2，中-高）。
@@ -924,9 +924,9 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 > **权威层级**：活动（未闭合）条目以 `implementation-artifacts/deferred-work-archive.md`（append-only 入口）为准；Epic/Story 状态以 `sprint-status.yaml` 为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（19 条，**索引**）
+#### A. 活动台账未闭合条目（23 条，**索引**）
 
-> 完整正文（触发条件 / 严重度理由 / 冻结边界 / evidence / Progress）一律以 `implementation-artifacts/deferred-work-archive.md` 的**活动区**为准（append-only 入口）。本表只做导航、**不再复制**——上一版在此复制了 4 条并很快漂移：2026-09-26 实测台账已是 19 条（2026-09-24 Story 50-8 实现 +2：A15 / A16；2026-09-26 该 story 收口后评审 +2：A17 / A18，同一评审的续轮 +1：A19），且该表记的 `cli_goal.py` 1054 行现已降到 680。编号 = 台账条目顺序 ①…⑲。
+> 完整正文（触发条件 / 严重度理由 / 冻结边界 / evidence / Progress）一律以 `implementation-artifacts/deferred-work-archive.md` 的**活动区**为准（append-only 入口）。本表只做导航、**不再复制**；活动区当前 23 条，编号按台账顺序对应。
 
 | # | 条目 | 严重度 |
 |---|------|--------|
@@ -975,7 +975,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 - **`45-1` / `45-2` 无 story 文件**（该 epic 目录下只有 `45-3`）；`spec-45-3` / `spec-46-1` 已在归档提交中删除或改名（仅存 git 历史）。
 - **17 个 epic 的 retrospective 状态仍为 `optional`**：25-28、36-39、40、41、42、43-46、**49、50**（2026-09-24 逐条数自 `sprint-status.yaml`）；其中 36、37、40、41、42 已于 2026-09-18 补做、Epic 48 已于 2026-09-23 补做（状态字段均未改），余 12 个未补做。
 - **`S4-1` 仍 `skipped`**（executor emit `sandbox_backend` + `sandbox_pid`）——沙箱执行轨迹不可追溯。
-- `_bmad-output/README.md` 两处小滞后（2026-09-24 实测）：① `:187`（各周期 `deferred-work.md` 表）仍把「goal 跨进程锁」列为**活动项**、该行也只写到 `E41-D1..D4`——实际 E41-D5 跨进程锁已于 2026-09-17 闭合（`855d135`）、整组 D1..D7 全部闭合（见 §13.1 表）；② `:5` 的链接文本仍写 `[deferred-work.md]`，指向的已是 `deferred-work-archive.md`（`:13`/`:197` 已是新名）。
+- `_bmad-output/README.md` 的导航已统一到当前归档规则：活动项只指向 `implementation-artifacts/deferred-work-archive.md`，已闭合项按归属 Epic 进入各周期 `deferred-work.md`。
 
 #### D. 技术债与改进候选（低优先，2026-09-18 逐条核实仍在）
 
@@ -1032,11 +1032,10 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/epics/epic-48-TCP网络接口周期/` | TCP 网络接口（Epic 48，2026-09-22） |
 | `_bmad-output/epics/epic-49-HTTP网页访问周期/` | HTTP 网页入口（Epic 49，2026-09-23） |
 | `_bmad-output/epics/epic-50-网页控制台周期/` | 网页控制台（Epic 50，2026-09-23 建立 → 09-24 实现） |
-| `_bmad-output/epics/<周期>/[epic-NN-主题/]stories/` | 按 epic 归档的 story 文件（2026-09-24 全深度实测：**101 个**，**28 个** `stories/` 目录；原记 82 / 25 已失效） |
+| `_bmad-output/epics/<周期>/[epic-NN-主题/]stories/` | 按 epic 归档的 story 文件（2026-09-26 全深度实测：**102 个**，**28 个** `stories/` 目录） |
 | `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录（原 `patches/<领域>/` 2026-09-15 解散） |
 | `_bmad-output/implementation-artifacts/arch-optimization-cycle/` | **架构优化周期档案**（总方案 + phase0..5 spec，各含执行记录；2026-09-22 归档，原 `docs/test.md` 已删并） |
-| `_bmad-output/implementation-artifacts/deferred-work-archive.md` | 工作流的跨周期 deferred **活动条目**（未闭合项，19 条）+ 勘察类闭合归档正文（`Z-D1`~`Z-D9`、`Z-D12`）+ 全部 `Z-Dn` 的 **ID 索引**——原活动台账 `deferred-work.md` 已于 2026-09-17 删除并入；2026-09-24 整理后活动区不留已闭合副本，且 `Z-D10`/`Z-D11`（Epic 48）、`Z-D13`~`Z-D15`（Epic 50）的正文已回填各周期 `deferred-work.md`；同日 Story 50-8 实现 +2 条（A15 / A16）；2026-09-26 该 story 收口后评审再 +3 条（A17 / A18 / A19，均 blocked）|
+| `_bmad-output/implementation-artifacts/deferred-work-archive.md` | 工作流的跨周期 deferred **活动条目**（未闭合项，23 条）+ 勘察类闭合归档正文（`Z-D1`~`Z-D9`、`Z-D12`）+ 全部 `Z-Dn` 的 **ID 索引**；活动正文只在本文件，已归属 Epic 的闭合正文移入对应周期 `deferred-work.md` |
 | `_bmad-output/implementation-artifacts/spec-business-data-integration.md`（**2026-09-15 已删除**） | 业务数据整合**母规划 spec**——未启动、未衍生实现 spec 或 epic，正文仅存 git 历史（见 `_bmad-output/README.md`「已失效删除」） |
 | `_bmad-output/epics/<周期>/deferred-work.md` | 已闭合遗留项按归属 epic 归档（2026-09-24 实测存在 **9 份**：01-10 / 11-18 / S1-S4 / 36-39 / 40 / 41 / 47 / **48** / **50**） |
 | `_bmad-output/specs/` | quick-dev 本地工作件（gitignored；Epic 41 goal 契约已归档至 `_bmad-output/epics/epic-41-目标驱动开发周期/spec-goal-command/`） |
-

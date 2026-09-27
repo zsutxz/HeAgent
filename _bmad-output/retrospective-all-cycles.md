@@ -1,11 +1,11 @@
 # HeAgent 全周期综合回顾
 
-> 生成: 2026-07-22（**2026-09-15 扩充**：补周期 8–15 / Epic 24–47 速览；**2026-09-18 修订**：新增「五、待完成工作」，修正 6 处已闭环却仍列为待办的表述，指标刷新至 2026-09-18；2026-09-20 补录 §1b 自学习闭环速览并统一 §3 编号口径；**2026-09-22 补录 §15 架构优化周期**——非 BMad 流程的 6 阶段周期，指标刷新至 2026-09-22；**2026-09-24 补录 §16（Epic 48–50 网络入口三周期）**，覆盖与指标刷新至 2026-09-24）
+> 生成: 2026-07-22；最近一次整理: 2026-09-26。本文是历史回顾与跨周期教训，不是状态台账；活动 deferred 的正文以 [`implementation-artifacts/deferred-work-archive.md`](implementation-artifacts/deferred-work-archive.md) 为准。
 > 覆盖: Epic 1–50 + S1–S4，**19 个周期**（**54 个 Epic 条目** = Epic 1–50 + S1–S4；另含架构优化周期 Phase 0–5，非 BMad 流程）
 > 基准: **2061 passed / 9 skipped / 18 deselected**（2026-09-22 实测）、ruff / mypy clean、覆盖率 **90.88%**（gate 87）
 >
 > 归档更新：2026-09-14 已完成实现 spec 按 Epic 40 / Epic 47 归档；2026-09-15 `patches/` 目录解散（补丁 spec 按归属 epic 归档）、跨周期 deferred 台账按 epic 归并。
-> **口径说明**：1.1–1.6 为 2026-07-22 的正式回顾；**1.7–1.14 是 2026-09-15 补录的速览**（这 8 个周期的 `epic-*-retrospective` 在 sprint-status 中多为 `optional`，未做正式回顾，明细见各周期目录与 `consolidated-overview.md` 十二）。**2026-09-18 更新**：36、37、40、41、42 已补做正式回顾（5 份 `retrospective-epic-NN.md`），`sprint-status.yaml` 的状态字段仍为 `optional`。**2026-09-24 更新**：§16 为 Epic 48–50 速览——**48 有正式回顾**（`epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`，2026-09-23 补做）故按其摘录；**49 / 50 仍为 `optional`**（50 尚 `in-progress`），故按交付记录与评审产物（Epic 49 `reviews/` 3 份；Epic 50 单文件 `reviews.md`——2026-09-26 由 8 份合并）摘录并标注来源。
+> **口径说明**：早期章节是正式回顾，后续章节包含补录速览；未完成正式回顾的周期会明确标注 `optional`。Epic 48 有正式回顾；Epic 49 / 50 依据交付记录与评审产物摘录，状态以 `sprint-status.yaml` 为准。
 
 ---
 
@@ -160,7 +160,7 @@
 
 ### 16. 网络入口三周期（Epic 48–50）· 2026-09-22 – 2026-09-24
 
-> **来源（逐条可查，不做推测式回顾）**：**Epic 48** 按其正式回顾 `epics/epic-48-TCP网络接口周期/retrospective-epic-48.md`（2026-09-23 补做）摘录；**Epic 49 / 50 的 retrospective 仍为 `optional`**（50 尚 `in-progress`），故按其交付记录、`epics/epic-49-HTTP网页访问周期/`（含 `reviews/` 3 份）、`epics/epic-50-网页控制台周期/`（含单文件 `reviews.md`，2026-09-26 由 8 份评审 / 验收文档合并）产物摘录。状态口径以 `sprint-status.yaml` 为准。
+> **来源（逐条可查，不做推测式回顾）**：Epic 48 按其正式回顾摘录；Epic 49 / 50 依据各自周期目录的交付与评审产物摘录。Epic 50 的评审已合并为 `epics/epic-50-网页控制台周期/reviews.md`。状态口径以 `sprint-status.yaml` 为准。
 
 | 维度 | 要点 |
 |------|------|
@@ -227,9 +227,9 @@
 
 > **权威来源**：活动（未闭合）条目 = `_bmad-output/implementation-artifacts/deferred-work-archive.md`；Epic/Story 状态 = `_bmad-output/sprint-status.yaml`；安全缺口 = `docs/frame.md` 五。逐条证据与「已闭环却仍被列为待办」的修正表见 `consolidated-overview.md` §17.4。
 
-### 5.1 活动台账未闭合（14 条，**索引**）
+### 5.1 活动台账未闭合（23 条，**索引**）
 
-> 正文、编号与「触发条件 / 严重度理由 / 冻结边界」一律以 `_bmad-output/implementation-artifacts/deferred-work-archive.md` 的**活动区**为准（2026-09-24 起本表只做导航、不再复制；编号 = 台账条目顺序），逐条摘要另见 `consolidated-overview.md` §17.4-A。
+> 正文、编号与「触发条件 / 严重度理由 / 冻结边界」一律以 `_bmad-output/implementation-artifacts/deferred-work-archive.md` 的**活动区**为准；本节只做导航，编号按台账顺序对应，逐条摘要另见 `consolidated-overview.md` §17.4-A。
 >
 > **旧编号对照**：本条 2026-09-18 版列 A1~A4（TOCTOU / MCP stdio / cli 拆分 / 路径级审批）；新编号前三者不变，**路径级审批移到 A6**。原 A5（`RoleSpec.sandbox_profile` 死字段）与 A6（沙箱进程数限额）已于 2026-09-18 闭合——A5 取删除方向，A6 新增 `SANDBOX_NPROC_LIMIT` + 修正 WinJob `JOB_OBJECT_LIMIT_PROCESS_TIME` 常量（原误写 `0x8` 即 ACTIVE_PROCESS 位）；闭合档案见台账 **Z-D8 / Z-D9**。
 
@@ -243,7 +243,7 @@
 
 ### 5.3 路线图与技术债候选（逐条已核实仍开）
 
-- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本 `0.6.2`；`.github/workflows` 只有 `ci.yml` + `codeql.yml`）。
+- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（`.github/workflows` 目前只有 `ci.yml` + `codeql.yml`）。
 - ⏳ ~~`engine/workflow.py` legacy 相位机归档~~（已删除：2026-09-17 `d835bd8`，文件仅存 state/checkpoint-store）；benchmark 数据入库（历史趋势）；sandbox 开箱即用 profile 预设；Prompts/slash 结构化注册表。
 - ⏳ 低优先技术债：`model_pricing` 抽独立模型 + 校验、`guard_content` 加 `source` 参数、Hook 事件集补齐（`UserPromptSubmit`/`Stop`/`SubagentStop`/`PreCompact`）、readline 在 Windows 的降级方案、firejail/WinJob 不可用的 CLI banner 提示、sandbox profile 参数合法性校验、`skill_update` 遇富正文技能拒绝改写。
 
@@ -255,4 +255,3 @@
 - 2026-09-18 复核确认**已闭合、不再列为待办**：bmad-build Step 07 `max_iterations`（E41-D6）、GUI `/goal` 收口（E41-D7）、goal 跨进程锁（E41-D5）、凭证 deny 项目级入口（F-D1）、沙箱资源/高级参数/per-tool 粒度（S-D4..D6）、`agent/loop.py` C901（已裁定接受）、`RoleSpec.sandbox_profile` 死字段（原 A5，取删除方向）、沙箱进程数限额（原 A6，`SANDBOX_NPROC_LIMIT` + WinJob 常量修正）。
 
 ---
-
