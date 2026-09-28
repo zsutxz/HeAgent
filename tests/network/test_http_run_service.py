@@ -556,7 +556,8 @@ class TestReconnect:
             await service.close()
 
     async def test_subscription_limit_is_enforced(self) -> None:
-        config = _config(max_connections=1)
+        """订阅上限取自**订阅面自己的旋钮**（`max_subscribers`，2026-09-28 从连接额度拆出）。"""
+        config = _config(max_subscribers=1)
         service = HttpRunService(config, _executor())
         record = await service.start_run("hi")
         # 手动占住唯一名额（等价于一个已建立的 SSE 流）。
@@ -566,6 +567,23 @@ class TestReconnect:
 
         assert response.status_code == 429
         assert response.json()["error"]["code"] == HttpErrorCode.RATE_LIMITED
+
+    async def test_subscription_limit_is_independent_of_the_connection_budget(self) -> None:
+        """**拆键判据**：连接额度收紧（1）不得连带压低订阅额度（2）。
+
+        修复前两者是同一个 `max_connections`：只为把连接面收紧设成 1，会顺带把每 run 的 SSE 订阅也压到 1，
+        而超额订阅只能由 Uvicorn 在**进 ASGI 之前**拒绝 ⇒ 客户端拿裸 `text/plain` 503，本入口的
+        429 `rate_limited` 分支实际不可达（Epic 49 收尾残留 ①）。
+        """
+        config = _config(max_connections=1, max_subscribers=2)
+        service = HttpRunService(config, _executor())
+        record = await service.start_run("hi")
+        record.subscribers.add(asyncio.Queue())  # 模拟一条已建立的 SSE 流 ⇒ 本次请求占用第 2 个名额
+        async with _client(service, config=config) as client:
+            response = await client.get(f"/api/runs/{record.run_id}/events")
+
+        assert response.status_code == 200, "订阅额度（2）被连接额度（1）压低了"
+        assert response.headers["content-type"].startswith("text/event-stream")
 
     async def test_disconnect_releases_the_subscription(self) -> None:
         """客户端断线（生成器被关闭）必须释放订阅者，否则名额会被死连接吃光。"""

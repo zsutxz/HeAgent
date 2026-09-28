@@ -351,6 +351,12 @@ class Settings(BaseSettings):
     # 同时打开的客户端连接上限（uvicorn limit_concurrency）；超限的连接收 503，不排队。
     # 内部另预留 1 条给就绪探测 / 健康检查——探测自己也要占一条连接，否则设为 1 时入口永远起不来。
     http_max_connections: int = Field(default=16, ge=1)
+    # 每个 run 的 **SSE 订阅者**上限（同一条 run 的并发事件流）。
+    # 2026-09-28 从 `http_max_connections` 里**拆出来**：超额订阅此前只能靠连接额度兜，
+    # 而连接额度由 Uvicorn 在进入 ASGI **之前**拒绝 ⇒ 客户端拿到裸 text/plain 503，本入口的
+    # 错误信封 / 安全响应头 / 访问日志全部缺席，429 rate_limited 分支实际不可达。
+    # 默认值与原连接额度一致（16）⇒ **默认行为逐字节不变**；调大连接额度时订阅面不再被迫同步放大。
+    http_max_subscribers: int = Field(default=16, ge=1)
     # 同时在途的网页 Agent 运行上限；MVP 固定为 1（单会话单运行），超限的提交收 run_conflict。
     http_max_inflight_runs: int = Field(default=1, ge=1)
     # **服务级**在途运行总额（跨项目共享）；0 = 不限（默认 ⇒ D9 的「并发随项目数线性」语义不变）。

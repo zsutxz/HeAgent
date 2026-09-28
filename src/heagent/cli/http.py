@@ -79,6 +79,7 @@ def build_server_config(
     host: str | None = None,
     port: int | None = None,
     max_connections: int | None = None,
+    max_subscribers: int | None = None,
     max_inflight_runs: int | None = None,
     max_total_inflight: int | None = None,
     max_request_bytes: int | None = None,
@@ -126,6 +127,7 @@ def build_server_config(
         host=target_host,
         port=final_port,
         max_connections=settings.http_max_connections if max_connections is None else max_connections,
+        max_subscribers=settings.http_max_subscribers if max_subscribers is None else max_subscribers,
         max_inflight_runs=settings.http_max_inflight_runs if max_inflight_runs is None else max_inflight_runs,
         max_total_inflight=(settings.http_max_total_inflight if max_total_inflight is None else max_total_inflight),
         max_request_bytes=settings.http_max_request_bytes if max_request_bytes is None else max_request_bytes,
@@ -295,6 +297,12 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     help="Max simultaneous client connections (default: HTTP_MAX_CONNECTIONS / 16)",
 )
 @click.option(
+    "--max-subscribers",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Max SSE subscribers per run; extra ones get 429 rate_limited (default: HTTP_MAX_SUBSCRIBERS / 16)",
+)
+@click.option(
     "--max-inflight-runs",
     type=click.IntRange(min=1),
     default=None,
@@ -367,6 +375,7 @@ def http_server_cmd(
     host: str | None,
     port: int | None,
     max_connections: int | None,
+    max_subscribers: int | None,
     max_inflight_runs: int | None,
     max_total_inflight: int | None,
     max_request_bytes: int | None,
@@ -398,6 +407,7 @@ def http_server_cmd(
         host=host,
         port=port,
         max_connections=max_connections,
+        max_subscribers=max_subscribers,
         max_inflight_runs=max_inflight_runs,
         max_total_inflight=max_total_inflight,
         max_request_bytes=max_request_bytes,

@@ -184,6 +184,10 @@ class HttpServerConfig(BaseModel):
     host: str = Field(default="127.0.0.1", min_length=1)
     port: int = Field(default=8766, ge=0, le=65535)
     max_connections: int = Field(default=16, ge=1)
+    # 每个 run 的 **SSE 订阅者**上限：2026-09-28 从 ``max_connections`` 拆出（默认值相同 ⇒ 默认行为不变）。
+    # 拆出的理由：连接额度由 Uvicorn 在**进 ASGI 之前**拒绝 ⇒ 超额订阅拿不到错误信封 / 安全头 / 访问日志，
+    # 429 ``rate_limited`` 分支实际不可达；订阅面现在有独立旋钮，调大连接额度不再被迫放大它。
+    max_subscribers: int = Field(default=16, ge=1)
     # **每个项目各自**的在途运行上限（Story 50-3 的 D9）：全局上限 = 项目数 × 该值，因此「A 项目在跑」
     # 不挡 B 项目；``POST /api/runs``（无项目归属）自己算一档，语义与 Epic 49 逐字相同。
     max_inflight_runs: int = Field(default=1, ge=1)
@@ -1359,7 +1363,9 @@ def _build_run_endpoints(
         # 限额检查与登记**同一步**完成（同步、无 await ⇒ 事件循环里原子）：旧实现把「先查后加」
         # 拆在端点与生成器两处，并发 GET /events 能一起穿过限额（活动台账 A9③）。
         queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue(maxsize=record.subscriber_queue_size)
-        if not record.try_add_subscriber(queue, config.max_connections):
+        # 上限取自**订阅面自己的旋钮**（2026-09-28 起）：此前复用 `max_connections`，而连接额度由 Uvicorn
+        # 在进 ASGI 之前拒绝 ⇒ 这条 429 分支实际不可达、客户端只拿到裸 503。
+        if not record.try_add_subscriber(queue, config.max_subscribers):
             return _json_error(
                 responses,
                 HttpErrorCode.RATE_LIMITED,
