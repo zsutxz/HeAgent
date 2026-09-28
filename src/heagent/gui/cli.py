@@ -6,7 +6,6 @@ Thin wrapper that builds the Provider/AgentLoop and hands off to the Textual app
 from __future__ import annotations
 
 import logging
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -71,8 +70,8 @@ def gui_cmd(
     _log_dir.mkdir(parents=True, exist_ok=True)
     _log_file = _log_dir / f"heagent-gui-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
 
-    _console_handler = logging.StreamHandler(sys.stderr)
-    _console_handler.setLevel(_console_level)
+    # 日志**只写文件**：TUI 独占终端，往 stderr 写日志会污染界面；同时这也让 /goal 的输出面干净
+    # ——历史上 GUI 靠重定向整个 stderr 截获 /goal 文案，会把日志一并倒进对话区（台账 A4b）。
     _file_handler = logging.FileHandler(str(_log_file), encoding="utf-8")
     _file_handler.setLevel(_file_level)
 
@@ -80,7 +79,7 @@ def gui_cmd(
         level=min(_console_level, _file_level),
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[_console_handler, _file_handler],
+        handlers=[_file_handler],
         force=True,
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)

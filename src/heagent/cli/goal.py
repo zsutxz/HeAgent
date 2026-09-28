@@ -8,6 +8,7 @@ import logging
 import os
 import sys
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -99,6 +100,26 @@ _GOAL_FAILED = "failed"
 _GOAL_WAITING = "waiting"
 
 
+#: ``/goal`` 用户可见输出的**消息 sink**（GUI 用）。
+#: 默认 ``None`` ⇒ 仍走 ``click.echo(..., err=True)``，CLI 行为逐字不变。
+#: 为什么需要它：GUI 原先靠 ``contextlib.redirect_stderr`` 截获这些文案，但那会把**整个 stderr**
+#: 一起吞掉——包括 ``logging`` 记录与第三方库输出，全部倒进对话区（台账 A4b）。
+_MESSAGE_SINK: ContextVar[Callable[[str], None] | None] = ContextVar("goal_message_sink", default=None)
+
+
+def _echo(message: str, *, err: bool = True) -> None:
+    """``/goal`` 全部用户可见输出的**唯一出口**（历史 40+ 处 ``click.echo`` 收敛于此）。
+
+    有 sink（GUI）时逐条投递；否则与历史行为逐字一致地写 stderr。``err`` 只为保持调用点原样
+    （``click.echo(..., err=True)``）而保留，sink 路径忽略它。
+    """
+    sink = _MESSAGE_SINK.get()
+    if sink is not None:
+        sink(message)
+        return
+    click.echo(message, err=err)
+
+
 @asynccontextmanager
 async def _goal_mutex() -> AsyncIterator[None]:
     """进程内 asyncio.Lock + 跨进程文件锁的复合互斥（/goal 全部变更入口共用）。
@@ -131,15 +152,15 @@ def _goal_checkpoint_mode(workflow: WorkflowResource) -> str:
 def _goal_checkpoint_prompt() -> bool:
     """Ask for checkpoint approval only when stdin is an interactive TTY."""
     if not sys.stdin.isatty():
-        click.echo("[goal] waiting for user response; use /goal resume <answer> to continue", err=True)
+        _echo("[goal] waiting for user response; use /goal resume <answer> to continue", err=True)
         return False
     try:
         approved = bool(click.confirm("[goal] checkpoint complete; continue to the next step?", default=False))
         if not approved:
-            click.echo("[goal] checkpoint paused; use /goal resume <answer> to continue", err=True)
+            _echo("[goal] checkpoint paused; use /goal resume <answer> to continue", err=True)
         return approved
     except (EOFError, KeyboardInterrupt, click.Abort):
-        click.echo("[goal] checkpoint paused; use /goal resume <answer> to continue", err=True)
+        _echo("[goal] checkpoint paused; use /goal resume <answer> to continue", err=True)
         return False
 
 
@@ -199,36 +220,36 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
     """Load and validate goal state before advancing; a non-None outcome means stop."""
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
-        click.echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+        _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
         return _GOAL_FAILED, None
     try:
         description = _goal_description(goal_dir)
     except (OSError, ValueError) as exc:
-        click.echo(f"[goal] declarative requirement document is invalid: {exc}", err=True)
+        _echo(f"[goal] declarative requirement document is invalid: {exc}", err=True)
         return _GOAL_FAILED, None
     if not description:
-        click.echo("[goal] declarative requirement document has no title", err=True)
+        _echo("[goal] declarative requirement document has no title", err=True)
         return _GOAL_FAILED, None
     try:
         runner = await _goal_declarative_runner(workflow, goal_dir)
     except (WorkflowCheckpointError, ValueError) as exc:
-        click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
+        _echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
         return _GOAL_FAILED, None
     if runner.done:
-        click.echo("[goal] declarative workflow is already complete", err=True)
+        _echo("[goal] declarative workflow is already complete", err=True)
         return _GOAL_DONE, None
     # A pause/cancellation is persisted as a non-completed Runner state. Resume
     # is explicit at the command boundary, then this call may continue the step.
     if runner.state.status is WorkflowStatus.WAITING_USER:
-        click.echo("[goal] declarative workflow is paused; use /goal resume first", err=True)
+        _echo("[goal] declarative workflow is paused; use /goal resume first", err=True)
         return _GOAL_WAITING, None
     if runner.state.status in {WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
-        click.echo(f"[goal] declarative workflow is {runner.state.status.value}: {runner.state.reason}", err=True)
+        _echo(f"[goal] declarative workflow is {runner.state.status.value}: {runner.state.reason}", err=True)
         return _GOAL_FAILED, None
     try:
         mode = _goal_checkpoint_mode(workflow)
     except ValueError as exc:
-        click.echo(f"[goal] invalid checkpoint mode: {exc}", err=True)
+        _echo(f"[goal] invalid checkpoint mode: {exc}", err=True)
         return _GOAL_FAILED, None
     return None, _GoalAdvanceContext(
         runner=runner,
@@ -314,7 +335,7 @@ async def _goal_declarative_advance(
     """推进声明式工作流：准备 → 注入端口调 use-case（goal/application.advance）→ 渲染 messages。
 
     确定性推进循环已收敛 goal/application（Phase 3）；本函数是缝宿主（`_goal_session`
-    缝链的调用方）与渲染边界：messages 逐行经 click.echo(err=True) 原文输出。
+    缝链的调用方）与渲染边界：messages 逐行经 _echo(err=True) 原文输出。
     """
     outcome, context = await _goal_declarative_prepare(workflow)
     if outcome is not None or context is None:
@@ -345,7 +366,7 @@ async def _goal_declarative_advance(
         emit=_workflow_event_emitter(engine),
     )
     for message in result.messages:
-        click.echo(message, err=True)
+        _echo(message, err=True)
     return result.status.value
 
 
@@ -369,7 +390,7 @@ async def _goal_declarative_new(
         goal_id = base_id + suffix
         goal_dir = _GOALS_DIR / goal_id
     else:
-        click.echo("[goal] unable to allocate a unique project goal id", err=True)
+        _echo("[goal] unable to allocate a unique project goal id", err=True)
         return
     try:
         goal_document = _goal_document(description, goal_id)
@@ -379,7 +400,7 @@ async def _goal_declarative_new(
         initialize_checkpoint_workspace(goal_dir, paths.root)
         atomic_write_text(_GOALS_DIR / "current", goal_id)
     except (OSError, ValueError) as exc:
-        click.echo(f"[goal] failed to persist declarative goal: {exc}", err=True)
+        _echo(f"[goal] failed to persist declarative goal: {exc}", err=True)
         return
     if previous is not None and cron_store is not None:
         _goal_auto_remove(cron_store, previous.name)
@@ -389,20 +410,20 @@ async def _goal_declarative_new(
 async def _goal_declarative_status(workflow: WorkflowResource) -> None:
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
-        click.echo("[goal] no active declarative goal", err=True)
+        _echo("[goal] no active declarative goal", err=True)
         return
     try:
         runner = await _goal_declarative_runner(workflow, goal_dir)
     except (WorkflowCheckpointError, ValueError) as exc:
-        click.echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
+        _echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
         return
-    click.echo(
+    _echo(
         f"[goal] declarative progress: {len(runner.state.completed_steps)}/{len(workflow.steps)} "
         f"status={runner.state.status.value} step={runner.state.active_step}",
         err=True,
     )
     if runner.state.status is WorkflowStatus.WAITING_USER:
-        click.echo("[goal] waiting for user response; use /goal resume <answer> to continue", err=True)
+        _echo("[goal] waiting for user response; use /goal resume <answer> to continue", err=True)
 
 
 async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: bool, response: str = "") -> bool:
@@ -412,11 +433,11 @@ async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: 
     """
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
-        click.echo("[goal] no active declarative goal", err=True)
+        _echo("[goal] no active declarative goal", err=True)
         return False
     outcome = await pause_resume(workflow, goal_dir, resume=resume, response=response)
     if outcome.message:
-        click.echo(outcome.message, err=True)
+        _echo(outcome.message, err=True)
     return outcome.proceed
 
 
@@ -432,7 +453,7 @@ async def _goal_declarative_run(
             if outcome != _GOAL_ADVANCED:
                 return
     except (KeyboardInterrupt, asyncio.CancelledError):
-        click.echo("[goal] declarative workflow interrupted; use /goal resume to continue", err=True)
+        _echo("[goal] declarative workflow interrupted; use /goal resume to continue", err=True)
 
 
 async def _goal_declarative_auto(
@@ -443,12 +464,12 @@ async def _goal_declarative_auto(
     goal_dir = _goal_declarative_active_dir()
     if args == "off":
         if cron_store is None or goal_dir is None:
-            click.echo("[goal] cron is not enabled or there is no active declarative goal", err=True)
+            _echo("[goal] cron is not enabled or there is no active declarative goal", err=True)
             return
-        click.echo(f"[goal] auto disabled: removed {_goal_auto_remove(cron_store, goal_dir.name)} job(s)", err=True)
+        _echo(f"[goal] auto disabled: removed {_goal_auto_remove(cron_store, goal_dir.name)} job(s)", err=True)
         return
     if cron_store is None or goal_dir is None:
-        click.echo("[goal] cron is not enabled or there is no active declarative goal", err=True)
+        _echo("[goal] cron is not enabled or there is no active declarative goal", err=True)
         return
     schedule = args or workflow.auto_schedule or _GOAL_AUTO_DEFAULT_CRON
     try:
@@ -457,12 +478,12 @@ async def _goal_declarative_auto(
             raise ValueError("cron must contain five non-empty fields")
         cron_matches(schedule, datetime.now(UTC))
     except (TypeError, ValueError) as exc:
-        click.echo(f"[goal] invalid cron expression: {exc}", err=True)
+        _echo(f"[goal] invalid cron expression: {exc}", err=True)
         return
     _goal_auto_remove(cron_store, goal_dir.name)
     job = cron_store.create_job(f"{_GOAL_AUTO_PREFIX}{goal_dir.name}", schedule)
     cron_store.add(job)
-    click.echo(f"[goal] declarative auto registered: {job.id} workflow={workflow.name}", err=True)
+    _echo(f"[goal] declarative auto registered: {job.id} workflow={workflow.name}", err=True)
 
 
 _GOAL_SUBCOMMAND_NAMES = ("new", "next", "run", "status", "pause", "resume", "auto", "reset")
@@ -518,7 +539,7 @@ async def _goal_declarative_dispatch(
             if await _goal_declarative_pause_resume(workflow, resume=True, response=rest):
                 await _goal_declarative_advance(provider, engine, workflow)
     elif head == "audit":
-        click.echo("[goal] audit subcommand has been removed; supported subcommands are listed below.", err=True)
+        _echo("[goal] audit subcommand has been removed; supported subcommands are listed below.", err=True)
         _goal_usage()
     elif head == "reset":
         async with _goal_mutex():
@@ -526,7 +547,7 @@ async def _goal_declarative_dispatch(
     elif head == "auto":
         await _goal_declarative_auto(workflow, rest, cron_store)
     elif (intended := _goal_typo_subcommand(args)) is not None:
-        click.echo(f"[goal] unknown subcommand {args.strip()!r}; did you mean `/goal {intended}`?", err=True)
+        _echo(f"[goal] unknown subcommand {args.strip()!r}; did you mean `/goal {intended}`?", err=True)
         _goal_usage()
     else:
         async with _goal_mutex():
@@ -535,7 +556,7 @@ async def _goal_declarative_dispatch(
 
 def _goal_usage() -> None:
     """打印 /goal 子命令用法表（缺参 / 未实现 / 拼错时）。"""
-    click.echo(
+    _echo(
         "/goal 用法：\n"
         "  /goal <目标描述>      新建 goal 并执行 planning 规程\n"
         "  /goal new <目标描述>  同上（显式 new 形式）\n"
@@ -556,19 +577,19 @@ def _goal_active_md() -> Path | None:
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as exc:
-        click.echo(f"[goal] 显性失败：current 指针读取失败（{exc}）。", err=True)
+        _echo(f"[goal] 显性失败：current 指针读取失败（{exc}）。", err=True)
         return None
     if not goal_id:
         return None
     # 指针内容须为字母 slug 或既有 8 位小写十六进制：防手改指针越界。
     # 把围栏外任意文件当需求文档注入 LLM prompt（仿 sandbox_session_dir 先例）。
     if not _goal_id_is_valid(goal_id):
-        click.echo(f"[goal] current 指针内容非法：{goal_id!r}（须为英文字母 project id）。", err=True)
+        _echo(f"[goal] current 指针内容非法：{goal_id!r}（须为英文字母 project id）。", err=True)
         return None
     goals_root = _GOALS_DIR.resolve()
     goal_root = (_GOALS_DIR / goal_id).resolve()
     if not goal_root.is_relative_to(goals_root):
-        click.echo("[goal] current 指针解析后越过 goals 根目录。", err=True)
+        _echo("[goal] current 指针解析后越过 goals 根目录。", err=True)
         return None
     return _goal_document_path(goal_root)
 
@@ -599,7 +620,7 @@ async def _goal_session(
     try:
         return await agent.run(prompt)
     except (KeyboardInterrupt, asyncio.CancelledError):
-        click.echo("[goal] 已中断：状态在盘（brief.md），/goal next 可续跑。", err=True)
+        _echo("[goal] 已中断：状态在盘（brief.md），/goal next 可续跑。", err=True)
         return None
 
 
@@ -608,9 +629,9 @@ def _goal_reset() -> None:
     try:
         (_GOALS_DIR / "current").unlink(missing_ok=True)  # missing_ok：竞态下指针已消失视为已清
     except OSError as exc:
-        click.echo(f"[goal] 落盘失败：清除 current 指针失败（{exc}）。", err=True)
+        _echo(f"[goal] 落盘失败：清除 current 指针失败（{exc}）。", err=True)
         return
-    click.echo(f"[goal] current 指针已清除；goal 目录保留：{_GOALS_DIR.resolve()}", err=True)
+    _echo(f"[goal] current 指针已清除；goal 目录保留：{_GOALS_DIR.resolve()}", err=True)
 
 
 def _goal_auto_remove(store: JobStore, goal_id: str) -> int:
@@ -641,49 +662,67 @@ async def _goal_cron_advance(
             if current is None or current.parent.name != goal_id:
                 removed = _goal_auto_remove(store, goal_id)
                 if removed:
-                    click.echo(f"[goal] auto 已收口：goal {goal_id} 已非当前 goal，注销 {removed} 个 job。", err=True)
+                    _echo(f"[goal] auto 已收口：goal {goal_id} 已非当前 goal，注销 {removed} 个 job。", err=True)
                 return
             try:
                 declarative_workflow = _goal_declarative_workflow()
             except ValueError as exc:
-                click.echo(f"[goal] auto stopped: {exc}", err=True)
+                _echo(f"[goal] auto stopped: {exc}", err=True)
                 _goal_auto_remove(store, goal_id)
                 return
             if declarative_workflow is not None:
                 outcome = await _goal_declarative_advance(provider, engine, declarative_workflow)
                 if outcome in {_GOAL_DONE, _GOAL_FAILED}:
                     removed = _goal_auto_remove(store, goal_id)
-                    click.echo(f"[goal] declarative auto closed: goal {goal_id}, removed {removed} job(s)", err=True)
+                    _echo(f"[goal] declarative auto closed: goal {goal_id}, removed {removed} job(s)", err=True)
                 return
-            click.echo("[goal] auto stopped: workflow.md is required; legacy goal fallback is unavailable", err=True)
+            _echo("[goal] auto stopped: workflow.md is required; legacy goal fallback is unavailable", err=True)
             _goal_auto_remove(store, goal_id)
     except OSError:
         # 另一进程正持 goal 锁：显性失败并提示，cron 下一 tick 自动重试。
-        click.echo("[goal] 另一进程正在推进 goal（锁等待超时）；本 tick 跳过，下一 tick 自动重试。", err=True)
+        _echo("[goal] 另一进程正在推进 goal（锁等待超时）；本 tick 跳过，下一 tick 自动重试。", err=True)
 
 
-async def _goal_runner(  # noqa: C901
+async def _goal_runner(
+    provider: BaseProvider,
+    engine: EngineContainer | None,
+    args: str,
+    *,
+    cron_store: JobStore | None = None,
+    on_message: Callable[[str], None] | None = None,
+) -> None:
+    """/goal 子命令族总入口：加载声明式 workflow 后交给确定性分发器。
+
+    workflow.md 缺失或无效时显性失败，不回退到已移除的 legacy goal board。
+    ``on_message`` 提供时（GUI），本函数调用链上的全部用户可见输出改投该 sink；
+    默认 ``None`` ⇒ 仍写 stderr（CLI 行为逐字不变，台账 A4b）。
+    """
+    token = _MESSAGE_SINK.set(on_message)
+    try:
+        await _goal_runner_inner(provider, engine, args, cron_store=cron_store)
+    finally:
+        _MESSAGE_SINK.reset(token)
+
+
+async def _goal_runner_inner(  # noqa: C901
     provider: BaseProvider,
     engine: EngineContainer | None,
     args: str,
     *,
     cron_store: JobStore | None = None,
 ) -> None:
-    """/goal 子命令族总入口：加载声明式 workflow 后交给确定性分发器。
-
-    workflow.md 缺失或无效时显性失败，不回退到已移除的 legacy goal board。
-    """
+    """分发器内核（sink 绑定由 :func:`_goal_runner` 负责，不要直接调用）。"""
     try:
         declarative_workflow = _goal_declarative_workflow()
     except ValueError as exc:
-        click.echo(f"[goal] {exc}", err=True)
+        _echo(f"[goal] {exc}", err=True)
         return
     if declarative_workflow is not None:
         try:
             await _goal_declarative_dispatch(provider, engine, declarative_workflow, args, cron_store=cron_store)
         except OSError:
             # 跨进程文件锁等待超时：显性失败（显性失败原则，不静默降级）。
-            click.echo(
+            _echo(
                 "[goal] 另一进程正在推进同一 goal（.heagent/goal.lock 等待超时）；本次未执行，请稍后重试。",
                 err=True,
             )
@@ -696,7 +735,7 @@ async def _goal_runner(  # noqa: C901
         # 显式置空不会早于此崩溃（resolve("") 被捕获返回 None）；pathlib 丢弃空段会拼出
         # catalog 永远解析不到的 ``.heagent/skills/workflow.md``，故单独提示配置错误。
         hint = "GOAL_WORKFLOW_SKILL is set to an empty package id; unset it or set a valid skill package id."
-    click.echo(
+    _echo(
         "[goal] workflow.md is required; the legacy story-board flow has been removed. " + hint,
         err=True,
     )

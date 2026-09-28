@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
-from contextlib import redirect_stderr
 from typing import TYPE_CHECKING
 
 from rich.markup import escape
@@ -43,40 +41,6 @@ def _render_tool_result(event: StreamEvent) -> str:
     if event.tool_error:
         return f"  [red]✗ {escape(event.tool_name)}[/] {result}"
     return f"  [green]✓[/] {result}"
-
-
-class _StderrToLogForwarder(io.TextIOBase):
-    """把 click.echo(err=True) 写入 stderr 的文本按行转发到 RichLog（/goal 专用）。
-
-    ``cli/goal`` 的进度/失败信息全部经 ``click.echo(..., err=True)`` 直写进程 stderr（文案为
-    冻结契约，不改），GUI 侧经 :func:`contextlib.redirect_stderr` 捕获后路由到聊天日志——
-    ``click.echo`` 在调用时查 ``sys.stderr``，重定向对它有效。同线程同 loop 直写安全；
-    无换行的不完整行缓冲到下一次 ``write``（click.echo 每次自带换行，尾巴仅 close 时输出）。
-    """
-
-    def __init__(self, log: RichLog) -> None:
-        self._log = log
-        self._pending: str = ""
-
-    def write(self, text: str) -> int:
-        self._pending += text
-        while "\n" in self._pending:
-            line, self._pending = self._pending.split("\n", 1)
-            self._write_line(line)
-        return len(text)
-
-    def flush(self) -> None:
-        """按行缓冲语义下无需动作（部分行留给下一次 write / close）。"""
-
-    def _write_line(self, raw_line: str) -> None:
-        line = raw_line.rstrip("\r")
-        if line.strip():
-            self._log.write(f"[dim]{escape(line)}[/]")
-
-    def close(self) -> None:
-        if self._pending.strip():
-            self._write_line(self._pending)
-        self._pending = ""
 
 
 class ChatScreen(Screen[None]):
@@ -252,12 +216,20 @@ class ChatScreen(Screen[None]):
                 log.write("[red]Goal runner unavailable[/]")
                 return
             self._state.is_running = True
-            forwarder = _StderrToLogForwarder(log)
+
+            def _sink(line: str) -> None:
+                # 与 CLI 同一批文案（冻结契约不改），只是投递到聊天日志而**不再**重定向 stderr：
+                # 后者会把 logging 与第三方输出一并吞进对话区（台账 A4b）。
+                log.write(f"[dim]{escape(line)}[/]")
+
             try:
-                # click.echo(err=True) 直写进程 stderr（文案冻结）；经重定向捕获后按行转发到
-                # RichLog，/goal 的进度与失败信息在 GUI 内可见（2026-09-17 收口）。
-                with redirect_stderr(forwarder):
-                    await _goal_runner(app.agent_loop.provider, app.agent_loop.engine, args, cron_store=app.job_store)
+                await _goal_runner(
+                    app.agent_loop.provider,
+                    app.agent_loop.engine,
+                    args,
+                    cron_store=app.job_store,
+                    on_message=_sink,
+                )
             except asyncio.CancelledError:
                 log.write("[yellow]Goal command 中止（Esc）。[/]")
                 raise
@@ -266,7 +238,6 @@ class ChatScreen(Screen[None]):
             else:
                 log.write("[dim]Goal command completed; use /goal status to inspect progress.[/]")
             finally:
-                forwarder.close()
                 self._state.is_running = False
 
         self._pending_submit = asyncio.create_task(_run())
