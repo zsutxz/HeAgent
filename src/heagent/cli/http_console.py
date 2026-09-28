@@ -120,14 +120,22 @@ def _resolve_model(loop: AgentLoop) -> str | None:
 
 
 #: **网页展示策略**（Story 50-8 R5，非安全边界、也不改变任何有界口径）：这些工具的**成功**结果内容
-#: 不进网页事件流——``file_read`` 会把整份文件正文灌进对话区，而网页只需要「读了哪个文件」。
+#: 不进网页事件流——``file_read`` 会把整份文件正文灌进对话区、``file_edit`` 会把整份 diff（连同上下文
+#: 行）灌进去，而网页只需要「读了 / 改了哪个文件」（文件名由 ``tool_target`` 提供）。
 #: 三条范围约束：
 #:
 #: - **只影响网页**：会话文件、``rollout.jsonl``、CLI、GUI 一律保留全文（审计与回放不受影响）；
 #: - **失败结果不收敛**：错误消息是诊断必需，原样回传（``tool_error=True`` 时走原内容）；
 #: - **作用对象照旧**：文件名/路径仍由 ``tool_call`` 事件的 ``tool_target`` 提供（网页结果行复用
 #:   同一 ``tool_target``），这里只是不放**内容**。
-_WEB_QUIET_TOOLS: frozenset[str] = frozenset({"file_read"})
+_WEB_QUIET_TOOLS: frozenset[str] = frozenset({"file_read", "file_edit"})
+
+#: **网页展示策略（第二类：只留文件清单）**：这些工具的**成功**结果只保留「命中了哪些文件」，匹配到的
+#: **行内容**不进网页事件流——``content_search`` 返回 ``<路径>:<行号>: <正文>`` 的列表（默认上限 20
+#: 条），正文是源码/日志的整行，而网页只需要「在哪几个文件里命中」。三类范围约束与
+#: :data:`_WEB_QUIET_TOOLS` **逐条相同**（只影响网页 / 失败与诊断不收敛 / 作用对象照旧），区别只在收敛
+#: 手段：整份置空 **vs** 折叠成去重文件清单（见 :func:`_matched_files`）。
+_WEB_FILE_LIST_TOOLS: frozenset[str] = frozenset({"content_search"})
 
 #: 内置工具的**可预期失败约定**：失败以返回值 ``Error: ...`` 表达（不是异常）⇒ 执行器的 ``is_error``
 #: 仍为 ``False``（见 ``tools/builtins/*`` 与 ``engine/executor.py`` 的异常约定）。网页收敛必须让这些
@@ -145,11 +153,39 @@ def _looks_like_a_failure(content: str) -> bool:
     return content.lstrip().startswith(_FAILURE_PREFIX)
 
 
+def _matched_files(content: str) -> str:
+    """把 ``content_search`` 的结果折叠成**去重的命中文件清单**（保序；非命中行原样保留）。
+
+    结果行的既有形态（``tools/builtins/search.py``）是 ``<路径>:<行号>: <正文>``，另有超大文件跳过行
+    ``<路径>: [skipped — file too large (…) ]``。解析规则：
+
+    - 按**第一个** ``": "`` 切开——命中行里它是「行号」与「正文」的分隔符（正文自身可能含 ``": "``）；
+    - 左侧再 ``rpartition(":")`` 取行号，且**必须全数字**才认（路径含盘符冒号 ``E:\\…``，从右取才不会
+      切到盘符）；
+    - 认不出的行（``No matches …`` 消息、跳过行）**原样保留**——它们是诊断而非文件内容，同
+      :data:`_WEB_QUIET_TOOLS` 的「失败/诊断不收敛」立场。
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in content.splitlines():
+        head, separator, _body = raw.partition(": ")
+        candidate, colon, tail = head.rpartition(":")
+        path = candidate if (separator and colon and tail.isdigit()) else raw
+        if path and path not in seen:
+            seen.add(path)
+            out.append(path)
+    return "\n".join(out)
+
+
 def _web_tool_output(event: Any) -> str:
-    """按 :data:`_WEB_QUIET_TOOLS` 决定进网页的工具结果内容（见该常量的范围说明）。"""
+    """按 :data:`_WEB_QUIET_TOOLS` / :data:`_WEB_FILE_LIST_TOOLS` 决定进网页的工具结果内容。"""
     content = str(event.tool_result_content)
-    if event.tool_name in _WEB_QUIET_TOOLS and not event.tool_error and not _looks_like_a_failure(content):
+    if event.tool_error or _looks_like_a_failure(content):
+        return content
+    if event.tool_name in _WEB_QUIET_TOOLS:
         return ""
+    if event.tool_name in _WEB_FILE_LIST_TOOLS:
+        return _matched_files(content)
     return content
 
 

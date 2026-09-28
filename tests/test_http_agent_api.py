@@ -229,8 +229,36 @@ async def test_read_tool_error_message_is_still_shown_in_web() -> None:
     assert result["tool_output"].startswith("Error:"), "诊断消息必须照旧可见"
 
 
+async def test_file_edit_diff_is_hidden_in_web_events_but_still_reaches_the_model(tmp_path: Path) -> None:
+    """``file_edit`` 与 ``file_read`` 同类（整份置空）：网页只留文件名，**整份 diff** 不进事件帧。
+
+    结果形态见 ``tools/builtins/file.py``：``_receipt(header, render_diff(...), snapshot)``——diff 的
+    ``+`` 行会把新内容原样搬进对话区，这正是要收敛的东西。
+    """
+    sentinel = "SENTINEL-DIFF-50-8"
+    (tmp_path / "note.txt").write_text("before\n", encoding="utf-8")
+    provider = _RecordingProvider(
+        [
+            _tool_request("file_edit", {"path": "note.txt", "old_string": "before", "new_string": sentinel}),
+            _answer("edited"),
+        ]
+    )
+    async with _served(provider) as (base_url, _service), httpx.AsyncClient(timeout=10.0) as client:
+        frames = await _run_prompt(client, base_url, "edit the note")
+
+    tool_call = next(data for _id, event, data in frames if event == "tool_call")
+    result = next(data for _id, event, data in frames if event == "tool_result")
+    assert "note.txt" in tool_call["tool_target"], "作用对象（文件名）照旧进网页"
+    assert result["tool_error"] is False
+    assert result["tool_output"] == "", "diff 不得进网页（对话区只留「工具名 → 作用对象」）"
+    assert sentinel not in json.dumps(frames), "diff 的新行不得出现在任何事件帧里"
+    seen = [message.content or "" for call in provider.seen for message in call]
+    assert any(sentinel in text for text in seen), "模型必须仍拿到 diff（收敛只发生在网页侧）"
+
+
 async def test_other_tools_keep_their_output_in_web_events() -> None:
-    """收敛范围**只有** ``file_read``：别的工具的**成功**结果原样进网页（R5 是展示策略，不是通用裁剪）。
+    """收敛范围**只有**白名单（``file_read`` / ``file_edit`` 整份置空 / ``content_search`` 只留命中文件）：
+    别的工具的**成功**结果原样进网页（R5 是展示策略，不是通用裁剪）。
 
     必须落在一次**成功**调用上：原先的写法是 ``output != "" or tool_error is True``，而当时那条
     调用其实**失败**了（``file_edit`` 的 kwargs 拼错）⇒ 断言靠第二个析取项成立，把任何工具加进
@@ -245,6 +273,72 @@ async def test_other_tools_keep_their_output_in_web_events() -> None:
     result = next(data for _id, event, data in frames if event == "tool_result")
     assert result["tool_error"] is False, "这条用例必须落在**成功**调用上，否则证明不了「非收敛工具照旧」"
     assert result["tool_output"] != "", "非收敛工具的内容必须照旧进网页"
+
+
+async def test_content_search_hides_line_content_but_keeps_the_file_list(tmp_path: Path) -> None:
+    """``content_search`` 的网页收敛（第二类）：**只留命中的文件**，匹配行的正文一个字不出现。
+
+    与 ``file_read`` 同款两半判据：网页侧收敛、模型侧照旧拿全文（记录 provider 断言哨兵确实到了模型，
+    证明收敛发生在我们自己新加的网页桥，而不是事件源）。
+    """
+    sentinel = "SENTINEL-LINE-50-8"
+    # 检索式与哨兵必须不同：``tool_target`` 是「目录 — 检索式」，检索式本来就该出现在帧里。
+    (tmp_path / "alpha.txt").write_text(f"first line\nneedle {sentinel} here\n", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text(f"needle {sentinel} too\n", encoding="utf-8")
+    (tmp_path / "gamma.txt").write_text("nothing to see here\n", encoding="utf-8")
+    provider = _RecordingProvider(
+        [
+            _tool_request("content_search", {"query": "needle", "directory": ".", "file_pattern": "*.txt"}),
+            _answer("searched"),
+        ]
+    )
+    async with _served(provider) as (base_url, _service), httpx.AsyncClient(timeout=10.0) as client:
+        frames = await _run_prompt(client, base_url, "search the notes")
+
+    result = next(data for _id, event, data in frames if event == "tool_result")
+    assert result["tool_error"] is False
+    listed = [Path(line).name for line in result["tool_output"].splitlines()]
+    assert listed == ["alpha.txt", "beta.txt"], "只列命中的文件（保序；未命中的 gamma.txt 不得出现）"
+    assert sentinel not in json.dumps(frames), "匹配行的正文不得出现在任何事件帧里"
+    seen = [message.content or "" for call in provider.seen for message in call]
+    assert any(sentinel in text for text in seen), "模型必须仍能读到命中行（收敛只发生在网页侧）"
+
+
+async def test_content_search_file_list_is_deduplicated(tmp_path: Path) -> None:
+    """同一文件多行命中 ⇒ 文件只出现一次（否则 20 条上限下清单会被同一个文件刷屏）。"""
+    (tmp_path / "twice.txt").write_text("hit one\nhit two\n", encoding="utf-8")
+    provider = _ScriptedProvider(
+        [
+            _tool_request("content_search", {"query": "hit", "directory": ".", "file_pattern": "*.txt"}),
+            _answer("done"),
+        ]
+    )
+    async with _served(provider) as (base_url, _service), httpx.AsyncClient(timeout=10.0) as client:
+        frames = await _run_prompt(client, base_url, "search twice")
+
+    result = next(data for _id, event, data in frames if event == "tool_result")
+    assert len(result["tool_output"].splitlines()) == 1, "两行命中同一文件 ⇒ 清单只有一行"
+    assert "twice.txt" in result["tool_output"]
+    assert "hit one" not in json.dumps(frames), "被去重掉的是**正文**，不是文件本身"
+
+
+async def test_content_search_no_match_message_is_still_shown_in_web(tmp_path: Path) -> None:
+    """无命中消息是**诊断**，不收敛——页面必须能区分「搜了但没命中」与「什么都没发生」。"""
+    provider = _ScriptedProvider(
+        [
+            _tool_request(
+                "content_search",
+                {"query": "definitely-absent-50-8", "directory": ".", "file_pattern": "*.txt"},
+            ),
+            _answer("done"),
+        ]
+    )
+    async with _served(provider) as (base_url, _service), httpx.AsyncClient(timeout=10.0) as client:
+        frames = await _run_prompt(client, base_url, "search for nothing")
+
+    result = next(data for _id, event, data in frames if event == "tool_result")
+    assert result["tool_error"] is False
+    assert result["tool_output"].startswith("No matches"), "诊断消息必须照旧可见"
 
 
 async def test_unknown_tool_comes_back_as_a_failed_tool_result() -> None:
