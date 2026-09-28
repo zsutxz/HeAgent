@@ -234,6 +234,8 @@
 > 正文、编号与「触发条件 / 严重度理由 / 冻结边界」一律以 `_bmad-output/implementation-artifacts/deferred-work-archive.md` 的**活动区**为准；本节只做导航，编号按台账顺序对应，逐条摘要另见 `consolidated-overview.md` §17.4-A。
 >
 > **旧编号对照**：本条 2026-09-18 版列 A1~A4（TOCTOU / MCP stdio / cli 拆分 / 路径级审批）；新编号前三者不变，**路径级审批移到 A6**。原 A5（`RoleSpec.sandbox_profile` 死字段）与 A6（沙箱进程数限额）已于 2026-09-18 闭合——A5 取删除方向，A6 新增 `SANDBOX_NPROC_LIMIT` + 修正 WinJob `JOB_OBJECT_LIMIT_PROCESS_TIME` 常量（原误写 `0x8` 即 ACTIVE_PROCESS 位）；闭合档案见台账 **Z-D8 / Z-D9**。
+>
+> **2026-09-28 编号统一**：A 号以台账「A 编号登记表」为唯一事实源（A1~A19 + A23 一一对应 20 个事项；A20~A22 为撤号）；旧 A21 → **A17**、旧 A22 → **A19**、旧 A19（掩码域后缀制）→ **A23**、旧 A20（非回环运行姿态「总结」，A11 的重复登记）→ **A11**；`src/` 与 `tests/` 注释引用的 A9 / A11 / A13 / A14 / A18 号未变。
 
 ### 5.2 纪律类滞后（非代码，2026-09-18 实测）
 
