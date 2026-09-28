@@ -748,6 +748,7 @@ def test_shared_layer_layout_is_pinned() -> None:
     config_modules = sorted(path.stem for path in (SRC / "config").glob("*.py") if path.stem != "__init__")
 
     assert pub_modules == [
+        "event_lines",
         "exceptions",
         "frontmatter",
         "persist",

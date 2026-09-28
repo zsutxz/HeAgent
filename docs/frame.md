@@ -124,7 +124,7 @@ AgentLoop.run(prompt)
 - `providers/` 和 `tools/` 互不依赖
 - `pub/exceptions.py` 和 `pub/types.py` 是叶子模块，无内部依赖
 - 新增 Provider 或 Tool **禁止**从 `agent/` 导入（**全仓无例外**：`builtins/subagent.py` 只持可注入委派回调，子 Agent 编排由 `agent/delegation.py` 提供、`AgentLoop._runtime_scope` 每 run 绑定；`tools/mcp/*` 同）
-- **分层（2026-09-26 收敛）**：`pub/` 是**公共层**——收零 heagent 运行栈依赖的共用模块（exceptions/types/safe_logging/persist/frontmatter/roles/workspace/task_shutdown），**任何层都可依赖它、它不依赖任何层**（`pub/__init__.py` 零 import）；`config/` 是其**上一层**的配置面（`__init__.py` 即 Settings 本体 + catalog 来源求解 + write 写通道 + envfile 保真读写），只依赖 `pub/` 与 stdlib/pydantic。persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖：`pub/persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`pub/roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`pub/safe_logging.py`（零 heagent 依赖，2026-09-23）收敛日志卫生：`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，`network/`（不得依赖 engine）与 engine/agent 共用同一实现；`pub/frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
+- **分层（2026-09-26 收敛）**：`pub/` 是**公共层**——收零 heagent 运行栈依赖的共用模块（exceptions/types/safe_logging/persist/frontmatter/roles/workspace/task_shutdown/event_lines），**任何层都可依赖它、它不依赖任何层**（`pub/__init__.py` 零 import）；`config/` 是其**上一层**的配置面（`__init__.py` 即 Settings 本体 + catalog 来源求解 + write 写通道 + envfile 保真读写），只依赖 `pub/` 与 stdlib/pydantic。persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖：`pub/persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`pub/roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`pub/safe_logging.py`（零 heagent 依赖，2026-09-23）收敛日志卫生：`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，`network/`（不得依赖 engine）与 engine/agent 共用同一实现；`pub/frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
 - `memory/` 运行期**不依赖 `engine/`**（`memory/dream.py` 的 `EngineContainer` 仅 TYPE_CHECKING 引用，实例由入口层注入、无 `default()` 回退；契约断言见 `test_architecture_contracts.py` FORBIDDEN_RUNTIME_IMPORTS）
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `pub.types`/`pub.exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `pub.exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
@@ -1201,7 +1201,8 @@ src/heagent/
 │   ├── safe_logging.py      # 日志卫生（safe_log 容错 + 故障守卫 + 启发式脱敏；零 heagent 依赖，2026-09-23）
 │   ├── workspace.py         # 状态根派生的规范路径（WorkspacePaths）
 │   ├── task_shutdown.py     # 后台调度 task 关停内核（cron/dream 共用）
-│   └── projects.py          # 网页控制台项目注册表（零运行栈依赖；2026-09-26 自顶层迁入）
+│   ├── projects.py          # 网页控制台项目注册表（零运行栈依赖；2026-09-26 自顶层迁入）
+│   └── event_lines.py       # 引擎事件的展示层纯函数（EventCursor 差分 + 单行格式化；GUI 薄壳调用，2026-09-28 台账 A24）
 ├── config/                  # 配置面（依赖 pub/，2026-09-26 自顶层平铺收敛）
 │   ├── __init__.py          # pydantic-settings 配置（Settings / get_settings / resolve_runtime_config；原 config.py）
 │   ├── catalog.py           # 配置四层来源求解（原 config_catalog.py）
