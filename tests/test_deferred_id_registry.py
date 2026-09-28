@@ -264,3 +264,89 @@ def test_closed_archive_counts_match_the_tables() -> None:
     ids = [r[0] for r in rows1 + rows2]
     dupes = [x for x in ids if ids.count(x) > 1]
     assert len(ids) == len(set(ids)), f"两张表之间有重复编号（同一事项登记两次）：{dupes}"
+
+
+EPICS = ROOT / "_bmad-output" / "epics"
+Z_DN = re.compile(r"Z-D\d+")
+HEADING = ("## ", "### ")
+
+
+def _token(text: str) -> str | None:
+    """取行首编号（E1-D1 / S-D4 / Z-D24 / A9…）——必须含数字，否则 'Epic 1' / 表头 'ID' 会被误当编号。"""
+    m = re.match(r"\*{0,2}([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)", text.strip())
+    if not m or not re.search(r"\d", m.group(1)):
+        return None
+    return m.group(1)
+
+
+def archive_z_rows() -> dict[str, str]:
+    rows: dict[str, str] = {}
+    for head, stops in (("**① 勘察类", ("**②", "## ")), ("**② 已按归属", ("## ",))):
+        for r in _table(ARCHIVE, head, stops):
+            if Z_DN.fullmatch(r[0]):
+                rows[r[0]] = r[3]
+    return rows
+
+
+def test_z_serial_is_complete_and_every_entry_has_a_body() -> None:
+    """Z-Dn 是勘察 / 归档序号：1..24 必须各有登记，且全仓能找到以它开头的正文小节。"""
+    ids = set(archive_z_rows())
+    expected = {f"Z-D{i}" for i in range(1, 25)}
+    assert ids == expected, f"Z-Dn 与 1..24 不一致：缺 {sorted(expected - ids)}，多 {sorted(ids - expected)}"
+    bodies: set[str] = set()
+    for md in (ROOT / "_bmad-output").rglob("*.md"):
+        for ln in _lines(md):
+            if ln.startswith(HEADING):
+                m = Z_DN.match(ln[3:].strip().lstrip("*~ "))
+                if m:
+                    bodies.add(m.group(0))
+    missing = sorted(ids - bodies, key=lambda x: int(x[3:]))
+    assert not missing, f"登记了但没有正文小节的 Z-Dn：{missing}"
+
+
+def test_dual_labelled_items_are_reachable_both_ways() -> None:
+    """A2/A7/A13/A14 与 Z-D24/Z-D18/Z-D23/Z-D22 是同一事项的双号 ⇒ 两处都要能互相找到。"""
+    pairs: list[tuple[str, str, str]] = []
+    for r in registry_rows():
+        zs = Z_DN.findall(r[3])
+        rel = re.search(r"`(epics/[^`]+)`", r[3])
+        if zs and rel:
+            pairs.append((r[0], zs[0], rel.group(1)))
+    assert len(pairs) == 4, f"双号应为 4 对，实际解析到 {pairs}"
+    for aid, zid, rel in pairs:
+        path = ROOT / "_bmad-output" / rel
+        assert path.exists(), f"{aid} 指向的周期台账不存在：{rel}"
+        lines = _lines(path)
+        hits = [
+            i for i, ln in enumerate(lines) if ln.startswith(HEADING) and ln[3:].strip().lstrip("*~ ").startswith(zid)
+        ]
+        assert len(hits) == 1, f"{rel}: {zid} 小节命中 {len(hits)}"
+        seg = "\n".join(lines[hits[0] : hits[0] + 40])
+        assert re.search(rf"(?<![A-Za-z0-9]){aid}(?![0-9])", seg), (
+            f"{rel} 的 {zid} 小节没有回指 {aid}（双号必须双向可达）"
+        )
+
+
+def test_every_epic_ledger_declares_exactly_its_sections() -> None:
+    """9 份周期台账：状态总览声明的 ID 集合必须等于实际小节集合（无孤儿行 / 无缺席小节）。"""
+    files = sorted(EPICS.rglob("deferred-work.md"))
+    assert len(files) == 9, f"周期台账应为 9 份，实际 {len(files)}：{[f.parent.name for f in files]}"
+    for path in files:
+        declared: set[str] = set()
+        sections: set[str] = set()
+        in_summary = False
+        for ln in _lines(path):
+            if ln.startswith(HEADING):
+                in_summary = "状态总览" in ln or "Status Summary" in ln
+                tok = _token(ln[3:])
+                if tok:
+                    sections.add(tok)
+                continue
+            if in_summary and ln.startswith("| "):
+                cells = _cells(ln)
+                if cells:
+                    tok = _token(cells[0])
+                    if tok:
+                        declared.add(tok)
+        diff = sorted(declared ^ sections)
+        assert declared == sections, f"{path.name}: 声明与小节不一致，差集 {diff}"
