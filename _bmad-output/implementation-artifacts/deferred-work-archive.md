@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——2 条
+## 活动（未闭合）条目——1 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -50,14 +50,8 @@
 > - 2026-09-28（第二轮）：**A 编号统一 + 计数再校正**——① 新增「**A 编号登记表**」作为 A 编号唯一事实源（A1~A19 + A23，共 20 个事项；撤号 A20/A21/A22 **不复用**；旧 A19「掩码域后缀制」属**让号**——该号已由 2026-09-24 先登记的「原生目录选择端点默认开」持有，故改取 A23）；② 状态总览②、四个闭合小节标题、流水账单历史行的编号全部归一（旧 A19/A20/A21/A22 → **A23/A11/A17/A19**，其中旧 A20「非回环运行姿态（总结）」是 A11 的重复登记，撤号并入 A11）；③ **计数再校正**：② 原 19 行里 A11 与 A20 是**同一事项的两行**，去重后 ② = **18 条**、闭合归档总数 **33 → 32 条**（= 14 + 18；上一轮把重复登记计了两次）；④ 新增可执行护栏 `tests/test_deferred_id_registry.py`。
 > - 2026-09-28（第五轮）：**复核活动项 + 补判据 + 状态归一**——① 逐条对 7 个活动项（A1 / A6 / A8 / A10 / A12 / A15 / A16）按登记落点取证复核（未发现「代码已修、台账未同步」项）；② **补 3 例判据**覆盖 A19 的默认值裁定（`HttpProjectConsole` 默认 / `http-server` 旗标默认 / 内嵌服务默认——此前**无任何用例**覆盖默认值，改回 `auto` 不会变红），变异体 **2/2 精确变红**；③ 修 `docs/frame.md` 4.18 与 A19 裁定自相矛盾的过期段（「默认姿态 = 开…内嵌路径没有关闭手段…待裁决」→ 默认关 + 把 2026-09-26 实测降为历史记录），并同步 4.18 表格行 / 五 的两行 / 流程图一行 / CI 装机口径一行；④ A15 条目的触发条件按 A19 收紧（默认关 ⇒ 须显式 opt-in）；⑤ **A11 状态归一**（① 裁定维持现状 + ② cron 已修 ⇒ 两半都已了结，「部分闭合」属误标）：登记表 / 状态总览 / 正文标题 / 总览 §17.4-A / epic-50 引言五处同步，② 表 18 → 17 行、① 表 16 → 17 行。活动条目数不变（**7 条**）。
 > - 2026-09-28（第六轮）：**产品裁定闭合 5 条 → A8 / A10 / A12 / A15 / A16**（均「维持现状」类，理由与冻结边界逐条写入下方同名小节）——A8（D9 的有意语义 + 服务级总额已作可选键交付）、A10（其余落点全部离线，仅剩 `_runtime_for` 的 1 读 + 1 stat，有意保留 + 升级条件）、A12（浏览器验收**保持手动**：冻结边界禁 playwright，真浏览器这一步不可省略）、A15（A19 之后默认关闭 ⇒ 显式 opt-in 才出现，不做更强授权）、A16（人工验收为唯一路径 + 迁移条件已进判据本体）。**活动区 7 → 2 条**（仅剩 **A1** 技能资源 TOCTOU 后续的休眠面 ④ 待授权、**A6** 路径级审批分级的条件性前置未发生）；① 表 17 → 22 行、闭合归档总数 34 → **39 条**；跨文档 7 处计数声明同步为 **2 条**。
-
-- source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
-  summary: 技能资源读取的竞态加固——**2026-09-27 部分闭合**：POSIX **逐组件 `openat`** 已交付（中间目录 `O_DIRECTORY|O_NOFOLLOW`、叶 `O_NOFOLLOW`，围栏后替换中间目录即在该组件上失败），Windows 无 `dir_fd` ⇒ 回退整路径 `open`、窗口与硬化前一样宽；未交付面 = 可信导入 snapshot / OS sandbox。
-  evidence: Story 46.2 已以 `O_NOFOLLOW` 加固支持平台上的最终路径组件，并保留不支持该标志时的兼容回退；中间目录替换、可信导入 snapshot 与 OS sandbox 仍未交付，现有路径围栏保留竞态残余风险。
-  Progress（2026-09-23 复核，**保持未闭合**）：详见 `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/assessment-toctou-residual-2026-09-23.md`。① 竞态类残余维持 Story 46.1 决策（descriptor-relative 仅 POSIX 可用、仍非边界；Windows 无 `O_NOFOLLOW` 回退窗口更宽）；② **新查出一处非竞态缺口**：`manifest.lock` 只钉 entry（`SKILL.md`）的 `source_hash`，而 `_materialize` 用 `shutil.copytree` 复制整棵包树（`references`/`templates`/`assets`/`scripts`），且运行期**从不读** lock ⇒ 包资源内容无完整性凭据、读取路径（`SkillPackage._read_text` → `open_text_under_root`）不校验；同类先例已在隔壁一层存在（`_bmad/render/*/manifest.json` + `render_skill.py::_verify_existing` 的逐文件哈希校验，仅重渲染时触发）。③ 建议方向 = 内容哈希钉 + 读时校验（跨平台、无新依赖、fail-loud，复用既有凭据形态），但会改变「手工编辑 lock/rendered 包后仍可读」的语义，**命中 Story 46.1 的 Ask First（导入物化/读取语义）**，故实施待授权；④ 本仓库当前未激活 importer 通道（`.heagent/skills/manifest.lock` 不存在），故该缺口暂属休眠暴露面。
-  Progress（2026-09-23 同日实施，用户决策 = (a) 确认行为变化 / (b) 复用既有 `manifest.json`）：**非竞态缺口已闭合** —— `SkillPackage` 读时对渲染器 `manifest.json` 的 `outputs` 做逐资源校验，漂移即 `SkillPackageResourceError("content hash differs from manifest.json")`；底层新增原始字节摘要通道（`read_bytes_under_root` / `read_text_with_digest_under_root`，CRLF 文件亦可校验）；17 例测试（含改写/截断/entry/CRLF/未托管/凭据不可用/凭据探测次数/契约护栏），负向验证：拿掉校验调用 → 3 例漂移检测必红；凭据读取经 `is_file()` 门控（未托管包零额外 open——无门控会打破 `test_skill_packages_toctou.py` 的两条刻画测试，**该回归只在 Linux 暴露**，由 WSL 等价验证在 2256 passed 的跑法下抓出）。**竞态残余保持开启**：中间目录替换在 POSIX/Windows 上都未闭合（descriptor-relative 仅 POSIX 且仍是收窄），唯一真边界仍是 OS 级沙箱。
-  Progress（2026-09-27，**POSIX 逐组件通道交付 + Ask First 授权记录**）：用户裁定「**授权引入专用代码**」⇒ 此前停在 Ask First 的候选 A（descriptor-relative / 逐组件 `openat`）落地：`tools/path_safety.py` 新增 `_open_walked` / `_open_dir_component` / `_is_symlink_at` 与**导入期冻结**的能力门 `_WALK_SUPPORTED`；`read_bytes_under_root` 围栏通过后按平台选通道（root 自身不加 `NOFOLLOW`，工作区经链接指向真实目录的合法布局不受影响）。**判据 7 条**（`tests/test_skill_packages_toctou.py`）：形状（root→中间→叶的 flags 与 dir_fd）、**竞态（围栏后把中间目录换成指向 root 之外的符号链接 ⇒ 必须在那个组件上失败）**、无 `dir_fd` 的回退形状、`..` 守卫纯路径判据、门与平台能力一致性，以及把旧的「总共只 open 一次」改写为「叶描述符唯一 + 中间 fd 不泄漏」（逐组件通道必然多开，旧断言会把正确实现判红）。**变异体 5/5 精确变红**（`.heagent/tmp/mutate_walk_posix.py`：中间组件不带 `NOFOLLOW` ⇒ 2 红；恒定回退 ⇒ 3 红；不带 `O_DIRECTORY` ⇒ 2 红；去掉 `..` 守卫 ⇒ 1 红；不做 ENOTDIR 归因 ⇒ 1 红）。**实测**：WSL Ubuntu/py3.12 上 `tests/test_skill_package*` **56 passed / 1 skipped**，全量 3114 passed + 3 failed（3 例全在 `test_cli_http_lifecycle.py` 的端口释放断言，**基线 HEAD 同款链路同样红** ⇒ WSL2 端口回收特性，与本条无关）；本机（win32）全量 **3126 passed / 覆盖率 91.74%**；`ruff` + `mypy`（本机与 `--platform linux`）全绿。**过程中踩到并修掉的两个真问题**：① 中间组件带 `O_DIRECTORY|O_NOFOLLOW` 撞符号链接时 Linux 回 **ENOTDIR**（不是 `ELOOP`）⇒ 归因必须两条 errno 都判；② 用 `os.open in os.supports_dir_fd` 做**每次调用**判定会被任何「包一层 `os.open`」的代码静默打回回退通道 ⇒ 冻结为导入期常量。**残余（不变）**：① Windows 仍只保护最终组件；② 组件级竞态不为零（组件之间仍有时间差）；③ 仍是收窄而非边界（真边界 = OS sandbox）；④ 未做方向 = 可信导入 snapshot / `manifest.lock` 的 `resources` 哈希（当前休眠暴露面）。
-
+> - 2026-09-28（第七轮）：**实施 1 条（部分闭合）→ A1④**（导入形态的内容钉 + 读时校验；用户裁定「继续」＝实施授权）——`SkillLockEntry.resources`（逐文件 sha256）+ **落地前复核**（关掉「算钉 → 复制」之间被改写的窗口，失败不留半成品）；`SkillPackage` 读侧除渲染器凭据外新增**包外兄弟文件** `manifest.lock` 凭据（先按规范化 `destination_path`、再按 `canonical_id` 兜底；两者并存时渲染器优先；老 lock 静默升级；未托管包只多一次 stat、不 open）。新增判据 **18 例（收集 20）**、**变异体 6/6 精确变红**、`ruff check` / `format --check` / `mypy`（本机 + `--platform linux`）全绿；全量分 4 块实跑 **3189 passed / 14 skipped / 18 deselected / 0 failed**（= 859 + 918 + 721 + 691；较上一轮 3169 多出的 20 正是新增判据的收集数）；两个改动模块在 skill 子集下实测 88% / 92%。活动条目数不变（**2 条**）——A1 残余只剩平台/形态固有项与「可信导入 snapshot」。
+> - 2026-09-28（第八轮）：**裁定闭合 1 条 → A1**（技能资源读取 TOCTOU 后续）——产品裁定「维持现状」：① POSIX 逐组件 `openat`、② 导入形态的内容钉 + 读时校验（A1④，同轮交付）均已落地，其余为平台/形态固有（Windows 只护最终组件 / 组件之间仍有时间差 / 凭据与包由同一写者掌控 / 仍非边界）；「可信导入 snapshot」作为正文内的未闭合面保留、不另立条目。正文移入下方「A1」小节；**活动区 2 → 1 条**（仅剩 **A6** 路径级审批分级：条件性，前置未发生）；① 表 22 → 23 行、闭合归档总数 39 → **40 条**；跨文档 7 处计数声明同步为 **1 条**。
 
 - source_spec: `_bmad-output/epics/epic-36-39-文件安全防护周期/brief.md`（`### Deferred（未来考虑）`：「路径级审批分级（若未来引入非 workspace 的受控写场景）」）
   summary: 路径级审批分级（**条件性条目，前置未发生**）：当前审批粒度是工具级（destructive → 审批），file 工具一律被限制在 workspace 内，所以「按路径分级审批」暂无触发场景。触发条件：引入「非 workspace 的受控写场景」（例如经审批向 workspace 外写）；严重度：低（前置未发生）；冻结边界：分级只能是 `PolicyEngine` 的 defense-in-depth 标记，不得表述为 OS 级边界，也不得放松 workspace 围栏默认值。
@@ -67,11 +61,11 @@
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 39 条：22 条勘察类正文保留在本文件，17 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 2 条未闭合条目。
+> 当前闭合归档共 40 条：23 条勘察类正文保留在本文件，17 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 1 条未闭合条目。
 
 ## 状态总览
 
-**① 勘察类（正文在本文件）——22 条**
+**① 勘察类（正文在本文件）——23 条**
 
 | ID | 条目 | 结论 | 闭合 commit |
 |----|------|------|-------------|
@@ -97,6 +91,7 @@
 | A12 | 浏览器级 UI 验收不在 CI、也不含真实 LLM 运行 | **裁定维持现状**（2026-09-28：**保持手动**——冻结边界禁 playwright，真浏览器这一步不可省略）；正文见下方「A12」小节 | 见下方小节（`tests/js/console_acceptance.mjs` 23 行，手动） |
 | A15 | 网页请求可拉起宿主 GUI 进程 | **裁定维持现状**（2026-09-28：A19 后默认关 ⇒ 显式 opt-in 才出现；不做更强授权）；正文见下方「A15」小节 | 见下方小节（默认值判据 3 例 + 变异体 2/2） |
 | A16 | 真实原生窗口不可自动化 + 网页侧 `Error:` 前缀判据 | **裁定维持现状**（2026-09-28：人工验收为唯一路径 + 迁移条件已进判据本体）；正文见下方「A16」小节 | 见下方小节（结构性用例 + 变异体） |
+| A1 | 技能资源读取 TOCTOU 后续（descriptor-relative open / 可信导入 snapshot / OS sandbox） | **裁定维持现状**（2026-09-28：① 逐组件 `openat`、② 导入形态内容钉 + 读时校验均已交付，其余为平台/形态固有）；正文见下方「A1」小节 | 见下方小节（变异体 5/5 + 6/6） |
 
 **② 已按归属 epic 回填（正文在各自周期目录）——17 条**
 
@@ -132,7 +127,7 @@
 
 | 号 | 条目 | 状态 | 正文位置 |
 |----|------|------|----------|
-| A1 | 技能资源读取 TOCTOU 后续（descriptor-relative open / 可信导入 snapshot / OS sandbox） | **活动（部分闭合）** | 本文件活动区 |
+| A1 | 技能资源读取 TOCTOU 后续（descriptor-relative open / 可信导入 snapshot / OS sandbox） | 已闭合（2026-09-28 **裁定维持现状**：逐组件 `openat` + 导入形态内容钉均已交付；残余为平台/形态固有） | 本文件下方「A1」小节 |
 | A2 | MCP stdio 子进程未接入沙箱 | 已闭合（2026-09-27 **裁定 (c) 不实施**） | `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（同事项 **Z-D24**） |
 | A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26） | 本文件下方「A3」小节 |
 | A4 | GUI 原生事件渲染（事件驱动渲染 + 消息 sink） | 已闭合（2026-09-28，两片交付：A4a/A4b；A4c 有意不做） | 本文件下方「A4」小节 |
@@ -434,3 +429,18 @@
 - **结论**：**裁定维持现状**（2026-09-28）。① **人工验收是唯一路径**（冻结边界禁止为此给 dev 依赖加 playwright/puppeteer；也不得把真实弹窗的一次人工通过当作「选择器无回归」的充分证据）；② 迁移条件已**写进判据本体**（`cli/http_console.py::_looks_like_a_failure` docstring：「一旦工具错误结构化（抛 `ToolError` / `is_error=True`），本判据退化为只看 `event.tool_error` 并删除本函数，不要两套判据并存」），并有**结构性用例**钉住该 docstring 存在（删掉即精确变红）。
 - **证据**：`tests/js/console_acceptance.mjs` 的 A5b / A11b / A11c / B2（真实浏览器，无真实弹窗点击）；`tests/test_cli_dialogs.py::TestSpawnDiscipline::test_frozen_scripts_are_valid_python_syntax`（只 compile 不执行）；`cli/http_console.py:138`（`_looks_like_a_failure` + 迁移条件）；`tests/network/test_http_console_sessions.py::test_failure_prefix_criterion_documents_its_migration_condition`；`tests/test_http_agent_api.py::test_read_tool_error_message_is_still_shown_in_web`。
 - **文档落点**：`docs/frame.md` 五「网页侧读取结果收敛是**展示策略**，不是数据边界」。
+
+## A1 技能资源读取 TOCTOU 后续 —— 裁定维持现状（2026-09-28）
+
+- **来源**：Epic 46.1/46.2（技能资源并发替换安全评估，`_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/`）+ 2026-09-23 复核新增的非竞态缺口。
+- **问题**（两条线）：
+  - **竞态**：围栏解析之后、真正 `open` 之前的时间窗内，路径组件（最终组件或中间目录）可被替换成指向包根之外的符号链接；
+  - **非竞态**：包资源**无内容凭据**——`manifest.lock` 只钉入口（`SKILL.md`）的 `source_hash`，而物化用 `copytree` 复制整棵包树（`references`/`templates`/`assets`/`scripts`），且读路径**从不读** lock ⇒ 包内漂移无人发现。
+- **结论**：**裁定维持现状 = 本条闭合**（2026-09-28）。三条都已落地或已归为固有：
+  1. **POSIX 逐组件 `openat`**（2026-09-27）：`_WALK_SUPPORTED` **导入期冻结**的能力门；中间目录 `O_DIRECTORY|O_NOFOLLOW`、叶 `O_NOFOLLOW`；撞符号链接时 `ENOTDIR`/`ELOOP` 双 errno 归因；
+  2. **导入形态的内容钉 + 读时校验**（2026-09-28，A1④）：`SkillLockEntry.resources`（逐文件 sha256）+ **落地前复核**（关掉「算钉 → 复制」窗口，失败不留半成品）+ `SkillPackage` 读侧校验**包外** `manifest.lock`（老 lock 静默升级、未托管包零额外 open、渲染器凭据优先）；
+  3. **其余为平台/形态固有**：Windows 无 `dir_fd` ⇒ 只保护最终组件；组件之间仍有时间差；凭据与包由同一写者掌控时可被同时改写。
+  **冻结边界**：以上全部是 **defense-in-depth**，不得表述为安全边界（真边界 = OS 级沙箱，hostile filesystem/process context）；不得为「更干净」而放松 workspace 围栏或去掉 fail-loud 校验。
+- **证据**：`tools/path_safety.py`（`_WALK_SUPPORTED` / `_open_walked` / `_open_dir_component` / `_is_symlink_at` / `read_bytes_under_root`）；`memory/skill_packages.py`（`_pinned_hashes` / `_renderer_hashes` / `_imported_hashes` / `_lock_entry` / `_verify_pinned_hash`）；`memory/skill_importer.py`（`SkillLockEntry.resources` / `_tree_hashes` / 落地前复核）。判据：`tests/test_skill_packages_toctou.py`（形状 + 「替换中间目录」竞态，仅 POSIX 跑；变异体 **5/5**）、`tests/test_skill_package_integrity.py`（两类凭据的读侧语义 + 未托管包零行为变化；变异体 **6/6**）、`tests/test_skill_importer.py`（钉整包 / 源侧漂移拒导 / 老 lock 补齐 / 落地前复核）。
+- **文档落点**：`docs/frame.md` §4.14（两类凭据、两个加固通道、残余口径）。
+- **仍未闭合面（如实保留在正文，不另立条目）**：**可信导入 snapshot**——物化**来源自身**的可信性；导入通道当前未激活（本仓 `.heagent/skills/manifest.lock` 实测不存在），若将来激活，按 Story 46.1 的 Ask First 重新评估。**Ask First 授权记录**：2026-09-27「授权引入专用代码」（逐组件 `openat`）、2026-09-28「继续」＝授权实施 A1④（导入物化/读取语义变更：手工编辑过的导入包将拒读）。

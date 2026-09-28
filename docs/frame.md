@@ -1003,6 +1003,18 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 清单只钉它列出的文件，包内新增文件不在校验范围；能写该目录者本就能直接改写 `SKILL.md`，故本项是
 defense-in-depth 而非边界。
 
+**导入器凭据（2026-09-28 交付，活动台账 A1④）**：导入形态（`memory/skill_importer.py` 物化到
+`.heagent/skills/<id>/`）的凭据不在包内，而在 **skills 根目录的兄弟文件** `manifest.lock`——它是整批
+导入的索引，故读侧取 `root.parent/manifest.lock` 中本包条目的 `resources`（与渲染器 `outputs` **同形**：
+「相对 POSIX 路径 → sha256」）。判定语义与渲染器凭据一致地保守：无 lock ⇒ `{}`（只多一次 stat、不 open）；
+损坏 / 无本包条目 / `resources` 形状不符 ⇒ warning 后跳过；**老 lock**（2026-09-28 之前只钉入口
+`source_hash`）⇒ **静默**跳过（升级路径，下一次导入自动补齐钉）；命中则逐资源比对，漂移报
+`content hash differs from manifest.lock`。条目定位先按规范化 `destination_path`、再按 `canonical_id`
+兜底（凭据是内容寻址的，包被移动后仍能比对）；两种凭据同时存在时**渲染器优先**（它是包内容的直接
+生产者）。导入侧同轮把 `resources` 写进 lock（覆盖 `SKILL.md` 与 `references` / `templates` / `assets` /
+`scripts` 下的全部常规文件），并在**落地之前**复核物化目录的逐文件摘要
+（`materialized package differs from source`，失败不留半成品）。
+
 **两个加固打开通道（2026-09-27 起）**：① **POSIX 逐组件 `openat`**（`_WALK_SUPPORTED` 为真时）——
 从 root 起用 `dir_fd` 逐组件打开，每个**中间目录**组件用 `O_DIRECTORY|O_NOFOLLOW`、叶组件用
 `O_NOFOLLOW`（root 自身不做 `NOFOLLOW`：工作区经链接指向真实目录是合法布局）；围栏之后、打开之前把
@@ -1016,10 +1028,13 @@ defense-in-depth 而非边界。
 
 **仍未消除的残余（如实）**：① Windows 无 `dir_fd` ⇒ 只保护最终组件；② 组件级竞态不为零——每个组件
 各自一次原子 open，组件之间仍有时间差；③ 恶意挂载、更高权限宿主进程与「可信导入 snapshot」这类
-非竞态面不受影响（`manifest.lock` 的 `resources` 哈希与导入物化语义是另一条线）。不声称已完成 TOCTOU
-防护；所有方案仍是 defense-in-depth，真正的边界是 OS sandbox（hostile filesystem/process context）。
-实现与判据见 `tests/test_skill_packages_toctou.py`（形状用例 + 「替换中间目录」竞态用例，仅 POSIX 跑；
-变异体 5/5 精确变红），Ask First 授权与证据见活动台账同名条目。
+非竞态面不受影响——`manifest.lock` 的 `resources` 哈希已于 2026-09-28 交付（见上），但**可信导入
+snapshot**（物化来源自身的可信性）与「凭据文件与包由同一写者掌控时可被同时改写」仍属未闭合面。
+不声称已完成 TOCTOU 防护；所有方案仍是 defense-in-depth，真正的边界是 OS sandbox（hostile
+filesystem/process context）。实现与判据见 `tests/test_skill_packages_toctou.py`（形状用例 +
+「替换中间目录」竞态用例，仅 POSIX 跑；变异体 5/5 精确变红）、`tests/test_skill_package_integrity.py`
+（两类凭据的读侧语义 + 未托管包零行为变化，变异体 6/6 精确变红）与 `tests/test_skill_importer.py`
+（钉整包 / 漂移拒导 / 老 lock 补齐 / 落地前复核）；Ask First 授权与证据见活动台账 A1 条目。
 
 
 ### 4.15 事件契约 (`events/`)

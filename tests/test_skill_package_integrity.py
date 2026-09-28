@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from heagent.memory import skill_packages as skill_packages_module
 from heagent.memory.skill_packages import (
     SkillPackage,
     SkillPackageEntryError,
@@ -212,6 +213,189 @@ class TestCredentialProbe:
 
         manifest_reads = [name for name in opened if name == "manifest.json"]
         assert manifest_reads == ["manifest.json"]  # 懒加载 + 缓存：至多一次
+
+
+def _imported_package(
+    tmp_path: Path,
+    *,
+    resources: dict[str, str] | None = None,
+    overrides: dict[str, object] | None = None,
+    lock_text: str | None = None,
+) -> tuple[Path, dict[str, str]]:
+    """建一个「导入器托管包」：``<tmp>/skills/he-build/`` + **兄弟** ``manifest.lock``。
+
+    包放在子目录里是**必须**的：lock 的查找位置是 ``root.parent``，而 pytest 的 ``tmp_path`` 之父
+    （``pytest-N``）在同一次运行里被多个用例共享——直接写在 ``tmp_path.parent`` 会串味到别的用例。
+    """
+    root = tmp_path / "skills" / "he-build"
+    files = {"SKILL.md": _ENTRY, "references/note.md": _NOTE, "templates/x.md": _TEMPLATE}
+    for name, text in files.items():
+        _write(root / name, text)
+    hashes = {name: _digest(root / name) for name in files} if resources is None else resources
+    entry: dict[str, object] = {
+        "canonical_id": "he-build",
+        "source_id": "he-build",
+        "source_path": str(tmp_path / "source" / "he-build"),
+        "destination_path": str(root),
+        "version": "1.0",
+        "source_hash": hashes.get("SKILL.md", ""),
+        "resources": hashes,
+    }
+    if overrides:
+        entry.update(overrides)
+    text = lock_text if lock_text is not None else json.dumps({"version": 1, "entries": [entry]}, ensure_ascii=False)
+    (root.parent / "manifest.lock").write_text(text, encoding="utf-8")
+    return root, hashes
+
+
+class TestImportedPackageCredential:
+    """A1④ 的读侧：``manifest.lock`` 的 ``resources`` 也参与内容校验（与渲染器凭据同形）。"""
+
+    def test_reads_entry_and_resources(self, tmp_path: Path) -> None:
+        root, _ = _imported_package(tmp_path)
+        package = SkillPackage(skill_id="he-build", root=root)
+
+        assert package.read_entry().metadata.name == "he-build"
+        assert package.read_reference("note.md") == _NOTE
+        assert package.read_template("x.md") == _TEMPLATE
+
+    def test_modified_resource_is_rejected(self, tmp_path: Path) -> None:
+        """导入后被改写 ⇒ 读取显性失败（此前 lock 只钉入口 ⇒ 包内漂移无人发现）。"""
+        root, _ = _imported_package(tmp_path)
+        _write(root / "references" / "note.md", "tampered\n")
+
+        with pytest.raises(SkillPackageResourceError, match="content hash differs from manifest.lock"):
+            SkillPackage(skill_id="he-build", root=root).read_reference("note.md")
+
+    def test_modified_entry_is_rejected(self, tmp_path: Path) -> None:
+        root, _ = _imported_package(tmp_path)
+        _write(root / "SKILL.md", _ENTRY + "injected\n")
+
+        with pytest.raises(SkillPackageEntryError, match="content hash differs from manifest.lock"):
+            SkillPackage(skill_id="he-build", root=root).read_entry()
+
+    def test_unlisted_resource_is_allowed(self, tmp_path: Path) -> None:
+        """与渲染器凭据同口径：只钉列出的文件，包内新增文件不拒读。"""
+        root, _ = _imported_package(tmp_path)
+        _write(root / "references" / "extra.md", "extra\n")
+
+        assert SkillPackage(skill_id="he-build", root=root).read_reference("extra.md") == "extra\n"
+
+    def test_lock_without_this_package_is_transparent(self, tmp_path: Path) -> None:
+        root, _ = _imported_package(
+            tmp_path,
+            overrides={"canonical_id": "bmad-other", "destination_path": str(tmp_path / "skills" / "bmad-other")},
+        )
+        package = SkillPackage(skill_id="he-build", root=root)
+
+        assert package._pinned_hashes() == {}
+        assert package.read_reference("note.md") == _NOTE
+
+    def test_corrupt_lock_is_ignored_with_warning(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        root, _ = _imported_package(tmp_path, lock_text="{ not json")
+
+        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+            package = SkillPackage(skill_id="he-build", root=root)
+            assert package._pinned_hashes() == {}
+            assert package.read_reference("note.md") == _NOTE
+
+        assert "manifest.lock is not valid JSON" in caplog.text
+
+    def test_legacy_lock_entry_is_transparent_without_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """老 lock（有条目但没 ``resources``）= 升级路径：既不改行为、也不刷告警。"""
+        root, _ = _imported_package(tmp_path)
+        lock_path = root.parent / "manifest.lock"
+        payload = json.loads(lock_path.read_text(encoding="utf-8"))
+        del payload["entries"][0]["resources"]  # 2026-09-28 之前写下的 lock 就是没有这个键
+        lock_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+            package = SkillPackage(skill_id="he-build", root=root)
+            assert package._pinned_hashes() == {}
+            assert package.read_reference("note.md") == _NOTE
+
+        assert "manifest.lock" not in caplog.text
+
+    def test_lock_with_unusable_hashes_is_ignored_with_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        root, _ = _imported_package(tmp_path, overrides={"resources": {"SKILL.md": "not-a-hash"}})
+
+        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+            package = SkillPackage(skill_id="he-build", root=root)
+            assert package._pinned_hashes() == {}
+            assert package.read_reference("note.md") == _NOTE
+
+        assert "no usable 'resources' hashes" in caplog.text
+
+    def test_renderer_credential_takes_precedence(self, tmp_path: Path) -> None:
+        """两种凭据同时存在（包内 ``manifest.json`` **优先**）：渲染器是包内容的直接生产者。
+
+        这里让 lock 的摘要与文件不符：若 precedence 反了，读取会失败。
+        """
+        root = tmp_path / "skills" / "he-build"
+        _managed_package(root)
+        _imported_package(tmp_path, resources={"SKILL.md": "0" * 64})
+
+        assert SkillPackage(skill_id="he-build", root=root).read_reference("note.md") == _NOTE
+
+    def test_lock_entry_matches_by_canonical_id_when_the_path_moved(self, tmp_path: Path) -> None:
+        """包被移动/改名（``destination_path`` 对不上）时按 ``canonical_id`` 兜底——凭据是内容寻址的。"""
+        root, _ = _imported_package(tmp_path, overrides={"destination_path": str(tmp_path / "elsewhere" / "he-build")})
+        _write(root / "references" / "note.md", "tampered\n")
+
+        with pytest.raises(SkillPackageResourceError, match="content hash differs from manifest.lock"):
+            SkillPackage(skill_id="he-build", root=root).read_reference("note.md")
+
+    @pytest.mark.parametrize("lock_text", ['{"entries": "nope"}', '{"entries": [42]}', "[]"])
+    def test_malformed_lock_shape_is_transparent_without_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, lock_text: str
+    ) -> None:
+        """形状不符（``entries`` 不是列表 / 条目不是对象）既不告警也不改行为——只当没有凭据。"""
+        root, _ = _imported_package(tmp_path, lock_text=lock_text)
+
+        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+            package = SkillPackage(skill_id="he-build", root=root)
+            assert package._pinned_hashes() == {}
+            assert package.read_reference("note.md") == _NOTE
+
+        assert "manifest.lock" not in caplog.text
+
+    def test_lock_deleted_between_stat_and_read_is_transparent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """stat 通过后、open 之前被删 ⇒ 等同未托管（不告警、不改行为）。"""
+        root, _ = _imported_package(tmp_path)
+
+        def gone(*_args: object, **_kwargs: object) -> bytes:
+            raise FileNotFoundError("raced away")
+
+        monkeypatch.setattr(skill_packages_module, "read_bytes_under_root", gone)
+        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+            package = SkillPackage(skill_id="he-build", root=root)
+            assert package._pinned_hashes() == {}
+            assert package.read_reference("note.md") == _NOTE
+
+        assert "manifest.lock" not in caplog.text
+
+    def test_lock_read_failure_is_ignored_with_warning(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """读凭据本身失败（权限 / 符号链接等）⇒ 告警后跳过，不拒读内容。"""
+        root, _ = _imported_package(tmp_path)
+
+        def denied(*_args: object, **_kwargs: object) -> bytes:
+            raise PermissionError("nope")
+
+        monkeypatch.setattr(skill_packages_module, "read_bytes_under_root", denied)
+        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+            package = SkillPackage(skill_id="he-build", root=root)
+            assert package._pinned_hashes() == {}
+            assert package.read_reference("note.md") == _NOTE
+
+        assert "manifest.lock unreadable" in caplog.text
 
 
 def test_skill_package_reads_go_through_the_digest_channel() -> None:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import json
 import logging
+import os
 import re
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Iterable, cast  # noqa: UP035
@@ -25,6 +26,10 @@ logger = logging.getLogger(__name__)
 # `manifest.json`（其 `outputs` 为「相对 POSIX 路径 → sha256」），不为本特性新增文件或字段。
 _MANIFEST_NAME = "manifest.json"
 _SHA256_HEX = re.compile(r"^[0-9a-fA-F]{64}$")
+# 导入器凭据：`memory/skill_importer.py` 把**整批**导入索引写在 skills 根目录下的 `manifest.lock`
+# （`resources` 与渲染器 `outputs` 同形），故它是包的**兄弟文件**（`<root>/../manifest.lock`）而非
+# 包内产物。同样复用既有产物、不为本特性新增文件或字段。
+_LOCK_NAME = "manifest.lock"
 
 
 class SkillPackageError(ValueError):
@@ -96,6 +101,8 @@ class SkillPackage(BaseModel):
     entrypoint: str = "SKILL.md"
     _metadata: SkillPackageMetadata | None = PrivateAttr(default=None)
     _pinned: dict[str, str] | None = PrivateAttr(default=None)
+    #: 命中的凭据文件名（`manifest.json` 或 `manifest.lock`），只用于失败文案。
+    _pinned_source: str | None = PrivateAttr(default=None)
 
     def model_post_init(self, __context: object) -> None:
         root = self.root.expanduser().resolve(strict=False)
@@ -205,6 +212,26 @@ class SkillPackage(BaseModel):
         """
         if self._pinned is not None:
             return self._pinned
+        pinned = self._renderer_hashes()
+        if not pinned:
+            pinned = self._imported_hashes()
+        object.__setattr__(self, "_pinned", pinned)
+        return pinned
+
+    def _renderer_hashes(self) -> dict[str, str]:
+        """渲染器凭据（包内 ``manifest.json`` 的 ``outputs`` 表）；无凭据返回 ``{}``。
+
+        凭据**复用**渲染器既有产物（``_bmad/scripts/render_skill.py`` 在生成目录写
+        ``manifest.json``，``outputs`` 即逐文件 sha256），不为本特性新增文件或 lock 字段。
+
+        判定语义（刻意保守，避免误伤其他生产者）：
+
+        - **无** ``manifest.json``：未托管包（手写技能占多数）⇒ ``{}``，读取行为与改动前逐字节一致；
+        - **有但** JSON 损坏 / ``outputs`` 形状不符：记一条 warning 后返回 ``{}``——``manifest.json``
+          是通用文件名，可能属于别的工具，不能据此拒读（代价：攻击者可借此关闭校验；但能写该目录者
+          本就能直接改写 ``SKILL.md``，这仍属 defense-in-depth 而非边界）；
+        - **有且合法**：返回 ``{相对 POSIX 路径: sha256}``，读取时逐资源比对。
+        """
         pinned: dict[str, str] = {}
         raw = b""
         # 先 stat 再读：未托管包（手写技能占多数）因此**零额外 open**——读取次数的刻画测试
@@ -240,14 +267,98 @@ class SkillPackage(BaseModel):
                         "Skill package '%s' manifest has no usable 'outputs' hashes, skipping integrity check",
                         self.skill_id,
                     )
-        object.__setattr__(self, "_pinned", pinned)
+        if pinned:
+            object.__setattr__(self, "_pinned_source", _MANIFEST_NAME)
         return pinned
+
+    def _imported_hashes(self) -> dict[str, str]:
+        """导入器凭据（``<root>/../manifest.lock`` 里本包条目的 ``resources`` 表）；无凭据返回 ``{}``。
+
+        与渲染器凭据同形（相对 POSIX 路径 → sha256），只是生产者与落点不同：``memory/skill_importer.py``
+        把**整批**导入索引写在 skills 根目录（`.heagent/skills/manifest.lock`），不是写进每个包，故凭据
+        在 `root.parent`；它此前只钉入口（``source_hash`` = 源 ``SKILL.md``），包内
+        `references`/`templates`/`assets`/`scripts` 的漂移无人发现（活动台账 A1④）。
+
+        判定语义（与渲染器凭据一致地保守）：
+
+        - **无** ``manifest.lock``：未托管包 ⇒ ``{}``（只多一次 stat，不 open）；
+        - **有但** 损坏 / 无本包条目 / ``resources`` 形状不符：warning 后 ``{}``（lock 同样是通用文件名，
+          不能据此拒读）；
+        - **老 lock**（有条目但没有 ``resources`` 字段）：直接 ``{}`` 且**不告警**——这是升级路径，
+          读取行为与改动前逐字节一致，下一次导入自动补齐钉；
+        - **有且命中本包**：返回其 ``resources``，读取时逐资源比对。
+        """
+        pinned: dict[str, str] = {}
+        lock_path = self.root.parent / _LOCK_NAME
+        if not lock_path.is_file():
+            return pinned
+        try:
+            raw = read_bytes_under_root(self.root.parent, lock_path)
+        except FileNotFoundError:
+            return pinned  # 竞态：stat 后、open 前被删 → 等同未托管
+        except OSError as exc:
+            logger.warning(
+                "Skill package '%s' manifest.lock unreadable, skipping integrity check: %s", self.skill_id, exc
+            )
+            return pinned
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "Skill package '%s' manifest.lock is not valid JSON, skipping integrity check: %s",
+                self.skill_id,
+                exc,
+            )
+            return pinned
+        entry = self._lock_entry(payload)
+        if entry is None:
+            return pinned
+        resources = entry.get("resources")
+        if resources is None:
+            return pinned  # 老 lock：只钉了入口
+        if isinstance(resources, dict):
+            pinned = {
+                str(name): str(value)
+                for name, value in resources.items()
+                if isinstance(name, str) and isinstance(value, str) and _SHA256_HEX.match(value)
+            }
+        if not pinned:
+            logger.warning(
+                "Skill package '%s' manifest.lock has no usable 'resources' hashes, skipping integrity check",
+                self.skill_id,
+            )
+            return pinned
+        object.__setattr__(self, "_pinned_source", _LOCK_NAME)
+        return pinned
+
+    def _lock_entry(self, payload: object) -> dict[str, object] | None:
+        """在 lock 里找**本包**条目：先按规范化目标路径，再按 ``canonical_id`` 兜底。
+
+        路径是导入器的正常形态（目标 = skills 根 / canonical_id）；`canonical_id` 兜底覆盖
+        「包被移动/改名」——凭据是**内容寻址**的，命中后若内容已变就该失败，不会误放过。
+        """
+        entries = payload.get("entries") if isinstance(payload, dict) else None
+        if not isinstance(entries, list):
+            return None
+        want = os.path.normcase(str(self.root))
+        fallback: dict[str, object] | None = None
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            destination = entry.get("destination_path")
+            if isinstance(destination, str) and destination:
+                candidate = Path(destination).expanduser().resolve(strict=False)
+                if os.path.normcase(str(candidate)) == want:
+                    return entry
+            if fallback is None and entry.get("canonical_id") == self.skill_id:
+                fallback = entry
+        return fallback
 
     def _verify_pinned_hash(self, resource: str, path: Path, digest: str) -> None:
         """把刚读到的原始字节摘要与该资源的凭据比对；不一致即显性失败。
 
-        **未列出**的文件不比对：渲染器只钉自己生成的那批文件，包内出现新文件不是本校验的
-        对象（是否允许新增属包目录写权限的问题，见模块与 frame 的非边界声明）。
+        **未列出**的文件不比对：两种凭据都只钉自己那一批文件（渲染器钉它生成的、导入器钉它物化的），
+        包内出现新文件不是本校验的对象（是否允许新增属包目录写权限的问题，见模块与 frame 的非边界声明）。
         """
         pinned = self._pinned_hashes()
         if not pinned:
@@ -260,10 +371,12 @@ class SkillPackage(BaseModel):
         if expected is None:
             return
         if expected.lower() != digest.lower():
+            source = self._pinned_source or _MANIFEST_NAME
+            tail = "file changed after generation" if source == _MANIFEST_NAME else "file changed after import"
             raise SkillPackageResourceError(
                 self.skill_id,
                 resource,
-                f"content hash differs from {_MANIFEST_NAME} (file changed after generation)",
+                f"content hash differs from {source} ({tail})",
             )
 
     def _resolve(self, resource: str, *, entry: bool = False) -> Path:

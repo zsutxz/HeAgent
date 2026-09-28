@@ -39,7 +39,15 @@ class SkillManifestEntry(BaseModel):
 
 
 class SkillLockEntry(BaseModel):
-    """Immutable source and content metadata recorded after import."""
+    """Immutable source and content metadata recorded after import.
+
+    ``resources`` 是本包**逐文件**的内容钉（相对 POSIX 路径 → sha256，覆盖 ``SKILL.md`` 与
+    ``references`` / ``templates`` / ``assets`` / ``scripts`` 下的全部常规文件）；``source_hash``
+    仍只是**源 ``SKILL.md``** 的摘要（导入幂等的判据）。读侧由
+    :meth:`~heagent.memory.skill_packages.SkillPackage._imported_hashes` 逐资源比对——即把凭据从
+    「只钉入口」补成「钉整棵包」（2026-09-28，见活动台账 A1④）。
+    **老 lock**（本字段缺失）解析为 ``{}`` ⇒ 读取行为与改动前逐字节一致，下一次导入自动补齐。
+    """
 
     canonical_id: str
     source_id: str
@@ -47,6 +55,7 @@ class SkillLockEntry(BaseModel):
     destination_path: str
     version: str = ""
     source_hash: str
+    resources: dict[str, str] = Field(default_factory=dict)
 
 
 class SkillManifestLock(BaseModel):
@@ -112,21 +121,28 @@ class SkillImporter:
                 destination_path=str(destination),
                 version=metadata.version,
                 source_hash=source_hash,
+                resources=self._tree_hashes(source_package),
             )
             prior = existing.get(canonical_id)
             if prior is not None and prior != record:
                 if prior.source_hash != source_hash:
                     raise SkillImportError(canonical_id, "source hash differs from manifest.lock")
-                raise SkillImportError(canonical_id, "manifest.lock metadata differs from current source")
+                if prior.resources and prior.resources != record.resources:
+                    raise SkillImportError(canonical_id, "package resources differ from manifest.lock")
+                # 老 lock 只差 resources（内容未变）⇒ 允许本次补齐钉；其余字段仍须逐字一致。
+                if prior.model_copy(update={"resources": record.resources}) != record:
+                    raise SkillImportError(canonical_id, "manifest.lock metadata differs from current source")
             planned.append(record)
 
         for record, manifest_entry in zip(planned, entries, strict=True):
             destination = Path(record.destination_path)
             if destination.exists():
-                if existing.get(record.canonical_id) == record:
+                prior = existing.get(record.canonical_id)
+                # 已物化且内容未变（老 lock 只差 resources ⇒ 视为同一包）⇒ 跳过，只把钉补进 lock。
+                if prior is not None and prior.model_copy(update={"resources": record.resources}) == record:
                     continue
                 raise SkillImportError(record.canonical_id, f"destination already exists: {destination}")
-            self._materialize(self._source_file(manifest_entry).parent, destination)
+            self._materialize(self._source_file(manifest_entry).parent, destination, expected=record.resources)
 
         merged = [existing[key] for key in sorted(existing) if key not in seen]
         merged.extend(sorted(planned, key=lambda entry: entry.canonical_id))
@@ -205,13 +221,42 @@ class SkillImporter:
             raise SkillImportError(str(path), f"cannot hash source: {exc}") from exc
         return digest.hexdigest()
 
-    @staticmethod
-    def _materialize(source: Path, destination: Path) -> None:
+    @classmethod
+    def _tree_hashes(cls, root: Path) -> dict[str, str]:
+        """整棵包树的 ``{相对 POSIX 路径: sha256}``（只列常规文件，不进入符号链接）。
+
+        形状与渲染器凭据（``manifest.json`` 的 ``outputs``）一致，读侧因此复用同一套比对逻辑。
+        符号链接一律**不钉**：`~shutil.copytree` 会把链接指向的内容复制成常规文件，落地侧的那份
+        以「新文件」出现（读侧只比对已列出的键，未列出即不在校验范围）。
+        """
+        hashes: dict[str, str] = {}
+        for dirpath, _dirnames, filenames in os.walk(root, followlinks=False):
+            for name in sorted(filenames):
+                path = Path(dirpath) / name
+                if path.is_symlink():
+                    continue
+                hashes[path.relative_to(root).as_posix()] = cls._hash(path)
+        return hashes
+
+    @classmethod
+    def _materialize(cls, source: Path, destination: Path, *, expected: dict[str, str]) -> None:
+        """复制整棵包并**在落地之前**复核逐文件摘要（复制期间被改写的包不许落地）。
+
+        失败时不留下半成品：`destination` 只有在复核通过后才由 ``os.replace`` 创建。
+        """
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
         try:
             shutil.copytree(source, temporary / destination.name)
-            os.replace(temporary / destination.name, destination)
+            materialized = temporary / destination.name
+            actual = cls._tree_hashes(materialized)
+            drifted = sorted(key for key, digest in expected.items() if actual.get(key) != digest)
+            if drifted:
+                raise SkillImportError(
+                    destination.name,
+                    f"materialized package differs from source: {', '.join(drifted[:3])}",
+                )
+            os.replace(materialized, destination)
         except (OSError, shutil.Error) as exc:
             raise SkillImportError(destination.name, f"cannot materialize package: {exc}") from exc
         finally:
