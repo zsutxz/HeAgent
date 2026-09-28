@@ -4,6 +4,7 @@ description: "代码评审契约：以对抗式 / 边界追踪 / 验证缺口三
 created: 2026-06-03T10:05:20.270521
 updated: 2026-09-10
 tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow, epic-closure]
+triggers: [代码评审, 评审代码, 代码审查, 帮我评审, 对抗式评审, 边界情况, code review, review the code]
 ---
 
 # code_review
