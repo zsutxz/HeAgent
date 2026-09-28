@@ -1107,7 +1107,7 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 生效语义 | 写成功后**丢该项目运行时缓存** ⇒ 下一次 run 重新解析快照、**在途 run 继续用旧快照**（无热生效；响应里 `applied=next_run`） |
 | 审计 | `<项目根>/.heagent/console/audit.jsonl`：一行一 JSON，只有键名 / 值的**哈希与长度** / 结果（`applied` / `rolled_back` / `rollback_failed`——后两者分别表示「回读不符但已还原」与「回读不符**且还原也失败**」，2026-09-27 补），**不含值**；行数上限 500（超限裁到最近 500 条，且只认这一个文件名 ⇒ 不碰同目录的 `projects.json`）；追加失败不阻断已成功的写，但响应如实带 `audit_recorded=false` |
 | 路由 | 项目 `GET/POST/PATCH/DELETE /api/projects*`；会话 `…/sessions*`；项目内运行 `POST /api/projects/{id}/runs`；配置 `GET/PUT /api/projects/{id}/config`；原生目录选择 `POST /api/dialogs/pick-directory`（Story 50-8，**非项目作用域**）；运行事件与取消沿用 4.17 的 `GET /api/runs/{id}/events`（SSE）与 `DELETE /api/runs/{id}` |
-| 原生目录选择（Story 50-8 R2） | `cli/dialogs.py`：浏览器**拿不到**本机绝对路径，故「选文件夹」由**服务端所在机器**弹原生窗口。后端顺序 `tkinter` → `powershell`（PS 5.1 `FolderBrowserDialog`）→ `none`（`--dialog-backend` 可钉死），对话框跑在**子进程**里（`asyncio.create_subprocess_exec` + 冻结 argv + 超时 300s + kill + 有界回收 + 凭证剥离 env），只解析 stdout 的 ASCII 标记行并复验 `is_dir()`（脏值 / 取消 / 超时一律 `cancelled=true`）；入口层持有**单在途**（并发 → `dialog_busy`）。返回值**不是权限**：登记仍走 `POST /api/projects` 的全套校验 |
+| 原生目录选择（Story 50-8 R2） | `cli/dialogs.py`：浏览器**拿不到**本机绝对路径，故「选文件夹」由**服务端所在机器**弹原生窗口。后端顺序 `tkinter` → `powershell`（PS 5.1 `FolderBrowserDialog`）→ `none`（`--dialog-backend` 可钉死，**默认 `none` = 禁用**，2026-09-27 裁定），对话框跑在**子进程**里（`asyncio.create_subprocess_exec` + 冻结 argv + 超时 300s + kill + 有界回收 + 凭证剥离 env），只解析 stdout 的 ASCII 标记行并复验 `is_dir()`（脏值 / 取消 / 超时一律 `cancelled=true`）；入口层持有**单在途**（并发 → `dialog_busy`）。返回值**不是权限**：登记仍走 `POST /api/projects` 的全套校验 |
 | 网页侧工具结果收敛（Story 50-8 R5） | `cli.http._web_tool_output`：`file_read` 的**成功**结果内容不进网页事件流（对话区只显示「工具名 → 作用对象」），**失败消息照旧**（内置工具用返回值 `Error: ...` 表达可预期失败，故判据 = `is_error` **或** 该前缀）；会话文件 / `rollout.jsonl` / CLI / GUI **一字不变**（审计与回放不受影响），模型侧也照旧拿到全文 |
 | 控制台体验约束（Story 50-8 R1/R3/R4/R6/R7/R8） | 会话列表**默认只渲染最近 10 条**（服务端仍按时间降序给全量、硬上限 200；展开是本地 slice，且**当前会话永远可见**——落在窗口外时自动展开并隐藏展开按钮），规模提示与「显示全部」放在**会话面板最上面**（列表之上，R8）；侧栏**一列**：项目在上、会话在下（`display:flex`/`column`，**用户 2026-09-24 裁决，不得回退成多栏**）；对话区**占满所在列**（R7，2026-09-24 撤销 R6 的 48rem 限宽居中阅读列：`.chat-log > *` 与 `.composer > *` 只留 `width:100%`；设置面板打开时**对话列仍是三列里最宽的**）；侧栏 280px；设置面板只留**一行短状态**与逐项短只读标签，诊断 / 未知键折进默认收起的 `<details>`（标题带告警条数），逐项长说明压成徽标 + `title` |
 | 错误码 | `HttpErrorCode` 封闭 **35** 码 = Epic 49 的 **14** + Epic 50 新增 **20**（项目注册表 6 / 会话 5 / 写通道 5 / 运行与边界 2：`confirm_required`、`loopback_required` / 原生目录选择 2：`dialog_unavailable`（503）、`dialog_busy`（409））+ 后续 1（`total_inflight_limit`（409），2026-09-27 服务级在途总额）。口径与实测方法：对 Epic 50 开工前提交做成员名 diff，不靠人工计数 |
@@ -1126,12 +1126,14 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 **服务端所在机器**弹出一个原生窗口（子进程 `tkinter` / `powershell`）。防线是「回环来源 + 单在途 + 冻结
 argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「只有本机用户能触发」的保证：回环 peer 不等于
 可信（见上），能连上端口的本机进程都能让服务机弹窗（骚扰面）——这是本 Epic 有意引入的**新暴露面**，已登记在五。
-**默认姿态 = 开，且两个入口都生效**：除显式 `heagent http-server` 外，**默认 CLI 的内嵌服务**（`python -m heagent`
-的交互 / 单次模式各起一份）同样注册该端点——实测 `POST /api/dialogs/pick-directory` 回 200 + `backend:"auto"`，
-且**真的拉起了子进程**（`argv=[python.exe, -c]`，2026-09-26 亲跑）；而 `--dialog-backend` 只挂在 `http-server`
-子命令、也没有对应的 `Settings` 字段 ⇒ **内嵌路径没有关闭手段**。这与配置写入通道的既有惯例相反
-（`HTTP_CONSOLE_WRITE_ENABLED` 默认 **False** —— 新控制台能力默认关），故「默认开还是默认关、要不要给内嵌路径
-一个开关」作为待裁决项登记在五与活动台账。
+**默认姿态 = 关，两条入口都关**（2026-09-27 裁定，见台账 A19）：`--dialog-backend` 的默认值已由 `auto` 改为
+`none`，`HttpProjectConsole.__init__` 的默认值同步改为 `none` ⇒ **默认 CLI 的内嵌服务**（`python -m heagent`
+的交互 / 单次模式各起一份）即便不带任何开关也**不会**装出可用的选择器（`POST /api/dialogs/pick-directory` 回
+`dialog_unavailable`）；需要时显式传 `--dialog-backend auto`（或 `tkinter` / `powershell`）开启。这与配置写入
+通道的既有惯例一致（`HTTP_CONSOLE_WRITE_ENABLED` 默认 **False** —— 新控制台能力默认关）。
+**历史记录（2026-09-26 亲跑）**：当时的默认值是 `auto` 且两个入口都生效——`POST /api/dialogs/pick-directory`
+回 200 + `backend:"auto"`，且**真的拉起了子进程**（`argv=[python.exe, -c]`）；正是这次实测暴露了「内嵌路径没有
+关闭手段」，促成上面的默认值裁定。
 
 ## 五、已知缺口
 
@@ -1162,10 +1164,10 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 备份与审计仍在宿主文件系统上 | 两者都在项目状态根内、已进内部状态读拒集合（工具读不到、也无任何网页下载端点），但**没有加密**：备份是写入前的**原样配置**（可能含凭证），审计含键名与值的哈希。仍须 OS 级沙箱 + 磁盘权限兜底 |
 | 跨项目并发默认无全局上限（**D9 已裁定**） | 默认（`HTTP_MAX_TOTAL_INFLIGHT=0`）在途上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32），**无全局软上限**；`HTTP_MAX_CONNECTIONS` 不随项目数放大 ⇒ 多项目并行时连接层可能先成为瓶颈（既有限制面的延续）。多项目并行是有意能力，见 4.18。**2026-09-27 起**可选设 `HTTP_MAX_TOTAL_INFLIGHT=N` 得到**服务级**总额（跨项目共享，超限 409 `total_inflight_limit`）；它**不改写**上面这条按项目语义，只是叠加一层 |
 | 非回环运行姿态（**裁定：维持现状**） | 项目**重命名**、四个**会话**写操作与项目内**运行入口**当前**没有**回环门（登记 / 移除 / 配置写入有）。**裁定维持现状**理由：① 这是 Epic 49 的设计姿态，Epic 50 未扩大暴露面；② 网页入口无认证无 TLS，真正边界是 OS 级沙箱；③ 添加回环门会破坏既有端点契约。冻结边界：不得把闸门表述为安全边界 |
-| 控制台 UI 无自动化回归 | `tests/js/console_acceptance.mjs` 需要真实浏览器（CDP）与 `heagent[http]`，而 CI 侧没有任何浏览器（workflow 里没有 node / 浏览器步骤，依赖也不含 playwright/puppeteer；CI 装的是 `.[dev,http]`） ⇒ 只能**手动**跑（清单见 `epics/epic-50-网页控制台周期/reviews.md`）。CI 里跑得动的是 node 探针（最小 DOM 替身）；DOM API 的 `click()` 会绕过命中测试，故「真浏览器」这一步不可省略 |
+| 控制台 UI 无自动化回归 | `tests/js/console_acceptance.mjs` 需要真实浏览器（CDP）与 `heagent[http]`，而 CI 侧没有任何浏览器（workflow 里没有 node / 浏览器步骤，依赖也不含 playwright/puppeteer；install 步骤只装 `.[dev,gui,http]`（lint job）与 `.[dev,http]`（test / coverage / benchmark / goal-smoke）） ⇒ 只能**手动**跑（清单见 `epics/epic-50-网页控制台周期/reviews.md`）。CI 里跑得动的是 node 探针（最小 DOM 替身）；DOM API 的 `click()` 会绕过命中测试，故「真浏览器」这一步不可省略。**裁定：保持手动**（2026-09-28）——冻结边界禁止为它给 dev 依赖加 playwright/puppeteer；「真实模型 → SSE → 流式渲染」这条链的前端侧由 node 探针覆盖、服务端由 Epic 49 用例覆盖，本机无可用 provider 时不升级为门禁 |
 | `cli_console.py` 从未落地（脊柱 D7 的覆盖率口径作废） | 脊柱 §10 / D7 预判控制台逻辑会拆到独立模块 `cli_console.py` 并「默认不 omit」；实现期它**没有存在过**——控制台装配在 `cli/http.py`（**不在**覆盖率 omit 列表里，靠测试覆盖，实测 `cli/http.py` 计入总量）。若将来拆分，口径随模块走并在此更新。**2026-09-26 补充**：交互式 CLI 主体现位于 `cli/console.py`（原 `cli.py`）+ `cli/interactive.py`（REPL 与斜杠命令族，自 cli.py 拆出），与 `cli/goal.py`、`cli/display.py` 一并列入覆盖率 omit（`pyproject.toml`）；`cli/composition.py`（装配）、`cli/init.py`、`cli/http.py`、`cli/http_console.py`、`cli/dialogs.py` 仍计入总量（实测 `http.py` 83% / `http_console.py` 93% / `composition.py` 92%） |
-| 网页请求可拉起**宿主 GUI 进程**（Story 50-8 R2，**新暴露面**） | `POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹原生窗口（子进程 `tkinter` / `powershell`）。防线只有「回环来源 + 单在途 + 冻结 argv + 300s 超时 kill」——回环 peer ≠ 可信（见上），任何能连上端口的本机进程都能让服务机弹窗（骚扰面）；它**不是**安全边界，也不改变「须 OS 级沙箱兜底」的立场。**默认关闭**（`--dialog-backend` 默认 `none`，2026-09-27 修改）：需要时显式传 `--dialog-backend auto` 开启；内嵌服务同样默认关闭（`build_http_service` 不传该参数，`HttpProjectConsole` 默认值已同步改为 `"none"`）。与配置写入通道的 `HTTP_CONSOLE_WRITE_ENABLED` 默认 False 惯例一致 |
-| 原生目录选择在部分环境**不可用**（Story 50-8 R2） | ①无图形后端（容器 / 缺 `_tkinter` 的 Linux）；②服务跑在远程机器而浏览器在别处（窗口弹在服务机，对调用者无用）；③`--dialog-backend none` 显式禁用。三种都回 `dialog_unavailable` 并**保留手工输入**（不静默失败、也没有服务端目录浏览 API —— 那会把宿主目录结构开放给回环客户端） |
+| 网页请求可拉起**宿主 GUI 进程**（Story 50-8 R2，**新暴露面**；**裁定：维持现状** 2026-09-28） | `POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹原生窗口（子进程 `tkinter` / `powershell`）。防线只有「回环来源 + 单在途 + 冻结 argv + 300s 超时 kill」——回环 peer ≠ 可信（见上），任何能连上端口的本机进程都能让服务机弹窗（骚扰面）；它**不是**安全边界，也不改变「须 OS 级沙箱兜底」的立场。**默认关闭**（`--dialog-backend` 默认 `none`，2026-09-27 修改）：需要时显式传 `--dialog-backend auto` 开启；内嵌服务同样默认关闭（`build_http_service` 不传该参数，`HttpProjectConsole` 默认值已同步改为 `"none"`）。与配置写入通道的 `HTTP_CONSOLE_WRITE_ENABLED` 默认 False 惯例一致 |
+| 原生目录选择在部分环境**不可用**（Story 50-8 R2） | ①无图形后端（容器 / 缺 `_tkinter` 的 Linux）；②服务跑在远程机器而浏览器在别处（窗口弹在服务机，对调用者无用）；③默认即 `--dialog-backend none`（禁用；2026-09-27 起，须显式传 `auto` / `tkinter` / `powershell` 才启用）。三种都回 `dialog_unavailable` 并**保留手工输入**（不静默失败、也没有服务端目录浏览 API —— 那会把宿主目录结构开放给回环客户端） |
 | 网页侧读取结果收敛是**展示策略**，不是数据边界（Story 50-8 R5） | 只是「`file_read` 的成功内容不进网页事件流」；同一份内容仍写进**会话文件**与 `rollout.jsonl`（审计 / 回放需要），模型侧也照旧收到全文；失败消息靠 `Error:` 前缀约定识别（内置工具的既有约定，若将来改结构化错误，该判据可退化为只看 `is_error`）。**已知限制（裁定：收紧规格）**：正文以 `Error:` 开头的文件（日志/错误报告/栈转储）成功读取时，整份正文会照旧显示在网页对话区——AC9「成功只显示文件名」与「失败消息可见」在该输入类上互斥。冻结边界：不得收敛失败消息（那会让诊断从页面消失） |
 | 配置掩码域是后缀制（**裁定：维持现状**） | 掩码域只认 `*_API_KEY` / `*_API_KEYS` 后缀（`config/catalog.py::is_secret_key`），而 `*_BASE_URL` 走排除组模式 ⇒ 把中转站 token 写进 base URL（如 `https://user:token@relay/v1`）的值会**原样回显**。`GET /api/projects/{id}/config` 无回环门 ⇒ 任何能连到服务的客户端都能读到。**裁定维持现状**理由：① URL 本身不以凭证命名；② 部分掩码会破坏诊断用途（"为什么连不上"需要完整 URL）；③ 同仓 `safe_logging` 已对 URL userinfo 脱敏，口径分场景。冻结边界：不得对 URL 做部分掩码（破坏诊断），不得给只读 GET 加回环门（与 49/50 姿态冲突） |
 
@@ -1480,7 +1482,7 @@ heagent http-server（同一入口；console 由入口层装配后注入 HttpSer
         ├── GET    /api/projects/{id}/config         → 配置面板（四层来源 / 可写性 / 只读原因 / 凭证掩码 / 行级诊断）
         ├── PUT    /api/projects/{id}/config         → 写通道（**回环门** → 10 步流水线，见下）
         └── POST   /api/dialogs/pick-directory       → 原生目录选择（**回环门** + 单在途；50-8）
-              └── cli.dialogs.DirectoryPicker：后端 auto(tkinter→powershell) ⇒ 子进程弹窗
+              └── cli.dialogs.DirectoryPicker：**默认 none = 禁用**；显式 auto(tkinter→powershell) ⇒ 子进程弹窗
                     ├── 冻结 argv（无 shell / 无用户输入）+ 凭证剥离 env + 300s 超时 ⇒ kill + 有界回收
                     ├── 只认 stdout 的 ASCII 标记行 + `is_dir()` 复验 ⇒ 取消/超时/脏值统一 cancelled=true
                     └── 返回值不是权限：仍要 POST /api/projects 走完整套校验

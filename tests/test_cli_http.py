@@ -18,7 +18,7 @@ from heagent import __version__
 from heagent.cli import composition as cli_module
 from heagent.cli.console import main
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
-from heagent.cli.http import build_server_config
+from heagent.cli.http import build_server_config, build_http_service
 from heagent.config import Settings, get_settings, reset_settings
 from heagent.context.session import SessionStore
 from heagent.network.http_server import HttpServer, HttpServerConfig
@@ -136,6 +136,48 @@ def test_defaults_reach_the_listening_config(captured_server: dict[str, HttpServ
     assert server.config.shutdown_timeout == 5.0
     # 健康检查对外报告的版本号取自包元数据（不硬编码在传输层）。
     assert server.version == __version__
+
+
+def _spy_picker_backends(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """记录 ``HttpProjectConsole`` 装配 ``DirectoryPicker`` 时拿到的后端取值。
+
+    钉的是**默认值**：此前只有「显式传 ``none``」的用例（改默认值对它们毫无影响），
+    2026-09-28 实测确认「把默认值改回 ``auto``」不会让任何用例变红 ⇒ A19 的裁定当时没有可执行判据。
+    """
+    from heagent.cli import http_console as http_console_module
+
+    seen: list[str] = []
+    real_picker = http_console_module.DirectoryPicker
+
+    def spy(backend: str) -> Any:
+        seen.append(backend)
+        return real_picker(backend)
+
+    monkeypatch.setattr(http_console_module, "DirectoryPicker", spy)
+    return seen
+
+
+def test_dialog_backend_defaults_to_disabled(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer]
+) -> None:
+    """A19：``heagent http-server`` 的 ``--dialog-backend`` 默认 ``none``（原生目录选择默认关）。"""
+    seen = _spy_picker_backends(monkeypatch)
+
+    result = CliRunner().invoke(main, ["http-server"])
+
+    assert result.exit_code == 0, result.output
+    assert seen == ["none"], "默认档必须是禁用；改回 auto 会让本用例变红"
+
+
+@pytest.mark.embedded_http_service
+def test_embedded_service_also_disables_the_directory_dialog(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A19：默认 CLI 的**内嵌**服务同样默认关（``build_http_service`` 不传该参数 ⇒ 走控制台默认值）。"""
+    monkeypatch.chdir(tmp_path)
+    seen = _spy_picker_backends(monkeypatch)
+
+    build_http_service(get_settings())
+
+    assert seen == ["none"]
 
 
 def test_settings_env_drives_defaults(monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer]) -> None:

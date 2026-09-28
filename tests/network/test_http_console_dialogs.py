@@ -138,6 +138,24 @@ class TestRealAssembly:
         assert response.status_code == 503
         assert _error(response) == HttpErrorCode.DIALOG_UNAVAILABLE
 
+    async def test_the_console_default_is_disabled_by_design(self, tmp_path: Path) -> None:
+        """A19（2026-09-27 裁定「默认改按需」）：**不传** ``dialog_backend`` 时默认 ``none``。
+
+        与上一条的区别：上一条传的是**显式** ``none``（改默认值不影响它），这条钉的是**默认值本身**——
+        把 ``HttpProjectConsole.__init__`` 的默认值改回 ``auto`` 必须让某条用例变红
+        （2026-09-28 之前没有任何用例覆盖默认值，回退不会被发现）。
+        """
+        from heagent.cli.http_console import HttpProjectConsole
+
+        workspace = tmp_path / "ws-default"
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        async with _client(_app(HttpProjectConsole(workspace))) as client:
+            response = await client.post("/api/dialogs/pick-directory")
+
+        assert response.status_code == 503
+        assert _error(response) == HttpErrorCode.DIALOG_UNAVAILABLE
+
     async def test_real_console_returns_the_picked_path_without_side_effects(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
