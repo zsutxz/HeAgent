@@ -167,6 +167,53 @@ class TestHostGuard:
         assert response.json()["error"]["message"] == "request origin rejected"
 
 
+class TestCacheControlDefaults:
+    """`cache-control: no-store` 是**默认**（安全响应头一族）且**不覆盖显式设置**。
+
+    修复前的形状：只有 SSE 路径带 `cache-control`，于是 `GET /api/session` 的进程内会话快照
+    （消息正文 / 标题 / 运行状态）与其它 JSON / 错误响应都能被浏览器或中间代理缓存下来
+    （2026-09-28 修；此前无任何用例覆盖该头，见 `.heagent/tmp/mutate_cache_control.py`）。
+    """
+
+    async def test_session_snapshot_is_not_cacheable(self) -> None:
+        async with _client_with_service() as (client, _service):
+            response = await client.get("/api/session")
+
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+
+    async def test_health_response_is_not_cacheable(self) -> None:
+        async with _static_client() as client:
+            response = await client.get("/api/health")
+
+        assert response.headers["cache-control"] == "no-store"
+
+    async def test_rejected_request_is_not_cacheable_either(self) -> None:
+        async with _static_client() as client:
+            response = await client.get("/api/health", headers={"host": "evil.example"})
+
+        assert response.status_code == 403
+        assert response.headers["cache-control"] == "no-store"
+
+    async def test_static_assets_keep_their_explicit_no_cache(self) -> None:
+        """静态资源自带 `no-cache`（可缓存 + 必须回源校验，Epic 50 D8 的口径）⇒ 不得被覆盖。"""
+        async with _static_client() as client:
+            response = await client.get("/")
+
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-cache"
+
+    async def test_streamed_events_keep_their_own_headers(self) -> None:
+        """SSE 自带 `no-store` + `x-accel-buffering: no`（防代理缓冲）⇒ 两个头都必须原样保留。"""
+        async with _client_with_service() as (client, service):
+            run = await service.start_run("hello")
+            response = await client.get(f"/api/runs/{run.run_id}/events")
+
+        assert response.status_code == 200
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["x-accel-buffering"] == "no"
+
+
 class TestOriginGuard:
     async def test_same_origin_state_change_is_accepted(self) -> None:
         async with _client_with_service() as (client, service):

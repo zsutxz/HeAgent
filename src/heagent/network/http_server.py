@@ -109,6 +109,12 @@ _SECURITY_HEADERS: tuple[tuple[bytes, bytes], ...] = (
     (b"x-content-type-options", b"nosniff"),
     (b"x-frame-options", b"DENY"),
     (b"referrer-policy", b"no-referrer"),
+    # 缓存默认不落副本（2026-09-28 补）：此前只有 SSE 路径带 `cache-control`，于是
+    # `GET /api/session`（进程内会话快照：消息正文、标题、运行状态）与其它 JSON 响应都能被
+    # 浏览器 / 中间代理缓存下来。**已显式设置的不覆盖**（中间件的既有语义）：静态资源自带
+    # `no-cache`（允许缓存但必须回源校验，Epic 50 D8 的口径）、SSE 自带
+    # `no-store` + `x-accel-buffering: no` —— 两者都保持原样。
+    (b"cache-control", b"no-store"),
 )
 
 _HEALTH_PATH = "/api/health"
@@ -2001,8 +2007,10 @@ class HttpServer:
             return False
         finally:
             writer.close()
+            # 关连接**必须有界**（2026-09-28 补）：对端只收不关（或黑洞）时 `wait_closed()`
+            # 会一直等下去，把就绪门禁拖成无界等待；超时即放弃收尾，按已拿到的状态行判定。
             with contextlib.suppress(Exception):
-                await writer.wait_closed()
+                await asyncio.wait_for(writer.wait_closed(), timeout=_PROBE_TIMEOUT)
         ok = b" 200 " in status_line
         if not ok:
             _safe_log(logging.WARNING, "http event=probe_failed phase=status status=%r", status_line[:32])

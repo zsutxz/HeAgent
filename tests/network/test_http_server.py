@@ -343,6 +343,41 @@ class TestLifecycle:
             await server.close()
 
 
+class TestProbeBoundedClose:
+    """就绪探测的收尾**必须有界**：对端只收不关时不得把 `start()` 拖住（2026-09-28 修复）。
+
+    修复前 `finally` 里是裸 `await writer.wait_closed()`——`contextlib.suppress(Exception)` 只能
+    吞掉**抛出的**异常，吞不掉**永不返回**的 await，于是就绪门禁变成无界等待。
+    """
+
+    async def test_probe_survives_a_peer_that_never_completes_close(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        server = HttpServer(_config(), version=_VERSION)
+        never = asyncio.Event()
+
+        class _Reader:
+            async def readline(self) -> bytes:
+                return b"HTTP/1.1 200 OK\r\n"
+
+        class _Writer:
+            def write(self, _payload: bytes) -> None: ...
+
+            async def drain(self) -> None: ...
+
+            def close(self) -> None: ...
+
+            async def wait_closed(self) -> None:
+                await never.wait()  # 对端只收不关：真实 socket 上会一直等
+
+        async def _open_connection(_host: str, _port: int) -> tuple[Any, Any]:
+            return _Reader(), _Writer()
+
+        monkeypatch.setattr(asyncio, "open_connection", _open_connection)
+        monkeypatch.setattr(http_server, "_PROBE_TIMEOUT", 0.05)
+
+        # 外层再套一层时限：未修复时这里会挂住，套一层让「未修复」表现为**失败**而不是挂死。
+        assert await asyncio.wait_for(server._probe_health(), timeout=1.0) is True
+
+
 class TestPackagedAssets:
     """包内静态资源（源码运行与 wheel 安装都走同一个查找方式）。"""
 
