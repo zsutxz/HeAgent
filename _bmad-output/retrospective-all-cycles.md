@@ -227,7 +227,7 @@
 
 > **权威来源**：活动（未闭合）条目 = `_bmad-output/implementation-artifacts/deferred-work-archive.md`；Epic/Story 状态 = `_bmad-output/sprint-status.yaml`；安全缺口 = `docs/frame.md` 五。逐条证据与「已闭环却仍被列为待办」的修正表见 `consolidated-overview.md` §17.4。
 
-### 5.1 活动台账未闭合（8 条，**索引**）
+### 5.1 活动台账未闭合（7 条，**索引**）
 
 > **2026-09-28 复核**：活动区实测 **8 条**（此前写的 23 条为历史值——其间 15 条条目闭合并按归属归档 / 移出活动区，计数未同步）；编号口径（本系列编号与台账编号不同义的两处）见 `consolidated-overview.md` §17.4-A。
 

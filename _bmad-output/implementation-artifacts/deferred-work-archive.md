@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——8 条
+## 活动（未闭合）条目——7 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -46,6 +46,7 @@
 > - 2026-09-27：**合并 2 条重复浏览器验收条目 + 精简残余描述**——两条 50-6/50-8 浏览器验收正文完全相同，合并为一条（source_spec 改为 `50-6/50-8`）；控制台阻塞 I/O 条目的"唯一残余"描述精简（已量化且有升级条件，删除冗余细节）。活动条目数不变（5）。
 > - 2026-09-28：**计数校正（机械；条目内容一字未动）**——按本文件逐行实测（脚本 `.heagent/tmp/`：`audit_ledger.py` / `count_check.py` / `ledger_count_history.py` / `item_diff.py`）：① 本区标题 `5 条` → **8 条**；② 归档引言 `35 条 / 21 条` → **33 条 / 19 条**（= 14 + 19，与实际小节数一致）；③ 状态总览②标题 `20 条` → **19 条**；④ 本账单 2026-09-27 三行的收尾计数有误——`12 → 8` 实为 **12 → 11**（该提交只移出「掩码域后缀制」1 条）、`8 → 5` 实为 **11 → 9**、`不变（5）` 实为 **9 → 8**（合并两条浏览器验收条目），实测序列 **12 → 11 → 9 → 8**。⇒ 本区条目数**以标题为准**，上述历史行内的「活动条目数」不再可靠。
 > - 2026-09-28（第三轮）：**登记并闭合 1 条 → A24**（GUI 事件日志在环形缓冲满后永久停止渲染 + 暂停即丢事件）——当日发现、当日修：差分改走观察者**单调总数**（纯逻辑落 `pub/event_lines.EventCursor`，14 例判据 + 变异体 4/4 精确变红）；同轮把 A10 的 stat 面收敛（新增 `ProjectRegistry.find`，`_project_entry` 改走它：≤33 stat → **1 stat**）并在 A16 的判据上写明迁移条件。① 由 14 条变 **15 条**、闭合归档总数 32 → **33 条**。
+> - 2026-09-28（第四轮）：**闭合 1 条 → A4**（GUI 原生事件渲染）——两片交付：**A4a** 事件驱动渲染（含同轮发现的 A24）与 **A4b** 消息 sink 替掉 stderr 全量捕获（`cli/goal.py` 40+ 处输出收敛到 `_echo`，`_goal_runner(on_message=…)` 用 ContextVar 绑定；GUI 日志改只落文件）。**A4c**（纯事件流自绘 `/goal` 进度）**有意不做**。活动条目数 8 → **7**；① 由 15 条变 **16 条**、闭合归档总数 33 → **34 条**。
 > - 2026-09-28（第二轮）：**A 编号统一 + 计数再校正**——① 新增「**A 编号登记表**」作为 A 编号唯一事实源（A1~A19 + A23，共 20 个事项；撤号 A20/A21/A22 **不复用**；旧 A19「掩码域后缀制」属**让号**——该号已由 2026-09-24 先登记的「原生目录选择端点默认开」持有，故改取 A23）；② 状态总览②、四个闭合小节标题、流水账单历史行的编号全部归一（旧 A19/A20/A21/A22 → **A23/A11/A17/A19**，其中旧 A20「非回环运行姿态（总结）」是 A11 的重复登记，撤号并入 A11）；③ **计数再校正**：② 原 19 行里 A11 与 A20 是**同一事项的两行**，去重后 ② = **18 条**、闭合归档总数 **33 → 32 条**（= 14 + 18；上一轮把重复登记计了两次）；④ 新增可执行护栏 `tests/test_deferred_id_registry.py`。
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
@@ -55,9 +56,6 @@
   Progress（2026-09-23 同日实施，用户决策 = (a) 确认行为变化 / (b) 复用既有 `manifest.json`）：**非竞态缺口已闭合** —— `SkillPackage` 读时对渲染器 `manifest.json` 的 `outputs` 做逐资源校验，漂移即 `SkillPackageResourceError("content hash differs from manifest.json")`；底层新增原始字节摘要通道（`read_bytes_under_root` / `read_text_with_digest_under_root`，CRLF 文件亦可校验）；17 例测试（含改写/截断/entry/CRLF/未托管/凭据不可用/凭据探测次数/契约护栏），负向验证：拿掉校验调用 → 3 例漂移检测必红；凭据读取经 `is_file()` 门控（未托管包零额外 open——无门控会打破 `test_skill_packages_toctou.py` 的两条刻画测试，**该回归只在 Linux 暴露**，由 WSL 等价验证在 2256 passed 的跑法下抓出）。**竞态残余保持开启**：中间目录替换在 POSIX/Windows 上都未闭合（descriptor-relative 仅 POSIX 且仍是收窄），唯一真边界仍是 OS 级沙箱。
   Progress（2026-09-27，**POSIX 逐组件通道交付 + Ask First 授权记录**）：用户裁定「**授权引入专用代码**」⇒ 此前停在 Ask First 的候选 A（descriptor-relative / 逐组件 `openat`）落地：`tools/path_safety.py` 新增 `_open_walked` / `_open_dir_component` / `_is_symlink_at` 与**导入期冻结**的能力门 `_WALK_SUPPORTED`；`read_bytes_under_root` 围栏通过后按平台选通道（root 自身不加 `NOFOLLOW`，工作区经链接指向真实目录的合法布局不受影响）。**判据 7 条**（`tests/test_skill_packages_toctou.py`）：形状（root→中间→叶的 flags 与 dir_fd）、**竞态（围栏后把中间目录换成指向 root 之外的符号链接 ⇒ 必须在那个组件上失败）**、无 `dir_fd` 的回退形状、`..` 守卫纯路径判据、门与平台能力一致性，以及把旧的「总共只 open 一次」改写为「叶描述符唯一 + 中间 fd 不泄漏」（逐组件通道必然多开，旧断言会把正确实现判红）。**变异体 5/5 精确变红**（`.heagent/tmp/mutate_walk_posix.py`：中间组件不带 `NOFOLLOW` ⇒ 2 红；恒定回退 ⇒ 3 红；不带 `O_DIRECTORY` ⇒ 2 红；去掉 `..` 守卫 ⇒ 1 红；不做 ENOTDIR 归因 ⇒ 1 红）。**实测**：WSL Ubuntu/py3.12 上 `tests/test_skill_package*` **56 passed / 1 skipped**，全量 3114 passed + 3 failed（3 例全在 `test_cli_http_lifecycle.py` 的端口释放断言，**基线 HEAD 同款链路同样红** ⇒ WSL2 端口回收特性，与本条无关）；本机（win32）全量 **3126 passed / 覆盖率 91.74%**；`ruff` + `mypy`（本机与 `--platform linux`）全绿。**过程中踩到并修掉的两个真问题**：① 中间组件带 `O_DIRECTORY|O_NOFOLLOW` 撞符号链接时 Linux 回 **ENOTDIR**（不是 `ELOOP`）⇒ 归因必须两条 errno 都判；② 用 `os.open in os.supports_dir_fd` 做**每次调用**判定会被任何「包一层 `os.open`」的代码静默打回回退通道 ⇒ 冻结为导入期常量。**残余（不变）**：① Windows 仍只保护最终组件；② 组件级竞态不为零（组件之间仍有时间差）；③ 仍是收窄而非边界（真边界 = OS sandbox）；④ 未做方向 = 可信导入 snapshot / `manifest.lock` 的 `resources` 哈希（当前休眠暴露面）。
 
-- source_spec: `_bmad-output/implementation-artifacts/arch-optimization-cycle/phase5-observability-benchmarks-docs.md`（V-系列排除项 + C3 文档收口结论）
-  summary: **GUI 原生事件渲染**：GUI 观测仍走 stderr 转发（行为冻结，`gui/screens/chat.py` 自述「文案冻结」）；事件契约 v2（`RunEvent.duration_ms`/`error_kind` 顶层字段 + workflow_step_* kind）已为此铺路——GUI EventLog 可直接读事件渲染耗时/失败分类/步骤轨迹，不再受 CLI 文案约束。触发条件：GUI 观测升级需求；严重度：低-中；冻结边界：EngineEvent 模型与 GUI 既有消费面不破坏。
-  evidence: `src/heagent/events/protocol.py`（v2 字段）、`src/heagent/gui/observers.py`（读 EngineEvent）、`gui/bridge.py`（StreamEvent 通道）；Phase 3 spec「不把 GUI 的 stderr 转发升级为原生渲染」排除项。
 
 - source_spec: `_bmad-output/epics/epic-36-39-文件安全防护周期/brief.md`（`### Deferred（未来考虑）`：「路径级审批分级（若未来引入非 workspace 的受控写场景）」）
   summary: 路径级审批分级（**条件性条目，前置未发生**）：当前审批粒度是工具级（destructive → 审批），file 工具一律被限制在 workspace 内，所以「按路径分级审批」暂无触发场景。触发条件：引入「非 workspace 的受控写场景」（例如经审批向 workspace 外写）；严重度：低（前置未发生）；冻结边界：分级只能是 `PolicyEngine` 的 defense-in-depth 标记，不得表述为 OS 级边界，也不得放松 workspace 围栏默认值。
@@ -100,11 +98,11 @@
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 33 条：15 条勘察类正文保留在本文件，18 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 8 条未闭合条目。
+> 当前闭合归档共 34 条：16 条勘察类正文保留在本文件，18 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 7 条未闭合条目。
 
 ## 状态总览
 
-**① 勘察类（正文在本文件）——15 条**
+**① 勘察类（正文在本文件）——16 条**
 
 | ID | 条目 | 结论 | 闭合 commit |
 |----|------|------|-------------|
@@ -123,6 +121,7 @@
 | A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26：收进 `heagent/cli/` 包 + 包内再拆三个模块；正文见下方「A3」小节） | `49168b4` + `42d7331`（另 `ea2e347` 收纳入口辅助）（2026-09-26） |
 | A5 | 观测粒度残余（facade `run_failed` 恒 `duration_ms=0` / 并行批次只发整批一条事件） | 已闭合（2026-09-23 修为 + 2026-09-27 台账复核；正文见下方「A5」小节） | `1f99cc0` |
 | A24 | GUI 事件日志在环形缓冲满后**永久停止渲染**（并「暂停即丢事件」） | 已闭合（2026-09-28 当日发现、当日修；正文见下方「A24」小节） | 见下方小节（`tests/test_event_lines.py` 14 例 + 变异体 6/6） |
+| A4 | GUI 原生事件渲染（事件驱动渲染 + 消息 sink） | 已闭合（2026-09-28，A4a + A4b；A4c 有意不做） | 本文件下方「A4」小节 |
 
 **② 已按归属 epic 回填（正文在各自周期目录）——18 条**
 
@@ -162,7 +161,7 @@
 | A1 | 技能资源读取 TOCTOU 后续（descriptor-relative open / 可信导入 snapshot / OS sandbox） | **活动（部分闭合）** | 本文件活动区 |
 | A2 | MCP stdio 子进程未接入沙箱 | 已闭合（2026-09-27 **裁定 (c) 不实施**） | `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（同事项 **Z-D24**） |
 | A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26） | 本文件下方「A3」小节 |
-| A4 | GUI 原生事件渲染（消费事件契约 v2，替掉 stderr 转发） | **活动（条件性）** | 本文件活动区 |
+| A4 | GUI 原生事件渲染（事件驱动渲染 + 消息 sink） | 已闭合（2026-09-28，两片交付：A4a/A4b；A4c 有意不做） | 本文件下方「A4」小节 |
 | A5 | 观测粒度残余（`run_failed` 无耗时 / 并行批次不逐 story 发事件） | 已闭合（2026-09-23） | 本文件下方「A5」小节 |
 | A6 | 路径级审批分级（前置未发生） | **活动（条件性）** | 本文件活动区 |
 | A7 | TCP 入口不写 rollout | OBSOLETE（2026-09-27 随入口删除失效） | `epics/epic-48-TCP网络接口周期/deferred-work.md`（同事项 **Z-D18**） |
@@ -392,3 +391,31 @@
   （`.heagent/tmp/mutate_a4a.py`：GUI 薄壳退回索引差分 / 游标退回旧公式 `len(available) - seen` /
   去掉耗时渲染 / 游标不推进 `seen` / `_project_entry` 退回遍历 `list()` / 删掉 A16 的迁移条件 docstring），
   每处按 sha256 字节还原后基线复绿。
+## A4 GUI 原生事件渲染（事件驱动渲染 + 消息 sink）—— 已闭合
+
+- **来源**：架构优化周期 Phase 5 的 V-系列排除项（「不把 GUI 的 stderr 转发升级为原生渲染」）+ C3 文档收口结论；2026-09-28 交付并闭合。
+- **原问题**：GUI 的观测面有两处「借 CLI 的」：① 事件日志只渲染 `event_type`/`tool_name`/`error`/`run_id`（
+  `EngineEvent.details` 里现成的 `duration_ms` / `error_kind` / `iteration` / `target` / workflow 步骤字段一律不读）；
+  ② `/goal` 的进度靠 `contextlib.redirect_stderr` 截获 CLI 文案——那是**整个 stderr**，把 `logging` 记录与第三方输出
+  一并吞进对话区（GUI 的日志 handler 正挂在 stderr 上）。
+- **结论**：**已闭合**（2026-09-28，两片交付）：
+  - **① 事件驱动渲染**：差分改走观察者侧**单调总数**（`pub/event_lines.EventCursor`），渲染补齐耗时 / 失败分类 /
+    迭代 / 作用对象 / workflow 步骤与 story；同轮修掉「缓冲满 200 条后永久冻结」与「暂停即丢事件」（→ **A24**），
+    以及 `tool_name` 从未进展示字典、整行未 `escape`（RichLog 标记注入）两处既有缺陷；
+  - **② 替掉 stderr 转发**：`cli/goal.py` 的 40+ 处输出收敛到单一出口 `_echo`，`_goal_runner(on_message=…)` 用
+    ContextVar 绑定 **消息 sink**；GUI 传 sink（文案与 CLI 逐字相同，只是不经 stderr），并让 GUI 日志**只落文件**
+    （TUI 独占终端，日志不再写 stderr，也不再进对话区）。
+- **冻结边界（守住）**：`click.echo(..., err=True)` 的默认路径**逐字保留**（CLI 行为零变化，`_echo` 仅在绑定 sink 时改投递）；
+  EngineEvent 模型与 `kind` 开集未动；`/goal` 的 CLI 文案（冻结契约）未改一字。
+- **有意不做（残余）**：**A4c** = 丢掉 CLI 文案、纯由事件流自绘 `/goal` 进度 —— 与「文案冻结」冲突且必然出现两份措辞漂移，**不做**；
+  保留 CLI 文案为唯一措辞来源。**未做项**：GUI 聊天区的「工具结果行」显示耗时需要 `StreamEvent` 新增字段（当前只有 EngineEvent 侧有），
+  属新增小项，未登记。
+- **证据**：`src/heagent/pub/event_lines.py`（新增）、`src/heagent/gui/{observers.py,widgets/event_log.py}`、
+  `src/heagent/cli/goal.py`（`_MESSAGE_SINK` / `_echo` / `_goal_runner` 薄包装）、`src/heagent/gui/screens/chat.py`（sink）、
+  `src/heagent/gui/cli.py`（日志只落文件）；判据 `tests/test_event_lines.py`（14 例）、`tests/test_goal_message_sink.py`（6 例）、
+  `tests/test_gui_goal.py`（5 例，含「日志 / 原始 stderr 不进对话区」）。
+- **验证（2026-09-28 亲跑）**：变异体 **A24 组 6/6 + A4b 组 5/5 精确变红**（`.heagent/tmp/mutate_a4a.py` / `mutate_a4b.py`：
+  GUI 薄壳退回索引差分 / 游标退回旧公式 / 去掉耗时渲染 / 游标不推进 `seen` / `_project_entry` 退回遍历 `list()` /
+  删掉 A16 迁移条件 / GUI 不传 sink / 退回 stderr 全量捕获 / `_echo` 忽略 sink / runner 不绑 sink / GUI 日志回写 stderr），
+  每处按 sha256 字节还原；定向 12 + 136 passed；全量 `pytest -q` → 3159 passed / 14 skipped / 18 deselected（0 failed）；
+  `ruff` 与 `mypy`（本机 + `--platform linux`）全绿。
