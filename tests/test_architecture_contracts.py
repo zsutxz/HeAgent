@@ -10,6 +10,7 @@ from __future__ import annotations
 import ast
 import importlib
 import re
+import tomllib
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -834,3 +835,19 @@ def test_live_files_hold_no_reference_to_the_removed_tcp_entry() -> None:
         if hit:
             offenders[rel] = hit
     assert offenders == {}, f"活文件里仍有已删除 TCP 入口的引用：{offenders}"
+
+
+def test_pyproject_does_not_declare_a_dead_pytest_benchmark_table() -> None:
+    """`[tool.pytest_benchmark]` 是**死配置**：写进去的设置不会生效。
+
+    2026-09-28 实测（读已安装插件的源码）：`pytest_benchmark/plugin.py` 里唯一的 `addini` 只注册了
+    `benchmark` marker 一项，`autosave` / `storage` / `min_rounds` / `timer` / `save` 全部走
+    `group.addoption('--benchmark-…')`。于是 pyproject 里那张表曾经写着 `autosave = true` /
+    `storage = "./benchmark-data/"`，**跑基准却什么都不落盘**——读配置的人（含未来的我）会据此判断错。
+    本仓库因此删表、改为注释写明必须显式带旗标；这条断言防止它被「顺手加回来」。
+    """
+
+    text = (TARGET_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    table = tomllib.loads(text).get("tool", {}).get("pytest_benchmark")
+    assert table is None, f"该表不会被读取，基准设置必须走 CLI 旗标（当前内容：{table!r}）"
+    assert "--benchmark-autosave" in text, "注释里必须写清「基准落盘要显式带的旗标」"
