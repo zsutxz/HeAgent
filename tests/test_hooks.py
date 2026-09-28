@@ -170,6 +170,36 @@ class TestPreToolHook:
         assert "why-not" in result.feedback
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("encoding", "label"),
+        [("utf-8", "UTF-8"), ("oem", "控制台代码页")],
+    )
+    async def test_stdout_is_decoded_whatever_the_encoding_is(self, encoding: str, label: str) -> None:
+        """hook 输出与 shell / git 走**同一**解码策略（UTF-8 优先 + 平台控制台代码页兜底）。
+
+        两侧都要断言（本机实测 `PYTHONUTF8=1` ⇒ 首选编码是 utf-8，而别的机器可能是 cp936）：旧实现
+        的 `stdout.decode(errors="replace")` 用的是**首选编码**，因此无论首选是哪个，总有一侧是乱码
+        ⇒ 参数化后两种配置下都能精确变红。
+        """
+        if sys.platform != "win32":
+            pytest.skip("控制台代码页（oem）兜底只在 Windows 生效")
+        payload = ", ".join(str(byte) for byte in "中文".encode(encoding))
+        script = f"import sys; sys.stdout.buffer.write(bytes([{payload}]))"
+        hooks = [
+            HookConfig(
+                event="PreToolUse",
+                command=f'"{sys.executable}" -c "{script}" && exit 1',
+                matcher="shell",
+                block=True,
+            )
+        ]
+
+        result = await HookManager(hooks).run_pre_tool(ToolCall(id="1", name="shell", arguments={}))
+
+        assert result.blocked is True, label
+        assert "中文" in result.feedback, f"{label} 输出被解成了乱码"
+
+    @pytest.mark.asyncio
     async def test_command_not_found_blocks_fail_safe(self) -> None:
         """hook 命令崩溃（如命令不存在，shell 返回非 0）时 fail-safe 阻断，不静默放行。"""
         hooks = [HookConfig(event="PreToolUse", command="no-such-cmd-xyz-qq", matcher="shell", block=True)]

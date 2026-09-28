@@ -22,7 +22,10 @@ from heagent.tools.sandbox import (
     bind_command_runner,
     bind_sandbox_profile,
     bind_sandbox_workspace,
+    cap_channel,
     configure_command_runner,
+    decode_channel,
+    fallback_encoding,
     get_command_runner,
     get_sandbox_profile,
     get_sandbox_workspace,
@@ -32,6 +35,7 @@ from heagent.tools.sandbox import (
     sandbox_session_dir,
     sandbox_sessions_root,
 )
+from heagent.tools.sandbox import process as sandbox_process
 
 _PY = f'"{sys.executable}"'
 
@@ -1298,3 +1302,60 @@ async def test_session_preserves_tail_marker_after_stdout_truncation(tmp_path: P
 def test_format_result_leaves_small_output_untouched() -> None:
     assert _format_result(1, b"ok", b"warn\n") == "exit_code=1\nstdout:\nokstderr:\nwarn\n"
     assert _format_result(None, b"", b"") == "exit_code=None\n"
+
+
+class TestChannelDecoding:
+    """子进程输出的解码策略：**UTF-8 优先**，失败再按平台控制台代码页兜底（2026-09-28 修复）。
+
+    修复前的形状：一律 ``raw.decode("utf-8", errors="replace")`` ⇒ Windows 上 ``cmd`` 的**内建
+    命令**（``dir`` / ``type`` / ``findstr`` …）按控制台代码页（zh-CN 默认 936/GBK）写的字节全变成
+    ``�``（用户实测：``dir /b /ad _bmad-output\\epics`` 的中文目录名全是问号菱形）。
+    """
+
+    def test_utf8_output_is_decoded_byte_for_byte(self) -> None:
+        assert decode_channel("中文 ok\n".encode()) == "中文 ok\n"
+
+    def test_console_codepage_output_is_readable(self) -> None:
+        if sys.platform != "win32":
+            pytest.skip("兜底编码（oem = GetOEMCP）只在 Windows 的 CPython 里注册")
+        assert decode_channel("项目 报表\n".encode(fallback_encoding())) == "项目 报表\n"
+
+    def test_undecodable_bytes_never_raise(self) -> None:
+        """工具输出不该让运行失败：解不出来也要给出有界文本。"""
+        assert decode_channel(b"\xff\xfe\x00broken") != ""
+
+    @pytest.mark.asyncio
+    async def test_shell_output_in_the_console_codepage_is_readable(self) -> None:
+        """端到端（真子进程）：输出 GBK 字节 ⇒ 结果里是可读中文，而不是 ``�``。"""
+        if sys.platform != "win32":
+            pytest.skip("Windows 控制台代码页兜底只在 win32 生效（POSIX 下 GBK 字节本就非法）")
+        # 0xD6D0 = 「中」、0xCEC4 = 「文」（GBK）；命令本身保持纯 ASCII，避免 -c 源码编码问题。
+        script = "import sys; sys.stdout.buffer.write(bytes([0xD6, 0xD0, 0xCE, 0xC4]))"
+        result = await PassthroughRunner().run(f'{_PY} -c "{script}"', timeout=30)
+
+        assert result.startswith("exit_code=0")
+        assert "中文" in result
+
+    def test_truncation_sniffs_the_encoding_once_for_the_whole_channel(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """截断路径**先整段判一次编码**：切分点落在多字节序列中间 ≠ 「这不是 UTF-8」。
+
+        判据用 monkeypatch 把兜底编码钉成 GBK，让该用例在任何平台上都能区分两种实现
+        （`limit` 取 4 KiB：默认 512 KiB 也同理，小一点省内存）。
+        """
+        monkeypatch.setattr(sandbox_process, "fallback_encoding", lambda: "gbk")
+        raw = ("中" * 1000).encode() + b"z" * 3000  # 头部切片（≈2 KiB）必然切在某个「中」的中间
+
+        result = cap_channel(raw, 4096)
+
+        assert "[truncated]" in result
+        assert "中" in result, "逐段判编码会把切分点上的半个 UTF-8 序列误判成控制台代码页 ⇒ 整段乱码"
+
+    def test_truncated_console_codepage_tail_stays_readable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """GBK 输出被截断时，尾部仍按兜底编码解（而不是 UTF-8 替换字符）。"""
+        monkeypatch.setattr(sandbox_process, "fallback_encoding", lambda: "gbk")
+        raw = b"z" * 3000 + ("中" * 1000).encode("gbk")
+
+        result = cap_channel(raw, 4096)
+
+        assert "[truncated]" in result
+        assert "中" in result

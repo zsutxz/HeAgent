@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
-from heagent.tools.sandbox import reap_subprocess
+from heagent.tools.sandbox import decode_channel, reap_subprocess
 
 if TYPE_CHECKING:
     from heagent.engine.context import RunContext
@@ -199,7 +199,10 @@ class HookManager:
                 **kwargs,
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self._timeout)
-            return proc.returncode or 0, stdout.decode(errors="replace")
+            # 与 shell / git 走同一解码策略（UTF-8 优先 + 平台控制台代码页兜底）：hook 命令在
+            # Windows 上常是 cmd 内建命令，此前 `stdout.decode(errors="replace")` 用**首选编码**
+            # （cp936）解 UTF-8 输出会出乱码，反之亦然——单点策略同时覆盖两侧（2026-09-28）。
+            return proc.returncode or 0, decode_channel(stdout)
         except TimeoutError:
             logger.warning("Hook timed out (%s): %s", hook.event, hook.command)
             # 超时仅取消 communicate 协程不终止子进程，须显式终止整棵进程树并回收：

@@ -13,6 +13,7 @@ reap（5s 上界），``_cap_channel`` 单通道 512KB 保头尾截断，``scrub
 from __future__ import annotations
 
 import asyncio
+import locale
 import logging
 import os
 import signal
@@ -34,6 +35,51 @@ _MAX_CHANNEL_BYTES = 512 * 1024
 _TRUNCATION_MARKER = "[truncated]"
 
 
+def fallback_encoding() -> str:
+    """UTF-8 严格解码失败时的兜底编码。
+
+    Windows 上返回 ``"oem"``（= `GetOEMCP`，zh-CN 机器即 **cp936/GBK**）：``cmd`` 的**内建命令**
+    （``dir`` / ``type`` / ``findstr`` …）与部分控制台程序按**控制台输出代码页**写字节，而不是
+    UTF-8——本内核原先一律 ``decode("utf-8", errors="replace")``，于是这类输出里的中文全变成
+    ``�``（2026-09-28 修）。``oem`` 编解码器只在 Windows 的 CPython 里注册；其它平台回落到
+    ``locale.getpreferredencoding(False)``（Linux 上通常就是 UTF-8，等价于不启用兜底）。
+    """
+    if sys.platform == "win32":
+        return "oem"
+    return locale.getpreferredencoding(False)
+
+
+def _decodes_as_utf8(raw: bytes) -> bool:
+    """整段能否**严格**按 UTF-8 解（截断路径据此一次性选编码）。
+
+    必须整段判，不能逐段判：切分点常落在多字节序列中间，逐段严格解码会失败并被误判成
+    「不是 UTF-8」，从而把合法的 UTF-8 输出按控制台代码页解成乱码。
+    """
+    try:
+        raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+def decode_channel(raw: bytes) -> str:
+    """把一个通道的原始字节解成文本：**先严格 UTF-8，失败再按平台兜底编码**。
+
+    顺序是刻意的：Python / git / 大多数工具写的是 UTF-8，严格解通过就逐字节不变（Linux 与 CI
+    行为完全不变）；只有解不过去时才启用兜底编码（Windows 控制台代码页），最后仍退回
+    ``errors="replace"``——**绝不抛**，因为工具输出不该让运行失败。
+    """
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        fallback = fallback_encoding()
+        try:
+            return raw.decode(fallback, errors="replace")
+        except LookupError:  # pragma: no cover - 平台编解码器缺失时的兜底
+            logger.debug("channel fallback encoding %r unavailable", fallback)
+            return raw.decode("utf-8", errors="replace")
+
+
 def cap_channel(raw: bytes, limit: int = _MAX_CHANNEL_BYTES) -> str:
     """Decode one channel, keeping head and tail once it exceeds ``limit`` bytes.
 
@@ -42,10 +88,11 @@ def cap_channel(raw: bytes, limit: int = _MAX_CHANNEL_BYTES) -> str:
     the model verbatim (one 1.97 MB stdout blew a 1M-token context window).
 
     公共内核（Phase 4 C3）：sandbox 三 backend、git 工具、hooks 执行器共用同一截断语义
-    与 512KB/通道预算，巨型输出不再整段进入 LLM 上下文。
+    与 512KB/通道预算，巨型输出不再整段进入 LLM 上下文。解码走 :func:`decode_channel`
+    （UTF-8 优先 + 平台代码页兜底）。
     """
     if len(raw) <= limit:
-        return raw.decode("utf-8", errors="replace")
+        return decode_channel(raw)
     # Reserve room for the diagnostic line so the final UTF-8 result, rather
     # than only the raw payload, stays within the per-channel byte budget.
     marker = f"\n{_TRUNCATION_MARKER}"
@@ -54,8 +101,10 @@ def cap_channel(raw: bytes, limit: int = _MAX_CHANNEL_BYTES) -> str:
     head_bytes = payload_limit // 2
     tail_bytes = payload_limit - head_bytes
     dropped = len(raw) - payload_limit
-    head = raw[:head_bytes].decode("utf-8", errors="replace")
-    tail = raw[-tail_bytes:].decode("utf-8", errors="replace") if tail_bytes else ""
+    # 整段先判一次编码：切分点会落在多字节序列中间，逐段严格解码必然失败并误触发兜底编码。
+    encoding = "utf-8" if _decodes_as_utf8(raw) else fallback_encoding()
+    head = raw[:head_bytes].decode(encoding, errors="replace")
+    tail = raw[-tail_bytes:].decode(encoding, errors="replace") if tail_bytes else ""
     detail = f" {dropped} bytes dropped (kept first {head_bytes} and last {tail_bytes})\n"
 
     # Malformed UTF-8 can expand when decoded with replacement characters.
