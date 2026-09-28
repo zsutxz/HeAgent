@@ -350,3 +350,30 @@ def test_every_epic_ledger_declares_exactly_its_sections() -> None:
                         declared.add(tok)
         diff = sorted(declared ^ sections)
         assert declared == sections, f"{path.name}: 声明与小节不一致，差集 {diff}"
+
+
+#: 声明「活动条目数」的**全部**位置：pattern → 文件。同一事实写多处必然漂移（2026-09-28 实测
+#: 抓到 20 / 23 / 13 / 8 四个数字），故此处把每一处都钉成可执行判据。
+ACTIVE_COUNT_SITES: tuple[tuple[Path, re.Pattern[str]], ...] = (
+    (ARCHIVE, re.compile(r"## 活动（未闭合）条目——(\d+) 条")),
+    (ARCHIVE, re.compile(r"活动区另有 (\d+) 条未闭合条目")),
+    (OVERVIEW, re.compile(r"> 完整清单（\*\*(\d+) 条\*\*活动台账项")),
+    (OVERVIEW, re.compile(r"活动区当前 \*\*(\d+) 条\*\*")),
+    (ROOT / "_bmad-output" / "README.md", re.compile(r"活动台账当前 \*\*(\d+) 条\*\*")),
+    (ROOT / "_bmad-output" / "retrospective-all-cycles.md", re.compile(r"### 5.1 活动台账未闭合（(\d+) 条")),
+    (EPICS / "epic-50-网页控制台周期" / "deferred-work.md", re.compile(r"活动区共 (\d+) 条")),
+)
+
+
+def test_every_doc_states_the_same_active_count() -> None:
+    """活动条目数在 README / 回顾 / 总览 / epic-50 台账 / 台账本身必须等于台账活动区实际条目数。"""
+    actual = archive_active_count()
+    mismatched: dict[str, int] = {}
+    for path, pattern in ACTIVE_COUNT_SITES:
+        text = path.read_text(encoding="utf-8")
+        found = pattern.findall(text)
+        assert found, f"{path.name}: 未找到计数声明（pattern={pattern.pattern}）"
+        for value in found:
+            if int(value) != actual:
+                mismatched[f"{path.name} :: {pattern.pattern}"] = int(value)
+    assert not mismatched, f"活动条目数与台账实际 {actual} 条不一致：{mismatched}"
