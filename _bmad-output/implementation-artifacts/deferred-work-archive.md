@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——8 条
+## 活动（未闭合）条目——5 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -42,6 +42,7 @@
 > - 2026-09-27：**闭合 1 条 → Z-D24**（MCP stdio 子进程未接入沙箱，**裁定 (c) 不实施**）——裁定理由是「长命双向管道 vs 短命命令捕获的形状冲突 +隔离档属产品取舍 + Windows 无创建期缝 + 仍非边界」；正文按归属移入 `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`，本区只留 ID 索引。活动条目数 13 → 12。
 > - 2026-09-27：**复核 2 条 + 修正 1 条证据**（#2 技能资源 TOCTOU / #3 MCP stdio 入沙箱）——① #3 的 env 面经 SDK 实测排除（`mcp/client/stdio/__init__.py` 只给 `DEFAULT_INHERITED_ENV_VARS`：win32 12 项 / POSIX 6 项，显式 `env` 合并）⇒ 原 evidence「其 `env` 亦不经 `scrub_sensitive_env`」会被读成「继承全部环境变量」而与实测不符，已改写并补上「真缺口只剩 spawn 面 + 为什么不是加个 wrapper」（后端只实现短命命令捕获的 `CommandRunner`、MCP 需长命双向管道、隔离档需产品裁决、Windows 无创建期缝、仍非边界）；② #2 复核维持开启——Story 46.1 已裁定 assessment-only，逐组件 `openat` 命中 **Ask First（平台专用代码）**，故其门在授权而非实现。活动条目数不变（13）。
 > - 2026-09-27：**闭合 4 条裁决类条目（A19 / A20 / A21 / A22）**——① A19「掩码域后缀制」：裁定维持现状（URL 不以凭证命名 + 部分掩码破坏诊断 + 与 `safe_logging` 口径分场景），补充至 `docs/frame.md` 五；② A20「非回环运行姿态」：裁定维持现状（Epic 49 既有姿态 + 真正边界是 OS 沙箱 + 破坏既有契约），更新文档描述；③ A21「R5 收敛判据失效」：裁定收紧规格（正文以 `Error:` 开头的文件不在收敛范围），补充至文档；④ A22「目录选择端点默认开」：**裁定默认改按需**（`--dialog-backend` 默认改为 `none`，与 `HTTP_CONSOLE_WRITE_ENABLED` 惯例一致）——修改 `cli/http.py:362`（命令选项默认值）+ `cli/http_console.py:440`（`HttpProjectConsole.__init__` 默认值）+ 更新 `docs/frame.md` 已知缺口行。活动条目数 12 → 8。
+> - 2026-09-27：**清理 3 条重复/已闭合条目**——① 行 78-82「非回环运行姿态」的 ① 部分已在 A20 裁定维持现状，归档为 A11（部分闭合，② cron 部分）；② 行 99-102「R5 收敛判据失效」已在 A21 闭合，从活动区移除；③ 行 104-107「目录选择端点默认开」已在 A22 闭合，从活动区移除。活动条目数 8 → 5。
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 技能资源读取的竞态加固——**2026-09-27 部分闭合**：POSIX **逐组件 `openat`** 已交付（中间目录 `O_DIRECTORY|O_NOFOLLOW`、叶 `O_NOFOLLOW`，围栏后替换中间目录即在该组件上失败），Windows 无 `dir_fd` ⇒ 回退整路径 `open`、窗口与硬化前一样宽；未交付面 = 可信导入 snapshot / OS sandbox。
@@ -75,13 +76,12 @@
   **复审补强（2026-09-27 同日后复审）**：③ 的有界头部读再收一刀——`_extract_head_scalar` 原先在整个 1 MiB 窗口里找 `title`/`timestamp`/`version`，而窗口通常已越过 `messages`；工具参数是**未转义**的 JSON 键，消息体里的 `"title": …` 会与元数据字段同形并被当成会话标题。现限定为「`"messages"` 之前的元数据区」。回归 `tests/test_session.py::TestHeadMetadataScope`（变异体去掉作用域限定 ⇒ 精确变红）。同轮如实补记口径：大会话的 `messages` 结构**不在列表期校验**（畸形消息只在详情时报 `session_unreadable`）——这是「列表只读头部」的必然延伸，已写进 `_metadata_from_head` docstring。
   **仍未修（唯一残余，有意保留）**：`_runtime_for` → `_project_entry` 每请求一次 `registry.list()`（= 1 次注册表文件读 + ≤33 次 `Path.is_dir()`，亚毫秒量级）。停手理由：它是**同步私有助手**，被 8 个 async 端点与 6 处测试（其中 5 处是同步 CliRunner 用例）调用，改 async 要连带包 `asyncio.run`，churn 大于收益。**升级条件**：控制台端点 P95 超过 SSE 心跳（15s）的 1%，或 `MAX_PROJECTS` 从 32 上调。
 
-- source_spec: 2026-09-24 Epic 50 收口评审（三镜头）· 非回环运行姿态（**intent_gap，待裁决**）
-  summary: **两条相关的主张冲突，需要人裁决**：① 回环闸门只装在「登记 / 移除项目」，而**危害更大的** `POST /api/projects/{id}/runs`（可跑 shell / 文件工具）、会话增删改都没有闸门——脊柱 §9 的「写通道额外要求本机回环来源」说的是配置写通道（50-5），而 49 的 `/api/runs` 本来也无闸门，故**暴露面未因本 Epic 扩大**；② 更该关注的是 `enable_cron=False` 只拒了调度器：`cron_store` 仍被绑进 loop（`cron_enabled` 默认 True）⇒ 网页运行**可以成功写入** `<项目>/.heagent/cron/jobs.json`，任务在本进程 IDLE 永不触发，却会在**后续 CLI 会话**里无人监督地执行——与 `cli_http.new_loop` docstring 自称「把带无人监督执行面的运行时装进 HTTP 进程是明令禁止的形态，绝不静默忽略」直接冲突。触发条件：把服务绑到非回环地址 + 任意客户端；严重度：中（非回环姿态）／中-高（cron 任务跨会话后置执行）；冻结边界：不得把这些闸门表述为安全边界（网页入口无认证无 TLS，须 OS 级沙箱兜底）；不得为「更安全」而破坏既有端点契约。
-  evidence（行号于 2026-09-27 实测刷新）：`src/heagent/network/http_server.py:1440`（register 有 `_loopback_error`）/`:1469`（remove 亦有，默认项目除外）/`:1625`（配置写入 PUT 亦有）/`:1655`（50-8 的目录选择亦有）vs `:1453`（rename）/`:1568`（create_project_run）/`:1521`/`:1541`/`:1554`（create_session / rename_session / delete_session）**均无**回环门；`src/heagent/cli/composition.py:116`（`cron_store = JobStore(...) if (config.cron_enabled and enable_cron) else None`）+ `:165`（传给 loop）+ `src/heagent/agent/loop.py:672`（`stack.enter_context(bind_cron_tools(self.cron_store))`）；`src/heagent/cli/http_console.py:260`（`enable_cron=False`）与 `:264`/`:265`（`loop.cron_store is not None` ⇒ `RuntimeError("HTTP runtime must not bind cron tools")`）。
-  Progress（2026-09-24 登记，**blocked 待人裁决**）：① 属「设计姿态」选择（49 已如此），② 的修法有两条互斥路径——「网页运行一律不绑 cron 工具（连写都不允许）」或「允许写但明确标注任务不执行」；两条都改变可观察行为，非评审可单方决定，故按契约标 `blocked` 交人裁决，未擅自改。
-  Progress（2026-09-27，**② 已闭合**）：人裁决走「网页运行一律不绑 cron 工具」那条路径——commit `5a8a21e`：`cli/composition._build_loop` 在 `enable_cron=False` 时**连 `JobStore` 都不构造**（docstring 同步），`HttpAgentHandler.new_loop()` 新增守卫（loop 若绑了 cron 工具即显式失败 `must not bind cron tools`）。判据 = `tests/test_cli_http.py::test_new_loop_refuses_to_own_a_cron_scheduler` 扩为两半（`loop.cron_store is None` + 「绑了即抛」）；本轮复跑变异体 **1/1 精确变红**（`.heagent/tmp/e50_mutate_a11.py` 把 store 构造条件退回 `config.cron_enabled`）。`docs/frame.md` §4.17「运行隔离」已补该不变量。**①（非回环运行姿态）仍 `blocked`**。
-
 - source_spec: 2026-09-24 Story 50-6 实现（网页控制台 UI）
+  summary: **浏览器级 UI 验收不在 CI、也不含真实 LLM 运行**：`tests/js/console_acceptance.mjs` 需要真实 Chrome/Edge（CDP）+ `heagent[http]`，而 CI 侧**没有任何浏览器**（install 步骤只装 `.[dev,http]`／lint job 装 `.[dev,gui,http]`，全程没有 node 或浏览器步骤，依赖里也没有 playwright/puppeteer）⇒ 它只能手动跑，story 50-6 的验收清单正是由它产出的；同时该次验收**没有**跑「真实模型 → SSE → 对话区流式渲染」这条链（本机无可用 provider，Ollama 未运行），该链的前端侧由 node 探针（`tests/js/app_probe.js` 用例 A/B/C/D/E/N）与 Epic 49 的服务端用例覆盖。触发条件：改 `app.js`/`index.html`/`styles.css` 后要确认「真浏览器里也没坏」；严重度：低（改动有探针兜底，但探针是 DOM 替身——CSP 是否被违反、有没有第三方请求、窄屏计算样式只有真浏览器能证明）；冻结边界：不得为让浏览器验收进 CI 而给 dev 依赖加 playwright/puppeteer（保持零构建链与「GUI / 浏览器不进 CI」的既有立场），也不得把 `console_acceptance.mjs` 的一次通过当作「UI 无回归」的充分证据。**2026-09-24 实例（这条「不够充分」的最强证据）**：50-6 的 17/17 通过之后仍漏掉「首页确认遮罩吞掉真实鼠标点击」（`hidden` 属性为真而计算样式 `display:flex`）—— 因为清单只断言属性、且 `click()` 走 DOM API（绕过命中测试）；修复后清单新增 A1b（计算样式 + CDP `Input.dispatchMouseEvent` 真实点击）为 **18 行**；Story 50-8 的增量轮再扩至 **23 行**（2026-09-25 加 A5b / A11b / A11c / A11d / B2），详见 Z-D15 与 `reviews.md#acceptance-50-8-refinement`。
+  evidence: `tests/js/console_acceptance.mjs`（自起真实 http-server + headless Chrome，CDP 驱动真实点击；23 行清单含窄屏/凭证零明文/磁盘副作用断言，2026-09-25 起）；`tests/test_http_web_ui.py`（探针用例的 skipif 只要求 node，不要求浏览器）；`pyproject.toml`（可选依赖分组：`http` 与 `dev` 分离、`gui` 独立）。**2026-09-27 实测刷新**：`.github/workflows/ci.yml` 的 install 步骤为 lint `.[dev,gui,http]`（第 27 行）与 test / goal-smoke / coverage / benchmark `.[dev,http]`（65 / 83 / 101 / 130 / 182 行），全文件无 `node` / 浏览器 / playwright 字样 ⇒ 原写「CI 只装 `.[dev]`」与实测**不符**（该句写于 Epic 49 之前），缺口理由应记作「CI 不提供浏览器、也不跑 node 用例」，而非依赖分组；同轮复测本机 `127.0.0.1:11434/api/tags` 连接被拒 ⇒ 「本机无可用 provider」那句仍成立。
+  Progress（2026-09-24 登记，**未闭合**；2026-09-27 复核）：验收输出见 `_bmad-output/epics/epic-50-网页控制台周期/reviews.md#acceptance-50-6-console-ui`（17/17 PASS，Chrome 153.0.8010.48）；该报告同时给出复跑命令与依赖前提。本轮只**修正证据**（CI 理由、见上），**缺口本身未变**：浏览器级验收仍不在 CI、「真实模型 → SSE → 流式渲染」这条链**至今没有被跑过**（本机无可用 provider）。
+
+- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R2 原生目录选择，2026-09-24 实现）
   summary: **浏览器级 UI 验收不在 CI、也不含真实 LLM 运行**：`tests/js/console_acceptance.mjs` 需要真实 Chrome/Edge（CDP）+ `heagent[http]`，而 CI 侧**没有任何浏览器**（install 步骤只装 `.[dev,http]`／lint job 装 `.[dev,gui,http]`，全程没有 node 或浏览器步骤，依赖里也没有 playwright/puppeteer）⇒ 它只能手动跑，story 50-6 的验收清单正是由它产出的；同时该次验收**没有**跑「真实模型 → SSE → 对话区流式渲染」这条链（本机无可用 provider，Ollama 未运行），该链的前端侧由 node 探针（`tests/js/app_probe.js` 用例 A/B/C/D/E/N）与 Epic 49 的服务端用例覆盖。触发条件：改 `app.js`/`index.html`/`styles.css` 后要确认「真浏览器里也没坏」；严重度：低（改动有探针兜底，但探针是 DOM 替身——CSP 是否被违反、有没有第三方请求、窄屏计算样式只有真浏览器能证明）；冻结边界：不得为让浏览器验收进 CI 而给 dev 依赖加 playwright/puppeteer（保持零构建链与「GUI / 浏览器不进 CI」的既有立场），也不得把 `console_acceptance.mjs` 的一次通过当作「UI 无回归」的充分证据。**2026-09-24 实例（这条「不够充分」的最强证据）**：50-6 的 17/17 通过之后仍漏掉「首页确认遮罩吞掉真实鼠标点击」（`hidden` 属性为真而计算样式 `display:flex`）—— 因为清单只断言属性、且 `click()` 走 DOM API（绕过命中测试）；修复后清单新增 A1b（计算样式 + CDP `Input.dispatchMouseEvent` 真实点击）为 **18 行**；Story 50-8 的增量轮再扩至 **23 行**（2026-09-25 加 A5b / A11b / A11c / A11d / B2），详见 Z-D15 与 `reviews.md#acceptance-50-8-refinement`。
   evidence: `tests/js/console_acceptance.mjs`（自起真实 http-server + headless Chrome，CDP 驱动真实点击；23 行清单含窄屏/凭证零明文/磁盘副作用断言，2026-09-25 起）；`tests/test_http_web_ui.py`（探针用例的 skipif 只要求 node，不要求浏览器）；`pyproject.toml`（可选依赖分组：`http` 与 `dev` 分离、`gui` 独立）。**2026-09-27 实测刷新**：`.github/workflows/ci.yml` 的 install 步骤为 lint `.[dev,gui,http]`（第 27 行）与 test / goal-smoke / coverage / benchmark `.[dev,http]`（65 / 83 / 101 / 130 / 182 行），全文件无 `node` / 浏览器 / playwright 字样 ⇒ 原写「CI 只装 `.[dev]`」与实测**不符**（该句写于 Epic 49 之前），缺口理由应记作「CI 不提供浏览器、也不跑 node 用例」，而非依赖分组；同轮复测本机 `127.0.0.1:11434/api/tags` 连接被拒 ⇒ 「本机无可用 provider」那句仍成立。
   Progress（2026-09-24 登记，**未闭合**；2026-09-27 复核）：验收输出见 `_bmad-output/epics/epic-50-网页控制台周期/reviews.md#acceptance-50-6-console-ui`（17/17 PASS，Chrome 153.0.8010.48）；该报告同时给出复跑命令与依赖前提。本轮只**修正证据**（CI 理由、见上），**缺口本身未变**：浏览器级验收仍不在 CI、「真实模型 → SSE → 流式渲染」这条链**至今没有被跑过**（本机无可用 provider）。
@@ -96,21 +96,11 @@
   evidence: `tests/js/console_acceptance.mjs` 的 A5b / A11b / A11c / B2（真实浏览器，无真实弹窗点击）；`tests/test_cli_dialogs.py::TestSpawnDiscipline::test_frozen_scripts_are_valid_python_syntax`（只 compile 不执行）；`src/heagent/cli/http_console.py::_looks_like_a_failure` 与 `tests/test_http_agent_api.py::test_read_tool_error_message_is_still_shown_in_web`（**明写**「内置工具返回 Error 字符串不算异常」这一约定）；浏览器清单里「真浏览器 LLM 运行」仍是既有缺口（Z-D15 同处登记）。
   Progress（2026-09-24 登记，**未修**）：两条都已在 `docs/frame.md` 五 与验收报告里如实登记；`file_read` 失败路径有专门的真实装配用例（`tool_output` 仍可见），负向验证见 `.heagent/tmp/mutate_50_8.py` 的 M10（去掉前缀判据 ⇒ 精确变红）。
 
-- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R5 收敛判据，2026-09-26 收口后评审发现）
-  summary: **R5 的收敛判据对「正文以 `Error:` 开头的文件」失效（AC9 两句话在该输入类上互斥）** —— `cli/http_console._web_tool_output` 用 `_looks_like_a_failure()`（字符串前缀 `Error:`）区分「工具自己报的失败」与「读到的内容」，于是**成功**读取一份以 `Error:` 开头的文件（日志 / 错误报告 / 栈转储，都是 `file_read` 的常见目标）时，整份正文照旧进网页对话区。AC9 同时要求「成功的 `file_read` 只显示文件名、不出现内容」**与**「失败的 `file_read` 错误消息仍可见」，而这两者在事件里都表现为 `Error: ...` 字符串 ⇒ 在不改内置工具错误信号的前提下**无法同时满足**。触发条件：`file_read` 读任何以 `Error:` 开头的文件；严重度：低（观感未改善，不是数据/安全回归——网页本就不在安全边界内，会话文件与 rollout 照旧保留全文）；冻结边界：**不得**为消除歧义而把「失败的读取」也收敛（那会让诊断从页面上消失），也**不得**引入第二套错误信号（要动就动内置工具的返回形态，并同步退化该判据）。
-  evidence: 评审探针实测（`tool_error=False`、`tool_output='Error: SENTINEL-LEAK-50-8\nstack trace follows\n'`，哨兵进了网页帧）；对照组：路径不存在的 `file_read` → `tool_output.startswith("Error:")` 且诊断可见（既有用例 `tests/test_http_agent_api.py::test_read_tool_error_message_is_still_shown_in_web` 亦钉住）；判据落点 `src/heagent/cli/http_console.py::_looks_like_a_failure`（`_FAILURE_PREFIX = "Error:"`）。
-  Progress（2026-09-26 登记，**未修**，**intent_gap / blocked 待人裁决**）：口径需裁一次——(a) 收紧 AC9（写明「正文以 `Error:` 开头的文件不在收敛范围内」）并把该残余补进 `docs/frame.md` 五，或 (b) 让内置工具用结构化错误表达失败（`file_read` 改抛 `ToolError` / 返回带 `is_error` 的对象），届时判据退化为只看 `is_error`、歧义消失。本条与 A16 ② 是**同一判据的两个方向**：A16 ② 是「换成别的错误形态后会静默隐藏」（fail-closed 风险），本条是「前缀撞车时照旧显示」（fail-open 现实）。
-
-- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/stories/50-8-console-ux-refinement.md`（R2 的默认姿态与暴露面宽度，2026-09-26 续轮发现）
-  summary: **原生目录选择端点「默认开」且比登记范围更宽：默认 CLI 的内嵌服务也生效，而内嵌路径没有关闭手段** —— 故事 T2 只把 `--dialog-backend` 接到 `heagent http-server` 子命令，而 `HttpProjectConsole` 的默认值 `"auto"` 于是同时走进了**默认 CLI 的内嵌服务**（`python -m heagent` 交互 / 单次模式各起一份）；又因 `cli_dialogs` 有意**不新增 `Settings` 字段**，内嵌路径既无 CLI 选项也无 env 开关 ⇒ **无法关闭**（只能靠「本机没有 tkinter / powershell」自然失败）。这与配置写入通道的既有惯例相反：`HTTP_CONSOLE_WRITE_ENABLED` 默认 **False**（新控制台能力默认关）。触发条件：任何本机进程在默认 CLI 运行期间 POST 该端点；严重度：低（回环门 + 单在途 + 冻结 argv + 300s 超时 kill；无数据/权限后果，最坏是服务机上弹一个窗口）；冻结边界：**不得**为「更保险」而放宽回环门或改成「凭 Origin 即可信」，也**不得**图省事在内嵌路径硬编码 `none`（那会砍掉本机便利性）；要动就动**默认姿态**或**开关面**，属产品取舍。
-  evidence: 真实 `build_http_service(settings, executor=None)` 装配 + 假 spawn 实测（2026-09-26 亲跑，探针 `.heagent/tmp/review50_8_embedded_probe.py`）：`GET /api/health → 200`、`POST /api/dialogs/pick-directory → 200 {"path":null,"cancelled":true,"backend":"auto"}`、且**真的拉起了子进程**（`argv=[<venv>\Scripts\python.exe, '-c']`）；`cli_http.build_http_service` 不传 `dialog_backend`；`config.py` `http_console_write_enabled: bool = False`。
-  Progress（2026-09-26 登记，**未修**，**intent_gap / blocked 待人裁决**）：`docs/frame.md` 4.18 安全声明段与五 的缺口行已按实测**补正**（写明「默认开 / 两个入口都生效 / 内嵌路径无开关」），故「暴露面比文档记载更宽」那一半已闭合；剩下的是姿态裁决——(a) 维持默认开但给内嵌路径一个开关（env 或设置字段），或 (b) 默认改成按需（`--dialog-backend` 默认 `none`，需要时显式开）。两条都改变可观察行为。
-
 ---
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 32 条：14 条勘察类正文保留在本文件，18 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 8 条未闭合条目。
+> 当前闭合归档共 35 条：14 条勘察类正文保留在本文件，21 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 5 条未闭合条目。
 
 ## 状态总览
 
@@ -133,7 +123,7 @@
 | A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26：收进 `heagent/cli/` 包 + 包内再拆三个模块；正文见下方「A3」小节） | `49168b4` + `42d7331`（另 `ea2e347` 收纳入口辅助）（2026-09-26） |
 | A5 | 观测粒度残余（facade `run_failed` 恒 `duration_ms=0` / 并行批次只发整批一条事件） | 已闭合（2026-09-23 修为 + 2026-09-27 台账复核；正文见下方「A5」小节） | `1f99cc0` |
 
-**② 已按归属 epic 回填（正文在各自周期目录）——17 条**
+**② 已按归属 epic 回填（正文在各自周期目录）——20 条**
 
 | ID | 归属 epic | 条目 | 正文位置 |
 |----|-----------|------|----------|
@@ -146,13 +136,14 @@
 | Z-D19 | Epic 50（第四轮评审发现，2026-09-26 登记） | 诊断折叠标题把信息性 note 计入「需要注意」（并双计 BOM） | `epics/epic-50-网页控制台周期/deferred-work.md` |
 | Z-D20 | Epic 48（删除后的收尾勘察，2026-09-27 发现并当日闭合） | TCP 入口删除后活文件仍在宣告该入口（README / CLAUDE.md / `.env.example` / docstring） | `epics/epic-48-TCP网络接口周期/deferred-work.md` |
 | A9 | Epic 50（收口评审三镜头，2026-09-24 登记） | 运行时归因与兜底族（取消归因 / 工具卡死 / 订阅限额） | `epics/epic-50-网页控制台周期/deferred-work.md` |
+| A11 | Epic 50（收口评审三镜头，2026-09-24 登记；2026-09-27 部分闭合） | 非回环运行姿态 —— ② cron 部分已闭合，① 已在 A20 裁定维持现状 | 本文件下方「A11」小节 |
 | A18 | Epic 50（Story 50-8 收口后评审，2026-09-26 登记） | 「共 N 个会话」在 N > 200 时少报 | `epics/epic-50-网页控制台周期/deferred-work.md` |
 | Z-D21 | Epic 50（Story 50-3 的并发写，2026-09-26 登记） | 同一会话文件的两个写者整份覆盖对方历史 | `epics/epic-50-网页控制台周期/deferred-work.md` |
 | Z-D22 | Epic 50（收口评审第二轮，2026-09-24 登记） | 写入通道与保真写的四类低危残余（①文档 ②文案 ③锁内 I/O ④备查） | `epics/epic-50-网页控制台周期/deferred-work.md` |
 | Z-D23 | Epic 50（Story 50-6 AC7/UX-DR3，2026-09-24 登记） | 「高影响键的差异化确认」缺后端风险标记 | `epics/epic-50-网页控制台周期/deferred-work.md` |
 | Z-D24 | Epic S1–S4（brief `### Deferred`：「MCP server / cron 子进程接入沙箱」，2026-09-27 裁定） | MCP stdio 子进程未接入沙箱 —— **裁定 (c) 不实施**（见周期台账） | `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md` |
 | A19 | Epic 50（第四轮评审，2026-09-26 登记；2026-09-27 裁决） | 掩码域后缀制 —— **裁定维持现状**（文档补充） | 本文件下方「A19」小节 |
-| A20 | Epic 50（收口评审三镜头，2026-09-24 登记；2026-09-27 裁决） | 非回环运行姿态 —— **裁定维持现状**（文档更新） | 本文件下方「A20」小节 |
+| A20 | Epic 50（收口评审三镜头，2026-09-24 登记；2026-09-27 裁决） | 非回环运行姿态（总结） —— **裁定维持现状**（文档更新） | 本文件下方「A20」小节 |
 | A21 | Epic 50（Story 50-8 收口后评审，2026-09-26 登记；2026-09-27 裁决） | R5 收敛判据失效 —— **裁定收紧规格**（文档补充） | 本文件下方「A21」小节 |
 | A22 | Epic 50（Story 50-8 实现，2026-09-24 登记；2026-09-27 裁决） | 目录选择端点默认开 —— **裁定默认改按需**（代码修改） | 本文件下方「A22」小节 |
 
@@ -305,6 +296,21 @@
 - **问题**：项目重命名、四个会话写操作与项目内运行入口当前没有回环门（登记/移除/配置写入有）。
 - **结论**：**裁定维持现状**（2026-09-27）。理由：① 这是 Epic 49 的设计姿态，Epic 50 未扩大暴露面；② 网页入口无认证无 TLS，真正边界是 OS 级沙箱；③ 添加回环门会破坏既有端点契约。更新 `docs/frame.md` 已知缺口行描述。
 - **证据**：`docs/frame.md` 缺口行已从「待裁决」改为「裁定维持现状」。
+
+## A11 非回环运行姿态（详细）—— 部分闭合
+
+- **来源**：Epic 50 收口评审三镜头（2026-09-24 登记）。
+- **问题**：两条相关的主张冲突：
+  - ① 回环闸门只装在「登记/移除项目」，而危害更大的 `POST /api/projects/{id}/runs`（可跑 shell/文件工具）、会话增删改都没有闸门
+  - ② `enable_cron=False` 只拒了调度器：`cron_store` 仍被绑进 loop ⇒ 网页运行可以成功写入 `<项目>/.heagent/cron/jobs.json`，任务在本进程 IDLE 永不触发，却会在后续 CLI 会话里无人监督地执行
+- **结论**：
+  - **② 已闭合**（2026-09-27，commit `5a8a21e`）：`cli/composition._build_loop` 在 `enable_cron=False` 时连 `JobStore` 都不构造，`HttpAgentHandler.new_loop()` 新增守卫（loop 若绑了 cron 工具即显式失败）
+  - **① 已在 A20 裁定维持现状**（2026-09-27）：这是 Epic 49 的设计姿态
+- **证据**：
+  - `cli/composition.py:116`（JobStore 构造条件）+ `:165`（传给 loop）
+  - `cli/http_console.py:260`（`enable_cron=False`）与 `:264`/`:265`（守卫）
+  - `tests/test_cli_http.py::test_new_loop_refuses_to_own_a_cron_scheduler`
+  - `docs/frame.md` §4.17「运行隔离」已补该不变量
 
 ## A21 R5 收敛判据失效 —— 裁定收紧规格
 
