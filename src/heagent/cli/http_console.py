@@ -121,14 +121,15 @@ def _resolve_model(loop: AgentLoop) -> str | None:
 
 #: **网页展示策略**（Story 50-8 R5，非安全边界、也不改变任何有界口径）：这些工具的**成功**结果内容
 #: 不进网页事件流——``file_read`` 会把整份文件正文灌进对话区、``file_edit`` 会把整份 diff（连同上下文
-#: 行）灌进去，而网页只需要「读了 / 改了哪个文件」（文件名由 ``tool_target`` 提供）。
+#: 行）灌进去、``skill_load`` 会把整篇 ``SKILL.md``（含 frontmatter；实测某技能正文 7.7 KB）灌进去，
+#: 而网页只需要「读了 / 改了哪个文件、读了哪个技能」（作用对象由 ``tool_target`` 提供）。
 #: 三条范围约束：
 #:
 #: - **只影响网页**：会话文件、``rollout.jsonl``、CLI、GUI 一律保留全文（审计与回放不受影响）；
 #: - **失败结果不收敛**：错误消息是诊断必需，原样回传（``tool_error=True`` 时走原内容）；
-#: - **作用对象照旧**：文件名/路径仍由 ``tool_call`` 事件的 ``tool_target`` 提供（网页结果行复用
-#:   同一 ``tool_target``），这里只是不放**内容**。
-_WEB_QUIET_TOOLS: frozenset[str] = frozenset({"file_read", "file_edit"})
+#: - **作用对象照旧**：文件名 / 路径 / 技能名仍由 ``tool_call`` 事件的 ``tool_target`` 提供（网页结果行
+#:   复用同一 ``tool_target``），这里只是不放**内容**。
+_WEB_QUIET_TOOLS: frozenset[str] = frozenset({"file_read", "file_edit", "skill_load"})
 
 #: **网页展示策略（第二类：只留文件清单）**：这些工具的**成功**结果只保留「命中了哪些文件」，匹配到的
 #: **行内容**不进网页事件流——``content_search`` 返回 ``<路径>:<行号>: <正文>`` 的列表（默认上限 20

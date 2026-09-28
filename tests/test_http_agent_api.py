@@ -256,6 +256,34 @@ async def test_file_edit_diff_is_hidden_in_web_events_but_still_reaches_the_mode
     assert any(sentinel in text for text in seen), "模型必须仍拿到 diff（收敛只发生在网页侧）"
 
 
+async def test_skill_load_body_is_hidden_in_web_events_but_still_reaches_the_model(tmp_path: Path) -> None:
+    """``skill_load`` 与 ``file_read`` 同类（整份置空）：整篇 ``SKILL.md`` 正文不进网页事件帧。
+
+    正文是**注入给模型的指令**（可达数千 token，实测 code_review 技能 7.7 KB），灌进对话区既挤版
+    也无人读；网页只需要知道「读了哪个技能」——技能名由 ``tool_target`` 提供（``summarize_tool_call``
+    的兜底分支取第一个字符串参数）。失败结果（``Error: skill … not found``）照旧可见。
+    """
+    sentinel = "SENTINEL-SKILL-50-8"
+    skill_dir = tmp_path / ".heagent" / "skills" / "web-echo-probe"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: web-echo-probe\ndescription: probe\n---\n\n## Steps\n\n1. {sentinel}\n",
+        encoding="utf-8",
+    )
+    provider = _RecordingProvider([_tool_request("skill_load", {"name": "web-echo-probe"}), _answer("loaded")])
+    async with _served(provider) as (base_url, _service), httpx.AsyncClient(timeout=10.0) as client:
+        frames = await _run_prompt(client, base_url, "load the probe skill")
+
+    tool_call = next(data for _id, event, data in frames if event == "tool_call")
+    result = next(data for _id, event, data in frames if event == "tool_result")
+    assert "web-echo-probe" in tool_call["tool_target"], "作用对象（技能名）照旧进网页"
+    assert result["tool_error"] is False
+    assert result["tool_output"] == "", "SKILL.md 正文不得进网页"
+    assert sentinel not in json.dumps(frames), "技能正文一个字都不得出现在事件帧里"
+    seen = [message.content or "" for call in provider.seen for message in call]
+    assert any(sentinel in text for text in seen), "模型必须仍拿到技能正文（收敛只发生在网页侧）"
+
+
 async def test_other_tools_keep_their_output_in_web_events() -> None:
     """收敛范围**只有**白名单（``file_read`` / ``file_edit`` 整份置空 / ``content_search`` 只留命中文件）：
     别的工具的**成功**结果原样进网页（R5 是展示策略，不是通用裁剪）。

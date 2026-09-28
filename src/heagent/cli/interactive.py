@@ -353,6 +353,19 @@ async def _run_prompt(loop: AgentLoop, prompt: str, system: str | None, session_
     finally:
         monitor.stop()
 
+        # 流任务回收：本函数的**每条**退出路径都必须走到这里——父任务被取消（双击 Esc；以及
+        # Ctrl+C：asyncio.Runner 的 SIGINT 处理器把首次中断转成主任务 cancel）与流任务自身
+        # 携异常结束都算。不回收的后果实测两条：run_stream 在后台继续往终端打印；它携带的异常
+        # 永远不会被取回（asyncio 记 "Task exception was never retrieved"）。
+        # 这里**不**单独 catch KeyboardInterrupt：流任务里抛出的 KI 先被 CPython 的
+        # ``Task.__step`` 重抛进事件循环（asyncio/tasks.py: ``except (KeyboardInterrupt,
+        # SystemExit)``），父任务要到循环收尾时被取消才恢复执行并走到本块——取回逻辑放在这里，
+        # 「KI 逸出」与「父任务被取消」两条路径都覆盖。
+        if not run_task.done():
+            run_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError, KeyboardInterrupt):
+            await run_task
+
         async def _cancel(task: asyncio.Task[bool] | None) -> None:
             if task is not None:
                 task.cancel()
