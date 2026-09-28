@@ -1,6 +1,6 @@
 # HeAgent BMad 开发文档整合总览
 
-> **生成与维护**：2026-08-18 建立，持续按代码和 `sprint-status.yaml` 校正；最近一次全仓整理为 2026-09-26。本文只保留全周期摘要、状态索引和文档地图；活动 deferred 的正文以 [`implementation-artifacts/deferred-work-archive.md`](implementation-artifacts/deferred-work-archive.md) 为准，周期级闭合条目以各自 `deferred-work.md` 为准。
+> **生成与维护**：2026-08-18 建立，持续按代码和 `sprint-status.yaml` 校正；最近一次全仓整理为 2026-09-26。**2026-09-28 复核**：§17.4-A 的活动台账索引（13 → 8 条）、陈旧证据路径与版本号已按实测刷新。本文只保留全周期摘要、状态索引和文档地图；活动 deferred 的正文以 [`implementation-artifacts/deferred-work-archive.md`](implementation-artifacts/deferred-work-archive.md) 为准，周期级闭合条目以各自 `deferred-work.md` 为准。
 > **范围**：`_bmad-output/` 全部 **18 个开发周期**（Epic 1-50 + S1-S4）+ 补丁 spec 归档（原 `patches/`）+ engine 增量，整合自各周期 brief / prd / architecture / epics / stories / sprint-status / retrospective / deferred-work 与补丁 spec 共 90+ 份文档。
 > **定位**：本文是 BMad 规划产物的**统一导航与综合摘要**（兼 epic 总目录，原 EPICS-INDEX.md 已并入）——按周期纵向梳理「意图 → 需求 → 架构 → 拆分 → 状态」，横向提供**统一编号索引**与**跨周期模式**。它**不是当前代码事实**：代码现状以 `docs/frame.md` 为准，规划与实现冲突时以 `src/` 为准。
 > **权威状态**：所有 Epic/Story 状态以 `_bmad-output/sprint-status.yaml`（2026-07-23 整合，唯一写目标）为单一权威。
@@ -896,7 +896,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 - **规划产物**：**18 个周期**（Epic 1-50 + S1-S4）登记于 `sprint-status.yaml`——**18 个全部 `done`**（**Epic 50 于 2026-09-27 收口，是最后一个**；无 `in-progress` / `backlog` 项）；**retrospective 仍为 `optional` 的 epic 共 16 个**（25-28 / 36-39 / 40 / 41 / 42 / 43-46 / 49；其中 36、37、40、41、42 已于 2026-09-18 补做、Epic 48 已于 2026-09-23 补做、**Epic 50 已于 2026-09-27 补做**，余 11 个未补做，清单见 §17.4-C，交付记录见各周期目录与 `retrospective-all-cycles.md`）。产物整理：`patches/` 解散并按归属 epic 归档（2026-09-15）、跨周期 deferred 台账重组为「活动条目 + 勘察类闭合归档」（2026-09-17）、story 产物按 Epic 分组。
 - **架构优化周期（2026-09-21~22 交付）**：6 阶段全部 done——组合根收敛（`ResolvedRuntimeConfig`）/ loop façade（策略五模块 + `mark_terminal`）/ workflow 解耦（`goal/application.py`，cli_goal 991→680）/ 三域拆分（`tools/sandbox/` 包、MCP `client`+`registry_bridge`+`discovery_failures`、skills 四文件）+ 子进程监督内核统一（`cap_channel`/`reap_subprocess`）+ safe-open 单点（`open_text_under_root`）/ **事件契约 v2**（`RunEvent.duration_ms`/`error_kind`，SCHEMA_VERSION=2 黄金测试锚定 + workflow_step_* 事件）+ benchmark 基建 + 文档收口（`docs/extending.md` / `docs/troubleshooting.md` / `docs/goal-workflow.md` / frame 4.15）。档案：`implementation-artifacts/arch-optimization-cycle/`。
-- **代码现状**（2026-09-22，`src/` 最新提交 `0fb3f2a`，版本 `0.6.2`）：`engine/` 运行时治理（权限档位 `sandbox_mode` / `ToolExecutor` / store·ledger·observability）+ `events/` 机器可读事件流（rollout + replay）+ 分层上下文文件发现 + 真实 tokenizer / 结构化压缩 + `file_edit` 编辑原语；`/goal` 声明式工作流（`.heagent/skills/he-goal/workflow.md` 技能包 + `engine/workflow_runner.py` / `engine/artifacts.py` + `cli_goal.py` / `goal/document.py`；原 `engine/agile.py` 已删、`engine/workflow.py` 仅存 state/checkpoint-store）；沙箱会话化 + 权限档位化 + **沙箱硬化配置接入**（`SANDBOX_PROFILES` / `SANDBOX_TOOL_PROFILES` / 内存·CPU 限额，2026-09-17）；技能包运行时（含 `O_NOFOLLOW` 加固）；凭证防护（deny 表 + **项目级 `.heagent/path_deny.json`** + `scrub_sensitive_env`）；**跨进程 goal 锁**（`persist.file_lock`）；provider 组合根抽出为 `wiring.py`；`cli_init.py` / `frontmatter.py` / `goal/document.py` 等拆分（2026-09-17）。
+- **代码现状**（2026-09-22，`src/` 最新提交 `0fb3f2a`；版本 `0.7.0`（2026-09-26 包化重构 bump））：`engine/` 运行时治理（权限档位 `sandbox_mode` / `ToolExecutor` / store·ledger·observability）+ `events/` 机器可读事件流（rollout + replay）+ 分层上下文文件发现 + 真实 tokenizer / 结构化压缩 + `file_edit` 编辑原语；`/goal` 声明式工作流（`.heagent/skills/he-goal/workflow.md` 技能包 + `engine/workflow_runner.py` / `engine/artifacts.py` + `cli_goal.py` / `goal/document.py`；原 `engine/agile.py` 已删、`engine/workflow.py` 仅存 state/checkpoint-store）；沙箱会话化 + 权限档位化 + **沙箱硬化配置接入**（`SANDBOX_PROFILES` / `SANDBOX_TOOL_PROFILES` / 内存·CPU 限额，2026-09-17）；技能包运行时（含 `O_NOFOLLOW` 加固）；凭证防护（deny 表 + **项目级 `.heagent/path_deny.json`** + `scrub_sensitive_env`）；**跨进程 goal 锁**（`persist.file_lock`）；provider 组合根抽出为 `wiring.py`；`cli_init.py` / `frontmatter.py` / `goal/document.py` 等拆分（2026-09-17）。
 - **测试基线**：**2061 passed / 9 skipped / 18 deselected**（`pytest` 全量，2026-09-22 实测；deselect = integration + benchmark）；覆盖率 **90.88%**（gate 87，2026-09-22 值）；`scripts/quality_gate.py` 五门（goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy）；代码量 `src/` 25,768 行（130 个 `.py`）+ `tests/` 29,794 行（106 个 `.py`）。
 
 ### 17.2 已知缺口（详见 frame.md 第五章）
@@ -907,31 +907,31 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 - 用户可配置 MCP 注入签名入口（`spec-mcp-user-injection-signatures.md`）**项目级已交付**：`.heagent/injection_signatures.json` 受 workspace 围栏并进程内懒加载；全局/home 级 2026-09-15 **决策关闭（won't do）**。
 - Dreaming 的 web_fetch 注入围栏端到端接入**已交付**（2026-08-19，Epic 35；标记透传，非真正边界）。
 - 凭证 deny 的**项目级配置入口已交付**（`.heagent/path_deny.json`，2026-09-17）：仅支持收紧或精确豁免、无整体关闭入口、fail-safe 默认仍拒；`shell` 仍可 `cat .env`——非真正边界。
-- **MCP stdio server 子进程未接入沙箱**（中-高）：SDK 自行 spawn，不经 `ToolExecutor.execute_in_sandbox`，Firejail / WinJob 对它零覆盖（见 §17.4-A2）；其 env 亦不经 `scrub_sensitive_env`。
+- **MCP stdio server 子进程未接入沙箱**（**2026-09-27 裁定 (c) 不实施**，登记为已知暴露面）：SDK 自行 `anyio.open_process` spawn，不经 `ToolExecutor.execute_in_sandbox`，Firejail / WinJob 对它零覆盖（见 §17.4-A2 → 归档 **Z-D24**）；**env 面已排除**（SDK 只继承 `DEFAULT_INHERITED_ENV_VARS`：win32 12 项 / POSIX 6 项，不继承 `*_API_KEY`）。
 - sandbox 无开箱即用安全 profile 库、无人验证 profile 参数合法性、`S4-1` emit 事件仍 `skipped`（沙箱执行轨迹不可追溯）——逐条见 §17.4-C / §17.4-D。
 - ~~沙箱**无进程数限额**~~ → **2026-09-18 已闭合**：新增 `SANDBOX_NPROC_LIMIT`（0=关闭），firejail 映射 `--rlimit-nproc`、WinJob 映射 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS` + `ActiveProcessLimit`；同时修正 WinJob 常量表（`JOB_OBJECT_LIMIT_PROCESS_TIME` 原误写 `0x8`=ACTIVE_PROCESS 位，正确 `0x2`）。⚠ 两后端语义不对称（firejail 按真实 UID 计数，非 per-sandbox）。
 
 ### 17.3 下一步（路线图）
 
-> 完整清单（**13 条**活动台账项 + 纪律类产物滞后 + 技术债候选 + 已决策关闭）见 **17.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（**8 条**活动台账项 + 纪律类产物滞后 + 技术债候选 + 已决策关闭）见 **17.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
-- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本已 `0.6.2`；`.github/workflows` 目前只有 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
-- ⏳ **安全纵深**：MCP stdio server 子进程接入沙箱（§17.4-A2，中-高）。
+- 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本已 `0.7.0`；`.github/workflows` 目前只有 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
+- ✅ **安全纵深（已裁定不做）**：MCP stdio server 子进程接入沙箱 —— 2026-09-27 用户裁定 (c) **不实施**（长命双向管道与既有 `CommandRunner` 形状冲突 + 隔离档属产品取舍 + 仍非边界），登记为已知暴露面（§17.4-A2 → Z-D24）。
 - ⏳ **技能资源 TOCTOU 后续**：descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox（§17.4-A1）。
-- ⏳ **技术债**：`engine/workflow.py` legacy 相位机归档、benchmark 数据入库（历史趋势）、sandbox 开箱即用 profile 预设、Prompts/slash 结构化注册表。
+- ⏳ **技术债**：benchmark 数据入库（历史趋势）、sandbox 开箱即用 profile 预设、Prompts/slash 结构化注册表（`engine/workflow.py` legacy 相位机归档已于 2026-09-17 `d835bd8` 完成）。
 
 ### 17.4 待完成工作（2026-09-24 整理）
 
 > **权威层级**：活动（未闭合）条目以 `implementation-artifacts/deferred-work-archive.md`（append-only 入口）为准；Epic/Story 状态以 `sprint-status.yaml` 为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（13 条，**索引**）
+#### A. 活动台账未闭合条目（8 条，**索引**）
 
-> 完整正文（触发条件 / 严重度理由 / 冻结边界 / evidence / Progress）一律以 `implementation-artifacts/deferred-work-archive.md` 的**活动区**为准（append-only 入口）。本表只做导航、**不再复制**；活动区当前 **13 条**（2026-09-27 实测），编号按台账顺序对应（另有**无编号**的并发写条目也已闭合 → Z-D21，见台账）。下表另保留 7 行**已闭合 / 已失效**的编号（A3 / A5 / A7 / A9 / A13 / A14 / A18），供旧引用追溯。
+> 完整正文（触发条件 / 严重度理由 / 冻结边界 / evidence / Progress）一律以 `implementation-artifacts/deferred-work-archive.md` 的**活动区**为准（append-only 入口）。本表只做导航、**不再复制**；活动区当前 **8 条**（2026-09-28 实测——此前写的 13 条未跟上 2026-09-27 三次条目移出后的实际计数，台账标题已同步校正为 8）。下表保留 **11 行已闭合 / 已失效**的编号（A2 / A3 / A5 / A7 / A9 / A11 / A13 / A14 / A17 / A18 / A19），供旧引用追溯。**编号口径**：本表编号是**本总览的历史序列**，与台账的 A 编号**不保证同义**——已知冲突两处：本表 `A17`（R5 收敛判据）= 台账 **A21**；本表 `A19`（原生目录选择端点默认开）= 台账 **A22**，而台账 `A19` 指「掩码域后缀制」。跨文档引用**一律以台账编号为准**。
 
 | # | 条目 | 严重度 |
 |---|------|--------|
 | A1 | Epic 46 技能资源 TOCTOU 后续（descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox） | 中 |
-| A2 | MCP stdio server 子进程未接入沙箱（其 env 亦不经 `scrub_sensitive_env`） | **中-高** |
+| A2 | ~~MCP stdio server 子进程未接入沙箱（其 env 亦不经 `scrub_sensitive_env`）~~ —— **裁定 (c) 不实施**（2026-09-27；env 面经 SDK 实测**排除**——只继承 `DEFAULT_INHERITED_ENV_VARS`，真缺口只剩 spawn 面）→ 归档为 **Z-D24**（正文见 `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`） | — |
 | A3 | ~~`cli.py` / `cli_goal.py` 职责再拆~~ —— **已闭合**（2026-09-26，`49168b4` + `42d7331`；正文见 `deferred-work-archive.md` 的 A3 小节） | — |
 | A4 | GUI 原生事件渲染（改消费事件契约 v2，替掉 stderr 转发） | 低-中 |
 | A5 | ~~观测粒度残余（façade 路径 `run_failed` 恒 `duration_ms=0`；story batch 为整批一条事件）~~ —— **已闭合**（2026-09-23 `1f99cc0`，2026-09-27 台账复核；正文见 `deferred-work-archive.md` 的 A5 小节） | — |
@@ -940,15 +940,15 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | A8 | 跨项目并发无全局上限（D9 采纳后的已知缺口，计划期登记） | 低-中 |
 | A9 | ~~运行时归因与兜底族（`deadline_reason` 永久保留 / `tools_in_flight` 不衰减 / SSE「先查后加」）~~ —— **已闭合**（2026-09-27，`a1f7c67`；正文见 `epics/epic-50-网页控制台周期/deferred-work.md`） | — |
 | A10 | 控制台端点在唯一事件循环里做同步 I/O（会话列表 / 配置面板 / 注册表） | 低-中 |
-| A11 | 非回环运行姿态 + cron 跨会话后置执行（**intent_gap，blocked 待人裁决**） | 中 / 中-高 |
+| A11 | ~~非回环运行姿态 + cron 跨会话后置执行~~ —— **部分闭合**（2026-09-27）：② cron 跨会话后置执行已闭合（`5a8a21e`，`enable_cron=False` 时不构造 `JobStore`），① 非回环姿态已在**台账 A20** 裁定维持现状；正文见 `deferred-work-archive.md` 的 A11 小节 | — |
 | A12 | 浏览器级 UI 验收不在 CI、也不含真实 LLM 运行 | 低 |
 | A13 | ~~「高影响键的差异化确认」缺后端风险标记~~ —— **已闭合**（2026-09-27；事实源 = `RESOURCE_CEILINGS`，正文见 `epics/epic-50-网页控制台周期/deferred-work.md`） | — |
 | A14 | ~~写入通道与保真写的四类低危残余（`.env.lock` 落点 / 回滚失败文案 / 写锁内 I/O / 末行无换行）~~ —— **已闭合**（2026-09-27，四面全处置；正文同 A13 目录） | — |
 | A15 | 网页请求可拉起宿主 GUI 进程（Story 50-8 R2 有意引入的新暴露面；含三种不可用环境） | 低-中 |
 | A16 | 真实原生窗口无法自动化验收 + 网页侧读取结果收敛依赖 `Error:` 前缀判据（Story 50-8 R2/R5） | 低 |
-| A17 | R5 收敛判据对「正文以 `Error:` 开头的文件」失效（AC9 两句话互斥；**intent_gap，blocked 待人裁决**） | 低 |
+| A17 | ~~R5 收敛判据对「正文以 `Error:` 开头的文件」失效（AC9 两句话互斥）~~ —— **已闭合**（2026-09-27 裁定收紧规格；**台账编号 A21**，正文见 `deferred-work-archive.md` 的 A21 小节） | — |
 | A18 | ~~「共 N 个会话」在 N > 200 时静默少报（服务端硬上限截断、协议无 `total`）~~ —— **已闭合**（2026-09-27，`7b9015f`；正文同 A9） | — |
-| A19 | 原生目录选择端点**默认开**且默认 CLI 内嵌服务也生效、内嵌路径无关闭手段（写通道惯例相反；**intent_gap，blocked 待人裁决**） | 低 |
+| A19 | ~~原生目录选择端点默认开~~ —— **已闭合**（2026-09-27 裁定默认改按需：`--dialog-backend` 默认 `none`；**台账编号 A22**，正文见 `deferred-work-archive.md` 的 A22 小节） | — |
 
 > **旧编号对照（2026-09-18 版）**：旧 A1~A4 = 本文 A1 / A2 / A3 / **A6**；旧 A5（`RoleSpec.sandbox_profile` 死字段）与旧 A6（沙箱进程数限额）已于 2026-09-18 闭合，故新编号里不再出现。改编号只为与台账条目顺序一一对应——正文一律以台账为准。
 >
@@ -979,18 +979,20 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 #### D. 技术债与改进候选（低优先，2026-09-18 逐条核实仍在）
 
+> **2026-09-28 证据路径刷新**：下列条目写于 2026-09-26 包化重构之前，旧路径 `cli.py` / `config.py` / `mapping.py` **已不存在**（`cli.py` → `cli/console.py` + `cli/interactive.py`；`config.py` → `config/__init__.py`；`mapping.py` → `tools/mcp/mapping.py`）。债务本身逐条复核**仍成立**，此处只换行号与版本号。
+
 | 项 | 现状证据 |
 |----|----------|
-| 生产化：PyPI 发布 / CI release workflow / Docker Hub（路线级已列 §17.3） | `.github/workflows` 仅 `ci.yml`、`codeql.yml`；版本 `0.6.2` |
+| 生产化：PyPI 发布 / CI release workflow / Docker Hub（路线级已列 §17.3） | `.github/workflows` 仅 `ci.yml`、`codeql.yml`；版本 `0.7.0`（2026-09-26 包化重构 bump） |
 | ~~`engine/workflow.py` legacy 相位机归档~~ | **已完成**（2026-09-17 `d835bd8` 删除，仅存 state/checkpoint-store） |
 | benchmark 数据入库（历史趋势） | 仅本地 autosave `./benchmark-data/`（gitignore）；**阈值入口已建**（Phase 5：`--benchmark-compare-fail=min:50%`，见 `docs/troubleshooting.md`） |
-| `model_pricing` 抽独立数据模型 + 校验 | 仍是 JSON 字符串 + `model_pricing_map`（`config.py:313,442`） |
-| `guard_content` 加 `source` 参数（web 语境文案不精确） | 签名仍是 `guard_content(text)`（`mapping.py:217`） |
+| `model_pricing` 抽独立数据模型 + 校验 | 仍是 JSON 字符串 + `model_pricing_map`（`config/__init__.py:519`） |
+| `guard_content` 加 `source` 参数（web 语境文案不精确） | 签名仍是 `guard_content(text)`（`tools/mcp/mapping.py:217`） |
 | Hook 事件集不全 | `engine/hooks.py:44-47` 仅 `PreToolUse`/`PostToolUse`/`SessionStart`/`SessionEnd` |
 | firejail / WinJob 不可用仅 `logger.warning`，无 CLI banner | `tools/sandbox/winjob.py`（run 内降级 warning）/ `firejail.py`（构造期 warning） |
-| readline 在 Windows 静默失效 | `cli.py` 仍为 try-import（无降级方案） |
+| readline 在 Windows 静默失效 | `cli/interactive.py:163` 仍为 try-import（无降级方案） |
 | sandbox 开箱即用 profile 预设 / cron 常见模板 | 仅有 `SANDBOX_PROFILES` 声明通道，无预设库 |
-| Prompts / slash 结构化注册表 | `slash.py` 已是注册表；CLI 入口仍 `startswith("/")`（`cli.py:544,714`） |
+| Prompts / slash 结构化注册表 | `slash.py` 已是注册表；CLI 入口仍 `startswith("/")`（`cli/interactive.py:276,446`） |
 | sandbox profile 参数合法性校验 | 无校验入口（`SANDBOX_PROFILES` 直接透传 firejail 参数） |
 | `skill_update` 遇富正文技能拒绝改写 | `SkillStore.update()` 对含自定章节的技能抛 `SkillRewriteError`（元数据可改，`pattern`/`steps` 须手工编辑，改前先备份） |
 
@@ -1035,7 +1037,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/epics/<周期>/[epic-NN-主题/]stories/` | 按 epic 归档的 story 文件（2026-09-26 全深度实测：**102 个**，**28 个** `stories/` 目录） |
 | `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录（原 `patches/<领域>/` 2026-09-15 解散） |
 | `_bmad-output/implementation-artifacts/arch-optimization-cycle/` | **架构优化周期档案**（总方案 + phase0..5 spec，各含执行记录；2026-09-22 归档，原 `docs/test.md` 已删并） |
-| `_bmad-output/implementation-artifacts/deferred-work-archive.md` | 工作流的跨周期 deferred **活动条目**（未闭合项，23 条）+ 勘察类闭合归档正文（`Z-D1`~`Z-D9`、`Z-D12`）+ 全部 `Z-Dn` 的 **ID 索引**；活动正文只在本文件，已归属 Epic 的闭合正文移入对应周期 `deferred-work.md` |
+| `_bmad-output/implementation-artifacts/deferred-work-archive.md` | 工作流的跨周期 deferred **活动条目**（未闭合项，8 条）+ 勘察类闭合归档正文（`Z-D1`~`Z-D9`、`Z-D12`）+ 全部 `Z-Dn` 的 **ID 索引**；活动正文只在本文件，已归属 Epic 的闭合正文移入对应周期 `deferred-work.md` |
 | `_bmad-output/implementation-artifacts/spec-business-data-integration.md`（**2026-09-15 已删除**） | 业务数据整合**母规划 spec**——未启动、未衍生实现 spec 或 epic，正文仅存 git 历史（见 `_bmad-output/README.md`「已失效删除」） |
 | `_bmad-output/epics/<周期>/deferred-work.md` | 已闭合遗留项按归属 epic 归档（2026-09-24 实测存在 **9 份**：01-10 / 11-18 / S1-S4 / 36-39 / 40 / 41 / 47 / **48** / **50**） |
 | `_bmad-output/specs/` | quick-dev 本地工作件（gitignored；Epic 41 goal 契约已归档至 `_bmad-output/epics/epic-41-目标驱动开发周期/spec-goal-command/`） |
