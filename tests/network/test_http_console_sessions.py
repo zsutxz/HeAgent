@@ -725,8 +725,9 @@ class _ThreadRecordingRegistry:
 async def test_registry_and_config_solver_run_off_the_event_loop(tmp_path: Path, monkeypatch: Any) -> None:
     """项目列表 / 「最近打开」写入 / 配置求解三处同步 I/O 必须离线（台账同名条目）。
 
-    ``_runtime_for`` → ``_project_entry`` 的注册表读**有意**留在调用线程（≤32 次 ``Path.is_dir()``，
-    亚毫秒量级；改 async 会波及 8 个调用点与 6 处测试），故本用例只断言本批卸载的落点，该残余记在台账。
+    ``_runtime_for`` → ``_project_entry`` 的注册表读**有意**留在调用线程（2026-09-28 起只 stat 目标项：
+    1 次注册表读 + 1 次 ``Path.is_dir()``，见 ``ProjectRegistry.find``；改 async 会波及 10 个调用点），
+    故本用例只断言本批卸载的落点，该残余记在台账（A10）。
     """
     harness = _Harness(tmp_path)
     recorder = _ThreadRecordingRegistry(harness.console.registry)
@@ -781,3 +782,47 @@ async def test_session_list_total_counts_files_not_the_page_window(
     capped = await console.list_sessions("default")
     assert len(capped.sessions) == 1
     assert capped.total == 500, "total 必须来自计数（硬上限截断时列表长度会说谎）"
+
+
+class _MethodRecordingRegistry:
+    """记录被调用过的方法名的薄包装（``find`` 与 ``list`` 的调用面判据用）。"""
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        self.methods: list[str] = []
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+    def find(self, project_id: str) -> Any:
+        self.methods.append("find")
+        return self._inner.find(project_id)
+
+    def list(self) -> Any:
+        self.methods.append("list")
+        return self._inner.list()
+
+
+async def test_project_entry_resolves_one_project_without_listing_everything(tmp_path: Path) -> None:
+    """A10：解析单个项目必须走 ``registry.find``（1 次读 + 1 次 stat），不得退回遍历 ``list()``。
+
+    变异体（把 ``_project_entry`` 换回 ``self.registry.list()`` 的循环）⇒ 本用例精确变红。
+    """
+    harness = _Harness(tmp_path)
+    recorder = _MethodRecordingRegistry(harness.console.registry)
+    harness.console.registry = recorder
+    try:
+        await harness.console.get_project_config(harness.other_id)
+        assert "find" in recorder.methods, f"未走 find：{recorder.methods}"
+        assert "list" not in recorder.methods, f"解析单条项目不应遍历全表：{recorder.methods}"
+    finally:
+        await harness.release()
+
+
+def test_failure_prefix_criterion_documents_its_migration_condition() -> None:
+    """A16：``Error:`` 前缀判据是**约定**，其 docstring 必须写明「工具错误结构化后即退化」的迁移条件。
+
+    变异体（删掉那段 docstring）⇒ 本用例精确变红。
+    """
+    doc = http_console_module._looks_like_a_failure.__doc__ or ""
+    assert "迁移条件" in doc and "is_error" in doc and "A16" in doc, doc

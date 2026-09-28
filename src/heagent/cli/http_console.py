@@ -136,7 +136,12 @@ _FAILURE_PREFIX = "Error:"
 
 
 def _looks_like_a_failure(content: str) -> bool:
-    """内容是「工具自己报的失败」吗（**展示层判据，非安全边界**）。"""
+    """内容是「工具自己报的失败」吗（**展示层判据，非安全边界**）。
+
+    **迁移条件（台账 A16）**：本判据依赖「内置工具用返回值 ``Error: …`` 表达可预期失败」这一既有
+    约定（``is_error`` 仍为 ``False``）。一旦工具错误改成结构化形态（抛 ``ToolError`` / 返回
+    ``is_error=True``），此处应**退化**为只看 ``event.tool_error`` 并删除本函数——不要两套判据并存。
+    """
     return content.lstrip().startswith(_FAILURE_PREFIX)
 
 
@@ -720,10 +725,12 @@ class HttpProjectConsole:
     # ── 内部 ──
 
     def _project_entry(self, project_id: str) -> ProjectEntry:
-        for entry in self.registry.list():
-            if entry.id == project_id:
-                return entry
-        raise ConsoleOperationError(HttpErrorCode.UNKNOWN_PROJECT, f"no project {project_id!r}")
+        # 每请求只 stat 目标项（台账 A10）：``registry.list()`` 会为**每条**已登记项目各做一次
+        # ``Path.is_dir()``（≤ 31 次），而这里只需要一条 ⇒ 走 ``registry.find``。
+        entry = self.registry.find(project_id)
+        if entry is None:
+            raise ConsoleOperationError(HttpErrorCode.UNKNOWN_PROJECT, f"no project {project_id!r}")
+        return entry
 
     def _runtime_for(self, project_id: str) -> _ProjectRuntime:
         """解析（并缓存）项目运行时；未登记 → ``unknown_project``，目录失效 → ``project_unavailable``。"""

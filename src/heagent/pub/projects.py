@@ -97,16 +97,31 @@ class ProjectRegistry:
             return []
         return self._decode(raw)
 
+    def _default_entry(self) -> ProjectEntry:
+        return ProjectEntry(
+            id="default",
+            name=Path(self._default_path).name or self._default_path,
+            path=self._default_path,
+            available=Path(self._default_path).is_dir(),
+            is_default=True,
+        )
+
+    def find(self, project_id: str) -> ProjectEntry | None:
+        """按 id 取单条项目（**1 次注册表读 + 1 次** ``is_dir``）——供「只解析一个项目」的热路径。
+
+        ``list()`` 会为**每条**已登记项目各做一次 ``Path.is_dir()``（≤ 31 次）；网页控制台每个
+        请求都要解析一个项目、且全程同步跑在事件循环上，故把 stat 收敛到目标项（2026-09-28，台账 A10）。
+        语义与 ``list()`` 一致：默认项目恒存在；未登记 ⇒ ``None``；注册表不可读 ⇒ fail-soft 空表。
+        """
+        if project_id == "default":
+            return self._default_entry()
+        for item in self.load():
+            if item.id == project_id:
+                return self._public(item)
+        return None
+
     def list(self) -> builtins_list[ProjectEntry]:
-        entries = [
-            ProjectEntry(
-                id="default",
-                name=Path(self._default_path).name or self._default_path,
-                path=self._default_path,
-                available=Path(self._default_path).is_dir(),
-                is_default=True,
-            )
-        ]
+        entries = [self._default_entry()]
         entries.extend(
             ProjectEntry(
                 id=item.id,

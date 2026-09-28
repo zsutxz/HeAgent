@@ -160,3 +160,58 @@ def test_list_orders_recent_projects_before_implicit_default(tmp_path: Path) -> 
     registry.touch(entries[1].id)
     listed = registry.list()
     assert [entry.id for entry in listed] == [entries[1].id, entries[0].id, "default"]
+
+
+class TestFindSingleProject:
+    """``find`` = 控制台热路径的单条解析：语义与 ``list`` 一致，但只 stat 目标项（台账 A10）。"""
+
+    @staticmethod
+    def _registry(tmp_path: Path, count: int) -> ProjectRegistry:
+        registry = ProjectRegistry(tmp_path / "registry.json", default_path=tmp_path)
+        for i in range(count):
+            project = tmp_path / f"p{i}"
+            project.mkdir()
+            registry.register(str(project), name=f"p{i}")
+        return registry
+
+    def test_default_entry_matches_list(self, tmp_path: Path) -> None:
+        registry = self._registry(tmp_path, 2)
+        found = registry.find("default")
+        listed = next(entry for entry in registry.list() if entry.is_default)
+        assert found == listed
+
+    def test_registered_entry_matches_list_row(self, tmp_path: Path) -> None:
+        registry = self._registry(tmp_path, 1)
+        target = registry.list()[0]
+        assert registry.find(target.id) == target
+
+    def test_unknown_project_returns_none(self, tmp_path: Path) -> None:
+        registry = self._registry(tmp_path, 1)
+        assert registry.find("p0badbeef") is None
+
+    def test_find_stats_only_the_target_while_list_stats_every_project(self, tmp_path: Path, monkeypatch) -> None:
+        """量化判据：``find`` = 1 次注册表读 + 1 次 ``is_dir``；``list`` = 1 次读 + (1 + N) 次 ``is_dir``。"""
+        registry = self._registry(tmp_path, 5)
+        stats = {"is_dir": 0, "read": 0}
+        real_is_dir = Path.is_dir
+        real_read = Path.read_text
+
+        def counting_is_dir(self: Path) -> bool:
+            stats["is_dir"] += 1
+            return real_is_dir(self)
+
+        def counting_read(self: Path, *args: object, **kwargs: object) -> str:
+            stats["read"] += 1
+            return real_read(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "is_dir", counting_is_dir)
+        monkeypatch.setattr(Path, "read_text", counting_read)
+
+        target = registry.list()[0]  # 先取目标（计入统计后再清零）
+        stats["is_dir"] = stats["read"] = 0
+        assert registry.find(target.id) is not None
+        assert stats == {"is_dir": 1, "read": 1}, f"find 只应 stat 目标项：{stats}"
+
+        stats["is_dir"] = stats["read"] = 0
+        registry.list()
+        assert stats == {"is_dir": 6, "read": 1}, f"list 逐项 stat（默认 1 + 已登记 5）：{stats}"
