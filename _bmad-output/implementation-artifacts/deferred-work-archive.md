@@ -45,6 +45,7 @@
 > - 2026-09-27：**清理 3 条重复/已闭合条目**——① 行 78-82「非回环运行姿态」的 ① 部分已裁定维持现状（号统一后记作 A11），归档为 A11（部分闭合，② cron 部分）；② 行 99-102「R5 收敛判据失效」已闭合（号统一后记作 A17），从活动区移除；③ 行 104-107「目录选择端点默认开」已闭合（号统一后记作 A19），从活动区移除。活动条目数 8 → 5。
 > - 2026-09-27：**合并 2 条重复浏览器验收条目 + 精简残余描述**——两条 50-6/50-8 浏览器验收正文完全相同，合并为一条（source_spec 改为 `50-6/50-8`）；控制台阻塞 I/O 条目的"唯一残余"描述精简（已量化且有升级条件，删除冗余细节）。活动条目数不变（5）。
 > - 2026-09-28：**计数校正（机械；条目内容一字未动）**——按本文件逐行实测（脚本 `.heagent/tmp/`：`audit_ledger.py` / `count_check.py` / `ledger_count_history.py` / `item_diff.py`）：① 本区标题 `5 条` → **8 条**；② 归档引言 `35 条 / 21 条` → **33 条 / 19 条**（= 14 + 19，与实际小节数一致）；③ 状态总览②标题 `20 条` → **19 条**；④ 本账单 2026-09-27 三行的收尾计数有误——`12 → 8` 实为 **12 → 11**（该提交只移出「掩码域后缀制」1 条）、`8 → 5` 实为 **11 → 9**、`不变（5）` 实为 **9 → 8**（合并两条浏览器验收条目），实测序列 **12 → 11 → 9 → 8**。⇒ 本区条目数**以标题为准**，上述历史行内的「活动条目数」不再可靠。
+> - 2026-09-28（第三轮）：**登记并闭合 1 条 → A24**（GUI 事件日志在环形缓冲满后永久停止渲染 + 暂停即丢事件）——当日发现、当日修：差分改走观察者**单调总数**（纯逻辑落 `pub/event_lines.EventCursor`，14 例判据 + 变异体 4/4 精确变红）；同轮把 A10 的 stat 面收敛（新增 `ProjectRegistry.find`，`_project_entry` 改走它：≤33 stat → **1 stat**）并在 A16 的判据上写明迁移条件。① 由 14 条变 **15 条**、闭合归档总数 32 → **33 条**。
 > - 2026-09-28（第二轮）：**A 编号统一 + 计数再校正**——① 新增「**A 编号登记表**」作为 A 编号唯一事实源（A1~A19 + A23，共 20 个事项；撤号 A20/A21/A22 **不复用**；旧 A19「掩码域后缀制」属**让号**——该号已由 2026-09-24 先登记的「原生目录选择端点默认开」持有，故改取 A23）；② 状态总览②、四个闭合小节标题、流水账单历史行的编号全部归一（旧 A19/A20/A21/A22 → **A23/A11/A17/A19**，其中旧 A20「非回环运行姿态（总结）」是 A11 的重复登记，撤号并入 A11）；③ **计数再校正**：② 原 19 行里 A11 与 A20 是**同一事项的两行**，去重后 ② = **18 条**、闭合归档总数 **33 → 32 条**（= 14 + 18；上一轮把重复登记计了两次）；④ 新增可执行护栏 `tests/test_deferred_id_registry.py`。
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
@@ -70,14 +71,14 @@
 
 - source_spec: 2026-09-24 Epic 50 收口评审（三镜头）· 控制台阻塞 I/O 与会话列表成本
   summary: **控制台端点在唯一事件循环里做同步 I/O**：`list_sessions`（逐文件全量读 + 无 title 时全量校验）、`build_config_report`（实测中位 14 ms）、`registry.list()`（每请求每条一次 `Path.is_dir()`）、`registry.touch()`（跨进程文件锁 + 原子写）都是 `async def` 体内的阻塞调用，会卡住在途 SSE 流与其余请求；且 >1 MiB 的会话仍在列表时被整份读入（`count_messages` 只跳过计数，与 `SessionMetadata` docstring 的「避免列表时校验整份历史」不符）。触发条件：会话数/体积增长、面板被频繁刷新；严重度：低-中（单用户本机场景下不致命，属可伸缩性债务）；冻结边界：不得为此改变会话文件格式或列表接口的有界口径（D6 的「列表可退化」语义保留）。
-  evidence（行号于 2026-09-27 实测刷新）：`src/heagent/cli/http_console.py:516`（`runtime.sessions.list_metadata()`，已 `to_thread` 卸载）、`:626` 与 `:670`（`build_config_report` 两处，均已卸载）、`:722`/`:728`（`_project_entry` / `_runtime_for` 每请求遍历注册表——**唯一残余**）、`:774`（`registry.touch`，经 `:771` 的 `_touch` 卸载）、`:759`（dream 会话预注入，已卸载）；`src/heagent/context/session.py:620`（`info.st_size > MAX_SESSION_METADATA_BYTES` ⇒ 走 `_read_head`，元数据只读 `"messages"` 之前的区段）、`:637`（`count_messages` 只对未超限文件计数）。
+  evidence（行号于 2026-09-27 实测刷新）：`src/heagent/cli/http_console.py:516`（`runtime.sessions.list_metadata()`，已 `to_thread` 卸载）、`:626` 与 `:670`（`build_config_report` 两处，均已卸载）、`:722`/`:728`（`_project_entry` / `_runtime_for` 每请求解析项目——**唯一残余**，2026-09-28 起只 stat 目标项）、`:774`（`registry.touch`，经 `:771` 的 `_touch` 卸载）、`:759`（dream 会话预注入，已卸载）；`src/heagent/context/session.py:620`（`info.st_size > MAX_SESSION_METADATA_BYTES` ⇒ 走 `_read_head`，元数据只读 `"messages"` 之前的区段）、`:637`（`count_messages` 只对未超限文件计数）。
   Progress（2026-09-24 登记；**2026-09-27 两轮续修，仅剩一处已量化残余**）：
   ① **会话读**离线到 `asyncio.to_thread`——`list_sessions` / `get_session`（元数据 + 整份消息）/ `start_project_run` 前的 `_resolve_session`（缺省分支会列全部会话）；不改任何公共签名（`_resolve_session` 仍是同步纯助手）；
   ② **其余落点补齐**——`build_config_report`（`get_project_config` 与写后响应两处）、`registry.touch`（`_touch`）、`list_projects` 的 `registry.list()`、`memory/dream` 的会话预注入（`_build_dream_prompt`）；
   ③ **`>1 MiB` 会话不再整份读入**——`SessionStore.list_metadata` 改走 `_read_head`（有界读 `MAX_SESSION_METADATA_BYTES` 字节 + 严格解码，cap 落在多字节字符中间时只裁掉不完整尾序列）+ `_metadata_from_head`（落盘键序保证 `session_id` / `version` / `timestamp` / `title` 都排在 `messages` 之前 ⇒ 列表所需字段照旧可得；`message_count` 恒 `None`，D6 口径与 `SessionMetadata` docstring 从此一致）。
   **验证（2026-09-27 亲跑）**：新增 6 例测试（`tests/test_session.py::TestOversizedSessionListing` 4 例——含「任何整份读即抛」的守卫、cap 落在 CJK 字符中间的容错、坏编码仍列不可读；`tests/network/test_http_console_sessions.py::test_registry_and_config_solver_run_off_the_event_loop`；`tests/test_dream.py::test_session_preload_runs_off_the_event_loop`），判据一律取**线程身份**而非耗时；变异体 **5/5 精确变红**（`.heagent/tmp/mutate_console_io.py`：回退有界读 / 回退 `list_projects` 卸载 / 回退 `_touch` 卸载 / 回退配置求解卸载 / 回退 dream 卸载），每处字节还原后基线复绿；全量 `pytest -q` **3179 passed / 11 skipped**；`ruff check` + `format --check` 与 `mypy`（本机 + `--platform linux`）全绿。
   **复审补强（2026-09-27 同日后复审）**：③ 的有界头部读再收一刀——`_extract_head_scalar` 原先在整个 1 MiB 窗口里找 `title`/`timestamp`/`version`，而窗口通常已越过 `messages`；工具参数是**未转义**的 JSON 键，消息体里的 `"title": …` 会与元数据字段同形并被当成会话标题。现限定为「`"messages"` 之前的元数据区」。回归 `tests/test_session.py::TestHeadMetadataScope`（变异体去掉作用域限定 ⇒ 精确变红）。同轮如实补记口径：大会话的 `messages` 结构**不在列表期校验**（畸形消息只在详情时报 `session_unreadable`）——这是「列表只读头部」的必然延伸，已写进 `_metadata_from_head` docstring。
-  **仍未修（唯一残余，有意保留）**：`_runtime_for` → `_project_entry` 每请求一次 `registry.list()`（= 1 次注册表文件读 + ≤33 次 `Path.is_dir()`，亚毫秒量级）。停手理由：同步私有助手，改 async 连带 churn 大于收益。**升级条件**：控制台端点 P95 超过 SSE 心跳（15s）的 1%，或 `MAX_PROJECTS` 从 32 上调。
+  **仍未修（唯一残余，有意保留）**：`_runtime_for` → `_project_entry` 解析项目仍是**同步**调用（事件循环上执行）。**2026-09-28 已把 stat 面收敛**：新增 `ProjectRegistry.find(project_id)`（1 次注册表读 + **1 次** `Path.is_dir()`），`_project_entry` 改走它 —— 此前每请求要遍历 `registry.list()`（1 次读 + ≤33 次 stat）。剩余为这 1 读 + 1 stat。停手理由：同步私有助手，改 async 连带 churn（10 个 `_runtime_for` 调用点）大于收益。**升级条件**：控制台端点 P95 超过 SSE 心跳（15s）的 1%，或 `MAX_PROJECTS` 从 32 上调。
 
 - source_spec: 2026-09-24 Story 50-6/50-8 实现（网页控制台 UI + UX 优化）
   summary: **浏览器级 UI 验收不在 CI、也不含真实 LLM 运行**：`tests/js/console_acceptance.mjs` 需要真实 Chrome/Edge（CDP）+ `heagent[http]`，而 CI 侧**没有任何浏览器**（install 步骤只装 `.[dev,http]`／lint job 装 `.[dev,gui,http]`，全程没有 node 或浏览器步骤，依赖里也没有 playwright/puppeteer）⇒ 它只能手动跑，story 50-6 的验收清单正是由它产出的；同时该次验收**没有**跑「真实模型 → SSE → 对话区流式渲染」这条链（本机无可用 provider，Ollama 未运行），该链的前端侧由 node 探针（`tests/js/app_probe.js` 用例 A/B/C/D/E/N）与 Epic 49 的服务端用例覆盖。触发条件：改 `app.js`/`index.html`/`styles.css` 后要确认「真浏览器里也没坏」；严重度：低（改动有探针兜底，但探针是 DOM 替身——CSP 是否被违反、有没有第三方请求、窄屏计算样式只有真浏览器能证明）；冻结边界：不得为让浏览器验收进 CI 而给 dev 依赖加 playwright/puppeteer（保持零构建链与「GUI / 浏览器不进 CI」的既有立场），也不得把 `console_acceptance.mjs` 的一次通过当作「UI 无回归」的充分证据。**2026-09-24 实例（这条「不够充分」的最强证据）**：50-6 的 17/17 通过之后仍漏掉「首页确认遮罩吞掉真实鼠标点击」（`hidden` 属性为真而计算样式 `display:flex`）—— 因为清单只断言属性、且 `click()` 走 DOM API（绕过命中测试）；修复后清单新增 A1b（计算样式 + CDP `Input.dispatchMouseEvent` 真实点击）为 **18 行**；Story 50-8 的增量轮再扩至 **23 行**（2026-09-25 加 A5b / A11b / A11c / A11d / B2），详见 Z-D15 与 `reviews.md#acceptance-50-8-refinement`。
@@ -93,16 +94,17 @@
   summary: **两处「判据/验收」残余（不影响功能，但会在改动时静默失效）**：① **真实原生窗口无法自动化验收** —— 选中并确认需要人眼与人手，浏览器清单只能覆盖「按钮存在」「不可用路径」「取消/超时」；`tkinter` 子进程脚本在 CI 里**永不执行**（Linux 镜像可能无 `python-tk`），只钉了「能编译 + 标记行 / 标题插值唯一」；② **网页侧读取结果收敛依赖 `Error:` 前缀约定** —— 内置工具用**返回值** `Error: ...` 表达可预期失败（`is_error` 仍为 `False`），`file_read` 的失败消息因此靠 `_looks_like_a_failure()` 的字符串前缀识别；若将来把工具改成结构化错误（抛 `ToolError` / 返回带 `is_error` 的对象），该判据应退化为只看 `is_error`，否则前缀写成别的样式的失败会**静默从页面上消失**。触发条件：改动 `cli_dialogs` 的冻结脚本 / 改造内置工具的错误返回形态；严重度：低（都有测试兜底，但兜的是「现在的形态」）；冻结边界：不得为了「可自动化」而给 dev 依赖加 playwright/puppeteer（保持零构建链与「浏览器不进 CI」的既有立场），也不得把真实弹窗的一次人工通过当作「选择器无回归」的充分证据。
   evidence: `tests/js/console_acceptance.mjs` 的 A5b / A11b / A11c / B2（真实浏览器，无真实弹窗点击）；`tests/test_cli_dialogs.py::TestSpawnDiscipline::test_frozen_scripts_are_valid_python_syntax`（只 compile 不执行）；`src/heagent/cli/http_console.py::_looks_like_a_failure` 与 `tests/test_http_agent_api.py::test_read_tool_error_message_is_still_shown_in_web`（**明写**「内置工具返回 Error 字符串不算异常」这一约定）；浏览器清单里「真浏览器 LLM 运行」仍是既有缺口（Z-D15 同处登记）。
   Progress（2026-09-24 登记，**未修**）：两条都已在 `docs/frame.md` 五 与验收报告里如实登记；`file_read` 失败路径有专门的真实装配用例（`tool_output` 仍可见），负向验证见 `.heagent/tmp/mutate_50_8.py` 的 M10（去掉前缀判据 ⇒ 精确变红）。
+  Progress（2026-09-28）：② 的**迁移条件已写进判据本体**（`cli/http_console.py::_looks_like_a_failure` docstring：「一旦工具错误结构化（抛 `ToolError` / `is_error=True`），本判据退化为只看 `event.tool_error` 并删除本函数，不要两套判据并存」），并加结构性用例 `tests/network/test_http_console_sessions.py::test_failure_prefix_criterion_documents_its_migration_condition`（变异体：删掉该段 docstring ⇒ 精确变红）。① 维持（真实原生窗口仍需人工验收）。
 
 ---
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 32 条：14 条勘察类正文保留在本文件，18 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 8 条未闭合条目。
+> 当前闭合归档共 33 条：15 条勘察类正文保留在本文件，18 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 8 条未闭合条目。
 
 ## 状态总览
 
-**① 勘察类（正文在本文件）——14 条**
+**① 勘察类（正文在本文件）——15 条**
 
 | ID | 条目 | 结论 | 闭合 commit |
 |----|------|------|-------------|
@@ -120,6 +122,7 @@
 | Z-D16 | 会话 id 放行 Windows 保留设备名（静默丢数据） | 已闭合（存储侧 + 网络层镜像 + CLI 三处；字符集不放宽，只**追加**保留名拒绝） | `8c3cbc1`（2026-09-27） |
 | A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26：收进 `heagent/cli/` 包 + 包内再拆三个模块；正文见下方「A3」小节） | `49168b4` + `42d7331`（另 `ea2e347` 收纳入口辅助）（2026-09-26） |
 | A5 | 观测粒度残余（facade `run_failed` 恒 `duration_ms=0` / 并行批次只发整批一条事件） | 已闭合（2026-09-23 修为 + 2026-09-27 台账复核；正文见下方「A5」小节） | `1f99cc0` |
+| A24 | GUI 事件日志在环形缓冲满后**永久停止渲染**（并「暂停即丢事件」） | 已闭合（2026-09-28 当日发现、当日修；正文见下方「A24」小节） | 见下方小节（`tests/test_event_lines.py` 14 例 + 变异体 6/6） |
 
 **② 已按归属 epic 回填（正文在各自周期目录）——18 条**
 
@@ -144,7 +147,7 @@
 | A17 | Epic 50（Story 50-8 收口后评审，2026-09-26 登记；2026-09-27 裁决） | R5 收敛判据失效 —— **裁定收紧规格**（文档补充；2026-09-28 由 A21 归一为 A17） | 本文件下方「A17」小节 |
 | A19 | Epic 50（Story 50-8 实现，2026-09-24 登记；2026-09-27 裁决） | 目录选择端点默认开 —— **裁定默认改按需**（代码修改；2026-09-28 由 A22 归一为 A19） | 本文件下方「A19」小节 |
 
-> `Z-Dn` 编号在**本文件**登记（跨文档引用如 `Z-D8` / `Z-D15` 仍以此为索引），但**正文只有一份**，在上表第二列指向的文件里；本文件不留副本（2026-09-24 回填）。**A 编号**自 2026-09-28 起统一登记于下方「A 编号登记表」（A1~A19 + A23 一一对应 20 个事项；A20~A22 为撤号，不复用），本表中的 A 行只给正文位置、号以登记表为准。
+> `Z-Dn` 编号在**本文件**登记（跨文档引用如 `Z-D8` / `Z-D15` 仍以此为索引），但**正文只有一份**，在上表第二列指向的文件里；本文件不留副本（2026-09-24 回填）。**A 编号**自 2026-09-28 起统一登记于下方「A 编号登记表」（A1~A19 + A23/A24 一一对应 21 个事项；A20~A22 为撤号，不复用），本表中的 A 行只给正文位置、号以登记表为准。
 
 ## A 编号登记表（A-ID 唯一事实源，2026-09-28 统一）
 
@@ -176,6 +179,7 @@
 | A18 | 「共 N 个会话」在 N > 200 时少报 | 已闭合（2026-09-27，`7b9015f`） | `epics/epic-50-网页控制台周期/deferred-work.md` |
 | A19 | 原生目录选择端点默认开 | 已闭合（2026-09-27 裁定默认改按需） | 本文件下方「A19」小节 |
 | A23 | 掩码域后缀制 | 已闭合（2026-09-27 裁定维持现状） | 本文件下方「A23」小节 |
+| A24 | GUI 事件日志在环形缓冲满后永久停止渲染（+ 暂停即丢事件） | 已闭合（2026-09-28，当日发现当日修） | 本文件下方「A24」小节 |
 
 **旧号对照（撤号 / 让号）**
 
@@ -362,3 +366,29 @@
   - `docs/frame.md`：缺口行已更新为「默认关闭」
 - **证据**：代码修改已提交；文档已同步更新。
 
+## A24 GUI 事件日志在环形缓冲满后永久停止渲染（+ 暂停即丢事件）—— 已闭合
+
+- **来源**：2026-09-28 A4（GUI 原生事件渲染）评估期的只读勘察发现——不在原台账内，当日登记、当日闭合。
+- **问题**（两处，均在 `gui/widgets/event_log.py`）：
+  - ① **差分冻结**：`_poll` 用「缓冲窗口长度 − 已渲染数」做差（`recent[: len(recent) - self._last_rendered_idx]`），
+    而窗口一旦到达 `get_recent(limit=200)` 的上限，两者恒相等 ⇒ 差为 0，**此后永久不再渲染**
+    （长 run 里的 `tool_call_*` / `run_failed` 全部不显示）；
+  - ② **暂停即丢事件**：暂停分支在 return 前照样推进了索引 ⇒ 恢复后那段事件永久丢失
+    （`paused` 的语义是「暂停渲染/滚动」，不该丢数据）。
+  - 附带：`details.get("tool_name")` 恒为空（观察者没把 `tool_name` 放进展示字典）⇒ `tool=` 从未显示过。
+- **结论**：**已闭合**（2026-09-28）。修法：
+  - 差分改走事件生产者侧的**单调总数**：`GuiEventObserver.total` + `snapshot()`；纯逻辑（`EventCursor`）
+    与行格式化（`format_event_line`）落在 `heagent.pub.event_lines` —— **不放 GUI 包**，因为
+    `heagent.gui.*` 的导入要求 textual（可选依赖），写在 GUI 里则 CI（test job 不装 textual）永远跳过判据；
+  - 暂停期间不推进游标（恢复时补渲染），窗口溢出时显式提示「丢了几条」；
+  - 渲染补齐耗时 / 失败分类 / 迭代 / 作用对象 / workflow 步骤与 story，且整行经 `rich.markup.escape`
+    （事件值不可信，防 RichLog 标记注入）。
+- **冻结边界**：事件契约（`EngineEvent` 字段集 / `kind` 开集）未动，只改**展示层**如何读它；
+  GUI 仍是 GUI（不改 CLI 文案，也不碰 `/goal` 的 stderr 转发 —— 那是 A4 的另一片，需另行裁决）。
+- **证据**：`src/heagent/pub/event_lines.py`（新增）；`src/heagent/gui/observers.py`（`total` / `snapshot` /
+  补 `tool_name`）；`src/heagent/gui/widgets/event_log.py`（薄壳）；`tests/test_event_lines.py`（14 例，
+  含「缓冲满后仍持续渲染」的回归判据与「GUI 薄壳不得退回索引差分」的结构性判据）。
+- **验证（2026-09-28 亲跑）**：`pytest tests/test_event_lines.py -q` → 14 passed；变异体 **6/6 精确变红**
+  （`.heagent/tmp/mutate_a4a.py`：GUI 薄壳退回索引差分 / 游标退回旧公式 `len(available) - seen` /
+  去掉耗时渲染 / 游标不推进 `seen` / `_project_entry` 退回遍历 `list()` / 删掉 A16 的迁移条件 docstring），
+  每处按 sha256 字节还原后基线复绿。

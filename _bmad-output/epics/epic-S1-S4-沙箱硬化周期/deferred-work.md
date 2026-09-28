@@ -86,6 +86,7 @@
 
 ## Z-D24 MCP stdio 子进程接入沙箱 —— **裁定 (c) 不实施**（2026-09-27 用户裁定）
 
+- **A 编号**：同一事项在活动台账「A 编号登记表」中记作 **A2**（2026-09-28 编号统一，双号同事项）。
 - **来源**：本周期 `brief.md` 的 `### Deferred（未来考虑）`：「MCP server / cron 子进程接入沙箱」；条目自 2026-09-22 起在活动台账（`implementation-artifacts/deferred-work-archive.md`），2026-09-27 裁定后按归属回填到本节。
 - **缺口（spawn 面）**：MCP stdio server 由 SDK 自行 spawn（`mcp/client/stdio/__init__.py` 的 `anyio.open_process`），不经过 `ToolExecutor.execute_in_sandbox` ⇒ Firejail/WinJob 对它零覆盖（无 FS 隔离、无 `--net=none`）。严重度 **中-高**。
 - **env 面经实测排除（2026-09-27）**：我们传 `env=cfg.env or None`，但 SDK 在 `env=None` 时只回 `get_default_environment()`（`DEFAULT_INHERITED_ENV_VARS`：win32 12 项 / POSIX 6 项），有显式 `env` 时取 `{**default_env, **server.env}` 合并 ⇒ **不继承父进程的 `*_API_KEY` 等**；「其 `env` 亦不经 `scrub_sensitive_env`」字面为真但含义误导（继承面比该函数更窄）。需要凭证的 server 走 `.mcp.json` 的显式 `env` + `${VAR}` 插值。
