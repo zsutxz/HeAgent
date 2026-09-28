@@ -437,7 +437,7 @@ class HttpProjectConsole:
         handler_factory: ProjectHandlerFactory | None = None,
         write_enabled: bool = False,
         global_env_file: str | Path | None = GLOBAL_CONFIG_FILE,
-        dialog_backend: str = "auto",
+        dialog_backend: str = "none",
     ) -> None:
         self.registry = default_project_registry(workspace, projects_file)
         self.workspace = workspace

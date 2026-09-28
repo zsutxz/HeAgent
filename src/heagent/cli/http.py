@@ -359,9 +359,9 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
 @click.option(
     "--dialog-backend",
     type=click.Choice(["auto", "tkinter", "powershell", "none"]),
-    default="auto",
-    help="Native folder picker for 'select directory' (default: auto = tkinter then PowerShell; "
-    "none disables it, e.g. in containers)",
+    default="none",
+    help="Native folder picker for 'select directory' (default: none = disabled; "
+    "use auto/tkinter/powershell to enable when needed)",
 )
 def http_server_cmd(
     host: str | None,

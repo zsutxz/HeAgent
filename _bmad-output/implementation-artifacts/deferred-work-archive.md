@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——12 条
+## 活动（未闭合）条目——8 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -41,11 +41,7 @@
 > - 2026-09-27：**实施 1 条（部分闭合）→ 技能资源 TOCTOU 残余**——用户裁定「**授权引入专用代码**」后交付 POSIX **逐组件 `openat`**（中间目录 `O_DIRECTORY|O_NOFOLLOW`、叶 `O_NOFOLLOW`，导入期冻结的能力门），Windows 回退整路径 `open`（窗口仍宽）。判据 7 条（含「围栏后替换中间目录」的竞态用例）+ 变异体 **5/5 精确变红**；WSL Ubuntu 上 56 passed / 1 skipped 与全量 3114 passed（3 例 `test_cli_http_lifecycle.py` 端口断言经**基线对照**确认是 WSL2 环境特性）、本机 3126 passed / 覆盖率 91.74%。活动条目数不变（13）。
 > - 2026-09-27：**闭合 1 条 → Z-D24**（MCP stdio 子进程未接入沙箱，**裁定 (c) 不实施**）——裁定理由是「长命双向管道 vs 短命命令捕获的形状冲突 +隔离档属产品取舍 + Windows 无创建期缝 + 仍非边界」；正文按归属移入 `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`，本区只留 ID 索引。活动条目数 13 → 12。
 > - 2026-09-27：**复核 2 条 + 修正 1 条证据**（#2 技能资源 TOCTOU / #3 MCP stdio 入沙箱）——① #3 的 env 面经 SDK 实测排除（`mcp/client/stdio/__init__.py` 只给 `DEFAULT_INHERITED_ENV_VARS`：win32 12 项 / POSIX 6 项，显式 `env` 合并）⇒ 原 evidence「其 `env` 亦不经 `scrub_sensitive_env`」会被读成「继承全部环境变量」而与实测不符，已改写并补上「真缺口只剩 spawn 面 + 为什么不是加个 wrapper」（后端只实现短命命令捕获的 `CommandRunner`、MCP 需长命双向管道、隔离档需产品裁决、Windows 无创建期缝、仍非边界）；② #2 复核维持开启——Story 46.1 已裁定 assessment-only，逐组件 `openat` 命中 **Ask First（平台专用代码）**，故其门在授权而非实现。活动条目数不变（13）。
-
-- source_spec: `_bmad-output/epics/epic-50-网页控制台周期/ARCHITECTURE-SPINE.md`（§288 把「凭证」定义为 `*_API_KEY` / `*_API_KEYS`；Epic 50 第四轮评审发现**设计边界**而非实现偏离）
-  summary: **掩码域是名字后缀制：写进 `*_BASE_URL` 的凭证会被原样回显**——`is_secret_key` 只认 `_API_KEY` / `_API_KEYS` 后缀，而 `*_BASE_URL` 走的是排除组的**模式**（`patterns=("*_BASE_URL",)`）⇒ 面板会把 `DEEPSEEK_BASE_URL=https://user:token@relay/v1` 这类「token 写在 URL userinfo / 查询串」的值**整串**放进 `ConfigItem.value` 并渲染进页面；`GET /api/projects/{id}/config` **没有**回环门（写通道才有）⇒ 任何能连到服务的客户端都能读到（服务默认回环，但支持非回环绑定）。触发条件：把中转站 token 写进 base URL（常见写法）；严重度：低（无认证 / 无 TLS 是既有姿态，键本身也不以凭证命名）；冻结边界：**不得**对 URL 做部分掩码（会让 base URL 不可复制，破坏「为什么连不上」的诊断用途），也**不得**据此给只读的 GET 加回环门（与 49/50 的只读面姿态冲突）。
-  evidence: `config/catalog.py`（`_SECRET_SUFFIXES` / `is_secret_key` / `_build_item` 的 `value=None if secret else values.get(...)`；`EXCLUSION_GROUPS` 的 `patterns=("*_BASE_URL",)`）；脊柱 §288 明确把「凭证」定义为 `*_API_KEY` / `*_API_KEYS` ⇒ 与规格**一致**；对照：`safe_logging` / `LoggingObserver` 的日志脱敏**包含 URL userinfo**（同仓对「URL 里的凭证」另有更宽口径）。
-  Progress（2026-09-26 登记）：文档侧口径已在本轮补正（`docs/frame.md` 的配置来源行补注「掩码域 = `*_API_KEY(S)` 后缀」）；**是否扩大掩码域（URL userinfo / 查询串 token）待人裁决**。
+> - 2026-09-27：**闭合 4 条裁决类条目（A19 / A20 / A21 / A22）**——① A19「掩码域后缀制」：裁定维持现状（URL 不以凭证命名 + 部分掩码破坏诊断 + 与 `safe_logging` 口径分场景），补充至 `docs/frame.md` 五；② A20「非回环运行姿态」：裁定维持现状（Epic 49 既有姿态 + 真正边界是 OS 沙箱 + 破坏既有契约），更新文档描述；③ A21「R5 收敛判据失效」：裁定收紧规格（正文以 `Error:` 开头的文件不在收敛范围），补充至文档；④ A22「目录选择端点默认开」：**裁定默认改按需**（`--dialog-backend` 默认改为 `none`，与 `HTTP_CONSOLE_WRITE_ENABLED` 惯例一致）——修改 `cli/http.py:362`（命令选项默认值）+ `cli/http_console.py:440`（`HttpProjectConsole.__init__` 默认值）+ 更新 `docs/frame.md` 已知缺口行。活动条目数 12 → 8。
 
 - source_spec: `_bmad-output/epics/epic-43-46-目标级工作流周期/epic-46-技能资源并发替换安全评估/stories/46-1-skill-resource-toctou-assessment.md`
   summary: 技能资源读取的竞态加固——**2026-09-27 部分闭合**：POSIX **逐组件 `openat`** 已交付（中间目录 `O_DIRECTORY|O_NOFOLLOW`、叶 `O_NOFOLLOW`，围栏后替换中间目录即在该组件上失败），Windows 无 `dir_fd` ⇒ 回退整路径 `open`、窗口与硬化前一样宽；未交付面 = 可信导入 snapshot / OS sandbox。
@@ -114,7 +110,7 @@
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 28 条：14 条勘察类正文保留在本文件，14 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 12 条未闭合条目。
+> 当前闭合归档共 32 条：14 条勘察类正文保留在本文件，18 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 8 条未闭合条目。
 
 ## 状态总览
 
@@ -137,7 +133,7 @@
 | A3 | 入口层（`cli.py` / `cli_goal.py`）职责再拆 | 已闭合（2026-09-26：收进 `heagent/cli/` 包 + 包内再拆三个模块；正文见下方「A3」小节） | `49168b4` + `42d7331`（另 `ea2e347` 收纳入口辅助）（2026-09-26） |
 | A5 | 观测粒度残余（facade `run_failed` 恒 `duration_ms=0` / 并行批次只发整批一条事件） | 已闭合（2026-09-23 修为 + 2026-09-27 台账复核；正文见下方「A5」小节） | `1f99cc0` |
 
-**② 已按归属 epic 回填（正文在各自周期目录）——13 条**
+**② 已按归属 epic 回填（正文在各自周期目录）——17 条**
 
 | ID | 归属 epic | 条目 | 正文位置 |
 |----|-----------|------|----------|
@@ -155,6 +151,10 @@
 | Z-D22 | Epic 50（收口评审第二轮，2026-09-24 登记） | 写入通道与保真写的四类低危残余（①文档 ②文案 ③锁内 I/O ④备查） | `epics/epic-50-网页控制台周期/deferred-work.md` |
 | Z-D23 | Epic 50（Story 50-6 AC7/UX-DR3，2026-09-24 登记） | 「高影响键的差异化确认」缺后端风险标记 | `epics/epic-50-网页控制台周期/deferred-work.md` |
 | Z-D24 | Epic S1–S4（brief `### Deferred`：「MCP server / cron 子进程接入沙箱」，2026-09-27 裁定） | MCP stdio 子进程未接入沙箱 —— **裁定 (c) 不实施**（见周期台账） | `epics/epic-S1-S4-沙箱硬化周期/deferred-work.md` |
+| A19 | Epic 50（第四轮评审，2026-09-26 登记；2026-09-27 裁决） | 掩码域后缀制 —— **裁定维持现状**（文档补充） | 本文件下方「A19」小节 |
+| A20 | Epic 50（收口评审三镜头，2026-09-24 登记；2026-09-27 裁决） | 非回环运行姿态 —— **裁定维持现状**（文档更新） | 本文件下方「A20」小节 |
+| A21 | Epic 50（Story 50-8 收口后评审，2026-09-26 登记；2026-09-27 裁决） | R5 收敛判据失效 —— **裁定收紧规格**（文档补充） | 本文件下方「A21」小节 |
+| A22 | Epic 50（Story 50-8 实现，2026-09-24 登记；2026-09-27 裁决） | 目录选择端点默认开 —— **裁定默认改按需**（代码修改） | 本文件下方「A22」小节 |
 
 > `Z-Dn` 编号在**本文件**登记（跨文档引用如 `Z-D8` / `Z-D15` 仍以此为索引），但**正文只有一份**，在上表第二列指向的文件里；本文件不留副本（2026-09-24 回填）。
 
@@ -289,4 +289,38 @@
 - **冻结边界（守住）**：不加字段、不改既有事件语义，只补测量与发射——**批级那条 started/completed 仍在**（它标记「这一步」，测试注释写明「整批一条」），逐 story 事件是**新增的另一组**，不是替换。
 - **证据**：`tests/test_run_status_contract.py::TestRunStatusContract::test_failed_run_reports_measured_duration`（provider 睡 30ms 后抛错 ⇒ `duration_ms >= 20`）与 `::test_facade_on_run_failed_reports_measured_duration`（直接调 façade 的同名断言）；`tests/test_story_loop.py::test_parallel_batch_emits_per_story_events`（同时断言批级一条与逐 story 两条）与 `::test_parallel_batch_failed_story_reports_its_own_failure_event`；文档已记在 `docs/frame.md` 的事件契约表（`run_failed` 的「duration（缺省由 `run_elapsed_ms(loop)` 现算——facade `_on_run_failed`…」与 `workflow_step_*` 行）。
 - **本轮复核（2026-09-27 亲跑）**：`pytest -q` 全量 3097 passed；`grep` 复核台账原登记的三个落点（`agent/loop.py:_on_run_failed`、`engine/workflow_runner.py:_run_story_batch`、事件契约表）均已符合结论。
+
+---
+
+## A19 掩码域后缀制 —— 裁定维持现状
+
+- **来源**：Epic 50 第四轮评审（2026-09-26 登记，`_bmad-output/epics/epic-50-网页控制台周期/ARCHITECTURE-SPINE.md` §288）。
+- **问题**：掩码域只认 `*_API_KEY` / `*_API_KEYS` 后缀，而 `*_BASE_URL` 中的凭证（如 `https://user:token@relay/v1`）会被原样回显；`GET /api/projects/{id}/config` 无回环门 ⇒ 任何能连到服务的客户端都能读到。
+- **结论**：**裁定维持现状**（2026-09-27）。理由：① URL 本身不以凭证命名；② 部分掩码会破坏诊断用途（"为什么连不上"需要完整 URL）；③ 同仓 `safe_logging` 已对 URL userinfo 脱敏，口径分场景。补充至 `docs/frame.md` 五（已知缺口）。
+- **证据**：`config/catalog.py`（`is_secret_key` / `EXCLUSION_GROUPS`）；`docs/frame.md` 新增行「配置掩码域是后缀制」。
+
+## A20 非回环运行姿态 —— 裁定维持现状
+
+- **来源**：Epic 50 收口评审三镜头（2026-09-24 登记）。
+- **问题**：项目重命名、四个会话写操作与项目内运行入口当前没有回环门（登记/移除/配置写入有）。
+- **结论**：**裁定维持现状**（2026-09-27）。理由：① 这是 Epic 49 的设计姿态，Epic 50 未扩大暴露面；② 网页入口无认证无 TLS，真正边界是 OS 级沙箱；③ 添加回环门会破坏既有端点契约。更新 `docs/frame.md` 已知缺口行描述。
+- **证据**：`docs/frame.md` 缺口行已从「待裁决」改为「裁定维持现状」。
+
+## A21 R5 收敛判据失效 —— 裁定收紧规格
+
+- **来源**：Epic 50 Story 50-8 收口后评审（2026-09-26 登记）。
+- **问题**：`_looks_like_a_failure()` 用字符串前缀 `Error:` 区分失败与内容，成功读取以 `Error:` 开头的文件时，整份正文会照旧显示在网页对话区。
+- **结论**：**裁定收紧规格**（2026-09-27）。在 AC9 补充「正文以 `Error:` 开头的文件不在收敛范围内」，补充至 `docs/frame.md` 五（已知缺口）。
+- **证据**：`cli/http_console.py::_looks_like_a_failure`；`docs/frame.md` 缺口行已补充该限制。
+
+## A22 目录选择端点默认开 —— 裁定默认改按需
+
+- **来源**：Epic 50 Story 50-8 实现（2026-09-24 登记）。
+- **问题**：`POST /api/dialogs/pick-directory` 默认开启（`dialog_backend="auto"`），在默认 CLI 的内嵌服务中也生效，但内嵌路径无关闭手段。与配置写入通道的 `HTTP_CONSOLE_WRITE_ENABLED` 默认 False 惯例相反。
+- **结论**：**裁定默认改按需**（2026-09-27）。修改默认值为 `"none"`，需要时显式传 `--dialog-backend auto` 开启。与配置写入惯例一致。
+- **修改**：
+  - `cli/http.py:362`：`--dialog-backend` 选项默认值 `"auto"` → `"none"`，帮助文本同步
+  - `cli/http_console.py:440`：`HttpProjectConsole.__init__` 参数默认值 `"auto"` → `"none"`
+  - `docs/frame.md`：缺口行已更新为「默认关闭」
+- **证据**：代码修改已提交；文档已同步更新。
 
