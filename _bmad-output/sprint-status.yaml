@@ -45,7 +45,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-09-27
+last_updated: 2026-09-29
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -510,3 +510,17 @@ development_status:
   # 2026-09-24 追加（收口放行后的增量优化轮，同时充当 Epic 50 后续新需求的统一落点）
   50-8-console-ux-refinement: done
   epic-50-retrospective: done  # 2026-09-27 补做：epic-50-网页控制台周期/retrospective-epic-50.md
+
+  # ═══════════════════════════════════════════════════════════════
+  # /goal 与 workflow 可信交付优化周期 · Epic 51（2026-09-29 建立）
+  # 预检/状态视图 → 显式转换 → 真实证据/Gate → 审批/模板冻结 → GoalScript → 安全并行与收口
+  epic-51: in-progress
+  51-1-goal-doctor-status-view: ready-for-dev
+  51-2-workflow-events-transitions: in-progress
+  51-3-structured-execution-evidence: ready-for-dev
+  51-4-quality-gates-verify: ready-for-dev
+  51-5-approvals-decisions: ready-for-dev
+  51-6-workflow-templates-freeze: ready-for-dev
+  51-7-controlled-goalscript-runtime: ready-for-dev
+  51-8-safe-parallel-integration: ready-for-dev
+  epic-51-retrospective: optional
