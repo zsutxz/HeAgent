@@ -1,7 +1,7 @@
 ---
 id: 51-2
 title: 显式 Workflow 事件与转换表
-status: review
+status: done
 parent_epic: E51
 priority: P0
 depends_on: [51-1]
@@ -71,6 +71,39 @@ created: '2026-09-29'
 - [x] 统一普通步骤、Story batch、resume、pause 与 stop 路径。
 - [x] 增加合法矩阵、非法矩阵、旧 checkpoint 恢复和观测 fail-soft 测试。
 - [x] 负向验证：4 条变异体（删除取消转换、恢复直接 PENDING、绕过 pause transition、取消降级为 executor failure）全部精确变红。
+
+### Review Findings（2026-09-29，bmad-code-review 4 层审查；同日全部 patch 修复并验证）
+
+- [x] [Review][Decision] USER_PAUSE / USER_RESUME 转换无可观测事件 — **已修**（用户选「本轮补齐」）：新增 `WorkflowRunner.pause(emit)` / `resume(emit=)` 发射 `workflow_paused` / `workflow_resumed`，`_advance_checkpoint_decision` 透传 emit；sink 抛错由 `_emit_step_event` fail-soft 隔离 [src/heagent/engine/workflow_runner.py]
+- [x] [Review][Patch] AC-6 架构判据缺失：**已修** — `test_workflow_state_writes_go_through_the_transition_table` 以 AST 扫描 src/ 全部 `model_copy(update={"status": ...})`，值必须为 `transition(...)` 或命中白名单（`_callback_status` / `next_status`）；变异验证：临时直写文件精确变红 [tests/test_architecture_contracts.py]
+- [x] [Review][Patch] 并行 story 批次异常/取消不经转换表：**已修** — 批级 `except BaseException` 与串行共用 `_absorb_step_exception`（取消 → CANCELLED → PENDING，其余 → EXECUTOR_FAILED → FAILED）；变异验证：移除调用后并行取消测试精确变红 [src/heagent/engine/workflow_runner.py]
+- [x] [Review][Patch] 取消路径 reason 空串：**已修** — `_absorb_step_exception` 以 `str(exc) or event.value` 兜底（取消 → `cancelled`）[src/heagent/engine/workflow_runner.py]
+- [x] [Review][Patch] FAILED runner 上 pause 行为翻转无测试固化：**已修** — 补 FAILED 负向（状态不被覆盖）+ PENDING happy-path（PAUSED + WAITING_USER 持久化）+ RUNNING 态经表暂停共 3 测试 [tests/test_goal_declarative_workflow.py]
+- [x] [Review][Patch] 设计文档 §8.2 转换表缺 `(RUNNING, CANCELLED) → PENDING` 行：**已修** [docs/goal-optimization-plan.md]
+- [x] [Review][Patch] 新导入绕过 engine 门面：**已修** — pause 逻辑内聚进 `WorkflowRunner.pause()` 后，application.py 不再需要 `workflow_events` / `workflow_transition` 导入，两条绕过导入删除 [src/heagent/goal/application.py]
+- [x] [Review][Defer] 异常路径转换后不持久化（重启后 restore 复活 RUNNING）[src/heagent/engine/workflow_runner.py:439] — deferred, pre-existing；建议并入 51-3 证据模型
+- [x] [Review][Defer] KeyboardInterrupt / SystemExit 被归类 EXECUTOR_FAILED（CLI 侧视为用户中断，语义不对称）[src/heagent/engine/workflow_runner.py:440] — deferred, pre-existing
+- [x] [Review][Defer] except 内 transition() 理论上可抛 WorkflowTransitionError 掩盖原异常（已核实当前回调拿不到 runner 引用，不可达）[src/heagent/engine/workflow_runner.py:444] — deferred, pre-existing
+- [x] [Review][Defer] COMPLETED 且 phase 未走完的 runner 暂停会落入非法转换异常路径 [src/heagent/goal/application.py:576] — deferred, pre-existing
+- [x] [Review][Defer] reason 无长度上限直通持久化字段（既有行为，HTTP 事件侧已有 16384 截断纪律）[src/heagent/engine/workflow_runner.py:444] — deferred, pre-existing
+- [x] [Review][Defer] workflow_step_failed 事件不带驱动转换的事件类型；last_event / transition_reason checkpoint 字段未实现 [src/heagent/engine/workflow_runner.py:446] — deferred, pre-existing（计划 §后续 story 已登记）
+
+## Review 修复实测证据（2026-09-29，本机亲跑）
+
+```text
+pytest tests/test_workflow_transition.py tests/test_workflow_runner.py tests/test_goal_declarative_workflow.py \
+  tests/test_story_loop.py tests/test_architecture_contracts.py tests/test_engine_checkpoint.py -q
+→ 151 passed
+
+pytest -q（全量）          → 3278 passed, 14 skipped, 18 deselected, 8 warnings in 148.40s
+ruff check src tests       → All checks passed!
+ruff format --check src tests → 297 files already formatted
+mypy src                   → Success: no issues found in 157 source files
+
+负向变异（本机亲跑）：
+  A. 新增绕过 transition() 的直写文件 → 架构判据精确变红；删除后恢复绿
+  C. 移除并行批次 _absorb_step_exception 调用 → 并行取消测试精确变红；内存备份还原无损
+```
 
 ## 实测证据（2026-09-29，本机亲跑）
 

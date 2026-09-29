@@ -6,6 +6,7 @@ import pytest
 
 from heagent.engine.checkpoint import WorkflowCheckpoint, WorkflowCheckpointStore, WorkflowPhase, WorkflowStatus
 from heagent.engine.workflow_runner import (
+    StorySpec,
     WorkflowGateError,
     WorkflowRunResult,
     WorkflowRunner,
@@ -45,6 +46,85 @@ async def test_callback_cancellation_uses_cancelled_transition() -> None:
     with pytest.raises(asyncio.CancelledError):
         await runner.run_step(callback)
     assert runner.state.status is WorkflowStatus.PENDING
+    assert runner.state.reason == "cancelled"
+
+
+async def _cancelled_story_callback(_step, _story):
+    raise asyncio.CancelledError()
+
+
+class _BatchInterrupt(BaseException):
+    """非 Cancelled 的 BaseException 替身。
+
+    不用真实 KeyboardInterrupt：asyncio 任务内的 KI 会被事件循环直接上抛打断
+    loop，无法在 await 处断言；两者走同一 EXECUTOR_FAILED 分支。
+    """
+
+
+async def _interrupted_story_callback(_step, _story):
+    raise _BatchInterrupt()
+
+
+@pytest.mark.asyncio
+async def test_parallel_batch_cancellation_transitions_to_pending() -> None:
+    """并行批次取消与串行同构：CancelledError 逃逸 gather 后仍经 CANCELLED 落 PENDING（51-2 Review P2）。"""
+    workflow = _workflow(
+        WorkflowStepResource(index=1, name="step-01.md", instructions="", story_loop="epics.md", max_parallel_stories=2)
+    )
+    runner = WorkflowRunner(workflow)
+
+    with pytest.raises(asyncio.CancelledError):
+        await runner.run_step(_cancelled_story_callback, stories=[StorySpec(id="S-1", summary="One", epic="E1")])
+    assert runner.state.status is WorkflowStatus.PENDING
+    assert runner.state.reason == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_parallel_batch_non_cancellation_baseexception_transitions_to_failed() -> None:
+    """非取消的 BaseException 在并行批次同样经 EXECUTOR_FAILED 落 FAILED（Review P2）。"""
+    workflow = _workflow(
+        WorkflowStepResource(index=1, name="step-01.md", instructions="", story_loop="epics.md", max_parallel_stories=2)
+    )
+    runner = WorkflowRunner(workflow)
+
+    with pytest.raises(_BatchInterrupt):
+        await runner.run_step(_interrupted_story_callback, stories=[StorySpec(id="S-1", summary="One", epic="E1")])
+    assert runner.state.status is WorkflowStatus.FAILED
+    assert runner.state.reason == "executor_failed"
+
+
+@pytest.mark.asyncio
+async def test_pause_and_resume_emit_transition_events_fail_soft() -> None:
+    """pause / resume 经转换表并发射观测事件；sink 失败不改变状态机结果（51-2 Review P7）。"""
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    runner = WorkflowRunner(workflow)
+    events: list[tuple[str, dict]] = []
+
+    def emit(kind, *, details=None):
+        events.append((kind, details or {}))
+        if kind == "workflow_paused":
+            raise RuntimeError("sink failure must not change state")
+
+    runner.pause(emit=emit)
+    assert runner.state.status is WorkflowStatus.WAITING_USER
+    assert events == [("workflow_paused", {"step": "step-01.md", "story": "", "duration_ms": 0, "error_kind": ""})]
+
+    runner.resume(emit=emit)
+    assert runner.state.status is WorkflowStatus.PENDING
+    assert [kind for kind, _ in events] == ["workflow_paused", "workflow_resumed"]
+
+
+@pytest.mark.asyncio
+async def test_pause_from_running_goes_through_the_transition_table() -> None:
+    """RUNNING 态暂停走 (RUNNING, USER_PAUSE) 表项，非法来源仍 fail-loud。"""
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    runner = WorkflowRunner(workflow)
+    runner.state = runner.state.model_copy(update={"status": WorkflowStatus.RUNNING})
+
+    paused = runner.pause()
+
+    assert paused.status is WorkflowStatus.WAITING_USER
+    assert paused.reason == "user requested pause; resume to continue"
 
 
 @pytest.mark.asyncio

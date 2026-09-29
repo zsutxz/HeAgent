@@ -516,7 +516,7 @@ development_status:
   # 预检/状态视图 → 显式转换 → 真实证据/Gate → 审批/模板冻结 → GoalScript → 安全并行与收口
   epic-51: in-progress
   51-1-goal-doctor-status-view: done
-  51-2-workflow-events-transitions: review
+  51-2-workflow-events-transitions: done
   51-3-structured-execution-evidence: ready-for-dev
   51-4-quality-gates-verify: ready-for-dev
   51-5-approvals-decisions: ready-for-dev

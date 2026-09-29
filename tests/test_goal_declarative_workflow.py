@@ -327,6 +327,63 @@ async def test_pause_rejects_a_blocked_runner_instead_of_overwriting_status(
     assert runner.state.status is WorkflowStatus.BLOCKED
 
 
+@pytest.mark.asyncio
+async def test_pause_rejects_a_failed_runner_instead_of_overwriting_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FAILED runner 暂停同样 fail-loud——收敛前该分支硬编码 WAITING_USER 静默「成功」（51-2 Review P4）。"""
+    from heagent.goal import application
+
+    workflow = WorkflowResource(
+        name="demo",
+        instructions="",
+        steps=[WorkflowStepResource(index=1, name="step-01.md", instructions="")],
+    )
+    goal_dir = tmp_path / "goal"
+    goal_dir.mkdir()
+    runner = WorkflowRunner(workflow, goal_id="goal")
+    runner.state = runner.state.model_copy(update={"status": WorkflowStatus.FAILED, "reason": "boom"})
+    monkeypatch.setattr(application, "restore_runner", lambda _workflow, _goal_dir: _async_value(runner))
+
+    outcome = await application.pause_resume(workflow, goal_dir, resume=False)
+
+    assert outcome.status.value == "failed"
+    assert "illegal workflow transition" in outcome.message
+    assert runner.state.status is WorkflowStatus.FAILED
+
+
+@pytest.mark.asyncio
+async def test_pause_from_pending_returns_paused_and_persists_waiting_user(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """暂停 happy path：PENDING → WAITING_USER 经转换表落定并持久化（51-2 Review P4）。"""
+    from heagent.goal import application
+
+    workflow = WorkflowResource(
+        name="demo",
+        instructions="",
+        steps=[WorkflowStepResource(index=1, name="step-01.md", instructions="")],
+    )
+    goal_dir = tmp_path / "goal"
+    goal_dir.mkdir()
+    runner = WorkflowRunner(workflow, goal_id="goal")
+    persisted: list[bool] = []
+
+    async def fake_persist_state():
+        persisted.append(True)
+        return None
+
+    monkeypatch.setattr(runner, "persist_state", fake_persist_state)
+    monkeypatch.setattr(application, "restore_runner", lambda _workflow, _goal_dir: _async_value(runner))
+
+    outcome = await application.pause_resume(workflow, goal_dir, resume=False)
+
+    assert outcome.status.value == "paused"
+    assert outcome.proceed is False
+    assert runner.state.status is WorkflowStatus.WAITING_USER
+    assert persisted == [True]
+
+
 async def _async_value(value):
     return value
 

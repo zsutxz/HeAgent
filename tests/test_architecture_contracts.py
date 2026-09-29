@@ -851,3 +851,42 @@ def test_pyproject_does_not_declare_a_dead_pytest_benchmark_table() -> None:
     table = tomllib.loads(text).get("tool", {}).get("pytest_benchmark")
     assert table is None, f"该表不会被读取，基准设置必须走 CLI 旗标（当前内容：{table!r}）"
     assert "--benchmark-autosave" in text, "注释里必须写清「基准落盘要显式带的旗标」"
+
+
+def test_workflow_state_writes_go_through_the_transition_table() -> None:
+    """Story 51-2 AC-6：src/ 中 workflow 状态赋值必须经唯一转换表，禁止直写。
+
+    背景（2026-09-29）：`run_step` 异常分支曾直写 ``PENDING``、``pause_resume`` 曾直写
+    ``WAITING_USER``，非法转换被静默修正。收敛后每个状态赋值必须可追溯到一个事件。
+    本判据扫描 ``model_copy(update={..., "status": ...})`` 的全部出现：值表达式必须是
+    ``transition(...)`` 调用，或命中白名单（内部已核实经 ``transition()`` 的间接形态）。
+    新增任何 ``WorkflowStatus.X`` 字面量直写即红——请改走 ``transition(status, event)``。
+    """
+    allowed_expressions = {
+        # workflow_runner._callback_status：内部即 transition(self.state.status, event)。
+        "self._callback_status(result.status)",
+        # workflow_runner._stop：next_status 在两行前由 transition(...) 计算并已做一致性校验。
+        "next_status",
+    }
+    offenders: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "model_copy"
+            ):
+                continue
+            for kw in node.keywords:
+                if kw.arg != "update" or not isinstance(kw.value, ast.Dict):
+                    continue
+                for key, value in zip(kw.value.keys, kw.value.values, strict=True):
+                    if not (isinstance(key, ast.Constant) and key.value == "status"):
+                        continue
+                    rendered = ast.unparse(value)
+                    call = value if isinstance(value, ast.Call) else None
+                    is_direct_transition = (
+                        isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == "transition"
+                    )
+                    if not is_direct_transition and rendered not in allowed_expressions:
+                        offenders.append(f"{path.relative_to(SRC)}:{node.lineno} -> {rendered}")
+    assert offenders == [], "状态直写绕过 transition()：" + "; ".join(offenders)

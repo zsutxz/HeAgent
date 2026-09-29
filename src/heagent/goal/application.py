@@ -39,8 +39,6 @@ from heagent.engine import (
     parse_story_list,
     required_sections,
 )
-from heagent.engine.workflow_events import WorkflowEvent
-from heagent.engine.workflow_transition import transition
 from heagent.goal.document import _goal_document_path, _goal_record_user_response, _goal_user_responses
 from heagent.goal.workflow_loader import SkillWorkflowError
 from heagent.memory.skill_packages import (
@@ -418,6 +416,7 @@ async def _advance_checkpoint_decision(
     mode: str,
     confirm_checkpoint: Callable[[], bool],
     messages: list[str],
+    emit: Callable[..., None] | None = None,
 ) -> GoalAdvanceStatus | None:
     """WAITING_USER checkpoint 决策（中断回调不算隐式批准）；``None`` → 继续推进。
 
@@ -429,11 +428,11 @@ async def _advance_checkpoint_decision(
     if not (step_checkpoint or story_checkpoint):
         return GoalAdvanceStatus.WAITING
     if mode == "auto":
-        runner.resume()
+        runner.resume(emit=emit)
     elif not confirm_checkpoint():
         return GoalAdvanceStatus.WAITING
     else:
-        runner.resume()
+        runner.resume(emit=emit)
     try:
         await runner.persist_state()
     except (WorkflowCheckpointError, ValueError, TypeError) as exc:
@@ -521,7 +520,7 @@ async def advance(
 
         # WAITING_USER from a completed step is a checkpoint decision; an
         # interrupted callback must never be treated as implicit approval.
-        decision = await _advance_checkpoint_decision(result, runner, mode, confirm_checkpoint, messages)
+        decision = await _advance_checkpoint_decision(result, runner, mode, confirm_checkpoint, messages, emit)
         if decision is not None:
             return outcome(decision)
 
@@ -573,12 +572,7 @@ async def pause_resume(
                 return PauseResumeOutcome(
                     status=PauseResumeStatus.UNCHANGED, message="[goal] already paused; use /goal resume to continue"
                 )
-            runner.state = runner.state.model_copy(
-                update={
-                    "status": transition(runner.state.status, WorkflowEvent.USER_PAUSE),
-                    "reason": "user requested pause; resume to continue",
-                }
-            )
+            runner.pause()
             action = "paused"
         await runner.persist_state()
     except (WorkflowCheckpointError, ValueError, OSError) as exc:

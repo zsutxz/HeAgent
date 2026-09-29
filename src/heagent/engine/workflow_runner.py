@@ -399,6 +399,7 @@ class WorkflowRunner:
                 try:
                     result = await self._run_story_batch(callback, step, story_specs, checkpoint, emit=emit)
                 except BaseException as exc:
+                    self._absorb_step_exception(exc)
                     _emit_step_event(
                         emit,
                         "workflow_step_failed",
@@ -437,12 +438,7 @@ class WorkflowRunner:
             if not isinstance(result, WorkflowStepResult):
                 raise TypeError("step callback must return WorkflowStepResult")
         except BaseException as exc:
-            event = (
-                WorkflowEvent.CANCELLED if isinstance(exc, asyncio.CancelledError) else WorkflowEvent.EXECUTOR_FAILED
-            )
-            self.state = self.state.model_copy(
-                update={"status": transition(self.state.status, event), "reason": str(exc)}
-            )
+            self._absorb_step_exception(exc)
             _emit_step_event(
                 emit,
                 "workflow_step_failed",
@@ -627,6 +623,32 @@ class WorkflowRunner:
             story_id=completed_ids[0] if completed_ids else batch[0].id,
         )
 
+    def _absorb_step_exception(self, exc: BaseException) -> None:
+        """异常/取消经唯一转换表落状态，不用直写掩盖（51-2）。
+
+        串行与并行 story 批次两条路径共用同一语义：取消走 CANCELLED，
+        其余 BaseException 走 EXECUTOR_FAILED；``str(exc)`` 为空（如无参
+        CancelledError）时以事件名兜底，避免空 reason 抹掉可追溯性。
+        """
+        event = WorkflowEvent.CANCELLED if isinstance(exc, asyncio.CancelledError) else WorkflowEvent.EXECUTOR_FAILED
+        self.state = self.state.model_copy(
+            update={"status": transition(self.state.status, event), "reason": str(exc) or event.value}
+        )
+
+    def _active_step_resource(self) -> WorkflowStepResource:
+        return self.workflow.steps[min(self.state.active_step, len(self.workflow.steps) - 1)]
+
+    def pause(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
+        """User-requested pause through the single transition table (51-2 Review P7)."""
+        self.state = self.state.model_copy(
+            update={
+                "status": transition(self.state.status, WorkflowEvent.USER_PAUSE),
+                "reason": "user requested pause; resume to continue",
+            }
+        )
+        _emit_step_event(emit, "workflow_paused", step=self._active_step_resource(), story=None)
+        return self.state.model_copy(deep=True)
+
     run = run_step
 
     def _callback_status(self, status: WorkflowStatus) -> WorkflowStatus:
@@ -639,7 +661,7 @@ class WorkflowRunner:
             raise ValueError(f"unsupported callback status: {status}")
         return transition(self.state.status, event)
 
-    def resume(self) -> WorkflowRunnerState:
+    def resume(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
         """Explicitly resume a paused, blocked, or failed active step."""
         if self.done:
             return self.state.model_copy(deep=True)
@@ -647,6 +669,7 @@ class WorkflowRunner:
             self.state = self.state.model_copy(
                 update={"status": transition(self.state.status, WorkflowEvent.USER_RESUME), "reason": ""}
             )
+            _emit_step_event(emit, "workflow_resumed", step=self._active_step_resource(), story=None)
         return self.state.model_copy(deep=True)
 
     async def persist_state(self) -> str | None:
