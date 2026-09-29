@@ -21,7 +21,7 @@ from heagent.engine.checkpoint import (
     WorkflowStatus,
 )
 from heagent.engine.workflow_events import WorkflowEvent
-from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
+from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource, section_titles
 from heagent.engine.workflow_transition import transition
 from heagent.events.protocol import error_kind_for
 from heagent.pub.safe_logging import safe_log
@@ -64,20 +64,16 @@ def _emit_step_event(
         safe_log(logger, logging.WARNING, "workflow step event %r emit failed; ignored", kind, exc_info=True)
 
 
-_SECTION_RULE = re.compile(r"section\s*:\s*([^,;]+)", re.IGNORECASE)
-
-
 def required_sections(validation_rules: str | None) -> list[str]:
     """Return the ``section:`` headings a step output must contain.
 
     Single parser shared by the post-step output gate and the pre-step prompt: an
     executor has to be told the exact headings it will be judged on, otherwise a
     long step can finish all its work and still be blocked on a heading it never
-    saw.
+    saw. 实现委托给 :func:`heagent.engine.workflow_resource.section_titles`（单一真源，
+    ``goal/workflow_loader`` 的子句解析同源），本函数保留为既有公开 API。
     """
-    if not validation_rules:
-        return []
-    return [item.strip() for item in _SECTION_RULE.findall(validation_rules) if item.strip()]
+    return section_titles(validation_rules)
 
 
 class WorkflowGateError(ValueError):

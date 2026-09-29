@@ -149,3 +149,54 @@ def test_declared_required_templates_fail_when_missing_or_blank(tmp_path: Path, 
 
     with pytest.raises(SkillWorkflowError, match="required_resources"):
         read_workflow(package)
+
+
+def test_loads_evidence_clauses_from_step_validation(tmp_path: Path) -> None:
+    """`validation:` 里的证据子句（与 section: 同串同分隔符）解析进步骤模型（51-3）。"""
+    package = _package(tmp_path)
+    (tmp_path / "step-01-first.md").write_text(
+        "---\nvalidation: section: 测试证据; command: pytest -q, artifact: reports/verify.md; "
+        "git: src/x.py, gate: tests-pass\n---\nFirst",
+        encoding="utf-8",
+    )
+
+    step = read_workflow(package).steps[0]
+
+    assert step.validation_clauses.sections == ["测试证据"]
+    assert step.validation_clauses.commands == ["pytest -q"]
+    assert step.validation_clauses.artifacts == ["reports/verify.md"]
+    assert step.validation_clauses.git_paths == ["src/x.py"]
+    assert step.validation_clauses.gates == ["tests-pass"]
+    assert step.validation_clauses.declared is True
+
+
+def test_loads_evidence_clauses_from_inline_step_metadata(tmp_path: Path) -> None:
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "workflow.md").write_text(
+        "---\nname: inline\n---\n\n# Inline\n\n"
+        "## Step 01: implement\n"
+        "validation: command: pytest tests/ -q; gate: tests-pass\n\n"
+        "Implement.\n",
+        encoding="utf-8",
+    )
+
+    workflow = read_workflow(SkillPackage(skill_id="inline", root=tmp_path))
+
+    clauses = workflow.steps[0].validation_clauses
+    assert clauses.commands == ["pytest tests/ -q"]
+    assert clauses.gates == ["tests-pass"]
+
+
+def test_unknown_inline_evidence_clause_fails_the_load(tmp_path: Path) -> None:
+    """未知子句 fail-loud（内嵌步骤与外置步骤文件同一规则），不做静默忽略。"""
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "workflow.md").write_text(
+        "---\nname: inline\n---\n\n# Inline\n\n"
+        "## Step 01: implement\n"
+        "validation: section: A; comands: pytest -q\n\n"
+        "Implement.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SkillWorkflowError, match="unknown validation clause 'comands:'"):
+        read_workflow(SkillPackage(skill_id="inline", root=tmp_path))

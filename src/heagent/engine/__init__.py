@@ -44,6 +44,7 @@ from heagent.engine.observability import EngineEvent, EventBus, LoggingObserver
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.engine.store import RunSnapshot, RunStore
 from heagent.engine.workflow_resource import (
+    StepValidationClauses,
     WorkflowResource,
     WorkflowStepResource,
 )
@@ -104,6 +105,7 @@ __all__ = [
     "WorkflowStatus",
     "WorkflowResource",
     "WorkflowStepResource",
+    "StepValidationClauses",
     "StorySpec",
     "parse_story_list",
     "required_sections",

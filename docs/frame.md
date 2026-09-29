@@ -1327,7 +1327,11 @@ src/heagent/
 │   ├── application.py       # workflow use-case 确定性内核（校验/gate/story/checkpoint 推进；click-free，Phase 3）
 │   ├── document.py          # brief.md 定位/命名规则/增量更新（存量回落 require.md/GOAL.md）
 │   ├── naming.py            # /goal new 项目名 LLM 生成，失败显性回退 project（2026-09-21）
-│   └── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性）
+│   ├── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性/validation: 证据子句解析）
+│   ├── doctor.py            # 声明驱动的只读预检（doctor_checks 词汇 → 结构化报告，Story 51-1）
+│   ├── status_view.py       # /goal status 纯投影（status_fields 词汇，零 IO，Story 51-1）
+│   ├── evidence.py          # 结构化执行证据：版本化模型 + 追加式存储 + 受治理结果证据化（Story 51-3）
+│   └── git_port.py          # 只读 Git 端口：base/head/变更集与工作区冲突状态，从不 commit（Story 51-3）
 ├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）
 └── cron/                    # 定时调度
     ├── expr.py              # 5-field cron 表达式解析纯叶子（零 heagent 导入；memory/dream 与 cron/scheduler 共用）

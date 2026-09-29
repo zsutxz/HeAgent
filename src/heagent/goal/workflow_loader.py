@@ -19,8 +19,11 @@ from heagent.engine.workflow_resource import (
     DoctorCheck,
     OpenQuestionMode,
     StatusField,
+    StepValidationClauses,
     WorkflowResource,
     WorkflowStepResource,
+    ensure_workspace_relative_path,
+    section_titles,
 )
 from heagent.memory.skill_packages import SkillPackage, SkillPackageResourceError
 from heagent.pub.frontmatter import (
@@ -32,6 +35,113 @@ from heagent.pub.frontmatter import (
 
 class SkillWorkflowError(SkillPackageResourceError):
     """Raised when a declarative workflow or its ordered steps are invalid."""
+
+
+# ``validation:`` 里可声明的证据子句（引擎词汇，与 ``section:`` 同处一个字符串、同一分隔符）。
+# 命名质量门 ``gate:`` 只声明名字；**名字的注册表校验由 Story 51-4 的求值器接管**
+# （本 Story 故意不校验，避免被误读为遗漏）。
+_EVIDENCE_CLAUSE_NAMES = ("section", "command", "artifact", "git", "gate")
+# 子句形态：段首的单词 + 冒号。多词前缀（``Given a user: …``）不是子句，仍是普通文本门禁。
+_CLAUSE_PREFIX = re.compile(r"^(?P<name>[A-Za-z][A-Za-z0-9_-]*)\s*:\s*(?P<value>.*)$", re.DOTALL)
+# 子句名 → 模型字段（显式映射：确定性查表，不靠命名约定拼属性名）。
+_CLAUSE_FIELDS: dict[str, str] = {
+    "section": "sections",
+    "command": "commands",
+    "artifact": "artifacts",
+    "git": "git_paths",
+    "gate": "gates",
+}
+
+
+def parse_validation_clauses(package: SkillPackage, origin: str, validation_rules: str) -> StepValidationClauses:
+    """Parse a step's ``validation:`` string into evidence clauses（声明 → 模型）.
+
+    与既有 ``section:`` 同处一个字符串、同一分隔符。两个解析通道，各自与既有语义同源：
+
+    - ``section:`` 提取**复用** :func:`heagent.engine.workflow_resource.section_titles`
+      （即既有文本门禁的 ``required_sections`` 正则，全串扫描，含普通文本里的内嵌形态，
+      如 ``must include section: X``）——两处解析永不漂移；
+    - 其余子句按 ``,`` / ``;`` 切段（引号内的分隔符不拆段，引号不平衡显性报错），段首
+      ``<名字>:`` 识别子句；名字不在词汇表内 = 声明错误，加载期 fail-loud（拼错的子句
+      静默丢弃会让「要求证据」变成「不要求」，所以绝不静默忽略）。
+
+    「老包零行为变化」的准确边界：声明里**没有** ``<Word>:`` 形态的段时完全不变
+    （纯文本门禁如 ``has plan`` / ``given…when…then`` 原样留给 ``WorkflowRunner``）；
+    形如 ``coverage: 85%`` 或 ``subsection: x`` 的段首单词冒号会被当作未知子句而
+    fail-loud——这是「未知子句不静默忽略」的直接后果，如实声明。
+    """
+    if "\n" in validation_rules or "\r" in validation_rules:
+        # 声明是单行字符串：换行会把第二条命令/子句走私进同一条记录。
+        raise SkillWorkflowError(package.skill_id, origin, "validation declaration must be a single line")
+    clauses = StepValidationClauses()
+    # ``section:`` 单独通道（与既有解析器同源）；段内识别到 section 前缀时跳过，不重复计。
+    clauses.sections = section_titles(validation_rules)
+    for segment in _split_clause_segments(package, origin, validation_rules):
+        text = segment.strip()
+        if not text:
+            continue
+        match = _CLAUSE_PREFIX.match(text)
+        if match is None:
+            continue  # 普通文本门禁（既有语义，不进子句模型）
+        name = match.group("name").casefold()
+        if name == "section":
+            continue  # 已由 section_titles 同源提取
+        if name not in _EVIDENCE_CLAUSE_NAMES:
+            raise SkillWorkflowError(
+                package.skill_id,
+                origin,
+                f"unknown validation clause '{match.group('name')}:'; "
+                f"expected one of {', '.join(_EVIDENCE_CLAUSE_NAMES)}",
+            )
+        value = _strip_outer_quotes(match.group("value").strip())
+        if not value:
+            raise SkillWorkflowError(package.skill_id, origin, f"validation clause '{name}:' requires a value")
+        if name in {"artifact", "git"}:
+            _require_relative_path(package, origin, name, value)
+        target: list[str] = getattr(clauses, _CLAUSE_FIELDS[name])
+        target.append(value)
+    return clauses
+
+
+def _split_clause_segments(package: SkillPackage, origin: str, validation_rules: str) -> list[str]:
+    """按 ``,`` / ``;`` 切段；引号内的分隔符不拆段（``command: pytest -k "a,b"`` 是一条命令），
+    引号不平衡显性报错（不得静默截断半条声明）。"""
+    segments: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    for character in validation_rules:
+        if quote is not None:
+            current.append(character)
+            if character == quote:
+                quote = None
+        elif character in {'"', "'"}:
+            quote = character
+            current.append(character)
+        elif character in {",", ";"}:
+            segments.append("".join(current))
+            current = []
+        else:
+            current.append(character)
+    if quote is not None:
+        raise SkillWorkflowError(package.skill_id, origin, f"unbalanced quote {quote!r} in validation declaration")
+    segments.append("".join(current))
+    return segments
+
+
+def _strip_outer_quotes(value: str) -> str:
+    """剥掉**一对平衡的**外层引号；内层引号原样保留（声明的命令要逐字保真）。"""
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+        return value[1:-1]
+    return value
+
+
+def _require_relative_path(package: SkillPackage, origin: str, clause: str, value: str) -> None:
+    """产物 / Git 子句的路径必须落在工作区内；判定单一真源在
+    :func:`heagent.engine.workflow_resource.ensure_workspace_relative_path`（模型校验器同规）。"""
+    try:
+        ensure_workspace_relative_path(value)
+    except ValueError as exc:
+        raise SkillWorkflowError(package.skill_id, origin, f"validation clause '{clause}:' {exc}") from exc
 
 
 def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> WorkflowResource:  # noqa: C901
@@ -86,6 +196,8 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
             step_values, step_body = _parse_resource_frontmatter(step_text)
         except ValueError as exc:
             raise SkillWorkflowError(package.skill_id, name, str(exc)) from exc
+        # 声明串只求值一次：raw 与解析视图必须来自同一份文本（求值两次 = 漂移温床）。
+        validation_text = _value_text(step_values, "validation", "validation_rules", "verify")
         steps.append(
             WorkflowStepResource(
                 index=index,
@@ -95,7 +207,8 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
                 output=_value_text(step_values, "output", "outputs"),
                 next=_value_text(step_values, "next", "next_step") or None,
                 checkpoint=_value_text(step_values, "checkpoint"),
-                validation_rules=_value_text(step_values, "validation", "validation_rules", "verify"),
+                validation_rules=validation_text,
+                validation_clauses=parse_validation_clauses(package, name, validation_text),
                 role=_value_text(step_values, "role", "agent"),
                 story_loop=_value_text(step_values, "story_loop"),
                 max_parallel_stories=_parallel_limit(package, step_values, name),
@@ -236,6 +349,8 @@ def _parse_inline_workflow_steps(package: SkillPackage, body: str) -> list[Workf
                 raise SkillWorkflowError(package.skill_id, name, f"invalid inline step metadata: {line}")
             metadata[key] = value.strip().strip("\"'")
             instruction_start = idx + 1
+        # 声明串只求值一次：raw 与解析视图必须来自同一份文本（求值两次 = 漂移温床）。
+        validation_text = _value_text(metadata, "validation", "validation_rules", "verify")
         steps.append(
             WorkflowStepResource(
                 index=number,
@@ -245,7 +360,8 @@ def _parse_inline_workflow_steps(package: SkillPackage, body: str) -> list[Workf
                 output=_value_text(metadata, "output", "outputs"),
                 next=_value_text(metadata, "next", "next_step") or None,
                 checkpoint=_value_text(metadata, "checkpoint"),
-                validation_rules=_value_text(metadata, "validation", "validation_rules", "verify"),
+                validation_rules=validation_text,
+                validation_clauses=parse_validation_clauses(package, name, validation_text),
                 role=_value_text(metadata, "role", "agent"),
                 story_loop=_value_text(metadata, "story_loop"),
                 max_parallel_stories=_parallel_limit(package, metadata, name),
