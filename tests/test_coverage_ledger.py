@@ -7,10 +7,12 @@ prune() 过期清理。
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
+import heagent.engine.ledger as ledger_module
 from heagent.engine.ledger import ExecutionLedger, ExecutionRecord, ExecutionStatus
 
 
@@ -124,6 +126,26 @@ def _make_record(
 
 
 class TestPrune:
+    @pytest.mark.asyncio
+    async def test_prune_runs_stale_file_reads_off_event_loop(self, tmp_path, monkeypatch) -> None:
+        """过期记录判定必须在线程中执行，不能让同步 read_text 卡住事件循环。"""
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        old = (datetime.now(tz=UTC) - timedelta(days=10)).isoformat()
+        await ledger._save(_make_record("old:thread", status=ExecutionStatus.COMPLETED, finished_at=old))
+
+        event_loop_thread = threading.current_thread()
+        observed_threads: list[threading.Thread] = []
+        original = ledger_module._is_path_stale
+
+        def observe(*args: object, **kwargs: object) -> bool:
+            observed_threads.append(threading.current_thread())
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(ledger_module, "_is_path_stale", observe)
+        assert await ledger.prune(retention_days=7) == 1
+        assert observed_threads
+        assert all(thread is not event_loop_thread for thread in observed_threads)
+
     @pytest.mark.asyncio
     async def test_prune_removes_old_completed_keeps_recent(self, tmp_path) -> None:
         """prune 删 finished_at 过期的 COMPLETED，保留近期的。"""

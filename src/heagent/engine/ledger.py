@@ -365,12 +365,18 @@ class ExecutionLedger:
         # 判定与删除各占**一次**线程跳转（不在事件循环里阻塞、也不逐条起线程）：
         # 逐条 `await asyncio.to_thread(...)` 在万级文件下仅线程跳转就要数秒（实测 2 万条 9.7s），
         # 且旧实现把 `read_text` 直接放在协程里，会阻塞整个事件循环。
-        stale = [path for i, path in enumerate(paths) if _is_path_stale(path, cutoff_naive, index=i, total=total)]
+        stale = await asyncio.to_thread(_find_stale_paths, paths, cutoff_naive)
         deleted = await asyncio.to_thread(_delete_stale, stale)
         await asyncio.to_thread(touch_prune_stamp, stamp)
         if total >= _PRUNE_PROGRESS_INTERVAL:
             logger.info("ledger prune: done — deleted %d stale of %d files", deleted, total)
         return deleted
+
+
+def _find_stale_paths(paths: list[Path], cutoff_naive: datetime) -> list[Path]:
+    """在线程中批量判定可删除的 ledger 路径。"""
+    total = len(paths)
+    return [path for i, path in enumerate(paths) if _is_path_stale(path, cutoff_naive, index=i, total=total)]
 
 
 def _is_path_stale(path: Path, cutoff_naive: datetime, *, index: int = 0, total: int = 0) -> bool:
