@@ -20,7 +20,9 @@ from heagent.engine.checkpoint import (
     WorkflowPhase,
     WorkflowStatus,
 )
+from heagent.engine.workflow_events import WorkflowEvent
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
+from heagent.engine.workflow_transition import transition
 from heagent.events.protocol import error_kind_for
 from heagent.pub.safe_logging import safe_log
 
@@ -420,6 +422,7 @@ class WorkflowRunner:
 
         started = time.perf_counter()
         _emit_step_event(emit, "workflow_step_started", step=step, story=active_story)
+        self.state = self.state.model_copy(update={"status": transition(self.state.status, WorkflowEvent.START)})
         try:
             result = self._invoke_callback(callback, step, active_story)
             if inspect.isawaitable(result):
@@ -427,6 +430,7 @@ class WorkflowRunner:
             if not isinstance(result, WorkflowStepResult):
                 raise TypeError("step callback must return WorkflowStepResult")
         except BaseException as exc:
+            self.state = self.state.model_copy(update={"status": WorkflowStatus.PENDING})
             _emit_step_event(
                 emit,
                 "workflow_step_failed",
@@ -464,7 +468,9 @@ class WorkflowRunner:
                 update.update(self._step_advance_update(step, result.output))
             self.state = self.state.model_copy(update=update)
         else:
-            self.state = self.state.model_copy(update={"status": result.status, "reason": result.reason})
+            self.state = self.state.model_copy(
+                update={"status": self._callback_status(result.status), "reason": result.reason}
+            )
 
         checkpoint_id = await self._persist(step, checkpoint)
         return WorkflowRunResult(
@@ -497,6 +503,7 @@ class WorkflowRunner:
         remaining = [story for story in story_specs if story.id not in completed]
         if not remaining:
             combined = "\n\n---\n\n".join(str(value) for value in self.state.story_outputs.values())
+            self.state = self.state.model_copy(update={"status": transition(self.state.status, WorkflowEvent.START)})
             self.state = self.state.model_copy(update=self._step_advance_update(step, combined))
             checkpoint_id = await self._persist(step, checkpoint)
             return WorkflowRunResult(status=self.state.status, step_index=step.index, checkpoint_id=checkpoint_id)
@@ -510,6 +517,7 @@ class WorkflowRunner:
             update={"active_story": active_ids[0], "active_stories": active_ids, "story_statuses": statuses}
         )
         await self._persist(step, checkpoint)
+        self.state = self.state.model_copy(update={"status": transition(self.state.status, WorkflowEvent.START)})
 
         async def execute(story: StorySpec) -> tuple[StorySpec, WorkflowStepResult | BaseException]:
             started = time.perf_counter()
@@ -577,14 +585,17 @@ class WorkflowRunner:
             "story_statuses": statuses,
         }
         if failure_reason:
-            update.update({"status": WorkflowStatus.FAILED, "reason": failure_reason})
+            update.update(
+                {"status": transition(self.state.status, WorkflowEvent.EXECUTOR_FAILED), "reason": failure_reason}
+            )
         elif len(completed_stories) >= len(story_specs):
             combined = "\n\n---\n\n".join(str(value) for value in story_outputs.values())
             update.update(self._step_advance_update(step, combined))
             update.update({"active_stories": [], "active_story": None})
         else:
-            update["status"] = (
-                WorkflowStatus.WAITING_USER if self._checkpoint_declared(step) else WorkflowStatus.PENDING
+            update["status"] = transition(
+                self.state.status,
+                WorkflowEvent.CHECKPOINT_REQUIRED if self._checkpoint_declared(step) else WorkflowEvent.STEP_COMPLETED,
             )
             update["reason"] = ""
         self.state = self.state.model_copy(update=update)
@@ -600,12 +611,24 @@ class WorkflowRunner:
 
     run = run_step
 
+    def _callback_status(self, status: WorkflowStatus) -> WorkflowStatus:
+        event = {
+            WorkflowStatus.FAILED: WorkflowEvent.EXECUTOR_FAILED,
+            WorkflowStatus.WAITING_USER: WorkflowEvent.USER_PAUSE,
+            WorkflowStatus.BLOCKED: WorkflowEvent.GATE_FAILED,
+        }.get(status)
+        if event is None:
+            raise ValueError(f"unsupported callback status: {status}")
+        return transition(self.state.status, event)
+
     def resume(self) -> WorkflowRunnerState:
         """Explicitly resume a paused, blocked, or failed active step."""
         if self.done:
             return self.state.model_copy(deep=True)
         if self.state.status in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
-            self.state = self.state.model_copy(update={"status": WorkflowStatus.PENDING, "reason": ""})
+            self.state = self.state.model_copy(
+                update={"status": transition(self.state.status, WorkflowEvent.USER_RESUME), "reason": ""}
+            )
         return self.state.model_copy(deep=True)
 
     async def persist_state(self) -> str | None:
@@ -626,7 +649,13 @@ class WorkflowRunner:
         missing: list[str],
         checkpoint: CheckpointCallback | None,
     ) -> WorkflowRunResult:
-        self.state = self.state.model_copy(update={"status": status, "reason": reason})
+        event = (
+            WorkflowEvent.INPUT_MISSING if self.state.status is WorkflowStatus.PENDING else WorkflowEvent.GATE_FAILED
+        )
+        next_status = transition(self.state.status, event)
+        if next_status is not status:
+            raise ValueError(f"stop status {status} disagrees with {event}")
+        self.state = self.state.model_copy(update={"status": next_status, "reason": reason})
         checkpoint_id = await self._persist(step, checkpoint)
         return WorkflowRunResult(
             status=status, step_index=step.index, reason=reason, missing=missing, checkpoint_id=checkpoint_id
@@ -634,13 +663,15 @@ class WorkflowRunner:
 
     def _step_advance_update(self, step: WorkflowStepResource, output: Any) -> dict[str, Any]:
         completed = [*self.state.completed_steps, self.state.active_step]
-        next_status = (
-            WorkflowStatus.COMPLETED
-            if self.state.active_step + 1 >= len(self.workflow.steps)
-            else WorkflowStatus.PENDING
+        final = self.state.active_step + 1 >= len(self.workflow.steps)
+        event = (
+            WorkflowEvent.FINAL_STEP_COMPLETED
+            if final
+            else WorkflowEvent.CHECKPOINT_REQUIRED
+            if self._checkpoint_declared(step)
+            else WorkflowEvent.STEP_COMPLETED
         )
-        if self.state.active_step + 1 < len(self.workflow.steps) and self._checkpoint_declared(step):
-            next_status = WorkflowStatus.WAITING_USER
+        next_status = transition(self.state.status, event)
         outputs = {**self.state.outputs, step.name: output}
         for reference in self._references(step.output):
             outputs[reference] = output
@@ -673,7 +704,10 @@ class WorkflowRunner:
             )
             return update
         next_story = story_specs[self.state.story_index + 1]
-        next_status = WorkflowStatus.WAITING_USER if self._checkpoint_declared(step) else WorkflowStatus.PENDING
+        next_status = transition(
+            self.state.status,
+            WorkflowEvent.CHECKPOINT_REQUIRED if self._checkpoint_declared(step) else WorkflowEvent.STEP_COMPLETED,
+        )
         return {
             "story_index": self.state.story_index + 1,
             "status": next_status,

@@ -45,6 +45,7 @@ from heagent.goal.application import (
 from heagent.goal.application import (
     validate_goal_workflow as _validate_goal_workflow,
 )
+from heagent.goal.doctor import diagnose_workflow
 from heagent.goal.document import (
     _GOALS_DIR,
     _goal_description,
@@ -486,7 +487,7 @@ async def _goal_declarative_auto(
     _echo(f"[goal] declarative auto registered: {job.id} workflow={workflow.name}", err=True)
 
 
-_GOAL_SUBCOMMAND_NAMES = ("new", "next", "run", "status", "pause", "resume", "auto", "reset")
+_GOAL_SUBCOMMAND_NAMES = ("new", "next", "run", "status", "pause", "resume", "auto", "reset", "doctor")
 
 
 def _goal_typo_subcommand(args: str) -> str | None:
@@ -523,7 +524,7 @@ async def _goal_declarative_dispatch(
         else:
             async with _goal_mutex():
                 await _goal_declarative_new(provider, engine, workflow, rest, cron_store=cron_store)
-    elif head in ("next", "status", "reset", "run", "pause") and rest:
+    elif head in ("next", "status", "reset", "run", "pause", "doctor") and rest:
         _goal_usage()
     elif head == "next":
         async with _goal_mutex():
@@ -532,6 +533,13 @@ async def _goal_declarative_dispatch(
         await _goal_declarative_run(provider, engine, workflow)
     elif head == "status":
         await _goal_declarative_status(workflow)
+    elif head == "doctor":
+        package = _goal_workflow_package()
+        if package is None:
+            _echo("[goal] doctor: workflow package is unavailable", err=True)
+        else:
+            problems = diagnose_workflow(workflow, package, _resolve_skill_package)
+            _echo("[goal] doctor: " + ("; ".join(problems) if problems else "workflow packages OK"), err=True)
     elif head == "pause":
         await _goal_declarative_pause_resume(workflow, resume=False)
     elif head == "resume":
@@ -562,6 +570,7 @@ def _goal_usage() -> None:
         "  /goal new <目标描述>  同上（显式 new 形式）\n"
         "  /goal next            推进下一条 story（每步全新会话）\n"
         "  /goal status          查看进度\n"
+        "  /goal doctor          检查工作流及角色技能包\n"
         "  /goal reset           清除 current 指针（goal 目录保留）\n"
         "  /goal run             连续推进 goal（步数上限由 workflow 的 max_rounds 声明；Ctrl+C 可中断）\n"
         "  /goal resume [回复]   记录用户回答并继续 waiting_user 步骤\n"
