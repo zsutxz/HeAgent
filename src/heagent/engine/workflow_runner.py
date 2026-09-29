@@ -437,7 +437,12 @@ class WorkflowRunner:
             if not isinstance(result, WorkflowStepResult):
                 raise TypeError("step callback must return WorkflowStepResult")
         except BaseException as exc:
-            self.state = self.state.model_copy(update={"status": WorkflowStatus.PENDING})
+            event = (
+                WorkflowEvent.CANCELLED if isinstance(exc, asyncio.CancelledError) else WorkflowEvent.EXECUTOR_FAILED
+            )
+            self.state = self.state.model_copy(
+                update={"status": transition(self.state.status, event), "reason": str(exc)}
+            )
             _emit_step_event(
                 emit,
                 "workflow_step_failed",

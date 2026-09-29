@@ -16,6 +16,7 @@ from heagent.engine.workflow_transition import WorkflowTransitionError, transiti
         (S.RUNNING, E.CHECKPOINT_REQUIRED, S.WAITING_USER),
         (S.RUNNING, E.GATE_FAILED, S.BLOCKED),
         (S.RUNNING, E.EXECUTOR_FAILED, S.FAILED),
+        (S.RUNNING, E.CANCELLED, S.PENDING),
         (S.RUNNING, E.FINAL_STEP_COMPLETED, S.COMPLETED),
         (S.WAITING_USER, E.USER_RESUME, S.PENDING),
         (S.BLOCKED, E.USER_RESUME, S.PENDING),
@@ -28,7 +29,7 @@ def test_legal_transition(source: S, event: E, target: S) -> None:
     assert transition(source, event) is target
 
 
-@pytest.mark.parametrize("source", list(S))
+@pytest.mark.parametrize("source", [status for status in S if status is not S.RUNNING])
 def test_undefined_transition_fails(source: S) -> None:
     with pytest.raises(WorkflowTransitionError, match="illegal workflow transition"):
         transition(source, E.CANCELLED)

@@ -15,6 +15,7 @@ _TRANSITIONS: dict[tuple[WorkflowStatus, WorkflowEvent], WorkflowStatus] = {
     (WorkflowStatus.RUNNING, WorkflowEvent.CHECKPOINT_REQUIRED): WorkflowStatus.WAITING_USER,
     (WorkflowStatus.RUNNING, WorkflowEvent.GATE_FAILED): WorkflowStatus.BLOCKED,
     (WorkflowStatus.RUNNING, WorkflowEvent.EXECUTOR_FAILED): WorkflowStatus.FAILED,
+    (WorkflowStatus.RUNNING, WorkflowEvent.CANCELLED): WorkflowStatus.PENDING,
     (WorkflowStatus.RUNNING, WorkflowEvent.FINAL_STEP_COMPLETED): WorkflowStatus.COMPLETED,
     (WorkflowStatus.WAITING_USER, WorkflowEvent.USER_RESUME): WorkflowStatus.PENDING,
     (WorkflowStatus.BLOCKED, WorkflowEvent.USER_RESUME): WorkflowStatus.PENDING,

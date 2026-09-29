@@ -304,6 +304,34 @@ async def test_goal_requires_workflow_instead_of_falling_back_to_legacy_path(
 
 
 @pytest.mark.asyncio
+async def test_pause_rejects_a_blocked_runner_instead_of_overwriting_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from heagent.goal import application
+
+    workflow = WorkflowResource(
+        name="demo",
+        instructions="",
+        steps=[WorkflowStepResource(index=1, name="step-01.md", instructions="")],
+    )
+    goal_dir = tmp_path / "goal"
+    goal_dir.mkdir()
+    runner = WorkflowRunner(workflow, goal_id="goal")
+    runner.state = runner.state.model_copy(update={"status": WorkflowStatus.BLOCKED, "reason": "blocked"})
+    monkeypatch.setattr(application, "restore_runner", lambda _workflow, _goal_dir: _async_value(runner))
+
+    outcome = await application.pause_resume(workflow, goal_dir, resume=False)
+
+    assert outcome.status.value == "failed"
+    assert "illegal workflow transition" in outcome.message
+    assert runner.state.status is WorkflowStatus.BLOCKED
+
+
+async def _async_value(value):
+    return value
+
+
+@pytest.mark.asyncio
 async def test_declarative_resume_retries_a_blocked_step(
     declarative_cwd: Path,
     successful_step: list[str],

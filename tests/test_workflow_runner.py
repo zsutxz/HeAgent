@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from heagent.engine.checkpoint import WorkflowCheckpoint, WorkflowCheckpointStore, WorkflowPhase, WorkflowStatus
@@ -16,6 +18,33 @@ from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResou
 
 def _workflow(*steps: WorkflowStepResource) -> WorkflowResource:
     return WorkflowResource(name="demo", instructions="", steps=list(steps))
+
+
+@pytest.mark.asyncio
+async def test_callback_exception_transitions_to_failed_without_fake_pending() -> None:
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    runner = WorkflowRunner(workflow)
+
+    async def callback(_step):
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await runner.run_step(callback)
+    assert runner.state.status is WorkflowStatus.FAILED
+    assert runner.state.reason == "boom"
+
+
+@pytest.mark.asyncio
+async def test_callback_cancellation_uses_cancelled_transition() -> None:
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    runner = WorkflowRunner(workflow)
+
+    async def callback(_step):
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await runner.run_step(callback)
+    assert runner.state.status is WorkflowStatus.PENDING
 
 
 @pytest.mark.asyncio

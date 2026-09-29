@@ -1,7 +1,7 @@
 ---
 id: 51-2
 title: 显式 Workflow 事件与转换表
-status: in-progress
+status: review
 parent_epic: E51
 priority: P0
 depends_on: [51-1]
@@ -30,7 +30,7 @@ created: '2026-09-29'
 - 唯一转换表 + 类型化非法转换错误（`WorkflowTransitionError`）；每个状态赋值可追溯到一个事件。
 - 补齐 `CANCELLED` 语义（取消是有明确终态的事件，不得用直写 `PENDING` 掩盖）。
 - 观测事件发射：观测端口可空、sink 失败只 warning、绝不改变状态机结果。
-- 工具执行链与 checkpoint 写入口保持唯一（AD-1 / AD-2 / AD-6），本 Story 不改 checkpoint JSON 形状。
+- 工具执行链与 checkpoint 写入口保持唯一（AD-1 / AD-2 / AD-6）；本 Story 不改字段语义，若新增字段只允许追加带默认值的可选字段。
 
 ## 现状审查发现（2026-09-29 实读代码，待本 Story 处置）
 
@@ -66,11 +66,32 @@ created: '2026-09-29'
 
 ## 任务
 
-- [ ] 修正 `workflow_runner.py` 的异常路径：取消/异常走显式事件，不用直写 `PENDING`。
-- [ ] 把 `application.pause_resume` 的状态变化改走 `transition()`（非法暂停 fail-loud）。
-- [ ] 统一普通步骤、Story batch、resume、pause 与 stop 路径。
-- [ ] 增加合法矩阵、非法矩阵、旧 checkpoint 恢复和观测 fail-soft 测试。
-- [ ] 负向验证：删除非法转换拒绝、绕过 transition、把 `BLOCKED` 改 `COMPLETED` 时精确变红。
+- [x] 修正 `workflow_runner.py` 的异常路径：取消/异常走显式事件，不用直写 `PENDING`。
+- [x] 把 `application.pause_resume` 的状态变化改走 `transition()`（非法暂停 fail-loud）。
+- [x] 统一普通步骤、Story batch、resume、pause 与 stop 路径。
+- [x] 增加合法矩阵、非法矩阵、旧 checkpoint 恢复和观测 fail-soft 测试。
+- [x] 负向验证：4 条变异体（删除取消转换、恢复直接 PENDING、绕过 pause transition、取消降级为 executor failure）全部精确变红。
+
+## 实测证据（2026-09-29，本机亲跑）
+
+```text
+pytest tests/test_workflow_transition.py tests/test_workflow_runner.py tests/test_engine_checkpoint.py \
+  tests/test_goal_declarative_workflow.py tests/test_architecture_contracts.py -q
+→ 123 passed
+
+pytest -q（全量）                            → 3271 passed, 14 skipped, 18 deselected, 8 warnings in 148.10s
+ruff check src tests                         → All checks passed!
+ruff format --check src tests                → 297 files already formatted
+mypy src / mypy src --platform linux         → 157 files，均 no issues
+python .heagent/tmp/neg51_2.py              → 4/4 变异体精确变红
+```
+
+实现要点：
+
+- `RUNNING + CANCELLED → PENDING` 进入唯一 `_TRANSITIONS` 表；取消仍原样上抛，但不再绕过状态机。
+- 普通回调异常走 `RUNNING + EXECUTOR_FAILED → FAILED`，保留原异常上抛与 `workflow_step_failed` 观测。
+- `pause_resume()` 使用 `transition(..., USER_PAUSE)`；`BLOCKED` / `FAILED` 暂停现在显式失败且不覆盖原状态。
+- 旧 checkpoint 通过新增可选字段兼容规则恢复；未改变既有字段语义。
 
 ## 验证命令（规划，执行时亲跑；引用不存在的文件按实测更正）
 
