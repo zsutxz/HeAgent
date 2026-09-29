@@ -15,6 +15,11 @@
 不是绕过 ``ToolExecutor`` 的命令执行入口（AD-6 约束的是模型工具链，见 goal/evidence.py）。
 rev / base 参数另受 :data:`_REVISION_PATTERN` 约束（首字符必须是 word 字符，防 ``-`` 旗标
 注入）。查询输出**不截断**：超过查询预算显性报错——截断会伪造路径、丢中间条目。
+
+**子树语义（如实声明，review #21）**：全部查询走 ``git -C <workspace>``——workspace 只是
+仓库内的一个锚点：当 workspace 是仓库**子目录**时，``diff`` / ``ls-files`` 等只报该子树
+相对根的路径、且只覆盖子树内的变更；只有 workspace 恰为仓库根时证据才覆盖全仓。调用方
+（如 ``/goal verify``）据 workspace 解析的仓库布局如实取值，不在本端口内"补齐"全仓视图。
 """
 
 from __future__ import annotations
@@ -194,6 +199,10 @@ class ReadOnlyGitPort:
             )
         except FileNotFoundError as exc:
             raise GitPortError(f"git executable is not available: {exc}") from exc
+        except OSError as exc:
+            # spawn 的其余 OS 故障（权限 / 资源耗尽等）同样显性包成 GitPortError，
+            # 不让调用方（verify / 预检）收到裸 OSError（review #4）。
+            raise GitPortError(f"git {' '.join(args[:1])} could not be started: {exc}") from exc
         try:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_GIT_TIMEOUT_SECONDS)
         except TimeoutError:

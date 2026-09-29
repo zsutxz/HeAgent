@@ -25,6 +25,15 @@ def section_titles(validation_rules: str | None) -> list[str]:
     return [item.strip() for item in _SECTION_CLAUSE.findall(validation_rules) if item.strip()]
 
 
+def output_contains_section(text: str, section: str) -> bool:
+    """Whether ``text`` carries the ``## <section>`` heading（文本门禁判定的单一真源）.
+
+    ``WorkflowRunner`` 的步骤输出门禁与 ``goal/quality_gates`` 的 ``/goal verify`` 复验共用
+    此判定，两处永不漂移。
+    """
+    return re.search(rf"^##\s+{re.escape(section)}\s*$", text, re.I | re.M) is not None
+
+
 # Windows 盘符**相对**路径（``C:foo``）对 PureWindowsPath 不是 absolute，但指向的是
 # 「该盘当前目录」——工作区相对性声明里同样不允许。
 _DRIVE_RELATIVE = re.compile(r"^[A-Za-z]:")
@@ -74,8 +83,9 @@ class StepValidationClauses(BaseModel):
     commands: list[str] = Field(default_factory=list)
     artifacts: list[str] = Field(default_factory=list)
     git_paths: list[str] = Field(default_factory=list)
-    # 命名质量门：只存声明的名字。**名字的注册表校验由 Story 51-4 的求值器接管**
-    # （本 Story 故意不校验，避免被误读为遗漏）。
+    # 命名质量门：只存声明的名字。**名字的注册表校验由加载器接管**（goal/workflow_loader
+    # 经 goal/quality_gates 的宿主注册表校验，未注册名字加载期 fail-loud，Story 51-4）；
+    # 模型只承载声明，绕过 loader 直构造模型由求值器兜底显性失败。
     gates: list[str] = Field(default_factory=list)
 
     @field_validator("artifacts", "git_paths")

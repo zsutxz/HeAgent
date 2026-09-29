@@ -21,6 +21,10 @@
   （固定旗标模板），不经 ToolExecutor、也不是模型可调用的工具入口。
 - 只读 Git 端口（:mod:`heagent.goal.git_port`，Story 51-3）：base / head / 变更集与
   工作区冲突状态；只读子命令白名单 + 固定旗标模板，从不 commit（AD-11）。
+- 通用质量门求值器（:mod:`heagent.goal.quality_gates`，Story 51-4）：把步骤 ``validation:``
+  的结构化子句逐条匹配到证据 / 产物 / 只读 Git，产出结构化通过 / 失败与原因（``/goal verify``
+  与步骤完成门共用）；``gate:`` 的宿主注册表在此，加载期由 workflow_loader 校验
+  （未注册名字 fail-loud），求值器自身从不执行命令——受控重跑经入口层注入的治理链端口。
 
 分层：本子包属**入口层**（供 ``cli/goal`` 使用），依赖 ``heagent.pub.persist`` /
 ``heagent.pub.safe_logging`` / ``heagent.engine`` / ``heagent.memory`` / ``heagent.tools``

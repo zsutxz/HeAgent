@@ -952,6 +952,14 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
 - `/goal next` 执行一个声明步骤，`story_loop`（当前为 `02-epics.md`）步骤则每次执行一条 Story；`/goal run` 可连续推进，遇到检查点、
   阻塞或失败即停止。
 - `/goal status` 只读回显运行状态和目标产物；`/goal reset` 只清除 current 指针并保留目标目录。
+- `/goal verify [run]`（Story 51-4）：按步骤 `validation:` 的结构化子句求值——`goal/quality_gates.py`
+  的通用求值器把声明子句比对到证据（`goal/evidence.py` 的 `<goal_dir>/evidence/`）、产物文件与只读 Git
+  （`goal/git_port.py`），产出结构化通过/失败报告（经 `_echo` 漏斗）。`verify run` 先把声明命令经治理链
+  （PolicyEngine → ToolExecutor → SafetyGuard → shell handler）受控重跑并落证据；绝不重跑实现步骤、
+  不改 Runner 状态。步骤完成门（`cli/goal.py` 的 `_goal_structured_gate`）复用同一求值器：步骤产物落盘后
+  求值，未通过经 `WorkflowRunner` 的 `GATE_FAILED` 事件进 `BLOCKED`。`gate:` 名字由宿主注册表
+  （`QUALITY_GATES`，名字 → 语义 + 求值函数分派表）提供，加载期由 `workflow_loader` 校验（未注册或
+  声明条件不满足均 fail-loud）。
 - `/goal resume [回复]` 记录用户回复并恢复等待中的步骤；`/goal auto [cron]` 通过 JobStore 复用同一推进路径。
 - **跨进程互斥（2026-09）**：`/goal` 全部变更入口（new/next/run/resume/reset/cron 推进）经 `_goal_mutex()`
   复合互斥——进程内 `asyncio.Lock`（`_goal_auto_lock`，快速路径）+ `.heagent/goal.lock` 跨进程文件锁
@@ -1331,7 +1339,9 @@ src/heagent/
 │   ├── doctor.py            # 声明驱动的只读预检（doctor_checks 词汇 → 结构化报告，Story 51-1）
 │   ├── status_view.py       # /goal status 纯投影（status_fields 词汇，零 IO，Story 51-1）
 │   ├── evidence.py          # 结构化执行证据：版本化模型 + 追加式存储 + 受治理结果证据化（Story 51-3）
-│   └── git_port.py          # 只读 Git 端口：base/head/变更集与工作区冲突状态，从不 commit（Story 51-3）
+│   ├── git_port.py          # 只读 Git 端口：base/head/变更集与工作区冲突状态，从不 commit（Story 51-3）
+│   └── quality_gates.py     # 通用门禁求值器：validation: 结构化子句 → 证据/产物/只读 Git 比对；
+│                            #   gate: 宿主注册表（名字→语义+求值函数分派表）也在此（Story 51-4）
 ├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）
 └── cron/                    # 定时调度
     ├── expr.py              # 5-field cron 表达式解析纯叶子（零 heagent 导入；memory/dream 与 cron/scheduler 共用）

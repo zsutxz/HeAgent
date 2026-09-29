@@ -25,6 +25,7 @@ from heagent.engine.workflow_resource import (
     ensure_workspace_relative_path,
     section_titles,
 )
+from heagent.goal.quality_gates import QUALITY_GATES, gate_declaration_problem, is_registered_gate
 from heagent.memory.skill_packages import SkillPackage, SkillPackageResourceError
 from heagent.pub.frontmatter import (
     FrontmatterSyntaxError,
@@ -38,8 +39,9 @@ class SkillWorkflowError(SkillPackageResourceError):
 
 
 # ``validation:`` 里可声明的证据子句（引擎词汇，与 ``section:`` 同处一个字符串、同一分隔符）。
-# 命名质量门 ``gate:`` 只声明名字；**名字的注册表校验由 Story 51-4 的求值器接管**
-# （本 Story 故意不校验，避免被误读为遗漏）。
+# 命名质量门 ``gate:`` 只声明名字；**名字必须在宿主注册表内**（goal/quality_gates 的
+# QUALITY_GATES，Story 51-4）：workflow 只能引用宿主门、不能发明或削弱，写出未注册名字
+# = 加载期 fail-loud。
 _EVIDENCE_CLAUSE_NAMES = ("section", "command", "artifact", "git", "gate")
 # 子句形态：段首的单词 + 冒号。多词前缀（``Given a user: …``）不是子句，仍是普通文本门禁。
 _CLAUSE_PREFIX = re.compile(r"^(?P<name>[A-Za-z][A-Za-z0-9_-]*)\s*:\s*(?P<value>.*)$", re.DOTALL)
@@ -96,10 +98,17 @@ def parse_validation_clauses(package: SkillPackage, origin: str, validation_rule
         value = _strip_outer_quotes(match.group("value").strip())
         if not value:
             raise SkillWorkflowError(package.skill_id, origin, f"validation clause '{name}:' requires a value")
+        if name == "gate":
+            _require_registered_gate(package, origin, value)
         if name in {"artifact", "git"}:
             _require_relative_path(package, origin, name, value)
         target: list[str] = getattr(clauses, _CLAUSE_FIELDS[name])
         target.append(value)
+    # 命名门的**必要声明条件**（加载期，与未注册同归 fail-loud）：如 tests-pass 投影的是本步
+    # 声明命令的证据，单独声明没有证据来源（判定单一真源在 quality_gates.gate_declaration_problem）。
+    problem = gate_declaration_problem(clauses)
+    if problem:
+        raise SkillWorkflowError(package.skill_id, origin, problem)
     return clauses
 
 
@@ -142,6 +151,24 @@ def _require_relative_path(package: SkillPackage, origin: str, clause: str, valu
         ensure_workspace_relative_path(value)
     except ValueError as exc:
         raise SkillWorkflowError(package.skill_id, origin, f"validation clause '{clause}:' {exc}") from exc
+
+
+def _require_registered_gate(package: SkillPackage, origin: str, name: str) -> None:
+    """``gate:`` 名字必须在宿主注册表（:data:`heagent.goal.quality_gates.QUALITY_GATES`）内。
+
+    workflow 只能**引用**宿主内置门，不能发明名字（更不能自带实现或削弱参数）；拼错 /
+    未经注册的名字静默通过会让「声明了质量门」变成「没有门」，因此加载期显性失败。
+    报错文案附每个注册门的宿主语义（含其必要声明条件，如 tests-pass 必须与 command: 同用）
+    ——文案单一真源在注册表的 ``description`` 字段，不在本模块复写。
+    """
+    if is_registered_gate(name):
+        return
+    registered = "; ".join(f"{spec.name} ({spec.description})" for spec in QUALITY_GATES.values()) or "none"
+    raise SkillWorkflowError(
+        package.skill_id,
+        origin,
+        f"unknown quality gate '{name}'; registered gates: {registered}",
+    )
 
 
 def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> WorkflowResource:  # noqa: C901

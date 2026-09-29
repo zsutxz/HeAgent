@@ -683,11 +683,11 @@ def test_clause_sections_agree_with_the_existing_section_parser(validation_rules
 def test_quoted_separator_stays_one_clause_value() -> None:
     """引号保护分隔符：``command: pytest -k "a,b"`` 是一条命令，不被拆成两段（patch #15）。"""
     clauses = parse_validation_clauses(
-        SkillPackage(skill_id="demo", root=Path(".")), "step-01-demo.md", 'command: pytest -k "a,b", gate: x'
+        SkillPackage(skill_id="demo", root=Path(".")), "step-01-demo.md", 'command: pytest -k "a,b", gate: tests-pass'
     )
 
     assert clauses.commands == ['pytest -k "a,b"']
-    assert clauses.gates == ["x"]
+    assert clauses.gates == ["tests-pass"]
 
 
 def test_quoted_clause_value_strips_one_outer_pair() -> None:

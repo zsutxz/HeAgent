@@ -7,20 +7,23 @@ import difflib
 import logging
 import os
 import sys
+import time
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import click
 
 from heagent.cli.display import SUBAGENT_ANNOUNCER
-from heagent.config import get_settings
+from heagent.config import get_settings, resolve_runtime_config
 from heagent.context.loader import load_context_files
 from heagent.context.window_reset import WindowResetConfig
 from heagent.cron.expr import cron_matches
 from heagent.engine import (
+    StorySpec,
+    ToolExecutionMode,
     WorkflowCheckpointError,
     WorkflowResource,
     WorkflowStatus,
@@ -58,10 +61,21 @@ from heagent.goal.document import (
     _goal_step_artifact_path,
     _goal_user_responses,
 )
+from heagent.goal.evidence import (
+    CommandOutcome,
+    EvidenceError,
+    GitEvidence,
+    build_command_evidence,
+    classify_command_result,
+    evidence_store,
+    new_evidence_id,
+)
 from heagent.goal.naming import llm_project_id
+from heagent.goal.quality_gates import verify_step
 from heagent.goal.status_view import project_status_view
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
 from heagent.pub.persist import atomic_write_text, file_lock
+from heagent.pub.types import ToolCall, ToolResult
 from heagent.pub.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
@@ -70,6 +84,8 @@ if TYPE_CHECKING:
     from heagent.agent.sub import SubAgentResult
     from heagent.cron.jobs import JobStore
     from heagent.engine import EngineContainer
+    from heagent.goal.evidence import CommandEvidence
+    from heagent.goal.quality_gates import GovernedCommandPort, VerificationReport
     from heagent.memory.skill_packages import SkillPackage
     from heagent.providers.base import BaseProvider
 
@@ -312,6 +328,9 @@ async def _goal_execute_step(
         atomic_write_text(_goal_step_artifact_path(goal_dir, step, story), output_text)
     except OSError as exc:
         return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist step output: {exc}")
+    gate_reason = await _goal_structured_gate(engine, workflow, step, story, goal_dir)
+    if gate_reason:
+        return WorkflowStepResult(status=WorkflowStatus.BLOCKED, reason=gate_reason)
     return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=result.output)
 
 
@@ -470,6 +489,237 @@ async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: 
     return outcome.proceed
 
 
+# ── /goal verify 与结构化完成门（Story 51-4）───────────────────────────────
+
+# 受治理重跑的命令超时（秒）：声明验证可能是长测试套件，工具的 120s 默认会把长套件
+# 钉成 TIMEOUT——显式给足上界（review #16；不新增顶层配置键）。
+_VERIFY_COMMAND_TIMEOUT_SECONDS = 600
+
+
+def _goal_verify_workspace(engine: EngineContainer | None) -> Path:
+    """/goal 验证工作区根的**唯一解析点**（review #1）：受治理执行在哪里跑（``cd`` 前缀）、
+    证据 ``cwd`` 记录什么、求值器拿什么当期望值——三处都取这一个值，永不各自解析。"""
+    return Path(WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd()).root).resolve()
+
+
+def _workspace_cd_prefix(workspace: Path) -> str:
+    """受治理重跑的工作区定位前缀：让声明命令在**工作区根**执行（git.py ``_run_git`` 的
+    ``cwd=workspace_root()`` 先例；本端口不改 sandbox ``CommandRunner`` 契约）。剥离侧在
+    ``goal/quality_gates._strip_workspace_cd``，两个格式必须同源。"""
+    text = str(workspace)
+    if os.name == "nt":
+        return f'cd /d "{text}" && '
+    return f"cd '{text.replace(chr(39), chr(39) + chr(92) + chr(39))}' && "
+
+
+async def _goal_verify_report(
+    engine: EngineContainer | None,
+    workflow: WorkflowResource,
+    step: Any,
+    story: Any,
+    goal_dir: Path,
+    *,
+    rerun: bool,
+) -> VerificationReport:
+    """求值一个步骤 / Story 的结构化子句（``/goal verify`` 与完成门共用同一次实现）。
+
+    证据 = ``<goal_dir>/evidence/``（唯一位置解析点）；产物 = 工作区文件；Git = 只读端口
+    的实时查询（仓库不可用返回空证据：变更集为空，git 子句与 ``git-changes`` 门照实
+    显性未过）；步骤输出 = 已持久化的步骤产物（section 门禁复验的输入，缺失由求值器
+    显性记未过）。workspace 经 :func:`_goal_verify_workspace`（唯一解析点，review #1）。
+    """
+    workspace = _goal_verify_workspace(engine)
+    return await verify_step(
+        step,
+        store=evidence_store(goal_dir),
+        goal_id=goal_dir.name,
+        story_id=story.id if story is not None else None,
+        workspace=workspace,
+        workflow_id=workflow.name,
+        output_text=await _goal_step_output_text(goal_dir, step, story),
+        git_evidence=await _goal_live_git_evidence(workspace),
+        rerun=rerun,
+        run_command=_goal_verify_command_runner(engine) if rerun else None,
+    )
+
+
+async def _goal_structured_gate(
+    engine: EngineContainer | None,
+    workflow: WorkflowResource,
+    step: Any,
+    story: Any,
+    goal_dir: Path,
+) -> str:
+    """完成门（Story 51-4）：步骤产物落盘后按声明子句求值；未通过返回 BLOCKED 理由。
+
+    声明的验证命令在此**受控重跑**（经治理链、落证据）——完成判定依赖真实 Evidence，
+    未运行或运行失败的声明验证不能放行步骤（AD-5/AD-6）。未声明任何结构化子句的步骤
+    返回空串（老包零行为变化）。BLOCKED 经 ``WorkflowRunner`` 的 ``GATE_FAILED`` 事件落
+    状态，本函数不直接改 Runner 状态。求值自身的故障（``EvidenceError`` / ``OSError``）
+    同归「未通过」并写进理由——完成门不崩整个 run，也不静默放行（review #4）。
+    """
+    if not step.validation_clauses.declared:
+        return ""
+    try:
+        report = await _goal_verify_report(engine, workflow, step, story, goal_dir, rerun=True)
+    except (EvidenceError, OSError) as exc:
+        return f"quality gate failed for step '{step.name}': gate evaluation error: {exc}"
+    if report.passed:
+        return ""
+    for line in report.render():
+        _echo(line, err=True)
+    failures = [
+        f"{item.kind.value}: {item.target}" + (f" — {item.reason}" if item.reason else "") for item in report.failed
+    ]
+    # failures 与 errors **分别**限额：求值错误不被失败子句挤到无声丢光（review #17）。
+    parts = [*failures[:5], *report.errors[:5]]
+    if len(failures) > 5:
+        parts.append(f"…({len(failures) - 5} more failed clause(s) not shown)")
+    if len(report.errors) > 5:
+        parts.append(f"…({len(report.errors) - 5} more evaluation error(s) not shown)")
+    return f"quality gate failed for step '{step.name}': {'; '.join(parts)}"
+
+
+async def _goal_declarative_verify(
+    workflow: WorkflowResource,
+    engine: EngineContainer | None,
+    args: str,
+) -> None:
+    """/goal verify：只检查或受控重跑声明里列出的验证，绝不重跑实现步骤、不改 Runner 状态。
+
+    ``args`` 为空 = 只检查（读证据 / 产物 / 只读 Git）；``run`` = 先受控重跑声明的验证命令
+    再检查。对 BLOCKED / FAILED 状态同样可用（恢复后先复核证据是合法诉求）。
+    求值路径的 ``EvidenceError`` / ``OSError`` 在此收口为用户可见失败——它们**不是** goal
+    域锁竞争，不得落进外层的「另一进程正在推进」误诊文案（review #4）。
+    """
+    async with _goal_mutex():
+        goal_dir = _goal_declarative_active_dir()
+        if goal_dir is None:
+            _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+            return
+        try:
+            runner = await _goal_declarative_runner(workflow, goal_dir)
+        except (WorkflowCheckpointError, ValueError) as exc:
+            _echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
+            return
+        if runner.done:
+            _echo("[goal] declarative workflow is already complete; there is no active step to verify", err=True)
+            return
+        # 显性守卫（review #14）：活动步越界 / 缺失（如 new 后尚未落任何 checkpoint 的残状）
+        # 显性提示返回，不 TypeError、不静默取 min() 兜底。
+        active_step = runner.state.active_step
+        if active_step is None or active_step >= len(workflow.steps):
+            _echo("[goal] verify: the workflow has no active step to verify yet", err=True)
+            return
+        step = workflow.steps[active_step]
+        story_id = runner.state.active_story
+        # 跨模块数据用引擎模型（AD-4）：StorySpec 的 (id, epic) 即 `_goal_step_artifact_path`
+        # 消费的鸭子契约；不用裸 SimpleNamespace（review #13）。
+        story = StorySpec(id=story_id, epic=runner.state.active_epic) if story_id else None
+        try:
+            report = await _goal_verify_report(engine, workflow, step, story, goal_dir, rerun=args == "run")
+        except (EvidenceError, OSError) as exc:
+            _echo(f"[goal] verify failed: {exc}", err=True)
+            return
+        for line in report.render():
+            _echo(line, err=True)
+
+
+async def _goal_step_output_text(goal_dir: Path, step: Any, story: Any) -> str | None:
+    """已持久化的步骤产物文本（section 门禁复验输入）；缺失 / 不可读返回 ``None``（显性未过）。"""
+    try:
+        return await asyncio.to_thread(_goal_step_artifact_path(goal_dir, step, story).read_text, encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+
+
+async def _goal_live_git_evidence(workspace: Path) -> GitEvidence:
+    """只读 Git 端口的实时查询（白名单内确定性查询，AD-11）；仓库不可用时返回空证据。"""
+    from heagent.goal.git_port import GitPortError, ReadOnlyGitPort  # noqa: PLC0415
+
+    try:
+        return await ReadOnlyGitPort(workspace).evidence()
+    except GitPortError:
+        return GitEvidence()
+
+
+def _goal_verify_command_runner(engine: EngineContainer | None) -> GovernedCommandPort | None:
+    """受控重跑端口：声明命令经治理链执行并证据化。
+
+    ``engine`` 缺席（库消费者 / 部分测试）时返回 ``None``——求值器把「无法受控重跑」记为
+    显性失败，绝不静默放行。
+    """
+    if engine is None:
+        return None
+
+    async def run(command: str) -> CommandEvidence:
+        return await _run_governed_verify_command(engine, command)
+
+    return run
+
+
+async def _run_governed_verify_command(engine: EngineContainer, command: str) -> CommandEvidence:
+    """一次声明命令的受治理执行：``PolicyEngine 裁决 → ToolExecutor（含 SafetyGuard）→ shell handler``。
+
+    治理 = 这四层，**到此为止**：本端口不经 ``agent/tool_execution`` 的 PreToolUse /
+    PostToolUse hooks（那是 AgentLoop 的模型工具路径；verify 是宿主发起，hooks 不在链上）
+    ——如实声明覆盖面，不冒称（review #15）。结果未以受治理 ``exit_code=`` 形状到达
+    （策略 / 审批阻断、guard 拦截、handler 异常）一律记
+    :attr:`CommandOutcome.POLICY_BLOCKED`——门禁语义上与失败同归「未通过」，不从结果文本
+    猜测具体分层（与 ``goal/evidence.classify_command_result`` 的不猜测立场一致）。
+
+    声明命令在**工作区根**执行（review #1）：``_workspace_cd_prefix`` 的 ``cd`` 前缀包装
+    （git.py ``_run_git`` 的 ``cwd=workspace_root()`` 先例；不改 sandbox ``CommandRunner``
+    契约）。证据 ``cwd`` 记 :func:`_goal_verify_workspace` 的同一取值——与求值器期望值同源。
+    """
+    from heagent.tools.registry import ToolRegistry  # noqa: PLC0415
+    from heagent.tools.safety import SafetyGuard  # noqa: PLC0415
+
+    started = time.perf_counter()
+    workspace = _goal_verify_workspace(engine)
+    call = ToolCall(
+        id=f"verify-{new_evidence_id()}",
+        name="shell",
+        arguments={
+            "command": f"{_workspace_cd_prefix(workspace)}{command}",
+            "timeout": _VERIFY_COMMAND_TIMEOUT_SECONDS,
+        },
+    )
+    run_context = engine.create_run_context(metadata={"purpose": "/goal verify controlled re-run"})
+    registry = ToolRegistry.get()
+    handler = registry.get_handler("shell")
+    if handler is None:
+        missing = ToolResult(tool_call_id=call.id, content="shell tool is not registered", is_error=True)
+        return build_command_evidence(call, missing, cwd=str(workspace), outcome=CommandOutcome.POLICY_BLOCKED)
+    verdict = engine.policy.evaluate_tool_call(call, context=run_context, schema=registry.get_schema("shell"))
+    executable = cast("Callable[..., Any]", handler)
+
+    async def invoke(call: ToolCall) -> object:
+        produced = executable(**call.arguments)
+        if asyncio.iscoroutine(produced):
+            return await produced
+        return produced
+
+    # 容器构造期快照优先（review #22），缺席（手工构造的容器）才回退现场解析。
+    runtime = engine.runtime_config or resolve_runtime_config()
+    result = await engine.executor.execute(
+        call=call,
+        verdict=verdict,
+        guard=SafetyGuard(blocked_tools=list(runtime.safety_blocked_tools)),
+        handler=invoke,
+        run_context=run_context,
+    )
+    duration_ms = max(int((time.perf_counter() - started) * 1000), 0)
+    if verdict.mode in {ToolExecutionMode.BLOCKED, ToolExecutionMode.APPROVAL_REQUIRED}:
+        outcome = CommandOutcome.POLICY_BLOCKED
+    else:
+        try:
+            outcome = classify_command_result(result)
+        except EvidenceError:
+            outcome = CommandOutcome.POLICY_BLOCKED
+    return build_command_evidence(call, result, cwd=str(workspace), duration_ms=duration_ms, outcome=outcome)
+
+
 async def _goal_declarative_run(
     provider: BaseProvider,
     engine: EngineContainer | None,
@@ -515,7 +765,7 @@ async def _goal_declarative_auto(
     _echo(f"[goal] declarative auto registered: {job.id} workflow={workflow.name}", err=True)
 
 
-_GOAL_SUBCOMMAND_NAMES = ("new", "next", "run", "status", "pause", "resume", "auto", "reset", "doctor")
+_GOAL_SUBCOMMAND_NAMES = ("new", "next", "run", "status", "pause", "resume", "auto", "reset", "doctor", "verify")
 
 
 def _goal_typo_subcommand(args: str) -> str | None:
@@ -563,6 +813,11 @@ async def _goal_declarative_dispatch(
         await _goal_declarative_status(workflow)
     elif head == "doctor":
         await _goal_declarative_doctor(workflow)
+    elif head == "verify":
+        if rest and rest != "run":
+            _goal_usage()
+        else:
+            await _goal_declarative_verify(workflow, engine, args=rest)
     elif head == "pause":
         await _goal_declarative_pause_resume(workflow, resume=False)
     elif head == "resume":
@@ -594,6 +849,7 @@ def _goal_usage() -> None:
         "  /goal next            推进下一条 story（每步全新会话）\n"
         "  /goal status          查看进度\n"
         "  /goal doctor          检查工作流及角色技能包\n"
+        "  /goal verify [run]    按声明子句复核证据（run = 受控重跑声明的验证命令）\n"
         "  /goal reset           清除 current 指针（goal 目录保留）\n"
         "  /goal run             连续推进 goal（步数上限由 workflow 的 max_rounds 声明；Ctrl+C 可中断）\n"
         "  /goal resume [回复]   记录用户回答并继续 waiting_user 步骤\n"

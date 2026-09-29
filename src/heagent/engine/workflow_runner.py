@@ -21,7 +21,12 @@ from heagent.engine.checkpoint import (
     WorkflowStatus,
 )
 from heagent.engine.workflow_events import WorkflowEvent
-from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource, section_titles
+from heagent.engine.workflow_resource import (
+    WorkflowResource,
+    WorkflowStepResource,
+    output_contains_section,
+    section_titles,
+)
 from heagent.engine.workflow_transition import transition
 from heagent.events.protocol import error_kind_for
 from heagent.pub.safe_logging import safe_log
@@ -900,7 +905,7 @@ class WorkflowRunner:
             if "given" in rules and not re.search(r"given.*when.*then", text, re.I | re.S):
                 raise WorkflowGateError(f"step '{step.name}' output failed validation: {step.validation_rules}")
             for section in required_sections(step.validation_rules):
-                if not re.search(rf"^##\s+{re.escape(section)}\s*$", text, re.I | re.M):
+                if not output_contains_section(text, section):
                     present = [item.strip() for item in re.findall(r"^##\s+(.+?)\s*$", text, re.M)][:8]
                     found = ", ".join(present) if present else "none"
                     raise WorkflowGateError(
