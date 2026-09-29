@@ -131,7 +131,11 @@ def initialize_checkpoint_workspace(goal_dir: Path, workspace: Path) -> None:
 
 
 def checkpoint_store(goal_dir: Path) -> WorkflowCheckpointStore:
-    """Legacy goals keep local checkpoints; new goals persist their workspace binding."""
+    """Legacy goals keep local checkpoints; new goals persist their workspace binding.
+
+    这是 checkpoint 目录的**唯一解析点**：预检方（``/goal doctor``）通过
+    ``WorkflowCheckpointStore.base_dir`` 取同一目录，不再另算一份。
+    """
     try:
         recorded_root = (goal_dir / _CHECKPOINT_WORKSPACE_FILE).read_text(encoding="utf-8").strip()
     except FileNotFoundError:

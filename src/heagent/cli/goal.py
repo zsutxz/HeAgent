@@ -31,6 +31,7 @@ from heagent.goal.application import (
     _GoalAdvanceContext,
     advance,
     checkpoint_mode,
+    checkpoint_store,
     declarative_prompt,
     external_checkpoint_dir,
     initialize_checkpoint_workspace,
@@ -58,6 +59,7 @@ from heagent.goal.document import (
     _goal_user_responses,
 )
 from heagent.goal.naming import llm_project_id
+from heagent.goal.status_view import project_status_view
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
 from heagent.pub.persist import atomic_write_text, file_lock
 from heagent.pub.workspace import WorkspacePaths
@@ -408,7 +410,33 @@ async def _goal_declarative_new(
     await _goal_declarative_advance(provider, engine, workflow)
 
 
+async def _goal_declarative_doctor(workflow: WorkflowResource) -> None:
+    """Run the read-only preflight and render its structured report.
+
+    The checkpoint directory is resolved from the active goal (legacy goals keep a
+    local directory; new goals persist a workspace binding). Without an active goal
+    the workflow and its role packages are still checked — the preflight never
+    invents a target path just to have something to probe.
+    """
+    package = _goal_workflow_package()
+    if package is None:
+        _echo("[goal] doctor: workflow package is unavailable", err=True)
+        return
+    goal_dir = _goal_declarative_active_dir()
+    try:
+        checkpoint_dir = checkpoint_store(goal_dir).base_dir if goal_dir is not None else None
+        report = diagnose_workflow(workflow, package, _resolve_skill_package, checkpoint_dir=checkpoint_dir)
+    except (OSError, ValueError) as exc:
+        _echo(f"[goal] doctor: {exc}", err=True)
+        return
+    summary = report.render()
+    if report.problems and report.ok:
+        summary = f"{summary} (warning; the workflow can still run)"
+    _echo(f"[goal] doctor: {summary}", err=True)
+
+
 async def _goal_declarative_status(workflow: WorkflowResource) -> None:
+    """Render the single status projection; CLI, GUI and cron share this model."""
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
         _echo("[goal] no active declarative goal", err=True)
@@ -418,13 +446,13 @@ async def _goal_declarative_status(workflow: WorkflowResource) -> None:
     except (WorkflowCheckpointError, ValueError) as exc:
         _echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
         return
-    _echo(
-        f"[goal] declarative progress: {len(runner.state.completed_steps)}/{len(workflow.steps)} "
-        f"status={runner.state.status.value} step={runner.state.active_step}",
-        err=True,
-    )
-    if runner.state.status is WorkflowStatus.WAITING_USER:
-        _echo("[goal] waiting for user response; use /goal resume <answer> to continue", err=True)
+    for line in project_status_view(
+        runner.state,
+        workflow,
+        goal_id=goal_dir.name,
+        fields=workflow.status_fields,
+    ).render():
+        _echo(line, err=True)
 
 
 async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: bool, response: str = "") -> bool:
@@ -534,12 +562,7 @@ async def _goal_declarative_dispatch(
     elif head == "status":
         await _goal_declarative_status(workflow)
     elif head == "doctor":
-        package = _goal_workflow_package()
-        if package is None:
-            _echo("[goal] doctor: workflow package is unavailable", err=True)
-        else:
-            problems = diagnose_workflow(workflow, package, _resolve_skill_package)
-            _echo("[goal] doctor: " + ("; ".join(problems) if problems else "workflow packages OK"), err=True)
+        await _goal_declarative_doctor(workflow)
     elif head == "pause":
         await _goal_declarative_pause_resume(workflow, resume=False)
     elif head == "resume":

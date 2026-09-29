@@ -29,6 +29,20 @@ class WorkflowStepResource(BaseModel):
 CheckpointMode = Literal["", "auto", "prompt"]
 OpenQuestionMode = Literal["", "block", "default"]
 
+# 声明词汇的单一真源：workflow 只能声明「跑哪些预检 / 展示哪些状态字段」，
+# 具体实现由 ``goal/doctor.py`` 与 ``goal/status_view.py`` 的注册表提供（两处必须与这里一致）。
+DoctorCheck = Literal["package", "required_resources", "roles", "checkpoint_dir", "templates"]
+StatusField = Literal["step", "epic", "story", "reason", "failures", "decisions", "next"]
+
+DOCTOR_CHECKS: tuple[DoctorCheck, ...] = (
+    "package",
+    "required_resources",
+    "templates",
+    "roles",
+    "checkpoint_dir",
+)
+STATUS_FIELDS: tuple[StatusField, ...] = ("step", "epic", "story", "reason", "failures", "decisions", "next")
+
 
 class WorkflowResource(BaseModel):
     """A workflow declaration with steps in execution order."""
@@ -54,4 +68,8 @@ class WorkflowResource(BaseModel):
     # 必需性由 workflow frontmatter 的 ``required_resources`` 声明，声明后缺失即加载失败。
     prompt_template: str = ""
     gate_template: str = ""
+    # 预检项与状态字段的声明清单（取值见 ``DOCTOR_CHECKS`` / ``STATUS_FIELDS``）。
+    # 空 = 引擎默认集：老包不声明即零行为变化；未知取值由加载器 fail-loud。
+    doctor_checks: list[DoctorCheck] = Field(default_factory=list)
+    status_fields: list[StatusField] = Field(default_factory=list)
     frontmatter: dict[str, Any] = Field(default_factory=dict)

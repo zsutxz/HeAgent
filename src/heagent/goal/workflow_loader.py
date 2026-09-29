@@ -13,8 +13,12 @@ from pathlib import Path
 from typing import Any, cast, get_args
 
 from heagent.engine.workflow_resource import (
+    DOCTOR_CHECKS,
+    STATUS_FIELDS,
     CheckpointMode,
+    DoctorCheck,
     OpenQuestionMode,
+    StatusField,
     WorkflowResource,
     WorkflowStepResource,
 )
@@ -121,6 +125,8 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
             f"expected {' or '.join(mode for mode in get_args(OpenQuestionMode) if mode)}",
         )
     _required_templates(package, values, resource)  # 声明条目的存在性校验（有副作用：缺失即抛）
+    doctor_checks = _declared_members(package, values, resource, key="doctor_checks", allowed=DOCTOR_CHECKS)
+    status_fields = _declared_members(package, values, resource, key="status_fields", allowed=STATUS_FIELDS)
     return WorkflowResource(
         name=_value_text(values, "name", "id") or package.skill_id,
         instructions=(body.split("\n## Step ", 1)[0] if inline else body).strip(),
@@ -136,6 +142,8 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
         open_question_block=_value_text(values, "open_question_block"),
         prompt_template=_read_optional_resource(package, "prompt-template.md"),
         gate_template=_read_optional_resource(package, "gate-template.md"),
+        doctor_checks=cast("list[DoctorCheck]", doctor_checks),
+        status_fields=cast("list[StatusField]", status_fields),
         frontmatter=values,
     )
 
@@ -253,6 +261,31 @@ def _step_sort_key(value: str) -> tuple[int, str]:
     if match is None:
         raise ValueError(f"invalid step filename: {value}")
     return int(match.group(1)), value.lower()
+
+
+def _declared_members(
+    package: SkillPackage, values: dict[str, Any], resource: str, *, key: str, allowed: tuple[str, ...]
+) -> list[str]:
+    """Read one declaration list of engine vocabulary names, validating every entry.
+
+    A workflow only chooses *which* registered check / field runs; inventing a name is a
+    load error rather than a silently dropped entry, because a typo would otherwise turn a
+    requested preflight into no preflight at all. An absent key yields an empty list, which
+    callers read as "the engine default set" — existing packages keep their behaviour.
+    """
+    if key not in values:
+        return []
+    names = _resource_list(package, values[key], resource, key)
+    unknown = [name for name in names if name not in allowed]
+    if unknown:
+        raise SkillWorkflowError(
+            package.skill_id,
+            resource,
+            f"unknown {key} value(s): {', '.join(unknown)}; expected one of {', '.join(allowed)}",
+        )
+    if len(set(names)) != len(names):
+        raise SkillWorkflowError(package.skill_id, resource, f"duplicate entry in {key}")
+    return names
 
 
 def _resource_list(package: SkillPackage, value: Any, workflow: str, label: str = "steps") -> list[str]:

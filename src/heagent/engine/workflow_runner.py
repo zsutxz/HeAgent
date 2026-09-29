@@ -244,6 +244,8 @@ class WorkflowRunnerState(BaseModel):
     acceptance_evidence: list[str] = Field(default_factory=list)
     reason: str = ""
     active_story: str | None = None
+    # 当前 Story 所属 Epic：runner 在 story 循环处从已解析的 Story 记录里取值（不读文档、不猜层级）。
+    active_epic: str = ""
     story_index: int = Field(default=0, ge=0)
     completed_stories: list[str] = Field(default_factory=list)
     story_outputs: dict[str, Any] = Field(default_factory=dict)
@@ -327,6 +329,7 @@ class WorkflowRunner:
             acceptance_evidence=list(checkpoint.acceptance_evidence),
             reason=checkpoint.next_action,
             active_story=checkpoint.active_story,
+            active_epic=checkpoint.active_epic,
             story_index=checkpoint.story_index if checkpoint.story_index is not None else 0,
             completed_stories=list(checkpoint.completed_stories),
             story_outputs=dict(checkpoint.story_outputs),
@@ -417,7 +420,11 @@ class WorkflowRunner:
                 return result
             active_story = story_specs[self.state.story_index]
             self.state = self.state.model_copy(
-                update={"active_story": active_story.id, "active_stories": [active_story.id]}
+                update={
+                    "active_story": active_story.id,
+                    "active_stories": [active_story.id],
+                    "active_epic": active_story.epic,
+                }
             )
 
         started = time.perf_counter()
@@ -514,7 +521,12 @@ class WorkflowRunner:
         active_ids = [story.id for story in batch]
         statuses = {**self.state.story_statuses, **{story_id: "running" for story_id in active_ids}}
         self.state = self.state.model_copy(
-            update={"active_story": active_ids[0], "active_stories": active_ids, "story_statuses": statuses}
+            update={
+                "active_story": active_ids[0],
+                "active_stories": active_ids,
+                "active_epic": epic,
+                "story_statuses": statuses,
+            }
         )
         await self._persist(step, checkpoint)
         self.state = self.state.model_copy(update={"status": transition(self.state.status, WorkflowEvent.START)})
@@ -582,6 +594,7 @@ class WorkflowRunner:
             "acceptance_evidence": evidence,
             "active_stories": active,
             "active_story": active[0] if active else None,
+            "active_epic": epic if active else "",
             "story_statuses": statuses,
         }
         if failure_reason:
@@ -591,7 +604,7 @@ class WorkflowRunner:
         elif len(completed_stories) >= len(story_specs):
             combined = "\n\n---\n\n".join(str(value) for value in story_outputs.values())
             update.update(self._step_advance_update(step, combined))
-            update.update({"active_stories": [], "active_story": None})
+            update.update({"active_stories": [], "active_story": None, "active_epic": ""})
         else:
             update["status"] = transition(
                 self.state.status,
@@ -697,6 +710,7 @@ class WorkflowRunner:
                 {
                     "active_story": None,
                     "active_stories": [],
+                    "active_epic": "",
                     "story_index": 0,
                     "completed_stories": [],
                     "story_outputs": {},
@@ -715,6 +729,7 @@ class WorkflowRunner:
             "story_outputs": story_outputs,
             "active_story": next_story.id,
             "active_stories": [next_story.id],
+            "active_epic": next_story.epic,
         }
 
     def _resolve_stories(self, step: WorkflowStepResource, stories: Iterable[StorySpec] | None) -> list[StorySpec]:
@@ -775,6 +790,7 @@ class WorkflowRunner:
             active_step=self.state.active_step,
             active_story=self.state.active_story,
             active_stories=list(self.state.active_stories),
+            active_epic=self.state.active_epic,
             story_statuses=dict(self.state.story_statuses),
             story_index=self.state.story_index if self._is_story_step(step) else None,
             completed_stories=list(self.state.completed_stories),

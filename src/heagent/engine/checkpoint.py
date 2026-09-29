@@ -61,6 +61,9 @@ class WorkflowCheckpoint(BaseModel):
     active_skill: str | None = None
     active_step: int | None = Field(default=None, ge=0)
     active_story: str | None = None
+    # 当前 Story 所属 Epic（runner 在 story 循环处记录）。可选字段：旧 checkpoint 缺它就为空，
+    # 由视图显示「未知」，绝不回读 story 文档去猜（AD-2 修订版允许追加可选字段）。
+    active_epic: str = ""
     artifact_refs: list[str] = Field(default_factory=list)
     outputs: dict[str, Any] = Field(default_factory=dict)
     acceptance_evidence: list[str] = Field(default_factory=list)
@@ -86,6 +89,16 @@ class WorkflowCheckpointStore:
         self._base = Path(base_dir)
         self._workflow_path = Path(workflow_path) if workflow_path is not None else self._base.parent / "workflow.json"
         self._lock = asyncio.Lock()
+
+    @property
+    def base_dir(self) -> Path:
+        """Directory this store reads and writes.
+
+        Single resolution point: a preflight that probes a different directory than the
+        writer uses is worse than no preflight at all, so callers ask the store instead of
+        re-deriving the path.
+        """
+        return self._base
 
     async def save(self, checkpoint: WorkflowCheckpoint, workflow_state: GoalWorkflowState | None = None) -> str:
         if checkpoint.tool_in_flight:

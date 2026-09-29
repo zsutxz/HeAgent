@@ -4,6 +4,8 @@ entrypoint: goal
 on_create: persist_goal_identity
 step_executor: subagent
 required_resources: prompt-template.md, gate-template.md
+doctor_checks: package, required_resources, templates, roles, checkpoint_dir
+status_fields: step, epic, story, reason, failures, decisions, next
 checkpoint_mode: auto
 open_question_mode: default
 max_rounds: 10
