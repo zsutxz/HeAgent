@@ -1,7 +1,7 @@
 ---
 id: 51-1
 title: Goal 预检与统一状态视图
-status: review
+status: done
 parent_epic: E51
 priority: P0
 depends_on: []

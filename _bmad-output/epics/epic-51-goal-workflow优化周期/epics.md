@@ -28,7 +28,7 @@ inputDocuments:
 
 | Story | 名称 | 依赖 | 状态 | 声明面（主要交付物） | 引擎面（最小通用能力） |
 |---|---|---|---|---|---|
-| 51-1 | Goal 预检与统一状态视图 | 无 | review（声明驱动重开发完成；22 变异体 + 全量门全绿） | `doctor_checks` / `status_fields`：该 workflow 跑哪些预检、展示哪些状态字段（未声明 = 引擎默认集）；预检输入 = `required_resources` / 每步 `role` / 包内 `templates/` | 按声明执行通用检查注册表与字段渲染器；未知取值加载期 fail-loud；状态投影只读持久态（Epic 由 runner 记录并随 checkpoint 持久化） |
+| 51-1 | Goal 预检与统一状态视图 | 无 | done（用户放行 2026-09-29；22 变异体 + 全量门全绿） | `doctor_checks` / `status_fields`：该 workflow 跑哪些预检、展示哪些状态字段（未声明 = 引擎默认集）；预检输入 = `required_resources` / 每步 `role` / 包内 `templates/` | 按声明执行通用检查注册表与字段渲染器；未知取值加载期 fail-loud；状态投影只读持久态（Epic 由 runner 记录并随 checkpoint 持久化） |
 | 51-2 | 显式 Workflow 事件与转换表 | 51-1 | in-progress（已有初版 `2bcd58c`） | workflow 声明用到哪些事件；该步是否需人工介入由该步 `checkpoint` 决定 | 唯一转换表 + 事件发射（观测端口可空；sink 失败不改状态） |
 | 51-3 | 结构化执行证据模型 | 51-2 | ready-for-dev | 某步要什么证据写在 `validation:`（命令 / 产物 / Git 路径 / 质量门） | 受治理执行 → 证据记录（cwd、命令摘要、退出码、耗时、输出 digest、失败分类；Git base/head 与变更集） |
 | 51-4 | 真实质量 Gate 与 `/goal verify` | 51-3 | ready-for-dev | 门禁规则逐字来自 `validation:`；老包不声明结构化门禁即保持文本门禁 | 通用求值器 + `verify` 只检查或受控重跑，绝不执行实现步骤 |
