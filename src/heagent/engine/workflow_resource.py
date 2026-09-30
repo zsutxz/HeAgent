@@ -141,6 +141,10 @@ class WorkflowStepResource(BaseModel):
     max_parallel_stories: int = Field(default=1, ge=1, le=5)
     # Per-step iteration budget; 0 = inherit Settings.goal_max_iterations.
     max_iterations: int = Field(default=0, ge=0)
+    # ``executor_mode`` 选择该步的宿主执行器；缺省 subagent 保持既有语义。
+    executor_mode: Literal["subagent", "script"] = "subagent"
+    # script 模式下包内 ``scripts/<script_resource>`` 的资源名；缺省为空表示未声明。
+    script_resource: str = ""
     # ``approval:`` 声明的类型视图（loader 解析；未声明 = 不需要人工确认、零行为变化）。
     approval: StepApproval = Field(default_factory=StepApproval)
     # ``validation:`` 里的结构化证据子句（loader 解析后的视图；未声明 = 全空、零行为变化）。

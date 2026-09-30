@@ -7,8 +7,8 @@ created: 2026-09-19
 triggers: [多阶段, 一个完整的项目, 做一个完整的项目, 从零做一个, 需求到交付, 端到端交付, 全流程开发, 目标驱动, /goal, goal 工作流, 立项]
 negative_triggers: [code review, 代码评审, 技能评审, 重构, refactor]
 priority: 3
-usage_count: 4
-last_used: "2026-09-29T11:57:56.717297"
+usage_count: 5
+last_used: "2026-09-30T14:17:50.562143"
 ---
 
 # goal（目标驱动开发工作流）

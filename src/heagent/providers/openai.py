@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 
-def _to_openai_messages(messages: list[Message]) -> list[dict[str, object]]:
+def _to_openai_messages(messages: list[Message], *, fill_missing_reasoning: bool = False) -> list[dict[str, object]]:
     """将 HeAgent Message 列表转换为 OpenAI API 的消息格式。
 
     处理规则：
@@ -41,8 +41,11 @@ def _to_openai_messages(messages: list[Message]) -> list[dict[str, object]]:
                 }
                 for tc in msg.tool_calls
             ]
-        if msg.role == Role.ASSISTANT and msg.reasoning_content is not None:
-            d["reasoning_content"] = msg.reasoning_content
+        if msg.role == Role.ASSISTANT:
+            if msg.reasoning_content is not None:
+                d["reasoning_content"] = msg.reasoning_content
+            elif fill_missing_reasoning and msg.tool_calls:
+                d["reasoning_content"] = ""
         # 工具执行结果需要关联的调用 ID 和工具名
         if msg.tool_call_id:
             d["tool_call_id"] = msg.tool_call_id
@@ -132,6 +135,14 @@ class OpenAIProvider:
             kwargs["max_tokens"] = self._max_tokens
         return kwargs
 
+    @staticmethod
+    def _needs_reasoning_retry(error: Exception, messages: list[Message]) -> bool:
+        return (
+            getattr(error, "status_code", None) == 400
+            and "reasoning_content" in str(error)
+            and any(m.role == Role.ASSISTANT and m.tool_calls and m.reasoning_content is None for m in messages)
+        )
+
     async def send(
         self,
         messages: list[Message],
@@ -144,9 +155,14 @@ class OpenAIProvider:
         try:
             resp = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
         except Exception as e:
-            # 统一包装 SDK 异常（RateLimitError/APITimeoutError 等）为 ProviderError，
-            # 使下游 KeyRotatingProvider/retry/Chain 始终面对 HeAgent 体系异常。
-            raise wrap_provider_error(e) from e
+            if self._needs_reasoning_retry(e, messages):
+                kwargs["messages"] = _to_openai_messages(messages, fill_missing_reasoning=True)
+                try:
+                    resp = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
+                except Exception as retry_error:
+                    raise wrap_provider_error(retry_error) from retry_error
+            else:
+                raise wrap_provider_error(e) from e
 
         choice = resp.choices[0]
         message = choice.message
@@ -180,7 +196,14 @@ class OpenAIProvider:
         kwargs["stream_options"] = {"include_usage": True}
 
         try:
-            async with await self._client.chat.completions.create(**kwargs) as stream:  # type: ignore[call-overload]
+            try:
+                response_stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
+            except Exception as e:
+                if not self._needs_reasoning_retry(e, messages):
+                    raise
+                kwargs["messages"] = _to_openai_messages(messages, fill_missing_reasoning=True)
+                response_stream = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
+            async with response_stream as stream:
                 # 按 tool_call index 累积增量片段：{idx: {"id": ..., "name": ..., "arguments": ...}}
                 tc_acc: dict[int, dict[str, str]] = {}
                 model = ""

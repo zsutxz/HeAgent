@@ -11,7 +11,7 @@ from __future__ import annotations
 import hashlib
 import re
 from pathlib import Path
-from typing import Any, cast, get_args
+from typing import Any, Literal, cast, get_args
 
 from heagent.engine.workflow_resource import (
     APPROVAL_KEYWORDS,
@@ -270,6 +270,8 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
                 story_loop=_value_text(step_values, "story_loop"),
                 max_parallel_stories=_parallel_limit(package, step_values, name),
                 max_iterations=_iteration_budget(package, step_values, name),
+                executor_mode=_executor_mode(package, step_values, name),
+                script_resource=_script_resource(package, step_values, name),
                 approval=_step_approval(package, name, step_values),
                 frontmatter=step_values,
             )
@@ -360,6 +362,14 @@ def workflow_revision(package: SkillPackage, workflow: WorkflowResource) -> str:
             continue
         hasher.update(b"\x00")
         hasher.update(package.read_resource(name).encode("utf-8"))
+    # Script resources are part of the executable workflow contract.  Include
+    # each declared script exactly once, after the step declarations.
+    scripts = sorted({step.script_resource for step in workflow.steps if step.script_resource})
+    for name in scripts:
+        hasher.update(b"\x00scripts/")
+        hasher.update(name.encode("utf-8"))
+        hasher.update(b"\x00")
+        hasher.update(package.read_script(name).encode("utf-8"))
     return hasher.hexdigest()[:16]
 
 
@@ -488,6 +498,8 @@ def _parse_inline_workflow_steps(package: SkillPackage, body: str) -> list[Workf
                 story_loop=_value_text(metadata, "story_loop"),
                 max_parallel_stories=_parallel_limit(package, metadata, name),
                 max_iterations=_iteration_budget(package, metadata, name),
+                executor_mode=_executor_mode(package, metadata, name),
+                script_resource=_script_resource(package, metadata, name),
                 approval=_step_approval(package, name, metadata),
                 frontmatter=metadata,
             )
@@ -569,6 +581,32 @@ def _bounded_int(
     if not re.fullmatch(r"[1-9]\d*", text or "") or int(text) > maximum:
         raise SkillWorkflowError(package.skill_id, resource, message)
     return int(text)
+
+
+def _executor_mode(package: SkillPackage, values: dict[str, Any], resource: str) -> Literal["subagent", "script"]:
+    raw = _value_text(values, "executor_mode") or "subagent"
+    mode = raw.casefold()
+    if mode not in {"subagent", "script"}:
+        raise SkillWorkflowError(package.skill_id, resource, "executor_mode must be 'subagent' or 'script'")
+    return cast("Literal['subagent', 'script']", mode)
+
+
+def _script_resource(package: SkillPackage, values: dict[str, Any], resource: str) -> str:
+    mode = _value_text(values, "executor_mode") or "subagent"
+    script = _value_text(values, "script", "script_resource")
+    if mode.casefold() != "script":
+        if script:
+            raise SkillWorkflowError(package.skill_id, resource, "script_resource requires executor_mode: script")
+        return ""
+    if not script:
+        raise SkillWorkflowError(package.skill_id, resource, "executor_mode: script requires script_resource")
+    if SkillPackage.is_absolute(script) or SkillPackage.has_parent(script):
+        raise SkillWorkflowError(package.skill_id, resource, "script_resource must be a package-local path")
+    try:
+        package.read_script(script)
+    except SkillPackageResourceError as exc:
+        raise SkillWorkflowError(package.skill_id, resource, f"script resource is unavailable: {exc.reason}") from exc
+    return script
 
 
 def _parallel_limit(package: SkillPackage, values: dict[str, Any], resource: str) -> int:

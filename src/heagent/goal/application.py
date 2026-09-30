@@ -80,8 +80,13 @@ def validate_goal_workflow(workflow: WorkflowResource) -> None:
         raise ValueError(f"unsupported goal workflow entrypoint: {workflow.entrypoint}")
     if workflow.on_create != "persist_goal_identity":
         raise ValueError(f"unsupported goal workflow on_create hook: {workflow.on_create}")
-    if workflow.step_executor != "subagent":
+    if workflow.step_executor not in {"subagent", "script"}:
         raise ValueError(f"unsupported goal workflow step executor: {workflow.step_executor}")
+    if workflow.step_executor == "script":
+        raise ValueError("workflow-level script execution is not supported; declare executor_mode on a step")
+    for step in workflow.steps:
+        if step.executor_mode == "script" and not step.script_resource:
+            raise ValueError(f"script step {step.name} has no script resource")
 
 
 def checkpoint_mode(workflow: WorkflowResource, fallback: str) -> str:

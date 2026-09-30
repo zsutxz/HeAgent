@@ -22,6 +22,7 @@ from heagent.context.loader import load_context_files
 from heagent.context.window_reset import WindowResetConfig
 from heagent.cron.expr import cron_matches
 from heagent.engine import (
+    StepValidationClauses,
     StorySpec,
     ToolExecutionMode,
     WorkflowCheckpointError,
@@ -76,7 +77,9 @@ from heagent.goal.evidence import (
     new_evidence_id,
 )
 from heagent.goal.naming import llm_project_id
-from heagent.goal.quality_gates import verify_step
+from heagent.goal.quality_gates import gate_declaration_problem, is_registered_gate, verify_step
+from heagent.goal.script_api import ScriptRequest, ScriptResponse
+from heagent.goal.script_runtime import GoalScriptRuntimeError, ScriptRuntime
 from heagent.goal.status_view import project_status_view
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
 from heagent.pub.persist import atomic_write_text, file_lock
@@ -301,7 +304,9 @@ async def _goal_execute_step(
     step: Any,
     story: Any = None,
 ) -> WorkflowStepResult:
-    """Execute one declared step through a fresh SubAgent session."""
+    """Execute one declared step through the selected trusted package executor."""
+    if step.executor_mode == "script":
+        return await _goal_execute_script_step(engine, workflow, goal_dir, inputs, step, story)
     prompt = _goal_declarative_prompt(
         workflow,
         step.name,
@@ -345,6 +350,177 @@ async def _goal_execute_step(
     if gate_reason:
         return WorkflowStepResult(status=WorkflowStatus.BLOCKED, reason=gate_reason)
     return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=result.output)
+
+
+#: 脚本 facade 的**只读**操作：脚本执行期同步回答（读已持久化的输入 / 产物，不涉及状态）。
+_SCRIPT_READ_OPERATIONS = frozenset({"input", "artifact"})
+
+
+def _script_operation_names(operation: ScriptRequest) -> list[str]:
+    """一个 ``step`` / ``parallel`` 请求声明的步骤名清单（``parallel`` 用 ``names``）。"""
+    return [name for name in ([operation.name] if operation.name else list(operation.names)) if name]
+
+
+def _script_validate_clauses(step: Any, gate: str) -> StepValidationClauses:
+    """``validate(name)`` 的求值子句：只挂该命名门，命令证据源沿用**本步声明**的命令。
+
+    与 ``gate:`` 词汇同规（``tests-pass`` 这类门投影的就是本步 ``command:`` 的证据）：脚本
+    请求的门因此与声明门走**同一**求值器、同一必要声明条件，不新增可削弱路径（AD-5）。
+    """
+    return StepValidationClauses(gates=[gate], commands=list(step.validation_clauses.commands))
+
+
+def _goal_script_declaration_error(workflow: WorkflowResource, step: Any, operation: ScriptRequest) -> str:
+    """**声明期**校验（fail-loud、不落状态）：返回非空理由 = 该请求不可兑现。
+
+    兑现发生在脚本返回之后的提交阶段（两阶段：脚本只声明，宿主按序提交）。不可兑现的请求
+    必须在这里就失败，否则脚本会跑完才发现声明无效。
+    """
+    if operation.operation in _SCRIPT_READ_OPERATIONS or operation.operation in {"checkpoint", "decision"}:
+        return ""
+    if operation.operation == "validate":
+        if not is_registered_gate(operation.name):
+            return f"script validate: unknown quality gate {operation.name!r}"
+        return gate_declaration_problem(_script_validate_clauses(step, operation.name)) or ""
+    if operation.operation in {"step", "parallel"}:
+        declared = {candidate.name for candidate in workflow.steps}
+        names = _script_operation_names(operation)
+        if not names:
+            return f"script {operation.operation} requires at least one declared step name"
+        unknown = [name for name in names if name not in declared]
+        if unknown:
+            return f"script {operation.operation}: not a declared workflow step: {', '.join(unknown)}"
+        # AD-1：步骤顺序权归 WorkflowRunner。脚本只能声明**它正在执行的那一步**；请求其它
+        # 声明步骤等于要求变更顺序，此处显性拒绝——不静默当作「已执行」，也不偷偷重排。
+        if names != [step.name]:
+            return (
+                f"script {operation.operation}: the Runner owns step order; a script may only declare the "
+                f"step it executes ({step.name}), not {', '.join(names)}"
+            )
+        return ""
+    return f"script operation {operation.operation!r} is not supported by this host"
+
+
+async def _submit_script_requests(
+    engine: EngineContainer | None,
+    workflow: WorkflowResource,
+    step: Any,
+    story: Any,
+    goal_dir: Path,
+    requests: list[ScriptRequest],
+) -> tuple[list[str], str]:
+    """按声明顺序**提交**动作请求，返回 ``(证据行, 阻断理由)``。
+
+    提交面全部落在既有通道上：``checkpoint`` / ``decision`` / ``step`` 落本步证据
+    （随 ``WorkflowStepResult.evidence`` 进 ``runner.state.acceptance_evidence``，由 Runner
+    持久化），``validate`` 复用 Story 51-4 的求值器。脚本从不直接写 checkpoint / workflow /
+    current——状态变化始终由 Runner 收尾（AD-1）。只读请求在此跳过（脚本执行期已答）。
+    """
+    evidence: list[str] = []
+    for operation in requests:
+        if operation.operation in _SCRIPT_READ_OPERATIONS:
+            continue
+        if operation.operation == "checkpoint":
+            # Runner 在步骤收尾本就会持久化 checkpoint；脚本声明的意图因此记进证据即可，
+            # 不重复写状态——脚本无法、也不需要自己写 checkpoint。
+            evidence.append(f"script-checkpoint: {operation.note or 'checkpoint requested'}")
+        elif operation.operation == "decision":
+            detail = f"script-decision: {operation.name}"
+            if operation.value is not None:
+                detail += f" = {operation.value}"
+            if operation.note:
+                detail += f" ({operation.note})"
+            evidence.append(detail)
+        elif operation.operation in {"step", "parallel"}:
+            names = ", ".join(_script_operation_names(operation))
+            evidence.append(f"script-{operation.operation}: {names} (declared; the Runner owns step order)")
+        elif operation.operation == "validate":
+            reason = await _goal_script_validate(engine, workflow, step, story, goal_dir, operation.name)
+            if reason:
+                return evidence, reason
+    return evidence, ""
+
+
+async def _goal_script_validate(
+    engine: EngineContainer | None,
+    workflow: WorkflowResource,
+    step: Any,
+    story: Any,
+    goal_dir: Path,
+    gate: str,
+) -> str:
+    """跑一个脚本请求的命名门；未过返回理由（非空 = 该步 BLOCKED）。"""
+    target = step.model_copy(update={"validation_clauses": _script_validate_clauses(step, gate)})
+    try:
+        report = await _goal_verify_report(engine, workflow, target, story, goal_dir, rerun=False)
+    except (EvidenceError, OSError) as exc:
+        return f"script validate '{gate}' failed: {exc}"
+    if report.passed:
+        return ""
+    failures = [
+        f"{item.kind.value}: {item.target}" + (f" — {item.reason}" if item.reason else "") for item in report.failed
+    ]
+    parts = [*failures[:5], *report.errors[:5]]
+    return f"script validate '{gate}' failed: {'; '.join(parts) or 'gate did not pass'}"
+
+
+async def _goal_execute_script_step(
+    engine: EngineContainer | None,
+    workflow: WorkflowResource,
+    goal_dir: Path,
+    inputs: Mapping[str, Any],
+    step: Any,
+    story: Any = None,
+) -> WorkflowStepResult:
+    """Run a package-local script; the host submits its declared requests afterwards.
+
+    **两阶段（Story 51-7 的 A 语义）**：脚本执行期只**声明**动作请求（只读操作同步作答），
+    脚本返回后宿主按声明顺序**提交**——请求兑现全落在既有通道（Runner 证据 / 51-4 求值器），
+    脚本自己不碰 checkpoint、workflow、current 或治理链内部（AD-1 / AD-9）。
+
+    与 subagent 步骤**同一条完成门**（Story 51-4）：产物落盘后仍按该步 ``validation:`` 的
+    结构化子句求值，未通过落 BLOCKED——脚本产物不得绕过质量 Gate（AD-5）。
+    """
+    binding = read_workflow_binding(goal_dir, get_settings().goal_workflow_skill)
+    package = _resolve_skill_package(binding.workflow_id)
+    if package is None:
+        return WorkflowStepResult(
+            status=WorkflowStatus.FAILED, reason=f"workflow package unavailable: {binding.workflow_id}"
+        )
+
+    async def request(operation: ScriptRequest) -> ScriptResponse:
+        if operation.operation in _SCRIPT_READ_OPERATIONS:
+            return ScriptResponse(value=inputs.get(operation.name, operation.value))
+        problem = _goal_script_declaration_error(workflow, step, operation)
+        # 其余动作请求在此**只声明**（不落状态）；兑现由脚本返回后的提交阶段完成。
+        return ScriptResponse(accepted=not problem, reason=problem)
+
+    try:
+        result = await ScriptRuntime(
+            max_requests=64,
+            max_depth=8,
+            timeout_seconds=30.0,
+        ).run(package, step.script_resource, inputs=inputs, artifacts=inputs, request=request)
+    except (GoalScriptRuntimeError, ValueError, OSError) as exc:
+        return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"script step failed: {exc}")
+    output = result.value
+    if output is None:
+        output = "\n".join(result.evidence) if result.evidence else "script completed"
+    output_text = output if isinstance(output, str) else str(output)
+    if not output_text.strip():
+        return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"step '{step.name}' produced empty output")
+    try:
+        atomic_write_text(_goal_step_artifact_path(goal_dir, step, story), output_text)
+    except OSError as exc:
+        return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist script output: {exc}")
+    submitted, blocked = await _submit_script_requests(engine, workflow, step, story, goal_dir, list(result.requests))
+    evidence = [*submitted, *result.evidence]
+    if blocked:
+        return WorkflowStepResult(status=WorkflowStatus.BLOCKED, reason=blocked, evidence=evidence)
+    gate_reason = await _goal_structured_gate(engine, workflow, step, story, goal_dir)
+    if gate_reason:
+        return WorkflowStepResult(status=WorkflowStatus.BLOCKED, reason=gate_reason, evidence=evidence)
+    return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=output_text, evidence=evidence)
 
 
 def _workflow_event_emitter(engine: EngineContainer | None) -> Callable[[str], None] | None:

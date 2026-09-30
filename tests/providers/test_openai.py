@@ -11,7 +11,7 @@ from heagent.pub.exceptions import ProviderError
 from heagent.providers.base import BaseProvider
 from heagent.providers.openai import OpenAIProvider, _parse_tool_calls, _to_openai_messages, _to_openai_tools
 from heagent.providers.retry import retry_with_backoff
-from heagent.pub.types import Message, Role, ToolSchema
+from heagent.pub.types import Message, Role, ToolCall, ToolSchema
 
 
 def _mock_usage(p: int = 10, c: int = 5, t: int = 15) -> SimpleNamespace:
@@ -126,6 +126,17 @@ class TestHelpers:
         result = _to_openai_messages(msgs)
         assert result[0]["reasoning_content"] == "I need to inspect the files."
 
+    def test_missing_tool_reasoning_can_be_explicitly_empty(self) -> None:
+        messages = [
+            Message(
+                role=Role.ASSISTANT,
+                content="",
+                tool_calls=[ToolCall(id="tc1", name="run", arguments={})],
+            )
+        ]
+        assert "reasoning_content" not in _to_openai_messages(messages)[0]
+        assert _to_openai_messages(messages, fill_missing_reasoning=True)[0]["reasoning_content"] == ""
+
     def test_to_openai_tools(self) -> None:
         tools = [ToolSchema(name="run", description="run cmd", parameters={"type": "object"})]
         result = _to_openai_tools(tools)
@@ -151,6 +162,26 @@ class TestProtocol:
 
 
 class TestSend:
+    @patch("heagent.providers.openai.AsyncOpenAI")
+    async def test_missing_tool_reasoning_retries_only_on_matching_400(self, mock_cls: MagicMock) -> None:
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=[_FakeSdkError("reasoning_content must be passed back", 400), _mock_response("ok")]
+        )
+        messages = [
+            Message(role=Role.ASSISTANT, content="", tool_calls=[ToolCall(id="tc1", name="run", arguments={})]),
+            Message(role=Role.TOOL, content="done", tool_call_id="tc1"),
+        ]
+
+        response = await OpenAIProvider(api_key="sk-test").send(messages)
+
+        assert response.content == "ok"
+        calls = mock_client.chat.completions.create.call_args_list
+        assert "reasoning_content" not in calls[0].kwargs["messages"][0]
+        assert calls[1].kwargs["messages"][0]["reasoning_content"] == ""
+        assert messages[0].reasoning_content is None
+
     @patch("heagent.providers.openai.AsyncOpenAI")
     async def test_send_basic(self, mock_cls: MagicMock) -> None:
         mock_client = AsyncMock()

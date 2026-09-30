@@ -517,10 +517,10 @@ development_status:
   epic-51: in-progress
   51-1-goal-doctor-status-view: done
   51-2-workflow-events-transitions: done
-  51-3-structured-execution-evidence: ready-for-dev
-  51-4-quality-gates-verify: ready-for-dev
-  51-5-approvals-decisions: ready-for-dev
-  51-6-workflow-templates-freeze: ready-for-dev
-  51-7-controlled-goalscript-runtime: ready-for-dev
+  51-3-structured-execution-evidence: done
+  51-4-quality-gates-verify: done
+  51-5-approvals-decisions: done
+  51-6-workflow-templates-freeze: done
+  51-7-controlled-goalscript-runtime: in-progress
   51-8-safe-parallel-integration: ready-for-dev
   epic-51-retrospective: optional

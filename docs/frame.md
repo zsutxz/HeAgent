@@ -1000,6 +1000,56 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 `step-NN-<slug>/epic-<eN>/s-<n>/report.md` 分组（`E1` → `epic-e1`；无 Epic 分组时退化为
 `step-NN-<slug>/s-<n>/report.md`）。旧的 imperative goal board 路径不再作为回退。
 
+### 4.13.1 受控 GoalScript（Story 51-7）
+
+步骤 frontmatter 可声明 `executor_mode: script`（缺省 `subagent` = 现状）与
+`script_resource: <scripts/ 下的包内相对路径>`；脚本是**包内资源**，经
+`SkillPackage.read_script()` 读取，因而复用 manifest.json / manifest.lock 两条内容完整性凭据
+（漂移 fail-loud，报 `content hash differs from …`）。声明与派生 revision 同源：未显式声明
+`revision` 的包，脚本内容进入 `workflow_revision` 指纹（改脚本 = 流程漂移）。
+
+**⚠️ 这不是安全边界（AD-9 / AD-12）**：脚本在**宿主解释器**内执行，理论上拥有 Python 进程
+权限。可用的约束只是「形态 + 资源 + 请求面」，用于约束**可信本地包**的误用，不用于承载
+不可信输入；第三方 workflow 包必须先有 OS 级隔离（容器 / VM / firejail）与隔离 worker，
+该 worker 不在本 Story 范围。
+
+- **入口单一真源**：`goal/script_loader.py` 的 `SCRIPT_ENTRYPOINT = "build_workflow"`，
+  脚本须定义 `async def build_workflow(goal)`；加载期与运行时读同一常量。
+- **加载期形态校验（`script_loader.load_script`，AST）**：拒绝 `import`（含 `os`/`sys`/
+  `asyncio`/`subprocess`/`socket`/`pathlib`/`urllib` 等）、`while`、除入口外的任何函数定义、
+  私有属性访问（`x._y`，含 `_inputs` 这类 facade 内部）、以及 `open`/`eval`/`exec`/
+  `compile`/`__import__`/`getattr`/`globals`/`vars` 等能力名。
+- **受控 facade（`script_api.GoalScript`）**：只暴露 `step` / `parallel` / `checkpoint` /
+  `input` / `artifact` / `decision` / `validate` 七个操作，请求 / 响应一律 Pydantic 模型
+  （`ScriptRequest` / `ScriptResponse` / `ScriptExecutionResult`，AD-4）。facade 不持有
+  Runner、文件句柄、进程或网络句柄。
+- **有界执行（`script_runtime.ScriptRuntime`）**：`max_requests`（facade 计数，超限抛）、
+  `max_depth`（AST 嵌套层级）、`timeout_seconds`（`asyncio.wait_for`）。**超时是协作式的**
+  ——脚本若在同步 CPU 循环里不让出事件循环，取消不会生效；这正是「不是安全边界」的
+  具体含义，故如实声明而不假装挡住。
+- **状态变更仍归 Runner（AD-1）**：`WorkflowRunner` 是唯一状态机，脚本不写 checkpoint /
+  `workflow.json` / `current`，也不直接改 Runner 状态；执行结果以
+  `WorkflowStepResult` 回落到既有推进链，产物仍写 `_goal_output/...` 的声明路径。
+- **不绕过质量门、失败有界**：脚本产物落盘后与 subagent 步骤走**同一条**结构化完成门
+  （`_goal_structured_gate`，Story 51-4），`validation:` 未过落 `BLOCKED`；脚本抛出的任何
+  异常由 `ScriptRuntime` 收敛为有界 `FAILED`（宿主映射为步骤失败），**不打崩 `/goal run`**。
+
+**两阶段提交（A 语义）**：脚本执行期只**声明**，宿主在脚本返回后按声明顺序**提交**。
+
+- 阶段一（脚本执行期）：`input` / `artifact` 是只读操作，**同步作答**；其余五个操作只被
+  **校验并记录**（宿主 `_goal_script_declaration_error`），不落任何状态。不可兑现的声明在
+  这里就失败（fail-loud）：**未注册门**、**未声明的步骤名**、以及**要求变更步骤顺序**的
+  `step` / `parallel` 请求当场抛错——脚本不会跑完才发现声明无效。
+- 阶段二（脚本返回后）：宿主按序提交（`_submit_script_requests`）。`checkpoint` /
+  `decision` / `step` / `parallel` 落本步证据（随 `WorkflowStepResult.evidence` 进
+  `runner.state.acceptance_evidence`，由 Runner 持久化）；`validate` 复用 Story 51-4 的
+  求值器跑该命名门，未过 → 该步 `BLOCKED`。
+- **AD-1 的落法**：脚本只声明**它正在执行的那一步**；请求其它声明步骤等于要求变更顺序，
+  阶段一即显性拒绝。步骤顺序权始终归 `WorkflowRunner`。
+- 因此「脚本用条件 / 循环驱动**步骤序列**」仍不可用（那需要 Runner 侧的步骤顺序端口），
+  属 51-7 的未闭合面；已交付面覆盖：脚本声明检查点意图、记录脚本级决策与假设、按名字请求
+  受控验证，且全部经既有通道落盘。
+
 ### 4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）
 
 `SkillPackage` 的入口、step、reference、template、asset 和 script 均采用“`resolve_under_root` 解析 ->

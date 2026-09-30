@@ -48,6 +48,15 @@ def _classify(status: int | None, message: str) -> ErrorCategory:
     """
     msg = message.lower()
 
+    if status is not None and status > 0:
+        if status == 429:
+            return ErrorCategory.RATE_LIMITED
+        if status in (401, 403):
+            return ErrorCategory.AUTH_FAILED
+        if 500 <= status <= 599:
+            return ErrorCategory.TRANSIENT
+        return ErrorCategory.NON_TRANSIENT
+
     # 限流：429 状态码或消息中包含 rate/429
     if status == 429 or "rate" in msg or "429" in msg:
         return ErrorCategory.RATE_LIMITED

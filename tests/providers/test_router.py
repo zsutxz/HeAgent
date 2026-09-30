@@ -565,6 +565,15 @@ class TestInPoolFallback:
         assert response.model == "pro"
 
     @pytest.mark.asyncio
+    async def test_send_cloudflare_524_falls_back_to_sibling(self) -> None:
+        routing = self._routing(
+            self._failing(ProviderError("origin response timeout", status_code=524)),
+            _make_provider("pro"),
+        )
+        response = await routing.send([_msg("你好")])
+        assert response.model == "pro"
+
+    @pytest.mark.asyncio
     async def test_send_non_transient_raises(self) -> None:
         """401（鉴权失败，换兄弟模型也不会好）→ 不回退，直接上抛。"""
         routing = self._routing(self._failing(ProviderError("unauthorized", status_code=401)), _make_provider("pro"))
