@@ -81,6 +81,10 @@ class WorkflowCheckpoint(BaseModel):
     pending_output: Any = None
     # 审批门发生轮次（参与 checkpoint 幂等键，见 WorkflowRunner._checkpoint_id）。
     approval_round: int = Field(default=0, ge=0)
+    # 脚本步骤声明的后续声明步骤计划（Story 51-7）：可选字段，旧 checkpoint 缺它读作空计划
+    # （AD-2 修订版允许追加可选字段，active_epic / awaiting_approval 同款先例）。**必须持久化**：
+    # 分支选择若只活在内存里，进程重启后会退回声明顺序，「可确定恢复」就此失效。
+    requested_steps: list[str] = Field(default_factory=list)
     next_action: str = ""
     tool_in_flight: bool = False
     created_at: str = Field(default_factory=_iso_now)

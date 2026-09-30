@@ -390,13 +390,13 @@ def _goal_script_declaration_error(workflow: WorkflowResource, step: Any, operat
         unknown = [name for name in names if name not in declared]
         if unknown:
             return f"script {operation.operation}: not a declared workflow step: {', '.join(unknown)}"
-        # AD-1：步骤顺序权归 WorkflowRunner。脚本只能声明**它正在执行的那一步**；请求其它
-        # 声明步骤等于要求变更顺序，此处显性拒绝——不静默当作「已执行」，也不偷偷重排。
-        if names != [step.name]:
+        if step.name in names:
             return (
-                f"script {operation.operation}: the Runner owns step order; a script may only declare the "
-                f"step it executes ({step.name}), not {', '.join(names)}"
+                f"script {operation.operation}: '{step.name}' is the step currently executing; "
+                "a script cannot request itself"
             )
+        # 名字合法即接受（声明期）：**向前性**与**幂等跳过**由 WorkflowRunner 在提交时裁决
+        # （AD-1：步骤顺序权在状态机，不在脚本、也不在入口层的重复实现里）。
         return ""
     return f"script operation {operation.operation!r} is not supported by this host"
 
@@ -408,15 +408,17 @@ async def _submit_script_requests(
     story: Any,
     goal_dir: Path,
     requests: list[ScriptRequest],
-) -> tuple[list[str], str]:
-    """按声明顺序**提交**动作请求，返回 ``(证据行, 阻断理由)``。
+) -> tuple[list[str], str, list[str]]:
+    """按声明顺序**提交**动作请求，返回 ``(证据行, 阻断理由, 声明的后续步骤)``。
 
-    提交面全部落在既有通道上：``checkpoint`` / ``decision`` / ``step`` 落本步证据
-    （随 ``WorkflowStepResult.evidence`` 进 ``runner.state.acceptance_evidence``，由 Runner
-    持久化），``validate`` 复用 Story 51-4 的求值器。脚本从不直接写 checkpoint / workflow /
-    current——状态变化始终由 Runner 收尾（AD-1）。只读请求在此跳过（脚本执行期已答）。
+    提交面全部落在既有通道上：``checkpoint`` / ``decision`` 落本步证据（随
+    ``WorkflowStepResult.evidence`` 进 ``runner.state.acceptance_evidence``，由 Runner 持久化），
+    ``validate`` 复用 Story 51-4 的求值器，``step`` / ``parallel`` 收集为**声明的后续步骤**
+    交给上层的 advance 循环按序提交（``WorkflowRunner.run_declared_step``）。脚本从不直接写
+    checkpoint / workflow / current，也不自己推进状态（AD-1）。只读请求在此跳过（执行期已答）。
     """
     evidence: list[str] = []
+    requested: list[str] = []
     for operation in requests:
         if operation.operation in _SCRIPT_READ_OPERATIONS:
             continue
@@ -432,13 +434,14 @@ async def _submit_script_requests(
                 detail += f" ({operation.note})"
             evidence.append(detail)
         elif operation.operation in {"step", "parallel"}:
-            names = ", ".join(_script_operation_names(operation))
-            evidence.append(f"script-{operation.operation}: {names} (declared; the Runner owns step order)")
+            names = _script_operation_names(operation)
+            requested.extend(names)
+            evidence.append(f"script-{operation.operation}: {', '.join(names)} (declared; submitted after this step)")
         elif operation.operation == "validate":
             reason = await _goal_script_validate(engine, workflow, step, story, goal_dir, operation.name)
             if reason:
-                return evidence, reason
-    return evidence, ""
+                return evidence, reason, requested
+    return evidence, "", requested
 
 
 async def _goal_script_validate(
@@ -513,14 +516,21 @@ async def _goal_execute_script_step(
         atomic_write_text(_goal_step_artifact_path(goal_dir, step, story), output_text)
     except OSError as exc:
         return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist script output: {exc}")
-    submitted, blocked = await _submit_script_requests(engine, workflow, step, story, goal_dir, list(result.requests))
+    submitted, blocked, requested = await _submit_script_requests(
+        engine, workflow, step, story, goal_dir, list(result.requests)
+    )
     evidence = [*submitted, *result.evidence]
     if blocked:
         return WorkflowStepResult(status=WorkflowStatus.BLOCKED, reason=blocked, evidence=evidence)
     gate_reason = await _goal_structured_gate(engine, workflow, step, story, goal_dir)
     if gate_reason:
         return WorkflowStepResult(status=WorkflowStatus.BLOCKED, reason=gate_reason, evidence=evidence)
-    return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=output_text, evidence=evidence)
+    return WorkflowStepResult(
+        status=WorkflowStatus.COMPLETED,
+        output=output_text,
+        evidence=evidence,
+        requested_steps=requested,
+    )
 
 
 def _workflow_event_emitter(engine: EngineContainer | None) -> Callable[[str], None] | None:

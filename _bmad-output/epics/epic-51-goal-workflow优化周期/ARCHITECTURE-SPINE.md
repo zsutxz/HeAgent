@@ -60,7 +60,7 @@ workflow.md / step-NN-*.md / templates/      ← 声明面（唯一权威：Epic
 | `validation:` 的结构化证据子句（命令 / 产物 / Git 路径 / 质量门） | 步骤 frontmatter | 已存在 | — |
 | `approval:`（该步是否需要人工确认） | 步骤 frontmatter | 已存在 | — |
 | workflow `revision`（或由包内容推导的 hash） | workflow frontmatter / 包元数据 | 已存在 | — |
-| `executor_mode: script` 与包内 `scripts/` 资源 | 步骤 frontmatter + 包内资源 | 已加（声明 / 加载 / 受限 facade / 限额；**Runner adapter 未接线**） | 51-7 |
+| `executor_mode: script` 与包内 `scripts/` 资源 | 步骤 frontmatter + 包内资源 | 已加（声明 / 加载 / 受限 facade / 限额 / A1 Runner 步骤端口 + A2 持久化计划） | 51-7 |
 | `depends_on` / `parallel_group` / `write_set` | story 文档 | **待加** | 51-8 |
 
 规则：新增词汇一律加在**上表载体**内，不新增平行的顶层配置；同一事实只能有一处声明。

@@ -986,7 +986,9 @@ async def test_blocked_step_reports_the_way_out(
     class StubRunner:
         def __init__(self) -> None:
             self.workflow = workflow
-            self.state = SimpleNamespace(outputs={}, active_step=0, reason="gate rejected the output")
+            self.state = SimpleNamespace(
+                outputs={}, active_step=0, reason="gate rejected the output", requested_steps=[]
+            )
 
         async def run_step(
             self, callback: object, *, inputs: object, stories: object = None, emit: object = None

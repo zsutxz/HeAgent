@@ -1038,17 +1038,26 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 
 - 阶段一（脚本执行期）：`input` / `artifact` 是只读操作，**同步作答**；其余五个操作只被
   **校验并记录**（宿主 `_goal_script_declaration_error`），不落任何状态。不可兑现的声明在
-  这里就失败（fail-loud）：**未注册门**、**未声明的步骤名**、以及**要求变更步骤顺序**的
-  `step` / `parallel` 请求当场抛错——脚本不会跑完才发现声明无效。
-- 阶段二（脚本返回后）：宿主按序提交（`_submit_script_requests`）。`checkpoint` /
-  `decision` / `step` / `parallel` 落本步证据（随 `WorkflowStepResult.evidence` 进
-  `runner.state.acceptance_evidence`，由 Runner 持久化）；`validate` 复用 Story 51-4 的
-  求值器跑该命名门，未过 → 该步 `BLOCKED`。
-- **AD-1 的落法**：脚本只声明**它正在执行的那一步**；请求其它声明步骤等于要求变更顺序，
-  阶段一即显性拒绝。步骤顺序权始终归 `WorkflowRunner`。
-- 因此「脚本用条件 / 循环驱动**步骤序列**」仍不可用（那需要 Runner 侧的步骤顺序端口），
-  属 51-7 的未闭合面；已交付面覆盖：脚本声明检查点意图、记录脚本级决策与假设、按名字请求
-  受控验证，且全部经既有通道落盘。
+  这里就失败（fail-loud）：**未注册门**、**未声明的步骤名**、**自指**的请求当场抛错——
+  脚本不会跑完才发现声明无效。
+- 阶段二（脚本返回后）：宿主按序提交（`_submit_script_requests`）。`checkpoint` / `decision`
+  落本步证据（随 `WorkflowStepResult.evidence` 进 `runner.state.acceptance_evidence`，由
+  Runner 持久化）；`validate` 复用 Story 51-4 的求值器跑该命名门，未过 → 该步 `BLOCKED`；
+  `step` / `parallel` 收集为**声明的后续步骤计划**（`WorkflowStepResult.requested_steps`）。
+- **A1：`WorkflowRunner.run_declared_step(name)`** —— 跑**指名**的已声明步骤（`run_step` 只跑
+  `state.active_step`）。状态机仍完全归 Runner：名字必须已声明；**已完成的步骤幂等跳过**
+  （不重跑、不写新 checkpoint，用 `WorkflowRunResult.skipped` 显式标明，调用方不去猜 reason
+  文案）；只允许**向前**选择；挂起 / 失败 / 已完成时不改状态。脚本因此能条件性地选择后续
+  步骤，而步骤顺序权没有离开状态机（AD-1）。
+- **A2：`goal/application.advance` 消费计划** —— 计划存在 `WorkflowRunnerState.requested_steps`
+  （FIFO，本步声明的排在已有计划之后）并**随 checkpoint 持久化**
+  （`WorkflowCheckpoint.requested_steps`，AD-2 修订版允许的可选追加字段，旧 checkpoint 读作
+  空计划）：进程重启后仍按同一选择恢复，**不退回声明顺序**。循环每轮取队首交给
+  `run_declared_step`；计划被消费一次即出队（含幂等跳过）。
+- **有界**：累计计划超过 workflow 的声明步骤数时由 Runner 落 `BLOCKED`（有界失败），不做静默
+  截断；被跳过的声明步骤保持未执行（`completed_steps` 出现缺口），`/goal status` 照实投影。
+- **已知边界**：脚本可以**声明**一组后续步骤（含用有界 Python 循环声明），但不能**重跑**已完成的
+  步骤——那被当作幂等跳过，因此「按状态反复重试某一个声明步骤」不在此设计内。
 
 ### 4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）
 

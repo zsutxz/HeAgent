@@ -521,6 +521,6 @@ development_status:
   51-4-quality-gates-verify: done
   51-5-approvals-decisions: done
   51-6-workflow-templates-freeze: done
-  51-7-controlled-goalscript-runtime: in-progress
+  51-7-controlled-goalscript-runtime: done
   51-8-safe-parallel-integration: ready-for-dev
   epic-51-retrospective: optional

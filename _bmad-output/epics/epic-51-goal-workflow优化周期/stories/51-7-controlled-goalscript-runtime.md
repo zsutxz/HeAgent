@@ -1,7 +1,7 @@
 ---
 id: 51-7
 title: 受控 GoalScript 与 ScriptRuntime
-status: in-progress
+status: done
 parent_epic: E51
 priority: P2
 depends_on: [51-6]
@@ -55,12 +55,12 @@ created: '2026-09-29'
 - [x] 在声明模型与加载器补 `executor_mode: script` 与包内脚本资源引用（缺省 = `subagent`）。
 - [x] 新增 `script_api.py`、`script_loader.py`、`script_runtime.py`（AD-14 证明：见「引擎面」末条）。
 - [x] 定义 Pydantic 操作请求 / 响应模型。
-- [ ] 实现声明式步骤适配与幂等跳过。**（部分：两阶段「声明 → 宿主按序提交」已落地；`step` / `parallel` 的步骤顺序与幂等跳过仍待 Runner 侧端口，见「交付边界」）**
+- [x] 实现声明式步骤适配与幂等跳过（A1 `WorkflowRunner.run_declared_step` + A2 `advance` 消费持久化计划）。
 - [x] 增加越权 API 缺失、超限、恢复、漂移和治理链测试（`tests/test_goal_script_declarations.py`、`tests/test_goal_script_runtime.py`、`tests/test_goal_script_step.py`）。
 - [x] 文档显著声明宿主解释器模式仅限可信包且非安全边界（`docs/frame.md` §4.13.1）。
 - [x] 负向验证：脚本能拿到裸 shell / 网络 / 内部状态、超限不受控、漂移不阻断时新测试精确变红。
 
-## 交付边界（本轮实况，2026-09-30）
+## 交付边界（实况）
 
 已交付（可测）：
 
@@ -71,46 +71,42 @@ created: '2026-09-29'
   私有属性 / 进程与 eval 家族）。
 - 受控 facade 七个操作 + Pydantic 请求 / 响应模型。
 - `ScriptRuntime` 请求数上限、深度上限、协作式超时。
-- **两阶段提交（A 语义，2026-09-30 落地）**：脚本执行期只**声明**，宿主在脚本返回后按序**提交**。
+- **两阶段提交（A 语义）**：脚本执行期只**声明**，宿主在脚本返回后按序**提交**。
   - 阶段一只读同步作答；其余五个操作只校验不落态；不可兑现的声明（未注册门 / 未声明步骤名 /
-    要求变更步骤顺序）**当场** fail-loud。
-  - 阶段二：`checkpoint` / `decision` / `step` / `parallel` 落本步证据（`WorkflowStepResult.evidence`
-    → `runner.state.acceptance_evidence`，由 Runner 持久化）；`validate` 复用 51-4 求值器跑该命名门，
-    未过 → 步骤 `BLOCKED`。
-  - AD-1：脚本只能声明**它正在执行的那一步**，步骤顺序权始终归 `WorkflowRunner`。
+    自指）**当场** fail-loud。
+  - 阶段二：`checkpoint` / `decision` 落本步证据（`WorkflowStepResult.evidence` →
+    `runner.state.acceptance_evidence`，由 Runner 持久化）；`validate` 复用 51-4 求值器跑该命名门，
+    未过 → 步骤 `BLOCKED`；`step` / `parallel` 收集为后续步骤计划。
+- **A1：`WorkflowRunner.run_declared_step(name)`** —— 跑指名的**已声明**步骤（状态机仍归 Runner）：
+  已完成 → 幂等跳过（`WorkflowRunResult.skipped`，不重跑、不写新 checkpoint）；只允许向前选择；
+  挂起 / 失败 / 已完成时不改状态。
+- **A2：`advance` 消费计划** —— 计划存 `WorkflowRunnerState.requested_steps`（FIFO）并**随
+  checkpoint 持久化**（`WorkflowCheckpoint.requested_steps`，AD-2 修订版允许的可选追加字段）：
+  重启后按同一选择恢复，**不退回声明顺序**（这才满足「确定恢复」）。累计计划超过声明步骤数 →
+  Runner 落 `BLOCKED`（有界失败，不静默截断）。
 
-**未交付（不得声称完成）**：
+**已知边界（不是缺口，是设计边界）**：
 
-- `step` / `parallel` 的**步骤顺序语义与幂等跳过**：脚本无法驱动「条件分支 / 循环选择后续声明步骤」，
-  因为那需要 Runner 侧的步骤顺序端口（`run_step` 一次只跑 `state.active_step`）；当前这类请求
-  （除「声明自己」外）在阶段一被显性拒绝。
-- 因此验收标准中「条件分支结果基于持久化输入 / 产物、进程重启后可确定恢复」**尚未满足**，
-  Story 保持 `in-progress`。
+- 脚本可以**声明**一组后续步骤（含用有界 Python 循环声明），但不能**重跑**已完成的步骤——那被
+  当作幂等跳过。因此「按状态反复重试某一个声明步骤」不在此设计内（已被跳过的声明步骤保持未执行，
+  `completed_steps` 出现缺口，由 `/goal status` 照实投影）。
 
-## 验证命令（本轮亲跑，2026-09-30）
+## 验证命令（亲跑，2026-09-30）
 
 ```bash
 pytest tests/test_goal_script_declarations.py tests/test_goal_script_runtime.py \
-       tests/test_goal_script_step.py -q                                             # 25 passed
-pytest <上述 3 文件> tests/test_goal_workflow_selection.py tests/test_goal_quality_gates.py \
-       tests/test_goal_evidence.py tests/test_goal_decisions.py tests/test_goal_doctor.py \
-       tests/test_goal_status_view.py tests/test_goal_declarative_workflow.py \
-       tests/test_workflow_resources.py tests/test_goal_message_sink.py \
-       tests/test_architecture_contracts.py tests/test_deferred_id_registry.py \
-       tests/test_artifact_contracts.py tests/test_skill_packages.py \
-       tests/test_skill_packages_toctou.py -q                                        # 483 passed, 8 skipped
-ruff check src tests && ruff format --check <改动文件>                                 # 通过
+       tests/test_goal_script_step.py tests/test_goal_script_recovery.py -q           # 30 passed
+pytest -q                                                                             # 3588 passed, 14 skipped, 18 deselected
+ruff check src tests && ruff format --check src tests                                 # 通过（311 files already formatted）
 mypy src && mypy src --platform linux                                                 # 164 files, no issues
-python .heagent/tmp/neg51_7.py                                                        # 13/13 变异体精确变红
+python .heagent/tmp/neg51_7.py                                                        # 21/21 变异体精确变红
 ```
 
 > 规划里的 `tests/test_goal_script_api.py` / `test_goal_script_security.py` 未创建；本轮判据收敛在
 > `test_goal_script_declarations.py`（声明 / 漂移 / 门禁声明）、`test_goal_script_runtime.py`（facade /
-> 限额 / 越权 / 有界失败）与 `test_goal_script_step.py`（CLI 接线：真执行、产物落盘、操作拒绝、完成门）
-> 三个文件，按 story 约定「引用不存在的文件按实测更正」。
->
-> `ruff format --check src tests`（全仓）在本机**当前为红**，原因是工作区里他人正在改的
-> `src/heagent/providers/openai.py`（未格式化）——与本 Story 无关，本轮只声明改动文件通过。
+> 限额 / 越权 / 有界失败）、`test_goal_script_step.py`（CLI 接线：真执行、产物落盘、操作提交、完成门）
+> 与 `test_goal_script_recovery.py`（计划持久化 + 重启后按同一选择恢复）四个文件，按 story 约定
+> 「引用不存在的文件按实测更正」。
 
 ## 验证命令（规划原文，已被上节实测取代——保留供对照）
 

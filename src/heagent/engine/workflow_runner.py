@@ -262,6 +262,9 @@ class WorkflowRunnerState(BaseModel):
     # reject / amend 重跑会把同一 (step, active, status) 位置再次挂门，而内容合法地不同——
     # 缺这个区分位会让第二次挂门撞上第一次的 checkpoint conflict。
     approval_round: int = Field(default=0, ge=0)
+    # 脚本步骤声明的后续声明步骤计划（Story 51-7）：FIFO，由 run_declared_step 消费。持久化
+    # 进 checkpoint，使「条件选择了哪些后续步骤」在进程重启后仍可确定恢复。
+    requested_steps: list[str] = Field(default_factory=list)
 
 
 class WorkflowStepResult(BaseModel):
@@ -271,6 +274,9 @@ class WorkflowStepResult(BaseModel):
     output: Any = None
     evidence: list[str] = Field(default_factory=list)
     reason: str = ""
+    #: 该步**声明**的后续声明步骤名（Story 51-7 的 A1 端口入口；缺省空 = 老回调零行为变化）。
+    #: 只有 ``COMPLETED`` 的结果才会被采纳——失败 / 阻断的步骤不能把计划交给 Runner。
+    requested_steps: list[str] = Field(default_factory=list)
 
 
 class WorkflowRunResult(BaseModel):
@@ -285,6 +291,11 @@ class WorkflowRunResult(BaseModel):
     checkpoint_id: str | None = None
     story_id: str | None = None
     story_index: int | None = None
+    #: 本步声明的后续步骤名（透传自 :class:`WorkflowStepResult`；由调用方按序提交）。
+    requested_steps: list[str] = Field(default_factory=list)
+    #: True = 本次调用**没有执行任何步骤**（:meth:`WorkflowRunner.run_declared_step` 的幂等跳过）。
+    #: 调用方据此区分「真的推进了」与「这个请求已被满足过」，不去猜 ``reason`` 文案。
+    skipped: bool = False
 
 
 WorkflowCallback = Callable[[WorkflowStepResource], WorkflowStepResult | Awaitable[WorkflowStepResult]]
@@ -351,6 +362,7 @@ class WorkflowRunner:
             awaiting_approval=checkpoint.awaiting_approval,
             pending_output=checkpoint.pending_output,
             approval_round=checkpoint.approval_round,
+            requested_steps=list(checkpoint.requested_steps),
         )
         kwargs.setdefault("phase", checkpoint.phase)
         return cls(workflow, state, goal_id=checkpoint.goal_id, run_id=checkpoint.run_id, **kwargs)
@@ -479,10 +491,23 @@ class WorkflowRunner:
                 self._validate_output(step, result.output)
             except WorkflowGateError as exc:
                 return await self._stop(WorkflowStatus.BLOCKED, step, str(exc), [], checkpoint)
+            # 脚本声明的后续步骤计划（Story 51-7）：累计计划不得超过本 workflow 的声明步骤数。
+            # 无界声明是脚本缺陷，**有界失败**（BLOCKED + 落 checkpoint）比静默截断诚实。
+            if len(self.state.requested_steps) + len(result.requested_steps) > len(self.workflow.steps):
+                return await self._stop(
+                    WorkflowStatus.BLOCKED,
+                    step,
+                    f"step '{step.name}' declared {len(result.requested_steps)} follow-up step(s), exceeding "
+                    f"the workflow's {len(self.workflow.steps)} declared step(s); the plan is refused",
+                    [],
+                    checkpoint,
+                )
             executed_story_id = active_story.id if active_story is not None else None
             executed_story_index = self.state.story_index if is_story_loop else None
             update: dict[str, Any] = {
                 "acceptance_evidence": [*self.state.acceptance_evidence, *result.evidence],
+                # FIFO 追加：本步声明的后续步骤排在已有计划之后（先来先执行，顺序可预期）。
+                "requested_steps": [*self.state.requested_steps, *result.requested_steps],
             }
             update.update(self._completion_update(step, story_specs, result.output, is_story_loop=is_story_loop))
             self.state = self.state.model_copy(update=update)
@@ -501,7 +526,67 @@ class WorkflowRunner:
             checkpoint_id=checkpoint_id,
             story_id=executed_story_id,
             story_index=executed_story_index,
+            # 计划只在步骤**真的完成**时透传：失败 / 阻断的步骤不能把后续步骤交给调用方执行。
+            requested_steps=(list(result.requested_steps) if result.status is WorkflowStatus.COMPLETED else []),
         )
+
+    def _consume_requested_step(self, name: str) -> None:
+        """计划队首若是 ``name`` 就出队：一次提交只消费一次（幂等跳过的请求也算已满足）。"""
+        if self.state.requested_steps and self.state.requested_steps[0] == name:
+            self.state = self.state.model_copy(update={"requested_steps": list(self.state.requested_steps[1:])})
+
+    async def run_declared_step(
+        self,
+        name: str,
+        callback: WorkflowCallback | StoryWorkflowCallback,
+        *,
+        inputs: Mapping[str, Any] | Iterable[str] | None = None,
+        artifacts: Mapping[str, Any] | Iterable[str] | None = None,
+        checkpoint: CheckpointCallback | None = None,
+        emit: Callable[..., None] | None = None,
+    ) -> WorkflowRunResult:
+        """Run one **named declared** step on request（Story 51-7 的 A1 端口）。
+
+        与 :meth:`run_step` 的唯一差别是「跑哪一步」：``run_step`` 跑 ``state.active_step``
+        （声明顺序），本方法跑调用方**指名**的已声明步骤——脚本据此条件性地选择后续步骤。
+        状态机仍完全归 Runner（AD-1），本方法不做任何自己的状态推进：
+
+        - 名字不在本 workflow 的声明里 → ``ValueError``（显性，不猜、不静默忽略）；
+        - 已完成的步骤 → **幂等跳过**（不重跑、不产生新 checkpoint、不改状态），返回当前
+          状态 + 一条说明理由的结果，调用方可据此继续；
+        - 只允许**向前**选择：目标在本步之前且未完成 = 该步已被跳过/尚未执行 → ``ValueError``
+          （活动步保持单调，恢复语义不引入回退）；
+        - workflow 已完成，或状态挂起（WAITING_USER / BLOCKED / FAILED）→ 不改状态，按现状返回。
+        """
+        target = next((step for step in self.workflow.steps if step.name == name), None)
+        if target is None:
+            raise ValueError(f"not a declared workflow step: {name}")
+        if self.state.status in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
+            return WorkflowRunResult(status=self.state.status, step_index=target.index, reason=self.state.reason)
+        if target.index - 1 in self.state.completed_steps:
+            self._consume_requested_step(name)
+            return WorkflowRunResult(
+                status=self.state.status,
+                step_index=target.index,
+                reason=f"step '{name}' is already completed; skipped (idempotent)",
+                skipped=True,
+            )
+        if self.done or target.index - 1 < self.state.active_step:
+            raise ValueError(
+                f"step '{name}' cannot be selected: it is behind the active step "
+                f"({self.workflow.steps[self.state.active_step].name}); a script may only select "
+                f"subsequent declared steps"
+            )
+        previous = self.state.active_step
+        self._consume_requested_step(name)
+        self.state = self.state.model_copy(update={"active_step": target.index - 1})
+        try:
+            return await self.run_step(callback, inputs=inputs, artifacts=artifacts, checkpoint=checkpoint, emit=emit)
+        except BaseException:
+            # Runner 自身的异常不留下「活动步被改过」的假状态；业务回调的失败由 run_step
+            # 落成状态（那是合法推进），这里只兜住抛异常路径。
+            self.state = self.state.model_copy(update={"active_step": previous})
+            raise
 
     async def _run_story_batch(
         self,
@@ -845,8 +930,11 @@ class WorkflowRunner:
         }
 
     def _step_advance_update(self, step: WorkflowStepResource, output: Any) -> dict[str, Any]:
-        completed = [*self.state.completed_steps, self.state.active_step]
-        final = self.state.active_step + 1 >= len(self.workflow.steps)
+        # 完成簿记按**本步**的声明序号推进（``step.index`` 1-based），不按 ``state.active_step``：
+        # 两者在「按声明顺序线性推进」时恒等；但 :meth:`run_declared_step` 会让活动步跳到脚本
+        # 指名的后续步骤，此时只有 step.index 能给出正确的下一位置（Story 51-7 A1）。
+        completed = [*self.state.completed_steps, step.index - 1]
+        final = step.index >= len(self.workflow.steps)
         event = (
             WorkflowEvent.FINAL_STEP_COMPLETED
             if final
@@ -971,6 +1059,7 @@ class WorkflowRunner:
             awaiting_approval=self.state.awaiting_approval,
             pending_output=self.state.pending_output,
             approval_round=self.state.approval_round,
+            requested_steps=list(self.state.requested_steps),
             artifact_refs=list(self.state.outputs),
             outputs=dict(self.state.outputs),
             acceptance_evidence=list(self.state.acceptance_evidence),

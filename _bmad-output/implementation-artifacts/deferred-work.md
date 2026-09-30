@@ -34,24 +34,25 @@
 ## Deferred from: story 51-7 delivery boundary (2026-09-30)
 
 - source_spec: `_bmad-output/epics/epic-51-goal-workflow优化周期/stories/51-7-controlled-goalscript-runtime.md`
-  summary: **`step` / `parallel` 的步骤顺序语义与幂等跳过未闭合**（2026-09-30 按 A 语义交付后的残留）：
-  两阶段机制已落地（脚本执行期只声明、宿主返回后按序提交），`checkpoint` / `decision` 落本步证据、
-  `validate` 跑注册门、不可兑现声明当场 fail-loud；但**步骤顺序权仍在 Runner**，脚本只能声明它
-  正在执行的那一步，请求其它声明步骤在阶段一显性拒绝 ⇒「条件分支 / 循环选择后续声明步骤」不可用，
-  51-7 验收标准中「条件分支基于持久化输入 / 产物可确定恢复」未满足。
-  evidence: `docs/frame.md` §4.13.1「两阶段提交（A 语义）」+ `tests/test_goal_script_step.py`
-  （6 例，含 `test_script_cannot_reorder_declared_steps`）+ `.heagent/tmp/neg51_7.py`（13/13 变红）。
-  下一步（需先裁决）：给 `WorkflowRunner` 加显式步骤顺序端口（「执行指定声明步骤」而非
-  「执行 state.active_step」），或改成「脚本只声明请求、宿主在 advance 循环里按序提交」；
-  两者都要先定义与 AD-1（唯一状态机、无重入）相容的边界。
+  summary: **已闭合**（2026-09-30 同日第二轮）：原先「`step` / `parallel` 只能声明自己、无法选择
+  后续声明步骤」的缺口按 A1 + A2 交付——A1 = `WorkflowRunner.run_declared_step(name)`（跑指名的
+  已声明步骤；已完成幂等跳过、只允许向前、挂起/失败/已完成不改状态）；A2 = `advance` 每轮取计划
+  队首提交，计划存 `WorkflowRunnerState.requested_steps` 并随 `WorkflowCheckpoint.requested_steps`
+  **持久化**（重启后按同一选择恢复，不退回声明顺序）；累计计划超过声明步骤数由 Runner 落 `BLOCKED`。
+  evidence: `docs/frame.md` §4.13.1 的 A1 / A2 两段 + `tests/test_goal_script_step.py`（9 例，含
+  `test_script_declares_a_follow_up_step_that_runs` 刻意让目标**不是**下一步）+
+  `tests/test_goal_script_recovery.py`（2 例，计划落盘 + 重启恢复）+ `.heagent/tmp/neg51_7.py`
+  （21/21 变异体精确变红）。**残留（设计边界，非缺口）**：脚本不能**重跑**已完成的声明步骤
+  （幂等跳过），故「按状态反复重试某一个声明步骤」不在此设计内——被跳过的声明步骤保持未执行，
+  `completed_steps` 出现缺口，由 `/goal status` 照实投影。
   已交付面：声明词汇（`executor_mode` / `script_resource`）、包内资源完整性（manifest.json / manifest.lock）、
   `workflow_revision` 纳入脚本内容、加载期 AST 形态校验、受控 facade 七操作、请求数 / 深度 / 协作式超时限额、
   CLI 侧**两阶段提交**（脚本只声明、宿主按序提交：`checkpoint` / `decision` 落本步证据、
   `validate` 跑注册门）、脚本产物与 subagent 步骤走**同一条结构化完成门**（不得绕过 Gate）、
   脚本异常收敛为有界 `FAILED`（不打崩 run）。
   evidence: `docs/frame.md` §4.13.1 + `tests/test_goal_script_declarations.py` /
-  `tests/test_goal_script_runtime.py` / `tests/test_goal_script_step.py`（共 25 例）+
-  `.heagent/tmp/neg51_7.py`（13/13 变异体精确变红）。
+  `tests/test_goal_script_runtime.py` / `tests/test_goal_script_step.py` /
+  `tests/test_goal_script_recovery.py`（共 30 例）+ `.heagent/tmp/neg51_7.py`（21/21 变异体精确变红）。
 - source_spec: 同上
   summary: 协作式超时对同步 CPU 密集脚本无效——`asyncio.wait_for` 只能在脚本让出事件循环时取消；
   超大 `range` 推导等同步循环可绕过 `timeout_seconds`。已如实写入 `ScriptRuntime` docstring 与

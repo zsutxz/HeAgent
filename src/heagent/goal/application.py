@@ -480,6 +480,24 @@ class GoalAdvanceOutcome(BaseModel):
 StepExecutor = Callable[[Mapping[str, Any], Any, Any], Awaitable[WorkflowStepResult]]
 
 
+class _StorySourceError(Exception):
+    """A step's declared story source cannot be loaded (message is user-facing verbatim).
+
+    单独类型而非裸 ``ValueError``：``advance`` 对「故事源读不了」与「工作流执行失败」给
+    **不同**的用户可见文案，两者混在一个 except 里会让前者的提示被后者吞掉。
+    """
+
+
+def _stories_for(goal_dir: Path, step: Any) -> list[Any] | None:
+    """该步声明的 story 清单（未声明 ``story_loop`` 返回 ``None``）。"""
+    if not step.story_loop.strip():
+        return None
+    try:
+        return load_stories(goal_dir, step)
+    except (OSError, ValueError) as exc:
+        raise _StorySourceError(str(exc)) from exc
+
+
 async def _run_step_with_inputs(
     inputs: Mapping[str, Any],
     execute_step: StepExecutor,
@@ -562,6 +580,9 @@ async def advance(
     description = context.description
     goal_dir = context.goal_dir
     messages: list[str] = []
+    # 脚本步骤**声明**的后续声明步骤（Story 51-7 的 A2 提交点）：计划存在 Runner 状态里并随
+    # checkpoint 持久化（重启后仍按同一选择恢复），本循环只负责按序取队首提交。只有脚本
+    # 步骤会往里放东西，老 workflow 因此逐字不变。
 
     def outcome(status: GoalAdvanceStatus) -> GoalAdvanceOutcome:
         return GoalAdvanceOutcome(status=status, messages=messages)
@@ -581,18 +602,20 @@ async def advance(
             or "No project context file was found; inspect the current workspace before making assumptions.",
             **runner.state.outputs,
         }
-        active_step = runner.workflow.steps[runner.state.active_step]
-        stories = None
-        if active_step.story_loop.strip():
-            try:
-                stories = load_stories(goal_dir, active_step)
-            except (OSError, ValueError) as exc:
-                messages.append(f"[goal] declarative story source failed: {exc}")
-                return outcome(GoalAdvanceStatus.FAILED)
-
+        callback = partial(_run_step_with_inputs, inputs, execute_step)
+        plan = runner.state.requested_steps
         try:
-            callback = partial(_run_step_with_inputs, inputs, execute_step)
-            result = await runner.run_step(callback, inputs=inputs, stories=stories, emit=emit)
+            if plan:
+                # 上一步（脚本步骤）声明的后续声明步骤优先执行：顺序权仍在 Runner，由
+                # :meth:`WorkflowRunner.run_declared_step` 校验并推进状态（Story 51-7 A1/A2）。
+                result = await runner.run_declared_step(plan[0], callback, inputs=inputs, emit=emit)
+            else:
+                active_step = runner.workflow.steps[runner.state.active_step]
+                stories = _stories_for(goal_dir, active_step)
+                result = await runner.run_step(callback, inputs=inputs, stories=stories, emit=emit)
+        except _StorySourceError as exc:
+            messages.append(f"[goal] declarative story source failed: {exc}")
+            return outcome(GoalAdvanceStatus.FAILED)
         except (WorkflowCheckpointError, ValueError, TypeError) as exc:
             messages.append(f"[goal] declarative workflow failed: {exc}")
             return outcome(GoalAdvanceStatus.FAILED)
@@ -601,10 +624,14 @@ async def advance(
             f"[goal] declarative workflow: step={result.step_index if result.step_index is not None else '-'}"
             f"{story_label} status={result.status.value}"
         )
+        if result.skipped:
+            # 已完成的声明步骤：不重跑、不改状态（幂等），继续消费计划。
+            messages.append(f"[goal] {result.reason}")
+            continue
         if result.status is WorkflowStatus.COMPLETED:
             return outcome(GoalAdvanceStatus.DONE)
         if result.status is WorkflowStatus.PENDING:
-            if mode == "auto":
+            if runner.state.requested_steps or mode == "auto":
                 continue
             return outcome(GoalAdvanceStatus.ADVANCED)
         if result.status is not WorkflowStatus.WAITING_USER:
