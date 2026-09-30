@@ -13,12 +13,14 @@ from pathlib import Path
 from typing import Any, cast, get_args
 
 from heagent.engine.workflow_resource import (
+    APPROVAL_KEYWORDS,
     DOCTOR_CHECKS,
     STATUS_FIELDS,
     CheckpointMode,
     DoctorCheck,
     OpenQuestionMode,
     StatusField,
+    StepApproval,
     StepValidationClauses,
     WorkflowResource,
     WorkflowStepResource,
@@ -171,6 +173,38 @@ def _require_registered_gate(package: SkillPackage, origin: str, name: str) -> N
     )
 
 
+def _step_approval(package: SkillPackage, origin: str, values: dict[str, Any]) -> StepApproval:
+    """解析步骤的 ``approval:`` 声明（声明 → 模型，加载期 fail-loud，Story 51-5）。
+
+    合法形态只有 ``approval: required``（可带一句说明：``approval: required 架构冻结前需
+    人工确认``）；关键词词汇单一真源在
+    :data:`heagent.engine.workflow_resource.APPROVAL_KEYWORDS`。未声明（键缺失）= 不需要
+    人工确认，零行为变化；**声明了键却是空白 / ``none`` / ``null``** 同样加载期显性报错
+    （审查 #4：声明意图不明确，「声明了审批」被静默吞成「无门」是人工 Gate 缺口）；其余
+    取值（含拼错的关键词）一律显性报错——静默吞掉声明会跨过人工 Gate。
+    """
+    if "approval" not in values:
+        return StepApproval()
+    raw = _value_text(values, "approval")
+    if not raw:
+        raise SkillWorkflowError(
+            package.skill_id,
+            origin,
+            "approval declaration is present but blank (or 'none'/'null'); "
+            "declare 'approval: required' or remove the key",
+        )
+    parts = raw.split(None, 1)
+    keyword = parts[0].casefold()
+    if keyword not in APPROVAL_KEYWORDS:
+        raise SkillWorkflowError(
+            package.skill_id,
+            origin,
+            f"invalid approval declaration {raw!r}; expected 'approval: required' "
+            f"(optionally followed by a short note); valid keywords: {', '.join(APPROVAL_KEYWORDS)}",
+        )
+    return StepApproval(required=True, note=parts[1].strip() if len(parts) > 1 else "")
+
+
 def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> WorkflowResource:  # noqa: C901
     """Load ``workflow.md`` and all declared/discovered steps in order.
 
@@ -240,6 +274,7 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
                 story_loop=_value_text(step_values, "story_loop"),
                 max_parallel_stories=_parallel_limit(package, step_values, name),
                 max_iterations=_iteration_budget(package, step_values, name),
+                approval=_step_approval(package, name, step_values),
                 frontmatter=step_values,
             )
         )
@@ -393,6 +428,7 @@ def _parse_inline_workflow_steps(package: SkillPackage, body: str) -> list[Workf
                 story_loop=_value_text(metadata, "story_loop"),
                 max_parallel_stories=_parallel_limit(package, metadata, name),
                 max_iterations=_iteration_budget(package, metadata, name),
+                approval=_step_approval(package, name, metadata),
                 frontmatter=metadata,
             )
         )

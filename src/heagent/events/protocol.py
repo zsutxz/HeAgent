@@ -52,6 +52,10 @@ KNOWN_KINDS: frozenset[str] = frozenset(
         "workflow_step_started",
         "workflow_step_completed",
         "workflow_step_failed",
+        # workflow 步骤级人工决策（Story 51-5：approve / reject / amend，审批门的落定轨迹）
+        "workflow_approved",
+        "workflow_rejected",
+        "workflow_amended",
         # 记忆巩固 / cron（引擎实发现状收编，此前不在文档全集）
         "dream_start",
         "dream_end",

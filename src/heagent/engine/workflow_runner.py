@@ -252,6 +252,16 @@ class WorkflowRunnerState(BaseModel):
     story_outputs: dict[str, Any] = Field(default_factory=dict)
     active_stories: list[str] = Field(default_factory=list)
     story_statuses: dict[str, str] = Field(default_factory=dict)
+    # 步骤级审批门（Story 51-5）：True = 活动步做完工作、挂起等一个人工决策（approve /
+    # reject / amend）；普通 resume 在此状态被拒绝，不能隐式顶替批准。
+    awaiting_approval: bool = False
+    # 审批门挂起期间的步骤产物：approve 落定完成簿记时的输出来源（步骤此刻未标记完成，
+    # 所以还不进 ``outputs``）。
+    pending_output: Any = None
+    # 审批门在该 goal 上的第几次发生（单调递增，gate 每次挂起 +1）。参与 checkpoint 幂等键：
+    # reject / amend 重跑会把同一 (step, active, status) 位置再次挂门，而内容合法地不同——
+    # 缺这个区分位会让第二次挂门撞上第一次的 checkpoint conflict。
+    approval_round: int = Field(default=0, ge=0)
 
 
 class WorkflowStepResult(BaseModel):
@@ -338,6 +348,9 @@ class WorkflowRunner:
                 checkpoint.active_stories or ([checkpoint.active_story] if checkpoint.active_story else [])
             ),
             story_statuses=dict(checkpoint.story_statuses),
+            awaiting_approval=checkpoint.awaiting_approval,
+            pending_output=checkpoint.pending_output,
+            approval_round=checkpoint.approval_round,
         )
         kwargs.setdefault("phase", checkpoint.phase)
         return cls(workflow, state, goal_id=checkpoint.goal_id, run_id=checkpoint.run_id, **kwargs)
@@ -471,10 +484,7 @@ class WorkflowRunner:
             update: dict[str, Any] = {
                 "acceptance_evidence": [*self.state.acceptance_evidence, *result.evidence],
             }
-            if is_story_loop:
-                update.update(self._story_advance_update(step, story_specs, result.output))
-            else:
-                update.update(self._step_advance_update(step, result.output))
+            update.update(self._completion_update(step, story_specs, result.output, is_story_loop=is_story_loop))
             self.state = self.state.model_copy(update=update)
         else:
             self.state = self.state.model_copy(
@@ -513,7 +523,13 @@ class WorkflowRunner:
         if not remaining:
             combined = "\n\n---\n\n".join(str(value) for value in self.state.story_outputs.values())
             self.state = self.state.model_copy(update={"status": transition(self.state.status, WorkflowEvent.START)})
-            self.state = self.state.model_copy(update=self._step_advance_update(step, combined))
+            self.state = self.state.model_copy(
+                update=(
+                    self._approval_gate_update(step, combined)
+                    if step.approval.required
+                    else self._step_advance_update(step, combined)
+                )
+            )
             checkpoint_id = await self._persist(step, checkpoint)
             return WorkflowRunResult(status=self.state.status, step_index=step.index, checkpoint_id=checkpoint_id)
         epic = remaining[0].epic
@@ -605,8 +621,13 @@ class WorkflowRunner:
             )
         elif len(completed_stories) >= len(story_specs):
             combined = "\n\n---\n\n".join(str(value) for value in story_outputs.values())
-            update.update(self._step_advance_update(step, combined))
-            update.update({"active_stories": [], "active_story": None, "active_epic": ""})
+            if step.approval.required:
+                # 挂门含 story 清场（_approval_gate_update 单点）：reject / amend 重跑时
+                # completed_stories 已复位，批次从第一条 story 重新执行。
+                update.update(self._approval_gate_update(step, combined))
+            else:
+                update.update(self._step_advance_update(step, combined))
+                update.update({"active_stories": [], "active_story": None, "active_epic": ""})
         else:
             update["status"] = transition(
                 self.state.status,
@@ -639,6 +660,15 @@ class WorkflowRunner:
     def _active_step_resource(self) -> WorkflowStepResource:
         return self.workflow.steps[min(self.state.active_step, len(self.workflow.steps) - 1)]
 
+    @property
+    def current_step(self) -> WorkflowStepResource:
+        """活动步资源（越界安全：已完成 / 越界的 goal 收敛到最后一步）。
+
+        公共只读访问器：入口层与 use-case 取「当前步」经这里，不再各自复算一遍
+        ``min(active_step, len-1)``（Story 51-5 审查 #16）。
+        """
+        return self._active_step_resource()
+
     def pause(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
         """User-requested pause through the single transition table (51-2 Review P7)."""
         self.state = self.state.model_copy(
@@ -663,15 +693,82 @@ class WorkflowRunner:
         return transition(self.state.status, event)
 
     def resume(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
-        """Explicitly resume a paused, blocked, or failed active step."""
+        """Explicitly resume a paused, blocked, or failed active step.
+
+        审批门挂起（``awaiting_approval``）时显性拒绝（Story 51-5）：resume 只恢复执行，
+        不顶替人工批准（AD-3）——先做显式决策（approve / reject / amend）再 resume。
+        """
         if self.done:
             return self.state.model_copy(deep=True)
+        if self.state.awaiting_approval:
+            raise WorkflowGateError(
+                "the active step awaits an approval decision (/goal approve | /goal reject | /goal amend); "
+                "resume does not approve it"
+            )
         if self.state.status in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
             self.state = self.state.model_copy(
                 update={"status": transition(self.state.status, WorkflowEvent.USER_RESUME), "reason": ""}
             )
             _emit_step_event(emit, "workflow_resumed", step=self._active_step_resource(), story=None)
         return self.state.model_copy(deep=True)
+
+    def approve(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
+        """人工批准（Story 51-5）：接受挂起步骤的工作并落定完成簿记。
+
+        这是审批门离开 ``WAITING_USER`` 且步骤被标记完成的**唯一**路径。门先经 USER_APPROVE
+        抬回 RUNNING，随后完成簿记与普通步骤路径共用 :meth:`_step_advance_update`（末步 →
+        COMPLETED、声明 checkpoint 的再挂起、普通步 → PENDING），不另写一份完成语义。
+        """
+        step = self._require_approval_decision()
+        self.state = self.state.model_copy(update={"status": transition(self.state.status, WorkflowEvent.USER_APPROVE)})
+        update = self._step_advance_update(step, self.state.pending_output)
+        update.update({"awaiting_approval": False, "pending_output": None})
+        self.state = self.state.model_copy(update=update)
+        _emit_step_event(emit, "workflow_approved", step=step, story=None)
+        return self.state.model_copy(deep=True)
+
+    def reject(self, reason: str, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
+        """人工拒绝（Story 51-5）：驳回挂起的工作；步骤保持未完成、必须重做。
+
+        落 ``BLOCKED``（与声明门未过同一恢复语义：``/goal resume`` 重跑该步）；拒绝理由进
+        状态 ``reason``。reject **不**发生完成簿记——步骤不被标记完成。
+        """
+        step = self._require_approval_decision()
+        self.state = self.state.model_copy(
+            update={
+                "status": transition(self.state.status, WorkflowEvent.USER_REJECT),
+                "awaiting_approval": False,
+                "pending_output": None,
+                "reason": reason,
+            }
+        )
+        _emit_step_event(emit, "workflow_rejected", step=step, story=None, reason=reason)
+        return self.state.model_copy(deep=True)
+
+    def amend(self, supplement: str, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
+        """人工修订（Story 51-5）：工作不获接受、带补充直接重跑；步骤保持未完成。
+
+        落 ``PENDING``（下一条 next/run 即以补充重跑该步，恢复无需再敲 resume）；与 reject
+        的语义差别在恢复方式与决策记录的 action，两者都不推进、各记一条（AD-3：独立事件，
+        不互相顶替）。
+        """
+        step = self._require_approval_decision()
+        self.state = self.state.model_copy(
+            update={
+                "status": transition(self.state.status, WorkflowEvent.USER_AMEND),
+                "awaiting_approval": False,
+                "pending_output": None,
+                "reason": "",
+            }
+        )
+        _emit_step_event(emit, "workflow_amended", step=step, story=None, reason=supplement)
+        return self.state.model_copy(deep=True)
+
+    def _require_approval_decision(self) -> WorkflowStepResource:
+        """审批决策的前置：必须真的有步骤在等决策，否则显性失败（不静默无操作）。"""
+        if not self.state.awaiting_approval:
+            raise WorkflowGateError("no step is awaiting an approval decision")
+        return self._active_step_resource()
 
     async def persist_state(self) -> str | None:
         """Persist a command-boundary state change without invoking a callback.
@@ -680,8 +777,7 @@ class WorkflowRunner:
         operation on the Runner prevents callers from rebuilding checkpoint
         payloads and accidentally losing completed-step history on recovery.
         """
-        step = self.workflow.steps[min(self.state.active_step, len(self.workflow.steps) - 1)]
-        return await self._persist(step, None)
+        return await self._persist(self._active_step_resource(), None)
 
     async def _stop(
         self,
@@ -702,6 +798,51 @@ class WorkflowRunner:
         return WorkflowRunResult(
             status=status, step_index=step.index, reason=reason, missing=missing, checkpoint_id=checkpoint_id
         )
+
+    def _completion_update(
+        self,
+        step: WorkflowStepResource,
+        story_specs: list[StorySpec],
+        output: Any,
+        *,
+        is_story_loop: bool,
+    ) -> dict[str, Any]:
+        """**非 story 循环**步骤完成后的状态更新：审批门挂起或完成簿记。
+
+        审批门的判定共**四处**（「声明说了算」，本方法是其中之一）：本方法（非 story 步骤）、
+        :meth:`_story_advance_update` 末条 Story 处、:meth:`_run_story_batch` 批次全部完成处、
+        :meth:`_run_story_batch` 空余量重入处。四处都只在 ``step.approval.required`` 时挂门，
+        挂起形态由 :meth:`_approval_gate_update` 单点产出。
+        """
+        if is_story_loop:
+            return self._story_advance_update(step, story_specs, output)
+        if step.approval.required:
+            return self._approval_gate_update(step, output)
+        return self._step_advance_update(step, output)
+
+    def _approval_gate_update(self, step: WorkflowStepResource, output: Any) -> dict[str, Any]:
+        """审批门挂起更新（Story 51-5）：步骤做完了工作，但声明了 ``approval: required``。
+
+        完成簿记（``completed_steps`` / ``active_step`` / ``outputs``）**延后**到 approve 落定
+        ——「reject / amend 不把步骤标记完成」由「先挂起、后落定」直接保证，不需要任何回滚。
+        挂起产物存 ``pending_output``（此刻步骤未完成，不能进 ``outputs``）；状态经唯一转换表
+        落 ``WAITING_USER``，只有 approve / reject / amend 三种人工决策能离开。story 簿记在此
+        **单点清场**：门挂起后步骤未完成，重跑从第一条 story 开始，决策记录也不会把步骤级
+        决策错误归因到某条 story（审查 #7）。
+        """
+        return {
+            "status": transition(self.state.status, WorkflowEvent.APPROVAL_REQUIRED),
+            "awaiting_approval": True,
+            "pending_output": output,
+            "approval_round": self.state.approval_round + 1,
+            "reason": step.approval.note or "step work is done; it awaits a human approval decision",
+            "active_story": None,
+            "active_stories": [],
+            "active_epic": "",
+            "story_index": 0,
+            "completed_stories": [],
+            "story_outputs": {},
+        }
 
     def _step_advance_update(self, step: WorkflowStepResource, output: Any) -> dict[str, Any]:
         completed = [*self.state.completed_steps, self.state.active_step]
@@ -734,6 +875,9 @@ class WorkflowRunner:
             combined = "\n\n---\n\n".join(
                 str(value) for value in story_outputs.values() if value is not None and str(value) != ""
             )
+            if step.approval.required:
+                # 挂门含 story 清场（_approval_gate_update 单点）：重跑从第一条 story 开始。
+                return self._approval_gate_update(step, combined)
             update = self._step_advance_update(step, combined)
             update.update(
                 {
@@ -824,6 +968,9 @@ class WorkflowRunner:
             story_index=self.state.story_index if self._is_story_step(step) else None,
             completed_stories=list(self.state.completed_stories),
             story_outputs=dict(self.state.story_outputs),
+            awaiting_approval=self.state.awaiting_approval,
+            pending_output=self.state.pending_output,
+            approval_round=self.state.approval_round,
             artifact_refs=list(self.state.outputs),
             outputs=dict(self.state.outputs),
             acceptance_evidence=list(self.state.acceptance_evidence),
@@ -873,9 +1020,15 @@ class WorkflowRunner:
             label = re.sub(r"[^0-9A-Za-z]+", "-", self.state.active_story or "").strip("-")
             if label:
                 story_part += f"-{label}"
+        # 审批门让「同一位置合法地写入多次」成为常态：轮次单调递增且永不回零，所以只要
+        # 发生过审批门（approval_round > 0，含 reject / amend 后的非挂起持久化）就带轮次后缀
+        # ——第二轮的 blocked 与第一轮的 blocked 内容合法地不同，缺后缀会让 store 以
+        # 「同 id 不同内容」拒绝（实证死锁：/goal new → reject → resume 重挂门 → 二次 reject
+        # 报 checkpoint conflict，Story 51-5 审查 #1）。
+        gate_part = f"-gate-{self.state.approval_round}" if self.state.approval_round else ""
         return (
             f"{self.goal_id}-{self.run_id}-step-{step.index}{story_part}"
-            f"-active-{self.state.active_step}-{self.state.status.value}"
+            f"-active-{self.state.active_step}-{self.state.status.value}{gate_part}"
         )
 
     @staticmethod

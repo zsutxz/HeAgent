@@ -25,6 +25,12 @@
   的结构化子句逐条匹配到证据 / 产物 / 只读 Git，产出结构化通过 / 失败与原因（``/goal verify``
   与步骤完成门共用）；``gate:`` 的宿主注册表在此，加载期由 workflow_loader 校验
   （未注册名字 fail-loud），求值器自身从不执行命令——受控重跑经入口层注入的治理链端口。
+- 人工决策日志（:mod:`heagent.goal.decisions`，Story 51-5）：版本化决策模型 + 追加式存储
+  （``<goal_dir>/decisions/``，独占创建、绝不覆盖历史）。决策是**运行期事实**（AD-14 证明
+  同 51-3）：声明只能表达「这一步要不要审批」（步骤 ``approval: required``），记录本体、
+  原文与时间只能是运行期数据。approve / reject / amend / resume 语义独立（AD-3）；
+  「第几步需要审批」只存在于该步声明里，本模块与 ``src/`` 都不出现按步骤名 / 序号的审批判断
+  （AD-13）。
 
 分层：本子包属**入口层**（供 ``cli/goal`` 使用），依赖 ``heagent.pub.persist`` /
 ``heagent.pub.safe_logging`` / ``heagent.engine`` / ``heagent.memory`` / ``heagent.tools``

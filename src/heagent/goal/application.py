@@ -39,6 +39,7 @@ from heagent.engine import (
     parse_story_list,
     required_sections,
 )
+from heagent.goal.decisions import DecisionAction, DecisionRecord, decision_store, new_decision_id
 from heagent.goal.document import _goal_document_path, _goal_record_user_response, _goal_user_responses
 from heagent.goal.workflow_loader import SkillWorkflowError
 from heagent.memory.skill_packages import (
@@ -423,6 +424,21 @@ async def _advance_checkpoint_decision(
     auto 模式直接 resume 持久化；manual 模式先问注入的 ``confirm_checkpoint`` 端口
     （CLI 为 TTY confirm 实现，其自身的提示文案由端口负责）。
     """
+    if runner.state.awaiting_approval:
+        # 审批门挂起（Story 51-5）：cron / 无人值守推进不得自动批准人工 Gate，只有
+        # approve / reject / amend 三种显式决策能离开；文案按模式分流（审查 #13），
+        # manual 模式不宣传 auto-advance。
+        if mode == "auto":
+            messages.append(
+                "[goal] a step awaits a human decision: /goal approve | /goal reject <原因> | /goal amend <补充> "
+                "(/goal decisions lists records); auto-advance will not approve it"
+            )
+        else:
+            messages.append(
+                "[goal] a step awaits a human decision; decide first with "
+                "/goal approve | /goal reject <原因> | /goal amend <补充> (/goal decisions lists records)"
+            )
+        return GoalAdvanceStatus.WAITING
     step_checkpoint = result.step_index is not None and (result.step_index - 1) in runner.state.completed_steps
     story_checkpoint = result.story_id is not None and result.story_id in runner.state.completed_stories
     if not (step_checkpoint or story_checkpoint):
@@ -563,9 +579,30 @@ async def pause_resume(
                     status=PauseResumeStatus.UNCHANGED,
                     message=f"[goal] workflow status={runner.state.status.value}; resume is not required",
                 )
+            if runner.state.awaiting_approval:
+                # 审批门挂起（Story 51-5）：resume 不能隐式等同批准——先做显式决策。
+                return PauseResumeOutcome(
+                    status=PauseResumeStatus.UNCHANGED,
+                    message="[goal] the active step awaits a decision; /goal resume cannot approve it — "
+                    "use /goal approve | /goal reject <原因> | /goal amend <补充>",
+                )
             if response:
                 _goal_record_user_response(goal_dir, response)
             runner.resume()
+            # 决策日志契约（Story 51-5 引擎面）：resume 每次一条记录——它只标记「执行被
+            # 恢复」，不改变审批门状态、不等于批准（挂门时的 resume 在上方被显性拒绝，
+            # 不产生记录）。先落账再持久化，与 record_decision 同一次序。
+            await decision_store(goal_dir).append(
+                DecisionRecord(
+                    decision_id=new_decision_id(),
+                    goal_id=goal_dir.name,
+                    action=DecisionAction.RESUME,
+                    step=runner.current_step.name,
+                    raw_text=response,
+                    workflow_status=runner.state.status,
+                    approval_round=runner.state.approval_round,
+                )
+            )
             action = "resumed"
         else:
             if runner.state.status is WorkflowStatus.WAITING_USER:
@@ -581,4 +618,126 @@ async def pause_resume(
         status=PauseResumeStatus.RESUMED if resume else PauseResumeStatus.PAUSED,
         proceed=resume,
         message=f"[goal] declarative workflow {action}: step={runner.state.active_step}",
+    )
+
+
+class DecisionStatus(StrEnum):
+    """Terminal word of one human decision request（与 ``_GOAL_*`` 词汇同风格）."""
+
+    RECORDED = "recorded"
+    UNCHANGED = "unchanged"
+    FAILED = "failed"
+
+
+class DecisionOutcome(BaseModel):
+    """Structured result of one approve / reject / amend request（messages 由入口层渲染）."""
+
+    status: DecisionStatus
+    proceed: bool = False
+    decision_id: str = ""
+    message: str = ""
+
+
+async def record_decision(
+    workflow: WorkflowResource,
+    goal_dir: Path,
+    *,
+    action: DecisionAction,
+    text: str = "",
+) -> DecisionOutcome:
+    """人工决策 use-case（Story 51-5）：落状态 + 追加一条决策记录，CLI / GUI 共用。
+
+    - **approve**：接受挂起步骤的工作并落定完成簿记（runner 的唯一完成路径），随后入口层
+      可继续推进下一条；**reject**：驳回，步骤保持未完成、落 BLOCKED 等待重做；
+      **amend**：带补充重跑，步骤保持未完成、落 PENDING。三者语义独立（AD-3），各记一条。
+    - 决策记录是**工作流产物**（``<goal_dir>/decisions/``，:func:`decision_store` 唯一解析点），
+      追加式保存、重跑不覆盖历史；不写进 workflow 包。
+    - reject / amend 的原文同时落需求文档「用户补充」段：决策日志是审计面事实，用户补充是
+      执行面输入（重跑会话经 ``user responses`` 读到补充）。approve 不携带执行语义文本。
+      用户补充写在决策**落账之后**：账已生效，补充写失败只降级为提示，不回滚决策。
+    - 落定次序（审查 #2）：内存态变更 → 决策落账（append）→ 状态持久化——审计记录先于
+      状态落盘，任何一步失败都在 FAILED 文案里披露已发生的部分副作用，不留「决策已生效
+      却永无审计」或「无审计却已持久化」的静默态。
+    - cron 无人值守推进**不调用**本函数（auto 推进在 :func:`_advance_checkpoint_decision`
+      被审批门挡下），人工 Gate 不可能被自动批准。
+    """
+    if action is DecisionAction.RESUME:
+        # resume 有自己的 use-case（pause_resume 记一条 RESUME 决策 / advance 检查点决策），
+        # 不是决策命令；混进来会让「resume 当 approve 用」有一条静默通道（AD-3 负向验证锚点）。
+        return DecisionOutcome(
+            status=DecisionStatus.FAILED,
+            message="[goal] resume is not a decision; use /goal resume (it cannot approve an approval gate)",
+        )
+    if action is not DecisionAction.APPROVE and not text.strip():
+        # 审查 #8：空白的拒绝理由 / 修订补充会落成空 reason 的 BLOCKED 与空审计记录。
+        return DecisionOutcome(
+            status=DecisionStatus.FAILED,
+            message=f"[goal] {action.value} requires a non-empty {'reason' if action is DecisionAction.REJECT else 'supplement'}; nothing was changed",
+        )
+    record: DecisionRecord | None = None
+    try:
+        runner = await restore_runner(workflow, goal_dir)
+        if runner.done:
+            return DecisionOutcome(
+                status=DecisionStatus.UNCHANGED, message="[goal] declarative workflow is already complete"
+            )
+        if not runner.state.awaiting_approval:
+            return DecisionOutcome(
+                status=DecisionStatus.UNCHANGED,
+                message=f"[goal] no step is awaiting a decision; workflow status={runner.state.status.value} "
+                "(decisions apply to a step that declared 'approval: required')",
+            )
+        step = runner.current_step
+        story_id = runner.state.active_story or ""
+        if action is DecisionAction.APPROVE:
+            runner.approve()
+        elif action is DecisionAction.REJECT:
+            runner.reject(text)
+        else:
+            runner.amend(text)
+        record = DecisionRecord(
+            decision_id=new_decision_id(),
+            goal_id=goal_dir.name,
+            action=action,
+            step=step.name,
+            story_id=story_id,
+            raw_text=text,
+            workflow_status=runner.state.status,
+            approval_round=runner.state.approval_round,
+        )
+        await decision_store(goal_dir).append(record)
+        await runner.persist_state()
+    except (WorkflowCheckpointError, ValueError, TypeError, OSError) as exc:
+        detail = (
+            f"decision {record.decision_id[:8]} is already recorded" if record is not None else "no record was written"
+        )
+        return DecisionOutcome(
+            status=DecisionStatus.FAILED,
+            decision_id=record.decision_id if record is not None else "",
+            message=f"[goal] {action.value} failed: {exc} ({detail}; check /goal decisions and /goal status)",
+        )
+    supplement_note = ""
+    if text and action is not DecisionAction.APPROVE:
+        try:
+            _goal_record_user_response(goal_dir, text)
+        except OSError as exc:
+            # 账已生效：补充只是执行面输入，写失败不回滚决策，但必须显性暴露（不静默）。
+            supplement_note = f" (warning: the text did not reach the requirement document: {exc})"
+    message = (
+        f"[goal] {action.value} recorded: step={step.name}"
+        + (f" story={story_id}" if story_id else "")
+        + f" status={runner.state.status.value} decision={record.decision_id[:8]}"
+    )
+    if (
+        action is DecisionAction.APPROVE
+        and runner.state.status is WorkflowStatus.WAITING_USER
+        and not runner.state.awaiting_approval
+    ):
+        # 审查 #11：该步同时声明了 checkpoint——批准已完成簿记，剩下的是普通检查点等待。
+        message += " (the completion is booked; this step also declared a checkpoint — /goal resume continues)"
+    return DecisionOutcome(
+        status=DecisionStatus.RECORDED,
+        proceed=action is not DecisionAction.REJECT,
+        decision_id=record.decision_id,
+        message=message + supplement_note,
     )

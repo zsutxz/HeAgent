@@ -11,7 +11,7 @@ import re
 from pathlib import PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 # ``section:`` 提取的单一真源（大小写不敏感、值到 ``,`` / ``;`` 为止）——与历史
 # ``workflow_runner._SECTION_RULE`` 逐字同语义；文本门禁与子句模型都从这里取。
@@ -99,6 +99,32 @@ class StepValidationClauses(BaseModel):
         return bool(self.sections or self.commands or self.artifacts or self.git_paths or self.gates)
 
 
+# ``approval:`` 的关键词词汇（单一真源）：步骤只能声明「要不要人工确认」，合法关键词只有
+# ``required``，其后可带一句给人读的说明（``approval: required 架构冻结前需人工确认``）。
+# 未声明 = 该步不需要人工确认（老包零行为变化）；其余取值由加载器（goal/workflow_loader）
+# 加载期 fail-loud。声明里只有「要不要」，没有步骤名 / 步骤序号（AD-13）。
+APPROVAL_KEYWORDS: tuple[str, ...] = ("required",)
+
+
+class StepApproval(BaseModel):
+    """One step's parsed ``approval:`` declaration（声明词汇的类型视图）.
+
+    ``required`` = 该步到达检查点时挂起等一个人工决策，只有 approve / reject / amend 能推进；
+    ``note`` 是声明携带的一句说明，原样进入审批提示文案。语法解析与非法值报错在
+    ``goal/workflow_loader``（声明 → 模型）；本模型只承载解析结果，直接构造时由校验器兜底
+    「说明必须依附 required」的同规约束。
+    """
+
+    required: bool = False
+    note: str = ""
+
+    @model_validator(mode="after")
+    def _note_requires_required(self) -> StepApproval:
+        if self.note and not self.required:
+            raise ValueError("approval note is only meaningful with 'approval: required'")
+        return self
+
+
 class WorkflowStepResource(BaseModel):
     """One Markdown workflow step and its declarative execution contract."""
 
@@ -115,6 +141,8 @@ class WorkflowStepResource(BaseModel):
     max_parallel_stories: int = Field(default=1, ge=1, le=5)
     # Per-step iteration budget; 0 = inherit Settings.goal_max_iterations.
     max_iterations: int = Field(default=0, ge=0)
+    # ``approval:`` 声明的类型视图（loader 解析；未声明 = 不需要人工确认、零行为变化）。
+    approval: StepApproval = Field(default_factory=StepApproval)
     # ``validation:`` 里的结构化证据子句（loader 解析后的视图；未声明 = 全空、零行为变化）。
     validation_clauses: StepValidationClauses = Field(default_factory=StepValidationClauses)
     frontmatter: dict[str, Any] = Field(default_factory=dict)

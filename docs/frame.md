@@ -961,6 +961,19 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
   （`QUALITY_GATES`，名字 → 语义 + 求值函数分派表）提供，加载期由 `workflow_loader` 校验（未注册或
   声明条件不满足均 fail-loud）。
 - `/goal resume [回复]` 记录用户回复并恢复等待中的步骤；`/goal auto [cron]` 通过 JobStore 复用同一推进路径。
+- **步骤级审批与决策记录（Story 51-5）**：步骤 frontmatter 可声明 `approval: required`（可带一句
+  说明）——该步做完工作后挂起 `WAITING_USER`，完成簿记延后，只有人工决策能推进；未声明的步骤
+  零行为变化。「第几步需要审批」只存在于该步声明里，`src/` 无任何按步骤名/序号的审批判断（AD-13）。
+  四个事件语义独立（AD-3）：`/goal approve` 接受并落定完成（唯一把该步标记完成的路径；末步批准
+  即完成 goal）、`/goal reject <原因>` 驳回（步骤未完成，落 BLOCKED，修订后 `resume` 重跑）、
+  `/goal amend <补充>` 带补充重跑（步骤未完成，落 PENDING；补充同时进需求文档「用户补充」段）、
+  `/goal resume` 只恢复执行——审批门挂起时被显性拒绝，不隐式等同批准。cron/auto 推进在审批门前
+  停下，不自动批准人工 Gate；CLI/GUI 共用 `goal/application.record_decision` 同一应用服务。
+  每次决策在 `<goal_dir>/decisions/` 追加一条版本化记录（id、步骤、原文、UTC 时间、影响范围、
+  结果状态、审批轮次；成功的 `/goal resume` 亦记一条 RESUME——只标记执行被恢复，不等于批准），
+  独占创建、重跑不覆盖历史（`goal/decisions.py`）；`/goal decisions` 只读回显（goal 域锁内读，
+  防撕裂读）。审批门挂起状态（`awaiting_approval` + 挂起产物 + 单调审批轮次——轮次进 checkpoint
+  幂等键，reject/amend 重跑再挂门不撞 conflict）随 checkpoint 持久化与恢复，跨进程可决策。
 - **跨进程互斥（2026-09）**：`/goal` 全部变更入口（new/next/run/resume/reset/cron 推进）经 `_goal_mutex()`
   复合互斥——进程内 `asyncio.Lock`（`_goal_auto_lock`，快速路径）+ `.heagent/goal.lock` 跨进程文件锁
   （`persist.file_lock`，5s 超时显性失败：手动方收到「另一进程正在推进」提示，cron 下一 tick 自动重试）。
@@ -1074,6 +1087,7 @@ Phase 5 C1：+`duration_ms`/`error_kind`；旧 rollout 缺省读、新字段被�
 | `tool_call_started` / `tool_call_completed` / `tool_call_failed` / `tool_call_blocked` | `engine/executor.py`（`_emit_tool_event` 单点） | `mode`（+sandbox_profile/tier）/`content_length`/`error`/`reason` | completed/failed 带 duration；failed 带 error_kind |
 | `context_compressed` / `window_reset` | `agent/context_runtime.py` | `before,after` | — |
 | `workflow_step_started` / `workflow_step_completed` / `workflow_step_failed` | `engine/workflow_runner`（`emit` 注入端口，缺省 None=不发） | `step,story`（+`result`/`error`） | 三种带 duration；failed 带 error_kind。并发批次（`max_parallel_stories>1`）除批级一条（`story` 空）外，**批内每条 story 各发一组**（2026-09-23 起，`story` 非空） |
+| `workflow_approved` / `workflow_rejected` / `workflow_amended` | `engine/workflow_runner`（审批决策方法，Story 51-5） | `step`（+`reason`：拒绝理由 / 修订补充） | — |
 | `dream_start` / `dream_end`、`cron_job_*` | `memory/dream.py`、`cron/scheduler.py`（开集现状收编） | `success` 等 | — |
 | `assistant_message`（传输层补充） | `events/sink.py` | `content` | — |
 
@@ -1340,6 +1354,7 @@ src/heagent/
 │   ├── status_view.py       # /goal status 纯投影（status_fields 词汇，零 IO，Story 51-1）
 │   ├── evidence.py          # 结构化执行证据：版本化模型 + 追加式存储 + 受治理结果证据化（Story 51-3）
 │   ├── git_port.py          # 只读 Git 端口：base/head/变更集与工作区冲突状态，从不 commit（Story 51-3）
+│   ├── decisions.py         # 人工决策日志：版本化模型 + 追加式存储（<goal_dir>/decisions/，Story 51-5）
 │   └── quality_gates.py     # 通用门禁求值器：validation: 结构化子句 → 证据/产物/只读 Git 比对；
 │                            #   gate: 宿主注册表（名字→语义+求值函数分派表）也在此（Story 51-4）
 ├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）

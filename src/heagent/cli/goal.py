@@ -31,6 +31,7 @@ from heagent.engine import (
 )
 from heagent.goal.application import (
     _GOAL_SKILLS_ROOT,
+    DecisionStatus,
     _GoalAdvanceContext,
     advance,
     checkpoint_mode,
@@ -39,6 +40,7 @@ from heagent.goal.application import (
     external_checkpoint_dir,
     initialize_checkpoint_workspace,
     pause_resume,
+    record_decision,
 )
 from heagent.goal.application import (
     resolve_skill_package as _resolve_skill_package,
@@ -49,6 +51,7 @@ from heagent.goal.application import (
 from heagent.goal.application import (
     validate_goal_workflow as _validate_goal_workflow,
 )
+from heagent.goal.decisions import DecisionAction, DecisionRecord, decision_store
 from heagent.goal.doctor import diagnose_workflow
 from heagent.goal.document import (
     _GOALS_DIR,
@@ -260,7 +263,15 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
     # A pause/cancellation is persisted as a non-completed Runner state. Resume
     # is explicit at the command boundary, then this call may continue the step.
     if runner.state.status is WorkflowStatus.WAITING_USER:
-        _echo("[goal] declarative workflow is paused; use /goal resume first", err=True)
+        if runner.state.awaiting_approval:
+            # 审批门挂起（Story 51-5）：指向显式决策，resume 在此状态会被显性拒绝。
+            _echo(
+                "[goal] a step awaits a human decision: /goal approve | /goal reject <原因> | /goal amend <补充> "
+                "(/goal decisions lists records)",
+                err=True,
+            )
+        else:
+            _echo("[goal] declarative workflow is paused; use /goal resume first", err=True)
         return _GOAL_WAITING, None
     if runner.state.status in {WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
         _echo(f"[goal] declarative workflow is {runner.state.status.value}: {runner.state.reason}", err=True)
@@ -465,10 +476,16 @@ async def _goal_declarative_status(workflow: WorkflowResource) -> None:
     except (WorkflowCheckpointError, ValueError) as exc:
         _echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
         return
+    open_decisions = (
+        ["a step awaits a decision (/goal approve | /goal reject <原因> | /goal amend <补充>)"]
+        if runner.state.awaiting_approval
+        else []
+    )
     for line in project_status_view(
         runner.state,
         workflow,
         goal_id=goal_dir.name,
+        open_decisions=open_decisions,
         fields=workflow.status_fields,
     ).render():
         _echo(line, err=True)
@@ -487,6 +504,96 @@ async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: 
     if outcome.message:
         _echo(outcome.message, err=True)
     return outcome.proceed
+
+
+# ── 步骤级审批与决策记录（Story 51-5）──────────────────────────────────────
+
+# /goal decisions 列表里单条原文的展示上限：决策日志保存全文，回显只留可定位的一行。
+_DECISION_TEXT_DISPLAY_LIMIT = 120
+
+
+def _decision_display_text(raw: str) -> str:
+    """单行化并截断决策原文（截断有标记，不静默丢语义）。"""
+    text = " ".join(raw.split())
+    if len(text) <= _DECISION_TEXT_DISPLAY_LIMIT:
+        return text
+    return text[: _DECISION_TEXT_DISPLAY_LIMIT - 1] + "…"
+
+
+async def _goal_declarative_decision(
+    workflow: WorkflowResource,
+    args: str,
+    *,
+    action: DecisionAction,
+    provider: BaseProvider,
+    engine: EngineContainer | None,
+) -> None:
+    """/goal approve | reject | amend：显式人工决策（CLI/GUI 共用的应用服务，决策日志追加一条）。
+
+    approve / amend 落定后立即推进（与 ``/goal resume`` 的「落定即推进」同款，复用
+    :func:`_goal_declarative_advance` 同一推进缝）——amend 推进的就是带补充的重跑；reject
+    不推进（工作被驳回，BLOCKED 等待修订后 resume）。
+    """
+    async with _goal_mutex():
+        goal_dir = _goal_declarative_active_dir()
+        if goal_dir is None:
+            _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+            return
+        outcome = await record_decision(workflow, goal_dir, action=action, text=args.strip())
+        if outcome.message:
+            _echo(outcome.message, err=True)
+        if outcome.status is not DecisionStatus.RECORDED or not outcome.proceed:
+            return
+        await _goal_declarative_advance(provider, engine, workflow)
+
+
+async def _goal_declarative_decisions(workflow: WorkflowResource) -> None:
+    """/goal decisions：只读回显当前 goal 的追加式决策日志（经 _echo 漏斗）。
+
+    读取也进 goal 域锁（审查 #9）：并发写方 append 一半时读方不会把半截文件误报成
+    「损坏」——锁内读是防止撕裂读的防线（store 自身的独占创建只保证写侧）。
+    """
+    async with _goal_mutex():
+        goal_dir = _goal_declarative_active_dir()
+        if goal_dir is None:
+            _echo("[goal] no active declarative goal", err=True)
+            return
+        try:
+            records = await decision_store(goal_dir).list_records(goal_id=goal_dir.name)
+        except ValueError as exc:
+            _echo(f"[goal] decisions: {exc}", err=True)
+            return
+        _render_decision_records(records)
+
+
+def _render_decision_records(records: list[DecisionRecord]) -> None:
+    """决策日志的确定性渲染（调用方已持 goal 域锁并解析 goal 目录）。"""
+    if not records:
+        _echo("[goal] decisions: none recorded yet", err=True)
+        return
+    _echo(f"[goal] decisions: {len(records)} record(s), oldest first", err=True)
+    for record in records:
+        line = (
+            f"[goal] {record.created_at} {record.action.value} step={record.step or '-'}"
+            + (f" story={record.story_id}" if record.story_id else "")
+            + f" status={record.workflow_status.value} decision={record.decision_id[:8]}"
+        )
+        if record.raw_text:
+            line += f": {_decision_display_text(record.raw_text)}"
+        _echo(line, err=True)
+    if not records:
+        _echo("[goal] decisions: none recorded yet", err=True)
+        return
+    _echo(f"[goal] decisions: {len(records)} record(s), oldest first", err=True)
+    for record in records:
+        line = (
+            f"[goal] {record.created_at} {record.action.value} step={record.step or '-'}"
+            + (f" story={record.story_id}" if record.story_id else "")
+            + f" status={record.workflow_status.value} decision={record.decision_id[:8]}"
+        )
+        if record.raw_text:
+            line += f": {_decision_display_text(record.raw_text)}"
+        _echo(line, err=True)
 
 
 # ── /goal verify 与结构化完成门（Story 51-4）───────────────────────────────
@@ -765,7 +872,22 @@ async def _goal_declarative_auto(
     _echo(f"[goal] declarative auto registered: {job.id} workflow={workflow.name}", err=True)
 
 
-_GOAL_SUBCOMMAND_NAMES = ("new", "next", "run", "status", "pause", "resume", "auto", "reset", "doctor", "verify")
+_GOAL_SUBCOMMAND_NAMES = (
+    "new",
+    "next",
+    "run",
+    "status",
+    "pause",
+    "resume",
+    "auto",
+    "reset",
+    "doctor",
+    "verify",
+    "approve",
+    "reject",
+    "amend",
+    "decisions",
+)
 
 
 def _goal_typo_subcommand(args: str) -> str | None:
@@ -802,7 +924,7 @@ async def _goal_declarative_dispatch(
         else:
             async with _goal_mutex():
                 await _goal_declarative_new(provider, engine, workflow, rest, cron_store=cron_store)
-    elif head in ("next", "status", "reset", "run", "pause", "doctor") and rest:
+    elif head in ("next", "status", "reset", "run", "pause", "doctor", "decisions") and rest:
         _goal_usage()
     elif head == "next":
         async with _goal_mutex():
@@ -824,6 +946,26 @@ async def _goal_declarative_dispatch(
         async with _goal_mutex():
             if await _goal_declarative_pause_resume(workflow, resume=True, response=rest):
                 await _goal_declarative_advance(provider, engine, workflow)
+    elif head == "approve":
+        if rest:
+            _goal_usage()
+        else:
+            await _goal_declarative_decision(
+                workflow, "", action=DecisionAction.APPROVE, provider=provider, engine=engine
+            )
+    elif head in ("reject", "amend"):
+        if not rest:
+            _goal_usage()
+        else:
+            await _goal_declarative_decision(
+                workflow,
+                rest,
+                action=DecisionAction.REJECT if head == "reject" else DecisionAction.AMEND,
+                provider=provider,
+                engine=engine,
+            )
+    elif head == "decisions":
+        await _goal_declarative_decisions(workflow)
     elif head == "audit":
         _echo("[goal] audit subcommand has been removed; supported subcommands are listed below.", err=True)
         _goal_usage()
@@ -850,6 +992,10 @@ def _goal_usage() -> None:
         "  /goal status          查看进度\n"
         "  /goal doctor          检查工作流及角色技能包\n"
         "  /goal verify [run]    按声明子句复核证据（run = 受控重跑声明的验证命令）\n"
+        "  /goal approve         批准等待审批的步骤（唯一能把该步标记完成的路径）\n"
+        "  /goal reject <原因>   驳回等待审批的工作（步骤未完成，修订后 /goal resume 重跑）\n"
+        "  /goal amend <补充>    带补充重跑等待审批的步骤（步骤未完成，补充进需求文档）\n"
+        "  /goal decisions       查看追加式决策日志（approve/reject/amend/resume 每次一条）\n"
         "  /goal reset           清除 current 指针（goal 目录保留）\n"
         "  /goal run             连续推进 goal（步数上限由 workflow 的 max_rounds 声明；Ctrl+C 可中断）\n"
         "  /goal resume [回复]   记录用户回答并继续 waiting_user 步骤\n"

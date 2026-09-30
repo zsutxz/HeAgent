@@ -56,6 +56,19 @@ def test_status_view_surfaces_failed_stories_and_resume_guidance() -> None:
     assert "[goal] next: /goal resume <answer> | /goal status" in lines
 
 
+def test_an_approval_gate_recommends_decisions_never_resume() -> None:
+    """审批门挂起（Story 51-5）：status 只推荐显式决策，resume 不在其列（不能隐式批准）。"""
+    state = WorkflowRunnerState(status=WorkflowStatus.WAITING_USER, awaiting_approval=True)
+    view = project_status_view(state, _workflow())
+    assert view.recommended_commands == [
+        "/goal approve",
+        "/goal reject <原因>",
+        "/goal amend <补充>",
+        "/goal decisions",
+    ]
+    assert "/goal resume" not in view.recommended_commands
+
+
 def test_status_view_reports_blocked_recommendations() -> None:
     view = project_status_view(WorkflowRunnerState(status=WorkflowStatus.BLOCKED, reason="gate failed"), _workflow())
     assert view.recommended_commands == ["/goal resume <说明>", "/goal doctor"]

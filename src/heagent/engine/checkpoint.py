@@ -73,6 +73,14 @@ class WorkflowCheckpoint(BaseModel):
     story_outputs: dict[str, Any] = Field(default_factory=dict)
     active_stories: list[str] = Field(default_factory=list)
     story_statuses: dict[str, str] = Field(default_factory=dict)
+    # 步骤级审批门（Story 51-5）：True = 活动步做完工作、挂起等一个人工决策。可选字段：
+    # 旧 checkpoint 缺它读作 False（AD-2 修订版允许追加可选字段，active_epic 同款先例）。
+    awaiting_approval: bool = False
+    # 审批门挂起期间步骤的产物：approve 落定完成簿记时的输出来源（不进 completed 的 outputs，
+    # 因为步骤此刻还没被标记完成）。
+    pending_output: Any = None
+    # 审批门发生轮次（参与 checkpoint 幂等键，见 WorkflowRunner._checkpoint_id）。
+    approval_round: int = Field(default=0, ge=0)
     next_action: str = ""
     tool_in_flight: bool = False
     created_at: str = Field(default_factory=_iso_now)

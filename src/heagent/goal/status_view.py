@@ -119,6 +119,9 @@ def _recent_failures(state: WorkflowRunnerState) -> list[str]:
 
 def _recommended_commands(state: WorkflowRunnerState) -> list[str]:
     """Deterministic next actions for the current status, never a free-text suggestion."""
+    if state.status is WorkflowStatus.WAITING_USER and state.awaiting_approval:
+        # 审批门挂起（Story 51-5）：只有显式人工决策能推进，resume 不在其列（不能隐式批准）。
+        return ["/goal approve", "/goal reject <原因>", "/goal amend <补充>", "/goal decisions"]
     match state.status:
         case WorkflowStatus.WAITING_USER:
             return ["/goal resume <answer>", "/goal status"]

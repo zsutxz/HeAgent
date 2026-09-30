@@ -3,7 +3,9 @@
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
+from heagent.engine.workflow_resource import StepApproval
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
 from heagent.memory.skill_packages import SkillPackage
 
@@ -200,3 +202,73 @@ def test_unknown_inline_evidence_clause_fails_the_load(tmp_path: Path) -> None:
 
     with pytest.raises(SkillWorkflowError, match="unknown validation clause 'comands:'"):
         read_workflow(SkillPackage(skill_id="inline", root=tmp_path))
+
+
+# ---- ``approval:`` 声明词汇（Story 51-5）---------------------------------------
+
+
+def test_loads_approval_required_with_note(tmp_path: Path) -> None:
+    """``approval: required``（可带一句说明）解析进步骤模型；说明原文保留。"""
+    package = _package(tmp_path)
+    (tmp_path / "step-01-first.md").write_text(
+        "---\napproval: required 架构冻结前需人工确认\n---\nFirst", encoding="utf-8"
+    )
+
+    approval = read_workflow(package).steps[0].approval
+
+    assert approval.required is True
+    assert approval.note == "架构冻结前需人工确认"
+
+
+def test_loads_bare_approval_required_without_note(tmp_path: Path) -> None:
+    package = _package(tmp_path)
+    (tmp_path / "step-01-first.md").write_text("---\napproval: required\n---\nFirst", encoding="utf-8")
+
+    approval = read_workflow(package).steps[0].approval
+
+    assert approval.required is True
+    assert approval.note == ""
+
+
+def test_undeclared_approval_keeps_the_step_unchanged(tmp_path: Path) -> None:
+    """未声明 = 不需要人工确认（老包零行为变化的声明面）。"""
+    assert read_workflow(_package(tmp_path)).steps[0].approval == StepApproval()
+    assert read_workflow(_package(tmp_path)).steps[0].approval.required is False
+
+
+def test_loads_approval_from_inline_step_metadata(tmp_path: Path) -> None:
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "workflow.md").write_text(
+        "---\nname: inline\n---\n\n# Inline\n\n## Step 01: freeze\napproval: required\n\nFreeze the architecture.\n",
+        encoding="utf-8",
+    )
+
+    workflow = read_workflow(SkillPackage(skill_id="inline", root=tmp_path))
+
+    assert workflow.steps[0].approval.required is True
+
+
+@pytest.mark.parametrize("value", ["maybe", "optional 请确认", "true", "false", "yes", "required!!"])
+def test_invalid_approval_value_fails_the_load(tmp_path: Path, value: str) -> None:
+    """非法取值加载期 fail-loud：「声明了审批」被吞成「不需要审批」会跨过人工 Gate。"""
+    package = _package(tmp_path)
+    (tmp_path / "step-01-first.md").write_text(f"---\napproval: {value}\n---\nFirst", encoding="utf-8")
+
+    with pytest.raises(SkillWorkflowError, match="invalid approval declaration"):
+        read_workflow(package)
+
+
+@pytest.mark.parametrize("value", ["", "   ", "none", "null"])
+def test_blank_approval_declaration_fails_the_load(tmp_path: Path, value: str) -> None:
+    """声明了 approval 却空白 / none / null：静默吞成「无门」是人工 Gate 缺口（审查 #4）。"""
+    package = _package(tmp_path)
+    (tmp_path / "step-01-first.md").write_text(f"---\napproval: {value}\n---\nFirst", encoding="utf-8")
+
+    with pytest.raises(SkillWorkflowError, match="present but blank"):
+        read_workflow(package)
+
+
+def test_approval_model_rejects_a_note_without_required() -> None:
+    """模型自身是第二道门（loader 给更好的报错）：说明必须依附 required。"""
+    with pytest.raises(ValidationError):
+        StepApproval(note="说明")
