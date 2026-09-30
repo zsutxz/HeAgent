@@ -13,10 +13,20 @@
 
 - source_spec: `_bmad-output/epics/epic-51-goal-workflow优化周期/stories/51-4-quality-gates-verify.md`
   summary: workflow/revision 冻结绑定在 CLI 求值路径未接线（verify_step 的 revision 参数无调用方传入）
-  evidence: 求值器分支已存在但接线路径不可达；实现方声明 revision 冻结语义由 Story 51-6 接管
+  evidence: **已于 Story 51-6 接线**（2026-09-30）：`cli/goal.py` 的 `_goal_verify_report` 读取 goal
+  冻结绑定的 revision 传入 `verify_step(revision=...)`，受控重跑写下的证据带同一 revision；接线判据见
+  `tests/test_goal_workflow_selection.py::test_frozen_revision_flows_into_verify_step`。
 - source_spec: `_bmad-output/epics/epic-51-goal-workflow优化周期/stories/51-4-quality-gates-verify.md`
   summary: 受治理重跑在事件总线与 ledger 上零痕迹（executor.execute 未传 emit、不写 ledger）
   evidence: 与 agent 循环内工具调用不同，验证重跑无可审计事件；先以 docstring 显性声明省略，接线随 51-8 安全并行与收口
 - source_spec: `_bmad-output/epics/epic-51-goal-workflow优化周期/stories/51-4-quality-gates-verify.md`
   summary: 声明验证命令在完成门与受控重跑中重复执行（假设幂等）
   evidence: 步骤执行期证据自动记录未接线（51-3/51-8 领域）；接线后完成门可直接消费执行期证据，消解重复执行
+
+## Deferred from: three-layer review merge of story 51-6 (2026-09-30)
+
+- source_spec: `_bmad-output/epics/epic-51-goal-workflow优化周期/stories/51-6-workflow-templates-freeze.md`
+  summary: 半键绑定（有 workflow 无 workflow_revision）按声明解析、revision 空串不比对漂移——手改文档形态下冻结保证的显式兼容决定
+  evidence: `src/heagent/goal/application.py` 的 `read_workflow_binding` docstring +
+  `tests/test_goal_workflow_selection.py::test_read_workflow_binding_returns_frozen_values`（正向半键）与
+  `::test_read_workflow_binding_rejects_a_revision_without_a_workflow_key`（反向半键显性拒绝，审查 L3 已收口）

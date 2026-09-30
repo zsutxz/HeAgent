@@ -220,7 +220,8 @@ async def test_cron_goal_job_drives_the_shared_advance_use_case(
         return goal_cli._GOAL_ADVANCED
 
     monkeypatch.setattr(goal_cli, "_goal_declarative_advance", _advance)
-    monkeypatch.setattr(goal_cli, "_goal_declarative_workflow", _workflow)
+    # Story 51-6：cron 与手动命令同一解析口径——推进 goal 冻结绑定的 workflow。
+    monkeypatch.setattr(goal_cli, "resolve_bound_workflow", lambda _goal_dir, _default: _workflow())
     monkeypatch.setattr(goal_cli, "_goal_active_md", lambda: tmp_path / "demo" / "brief.md")
 
     await goal_cli._goal_cron_advance(provider=None, engine=None, store=None, goal_id="demo")

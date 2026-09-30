@@ -8,6 +8,7 @@ gate 的消费对象），本模块只做「声明 → 模型」的装载，不�
 
 from __future__ import annotations
 
+import hashlib
 import re
 from pathlib import Path
 from typing import Any, cast, get_args
@@ -221,12 +222,7 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
         values, body = _parse_resource_frontmatter(text)
     except ValueError as exc:
         raise SkillWorkflowError(package.skill_id, resource, str(exc)) from exc
-    declared = values.get("steps")
-    inline = _parse_inline_workflow_steps(package, body)
-    if declared is None or declared == "":
-        names = [step.name for step in inline] if inline else _discover_workflow_steps(package)
-    else:
-        names = _resource_list(package, declared, resource)
+    inline, names = _resolve_workflow_step_names(package, values, body, resource)
     if not names:
         raise SkillWorkflowError(package.skill_id, resource, "workflow has no steps")
     steps: list[WorkflowStepResource] = []
@@ -304,6 +300,9 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
     status_fields = _declared_members(package, values, resource, key="status_fields", allowed=STATUS_FIELDS)
     return WorkflowResource(
         name=_value_text(values, "name", "id") or package.skill_id,
+        # ``revision``（Story 51-6）：缺省不报错、落空串 = 由包内容派生（workflow_revision）；
+        # 老包不声明零行为变化。声明值原样保留（str(value).strip()，不做语义解释）。
+        revision=_value_text(values, "revision"),
         instructions=(body.split("\n## Step ", 1)[0] if inline else body).strip(),
         steps=steps,
         entrypoint=_value_text(values, "entrypoint"),
@@ -321,6 +320,47 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
         status_fields=cast("list[StatusField]", status_fields),
         frontmatter=values,
     )
+
+
+def workflow_revision(package: SkillPackage, workflow: WorkflowResource) -> str:
+    """workflow revision 的**唯一派生点**（Story 51-6，AD-8 的冻结值来源）。
+
+    - 包 frontmatter 显式声明了 ``revision``（:attr:`WorkflowResource.revision` 非空）→ 原样返回，
+      包内容改动**不**触发漂移（版本由声明方负责推进）；
+    - 未声明 → 对 ``workflow.md`` 全文 + ``required_resources`` 声明的全部模板内容（按相对路径
+      排序，逐个经 ``package.read_resource`` 的**摘要通道**读取，manifest 漂移在此即失败）+
+      **外挂步骤文件**内容（``steps:`` 声明或自动发现的 ``step-NN-*.md``；步骤正文 / validation
+      声明漂移 = 流程漂移）做 sha256，返回十六进制摘要的**前 16 字符**——创建时冻结与恢复时
+      比对都只认这 64 bit 指纹：它是防「静默换流程」的漂移判据，不是安全边界，全量 64 hex
+      无比对收益。
+
+    外挂步骤的发现与 :func:`read_workflow` 同源（``_resolve_workflow_step_names`` 单一实现）；
+    全内联步骤的包（随包发布的模板包全部内联）不追加任何条目，**指纹取值不变**——冻结值
+    语义兼容。
+
+    资源读取失败（缺失 / hash 漂移）按原样抛 :class:`SkillPackageResourceError`——冻结一个
+    读不到的值等于冻结未知，必须显性失败。
+    """
+    if workflow.revision.strip():
+        return workflow.revision.strip()
+    hasher = hashlib.sha256()
+    text = package.read_resource("workflow.md")
+    hasher.update(text.encode("utf-8"))
+    declared = workflow.frontmatter.get("required_resources")
+    names = _resource_list(package, declared, "workflow.md", "required_resources") if declared else []
+    for name in sorted(f"templates/{item.removeprefix('templates/')}" for item in names):
+        hasher.update(b"\x00")
+        hasher.update(package.read_resource(name).encode("utf-8"))
+    # 外挂步骤文件进指纹；发现逻辑与 read_workflow 同源，内嵌步骤（名字命中内嵌集合）跳过。
+    values, body = _parse_resource_frontmatter(text)
+    inline, step_names = _resolve_workflow_step_names(package, values, body, "workflow.md")
+    inline_names = {step.name for step in inline}
+    for name in step_names:
+        if name in inline_names:
+            continue
+        hasher.update(b"\x00")
+        hasher.update(package.read_resource(name).encode("utf-8"))
+    return hasher.hexdigest()[:16]
 
 
 def _read_optional_resource(package: SkillPackage, resource: str) -> str:
@@ -352,6 +392,26 @@ def _required_templates(package: SkillPackage, values: dict[str, Any], workflow:
         if not _read_optional_resource(package, name):
             raise SkillWorkflowError(package.skill_id, name, "declared in required_resources but missing or blank")
     return names
+
+
+def _resolve_workflow_step_names(
+    package: SkillPackage, values: dict[str, Any], body: str, resource: str
+) -> tuple[list[WorkflowStepResource], list[str]]:
+    """workflow 步骤名清单的**唯一发现逻辑**（``read_workflow`` 装载与 ``workflow_revision``
+    派生共用，两处永不漂移）。
+
+    优先级固定：frontmatter ``steps:`` 声明 → 内嵌 ``## Step NN:`` 区块 → 自动发现
+    ``step-NN-*.md``。返回 ``(内嵌步骤模型, 全部步骤名)``：内嵌步骤的名字同时出现在
+    ``names`` 里，装载时优先用内嵌模型、不重读文件；派生侧据此把 ``names`` 减去内嵌名
+    即得**外挂步骤文件**集合。
+    """
+    declared = values.get("steps")
+    inline = _parse_inline_workflow_steps(package, body)
+    if declared is None or declared == "":
+        names = [step.name for step in inline] if inline else _discover_workflow_steps(package)
+    else:
+        names = _resource_list(package, declared, resource)
+    return inline, names
 
 
 def _discover_workflow_steps(package: SkillPackage) -> list[str]:

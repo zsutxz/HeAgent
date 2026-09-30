@@ -56,10 +56,10 @@ workflow.md / step-NN-*.md / templates/      ← 声明面（唯一权威：Epic
 | `steps` / `input` / `output` / `next` / `checkpoint` / `validation` / `role` / `story_loop` / `max_parallel_stories` / `max_iterations` | 步骤 frontmatter | 已存在 | — |
 | `required_resources` / `checkpoint_mode` / `open_question_mode` / `max_rounds` / `auto_schedule` / `on_create` / `step_executor` / `entrypoint` | workflow frontmatter | 已存在 | — |
 | `templates/prompt-template.md` / `templates/gate-template.md` | 包内资源 | 已存在 | — |
-| `doctor_checks` / `status_fields`（预检项清单与状态字段清单） | workflow frontmatter | **待加** | 51-1 |
-| `validation:` 的结构化证据子句（命令 / 产物 / Git 路径 / 质量门） | 步骤 frontmatter | **待加** | 51-3、51-4 |
-| `approval:`（该步是否需要人工确认） | 步骤 frontmatter | **待加** | 51-5 |
-| workflow `revision`（或由包内容推导的 hash） | workflow frontmatter / 包元数据 | **待加** | 51-6 |
+| `doctor_checks` / `status_fields`（预检项清单与状态字段清单） | workflow frontmatter | 已存在 | — |
+| `validation:` 的结构化证据子句（命令 / 产物 / Git 路径 / 质量门） | 步骤 frontmatter | 已存在 | — |
+| `approval:`（该步是否需要人工确认） | 步骤 frontmatter | 已存在 | — |
+| workflow `revision`（或由包内容推导的 hash） | workflow frontmatter / 包元数据 | 已存在 | — |
 | `executor_mode: script` 与包内 `scripts/` 资源 | 步骤 frontmatter + 包内资源 | **待加** | 51-7 |
 | `depends_on` / `parallel_group` / `write_set` | story 文档 | **待加** | 51-8 |
 

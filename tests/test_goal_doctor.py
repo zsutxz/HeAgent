@@ -107,20 +107,52 @@ def test_doctor_probes_a_missing_checkpoint_directory_without_creating_it(tmp_pa
 async def test_cli_doctor_probes_the_directory_the_store_writes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A preflight that probes a different directory than the writer uses is worse than none."""
+    """A preflight that probes a different directory than the writer uses is worse than none.
+
+    Story 51-6 起 doctor 预检的是**活动 goal 冻结绑定**的包（AD-8）：绑定解析缝在此替换，
+    预检目标路径必须仍与真实写者同源（``checkpoint_store`` 唯一解析点）。
+    """
     goal_dir = tmp_path / "demo"
     goal_dir.mkdir()
+    (goal_dir / "brief.md").write_text(goal_cli._goal_document("demo goal", "demo"), encoding="utf-8")
     seen: list[Path | None] = []
 
     def _spy(workflow: WorkflowResource, package: SkillPackage, resolve_role: object, *, checkpoint_dir=None):
         seen.append(checkpoint_dir)
         return GoalDoctorReport(workflow=workflow.name)
 
-    monkeypatch.setattr(goal_cli, "_goal_workflow_package", lambda: _package(tmp_path / "workflow"))
     monkeypatch.setattr(goal_cli, "_goal_declarative_active_dir", lambda: goal_dir)
+    monkeypatch.setattr(goal_cli, "resolve_bound_workflow", lambda _goal_dir, _default: _workflow())
+    monkeypatch.setattr(goal_cli, "_resolve_skill_package", lambda _skill_id: _package(tmp_path / "workflow"))
     monkeypatch.setattr(goal_cli, "diagnose_workflow", _spy)
     monkeypatch.setattr(goal_cli, "_echo", lambda message, *, err=True: None)
 
-    await goal_cli._goal_declarative_doctor(_workflow())
+    await goal_cli._goal_declarative_doctor()
 
     assert seen == [checkpoint_store(goal_dir).base_dir]
+
+
+async def test_cli_doctor_with_an_active_goal_says_the_workflow_option_is_ignored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """有活动 goal 时 ``--workflow`` 被忽略但必须显性提示（51-6 审查 L2），不静默失效。
+
+    预检对象仍是活动 goal 冻结绑定的包（AD-8）；提示风格对齐既有 ``[goal] doctor:`` 行。
+    """
+    goal_dir = tmp_path / "demo"
+    goal_dir.mkdir()
+    (goal_dir / "brief.md").write_text(goal_cli._goal_document("demo goal", "demo"), encoding="utf-8")
+
+    def _spy(workflow: WorkflowResource, package: SkillPackage, resolve_role: object, *, checkpoint_dir=None):
+        return GoalDoctorReport(workflow=workflow.name)
+
+    monkeypatch.setattr(goal_cli, "_goal_declarative_active_dir", lambda: goal_dir)
+    monkeypatch.setattr(goal_cli, "resolve_bound_workflow", lambda _goal_dir, _default: _workflow())
+    monkeypatch.setattr(goal_cli, "_resolve_skill_package", lambda _skill_id: _package(tmp_path / "workflow"))
+    monkeypatch.setattr(goal_cli, "diagnose_workflow", _spy)
+
+    await goal_cli._goal_declarative_doctor("--workflow he-elsewhere")
+
+    err = capsys.readouterr().err
+    assert "--workflow is ignored" in err
+    assert "[goal] doctor:" in err

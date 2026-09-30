@@ -41,13 +41,14 @@ from heagent.engine import (
 )
 from heagent.goal.decisions import DecisionAction, DecisionRecord, decision_store, new_decision_id
 from heagent.goal.document import _goal_document_path, _goal_record_user_response, _goal_user_responses
-from heagent.goal.workflow_loader import SkillWorkflowError
+from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
 from heagent.memory.skill_packages import (
     SkillCatalog,
     SkillCatalogError,
     SkillPackage,
     SkillResolver,
 )
+from heagent.pub.frontmatter import parse_strict_pairs, split_frontmatter
 from heagent.pub.persist import atomic_write_text
 from heagent.pub.workspace import WorkspacePaths
 
@@ -113,6 +114,83 @@ def resolve_skill_package(skill_id: str) -> SkillPackage | None:
     except (SkillCatalogError, ValueError, OSError) as exc:
         logger.debug("Skill package %r is unavailable under %s (%s)", skill_id, _GOAL_SKILLS_ROOT, exc)
         return None
+
+
+class WorkflowBinding(BaseModel):
+    """一个 goal 冻结的 workflow 绑定（Story 51-6，AD-4：跨模块状态用模型不传 dict）。
+
+    ``workflow_id`` 是 skill catalog 可解析的**包 id**；``revision`` 是创建时冻结的
+    revision（:func:`workflow_revision` 的声明或派生值），空串 = 创建时尚无冻结值
+    （存量 goal 兼容形态），恢复时不做 revision 比对。
+    """
+
+    workflow_id: str
+    revision: str = ""
+
+
+def read_workflow_binding(goal_dir: Path, default_workflow_id: str) -> WorkflowBinding:
+    """读取 goal 需求文档 frontmatter 里冻结的 workflow 绑定（**只读**，AD-8）。
+
+    - 文档声明了非空 ``workflow:`` 键 → 返回冻结值（``workflow_revision`` 缺键时落空串：
+      两键由创建路径一起写入，半键属手改，绑定 id 仍以声明为准、不发明 revision；
+      空串 revision 在恢复时**不比对漂移**——手改文档形态下冻结保证的显式兼容决定）；
+    - **反向半键（有 ``workflow_revision`` 无 ``workflow``）显性抛** :class:`ValueError`：
+      外来 revision 配到当前配置包上几乎必然误报漂移（指纹撞车则静默换包），拒绝猜测；
+    - **缺键（存量 goal）→ 兼容规则**绑定调用方注入的 ``default_workflow_id``（入口层取
+      ``Settings.goal_workflow_skill``，引擎面不认识任何具体包名，AD-13），**不写回原件**
+      ——只读路径改写会让并发读方互踩文档，且「隐式迁移」正是 AD-8 要挡的静默行为；
+    - frontmatter 解析复用 :mod:`heagent.pub.frontmatter`（架构契约
+      ``test_frontmatter_parsing_is_centralized``）；文档损坏（无 frontmatter / 键值非法）
+      显性抛 :class:`OSError` / :class:`ValueError`，不做静默兜底。
+    """
+    text = _goal_document_path(goal_dir).read_text(encoding="utf-8")
+    split = split_frontmatter(text)
+    if split is None:
+        # 存量文档没有 frontmatter（极老的 GOAL.md 形态）：同样走兼容绑定，不发明冻结值。
+        return WorkflowBinding(workflow_id=default_workflow_id)
+    values = parse_strict_pairs(split[0])
+    workflow_id = str(values.get("workflow", "")).strip().strip("\"'")
+    revision = str(values.get("workflow_revision", "")).strip().strip("\"'")
+    if revision and not workflow_id:
+        raise ValueError(
+            f"goal document declares 'workflow_revision' without the 'workflow' key; "
+            f"refusing to guess the bound package for goal '{goal_dir.name}'"
+        )
+    return WorkflowBinding(workflow_id=workflow_id or default_workflow_id, revision=revision)
+
+
+def resolve_bound_workflow(goal_dir: Path, default_workflow_id: str) -> WorkflowResource:
+    """按 goal 冻结的绑定解析 workflow；漂移 / 缺包 fail-loud（Story 51-6，AD-8）。
+
+    链路：:func:`read_workflow_binding` → ``resolve_skill_package``（缺包显性报错，文案含
+    缺的包 id）→ ``read_workflow`` + :func:`validate_goal_workflow` → 绑定 revision 非空时
+    与 :func:`workflow_revision` 的当前派生/声明值比对，不一致抛
+    :class:`~heagent.engine.WorkflowCheckpointError`（文案含两个 revision 与 goal id）。
+    空对空（存量 goal + 未声明 revision 的包）不比对——兼容规则不发明历史冻结值。
+    这样改配置（``Settings.goal_workflow_skill``）或改包内容都不会让运行中 goal 静默换流程。
+    """
+    binding = read_workflow_binding(goal_dir, default_workflow_id)
+    package = resolve_skill_package(binding.workflow_id)
+    if package is None:
+        raise WorkflowCheckpointError(
+            f"workflow package '{binding.workflow_id}' is unavailable under the skill library; "
+            f"goal '{goal_dir.name}' is bound to it and will not silently switch workflows"
+        )
+    try:
+        workflow = read_workflow(package, "workflow.md")
+        validate_goal_workflow(workflow)
+    except (SkillWorkflowError, ValueError, OSError) as exc:
+        raise WorkflowCheckpointError(
+            f"workflow '{binding.workflow_id}' bound by goal '{goal_dir.name}' is invalid: {exc}"
+        ) from exc
+    current = workflow_revision(package, workflow)
+    if binding.revision and current != binding.revision:
+        raise WorkflowCheckpointError(
+            f"workflow '{binding.workflow_id}' drifted since goal '{goal_dir.name}' was created: "
+            f"frozen revision {binding.revision}, current revision {current}; "
+            "restore the package (or its declared revision) before advancing this goal"
+        )
+    return workflow
 
 
 _CHECKPOINT_WORKSPACE_FILE = "checkpoint-workspace.txt"

@@ -1,7 +1,7 @@
 ---
 id: 51-6
 title: 多 workflow 模板与创建时冻结
-status: ready-for-dev
+status: done
 parent_epic: E51
 priority: P1
 depends_on: [51-4, 51-5]
@@ -48,20 +48,57 @@ created: '2026-09-29'
 
 ## 任务
 
-- [ ] 在声明模型与加载器补 `revision`（缺省由包内容推导，老包不声明不报错）。
-- [ ] 扩展创建命令与 Goal 元数据（冻结 id / revision）；补漂移阻断与旧 Goal 兼容。
-- [ ] 新增模板包（声明面主体）或最小可验证样例包，并复用 `SkillPackage` 完整性通道。
-- [ ] 补旧 Goal 兼容、漂移阻断和创建时冻结测试。
-- [ ] 记录「新增包 = `src/` 零改动」的实测证据。
-- [ ] 更新使用文档，说明 workflow 不可在运行中静默切换。
+- [x] 在声明模型与加载器补 `revision`（缺省由包内容推导，老包不声明不报错）。
+- [x] 扩展创建命令与 Goal 元数据（冻结 id / revision）；补漂移阻断与旧 Goal 兼容。
+- [x] 新增模板包（声明面主体）或最小可验证样例包，并复用 `SkillPackage` 完整性通道。
+- [x] 补旧 Goal 兼容、漂移阻断和创建时冻结测试。
+- [x] 记录「新增包 = `src/` 零改动」的实测证据。
+- [x] 更新使用文档，说明 workflow 不可在运行中静默切换。
 
-## 验证命令（规划，执行时亲跑；引用不存在的文件按实测更正）
+## 实测证据（2026-09-30）
+
+**「老 Goal 兼容规则绑定 `he-goal`」的口径说明**：`src/`（engine/ 与 goal/）不出现任何包名字面量
+（架构契约 `test_engine_and_goal_layers_hold_no_workflow_package_name_branches` 钉死）。兼容默认值由
+**入口层**从 `Settings.goal_workflow_skill`（默认值就是 `"he-goal"`，config/__init__.py:141）注入
+`resolve_bound_workflow(goal_dir, default_workflow_id)`——「绑定 he-goal」由这条配置默认值成立，
+换配置即换兼容绑定目标，引擎面零包名知识。
+
+**「新增包 = src/ 零改动」实测证据**：本 Story 新增 4 个包（`he-product` / `he-engineering` /
+`he-migration` / `he-security`，各含 SKILL.md + workflow.md + templates/{prompt,gate}-template.md）
+全程只新增声明目录，`src/` 改动仅为通用词汇（`revision` 字段 / `workflow_revision` 派生 / 绑定
+读取与漂移比对），无任何包名分支。测试另在 tmp skills 根合成第 5 个包，走
+catalog 发现 → `--workflow` 预检 → 冻结创建 → 按绑定恢复全链路
+（`tests/test_goal_workflow_selection.py::test_a_fifth_synthetic_package_needs_no_src_change`）。
+
+**51-4 递延接线**：`_goal_verify_report` 读取绑定 revision 传入 `verify_step(revision=...)`，
+递延台账已标注（`_bmad-output/implementation-artifacts/deferred-work.md`）。
+
+**用例统计（2026-09-30，实测）**：实现轮新增/改动 26 例（selection 20 + resources +5 +
+架构 +1）；三层审查合并修复轮再增 24 例（selection +18——含 13 例 dispatch 逐臂参数化、
+`--workflow=` 等号形态、重复旗标、反向半键、创建臂选择、外挂步骤漂移端到端；resources +5——
+frontmatter 指纹、sorted() 配方钉住、外挂步骤指纹×3；doctor +1——活动 goal 忽略 `--workflow`
+提示），合计 50 例。
+
+## 验证命令（2026-09-30 亲跑实测）
 
 ```bash
-pytest tests/test_goal_workflow_selection.py tests/test_workflow_resources.py tests/test_skill_packages.py -q
-pytest tests/test_goal_declarative_workflow.py tests/test_architecture_contracts.py -q
-ruff check src tests
-ruff format --check src tests
-mypy src
-mypy src --platform linux
+$ pytest tests/test_goal_workflow_selection.py tests/test_workflow_resources.py tests/test_skill_packages.py \
+    tests/test_goal_declarative_workflow.py tests/test_goal_quality_gates.py tests/test_goal_doctor.py \
+    tests/test_architecture_contracts.py -q
+247 passed, 2 skipped in 6.38s
+
+$ pytest tests/test_skill_package_integrity.py tests/test_workflow_runner.py tests/test_workflow_declarations.py -q
+64 passed in 0.61s
+
+$ pytest tests/ -q --ignore=tests/js   # 全量回归
+3529 passed, 14 skipped, 18 deselected in 212.07s
+
+$ ruff check src tests
+All checks passed!
+
+$ ruff format --check src tests
+305 files already formatted
+
+$ mypy src && mypy src --platform linux
+Success: no issues found in 161 source files（两次同结果）
 ```

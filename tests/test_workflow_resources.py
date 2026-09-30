@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from heagent.engine.workflow_resource import StepApproval
-from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
+from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
 from heagent.memory.skill_packages import SkillPackage
 
 
@@ -272,3 +272,172 @@ def test_approval_model_rejects_a_note_without_required() -> None:
     """模型自身是第二道门（loader 给更好的报错）：说明必须依附 required。"""
     with pytest.raises(ValidationError):
         StepApproval(note="说明")
+
+
+# ---- ``revision:`` 声明词汇（Story 51-6）---------------------------------------
+
+
+def test_loads_declared_revision_verbatim(tmp_path: Path) -> None:
+    """frontmatter 的 ``revision:`` 原样进入模型（声明 revision 的演示路径）。"""
+    package = _package(tmp_path, workflow='steps: [step-01-first.md, step-02-second.md]\nrevision: "1"\n')
+
+    workflow = read_workflow(package)
+
+    assert workflow.revision == "1"
+    # 声明路径：派生值 = 声明值原样返回。
+    assert workflow_revision(package, workflow) == "1"
+
+
+def test_undeclared_revision_defaults_to_empty(tmp_path: Path) -> None:
+    """缺省不报错、落空串（老包零行为变化），派生走内容摘要路径。"""
+    package = _package(tmp_path)
+
+    workflow = read_workflow(package)
+
+    assert workflow.revision == ""
+    derived = workflow_revision(package, workflow)
+    assert len(derived) == 16
+    int(derived, 16)  # 十六进制摘要
+    # 确定性：同一份包内容派生同一指纹。
+    assert workflow_revision(package, workflow) == derived
+
+
+def test_derived_revision_moves_with_workflow_body(tmp_path: Path) -> None:
+    """派生路径覆盖 workflow.md 正文：正文漂移 → 指纹变化。"""
+    package = _package(tmp_path)
+    before = workflow_revision(package, read_workflow(package))
+    (tmp_path / "workflow.md").write_text(
+        (tmp_path / "workflow.md").read_text(encoding="utf-8") + "\nDrifted.\n", encoding="utf-8"
+    )
+
+    assert workflow_revision(package, read_workflow(package)) != before
+
+
+def test_derived_revision_covers_required_resources(tmp_path: Path) -> None:
+    """派生路径覆盖 required_resources 声明的模板：模板漂移 → 指纹变化。"""
+    package = _package(
+        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nrequired_resources: prompt-template.md\n"
+    )
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "prompt-template.md").write_text("PLAN {goal}\n", encoding="utf-8")
+    before = workflow_revision(package, read_workflow(package))
+    (templates / "prompt-template.md").write_text("CHANGED {goal}\n", encoding="utf-8")
+
+    assert workflow_revision(package, read_workflow(package)) != before
+
+
+def test_derived_revision_covers_frontmatter_fields(tmp_path: Path) -> None:
+    """指纹哈希 ``workflow.md`` 全文（含 frontmatter）：仅改声明字段 → 指纹必变（51-6 审查 M2）。
+
+    变异判据：改 ``checkpoint_mode`` / ``name`` 这样的纯 frontmatter 字段若不触发漂移，
+    冻结绑定的「包漂移 fail-loud」就会漏掉策略声明被篡改的形态。
+    """
+    package = _package(tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\ncheckpoint_mode: auto\n")
+    before = workflow_revision(package, read_workflow(package))
+
+    (tmp_path / "workflow.md").write_text(
+        "---\nname: demo\nsteps: [step-01-first.md, step-02-second.md]\ncheckpoint_mode: prompt\n---\n\n# Demo\n",
+        encoding="utf-8",
+    )
+    after_checkpoint_mode = workflow_revision(package, read_workflow(package))
+    assert after_checkpoint_mode != before
+
+    (tmp_path / "workflow.md").write_text(
+        "---\nname: renamed\nsteps: [step-01-first.md, step-02-second.md]\ncheckpoint_mode: prompt\n---\n\n# Demo\n",
+        encoding="utf-8",
+    )
+    assert workflow_revision(package, read_workflow(package)) not in {before, after_checkpoint_mode}
+
+
+def test_template_digest_order_is_sorted_not_declaration_order(tmp_path: Path) -> None:
+    """``required_resources`` 的模板按**排序后**顺序入哈希，与声明顺序解耦（51-6 审查 M2）。
+
+    「同内容仅声明顺序不同 → 同指纹」在指纹层面不可观察（workflow.md 全文入哈希，声明
+    顺序变化必然改变文本），故按同一配方手工复算指纹钉住 sorted() 语义：实现若改成按
+    声明顺序哈希模板，本测试即红。声明顺序在这里刻意取逆字母序。用**内联步骤**的包，
+    使配方里没有外挂步骤文件条目（M1 扩展不掺入）。
+    """
+    import hashlib
+
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "workflow.md").write_text(
+        "---\nname: inline\n"
+        "required_resources: prompt-template.md, gate-template.md\n"  # 故意逆字母序声明
+        "---\n\n# Inline\n\n## Step 01: only\ninput: x\noutput: y\n\nDo it.\n",
+        encoding="utf-8",
+    )
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "prompt-template.md").write_text("P", encoding="utf-8")
+    (templates / "gate-template.md").write_text("G", encoding="utf-8")
+    package = SkillPackage(skill_id="inline", root=tmp_path)
+
+    hasher = hashlib.sha256()
+    hasher.update((tmp_path / "workflow.md").read_text(encoding="utf-8").encode("utf-8"))
+    for name in ("gate-template.md", "prompt-template.md"):  # sorted 顺序，非声明顺序
+        hasher.update(b"\x00")
+        hasher.update((templates / name).read_text(encoding="utf-8").encode("utf-8"))
+
+    assert workflow_revision(package, read_workflow(package)) == hasher.hexdigest()[:16]
+
+
+def test_derived_revision_covers_declared_step_files(tmp_path: Path) -> None:
+    """派生路径覆盖 ``steps:`` 声明的外挂步骤文件：步骤正文漂移 → 指纹变化（51-6 审查 M1）。"""
+    package = _package(tmp_path)
+    before = workflow_revision(package, read_workflow(package))
+    (tmp_path / "step-01-first.md").write_text(
+        "---\ninput: brief\noutput: plan\nnext: step-02-second.md\ncheckpoint: user\nvalidation: has plan\n"
+        "---\n\nFirst drifted",
+        encoding="utf-8",
+    )
+
+    assert workflow_revision(package, read_workflow(package)) != before
+
+
+def test_derived_revision_covers_discovered_step_files(tmp_path: Path) -> None:
+    """自动发现形态（无 ``steps:`` 声明）同样覆盖：改步骤文件 → 指纹变化（51-6 审查 M1）。"""
+    package = _package(tmp_path, workflow="")
+    before = workflow_revision(package, read_workflow(package))
+    (tmp_path / "step-02-second.md").write_text(
+        "---\ninput: plan\noutput: code\n---\n\nSecond drifted", encoding="utf-8"
+    )
+
+    assert workflow_revision(package, read_workflow(package)) != before
+
+
+def test_inline_step_packages_keep_their_fingerprint_scope(tmp_path: Path) -> None:
+    """全内联步骤的包不追加步骤条目：根目录多出的散落 step 文件不改变指纹（冻结值语义兼容）。"""
+    tmp_path.mkdir(exist_ok=True)
+    (tmp_path / "workflow.md").write_text(
+        "---\nname: inline\n---\n\n# Inline\n\n## Step 01: only\ninput: x\noutput: y\n\nDo it.\n",
+        encoding="utf-8",
+    )
+    package = SkillPackage(skill_id="inline", root=tmp_path)
+    before = workflow_revision(package, read_workflow(package))
+    (tmp_path / "step-09-stray.md").write_text("---\ninput: x\noutput: y\n---\n\nStray", encoding="utf-8")
+
+    assert workflow_revision(package, read_workflow(package)) == before
+
+
+def test_derived_revision_detects_a_pinned_resource_drift(tmp_path: Path) -> None:
+    """模板经 manifest 钉住后内容漂移：``workflow_revision`` 的摘要通道读取即显性失败，不产指纹。"""
+    import hashlib
+    import json
+
+    package = _package(
+        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nrequired_resources: prompt-template.md\n"
+    )
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "prompt-template.md").write_text("PLAN {goal}\n", encoding="utf-8")
+    digest = hashlib.sha256((templates / "prompt-template.md").read_bytes()).hexdigest()
+    (tmp_path / "manifest.json").write_text(
+        json.dumps({"outputs": {"templates/prompt-template.md": digest}}), encoding="utf-8"
+    )
+    workflow = read_workflow(package)  # 装载时模板与 manifest 一致
+    (templates / "prompt-template.md").write_text("TAMPERED {goal}\n", encoding="utf-8")
+
+    # loader 的必需性检查把摘要漂移报成「missing or blank」；直接走派生通道拿到原始摘要错。
+    with pytest.raises(Exception, match="content hash differs"):
+        workflow_revision(package, workflow)

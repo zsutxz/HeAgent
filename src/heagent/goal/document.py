@@ -77,20 +77,31 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
 
 
-def _goal_document(description: str, goal_id: str) -> str:
+def _goal_document(description: str, goal_id: str, workflow_id: str = "", workflow_revision: str = "") -> str:
     """Create the goal requirement document: the durable record of what was asked.
 
     Only the original request is known at creation time. The derived summary is
     written by step 01 after its initial analysis, so it starts as an explicit
     placeholder rather than an invented summary.
+
+    ``workflow_id`` / ``workflow_revision``（Story 51-6，AD-8）：非空时以 frontmatter
+    ``workflow:`` / ``workflow_revision:`` 两键**冻结**创建时选定的流程包与 revision；
+    只在创建路径写入（调用方算好传入，本函数保持纯文本生成），缺省不落键——存量文档
+    与旧调用方行为逐字不变。
     """
     title = " ".join(description.split())
+    frozen = ""
+    if workflow_id:
+        frozen += f"workflow: {workflow_id}\n"
+    if workflow_revision:
+        frozen += f"workflow_revision: {workflow_revision}\n"
     return (
         "---\n"
         f"id: goal-{goal_id}\n"
         "type: requirement\n"
         "status: draft\n"
         f"title: {title}\n"
+        f"{frozen}"
         "---\n\n"
         f"# {title}\n\n"
         "## 原始需求（Original Request）\n\n"

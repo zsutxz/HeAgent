@@ -101,6 +101,35 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 每个步骤或 Story 都启动新的 SubAgent/RunContext。上下文窗口重置、ledger 幂等、PolicyEngine、工具
 执行和 OS 沙箱属于运行机制；它们不决定 Epic/Story 如何拆分。
 
+### 选择与冻结 workflow 包（Story 51-6）
+
+除默认包（`GOAL_WORKFLOW_SKILL`，缺省 `he-goal`）外，还可以选择其他 workflow 包创建 goal：
+
+```text
+/goal new <目标> --workflow he-product      # 或别名 product / engineering / migration / security
+/goal doctor --workflow he-migration        # 无活动 goal 时预检任选包
+```
+
+随包发布的模板包：`he-product`（需求→范围→验收口径）、`he-engineering`（方案→实现→验证，
+frontmatter 显式声明 `revision: "1"`）、`he-migration`（盘点→映射→迁移→回滚预案）、
+`he-security`（面收集→评估→处置）。新增一个包只需在 `.heagent/skills/<id>/` 放
+`SKILL.md + workflow.md + templates/{prompt,gate}-template.md`，**不需要改 `src/`**。
+
+**冻结与漂移（AD-8）**：创建时把选定的包 id 与 revision（包 frontmatter 声明的 `revision`，
+未声明时由 `workflow.md` + `required_resources` 模板 + 外挂 `step-NN-*.md` 步骤文件内容派生的
+sha256 摘要前 16 位；全内联步骤的包不追加步骤条目，指纹取值不变）写进 goal
+需求文档的 frontmatter（`workflow:` / `workflow_revision:` 两键）。此后所有作用于该 goal 的
+命令（advance/run/status/verify/pause/resume/approve/reject/amend/decisions/auto/doctor/cron）
+都按这份绑定解析 workflow——**workflow 不可在运行中静默切换**：
+
+- 改 `GOAL_WORKFLOW_SKILL` 不影响已创建的 goal（改配置不换流程）。一个显性例外：当前配置
+  的包**存在但声明非法**时，入口预校验会显性失败并挡住全部 `/goal` 命令——即使活动 goal
+  绑定的是另一个合法包（配置包指向的声明本身必须可装载）；
+- 包内容漂移（未声明 revision 的包被编辑，含外挂 `step-NN-*.md` 步骤文件）后，推进/恢复
+  显性报错（文案含冻结与当前两个 revision 及 goal id），先还原包内容或推进其声明 revision；
+- 绑定的包被卸载时同样显性报错；存量 goal 的文档没有这两个键时按兼容规则绑定
+  `GOAL_WORKFLOW_SKILL` 的当前值，且只读路径不改写原件。
+
 ### 产物布局
 
 ```text

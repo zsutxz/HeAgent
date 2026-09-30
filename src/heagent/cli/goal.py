@@ -40,7 +40,9 @@ from heagent.goal.application import (
     external_checkpoint_dir,
     initialize_checkpoint_workspace,
     pause_resume,
+    read_workflow_binding,
     record_decision,
+    resolve_bound_workflow,
 )
 from heagent.goal.application import (
     resolve_skill_package as _resolve_skill_package,
@@ -76,7 +78,7 @@ from heagent.goal.evidence import (
 from heagent.goal.naming import llm_project_id
 from heagent.goal.quality_gates import verify_step
 from heagent.goal.status_view import project_status_view
-from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
+from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
 from heagent.pub.persist import atomic_write_text, file_lock
 from heagent.pub.types import ToolCall, ToolResult
 from heagent.pub.workspace import WorkspacePaths
@@ -409,9 +411,15 @@ async def _goal_declarative_new(
     workflow: WorkflowResource,
     description: str,
     *,
+    workflow_id: str = "",
+    workflow_revision: str = "",
     cron_store: JobStore | None = None,
 ) -> None:
-    """Create the minimum durable declarative-goal identity, then run step one."""
+    """Create the minimum durable declarative-goal identity, then run step one.
+
+    ``workflow_id`` / ``workflow_revision`` 由调用方算好传入（Story 51-6，AD-8）：创建时把
+    选定的流程包 id 与 revision 冻结进需求文档 frontmatter；本函数只落盘，不做选择。
+    """
     previous = _goal_declarative_active_dir()
     base_id = await llm_project_id(provider, description)
     workspace = WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd())
@@ -426,7 +434,9 @@ async def _goal_declarative_new(
         _echo("[goal] unable to allocate a unique project goal id", err=True)
         return
     try:
-        goal_document = _goal_document(description, goal_id)
+        goal_document = _goal_document(
+            description, goal_id, workflow_id=workflow_id, workflow_revision=workflow_revision
+        )
         _goal_document_title(goal_document)
         atomic_write_text(_goal_document_path(goal_dir), goal_document)
         paths = WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd())
@@ -440,19 +450,54 @@ async def _goal_declarative_new(
     await _goal_declarative_advance(provider, engine, workflow)
 
 
-async def _goal_declarative_doctor(workflow: WorkflowResource) -> None:
+async def _goal_declarative_doctor(args: str = "") -> None:
     """Run the read-only preflight and render its structured report.
 
-    The checkpoint directory is resolved from the active goal (legacy goals keep a
-    local directory; new goals persist a workspace binding). Without an active goal
-    the workflow and its role packages are still checked — the preflight never
-    invents a target path just to have something to probe.
+    预检对象（Story 51-6）：有活动 goal 时预检该 goal **冻结绑定**的包（AD-8——doctor 看
+    的是运行中 goal 的真实流程，不看当前配置）；无活动 goal 时支持用 ``--workflow <包id>``
+    任选一个包预检（缺省预检 ``Settings.goal_workflow_skill``）。``diagnose_workflow``
+    本身与包名无关，语义不变。checkpoint 目录仍从活动 goal 解析（老 goal 本地目录、新 goal
+    工作区绑定）；没有活动 goal 时只查 workflow 及其角色包——预检绝不发明目标路径。
     """
-    package = _goal_workflow_package()
-    if package is None:
-        _echo("[goal] doctor: workflow package is unavailable", err=True)
+    try:
+        leftover, option = _goal_workflow_option(args)
+    except ValueError as exc:
+        _echo(f"[goal] doctor: {exc}", err=True)
+        return
+    if leftover:
+        _goal_usage()
         return
     goal_dir = _goal_declarative_active_dir()
+    workflow: WorkflowResource | None = None
+    if goal_dir is not None:
+        if option:
+            # 有活动 goal 时预检的是冻结绑定的包（AD-8）：显性提示选项被忽略，不静默失效。
+            _echo(
+                "[goal] doctor: the active goal is preflighted against its frozen binding; --workflow is ignored",
+                err=True,
+            )
+        try:
+            binding = read_workflow_binding(goal_dir, get_settings().goal_workflow_skill)
+            package = _resolve_skill_package(binding.workflow_id)
+            if package is None:
+                _echo(f"[goal] doctor: workflow package is unavailable: {binding.workflow_id}", err=True)
+                return
+            workflow = resolve_bound_workflow(goal_dir, get_settings().goal_workflow_skill)
+        except (WorkflowCheckpointError, OSError, ValueError) as exc:
+            _echo(f"[goal] doctor: {exc}", err=True)
+            return
+    else:
+        skill_id = option or get_settings().goal_workflow_skill
+        package = _resolve_skill_package(skill_id)
+        if package is None:
+            _echo(f"[goal] doctor: workflow package is unavailable: {skill_id}", err=True)
+            return
+        try:
+            workflow = read_workflow(package, "workflow.md")
+            _validate_goal_workflow(workflow)
+        except (SkillWorkflowError, OSError, ValueError) as exc:
+            _echo(f"[goal] doctor: declarative workflow configuration is invalid: {exc}", err=True)
+            return
     try:
         checkpoint_dir = checkpoint_store(goal_dir).base_dir if goal_dir is not None else None
         report = diagnose_workflow(workflow, package, _resolve_skill_package, checkpoint_dir=checkpoint_dir)
@@ -581,19 +626,6 @@ def _render_decision_records(records: list[DecisionRecord]) -> None:
         if record.raw_text:
             line += f": {_decision_display_text(record.raw_text)}"
         _echo(line, err=True)
-    if not records:
-        _echo("[goal] decisions: none recorded yet", err=True)
-        return
-    _echo(f"[goal] decisions: {len(records)} record(s), oldest first", err=True)
-    for record in records:
-        line = (
-            f"[goal] {record.created_at} {record.action.value} step={record.step or '-'}"
-            + (f" story={record.story_id}" if record.story_id else "")
-            + f" status={record.workflow_status.value} decision={record.decision_id[:8]}"
-        )
-        if record.raw_text:
-            line += f": {_decision_display_text(record.raw_text)}"
-        _echo(line, err=True)
 
 
 # ── /goal verify 与结构化完成门（Story 51-4）───────────────────────────────
@@ -634,8 +666,14 @@ async def _goal_verify_report(
     的实时查询（仓库不可用返回空证据：变更集为空，git 子句与 ``git-changes`` 门照实
     显性未过）；步骤输出 = 已持久化的步骤产物（section 门禁复验的输入，缺失由求值器
     显性记未过）。workspace 经 :func:`_goal_verify_workspace`（唯一解析点，review #1）。
+    ``revision`` = goal 创建时冻结的绑定 revision（Story 51-6 收口 51-4 递延接线）：受控
+    重跑写下的证据带同一 revision，绑定漂移的证据在求值范围里被显性排除（AD-5/AD-8）。
     """
     workspace = _goal_verify_workspace(engine)
+    try:
+        binding = read_workflow_binding(goal_dir, get_settings().goal_workflow_skill)
+    except (OSError, ValueError) as exc:
+        raise EvidenceError(f"goal workflow binding is unreadable: {exc}") from exc
     return await verify_step(
         step,
         store=evidence_store(goal_dir),
@@ -643,6 +681,7 @@ async def _goal_verify_report(
         story_id=story.id if story is not None else None,
         workspace=workspace,
         workflow_id=workflow.name,
+        revision=binding.revision,
         output_text=await _goal_step_output_text(goal_dir, step, story),
         git_evidence=await _goal_live_git_evidence(workspace),
         rerun=rerun,
@@ -872,6 +911,109 @@ async def _goal_declarative_auto(
     _echo(f"[goal] declarative auto registered: {job.id} workflow={workflow.name}", err=True)
 
 
+def _goal_workflow_option(args: str) -> tuple[str, str]:
+    """拆出字符串参数里的 ``--workflow <包id>``（或 ``--workflow=<包id>``）选项；返回 ``(剩余文本, 包 id)``。
+
+    ``new``（含裸 ``/goal <描述>`` 兜底）与 ``doctor`` 的选项口径：``--workflow`` 后必须
+    紧跟包 id（``=`` 形态直接内联），缺参显性报错（不做静默兜底）；重复给出显性报错
+    （静默取第一个会把第二个连同包 id 留在描述里）。描述文本恰含 ``--workflow`` token 时
+    会按选项解析而显性失败——可接受的 fail-loud（usage 已注明）。未给出时包 id 为空串，
+    由调用方回退 ``Settings.goal_workflow_skill``。剩余文本还原为空格连接（描述语义不变）。
+    """
+    tokens = args.split()
+    indices = [index for index, word in enumerate(tokens) if word == "--workflow" or word.startswith("--workflow=")]
+    if not indices:
+        return args, ""
+    if len(indices) > 1:
+        raise ValueError("--workflow may be given at most once")
+    index = indices[0]
+    word = tokens[index]
+    if word.startswith("--workflow="):
+        package_id = word.removeprefix("--workflow=")
+        if not package_id:
+            raise ValueError("--workflow requires a package id")
+        remaining = tokens[:index] + tokens[index + 1 :]
+    else:
+        if index + 1 >= len(tokens):
+            raise ValueError("--workflow requires a package id")
+        package_id = tokens[index + 1]
+        remaining = tokens[:index] + tokens[index + 2 :]
+    return " ".join(remaining), package_id
+
+
+async def _goal_resolve_bound() -> tuple[Path, WorkflowResource] | None:
+    """解析活动 goal 的目录与其冻结绑定的 workflow；失败渲染用户可见错误并返回 ``None``。
+
+    所有**作用于既有 goal** 的命令经此取流程（Story 51-6，AD-8）：漂移 / 缺包 / 配置非法
+    在此显性失败，绝不静默换流程。默认包 id 由入口注入（``Settings.goal_workflow_skill``）。
+    """
+    goal_dir = _goal_declarative_active_dir()
+    if goal_dir is None:
+        _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+        return None
+    try:
+        return goal_dir, resolve_bound_workflow(goal_dir, get_settings().goal_workflow_skill)
+    except (WorkflowCheckpointError, OSError, ValueError) as exc:
+        _echo(f"[goal] workflow binding failed: {exc}", err=True)
+        return None
+
+
+async def _goal_start_new(
+    provider: BaseProvider,
+    engine: EngineContainer | None,
+    args: str,
+    *,
+    cron_store: JobStore | None = None,
+) -> None:
+    """``/goal new``（含裸描述兜底）：解析 ``--workflow`` → 显性校验包 → 冻结创建。
+
+    选定的包不存在或声明非法都显性失败（不静默回退默认包）；revision 由
+    :func:`workflow_revision` 在**创建前**算出，与包 id 一起冻结进需求文档（AD-8）。
+    """
+    try:
+        description, option = _goal_workflow_option(args)
+    except ValueError as exc:
+        _echo(f"[goal] {exc}", err=True)
+        return
+    if not description:
+        _goal_usage()
+        return
+    skill_id = option or get_settings().goal_workflow_skill
+    if not skill_id:
+        # 显式置空是配置错误：pathlib 丢弃空段会拼出 catalog 永远解析不到的
+        # ``.heagent/skills/workflow.md``，故单独提示，不走「包不存在」文案。
+        _echo(
+            "[goal] workflow.md is required: GOAL_WORKFLOW_SKILL is set to an empty package id; "
+            "unset it or set a valid skill package id.",
+            err=True,
+        )
+        return
+    package = _resolve_skill_package(skill_id)
+    if package is None:
+        hint = (
+            f"create {_GOAL_SKILLS_ROOT / skill_id / 'workflow.md'} "
+            "(with a SKILL.md declaring its canonical_id) to configure goal execution"
+        )
+        _echo(f"[goal] workflow.md is required: workflow package '{skill_id}' is unavailable; {hint}", err=True)
+        return
+    try:
+        workflow = read_workflow(package, "workflow.md")
+        _validate_goal_workflow(workflow)
+        revision = workflow_revision(package, workflow)
+    except (SkillWorkflowError, OSError, ValueError) as exc:
+        _echo(f"[goal] declarative workflow configuration is invalid: {exc}", err=True)
+        return
+    await _goal_declarative_new(
+        provider,
+        engine,
+        workflow,
+        description,
+        workflow_id=skill_id,
+        workflow_revision=revision,
+        cron_store=cron_store,
+    )
+
+
 _GOAL_SUBCOMMAND_NAMES = (
     "new",
     "next",
@@ -907,65 +1049,89 @@ def _goal_typo_subcommand(args: str) -> str | None:
 async def _goal_declarative_dispatch(
     provider: BaseProvider,
     engine: EngineContainer | None,
-    workflow: WorkflowResource,
     args: str,
     *,
     cron_store: JobStore | None,
 ) -> None:
-    """Route the supported /goal commands without touching the legacy board."""
+    """Route the supported /goal commands without touching the legacy board.
+
+    作用于**既有 goal** 的命令（advance/run/status/verify/pause/resume/approve/reject/
+    amend/decisions/auto/doctor）一律经 :func:`_goal_resolve_bound` 按 goal 冻结的绑定解析
+    流程（Story 51-6，AD-8：改配置不让运行中 goal 静默换流程）；``new``（含裸描述兜底）经
+    :func:`_goal_start_new` 在创建时冻结选定的包 id 与 revision。
+    """
     parts = args.split(None, 1)
     head = parts[0].lower() if parts else ""
     rest = parts[1].strip() if len(parts) > 1 else ""
     if not parts:
-        await _goal_declarative_status(workflow)
+        resolved = await _goal_resolve_bound()
+        if resolved is not None:
+            await _goal_declarative_status(resolved[1])
     elif head == "new":
         if not rest:
             _goal_usage()
         else:
             async with _goal_mutex():
-                await _goal_declarative_new(provider, engine, workflow, rest, cron_store=cron_store)
-    elif head in ("next", "status", "reset", "run", "pause", "doctor", "decisions") and rest:
+                await _goal_start_new(provider, engine, rest, cron_store=cron_store)
+    elif head in ("next", "status", "reset", "run", "pause", "decisions") and rest:
         _goal_usage()
     elif head == "next":
         async with _goal_mutex():
-            await _goal_declarative_advance(provider, engine, workflow)
+            resolved = await _goal_resolve_bound()
+            if resolved is not None:
+                await _goal_declarative_advance(provider, engine, resolved[1])
     elif head == "run":
-        await _goal_declarative_run(provider, engine, workflow)
+        resolved = await _goal_resolve_bound()
+        if resolved is not None:
+            await _goal_declarative_run(provider, engine, resolved[1])
     elif head == "status":
-        await _goal_declarative_status(workflow)
+        resolved = await _goal_resolve_bound()
+        if resolved is not None:
+            await _goal_declarative_status(resolved[1])
     elif head == "doctor":
-        await _goal_declarative_doctor(workflow)
+        await _goal_declarative_doctor(rest)
     elif head == "verify":
         if rest and rest != "run":
             _goal_usage()
         else:
-            await _goal_declarative_verify(workflow, engine, args=rest)
+            resolved = await _goal_resolve_bound()
+            if resolved is not None:
+                await _goal_declarative_verify(resolved[1], engine, args=rest)
     elif head == "pause":
-        await _goal_declarative_pause_resume(workflow, resume=False)
+        resolved = await _goal_resolve_bound()
+        if resolved is not None:
+            await _goal_declarative_pause_resume(resolved[1], resume=False)
     elif head == "resume":
         async with _goal_mutex():
-            if await _goal_declarative_pause_resume(workflow, resume=True, response=rest):
-                await _goal_declarative_advance(provider, engine, workflow)
+            resolved = await _goal_resolve_bound()
+            if resolved is not None and await _goal_declarative_pause_resume(resolved[1], resume=True, response=rest):
+                await _goal_declarative_advance(provider, engine, resolved[1])
     elif head == "approve":
         if rest:
             _goal_usage()
         else:
-            await _goal_declarative_decision(
-                workflow, "", action=DecisionAction.APPROVE, provider=provider, engine=engine
-            )
+            resolved = await _goal_resolve_bound()
+            if resolved is not None:
+                await _goal_declarative_decision(
+                    resolved[1], "", action=DecisionAction.APPROVE, provider=provider, engine=engine
+                )
     elif head in ("reject", "amend"):
         if not rest:
             _goal_usage()
         else:
-            await _goal_declarative_decision(
-                workflow,
-                rest,
-                action=DecisionAction.REJECT if head == "reject" else DecisionAction.AMEND,
-                provider=provider,
-                engine=engine,
-            )
+            resolved = await _goal_resolve_bound()
+            if resolved is not None:
+                await _goal_declarative_decision(
+                    resolved[1],
+                    rest,
+                    action=DecisionAction.REJECT if head == "reject" else DecisionAction.AMEND,
+                    provider=provider,
+                    engine=engine,
+                )
     elif head == "decisions":
-        await _goal_declarative_decisions(workflow)
+        resolved = await _goal_resolve_bound()
+        if resolved is not None:
+            await _goal_declarative_decisions(resolved[1])
     elif head == "audit":
         _echo("[goal] audit subcommand has been removed; supported subcommands are listed below.", err=True)
         _goal_usage()
@@ -973,13 +1139,15 @@ async def _goal_declarative_dispatch(
         async with _goal_mutex():
             _goal_reset()
     elif head == "auto":
-        await _goal_declarative_auto(workflow, rest, cron_store)
+        resolved = await _goal_resolve_bound()
+        if resolved is not None:
+            await _goal_declarative_auto(resolved[1], rest, cron_store)
     elif (intended := _goal_typo_subcommand(args)) is not None:
         _echo(f"[goal] unknown subcommand {args.strip()!r}; did you mean `/goal {intended}`?", err=True)
         _goal_usage()
     else:
         async with _goal_mutex():
-            await _goal_declarative_new(provider, engine, workflow, args.strip(), cron_store=cron_store)
+            await _goal_start_new(provider, engine, args.strip(), cron_store=cron_store)
 
 
 def _goal_usage() -> None:
@@ -988,9 +1156,17 @@ def _goal_usage() -> None:
         "/goal 用法：\n"
         "  /goal <目标描述>      新建 goal 并执行 planning 规程\n"
         "  /goal new <目标描述>  同上（显式 new 形式）\n"
+        "  /goal new <描述> --workflow <包id>（或 --workflow=<包id>）\n"
+        "                        指定 workflow 包创建（缺省 GOAL_WORKFLOW_SKILL）；包 id 与 revision\n"
+        "                        在创建时冻结，运行中改配置不换流程（既有 goal 按冻结绑定执行；\n"
+        "                        例外：当前配置包存在但声明非法时，入口预校验显性失败会挡住全部\n"
+        "                        命令——包括绑定另一合法包的活动 goal）。描述文本恰含 --workflow\n"
+        "                        时按选项解析并显性报错，不会吞进描述\n"
         "  /goal next            推进下一条 story（每步全新会话）\n"
         "  /goal status          查看进度\n"
-        "  /goal doctor          检查工作流及角色技能包\n"
+        "  /goal doctor [--workflow <包id>]\n"
+        "                        预检工作流及角色技能包（有活动 goal 预检绑定的包；无活动 goal\n"
+        "                        时 --workflow 任选包，缺省预检配置的包）\n"
         "  /goal verify [run]    按声明子句复核证据（run = 受控重跑声明的验证命令）\n"
         "  /goal approve         批准等待审批的步骤（唯一能把该步标记完成的路径）\n"
         "  /goal reject <原因>   驳回等待审批的工作（步骤未完成，修订后 /goal resume 重跑）\n"
@@ -1089,7 +1265,11 @@ def _goal_auto_goal_id(prompt: str) -> str | None:
 async def _goal_cron_advance(
     provider: BaseProvider, engine: EngineContainer | None, store: JobStore, goal_id: str
 ) -> None:
-    """Run one scheduled goal step under the same process lock as manual commands."""
+    """Run one scheduled goal step under the same process lock as manual commands.
+
+    cron 与手动命令同一解析口径（Story 51-6，AD-8）：推进的是 goal **冻结绑定**的
+    workflow，不读当前配置——配置换包后 cron 仍按绑定推进或显性失败，绝不静默换流程。
+    """
     try:
         async with _goal_mutex():
             current = _goal_active_md()
@@ -1099,19 +1279,15 @@ async def _goal_cron_advance(
                     _echo(f"[goal] auto 已收口：goal {goal_id} 已非当前 goal，注销 {removed} 个 job。", err=True)
                 return
             try:
-                declarative_workflow = _goal_declarative_workflow()
-            except ValueError as exc:
+                declarative_workflow = resolve_bound_workflow(current.parent, get_settings().goal_workflow_skill)
+            except (WorkflowCheckpointError, OSError, ValueError) as exc:
                 _echo(f"[goal] auto stopped: {exc}", err=True)
                 _goal_auto_remove(store, goal_id)
                 return
-            if declarative_workflow is not None:
-                outcome = await _goal_declarative_advance(provider, engine, declarative_workflow)
-                if outcome in {_GOAL_DONE, _GOAL_FAILED}:
-                    removed = _goal_auto_remove(store, goal_id)
-                    _echo(f"[goal] declarative auto closed: goal {goal_id}, removed {removed} job(s)", err=True)
-                return
-            _echo("[goal] auto stopped: workflow.md is required; legacy goal fallback is unavailable", err=True)
-            _goal_auto_remove(store, goal_id)
+            outcome = await _goal_declarative_advance(provider, engine, declarative_workflow)
+            if outcome in {_GOAL_DONE, _GOAL_FAILED}:
+                removed = _goal_auto_remove(store, goal_id)
+                _echo(f"[goal] declarative auto closed: goal {goal_id}, removed {removed} job(s)", err=True)
     except OSError:
         # 另一进程正持 goal 锁：显性失败并提示，cron 下一 tick 自动重试。
         _echo("[goal] 另一进程正在推进 goal（锁等待超时）；本 tick 跳过，下一 tick 自动重试。", err=True)
@@ -1145,32 +1321,22 @@ async def _goal_runner_inner(  # noqa: C901
     *,
     cron_store: JobStore | None = None,
 ) -> None:
-    """分发器内核（sink 绑定由 :func:`_goal_runner` 负责，不要直接调用）。"""
+    """分发器内核（sink 绑定由 :func:`_goal_runner` 负责，不要直接调用）。
+
+    settings 声明的 workflow 在此**预校验**（声明非法显性失败，缝被 sink 测试钉住）；包
+    未安装时不再整体短路——真正的流程选择分两条路，各自显性失败：既有 goal 走冻结绑定
+    （:func:`resolve_bound_workflow`），``new`` 走选定包（:func:`_goal_start_new`）。
+    """
     try:
-        declarative_workflow = _goal_declarative_workflow()
+        _goal_declarative_workflow()
     except ValueError as exc:
         _echo(f"[goal] {exc}", err=True)
         return
-    if declarative_workflow is not None:
-        try:
-            await _goal_declarative_dispatch(provider, engine, declarative_workflow, args, cron_store=cron_store)
-        except OSError:
-            # 跨进程文件锁等待超时：显性失败（显性失败原则，不静默降级）。
-            _echo(
-                "[goal] 另一进程正在推进同一 goal（.heagent/goal.lock 等待超时）；本次未执行，请稍后重试。",
-                err=True,
-            )
-        return
-    skill_id = get_settings().goal_workflow_skill
-    if skill_id:
-        hint = f"Create {_GOAL_SKILLS_ROOT / skill_id / 'workflow.md'} (with a SKILL.md declaring its canonical_id) "
-        "to configure goal execution."
-    else:
-        # 显式置空不会早于此崩溃（resolve("") 被捕获返回 None）；pathlib 丢弃空段会拼出
-        # catalog 永远解析不到的 ``.heagent/skills/workflow.md``，故单独提示配置错误。
-        hint = "GOAL_WORKFLOW_SKILL is set to an empty package id; unset it or set a valid skill package id."
-    _echo(
-        "[goal] workflow.md is required; the legacy story-board flow has been removed. " + hint,
-        err=True,
-    )
-    return
+    try:
+        await _goal_declarative_dispatch(provider, engine, args, cron_store=cron_store)
+    except OSError:
+        # 跨进程文件锁等待超时：显性失败（显性失败原则，不静默降级）。
+        _echo(
+            "[goal] 另一进程正在推进同一 goal（.heagent/goal.lock 等待超时）；本次未执行，请稍后重试。",
+            err=True,
+        )

@@ -172,6 +172,10 @@ class WorkflowResource(BaseModel):
     name: str
     instructions: str
     steps: list[WorkflowStepResource]
+    # workflow 的 revision（Story 51-6）：包 frontmatter 可显式声明；未声明时空串 = 由包内容
+    # 推导（派生点唯一在 ``goal/workflow_loader.workflow_revision``）。声明与派生两条路都只是
+    # 「提供被冻结的值」——创建时冻结、恢复时比对是引擎不变量（AD-8），本模型不承载比对。
+    revision: str = ""
     entrypoint: str = ""
     on_create: str = "persist_goal_identity"
     step_executor: str = "subagent"

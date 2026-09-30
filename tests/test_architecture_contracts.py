@@ -853,6 +853,62 @@ def test_pyproject_does_not_declare_a_dead_pytest_benchmark_table() -> None:
     assert "--benchmark-autosave" in text, "注释里必须写清「基准落盘要显式带的旗标」"
 
 
+#: 工作流包名的静态兜底名单：派生通道（SKILL.md 读盘）失效（目录缺失等）时判据不致漏空。
+_STATIC_WORKFLOW_PACKAGE_NAMES = ("he-goal", "he-product", "he-engineering", "he-migration", "he-security")
+
+
+def _workflow_package_names() -> tuple[str, ...]:
+    """从 ``.heagent/skills/*/SKILL.md`` frontmatter 派生 goal workflow 包名（canonical_id + aliases）。
+
+    只取 ``he-*`` 的 canonical id——goal workflow 包遵循技能目录的 ``he-*`` canonical 约定
+    （bmad-* 是别名形态的普通技能，其 workflow.md 不是 goal 工作流）。新增包自动入列；
+    静态五名保留为兜底并集。aliases 是短词（如 ``product`` / ``security``），故扫描按
+    **词边界**匹配——``engine/ledger.py`` 的 ``usedforsecurity=False`` 是合法标识符，
+    子串匹配会误报。
+    """
+    names: set[str] = set(_STATIC_WORKFLOW_PACKAGE_NAMES)
+    skills_root = TARGET_ROOT / ".heagent" / "skills"
+    if not skills_root.is_dir():
+        return tuple(sorted(names))
+    from heagent.pub.frontmatter import parse_strict_pairs, split_frontmatter  # noqa: PLC0415
+
+    for skill_md in sorted(skills_root.glob("*/SKILL.md")):
+        split = split_frontmatter(skill_md.read_text(encoding="utf-8"))
+        if split is None:
+            continue
+        values = parse_strict_pairs(split[0])
+        canonical = values.get("canonical_id", "").strip()
+        if not canonical.startswith("he-"):
+            continue
+        names.add(canonical)
+        aliases = values.get("aliases", "").strip().strip("[]")
+        names.update(alias.strip().strip("\"'") for alias in aliases.split(",") if alias.strip())
+    return tuple(sorted(names))
+
+
+def test_engine_and_goal_layers_hold_no_workflow_package_name_branches() -> None:
+    """Story 51-6（AD-13/AD-14）：engine/ 与 goal/ 源码不得出现工作流包名分支字面量。
+
+    「绑定哪个包」只能是数据（goal 文档里冻结的 ``workflow:`` 键、入口注入的
+    ``Settings.goal_workflow_skill``），不能烧进引擎层——出现包名字面量即「为某个包开
+    专用分支」的回潮。application.py 的 ``_GOAL_SKILLS_ROOT`` 是路径不是分支，不在此列；
+    入口层（cli）的用户可见提示文案允许出现包 id，不在扫描范围。
+
+    banned 名单从 ``.heagent/skills/*/SKILL.md`` 的 canonical_id + aliases **派生**（新增包
+    自动入列，静态五名兜底），aliases 短词按词边界匹配（见
+    :func:`_workflow_package_names`）。
+    """
+    banned = _workflow_package_names()
+    pattern = re.compile(r"\b(?:" + "|".join(re.escape(name) for name in banned) + r")\b")
+    offenders: list[str] = []
+    for package in ("engine", "goal"):
+        for path in sorted(_package_modules(package)):
+            text = path.read_text(encoding="utf-8")
+            for match in pattern.finditer(text):
+                offenders.append(f"{path.relative_to(SRC)} -> {match.group(0)}")
+    assert offenders == [], "工作流包名分支字面量进了引擎层：" + ", ".join(offenders)
+
+
 def test_workflow_state_writes_go_through_the_transition_table() -> None:
     """Story 51-2 AC-6：src/ 中 workflow 状态赋值必须经唯一转换表，禁止直写。
 
