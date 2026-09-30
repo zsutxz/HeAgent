@@ -91,6 +91,9 @@ class StorySpec(BaseModel):
     id: str = Field(min_length=1)
     summary: str = ""
     epic: str = ""
+    depends_on: list[str] = Field(default_factory=list)
+    parallel_group: str = ""
+    write_set: list[str] = Field(default_factory=list)
 
 
 _STORY_ID = re.compile(r"^(?:story|s)[-_ ]?(\d+)$", re.IGNORECASE)
@@ -110,6 +113,7 @@ _EPIC_HEADING = re.compile(
     r"^#{1,6}\s+(?:epic[-_ ]*(?:e[-_ ]?)?|e[-_ ]?)(?P<epic>\d+)(?=$|[\s:：\-—.．])",
     re.IGNORECASE,
 )
+_STORY_METADATA = re.compile(r"^[-*]?\s*\*{0,2}(depends_on|parallel_group|write_set)\*{0,2}\s*[:：]\s*(.*?)\s*$", re.I)
 _EPIC_FIELD = re.compile(
     r"(?:父\s*Epic|parent[-_ ]*epic|epic_id)\s*\**\s*[:：]\s*\**\s*(?P<epic>e[-_ ]?\d+|\d+)(?![A-Za-z0-9])",
     re.IGNORECASE,
@@ -156,6 +160,29 @@ def _story_table_entry(stripped: str) -> tuple[str, str, str] | None:
         epic_hint = _normalize_epic_id(cells[1])
         summary = next((cell for cell in reversed(cells[2:]) if cell), summary)
     return match.group("id"), summary, epic_hint
+
+
+def _story_metadata(lines: list[str], start: int, end: int) -> dict[str, Any]:
+    """Read declarations scoped to a story heading; other list shapes are unscoped."""
+    metadata: dict[str, Any] = {}
+    for line in lines[start + 1 : end]:
+        if re.match(r"^#{1,6}\s", line.strip()):
+            break
+        match = _STORY_METADATA.match(line.strip())
+        if match is None:
+            continue
+        key, value = match.groups()
+        key = key.lower()
+        if key in metadata:
+            raise WorkflowGateError(f"duplicate story declaration: {key}")
+        if key == "parallel_group":
+            metadata[key] = value.strip()
+        elif key == "depends_on":
+            refs = [part.strip() for part in value.strip("[]").split(",") if part.strip()]
+            metadata[key] = [_normalize_story_id(ref) for ref in refs]
+        else:
+            metadata[key] = [part.strip() for part in value.strip("[]").split(",") if part.strip()]
+    return metadata
 
 
 def parse_story_list(text: str) -> list[StorySpec]:
@@ -231,7 +258,9 @@ def parse_story_list(text: str) -> list[StorySpec]:
         epic = epic_hint or next((value for field_index, value in epic_fields if index < field_index < end), "")
         if not epic:
             epic = next((value for heading_index, value in reversed(epic_headings) if heading_index < index), "")
-        specs.append(StorySpec(id=story_id, summary=summary, epic=epic))
+        # Only a scoped heading owns metadata; a table or list cannot authorize parallelism.
+        metadata = _story_metadata(lines, index, end) if ranks[story_id] == 0 else {}
+        specs.append(StorySpec(id=story_id, summary=summary, epic=epic, **metadata))
     return sorted(specs, key=_story_sort_key)
 
 
@@ -265,6 +294,8 @@ class WorkflowRunnerState(BaseModel):
     # 脚本步骤声明的后续声明步骤计划（Story 51-7）：FIFO，由 run_declared_step 消费。持久化
     # 进 checkpoint，使「条件选择了哪些后续步骤」在进程重启后仍可确定恢复。
     requested_steps: list[str] = Field(default_factory=list)
+    # Per-batch approved membership; persisted so a restart cannot enlarge a past decision.
+    story_batches: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class WorkflowStepResult(BaseModel):
@@ -363,6 +394,7 @@ class WorkflowRunner:
             pending_output=checkpoint.pending_output,
             approval_round=checkpoint.approval_round,
             requested_steps=list(checkpoint.requested_steps),
+            story_batches={key: list(value) for key, value in checkpoint.story_batches.items()},
         )
         kwargs.setdefault("phase", checkpoint.phase)
         return cls(workflow, state, goal_id=checkpoint.goal_id, run_id=checkpoint.run_id, **kwargs)
@@ -381,7 +413,7 @@ class WorkflowRunner:
         if len(set(self.state.completed_stories)) != len(self.state.completed_stories):
             raise ValueError("completed story ids must be unique")
 
-    async def run_step(
+    async def run_step(  # noqa: C901 - story-loop safety gates share the single runner transition point
         self,
         callback: WorkflowCallback | StoryWorkflowCallback,
         *,
@@ -418,6 +450,14 @@ class WorkflowRunner:
         except WorkflowGateError as exc:
             return await self._stop(WorkflowStatus.BLOCKED, step, str(exc), [], checkpoint)
         active_story: StorySpec | None = None
+        if (
+            is_story_loop
+            and story_specs
+            and not (step.max_parallel_stories > 1 and all(story.epic for story in story_specs))
+        ):
+            blocked = await self._blocked_story_dependency(step, story_specs, checkpoint)
+            if blocked is not None:
+                return blocked
         if is_story_loop:
             if step.max_parallel_stories > 1 and story_specs and all(story.epic for story in story_specs):
                 started = time.perf_counter()
@@ -620,8 +660,15 @@ class WorkflowRunner:
         epic = remaining[0].epic
         if not epic:
             raise WorkflowGateError("parallel story execution requires every scheduled story to declare an Epic")
-        batch = [story for story in remaining if story.epic == epic][: step.max_parallel_stories]
-        active_ids = [story.id for story in batch]
+        batch, active_ids = self._decide_story_batch(remaining, story_specs, step, emit)
+        if not batch:
+            return await self._stop(
+                WorkflowStatus.BLOCKED,
+                step,
+                f"story '{remaining[0].id}' has incomplete or unknown dependencies",
+                [],
+                checkpoint,
+            )
         statuses = {**self.state.story_statuses, **{story_id: "running" for story_id in active_ids}}
         self.state = self.state.model_copy(
             update={
@@ -1005,6 +1052,62 @@ class WorkflowRunner:
             )
         return specs
 
+    async def _blocked_story_dependency(
+        self, step: WorkflowStepResource, specs: list[StorySpec], checkpoint: CheckpointCallback | None
+    ) -> WorkflowRunResult | None:
+        current = specs[self.state.story_index]
+        if all(dependency in self.state.completed_stories for dependency in current.depends_on):
+            return None
+        return await self._stop(
+            WorkflowStatus.BLOCKED,
+            step,
+            f"story '{current.id}' has incomplete or unknown dependencies",
+            [],
+            checkpoint,
+        )
+
+    def _decide_story_batch(
+        self,
+        remaining: list[StorySpec],
+        specs: list[StorySpec],
+        step: WorkflowStepResource,
+        emit: Callable[..., None] | None,
+    ) -> tuple[list[StorySpec], list[str]]:
+        batch = self._safe_story_batch(remaining, specs, step.max_parallel_stories)
+        if not batch or batch[0].id != remaining[0].id:
+            return [], []
+        approved = self.state.story_batches.get(remaining[0].id)
+        if approved is not None:
+            batch = [story for story in batch if story.id in approved]
+            if not batch or batch[0].id != remaining[0].id:
+                batch = [remaining[0]]
+        active_ids = [story.id for story in batch]
+        decisions = {**self.state.story_batches, remaining[0].id: active_ids}
+        self.state = self.state.model_copy(update={"story_batches": decisions})
+        _emit_step_event(
+            emit,
+            "workflow_story_batch_decided",
+            step=step,
+            story=None,
+            selected=active_ids,
+            candidates=[story.id for story in remaining],
+            reason="declared_disjoint_writes" if len(batch) > 1 else "serial_or_unknown",
+        )
+        return batch, active_ids
+
+    @staticmethod
+    def _safe_story_batch(remaining: list[StorySpec], all_specs: list[StorySpec], limit: int) -> list[StorySpec]:
+        """Conservatively schedule one Story; metadata is not an isolation boundary."""
+        first = remaining[0]
+        known = {story.id: story for story in all_specs}
+        completed = set(known) - {story.id for story in remaining}
+        if any(dep not in completed for dep in first.depends_on):
+            return []
+        # A declared write set is not an execution boundary. Even disjoint
+        # declarations cannot prove callbacks won't write the same shared file.
+        # One Story per checkpoint until an enforceable isolated executor exists.
+        return [first]
+
     @staticmethod
     def _is_story_step(step: WorkflowStepResource) -> bool:
         return bool(step.story_loop and step.story_loop.strip())
@@ -1060,6 +1163,7 @@ class WorkflowRunner:
             pending_output=self.state.pending_output,
             approval_round=self.state.approval_round,
             requested_steps=list(self.state.requested_steps),
+            story_batches={key: list(value) for key, value in self.state.story_batches.items()},
             artifact_refs=list(self.state.outputs),
             outputs=dict(self.state.outputs),
             acceptance_evidence=list(self.state.acceptance_evidence),

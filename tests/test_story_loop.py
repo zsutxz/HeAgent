@@ -22,10 +22,10 @@ STORIES = [
 ]
 
 PARALLEL_STORIES = [
-    StorySpec(id="S-1", summary="One", epic="E1"),
-    StorySpec(id="S-2", summary="Two", epic="E1"),
-    StorySpec(id="S-3", summary="Three", epic="E1"),
-    StorySpec(id="S-4", summary="Other Epic", epic="E2"),
+    StorySpec(id="S-1", summary="One", epic="E1", parallel_group="g", write_set=["src/a.py"]),
+    StorySpec(id="S-2", summary="Two", epic="E1", parallel_group="g", write_set=["src/b.py"]),
+    StorySpec(id="S-3", summary="Three", epic="E1", parallel_group="g", write_set=["src/c.py"]),
+    StorySpec(id="S-4", summary="Other Epic", epic="E2", parallel_group="g", write_set=["src/d.py"]),
 ]
 
 
@@ -100,13 +100,16 @@ async def test_parallel_story_loop_batches_one_epic_and_keeps_epics_serial() -> 
 
     first = await runner.run_step(callback, stories=PARALLEL_STORIES)
     assert first.status is WorkflowStatus.PENDING
-    assert peak == 2
-    assert seen == ["S-1", "S-2"]
+    assert peak == 1
+    assert seen == ["S-1"]
     second = await runner.run_step(callback, stories=PARALLEL_STORIES)
     assert second.status is WorkflowStatus.PENDING
-    assert seen == ["S-1", "S-2", "S-3"]
+    assert seen == ["S-1", "S-2"]
     third = await runner.run_step(callback, stories=PARALLEL_STORIES)
-    assert third.status is WorkflowStatus.COMPLETED
+    assert third.status is WorkflowStatus.PENDING
+    assert seen == ["S-1", "S-2", "S-3"]
+    fourth = await runner.run_step(callback, stories=PARALLEL_STORIES)
+    assert fourth.status is WorkflowStatus.COMPLETED
     assert seen == ["S-1", "S-2", "S-3", "S-4"]
 
 
@@ -126,14 +129,14 @@ async def test_parallel_batch_emits_per_story_events() -> None:
 
     await runner.run_step(_story_callback([]), stories=PARALLEL_STORIES, emit=emit)
 
-    batch_level = [kind for kind, details in events if details["story"] == ""]
+    batch_level = [
+        kind for kind, details in events if details["story"] == "" and kind != "workflow_story_batch_decided"
+    ]
     assert batch_level == ["workflow_step_started", "workflow_step_completed"]  # 整批一条
     per_story = [(kind, details["story"]) for kind, details in events if details["story"] != ""]
     assert per_story == [
         ("workflow_step_started", "S-1"),
         ("workflow_step_completed", "S-1"),
-        ("workflow_step_started", "S-2"),
-        ("workflow_step_completed", "S-2"),
     ]
     for _kind, details in events:
         assert isinstance(details["duration_ms"], int)
@@ -157,6 +160,7 @@ async def test_parallel_batch_failed_story_reports_its_own_failure_event() -> No
         return WorkflowStepResult(output=f"impl {story.id}")
 
     await runner.run_step(callback, stories=PARALLEL_STORIES, emit=emit)
+    await runner.run_step(callback, stories=PARALLEL_STORIES, emit=emit)
 
     failed = [details for kind, details in events if kind == "workflow_step_failed"]
     assert [details["story"] for details in failed] == ["S-2"]
@@ -173,6 +177,7 @@ async def test_parallel_story_failure_isolated_and_checkpointed() -> None:
             raise RuntimeError("broken story")
         return WorkflowStepResult(output=f"impl {story.id}")
 
+    await runner.run_step(callback, stories=PARALLEL_STORIES)
     result = await runner.run_step(callback, stories=PARALLEL_STORIES)
     assert result.status is WorkflowStatus.FAILED
     assert runner.state.story_statuses["S-1"] == "completed"
@@ -193,11 +198,11 @@ async def test_parallel_story_checkpoint_restore_does_not_repeat_completed_batch
 
     assert (await runner.run_step(callback, stories=PARALLEL_STORIES)).status is WorkflowStatus.PENDING
     checkpoint = (await store.list_checkpoints(goal_id="goal"))[-1]
-    assert checkpoint.completed_stories == ["S-1", "S-2"]
+    assert checkpoint.completed_stories == ["S-1"]
     assert checkpoint.story_statuses["S-1"] == "completed"
     restored = WorkflowRunner.from_checkpoint(workflow, checkpoint, checkpoint_store=store)
     assert (await restored.run_step(callback, stories=PARALLEL_STORIES)).status is WorkflowStatus.PENDING
-    assert seen == ["S-1", "S-2", "S-3"]
+    assert seen == ["S-1", "S-2"]
 
 
 @pytest.mark.asyncio

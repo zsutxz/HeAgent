@@ -949,7 +949,7 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
   `goal_id` 由 LLM 命名（`goal/naming.py` 一次性 provider 调用生成 kebab-case 名，清洗/校验/`-a`..`-z`
   去重为代码内确定性逻辑）；调用失败或输出非法时 stderr 显性提示并回退固定名 `project`。
   id 字符集锁定 `^[a-z][a-z-]*$`（current 指针校验、cron prompt 解析、旧 job 注销匹配三处下游依赖）。
-- `/goal next` 执行一个声明步骤，`story_loop`（当前为 `02-epics.md`）步骤则每次执行一条 Story；`/goal run` 可连续推进，遇到检查点、
+- `/goal next` 执行一个声明步骤，`story_loop`（当前为 `02-epics.md`）步骤每次只执行一条 Story；即使声明了 `parallel_group` / `write_set`，当前宿主执行器也保持 fail-closed 串行，因为自声明写集不是实际写入隔离边界。每条 Story 完成后先持久化其 checkpoint / evidence，再允许下一条进入；`/goal run` 可连续推进，遇到检查点、
   阻塞或失败即停止。
 - `/goal status` 只读回显运行状态和目标产物；`/goal reset` 只清除 current 指针并保留目标目录。
 - `/goal verify [run]`（Story 51-4）：按步骤 `validation:` 的结构化子句求值——`goal/quality_gates.py`

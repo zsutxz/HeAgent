@@ -85,6 +85,8 @@ class WorkflowCheckpoint(BaseModel):
     # （AD-2 修订版允许追加可选字段，active_epic / awaiting_approval 同款先例）。**必须持久化**：
     # 分支选择若只活在内存里，进程重启后会退回声明顺序，「可确定恢复」就此失效。
     requested_steps: list[str] = Field(default_factory=list)
+    # Approved story batch membership by first story id; absent in old snapshots.
+    story_batches: dict[str, list[str]] = Field(default_factory=dict)
     next_action: str = ""
     tool_in_flight: bool = False
     created_at: str = Field(default_factory=_iso_now)

@@ -557,8 +557,13 @@ async def test_parallel_story_batch_gates_after_completing_and_clears_story_fiel
     """并发批次（审查 #10/#7）：批完挂门、story 簿记清场（决策不归因 story）、approve 放行。"""
     step = _approval_step(story_loop="stories", max_parallel_stories=2)
     runner = WorkflowRunner(_workflow(step, _plain_step(2)))
-    stories = [StorySpec(id="S-1", epic="E1"), StorySpec(id="S-2", epic="E1")]
+    stories = [
+        StorySpec(id="S-1", epic="E1", parallel_group="g", write_set=["src/a.py"]),
+        StorySpec(id="S-2", epic="E1", parallel_group="g", write_set=["src/b.py"]),
+    ]
 
+    result = await runner.run_step(_complete, stories=stories)
+    assert result.status is WorkflowStatus.PENDING
     result = await runner.run_step(_complete, stories=stories)
 
     assert result.status is WorkflowStatus.WAITING_USER
@@ -580,7 +585,11 @@ async def test_rejected_parallel_batch_reruns_its_stories_instead_of_skipping_th
     """并发批次 reject 后重跑：批次从第一条 story 重新执行，重做完再次挂门（不跳过门）。"""
     step = _approval_step(story_loop="stories", max_parallel_stories=2)
     runner = WorkflowRunner(_workflow(step, _plain_step(2)))
-    stories = [StorySpec(id="S-1", epic="E1"), StorySpec(id="S-2", epic="E1")]
+    stories = [
+        StorySpec(id="S-1", epic="E1", parallel_group="g", write_set=["src/a.py"]),
+        StorySpec(id="S-2", epic="E1", parallel_group="g", write_set=["src/b.py"]),
+    ]
+    await runner.run_step(_complete, stories=stories)
     await runner.run_step(_complete, stories=stories)
     runner.reject("不行")
     executed: list[str] = []
@@ -590,6 +599,7 @@ async def test_rejected_parallel_batch_reruns_its_stories_instead_of_skipping_th
         return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=f"out-{story.id}")
 
     runner.resume()
+    await runner.run_step(counting, stories=stories)
     await runner.run_step(counting, stories=stories)
 
     assert sorted(executed) == ["S-1", "S-2"]
