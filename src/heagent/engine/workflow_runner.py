@@ -472,8 +472,15 @@ class WorkflowRunner:
         except BaseException as exc:
             self._absorb_step_exception(exc)
             if active_story is not None:
+                # 取消（可恢复，步骤落 PENDING）与失败（FAILED）的 story 状态如实区分，
+                # 不与步骤状态表矛盾（评审 LOW）；取消没有独立状态值，用事件词汇表。
+                story_status = (
+                    WorkflowEvent.CANCELLED.value
+                    if isinstance(exc, asyncio.CancelledError)
+                    else WorkflowStatus.FAILED.value
+                )
                 self.state = self.state.model_copy(
-                    update={"story_statuses": {**self.state.story_statuses, active_story.id: "failed"}}
+                    update={"story_statuses": {**self.state.story_statuses, active_story.id: story_status}}
                 )
             _emit_step_event(
                 emit,
@@ -484,6 +491,7 @@ class WorkflowRunner:
                 error_kind=error_kind_for(exc),
                 error=str(exc),
             )
+            await self._persist_interrupted(step, checkpoint)
             raise
         _emit_step_event(
             emit,
@@ -607,7 +615,7 @@ class WorkflowRunner:
     def _absorb_step_exception(self, exc: BaseException) -> None:
         """异常/取消经唯一转换表落状态，不用直写掩盖（51-2）。
 
-        串行与并行 story 批次两条路径共用同一语义：取消走 CANCELLED，
+        串行 story 路径使用：取消走 CANCELLED，
         其余 BaseException 走 EXECUTOR_FAILED；``str(exc)`` 为空（如无参
         CancelledError）时以事件名兜底，避免空 reason 抹掉可追溯性。
         """
@@ -615,6 +623,25 @@ class WorkflowRunner:
         self.state = self.state.model_copy(
             update={"status": transition(self.state.status, event), "reason": str(exc) or event.value}
         )
+
+    async def _persist_interrupted(self, step: WorkflowStepResource, checkpoint: CheckpointCallback | None) -> None:
+        """异常路径转换后的状态落盘（51-2 评审递延，51-8 收口）。
+
+        转换只改内存时，最后一个 checkpoint 仍是 PENDING/RUNNING——重启 restore 会把
+        FAILED/CANCELLED「复活」成可继续的状态。best-effort：落盘失败（含取消打断）只记
+        日志、不替换原异常（观测与恢复不得改变业务控制流）；``asyncio.shield`` 让取消
+        场景下落盘仍在后台尝试完成。
+        """
+        try:
+            await asyncio.shield(self._persist(step, checkpoint))
+        except asyncio.CancelledError:
+            safe_log(
+                logger,
+                logging.WARNING,
+                "checkpoint persistence after interruption was cancelled; state may resurrect on restore",
+            )
+        except Exception as exc:  # noqa: BLE001
+            safe_log(logger, logging.WARNING, f"checkpoint persistence after interruption failed: {exc}", exc_info=True)
 
     def _active_step_resource(self) -> WorkflowStepResource:
         return self.workflow.steps[min(self.state.active_step, len(self.workflow.steps) - 1)]

@@ -1145,8 +1145,9 @@ Phase 5 C1：+`duration_ms`/`error_kind`；旧 rollout 缺省读、新字段被�
 | `provider_call_started` / `provider_call_completed` | `agent/loop.py` | `message_count,estimated_tokens` / `model,finish_reason,actual_tokens` | completed 带 duration（中间件链整体） |
 | `tool_call_started` / `tool_call_completed` / `tool_call_failed` / `tool_call_blocked` | `engine/executor.py`（`_emit_tool_event` 单点） | `mode`（+sandbox_profile/tier）/`content_length`/`error`/`reason` | completed/failed 带 duration；failed 带 error_kind |
 | `context_compressed` / `window_reset` | `agent/context_runtime.py` | `before,after` | — |
-| `workflow_step_started` / `workflow_step_completed` / `workflow_step_failed` | `engine/workflow_runner`（`emit` 注入端口，缺省 None=不发） | `step,story`（+`result`/`error`） | 三种带 duration；failed 带 error_kind。并发批次（`max_parallel_stories>1`）除批级一条（`story` 空）外，**批内每条 story 各发一组**（2026-09-23 起，`story` 非空） |
+| `workflow_step_started` / `workflow_step_completed` / `workflow_step_failed` | `engine/workflow_runner`（`emit` 注入端口，缺省 None=不发） | `step,story`（+`result`/`error`） | 三种带 duration；failed 带 error_kind。Story 循环固定一次一条（51-8 fail-closed），每条 story 的执行各发一组（`story` 非空） |
 | `workflow_approved` / `workflow_rejected` / `workflow_amended` | `engine/workflow_runner`（审批决策方法，Story 51-5） | `step`（+`reason`：拒绝理由 / 修订补充） | — |
+| `workflow_gate_evaluated` | `cli/goal.py`（`_emit_goal_gate_event`，Story 51-8 收口 51-4 递延） | `step,story,source,verdict,failed,clause_errors,rerun,rerun_evidence,reused_commands` | 完成门（`source=completion_gate`）与 `/goal verify`（`source=verify_run`）每次结构化求值各发一条，带 duration；emit 异常隔离 |
 | `dream_start` / `dream_end`、`cron_job_*` | `memory/dream.py`、`cron/scheduler.py`（开集现状收编） | `success` 等 | — |
 | `assistant_message`（传输层补充） | `events/sink.py` | `content` | — |
 

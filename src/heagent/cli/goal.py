@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import click
 
@@ -83,6 +83,7 @@ from heagent.goal.script_runtime import GoalScriptRuntimeError, ScriptRuntime
 from heagent.goal.status_view import project_status_view
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
 from heagent.pub.persist import atomic_write_text, file_lock
+from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import ToolCall, ToolResult
 from heagent.pub.workspace import WorkspacePaths
 
@@ -548,6 +549,44 @@ def _workflow_event_emitter(engine: EngineContainer | None) -> Callable[[str], N
     return emit
 
 
+def _emit_goal_gate_event(
+    engine: EngineContainer | None,
+    *,
+    source: Literal["completion_gate", "verify_run"],
+    step: Any,
+    story: Any,
+    report: VerificationReport,
+    duration_ms: int,
+    rerun: bool,
+) -> None:
+    """质量门求值的观测事件（51-4 递延「emit 接线」收口）。
+
+    ``workflow_gate_evaluated`` 与 runner 的 ``workflow_step_*`` 同走 ``engine.events`` 总线；
+    emit 异常隔离（对齐 ``WorkflowRunner._emit_step_event``）：可观测性不得改变业务控制流。
+    ``engine=None``（部分库消费者）不发事件。
+    """
+    emit: Callable[..., None] | None = _workflow_event_emitter(engine)
+    if emit is None:
+        return
+    try:
+        # details 构造也在隔离内：step/story 是宿主鸭子契约，属性访问故障不得传播进业务流（评审 LOW）。
+        details: dict[str, Any] = {
+            "step": step.name,
+            "story": story.id if story is not None else "",
+            "source": source,
+            "verdict": "passed" if report.passed else "failed",
+            "failed": len(report.failed),
+            "clause_errors": len(report.errors),
+            "rerun": rerun,
+            "rerun_evidence": list(report.rerun_evidence),
+            "reused_commands": list(report.reused_commands),
+            "duration_ms": int(duration_ms),
+        }
+        emit("workflow_gate_evaluated", details=details)
+    except Exception:  # noqa: BLE001
+        safe_log(logger, logging.WARNING, "workflow gate event emit failed; ignored", exc_info=True)
+
+
 async def _goal_declarative_advance(
     provider: BaseProvider,
     engine: EngineContainer | None,
@@ -845,15 +884,17 @@ async def _goal_verify_report(
     goal_dir: Path,
     *,
     rerun: bool,
+    rerun_policy: Literal["always", "if_stale"] = "always",
 ) -> VerificationReport:
-    """求值一个步骤 / Story 的结构化子句（``/goal verify`` 与完成门共用同一次实现）。
+    """求值一个步骤 / Story 的 ``validation:`` 子句（``/goal verify`` 与完成门共用同一次实现）。
 
     证据 = ``<goal_dir>/evidence/``（唯一位置解析点）；产物 = 工作区文件；Git = 只读端口
     的实时查询（仓库不可用返回空证据：变更集为空，git 子句与 ``git-changes`` 门照实
     显性未过）；步骤输出 = 已持久化的步骤产物（section 门禁复验的输入，缺失由求值器
     显性记未过）。workspace 经 :func:`_goal_verify_workspace`（唯一解析点，review #1）。
     ``revision`` = goal 创建时冻结的绑定 revision（Story 51-6 收口 51-4 递延接线）：受控
-    重跑写下的证据带同一 revision，绑定漂移的证据在求值范围里被显性排除（AD-5/AD-8）。
+    重跑写下的证据带同一 revision，绑定漂移的证据随求值范围显性排除（AD-5/AD-8）。
+    ``rerun_policy`` 透传 :func:`verify_step`（完成门 always / verify run if_stale）。
     """
     workspace = _goal_verify_workspace(engine)
     try:
@@ -871,6 +912,7 @@ async def _goal_verify_report(
         output_text=await _goal_step_output_text(goal_dir, step, story),
         git_evidence=await _goal_live_git_evidence(workspace),
         rerun=rerun,
+        rerun_policy=rerun_policy,
         run_command=_goal_verify_command_runner(engine) if rerun else None,
     )
 
@@ -892,10 +934,20 @@ async def _goal_structured_gate(
     """
     if not step.validation_clauses.declared:
         return ""
+    started = time.perf_counter()
     try:
         report = await _goal_verify_report(engine, workflow, step, story, goal_dir, rerun=True)
     except (EvidenceError, OSError) as exc:
         return f"quality gate failed for step '{step.name}': gate evaluation error: {exc}"
+    _emit_goal_gate_event(
+        engine,
+        source="completion_gate",
+        step=step,
+        story=story,
+        report=report,
+        duration_ms=max(int((time.perf_counter() - started) * 1000), 0),
+        rerun=True,
+    )
     if report.passed:
         return ""
     for line in report.render():
@@ -948,11 +1000,32 @@ async def _goal_declarative_verify(
         # 跨模块数据用引擎模型（AD-4）：StorySpec 的 (id, epic) 即 `_goal_step_artifact_path`
         # 消费的鸭子契约；不用裸 SimpleNamespace（review #13）。
         story = StorySpec(id=story_id, epic=runner.state.active_epic) if story_id else None
+        started = time.perf_counter()
         try:
-            report = await _goal_verify_report(engine, workflow, step, story, goal_dir, rerun=args == "run")
+            report = await _goal_verify_report(
+                engine,
+                workflow,
+                step,
+                story,
+                goal_dir,
+                rerun=args == "run",
+                # 51-4 递延「重复执行」收口：verify run 只补缺/失败/过期证据；完成门刚写下的
+                # 新鲜成功证据复用不重跑（复用清单显性进报告）。verify 不重跑实现步骤，
+                # 两次求值之间没有步骤执行，新鲜证据仍然有效。
+                rerun_policy="if_stale",
+            )
         except (EvidenceError, OSError) as exc:
             _echo(f"[goal] verify failed: {exc}", err=True)
             return
+        _emit_goal_gate_event(
+            engine,
+            source="verify_run",
+            step=step,
+            story=story,
+            report=report,
+            duration_ms=max(int((time.perf_counter() - started) * 1000), 0),
+            rerun=args == "run",
+        )
         for line in report.render():
             _echo(line, err=True)
 
@@ -1003,6 +1076,11 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
     声明命令在**工作区根**执行（review #1）：``_workspace_cd_prefix`` 的 ``cd`` 前缀包装
     （git.py ``_run_git`` 的 ``cwd=workspace_root()`` 先例；不改 sandbox ``CommandRunner``
     契约）。证据 ``cwd`` 记 :func:`_goal_verify_workspace` 的同一取值——与求值器期望值同源。
+
+    台账审计（51-4 递延「ledger 接线」收口）：每次受治理执行在 ``ExecutionLedger`` 留一条
+    ``scope="goal-verify"`` 记录（outcome / duration 进 metadata）。键含唯一 call id——只
+    审计、**不去重**：verify 重跑是显性请求，永远允许再次执行。台账故障只记日志，绝不
+    阻断治理执行（观测不得改变业务控制流）。
     """
     from heagent.tools.registry import ToolRegistry  # noqa: PLC0415
     from heagent.tools.safety import SafetyGuard  # noqa: PLC0415
@@ -1017,12 +1095,14 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
             "timeout": _VERIFY_COMMAND_TIMEOUT_SECONDS,
         },
     )
+    ledger_key = f"goal-verify:{call.id}"
     run_context = engine.create_run_context(metadata={"purpose": "/goal verify controlled re-run"})
     registry = ToolRegistry.get()
     handler = registry.get_handler("shell")
     if handler is None:
         missing = ToolResult(tool_call_id=call.id, content="shell tool is not registered", is_error=True)
         return build_command_evidence(call, missing, cwd=str(workspace), outcome=CommandOutcome.POLICY_BLOCKED)
+    # handler 缺席的早退在前：没有真实治理执行就不留台账记录。
     verdict = engine.policy.evaluate_tool_call(call, context=run_context, schema=registry.get_schema("shell"))
     executable = cast("Callable[..., Any]", handler)
 
@@ -1034,13 +1114,20 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
 
     # 容器构造期快照优先（review #22），缺席（手工构造的容器）才回退现场解析。
     runtime = engine.runtime_config or resolve_runtime_config()
-    result = await engine.executor.execute(
-        call=call,
-        verdict=verdict,
-        guard=SafetyGuard(blocked_tools=list(runtime.safety_blocked_tools)),
-        handler=invoke,
-        run_context=run_context,
-    )
+    # acquire 挪到执行紧前：evaluate / get_schema / resolve_runtime_config 抛错不留悬挂 RUNNING
+    # （评审 M-2）；执行本体（execute → complete/fail）全部罩进配对的 try。
+    ledger_acquired = await _verify_ledger_acquire(engine, ledger_key, command)
+    try:
+        result = await engine.executor.execute(
+            call=call,
+            verdict=verdict,
+            guard=SafetyGuard(blocked_tools=list(runtime.safety_blocked_tools)),
+            handler=invoke,
+            run_context=run_context,
+        )
+    except BaseException as exc:
+        await _verify_ledger_fail(engine, ledger_key, ledger_acquired, str(exc) or type(exc).__name__)
+        raise
     duration_ms = max(int((time.perf_counter() - started) * 1000), 0)
     if verdict.mode in {ToolExecutionMode.BLOCKED, ToolExecutionMode.APPROVAL_REQUIRED}:
         outcome = CommandOutcome.POLICY_BLOCKED
@@ -1049,7 +1136,54 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
             outcome = classify_command_result(result)
         except EvidenceError:
             outcome = CommandOutcome.POLICY_BLOCKED
+    # 命令失败（非零退出）≠ 执行失败：受治理执行本身完成，outcome 如实进 metadata。
+    # command 并入 complete 的 metadata（ledger.complete 整体替换 metadata，评审 M-1）：
+    # 审计记录必须能回答「哪条声明命令被受治理执行过」。
+    await _verify_ledger_complete(
+        engine, ledger_key, ledger_acquired, command=command, outcome=outcome.value, duration_ms=duration_ms
+    )
     return build_command_evidence(call, result, cwd=str(workspace), duration_ms=duration_ms, outcome=outcome)
+
+
+async def _verify_ledger_acquire(engine: EngineContainer, key: str, command: str) -> bool:
+    """受治理重跑的台账审计起点。观测不得阻断治理执行：任何台账故障只记日志，执行照常。
+
+    键含唯一 call id（``goal-verify:{call.id}``），**不做幂等去重**——ledger 的
+    「already completed」短路是永久态，verify 重跑是显性请求，永远允许再次执行。
+    """
+    try:
+        claim = await engine.ledger.acquire(
+            key,
+            scope="goal-verify",
+            lease_seconds=_VERIFY_COMMAND_TIMEOUT_SECONDS + 60,
+            metadata={"command": command},
+        )
+        return claim.acquired
+    except Exception as exc:  # noqa: BLE001
+        safe_log(logger, logging.WARNING, f"verify ledger acquire failed; ignored: {exc}", exc_info=True)
+        return False
+
+
+async def _verify_ledger_complete(
+    engine: EngineContainer, key: str, acquired: bool, *, command: str, outcome: str, duration_ms: int
+) -> None:
+    if not acquired:
+        return
+    try:
+        # ledger.complete 整体替换 metadata（评审 M-1）：command 必须并入，否则 COMPLETED
+        # 审计记录无法回答「哪条声明命令被受治理执行过」。
+        await engine.ledger.complete(key, metadata={"command": command, "outcome": outcome, "duration_ms": duration_ms})
+    except Exception as exc:  # noqa: BLE001
+        safe_log(logger, logging.WARNING, f"verify ledger complete failed; ignored: {exc}", exc_info=True)
+
+
+async def _verify_ledger_fail(engine: EngineContainer, key: str, acquired: bool, error: str) -> None:
+    if not acquired:
+        return
+    try:
+        await engine.ledger.fail(key, error)
+    except Exception as exc:  # noqa: BLE001
+        safe_log(logger, logging.WARNING, f"verify ledger fail failed; ignored: {exc}", exc_info=True)
 
 
 async def _goal_declarative_run(

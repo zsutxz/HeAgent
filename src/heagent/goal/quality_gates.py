@@ -36,7 +36,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, Literal
 
 from pydantic import BaseModel, Field
 
@@ -88,6 +88,8 @@ class VerificationReport(BaseModel):
     story_id: str | None = None
     rerun: bool = False
     rerun_evidence: list[str] = Field(default_factory=list)
+    # ``if_stale`` 策略下因新鲜成功证据而**未重跑**的声明命令：复用必须显性声明，不静默。
+    reused_commands: list[str] = Field(default_factory=list)
     results: list[ClauseResult] = Field(default_factory=list)
     # 求值本身的显性失败（受控重跑无端口、证据绑定漂移、端口抛错）：任一存在即「未通过」。
     errors: list[str] = Field(default_factory=list)
@@ -122,6 +124,8 @@ class VerificationReport(BaseModel):
             if item.reason:
                 line += f" — {item.reason}"
             lines.append(line)
+        if self.rerun and self.reused_commands:
+            lines.append(f"[goal] verify: reused fresh evidence, not re-run: {'; '.join(self.reused_commands)}")
         for error in self.errors:
             lines.append(f"[goal] verify: ERROR {error}")
         if self.rerun_evidence:
@@ -301,6 +305,7 @@ async def verify_step(
     max_age: timedelta = DEFAULT_EVIDENCE_MAX_AGE,
     now: datetime | None = None,
     rerun: bool = False,
+    rerun_policy: Literal["always", "if_stale"] = "always",
     run_command: GovernedCommandPort | None = None,
 ) -> VerificationReport:
     """Evaluate one step's declared structured clauses against evidence, artifacts and Git.
@@ -313,14 +318,49 @@ async def verify_step(
     ``rerun=True`` 时先经 ``run_command`` 端口受控重跑声明的命令并落证据（append-only），
     再求值；声明了命令却拿不到端口 = 求值显性失败，绝不静默当作通过。求值时刻 ``now``
     在**重跑之后**取值：重跑刚落盘的证据不能因取值次序被误判成未来时间戳。
+
+    ``rerun_policy``（51-4 递延「重复执行」收口）：
+
+    - ``"always"``（缺省，完成门语义）：无条件重跑每条声明命令——证据必须反映**当前这次**
+      步骤执行（AD-5），BLOCKED 重跑后步骤内容可能已变，旧证据不可信；
+    - ``"if_stale"``（``/goal verify run`` 语义）：先按既有证据预求值，仅重跑「缺证据 /
+      失败 / 过期 / 绑定漂移」的命令；新鲜成功证据**复用不重跑**，复用清单显性进
+      :attr:`VerificationReport.reused_commands`——verify 不重跑实现步骤，两次求值之间
+      没有步骤执行，新鲜证据仍然有效。
     """
     clauses = step.validation_clauses
     errors: list[str] = []
     rerun_ids: list[str] = []
+    reused: list[str] = []
+    commands_to_rerun = list(clauses.commands)
+    if rerun and rerun_policy == "if_stale":
+        pre_scope, _pre_drifted = await _collect_scope(
+            store,
+            step_name=step.name,
+            goal_id=goal_id,
+            story_id=story_id,
+            workflow_id=workflow_id,
+            revision=revision,
+        )
+        # 漂移错误只在重跑后的最终收集处记一次，这里不重复记；漂移证据不进预求值范围，
+        # 对应声明命令按「无匹配证据」处理 → 进重跑清单。
+        pre_results = _command_results(
+            clauses,
+            [(record, evidence) for record in pre_scope for evidence in record.commands],
+            workspace=workspace,
+            moment=now or datetime.now(UTC),
+            max_age=max_age,
+        )
+        # _command_results 恒「每条声明命令恰一个结果」且按声明序返回——strict=True 把这个
+        # 不变量钉进代码，两表长度将来分歧即响亮失败。
+        commands_to_rerun = [
+            declared for declared, item in zip(clauses.commands, pre_results, strict=True) if not item.passed
+        ]
+        reused = [declared for declared, item in zip(clauses.commands, pre_results, strict=True) if item.passed]
     if rerun:
         errors.extend(
             await _controlled_rerun(
-                clauses.commands,
+                commands_to_rerun,
                 run_command,
                 store=store,
                 goal_id=goal_id,
@@ -368,6 +408,7 @@ async def verify_step(
         story_id=story_id,
         rerun=rerun,
         rerun_evidence=rerun_ids,
+        reused_commands=reused,
         results=results,
         errors=errors,
     )

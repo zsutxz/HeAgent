@@ -93,6 +93,22 @@ async def test_serial_story_exception_records_failed_status() -> None:
 
 
 @pytest.mark.asyncio
+async def test_story_failure_persists_failed_checkpoint(tmp_path) -> None:
+    """异常路径转换后必须落盘（51-2 递延收口）：不落盘则重启 restore 复活 RUNNING。"""
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
+    runner = WorkflowRunner(_story_workflow(), goal_id="goal", run_id="run", checkpoint_store=store)
+
+    async def callback(step, story):
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        await runner.run_step(callback, stories=STORIES)
+    checkpoints = await store.list_checkpoints(goal_id="goal")
+    assert checkpoints, "failure must persist a checkpoint"
+    assert checkpoints[-1].status is WorkflowStatus.FAILED
+
+
+@pytest.mark.asyncio
 async def test_story_loop_executes_one_story_per_call_and_combines_outputs() -> None:
     runner = WorkflowRunner(_story_workflow())
     seen: list[str | None] = []

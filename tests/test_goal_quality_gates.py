@@ -19,6 +19,7 @@ import heagent.cli.goal as cli_goal
 from heagent.cli.goal import _goal_declarative_workflow, _goal_runner
 from heagent.engine import EngineContainer, WorkflowRunner, WorkflowStatus
 from heagent.engine.checkpoint import WorkflowCheckpointStore
+from heagent.engine.ledger import ExecutionLedger, ExecutionStatus
 from heagent.engine.workflow_resource import StepValidationClauses, WorkflowStepResource
 from heagent.goal.evidence import (
     TRUNCATION_MARKER,
@@ -450,6 +451,101 @@ async def test_controlled_rerun_port_failure_is_explicit(tmp_path: Path) -> None
     assert any("controlled re-run of 'pytest -q' failed" in error for error in report.errors)
 
 
+@pytest.mark.asyncio
+async def test_if_stale_rerun_reuses_fresh_successful_evidence(tmp_path: Path) -> None:
+    """``if_stale``（51-4 递延收口）：完成门刚写下的新鲜成功证据复用不重跑，reuse 显性进报告。"""
+    store = EvidenceStore(tmp_path)
+    await store.append(_record(commands=[_command("pytest -q")]))
+    calls: list[str] = []
+
+    async def port(command: str) -> CommandEvidence:
+        calls.append(command)
+        return _command(command)
+
+    report = await _evaluate(
+        StepValidationClauses(commands=["pytest -q"]),
+        store,
+        rerun=True,
+        rerun_policy="if_stale",
+        run_command=port,
+    )
+
+    assert calls == []
+    assert report.reused_commands == ["pytest -q"]
+    assert report.rerun_evidence == []
+    assert report.passed
+
+
+@pytest.mark.asyncio
+async def test_if_stale_rerun_still_reruns_failed_evidence(tmp_path: Path) -> None:
+    """最新证据失败时不复用：``verify run`` 重跑是「检查是否修好」的合法路径。"""
+    store = EvidenceStore(tmp_path)
+    await store.append(_record(commands=[_command("pytest -q", outcome=CommandOutcome.FAILED, exit_code=1)]))
+    calls: list[str] = []
+
+    async def port(command: str) -> CommandEvidence:
+        calls.append(command)
+        return _command(command)
+
+    report = await _evaluate(
+        StepValidationClauses(commands=["pytest -q"]),
+        store,
+        rerun=True,
+        rerun_policy="if_stale",
+        run_command=port,
+        now=None,  # 重跑证据带真实时钟；_NOW 会把它判成未来时间戳
+    )
+
+    assert calls == ["pytest -q"]
+    assert report.reused_commands == []
+    assert report.rerun_evidence
+    assert report.passed
+
+
+@pytest.mark.asyncio
+async def test_if_stale_reruns_when_evidence_is_stale(tmp_path: Path) -> None:
+    """过期证据不满足复用条件：重跑后拿到新鲜证据。"""
+    store = EvidenceStore(tmp_path)
+    stale = _NOW - timedelta(hours=25)
+    await store.append(_record(created_at=stale.isoformat(), commands=[_command("pytest -q")]))
+    calls: list[str] = []
+
+    async def port(command: str) -> CommandEvidence:
+        calls.append(command)
+        return _command(command)
+
+    report = await _evaluate(
+        StepValidationClauses(commands=["pytest -q"]),
+        store,
+        rerun=True,
+        rerun_policy="if_stale",
+        run_command=port,
+        now=None,  # 重跑证据带真实时钟；_NOW 会把它判成未来时间戳
+    )
+
+    assert calls == ["pytest -q"]
+    assert report.reused_commands == []
+    assert report.passed
+
+
+@pytest.mark.asyncio
+async def test_always_policy_reruns_even_with_fresh_success(tmp_path: Path) -> None:
+    """完成门语义锁定：默认 ``always`` 无条件重跑——证据必须反映当前这次步骤执行（AD-5）。"""
+    store = EvidenceStore(tmp_path)
+    await store.append(_record(commands=[_command("pytest -q")]))
+    calls: list[str] = []
+
+    async def port(command: str) -> CommandEvidence:
+        calls.append(command)
+        return _command(command)
+
+    report = await _evaluate(StepValidationClauses(commands=["pytest -q"]), store, rerun=True, run_command=port)
+
+    assert calls == ["pytest -q"]
+    assert report.reused_commands == []
+    assert report.rerun_evidence
+
+
 async def test_rerun_false_never_invokes_the_port(tmp_path: Path) -> None:
     """只检查模式绝不执行命令（verify 的「绝不重跑实现步骤」锚点之一）。"""
     calls: list[str] = []
@@ -649,6 +745,92 @@ async def test_goal_verify_run_uses_the_governed_port_and_records_evidence(
 
 
 @pytest.mark.asyncio
+async def test_goal_verify_run_reuses_fresh_command_evidence(
+    gate_cwd: Path, successful_step: list[str], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """51-4 递延收口：完成门刚写下的新鲜成功证据，``verify run`` 复用而不重复执行命令。"""
+    recorded: list[str] = []
+
+    async def port(command: str) -> CommandEvidence:
+        recorded.append(command)
+        return CommandEvidence(
+            command=command,
+            cwd=str(gate_cwd.resolve()),
+            outcome=CommandOutcome.SUCCEEDED,
+            exit_code=0,
+        )
+
+    monkeypatch.setattr(cli_goal, "_goal_verify_command_runner", lambda engine: port)
+    package = gate_cwd / ".heagent" / "skills" / "he-goal"
+    # command 过 + artifact 缺：门挂起（步骤保持活动），命令证据已新鲜成功
+    (package / "workflow.md").write_text(
+        _WORKFLOW.replace(
+            "validation: artifact: reports/first.md",
+            "validation: command: pytest -q; artifact: reports/first.md",
+        ),
+        encoding="utf-8",
+    )
+    await _goal_runner(SimpleNamespace(), None, "new build a gate")
+    err = capsys.readouterr().err
+    assert "status=blocked" in err  # artifact 缺 → BLOCKED；命令证据此刻已落
+    assert recorded == ["pytest -q"]
+
+    await _goal_runner(SimpleNamespace(), None, "verify run")
+    err = capsys.readouterr().err
+    assert recorded == ["pytest -q"]  # 新鲜成功证据被复用，未重复执行
+    assert "reused" in err
+    assert "verdict=failed" in err  # artifact 仍缺，判定如实失败，复用不放水
+
+
+@pytest.mark.asyncio
+async def test_gate_and_verify_emit_gate_evaluated_events(
+    gate_cwd: Path, successful_step: list[str], capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """51-4 递延收口：质量门求值发 ``workflow_gate_evaluated``（完成门与 verify run 各一条）。"""
+    events: list[tuple[str, dict[str, object]]] = []
+
+    def capture(engine: object) -> object:
+        def emit(kind: str, *, details: dict[str, object] | None = None) -> None:
+            events.append((kind, details or {}))
+
+        return emit
+
+    monkeypatch.setattr(cli_goal, "_workflow_event_emitter", capture)
+    recorded: list[str] = []
+    passing = {"ok": False}
+
+    async def port(command: str) -> CommandEvidence:
+        recorded.append(command)
+        return CommandEvidence(
+            command=command,
+            cwd=str(gate_cwd.resolve()),
+            outcome=CommandOutcome.SUCCEEDED if passing["ok"] else CommandOutcome.FAILED,
+            exit_code=0 if passing["ok"] else 1,
+        )
+
+    monkeypatch.setattr(cli_goal, "_goal_verify_command_runner", lambda engine: port)
+    _rewrite_package_workflow(gate_cwd, "pytest -q")
+    await _goal_runner(SimpleNamespace(), None, "new build a gate")
+    capsys.readouterr()
+    passing["ok"] = True
+    await _goal_runner(SimpleNamespace(), None, "verify run")
+    capsys.readouterr()
+
+    # runner 的 workflow_step_* 事件与门事件走同一总线，过滤后断言门事件
+    gate_events = [details for kind, details in events if kind == "workflow_gate_evaluated"]
+    assert len(gate_events) == 2
+    gate_event, verify_event = gate_events
+    assert gate_event["source"] == "completion_gate"
+    assert gate_event["verdict"] == "failed"
+    assert gate_event["step"] == "step-01-build.md"
+    assert verify_event["source"] == "verify_run"
+    assert verify_event["verdict"] == "passed"
+    assert verify_event["rerun"] is True
+    for details in (gate_event, verify_event):
+        assert isinstance(details["duration_ms"], int)
+
+
+@pytest.mark.asyncio
 async def test_goal_verify_without_an_active_goal_says_so(gate_cwd: Path, capsys: pytest.CaptureFixture[str]) -> None:
     await _goal_runner(SimpleNamespace(), None, "verify")
 
@@ -667,15 +849,21 @@ async def test_goal_verify_rejects_unknown_arguments(gate_cwd: Path, capsys: pyt
 
 @pytest.mark.asyncio
 async def test_governed_port_runs_the_shell_through_the_chain(tmp_path: Path) -> None:
-    """真实治理链：policy DIRECT → guard → shell handler → exit_code=0 证据。"""
+    """真实治理链：policy DIRECT → guard → shell handler → exit_code=0 证据；台账留审计记录。"""
     import heagent.tools.builtins.shell  # noqa: F401  注册 shell handler
 
     engine = EngineContainer()
+    engine.ledger = ExecutionLedger(str(tmp_path / "ledger"))
     evidence = await cli_goal._run_governed_verify_command(engine, f'"{sys.executable}" -c "print(40+2)"')
 
     assert evidence.outcome is CommandOutcome.SUCCEEDED
     assert evidence.exit_code == 0
     assert "42" in evidence.output_summary
+    records = [record for record in await engine.ledger.list_records() if record.scope == "goal-verify"]
+    assert len(records) == 1
+    assert records[0].status is ExecutionStatus.COMPLETED
+    assert records[0].metadata["outcome"] == "succeeded"
+    assert records[0].metadata["command"] == f'"{sys.executable}" -c "print(40+2)"'  # 审计可回答「执行了哪条命令」
 
 
 @pytest.mark.asyncio
@@ -683,10 +871,13 @@ async def test_governed_port_records_a_nonzero_exit_as_failed(tmp_path: Path) ->
     import heagent.tools.builtins.shell  # noqa: F401
 
     engine = EngineContainer()
+    engine.ledger = ExecutionLedger(str(tmp_path / "ledger"))
     evidence = await cli_goal._run_governed_verify_command(engine, f'"{sys.executable}" -c "import sys; sys.exit(3)"')
 
     assert evidence.outcome is CommandOutcome.FAILED
     assert evidence.exit_code == 3
+    records = [record for record in await engine.ledger.list_records() if record.scope == "goal-verify"]
+    assert records[0].metadata["outcome"] == "failed"  # 命令失败 ≠ 执行失败：执行本身完成，outcome 如实记
 
 
 @pytest.mark.asyncio
@@ -694,12 +885,15 @@ async def test_governed_port_records_a_policy_block_as_not_passed(tmp_path: Path
     import heagent.tools.builtins.shell  # noqa: F401
 
     engine = EngineContainer()
+    engine.ledger = ExecutionLedger(str(tmp_path / "ledger"))
     engine.policy.allowed_tools = {"not-shell"}
 
     evidence = await cli_goal._run_governed_verify_command(engine, f'"{sys.executable}" -c "print(1)"')
 
     assert evidence.outcome is CommandOutcome.POLICY_BLOCKED
     assert evidence.exit_code is None
+    records = [record for record in await engine.ledger.list_records() if record.scope == "goal-verify"]
+    assert records[0].metadata["outcome"] == "policy_blocked"
 
 
 def test_tool_call_argument_shape_is_the_declared_command_plus_timeout() -> None:
@@ -772,7 +966,7 @@ async def test_real_engine_gate_blocks_a_failing_declared_command(
 
 
 @pytest.mark.asyncio
-async def test_governed_port_passes_an_explicit_timeout() -> None:
+async def test_governed_port_passes_an_explicit_timeout(tmp_path: Path) -> None:
     """受治理重跑显式传 timeout（review #16）：不用 120s 默认钉死长验证套件。"""
     import heagent.tools.builtins.shell  # noqa: F401
     from heagent.tools.registry import ToolRegistry
@@ -786,8 +980,10 @@ async def test_governed_port_passes_an_explicit_timeout() -> None:
         return "exit_code=0\n"
 
     registry._handlers["shell"] = recording
+    engine = EngineContainer()
+    engine.ledger = ExecutionLedger(str(tmp_path / "ledger"))
     try:
-        evidence = await cli_goal._run_governed_verify_command(EngineContainer(), "pytest -q")
+        evidence = await cli_goal._run_governed_verify_command(engine, "pytest -q")
     finally:
         if original is None:
             registry._handlers.pop("shell", None)

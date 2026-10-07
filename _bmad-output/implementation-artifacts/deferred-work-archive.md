@@ -289,6 +289,7 @@
 - **冻结边界（守住）**：不加字段、不改既有事件语义，只补测量与发射——**批级那条 started/completed 仍在**（它标记「这一步」，测试注释写明「整批一条」），逐 story 事件是**新增的另一组**，不是替换。
 - **证据**：`tests/test_run_status_contract.py::TestRunStatusContract::test_failed_run_reports_measured_duration`（provider 睡 30ms 后抛错 ⇒ `duration_ms >= 20`）与 `::test_facade_on_run_failed_reports_measured_duration`（直接调 façade 的同名断言）；`tests/test_story_loop.py::test_parallel_batch_emits_per_story_events`（同时断言批级一条与逐 story 两条）与 `::test_parallel_batch_failed_story_reports_its_own_failure_event`；文档已记在 `docs/frame.md` 的事件契约表（`run_failed` 的「duration（缺省由 `run_elapsed_ms(loop)` 现算——facade `_on_run_failed`…」与 `workflow_step_*` 行）。
 - **本轮复核（2026-09-27 亲跑）**：`pytest -q` 全量 3097 passed；`grep` 复核台账原登记的三个落点（`agent/loop.py:_on_run_failed`、`engine/workflow_runner.py:_run_story_batch`、事件契约表）均已符合结论。
+- **证据迁移（2026-10-07，Story 51-8 fail-closed 串行化）**：并行批次机制整体移除（`_run_story_batch` 已删），其两个测试随之删除；**逐 story 事件粒度由串行路径天然继承**——`run_step` 每执行一条 story 各发一组 started/completed/failed（`story` 非空，带 duration/error_kind），frame.md 契约表 `workflow_step_*` 行已同步。本条闭合结论不受影响。
 
 ---
 
