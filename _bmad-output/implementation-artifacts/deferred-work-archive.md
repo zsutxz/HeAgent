@@ -55,6 +55,7 @@
 > - 2026-09-28（第九轮）：**裁定归档 1 条 → A6**（路径级审批分级）——裁定「**维持条件性**」：前置（非 workspace 的受控写）未发生，审批是工具级、越界路径在 workspace 围栏处即 `BLOCKED`，**无分级对象**；触发条件、若实现时的判据草案与冻结边界移入 `docs/frame.md` 五。**活动区 1 → 0 条（首次清空）**；① 表 23 → 24 行、闭合归档总数 40 → **41 条**；7 处「活动条目数」声明同步为 **0 条**。
 > - 2026-10-07：**登记 4 条**（Story 51-8 未 push 提交的 /simplify 清理轮：复用 / 简化 / 效率 / 层次四角度并行审查，修 6 处并全量验证后，对 4 处「跨 diff 消费面 / 属设计变更 / 受 checkpoint id 兼容约束」的跳过项按纪律补录）——A25 checkpoint id 残留 `-parallel-` 分支、A26 `active_stories` 可派生镜像、A27 门事件 emit 隔离包装双份、A28 goal-verify 台账生命周期 CLI 手写。活动条目数 0 → **4**。
 > - 2026-10-07（第二轮）：**登记 5 条**（同日全项目 /simplify 四角度清理轮：22 项发现修 8 项提交 `5e963db`，14 项跳过发现按主题归并为 5 条补录）——A29 会话/运行热路径四处重优化（效率族）、A30 goal 域两处重复收敛（复用族）、A31 引擎层方法论与解析错位（层次族一）、A32 治理与互斥的层级归属（层次族二）、A33 可派生镜像与边际重复（简化族）。活动条目数 4 → **9**。
+> - 2026-10-07（第三轮）：**部分闭合 1 条 → A32①②**（用户裁定「三写方法全自锁 / 读不加锁 / 只收敛只读表」后实施）——① 只读判定删 `_READ_ONLY_TOOLS` 名称表收敛注册表注解单源（缺 schema fail-closed；勘察证实收敛前 13=13 零漂移；`_PATH_FIELDS`/`_DENY_*` 无注册表孪生不在双源范畴）；② 新增 `goal/mutex.goal_mutex()`（可重入复合锁）下沉 `advance`/`pause_resume`/`record_decision` 三写方法，顺带收口勘察发现的 `/goal pause` 漏网写路径，CLI 外层持锁保留（薄别名）、`decisions.py` 并发论证与 `docs/frame.md` 同步、`test_declarative_resume_advances_once_under_goal_lock` 等 4 处测试缝迁指新模块。变异体 3+1 处精确变红，全量 3607 passed；③（CLI 引用例层私有符号）仍活动——条目留活动区逐面标注。**另**：同轮按用户裁定（有意删除）调整 `test_architecture_contracts.py` 的 TCP 残留扫描对缺席活文件跳过（CLAUDE.md 已从工作树移除）。活动条目数不变（**9**）。
 
 ## A29 会话/运行热路径的四处重优化（效率族）
 
@@ -77,12 +78,12 @@
   evidence: `engine/artifacts.py:196-298/242/288`（+ `engine/__init__` 再导出面）；`engine/workflow_runner.py:84-184` + `goal/application.py:437`（唯一调用方）；`tools/builtins/subagent.py:138-142/158`。
   Progress（2026-10-07 登记，未修）
 
-## A32 治理与互斥的层级归属（层次族二）
+## A32 治理与互斥的层级归属（层次族二）——①② 已闭合（2026-10-07），③ 活动
 
 - source_spec: `src/heagent/engine/policy.py` / `src/heagent/goal/application.py` / `src/heagent/cli/goal.py`（同轮「层次」角度发现）
-  summary: **三处归属错位**：① `policy._READ_ONLY_TOOLS`/`_PATH_FIELDS`/`_DENY_*` 是手维护名称表，靠 `test_sandbox_mode.py` 与 `@tool(read_only=True)` 注册表注解保持同步，而 `_is_read_only` 在有 schema 时本就优先注解 ⇒ 双事实源，新增内建要改两层、测试是唯一漂移护栏——正确层级是 policy 读进程单例 `ToolRegistry` 的 `ToolSchema.annotations`（缺 schema fail-closed）；② 单推进者不变量（`.heagent/goal.lock` 互斥）只由 CLI 层持有，变更内核 `goal/application.advance()` 自身无锁，`goal/decisions.py:107` 的正确性论证甚至引用「cli/goal 的 `_goal_mutex`」——GUI/HTTP 等新入口静默绕过互斥；③ `cli/goal.py:33-80` 从用例层 import 约 10 个下划线私有符号（`_GOAL_SKILLS_ROOT`/`_GoalAdvanceContext`/`_goal_document*` 等）——无导入契约，goal/ 内部重构会静默破坏入口层。触发条件：① 新增内建工具或动沙箱只读面时（**安全相关，须专项评审**）；② 任何第二入口（GUI/HTTP）要调 advance 之前（**前置硬门槛**）；③ goal/ 下次内部重构时（先声明公共端口）；严重度：① 中（安全面双源）、② 中（新入口即静默竞态）、③ 低；冻结边界：① 须对照 workspace 围栏语义逐条评审且不得放松 fail-closed 默认；② 锁落 advance 时须处理重入（CLI 已持锁再进入不得死锁）；③ 只加公共端口声明，不为入口层保留私有别名。
-  evidence: `engine/policy.py:107-142/259` + `tests/test_sandbox_mode.py`（同步护栏）；`goal/application.py:559`（advance 无锁）+ `cli/goal.py:153`（互斥持有面）+ `goal/decisions.py:107`；`cli/goal.py:33-80`。
-  Progress（2026-10-07 登记，未修——②是任何新入口的前置门槛）
+  summary: **三处归属错位**：① 【已闭合 2026-10-07】`policy._READ_ONLY_TOOLS` 名称表与 `@tool(read_only=True)` 注册表注解的双事实源——已删表收敛注解单源，缺 schema/注解即 fail-closed 阻断；勘察证实收敛前零漂移（13=13）；`_PATH_FIELDS`/`_DENY_*` 经查无注册表孪生（`ToolAnnotations` 仅 4 个 bool hint），属引擎侧单源策略数据，**不在双源范畴、保持现状**。② 【已闭合 2026-10-07】单推进者互斥下沉内核：新增 `goal/mutex.goal_mutex()`（进程内 asyncio.Lock + `.heagent/goal.lock` 文件锁复合，同 task 可重入），`advance`/`pause_resume`/`record_decision` 三写方法自持；CLI 外层组合持锁保留（`_goal_mutex()` 薄别名）；勘察顺带发现并收口 `/goal pause` 漏网写路径（dispatch 不持锁直写状态）。③ 【活动】`cli/goal.py` 从用例层 import 约 10 个下划线私有符号（`_GOAL_SKILLS_ROOT`/`_GoalAdvanceContext`/`_goal_document*` 等）——无导入契约，goal/ 内部重构会静默破坏入口层。触发条件：③ goal/ 下次内部重构时（先声明公共端口）；严重度：③ 低；冻结边界：② 已按「重入不死锁」交付（同 task 判别，全部 5 条 advance 生产路径即此形态）；③ 只加公共端口声明，不为入口层保留私有别名。
+  evidence: ① `engine/policy.py` `_is_read_only` 单注解判定 + 新判据 `test_sandbox_mode.py::test_missing_schema_fail_closed_even_for_known_names`（变异体：恢复名称表兜底 ⇒ 红）；② `goal/mutex.py`（新）+ `goal/application.py` 三外壳 + 新判据 `test_goal_cross_process_lock.py`（重入死锁看门狗 / 并发串行化）与 `test_goal_decisions.py`（pause/decision/advance 三观察点，变异体：撤任一外壳锁 ⇒ 红）；`goal/decisions.py` 并发论证已改指 `goal.mutex`；③ `cli/goal.py:33-80`（未动）。
+  Progress（2026-10-07 登记；同日①②闭合——全量 3607 passed、ruff/mypy 双平台全绿、变异体 3+1 处精确变红；③ 留活动区）
 
 ## A33 可派生镜像与边际重复（简化族）
 
@@ -218,7 +219,7 @@
 | A29 | 会话/运行热路径的四处重优化（checkpoint O(N²) / 会话列表全量解析 / 无 title 整历史校验 / token 估算逐字符） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
 | A30 | goal 域两处重复收敛（DecisionStore/EvidenceStore 孪生 / doctor·loader frontmatter 解析宽容度分叉） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
 | A31 | 引擎层的方法论与解析错位（artifacts BMad 硬编码 / story 解析错层 / subagent BMad 文案） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
-| A32 | 治理与互斥的层级归属（policy 名称表双事实源 / advance 无锁 / CLI 引用例层私有符号） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
+| A32 | 治理与互斥的层级归属（policy 名称表双事实源 / advance 无锁 / CLI 引用例层私有符号） | 部分闭合（2026-10-07：①② 已修，③ CLI 引用例层私有符号仍活动） | 活动区（本文件上方） |
 | A33 | 可派生镜像与边际重复（artifact_refs 镜像 / dispatch 前导 11 处） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
 
 **旧号对照（撤号 / 让号）**
