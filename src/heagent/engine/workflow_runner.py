@@ -40,27 +40,31 @@ def _emit_step_event(
     emit: Callable[..., None] | None,
     kind: str,
     *,
-    step: WorkflowStepResource,
+    step: Any,
     story: Any,
     duration_ms: int = 0,
     error_kind: str = "",
     **extra: Any,
 ) -> None:
-    """步骤粒度观测事件（Phase 5 C1）：emit 异常隔离，可观测性不得改变业务控制流。
+    """工作流观测事件的**唯一**隔离包装（Phase 5 C1；A27 统一）：emit-None 早退 + try/except
+    + ``safe_log`` 忽略——可观测性不得改变业务控制流。
 
-    ``duration_ms`` / ``error_kind`` 进 details，由传输层 ``from_engine_event`` 提升到
-    RunEvent 顶层（EngineEvent 模型与 GUI 消费面不动）。
+    ``step`` / ``story`` 是鸭子契约（引擎侧传 ``WorkflowStepResource`` / ``StorySpec``，CLI
+    质量门传宿主对象）：属性访问故障与 emit 异常同在隔离内，绝不传播进业务流，payload
+    构造因此也在隔离内。``duration_ms`` / ``error_kind`` 进 details，由传输层
+    ``from_engine_event`` 提升到 RunEvent 顶层（EngineEvent 模型与 GUI 消费面不动）。
+    ``**extra`` 的取值在调用方实参处求值——调用方只应传自有类型化模型字段或字面量。
     """
     if emit is None:
         return
-    payload: dict[str, Any] = {
-        "step": step.name,
-        "story": story.id if story is not None else "",
-        "duration_ms": duration_ms,
-        "error_kind": error_kind,
-        **extra,
-    }
     try:
+        payload: dict[str, Any] = {
+            "step": step.name,
+            "story": story.id if story is not None else "",
+            "duration_ms": duration_ms,
+            "error_kind": error_kind,
+            **extra,
+        }
         emit(kind, details=payload)
     except Exception:  # noqa: BLE001 - 观测失败仅告警
         safe_log(logger, logging.WARNING, "workflow step event %r emit failed; ignored", kind, exc_info=True)
@@ -97,7 +101,9 @@ class WorkflowRunnerState(BaseModel):
     story_index: int = Field(default=0, ge=0)
     completed_stories: list[str] = Field(default_factory=list)
     story_outputs: dict[str, Any] = Field(default_factory=dict)
-    active_stories: list[str] = Field(default_factory=list)
+    # `active_stories` 已派生化删除（A26）：串行化后它恒等于 `[active_story]`（无活动 story
+    # 时空表），每个写点都只是镜像同步税。消费方（checkpoint / status_view）一律由
+    # ``active_story`` 现场派生。
     story_statuses: dict[str, str] = Field(default_factory=dict)
     # 步骤级审批门（Story 51-5）：True = 活动步做完工作、挂起等一个人工决策（approve /
     # reject / amend）；普通 resume 在此状态被拒绝，不能隐式顶替批准。
@@ -190,11 +196,9 @@ class WorkflowRunner:
             active_step=checkpoint.active_step if checkpoint.active_step is not None else len(workflow.steps),
             status=checkpoint.status,
             completed_steps=list(checkpoint.completed_steps),
-            outputs=(
-                dict(checkpoint.outputs)
-                if checkpoint.outputs
-                else {reference: None for reference in checkpoint.artifact_refs}
-            ),
+            # `outputs` 是产物键表的唯一载体；旧字段的 `{reference: None}` 兜底在「artifact_refs
+            # 恒等于 list(outputs)」不变量下不可达且等值（两边同空），随镜像派生化一并删除（A33①）。
+            outputs=dict(checkpoint.outputs),
             acceptance_evidence=list(checkpoint.acceptance_evidence),
             reason=checkpoint.next_action,
             active_story=checkpoint.active_story,
@@ -202,9 +206,6 @@ class WorkflowRunner:
             story_index=checkpoint.story_index if checkpoint.story_index is not None else 0,
             completed_stories=list(checkpoint.completed_stories),
             story_outputs=dict(checkpoint.story_outputs),
-            active_stories=list(
-                checkpoint.active_stories or ([checkpoint.active_story] if checkpoint.active_story else [])
-            ),
             story_statuses=dict(checkpoint.story_statuses),
             awaiting_approval=checkpoint.awaiting_approval,
             pending_output=checkpoint.pending_output,
@@ -273,7 +274,6 @@ class WorkflowRunner:
             self.state = self.state.model_copy(
                 update={
                     "active_story": active_story.id,
-                    "active_stories": [active_story.id],
                     "active_epic": active_story.epic,
                 }
             )
@@ -639,7 +639,6 @@ class WorkflowRunner:
             "approval_round": self.state.approval_round + 1,
             "reason": step.approval.note or "step work is done; it awaits a human approval decision",
             "active_story": None,
-            "active_stories": [],
             "active_epic": "",
             "story_index": 0,
             "completed_stories": [],
@@ -687,7 +686,6 @@ class WorkflowRunner:
             update.update(
                 {
                     "active_story": None,
-                    "active_stories": [],
                     "active_epic": "",
                     "story_index": 0,
                     "completed_stories": [],
@@ -706,7 +704,6 @@ class WorkflowRunner:
             "completed_stories": completed_stories,
             "story_outputs": story_outputs,
             "active_story": next_story.id,
-            "active_stories": [next_story.id],
             "active_epic": next_story.epic,
         }
 
@@ -781,7 +778,6 @@ class WorkflowRunner:
             active_skill=self.workflow.name,
             active_step=self.state.active_step,
             active_story=self.state.active_story,
-            active_stories=list(self.state.active_stories),
             active_epic=self.state.active_epic,
             story_statuses=dict(self.state.story_statuses),
             story_index=self.state.story_index if self._is_story_step(step) else None,
@@ -791,7 +787,6 @@ class WorkflowRunner:
             pending_output=self.state.pending_output,
             approval_round=self.state.approval_round,
             requested_steps=list(self.state.requested_steps),
-            artifact_refs=list(self.state.outputs),
             outputs=dict(self.state.outputs),
             acceptance_evidence=list(self.state.acceptance_evidence),
             completed_steps=list(self.state.completed_steps),
@@ -800,16 +795,16 @@ class WorkflowRunner:
         aggregate_status = self.state.status
         if aggregate_status is WorkflowStatus.COMPLETED and self.phase is not WorkflowPhase.DONE:
             aggregate_status = WorkflowStatus.RUNNING
+        # `active_stories` / `artifact_refs` 已派生化删除（A26 / A33①）：前者恒等于
+        # `[active_story]`，后者恒等于 `outputs` 键表——两处都是纯镜像，写点同步即税。
         workflow_state = GoalWorkflowState(
             goal_id=self.goal_id,
             phase=self.phase,
             active_skill=self.workflow.name,
             active_step=self.state.active_step,
             active_story=self.state.active_story,
-            active_stories=list(self.state.active_stories),
             story_statuses=dict(self.state.story_statuses),
             status=aggregate_status,
-            artifact_refs=list(self.state.outputs),
             next_action=self.state.reason,
         )
         await self.checkpoint_store.save(checkpoint, workflow_state)
@@ -829,9 +824,10 @@ class WorkflowRunner:
         """
         story_part = ""
         if self._is_story_step(step):
+            # 批次机制（max_parallel_stories>1 的 `-parallel-` 后缀）已随 Story 51-8 串行化删除
+            # ——恢复路径从不按重建 id 找快照（restore_runner 按内容位匹配、load_latest_unfinished
+            # 按创建序扫描），旧格式文件天然容忍读，id 格式变更因此兼容（A25）。
             story_part = f"-story-{self.state.story_index}"
-            if step.max_parallel_stories > 1:
-                story_part += f"-parallel-{len(self.state.completed_stories)}"
             # Story ids are normalized upstream; sanitize defensively so a
             # hand-built spec can never produce a path-unsafe checkpoint id.
             label = re.sub(r"[^0-9A-Za-z]+", "-", self.state.active_story or "").strip("-")

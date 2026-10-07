@@ -19,7 +19,7 @@ def test_initial_state_owns_runtime_metadata_only() -> None:
 
     assert state.phase is WorkflowPhase.DISCOVERY
     assert state.status is WorkflowStatus.PENDING
-    assert state.artifact_refs == []
+    assert "artifact_refs" not in state.model_dump()  # A33①：镜像字段已派生化删除
     assert "checkbox" not in state.model_dump()
 
 

@@ -24,7 +24,6 @@ async def test_two_story_stub_smoke_leaves_checkpoint_and_audit_evidence(tmp_pat
         goal_id=goal_id,
         phase=WorkflowPhase.PLANNING,
         status=WorkflowStatus.RUNNING,
-        artifact_refs=["prd.md", "architecture.md"],
     )
 
     for index, story in enumerate(("story-1", "story-2"), start=1):
@@ -63,7 +62,6 @@ async def test_two_story_stub_smoke_leaves_checkpoint_and_audit_evidence(tmp_pat
                 active_skill="he-build",
                 active_step=index,
                 active_story=story,
-                artifact_refs=list(state.artifact_refs),
                 acceptance_evidence=[f"{story} completed by stub"],
                 next_action="continue with next story",
             ),

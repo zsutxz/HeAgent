@@ -222,6 +222,47 @@ async def test_non_story_step_checkpoint_id_is_unchanged(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_legacy_parallel_checkpoint_id_recovers_and_rewrites_new_format(tmp_path) -> None:
+    """A25 兼容钉：`-parallel-N` 旧格式 checkpoint 跨版本恢复不丢进度。
+
+    批次机制删除后 `-parallel-` 后缀不再生成；兼容策略 = 容忍读（恢复路径从不按重建 id
+    找快照：restore_runner 按 active_step/skill/status 匹配、load_latest_unfinished 按创建
+    序扫描）。旧文件恢复后续跑落**新格式 id**（不与旧文件撞 conflict），旧文件保持可解析。
+    """
+    from heagent.engine.checkpoint import WorkflowCheckpoint, WorkflowPhase
+
+    workflow = _story_workflow()
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
+    legacy = WorkflowCheckpoint(
+        # 旧版格式：声明过 max_parallel_stories>1 的步骤在 story 循环中途的 id 形状
+        # （S-1 完成后的合法持久化点：PENDING + story_index=1，中断于此）。
+        checkpoint_id="goal-run-step-1-story-1-parallel-1-active-0-pending",
+        goal_id="goal",
+        run_id="run",
+        phase=WorkflowPhase.IMPLEMENTATION,
+        status=WorkflowStatus.PENDING,
+        active_skill="demo",
+        active_step=0,
+        active_story="S-2",
+        story_index=1,
+        completed_stories=["S-1"],
+    )
+    await store.save(legacy)
+
+    restored = WorkflowRunner.from_checkpoint(workflow, await store.load(legacy.checkpoint_id), checkpoint_store=store)
+    seen: list[str | None] = []
+    result = await restored.run_step(_story_callback(seen), stories=STORIES)
+
+    assert result.status is WorkflowStatus.COMPLETED
+    assert seen == ["S-2"]  # 旧格式恢复不丢进度：从 S-2 串行续跑（S-1 不重跑）
+    checkpoints = await store.list_checkpoints(goal_id="goal")
+    assert [c.checkpoint_id for c in checkpoints] == [
+        "goal-run-step-1-story-1-parallel-1-active-0-pending",  # 旧文件仍在且可解析（容忍读）
+        "goal-run-step-1-story-0-active-1-completed",  # 新写入落新格式 id（无 -parallel-，无 conflict）
+    ]
+
+
+@pytest.mark.asyncio
 async def test_story_loop_interruption_keeps_active_story(tmp_path) -> None:
     workflow = _story_workflow()
     store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))

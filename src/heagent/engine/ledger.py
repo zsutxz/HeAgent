@@ -14,6 +14,11 @@
   逻辑分钟的 job 被重复执行（租约靠 ``lease_seconds`` 设足覆盖执行）。``heartbeat`` 亦可
   由上层长时 job_runner 周期调用续租（同工具在途续租的用法）。
 
+在途续租与 audit-only 记账的配对原语（:func:`renew_lease_while_active` /
+:class:`LedgerAudit`，A28）在本模块单点定义：``agent/tool_execution`` 的工具在途续租与
+``ToolExecutor.execute`` 的 audit-only 模式都落在这里，不再各持一份
+acquire→execute→complete/fail 配对拷贝。
+
 过期记录由 :meth:`prune` 按保留期自动清理（``EngineContainer.prune_ledger_once`` 在全新 run
 启动时触发）：保留期外的终态死记录（``COMPLETED``/``FAILED``）与过期孤儿 ``RUNNING`` 才删，
 未过期 ``RUNNING``（在途）保留；保留期内不清理。
@@ -25,12 +30,18 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
+from contextlib import suppress
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
 
 from heagent.engine.context import iso_now
 from heagent.pub.persist import (
@@ -41,6 +52,7 @@ from heagent.pub.persist import (
     stamp_is_recent,
     touch_prune_stamp,
 )
+from heagent.pub.safe_logging import safe_log
 
 logger = logging.getLogger(__name__)
 
@@ -371,6 +383,116 @@ class ExecutionLedger:
         if total >= _PRUNE_PROGRESS_INTERVAL:
             logger.info("ledger prune: done — deleted %d stale of %d files", deleted, total)
         return deleted
+
+
+# ── 在途续租 + audit-only 记账（engine 自有的配对原语，A28）─────────────────
+
+
+async def renew_lease_while_active(
+    ledger: ExecutionLedger,
+    key: str,
+    *,
+    lease_seconds: int = 120,
+    interval_seconds: float = 40,
+) -> None:
+    """执行在途期间周期续租，直到被调用方取消（或记录已消失 / 已终态）。
+
+    租约过期后任何进程的 ``prune`` 都会把 ``RUNNING`` 记录当孤儿删掉（「租约过期 =
+    真孤儿」的 prune 前提），故长时执行必须保活。尽力而为：``heartbeat`` 返回 ``None``
+    （已终态 / 被清）或续租 I/O 故障都只记 warning、不抛错——保不住记账键绝不能打断
+    正在跑的执行。间隔取租约的 1/3，保证单个心跳周期内的时钟抖动 / 事件循环排队不会
+    让租约在两次续期之间过期；实现刻意用 ``asyncio.sleep`` 循环（间隔远大于单次落盘
+    耗时，无漂移累积之忧）。
+
+    调用方：``agent/tool_execution``（工具在途，同名缝包装 ``_renew_ledger_lease`` 是
+    既有测试缝）与 :class:`LedgerAudit`（engine 自有审计在途）。
+    """
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            record = await ledger.heartbeat(key, lease_seconds=lease_seconds)
+        except Exception:
+            # 注意 CancelledError 是 BaseException，不会被这里吞掉——取消续租任务
+            # （调用方的 finally）仍按取消语义退出。
+            safe_log(logger, logging.WARNING, "Ledger lease renewal failed for %s; will retry", key, exc_info=True)
+            continue
+        if record is None:
+            # 记录已被清理（或已终态）：续租已无意义，退出让回写路径去报告。
+            safe_log(logger, logging.WARNING, "Ledger record %s vanished while the execution was in flight", key)
+            return
+
+
+@dataclass(slots=True)
+class LedgerAudit:
+    """audit-only 记账规格（A28）：acquire → 在途续租 → complete/fail，**不做幂等去重**。
+
+    与 ``agent/tool_execution`` 的幂等闸门（缓存命中会短路执行）不同，audit-only 的
+    acquire 结果**从不**改变执行：命中「already completed」也照常执行，只是不改写那条
+    记录——审计是旁路，重跑是显性请求。所有台账故障只记 warning，绝不影响执行结果
+    （观测不得改变业务控制流）。落点是 ``ToolExecutor.execute(audit=...)``：配对序列归
+    engine 所有，入口层只构造本规格（scope / 键 / 元数据），不再手写 acquire→execute→
+    complete/fail（A28 收敛第三份拷贝）。
+    """
+
+    ledger: ExecutionLedger
+    # 幂等键（如 ``goal-verify:{call.id}``，含唯一 id 即天然不去重）。
+    key: str
+    scope: str = ""
+    # 初始租约长度：须覆盖执行的本地上界（续租只是在途保活，不是静态超时的替代）。
+    lease_seconds: int = 120
+    # acquire 时的初始 metadata（审计主键，如 {"command": ...}）。
+    metadata: dict[str, Any] = field(default_factory=dict)
+    # 执行结果的审计派生（如 outcome 分类）。complete 的 metadata = 初始 metadata +
+    # 本回调产物 + duration_ms（complete 是整体替换语义，见 :meth:`ExecutionLedger.complete`）。
+    result_metadata: Callable[[Any], dict[str, Any]] | None = None
+    # 在途续租间隔；缺省取租约的 1/3（与工具在途续租同一抖动容忍口径）。
+    renew_interval_seconds: float | None = None
+
+    async def run(self, execute: Callable[[], Awaitable[Any]]) -> Any:
+        """罩住一次执行：抢到键则续租在途并回写终态，抢不到 / 台账故障都只裸执行。"""
+        try:
+            claim = await self.ledger.acquire(
+                self.key, scope=self.scope, lease_seconds=self.lease_seconds, metadata=self.metadata
+            )
+        except Exception:
+            safe_log(logger, logging.WARNING, "ledger audit acquire failed; ignored", exc_info=True)
+            return await execute()
+        if not claim.acquired:
+            return await execute()
+        interval = self.renew_interval_seconds if self.renew_interval_seconds is not None else self.lease_seconds / 3
+        renew = asyncio.create_task(
+            renew_lease_while_active(self.ledger, self.key, lease_seconds=self.lease_seconds, interval_seconds=interval)
+        )
+        started = time.perf_counter()
+        try:
+            result = await execute()
+            await self._complete(result, elapsed_seconds=time.perf_counter() - started)
+            return result
+        except BaseException as exc:
+            await self._fail(str(exc) or type(exc).__name__)
+            raise
+        finally:
+            # 续租取消放在回写**之后**（回写期间记录仍需保持有效租约）；取消 / 异常 /
+            # 正常返回都走到这里，不留常驻心跳任务。
+            renew.cancel()
+            with suppress(asyncio.CancelledError):
+                await renew
+
+    async def _complete(self, result: Any, *, elapsed_seconds: float) -> None:
+        try:
+            metadata = dict(self.metadata)
+            if self.result_metadata is not None:
+                metadata.update(self.result_metadata(result))
+            metadata["duration_ms"] = int(elapsed_seconds * 1000)
+            await self.ledger.complete(self.key, metadata=metadata)
+        except Exception:
+            safe_log(logger, logging.WARNING, "ledger audit complete failed; ignored", exc_info=True)
+
+    async def _fail(self, error: str) -> None:
+        try:
+            await self.ledger.fail(self.key, error)
+        except Exception:
+            safe_log(logger, logging.WARNING, "ledger audit fail failed; ignored", exc_info=True)
 
 
 def _find_stale_paths(paths: list[Path], cutoff_naive: datetime) -> list[Path]:

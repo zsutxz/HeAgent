@@ -107,5 +107,8 @@ async def test_two_story_epic_smoke_preserves_evidence_across_recovery(tmp_path)
     assert workflow_state is not None
     # Non-DONE workflow phases persist completed runner state as RUNNING.
     assert workflow_state.status is WorkflowStatus.RUNNING
-    assert workflow_state.artifact_refs == ["story-one.md", "story-one", "story-two.md", "story-two"]
+    # artifact_refs 镜像已派生化删除（A33①）：产物键表的唯一载体是 checkpoint 的 outputs。
+    assert "artifact_refs" not in workflow_state.model_dump()
+    final_outputs = (await store.list_checkpoints(goal_id="goal-sample"))[-1].outputs
+    assert list(final_outputs) == ["story-one.md", "story-one", "story-two.md", "story-two"]
     assert len(restored.state.acceptance_evidence) == 2

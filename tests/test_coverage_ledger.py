@@ -254,3 +254,150 @@ class TestPrune:
         # 不开容错档时仍按既有契约报错（防回归）
         with pytest.raises(RuntimeError, match="current status is completed"):
             await ledger.complete("k:done")
+
+
+# ── LedgerAudit（A28：audit-only 记账，幂等去重禁用）──────────────
+
+
+class _AcquireBrokenLedger(ExecutionLedger):
+    async def acquire(self, key, **kwargs):  # noqa: ANN001, ANN003
+        raise OSError("ledger io down")
+
+
+class _CompleteBrokenLedger(ExecutionLedger):
+    async def complete(self, key, **kwargs):  # noqa: ANN001, ANN003
+        raise OSError("ledger io down")
+
+
+class TestLedgerAudit:
+    @pytest.mark.asyncio
+    async def test_audit_wraps_execution_and_completes_with_merged_metadata(self, tmp_path) -> None:
+        """抢到键：执行照常，complete 的 metadata = 初始 + result_metadata + duration_ms。"""
+        from heagent.engine.ledger import LedgerAudit
+
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        audit = LedgerAudit(
+            ledger=ledger,
+            key="goal-verify:call-1",
+            scope="goal-verify",
+            lease_seconds=600,
+            metadata={"command": "pytest -q"},
+            result_metadata=lambda result: {"command": "pytest -q", "outcome": result},
+        )
+        audited_with: list[str] = []
+
+        async def execute() -> str:
+            claim = await ledger.acquire("probe")  # 占位证明执行真的发生了
+            assert claim.acquired
+            audited_with.append("ran")
+            return "succeeded"
+
+        result = await audit.run(execute)
+
+        assert result == "succeeded" and audited_with == ["ran"]
+        records = [r for r in await ledger.list_records() if r.scope == "goal-verify"]
+        assert len(records) == 1
+        record = records[0]
+        assert record.status is ExecutionStatus.COMPLETED
+        assert record.metadata["command"] == "pytest -q"
+        assert record.metadata["outcome"] == "succeeded"
+        assert isinstance(record.metadata["duration_ms"], int) and record.metadata["duration_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_audit_dedup_is_disabled_completed_record_does_not_short_circuit(self, tmp_path) -> None:
+        """幂等去重禁用：已有 COMPLETED 记录仍照常执行，且不改写那条记录。"""
+        from heagent.engine.ledger import LedgerAudit
+
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        await ledger.acquire("goal-verify:call-1", scope="goal-verify", metadata={"command": "old"})
+        await ledger.complete("goal-verify:call-1", metadata={"command": "old", "outcome": "succeeded"})
+
+        audit = LedgerAudit(ledger=ledger, key="goal-verify:call-1", scope="goal-verify")
+        ran: list[bool] = []
+
+        async def execute() -> str:
+            ran.append(True)
+            return "succeeded"
+
+        result = await audit.run(execute)
+
+        assert result == "succeeded" and ran == [True]  # 执行未被短路
+        record = await ledger.get("goal-verify:call-1")
+        assert record is not None
+        assert record.metadata == {"command": "old", "outcome": "succeeded"}  # 旧审计记录未被改写
+
+    @pytest.mark.asyncio
+    async def test_audit_acquire_failure_does_not_block_execution(self, tmp_path) -> None:
+        """台账故障只记日志：acquire 抛错时执行照常、结果原样返回。"""
+        from heagent.engine.ledger import LedgerAudit
+
+        ledger = _AcquireBrokenLedger(base_dir=str(tmp_path / "ledger"))
+        audit = LedgerAudit(ledger=ledger, key="goal-verify:call-1", scope="goal-verify")
+
+        async def execute() -> str:
+            return "result kept"
+
+        assert await audit.run(execute) == "result kept"
+        assert await ledger.list_records() == []
+
+    @pytest.mark.asyncio
+    async def test_audit_complete_failure_keeps_execution_result(self, tmp_path) -> None:
+        """回写失败不改结果：complete 抛错时执行结果原样返回（观测不改变业务控制流）。"""
+        from heagent.engine.ledger import LedgerAudit
+
+        ledger = _CompleteBrokenLedger(base_dir=str(tmp_path / "ledger"))
+        audit = LedgerAudit(ledger=ledger, key="goal-verify:call-1", scope="goal-verify")
+
+        async def execute() -> str:
+            return "result kept"
+
+        assert await audit.run(execute) == "result kept"
+
+    @pytest.mark.asyncio
+    async def test_audit_records_fail_and_reraises_on_execution_exception(self, tmp_path) -> None:
+        """执行抛异常 → 记录 FAILED（error 如实）且异常原样上抛。"""
+        from heagent.engine.ledger import LedgerAudit
+
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        audit = LedgerAudit(ledger=ledger, key="goal-verify:call-1", scope="goal-verify")
+
+        async def execute() -> str:
+            raise RuntimeError("sandbox workspace missing")
+
+        with pytest.raises(RuntimeError, match="sandbox workspace missing"):
+            await audit.run(execute)
+
+        record = await ledger.get("goal-verify:call-1")
+        assert record is not None
+        assert record.status is ExecutionStatus.FAILED
+        assert record.error == "sandbox workspace missing"
+
+    @pytest.mark.asyncio
+    async def test_audit_renews_lease_while_in_flight(self, tmp_path, monkeypatch) -> None:
+        """在途续租接管：执行慢于首个心跳间隔时 heartbeat 周期发生（审计面不与执行面失配）。"""
+        import asyncio
+
+        from heagent.engine import ledger as ledger_mod
+        from heagent.engine.ledger import LedgerAudit
+
+        beats = {"count": 0}
+        real_heartbeat = ExecutionLedger.heartbeat
+
+        async def counting_heartbeat(self, key, *, lease_seconds=120):
+            beats["count"] += 1
+            return await real_heartbeat(self, key, lease_seconds=lease_seconds)
+
+        monkeypatch.setattr(ledger_mod.ExecutionLedger, "heartbeat", counting_heartbeat)
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        audit = LedgerAudit(
+            ledger=ledger, key="goal-verify:slow", scope="goal-verify", lease_seconds=600, renew_interval_seconds=0.02
+        )
+
+        async def execute() -> str:
+            await asyncio.sleep(0.12)  # ≈6 个心跳间隔：无续租则 beats == 0
+            return "done"
+
+        assert await audit.run(execute) == "done"
+        assert beats["count"] >= 2  # 续租确实在途发生（无续租实现此处为 0）
+        record = await ledger.get("goal-verify:slow")
+        assert record is not None and record.status is ExecutionStatus.COMPLETED

@@ -1276,6 +1276,45 @@ class TestSandboxBackendTier:
         assert result.content == "payload"
         assert "emit failed" in caplog.text
 
+    @pytest.mark.asyncio
+    async def test_audit_covers_the_policy_blocked_path(self, tmp_path: Path) -> None:
+        """A28：audit-only 记账罩住 execute 全体——策略阻断也是一次「调用尝试」，如实留痕。
+
+        阻断不执行 handler，但审计记录仍以 COMPLETED 落盘（metadata 如实反映 outcome），
+        且幂等去重禁用（重发同一 audit 键永远允许再次执行——审计是旁路，不是闸门）。
+        """
+        from heagent.engine.policy import PolicyVerdict
+        from heagent.engine.ledger import ExecutionLedger, ExecutionStatus, LedgerAudit
+
+        ledger = ExecutionLedger(base_dir=str(tmp_path / "ledger"))
+        call = ToolCall(id="verify-1", name="shell", arguments={"command": "pytest -q"})
+        blocked = PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason="not allowed", sandbox_profile="")
+        audit = LedgerAudit(
+            ledger=ledger,
+            key="goal-verify:verify-1",
+            scope="goal-verify",
+            metadata={"command": "pytest -q"},
+            result_metadata=lambda result: {"outcome": "policy_blocked"},
+        )
+
+        async def handler_never_runs(call):  # noqa: ANN001
+            raise AssertionError("handler must not run for a blocked verdict")
+
+        result = await ToolExecutor().execute(
+            call=call,
+            verdict=blocked,
+            guard=type("Guard", (), {"check": lambda self, call: None})(),
+            handler=handler_never_runs,
+            audit=audit,
+        )
+
+        assert result.is_error is True  # 阻断语义不变
+        record = await ledger.get("goal-verify:verify-1")
+        assert record is not None
+        assert record.status is ExecutionStatus.COMPLETED
+        assert record.metadata["command"] == "pytest -q"
+        assert record.metadata["outcome"] == "policy_blocked"
+
 
 class TestSandboxSessionBinding:
     """FR-4: execute_in_sandbox 绑定 SandboxSession（handler 可取到）。"""

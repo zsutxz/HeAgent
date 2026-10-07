@@ -11,6 +11,7 @@ from heagent.engine.workflow_runner import (
     WorkflowRunResult,
     WorkflowRunner,
     WorkflowStepResult,
+    _emit_step_event,
     required_sections,
 )
 from heagent.goal.workflow_loader import parse_story_list
@@ -449,3 +450,32 @@ async def test_run_step_without_emit_is_unchanged_and_emit_failure_isolated() ->
     runner2 = WorkflowRunner(workflow)
     result2 = await runner2.run_step(callback, inputs={"brief": "x"}, emit=bad_emit)
     assert result2.status is WorkflowStatus.COMPLETED
+
+
+def test_emit_isolation_covers_hostile_duck_step_and_story() -> None:
+    """A27：payload 构造在隔离内——鸭子对象属性访问故障与 emit 故障同不被传播。
+
+    `_emit_step_event` 是全仓唯一观测隔离包装（CLI 质量门事件共用）；宿主鸭子契约的
+    step/story 属性访问抛错时只记 warning，绝不进业务控制流。
+    """
+    from types import SimpleNamespace
+    from typing import Any
+
+    class _Hostile:
+        def __getattr__(self, name: str) -> Any:
+            raise RuntimeError(f"hostile attribute: {name}")
+
+    events: list[tuple[str, dict[str, Any]]] = []
+
+    def emit(kind: str, *, details: dict[str, Any] | None = None) -> None:
+        events.append((kind, details or {}))
+
+    # 属性访问故障 → 隔离（不抛、零事件）
+    _emit_step_event(emit, "workflow_step_started", step=_Hostile(), story=_Hostile())
+    assert events == []
+
+    # 同一包装的正常路径不受影响（payload 形状不变）
+    _emit_step_event(emit, "workflow_step_completed", step=SimpleNamespace(name="step-01.md"), story=None)
+    assert events[-1][0] == "workflow_step_completed"
+    assert events[-1][1]["step"] == "step-01.md"
+    assert events[-1][1]["story"] == ""

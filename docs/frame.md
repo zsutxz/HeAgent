@@ -893,7 +893,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `policy.py` | `PolicyEngine` — 准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
 | `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端；FR-1 会话目录经 `bind_sandbox_workspace` 送达；FR-2 后端强度档位经 `_runner_tier()` 查询并随 emit 事件 `sandbox_tier` 可观测（见 4.4 sandbox.py） |
 | `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次 |
-| `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入；`heartbeat()` 由工具在途续租（`agent/tool_execution._renew_ledger_lease`）调用，使「过期 RUNNING = 孤儿」成为 prune 的可靠判据 |
+| `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入；`heartbeat()` 由在途续租原语 `renew_lease_while_active`（本模块单源；`agent/tool_execution._renew_ledger_lease` 是其工具在途缝包装）与 `LedgerAudit`（audit-only 记账，`ToolExecutor.execute(audit=...)` 的可选审计面，幂等去重禁用）调用，使「过期 RUNNING = 孤儿」成为 prune 的可靠判据 |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布；`LoggingObserver` 经 `safe_logging.safe_log` 落日志（日志故障不改写调用方），并对 `target`/`details` 做启发式脱敏（`redact_secrets`/`redact_mapping`）；`EventBus.emit` 的观察者兜底同样走 `safe_log` |
 | 其余四个模块 | `checkpoint.py` / `workflow_resource.py` / `workflow_runner.py` / `artifacts.py`——职责见 4.13 与「六、目录结构」（本表不重复，避免两处漂移） |
 

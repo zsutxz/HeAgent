@@ -32,6 +32,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 from heagent.engine import ApprovalDecision, ApprovalRequest, ToolExecutionMode
+from heagent.engine.ledger import renew_lease_while_active
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import ToolCall, ToolResult
 from heagent.tools.call_summary import activity_label, summarize_tool_call
@@ -53,28 +54,16 @@ _LEDGER_LEASE_RENEW_INTERVAL = 40
 
 
 async def _renew_ledger_lease(ledger: ExecutionLedger, key: str) -> None:
-    """工具在途期间周期续租，直到被调用方取消（或记录已消失）。
+    """工具在途期间周期续租（A28：循环体收敛到 engine 原语，本包装只保留缝与策略常量）。
 
-    这是尽力而为的保活：记录被清掉（``heartbeat`` 返回 ``None``）或续租本身 I/O 失败都
-    只记 warning，**不抛错**——工具结果由 :func:`_record_ledger_outcome` 与调用方兜底，
-    绝不能因为「保不住缓存键」而打断正在跑的工具。
-
-    实现上刻意用 ``asyncio.sleep`` 循环而非 ``asyncio.TimerHandle``：间隔远大于单次
-    ``to_thread`` 落盘耗时，无需担心漂移累积。
+    本模块级名字是测试缝（``tests/test_window_reset.py`` 按名替换 / 直调），签名
+    ``(ledger, key)`` 与「失败只告警、绝不打断在途工具」语义不变；续租循环的实现在
+    :func:`heagent.engine.ledger.renew_lease_while_active`（与 ``ToolExecutor`` 的
+    audit-only 记账共用同一份）。
     """
-    while True:
-        await asyncio.sleep(_LEDGER_LEASE_RENEW_INTERVAL)
-        try:
-            record = await ledger.heartbeat(key, lease_seconds=_LEDGER_LEASE_SECONDS)
-        except Exception:
-            # 注意 CancelledError 是 BaseException，不会被这里吞掉——取消续租任务
-            # （execute_tool_call 的 finally）仍按取消语义退出。
-            safe_log(logger, logging.WARNING, "Ledger lease renewal failed for %s; will retry", key, exc_info=True)
-            continue
-        if record is None:
-            # 记录已被清理（或已终态）：续租已无意义，退出让回写路径去报告。
-            safe_log(logger, logging.WARNING, "Ledger record %s vanished while the tool was in flight", key)
-            return
+    await renew_lease_while_active(
+        ledger, key, lease_seconds=_LEDGER_LEASE_SECONDS, interval_seconds=_LEDGER_LEASE_RENEW_INTERVAL
+    )
 
 
 async def _record_ledger_outcome(loop: AgentLoop, cache_key: str, result: ToolResult) -> None:

@@ -108,10 +108,16 @@ async def test_unknown_dependency_blocks_the_whole_chain_without_running(tmp_pat
             lambda data: {key: value for key, value in data.items() if key not in {"active_stories", "story_statuses"}},
             "legacy minimal shape",
         ),
+        # A26 / A33①：镜像字段（active_stories / artifact_refs）已从模型删除；旧盘文件携带
+        # 陈旧镜像值恢复时必须被容忍读忽略——恢复一律派生自 active_story / outputs。
+        (
+            lambda data: {**data, "active_stories": ["S-STALE"], "artifact_refs": ["stale-ref"]},
+            "stale derived mirrors are ignored",
+        ),
     ],
 )
 async def test_legacy_checkpoint_recovery_matrix(tmp_path, mutation, label: str) -> None:
-    """旧 checkpoint 形态恢复矩阵：三种历史形态都能恢复并串行续跑，不重复已完成 story。"""
+    """旧 checkpoint 形态恢复矩阵：四种历史形态都能恢复并串行续跑，不重复已完成 story。"""
     store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
     runner = WorkflowRunner(_story_workflow(), goal_id="goal", run_id="run", checkpoint_store=store)
     seen: list[str] = []

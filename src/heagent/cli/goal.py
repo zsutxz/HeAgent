@@ -30,7 +30,9 @@ from heagent.engine import (
     WorkflowStatus,
     WorkflowStepResult,
 )
+from heagent.engine.ledger import LedgerAudit
 from heagent.engine.observability import elapsed_ms
+from heagent.engine.workflow_runner import _emit_step_event
 from heagent.goal.application import (
     GOAL_SKILLS_ROOT,
     DecisionStatus,
@@ -85,7 +87,6 @@ from heagent.goal.script_runtime import GoalScriptRuntimeError, ScriptRuntime
 from heagent.goal.status_view import project_status_view
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
 from heagent.pub.persist import atomic_write_text
-from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import ToolCall, ToolResult
 from heagent.pub.workspace import WorkspacePaths
 
@@ -554,30 +555,29 @@ def _emit_goal_gate_event(
 ) -> None:
     """质量门求值的观测事件（51-4 递延「emit 接线」收口）。
 
-    ``workflow_gate_evaluated`` 与 runner 的 ``workflow_step_*`` 同走 ``engine.events`` 总线；
-    emit 异常隔离（对齐 ``WorkflowRunner._emit_step_event``）：可观测性不得改变业务控制流。
-    ``engine=None``（部分库消费者）不发事件。
+    ``workflow_gate_evaluated`` 与 runner 的 ``workflow_step_*`` 同走 ``engine.events`` 总线，
+    且共用同一份隔离包装 :func:`WorkflowRunner._emit_step_event`（A27 统一：emit-None 守卫 +
+    try/except + ``safe_log`` 忽略的观测隔离契约全仓只有这一份实现）；``engine=None``
+    （部分库消费者）不发事件。鸭子对象（step/story）的属性访问在隔离内；report 派生值
+    是自有类型化模型字段，在实参处求值（不会抛）。
     """
     emit: Callable[..., None] | None = _workflow_event_emitter(engine)
     if emit is None:
         return
-    try:
-        # details 构造也在隔离内：step/story 是宿主鸭子契约，属性访问故障不得传播进业务流（评审 LOW）。
-        details: dict[str, Any] = {
-            "step": step.name,
-            "story": story.id if story is not None else "",
-            "source": source,
-            "verdict": "passed" if report.passed else "failed",
-            "failed": len(report.failed),
-            "clause_errors": len(report.errors),
-            "rerun": rerun,
-            "rerun_evidence": list(report.rerun_evidence),
-            "reused_commands": list(report.reused_commands),
-            "duration_ms": elapsed_ms(started),
-        }
-        emit("workflow_gate_evaluated", details=details)
-    except Exception:  # noqa: BLE001
-        safe_log(logger, logging.WARNING, "workflow gate event emit failed; ignored", exc_info=True)
+    _emit_step_event(
+        emit,
+        "workflow_gate_evaluated",
+        step=step,
+        story=story,
+        duration_ms=elapsed_ms(started),
+        source=source,
+        verdict="passed" if report.passed else "failed",
+        failed=len(report.failed),
+        clause_errors=len(report.errors),
+        rerun=rerun,
+        rerun_evidence=list(report.rerun_evidence),
+        reused_commands=list(report.reused_commands),
+    )
 
 
 async def _goal_declarative_advance(
@@ -1061,10 +1061,13 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
     （git.py ``_run_git`` 的 ``cwd=workspace_root()`` 先例；不改 sandbox ``CommandRunner``
     契约）。证据 ``cwd`` 记 :func:`_goal_verify_workspace` 的同一取值——与求值器期望值同源。
 
-    台账审计（51-4 递延「ledger 接线」收口）：每次受治理执行在 ``ExecutionLedger`` 留一条
-    ``scope="goal-verify"`` 记录（outcome / duration 进 metadata）。键含唯一 call id——只
-    审计、**不去重**：verify 重跑是显性请求，永远允许再次执行。台账故障只记日志，绝不
-    阻断治理执行（观测不得改变业务控制流）。
+    台账审计（51-4 递延「ledger 接线」收口；A28 下沉 engine）：每次受治理执行在
+    ``ExecutionLedger`` 留一条 ``scope="goal-verify"`` 记录（command / outcome / duration
+    进 metadata）。键含唯一 call id——只审计、**不去重**：verify 重跑是显性请求，永远
+    允许再次执行。acquire → 在途续租 → complete/fail 的配对由
+    :class:`~heagent.engine.ledger.LedgerAudit` 经 ``executor.execute(audit=...)`` 单点完成
+    （含租约在途续租——修复「慢 verify 跑超静态租约被 prune 误判孤儿」的审计面失配）；
+    本函数只传规格，台账故障不影响执行结果（观测不得改变业务控制流）。
     """
     from heagent.tools.registry import ToolRegistry  # noqa: PLC0415
     from heagent.tools.safety import SafetyGuard  # noqa: PLC0415
@@ -1079,7 +1082,6 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
             "timeout": _VERIFY_COMMAND_TIMEOUT_SECONDS,
         },
     )
-    ledger_key = f"goal-verify:{call.id}"
     run_context = engine.create_run_context(metadata={"purpose": "/goal verify controlled re-run"})
     registry = ToolRegistry.get()
     handler = registry.get_handler("shell")
@@ -1098,76 +1100,39 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
 
     # 容器构造期快照优先（review #22），缺席（手工构造的容器）才回退现场解析。
     runtime = engine.runtime_config or resolve_runtime_config()
-    # acquire 挪到执行紧前：evaluate / get_schema / resolve_runtime_config 抛错不留悬挂 RUNNING
-    # （评审 M-2）；执行本体（execute → complete/fail）全部罩进配对的 try。
-    ledger_acquired = await _verify_ledger_acquire(engine, ledger_key, command)
-    try:
-        result = await engine.executor.execute(
-            call=call,
-            verdict=verdict,
-            guard=SafetyGuard(blocked_tools=list(runtime.safety_blocked_tools)),
-            handler=invoke,
-            run_context=run_context,
-        )
-    except BaseException as exc:
-        await _verify_ledger_fail(engine, ledger_key, ledger_acquired, str(exc) or type(exc).__name__)
-        raise
-    duration_ms = elapsed_ms(started)
-    if verdict.mode in {ToolExecutionMode.BLOCKED, ToolExecutionMode.APPROVAL_REQUIRED}:
-        outcome = CommandOutcome.POLICY_BLOCKED
-    else:
+
+    def classify_outcome(result: ToolResult) -> CommandOutcome:
+        """证据与审计共用的 outcome 归类核心（策略阻断 / 证据失形 → 未通过，不从文本猜层）。"""
+        if verdict.mode in {ToolExecutionMode.BLOCKED, ToolExecutionMode.APPROVAL_REQUIRED}:
+            return CommandOutcome.POLICY_BLOCKED
         try:
-            outcome = classify_command_result(result)
+            return classify_command_result(result)
         except EvidenceError:
-            outcome = CommandOutcome.POLICY_BLOCKED
+            return CommandOutcome.POLICY_BLOCKED
+
     # 命令失败（非零退出）≠ 执行失败：受治理执行本身完成，outcome 如实进 metadata。
     # command 并入 complete 的 metadata（ledger.complete 整体替换 metadata，评审 M-1）：
-    # 审计记录必须能回答「哪条声明命令被受治理执行过」。
-    await _verify_ledger_complete(
-        engine, ledger_key, ledger_acquired, command=command, outcome=outcome.value, duration_ms=duration_ms
+    # 审计记录必须能回答「哪条声明命令被受治理执行过」。租约须覆盖静态超时上界。
+    audit = LedgerAudit(
+        ledger=engine.ledger,
+        key=f"goal-verify:{call.id}",
+        scope="goal-verify",
+        lease_seconds=_VERIFY_COMMAND_TIMEOUT_SECONDS + 60,
+        metadata={"command": command},
+        result_metadata=lambda result: {"command": command, "outcome": classify_outcome(result).value},
     )
-    return build_command_evidence(call, result, cwd=str(workspace), duration_ms=duration_ms, outcome=outcome)
-
-
-async def _verify_ledger_acquire(engine: EngineContainer, key: str, command: str) -> bool:
-    """受治理重跑的台账审计起点。观测不得阻断治理执行：任何台账故障只记日志，执行照常。
-
-    键含唯一 call id（``goal-verify:{call.id}``），**不做幂等去重**——ledger 的
-    「already completed」短路是永久态，verify 重跑是显性请求，永远允许再次执行。
-    """
-    try:
-        claim = await engine.ledger.acquire(
-            key,
-            scope="goal-verify",
-            lease_seconds=_VERIFY_COMMAND_TIMEOUT_SECONDS + 60,
-            metadata={"command": command},
-        )
-        return claim.acquired
-    except Exception as exc:  # noqa: BLE001
-        safe_log(logger, logging.WARNING, f"verify ledger acquire failed; ignored: {exc}", exc_info=True)
-        return False
-
-
-async def _verify_ledger_complete(
-    engine: EngineContainer, key: str, acquired: bool, *, command: str, outcome: str, duration_ms: int
-) -> None:
-    if not acquired:
-        return
-    try:
-        # ledger.complete 整体替换 metadata（评审 M-1）：command 必须并入，否则 COMPLETED
-        # 审计记录无法回答「哪条声明命令被受治理执行过」。
-        await engine.ledger.complete(key, metadata={"command": command, "outcome": outcome, "duration_ms": duration_ms})
-    except Exception as exc:  # noqa: BLE001
-        safe_log(logger, logging.WARNING, f"verify ledger complete failed; ignored: {exc}", exc_info=True)
-
-
-async def _verify_ledger_fail(engine: EngineContainer, key: str, acquired: bool, error: str) -> None:
-    if not acquired:
-        return
-    try:
-        await engine.ledger.fail(key, error)
-    except Exception as exc:  # noqa: BLE001
-        safe_log(logger, logging.WARNING, f"verify ledger fail failed; ignored: {exc}", exc_info=True)
+    result = await engine.executor.execute(
+        call=call,
+        verdict=verdict,
+        guard=SafetyGuard(blocked_tools=list(runtime.safety_blocked_tools)),
+        handler=invoke,
+        run_context=run_context,
+        audit=audit,
+    )
+    duration_ms = elapsed_ms(started)
+    return build_command_evidence(
+        call, result, cwd=str(workspace), duration_ms=duration_ms, outcome=classify_outcome(result)
+    )
 
 
 async def _goal_declarative_run(
@@ -1260,6 +1225,17 @@ async def _goal_resolve_bound() -> tuple[Path, WorkflowResource] | None:
     except (WorkflowCheckpointError, OSError, ValueError) as exc:
         _echo(f"[goal] workflow binding failed: {exc}", err=True)
         return None
+
+
+async def _goal_bound_workflow() -> WorkflowResource | None:
+    """活动 goal 的冻结绑定流程；无活动 goal 或绑定失败时 ``None``。
+
+    :func:`_goal_resolve_bound` 的流程维度投影（A33②）：dispatch 的 11 处
+    ``resolved = await _goal_resolve_bound(); if resolved is not None:`` 前导收敛到此，
+    只解一元组索引；错误渲染仍单点在 :func:`_goal_resolve_bound`。
+    """
+    resolved = await _goal_resolve_bound()
+    return resolved[1] if resolved is not None else None
 
 
 async def _goal_start_new(
@@ -1360,17 +1336,17 @@ async def _goal_declarative_dispatch(
     """Route the supported /goal commands without touching the legacy board.
 
     作用于**既有 goal** 的命令（advance/run/status/verify/pause/resume/approve/reject/
-    amend/decisions/auto/doctor）一律经 :func:`_goal_resolve_bound` 按 goal 冻结的绑定解析
-    流程（Story 51-6，AD-8：改配置不让运行中 goal 静默换流程）；``new``（含裸描述兜底）经
-    :func:`_goal_start_new` 在创建时冻结选定的包 id 与 revision。
+    amend/decisions/auto/doctor）一律经 :func:`_goal_bound_workflow`（→ :func:`_goal_resolve_bound`）
+    按 goal 冻结的绑定解析流程（Story 51-6，AD-8：改配置不让运行中 goal 静默换流程）；
+    ``new``（含裸描述兜底）经 :func:`_goal_start_new` 在创建时冻结选定的包 id 与 revision。
+    各分支的 ``_goal_mutex`` 持有面与解析落点（锁内 / 锁外）逐字保持（A33② 冻结边界）。
     """
     parts = args.split(None, 1)
     head = parts[0].lower() if parts else ""
     rest = parts[1].strip() if len(parts) > 1 else ""
     if not parts:
-        resolved = await _goal_resolve_bound()
-        if resolved is not None:
-            await _goal_declarative_status(resolved[1])
+        if (workflow := await _goal_bound_workflow()) is not None:
+            await _goal_declarative_status(workflow)
     elif head == "new":
         if not rest:
             _goal_usage()
@@ -1381,61 +1357,51 @@ async def _goal_declarative_dispatch(
         _goal_usage()
     elif head == "next":
         async with _goal_mutex():
-            resolved = await _goal_resolve_bound()
-            if resolved is not None:
-                await _goal_declarative_advance(provider, engine, resolved[1])
+            if (workflow := await _goal_bound_workflow()) is not None:
+                await _goal_declarative_advance(provider, engine, workflow)
     elif head == "run":
-        resolved = await _goal_resolve_bound()
-        if resolved is not None:
-            await _goal_declarative_run(provider, engine, resolved[1])
+        if (workflow := await _goal_bound_workflow()) is not None:
+            await _goal_declarative_run(provider, engine, workflow)
     elif head == "status":
-        resolved = await _goal_resolve_bound()
-        if resolved is not None:
-            await _goal_declarative_status(resolved[1])
+        if (workflow := await _goal_bound_workflow()) is not None:
+            await _goal_declarative_status(workflow)
     elif head == "doctor":
         await _goal_declarative_doctor(rest)
     elif head == "verify":
         if rest and rest != "run":
             _goal_usage()
-        else:
-            resolved = await _goal_resolve_bound()
-            if resolved is not None:
-                await _goal_declarative_verify(resolved[1], engine, args=rest)
+        elif (workflow := await _goal_bound_workflow()) is not None:
+            await _goal_declarative_verify(workflow, engine, args=rest)
     elif head == "pause":
-        resolved = await _goal_resolve_bound()
-        if resolved is not None:
-            await _goal_declarative_pause_resume(resolved[1], resume=False)
+        if (workflow := await _goal_bound_workflow()) is not None:
+            await _goal_declarative_pause_resume(workflow, resume=False)
     elif head == "resume":
         async with _goal_mutex():
-            resolved = await _goal_resolve_bound()
-            if resolved is not None and await _goal_declarative_pause_resume(resolved[1], resume=True, response=rest):
-                await _goal_declarative_advance(provider, engine, resolved[1])
+            if (workflow := await _goal_bound_workflow()) is not None and await _goal_declarative_pause_resume(
+                workflow, resume=True, response=rest
+            ):
+                await _goal_declarative_advance(provider, engine, workflow)
     elif head == "approve":
         if rest:
             _goal_usage()
-        else:
-            resolved = await _goal_resolve_bound()
-            if resolved is not None:
-                await _goal_declarative_decision(
-                    resolved[1], "", action=DecisionAction.APPROVE, provider=provider, engine=engine
-                )
+        elif (workflow := await _goal_bound_workflow()) is not None:
+            await _goal_declarative_decision(
+                workflow, "", action=DecisionAction.APPROVE, provider=provider, engine=engine
+            )
     elif head in ("reject", "amend"):
         if not rest:
             _goal_usage()
-        else:
-            resolved = await _goal_resolve_bound()
-            if resolved is not None:
-                await _goal_declarative_decision(
-                    resolved[1],
-                    rest,
-                    action=DecisionAction.REJECT if head == "reject" else DecisionAction.AMEND,
-                    provider=provider,
-                    engine=engine,
-                )
+        elif (workflow := await _goal_bound_workflow()) is not None:
+            await _goal_declarative_decision(
+                workflow,
+                rest,
+                action=DecisionAction.REJECT if head == "reject" else DecisionAction.AMEND,
+                provider=provider,
+                engine=engine,
+            )
     elif head == "decisions":
-        resolved = await _goal_resolve_bound()
-        if resolved is not None:
-            await _goal_declarative_decisions(resolved[1])
+        if (workflow := await _goal_bound_workflow()) is not None:
+            await _goal_declarative_decisions(workflow)
     elif head == "audit":
         _echo("[goal] audit subcommand has been removed; supported subcommands are listed below.", err=True)
         _goal_usage()
@@ -1443,9 +1409,8 @@ async def _goal_declarative_dispatch(
         async with _goal_mutex():
             _goal_reset()
     elif head == "auto":
-        resolved = await _goal_resolve_bound()
-        if resolved is not None:
-            await _goal_declarative_auto(resolved[1], rest, cron_store)
+        if (workflow := await _goal_bound_workflow()) is not None:
+            await _goal_declarative_auto(workflow, rest, cron_store)
     elif (intended := _goal_typo_subcommand(args)) is not None:
         _echo(f"[goal] unknown subcommand {args.strip()!r}; did you mean `/goal {intended}`?", err=True)
         _goal_usage()

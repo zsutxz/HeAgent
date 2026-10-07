@@ -49,6 +49,7 @@ from heagent.tools.sandbox import (
 
 if TYPE_CHECKING:
     from heagent.engine.context import RunContext
+    from heagent.engine.ledger import LedgerAudit
     from heagent.tools.safety import SafetyGuard
 
 logger = logging.getLogger(__name__)
@@ -110,12 +111,42 @@ class ToolExecutor:
         handler: Handler,
         run_context: RunContext | None = None,
         emit: Callable[..., None] | None = None,
+        audit: LedgerAudit | None = None,
     ) -> ToolResult:
         """按 verdict.mode 选择路径执行一次工具调用。
 
         ``guard`` / ``handler`` 由调用方（AgentLoop._execute_one）注入；``emit`` 为可选的
         事件发布回调（通常绑定到 EngineContainer.events.publish）。
+
+        ``audit``（A28，可选）：audit-only 台账记账（幂等去重禁用）——acquire → 在途续租
+        → complete/fail 由 :class:`~heagent.engine.ledger.LedgerAudit` 单点配对并罩住本方法
+        全体（含策略阻断路径：阻断也是一次「调用尝试」，审计如实留痕）。宿主入口层只传
+        规格（scope / 键 / 元数据），不再手写 acquire→execute→complete/fail 配对；台账
+        故障只记日志，绝不影响执行结果（观测不得改变业务控制流）。缺省 ``None`` = 零行为
+        变化（AgentLoop 主链路的幂等记账在 ``agent/tool_execution``，不经此参数）。
         """
+        if audit is None:
+            return await self._dispatch(
+                call=call, verdict=verdict, guard=guard, handler=handler, run_context=run_context, emit=emit
+            )
+        audited: ToolResult = await audit.run(
+            lambda: self._dispatch(
+                call=call, verdict=verdict, guard=guard, handler=handler, run_context=run_context, emit=emit
+            )
+        )
+        return audited
+
+    async def _dispatch(
+        self,
+        *,
+        call: ToolCall,
+        verdict: PolicyVerdict,
+        guard: SafetyGuard,
+        handler: Handler,
+        run_context: RunContext | None,
+        emit: Callable[..., None] | None,
+    ) -> ToolResult:
+        """按 verdict.mode 的四路分发（execute 的主体，audit 罩在其外）。"""
         # BLOCKED：策略硬阻断 → 返回错误结果。
         if verdict.mode is ToolExecutionMode.BLOCKED:
             return self._policy_error(call, verdict, run_context=run_context, emit=emit)

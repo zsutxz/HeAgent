@@ -122,10 +122,10 @@ def _story_workflow() -> WorkflowResource:
 
 
 def test_status_view_renders_the_epic_recorded_in_the_runner_state() -> None:
-    state = WorkflowRunnerState(active_step=1, active_story="S-3", active_stories=["S-3"], active_epic="E2")
+    state = WorkflowRunnerState(active_step=1, active_story="S-3", active_epic="E2")
     assert "[goal] current epic: E2" in project_status_view(state, _story_workflow()).render()
 
-    idle = WorkflowRunnerState(active_step=1, active_story="S-3", active_stories=["S-3"])
+    idle = WorkflowRunnerState(active_step=1, active_story="S-3")
     assert "[goal] current epic:" not in project_status_view(idle, _story_workflow()).render()
 
 
@@ -164,7 +164,6 @@ async def test_cli_status_shows_the_epic_without_reading_any_document(
         active_step=1,
         status=WorkflowStatus.PENDING,
         active_story="S-3",
-        active_stories=["S-3"],
         active_epic="E2",
     )
 

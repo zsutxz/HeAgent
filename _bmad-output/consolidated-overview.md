@@ -915,7 +915,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### 17.3 下一步（路线图）
 
-> 完整清单（**5 条**活动台账项 + 纪律类产物滞后 + 技术债候选 + 已决策关闭）见 **17.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（**0 条**活动台账项——2026-10-07 第二次清空 + 纪律类产物滞后 + 技术债候选 + 已决策关闭）见 **17.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本已 `0.7.1`；`.github/workflows` 目前只有 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
 - ✅ **安全纵深（已裁定不做）**：MCP stdio server 子进程接入沙箱 —— 2026-09-27 用户裁定 (c) **不实施**（长命双向管道与既有 `CommandRunner` 形状冲突 + 隔离档属产品取舍 + 仍非边界），登记为已知暴露面（§17.4-A2 → Z-D24）。
@@ -926,9 +926,9 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 > **权威层级**：活动（未闭合）条目以 `implementation-artifacts/deferred-work-archive.md`（append-only 入口）为准；Epic/Story 状态以 `sprint-status.yaml` 为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（5 条，**索引**）
+#### A. 活动台账未闭合条目（0 条——第二次清空，2026-10-07，**索引**）
 
-> 完整正文（触发条件 / 严重度理由 / 冻结边界 / evidence / Progress）一律以 `implementation-artifacts/deferred-work-archive.md` 的**活动区**为准（append-only 入口）。本表只做导航、**不再复制**；活动区当前 **5 条**（2026-10-07 两轮 /simplify 清理补录 A25~A33 ⇒ 由 0 复增，同日第五轮批量处置 A29/A30/A31/A32 ⇒ 9→5；2026-09-28 实测——此前写的 13 条未跟上 2026-09-27 三次条目移出后的实际计数；同日第五轮校正为 7、第六轮按产品裁定闭合 A8 / A10 / A12 / A15 / A16 五条、第七轮交付 A1④、第八轮按裁定闭合 A1、第九轮按裁定归档 A6 ⇒ **0 条**；活动台账**首次清空**）。下表保留 **21 行已闭合 / 已失效**的编号（A1 / A2 / A3 / A4 / A5 / A6 / A7 / A8 / A9 / A10 / A11 / A12 / A13 / A14 / A15 / A16 / A17 / A18 / A19 / A23 / A24），供旧引用追溯；**A25~A33 为活动行**（2026-10-07 登记，未划线）。**编号口径（2026-09-28 统一）**：本表 A 号与台账 `deferred-work-archive.md` 的「**A 编号登记表**」**已对齐**——A1~A19 + A23/A24 一一对应 21 个事项（A20~A22 为撤号，不复用），**同号异义已消除**（旧账：A19 曾同时指「掩码域后缀制」与「原生目录选择端点默认开」，A17/A21 同指 R5 收敛判据）。撤号不复用，旧号对照见登记表的「旧号对照（撤号 / 让号）」段；引用**一律以台账登记表为准**。
+> 完整正文（触发条件 / 严重度理由 / 冻结边界 / evidence / Progress）一律以 `implementation-artifacts/deferred-work-archive.md` 的**活动区**为准（append-only 入口）。本表只做导航、**不再复制**；活动区当前 **0 条**（2026-10-07 两轮 /simplify 清理补录 A25~A33 ⇒ 由 0 复增至 9，同日第五轮批量处置 A29/A30/A31/A32 ⇒ 9→5，同日第六轮按用户指令闭合 A25 / A26 / A27 / A28 / A33 ⇒ **0 条**；2026-09-28 曾**首次清空**——A8 / A10 / A12 / A15 / A16 按裁定、A1④ 交付、A1 与 A6 归档；活动台账现为**第二次清空**）。下表保留 **26 行已闭合 / 已失效**的编号（A1~A19 + A23~A33 全部划线），供旧引用追溯。**编号口径（2026-09-28 统一）**：本表 A 号与台账 `deferred-work-archive.md` 的「**A 编号登记表**」**已对齐**——A1~A19 + A23/A24 一一对应 21 个事项（A20~A22 为撤号，不复用；A25~A33 为 2026-10-07 新登记批次），**同号异义已消除**（旧账：A19 曾同时指「掩码域后缀制」与「原生目录选择端点默认开」，A17/A21 同指 R5 收敛判据）。撤号不复用，旧号对照见登记表的「旧号对照（撤号 / 让号）」段；引用**一律以台账登记表为准**。
 
 | # | 条目 | 严重度 |
 |---|------|--------|
@@ -953,15 +953,15 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | A19 | ~~原生目录选择端点默认开~~ —— **已闭合**（2026-09-27 裁定默认改按需：`--dialog-backend` 默认 `none`；正文见 `deferred-work-archive.md` 的「A19」小节） | — |
 | A23 | ~~掩码域后缀制（`*_BASE_URL` 里的凭证原样回显）~~ —— **已闭合**（2026-09-27 裁定维持现状；2026-09-28 由旧 A19 改号，正文见 `deferred-work-archive.md` 的「A23」小节） | — |
 | A24 | ~~GUI 事件日志在环形缓冲满后永久停止渲染（+ 暂停即丢事件）~~ —— **已闭合**（2026-09-28 当日发现当日修；改动面 `pub/event_lines.py` + `gui/{observers,widgets/event_log}.py`，正文见 `deferred-work-archive.md` 的「A24」小节） | — |
-| A25 | checkpoint id 的 `-parallel-` 残留分支（批次机制遗物）——串行化后无运行期读者，删除受 checkpoint id 兼容约束，须与 id 兼容策略一并做 | 低 |
-| A26 | `active_stories` 是 `active_story` 的可派生镜像（六写点同步税）——派生化触及 checkpoint / status_view 消费面 | 低 |
-| A27 | 门事件 emit 隔离包装双份（`cli/goal.py` 与 `engine/workflow_runner.py` 各一份）——统一需放宽引擎助手类型 | 低 |
-| A28 | goal-verify 台账审计生命周期 CLI 手写（第三份 claim/execute/finalize 拷贝，且无租约续租）——正确落点是 `ToolExecutor` audit-only 模式 | 中低 |
+| A25 | ~~checkpoint id 的 `-parallel-` 残留分支（批次机制遗物）~~ —— **已闭合**（2026-10-07：分支删除；兼容策略 = 容忍读——恢复路径从不按重建 id 找快照，旧格式文件可解析、新写入落新格式 id 不撞 conflict；兼容钉 `test_legacy_parallel_checkpoint_id_recovers_and_rewrites_new_format`；正文见 `deferred-work-archive.md` 下方「A25」小节） | — |
+| A26 | ~~`active_stories` 是 `active_story` 的可派生镜像（六写点同步税）~~ —— **已闭合**（2026-10-07：三模型字段派生化删除（旧盘键容忍读），消费方（status_view 投影 / from_checkpoint 恢复）全部接上现场派生；恢复矩阵加第四形态钉陈旧镜像被忽略；正文见 `deferred-work-archive.md` 下方「A26」小节） | — |
+| A27 | ~~门事件 emit 隔离包装双份（`cli/goal.py` 与 `engine/workflow_runner.py` 各一份）~~ —— **已闭合**（2026-10-07：`_emit_step_event` 转鸭子契约 + payload 构造入隔离，CLI 门事件改为 `**extra` 委托——隔离契约全仓单份实现；敌意鸭子判据钉住；正文见 `deferred-work-archive.md` 下方「A27」小节） | — |
+| A28 | ~~goal-verify 台账审计生命周期 CLI 手写（第三份 claim/execute/finalize 拷贝，且无租约续租）~~ —— **已闭合**（2026-10-07：`LedgerAudit` audit-only 规格 + `renew_lease_while_active` 原语下沉 `engine/ledger.py`，`ToolExecutor.execute` 增可选 `audit=`；CLI 三助手删除、在途续租接管修复审计面失配；变异体 6/6 变红；正文见 `deferred-work-archive.md` 下方「A28」小节） | — |
 | A29 | ~~会话/运行热路径的四处重优化（checkpoint O(N²) / 会话列表全量解析 / 无 title 整历史校验 / token 估算逐字符）~~ —— **已闭合**（2026-10-07 当日四面全修：写只读 / C 级计数 / mtime 排序零解析 / 元数据备忘录；探针 ② 131x / ③ 7x；正文见 `deferred-work-archive.md` 下方「A29」小节） | — |
 | A30 | ~~goal 域两处重复收敛~~ —— ① **评估结论 = 不收敛**（2026-10-07：锁差异是在码裁定——审查 #15 + goal_mutex(A32②) + 双维 sentinel 结构性需求；护栏 `test_store_concurrency_stance_divergence_is_intentional` 钉住）；② **已闭合**（`frontmatter_name_list` 单源核，宽容度分叉保留并带判据；正文见 `deferred-work-archive.md` 下方「A30」小节） | — |
 | A31 | ~~引擎层的方法论与解析错位~~ —— **已闭合**（2026-10-07：① `engine/artifacts.py` 整模块删除（零运行期调用方）② `StorySpec`→`pub/types.py` + 解析 177 行→`goal/workflow_loader.py` ③ BMad 兜底文案迁角色 md 声明（`delegation_fallback` frontmatter 键），工具层零文案副本；正文见 `deferred-work-archive.md` 下方「A31」小节） | — |
 | A32 | ~~治理与互斥的层级归属~~ —— **已闭合**（2026-10-07 三面全修：①② 见 2026-10-07 第三轮 + ③ `goal/` 11 个私有符号转公共名，入口层不再引用例层私有符号；正文见 `deferred-work-archive.md` 下方「A32」小节） | — |
-| A33 | 可派生镜像与边际重复——artifact_refs 镜像（候并与 A26）/ dispatch 前导 | 低 |
+| A33 | ~~可派生镜像与边际重复（artifact_refs 镜像 / dispatch 前导 11 处）~~ —— **已闭合**（2026-10-07：① `artifact_refs` 随 A26 同批派生化删除（不可达兜底一并删）② `_goal_bound_workflow()` 收敛 11 处前导，`_goal_mutex` 持有面逐字保持；正文见 `deferred-work-archive.md` 下方「A33」小节） | — |
 
 > **旧编号对照（2026-09-18 版）**：旧 A1~A4 = 本文 A1 / A2 / A3 / **A6**；旧 A5（`RoleSpec.sandbox_profile` 死字段）与旧 A6（沙箱进程数限额）已于 2026-09-18 闭合，故新编号里不再出现。改编号只为与台账条目顺序一一对应——正文一律以台账为准。
 > **2026-09-28 编号统一**：本表与台账「A 编号登记表」对齐（A1~A19 + A23/A24 一一对应 21 个事项）；旧 A21 → **A17**（R5 收敛判据失效）、旧 A22 → **A19**（原生目录选择端点默认开）、旧 A19（掩码域后缀制）→ **A23**、旧 A20（非回环运行姿态「总结」，A11 的重复登记）→ **A11**。`src/` / `tests/` 注释引用的 A9 / A11 / A13 / A14 / A18 **号未变**。

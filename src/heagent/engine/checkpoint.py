@@ -64,14 +64,15 @@ class WorkflowCheckpoint(BaseModel):
     # 当前 Story 所属 Epic（runner 在 story 循环处记录）。可选字段：旧 checkpoint 缺它就为空，
     # 由视图显示「未知」，绝不回读 story 文档去猜（AD-2 修订版允许追加可选字段）。
     active_epic: str = ""
-    artifact_refs: list[str] = Field(default_factory=list)
+    # 旧盘文件可能仍带 `artifact_refs` / `active_stories` 两个已派生化删除的镜像字段
+    # （A26 / A33①，2026-10-07）：前者恒等于 `outputs` 键表、后者恒等于 `[active_story]`，
+    # pydantic 默认 extra='ignore' 容忍读，恢复一律从 `outputs` / `active_story` 现场派生。
     outputs: dict[str, Any] = Field(default_factory=dict)
     acceptance_evidence: list[str] = Field(default_factory=list)
     completed_steps: list[int] = Field(default_factory=list)
     story_index: int | None = Field(default=None, ge=0)
     completed_stories: list[str] = Field(default_factory=list)
     story_outputs: dict[str, Any] = Field(default_factory=dict)
-    active_stories: list[str] = Field(default_factory=list)
     story_statuses: dict[str, str] = Field(default_factory=dict)
     # 步骤级审批门（Story 51-5）：True = 活动步做完工作、挂起等一个人工决策。可选字段：
     # 旧 checkpoint 缺它读作 False（AD-2 修订版允许追加可选字段，active_epic 同款先例）。
@@ -187,10 +188,8 @@ class WorkflowCheckpointStore:
             active_skill=checkpoint.active_skill,
             active_step=checkpoint.active_step,
             active_story=checkpoint.active_story,
-            active_stories=list(checkpoint.active_stories),
             story_statuses=dict(checkpoint.story_statuses),
             status=aggregate_status,
-            artifact_refs=list(checkpoint.artifact_refs),
             next_action=checkpoint.next_action,
             updated_at=checkpoint.created_at,
         )
@@ -226,10 +225,10 @@ class GoalWorkflowState(BaseModel):
     active_skill: str | None = None
     active_step: int | None = Field(default=None, ge=0)
     active_story: str | None = None
-    active_stories: list[str] = Field(default_factory=list)
+    # 旧 workflow.json 可能仍带 `active_stories` / `artifact_refs` 两个已派生化删除的镜像
+    # 字段（A26 / A33①）：容忍读（extra='ignore'），聚合态不再复制它们。
     story_statuses: dict[str, str] = Field(default_factory=dict)
     status: WorkflowStatus = WorkflowStatus.PENDING
-    artifact_refs: list[str] = Field(default_factory=list)
     next_action: str = ""
     updated_at: str = Field(default_factory=_iso_now)
 

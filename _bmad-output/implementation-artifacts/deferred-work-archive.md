@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——5 条
+## 活动（未闭合）条目——0 条（第二次清空，2026-10-07）
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -58,51 +58,17 @@
 > - 2026-10-07（第三轮）：**部分闭合 1 条 → A32①②**（用户裁定「三写方法全自锁 / 读不加锁 / 只收敛只读表」后实施）——① 只读判定删 `_READ_ONLY_TOOLS` 名称表收敛注册表注解单源（缺 schema fail-closed；勘察证实收敛前 13=13 零漂移；`_PATH_FIELDS`/`_DENY_*` 无注册表孪生不在双源范畴）；② 新增 `goal/mutex.goal_mutex()`（可重入复合锁）下沉 `advance`/`pause_resume`/`record_decision` 三写方法，顺带收口勘察发现的 `/goal pause` 漏网写路径，CLI 外层持锁保留（薄别名）、`decisions.py` 并发论证与 `docs/frame.md` 同步、`test_declarative_resume_advances_once_under_goal_lock` 等 4 处测试缝迁指新模块。变异体 3+1 处精确变红，全量 3607 passed；③（CLI 引用例层私有符号）仍活动——条目留活动区逐面标注。**另**：同轮按用户裁定（有意删除）调整 `test_architecture_contracts.py` 的 TCP 残留扫描对缺席活文件跳过（CLAUDE.md 已从工作树移除）。活动条目数不变（**9**）。
 > - 2026-10-07（第四轮）：**部分闭合 1 条 → A29①④**（用户指令「选优先级最高条目修改」＝授权实施）——① `RunStore.checkpoint` 改**写只读**：删除每次落盘前的整份 `load()` 合并（O(N²) 读面），`system`/`messages`/`results` 转必传 fail-loud（缺省即静默清盘史，由签名阻断），`final_answer`/`error` 仅终局 checkpoint 写入；resume 场景中途 checkpoint 以给定 None 覆盖上次尝试陈值——`error` 无生产读者（唯一读者是 resume 短路的 `final_answer`），差异仅数据卫生，新判据 `TestCheckpointWriteOnly` 钉住；P1-9 的 system 保护上移调用方（`run_lifecycle` 恒传 system、resume 传 `_resume.system` 即盘上原值）。④ token 估算逐字符分支链改预编译字符类 C 级计数（8 区段逐一对应）。变异体 **3/3 精确变红**（恢复终局字段 load-merge / 删扩展 B 区段 / other 计数不减 CJK），全量 **3610 passed**（净增 3：新判据 4 例 − P1-9 旧 store 级测试 1 例）、ruff/mypy 全绿；探针 `.heagent/tmp/a29_bench.py`：④ 2.25M 字符 291.8→43.4 ms（6.7x）且值逐字节相等，① 1.81 MB 快照 15.0→7.2 ms/次（读面随历史增长部分整块移除，写侧不变）。**②③ 留活动区**（触发条件未变）。活动条目数不变（**9**）。
 > - 2026-10-07（第五轮）：**批量处置 4 条 → A29②③（A29 全闭）/ A30（① 评估不收敛 + ② 已修）/ A31①②③ / A32③（A32 全闭）**（用户指令「一次修复完除 A25/A26/A27/A28/A33 外全部」＝授权实施）——**A29②** `recent_session_ids` 改 mtime 排序零 JSON 解析（冻结边界要求的选型裁定已显性化：消费方要「最近活动的会话」，mtime 是活动时间的文件系统事实且写路径天然刷新；复制入旧会话按入目录时间参与排序，内容照常被 load；损坏文件不再按 ts=0 沉底，按自身 mtime 排序，消费方 load 照旧显性报错）；**A29③** `list_metadata` 增 (文件名, mtime_ns, size) → 元数据备忘录（键含内容指纹故无需失效也正确；本店四写点仍显式按名清除收敛「同 tick 同尺寸」碰撞窗；溢出 1024 清空；语义零改动——unreadable 占位 / 大文件头读 / 排序口径全部原样）；**A30①** 勘察证实**锁差异是在码裁定**（decisions.py:38-40 id 守卫「同规独立实现刻意不共享」+ DecisionStore docstring 审查 #15「实例锁挡不住跨进程，真互斥来自独占创建 + goal_mutex(A32②)」+ EvidenceStore 过滤语义是双维 sentinel 结构性需求）⇒ **评估结论 = 不收敛**（Z-D3 先例），交付 = 互指注释补全（EvidenceStore docstring 补锁立场段）+ 护栏 `test_store_concurrency_stance_divergence_is_intentional` 钉住；**A30②** 新增 `workflow_loader.frontmatter_name_list` 单源解析核，doctor/loader 共用，**宽容度分叉保留并显性化**（doctor 错型 `[]` fail-soft 诊断老工作流 / loader 抛错 fail-closed，判据 `test_declared_required_tolerance_divergence_is_intentional`）；**A31①** `engine/artifacts.py` 整模块删除（298 行 + 再导出面 + `test_artifact_contracts.py`）——勘察证实 src 运行期**零调用方**（仅再导出与测试，pub/frontmatter docstring 引用同步删除）；`test_goal_epic_story_smoke` 的 runner 证据恢复覆盖**保留**（仅去掉装饰性 parse_artifact 预校验卫兵）；**A31②** `StorySpec` 模型迁 `pub/types.py`（跨模块数据归 pub，AGENTS.md 硬规则；engine 不再反向依赖声明域）、BMad S-1/E1 形状解析机制（177 行正则族 + `parse_story_list`）迁 `goal/workflow_loader.py`（engine→goal 反向导入被 DAG 禁止，故模型与解析分离落位）；**A31③** BMad 兜底文案迁**角色 md 声明**：`_parse_role_md` 增 `delegation_fallback` frontmatter 键 → `RoleSpec.metadata` → agent 层 `_delegation_fallback()` 去重收集 → `bind_subagent_tools(delegation_fallback=…)` 注入，工具层零文案副本（结构化错误先行；未声明即干净错误——非 BMad 消费者不再收到 BMad 建议，修复台账指认的危害本体）；修复同轮引入的 `roles.py` 无 frontmatter 文件 `pairs` 未绑定崩溃（epic34 判据抓到）；**A32③** `goal/` 11 个私有符号转公共名（document 9 + application 2），cli/goal 与 5 个测试文件同步改指，document.py docstring 的「经 cli/goal re-export 测试缝」段删除——**同轮发现 document.py docstring 自证的测试缝与冻结边界冲突，按边界处置**。变异体 **4/4 精确变红**（恢复 timestamp 排序 / 删缓存命中 / 删 save 失效调用 / 恢复硬编码 BMad 文案），基线 sha256 双还原；全量 **3618 passed**、ruff/mypy 全绿；探针 `.heagent/tmp/a29b_bench.py`（409 会话 / 17.9 MB）：② 1254.3→9.55 ms（**131x**，与台账「交互启动秒级阻塞」实测吻合）、③ 列表轮询 73.4→10.47 ms（**7x**）。活动条目数 9 → **5**。
-
-## A33 可派生镜像与边际重复（简化族）
-
-- source_spec: `src/heagent/engine/checkpoint.py` / `src/heagent/engine/workflow_runner.py` / `src/heagent/cli/goal.py`（同轮「简化」角度发现）
-  summary: **① `artifact_refs` 是 `outputs` 键表的可派生镜像**：全部写点恒 `list(self.state.outputs)`（不变量已核实），跨 `WorkflowCheckpoint`/`GoalWorkflowState` 两模型重复维护，`from_checkpoint` 的 `{reference: None ...}` 兜底在该不变量下不可达——与已登记的 A26（`active_stories`）同性质，派生化须与旧 checkpoint 容忍读一并做（模型无 `extra="forbid"`，旧盘字段天然容忍，主要工作是确认无旧写者依赖）；**② `_goal_declarative_dispatch` 的 11 处 `resolved = await _goal_resolve_bound(); if resolved is not None:` 前导**——收敛为返回 `resolved[1]` 的小助手只省一个索引、不减行数，本轮判为边际。触发条件：① 与 A26 的派生化同批做（共享同一份 checkpoint 兼容评估）；② 该路由下次增删子命令时；严重度：低；冻结边界：① 不得只删字段留旧快照读者崩；② 不得为收敛改变任何分支的互斥语义（`resume`/`next`/`reset` 的 `_goal_mutex` 持有面一字不动）。
-  evidence: `engine/checkpoint.py:67/232`（两模型字段）+ `engine/workflow_runner.py:374`（不可达兜底）+ 写点恒 `list(self.state.outputs)`；`cli/goal.py` 的 `_goal_declarative_dispatch`（11 处前导）。
-  Progress（2026-10-07 登记，未修——①候并与 A26 同批）
-
-## A25 checkpoint id 的 `-parallel-` 残留分支（批次机制遗物）
-
-- source_spec: `src/heagent/engine/workflow_runner.py`（`_checkpoint_id` 的 `step.max_parallel_stories > 1` 分支；2026-10-07 Story 51-8 未 push 提交的 /simplify 四角度清理轮发现，「简化」与「层次」两角度同报）
-  summary: **批次机制移除后 `-parallel-` 后缀成了无读者的仪式**：Story 51-8 已把 story 执行收口为 fail-closed 串行（引擎不再读 `max_parallel_stories`，loader 只告警），但 `_checkpoint_id` 仍按声明值 `>1` 追加 `-parallel-{len(completed_stories)}`——该分支是已删机制在引擎里的最后运行期读者，让读者误以为并行面仍存在。触发条件：下次动 checkpoint id 或恢复语义时一并处置；严重度：低（2 行，误导性大于成本）；冻结边界：**删除会改 checkpoint id 格式**——声明过 `max_parallel_stories>1` 的存量 goal 跨版本恢复时对不上旧快照（步骤级进度可见丢失），故必须与 id 兼容策略（迁移 / 容忍读）一并做，**不得单独顺手删**。
-  evidence: `src/heagent/engine/workflow_runner.py:1019-1020`（分支本体；story_part 已含 `-story-{index}` 与 sanitized story label，串行下 id 唯一性由二者承担）；`src/heagent/goal/workflow_loader.py:615-625`（解析期显性告警「declared value does not raise parallelism」）；串行为有意设计：`_bmad-output/epics/epic-51-goal-workflow优化周期/brief.md`（「写集无法证明安全时自动串行」）。
-  Progress（2026-10-07 登记，未修）
-
-## A26 `active_stories` 是 `active_story` 的可派生镜像（六写点同步税）
-
-- source_spec: `src/heagent/engine/workflow_runner.py`（`WorkflowRunnerState.active_stories` 全部写点；同轮 /simplify 清理轮「简化」角度发现）
-  summary: **`active_stories` 的每个写点都只写 `[]` 或 `[active_story]`，`from_checkpoint` 还要用 `active_story` 重建它——纯派生状态**：串行化后「复数视图」永远至多单元素，却要 6 处写点（runner 4 处 + checkpoint 往返 + status_view 投影）永久保持镜像同步。触发条件：下次动 story 状态模型或 checkpoint 兼容层时一并派生化（checkpoint 字段保留容忍读）；严重度：低（无行为风险，纯维护税）；冻结边界：派生化触及**本轮 diff 之外**的消费面（`engine/checkpoint.py` / `goal/status_view.py`）与旧快照兼容，不得只删字段不接消费方。
-  evidence: `src/heagent/engine/workflow_runner.py:282`（字段）+ `:387-389`（`from_checkpoint` 由 `active_story` 重建 = 派生性自证）+ `:458/824/872/891`（写点）+ `:966/991`（投影）；`src/heagent/engine/checkpoint.py:74/190/229`；`src/heagent/goal/status_view.py:44/98/149`。
-  Progress（2026-10-07 登记，未修）
-
-## A27 门事件 emit 隔离包装双份（CLI 与 runner 各一份）
-
-- source_spec: `src/heagent/cli/goal.py`（`_emit_goal_gate_event`）对照 `src/heagent/engine/workflow_runner.py`（`_emit_step_event`）；同轮 /simplify 清理轮「复用」角度发现
-  summary: **同一「emit-None 守卫 + try/except + `safe_log` 忽略」观测隔离契约存在两份实现**（goal.py 的 docstring 自证「对齐 `WorkflowRunner._emit_step_event`」）；将来收紧契约（如 error_kind 进 details、payload 结构）要两处同改，漏一处即漂移。触发条件：下次改引擎事件契约（error_kind / payload）时一并统一；严重度：低；冻结边界：统一方向 = 放宽 `_emit_step_event` 的 `step` 类型约束（`WorkflowStepResource` → 鸭子契约）并把 payload 构造挪进隔离内，但 CLI 侧 step/story 是**宿主鸭子契约**——不得为统一而给引擎模型加 CLI 专属字段，也不得让 CLI 绕过隔离直接 emit。
-  evidence: `src/heagent/cli/goal.py:557`（本侧：payload 含 source/rerun/verdict，构造在隔离内——评审 LOW 的有意强化）；`src/heagent/engine/workflow_runner.py:42`（engine 侧：`step` 强类型，payload 构造在隔离外）。
-  Progress（2026-10-07 登记，未修——统一需放宽引擎助手类型，本轮判断为净损失）
-
-## A28 goal-verify 台账审计生命周期 CLI 手写（第三份 claim/execute/finalize 拷贝）
-
-- source_spec: `src/heagent/cli/goal.py`（`_verify_ledger_acquire` / `_verify_ledger_complete` / `_verify_ledger_fail` 三助手 + `_run_verify_command` 接线）；同轮 /simplify 清理轮「层次」角度发现
-  summary: **ledger 的 acquire→execute→complete/fail 配对序列在仓里已有两份**（`agent/tool_execution.py` 的 `_claim_ledger`/`_renew_ledger_lease`、`cron/scheduler.py` 的 loud-fail 先例），Story 51-8 在 CLI 添了第三份，并把 lease 策略（`timeout+60`）编码进 CLI——按模块 DAG，ledger/observability 归 engine 所有，入口层应是薄组合。且本份**无租约续租**：慢于静态租约的 verify 命令会让台账租约过期（审计面与执行面失配）。触发条件：第四份配对序列出现时，或 verify 命令实测超租约时；严重度：中低；冻结边界：正确落点是 `ToolExecutor` 的 audit-only（幂等去重禁用）模式——CLI 只传 `scope="goal-verify"`；**不得在 CLI 里补续租逻辑**（那是把第四份拷贝写进错误的层）；cron 的 loud-fail 是有意分歧（不属重复），收敛时须保留语义差异并有护栏测试钉住（同 Z-D3「有意分歧被护栏钉死」的教训）。
-  evidence: `src/heagent/cli/goal.py:1153/1172/1185`（三助手）；`src/heagent/agent/tool_execution.py:55/184`（带续租的先例）；`src/heagent/cron/scheduler.py`（loud-fail 先例，语义不同）。
-  Progress（2026-10-07 登记，未修——引擎新 API 属设计变更，超出清理范畴）
+> - 2026-10-07（第六轮）：**闭合最后 5 条 → A25 / A26 / A27 / A28 / A33（A33 含 ①②）（用户指令「完成剩余的台账」＝对五条的处置授权；活动区第二次清空）**——**A25** 删 `_checkpoint_id` 的 `step.max_parallel_stories > 1 → -parallel-{n}` 分支（已删批次机制的最后运行期读者），兼容策略 = **容忍读**：勘察证实恢复路径从不按重建 id 找快照（`restore_runner` 按 active_step/skill/status 匹配、`load_latest_unfinished` 按创建序扫描、id 只在写入侧做幂等 conflict 检测），旧格式文件天然可解析、新写入落新格式 id 不撞 conflict；兼容钉 `test_legacy_parallel_checkpoint_id_recovers_and_rewrites_new_format`（旧 `-parallel-` 快照恢复续跑不丢进度 + 断言新旧 id 并存）。**A26** `WorkflowRunnerState.active_stories` 派生化删除（串行化后恒等于 `[active_story]`，6 写点全是镜像同步税）：状态模型 / `WorkflowCheckpoint` / `GoalWorkflowState` 三处字段删除（旧盘键 extra='ignore' 容忍读），消费方现场派生（`status_view` 投影 / `from_checkpoint` 恢复）；恢复矩阵加第四形态「陈旧镜像值被忽略」（`active_stories=["S-STALE"]` 注入 ⇒ 恢复仍派生自 `active_story`）。**A27** 观测隔离统一：`_emit_step_event` 转**鸭子契约**（`step: Any`）且 payload 构造挪进隔离内，CLI `_emit_goal_gate_event` 删自带的第二份 try/except 改为带 `**extra` 委托——「emit-None 守卫 + try/except + safe_log 忽略」契约全仓只剩一份实现；门事件 payload 增 `error_kind: ""`（传输层 `from_engine_event` 原样提升、空串 = 无分类，RunEvent 契约中性）；判据 = 敌意鸭子对象属性访问抛错被隔离（零事件、不进业务流）。**A28** goal-verify 台账审计生命周期下沉 engine：新增 `engine/ledger.py` 的 `LedgerAudit`（audit-only 规格：acquire → 在途续租 → complete/fail，**幂等去重禁用**，台账故障只告警绝不影响执行结果）+ `renew_lease_while_active` 原语（自 `agent/tool_execution._renew_ledger_lease` 收敛，后者改薄包装保留测试缝），`ToolExecutor.execute` 增可选 `audit=` 参数（缺省 None 零行为变化，AgentLoop 主链路不经此）；CLI 删 `_verify_ledger_acquire/_complete/_fail` 三助手改传规格——**修复登记时指认的「本份无租约续租」缺陷**（慢 verify 跑超静态租约被 prune 误判孤儿的审计面失配）；outcome 归类收敛为 CLI 侧单核 `classify_outcome`（证据与审计共用）。**A33①** `artifact_refs` 派生化删除（与 A26 同批、共享同一份兼容评估）：恒等于 `outputs` 键表的纯镜像，三模型字段删除 + `from_checkpoint` 的 `{reference: None}` 不可达兜底一并删除（不变量下两边同空、删后等值）；**A33②** `_goal_declarative_dispatch` 11 处 `resolved = await _goal_resolve_bound(); if resolved is not None:` 前导收敛为 `_goal_bound_workflow()`（流程维度投影）+ walrus，各分支 `_goal_mutex` 持有面与解析落点（锁内 / 锁外）逐字保持（冻结边界）。变异体负向验证：`LedgerAudit.run` 删 complete 回写 ⇒ **6/6 精确变红**（governed-port 3 例 + LedgerAudit 2 例 + executor 阻断 1 例），还原复绿。全量 **3629 passed**、`ruff check` / `format --check` / `mypy src`（本机 + `--platform linux`）全绿。新增判据 **10 例**（对照 HEAD 文本实测：A25 兼容钉 1 + A26 恢复矩阵第 4 形态 1 + A27 敌意鸭子 1 + A28 `TestLedgerAudit` 6 + executor 阻断审计 1）。活动条目数 5 → **0**（第二次清空）。
 
 ---
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 45 条：28 条勘察类正文保留在本文件，17 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 5 条未闭合条目（A25/A26/A27/A28/A33——2026-10-07 第五轮把 A29/A30/A31/A32 批量处置后剩余；2026-09-28 曾首次清空——A6 按裁定归档）。
+> 当前闭合归档共 50 条：33 条勘察类正文保留在本文件，17 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 0 条未闭合条目（2026-10-07 第六轮闭合 A25/A26/A27/A28/A33 后**第二次清空**；2026-09-28 曾首次清空——A6 按裁定归档）。
 
 ## 状态总览
 
-**① 勘察类（正文在本文件）——28 条**
+**① 勘察类（正文在本文件）——33 条**
 
 | ID | 条目 | 结论 | 闭合 commit |
 |----|------|------|-------------|
@@ -134,6 +100,11 @@
 | A30 | goal 域两处重复收敛 | ① **评估结论 = 不收敛**（2026-10-07：锁差异是在码裁定，护栏钉住）+ ② 已闭合（`frontmatter_name_list` 单源核，宽容度分叉保留判据） | 正文见下方「A30」小节 |
 | A31 | 引擎层的方法论与解析错位 | 已闭合（2026-10-07：① artifacts.py 整模块删除 ② StorySpec→pub + 解析→goal/workflow_loader ③ BMad 文案迁角色 md 声明） | 正文见下方「A31」小节 |
 | A32 | 治理与互斥的层级归属 | 已闭合（2026-10-07：①② 见第三轮 + ③ 11 个私有符号转公共名） | 正文见下方「A32」小节 |
+| A25 | checkpoint id 的 `-parallel-` 残留分支（批次机制遗物） | 已闭合（2026-10-07：分支删除 + 容忍读兼容策略 + 旧格式恢复兼容钉） | 正文见下方「A25」小节 |
+| A26 | `active_stories` 是 `active_story` 的可派生镜像（六写点同步税） | 已闭合（2026-10-07：三模型字段派生化删除 + 消费方现场派生 + 陈旧镜像容忍读判据） | 正文见下方「A26」小节 |
+| A27 | 门事件 emit 隔离包装双份（CLI 与 runner 各一份） | 已闭合（2026-10-07：`_emit_step_event` 转鸭子契约 + payload 入隔离，CLI 委托——契约单份实现） | 正文见下方「A27」小节 |
+| A28 | goal-verify 台账审计生命周期 CLI 手写（第三份 claim/execute/finalize 拷贝） | 已闭合（2026-10-07：`LedgerAudit` audit-only 模式下沉 engine + 在途续租，CLI 三助手删除） | 正文见下方「A28」小节 |
+| A33 | 可派生镜像与边际重复（artifact_refs 镜像 / dispatch 前导 11 处） | 已闭合（2026-10-07：① 随 A26 同批派生化删除 ② `_goal_bound_workflow()` 收敛 11 处前导，互斥持有面逐字保持） | 正文见下方「A33」小节 |
 
 **② 已按归属 epic 回填（正文在各自周期目录）——17 条**
 
@@ -190,15 +161,15 @@
 | A19 | 原生目录选择端点默认开 | 已闭合（2026-09-27 裁定默认改按需） | 本文件下方「A19」小节 |
 | A23 | 掩码域后缀制 | 已闭合（2026-09-27 裁定维持现状） | 本文件下方「A23」小节 |
 | A24 | GUI 事件日志在环形缓冲满后永久停止渲染（+ 暂停即丢事件） | 已闭合（2026-09-28，当日发现当日修） | 本文件下方「A24」小节 |
-| A25 | checkpoint id 的 `-parallel-` 残留分支（批次机制遗物） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
-| A26 | `active_stories` 是 `active_story` 的可派生镜像（六写点同步税） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
-| A27 | 门事件 emit 隔离包装双份（CLI 与 runner 各一份） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
-| A28 | goal-verify 台账审计生命周期 CLI 手写（第三份 claim/execute/finalize 拷贝） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
+| A25 | checkpoint id 的 `-parallel-` 残留分支（批次机制遗物） | 已闭合（2026-10-07 第六轮：分支删除 + 容忍读兼容 + 恢复兼容钉） | 本文件上方「A25」小节（闭合归档） |
+| A26 | `active_stories` 是 `active_story` 的可派生镜像（六写点同步税） | 已闭合（2026-10-07 第六轮：三模型字段派生化删除，消费方现场派生） | 本文件上方「A26」小节（闭合归档） |
+| A27 | 门事件 emit 隔离包装双份（CLI 与 runner 各一份） | 已闭合（2026-10-07 第六轮：`_emit_step_event` 转鸭子契约 + payload 入隔离，CLI 委托） | 本文件上方「A27」小节（闭合归档） |
+| A28 | goal-verify 台账审计生命周期 CLI 手写（第三份 claim/execute/finalize 拷贝） | 已闭合（2026-10-07 第六轮：`LedgerAudit` audit-only 下沉 engine + 在途续租） | 本文件上方「A28」小节（闭合归档） |
 | A29 | 会话/运行热路径的四处重优化（checkpoint O(N²) / 会话列表全量解析 / 无 title 整历史校验 / token 估算逐字符） | 已闭合（2026-10-07 四面全修） | 本文件上方「A29」小节 |
 | A30 | goal 域两处重复收敛（DecisionStore/EvidenceStore 孪生 / doctor·loader frontmatter 解析宽容度分叉） | 已闭合（2026-10-07：① 评估不收敛+护栏 ② 单源核收敛） | 本文件上方「A30」小节 |
 | A31 | 引擎层的方法论与解析错位（artifacts BMad 硬编码 / story 解析错层 / subagent BMad 文案） | 已闭合（2026-10-07 三面全修） | 本文件上方「A31」小节 |
 | A32 | 治理与互斥的层级归属（policy 名称表双事实源 / advance 无锁 / CLI 引用例层私有符号） | 已闭合（2026-10-07 三面全修） | 本文件上方「A32」小节 |
-| A33 | 可派生镜像与边际重复（artifact_refs 镜像 / dispatch 前导 11 处） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
+| A33 | 可派生镜像与边际重复（artifact_refs 镜像 / dispatch 前导 11 处） | 已闭合（2026-10-07 第六轮：① 随 A26 同批派生化删除 ② `_goal_bound_workflow()` 收敛前导） | 本文件上方「A33」小节（闭合归档） |
 
 **旧号对照（撤号 / 让号）**
 
@@ -537,3 +508,38 @@
   summary: **三处归属错位**：① 【已闭合 2026-10-07】`policy._READ_ONLY_TOOLS` 名称表与 `@tool(read_only=True)` 注册表注解的双事实源——已删表收敛注解单源，缺 schema/注解即 fail-closed 阻断；勘察证实收敛前零漂移（13=13）；`_PATH_FIELDS`/`_DENY_*` 经查无注册表孪生（`ToolAnnotations` 仅 4 个 bool hint），属引擎侧单源策略数据，**不在双源范畴、保持现状**。② 【已闭合 2026-10-07】单推进者互斥下沉内核：新增 `goal/mutex.goal_mutex()`（进程内 asyncio.Lock + `.heagent/goal.lock` 文件锁复合，同 task 可重入），`advance`/`pause_resume`/`record_decision` 三写方法自持；CLI 外层组合持锁保留（`_goal_mutex()` 薄别名）；勘察顺带发现并收口 `/goal pause` 漏网写路径（dispatch 不持锁直写状态）。③ 【活动】`cli/goal.py` 从用例层 import 约 10 个下划线私有符号（`_GOAL_SKILLS_ROOT`/`_GoalAdvanceContext`/`_goal_document*` 等）——无导入契约，goal/ 内部重构会静默破坏入口层。触发条件：③ goal/ 下次内部重构时（先声明公共端口）；严重度：③ 低；冻结边界：② 已按「重入不死锁」交付（同 task 判别，全部 5 条 advance 生产路径即此形态）；③ 只加公共端口声明，不为入口层保留私有别名。
   evidence: ① `engine/policy.py` `_is_read_only` 单注解判定 + 新判据 `test_sandbox_mode.py::test_missing_schema_fail_closed_even_for_known_names`（变异体：恢复名称表兜底 ⇒ 红）；② `goal/mutex.py`（新）+ `goal/application.py` 三外壳 + 新判据 `test_goal_cross_process_lock.py`（重入死锁看门狗 / 并发串行化）与 `test_goal_decisions.py`（pause/decision/advance 三观察点，变异体：撤任一外壳锁 ⇒ 红）；`goal/decisions.py` 并发论证已改指 `goal.mutex`；③ `cli/goal.py:33-80`（未动）。
   Progress（2026-10-07 登记；同日三面全闭——①② 见第三轮；③ 11 个私有符号转公共名（document 9 + application 2：`GOALS_DIR`/`goal_document*` 族/`goal_id_is_valid`/`goal_user_responses`/`goal_record_user_response`/`goal_step_artifact_path`/`GOAL_SKILLS_ROOT`/`GoalAdvanceContext`），cli/goal.py 与 5 个测试文件同步改指、无 patch 缝受影响（勘察证实零 dotted-path 缝）；document.py「经 cli re-export 的测试缝」docstring 段删除——该缝与冻结边界「不为入口层保留私有别名」冲突，按边界处置；goal 子集 258 passed。）
+
+## A25 checkpoint id 的 `-parallel-` 残留分支（批次机制遗物）——已闭合（2026-10-07，分支删除 + 容忍读兼容）
+
+- source_spec: `src/heagent/engine/workflow_runner.py`（`_checkpoint_id` 的 `step.max_parallel_stories > 1` 分支；2026-10-07 Story 51-8 未 push 提交的 /simplify 四角度清理轮发现，「简化」与「层次」两角度同报）
+  summary: **批次机制移除后 `-parallel-` 后缀成了无读者的仪式**：Story 51-8 已把 story 执行收口为 fail-closed 串行（引擎不再读 `max_parallel_stories`，loader 只告警），但 `_checkpoint_id` 仍按声明值 `>1` 追加 `-parallel-{len(completed_stories)}`——该分支是已删机制在引擎里的最后运行期读者，让读者误以为并行面仍存在。触发条件：下次动 checkpoint id 或恢复语义时一并处置；严重度：低（2 行，误导性大于成本）；冻结边界：**删除会改 checkpoint id 格式**——声明过 `max_parallel_stories>1` 的存量 goal 跨版本恢复时对不上旧快照（步骤级进度可见丢失），故必须与 id 兼容策略（迁移 / 容忍读）一并做，**不得单独顺手删**。
+  evidence: `src/heagent/engine/workflow_runner.py:1019-1020`（分支本体；story_part 已含 `-story-{index}` 与 sanitized story label，串行下 id 唯一性由二者承担）；`src/heagent/goal/workflow_loader.py:615-625`（解析期显性告警「declared value does not raise parallelism」）；串行为有意设计：`_bmad-output/epics/epic-51-goal-workflow优化周期/brief.md`（「写集无法证明安全时自动串行」）。
+- **结论**：**已闭合**（2026-10-07 第六轮，用户指令「完成剩余的台账」＝处置授权）。分支删除（后缀唯一性由 `-story-{index}` 与 sanitized story label 承担，串行下不变量成立）。**兼容策略 = 容忍读**（勘察证实无须迁移）：恢复路径从不按重建 id 找快照——`restore_runner` 按 `active_step + active_skill + status` 匹配（application.py:260-269）、`load_latest_unfinished` 按创建序扫描、checkpoint id 只在**写入侧**做幂等 conflict 检测；旧格式文件天然可解析（模型无 `extra="forbid"`），新写入落新格式 id 不与旧文件撞 conflict（不同路径），旧文件留作历史快照无害。**兼容钉** `test_story_loop.py::test_legacy_parallel_checkpoint_id_recovers_and_rewrites_new_format`：手写旧格式 id（`-story-1-parallel-1-…-pending`，S-1 完成后的合法持久化点）的 checkpoint 落盘 → `from_checkpoint` 恢复续跑不丢进度（S-2 起跑、S-1 不重跑）→ 断言旧文件仍在且可解析、新写入落新格式 id。
+
+## A26 `active_stories` 是 `active_story` 的可派生镜像（六写点同步税）——已闭合（2026-10-07，派生化删除）
+
+- source_spec: `src/heagent/engine/workflow_runner.py`（`WorkflowRunnerState.active_stories` 全部写点；同轮 /simplify 清理轮「简化」角度发现）
+  summary: **`active_stories` 的每个写点都只写 `[]` 或 `[active_story]`，`from_checkpoint` 还要用 `active_story` 重建它——纯派生状态**：串行化后「复数视图」永远至多单元素，却要 6 处写点（runner 4 处 + checkpoint 往返 + status_view 投影）永久保持镜像同步。触发条件：下次动 story 状态模型或 checkpoint 兼容层时一并派生化（checkpoint 字段保留容忍读）；严重度：低（无行为风险，纯维护税）；冻结边界：派生化触及**本轮 diff 之外**的消费面（`engine/checkpoint.py` / `goal/status_view.py`）与旧快照兼容，不得只删字段不接消费方。
+  evidence: `src/heagent/engine/workflow_runner.py:282`（字段）+ `:387-389`（`from_checkpoint` 由 `active_story` 重建 = 派生性自证）+ `:458/824/872/891`（写点）+ `:966/991`（投影）；`src/heagent/engine/checkpoint.py:74/190/229`；`src/heagent/goal/status_view.py:44/98/149`。
+- **结论**：**已闭合**（2026-10-07 第六轮，与 A33① 同批）。`active_stories` 从三个模型删除（`WorkflowRunnerState` / `WorkflowCheckpoint` / `GoalWorkflowState`；旧盘键 extra='ignore' 容忍读，模型注释钉兼容口径），**消费方全部接上现场派生**（冻结边界要求的「不接消费方不许删」逐点满足）：4 个状态写点删镜像键、`_persist` 不再写两模型字段、`from_checkpoint` 删重建分支、`status_view` 投影改 `[active_story] if active_story else []`。**容忍读判据**：恢复矩阵（`test_story_scheduling_integration.py`）加第四形态——旧盘携带陈旧镜像值（`active_stories=["S-STALE"]`）恢复时被忽略，续跑仍派生自 `active_story`（四种历史形态全绿）。
+
+## A27 门事件 emit 隔离包装双份（CLI 与 runner 各一份）——已闭合（2026-10-07，契约单份实现）
+
+- source_spec: `src/heagent/cli/goal.py`（`_emit_goal_gate_event`）对照 `src/heagent/engine/workflow_runner.py`（`_emit_step_event`）；同轮 /simplify 清理轮「复用」角度发现
+  summary: **同一「emit-None 守卫 + try/except + `safe_log` 忽略」观测隔离契约存在两份实现**（goal.py 的 docstring 自证「对齐 `WorkflowRunner._emit_step_event`」）；将来收紧契约（如 error_kind 进 details、payload 结构）要两处同改，漏一处即漂移。触发条件：下次改引擎事件契约（error_kind / payload）时一并统一；严重度：低；冻结边界：统一方向 = 放宽 `_emit_step_event` 的 `step` 类型约束（`WorkflowStepResource` → 鸭子契约）并把 payload 构造挪进隔离内，但 CLI 侧 step/story 是**宿主鸭子契约**——不得为统一而给引擎模型加 CLI 专属字段，也不得让 CLI 绕过隔离直接 emit。
+  evidence: `src/heagent/cli/goal.py:557`（本侧：payload 含 source/rerun/verdict，构造在隔离内——评审 LOW 的有意强化）；`src/heagent/engine/workflow_runner.py:42`（engine 侧：`step` 强类型，payload 构造在隔离外）。
+- **结论**：**已闭合**（2026-10-07 第六轮，按冻结边界方向实施）。`_emit_step_event` 转**鸭子契约**（`step: Any`，docstring 声明「引擎传 `WorkflowStepResource`/`StorySpec`、CLI 质量门传宿主对象」）且 payload 构造挪进隔离内；CLI `_emit_goal_gate_event` 删自带的第二份 try/except，改为 `**extra` 委托（source/verdict/failed/clause_errors/rerun/rerun_evidence/reused_commands 全走 extra）——「emit-None 守卫 + try/except + `safe_log` 忽略」契约全仓只剩一份实现。**鸭子隔离强度不降**：step/story 的属性访问（真正可能抛的宿主鸭子面）在隔离内；report 派生值（`len(report.failed)` 等）是 CLI 自有类型化模型字段、在实参处求值不会抛——登记时的「评审 LOW 有意强化」实质保留。行为 delta 仅一处：门事件 payload 增 `error_kind: ""`（`from_engine_event` 原样提升到 RunEvent 顶层、空串 = 无分类，传输契约中性；details 键序变化无消费者依赖）。**判据** `test_workflow_runner.py::test_emit_isolation_covers_hostile_duck_step_and_story`：敌意鸭子对象（`__getattr__` 抛错）的属性访问故障被隔离（零事件、不进业务流）+ 同一包装正常路径 payload 形状不变；既有 `test_gate_and_verify_emit_gate_evaluated_events`（source/verdict/step/rerun/duration_ms 断言）原样通过。
+
+## A28 goal-verify 台账审计生命周期 CLI 手写（第三份 claim/execute/finalize 拷贝）——已闭合（2026-10-07，audit-only 下沉 engine）
+
+- source_spec: `src/heagent/cli/goal.py`（`_verify_ledger_acquire` / `_verify_ledger_complete` / `_verify_ledger_fail` 三助手 + `_run_verify_command` 接线）；同轮 /simplify 清理轮「层次」角度发现
+  summary: **ledger 的 acquire→execute→complete/fail 配对序列在仓里已有两份**（`agent/tool_execution.py` 的 `_claim_ledger`/`_renew_ledger_lease`、`cron/scheduler.py` 的 loud-fail 先例），Story 51-8 在 CLI 添了第三份，并把 lease 策略（`timeout+60`）编码进 CLI——按模块 DAG，ledger/observability 归 engine 所有，入口层应是薄组合。且本份**无租约续租**：慢于静态租约的 verify 命令会让台账租约过期（审计面与执行面失配）。触发条件：第四份配对序列出现时，或 verify 命令实测超租约时；严重度：中低；冻结边界：正确落点是 `ToolExecutor` 的 audit-only（幂等去重禁用）模式——CLI 只传 `scope="goal-verify"`；**不得在 CLI 里补续租逻辑**（那是把第四份拷贝写进错误的层）；cron 的 loud-fail 是有意分歧（不属重复），收敛时须保留语义差异并有护栏测试钉住（同 Z-D3「有意分歧被护栏钉死」的教训）。
+  evidence: `src/heagent/cli/goal.py:1153/1172/1185`（三助手）；`src/heagent/agent/tool_execution.py:55/184`（带续租的先例）；`src/heagent/cron/scheduler.py`（loud-fail 先例，语义不同）。
+- **结论**：**已闭合**（2026-10-07 第六轮，按冻结边界落点实施；引擎新 API 由用户指令授权）。三件交付：① **`engine/ledger.py` 新增 `LedgerAudit`**（audit-only 规格 dataclass：`ledger/key/scope/lease_seconds/metadata/result_metadata/renew_interval_seconds`，`run()` 罩住一次执行——acquire 抢到键则在途续租并回写 `complete`（metadata = 初始 + result_metadata + duration_ms）/ 执行异常 `fail` 后原样上抛；**幂等去重禁用**：命中「already completed」照常执行且不改写旧记录；acquire/complete/fail 故障只告警，绝不影响执行结果）与 **`renew_lease_while_active` 原语**（自 `agent/tool_execution._renew_ledger_lease` 收敛——原处改薄包装保留 `(ledger, key)` 签名与测试缝，`test_window_reset` 的按名替换 / 直调 / 协程名断言全部原样通过）；② **`ToolExecutor.execute` 增可选 `audit=` 参数**（缺省 `None` 零行为变化，AgentLoop 主链路的幂等记账不经此；audit 罩住四路分发**全体**——策略阻断也是一次「调用尝试」，审计如实留痕）；③ **CLI 三助手删除**改传规格（`_run_governed_verify_command` 只构造 `LedgerAudit(…, scope="goal-verify", lease_seconds=_VERIFY_COMMAND_TIMEOUT_SECONDS + 60, metadata={"command": …}, result_metadata=…)`），outcome 归类收敛为单核 `classify_outcome`（证据与审计共用，`EvidenceError` → `POLICY_BLOCKED` 语义逐字保持）。**顺带修复登记缺陷**：审计在途续租接管（CLI 无续租 ⇒ 慢 verify 跑超静态租约被 prune 误判孤儿的审计面失配消除；续租间隔 = 租约 1/3 同工具口径）。cron 的 loud-fail 未动（有意分歧，冻结边界）；agent 主链路幂等闸门未动（语义不同——缓存命中短路执行，与 audit-only 相反）。**判据**：`TestLedgerAudit` 6 例（merged metadata / 去重禁用旧记录不被改写 / acquire 故障不阻断 / complete 故障保结果 / 异常→FAILED+上抛 / 在途续租心跳计数）+ `test_engine_p0.py::test_audit_covers_the_policy_blocked_path`（阻断路径留 COMPLETED 审计痕）+ 既有 governed-port 3 例端到端原样通过；**变异体负向验证 6/6 精确变红**（`LedgerAudit.run` 删 complete 回写 ⇒ governed-port 3 + LedgerAudit 2 + executor 阻断 1），还原复绿。
+
+## A33 可派生镜像与边际重复（简化族）——已闭合（2026-10-07，① 随 A26 派生化删除 ② 前导收敛）
+
+- source_spec: `src/heagent/engine/checkpoint.py` / `src/heagent/engine/workflow_runner.py` / `src/heagent/cli/goal.py`（同轮「简化」角度发现）
+  summary: **① `artifact_refs` 是 `outputs` 键表的可派生镜像**：全部写点恒 `list(self.state.outputs)`（不变量已核实），跨 `WorkflowCheckpoint`/`GoalWorkflowState` 两模型重复维护，`from_checkpoint` 的 `{reference: None ...}` 兜底在该不变量下不可达——与已登记的 A26（`active_stories`）同性质，派生化须与旧 checkpoint 容忍读一并做（模型无 `extra="forbid"`，旧盘字段天然容忍，主要工作是确认无旧写者依赖）；**② `_goal_declarative_dispatch` 的 11 处 `resolved = await _goal_resolve_bound(); if resolved is not None:` 前导**——收敛为返回 `resolved[1]` 的小助手本轮判为边际（登记时）。触发条件：① 与 A26 的派生化同批做（共享同一份 checkpoint 兼容评估）；② 该路由下次增删子命令时；严重度：低；冻结边界：① 不得只删字段留旧快照读者崩；② 不得为收敛改变任何分支的互斥语义（`resume`/`next`/`reset` 的 `_goal_mutex` 持有面一字不动）。
+  evidence: `engine/checkpoint.py:67/232`（两模型字段）+ `engine/workflow_runner.py:374`（不可达兜底）+ 写点恒 `list(self.state.outputs)`；`cli/goal.py` 的 `_goal_declarative_dispatch`（11 处前导）。
+- **结论**：**已闭合**（2026-10-07 第六轮，① 与 A26 同批共享同一份兼容评估）。**①** `artifact_refs` 从 `WorkflowCheckpoint` / `GoalWorkflowState` 删除（旧盘键容忍读），消费方接上：`_persist` / `_state_from_checkpoint` 不再写、`from_checkpoint` 的 `{reference: None}` 不可达兜底删除（不变量下 outputs 空蕴含 artifact_refs 空，兜底产出与 `dict(outputs)` 等值——删后等值）；消费方断言改钉新契约（`test_goal_epic_story_smoke` 改断言 checkpoint `outputs` 键表、`test_engine_checkpoint` 改断言字段不在 model_dump）；旧盘携带陈旧 `artifact_refs` 的容忍读由恢复矩阵第四形态覆盖。**②** 新增 `_goal_bound_workflow()`（`_goal_resolve_bound` 的流程维度投影，错误渲染仍单点在后者），dispatch 的 11 处前导收敛为 walrus 形态；**各分支 `_goal_mutex` 持有面与解析落点（锁内 / 锁外）逐字保持**（冻结边界：`next`/`resume`/`reset` 锁内、其余锁外，对照改写前后逐一核对）；goal CLI / 锁 / 决策子集 187 passed 原样绿。

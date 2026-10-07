@@ -95,7 +95,8 @@ def project_status_view(
         active_step_name=step_name,
         active_epic=state.active_epic,
         active_story=state.active_story,
-        active_stories=list(state.active_stories),
+        # 串行化后「复数视图」至多单元素：由 active_story 现场派生（A26，字段已删除）。
+        active_stories=[state.active_story] if state.active_story else [],
         completed_steps=sorted(state.completed_steps),
         completed_stories=list(state.completed_stories),
         total_steps=len(workflow.steps),
