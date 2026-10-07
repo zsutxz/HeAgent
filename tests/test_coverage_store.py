@@ -1,7 +1,7 @@
 """Coverage tests for engine/store.py uncovered lines.
 
 Targets:
-- checkpoint() 不传 system 保留原值（P1-9 已修复）
+- checkpoint() 写只读（A29①：不再 load-merge，逐字落盘给定状态）
 - checkpoint() 传 messages/results 更新
 - delete() 不存在返回 False
 - delete() 成功返回 True
@@ -20,21 +20,57 @@ from heagent.pub.types import Message, ToolResult
 # ── checkpoint ────────────────────────────────────────────────────
 
 
-class TestCheckpointPreserveSystem:
+class TestCheckpointWriteOnly:
+    """A29①：checkpoint 写只读——不再 load-merge，``load`` 仅留 resume 与读取面。
+
+    旧 load-merge 的三个用途在现调用图下均由调用方承担：生产包装
+    （``run_lifecycle.checkpoint``）恒传全量 messages/results/system；
+    ``final_answer``/``error`` 只由终局 checkpoint（finish_run / on_run_failed）
+    写入；resume 场景的中途 checkpoint 以给定 None 覆盖上次尝试的陈值。
+    """
+
     @pytest.mark.asyncio
-    async def test_checkpoint_preserves_system_when_not_passed(self, tmp_path) -> None:
-        """checkpoint() 不传 system 时保留原值，不覆写为 None清空有效系统提示词。"""
+    async def test_checkpoint_writes_given_state_verbatim(self, tmp_path) -> None:
+        """checkpoint() 逐字写入给定状态：system=None 落 None，不回读保留旧值。"""
         store = RunStore(base_dir=str(tmp_path / "runs"))
         ctx = RunContext()
 
         await store.start(ctx, prompt="hello", system="initial-system")
-
-        # checkpoint without system kwarg → must preserve "initial-system"
-        await store.checkpoint(ctx, prompt="hello")
+        await store.checkpoint(ctx, prompt="hello", system=None, messages=[], results=[])
 
         snapshot = await store.load(ctx.run_id)
         assert snapshot is not None
-        assert snapshot.system == "initial-system"
+        assert snapshot.system is None
+        assert snapshot.messages == []
+        assert snapshot.results == []
+
+    @pytest.mark.asyncio
+    async def test_resume_mid_checkpoint_clears_stale_terminal_fields(self, tmp_path) -> None:
+        """resume 场景：中途 checkpoint 覆盖上次尝试的终局字段，终值只来自本次尝试。
+
+        旧 load-merge 会把上次失败的 error 一路保留到本次成功之后（error 与
+        final_answer 并存）；写只读下陈值被清除。error 字段无生产读者
+        （唯一读者是 resume 短路的 final_answer），故差异仅为数据卫生。
+        """
+        store = RunStore(base_dir=str(tmp_path / "runs"))
+        ctx = RunContext()
+
+        # 上次尝试：失败落盘 error
+        await store.checkpoint(ctx, prompt="p", system="s", messages=[], results=[], error="boom")
+        # 本次恢复尝试（不重跑 start()）的中途 checkpoint：不传 final_answer/error
+        await store.checkpoint(ctx, prompt="p", system="s", messages=[], results=[])
+
+        snapshot = await store.load(ctx.run_id)
+        assert snapshot is not None
+        assert snapshot.error is None
+        assert snapshot.final_answer is None
+
+        # 本次尝试终局：finish_run 写入 final_answer，error 保持 None
+        await store.checkpoint(ctx, prompt="p", system="s", messages=[], results=[], final_answer="ans")
+        snapshot = await store.load(ctx.run_id)
+        assert snapshot is not None
+        assert snapshot.final_answer == "ans"
+        assert snapshot.error is None
 
 
 class TestCheckpointUpdateFields:
@@ -50,7 +86,7 @@ class TestCheckpointUpdateFields:
             Message(role="user", content="hello"),
             Message(role="assistant", content="hi there"),
         ]
-        await store.checkpoint(ctx, prompt="hello", messages=msgs)
+        await store.checkpoint(ctx, prompt="hello", system=None, messages=msgs, results=[])
 
         snapshot = await store.load(ctx.run_id)
         assert snapshot is not None
@@ -71,7 +107,7 @@ class TestCheckpointUpdateFields:
             ToolResult(tool_call_id="tc-a", content="output-a"),
             ToolResult(tool_call_id="tc-b", content="output-b", is_error=True),
         ]
-        await store.checkpoint(ctx, prompt="hello", results=results)
+        await store.checkpoint(ctx, prompt="hello", system=None, messages=[], results=results)
 
         snapshot = await store.load(ctx.run_id)
         assert snapshot is not None

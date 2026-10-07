@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 _TOKENS_PER_MESSAGE = 3  # 每条消息的角色标签、分隔符开销
 _TOKENS_REPLY_PRIMING = 3  # 回复预填充 "<|assistant|/>" 开销
 _CHARS_PER_TOKEN = 4.0  # 非CJK文本的字符/token比
+
+# CJK 感知字符类（A29④）：区段与原逐字符分支链逐一对应——
+# CJK 统一表意 + 扩展 A/B/C + 兼容表意 + 平假名/片假名 + 韩文音节。
+_CJK_CHARS = re.compile("[一-鿿㐀-䶿𠀀-𪛟𪜀-𫜿豈-﫿぀-ゟ゠-ヿ가-힯]")
 
 # 真实 tokenizer encoding 缓存（model → encoding | None）；None 也缓存，避免反复尝试导入。
 _ENCODING_CACHE: dict[str, Any] = {}
@@ -220,27 +225,15 @@ def _estimate_text_tokens(text: str) -> int:
 
     CJK 字符（中日韩统一表意文字）：~1 token/字符
     其他字符（英文、数字、标点、代码）：~4 字符/token
+
+    A29④：原为逐字符 Python 分支链（2 MB 历史每次调用 ~2M 次分支），
+    改为预编译字符类的 C 级计数——估算值逐字节不变（等价性判据
+    ``test_tokens.py::TestEstimateTextTokensCLevelEquivalence``）。
     """
     if not text:
         return 1  # 非空文本至少 1 token
-    cjk_count = 0
-    other_count = 0
-    for ch in text:
-        cp = ord(ch)
-        # CJK 统一表意文字 + 扩展区 + CJK 兼容 + 假名 + 韩文
-        if (
-            0x4E00 <= cp <= 0x9FFF  # CJK 统一表意文字
-            or 0x3400 <= cp <= 0x4DBF  # CJK 扩展 A
-            or 0x20000 <= cp <= 0x2A6DF  # CJK 扩展 B
-            or 0x2A700 <= cp <= 0x2B73F  # CJK 扩展 C
-            or 0xF900 <= cp <= 0xFAFF  # CJK 兼容表意文字
-            or 0x3040 <= cp <= 0x309F  # 平假名
-            or 0x30A0 <= cp <= 0x30FF  # 片假名
-            or 0xAC00 <= cp <= 0xD7AF  # 韩文音节
-        ):
-            cjk_count += 1
-        else:
-            other_count += 1
+    cjk_count = len(_CJK_CHARS.findall(text))
+    other_count = len(text) - cjk_count
     # CJK：1 token/字符；其他：4 字符/token；非空文本至少 1 token
     other_tokens = int(other_count / _CHARS_PER_TOKEN) if other_count > 0 else 0
     return max(1, cjk_count + other_tokens)

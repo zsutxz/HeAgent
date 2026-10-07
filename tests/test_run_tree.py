@@ -9,7 +9,7 @@ from heagent.engine.store import RunNode, RunStore
 async def _persist(store: RunStore, rc: RunContext, *, prompt: str = "p") -> RunContext:
     """Write one run snapshot so it shows up in build_run_tree."""
     await store.start(rc, prompt=prompt, system=None)
-    await store.checkpoint(rc, prompt=prompt, system=None, messages=[])
+    await store.checkpoint(rc, prompt=prompt, system=None, messages=[], results=[])
     return rc
 
 

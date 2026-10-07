@@ -51,6 +51,65 @@ class TestEstimateTextTokens:
         assert result == 5
 
 
+class TestEstimateTextTokensCLevelEquivalence:
+    """A29④：C 级正则计数必须与逐字符参考实现逐字节等价（冻结边界：估算值不得变化）。"""
+
+    @staticmethod
+    def _reference(text: str) -> int:
+        """旧实现的逐字符分支链，原样保留作等价性参考。"""
+        if not text:
+            return 1
+        cjk_count = 0
+        other_count = 0
+        for ch in text:
+            cp = ord(ch)
+            if (
+                0x4E00 <= cp <= 0x9FFF
+                or 0x3400 <= cp <= 0x4DBF
+                or 0x20000 <= cp <= 0x2A6DF
+                or 0x2A700 <= cp <= 0x2B73F
+                or 0xF900 <= cp <= 0xFAFF
+                or 0x3040 <= cp <= 0x309F
+                or 0x30A0 <= cp <= 0x30FF
+                or 0xAC00 <= cp <= 0xD7AF
+            ):
+                cjk_count += 1
+            else:
+                other_count += 1
+        other_tokens = int(other_count / 4.0) if other_count > 0 else 0
+        return max(1, cjk_count + other_tokens)
+
+    def test_corpus_equivalence(self) -> None:
+        """混合语料（含区段端点、扩展 B/C 星面字符、emoji）上新旧实现逐例相等。"""
+        corpus = [
+            "",
+            " ",
+            "hello world",
+            "你好世界",
+            "混合 text 中英 mixed 42!",
+            "こんにちはperiode Korean 한글_mix",
+            "䷿一鿿ꀀ",  # CJK 统一表意内外端点
+            "\U00020000\U0002a6df\U0002a6e0",  # 扩展 B 首尾与其外邻
+            "\U0002a700\U0002b73f\U0002b740",  # 扩展 C 首尾与其外邻
+            "豈﫿ﬀ",  # 兼容表意内外端点
+            "〿぀ヿ㄀",  # 假名内外端点
+            "꯿가힯ힰ",  # 韩文音节内外端点
+            "emoji 😀 pseudo-CJK 一",
+            "café naïve \t\n\r 0OIl",
+        ]
+        for text in corpus:
+            assert _estimate_text_tokens(text) == self._reference(text), repr(text)
+
+    def test_range_neighbors_classify_differently(self) -> None:
+        """区段内外邻点在足够长度下按不同比率分类（C 级实现抓真分界，非近似）。"""
+        assert _estimate_text_tokens("鿿" * 40) == 40  # 区段内：CJK 1:1
+        assert _estimate_text_tokens("ꀀ" * 40) == 10  # 区段外：4:1
+        assert _estimate_text_tokens("\U0002a6df" * 40) == 40  # 扩展 B 上界内
+        assert _estimate_text_tokens("\U0002a6e0" * 40) == 10  # 扩展 B 上界外
+        assert _estimate_text_tokens("ヿ" * 40) == 40  # 片假名上界内
+        assert _estimate_text_tokens("㄀" * 40) == 10  # 片假名上界外
+
+
 class TestCountTokens:
     """消息列表 token 估算测试。"""
 

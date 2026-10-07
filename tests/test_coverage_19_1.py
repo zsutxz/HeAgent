@@ -177,12 +177,12 @@ class TestMakeRetryMiddleware:
 class TestStoreCheckpointUpdateExisting:
     @pytest.mark.asyncio
     async def test_checkpoint_updates_existing_snapshot(self, tmp_path: Path) -> None:
-        """checkpoint() 对已存在快照走增量合并路径（load → 覆盖字段 → save）。"""
+        """checkpoint() 对已存在快照整份覆盖为给定状态（A29① 写只读）。"""
         store = RunStore(base_dir=str(tmp_path / "runs"))
         ctx = RunContext()
 
-        await store.start(ctx, prompt="first")
-        await store.checkpoint(ctx, prompt="second", final_answer="done")
+        await store.start(ctx, prompt="first", system=None)
+        await store.checkpoint(ctx, prompt="second", system=None, messages=[], results=[], final_answer="done")
 
         snapshot = await store.load(ctx.run_id)
         assert snapshot is not None

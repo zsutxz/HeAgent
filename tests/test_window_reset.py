@@ -153,7 +153,7 @@ async def test_resume_completed_returns_cached_answer(tmp_path) -> None:
     rc = RunContext()
     rc.touch(status=RunStatus.COMPLETED)
     await store.start(rc, prompt="hi", system=None)
-    await store.checkpoint(rc, prompt="hi", system=None, messages=[], final_answer="42")
+    await store.checkpoint(rc, prompt="hi", system=None, messages=[], results=[], final_answer="42")
 
     loop = AgentLoop(_StubProvider([]), engine=_engine(tmp_path, store=store))
     assert await loop.resume(rc.run_id) == "42"
@@ -170,6 +170,7 @@ async def test_resume_rebuilds_from_progress_summary(tmp_path) -> None:
         prompt="build app",
         system=None,
         messages=[Message(role=Role.USER, content="build app")],
+        results=[],
     )
 
     provider = _StubProvider([_final("final-out")])
@@ -197,6 +198,7 @@ async def test_resume_after_failure_starts_a_new_attempt(tmp_path) -> None:
         prompt="build app",
         system=None,
         messages=[Message(role=Role.USER, content="build app")],
+        results=[],
     )
 
     provider = _StubProvider([_final("recovered")])
@@ -213,7 +215,7 @@ async def test_resume_stream_completed_yields_done(tmp_path) -> None:
     rc = RunContext()
     rc.touch(status=RunStatus.COMPLETED)
     await store.start(rc, prompt="hi", system=None)
-    await store.checkpoint(rc, prompt="hi", system=None, messages=[], final_answer="42")
+    await store.checkpoint(rc, prompt="hi", system=None, messages=[], results=[], final_answer="42")
 
     loop = AgentLoop(_StubProvider([]), engine=_engine(tmp_path, store=store))
     events = [e async for e in loop.resume_stream(rc.run_id)]
@@ -233,6 +235,7 @@ async def test_resume_stream_rebuilds_and_continues(tmp_path) -> None:
         prompt="build app",
         system=None,
         messages=[Message(role=Role.USER, content="build app")],
+        results=[],
     )
 
     provider = _StubProvider([_final("final-out")])

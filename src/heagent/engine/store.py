@@ -104,39 +104,36 @@ class RunStore:
         context: RunContext,
         *,
         prompt: str,
-        system: str | None = None,
-        messages: list[Message] | None = None,
-        results: list[ToolResult] | None = None,
+        system: str | None,
+        messages: list[Message],
+        results: list[ToolResult],
         final_answer: str | None = None,
         error: str | None = None,
     ) -> str:
-        """持久化 run 的最新状态（增量合并：load 已有快照 → 覆盖传入字段 → save）。
+        """持久化 run 的最新状态（A29① 写只读：直接落盘给定状态，不再 load-merge）。
 
-        各可选参数为 None 时保留原值；深拷贝入参，避免外部对象被后续修改污染快照。
+        旧实现每次先 ``load()`` 整份快照再做字段级合并——每轮工具往返一次
+        「读 + parse + 校验 + 深拷贝」，长历史下每 run 呈 O(N²)（2 MB 历史、
+        30 轮 ≈ 60 MB 白读）。改为写只读的前提由调用方承担：生产包装
+        （``run_lifecycle.checkpoint``）恒传全量 messages/results/system；
+        ``final_answer``/``error`` 仅终局 checkpoint（finish_run / on_run_failed）
+        写入；resume 场景中途 checkpoint 会以给定 None 覆盖上次尝试的陈值
+        （error 字段无生产读者，差异仅为数据卫生——判据见
+        ``test_coverage_store.py::TestCheckpointWriteOnly``）。
+
+        ``system`` / ``messages`` / ``results`` 必传：缺省即写 None/空，会静默
+        清空盘上历史，故由签名 fail-loud 阻断。深拷贝入参，避免外部对象被
+        后续修改污染快照。
         """
-        try:
-            snapshot = await self.load(context.run_id)
-        except RuntimeError as exc:
-            # 中断时事件循环可能已关闭，to_thread() 会抛 RuntimeError
-            if "no running event loop" not in str(exc):
-                raise
-            # 静默返回空路径 - 快照未保存，但不阻断清理流程
-            return ""
-        if snapshot is None:
-            snapshot = RunSnapshot(context=context.model_copy(deep=True), prompt=prompt, system=system)
-        snapshot.context = context.model_copy(deep=True)
-        snapshot.prompt = prompt
-        # P1-9 修复：system 为 None 时保留原值，不覆写为 None 清空有效系统提示词。
-        if system is not None:
-            snapshot.system = system
-        if messages is not None:
-            snapshot.messages = [m.model_copy(deep=True) for m in messages]
-        if results is not None:
-            snapshot.results = [r.model_copy(deep=True) for r in results]
-        if final_answer is not None:
-            snapshot.final_answer = final_answer
-        if error is not None:
-            snapshot.error = error
+        snapshot = RunSnapshot(
+            context=context.model_copy(deep=True),
+            prompt=prompt,
+            system=system,
+            messages=[m.model_copy(deep=True) for m in messages],
+            results=[r.model_copy(deep=True) for r in results],
+            final_answer=final_answer,
+            error=error,
+        )
         return await self.save(snapshot)
 
     async def save(self, snapshot: RunSnapshot) -> str:
