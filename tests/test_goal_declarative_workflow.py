@@ -32,6 +32,7 @@ from heagent.engine.checkpoint import (
     WorkflowPhase,
     WorkflowStatus,
 )
+from heagent.goal import mutex as goal_mutex
 from heagent.goal.application import checkpoint_store, restore_runner
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 from heagent.goal.workflow_loader import read_workflow
@@ -248,7 +249,7 @@ async def test_declarative_resume_advances_once_under_goal_lock(
     original = cli_goal._goal_declarative_advance
 
     async def observe_advance(provider, engine, workflow):
-        observed.append(cli_goal._goal_auto_lock.locked())
+        observed.append(goal_mutex._auto_lock.locked())
         return await original(provider, engine, workflow)
 
     monkeypatch.setattr(cli_goal, "_goal_declarative_advance", observe_advance)

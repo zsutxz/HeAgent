@@ -974,10 +974,15 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
   独占创建、重跑不覆盖历史（`goal/decisions.py`）；`/goal decisions` 只读回显（goal 域锁内读，
   防撕裂读）。审批门挂起状态（`awaiting_approval` + 挂起产物 + 单调审批轮次——轮次进 checkpoint
   幂等键，reject/amend 重跑再挂门不撞 conflict）随 checkpoint 持久化与恢复，跨进程可决策。
-- **跨进程互斥（2026-09）**：`/goal` 全部变更入口（new/next/run/resume/reset/cron 推进）经 `_goal_mutex()`
-  复合互斥——进程内 `asyncio.Lock`（`_goal_auto_lock`，快速路径）+ `.heagent/goal.lock` 跨进程文件锁
-  （`persist.file_lock`，5s 超时显性失败：手动方收到「另一进程正在推进」提示，cron 下一 tick 自动重试）。
-  锁文件刻意保留不删（规避 unlink 竞态）；防「双进程从同一状态各自推进后互相覆盖 brief.md」丢进度。
+- **跨进程互斥（2026-09；2026-10-07 A32② 下沉）**：goal 域互斥本体在 `goal/mutex.goal_mutex()`
+  ——进程内 `asyncio.Lock`（快速路径）+ `.heagent/goal.lock` 跨进程文件锁
+  （`persist.file_lock`，5s 超时显性失败：手动方收到「另一进程正在推进」提示，cron 下一 tick 自动重试），
+  同一 task 内可重入。**变更内核自持**：`goal/application` 的 `advance` / `pause_resume` /
+  `record_decision` 三个写方法整段读改写都在锁内（GUI/HTTP 等第二入口直调即得互斥，不依赖
+  入口层自觉）；CLI 的 `/goal` 变更入口（new/next/run/resume/reset/cron 推进）仍在外层整段
+  持锁组合（`_goal_mutex()` 薄别名）。锁文件刻意保留不删（规避 unlink 竞态）；防「双进程从
+  同一状态各自推进后互相覆盖 brief.md」丢进度。只读命令（`/goal status` / `/goal doctor`）
+  是无锁快照读，半截文件按「损坏」显性报错。
 
 每个步骤或 Story 都由新的 SubAgent/RunContext 执行。`WorkflowRunner` 负责顺序、输入、输出、checkpoint
 和恢复；它不决定 Epic/Story 的拆分方法。

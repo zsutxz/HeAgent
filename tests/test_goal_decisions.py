@@ -22,6 +22,8 @@ from types import SimpleNamespace
 import pytest
 
 import heagent.cli.goal as cli_goal
+import heagent.goal.application as goal_application
+import heagent.goal.mutex as goal_mutex
 from heagent.cli.goal import _goal_declarative_runner, _goal_declarative_workflow, _goal_runner
 from heagent.engine.checkpoint import (
     WorkflowCheckpoint,
@@ -922,3 +924,59 @@ async def test_goal_approve_and_decisions_reject_stray_arguments(
 
     await _goal_runner(SimpleNamespace(), None, "decisions all")
     assert "用法" in capsys.readouterr().err
+
+
+# ---- 内核自锁（台账 A32②）：三写方法的读改写区持 goal 域互斥 --------------------
+
+
+@pytest.mark.asyncio
+async def test_pause_and_decision_run_under_the_domain_lock(gated_goal, monkeypatch) -> None:  # noqa: ANN001
+    """pause_resume / record_decision 自持域锁（观察点 = 二者共用的 restore_runner 首站）。
+
+    变异体：撤 ``_pause_resume_unlocked`` / ``_record_decision_unlocked`` 任一外壳的
+    ``goal_mutex()`` ⇒ 对应观察点读到 ``False``，本用例变红。
+    ``/goal pause`` 此前是入口层不持锁的漏网写路径（A32② 勘察发现），随内核自锁收口。
+    """
+    workflow, goal_dir = gated_goal
+    observations: list[bool] = []
+    original_restore = goal_application.restore_runner
+
+    async def observe_restore(wf: WorkflowResource, gd: Path) -> WorkflowRunner:
+        observations.append(goal_mutex._auto_lock.locked())
+        return await original_restore(wf, gd)
+
+    monkeypatch.setattr(goal_application, "restore_runner", observe_restore)
+
+    paused = await pause_resume(workflow, goal_dir, resume=False)
+    assert paused.status is PauseResumeStatus.PAUSED
+
+    await _gate_runner(workflow, goal_dir)  # 推到审批门并落盘（不经 restore_runner）
+    outcome = await record_decision(workflow, goal_dir, action=DecisionAction.REJECT, text="not good")
+    assert outcome.status is DecisionStatus.RECORDED
+
+    assert observations == [True, True]
+    assert goal_mutex._auto_lock.locked() is False
+
+
+@pytest.mark.asyncio
+async def test_advance_runs_under_the_domain_lock(gated_goal) -> None:
+    """advance 的推进循环自持域锁（观察点 = 锁内被 await 的 execute_step 端口）。
+
+    变异体：撤 ``advance`` 外壳的 ``goal_mutex()`` ⇒ 观察点读到 ``False``，本用例变红。
+    """
+    _workflow_resource, goal_dir = gated_goal
+    runner = WorkflowRunner(
+        _workflow(_plain_step()), goal_id=goal_dir.name, checkpoint_store=checkpoint_store(goal_dir)
+    )
+    observations: list[bool] = []
+
+    async def observe_step(_inputs: dict[str, object], _step: object, _story: object = None) -> WorkflowStepResult:
+        observations.append(goal_mutex._auto_lock.locked())
+        return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output="out")
+
+    context = _GoalAdvanceContext(runner=runner, mode="auto", description="demo", goal_dir=goal_dir)
+    outcome = await advance(context, observe_step, confirm_checkpoint=lambda: True, load_project_context=lambda: None)
+
+    assert outcome.status is GoalAdvanceStatus.DONE
+    assert observations == [True]
+    assert goal_mutex._auto_lock.locked() is False

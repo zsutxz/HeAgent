@@ -77,13 +77,14 @@ from heagent.goal.evidence import (
     evidence_store,
     new_evidence_id,
 )
+from heagent.goal.mutex import goal_mutex
 from heagent.goal.naming import llm_project_id
 from heagent.goal.quality_gates import gate_declaration_problem, is_registered_gate, verify_step
 from heagent.goal.script_api import ScriptRequest, ScriptResponse
 from heagent.goal.script_runtime import GoalScriptRuntimeError, ScriptRuntime
 from heagent.goal.status_view import project_status_view
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
-from heagent.pub.persist import atomic_write_text, file_lock
+from heagent.pub.persist import atomic_write_text
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import ToolCall, ToolResult
 from heagent.pub.workspace import WorkspacePaths
@@ -109,14 +110,6 @@ __all__ = ["_goal_record_user_response", "_goal_user_responses"]
 
 _GOAL_AUTO_DEFAULT_CRON = "*/15 * * * *"
 _GOAL_AUTO_PREFIX = "goal-advance "
-_goal_auto_lock = asyncio.Lock()
-
-# goal 域跨进程锁：竞态是「读 current 指针 → 读状态 → 推进 → 写 checkpoint /
-# workflow.json / brief.md」的整段读改写，per-file 锁防不了「两进程从同一状态各自
-# 推进后互相覆盖」，故 goal 域一把域级锁。锁文件随 cwd 锚定（与 _GOALS_DIR 同锚定
-# 方式），落在 .heagent/ 运行时状态区（见下文目录注释），不污染 _he-output/ 产物树。
-_GOAL_LOCK_PATH = Path(".heagent/goal.lock")
-_GOAL_LOCK_TIMEOUT = 5.0  # 并发方快速失败；cron 下一 tick 自动重试，手动方收到明确提示
 
 # 工作流执行状态词汇与推进轮数上限：随编排分支（advance/execute 状态机）变，
 # 不随文档约定变，故留本模块（goal/document.py 只做文档与命名，见其 docstring）。
@@ -151,13 +144,15 @@ def _echo(message: str, *, err: bool = True) -> None:
 
 @asynccontextmanager
 async def _goal_mutex() -> AsyncIterator[None]:
-    """进程内 asyncio.Lock + 跨进程文件锁的复合互斥（/goal 全部变更入口共用）。
+    """goal 域互斥（:func:`heagent.goal.mutex.goal_mutex`）的 CLI 侧别名。
 
-    同进程两协程走 asyncio.Lock 快速路径，不排队文件锁；跨进程（双 CLI / CLI×GUI /
-    cron×手动）由 ``.heagent/goal.lock`` 互斥。文件锁超时抛 ``OSError``——显性失败，
+    进程内快速路径 + 跨进程 ``.heagent/goal.lock`` 文件锁的复合互斥，本体连同
+    重入语义都在 :mod:`heagent.goal.mutex`（台账 A32②：锁下沉后由变更内核
+    ``advance`` / ``pause_resume`` / ``record_decision`` 自持，CLI 外层组合式
+    读改写仍整段持锁，同 task 重入零开销）。文件锁超时抛 ``OSError``——显性失败，
     由 ``_goal_runner`` / ``_goal_cron_advance`` 收口为用户可见提示。
     """
-    async with _goal_auto_lock, file_lock(_GOAL_LOCK_PATH, timeout=_GOAL_LOCK_TIMEOUT):
+    async with goal_mutex():
         yield
 
 

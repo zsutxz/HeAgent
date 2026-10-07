@@ -41,6 +41,7 @@ from heagent.engine import (
 )
 from heagent.goal.decisions import DecisionAction, DecisionRecord, decision_store, new_decision_id
 from heagent.goal.document import _goal_document_path, _goal_record_user_response, _goal_user_responses
+from heagent.goal.mutex import goal_mutex
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
 from heagent.memory.skill_packages import (
     SkillCatalog,
@@ -572,7 +573,30 @@ async def advance(
     Phase 5 C1：透传 ``WorkflowRunner.run_step`` 发 workflow_step_* 事件；缺省 None
     = 零行为变化）。其余——inputs 装配、story 选择、run_step 编排、BLOCKED 指路
     与 checkpoint 决策——全部确定性收敛于此。
+
+    互斥（台账 A32②）：整段读改写自持 goal 域互斥（:func:`heagent.goal.mutex.goal_mutex`）
+    ——单推进者不变量由内核自持，不依赖入口层自觉；同一 task 重入（CLI 外层已持锁的
+    组合调用）只增计数，不排队文件锁。
     """
+    async with goal_mutex():
+        return await _advance_unlocked(
+            context,
+            execute_step,
+            confirm_checkpoint=confirm_checkpoint,
+            load_project_context=load_project_context,
+            emit=emit,
+        )
+
+
+async def _advance_unlocked(
+    context: _GoalAdvanceContext,
+    execute_step: StepExecutor,
+    *,
+    confirm_checkpoint: Callable[[], bool],
+    load_project_context: Callable[[], str | None],
+    emit: Callable[[str], None] | None = None,
+) -> GoalAdvanceOutcome:
+    """:func:`advance` 的无锁内核（互斥由外壳持有；勿绕过外壳直接调用）。"""
     runner = context.runner
     mode = context.mode
     description = context.description
@@ -673,7 +697,23 @@ async def pause_resume(
     resume: bool,
     response: str = "",
 ) -> PauseResumeOutcome:
-    """Persist a pause or resume; ``proceed`` reports whether a step may now execute."""
+    """Persist a pause or resume; ``proceed`` reports whether a step may now execute.
+
+    互斥（台账 A32②）：同 :func:`advance`——写状态整段自持 goal 域互斥
+    （``/goal pause`` 此前是入口层不持锁的漏网写路径，随本锁收口）。
+    """
+    async with goal_mutex():
+        return await _pause_resume_unlocked(workflow, goal_dir, resume=resume, response=response)
+
+
+async def _pause_resume_unlocked(
+    workflow: WorkflowResource,
+    goal_dir: Path,
+    *,
+    resume: bool,
+    response: str = "",
+) -> PauseResumeOutcome:
+    """:func:`pause_resume` 的无锁内核（互斥由外壳持有；勿绕过外壳直接调用）。"""
     action = "workflow"
     try:
         runner = await restore_runner(workflow, goal_dir)
@@ -768,7 +808,20 @@ async def record_decision(
       却永无审计」或「无审计却已持久化」的静默态。
     - cron 无人值守推进**不调用**本函数（auto 推进在 :func:`_advance_checkpoint_decision`
       被审批门挡下），人工 Gate 不可能被自动批准。
+    - 互斥（台账 A32②）：同 :func:`advance`——落状态 + 追加决策记录整段自持 goal 域互斥。
     """
+    async with goal_mutex():
+        return await _record_decision_unlocked(workflow, goal_dir, action=action, text=text)
+
+
+async def _record_decision_unlocked(
+    workflow: WorkflowResource,
+    goal_dir: Path,
+    *,
+    action: DecisionAction,
+    text: str = "",
+) -> DecisionOutcome:
+    """:func:`record_decision` 的无锁内核（互斥由外壳持有；勿绕过外壳直接调用）。"""
     if action is DecisionAction.RESUME:
         # resume 有自己的 use-case（pause_resume 记一条 RESUME 决策 / advance 检查点决策），
         # 不是决策命令；混进来会让「resume 当 approve 用」有一条静默通道（AD-3 负向验证锚点）。
