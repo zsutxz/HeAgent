@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——0 条
+## 活动（未闭合）条目——4 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -53,12 +53,41 @@
 > - 2026-09-28（第七轮）：**实施 1 条（部分闭合）→ A1④**（导入形态的内容钉 + 读时校验；用户裁定「继续」＝实施授权）——`SkillLockEntry.resources`（逐文件 sha256）+ **落地前复核**（关掉「算钉 → 复制」之间被改写的窗口，失败不留半成品）；`SkillPackage` 读侧除渲染器凭据外新增**包外兄弟文件** `manifest.lock` 凭据（先按规范化 `destination_path`、再按 `canonical_id` 兜底；两者并存时渲染器优先；老 lock 静默升级；未托管包只多一次 stat、不 open）。新增判据 **18 例（收集 20）**、**变异体 6/6 精确变红**、`ruff check` / `format --check` / `mypy`（本机 + `--platform linux`）全绿；全量分 4 块实跑 **3189 passed / 14 skipped / 18 deselected / 0 failed**（= 859 + 918 + 721 + 691；较上一轮 3169 多出的 20 正是新增判据的收集数）；两个改动模块在 skill 子集下实测 88% / 92%。活动条目数不变（**2 条**）——A1 残余只剩平台/形态固有项与「可信导入 snapshot」。
 > - 2026-09-28（第八轮）：**裁定闭合 1 条 → A1**（技能资源读取 TOCTOU 后续）——产品裁定「维持现状」：① POSIX 逐组件 `openat`、② 导入形态的内容钉 + 读时校验（A1④，同轮交付）均已落地，其余为平台/形态固有（Windows 只护最终组件 / 组件之间仍有时间差 / 凭据与包由同一写者掌控 / 仍非边界）；「可信导入 snapshot」作为正文内的未闭合面保留、不另立条目。正文移入下方「A1」小节；**活动区 2 → 1 条**（仅剩 **A6** 路径级审批分级：条件性，前置未发生）；① 表 22 → 23 行、闭合归档总数 39 → **40 条**；跨文档 7 处计数声明同步为 **1 条**。
 > - 2026-09-28（第九轮）：**裁定归档 1 条 → A6**（路径级审批分级）——裁定「**维持条件性**」：前置（非 workspace 的受控写）未发生，审批是工具级、越界路径在 workspace 围栏处即 `BLOCKED`，**无分级对象**；触发条件、若实现时的判据草案与冻结边界移入 `docs/frame.md` 五。**活动区 1 → 0 条（首次清空）**；① 表 23 → 24 行、闭合归档总数 40 → **41 条**；7 处「活动条目数」声明同步为 **0 条**。
+> - 2026-10-07：**登记 4 条**（Story 51-8 未 push 提交的 /simplify 清理轮：复用 / 简化 / 效率 / 层次四角度并行审查，修 6 处并全量验证后，对 4 处「跨 diff 消费面 / 属设计变更 / 受 checkpoint id 兼容约束」的跳过项按纪律补录）——A25 checkpoint id 残留 `-parallel-` 分支、A26 `active_stories` 可派生镜像、A27 门事件 emit 隔离包装双份、A28 goal-verify 台账生命周期 CLI 手写。活动条目数 0 → **4**。
+
+## A25 checkpoint id 的 `-parallel-` 残留分支（批次机制遗物）
+
+- source_spec: `src/heagent/engine/workflow_runner.py`（`_checkpoint_id` 的 `step.max_parallel_stories > 1` 分支；2026-10-07 Story 51-8 未 push 提交的 /simplify 四角度清理轮发现，「简化」与「层次」两角度同报）
+  summary: **批次机制移除后 `-parallel-` 后缀成了无读者的仪式**：Story 51-8 已把 story 执行收口为 fail-closed 串行（引擎不再读 `max_parallel_stories`，loader 只告警），但 `_checkpoint_id` 仍按声明值 `>1` 追加 `-parallel-{len(completed_stories)}`——该分支是已删机制在引擎里的最后运行期读者，让读者误以为并行面仍存在。触发条件：下次动 checkpoint id 或恢复语义时一并处置；严重度：低（2 行，误导性大于成本）；冻结边界：**删除会改 checkpoint id 格式**——声明过 `max_parallel_stories>1` 的存量 goal 跨版本恢复时对不上旧快照（步骤级进度可见丢失），故必须与 id 兼容策略（迁移 / 容忍读）一并做，**不得单独顺手删**。
+  evidence: `src/heagent/engine/workflow_runner.py:1019-1020`（分支本体；story_part 已含 `-story-{index}` 与 sanitized story label，串行下 id 唯一性由二者承担）；`src/heagent/goal/workflow_loader.py:615-625`（解析期显性告警「declared value does not raise parallelism」）；串行为有意设计：`_bmad-output/epics/epic-51-goal-workflow优化周期/brief.md`（「写集无法证明安全时自动串行」）。
+  Progress（2026-10-07 登记，未修）
+
+## A26 `active_stories` 是 `active_story` 的可派生镜像（六写点同步税）
+
+- source_spec: `src/heagent/engine/workflow_runner.py`（`WorkflowRunnerState.active_stories` 全部写点；同轮 /simplify 清理轮「简化」角度发现）
+  summary: **`active_stories` 的每个写点都只写 `[]` 或 `[active_story]`，`from_checkpoint` 还要用 `active_story` 重建它——纯派生状态**：串行化后「复数视图」永远至多单元素，却要 6 处写点（runner 4 处 + checkpoint 往返 + status_view 投影）永久保持镜像同步。触发条件：下次动 story 状态模型或 checkpoint 兼容层时一并派生化（checkpoint 字段保留容忍读）；严重度：低（无行为风险，纯维护税）；冻结边界：派生化触及**本轮 diff 之外**的消费面（`engine/checkpoint.py` / `goal/status_view.py`）与旧快照兼容，不得只删字段不接消费方。
+  evidence: `src/heagent/engine/workflow_runner.py:282`（字段）+ `:387-389`（`from_checkpoint` 由 `active_story` 重建 = 派生性自证）+ `:458/824/872/891`（写点）+ `:966/991`（投影）；`src/heagent/engine/checkpoint.py:74/190/229`；`src/heagent/goal/status_view.py:44/98/149`。
+  Progress（2026-10-07 登记，未修）
+
+## A27 门事件 emit 隔离包装双份（CLI 与 runner 各一份）
+
+- source_spec: `src/heagent/cli/goal.py`（`_emit_goal_gate_event`）对照 `src/heagent/engine/workflow_runner.py`（`_emit_step_event`）；同轮 /simplify 清理轮「复用」角度发现
+  summary: **同一「emit-None 守卫 + try/except + `safe_log` 忽略」观测隔离契约存在两份实现**（goal.py 的 docstring 自证「对齐 `WorkflowRunner._emit_step_event`」）；将来收紧契约（如 error_kind 进 details、payload 结构）要两处同改，漏一处即漂移。触发条件：下次改引擎事件契约（error_kind / payload）时一并统一；严重度：低；冻结边界：统一方向 = 放宽 `_emit_step_event` 的 `step` 类型约束（`WorkflowStepResource` → 鸭子契约）并把 payload 构造挪进隔离内，但 CLI 侧 step/story 是**宿主鸭子契约**——不得为统一而给引擎模型加 CLI 专属字段，也不得让 CLI 绕过隔离直接 emit。
+  evidence: `src/heagent/cli/goal.py:557`（本侧：payload 含 source/rerun/verdict，构造在隔离内——评审 LOW 的有意强化）；`src/heagent/engine/workflow_runner.py:42`（engine 侧：`step` 强类型，payload 构造在隔离外）。
+  Progress（2026-10-07 登记，未修——统一需放宽引擎助手类型，本轮判断为净损失）
+
+## A28 goal-verify 台账审计生命周期 CLI 手写（第三份 claim/execute/finalize 拷贝）
+
+- source_spec: `src/heagent/cli/goal.py`（`_verify_ledger_acquire` / `_verify_ledger_complete` / `_verify_ledger_fail` 三助手 + `_run_verify_command` 接线）；同轮 /simplify 清理轮「层次」角度发现
+  summary: **ledger 的 acquire→execute→complete/fail 配对序列在仓里已有两份**（`agent/tool_execution.py` 的 `_claim_ledger`/`_renew_ledger_lease`、`cron/scheduler.py` 的 loud-fail 先例），Story 51-8 在 CLI 添了第三份，并把 lease 策略（`timeout+60`）编码进 CLI——按模块 DAG，ledger/observability 归 engine 所有，入口层应是薄组合。且本份**无租约续租**：慢于静态租约的 verify 命令会让台账租约过期（审计面与执行面失配）。触发条件：第四份配对序列出现时，或 verify 命令实测超租约时；严重度：中低；冻结边界：正确落点是 `ToolExecutor` 的 audit-only（幂等去重禁用）模式——CLI 只传 `scope="goal-verify"`；**不得在 CLI 里补续租逻辑**（那是把第四份拷贝写进错误的层）；cron 的 loud-fail 是有意分歧（不属重复），收敛时须保留语义差异并有护栏测试钉住（同 Z-D3「有意分歧被护栏钉死」的教训）。
+  evidence: `src/heagent/cli/goal.py:1153/1172/1185`（三助手）；`src/heagent/agent/tool_execution.py:55/184`（带续租的先例）；`src/heagent/cron/scheduler.py`（loud-fail 先例，语义不同）。
+  Progress（2026-10-07 登记，未修——引擎新 API 属设计变更，超出清理范畴）
 
 ---
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 41 条：24 条勘察类正文保留在本文件，17 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 0 条未闭合条目（2026-09-28 首次清空——A6 按裁定归档）。
+> 当前闭合归档共 41 条：24 条勘察类正文保留在本文件，17 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 4 条未闭合条目（2026-10-07 Story 51-8 清理轮登记 A25~A28；2026-09-28 曾首次清空——A6 按裁定归档）。
 
 ## 状态总览
 
@@ -146,6 +175,10 @@
 | A19 | 原生目录选择端点默认开 | 已闭合（2026-09-27 裁定默认改按需） | 本文件下方「A19」小节 |
 | A23 | 掩码域后缀制 | 已闭合（2026-09-27 裁定维持现状） | 本文件下方「A23」小节 |
 | A24 | GUI 事件日志在环形缓冲满后永久停止渲染（+ 暂停即丢事件） | 已闭合（2026-09-28，当日发现当日修） | 本文件下方「A24」小节 |
+| A25 | checkpoint id 的 `-parallel-` 残留分支（批次机制遗物） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
+| A26 | `active_stories` 是 `active_story` 的可派生镜像（六写点同步税） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
+| A27 | 门事件 emit 隔离包装双份（CLI 与 runner 各一份） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
+| A28 | goal-verify 台账审计生命周期 CLI 手写（第三份 claim/execute/finalize 拷贝） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
 
 **旧号对照（撤号 / 让号）**
 
