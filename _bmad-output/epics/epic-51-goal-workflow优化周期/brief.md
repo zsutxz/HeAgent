@@ -1,7 +1,7 @@
 # Epic 51 产品简报：`/goal` 与 workflow 可信交付优化
 
 - 建立：2026-09-29；同日按「交付一律由工作流声明表达」的口径重整
-- 状态：规划完成，待按 Story 实施
+- 状态：实施中；51-1~51-7 已完成，51-8 正在收口
 - 编号：Epic 51
 - 周期目录：`_bmad-output/epics/epic-51-goal-workflow优化周期/`
 - 上游：Epic 47 声明式 BMad 工作流、Epic 50 控制面与工程化经验
@@ -49,11 +49,11 @@
 3. Story 完成必须有真实命令、Git 变更和质量门禁证据，Markdown 报告不能冒充证据——要什么证据由 `validation:` 声明。
 4. 用户批准、拒绝、修订和普通恢复具有不同语义并可追溯——某一步是否需要人工确认由该步声明。
 5. 多种 workflow 模板继续共用一个 `WorkflowRunner`——模板本身就是声明包。
-6. 受控脚本和安全并行只能建立在前述治理能力之上——脚本是包内资源，并行条件写在 story 文档里。
+6. 受控脚本和安全调度只能建立在前述治理能力之上——脚本是包内资源，依赖与写集声明写在 story 文档里。
 
 ## 2. 当前基线
 
-现有 `/goal` 已具备：声明式八步流程、步骤 / Story gate、checkpoint、恢复、同 Epic 有界并行、
+现有 `/goal` 已具备：声明式八步流程、步骤 / Story gate、checkpoint、恢复、逐 Story fail-closed 调度、
 CLI / GUI / cron 共用推进用例、跨进程互斥与步骤事件。
 
 **它已经证明第 0 节可行**：今天改流程行为就是改 `.heagent/skills/he-goal/workflow.md`（含内步骤契约）、
@@ -71,7 +71,7 @@ CLI / GUI / cron 共用推进用例、跨进程互斥与步骤事件。
 | FR-5 | 步骤级审批与决策记录 | 「这一步要不要人工确认」由该步 frontmatter 声明，不在代码里写死第几步 | 追加式决策日志 + 独立事件（approve / reject / amend / resume 语义不同） |
 | FR-6 | 多 workflow 模板与创建时冻结 | 交付物**就是声明包**（product / engineering / migration / security 等模板包） | 创建时把 id / revision / hash 写入 Goal 元数据；恢复时比对，漂移 fail-loud |
 | FR-7 | 受控 GoalScript | 脚本是**包内资源**；可用动作集由声明与 facade 共同界定 | 受控 facade + 限额（步骤 / 深度 / 超时）+ 取消与恢复回到 Runner 事件 |
-| FR-8 | Story 依赖图、写集与安全并行 | `depends_on` / `parallel_group` / `write_set` 写在 story 文档里；已批准的批次决策持久化 | 通用判定：依赖完成 + 写集不相交 + 无共享单写者产物 + 同 Epic + 独立 checkpoint，**任一未知即串行** |
+| FR-8 | Story 依赖图、写集与安全调度 | `depends_on` / `parallel_group` / `write_set` 写在 story 文档里 | 依赖闸门 + 每次一条 Story；写集是声明而非隔离边界，真并行前一律 fail-closed |
 | FR-9 | 兼容性、集成验收与文档收口 | 旧 `brief.md` / `require.md` / `GOAL.md`、旧 checkpoint、旧 workflow 包继续可用（不迁移 JSON 形状） | 老声明缺字段时的缺省语义 + 文档收口只报未同步项，不碰受保护文件 |
 
 ## 4. 非目标
@@ -94,7 +94,7 @@ CLI / GUI / cron 共用推进用例、跨进程互斥与步骤事件。
 4. 旧 `brief.md` / `require.md` / `GOAL.md`、旧 checkpoint 和旧 workflow 包可继续恢复。
 5. CLI、GUI、cron 对同一 Goal 使用同一状态 / 决策模型。
 6. 脚本不能直接写 checkpoint、current 指针或绕过工具治理链。
-7. 写集重叠、依赖不满足或元数据不足时不得并行。
+7. 依赖不满足或未知时不得执行；即使写集声明不相交，也不得在未隔离的宿主回调中并行。
 8. **新增一个 Epic / Story / 步骤 / 门禁 / 角色 / 依赖时，只需要改声明与文档**；证明方式是演示一次
    「只改声明、`src/` 不动」的增量（51-6 的模板包与 51-8 的集成验收各做一次）。
 

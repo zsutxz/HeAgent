@@ -9,6 +9,7 @@ gate 的消费对象），本模块只做「声明 → 模型」的装载，不�
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from pathlib import Path
 from typing import Any, Literal, cast, get_args
@@ -35,6 +36,8 @@ from heagent.pub.frontmatter import (
     parse_strict_pairs,
     split_frontmatter,
 )
+
+LOGGER = logging.getLogger(__name__)
 
 
 class SkillWorkflowError(SkillPackageResourceError):
@@ -611,7 +614,18 @@ def _script_resource(package: SkillPackage, values: dict[str, Any], resource: st
 
 def _parallel_limit(package: SkillPackage, values: dict[str, Any], resource: str) -> int:
     """Parse the bounded Step 07 concurrency setting without coercion."""
-    return _bounded_int(package, values, resource, key="max_parallel_stories", default=1, maximum=5)
+    limit = _bounded_int(package, values, resource, key="max_parallel_stories", default=1, maximum=5)
+    if limit > 1:
+        # Fail-closed 调度（Story 51-8）：没有可验证的隔离执行器前，声明不提升并行度。
+        # 静默吞声明会让模板作者误以为获得了并行，警告必须在此显性发出。
+        LOGGER.warning(
+            "%s: %s declares max_parallel_stories=%d, but stories currently run serially until an "
+            "isolated executor exists; the declared value does not raise parallelism",
+            package.skill_id,
+            resource,
+            limit,
+        )
+    return limit
 
 
 def _iteration_budget(package: SkillPackage, values: dict[str, Any], resource: str) -> int:

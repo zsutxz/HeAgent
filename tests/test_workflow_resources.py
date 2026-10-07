@@ -1,5 +1,6 @@
 """Tests for declarative workflow and ordered step resources."""
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -70,6 +71,16 @@ def test_loads_max_parallel_stories_with_default_and_bound(tmp_path: Path) -> No
     workflow = read_workflow(package)
     assert workflow.steps[0].max_parallel_stories == 3
     assert workflow.steps[1].max_parallel_stories == 1
+
+
+def test_warns_when_max_parallel_stories_exceeds_one(tmp_path: Path, caplog) -> None:
+    """max_parallel_stories>1 当前不提升并行度（fail-closed）：解析照常，但必须发响亮警告。"""
+    package = _package(tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\n")
+    (tmp_path / "step-01-first.md").write_text("---\nmax_parallel_stories: 3\n---\nFirst", encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="heagent.goal.workflow_loader"):
+        workflow = read_workflow(package)
+    assert workflow.steps[0].max_parallel_stories == 3
+    assert "max_parallel_stories" in caplog.text
 
 
 def test_reads_step_iteration_budget_with_default_and_bound(tmp_path: Path) -> None:

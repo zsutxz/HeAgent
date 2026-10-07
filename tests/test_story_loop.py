@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
-from heagent.engine.checkpoint import WorkflowCheckpointStore, WorkflowPhase, WorkflowStatus
+from heagent.engine.checkpoint import WorkflowCheckpointStore, WorkflowStatus
 from heagent.engine.workflow_runner import (
     StorySpec,
     WorkflowRunner,
@@ -21,13 +19,6 @@ STORIES = [
     StorySpec(id="S-2", summary="Movement"),
 ]
 
-PARALLEL_STORIES = [
-    StorySpec(id="S-1", summary="One", epic="E1", parallel_group="g", write_set=["src/a.py"]),
-    StorySpec(id="S-2", summary="Two", epic="E1", parallel_group="g", write_set=["src/b.py"]),
-    StorySpec(id="S-3", summary="Three", epic="E1", parallel_group="g", write_set=["src/c.py"]),
-    StorySpec(id="S-4", summary="Other Epic", epic="E2", parallel_group="g", write_set=["src/d.py"]),
-]
-
 
 def _story_workflow(**step_kwargs: object) -> WorkflowResource:
     step = WorkflowStepResource(
@@ -38,10 +29,6 @@ def _story_workflow(**step_kwargs: object) -> WorkflowResource:
         **step_kwargs,
     )
     return WorkflowResource(name="demo", instructions="", steps=[step])
-
-
-def _parallel_workflow(limit: int = 2) -> WorkflowResource:
-    return _story_workflow(max_parallel_stories=limit)
 
 
 def _story_callback(seen: list[str | None]):
@@ -83,126 +70,26 @@ def test_parse_story_list_returns_empty_for_no_stories() -> None:
 
 
 @pytest.mark.asyncio
-async def test_parallel_story_loop_batches_one_epic_and_keeps_epics_serial() -> None:
-    runner = WorkflowRunner(_parallel_workflow(2))
-    running = 0
-    peak = 0
-    seen: list[str] = []
-
-    async def callback(step, story):
-        nonlocal running, peak
-        running += 1
-        peak = max(peak, running)
-        seen.append(story.id)
-        await asyncio.sleep(0.01)
-        running -= 1
-        return WorkflowStepResult(output=f"impl {story.id}")
-
-    first = await runner.run_step(callback, stories=PARALLEL_STORIES)
-    assert first.status is WorkflowStatus.PENDING
-    assert peak == 1
-    assert seen == ["S-1"]
-    second = await runner.run_step(callback, stories=PARALLEL_STORIES)
-    assert second.status is WorkflowStatus.PENDING
-    assert seen == ["S-1", "S-2"]
-    third = await runner.run_step(callback, stories=PARALLEL_STORIES)
-    assert third.status is WorkflowStatus.PENDING
-    assert seen == ["S-1", "S-2", "S-3"]
-    fourth = await runner.run_step(callback, stories=PARALLEL_STORIES)
-    assert fourth.status is WorkflowStatus.COMPLETED
-    assert seen == ["S-1", "S-2", "S-3", "S-4"]
+async def test_serial_story_loop_records_per_story_statuses() -> None:
+    """串行路径逐条补写 story_statuses：批次机制移除后，状态视图的 story 粒度不能失明。"""
+    runner = WorkflowRunner(_story_workflow())
+    for _ in STORIES:
+        await runner.run_step(_story_callback([]), stories=STORIES)
+    assert runner.state.story_statuses == {"S-1": "completed", "S-2": "completed"}
 
 
 @pytest.mark.asyncio
-async def test_parallel_batch_emits_per_story_events() -> None:
-    """批级事件之外，批内每条 story 各发一组（带自己的 story 与 duration_ms）。
-
-    修复前并发批次只有「整批一条」started/completed，消费方无法定位单个 story。
-    """
-    from typing import Any
-
-    runner = WorkflowRunner(_parallel_workflow(2))
-    events: list[tuple[str, dict[str, Any]]] = []
-
-    def emit(kind: str, *, details: dict[str, Any] | None = None) -> None:
-        events.append((kind, details or {}))
-
-    await runner.run_step(_story_callback([]), stories=PARALLEL_STORIES, emit=emit)
-
-    batch_level = [
-        kind for kind, details in events if details["story"] == "" and kind != "workflow_story_batch_decided"
-    ]
-    assert batch_level == ["workflow_step_started", "workflow_step_completed"]  # 整批一条
-    per_story = [(kind, details["story"]) for kind, details in events if details["story"] != ""]
-    assert per_story == [
-        ("workflow_step_started", "S-1"),
-        ("workflow_step_completed", "S-1"),
-    ]
-    for _kind, details in events:
-        assert isinstance(details["duration_ms"], int)
-        assert details["step"] == "step-06-implement.md"
-
-
-@pytest.mark.asyncio
-async def test_parallel_batch_failed_story_reports_its_own_failure_event() -> None:
-    """批内失败的 story 发自己的 ``workflow_step_failed``（带 error_kind），不与其他 story 混。"""
-    from typing import Any
-
-    runner = WorkflowRunner(_parallel_workflow(2))
-    events: list[tuple[str, dict[str, Any]]] = []
-
-    def emit(kind: str, *, details: dict[str, Any] | None = None) -> None:
-        events.append((kind, details or {}))
+async def test_serial_story_exception_records_failed_status() -> None:
+    runner = WorkflowRunner(_story_workflow())
 
     async def callback(step, story):
-        if story.id == "S-2":
+        if story.id == "S-1":
             raise RuntimeError("broken story")
         return WorkflowStepResult(output=f"impl {story.id}")
 
-    await runner.run_step(callback, stories=PARALLEL_STORIES, emit=emit)
-    await runner.run_step(callback, stories=PARALLEL_STORIES, emit=emit)
-
-    failed = [details for kind, details in events if kind == "workflow_step_failed"]
-    assert [details["story"] for details in failed] == ["S-2"]
-    assert failed[0]["error_kind"] == "exception"
-    assert "broken story" in failed[0]["error"]
-
-
-@pytest.mark.asyncio
-async def test_parallel_story_failure_isolated_and_checkpointed() -> None:
-    runner = WorkflowRunner(_parallel_workflow(2))
-
-    async def callback(step, story):
-        if story.id == "S-2":
-            raise RuntimeError("broken story")
-        return WorkflowStepResult(output=f"impl {story.id}")
-
-    await runner.run_step(callback, stories=PARALLEL_STORIES)
-    result = await runner.run_step(callback, stories=PARALLEL_STORIES)
-    assert result.status is WorkflowStatus.FAILED
-    assert runner.state.story_statuses["S-1"] == "completed"
-    assert runner.state.story_statuses["S-2"] == "failed"
-    assert runner.state.story_outputs == {"S-1": "impl S-1"}
-
-
-@pytest.mark.asyncio
-async def test_parallel_story_checkpoint_restore_does_not_repeat_completed_batch(tmp_path) -> None:
-    workflow = _parallel_workflow(2)
-    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
-    runner = WorkflowRunner(workflow, goal_id="goal", run_id="run", checkpoint_store=store)
-    seen: list[str] = []
-
-    async def callback(step, story):
-        seen.append(story.id)
-        return WorkflowStepResult(output=f"impl {story.id}")
-
-    assert (await runner.run_step(callback, stories=PARALLEL_STORIES)).status is WorkflowStatus.PENDING
-    checkpoint = (await store.list_checkpoints(goal_id="goal"))[-1]
-    assert checkpoint.completed_stories == ["S-1"]
-    assert checkpoint.story_statuses["S-1"] == "completed"
-    restored = WorkflowRunner.from_checkpoint(workflow, checkpoint, checkpoint_store=store)
-    assert (await restored.run_step(callback, stories=PARALLEL_STORIES)).status is WorkflowStatus.PENDING
-    assert seen == ["S-1", "S-2"]
+    with pytest.raises(RuntimeError, match="broken story"):
+        await runner.run_step(callback, stories=STORIES)
+    assert runner.state.story_statuses == {"S-1": "failed"}
 
 
 @pytest.mark.asyncio

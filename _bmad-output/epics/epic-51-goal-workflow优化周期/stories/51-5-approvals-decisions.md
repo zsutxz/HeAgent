@@ -109,5 +109,5 @@ baseline_commit: 37dfd4a0fafa6521a29fb3b5c07cd0beba6e26d4
 
 **外围：测试与文档**
 
-- 48 条判据（二轮 reject/amend store 级、并行批次挂门、cron 禁批、五变异锚点）
+- 48 条判据（二轮 reject/amend store 级、Story 挂门、cron 禁批、五变异锚点）
   [`test_goal_decisions.py:1`](../../../../tests/test_goal_decisions.py#L1)

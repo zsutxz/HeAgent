@@ -61,7 +61,7 @@ workflow.md / step-NN-*.md / templates/      ← 声明面（唯一权威：Epic
 | `approval:`（该步是否需要人工确认） | 步骤 frontmatter | 已存在 | — |
 | workflow `revision`（或由包内容推导的 hash） | workflow frontmatter / 包元数据 | 已存在 | — |
 | `executor_mode: script` 与包内 `scripts/` 资源 | 步骤 frontmatter + 包内资源 | 已加（声明 / 加载 / 受限 facade / 限额 / A1 Runner 步骤端口 + A2 持久化计划） | 51-7 |
-| `depends_on` / `parallel_group` / `write_set` | story 文档 | **待加** | 51-8 |
+| `depends_on` / `parallel_group` / `write_set` | story 文档 | 已加；当前仅依赖闸门，写集不授权并发 | 51-8 |
 
 规则：新增词汇一律加在**上表载体**内，不新增平行的顶层配置；同一事实只能有一处声明。
 
@@ -109,9 +109,9 @@ workflow.md / step-NN-*.md / templates/      ← 声明面（唯一权威：Epic
 ## 7. 安全并行
 
 - Story 元数据：`depends_on`、`parallel_group`、`write_set`（写在 story 文档里）。
-- 并行前必须满足：依赖完成、写集不相交、不共享单写者产物、同一 Epic、独立 checkpoint / evidence、
-  恢复后不扩大并行度。**任一条件未知即串行**（AD-10）。
-- 已批准的批次决策持久化；恢复只复用或收缩，不按新配置扩大。
+- 当前宿主执行器固定逐条 Story：依赖完成才可执行，未知或未完成依赖即 `BLOCKED`；每条先持久化
+  checkpoint / evidence 再开始下一条。`parallel_group` / `write_set` 是可审计声明，但不是写入隔离边界。
+- 真正并行必须先提供可验证的隔离执行器；在此之前不得持久化虚假的「已批准批次」或按配置扩大并行度。
 
 ## 8. 兼容性
 

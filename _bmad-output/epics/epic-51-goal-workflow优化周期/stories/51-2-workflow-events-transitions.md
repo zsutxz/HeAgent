@@ -102,7 +102,7 @@ mypy src                   → Success: no issues found in 157 source files
 
 负向变异（本机亲跑）：
   A. 新增绕过 transition() 的直写文件 → 架构判据精确变红；删除后恢复绿
-  C. 移除并行批次 _absorb_step_exception 调用 → 并行取消测试精确变红；内存备份还原无损
+  C. 移除 Story 执行异常路径的 `_absorb_step_exception` 调用 → 取消状态测试精确变红；内存备份还原无损
 ```
 
 ## 实测证据（2026-09-29，本机亲跑）

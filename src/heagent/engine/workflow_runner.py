@@ -294,8 +294,6 @@ class WorkflowRunnerState(BaseModel):
     # 脚本步骤声明的后续声明步骤计划（Story 51-7）：FIFO，由 run_declared_step 消费。持久化
     # 进 checkpoint，使「条件选择了哪些后续步骤」在进程重启后仍可确定恢复。
     requested_steps: list[str] = Field(default_factory=list)
-    # Per-batch approved membership; persisted so a restart cannot enlarge a past decision.
-    story_batches: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class WorkflowStepResult(BaseModel):
@@ -394,7 +392,6 @@ class WorkflowRunner:
             pending_output=checkpoint.pending_output,
             approval_round=checkpoint.approval_round,
             requested_steps=list(checkpoint.requested_steps),
-            story_batches={key: list(value) for key, value in checkpoint.story_batches.items()},
         )
         kwargs.setdefault("phase", checkpoint.phase)
         return cls(workflow, state, goal_id=checkpoint.goal_id, run_id=checkpoint.run_id, **kwargs)
@@ -450,41 +447,10 @@ class WorkflowRunner:
         except WorkflowGateError as exc:
             return await self._stop(WorkflowStatus.BLOCKED, step, str(exc), [], checkpoint)
         active_story: StorySpec | None = None
-        if (
-            is_story_loop
-            and story_specs
-            and not (step.max_parallel_stories > 1 and all(story.epic for story in story_specs))
-        ):
+        if is_story_loop:
             blocked = await self._blocked_story_dependency(step, story_specs, checkpoint)
             if blocked is not None:
                 return blocked
-        if is_story_loop:
-            if step.max_parallel_stories > 1 and story_specs and all(story.epic for story in story_specs):
-                started = time.perf_counter()
-                _emit_step_event(emit, "workflow_step_started", step=step, story=None)
-                try:
-                    result = await self._run_story_batch(callback, step, story_specs, checkpoint, emit=emit)
-                except BaseException as exc:
-                    self._absorb_step_exception(exc)
-                    _emit_step_event(
-                        emit,
-                        "workflow_step_failed",
-                        step=step,
-                        story=None,
-                        duration_ms=_elapsed_ms(started),
-                        error_kind=error_kind_for(exc),
-                        error=str(exc),
-                    )
-                    raise
-                _emit_step_event(
-                    emit,
-                    "workflow_step_completed",
-                    step=step,
-                    story=None,
-                    duration_ms=_elapsed_ms(started),
-                    result=result.status.value,
-                )
-                return result
             active_story = story_specs[self.state.story_index]
             self.state = self.state.model_copy(
                 update={
@@ -505,6 +471,10 @@ class WorkflowRunner:
                 raise TypeError("step callback must return WorkflowStepResult")
         except BaseException as exc:
             self._absorb_step_exception(exc)
+            if active_story is not None:
+                self.state = self.state.model_copy(
+                    update={"story_statuses": {**self.state.story_statuses, active_story.id: "failed"}}
+                )
             _emit_step_event(
                 emit,
                 "workflow_step_failed",
@@ -523,6 +493,12 @@ class WorkflowRunner:
             duration_ms=_elapsed_ms(started),
             result=result.status.value,
         )
+        # 逐 Story 状态的唯一写点（批次机制移除后）：status_view 与恢复诊断依赖它，
+        # 字段永空等于静默失明（Story 51-8）。异常路径在上方 except 分支落 "failed"。
+        if active_story is not None:
+            self.state = self.state.model_copy(
+                update={"story_statuses": {**self.state.story_statuses, active_story.id: result.status.value}}
+            )
 
         executed_story_id: str | None = None
         executed_story_index: int | None = None
@@ -627,155 +603,6 @@ class WorkflowRunner:
             # 落成状态（那是合法推进），这里只兜住抛异常路径。
             self.state = self.state.model_copy(update={"active_step": previous})
             raise
-
-    async def _run_story_batch(
-        self,
-        callback: WorkflowCallback | StoryWorkflowCallback,
-        step: WorkflowStepResource,
-        story_specs: list[StorySpec],
-        checkpoint: CheckpointCallback | None,
-        emit: Callable[..., None] | None = None,
-    ) -> WorkflowRunResult:
-        """Run one bounded batch from the first incomplete Epic only.
-
-        事件粒度：批级 started/completed 由 :meth:`run_step` 发（``story`` 为空，代表
-        「这一步」）；**批内每个 story** 另发一组 ``workflow_step_started/completed/
-        failed``（带自己的 ``story`` 与 ``duration_ms``）——否则并发批次下故事轨迹
-        只剩「整批一条」，消费方（GUI / replay）无法定位单个 story 的耗时与失败。
-        """
-        completed = set(self.state.completed_stories)
-        remaining = [story for story in story_specs if story.id not in completed]
-        if not remaining:
-            combined = "\n\n---\n\n".join(str(value) for value in self.state.story_outputs.values())
-            self.state = self.state.model_copy(update={"status": transition(self.state.status, WorkflowEvent.START)})
-            self.state = self.state.model_copy(
-                update=(
-                    self._approval_gate_update(step, combined)
-                    if step.approval.required
-                    else self._step_advance_update(step, combined)
-                )
-            )
-            checkpoint_id = await self._persist(step, checkpoint)
-            return WorkflowRunResult(status=self.state.status, step_index=step.index, checkpoint_id=checkpoint_id)
-        epic = remaining[0].epic
-        if not epic:
-            raise WorkflowGateError("parallel story execution requires every scheduled story to declare an Epic")
-        batch, active_ids = self._decide_story_batch(remaining, story_specs, step, emit)
-        if not batch:
-            return await self._stop(
-                WorkflowStatus.BLOCKED,
-                step,
-                f"story '{remaining[0].id}' has incomplete or unknown dependencies",
-                [],
-                checkpoint,
-            )
-        statuses = {**self.state.story_statuses, **{story_id: "running" for story_id in active_ids}}
-        self.state = self.state.model_copy(
-            update={
-                "active_story": active_ids[0],
-                "active_stories": active_ids,
-                "active_epic": epic,
-                "story_statuses": statuses,
-            }
-        )
-        await self._persist(step, checkpoint)
-        self.state = self.state.model_copy(update={"status": transition(self.state.status, WorkflowEvent.START)})
-
-        async def execute(story: StorySpec) -> tuple[StorySpec, WorkflowStepResult | BaseException]:
-            started = time.perf_counter()
-            _emit_step_event(emit, "workflow_step_started", step=step, story=story)
-            try:
-                result = self._invoke_callback(callback, step, story)
-                if inspect.isawaitable(result):
-                    result = await result
-                if not isinstance(result, WorkflowStepResult):
-                    raise TypeError("story callback must return WorkflowStepResult")
-            except Exception as exc:  # isolate one Story failure from its batch
-                _emit_step_event(
-                    emit,
-                    "workflow_step_failed",
-                    step=step,
-                    story=story,
-                    duration_ms=_elapsed_ms(started),
-                    error_kind=error_kind_for(exc),
-                    error=str(exc),
-                )
-                return story, exc
-            _emit_step_event(
-                emit,
-                "workflow_step_completed",
-                step=step,
-                story=story,
-                duration_ms=_elapsed_ms(started),
-                result=result.status.value,
-            )
-            return story, result
-
-        results = await asyncio.gather(*(execute(story) for story in batch))
-        completed_ids: list[str] = []
-        story_outputs = dict(self.state.story_outputs)
-        evidence = list(self.state.acceptance_evidence)
-        failure_reason = ""
-        for story, result in results:
-            if isinstance(result, BaseException):
-                statuses[story.id] = "failed"
-                failure_reason = f"{story.id}: {result}"
-                continue
-            if result.status is not WorkflowStatus.COMPLETED:
-                statuses[story.id] = result.status.value
-                failure_reason = result.reason or f"{story.id}: {result.status.value}"
-                continue
-            try:
-                self._validate_output(step, result.output)
-            except WorkflowGateError as exc:
-                statuses[story.id] = "failed"
-                failure_reason = f"{story.id}: {exc}"
-                continue
-            statuses[story.id] = "completed"
-            completed_ids.append(story.id)
-            story_outputs[story.id] = result.output
-            evidence.extend(result.evidence)
-        all_completed = set(completed_ids)
-        completed_stories = [*self.state.completed_stories, *[story.id for story in batch if story.id in all_completed]]
-        active = [story.id for story in batch if statuses.get(story.id) == "running"]
-        update: dict[str, Any] = {
-            "completed_stories": completed_stories,
-            "story_outputs": story_outputs,
-            "acceptance_evidence": evidence,
-            "active_stories": active,
-            "active_story": active[0] if active else None,
-            "active_epic": epic if active else "",
-            "story_statuses": statuses,
-        }
-        if failure_reason:
-            update.update(
-                {"status": transition(self.state.status, WorkflowEvent.EXECUTOR_FAILED), "reason": failure_reason}
-            )
-        elif len(completed_stories) >= len(story_specs):
-            combined = "\n\n---\n\n".join(str(value) for value in story_outputs.values())
-            if step.approval.required:
-                # 挂门含 story 清场（_approval_gate_update 单点）：reject / amend 重跑时
-                # completed_stories 已复位，批次从第一条 story 重新执行。
-                update.update(self._approval_gate_update(step, combined))
-            else:
-                update.update(self._step_advance_update(step, combined))
-                update.update({"active_stories": [], "active_story": None, "active_epic": ""})
-        else:
-            update["status"] = transition(
-                self.state.status,
-                WorkflowEvent.CHECKPOINT_REQUIRED if self._checkpoint_declared(step) else WorkflowEvent.STEP_COMPLETED,
-            )
-            update["reason"] = ""
-        self.state = self.state.model_copy(update=update)
-        checkpoint_id = await self._persist(step, checkpoint)
-        return WorkflowRunResult(
-            status=self.state.status,
-            step_index=step.index,
-            output={story_id: story_outputs[story_id] for story_id in completed_ids},
-            reason=self.state.reason,
-            checkpoint_id=checkpoint_id,
-            story_id=completed_ids[0] if completed_ids else batch[0].id,
-        )
 
     def _absorb_step_exception(self, exc: BaseException) -> None:
         """异常/取消经唯一转换表落状态，不用直写掩盖（51-2）。
@@ -941,9 +768,8 @@ class WorkflowRunner:
     ) -> dict[str, Any]:
         """**非 story 循环**步骤完成后的状态更新：审批门挂起或完成簿记。
 
-        审批门的判定共**四处**（「声明说了算」，本方法是其中之一）：本方法（非 story 步骤）、
-        :meth:`_story_advance_update` 末条 Story 处、:meth:`_run_story_batch` 批次全部完成处、
-        :meth:`_run_story_batch` 空余量重入处。四处都只在 ``step.approval.required`` 时挂门，
+        审批门的判定仅有两处（「声明说了算」）：本方法（非 story 步骤）与
+        :meth:`_story_advance_update` 的末条 Story。两处都只在 ``step.approval.required`` 时挂门，
         挂起形态由 :meth:`_approval_gate_update` 单点产出。
         """
         if is_story_loop:
@@ -1066,48 +892,6 @@ class WorkflowRunner:
             checkpoint,
         )
 
-    def _decide_story_batch(
-        self,
-        remaining: list[StorySpec],
-        specs: list[StorySpec],
-        step: WorkflowStepResource,
-        emit: Callable[..., None] | None,
-    ) -> tuple[list[StorySpec], list[str]]:
-        batch = self._safe_story_batch(remaining, specs, step.max_parallel_stories)
-        if not batch or batch[0].id != remaining[0].id:
-            return [], []
-        approved = self.state.story_batches.get(remaining[0].id)
-        if approved is not None:
-            batch = [story for story in batch if story.id in approved]
-            if not batch or batch[0].id != remaining[0].id:
-                batch = [remaining[0]]
-        active_ids = [story.id for story in batch]
-        decisions = {**self.state.story_batches, remaining[0].id: active_ids}
-        self.state = self.state.model_copy(update={"story_batches": decisions})
-        _emit_step_event(
-            emit,
-            "workflow_story_batch_decided",
-            step=step,
-            story=None,
-            selected=active_ids,
-            candidates=[story.id for story in remaining],
-            reason="declared_disjoint_writes" if len(batch) > 1 else "serial_or_unknown",
-        )
-        return batch, active_ids
-
-    @staticmethod
-    def _safe_story_batch(remaining: list[StorySpec], all_specs: list[StorySpec], limit: int) -> list[StorySpec]:
-        """Conservatively schedule one Story; metadata is not an isolation boundary."""
-        first = remaining[0]
-        known = {story.id: story for story in all_specs}
-        completed = set(known) - {story.id for story in remaining}
-        if any(dep not in completed for dep in first.depends_on):
-            return []
-        # A declared write set is not an execution boundary. Even disjoint
-        # declarations cannot prove callbacks won't write the same shared file.
-        # One Story per checkpoint until an enforceable isolated executor exists.
-        return [first]
-
     @staticmethod
     def _is_story_step(step: WorkflowStepResource) -> bool:
         return bool(step.story_loop and step.story_loop.strip())
@@ -1163,7 +947,6 @@ class WorkflowRunner:
             pending_output=self.state.pending_output,
             approval_round=self.state.approval_round,
             requested_steps=list(self.state.requested_steps),
-            story_batches={key: list(value) for key, value in self.state.story_batches.items()},
             artifact_refs=list(self.state.outputs),
             outputs=dict(self.state.outputs),
             acceptance_evidence=list(self.state.acceptance_evidence),
