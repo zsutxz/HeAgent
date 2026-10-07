@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-# 显式 import 以触发 @tool 注册（护栏测试需要完整注册表）
+# 显式 import 以触发 @tool 注册（_verdict 经注册表取 schema——注解是只读判定的唯一事实源）
 import heagent.tools.builtins.cron  # noqa: F401
 import heagent.tools.builtins.file  # noqa: F401
 import heagent.tools.builtins.git  # noqa: F401
@@ -40,7 +40,8 @@ def _call(name: str, **args: object) -> ToolCall:
 
 
 def _verdict(engine: PolicyEngine, name: str, **args: object) -> ToolExecutionMode:
-    return engine.evaluate_tool_call(_call(name, **args)).mode
+    """镜像生产接线（``agent/tool_execution`` 的 ``registry.get_schema`` → 传 schema 裁决）。"""
+    return engine.evaluate_tool_call(_call(name, **args), schema=ToolRegistry.get().get_schema(name)).mode
 
 
 @pytest.fixture(autouse=True)
@@ -120,6 +121,16 @@ class TestReadOnlyMode:
         verdict = engine.evaluate_tool_call(_call("file_write", path="a.txt"))
         assert "read-only" in verdict.reason
 
+    def test_missing_schema_fail_closed_even_for_known_names(self) -> None:
+        """注解是唯一事实源：缺 schema（未注册）时即便名字是经典只读工具也 fail-closed。
+
+        变异体：恢复 ``_READ_ONLY_TOOLS`` 名称表兜底 ⇒ ``file_read`` 在 ``schema=None``
+        时被放行，本用例变红（台账 A32① 单源化的负向护栏）。
+        """
+        engine = PolicyEngine(sandbox_mode="read-only")
+        verdict = engine.evaluate_tool_call(_call("file_read", path="a.txt"), schema=None)
+        assert verdict.mode is ToolExecutionMode.BLOCKED
+
 
 class TestWorkspaceWriteMode:
     def test_path_escape_blocked(self) -> None:
@@ -144,21 +155,6 @@ class TestDangerFullAccess:
     def test_blocklist_still_applies(self) -> None:
         engine = PolicyEngine(sandbox_mode="danger-full-access", blocked_tools=["shell"])
         assert _verdict(engine, "shell", command="dir") is ToolExecutionMode.BLOCKED
-
-
-class TestReadOnlySetConsistency:
-    def test_matches_registered_annotations(self) -> None:
-        """``_READ_ONLY_TOOLS`` 必须与 registry 里 read_only=True 的工具完全一致。
-
-        少登记 → 只读工具在只读档被误拒（fail-closed，可发现）；多登记 → 会写的工具
-        在只读档被放行（权限放大，不可接受）。两个方向都由本测试拦住。
-        """
-        registered = {
-            schema.name
-            for schema in ToolRegistry.get().all_schemas()
-            if schema.annotations is not None and schema.annotations.readOnlyHint
-        }
-        assert registered == set(PolicyEngine._READ_ONLY_TOOLS)
 
 
 class TestFirejailNetworkSwitch:

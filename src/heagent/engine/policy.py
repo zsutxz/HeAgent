@@ -97,31 +97,6 @@ class PolicyEngine:
     :class:`RunContext.metadata` 读取，因此同一 engine 可被多个 run / 子 Agent 安全复用。
     """
 
-    # 权限档位 ``read-only`` 下放行的内置只读工具（P0-2）。
-    #
-    # 与 ``@tool(read_only=True)`` 的注册结果**必须一致**（tests/test_sandbox_mode.py
-    # 用 ToolRegistry 反向锁定）：新增只读工具而忘记登记，只会在只读档下被拒
-    # （fail-closed，易发现）；反之登记了会写的工具则是权限放大（不可接受）。
-    # ``schema`` 可得的调用（MCP / 显式传 schema）优先按注解判定，本集合是缺 schema 时的
-    # 兜底——不在集合中即阻断，绝不默认放行未知工具。
-    _READ_ONLY_TOOLS: frozenset[str] = frozenset(
-        {
-            "content_search",
-            "cron_list",
-            "file_read",
-            "file_search",
-            "git_blame",
-            "git_diff",
-            "git_log",
-            "git_status",
-            "skill_curate",
-            "skill_list",
-            "skill_load",
-            "task_status",
-            "web_fetch",
-        }
-    )
-
     # 受路径围栏约束的工具 → 其参数中表示路径的字段名。
     # P1-15 修复：补全 git_status/git_diff/git_log/git_blame，使 git 路径越界在 policy 层
     # 也被预检拦截，与 file 工具保持一致的「policy + handler」两层纵深防御。
@@ -259,13 +234,16 @@ class PolicyEngine:
     def _is_read_only(self, call: ToolCall, *, schema: ToolSchema | None) -> bool:
         """该调用是否只读（read-only 档的放行判定）。
 
-        判定顺序：schema 注解 ``readOnlyHint`` 为真 → 只读（覆盖 MCP 工具与显式传 schema
-        的内置工具）；否则查 :attr:`_READ_ONLY_TOOLS`。两条都不命中即返回 ``False``
-        ——未知工具在只读档下 **fail-closed**，不给「名字不认识就放行」的口子。
+        **唯一事实源 = 注册表注解**：``@tool(read_only=True)``（内置）与 MCP server 自声明
+        经 :class:`~heagent.tools.registry.ToolRegistry` 到达本判定的 ``schema`` 参数
+        （生产接线见 ``agent/tool_execution`` 的 ``registry.get_schema``）。缺 schema 或
+        注解未声明 ``readOnlyHint`` 即返回 ``False`` ——未知/未注册工具在只读档下
+        **fail-closed**，不给「名字不认识就放行」的口子。
+
+        （台账 A32①：原 ``_READ_ONLY_TOOLS`` 手维护名称表已删——它是与注解并存的双
+        事实源，新增只读工具要改两层、漂移只能靠测试兜底。）
         """
-        if schema is not None and schema.annotations is not None and schema.annotations.readOnlyHint:
-            return True
-        return call.name in self._READ_ONLY_TOOLS
+        return schema is not None and schema.annotations is not None and schema.annotations.readOnlyHint
 
     def _validate_paths(self, call: ToolCall, *, context: RunContext | None) -> str:
         """对受约束的 file/git 工具做工作区路径围栏校验。
