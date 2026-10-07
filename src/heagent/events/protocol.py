@@ -85,7 +85,6 @@ ERROR_KIND_CANCELLED = "cancelled"
 ERROR_KIND_POLICY_DENIED = "policy_denied"
 ERROR_KIND_SAFETY_BLOCKED = "safety_blocked"
 ERROR_KIND_TOOL_ERROR = "tool_error"
-ERROR_KIND_UNKNOWN_TOOL = "unknown_tool"
 ERROR_KIND_EXCEPTION = "exception"
 
 _ERROR_KIND_BY_TYPE: tuple[tuple[type[BaseException], str], ...] = (

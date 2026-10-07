@@ -17,6 +17,7 @@ from heagent.pub.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
     from builtins import list as builtins_list
+    from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -168,10 +169,10 @@ class ProjectRegistry:
             raise RuntimeError("project registration completed without a result")
         return self._public(result)
 
-    def rename(self, project_id: str, name: str) -> ProjectEntry:
-        display_name = name.strip()
-        if not display_name or len(display_name) > MAX_PROJECT_NAME_CHARS:
-            raise ProjectRegistryError("invalid_request", "project name is invalid")
+    def _mutate_entry(
+        self, project_id: str, action: str, mutate: Callable[[_StoredProject], _StoredProject]
+    ) -> ProjectEntry:
+        """Registry entry mutation scaffold: decode → locate by id → mutate → persist atomically → project."""
         result: _StoredProject | None = None
 
         def update(raw: str) -> tuple[str, None]:
@@ -179,15 +180,21 @@ class ProjectRegistry:
             entries = self._decode_or_raise(raw)
             for index, entry in enumerate(entries):
                 if entry.id == project_id:
-                    result = entry.model_copy(update={"name": display_name})
+                    result = mutate(entry)
                     entries[index] = result
                     return self._encode(entries), None
             raise ProjectRegistryError("unknown_project", "no such project")
 
         atomic_update_text(self._path, update)
         if result is None:
-            raise RuntimeError("project rename completed without a result")
+            raise RuntimeError(f"project {action} completed without a result")
         return self._public(result)
+
+    def rename(self, project_id: str, name: str) -> ProjectEntry:
+        display_name = name.strip()
+        if not display_name or len(display_name) > MAX_PROJECT_NAME_CHARS:
+            raise ProjectRegistryError("invalid_request", "project name is invalid")
+        return self._mutate_entry(project_id, "rename", lambda entry: entry.model_copy(update={"name": display_name}))
 
     def remove(self, project_id: str) -> ProjectEntry:
         if project_id == "default":
@@ -211,22 +218,9 @@ class ProjectRegistry:
         if project_id == "default":
             return next(item for item in self.list() if item.is_default)
         timestamp = datetime.now(UTC).isoformat()
-        result: _StoredProject | None = None
-
-        def update(raw: str) -> tuple[str, None]:
-            nonlocal result
-            entries = self._decode_or_raise(raw)
-            for index, entry in enumerate(entries):
-                if entry.id == project_id:
-                    result = entry.model_copy(update={"last_opened_at": timestamp})
-                    entries[index] = result
-                    return self._encode(entries), None
-            raise ProjectRegistryError("unknown_project", "no such project")
-
-        atomic_update_text(self._path, update)
-        if result is None:
-            raise RuntimeError("project touch completed without a result")
-        return self._public(result)
+        return self._mutate_entry(
+            project_id, "touch", lambda entry: entry.model_copy(update={"last_opened_at": timestamp})
+        )
 
     @classmethod
     def _decode(cls, raw: str) -> builtins_list[_StoredProject]:

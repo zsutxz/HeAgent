@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections import deque
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -24,6 +25,11 @@ if TYPE_CHECKING:
     from collections.abc import Iterable
 
 logger = logging.getLogger(__name__)
+
+
+def elapsed_ms(started: float) -> int:
+    """``perf_counter`` 起点 → 整数毫秒（下取整，非负）：run / 工具 / 门事件的统一耗时换算。"""
+    return max(int((time.perf_counter() - started) * 1000), 0)
 
 
 class EngineEvent(BaseModel):

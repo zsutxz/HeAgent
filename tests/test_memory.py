@@ -15,6 +15,11 @@ from heagent.memory.profile import ProfileStore
 from heagent.memory.skills import SkillRewriteError, SkillStore
 
 
+def _matching_names(store: SkillStore, prompt: str, threshold: float) -> list[str]:
+    """``match_skill_details`` 的名称投影（旧 ``matching_skills`` 死包装移除后的测试侧替身）。"""
+    return [item.name for item in store.match_skill_details(prompt, threshold)]
+
+
 ROLE_CONTRACT = """---
 name: code_review
 description: "手写角色契约：以三镜头审查代码变更"
@@ -150,39 +155,39 @@ class TestSkillStore:
     def test_matching_skills_basic(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("deploy", "Deploy", "deploy to production", ["step"])
-        matched = s.matching_skills("deploy the app to production", threshold=0.3)
+        matched = [item.name for item in s.match_skill_details("deploy the app to production", threshold=0.3)]
         assert "deploy" in matched
 
     def test_matching_skills_threshold(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("sparse", "Sparse", "alpha beta gamma delta epsilon", ["step"])
         # "alpha beta" = 2/5 = 0.4 → 匹配 threshold=0.3
-        assert "sparse" in s.matching_skills("alpha beta", threshold=0.3)
+        assert "sparse" in [item.name for item in s.match_skill_details("alpha beta", threshold=0.3)]
         # 但不匹配 threshold=0.8
-        assert "sparse" not in s.matching_skills("alpha beta", threshold=0.8)
+        assert "sparse" not in _matching_names(s, "alpha beta", threshold=0.8)
 
     def test_matching_skills_no_match(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("deploy", "Deploy", "deploy production", ["step"])
-        assert s.matching_skills("weather forecast", threshold=0.3) == []
+        assert _matching_names(s, "weather forecast", threshold=0.3) == []
 
     def test_matching_skills_empty_prompt(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("deploy", "Deploy", "deploy production", ["step"])
-        assert s.matching_skills("", threshold=0.3) == []
-        assert s.matching_skills("   ", threshold=0.3) == []
+        assert _matching_names(s, "", threshold=0.3) == []
+        assert _matching_names(s, "   ", threshold=0.3) == []
 
     def test_cjk_pattern_matches_without_whitespace(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("stock_analysis", "A-share analysis", "股票 技术分析", ["step"])
-        assert s.matching_skills("帮我分析股票走势", threshold=0.3) == ["stock_analysis"]
+        assert _matching_names(s, "帮我分析股票走势", threshold=0.3) == ["stock_analysis"]
 
     def test_trigger_beats_pattern_and_priority_breaks_ties(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("pattern", "Pattern", "部署", ["step"], priority=99)
         s.save("trigger_low", "Trigger", "无关", ["step"], triggers=["发布生产"], priority=1)
         s.save("trigger_high", "Trigger", "无关", ["step"], triggers=["发布生产"], priority=2)
-        assert s.matching_skills("请部署并发布生产", threshold=0.3) == ["trigger_high", "trigger_low", "pattern"]
+        assert _matching_names(s, "请部署并发布生产", threshold=0.3) == ["trigger_high", "trigger_low", "pattern"]
 
     def test_negative_trigger_rejects_an_otherwise_matching_skill(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
@@ -194,7 +199,7 @@ class TestSkillStore:
             triggers=["部署"],
             negative_triggers=["不要执行"],
         )
-        assert s.matching_skills("部署生产环境，但不要执行", threshold=0.3) == []
+        assert _matching_names(s, "部署生产环境，但不要执行", threshold=0.3) == []
 
     def test_new_metadata_round_trips_and_update_preserves_it(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
@@ -211,7 +216,7 @@ class TestSkillStore:
         s.save("low", "Low", "a b c d e f g", ["step"])  # 1/7 ≈ 0.14
         s.save("high", "High", "a b c", ["step"])  # 3/3 = 1.0
         s.save("mid", "Mid", "a b c d e", ["step"])  # 3/5 = 0.6
-        matched = s.matching_skills("a b c", threshold=0.1)
+        matched = _matching_names(s, "a b c", threshold=0.1)
         assert matched == ["high", "mid", "low"]
 
     def test_record_usage_increments_counters_for_canonical_skill(self, tmp_path: object) -> None:
@@ -269,7 +274,7 @@ class TestSkillStore:
         md.write_text(ROLE_CONTRACT, encoding="utf-8")
         s = SkillStore(base_dir=str(base))
         prompt = "please review this code and check the workflow for the epic"
-        assert s.matching_skills(prompt, threshold=0.3) == ["code_review"]
+        assert _matching_names(s, prompt, threshold=0.3) == ["code_review"]
         s.record_usage("code_review")
         after = md.read_text(encoding="utf-8")
         parsed = s.parse("code_review")

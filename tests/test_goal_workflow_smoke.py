@@ -75,7 +75,6 @@ async def test_two_story_stub_smoke_leaves_checkpoint_and_audit_evidence(tmp_pat
             update={
                 "phase": WorkflowPhase.DONE,
                 "status": WorkflowStatus.COMPLETED,
-                "transition_reason": "smoke acceptance complete",
             }
         )
     )

@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from heagent.memory.skill_catalog import match_skill_details as _match_skill_details
-from heagent.memory.skill_catalog import matching_skills as _matching_skills
 from heagent.memory.skill_catalog import stale_skills as _stale_skills
 from heagent.memory.skill_models import SkillContent, SkillRewriteError, parse_skill_md, validate_skill_name
 from heagent.memory.skill_rewrite import (
@@ -338,7 +337,3 @@ class SkillStore:
     def match_skill_details(self, prompt: str, threshold: float) -> list[SkillMatch]:
         """Return explainable, backward-compatible skill matches."""
         return _match_skill_details(self, prompt, threshold)
-
-    def matching_skills(self, prompt: str, threshold: float) -> list[str]:
-        """Return matching names; retained as the legacy public API."""
-        return _matching_skills(self, prompt, threshold)

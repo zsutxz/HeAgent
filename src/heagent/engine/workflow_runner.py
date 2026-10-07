@@ -20,6 +20,7 @@ from heagent.engine.checkpoint import (
     WorkflowPhase,
     WorkflowStatus,
 )
+from heagent.engine.observability import elapsed_ms
 from heagent.engine.workflow_events import WorkflowEvent
 from heagent.engine.workflow_resource import (
     WorkflowResource,
@@ -32,11 +33,6 @@ from heagent.events.protocol import error_kind_for
 from heagent.pub.safe_logging import safe_log
 
 logger = logging.getLogger(__name__)
-
-
-def _elapsed_ms(started: float) -> int:
-    """``perf_counter`` 起点 → 整数毫秒（下取整，非负）。"""
-    return max(int((time.perf_counter() - started) * 1000), 0)
 
 
 def _emit_step_event(
@@ -485,7 +481,7 @@ class WorkflowRunner:
                 "workflow_step_failed",
                 step=step,
                 story=active_story,
-                duration_ms=_elapsed_ms(started),
+                duration_ms=elapsed_ms(started),
                 error_kind=error_kind_for(exc),
                 error=str(exc),
             )
@@ -496,7 +492,7 @@ class WorkflowRunner:
             "workflow_step_completed",
             step=step,
             story=active_story,
-            duration_ms=_elapsed_ms(started),
+            duration_ms=elapsed_ms(started),
             result=result.status.value,
         )
         # 异常路径在上方 except 分支落 "failed"；这里收口正常路径的结果状态。
@@ -992,9 +988,6 @@ class WorkflowRunner:
             story_statuses=dict(self.state.story_statuses),
             status=aggregate_status,
             artifact_refs=list(self.state.outputs),
-            blocked_reason=self.state.reason
-            if self.state.status in {WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}
-            else None,
             next_action=self.state.reason,
         )
         await self.checkpoint_store.save(checkpoint, workflow_state)

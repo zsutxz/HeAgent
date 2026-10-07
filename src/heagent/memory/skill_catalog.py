@@ -1,7 +1,7 @@
 """技能检索（memory/skills 拆分层，Phase 4 C4）。
 
 基于关键词/触发词的可解释匹配与过期盘点：:func:`match_skill_details` /
-:func:`matching_skills` / :func:`stale_skills`。均为以 :class:`~heagent.memory.skill_store.SkillStore`
+:func:`stale_skills`。均为以 :class:`~heagent.memory.skill_store.SkillStore`
 为数据源的纯检索函数（本模块只经 TYPE_CHECKING 引用存储类型，依赖单向）。
 """
 
@@ -60,11 +60,6 @@ def match_skill_details(store: SkillStore, prompt: str, threshold: float) -> lis
             )
     matches.sort(key=lambda item: (-bool(item.matched_triggers), -item.score, -item.priority, item.name))
     return matches
-
-
-def matching_skills(store: SkillStore, prompt: str, threshold: float) -> list[str]:
-    """Return matching names; retained as the legacy public API."""
-    return [match.name for match in match_skill_details(store, prompt, threshold)]
 
 
 def stale_skills(store: SkillStore, days: int = 30) -> list[str]:

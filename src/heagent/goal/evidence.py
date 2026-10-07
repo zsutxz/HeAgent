@@ -30,7 +30,7 @@ import re
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Final
 from uuid import uuid4
 
 from pydantic import BaseModel, Field
@@ -113,16 +113,6 @@ class GitEvidence(BaseModel):
     untracked_files: list[str] = Field(default_factory=list)
 
 
-class QualityGateEvidence(BaseModel):
-    """一次命名质量门的执行记录（``gate:`` 子句的求值结果，求值器在 Story 51-4）。"""
-
-    name: str = Field(min_length=1)
-    status: Literal["passed", "failed", "skipped"]
-    # 该门引用的命令证据 id（EvidenceStore 可定位；不允许塞原始 dict）。
-    command_evidence: list[str] = Field(default_factory=list)
-    reason: str = ""
-
-
 def _utc_now_iso() -> str:
     """UTC 微秒 ISO 时间戳（``+00:00`` 后缀恒定，字典序 = 时间序）。"""
     return datetime.now(UTC).isoformat(timespec="microseconds")
@@ -148,7 +138,6 @@ class EvidenceRecord(BaseModel):
     created_at: str = Field(default_factory=_utc_now_iso)
     commands: list[CommandEvidence] = Field(default_factory=list)
     git: GitEvidence | None = None
-    quality_gates: list[QualityGateEvidence] = Field(default_factory=list)
 
 
 def new_evidence_id() -> str:

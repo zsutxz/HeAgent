@@ -104,6 +104,18 @@ class VerificationReport(BaseModel):
         """True only when nothing failed and the evaluation itself had no explicit errors."""
         return not self.errors and all(item.passed for item in self.results)
 
+    def failure_summary_parts(self, limit: int = 5) -> list[str]:
+        """失败子句与求值错误**分别**限额的失败摘要（review #17）：求值错误不被失败子句挤到无声丢光。"""
+        failures = [
+            f"{item.kind.value}: {item.target}" + (f" — {item.reason}" if item.reason else "") for item in self.failed
+        ]
+        parts = [*failures[:limit], *self.errors[:limit]]
+        if len(failures) > limit:
+            parts.append(f"…({len(failures) - limit} more failed clause(s) not shown)")
+        if len(self.errors) > limit:
+            parts.append(f"…({len(self.errors) - limit} more evaluation error(s) not shown)")
+        return parts
+
     def render(self) -> list[str]:
         """Deterministic lines every entry point writes (the CLI routes them through ``_echo``)."""
         scope = f"step={self.step}" + (f" story={self.story_id}" if self.story_id else "")

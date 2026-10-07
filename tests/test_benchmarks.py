@@ -168,7 +168,7 @@ class TestToolRegistrationPerf:
 class TestSkillMatchingPerf:
     """技能存储与匹配——正确性基准。
 
-    ``matching_skills()`` 内部调 ``list_skills()`` + ``parse()``，后者执行同步
+    ``match_skill_details()`` 内部调 ``list_skills()`` + ``parse()``，后者执行同步
     文件 I/O（``read_text``）——100 技能在 Windows 上冷启 ~300-500ms 属预期范围；
     本测试验证结果正确性，性能经 ``benchmark`` fixture 记录。
     """
@@ -191,7 +191,7 @@ class TestSkillMatchingPerf:
                     tags=["benchmark"],
                 )
 
-            matches = benchmark(store.matching_skills, "match keyword 50", threshold=0.3)
+            matches = benchmark(store.match_skill_details, "match keyword 50", threshold=0.3)
             assert len(matches) > 0, f"Expected matches for 'match keyword 50', got {matches}"
         finally:
             import shutil

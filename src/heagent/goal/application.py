@@ -51,6 +51,7 @@ from heagent.memory.skill_packages import (
 from heagent.pub.frontmatter import parse_strict_pairs, split_frontmatter
 from heagent.pub.persist import atomic_write_text
 from heagent.pub.workspace import WorkspacePaths
+from heagent.tools.path_safety import resolve_under_root
 
 logger = logging.getLogger(__name__)
 
@@ -436,11 +437,8 @@ def declarative_prompt(
 
 def load_stories(goal_dir: Path, step: Any) -> list[Any]:
     """Load and parse the story list referenced by a story-loop step."""
-    source = step.story_loop.strip()
-    root = goal_dir.resolve()
-    path = (goal_dir / source).resolve()
-    if not path.is_relative_to(root):
-        raise ValueError(f"story source escapes the goal directory: {source}")
+    # 围栏走 path_safety 单算法（逃逸 = WorkspacePathError，ValueError 子类，调用方已捕获）。
+    path = resolve_under_root(step.story_loop.strip(), goal_dir)
     return parse_story_list(path.read_text(encoding="utf-8"))
 
 

@@ -30,6 +30,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from heagent.engine.observability import elapsed_ms
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.events.protocol import error_kind_for
 from heagent.pub.exceptions import PolicyViolation, SafetyViolation
@@ -241,7 +242,7 @@ class ToolExecutor:
                 {
                     "mode": mode,
                     "content_length": len(content),
-                    "duration_ms": max(int((time.perf_counter() - _started) * 1000), 0),
+                    "duration_ms": elapsed_ms(_started),
                 },
             )
             return ToolResult(tool_call_id=call.id, content=content)
@@ -255,7 +256,7 @@ class ToolExecutor:
                     "mode": mode,
                     "error": str(exc),
                     "error_kind": error_kind_for(exc),
-                    "duration_ms": max(int((time.perf_counter() - _started) * 1000), 0),
+                    "duration_ms": elapsed_ms(_started),
                 },
             )
             return ToolResult(tool_call_id=call.id, content=f"Tool error: {exc}", is_error=True)
@@ -313,7 +314,7 @@ class ToolExecutor:
                     "mode": sandbox_mode,
                     **sandbox_facts,
                     "content_length": len(content),
-                    "duration_ms": max(int((time.perf_counter() - _started) * 1000), 0),
+                    "duration_ms": elapsed_ms(_started),
                 },
             )
             return ToolResult(tool_call_id=call.id, content=content)
@@ -328,7 +329,7 @@ class ToolExecutor:
                     **sandbox_facts,
                     "error": str(exc),
                     "error_kind": error_kind_for(exc),
-                    "duration_ms": max(int((time.perf_counter() - _started) * 1000), 0),
+                    "duration_ms": elapsed_ms(_started),
                 },
             )
             return ToolResult(tool_call_id=call.id, content=f"Tool error: {exc}", is_error=True)

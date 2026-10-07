@@ -230,8 +230,6 @@ class GoalWorkflowState(BaseModel):
     story_statuses: dict[str, str] = Field(default_factory=dict)
     status: WorkflowStatus = WorkflowStatus.PENDING
     artifact_refs: list[str] = Field(default_factory=list)
-    blocked_reason: str | None = None
-    transition_reason: str = ""
     next_action: str = ""
     updated_at: str = Field(default_factory=_iso_now)
 

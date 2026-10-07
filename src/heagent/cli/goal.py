@@ -30,6 +30,7 @@ from heagent.engine import (
     WorkflowStatus,
     WorkflowStepResult,
 )
+from heagent.engine.observability import elapsed_ms
 from heagent.goal.application import (
     _GOAL_SKILLS_ROOT,
     DecisionStatus,
@@ -461,10 +462,7 @@ async def _goal_script_validate(
         return f"script validate '{gate}' failed: {exc}"
     if report.passed:
         return ""
-    failures = [
-        f"{item.kind.value}: {item.target}" + (f" — {item.reason}" if item.reason else "") for item in report.failed
-    ]
-    parts = [*failures[:5], *report.errors[:5]]
+    parts = report.failure_summary_parts()
     return f"script validate '{gate}' failed: {'; '.join(parts) or 'gate did not pass'}"
 
 
@@ -534,11 +532,6 @@ async def _goal_execute_script_step(
     )
 
 
-def _elapsed_ms(started: float) -> int:
-    """``perf_counter`` 起点 → 整数毫秒（下取整，非负）；与 engine.workflow_runner 同式。"""
-    return max(int((time.perf_counter() - started) * 1000), 0)
-
-
 def _workflow_event_emitter(engine: EngineContainer | None) -> Callable[[str], None] | None:
     """workflow 步骤事件的入口侧发射器（Phase 5 C1）：绑 EngineContainer.events 总线。
 
@@ -585,7 +578,7 @@ def _emit_goal_gate_event(
             "rerun": rerun,
             "rerun_evidence": list(report.rerun_evidence),
             "reused_commands": list(report.reused_commands),
-            "duration_ms": _elapsed_ms(started),
+            "duration_ms": elapsed_ms(started),
         }
         emit("workflow_gate_evaluated", details=details)
     except Exception:  # noqa: BLE001
@@ -957,16 +950,7 @@ async def _goal_structured_gate(
         return ""
     for line in report.render():
         _echo(line, err=True)
-    failures = [
-        f"{item.kind.value}: {item.target}" + (f" — {item.reason}" if item.reason else "") for item in report.failed
-    ]
-    # failures 与 errors **分别**限额：求值错误不被失败子句挤到无声丢光（review #17）。
-    parts = [*failures[:5], *report.errors[:5]]
-    if len(failures) > 5:
-        parts.append(f"…({len(failures) - 5} more failed clause(s) not shown)")
-    if len(report.errors) > 5:
-        parts.append(f"…({len(report.errors) - 5} more evaluation error(s) not shown)")
-    return f"quality gate failed for step '{step.name}': {'; '.join(parts)}"
+    return f"quality gate failed for step '{step.name}': {'; '.join(report.failure_summary_parts())}"
 
 
 async def _goal_declarative_verify(
@@ -1133,7 +1117,7 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
     except BaseException as exc:
         await _verify_ledger_fail(engine, ledger_key, ledger_acquired, str(exc) or type(exc).__name__)
         raise
-    duration_ms = _elapsed_ms(started)
+    duration_ms = elapsed_ms(started)
     if verdict.mode in {ToolExecutionMode.BLOCKED, ToolExecutionMode.APPROVAL_REQUIRED}:
         outcome = CommandOutcome.POLICY_BLOCKED
     else:
