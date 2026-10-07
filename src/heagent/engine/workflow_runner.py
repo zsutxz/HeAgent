@@ -479,9 +479,7 @@ class WorkflowRunner:
                     if isinstance(exc, asyncio.CancelledError)
                     else WorkflowStatus.FAILED.value
                 )
-                self.state = self.state.model_copy(
-                    update={"story_statuses": {**self.state.story_statuses, active_story.id: story_status}}
-                )
+                self._record_story_status(active_story.id, story_status)
             _emit_step_event(
                 emit,
                 "workflow_step_failed",
@@ -501,12 +499,9 @@ class WorkflowRunner:
             duration_ms=_elapsed_ms(started),
             result=result.status.value,
         )
-        # 逐 Story 状态的唯一写点（批次机制移除后）：status_view 与恢复诊断依赖它，
-        # 字段永空等于静默失明（Story 51-8）。异常路径在上方 except 分支落 "failed"。
+        # 异常路径在上方 except 分支落 "failed"；这里收口正常路径的结果状态。
         if active_story is not None:
-            self.state = self.state.model_copy(
-                update={"story_statuses": {**self.state.story_statuses, active_story.id: result.status.value}}
-            )
+            self._record_story_status(active_story.id, result.status.value)
 
         executed_story_id: str | None = None
         executed_story_index: int | None = None
@@ -553,6 +548,10 @@ class WorkflowRunner:
             # 计划只在步骤**真的完成**时透传：失败 / 阻断的步骤不能把后续步骤交给调用方执行。
             requested_steps=(list(result.requested_steps) if result.status is WorkflowStatus.COMPLETED else []),
         )
+
+    def _record_story_status(self, story_id: str, status: str) -> None:
+        """逐 Story 状态的唯一写点（批次机制移除后）：status_view 与恢复诊断依赖它，字段永空等于静默失明（Story 51-8）。"""
+        self.state = self.state.model_copy(update={"story_statuses": {**self.state.story_statuses, story_id: status}})
 
     def _consume_requested_step(self, name: str) -> None:
         """计划队首若是 ``name`` 就出队：一次提交只消费一次（幂等跳过的请求也算已满足）。"""

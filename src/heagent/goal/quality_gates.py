@@ -333,8 +333,10 @@ async def verify_step(
     rerun_ids: list[str] = []
     reused: list[str] = []
     commands_to_rerun = list(clauses.commands)
+    scope: list[EvidenceRecord] | None = None
+    drifted: list[EvidenceRecord] = []
     if rerun and rerun_policy == "if_stale":
-        pre_scope, _pre_drifted = await _collect_scope(
+        pre_scope, pre_drifted = await _collect_scope(
             store,
             step_name=step.name,
             goal_id=goal_id,
@@ -353,10 +355,13 @@ async def verify_step(
         )
         # _command_results 恒「每条声明命令恰一个结果」且按声明序返回——strict=True 把这个
         # 不变量钉进代码，两表长度将来分歧即响亮失败。
-        commands_to_rerun = [
-            declared for declared, item in zip(clauses.commands, pre_results, strict=True) if not item.passed
-        ]
-        reused = [declared for declared, item in zip(clauses.commands, pre_results, strict=True) if item.passed]
+        paired = list(zip(clauses.commands, pre_results, strict=True))
+        commands_to_rerun = [declared for declared, item in paired if not item.passed]
+        reused = [declared for declared, item in paired if item.passed]
+        if not commands_to_rerun:
+            # 无待重跑命令 → 本函数不会再追加证据，预扫描即最终扫描：快路径免一次全量
+            # list_records（成本随目标证据量单调增长）。有待重跑必须重扫，新证据在重跑后落盘。
+            scope, drifted = pre_scope, pre_drifted
     if rerun:
         errors.extend(
             await _controlled_rerun(
@@ -371,14 +376,15 @@ async def verify_step(
                 rerun_ids=rerun_ids,
             )
         )
-    scope, drifted = await _collect_scope(
-        store,
-        step_name=step.name,
-        goal_id=goal_id,
-        story_id=story_id,
-        workflow_id=workflow_id,
-        revision=revision,
-    )
+    if scope is None:
+        scope, drifted = await _collect_scope(
+            store,
+            step_name=step.name,
+            goal_id=goal_id,
+            story_id=story_id,
+            workflow_id=workflow_id,
+            revision=revision,
+        )
     for record in drifted:
         errors.append(
             f"evidence {record.evidence_id} declares a different workflow binding "

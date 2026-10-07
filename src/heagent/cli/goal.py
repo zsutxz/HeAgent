@@ -534,6 +534,11 @@ async def _goal_execute_script_step(
     )
 
 
+def _elapsed_ms(started: float) -> int:
+    """``perf_counter`` 起点 → 整数毫秒（下取整，非负）；与 engine.workflow_runner 同式。"""
+    return max(int((time.perf_counter() - started) * 1000), 0)
+
+
 def _workflow_event_emitter(engine: EngineContainer | None) -> Callable[[str], None] | None:
     """workflow 步骤事件的入口侧发射器（Phase 5 C1）：绑 EngineContainer.events 总线。
 
@@ -556,7 +561,7 @@ def _emit_goal_gate_event(
     step: Any,
     story: Any,
     report: VerificationReport,
-    duration_ms: int,
+    started: float,
     rerun: bool,
 ) -> None:
     """质量门求值的观测事件（51-4 递延「emit 接线」收口）。
@@ -580,7 +585,7 @@ def _emit_goal_gate_event(
             "rerun": rerun,
             "rerun_evidence": list(report.rerun_evidence),
             "reused_commands": list(report.reused_commands),
-            "duration_ms": int(duration_ms),
+            "duration_ms": _elapsed_ms(started),
         }
         emit("workflow_gate_evaluated", details=details)
     except Exception:  # noqa: BLE001
@@ -945,7 +950,7 @@ async def _goal_structured_gate(
         step=step,
         story=story,
         report=report,
-        duration_ms=max(int((time.perf_counter() - started) * 1000), 0),
+        started=started,
         rerun=True,
     )
     if report.passed:
@@ -1023,7 +1028,7 @@ async def _goal_declarative_verify(
             step=step,
             story=story,
             report=report,
-            duration_ms=max(int((time.perf_counter() - started) * 1000), 0),
+            started=started,
             rerun=args == "run",
         )
         for line in report.render():
@@ -1128,7 +1133,7 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
     except BaseException as exc:
         await _verify_ledger_fail(engine, ledger_key, ledger_acquired, str(exc) or type(exc).__name__)
         raise
-    duration_ms = max(int((time.perf_counter() - started) * 1000), 0)
+    duration_ms = _elapsed_ms(started)
     if verdict.mode in {ToolExecutionMode.BLOCKED, ToolExecutionMode.APPROVAL_REQUIRED}:
         outcome = CommandOutcome.POLICY_BLOCKED
     else:
