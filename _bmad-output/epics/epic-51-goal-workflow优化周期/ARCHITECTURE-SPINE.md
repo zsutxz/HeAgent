@@ -2,7 +2,7 @@
 
 - 建立：2026-09-29；同日按「交付一律由工作流声明表达」的口径重整
 - 状态：冻结（freeze）
-- 输入：`docs/goal-optimization-plan.md`、`docs/frame.md`、现有 `/goal` 代码与测试
+- 输入：`docs/goal-workflow.md`、`docs/frame.md`、现有 `/goal` 代码与测试
 
 ## 0. 架构范式
 

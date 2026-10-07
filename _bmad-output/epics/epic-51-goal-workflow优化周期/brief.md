@@ -5,7 +5,7 @@
 - 编号：Epic 51
 - 周期目录：`_bmad-output/epics/epic-51-goal-workflow优化周期/`
 - 上游：Epic 47 声明式 BMad 工作流、Epic 50 控制面与工程化经验
-- 方案事实源：`docs/goal-optimization-plan.md`
+- 方案事实源：`docs/goal-workflow.md`
 
 ## 0. 总原则：交付由工作流声明表达，不写进代码
 

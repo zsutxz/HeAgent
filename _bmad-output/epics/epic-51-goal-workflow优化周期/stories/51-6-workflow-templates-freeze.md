@@ -71,7 +71,7 @@ catalog 发现 → `--workflow` 预检 → 冻结创建 → 按绑定恢复全�
 （`tests/test_goal_workflow_selection.py::test_a_fifth_synthetic_package_needs_no_src_change`）。
 
 **51-4 递延接线**：`_goal_verify_report` 读取绑定 revision 传入 `verify_step(revision=...)`，
-递延台账已标注（`_bmad-output/implementation-artifacts/deferred-work.md`）。
+审查摘要已记录（`_bmad-output/implementation-artifacts/deferred-work.md`）；当前活动台账以 `deferred-work-archive.md` 为准。
 
 **用例统计（2026-09-30，实测）**：实现轮新增/改动 26 例（selection 20 + resources +5 +
 架构 +1）；三层审查合并修复轮再增 24 例（selection +18——含 13 例 dispatch 逐臂参数化、

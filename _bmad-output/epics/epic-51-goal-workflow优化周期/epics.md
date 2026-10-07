@@ -2,7 +2,7 @@
 stepsCompleted: [step-01-validate-prerequisites, step-02-design-epics, step-03-create-stories, step-04-final-validation]
 status: final
 inputDocuments:
-  - docs/goal-optimization-plan.md
+  - docs/goal-workflow.md
   - docs/frame.md
   - _bmad-output/epics/epic-51-goal-workflow优化周期/brief.md
   - _bmad-output/epics/epic-51-goal-workflow优化周期/ARCHITECTURE-SPINE.md

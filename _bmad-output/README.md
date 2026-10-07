@@ -20,7 +20,8 @@ _bmad-output/
 ├── retrospective-all-cycles.md       全周期回顾与跨周期教训
 ├── sprint-status.yaml                 Epic/Story 状态唯一写目标
 ├── implementation-artifacts/
-│   ├── deferred-work-archive.md      23 条活动遗留项 + 勘察类闭合归档
+│   ├── README.md                     实现产物目录索引与台账维护规则
+│   ├── deferred-work-archive.md      活动遗留项总账 + 勘察类闭合归档
 │   └── arch-optimization-cycle/       Phase 0–5 架构优化档案
 ├── epics/                             按周期归档的规划与实现产物
 │   ├── epic-01-10-主线规划周期/
@@ -37,6 +38,6 @@ _bmad-output/
 - 未闭合 deferred 只写入 `implementation-artifacts/deferred-work-archive.md`；闭合后，有明确归属的条目正文移入对应周期的 `deferred-work.md`，本文件保留 ID 索引。
 - 不要把运行时状态、日志、密钥或 `.env` 写入并提交本目录。
 
-## 当前状态（2026-09-29）
+## 当前状态（2026-10-07）
 
 Epic 1–50 与 S1–S4 已完成；Epic 51 `/goal` 与 workflow 可信交付优化已建立并处于 **in-progress**（**Epic 50 于 2026-09-27 收口**：8 个 Story 全部 `done`、retrospective 已补做）；**Epic 48（TCP 网络接口）已于 2026-09-27 删除**（commit `4217b5d`，删除原因：使用率极低、维护成本高、HTTP 入口已充分覆盖需求）。完整状态以 [`sprint-status.yaml`](sprint-status.yaml) 为准。活动台账当前 **0 条**（2026-10-07 第六轮闭合 A25 / A26 / A27 / A28 / A33 ⇒ **第二次清空**；同日第五轮批量处置 A29/A30/A31/A32 ⇒ 9→5、两轮 /simplify 清理补录 A25~A33 ⇒ 由 0 复增；2026-09-28 实测：同日第五轮校正为 7、第六轮按产品裁定闭合 A8 / A10 / A12 / A15 / A16 五条、第七轮交付 A1④、第八轮按裁定闭合 A1、第九轮按裁定归档 A6 ⇒ **0 条**（活动台账首次清空）；已无 OBSOLETE 条目——原那条 TCP 条目已归档为 Z-D18）；其中需要产品或架构决策的条目在正文内如实标注，不得在回顾文档中复制正文。

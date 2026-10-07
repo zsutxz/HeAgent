@@ -42,7 +42,7 @@ created: '2026-09-29'
 - 存量 `brief.md`、`require.md`、`GOAL.md`、旧 checkpoint 和旧 workflow 可恢复。
 - 样例 Goal 完成 doctor、审批、证据 Gate、workflow 冻结、脚本步骤和 fail-closed Story 调度。
 - CLI、GUI、cron 对同一状态和决策结果一致。
-- `docs/frame.md`、`docs/goal-optimization-plan.md`、工作流资源和架构契约同步。
+- `docs/frame.md`、`docs/goal-workflow.md`、工作流资源和架构契约同步。
 - **只改 story 文档即可改变依赖闸门的结果**（以实测增量作为证据）；写集声明不得提升并行度。
 
 ## 任务

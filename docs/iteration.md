@@ -34,7 +34,7 @@ HeAgent 用 **BMad Method** 驱动迭代，组织单元是「**周期（Cycle）
 下面是历史规划产物采用的周期级顺序；它解释 `_bmad-output/` 的目录结构，不等于当前 `/goal` 的运行时步骤。
 当前运行时工作流见[文档索引的「Goal 工作流」章节](README.md#goal-工作流)。
 
-每个历史周期按此顺序推进，每步对应一个 BMad skill（`bmad-*` 前缀）：
+每个历史周期按此顺序推进，每步对应一个 BMad 技能（`bmad-*` 前缀）：
 
 ```
 brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  →  code-review
@@ -59,7 +59,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 - **一会话一 spec**：完整 spec 执行接近单会话 token 上限，多个缺陷要拆成多次会话分别执行（参见记忆 `bmad-quickdev-budget-per-spec`）。
 - spec 边界之外的发现 → 不就地扩展，而是记入 `deferred-work.md`（活动台账 `_bmad-output/implementation-artifacts/deferred-work-archive.md`；见 1.4）。
 
-### 1.4 技术债 deferral 机制
+### 1.4 技术债延期机制
 
 迭代中发现的、**超出当前 spec 冻结范围**的问题，走 deferral，不悄悄塞进当前改动：
 
@@ -73,9 +73,9 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 ### 1.5 sprint-status 维护规则
 
 - **Epic 编号延续主线**：新周期自称 Epic 1-N 会撞主线编号，故延续主线编号递增（MCP 周期 = Epic 11-13，MCP V2 周期 = Epic 15-18）。
-- **story key 须匹配 `epic-N-M` pattern**：`sprint-status` skill 校验 key 格式，不能用自定义前缀（如 `mcp-`）。
+- **story key 须匹配 `epic-N-M` 模式**：`sprint-status` 技能校验 key 格式，不能用自定义前缀（如 `mcp-`）。
 - **MCP 周期映射**（2026-08-18 三目录合并为 `_bmad-output/epics/epic-11-18-MCP集成周期/`）：sprint-status 的 Epic 11-13 = `epics.md` 阶段一内部 Epic 1-3；Epic 14 = `epics.md` 阶段二；Epic 15-18 = `epics.md` 阶段三内部 Epic A/B/C + 内置工具扩展。
-- **retrospective 字段**：每个 epic 配 `epic-N-retrospective`，状态 `optional`（可做不做）或 `done`（已完成）。
+- **回顾字段**：每个 epic 配 `epic-N-retrospective`，状态 `optional`（可做不做）或 `done`（已完成）。
 - **单一权威（2026-07-23）**：全周期 sprint-status 统一在 `_bmad-output/sprint-status.yaml`，旧文件保留作为只读归档。
 
 ---
@@ -106,7 +106,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 > MVP 范围内的 FR-18（MCP 工具发现）当时标注「延后」，后由 MCP 周期承接。
 
-### 2.2 MCP Client 集成周期一 · Epic 11-13
+### 2.2 MCP 客户端集成周期一 · Epic 11-13
 
 来源 `_bmad-output/epics/epic-11-18-MCP集成周期/`（阶段一，原 `mcp-client/`，2026-08-18 合并），独立 brief/prd/architecture/epics：
 
@@ -116,7 +116,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 | 12 | GitHub 只读验收（FR-9：E2E 锁定真实工具名） |
 | 13 | 安全边界与开源可用（FR-10/11：安全声明覆盖 MCP 不可信边界 + 开源文档） |
 
-### 2.3 MCP Client V2 集成周期二 · Epic 15-18
+### 2.3 MCP 客户端 V2 集成周期二 · Epic 15-18
 
 来源 `_bmad-output/epics/epic-11-18-MCP集成周期/`（阶段三，原 `mcp-client-v2/`），2026-07-17 启动。延续主线编号 15-18（映射 epics.md 的 Epic A/B/C + 内置工具扩展）：
 
@@ -127,7 +127,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 | 17 | Prompts 交互式协商（FR-C1~C4，AD-7/8/9） | **已完成** — 17-1 manager prompts 入口 + 17-2 slash 命令调度 + 17-3 渲染守卫 + 17-4 测试已全部 `done` |
 | 18 | 内置工具扩展（git 工具 + path safety 集成） | **已完成** — 18-1 git-status-diff + 18-2 git-log-blame + 18-3 path-safety-integration + 18-4 tests-docs 已全部 `done` |
 
-### 2.4 Sandbox 硬化周期 · Epic S1-S4
+### 2.4 沙箱硬化周期 · Epic S1-S4
 
 来源 `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`，2026-07-20 启动。Sandbox 后端硬化，含 firejail profile 映射、降级、配置入口、Linux 进程组 kill、workspace 隔离：
 
@@ -351,7 +351,7 @@ MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS=86400  # 1 天节流
 
 ---
 
-## 四、经验教训（轻量 retrospective）
+## 四、经验教训（轻量回顾）
 
 > 下面是从 `deferred-work.md`（原跨周期台账，2026-09-15 退役并删除）、`frame.md` 已知缺口、git log 反推的跨 epic 教训。
 > **2026-07-22 更新**：全部 24 个已完成 Epic + S1-S4 的正式回顾已完成（产物 `_bmad-output/retrospective-all-cycles.md`），所有 sprint-status 的 `epic-N-retrospective` 均已标记 `done`。以下 10 条为跨周期课纲，详尽「做对/可改进」见全周期回顾。

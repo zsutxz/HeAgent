@@ -201,3 +201,16 @@ _he-output/goals/<goal-id>/
 - 变更恢复、checkpoint、路径安全或工具执行：修改 `src/heagent/` 机制代码，并同步 `frame.md`。
 - 重排已有步骤编号会让存量未完成 goal 的 checkpoint 索引错位；改动前先确认没有活跃 goal 指针。
 - 不要在 `cli/goal.py` 增加与 `workflow.md` 平行的业务流程分支。
+
+## 优化方案落地状态
+
+此前的独立优化方案文档曾用于记录 `/goal` 的优化路线。该路线的主要可执行部分已经落地，当前事实以本文件、代码和测试为准：
+
+- Phase 0：`/goal doctor`、状态视图、报告和多入口复用已实现。
+- Phase 1：显式 `WorkflowEvent`、状态转换表和非法转换失败已实现。
+- Phase 2：`EvidenceRecord`、真实命令证据、结构化 gate、`/goal changes` 与 `/goal verify` 已实现。
+- Phase 3：步骤级审批、工作流包选择与 revision 绑定已实现。
+- Phase 4：受控 `GoalScript` / `ScriptRuntime` 已实现；脚本状态变更仍必须经过 `WorkflowRunner`，并有步骤数、深度和超时上限。
+- Phase 5：安全并行执行、独立 worktree/worker 隔离和第三方脚本的 OS 级隔离尚未完成。当前 `max_parallel_stories` 不会提升实际并行度，相关声明会被显式警告。
+
+验证依据：Goal/Workflow 回归测试当前为 `487 passed`（2026-10-07）。因此优化方案不应再作为独立的当前方案文档维护；后续实现应直接更新本专题、架构文档和对应测试，历史规划与详细验收证据归档到 `_bmad-output/`。

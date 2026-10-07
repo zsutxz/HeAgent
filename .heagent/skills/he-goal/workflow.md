@@ -126,6 +126,7 @@ validation: 需求有证据支撑且可验证
 
 ## Step 04: define-product-scope（产品范围定义）
 role: bmad-agent-pm
+approval: required
 input: 需求简报, 市场综述
 output: 已验证 PRD, 有序 Epic 提案
 checkpoint: true
@@ -146,6 +147,7 @@ validation: 边界、接口、依赖、不变量与失败处理都是显式的
 
 ## Step 06: refine-stories（故事细化）
 role: bmad-agent-analyst
+approval: required
 input: 已验证 PRD, 有序 Epic 提案, 架构, 实现约束
 output: 澄清的实现范围, 迭代计划, 故事拆分
 checkpoint: true

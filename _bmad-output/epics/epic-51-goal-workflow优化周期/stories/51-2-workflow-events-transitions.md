@@ -79,7 +79,7 @@ created: '2026-09-29'
 - [x] [Review][Patch] 并行 story 批次异常/取消不经转换表：**已修** — 批级 `except BaseException` 与串行共用 `_absorb_step_exception`（取消 → CANCELLED → PENDING，其余 → EXECUTOR_FAILED → FAILED）；变异验证：移除调用后并行取消测试精确变红 [src/heagent/engine/workflow_runner.py]
 - [x] [Review][Patch] 取消路径 reason 空串：**已修** — `_absorb_step_exception` 以 `str(exc) or event.value` 兜底（取消 → `cancelled`）[src/heagent/engine/workflow_runner.py]
 - [x] [Review][Patch] FAILED runner 上 pause 行为翻转无测试固化：**已修** — 补 FAILED 负向（状态不被覆盖）+ PENDING happy-path（PAUSED + WAITING_USER 持久化）+ RUNNING 态经表暂停共 3 测试 [tests/test_goal_declarative_workflow.py]
-- [x] [Review][Patch] 设计文档 §8.2 转换表缺 `(RUNNING, CANCELLED) → PENDING` 行：**已修** [docs/goal-optimization-plan.md]
+- [x] [Review][Patch] 设计文档 §8.2 转换表缺 `(RUNNING, CANCELLED) → PENDING` 行：**已修** [docs/goal-workflow.md]
 - [x] [Review][Patch] 新导入绕过 engine 门面：**已修** — pause 逻辑内聚进 `WorkflowRunner.pause()` 后，application.py 不再需要 `workflow_events` / `workflow_transition` 导入，两条绕过导入删除 [src/heagent/goal/application.py]
 - [x] [Review][Defer] 异常路径转换后不持久化（重启后 restore 复活 RUNNING）[src/heagent/engine/workflow_runner.py:439] — deferred, pre-existing；建议并入 51-3 证据模型
 - [x] [Review][Defer] KeyboardInterrupt / SystemExit 被归类 EXECUTOR_FAILED（CLI 侧视为用户中断，语义不对称）[src/heagent/engine/workflow_runner.py:440] — deferred, pre-existing

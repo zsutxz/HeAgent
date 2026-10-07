@@ -227,3 +227,20 @@
 - **证据**：`src/heagent/pub/persist.py`（`RollbackFailedError`）、`src/heagent/config/write.py`（`_prepare_candidate` / `_Prepared` / `_prune_backups_best_effort` / 锁内 `_update` 的基线复检）、`docs/frame.md` §4.18（写通道行：锁作用域；审计行：三个结果枚举）。
 - **验证（2026-09-27 亲跑）**：② 判据 3 条 + 变异体 **4/4**（`.heagent/tmp/mutate_a14_rollback.py`）；③ 判据 4 条 + 变异体 **4/4**（`.heagent/tmp/mutate_a14_lock_scope.py`：候选构造搬回锁内 / 去掉锁内复检 / 回收搬回锁内 / 回收失败重新变成写失败）。全量 `pytest --cov` → **3116 passed / 11 skipped / 18 deselected**、覆盖率 **91.92%**（`config/write.py` 291 stmt / 0 missed）。
 
+## 其余闭合裁定索引
+
+以下条目原先只在跨周期总账中保留正文，现归并到本周期索引，避免总账重复承载 Epic 50 内容：
+
+| ID | 主题 | 结论 |
+| --- | --- | --- |
+| A8 | 跨项目并发无全局上限 | 维持现状；服务级总额已提供可选上限 |
+| A10 | 控制台端点同步 I/O | 维持现状；保留量化升级条件 |
+| A12 | 浏览器级 UI 验收不进 CI | 维持手动验收 |
+| A15 | 网页请求拉起宿主 GUI | 默认关闭，显式 opt-in |
+| A16 | 原生窗口与 `Error:` 判据 | 维持人工验收边界 |
+| A17 | R5 收敛判据 | 收紧规格 |
+| A19 | 原生目录选择端点默认值 | 改为按需启用 |
+| A23 | 掩码域后缀制 | 维持现状并补充文档 |
+
+详细裁定、冻结边界和测试证据见 `docs/frame.md`、本文件前文及对应 Story 评审记录。
+
