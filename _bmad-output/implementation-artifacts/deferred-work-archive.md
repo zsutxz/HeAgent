@@ -7,7 +7,7 @@
 
 > **维护规则**：活动区是唯一的未闭合条目正文；总览与回顾只保留编号和链接。新增条目按末尾追加，闭合时保留 ID、补充 Resolution/证据，并将有明确归属的正文移入对应周期 `deferred-work.md`。`blocked` 表示需要产品或架构决策，不能由实现者自行关闭。
 
-## 活动（未闭合）条目——9 条
+## 活动（未闭合）条目——5 条
 
 > **流水账单**（每次新增 / 闭合都往下接一行；本区**只留未闭合条目**——条目一闭合即连同正文移入下方「勘察类闭合归档」，不在本区留副本）
 >
@@ -57,34 +57,7 @@
 > - 2026-10-07（第二轮）：**登记 5 条**（同日全项目 /simplify 四角度清理轮：22 项发现修 8 项提交 `5e963db`，14 项跳过发现按主题归并为 5 条补录）——A29 会话/运行热路径四处重优化（效率族）、A30 goal 域两处重复收敛（复用族）、A31 引擎层方法论与解析错位（层次族一）、A32 治理与互斥的层级归属（层次族二）、A33 可派生镜像与边际重复（简化族）。活动条目数 4 → **9**。
 > - 2026-10-07（第三轮）：**部分闭合 1 条 → A32①②**（用户裁定「三写方法全自锁 / 读不加锁 / 只收敛只读表」后实施）——① 只读判定删 `_READ_ONLY_TOOLS` 名称表收敛注册表注解单源（缺 schema fail-closed；勘察证实收敛前 13=13 零漂移；`_PATH_FIELDS`/`_DENY_*` 无注册表孪生不在双源范畴）；② 新增 `goal/mutex.goal_mutex()`（可重入复合锁）下沉 `advance`/`pause_resume`/`record_decision` 三写方法，顺带收口勘察发现的 `/goal pause` 漏网写路径，CLI 外层持锁保留（薄别名）、`decisions.py` 并发论证与 `docs/frame.md` 同步、`test_declarative_resume_advances_once_under_goal_lock` 等 4 处测试缝迁指新模块。变异体 3+1 处精确变红，全量 3607 passed；③（CLI 引用例层私有符号）仍活动——条目留活动区逐面标注。**另**：同轮按用户裁定（有意删除）调整 `test_architecture_contracts.py` 的 TCP 残留扫描对缺席活文件跳过（CLAUDE.md 已从工作树移除）。活动条目数不变（**9**）。
 > - 2026-10-07（第四轮）：**部分闭合 1 条 → A29①④**（用户指令「选优先级最高条目修改」＝授权实施）——① `RunStore.checkpoint` 改**写只读**：删除每次落盘前的整份 `load()` 合并（O(N²) 读面），`system`/`messages`/`results` 转必传 fail-loud（缺省即静默清盘史，由签名阻断），`final_answer`/`error` 仅终局 checkpoint 写入；resume 场景中途 checkpoint 以给定 None 覆盖上次尝试陈值——`error` 无生产读者（唯一读者是 resume 短路的 `final_answer`），差异仅数据卫生，新判据 `TestCheckpointWriteOnly` 钉住；P1-9 的 system 保护上移调用方（`run_lifecycle` 恒传 system、resume 传 `_resume.system` 即盘上原值）。④ token 估算逐字符分支链改预编译字符类 C 级计数（8 区段逐一对应）。变异体 **3/3 精确变红**（恢复终局字段 load-merge / 删扩展 B 区段 / other 计数不减 CJK），全量 **3610 passed**（净增 3：新判据 4 例 − P1-9 旧 store 级测试 1 例）、ruff/mypy 全绿；探针 `.heagent/tmp/a29_bench.py`：④ 2.25M 字符 291.8→43.4 ms（6.7x）且值逐字节相等，① 1.81 MB 快照 15.0→7.2 ms/次（读面随历史增长部分整块移除，写侧不变）。**②③ 留活动区**（触发条件未变）。活动条目数不变（**9**）。
-
-## A29 会话/运行热路径的四处重优化（效率族）——①④ 已闭合（2026-10-07），②③ 活动
-
-- source_spec: `src/heagent/engine/store.py` / `src/heagent/context/session.py` / `src/heagent/context/tokens.py`（2026-10-07 全项目 /simplify「效率」角度发现，提交 `5e963db` 后补录）
-  summary: **四个热路径上的真实浪费，均为重优化级、非顺手修**：① 【已闭合 2026-10-07：改写只读，见 Progress】`RunStore.checkpoint` 曾每次落盘前 `load()` 整份快照（读 + parse + 校验 + 深拷贝 + `json.dumps(indent=2)` 全在事件循环内），而两个调用方恒传全量 messages/results/system ⇒ 每 run O(N²)：2 MB 历史、30 轮 ≈ 60 MB 读 + 60 MB 写 + ~120 次全量 parse，每工具往返注入 100–300 ms；② `recent_session_ids` 为读一个 `timestamp` 字段全量 parse 目录内每个会话 JSON（本项目实测 84 天 = 409 文件 / 83 MiB），`cli/interactive` 还在事件循环内同步调 ⇒ 交互启动秒级阻塞；③ `_metadata_from_data` 在无 title 会话上回退 `derive_title` 时构造**整条历史**的 Message 列表 ⇒ 列表页与每次无显式 session 的 run POST 都是 O(所有会话 × 所有消息)；④ 【已闭合 2026-10-07：C 级计数，见 Progress】默认 token 估算器曾逐字符分支链（tiktoken 不在依赖里，即生产路径），2 MB 历史 ≈ 2M 次/调用、100–200 ms，每 LLM 调用 1–2 次。触发条件（逐面）：① ~~恢复语义重构或建立 benchmark 时~~（已实施：checkpoint 改写只读、load 仅留 resume）；② 交互启动 P95 超标或会话目录过百 MiB 时（scandir + mtime 预排序 + 只 parse top-K，或复用 `_read_head`）；③ 列表页卡顿时（标题只取首条用户消息，或 (path, mtime, size) 缓存）；④ ~~上下文压缩成为瓶颈时~~（已实施：等价 C 级计数）；严重度：中（可感延迟，无正确性风险）；冻结边界：① 不得破坏 resume 语义（`final_answer`/`error` 的 None 合并行为须带判据）——已按「写只读 + 判据钉新语义」交付；② mtime 排序与 timestamp 字段可能在文件复制场景分歧，选型时显性裁定；④ 缓存必须逐字节等价（估算值不得变化）——已以等价性判据交付。
-  evidence: `engine/store.py:118/133-135/145-146`（load + 深拷贝 + 事件循环内 dumps）+ `agent/run_lifecycle.py:255/263`、`agent/stream_runtime.py:132/157`（每轮 2 次 + finish）；`context/session.py:663-682`（全量 parse）+ `cli/interactive.py:230`（事件循环内同步调）+ `memory/dream.py:339`；`context/session.py:317`（整历史构造）+ `cli/http_console.py:558/803/640`（每请求消费面）；`context/tokens.py:218-246`（逐字符链）+ `agent/loop.py:549`、`context/context_runtime.py:133`、`agent/stream_runtime.py:99`（调用面）。效率审查同时核实干净面：provider 流式累积、EventBus 扇出、工具执行链、系统提示组装、子 agent 闭包均无发现。
-  Progress（2026-10-07 登记；同日①④部分闭合——见流水账单第四轮；**②③ 留活动区**，触发条件未变：② 交互启动 P95 超标或会话目录过百 MiB 时、③ 列表页卡顿时）
-
-## A30 goal 域两处重复的收敛（复用族）
-
-- source_spec: `src/heagent/goal/decisions.py` / `src/heagent/goal/evidence.py` / `src/heagent/goal/doctor.py`（同轮「复用」角度发现）
-  summary: **① `DecisionStore` 与 `EvidenceStore` 约 90 行孪生**（id 围栏含同款 `_WINDOWS_DEVICE_NAMES`、`_require_current_schema`、`append` 的 exists→load→corrupt/already-exists 流程、`_create_exclusive` 逐字节相同、`load`/`list_records`），且已实际漂移：EvidenceStore 持 `asyncio.Lock` 而 DecisionStore 不持——**漂移是有意还是疏漏须先裁定**再收敛（建议 `goal/_record_store.py` 泛型基类，参数化记录类 / id 字段 / 错误工厂 / 过滤键）；**② `doctor._declared_required` 重写 loader `_resource_list` 的 frontmatter 列表解析**（同款 `strip("[]").split(",")`），但宽容度分叉：doctor 错型返回 `[]`、loader 抛 `SkillWorkflowError`——`workflow_loader.py:575` 自己警告过「同一 frontmatter 两种宽容度」。触发条件：① 任一 store 再加方法时；② doctor 或 loader 的声明解析再变时；严重度：低-中；冻结边界：① 收敛必须保留两店各自的并发语义（锁差异裁定前不动）；② 统一时不得静默改 doctor 的容错行为（老工作流 doctor 仍须能跑）。
-  evidence: `goal/decisions.py:97-184/41-42` 对照 `goal/evidence.py:234-331/60-61`；`goal/doctor.py:151-160` 对照 `goal/workflow_loader.py:545-551/575`。
-  Progress（2026-10-07 登记，未修）
-
-## A31 引擎层的方法论与解析错位（层次族一）
-
-- source_spec: `src/heagent/engine/artifacts.py` / `src/heagent/engine/workflow_runner.py` / `src/heagent/tools/builtins/subagent.py`（同轮「层次」角度发现）
-  summary: **三处「声明应在 md 包、机制应在 goal/」的错位**：① `engine/artifacts.py` 的 `parse_artifact`/`validate_hierarchy`/`validate_sprint_status_path` 把 BMad 方法论（Given/When/Then 强制、「Definition of Done」节、`_bmad-output/sprint-status.yaml` 权威路径）硬编码进引擎治理层，且 src 运行期零调用方（仅 `engine/__init__` 再导出与测试）——违反「文案/策略进 md 包声明、代码零副本」立场，构成第二份分叉的契约源；② story/epic 制品形状解析（`StorySpec` + `_STORY_*`/`_EPIC_*` 正则含 `父 Epic` 字段）住在引擎，唯一 src 调用方是 `goal/application.load_stories`，而 `run_step` 本就接受预解析 stories——S-1/E1 约定被冻结进通用引擎，第二个工作流域将被迫继承 story 机器；③ `subagent._DELEGATION_FALLBACK` 把 BMad 专属评审分层与仓内路径写进通用 tools 层内建的深度限制错误文案——每个非 BMad 消费者都会收到 BMad 建议。触发条件：① 出现第二个工作流方法论消费方或引擎契约再收敛时；② story 机制需要第二域复用时；③ 任何非 BMad 分发场景实际触达该文案时；严重度：低-中；冻结边界：①② 迁移方向是 goal/（或 md 包声明化），引擎只留确定性结构——**不得反向给引擎加「方法论开关」参数**；③ 结构化错误先行、兜底文案迁 md/role 包，不得直接删文案留下无指引的裸错误。
-  evidence: `engine/artifacts.py:196-298/242/288`（+ `engine/__init__` 再导出面）；`engine/workflow_runner.py:84-184` + `goal/application.py:437`（唯一调用方）；`tools/builtins/subagent.py:138-142/158`。
-  Progress（2026-10-07 登记，未修）
-
-## A32 治理与互斥的层级归属（层次族二）——①② 已闭合（2026-10-07），③ 活动
-
-- source_spec: `src/heagent/engine/policy.py` / `src/heagent/goal/application.py` / `src/heagent/cli/goal.py`（同轮「层次」角度发现）
-  summary: **三处归属错位**：① 【已闭合 2026-10-07】`policy._READ_ONLY_TOOLS` 名称表与 `@tool(read_only=True)` 注册表注解的双事实源——已删表收敛注解单源，缺 schema/注解即 fail-closed 阻断；勘察证实收敛前零漂移（13=13）；`_PATH_FIELDS`/`_DENY_*` 经查无注册表孪生（`ToolAnnotations` 仅 4 个 bool hint），属引擎侧单源策略数据，**不在双源范畴、保持现状**。② 【已闭合 2026-10-07】单推进者互斥下沉内核：新增 `goal/mutex.goal_mutex()`（进程内 asyncio.Lock + `.heagent/goal.lock` 文件锁复合，同 task 可重入），`advance`/`pause_resume`/`record_decision` 三写方法自持；CLI 外层组合持锁保留（`_goal_mutex()` 薄别名）；勘察顺带发现并收口 `/goal pause` 漏网写路径（dispatch 不持锁直写状态）。③ 【活动】`cli/goal.py` 从用例层 import 约 10 个下划线私有符号（`_GOAL_SKILLS_ROOT`/`_GoalAdvanceContext`/`_goal_document*` 等）——无导入契约，goal/ 内部重构会静默破坏入口层。触发条件：③ goal/ 下次内部重构时（先声明公共端口）；严重度：③ 低；冻结边界：② 已按「重入不死锁」交付（同 task 判别，全部 5 条 advance 生产路径即此形态）；③ 只加公共端口声明，不为入口层保留私有别名。
-  evidence: ① `engine/policy.py` `_is_read_only` 单注解判定 + 新判据 `test_sandbox_mode.py::test_missing_schema_fail_closed_even_for_known_names`（变异体：恢复名称表兜底 ⇒ 红）；② `goal/mutex.py`（新）+ `goal/application.py` 三外壳 + 新判据 `test_goal_cross_process_lock.py`（重入死锁看门狗 / 并发串行化）与 `test_goal_decisions.py`（pause/decision/advance 三观察点，变异体：撤任一外壳锁 ⇒ 红）；`goal/decisions.py` 并发论证已改指 `goal.mutex`；③ `cli/goal.py:33-80`（未动）。
-  Progress（2026-10-07 登记；同日①②闭合——全量 3607 passed、ruff/mypy 双平台全绿、变异体 3+1 处精确变红；③ 留活动区）
+> - 2026-10-07（第五轮）：**批量处置 4 条 → A29②③（A29 全闭）/ A30（① 评估不收敛 + ② 已修）/ A31①②③ / A32③（A32 全闭）**（用户指令「一次修复完除 A25/A26/A27/A28/A33 外全部」＝授权实施）——**A29②** `recent_session_ids` 改 mtime 排序零 JSON 解析（冻结边界要求的选型裁定已显性化：消费方要「最近活动的会话」，mtime 是活动时间的文件系统事实且写路径天然刷新；复制入旧会话按入目录时间参与排序，内容照常被 load；损坏文件不再按 ts=0 沉底，按自身 mtime 排序，消费方 load 照旧显性报错）；**A29③** `list_metadata` 增 (文件名, mtime_ns, size) → 元数据备忘录（键含内容指纹故无需失效也正确；本店四写点仍显式按名清除收敛「同 tick 同尺寸」碰撞窗；溢出 1024 清空；语义零改动——unreadable 占位 / 大文件头读 / 排序口径全部原样）；**A30①** 勘察证实**锁差异是在码裁定**（decisions.py:38-40 id 守卫「同规独立实现刻意不共享」+ DecisionStore docstring 审查 #15「实例锁挡不住跨进程，真互斥来自独占创建 + goal_mutex(A32②)」+ EvidenceStore 过滤语义是双维 sentinel 结构性需求）⇒ **评估结论 = 不收敛**（Z-D3 先例），交付 = 互指注释补全（EvidenceStore docstring 补锁立场段）+ 护栏 `test_store_concurrency_stance_divergence_is_intentional` 钉住；**A30②** 新增 `workflow_loader.frontmatter_name_list` 单源解析核，doctor/loader 共用，**宽容度分叉保留并显性化**（doctor 错型 `[]` fail-soft 诊断老工作流 / loader 抛错 fail-closed，判据 `test_declared_required_tolerance_divergence_is_intentional`）；**A31①** `engine/artifacts.py` 整模块删除（298 行 + 再导出面 + `test_artifact_contracts.py`）——勘察证实 src 运行期**零调用方**（仅再导出与测试，pub/frontmatter docstring 引用同步删除）；`test_goal_epic_story_smoke` 的 runner 证据恢复覆盖**保留**（仅去掉装饰性 parse_artifact 预校验卫兵）；**A31②** `StorySpec` 模型迁 `pub/types.py`（跨模块数据归 pub，AGENTS.md 硬规则；engine 不再反向依赖声明域）、BMad S-1/E1 形状解析机制（177 行正则族 + `parse_story_list`）迁 `goal/workflow_loader.py`（engine→goal 反向导入被 DAG 禁止，故模型与解析分离落位）；**A31③** BMad 兜底文案迁**角色 md 声明**：`_parse_role_md` 增 `delegation_fallback` frontmatter 键 → `RoleSpec.metadata` → agent 层 `_delegation_fallback()` 去重收集 → `bind_subagent_tools(delegation_fallback=…)` 注入，工具层零文案副本（结构化错误先行；未声明即干净错误——非 BMad 消费者不再收到 BMad 建议，修复台账指认的危害本体）；修复同轮引入的 `roles.py` 无 frontmatter 文件 `pairs` 未绑定崩溃（epic34 判据抓到）；**A32③** `goal/` 11 个私有符号转公共名（document 9 + application 2），cli/goal 与 5 个测试文件同步改指，document.py docstring 的「经 cli/goal re-export 测试缝」段删除——**同轮发现 document.py docstring 自证的测试缝与冻结边界冲突，按边界处置**。变异体 **4/4 精确变红**（恢复 timestamp 排序 / 删缓存命中 / 删 save 失效调用 / 恢复硬编码 BMad 文案），基线 sha256 双还原；全量 **3618 passed**、ruff/mypy 全绿；探针 `.heagent/tmp/a29b_bench.py`（409 会话 / 17.9 MB）：② 1254.3→9.55 ms（**131x**，与台账「交互启动秒级阻塞」实测吻合）、③ 列表轮询 73.4→10.47 ms（**7x**）。活动条目数 9 → **5**。
 
 ## A33 可派生镜像与边际重复（简化族）
 
@@ -125,11 +98,11 @@
 
 ## 闭合归档（勘察类正文 + 回填索引）
 
-> 当前闭合归档共 41 条：24 条勘察类正文保留在本文件，17 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 9 条未闭合条目（2026-10-07 两轮 /simplify 清理登记 A25~A33；2026-09-28 曾首次清空——A6 按裁定归档）。
+> 当前闭合归档共 45 条：28 条勘察类正文保留在本文件，17 条已按归属 Epic 回填并仅在此保留 ID 索引。活动区另有 5 条未闭合条目（A25/A26/A27/A28/A33——2026-10-07 第五轮把 A29/A30/A31/A32 批量处置后剩余；2026-09-28 曾首次清空——A6 按裁定归档）。
 
 ## 状态总览
 
-**① 勘察类（正文在本文件）——24 条**
+**① 勘察类（正文在本文件）——28 条**
 
 | ID | 条目 | 结论 | 闭合 commit |
 |----|------|------|-------------|
@@ -157,6 +130,10 @@
 | A16 | 真实原生窗口不可自动化 + 网页侧 `Error:` 前缀判据 | **裁定维持现状**（2026-09-28：人工验收为唯一路径 + 迁移条件已进判据本体）；正文见下方「A16」小节 | 见下方小节（结构性用例 + 变异体） |
 | A1 | 技能资源读取 TOCTOU 后续（descriptor-relative open / 可信导入 snapshot / OS sandbox） | **裁定维持现状**（2026-09-28：① 逐组件 `openat`、② 导入形态内容钉 + 读时校验均已交付，其余为平台/形态固有）；正文见下方「A1」小节 | 见下方小节（变异体 5/5 + 6/6） |
 | A6 | 路径级审批分级（前置未发生） | **裁定维持条件性**（2026-09-28：审批是工具级、越界路径在围栏处即硬阻断 ⇒ 无分级对象；触发条件与判据草案移入 `docs/frame.md` 五）；正文见下方「A6」小节 | 见下方小节（条件性，无实现） |
+| A29 | 会话/运行热路径的四处重优化 | 已闭合（2026-10-07 当日四面全修：① checkpoint 写只读 ④ C 级计数 ② mtime 排序零解析 ③ 元数据备忘录；变异体 3+4 处精确变红；探针 ② 131x / ③ 7x） | 正文见下方「A29」小节（活动区同日处置后随第四/五轮流水账单） |
+| A30 | goal 域两处重复收敛 | ① **评估结论 = 不收敛**（2026-10-07：锁差异是在码裁定，护栏钉住）+ ② 已闭合（`frontmatter_name_list` 单源核，宽容度分叉保留判据） | 正文见下方「A30」小节 |
+| A31 | 引擎层的方法论与解析错位 | 已闭合（2026-10-07：① artifacts.py 整模块删除 ② StorySpec→pub + 解析→goal/workflow_loader ③ BMad 文案迁角色 md 声明） | 正文见下方「A31」小节 |
+| A32 | 治理与互斥的层级归属 | 已闭合（2026-10-07：①② 见第三轮 + ③ 11 个私有符号转公共名） | 正文见下方「A32」小节 |
 
 **② 已按归属 epic 回填（正文在各自周期目录）——17 条**
 
@@ -217,10 +194,10 @@
 | A26 | `active_stories` 是 `active_story` 的可派生镜像（六写点同步税） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
 | A27 | 门事件 emit 隔离包装双份（CLI 与 runner 各一份） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
 | A28 | goal-verify 台账审计生命周期 CLI 手写（第三份 claim/execute/finalize 拷贝） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
-| A29 | 会话/运行热路径的四处重优化（checkpoint O(N²) / 会话列表全量解析 / 无 title 整历史校验 / token 估算逐字符） | 部分闭合（2026-10-07：①④ 已修，②③ 仍活动） | 活动区（本文件上方） |
-| A30 | goal 域两处重复收敛（DecisionStore/EvidenceStore 孪生 / doctor·loader frontmatter 解析宽容度分叉） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
-| A31 | 引擎层的方法论与解析错位（artifacts BMad 硬编码 / story 解析错层 / subagent BMad 文案） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
-| A32 | 治理与互斥的层级归属（policy 名称表双事实源 / advance 无锁 / CLI 引用例层私有符号） | 部分闭合（2026-10-07：①② 已修，③ CLI 引用例层私有符号仍活动） | 活动区（本文件上方） |
+| A29 | 会话/运行热路径的四处重优化（checkpoint O(N²) / 会话列表全量解析 / 无 title 整历史校验 / token 估算逐字符） | 已闭合（2026-10-07 四面全修） | 本文件上方「A29」小节 |
+| A30 | goal 域两处重复收敛（DecisionStore/EvidenceStore 孪生 / doctor·loader frontmatter 解析宽容度分叉） | 已闭合（2026-10-07：① 评估不收敛+护栏 ② 单源核收敛） | 本文件上方「A30」小节 |
+| A31 | 引擎层的方法论与解析错位（artifacts BMad 硬编码 / story 解析错层 / subagent BMad 文案） | 已闭合（2026-10-07 三面全修） | 本文件上方「A31」小节 |
+| A32 | 治理与互斥的层级归属（policy 名称表双事实源 / advance 无锁 / CLI 引用例层私有符号） | 已闭合（2026-10-07 三面全修） | 本文件上方「A32」小节 |
 | A33 | 可派生镜像与边际重复（artifact_refs 镜像 / dispatch 前导 11 处） | 活动（未闭合，2026-10-07 登记） | 活动区（本文件上方） |
 
 **旧号对照（撤号 / 让号）**
@@ -530,3 +507,33 @@
 - **冻结边界**：分级只能是 `PolicyEngine` 的 **defense-in-depth 标记**，**不是** OS 级边界，也不得放松 workspace 围栏默认值。
 - **证据**：`src/heagent/engine/policy.py`（`evaluate_tool_call` 第 4/5 步；`_requires_approval` 只看工具名与注解）；`src/heagent/tools/path_safety.py`（`resolve_under_root`，policy 预检与 file handler 共用同一算法）；`src/heagent/engine/approval.py`（审批闭环，同为非安全边界）。
 - **文档落点**：`docs/frame.md` 五（本裁定的触发条件与判据草案就写在那里）。
+
+---
+
+## A29 会话/运行热路径的四处重优化（效率族）——已闭合（2026-10-07，四面全修）
+
+- source_spec: `src/heagent/engine/store.py` / `src/heagent/context/session.py` / `src/heagent/context/tokens.py`（2026-10-07 全项目 /simplify「效率」角度发现，提交 `5e963db` 后补录）
+  summary: **四个热路径上的真实浪费，均为重优化级、非顺手修**：① 【已闭合 2026-10-07：改写只读，见 Progress】`RunStore.checkpoint` 曾每次落盘前 `load()` 整份快照（读 + parse + 校验 + 深拷贝 + `json.dumps(indent=2)` 全在事件循环内），而两个调用方恒传全量 messages/results/system ⇒ 每 run O(N²)：2 MB 历史、30 轮 ≈ 60 MB 读 + 60 MB 写 + ~120 次全量 parse，每工具往返注入 100–300 ms；② `recent_session_ids` 为读一个 `timestamp` 字段全量 parse 目录内每个会话 JSON（本项目实测 84 天 = 409 文件 / 83 MiB），`cli/interactive` 还在事件循环内同步调 ⇒ 交互启动秒级阻塞；③ `_metadata_from_data` 在无 title 会话上回退 `derive_title` 时构造**整条历史**的 Message 列表 ⇒ 列表页与每次无显式 session 的 run POST 都是 O(所有会话 × 所有消息)；④ 【已闭合 2026-10-07：C 级计数，见 Progress】默认 token 估算器曾逐字符分支链（tiktoken 不在依赖里，即生产路径），2 MB 历史 ≈ 2M 次/调用、100–200 ms，每 LLM 调用 1–2 次。触发条件（逐面）：① ~~恢复语义重构或建立 benchmark 时~~（已实施：checkpoint 改写只读、load 仅留 resume）；② 交互启动 P95 超标或会话目录过百 MiB 时（scandir + mtime 预排序 + 只 parse top-K，或复用 `_read_head`）；③ 列表页卡顿时（标题只取首条用户消息，或 (path, mtime, size) 缓存）；④ ~~上下文压缩成为瓶颈时~~（已实施：等价 C 级计数）；严重度：中（可感延迟，无正确性风险）；冻结边界：① 不得破坏 resume 语义（`final_answer`/`error` 的 None 合并行为须带判据）——已按「写只读 + 判据钉新语义」交付；② mtime 排序与 timestamp 字段可能在文件复制场景分歧，选型时显性裁定；④ 缓存必须逐字节等价（估算值不得变化）——已以等价性判据交付。
+  evidence: `engine/store.py:118/133-135/145-146`（load + 深拷贝 + 事件循环内 dumps）+ `agent/run_lifecycle.py:255/263`、`agent/stream_runtime.py:132/157`（每轮 2 次 + finish）；`context/session.py:663-682`（全量 parse）+ `cli/interactive.py:230`（事件循环内同步调）+ `memory/dream.py:339`；`context/session.py:317`（整历史构造）+ `cli/http_console.py:558/803/640`（每请求消费面）；`context/tokens.py:218-246`（逐字符链）+ `agent/loop.py:549`、`context/context_runtime.py:133`、`agent/stream_runtime.py:99`（调用面）。效率审查同时核实干净面：provider 流式累积、EventBus 扇出、工具执行链、系统提示组装、子 agent 闭包均无发现。
+  Progress（2026-10-07 登记；同日四面全闭——①④ 见流水账单第四轮、②③ 见第五轮；变异体累计 3+4 处精确变红；探针 ② 131x / ③ 7x）
+
+## A30 goal 域两处重复的收敛（复用族）——① 评估不收敛（2026-10-07 裁定），② 已闭合（2026-10-07）
+
+- source_spec: `src/heagent/goal/decisions.py` / `src/heagent/goal/evidence.py` / `src/heagent/goal/doctor.py`（同轮「复用」角度发现）
+  summary: **① `DecisionStore` 与 `EvidenceStore` 约 90 行孪生**（id 围栏含同款 `_WINDOWS_DEVICE_NAMES`、`_require_current_schema`、`append` 的 exists→load→corrupt/already-exists 流程、`_create_exclusive` 逐字节相同、`load`/`list_records`），且已实际漂移：EvidenceStore 持 `asyncio.Lock` 而 DecisionStore 不持——**漂移是有意还是疏漏须先裁定**再收敛（建议 `goal/_record_store.py` 泛型基类，参数化记录类 / id 字段 / 错误工厂 / 过滤键）；**② `doctor._declared_required` 重写 loader `_resource_list` 的 frontmatter 列表解析**（同款 `strip("[]").split(",")`），但宽容度分叉：doctor 错型返回 `[]`、loader 抛 `SkillWorkflowError`——`workflow_loader.py:575` 自己警告过「同一 frontmatter 两种宽容度」。触发条件：① 任一 store 再加方法时；② doctor 或 loader 的声明解析再变时；严重度：低-中；冻结边界：① 收敛必须保留两店各自的并发语义（锁差异裁定前不动）；② 统一时不得静默改 doctor 的容错行为（老工作流 doctor 仍须能跑）。
+  evidence: `goal/decisions.py:97-184/41-42` 对照 `goal/evidence.py:234-331/60-61`；`goal/doctor.py:151-160` 对照 `goal/workflow_loader.py:545-551/575`。
+  Progress（2026-10-07 登记；同日处置——① 勘察证实锁差异是在码裁定（decisions.py:38-40「同规独立实现刻意不共享」+ 审查 #15 + A32② goal_mutex 覆盖全部决策写路径 + EvidenceStore 双维 sentinel 是结构性需求）⇒ **评估结论 = 不收敛**（Z-D3 先例）：EvidenceStore docstring 补锁立场互指段 + 护栏 `test_goal_decisions.py::test_store_concurrency_stance_divergence_is_intentional` 钉住（变异体：顺手统一任一侧 ⇒ 红）；② `frontmatter_name_list` 单源核收敛、宽容度分叉保留并显性化（判据 2 例，含 doctor fail-soft / loader fail-closed 对照）。
+
+## A31 引擎层的方法论与解析错位（层次族一）——已闭合（2026-10-07，三面全修）
+
+- source_spec: `src/heagent/engine/artifacts.py` / `src/heagent/engine/workflow_runner.py` / `src/heagent/tools/builtins/subagent.py`（同轮「层次」角度发现）
+  summary: **三处「声明应在 md 包、机制应在 goal/」的错位**：① `engine/artifacts.py` 的 `parse_artifact`/`validate_hierarchy`/`validate_sprint_status_path` 把 BMad 方法论（Given/When/Then 强制、「Definition of Done」节、`_bmad-output/sprint-status.yaml` 权威路径）硬编码进引擎治理层，且 src 运行期零调用方（仅 `engine/__init__` 再导出与测试）——违反「文案/策略进 md 包声明、代码零副本」立场，构成第二份分叉的契约源；② story/epic 制品形状解析（`StorySpec` + `_STORY_*`/`_EPIC_*` 正则含 `父 Epic` 字段）住在引擎，唯一 src 调用方是 `goal/application.load_stories`，而 `run_step` 本就接受预解析 stories——S-1/E1 约定被冻结进通用引擎，第二个工作流域将被迫继承 story 机器；③ `subagent._DELEGATION_FALLBACK` 把 BMad 专属评审分层与仓内路径写进通用 tools 层内建的深度限制错误文案——每个非 BMad 消费者都会收到 BMad 建议。触发条件：① 出现第二个工作流方法论消费方或引擎契约再收敛时；② story 机制需要第二域复用时；③ 任何非 BMad 分发场景实际触达该文案时；严重度：低-中；冻结边界：①② 迁移方向是 goal/（或 md 包声明化），引擎只留确定性结构——**不得反向给引擎加「方法论开关」参数**；③ 结构化错误先行、兜底文案迁 md/role 包，不得直接删文案留下无指引的裸错误。
+  evidence: `engine/artifacts.py:196-298/242/288`（+ `engine/__init__` 再导出面）；`engine/workflow_runner.py:84-184` + `goal/application.py:437`（唯一调用方）；`tools/builtins/subagent.py:138-142/158`。
+  Progress（2026-10-07 登记；同日三面全闭——① 整模块删除（零运行期调用方逐点证实；runner 冒烟覆盖保留）；② StorySpec → `pub/types.py` + 解析 177 行 → `goal/workflow_loader.py`（engine 不反向依赖声明域；`engine/__init__` 的 StorySpec 再导出改指 pub）；③ 文案迁角色 md 声明（`delegation_fallback` frontmatter 键 → metadata → agent 层收集 → bind 注入），判据 4 例（默认干净 / 声明拼接 / 未配置拼接 / md 解析），变异体：恢复硬编码 ⇒ 红；同轮引入并已修复的 roles.py 无 frontmatter 崩溃由既有 epic34 判据抓到）。
+
+## A32 治理与互斥的层级归属（层次族二）——已闭合（2026-10-07，三面全修）
+
+- source_spec: `src/heagent/engine/policy.py` / `src/heagent/goal/application.py` / `src/heagent/cli/goal.py`（同轮「层次」角度发现）
+  summary: **三处归属错位**：① 【已闭合 2026-10-07】`policy._READ_ONLY_TOOLS` 名称表与 `@tool(read_only=True)` 注册表注解的双事实源——已删表收敛注解单源，缺 schema/注解即 fail-closed 阻断；勘察证实收敛前零漂移（13=13）；`_PATH_FIELDS`/`_DENY_*` 经查无注册表孪生（`ToolAnnotations` 仅 4 个 bool hint），属引擎侧单源策略数据，**不在双源范畴、保持现状**。② 【已闭合 2026-10-07】单推进者互斥下沉内核：新增 `goal/mutex.goal_mutex()`（进程内 asyncio.Lock + `.heagent/goal.lock` 文件锁复合，同 task 可重入），`advance`/`pause_resume`/`record_decision` 三写方法自持；CLI 外层组合持锁保留（`_goal_mutex()` 薄别名）；勘察顺带发现并收口 `/goal pause` 漏网写路径（dispatch 不持锁直写状态）。③ 【活动】`cli/goal.py` 从用例层 import 约 10 个下划线私有符号（`_GOAL_SKILLS_ROOT`/`_GoalAdvanceContext`/`_goal_document*` 等）——无导入契约，goal/ 内部重构会静默破坏入口层。触发条件：③ goal/ 下次内部重构时（先声明公共端口）；严重度：③ 低；冻结边界：② 已按「重入不死锁」交付（同 task 判别，全部 5 条 advance 生产路径即此形态）；③ 只加公共端口声明，不为入口层保留私有别名。
+  evidence: ① `engine/policy.py` `_is_read_only` 单注解判定 + 新判据 `test_sandbox_mode.py::test_missing_schema_fail_closed_even_for_known_names`（变异体：恢复名称表兜底 ⇒ 红）；② `goal/mutex.py`（新）+ `goal/application.py` 三外壳 + 新判据 `test_goal_cross_process_lock.py`（重入死锁看门狗 / 并发串行化）与 `test_goal_decisions.py`（pause/decision/advance 三观察点，变异体：撤任一外壳锁 ⇒ 红）；`goal/decisions.py` 并发论证已改指 `goal.mutex`；③ `cli/goal.py:33-80`（未动）。
+  Progress（2026-10-07 登记；同日三面全闭——①② 见第三轮；③ 11 个私有符号转公共名（document 9 + application 2：`GOALS_DIR`/`goal_document*` 族/`goal_id_is_valid`/`goal_user_responses`/`goal_record_user_response`/`goal_step_artifact_path`/`GOAL_SKILLS_ROOT`/`GoalAdvanceContext`），cli/goal.py 与 5 个测试文件同步改指、无 patch 缝受影响（勘察证实零 dotted-path 缝）；document.py「经 cli re-export 的测试缝」docstring 段删除——该缝与冻结边界「不为入口层保留私有别名」冲突，按边界处置；goal 子集 258 passed。）

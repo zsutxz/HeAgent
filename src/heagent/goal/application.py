@@ -36,13 +36,12 @@ from heagent.engine import (
     WorkflowRunner,
     WorkflowStatus,
     WorkflowStepResult,
-    parse_story_list,
     required_sections,
 )
 from heagent.goal.decisions import DecisionAction, DecisionRecord, decision_store, new_decision_id
-from heagent.goal.document import _goal_document_path, _goal_record_user_response, _goal_user_responses
+from heagent.goal.document import goal_document_path, goal_record_user_response, goal_user_responses
 from heagent.goal.mutex import goal_mutex
-from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
+from heagent.goal.workflow_loader import SkillWorkflowError, parse_story_list, read_workflow, workflow_revision
 from heagent.memory.skill_packages import (
     SkillCatalog,
     SkillCatalogError,
@@ -57,7 +56,7 @@ from heagent.tools.path_safety import resolve_under_root
 logger = logging.getLogger(__name__)
 
 # /goal 的技能库根：工作流包与每个步骤的角色包都从这里按 id 解析（单一来源）。
-_GOAL_SKILLS_ROOT = Path(".heagent/skills")
+GOAL_SKILLS_ROOT = Path(".heagent/skills")
 # 以下两段文案是**兜底**：workflow 包 frontmatter 声明了对应内容时以包为准（工作流逻辑尽量不进代码）。
 # 提示词与门禁模板**不在代码里**：由 workflow 包的 templates/ 携带；必需性由包 frontmatter 的
 # ``required_resources`` 声明，缺失在包加载（read_workflow）时显性报错。
@@ -117,9 +116,9 @@ def resolve_skill_package(skill_id: str) -> SkillPackage | None:
     configuration (workflow) or a hard failure (a role a step declared).
     """
     try:
-        return SkillResolver(SkillCatalog([str(_GOAL_SKILLS_ROOT)]).scan()).resolve(skill_id)
+        return SkillResolver(SkillCatalog([str(GOAL_SKILLS_ROOT)]).scan()).resolve(skill_id)
     except (SkillCatalogError, ValueError, OSError) as exc:
-        logger.debug("Skill package %r is unavailable under %s (%s)", skill_id, _GOAL_SKILLS_ROOT, exc)
+        logger.debug("Skill package %r is unavailable under %s (%s)", skill_id, GOAL_SKILLS_ROOT, exc)
         return None
 
 
@@ -150,7 +149,7 @@ def read_workflow_binding(goal_dir: Path, default_workflow_id: str) -> WorkflowB
       ``test_frontmatter_parsing_is_centralized``）；文档损坏（无 frontmatter / 键值非法）
       显性抛 :class:`OSError` / :class:`ValueError`，不做静默兜底。
     """
-    text = _goal_document_path(goal_dir).read_text(encoding="utf-8")
+    text = goal_document_path(goal_dir).read_text(encoding="utf-8")
     split = split_frontmatter(text)
     if split is None:
         # 存量文档没有 frontmatter（极老的 GOAL.md 形态）：同样走兼容绑定，不发明冻结值。
@@ -424,7 +423,7 @@ def declarative_prompt(
             "workflow_instructions": workflow.instructions,
             "goal": description,
             "goal_dir": str(goal_dir.resolve()),
-            "goal_document": _goal_document_path(goal_dir).name,
+            "goal_document": goal_document_path(goal_dir).name,
             "output_root": str(goal_dir.parent.parent.resolve()),
             "step": step_name,
             "story_context": story_context,
@@ -444,7 +443,7 @@ def load_stories(goal_dir: Path, step: Any) -> list[Any]:
 
 
 @dataclass
-class _GoalAdvanceContext:
+class GoalAdvanceContext:
     """Prepared state for one declarative advance invocation."""
 
     runner: WorkflowRunner
@@ -558,7 +557,7 @@ async def _advance_checkpoint_decision(
 
 
 async def advance(
-    context: _GoalAdvanceContext,
+    context: GoalAdvanceContext,
     execute_step: StepExecutor,
     *,
     confirm_checkpoint: Callable[[], bool],
@@ -589,7 +588,7 @@ async def advance(
 
 
 async def _advance_unlocked(
-    context: _GoalAdvanceContext,
+    context: GoalAdvanceContext,
     execute_step: StepExecutor,
     *,
     confirm_checkpoint: Callable[[], bool],
@@ -613,7 +612,7 @@ async def _advance_unlocked(
     # boundary. Artifact names from completed steps remain available on resume.
     while True:
         try:
-            user_responses = _goal_user_responses(goal_dir)
+            user_responses = goal_user_responses(goal_dir)
         except OSError as exc:
             messages.append(f"[goal] declarative requirement document is unreadable: {exc}")
             return outcome(GoalAdvanceStatus.FAILED)
@@ -735,7 +734,7 @@ async def _pause_resume_unlocked(
                     "use /goal approve | /goal reject <原因> | /goal amend <补充>",
                 )
             if response:
-                _goal_record_user_response(goal_dir, response)
+                goal_record_user_response(goal_dir, response)
             runner.resume()
             # 决策日志契约（Story 51-5 引擎面）：resume 每次一条记录——它只标记「执行被
             # 恢复」，不改变审批门状态、不等于批准（挂门时的 resume 在上方被显性拒绝，
@@ -880,7 +879,7 @@ async def _record_decision_unlocked(
     supplement_note = ""
     if text and action is not DecisionAction.APPROVE:
         try:
-            _goal_record_user_response(goal_dir, text)
+            goal_record_user_response(goal_dir, text)
         except OSError as exc:
             # 账已生效：补充只是执行面输入，写失败不回滚决策，但必须显性暴露（不静默）。
             supplement_note = f" (warning: the text did not reach the requirement document: {exc})"

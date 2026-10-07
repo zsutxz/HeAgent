@@ -8,7 +8,8 @@ import pytest
 
 from heagent.engine.checkpoint import WorkflowCheckpointStore, WorkflowStatus
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
-from heagent.engine.workflow_runner import WorkflowGateError, WorkflowRunner, WorkflowStepResult, parse_story_list
+from heagent.engine.workflow_runner import WorkflowGateError, WorkflowRunner, WorkflowStepResult
+from heagent.goal.workflow_loader import parse_story_list
 
 
 def _workflow(limit: int = 3) -> WorkflowResource:

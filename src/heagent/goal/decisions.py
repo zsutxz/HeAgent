@@ -38,6 +38,8 @@ DECISION_SCHEMA_VERSION = "1"
 # decision id 白名单：与 goal/evidence.py 的 evidence id 同规（单个路径安全名，charset 已排除
 # 路径分隔符与 ``.``；Windows 保留设备名提前显性报错）。两处「同规的独立实现」刻意不共享——
 # 耦合一个跨模块公共模块比复制一个 10 行守卫更贵（架构判据「同格式独立实现」先例）。
+# A30①（2026-10-07）：本类与 EvidenceStore 的结构孪生（append/load/schema 门）同上「不收敛」，
+# 两店的锁差异（本类不持锁 / 对方持实例锁）是有意分歧，裁定与互指见 EvidenceStore docstring。
 _DECISION_ID_PATTERN = re.compile(r"[0-9A-Za-z_-]+")
 _WINDOWS_DEVICE_NAMES = frozenset(
     {"con", "prn", "aux", "nul", *(f"com{index}" for index in range(1, 10)), *(f"lpt{index}" for index in range(1, 10))}

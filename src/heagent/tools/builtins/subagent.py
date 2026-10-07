@@ -74,6 +74,9 @@ class SubagentToolRuntime:
     roles: dict[str, RoleSpec] | None = None
     depth: int = 0
     max_depth: int = 3
+    # A31③：角色 md 声明（``delegation_fallback:`` frontmatter 键）收集的委派兜底文案，
+    # 由 agent 层 bind 时传入；工具层零文案副本，未声明即空（结构化错误独立成立）。
+    delegation_fallback: str = ""
 
 
 _subagent_runtime = RuntimeSlot[SubagentToolRuntime]("heagent_subagent_tools")
@@ -86,8 +89,9 @@ def _build_runtime(
     roles: dict[str, RoleSpec] | None,
     depth: int,
     max_depth: int,
+    delegation_fallback: str = "",
 ) -> SubagentToolRuntime:
-    """构造委派运行时快照——``configure`` 与 ``bind`` 两个入口共用（6 个字段曾各写一遍，易漂移）。"""
+    """构造委派运行时快照——``configure`` 与 ``bind`` 两个入口共用（7 个字段曾各写一遍，易漂移）。"""
     return SubagentToolRuntime(
         delegate_one=delegate_one,
         delegate_many=delegate_many,
@@ -95,6 +99,7 @@ def _build_runtime(
         roles=roles,
         depth=depth,
         max_depth=max_depth,
+        delegation_fallback=delegation_fallback,
     )
 
 
@@ -106,9 +111,12 @@ def configure_subagent_tools(
     roles: dict[str, RoleSpec] | None = None,
     depth: int = 0,
     max_depth: int = 3,
+    delegation_fallback: str = "",
 ) -> None:
-    """Set fallback delegation callbacks for sub-agent tools."""
-    _subagent_runtime.configure(_build_runtime(delegate_one, delegate_many, run_context, roles, depth, max_depth))
+    """Set fallback delegation callbacks for sub-agent tools（``delegation_fallback`` 见 bind）。"""
+    _subagent_runtime.configure(
+        _build_runtime(delegate_one, delegate_many, run_context, roles, depth, max_depth, delegation_fallback)
+    )
 
 
 def reset_subagent_tools() -> None:
@@ -125,21 +133,21 @@ def bind_subagent_tools(
     roles: dict[str, RoleSpec] | None = None,
     depth: int = 0,
     max_depth: int = 3,
+    delegation_fallback: str = "",
 ) -> Iterator[None]:
-    """Bind sub-agent delegation callbacks for the current run context."""
-    with _subagent_runtime.bind(_build_runtime(delegate_one, delegate_many, run_context, roles, depth, max_depth)):
+    """Bind sub-agent delegation callbacks for the current run context.
+
+    ``delegation_fallback``（A31③）：角色 md 声明的委派兜底文案（经 agent 层从角色
+    注册表收集），拼在委派结构化错误之后；工具层自身零文案副本，缺省为空。
+    """
+    with _subagent_runtime.bind(
+        _build_runtime(delegate_one, delegate_many, run_context, roles, depth, max_depth, delegation_fallback)
+    ):
         yield
 
 
 def _runtime() -> SubagentToolRuntime | None:
     return _subagent_runtime.get()
-
-
-_DELEGATION_FALLBACK = (
-    " If a context-free reviewer is still required (e.g. bmad-build review layers), write every child "
-    "prompt verbatim to `_bmad-output/implementation-artifacts/` and HALT, so a human can run each one "
-    "in a separate session."
-)
 
 
 def _depth_limit_error(runtime: SubagentToolRuntime) -> str | None:
@@ -155,7 +163,7 @@ def _depth_limit_error(runtime: SubagentToolRuntime) -> str | None:
     return (
         f"sub-agent delegation depth limit reached (depth={runtime.depth}, "
         f"max_depth={runtime.max_depth}); finish the task in the current agent "
-        "instead of delegating further." + _DELEGATION_FALLBACK
+        "instead of delegating further." + runtime.delegation_fallback
     )
 
 
@@ -208,7 +216,7 @@ async def task_delegate(task: str, role: str = "", system: str = "") -> str:
     """
     runtime = _runtime()
     if runtime is None or runtime.delegate_one is None:
-        return _error_payload("sub-agent tools not configured." + _DELEGATION_FALLBACK)
+        return _error_payload("sub-agent tools not configured." + (runtime.delegation_fallback if runtime else ""))
 
     depth_error = _depth_limit_error(runtime)
     if depth_error is not None:
@@ -233,7 +241,7 @@ async def task_parallel(tasks_json: str, role: str = "", system: str = "") -> st
     """
     runtime = _runtime()
     if runtime is None or runtime.delegate_many is None:
-        return _error_payload("sub-agent tools not configured." + _DELEGATION_FALLBACK)
+        return _error_payload("sub-agent tools not configured." + (runtime.delegation_fallback if runtime else ""))
 
     depth_error = _depth_limit_error(runtime)
     if depth_error is not None:

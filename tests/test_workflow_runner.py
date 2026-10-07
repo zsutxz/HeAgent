@@ -11,9 +11,9 @@ from heagent.engine.workflow_runner import (
     WorkflowRunResult,
     WorkflowRunner,
     WorkflowStepResult,
-    parse_story_list,
     required_sections,
 )
+from heagent.goal.workflow_loader import parse_story_list
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 
 

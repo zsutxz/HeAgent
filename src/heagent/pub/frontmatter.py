@@ -47,7 +47,7 @@ class FrontmatterSyntaxError(ValueError):
     """严档解析的结构错误（无冒号 / 行首空白 / 重复或空 key）。
 
     继承 ``ValueError``：调用方此前的异常契约建立在 ``ValueError`` 之上
-    （``ArtifactContractError`` / workflow 的裸 ``ValueError``），换异常基类会破坏调用方捕获。
+    （workflow 的裸 ``ValueError``），换异常基类会破坏调用方捕获。
     """
 
     def __init__(self, kind: str, *, line_number: int = 0, line: str = "", key: str = "") -> None:

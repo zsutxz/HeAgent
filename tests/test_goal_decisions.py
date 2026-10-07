@@ -37,7 +37,7 @@ from heagent.goal.application import (
     DecisionStatus,
     GoalAdvanceStatus,
     PauseResumeStatus,
-    _GoalAdvanceContext,
+    GoalAdvanceContext,
     advance,
     checkpoint_store,
     pause_resume,
@@ -535,7 +535,7 @@ async def test_auto_advance_never_approves_the_gate(gated_goal) -> None:
     """负向验证（cron 自动批准即红）：auto 模式推进在审批门前停下，不 resume、不落记录、不重跑。"""
     workflow, goal_dir = gated_goal
     runner = await _gate_runner(workflow, goal_dir)
-    context = _GoalAdvanceContext(runner=runner, mode="auto", description="demo", goal_dir=goal_dir)
+    context = GoalAdvanceContext(runner=runner, mode="auto", description="demo", goal_dir=goal_dir)
 
     outcome = await advance(
         context,
@@ -974,9 +974,22 @@ async def test_advance_runs_under_the_domain_lock(gated_goal) -> None:
         observations.append(goal_mutex._auto_lock.locked())
         return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output="out")
 
-    context = _GoalAdvanceContext(runner=runner, mode="auto", description="demo", goal_dir=goal_dir)
+    context = GoalAdvanceContext(runner=runner, mode="auto", description="demo", goal_dir=goal_dir)
     outcome = await advance(context, observe_step, confirm_checkpoint=lambda: True, load_project_context=lambda: None)
 
     assert outcome.status is GoalAdvanceStatus.DONE
     assert observations == [True]
     assert goal_mutex._auto_lock.locked() is False
+
+
+def test_store_concurrency_stance_divergence_is_intentional(tmp_path: Path) -> None:
+    """A30① 裁定钉：EvidenceStore 持实例锁、DecisionStore 有意不持——审查 #15（实例锁挡不住
+    跨进程，真互斥来自独占创建 + goal_mutex）与两店 docstring 的互指；将来「顺手统一」任何
+    一侧都会在此变红（Z-D3「有意分歧被护栏钉死」先例）。"""
+    import asyncio
+
+    from heagent.goal.decisions import DecisionStore
+    from heagent.goal.evidence import EvidenceStore
+
+    assert isinstance(EvidenceStore(tmp_path / "evidence")._lock, asyncio.Lock)
+    assert not hasattr(DecisionStore(tmp_path / "decisions"), "_lock")

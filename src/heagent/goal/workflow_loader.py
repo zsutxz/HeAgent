@@ -29,6 +29,7 @@ from heagent.engine.workflow_resource import (
     ensure_workspace_relative_path,
     section_titles,
 )
+from heagent.engine.workflow_runner import WorkflowGateError
 from heagent.goal.quality_gates import QUALITY_GATES, gate_declaration_problem, is_registered_gate
 from heagent.memory.skill_packages import SkillPackage, SkillPackageResourceError
 from heagent.pub.frontmatter import (
@@ -36,6 +37,7 @@ from heagent.pub.frontmatter import (
     parse_strict_pairs,
     split_frontmatter,
 )
+from heagent.pub.types import StorySpec
 
 LOGGER = logging.getLogger(__name__)
 
@@ -542,12 +544,24 @@ def _declared_members(
     return names
 
 
-def _resource_list(package: SkillPackage, value: Any, workflow: str, label: str = "steps") -> list[str]:
+def frontmatter_name_list(value: Any) -> list[str] | None:
+    """解析 frontmatter 的逗号分隔名称列表（A30② 单源解析核）。
+
+    接受两种形态：``"[]"`` 包裹的逗号分隔字符串、字符串数组；其余类型返回 ``None``，
+    **宽容度由调用方裁定**——loader 抛 :class:`SkillWorkflowError`（新工作流 fail-closed）、
+    doctor 返回空表（老工作流诊断 fail-soft 仍能跑完）。除宽容度外的解析规则（strip /
+    逗号切分 / 空项过滤）此处唯一实现，两调用方不得再持逐字副本。
+    """
     if isinstance(value, str):
-        items = [item.strip() for item in value.strip("[]").split(",") if item.strip()]
-    elif isinstance(value, list):
-        items = [str(item).strip() for item in value if str(item).strip()]
-    else:
+        return [item.strip() for item in value.strip("[]").split(",") if item.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return None
+
+
+def _resource_list(package: SkillPackage, value: Any, workflow: str, label: str = "steps") -> list[str]:
+    items = frontmatter_name_list(value)
+    if items is None:
         raise SkillWorkflowError(package.skill_id, workflow, f"{label} must be a list")
     for item in items:
         if SkillPackage.is_absolute(item) or SkillPackage.has_parent(item):
@@ -655,3 +669,172 @@ def _parse_resource_frontmatter(text: str) -> tuple[dict[str, Any], str]:
         else:
             values[key] = raw.strip("\"'")
     return values, text[end:]
+
+
+# ── story 列表解析（A31② 自 engine/workflow_runner 迁入：BMad S-1/E1 形状解析属声明域）──
+_STORY_ID = re.compile(r"^(?:story|s)[-_ ]?(\d+)$", re.IGNORECASE)
+_STORY_HEADING = re.compile(
+    r"^#{1,6}\s+(?P<id>(?:story|s)[-_ ]?\d+)\s*[:：\-—]?\s*(?P<summary>.*)$",
+    re.IGNORECASE,
+)
+_STORY_LIST = re.compile(
+    r"^[-*+]\s+(?:\[[ xX]\]\s+)?(?P<id>(?:story|s)[-_ ]?\d+)\s*[:：\-—]?\s*(?P<summary>.*)$",
+    re.IGNORECASE,
+)
+_STORY_TABLE = re.compile(
+    r"^\|\s*(?P<id>(?:story|s)[-_ ]?\d+)\s*\|\s*(?P<summary>.*?)\s*\|",
+    re.IGNORECASE,
+)
+_EPIC_HEADING = re.compile(
+    r"^#{1,6}\s+(?:epic[-_ ]*(?:e[-_ ]?)?|e[-_ ]?)(?P<epic>\d+)(?=$|[\s:：\-—.．])",
+    re.IGNORECASE,
+)
+_STORY_METADATA = re.compile(r"^[-*]?\s*\*{0,2}(depends_on|parallel_group|write_set)\*{0,2}\s*[:：]\s*(.*?)\s*$", re.I)
+_EPIC_FIELD = re.compile(
+    r"(?:父\s*Epic|parent[-_ ]*epic|epic_id)\s*\**\s*[:：]\s*\**\s*(?P<epic>e[-_ ]?\d+|\d+)(?![A-Za-z0-9])",
+    re.IGNORECASE,
+)
+
+
+def _normalize_story_id(raw: str) -> str:
+    match = _STORY_ID.fullmatch(raw.strip())
+    if match is None:
+        raise WorkflowGateError(f"invalid story id: {raw!r}")
+    return f"S-{int(match.group(1))}"
+
+
+def _normalize_epic_id(raw: str) -> str:
+    """Normalize an Epic reference (``E1`` / ``e 1`` / ``epic 1``) to ``E1``."""
+    digits = re.search(r"\d+", raw or "")
+    return f"E{int(digits.group(0))}" if digits is not None else (raw or "").strip()
+
+
+def _story_sort_key(spec: StorySpec) -> int:
+    match = re.fullmatch(r"S-(\d+)", spec.id)
+    return int(match.group(1)) if match else 0
+
+
+def _is_epic_reference(cell: str) -> bool:
+    """True when a table cell is a bare Epic reference (``E1`` / ``E-1`` / ``Epic 1``)."""
+    return bool(re.fullmatch(r"(?:epic[-_ ]*(?:e[-_ ]?)?|e[-_ ]?)\d+", cell.strip(), re.IGNORECASE))
+
+
+def _story_table_entry(stripped: str) -> tuple[str, str, str] | None:
+    """Parse one table row into ``(id, summary, epic_hint)``; ``None`` for a non-story row.
+
+    An overview table such as ``| S-1 | E1 | P0 | none | <title> |`` puts the Epic in
+    the second column and the human summary in the last one, so the raw second cell
+    must not be mistaken for the story title.
+    """
+    match = _STORY_TABLE.match(stripped)
+    if match is None:
+        return None
+    cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+    summary = match.group("summary").strip()
+    epic_hint = ""
+    if len(cells) >= 3 and _is_epic_reference(cells[1]):
+        epic_hint = _normalize_epic_id(cells[1])
+        summary = next((cell for cell in reversed(cells[2:]) if cell), summary)
+    return match.group("id"), summary, epic_hint
+
+
+def _story_metadata(lines: list[str], start: int, end: int) -> dict[str, Any]:
+    """Read declarations scoped to a story heading; other list shapes are unscoped."""
+    metadata: dict[str, Any] = {}
+    for line in lines[start + 1 : end]:
+        if re.match(r"^#{1,6}\s", line.strip()):
+            break
+        match = _STORY_METADATA.match(line.strip())
+        if match is None:
+            continue
+        key, value = match.groups()
+        key = key.lower()
+        if key in metadata:
+            raise WorkflowGateError(f"duplicate story declaration: {key}")
+        if key == "parallel_group":
+            metadata[key] = value.strip()
+        elif key == "depends_on":
+            refs = [part.strip() for part in value.strip("[]").split(",") if part.strip()]
+            metadata[key] = [_normalize_story_id(ref) for ref in refs]
+        else:
+            metadata[key] = [part.strip() for part in value.strip("[]").split(",") if part.strip()]
+    return metadata
+
+
+def parse_story_list(text: str) -> list[StorySpec]:
+    """Extract an ordered story list from Markdown.
+
+    Recognizes three common shapes so a step may consume an Epic proposal,
+    a dedicated story checklist, or a story table:
+
+    * ``### S-1 Scene rendering`` (heading)
+    * ``- [ ] S-1 Scene rendering`` (list/checklist item)
+    * ``| S-1 | Scene rendering |`` (table row)
+
+    Shapes are ranked for a repeated id: a story heading outranks a list item,
+    which outranks a table row. A document therefore still keeps every story it
+    declares (including table-only rows) while an overview table such as
+    ``| S-1 | E1 | P0 | none | <title> |`` can no longer overwrite the titles and
+    Epics owned by the story sections. Story ids normalize to ``S-<n>`` and are
+    deduplicated by id, then sorted by their numeric suffix. Non-story rows
+    (e.g. Epic ids such as ``E-1``) are ignored.
+
+    Epic grouping is optional: a story inherits the Epic declared by the nearest
+    preceding Epic heading (``## E1 ...`` / ``## Epic 1 ...``), and an explicit
+    ``- **父 Epic**: E1`` field inside the story block wins over that heading. A
+    source without grouping keeps the flat behaviour (``epic`` stays empty).
+    """
+    if not isinstance(text, str) or not text.strip():
+        return []
+    lines = text.splitlines()
+    epic_headings: list[tuple[int, str]] = []
+    epic_fields: list[tuple[int, str]] = []
+    stories: list[tuple[int, str, str, str]] = []
+    ranks: dict[str, int] = {}
+    for index, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        epic_match = _EPIC_HEADING.match(stripped)
+        if epic_match is not None:
+            epic_headings.append((index, _normalize_epic_id(epic_match.group("epic"))))
+            continue
+        entry: tuple[str, str, str, int] | None = None
+        heading_match = _STORY_HEADING.match(stripped)
+        if heading_match is not None:
+            entry = (heading_match.group("id"), heading_match.group("summary").strip(), "", 0)
+        else:
+            list_match = _STORY_LIST.match(stripped)
+            if list_match is not None:
+                entry = (list_match.group("id"), list_match.group("summary").strip(), "", 1)
+            else:
+                table_entry = _story_table_entry(stripped)
+                entry = (*table_entry, 2) if table_entry is not None else None
+        if entry is not None:
+            try:
+                story_id = _normalize_story_id(entry[0])
+            except WorkflowGateError:
+                story_id = ""
+            if story_id:
+                rank = ranks.get(story_id)
+                if rank is None:
+                    ranks[story_id] = entry[3]
+                    stories.append((index, story_id, entry[1], entry[2]))
+                elif entry[3] < rank:
+                    ranks[story_id] = entry[3]
+                    position = next(pos for pos, item in enumerate(stories) if item[1] == story_id)
+                    stories[position] = (index, story_id, entry[1], entry[2])
+                continue
+        field_match = _EPIC_FIELD.search(stripped)
+        if field_match is not None:
+            epic_fields.append((index, _normalize_epic_id(field_match.group("epic"))))
+    specs: list[StorySpec] = []
+    for position, (index, story_id, summary, epic_hint) in enumerate(stories):
+        end = stories[position + 1][0] if position + 1 < len(stories) else len(lines)
+        epic = epic_hint or next((value for field_index, value in epic_fields if index < field_index < end), "")
+        if not epic:
+            epic = next((value for heading_index, value in reversed(epic_headings) if heading_index < index), "")
+        # Only a scoped heading owns metadata; a table or list cannot authorize parallelism.
+        metadata = _story_metadata(lines, index, end) if ranks[story_id] == 0 else {}
+        specs.append(StorySpec(id=story_id, summary=summary, epic=epic, **metadata))
+    return sorted(specs, key=_story_sort_key)

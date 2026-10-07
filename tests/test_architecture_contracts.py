@@ -895,7 +895,7 @@ def test_engine_and_goal_layers_hold_no_workflow_package_name_branches() -> None
 
     「绑定哪个包」只能是数据（goal 文档里冻结的 ``workflow:`` 键、入口注入的
     ``Settings.goal_workflow_skill``），不能烧进引擎层——出现包名字面量即「为某个包开
-    专用分支」的回潮。application.py 的 ``_GOAL_SKILLS_ROOT`` 是路径不是分支，不在此列；
+    专用分支」的回潮。application.py 的 ``GOAL_SKILLS_ROOT`` 是路径不是分支，不在此列；
     入口层（cli）的用户可见提示文案允许出现包 id，不在扫描范围。
 
     banned 名单从 ``.heagent/skills/*/SKILL.md`` 的 canonical_id + aliases **派生**（新增包

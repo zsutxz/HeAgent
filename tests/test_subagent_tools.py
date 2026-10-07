@@ -256,10 +256,36 @@ class TestToolRegistration:
 
 
 @pytest.mark.usefixtures("_reset_subagent")
-async def test_delegation_errors_point_at_the_offline_review_fallback() -> None:
-    """When delegation is refused, the error must carry the HALT-and-handoff path."""
+async def test_delegation_errors_carry_only_declared_fallback() -> None:
+    """A31③：结构化错误先行；兜底文案只来自角色声明（bind 显式传入），工具层零文案副本——
+    未声明时不带任何 BMad 路径建议（非 BMad 消费者不再收到 BMad 术语）。"""
     _configure(_FakeExecutor(), depth=3, max_depth=3)
     payload = json.loads(await task_delegate("review the diff"))
     assert payload["status"] == "error"
     assert "depth limit" in payload["message"]
-    assert "_bmad-output/implementation-artifacts/" in payload["message"]
+    assert "_bmad-output" not in payload["message"]
+
+
+@pytest.mark.usefixtures("_reset_subagent")
+async def test_declared_fallback_is_appended_to_delegation_errors() -> None:
+    """A31③：bind 传入的声明文案原样拼在委派结构化错误之后（无指引裸错误被禁止）。"""
+    fallback = (
+        " If a context-free reviewer is still required, write every child prompt to the"
+        " artifact dir and HALT, so a human can run each one in a separate session."
+    )
+    _configure(_FakeExecutor(), depth=3, max_depth=3, delegation_fallback=fallback)
+    payload = json.loads(await task_delegate("review the diff"))
+    assert payload["status"] == "error"
+    assert "depth limit" in payload["message"]
+    assert payload["message"].endswith(fallback)
+
+
+@pytest.mark.usefixtures("_reset_subagent")
+async def test_unconfigured_error_carries_declared_fallback_too() -> None:
+    """A31③：未绑定委派回调的错误同样只拼接声明文案（有运行时时）或保持裸结构化（无运行时）。"""
+    fallback = " handoff advice declared by the role."
+    configure_subagent_tools(None, None, delegation_fallback=fallback)
+    payload = json.loads(await task_delegate("review the diff"))
+    assert payload["status"] == "error"
+    assert "not configured" in payload["message"]
+    assert payload["message"].endswith(fallback)

@@ -307,6 +307,103 @@ class TestMetadataRead:
         assert [item.message_count for item in store.list_metadata()] == [None]
 
 
+class TestRecentSessionIdsByMtime:
+    """A29②：recent_session_ids 按 mtime 降序、零 JSON 解析。
+
+    冻结边界要求的选型裁定：mtime 与嵌入 timestamp 在文件复制场景分歧——消费方
+    （dream 巩固 / 交互恢复列表）要「最近活动的会话」，mtime 是活动时间的文件系统
+    事实且写路径天然刷新，故取 mtime；嵌入 timestamp 不再参与本方法排序。
+    """
+
+    def test_orders_by_file_mtime_descending(self, tmp_path: Path) -> None:
+        store = _store(tmp_path)
+        # 创建顺序与 mtime 顺序刻意相反：嵌入 timestamp 不参与排序
+        for name, mtime in (("aaa", 300.0), ("bbb", 100.0), ("ccc", 200.0)):
+            store.save(name, _msgs("hi"))
+            os.utime(tmp_path / "sessions" / f"{name}.json", (mtime, mtime))
+        assert store.recent_session_ids(3) == ["aaa", "ccc", "bbb"]
+
+    def test_limit_and_tie_break_by_name(self, tmp_path: Path) -> None:
+        store = _store(tmp_path)
+        for name in ("b", "a", "c"):
+            store.save(name, _msgs("hi"))
+            os.utime(tmp_path / "sessions" / f"{name}.json", (50.0, 50.0))
+        assert store.recent_session_ids(2) == ["a", "b"]
+
+    def test_corrupt_file_participates_by_mtime(self, tmp_path: Path) -> None:
+        store = _store(tmp_path)
+        store.save("good", _msgs("hi"))
+        os.utime(tmp_path / "sessions" / "good.json", (100.0, 100.0))
+        broken = tmp_path / "sessions" / "broken.json"
+        broken.write_text("{not json", encoding="utf-8")
+        os.utime(broken, (200.0, 200.0))
+        assert store.recent_session_ids(5) == ["broken", "good"]
+
+    def test_missing_dir_and_nonpositive_limit(self, tmp_path: Path) -> None:
+        store = _store(tmp_path)
+        assert store.recent_session_ids(5) == []
+        store.save("a", _msgs("hi"))
+        assert store.recent_session_ids(0) == []
+
+
+class TestListMetadataMemo:
+    """A29③：未变更文件复用已解析元数据（解析次数判据），写入/改名/删除即时刷新。"""
+
+    def test_repeated_listing_parses_each_file_once(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        store = _store(tmp_path)
+        store.save("aaa", _msgs("hi"))
+        store.save("bbb", _msgs("yo"))
+
+        import heagent.context.session as session_mod
+
+        calls = {"n": 0}
+        original = session_mod._metadata_from_raw
+
+        def counting(*args: object, **kwargs: object):
+            calls["n"] += 1
+            return original(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(session_mod, "_metadata_from_raw", counting)
+        first = store.list_metadata()
+        assert calls["n"] == 2
+        second = store.list_metadata()
+        assert calls["n"] == 2  # 第二次全部命中备忘录，零新增解析
+        assert [m.session_id for m in second] == [m.session_id for m in first]
+
+    def test_write_refreshes_cached_metadata(self, tmp_path: Path) -> None:
+        store = _store(tmp_path)
+        store.save("aaa", _msgs("hi"))
+        assert store.list_metadata()[0].message_count == 1
+        store.save("aaa", _msgs("hi", "again"))
+        assert store.list_metadata()[0].message_count == 2
+
+    def test_write_points_invalidate_memo(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A29③ 纵深：本店写点（save/rename/delete）显式清除备忘录——键含 mtime/size 指纹
+        已保证主线正确，显式失效收敛「同 tick 同尺寸改写」的碰撞窗（接线判据）。"""
+        store = _store(tmp_path)
+        calls = {"n": 0}
+        original = store._invalidate_meta
+
+        def counting(session_id: str) -> None:
+            calls["n"] += 1
+            original(session_id)
+
+        monkeypatch.setattr(store, "_invalidate_meta", counting)
+        store.save("aaa", _msgs("hi"))
+        store.rename("aaa", "新标题")
+        store.delete("aaa")
+        assert calls["n"] == 3
+
+    def test_rename_and_delete_refresh(self, tmp_path: Path) -> None:
+        store = _store(tmp_path)
+        store.save("aaa", _msgs("hi"))
+        store.list_metadata()
+        store.rename("aaa", "新标题")
+        assert store.list_metadata()[0].title == "新标题"
+        store.delete("aaa")
+        assert store.list_metadata() == []
+
+
 class TestTitleDerivation:
     def test_derive_title_uses_first_non_empty_user_message(self) -> None:
         messages = [

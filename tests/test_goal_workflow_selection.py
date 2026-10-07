@@ -147,11 +147,11 @@ def _goal_dir(cwd: Path) -> Path:
 
 
 def _make_legacy_goal(cwd: Path, goal_id: str) -> Path:
-    """建一个**没有** workflow 绑定键的存量 goal（走 `_goal_document` 旧口径）。"""
+    """建一个**没有** workflow 绑定键的存量 goal（走 `goal_document` 旧口径）。"""
     goals = cwd / "_he-output" / "goals"
     goal_dir = goals / goal_id
     goal_dir.mkdir(parents=True)
-    (goal_dir / "brief.md").write_text(cli_goal._goal_document("legacy goal", goal_id), encoding="utf-8")
+    (goal_dir / "brief.md").write_text(cli_goal.goal_document("legacy goal", goal_id), encoding="utf-8")
     (goals / "current").write_text(goal_id, encoding="utf-8")
     return goal_dir
 
@@ -604,7 +604,7 @@ def test_read_workflow_binding_returns_frozen_values(tmp_path: Path) -> None:
 
     legacy = tmp_path / "legacy"
     legacy.mkdir()
-    (legacy / "brief.md").write_text(cli_goal._goal_document("legacy", "legacy"), encoding="utf-8")
+    (legacy / "brief.md").write_text(cli_goal.goal_document("legacy", "legacy"), encoding="utf-8")
     compat = read_workflow_binding(legacy, "he-default")
     assert compat.workflow_id == "he-default"
     assert compat.revision == ""

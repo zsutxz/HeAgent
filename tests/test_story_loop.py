@@ -9,10 +9,10 @@ from heagent.engine.workflow_runner import (
     StorySpec,
     WorkflowRunner,
     WorkflowStepResult,
-    parse_story_list,
 )
+from heagent.goal.workflow_loader import parse_story_list
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
-from heagent.cli.goal import _goal_step_artifact_path
+from heagent.goal.document import goal_step_artifact_path
 
 STORIES = [
     StorySpec(id="S-1", summary="Scene rendering"),
@@ -290,11 +290,11 @@ def test_story_artifact_routes_into_per_story_subdirectory(tmp_path) -> None:
     step = WorkflowStepResource(index=6, name="step-06-implement-and-verify.md", instructions="")
     story = StorySpec(id="S-1", summary="Scene rendering")
 
-    story_path = _goal_step_artifact_path(tmp_path, step, story)
+    story_path = goal_step_artifact_path(tmp_path, step, story)
     assert story_path == tmp_path / "step-06-implement-and-verify" / "s-1" / "report.md"
 
     # 非 story step 仍平铺在 goal 根目录（向后兼容）
-    plain_path = _goal_step_artifact_path(tmp_path, step)
+    plain_path = goal_step_artifact_path(tmp_path, step)
     assert plain_path == tmp_path / "step-06-implement-and-verify.md"
 
 
@@ -356,9 +356,9 @@ def test_story_artifact_routes_into_epic_subdirectory(tmp_path) -> None:
     """A story with Epic grouping lands in <step-dir>/epic-<eN>/s-<n>/report.md."""
     step = WorkflowStepResource(index=7, name="step-07-implement-story.md", instructions="")
 
-    grouped = _goal_step_artifact_path(tmp_path, step, StorySpec(id="S-3", summary="x", epic="E3"))
+    grouped = goal_step_artifact_path(tmp_path, step, StorySpec(id="S-3", summary="x", epic="E3"))
     assert grouped == tmp_path / "step-07-implement-story" / "epic-e3" / "s-3" / "report.md"
 
     # 无 Epic 分组时保持平铺（向后兼容既有 goal 的产物布局）
-    flat = _goal_step_artifact_path(tmp_path, step, StorySpec(id="S-3", summary="x"))
+    flat = goal_step_artifact_path(tmp_path, step, StorySpec(id="S-3", summary="x"))
     assert flat == tmp_path / "step-07-implement-story" / "s-3" / "report.md"

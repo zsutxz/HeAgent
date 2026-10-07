@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.pub.roles import RoleSpec, get_role, list_roles, register_role
+from heagent.pub.roles import RoleSpec, get_role, list_roles, load_agent_roles, register_role
 
 
 class TestRoleSpec:
@@ -54,3 +54,21 @@ class TestRegistry:
         register_role(spec)
         assert "custom_role_test" in list_roles()
         assert get_role("custom_role_test") is spec
+
+
+def test_parse_role_md_reads_delegation_fallback(tmp_path):
+    """A31③：角色 md 可声明 ``delegation_fallback``（委派兜底文案进 metadata，经 agent 层收集）。"""
+    path = tmp_path / "reviewer.md"
+    frontmatter = (
+        "---\n"
+        "name: reviewer\n"
+        "description: 评审\n"
+        "tools: file_read\n"
+        'delegation_fallback: "HALT and hand off to a human."\n'
+        "---\n"
+    )
+    path.write_text(frontmatter + "系统提示词正文", encoding="utf-8")
+    loaded = load_agent_roles([tmp_path])
+    assert len(loaded) == 1
+    assert loaded[0].metadata["delegation_fallback"] == "HALT and hand off to a human."
+    assert get_role("reviewer").metadata["delegation_fallback"] == "HALT and hand off to a human."

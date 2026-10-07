@@ -114,7 +114,7 @@ async def test_cli_doctor_probes_the_directory_the_store_writes(
     """
     goal_dir = tmp_path / "demo"
     goal_dir.mkdir()
-    (goal_dir / "brief.md").write_text(goal_cli._goal_document("demo goal", "demo"), encoding="utf-8")
+    (goal_dir / "brief.md").write_text(goal_cli.goal_document("demo goal", "demo"), encoding="utf-8")
     seen: list[Path | None] = []
 
     def _spy(workflow: WorkflowResource, package: SkillPackage, resolve_role: object, *, checkpoint_dir=None):
@@ -141,7 +141,7 @@ async def test_cli_doctor_with_an_active_goal_says_the_workflow_option_is_ignore
     """
     goal_dir = tmp_path / "demo"
     goal_dir.mkdir()
-    (goal_dir / "brief.md").write_text(goal_cli._goal_document("demo goal", "demo"), encoding="utf-8")
+    (goal_dir / "brief.md").write_text(goal_cli.goal_document("demo goal", "demo"), encoding="utf-8")
 
     def _spy(workflow: WorkflowResource, package: SkillPackage, resolve_role: object, *, checkpoint_dir=None):
         return GoalDoctorReport(workflow=workflow.name)
@@ -156,3 +156,25 @@ async def test_cli_doctor_with_an_active_goal_says_the_workflow_option_is_ignore
     err = capsys.readouterr().err
     assert "--workflow is ignored" in err
     assert "[goal] doctor:" in err
+
+
+def test_declared_required_tolerance_divergence_is_intentional(tmp_path: Path) -> None:
+    """A30②：解析核单源后两处宽容度分叉是有意的——doctor 对类型不符的 ``required_resources``
+    fail-soft（空表、诊断照常跑完），loader 对同类输入 fail-closed（抛 ``SkillWorkflowError``）。"""
+    from heagent.goal.doctor import _declared_required
+    from heagent.goal.workflow_loader import SkillWorkflowError, _resource_list
+
+    assert _declared_required(_workflow(required=42)) == []  # type: ignore[arg-type]
+
+    package = _package(tmp_path / "workflow")
+    with pytest.raises(SkillWorkflowError, match="must be a list"):
+        _resource_list(package, 42, "workflow.md", "required_resources")
+
+
+def test_declared_required_parses_str_and_list_forms_identically() -> None:
+    """A30②：解析核单源——字符串与数组两种声明形态给出同一批名字（templates/ 前缀同规剥离）。"""
+    from heagent.goal.doctor import _declared_required
+
+    as_str = _declared_required(_workflow(required="templates/a.md, templates/b.md"))
+    as_list = _declared_required(_workflow(required=["templates/a.md", "templates/b.md"]))
+    assert as_str == as_list == ["a.md", "b.md"]

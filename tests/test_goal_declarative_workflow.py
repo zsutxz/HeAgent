@@ -97,7 +97,7 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     assert not (goal_dir / "ORIGINAL_REQUEST.md").exists()
     assert not (goal_dir / "goal.txt").exists()
     assert (goal_dir / "step-01-plan.md").read_text(encoding="utf-8") == "output-1"
-    assert cli_goal._goal_document_title(goal_text) == "ship the workflow"
+    assert cli_goal.goal_document_title(goal_text) == "ship the workflow"
     assert len(successful_step) == 1
     assert "## user intent\nship   the workflow" in successful_step[0]
     assert "## existing project context" in successful_step[0]
@@ -692,10 +692,10 @@ def test_legacy_goal_document_is_read_and_written_in_place(tmp_path: Path) -> No
         encoding="utf-8",
     )
 
-    assert cli_goal._goal_description(goal_dir) == "旧目标描述"
-    cli_goal._goal_record_user_response(goal_dir, "继续推进")
+    assert cli_goal.goal_description(goal_dir) == "旧目标描述"
+    cli_goal.goal_record_user_response(goal_dir, "继续推进")
 
-    assert "继续推进" in cli_goal._goal_user_responses(goal_dir)
+    assert "继续推进" in cli_goal.goal_user_responses(goal_dir)
     assert not (goal_dir / "brief.md").exists()
 
 
@@ -703,12 +703,12 @@ def test_prior_generation_goal_document_is_read_and_written_in_place(tmp_path: P
     """The earlier rename (require.md -> brief.md) must not split existing goals either."""
     goal_dir = tmp_path / "prior-goal"
     goal_dir.mkdir()
-    goal_dir.joinpath("require.md").write_text(cli_goal._goal_document("旧一代目标", "prior"), encoding="utf-8")
+    goal_dir.joinpath("require.md").write_text(cli_goal.goal_document("旧一代目标", "prior"), encoding="utf-8")
 
-    assert cli_goal._goal_description(goal_dir) == "旧一代目标"
-    cli_goal._goal_record_user_response(goal_dir, "继续推进")
+    assert cli_goal.goal_description(goal_dir) == "旧一代目标"
+    cli_goal.goal_record_user_response(goal_dir, "继续推进")
 
-    assert "继续推进" in cli_goal._goal_user_responses(goal_dir)
+    assert "继续推进" in cli_goal.goal_user_responses(goal_dir)
     assert not (goal_dir / "brief.md").exists()
 
 
@@ -725,7 +725,7 @@ def test_step_prompt_names_the_goal_document_resolved_in_code(
     goal_dir = tmp_path / "goal"
     goal_dir.mkdir()
     if existing is not None:
-        (goal_dir / existing).write_text(cli_goal._goal_document("demo goal", "demo"), encoding="utf-8")
+        (goal_dir / existing).write_text(cli_goal.goal_document("demo goal", "demo"), encoding="utf-8")
     workflow = WorkflowResource(
         name="demo", instructions="workflow instructions", steps=[], prompt_template=_shipped_prompt_template()
     )
@@ -980,7 +980,7 @@ async def test_blocked_step_reports_the_way_out(
     """BLOCKED used to be a dead end: the CLI must print how to leave it."""
     goal_dir = tmp_path / "goal"
     goal_dir.mkdir()
-    (goal_dir / "brief.md").write_text(cli_goal._goal_document("demo goal", "demo"), encoding="utf-8")
+    (goal_dir / "brief.md").write_text(cli_goal.goal_document("demo goal", "demo"), encoding="utf-8")
     step = WorkflowStepResource(index=1, name="step-01.md", instructions="")
     workflow = WorkflowResource(name="demo", instructions="", steps=[step])
 
@@ -1000,7 +1000,7 @@ async def test_blocked_step_reports_the_way_out(
                 reason="step 'step-01.md' output is missing section: 实现摘要",
             )
 
-    context = cli_goal._GoalAdvanceContext(
+    context = cli_goal.GoalAdvanceContext(
         runner=StubRunner(),  # type: ignore[arg-type]
         mode="auto",
         description="demo goal",

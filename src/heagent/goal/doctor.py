@@ -15,7 +15,7 @@ workflow, step or role.
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -25,6 +25,7 @@ from pydantic import BaseModel, Field
 from heagent.engine.workflow_resource import (
     DoctorCheck,  # noqa: TC001 - pydantic resolves the field annotation at class build
 )
+from heagent.goal.workflow_loader import frontmatter_name_list
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -149,15 +150,17 @@ def _check_package(context: _CheckContext) -> list[DoctorFinding]:
 
 
 def _declared_required(workflow: WorkflowResource) -> list[str]:
-    """Resource names from the workflow's ``required_resources`` declaration (order preserved)."""
-    declared = workflow.frontmatter.get("required_resources")
-    if isinstance(declared, str):
-        items = declared.strip("[]").split(",")
-    elif isinstance(declared, Iterable):
-        items = [str(item) for item in declared]
-    else:
+    """Resource names from the workflow's ``required_resources`` declaration (order preserved).
+
+    A30②：解析核与 loader 的 :func:`~heagent.goal.workflow_loader.frontmatter_name_list`
+    单源。类型不符返回空表是**有意的宽容度分叉**——doctor 对老工作流 fail-soft（缺声明
+    = 无必查项，诊断照常跑完），loader 对新工作流 fail-closed；判据见
+    ``test_goal_doctor.py::test_declared_required_tolerance_divergence_is_intentional``。
+    """
+    items = frontmatter_name_list(workflow.frontmatter.get("required_resources"))
+    if items is None:
         return []
-    return [item.strip().removeprefix(_TEMPLATE_PREFIX) for item in items if item.strip()]
+    return [item.removeprefix(_TEMPLATE_PREFIX) for item in items]
 
 
 def _check_required_resources(context: _CheckContext) -> list[DoctorFinding]:

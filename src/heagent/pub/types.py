@@ -262,3 +262,19 @@ class RoutingPoolSpec(BaseModel):
     def keyword_list(self, role: str) -> list[str]:
         """角色对应的追加关键词列表（逗号分隔解析）；未配置时为 []。"""
         return [item.strip() for item in self.keywords.get(role, "").split(",") if item.strip()]
+
+
+class StorySpec(BaseModel):
+    """One story in a story-loop step, parsed from a story-list artifact.
+
+    A31②（2026-10-07）自 ``engine/workflow_runner`` 迁入：跨模块数据模型归 pub
+    （AGENTS.md 硬规则）——engine 的 runner 只消费预解析列表，BMad S-1/E1 形状
+    解析在 ``goal/workflow_loader``（声明域）。
+    """
+
+    id: str = Field(min_length=1)
+    summary: str = ""
+    epic: str = ""
+    depends_on: list[str] = Field(default_factory=list)
+    parallel_group: str = ""
+    write_set: list[str] = Field(default_factory=list)

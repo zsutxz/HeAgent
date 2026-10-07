@@ -96,7 +96,11 @@ def load_agent_roles(agents_dirs: list[str | Path] | None = None) -> list[RoleSp
 
 
 def _parse_role_md(path: Path) -> RoleSpec | None:
-    """解析一个角色 ``.md`` 文件：frontmatter 取 name/description/tools/max_iterations，正文为 system。"""
+    """解析一个角色 ``.md`` 文件。
+
+    frontmatter 取 name/description/tools/max_iterations，可选 ``delegation_fallback``
+    （A31③：委派兜底文案声明，经 agent 层收集后拼在委派结构化错误之后），正文为 system。
+    """
     raw = path.read_text(encoding="utf-8")
     name = ""
     description = ""
@@ -106,18 +110,25 @@ def _parse_role_md(path: Path) -> RoleSpec | None:
     split = split_frontmatter(raw)
     if split is not None:
         fm_text, _end, body = split
-        pairs = parse_inline_pairs(fm_text, keys=("name", "description", "tools", "max_iterations"))
+        pairs = parse_inline_pairs(
+            fm_text, keys=("name", "description", "tools", "max_iterations", "delegation_fallback")
+        )
         name = pairs.get("name", "").strip().strip('"').strip("'")
         description = pairs.get("description", "").strip().strip('"').strip("'")
         tools = [tkn.strip() for tkn in pairs.get("tools", "").split(",") if tkn.strip()]
         with contextlib.suppress(ValueError):
             max_iterations = int(pairs.get("max_iterations", "").strip())
+        fallback = pairs.get("delegation_fallback", "").strip().strip('"').strip("'")
+    else:
+        fallback = ""
     if not name:
         name = path.stem
     system = body.strip()
     if not system:
         return None
     metadata = {"description": description} if description else {}
+    if fallback:
+        metadata["delegation_fallback"] = fallback
     return RoleSpec(name=name, system=system, allowed_tools=tools, max_iterations=max_iterations, metadata=metadata)
 
 

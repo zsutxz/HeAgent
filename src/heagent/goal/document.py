@@ -9,11 +9,11 @@ execute / dispatch / cron）混在 cli/goal.py 里——前者随 BMad 产物约
 **文档契约**：``/goal new`` 只落盘**原始需求**（``## 原始需求（Original Request）`` 段），
 创建时**不再直接写目标看板文档**；「总结的需求」等初步分析做完后由 step 01 补写同一文档的
 ``## 总结的需求（Derived Requirements）`` 段。改名前的 ``require.md`` 与更早的 ``GOAL.md``
-仍可读（见 :func:`_goal_document_path`，按新名在前探测），写入落在解析出的那一份上，不会分裂成两份。
+仍可读（见 :func:`goal_document_path`，按新名在前探测），写入落在解析出的那一份上，不会分裂成两份。
 
 分层：本子包属入口层（与 cli/gui 同级，供 cli/goal 消费），不被任何下层模块导入。
-cli/goal 经 re-export 保持原命名空间可用（``test_goal_declarative_workflow`` /
-``test_story_loop`` 经 cli/goal 导入这些私有符号）。
+A32③（2026-10-07）：本模块被 cli/goal 消费的符号已转公共名（``goal_document*`` /
+``GOALS_DIR`` 等），入口层不再引用例层私有符号。
 """
 
 from __future__ import annotations
@@ -29,9 +29,9 @@ from heagent.pub.persist import atomic_update_text
 # Settings.goal_workflow_skill + skill catalog 解析，不在本模块硬编码。
 # Durable user-facing Goal and workflow artifacts belong under the project output
 # root. ``.heagent`` remains reserved for runtime configuration and skill code.
-_GOALS_DIR = Path("_he-output/goals")
+GOALS_DIR = Path("_he-output/goals")
 # 需求文档名：新 goal 一律落 brief.md；前两代名字只作存量 goal 的读取回落，按新名在前探测
-# （见 _goal_document_path）——命中存量文件时读写都落在它上面，不把同一 goal 拆成两份文档。
+# （见 goal_document_path）——命中存量文件时读写都落在它上面，不把同一 goal 拆成两份文档。
 _GOAL_DOCUMENT_NAME = "brief.md"
 _PRIOR_GOAL_DOCUMENT_NAME = "require.md"
 _LEGACY_GOAL_DOCUMENT_NAME = "GOAL.md"
@@ -48,7 +48,7 @@ def _fenced_block(text: str) -> str:
     return f"{fence}\n{body}{fence}"
 
 
-def _goal_document_path(goal_dir: Path) -> Path:
+def goal_document_path(goal_dir: Path) -> Path:
     """Resolve which requirement document this goal owns.
 
     New goals write ``brief.md``. A goal created before either rename still owns its
@@ -77,7 +77,7 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
 
 
-def _goal_document(description: str, goal_id: str, workflow_id: str = "", workflow_revision: str = "") -> str:
+def goal_document(description: str, goal_id: str, workflow_id: str = "", workflow_revision: str = "") -> str:
     """Create the goal requirement document: the durable record of what was asked.
 
     Only the original request is known at creation time. The derived summary is
@@ -111,7 +111,7 @@ def _goal_document(description: str, goal_id: str, workflow_id: str = "", workfl
     )
 
 
-def _goal_id_is_valid(goal_id: str) -> bool:
+def goal_id_is_valid(goal_id: str) -> bool:
     """Accept new letter-only ids and legacy eight-character hex ids."""
     return bool(_GOAL_ID_RE.fullmatch(goal_id)) or (len(goal_id) == 8 and all(char in _GOAL_HEX for char in goal_id))
 
@@ -122,7 +122,7 @@ def _epic_directory_name(epic: str) -> str:
     return f"epic-{slug}" if slug else ""
 
 
-def _goal_step_artifact_path(goal_dir: Path, step: Any, story: Any = None) -> Path:
+def goal_step_artifact_path(goal_dir: Path, step: Any, story: Any = None) -> Path:
     """Map a declared workflow step (or its active story) to a durable output document.
 
     A story-loop step routes each story into its own subdirectory (``s-1/``,
@@ -147,23 +147,23 @@ def _goal_step_artifact_path(goal_dir: Path, step: Any, story: Any = None) -> Pa
     return goal_dir / f"step-{step.index:02d}-{slug}.md"
 
 
-def _goal_description(goal_dir: Path) -> str:
+def goal_description(goal_dir: Path) -> str:
     """Load the marked original request from the goal's requirement document."""
-    text = _goal_document_path(goal_dir).read_text(encoding="utf-8")
+    text = goal_document_path(goal_dir).read_text(encoding="utf-8")
     section = _document_section(text, "原始需求（original request）")
     if section:
         match = re.fullmatch(r"(`{3,})\n(.*?)\n\1", section, flags=re.DOTALL)
         return match.group(2) if match else section
-    return _goal_document_title(text)
+    return goal_document_title(text)
 
 
-def _goal_user_responses(goal_dir: Path) -> str:
+def goal_user_responses(goal_dir: Path) -> str:
     """Return the accumulated user answers recorded in the requirement document."""
-    text = _goal_document_path(goal_dir).read_text(encoding="utf-8")
+    text = goal_document_path(goal_dir).read_text(encoding="utf-8")
     return _document_section(text, "用户补充（user responses）")
 
 
-def _goal_record_user_response(goal_dir: Path, response: str) -> None:
+def goal_record_user_response(goal_dir: Path, response: str) -> None:
     """Append one exact user answer to the single durable requirement document."""
     if not response.strip():
         return
@@ -177,10 +177,10 @@ def _goal_record_user_response(goal_dir: Path, response: str) -> None:
             return raw.rstrip() + "\n\n" + entry, None
         return raw.rstrip() + f"\n\n## {section_name}\n\n" + entry, None
 
-    atomic_update_text(_goal_document_path(goal_dir), update)
+    atomic_update_text(goal_document_path(goal_dir), update)
 
 
-def _goal_document_title(text: str) -> str:
+def goal_document_title(text: str) -> str:
     """Read the requirement document's title without introducing a second metadata file."""
     split = split_frontmatter(text)
     if split is None:

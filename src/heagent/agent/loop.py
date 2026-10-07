@@ -693,9 +693,23 @@ class AgentLoop:
                     run_context=run_context,
                     depth=self.delegation_depth,
                     max_depth=self._runtime.subagent_max_depth,
+                    delegation_fallback=self._delegation_fallback(),
                 )
             )
             yield
+
+    @staticmethod
+    def _delegation_fallback() -> str:
+        """收集角色 md 声明的委派兜底文案（A31③：声明进 ``.heagent/agents/*.md`` frontmatter，
+        去重后拼接；未声明即空——工具层零文案副本，非 BMad 场景不再收到 BMad 建议）。"""
+        from heagent.pub.roles import get_role, list_roles
+
+        seen: list[str] = []
+        for name in list_roles():
+            text = get_role(name).metadata.get("delegation_fallback", "").strip()
+            if text and text not in seen:
+                seen.append(text)
+        return " " + " ".join(seen) if seen else ""
 
     def _emit(
         self,

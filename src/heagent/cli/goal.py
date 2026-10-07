@@ -32,9 +32,9 @@ from heagent.engine import (
 )
 from heagent.engine.observability import elapsed_ms
 from heagent.goal.application import (
-    _GOAL_SKILLS_ROOT,
+    GOAL_SKILLS_ROOT,
     DecisionStatus,
-    _GoalAdvanceContext,
+    GoalAdvanceContext,
     advance,
     checkpoint_mode,
     checkpoint_store,
@@ -58,15 +58,15 @@ from heagent.goal.application import (
 from heagent.goal.decisions import DecisionAction, DecisionRecord, decision_store
 from heagent.goal.doctor import diagnose_workflow
 from heagent.goal.document import (
-    _GOALS_DIR,
-    _goal_description,
-    _goal_document,
-    _goal_document_path,
-    _goal_document_title,
-    _goal_id_is_valid,
-    _goal_record_user_response,
-    _goal_step_artifact_path,
-    _goal_user_responses,
+    GOALS_DIR,
+    goal_description,
+    goal_document,
+    goal_document_path,
+    goal_document_title,
+    goal_id_is_valid,
+    goal_record_user_response,
+    goal_step_artifact_path,
+    goal_user_responses,
 )
 from heagent.goal.evidence import (
     CommandOutcome,
@@ -106,7 +106,7 @@ logger = logging.getLogger(__name__)
 # 测试仍经 ``heagent.cli.goal`` 访问的 re-export 符号：Phase 3 起确定性内核迁
 # goal/application 后，这两个符号在本模块已无内部调用点，靠 ``__all__`` 钉住
 # ruff F401（防自动移除）与 mypy no_implicit_reexport 的再导出语义。
-__all__ = ["_goal_record_user_response", "_goal_user_responses"]
+__all__ = ["goal_record_user_response", "goal_user_responses"]
 
 _GOAL_AUTO_DEFAULT_CRON = "*/15 * * * *"
 _GOAL_AUTO_PREFIX = "goal-advance "
@@ -114,7 +114,7 @@ _GOAL_AUTO_PREFIX = "goal-advance "
 # 工作流执行状态词汇与推进轮数上限：随编排分支（advance/execute 状态机）变，
 # 不随文档约定变，故留本模块（goal/document.py 只做文档与命名，见其 docstring）。
 # 工作流包 id 的默认值只在 Settings.goal_workflow_skill 一处声明；本模块一律从配置读。
-# 技能库根（_GOAL_SKILLS_ROOT）与 open-question 兜底文案已随确定性内核迁
+# 技能库根（GOAL_SKILLS_ROOT）与 open-question 兜底文案已随确定性内核迁
 # goal/application.py，经顶部 import 保持本命名空间可用（Phase 3）。
 _GOAL_ADVANCED = "advanced"
 _GOAL_DONE = "done"
@@ -240,14 +240,14 @@ def _goal_declarative_prompt(
     )
 
 
-async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | None, _GoalAdvanceContext | None]:
+async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | None, GoalAdvanceContext | None]:
     """Load and validate goal state before advancing; a non-None outcome means stop."""
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
         _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
         return _GOAL_FAILED, None
     try:
-        description = _goal_description(goal_dir)
+        description = goal_description(goal_dir)
     except (OSError, ValueError) as exc:
         _echo(f"[goal] declarative requirement document is invalid: {exc}", err=True)
         return _GOAL_FAILED, None
@@ -283,7 +283,7 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
     except ValueError as exc:
         _echo(f"[goal] invalid checkpoint mode: {exc}", err=True)
         return _GOAL_FAILED, None
-    return None, _GoalAdvanceContext(
+    return None, GoalAdvanceContext(
         runner=runner,
         mode=mode,
         description=description,
@@ -340,7 +340,7 @@ async def _goal_execute_step(
                 status=WorkflowStatus.FAILED,
                 reason=f"step '{step.name}' produced empty output",
             )
-        atomic_write_text(_goal_step_artifact_path(goal_dir, step, story), output_text)
+        atomic_write_text(goal_step_artifact_path(goal_dir, step, story), output_text)
     except OSError as exc:
         return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist step output: {exc}")
     gate_reason = await _goal_structured_gate(engine, workflow, step, story, goal_dir)
@@ -507,7 +507,7 @@ async def _goal_execute_script_step(
     if not output_text.strip():
         return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"step '{step.name}' produced empty output")
     try:
-        atomic_write_text(_goal_step_artifact_path(goal_dir, step, story), output_text)
+        atomic_write_text(goal_step_artifact_path(goal_dir, step, story), output_text)
     except OSError as exc:
         return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist script output: {exc}")
     submitted, blocked, requested = await _submit_script_requests(
@@ -642,24 +642,24 @@ async def _goal_declarative_new(
     base_id = await llm_project_id(provider, description)
     workspace = WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd())
     goal_id = base_id
-    goal_dir = _GOALS_DIR / goal_id
+    goal_dir = GOALS_DIR / goal_id
     for suffix in [""] + [f"-{chr(ord('a') + index)}" for index in range(26)]:
         if not goal_dir.exists() and not external_checkpoint_dir(goal_id, workspace.root).exists():
             break
         goal_id = base_id + suffix
-        goal_dir = _GOALS_DIR / goal_id
+        goal_dir = GOALS_DIR / goal_id
     else:
         _echo("[goal] unable to allocate a unique project goal id", err=True)
         return
     try:
-        goal_document = _goal_document(
+        document_text = goal_document(
             description, goal_id, workflow_id=workflow_id, workflow_revision=workflow_revision
         )
-        _goal_document_title(goal_document)
-        atomic_write_text(_goal_document_path(goal_dir), goal_document)
+        goal_document_title(document_text)
+        atomic_write_text(goal_document_path(goal_dir), document_text)
         paths = WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd())
         initialize_checkpoint_workspace(goal_dir, paths.root)
-        atomic_write_text(_GOALS_DIR / "current", goal_id)
+        atomic_write_text(GOALS_DIR / "current", goal_id)
     except (OSError, ValueError) as exc:
         _echo(f"[goal] failed to persist declarative goal: {exc}", err=True)
         return
@@ -981,7 +981,7 @@ async def _goal_declarative_verify(
             return
         step = workflow.steps[active_step]
         story_id = runner.state.active_story
-        # 跨模块数据用引擎模型（AD-4）：StorySpec 的 (id, epic) 即 `_goal_step_artifact_path`
+        # 跨模块数据用引擎模型（AD-4）：StorySpec 的 (id, epic) 即 `goal_step_artifact_path`
         # 消费的鸭子契约；不用裸 SimpleNamespace（review #13）。
         story = StorySpec(id=story_id, epic=runner.state.active_epic) if story_id else None
         started = time.perf_counter()
@@ -1017,7 +1017,7 @@ async def _goal_declarative_verify(
 async def _goal_step_output_text(goal_dir: Path, step: Any, story: Any) -> str | None:
     """已持久化的步骤产物文本（section 门禁复验输入）；缺失 / 不可读返回 ``None``（显性未过）。"""
     try:
-        return await asyncio.to_thread(_goal_step_artifact_path(goal_dir, step, story).read_text, encoding="utf-8")
+        return await asyncio.to_thread(goal_step_artifact_path(goal_dir, step, story).read_text, encoding="utf-8")
     except (OSError, ValueError):
         return None
 
@@ -1295,7 +1295,7 @@ async def _goal_start_new(
     package = _resolve_skill_package(skill_id)
     if package is None:
         hint = (
-            f"create {_GOAL_SKILLS_ROOT / skill_id / 'workflow.md'} "
+            f"create {GOAL_SKILLS_ROOT / skill_id / 'workflow.md'} "
             "(with a SKILL.md declaring its canonical_id) to configure goal execution"
         )
         _echo(f"[goal] workflow.md is required: workflow package '{skill_id}' is unavailable; {hint}", err=True)
@@ -1487,7 +1487,7 @@ def _goal_usage() -> None:
 def _goal_active_md() -> Path | None:
     """解析活跃 goal 的需求文档路径；指针缺失/解码失败返回 None，内容非法显性报错。"""
     try:
-        goal_id = (_GOALS_DIR / "current").read_text(encoding="utf-8").strip()
+        goal_id = (GOALS_DIR / "current").read_text(encoding="utf-8").strip()
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as exc:
@@ -1497,15 +1497,15 @@ def _goal_active_md() -> Path | None:
         return None
     # 指针内容须为字母 slug 或既有 8 位小写十六进制：防手改指针越界。
     # 把围栏外任意文件当需求文档注入 LLM prompt（仿 sandbox_session_dir 先例）。
-    if not _goal_id_is_valid(goal_id):
+    if not goal_id_is_valid(goal_id):
         _echo(f"[goal] current 指针内容非法：{goal_id!r}（须为英文字母 project id）。", err=True)
         return None
-    goals_root = _GOALS_DIR.resolve()
-    goal_root = (_GOALS_DIR / goal_id).resolve()
+    goals_root = GOALS_DIR.resolve()
+    goal_root = (GOALS_DIR / goal_id).resolve()
     if not goal_root.is_relative_to(goals_root):
         _echo("[goal] current 指针解析后越过 goals 根目录。", err=True)
         return None
-    return _goal_document_path(goal_root)
+    return goal_document_path(goal_root)
 
 
 async def _goal_session(
@@ -1541,11 +1541,11 @@ async def _goal_session(
 def _goal_reset() -> None:
     """清除 current 指针（不删任何其他文件）；goal 目录保留并回显路径。"""
     try:
-        (_GOALS_DIR / "current").unlink(missing_ok=True)  # missing_ok：竞态下指针已消失视为已清
+        (GOALS_DIR / "current").unlink(missing_ok=True)  # missing_ok：竞态下指针已消失视为已清
     except OSError as exc:
         _echo(f"[goal] 落盘失败：清除 current 指针失败（{exc}）。", err=True)
         return
-    _echo(f"[goal] current 指针已清除；goal 目录保留：{_GOALS_DIR.resolve()}", err=True)
+    _echo(f"[goal] current 指针已清除；goal 目录保留：{GOALS_DIR.resolve()}", err=True)
 
 
 def _goal_auto_remove(store: JobStore, goal_id: str) -> int:
@@ -1561,7 +1561,7 @@ def _goal_auto_goal_id(prompt: str) -> str | None:
     if not prompt.startswith(_GOAL_AUTO_PREFIX):
         return None
     goal_id = prompt[len(_GOAL_AUTO_PREFIX) :].strip()
-    if _goal_id_is_valid(goal_id):
+    if goal_id_is_valid(goal_id):
         return goal_id
     return None
 

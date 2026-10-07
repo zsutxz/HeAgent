@@ -239,6 +239,15 @@ class EvidenceStore:
     一家成功，绝不覆盖历史（崩溃中断只留半截文件，读取时按「损坏」显性报错——也不静默）。
     读取侧拒绝一切 ``schema_version`` 不等于当前版本的记录（「版本化」有门，旧/新版本
     记录不冒充当前语义）。
+
+    并发立场（A30① 裁定，与 :class:`~heagent.goal.decisions.DecisionStore` 是**有意分歧**，
+    判据 ``test_goal_decisions.py::test_store_concurrency_stance_divergence`` 钉住）：本类
+    持每实例 ``asyncio.Lock`` 串行化 append——证据写入发生在工具执行路径上、**不在** goal
+    域锁（:func:`heagent.goal.mutex.goal_mutex`）覆盖范围内，实例锁给同进程多任务并发
+    append 收敛 ``exists``→``create`` 的检查窗口。DecisionStore 不持锁（审查 #15：其实例锁
+    挡不住跨进程，真互斥来自独占创建 + goal_mutex 覆盖其全部写路径）——两店差异是各自
+    写路径的产物，不是漂移；两店结构上的孪生（append/load/schema 门）亦按「同格式独立
+    实现」先例（decisions.py id 守卫注释）刻意不共享，不建泛型基类（台账 A30① / Z-D3）。
     """
 
     def __init__(self, root: str | Path) -> None:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.engine.artifacts import parse_artifact, validate_hierarchy
 from heagent.engine.checkpoint import WorkflowCheckpointStore, WorkflowStatus
 from heagent.engine.workflow_runner import WorkflowRunner, WorkflowStepResult
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
@@ -77,9 +76,6 @@ STORY_TWO = (
 
 @pytest.mark.asyncio
 async def test_two_story_epic_smoke_preserves_evidence_across_recovery(tmp_path) -> None:
-    validate_hierarchy(
-        [parse_artifact(GOAL), parse_artifact(EPIC), parse_artifact(STORY_ONE), parse_artifact(STORY_TWO)]
-    )
     workflow = WorkflowResource(
         name="sample-epic",
         instructions="",

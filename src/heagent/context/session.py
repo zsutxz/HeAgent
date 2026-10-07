@@ -53,6 +53,8 @@ WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
 
 # 会话标题上限（字符）：标题进控制台列表、详情与页面，必须有界。
 MAX_SESSION_TITLE_CHARS = 120
+# A29③：list_metadata 元数据备忘录的容量上限；溢出即整表清空（下次列表全量重解析一次）。
+_META_CACHE_MAX_ENTRIES = 1024
 # 派生标题上限：它是摘要而非用户设定的标题，刻意比可设标题更短。
 MAX_DERIVED_TITLE_CHARS = 60
 # 一次列表返回的会话数上限（NFR-11 有界）；会话数本身无上限（每次交互都新建一个 id）。
@@ -448,6 +450,11 @@ class SessionStore:
 
     def __init__(self, base_dir: str = ".heagent/sessions") -> None:
         self._base = Path(base_dir)
+        # A29③：list_metadata 的 (文件名, mtime_ns, size) → 元数据 备忘录。键含内容指纹
+        # （原子替换写必换 mtime/size），故无需主动失效也正确；本店写点（save/create/
+        # rename/delete）仍显式按名清除，收敛「同 tick 同尺寸改名」的碰撞窗口。溢出即清空
+        # （列表页有条数硬上限，1024 足够覆盖；进程内多线程仅 get/set，GIL 原子性足够）。
+        self._meta_cache: dict[tuple[str, int, int], SessionMetadata] = {}
 
     async def prune(self, retention_days: int, *, min_interval_seconds: int = 0) -> int:
         """按 mtime 回收过期会话文件，返回删除数（``retention_days <= 0`` 禁用）。
@@ -541,6 +548,7 @@ class SessionStore:
             return json.dumps(payload, ensure_ascii=False, indent=2), None
 
         atomic_update_text(path, update)
+        self._invalidate_meta(session_id)
         return str(path)
 
     def create(self, session_id: str, *, title: str | None = None) -> SessionMetadata:
@@ -561,6 +569,7 @@ class SessionStore:
             return json.dumps(payload, ensure_ascii=False, indent=2), None
 
         atomic_update_text(path, update)
+        self._invalidate_meta(session_id)
         return SessionMetadata(
             session_id=session_id,
             title=normalized or UNNAMED_SESSION_TITLE,
@@ -610,6 +619,9 @@ class SessionStore:
           列表里，详情接口对它回 ``session_unreadable``；单条解析失败不拖垮整个列表（fail-soft）。
         - **大会话不数消息**：文件超过 :data:`MAX_SESSION_METADATA_BYTES` 时
           ``message_count=None``（D6：详情才给），避免列表逐文件解析数 MB JSON。
+
+        A29③（2026-10-07）：未变更文件（``mtime_ns`` + ``size`` 未变）直接复用上次解析的
+        元数据——列表页轮询与无显式 session 的 run POST 不再每次全量 parse 目录。
         """
         if not self._base.exists() or limit <= 0:
             return []
@@ -617,9 +629,19 @@ class SessionStore:
         for path in self._base.glob("*.json"):
             try:
                 info = path.stat()
+            except OSError:
+                continue
+            cache_key = (path.name, info.st_mtime_ns, info.st_size)
+            cached = self._meta_cache.get(cache_key)
+            if cached is not None:
+                entries.append(cached)
+                continue
+            try:
                 if info.st_size > MAX_SESSION_METADATA_BYTES:
                     # 大会话：只读**头部**（键序保证元数据在前），不读整份文件、不解析消息数组（D6 口径）。
-                    entries.append(_metadata_from_head(path.stem, _read_head(path, MAX_SESSION_METADATA_BYTES)))
+                    meta = _metadata_from_head(path.stem, _read_head(path, MAX_SESSION_METADATA_BYTES))
+                    entries.append(meta)
+                    self._meta_cache[cache_key] = meta
                     continue
                 raw = path.read_text(encoding="utf-8")
             except (OSError, UnicodeError):
@@ -627,21 +649,31 @@ class SessionStore:
                     mtime = path.stat().st_mtime
                 except OSError:
                     continue
-                entries.append(_unreadable_metadata(path.stem, mtime))
+                meta = _unreadable_metadata(path.stem, mtime)
+                entries.append(meta)
+                self._meta_cache[cache_key] = meta
                 continue
             try:
-                entries.append(
-                    _metadata_from_raw(
-                        path.stem,
-                        raw,
-                        count_messages=info.st_size <= MAX_SESSION_METADATA_BYTES,
-                    )
+                meta = _metadata_from_raw(
+                    path.stem,
+                    raw,
+                    count_messages=info.st_size <= MAX_SESSION_METADATA_BYTES,
                 )
             except SessionUnreadableError:
                 logger.warning("Session file %s is unreadable; listing it as unreadable", path.name)
-                entries.append(_unreadable_metadata(path.stem, info.st_mtime))
+                meta = _unreadable_metadata(path.stem, info.st_mtime)
+            entries.append(meta)
+            self._meta_cache[cache_key] = meta
+            if len(self._meta_cache) > _META_CACHE_MAX_ENTRIES:
+                self._meta_cache.clear()
         entries.sort(key=lambda item: (item.timestamp, item.session_id), reverse=True)
         return entries[:limit]
+
+    def _invalidate_meta(self, session_id: str) -> None:
+        """按会话名清除元数据备忘录（本店写点后调用；键含 mtime/size，此为碰撞窗收敛）。"""
+        name = f"{session_id}.json"
+        for key in [k for k in self._meta_cache if k[0] == name]:
+            del self._meta_cache[key]
 
     def count_sessions(self) -> int:
         """返回会话文件总数（**不解析任何文件**）。
@@ -661,24 +693,26 @@ class SessionStore:
         return sorted(p.stem for p in self._base.glob("*.json"))
 
     def recent_session_ids(self, limit: int) -> list[str]:
-        """返回最近 ``limit`` 个会话 ID（按 session 落盘 ``timestamp`` 降序）。
+        """返回最近 ``limit`` 个会话 ID（按文件 mtime 降序，同 mtime 按名字典序）。
 
-        :meth:`list_sessions` 按文件名字母序、不反映时间先后（session_id 是随机 hex）；
-        DreamScheduler 需按真实时间取近期 session 做巩固，故按 ``timestamp`` 降序。
-        损坏 / 缺 timestamp 的条目按 0.0 排序（沉底，不剔除）。
+        A29②（2026-10-07）：此前为读一个 ``timestamp`` 字段全量 parse 目录内每个会话
+        JSON（409 文件 / 83 MiB 时交互启动秒级阻塞），改为**零 JSON 解析**的 mtime 排序。
+        选型裁定（冻结边界要求的显性化）：mtime 与嵌入 ``timestamp`` 在「文件复制」场景
+        分歧——复制入的旧会话 mtime 变新、ts 仍旧。消费方（DreamScheduler 巩固 / 交互
+        恢复列表）要的是「最近活动的会话」：mtime 是活动时间的文件系统事实，且本店写路径
+        （原子替换）天然刷新它，故取 mtime；复制入的旧会话按「最近被放进目录」参与排序，
+        其内容随后照常被消费方 load。损坏文件不再按 ts=0 沉底，按自身 mtime 参与排序
+        （消费方 load 时照旧显性报错，与 :meth:`list_metadata` 的占位口径互不影响）。
         """
         if not self._base.exists() or limit <= 0:
             return []
         entries: list[tuple[float, str]] = []
         for p in self._base.glob("*.json"):
-            ts = 0.0
             try:
-                data = json.loads(p.read_text(encoding="utf-8"))
-                ts = float(data.get("timestamp") or 0.0)
-            except (json.JSONDecodeError, OSError, TypeError, ValueError):
-                pass  # 损坏文件按 ts=0.0 排序
-            entries.append((ts, p.stem))
-        entries.sort(key=lambda e: e[0], reverse=True)
+                entries.append((p.stat().st_mtime, p.stem))
+            except OSError:
+                continue  # 列举与 stat 之间被删除的文件直接跳过
+        entries.sort(key=lambda e: (-e[0], e[1]))
         return [sid for _, sid in entries[:limit]]
 
     def rename(self, session_id: str, title: str, *, expected_version: int | None = None) -> SessionMetadata:
@@ -714,6 +748,7 @@ class SessionStore:
             return json.dumps(updated, ensure_ascii=False, indent=2), None
 
         atomic_update_text(path, update)
+        self._invalidate_meta(session_id)
         if result is None:
             raise RuntimeError("session rename completed without a result")
         return result
@@ -724,6 +759,7 @@ class SessionStore:
         path = self._base / f"{session_id}.json"
         if path.exists():
             path.unlink()
+            self._invalidate_meta(session_id)
             return True
         return False
 

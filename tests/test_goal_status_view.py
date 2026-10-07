@@ -12,8 +12,8 @@ from heagent.engine.workflow_runner import (
     WorkflowRunner,
     WorkflowRunnerState,
     WorkflowStepResult,
-    parse_story_list,
 )
+from heagent.goal.workflow_loader import parse_story_list
 from heagent.goal.status_view import project_status_view
 
 
