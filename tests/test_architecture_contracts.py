@@ -828,6 +828,10 @@ def test_live_files_hold_no_reference_to_the_removed_tcp_entry() -> None:
     targets += [root / "docs" / name for name in ("README.md", "frame.md", "design.md", "goal-workflow.md")]
     offenders: dict[str, list[str]] = {}
     for path in targets:
+        if not path.exists():
+            # 扫描对象是有意维护的活文件清单，个别成员可被有意移除（如 CLAUDE.md 于
+            # 2026-10-07 删除）：缺席即无可扫内容，跳过而非报错。
+            continue
         rel = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8")
         hit = [token for token in _TCP_RESIDUE_TOKENS_CI if token in text.lower()]
