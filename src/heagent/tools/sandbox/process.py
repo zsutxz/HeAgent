@@ -185,7 +185,26 @@ async def reap_subprocess(proc: asyncio.subprocess.Process, *, timeout: float | 
     清理自身挂死，孤儿进程树得不到兜底。
     """
     wait = _REAP_WAIT_TIMEOUT if timeout is None else timeout
-    await asyncio.wait_for(proc.communicate(), timeout=wait)
+    try:
+        await asyncio.wait_for(proc.communicate(), timeout=wait)
+    finally:
+        _close_process_transport(proc)
+
+
+def _close_process_transport(proc: asyncio.subprocess.Process) -> None:
+    """Close the platform subprocess transport after pipes have been drained.
+
+    ``Process.communicate()`` drains the streams but Windows' Proactor
+    transport can defer closing its pipe handles until finalization.  Closing
+    the already-reaped transport explicitly prevents delayed
+    ``PytestUnraisableExceptionWarning`` and descriptor retention.  Fake
+    processes used by callers/tests simply have no transport and are ignored.
+    """
+    transport = getattr(proc, "_transport", None)
+    close = getattr(transport, "close", None)
+    if callable(close):
+        with suppress(Exception):
+            close()
 
 
 async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
@@ -238,7 +257,10 @@ async def _supervise_subprocess(proc: asyncio.subprocess.Process, *, timeout: in
         except BaseException:
             logger.debug("cancel cleanup: _kill_and_reap failed; subprocess/pipe may leak", exc_info=True)
         raise
-    return _format_result(proc.returncode, stdout, stderr)
+    else:
+        return _format_result(proc.returncode, stdout, stderr)
+    finally:
+        _close_process_transport(proc)
 
 
 async def _run_subprocess_shell(command: str, *, timeout: int) -> str:
