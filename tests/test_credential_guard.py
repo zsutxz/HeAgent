@@ -71,14 +71,13 @@ class TestDenyRuleBuilders:
         assert str(tmp_path / ".heagent" / "ledger") in dirs
         assert str(tmp_path / ".heagent" / "runs") in dirs
         assert str(tmp_path / ".heagent" / "memory") in dirs
-        assert str(tmp_path / ".heagent" / "skills") in dirs
+        assert str(tmp_path / ".heagent" / "skills") not in dirs
 
-    def test_build_internal_state_dirs_covers_all_twelve_for_an_explicit_workspace(self, tmp_path: Path) -> None:
-        """I14（50-1 收紧）：显式工作区下 12 个运行态子目录**全部**读拒，一个都不能少。
+    def test_build_internal_state_dirs_covers_all_runtime_dirs_for_an_explicit_workspace(self, tmp_path: Path) -> None:
+        """显式工作区下的运行态子目录全部读拒，技能资源目录除外。
 
-        此前只断言 5 个（sessions/ledger/runs/memory/skills）⇒「把 backups / console 移出 deny 集合」
-        这类回退不会被任何测试发现（50-5 的负向验证把它暴露成假绿：备份与审计目录里是**原样配置**，
-        被工具读进上下文等于把写通道自己刚写的凭证一起端出来）。
+        技能包是可读取的知识资源，不属于不透明的运行态目录；其余目录中的配置和状态
+        可能包含凭证或内部信息，必须继续拒绝读入上下文。
         """
         dirs = build_internal_state_dirs(tmp_path)
         base = (tmp_path / ".heagent").resolve()
@@ -86,7 +85,6 @@ class TestDenyRuleBuilders:
             "sessions",
             "ledger",
             "runs",
-            "skills",
             "memory",
             "user",
             "cron",
@@ -231,6 +229,13 @@ class TestFileHandlerDeny:
         result = await file_read(str(session_file))
         assert "Error" in result
         assert "internal HeAgent state" in result
+
+    async def test_file_read_allows_skill_resource(self, tmp_path: Path) -> None:
+        skill_file = tmp_path / ".heagent" / "skills" / "bmad-brainstorming" / "customize.toml"
+        skill_file.parent.mkdir(parents=True, exist_ok=True)
+        skill_file.write_text("[skill]\nname = 'brainstorming'\n", encoding="utf-8")
+        result = await file_read(str(skill_file))
+        assert result == "[skill]\nname = 'brainstorming'\n"
 
 
 # ── FR-F1 / FR-F2：policy 预检 ─────────────────────────────────────

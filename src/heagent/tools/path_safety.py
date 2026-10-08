@@ -3,7 +3,8 @@
 另含**凭证文件 deny** 与**内部状态读 deny**（借鉴 hermes `agent/file_safety.py` 设计）：
 
 - 写 deny：凭证/敏感文件与目录（``~/.ssh/*`` / ``~/.aws/*`` / ``.env`` / ``.netrc`` 等）
-- 读 deny：secret-bearing 文件名（``.env`` 等）+ ``.heagent/`` 内部状态目录
+- 读 deny：secret-bearing 文件名（``.env`` 等）+ ``.heagent/`` 内部运行状态目录
+  （技能资源目录 ``.heagent/skills`` 由技能工具和 ``file_read`` 读取，不属于运行状态）
 
 deny 规则支持**项目级配置** ``.heagent/path_deny.json``（2026-09-17，仿
 ``injection_signatures.json`` 先例）：只允许**收紧**（追加 deny 项）或**放行显式列举项**
@@ -362,8 +363,10 @@ def build_read_denied_basenames() -> set[str]:
 def build_internal_state_dirs(workspace_root: str | Path | None = None) -> set[str]:
     """Return HeAgent internal state directories that must not be read into context.
 
-    Explicit workspaces protect all twelve runtime directories from WorkspacePaths.
-    Without a workspace, preserve the legacy cwd/home roots and five directories.
+    Explicit workspaces protect runtime directories from WorkspacePaths.  The skills
+    directory is intentionally excluded: skill packages are readable knowledge resources,
+    not opaque runtime state.
+    Without a workspace, preserve the legacy cwd/home roots and runtime directories.
     """
     if workspace_root is not None:
         from heagent.pub.workspace import WorkspacePaths
@@ -375,7 +378,6 @@ def build_internal_state_dirs(workspace_root: str | Path | None = None) -> set[s
                 paths.sessions,
                 paths.ledger,
                 paths.runs,
-                paths.skills,
                 paths.memory_file.parent,
                 paths.profile_file.parent,
                 paths.cron_file.parent,
@@ -387,7 +389,7 @@ def build_internal_state_dirs(workspace_root: str | Path | None = None) -> set[s
             )
         }
     roots = (Path.cwd().resolve(), Path.home().resolve())
-    subdirs = ("sessions", "ledger", "runs", "memory", "skills")
+    subdirs = ("sessions", "ledger", "runs", "memory")
     dirs: set[str] = set()
     for root in roots:
         base = root / ".heagent"
