@@ -33,7 +33,7 @@ from pydantic import BaseModel, Field
 
 from heagent.goal.evidence import GitEvidence
 from heagent.pub.safe_logging import safe_log
-from heagent.tools.sandbox import decode_channel, reap_subprocess
+from heagent.tools.sandbox import communicate_subprocess, decode_channel, reap_subprocess
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +204,7 @@ class ReadOnlyGitPort:
             # 不让调用方（verify / 预检）收到裸 OSError（review #4）。
             raise GitPortError(f"git {' '.join(args[:1])} could not be started: {exc}") from exc
         try:
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_GIT_TIMEOUT_SECONDS)
+            stdout, stderr = await communicate_subprocess(proc, timeout=_GIT_TIMEOUT_SECONDS)
         except TimeoutError:
             try:
                 proc.kill()

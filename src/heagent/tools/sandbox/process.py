@@ -207,6 +207,20 @@ def _close_process_transport(proc: asyncio.subprocess.Process) -> None:
             close()
 
 
+async def communicate_subprocess(proc: asyncio.subprocess.Process, *, timeout: float) -> tuple[bytes, bytes]:
+    """有界等待 ``communicate()`` 并在**成功排水后**关闭平台 transport。
+
+    公共内核（Phase 4 C3 同型收敛）：git 工具 / goal git_port / engine hooks / cli dialogs
+    的成功路径此前各自裸调 ``wait_for(communicate())``，transport 交给终结器——Windows
+    Proactor 下管道句柄延迟关闭会拖出 ``PytestUnraisableExceptionWarning`` 与描述符滞留。
+    超时 / 取消原样上抛、**不关 transport**：失败路径的清理时序（先杀树再有界回收）归调用方
+    既有代码，``reap_subprocess`` 自会关 transport，此处不提前介入。
+    """
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    _close_process_transport(proc)
+    return stdout, stderr
+
+
 async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     try:
         if sys.platform == "linux":

@@ -36,7 +36,7 @@ import sys
 from pathlib import Path
 from typing import Any, Final
 
-from heagent.tools.sandbox.process import reap_subprocess, scrub_sensitive_env
+from heagent.tools.sandbox.process import communicate_subprocess, reap_subprocess, scrub_sensitive_env
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +228,7 @@ class DirectoryPicker:
         except OSError as exc:
             raise DialogUnavailableError("could not start the dialog process") from exc
         try:
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=self._timeout)
+            stdout, _ = await communicate_subprocess(proc, timeout=self._timeout)
         except TimeoutError:
             # 超时与取消两条清理路径都要 kill + 有界回收（否则会留下孤儿子进程）。
             await self._abandon(proc)

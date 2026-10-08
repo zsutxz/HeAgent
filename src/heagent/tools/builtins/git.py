@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 from heagent.tools.decorator import tool
 from heagent.tools.path_safety import resolve_under_root, workspace_root
-from heagent.tools.sandbox import cap_channel, reap_subprocess
+from heagent.tools.sandbox import cap_channel, communicate_subprocess, reap_subprocess
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -39,7 +39,7 @@ async def _run_git(*args: str, cwd: Path | None = None) -> str:
         cwd=cwd or workspace_root(),
     )
     try:
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=_GIT_TIMEOUT)
+        stdout, stderr = await communicate_subprocess(proc, timeout=_GIT_TIMEOUT)
     except TimeoutError:
         # wait_for 仅取消 await、不杀子进程——须显式终止防僵尸，再报超时
         try:
