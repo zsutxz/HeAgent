@@ -2,7 +2,7 @@
 
 > 状态：当前实现参考。历史来源与迁移索引见 [architecture-history.md](architecture-history.md)。维护责任：对应模块的变更提交者。
 
-> 相关文档：总览与快速开始见 [`README.md`](../README.md)，设计目标见 [`design.md`](design.md)，文档导航见 [`文档索引`](README.md)，部署边界见 [`deploy/README.md`](../deploy/README.md)，协作约定见 [`CLAUDE.md`](../CLAUDE.md)。本文为**代码实现层面的架构参考**，以当前 `src/` 实现为准。
+> 相关文档：总览与快速开始见 [`README.md`](../README.md)，设计目标见 [`design.md`](design.md)，文档导航见 [`文档索引`](README.md)，部署边界见 [`deploy/README.md`](../deploy/README.md)，协作约定见 [`AGENTS.md`](../AGENTS.md)。本文为**代码实现层面的架构参考**，以当前 `src/` 实现为准。
 
 ## 目录
 
