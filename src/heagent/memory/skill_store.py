@@ -69,6 +69,16 @@ class SkillStore:
         """SKILL.md 文件路径。"""
         return self._skill_dir(name) / "SKILL.md"
 
+    def read_resource(self, name: str, resource: str) -> str | None:
+        """Read one package-local resource through the SkillPackage integrity gate."""
+        from heagent.memory.skill_packages import SkillPackage
+
+        try:
+            package = SkillPackage(skill_id=validate_skill_name(name), root=self._skill_dir(name))
+            return package.read_resource(resource)
+        except (ValueError, FileNotFoundError):
+            return None
+
     def _read_text(self, path: Path) -> str:
         """读取技能文件，并与同实例的写操作互斥。
 

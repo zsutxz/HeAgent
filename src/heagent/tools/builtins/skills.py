@@ -221,6 +221,24 @@ async def skill_load(name: str) -> str:
     return content
 
 
+@tool(read_only=True)
+async def skill_read_resource(name: str, resource: str) -> str:
+    """Read one relative resource from a named skill package."""
+    store = _store()
+    if store is None:
+        return "Error: skill tools not configured."
+    try:
+        content = await asyncio.to_thread(store.read_resource, name, resource)
+    except Exception as exc:  # noqa: BLE001 - package errors become tool errors
+        return f"Error: unable to read resource '{resource}' from skill '{name}': {exc}"
+    if content is None:
+        return f"Error: skill '{name}' or resource '{resource}' not found."
+    budget = _manual_load_budget()
+    if budget is not None and estimate_text_tokens(content) > budget:
+        return f"Error: skill resource '{resource}' exceeds the configured manual-load token budget ({budget})."
+    return content
+
+
 @tool
 async def skill_delete(name: str) -> str:
     """Delete one stored skill."""

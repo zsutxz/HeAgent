@@ -129,7 +129,7 @@ def _resolve_model(loop: AgentLoop) -> str | None:
 #: - **失败结果不收敛**：错误消息是诊断必需，原样回传（``tool_error=True`` 时走原内容）；
 #: - **作用对象照旧**：文件名 / 路径 / 技能名仍由 ``tool_call`` 事件的 ``tool_target`` 提供（网页结果行
 #:   复用同一 ``tool_target``），这里只是不放**内容**。
-_WEB_QUIET_TOOLS: frozenset[str] = frozenset({"file_read", "file_edit", "skill_load"})
+_WEB_QUIET_TOOLS: frozenset[str] = frozenset({"file_read", "file_edit", "skill_load", "skill_read_resource"})
 
 #: **网页展示策略（第二类：只留文件清单）**：这些工具的**成功**结果只保留「命中了哪些文件」，匹配到的
 #: **行内容**不进网页事件流——``content_search`` 返回 ``<路径>:<行号>: <正文>`` 的列表（默认上限 20

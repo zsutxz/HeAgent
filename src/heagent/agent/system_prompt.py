@@ -170,6 +170,7 @@ def _skills_block(skills: SkillStore | None, prompt: str, settings: Settings | N
             "The following skills are relevant to the user's request:\n\n"
             f"{block}\n\n"
             "You can use skill_list to see all skills, skill_load to read one by name, "
+            "skill_read_resource to read a package-local resource by name, "
             "skill_create to add new ones, or skill_update to modify.\n"
             "</skills>"
         )
@@ -181,7 +182,8 @@ def _skills_block(skills: SkillStore | None, prompt: str, settings: Settings | N
         "<skills>\n"
         "No skills matched the current request. "
         "You can use skill_create to save reusable patterns, skill_list to browse existing skills, "
-        "skill_load to read one by name, or skill_update to refine them.\n"
+        "skill_load to read one by name, skill_read_resource to read a package-local resource by name, "
+        "or skill_update to refine them.\n"
         "</skills>"
     )
 

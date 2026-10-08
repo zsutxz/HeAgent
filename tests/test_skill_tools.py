@@ -16,6 +16,7 @@ from heagent.tools.builtins.skills import (
     skill_delete,
     skill_list,
     skill_load,
+    skill_read_resource,
     skill_update,
 )
 
@@ -224,6 +225,18 @@ class TestSkillLoad:
 
         reset_settings()
         assert "exceeds" in await skill_load("large")
+
+    @pytest.mark.asyncio
+    async def test_read_package_resource(self, skill_store: SkillStore) -> None:
+        await skill_create("pkg", "Package", "pkg", "step")
+        resource = Path(skill_store._base) / "pkg" / "customize.toml"
+        resource.write_text("enabled = true\n", encoding="utf-8")
+        assert await skill_read_resource("pkg", "customize.toml") == "enabled = true\n"
+
+    @pytest.mark.asyncio
+    async def test_read_package_resource_rejects_parent_path(self, skill_store: SkillStore) -> None:
+        await skill_create("pkg-safe", "Package", "pkg", "step")
+        assert "Error:" in await skill_read_resource("pkg-safe", "../other.toml")
 
 
 class TestSkillCurate:
