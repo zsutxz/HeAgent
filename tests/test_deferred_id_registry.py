@@ -1,4 +1,10 @@
-"""Contracts for the compact deferred-work archive."""
+"""Contracts for the compact deferred-work archive.
+
+Pinned drift shapes (all of them really happened in this repo): a ledger's
+status-summary table declaring different IDs than its actual sections; the same
+A-number meaning two different things in two ledgers (the A19 incident); code
+citing an A-number that no document registers.
+"""
 
 from __future__ import annotations
 
@@ -9,10 +15,20 @@ ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE = ROOT / "_bmad-output" / "implementation-artifacts" / "deferred-work-archive.md"
 OVERVIEW = ROOT / "_bmad-output" / "consolidated-overview.md"
 EPICS = ROOT / "_bmad-output" / "epics"
-ID = re.compile(r"(?:A\d+|Z-D\d+|[ES]\d+(?:-[A-Z]?\d+)?)")
 # Citation shape: the A-number must not be glued to letters/digits/hyphens/quotes
 # (rejects FR-A1, A1b, AD-1, string fixtures like "A1", and the A256 inside SHA256).
 CITE = re.compile(r"(?<![A-Za-z0-9_'\"-])A(0|[1-9]\d*)(?![0-9A-Za-z])")
+# Leading ID token of a heading / table first cell (E1-D1 / S-D4 / F-D1 / Z-D24 / A9…).
+# Must contain a digit, so a heading "Epic 1" or a header cell "ID" does not count.
+TOKEN = re.compile(r"\*{0,2}([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)")
+HEADING = ("## ", "### ")
+
+
+def _token(text: str) -> str | None:
+    token = TOKEN.match(text.strip())
+    if token is None or not re.search(r"\d", token.group(1)):
+        return None
+    return token.group(1)
 
 
 def _lines(path: Path) -> list[str]:
@@ -89,12 +105,46 @@ def test_code_cites_only_documented_a_numbers() -> None:
     assert not unknown, f"code cites undocumented A numbers: {unknown}"
 
 
+def test_every_epic_ledger_declares_exactly_its_sections() -> None:
+    """A ledger's status-summary rows must name exactly its ID sections: no orphan rows, no missing sections."""
+    files = _epic_ledgers()
+    assert len(files) == 10, f"expected 10 Epic ledgers, found {len(files)}"
+    for path in files:
+        declared: set[str] = set()
+        sections: set[str] = set()
+        in_summary = False
+        for line in _lines(path):
+            if line.startswith(HEADING):
+                in_summary = "状态总览" in line or "Status Summary" in line
+                token = _token(line[3:])
+                if token:
+                    sections.add(token)
+                continue
+            if in_summary and line.startswith("| "):
+                token = _token(_cells(line)[0])
+                if token:
+                    declared.add(token)
+        assert declared == sections, f"{path.name}: declared != sections, diff {sorted(declared ^ sections)}"
+
+
+def test_each_a_number_is_sectioned_in_at_most_one_ledger() -> None:
+    """Same-ID-different-meaning guard: one A-number may own a ``##`` section in at most one ledger (A19 lesson)."""
+    homes: dict[str, set[str]] = {}
+    for path in _epic_ledgers():
+        for line in _lines(path):
+            if line.startswith("## "):
+                for match in CITE.finditer(line):
+                    homes.setdefault(f"A{int(match.group(1))}", set()).add(path.parent.name)
+    dupes = {aid: sorted(dirs) for aid, dirs in homes.items() if len(dirs) > 1}
+    assert not dupes, f"A-number sectioned in multiple ledgers: {dupes}"
+
+
 def test_epic_ledgers_without_id_sections_carry_a_no_active_marker() -> None:
     files = _epic_ledgers()
     assert len(files) == 10, f"expected 10 Epic ledgers, found {len(files)}"
     for path in files:
         lines = _lines(path)
-        has_id_sections = any(line.startswith(("## ", "### ")) and ID.search(line) for line in lines)
+        has_id_sections = any(line.startswith(HEADING) and _token(line[3:]) for line in lines)
         if not has_id_sections:
             text = "\n".join(lines)
             assert "当前活动项无" in text or "只登记已闭合项" in text, (
