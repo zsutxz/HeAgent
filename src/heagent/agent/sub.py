@@ -26,6 +26,8 @@ from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from heagent.context.compressor import ContextCompressor
     from heagent.context.window_reset import WindowResetConfig
     from heagent.memory.facts import FactStore
@@ -94,6 +96,7 @@ class SubAgent:
         blocked_tools: list[str] | None = None,
         window_reset: WindowResetConfig | None = None,
         metadata: dict[str, Any] | None = None,
+        write_allowlist: Sequence[str] | None = None,
         delegation_depth: int = 1,
         announcer: SubAgentAnnouncer | None = None,
         runtime_config: ResolvedRuntimeConfig | None = None,
@@ -119,6 +122,10 @@ class SubAgent:
         self._role = role
         self._window_reset = window_reset
         self._metadata = copy.deepcopy(metadata) if metadata is not None else None
+        # 写集围栏（Epic 52 AD-17）：per-run 写路径白名单，经 run metadata 注入供
+        # PolicyEngine 对 file_write/file_edit 做越集预检。键在 reserved 集中——
+        # 用户 / role metadata 不可伪造或覆盖，只能经此显式参数传入。空列表等同未声明。
+        self._write_allowlist = list(write_allowlist) if write_allowlist else None
 
         # 以下四项遵循「显式参数 > role 默认 > 内置默认」的优先级解析。
         # 1) 系统提示词：显式 system 优先，否则取 role.system。
@@ -217,6 +224,7 @@ class SubAgent:
             "progress_summary",
             "segment",
             "completed_steps",
+            "write_allowlist",
         }
         role_metadata = self._role.metadata if self._role is not None else {}
         supplied_metadata = {**role_metadata, **(self._metadata or {})}
@@ -226,6 +234,9 @@ class SubAgent:
         metadata["kind"] = "subagent"
         if self._role is not None:
             metadata["role"] = self._role.name
+        # 写集围栏（Epic 52 AD-17）：参数注入（reserved 已过滤同名伪造），None=未声明=现状。
+        if self._write_allowlist is not None:
+            metadata["write_allowlist"] = list(self._write_allowlist)
         # 上下文管理：window_reset 优先（长任务跨窗口续跑）；否则走 in-place 压缩（默认）。
         compressor = None
         window_reset = self._window_reset
@@ -261,7 +272,13 @@ class SubAgent:
             run_context=run_context,
         )
         try:
-            output = await loop.run(task, system=self._system)
+            # 流式执行（逐 chunk 到达即重置代理层读超时，消解中转端点 524）。
+            # SubAgent 是后台执行体：announcer 已负责起止报告，text chunk 不外泄，
+            # 仅收集 done 事件的 final_answer——与 run() 返回值同源等价。
+            output = ""
+            async for event in loop.run_stream(task, system=self._system):
+                if event.type == "done":
+                    output = event.final_answer
             if self._announcer is not None:
                 self._announcer.finished(name, loop, iterations=loop.last_iteration or 0, ok=True)
             return SubAgentResult(

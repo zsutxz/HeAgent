@@ -11,6 +11,8 @@
 2. **黑名单**（``blocked_tools``）—— 命中 → ``BLOCKED``；
 3. **MCP 门控**（``block_mcp_tools``）—— 命中 MCP 工具 → ``BLOCKED``；
 4. **工作区路径围栏**（:meth:`_validate_paths`）—— file/git 工具路径越界 → ``BLOCKED``；
+4'. **写集围栏**（:meth:`_validate_write_allowlist`，Epic 52 AD-17）—— 本 run 声明了
+   ``write_allowlist`` 时，file_write / file_edit 目标路径越集 → ``BLOCKED``；
 5. **审批**（``approval_tools``）—— 需审批且当前 run 未授权 → ``APPROVAL_REQUIRED``；
    对 MCP 工具，如果传入了 ``schema``（含 ``annotations``），则：
    - ``destructiveHint`` → 需要审批（FR-A3）；
@@ -116,6 +118,10 @@ class PolicyEngine:
     _DENY_READ_TOOLS: frozenset[str] = frozenset({"file_read", "file_search", "content_search"})
     _DENY_WRITE_TOOLS: frozenset[str] = frozenset({"file_write"})
 
+    # 写集围栏（Epic 52 AD-17，声明门控并行）约束的工具：目标路径必须落在本 run 的
+    # write_allowlist（context.metadata）内。只接写入类工具——读不构成写集冲突。
+    _WRITE_ALLOW_TOOLS: frozenset[str] = frozenset({"file_write", "file_edit"})
+
     def __init__(
         self,
         *,
@@ -197,6 +203,14 @@ class PolicyEngine:
             if path_error:
                 logger.warning("PolicyEngine blocked '%s': %s", call.name, path_error)
                 return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=path_error, source="workspace_paths")
+
+            # 4') 写集围栏（Epic 52 AD-17）：声明门控并行的预防层——界内写路径必须落在
+            # 本 run 的 write_allowlist 内。与围栏 / deny 同族（同一 block 内，同被
+            # danger-full-access 跳过），独立 source 便于审计区分「越工作区」与「越声明写集」。
+            allow_error = self._validate_write_allowlist(call, context=context)
+            if allow_error:
+                logger.warning("PolicyEngine blocked '%s': %s", call.name, allow_error)
+                return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=allow_error, source="write_allowlist")
 
         # 计算沙箱配置（该工具需沙箱则非 None）。
         sandbox_profile = self._sandbox_profile(call)
@@ -287,6 +301,49 @@ class PolicyEngine:
                 if denied is not None:
                     return f"Tool '{call.name}': {denied}"
         return ""
+
+    def _validate_write_allowlist(self, call: ToolCall, *, context: RunContext | None) -> str:
+        """对写工具做 per-run 写集围栏校验（Epic 52 AD-17，声明门控并行的预防层）。
+
+        ``context.metadata["write_allowlist"]`` 为非空列表时，:data:`_WRITE_ALLOW_TOOLS`
+        中工具的目标路径经 :func:`resolve_under_root` 解析后必须命中白名单——条目同样
+        resolve，目录条目放行子树（``is_relative_to``，条目自身相等亦命中）。
+        allowlist 缺失 / 为空 / 非列表 / 工具不在写工具集 → 放行（零回归）；
+        root 缺失时放行（与围栏同口径：无根无法解析相对声明）。
+
+        越出工作区的路径返回空串——那由 ``_validate_paths`` 围栏负责（reason 更准确），
+        本层只管「界内但越集」。条目解析越界（如 ``../``）按**死条目**处理（永不匹配）：
+        只收紧、不放宽可写范围。
+
+        定位：纵深防御，**非安全边界**（shell 可绕过）——越集 shell 写入由宿主 Git
+        审计事后检测（AD-18）。
+        """
+        if call.name not in self._WRITE_ALLOW_TOOLS:
+            return ""
+        raw = context.metadata.get("write_allowlist") if context is not None else None
+        if not isinstance(raw, list) or not raw:
+            return ""
+        entries = [value for value in raw if isinstance(value, str)]
+        if not entries:
+            return ""
+        root = self._workspace_root(context)
+        if root is None:
+            return ""
+        value = call.arguments.get("path")
+        if not isinstance(value, str):
+            return ""
+        try:
+            resolved = resolve_under_root(value, root)
+        except WorkspacePathError:
+            return ""
+        for entry in entries:
+            try:
+                allowed = resolve_under_root(entry, root)
+            except WorkspacePathError:
+                continue  # 死条目：永不匹配（fail-closed 方向——不会扩大可写范围）
+            if resolved.is_relative_to(allowed):
+                return ""
+        return f"Tool '{call.name}' attempted to write outside the declared write set: {value}"
 
     def _workspace_root(self, context: RunContext | None) -> Path | None:
         """解析工作区根：context 优先，其次 self；解析为绝对路径。无根则返回 None。"""
