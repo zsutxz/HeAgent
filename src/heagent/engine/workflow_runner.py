@@ -200,10 +200,21 @@ class WorkflowRunner:
     def from_checkpoint(
         cls, workflow: WorkflowResource, checkpoint: WorkflowCheckpoint, **kwargs: Any
     ) -> WorkflowRunner:
-        """Restore runner progress from a persisted checkpoint."""
+        """Restore runner progress from a persisted checkpoint.
+
+        RUNNING 快照归一化为 PENDING（Epic 52 Story 52-5）：RUNNING 只在步骤执行中存在，
+        而能落盘的 RUNNING 只可能来自批结算中段的逐成员快照（崩溃/取消路径在落盘前已按
+        转换表收敛到 PENDING/FAILED，见 ``_absorb_step_exception``）——盘上见到 RUNNING 即
+        「进程死在步骤中段」。转换表没有 RUNNING 的再入口（``START`` 只接 PENDING），
+        唯一可恢复语义是重新驱动本步骤：归一化为 PENDING 后由批派生跳过已完成成员续跑。
+        显性注释而非静默兜底：这是确定性的崩溃恢复语义，不是吞错。
+        """
+        restored_status = (
+            checkpoint.status if checkpoint.status is not WorkflowStatus.RUNNING else WorkflowStatus.PENDING
+        )
         state = WorkflowRunnerState(
             active_step=checkpoint.active_step if checkpoint.active_step is not None else len(workflow.steps),
-            status=checkpoint.status,
+            status=restored_status,
             completed_steps=list(checkpoint.completed_steps),
             # `outputs` 是产物键表的唯一载体；旧字段的 `{reference: None}` 兜底在「artifact_refs
             # 恒等于 list(outputs)」不变量下不可达且等值（两边同空），随镜像派生化一并删除（A33①）。

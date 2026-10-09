@@ -533,7 +533,7 @@ development_status:
   epic-52: planned
   52-1-write-allowlist-fence: review  # 2026-10-09 实现+域内验证全绿；全量 22 失败为并发进程持锁环境噪声（stash 基线证明）
   52-2-parallel-batch-scheduler: review  # 2026-10-09 实现+全量 3660 passed 干净全绿；三处设计缺口 TDD 抓出并修正
-  52-3-host-write-audit: planned
-  52-4-declaration-surface-docs: planned
-  52-5-integration-recovery-matrix: planned
+  52-3-host-write-audit: review  # 2026-10-09 实现+全量 3671 passed；双桥协议（四参宿主并行/三参串行）+ Git 审计判负/兄弟排除/untracked 警告/门锁串行 11 用例
+  52-4-declaration-surface-docs: review  # 2026-10-09 loader INFO 翻转 + 技能包 Step06/07/模板/概览行改写（七条件逐字）+ frame/goal-workflow 文档收口；grep 无批次旧语义残留
+  52-5-integration-recovery-matrix: review  # 2026-10-09 全链样例+恢复矩阵扩展+R4 冒烟 10 passed；抓出并修复 RUNNING 快照不可恢复缺口（from_checkpoint 归一化）；全量 3675 passed 双平台 mypy 绿
   epic-52-retrospective: optional
