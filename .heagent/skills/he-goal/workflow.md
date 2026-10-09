@@ -3,6 +3,7 @@ name: workflow
 entrypoint: goal
 on_create: persist_goal_identity
 step_executor: subagent
+revision: "2"
 required_resources: prompt-template.md, gate-template.md
 doctor_checks: package, required_resources, templates, roles, checkpoint_dir
 status_fields: step, epic, story, reason, failures, decisions, next
@@ -19,6 +20,9 @@ open_question_block: "有竞争性解释需要干系人拍板时，以 waiting_u
 本文件是声明式 `/goal` 工作流的**完整可执行契约**。CLI 读取本文件、持久化 `on_create` 声明的
 goal 身份，并为每个声明步骤调用一个**全新**的 SubAgent 会话；已完成的步骤记入 goal checkpoint
 store，任何步骤都不得跳过。
+
+frontmatter 的 `revision: "2"` 是**声明 revision**：包内容改动**不**触发派生漂移，改包契约必须
+同步推进 revision（并据此重冻结受影响的活动 goal）。
 
 本工作流产出的**持久性非代码产物**（需求、PRD、架构记录、评审、验证报告等）一律写入项目输出
 根 `_he-output/` 之下；源代码仍留在仓库既有位置。全部正文与产物使用中文。
@@ -39,7 +43,7 @@ store，任何步骤都不得跳过。
 规模建议 900–1600 token 量级：低于 900 易歧义，高于 1600 易让实现会话上下文腐化。**两条都不是
 硬闸门**，是需要用户裁决的建议。
 
-**冻结契约（frozen-after-approval）**——`02-epics.md` 里每条 story 的验收标准一经 step 06 写出
+**冻结契约（frozen-after-approval）**——`epics.md` 里每条 story 的验收标准一经 step 06 写出
 即**冻结**：只有人能改，agent 在后续任何步骤中都不得改写验收标准去迁就实现。实现或评审中发现
 标准本身有缺陷，按 step 07 的 Epic 收口评审分诊规则（`bad_spec` → 改实现、不改规格）处置，
 不得就地改标准。
@@ -52,7 +56,7 @@ Step 06 是**规划步骤**：把已验证范围拆成 story、排定工作项�
 story 的验收标准；它只规划，不实现。Step 07 是**逐 story 的重任务步骤**：单个会话内完成一条
 story 的实现、测试与验证，并且是唯一允许创建实现产物、唯一允许新增或修改测试文件的步骤。
 
-Step 07 按 `02-epics.md` 的 `### S-N` 顺序执行；默认每次增量只处理一条 Story，声明并行上限后可在同一 Epic 内批量处理，并在两个收口
+Step 07 按 `epics.md` 的 `### S-N` 顺序执行；默认每次增量只处理一条 Story，声明并行上限后可在同一 Epic 内批量处理，并在两个收口
 点上追加动作：**Sprint 收口**（当前 story 是该 Sprint 最后一条时，跑该 Sprint 的可演示切片并核对
 退出准则）与 **Epic 收口评审**（当前 story 是该 Epic 最后一条时，对本 Epic 的全部 story 做一次
 对抗式代码评审）；不命中边界时不要额外做事。
@@ -61,7 +65,7 @@ Step 08 是**全系统最终验收步骤**：只在全部 story 完成后运行�
 （逐 Epic 集成场景 + 跨 Epic 端到端 + 全量质量门禁），并给出系统级放行结论。它只能为修复自己报出
 的 Critical 集成缺陷而改代码。
 
-**产物按 Epic 分目录**：Epic 在 `02-epics.md` 里以 `## E<N> — <标题>` 分段，story 用 `### S-N`
+**产物按 Epic 分目录**：Epic 在 `epics.md` 里以 `## E<N> — <标题>` 分段，story 用 `### S-N`
 标题归在所属 Epic 段内；story 级产物落在 `step-07-implement-story/epic-<eN>/s-<n>/`（`E1` →
 `epic-e1`），Epic 级报告落在同一 `epic-<eN>/` 目录下。任何改动代码的步骤都必须重跑受影响的测试，
 并写明确切命令与结果。
@@ -192,8 +196,8 @@ story，且你声明的每个依赖要么已存在，要么由编号更小的 st
 story 编号**连续且单调**：sprint 1 放编号最小的 story，sprint 2 接着放，依此类推，因为执行顺序严格
 按数字。每条 story 恰好属于一个 sprint，sprint 合起来覆盖全部 story。
 
-把结果写入 goal 目录下的 `02-epics.md`：先按 Epic 分段（`## E<N> — <标题>` 段落，段内为规范的
-`### S-N <标题>` story 清单），然后是 `## Sprint 计划` 一节。`02-epics.md` 是后续所有步骤的 story
+把结果写入 goal 目录下的 `epics.md`：先按 Epic 分段（`## E<N> — <标题>` 段落，段内为规范的
+`### S-N <标题>` story 清单），然后是 `## Sprint 计划` 一节。`epics.md` 是后续所有步骤的 story
 清单**唯一真源**；step 07 与 step 08 只读不改。**不要**写 `_bmad-output/sprint-status.yaml`：它是
 历史规划状态记录，保持只读。
 
@@ -210,14 +214,14 @@ role: bmad-build
 input: 澄清的实现范围, 架构
 output: 故事实现, 故事定义, 故事测试证据, 故事验证报告
 checkpoint: true
-story_loop: 02-epics.md
+story_loop: epics.md
 max_parallel_stories: 3
 max_iterations: 100
 validation: section: 实现摘要; section: 测试证据; section: 验证结论; 本条 story 在这一个步骤内完成实现、测试与验证，且记录下确切命令及其结果
 
 `bmad-build` 是本步骤的实现、测试与验证方法论来源。默认每次只注入一条 Story；当
 `max_parallel_stories > 1` 时，仅在同一个 Epic 内以批次方式并发执行，跨 Epic 严格串行，单条失败不取消
-同批其他 Story。只实现当前 Story，不得修改冻结的 `02-epics.md`。Story 产物必须写入
+同批其他 Story。只实现当前 Story，不得修改冻结的 `epics.md`。Story 产物必须写入
 `_he-output/goals/<goal-id>/step-07-implement-story/epic-<eN>/s-<n>/`：`story.md`、
 `implementation.md`、`test-report.md` 与 `verify-report.md`；CLI 保存该次步骤输出为同目录的
 `report.md`。命中 Sprint 或 Epic 的最后一条 Story 时，按 BMad 方法完成相应收口，并将证据写入报告。
@@ -234,4 +238,4 @@ validation: section: 评审发现; section: 质量门禁; section: 系统集成�
 `bmad-qa-generate-e2e-tests` 是本步骤的集成与端到端测试方法论来源。全部 Story 完成后只执行一次：
 逐 Epic 验证跨 Story 集成场景，并验证跨 Epic 主路径、失败路径与恢复路径。逐 Epic 报告写入
 `step-08-system-integration-test/epic-<eN>/integration-report.md`；顶层报告给出质量门禁、未决
-Critical 与系统级结论。只允许修复本步骤发现的 Critical 集成缺陷；`02-epics.md` 保持只读。
+Critical 与系统级结论。只允许修复本步骤发现的 Critical 集成缺陷；`epics.md` 保持只读。

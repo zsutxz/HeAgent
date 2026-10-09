@@ -99,6 +99,10 @@ async def test_delegate_one_reports_failure() -> None:
         async def send(self, messages: list[Message], *, tools=None) -> ProviderResponse:  # noqa: ANN001, ARG002
             raise RuntimeError("provider exploded")
 
+        async def stream(self, messages: list[Message], *, tools=None) -> AsyncIterator[ProviderResponse]:  # noqa: ANN001, ARG002
+            # 故障注入同步覆盖流式路径（SubAgent 执行体现在走 stream）。
+            yield await self.send(messages, tools=tools)
+
     delegate_one, _ = build_subagent_delegates(_FailProvider())
     outcome = await delegate_one("boom", None, None)
 
@@ -175,7 +179,9 @@ class _DelegatingProvider:
         )
 
     async def stream(self, messages: list[Message], *, tools=None) -> AsyncIterator[ProviderResponse]:  # noqa: ANN001, ARG002
-        yield ProviderResponse(content="parent done", usage=TokenUsage(), model="stub", finish_reason="stop")
+        # SubAgent 执行体已切换流式路径：单 chunk 复用 send 的轮次逻辑，
+        # 子 loop 与主 loop 看到同一有状态调用序列。
+        yield await self.send(messages, tools=tools)
 
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(name="stub", model="stub")
@@ -272,7 +278,9 @@ class _NestedDelegatingProvider:
         )
 
     async def stream(self, messages: list[Message], *, tools=None) -> AsyncIterator[ProviderResponse]:  # noqa: ANN001, ARG002
-        yield ProviderResponse(content="done", usage=TokenUsage(), model="stub", finish_reason="stop")
+        # 同 _DelegatingProvider：单 chunk 复用 send 的轮次逻辑，保证嵌套委派场景
+        # 子 loop（流式）与主 loop 走同一状态机。
+        yield await self.send(messages, tools=tools)
 
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(name="stub", model="stub")

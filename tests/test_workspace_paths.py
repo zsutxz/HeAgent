@@ -59,7 +59,10 @@ def test_workspace_paths_derive_all_state_from_root(tmp_path: Path) -> None:
     assert paths.runs == tmp_path / ".heagent" / "runs"
     assert paths.profile_file == tmp_path / ".heagent" / "user" / "USER.md"
     assert paths.edit_snapshots == tmp_path / ".heagent" / "tmp" / "edit-snapshots"
-    assert len(build_internal_state_dirs(tmp_path)) == 12
+    # 数量断言守护的是「这些目录互不重合」：集合去重后仍应为 11 个（`.heagent/skills`
+    # 自 2026-10-08 起是可读的知识资源、不再属读拒的运行态目录）。成员清单的权威断言在
+    # `tests/test_credential_guard.py::TestDenyRuleBuilders`——本文件不复制那份名单。
+    assert len(build_internal_state_dirs(tmp_path)) == 11
 
 
 def test_engine_default_binds_run_and_ledger_to_workspace(tmp_path: Path) -> None:

@@ -949,7 +949,7 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
   `goal_id` 由 LLM 命名（`goal/naming.py` 一次性 provider 调用生成 kebab-case 名，清洗/校验/`-a`..`-z`
   去重为代码内确定性逻辑）；调用失败或输出非法时 stderr 显性提示并回退固定名 `project`。
   id 字符集锁定 `^[a-z][a-z-]*$`（current 指针校验、cron prompt 解析、旧 job 注销匹配三处下游依赖）。
-- `/goal next` 执行一个声明步骤，`story_loop`（当前为 `02-epics.md`）步骤每次只执行一条 Story；即使声明了 `parallel_group` / `write_set`，当前宿主执行器也保持 fail-closed 串行，因为自声明写集不是实际写入隔离边界。每条 Story 完成后先持久化其 checkpoint / evidence，再允许下一条进入；`/goal run` 可连续推进，遇到检查点、
+- `/goal next` 执行一个声明步骤，`story_loop`（当前为 `epics.md`）步骤每次只执行一条 Story；即使声明了 `parallel_group` / `write_set`，当前宿主执行器也保持 fail-closed 串行，因为自声明写集不是实际写入隔离边界。每条 Story 完成后先持久化其 checkpoint / evidence，再允许下一条进入；`/goal run` 可连续推进，遇到检查点、
   阻塞或失败即停止。
 - `/goal status` 只读回显运行状态和目标产物；`/goal reset` 只清除 current 指针并保留目标目录。
 - `/goal verify [run]`（Story 51-4）：按步骤 `validation:` 的结构化子句求值——`goal/quality_gates.py`
@@ -1642,7 +1642,7 @@ Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测
 
 ### 8.2 Goal/Epic/Story 产物契约
 
-声明式 BMad 工作流产物分为三层，各层职责固定。Goal 产物（`type: goal`）只包含 Epic 列表；`EPIC.md` 包含 Goal、Value、Scope、Dependencies、Acceptance Criteria、Stories 和 Definition of Done；每个 Story 文档包含 frontmatter、User Story、Given/When/Then 验收标准、Tasks 和 Definition of Done。ID 与父级引用由 `heagent.engine.artifacts.validate_hierarchy()` 校验。`/goal` CLI 不再写入 Goal 产物，而是持久化目标需求文档 `brief.md`；Epic/Story 列表存放在工作流自己的 `02-epics.md` 中。
+声明式 BMad 工作流产物分为三层，各层职责固定。Goal 产物（`type: goal`）只包含 Epic 列表；`EPIC.md` 包含 Goal、Value、Scope、Dependencies、Acceptance Criteria、Stories 和 Definition of Done；每个 Story 文档包含 frontmatter、User Story、Given/When/Then 验收标准、Tasks 和 Definition of Done。ID 与父级引用由 `heagent.engine.artifacts.validate_hierarchy()` 校验。`/goal` CLI 不再写入 Goal 产物，而是持久化目标需求文档 `brief.md`；Epic/Story 列表存放在工作流自己的 `epics.md` 中。
 
 `parse_artifact()` 遇到缺失或重复章节、未解决的 `TBD`、无效的 frontmatter 类型/状态或格式错误的父级元数据时会显式失败。模板位于 `.heagent/skills/he-goal/templates/`。历史 Epic/Story 状态只由 `_bmad-output/sprint-status.yaml` 维护；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。`validate_sprint_status_path()` 强制使用这个规范的只读目标。
 

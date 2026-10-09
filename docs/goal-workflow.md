@@ -43,11 +43,11 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 3. `analyze-requirements`：分析需求并产出可验证的需求与初步 story-sized 拆分（正式 Story 清单由 step 06 产出）。
 4. `define-product-scope`：形成 PRD 和有序 Epic 提案（Epic 级，不做 Story 拆分）。
 5. `design-architecture`：形成架构、边界、约束和决策记录。
-6. `refine-stories`：**规划步骤**——确认实现范围，拆分 Story，细化 Sprint（每个 Sprint 的目标、Story 集合、进入/退出准则、可演示切片与退掉的风险），排定工作项先后（Story 编号即执行顺序），并固定每个 Story 的验收标准与 DoD；写入 `02-epics.md` 的 `## E<N>` 分段 + `### S-N` 清单 + `## Sprint 计划`，不改实现代码。
-7. `implement-story`：由 `bmad-build` 执行的**重任务步骤**（`story_loop: 02-epics.md`）。每次只实现一个 Story，并产出实现、测试与验证证据；它是唯一创建实现产物、唯一新增或修改测试文件的步骤。
+6. `refine-stories`：**规划步骤**——确认实现范围，拆分 Story，细化 Sprint（每个 Sprint 的目标、Story 集合、进入/退出准则、可演示切片与退掉的风险），排定工作项先后（Story 编号即执行顺序），并固定每个 Story 的验收标准与 DoD；写入 `epics.md` 的 `## E<N>` 分段 + `### S-N` 清单 + `## Sprint 计划`，不改实现代码。
+7. `implement-story`：由 `bmad-build` 执行的**重任务步骤**（`story_loop: epics.md`）。每次只实现一个 Story，并产出实现、测试与验证证据；它是唯一创建实现产物、唯一新增或修改测试文件的步骤。
 8. `system-integration-test`：由 `bmad-qa-generate-e2e-tests` 执行的**全系统最终验收步骤**，只在全部 Story 完成后运行一次，覆盖逐 Epic 集成与跨 Epic 端到端测试，并给出质量门禁结论。
 
-**写权限边界**：步骤 01–02 只读，唯一例外是步骤 01 把初步分析结论写回该 goal 的需求文档（文件名由 prompt 的 `Goal document` 行给出；原始需求段逐字冻结，仅补写「总结的需求」段）；步骤 06 只写规划产物（`02-epics.md`），不改代码；步骤 07 是唯一
+**写权限边界**：步骤 01–02 只读，唯一例外是步骤 01 把初步分析结论写回该 goal 的需求文档（文件名由 prompt 的 `Goal document` 行给出；原始需求段逐字冻结，仅补写「总结的需求」段）；步骤 06 只写规划产物（`epics.md`），不改代码；步骤 07 是唯一
 创建实现产物、唯一新增或修改测试文件的步骤（实现、测试、验证三阶段都在这一步内完成；Sprint 收口
 与 Epic 收口评审也在这一步的边界增量内完成，评审只可为修复自己报告的 Critical 与规格偏离改代码）；
 步骤 08 只做最小集成修复，不重新设计实现。任何改代码的步骤都必须重跑受影响测试并写明确切命令与
@@ -67,7 +67,7 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 | 敏捷环节 | 工作流体现 | 机械保证 |
 | --- | --- | --- |
 | 需求初析与落盘 | 步骤 01（初步分析，只读步骤的唯一写操作） | `validation` 强制输出含 `## 需求总结` 章节，缺一即 BLOCKED；正文要求把「总结的需求」写进 prompt 的 `Goal document` 行指明的需求文档（原始需求段逐字冻结，只补写总结段） |
-| Story 拆分 + Sprint 计划 | 步骤 06（规划步骤，只写 `02-epics.md`） | `validation` 强制输出含 `## Story 拆分` 与 `## Sprint 计划` 两个章节；Story 编号从 S-1 连续且即执行顺序（`parse_story_list` 按编号后缀排序），Sprint 成员须与编号连续单调，Story 须归在 `## E<N> — <标题>` Epic 段内且段内编号连续 |
+| Story 拆分 + Sprint 计划 | 步骤 06（规划步骤，只写 `epics.md`） | `validation` 强制输出含 `## Story 拆分` 与 `## Sprint 计划` 两个章节；Story 编号从 S-1 连续且即执行顺序（`parse_story_list` 按编号后缀排序），Sprint 成员须与编号连续单调，Story 须归在 `## E<N> — <标题>` Epic 段内且段内编号连续 |
 | Story 开发 + 测试 + 验证 | 步骤 07（`story_loop`，重任务） | 每 Story 独立 checkpoint；`validation` 一次强制三个章节：`## 实现摘要` / `## 测试证据` / `## 验证结论`，缺一即 BLOCKED |
 | Sprint 退出验证 | 步骤 07（该 Sprint 最后一条 Story 的增量内） | 步骤正文要求跑该 Sprint 的可演示切片、核对进入与退出准则，并把结果写进该增量的 `## 收口结论` |
 | Epic 收口评审（代码评审） | 步骤 07（该 Epic 最后一条 Story 的增量内） | 评审范围是整条 Epic（不是单条 Story）；报告落 `epic-<eN>/review-report.md`，含 `## 评审发现` 与 frontmatter `review_loop_iteration`（>5 即 HALT）；`## 评审发现` / `## 收口结论` 由步骤正文要求返回（非 `section:` 门禁，因 `section:` 门禁按 Story 逐条校验，无法只对收口增量生效） |
@@ -136,7 +136,7 @@ sha256 摘要前 16 位；全内联步骤的包不追加步骤条目，指纹取
 _he-output/goals/<goal-id>/
 ├── brief.md                             # 需求文档：原始需求（创建时写入）+ 总结的需求（step 01 初步分析后写入）
 │                                        #   存量 goal 沿用 require.md / GOAL.md（由 _goal_document_path 解析）
-├── 02-epics.md                          # 由 step 06 写入的 Epic/Story 清单（## E<N> 分段 + ### S-N，编号即执行顺序）+ ## Sprint 计划
+├── epics.md                          # 由 step 06 写入的 Epic/Story 清单（## E<N> 分段 + ### S-N，编号即执行顺序）+ ## Sprint 计划
 ├── step-01-market-research.md           # 市场调研摘要与证据缺口
 ├── step-02-brainstorm-options.md        # 头脑风暴与候选方向
 ├── step-03-...md                        # 其余非 Story 步骤输出
@@ -172,10 +172,10 @@ _he-output/goals/<goal-id>/
   （不是降级）；
   `input:` 的每个引用必须是 CLI 注入键（`user intent` / `user responses` / `existing project context`）
   或前序步骤 `output:` 声明的名字，否则该步骤会被判为 BLOCKED。
-- Story 编号就是执行顺序：`parse_story_list` 按 `S-<n>` 后缀排序，因此 `02-epics.md` 的 Story 编号必须从
+- Story 编号就是执行顺序：`parse_story_list` 按 `S-<n>` 后缀排序，因此 `epics.md` 的 Story 编号必须从
   S-1 连续、无重复，Sprint 成员必须与编号连续单调；否则 Sprint 划分与实际执行顺序错位。步骤 07 读取该
   文件，不得修改。
-- Epic 段落与编号：`02-epics.md` 里每个 Epic 用 `## E<N> — <标题>` 段（`N` 从 1 连续、与有序 Epic 提案
+- Epic 段落与编号：`epics.md` 里每个 Epic 用 `## E<N> — <标题>` 段（`N` 从 1 连续、与有序 Epic 提案
   同序同号），该 Epic 的 Story 用 `### S-N` 全部列在这一段内且编号连续。Story 归属只由所在 Epic 段落与
   Story 块内的 `父 Epic` 字段（后者优先）决定，它同时决定产物目录名 `epic-<eN>/`；交叉或错号会让分组
   静默错位。

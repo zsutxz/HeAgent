@@ -131,6 +131,8 @@ class WindowReset:
 
         prompt = "\n".join(lines)
         try:
+            # 残余非流式调用：大上下文经代理中转（如 Cloudflare）有读超时风险，
+            # 失败已被下方 except 吞为占位符，不致崩；如需根治可切 provider.stream。
             resp: ProviderResponse = await self.provider.send(
                 [Message(role=Role.USER, content=f"{self.config.summary_prompt}\n\n{prompt}")]
             )

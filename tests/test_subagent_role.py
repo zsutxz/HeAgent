@@ -70,12 +70,8 @@ class _ToolCallProvider:
         )
 
     async def stream(self, messages: list[Message], *, tools=None) -> AsyncIterator[ProviderResponse]:
-        yield ProviderResponse(
-            content="done",
-            usage=TokenUsage(),
-            model="stub",
-            finish_reason="stop",
-        )
+        # SubAgent 执行体已切换流式路径：单 chunk 复用 send 的轮次逻辑（seen 记录 + secret_tool 注入）。
+        yield await self.send(messages, tools=tools)
 
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(name="stub", model="stub")

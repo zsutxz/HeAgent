@@ -100,7 +100,8 @@ class _FactAddProvider:
         )
 
     async def stream(self, messages: list[Message], *, tools=None) -> AsyncIterator[ProviderResponse]:
-        yield ProviderResponse(content="x", usage=TokenUsage(), model="stub", finish_reason="stop")
+        # SubAgent 执行体已切换流式路径：单 chunk 复用 send 的轮次逻辑（fact_add 注入）。
+        yield await self.send(messages, tools=tools)
 
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(name="stub", model="stub")

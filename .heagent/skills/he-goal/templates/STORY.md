@@ -8,7 +8,7 @@ title: <Story 标题>
 ---
 # <Story 标题>
 
-> `/goal` 运行时契约：story 的真源是 `_he-output/goals/<goal-id>/02-epics.md` 里的 `### S-N` 条目；
+> `/goal` 运行时契约：story 的真源是 `_he-output/goals/<goal-id>/epics.md` 里的 `### S-N` 条目；
 > 该文件按 Epic 分段（`## E<N> — <标题>`），同一 Epic 的 story 编号连续。step 07 逐条实现时把本模板
 > 落到 `step-07-implement-story/epic-<eN>/s-<n>/story.md`，写出后即冻结（只有人能改验收标准）。
 
@@ -23,7 +23,7 @@ title: <Story 标题>
 - 优先级：P0 | P1 | P2
 - 依赖：S-<n> | none
 
-`父 Epic` 必须与 `02-epics.md` 中包围该 Story 的 `## E<n> — <标题>` 段一致。`02-epics.md` 的
+`父 Epic` 必须与 `epics.md` 中包围该 Story 的 `## E<n> — <标题>` 段一致。`epics.md` 的
 `### S-n <标题>` 是 Step 07 的唯一执行清单；本文件是该清单冻结后的层级产物与验收快照。
 
 ## Acceptance Criteria

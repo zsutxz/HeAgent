@@ -41,7 +41,8 @@ class _StubProvider:
         )
 
     async def stream(self, messages, *, tools=None) -> AsyncIterator[ProviderResponse]:  # noqa: ANN001
-        yield ProviderResponse(content="ok", usage=TokenUsage(), model="stub", finish_reason="stop")
+        # SubAgent 执行体已切换流式路径：单 chunk 复用 send（usage 合法，TokenUsage 字段必填）。
+        yield await self.send(messages, tools=tools)
 
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(name="stub", model="stub")

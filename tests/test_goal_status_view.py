@@ -110,13 +110,13 @@ async def test_cli_status_renders_the_shared_projection(monkeypatch: pytest.Monk
 
 
 def _story_workflow() -> WorkflowResource:
-    """Workflow whose second step runs the story loop declared in ``02-epics.md``."""
+    """Workflow whose second step runs the story loop declared in ``epics.md``."""
     return WorkflowResource(
         name="example",
         instructions="",
         steps=[
             WorkflowStepResource(index=1, name="step-01-plan.md", instructions=""),
-            WorkflowStepResource(index=2, name="step-02-build.md", instructions="", story_loop="02-epics.md"),
+            WorkflowStepResource(index=2, name="step-02-build.md", instructions="", story_loop="epics.md"),
         ],
     )
 
@@ -135,7 +135,7 @@ async def test_story_loop_records_the_epic_and_a_checkpoint_restores_it(tmp_path
     workflow = WorkflowResource(
         name="example",
         instructions="",
-        steps=[WorkflowStepResource(index=1, name="step-01-build.md", instructions="", story_loop="02-epics.md")],
+        steps=[WorkflowStepResource(index=1, name="step-01-build.md", instructions="", story_loop="epics.md")],
     )
     store = WorkflowCheckpointStore(str(tmp_path / "cp"), workflow_path=str(tmp_path / "workflow.json"))
     runner = WorkflowRunner(workflow, goal_id="demo", checkpoint_store=store)
@@ -178,7 +178,7 @@ async def test_cli_status_shows_the_epic_without_reading_any_document(
 
     assert "[goal] current epic: E2" in captured
     assert "[goal] current stories: S-3" in captured
-    assert not (goal_dir / "02-epics.md").exists(), "the status render must not depend on a story document"
+    assert not (goal_dir / "epics.md").exists(), "the status render must not depend on a story document"
 
 
 def test_only_the_status_view_produces_the_progress_line() -> None:

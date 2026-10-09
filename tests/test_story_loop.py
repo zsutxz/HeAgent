@@ -346,7 +346,7 @@ def test_parse_story_list_keeps_the_flat_shape_without_epic_grouping() -> None:
 
 
 def test_parse_story_list_groups_stories_by_epic_heading() -> None:
-    text = """# 02-epics.md - plan
+    text = """# epics.md - plan
 
 ## E1 Core engine
 
@@ -376,7 +376,7 @@ def test_parse_story_list_prefers_explicit_parent_epic_field() -> None:
 
 def test_parse_story_list_ignores_numeric_and_sprint_headings() -> None:
     """A document title, a sprint heading and a table row's 父 Epic mention are not grouping."""
-    text = """# 02-epics.md - plan
+    text = """# epics.md - plan
 
 ## Sprint Plan
 

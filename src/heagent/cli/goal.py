@@ -1481,7 +1481,7 @@ async def _goal_session(
     metadata: dict[str, Any] | None = None,
     max_iterations: int | None = None,
 ) -> SubAgentResult | None:
-    """开一个**全新** SubAgent 会话执行一个 goal 步骤（非流式，流式 deferred）。
+    """开一个**全新** SubAgent 会话执行一个 goal 步骤（流式经 SubAgent 内部收集）。
 
     每次 ``run()`` 新建 AgentLoop+RunContext；``window_reset`` 按设置阈值启用（长会话
     清窗续跑）。Ctrl+C / 任务取消不崩出交互层：捕获后回显「状态在盘」并返回 None。
