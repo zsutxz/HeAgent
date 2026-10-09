@@ -1,7 +1,7 @@
 ---
 id: 52-3
 title: 宿主接线——执行上下文贯通、Git 审计与失败语义
-status: planned
+status: review
 parent_epic: E52
 priority: P1
 depends_on: [52-1, 52-2]

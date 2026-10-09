@@ -17,6 +17,7 @@ cli/goal 经 re-export / 薄壳保持原命名空间可用（monkeypatch 缝见 
 
 from __future__ import annotations
 
+import inspect
 import logging
 import re
 from collections.abc import Awaitable, Callable, Mapping
@@ -473,9 +474,11 @@ class GoalAdvanceOutcome(BaseModel):
     messages: list[str] = Field(default_factory=list)
 
 
-# 入口注入的步骤执行端口：入参 (inputs, step, story)——inputs 由 advance 每轮装配后
-# 传入，bridge 到 engine ``WorkflowRunner.run_step`` 的 ``(step, story)`` 回调契约。
-StepExecutor = Callable[[Mapping[str, Any], Any, Any], Awaitable[WorkflowStepResult]]
+# 入口注入的步骤执行端口：入参 (inputs, step, story, execution)——inputs 由 advance 每轮
+# 装配后传入，bridge 到 engine ``WorkflowRunner.run_step`` 的 ``(step, story, execution)``
+# 回调契约。第四参 execution 是 52-3 扩展（可空 = 串行现状）：Runner 授权声明门控并行时
+# 传入 :class:`StoryExecutionContext`，宿主据此启用写集围栏 + Git 审计。
+StepExecutor = Callable[[Mapping[str, Any], Any, Any, Any], Awaitable[WorkflowStepResult]]
 
 
 class _StorySourceError(Exception):
@@ -496,16 +499,53 @@ def _stories_for(goal_dir: Path, step: Any) -> list[Any] | None:
         raise _StorySourceError(str(exc)) from exc
 
 
+def _executor_accepts_execution(execute_step: StepExecutor) -> bool:
+    """宿主执行端口是否实现四参执行上下文协议（Epic 52 AD-17 授权条件 3 的宿主半边）。
+
+    与 :meth:`WorkflowRunner._accepts_execution` 同一形状判定，只是目标不同：Runner
+    探测的是**桥**（partial）的形状，这里探测的是**宿主**的形状——显式位置参数 ≥4
+    （inputs, step, story, execution）。三参老宿主 → 选串行桥，Runner 因此探测不到
+    执行上下文形状，fail-closed 退回串行（并行授权与宿主能力保持一致，不静默丢上下文）。
+    """
+    try:
+        signature = inspect.signature(execute_step)
+    except (TypeError, ValueError):
+        return False
+    positional = [
+        parameter
+        for parameter in signature.parameters.values()
+        if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
+    ]
+    return len(positional) >= 4
+
+
 async def _run_step_with_inputs(
     inputs: Mapping[str, Any],
     execute_step: StepExecutor,
     step: Any,
     story: Any = None,
+    execution: Any = None,
 ) -> WorkflowStepResult:
-    """``run_step`` 回调桥：把 advance 每轮装配的 inputs 携带给入口注入的执行端口。
+    """``run_step`` 回调桥（四参协议）：把 advance 每轮装配的 inputs 携带给宿主执行端口。
 
-    经 :class:`functools.partial` 绑定前两参后即为 ``run_step`` 的 ``(step, story)``
-    回调契约；binding by value 也避开了循环内闭包对 ``inputs`` 的晚绑定歧义。
+    经 :class:`functools.partial` 绑定前两参后即为 ``run_step`` 的
+    ``(step, story, execution)`` 回调契约；binding by value 也避开了循环内闭包对
+    ``inputs`` 的晚绑定歧义。仅当宿主端口实现四参协议时被选用（:func:`_executor_accepts_execution`）。
+    """
+    return await execute_step(inputs, step, story, execution)
+
+
+async def _run_step_without_execution(
+    inputs: Mapping[str, Any],
+    execute_step: Callable[..., Awaitable[WorkflowStepResult]],
+    step: Any,
+    story: Any = None,
+) -> WorkflowStepResult:
+    """两参老契约桥（fail-closed 串行）：宿主未实现四参协议时保持 52 之前形状。
+
+    桥只收 ``(step, story)``——Runner 的 ``_accepts_execution`` 形状探测在三参 partial 上
+    返回 False，并发授权随之关闭，宿主永远不会被多传参数。``execute_step`` 取宽容形状
+    （本桥的存在意义就是不假设第四参）。
     """
     return await execute_step(inputs, step, story)
 
@@ -623,7 +663,10 @@ async def _advance_unlocked(
             or "No project context file was found; inspect the current workspace before making assumptions.",
             **runner.state.outputs,
         }
-        callback = partial(_run_step_with_inputs, inputs, execute_step)
+        # 桥按宿主协议形状选择（52-3）：四参宿主走执行上下文桥（Runner 可授权并行），
+        # 三参老宿主走串行桥（fail-closed）。宿主形状在一次推进内不变，逐轮重选无意义。
+        bridge = _run_step_with_inputs if _executor_accepts_execution(execute_step) else _run_step_without_execution
+        callback = partial(bridge, inputs, execute_step)
         plan = runner.state.requested_steps
         try:
             if plan:

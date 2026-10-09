@@ -32,7 +32,7 @@ from heagent.engine import (
 )
 from heagent.engine.ledger import LedgerAudit
 from heagent.engine.observability import elapsed_ms
-from heagent.engine.workflow_runner import _emit_step_event
+from heagent.engine.workflow_runner import WorkflowRunner, _emit_step_event
 from heagent.goal.application import (
     GOAL_SKILLS_ROOT,
     DecisionStatus,
@@ -91,7 +91,7 @@ from heagent.pub.types import ToolCall, ToolResult
 from heagent.pub.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Mapping
+    from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 
     from heagent.agent.sub import SubAgentResult
     from heagent.cron.jobs import JobStore
@@ -100,6 +100,7 @@ if TYPE_CHECKING:
     from heagent.goal.quality_gates import GovernedCommandPort, VerificationReport
     from heagent.memory.skill_packages import SkillPackage
     from heagent.providers.base import BaseProvider
+    from heagent.pub.types import StoryExecutionContext
 
 
 logger = logging.getLogger(__name__)
@@ -301,8 +302,18 @@ async def _goal_execute_step(
     inputs: Mapping[str, Any],
     step: Any,
     story: Any = None,
+    execution: StoryExecutionContext | None = None,
 ) -> WorkflowStepResult:
-    """Execute one declared step through the selected trusted package executor."""
+    """Execute one declared step through the selected trusted package executor.
+
+    ``execution``（Epic 52 AD-17/AD-18，52-3）：Runner 授权声明门控并行时经第四参传入该
+    Story 的执行上下文。非空时启用两端安全面——SubAgent 会话带 ``write_allowlist``
+    （52-1 围栏，预防层）；会话 + 质量门结束后做 Git 写集审计（AD-18，检测层）：tracked
+    增量越集（声明写集并集 + 宿主自写产物之外）→ 显性 FAILED（``write_violation=True``，
+    Runner 据此置撤销闩，该 Goal 此后串行）；untracked 增量只发 ``workflow_write_audit``
+    警告（验证夹具 / 新产物常态）；仓库不可用（``GitPortError``）跳过审计并发说明事件，
+    围栏仍生效。脚本执行器无 SubAgent 会话，不消费 execution。
+    """
     if step.executor_mode == "script":
         return await _goal_execute_script_step(engine, workflow, goal_dir, inputs, step, story)
     prompt = _goal_declarative_prompt(
@@ -315,6 +326,12 @@ async def _goal_execute_step(
         validation_rules=step.validation_rules,
         declared_inputs=step.input,
     )
+    # 审计基线在会话**开始前**采集（AD-18）：Δ = after \ before，兄弟并发写与门命令产物
+    # 因此天然落在 after 里、按声明排除。基线采集失败（非 Git）→ 跳过审计，围栏不撤。
+    workspace = _goal_verify_workspace(engine)
+    baseline = await _audit_git_evidence(workspace) if execution is not None else None
+    if execution is not None and baseline is None:
+        _emit_write_audit_event(engine, step=step, story=story, skipped="git_unavailable")
     result = await _goal_session(
         provider,
         engine,
@@ -327,6 +344,7 @@ async def _goal_execute_step(
             "purpose": (step.role or step.name) + (f" / {story.id}" if story is not None else ""),
         },
         max_iterations=step.max_iterations or None,
+        write_allowlist=list(execution.write_allowlist) if execution is not None else None,
     )
     if result is None:
         return WorkflowStepResult(
@@ -347,7 +365,98 @@ async def _goal_execute_step(
     gate_reason = await _goal_structured_gate(engine, workflow, step, story, goal_dir)
     if gate_reason:
         return WorkflowStepResult(status=WorkflowStatus.BLOCKED, reason=gate_reason)
+    if execution is not None and baseline is not None:
+        violation_reason = await _audit_story_writes(engine, workspace, goal_dir, step, story, execution, baseline)
+        if violation_reason:
+            return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=violation_reason, write_violation=True)
     return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=result.output)
+
+
+async def _audit_git_evidence(workspace: Path) -> GitEvidence | None:
+    """审计用的只读 Git 证据（52-3）；仓库不可用（``GitPortError``）返回 ``None``。
+
+    与 :func:`_goal_live_git_evidence` 的差异在失败语义：门求值把「无 Git」记为空证据
+    （显性未过），审计把「无 Git」记为**跳过**（无从判负，不诬告）——两者都不能静默。
+    """
+    from heagent.goal.git_port import GitPortError, ReadOnlyGitPort  # noqa: PLC0415
+
+    try:
+        return await ReadOnlyGitPort(workspace).evidence()
+    except GitPortError:
+        return None
+
+
+def _covered_by_write_set(path: str, entries: Sequence[str]) -> bool:
+    """git 相对路径是否落在声明写集条目内（目录条目覆盖子树）。
+
+    归一化复用 :meth:`WorkflowRunner._write_set_parts`（分隔符统一 + 大小写折叠 + 段级
+    前缀）——宿主判负与引擎批派生的写集语义必须同源，不得各写一份词法（AD-18）。
+    空条目产出空段 = 覆盖一切（与引擎同口径，fail-closed）。
+    """
+    parts = WorkflowRunner._write_set_parts(path)
+    return any(
+        parts[: len(WorkflowRunner._write_set_parts(entry))] == WorkflowRunner._write_set_parts(entry)
+        for entry in entries
+    )
+
+
+def _emit_write_audit_event(engine: EngineContainer | None, *, step: Any, story: Any, **details: Any) -> None:
+    """``workflow_write_audit`` 观测事件（52-3）：仿 ``_emit_goal_gate_event``，共用
+    :func:`_emit_step_event` 的隔离包装（emit-None 守卫 + try/except + safe_log）。"""
+    emit: Callable[..., None] | None = _workflow_event_emitter(engine)
+    if emit is None:
+        return
+    _emit_step_event(emit, "workflow_write_audit", step=step, story=story, **details)
+
+
+async def _audit_story_writes(
+    engine: EngineContainer | None,
+    workspace: Path,
+    goal_dir: Path,
+    step: Any,
+    story: Any,
+    execution: StoryExecutionContext,
+    before: GitEvidence,
+) -> str:
+    """一次 Story 的 Git 写集审计（AD-18）：返回判负理由（空串 = 通过）。
+
+    会话 + 质量门结束后采集 after，``Δ = after \\ before``；判负式
+    ``(Δ.changed \\ 声明写集并集 \\ 宿主自写产物) 非空``——声明写集并集 = 本 Story 的
+    ``write_allowlist`` ∪ 兄弟写集（并发兄弟的合法写在共享工作区里必然落进本 Story 的
+    Git 增量，不排除就是互诬告）。untracked 增量发警告事件不判负（验证夹具 / 新产物
+    常态，AC4）。after 采集失败（仓库中途不可用）→ 放弃本次审计（不诬告）。
+    """
+    after = await _audit_git_evidence(workspace)
+    if after is None:
+        _emit_write_audit_event(engine, step=step, story=story, skipped="git_unavailable")
+        return ""
+    before_changed = set(before.changed_files)
+    changed_delta = [path for path in after.changed_files if path not in before_changed]
+    before_untracked = set(before.untracked_files)
+    untracked_delta = [path for path in after.untracked_files if path not in before_untracked]
+    allowed = [*execution.write_allowlist]
+    for sibling in execution.sibling_write_sets.values():
+        allowed.extend(sibling)
+    artifact_rel = _host_artifact_relpath(goal_dir, step, story, workspace)
+    if artifact_rel:
+        allowed.append(artifact_rel)
+    if untracked_delta:
+        _emit_write_audit_event(engine, step=step, story=story, untracked=untracked_delta)
+    violations = sorted(path for path in changed_delta if not _covered_by_write_set(path, allowed))
+    if not violations:
+        return ""
+    return (
+        f"story '{execution.story_id}' wrote outside its declared write set: {', '.join(violations)}; "
+        "parallel authorization for this goal is revoked"
+    )
+
+
+def _host_artifact_relpath(goal_dir: Path, step: Any, story: Any, workspace: Path) -> str:
+    """宿主自写产物相对工作区根的 posix 路径（不在工作区内返回空串——无需排除）。"""
+    try:
+        return goal_step_artifact_path(goal_dir, step, story).resolve().relative_to(workspace).as_posix()
+    except ValueError:
+        return ""
 
 
 #: 脚本 facade 的**只读**操作：脚本执行期同步回答（读已持久化的输入 / 产物，不涉及状态）。
@@ -598,6 +707,7 @@ async def _goal_declarative_advance(
         inputs: Mapping[str, Any],
         step: Any,
         story: Any = None,
+        execution: StoryExecutionContext | None = None,
     ) -> WorkflowStepResult:
         return await _goal_execute_step(
             provider,
@@ -608,6 +718,7 @@ async def _goal_declarative_advance(
             inputs,
             step,
             story,
+            execution,
         )
 
     paths = WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd())
@@ -852,6 +963,10 @@ def _render_decision_records(records: list[DecisionRecord]) -> None:
 # 钉成 TIMEOUT——显式给足上界（review #16；不新增顶层配置键）。
 _VERIFY_COMMAND_TIMEOUT_SECONDS = 600
 
+# 完成门串行锁（52-3 AC6）：并行 Story 的门命令不重叠。模块级 = 同一进程内所有 goal
+# 推进共享一把；无竞争快取路径不绑定事件循环，串行 CLI 场景零影响。
+_GOAL_GATE_LOCK = asyncio.Lock()
+
 
 def _goal_verify_workspace(engine: EngineContainer | None) -> Path:
     """/goal 验证工作区根的**唯一解析点**（review #1）：受治理执行在哪里跑（``cd`` 前缀）、
@@ -924,28 +1039,32 @@ async def _goal_structured_gate(
     返回空串（老包零行为变化）。BLOCKED 经 ``WorkflowRunner`` 的 ``GATE_FAILED`` 事件落
     状态，本函数不直接改 Runner 状态。求值自身的故障（``EvidenceError`` / ``OSError``）
     同归「未通过」并写进理由——完成门不崩整个 run，也不静默放行（review #4）。
+
+    模块级门锁（52-3 AC6）：并行 Story 的门命令串行——LLM 会话并行、受控重跑的命令
+    执行不重叠（共享工作区的命令写互不踩踏）。串行路径无竞争，锁快取不落即过零变化。
     """
     if not step.validation_clauses.declared:
         return ""
-    started = time.perf_counter()
-    try:
-        report = await _goal_verify_report(engine, workflow, step, story, goal_dir, rerun=True)
-    except (EvidenceError, OSError) as exc:
-        return f"quality gate failed for step '{step.name}': gate evaluation error: {exc}"
-    _emit_goal_gate_event(
-        engine,
-        source="completion_gate",
-        step=step,
-        story=story,
-        report=report,
-        started=started,
-        rerun=True,
-    )
-    if report.passed:
-        return ""
-    for line in report.render():
-        _echo(line, err=True)
-    return f"quality gate failed for step '{step.name}': {'; '.join(report.failure_summary_parts())}"
+    async with _GOAL_GATE_LOCK:
+        started = time.perf_counter()
+        try:
+            report = await _goal_verify_report(engine, workflow, step, story, goal_dir, rerun=True)
+        except (EvidenceError, OSError) as exc:
+            return f"quality gate failed for step '{step.name}': gate evaluation error: {exc}"
+        _emit_goal_gate_event(
+            engine,
+            source="completion_gate",
+            step=step,
+            story=story,
+            report=report,
+            started=started,
+            rerun=True,
+        )
+        if report.passed:
+            return ""
+        for line in report.render():
+            _echo(line, err=True)
+        return f"quality gate failed for step '{step.name}': {'; '.join(report.failure_summary_parts())}"
 
 
 async def _goal_declarative_verify(
@@ -1480,11 +1599,14 @@ async def _goal_session(
     *,
     metadata: dict[str, Any] | None = None,
     max_iterations: int | None = None,
+    write_allowlist: Sequence[str] | None = None,
 ) -> SubAgentResult | None:
     """开一个**全新** SubAgent 会话执行一个 goal 步骤（流式经 SubAgent 内部收集）。
 
     每次 ``run()`` 新建 AgentLoop+RunContext；``window_reset`` 按设置阈值启用（长会话
     清窗续跑）。Ctrl+C / 任务取消不崩出交互层：捕获后回显「状态在盘」并返回 None。
+    ``write_allowlist``（52-1/52-3 联动）：非空时注入 RunContext metadata，经
+    PolicyEngine 的 per-run 写集围栏拦截越集工具写——声明门控并行的预防层。
     """
     from heagent.agent.sub import SubAgent  # noqa: PLC0415
 
@@ -1495,6 +1617,7 @@ async def _goal_session(
         max_iterations=max_iterations if max_iterations is not None else get_settings().goal_max_iterations,
         window_reset=WindowResetConfig(threshold=get_settings().window_reset_threshold),
         announcer=SUBAGENT_ANNOUNCER,
+        write_allowlist=write_allowlist,
     )
     try:
         return await agent.run(prompt)
