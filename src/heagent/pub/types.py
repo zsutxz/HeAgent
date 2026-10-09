@@ -278,3 +278,22 @@ class StorySpec(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     parallel_group: str = ""
     write_set: list[str] = Field(default_factory=list)
+
+
+class StoryExecutionContext(BaseModel):
+    """单条 Story 的执行上下文（Epic 52 声明门控并行，AD-17/AD-19）。
+
+    ``WorkflowRunner`` 在 story 步骤派发回调时构造，经**第三参**传给宿主回调：
+    ``write_allowlist`` 是写集围栏输入（52-1 的 PolicyEngine 预检）、
+    ``batch_members`` / ``sibling_write_sets`` 是宿主 Git 审计的输入（兄弟写集内的
+    路径不计入本 Story 的越集判负）、``parallel`` 标记本 Story 是否在授权并行批内。
+
+    老回调（两参）不收它 = fail-closed 串行（授权条件 3）；宿主是否启用围栏由宿主按
+    ``step.max_parallel_stories > 1`` 自行门控（ctx 只在该前提下才会被构造）。
+    """
+
+    story_id: str = Field(min_length=1)
+    parallel: bool = False
+    write_allowlist: list[str] = Field(default_factory=list)
+    batch_members: list[str] = Field(default_factory=list)
+    sibling_write_sets: dict[str, list[str]] = Field(default_factory=dict)

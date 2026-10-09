@@ -86,6 +86,10 @@ class WorkflowCheckpoint(BaseModel):
     # （AD-2 修订版允许追加可选字段，active_epic / awaiting_approval 同款先例）。**必须持久化**：
     # 分支选择若只活在内存里，进程重启后会退回声明顺序，「可确定恢复」就此失效。
     requested_steps: list[str] = Field(default_factory=list)
+    # 写集违规撤销闩（Epic 52 AD-16/AD-18）：宿主审计判负后置 True，单向不可复位——撤销的是
+    # 并发授权（批派生恒串行），不撤销围栏。可选字段，旧 checkpoint 缺它读作 False（AD-2
+    # 修订版允许追加可选字段，requested_steps 同款先例）。checkpoint 唯一新增字段（AD-16）。
+    story_parallel_revoked: bool = False
     next_action: str = ""
     tool_in_flight: bool = False
     created_at: str = Field(default_factory=_iso_now)
@@ -214,7 +218,7 @@ class GoalWorkflowState(BaseModel):
     """Serializable runtime metadata for one goal.
 
     The workflow's own artifacts stay the source of truth (``brief.md`` for the request,
-    ``02-epics.md`` for the Epic/Story lists). This model stores only orchestration metadata
+    ``epics.md`` for the Epic/Story lists). This model stores only orchestration metadata
     and therefore never mirrors or edits them.
     """
 

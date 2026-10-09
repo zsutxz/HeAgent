@@ -67,8 +67,9 @@ async def _interrupted_story_callback(_step, _story):
 
 
 @pytest.mark.asyncio
-async def test_parallel_batch_cancellation_transitions_to_pending() -> None:
-    """并行批次取消与串行同构：CancelledError 逃逸 gather 后仍经 CANCELLED 落 PENDING（51-2 Review P2）。"""
+async def test_single_story_cancellation_transitions_to_pending() -> None:
+    """单 story 批（= 串行路径）取消语义锁定：CancelledError 经 CANCELLED 落 PENDING
+    （51-2 Review P2；Epic 52 改名保留）。"""
     workflow = _workflow(
         WorkflowStepResource(index=1, name="step-01.md", instructions="", story_loop="epics.md", max_parallel_stories=2)
     )
@@ -81,8 +82,8 @@ async def test_parallel_batch_cancellation_transitions_to_pending() -> None:
 
 
 @pytest.mark.asyncio
-async def test_parallel_batch_non_cancellation_baseexception_transitions_to_failed() -> None:
-    """非取消的 BaseException 在并行批次同样经 EXECUTOR_FAILED 落 FAILED（Review P2）。"""
+async def test_single_story_non_cancellation_baseexception_transitions_to_failed() -> None:
+    """单 story 批（= 串行路径）非取消 BaseException 经 EXECUTOR_FAILED 落 FAILED（Review P2；Epic 52 改名保留）。"""
     workflow = _workflow(
         WorkflowStepResource(index=1, name="step-01.md", instructions="", story_loop="epics.md", max_parallel_stories=2)
     )
@@ -319,7 +320,7 @@ def test_required_sections_ignores_case_and_keeps_authored_names() -> None:
 
 STORY_DOC = "\n".join(
     [
-        "# 02-epics.md",
+        "# epics.md",
         "",
         "| 编号 | 父 Epic | 优先级 | 依赖 | 单一用户可见目标 |",
         "|------|---------|--------|------|------------------|",
