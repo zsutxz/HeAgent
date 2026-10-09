@@ -1,6 +1,6 @@
 # AGENTS.md
 
-本文件为 Claude Code / Codex 等编码代理提供统一仓库指引，由原 CLAUDE.md 与 AGENTS.md 合并而成（原 CLAUDE.md 已于 2026-10-07 删除），后续修改只维护本文件。
+本文件为 Claude Code / Codex 等编码代理提供统一仓库指引。
 
 ## ⚠️ 安全声明
 
@@ -107,6 +107,7 @@ heagent http-server                # HTTP 网页入口（127.0.0.1:8766，需 pi
 - **数据模型**：一律 Pydantic `BaseModel`（例外：`AgentState`/`SubAgentResult` 用 `dataclass`）
 - **异步**：全部异步，库代码无同步 I/O，CLI 通过 `asyncio.run()` 桥接
 - **日志**：`logging.getLogger(__name__)`，仅标准库
+- **注释**：随代码变更及时清理失效的旧注释；新注释精简，只写代码本身说不清的意图
 
 ## 扩展与测试约束
 
