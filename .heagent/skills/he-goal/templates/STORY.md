@@ -23,6 +23,17 @@ title: <Story 标题>
 - 优先级：P0 | P1 | P2
 - 依赖：S-<n> | none
 
+**声明门控并行三字段**（真源在 `epics.md` 的 `### S-n` 清单项；本文件是冻结快照，两处必须一致）：
+
+```
+- depends_on: []            # 前置 story id 列表；不允许依赖同批并发的 story
+- parallel_group: <组名>    # 同组且写集两两不相交的相邻 story 才可能并行
+- write_set: [src/x.py]     # 该 story 及其验证命令实际修改的全部 tracked 路径（新建文件也要声明）
+```
+
+`write_set` 必须完备：并行批内它是写集围栏与 Git 审计的判据，漏声明的合法写入会被判越界、
+该 Story 显性 FAILED 并撤销本 Goal 的并行授权。不参与并行的 story 省略三字段（缺省串行）。
+
 `父 Epic` 必须与 `epics.md` 中包围该 Story 的 `## E<n> — <标题>` 段一致。`epics.md` 的
 `### S-n <标题>` 是 Step 07 的唯一执行清单；本文件是该清单冻结后的层级产物与验收快照。
 

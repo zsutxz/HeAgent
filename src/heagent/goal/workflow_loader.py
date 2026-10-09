@@ -630,11 +630,12 @@ def _parallel_limit(package: SkillPackage, values: dict[str, Any], resource: str
     """Parse the bounded Step 07 concurrency setting without coercion."""
     limit = _bounded_int(package, values, resource, key="max_parallel_stories", default=1, maximum=5)
     if limit > 1:
-        # Fail-closed 调度（Story 51-8）：没有可验证的隔离执行器前，声明不提升并行度。
-        # 静默吞声明会让模板作者误以为获得了并行，警告必须在此显性发出。
-        LOGGER.warning(
-            "%s: %s declares max_parallel_stories=%d, but stories currently run serially until an "
-            "isolated executor exists; the declared value does not raise parallelism",
+        # 声明门控并行（Epic 52 AD-16/17）：>1 只是授权门的第一个条件，实际并发由批派生的
+        # 七条件门控（write_set / parallel_group / depends_on / 撤销闩 / 回调契约等）——
+        # 声明不等于并发度，这个语义差异必须显性告知模板作者，但不构成警告。
+        LOGGER.info(
+            "%s: %s declares max_parallel_stories=%d; declarative gated parallelism is available, "
+            "actual concurrency is still gated by write_set / parallel_group / depends_on",
             package.skill_id,
             resource,
             limit,

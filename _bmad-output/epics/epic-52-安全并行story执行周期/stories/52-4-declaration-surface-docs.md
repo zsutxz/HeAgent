@@ -1,13 +1,27 @@
 ---
 id: 52-4
 title: 声明面收口——loader 提示、技能包与文档
-status: planned
+status: review
 parent_epic: E52
 priority: P2
 depends_on: [52-2]
 blocks: [52-5]
 created: '2026-10-09'
 ---
+
+## 交付记录（2026-10-09）
+
+- loader `_parallel_limit` WARNING → 条件说明 INFO（`tests/test_workflow_resources.py:76` 翻转 + 无 WARNING 断言）。
+- 技能包：Step 06 增「并行声明与写集完备性」段 + 三字段 bullet；Step 07 正文改写（七条件逐字、
+  围栏/审计/撤销闩、批=单 checkpoint 单元每批一次确认、验证工作区 per-story `.heagent/tmp/<goal-id>/s-<n>/`）；
+  :59 概览行「同一 Epic 内批量」旧语义一并修正；`templates/STORY.md` 补三字段示例与完备性提示。
+  revision 已由 66cf196 预先 bump "1"→"2"，本批内容补齐该契约。
+- `docs/frame.md`：4.13 story_loop bullet 更新 + 新增「声明门控并行与写集围栏」小节（path_safety 同构
+  非安全边界措辞）；4.16 事件表 `workflow_step_*` 行更新 + 新增 `workflow_story_batch_scheduled` /
+  `workflow_write_audit` 两行。
+- `docs/goal-workflow.md`：新增「声明门控并行」节（七条件与 spine §2 逐字一致）+ Phase 5 状态行更新。
+- 声明翻转演示（AC 3）由 52-2 测试锚点留档：`test_declared_disjoint_stories_run_parallel_and_checkpointed`
+  （峰值并发 2）+ `test_non_conforming_declarations_degrade_to_serial` 参数化反例矩阵，`src/` 零改动。
 
 # Story 52-4：声明面收口——loader 提示、技能包与文档
 

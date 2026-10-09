@@ -159,6 +159,38 @@ _he-output/goals/<goal-id>/
 `.heagent/skills/he-goal/templates/` 提供 Goal、Epic、Story 的结构模板。历史规划、验收和 retrospective
 仍归档在 [`_bmad-output/`](../_bmad-output/README.md)，不应被当作当前运行时配置。
 
+### 声明门控并行（Epic 52）
+
+Step 07 声明 `max_parallel_stories > 1` 时启用**声明门控并行**：声明是门控输入，不等于并发度。
+每次推进由引擎从声明与持久态确定性重推导批成员（批次是推导不是状态，不持久化），全部满足以下
+七条件才成批，任一不满足即逐字节走既有串行路径（从 `story_index` 起按声明序，跳过已完成成员，
+遇首个不合规未完成 Story 即止）：
+
+1. `step.max_parallel_stories > 1`；
+2. 未命中 `story_parallel_revoked` 撤销闩；
+3. 回调接受第三参 `StoryExecutionContext`（宿主实现围栏+审计契约的机器可测前置；两参老回调 = fail-closed 串行）；
+4. 成员 `parallel_group` 相同且非空；
+5. 成员 `write_set` 非空且批内两两不相交；
+6. 成员 `depends_on ⊆ completed_stories`（**不允许**依赖批内成员——依赖并发中的 Story 不可证安全）；
+7. 批大小 ≤ `max_parallel_stories`。
+
+**围栏与审计**（纵深防御，非安全边界）：被授权 Story 的 `file_write` / `file_edit` 受其声明
+`write_set` 的围栏预检（`engine/policy.py`，越集 BLOCKED，走既有治理链零旁路）；shell 可绕过围栏，
+由宿主在该 Story 完成后以只读 Git 端口审计实际写集兜底——tracked 增量越出「本 Story 写集 ∪ 兄弟
+写集 ∪ 宿主自写产物」→ 该 Story 显性 FAILED 并**单向撤销**本 Goal 的并行授权（撤销闩随 checkpoint
+持久化，重启后仍串行；恢复只能由人改 checkpoint 或开新 goal）；untracked 增量只发
+`workflow_write_audit` 警告事件不判负（验证夹具与新产物本就是未跟踪写入）。
+
+**批语义**：批是一次 checkpoint 单元——成员按声明序逐个记账并持久化 RUNNING 中间快照，终态只转换
+一次；批内单 Story 失败不取消同批，输出按声明序合并（非完成序）；步骤级取消取消整批落 PENDING；
+manual 模式的 checkpoint 确认从每条 Story 一次收紧为每批一次。
+
+**恢复语义**：批派生每次推进重算，批内有洞（部分成员已完成）恢复时重推导、跳过已完成成员继续。
+撤销闩置位后批派生恒串行，但围栏不撤——串行重跑仍带 allowlist、审计继续。
+
+**定位**：worktree / OS 级物理隔离是后续增强层（AD-20）——改变围栏与审计的实现强度，不改变写集
+契约、七条件授权与审计语义；本节只固化契约。
+
 ### 修改工作流的规则
 
 - 变更流程顺序或阶段职责：修改 `.heagent/skills/he-goal/workflow.md`。
@@ -211,6 +243,9 @@ _he-output/goals/<goal-id>/
 - Phase 2：`EvidenceRecord`、真实命令证据、结构化 gate、`/goal changes` 与 `/goal verify` 已实现。
 - Phase 3：步骤级审批、工作流包选择与 revision 绑定已实现。
 - Phase 4：受控 `GoalScript` / `ScriptRuntime` 已实现；脚本状态变更仍必须经过 `WorkflowRunner`，并有步骤数、深度和超时上限。
-- Phase 5：安全并行执行、独立 worktree/worker 隔离和第三方脚本的 OS 级隔离尚未完成。当前 `max_parallel_stories` 不会提升实际并行度，相关声明会被显式警告。
+- Phase 5：声明门控并行（Epic 52，2026-10-09）已落地——七条件批派生、per-run 写集围栏、宿主 Git 审计
+  与撤销闩（见上「声明门控并行」节）；loader 对 `max_parallel_stories > 1` 发条件说明 INFO（声明只是
+  门控输入，实际并发仍受 `write_set` / `parallel_group` / `depends_on` 门控）。独立 worktree/worker
+  隔离和第三方脚本的 OS 级隔离仍未完成（AD-20 定位为后续增强层）。
 
 验证依据：Goal/Workflow 回归测试当前为 `487 passed`（2026-10-07）。因此优化方案不应再作为独立的当前方案文档维护；后续实现应直接更新本专题、架构文档和对应测试，历史规划与详细验收证据归档到 `_bmad-output/`。

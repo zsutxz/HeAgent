@@ -73,14 +73,16 @@ def test_loads_max_parallel_stories_with_default_and_bound(tmp_path: Path) -> No
     assert workflow.steps[1].max_parallel_stories == 1
 
 
-def test_warns_when_max_parallel_stories_exceeds_one(tmp_path: Path, caplog) -> None:
-    """max_parallel_stories>1 当前不提升并行度（fail-closed）：解析照常，但必须发响亮警告。"""
+def test_informs_when_max_parallel_stories_exceeds_one(tmp_path: Path, caplog) -> None:
+    """max_parallel_stories>1 = 声明门控并行可用（Epic 52）：发条件说明 INFO，不再 WARNING。"""
     package = _package(tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\n")
     (tmp_path / "step-01-first.md").write_text("---\nmax_parallel_stories: 3\n---\nFirst", encoding="utf-8")
-    with caplog.at_level(logging.WARNING, logger="heagent.goal.workflow_loader"):
+    with caplog.at_level(logging.INFO, logger="heagent.goal.workflow_loader"):
         workflow = read_workflow(package)
     assert workflow.steps[0].max_parallel_stories == 3
     assert "max_parallel_stories" in caplog.text
+    assert "write_set" in caplog.text
+    assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
 
 
 def test_reads_step_iteration_budget_with_default_and_bound(tmp_path: Path) -> None:

@@ -949,7 +949,9 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
   `goal_id` 由 LLM 命名（`goal/naming.py` 一次性 provider 调用生成 kebab-case 名，清洗/校验/`-a`..`-z`
   去重为代码内确定性逻辑）；调用失败或输出非法时 stderr 显性提示并回退固定名 `project`。
   id 字符集锁定 `^[a-z][a-z-]*$`（current 指针校验、cron prompt 解析、旧 job 注销匹配三处下游依赖）。
-- `/goal next` 执行一个声明步骤，`story_loop`（当前为 `epics.md`）步骤每次只执行一条 Story；即使声明了 `parallel_group` / `write_set`，当前宿主执行器也保持 fail-closed 串行，因为自声明写集不是实际写入隔离边界。每条 Story 完成后先持久化其 checkpoint / evidence，再允许下一条进入；`/goal run` 可连续推进，遇到检查点、
+- `/goal next` 执行一个声明步骤，`story_loop`（当前为 `epics.md`）步骤默认每次只执行一条 Story；
+  声明门控并行（Epic 52）授权时一批并发执行（见下「声明门控并行与写集围栏」）。每条 Story（串行）
+  或每批（并行，批 = 单 checkpoint 单元）完成后持久化 checkpoint / evidence；`/goal run` 可连续推进，遇到检查点、
   阻塞或失败即停止。
 - `/goal status` 只读回显运行状态和目标产物；`/goal reset` 只清除 current 指针并保留目标目录。
 - `/goal verify [run]`（Story 51-4）：按步骤 `validation:` 的结构化子句求值——`goal/quality_gates.py`
@@ -986,6 +988,23 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
 
 每个步骤或 Story 都由新的 SubAgent/RunContext 执行。`WorkflowRunner` 负责顺序、输入、输出、checkpoint
 和恢复；它不决定 Epic/Story 的拆分方法。
+
+**声明门控并行与写集围栏（Epic 52，AD-16..20）**。`max_parallel_stories > 1` 只是授权门的上限，
+不等于并发度：每次推进由 `WorkflowRunner._parallel_batch` 从声明（`parallel_group` / `write_set` /
+`depends_on` / 上限）与持久态（completed_stories、单向撤销闩 `story_parallel_revoked`）确定性重推导
+批成员——批次是推导不是状态，不持久化。授权充要条件为七项全满足（上限 >1、闩未置位、宿主回调实现
+三参 `StoryExecutionContext` 契约、同非空 `parallel_group`、`write_set` 非空且批内两两不相交、
+`depends_on ⊆ 已完成`（不允许依赖批内成员）、批大小 ≤ 上限），任一不满足即逐字节走既有串行路径。
+被授权 Story 的工具写受 per-run write allowlist 预检（`engine/policy.py` 的
+`_validate_write_allowlist`：`file_write` / `file_edit` 目标越集 → BLOCKED，走
+`PolicyEngine.evaluate() → ToolExecutor → SafetyGuard → handler` 既有治理链，零旁路）。**定位与
+path_safety / 工作区围栏同构：纵深防御，非安全边界**（shell 可绕过）——越集 shell 写入由宿主
+Git 审计事后检测（`cli/goal.py` 的 `_audit_story_writes`：per-story 会话前后只读 Git 增量基线，
+tracked 增量越出「本 Story 写集 ∪ 兄弟写集 ∪ 宿主自写产物」→ FAILED + `write_violation` → 撤销闩
+单向置位（随 checkpoint 持久化，重启后该 Goal 仍串行）；untracked 增量只发警告事件不判负）。
+批内并发走 `gather(return_exceptions=True)`（单成员失败不连坐；步骤级取消取消整批落 PENDING）；
+manual 模式 checkpoint 确认每批一次。worktree / OS 级物理隔离是后续增强层（AD-20）：改变围栏与
+审计的实现强度，不改变本节契约。
 
 checkpoint id 同时是幂等键（`WorkflowCheckpointStore.save` 对「同 id 不同内容」fail-safe 报错），因此必须是「位置」的
 完全函数：`story_loop` 步骤的激活 Story 参与 id —— `<goal>-<run>-step-<N>-story-<index>[-<S-n>]-active-<step>-<status>`。
@@ -1150,7 +1169,9 @@ Phase 5 C1：+`duration_ms`/`error_kind`；旧 rollout 缺省读、新字段被�
 | `provider_call_started` / `provider_call_completed` | `agent/loop.py` | `message_count,estimated_tokens` / `model,finish_reason,actual_tokens` | completed 带 duration（中间件链整体） |
 | `tool_call_started` / `tool_call_completed` / `tool_call_failed` / `tool_call_blocked` | `engine/executor.py`（`_emit_tool_event` 单点） | `mode`（+sandbox_profile/tier）/`content_length`/`error`/`reason` | completed/failed 带 duration；failed 带 error_kind |
 | `context_compressed` / `window_reset` | `agent/context_runtime.py` | `before,after` | — |
-| `workflow_step_started` / `workflow_step_completed` / `workflow_step_failed` | `engine/workflow_runner`（`emit` 注入端口，缺省 None=不发） | `step,story`（+`result`/`error`） | 三种带 duration；failed 带 error_kind。Story 循环固定一次一条（51-8 fail-closed），每条 story 的执行各发一组（`story` 非空） |
+| `workflow_step_started` / `workflow_step_completed` / `workflow_step_failed` | `engine/workflow_runner`（`emit` 注入端口，缺省 None=不发） | `step,story`（+`result`/`error`） | 三种带 duration；failed 带 error_kind。Story 循环每条 story 的执行各发一组（`story` 非空）；声明门控并行批（Epic 52）逐成员各发一组 |
+| `workflow_story_batch_scheduled` | `engine/workflow_runner`（`_gather_story_batch`，Epic 52 Story 52-2） | `step,members,limit`（`story` 为空） | 授权批派发时发一条：批成员 id 与声明上限 |
+| `workflow_write_audit` | `cli/goal.py`（`_emit_write_audit_event`，Epic 52 Story 52-3） | `step,story,untracked` / `skipped` | 宿主 Git 写集审计的观测事件：`untracked=[...]` 为警告（不判负）；`skipped=git_unavailable` 为非 Git 跳过说明；emit 异常隔离 |
 | `workflow_approved` / `workflow_rejected` / `workflow_amended` | `engine/workflow_runner`（审批决策方法，Story 51-5） | `step`（+`reason`：拒绝理由 / 修订补充） | — |
 | `workflow_gate_evaluated` | `cli/goal.py`（`_emit_goal_gate_event`，Story 51-8 收口 51-4 递延） | `step,story,source,verdict,failed,clause_errors,rerun,rerun_evidence,reused_commands` | 完成门（`source=completion_gate`）与 `/goal verify`（`source=verify_run`）每次结构化求值各发一条，带 duration；emit 异常隔离 |
 | `dream_start` / `dream_end`、`cron_job_*` | `memory/dream.py`、`cron/scheduler.py`（开集现状收编） | `success` 等 | — |

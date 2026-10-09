@@ -56,7 +56,8 @@ Step 06 是**规划步骤**：把已验证范围拆成 story、排定工作项�
 story 的验收标准；它只规划，不实现。Step 07 是**逐 story 的重任务步骤**：单个会话内完成一条
 story 的实现、测试与验证，并且是唯一允许创建实现产物、唯一允许新增或修改测试文件的步骤。
 
-Step 07 按 `epics.md` 的 `### S-N` 顺序执行；默认每次增量只处理一条 Story，声明并行上限后可在同一 Epic 内批量处理，并在两个收口
+Step 07 按 `epics.md` 的 `### S-N` 顺序执行；默认每次增量只处理一条 Story，声明并行上限后由七条件
+声明门控推导是否成批（见 step 07 正文），并在两个收口
 点上追加动作：**Sprint 收口**（当前 story 是该 Sprint 最后一条时，跑该 Sprint 的可演示切片并核对
 退出准则）与 **Epic 收口评审**（当前 story 是该 Epic 最后一条时，对本 Epic 的全部 story 做一次
 对抗式代码评审）；不命中边界时不要额外做事。
@@ -175,6 +176,7 @@ validation: section: Story 拆分; section: Sprint 计划; 范围被拆成从 S-
 或额外装饰。每条 story 必须包含：
 
 - **父 Epic / 优先级 / 依赖**：父 Epic 写 Epic 引用（如 `E1`），优先级写 P0/P1/P2，依赖写 story id 或 none；
+- **并行声明（三字段）**：`depends_on`（前置 story id 列表）、`parallel_group`（非空组名）、`write_set`（该 Story 会修改的仓库相对路径清单）——见下方「并行声明与写集完备性」；
 - **验收标准**：可验证的 Given/When/Then 条件，或对非行为类标准使用同等可判定的形式；
 - **定义完成（DoD）**；
 - **代码地图（Code Map）**：与该 story 相关的文件、符号/行锚点、可复用点与只读约束，让人和后续
@@ -190,6 +192,14 @@ validation: section: Story 拆分; section: Sprint 计划; 范围被拆成从 S-
 **排序工作项。** story 编号就是执行顺序：runner 读取 `### S-N` 清单并严格按数字后缀执行，因此按
 将构建的顺序编成 S-1..S-N，不留空号、不重复编号。先依赖后价值：任何 story 都不得依赖更靠后的
 story，且你声明的每个依赖要么已存在，要么由编号更小的 story 交付。
+
+**并行声明与写集完备性。** 逐 story 以清单项声明三字段：`- depends_on: [...]`、
+`- parallel_group: <组名>`、`- write_set: [<仓库相对路径>...]`。它们是声明门控并行的**授权依据**：
+写集两两不相交、同组、依赖已完成的相邻 story 才可能并行；声明只是门控输入，不等于并发度。
+`write_set` 必须**完备**——覆盖该 story 及其验证命令实际修改的全部 tracked 文件（新建的源文件也
+要声明进 write_set）。并行批内，write_set 同时是写集围栏与 Git 审计的判据：漏声明的合法写入会被
+判越界、该 Story 显性 FAILED 并撤销本 Goal 的并行授权。不打算并行的 story 省略三字段即可
+（缺省串行，零开销）。
 
 **细化 sprint。** 把有序 story 编入 sprint——以「结束时可演示」为界的短增量。每个 sprint 写明目标、
 包含的 story、进入准则、退出准则、关闭时可演示的端到端切片，以及它退掉的风险。sprint 成员必须与
@@ -219,14 +229,30 @@ max_parallel_stories: 3
 max_iterations: 100
 validation: section: 实现摘要; section: 测试证据; section: 验证结论; 本条 story 在这一个步骤内完成实现、测试与验证，且记录下确切命令及其结果
 
-`bmad-build` 是本步骤的实现、测试与验证方法论来源。默认每次只注入一条 Story；当
-`max_parallel_stories > 1` 时，仅在同一个 Epic 内以批次方式并发执行，跨 Epic 严格串行，单条失败不取消
-同批其他 Story。只实现当前 Story，不得修改冻结的 `epics.md`。Story 产物必须写入
+`bmad-build` 是本步骤的实现、测试与验证方法论来源。默认每次只注入一条 Story（串行）；
+`max_parallel_stories > 1` 只是**授权门的上限**，不等于并发度——是否真的成批并行由每次推进从
+声明确定性推导，七条件全部满足才成批，任一不满足即逐字节退回既有串行路径：
+
+1. `step.max_parallel_stories > 1`；
+2. 未命中 `story_parallel_revoked` 撤销闩；
+3. 宿主执行端口接受第三参执行上下文（两参老宿主 = fail-closed 串行）；
+4. 成员 `parallel_group` 相同且非空；
+5. 成员 `write_set` 非空且批内两两不相交；
+6. 成员 `depends_on ⊆ 已完成 Story`（**不允许**依赖批内成员——依赖并发中的 Story 不可证安全）；
+7. 批大小 ≤ `max_parallel_stories`。
+
+授权批内的每条 Story 受写集围栏与完成审计保护：工具层 `file_write` / `file_edit` 的目标路径经
+本 Story 声明 `write_set` 的围栏预检（越集写被拦；围栏是纵深防御**非安全边界**，shell 可绕过——
+绕过由宿主在本 Story 完成后以只读 Git 端口审计实际写集兜底：tracked 增量越出「本 Story 写集 ∪
+兄弟写集 ∪ 宿主自写产物」→ 该 Story 显性 FAILED 并**单向撤销**本 Goal 的并行授权（重启后仍
+串行）；untracked 增量只记警告事件不判负——验证夹具与新产物本就是未跟踪写入）。批是一次
+checkpoint 单元：批内单条失败不取消同批，输出按声明序合并；manual 模式的 checkpoint 确认从每条
+Story 一次收紧为**每批一次**。只实现当前 Story，不得修改冻结的 `epics.md`。Story 产物必须写入
 `_he-output/goals/<goal-id>/step-07-implement-story/epic-<eN>/s-<n>/`：`story.md`、
 `implementation.md`、`test-report.md` 与 `verify-report.md`；CLI 保存该次步骤输出为同目录的
 `report.md`。命中 Sprint 或 Epic 的最后一条 Story 时，按 BMad 方法完成相应收口，并将证据写入报告。
 
-**验证工作区约定。** 需要临时副本或夹具（例如变异测试）时，请在工作区内创建并读写：用 `file_write` / `file_read` 操作 `.heagent/tmp/<goal-id>-verify/` 下的文件。**不要**用 shell 把项目拷到 `%TEMP%` 等工作区外的路径（会被工作区路径围栏拦下）。要跑脚本就落盘成文件再执行——内联 `python -c` / `node -e` 单行脚本难以审查与复跑，落盘脚本才可审计、可重放（含危险关键词的内联载荷仍会被整条命令扫描拦下，但良性内联命令本身不禁）。被拦下的命令不产生任何结果，只会白耗迭代预算：本步骤预算已声明为 step 级 `max_iterations: 100`（原子大 Story 不易撞全局 `GOAL_MAX_ITERATIONS` 上限），其验证子代理另受 `SUBAGENT_MAX_ITERATIONS` 约束。
+**验证工作区约定。** 需要临时副本或夹具（例如变异测试）时，请在工作区内创建并读写：用 `file_write` / `file_read` 操作 `.heagent/tmp/<goal-id>/s-<n>/` 下的文件（per-story 子目录，并行批内互不踩踏）。**不要**用 shell 把项目拷到 `%TEMP%` 等工作区外的路径（会被工作区路径围栏拦下）。要跑脚本就落盘成文件再执行——内联 `python -c` / `node -e` 单行脚本难以审查与复跑，落盘脚本才可审计、可重放（含危险关键词的内联载荷仍会被整条命令扫描拦下，但良性内联命令本身不禁）。被拦下的命令不产生任何结果，只会白耗迭代预算：本步骤预算已声明为 step 级 `max_iterations: 100`（原子大 Story 不易撞全局 `GOAL_MAX_ITERATIONS` 上限），其验证子代理另受 `SUBAGENT_MAX_ITERATIONS` 约束。
 
 ## Step 08: system-integration-test（系统集成及测试）
 role: bmad-qa-generate-e2e-tests
