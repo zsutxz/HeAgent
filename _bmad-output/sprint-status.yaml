@@ -541,8 +541,8 @@ development_status:
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
     epic: 52
-    action: "真实 LLM 全链冒烟：用一个小 goal 走完 /goal new → next → run（含并行批授权与审计事件观察），顺带验证 aihome-client
-      的 revision 漂移处置"
+    action: "真实 LLM 全链冒烟：用一个小 goal 走完 /goal new → next → run（含并行批授权与审计事件观察），顺带验证绑旧 revision
+      的 goal 在 resume 时的漂移处置"
     owner: "tan"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-52-retro-2026-10-09.md"
