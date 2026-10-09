@@ -1,0 +1,63 @@
+---
+id: 52-4
+title: 声明面收口——loader 提示、技能包与文档
+status: planned
+parent_epic: E52
+priority: P2
+depends_on: [52-2]
+blocks: [52-5]
+created: '2026-10-09'
+---
+
+# Story 52-4：声明面收口——loader 提示、技能包与文档
+
+## 用户故事
+
+作为 workflow 模板作者，我希望包与文档如实描述「声明门控并行」的语义，step 06 产出的 story 清单自带
+三字段与写集完备性指导，不再有「文档说并行、代码只串行」的裂缝。
+
+## 声明面（主要交付物）
+
+- `.heagent/skills/he-goal/workflow.md`（**revision bump "1" → "2"**，he-goal 冻结契约）：
+  - Step 07 正文（现 :222-227 描述已删除的批次语义）改写：串行默认、七条件声明门控并行、
+    写集围栏与 Git 审计语义、批 = 单 checkpoint 单元（manual 确认每批一次）、
+    验证工作区细化 per-story 子目录 `.heagent/tmp/<goal-id>/s-<n>/`；
+  - Step 06：指导生成 `02-epics.md` 时逐 story 声明 `depends_on` / `parallel_group` / `write_set`，
+    且 write_set 须覆盖该 story 及其验证命令实际修改的全部 tracked 文件（新源文件声明进 write_set）；
+  - 正文零「并发度=声明值」的暗示——声明只是门控输入。
+- `.heagent/skills/he-goal/templates/STORY.md`：补三字段示例与写集完备性提示。
+- `docs/frame.md`：4.16 事件表更新（`workflow_step_*` 行措辞、新增 `workflow_story_batch_scheduled`
+  与 `workflow_write_audit` 行）；补写集围栏小节（纵深防御非安全边界措辞，对齐 path_safety 先例）。
+- `docs/goal-workflow.md`：并行语义、七条件、审计与撤销闩、恢复语义、worktree 后续层定位（AD-20）。
+
+## 引擎面（最小）
+
+- `src/heagent/goal/workflow_loader.py` `_parallel_limit`：fail-closed WARNING 改条件说明 INFO
+  （">1 = 声明门控并行可用，实际并发仍受 write_set / parallel_group / depends_on 门控"）。
+- `tests/test_workflow_resources.py:76` 断言同步（INFO 不再 WARNING）。
+
+## 验收标准
+
+1. `test_workflow_resources.py:76` 翻转后全绿；`pytest tests/test_workflow_resources.py -q` 无回归。
+2. revision bump 后既有 goal 恢复按冻结契约处理（漂移 fail-loud 行为有既有测试锚点，不改引擎）。
+3. **只改声明即可改变并行授权结果**（AD-13/14 验收演示）：引擎级测试里给 story 文档加/去
+   `parallel_group` → 批派生翻转，`src/` 零改动。
+4. frame.md 事件表与新事件一致；goal-workflow.md 与 spine 七条件逐字一致。
+5. 技能包内不再存在与 51-8 后实际行为矛盾的批次并发描述（grep 无残留）。
+
+## 任务
+
+- [ ] loader INFO + 测试翻转。
+- [ ] 技能包正文与模板改写 + revision bump。
+- [ ] frame.md / goal-workflow.md 收口。
+- [ ] 声明翻转演示（测试形态留档）。
+
+## 验证命令（规划，执行时亲跑）
+
+```bash
+pytest tests/test_workflow_resources.py tests/test_goal_declarative_workflow.py -q
+pytest tests/test_architecture_contracts.py -q
+pytest
+ruff check src tests
+grep -n "批次方式并发" .heagent/skills/he-goal/workflow.md   # 预期无输出
+```

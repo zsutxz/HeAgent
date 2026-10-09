@@ -77,6 +77,7 @@
 | Epic 49 | http-web-entry | HTTP 网页入口：`network/http_*` + `cli_http.py` + 包内 `web/`（自启动监听 / 就绪门禁 / SSE 流式运行与取消重连 / Host-Origin 同源防线 / 安全响应头 / 静态资源白名单）。本机单用户，无认证无 TLS（2026-09-23 交付；6 Story done） |
 | Epic 50 | web-console | 网页控制台（Epic 49 显式推迟的切片）：工作区一等化 + 项目注册表 + 会话持久化 + 四层配置来源与只读面板 + 闸门约束下的项目 `.env` 写入（保真写 / 备份 / 冲突 / 审计）+ 两栏 UI 与真实浏览器验收 + 安全收口与文档同步（2026-09-23 建立，2026-09-24 实现，**2026-09-27 收口**；**8 Story 均 `done`**，四轮收口评审已出并**放行**（评审/验收文档 2026-09-26 合并为单文件 `reviews.md`），retrospective 已补做）。**2026-09-24 追加 Story 50-8**（收口后体验优化轮：会话列表精简 / 原生目录选择 / 布局调整 / 设置面板瘦身 / 读取结果只显示文件名），该 story 同时是**本 Epic 后续新需求的统一落点** |
 | Epic 51 | goal-workflow-trusted-delivery | `/goal` 与 workflow 可信交付优化：预检与统一状态视图、显式事件/转换表、结构化执行证据、真实质量 Gate、步骤级审批、多 workflow 冻结、受控 GoalScript 与写集证明的安全并行（2026-09-29 建立；8 Story，当前 `in-progress`） |
+| Epic 52 | safe-parallel-story-executor | goal 工作流安全并行 Story 执行器：声明门控批次（七条件）+ policy 层写集围栏 + 宿主 Git 写集审计与单向撤销闩，让 `max_parallel_stories` 真实生效；worktree 物理隔离为后续增强层（2026-10-09 建立；5 Story，`planned`） |
 
 **FR 编号空间**（互不冲突，引用须写全限定）：主线 `FR-1~24`；MCP V1 `FR-1~11`；MCP 升级准备 `FR-1~5`；MCP V2 `FR-A1~A7 / FR-B1~B4 / FR-C1~C4`；Sandbox `FR-S1~S7`；健壮性 `FR-A1~A5 + FR-C1~C6`；质量工程 `FR-Q1~Q20`；GUI `FR-G1~G24`；interaction `FR-A1~A5 / FR-B1~B3 / FR-C~G 各 1~4`；文件安全 `FR-1~5`（本地）；沙箱会话化 `FR-1~5`（本地，FR-5 deferred）。
 
@@ -646,6 +647,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 > - **Epic 49（HTTP 网页入口）** → `epics/epic-49-HTTP网页访问周期/`：brief + epics + ARCHITECTURE-SPINE + 6 个 story + 评审产物
 > - **Epic 50（网页控制台）** → `epics/epic-50-网页控制台周期/`：brief + epics + ARCHITECTURE-SPINE + 8 个 story（含 2026-09-24 追加的 50-8 体验优化轮）+ 单文件 `reviews.md`（2026-09-26 由 8 份文档合并：规划评审 + 四轮评审 + 三份验收）+ `retrospective-epic-50.md`（2026-09-27 补做）
 > - **Epic 51（`/goal` 与 workflow 可信交付优化）** → `epics/epic-51-goal-workflow优化周期/`：brief + ARCHITECTURE-SPINE + epics + 8 个 story（2026-09-29 建立，当前 in-progress）
+> - **Epic 52（goal 工作流安全并行 Story 执行器）** → `epics/epic-52-安全并行story执行周期/`：brief + ARCHITECTURE-SPINE（AD-16..20）+ epics + 5 个 story（2026-10-09 建立，规划完成未开工）
 
 ### 12.1 周期 10：文件安全与凭证防护（Epic 36-39）· 2026-08-24
 
@@ -1049,6 +1051,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | `_bmad-output/epics/epic-49-HTTP网页访问周期/` | HTTP 网页入口（Epic 49，2026-09-23） |
 | `_bmad-output/epics/epic-50-网页控制台周期/` | 网页控制台（Epic 50，2026-09-23 建立 → 09-24 实现 → 09-27 收口） |
 | `_bmad-output/epics/epic-51-goal-workflow优化周期/` | `/goal` 与 workflow 可信交付优化（Epic 51，2026-09-29 建立，in-progress） |
+| `_bmad-output/epics/epic-52-安全并行story执行周期/` | goal 工作流安全并行 Story 执行器（Epic 52，2026-10-09 建立，planned） |
 | `_bmad-output/epics/<周期>/[epic-NN-主题/]stories/` | 按 epic 归档的 story 文件（2026-09-26 全深度实测：**102 个**，**28 个** `stories/` 目录） |
 | `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录（原 `patches/<领域>/` 2026-09-15 解散） |
 | `_bmad-output/implementation-artifacts/arch-optimization-cycle/` | **架构优化周期档案**（总方案 + phase0..5 spec，各含执行记录；2026-09-22 归档，原 `docs/test.md` 已删并） |

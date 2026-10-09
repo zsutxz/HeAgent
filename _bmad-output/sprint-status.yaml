@@ -524,3 +524,16 @@ development_status:
   51-7-controlled-goalscript-runtime: done
   51-8-safe-parallel-integration: done
   epic-51-retrospective: optional
+
+  # ═══════════════════════════════════════════════════════════════
+  # goal 工作流安全并行 Story 执行器周期 · Epic 52（2026-10-09 建立）
+  # 51-8 递延的「可验证隔离执行器」：声明门控批次（七条件）→ 写集围栏 → 宿主 Git 审计/撤销闩
+  # → 声明面与文档收口 → 集成验收；worktree 物理隔离为后续增强层（AD-20）
+  # 阶段映射：A=52-1；B=52-2；C=52-3,52-4；D=52-5
+  epic-52: planned
+  52-1-write-allowlist-fence: review  # 2026-10-09 实现+域内验证全绿；全量 22 失败为并发进程持锁环境噪声（stash 基线证明）
+  52-2-parallel-batch-scheduler: review  # 2026-10-09 实现+全量 3660 passed 干净全绿；三处设计缺口 TDD 抓出并修正
+  52-3-host-write-audit: planned
+  52-4-declaration-surface-docs: planned
+  52-5-integration-recovery-matrix: planned
+  epic-52-retrospective: optional
