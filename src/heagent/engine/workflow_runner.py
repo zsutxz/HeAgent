@@ -165,6 +165,24 @@ StoryWorkflowCallback = Callable[[WorkflowStepResource, StorySpec], WorkflowStep
 CheckpointCallback = Callable[[WorkflowRunnerState], Awaitable[None] | None]
 
 
+def write_set_parts(entry: str) -> tuple[str, ...]:
+    """写集条目 → 规范路径段（交集/覆盖判定的纯词法形态，零文件系统 I/O）。
+
+    分隔符统一、大小写折叠（Windows 不敏感）；空串 / ``.`` 产出空段。含 ``..`` 的条目按
+    字面段参与前缀判定——可能误报冲突（fail-closed 方向，安全），真实越界由围栏的
+    ``resolve_under_root`` 兜底（死条目永不匹配，见 52-1）。模块级公共函数：宿主审计
+    （cli/goal）与引擎批派生必须消费同一份词法，不得各写一份（AD-18 同源诉求）。
+    """
+
+    text = entry.strip().replace("\\", "/").casefold()
+    return tuple(segment for segment in PurePosixPath(text).parts if segment not in {"", ".", "/"})
+
+
+def write_set_entries_overlap(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
+    """两条目是否路径相交：一方是另一方的前缀（相等亦算）——目录条目覆盖子树。"""
+    return a == b[: len(a)] or b == a[: len(b)]
+
+
 class WorkflowRunner:
     """Run exactly one workflow step and never synthesize completion.
 
@@ -300,15 +318,13 @@ class WorkflowRunner:
                     "active_epic": active_story.epic,
                 }
             )
-            # 声明门控并行（Epic 52 AD-17）：上限 >1、未命中撤销闩且回调实现三参契约才派生批
-            # 并构造执行上下文；否则 batch 为空、execution 为 None——串行路径与 51-8 逐字节
-            # 一致（派生结果长度 1 时同样走串行分支，见下方 ``len(batch) > 1`` 分叉）。
-            if (
-                step.max_parallel_stories > 1
-                and not self.state.story_parallel_revoked
-                and self._accepts_execution(callback)
-            ):
-                batch = self._parallel_batch(step, story_specs)
+            # 声明门控并行（Epic 52 AD-17/AD-18）：上限 >1 且回调实现执行上下文契约才构造
+            # execution；撤销闩只撤销**批派生**（batch 置空），不撤销 execution——闩后串行
+            # 重跑仍带围栏输入与审计（AD-18 明文「闩撤销的是并发授权，不撤销围栏」）。
+            # 未声明 max_parallel_stories>1 或老回调时 execution 为 None——串行路径与 51-8
+            # 逐字节一致（派生结果长度 1 时同样走串行分支，见下方 ``len(batch) > 1`` 分叉）。
+            if step.max_parallel_stories > 1 and self._accepts_execution(callback):
+                batch = [] if self.state.story_parallel_revoked else self._parallel_batch(step, story_specs)
                 execution = self._execution_context(active_story, batch)
 
         started = time.perf_counter()
@@ -394,9 +410,12 @@ class WorkflowRunner:
             update.update(self._completion_update(step, story_specs, result.output, is_story_loop=is_story_loop))
             self.state = self.state.model_copy(update=update)
         else:
-            self.state = self.state.model_copy(
-                update={"status": self._callback_status(result.status), "reason": result.reason}
-            )
+            update = {"status": self._callback_status(result.status), "reason": result.reason}
+            if result.write_violation:
+                # 串行-with-context 的审计判负同样撤销并发授权（AD-18 Goal 级语义；
+                # 批路径在 _settle_story_batch 置闩，此处是串行收口的对称写点）。
+                update["story_parallel_revoked"] = True
+            self.state = self.state.model_copy(update=update)
 
         checkpoint_id = await self._persist(step, checkpoint)
         return WorkflowRunResult(
@@ -493,20 +512,13 @@ class WorkflowRunner:
 
     @staticmethod
     def _write_set_parts(entry: str) -> tuple[str, ...]:
-        """写集条目 → 规范路径段（交集判定的纯词法形态，零文件系统 I/O）。
-
-        分隔符统一、大小写折叠（Windows 不敏感）；空串 / ``.`` 产出空段 = 覆盖一切
-        （fail-closed：声明「整个工作区」的条目与任何条目冲突）。含 ``..`` 的条目按字面段
-        参与前缀判定——可能误报冲突（fail-closed 方向，安全），真实越界由围栏的
-        ``resolve_under_root`` 兜底（死条目永不匹配，见 52-1）。
-        """
-        text = entry.strip().replace("\\", "/").casefold()
-        return tuple(segment for segment in PurePosixPath(text).parts if segment not in {"", ".", "/"})
+        """写集条目 → 规范路径段（委托模块级 :func:`write_set_parts`，历史调用点别名）。"""
+        return write_set_parts(entry)
 
     @staticmethod
     def _entries_overlap(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
-        """两条目是否路径相交：一方是另一方的前缀（相等亦算）——目录条目覆盖子树。"""
-        return a == b[: len(a)] or b == a[: len(b)]
+        """两条目是否路径相交（委托模块级 :func:`write_set_entries_overlap`）。"""
+        return write_set_entries_overlap(a, b)
 
     async def _gather_story_batch(
         self,
@@ -621,6 +633,10 @@ class WorkflowRunner:
                 await self._persist(step, checkpoint)
             elif first_incomplete is None:
                 first_incomplete = outcome
+        if violation:
+            # 闩置位先于一切早退（AD-18 撤销即时性）：follow-up 超限等 BLOCK 不得把已检出
+            # 的 write_violation 丢弃一轮。
+            self.state = self.state.model_copy(update={"story_parallel_revoked": True})
         if len(self.state.requested_steps) + len(follow_ups) > len(self.workflow.steps):
             return await self._stop(
                 WorkflowStatus.BLOCKED,
@@ -630,8 +646,6 @@ class WorkflowRunner:
                 [],
                 checkpoint,
             )
-        if violation:
-            self.state = self.state.model_copy(update={"story_parallel_revoked": True})
         # 位置校正（有洞恢复的关键）：批内失败允许「completed 有洞」，story_index 必须落在
         # **首个未完成** Story 上——洞在中间时这是回摆（如 S-2✓/S-1✗ ⇒ 回到 S-1），不是单调
         # 前进。无洞历史下该值与单调推进一致。
@@ -648,8 +662,13 @@ class WorkflowRunner:
             }
         )
         all_done = all(spec.id in self.state.completed_stories for spec in specs)
+        # 合并序 = 声明序（AD-19）：跨批有洞恢复时 story_outputs 的 dict 插入序是完成序，
+        # 必须按 specs 声明序重排（批内记账序碰巧一致，洞场景不成立）。
         combined = "\n\n---\n\n".join(
-            str(value) for value in self.state.story_outputs.values() if value is not None and str(value) != ""
+            str(self.state.story_outputs[spec.id])
+            for spec in specs
+            if self.state.story_outputs.get(spec.id) is not None
+            and str(self.state.story_outputs.get(spec.id, "")) != ""
         )
         if first_failure is not None:
             self.state = self.state.model_copy(
@@ -1032,8 +1051,11 @@ class WorkflowRunner:
         while next_index < len(story_specs) and story_specs[next_index].id in completed_stories:
             next_index += 1
         if next_index >= len(story_specs) or all(spec.id in completed_stories for spec in story_specs):
+            # 合并序 = 声明序（AD-19，同 _settle_story_batch）：有洞历史下插入序是完成序。
             combined = "\n\n---\n\n".join(
-                str(value) for value in story_outputs.values() if value is not None and str(value) != ""
+                str(story_outputs[spec.id])
+                for spec in story_specs
+                if story_outputs.get(spec.id) is not None and str(story_outputs.get(spec.id, "")) != ""
             )
             if step.approval.required:
                 # 挂门含 story 清场（_approval_gate_update 单点）：重跑从第一条 story 开始。

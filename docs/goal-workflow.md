@@ -248,4 +248,4 @@ manual 模式的 checkpoint 确认从每条 Story 一次收紧为每批一次。
   门控输入，实际并发仍受 `write_set` / `parallel_group` / `depends_on` 门控）。独立 worktree/worker
   隔离和第三方脚本的 OS 级隔离仍未完成（AD-20 定位为后续增强层）。
 
-验证依据：Goal/Workflow 回归测试当前为 `487 passed`（2026-10-07）。因此优化方案不应再作为独立的当前方案文档维护；后续实现应直接更新本专题、架构文档和对应测试，历史规划与详细验收证据归档到 `_bmad-output/`。
+验证依据：Goal/Workflow 回归随每次交付亲跑登记（最近全量 `3675 passed`，2026-10-09，见 sprint-status 对应 story 注）。因此优化方案不应再作为独立的当前方案文档维护；后续实现应直接更新本专题、架构文档和对应测试，历史规划与详细验收证据归档到 `_bmad-output/`。

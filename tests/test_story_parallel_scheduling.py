@@ -452,3 +452,64 @@ async def test_legacy_parallel_checkpoint_id_still_recovers(tmp_path) -> None:
     restored = WorkflowRunner.from_checkpoint(_workflow(limit=2, checkpoint_declared=True), checkpoints[-1])
     assert restored.state.story_index == 2
     assert restored.state.completed_stories == ["S-1", "S-2"]
+
+
+@pytest.mark.asyncio
+async def test_serial_context_violation_also_latches(tmp_path) -> None:
+    """串行-with-context 的审计判负同样置闩（评审 P7，AD-18 Goal 级语义）。
+
+    写集相交声明 → 批派生坍缩 [S-1] → 串行分支仍带 execution；判负 FAILED 经串行收口
+    （非批结算路径）也必须撤销并发授权，否则后续可并发的兄弟不受该违规约束。"""
+    store = _store(tmp_path)
+    runner = WorkflowRunner(_workflow(limit=2), goal_id="goal", run_id="run", checkpoint_store=store)
+    overlapped = DISJOINT.replace("- write_set: [src/b.py]", "- write_set: [src/a.py]")
+    contexts: list[StoryExecutionContext | None] = []
+
+    async def callback(step: Any, story: Any, execution: StoryExecutionContext | None = None) -> WorkflowStepResult:
+        contexts.append(execution)
+        if story.id == "S-1":
+            return WorkflowStepResult(status=WorkflowStatus.FAILED, reason="out of set", write_violation=True)
+        return WorkflowStepResult(output=story.id)
+
+    result = await runner.run_step(callback, stories=parse_story_list(overlapped))
+
+    assert result.status is WorkflowStatus.FAILED
+    assert runner.state.story_parallel_revoked is True
+    assert contexts[0] is not None and contexts[0].parallel is False
+
+
+@pytest.mark.asyncio
+async def test_violation_latch_keeps_execution_on_serial_rerun(tmp_path) -> None:
+    """闩只撤销批派生、不撤销执行上下文（评审 P1，AD-18「闩不撤销围栏」）。
+
+    闩置位后重推：批恒空（peak 1），但宿主仍收非 None execution（围栏输入 + 审计通道）。"""
+    store = _store(tmp_path)
+    runner = WorkflowRunner(_workflow(limit=2), goal_id="goal", run_id="run", checkpoint_store=store)
+    stories = parse_story_list(DISJOINT)
+
+    async def violator(step: Any, story: Any, execution: StoryExecutionContext | None = None) -> WorkflowStepResult:
+        return WorkflowStepResult(status=WorkflowStatus.FAILED, reason="violation", write_violation=True)
+
+    await runner.run_step(violator, stories=stories)
+    assert runner.state.story_parallel_revoked is True
+
+    checkpoints = await store.list_checkpoints(goal_id="goal")
+    failed = next(checkpoint for checkpoint in checkpoints if checkpoint.status is WorkflowStatus.FAILED)
+    resumed = WorkflowRunner.from_checkpoint(_workflow(limit=2), failed, checkpoint_store=store)
+    resumed.resume()
+    stats = _stats()
+    contexts: list[StoryExecutionContext | None] = []
+
+    async def probe(step: Any, story: Any, execution: StoryExecutionContext | None = None) -> WorkflowStepResult:
+        contexts.append(execution)
+        stats["active"] += 1
+        stats["peak"] = max(stats["peak"], stats["active"])
+        await asyncio.sleep(0.0)
+        stats["active"] -= 1
+        return WorkflowStepResult(output=story.id)
+
+    for _ in stories:
+        await resumed.run_step(probe, stories=stories)
+
+    assert stats["peak"] == 1  # 闩后批派生恒空 → 串行
+    assert all(context is not None for context in contexts)  # 但执行上下文不撤（围栏+审计继续）

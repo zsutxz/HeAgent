@@ -1,7 +1,7 @@
 ---
 id: 52-4
 title: 声明面收口——loader 提示、技能包与文档
-status: review
+status: done
 parent_epic: E52
 priority: P2
 depends_on: [52-2]
@@ -75,3 +75,9 @@ pytest
 ruff check src tests
 grep -n "批次方式并发" .heagent/skills/he-goal/workflow.md   # 预期无输出
 ```
+
+### Review Findings（2026-10-09 四层对抗式评审）
+
+- [x] [Review][Decision→已裁决：改文档钉实际形状] frame.md 事件表「并行批逐成员各发一组 workflow_step_*」与实现不符（实际单组：started 带首成员、completed 无 story 归因）——改文档如实钉形状，或改实现逐成员发事件 [docs/frame.md:1172]
+- [x] [Review][Patch] goal-workflow.md 残留「487 passed（2026-10-07）」过期验证数字 [docs/goal-workflow.md]
+- [x] [Review][Patch] max_parallel_stories 合法域 1..5 与超限行为未进声明面 [workflow.md / STORY.md]

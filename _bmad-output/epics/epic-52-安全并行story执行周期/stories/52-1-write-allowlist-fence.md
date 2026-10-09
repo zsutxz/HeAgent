@@ -1,7 +1,7 @@
 ---
 id: 52-1
 title: 写集围栏原语——policy 层 per-run write allowlist
-status: review
+status: done
 parent_epic: E52
 priority: P1
 depends_on: []

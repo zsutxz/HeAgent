@@ -1,7 +1,6 @@
 """Story 52-3 宿主写集审计测试：Git 增量判负、兄弟排除、untracked 警告、非 Git 跳过与门锁串行。"""
 
 import asyncio
-import subprocess
 import time
 from functools import partial
 from pathlib import Path
@@ -10,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from heagent.cli import goal as cli_goal
+from tests.helpers_goal_audit import StubGitEngine, commit_all as _commit_all, git as _git, tracked as _tracked
 from heagent.engine import (
     StepValidationClauses,
     StorySpec,
@@ -22,22 +22,6 @@ from heagent.engine.workflow_runner import WorkflowRunner, WorkflowStepResult
 from heagent.goal import application
 from heagent.goal.workflow_loader import parse_story_list
 from heagent.pub.types import StoryExecutionContext
-
-
-def _git(*args: str, cwd: Path) -> None:
-    # 参数全为本文件受控字面量（同 tests/test_git_tools.py 惯例）。
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)  # noqa: S603
-
-
-def _commit_all(cwd: Path, message: str) -> None:
-    _git("add", "-A", cwd=cwd)
-    _git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", message, cwd=cwd)
-
-
-def _tracked(path: Path, rel: str, content: str) -> None:
-    target = path / rel
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
 
 
 @pytest.fixture()
@@ -92,19 +76,7 @@ def _session_stub(monkeypatch: pytest.MonkeyPatch, *, writes: tuple[str, ...] = 
     return calls
 
 
-class _StubEngine:
-    """带事件总线的最小 engine 替身（workspace_root=None → cwd 为验证工作区）。"""
-
-    def __init__(self) -> None:
-        self.workspace_root = None
-        self.published: list[tuple[str, dict]] = []
-
-        class _Bus:
-            def publish(self, kind: str, details: dict | None = None) -> None:
-                self.owner.published.append((kind, details or {}))
-
-        self.events = _Bus()
-        self.events.owner = self
+_StubEngine = StubGitEngine
 
 
 async def _run_step(
@@ -129,12 +101,12 @@ async def _run_step(
 
 
 def test_write_set_coverage_semantics() -> None:
-    """判负覆盖语义与引擎批派生同源：目录条目覆盖子树、大小写不敏感、空条目覆盖一切。"""
+    """判负覆盖语义与引擎批派生同源：目录条目覆盖子树、大小写不敏感；空/死条目不构成豁免。"""
     assert cli_goal._covered_by_write_set("src/x.py", ["src"])
     assert cli_goal._covered_by_write_set("SRC/X.PY", ["src"])
     assert not cli_goal._covered_by_write_set("docs/x.md", ["src"])
     assert cli_goal._covered_by_write_set("src/a.py", ["src/a.py"])
-    assert cli_goal._covered_by_write_set("anything/else", [""])
+    assert not cli_goal._covered_by_write_set("anything/else", [""])  # 空条目免检是 fail-open，已修
 
 
 @pytest.mark.asyncio
@@ -368,3 +340,102 @@ async def test_runner_batch_wiring_through_application_bridge(tmp_path: Path) ->
     assert first.status is WorkflowStatus.PENDING
     assert second.status is WorkflowStatus.COMPLETED
     assert legacy == ["S-1", "S-2"]
+
+
+@pytest.mark.asyncio
+async def test_production_advance_wires_execution_to_host(tmp_path: Path) -> None:
+    """生产推进路径（advance→桥选择→Runner 授权→宿主第四参）端到端（评审 P3）。
+
+    此前所有并行集成样例都手拼四参 partial——桥选择发生在测试里；桥若回归恒串行，
+    全量测试仍绿。本用例沿真实 application.advance 驱动，宿主闭包不手拼桥。
+    """
+    (tmp_path / "brief.md").write_text(
+        "# 需求\n\n## 原始需求（Original Request）\n\n```\ndemo\n```\n", encoding="utf-8"
+    )
+    (tmp_path / "epics.md").write_text(_TWO_DISJOINT, encoding="utf-8")
+    store = WorkflowCheckpointStore(str(tmp_path / "cp"), workflow_path=str(tmp_path / "wf.json"))
+    workflow = WorkflowResource(
+        name="demo",
+        instructions="",
+        steps=[
+            WorkflowStepResource(
+                index=1,
+                name="implement",
+                instructions="run",
+                story_loop="epics.md",
+                max_parallel_stories=2,
+            )
+        ],
+        prompt_template="p",
+    )
+    seen: list[StoryExecutionContext | None] = []
+
+    async def host(
+        inputs: object, step: object, story: StorySpec, execution: StoryExecutionContext | None = None
+    ) -> WorkflowStepResult:
+        seen.append(execution)
+        return WorkflowStepResult(output=story.id)
+
+    runner = WorkflowRunner(workflow, goal_id="goal", run_id="run", checkpoint_store=store)
+    context = application.GoalAdvanceContext(runner=runner, mode="auto", description="demo", goal_dir=tmp_path)
+    outcome = await application.advance(
+        context, host, confirm_checkpoint=lambda: True, load_project_context=lambda: None
+    )
+
+    assert outcome.status is application.GoalAdvanceStatus.DONE
+    assert len(seen) == 2
+    assert all(context is not None for context in seen)
+
+
+@pytest.mark.asyncio
+async def test_manual_batch_suspends_once_for_human_resume(tmp_path: Path) -> None:
+    """批=单 checkpoint 单元的人工面（评审 P8）：manual 模式批完成后挂起一次等
+    /goal resume；advance 不代批确认（confirm 零调用）——「每批一次确认」的准确语义。"""
+    (tmp_path / "brief.md").write_text(
+        "# 需求\n\n## 原始需求（Original Request）\n\n```\ndemo\n```\n", encoding="utf-8"
+    )
+    (tmp_path / "epics.md").write_text(_TWO_DISJOINT, encoding="utf-8")
+    store = WorkflowCheckpointStore(str(tmp_path / "cp"), workflow_path=str(tmp_path / "wf.json"))
+    three = (
+        _TWO_DISJOINT
+        + """### S-3 Third
+- depends_on: []
+- parallel_group: g
+- write_set: [src/c.py]
+"""
+    )
+    (tmp_path / "epics.md").write_text(three, encoding="utf-8")
+    workflow = WorkflowResource(
+        name="demo",
+        instructions="",
+        steps=[
+            WorkflowStepResource(
+                index=1,
+                name="implement",
+                instructions="run",
+                story_loop="epics.md",
+                max_parallel_stories=2,
+                checkpoint="true",
+            )
+        ],
+        prompt_template="p",
+    )
+
+    async def host(
+        inputs: object, step: object, story: StorySpec, execution: StoryExecutionContext | None = None
+    ) -> WorkflowStepResult:
+        return WorkflowStepResult(output=story.id)
+
+    runner = WorkflowRunner(workflow, goal_id="goal", run_id="run", checkpoint_store=store)
+    context = application.GoalAdvanceContext(runner=runner, mode="manual", description="demo", goal_dir=tmp_path)
+    confirm_calls: list[int] = []
+
+    def confirm() -> bool:
+        confirm_calls.append(1)
+        return True
+
+    outcome = await application.advance(context, host, confirm_checkpoint=confirm, load_project_context=lambda: None)
+
+    assert outcome.status is application.GoalAdvanceStatus.WAITING
+    assert confirm_calls == []  # 批确认只能由人 /goal resume，advance 不代批拍板
+    assert runner.state.status is WorkflowStatus.WAITING_USER

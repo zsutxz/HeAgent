@@ -24,3 +24,11 @@
 | Story 51-7 | GoalScript 后续步骤声明、持久化恢复、受控 facade 和限额已完成；同步 CPU 密集脚本的超时限制仍依赖 OS 隔离 worker | `docs/frame.md` §4.13.1；`tests/test_goal_script_*.py`；`src/heagent/goal/script_runtime.py` |
 
 当前实现状态以源码、测试、`docs/frame.md` 和 `sprint-status.yaml` 为准；本文件不重复复制完整验收报告。
+
+## Deferred from: code review of Epic 52（2026-10-09）
+
+- **基线已脏文件检测盲区**（cli/goal.py:434）：宿主 Git 审计以「会话前后路径差集」为增量语义，before 集已脏的集外 tracked 文件被本 Story 再改时检测不到。逐文件内容基线成本高；AD-18 定义即路径级增量。触发条件：并行批启动时工作区已有未提交集外改动。
+- **兄弟越集写互相误归因**（cli/goal.py:440-444）：共享工作区审计无法按写者归属，兄弟 Story 越集写会落入本 Story 的 Δ 判负（连带置闩）。根治在 AD-20 worktree 物理隔离层；短期靠围栏预防层降低概率。
+- **违规写无补救语义**（workflow_runner.py:633）：判负只置 FAILED+闩，越集文件留工作区；闩后串行重跑新基线已含旧违规，审计对其失明。需人工清理指引或回滚工具；与基线盲区同族。
+- **_host_artifact_relpath 参照系**（cli/goal.py:454-457）：resolve+relative_to 大小写敏感（Windows 大小写漂移→静默 ""），workspace≠repo root 时跨参照系比较。当前部署两者相等；失败方向是误判非漏判。
+- **52-3 AC1 端到端围栏贯通冒烟**：围栏 BLOCKED 由 52-1 单测、宿主参数传递由 52-3 断言分段覆盖；单一贯通（工具链真拦越集写）测试留待后续补。

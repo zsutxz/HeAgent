@@ -1,7 +1,7 @@
 ---
 id: 52-3
 title: 宿主接线——执行上下文贯通、Git 审计与失败语义
-status: review
+status: done
 parent_epic: E52
 priority: P1
 depends_on: [52-1, 52-2]
@@ -57,3 +57,22 @@ pytest
 ruff check src tests
 mypy src
 ```
+
+### Review Findings（2026-10-09 四层对抗式评审）
+
+- [x] [Review][Patch] 空 write_set 的 execution 审计误判负：批退化单成员仍构造 execution，省略三字段 story 任何源码写入判负，违背「省略三字段缺省串行零开销」承诺 [src/heagent/cli/goal.py:368-371] — 修复：空判据跳过审计
+- [x] [Review][Patch] 生产推进路径（advance→桥选择）无测试驱动，桥回归恒串行全量测试仍绿 [tests 缺口] — 补 CLI 级集成测试
+- [x] [Review][Patch] 会话内 git commit 使 HEAD 前移逃逸审计：after 采集应钉 base=before.head [src/heagent/cli/goal.py:429-436]
+- [ ] [Review][Patch] git quotepath 转义非 ASCII 路径永不匹配声明条目（中文项目误判源）[src/heagent/goal/git_port.py]
+- [x] [Review][Patch] write_set 空条目在宿主判负语境 fail-open（覆盖一切→免检），注释自称 fail-closed 不实 [src/heagent/cli/goal.py:389-399]
+- [x] [Review][Patch] 宿主自写产物豁免只覆盖本 story 单文件，兄弟产物不豁免，_he-output tracked 时互诬告 [src/heagent/cli/goal.py:437-442]
+- [x] [Review][Patch] 每 story 固定产生自身产物 untracked 噪声警告（tests/test_story_scheduling_integration.py 将噪声固化为断言）
+- [x] [Review][Patch] 参数计数术语三处矛盾（两参/三参老宿主 vs Runner 回调三参契约）[文档]
+- [x] [Review][Patch] 桥 fail-closed 降级完全静默，loader INFO 反向宣传并行可用 [src/heagent/goal/application.py]
+- [x] [Review][Patch] StepExecutor 类型钉死四参，三参宿主类型不匹配而运行时被兼容桥服务 [src/heagent/goal/application.py]
+- [x] [Review][Patch] 跨模块调 WorkflowRunner._write_set_parts 私有方法 + any() 内重复计算 [src/heagent/cli/goal.py:396]
+- [x] [Review][Patch] _GOAL_GATE_LOCK 跨事件循环 RuntimeError 风险 + 注释理由错误 + 600s 持锁上界无文档 [src/heagent/cli/goal.py:968]
+- [x] [Review][Defer] 基线已脏的集外 tracked 文件检测盲区（路径级增量基线固有）— deferred
+- [x] [Review][Defer] _host_artifact_relpath 参照系脆弱（workspace≠repo root 时跨参照系比较）— deferred
+
+- [x] [Review][Dismiss] git quotepath 转义条目 — 误报：git_port._run 已带 -c core.quotePath=false（评审子代理未读到）

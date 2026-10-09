@@ -52,10 +52,15 @@ KNOWN_KINDS: frozenset[str] = frozenset(
         "workflow_step_started",
         "workflow_step_completed",
         "workflow_step_failed",
+        # 声明门控并行（Epic 52）：批派发与宿主 Git 写集审计
+        "workflow_story_batch_scheduled",
+        "workflow_write_audit",
         # workflow 步骤级人工决策（Story 51-5：approve / reject / amend，审批门的落定轨迹）
         "workflow_approved",
         "workflow_rejected",
         "workflow_amended",
+        # 质量门求值（Story 51-8 收口的 emit 接线）与 goal 事件
+        "workflow_gate_evaluated",
         # 记忆巩固 / cron（引擎实发现状收编，此前不在文档全集）
         "dream_start",
         "dream_end",

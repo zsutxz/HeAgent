@@ -27,7 +27,7 @@ title: <Story 标题>
 
 ```
 - depends_on: []            # 前置 story id 列表；不允许依赖同批并发的 story
-- parallel_group: <组名>    # 同组且写集两两不相交的相邻 story 才可能并行
+- parallel_group: <组名>    # 同组且写集两两不相交的相邻 story 才可能并行（并发上限由步骤声明的 max_parallel_stories 控，合法域 1..5）
 - write_set: [src/x.py]     # 该 story 及其验证命令实际修改的全部 tracked 路径（新建文件也要声明）
 ```
 

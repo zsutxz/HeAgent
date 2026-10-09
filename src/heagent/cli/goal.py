@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 import click
@@ -32,7 +33,7 @@ from heagent.engine import (
 )
 from heagent.engine.ledger import LedgerAudit
 from heagent.engine.observability import elapsed_ms
-from heagent.engine.workflow_runner import WorkflowRunner, _emit_step_event
+from heagent.engine.workflow_runner import _emit_step_event, write_set_parts
 from heagent.goal.application import (
     GOAL_SKILLS_ROOT,
     DecisionStatus,
@@ -365,23 +366,27 @@ async def _goal_execute_step(
     gate_reason = await _goal_structured_gate(engine, workflow, step, story, goal_dir)
     if gate_reason:
         return WorkflowStepResult(status=WorkflowStatus.BLOCKED, reason=gate_reason)
-    if execution is not None and baseline is not None:
+    if execution is not None and execution.write_allowlist and baseline is not None:
+        # 空 write_set = 无判据（story 省略三字段的缺省串行形态，模板承诺零开销）：围栏
+        # 侧空 allowlist 本就放行，审计侧同样跳过——拿空集判负会把合法源码写全判越界。
         violation_reason = await _audit_story_writes(engine, workspace, goal_dir, step, story, execution, baseline)
         if violation_reason:
             return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=violation_reason, write_violation=True)
     return WorkflowStepResult(status=WorkflowStatus.COMPLETED, output=result.output)
 
 
-async def _audit_git_evidence(workspace: Path) -> GitEvidence | None:
+async def _audit_git_evidence(workspace: Path, base: str = "") -> GitEvidence | None:
     """审计用的只读 Git 证据（52-3）；仓库不可用（``GitPortError``）返回 ``None``。
 
     与 :func:`_goal_live_git_evidence` 的差异在失败语义：门求值把「无 Git」记为空证据
     （显性未过），审计把「无 Git」记为**跳过**（无从判负，不诬告）——两者都不能静默。
+    ``base`` 非空时按该 revision 取增量：after 采集传 before 的 head，会话内 ``git commit``
+    前移 HEAD 不会把已提交的写从 Δ 里洗掉（evidence 含自 base 起的已提交变更）。
     """
     from heagent.goal.git_port import GitPortError, ReadOnlyGitPort  # noqa: PLC0415
 
     try:
-        return await ReadOnlyGitPort(workspace).evidence()
+        return await ReadOnlyGitPort(workspace).evidence(base)
     except GitPortError:
         return None
 
@@ -389,15 +394,19 @@ async def _audit_git_evidence(workspace: Path) -> GitEvidence | None:
 def _covered_by_write_set(path: str, entries: Sequence[str]) -> bool:
     """git 相对路径是否落在声明写集条目内（目录条目覆盖子树）。
 
-    归一化复用 :meth:`WorkflowRunner._write_set_parts`（分隔符统一 + 大小写折叠 + 段级
-    前缀）——宿主判负与引擎批派生的写集语义必须同源，不得各写一份词法（AD-18）。
-    空条目产出空段 = 覆盖一切（与引擎同口径，fail-closed）。
+    归一化复用 :func:`heagent.engine.workflow_runner.write_set_parts`（分隔符统一 +
+    大小写折叠 + 段级前缀）——宿主判负与引擎批派生的写集语义必须同源，不得各写一份
+    词法（AD-18）。空/死条目**不构成豁免判据**（fail-closed：引擎侧「空段覆盖一切→
+    与一切相交→不成批」是收紧，宿主侧若同样「覆盖一切→放行」就是免检，方向相反）。
     """
-    parts = WorkflowRunner._write_set_parts(path)
-    return any(
-        parts[: len(WorkflowRunner._write_set_parts(entry))] == WorkflowRunner._write_set_parts(entry)
-        for entry in entries
-    )
+    parts = write_set_parts(path)
+    for entry in entries:
+        entry_parts = write_set_parts(entry)
+        if not entry_parts:
+            continue
+        if parts[: len(entry_parts)] == entry_parts:
+            return True
+    return False
 
 
 def _emit_write_audit_event(engine: EngineContainer | None, *, step: Any, story: Any, **details: Any) -> None:
@@ -420,13 +429,16 @@ async def _audit_story_writes(
 ) -> str:
     """一次 Story 的 Git 写集审计（AD-18）：返回判负理由（空串 = 通过）。
 
-    会话 + 质量门结束后采集 after，``Δ = after \\ before``；判负式
+    会话 + 质量门结束后采集 after（基线钉在 before 的 head 上——会话内 ``git commit``
+    不洗白已提交的越集写），``Δ = after \\ before``；判负式
     ``(Δ.changed \\ 声明写集并集 \\ 宿主自写产物) 非空``——声明写集并集 = 本 Story 的
     ``write_allowlist`` ∪ 兄弟写集（并发兄弟的合法写在共享工作区里必然落进本 Story 的
-    Git 增量，不排除就是互诬告）。untracked 增量发警告事件不判负（验证夹具 / 新产物
-    常态，AC4）。after 采集失败（仓库中途不可用）→ 放弃本次审计（不诬告）。
+    Git 增量，不排除就是互诬告）；豁免产物含本 Story 与全部批成员的宿主产物路径
+    （``_he-output`` 被 tracked 时并发批互不诬告）。untracked 增量剔除产物路径后发警告
+    事件不判负（验证夹具 / 新产物常态，AC4；产物自身是必然噪声，不发）。after 采集
+    失败（仓库中途不可用）→ 放弃本次审计（不诬告）。
     """
-    after = await _audit_git_evidence(workspace)
+    after = await _audit_git_evidence(workspace, base=before.head)
     if after is None:
         _emit_write_audit_event(engine, step=step, story=story, skipped="git_unavailable")
         return ""
@@ -435,13 +447,15 @@ async def _audit_story_writes(
     before_untracked = set(before.untracked_files)
     untracked_delta = [path for path in after.untracked_files if path not in before_untracked]
     allowed = [*execution.write_allowlist]
-    for sibling in execution.sibling_write_sets.values():
+    artifacts = {_host_artifact_relpath(goal_dir, step, story, workspace)}
+    for member_id, sibling in execution.sibling_write_sets.items():
         allowed.extend(sibling)
-    artifact_rel = _host_artifact_relpath(goal_dir, step, story, workspace)
-    if artifact_rel:
-        allowed.append(artifact_rel)
+        artifacts.add(_host_artifact_relpath(goal_dir, step, SimpleNamespace(id=member_id), workspace))
+    allowed.extend(path for path in artifacts if path)
     if untracked_delta:
-        _emit_write_audit_event(engine, step=step, story=story, untracked=untracked_delta)
+        signal = [path for path in untracked_delta if path not in artifacts]
+        if signal:
+            _emit_write_audit_event(engine, step=step, story=story, untracked=signal)
     violations = sorted(path for path in changed_delta if not _covered_by_write_set(path, allowed))
     if not violations:
         return ""
@@ -963,9 +977,16 @@ def _render_decision_records(records: list[DecisionRecord]) -> None:
 # 钉成 TIMEOUT——显式给足上界（review #16；不新增顶层配置键）。
 _VERIFY_COMMAND_TIMEOUT_SECONDS = 600
 
-# 完成门串行锁（52-3 AC6）：并行 Story 的门命令不重叠。模块级 = 同一进程内所有 goal
-# 推进共享一把；无竞争快取路径不绑定事件循环，串行 CLI 场景零影响。
-_GOAL_GATE_LOCK = asyncio.Lock()
+# 完成门串行锁（52-3 AC6）：并行 Story 的门命令不重叠。asyncio.Lock 绑定首个发生竞争
+# 等待的事件循环，跨 loop 复用会 RuntimeError——按运行中 loop 各持一把（同 loop 内互斥
+# 语义不变；跨 loop 本就无法用 asyncio 原语互斥，CLI 每进程单 loop 不受影响）。
+_GOAL_GATE_LOCKS: dict[int, asyncio.Lock] = {}
+
+
+def _goal_gate_lock() -> asyncio.Lock:
+    """当前事件循环的完成门锁。锁内声明命令受 ``_VERIFY_COMMAND_TIMEOUT_SECONDS``
+    上界约束：并行批内其他成员的门等待至多被拖长一个命令超时（受控重跑既有预算）。"""
+    return _GOAL_GATE_LOCKS.setdefault(id(asyncio.get_running_loop()), asyncio.Lock())
 
 
 def _goal_verify_workspace(engine: EngineContainer | None) -> Path:
@@ -1045,7 +1066,7 @@ async def _goal_structured_gate(
     """
     if not step.validation_clauses.declared:
         return ""
-    async with _GOAL_GATE_LOCK:
+    async with _goal_gate_lock():
         started = time.perf_counter()
         try:
             report = await _goal_verify_report(engine, workflow, step, story, goal_dir, rerun=True)

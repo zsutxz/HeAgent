@@ -235,11 +235,11 @@ validation: section: 实现摘要; section: 测试证据; section: 验证结论;
 
 1. `step.max_parallel_stories > 1`；
 2. 未命中 `story_parallel_revoked` 撤销闩；
-3. 宿主执行端口接受第三参执行上下文（两参老宿主 = fail-closed 串行）；
+3. 宿主执行端口实现执行上下文协议（inputs/step/story/execution 四参；未实现者 fail-closed 串行）；
 4. 成员 `parallel_group` 相同且非空；
 5. 成员 `write_set` 非空且批内两两不相交；
 6. 成员 `depends_on ⊆ 已完成 Story`（**不允许**依赖批内成员——依赖并发中的 Story 不可证安全）；
-7. 批大小 ≤ `max_parallel_stories`。
+7. 批大小 ≤ `max_parallel_stories`（合法域 1..5，声明越界在加载期显性失败；条件 3 的参数计数口径——宿主执行端口为 inputs/step/story/execution 四参，Runner 回调侧为 step/story/execution 三参——未实现该协议的宿主一律 fail-closed 串行）。
 
 授权批内的每条 Story 受写集围栏与完成审计保护：工具层 `file_write` / `file_edit` 的目标路径经
 本 Story 声明 `write_set` 的围栏预检（越集写被拦；围栏是纵深防御**非安全边界**，shell 可绕过——

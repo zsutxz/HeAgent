@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import asyncio
-import subprocess
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -29,6 +28,7 @@ from heagent.engine.workflow_runner import (
 )
 from heagent.engine.workflow_resource import StepApproval, WorkflowResource, WorkflowStepResource
 from heagent.goal import application
+from tests.helpers_goal_audit import StubGitEngine, git as _git
 from heagent.goal.workflow_loader import parse_story_list
 from heagent.pub.types import StoryExecutionContext
 
@@ -130,7 +130,8 @@ async def test_unknown_dependency_blocks_the_whole_chain_without_running(tmp_pat
             lambda data: {**data, "active_stories": ["S-STALE"], "artifact_refs": ["stale-ref"]},
             "stale derived mirrors are ignored",
         ),
-        # 52-5：Epic 52 新形态——撤销闩随 checkpoint 持久化，恢复后闩仍生效（串行续跑）。
+        # 52-5：Epic 52 新形态——撤销闩随 checkpoint 持久化且可回读；闩强制串行的语义由
+        # test_story_parallel_scheduling::test_violation_latch_keeps_execution_on_serial_rerun 钉住。
         (lambda data: {**data, "story_parallel_revoked": True}, "revoked latch checkpoint"),
     ],
 )
@@ -186,24 +187,7 @@ def _parallel_workflow() -> WorkflowResource:
     )
 
 
-class _AuditEngineStub:
-    """带事件总线的最小 engine 替身（workspace_root=None → cwd 为验证工作区）。"""
-
-    def __init__(self) -> None:
-        self.workspace_root = None
-        self.published: list[tuple[str, dict]] = []
-
-        class _Bus:
-            def publish(self, kind: str, details: dict | None = None) -> None:
-                self.owner.published.append((kind, details or {}))
-
-        self.events = _Bus()
-        self.events.owner = self
-
-
-def _git(*args: str, cwd: Path) -> None:
-    # 参数全为本文件受控字面量。
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)  # noqa: S603
+_AuditEngineStub = StubGitEngine
 
 
 @pytest.mark.asyncio
@@ -256,9 +240,14 @@ async def test_parallel_full_chain_host_wiring_with_git_audit(tmp_path, monkeypa
     assert sorted(sessions) == ["S-1", "S-2"]
     scheduled = [details for kind, details in events if kind == "workflow_story_batch_scheduled"]
     assert scheduled and scheduled[0]["members"] == ["S-1", "S-2"]
+    # step 事件形状（评审 D1 钉形）：批路径 = started 一条（story=批首成员）+ 收口一条
+    # （story 空）；审计事件只报真实信号（宿主产物噪声已被豁免集排除，此处信号 =
+    # checkpoint 快照文件）。
+    step_events = [(kind, details.get("story", "")) for kind, details in events if kind.startswith("workflow_step_")]
+    assert step_events == [("workflow_step_started", "S-1"), ("workflow_step_completed", "")]
     audits = [details for kind, details in engine_stub.published if kind == "workflow_write_audit"]
     assert len(audits) == 2  # 每条 Story 一次 Git 审计
-    assert all(details.get("untracked") for details in audits)  # 产物为 untracked → 只警告不判负
+    assert all(details.get("untracked") for details in audits)  # 真实 untracked 信号（非产物）
     snapshots = await store.list_checkpoints(goal_id="goal")
     # 快照链：S-1 记账（RUNNING）→ S-2 记账（RUNNING）→ 批终态（PENDING），批 = 单 checkpoint 单元。
     assert [checkpoint.completed_stories for checkpoint in snapshots] == [["S-1"], ["S-1", "S-2"], ["S-1", "S-2"]]
@@ -272,6 +261,9 @@ async def test_parallel_full_chain_host_wiring_with_git_audit(tmp_path, monkeypa
     assert sessions.count("S-3") == 1 and sessions.count("S-1") == 1
     # 串行收尾的 result.output 是单 story 输出（51-8 语义）；声明序合并落在步骤 outputs。
     assert restored.state.outputs["step-01.md"] == "impl S-1\n\n---\n\nimpl S-2\n\n---\n\nimpl S-3"
+    # 串行波的 step 事件形状：started 与 completed 都带该 story 归因（与批路径单组形状不同）。
+    wave2 = [(kind, details.get("story", "")) for kind, details in events if kind.startswith("workflow_step_")][2:]
+    assert wave2 == [("workflow_step_started", "S-3"), ("workflow_step_completed", "S-3")]
 
 
 @pytest.mark.asyncio

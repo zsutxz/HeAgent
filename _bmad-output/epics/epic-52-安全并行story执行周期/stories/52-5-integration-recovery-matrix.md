@@ -1,7 +1,7 @@
 ---
 id: 52-5
 title: 集成验收与恢复矩阵
-status: review
+status: done
 parent_epic: E52
 priority: P1
 depends_on: [52-2, 52-3, 52-4]
@@ -84,3 +84,16 @@ ruff format --check src tests
 mypy src
 mypy src --platform linux
 ```
+
+### Review Findings（2026-10-09 四层对抗式评审）
+
+- [x] [Review][Patch] 并行批 step 事件形状（单组 started/completed）无任何断言，AC1「逐成员 started/completed」未达成也未验证 [tests/test_story_scheduling_integration.py]
+- [x] [Review][Patch] revoked-latch 矩阵形态注释超出证明力（workflow 默认 limit=1 + 两参回调，闩不闩都串行）[tests/test_story_scheduling_integration.py:134]
+- [x] [Review][Patch] 测试基建三份拷贝（_git/_StubEngine/_commit_all 应提 conftest）[tests]
+- [x] [Review][Defer] 批内失败→重组路径引用 52-2 判据锚定、52-3 AC1 端到端围栏分段覆盖（story 已自认）— deferred
+
+## 评审处置后实测（2026-10-09）
+
+- 全量 `pytest` → **3678 passed, 14 skipped**（+3：生产 advance 桥选择、串行判负置闩、闩后重跑仍带上下文、manual 挂起一次；port_finder 1 失败为环境端口噪声，stash 基线复现、与本周期无关）。
+- `ruff check` / `ruff format --check` / `mypy src`（win+linux）→ 全绿。
+- 四层对抗式评审：1 decision（改文档钉事件形状）+ 22 patch（21 修 1 dismiss-误报）+ 5 defer（登记 deferred-work.md）全部处置。

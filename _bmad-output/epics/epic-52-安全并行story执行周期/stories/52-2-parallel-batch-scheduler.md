@@ -1,7 +1,7 @@
 ---
 id: 52-2
 title: 批次调度器与 Runner 并行执行语义
-status: review
+status: done
 parent_epic: E52
 priority: P1
 depends_on: [52-1]
@@ -34,7 +34,7 @@ created: '2026-10-09'
     重抛声明序首个异常；有非 COMPLETED 结果 → `_callback_status` 映射）；
   - `_accepts_execution(callback)`：`inspect.signature` 位置参数 ≥3（仿 `_accepts_story`）；
   - `write_violation=True` 结果 → 置撤销闩（单向不可复位）随 `_persist` 落盘；
-  - 批前发 `workflow_story_batch_scheduled` 事件（members + basis）。
+  - 批前发 `workflow_story_batch_scheduled` 事件（members + limit；评审修正：交付实发字段）。
 - `src/heagent/engine/checkpoint.py`：`WorkflowCheckpoint.story_parallel_revoked: bool = False`
   + `from_checkpoint` 映射（AD-2 追加式）。
 
@@ -50,7 +50,7 @@ created: '2026-10-09'
 5. `write_violation=True` → 闩置位并持久化；恢复后同 Goal 仍串行；闩不撤销围栏（串行重跑仍带 allowlist）。
 6. 末条 Story 在批内 → 步骤收口 / 审批门语义与串行一致；manual 模式确认从每 Story 一次收紧为每批一次。
 7. 乱序完成时 `story_outputs` 合并序 = 声明序。
-8. `workflow_story_batch_scheduled` 事件含 members 与依据；观测 sink 失败不改状态。
+8. `workflow_story_batch_scheduled` 事件含 members 与 limit；观测 sink 失败不改状态。
 
 ## 任务
 
@@ -98,3 +98,15 @@ pytest -q（全量）→ 3660 passed, 0 failed, 14 skipped, 18 deselected
 
 全量数字对账：51-8 基线 3603 + 52-1 新增 15 + 52-2 新增 25（含参数化反例 5 例）+ 零回归翻转 ≈ 3660。
 52-1 期间的 22 个 goal.lock 环境失败已随并发进程结束消失（本轮干净复现 0 failed）。
+
+### Review Findings（2026-10-09 四层对抗式评审）
+
+- [x] [Review][Patch] 闩命中后串行重跑丢围栏+审计，与 AD-18「闩撤销并发授权不撤销围栏」矛盾 [src/heagent/engine/workflow_runner.py:306-310] — 修复：闩只去 batch 派生，不灭 execution 构造
+- [x] [Review][Patch] 串行-with-context 路径的 write_violation 不置闩 [src/heagent/engine/workflow_runner.py:396-399]
+- [x] [Review][Patch] 结算 follow-up 超限 BLOCK 早退先于闩置位，violation 丢弃一轮 [src/heagent/engine/workflow_runner.py:624-633]
+- [x] [Review][Patch] 跨批有洞恢复时合并输出按 dict 插入序，偏离声明序 [src/heagent/engine/workflow_runner.py:651-653]
+- [x] [Review][Patch] KNOWN_KINDS 未登记 workflow_story_batch_scheduled / workflow_write_audit [src/heagent/events/protocol.py:31-66]
+- [x] [Review][Patch] workflow_story_batch_scheduled 事件 story 文件所述 basis 字段未落地（实发 members+limit）[story 措辞]
+- [x] [Review][Patch] 判负→闩→串行全链负例与 manual 每批一次确认无测试 [tests 缺口]
+- [x] [Review][Defer] 兄弟越集写互相误归因（共享工作区审计固有局限，worktree 层根治）— deferred
+- [x] [Review][Defer] 违规写入无补救语义，串行重跑被新基线洗白 — deferred（与基线盲区同族）

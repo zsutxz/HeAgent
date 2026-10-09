@@ -45,11 +45,12 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 2026-09-29
+last_updated: 10-09-2026 14:24
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
-story_location: _bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/（stories 嵌套于所属周期目录，见 consolidated-overview.md）
+story_location: _bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/（stories 
+  嵌套于所属周期目录，见 consolidated-overview.md）
 # spec 归档口径（2026-09-15）：实现 spec 与补丁 spec 一律按**归属 epic** 归档到 `epics/<周期>/<epic-NN-主题>/`（原 `patches/` 目录已解散）；
 #   `implementation-artifacts/` 只保留未闭合 deferred 活动台账与未启动的母规划 spec。
 
@@ -530,10 +531,31 @@ development_status:
   # 51-8 递延的「可验证隔离执行器」：声明门控批次（七条件）→ 写集围栏 → 宿主 Git 审计/撤销闩
   # → 声明面与文档收口 → 集成验收；worktree 物理隔离为后续增强层（AD-20）
   # 阶段映射：A=52-1；B=52-2；C=52-3,52-4；D=52-5
-  epic-52: planned
-  52-1-write-allowlist-fence: review  # 2026-10-09 实现+域内验证全绿；全量 22 失败为并发进程持锁环境噪声（stash 基线证明）
-  52-2-parallel-batch-scheduler: review  # 2026-10-09 实现+全量 3660 passed 干净全绿；三处设计缺口 TDD 抓出并修正
-  52-3-host-write-audit: review  # 2026-10-09 实现+全量 3671 passed；双桥协议（四参宿主并行/三参串行）+ Git 审计判负/兄弟排除/untracked 警告/门锁串行 11 用例
-  52-4-declaration-surface-docs: review  # 2026-10-09 loader INFO 翻转 + 技能包 Step06/07/模板/概览行改写（七条件逐字）+ frame/goal-workflow 文档收口；grep 无批次旧语义残留
-  52-5-integration-recovery-matrix: review  # 2026-10-09 全链样例+恢复矩阵扩展+R4 冒烟 10 passed；抓出并修复 RUNNING 快照不可恢复缺口（from_checkpoint 归一化）；全量 3675 passed 双平台 mypy 绿
-  epic-52-retrospective: optional
+  epic-52: done
+  52-1-write-allowlist-fence: done  # 2026-10-09 评审收口
+  52-2-parallel-batch-scheduler: done  # 2026-10-09 评审收口：7 patch 修复（闩不灭 execution/串行判负置闩/声明序合并/KNOWN_KINDS 等）
+  52-3-host-write-audit: done  # 2026-10-09 评审收口：11 patch 修复（空写集不误判负/基线钉 head/兄弟产物豁免/门锁 per-loop 等）+1 误报 dismiss
+  52-4-declaration-surface-docs: done  # 2026-10-09 评审收口：D1 裁决改文档钉事件形状 + 数字/上限/术语 3 patch
+  52-5-integration-recovery-matrix: done  # 2026-10-09 评审收口：事件形状断言/闩注释/conftest 提取；四层评审 1 decision+22 patch 全处置，全量 3678 passed（port_finder 1 失败为环境噪声，stash 基线复现）
+  epic-52-retrospective: done
+action_items:
+  - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
+    epic: 52
+    action: "真实 LLM 全链冒烟：用一个小 goal 走完 /goal new → next → run（含并行批授权与审计事件观察），顺带验证 aihome-client
+      的 revision 漂移处置"
+    owner: "tan"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-52-retro-2026-10-09.md"
+  - id: "epic-52-retro-item-2-port_finder-环境敏感排查-test_respects_max_att"
+    epic: 52
+    action: "port_finder 环境敏感排查：test_respects_max_attempts 稳定失败且 stash 基线复现（环境端口状态敏感）"
+    owner: "tan"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-52-retro-2026-10-09.md"
+  - id: "epic-52-retro-item-3-审计语义深化-5-项-基线盲区-兄弟误归因-违规写补救-产物参照系-端到端围栏冒"
+    epic: 52
+    action: "审计语义深化 5 项：基线盲区/兄弟误归因/违规写补救/产物参照系/端到端围栏冒烟，见 deferred-work.md（触发条件指向 AD-20
+      worktree 层）"
+    owner: "tan"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-52-retro-2026-10-09.md"
