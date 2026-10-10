@@ -406,6 +406,7 @@ def shell(command: str) -> str:
     """Execute a shell command."""
     ...
 
+
 # 自动提取：
 #   name = "shell"
 #   description = "Execute a shell command."
@@ -1315,6 +1316,7 @@ src/heagent/
 │   ├── http_console.py      # 网页控制台的项目/会话/配置面（Epic 50；2026-09-26 自 cli_http.py 拆出）
 │   ├── dialogs.py           # 服务端原生「选择目录」对话框（Story 50-8）
 │   ├── display.py           # 终端渲染辅助（CLI 与 GUI 共用；原 cli_display.py）
+│   ├── skill_merge.py       # /skill-merge 跨根同名技能交互收口（skills 双根，2026-10-10）
 │   ├── slash.py             # 交互模式斜杠命令注册与路由（2026-09-26 自顶层迁入）
 │   ├── terminal.py          # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断；2026-09-26 自顶层迁入）
 │   ├── wiring.py            # Provider 组合根 + ensure_runtime_config / build_cron_job_runner（CLI/GUI 共用；2026-09-26 自顶层迁入）

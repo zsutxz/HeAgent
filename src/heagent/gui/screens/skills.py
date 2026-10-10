@@ -56,7 +56,7 @@ class SkillScreen(Screen[None]):
     def on_mount(self) -> None:
         table = self.query_one("#skill-table", DataTable)
         table.cursor_type = "row"
-        table.add_columns("技能名", "描述", "使用次数", "最后使用")
+        table.add_columns("技能名", "来源", "描述", "使用次数", "最后使用")
         self._refresh_table()
 
     def _refresh_table(self) -> None:
@@ -71,7 +71,9 @@ class SkillScreen(Screen[None]):
             usage = str(content.usage_count)
             last = content.last_used[:16] if content.last_used else "从未"
             desc = content.description[:40] + ("..." if len(content.description) > 40 else "")
-            table.add_row(name, desc, usage, last)
+            owner = self._store.owner_root(name)
+            source = "全局" if owner is not None and owner == self._store.roots[0] else "项目"
+            table.add_row(name, source, desc, usage, last)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         btn_id = event.button.id

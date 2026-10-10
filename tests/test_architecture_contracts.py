@@ -713,6 +713,7 @@ def test_cli_package_layout_is_pinned() -> None:
         "init",
         "interactive",
         "port_finder",
+        "skill_merge",
         "slash",
         "terminal",
         "wiring",

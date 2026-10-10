@@ -248,7 +248,9 @@ async def _run_chat(
             soul=soul,
         )
         dream_scheduler = _build_dream_scheduler(settings, provider, engine, session, skills, facts, profile, soul)
-        registry = _build_slash_registry(provider, mcp_manager, session, session_id, loop, system, loop.cron_store)
+        registry = _build_slash_registry(
+            provider, mcp_manager, session, session_id, loop, system, loop.cron_store, skills
+        )
         click.echo(
             f"HeAgent interactive mode (session: {session_id}). Type your message (Esc to pause, Enter to resume, double Esc to interrupt, Ctrl+C to exit)."
         )
@@ -403,6 +405,7 @@ def _build_slash_registry(
     loop: AgentLoop,
     system: str | None,
     cron_store: JobStore | None = None,
+    skills: SkillStore | None = None,
 ) -> SlashRegistry:
     """构造斜杠命令注册表：内置命令 + 用户自定义命令（Epic 31）。"""
     registry = SlashRegistry()
@@ -441,6 +444,11 @@ def _build_slash_registry(
         await _goal_runner(provider, loop.engine, args, cron_store=cron_store)
 
     registry.register("goal", "目标驱动开发（new/next/run/status/pause/resume/auto/reset）", _goal)
+
+    if skills is not None:
+        from heagent.cli.skill_merge import register_skill_merge
+
+        register_skill_merge(registry, skills)
 
     for command in load_custom_commands():
         prompt = command.prompt
