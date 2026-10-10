@@ -666,9 +666,11 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 `.heagent/memory/MEMORY.md`，70% 关键词重叠去重。通过 `fact_add` 工具由 LLM 自主保存（**append-only**）。
 
-注入侧有字节预算 `memory_inject_max_bytes`（默认 49152，0=不限制）：`_memory_block` 按文件顺序累计`- <fact>` 的字节数，超预算保留**前部**条目并在块尾追加省略标注（含省略条数/总条数/预算值）同时打 warning——绝不静默；文件本体不被修改，超预算条目仍在盘上，整理该文件即释放预算。（2026-09-23 实测：无预算时 336 KB / 170 条 = 每轮 89 183 token 的 SYSTEM 前缀，整理后 33 KB / 81 条 = 8 591 token。）
+注入侧有字节预算 `memory_inject_max_bytes`（默认 98304 = 96 KiB，0=不限制）：`_memory_block` 按文件顺序累计`- <fact>` 的字节数，超预算保留**前部**条目并在块尾追加省略标注（含省略条数/总条数/预算值）同时打 warning——绝不静默；文件本体不被修改，超预算条目仍在盘上，整理该文件即释放预算。（2026-09-23 实测：无预算时 336 KB / 170 条 = 每轮 89 183 token 的 SYSTEM 前缀，整理后 33 KB / 81 条 = 8 591 token。）
 
 **写侧闸门**：预算只在读侧刹车，故 `fact_add` 的工具描述（**唯一能触达模型的写侧入口**——本文件头部注记不进 system prompt）明确「只写改变未来行为的结论，不收过程叙述 / 状态记账 / 探针细节」，`<memory-nudge>` 同口径复述；`tests/test_memory.py::TestFactAddWriteGuardrail` 钉住该契约。2026-09-24 实测：MEMORY.md 涨到 55 177 字节 / 99 条，其中 41%（22 575 字节 / 24 条）是过程叙述与状态记账，把最新的 4 条挤出预算 ⇒ 整理为 44 876 字节 / 94 条：每轮注入 **12 912 token（99 条只注入 95 条）→ 12 120 token（94 条全部注入）**，预算余量 4 276 字节。（压缩原则与工具见该文件头部「整理历史」与 `.heagent/tmp/mem_curate.py`。）
+
+**自动归档（2026-10-10 重写）**：`memory/auto_archive.py` 在 CLI 启动时（`console.py::_prune_runtime_artifacts`，独立 try-except）检查 MEMORY.md——fact 总字节超过 `memory_archive_trigger_bytes`（默认 49152 = 注入预算的一半；0=禁用）时，把「前 `CORE_FACTS_TO_KEEP`（20）条核心约定」与「**最新尾部**能装进预算的那些条」之间的**中间老条目**移入单一 append-only `.heagent/memory/archive/MEMORY-archive.md`（每批一个小节，标题带**真实** UTC 时间戳）。重写**逐行删除**被移走的 fact 行、其余行原位保留；MEMORY.md 的写入走 `atomic_update_text` + 比较后写（并发 `fact_add` 的追加不会被整卷覆盖）。任何异常 fail-soft（只 WARNING，不阻断启动）。为什么是「字节」而不是「天数」：事实条目格式只有 `- <text>`，**没有真实时间戳**——原实现用 `DAYS_PER_FACT = 7` 从 mtime 线性外推「年龄」，2026-10-09 那批 170 条因此被写进 `archive/2023-04.md … 2026-07.md` 40 个**虚构月份**文件（且重写时静默丢弃 fact 之后的非 `- ` 行），该口径已于 2026-10-10 删除。判据：`tests/memory/test_auto_archive.py`（14 例）。
 
 #### 技能库（顶层 `skills/` 包，2026-10-10 自 memory/ 迁出）
 
@@ -801,7 +803,9 @@ HeAgentError (base)
 | `context_files_user_level` | False | 是否纳入用户级 `~/.heagent/AGENTS.md`（默认关闭，避免全局文件静默影响每个项目） |
 | `events_rollout_enabled` | False | 是否把每次 run 的事件落盘为 `.heagent/runs/<run_id>/rollout.jsonl`（默认关闭；内容含工具原始输出） |
 | `memory_nudge_enabled` | True | 是否注入记忆保存提醒 |
-| `memory_inject_max_bytes` | 49152 | 注入 `<memory>` 的字节预算（0=不限制）；超预算**按文件顺序保留前部条目**并在块尾显式标注省略条数 + warning，文件本体不改动（`MEMORY.md` 是 append-only 且整份注入，无预算会无界增长） |
+| `memory_inject_max_bytes` | 98304 | 注入 `<memory>` 的字节预算（0=不限制）；超预算**按文件顺序保留前部条目**并在块尾显式标注省略条数 + warning，文件本体不改动（`MEMORY.md` 是 append-only 且整份注入，无预算会无界增长） |
+| `memory_archive_trigger_bytes` | 49152 | MEMORY.md 的 fact 总字节超此值时自动归档「前 20 条核心约定」与「最新尾部」之间的中间老条目到 `archive/MEMORY-archive.md`（0=禁用自动归档） |
+| `memory_archive_min_interval_seconds` | 86400 | 自动归档的跨进程节流间隔（秒；0=每次都扫） |
 | `skill_curator_stale_days` | 30 | `skill_curate` 未显式传 `days` 时的过期天数默认值 |
 | `cron_enabled` | True | 是否启用 cron 调度 |
 | `cron_tick_seconds` | 60 | 调度器检查间隔（秒） |

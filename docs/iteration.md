@@ -320,6 +320,15 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 - ✅ 按月归档：归档文件按月命名（如 `2026-09.md`）
 - ✅ 可追溯：归档文件保留完整历史记录
 
+> **后续（2026-10-10 重写，本节其余文字保留为当时的历史记录）**：「按估算天数归档」与「按月分文件」两个
+> 口径都已删除——事实条目格式只有 `- <text>`，**没有真实时间戳**，外层推（`DAYS_PER_FACT = 7`）造出过
+> `archive/2023-04.md` 这类**虚构月份**文件（2026-10-09 那批 170 条实为同一次写入，真实创建时间全在
+> 2026-09 ~ 2026-09-30），且重写时会静默丢弃 fact 之后的非 `- ` 行。现行口径：
+> 触发 = `MEMORY_ARCHIVE_TRIGGER_BYTES`（MEMORY.md 的 fact 总字节阈值，0=禁用）；
+> 落点 = 单一 append-only `archive/MEMORY-archive.md`（批次标题带**真实** UTC 时间戳）；
+> 重写逐行删除被移走的 fact 行、其余行原位保留；MEMORY.md 走比较后写，并发 `fact_add` 不被覆盖。
+> 权威口径见 `docs/frame.md` §4.6；判据 `tests/memory/test_auto_archive.py`（14 例）。
+
 #### 3. 手动整理工具（按需使用）
 - 工具脚本：`.heagent/tmp/clean_memory.py`
 - 用于立即清理冗余条目或删除已固化的过程性记录
@@ -339,13 +348,13 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 **配置建议**：
 ```bash
-# 默认配置（推荐）
-MEMORY_INJECT_MAX_BYTES=98304          # 96 KB 预算
-MEMORY_AUTO_ARCHIVE_DAYS=90            # 90 天自动归档
-MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS=86400  # 1 天节流
+# 默认配置（推荐；两行归档键为 2026-10-10 重写后的名称）
+MEMORY_INJECT_MAX_BYTES=98304               # 96 KB 预算
+MEMORY_ARCHIVE_TRIGGER_BYTES=49152          # fact 总字节超此值就归档中间老条目（0=禁用）
+MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS=86400   # 1 天节流
 ```
 
-**测试覆盖**：`tests/memory/test_auto_archive.py`（8 例测试全部通过）
+**测试覆盖**：`tests/memory/test_auto_archive.py`（2026-10-10 重写后 **14 例**；重写前 8 例）
 
 详见已删除文档 `memory-budget-solution.md`（内容已归档到本节）。
 

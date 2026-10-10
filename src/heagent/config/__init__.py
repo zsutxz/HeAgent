@@ -232,10 +232,14 @@ class Settings(BaseSettings):
     # 并在块尾显式标注省略条数 + 打一条 warning——绝不静默丢内容；文件本体不被修改，
     # 超预算的条目仍在盘上，整理 MEMORY.md 即可释放。默认 98304（96 KB，约 2 倍当前使用量）。
     memory_inject_max_bytes: int = Field(default=98_304, ge=0)
-    # MEMORY.md 自动清理参数：超过此天数的事实条目在启动时自动归档到 .heagent/memory/archive/；
-    # 0=禁用自动清理。归档文件按月命名（如 2026-09.md），保留文件头部的核心约定（前 20 条）。
-    memory_auto_archive_days: int = Field(default=90, ge=0)
-    # 自动清理的跨进程节流（秒）：距上次清理不足该间隔就跳过扫描（0=每次都扫）。
+    # MEMORY.md 自动归档参数（2026-10-10 重写，替换原 memory_auto_archive_days）：
+    # MEMORY.md 的 fact 总字节超过此值就启动一次归档——把「前 20 条核心约定」与「最新的尾部」
+    # 之外的**中间老条目**移入 .heagent/memory/archive/MEMORY-archive.md；0=禁用自动归档。
+    # 为什么是字节而不是天数：事实条目没有真实时间戳（事实格式只有 `- <text>`），任何「年龄」都只能靠
+    # 外推猜（原实现用 DAYS_PER_FACT=7 外推，造出过 archive/2023-04.md 这类虚构月份文件，见台账）。
+    # 默认 49152 = 注入预算 memory_inject_max_bytes 的一半，让文件在 `_fit_facts` 开始省略**最新**条目之前被修剪。
+    memory_archive_trigger_bytes: int = Field(default=49_152, ge=0)
+    # 自动归档的跨进程节流（秒）：距上次归档不足该间隔就跳过扫描（0=每次都扫）。
     memory_archive_min_interval_seconds: int = Field(default=86400, ge=0)  # 默认 1 天
 
     # ---- 技能策展参数 ----

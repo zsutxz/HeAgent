@@ -506,7 +506,6 @@ class TestGuards:
             "EDIT_SNAPSHOT_RETENTION_DAYS": 3650.0,
             "LEDGER_RETENTION_DAYS": 3650.0,
             "LOG_RETENTION_DAYS": 3650.0,
-            "MEMORY_AUTO_ARCHIVE_DAYS": 3650.0,
             "RUN_RETENTION_DAYS": 3650.0,
             "SANDBOX_DIR_RETENTION_DAYS": 3650.0,
             "SESSION_RETENTION_DAYS": 3650.0,
@@ -518,6 +517,7 @@ class TestGuards:
             # bytes = 8388608（8 MiB）
             "CONTEXT_FILES_MAX_BYTES": 8_388_608.0,
             "MEMORY_INJECT_MAX_BYTES": 8_388_608.0,
+            "MEMORY_ARCHIVE_TRIGGER_BYTES": 8_388_608.0,
             # tokens = 1000000
             "MAX_OUTPUT_TOKENS": 1_000_000.0,
             "SKILL_MAX_AUTO_INVOKE_TOKENS": 1_000_000.0,

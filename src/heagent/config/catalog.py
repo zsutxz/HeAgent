@@ -309,9 +309,10 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
             # D2 裁定：显式白名单 > 模式排除 ⇒ 本键可写（保留天数是运维可调项，非隔离姿态）。
             "SANDBOX_DIR_RETENTION_DAYS",
             "PRUNE_MIN_INTERVAL_SECONDS",
-            # 记忆自动归档（2026-09-27 新增字段的登记）：归档天数与节流间隔同属「数据生命周期旋钮」，
-            # 与上面几项同型 —— 都支持 0 = 禁用，且都由 RESOURCE_CEILINGS 给上界。
-            "MEMORY_AUTO_ARCHIVE_DAYS",
+            # 记忆自动归档（2026-09-27 新增字段的登记；2026-10-10 触发口径由「估算天数」改为「字节」）：
+            # 触发阈值与节流间隔同属「数据生命周期旋钮」，与上面几项同型 —— 都支持 0 = 禁用，
+            # 且都由 RESOURCE_CEILINGS 给上界。
+            "MEMORY_ARCHIVE_TRIGGER_BYTES",
             "MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS",
         ),
     ),
@@ -496,7 +497,6 @@ RESOURCE_CEILINGS: dict[str, float] = {
     "EDIT_SNAPSHOT_RETENTION_DAYS": 3650.0,
     "LEDGER_RETENTION_DAYS": 3650.0,
     "LOG_RETENTION_DAYS": 3650.0,
-    "MEMORY_AUTO_ARCHIVE_DAYS": 3650.0,
     "RUN_RETENTION_DAYS": 3650.0,
     "SANDBOX_DIR_RETENTION_DAYS": 3650.0,
     "SESSION_RETENTION_DAYS": 3650.0,
@@ -505,9 +505,10 @@ RESOURCE_CEILINGS: dict[str, float] = {
     "CRON_TICK_SECONDS": 604800.0,
     "PRUNE_MIN_INTERVAL_SECONDS": 604800.0,
     "SHELL_TIMEOUT": 604800.0,
-    # bytes = 8388608：文本预算（默认值 32768 / 49152）
+    # bytes = 8388608：文本预算（默认值 32768 / 98304 / 49152）
     "CONTEXT_FILES_MAX_BYTES": 8_388_608.0,
     "MEMORY_INJECT_MAX_BYTES": 8_388_608.0,
+    "MEMORY_ARCHIVE_TRIGGER_BYTES": 8_388_608.0,
     # tokens = 1000000：token 预算（默认值 None / 8192）
     "MAX_OUTPUT_TOKENS": 1_000_000.0,
     "SKILL_MAX_AUTO_INVOKE_TOKENS": 1_000_000.0,
