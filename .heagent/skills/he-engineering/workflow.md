@@ -3,16 +3,17 @@ name: he-engineering
 entrypoint: goal
 on_create: persist_goal_identity
 step_executor: subagent
-revision: "1"
+revision: "2"
 checkpoint_mode: prompt
-required_resources: prompt-template.md, gate-template.md
+prompt_template: templates/prompt.md
+gate_template: templates/gate.md
 ---
 
 # engineering delivery workflow（工程实现工作流）
 
 本文件是本工作流的**完整可执行契约**：三步完成「方案 → 实现 → 验证」的工程交付。
 全部正文与产物使用中文；方案类持久产物写入项目输出根 `_he-output/` 之下，源代码留在
-仓库既有位置。frontmatter 的 `revision: "1"` 是**声明 revision**：包内容改动不触发派生
+仓库既有位置。frontmatter 的 `revision: "2"` 是**声明 revision**：包内容改动不触发派生
 漂移，改包必须同步推进 revision。
 
 ## Step 01: design-approach（方案设计）

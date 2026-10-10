@@ -65,13 +65,34 @@ def test_doctor_fails_when_a_role_package_is_unreadable(tmp_path: Path) -> None:
     assert _finding(report, "role_package_unreadable").startswith("role package dev:")
 
 
-def test_doctor_warns_when_optional_templates_are_absent_without_blocking(tmp_path: Path) -> None:
-    report = diagnose_workflow(_workflow(), _package(tmp_path / "workflow"), lambda _: None)
+def test_doctor_warns_when_a_declared_template_is_not_provided(tmp_path: Path) -> None:
+    workflow = WorkflowResource(
+        name="example",
+        instructions="",
+        steps=[WorkflowStepResource(index=0, name="build", instructions="")],
+        frontmatter={"prompt_template": "templates/prompt.md", "gate_template": "templates/gate.md"},
+    )
+    report = diagnose_workflow(workflow, _package(tmp_path / "workflow"), lambda _: None)
     assert report.ok is True
     assert {finding.code for finding in report.problems} == {"optional_template_missing"}
     assert all(finding.severity is DoctorSeverity.WARN for finding in report.problems)
+    assert {finding.subject for finding in report.problems} == {"template prompt.md", "template gate.md"}
     # A warning is reported, never rendered as the success line.
     assert "workflow packages OK" not in report.render()
+
+
+def test_doctor_warns_when_validation_steps_declare_no_gate_template(tmp_path: Path) -> None:
+    """步骤声明 ``validation:`` 而包未声明 ``gate_template``：渲染门禁时必然显性失败，提前 WARN。"""
+    workflow = WorkflowResource(
+        name="example",
+        instructions="",
+        steps=[WorkflowStepResource(index=0, name="build", instructions="", validation_rules="section: 摘要")],
+    )
+    report = diagnose_workflow(workflow, _package(tmp_path / "workflow"), lambda _: None)
+    assert report.ok is True
+    assert [finding.code for finding in report.problems] == ["gate_template_undeclared"]
+    finding = next(f for f in report.problems if f.code == "gate_template_undeclared")
+    assert "no gate_template" in finding.detail
 
 
 def test_doctor_fails_on_a_required_resource_the_package_lacks(tmp_path: Path) -> None:

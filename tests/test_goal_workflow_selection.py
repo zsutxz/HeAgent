@@ -60,7 +60,7 @@ def _workflow_md(*, steps: int, name: str, revision: str = "", validation: str =
         "on_create: persist_goal_identity\n"
         "step_executor: subagent\n"
         + (f'revision: "{revision}"\n' if revision else "")
-        + "required_resources: prompt-template.md, gate-template.md\n"
+        + "prompt_template: templates/prompt.md\ngate_template: templates/gate.md\n"
         "---\n\n"
         f"# {name} workflow\n\n"
         "Shared instructions injected into every step prompt.\n\n"
@@ -82,8 +82,8 @@ def _make_package(
     (root / "meta.yaml").write_text(f"canonical_id: {skill_id}\naliases: [{alias}]\n", encoding="utf-8")
     templates = root / "templates"
     templates.mkdir()
-    (templates / "prompt-template.md").write_text(_PROMPT_TEMPLATE, encoding="utf-8")
-    (templates / "gate-template.md").write_text(_GATE_TEMPLATE, encoding="utf-8")
+    (templates / "prompt.md").write_text(_PROMPT_TEMPLATE, encoding="utf-8")
+    (templates / "gate.md").write_text(_GATE_TEMPLATE, encoding="utf-8")
     (root / "workflow.md").write_text(
         _workflow_md(steps=steps, name=f"{skill_id}-flow", revision=revision, validation=validation, phase=phase),
         encoding="utf-8",
@@ -105,8 +105,8 @@ def _make_external_step_package(cwd: Path, skill_id: str) -> Path:
     (root / "meta.yaml").write_text(f"canonical_id: {skill_id}\n", encoding="utf-8")
     templates = root / "templates"
     templates.mkdir()
-    (templates / "prompt-template.md").write_text(_PROMPT_TEMPLATE, encoding="utf-8")
-    (templates / "gate-template.md").write_text(_GATE_TEMPLATE, encoding="utf-8")
+    (templates / "prompt.md").write_text(_PROMPT_TEMPLATE, encoding="utf-8")
+    (templates / "gate.md").write_text(_GATE_TEMPLATE, encoding="utf-8")
     (root / "workflow.md").write_text(
         "---\n"
         f"name: {skill_id}-flow\n"
@@ -114,7 +114,7 @@ def _make_external_step_package(cwd: Path, skill_id: str) -> Path:
         "on_create: persist_goal_identity\n"
         "step_executor: subagent\n"
         "steps: [step-01-first.md, step-02-second.md]\n"
-        "required_resources: prompt-template.md, gate-template.md\n"
+        "prompt_template: templates/prompt.md\ngate_template: templates/gate.md\n"
         "---\n\n# external step files workflow\n\n",
         encoding="utf-8",
     )
@@ -750,7 +750,7 @@ def test_shipped_packages_cover_both_revision_paths() -> None:
         workflow = read_workflow(package, "workflow.md")
         revision = workflow_revision(package, workflow)
         if skill_id == "he-engineering":
-            assert workflow.revision == "1" and revision == "1"
+            assert workflow.revision == "2" and revision == "2"
         else:
             assert workflow.revision == ""
             assert re.fullmatch(r"[0-9a-f]{16}", revision), revision

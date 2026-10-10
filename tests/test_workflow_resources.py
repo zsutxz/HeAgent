@@ -139,30 +139,44 @@ def test_templates_stay_optional_without_required_resources_declaration(tmp_path
     assert workflow.gate_template == ""
 
 
-def test_declared_required_templates_load_when_present(tmp_path: Path) -> None:
+def test_declared_template_keys_load_when_present(tmp_path: Path) -> None:
     package = _package(
-        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nrequired_resources: prompt-template.md\n"
+        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nprompt_template: templates/prompt.md\n"
     )
     templates = tmp_path / "templates"
     templates.mkdir()
-    (templates / "prompt-template.md").write_text("PLAN {goal} :: {step}\n", encoding="utf-8")
+    (templates / "prompt.md").write_text("PLAN {goal} :: {step}\n", encoding="utf-8")
 
     workflow = read_workflow(package)
 
     assert workflow.prompt_template == "PLAN {goal} :: {step}"
-    assert workflow.gate_template == ""
+    assert workflow.gate_template == ""  # 未声明的键 = 包不携带
+
+
+def test_declared_required_resources_still_enforce_load_time_presence(tmp_path: Path) -> None:
+    """``required_resources`` 继续兜住其余 ``templates/`` 资源（步骤/门禁模板主路已走专用键）。"""
+    package = _package(
+        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nrequired_resources: rubric.md\n"
+    )
+    templates = tmp_path / "templates"
+    templates.mkdir()
+    (templates / "rubric.md").write_text("SCORE\n", encoding="utf-8")
+
+    workflow = read_workflow(package)
+
+    assert workflow.prompt_template == ""  # required_resources 不再承载模板键
 
 
 @pytest.mark.parametrize("template_body", ["", "   \n"])
 def test_declared_required_templates_fail_when_missing_or_blank(tmp_path: Path, template_body: str) -> None:
     package = _package(
-        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nrequired_resources: prompt-template.md\n"
+        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nprompt_template: templates/prompt.md\n"
     )
     templates = tmp_path / "templates"
     templates.mkdir()
-    (templates / "prompt-template.md").write_text(template_body, encoding="utf-8")
+    (templates / "prompt.md").write_text(template_body, encoding="utf-8")
 
-    with pytest.raises(SkillWorkflowError, match="required_resources"):
+    with pytest.raises(SkillWorkflowError, match="prompt_template"):
         read_workflow(package)
 
 
@@ -326,16 +340,16 @@ def test_derived_revision_moves_with_workflow_body(tmp_path: Path) -> None:
     assert workflow_revision(package, read_workflow(package)) != before
 
 
-def test_derived_revision_covers_required_resources(tmp_path: Path) -> None:
-    """派生路径覆盖 required_resources 声明的模板：模板漂移 → 指纹变化。"""
+def test_derived_revision_covers_declared_template_keys(tmp_path: Path) -> None:
+    """派生路径覆盖 ``prompt_template``/``gate_template`` 指名模板：措辞漂移 → 指纹变化。"""
     package = _package(
-        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nrequired_resources: prompt-template.md\n"
+        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nprompt_template: templates/prompt.md\n"
     )
     templates = tmp_path / "templates"
     templates.mkdir()
-    (templates / "prompt-template.md").write_text("PLAN {goal}\n", encoding="utf-8")
+    (templates / "prompt.md").write_text("PLAN {goal}\n", encoding="utf-8")
     before = workflow_revision(package, read_workflow(package))
-    (templates / "prompt-template.md").write_text("CHANGED {goal}\n", encoding="utf-8")
+    (templates / "prompt.md").write_text("CHANGED {goal}\n", encoding="utf-8")
 
     assert workflow_revision(package, read_workflow(package)) != before
 
@@ -376,19 +390,19 @@ def test_template_digest_order_is_sorted_not_declaration_order(tmp_path: Path) -
     tmp_path.mkdir(exist_ok=True)
     (tmp_path / "workflow.md").write_text(
         "---\nname: inline\n"
-        "required_resources: prompt-template.md, gate-template.md\n"  # 故意逆字母序声明
+        "required_resources: prompt.md, gate.md\n"  # 故意逆字母序声明
         "---\n\n# Inline\n\n## Step 01: only\ninput: x\noutput: y\n\nDo it.\n",
         encoding="utf-8",
     )
     templates = tmp_path / "templates"
     templates.mkdir()
-    (templates / "prompt-template.md").write_text("P", encoding="utf-8")
-    (templates / "gate-template.md").write_text("G", encoding="utf-8")
+    (templates / "prompt.md").write_text("P", encoding="utf-8")
+    (templates / "gate.md").write_text("G", encoding="utf-8")
     package = SkillPackage(skill_id="inline", root=tmp_path)
 
     hasher = hashlib.sha256()
     hasher.update((tmp_path / "workflow.md").read_text(encoding="utf-8").encode("utf-8"))
-    for name in ("gate-template.md", "prompt-template.md"):  # sorted 顺序，非声明顺序
+    for name in ("gate.md", "prompt.md"):  # sorted 顺序，非声明顺序
         hasher.update(b"\x00")
         hasher.update((templates / name).read_text(encoding="utf-8").encode("utf-8"))
 
@@ -439,17 +453,15 @@ def test_derived_revision_detects_a_pinned_resource_drift(tmp_path: Path) -> Non
     import json
 
     package = _package(
-        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nrequired_resources: prompt-template.md\n"
+        tmp_path, workflow="steps: [step-01-first.md, step-02-second.md]\nprompt_template: templates/prompt.md\n"
     )
     templates = tmp_path / "templates"
     templates.mkdir()
-    (templates / "prompt-template.md").write_text("PLAN {goal}\n", encoding="utf-8")
-    digest = hashlib.sha256((templates / "prompt-template.md").read_bytes()).hexdigest()
-    (tmp_path / "manifest.json").write_text(
-        json.dumps({"outputs": {"templates/prompt-template.md": digest}}), encoding="utf-8"
-    )
+    (templates / "prompt.md").write_text("PLAN {goal}\n", encoding="utf-8")
+    digest = hashlib.sha256((templates / "prompt.md").read_bytes()).hexdigest()
+    (tmp_path / "manifest.json").write_text(json.dumps({"outputs": {"templates/prompt.md": digest}}), encoding="utf-8")
     workflow = read_workflow(package)  # 装载时模板与 manifest 一致
-    (templates / "prompt-template.md").write_text("TAMPERED {goal}\n", encoding="utf-8")
+    (templates / "prompt.md").write_text("TAMPERED {goal}\n", encoding="utf-8")
 
     # loader 的必需性检查把摘要漂移报成「missing or blank」；直接走派生通道拿到原始摘要错。
     with pytest.raises(Exception, match="content hash differs"):

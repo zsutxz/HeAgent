@@ -6,9 +6,10 @@
 导航和边界说明，不复制那份契约。
 
 `.heagent/skills/he-goal/` 本身是一个**技能包**（其 `meta.yaml` 声明 `canonical_id: he-goal`），
-CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt-template.md`（步骤提示词模板）与
-`templates/gate-template.md`（门禁提示块模板）——CLI 不内置模板兜底；模板的必需性由 `workflow.md`
-frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：改工作流行为应改包，而不是改 Python。
+CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt.md`（步骤提示词模板）与
+`templates/gate.md`（门禁提示块模板）——CLI 不内置模板兜底；模板文件名由 `workflow.md` frontmatter 的
+`prompt_template` / `gate_template` 键声明（声明驱动，代码不携带固定文件名），指名文件缺失即显性报错：
+改工作流行为应改包，而不是改 Python。
 
 ### 权威关系
 
@@ -16,7 +17,7 @@ frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：�
 | --- | --- | --- |
 | 工作流步骤、角色、输入输出、检查点 | `.heagent/skills/he-goal/workflow.md` | 读取、解析、校验并按声明执行 |
 | 步骤方法论 | 每个步骤均由 `role:` 指向 `.heagent/skills/*/SKILL.md` | 把声明和上下文交给 SubAgent |
-| 步骤提示词与门禁文案 | 包内 `templates/prompt-template.md`、`templates/gate-template.md`（必需性由 `workflow.md` 的 `required_resources` 声明） | 替换占位符渲染 prompt；执行声明的必需性（缺失即加载失败），代码不携带模板文案 |
+| 步骤提示词与门禁文案 | 包内 `templates/prompt.md`、`templates/gate.md`（文件名由 `workflow.md` frontmatter 的 `prompt_template` / `gate_template` 键声明） | 替换占位符渲染 prompt；执行声明（指名文件缺失即加载失败），代码不携带模板文案与固定文件名 |
 | 运行策略参数（`max_rounds`、`auto_schedule`、未决问题文案） | `workflow.md` 的 frontmatter | 读取声明；代码只保留兜底默认值 |
 | Goal 身份与工作流产物 | `_he-output/goals/<goal-id>/` | 创建目录、保存输出、恢复 checkpoint |
 | 需求文档文件名（`brief.md`；存量 goal 回落 `require.md` / `GOAL.md`） | `src/heagent/goal/document.py` 的 `_goal_document_path()` | 解析出的文件名经 prompt 的 `Goal document` 行（占位符 `{goal_document}`）注入；workflow.md 散文与模板都不写文件名，改名只动代码一处 |
@@ -194,8 +195,8 @@ manual 模式的 checkpoint 确认从每条 Story 一次收紧为每批一次。
 ### 修改工作流的规则
 
 - 变更流程顺序或阶段职责：修改 `.heagent/skills/he-goal/workflow.md`。
-- 变更步骤提示词或门禁文案：改包内 `templates/prompt-template.md` / `templates/gate-template.md`
-  （占位符清单见包 `SKILL.md` 的「模板契约」节；必需性由 frontmatter `required_resources` 声明，
+- 变更步骤提示词或门禁文案：改包内 `templates/prompt.md` / `templates/gate.md`
+  （占位符清单见包 `MAINTENANCE.md`；文件名由 frontmatter `prompt_template` / `gate_template` 键声明，
   清理 `templates/` 时不要删——缺失会让 `/goal` 在加载阶段或渲染期显性报错）；
   变更 `/goal run` 的步数上限、`/goal auto` 的默认 cron、未决问题策略文案：改 `workflow.md` 的 frontmatter
   声明（`max_rounds` / `auto_schedule` / `open_question_default` / `open_question_block`）。两者都不需要改 Python。

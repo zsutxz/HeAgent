@@ -16,14 +16,14 @@ def _package(tmp_path: Path, step_metadata: str, *, script: str | None = "script
     (root / "SKILL.md").write_text("---\nname: he-flow\n---\n", encoding="utf-8")
     (root / "meta.yaml").write_text("canonical_id: he-flow\n", encoding="utf-8")
     (root / "templates").mkdir()
-    (root / "templates" / "prompt-template.md").write_text("prompt", encoding="utf-8")
-    (root / "templates" / "gate-template.md").write_text("gate", encoding="utf-8")
+    (root / "templates" / "prompt.md").write_text("prompt", encoding="utf-8")
+    (root / "templates" / "gate.md").write_text("gate", encoding="utf-8")
     if script is not None:
         (root / "scripts").mkdir()
         (root / "scripts" / script).write_text("async def build_workflow(goal):\n    return 'ok'\n", encoding="utf-8")
     (root / "workflow.md").write_text(
         "---\nname: flow\nentrypoint: goal\non_create: persist_goal_identity\n"
-        "required_resources: prompt-template.md, gate-template.md\n---\n\n"
+        "prompt_template: templates/prompt.md\ngate_template: templates/gate.md\n---\n\n"
         "## Step 01: one\n" + step_metadata + "\n\nRun it.\n",
         encoding="utf-8",
     )

@@ -4,7 +4,8 @@ entrypoint: goal
 on_create: persist_goal_identity
 step_executor: subagent
 checkpoint_mode: prompt
-required_resources: prompt-template.md, gate-template.md
+prompt_template: templates/prompt.md
+gate_template: templates/gate.md
 ---
 
 # security assessment workflow（安全评估工作流）

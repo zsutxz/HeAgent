@@ -3,8 +3,9 @@ name: workflow
 entrypoint: goal
 on_create: persist_goal_identity
 step_executor: subagent
-revision: "2"
-required_resources: prompt-template.md, gate-template.md
+revision: "3"
+prompt_template: templates/prompt.md
+gate_template: templates/gate.md
 doctor_checks: package, required_resources, templates, roles, checkpoint_dir
 status_fields: step, epic, story, reason, failures, decisions, next
 checkpoint_mode: auto
@@ -21,7 +22,7 @@ open_question_block: "有竞争性解释需要干系人拍板时，以 waiting_u
 goal 身份，并为每个声明步骤调用一个**全新**的 SubAgent 会话；已完成的步骤记入 goal checkpoint
 store，任何步骤都不得跳过。
 
-frontmatter 的 `revision: "2"` 是**声明 revision**：包内容改动**不**触发派生漂移，改包契约必须
+frontmatter 的 `revision: "3"` 是**声明 revision**：包内容改动**不**触发派生漂移，改包契约必须
 同步推进 revision（并据此重冻结受影响的活动 goal）。
 
 本工作流产出的**持久性非代码产物**（需求、PRD、架构记录、评审、验证报告等）一律写入项目输出

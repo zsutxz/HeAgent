@@ -196,24 +196,42 @@ def _check_required_resources(context: _CheckContext) -> list[DoctorFinding]:
 
 
 def _check_templates(context: _CheckContext) -> list[DoctorFinding]:
-    """Report templates the package does not carry.
+    """Report template declarations that will not resolve, and gates left undeclared.
 
-    A missing template is a ``WARN`` unless ``required_resources`` declares it — that case
-    is already a hard failure reported by :func:`_check_required_resources`, and reporting
-    it twice would make one problem look like two.
+    ``prompt_template`` / ``gate_template`` 指名文件在加载阶段已强制存在；这里的发现意味着
+    装载后的漂移。反过来，步骤声明了 ``validation:`` 而包未声明 ``gate_template`` 的包会在
+    渲染门禁时显性失败——值得在任何 goal 运行前给出 ``WARN``。
     """
     workflow = context.workflow
-    provided = {"prompt-template.md": workflow.prompt_template, "gate-template.md": workflow.gate_template}
-    return [
+    declared = {
+        str(workflow.frontmatter.get(key) or "").strip(): body
+        for key, body in (
+            ("prompt_template", workflow.prompt_template),
+            ("gate_template", workflow.gate_template),
+        )
+    }
+    findings = [
         DoctorFinding(
             severity=DoctorSeverity.WARN,
             code="optional_template_missing",
-            subject=f"template {name}",
-            detail="package does not provide it",
+            subject=f"template {name.removeprefix('templates/')}",
+            detail="declared but not provided",
         )
-        for name, body in provided.items()
-        if name not in context.required and not body.strip()
+        for name, body in sorted(declared.items())
+        if name and not body.strip()
     ]
+    if not str(workflow.frontmatter.get("gate_template") or "").strip() and any(
+        step.validation_rules.strip() for step in workflow.steps
+    ):
+        findings.append(
+            DoctorFinding(
+                severity=DoctorSeverity.WARN,
+                code="gate_template_undeclared",
+                subject="gate_template",
+                detail="steps declare validation but frontmatter declares no gate_template",
+            )
+        )
+    return findings
 
 
 def _check_roles(context: _CheckContext) -> list[DoctorFinding]:

@@ -194,8 +194,8 @@ class WorkflowResource(BaseModel):
     # open_question_mode 各自对应的一段策略文案；空 = 用 CLI 内置默认。
     open_question_default: str = ""
     open_question_block: str = ""
-    # 包内 ``prompt-template.md`` / ``gate-template.md`` 的正文；空 = 包未携带。
-    # 必需性由 workflow frontmatter 的 ``required_resources`` 声明，声明后缺失即加载失败。
+    # workflow.md frontmatter ``prompt_template`` / ``gate_template`` 键指名模板文件的正文；空 = 未声明。
+    # 声明即承诺：指名文件缺失（或只剩空白）即加载失败（goal/workflow_loader._declared_template）。
     prompt_template: str = ""
     gate_template: str = ""
     # 预检项与状态字段的声明清单（取值见 ``DOCTOR_CHECKS`` / ``STATUS_FIELDS``）。

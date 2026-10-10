@@ -44,11 +44,11 @@ _SHIPPED_TEMPLATES = Path(__file__).resolve().parents[1] / ".heagent" / "skills"
 
 
 def _shipped_gate_template() -> str:
-    return (_SHIPPED_TEMPLATES / "gate-template.md").read_text(encoding="utf-8").strip()
+    return (_SHIPPED_TEMPLATES / "gate.md").read_text(encoding="utf-8").strip()
 
 
 def _shipped_prompt_template() -> str:
-    return (_SHIPPED_TEMPLATES / "prompt-template.md").read_text(encoding="utf-8").strip()
+    return (_SHIPPED_TEMPLATES / "prompt.md").read_text(encoding="utf-8").strip()
 
 
 @pytest.fixture()
@@ -56,7 +56,8 @@ def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workfl
     monkeypatch.chdir(tmp_path)
     (goal_workflow_root / "workflow.md").write_text(
         "---\nname: test-development\nentrypoint: goal\non_create: persist_goal_identity\n"
-        "step_executor: subagent\n---\n\nworkflow instructions\n\n"
+        "step_executor: subagent\nprompt_template: templates/prompt.md\ngate_template: templates/gate.md\n"
+        "---\n\nworkflow instructions\n\n"
         "## Step 01: plan\ninput: user intent, existing project context\n"
         "output: requirements brief, story breakdown\ncheckpoint: true\n\nplan the story\n\n"
         "## Step 02: build\ninput: requirements brief\noutput: implementation\ncheckpoint: true\n\nbuild the story\n",
@@ -508,7 +509,8 @@ async def test_final_checkpoint_persists_completed_state(
     workflow = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow.write_text(
         "---\nname: final-checkpoint\nentrypoint: goal\non_create: persist_goal_identity\n"
-        "step_executor: subagent\n---\n\nworkflow instructions\n\n"
+        "step_executor: subagent\nprompt_template: templates/prompt.md\ngate_template: templates/gate.md\n"
+        "---\n\nworkflow instructions\n\n"
         "## Step 01: finish\ninput: user intent, existing project context\n"
         "output: implementation\ncheckpoint: true\n\nfinish the story\n",
         encoding="utf-8",
@@ -1040,10 +1042,9 @@ def test_bundled_workflow_ships_the_required_templates(monkeypatch: pytest.Monke
 
     assert workflow is not None
     assert workflow.max_rounds >= 1
-    # 声明行是生效开关：frontmatter 不声明 required_resources 就没有加载期强制，钉死防漂移。
-    declared = str(workflow.frontmatter.get("required_resources", ""))
-    assert "prompt-template.md" in declared
-    assert "gate-template.md" in declared
+    # 声明行是生效开关：frontmatter 不声明 prompt_template/gate_template 就没有加载期强制，钉死防漂移。
+    assert str(workflow.frontmatter.get("prompt_template", "")).strip() == "templates/prompt.md"
+    assert str(workflow.frontmatter.get("gate_template", "")).strip() == "templates/gate.md"
     # 维护者文档只能住在 SKILL.md：混进 workflow.md 正文会被注入每步提示词。
     assert "模板契约" not in workflow.instructions
     for placeholder in ("{workflow_instructions}", "{goal}", "{goal_document}", "{step}", "{gate}"):
@@ -1075,8 +1076,8 @@ def test_workflow_package_resolves_by_id_and_serves_its_own_templates(declarativ
     root = declarative_cwd / ".heagent" / "skills" / "he-goal"
     templates = root / "templates"
     templates.mkdir(exist_ok=True)
-    (templates / "prompt-template.md").write_text("CUSTOM {goal} :: {step}\n{gate}", encoding="utf-8")
-    (templates / "gate-template.md").write_text("CUSTOM-GATE {rules}\n", encoding="utf-8")
+    (templates / "prompt.md").write_text("CUSTOM {goal} :: {step}\n{gate}", encoding="utf-8")
+    (templates / "gate.md").write_text("CUSTOM-GATE {rules}\n", encoding="utf-8")
 
     package = cli_goal._goal_workflow_package()
     assert package is not None
@@ -1101,18 +1102,10 @@ def test_workflow_package_resolves_by_id_and_serves_its_own_templates(declarativ
 
 
 def test_missing_declared_required_templates_fail_explicitly(declarative_cwd: Path) -> None:
-    """``required_resources`` 声明驱动：声明了却缺失 → 加载即显性失败，不再有内置兜底。"""
-    workflow_md = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
-    workflow_md.write_text(
-        workflow_md.read_text(encoding="utf-8").replace(
-            "step_executor: subagent\n",
-            "step_executor: subagent\nrequired_resources: prompt-template.md, gate-template.md\n",
-        ),
-        encoding="utf-8",
-    )
+    """``prompt_template``/``gate_template`` 声明驱动：指名文件缺失 → 加载即显性失败，不再有内置兜底。"""
     shutil.rmtree(declarative_cwd / ".heagent" / "skills" / "he-goal" / "templates")
 
-    with pytest.raises(ValueError, match="gate-template|prompt-template"):
+    with pytest.raises(ValueError, match="prompt_template|gate_template"):
         _goal_declarative_workflow()
 
 
@@ -1133,10 +1126,10 @@ def test_bulleted_inline_step_metadata_fails_loudly(declarative_cwd: Path) -> No
 def test_undeclared_missing_templates_fail_loudly_at_render_time(tmp_path: Path) -> None:
     """未声明 required 的包缺模板 → 渲染期显性失败，不以空提示词/空门禁静默跑步骤。"""
     workflow = WorkflowResource(name="demo", instructions="", steps=[])
-    with pytest.raises(ValueError, match="prompt-template"):
+    with pytest.raises(ValueError, match="prompt_template"):
         cli_goal._goal_declarative_prompt(workflow, "step-01-plan.md", "demo goal", tmp_path, {})
     workflow = workflow.model_copy(update={"prompt_template": "{gate}"})
-    with pytest.raises(ValueError, match="gate-template"):
+    with pytest.raises(ValueError, match="gate_template"):
         cli_goal._goal_declarative_prompt(
             workflow, "step-01-plan.md", "demo goal", tmp_path, {}, validation_rules="section: 实现摘要"
         )
@@ -1144,25 +1137,31 @@ def test_undeclared_missing_templates_fail_loudly_at_render_time(tmp_path: Path)
     assert cli_goal._goal_declarative_prompt(workflow, "step-01-plan.md", "demo goal", tmp_path, {}) == ""
 
 
-def test_required_resources_normalizes_prefix_and_rejects_typos(declarative_cwd: Path) -> None:
-    """声明带 ``templates/`` 前缀同样生效；拼错或未知的条目在加载期显性失败，不做静默忽略。"""
+def test_declared_template_keys_normalize_prefix_and_reject_typos(declarative_cwd: Path) -> None:
+    """专用键声明带 ``templates/`` 前缀同样生效；指名文件缺失在加载期显性失败，不做静默忽略。
+
+    自定义文件名（``my-prompt.md``）同样生效——模板文件名完全由声明驱动，代码不携带固定名。
+    """
     workflow_md = declarative_cwd / ".heagent" / "skills" / "he-goal" / "workflow.md"
     workflow_md.write_text(
         workflow_md.read_text(encoding="utf-8").replace(
-            "step_executor: subagent\n",
-            "step_executor: subagent\nrequired_resources: templates/prompt-template.md, templates/gate-template.md\n",
+            "prompt_template: templates/prompt.md",
+            "prompt_template: templates/my-prompt.md",
         ),
         encoding="utf-8",
+    )
+    (declarative_cwd / ".heagent" / "skills" / "he-goal" / "templates" / "my-prompt.md").write_text(
+        "CUSTOM-ONLY {goal}\n", encoding="utf-8"
     )
 
     workflow = _goal_declarative_workflow()
 
     assert workflow is not None
-    assert workflow.prompt_template  # 前缀归一化后命中真实模板
+    assert workflow.prompt_template == "CUSTOM-ONLY {goal}"  # 前缀归一化后命中声明文件
     workflow_md.write_text(
         workflow_md.read_text(encoding="utf-8").replace(
-            "required_resources: templates/prompt-template.md, templates/gate-template.md",
-            "required_resources: prompt-templates.md",
+            "prompt_template: templates/my-prompt.md",
+            "prompt_template: prompt-templates.md",
         ),
         encoding="utf-8",
     )

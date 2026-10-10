@@ -321,8 +321,8 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
         auto_schedule=_value_text(values, "auto_schedule"),
         open_question_default=_value_text(values, "open_question_default"),
         open_question_block=_value_text(values, "open_question_block"),
-        prompt_template=_read_optional_resource(package, "prompt-template.md"),
-        gate_template=_read_optional_resource(package, "gate-template.md"),
+        prompt_template=_declared_template(package, values, resource, "prompt_template"),
+        gate_template=_declared_template(package, values, resource, "gate_template"),
         doctor_checks=cast("list[DoctorCheck]", doctor_checks),
         status_fields=cast("list[StatusField]", status_fields),
         frontmatter=values,
@@ -334,10 +334,11 @@ def workflow_revision(package: SkillPackage, workflow: WorkflowResource) -> str:
 
     - 包 frontmatter 显式声明了 ``revision``（:attr:`WorkflowResource.revision` 非空）→ 原样返回，
       包内容改动**不**触发漂移（版本由声明方负责推进）；
-    - 未声明 → 对 ``workflow.md`` 全文 + ``required_resources`` 声明的全部模板内容（按相对路径
-      排序，逐个经 ``package.read_resource`` 的**摘要通道**读取，manifest 漂移在此即失败）+
-      **外挂步骤文件**内容（``steps:`` 声明或自动发现的 ``step-NN-*.md``；步骤正文 / validation
-      声明漂移 = 流程漂移）做 sha256，返回十六进制摘要的**前 16 字符**——创建时冻结与恢复时
+    - 未声明 → 对 ``workflow.md`` 全文 + ``required_resources`` 与 ``prompt_template`` /
+      ``gate_template`` 键声明的全部资源内容（按相对路径排序，逐个经 ``package.read_resource``
+      的**摘要通道**读取，manifest 漂移在此即失败）+ **外挂步骤文件**内容（``steps:`` 声明或
+      自动发现的 ``step-NN-*.md``；步骤正文 / validation 声明漂移 = 流程漂移）做 sha256，返回
+      十六进制摘要的**前 16 字符**——创建时冻结与恢复时
       比对都只认这 64 bit 指纹：它是防「静默换流程」的漂移判据，不是安全边界，全量 64 hex
       无比对收益。
 
@@ -358,6 +359,14 @@ def workflow_revision(package: SkillPackage, workflow: WorkflowResource) -> str:
     for name in sorted(f"templates/{item.removeprefix('templates/')}" for item in names):
         hasher.update(b"\x00")
         hasher.update(package.read_resource(name).encode("utf-8"))
+    # 专用键指名的模板同属可执行契约：指名文件的措辞漂移 = 流程漂移。
+    for key in ("prompt_template", "gate_template"):
+        declared_template = workflow.frontmatter.get(key)
+        if declared_template is None or not str(declared_template).strip():
+            continue
+        for name in _resource_list(package, declared_template, "workflow.md", key):
+            hasher.update(b"\x00")
+            hasher.update(package.read_resource(f"templates/{name.removeprefix('templates/')}").encode("utf-8"))
     # 外挂步骤文件进指纹；发现逻辑与 read_workflow 同源，内嵌步骤（名字命中内嵌集合）跳过。
     values, body = _parse_resource_frontmatter(text)
     inline, step_names = _resolve_workflow_step_names(package, values, body, "workflow.md")
@@ -391,11 +400,33 @@ def _read_optional_resource(package: SkillPackage, resource: str) -> str:
         return ""
 
 
+def _declared_template(package: SkillPackage, values: dict[str, Any], workflow: str, key: str) -> str:
+    """frontmatter ``key``（``prompt_template`` / ``gate_template``）指名模板文件的正文。
+
+    模板文件名声明在 ``workflow.md``（声明驱动，代码不携带固定文件名）。声明即承诺：键指名的
+    文件缺失（或只剩空白）加载即失败，拼错名字同样显性报错；键不存在返回空串（包不携带，
+    渲染期若用到由 application 显性失败）。
+    """
+    declared = values.get(key)
+    if declared is None or not str(declared).strip():
+        return ""
+    names = _resource_list(package, declared, workflow, key)
+    if len(names) != 1:
+        raise SkillWorkflowError(package.skill_id, key, f"{key} must declare exactly one template file")
+    name = names[0].removeprefix("templates/")
+    body = _read_optional_resource(package, name)
+    if not body:
+        raise SkillWorkflowError(package.skill_id, name, f"declared in {key} but missing or blank")
+    return body
+
+
 def _required_templates(package: SkillPackage, values: dict[str, Any], workflow: str) -> frozenset[str]:
     """``templates/`` file names the workflow declaration marks required (``required_resources``).
 
-    每个声明条目都是硬承诺：文件缺失（或只剩空白）即加载失败——拼错名字同样显性报错，
-    不做静默忽略。条目可带 ``templates/`` 前缀，装载时归一化后匹配。
+    步骤/门禁模板已走专用键（``prompt_template`` / ``gate_template``，见 :func:`_declared_template`）；
+    本函数继续兜住 ``required_resources`` 声明的其余 ``templates/`` 资源。每个声明条目都是硬承诺：
+    文件缺失（或只剩空白）即加载失败——拼错名字同样显性报错，不做静默忽略。条目可带
+    ``templates/`` 前缀，装载时归一化后匹配。
     """
     declared = values.get("required_resources")
     if not declared:
