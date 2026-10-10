@@ -55,6 +55,7 @@ from heagent.providers.switchable import SwitchableProvider
 from heagent.pub.exceptions import BudgetExceeded, HeAgentError
 from heagent.pub.workspace import WorkspacePaths
 from heagent.skills import SkillStore
+from heagent.skills.skill_store import default_skill_roots
 from heagent.tools.mcp import MCPClientManager
 
 if TYPE_CHECKING:
@@ -229,7 +230,7 @@ async def _run_chat(
         # 会话复用（Epic 30）：--resume 指定 / --continue 最近 / 否则新建。
         session_id = _resolve_session_id(session, continue_session=continue_session, resume_session=resume_session)
         # 预构建记忆存储，与 DreamScheduler 共享同一份实例（dream 回写即主 loop 可见）。
-        skills = SkillStore(str(paths.skills))
+        skills = SkillStore(default_skill_roots(paths.root))
         facts = FactStore(str(paths.memory_file))
         profile = ProfileStore(str(paths.profile_file))
         soul = _build_soul(soul_path)

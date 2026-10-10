@@ -43,6 +43,7 @@ from heagent.providers.router import RoutingProvider
 from heagent.providers.switchable import SwitchableProvider
 from heagent.pub.workspace import WorkspacePaths
 from heagent.skills import SkillStore
+from heagent.skills.skill_store import default_skill_roots
 from heagent.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -109,7 +110,7 @@ def _build_loop(
         (engine.workspace_root if engine else None) or config.workspace_root or os.getcwd()
     )
     config = resolve_runtime_config(config, workspace_root=str(paths.root))
-    skills = skills or SkillStore(str(paths.skills))
+    skills = skills or SkillStore(default_skill_roots(paths.root))
     facts = facts or FactStore(str(paths.memory_file))
     profile = profile or ProfileStore(str(paths.profile_file))
     soul = soul or _build_soul(soul_path)

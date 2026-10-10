@@ -238,18 +238,24 @@ class TestSkillCatalog:
         assert resolved.skill_id == "he-prd"
         assert resolved.root == (first / "he-prd").resolve()
 
-    def test_reports_conflicting_aliases_without_choosing(self, tmp_path: Path) -> None:
+    def test_cross_root_same_id_first_source_wins_and_records_conflict(self, tmp_path: Path) -> None:
+        """跨根同 canonical id：source_dirs 序最早者生效（全局优先语义），其余进 conflicts。"""
         first = tmp_path / "first"
         second = tmp_path / "second"
         first.mkdir()
         second.mkdir()
-        self._write_package(first, "he-prd")
-        self._write_package(second, "he-prd")
+        self._write_package(first, "he-prd", version="1.0")
+        self._write_package(second, "he-prd", version="2.0")
         catalog = SkillCatalog([first, second])
         catalog.scan()
 
-        with pytest.raises(SkillResolutionError, match=r"he-prd.*first.*second"):
-            SkillResolver(catalog).resolve("bmad-prd")
+        resolved = SkillResolver(catalog).resolve("bmad-prd")
+        assert resolved.root == (first / "he-prd").resolve()
+        conflicts = catalog.conflicts
+        assert len(conflicts) == 1
+        assert conflicts[0].canonical_id == "he-prd"
+        assert conflicts[0].effective.package_root == str((first / "he-prd").resolve())
+        assert conflicts[0].shadowed.package_root == str((second / "he-prd").resolve())
 
     def test_missing_entry_is_indexed_as_unavailable_with_diagnostic(self, tmp_path: Path) -> None:
         self._write_package(tmp_path, "he-missing", entry=False)

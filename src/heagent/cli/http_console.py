@@ -72,6 +72,7 @@ from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import Message, Role
 from heagent.pub.workspace import WorkspacePaths
 from heagent.skills import SkillStore
+from heagent.skills.skill_store import default_skill_roots
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
@@ -240,7 +241,7 @@ class HttpAgentHandler:
         # 运行时**传入**会话存储（Story 50-3）：为 ``None`` 时本运行时没有会话，行为与 Epic 49 一致；
         # 控制台侧传入时，会话文件落在该项目的 ``paths.sessions``。
         self.session_store = session_store
-        self.skills = SkillStore(str(paths.skills))
+        self.skills = SkillStore(default_skill_roots(paths.root))
         self.facts = FactStore(str(paths.memory_file))
         self.profile = ProfileStore(str(paths.profile_file))
         self.soul = _build_soul(soul_path)
@@ -254,8 +255,9 @@ class HttpAgentHandler:
           ``.env`` 才是「该项目的配置」，绝不能让运行端继续读**服务器 cwd** 的 ``.env``（那会让
           50-4 的配置面板报出与运行期不符的来源与取值）。解析失败时回退服务级 settings 并留
           WARNING（坏掉的 ``项目 .env`` 不该让控制台整个不可用，面板会独立标注 ``project_env_invalid``）。
-        - **重建** engine 与四个记忆存储：围栏基址、run/ledger 落点、技能与记忆全都指向该项目根，
-          跨项目因此零共享可变状态（脊柱 §6）。
+        - **重建** engine 与四个记忆存储：围栏基址、run/ledger 落点、记忆与技能本地根全都指向该项目根，
+          跨项目因此零共享可变状态（脊柱 §6）。**刻意例外**：全局技能根（``~/.heagent/skills``）用户级
+          共享，技能 usage 计数跨项目累计是特性；本地根仍严格按项目隔离重建。
         - ``soul`` 沿用同一构造口径（``soul_path=None`` ⇒ 默认两级 SOUL.md）：项目级 SOUL.md 的解析
           语义与 Epic 49 完全一致，本 story 不改变它。
         """

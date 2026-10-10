@@ -52,6 +52,7 @@ from heagent.skills.skill_packages import (
     SkillPackage,
     SkillResolver,
 )
+from heagent.skills.skill_store import default_skill_roots
 from heagent.tools.path_safety import resolve_under_root
 
 logger = logging.getLogger(__name__)
@@ -117,7 +118,9 @@ def resolve_skill_package(skill_id: str) -> SkillPackage | None:
     configuration (workflow) or a hard failure (a role a step declared).
     """
     try:
-        return SkillResolver(SkillCatalog([str(GOAL_SKILLS_ROOT)]).scan()).resolve(skill_id)
+        # Path(".")：本地根保持 cwd 相对（scan 时才解析）；非入口层不得直取进程工作目录（cwd 兜底契约）。
+        roots = default_skill_roots(Path("."))
+        return SkillResolver(SkillCatalog(roots).scan()).resolve(skill_id)
     except (SkillCatalogError, ValueError, OSError) as exc:
         logger.debug("Skill package %r is unavailable under %s (%s)", skill_id, GOAL_SKILLS_ROOT, exc)
         return None

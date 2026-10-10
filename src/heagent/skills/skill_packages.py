@@ -468,19 +468,38 @@ class SkillCatalogEntry(BaseModel):
     error: str | None = None
 
 
+class SkillCatalogConflict(BaseModel):
+    """同一 canonical 包同时出现在多个源目录：生效项与被遮蔽项（按 source_dirs 序）。"""
+
+    canonical_id: str
+    effective: SkillCatalogEntry
+    shadowed: SkillCatalogEntry
+
+
 class SkillCatalog:
     """Discover packages from explicitly supplied source directories."""
 
     def __init__(self, source_dirs: Iterable[str | Path] = ()) -> None:
         self.source_dirs = tuple(Path(path).expanduser() for path in source_dirs)
         self._entries: tuple[SkillCatalogEntry, ...] = ()
+        self._conflicts: tuple[SkillCatalogConflict, ...] = ()
 
     @property
     def entries(self) -> list[SkillCatalogEntry]:
         return list(self._entries)
 
+    @property
+    def conflicts(self) -> list[SkillCatalogConflict]:
+        """跨根同 id 的冲突清单（生效项按 source_dirs 序取最早；供调用方警告与复核）。"""
+        return list(self._conflicts)
+
     def scan(self, source_dirs: Iterable[str | Path] | None = None) -> list[SkillCatalogEntry]:
-        """Scan immediate child package directories in deterministic order."""
+        """Scan immediate child package directories in deterministic order.
+
+        同根内去重键 ``(canonical_id, package_root, aliases)`` 不变；跨根同 canonical_id
+        按 source_dirs 序取**最早**者为生效 entry（全局优先语义），其余进 :attr:`conflicts`
+        并记警告——不再 ambiguous 报错。
+        """
         if source_dirs is not None:
             self.source_dirs = tuple(Path(path).expanduser() for path in source_dirs)
         found: list[SkillCatalogEntry] = []
@@ -503,7 +522,25 @@ class SkillCatalog:
         for entry in found:
             key = (entry.canonical_id, entry.package_root, tuple(entry.aliases))
             unique.setdefault(key, entry)
-        self._entries = tuple(sorted(unique.values(), key=lambda e: (e.canonical_id, e.package_root)))
+        # Cross-root dedup: first source_dir wins (global-first), the rest are shadowed.
+        effective: dict[str, SkillCatalogEntry] = {}
+        conflicts: list[SkillCatalogConflict] = []
+        for entry in unique.values():
+            winner = effective.get(entry.canonical_id)
+            if winner is None:
+                effective[entry.canonical_id] = entry
+            else:
+                conflicts.append(
+                    SkillCatalogConflict(canonical_id=entry.canonical_id, effective=winner, shadowed=entry)
+                )
+                logger.warning(
+                    "Skill package '%s' exists in multiple sources: using %s, shadowing %s",
+                    entry.canonical_id,
+                    winner.package_root,
+                    entry.package_root,
+                )
+        self._conflicts = tuple(conflicts)
+        self._entries = tuple(sorted(effective.values(), key=lambda e: (e.canonical_id, e.package_root)))
         return self.entries
 
     def _index_package(self, package_root: Path) -> SkillCatalogEntry:

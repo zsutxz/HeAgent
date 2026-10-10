@@ -43,8 +43,9 @@ def gui_main(
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
     from heagent.skills import SkillStore
+    from heagent.skills.skill_store import default_skill_roots
 
-    skill_store = SkillStore(str(paths.skills))
+    skill_store = SkillStore(default_skill_roots(paths.root))
     # Phase 2 C3（与 CLI 语义统一）：cron 关闭时不创建 JobStore——主 loop 的
     # cron_store 为 None，cron 工具不激活（此前 GUI 无条件创建，cron 关闭时工具
     # 仍可见但无调度器驱动，属装配漂移；经用户确认统一到 CLI 语义）。

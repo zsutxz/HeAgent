@@ -217,7 +217,7 @@ class TestSkillLoad:
     @pytest.mark.asyncio
     async def test_read_package_resource(self, skill_store: SkillStore) -> None:
         await skill_create("pkg", "Package", "pkg", "step")
-        resource = Path(skill_store._base) / "pkg" / "customize.toml"
+        resource = skill_store.authoring_root / "pkg" / "customize.toml"
         resource.write_text("enabled = true\n", encoding="utf-8")
         assert await skill_read_resource("pkg", "customize.toml") == "enabled = true\n"
 

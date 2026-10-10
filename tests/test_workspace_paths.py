@@ -36,7 +36,7 @@ def test_handler_keeps_injected_workspace_after_chdir(tmp_path: Path, monkeypatc
     monkeypatch.chdir(tmp_path)
     loop = handler.new_loop()
     assert loop.context_dir == str(root)
-    assert handler.skills._base == root / ".heagent" / "skills"
+    assert handler.skills.roots[-1] == root / ".heagent" / "skills"  # 本地根随项目，全局根用户级
 
 
 def test_network_handler_uses_explicit_settings(tmp_path: Path) -> None:
