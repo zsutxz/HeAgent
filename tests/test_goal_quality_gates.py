@@ -614,7 +614,8 @@ def test_registered_gate_names_parse_at_load(tmp_path: Path) -> None:
 
 
 _WORKFLOW = (
-    "---\nname: gate-flow\nentrypoint: goal\non_create: persist_goal_identity\nstep_executor: subagent\n---\n\n"
+    "---\nname: gate-flow\nentrypoint: goal\non_create: persist_goal_identity\nstep_executor: subagent\n"
+    "prompt_template: templates/prompt.md\ngate_template: templates/gate.md\n---\n\n"
     "workflow instructions\n\n"
     "## Step 01: build\ninput: user intent, existing project context\noutput: implementation\n"
     "validation: artifact: reports/first.md\n\nbuild the story\n\n"

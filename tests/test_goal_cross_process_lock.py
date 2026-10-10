@@ -23,7 +23,8 @@ from heagent.pub.persist import file_lock
 
 _WORKFLOW_MD = (
     "---\nname: test-development\nentrypoint: goal\non_create: persist_goal_identity\n"
-    "step_executor: subagent\n---\n\nworkflow instructions\n\n"
+    "step_executor: subagent\n"
+    "prompt_template: templates/prompt.md\ngate_template: templates/gate.md\n---\n\nworkflow instructions\n\n"
     "## Step 01: plan\ninput: user intent, existing project context\n"
     "output: requirements brief\ncheckpoint: true\n\nplan the story\n\n"
     "## Step 02: build\ninput: requirements brief\noutput: implementation\ncheckpoint: true\n\nbuild the story\n"

@@ -23,7 +23,6 @@ THRESHOLD = 0.3
 
 #: 仓库内必须能被自然语言命中的技能 → 一条代表性提示词（triggers 命中即 1.0）。
 AUTO_MATCH_CASES = {
-    "code_review": "帮我评审一下这段代码，找找边界情况",
     "he-goal": "我要做一个完整的项目，从需求到交付",
 }
 

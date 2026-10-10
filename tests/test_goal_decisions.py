@@ -750,7 +750,8 @@ def approval_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_
     monkeypatch.chdir(tmp_path)
     (goal_workflow_root / "workflow.md").write_text(
         "---\nname: gated\nentrypoint: goal\non_create: persist_goal_identity\n"
-        "step_executor: subagent\n---\n\nworkflow instructions\n\n"
+        "step_executor: subagent\n"
+        "prompt_template: templates/prompt.md\ngate_template: templates/gate.md\n---\n\nworkflow instructions\n\n"
         "## Step 01: plan\ninput: user intent, existing project context\n"
         "output: requirements brief\napproval: required 架构冻结前需人工确认\n\nplan the story\n\n"
         "## Step 02: build\ninput: requirements brief\noutput: implementation\n\nbuild the story\n",
