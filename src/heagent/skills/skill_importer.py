@@ -12,8 +12,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from heagent.memory.skill_packages import SkillCatalog, SkillPackage
 from heagent.pub.persist import atomic_write_text
+from heagent.skills.skill_packages import SkillCatalog, SkillPackage
 from heagent.tools.path_safety import WorkspacePathError, open_text_under_root, resolve_under_root
 
 
@@ -44,7 +44,7 @@ class SkillLockEntry(BaseModel):
     ``resources`` 是本包**逐文件**的内容钉（相对 POSIX 路径 → sha256，覆盖 ``SKILL.md`` 与
     ``references`` / ``templates`` / ``assets`` / ``scripts`` 下的全部常规文件）；``source_hash``
     仍只是**源 ``SKILL.md``** 的摘要（导入幂等的判据）。读侧由
-    :meth:`~heagent.memory.skill_packages.SkillPackage._imported_hashes` 逐资源比对——即把凭据从
+    :meth:`~heagent.skills.skill_packages.SkillPackage._imported_hashes` 逐资源比对——即把凭据从
     「只钉入口」补成「钉整棵包」（2026-09-28，见活动台账 A1④）。
     **老 lock**（本字段缺失）解析为 ``{}`` ⇒ 读取行为与改动前逐字节一致，下一次导入自动补齐。
     """

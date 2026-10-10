@@ -25,7 +25,7 @@ from heagent.goal import status_view as status_view_module
 from heagent.goal.doctor import diagnose_workflow
 from heagent.goal.status_view import DEFAULT_STATUS_FIELDS, project_status_view
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
-from heagent.memory.skill_packages import SkillPackage
+from heagent.skills.skill_packages import SkillPackage
 
 _STEP_BODY = "\n## Step 01: plan\n\n指令正文\n"
 

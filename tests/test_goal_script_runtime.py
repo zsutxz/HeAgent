@@ -8,7 +8,7 @@ import pytest
 from heagent.goal.script_api import ScriptResponse
 from heagent.goal.script_loader import SCRIPT_ENTRYPOINT, GoalScriptLoadError, load_script
 from heagent.goal.script_runtime import GoalScriptRuntimeError, ScriptRuntime
-from heagent.memory.skill_packages import SkillPackage
+from heagent.skills.skill_packages import SkillPackage
 
 ENTRY = SCRIPT_ENTRYPOINT
 
@@ -16,7 +16,8 @@ ENTRY = SCRIPT_ENTRYPOINT
 def _package(tmp_path: Path, source: str, *, name: str = "script.py") -> SkillPackage:
     root = tmp_path / "he-script"
     root.mkdir()
-    (root / "SKILL.md").write_text("---\ncanonical_id: he-script\n---\n", encoding="utf-8")
+    (root / "SKILL.md").write_text("---\nname: he-script\n---\n", encoding="utf-8")
+    (root / "meta.yaml").write_text("canonical_id: he-script\n", encoding="utf-8")
     scripts = root / "scripts"
     scripts.mkdir()
     (scripts / name).write_text(source, encoding="utf-8")

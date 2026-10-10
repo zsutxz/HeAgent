@@ -1,10 +1,6 @@
 ---
-canonical_id: he-migration
 name: he-migration
 description: 迁移类目标走 /goal 的四步声明式工作流（盘点→映射→迁移→回滚预案）
-tags: [goal, workflow, migration]
-aliases: [migration]
-created: 2026-09-30
 ---
 
 # he-migration（迁移工作流）

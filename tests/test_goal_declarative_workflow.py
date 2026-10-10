@@ -36,7 +36,7 @@ from heagent.goal import mutex as goal_mutex
 from heagent.goal.application import checkpoint_store, restore_runner
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 from heagent.goal.workflow_loader import read_workflow
-from heagent.memory.skill_packages import SkillPackage
+from heagent.skills.skill_packages import SkillPackage
 from heagent.pub.types import Message, ProviderResponse, TokenUsage
 
 # 随包发布的真实模板：测试消费包内真源，不在测试代码里留文案副本（防漂移）。

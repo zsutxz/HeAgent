@@ -12,7 +12,7 @@ from heagent.agent.system_prompt import _memory_block, _memory_nudge_block, buil
 from heagent.config import Settings
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
-from heagent.memory.skills import SkillRewriteError, SkillStore
+from heagent.skills import SkillRewriteError, SkillStore
 
 
 def _matching_names(store: SkillStore, prompt: str, threshold: float) -> list[str]:
@@ -23,9 +23,6 @@ def _matching_names(store: SkillStore, prompt: str, threshold: float) -> list[st
 ROLE_CONTRACT = """---
 name: code_review
 description: "手写角色契约：以三镜头审查代码变更"
-created: 2026-01-01T00:00:00
-tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow, epic-closure]
-usage_count: 0
 ---
 
 # code_review
@@ -50,6 +47,21 @@ usage_count: 0
 
 - 不得修改期望值来迁就实现
 """
+
+#: 与 ROLE_CONTRACT 配套的 meta.yaml（tags 是匹配词元袋的分母，created 供盘点）。
+ROLE_CONTRACT_META = (
+    "tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow, epic-closure]\n"
+    "created: 2026-01-01T00:00:00\n"
+)
+
+
+def _write_contract_skill(base: Path, name: str) -> Path:
+    """写入四键 ROLE_CONTRACT（SKILL.md）+ ROLE_CONTRACT_META（meta.yaml），返回 SKILL.md 路径。"""
+    skill_dir = base / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(ROLE_CONTRACT, encoding="utf-8")
+    (skill_dir / "meta.yaml").write_text(ROLE_CONTRACT_META, encoding="utf-8")
+    return skill_dir / "SKILL.md"
 
 
 class TestSkillStore:
@@ -231,22 +243,17 @@ class TestSkillStore:
         assert parsed.steps == ["step one", "step two"]
 
     def test_record_usage_preserves_sections_the_renderer_cannot_express(self, tmp_path: object) -> None:
-        """回归：正文含 Pattern/Steps 之外的章节时不得整体重渲染（原缺陷会丢正文）。"""
+        """回归：record_usage 只写 meta.yaml，SKILL.md（含 Pattern/Steps 之外的章节）逐字节不动。"""
         base = tmp_path / "sk"  # type: ignore[operator]
-        skill_dir = base / "role_contract"
-        skill_dir.mkdir(parents=True)
-        md = skill_dir / "SKILL.md"
-        md.write_text(ROLE_CONTRACT, encoding="utf-8")
+        md = _write_contract_skill(base, "role_contract")
         s = SkillStore(base_dir=str(base))
         s.record_usage("role_contract")
-        after = md.read_text(encoding="utf-8")
+        assert md.read_text(encoding="utf-8") == ROLE_CONTRACT
         parsed = s.parse("role_contract")
         assert parsed is not None
         assert parsed.usage_count == 1
         assert parsed.last_used
-        assert "usage_count: 1" in after
-        # 正文（frontmatter 之后）逐字节保留，只有 frontmatter 计数被就地改写
-        assert after.split("\n---\n", 1)[1] == ROLE_CONTRACT.split("\n---\n", 1)[1]
+        assert "usage_count: 1" in (base / "role_contract" / "meta.yaml").read_text(encoding="utf-8")
 
     def test_record_usage_keeps_extra_sections_beside_pattern_and_steps(self, tmp_path: object) -> None:
         """deploy_production 形态：既有 Pattern/Steps，又有额外阶段章节，两者都须保留。"""
@@ -268,10 +275,7 @@ class TestSkillStore:
     def test_auto_matched_contract_skill_survives_usage_recording(self, tmp_path: object) -> None:
         """端到端回归：tags 词元命中 → 注入 → record_usage 后契约仍是全文（曾 130 行 → 411 字符）。"""
         base = tmp_path / "sk"  # type: ignore[operator]
-        skill_dir = base / "code_review"
-        skill_dir.mkdir(parents=True)
-        md = skill_dir / "SKILL.md"
-        md.write_text(ROLE_CONTRACT, encoding="utf-8")
+        md = _write_contract_skill(base, "code_review")
         s = SkillStore(base_dir=str(base))
         prompt = "please review this code and check the workflow for the epic"
         assert _matching_names(s, prompt, threshold=0.3) == ["code_review"]
@@ -282,11 +286,10 @@ class TestSkillStore:
         assert parsed.steps == []  # 该形态本无 Steps，正是原缺陷的触发条件
         assert parsed.usage_count == 1
         assert "## 禁止" in after
-        assert len(after) >= len(ROLE_CONTRACT)
+        assert after == ROLE_CONTRACT
 
-    def test_record_usage_leaves_frontmatter_less_skill_untouched(
-        self, tmp_path: object, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_record_usage_counts_frontmatter_less_skill_and_never_touches_skill_md(self, tmp_path: object) -> None:
+        """无 frontmatter 的手写技能也计数（落 meta.yaml），SKILL.md 逐字节不动。"""
         base = tmp_path / "sk"  # type: ignore[operator]
         skill_dir = base / "raw"
         skill_dir.mkdir(parents=True)
@@ -294,18 +297,17 @@ class TestSkillStore:
         original = "# raw\n\n## 手写契约\n\n正文。\n"
         md.write_text(original, encoding="utf-8")
         s = SkillStore(base_dir=str(base))
-        with caplog.at_level(logging.WARNING):
-            s.record_usage("raw")
+        s.record_usage("raw")
         assert md.read_text(encoding="utf-8") == original
-        assert "usage not recorded" in caplog.text
+        parsed = s.parse("raw")
+        assert parsed is not None
+        assert parsed.usage_count == 1
+        assert (skill_dir / "meta.yaml").is_file()
 
     def test_update_refuses_body_rewrite_and_keeps_the_contract(self, tmp_path: object) -> None:
         """回归：正文含 Pattern/Steps 之外的章节时，改 pattern/steps 必须显式拒绝而非静默丢正文。"""
         base = tmp_path / "sk"  # type: ignore[operator]
-        skill_dir = base / "code_review"
-        skill_dir.mkdir(parents=True)
-        md = skill_dir / "SKILL.md"
-        md.write_text(ROLE_CONTRACT, encoding="utf-8")
+        md = _write_contract_skill(base, "code_review")
         s = SkillStore(base_dir=str(base))
         with pytest.raises(SkillRewriteError):
             s.update("code_review", steps=["rewritten"])
@@ -314,12 +316,9 @@ class TestSkillStore:
         assert md.read_text(encoding="utf-8") == ROLE_CONTRACT  # 一字未改
 
     def test_update_metadata_in_place_preserves_the_contract(self, tmp_path: object) -> None:
-        """元数据字段可就地改写：正文逐字节保留，新值可被 parse 读回。"""
+        """元数据字段可就地改写：SKILL.md 正文逐字节保留，priority 落 meta.yaml 且原 tags 保留。"""
         base = tmp_path / "sk"  # type: ignore[operator]
-        skill_dir = base / "code_review"
-        skill_dir.mkdir(parents=True)
-        md = skill_dir / "SKILL.md"
-        md.write_text(ROLE_CONTRACT, encoding="utf-8")
+        md = _write_contract_skill(base, "code_review")
         s = SkillStore(base_dir=str(base))
         path = s.update("code_review", description="新描述", triggers=["评审"], priority=7)
         assert path == str(md)
@@ -330,25 +329,25 @@ class TestSkillStore:
         assert parsed.priority == 7
         after = md.read_text(encoding="utf-8")
         assert after.split("\n---\n", 1)[1] == ROLE_CONTRACT.split("\n---\n", 1)[1]
+        assert parsed.tags == [
+            "code-review",
+            "adversarial",
+            "edge-case",
+            "verification-gap",
+            "goal-workflow",
+            "epic-closure",
+        ]
 
     def test_update_removes_metadata_lines_that_become_empty(self, tmp_path: object) -> None:
-        """清空 tags / priority=0 → 规范行被删除（与渲染器的省略规则一致），正文不动。"""
-        original = ROLE_CONTRACT.replace(
-            "tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow, epic-closure]\n",
-            "tags: [x]\npriority: 3\n",
-        )
+        """清空 tags / priority=0 → meta.yaml 规范行被删除（与渲染器的省略规则一致），SKILL.md 不动。"""
         base = tmp_path / "sk"  # type: ignore[operator]
-        skill_dir = base / "code_review"
-        skill_dir.mkdir(parents=True)
-        md = skill_dir / "SKILL.md"
-        md.write_text(original, encoding="utf-8")
+        md = _write_contract_skill(base, "code_review")
         s = SkillStore(base_dir=str(base))
         s.update("code_review", tags=[], priority=0)
-        after = md.read_text(encoding="utf-8")
-        frontmatter = after.split("\n---\n", 1)[0]
-        assert "tags:" not in frontmatter
-        assert "priority:" not in frontmatter
-        assert after.split("\n---\n", 1)[1] == original.split("\n---\n", 1)[1]
+        assert md.read_text(encoding="utf-8") == ROLE_CONTRACT
+        meta_after = (base / "code_review" / "meta.yaml").read_text(encoding="utf-8")
+        assert "tags:" not in meta_after
+        assert "priority:" not in meta_after
 
     def test_update_without_frontmatter_is_refused(self, tmp_path: object) -> None:
         """无 frontmatter 块时无法就地改元数据 → 拒绝，而不是重写整个文件。"""
@@ -443,7 +442,7 @@ def test_skill_store_default_relative_base_dir_roundtrip(tmp_path, monkeypatch) 
     """
     import os
 
-    from heagent.memory.skills import SkillStore
+    from heagent.skills import SkillStore
 
     monkeypatch.chdir(tmp_path)
     store = SkillStore()  # 默认 ".heagent/skills"（相对路径）

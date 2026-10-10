@@ -14,7 +14,7 @@ import pytest
 from heagent.agent.loop import AgentLoop
 from heagent.engine import EngineContainer, PolicyEngine, RunContext, RunStatus, ToolExecutionMode, ToolExecutor
 from heagent.memory.facts import FactStore
-from heagent.memory.skills import SkillStore
+from heagent.skills import SkillStore
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.builtins.file import file_write
 from heagent.tools.builtins.memory import bind_memory_tools, fact_add

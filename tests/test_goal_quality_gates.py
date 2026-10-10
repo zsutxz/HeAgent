@@ -39,7 +39,7 @@ from heagent.goal.quality_gates import (
     verify_step,
 )
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
-from heagent.memory.skill_packages import SkillPackage
+from heagent.skills.skill_packages import SkillPackage
 from heagent.pub.types import ToolCall, ToolResult
 
 _WORKSPACE = Path("E:/proj").resolve()

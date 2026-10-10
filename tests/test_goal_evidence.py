@@ -45,7 +45,7 @@ from heagent.goal.git_port import (
     _parse_branch_line,
 )
 from heagent.goal.workflow_loader import SkillWorkflowError, parse_validation_clauses, read_workflow
-from heagent.memory.skill_packages import SkillPackage
+from heagent.skills.skill_packages import SkillPackage
 from heagent.pub.types import ToolCall, ToolResult
 
 

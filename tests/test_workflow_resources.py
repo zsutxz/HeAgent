@@ -8,7 +8,7 @@ from pydantic import ValidationError
 
 from heagent.engine.workflow_resource import StepApproval
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
-from heagent.memory.skill_packages import SkillPackage
+from heagent.skills.skill_packages import SkillPackage
 
 
 def _package(root: Path, workflow: str = "steps: [step-01-first.md, step-02-second.md]\n") -> SkillPackage:

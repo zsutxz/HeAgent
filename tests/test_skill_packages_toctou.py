@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from heagent.memory.skill_packages import SkillPackage, SkillPackageResourceError
+from heagent.skills.skill_packages import SkillPackage, SkillPackageResourceError
 from heagent.tools.path_safety import _WALK_SUPPORTED, _walkable_parts, read_bytes_under_root
 
 # 逐组件通道是否生效：**独立**重算一遍平台能力（导入期冻结），**刻意不复用**被测模块的常量——

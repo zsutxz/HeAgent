@@ -7,7 +7,7 @@ from heagent.engine.container import EngineContainer
 from heagent.context.session import SessionStore
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
-from heagent.memory.skill_store import SkillStore
+from heagent.skills.skill_store import SkillStore
 from heagent.tools.path_safety import build_internal_state_dirs
 from heagent.pub.workspace import WorkspacePaths
 

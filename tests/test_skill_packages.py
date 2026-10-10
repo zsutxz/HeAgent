@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from heagent.memory.skill_packages import (
+from heagent.skills.skill_packages import (
     SkillCatalog,
     SkillPackage,
     SkillPackageEntryError,
@@ -19,9 +19,10 @@ from heagent.memory.skill_packages import (
 
 def make_package(root: Path) -> None:
     (root / "SKILL.md").write_text(
-        "---\nname: he-build\ndescription: Build a feature\nversion: 1.2.3\ntags: [build, release]\n---\n\n# Build\n",
+        "---\nname: he-build\ndescription: Build a feature\n---\n\n# Build\n",
         encoding="utf-8",
     )
+    (root / "meta.yaml").write_text("version: 1.2.3\ntags: [build, release]\n", encoding="utf-8")
 
 
 class TestSkillPackage:
@@ -163,9 +164,9 @@ class TestSkillCatalog:
         package = root / name
         package.mkdir()
         if entry:
-            package.joinpath("SKILL.md").write_text(
-                f"---\nname: {name}\nversion: {version}\n---\n# {name}\n", encoding="utf-8"
-            )
+            package.joinpath("SKILL.md").write_text(f"---\nname: {name}\n---\n# {name}\n", encoding="utf-8")
+            if version:
+                package.joinpath("meta.yaml").write_text(f"version: {version}\n", encoding="utf-8")
         return package
 
     def test_scans_multiple_sources_in_canonical_order(self, tmp_path: Path) -> None:
@@ -202,8 +203,9 @@ class TestSkillCatalog:
 
     def test_resolves_declared_custom_alias(self, tmp_path: Path) -> None:
         package = self._write_package(tmp_path, "legacy")
-        package.joinpath("SKILL.md").write_text(
-            "---\ncanonical_id: he-prd\nsource_id: legacy-prd\naliases: [old-prd]\n---\n", encoding="utf-8"
+        package.joinpath("SKILL.md").write_text("---\nname: legacy\n---\n", encoding="utf-8")
+        package.joinpath("meta.yaml").write_text(
+            "canonical_id: he-prd\nsource_id: legacy-prd\naliases: [old-prd]\n", encoding="utf-8"
         )
         resolver = SkillResolver(SkillCatalog([tmp_path]))
         resolver.catalog.scan()
@@ -213,7 +215,7 @@ class TestSkillCatalog:
 
     def test_rejects_invalid_availability_flag(self, tmp_path: Path) -> None:
         package = self._write_package(tmp_path, "he-invalid")
-        package.joinpath("SKILL.md").write_text("---\nname: he-invalid\navailable: maybe\n---\n", encoding="utf-8")
+        package.joinpath("meta.yaml").write_text("available: maybe\n", encoding="utf-8")
         entry = SkillCatalog([tmp_path]).scan()[0]
         assert not entry.available
         assert entry.error is not None and "available flag" in entry.error
@@ -226,8 +228,8 @@ class TestSkillCatalog:
         # first is a real canonical he-prd package; second only aliases he-prd.
         self._write_package(first, "he-prd")
         package = self._write_package(second, "bmad-prd")
-        package.joinpath("SKILL.md").write_text(
-            "---\ncanonical_id: bmad-prd\nsource_id: src-prd\naliases: [he-prd]\n---\n", encoding="utf-8"
+        package.joinpath("meta.yaml").write_text(
+            "canonical_id: bmad-prd\nsource_id: src-prd\naliases: [he-prd]\n", encoding="utf-8"
         )
         catalog = SkillCatalog([first, second])
         catalog.scan()

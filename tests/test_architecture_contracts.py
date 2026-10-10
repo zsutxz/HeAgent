@@ -63,6 +63,8 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
     "tools": ("heagent.agent", *_ENTRY_LAYER_MODULES),
     "engine": ("heagent.agent", *_ENTRY_LAYER_MODULES),
     "memory": ("heagent.agent", "heagent.engine", *_ENTRY_LAYER_MODULES),
+    # skills/ 是技能库域包（2026-10-10 自 memory/ 迁出）：同 memory 档位，禁运行栈反向依赖。
+    "skills": ("heagent.agent", "heagent.engine", *_ENTRY_LAYER_MODULES),
     "context": ("heagent.agent", *_ENTRY_LAYER_MODULES),
     "cron": ("heagent.agent", *_ENTRY_LAYER_MODULES),
     # events/ 是事件传输层，运行期零 engine 依赖（引擎类型仅出现在 TYPE_CHECKING 里）。
@@ -537,7 +539,7 @@ def test_skill_modules_do_not_read_files_directly() -> None:
     guarded = ("skill_models.py", "skill_catalog.py", "skill_store.py", "skill_rewrite.py")
     offenders: list[str] = []
     for name in guarded:
-        path = SRC / "memory" / name
+        path = SRC / "skills" / name
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Attribute) and node.attr == "read_text":
@@ -862,7 +864,7 @@ _STATIC_WORKFLOW_PACKAGE_NAMES = ("he-goal", "he-product", "he-engineering", "he
 
 
 def _workflow_package_names() -> tuple[str, ...]:
-    """从 ``.heagent/skills/*/SKILL.md`` frontmatter 派生 goal workflow 包名（canonical_id + aliases）。
+    """从 ``.heagent/skills/*/meta.yaml`` 派生 goal workflow 包名（canonical_id + aliases）。
 
     只取 ``he-*`` 的 canonical id——goal workflow 包遵循技能目录的 ``he-*`` canonical 约定
     （bmad-* 是别名形态的普通技能，其 workflow.md 不是 goal 工作流）。新增包自动入列；
@@ -874,13 +876,10 @@ def _workflow_package_names() -> tuple[str, ...]:
     skills_root = TARGET_ROOT / ".heagent" / "skills"
     if not skills_root.is_dir():
         return tuple(sorted(names))
-    from heagent.pub.frontmatter import parse_strict_pairs, split_frontmatter  # noqa: PLC0415
+    from heagent.pub.frontmatter import parse_strict_pairs  # noqa: PLC0415
 
-    for skill_md in sorted(skills_root.glob("*/SKILL.md")):
-        split = split_frontmatter(skill_md.read_text(encoding="utf-8"))
-        if split is None:
-            continue
-        values = parse_strict_pairs(split[0])
+    for meta_file in sorted(skills_root.glob("*/meta.yaml")):
+        values = parse_strict_pairs(meta_file.read_text(encoding="utf-8"))
         canonical = values.get("canonical_id", "").strip()
         if not canonical.startswith("he-"):
             continue
@@ -898,7 +897,7 @@ def test_engine_and_goal_layers_hold_no_workflow_package_name_branches() -> None
     专用分支」的回潮。application.py 的 ``GOAL_SKILLS_ROOT`` 是路径不是分支，不在此列；
     入口层（cli）的用户可见提示文案允许出现包 id，不在扫描范围。
 
-    banned 名单从 ``.heagent/skills/*/SKILL.md`` 的 canonical_id + aliases **派生**（新增包
+    banned 名单从 ``.heagent/skills/*/meta.yaml`` 的 canonical_id + aliases **派生**（新增包
     自动入列，静态五名兜底），aliases 短词按词边界匹配（见
     :func:`_workflow_package_names`）。
     """

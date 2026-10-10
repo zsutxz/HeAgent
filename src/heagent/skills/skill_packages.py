@@ -13,6 +13,13 @@ from typing import Iterable, cast  # noqa: UP035
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from heagent.pub.frontmatter import parse_inline_pairs, split_frontmatter
+from heagent.skills.skill_meta import (
+    META_FILENAME,
+    SkillMeta,
+    SkillMetaError,
+    detect_legacy_skill_md_keys,
+    parse_meta_yaml,
+)
 from heagent.tools.path_safety import (
     WorkspacePathError,
     read_bytes_under_root,
@@ -120,12 +127,15 @@ class SkillPackage(BaseModel):
         return cast("SkillPackageMetadata", self._metadata)
 
     def read_entry(self) -> SkillPackageEntry:
-        """Read the package's SKILL.md entry point and parse basic frontmatter."""
+        """Read the package's SKILL.md entry point and parse basic frontmatter.
+
+        触发面字段（name/description）来自 SKILL.md，包元数据来自 meta.yaml（缺省取默认）。
+        """
         try:
             text = self._read_text(self.entrypoint, entry=True)
         except SkillPackageResourceError as exc:
             raise SkillPackageEntryError(self.skill_id, self.entrypoint, exc.reason) from exc
-        metadata = self._parse_metadata(text)
+        metadata = self._parse_metadata(text, self._load_meta())
         object.__setattr__(self, "_metadata", metadata)
         return SkillPackageEntry(text=text, metadata=metadata)
 
@@ -400,33 +410,46 @@ class SkillPackage(BaseModel):
     def has_parent(resource: str) -> bool:
         return any(".." in parser(resource).parts for parser in (PurePath, PurePosixPath, PureWindowsPath))
 
-    def _parse_metadata(self, text: str) -> SkillPackageMetadata:
+    def _load_meta(self) -> SkillMeta:
+        """读取包内 meta.yaml；缺文件返回全默认（纯声明面镜像包的常态）。
+
+        stat 先行：无 meta.yaml 的包零额外 open（读取次数刻画测试依赖这一点）。
+        meta.yaml 解析失败（契约外键/非法值）抛 :class:`SkillMetaError` 显性失败——
+        调用方（``_index_package``）据此产出带诊断的不可用条目，不做静默兜底。
+        """
+        meta_path = self.root / META_FILENAME
+        if not meta_path.is_file():
+            return SkillMeta()
+        try:
+            return parse_meta_yaml(self._read_text(META_FILENAME))
+        except (FileNotFoundError, SkillPackageResourceError):
+            return SkillMeta()  # 竞态：stat 后被删 → 等同缺文件（镜像 manifest 探测语义）
+
+    def _parse_metadata(self, text: str, meta: SkillMeta) -> SkillPackageMetadata:
         values: dict[str, str] = {}
         split = split_frontmatter(text)
         if split is not None:
             raw_block, _end, _body = split
+            legacy = detect_legacy_skill_md_keys(raw_block)
+            if legacy:
+                raise SkillMetaError(
+                    f"SKILL.md frontmatter holds meta contract keys {legacy}; "
+                    "move them to meta.yaml (scripts/migrate_skill_meta.py migrates existing skills)"
+                )
             # 宽档 keys=() 模式（任意含冒号行、不跳注释），值还原历史语义：strip + 成对引号剥壳。
             values = {key: value.strip().strip("\"'") for key, value in parse_inline_pairs(raw_block).items()}
-        tags = [tag.strip() for tag in values.get("tags", "").strip("[]").split(",") if tag.strip()]
-        aliases = [tag.strip().strip("\"'") for tag in values.get("aliases", "").strip("[]").split(",") if tag.strip()]
-        canonical_id = values.get("canonical_id", values.get("canonicalId", ""))
-        source_id = values.get("source_id", values.get("sourceId", ""))
-        available_value = values.get("available", "true").lower()
-        if available_value not in {"true", "false", "1", "0", "yes", "no"}:
-            raise ValueError(f"invalid available flag '{available_value}'")
-        available = available_value not in {"false", "0", "no"}
         return SkillPackageMetadata(
             skill_id=self.skill_id,
             package_root=str(self.root),
             entrypoint=self.entrypoint,
             name=values.get("name", self.skill_id),
             description=values.get("description", ""),
-            version=values.get("version", ""),
-            tags=tags,
-            canonical_id=canonical_id,
-            source_id=source_id,
-            aliases=aliases,
-            available=available,
+            version=meta.version,
+            tags=meta.tags,
+            canonical_id=meta.canonical_id,
+            source_id=meta.source_id,
+            aliases=meta.aliases,
+            available=meta.available,
         )
 
 

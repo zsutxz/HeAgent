@@ -1,20 +1,24 @@
 """技能检索（memory/skills 拆分层，Phase 4 C4）。
 
 基于关键词/触发词的可解释匹配与过期盘点：:func:`match_skill_details` /
-:func:`stale_skills`。均为以 :class:`~heagent.memory.skill_store.SkillStore`
+:func:`stale_skills`。均为以 :class:`~heagent.skills.skill_store.SkillStore`
 为数据源的纯检索函数（本模块只经 TYPE_CHECKING 引用存储类型，依赖单向）。
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from heagent.memory.skill_models import SkillMatch
+from heagent.skills.skill_meta import SkillMetaError
+from heagent.skills.skill_models import SkillMatch
 
 if TYPE_CHECKING:
-    from heagent.memory.skill_store import SkillStore
+    from heagent.skills.skill_store import SkillStore
+
+logger = logging.getLogger(__name__)
 
 
 def skill_tokens(text: str) -> set[str]:
@@ -40,7 +44,12 @@ def match_skill_details(store: SkillStore, prompt: str, threshold: float) -> lis
     prompt_tokens = skill_tokens(prompt)
     matches: list[SkillMatch] = []
     for name in store.list_skills():
-        parsed = store.parse(name)
+        try:
+            parsed = store.parse(name)
+        except SkillMetaError as exc:
+            # 旧格式残留（meta 契约键还在 SKILL.md）：显性告警并跳过，不炸整条检索链。
+            logger.warning("Skill %s skipped: %s", name, exc)
+            continue
         if parsed is None:
             continue
         if any(trigger.casefold() in prompt_text for trigger in parsed.negative_triggers):
@@ -67,7 +76,12 @@ def stale_skills(store: SkillStore, days: int = 30) -> list[str]:
     cutoff = datetime.now() - timedelta(days=days)
     stale: list[str] = []
     for name in store.list_skills():
-        parsed = store.parse(name)
+        try:
+            parsed = store.parse(name)
+        except SkillMetaError as exc:
+            # 旧格式残留（meta 契约键还在 SKILL.md）：显性告警并跳过，不炸整条检索链。
+            logger.warning("Skill %s skipped: %s", name, exc)
+            continue
         if parsed is None:
             continue
         if parsed.usage_count == 0:

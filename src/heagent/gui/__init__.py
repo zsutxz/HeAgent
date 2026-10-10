@@ -42,7 +42,7 @@ def gui_main(
     from heagent.cron.jobs import JobStore
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
-    from heagent.memory.skills import SkillStore
+    from heagent.skills import SkillStore
 
     skill_store = SkillStore(str(paths.skills))
     # Phase 2 C3（与 CLI 语义统一）：cron 关闭时不创建 JobStore——主 loop 的

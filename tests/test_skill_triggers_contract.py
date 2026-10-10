@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from heagent.memory.skill_store import SkillStore
+from heagent.skills.skill_store import SkillStore
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILLS_DIR = ROOT / ".heagent" / "skills"

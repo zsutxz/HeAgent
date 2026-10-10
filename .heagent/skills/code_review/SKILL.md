@@ -1,9 +1,6 @@
 ---
 name: code_review
 description: "代码评审契约：以对抗式 / 边界追踪 / 验证缺口三个镜头审查代码变更，每条发现带严重度与处置；Critical 就地修复并重跑受影响测试。它是 /goal 声明式工作流 step 07 **Epic 收口评审**（每个 Epic 的最后一条 story 增量内执行）的完整参考——步骤正文内联了同一契约的精简版并以其为准。"
-created: 2026-06-03T10:05:20.270521
-updated: 2026-09-10
-tags: [code-review, adversarial, edge-case, verification-gap, goal-workflow, epic-closure]
 triggers: [代码评审, 评审代码, 代码审查, 帮我评审, 对抗式评审, 边界情况, code review, review the code]
 ---
 

@@ -19,8 +19,8 @@ from heagent.context.tokens import estimate_text_tokens
 if TYPE_CHECKING:
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
-    from heagent.memory.skills import SkillStore
     from heagent.memory.soul import SoulStore
+    from heagent.skills import SkillStore
 
 logger = logging.getLogger(__name__)
 

@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
     from textual.app import ComposeResult
 
-    from heagent.memory.skills import SkillStore
+    from heagent.skills import SkillStore
 
 
 class SkillScreen(Screen[None]):

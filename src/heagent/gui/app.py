@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from heagent.gui.state import GuiState
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
-    from heagent.memory.skills import SkillStore
+    from heagent.skills import SkillStore
 
 
 class HeAgentApp(App[None]):

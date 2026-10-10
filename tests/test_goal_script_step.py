@@ -34,9 +34,10 @@ def _make_script_package(
     root = cwd / ".heagent" / "skills" / skill_id
     (root / "scripts").mkdir(parents=True)
     (root / "SKILL.md").write_text(
-        f"---\ncanonical_id: {skill_id}\nname: {skill_id}\ndescription: synthetic script package\n---\n\n# pkg\n",
+        f"---\nname: {skill_id}\ndescription: synthetic script package\n---\n\n# pkg\n",
         encoding="utf-8",
     )
+    (root / "meta.yaml").write_text(f"canonical_id: {skill_id}\n", encoding="utf-8")
     blocks: list[str] = []
     for index in range(1, steps + 1):
         metadata = ["input: user intent" if index == 1 else "input: report", step_metadata]

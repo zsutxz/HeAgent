@@ -31,13 +31,13 @@ from heagent.engine.workflow_resource import (
 )
 from heagent.engine.workflow_runner import WorkflowGateError
 from heagent.goal.quality_gates import QUALITY_GATES, gate_declaration_problem, is_registered_gate
-from heagent.memory.skill_packages import SkillPackage, SkillPackageResourceError
 from heagent.pub.frontmatter import (
     FrontmatterSyntaxError,
     parse_strict_pairs,
     split_frontmatter,
 )
 from heagent.pub.types import StorySpec
+from heagent.skills.skill_packages import SkillPackage, SkillPackageResourceError
 
 LOGGER = logging.getLogger(__name__)
 

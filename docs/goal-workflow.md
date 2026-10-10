@@ -5,7 +5,7 @@
 [`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md)；本节是面向维护者的
 导航和边界说明，不复制那份契约。
 
-`.heagent/skills/he-goal/` 本身是一个**技能包**（其 `SKILL.md` 声明 `canonical_id: he-goal`），
+`.heagent/skills/he-goal/` 本身是一个**技能包**（其 `meta.yaml` 声明 `canonical_id: he-goal`），
 CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt-template.md`（步骤提示词模板）与
 `templates/gate-template.md`（门禁提示块模板）——CLI 不内置模板兜底；模板的必需性由 `workflow.md`
 frontmatter 的 `required_resources` 声明，声明后缺失即显性报错：改工作流行为应改包，而不是改 Python。

@@ -38,11 +38,11 @@ from heagent.engine import ConsoleApprovalHandler, EngineContainer
 from heagent.events.sink import JsonlSink, default_rollout_dir
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
-from heagent.memory.skills import SkillStore
 from heagent.memory.soul import SoulStore
 from heagent.providers.router import RoutingProvider
 from heagent.providers.switchable import SwitchableProvider
 from heagent.pub.workspace import WorkspacePaths
+from heagent.skills import SkillStore
 from heagent.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:

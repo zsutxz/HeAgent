@@ -12,7 +12,7 @@ from heagent.goal.script_api import GoalScript, ScriptExecutionResult, ScriptRes
 from heagent.goal.script_loader import SCRIPT_ENTRYPOINT, GoalScriptResource, load_script
 
 if TYPE_CHECKING:
-    from heagent.memory.skill_packages import SkillPackage
+    from heagent.skills.skill_packages import SkillPackage
 
 
 class GoalScriptRuntimeError(RuntimeError):

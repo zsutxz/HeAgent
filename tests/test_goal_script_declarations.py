@@ -7,13 +7,14 @@ from pathlib import Path
 import pytest
 
 from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow
-from heagent.memory.skill_packages import SkillPackage
+from heagent.skills.skill_packages import SkillPackage
 
 
 def _package(tmp_path: Path, step_metadata: str, *, script: str | None = "script.py") -> SkillPackage:
     root = tmp_path / "he-flow"
     root.mkdir()
-    (root / "SKILL.md").write_text("---\ncanonical_id: he-flow\n---\n", encoding="utf-8")
+    (root / "SKILL.md").write_text("---\nname: he-flow\n---\n", encoding="utf-8")
+    (root / "meta.yaml").write_text("canonical_id: he-flow\n", encoding="utf-8")
     (root / "templates").mkdir()
     (root / "templates" / "prompt-template.md").write_text("prompt", encoding="utf-8")
     (root / "templates" / "gate-template.md").write_text("gate", encoding="utf-8")

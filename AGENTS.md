@@ -37,6 +37,7 @@ HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**�
         context ───┘
 
 旁支：  memory（对 engine 仅 TYPE_CHECKING）
+        skills（2026-10-10 自 memory/ 迁出的技能库域包，同档禁区）
         events（运行期仅依赖 pub.exceptions）
         network/（仅 stdlib + pydantic + pub.safe_logging，被入口层单向使用）
 ```
@@ -50,7 +51,8 @@ HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**�
 - `pub/` — 公共层（异常/类型/日志/持久化/frontmatter/角色/工作区/任务关停/项目）
 - `config/` — 配置面（Settings / catalog / write / envfile）
 - `context/` — 上下文压缩/会话持久化/token 估算
-- `memory/` — 自学习闭环（skills / facts / profile / soul）
+- `memory/` — 自学习闭环（facts / profile / soul / dream）
+- `skills/` — 技能库域包（store / models / rewrite / catalog / packages / meta / importer；2026-10-10 自 memory/ 迁出）
 - `network/` — 入口传输层（HTTP + SSE；TCP 入口已于 2026-09-27 删除，勿按旧文档恢复）
 - `cli/` — 入口层包（console / composition / interactive / goal / http / http_console / dialogs / init / display / slash / terminal / wiring / housekeeping / port_finder）
 
@@ -59,7 +61,7 @@ HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**�
 - 依赖方向固定为 `pub → config → providers/tools/context → engine → agent → cli/gui/goal`，下层不得反向导入入口层
 - 新增 provider / tool **禁止**从 `agent/` 导入
 - `engine/` 依赖 `pub` + `tools` 部分 + `events.protocol`，被 `agent/` 依赖
-- `network/` 不得导入运行栈（agent/engine/providers/tools/memory/context/cron/events）与配置（config/pub.projects/pub.workspace）
+- `network/` 不得导入运行栈（agent/engine/providers/tools/memory/skills/context/cron/events）与配置（config/pub.projects/pub.workspace）
 - 跨模块数据用 Pydantic 模型（`pub/types.py`），**禁止**原始 dict
 - 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**
 

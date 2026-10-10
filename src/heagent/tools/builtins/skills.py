@@ -15,7 +15,7 @@ from heagent.tools.runtime import RuntimeSlot
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from heagent.memory.skills import SkillStore
+    from heagent.skills import SkillStore
 
 
 @dataclass(slots=True)

@@ -1,10 +1,6 @@
 ---
-canonical_id: he-engineering
 name: he-engineering
 description: 工程实现类目标走 /goal 的三步声明式工作流（方案→实现→验证）
-tags: [goal, workflow, engineering]
-aliases: [engineering]
-created: 2026-09-30
 ---
 
 # he-engineering（工程实现工作流）

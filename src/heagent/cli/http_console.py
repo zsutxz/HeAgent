@@ -36,7 +36,6 @@ from heagent.context.session import SessionMetadata, SessionStore
 from heagent.engine import EngineContainer
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
-from heagent.memory.skills import SkillStore
 from heagent.network.http_console_protocol import (
     MAX_SESSION_MESSAGES_IN_RESPONSE,
     ConfigGroupResponse,
@@ -72,6 +71,7 @@ from heagent.pub.projects import ProjectEntry, ProjectRegistryError, default_pro
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import Message, Role
 from heagent.pub.workspace import WorkspacePaths
+from heagent.skills import SkillStore
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop

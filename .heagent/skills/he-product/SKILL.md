@@ -1,10 +1,6 @@
 ---
-canonical_id: he-product
 name: he-product
 description: 产品探索类目标走 /goal 的三步声明式工作流（需求澄清→范围与非目标→验收口径）
-tags: [goal, workflow, product]
-aliases: [product]
-created: 2026-09-30
 ---
 
 # he-product（产品探索工作流）

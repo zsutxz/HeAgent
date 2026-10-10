@@ -1,14 +1,8 @@
 ---
-canonical_id: he-goal
 name: he-goal
 description: 多阶段大目标走 /goal 声明式 8 步工作流的触发与引导
-tags: [goal, workflow]
-created: 2026-09-19
 triggers: [多阶段, 一个完整的项目, 做一个完整的项目, 从零做一个, 需求到交付, 端到端交付, 全流程开发, 目标驱动, /goal, goal 工作流, 立项]
 negative_triggers: [code review, 代码评审, 技能评审, 重构, refactor]
-priority: 3
-usage_count: 7
-last_used: "2026-10-08T17:30:30.618955"
 ---
 
 # goal（目标驱动开发工作流）
@@ -17,15 +11,14 @@ last_used: "2026-10-08T17:30:30.618955"
 
 - 本技能只做引导：不代替用户执行 `/goal` 斜杠命令，也不复述工作流契约（契约在本包 `workflow.md` 里）。
 - 单点改动、一次性问答、一次探查都不要启动工作流——判据见 Steps 第 1 条。
-- 本节也是**刻意保留的额外章节**：正文若只剩 `## Pattern` / `## Steps` 两节，SkillStore 会在技能被
-  自动注入时整体重渲染正文（丢掉上面 H1 的注解与 frontmatter 的 `canonical_id`）；保留本节即走
-  「只改 frontmatter 计数、正文逐字节保留」的就地路径。代价：`pattern` / `steps` 要改就直接编辑本
-  文件，`skill_update` 会拒绝（抛 `SkillRewriteError`，防止静默丢章节）。
+- 本节也是**刻意保留的额外章节**：`skill_update` 对含 Pattern/Steps 之外章节的技能会拒绝重渲染正文
+  （抛 `SkillRewriteError`，防止静默丢章节），`pattern` / `steps` 要改就直接编辑本文件。运行时使用
+  计数写在 `meta.yaml`，自动注入不会触碰 SKILL.md。
 
 ## 运行时资源（勿删）
 
 本包除引导正文外还承载 `/goal` 的**运行时契约**——`Settings.goal_workflow_skill` 默认解析到本包
-（`canonical_id: he-goal`），CLI 读取下列资源执行工作流：
+（本包 `meta.yaml` 声明 `canonical_id: he-goal`），CLI 读取下列资源执行工作流：
 
 - `workflow.md` —— 工作流契约：8 步的顺序、`input`/`output`、`checkpoint`、`validation` 门禁、`role`、
   `story_loop`、`max_iterations` 与 frontmatter 策略声明（`max_rounds` / `auto_schedule` /

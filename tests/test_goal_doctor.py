@@ -8,7 +8,7 @@ from heagent.cli import goal as goal_cli
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
 from heagent.goal.application import checkpoint_store
 from heagent.goal.doctor import DoctorSeverity, GoalDoctorReport, diagnose_workflow
-from heagent.memory.skill_packages import SkillPackage
+from heagent.skills.skill_packages import SkillPackage
 
 
 def _package(root: Path) -> SkillPackage:

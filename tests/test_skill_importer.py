@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from heagent.memory.skill_importer import SkillImportError, SkillImporter
+from heagent.skills.skill_importer import SkillImportError, SkillImporter
 
 
 def write_manifest(path: Path, rows: list[dict[str, str]]) -> None:
@@ -21,7 +21,8 @@ def write_manifest(path: Path, rows: list[dict[str, str]]) -> None:
 def make_source(root: Path, name: str = "bmad-prd", body: str = "# PRD\n") -> Path:
     package = root / "_bmad" / "core" / name
     package.mkdir(parents=True)
-    (package / "SKILL.md").write_text(f"---\nname: {name}\nversion: 1.0\n---\n{body}", encoding="utf-8")
+    (package / "SKILL.md").write_text(f"---\nname: {name}\n---\n{body}", encoding="utf-8")
+    (package / "meta.yaml").write_text("version: 1.0\n", encoding="utf-8")
     return package
 
 
@@ -125,7 +126,7 @@ class TestResourcePinning:
         SkillImporter(make_manifest(tmp_path, source), destination).import_manifest()
 
         resources = json.loads((destination / "manifest.lock").read_text(encoding="utf-8"))["entries"][0]["resources"]
-        assert set(resources) == {"SKILL.md", "references/note.md"}
+        assert set(resources) == {"SKILL.md", "meta.yaml", "references/note.md"}
         for name, digest in resources.items():
             assert digest == hashlib.sha256((destination / "bmad-prd" / name).read_bytes()).hexdigest()
 
@@ -149,7 +150,7 @@ class TestResourcePinning:
         importer = SkillImporter(make_manifest(tmp_path, source), tmp_path / "skills")
         importer.import_manifest()
 
-        (source / "SKILL.md").write_text("---\nname: bmad-prd\nversion: 2.0\n---\n# PRD v2\n", encoding="utf-8")
+        (source / "SKILL.md").write_text("---\nname: bmad-prd\n---\n# PRD v2\n", encoding="utf-8")
 
         with pytest.raises(SkillImportError, match="source hash differs from manifest.lock"):
             importer.import_manifest()
@@ -167,7 +168,10 @@ class TestResourcePinning:
 
         records = importer.import_manifest()
 
-        assert records[0].resources == {"SKILL.md": hashlib.sha256((source / "SKILL.md").read_bytes()).hexdigest()}
+        assert records[0].resources == {
+            "SKILL.md": hashlib.sha256((source / "SKILL.md").read_bytes()).hexdigest(),
+            "meta.yaml": hashlib.sha256((source / "meta.yaml").read_bytes()).hexdigest(),
+        }
         assert json.loads(lock_path.read_text(encoding="utf-8"))["entries"][0]["resources"] == records[0].resources
 
     def test_tampered_materialization_is_rejected_before_landing(

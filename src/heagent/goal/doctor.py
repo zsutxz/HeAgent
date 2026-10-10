@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from heagent.engine.workflow_resource import WorkflowResource
-    from heagent.memory.skill_packages import SkillPackage
+    from heagent.skills.skill_packages import SkillPackage
 
 _TEMPLATE_PREFIX = "templates/"
 

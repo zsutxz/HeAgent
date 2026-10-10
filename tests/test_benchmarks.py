@@ -174,7 +174,7 @@ class TestSkillMatchingPerf:
     """
 
     def test_skill_match_correctness(self, benchmark):
-        from heagent.memory.skills import SkillStore
+        from heagent.skills import SkillStore
 
         tmp = Path("tests/_tmp_bench_skills")
         tmp.mkdir(parents=True, exist_ok=True)

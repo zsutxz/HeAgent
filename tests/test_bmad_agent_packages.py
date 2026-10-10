@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from heagent.memory.skill_packages import SkillCatalog, SkillPackageResourceError, SkillResolver
+from heagent.skills.skill_packages import SkillCatalog, SkillPackageResourceError, SkillResolver
 
 
 ROOT = Path(__file__).resolve().parents[1]

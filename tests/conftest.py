@@ -135,9 +135,10 @@ def goal_workflow_root(tmp_path: Path) -> Path:
     root = tmp_path / ".heagent" / "skills" / "he-goal"
     root.mkdir(parents=True)
     (root / "SKILL.md").write_text(
-        "---\ncanonical_id: he-goal\nname: he-goal\ndescription: test package\n---\n\n# test package\n",
+        "---\nname: he-goal\ndescription: test package\n---\n\n# test package\n",
         encoding="utf-8",
     )
+    (root / "meta.yaml").write_text("canonical_id: he-goal\n", encoding="utf-8")
     shutil.copytree(
         Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal" / "templates",
         root / "templates",

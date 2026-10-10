@@ -124,7 +124,7 @@ AgentLoop.run(prompt)
 - `providers/` 和 `tools/` 互不依赖
 - `pub/exceptions.py` 和 `pub/types.py` 是叶子模块，无内部依赖
 - 新增 Provider 或 Tool **禁止**从 `agent/` 导入（**全仓无例外**：`builtins/subagent.py` 只持可注入委派回调，子 Agent 编排由 `agent/delegation.py` 提供、`AgentLoop._runtime_scope` 每 run 绑定；`tools/mcp/*` 同）
-- **分层（2026-09-26 收敛）**：`pub/` 是**公共层**——收零 heagent 运行栈依赖的共用模块（exceptions/types/safe_logging/persist/frontmatter/roles/workspace/task_shutdown/event_lines），**任何层都可依赖它、它不依赖任何层**（`pub/__init__.py` 零 import）；`config/` 是其**上一层**的配置面（`__init__.py` 即 Settings 本体 + catalog 来源求解 + write 写通道 + envfile 保真读写），只依赖 `pub/` 与 stdlib/pydantic。persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖：`pub/persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`pub/roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`pub/safe_logging.py`（零 heagent 依赖，2026-09-23）收敛日志卫生：`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，`network/`（不得依赖 engine）与 engine/agent 共用同一实现；`pub/frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / memory.skills / memory.skill_packages / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
+- **分层（2026-09-26 收敛）**：`pub/` 是**公共层**——收零 heagent 运行栈依赖的共用模块（exceptions/types/safe_logging/persist/frontmatter/roles/workspace/task_shutdown/event_lines），**任何层都可依赖它、它不依赖任何层**（`pub/__init__.py` 零 import）；`config/` 是其**上一层**的配置面（`__init__.py` 即 Settings 本体 + catalog 来源求解 + write 写通道 + envfile 保真读写），只依赖 `pub/` 与 stdlib/pydantic。persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖：`pub/persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`pub/roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`pub/safe_logging.py`（零 heagent 依赖，2026-09-23）收敛日志卫生：`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，`network/`（不得依赖 engine）与 engine/agent 共用同一实现；`pub/frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / 时为 memory.skills 与 memory.skill_packages，现 skills 包 / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
 - `memory/` 运行期**不依赖 `engine/`**（`memory/dream.py` 的 `EngineContainer` 仅 TYPE_CHECKING 引用，实例由入口层注入、无 `default()` 回退；契约断言见 `test_architecture_contracts.py` FORBIDDEN_RUNTIME_IMPORTS）
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `pub.types`/`pub.exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `pub.exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
@@ -441,7 +441,7 @@ SafetyGuard
 
 > **Phase 4 C1（2026-09-21）拆分**：原单文件 `sandbox.py` 拆为 `contracts.py`（SandboxTier / CommandRunner Protocol / profile+workspace 注入 slot）、`process.py`（进程监督内核：supervise / kill-reap / `cap_channel` 512KB 保头尾截断 + `decode_channel` **解码策略**（UTF-8 优先，失败再按平台控制台代码页——Windows 的 `oem`／`GetOEMCP`，zh-CN 即 GBK；截断路径**整段判一次编码**，否则会把切分点上的半个多字节序列误判成「不是 UTF-8」）/ `scrub_sensitive_env` / `reap_subprocess` 有界回收 / `PassthroughRunner` / command_runner slot）、`firejail.py`、`winjob.py`、`session.py`（会话目录 + SandboxSession）；`__init__` re-export 全历史公共名，导入面不变。`CommandRunner` Protocol 补 `available` property（三 backend 形状统一）。`git.py` / `engine/hooks.py` 复用 `reap_subprocess`（有界回收）+ `cap_channel` / `decode_channel`（截断与解码）内核——超时/取消/回收/截断/解码语义全仓统一（**2026-09-28 修**：此前 shell/exec 一律 `decode("utf-8", errors="replace")`、hooks 走 `decode(errors="replace")` 即首选编码，Windows 的 `cmd` 内建命令（`dir` / `type` / `findstr` …）按控制台代码页写字节 ⇒ 中文一律变 `�`；hooks 那边则相反地会打乱 UTF-8 输出）；WinJob 补 env 剥离（V1）与有界 wait（V2）。
 
-`shell` 等子进程工具的可注入执行抽象。默认 `PassthroughRunner`（等价 `create_subprocess_shell` 直接执行）；`SANDBOX_REQUIRED` 路径下 `ToolExecutor.execute_in_sandbox` 经 `bind_command_runner` + `bind_sandbox_profile` 注入配置的后端与 profile 名。注入走 `RuntimeSlot`（contextvar），与 memory/skills 等工具族一致；`DIRECT` 路径不 bind，取默认 Passthrough。
+`shell` 等子进程工具的可注入执行抽象。默认 `PassthroughRunner`（等价 `create_subprocess_shell` 直接执行）；`SANDBOX_REQUIRED` 路径下 `ToolExecutor.execute_in_sandbox` 经 `bind_command_runner` + `bind_sandbox_profile` 注入配置的后端与 profile 名。注入走 `RuntimeSlot`（contextvar），与 skills 包等工具族一致；`DIRECT` 路径不 bind，取默认 Passthrough。
 
 **FirejailBackend（2026-07-20 硬化）：** 新增 `profiles` dict（profile 名 → firejail 参数映射），供 `PolicyEngine` 裁决出的 profile 名选用（配置注入见下段；原设想的 `RoleSpec.sandbox_profile` 激活路径从未落地，该死字段已于 2026-09-18 删除）；`shutil.which` 构造期检测 firejail 可用性，不可用时 `run()` 优雅降级到 Passthrough（warn + 不崩溃）；Linux 进程组 killing（`start_new_session` + `os.killpg`）解决 `sh -c "cmd &"` 子孙泄漏；自动 `--private=<workspace_root>` OS 级文件系统隔离。⚠ `FirejailBackend` 仅隔离 shell 子进程、Linux-only、非完美边界——须 OS 级沙箱兜底。
 
@@ -669,13 +669,13 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 **写侧闸门**：预算只在读侧刹车，故 `fact_add` 的工具描述（**唯一能触达模型的写侧入口**——本文件头部注记不进 system prompt）明确「只写改变未来行为的结论，不收过程叙述 / 状态记账 / 探针细节」，`<memory-nudge>` 同口径复述；`tests/test_memory.py::TestFactAddWriteGuardrail` 钉住该契约。2026-09-24 实测：MEMORY.md 涨到 55 177 字节 / 99 条，其中 41%（22 575 字节 / 24 条）是过程叙述与状态记账，把最新的 4 条挤出预算 ⇒ 整理为 44 876 字节 / 94 条：每轮注入 **12 912 token（99 条只注入 95 条）→ 12 120 token（94 条全部注入）**，预算余量 4 276 字节。（压缩原则与工具见该文件头部「整理历史」与 `.heagent/tmp/mem_curate.py`。）
 
-#### memory/skills* — 技能存储
+#### 技能库（顶层 `skills/` 包，2026-10-10 自 memory/ 迁出）
 
-> **Phase 4 C4（2026-09-21）拆分**：原单文件 `skills.py` 拆为 `skill_models.py`（模型 + `parse_skill_md` + 名称校验）、`skill_rewrite.py`（渲染 / `body_survives_rerender` / frontmatter 就地改写）、`skill_catalog.py`（匹配 + 过期盘点，以 store 为数据源的纯函数）、`skill_store.py`（`SkillStore` 门面）；`skills.py` re-export 兼容。`SkillStore` 文件读取走 `path_safety.open_text_under_root` 单一安全入口（契约测试钉 `os.open` 白名单 = path_safety + persist 锁文件）。
+> **Phase 4 C4（2026-09-21）拆分 + 2026-10-10 迁出**：原单文件 `skills.py` 先拆为 `skill_models.py`（模型 + `parse_skill_md` + 名称校验）、`skill_rewrite.py`（渲染 / `body_survives_rerender` / frontmatter 就地改写）、`skill_catalog.py`（匹配 + 过期盘点，以 store 为数据源的纯函数）、`skill_store.py`（`SkillStore` 门面）；`skills.py` re-export 兼容。`SkillStore` 文件读取走 `path_safety.open_text_under_root` 单一安全入口（契约测试钉 `os.open` 白名单 = path_safety + persist 锁文件）。
 
-`.heagent/skills/<name>/SKILL.md`，HermesAgent 标准目录结构（可选 `templates/`、`references/`）。frontmatter 可选 `triggers`、`negative_triggers`、`priority`：负向触发优先排除，显式触发优先于常规相关度，随后按相关度、priority、名称稳定排序。常规匹配使用无依赖的混合 tokenizer：ASCII 标识符完整分词，CJK 使用二/三字片段（避免空格边界和单字高频误匹配）；旧 Skill 缺新字段时退化为原有 `pattern + tags` 相关度。自动注入同时受数量上限与可选总 token 预算限制，只注入完整正文、跳过超预算项且仅对最终注入项记录 usage；`skill_load` 可显式按名读取完整技能（同样不截断）。
+`.heagent/skills/<name>/SKILL.md + meta.yaml`，HermesAgent 标准目录结构（可选 `templates/`、`references/`）。SKILL.md frontmatter 只承载触发面四键（name/description/triggers/negative_triggers），其余（canonical_id/aliases/version/available/tags/created/priority/usage_count/last_used）在 `<name>/meta.yaml`（`skills/skill_meta.py` 契约，2026-10-10 拆分；解析到旧键显性抛 `SkillMetaError`）。frontmatter `triggers`、`negative_triggers`：负向触发优先排除，显式触发优先于常规相关度，随后按相关度、priority、名称稳定排序。常规匹配使用无依赖的混合 tokenizer：ASCII 标识符完整分词，CJK 使用二/三字片段（避免空格边界和单字高频误匹配）；旧 Skill 缺新字段时退化为原有 `pattern + tags` 相关度。自动注入同时受数量上限与可选总 token 预算限制，只注入完整正文、跳过超预算项且仅对最终注入项记录 usage；`skill_load` 可显式按名读取完整技能（同样不截断）。
 
-**重渲染安全性（2026-09-14）：** 渲染器只能表达 `# <name>` / `## Pattern` / `## Steps`，解析器也只读后两节，因此 `record_usage` 先经 `_body_survives_rerender` 判定：正文若含这两节之外的章节（手写角色契约、`deploy_production` 式的阶段说明），改走 `_update_usage_frontmatter`「只就地改写 frontmatter 计数、正文逐字节保留」，避免一次自动匹配即把 130 行契约削成 411 字符空壳；无 frontmatter 时保留原文件并记 `logger.warning`（显性失败，不静默丢计数）。`skill_update` 走同一判定：只改元数据字段（description / tags / triggers / negative_triggers / priority）时就地改写 frontmatter、正文逐字节保留；要求改 `pattern` / `steps` 则抛 `SkillRewriteError(ValueError)` 显式拒绝（工具层转成可读 `Error:` 文案），无 frontmatter 块同样拒绝——至此已无「静默重排正文」的路径（`save()` 仍是显式全量覆写 API，只在创建与无损技能更新时被调用）。
+**运行时计数与正文保真（2026-10-10 拆分后）：** `record_usage` 只原子回写 `meta.yaml`（`meta.yaml.lock` 文件锁），SKILL.md 运行时零写入——历史缺陷「自动匹配一次即把 130 行契约削成 411 字符空壳」从机制上消亡。`skill_update` 仍经 `_body_survives_rerender` 判定：只改 description/triggers/negative_triggers 时就地改写 frontmatter、正文逐字节保留（tags/priority 走 meta.yaml 事务）；要求改 `pattern` / `steps` 则抛 `SkillRewriteError(ValueError)` 显式拒绝（工具层转成可读 `Error:` 文案），无 frontmatter 块同样拒绝——无「静默重排正文」的路径（`save()` 仍是显式全量覆写 API，只在创建时被调用）。
 
 #### profile.py — 用户画像
 
@@ -811,7 +811,7 @@ HeAgentError (base)
 | `subagent_max_iterations` | 20 | 嵌套子代理兜底迭代预算（角色未声明 `max_iterations` 时生效：显式参数 > 角色声明 > 本项） |
 | `goal_checkpoint_mode` | `prompt` | `/goal` 检查点策略：自动继续或等待用户 |
 | `goal_open_question_mode` | `block` | `/goal` 未决问题策略：阻塞或采用默认值 |
-| `goal_workflow_skill` | `he-goal` | `/goal` 工作流包 id（包在自己 `SKILL.md` 里声明 `canonical_id`，按 id/别名解析） |
+| `goal_workflow_skill` | `he-goal` | `/goal` 工作流包 id（包在自己 `meta.yaml` 里声明 `canonical_id`，按 id/别名解析） |
 | `announce_progress` | True | 是否把「▶ 启动 / ✔ 完成 + 状态行」进度公告写到 stderr（false=静音） |
 | `dream_session_lookback` | 5 | 预加载近期 session 个数（按 timestamp 降序） |
 | `mcp_enabled` | True | 是否启用 MCP server 连接（门控，False 则跳过加载） |
@@ -1108,7 +1108,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
 清单只钉它列出的文件，包内新增文件不在校验范围；能写该目录者本就能直接改写 `SKILL.md`，故本项是
 defense-in-depth 而非边界。
 
-**导入器凭据（2026-09-28 交付，活动台账 A1④）**：导入形态（`memory/skill_importer.py` 物化到
+**导入器凭据（2026-09-28 交付，活动台账 A1④）**：导入形态（`skills/skill_importer.py` 物化到
 `.heagent/skills/<id>/`）的凭据不在包内，而在 **skills 根目录的兄弟文件** `manifest.lock`——它是整批
 导入的索引，故读侧取 `root.parent/manifest.lock` 中本包条目的 `resources`（与渲染器 `outputs` **同形**：
 「相对 POSIX 路径 → sha256」）。判定语义与渲染器凭据一致地保守：无 lock ⇒ `{}`（只多一次 stat、不 open）；
@@ -1396,16 +1396,19 @@ src/heagent/
 │
 ├── memory/                  # 记忆系统
 │   ├── facts.py             # 事实存储 + 去重
-│   ├── skills.py            # 技能存储兼容 shim（Phase 4 C4 拆四文件）
+│   ├── profile.py           # 用户画像
+│   ├── soul.py              # 人格系统（全局/项目两级）
+│   └── dream.py             # 离线记忆巩固调度器（Dreaming 模式）
+│
+├── skills/                  # 技能库域包（2026-10-10 自 memory/ 迁出）
+│   ├── __init__.py          # 历史公共名 re-export 门面
 │   ├── skill_models.py      # 技能模型 + SKILL.md 解析 + 名称校验
 │   ├── skill_rewrite.py     # 渲染 + frontmatter 就地改写（正文保真）
 │   ├── skill_catalog.py     # 匹配 + 过期盘点（纯检索）
 │   ├── skill_store.py       # SkillStore 门面（读经 open_text_under_root）
-│   ├── skill_packages.py    # BMad 技能包与安全资源读取（工作流装配已迁 goal/workflow_loader.py）
-│   ├── skill_importer.py    # 技能包导入与目录映射
-│   ├── profile.py           # 用户画像
-│   ├── soul.py              # 人格系统（全局/项目两级）
-│   └── dream.py             # 离线记忆巩固调度器（Dreaming 模式）
+│   ├── skill_meta.py        # meta.yaml 契约（2026-10-10 拆分落点）
+│   ├── skill_packages.py    # 声明式技能包索引与安全资源读取（工作流装配在 goal/workflow_loader.py）
+│   └── skill_importer.py    # 技能包导入与目录映射
 │
 ├── engine/                  # 运行时引擎（P0）
 │   ├── container.py         # EngineContainer（DI）

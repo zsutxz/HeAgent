@@ -22,7 +22,7 @@ from heagent.engine.workflow_resource import WorkflowResource
 from heagent.goal.application import read_workflow_binding, resolve_bound_workflow, resolve_skill_package
 from heagent.goal.doctor import diagnose_workflow
 from heagent.goal.workflow_loader import read_workflow, workflow_revision
-from heagent.memory.skill_packages import SkillCatalog
+from heagent.skills.skill_packages import SkillCatalog
 from heagent.pub.frontmatter import parse_strict_pairs, split_frontmatter
 
 _PROMPT_TEMPLATE = (
@@ -76,14 +76,10 @@ def _make_package(
     root.mkdir(parents=True)
     alias = skill_id.removeprefix("he-")
     (root / "SKILL.md").write_text(
-        "---\n"
-        f"canonical_id: {skill_id}\n"
-        f"name: {skill_id}\n"
-        "description: synthetic workflow package\n"
-        f"aliases: [{alias}]\n"
-        "---\n\n# synthetic package\n",
+        f"---\nname: {skill_id}\ndescription: synthetic workflow package\n---\n\n# synthetic package\n",
         encoding="utf-8",
     )
+    (root / "meta.yaml").write_text(f"canonical_id: {skill_id}\naliases: [{alias}]\n", encoding="utf-8")
     templates = root / "templates"
     templates.mkdir()
     (templates / "prompt-template.md").write_text(_PROMPT_TEMPLATE, encoding="utf-8")
@@ -101,12 +97,12 @@ def _make_external_step_package(cwd: Path, skill_id: str) -> Path:
     root.mkdir(parents=True)
     (root / "SKILL.md").write_text(
         "---\n"
-        f"canonical_id: {skill_id}\n"
         f"name: {skill_id}\n"
         "description: synthetic external-step workflow package\n"
         "---\n\n# synthetic external-step package\n",
         encoding="utf-8",
     )
+    (root / "meta.yaml").write_text(f"canonical_id: {skill_id}\n", encoding="utf-8")
     templates = root / "templates"
     templates.mkdir()
     (templates / "prompt-template.md").write_text(_PROMPT_TEMPLATE, encoding="utf-8")

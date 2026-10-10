@@ -50,11 +50,11 @@ from heagent.config import GLOBAL_CONFIG_DIR, Settings, get_settings
 from heagent.context.session import SessionStore
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
-from heagent.memory.skills import SkillStore
 from heagent.providers.router import active_model, display_reason
 from heagent.providers.switchable import SwitchableProvider
 from heagent.pub.exceptions import BudgetExceeded, HeAgentError
 from heagent.pub.workspace import WorkspacePaths
+from heagent.skills import SkillStore
 from heagent.tools.mcp import MCPClientManager
 
 if TYPE_CHECKING:

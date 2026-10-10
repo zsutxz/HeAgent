@@ -94,9 +94,9 @@ if TYPE_CHECKING:
     from heagent.cron.jobs import JobStore
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
-    from heagent.memory.skills import SkillStore
     from heagent.memory.soul import SoulStore
     from heagent.providers.base import BaseProvider
+    from heagent.skills import SkillStore
 
 logger = logging.getLogger(__name__)
 

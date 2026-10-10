@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from heagent.memory import skill_packages as skill_packages_module
-from heagent.memory.skill_packages import (
+from heagent.skills import skill_packages as skill_packages_module
+from heagent.skills.skill_packages import (
     SkillPackage,
     SkillPackageEntryError,
     SkillPackageResourceError,
@@ -139,7 +139,7 @@ class TestUnmanagedOrUnusable:
         _managed_package(tmp_path)
         (tmp_path / "manifest.json").write_text("{ not json", encoding="utf-8")
 
-        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+        with caplog.at_level("WARNING", logger="heagent.skills.skill_packages"):
             package = SkillPackage(skill_id="he-build", root=tmp_path)
             assert package._pinned_hashes() == {}
             assert package.read_reference("note.md") == _NOTE
@@ -153,7 +153,7 @@ class TestUnmanagedOrUnusable:
         _write(tmp_path / "SKILL.md", _ENTRY)
         (tmp_path / "manifest.json").write_text(json.dumps({"outputs": {"SKILL.md": "not-a-hash"}}), encoding="utf-8")
 
-        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+        with caplog.at_level("WARNING", logger="heagent.skills.skill_packages"):
             package = SkillPackage(skill_id="he-build", root=tmp_path)
             assert package._pinned_hashes() == {}
             assert package.read_entry().metadata.name == "he-build"
@@ -294,7 +294,7 @@ class TestImportedPackageCredential:
     def test_corrupt_lock_is_ignored_with_warning(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         root, _ = _imported_package(tmp_path, lock_text="{ not json")
 
-        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+        with caplog.at_level("WARNING", logger="heagent.skills.skill_packages"):
             package = SkillPackage(skill_id="he-build", root=root)
             assert package._pinned_hashes() == {}
             assert package.read_reference("note.md") == _NOTE
@@ -311,7 +311,7 @@ class TestImportedPackageCredential:
         del payload["entries"][0]["resources"]  # 2026-09-28 之前写下的 lock 就是没有这个键
         lock_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
-        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+        with caplog.at_level("WARNING", logger="heagent.skills.skill_packages"):
             package = SkillPackage(skill_id="he-build", root=root)
             assert package._pinned_hashes() == {}
             assert package.read_reference("note.md") == _NOTE
@@ -323,7 +323,7 @@ class TestImportedPackageCredential:
     ) -> None:
         root, _ = _imported_package(tmp_path, overrides={"resources": {"SKILL.md": "not-a-hash"}})
 
-        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+        with caplog.at_level("WARNING", logger="heagent.skills.skill_packages"):
             package = SkillPackage(skill_id="he-build", root=root)
             assert package._pinned_hashes() == {}
             assert package.read_reference("note.md") == _NOTE
@@ -356,7 +356,7 @@ class TestImportedPackageCredential:
         """形状不符（``entries`` 不是列表 / 条目不是对象）既不告警也不改行为——只当没有凭据。"""
         root, _ = _imported_package(tmp_path, lock_text=lock_text)
 
-        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+        with caplog.at_level("WARNING", logger="heagent.skills.skill_packages"):
             package = SkillPackage(skill_id="he-build", root=root)
             assert package._pinned_hashes() == {}
             assert package.read_reference("note.md") == _NOTE
@@ -373,7 +373,7 @@ class TestImportedPackageCredential:
             raise FileNotFoundError("raced away")
 
         monkeypatch.setattr(skill_packages_module, "read_bytes_under_root", gone)
-        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+        with caplog.at_level("WARNING", logger="heagent.skills.skill_packages"):
             package = SkillPackage(skill_id="he-build", root=root)
             assert package._pinned_hashes() == {}
             assert package.read_reference("note.md") == _NOTE
@@ -390,7 +390,7 @@ class TestImportedPackageCredential:
             raise PermissionError("nope")
 
         monkeypatch.setattr(skill_packages_module, "read_bytes_under_root", denied)
-        with caplog.at_level("WARNING", logger="heagent.memory.skill_packages"):
+        with caplog.at_level("WARNING", logger="heagent.skills.skill_packages"):
             package = SkillPackage(skill_id="he-build", root=root)
             assert package._pinned_hashes() == {}
             assert package.read_reference("note.md") == _NOTE
@@ -404,7 +404,7 @@ def test_skill_package_reads_go_through_the_digest_channel() -> None:
     回退成纯文本通道（`open_text_under_root`）会**静默**丢掉内容校验——本断言把这条
     只写在文档里的约束钉成可执行检查。
     """
-    source = Path("src/heagent/memory/skill_packages.py").read_text(encoding="utf-8")
+    source = Path("src/heagent/skills/skill_packages.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
     called = {node.func.id for node in ast.walk(tree) if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
 

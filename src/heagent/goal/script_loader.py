@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass
 
-from heagent.memory.skill_packages import SkillPackage, SkillPackageResourceError
+from heagent.skills.skill_packages import SkillPackage, SkillPackageResourceError
 
 #: GoalScript 的**唯一入口名**（单一真源：加载期校验与运行时取用同源，两处永不漂移）。
 #: 名字沿用专项方案的示意接口（``async def build_workflow(goal)``）；非此名的定义一律

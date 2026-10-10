@@ -1,10 +1,6 @@
 ---
-canonical_id: he-security
 name: he-security
 description: 安全评估类目标走 /goal 的三步声明式工作流（攻击面收集→风险评估→处置方案）
-tags: [goal, workflow, security]
-aliases: [security]
-created: 2026-09-30
 ---
 
 # he-security（安全评估工作流）

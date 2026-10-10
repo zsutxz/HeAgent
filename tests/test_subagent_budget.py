@@ -120,7 +120,7 @@ async def test_cli_dream_runner_passes_dream_max_iterations(monkeypatch, tmp_pat
     from heagent.engine import EngineContainer
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
-    from heagent.memory.skills import SkillStore
+    from heagent.skills import SkillStore
 
     settings = Settings(_env_file=None, dream_enabled=True, dream_max_iterations=42)
     captured: list[int] = []

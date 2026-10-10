@@ -99,9 +99,9 @@ if TYPE_CHECKING:
     from heagent.engine import EngineContainer
     from heagent.goal.evidence import CommandEvidence
     from heagent.goal.quality_gates import GovernedCommandPort, VerificationReport
-    from heagent.memory.skill_packages import SkillPackage
     from heagent.providers.base import BaseProvider
     from heagent.pub.types import StoryExecutionContext
+    from heagent.skills.skill_packages import SkillPackage
 
 
 logger = logging.getLogger(__name__)
@@ -1412,7 +1412,7 @@ async def _goal_start_new(
     if package is None:
         hint = (
             f"create {GOAL_SKILLS_ROOT / skill_id / 'workflow.md'} "
-            "(with a SKILL.md declaring its canonical_id) to configure goal execution"
+            "(with a meta.yaml declaring its canonical_id) to configure goal execution"
         )
         _echo(f"[goal] workflow.md is required: workflow package '{skill_id}' is unavailable; {hint}", err=True)
         return

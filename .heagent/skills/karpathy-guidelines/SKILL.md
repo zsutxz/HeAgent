@@ -1,13 +1,8 @@
 ---
 name: karpathy-guidelines
 description: "来自 Andrej Karpathy 对 LLM 编码通病的观察的行为准则：先想再写、简单优先、手术式改动、目标驱动验证。写 / 改 / 重构代码前应用，用来避免过度设计、避免顺手改动无关代码、避免把「大概能跑」当成功标准。"
-created: 2026-09-15T16:00:10.214477
-tags: [karpathy, coding-guidelines]
 triggers: [karpathy, 卡帕西, 过度设计, 过度工程, avoid overcomplication, surgical change, simplicity first, think before coding, 最小改动, 手术式修改, 先说明假设, 只改必要的, 重构, refactor]
 negative_triggers: [代码评审, 代码审查, code review, skill review, 技能评审]
-priority: 2
-usage_count: 10
-last_used: "2026-09-19T13:40:24.728705"
 ---
 
 # karpathy-guidelines

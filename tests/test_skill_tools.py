@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from heagent.config import reset_settings
-from heagent.memory.skills import SkillStore
+from heagent.skills import SkillStore
 from heagent.tools.builtins.skills import (
     configure_skill_tools,
     reset_skill_tools,
@@ -34,19 +34,7 @@ def skill_store(tmp_path: object) -> SkillStore:
 
 
 class TestSkillUpdateBodyProtection:
-    CONTRACT = (
-        "---\n"
-        "name: role\n"
-        'description: "手写角色契约"\n'
-        "created: 2026-01-01T00:00:00\n"
-        "---\n"
-        "\n"
-        "# role\n"
-        "\n"
-        "## 角色与职责\n"
-        "\n"
-        "正文。\n"
-    )
+    CONTRACT = '---\nname: role\ndescription: "手写角色契约"\n---\n\n# role\n\n## 角色与职责\n\n正文。\n'
 
     @pytest.mark.asyncio
     async def test_body_rewrite_refused_with_readable_error(self, tmp_path: Path) -> None:
