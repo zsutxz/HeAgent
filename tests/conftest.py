@@ -124,6 +124,21 @@ def _isolate_dotenv_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> li
     return source_env_files
 
 
+@pytest.fixture(autouse=True)
+def _seal_global_skill_roots(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """密封双根技能库的全局根：指向 tmp 下不存在的目录，不碰用户真实 ``~/.heagent/skills``。
+
+    ``default_skill_roots``（4 个装配点与 goal 的 ``resolve_skill_package``）经
+    ``heagent.skills.skill_store.GLOBAL_CONFIG_DIR`` 取全局锚点——开发者本机若在全局根
+    放了同名技能（如 he-goal），goal 测试会解析到它并显性报 revision 漂移，CI（无全局根）
+    通过——不可复现。只 patch skill_store 命名空间内的绑定，不动 ``heagent.config`` 本体
+    （全局 .env 等其他消费方由 :func:`_isolate_dotenv_files` 另行密封）。
+    """
+    import heagent.skills.skill_store as skill_store_module
+
+    monkeypatch.setattr(skill_store_module, "GLOBAL_CONFIG_DIR", tmp_path / "sealed-global-home" / ".heagent")
+
+
 @pytest.fixture()
 def goal_workflow_root(tmp_path: Path) -> Path:
     """在 tmp_path 下搭 ``he-goal`` 技能包骨架，模板复用仓库随包发布的真实文件。
