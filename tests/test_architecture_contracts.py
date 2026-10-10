@@ -861,7 +861,7 @@ def test_pyproject_does_not_declare_a_dead_pytest_benchmark_table() -> None:
 
 
 #: 工作流包名的静态兜底名单：派生通道（SKILL.md 读盘）失效（目录缺失等）时判据不致漏空。
-_STATIC_WORKFLOW_PACKAGE_NAMES = ("he-goal", "he-product", "he-engineering", "he-migration", "he-security")
+_STATIC_WORKFLOW_PACKAGE_NAMES = ("he-goal", "he-security")
 
 
 def _workflow_package_names() -> tuple[str, ...]:
@@ -869,7 +869,7 @@ def _workflow_package_names() -> tuple[str, ...]:
 
     只取 ``he-*`` 的 canonical id——goal workflow 包遵循技能目录的 ``he-*`` canonical 约定
     （bmad-* 是别名形态的普通技能，其 workflow.md 不是 goal 工作流）。新增包自动入列；
-    静态五名保留为兜底并集。aliases 是短词（如 ``product`` / ``security``），故扫描按
+    静态两名保留为兜底并集。aliases 是短词（如 ``product`` / ``security``），故扫描按
     **词边界**匹配——``engine/ledger.py`` 的 ``usedforsecurity=False`` 是合法标识符，
     子串匹配会误报。
     """

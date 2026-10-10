@@ -712,11 +712,11 @@ async def test_frozen_revision_flows_into_verify_step(
     assert captured["workflow_id"] == "he-gated-flow"  # workflow.name（声明值），与 revision 同一次求值携带
 
 
-# ── 随包发布的 4 个模板包：catalog → loader → doctor 全绿（声明面主体）──
+# ── 随包发布的模板包：catalog → loader → doctor 全绿（声明面主体）──
 
 _SHIPPED_SKILLS = Path(__file__).resolve().parents[1] / ".heagent" / "skills"
 
-_SHIPPED_WORKFLOW_PACKAGES = ("he-product", "he-engineering", "he-migration", "he-security")
+_SHIPPED_WORKFLOW_PACKAGES = ("he-security",)
 
 
 @pytest.mark.parametrize("skill_id", _SHIPPED_WORKFLOW_PACKAGES)
@@ -741,16 +741,22 @@ def test_shipped_template_packages_pass_catalog_loader_and_doctor(skill_id: str)
 
 
 def test_shipped_packages_cover_both_revision_paths() -> None:
-    """he-engineering 演示声明 revision，其余三包演示派生路径（16 位十六进制摘要）。"""
+    """he-security 演示派生路径（16 位十六进制摘要），he-goal 演示声明路径。
+
+    he-product / he-engineering / he-migration 已于 2026-10-10 弃用移除；
+    声明 revision 的冻结语义另由 fixture 用例（声明 "7"）覆盖。
+    """
     import re
 
-    for skill_id in _SHIPPED_WORKFLOW_PACKAGES:
-        package = resolve_skill_package(skill_id)
-        assert package is not None
-        workflow = read_workflow(package, "workflow.md")
-        revision = workflow_revision(package, workflow)
-        if skill_id == "he-engineering":
-            assert workflow.revision == "2" and revision == "2"
-        else:
-            assert workflow.revision == ""
-            assert re.fullmatch(r"[0-9a-f]{16}", revision), revision
+    package = resolve_skill_package("he-security")
+    assert package is not None
+    workflow = read_workflow(package, "workflow.md")
+    revision = workflow_revision(package, workflow)
+    assert workflow.revision == ""
+    assert re.fullmatch(r"[0-9a-f]{16}", revision), revision
+
+    package = resolve_skill_package("he-goal")
+    assert package is not None
+    workflow = read_workflow(package, "workflow.md")
+    revision = workflow_revision(package, workflow)
+    assert workflow.revision != "" and revision == workflow.revision
