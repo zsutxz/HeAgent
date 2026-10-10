@@ -260,8 +260,8 @@ async def test_panel_reports_the_write_gate_so_the_ui_can_disable_editing(tmp_pa
     from heagent.cli.http_console import HttpProjectConsole
 
     (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
-    closed = HttpProjectConsole(tmp_path, global_env_file=None)
-    opened = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    closed = HttpProjectConsole(tmp_path, global_setting_file=None)
+    opened = HttpProjectConsole(tmp_path, write_enabled=True, global_setting_file=None)
 
     async with _client(_app(closed)) as client:
         closed_body = (await client.get("/api/projects/default/config")).json()
@@ -289,7 +289,7 @@ async def test_panel_marks_high_impact_keys_from_the_same_constant(tmp_path: Pat
     from heagent.config.catalog import RESOURCE_CEILINGS
 
     (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\nLOG_LEVEL=INFO\n")
-    console = HttpProjectConsole(tmp_path, global_env_file=None)
+    console = HttpProjectConsole(tmp_path, global_setting_file=None)
     async with _client(_app(console)) as client:
         body = (await client.get("/api/projects/default/config")).json()
 
@@ -313,7 +313,7 @@ async def test_panel_shows_the_resource_knob_ceilings(tmp_path: Path) -> None:
     from heagent.config.catalog import RESOURCE_CEILINGS
 
     (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
-    console = HttpProjectConsole(tmp_path, global_env_file=None)
+    console = HttpProjectConsole(tmp_path, global_setting_file=None)
     async with _client(_app(console)) as client:
         body = (await client.get("/api/projects/default/config")).json()
 
@@ -545,7 +545,7 @@ async def test_real_console_refuses_writes_while_the_gate_is_closed(tmp_path: Pa
 
     raw = b"MAX_ITERATIONS=25\n"
     (tmp_path / ".env").write_bytes(raw)
-    console = HttpProjectConsole(tmp_path, global_env_file=None)
+    console = HttpProjectConsole(tmp_path, global_setting_file=None)
     async with _client(_app(console)) as client:
         response = await client.put(
             "/api/projects/default/config", json={"changes": [{"key": "MAX_ITERATIONS", "value": "30"}]}
@@ -564,7 +564,7 @@ async def test_real_console_writes_when_the_gate_is_open(tmp_path: Path) -> None
 
     raw = b"# project\r\nMAX_ITERATIONS=25\r\n"
     (tmp_path / ".env").write_bytes(raw)
-    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_setting_file=None)
     async with _client(_app(console)) as client:
         panel = await client.get("/api/projects/default/config")
         fingerprint = panel.json()["env_file"]["fingerprint"]
@@ -593,7 +593,7 @@ async def test_real_console_has_no_side_effects_for_non_loopback_clients(tmp_pat
 
     raw = b"MAX_ITERATIONS=25\n"
     (tmp_path / ".env").write_bytes(raw)
-    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_setting_file=None)
     async with _non_loopback_client(_write_app(console, host="10.0.0.4")) as client:
         response = await client.put(
             "/api/projects/default/config", json={"changes": [{"key": "MAX_ITERATIONS", "value": "30"}]}
@@ -610,7 +610,7 @@ async def test_real_console_conflict_keeps_the_other_editors_change(tmp_path: Pa
     from heagent.cli.http_console import HttpProjectConsole
 
     (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
-    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_setting_file=None)
     async with _client(_app(console)) as client:
         response = await client.put(
             "/api/projects/default/config",
@@ -627,7 +627,7 @@ async def test_real_console_refuses_read_only_keys(tmp_path: Path) -> None:
     from heagent.cli.http_console import HttpProjectConsole
 
     (tmp_path / ".env").write_bytes(b"MAX_ITERATIONS=25\n")
-    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_setting_file=None)
     async with _client(_app(console)) as client:
         panel = await client.get("/api/projects/default/config")
         fingerprint = panel.json()["env_file"]["fingerprint"]
@@ -647,7 +647,7 @@ async def test_real_panel_marks_the_write_switch_itself_read_only(tmp_path: Path
     """I12 的端到端版本：连**开启时**，面板也把 ``HTTP_CONSOLE_*`` 标成只读并给出原因（无法自我解锁）。"""
     from heagent.cli.http_console import HttpProjectConsole
 
-    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_setting_file=None)
     async with _client(_app(console)) as client:
         panel = await client.get("/api/projects/default/config")
 
@@ -664,7 +664,7 @@ async def test_no_endpoint_serves_backups_or_the_audit_log(tmp_path: Path) -> No
 
     raw = b"MAX_ITERATIONS=25\n"
     (tmp_path / ".env").write_bytes(raw)
-    console = HttpProjectConsole(tmp_path, write_enabled=True, global_env_file=None)
+    console = HttpProjectConsole(tmp_path, write_enabled=True, global_setting_file=None)
     async with _client(_app(console)) as client:
         written = await client.put(
             "/api/projects/default/config",

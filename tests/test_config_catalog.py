@@ -1,7 +1,7 @@
 """Story 50-4：配置目录 + 四层来源求解的测试（AC1–AC12 / 七个坑 / BOM 边界）。
 
-所有用例都把**全局层**指向受控路径（``global_env_file=``）：绝不能读开发机的 ``~/.heagent/.env``，
-否则同一断言在不同机器上会得到不同的 ``source``。
+所有用例都把**用户层**指向受控路径（``global_setting_file=``）：绝不能读开发机的
+``~/.heagent/setting.md``，否则同一断言在不同机器上会得到不同的 ``source``。
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from heagent.config import Settings
+from heagent.config.user_settings import render_setting_md, with_user_setting_layer
 from heagent.config.catalog import (
     BOM,
     EXCLUSION_GROUPS,
@@ -50,10 +51,18 @@ def _write(path: Path, lines: list[str] | None = None, *, raw: bytes | None = No
     return path
 
 
-def _report(project: Path, global_env: Path | None = None) -> ConfigReport:
-    """求解一个受控项目：全局层默认指向**不存在**的受控路径。"""
-    absent = project.parent / "global-absent.env"
-    return build_config_report(project, global_env_file=global_env or absent)
+def _global_md(tmp_path: Path, lines: list[str]) -> Path:
+    """全局层载体：受控 ``setting.md``（frontmatter）；入参沿用 ``K=V`` 行，便于与 .env 用例对照。"""
+    pairs = {line.partition("=")[0].strip(): line.partition("=")[2].strip() for line in lines}
+    md = tmp_path / "global-setting.md"
+    md.write_bytes(render_setting_md(pairs).encode())
+    return md
+
+
+def _report(project: Path, global_md: Path | None = None) -> ConfigReport:
+    """求解一个受控项目：用户层默认指向**不存在**的受控路径。"""
+    absent = project.parent / "global-absent.md"
+    return build_config_report(project, global_setting_file=global_md or absent)
 
 
 def _by_key(report: ConfigReport) -> dict[str, object]:
@@ -64,6 +73,23 @@ def _by_key(report: ConfigReport) -> dict[str, object]:
 
 
 class TestSourceSolve:
+    def test_panel_never_touches_sibling_project_env(self, tmp_path: Path) -> None:
+        """面板求解绝不碰 md 同目录的 ``.env``（回归：迁移钩子曾把沙箱项目配置误改名）。
+
+        legacy 锚点经 ``_legacy_env_file`` 显式传入（注入层一律 ``None``）；目录布局永不参与
+        推断——``setting.md`` 与项目 ``.env`` 同目录是面板沙箱的常态，不是迁移现场。
+        """
+        setting_md = _global_md(tmp_path, ["MAX_ITERATIONS=77"])
+        project = _write(tmp_path / ".env", ["MAX_ITERATIONS=123"])
+
+        report = _report(project, setting_md)
+        item = _by_key(report)["MAX_ITERATIONS"]  # type: ignore[index]
+
+        assert project.exists(), "面板求解不得改名/删除同目录项目 .env"
+        assert not (tmp_path / ".env.migrated").exists()
+        assert item.source is ConfigSource.PROJECT_ENV  # type: ignore[union-attr]
+        assert item.value == 123  # type: ignore[union-attr]
+
     def test_missing_everything_falls_back_to_defaults(self, tmp_path: Path) -> None:
         """AC7：项目 .env 不存在 ⇒ 全字段 default + 明确标注文件状态，且不抛。"""
         project = tmp_path / "nope" / ".env"
@@ -86,18 +112,18 @@ class TestSourceSolve:
         assert item.configured is True  # type: ignore[union-attr]
 
     def test_global_env_is_used_when_project_silent(self, tmp_path: Path) -> None:
-        global_env = _write(tmp_path / "global.env", ["MAX_ITERATIONS=77"])
+        global_md = _global_md(tmp_path, ["MAX_ITERATIONS=77"])
         project = _write(tmp_path / ".env", ["SHELL_TIMEOUT=9"])
-        report = _report(project, global_env)
+        report = _report(project, global_md)
         items = _by_key(report)
-        assert items["MAX_ITERATIONS"].source is ConfigSource.GLOBAL_ENV  # type: ignore[union-attr]
+        assert items["MAX_ITERATIONS"].source is ConfigSource.GLOBAL_SETTING  # type: ignore[union-attr]
         assert items["MAX_ITERATIONS"].value == 77  # type: ignore[union-attr]
         assert items["SHELL_TIMEOUT"].source is ConfigSource.PROJECT_ENV  # type: ignore[union-attr]
 
     def test_project_overrides_global(self, tmp_path: Path) -> None:
-        global_env = _write(tmp_path / "global.env", ["MAX_ITERATIONS=77"])
+        global_md = _global_md(tmp_path, ["MAX_ITERATIONS=77"])
         project = _write(tmp_path / ".env", ["MAX_ITERATIONS=123"])
-        item = _by_key(_report(project, global_env))["MAX_ITERATIONS"]  # type: ignore[index]
+        item = _by_key(_report(project, global_md))["MAX_ITERATIONS"]  # type: ignore[index]
         assert (item.source, item.value) == (ConfigSource.PROJECT_ENV, 123)  # type: ignore[union-attr]
 
     def test_system_env_wins_and_is_read_only(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -111,25 +137,25 @@ class TestSourceSolve:
 
     def test_removing_the_line_falls_back(self, tmp_path: Path) -> None:
         """AC3：删掉项目 .env 里的行 ⇒ 回落到 global_env / default 并如实标注新来源。"""
-        global_env = _write(tmp_path / "global.env", ["MAX_ITERATIONS=77"])
+        global_md = _global_md(tmp_path, ["MAX_ITERATIONS=77"])
         project = _write(tmp_path / ".env", ["MAX_ITERATIONS=123"])
-        assert _by_key(_report(project, global_env))["MAX_ITERATIONS"].source is ConfigSource.PROJECT_ENV  # type: ignore[union-attr]
+        assert _by_key(_report(project, global_md))["MAX_ITERATIONS"].source is ConfigSource.PROJECT_ENV  # type: ignore[union-attr]
         _write(project, [])
-        after = _by_key(_report(project, global_env))["MAX_ITERATIONS"]
-        assert (after.source, after.value) == (ConfigSource.GLOBAL_ENV, 77)  # type: ignore[union-attr]
+        after = _by_key(_report(project, global_md))["MAX_ITERATIONS"]
+        assert (after.source, after.value) == (ConfigSource.GLOBAL_SETTING, 77)  # type: ignore[union-attr]
 
     def test_values_match_a_directly_constructed_settings(self, tmp_path: Path) -> None:
         """AC8 对照实验：面板值/来源与「同一份 env_file 直接构造的 Settings」逐键一致。
 
         这是「同一求解器、非第二套解析」的可执行判据——两处若用不同解析路径，本断言必红。
         """
-        global_env = _write(tmp_path / "global.env", ["MAX_ITERATIONS=77", "SHELL_TIMEOUT=5"])
+        global_md = _global_md(tmp_path, ["MAX_ITERATIONS=77", "SHELL_TIMEOUT=5"])
         project = _write(
             tmp_path / ".env",
             ["MAX_ITERATIONS=123", "MAX_CONTEXT_TOKENS=4096", "LOG_LEVEL=DEBUG", "ANNOUNCE_PROGRESS=true"],
         )
-        report = _report(project, global_env)
-        reference = Settings(_env_file=[str(global_env), str(project)])
+        report = _report(project, global_md)
+        reference = with_user_setting_layer(global_md, Settings)(_env_file=[str(project)])
         dumped = reference.model_dump(mode="json")
         checked = 0
         for item in report.items:
@@ -196,11 +222,11 @@ class TestEnvFilePitfalls:
 
     def test_empty_value_is_not_reported_as_default(self, tmp_path: Path) -> None:
         """AC6（坑 7）：``KEY=`` 不得被谎报成「来源=默认」，而要标注空值 + 给出实际生效来源。"""
-        global_env = _write(tmp_path / "global.env", ["MEMORY_NUDGE_ENABLED=true"])
+        global_md = _global_md(tmp_path, ["MEMORY_NUDGE_ENABLED=true"])
         project = _write(tmp_path / ".env", ["MEMORY_NUDGE_ENABLED=", "MAX_ITERATIONS=123"])
-        report = _report(project, global_env)
+        report = _report(project, global_md)
         item = _by_key(report)["MEMORY_NUDGE_ENABLED"]  # type: ignore[index]
-        assert item.source is ConfigSource.GLOBAL_ENV  # 实际生效来源  # type: ignore[union-attr]
+        assert item.source is ConfigSource.GLOBAL_SETTING  # 实际生效来源  # type: ignore[union-attr]
         assert item.value is True  # type: ignore[union-attr]
         assert "empty_in_project_env" in item.notes  # type: ignore[union-attr]
         assert report.env_file.blank_keys == ("MEMORY_NUDGE_ENABLED",)
@@ -220,9 +246,9 @@ class TestEnvFilePitfalls:
 
     def test_invalid_value_degrades_without_raising(self, tmp_path: Path) -> None:
         """项目 .env 值非法 ⇒ 只摘掉项目层（不抛、不 500），并点名文件。"""
-        global_env = _write(tmp_path / "global.env", ["MAX_ITERATIONS=77"])
+        global_md = _global_md(tmp_path, ["MAX_ITERATIONS=77"])
         project = _write(tmp_path / ".env", ["MAX_ITERATIONS=not-a-number"])
-        report = _report(project, global_env)
+        report = _report(project, global_md)
         assert "project_env_invalid" in report.notes
         assert _by_key(report)["MAX_ITERATIONS"].value == 77  # type: ignore[union-attr]
         # 整层摘掉 ⇒ 不再逐项刷「未解析」噪声（响应级一条足够）。
@@ -249,9 +275,9 @@ class TestEnvFilePitfalls:
 
     def test_non_utf8_project_env_is_fail_soft(self, tmp_path: Path) -> None:
         """非 UTF-8 的 .env：不抛（与 Z-D12 同立场），如实降级到上层。"""
-        global_env = _write(tmp_path / "global.env", ["MAX_ITERATIONS=77"])
+        global_md = _global_md(tmp_path, ["MAX_ITERATIONS=77"])
         project = _write(tmp_path / ".env", raw="MAX_ITERATIONS=7\n".encode("gbk") + b"\xff\xfe\x00bad\n")
-        report = _report(project, global_env)
+        report = _report(project, global_md)
         assert "project_env_invalid" in report.notes
         assert _by_key(report)["MAX_ITERATIONS"].value == 77  # type: ignore[union-attr]
 
@@ -308,12 +334,12 @@ class TestBomTolerance:
 
     def test_mid_file_bom_key_is_flagged_not_silently_default(self, tmp_path: Path) -> None:
         """T9b②：**非文件头**的 BOM（键名被污染）必须点名，而不是静默显示为 default。"""
-        global_env = _write(tmp_path / "global.env", ["MAX_CONTEXT_TOKENS=4096"])
+        global_md = _global_md(tmp_path, ["MAX_CONTEXT_TOKENS=4096"])
         project = _write(tmp_path / ".env", raw=b"MAX_ITERATIONS=5\n" + BOM.encode() + b"MAX_CONTEXT_TOKENS=777\n")
-        report = _report(project, global_env)
+        report = _report(project, global_md)
         item = _by_key(report)["MAX_CONTEXT_TOKENS"]  # type: ignore[index]
         assert "bom_prefixed_in_project_env" in item.notes  # type: ignore[union-attr]
-        assert item.source is ConfigSource.GLOBAL_ENV  # type: ignore[union-attr]
+        assert item.source is ConfigSource.GLOBAL_SETTING  # type: ignore[union-attr]
         assert item.value == 4096  # type: ignore[union-attr]
         assert "bom_prefixed_keys" in report.notes
         assert [entry.key for entry in report.unknown_keys] == [f"{BOM}MAX_CONTEXT_TOKENS"]
@@ -628,12 +654,12 @@ class TestRoutingPoolsView:
 class TestReportShape:
     def test_labels_cover_every_code_in_the_report(self, tmp_path: Path) -> None:
         """诊断码必须都能翻成文案：响应里出现的每个码都要在 ``labels`` 里有条目。"""
-        global_env = _write(tmp_path / "global.env", ["MEMORY_NUDGE_ENABLED=true"])
+        global_md = _global_md(tmp_path, ["MEMORY_NUDGE_ENABLED=true"])
         project = _write(
             tmp_path / ".env",
             ["MAX_ITERATIONS=1", "MAX_ITERATIONS=2", "SHELL_TIMEOUT=3 # note", "MEMORY_NUDGE_ENABLED="],
         )
-        report = _report(project, global_env)
+        report = _report(project, global_md)
         codes = set(report.notes)
         for item in report.items:
             codes.update(item.notes)

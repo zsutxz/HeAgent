@@ -44,7 +44,7 @@
   // 来源徽标（与 network.http_console_protocol.ConfigSourceValue 的取值一一对应）。
   const SOURCE_TEXT = {
     default: "默认值",
-    global_env: "全局 .env",
+    global_setting: "全局 setting.md",
     project_env: "项目 .env",
     system_env: "系统环境变量",
   };

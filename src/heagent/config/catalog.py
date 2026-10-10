@@ -34,7 +34,14 @@ from typing import Any, ClassVar, Literal, NamedTuple, get_args, get_origin
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import DotEnvSettingsSource, EnvSettingsSource
 
-from heagent.config import GLOBAL_CONFIG_FILE, Settings
+from heagent.config import GLOBAL_SETTING_FILE, Settings
+from heagent.config.user_settings import (
+    SettingsError,
+    UserMarkdownSettingsSource,
+    read_setting_md,
+    with_user_setting_layer,
+)
+from heagent.pub.frontmatter import FrontmatterSyntaxError, parse_strict_pairs, split_frontmatter
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +66,7 @@ class ConfigSource(StrEnum):
     """有效值的来源层（自下而上覆盖，记录**最后**写入者）。"""
 
     DEFAULT = "default"
-    GLOBAL_ENV = "global_env"
+    GLOBAL_SETTING = "global_setting"
     PROJECT_ENV = "project_env"
     SYSTEM_ENV = "system_env"
 
@@ -420,18 +427,14 @@ LABELS: dict[str, str] = {
     "run_semantics": "运行语义开关：静默改变行为，超出「配置展示」范围",
     "console_itself": "控制台自身开关：写入面不得给自己解锁",
     "unknown_key": "未知键（不在 Settings 字段集内）",
-    # 项目 / 全局 .env 的诊断
+    # 项目 .env / 全局 setting.md 的诊断
     "duplicate_in_project_env": "项目 .env 中该键出现多次（后者生效）",
-    "duplicate_in_global_env": "全局 .env 中该键出现多次（后者生效）",
     "empty_in_project_env": "项目 .env 中该键为空值（显式置空，不生效）",
-    "empty_in_global_env": "全局 .env 中该键为空值（显式置空，不生效）",
+    "empty_in_global_setting": "全局 setting.md 中该键为空值（显式置空，不生效）",
     "ineffective_in_project_env": "项目 .env 中该键未被解析（写法不受支持）",
-    "ineffective_in_global_env": "全局 .env 中该键未被解析（写法不受支持）",
     "bom_prefixed_in_project_env": "项目 .env 中该键带 BOM 前缀 ⇒ 不生效（请删除该字节）",
-    "bom_prefixed_in_global_env": "全局 .env 中该键带 BOM 前缀 ⇒ 不生效（请删除该字节）",
     "bom_stripped_in_project_env": "项目 .env 文件头带 BOM，已按容差读取（盘上字节未改）",
     "inline_comment_in_project_env": "项目 .env 中该键带行内注释",
-    "inline_comment_in_global_env": "全局 .env 中该键带行内注释",
     "routing_pools_invalid": "ROUTING_POOLS 不是合法 JSON 对象 ⇒ **整份配置被忽略**，已回落各条目 `<条目>_MODEL`",
     "routing_pools_entries_ignored": "ROUTING_POOLS 中这些条目被整条忽略（未知条目名或规格非法）⇒ 该池不生效",
     # 文件级 / 响应级
@@ -443,6 +446,7 @@ LABELS: dict[str, str] = {
         "当作「未提供」（请填值或删除该行；文件未改动）"
     ),
     "project_env_invalid": "项目 .env 的值非法：本次求解不含项目层（文件未改动）",
+    "user_setting_unparseable": "全局 setting.md 无法解析（语法错 / 重复键）：本次求解不含用户层（文件未改动）",
     "env_files_unavailable": "所有 .env 都不可用：本次求解只有系统环境变量与默认值",
     "bom_prefixed_keys": "存在带 BOM 前缀的键名 ⇒ 这些键不生效（见对应条目）",
     "unknown_keys_truncated": f"未知键过多，只列出前 {MAX_UNKNOWN_KEYS} 条",
@@ -766,6 +770,61 @@ def scan_env_file(path: str | Path | None) -> EnvScan:
     )
 
 
+class SettingMdScan(EnvScan):
+    """用户层 ``setting.md`` 的诊断结果；严格解析下「整文件对或整文件错」，故无逐键结构诊断。"""
+
+    parse_error: str | None = None
+
+
+def scan_setting_md(path: str | Path | None) -> SettingMdScan:
+    """读用户层 ``setting.md`` 的诊断：声明键（原写法）、指纹、行数、语法错摘要。
+
+    刻意与 :func:`read_setting_md`（取值路径）分开走文件：诊断必须独立于取值——取值失败
+    （语法错）时这里仍能报告「文件存在、有这些声明键、错在第几行」。
+    """
+    if path is None:
+        return SettingMdScan()
+    file_path = Path(path)
+    try:
+        raw = file_path.read_bytes()
+    except OSError:
+        return SettingMdScan(path=str(file_path), exists=file_path.exists(), readable=False)
+    try:
+        raw.decode("utf-8")
+        encoding_ok = True
+    except UnicodeDecodeError:
+        # 编码坏了：frontmatter 解析只能 best-effort，键名可能被替换字符污染——不做解析诊断。
+        encoding_ok = False
+    text = raw.decode("utf-8", errors="replace")
+    lines = text.replace("\r\n", "\n").splitlines()
+    names: dict[str, str] = {}
+    parse_error: str | None = None
+    if encoding_ok:
+        split = split_frontmatter(text)
+        if split is None:
+            if text.strip():
+                parse_error = f"{file_path}: 缺少 YAML frontmatter 头（首行须为 ``---``）"
+        else:
+            try:
+                pairs = parse_strict_pairs(split[0])
+            except FrontmatterSyntaxError as exc:
+                parse_error = f"{file_path}: 第 {exc.line_number} 行无法解析（{exc.kind}）：{exc.line!r}"
+            else:
+                names = {key.lower(): key for key in pairs}
+    return SettingMdScan(
+        path=str(file_path),
+        exists=True,
+        readable=True,
+        encoding_ok=encoding_ok,
+        has_bom=text.startswith(BOM),
+        fingerprint=hashlib.sha256(raw).hexdigest(),
+        line_count=len(lines),
+        declared_keys=tuple(names.values()),
+        name_by_lower=names,
+        parse_error=parse_error,
+    )
+
+
 # ── 四层来源求解 ──
 
 
@@ -823,6 +882,7 @@ class _CatalogSettings(Settings):
                 env_file_encoding=getattr(dotenv_settings, "env_file_encoding", "utf-8"),
                 env_ignore_empty=cls._ENV_IGNORE_EMPTY,
             ),
+            UserMarkdownSettingsSource(settings_cls, setting_file=cls._user_setting_file),
             file_secret_settings,
         )
 
@@ -848,10 +908,23 @@ def _dotenv_layer(path: Path | None, *, ignore_empty: bool) -> dict[str, str | N
         return {}
 
 
-def _dotenv_layers(global_file: Path | None, project_file: Path, *, ignore_empty: bool) -> LayerMap:
-    """两层 ``.env`` 的原始内容（口径与同时求解的候选一致）。"""
+def _md_layer(path: Path | None) -> dict[str, str | None]:
+    """用户层 ``setting.md`` 的原始键值（小写键）；不存在时不读，解析错时返回空（fail-soft，
+    对齐 ``_dotenv_layer`` 的「单层不可用不得带崩面板」——错误由 ``scan_setting_md.parse_error``
+    在响应级显性标注 ``user_setting_unparseable``，不在层求解里静默吞掉语义）。"""
+    if path is None or not path.is_file():
+        return {}
+    try:
+        return dict(read_setting_md(path))
+    except SettingsError as exc:
+        logger.warning("user setting layer %s is unusable: %s", path, exc)
+        return {}
+
+
+def _layer_map(setting_file: Path | None, project_file: Path, *, ignore_empty: bool) -> LayerMap:
+    """两层文件（用户 md + 项目 .env）的原始内容（口径与同时求解的候选一致）。"""
     return {
-        ConfigSource.GLOBAL_ENV: _dotenv_layer(global_file, ignore_empty=ignore_empty),
+        ConfigSource.GLOBAL_SETTING: _md_layer(setting_file),
         ConfigSource.PROJECT_ENV: _dotenv_layer(project_file, ignore_empty=ignore_empty),
     }
 
@@ -875,33 +948,50 @@ def system_env_keys() -> frozenset[str]:
     return frozenset(_system_layer())
 
 
-def _solve(global_file: Path | None, project_file: Path) -> _Solved:
-    """求解有效 ``Settings`` 与参与归属的层（显式 ``[全局, 项目]`` 路径，**不是**进程 cwd）。
+def _solve(setting_file: Path | None, project_file: Path) -> _Solved:
+    """求解有效 ``Settings`` 与参与归属的层（显式 ``[用户 md, 项目 .env]`` 路径，**不是**进程 cwd）。
 
-    四级候选，逐级降级且**层与取值同步降级**（否则「来源说 project_env、值却来自全局」会自相矛盾，AC8）：
+    四级候选，逐级降级且**层与取值同步降级**（否则「来源说 project_env、值却来自用户层」会自相矛盾，AC8）：
 
-    1. **忠实口径**（``env_ignore_empty=False``，与运行期默认一致）+ ``[全局, 项目]``；
+    1. **忠实口径**（``env_ignore_empty=False``，与运行期默认一致）+ ``[项目 .env]`` + 用户层 md；
     2. **容错口径**（空值 = 未提供）——项目 ``.env`` 里存在 ``KEY=`` 时，bool/int 字段会让候选 1
        直接构造失败（实测，见探针 ``epic50_probe13``），此时按「空值即未提供」求解并点名该文件；
-    3. **只留全局层**——项目 ``.env`` 的值非法（如 ``MAX_ITERATIONS=abc``）或编码不可解析；
-    4. **一个 ``.env`` 都不读**——连全局文件都不可用。
+    3. **只留用户层**——项目 ``.env`` 的值非法（如 ``MAX_ITERATIONS=abc``）或编码不可解析；
+    4. **一个文件层都不读**——用户层 ``setting.md`` 也不可用（语法错 / 不可读）。
 
     四级全败说明**系统环境变量**本身非法（进程级配置错误：运行时 ``Settings()`` 同样会失败），
     此时向上抛，不假装知道「有效值」。
     """
-    global_files = [str(global_file)] if global_file is not None else []
-    both_files = [*global_files, str(project_file)]
+    project_files = [str(project_file)]
     attempts: tuple[tuple[type[_CatalogSettings], bool, list[str], tuple[ConfigSource, ...], tuple[str, ...]], ...] = (
-        (_CatalogSettings, False, both_files, (ConfigSource.GLOBAL_ENV, ConfigSource.PROJECT_ENV), ()),
         (
-            _LenientSettings,
+            with_user_setting_layer(setting_file, _CatalogSettings),
+            False,
+            project_files,
+            (ConfigSource.GLOBAL_SETTING, ConfigSource.PROJECT_ENV),
+            (),
+        ),
+        (
+            with_user_setting_layer(setting_file, _LenientSettings),
             True,
-            both_files,
-            (ConfigSource.GLOBAL_ENV, ConfigSource.PROJECT_ENV),
+            project_files,
+            (ConfigSource.GLOBAL_SETTING, ConfigSource.PROJECT_ENV),
             ("project_env_blank_values",),
         ),
-        (_CatalogSettings, False, global_files, (ConfigSource.GLOBAL_ENV,), ("project_env_invalid",)),
-        (_CatalogSettings, False, [], (), ("env_files_unavailable",)),
+        (
+            with_user_setting_layer(setting_file, _CatalogSettings),
+            False,
+            [],
+            (ConfigSource.GLOBAL_SETTING,),
+            ("project_env_invalid",),
+        ),
+        (
+            with_user_setting_layer(None, _CatalogSettings),
+            False,
+            [],
+            (),
+            ("env_files_unavailable",),
+        ),
     )
     last_error: Exception | None = None
     for settings_cls, ignore_empty, env_files, used, notes in attempts:
@@ -913,9 +1003,9 @@ def _solve(global_file: Path | None, project_file: Path) -> _Solved:
             last_error = exc
             logger.warning("config solve tier %s failed: %s", used, exc)
             continue
-        layers = _dotenv_layers(global_file, project_file, ignore_empty=ignore_empty)
+        layers = _layer_map(setting_file, project_file, ignore_empty=ignore_empty)
         layers[ConfigSource.SYSTEM_ENV] = _system_layer()
-        for source in (ConfigSource.GLOBAL_ENV, ConfigSource.PROJECT_ENV):
+        for source in (ConfigSource.GLOBAL_SETTING, ConfigSource.PROJECT_ENV):
             if source not in used:
                 layers[source] = {}
         return _Solved(settings=settings, layers=layers, used=used, notes=notes)
@@ -933,7 +1023,7 @@ def bom_prefixed_keys(layers: LayerMap) -> tuple[str, ...]:
 
 def _resolve_source(field_lower: str, layers: LayerMap) -> ConfigSource:
     """最后写入者（系统环境变量 > 项目 .env > 全局 .env > 默认值）。"""
-    for source in (ConfigSource.SYSTEM_ENV, ConfigSource.PROJECT_ENV, ConfigSource.GLOBAL_ENV):
+    for source in (ConfigSource.SYSTEM_ENV, ConfigSource.PROJECT_ENV, ConfigSource.GLOBAL_SETTING):
         if field_lower in layers[source]:
             return source
     return ConfigSource.DEFAULT
@@ -948,7 +1038,7 @@ def _item_notes(
     标成「未解析」，把响应级的那一条 ``project_env_invalid`` 稀释成噪声）。
     """
     notes: list[str] = []
-    for source in (ConfigSource.PROJECT_ENV, ConfigSource.GLOBAL_ENV):
+    for source in (ConfigSource.PROJECT_ENV, ConfigSource.GLOBAL_SETTING):
         if source not in active:
             continue
         suffix = source.value
@@ -1125,7 +1215,7 @@ def _group_reports(
 
 
 def build_config_report(
-    project_env_file: str | Path, *, global_env_file: str | Path | None = GLOBAL_CONFIG_FILE
+    project_env_file: str | Path, *, global_setting_file: str | Path | None = GLOBAL_SETTING_FILE
 ) -> ConfigReport:
     """求解一个项目的有效配置（值 + 来源 + 可写性 + 诊断）。
 
@@ -1136,15 +1226,23 @@ def build_config_report(
     「生效语义 = 下一次 run」（I10）冲突。
     """
     project = Path(project_env_file).expanduser()
-    global_file = Path(global_env_file).expanduser() if global_env_file is not None else None
+    setting_file = Path(global_setting_file).expanduser() if global_setting_file is not None else None
     scans = {
         ConfigSource.PROJECT_ENV: scan_env_file(project),
-        ConfigSource.GLOBAL_ENV: scan_env_file(global_file),
+        ConfigSource.GLOBAL_SETTING: scan_setting_md(setting_file),
     }
-    solved = _solve(global_file, project)
+    solved = _solve(setting_file, project)
     layers = solved.layers
 
     notes: list[str] = list(solved.notes)
+    global_scan = scans[ConfigSource.GLOBAL_SETTING]
+    if (
+        ConfigSource.GLOBAL_SETTING not in solved.used
+        and setting_file is not None
+        and isinstance(global_scan, SettingMdScan)
+        and global_scan.parse_error
+    ):
+        notes.append("user_setting_unparseable")
     project_scan = scans[ConfigSource.PROJECT_ENV]
     if not project_scan.exists:
         notes.append("project_env_missing")

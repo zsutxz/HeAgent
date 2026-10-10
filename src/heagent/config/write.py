@@ -53,8 +53,9 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from heagent.config import GLOBAL_CONFIG_FILE, Settings, envfile
+from heagent.config import GLOBAL_SETTING_FILE, Settings, envfile
 from heagent.config.catalog import classify, guards_for, routing_report, system_env_keys
+from heagent.config.user_settings import with_user_setting_layer
 from heagent.pub.persist import RollbackFailedError, atomic_update_bytes, atomic_write_bytes
 
 if TYPE_CHECKING:
@@ -261,17 +262,16 @@ def _short(text: object, limit: int = MAX_REASON_CHARS) -> str:
     return collapsed if len(collapsed) <= limit else f"{collapsed[: limit - 1]}…"
 
 
-def _candidate_settings(candidate: bytes, global_env_file: Path | None) -> Settings:
-    """用候选内容构造一次 ``Settings``（口径与项目运行期一致：``_env_file=[全局, 候选]`` + 系统环境变量）。"""
+def _candidate_settings(candidate: bytes, global_setting_file: Path | None) -> Settings:
+    """用候选内容构造一次 ``Settings``（口径与项目运行期一致：候选临时 ``.env`` + 用户层 md + 系统环境变量）。"""
     fd, raw = tempfile.mkstemp(prefix="heagent-config-candidate-", suffix=".env")
     path = Path(raw)
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(candidate)
-        env_files = [str(global_env_file)] if global_env_file is not None else []
-        env_files.append(str(path))
-        # ``_env_file`` 是 pydantic-settings 的运行时参数（mypy 按字段合成的签名看不到它）。
-        return Settings(_env_file=env_files)  # type: ignore[call-arg]
+        # ``_env_file`` 是 pydantic-settings 的运行时参数（mypy 按字段合成的签名看不到它）；
+        # 用户层不占 _env_file——经动态子类注入（None = 禁用，保持既有测试语义）。
+        return with_user_setting_layer(global_setting_file, Settings)(_env_file=[str(path)])  # type: ignore[no-any-return]
     finally:
         path.unlink(missing_ok=True)
 
@@ -293,14 +293,16 @@ def _candidate_reason(exc: Exception) -> str:
     return f"candidate configuration is invalid: {_short(exc)}"
 
 
-def validate_candidate(candidate: bytes, *, global_env_file: Path | None, changes: Sequence[ConfigChange]) -> Settings:
+def validate_candidate(
+    candidate: bytes, *, global_setting_file: Path | None, changes: Sequence[ConfigChange]
+) -> Settings:
     """候选必须能被 ``Settings`` 构造成功（I6），且 ``ROUTING_POOLS`` 的池条目确实生效。
 
     ``Settings`` 构造只是**必要条件**：对弱校验字段它是空门（``LOG_LEVEL`` 自由 ``str``、``retry_*``
     只有下界），因此第 4 步的字段级守卫才是那类键的真实闸门（D3）。
     """
     try:
-        settings = _candidate_settings(candidate, global_env_file)
+        settings = _candidate_settings(candidate, global_setting_file)
     except Exception as exc:  # noqa: BLE001 - 候选构造失败一律视为「值非法」（把「写坏 = 起不来」前移）
         raise ConfigWriteRejection(ConfigWriteCode.INVALID_VALUE, _candidate_reason(exc)) from exc
     if any(change.key == ROUTING_POOLS_KEY for change in changes):
@@ -450,7 +452,7 @@ def _prepare_candidate(
     current: bytes | None,
     *,
     changes: Sequence[ConfigChange],
-    global_env_file: Path | None,
+    global_setting_file: Path | None,
 ) -> _Prepared:
     """行级替换 + 审计条目 + **候选构造**（`validate_candidate`）——全部是纯计算或只读 I/O。
 
@@ -486,7 +488,7 @@ def _prepare_candidate(
         )
     replacement = text.encode("utf-8")
 
-    validate_candidate(replacement, global_env_file=global_env_file, changes=changes)
+    validate_candidate(replacement, global_setting_file=global_setting_file, changes=changes)
     return _Prepared(
         fingerprint_before=fingerprint_before,
         replacement=replacement,
@@ -520,7 +522,7 @@ def apply_config_write(
     audit_dir: Path,
     write_enabled: bool,
     expected_fingerprint: str | None,
-    global_env_file: Path | None = GLOBAL_CONFIG_FILE,
+    global_setting_file: Path | None = GLOBAL_SETTING_FILE,
     source: str = "http-loopback",
     max_backups: int = envfile.MAX_CONFIG_BACKUPS,
     backup_retention_days: int = envfile.CONFIG_BACKUP_RETENTION_DAYS,
@@ -543,7 +545,7 @@ def apply_config_write(
     # ── 锁外预备（台账 A14③）：行级替换 + **候选构造**是整条流水线最贵的一步（``Settings`` 会读
     # 候选临时文件 / 全局 ``.env`` / 环境），此前它在跨进程锁内完成 ⇒ 并发热点下写方会撞锁超时，
     # 拿到 ``config_write_failed`` 而不是 ``config_conflict``。现在锁内只剩「判定 + 备份 + 落盘」。
-    prepared = _prepare_candidate(snapshot, changes=validated, global_env_file=global_env_file)
+    prepared = _prepare_candidate(snapshot, changes=validated, global_setting_file=global_setting_file)
 
     def _update(current: bytes | None) -> tuple[bytes, None]:
         state.fingerprint_before = envfile.fingerprint(current) if current is not None else None
@@ -555,7 +557,7 @@ def apply_config_write(
             # 检测已经拦下）。此时绝不能把基于旧内容的候选写下去——那会把第三方刚写入的改动回退掉。
             # 在锁内重做一次（贵，但这条路径极罕见；正确性优先于锁占用时长）。
             logger.info("Config write: snapshot went stale; rebuilding the candidate while holding the lock")
-            chosen = _prepare_candidate(current, changes=validated, global_env_file=global_env_file)
+            chosen = _prepare_candidate(current, changes=validated, global_setting_file=global_setting_file)
         state.entries = list(chosen.entries)
         if current is not None:
             backup_path = envfile.backup(target, backups_dir, state.fingerprint_before or "")

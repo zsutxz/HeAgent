@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from heagent.config import GLOBAL_CONFIG_FILE, Settings, get_settings, reset_settings
+from heagent.config import GLOBAL_SETTING_FILE, Settings, get_settings, reset_settings
+from heagent.config.user_settings import SettingsError, with_user_setting_layer
 from typing import Any
 
 
@@ -387,78 +388,91 @@ class TestDefaults:
         assert s.mcp_config_path == ".mcp.json"
 
 
-# --- Global config (~/.heagent/.env) ---
+# --- 用户级配置（~/.heagent/setting.md）---
 
 
-class TestGlobalConfig:
-    """Test the ~/.heagent/.env global configuration layer via env_file sequence."""
+class TestUserSettingMd:
+    """用户层 ``~/.heagent/setting.md`` 的加载语义（经 ``with_user_setting_layer`` 注入 tmp 路径）。"""
 
-    def test_global_config_used_when_no_project_override(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """全局配置作为默认值，当项目 .env 未覆盖时生效。"""
+    def test_user_setting_used_when_no_project_override(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """用户层是默认值来源：项目 .env 未覆盖时生效。"""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        global_env = tmp_path / "global.env"
-        global_env.write_text("OPENAI_API_KEY=global-key\n", encoding="utf-8")
+        setting_md = tmp_path / "setting.md"
+        setting_md.write_text("---\nOPENAI_API_KEY: user-key\n---\n\n# 用户级设置\n", encoding="utf-8")
 
-        project_env = tmp_path / ".env"
-        project_env.write_text("", encoding="utf-8")
+        layer = with_user_setting_layer(setting_md, Settings)
+        s = layer(_env_file=[str(tmp_path / "absent.env")])
+        assert s.openai_api_key == "user-key"
 
-        s = Settings(_env_file=[str(global_env), str(project_env)])
-        assert s.openai_api_key == "global-key"
-
-    def test_project_env_overrides_global(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """项目 .env 覆盖全局配置。"""
+    def test_project_env_overrides_user_setting(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """项目 .env 覆盖用户层（源序：dotenv 在 md 源之前）。"""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        global_env = tmp_path / "global.env"
-        global_env.write_text("OPENAI_API_KEY=global-key\n", encoding="utf-8")
-
-        project_env = tmp_path / ".env"
+        setting_md = tmp_path / "setting.md"
+        setting_md.write_text("---\nOPENAI_API_KEY: user-key\n---\n", encoding="utf-8")
+        project_env = tmp_path / "project.env"
         project_env.write_text("OPENAI_API_KEY=project-key\n", encoding="utf-8")
 
-        s = Settings(_env_file=[str(global_env), str(project_env)])
+        layer = with_user_setting_layer(setting_md, Settings)
+        s = layer(_env_file=[str(project_env)])
         assert s.openai_api_key == "project-key"
 
     def test_system_env_overrides_both(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """显式环境变量优先级最高，覆盖项目 .env 和全局配置。"""
+        """显式环境变量优先级最高，覆盖项目 .env 与用户层。"""
         monkeypatch.setenv("OPENAI_API_KEY", "system-key")
 
-        global_env = tmp_path / "global.env"
-        global_env.write_text("OPENAI_API_KEY=global-key\n", encoding="utf-8")
-
-        project_env = tmp_path / ".env"
+        setting_md = tmp_path / "setting.md"
+        setting_md.write_text("---\nOPENAI_API_KEY: user-key\n---\n", encoding="utf-8")
+        project_env = tmp_path / "project.env"
         project_env.write_text("OPENAI_API_KEY=project-key\n", encoding="utf-8")
 
-        s = Settings(_env_file=[str(global_env), str(project_env)])
+        layer = with_user_setting_layer(setting_md, Settings)
+        s = layer(_env_file=[str(project_env)])
         assert s.openai_api_key == "system-key"
 
-    def test_missing_global_file_falls_back_to_defaults(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """全局配置文件不存在时静默跳过，回退到字段默认值。"""
+    def test_missing_user_setting_falls_back_to_defaults(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """用户层文件不存在时静默跳过，回退到字段默认值。"""
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        nonexistent = tmp_path / "nonexistent.env"
-        project_env = tmp_path / ".env"
-        project_env.write_text("", encoding="utf-8")
-
-        s = Settings(_env_file=[str(nonexistent), str(project_env)])
+        layer = with_user_setting_layer(tmp_path / "absent.md", Settings)
+        s = layer(_env_file=[str(tmp_path / "absent.env")])
         assert s.openai_api_key is None
 
-    def test_class_level_env_file_sequence(
+    def test_unparseable_user_setting_is_loud(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """用户层语法错必须大声失败（显性失败原则），不像缺失那样静默。"""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        setting_md = tmp_path / "setting.md"
+        setting_md.write_text("KEY: value\n", encoding="utf-8")  # 无 frontmatter
+
+        layer = with_user_setting_layer(setting_md, Settings)
+        with pytest.raises(SettingsError):
+            layer(_env_file=[str(tmp_path / "absent.env")])
+
+    def test_class_level_config_layout(
         self,
         _isolate_dotenv_files: list[str],  # noqa: PT019 - fixture 有返回值，ruff 0.15 误报
     ) -> None:
-        """``model_config.env_file`` 为 [global, project] 序列（源码契约）。
+        """用户层路径常量与 ``env_file`` 序列的源码契约。
 
-        全局层路径在模块导入时固化自 ``GLOBAL_CONFIG_FILE``；运行时 ``model_config`` 可能
-        被 ``conftest`` 隔离 fixture 改写（指向 tmp），故全局层经源码常量断言、项目层经
-        fixture 捕获的原始序列断言——两者解耦后互不干扰。
+        用户层路径在模块导入时固化自 ``GLOBAL_SETTING_FILE``；运行时可能被 ``conftest``
+        隔离 fixture 改写（指向 tmp），故常量经源码断言、项目层经 fixture 捕获的原始序列
+        断言——两者解耦后互不干扰。
         """
-        # 源码契约：全局层 = ~/.heagent/.env（类级声明来源，未被运行时 fixture 改）
-        assert GLOBAL_CONFIG_FILE.parent.name == ".heagent"
-        assert GLOBAL_CONFIG_FILE.name == ".env"
+        # 源码契约：用户层 = ~/.heagent/setting.md（类体声明的来源；运行时 attr 已被 autouse
+        # fixture 密封改写，故钉**源码文本**而非运行时属性）
+        assert GLOBAL_SETTING_FILE.parent.name == ".heagent"
+        assert GLOBAL_SETTING_FILE.name == "setting.md"
+        init_source = (Path(__file__).parents[1] / "src" / "heagent" / "config" / "__init__.py").read_text(
+            encoding="utf-8"
+        )
+        assert "_user_setting_file: ClassVar[Path | None] = GLOBAL_SETTING_FILE" in init_source
+        assert "_legacy_env_file: ClassVar[Path | None] = LEGACY_GLOBAL_ENV_FILE" in init_source
+        assert "LEGACY_GLOBAL_ENV_FILE: Path = GLOBAL_CONFIG_DIR / " in init_source
 
-        # 项目层：源码声明为相对 ".env"
-        assert isinstance(_isolate_dotenv_files, list) and len(_isolate_dotenv_files) == 2
+        # 项目层：源码声明为相对 ".env"（用户层已迁 md，不占 env_file）
+        assert isinstance(_isolate_dotenv_files, list) and len(_isolate_dotenv_files) == 1
         assert ".env" in _isolate_dotenv_files
 
 

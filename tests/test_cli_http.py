@@ -566,7 +566,7 @@ def test_write_channel_applies_on_the_next_run_only(tmp_path: Path) -> None:
         workspace_root=tmp_path,
         session_store=SessionStore(str(tmp_path / "sessions")),
     )
-    console = HttpProjectConsole(root, handler_factory=base.for_workspace, write_enabled=True, global_env_file=None)
+    console = HttpProjectConsole(root, handler_factory=base.for_workspace, write_enabled=True, global_setting_file=None)
 
     before = console._runtime_for("default")  # noqa: SLF001 - 运行时切片本身就是要断言的事实
     assert before.executor is not None

@@ -302,7 +302,7 @@ const configItems = {
     value: 25,
     // 起始来源是**全局 .env**：写进项目 .env 之后来源徽标必须变成「项目 .env」——
     // 这正是 AC6「保存后刷新该项的来源徽标」要证明的可观察差异。
-    source: "global_env",
+    source: "global_setting",
     writable: true,
     read_only_reason: null,
     is_secret: false,

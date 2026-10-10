@@ -134,14 +134,19 @@ def _rename_legacy(legacy: Path, migrated: Path) -> None:
         logger.warning("旧配置 %s 改名为 %s 失败（不阻塞配置加载）：%s", legacy, migrated, exc)
 
 
-def ensure_user_settings_migrated(setting_file: Path, *, legacy_env_file: Path | None = None) -> bool:
+def ensure_user_settings_migrated(setting_file: Path, *, legacy_env_file: Path | None) -> bool:
     """把旧 ``~/.heagent/.env`` 一次性迁移进 ``setting.md``（幂等）；返回是否执行了迁移。
 
-    四态：md 在 + 旧文件在 → 旧文件顺手改名归档（终态唯一），返回 ``False``；md 在 → 幂等出口；
-    都不在 → 跳过；md 不在 + 旧文件在 → 迁移（先原子写 md、后改名旧文件——崩溃窗口只可能留下
-    「双份」，绝不丢配置；双份态下次进入第一支收尾）。
+    ``legacy_env_file=None`` **显式禁用**迁移（注入层 / 密封态一律传 None——绝不从目录布局
+    猜测 legacy 位置，否则面板沙箱里 setting.md 的同目录 ``.env``（项目配置）会被误改名）。
+
+    锚定后的四态：md 在 + legacy 在 → legacy 顺手改名归档（终态唯一），返回 ``False``；
+    md 在 → 幂等出口；都不在 → 跳过；md 不在 + legacy 在 → 迁移（先原子写 md、后改名 legacy
+    ——崩溃窗口只可能留下「双份」，绝不丢配置；双份态下次进入第一支收尾）。
     """
-    legacy = legacy_env_file if legacy_env_file is not None else setting_file.parent / ".env"
+    if legacy_env_file is None:
+        return False
+    legacy = legacy_env_file
     migrated = Path(f"{legacy}{MIGRATED_SUFFIX}")
     if setting_file.exists():
         if legacy.exists():
@@ -151,7 +156,7 @@ def ensure_user_settings_migrated(setting_file: Path, *, legacy_env_file: Path |
         return False
     pairs = parse_legacy_env_pairs(legacy)
     stamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    body = f"由 `~/.heagent/.env` 自动迁移于 {stamp}；原文件已改名 `{migrated.name}`。"
+    body = f"由 `{legacy.name}` 自动迁移于 {stamp}；原文件已改名 `{migrated.name}`。"
     try:
         write_setting_md(setting_file, render_setting_md(pairs, body=body))
     except SettingsError:
@@ -173,6 +178,7 @@ class UserMarkdownSettingsSource(PydanticBaseSettingsSource):
     def __init__(self, settings_cls: type[Any], *, setting_file: Path | None) -> None:
         super().__init__(settings_cls)
         self._setting_file = setting_file
+        self._legacy_env_file = getattr(settings_cls, "_legacy_env_file", None)
 
     def get_field_value(self, field: Any, field_key: str) -> tuple[Any, Any, bool]:
         """逐字段接口（基类抽象方法）；批量源在 ``__call__`` 一次取全部——误用即大声失败。"""
@@ -181,7 +187,7 @@ class UserMarkdownSettingsSource(PydanticBaseSettingsSource):
     def __call__(self) -> dict[str, Any]:
         if self._setting_file is None:
             return {}
-        ensure_user_settings_migrated(self._setting_file)
+        ensure_user_settings_migrated(self._setting_file, legacy_env_file=self._legacy_env_file)
         return dict(read_setting_md(self._setting_file))
 
 
@@ -193,13 +199,19 @@ def with_user_setting_layer(setting_file: Path | None, base: type[Any]) -> type[
     """派生 ``_user_setting_file`` 被改写的 ``base`` 子类（memoize）。
 
     供 catalog / write 通道**逐调用**注入受控路径（测试密封）或 ``None``（禁用 md 层）。
+    注入层的 ``_legacy_env_file`` 一律 ``None``——注入路径永不触发迁移/归档（否则面板沙箱里
+    md 的同目录 ``.env`` 会被误当作 legacy 改名，见 conftest 密封与 catalog 沙箱用例）。
     不用 pydantic-settings 2.14 新增的 ``_build_sources``：那要求抬高依赖下限声明，且是带
     下划线的非稳定接口。
     """
     key = (str(setting_file), id(base))
     layer = _LAYER_CACHE.get(key)
     if layer is None:
-        layer = type(f"{base.__name__}UserSettingLayer", (base,), {"_user_setting_file": setting_file})
+        layer = type(
+            f"{base.__name__}UserSettingLayer",
+            (base,),
+            {"_user_setting_file": setting_file, "_legacy_env_file": None},
+        )
         _LAYER_CACHE[key] = layer
     return layer
 

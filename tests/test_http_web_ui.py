@@ -419,7 +419,7 @@ class TestConsoleApiContract:
         assert f"{code}:" in _JS
 
     def test_source_badges_cover_all_four_layers(self) -> None:
-        for source in ("default", "global_env", "project_env", "system_env"):
+        for source in ("default", "global_setting", "project_env", "system_env"):
             assert f"{source}:" in _JS
 
 
@@ -525,8 +525,8 @@ class TestConsoleSettingsPanel:
         result = _run_probe("G", tmp_path)
 
         assert result["panelShown"] is True and result["consoleFlag"] == "true"
-        assert result["sourceBadgeText"] == "来源：全局 .env"
-        assert result["sourceBadgeDataset"] == "global_env"
+        assert result["sourceBadgeText"] == "来源：全局 setting.md"
+        assert result["sourceBadgeDataset"] == "global_setting"
         assert result["sandboxReasonState"] == "sandbox_posture"
         assert "沙箱与执行后端" in result["sandboxReasonText"], "只读项必须显示原因（UX-DR5）"
         assert result["secretText"] == "已配置 ********", "凭证只显示已配置 + 定长掩码"
@@ -614,7 +614,7 @@ class TestConsoleSettingsPanel:
         """
         result = _run_probe("N", tmp_path)
 
-        assert result["sourceBefore"] == "来源：全局 .env"
+        assert result["sourceBefore"] == "来源：全局 setting.md"
         assert result["rowValue"] == "30", "写响应里的写后值必须就地生效"
         assert result["rowSource"] == "来源：项目 .env", "来源徽标同样来自写响应"
         assert result["rowInput"] == "30"

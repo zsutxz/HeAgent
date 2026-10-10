@@ -3,7 +3,7 @@
 这一层的断言口径是「**文件字节 + 副作用集合**」：每一次拒绝都必须同时满足「文件一字未动」与
 「没有备份、没有审计」；每一次成功都必须留下写前备份与一条不含值的审计。
 
-``global_env_file`` 一律显式传（多数用例传 ``None``）——否则本机 ``~/.heagent/.env`` 会成为隐藏输入，
+``global_setting_file`` 一律显式传（多数用例传 ``None``）——否则本机 ``~/.heagent/.env`` 会成为隐藏输入，
 本地通过 / CI 失败的不可复现差异正是 50-4 已经踩过的坑。
 """
 
@@ -64,7 +64,7 @@ def _run(
         audit_dir=paths.console_dir,
         write_enabled=write_enabled,
         expected_fingerprint=fingerprint,  # type: ignore[arg-type]
-        global_env_file=global_env,
+        global_setting_file=global_env,
         source=source,
     )
 
@@ -367,16 +367,16 @@ class TestValueValidation:
         assert "MAX_CONTEXT_TOKENS" in str(excinfo.value)
 
     def test_candidate_sees_the_global_layer_too(self, paths: WorkspacePaths, tmp_path: Path) -> None:
-        """候选构造的口径与运行期一致：``[全局, 项目候选]`` + 系统环境（否则会放行被全局层打断的值）。"""
-        global_env = tmp_path / "global.env"
-        global_env.write_bytes(b"MAX_CONTEXT_TOKENS=1000\n")
+        """候选构造的口径与运行期一致：项目候选 + 用户层 md + 系统环境（否则会放行被用户层打断的值）。"""
+        global_md = tmp_path / "setting.md"
+        global_md.write_bytes(b"---\nMAX_CONTEXT_TOKENS: 1000\n---\n")
         _seed(paths, b"MAX_ITERATIONS=25\n")
 
-        _run(paths, [("MAX_ITERATIONS", "30")], global_env=global_env)
+        _run(paths, [("MAX_ITERATIONS", "30")], global_env=global_md)
         assert b"MAX_ITERATIONS=30" in paths.env_file.read_bytes()
 
         with pytest.raises(ConfigWriteRejection) as excinfo:
-            _run(paths, [("MAX_CONTEXT_TOKENS", "nope")], global_env=global_env)
+            _run(paths, [("MAX_CONTEXT_TOKENS", "nope")], global_env=global_md)
         assert excinfo.value.code == ConfigWriteCode.INVALID_VALUE
 
 
@@ -562,7 +562,7 @@ class TestAuditAndBackup:
         """候选构造**非校验类**失败（pydantic-settings 的 SettingsError 等）同样必须 fail-closed。"""
         _seed(paths)
 
-        def boom(candidate: bytes, global_env_file: Path | None) -> object:
+        def boom(candidate: bytes, global_setting_file: Path | None) -> object:
             raise RuntimeError("exotic settings failure")
 
         monkeypatch.setattr("heagent.config.write._candidate_settings", boom)
@@ -584,7 +584,7 @@ class TestAuditAndBackup:
                 audit_dir=paths.console_dir,
                 write_enabled=True,
                 expected_fingerprint=envfile.fingerprint(paths.env_file.read_bytes()),
-                global_env_file=None,
+                global_setting_file=None,
                 max_backups=2,
             )
 

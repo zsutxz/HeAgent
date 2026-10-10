@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any
 import click
 
 from heagent.cli.dialogs import DialogBusyError, DialogUnavailableError, DirectoryPicker
-from heagent.config import GLOBAL_CONFIG_FILE, Settings
+from heagent.config import GLOBAL_SETTING_FILE, Settings
 from heagent.config.catalog import LABELS, ConfigItem, ConfigReport, build_config_report
 from heagent.config.write import ConfigChange, ConfigWriteRejection, ConfigWriteResult, apply_config_write
 from heagent.context.session import SessionMetadata, SessionStore
@@ -351,7 +351,7 @@ def _project_settings(root: Path, *, fallback: Settings) -> Settings:
     """
     try:
         # ``_env_file`` 是 pydantic-settings 的运行时参数（mypy 按字段合成的签名看不到它）。
-        return Settings(_env_file=[str(GLOBAL_CONFIG_FILE), str(root / ".env")])  # type: ignore[call-arg]
+        return Settings(_env_file=[str(root / ".env")])  # type: ignore[call-arg]
     except Exception as exc:  # noqa: BLE001 - 降级而非带崩：项目配置坏了不该让控制台整体失败
         _safe_log(logging.WARNING, "Project %s .env is unusable; using server settings: %s", root, exc)
         return fallback
@@ -480,7 +480,7 @@ class HttpProjectConsole:
         runs: HttpRunService | None = None,
         handler_factory: ProjectHandlerFactory | None = None,
         write_enabled: bool = False,
-        global_env_file: str | Path | None = GLOBAL_CONFIG_FILE,
+        global_setting_file: str | Path | None = GLOBAL_SETTING_FILE,
         dialog_backend: str = "none",
     ) -> None:
         self.registry = default_project_registry(workspace, projects_file)
@@ -493,7 +493,7 @@ class HttpProjectConsole:
         # 写闸门与「全局 .env 层」路径是**服务级**事实（按启动配置解析一次），不是项目级：写入通道
         # 的每一层判定都必须与面板 / 运行期同源，否则会出现「面板说可写、写下去不生效」。
         self.write_enabled = write_enabled
-        self.global_env_file = Path(global_env_file).expanduser() if global_env_file is not None else None
+        self.global_setting_file = Path(global_setting_file).expanduser() if global_setting_file is not None else None
         # 原生目录选择（Story 50-8）：后端口径来自**启动配置**（`--dialog-backend`），单在途由入口层持有。
         # 它会拉起宿主进程（弹窗），因此只服务「登记项目」这条链路；返回值不是权限——拿到路径后仍要过
         # ``registry.register`` 的存在性 / 目录性 / 规范化 / 去重 / 上限全套校验。
@@ -667,7 +667,7 @@ class HttpProjectConsole:
         # 求解器要读四层来源（项目 / 全局 .env + 进程环境 + 字段默认值），实测中位 ~14ms：留在循环里
         # 会卡住在途 SSE 流 ⇒ 卸载到线程池（与写通道 §I10 同口径）。
         report = await asyncio.to_thread(
-            build_config_report, runtime.paths.env_file, global_env_file=self.global_env_file
+            build_config_report, runtime.paths.env_file, global_setting_file=self.global_setting_file
         )
         return _config_response(project_id, report, write_enabled=self.write_enabled)
 
@@ -699,7 +699,7 @@ class HttpProjectConsole:
                 audit_dir=runtime.paths.console_dir,
                 write_enabled=True,
                 expected_fingerprint=request.fingerprint,
-                global_env_file=self.global_env_file,
+                global_setting_file=self.global_setting_file,
             )
         except ConfigWriteRejection as exc:
             raise ConsoleOperationError(exc.code, str(exc)) from exc
@@ -711,7 +711,7 @@ class HttpProjectConsole:
         self, project_id: str, runtime: _ProjectRuntime, result: ConfigWriteResult
     ) -> ConfigWriteResponse:
         """写后条目：与面板**同源求解**（复用 50-4 的求解器，绝不自己拼装来源 / 可写性）。"""
-        report = build_config_report(runtime.paths.env_file, global_env_file=self.global_env_file)
+        report = build_config_report(runtime.paths.env_file, global_setting_file=self.global_setting_file)
         items = {item.key: item for item in report.items}
         return ConfigWriteResponse(
             project_id=project_id,

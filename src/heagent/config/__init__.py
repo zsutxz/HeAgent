@@ -2,8 +2,8 @@
 
 加载优先级（高 → 低）：
 1. 系统环境变量（``os.environ``）
-2. 项目本地 ``.env`` 文件（当前工作目录）
-3. 用户全局 ``~/.heagent/.env``
+2. 项目本地 ``.env`` 文件（当前工作目录）——``.env`` 是**项目级专用**格式
+3. 用户全局 ``~/.heagent/setting.md``（YAML frontmatter，见 ``config/user_settings.py``）
 4. 字段默认值
 
 通过 get_settings() 获取单例，reset_settings() 用于测试重置。
@@ -14,11 +14,12 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Literal
+from typing import Any, ClassVar, Literal
 
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from heagent.config.user_settings import UserMarkdownSettingsSource
 from heagent.pub.types import RoutingPoolSpec, RuntimeConfigSource
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,9 @@ SANDBOX_MODES: frozenset[str] = frozenset({"read-only", "workspace-write", "dang
 _settings: Settings | None = None  # 单例缓存
 
 GLOBAL_CONFIG_DIR: Path = Path.home() / ".heagent"
-GLOBAL_CONFIG_FILE: Path = GLOBAL_CONFIG_DIR / ".env"
+GLOBAL_SETTING_FILE: Path = GLOBAL_CONFIG_DIR / "setting.md"
+#: 迁移前的旧用户级文件（一次性迁移的**锚点**；只在 ``Settings`` 类级默认路径上生效）。
+LEGACY_GLOBAL_ENV_FILE: Path = GLOBAL_CONFIG_DIR / ".env"
 
 # 路由池可绑定的 provider 条目名（与 cli._build_provider 的池内条目名一致）。
 ROUTING_POOL_ENTRIES: frozenset[str] = frozenset({"deepseek", "kimi", "glm", "ollama", "openai", "gpt", "anthropic"})
@@ -45,17 +48,41 @@ def _parse_comma_list(v: str) -> list[str]:
 class Settings(BaseSettings):
     """全局配置，字段名与 .env / 环境变量名一一对应。
 
-    加载优先级：系统环境变量 > 项目 ``.env`` > 用户全局 ``~/.heagent/.env`` > 字段默认值。
-    遵循 pydantic-settings 标准顺序，用户可通过命令行环境变量临时覆盖 .env 中的值。
+    加载优先级：系统环境变量 > 项目 ``.env`` > 用户 ``~/.heagent/setting.md`` > 字段默认值。
+    用户层是自定义源（:class:`UserMarkdownSettingsSource`），经 ``settings_customise_sources``
+    插在 dotenv（项目 ``.env``）之后——源元组顺序即优先级，前者胜。
     """
 
+    #: 用户层 ``setting.md`` 路径载体：ClassVar 单一查找点，测试经 ``monkeypatch.setattr(Settings, ...)``
+    #: 一句全密封；逐调用注入/禁用走 ``user_settings.with_user_setting_layer`` 动态子类。
+    _user_setting_file: ClassVar[Path | None] = GLOBAL_SETTING_FILE
+    #: 一次性迁移的 legacy 锚点（真实 ``~/.heagent/.env``）；注入层/密封态置 ``None`` 显式禁用迁移
+    #: ——绝不从目录布局猜测 legacy 位置（面板沙箱里 md 的同目录 ``.env`` 是项目配置，不能动）。
+    _legacy_env_file: ClassVar[Path | None] = LEGACY_GLOBAL_ENV_FILE
+
     model_config = SettingsConfigDict(
-        # 优先加载全局配置，然后用项目 .env 覆盖；
-        # pydantic-settings 对序列按顺加载，后面的文件覆盖前面的重复 key。
-        env_file=[str(GLOBAL_CONFIG_FILE), ".env"],
+        # ``.env`` 是项目级专用（用户级已迁 setting.md）；用户层走自定义源，不占 env_file。
+        env_file=[".env"],
         env_file_encoding="utf-8",
         extra="ignore",  # 忽略 .env 中未声明的变量
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: Any,
+        env_settings: Any,
+        dotenv_settings: Any,
+        file_secret_settings: Any,
+    ) -> tuple[Any, ...]:
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            UserMarkdownSettingsSource(settings_cls, setting_file=cls._user_setting_file),
+            file_secret_settings,
+        )
 
     # ---- 活跃 Provider（交互模式启动时默认使用哪个） ----
     active_provider: str | None = None  # 启动时默认 provider，如 deepseek / kimi / glm / ollama / openai / anthropic

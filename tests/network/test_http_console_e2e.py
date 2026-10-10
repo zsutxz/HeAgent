@@ -131,7 +131,7 @@ async def _console_server(
         runs=service,
         handler_factory=handler.for_workspace,
         write_enabled=write_enabled,
-        global_env_file=None,
+        global_setting_file=None,
     )
     server = HttpServer(config, version="9.9.9", run_service=service, console=console)
     await server.start()
@@ -208,7 +208,7 @@ async def test_non_loopback_clients_cannot_register_or_remove_projects(tmp_path:
     """
     workspace = _workspace(tmp_path)
     target = _project(tmp_path / "target")
-    console = HttpProjectConsole(workspace, global_env_file=None)
+    console = HttpProjectConsole(workspace, global_setting_file=None)
 
     async with _asio_client(console) as client:
         created = await client.post("/api/projects", json={"path": str(target), "name": "T"})
@@ -321,7 +321,7 @@ async def test_no_credential_leaks_across_five_faces(tmp_path: Path, caplog: pyt
 async def test_the_closed_gate_envelope_also_carries_no_credential(tmp_path: Path) -> None:
     """T3② 续：闸门关闭这条拒绝路径（另一台 console）同样不回传任何值。"""
     root = _project(tmp_path / "proj")
-    console = HttpProjectConsole(root, global_env_file=None)  # write_enabled 默认 False
+    console = HttpProjectConsole(root, global_setting_file=None)  # write_enabled 默认 False
     async with _asio_client(console) as client:
         response = await client.put(
             "/api/projects/default/config",
@@ -335,7 +335,7 @@ async def test_the_closed_gate_envelope_also_carries_no_credential(tmp_path: Pat
 async def test_backups_and_the_audit_log_have_no_download_endpoint(tmp_path: Path) -> None:
     """T3 负向面：备份与审计**没有**任何网页端点（把原样配置发出去就是泄漏）。"""
     root = _project(tmp_path / "proj")
-    console = HttpProjectConsole(root, write_enabled=True, global_env_file=None)
+    console = HttpProjectConsole(root, write_enabled=True, global_setting_file=None)
     async with _asio_client(console) as client:
         panel = await client.get("/api/projects/default/config")
         written = await client.put(
@@ -466,7 +466,7 @@ async def test_each_project_run_uses_its_own_state_root(tmp_path: Path) -> None:
     """T5/§9.2：会话与运行状态落在**该项目自己的**状态根下，而不是服务启动目录。"""
     root_a = _project(tmp_path / "A")
     workspace = _workspace(tmp_path)
-    console = HttpProjectConsole(workspace, global_env_file=None)
+    console = HttpProjectConsole(workspace, global_setting_file=None)
     entry = console.registry.register(str(root_a), "A")
 
     runtime_a = console._runtime_for(entry.id)  # noqa: SLF001 - 运行时切片本身就是要断言的事实

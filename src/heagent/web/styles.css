@@ -123,7 +123,7 @@ pre {
   color: var(--muted);
 }
 
-.badge-source[data-source="global_env"] {
+.badge-source[data-source="global_setting"] {
   color: var(--text);
 }
 

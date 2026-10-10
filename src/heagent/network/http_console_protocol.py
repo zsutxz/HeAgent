@@ -240,7 +240,7 @@ class ConfigSourceValue(StrEnum):
     """有效值的来源层（镜像 ``heagent.config.catalog.ConfigSource`` 的取值）。"""
 
     DEFAULT = "default"
-    GLOBAL_ENV = "global_env"
+    GLOBAL_SETTING = "global_setting"
     PROJECT_ENV = "project_env"
     SYSTEM_ENV = "system_env"
 

@@ -15,65 +15,27 @@ from pathlib import Path
 
 import click
 
-from heagent.config import GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE
+from heagent.config import GLOBAL_CONFIG_DIR, GLOBAL_SETTING_FILE, LEGACY_GLOBAL_ENV_FILE
+from heagent.config.user_settings import ensure_user_settings_migrated
 
-_INIT_ENV_TEMPLATE = """# HeAgent 全局配置文件
-# 存放路径：{path}
-# 加载优先级：显式环境变量 > 项目 .env > 本文件 > 字段默认值
-# 意即：在任意项目目录下运行 heagent 时，本文件中的配置作为默认值自动生效，
-#       可在单个项目的 .env 中覆盖。
+_INIT_SETTING_TEMPLATE = """---
+# HeAgent 用户级配置（~/.heagent/setting.md）
+# 加载优先级：系统环境变量 > 项目 .env > 本文件 > 字段默认值
+# 意即：本文件是**全机默认值**；单个项目可在其 .env 中覆盖。.env 是项目级专用格式。
+# 写法：`KEY: value`（冒号+空格），`#` 整行注释；**不要**在值后面写 `#` 注释（会算进值）。
+---
 
-# ---- 活跃 Provider ----
-# ACTIVE_PROVIDER=deepseek
+# HeAgent 用户级设置
 
-# ---- API 密钥 ----
-# DEEPSEEK_API_KEY=your-deepseek-key
-# OPENAI_API_KEY=your-openai-key
-# ANTHROPIC_API_KEY=your-anthropic-key
-# KIMI_API_KEY=your-kimi-key
-# GLM_API_KEY=your-glm-key
+本文件是 HeAgent 的**用户级**配置（全机默认值），正文可自由写文档。
 
-# ---- API 基础 URL（用于代理或自营服务）----
-# DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-# OPENAI_BASE_URL=
-# ANTHROPIC_BASE_URL=
-# KIMI_BASE_URL=https://api.moonshot.cn/v1
-# GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
+## 密钥
 
-# ---- 各 Provider 默认模型 ----
-# DEFAULT_MODEL=gpt-4o
-# DEEPSEEK_MODEL=deepseek-v4-pro
-# KIMI_MODEL=kimi-k3
-# GLM_MODEL=glm-5.3
+## 各 Provider 默认模型
 
-# ---- 本地 Ollama（OpenAI 兼容 /v1，显式 opt-in；无需真实 API Key）----
-# OLLAMA_ENABLED=true
-# OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
-# OLLAMA_MODEL=qwen3:8b
-# MAX_OUTPUT_TOKENS=4096   # 可选：单次输出上限（本地思考模型建议设，防无限生成）
-# 本地模型窗口通常远小于默认 512000（Ollama 取 Modelfile 的 num_ctx），请按实际值下调
-# MAX_CONTEXT_TOKENS，否则压缩/窗口重置阈值永不触发、先撞 API 400。
+## 行为设置
 
-# ---- Anthropic 提示词缓存 ----
-# ANTHROPIC_PROMPT_CACHING=true
-
-# ---- 重试策略 ----
-# RETRY_MAX_ATTEMPTS=3
-# RETRY_BASE_DELAY=1.0
-# RETRY_MAX_DELAY=30.0
-
-# ---- 日志 ----
-# LOG_LEVEL=INFO
-# LOG_FILE_LEVEL=DEBUG
-# LOG_DIR=logs
-
-# ---- 沙箱后端 ----
-# SANDBOX_BACKEND=passthrough
-# SANDBOX_FIREJAIL_PATH=firejail
-
-# ---- MCP ----
-# MCP_ENABLED=true
-# MCP_CONFIG_PATH=.mcp.json
+## 覆盖方式
 """
 
 _CONTEXT_TEMPLATE = """# CONTEXT.md
@@ -117,31 +79,37 @@ def _init_project_context() -> None:
 def init_cmd(project: bool) -> None:
     """初始化 HeAgent 全局配置目录。
 
-    在用户主目录创建 ``~/.heagent/``，并生成带注释的配置模板 ``~/.heagent/.env``。
-    如果文件已存在，则保留不覆盖。``--project`` 时额外生成项目 ``.heagent/CONTEXT.md``。
+    在用户主目录创建 ``~/.heagent/``；先执行一次性迁移（旧 ``~/.heagent/.env`` →
+    ``setting.md``），再生成带注释的用户级配置模板 ``~/.heagent/setting.md``（已存在则不覆盖）。
+    ``--project`` 时额外生成项目 ``.heagent/CONTEXT.md``。
     """
     created_dir = False
     if not GLOBAL_CONFIG_DIR.exists():
         GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         created_dir = True
 
+    migrated = ensure_user_settings_migrated(GLOBAL_SETTING_FILE, legacy_env_file=LEGACY_GLOBAL_ENV_FILE)
+    if migrated:
+        click.echo(f"[OK] Migrated legacy ~/.heagent/.env into {GLOBAL_SETTING_FILE} (renamed .env.migrated)")
+
     created_file = False
-    if not GLOBAL_CONFIG_FILE.exists():
-        template = _INIT_ENV_TEMPLATE.format(path=str(GLOBAL_CONFIG_FILE))
-        GLOBAL_CONFIG_FILE.write_text(template, encoding="utf-8")
+    if not GLOBAL_SETTING_FILE.exists():
+        GLOBAL_SETTING_FILE.write_text(_INIT_SETTING_TEMPLATE, encoding="utf-8")
         created_file = True
 
     if created_dir and created_file:
         click.echo(f"[OK] Created global config directory: {GLOBAL_CONFIG_DIR}")
-        click.echo(f"[OK] Created config template: {GLOBAL_CONFIG_FILE}")
+        click.echo(f"[OK] Created settings template: {GLOBAL_SETTING_FILE}")
         click.echo("")
-        click.echo("Edit ~/.heagent/.env to set your API keys and preferences.")
+        click.echo("Edit ~/.heagent/setting.md to set your API keys and preferences.")
         click.echo("Project-level .env files can still override per-project.")
     elif created_file:
-        click.echo(f"[OK] Created config template: {GLOBAL_CONFIG_FILE}")
+        click.echo(f"[OK] Created settings template: {GLOBAL_SETTING_FILE}")
         click.echo("Edit it to set your API keys and preferences.")
+    elif migrated:
+        click.echo(f"[OK] Migrated legacy ~/.heagent/.env into {GLOBAL_SETTING_FILE}")
     else:
-        click.echo(f"Already exists: {GLOBAL_CONFIG_FILE} (not overwritten)")
+        click.echo(f"Already exists: {GLOBAL_SETTING_FILE} (not overwritten)")
 
     if project:
         _init_project_context()

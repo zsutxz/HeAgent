@@ -157,7 +157,7 @@ def test_migration_state_b_moves_env_renames_legacy_and_is_idempotent(tmp_path: 
     )
     setting = tmp_path / "setting.md"
 
-    assert ensure_user_settings_migrated(setting) is True
+    assert ensure_user_settings_migrated(setting, legacy_env_file=legacy) is True
     assert setting.is_file()
     assert read_setting_md(setting) == {"glm_api_key": "glm-key", "log_level": "INFO", "dup": "2"}  # 后者胜
     assert not legacy.exists()
@@ -165,13 +165,13 @@ def test_migration_state_b_moves_env_renames_legacy_and_is_idempotent(tmp_path: 
     assert migrated.is_file() and "GLM_API_KEY" in migrated.read_text(encoding="utf-8")
     assert "自动迁移" in setting.read_text(encoding="utf-8")
 
-    assert ensure_user_settings_migrated(setting) is False  # 幂等
+    assert ensure_user_settings_migrated(setting, legacy_env_file=legacy) is False  # 幂等
 
 
 def test_migration_state_a_leaves_md_alone(tmp_path: Path) -> None:
     setting = _write_md(tmp_path / "setting.md", "LOG_LEVEL: DEBUG")
 
-    assert ensure_user_settings_migrated(setting) is False
+    assert ensure_user_settings_migrated(setting, legacy_env_file=tmp_path / ".env") is False
     assert read_setting_md(setting) == {"log_level": "DEBUG"}
 
 
@@ -179,19 +179,32 @@ def test_migration_dual_existence_archives_legacy_without_touching_md(tmp_path: 
     setting = _write_md(tmp_path / "setting.md", "LOG_LEVEL: DEBUG")
     legacy = _write_env(tmp_path / ".env", ["LOG_LEVEL=TRACE"])
 
-    assert ensure_user_settings_migrated(setting) is False  # md 胜，返回值只认「是否迁移」
+    assert ensure_user_settings_migrated(setting, legacy_env_file=legacy) is False  # md 胜，返回值只认「是否迁移」
     assert not legacy.exists()
     assert (tmp_path / ".env.migrated").is_file()
     assert read_setting_md(setting) == {"log_level": "DEBUG"}
 
 
 def test_migration_state_c_is_a_noop(tmp_path: Path) -> None:
-    assert ensure_user_settings_migrated(tmp_path / "setting.md") is False
+    assert ensure_user_settings_migrated(tmp_path / "setting.md", legacy_env_file=None) is False
+
+
+def test_migration_requires_explicit_legacy_never_infers_from_directory(tmp_path: Path) -> None:
+    """legacy=None 即显式禁用：绝不从目录布局猜 legacy——否则注入层沙箱里 md 的同目录
+    ``.env``（面板场景下是项目配置）会被误改名（回归：面板求解曾吃掉沙箱项目 .env）。"""
+    setting = tmp_path / "setting.md"
+    legacy = _write_env(tmp_path / ".env", ["LOG_LEVEL=INFO"])
+
+    assert ensure_user_settings_migrated(setting, legacy_env_file=None) is False
+    assert legacy.exists()  # 同目录 .env 纹丝未动
+    assert not setting.exists()
 
 
 def test_migration_write_failure_raises_settings_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _write_env(tmp_path / ".env", ["LOG_LEVEL=INFO"])
     import heagent.config.user_settings as user_settings
+
+    legacy = _write_env(tmp_path / ".env", ["LOG_LEVEL=INFO"])
 
     def broken(path: Path, data: bytes) -> None:
         raise OSError("disk full")
@@ -199,7 +212,7 @@ def test_migration_write_failure_raises_settings_error(tmp_path: Path, monkeypat
     monkeypatch.setattr(user_settings, "atomic_write_bytes", broken)
 
     with pytest.raises(user_settings.SettingsError, match="disk full"):
-        ensure_user_settings_migrated(tmp_path / "setting.md")
+        ensure_user_settings_migrated(tmp_path / "setting.md", legacy_env_file=legacy)
 
 
 def test_migration_rename_failure_still_completes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -212,7 +225,7 @@ def test_migration_rename_failure_still_completes(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr(os, "rename", locked)
     setting = tmp_path / "setting.md"
 
-    assert ensure_user_settings_migrated(setting) is True  # md 已落盘 = 实质完成
+    assert ensure_user_settings_migrated(setting, legacy_env_file=legacy) is True  # md 已落盘 = 实质完成
     assert read_setting_md(setting) == {"log_level": "INFO"}
     assert legacy.exists()  # 残留旧文件不在任何源里，无害
 
@@ -238,6 +251,7 @@ class _DemoSettings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     _user_setting_file: ClassVar[Path | None] = None
+    _legacy_env_file: ClassVar[Path | None] = None
     openai_api_key: str | None = None
 
     @classmethod

@@ -99,25 +99,24 @@ def embedded_http_services() -> list[_StubEmbeddedHttp]:
 
 @pytest.fixture(autouse=True)
 def _isolate_dotenv_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[str]:
-    """隔离全局（``~/.heagent/.env``）与项目（``.env``）两层配置加载。
+    """隔离用户层（``~/.heagent/setting.md``）与项目层（``.env``）两层配置加载。
 
-    ``Settings.model_config.env_file`` 在模块导入时固化为
-    ``[~/.heagent/.env, .env]``，``monkeypatch.chdir`` 对其无效。若开发者本机存在
-    ``~/.heagent/.env``（如运行过 ``heagent init``）或项目根存在 ``.env``（真实 key /
-    ``MAX_ITERATIONS`` 等），不带 ``_env_file`` 的 ``Settings()`` 会读到真实配置，
-    使断言默认值的用例本地失败而 CI（无配置文件）通过——不可复现。两层都指向 tmp 下
-    不存在的文件即可；显式传 ``_env_file`` 的用例不受影响（实例参数优先级高于
-    ``model_config``）。返回改动前的原始 env_file 序列，供源码契约类测试断言。
+    ``Settings.model_config.env_file``（项目层）在模块导入时固化为 ``[".env"]``，
+    ``monkeypatch.chdir`` 对其无效；用户层路径是 ``Settings._user_setting_file`` ClassVar。
+    若开发者本机存在 ``~/.heagent/setting.md``（迁移产物）或项目根 ``.env``（真实 key /
+    ``MAX_ITERATIONS`` 等），不带 ``_env_file`` 的 ``Settings()`` 会读到真实配置，使断言默认值
+    的用例本地失败而 CI（无配置文件）通过——不可复现。两层都指向 tmp 下不存在的文件即可；
+    显式传 ``_env_file`` 或经 ``with_user_setting_layer`` 注入的用例不受影响。用户层密封同时
+    密封了迁移锚点（``_legacy_env_file`` 一并指向 tmp）——若漏掉，源取值会拿真实
+    ``~/.heagent/.env`` 当 legacy，把开发机配置迁移掉。测试永不碰本机真实 ``~/.heagent``。
+    返回改动前的原始 env_file 序列，供源码契约类测试断言。
     """
     source_env_files = list(Settings.model_config["env_file"])
-    monkeypatch.setitem(
-        Settings.model_config,
-        "env_file",
-        [
-            str(tmp_path / "nonexistent_global.env"),
-            str(tmp_path / "nonexistent_project.env"),
-        ],
-    )
+    monkeypatch.setitem(Settings.model_config, "env_file", [str(tmp_path / "nonexistent_project.env")])
+    monkeypatch.setattr(Settings, "_user_setting_file", tmp_path / "nonexistent_setting.md")
+    # 密封迁移锚点：若只密封 md 路径，源取值时会拿真实 ~/.heagent/.env 当 legacy——把开发机
+    # 配置迁移掉。两个锚点必须一起密封。
+    monkeypatch.setattr(Settings, "_legacy_env_file", tmp_path / "nonexistent_legacy.env")
     # 隔离单例状态：每个测试从干净 Settings 开始（跨测试 env 泄漏如
     # GOAL_CHECKPOINT_MODE=auto 会污染后续断言默认值的用例）。
     reset_settings()
