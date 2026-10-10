@@ -763,7 +763,7 @@ def test_shared_layer_layout_is_pinned() -> None:
         "types",
         "workspace",
     ]
-    assert config_modules == ["catalog", "envfile", "write"]
+    assert config_modules == ["catalog", "envfile", "user_settings", "write"]
 
 
 def test_pub_package_shell_stays_thin() -> None:
