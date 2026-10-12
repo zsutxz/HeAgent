@@ -1,4 +1,4 @@
-"""``/goal`` 消息 sink（台账 A4b）的 CI 判据——不依赖 textual。
+"""``/goal_old`` 消息 sink（台账 A4b）的 CI 判据——不依赖 textual。
 
 三件事：``_echo`` 的默认路径仍是 stderr（CLI 逐字不变）；有 sink 时改投 sink；
 ``_goal_runner`` 在自己的调用链上绑定 sink 并在结束时复位 ContextVar（不泄漏到后续调用）。

@@ -1,6 +1,6 @@
 """声明式工作流加载：把技能包的 ``workflow.md`` 装配成引擎模型。
 
-解析机器 2026-09-20 自 ``memory/skill_packages.py`` 归位到 /goal 领域层：技能包模块只保留
+解析机器 2026-09-20 自 ``memory/skill_packages.py`` 归位到 /goal_old 领域层：技能包模块只保留
 通用资源索引与安全读取，工作流声明（frontmatter 策略 / 内嵌步骤 / 模板必需性 ``required_resources``）
 的确定性装配集中在此。运行时契约模型在 ``engine/workflow_resource.py``（runner / checkpoint /
 gate 的消费对象），本模块只做「声明 → 模型」的装载，不执行任何步骤。

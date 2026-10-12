@@ -76,7 +76,7 @@ class GoalDoctorReport(BaseModel):
         return all(finding.severity is not DoctorSeverity.FAIL for finding in self.findings)
 
     def render(self) -> str:
-        """Stable one-line summary (the historical ``/goal doctor`` text when nothing is wrong)."""
+        """Stable one-line summary (the historical ``/goal_old doctor`` text when nothing is wrong)."""
         rendered = [finding.render() for finding in self.problems]
         return "; ".join(rendered) if rendered else "workflow packages OK"
 

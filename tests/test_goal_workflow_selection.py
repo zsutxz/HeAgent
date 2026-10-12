@@ -314,7 +314,7 @@ async def test_status_resolves_the_frozen_binding_not_the_current_setting(
 
 
 class _RecordingCronStore:
-    """``/goal auto`` 注册路径的最小 JobStore 替身（记录注册的 job）。"""
+    """``/goal_old auto`` 注册路径的最小 JobStore 替身（记录注册的 job）。"""
 
     def __init__(self) -> None:
         self.jobs: list[SimpleNamespace] = []
@@ -511,7 +511,7 @@ async def test_package_drift_fails_the_cron_path_too(
 
 
 class _FakeStore:
-    """``/goal auto`` 注销路径的最小 JobStore 替身。"""
+    """``/goal_old auto`` 注销路径的最小 JobStore 替身。"""
 
     def list_jobs(self) -> list[object]:
         return []

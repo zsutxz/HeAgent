@@ -1,7 +1,7 @@
-# /goal 声明式工作流（专题）
+# /goal_old 声明式工作流（专题）
 
 > 状态：当前实现说明（自 docs/README.md 迁出，2026-09-22 Phase 5 C3）。
-> 本文档只描述当前代码已经支持的声明式 `/goal` 工作流。可执行契约的唯一来源是项目内的
+> 本文档只描述当前代码已经支持的声明式 `/goal_old` 工作流。可执行契约的唯一来源是项目内的
 [`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md)；本节是面向维护者的
 导航和边界说明，不复制那份契约。
 
@@ -23,10 +23,10 @@ CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt
 | 需求文档文件名（`brief.md`；存量 goal 回落 `require.md` / `GOAL.md`） | `src/heagent/goal/document.py` 的 `_goal_document_path()` | 解析出的文件名经 prompt 的 `Goal document` 行（占位符 `{goal_document}`）注入；workflow.md 散文与模板都不写文件名，改名只动代码一处 |
 | Goal/Epic/Story 结构契约 | `src/heagent/engine/artifacts.py` 与 `.heagent/skills/he-goal/templates/` | 解析和校验结构 |
 | 运行时进度与恢复 | `<goal-dir>/checkpoints/` 下的 `workflow.json` | 保存状态，不取代规划看板 |
-| 全仓库 Epic/Story 状态 | `_bmad-output/sprint-status.yaml` | 规划历史的状态记录；不是 `/goal` 运行时状态 |
+| 全仓库 Epic/Story 状态 | `_bmad-output/sprint-status.yaml` | 规划历史的状态记录；不是 `/goal_old` 运行时状态 |
 
 **`sprint-status.yaml` 的写权限**：`_bmad-output/sprint-status.yaml` 是规划历史的状态记录，仓库内**只读**。
-`/goal` 的步骤 06 在正文与 `Never` 列表里明令不得写入；`bmad-build`（显式调用时）本会经
+`/goal_old` 的步骤 06 在正文与 `Never` 列表里明令不得写入；`bmad-build`（显式调用时）本会经
 `sync-sprint-status.md` 推进 Story 状态（`in-progress` → `review`）并把父 Epic 从 `backlog` 抬起，
 本项目已在 `_bmad/custom/bmad-build.toml` 用一条 `persistent_facts` 覆盖该子步骤，使它同样跳过写入
 （删除该文件即可恢复 bmad-build 的同步行为）。`src/` 下没有任何代码读写该文件；
@@ -88,15 +88,15 @@ CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt
 ### 运行方式
 
 ```text
-/goal <目标>       创建目标并执行 workflow.md 的第一步
-/goal new <目标>   显式创建目标
-/goal next         推进一个声明步骤或一条 Story
-/goal run          连续推进，遇到 checkpoint/阻塞即停止
-/goal status       查看当前状态和产物
-/goal pause        保存并暂停
-/goal resume       记录用户回复并继续
-/goal auto [cron]  注册 cron 自动推进
-/goal reset        清除 current 指针但保留目标目录
+/goal_old <目标>       创建目标并执行 workflow.md 的第一步
+/goal_old new <目标>   显式创建目标
+/goal_old next         推进一个声明步骤或一条 Story
+/goal_old run          连续推进，遇到 checkpoint/阻塞即停止
+/goal_old status       查看当前状态和产物
+/goal_old pause        保存并暂停
+/goal_old resume       记录用户回复并继续
+/goal_old auto [cron]  注册 cron 自动推进
+/goal_old reset        清除 current 指针但保留目标目录
 ```
 
 每个步骤或 Story 都启动新的 SubAgent/RunContext。上下文窗口重置、ledger 幂等、PolicyEngine、工具
@@ -107,8 +107,8 @@ CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt
 除默认包（`GOAL_WORKFLOW_SKILL`，缺省 `he-goal`）外，还可以选择其他 workflow 包创建 goal：
 
 ```text
-/goal new <目标> --workflow he-product      # 或别名 product / engineering / migration / security
-/goal doctor --workflow he-migration        # 无活动 goal 时预检任选包
+/goal_old new <目标> --workflow he-product      # 或别名 product / engineering / migration / security
+/goal_old doctor --workflow he-migration        # 无活动 goal 时预检任选包
 ```
 
 随包发布的模板包：`he-product`（需求→范围→验收口径）、`he-engineering`（方案→实现→验证，
@@ -124,7 +124,7 @@ sha256 摘要前 16 位；全内联步骤的包不追加步骤条目，指纹取
 都按这份绑定解析 workflow——**workflow 不可在运行中静默切换**：
 
 - 改 `GOAL_WORKFLOW_SKILL` 不影响已创建的 goal（改配置不换流程）。一个显性例外：当前配置
-  的包**存在但声明非法**时，入口预校验会显性失败并挡住全部 `/goal` 命令——即使活动 goal
+  的包**存在但声明非法**时，入口预校验会显性失败并挡住全部 `/goal_old` 命令——即使活动 goal
   绑定的是另一个合法包（配置包指向的声明本身必须可装载）；
 - 包内容漂移（未声明 revision 的包被编辑，含外挂 `step-NN-*.md` 步骤文件）后，推进/恢复
   显性报错（文案含冻结与当前两个 revision 及 goal id），先还原包内容或推进其声明 revision；
@@ -197,8 +197,8 @@ manual 模式的 checkpoint 确认从每条 Story 一次收紧为每批一次。
 - 变更流程顺序或阶段职责：修改 `.heagent/skills/he-goal/workflow.md`。
 - 变更步骤提示词或门禁文案：改包内 `templates/prompt.md` / `templates/gate.md`
   （占位符清单见包 `MAINTENANCE.md`；文件名由 frontmatter `prompt_template` / `gate_template` 键声明，
-  清理 `templates/` 时不要删——缺失会让 `/goal` 在加载阶段或渲染期显性报错）；
-  变更 `/goal run` 的步数上限、`/goal auto` 的默认 cron、未决问题策略文案：改 `workflow.md` 的 frontmatter
+  清理 `templates/` 时不要删——缺失会让 `/goal_old` 在加载阶段或渲染期显性报错）；
+  变更 `/goal_old run` 的步数上限、`/goal_old auto` 的默认 cron、未决问题策略文案：改 `workflow.md` 的 frontmatter
   声明（`max_rounds` / `auto_schedule` / `open_question_default` / `open_question_block`）。两者都不需要改 Python。
 - 新增或重排步骤：在 `workflow.md` 加 `## Step NN: name` 区块，`NN` 必须从 1 连续递增；每个步骤的
   `role:` 必须指向已安装的 `.heagent/skills/<role>/SKILL.md`——指向不存在的包会在执行到该步骤时硬失败
@@ -237,11 +237,11 @@ manual 模式的 checkpoint 确认从每条 Story 一次收紧为每批一次。
 
 ## 优化方案落地状态
 
-此前的独立优化方案文档曾用于记录 `/goal` 的优化路线。该路线的主要可执行部分已经落地，当前事实以本文件、代码和测试为准：
+此前的独立优化方案文档曾用于记录 `/goal_old` 的优化路线。该路线的主要可执行部分已经落地，当前事实以本文件、代码和测试为准：
 
-- Phase 0：`/goal doctor`、状态视图、报告和多入口复用已实现。
+- Phase 0：`/goal_old doctor`、状态视图、报告和多入口复用已实现。
 - Phase 1：显式 `WorkflowEvent`、状态转换表和非法转换失败已实现。
-- Phase 2：`EvidenceRecord`、真实命令证据、结构化 gate、`/goal changes` 与 `/goal verify` 已实现。
+- Phase 2：`EvidenceRecord`、真实命令证据、结构化 gate、`/goal_old changes` 与 `/goal_old verify` 已实现。
 - Phase 3：步骤级审批、工作流包选择与 revision 绑定已实现。
 - Phase 4：受控 `GoalScript` / `ScriptRuntime` 已实现；脚本状态变更仍必须经过 `WorkflowRunner`，并有步骤数、深度和超时上限。
 - Phase 5：声明门控并行（Epic 52，2026-10-09）已落地——七条件批派生、per-run 写集围栏、宿主 Git 审计

@@ -58,7 +58,7 @@ HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**�
 
 ## 硬约束
 
-- 依赖方向固定为 `pub → config → providers/tools/context → engine → agent → cli/gui/goal`，下层不得反向导入入口层
+- 依赖方向固定为 `pub → config → providers/tools/context → engine → agent → cli/gui/goal_old`，下层不得反向导入入口层
 - 新增 provider / tool **禁止**从 `agent/` 导入
 - `engine/` 依赖 `pub` + `tools` 部分 + `events.protocol`，被 `agent/` 依赖
 - `network/` 不得导入运行栈（agent/engine/providers/tools/memory/skills/context/cron/events）与配置（config/pub.projects/pub.workspace）

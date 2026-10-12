@@ -1,7 +1,7 @@
-"""Story 51-4：真实质量 Gate 与 ``/goal verify``——通用求值器、gate 注册表与受控重跑。
+"""Story 51-4：真实质量 Gate 与 ``/goal_old verify``——通用求值器、gate 注册表与受控重跑。
 
 覆盖验收标准的可执行判据：声称命令通过但没有匹配证据时 Gate 失败；非零退出码 / 错误 cwd /
-过期 / 证据不属于当前 Story → 未通过；``/goal verify`` 只检查或受控重跑声明的验证，不重跑
+过期 / 证据不属于当前 Story → 未通过；``/goal_old verify`` 只检查或受控重跑声明的验证，不重跑
 实现步骤、不改 Runner 状态；老包零行为变化；未注册 ``gate:`` 名字加载期 fail-loud；
 只写 Markdown 不能补证据（变异锚点）。
 """
@@ -610,7 +610,7 @@ def test_registered_gate_names_parse_at_load(tmp_path: Path) -> None:
     assert step.validation_clauses.gates == ["tests-pass", "git-changes"]
 
 
-# ── /goal verify：入口接线 ────────────────────────────────────────────
+# ── /goal_old verify：入口接线 ────────────────────────────────────────────
 
 
 _WORKFLOW = (
@@ -684,7 +684,7 @@ async def test_completion_gate_blocks_until_the_declared_artifact_exists(
 async def test_goal_verify_reports_missing_evidence_without_touching_state(
     gate_cwd: Path, successful_step: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """/goal verify 只检查：缺产物如实报 FAIL，不改 Runner 状态、不重跑实现步骤。"""
+    """/goal_old verify 只检查：缺产物如实报 FAIL，不改 Runner 状态、不重跑实现步骤。"""
     await _goal_runner(SimpleNamespace(), None, "new build a gate")
     capsys.readouterr()
     assert len(successful_step) == 1

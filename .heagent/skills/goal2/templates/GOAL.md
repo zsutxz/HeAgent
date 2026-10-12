@@ -6,7 +6,7 @@ title: <目标标题>
 ---
 # <目标标题>
 
-> goal2 需求文档模板。`## 原始需求` 段逐字冻结；`## 总结的需求（Derived Requirements）` 段由
+> goal 需求文档模板。`## 原始需求` 段逐字冻结；`## 总结的需求（Derived Requirements）` 段由
 > Step 01 写入；`## 用户补充` 段记录后续用户回答。文件落 `_he-output/goals2/<goal-id>/brief.md`。
 
 ## 原始需求（Original Request）

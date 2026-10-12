@@ -77,7 +77,7 @@ class ScriptRuntime:
             # 超时以 TimeoutError 交给调用方，已具名的运行时错误不重复包装。
             raise
         except Exception as exc:
-            # 脚本自身的任何异常都收敛为**有界失败**，不得打崩 /goal run：宿主把它映射为
+            # 脚本自身的任何异常都收敛为**有界失败**，不得打崩 /goal_old run：宿主把它映射为
             # 步骤 FAILED，绝不静默放行、也不把控制权交给未捕获异常。
             raise GoalScriptRuntimeError(f"script raised {type(exc).__name__}: {exc}") from exc
         if isinstance(result, ScriptExecutionResult):

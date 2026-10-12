@@ -69,7 +69,7 @@ HeAgent 是一个面向学习、实验和原型验证的 AI Agent 框架。项�
 
 截至当前仓库状态，HeAgent 更准确的描述是：
 
-- 一个可运行的 CLI / Python 库，含交互式聊天、`/goal` 声明式工作流与 Textual TUI。
+- 一个可运行的 CLI / Python 库，含交互式聊天、`/goal_old` 声明式工作流与 Textual TUI。
 - 一个从「架构实验场」演进为「可日常使用的 agent 工具」的项目。
 - 一个仍比“生产代理服务”更适合拿来阅读、验证和扩展的项目。
 

@@ -440,10 +440,12 @@ def _build_slash_registry(
     registry.register("clear", "清空当前会话上下文", _clear)
     registry.register("help", "列出所有斜杠命令", _help)
 
-    async def _goal(args: str) -> None:
+    async def _goal_old(args: str) -> None:
         await _goal_runner(provider, loop.engine, args, cron_store=cron_store)
 
-    registry.register("goal", "目标驱动开发（new/next/run/status/pause/resume/auto/reset）", _goal)
+    registry.register(
+        "goal_old", "目标驱动开发（旧 Python 状态机；new/next/run/status/pause/resume/auto/reset）", _goal_old
+    )
 
     if skills is not None:
         from heagent.cli.skill_merge import register_skill_merge

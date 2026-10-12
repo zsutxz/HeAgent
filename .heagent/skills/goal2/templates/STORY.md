@@ -8,7 +8,7 @@ title: <Story 标题>
 ---
 # <Story 标题>
 
-> goal2 运行时契约：story 的真源是 `_he-output/goals2/<goal-id>/epics.md` 里的 `### S-N` 条目；
+> goal 运行时契约：story 的真源是 `_he-output/goals2/<goal-id>/epics.md` 里的 `### S-N` 条目；
 > 该文件按 Epic 分段（`## E<N> — <标题>`），同一 Epic 的 story 编号连续。Step 07 逐条**串行**实现时
 > 把本模板落到 `step-07-implement-story/epic-<eN>/s-<n>/story.md`，写出后即冻结（只有人能改验收
 > 标准）。

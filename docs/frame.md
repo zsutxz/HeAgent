@@ -22,7 +22,7 @@
   - [4.10 配置管理 (`config/`)](#410-配置管理-config)
   - [4.11 MCP 集成 (`tools/mcp/`)](#411-mcp-集成-toolsmcp)
   - [4.12 运行时引擎 (`engine/`)](#412-运行时引擎-engine)
-  - [4.13 Goal 驱动工作流 (`/goal`)](#413-goal-驱动工作流-goal)
+  - [4.13 Goal 驱动工作流 (`/goal_old`)](#413-goal-驱动工作流-goal)
   - [4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）](#414-技能资源读取-toctou-评估与安全打开加固epic-461462)
   - [4.15 事件契约 (`events/`)](#415-事件契约-events)
   - [4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)](#417-http-网页入口-networkhttp_--clihttppy--web)
@@ -146,7 +146,7 @@ AgentLoop.run(prompt)
 | `composition.py` | 装配：provider→engine→AgentLoop、soul、上下文策略、plan mode、dream 调度、事件 sink、路由提取 | `cli.py` 拆出 |
 | `interactive.py` | 单次/交互**执行**：REPL 循环、斜杠命令族、会话 id 解析、内嵌 HTTP 的挂载点 | `cli.py` 拆出 |
 | `init.py` | `heagent init` 子命令（全局配置与项目上下文模板） | `cli_init.py` |
-| `goal.py` | `/goal` 命令族（声明式工作流分发 + cron 自动推进） | `cli_goal.py` |
+| `goal.py` | `/goal_old` 命令族（声明式工作流分发 + cron 自动推进） | `cli_goal.py` |
 | `http.py` | `http-server` 子命令 + HTTP 服务/生命周期装配（Epic 49） | `cli_http.py` |
 | `http_console.py` | 网页控制台的**项目/会话/配置面**（Epic 50；`HttpProjectConsole` / `HttpAgentHandler`） | `cli_http.py` 拆出 |
 | `dialogs.py` | 服务端原生「选择目录」对话框（Story 50-8） | `cli_dialogs.py` |
@@ -813,12 +813,12 @@ HeAgentError (base)
 | `dream_cron` | `0 3 * * *` | dream cron 触发表达式（构造期 fail-fast 校验，须 5 字段） |
 | `dream_idle_minutes` | 30 | dream idle 触发阈值（分钟，距上次 run 结束；0=禁用 idle 触发） |
 | `dream_max_iterations` | 20 | dreamer SubAgent 独立迭代预算（不复用全局 `max_iterations`） |
-| `goal_max_iterations` | 20 | `/goal` 单步 SubAgent 最大迭代轮数（步骤可用 `max_iterations:` 覆盖） |
+| `goal_max_iterations` | 20 | `/goal_old` 单步 SubAgent 最大迭代轮数（步骤可用 `max_iterations:` 覆盖） |
 | `subagent_max_depth` | 3 | 子 Agent 委派嵌套深度上限（0=禁止委派；超限工具返回 `status=error`） |
 | `subagent_max_iterations` | 20 | 嵌套子代理兜底迭代预算（角色未声明 `max_iterations` 时生效：显式参数 > 角色声明 > 本项） |
-| `goal_checkpoint_mode` | `prompt` | `/goal` 检查点策略：自动继续或等待用户 |
-| `goal_open_question_mode` | `block` | `/goal` 未决问题策略：阻塞或采用默认值 |
-| `goal_workflow_skill` | `he-goal` | `/goal` 工作流包 id（包在自己 `meta.yaml` 里声明 `canonical_id`，按 id/别名解析） |
+| `goal_checkpoint_mode` | `prompt` | `/goal_old` 检查点策略：自动继续或等待用户 |
+| `goal_open_question_mode` | `block` | `/goal_old` 未决问题策略：阻塞或采用默认值 |
+| `goal_workflow_skill` | `he-goal` | `/goal_old` 工作流包 id（包在自己 `meta.yaml` 里声明 `canonical_id`，按 id/别名解析） |
 | `announce_progress` | True | 是否把「▶ 启动 / ✔ 完成 + 状态行」进度公告写到 stderr（false=静音） |
 | `dream_session_lookback` | 5 | 预加载近期 session 个数（按 timestamp 降序） |
 | `mcp_enabled` | True | 是否启用 MCP server 连接（门控，False 则跳过加载） |
@@ -935,9 +935,9 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 
 ---
 
-### 4.13 Goal 驱动工作流 (`/goal`)
+### 4.13 Goal 驱动工作流 (`/goal_old`)
 
-`/goal` 是 CLI 层的机制入口（命令族实现位于 `cli/goal.py`）。当前工作流的唯一方法论入口是
+`/goal_old` 是 CLI 层的机制入口（命令族实现位于 `cli/goal.py`）。当前工作流的唯一方法论入口是
 `.heagent/skills/he-goal/workflow.md`（属 `he-goal` 包，由 skill catalog 按 id/别名解析）；步骤声明中的 `role` 再解析对应的 `.heagent/skills/*/SKILL.md`。
 声明的确定性装载在 `goal/workflow_loader.py`（`read_workflow(package)`：frontmatter 策略、内嵌步骤、
 `required_resources` 模板必需性），产出 `engine/workflow_resource.py` 的 `WorkflowResource` 供
@@ -951,17 +951,17 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
 三入口仍收敛同一 use-case（GUI 经 `_goal_runner`、cron 经 `_goal_cron_advance`），无复制推进逻辑。
 当前工作流的维护说明见[文档索引的「Goal 工作流」章节](README.md#goal-工作流)。
 
-- `/goal <description>` 或 `/goal new <description>` 创建 `_he-output/goals/<goal_id>/brief.md`（只含原始需求）
+- `/goal_old <description>` 或 `/goal_old new <description>` 创建 `_he-output/goals/<goal_id>/brief.md`（只含原始需求）
   和 `current` 指针，然后执行 workflow 的第一个声明步骤；「总结的需求」由 step 01 初步分析后写回同一文档。
   `goal_id` 由 LLM 命名（`goal/naming.py` 一次性 provider 调用生成 kebab-case 名，清洗/校验/`-a`..`-z`
   去重为代码内确定性逻辑）；调用失败或输出非法时 stderr 显性提示并回退固定名 `project`。
   id 字符集锁定 `^[a-z][a-z-]*$`（current 指针校验、cron prompt 解析、旧 job 注销匹配三处下游依赖）。
-- `/goal next` 执行一个声明步骤，`story_loop`（当前为 `epics.md`）步骤默认每次只执行一条 Story；
+- `/goal_old next` 执行一个声明步骤，`story_loop`（当前为 `epics.md`）步骤默认每次只执行一条 Story；
   声明门控并行（Epic 52）授权时一批并发执行（见下「声明门控并行与写集围栏」）。每条 Story（串行）
-  或每批（并行，批 = 单 checkpoint 单元）完成后持久化 checkpoint / evidence；`/goal run` 可连续推进，遇到检查点、
+  或每批（并行，批 = 单 checkpoint 单元）完成后持久化 checkpoint / evidence；`/goal_old run` 可连续推进，遇到检查点、
   阻塞或失败即停止。
-- `/goal status` 只读回显运行状态和目标产物；`/goal reset` 只清除 current 指针并保留目标目录。
-- `/goal verify [run]`（Story 51-4）：按步骤 `validation:` 的结构化子句求值——`goal/quality_gates.py`
+- `/goal_old status` 只读回显运行状态和目标产物；`/goal_old reset` 只清除 current 指针并保留目标目录。
+- `/goal_old verify [run]`（Story 51-4）：按步骤 `validation:` 的结构化子句求值——`goal/quality_gates.py`
   的通用求值器把声明子句比对到证据（`goal/evidence.py` 的 `<goal_dir>/evidence/`）、产物文件与只读 Git
   （`goal/git_port.py`），产出结构化通过/失败报告（经 `_echo` 漏斗）。`verify run` 先把声明命令经治理链
   （PolicyEngine → ToolExecutor → SafetyGuard → shell handler）受控重跑并落证据；绝不重跑实现步骤、
@@ -969,18 +969,18 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
   求值，未通过经 `WorkflowRunner` 的 `GATE_FAILED` 事件进 `BLOCKED`。`gate:` 名字由宿主注册表
   （`QUALITY_GATES`，名字 → 语义 + 求值函数分派表）提供，加载期由 `workflow_loader` 校验（未注册或
   声明条件不满足均 fail-loud）。
-- `/goal resume [回复]` 记录用户回复并恢复等待中的步骤；`/goal auto [cron]` 通过 JobStore 复用同一推进路径。
+- `/goal_old resume [回复]` 记录用户回复并恢复等待中的步骤；`/goal_old auto [cron]` 通过 JobStore 复用同一推进路径。
 - **步骤级审批与决策记录（Story 51-5）**：步骤 frontmatter 可声明 `approval: required`（可带一句
   说明）——该步做完工作后挂起 `WAITING_USER`，完成簿记延后，只有人工决策能推进；未声明的步骤
   零行为变化。「第几步需要审批」只存在于该步声明里，`src/` 无任何按步骤名/序号的审批判断（AD-13）。
-  四个事件语义独立（AD-3）：`/goal approve` 接受并落定完成（唯一把该步标记完成的路径；末步批准
-  即完成 goal）、`/goal reject <原因>` 驳回（步骤未完成，落 BLOCKED，修订后 `resume` 重跑）、
-  `/goal amend <补充>` 带补充重跑（步骤未完成，落 PENDING；补充同时进需求文档「用户补充」段）、
-  `/goal resume` 只恢复执行——审批门挂起时被显性拒绝，不隐式等同批准。cron/auto 推进在审批门前
+  四个事件语义独立（AD-3）：`/goal_old approve` 接受并落定完成（唯一把该步标记完成的路径；末步批准
+  即完成 goal）、`/goal_old reject <原因>` 驳回（步骤未完成，落 BLOCKED，修订后 `resume` 重跑）、
+  `/goal_old amend <补充>` 带补充重跑（步骤未完成，落 PENDING；补充同时进需求文档「用户补充」段）、
+  `/goal_old resume` 只恢复执行——审批门挂起时被显性拒绝，不隐式等同批准。cron/auto 推进在审批门前
   停下，不自动批准人工 Gate；CLI/GUI 共用 `goal/application.record_decision` 同一应用服务。
   每次决策在 `<goal_dir>/decisions/` 追加一条版本化记录（id、步骤、原文、UTC 时间、影响范围、
-  结果状态、审批轮次；成功的 `/goal resume` 亦记一条 RESUME——只标记执行被恢复，不等于批准），
-  独占创建、重跑不覆盖历史（`goal/decisions.py`）；`/goal decisions` 只读回显（goal 域锁内读，
+  结果状态、审批轮次；成功的 `/goal_old resume` 亦记一条 RESUME——只标记执行被恢复，不等于批准），
+  独占创建、重跑不覆盖历史（`goal/decisions.py`）；`/goal_old decisions` 只读回显（goal 域锁内读，
   防撕裂读）。审批门挂起状态（`awaiting_approval` + 挂起产物 + 单调审批轮次——轮次进 checkpoint
   幂等键，reject/amend 重跑再挂门不撞 conflict）随 checkpoint 持久化与恢复，跨进程可决策。
 - **跨进程互斥（2026-09；2026-10-07 A32② 下沉）**：goal 域互斥本体在 `goal/mutex.goal_mutex()`
@@ -988,9 +988,9 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
   （`persist.file_lock`，5s 超时显性失败：手动方收到「另一进程正在推进」提示，cron 下一 tick 自动重试），
   同一 task 内可重入。**变更内核自持**：`goal/application` 的 `advance` / `pause_resume` /
   `record_decision` 三个写方法整段读改写都在锁内（GUI/HTTP 等第二入口直调即得互斥，不依赖
-  入口层自觉）；CLI 的 `/goal` 变更入口（new/next/run/resume/reset/cron 推进）仍在外层整段
+  入口层自觉）；CLI 的 `/goal_old` 变更入口（new/next/run/resume/reset/cron 推进）仍在外层整段
   持锁组合（`_goal_mutex()` 薄别名）。锁文件刻意保留不删（规避 unlink 竞态）；防「双进程从
-  同一状态各自推进后互相覆盖 brief.md」丢进度。只读命令（`/goal status` / `/goal doctor`）
+  同一状态各自推进后互相覆盖 brief.md」丢进度。只读命令（`/goal_old status` / `/goal_old doctor`）
   是无锁快照读，半截文件按「损坏」显性报错。
 
 每个步骤或 Story 都由新的 SubAgent/RunContext 执行。`WorkflowRunner` 负责顺序、输入、输出、checkpoint
@@ -1063,7 +1063,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
   `WorkflowStepResult` 回落到既有推进链，产物仍写 `_goal_output/...` 的声明路径。
 - **不绕过质量门、失败有界**：脚本产物落盘后与 subagent 步骤走**同一条**结构化完成门
   （`_goal_structured_gate`，Story 51-4），`validation:` 未过落 `BLOCKED`；脚本抛出的任何
-  异常由 `ScriptRuntime` 收敛为有界 `FAILED`（宿主映射为步骤失败），**不打崩 `/goal run`**。
+  异常由 `ScriptRuntime` 收敛为有界 `FAILED`（宿主映射为步骤失败），**不打崩 `/goal_old run`**。
 
 **两阶段提交（A 语义）**：脚本执行期只**声明**，宿主在脚本返回后按声明顺序**提交**。
 
@@ -1086,7 +1086,7 @@ Goal SubAgent run snapshot 的 `context.metadata` 包含 `goal_id`、`goal_kind`
   空计划）：进程重启后仍按同一选择恢复，**不退回声明顺序**。循环每轮取队首交给
   `run_declared_step`；计划被消费一次即出队（含幂等跳过）。
 - **有界**：累计计划超过 workflow 的声明步骤数时由 Runner 落 `BLOCKED`（有界失败），不做静默
-  截断；被跳过的声明步骤保持未执行（`completed_steps` 出现缺口），`/goal status` 照实投影。
+  截断；被跳过的声明步骤保持未执行（`completed_steps` 出现缺口），`/goal_old status` 照实投影。
 - **已知边界**：脚本可以**声明**一组后续步骤（含用有界 Python 循环声明），但不能**重跑**已完成的
   步骤——那被当作幂等跳过，因此「按状态反复重试某一个声明步骤」不在此设计内。
 
@@ -1180,7 +1180,7 @@ Phase 5 C1：+`duration_ms`/`error_kind`；旧 rollout 缺省读、新字段被�
 | `workflow_story_batch_scheduled` | `engine/workflow_runner`（`_gather_story_batch`，Epic 52 Story 52-2） | `step,members,limit`（`story` 为空） | 授权批派发时发一条：批成员 id 与声明上限 |
 | `workflow_write_audit` | `cli/goal.py`（`_emit_write_audit_event`，Epic 52 Story 52-3） | `step,story,untracked` / `skipped` | 宿主 Git 写集审计的观测事件：`untracked=[...]` 为警告（不判负）；`skipped=git_unavailable` 为非 Git 跳过说明；emit 异常隔离 |
 | `workflow_approved` / `workflow_rejected` / `workflow_amended` | `engine/workflow_runner`（审批决策方法，Story 51-5） | `step`（+`reason`：拒绝理由 / 修订补充） | — |
-| `workflow_gate_evaluated` | `cli/goal.py`（`_emit_goal_gate_event`，Story 51-8 收口 51-4 递延） | `step,story,source,verdict,failed,clause_errors,rerun,rerun_evidence,reused_commands` | 完成门（`source=completion_gate`）与 `/goal verify`（`source=verify_run`）每次结构化求值各发一条，带 duration；emit 异常隔离 |
+| `workflow_gate_evaluated` | `cli/goal.py`（`_emit_goal_gate_event`，Story 51-8 收口 51-4 递延） | `step,story,source,verdict,failed,clause_errors,rerun,rerun_evidence,reused_commands` | 完成门（`source=completion_gate`）与 `/goal_old verify`（`source=verify_run`）每次结构化求值各发一条，带 duration；emit 异常隔离 |
 | `dream_start` / `dream_end`、`cron_job_*` | `memory/dream.py`、`cron/scheduler.py`（开集现状收编） | `success` 等 | — |
 | `assistant_message`（传输层补充） | `events/sink.py` | `content` | — |
 
@@ -1315,7 +1315,7 @@ src/heagent/
 │   ├── composition.py       # 装配：provider→engine→loop / soul / 上下文策略 / plan mode / dream / 事件 sink（2026-09-26 自 cli.py 拆出）
 │   ├── interactive.py       # 单次/交互执行：REPL + 斜杠命令族 + 内嵌 HTTP 挂载点（2026-09-26 自 cli.py 拆出）
 │   ├── init.py              # heagent init 子命令（全局配置/项目上下文模板生成，2026-09-17 自 cli.py 拆出）
-│   ├── goal.py              # /goal 命令族（声明式工作流分发 + cron 自动推进）
+│   ├── goal.py              # /goal_old 命令族（声明式工作流分发 + cron 自动推进）
 │   ├── http.py              # http-server 子命令 + HTTP 服务装配（入口层组合根；Epic 49）
 │   ├── http_console.py      # 网页控制台的项目/会话/配置面（Epic 50；2026-09-26 自 cli_http.py 拆出）
 │   ├── dialogs.py           # 服务端原生「选择目录」对话框（Story 50-8）
@@ -1443,13 +1443,13 @@ src/heagent/
 │   ├── http_console_protocol.py  # 网页控制台协议模型：项目/会话/配置面板与写通道的请求-响应契约（Epic 50）
 │   └── exposure.py          # 回环判定 + 「无认证 / 无 TLS / 非生产边界」告警文案（单点，不解析 DNS）
 │
-├── goal/                    # /goal 域层（入口层，供 cli/goal 使用，下层不得反向导入）
+├── goal/                    # /goal_old 域层（入口层，供 cli/goal 使用，下层不得反向导入）
 │   ├── application.py       # workflow use-case 确定性内核（校验/gate/story/checkpoint 推进；click-free，Phase 3）
 │   ├── document.py          # brief.md 定位/命名规则/增量更新（存量回落 require.md/GOAL.md）
-│   ├── naming.py            # /goal new 项目名 LLM 生成，失败显性回退 project（2026-09-21）
+│   ├── naming.py            # /goal_old new 项目名 LLM 生成，失败显性回退 project（2026-09-21）
 │   ├── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性/validation: 证据子句解析）
 │   ├── doctor.py            # 声明驱动的只读预检（doctor_checks 词汇 → 结构化报告，Story 51-1）
-│   ├── status_view.py       # /goal status 纯投影（status_fields 词汇，零 IO，Story 51-1）
+│   ├── status_view.py       # /goal_old status 纯投影（status_fields 词汇，零 IO，Story 51-1）
 │   ├── evidence.py          # 结构化执行证据：版本化模型 + 追加式存储 + 受治理结果证据化（Story 51-3）
 │   ├── git_port.py          # 只读 Git 端口：base/head/变更集与工作区冲突状态，从不 commit（Story 51-3）
 │   ├── decisions.py         # 人工决策日志：版本化模型 + 追加式存储（<goal_dir>/decisions/，Story 51-5）
@@ -1671,17 +1671,17 @@ PUT /api/projects/{id}/config  {changes:[{key,value}], fingerprint}
 
 Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测试覆盖。`tests/test_goal_workflow_smoke.py` 使用无网络执行，验证两个 story 单元、workflow/checkpoint、ledger 与 EventBus 证据，并覆盖损坏状态显式失败（legacy 阶段状态机与其 route 门控已于 2026-09 删除）。
 
-本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format 和 mypy；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal` 的步骤权威是 `.heagent/skills/he-goal/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 仍只是纵深防御措施，不是 OS 安全边界。
+本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format 和 mypy；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal_old` 的步骤权威是 `.heagent/skills/he-goal/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 仍只是纵深防御措施，不是 OS 安全边界。
 
 ### 8.2 Goal/Epic/Story 产物契约
 
-声明式 BMad 工作流产物分为三层，各层职责固定。Goal 产物（`type: goal`）只包含 Epic 列表；`EPIC.md` 包含 Goal、Value、Scope、Dependencies、Acceptance Criteria、Stories 和 Definition of Done；每个 Story 文档包含 frontmatter、User Story、Given/When/Then 验收标准、Tasks 和 Definition of Done。ID 与父级引用由 `heagent.engine.artifacts.validate_hierarchy()` 校验。`/goal` CLI 不再写入 Goal 产物，而是持久化目标需求文档 `brief.md`；Epic/Story 列表存放在工作流自己的 `epics.md` 中。
+声明式 BMad 工作流产物分为三层，各层职责固定。Goal 产物（`type: goal`）只包含 Epic 列表；`EPIC.md` 包含 Goal、Value、Scope、Dependencies、Acceptance Criteria、Stories 和 Definition of Done；每个 Story 文档包含 frontmatter、User Story、Given/When/Then 验收标准、Tasks 和 Definition of Done。ID 与父级引用由 `heagent.engine.artifacts.validate_hierarchy()` 校验。`/goal_old` CLI 不再写入 Goal 产物，而是持久化目标需求文档 `brief.md`；Epic/Story 列表存放在工作流自己的 `epics.md` 中。
 
 `parse_artifact()` 遇到缺失或重复章节、未解决的 `TBD`、无效的 frontmatter 类型/状态或格式错误的父级元数据时会显式失败。模板位于 `.heagent/skills/he-goal/templates/`。历史 Epic/Story 状态只由 `_bmad-output/sprint-status.yaml` 维护；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。`validate_sprint_status_path()` 强制使用这个规范的只读目标。
 
 ### 8.3 声明式敏捷流程收口
 
-`.heagent/skills/he-goal/workflow.md` 是必需且自包含的 `/goal` 工作流。它声明初始化过程和完整的有序步骤；CLI 只把受支持的声明映射为确定性操作。`WorkflowRunner` 每次调用执行一个声明步骤，持久化从零开始编号的已完成步骤 checkpoint，并拒绝缺失输入、无效输出以及不匹配的工作流恢复状态。`brief.md` 是目标的持久需求文档（创建时保存原始请求，随后由步骤 01 在初步分析后写入派生需求）；重命名之前创建的目标继续使用自己的 `require.md`（或更早的 `GOAL.md`），由 `goal/document.py` 按最新名称优先解析，并将解析出的文件名注入步骤提示词的 `{goal_document}`，因此工作流声明不会硬编码文件名。它取代 `goal.txt`，并且有意不作为 `parse_artifact()` 的 Goal 产物。Goal 文档和 `workflow.json` 仍位于 `_he-output/` 下。新目标在 `checkpoint-workspace.txt` 记录绝对工作区，并将 checkpoint 存放在 `<workspace>/.heagent/checkpoints/<goal_id>/`；没有该标记的目标继续使用原有的目标目录内 `checkpoints/`。无效标记会显式失败；缺少工作流也会显式失败。原先命令式的 `goal.txt` 看板路径已经删除，声明式 Runner 是唯一的 `/goal` 执行路径。转换策略仍由当前工作流及其确定性 Runner 负责。工作流本身作为技能包（`he-goal`）提供，并通过 `SkillCatalog`/`SkillResolver` 解析；因此每次运行的策略（`max_rounds`、`auto_schedule`、开放问题措辞）以及步骤提示词/门禁措辞，都声明在包内的（`workflow.md`；步骤/门禁模板文件名由 frontmatter `prompt_template` / `gate_template` 键声明，文件为 `templates/prompt.md` / `templates/gate.md`）。模板是否必需也由这些声明控制：声明的模板缺失或为空时，加载器会显式失败（`required_resources` 与模板键条目都会做前缀规范化且逐项强制检查；拼写错误的名称会导致加载失败，不会被静默忽略）；未声明但内容为空的模板会在渲染提示词时显式失败，不会生成空的步骤提示词或门禁块；CLI 不包含内置模板文案。
+`.heagent/skills/he-goal/workflow.md` 是必需且自包含的 `/goal_old` 工作流。它声明初始化过程和完整的有序步骤；CLI 只把受支持的声明映射为确定性操作。`WorkflowRunner` 每次调用执行一个声明步骤，持久化从零开始编号的已完成步骤 checkpoint，并拒绝缺失输入、无效输出以及不匹配的工作流恢复状态。`brief.md` 是目标的持久需求文档（创建时保存原始请求，随后由步骤 01 在初步分析后写入派生需求）；重命名之前创建的目标继续使用自己的 `require.md`（或更早的 `GOAL.md`），由 `goal/document.py` 按最新名称优先解析，并将解析出的文件名注入步骤提示词的 `{goal_document}`，因此工作流声明不会硬编码文件名。它取代 `goal.txt`，并且有意不作为 `parse_artifact()` 的 Goal 产物。Goal 文档和 `workflow.json` 仍位于 `_he-output/` 下。新目标在 `checkpoint-workspace.txt` 记录绝对工作区，并将 checkpoint 存放在 `<workspace>/.heagent/checkpoints/<goal_id>/`；没有该标记的目标继续使用原有的目标目录内 `checkpoints/`。无效标记会显式失败；缺少工作流也会显式失败。原先命令式的 `goal.txt` 看板路径已经删除，声明式 Runner 是唯一的 `/goal_old` 执行路径。转换策略仍由当前工作流及其确定性 Runner 负责。工作流本身作为技能包（`he-goal`）提供，并通过 `SkillCatalog`/`SkillResolver` 解析；因此每次运行的策略（`max_rounds`、`auto_schedule`、开放问题措辞）以及步骤提示词/门禁措辞，都声明在包内的（`workflow.md`；步骤/门禁模板文件名由 frontmatter `prompt_template` / `gate_template` 键声明，文件为 `templates/prompt.md` / `templates/gate.md`）。模板是否必需也由这些声明控制：声明的模板缺失或为空时，加载器会显式失败（`required_resources` 与模板键条目都会做前缀规范化且逐项强制检查；拼写错误的名称会导致加载失败，不会被静默忽略）；未声明但内容为空的模板会在渲染提示词时显式失败，不会生成空的步骤提示词或门禁块；CLI 不包含内置模板文案。
 
 ## 九、历史与迁移
 

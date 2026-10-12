@@ -1,4 +1,4 @@
-"""Declarative /goal routing and checkpoint recovery contracts."""
+"""Declarative /goal_old routing and checkpoint recovery contracts."""
 
 from __future__ import annotations
 
@@ -417,12 +417,12 @@ async def test_stale_active_step_is_reported_as_checkpoint_failure(
     successful_step: list[str],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """回归（2026-09-22）：活动步骤越界时必须像 ``/goal status`` 一样呈报 checkpoint 失败。
+    """回归（2026-09-22）：活动步骤越界时必须像 ``/goal_old status`` 一样呈报 checkpoint 失败。
 
     ``WorkflowRunner._validate_state`` 对 ``active_step > len(steps)`` 抛的是**裸
     ``ValueError``**（``WorkflowCheckpointError`` 是它的子类，反向不成立），而推进路径
     （``_goal_declarative_prepare``）此前只兜 ``WorkflowCheckpointError``——于是存量 goal
-    在「工作流收缩」（12→10→9→8 步）后执行 ``/goal next`` 会抛裸异常栈，而不是
+    在「工作流收缩」（12→10→9→8 步）后执行 ``/goal_old next`` 会抛裸异常栈，而不是
     ``[goal] declarative checkpoint failed: ...``。
     """
     await _goal_runner(SimpleNamespace(), None, "stale state workflow")
@@ -498,7 +498,7 @@ async def test_declarative_next_rejects_waiting_checkpoint(
     await _goal_runner(SimpleNamespace(), None, "new checkpoint workflow")
     await _goal_runner(SimpleNamespace(), None, "next")
     assert len(successful_step) == 1
-    assert "use /goal resume first" in capsys.readouterr().err
+    assert "use /goal_old resume first" in capsys.readouterr().err
 
 
 @pytest.mark.asyncio
@@ -762,7 +762,7 @@ async def test_declarative_auto_keeps_job_when_paused_at_checkpoint(
 
     assert len(successful_step) == 1
     assert len(store.list_jobs()) == 1
-    assert "paused; use /goal resume first" in capsys.readouterr().err
+    assert "paused; use /goal_old resume first" in capsys.readouterr().err
 
 
 @pytest.mark.asyncio
@@ -1016,7 +1016,7 @@ async def test_blocked_step_reports_the_way_out(
     outcome = await cli_goal._goal_declarative_advance(SimpleNamespace(), None, workflow)
     err = capsys.readouterr().err
     assert "[goal] step blocked: step 'step-01.md' output is missing section: 实现摘要" in err
-    assert "/goal resume" in err
+    assert "/goal_old resume" in err
     assert outcome == cli_goal._GOAL_FAILED
 
 
@@ -1026,10 +1026,10 @@ async def test_typo_subcommand_prints_usage_instead_of_creating_a_goal(
     successful_step: list[str],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """``/goal resume\\`` used to silently allocate a new goal and burn its first step."""
+    """``/goal_old resume\\`` used to silently allocate a new goal and burn its first step."""
     await _goal_runner(SimpleNamespace(), None, "resume\\")
     err = capsys.readouterr().err
-    assert "did you mean `/goal resume`" in err
+    assert "did you mean `/goal_old resume`" in err
     assert successful_step == []
     assert not (declarative_cwd / "_he-output" / "goals" / "current").exists()
 

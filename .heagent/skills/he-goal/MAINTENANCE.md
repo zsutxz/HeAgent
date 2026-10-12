@@ -5,7 +5,7 @@
 
 ## 运行时资源（勿删）
 
-本包除引导正文外还承载 `/goal` 的**运行时契约**——`Settings.goal_workflow_skill` 默认解析到本包
+本包除引导正文外还承载 `/goal_old` 的**运行时契约**——`Settings.goal_workflow_skill` 默认解析到本包
 （本包 `meta.yaml` 声明 `canonical_id: he-goal`），CLI 读取下列资源执行工作流：
 
 - `workflow.md` —— 工作流契约：8 步的顺序、`input`/`output`、`checkpoint`、`validation` 门禁、`role`、
@@ -31,7 +31,7 @@
 
 ## 保护约束
 
-- **不要用 `skill_delete` / `skill_archive` 删除或归档本包**——那会连同工作流契约一起移走，`/goal`
+- **不要用 `skill_delete` / `skill_archive` 删除或归档本包**——那会连同工作流契约一起移走，`/goal_old`
   将显性报「workflow.md is required」，且契约需从 git 还原。Curator 的过期归档若命中本包，同样后果。
 - `meta.yaml` 的运行时使用计数由自动注入维护；`workflow.md` frontmatter 的 `revision` 是声明
   revision，改包契约必须同步推进它。

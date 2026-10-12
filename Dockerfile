@@ -4,7 +4,7 @@
 #
 # 构建:
 #   docker build -t heagent .
-#   docker build -t heagent --build-arg BASE_DIGEST=@sha256:abc... --build-arg VERSION=0.7.2
+#   docker build -t heagent --build-arg BASE_DIGEST=@sha256:abc... --build-arg VERSION=0.8.0
 # ============================================================
 
 ARG BASE_DIGEST=

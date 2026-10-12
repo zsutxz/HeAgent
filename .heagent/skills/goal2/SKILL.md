@@ -1,21 +1,26 @@
 ---
 name: goal2
-description: 目标驱动开发（goal2 声明式 8 步工作流）：/goal2 命令与多阶段大目标的触发与执行
-triggers: [goal2, /goal2, goal2 工作流]
-negative_triggers: [code review, 代码评审, 技能评审, 重构, refactor]
+description: 目标驱动开发（声明式 8 步工作流）：/goal 命令与多阶段大目标的触发与执行
+triggers: [/goal, goal 工作流]
+negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, refactor]
 ---
 
-# goal2（目标驱动开发工作流 v2）
+# goal（目标驱动开发工作流 v2）
 
 ## Pattern
 
-多阶段大目标（从需求到交付的完整项目）走 `/goal2` 工作流；单点改动、一次性问答直接做，不要启动工作流。
-本技能是 `/goal2` 命令的执行契约：命令把参数交给你，你按本技能与同包 `workflow.md` 自主驱动整个流程
+多阶段大目标（从需求到交付的完整项目）走 `/goal` 工作流；单点改动、一次性问答直接做，不要启动工作流。
+本技能是 `/goal` 命令的执行契约：命令把参数交给你，你按本技能与同包 `workflow.md` 自主驱动整个流程
 （无 Python 状态机，状态全靠文件）。工作流共 8 步：市场调研、发散构思、需求分析、产品范围、架构设计、
 故事细化、逐故事实现、系统集成测试。
 
-与旧 `/goal` 的隔离：旧命令由 Python 状态机驱动，状态在 `_he-output/goals/`；goal2 的状态在
-`_he-output/goals2/`，两者互不兼容、互不迁移。不要把旧 goal 的目录当 goal2 状态读写，反之亦然。
+与旧 `/goal_old` 的隔离：旧命令由 Python 状态机驱动，状态在 `_he-output/goals/`；本命令的状态在
+`_he-output/goals2/`，两者互不兼容、互不迁移。不要把旧 goal 目录当本命令的状态读写，反之亦然。
+
+**状态目录名刻意保留 `goals2/`，不要改。** 技能包**目录**也必须保留 `goal2/`：技能包的 canonical id
+强制 `he-`/`bmad-` 前缀（`skills/skill_packages.py`），本地目录名非法时会兜底成 `"he-" + 目录名`——
+目录若叫 `goal`，其 canonical id 会兜底成 `he-goal`，与旧工作流包**同 id 冲突并遮蔽它**，旧 `/goal_old`
+在全新克隆上直接失效。命令名与技能包目录名是两件事。
 
 ## 参数路由
 
@@ -27,7 +32,7 @@ negative_triggers: [code review, 代码评审, 技能评审, 重构, refactor]
 | `next` | 推进下一步（当前步未完成时先完成它） |
 | `run` | 连续推进直到审批门、失败或完成 |
 | `status` | 读 progress.md 报告进度（步骤状态、story 勾选、等待项） |
-| `review [step]` | 只读审查当前 goal2 的状态、文档和产物一致性；可限定步骤或 Story，不推进流程 |
+| `review [step]` | 只读审查当前 goal 的状态、文档和产物一致性；可限定步骤或 Story，不推进流程 |
 | `pause` | 状态改 paused，报告恢复方式 |
 | `resume <回复>` | 记录用户回答进决策日志，恢复 waiting_user 的步骤 |
 | `approve` / `reject <原因>` / `amend <补充>` | 处理等待审批的步骤（语义见 workflow.md 审批门） |
@@ -49,7 +54,7 @@ negative_triggers: [code review, 代码评审, 技能评审, 重构, refactor]
 ## Steps
 
 1. 判断是否真是多阶段目标：只改一处、只答一个问题、只做一次探查都不要启动工作流。
-2. 用户问进度用 `/goal2 status`；要审查文档和状态用 `/goal2 review [step]`；要一次推多步用 `/goal2 run`；想无人值守用 `/goal2 auto`。
-3. 步骤停在等用户输入时，提示 `/goal2 resume <回复>`；回答会记入决策日志并写入需求文档的用户补充段。
+2. 用户问进度用 `/goal status`；要审查文档和状态用 `/goal review [step]`；要一次推多步用 `/goal run`；想无人值守用 `/goal auto`。
+3. 步骤停在等用户输入时，提示 `/goal resume <回复>`；回答会记入决策日志并写入需求文档的用户补充段。
 4. 不要手改 `brief.md` 的「原始需求」段，也不要改 `epics.md` 里已冻结的验收标准。
-5. 中断不丢进度（progress.md 在盘）：提示 `/goal2 next` 或 `/goal2 resume` 续跑即可。
+5. 中断不丢进度（progress.md 在盘）：提示 `/goal next` 或 `/goal resume` 续跑即可。

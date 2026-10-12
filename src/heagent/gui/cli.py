@@ -70,8 +70,8 @@ def gui_cmd(
     _log_dir.mkdir(parents=True, exist_ok=True)
     _log_file = _log_dir / f"heagent-gui-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
 
-    # 日志**只写文件**：TUI 独占终端，往 stderr 写日志会污染界面；同时这也让 /goal 的输出面干净
-    # ——历史上 GUI 靠重定向整个 stderr 截获 /goal 文案，会把日志一并倒进对话区（台账 A4b）。
+    # 日志**只写文件**：TUI 独占终端，往 stderr 写日志会污染界面；同时这也让 /goal_old 的输出面干净
+    # ——历史上 GUI 靠重定向整个 stderr 截获 /goal_old 文案，会把日志一并倒进对话区（台账 A4b）。
     _file_handler = logging.FileHandler(str(_log_file), encoding="utf-8")
     _file_handler.setLevel(_file_level)
 

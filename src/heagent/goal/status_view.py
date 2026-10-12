@@ -122,18 +122,18 @@ def _recommended_commands(state: WorkflowRunnerState) -> list[str]:
     """Deterministic next actions for the current status, never a free-text suggestion."""
     if state.status is WorkflowStatus.WAITING_USER and state.awaiting_approval:
         # 审批门挂起（Story 51-5）：只有显式人工决策能推进，resume 不在其列（不能隐式批准）。
-        return ["/goal approve", "/goal reject <原因>", "/goal amend <补充>", "/goal decisions"]
+        return ["/goal_old approve", "/goal_old reject <原因>", "/goal_old amend <补充>", "/goal_old decisions"]
     match state.status:
         case WorkflowStatus.WAITING_USER:
-            return ["/goal resume <answer>", "/goal status"]
+            return ["/goal_old resume <answer>", "/goal_old status"]
         case WorkflowStatus.BLOCKED:
-            return ["/goal resume <说明>", "/goal doctor"]
+            return ["/goal_old resume <说明>", "/goal_old doctor"]
         case WorkflowStatus.FAILED:
-            return ["/goal status", "/goal resume <说明>"]
+            return ["/goal_old status", "/goal_old resume <说明>"]
         case WorkflowStatus.COMPLETED:
-            return ["/goal status"]
+            return ["/goal_old status"]
         case _:
-            return ["/goal next"]
+            return ["/goal_old next"]
 
 
 def _line(label: str, value: str) -> list[str]:

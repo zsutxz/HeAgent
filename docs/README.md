@@ -22,13 +22,13 @@
 
 - [架构参考](frame.md)：当前数据流、模块边界、配置、运行时治理和已知缺口。
 - [部署说明](../deploy/README.md)：部署资产的真实适用范围和限制。
-- [「Goal 工作流」专题](goal-workflow.md)：`/goal`、`workflow.md`、Epic/Story 和 checkpoint 的职责边界。
+- [「Goal 工作流」专题](goal-workflow.md)：`/goal_old`、`workflow.md`、Epic/Story 和 checkpoint 的职责边界。
 
 ## 推荐阅读路径
 
 1. 先读本索引了解文档职责和权威顺序。
 2. 再读 [`design.md`](design.md) 了解项目定位、目标和非目标。
-3. 最后按需读 [`frame.md`](frame.md) 的数据流、模块 DAG、`engine/`、网络入口（HTTP 4.17 / 网页控制台 4.18）、`/goal` 和已知缺口。
+3. 最后按需读 [`frame.md`](frame.md) 的数据流、模块 DAG、`engine/`、网络入口（HTTP 4.17 / 网页控制台 4.18）、`/goal_old` 和已知缺口。
 
 ## 快速定位
 
@@ -76,7 +76,7 @@ python -m pytest -m benchmark -q --benchmark-storage=./benchmark-data --benchmar
 
 1. 运行行为：`src/`。
 2. 配置默认值和 CLI 入口：`src/heagent/config/__init__.py`、`src/heagent/cli/console.py`、`pyproject.toml`。
-3. 当前 `/goal` 工作流：`.heagent/skills/he-goal/workflow.md`。
+3. 当前 `/goal_old` 工作流：`.heagent/skills/he-goal/workflow.md`。
 4. 设计和历史说明：本目录与 `_bmad-output/`，不得覆盖前三项。
 
 新增或变更功能时，先更新对应的当前事实文档；历史规划只追加证据，不回写成“当前实现”。
@@ -85,6 +85,6 @@ python -m pytest -m benchmark -q --benchmark-storage=./benchmark-data --benchmar
 
 ## Goal 工作流
 
-声明式 `/goal` 工作流的职责边界、权威关系、八步流程、写权限边界与产物布局已迁至专题文档
+声明式 `/goal_old` 工作流的职责边界、权威关系、八步流程、写权限边界与产物布局已迁至专题文档
 [`goal-workflow.md`](goal-workflow.md)（一处定义，他处链接）。可执行契约的唯一来源仍是
 [`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md)。

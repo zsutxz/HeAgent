@@ -1,6 +1,6 @@
-# goal2 开发工作流（流程契约）
+# goal 开发工作流（流程契约）
 
-本文件是 `/goal2` 工作流的**完整可执行契约**与唯一真源。执行者是主会话 agent（下称**宿主**）：
+本文件是 `/goal` 工作流的**完整可执行契约**与唯一真源。执行者是主会话 agent（下称**宿主**）：
 宿主按本契约逐步驱动流程，每个步骤用一个**全新**的子会话（`task_delegate`）执行；没有 Python
 状态机，全部状态由宿主按本契约落盘维护。任何步骤都不得跳过。
 
@@ -11,7 +11,7 @@
 
 状态真源全部是文件；宿主每次动作**先读后写**，绝不凭记忆续跑。
 
-- **根目录**：`_he-output/goals2/`（与旧 `/goal` 的 `_he-output/goals/` 完全隔离，互不读写）。
+- **根目录**：`_he-output/goals2/`（与旧 `/goal_old` 的 `_he-output/goals/` 完全隔离，互不读写）。
 - **current 指针**：`_he-output/goals2/current`，内容是当前 goal 的目录名；`reset` 删除它，
   goal 目录保留。无活动 goal 时指针不存在。
 - **goal 目录**：`_he-output/goals2/<goal-id>/`（`<goal-id>` 为英文 slug，冲突时追加 `-a`/`-b`…）：
@@ -23,7 +23,7 @@
 - **progress.md 骨架**（宿主创建并持续维护）：
 
   ```markdown
-  # goal2 进度：<goal-id>
+  # goal 进度：<goal-id>
 
   - 目标：<标题>
   - 状态：<running | waiting_user | paused | blocked | done>
@@ -74,7 +74,7 @@
 - 不修改代码、文档、状态、审批记录、Story 勾选或任何项目文件。
 - 不推进步骤，也不改变当前状态。
 - 每条发现必须包含：位置、证据、严重度（Critical/High/Medium/Low）和建议处置。
-- `review` 是 goal2 文档/状态审查，不等于代码评审；代码评审仍按独立流程处理。
+- `review` 是 goal 文档/状态审查，不等于代码评审；代码评审仍按独立流程处理。
 
 - **审批门**：标「审批门」的步骤（Step 04、06）产出核对通过后，宿主**停下向用户展示产出并请求
   确认**；答复写入决策日志（`approve` / `reject <原因>` / `amend <补充>` 三种处置：批准继续、
@@ -87,9 +87,9 @@
 ## cron 自动推进
 
 `auto [cron]` 用 cron 工具注册一个按表达式触发的 job，其 prompt 固定为以下模板（`auto off` 注销
-prompt 以「推进 goal2」开头的 job）：
+prompt 以「推进 goal」开头的 job）：
 
-> 推进 goal2：读取 `_he-output/goals2/current` 指向的 goal 目录的 progress.md 与 brief.md，按
+> 推进 goal：读取 `_he-output/goals2/current` 指向的 goal 目录的 progress.md 与 brief.md，按
 > `.heagent/skills/goal2/workflow.md` 的宿主执行循环推进一步。若当前处于等待用户输入或审批门，
 > 不要推进，原样报告等待项。
 

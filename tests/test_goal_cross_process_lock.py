@@ -1,4 +1,4 @@
-"""Cross-process file lock coverage for /goal state (deferred-work 高严重度项).
+"""Cross-process file lock coverage for /goal_old state (deferred-work 高严重度项).
 
 双进程并发（CLI cron × 手动命令、CLI × GUI）此前仅由进程内 ``asyncio.Lock``
 保护，会互相覆盖 brief.md / current 指针丢进度；本文件锁定复合互斥

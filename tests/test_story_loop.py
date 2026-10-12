@@ -291,7 +291,7 @@ async def test_story_loop_resume_does_not_conflict_with_previous_step_advance(tm
     Regression: advancing into a story-loop step writes a pending snapshot for
     ``(step, story_index=0)`` with no active story. Resuming an interrupted first
     story then re-issued the very same id carrying ``active_story="S-1"``, so the
-    store rejected the write as a bogus conflict and ``/goal resume`` failed.
+    store rejected the write as a bogus conflict and ``/goal_old resume`` failed.
     """
     workflow = WorkflowResource(
         name="demo",

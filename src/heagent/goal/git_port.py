@@ -19,7 +19,7 @@ rev / base 参数另受 :data:`_REVISION_PATTERN` 约束（首字符必须是 wo
 **子树语义（如实声明，review #21）**：全部查询走 ``git -C <workspace>``——workspace 只是
 仓库内的一个锚点：当 workspace 是仓库**子目录**时，``diff`` / ``ls-files`` 等只报该子树
 相对根的路径、且只覆盖子树内的变更；只有 workspace 恰为仓库根时证据才覆盖全仓。调用方
-（如 ``/goal verify``）据 workspace 解析的仓库布局如实取值，不在本端口内"补齐"全仓视图。
+（如 ``/goal_old verify``）据 workspace 解析的仓库布局如实取值，不在本端口内"补齐"全仓视图。
 """
 
 from __future__ import annotations

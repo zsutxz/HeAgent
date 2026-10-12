@@ -18,7 +18,7 @@ open_question_block: "有竞争性解释需要干系人拍板时，以 waiting_u
 
 # development workflow（开发工作流）
 
-本文件是声明式 `/goal` 工作流的**完整可执行契约**。CLI 读取本文件、持久化 `on_create` 声明的
+本文件是声明式 `/goal_old` 工作流的**完整可执行契约**。CLI 读取本文件、持久化 `on_create` 声明的
 goal 身份，并为每个声明步骤调用一个**全新**的 SubAgent 会话；已完成的步骤记入 goal checkpoint
 store，任何步骤都不得跳过。
 

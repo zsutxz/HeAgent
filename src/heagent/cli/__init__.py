@@ -7,7 +7,7 @@
 
 - ``console.py`` —— Click 命令组 + 单次/交互执行（旧 ``cli.py``；入口脚本指向它）
 - ``init.py``    —— ``heagent init`` 子命令（旧 ``cli_init.py``）
-- ``goal.py``    —— ``/goal`` 命令族（旧 ``cli_goal.py``）
+- ``goal.py``    —— ``/goal_old`` 命令族（旧 ``cli_goal.py``）
 - ``http.py``    —— ``http-server`` 子命令与 HTTP/控制台装配（旧 ``cli_http.py``）
 - ``dialogs.py`` —— 服务端原生目录选择（旧 ``cli_dialogs.py``）
 - ``display.py`` —— 终端渲染辅助（旧 ``cli_display.py``，CLI 与 GUI 共用）

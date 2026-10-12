@@ -1,4 +1,4 @@
-"""/goal command family: declarative workflow dispatch, cron auto-advance, and goal mutex."""
+"""/goal_old command family: declarative workflow dispatch, cron auto-advance, and goal mutex."""
 
 from __future__ import annotations
 
@@ -125,7 +125,7 @@ _GOAL_FAILED = "failed"
 _GOAL_WAITING = "waiting"
 
 
-#: ``/goal`` 用户可见输出的**消息 sink**（GUI 用）。
+#: ``/goal_old`` 用户可见输出的**消息 sink**（GUI 用）。
 #: 默认 ``None`` ⇒ 仍走 ``click.echo(..., err=True)``，CLI 行为逐字不变。
 #: 为什么需要它：GUI 原先靠 ``contextlib.redirect_stderr`` 截获这些文案，但那会把**整个 stderr**
 #: 一起吞掉——包括 ``logging`` 记录与第三方库输出，全部倒进对话区（台账 A4b）。
@@ -133,7 +133,7 @@ _MESSAGE_SINK: ContextVar[Callable[[str], None] | None] = ContextVar("goal_messa
 
 
 def _echo(message: str, *, err: bool = True) -> None:
-    """``/goal`` 全部用户可见输出的**唯一出口**（历史 40+ 处 ``click.echo`` 收敛于此）。
+    """``/goal_old`` 全部用户可见输出的**唯一出口**（历史 40+ 处 ``click.echo`` 收敛于此）。
 
     有 sink（GUI）时逐条投递；否则与历史行为逐字一致地写 stderr。``err`` 只为保持调用点原样
     （``click.echo(..., err=True)``）而保留，sink 路径忽略它。
@@ -160,7 +160,7 @@ async def _goal_mutex() -> AsyncIterator[None]:
 
 
 # =============================================================================
-# /goal 命令族（Story 41.1：目标驱动开发工作流——skill 正文直读 + 逐 story 会话）
+# /goal_old 命令族（Story 41.1：目标驱动开发工作流——skill 正文直读 + 逐 story 会话）
 # =============================================================================
 
 # 需求文档与命名层（slug 词表 / goal_id 规则 / 目录命名 / brief.md 生成与增量更新）
@@ -179,15 +179,15 @@ def _goal_checkpoint_mode(workflow: WorkflowResource) -> str:
 def _goal_checkpoint_prompt() -> bool:
     """Ask for checkpoint approval only when stdin is an interactive TTY."""
     if not sys.stdin.isatty():
-        _echo("[goal] waiting for user response; use /goal resume <answer> to continue", err=True)
+        _echo("[goal] waiting for user response; use /goal_old resume <answer> to continue", err=True)
         return False
     try:
         approved = bool(click.confirm("[goal] checkpoint complete; continue to the next step?", default=False))
         if not approved:
-            _echo("[goal] checkpoint paused; use /goal resume <answer> to continue", err=True)
+            _echo("[goal] checkpoint paused; use /goal_old resume <answer> to continue", err=True)
         return approved
     except (EOFError, KeyboardInterrupt, click.Abort):
-        _echo("[goal] checkpoint paused; use /goal resume <answer> to continue", err=True)
+        _echo("[goal] checkpoint paused; use /goal_old resume <answer> to continue", err=True)
         return False
 
 
@@ -247,7 +247,7 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
     """Load and validate goal state before advancing; a non-None outcome means stop."""
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
-        _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+        _echo("[goal] no active declarative goal; use /goal_old new <description>", err=True)
         return _GOAL_FAILED, None
     try:
         description = goal_description(goal_dir)
@@ -271,12 +271,12 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
         if runner.state.awaiting_approval:
             # 审批门挂起（Story 51-5）：指向显式决策，resume 在此状态会被显性拒绝。
             _echo(
-                "[goal] a step awaits a human decision: /goal approve | /goal reject <原因> | /goal amend <补充> "
-                "(/goal decisions lists records)",
+                "[goal] a step awaits a human decision: /goal_old approve | /goal_old reject <原因> | /goal_old amend <补充> "
+                "(/goal_old decisions lists records)",
                 err=True,
             )
         else:
-            _echo("[goal] declarative workflow is paused; use /goal resume first", err=True)
+            _echo("[goal] declarative workflow is paused; use /goal_old resume first", err=True)
         return _GOAL_WAITING, None
     if runner.state.status in {WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
         _echo(f"[goal] declarative workflow is {runner.state.status.value}: {runner.state.reason}", err=True)
@@ -865,7 +865,7 @@ async def _goal_declarative_status(workflow: WorkflowResource) -> None:
         _echo(f"[goal] declarative checkpoint failed: {exc}", err=True)
         return
     open_decisions = (
-        ["a step awaits a decision (/goal approve | /goal reject <原因> | /goal amend <补充>)"]
+        ["a step awaits a decision (/goal_old approve | /goal_old reject <原因> | /goal_old amend <补充>)"]
         if runner.state.awaiting_approval
         else []
     )
@@ -896,7 +896,7 @@ async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: 
 
 # ── 步骤级审批与决策记录（Story 51-5）──────────────────────────────────────
 
-# /goal decisions 列表里单条原文的展示上限：决策日志保存全文，回显只留可定位的一行。
+# /goal_old decisions 列表里单条原文的展示上限：决策日志保存全文，回显只留可定位的一行。
 _DECISION_TEXT_DISPLAY_LIMIT = 120
 
 
@@ -916,16 +916,16 @@ async def _goal_declarative_decision(
     provider: BaseProvider,
     engine: EngineContainer | None,
 ) -> None:
-    """/goal approve | reject | amend：显式人工决策（CLI/GUI 共用的应用服务，决策日志追加一条）。
+    """/goal_old approve | reject | amend：显式人工决策（CLI/GUI 共用的应用服务，决策日志追加一条）。
 
-    approve / amend 落定后立即推进（与 ``/goal resume`` 的「落定即推进」同款，复用
+    approve / amend 落定后立即推进（与 ``/goal_old resume`` 的「落定即推进」同款，复用
     :func:`_goal_declarative_advance` 同一推进缝）——amend 推进的就是带补充的重跑；reject
     不推进（工作被驳回，BLOCKED 等待修订后 resume）。
     """
     async with _goal_mutex():
         goal_dir = _goal_declarative_active_dir()
         if goal_dir is None:
-            _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+            _echo("[goal] no active declarative goal; use /goal_old new <description>", err=True)
             return
         outcome = await record_decision(workflow, goal_dir, action=action, text=args.strip())
         if outcome.message:
@@ -936,7 +936,7 @@ async def _goal_declarative_decision(
 
 
 async def _goal_declarative_decisions(workflow: WorkflowResource) -> None:
-    """/goal decisions：只读回显当前 goal 的追加式决策日志（经 _echo 漏斗）。
+    """/goal_old decisions：只读回显当前 goal 的追加式决策日志（经 _echo 漏斗）。
 
     读取也进 goal 域锁（审查 #9）：并发写方 append 一半时读方不会把半截文件误报成
     「损坏」——锁内读是防止撕裂读的防线（store 自身的独占创建只保证写侧）。
@@ -971,7 +971,7 @@ def _render_decision_records(records: list[DecisionRecord]) -> None:
         _echo(line, err=True)
 
 
-# ── /goal verify 与结构化完成门（Story 51-4）───────────────────────────────
+# ── /goal_old verify 与结构化完成门（Story 51-4）───────────────────────────────
 
 # 受治理重跑的命令超时（秒）：声明验证可能是长测试套件，工具的 120s 默认会把长套件
 # 钉成 TIMEOUT——显式给足上界（review #16；不新增顶层配置键）。
@@ -990,7 +990,7 @@ def _goal_gate_lock() -> asyncio.Lock:
 
 
 def _goal_verify_workspace(engine: EngineContainer | None) -> Path:
-    """/goal 验证工作区根的**唯一解析点**（review #1）：受治理执行在哪里跑（``cd`` 前缀）、
+    """/goal_old 验证工作区根的**唯一解析点**（review #1）：受治理执行在哪里跑（``cd`` 前缀）、
     证据 ``cwd`` 记录什么、求值器拿什么当期望值——三处都取这一个值，永不各自解析。"""
     return Path(WorkspacePaths.from_root((engine.workspace_root if engine else None) or os.getcwd()).root).resolve()
 
@@ -1015,7 +1015,7 @@ async def _goal_verify_report(
     rerun: bool,
     rerun_policy: Literal["always", "if_stale"] = "always",
 ) -> VerificationReport:
-    """求值一个步骤 / Story 的 ``validation:`` 子句（``/goal verify`` 与完成门共用同一次实现）。
+    """求值一个步骤 / Story 的 ``validation:`` 子句（``/goal_old verify`` 与完成门共用同一次实现）。
 
     证据 = ``<goal_dir>/evidence/``（唯一位置解析点）；产物 = 工作区文件；Git = 只读端口
     的实时查询（仓库不可用返回空证据：变更集为空，git 子句与 ``git-changes`` 门照实
@@ -1093,7 +1093,7 @@ async def _goal_declarative_verify(
     engine: EngineContainer | None,
     args: str,
 ) -> None:
-    """/goal verify：只检查或受控重跑声明里列出的验证，绝不重跑实现步骤、不改 Runner 状态。
+    """/goal_old verify：只检查或受控重跑声明里列出的验证，绝不重跑实现步骤、不改 Runner 状态。
 
     ``args`` 为空 = 只检查（读证据 / 产物 / 只读 Git）；``run`` = 先受控重跑声明的验证命令
     再检查。对 BLOCKED / FAILED 状态同样可用（恢复后先复核证据是合法诉求）。
@@ -1103,7 +1103,7 @@ async def _goal_declarative_verify(
     async with _goal_mutex():
         goal_dir = _goal_declarative_active_dir()
         if goal_dir is None:
-            _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+            _echo("[goal] no active declarative goal; use /goal_old new <description>", err=True)
             return
         try:
             runner = await _goal_declarative_runner(workflow, goal_dir)
@@ -1222,7 +1222,7 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
             "timeout": _VERIFY_COMMAND_TIMEOUT_SECONDS,
         },
     )
-    run_context = engine.create_run_context(metadata={"purpose": "/goal verify controlled re-run"})
+    run_context = engine.create_run_context(metadata={"purpose": "/goal_old verify controlled re-run"})
     registry = ToolRegistry.get()
     handler = registry.get_handler("shell")
     if handler is None:
@@ -1287,7 +1287,7 @@ async def _goal_declarative_run(
             if outcome != _GOAL_ADVANCED:
                 return
     except (KeyboardInterrupt, asyncio.CancelledError):
-        _echo("[goal] declarative workflow interrupted; use /goal resume to continue", err=True)
+        _echo("[goal] declarative workflow interrupted; use /goal_old resume to continue", err=True)
 
 
 async def _goal_declarative_auto(
@@ -1323,7 +1323,7 @@ async def _goal_declarative_auto(
 def _goal_workflow_option(args: str) -> tuple[str, str]:
     """拆出字符串参数里的 ``--workflow <包id>``（或 ``--workflow=<包id>``）选项；返回 ``(剩余文本, 包 id)``。
 
-    ``new``（含裸 ``/goal <描述>`` 兜底）与 ``doctor`` 的选项口径：``--workflow`` 后必须
+    ``new``（含裸 ``/goal_old <描述>`` 兜底）与 ``doctor`` 的选项口径：``--workflow`` 后必须
     紧跟包 id（``=`` 形态直接内联），缺参显性报错（不做静默兜底）；重复给出显性报错
     （静默取第一个会把第二个连同包 id 留在描述里）。描述文本恰含 ``--workflow`` token 时
     会按选项解析而显性失败——可接受的 fail-loud（usage 已注明）。未给出时包 id 为空串，
@@ -1358,7 +1358,7 @@ async def _goal_resolve_bound() -> tuple[Path, WorkflowResource] | None:
     """
     goal_dir = _goal_declarative_active_dir()
     if goal_dir is None:
-        _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+        _echo("[goal] no active declarative goal; use /goal_old new <description>", err=True)
         return None
     try:
         return goal_dir, resolve_bound_workflow(goal_dir, get_settings().goal_workflow_skill)
@@ -1385,7 +1385,7 @@ async def _goal_start_new(
     *,
     cron_store: JobStore | None = None,
 ) -> None:
-    """``/goal new``（含裸描述兜底）：解析 ``--workflow`` → 显性校验包 → 冻结创建。
+    """``/goal_old new``（含裸描述兜底）：解析 ``--workflow`` → 显性校验包 → 冻结创建。
 
     选定的包不存在或声明非法都显性失败（不静默回退默认包）；revision 由
     :func:`workflow_revision` 在**创建前**算出，与包 id 一起冻结进需求文档（AD-8）。
@@ -1455,7 +1455,7 @@ _GOAL_SUBCOMMAND_NAMES = (
 def _goal_typo_subcommand(args: str) -> str | None:
     """Map a single-token typo of a known subcommand to that subcommand.
 
-    ``/goal <anything else>`` starts a new goal, so a hand slip such as ``/goal resume\\``
+    ``/goal_old <anything else>`` starts a new goal, so a hand slip such as ``/goal_old resume\\``
     silently burned a whole goal's first step.  Only single-token inputs close to a
     known subcommand are treated as typos; multi-word descriptions pass through.
     """
@@ -1473,7 +1473,7 @@ async def _goal_declarative_dispatch(
     *,
     cron_store: JobStore | None,
 ) -> None:
-    """Route the supported /goal commands without touching the legacy board.
+    """Route the supported /goal_old commands without touching the legacy board.
 
     作用于**既有 goal** 的命令（advance/run/status/verify/pause/resume/approve/reject/
     amend/decisions/auto/doctor）一律经 :func:`_goal_bound_workflow`（→ :func:`_goal_resolve_bound`）
@@ -1552,7 +1552,7 @@ async def _goal_declarative_dispatch(
         if (workflow := await _goal_bound_workflow()) is not None:
             await _goal_declarative_auto(workflow, rest, cron_store)
     elif (intended := _goal_typo_subcommand(args)) is not None:
-        _echo(f"[goal] unknown subcommand {args.strip()!r}; did you mean `/goal {intended}`?", err=True)
+        _echo(f"[goal] unknown subcommand {args.strip()!r}; did you mean `/goal_old {intended}`?", err=True)
         _goal_usage()
     else:
         async with _goal_mutex():
@@ -1560,31 +1560,31 @@ async def _goal_declarative_dispatch(
 
 
 def _goal_usage() -> None:
-    """打印 /goal 子命令用法表（缺参 / 未实现 / 拼错时）。"""
+    """打印 /goal_old 子命令用法表（缺参 / 未实现 / 拼错时）。"""
     _echo(
-        "/goal 用法：\n"
-        "  /goal <目标描述>      新建 goal 并执行 planning 规程\n"
-        "  /goal new <目标描述>  同上（显式 new 形式）\n"
-        "  /goal new <描述> --workflow <包id>（或 --workflow=<包id>）\n"
+        "/goal_old 用法：\n"
+        "  /goal_old <目标描述>      新建 goal 并执行 planning 规程\n"
+        "  /goal_old new <目标描述>  同上（显式 new 形式）\n"
+        "  /goal_old new <描述> --workflow <包id>（或 --workflow=<包id>）\n"
         "                        指定 workflow 包创建（缺省 GOAL_WORKFLOW_SKILL）；包 id 与 revision\n"
         "                        在创建时冻结，运行中改配置不换流程（既有 goal 按冻结绑定执行；\n"
         "                        例外：当前配置包存在但声明非法时，入口预校验显性失败会挡住全部\n"
         "                        命令——包括绑定另一合法包的活动 goal）。描述文本恰含 --workflow\n"
         "                        时按选项解析并显性报错，不会吞进描述\n"
-        "  /goal next            推进下一条 story（每步全新会话）\n"
-        "  /goal status          查看进度\n"
-        "  /goal doctor [--workflow <包id>]\n"
+        "  /goal_old next            推进下一条 story（每步全新会话）\n"
+        "  /goal_old status          查看进度\n"
+        "  /goal_old doctor [--workflow <包id>]\n"
         "                        预检工作流及角色技能包（有活动 goal 预检绑定的包；无活动 goal\n"
         "                        时 --workflow 任选包，缺省预检配置的包）\n"
-        "  /goal verify [run]    按声明子句复核证据（run = 受控重跑声明的验证命令）\n"
-        "  /goal approve         批准等待审批的步骤（唯一能把该步标记完成的路径）\n"
-        "  /goal reject <原因>   驳回等待审批的工作（步骤未完成，修订后 /goal resume 重跑）\n"
-        "  /goal amend <补充>    带补充重跑等待审批的步骤（步骤未完成，补充进需求文档）\n"
-        "  /goal decisions       查看追加式决策日志（approve/reject/amend/resume 每次一条）\n"
-        "  /goal reset           清除 current 指针（goal 目录保留）\n"
-        "  /goal run             连续推进 goal（步数上限由 workflow 的 max_rounds 声明；Ctrl+C 可中断）\n"
-        "  /goal resume [回复]   记录用户回答并继续 waiting_user 步骤\n"
-        "  /goal auto [cron]     注册 cron 自动推进（默认 */15 * * * *；off 注销）",
+        "  /goal_old verify [run]    按声明子句复核证据（run = 受控重跑声明的验证命令）\n"
+        "  /goal_old approve         批准等待审批的步骤（唯一能把该步标记完成的路径）\n"
+        "  /goal_old reject <原因>   驳回等待审批的工作（步骤未完成，修订后 /goal_old resume 重跑）\n"
+        "  /goal_old amend <补充>    带补充重跑等待审批的步骤（步骤未完成，补充进需求文档）\n"
+        "  /goal_old decisions       查看追加式决策日志（approve/reject/amend/resume 每次一条）\n"
+        "  /goal_old reset           清除 current 指针（goal 目录保留）\n"
+        "  /goal_old run             连续推进 goal（步数上限由 workflow 的 max_rounds 声明；Ctrl+C 可中断）\n"
+        "  /goal_old resume [回复]   记录用户回答并继续 waiting_user 步骤\n"
+        "  /goal_old auto [cron]     注册 cron 自动推进（默认 */15 * * * *；off 注销）",
         err=True,
     )
 
@@ -1643,7 +1643,7 @@ async def _goal_session(
     try:
         return await agent.run(prompt)
     except (KeyboardInterrupt, asyncio.CancelledError):
-        _echo("[goal] 已中断：状态在盘（brief.md），/goal next 可续跑。", err=True)
+        _echo("[goal] 已中断：状态在盘（brief.md），/goal_old next 可续跑。", err=True)
         return None
 
 
@@ -1714,7 +1714,7 @@ async def _goal_runner(
     cron_store: JobStore | None = None,
     on_message: Callable[[str], None] | None = None,
 ) -> None:
-    """/goal 子命令族总入口：加载声明式 workflow 后交给确定性分发器。
+    """/goal_old 子命令族总入口：加载声明式 workflow 后交给确定性分发器。
 
     workflow.md 缺失或无效时显性失败，不回退到已移除的 legacy goal board。
     ``on_message`` 提供时（GUI），本函数调用链上的全部用户可见输出改投该 sink；

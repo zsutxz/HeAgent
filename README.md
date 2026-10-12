@@ -2,7 +2,7 @@
 
 > **实验性 Agent 框架。** HeAgent 用可读的 Python 代码拆解自主 Agent 的关键机制，适合学习、原型验证和按需扩展；它不是产品，也不是安全边界。
 
-HeAgent 是一个单进程、异步的 Python Agent 运行时，同时提供 CLI 和可嵌入的库接口。它把多 Provider 调用、工具执行、策略裁决、会话与记忆、MCP、子 Agent 委派和声明式 `/goal` 工作流组合在一起。
+HeAgent 是一个单进程、异步的 Python Agent 运行时，同时提供 CLI 和可嵌入的库接口。它把多 Provider 调用、工具执行、策略裁决、会话与记忆、MCP、子 Agent 委派和声明式 `/goal_old` 工作流组合在一起。
 
 如果目标是稳定完成日常编码任务，请优先使用 [Codex](https://github.com/openai/codex) 等产品级代理；如果目标是理解、替换或组合 Agent 的内部机制，HeAgent 提供了一套可直接阅读和改造的参考实现。
 
@@ -79,7 +79,7 @@ heagent init --project
 - **Provider**：DeepSeek、Kimi、GLM、OpenAI Chat Completions、OpenAI Responses、Anthropic 和显式启用的 Ollama；支持重试、密钥轮换、故障转移、手动切换与声明式路由池。
 - **工具与治理**：`@tool` 注册、内置 shell／文件／搜索／记忆／技能／Cron／子 Agent／Web／Git 工具、MCP 桥接，以及 `PolicyEngine → ToolExecutor → SafetyGuard → handler` 执行链。
 - **上下文与记忆**：会话持久化、分层上下文文件、token 计量、压缩或窗口重置；技能、事实记忆、用户画像和 `SOUL.md` 人格均可文件化管理。
-- **工作流与审计**：Markdown 声明的 `/goal`、checkpoint、独立 SubAgent 步骤、事件总线、JSONL 输出、rollout 落盘和回放。
+- **工作流与审计**：Markdown 声明的 `/goal_old`、checkpoint、独立 SubAgent 步骤、事件总线、JSONL 输出、rollout 落盘和回放。
 
 ## 常用命令
 
@@ -104,7 +104,7 @@ heagent init --project
 | `--sandbox auto\|passthrough\|firejail\|winjob` | 选择 shell 执行后端 |
 | `--json` | 单次执行时将 JSONL 事件流输出到 stdout |
 
-交互模式支持 `/model`、`/route`、`/goal`、`/clear` 和 `/help`。自定义命令放在 `.heagent/commands/*.md`，自定义角色放在 `.heagent/agents/*.md`。
+交互模式支持 `/model`、`/route`、`/goal_old`、`/clear` 和 `/help`。自定义命令放在 `.heagent/commands/*.md`，自定义角色放在 `.heagent/agents/*.md`。
 
 ## HTTP 网页入口（实验性）
 
@@ -152,16 +152,16 @@ API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","
 
 ## Goal 工作流
 
-`/goal` 的权威契约是 [`.heagent/skills/he-goal/workflow.md`](.heagent/skills/he-goal/workflow.md)：Markdown 定义步骤、产物和门禁，Python 负责解析、checkpoint、状态迁移和 SubAgent 调度。
+`/goal_old` 的权威契约是 [`.heagent/skills/he-goal/workflow.md`](.heagent/skills/he-goal/workflow.md)：Markdown 定义步骤、产物和门禁，Python 负责解析、checkpoint、状态迁移和 SubAgent 调度。
 
 ```text
-/goal <目标描述>      创建目标并启动首个步骤
-/goal next            推进一步或一条 Story
-/goal run             连续推进，直到 checkpoint 或阻塞
-/goal status          查看状态和产物
-/goal pause           保存并暂停
-/goal resume [回复]   提交回复并继续
-/goal auto [cron]     注册定时推进；off 注销
+/goal_old <目标描述>      创建目标并启动首个步骤
+/goal_old next            推进一步或一条 Story
+/goal_old run             连续推进，直到 checkpoint 或阻塞
+/goal_old status          查看状态和产物
+/goal_old pause           保存并暂停
+/goal_old resume [回复]   提交回复并继续
+/goal_old auto [cron]     注册定时推进；off 注销
 ```
 
 运行时目标产物在 `_he-output/goals/<goal-id>/`；步骤、产物与维护规则详见[文档索引的「Goal 工作流」章节](docs/README.md#goal-工作流)。历史规划材料位于 [`_bmad-output/`](_bmad-output/README.md)，不作为当前运行时配置。
@@ -253,7 +253,7 @@ mypy src
 | --- | --- |
 | 当前架构、数据流、工具与已知缺口 | [架构参考](docs/frame.md) |
 | 项目定位、设计目标和非目标 | [设计说明](docs/design.md) |
-| `/goal` 工作流、产物与维护规则 | [文档索引「Goal 工作流」](docs/README.md#goal-工作流) |
+| `/goal_old` 工作流、产物与维护规则 | [文档索引「Goal 工作流」](docs/README.md#goal-工作流) |
 | 部署、Docker 与 Windows 可执行文件 | [部署说明](deploy/README.md) |
 | 历史规划与验收证据 | [_bmad-output/README.md](_bmad-output/README.md) |
 

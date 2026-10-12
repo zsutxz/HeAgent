@@ -10,7 +10,7 @@ title: <Epic 标题>
 > 本模板是 `artifacts.py` 校验的 Epic 层级产物，不是 Step 07 的 Story 运行时清单。
 > 运行时清单唯一写入 `epics.md`，使用 `## E<N> — <标题>` 与 `### S-N <标题>` 格式。
 
-> `/goal` 运行时契约：Epic 在 `_he-output/goals/<goal-id>/epics.md` 里以 `## E<N> — <标题>` 分段
+> `/goal_old` 运行时契约：Epic 在 `_he-output/goals/<goal-id>/epics.md` 里以 `## E<N> — <标题>` 分段
 > （`N` 从 1 起连续，与产品范围定义步骤的有序 Epic 提案同序同号）；属于该 Epic 的 story 全部列在这
 > 一段内，编号连续。step 07 据此把 story 产物写进 `step-07-implement-story/epic-<eN>/s-<n>/`，Epic
 > 收口评审写入 `epic-<eN>/review-report.md`。

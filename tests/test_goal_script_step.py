@@ -1,4 +1,4 @@
-"""Story 51-7：脚本步骤在 /goal 推进链上的接线（CLI 宿主 + Runner 的 A1/A2 端口）。
+"""Story 51-7：脚本步骤在 /goal_old 推进链上的接线（CLI 宿主 + Runner 的 A1/A2 端口）。
 
 覆盖：`executor_mode: script` 步骤真的被 ScriptRuntime 执行；只读操作同步作答；动作请求在
 脚本返回后由宿主按序**提交**（checkpoint / decision 落步骤证据、validate 走 51-4 求值器、
