@@ -2,7 +2,7 @@
 name: he-goal
 description: 多阶段大目标走 /goal 声明式 8 步工作流的触发与引导
 triggers: [多阶段, 一个完整的项目, 做一个完整的项目, 从零做一个, 需求到交付, 端到端交付, 全流程开发, 目标驱动, /goal, goal 工作流, 立项]
-negative_triggers: [code review, 代码评审, 技能评审, 重构, refactor]
+negative_triggers: [goal2, /goal2, code review, 代码评审, 技能评审, 重构, refactor]
 ---
 
 # he-goal（目标驱动开发工作流）

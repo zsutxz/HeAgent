@@ -61,9 +61,11 @@ docs/claude-updater/
 uv.lock
 .agents/skills/
 _he-output/goals
+_he-output/goals2/
 projects/
 .pytest_tmp_templates_final/
 
 # 运行时/工具残留垃圾（2026-09）
 debug.log
 .pytest-session-*
+.heagent/skills/**/meta.yaml
