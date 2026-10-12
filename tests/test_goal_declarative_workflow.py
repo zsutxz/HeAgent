@@ -172,7 +172,7 @@ def advance_noop(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_goal_new_names_project_via_llm(
+async def test_goal_work_names_project_via_llm(
     declarative_cwd: Path,
     advance_noop: None,
     capsys: pytest.CaptureFixture[str],
@@ -193,7 +193,7 @@ async def test_goal_new_names_project_via_llm(
     "content",
     ["做一个好项目", "tool-2026", "a " * 40],
 )
-async def test_goal_new_falls_back_to_project_id_when_llm_output_unusable(
+async def test_goal_work_falls_back_to_project_id_when_llm_output_unusable(
     declarative_cwd: Path,
     advance_noop: None,
     capsys: pytest.CaptureFixture[str],
@@ -209,7 +209,7 @@ async def test_goal_new_falls_back_to_project_id_when_llm_output_unusable(
 
 
 @pytest.mark.asyncio
-async def test_goal_new_falls_back_to_project_id_when_provider_fails(
+async def test_goal_work_falls_back_to_project_id_when_provider_fails(
     declarative_cwd: Path,
     advance_noop: None,
     capsys: pytest.CaptureFixture[str],
@@ -224,7 +224,7 @@ async def test_goal_new_falls_back_to_project_id_when_provider_fails(
 
 
 @pytest.mark.asyncio
-async def test_goal_new_appends_suffix_when_llm_name_collides(
+async def test_goal_work_appends_suffix_when_llm_name_collides(
     declarative_cwd: Path,
     advance_noop: None,
 ) -> None:

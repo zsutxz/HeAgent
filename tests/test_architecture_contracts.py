@@ -861,7 +861,7 @@ def test_pyproject_does_not_declare_a_dead_pytest_benchmark_table() -> None:
 
 
 #: 工作流包名的静态兜底名单：派生通道（SKILL.md 读盘）失效（目录缺失等）时判据不致漏空。
-_STATIC_WORKFLOW_PACKAGE_NAMES = ("he-goal", "he-goal-new")
+_STATIC_WORKFLOW_PACKAGE_NAMES = ("he-goal", "he-work")
 
 
 def _workflow_package_names() -> tuple[str, ...]:

@@ -8,7 +8,7 @@ title: <Epic 标题>
 # <Epic 标题>
 
 > goal 层级产物模板：Epic 层级的提案/记录快照。运行时 story 清单唯一写入
-> `_he-output/goals_new/<goal-id>/epics.md`（`## E<N> — <标题>` 分段 + `### S-N <标题>` 条目），
+> `_he-output/works/<goal-id>/epics.md`（`## E<N> — <标题>` 分段 + `### S-N <标题>` 条目），
 > 执行顺序由 `S-N` 编号决定，不在此维护另一套状态。
 
 ## Goal

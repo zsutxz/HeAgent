@@ -112,7 +112,7 @@ CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt
 ```
 
 随包发布的工作流包：`he-goal`（`/goal_old` 声明式工作流，frontmatter 显式声明 `revision: "3"`）
-与 `he-goal-new`（`/goal` 的 8 步内联契约，未声明 revision ⇒ 走派生摘要路径）。新增一个包只需在
+与 `he-work`（`/work` 的 8 步内联契约，未声明 revision ⇒ 走派生摘要路径）。新增一个包只需在
 `.heagent/skills/<id>/` 放 `SKILL.md + workflow.md + templates/{prompt,gate}.md`，**不需要改 `src/`**。
 
 **冻结与漂移（AD-8）**：创建时把选定的包 id 与 revision（包 frontmatter 声明的 `revision`，

@@ -1,23 +1,23 @@
 ---
-name: goal_new
-description: 目标驱动开发（声明式 8 步工作流）：/goal 命令与多阶段大目标的触发与执行
-triggers: [/goal, goal 工作流]
+name: work
+description: 目标驱动开发（声明式 8 步工作流）：/work 命令与多阶段大目标的触发与执行
+triggers: [/work, work 工作流]
 negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, refactor]
 ---
 
-# goal（目标驱动开发工作流）
+# work（目标驱动开发工作流）
 
 ## Pattern
 
-多阶段大目标（从需求到交付的完整项目）走 `/goal` 工作流；单点改动、一次性问答直接做，不要启动工作流。
-本技能是 `/goal` 命令的执行契约：命令把参数交给你，你按本技能与同包 `workflow.md` 自主驱动整个流程
+多阶段大目标（从需求到交付的完整项目）走 `/work` 工作流；单点改动、一次性问答直接做，不要启动工作流。
+本技能是 `/work` 命令的执行契约：命令把参数交给你，你按本技能与同包 `workflow.md` 自主驱动整个流程
 （无 Python 状态机，状态全靠文件）。工作流共 8 步：市场调研、发散构思、需求分析、产品范围、架构设计、
 故事细化、逐故事实现、系统集成测试。
 
 与旧 `/goal_old` 的隔离：旧命令由 Python 状态机驱动，状态在 `_he-output/goals_old/`；本命令的状态在
-`_he-output/goals_new/`，两者互不兼容、互不迁移。不要把旧 goal 目录当本命令的状态读写，反之亦然。
+`_he-output/works/`，两者互不兼容、互不迁移。不要把旧 goal 目录当本命令的状态读写，反之亦然。
 
-**本包目录 `goal_new/`（canonical id `he-goal-new`）不要改回 `goal`/`goal2`。** 包 id 取 meta.yaml 的
+**本包目录 `work/`（canonical id `he-work`）不要改回 `goal`/`goal_new`/`goal2`。** 包 id 取 meta.yaml 的
 `canonical_id`（缺省回落目录名），须带 `he-`/`bmad-` 前缀，否则整包无法解析。目录若叫 `goal`，id 会
 兜底成 `he-goal`，与旧包 `goal_old/` 同 id 冲突并遮蔽，`/goal_old` 失效。`SKILL.md` 的 `name` 只作
 别名来源，不参与 id 校验。命令名与包目录名是两回事。
@@ -43,7 +43,7 @@ negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, 
 ## 执行总则
 
 1. **先读契约**：任何动作前先读本包 `workflow.md`——它是流程唯一真源，本技能正文不复述流程细节。
-2. **状态先读后写**：每次调用先读 `_he-output/goals_new/current` 与 goal 目录的 `progress.md`，
+2. **状态先读后写**：每次调用先读 `_he-output/works/current` 与 goal 目录的 `progress.md`，
    再做动作、再更新状态；绝不凭记忆续跑。
 3. **每步全新子会话**：用 `task_delegate` 执行步骤，任务正文 = 该步契约全文 + 输入产物路径；子会话最终回复由你保存为该步产物文件。子会话默认视为只读执行环境，**不得假设拥有 `file_write`、`file_edit` 或目录创建能力，也不要要求子会话自行落盘**；它必须在最终回复中返回完整的步骤产物正文或实现/验证报告。
 4. **宿主验收与落盘**：子会话返回后，由你按该步「验收核对」清单核对（需要跑命令就自己跑），再由主会话写入或更新项目文件，并把核对结果写进 `progress.md`；未过按该步处置，不得静默放行。
@@ -54,7 +54,7 @@ negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, 
 ## Steps
 
 1. 判断是否真是多阶段目标：只改一处、只答一个问题、只做一次探查都不要启动工作流。
-2. 用户问进度用 `/goal status`；要审查文档和状态用 `/goal review [step]`；要一次推多步用 `/goal run`；想无人值守用 `/goal auto`。
-3. 步骤停在等用户输入时，提示 `/goal resume <回复>`；回答会记入决策日志并写入需求文档的用户补充段。
+2. 用户问进度用 `/work status`；要审查文档和状态用 `/work review [step]`；要一次推多步用 `/work run`；想无人值守用 `/work auto`。
+3. 步骤停在等用户输入时，提示 `/work resume <回复>`；回答会记入决策日志并写入需求文档的用户补充段。
 4. 不要手改 `brief.md` 的「原始需求」段，也不要改 `epics.md` 里已冻结的验收标准。
-5. 中断不丢进度（progress.md 在盘）：提示 `/goal next` 或 `/goal resume` 续跑即可。
+5. 中断不丢进度（progress.md 在盘）：提示 `/work next` 或 `/work resume` 续跑即可。

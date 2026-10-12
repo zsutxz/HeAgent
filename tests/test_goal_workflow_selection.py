@@ -177,7 +177,7 @@ def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 @pytest.mark.asyncio
-async def test_goal_new_freezes_workflow_id_and_revision(
+async def test_goal_work_freezes_workflow_id_and_revision(
     goal_cwd: Path, successful_step: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _make_package(goal_cwd, "he-alpha")
@@ -198,7 +198,7 @@ async def test_goal_new_freezes_workflow_id_and_revision(
 
 
 @pytest.mark.asyncio
-async def test_goal_new_declared_revision_is_frozen_verbatim(
+async def test_goal_work_declared_revision_is_frozen_verbatim(
     goal_cwd: Path, successful_step: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _make_package(goal_cwd, "he-fixed", revision="7")
@@ -221,7 +221,7 @@ async def test_goal_new_declared_revision_is_frozen_verbatim(
 
 
 @pytest.mark.asyncio
-async def test_goal_new_honors_the_workflow_option(goal_cwd: Path, successful_step: list[str]) -> None:
+async def test_goal_work_honors_the_workflow_option(goal_cwd: Path, successful_step: list[str]) -> None:
     _make_package(goal_cwd, "he-alpha")
     _make_package(goal_cwd, "he-beta", steps=3)
 
@@ -233,7 +233,7 @@ async def test_goal_new_honors_the_workflow_option(goal_cwd: Path, successful_st
 
 
 @pytest.mark.asyncio
-async def test_goal_new_with_an_unknown_package_fails_loudly(
+async def test_goal_work_with_an_unknown_package_fails_loudly(
     goal_cwd: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _make_package(goal_cwd, "he-alpha")
@@ -247,7 +247,7 @@ async def test_goal_new_with_an_unknown_package_fails_loudly(
 
 
 @pytest.mark.asyncio
-async def test_goal_new_rejects_a_workflow_option_without_a_value(
+async def test_goal_work_rejects_a_workflow_option_without_a_value(
     goal_cwd: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _make_package(goal_cwd, "he-alpha")
@@ -259,7 +259,7 @@ async def test_goal_new_rejects_a_workflow_option_without_a_value(
 
 
 @pytest.mark.asyncio
-async def test_goal_new_honors_the_equals_form_of_the_workflow_option(
+async def test_goal_work_honors_the_equals_form_of_the_workflow_option(
     goal_cwd: Path, successful_step: list[str]
 ) -> None:
     """``--workflow=<包id>`` 与空格形态同义（51-6 审查 L1：等号形态不再被吞进描述）。"""
@@ -273,7 +273,7 @@ async def test_goal_new_honors_the_equals_form_of_the_workflow_option(
 
 
 @pytest.mark.asyncio
-async def test_goal_new_rejects_a_repeated_workflow_option(goal_cwd: Path, capsys: pytest.CaptureFixture[str]) -> None:
+async def test_goal_work_rejects_a_repeated_workflow_option(goal_cwd: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """重复 ``--workflow`` 显性报错（51-6 审查 L1：不再静默取第一个、把第二个留在描述里）。"""
     _make_package(goal_cwd, "he-alpha")
     _make_package(goal_cwd, "he-beta")
@@ -716,7 +716,7 @@ async def test_frozen_revision_flows_into_verify_step(
 
 _SHIPPED_SKILLS = Path(__file__).resolve().parents[1] / ".heagent" / "skills"
 
-_SHIPPED_WORKFLOW_PACKAGES = ("he-goal-new",)
+_SHIPPED_WORKFLOW_PACKAGES = ("he-work",)
 
 
 @pytest.mark.parametrize("skill_id", _SHIPPED_WORKFLOW_PACKAGES)
@@ -743,14 +743,14 @@ def test_shipped_workflow_packages_pass_catalog_loader_and_doctor(skill_id: str)
 
 
 def test_shipped_packages_cover_both_revision_paths() -> None:
-    """he-goal-new 演示派生路径（16 位十六进制摘要），he-goal 演示声明路径。
+    """he-work 演示派生路径（16 位十六进制摘要），he-goal 演示声明路径。
 
     he-security / he-product / he-engineering / he-migration 已弃用移除；
     声明 revision 的冻结语义另由 fixture 用例（声明 "7"）覆盖。
     """
     import re
 
-    package = resolve_skill_package("he-goal-new")
+    package = resolve_skill_package("he-work")
     assert package is not None
     workflow = read_workflow(package, "workflow.md")
     revision = workflow_revision(package, workflow)
