@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from heagent.cli.interactive import _handle_slash
+from heagent.cli.interactive import _handle_slash, _render_command_prompt
 from heagent.cli.slash import SlashRegistry, load_custom_commands
 
 
@@ -73,6 +73,23 @@ class TestLoadCustomCommands:
 
     def test_nonexistent_dir_yields_empty(self, tmp_path) -> None:
         assert load_custom_commands([str(tmp_path / "nope")]) == []
+
+
+class TestRenderCommandPrompt:
+    def test_placeholder_replaced_with_args(self) -> None:
+        assert _render_command_prompt("处理参数：$ARGUMENTS", "next step") == "处理参数：next step"
+
+    def test_args_appended_when_no_placeholder(self) -> None:
+        assert _render_command_prompt("固定正文", "hello") == "固定正文\n\nhello"
+
+    def test_no_args_keeps_prompt_verbatim(self) -> None:
+        # 无占位符 + 空白参数：正文逐字不变（存量命令零行为变化）
+        assert _render_command_prompt("   ", "  ") == "   "
+
+    def test_placeholder_always_replaces_even_blank(self) -> None:
+        # 声明了占位符就按占位符语义走：空白参数原样替换，不做静默回退
+        assert _render_command_prompt("带 $ARGUMENTS 占位", "") == "带  占位"
+        assert _render_command_prompt("参数：[$ARGUMENTS]", "  ") == "参数：[  ]"
 
 
 class TestHandleSlash:

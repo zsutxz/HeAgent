@@ -454,11 +454,24 @@ def _build_slash_registry(
         prompt = command.prompt
 
         async def _custom(args: str, prompt: str = prompt) -> None:
-            await _run_prompt(loop, prompt, system, session_id)
+            await _run_prompt(loop, _render_command_prompt(prompt, args), system, session_id)
 
         registry.register(command.name, command.description, _custom)
 
     return registry
+
+
+def _render_command_prompt(prompt: str, args: str) -> str:
+    """把用户参数注入自定义命令正文：``$ARGUMENTS`` 占位替换；无占位符且参数非空时追加为末尾一段。
+
+    无占位符且参数为空白时正文逐字不变（存量命令零行为变化）；占位符存在时替换原样发生
+    （参数为空白即替换为空串——声明了占位符就按占位符语义走，不做静默回退）。
+    """
+    if "$ARGUMENTS" in prompt:
+        return prompt.replace("$ARGUMENTS", args)
+    if args.strip():
+        return f"{prompt}\n\n{args}"
+    return prompt
 
 
 async def _handle_slash(user_input: str, registry: SlashRegistry) -> bool:
