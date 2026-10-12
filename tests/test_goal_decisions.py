@@ -757,7 +757,7 @@ def approval_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_
         "## Step 02: build\ninput: requirements brief\noutput: implementation\n\nbuild the story\n",
         encoding="utf-8",
     )
-    (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "_he-output" / "goals_old").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
@@ -774,8 +774,8 @@ def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def _active_goal_dir(cwd: Path) -> Path:
-    goal_id = (cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
-    return cwd / "_he-output" / "goals" / goal_id
+    goal_id = (cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
+    return cwd / "_he-output" / "goals_old" / goal_id
 
 
 @pytest.mark.asyncio

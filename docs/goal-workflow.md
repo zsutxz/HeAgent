@@ -19,7 +19,7 @@ CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt
 | 步骤方法论 | 每个步骤均由 `role:` 指向 `.heagent/skills/*/SKILL.md` | 把声明和上下文交给 SubAgent |
 | 步骤提示词与门禁文案 | 包内 `templates/prompt.md`、`templates/gate.md`（文件名由 `workflow.md` frontmatter 的 `prompt_template` / `gate_template` 键声明） | 替换占位符渲染 prompt；执行声明（指名文件缺失即加载失败），代码不携带模板文案与固定文件名 |
 | 运行策略参数（`max_rounds`、`auto_schedule`、未决问题文案） | `workflow.md` 的 frontmatter | 读取声明；代码只保留兜底默认值 |
-| Goal 身份与工作流产物 | `_he-output/goals/<goal-id>/` | 创建目录、保存输出、恢复 checkpoint |
+| Goal 身份与工作流产物 | `_he-output/goals_old/<goal-id>/` | 创建目录、保存输出、恢复 checkpoint |
 | 需求文档文件名（`brief.md`；存量 goal 回落 `require.md` / `GOAL.md`） | `src/heagent/goal/document.py` 的 `_goal_document_path()` | 解析出的文件名经 prompt 的 `Goal document` 行（占位符 `{goal_document}`）注入；workflow.md 散文与模板都不写文件名，改名只动代码一处 |
 | Goal/Epic/Story 结构契约 | `src/heagent/engine/artifacts.py` 与 `.heagent/skills/he-goal/templates/` | 解析和校验结构 |
 | 运行时进度与恢复 | `<goal-dir>/checkpoints/` 下的 `workflow.json` | 保存状态，不取代规划看板 |
@@ -111,10 +111,9 @@ CLI 按包 id 解析它。包内除 `workflow.md` 外还携带 `templates/prompt
 /goal_old doctor --workflow he-migration        # 无活动 goal 时预检任选包
 ```
 
-随包发布的模板包：`he-product`（需求→范围→验收口径）、`he-engineering`（方案→实现→验证，
-frontmatter 显式声明 `revision: "1"`）、`he-migration`（盘点→映射→迁移→回滚预案）、
-`he-security`（面收集→评估→处置）。新增一个包只需在 `.heagent/skills/<id>/` 放
-`SKILL.md + workflow.md + templates/{prompt,gate}-template.md`，**不需要改 `src/`**。
+随包发布的工作流包：`he-goal`（`/goal_old` 声明式工作流，frontmatter 显式声明 `revision: "3"`）
+与 `he-goal-new`（`/goal` 的 8 步内联契约，未声明 revision ⇒ 走派生摘要路径）。新增一个包只需在
+`.heagent/skills/<id>/` 放 `SKILL.md + workflow.md + templates/{prompt,gate}.md`，**不需要改 `src/`**。
 
 **冻结与漂移（AD-8）**：创建时把选定的包 id 与 revision（包 frontmatter 声明的 `revision`，
 未声明时由 `workflow.md` + `required_resources` 模板 + 外挂 `step-NN-*.md` 步骤文件内容派生的
@@ -134,7 +133,7 @@ sha256 摘要前 16 位；全内联步骤的包不追加步骤条目，指纹取
 ### 产物布局
 
 ```text
-_he-output/goals/<goal-id>/
+_he-output/goals_old/<goal-id>/
 ├── brief.md                             # 需求文档：原始需求（创建时写入）+ 总结的需求（step 01 初步分析后写入）
 │                                        #   存量 goal 沿用 require.md / GOAL.md（由 _goal_document_path 解析）
 ├── epics.md                          # 由 step 06 写入的 Epic/Story 清单（## E<N> 分段 + ### S-N，编号即执行顺序）+ ## Sprint 计划
@@ -222,7 +221,7 @@ manual 模式的 checkpoint 确认从每条 Story 一次收紧为每批一次。
 - 重任务步骤可用 `max_iterations: <1..1000>` 覆盖该步骤的 SubAgent 迭代预算（缺省继承
   `Settings.goal_max_iterations`）；原子大 Story 建议显式放宽，撞上限会让整步/整批以 `failed` 收场。
 - 遗留项台账由 bmad-build 模板写入 `_bmad-output/implementation-artifacts/deferred-work-archive.md`（goal 内的
-  Epic 级台账落在 `_he-output/goals/<goal-id>/step-*/…/deferred-work.md`）；`/deferred` 是它的 reader，
+  Epic 级台账落在 `_he-output/goals_old/<goal-id>/step-*/…/deferred-work.md`）；`/deferred` 是它的 reader，
   会列出全部台账的条目数与最新条目。
 - 需要机械保证的验收证据，用 `validation: section: <标题>; <说明>` 声明——`WorkflowRunner` 会校验输出
   是否包含该 `## <标题>`（必须是独占一行、无后缀的 `## 标题`；`## 标题（S-1）` 照样判缺失）。这些标题会由

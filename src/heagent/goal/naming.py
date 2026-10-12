@@ -5,7 +5,7 @@
 可独立测试。本模块同为入口层域模块，依赖 types/providers.base（TYPE_CHECKING）与
 goal.document 的命名常量，不依赖 agent/cron。
 
-**命名契约**：``/goal_old new`` 的 goal_id（即 ``_he-output/goals/<id>`` 目录名）由 LLM 按
+**命名契约**：``/goal_old new`` 的 goal_id（即 ``_he-output/goals_old/<id>`` 目录名）由 LLM 按
 需求描述生成；清洗/校验/去重（``-a``..``-z`` 后缀）均为代码内确定性逻辑。LLM 调用失败
 或输出非法时**显性回退**固定名 ``project``（stderr 提示，不静默）——goal 创建不因命名
 中断。id 字符集仍锁定 ``^[a-z][a-z-]*$``：current 指针校验、cron prompt 解析、旧 job

@@ -159,7 +159,7 @@ def _deferred_ledgers(root: Path) -> list[Path]:
         root / "_bmad-output" / _DEFERRED_LEGACY,
         root / "_bmad-output" / _DEFERRED_ROOT_LEGACY,
     ]
-    candidates.extend(sorted((root / "_he-output" / "goals").glob("*/step-*/**/deferred-work.md")))
+    candidates.extend(sorted((root / "_he-output" / "goals_old").glob("*/step-*/**/deferred-work.md")))
     return [path for path in candidates if path.is_file()]
 
 

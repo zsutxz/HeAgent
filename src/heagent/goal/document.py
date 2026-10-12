@@ -29,7 +29,7 @@ from heagent.pub.persist import atomic_update_text
 # Settings.goal_workflow_skill + skill catalog 解析，不在本模块硬编码。
 # Durable user-facing Goal and workflow artifacts belong under the project output
 # root. ``.heagent`` remains reserved for runtime configuration and skill code.
-GOALS_DIR = Path("_he-output/goals")
+GOALS_DIR = Path("_he-output/goals_old")
 # 需求文档名：新 goal 一律落 brief.md；前两代名字只作存量 goal 的读取回落，按新名在前探测
 # （见 goal_document_path）——命中存量文件时读写都落在它上面，不把同一 goal 拆成两份文档。
 _GOAL_DOCUMENT_NAME = "brief.md"

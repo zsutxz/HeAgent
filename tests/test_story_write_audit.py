@@ -35,7 +35,7 @@ def git_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _goal_dir(workspace: Path) -> Path:
-    goal_dir = workspace / "_he-output" / "goals" / "demo"
+    goal_dir = workspace / "_he-output" / "goals_old" / "demo"
     goal_dir.mkdir(parents=True, exist_ok=True)
     return goal_dir
 

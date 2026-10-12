@@ -1,5 +1,5 @@
 ---
-name: goal2
+name: goal_new
 description: 目标驱动开发（声明式 8 步工作流）：/goal 命令与多阶段大目标的触发与执行
 triggers: [/goal, goal 工作流]
 negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, refactor]
@@ -14,13 +14,15 @@ negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, 
 （无 Python 状态机，状态全靠文件）。工作流共 8 步：市场调研、发散构思、需求分析、产品范围、架构设计、
 故事细化、逐故事实现、系统集成测试。
 
-与旧 `/goal_old` 的隔离：旧命令由 Python 状态机驱动，状态在 `_he-output/goals/`；本命令的状态在
-`_he-output/goals2/`，两者互不兼容、互不迁移。不要把旧 goal 目录当本命令的状态读写，反之亦然。
+与旧 `/goal_old` 的隔离：旧命令由 Python 状态机驱动，状态在 `_he-output/goals_old/`；本命令的状态在
+`_he-output/goals_new/`，两者互不兼容、互不迁移。不要把旧 goal 目录当本命令的状态读写，反之亦然。
 
-**状态目录名刻意保留 `goals2/`，不要改。** 技能包**目录**也必须保留 `goal2/`：技能包的 canonical id
-强制 `he-`/`bmad-` 前缀（`skills/skill_packages.py`），本地目录名非法时会兜底成 `"he-" + 目录名`——
-目录若叫 `goal`，其 canonical id 会兜底成 `he-goal`，与旧工作流包**同 id 冲突并遮蔽它**，旧 `/goal_old`
-在全新克隆上直接失效。命令名与技能包目录名是两件事。
+**本包名为 `he-goal-new`（目录 `goal_new/`），不要改回 `goal`/`goal2`。** 包 id 由 meta.yaml 的
+`canonical_id` 决定（缺省回落到目录名），必须匹配 `he-`/`bmad-` 前缀（`skills/skill_packages.py`）：
+非法 id 走兜底路径，整包在 catalog 里 `available=False` 而**无法解析**，`doctor --workflow` 与
+`/goal` 都会被挡住。目录若叫 `goal`，其 canonical id 会兜底成 `he-goal`，与旧工作流包**同 id 冲突并
+遮蔽它**，旧 `/goal_old` 在全新克隆上直接失效。`SKILL.md` 的 `name` 只作 `source_id`/别名来源，
+不参与 id 校验。命令名与技能包目录名是两件事。
 
 ## 参数路由
 
@@ -43,7 +45,7 @@ negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, 
 ## 执行总则
 
 1. **先读契约**：任何动作前先读本包 `workflow.md`——它是流程唯一真源，本技能正文不复述流程细节。
-2. **状态先读后写**：每次调用先读 `_he-output/goals2/current` 与 goal 目录的 `progress.md`，
+2. **状态先读后写**：每次调用先读 `_he-output/goals_new/current` 与 goal 目录的 `progress.md`，
    再做动作、再更新状态；绝不凭记忆续跑。
 3. **每步全新子会话**：用 `task_delegate` 执行步骤，任务正文 = 该步契约全文 + 输入产物路径；子会话最终回复由你保存为该步产物文件。子会话默认视为只读执行环境，**不得假设拥有 `file_write`、`file_edit` 或目录创建能力，也不要要求子会话自行落盘**；它必须在最终回复中返回完整的步骤产物正文或实现/验证报告。
 4. **宿主验收与落盘**：子会话返回后，由你按该步「验收核对」清单核对（需要跑命令就自己跑），再由主会话写入或更新项目文件，并把核对结果写进 `progress.md`；未过按该步处置，不得静默放行。

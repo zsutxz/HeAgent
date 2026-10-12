@@ -249,7 +249,7 @@ validation: section: 实现摘要; section: 测试证据; section: 验证结论;
 串行）；untracked 增量只记警告事件不判负——验证夹具与新产物本就是未跟踪写入）。批是一次
 checkpoint 单元：批内单条失败不取消同批，输出按声明序合并；manual 模式的 checkpoint 确认从每条
 Story 一次收紧为**每批一次**。只实现当前 Story，不得修改冻结的 `epics.md`。Story 产物必须写入
-`_he-output/goals/<goal-id>/step-07-implement-story/epic-<eN>/s-<n>/`：`story.md`、
+`_he-output/goals_old/<goal-id>/step-07-implement-story/epic-<eN>/s-<n>/`：`story.md`、
 `implementation.md`、`test-report.md` 与 `verify-report.md`；CLI 保存该次步骤输出为同目录的
 `report.md`。命中 Sprint 或 Epic 的最后一条 Story 时，按 BMad 方法完成相应收口，并将证据写入报告。
 

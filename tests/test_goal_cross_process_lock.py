@@ -35,7 +35,7 @@ _WORKFLOW_MD = (
 def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_root: Path) -> Path:
     monkeypatch.chdir(tmp_path)
     (goal_workflow_root / "workflow.md").write_text(_WORKFLOW_MD, encoding="utf-8")
-    (tmp_path / "_he-output" / "goals").mkdir(parents=True)
+    (tmp_path / "_he-output" / "goals_old").mkdir(parents=True)
     # 缩短锁等待，测试不必真等 5s 超时。
     monkeypatch.setattr(goal_mutex, "GOAL_LOCK_TIMEOUT", 0.2)
     return tmp_path
@@ -67,7 +67,7 @@ async def test_held_lock_fails_loudly_without_running_step(
     assert "另一进程正在推进同一 goal" in err
     assert step_spy == []
     # 整个 dispatch 都在锁内：连 current 指针都不应被创建。
-    assert not (declarative_cwd / "_he-output" / "goals" / "current").exists()
+    assert not (declarative_cwd / "_he-output" / "goals_old" / "current").exists()
 
 
 @pytest.mark.asyncio

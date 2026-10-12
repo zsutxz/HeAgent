@@ -951,7 +951,7 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
 三入口仍收敛同一 use-case（GUI 经 `_goal_runner`、cron 经 `_goal_cron_advance`），无复制推进逻辑。
 当前工作流的维护说明见[文档索引的「Goal 工作流」章节](README.md#goal-工作流)。
 
-- `/goal_old <description>` 或 `/goal_old new <description>` 创建 `_he-output/goals/<goal_id>/brief.md`（只含原始需求）
+- `/goal_old <description>` 或 `/goal_old new <description>` 创建 `_he-output/goals_old/<goal_id>/brief.md`（只含原始需求）
   和 `current` 指针，然后执行 workflow 的第一个声明步骤；「总结的需求」由 step 01 初步分析后写回同一文档。
   `goal_id` 由 LLM 命名（`goal/naming.py` 一次性 provider 调用生成 kebab-case 名，清洗/校验/`-a`..`-z`
   去重为代码内确定性逻辑）；调用失败或输出非法时 stderr 显性提示并回退固定名 `project`。

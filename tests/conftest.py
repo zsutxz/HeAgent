@@ -154,7 +154,7 @@ def goal_workflow_root(tmp_path: Path) -> Path:
     )
     (root / "meta.yaml").write_text("canonical_id: he-goal\n", encoding="utf-8")
     shutil.copytree(
-        Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal" / "templates",
+        Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "goal_old" / "templates",
         root / "templates",
     )
     return root

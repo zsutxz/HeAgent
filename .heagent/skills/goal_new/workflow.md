@@ -11,10 +11,10 @@
 
 状态真源全部是文件；宿主每次动作**先读后写**，绝不凭记忆续跑。
 
-- **根目录**：`_he-output/goals2/`（与旧 `/goal_old` 的 `_he-output/goals/` 完全隔离，互不读写）。
-- **current 指针**：`_he-output/goals2/current`，内容是当前 goal 的目录名；`reset` 删除它，
+- **根目录**：`_he-output/goals_new/`（与旧 `/goal_old` 的 `_he-output/goals_old/` 完全隔离，互不读写）。
+- **current 指针**：`_he-output/goals_new/current`，内容是当前 goal 的目录名；`reset` 删除它，
   goal 目录保留。无活动 goal 时指针不存在。
-- **goal 目录**：`_he-output/goals2/<goal-id>/`（`<goal-id>` 为英文 slug，冲突时追加 `-a`/`-b`…）：
+- **goal 目录**：`_he-output/goals_new/<goal-id>/`（`<goal-id>` 为英文 slug，冲突时追加 `-a`/`-b`…）：
   - `brief.md`——需求文档：`## 原始需求（Original Request）` 段是用户原话，**逐字冻结**；
     `## 用户补充（User Responses）` 段记录后续回答；模板见本包 `templates/GOAL.md`；
   - `progress.md`——进度与状态唯一真源（格式见下）；
@@ -47,7 +47,7 @@
 
 ## 宿主执行循环
 
-1. 读 `_he-output/goals2/current` 与 goal 目录的 `progress.md`，确定状态与下一步；
+1. 读 `_he-output/goals_new/current` 与 goal 目录的 `progress.md`，确定状态与下一步；
 2. 取**最小序号的未完成步骤**（story 步骤内取最小未完成 story），把该步契约全文 + 输入产物路径 +
    `brief.md` 路径作为任务正文，用 `task_delegate` 开全新子会话执行；子会话默认视为只读执行环境，任务不得以其拥有 `file_write`、`file_edit` 或目录创建能力为前提。
 3. 子会话返回后，宿主按该步**验收核对**清单核对产出（`command:` 类核对由宿主亲自执行命令），
@@ -89,8 +89,8 @@
 `auto [cron]` 用 cron 工具注册一个按表达式触发的 job，其 prompt 固定为以下模板（`auto off` 注销
 prompt 以「推进 goal」开头的 job）：
 
-> 推进 goal：读取 `_he-output/goals2/current` 指向的 goal 目录的 progress.md 与 brief.md，按
-> `.heagent/skills/goal2/workflow.md` 的宿主执行循环推进一步。若当前处于等待用户输入或审批门，
+> 推进 goal：读取 `_he-output/goals_new/current` 指向的 goal 目录的 progress.md 与 brief.md，按
+> `.heagent/skills/goal_new/workflow.md` 的宿主执行循环推进一步。若当前处于等待用户输入或审批门，
 > 不要推进，原样报告等待项。
 
 ## 全局标准

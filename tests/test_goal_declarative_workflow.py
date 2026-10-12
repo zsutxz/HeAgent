@@ -40,7 +40,7 @@ from heagent.skills.skill_packages import SkillPackage
 from heagent.pub.types import Message, ProviderResponse, TokenUsage
 
 # 随包发布的真实模板：测试消费包内真源，不在测试代码里留文案副本（防漂移）。
-_SHIPPED_TEMPLATES = Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal" / "templates"
+_SHIPPED_TEMPLATES = Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "goal_old" / "templates"
 
 
 def _shipped_gate_template() -> str:
@@ -63,7 +63,7 @@ def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workfl
         "## Step 02: build\ninput: requirements brief\noutput: implementation\ncheckpoint: true\n\nbuild the story\n",
         encoding="utf-8",
     )
-    (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "_he-output" / "goals_old").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
@@ -86,8 +86,8 @@ async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     await _goal_runner(SimpleNamespace(), None, "new ship   the workflow")
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
-    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
+    goal_id = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
+    goal_dir = declarative_cwd / "_he-output" / "goals_old" / goal_id
     goal_document = goal_dir / "brief.md"
     assert goal_document.exists()
     goal_text = goal_document.read_text(encoding="utf-8")
@@ -137,8 +137,8 @@ async def test_removed_audit_subcommand_reports_usage_instead_of_creating_a_goal
     await _goal_runner(SimpleNamespace(), None, "audit")
 
     assert "audit subcommand has been removed" in capsys.readouterr().err
-    assert not (declarative_cwd / "_he-output" / "goals" / "current").exists()
-    assert not (declarative_cwd / "_he-output" / "goals" / "audit").exists()
+    assert not (declarative_cwd / "_he-output" / "goals_old" / "current").exists()
+    assert not (declarative_cwd / "_he-output" / "goals_old" / "audit").exists()
 
 
 class _NamingProvider:
@@ -181,9 +181,9 @@ async def test_goal_new_names_project_via_llm(
 
     await _goal_runner(provider, None, "new 做一个选股工具")
 
-    current = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    current = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
     assert current == "stock-picker"
-    assert (declarative_cwd / "_he-output" / "goals" / "stock-picker" / "brief.md").exists()
+    assert (declarative_cwd / "_he-output" / "goals_old" / "stock-picker" / "brief.md").exists()
     assert "做一个选股工具" in provider.prompts[0]
     assert "using default id" not in capsys.readouterr().err
 
@@ -203,7 +203,7 @@ async def test_goal_new_falls_back_to_project_id_when_llm_output_unusable(
 
     await _goal_runner(provider, None, "new whatever the goal is")
 
-    current = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    current = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
     assert current == "project"
     assert "using default id 'project'" in capsys.readouterr().err
 
@@ -218,7 +218,7 @@ async def test_goal_new_falls_back_to_project_id_when_provider_fails(
 
     await _goal_runner(provider, None, "new whatever the goal is")
 
-    current = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    current = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
     assert current == "project"
     assert "using default id 'project'" in capsys.readouterr().err
 
@@ -233,7 +233,7 @@ async def test_goal_new_appends_suffix_when_llm_name_collides(
     await _goal_runner(provider, None, "new first goal")
     await _goal_runner(provider, None, "new second goal")
 
-    goals = declarative_cwd / "_he-output" / "goals"
+    goals = declarative_cwd / "_he-output" / "goals_old"
     assert (goals / "stock-picker" / "brief.md").exists()
     assert (goals / "stock-picker-a" / "brief.md").exists()
     assert (goals / "current").read_text(encoding="utf-8") == "stock-picker-a"
@@ -269,7 +269,7 @@ async def test_declarative_auto_uses_same_completed_checkpoint(
     await _goal_runner(SimpleNamespace(), None, "pause")
     await _goal_runner(SimpleNamespace(), None, "resume")
     await _goal_runner(SimpleNamespace(), None, "next")
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    goal_id = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
     store = JobStore(str(declarative_cwd / "jobs.json"))
     await _goal_runner(SimpleNamespace(), None, "auto", cron_store=store)
 
@@ -396,8 +396,8 @@ async def test_declarative_resume_retries_a_blocked_step(
     successful_step: list[str],
 ) -> None:
     await _goal_runner(SimpleNamespace(), None, "new blocked workflow")
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
-    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
+    goal_id = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
+    goal_dir = declarative_cwd / "_he-output" / "goals_old" / goal_id
     workflow = _goal_declarative_workflow()
     assert workflow is not None
     runner = await _goal_declarative_runner(workflow, goal_dir)
@@ -426,8 +426,8 @@ async def test_stale_active_step_is_reported_as_checkpoint_failure(
     ``[goal] declarative checkpoint failed: ...``。
     """
     await _goal_runner(SimpleNamespace(), None, "stale state workflow")
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
-    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
+    goal_id = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
+    goal_dir = declarative_cwd / "_he-output" / "goals_old" / goal_id
     capsys.readouterr()
 
     # 落在步骤数（2）之外的活动步骤：等价于工作流收缩后留下的历史状态。
@@ -516,8 +516,8 @@ async def test_final_checkpoint_persists_completed_state(
         encoding="utf-8",
     )
     await _goal_runner(SimpleNamespace(), None, "new final workflow")
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
-    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
+    goal_id = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
+    goal_dir = declarative_cwd / "_he-output" / "goals_old" / goal_id
     runner = await _goal_declarative_runner(_goal_declarative_workflow(), goal_dir)  # type: ignore[arg-type]
     assert runner.done
     assert runner.state.status is WorkflowStatus.COMPLETED
@@ -539,9 +539,9 @@ async def test_checkpoint_auto_mode_advances_until_completion(
     await _goal_runner(SimpleNamespace(), None, "new auto workflow")
 
     assert len(successful_step) == 2
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    goal_id = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
     runner = await _goal_declarative_runner(  # type: ignore[arg-type]
-        _goal_declarative_workflow(), declarative_cwd / "_he-output" / "goals" / goal_id
+        _goal_declarative_workflow(), declarative_cwd / "_he-output" / "goals_old" / goal_id
     )
     assert runner.done
 
@@ -614,9 +614,9 @@ async def test_checkpoint_prompt_rejection_keeps_waiting_user(
     await _goal_runner(SimpleNamespace(), None, "new paused workflow")
 
     assert len(successful_step) == 1
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    goal_id = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
     runner = await _goal_declarative_runner(
-        _goal_declarative_workflow(), declarative_cwd / "_he-output" / "goals" / goal_id
+        _goal_declarative_workflow(), declarative_cwd / "_he-output" / "goals_old" / goal_id
     )  # type: ignore[arg-type]
     assert runner.state.status is WorkflowStatus.WAITING_USER
 
@@ -652,8 +652,8 @@ async def test_empty_subagent_output_fails_without_persisting_empty_artifact(
 
     await _goal_runner(SimpleNamespace(), None, "new empty output workflow")
 
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    goal_dir = declarative_cwd / "_he-output" / "goals" / goal_id
+    goal_id = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8").strip()
+    goal_dir = declarative_cwd / "_he-output" / "goals_old" / goal_id
     runner = await _goal_declarative_runner(_goal_declarative_workflow(), goal_dir)  # type: ignore[arg-type]
     assert runner.state.status is WorkflowStatus.FAILED
     assert "produced empty output" in runner.state.reason
@@ -664,7 +664,7 @@ def _real_step_one() -> WorkflowStepResource:
     """Parse the shipped workflow with the production loader and return its step 01."""
     package = SkillPackage(
         skill_id="he-goal",
-        root=Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal",
+        root=Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "goal_old",
     )
     return read_workflow(package, "workflow.md").steps[0]
 
@@ -754,7 +754,7 @@ async def test_declarative_auto_keeps_job_when_paused_at_checkpoint(
 ) -> None:
     """Prompt-mode checkpoint pauses are waiting, not terminal: cron auto must survive them."""
     await _goal_runner(SimpleNamespace(), None, "new scheduled pause workflow")
-    goal_id = (declarative_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    goal_id = (declarative_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
     store = JobStore(str(declarative_cwd / "jobs.json"))
     await _goal_runner(SimpleNamespace(), None, "auto", cron_store=store)
 
@@ -939,7 +939,7 @@ async def test_step_iteration_budget_overrides_the_global_default(
 
     monkeypatch.setattr("heagent.cli.goal._goal_session", run_step)
     workflow = WorkflowResource(name="demo", instructions="", steps=[], prompt_template="step prompt")
-    goal_dir = declarative_cwd / "_he-output" / "goals" / "demo"
+    goal_dir = declarative_cwd / "_he-output" / "goals_old" / "demo"
     goal_dir.mkdir(parents=True, exist_ok=True)
     for declared in (40, 0):
         step = WorkflowStepResource(index=1, name="step-01-plan.md", instructions="", max_iterations=declared)
@@ -1031,7 +1031,7 @@ async def test_typo_subcommand_prints_usage_instead_of_creating_a_goal(
     err = capsys.readouterr().err
     assert "did you mean `/goal_old resume`" in err
     assert successful_step == []
-    assert not (declarative_cwd / "_he-output" / "goals" / "current").exists()
+    assert not (declarative_cwd / "_he-output" / "goals_old" / "current").exists()
 
 
 def test_bundled_workflow_ships_the_required_templates(monkeypatch: pytest.MonkeyPatch) -> None:

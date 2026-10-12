@@ -28,7 +28,7 @@ async def test_workflow_state_tolerates_legacy_dead_fields(tmp_path) -> None:
     """旧 workflow.json 携带已删除的 segment_* / cumulative_tokens 死字段仍可加载。
 
     兼容策略 = 容错忽略（pydantic 默认 extra='ignore'）：2026-09-17 清理 legacy 阶段状态机
-    残留的三个无读者字段时，不得破坏存量 ``_he-output/goals/*/workflow.json`` 的读取。
+    残留的三个无读者字段时，不得破坏存量 ``_he-output/goals_old/*/workflow.json`` 的读取。
     """
     store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
     legacy = {

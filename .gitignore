@@ -60,8 +60,8 @@ docs/claude-updater/
 # BMad (bmad-method installer artifacts)
 uv.lock
 .agents/skills/
-_he-output/goals
-_he-output/goals2/
+_he-output/goals_old
+_he-output/goals_new/
 projects/
 .pytest_tmp_templates_final/
 

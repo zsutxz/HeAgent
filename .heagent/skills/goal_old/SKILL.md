@@ -13,8 +13,8 @@ negative_triggers: [code review, 代码评审, 技能评审, 重构, refactor]
 命令：`/goal_old new <目标描述>` 启动 · `/goal_old next` 推进一步 · `/goal_old run` 连续推进 · `/goal_old status` 查看进度 ·
 `/goal_old resume <回复>` 恢复并记录回答 · `/goal_old pause` 暂停 · `/goal_old auto [cron]` 定时推进 · `/goal_old reset` 清除当前指针。
 工作流共 8 步：市场调研、发散构思、需求分析、产品范围、架构设计、故事细化、逐故事实现、系统集成测试。
-持久产物落在 `_he-output/goals/<goal-id>/`；工作流契约（步骤、输入输出、门禁）的唯一权威是
-`.heagent/skills/he-goal/workflow.md`，不要在本技能正文里复述或修改它。
+持久产物落在 `_he-output/goals_old/<goal-id>/`；工作流契约（步骤、输入输出、门禁）的唯一权威是
+`.heagent/skills/goal_old/workflow.md`，不要在本技能正文里复述或修改它。
 
 ## Steps
 

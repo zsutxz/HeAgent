@@ -138,13 +138,13 @@ def _brief_frontmatter(goal_dir: Path) -> dict[str, str]:
 
 
 def _goal_dir(cwd: Path) -> Path:
-    goal_id = (cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
-    return cwd / "_he-output" / "goals" / goal_id
+    goal_id = (cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8").strip()
+    return cwd / "_he-output" / "goals_old" / goal_id
 
 
 def _make_legacy_goal(cwd: Path, goal_id: str) -> Path:
     """建一个**没有** workflow 绑定键的存量 goal（走 `goal_document` 旧口径）。"""
-    goals = cwd / "_he-output" / "goals"
+    goals = cwd / "_he-output" / "goals_old"
     goal_dir = goals / goal_id
     goal_dir.mkdir(parents=True)
     (goal_dir / "brief.md").write_text(cli_goal.goal_document("legacy goal", goal_id), encoding="utf-8")
@@ -156,7 +156,7 @@ def _make_legacy_goal(cwd: Path, goal_id: str) -> Path:
 def goal_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """cwd 为 tmp 工作区；预建 goals 根。"""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "_he-output" / "goals_old").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
@@ -243,7 +243,7 @@ async def test_goal_new_with_an_unknown_package_fails_loudly(
     err = capsys.readouterr().err
     assert "he-ghost" in err
     assert "unavailable" in err
-    assert not (goal_cwd / "_he-output" / "goals" / "current").exists()
+    assert not (goal_cwd / "_he-output" / "goals_old" / "current").exists()
 
 
 @pytest.mark.asyncio
@@ -255,7 +255,7 @@ async def test_goal_new_rejects_a_workflow_option_without_a_value(
     await _goal_runner(SimpleNamespace(), None, "new missing value --workflow")
 
     assert "--workflow requires a package id" in capsys.readouterr().err
-    assert not (goal_cwd / "_he-output" / "goals" / "current").exists()
+    assert not (goal_cwd / "_he-output" / "goals_old" / "current").exists()
 
 
 @pytest.mark.asyncio
@@ -281,7 +281,7 @@ async def test_goal_new_rejects_a_repeated_workflow_option(goal_cwd: Path, capsy
     await _goal_runner(SimpleNamespace(), None, "new twice --workflow he-alpha --workflow he-beta")
 
     assert "--workflow may be given at most once" in capsys.readouterr().err
-    assert not (goal_cwd / "_he-output" / "goals" / "current").exists()
+    assert not (goal_cwd / "_he-output" / "goals_old" / "current").exists()
 
 
 # ── ③ 恢复按绑定解析（改配置不换流程）─────────────────────────────────
@@ -498,7 +498,7 @@ async def test_package_drift_fails_the_cron_path_too(
     monkeypatch.setenv("GOAL_WORKFLOW_SKILL", "he-alpha")
     reset_settings()
     await _goal_runner(SimpleNamespace(), None, "new cron drift probe")
-    goal_id = (goal_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
+    goal_id = (goal_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8").strip()
     successful_step.clear()
     workflow_path = goal_cwd / ".heagent" / "skills" / "he-alpha" / "workflow.md"
     workflow_path.write_text(workflow_path.read_text(encoding="utf-8") + "\nMore.\n", encoding="utf-8")
@@ -552,7 +552,7 @@ async def test_legacy_goal_document_without_frontmatter_binds_the_default(
     _make_package(goal_cwd, "he-plain", steps=1)
     monkeypatch.setenv("GOAL_WORKFLOW_SKILL", "he-plain")
     reset_settings()
-    goals = goal_cwd / "_he-output" / "goals"
+    goals = goal_cwd / "_he-output" / "goals_old"
     goal_dir = goals / "ancient"
     goal_dir.mkdir()
     (goal_dir / "brief.md").write_text("# old goal\n\nno frontmatter at all\n", encoding="utf-8")
@@ -716,12 +716,16 @@ async def test_frozen_revision_flows_into_verify_step(
 
 _SHIPPED_SKILLS = Path(__file__).resolve().parents[1] / ".heagent" / "skills"
 
-_SHIPPED_WORKFLOW_PACKAGES = ("he-security",)
+_SHIPPED_WORKFLOW_PACKAGES = ("he-goal-new",)
 
 
 @pytest.mark.parametrize("skill_id", _SHIPPED_WORKFLOW_PACKAGES)
-def test_shipped_template_packages_pass_catalog_loader_and_doctor(skill_id: str) -> None:
-    """每个随包模板包：可发现（含短别名）、可装载、doctor 预检零问题、两个模板非空。"""
+def test_shipped_workflow_packages_pass_catalog_loader_and_doctor(skill_id: str) -> None:
+    """每个随包工作流包：可发现、可装载、声明合规、doctor 预检零问题。
+
+    名单只收**自足包**（步骤不指名本机角色包）——`he-goal` 依赖 bmad-* 角色包，
+    缺包时 doctor 必报 role_package_missing，不适合作 CI 判据。
+    """
     catalog = SkillCatalog([str(_SHIPPED_SKILLS)])
     entry = next(item for item in catalog.scan() if item.canonical_id == skill_id)
     assert entry.available and entry.package is not None
@@ -731,24 +735,22 @@ def test_shipped_template_packages_pass_catalog_loader_and_doctor(skill_id: str)
 
     workflow = read_workflow(package, "workflow.md")
     validate_goal_workflow(workflow)  # entrypoint / on_create / step_executor 全部合规
-    assert 3 <= len(workflow.steps) <= 4
-    assert workflow.steps[-1].checkpoint  # final step 带 checkpoint
+    assert len(workflow.steps) >= 3
     assert all(not step.role for step in workflow.steps)  # 步骤不依赖本机角色包（CI 可跑）
-    assert workflow.prompt_template.strip() and workflow.gate_template.strip()
 
     report = diagnose_workflow(workflow, package, resolve_skill_package)
     assert report.ok and not report.problems
 
 
 def test_shipped_packages_cover_both_revision_paths() -> None:
-    """he-security 演示派生路径（16 位十六进制摘要），he-goal 演示声明路径。
+    """he-goal-new 演示派生路径（16 位十六进制摘要），he-goal 演示声明路径。
 
-    he-product / he-engineering / he-migration 已于 2026-10-10 弃用移除；
+    he-security / he-product / he-engineering / he-migration 已弃用移除；
     声明 revision 的冻结语义另由 fixture 用例（声明 "7"）覆盖。
     """
     import re
 
-    package = resolve_skill_package("he-security")
+    package = resolve_skill_package("he-goal-new")
     assert package is not None
     workflow = read_workflow(package, "workflow.md")
     revision = workflow_revision(package, workflow)

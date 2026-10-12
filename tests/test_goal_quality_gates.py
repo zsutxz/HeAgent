@@ -628,7 +628,7 @@ def gate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_root
     """带 ``artifact:`` 子句的两步工作流；cwd 为 tmp 工作区。"""
     monkeypatch.chdir(tmp_path)
     (goal_workflow_root / "workflow.md").write_text(_WORKFLOW, encoding="utf-8")
-    (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "_he-output" / "goals_old").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
@@ -664,7 +664,7 @@ async def test_completion_gate_blocks_until_the_declared_artifact_exists(
     assert "quality gate failed for step 'step-01-build.md'" in err
     assert "[goal] verify: FAIL artifact: reports/first.md" in err
     assert len(successful_step) == 1
-    goal_id = (gate_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    goal_id = (gate_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
     checkpoints = await WorkflowCheckpointStore(str(gate_cwd / ".heagent" / "checkpoints" / goal_id)).list_checkpoints(
         goal_id=goal_id
     )
@@ -939,8 +939,8 @@ async def test_real_engine_gate_runs_the_declared_command_at_the_workspace_root(
     assert len(successful_step) == 1
     assert (workspace / "marker.txt").read_text(encoding="utf-8").strip() == "ok"  # 命令在工作区根执行
     assert not (gate_cwd / "marker.txt").exists()  # 进程 cwd 没有被误用为执行目录
-    goal_id = (gate_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
-    evidence_files = list((gate_cwd / "_he-output" / "goals" / goal_id / "evidence").glob("*.json"))
+    goal_id = (gate_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
+    evidence_files = list((gate_cwd / "_he-output" / "goals_old" / goal_id / "evidence").glob("*.json"))
     assert len(evidence_files) == 1  # 治理链产出落了证据
     checkpoints = await WorkflowCheckpointStore(str(workspace / ".heagent" / "checkpoints" / goal_id)).list_checkpoints(
         goal_id=goal_id
