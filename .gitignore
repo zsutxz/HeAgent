@@ -69,3 +69,4 @@ projects/
 debug.log
 .pytest-session-*
 .heagent/skills/**/meta.yaml
+news/
