@@ -120,11 +120,10 @@ class TestHandleSlash:
 
 
 class TestGoalCommandRouting:
-    """``/goal`` 走自定义命令（新技能包），``/goal_old`` 走内置（旧 Python 状态机）。
+    """``/goal`` 走内置（Python 状态机），``/work`` 走自定义命令（新技能包）。
 
-    这两个名字都必须**可达且互不串台**：若自定义命令没顶掉内置 ``goal`` 注册，
-    ``/goal`` 会静默落到旧状态机上；反之若内置注册没改名为 ``goal_old``，
-    ``/goal_old`` 未注册会被当普通消息透传给 AgentLoop —— 两种都不会报错。
+    ``/goal`` 必须由内置注册且不被文件命令顶掉：若内置注册没叫 ``goal``，
+    ``/goal`` 未注册会被当普通消息透传给 AgentLoop —— 不报错、只静默失效。
     """
 
     def _registry(self) -> SlashRegistry:
@@ -139,7 +138,13 @@ class TestGoalCommandRouting:
             system=None,
         )
 
-    def test_goal_resolves_to_the_custom_command_not_the_legacy_machine(self, tmp_path, monkeypatch) -> None:
+    def test_goal_is_builtin_and_goal_old_is_gone(self) -> None:
+        registry = self._registry()
+        assert registry.has("goal")
+        assert "new/next/run/status" in registry.describe("goal")
+        assert not registry.has("goal_old")
+
+    def test_custom_command_overrides_builtin_on_name_collision(self, tmp_path, monkeypatch) -> None:
         monkeypatch.chdir(tmp_path)
         commands_dir = tmp_path / ".heagent" / "commands"
         commands_dir.mkdir(parents=True)
@@ -148,16 +153,13 @@ class TestGoalCommandRouting:
             encoding="utf-8",
         )
         registry = self._registry()
-        assert registry.has("goal")
-        assert registry.has("goal_old")
-        # 自定义命令后注册、覆盖内置同名项：/goal 必须描述新工作流，而非旧状态机。
+        # 自定义命令后注册、覆盖内置同名项：/goal 必须描述新工作流，而非内置状态机。
         assert registry.describe("goal") == "new workflow"
-        assert "旧 Python 状态机" in registry.describe("goal_old")
 
-    def test_shipped_goal_command_points_at_the_goal2_skill_package(self) -> None:
+    def test_shipped_work_command_points_at_the_work_skill_package(self) -> None:
         """随仓库发布的命令必须指向实际存在的技能包目录（改名后易漂移的目录名引用）。"""
         root = Path(__file__).resolve().parents[1]
-        command = (root / ".heagent" / "commands" / "goal.md").read_text(encoding="utf-8")
+        command = (root / ".heagent" / "commands" / "work.md").read_text(encoding="utf-8")
         match = re.search(r"`(\.heagent/skills/[^`]+)/SKILL\.md`", command)
-        assert match, f"goal.md 必须引用技能包 SKILL.md 路径：{command!r}"
+        assert match, f"work.md 必须引用技能包 SKILL.md 路径：{command!r}"
         assert (root / match.group(1) / "SKILL.md").is_file(), f"引用的技能包不存在：{match.group(1)}"

@@ -154,15 +154,15 @@ class Settings(BaseSettings):
     # `max_iterations` 时生效（优先级：显式参数 > 角色声明 > 本项）。默认 20 与
     # 此前写死在 SubAgent / 角色解析里的值一致。
     subagent_max_iterations: int = Field(default=20, ge=1)
-    # Checkpoint decision policy for declarative /goal_old workflows.  Workflow
+    # Checkpoint decision policy for declarative /goal workflows.  Workflow
     # frontmatter may override this process-wide default.
     goal_checkpoint_mode: Literal["auto", "prompt"] = "prompt"
-    # Open-question decision policy for declarative /goal_old step subagents.
+    # Open-question decision policy for declarative /goal step subagents.
     # block=stop with waiting_user on competing interpretations (default);
     # default=proceed with recommended defaults and record assumptions.
     # Workflow frontmatter may override this process-wide default.
     goal_open_question_mode: Literal["block", "default"] = "block"
-    # /goal_old 工作流包 id：由 skill catalog 在技能库里按 id/别名解析（默认包
+    # /goal 工作流包 id：由 skill catalog 在技能库里按 id/别名解析（默认包
     # .heagent/skills/he-goal/，workflow.md 与 templates/ 是其运行时资源）。
     # 换工作流只需换 id 或替换包内容，不必改代码。
     goal_workflow_skill: str = "he-goal"

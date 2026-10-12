@@ -142,7 +142,7 @@ def _seal_global_skill_roots(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
 def goal_workflow_root(tmp_path: Path) -> Path:
     """在 tmp_path 下搭 ``he-goal`` 技能包骨架，模板复用仓库随包发布的真实文件。
 
-    模板是 /goal_old 的硬性运行时依赖且 CLI 无内置兜底——此前两个 goal 测试文件各持一份
+    模板是 /goal 的硬性运行时依赖且 CLI 无内置兜底——此前两个 goal 测试文件各持一份
     copytree 副本，provisioning 规则变化时极易只改一处（此处收敛为唯一定义）。
     调用方 fixture 自行写入各自的 ``workflow.md`` 内容后 chdir 使用。
     """
@@ -154,7 +154,7 @@ def goal_workflow_root(tmp_path: Path) -> Path:
     )
     (root / "meta.yaml").write_text("canonical_id: he-goal\n", encoding="utf-8")
     shutil.copytree(
-        Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "goal_old" / "templates",
+        Path(__file__).resolve().parents[1] / ".heagent" / "skills" / "he-goal" / "templates",
         root / "templates",
     )
     return root

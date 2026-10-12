@@ -138,13 +138,13 @@ def _brief_frontmatter(goal_dir: Path) -> dict[str, str]:
 
 
 def _goal_dir(cwd: Path) -> Path:
-    goal_id = (cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8").strip()
-    return cwd / "_he-output" / "goals_old" / goal_id
+    goal_id = (cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
+    return cwd / "_he-output" / "goals" / goal_id
 
 
 def _make_legacy_goal(cwd: Path, goal_id: str) -> Path:
     """建一个**没有** workflow 绑定键的存量 goal（走 `goal_document` 旧口径）。"""
-    goals = cwd / "_he-output" / "goals_old"
+    goals = cwd / "_he-output" / "goals"
     goal_dir = goals / goal_id
     goal_dir.mkdir(parents=True)
     (goal_dir / "brief.md").write_text(cli_goal.goal_document("legacy goal", goal_id), encoding="utf-8")
@@ -156,7 +156,7 @@ def _make_legacy_goal(cwd: Path, goal_id: str) -> Path:
 def goal_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """cwd 为 tmp 工作区；预建 goals 根。"""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "_he-output" / "goals_old").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
@@ -243,7 +243,7 @@ async def test_goal_work_with_an_unknown_package_fails_loudly(
     err = capsys.readouterr().err
     assert "he-ghost" in err
     assert "unavailable" in err
-    assert not (goal_cwd / "_he-output" / "goals_old" / "current").exists()
+    assert not (goal_cwd / "_he-output" / "goals" / "current").exists()
 
 
 @pytest.mark.asyncio
@@ -255,7 +255,7 @@ async def test_goal_work_rejects_a_workflow_option_without_a_value(
     await _goal_runner(SimpleNamespace(), None, "new missing value --workflow")
 
     assert "--workflow requires a package id" in capsys.readouterr().err
-    assert not (goal_cwd / "_he-output" / "goals_old" / "current").exists()
+    assert not (goal_cwd / "_he-output" / "goals" / "current").exists()
 
 
 @pytest.mark.asyncio
@@ -281,7 +281,7 @@ async def test_goal_work_rejects_a_repeated_workflow_option(goal_cwd: Path, caps
     await _goal_runner(SimpleNamespace(), None, "new twice --workflow he-alpha --workflow he-beta")
 
     assert "--workflow may be given at most once" in capsys.readouterr().err
-    assert not (goal_cwd / "_he-output" / "goals_old" / "current").exists()
+    assert not (goal_cwd / "_he-output" / "goals" / "current").exists()
 
 
 # ── ③ 恢复按绑定解析（改配置不换流程）─────────────────────────────────
@@ -314,7 +314,7 @@ async def test_status_resolves_the_frozen_binding_not_the_current_setting(
 
 
 class _RecordingCronStore:
-    """``/goal_old auto`` 注册路径的最小 JobStore 替身（记录注册的 job）。"""
+    """``/goal auto`` 注册路径的最小 JobStore 替身（记录注册的 job）。"""
 
     def __init__(self) -> None:
         self.jobs: list[SimpleNamespace] = []
@@ -498,7 +498,7 @@ async def test_package_drift_fails_the_cron_path_too(
     monkeypatch.setenv("GOAL_WORKFLOW_SKILL", "he-alpha")
     reset_settings()
     await _goal_runner(SimpleNamespace(), None, "new cron drift probe")
-    goal_id = (goal_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8").strip()
+    goal_id = (goal_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
     successful_step.clear()
     workflow_path = goal_cwd / ".heagent" / "skills" / "he-alpha" / "workflow.md"
     workflow_path.write_text(workflow_path.read_text(encoding="utf-8") + "\nMore.\n", encoding="utf-8")
@@ -511,7 +511,7 @@ async def test_package_drift_fails_the_cron_path_too(
 
 
 class _FakeStore:
-    """``/goal_old auto`` 注销路径的最小 JobStore 替身。"""
+    """``/goal auto`` 注销路径的最小 JobStore 替身。"""
 
     def list_jobs(self) -> list[object]:
         return []
@@ -552,7 +552,7 @@ async def test_legacy_goal_document_without_frontmatter_binds_the_default(
     _make_package(goal_cwd, "he-plain", steps=1)
     monkeypatch.setenv("GOAL_WORKFLOW_SKILL", "he-plain")
     reset_settings()
-    goals = goal_cwd / "_he-output" / "goals_old"
+    goals = goal_cwd / "_he-output" / "goals"
     goal_dir = goals / "ancient"
     goal_dir.mkdir()
     (goal_dir / "brief.md").write_text("# old goal\n\nno frontmatter at all\n", encoding="utf-8")

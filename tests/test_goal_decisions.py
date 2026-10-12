@@ -466,7 +466,7 @@ async def test_history_survives_reject_rerun_and_a_second_decision(gated_goal) -
 
     store 级二轮回归锚（审查 #1）：二轮 reject 在同一 ``(step, active, status)`` 位置再次
     持久化——审批轮次进 checkpoint 幂等键后不再撞 conflict（收敛前实测死锁：
-    ``checkpoint conflict: …-step-1-active-0-blocked``，此后 /goal_old run 永久失败）。
+    ``checkpoint conflict: …-step-1-active-0-blocked``，此后 /goal run 永久失败）。
     """
     workflow, goal_dir = gated_goal
     await _gate_runner(workflow, goal_dir)
@@ -742,7 +742,7 @@ def test_legacy_checkpoint_without_gate_fields_restores_with_defaults(tmp_path: 
     assert runner.state.approval_round == 0
 
 
-# ---- CLI：/goal_old approve | reject | amend | decisions ----------------------------
+# ---- CLI：/goal approve | reject | amend | decisions ----------------------------
 
 
 @pytest.fixture()
@@ -757,7 +757,7 @@ def approval_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_
         "## Step 02: build\ninput: requirements brief\noutput: implementation\n\nbuild the story\n",
         encoding="utf-8",
     )
-    (tmp_path / "_he-output" / "goals_old").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
@@ -774,8 +774,8 @@ def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
 
 def _active_goal_dir(cwd: Path) -> Path:
-    goal_id = (cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
-    return cwd / "_he-output" / "goals_old" / goal_id
+    goal_id = (cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    return cwd / "_he-output" / "goals" / goal_id
 
 
 @pytest.mark.asyncio
@@ -820,7 +820,7 @@ async def test_goal_reject_blocks_then_resume_reruns_and_history_is_kept(
 
     assert len(successful_step) == 3  # 第二次决策放行，step 02 执行
     records = await decision_store(goal_dir).list_records()
-    # 中间的 /goal_old resume 也按契约记一条 RESUME（只标记执行被恢复，不等于批准）。
+    # 中间的 /goal resume 也按契约记一条 RESUME（只标记执行被恢复，不等于批准）。
     assert [record.action for record in records] == [
         DecisionAction.REJECT,
         DecisionAction.RESUME,
@@ -895,7 +895,7 @@ async def test_goal_status_names_the_pending_decision(
 async def test_goal_next_at_the_gate_names_the_decision_not_resume(
     approval_cwd: Path, successful_step: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """/goal_old next 在审批门上指向决策而非 resume（审查 #19：删掉 prepare 的分流此测试即红）。"""
+    """/goal next 在审批门上指向决策而非 resume（审查 #19：删掉 prepare 的分流此测试即红）。"""
     await _goal_runner(SimpleNamespace(), None, "new gated demo")
     capsys.readouterr()
 
@@ -903,7 +903,7 @@ async def test_goal_next_at_the_gate_names_the_decision_not_resume(
 
     captured = capsys.readouterr()
     assert "awaits a human decision" in captured.err
-    assert "use /goal_old resume first" not in captured.err
+    assert "use /goal resume first" not in captured.err
     assert len(successful_step) == 1  # 门未动
 
 
@@ -919,7 +919,7 @@ def test_decision_display_text_truncates_long_text() -> None:
 async def test_goal_approve_and_decisions_reject_stray_arguments(
     approval_cwd: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """/goal_old approve 与 /goal_old decisions 不收多余参数（审查 #18）：拼错目标时给用法表。"""
+    """/goal approve 与 /goal decisions 不收多余参数（审查 #18）：拼错目标时给用法表。"""
     await _goal_runner(SimpleNamespace(), None, "approve 有点多余")
     assert "用法" in capsys.readouterr().err
 
@@ -936,7 +936,7 @@ async def test_pause_and_decision_run_under_the_domain_lock(gated_goal, monkeypa
 
     变异体：撤 ``_pause_resume_unlocked`` / ``_record_decision_unlocked`` 任一外壳的
     ``goal_mutex()`` ⇒ 对应观察点读到 ``False``，本用例变红。
-    ``/goal_old pause`` 此前是入口层不持锁的漏网写路径（A32② 勘察发现），随内核自锁收口。
+    ``/goal pause`` 此前是入口层不持锁的漏网写路径（A32② 勘察发现），随内核自锁收口。
     """
     workflow, goal_dir = gated_goal
     observations: list[bool] = []

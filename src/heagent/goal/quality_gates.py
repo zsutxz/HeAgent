@@ -335,7 +335,7 @@ async def verify_step(
 
     - ``"always"``（缺省，完成门语义）：无条件重跑每条声明命令——证据必须反映**当前这次**
       步骤执行（AD-5），BLOCKED 重跑后步骤内容可能已变，旧证据不可信；
-    - ``"if_stale"``（``/goal_old verify run`` 语义）：先按既有证据预求值，仅重跑「缺证据 /
+    - ``"if_stale"``（``/goal verify run`` 语义）：先按既有证据预求值，仅重跑「缺证据 /
       失败 / 过期 / 绑定漂移」的命令；新鲜成功证据**复用不重跑**，复用清单显性进
       :attr:`VerificationReport.reused_commands`——verify 不重跑实现步骤，两次求值之间
       没有步骤执行，新鲜证据仍然有效。

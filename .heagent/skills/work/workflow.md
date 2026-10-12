@@ -11,7 +11,7 @@
 
 状态真源全部是文件；宿主每次动作**先读后写**，绝不凭记忆续跑。
 
-- **根目录**：`_he-output/works/`（与旧 `/goal_old` 的 `_he-output/goals_old/` 完全隔离，互不读写）。
+- **根目录**：`_he-output/works/`（与旧 `/goal` 的 `_he-output/goals/` 完全隔离，互不读写）。
 - **current 指针**：`_he-output/works/current`，内容是当前 goal 的目录名；`reset` 删除它，
   goal 目录保留。无活动 goal 时指针不存在。
 - **goal 目录**：`_he-output/works/<goal-id>/`（`<goal-id>` 为英文 slug，冲突时追加 `-a`/`-b`…）：

@@ -1,6 +1,6 @@
 """嵌套子代理迭代预算的解析契约：显式参数 > 角色声明 > Settings.subagent_max_iterations。
 
-回归背景：验证器子代理曾在 20 轮上限被饿死（`/goal_old` step-07 的 task_parallel 验证批次），
+回归背景：验证器子代理曾在 20 轮上限被饿死（`/goal` step-07 的 task_parallel 验证批次），
 根因是 20 被写死在 `SubAgent` 兜底与角色解析里。现改为可配置，且内置 tester 不再钉死 20。
 """
 

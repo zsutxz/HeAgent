@@ -1,4 +1,4 @@
-"""Story 51-7：脚本步骤在 /goal_old 推进链上的接线（CLI 宿主 + Runner 的 A1/A2 端口）。
+"""Story 51-7：脚本步骤在 /goal 推进链上的接线（CLI 宿主 + Runner 的 A1/A2 端口）。
 
 覆盖：`executor_mode: script` 步骤真的被 ScriptRuntime 执行；只读操作同步作答；动作请求在
 脚本返回后由宿主按序**提交**（checkpoint / decision 落步骤证据、validate 走 51-4 求值器、
@@ -60,8 +60,8 @@ def _make_script_package(
 
 
 def _goal_dir(cwd: Path) -> Path:
-    goal_id = (cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8").strip()
-    return cwd / "_he-output" / "goals_old" / goal_id
+    goal_id = (cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8").strip()
+    return cwd / "_he-output" / "goals" / goal_id
 
 
 async def _runner_state(cwd: Path, skill_id: str):
@@ -73,7 +73,7 @@ async def _runner_state(cwd: Path, skill_id: str):
 @pytest.fixture()
 def goal_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "_he-output" / "goals_old").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 

@@ -35,7 +35,7 @@ def git_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _goal_dir(workspace: Path) -> Path:
-    goal_dir = workspace / "_he-output" / "goals_old" / "demo"
+    goal_dir = workspace / "_he-output" / "goals" / "demo"
     goal_dir.mkdir(parents=True, exist_ok=True)
     return goal_dir
 
@@ -390,7 +390,7 @@ async def test_production_advance_wires_execution_to_host(tmp_path: Path) -> Non
 @pytest.mark.asyncio
 async def test_manual_batch_suspends_once_for_human_resume(tmp_path: Path) -> None:
     """批=单 checkpoint 单元的人工面（评审 P8）：manual 模式批完成后挂起一次等
-    /goal_old resume；advance 不代批确认（confirm 零调用）——「每批一次确认」的准确语义。"""
+    /goal resume；advance 不代批确认（confirm 零调用）——「每批一次确认」的准确语义。"""
     (tmp_path / "brief.md").write_text(
         "# 需求\n\n## 原始需求（Original Request）\n\n```\ndemo\n```\n", encoding="utf-8"
     )
@@ -437,5 +437,5 @@ async def test_manual_batch_suspends_once_for_human_resume(tmp_path: Path) -> No
     outcome = await application.advance(context, host, confirm_checkpoint=confirm, load_project_context=lambda: None)
 
     assert outcome.status is application.GoalAdvanceStatus.WAITING
-    assert confirm_calls == []  # 批确认只能由人 /goal_old resume，advance 不代批拍板
+    assert confirm_calls == []  # 批确认只能由人 /goal resume，advance 不代批拍板
     assert runner.state.status is WorkflowStatus.WAITING_USER

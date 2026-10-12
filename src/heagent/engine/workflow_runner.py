@@ -874,7 +874,7 @@ class WorkflowRunner:
             return self.state.model_copy(deep=True)
         if self.state.awaiting_approval:
             raise WorkflowGateError(
-                "the active step awaits an approval decision (/goal_old approve | /goal_old reject | /goal_old amend); "
+                "the active step awaits an approval decision (/goal approve | /goal reject | /goal amend); "
                 "resume does not approve it"
             )
         if self.state.status in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
@@ -902,7 +902,7 @@ class WorkflowRunner:
     def reject(self, reason: str, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
         """人工拒绝（Story 51-5）：驳回挂起的工作；步骤保持未完成、必须重做。
 
-        落 ``BLOCKED``（与声明门未过同一恢复语义：``/goal_old resume`` 重跑该步）；拒绝理由进
+        落 ``BLOCKED``（与声明门未过同一恢复语义：``/goal resume`` 重跑该步）；拒绝理由进
         状态 ``reason``。reject **不**发生完成簿记——步骤不被标记完成。
         """
         step = self._require_approval_decision()
@@ -1222,7 +1222,7 @@ class WorkflowRunner:
         # 审批门让「同一位置合法地写入多次」成为常态：轮次单调递增且永不回零，所以只要
         # 发生过审批门（approval_round > 0，含 reject / amend 后的非挂起持久化）就带轮次后缀
         # ——第二轮的 blocked 与第一轮的 blocked 内容合法地不同，缺后缀会让 store 以
-        # 「同 id 不同内容」拒绝（实证死锁：/goal_old new → reject → resume 重挂门 → 二次 reject
+        # 「同 id 不同内容」拒绝（实证死锁：/goal new → reject → resume 重挂门 → 二次 reject
         # 报 checkpoint conflict，Story 51-5 审查 #1）。
         gate_part = f"-gate-{self.state.approval_round}" if self.state.approval_round else ""
         return (

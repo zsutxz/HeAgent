@@ -1,4 +1,4 @@
-"""``/goal_old`` 工作流的确定性内核（click-free use-case 层，Phase 3）。
+"""``/goal`` 工作流的确定性内核（click-free use-case 层，Phase 3）。
 
 **为什么单独成模块**（goal/document.py 先例）：此前 workflow 校验、gate 渲染、
 story 选择、checkpoint 恢复、prompt 装配与推进编排全部混在 ``cli/goal.py``，与
@@ -57,7 +57,7 @@ from heagent.tools.path_safety import resolve_under_root
 
 logger = logging.getLogger(__name__)
 
-# /goal_old 的技能库根：工作流包与每个步骤的角色包都从这里按 id 解析（单一来源）。
+# /goal 的技能库根：工作流包与每个步骤的角色包都从这里按 id 解析（单一来源）。
 GOAL_SKILLS_ROOT = Path(".heagent/skills")
 # 以下两段文案是**兜底**：workflow 包 frontmatter 声明了对应内容时以包为准（工作流逻辑尽量不进代码）。
 # 提示词与门禁模板**不在代码里**：由 workflow 包的 templates/ 携带；必需性由包 frontmatter 的
@@ -222,7 +222,7 @@ def initialize_checkpoint_workspace(goal_dir: Path, workspace: Path) -> None:
 def checkpoint_store(goal_dir: Path) -> WorkflowCheckpointStore:
     """Legacy goals keep local checkpoints; new goals persist their workspace binding.
 
-    这是 checkpoint 目录的**唯一解析点**：预检方（``/goal_old doctor``）通过
+    这是 checkpoint 目录的**唯一解析点**：预检方（``/goal doctor``）通过
     ``WorkflowCheckpointStore.base_dir`` 取同一目录，不再另算一份。
     """
     try:
@@ -576,13 +576,13 @@ async def _advance_checkpoint_decision(
         # manual 模式不宣传 auto-advance。
         if mode == "auto":
             messages.append(
-                "[goal] a step awaits a human decision: /goal_old approve | /goal_old reject <原因> | /goal_old amend <补充> "
-                "(/goal_old decisions lists records); auto-advance will not approve it"
+                "[goal] a step awaits a human decision: /goal approve | /goal reject <原因> | /goal amend <补充> "
+                "(/goal decisions lists records); auto-advance will not approve it"
             )
         else:
             messages.append(
                 "[goal] a step awaits a human decision; decide first with "
-                "/goal_old approve | /goal_old reject <原因> | /goal_old amend <补充> (/goal_old decisions lists records)"
+                "/goal approve | /goal reject <原因> | /goal amend <补充> (/goal decisions lists records)"
             )
         return GoalAdvanceStatus.WAITING
     step_checkpoint = result.step_index is not None and (result.step_index - 1) in runner.state.completed_steps
@@ -721,7 +721,7 @@ async def _advance_unlocked(
                 messages.append(f"[goal] step blocked: {reason}")
                 messages.append(
                     "[goal] the step must be re-run: record a human acknowledgement with "
-                    "`/goal_old resume <说明>` (the active step then executes again); `/goal_old status` shows the state."
+                    "`/goal resume <说明>` (the active step then executes again); `/goal status` shows the state."
                 )
             return outcome(GoalAdvanceStatus.FAILED)
 
@@ -759,7 +759,7 @@ async def pause_resume(
     """Persist a pause or resume; ``proceed`` reports whether a step may now execute.
 
     互斥（台账 A32②）：同 :func:`advance`——写状态整段自持 goal 域互斥
-    （``/goal_old pause`` 此前是入口层不持锁的漏网写路径，随本锁收口）。
+    （``/goal pause`` 此前是入口层不持锁的漏网写路径，随本锁收口）。
     """
     async with goal_mutex():
         return await _pause_resume_unlocked(workflow, goal_dir, resume=resume, response=response)
@@ -790,8 +790,8 @@ async def _pause_resume_unlocked(
                 # 审批门挂起（Story 51-5）：resume 不能隐式等同批准——先做显式决策。
                 return PauseResumeOutcome(
                     status=PauseResumeStatus.UNCHANGED,
-                    message="[goal] the active step awaits a decision; /goal_old resume cannot approve it — "
-                    "use /goal_old approve | /goal_old reject <原因> | /goal_old amend <补充>",
+                    message="[goal] the active step awaits a decision; /goal resume cannot approve it — "
+                    "use /goal approve | /goal reject <原因> | /goal amend <补充>",
                 )
             if response:
                 goal_record_user_response(goal_dir, response)
@@ -815,7 +815,7 @@ async def _pause_resume_unlocked(
             if runner.state.status is WorkflowStatus.WAITING_USER:
                 return PauseResumeOutcome(
                     status=PauseResumeStatus.UNCHANGED,
-                    message="[goal] already paused; use /goal_old resume to continue",
+                    message="[goal] already paused; use /goal resume to continue",
                 )
             runner.pause()
             action = "paused"
@@ -887,7 +887,7 @@ async def _record_decision_unlocked(
         # 不是决策命令；混进来会让「resume 当 approve 用」有一条静默通道（AD-3 负向验证锚点）。
         return DecisionOutcome(
             status=DecisionStatus.FAILED,
-            message="[goal] resume is not a decision; use /goal_old resume (it cannot approve an approval gate)",
+            message="[goal] resume is not a decision; use /goal resume (it cannot approve an approval gate)",
         )
     if action is not DecisionAction.APPROVE and not text.strip():
         # 审查 #8：空白的拒绝理由 / 修订补充会落成空 reason 的 BLOCKED 与空审计记录。
@@ -935,7 +935,7 @@ async def _record_decision_unlocked(
         return DecisionOutcome(
             status=DecisionStatus.FAILED,
             decision_id=record.decision_id if record is not None else "",
-            message=f"[goal] {action.value} failed: {exc} ({detail}; check /goal_old decisions and /goal_old status)",
+            message=f"[goal] {action.value} failed: {exc} ({detail}; check /goal decisions and /goal status)",
         )
     supplement_note = ""
     if text and action is not DecisionAction.APPROVE:
@@ -955,7 +955,7 @@ async def _record_decision_unlocked(
         and not runner.state.awaiting_approval
     ):
         # 审查 #11：该步同时声明了 checkpoint——批准已完成簿记，剩下的是普通检查点等待。
-        message += " (the completion is booked; this step also declared a checkpoint — /goal_old resume continues)"
+        message += " (the completion is booked; this step also declared a checkpoint — /goal resume continues)"
     return DecisionOutcome(
         status=DecisionStatus.RECORDED,
         proceed=action is not DecisionAction.REJECT,

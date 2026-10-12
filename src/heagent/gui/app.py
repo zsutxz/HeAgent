@@ -70,7 +70,7 @@ class HeAgentApp(App[None]):
         self.job_store = job_store
         self.fact_store = fact_store
         self.profile_store = profile_store
-        # cron 自动推进（/goal_old auto 注册的 goal-advance job）由 GUI 会话驱动（2026-09-17 收口）。
+        # cron 自动推进（/goal auto 注册的 goal-advance job）由 GUI 会话驱动（2026-09-17 收口）。
         self.cron_scheduler = cron_scheduler
         # 事件观察者引用（供 EventLog widget 拉取）
         self._event_observer: GuiEventObserver | None = None

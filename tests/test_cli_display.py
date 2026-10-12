@@ -83,12 +83,12 @@ def test_show_deferred_work_includes_legacy_and_goal_local_ledgers(
     """The three drifted locations are surfaced together instead of silently diverging."""
     _ledger(tmp_path, "_bmad-output/implementation-artifacts/deferred-work.md", 1)
     _ledger(tmp_path, "_bmad-output/deferred-work.md", 1)
-    _ledger(tmp_path, "_he-output/goals_old/demo/step-07-implement-story/epic-e1/deferred-work.md", 2)
+    _ledger(tmp_path, "_he-output/goals/demo/step-07-implement-story/epic-e1/deferred-work.md", 2)
     show_deferred_work(tmp_path)
     err = capsys.readouterr().err
     assert "_bmad-output/implementation-artifacts/deferred-work.md: 1 entries" in err
     assert "_bmad-output/deferred-work.md: 1 entries" in err
-    assert "_he-output/goals_old/demo/step-07-implement-story/epic-e1/deferred-work.md: 2 entries" in err
+    assert "_he-output/goals/demo/step-07-implement-story/epic-e1/deferred-work.md: 2 entries" in err
 
 
 def test_show_deferred_work_reports_a_missing_ledger(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

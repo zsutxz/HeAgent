@@ -108,7 +108,7 @@ class DecisionStore:
     （甚至挡不住同进程的另一个实例），真实的互斥保证全部来自 ``open("x")`` 的独占创建与
     goal 域锁（:func:`heagent.goal.mutex.goal_mutex`，台账 A32② 起：变更内核
     ``advance`` / ``pause_resume`` / ``record_decision`` 自持该锁，不再依赖入口层）。
-    直接经本类的读路径（如 ``/goal_old status`` 的快照读）**不在锁内**——半截文件按
+    直接经本类的读路径（如 ``/goal status`` 的快照读）**不在锁内**——半截文件按
     「损坏」显性报错，不静默。
     """
 

@@ -1,4 +1,4 @@
-"""``/goal_old`` 域层 —— 目标驱动工作流中可独立成模块的部分。
+"""``/goal`` 域层 —— 目标驱动工作流中可独立成模块的部分。
 
 - 确定性内核（:mod:`heagent.goal.application`，2026-09-21 Phase 3 自 ``cli/goal.py``
   迁入）：workflow 校验、gate 渲染、story 选择、checkpoint 恢复与推进 use-case、
@@ -6,7 +6,7 @@
   （架构契约测试钉死其 import 图）。
 - 需求文档层（:mod:`heagent.goal.document`）：goal 目录的 ``brief.md``（存量 goal 为
   ``require.md`` / ``GOAL.md``）的定位、命名规则与增量更新——文档约定一律不落进 CLI 代码。
-- LLM 项目命名（:mod:`heagent.goal.naming`）：``/goal_old new`` 的 goal_id 由一次性
+- LLM 项目命名（:mod:`heagent.goal.naming`）：``/goal new`` 的 goal_id 由一次性
   provider 调用生成，失败/非法显性回退固定名 ``project``；清洗与校验复用
   document.py 的确定性常量。
 - 声明式工作流装载（:mod:`heagent.goal.workflow_loader`，2026-09-20 自
@@ -22,7 +22,7 @@
 - 只读 Git 端口（:mod:`heagent.goal.git_port`，Story 51-3）：base / head / 变更集与
   工作区冲突状态；只读子命令白名单 + 固定旗标模板，从不 commit（AD-11）。
 - 通用质量门求值器（:mod:`heagent.goal.quality_gates`，Story 51-4）：把步骤 ``validation:``
-  的结构化子句逐条匹配到证据 / 产物 / 只读 Git，产出结构化通过 / 失败与原因（``/goal_old verify``
+  的结构化子句逐条匹配到证据 / 产物 / 只读 Git，产出结构化通过 / 失败与原因（``/goal verify``
   与步骤完成门共用）；``gate:`` 的宿主注册表在此，加载期由 workflow_loader 校验
   （未注册名字 fail-loud），求值器自身从不执行命令——受控重跑经入口层注入的治理链端口。
 - 人工决策日志（:mod:`heagent.goal.decisions`，Story 51-5）：版本化决策模型 + 追加式存储

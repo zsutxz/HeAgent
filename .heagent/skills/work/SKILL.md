@@ -2,7 +2,7 @@
 name: work
 description: 目标驱动开发（声明式 8 步工作流）：/work 命令与多阶段大目标的触发与执行
 triggers: [/work, work 工作流]
-negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, refactor]
+negative_triggers: [/goal, code review, 代码评审, 技能评审, 重构, refactor]
 ---
 
 # work（目标驱动开发工作流）
@@ -14,12 +14,12 @@ negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, 
 （无 Python 状态机，状态全靠文件）。工作流共 8 步：市场调研、发散构思、需求分析、产品范围、架构设计、
 故事细化、逐故事实现、系统集成测试。
 
-与旧 `/goal_old` 的隔离：旧命令由 Python 状态机驱动，状态在 `_he-output/goals_old/`；本命令的状态在
+与旧 `/goal` 的隔离：旧命令由 Python 状态机驱动，状态在 `_he-output/goals/`；本命令的状态在
 `_he-output/works/`，两者互不兼容、互不迁移。不要把旧 goal 目录当本命令的状态读写，反之亦然。
 
 **本包目录 `work/`（canonical id `he-work`）不要改回 `goal`/`goal_new`/`goal2`。** 包 id 取 meta.yaml 的
 `canonical_id`（缺省回落目录名），须带 `he-`/`bmad-` 前缀，否则整包无法解析。目录若叫 `goal`，id 会
-兜底成 `he-goal`，与旧包 `goal_old/` 同 id 冲突并遮蔽，`/goal_old` 失效。`SKILL.md` 的 `name` 只作
+兜底成 `he-goal`，与旧包 `he-goal/` 同 id 冲突并遮蔽，`/goal` 失效。`SKILL.md` 的 `name` 只作
 别名来源，不参与 id 校验。命令名与包目录名是两回事。
 
 ## 参数路由

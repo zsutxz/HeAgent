@@ -180,7 +180,7 @@ class SkillPackage(BaseModel):
         return self.read_resource(resource)
 
     # 声明式工作流装配（read_workflow 及其解析助手、WorkflowResource 模型、SkillWorkflowError）
-    # 已于 2026-09-20 归位到 /goal_old 领域层：goal/workflow_loader.py（解析）与
+    # 已于 2026-09-20 归位到 /goal 领域层：goal/workflow_loader.py（解析）与
     # engine/workflow_resource.py（运行时模型）。本模块只保留技能包的通用资源索引与安全读取。
 
     def read_reference(self, resource: str) -> str:

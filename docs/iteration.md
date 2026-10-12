@@ -31,7 +31,7 @@ HeAgent 用 **BMad Method** 驱动迭代，组织单元是「**周期（Cycle）
 
 ### 1.2 历史规划周期工作流
 
-下面是历史规划产物采用的周期级顺序；它解释 `_bmad-output/` 的目录结构，不等于当前 `/goal_old` 的运行时步骤。
+下面是历史规划产物采用的周期级顺序；它解释 `_bmad-output/` 的目录结构，不等于当前 `/goal` 的运行时步骤。
 当前运行时工作流见[文档索引的「Goal 工作流」章节](README.md#goal-工作流)。
 
 每个历史周期按此顺序推进，每步对应一个 BMad 技能（`bmad-*` 前缀）：
@@ -382,7 +382,7 @@ MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS=86400   # 1 天节流
 
 **历史快照（2026-08-19）**：当时记录的 9 个开发周期（主线 Epic 1-10、MCP 11-18、Sandbox 硬化 S1-S4、健壮性/质量 19-24、GUI 25-28、交互与可扩展层 29-35）已全部交付；该日期的测试统计仅代表当时状态。
 
-**当前状态（2026-09-08）**：后续文件安全、沙箱会话、目标驱动开发、BMad 技能包和声明式工作流周期已完成或有独立产物，状态以 [`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml) 为准。当前 `/goal_old` 的可执行契约是 [`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md)，维护说明见[文档索引「Goal 工作流」](README.md#goal-工作流)；`pytest --collect-only -q` 收集数以本地运行结果为准，质量门禁仍需在可写临时目录下运行。
+**当前状态（2026-09-08）**：后续文件安全、沙箱会话、目标驱动开发、BMad 技能包和声明式工作流周期已完成或有独立产物，状态以 [`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml) 为准。当前 `/goal` 的可执行契约是 [`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md)，维护说明见[文档索引「Goal 工作流」](README.md#goal-工作流)；`pytest --collect-only -q` 收集数以本地运行结果为准，质量门禁仍需在可写临时目录下运行。
 
 **当前缺口**（详见 `frame.md` 第五章）：
 

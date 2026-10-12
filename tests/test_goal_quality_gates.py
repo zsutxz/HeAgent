@@ -1,7 +1,7 @@
-"""Story 51-4：真实质量 Gate 与 ``/goal_old verify``——通用求值器、gate 注册表与受控重跑。
+"""Story 51-4：真实质量 Gate 与 ``/goal verify``——通用求值器、gate 注册表与受控重跑。
 
 覆盖验收标准的可执行判据：声称命令通过但没有匹配证据时 Gate 失败；非零退出码 / 错误 cwd /
-过期 / 证据不属于当前 Story → 未通过；``/goal_old verify`` 只检查或受控重跑声明的验证，不重跑
+过期 / 证据不属于当前 Story → 未通过；``/goal verify`` 只检查或受控重跑声明的验证，不重跑
 实现步骤、不改 Runner 状态；老包零行为变化；未注册 ``gate:`` 名字加载期 fail-loud；
 只写 Markdown 不能补证据（变异锚点）。
 """
@@ -610,7 +610,7 @@ def test_registered_gate_names_parse_at_load(tmp_path: Path) -> None:
     assert step.validation_clauses.gates == ["tests-pass", "git-changes"]
 
 
-# ── /goal_old verify：入口接线 ────────────────────────────────────────────
+# ── /goal verify：入口接线 ────────────────────────────────────────────
 
 
 _WORKFLOW = (
@@ -628,7 +628,7 @@ def gate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workflow_root
     """带 ``artifact:`` 子句的两步工作流；cwd 为 tmp 工作区。"""
     monkeypatch.chdir(tmp_path)
     (goal_workflow_root / "workflow.md").write_text(_WORKFLOW, encoding="utf-8")
-    (tmp_path / "_he-output" / "goals_old").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "_he-output" / "goals").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
 
@@ -664,7 +664,7 @@ async def test_completion_gate_blocks_until_the_declared_artifact_exists(
     assert "quality gate failed for step 'step-01-build.md'" in err
     assert "[goal] verify: FAIL artifact: reports/first.md" in err
     assert len(successful_step) == 1
-    goal_id = (gate_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
+    goal_id = (gate_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
     checkpoints = await WorkflowCheckpointStore(str(gate_cwd / ".heagent" / "checkpoints" / goal_id)).list_checkpoints(
         goal_id=goal_id
     )
@@ -684,7 +684,7 @@ async def test_completion_gate_blocks_until_the_declared_artifact_exists(
 async def test_goal_verify_reports_missing_evidence_without_touching_state(
     gate_cwd: Path, successful_step: list[str], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """/goal_old verify 只检查：缺产物如实报 FAIL，不改 Runner 状态、不重跑实现步骤。"""
+    """/goal verify 只检查：缺产物如实报 FAIL，不改 Runner 状态、不重跑实现步骤。"""
     await _goal_runner(SimpleNamespace(), None, "new build a gate")
     capsys.readouterr()
     assert len(successful_step) == 1
@@ -939,8 +939,8 @@ async def test_real_engine_gate_runs_the_declared_command_at_the_workspace_root(
     assert len(successful_step) == 1
     assert (workspace / "marker.txt").read_text(encoding="utf-8").strip() == "ok"  # 命令在工作区根执行
     assert not (gate_cwd / "marker.txt").exists()  # 进程 cwd 没有被误用为执行目录
-    goal_id = (gate_cwd / "_he-output" / "goals_old" / "current").read_text(encoding="utf-8")
-    evidence_files = list((gate_cwd / "_he-output" / "goals_old" / goal_id / "evidence").glob("*.json"))
+    goal_id = (gate_cwd / "_he-output" / "goals" / "current").read_text(encoding="utf-8")
+    evidence_files = list((gate_cwd / "_he-output" / "goals" / goal_id / "evidence").glob("*.json"))
     assert len(evidence_files) == 1  # 治理链产出落了证据
     checkpoints = await WorkflowCheckpointStore(str(workspace / ".heagent" / "checkpoints" / goal_id)).list_checkpoints(
         goal_id=goal_id

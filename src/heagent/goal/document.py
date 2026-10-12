@@ -1,4 +1,4 @@
-"""goal 需求文档（brief.md）生成与 goal 命名约定（/goal_old 命令族的文档层）。
+"""goal 需求文档（brief.md）生成与 goal 命名约定（/goal 命令族的文档层）。
 
 **为什么单独成模块**（cli/wiring.py 先例）：此前这段「goal 文档与命名」逻辑（约 150 行——
 goal_id 规则、目录命名、需求文档生成与增量更新）与工作流驱动（advance /
@@ -6,7 +6,7 @@ execute / dispatch / cron）混在 cli/goal.py 里——前者随 BMad 产物约
 编排变，混在一起使 cli/goal.py 既难读也难测。本模块只做「文档与命名」的确定性部分
 （LLM 命名见 naming.py）：不依赖 agent/providers/cron，可被独立测试。
 
-**文档契约**：``/goal_old new`` 只落盘**原始需求**（``## 原始需求（Original Request）`` 段），
+**文档契约**：``/goal new`` 只落盘**原始需求**（``## 原始需求（Original Request）`` 段），
 创建时**不再直接写目标看板文档**；「总结的需求」等初步分析做完后由 step 01 补写同一文档的
 ``## 总结的需求（Derived Requirements）`` 段。改名前的 ``require.md`` 与更早的 ``GOAL.md``
 仍可读（见 :func:`goal_document_path`，按新名在前探测），写入落在解析出的那一份上，不会分裂成两份。
@@ -29,7 +29,7 @@ from heagent.pub.persist import atomic_update_text
 # Settings.goal_workflow_skill + skill catalog 解析，不在本模块硬编码。
 # Durable user-facing Goal and workflow artifacts belong under the project output
 # root. ``.heagent`` remains reserved for runtime configuration and skill code.
-GOALS_DIR = Path("_he-output/goals_old")
+GOALS_DIR = Path("_he-output/goals")
 # 需求文档名：新 goal 一律落 brief.md；前两代名字只作存量 goal 的读取回落，按新名在前探测
 # （见 goal_document_path）——命中存量文件时读写都落在它上面，不把同一 goal 拆成两份文档。
 _GOAL_DOCUMENT_NAME = "brief.md"

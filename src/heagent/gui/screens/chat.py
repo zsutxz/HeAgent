@@ -193,12 +193,12 @@ class ChatScreen(Screen[None]):
             log.write(WELCOME)
             return True
         if cmd == "/help":
-            log.write("[dim]/model /goal /goal_old /clear /help | Ctrl+L 清屏 | Esc 中止 | Ctrl+Q 退出[/]")
+            log.write("[dim]/model /goal /goal /clear /help | Ctrl+L 清屏 | Esc 中止 | Ctrl+Q 退出[/]")
             return True
         if cmd == "/model":
             self._model_cmd(args)
             return True
-        if cmd == "/goal_old":
+        if cmd == "/goal":
             self._goal_cmd(args)
             return True
         return False
@@ -236,14 +236,14 @@ class ChatScreen(Screen[None]):
             except Exception as exc:
                 log.write(f"[red]Goal command failed: {exc}[/]")
             else:
-                log.write("[dim]Goal command completed; use /goal_old status to inspect progress.[/]")
+                log.write("[dim]Goal command completed; use /goal status to inspect progress.[/]")
             finally:
                 self._state.is_running = False
 
         self._pending_submit = asyncio.create_task(_run())
 
     def action_cancel_goal(self) -> None:
-        """Esc：中止当前前台 task（/goal_old 与普通 submit 共用 ``_pending_submit`` 槽）。
+        """Esc：中止当前前台 task（/goal 与普通 submit 共用 ``_pending_submit`` 槽）。
 
         普通对话路径的 CancelledError 由 ``AgentBridge.submit`` 自行捕获并播报中断；
         goal 路径由 ``_goal_cmd._run`` 写「已中止」后复抛。

@@ -94,7 +94,7 @@ def gui_main(
     observer = GuiEventObserver(state)
     engine.events.subscribe(observer)
 
-    # ── Cron 调度器（/goal_old auto 注册的 goal-advance job 由它驱动；runner 与 CLI 共享 wiring 工厂）──
+    # ── Cron 调度器（/goal auto 注册的 goal-advance job 由它驱动；runner 与 CLI 共享 wiring 工厂）──
     cron_scheduler = None
     if config.cron_enabled and job_store is not None:
         from heagent.agent.middleware import make_retry_middleware

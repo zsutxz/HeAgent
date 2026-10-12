@@ -35,7 +35,7 @@ def test_status_view_reports_progress_and_current_step() -> None:
     assert view.workflow == "example"
     assert view.progress == "1/2"
     assert view.active_step_name == "step-02-build.md"
-    assert view.recommended_commands == ["/goal_old next"]
+    assert view.recommended_commands == ["/goal next"]
     assert view.render()[0] == "[goal] declarative progress: 1/2 status=pending step=1"
 
 
@@ -53,7 +53,7 @@ def test_status_view_surfaces_failed_stories_and_resume_guidance() -> None:
     lines = view.render()
     assert "[goal] recent failures: S-2 (failed)" in lines
     assert "[goal] reason: test evidence is incomplete" in lines
-    assert "[goal] next: /goal_old resume <answer> | /goal_old status" in lines
+    assert "[goal] next: /goal resume <answer> | /goal status" in lines
 
 
 def test_an_approval_gate_recommends_decisions_never_resume() -> None:
@@ -61,18 +61,18 @@ def test_an_approval_gate_recommends_decisions_never_resume() -> None:
     state = WorkflowRunnerState(status=WorkflowStatus.WAITING_USER, awaiting_approval=True)
     view = project_status_view(state, _workflow())
     assert view.recommended_commands == [
-        "/goal_old approve",
-        "/goal_old reject <原因>",
-        "/goal_old amend <补充>",
-        "/goal_old decisions",
+        "/goal approve",
+        "/goal reject <原因>",
+        "/goal amend <补充>",
+        "/goal decisions",
     ]
-    assert "/goal_old resume" not in view.recommended_commands
+    assert "/goal resume" not in view.recommended_commands
 
 
 def test_status_view_reports_blocked_recommendations() -> None:
     view = project_status_view(WorkflowRunnerState(status=WorkflowStatus.BLOCKED, reason="gate failed"), _workflow())
-    assert view.recommended_commands == ["/goal_old resume <说明>", "/goal_old doctor"]
-    assert "[goal] next: /goal_old resume <说明> | /goal_old doctor" in view.render()
+    assert view.recommended_commands == ["/goal resume <说明>", "/goal doctor"]
+    assert "[goal] next: /goal resume <说明> | /goal doctor" in view.render()
 
 
 def test_status_view_never_infers_open_decisions_from_the_reason() -> None:
@@ -86,12 +86,12 @@ def test_status_view_ignores_an_active_step_beyond_the_workflow() -> None:
     state = WorkflowRunnerState(active_step=9, status=WorkflowStatus.COMPLETED)
     view = project_status_view(state, _workflow())
     assert view.active_step_name == ""
-    assert view.recommended_commands == ["/goal_old status"]
+    assert view.recommended_commands == ["/goal status"]
 
 
 @pytest.mark.asyncio
 async def test_cli_status_renders_the_shared_projection(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """``/goal_old status`` must render the projection, not re-derive its own fields."""
+    """``/goal status`` must render the projection, not re-derive its own fields."""
     captured: list[str] = []
     state = WorkflowRunnerState(active_step=1, status=WorkflowStatus.WAITING_USER, completed_steps=[1])
 
@@ -106,7 +106,7 @@ async def test_cli_status_renders_the_shared_projection(monkeypatch: pytest.Monk
 
     assert captured[0] == "[goal] declarative progress: 1/2 status=waiting_user step=1"
     assert "[goal] current step: step-02-build.md" in captured
-    assert "[goal] next: /goal_old resume <answer> | /goal_old status" in captured
+    assert "[goal] next: /goal resume <answer> | /goal status" in captured
 
 
 def _story_workflow() -> WorkflowResource:
@@ -203,7 +203,7 @@ def test_gui_and_interactive_cli_use_the_shared_goal_entry_point() -> None:
     for relative in ("gui/screens/chat.py", "cli/interactive.py"):
         source = (source_root / relative).read_text(encoding="utf-8")
         assert "heagent.cli.goal import _goal_runner" in source, (
-            f"{relative} must dispatch /goal_old through the shared goal runner"
+            f"{relative} must dispatch /goal through the shared goal runner"
         )
 
 
@@ -211,7 +211,7 @@ def test_gui_and_interactive_cli_use_the_shared_goal_entry_point() -> None:
 async def test_cron_goal_job_drives_the_shared_advance_use_case(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """The scheduler must not fork its own advance logic: cron runs ``/goal_old next``'s use case."""
+    """The scheduler must not fork its own advance logic: cron runs ``/goal next``'s use case."""
     calls: list[str] = []
 
     async def _advance(_provider: object, _engine: object, _workflow: WorkflowResource) -> str:

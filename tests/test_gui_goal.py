@@ -1,7 +1,7 @@
-"""GUI /goal_old 收口测试（2026-09-17 收口；2026-09-28 台账 A4b 改判据）。
+"""GUI /goal 收口测试（2026-09-17 收口；2026-09-28 台账 A4b 改判据）。
 
-覆盖台账三点：``/goal_old`` 由 goal runner 处理且**不**落到 ``bridge.submit``（锁定测试）、
-``/goal_old`` 文案经 **on_message sink** 进 RichLog（不再是 stderr 全量重定向）、Esc 取消入口。
+覆盖台账三点：``/goal`` 由 goal runner 处理且**不**落到 ``bridge.submit``（锁定测试）、
+``/goal`` 文案经 **on_message sink** 进 RichLog（不再是 stderr 全量重定向）、Esc 取消入口。
 另加两条 A4b 判据：**日志 / 第三方 stderr 写不得进对话区**；GUI 侧源码不得再出现
 ``redirect_stderr``（结构性判据，CI 无 textual 时也由 ``test_goal_message_sink.py`` 覆盖）。
 全部依赖 textual（可选组 gui），CI 无 textual 时经 :func:`pytest.importorskip` 跳过。
@@ -59,7 +59,7 @@ async def _submit_and_wait(pilot: object, text: str, *, until: Callable[[], bool
         if until():
             return
         await pilot.pause()
-    raise AssertionError("等待条件超时：/goal_old task 未达到预期状态")
+    raise AssertionError("等待条件超时：/goal task 未达到预期状态")
 
 
 def _richlog_texts(rich_log: object) -> list[str]:
@@ -68,7 +68,7 @@ def _richlog_texts(rich_log: object) -> list[str]:
 
 @pytest.mark.asyncio
 async def test_goal_command_routes_to_goal_runner_not_bridge_submit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """台账锁定测试：GUI 里 ``/goal_old status`` 进 goal runner，不当普通提示词提交。"""
+    """台账锁定测试：GUI 里 ``/goal status`` 进 goal runner，不当普通提示词提交。"""
     import heagent.cli.goal as cli_goal
 
     goal_calls: list[str] = []
@@ -90,7 +90,7 @@ async def test_goal_command_routes_to_goal_runner_not_bridge_submit(monkeypatch:
 
     assert isinstance(app, HeAgentApp)
     async with app.run_test() as pilot:
-        await _submit_and_wait(pilot, "/goal_old status", until=lambda: bool(goal_calls))
+        await _submit_and_wait(pilot, "/goal status", until=lambda: bool(goal_calls))
 
     assert goal_calls == ["status"]
     assert bridge_calls == []
@@ -122,7 +122,7 @@ async def test_goal_progress_reaches_richlog_through_the_sink(monkeypatch: pytes
         def _forwarded() -> bool:
             return any("[goal] step 1/3 running" in t for t in _richlog_texts(rich_log))
 
-        await _submit_and_wait(pilot, "/goal_old status", until=_forwarded)
+        await _submit_and_wait(pilot, "/goal status", until=_forwarded)
         texts = _richlog_texts(rich_log)
     assert any("[goal] step 1/3 running" in t for t in texts)
     assert any("[goal] done" in t for t in texts)
@@ -130,7 +130,7 @@ async def test_goal_progress_reaches_richlog_through_the_sink(monkeypatch: pytes
 
 @pytest.mark.asyncio
 async def test_goal_run_does_not_leak_logs_or_raw_stderr_into_the_chat(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A4b：``/goal_old`` 期间的 logging 记录与直接写 stderr 的内容**不得**进对话区。
+    """A4b：``/goal`` 期间的 logging 记录与直接写 stderr 的内容**不得**进对话区。
 
     旧实现靠 ``redirect_stderr`` 截获文案 ⇒ logging（GUI 的 console handler）与第三方 stderr
     写入被一并吞进聊天日志。变异体：把 ``redirect_stderr`` 加回 chat.py ⇒ 本用例精确变红。
@@ -160,7 +160,7 @@ async def test_goal_run_does_not_leak_logs_or_raw_stderr_into_the_chat(monkeypat
         def _ok() -> bool:
             return any("only this belongs" in t for t in _richlog_texts(rich_log))
 
-        await _submit_and_wait(pilot, "/goal_old status", until=_ok)
+        await _submit_and_wait(pilot, "/goal status", until=_ok)
         texts = _richlog_texts(rich_log)
 
     joined = "\n".join(texts)
@@ -187,7 +187,7 @@ async def test_escape_cancels_running_goal_task(monkeypatch: pytest.MonkeyPatch)
     assert isinstance(app, HeAgentApp)
     async with app.run_test() as pilot:
         screen = pilot.app.screen
-        await _submit_and_wait(pilot, "/goal_old status", until=lambda: screen._state.is_running)
+        await _submit_and_wait(pilot, "/goal status", until=lambda: screen._state.is_running)
 
         await pilot.press("escape")
         task = screen._pending_submit

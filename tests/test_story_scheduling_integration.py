@@ -202,7 +202,7 @@ async def test_parallel_full_chain_host_wiring_with_git_audit(tmp_path, monkeypa
     _git("init", cwd=tmp_path)
     _git("add", "-A", cwd=tmp_path)
     _git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-m", "base", cwd=tmp_path)
-    goal_dir = tmp_path / "_he-output" / "goals_old" / "demo"
+    goal_dir = tmp_path / "_he-output" / "goals" / "demo"
     goal_dir.mkdir(parents=True)
     story_of = {"S-1": "src/a.py", "S-2": "src/b.py", "S-3": "src/c.py"}
 

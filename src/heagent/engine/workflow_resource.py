@@ -28,7 +28,7 @@ def section_titles(validation_rules: str | None) -> list[str]:
 def output_contains_section(text: str, section: str) -> bool:
     """Whether ``text`` carries the ``## <section>`` heading（文本门禁判定的单一真源）.
 
-    ``WorkflowRunner`` 的步骤输出门禁与 ``goal/quality_gates`` 的 ``/goal_old verify`` 复验共用
+    ``WorkflowRunner`` 的步骤输出门禁与 ``goal/quality_gates`` 的 ``/goal verify`` 复验共用
     此判定，两处永不漂移。
     """
     return re.search(rf"^##\s+{re.escape(section)}\s*$", text, re.I | re.M) is not None
@@ -187,9 +187,9 @@ class WorkflowResource(BaseModel):
     checkpoint_mode: CheckpointMode = ""
     # Empty means the workflow defers to GOAL_OPEN_QUESTION_MODE/settings.
     open_question_mode: OpenQuestionMode = ""
-    # /goal_old run 单次连续推进的步数上限（声明优先；缺失用默认值）。
+    # /goal run 单次连续推进的步数上限（声明优先；缺失用默认值）。
     max_rounds: int = 10
-    # /goal_old auto 的默认 cron；空 = 用 CLI 内置默认。
+    # /goal auto 的默认 cron；空 = 用 CLI 内置默认。
     auto_schedule: str = ""
     # open_question_mode 各自对应的一段策略文案；空 = 用 CLI 内置默认。
     open_question_default: str = ""
