@@ -5,7 +5,7 @@ triggers: [/goal, goal 工作流]
 negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, refactor]
 ---
 
-# goal（目标驱动开发工作流 v2）
+# goal（目标驱动开发工作流）
 
 ## Pattern
 
@@ -17,12 +17,10 @@ negative_triggers: [/goal_old, code review, 代码评审, 技能评审, 重构, 
 与旧 `/goal_old` 的隔离：旧命令由 Python 状态机驱动，状态在 `_he-output/goals_old/`；本命令的状态在
 `_he-output/goals_new/`，两者互不兼容、互不迁移。不要把旧 goal 目录当本命令的状态读写，反之亦然。
 
-**本包名为 `he-goal-new`（目录 `goal_new/`），不要改回 `goal`/`goal2`。** 包 id 由 meta.yaml 的
-`canonical_id` 决定（缺省回落到目录名），必须匹配 `he-`/`bmad-` 前缀（`skills/skill_packages.py`）：
-非法 id 走兜底路径，整包在 catalog 里 `available=False` 而**无法解析**，`doctor --workflow` 与
-`/goal` 都会被挡住。目录若叫 `goal`，其 canonical id 会兜底成 `he-goal`，与旧工作流包**同 id 冲突并
-遮蔽它**，旧 `/goal_old` 在全新克隆上直接失效。`SKILL.md` 的 `name` 只作 `source_id`/别名来源，
-不参与 id 校验。命令名与技能包目录名是两件事。
+**本包目录 `goal_new/`（canonical id `he-goal-new`）不要改回 `goal`/`goal2`。** 包 id 取 meta.yaml 的
+`canonical_id`（缺省回落目录名），须带 `he-`/`bmad-` 前缀，否则整包无法解析。目录若叫 `goal`，id 会
+兜底成 `he-goal`，与旧包 `goal_old/` 同 id 冲突并遮蔽，`/goal_old` 失效。`SKILL.md` 的 `name` 只作
+别名来源，不参与 id 校验。命令名与包目录名是两回事。
 
 ## 参数路由
 
