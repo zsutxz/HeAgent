@@ -12,8 +12,7 @@
 | 测试 | [质量门禁脚本](../scripts/quality_gate.py) | 各阶段实施者验证命令、结果、限制和待办 |
 | 部署 | [部署说明](../deploy/README.md) | 部署变更提交者同步环境前提 |
 | 产品设计 | [design.md](design.md) | 产品需求变更提交者同步目标与非目标 |
-| 迁移记录 | [架构沿革](architecture-history.md) | 实施者在修改边界前核验兼容性与迁移测试 |
-| 历史 | [迭代历程](iteration.md)、[架构沿革](architecture-history.md) | 架构变更提交者追加事实和来源 |
+| 迁移与历史 | [架构沿革](architecture-history.md)、[迭代历程](iteration.md) | 实施者在修改边界前核验兼容性与迁移测试；架构变更提交者追加事实和来源 |
 | 外部资料 | [新闻归档](news.md)（`docs/news.md` 已被 gitignore，属本地运行时产物，克隆后可能不存在） | 资料提交者保留采集日期与来源，不作为项目实现依据 |
 | 观测 | [frame.md 事件契约](frame.md) | 事件字段/发射点变更提交者同步逐 kind 表与黄金测试 |
 | 性能 | [性能基准](#性能基准) | 基准/阈值入口随测试基建变更更新 |
@@ -41,7 +40,7 @@
 | 网页入口 / 写浏览器端 / HTTP API | [README「HTTP 网页入口（实验性）」](../README.md) 与 [`frame.md`](frame.md) 的 4.17（SSE 重连 / 同源防线 / 限额 / 观测） |
 | 网页控制台：多项目 / 会话 / 配置面板与写入 | [`frame.md`](frame.md) 的 4.18（工作区模型 / 项目注册表 / 会话持久化 / 四层配置来源 / 写通道 10 步 / 生效语义 / 安全立场与已知缺口） |
 | 如何新增 provider / tool / 技能包 | [项目协作规则](../AGENTS.md) 的「新增扩展点」章 |
-| GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
+| GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/archive/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
 | 历史为什么这样演进 | [`iteration.md`](iteration.md) 与 [`_bmad-output/`](../_bmad-output/README.md) |
 
 ## 设计与维护
@@ -69,7 +68,7 @@ python -m pytest -m benchmark -q --benchmark-storage=./benchmark-data --benchmar
 
 - [`_bmad-output/README.md`](../_bmad-output/README.md)：Epic、Story、spec、retrospective 和 patch 的归档导航。
 - [`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml)：规划状态的单一权威。
-- [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md)：GUI 设计与实现对照（随 Epic 25-28 归档）。
+- [GUI 集成方案](../_bmad-output/archive/epics/epic-25-28-GUI界面周期/gui-plan.md)：GUI 设计与实现对照（随 Epic 25-28 归档）。
 - [BMad 设计记录](../_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/bmad-heagent-plan.md)：工作流设计的历史背景和当前实现指针；不作为待办清单。
 
 ## 权威规则
@@ -81,10 +80,3 @@ python -m pytest -m benchmark -q --benchmark-storage=./benchmark-data --benchmar
 
 新增或变更功能时，先更新对应的当前事实文档；历史规划只追加证据，不回写成“当前实现”。
 
----
-
-## Goal 工作流
-
-声明式 `/goal` 工作流的职责边界、权威关系、八步流程、写权限边界与产物布局已迁至专题文档
-[`goal-workflow.md`](goal-workflow.md)（一处定义，他处链接）。可执行契约的唯一来源仍是
-[`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md)。

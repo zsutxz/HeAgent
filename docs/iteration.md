@@ -84,7 +84,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 2.1 主线周期 · Epic 1-10
 
-**Epic 1-5（MVP，FR-1~19）** —— 来源 `_bmad-output/epics/epic-01-10-主线规划周期/epics.md`：
+**Epic 1-5（MVP，FR-1~19）** —— 来源 `_bmad-output/archive/epics/epic-01-10-主线规划周期/epics.md`：
 
 | Epic | 主题 | FR |
 |------|------|----|
@@ -94,7 +94,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 | 4 | 自学习记忆系统 | FR-10~12 |
 | 5 | 多 Agent 并行编排 | FR-16, 17 |
 
-**Epic 6-10（自学习闭环扩展，FR-20~24）** —— 来源 `_bmad-output/epics/epic-01-10-主线规划周期/epics-self-learning.md`，补齐从「被动工具」到「主动学习者」的能力：
+**Epic 6-10（自学习闭环扩展，FR-20~24）** —— 来源 `_bmad-output/archive/epics/epic-01-10-主线规划周期/epics-self-learning.md`，补齐从「被动工具」到「主动学习者」的能力：
 
 | Epic | 主题 | FR |
 |------|------|----|
@@ -129,7 +129,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 2.4 沙箱硬化周期 · Epic S1-S4
 
-来源 `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`，2026-07-20 启动。Sandbox 后端硬化，含 firejail profile 映射、降级、配置入口、Linux 进程组 kill、workspace 隔离：
+来源 `_bmad-output/archive/epics/epic-S1-S4-沙箱硬化周期/`，2026-07-20 启动。Sandbox 后端硬化，含 firejail profile 映射、降级、配置入口、Linux 进程组 kill、workspace 隔离：
 
 | Epic | 主题 | 状态 |
 |------|------|------|
@@ -160,7 +160,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 2.7 GUI 终端界面周期 · Epic 25-28
 
-来源 `_bmad-output/epics/epic-25-28-GUI界面周期/`，2026-07-23 启动。Textual 终端界面，含流式聊天、工具可视化、管理面板、可观测性。
+来源 `_bmad-output/archive/epics/epic-25-28-GUI界面周期/`，2026-07-23 启动。Textual 终端界面，含流式聊天、工具可视化、管理面板、可观测性。
 
 > 下表是 **2026-07-23 规划期快照**（当时尚未动工）；实际状态：**Epic 25-28 全部 `done`**（12 story），以 `_bmad-output/sprint-status.yaml` 为准。
 
@@ -173,7 +173,8 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 2.8 补丁周期 · 技术债收尾
 
-`_bmad-output/patches/`（**2026-09-15 解散**）曾按领域扁平分目录存放计划外补丁 spec，现已**按归属 epic 与它服务的 story 同目录归档**（`epics/<周期>/<epic-NN-主题>/`；逐文件映射见 `_bmad-output/README.md`「补丁 spec」节）。遗留项活动台账为 `implementation-artifacts/deferred-work-archive.md`，条目闭合后按归属 epic 归档到各周期 `deferred-work.md`。已交付（下列为历史文件名，路径已归位）：`3-3-token-counter`（文件 2026-09-15 已删除）、`5-1-subagent-context-injection`、`epic-5-context`、`p0-provider-hardening`、`fr3-mcp-auto-unregister`（FR-3 MCP 运行时断连 auto-unregister）。**sandbox 健壮性系列（2026-07-09~10）**：`spec-engine-sandbox-backend`（`CommandRunner` 抽象 + code review 三修）、`spec-sandbox-timeout-validation`（timeout 正整数校验）、`spec-sandbox-cancel-signal-preservation`（CancelledError 不吞取消信号）、`spec-sandbox-reap-robustness`（reap 保护 + wait 硬上界 + kill/wait 解耦）。**关停硬上界三件套（2026-07-10~11，同构）**：`spec-mcp-shutdown-timeout`（MCP `__aexit__`）、`spec-cron-stop-timeout`（`CronScheduler.stop`）、`spec-deferred-low-cleanup`（deferred-work 收尾；2026-09-15 删除——条目已并入各周期台账）。**DP-4 两半**：`spec-dp4-mcp-safety-guard`（执行前工具名拦截）、`spec-dp4-mcp-result-guard`（返回内容启发式围栏）。另有两份轻量回顾：`retrospective-engine-p5.md`、`retrospective-p0-tech-debt.md`（随所属 epic 目录归档）。**台账归档（2026-09-15）**：`patches/_meta/deferred-work.md` 的条目已全部闭合，按归属 epic 归并进各周期 `deferred-work.md` 后原台账随 `patches/` 目录一并退役删除（见 1.4；活动遗留项仍在 `implementation-artifacts/deferred-work-archive.md`）。
+`_bmad-output/patches/`（**2026-09-15 解散**）曾按领域扁平分目录存放计划外补丁 spec，现已**按归属 epic 与它服务的 story 同目录归档**（`epics/<周期>/<epic-NN-主题>/`）；逐文件映射与已交付 spec 清单见 [`_bmad-output/README.md`](../_bmad-output/README.md)「归档规则」节与 [`consolidated-overview.md`](../_bmad-output/consolidated-overview.md) §13.2。
+遗留项活动台账与闭合归档机制见 1.4。
 
 ### 2.9 engine/ 增量 · epic 外 P0-P5
 
@@ -222,7 +223,9 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 | 2026-07-23 | **GUI 终端界面周期启动**：BMad 规划冻结（brief→prd→architecture→epics），Epic 25-28 开始，流式聊天为当前焦点 |
 | 2026-08-19 | **交互与可扩展层周期（Epic 29-35）全部交付**：审批闭环 / 会话恢复 / 斜杠命令 / Hooks / Plan Mode / 配置文件驱动角色 + 成本估算 / CLI 体验 + 技术债收尾——7 个 Epic、27 个 story、7 次提交，全量 1052 测试通过 |
 | 2026-08-24 | **文件安全与凭证防护周期（Epic 36-39）全部交付**：凭证 deny（读+写）/ env scrubbing / 内部状态读 deny / 文档同步——4 个 Epic、7 个 story，全量 1135 测试通过 |
-| 2026-09-14 | **工具调用可见性：CLI 显示「读写的文件 / 委派的子 Agent」**——新增 `tools/call_summary.py`（`summarize_tool_call`，纯函数、零 heagent 依赖，是该信息的唯一来源）；`StreamEvent` 新增 `tool_target`（`tool_call` 提前到执行前发出，长耗时工具实时可见）+ `tool_error`/`tool_name`（失败归因）；CLI 渲染 `[calling file_read → src/a.py]`、失败另起 `[failed shell]`（成功不再逐条 `[done]`——批次并发执行会挤成一串无主语标记）；TUI 聊天日志同步附摘要。**同日续作三件**：①`EngineEvent.target` 提为独立字段（日志按段渲染 `target=…`，不再埋进 `details`；`ToolExecutor` 的全部工具事件都带），GUI 事件日志屏同步；②`AgentLoop.active_tool`（在途批次摘要，批次结束/取消即清空）+ 状态栏 `🔧 …` 段，暂停/恢复行同时打印状态行，一眼看出卡在哪个工具；③`AgentLoop.tool_activity` run 级台账 + `cli_display.show_tool_activity`（单次模式跑完回显「读了哪些文件、跑了哪些命令」，同目标去重、超 20 条折叠）。**同日续作**：④CLI 提示行的 **shell 命令改为显示全文**（`_NO_TRUNCATE_TOOLS`：只折叠空白不截断——截断后无法判断「它到底跑了什么」，审查与审计场景信息损失最大），其余参数仍按 72 / 40 截断；⑤修掉 `call_summary` 兜底分支的**测试假绿**——`_BrokenArguments.__len__` 返回 0 使 `arguments or {}` 短路成空字典，损坏映射根本不被迭代，`except` 兜底（`call_summary.py:66-67`）从未被覆盖，改为 truthy 后该分支由真实异常路径覆盖。**同日复核修复 P2–P7**：⑥GUI 状态栏口径统一——`gui/bridge.py`（流式事件路径）原先只写裸工具名，与 `gui/observers.py`（引擎事件路径）的 `tool → target` 互相覆盖，现两条路径都走新增的 `call_summary.activity_label`（拼接唯一来源，先前四处重复的箭头拼接收敛为一处）；⑦GUI 失败不再画绿勾（抽出 `_render_tool_result`：按 `tool_error` 输出红叉并归因、成功仍绿勾），工具输出与 target 经 `rich.markup.escape`（`#chat-log` 是 `markup=True`，不可信文本里的 `[red]` 曾被当标记解释）；⑧`_TARGET_FIELDS` 删除三个**不可达表项**（file_write / git_diff / task_delegate 被 `_describe` 特殊分支抢先命中 → 改表不生效的死配置），并加参数化回归 `test_every_table_entry_is_reachable`（哨兵字段名）自动拦截未来新增的死表项；⑨`resume` 路径补上展示态重置（原先只在 `_init_new_run`，恢复分支提前 return 会跳过，状态栏/台账会残留上一段 run 的值）；⑩台账语义澄清为「调用尝试」（头部文案 + docstring + `loop.tool_activity` 注释，不再暗示「执行成功」）；⑪GBK 控制台图标降级——`🔧 ▶ ✔ ✘` 在 cp936 下均不可编码（实测），`cli_display._icon` 按 `sys.stderr.encoding` 降级为 ASCII，避免重定向到 GBK 日志时抛 `UnicodeEncodeError` 打断 run；⑫`docs/langchain-migration-feasibility.md` 纳入 docs/README 索引。93 个新测试，全量 1678 通过，覆盖率 89.62% |
+| 2026-09-14 | **工具调用可见性：CLI 显示「读写的文件 / 委派的子 Agent」**——新增 `tools/call_summary.py`（纯函数、零 heagent 依赖，该信息的唯一来源）；`StreamEvent` 新增 `tool_target`/`tool_error`/`tool_name`，`tool_call` 提前到执行前发出；CLI/TUI 渲染 `[calling file_read → …]`、失败另起 `[failed shell]`（成功不再逐条 `[done]`） |
+| 2026-09-14 | **同日续作**：`EngineEvent.target` 提为独立字段（GUI 事件日志同步）；`AgentLoop.active_tool` 状态栏段（暂停/恢复可见卡在哪个工具）；`tool_activity` run 级台账 + 单次模式回显；CLI 提示行 shell 命令显示全文（`_NO_TRUNCATE_TOOLS`，只折叠空白不截断） |
+| 2026-09-14 | **同日复核修复**：GUI 状态栏口径统一走 `call_summary.activity_label`、失败红叉归因 + 不可信文本 escape、`_TARGET_FIELDS` 死表项删除（参数化回归哨兵）、`resume` 展示态重置、GBK 控制台图标 ASCII 降级、修 `call_summary` 兜底分支测试假绿——93 个新测试，全量 1678 通过 |
 
 ### 2.11 交互与可扩展层周期 · Epic 29-35
 
@@ -264,99 +267,15 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 3.1 架构简化计划（2026-09-27）
 
-**目标**：在保持功能完整性和架构契约的前提下，简化代码结构、减少冗余、提升可维护性。
-
-#### 执行摘要
-
-**基线状态**：
-- 总代码量：154 个 Python 文件，约 35,579 行代码
-- 最大模块：`cli/` (5,483 行)、`tools/` (4,960 行)、`engine/` (4,095 行)
-
-**完成工作**：
-- ✅ **P0-1: Provider 容错栈统一** - 错误分类器和 FallbackPolicy 已在早期工作中完成统一
-- ✅ **P0-3: TCP 入口删除** - 删除 2,800 行代码（6 个文件 + 10 个配置字段）
-- ✅ **P0-4: 上下文管理统一** - 删除 AgentLoop 委托方法（-15 行），直接调用 context_runtime 函数
-- ✅ **P1: 配置/Engine/Memory 评估** - 职责分离清晰，当前设计已优化，不建议进一步合并
-
-**累计成果**：
-- 代码减少：2,815 行（7.9%）
-- 文件减少：6 个
-- 架构改进：统一容错栈、统一上下文管理
-- 测试通过：无回归
-
-**CLI 重组评估**：
-评估后决定不执行 CLI 重组，原因：
-- 预期收益不足（仅 100-200 行，2-4%）
-- 风险高（15 个 monkeypatch 缝需迁移）
-- 当前结构已经合理（2026-09-26 刚完成重组）
-
-详见已删除文档 `architecture-simplification-plan.md`（内容已归档到本节）。
+**结论**：Provider 容错栈统一（早期完成）、TCP 入口删除（-2,800 行 / 6 文件 + 10 配置字段）、上下文管理统一落地，累计 -2,815 行（7.9%）/-6 文件、零回归；CLI 重组评估后**不执行**——预期收益仅 -100~200 行，且需迁移 15 个 monkeypatch 缝，风险大于收益。原计划文档 `architecture-simplification-plan.md` 已删除，结论归档于此。
 
 ---
 
 ### 3.2 内存注入预算解决方案
 
-**问题**：MEMORY.md 采用 append-only 策略，条目持续增长导致超出默认预算（49152 字节），29 条最新事实被省略。
+**问题**：MEMORY.md 采用 append-only 策略，条目持续增长导致超出默认注入预算（49152 字节），最新事实被省略。解决方案为三层：扩大注入预算（`MEMORY_INJECT_MAX_BYTES=98304`）、`memory/auto_archive.py` 自动归档超限老条目、手动整理（压缩原则与工具见 MEMORY.md 文件头部注记）。
 
-**解决方案**（三层防御）：
-
-#### 1. 扩大默认预算（立即缓解）
-- 默认预算从 49152 字节扩大到 **98304 字节（96 KB）**
-- 配置参数：`MEMORY_INJECT_MAX_BYTES=98304`
-
-#### 2. 自动归档机制（长期解决）
-- 模块：`src/heagent/memory/auto_archive.py`
-- 自动识别超过 90 天的旧事实条目
-- 保留文件头部的前 20 条（核心约定）
-- 归档到 `.heagent/memory/archive/<YYYY-MM>.md`
-- 配置参数：
-  - `MEMORY_AUTO_ARCHIVE_DAYS=90` - 超过此天数的条目自动归档，0=禁用
-  - `MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS=86400` - 跨进程节流间隔（默认 1 天）
-
-**特性**：
-- ✅ 跨进程节流：避免多个 CLI 实例同时归档
-- ✅ Fail-soft：归档失败不中断启动流程
-- ✅ 保留核心约定：文件头部的前 20 条永久保留
-- ✅ 按月归档：归档文件按月命名（如 `2026-09.md`）
-- ✅ 可追溯：归档文件保留完整历史记录
-
-> **后续（2026-10-10 重写，本节其余文字保留为当时的历史记录）**：「按估算天数归档」与「按月分文件」两个
-> 口径都已删除——事实条目格式只有 `- <text>`，**没有真实时间戳**，外层推（`DAYS_PER_FACT = 7`）造出过
-> `archive/2023-04.md` 这类**虚构月份**文件（2026-10-09 那批 170 条实为同一次写入，真实创建时间全在
-> 2026-09 ~ 2026-09-30），且重写时会静默丢弃 fact 之后的非 `- ` 行。现行口径：
-> 触发 = `MEMORY_ARCHIVE_TRIGGER_BYTES`（MEMORY.md 的 fact 总字节阈值，0=禁用）；
-> 落点 = 单一 append-only `archive/MEMORY-archive.md`（批次标题带**真实** UTC 时间戳）；
-> 重写逐行删除被移走的 fact 行、其余行原位保留；MEMORY.md 走比较后写，并发 `fact_add` 不被覆盖。
-> 权威口径见 `docs/frame.md` §4.6；判据 `tests/memory/test_auto_archive.py`（14 例）。
-
-#### 3. 手动整理工具（按需使用）
-- 工具脚本：`.heagent/tmp/clean_memory.py`
-- 用于立即清理冗余条目或删除已固化的过程性记录
-
-**文件结构**：
-```
-.heagent/
-├── memory/
-│   ├── MEMORY.md              # 主记忆文件（自动维护）
-│   ├── .archive-stamp         # 归档时间戳（跨进程节流）
-│   └── archive/               # 归档目录
-│       ├── 2026-09.md         # 2026年9月归档
-│       └── ...
-└── tmp/
-    └── clean_memory.py        # 手动整理工具
-```
-
-**配置建议**：
-```bash
-# 默认配置（推荐；两行归档键为 2026-10-10 重写后的名称）
-MEMORY_INJECT_MAX_BYTES=98304               # 96 KB 预算
-MEMORY_ARCHIVE_TRIGGER_BYTES=49152          # fact 总字节超此值就归档中间老条目（0=禁用）
-MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS=86400   # 1 天节流
-```
-
-**测试覆盖**：`tests/memory/test_auto_archive.py`（2026-10-10 重写后 **14 例**；重写前 8 例）
-
-详见已删除文档 `memory-budget-solution.md`（内容已归档到本节）。
+**权威口径**：早期「按估算天数归档 / 按月分文件」（`.archive-stamp`）口径已于 2026-10-10 重写删除；现行触发阈值、归档落点、并发写语义与测试判据一律以 [`frame.md` §4.6](frame.md) 为准（判据 `tests/memory/test_auto_archive.py`）。原方案文档 `memory-budget-solution.md` 已删除。
 
 ---
 
@@ -378,11 +297,9 @@ MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS=86400   # 1 天节流
 
 ---
 
-## 四、路线图与下一步
+## 五、路线图与下一步
 
-**历史快照（2026-08-19）**：当时记录的 9 个开发周期（主线 Epic 1-10、MCP 11-18、Sandbox 硬化 S1-S4、健壮性/质量 19-24、GUI 25-28、交互与可扩展层 29-35）已全部交付；该日期的测试统计仅代表当时状态。
-
-**当前状态（2026-09-08）**：后续文件安全、沙箱会话、目标驱动开发、BMad 技能包和声明式工作流周期已完成或有独立产物，状态以 [`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml) 为准。当前 `/goal` 的可执行契约是 [`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md)，维护说明见[文档索引「Goal 工作流」](README.md#goal-工作流)；`pytest --collect-only -q` 收集数以本地运行结果为准，质量门禁仍需在可写临时目录下运行。
+**历史快照（2026-08-19）**：当时记录的 9 个开发周期（主线 Epic 1-10、MCP 11-18、Sandbox 硬化 S1-S4、健壮性/质量 19-24、GUI 25-28、交互与可扩展层 29-35）已全部交付；该日期的测试统计仅代表当时状态。后续周期状态以下方「六、相关索引」的 sprint-status 为准；`pytest --collect-only -q` 收集数以本地运行结果为准，质量门禁仍需在可写临时目录下运行。
 
 **当前缺口**（详见 `frame.md` 第五章）：
 
@@ -391,23 +308,22 @@ MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS=86400   # 1 天节流
 
 **下一步（候选，非承诺）**：
 
-- ✅ **回顾**：截至 2026-08-19 的主线、MCP、Sandbox、健壮性/质量、GUI 和交互周期回顾已归档；后续周期的交付记录分散在各周期目录，不能将 `retrospective-all-cycles.md` 视为 Epic 36–47 的完整回顾。
 - ⏳ **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow。
 - 🔮 **可选增强**：多模态（vision）、Web API 服务端（均与 `design.md` 当前非目标冲突，需重新评估）；Hooks 增强（`UserPromptSubmit`/`Stop`/`SubagentStop` 事件、参数模板引擎）。
 
 ---
 
-## 五、相关索引
+## 六、相关索引
 
 ### 2026-09-01：目标级工作流质量收口
 
 Epic 43-44 的实现已完成，Epic 45.3 补齐了无网络两-story 冒烟、checkpoint/ledger/EventBus 审计证据、损坏状态显式失败测试，以及 `scripts/quality_gate.py` 统一质量门。Epic 46.1 完成 TOCTOU assessment，Epic 46.2 为资源读取增加 descriptor + `O_NOFOLLOW` 最终组件加固；中间目录竞态、可信导入 snapshot 与 OS sandbox 仍保留为后续工作。
 
-- 架构权威：[`frame.md`](frame.md)（含 engine 模块 4.16、已知缺口第五章）
+- 架构权威：[`frame.md`](frame.md)（engine 模块见 4.12、已知缺口第五章）
 - 当前工作流：[文档索引「Goal 工作流」](README.md#goal-工作流)（`.heagent/skills/he-goal/workflow.md` 为可执行契约）
 - 产品愿景：[`design.md`](design.md)
 - **全周期回顾**：[`_bmad-output/retrospective-all-cycles.md`](../_bmad-output/retrospective-all-cycles.md)
-- 迭代原始产物：`_bmad-output/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`、`_bmad-output/epics/epic-48-TCP网络接口周期/`、`_bmad-output/epics/epic-49-HTTP网页访问周期/`、`_bmad-output/epics/epic-50-网页控制台周期/`（原 `_bmad-output/patches/` 已于 2026-09-15 解散，补丁 spec 已按归属 epic 归位）
+- 迭代原始产物：`_bmad-output/archive/epics/epic-01-10-主线规划周期/`、`_bmad-output/epics/epic-11-18-MCP集成周期/`（原 mcp-client/ + mcp-v2-upgrade/ + mcp-client-v2/，2026-08-18 合并）、`_bmad-output/archive/epics/epic-S1-S4-沙箱硬化周期/`、`_bmad-output/epics/epic-19-20-健壮性硬化周期/`、`_bmad-output/epics/epic-21-24-质量工程周期/`、`_bmad-output/archive/epics/epic-25-28-GUI界面周期/`、`_bmad-output/epics/epic-29-35-交互扩展周期/`、`_bmad-output/epics/epic-36-39-文件安全防护周期/`、`_bmad-output/epics/epic-40-沙箱会话化周期/`、`_bmad-output/epics/epic-41-目标驱动开发周期/`、`_bmad-output/epics/epic-42-BMad技能包运行时周期/`、`_bmad-output/epics/epic-43-46-目标级工作流周期/`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/`、`_bmad-output/archive/epics/epic-48-TCP网络接口周期/`、`_bmad-output/epics/epic-49-HTTP网页访问周期/`、`_bmad-output/epics/epic-50-网页控制台周期/`（原 `_bmad-output/patches/` 已于 2026-09-15 解散，补丁 spec 已按归属 epic 归位）
 - **sprint 状态（单一权威）**：[`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml)（持续更新，覆盖当前全部周期与 Epic）
 - 技术债登记：活动台账 `_bmad-output/implementation-artifacts/deferred-work-archive.md`；已闭合项按归属 epic 归档到 `_bmad-output/epics/<周期>/deferred-work.md`（原 `_bmad-output/patches/_meta/deferred-work.md` 已于 2026-09-15 退役并删除）
-- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`、`_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/epic-47-声明式工作流与产物治理/retrospective-engine-p5.md`、`_bmad-output/epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/retrospective-p0-tech-debt.md`
+- 已产出 retrospective：`_bmad-output/retrospective-all-cycles.md`（只覆盖截至 2026-08-19 的周期，**不能**视为 Epic 36-47 的完整回顾；后续交付记录分散在各周期目录）、`_bmad-output/epics/epic-11-18-MCP集成周期/retrospective-epic-13.md`、`_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/epic-47-声明式工作流与产物治理/retrospective-engine-p5.md`、`_bmad-output/archive/epics/epic-01-10-主线规划周期/epic-01-基础设施与LLM通信/retrospective-p0-tech-debt.md`

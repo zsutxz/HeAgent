@@ -164,7 +164,7 @@ API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","
 /goal auto [cron]     注册定时推进；off 注销
 ```
 
-运行时目标产物在 `_he-output/goals/<goal-id>/`；步骤、产物与维护规则详见[文档索引的「Goal 工作流」章节](docs/README.md#goal-工作流)。历史规划材料位于 [`_bmad-output/`](_bmad-output/README.md)，不作为当前运行时配置。
+运行时目标产物在 `_he-output/goals/<goal-id>/`；步骤、产物与维护规则详见[「Goal 工作流」专题文档](docs/goal-workflow.md)。历史规划材料位于 [`_bmad-output/`](_bmad-output/README.md)，不作为当前运行时配置。
 
 ## 配置与运行时数据
 
@@ -253,7 +253,7 @@ mypy src
 | --- | --- |
 | 当前架构、数据流、工具与已知缺口 | [架构参考](docs/frame.md) |
 | 项目定位、设计目标和非目标 | [设计说明](docs/design.md) |
-| `/goal` 工作流、产物与维护规则 | [文档索引「Goal 工作流」](docs/README.md#goal-工作流) |
+| `/goal` 工作流、产物与维护规则 | [「Goal 工作流」专题](docs/goal-workflow.md) |
 | 部署、Docker 与 Windows 可执行文件 | [部署说明](deploy/README.md) |
 | 历史规划与验收证据 | [_bmad-output/README.md](_bmad-output/README.md) |
 

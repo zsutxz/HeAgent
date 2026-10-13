@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ARCHIVE = ROOT / "_bmad-output" / "implementation-artifacts" / "deferred-work-archive.md"
 OVERVIEW = ROOT / "_bmad-output" / "consolidated-overview.md"
 EPICS = ROOT / "_bmad-output" / "epics"
+ARCHIVED_EPICS = ROOT / "_bmad-output" / "archive" / "epics"
 # Citation shape: the A-number must not be glued to letters/digits/hyphens/quotes
 # (rejects FR-A1, A1b, AD-1, string fixtures like "A1", and the A256 inside SHA256).
 CITE = re.compile(r"(?<![A-Za-z0-9_'\"-])A(0|[1-9]\d*)(?![0-9A-Za-z])")
@@ -58,7 +59,8 @@ def _table(path: Path, heading: str) -> list[list[str]]:
 
 
 def _epic_ledgers() -> list[Path]:
-    return sorted(EPICS.rglob("deferred-work.md"))
+    """活跃与已归档周期的 ledger：归档搬迁后两者共同构成完整 Epic 台账集合。"""
+    return sorted([*EPICS.rglob("deferred-work.md"), *ARCHIVED_EPICS.rglob("deferred-work.md")])
 
 
 def _documented_a_numbers() -> set[str]:
@@ -96,7 +98,11 @@ def test_archive_epic_index_has_existing_targets() -> None:
         links = re.findall(r"\]\(([^)]+)\)", row[3])
         assert links, f"archive row has no target: {row[0]}"
         target_dir = Path(links[0]).parent.name
-        assert list(EPICS.glob(f"{target_dir}/deferred-work.md")), f"archive row target does not resolve: {links[0]}"
+        resolved = [
+            *EPICS.glob(f"{target_dir}/deferred-work.md"),
+            *ARCHIVED_EPICS.glob(f"{target_dir}/deferred-work.md"),
+        ]
+        assert resolved, f"archive row target does not resolve: {links[0]}"
 
 
 def test_code_cites_only_documented_a_numbers() -> None:
