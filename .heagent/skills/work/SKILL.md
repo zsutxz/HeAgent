@@ -22,7 +22,11 @@ negative_triggers: [/goal, code review, 代码评审, 技能评审, 重构, refa
 兜底成 `he-goal`，与旧包 `he-goal/` 同 id 冲突并遮蔽，`/goal` 失效。`SKILL.md` 的 `name` 只作
 别名来源，不参与 id 校验。命令名与包目录名是两回事。
 
-## 参数路由
+本包定义的是宿主 Agent 驱动的文件协议，不是 `src/heagent` 中的确定性 Python `/work` 状态机。
+命令入口会把本文件和同包 `workflow.md` 作为提示词交给当前 Agent；因此 Agent 必须自己执行状态文件读写，并在最终回复中报告确切产物与验证结果。
+不得把旧 `/goal` 的 `_he-output/goals/`、checkpoint 或 `WorkflowRunner` 当作本命令的状态来源，也不得声称仅因 `he-work` 能被 workflow loader 加载就已完成 `/work` 宿主实现。
+
+优化或实现本命令时，先补充 `/work` 专用 dispatcher、`_he-output/works/` 状态读写和隔离测试；在此之前，`status`、`review`、`approve`、`reset` 等语义由 Agent 按本契约执行，不能当作 CLI 层强制保证。
 
 按第一个参数分派（`$ARGUMENTS` 由命令注入；无参数 = 打印用法与当前状态）：
 
