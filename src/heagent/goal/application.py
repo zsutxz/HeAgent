@@ -77,6 +77,13 @@ def render_template(template: str, fields: Mapping[str, str]) -> str:
     return _TEMPLATE_FIELD_RE.sub(lambda match: fields.get(match.group(1), match.group(0)), template)
 
 
+def load_validated_workflow(package: SkillPackage) -> WorkflowResource:
+    """读取 skill 包的 ``workflow.md`` 并做 goal 能力校验（读+校验的单一口径）。"""
+    workflow = read_workflow(package, "workflow.md")
+    validate_goal_workflow(workflow)
+    return workflow
+
+
 def validate_goal_workflow(workflow: WorkflowResource) -> None:
     """Restrict workflow declarations to deterministic CLI capabilities."""
     if workflow.entrypoint not in {"", "goal"}:
@@ -655,6 +662,20 @@ async def _advance_unlocked(
     def outcome(status: GoalAdvanceStatus) -> GoalAdvanceOutcome:
         return GoalAdvanceOutcome(status=status, messages=messages)
 
+    # 桥按宿主协议形状选择（52-3）：四参宿主走执行上下文桥（Runner 可授权并行），
+    # 未实现四参协议的宿主走串行桥（fail-closed）。降级显性记录一条 INFO——否则
+    # 「声明了 max_parallel_stories>1 却永远串行」只有 loader 的可用性说明、无对因。
+    # 宿主形状在一次推进内不变，循环外选一次即可。
+    if _executor_accepts_execution(execute_step):
+        bridge: Callable[..., Awaitable[WorkflowStepResult]] = _run_step_with_inputs
+    else:
+        logger.info(
+            "goal step executor does not implement the execution-context protocol "
+            "(inputs, step, story, execution); declarative parallelism stays off "
+            "(fail-closed serial)"
+        )
+        bridge = _run_step_without_execution
+
     # Input declarations describe the context supplied by this deterministic CLI
     # boundary. Artifact names from completed steps remain available on resume.
     while True:
@@ -670,19 +691,6 @@ async def _advance_unlocked(
             or "No project context file was found; inspect the current workspace before making assumptions.",
             **runner.state.outputs,
         }
-        # 桥按宿主协议形状选择（52-3）：四参宿主走执行上下文桥（Runner 可授权并行），
-        # 未实现四参协议的宿主走串行桥（fail-closed）。降级显性记录一条 INFO——否则
-        # 「声明了 max_parallel_stories>1 却永远串行」只有 loader 的可用性说明、无对因。
-        # 宿主形状在一次推进内不变，逐轮重选无意义。
-        if _executor_accepts_execution(execute_step):
-            bridge: Callable[..., Awaitable[WorkflowStepResult]] = _run_step_with_inputs
-        else:
-            logger.info(
-                "goal step executor does not implement the execution-context protocol "
-                "(inputs, step, story, execution); declarative parallelism stays off "
-                "(fail-closed serial)"
-            )
-            bridge = _run_step_without_execution
         callback = partial(bridge, inputs, execute_step)
         plan = runner.state.requested_steps
         try:

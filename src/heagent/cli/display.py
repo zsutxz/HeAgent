@@ -18,7 +18,30 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from heagent.agent.loop import AgentLoop
+    from heagent.config import Settings
     from heagent.pub.types import StreamEvent, TokenUsage
+
+
+def echo_firejail_hint(backend: str | None, settings: Settings, *, install_hint: bool = False) -> None:
+    """firejail 沙箱启动提示（CLI / GUI 入口共用）。
+
+    ``backend`` 由调用方解析后传入：CLI 用 ``sandbox or settings.sandbox_backend``，
+    GUI 只认显式 ``--sandbox firejail`` 旗标——判定条件不同，提示文案同源。
+    ``install_hint`` 仅 CLI 输出（GUI 提示不附安装指引）。
+    """
+    if backend != "firejail":
+        return
+    import shutil
+
+    if shutil.which(settings.sandbox_firejail_path) is None:
+        hint = " Install firejail: sudo apt install firejail" if install_hint else ""
+        click.echo(
+            f" WARNING: firejail not found ({settings.sandbox_firejail_path}). "
+            f"Shell commands will run WITHOUT sandbox isolation.{hint}",
+            err=True,
+        )
+    else:
+        click.echo(f" firejail sandbox ENABLED ({settings.sandbox_firejail_path})", err=True)
 
 
 def _current_version() -> str:

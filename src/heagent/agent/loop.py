@@ -45,8 +45,6 @@ from heagent.agent.message_ports import (
     inject_steering,
     is_paused,
     pause,
-    poll_follow_up,
-    poll_steering,
     unpause,
     wait_if_paused,
 )
@@ -57,14 +55,9 @@ from heagent.agent.run_lifecycle import (
     _delegation_details,  # noqa: F401 ——兼容 re-export（测试从本模块导入）
     _ResumeState,
     _RunInit,
-    checkpoint,
     execute_run,
-    finish_run,
-    init_new_run,
     init_or_resume,
     on_run_failed,
-    persist_and_cache,
-    start_run_record,
 )
 from heagent.agent.stream_runtime import stream_run
 from heagent.agent.system_prompt import build_system_prompt
@@ -331,14 +324,6 @@ class AgentLoop:
     # steering / follow-up / 暂停——委托 message_ports
     # ------------------------------------------------------------------
 
-    async def _poll_steering(self) -> list[Message]:
-        """Poll steering 回调，返回待注入的消息（失败静默，不阻断主循环）。"""
-        return await poll_steering(self)
-
-    async def _poll_follow_up(self) -> list[Message]:
-        """Poll follow-up 回调，返回待注入的消息（失败静默，不阻断主循环）。"""
-        return await poll_follow_up(self)
-
     async def _inject_steering(self, state: AgentState) -> None:
         """把 steering 消息追加进上下文（每轮 LLM 调用前的边界）。实现见 ``message_ports``。"""
         await inject_steering(self, state)
@@ -385,39 +370,6 @@ class AgentLoop:
         """统一初始化：恢复模式（_resume → 跳过）或全新运行。实现见 ``run_lifecycle``。"""
         return await init_or_resume(self, prompt, system, session_id, _resume, stream=stream)
 
-    async def _init_new_run(
-        self,
-        prompt: str,
-        system: str | None,
-        session_id: str | None,
-        *,
-        stream: bool,
-    ) -> tuple[AgentState, RunContext, str | None, TokenUsage]:
-        """全新运行的初始化（``run``/``run_stream`` 的「分支①-B」共用）。实现见 ``run_lifecycle``。"""
-        return await init_new_run(self, prompt, system, session_id, stream=stream)
-
-    async def _finish_run(
-        self,
-        run_context: RunContext,
-        init: _RunInit,
-        state: AgentState,
-        accumulated: TokenUsage,
-        *,
-        final_answer: str,
-    ) -> None:
-        """正常完成的统一收尾（置 COMPLETED → 落检查点 → 发事件 → 更新 last_* 缓存）。"""
-        await finish_run(self, run_context, init, state, accumulated, final_answer=final_answer)
-
-    async def _persist_and_cache(
-        self,
-        session_id: str | None,
-        state: AgentState,
-        accumulated: TokenUsage,
-        run_context: RunContext,
-    ) -> None:
-        """持久化会话 + 缓存事后产物（finally 块共用，无论成功/失败均调用）。"""
-        await persist_and_cache(self, session_id, state, accumulated, run_context)
-
     async def _on_run_failed(
         self,
         run_context: RunContext,
@@ -433,31 +385,6 @@ class AgentLoop:
         此前这条 façade 路径不传耗时，``run_failed`` 事件恒报 ``duration_ms=0``。
         """
         await on_run_failed(self, run_context, prompt, system_content, state, exc, duration_ms=duration_ms)
-
-    async def _start_run_record(self, run_context: RunContext, *, prompt: str, system: str | None) -> None:
-        """写入初始运行快照（best-effort：失败仅记日志，不阻断主循环）。"""
-        await start_run_record(self, run_context, prompt=prompt, system=system)
-
-    async def _checkpoint(
-        self,
-        run_context: RunContext,
-        *,
-        prompt: str,
-        system: str | None,
-        state: AgentState,
-        final_answer: str | None = None,
-        error: str | None = None,
-    ) -> None:
-        """持久化运行进度（best-effort：失败仅记日志，不阻断主循环）。"""
-        await checkpoint(
-            self,
-            run_context,
-            prompt=prompt,
-            system=system,
-            state=state,
-            final_answer=final_answer,
-            error=error,
-        )
 
     # ------------------------------------------------------------------
     # 迭代控制 / 上下文管理——委托 context_runtime

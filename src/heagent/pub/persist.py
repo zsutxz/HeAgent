@@ -255,20 +255,30 @@ _LOCK_POLL_INTERVAL = 0.1
 _LOCK_SUFFIX = ".lock"
 
 
+def _poll_lock(try_once: Callable[[], None], timeout: float, retry_on: tuple[type[BaseException], ...]) -> None:
+    """deadline 轮询拿锁：命中 ``retry_on`` 则睡一个轮询间隔后重试，到点仍失败抛 ``OSError``。"""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            try_once()
+            return
+        except retry_on:
+            if time.monotonic() >= deadline:
+                raise OSError(f"Failed to acquire file lock within {timeout}s")
+            time.sleep(_LOCK_POLL_INTERVAL)
+
+
 def _acquire_lock_posix(fd: int, timeout: float) -> None:
     """POSIX ``fcntl.flock`` 排他锁。"""
     import fcntl
 
     fcntl_mod: Any = fcntl  # typeshed 在 win32 上无 flock 属性，统一走 Any 避免平台差异
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            fcntl_mod.flock(fd, fcntl_mod.LOCK_EX | fcntl_mod.LOCK_NB)
-            return
-        except BlockingIOError:
-            if time.monotonic() >= deadline:
-                raise OSError(f"Failed to acquire file lock within {timeout}s")
-            time.sleep(_LOCK_POLL_INTERVAL)
+
+    def try_once() -> None:
+        fcntl_mod.flock(fd, fcntl_mod.LOCK_EX | fcntl_mod.LOCK_NB)
+
+    # 只重试 BlockingIOError（锁被占）；flock 的其他 OSError 原样上抛。
+    _poll_lock(try_once, timeout, (BlockingIOError,))
 
 
 def _acquire_lock_windows(fd: int, timeout: float) -> None:
@@ -290,15 +300,10 @@ def _acquire_lock_windows(fd: int, timeout: float) -> None:
     except OSError:
         pass
 
-    deadline = time.monotonic() + timeout
-    while True:
-        try:
-            msvcrt_mod.locking(fd, msvcrt_mod.LK_NBLCK, 1)
-            return
-        except OSError:
-            if time.monotonic() >= deadline:
-                raise OSError(f"Failed to acquire file lock within {timeout}s")
-            time.sleep(_LOCK_POLL_INTERVAL)
+    def try_once() -> None:
+        msvcrt_mod.locking(fd, msvcrt_mod.LK_NBLCK, 1)
+
+    _poll_lock(try_once, timeout, (OSError,))
 
 
 def _acquire_lock(fd: int, timeout: float) -> None:

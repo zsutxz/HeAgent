@@ -40,6 +40,38 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _resolve_command_runner(
+    settings: ResolvedRuntimeConfig, backend: str, workspace_root: str | None
+) -> CommandRunner | None:
+    """按沙箱后端名解析 ``CommandRunner``：``firejail`` / ``winjob`` → 对应后端实例，其余透传 ``None``。
+
+    winjob 探测失败（不可用）只告警并回退透传——诚实于实际隔离能力。
+    """
+    if backend == "firejail":
+        from heagent.tools.sandbox import FirejailBackend
+
+        return FirejailBackend(
+            firejail_path=settings.sandbox_firejail_path,
+            workspace_root=workspace_root,
+            network=settings.sandbox_network,
+            profiles=settings.sandbox_profiles_map,
+            memory_limit_mb=settings.sandbox_memory_limit_mb,
+            cpu_seconds=settings.sandbox_cpu_seconds,
+            nproc_limit=settings.sandbox_nproc_limit,
+        )
+    if backend == "winjob":
+        from heagent.tools.sandbox import WinJobBackend
+
+        if WinJobBackend().available:
+            return WinJobBackend(
+                memory_limit_mb=settings.sandbox_memory_limit_mb,
+                cpu_seconds=settings.sandbox_cpu_seconds,
+                nproc_limit=settings.sandbox_nproc_limit,
+            )
+        logger.warning("WinJobBackend requested but not available; falling back to Passthrough")
+    return None
+
+
 @dataclass
 class EngineContainer:
     """跨多次 loop 执行共享的运行时服务集合。"""
@@ -215,30 +247,7 @@ class EngineContainer:
 
             backend = "firejail" if _shutil.which(settings.sandbox_firejail_path) else "passthrough"
             logger.info("sandbox backend 'auto' resolved to %r", backend)
-        command_runner: CommandRunner | None = None
-        if backend == "firejail":
-            from heagent.tools.sandbox import FirejailBackend
-
-            command_runner = FirejailBackend(
-                firejail_path=settings.sandbox_firejail_path,
-                workspace_root=workspace_root,
-                network=settings.sandbox_network,
-                profiles=settings.sandbox_profiles_map,
-                memory_limit_mb=settings.sandbox_memory_limit_mb,
-                cpu_seconds=settings.sandbox_cpu_seconds,
-                nproc_limit=settings.sandbox_nproc_limit,
-            )
-        elif backend == "winjob":
-            from heagent.tools.sandbox import WinJobBackend
-
-            if WinJobBackend().available:
-                command_runner = WinJobBackend(
-                    memory_limit_mb=settings.sandbox_memory_limit_mb,
-                    cpu_seconds=settings.sandbox_cpu_seconds,
-                    nproc_limit=settings.sandbox_nproc_limit,
-                )
-            else:
-                logger.warning("WinJobBackend requested but not available; falling back to Passthrough")
+        command_runner = _resolve_command_runner(settings, backend, workspace_root)
 
         # 默认装配开启跨进程文件锁：CLI/GUI 可能多进程共享同一 .heagent/ 目录
         # （如 cron + 交互式实例并存），RunStore/ledger 写入需要跨进程互斥。

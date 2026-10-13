@@ -66,9 +66,7 @@ def gui_main(
         sandbox_session_keep=sandbox_session_keep,
         runtime_config=config,
     )
-    from heagent.cli.wiring import build_cron_job_runner, ensure_runtime_config
-
-    config = ensure_runtime_config(engine)
+    from heagent.cli.wiring import build_cron_job_runner
 
     loop = AgentLoop(
         provider,

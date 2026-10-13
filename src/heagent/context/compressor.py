@@ -16,6 +16,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+from heagent.context.tokens import estimate_text_tokens
 from heagent.pub.types import Message, ProviderResponse, Role
 
 if TYPE_CHECKING:
@@ -44,8 +45,6 @@ STRUCTURED_SUMMARY_PROMPT = (
     "Keep identifiers, file paths, commands and error messages verbatim; do not invent "
     "details that are not in the conversation."
 )
-# 兼容旧名（既有引用与测试沿用）
-_DEFAULT_PROMPT = STRUCTURED_SUMMARY_PROMPT
 
 # 摘要请求本身的安全缓冲区：预留足够的 token 空间给摘要提示词 + 回复
 # （提示词约 30 tokens，回复预留 512 tokens，简单旧消息不会用完）
@@ -218,7 +217,7 @@ class ContextCompressor:
                 continue
             text = "\n".join(parts)
 
-            msg_tokens = per_message_overhead + _estimate_tokens(text)
+            msg_tokens = per_message_overhead + estimate_text_tokens(text)
             # 每条 tool_call 附加 JSON 结构开销（大括号、引号、逗号、函数调用包裹等）
             if m.tool_calls:
                 msg_tokens += len(m.tool_calls) * 30
@@ -249,7 +248,7 @@ class ContextCompressor:
             # 残余非流式调用：大上下文经代理中转（如 Cloudflare）有读超时风险，
             # 失败已被下方 except 吞为占位符，不致崩；如需根治可切 provider.stream。
             resp: ProviderResponse = await self.provider.send(
-                [Message(role=Role.USER, content=f"{_DEFAULT_PROMPT}\n\n{prompt}")]
+                [Message(role=Role.USER, content=f"{STRUCTURED_SUMMARY_PROMPT}\n\n{prompt}")]
             )
         except Exception:
             # 摘要失败时不抛异常、不中断主循环：返回简短占位符，
@@ -258,13 +257,3 @@ class ContextCompressor:
             return "(summary unavailable - conversation history preserved in recent messages)"
 
         return resp.content
-
-
-def _estimate_tokens(text: str) -> int:
-    """快速 token 估算（不含消息结构开销）。
-
-    与 :func:`heagent.context.tokens._estimate_text_tokens` 保持 Unicode 覆盖一致——
-    统一切到 tokens 模块后此处可删除（P2 维护项）。"""
-    from heagent.context.tokens import _estimate_text_tokens
-
-    return _estimate_text_tokens(text)

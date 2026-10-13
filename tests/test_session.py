@@ -116,12 +116,6 @@ class TestSessionStore:
 
         assert [message.content for message in loaded] == ["first"]
 
-    def test_list_sessions(self, tmp_path: object) -> None:
-        store = SessionStore(base_dir=str(tmp_path / "sessions"))  # type: ignore[operator]
-        store.save("b", _msgs("b"))
-        store.save("a", _msgs("a"))
-        assert store.list_sessions() == ["a", "b"]
-
     def test_delete(self, tmp_path: object) -> None:
         store = SessionStore(base_dir=str(tmp_path / "sessions"))  # type: ignore[operator]
         store.save("del", _msgs("x"))

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 
 from heagent.config import get_settings
 from heagent.context.tokens import estimate_text_tokens
@@ -13,9 +13,11 @@ from heagent.tools.decorator import tool
 from heagent.tools.runtime import RuntimeSlot
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Awaitable, Callable, Iterator
 
     from heagent.skills import SkillStore
+
+T = TypeVar("T")
 
 
 @dataclass(slots=True)
@@ -100,6 +102,25 @@ def _split_pipe(value: str) -> list[str] | None:
     return [item.strip() for item in value.split("|") if item.strip()]
 
 
+def _split_pipe_fields(
+    steps: str, tags: str, triggers: str, negative_triggers: str
+) -> tuple[list[str] | None, list[str] | None, list[str] | None, list[str] | None]:
+    """skill_create / skill_update 的共享参数前奏：四个 ``|`` 分隔字段一次拆完。"""
+    return _split_pipe(steps), _split_pipe(tags), _split_pipe(triggers), _split_pipe(negative_triggers)
+
+
+async def _store_write(store: SkillStore, write: Callable[[SkillStore], Awaitable[T]], *, success: Callable[[T], str]) -> str:
+    """共享写兜错：``ValueError`` 统一兜成 ``Error: {exc}`` 文案，成功则由 ``success`` 渲染结果。
+
+    SkillRewriteError（正文含 Pattern/Steps 之外的章节，改写会丢正文）继承 ValueError。
+    按基类捕获，避免 tools → memory 的运行时依赖（该方向只允许 TYPE_CHECKING）。
+    """
+    try:
+        return success(await write(store))
+    except ValueError as exc:
+        return f"Error: {exc}"
+
+
 @tool
 async def skill_create(
     name: str,
@@ -117,15 +138,13 @@ async def skill_create(
         return "Error: skill tools not configured."
     if await asyncio.to_thread(store.load, name) is not None:
         return f"Error: skill '{name}' already exists. Use skill_update to modify it."
-    step_list = _split_pipe(steps)
+    step_list, tag_list, trigger_list, negative_list = _split_pipe_fields(steps, tags, triggers, negative_triggers)
     if not step_list:
         return "Error: at least one step is required."
-    tag_list = _split_pipe(tags)
-    trigger_list = _split_pipe(triggers)
-    negative_list = _split_pipe(negative_triggers)
-    try:
-        path = await asyncio.to_thread(
-            store.save,
+    return await _store_write(
+        store,
+        lambda s: asyncio.to_thread(
+            s.save,
             name,
             description,
             pattern,
@@ -134,10 +153,9 @@ async def skill_create(
             triggers=trigger_list,
             negative_triggers=negative_list,
             priority=priority,
-        )
-    except ValueError as exc:
-        return f"Error: {exc}"
-    return f"Skill '{name}' created at {path}"
+        ),
+        success=lambda path: f"Skill '{name}' created at {path}",
+    )
 
 
 @tool
@@ -159,13 +177,11 @@ async def skill_update(
         return f"Error: skill '{name}' not found. Use skill_create first."
     description_value = description or None
     pattern_value = pattern or None
-    step_list = _split_pipe(steps)
-    tag_list = _split_pipe(tags)
-    trigger_list = _split_pipe(triggers)
-    negative_list = _split_pipe(negative_triggers)
-    try:
-        path = await asyncio.to_thread(
-            store.update,
+    step_list, tag_list, trigger_list, negative_list = _split_pipe_fields(steps, tags, triggers, negative_triggers)
+    return await _store_write(
+        store,
+        lambda s: asyncio.to_thread(
+            s.update,
             name,
             description=description_value,
             pattern=pattern_value,
@@ -174,14 +190,11 @@ async def skill_update(
             triggers=trigger_list,
             negative_triggers=negative_list,
             priority=priority,
-        )
-    except ValueError as exc:
-        # SkillRewriteError（正文含 Pattern/Steps 之外的章节，改写会丢正文）继承 ValueError。
-        # 按基类捕获，避免 tools → memory 的运行时依赖（该方向只允许 TYPE_CHECKING）。
-        return f"Error: {exc}"
-    if path is None:
-        return f"Error: failed to update skill '{name}'."
-    return f"Skill '{name}' updated at {path}"
+        ),
+        success=lambda path: f"Skill '{name}' updated at {path}"
+        if path is not None
+        else f"Error: failed to update skill '{name}'.",
+    )
 
 
 @tool(read_only=True)

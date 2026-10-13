@@ -57,7 +57,7 @@ def read_setting_md(path: Path) -> dict[str, str]:
     或 frontmatter 语法错（含重复键）→ :class:`SettingsError`（链 ``FrontmatterSyntaxError``）。
     文件头 UTF-8 BOM 由 ``split_frontmatter`` 容忍。值清理复用 :func:`envfile.parse_value`
     （strip → 剥行内注释 → 剥成对引号）——与 dotenv 源**同一口径**，两层值语义不漂移；刻意
-    **不做**标量 coercion（``parse_scalar`` 会把 ``true`` 变布尔、再被 pydantic 串化成
+    **不做**标量 coercion（coercion 会把 ``true`` 变布尔、再被 pydantic 串化成
     ``"True"``，静默篡改配置值）。
     """
     if not path.is_file():

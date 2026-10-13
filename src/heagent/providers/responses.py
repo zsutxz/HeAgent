@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 
 from openai import AsyncOpenAI
 
-from heagent.providers.base import ProviderMetadata
+from heagent.providers.base import ProviderMetadata, parse_tool_arguments
 from heagent.providers.retry import wrap_provider_error
 from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
 
@@ -99,11 +99,7 @@ def _parse_output(output: list[object]) -> tuple[str, list[ToolCall]]:
         itype = getattr(item, "type", None)
         if itype == "function_call":
             args_str = getattr(item, "arguments", "") or ""
-            try:
-                parsed: object = json.loads(args_str) if args_str else {}
-            except json.JSONDecodeError:
-                parsed = {}
-            arguments = parsed if isinstance(parsed, dict) else {}
+            arguments = parse_tool_arguments(args_str)
             tool_calls.append(
                 ToolCall(
                     id=getattr(item, "call_id", "") or "",

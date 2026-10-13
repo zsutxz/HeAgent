@@ -6,6 +6,7 @@ Provider 无需继承此类，只需实现 send/stream/get_metadata 三个方法
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from pydantic import BaseModel
@@ -14,6 +15,21 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from heagent.pub.types import Message, ProviderResponse, ToolSchema
+
+
+def parse_tool_arguments(raw: str) -> dict[str, object]:
+    """把 tool call 的 ``arguments`` 字符串反序列化为参数 dict。
+
+    各 provider 的统一口径：空串 / 非 JSON / 非 JSON 对象的畸形输入一律退化为空
+    dict，绝不抛错——上游服务器偶发坏的 arguments 不应中断整轮对话。
+    """
+    if not raw:
+        return {}
+    try:
+        parsed: object = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 class ProviderMetadata(BaseModel):

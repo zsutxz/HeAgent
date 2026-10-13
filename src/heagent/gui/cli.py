@@ -45,19 +45,9 @@ def gui_cmd(
     sandbox_session_keep: bool | None,
 ) -> None:
     """Launch the HeAgent terminal UI."""
-    try:
-        from heagent.gui import gui_main  # noqa: PLC0415
-    except ImportError as exc:
-        if not _is_missing_textual(exc):
-            raise
-        click.echo(
-            "GUI 依赖未安装。请运行: pip install heagent[gui]",
-            err=True,
-        )
-        raise SystemExit(1) from None
-
     # ── 日志配置（stderr + 文件双写，与 CLI 模式 `_setup_logging` 同构）──
     from heagent.config import get_settings
+    from heagent.gui import gui_main  # noqa: PLC0415
     from heagent.pub.safe_logging import install_logging_fault_guard
 
     install_logging_fault_guard()  # 日志设施故障不得中断会话（与 CLI 同一边界）
@@ -87,25 +77,14 @@ def gui_cmd(
     logger.info("GUI session started — log file: %s", _log_file)
 
     # 启动时回收运行时产物（日志 / 会话 / 编辑快照）：与 CLI 同一实现，best-effort。
-    try:
-        from heagent.cli.housekeeping import prune_runtime_artifacts_sync
+    from heagent.cli.housekeeping import prune_runtime_artifacts_best_effort
 
-        prune_runtime_artifacts_sync(_settings)
-    except Exception:
-        logger.warning("runtime artifact cleanup failed; continuing", exc_info=True)
+    prune_runtime_artifacts_best_effort(_settings)
 
-    # 沙箱提醒
-    if sandbox == "firejail":
-        import shutil as _shutil
+    # 沙箱提醒（GUI 只认显式 --sandbox firejail 旗标）
+    from heagent.cli.display import echo_firejail_hint
 
-        if _shutil.which(_settings.sandbox_firejail_path) is None:
-            click.echo(
-                f" WARNING: firejail not found ({_settings.sandbox_firejail_path}). "
-                f"Shell commands will run WITHOUT sandbox isolation.",
-                err=True,
-            )
-        else:
-            click.echo(f" firejail sandbox ENABLED ({_settings.sandbox_firejail_path})", err=True)
+    echo_firejail_hint(sandbox, _settings)
 
     try:
         # gui_main 是同步入口（内部自行运行 Textual 事件循环）；

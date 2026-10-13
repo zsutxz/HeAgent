@@ -263,14 +263,11 @@ class DreamScheduler:
             # 预注入会列全部 session 并整份读近来 N 个（同步 I/O，随会话数线性）⇒ 卸载到线程池。
             prompt = await asyncio.to_thread(self._build_dream_prompt)
             result = await self._dream_runner(prompt)
-            self._engine.events.publish(
-                "dream_end",
-                details={
-                    "trigger": trigger,
-                    "success": result.success,
-                    "iterations": result.iterations,
-                    "run_id": result.run_id,
-                },
+            self._publish_dream_end(
+                trigger,
+                success=result.success,
+                iterations=result.iterations,
+                run_id=result.run_id,
             )
             logger.info(
                 "Dream ended (trigger=%s, success=%s, iterations=%d)",
@@ -282,27 +279,20 @@ class DreamScheduler:
             # 区分 stop() 取消（_running 已 False）vs 子任务内部自取消（_running 仍 True）——审计精度。
             # stop() 首行置 _running=False 后才 cancel，故 stop 取消见 _running=False；内部自取消仍 True。
             # 任一情况都让 CancelledError 传播至 task 边界（取消信号优先，不改既有传播契约）。
-            self._engine.events.publish(
-                "dream_end",
-                details={
-                    "trigger": trigger,
-                    "success": False,
-                    "aborted": not self._running,
-                    "internal_cancel": self._running,
-                },
-            )
+            self._publish_dream_end(trigger, success=False, aborted=not self._running, internal_cancel=self._running)
             raise
         except Exception as exc:
             logger.exception("Dream execution failed (trigger=%s)", trigger)
-            self._engine.events.publish(
-                "dream_end",
-                details={"trigger": trigger, "success": False, "error": str(exc)},
-            )
+            self._publish_dream_end(trigger, success=False, error=str(exc))
         finally:
             self._dreaming = False
             # 任一退出路径（成功/失败/取消）都重置 idle 基准——失败/取消 dream 不发 run_completed，
             # 若不重置则 idle 条件持续真、每 tick 重燃失败 dream 烧 provider token（审查 #2）。
             self._last_active_ts = time.monotonic()
+
+    def _publish_dream_end(self, trigger: str, **extra: object) -> None:
+        """发布 dream_end：统一携带 ``trigger``，其余字段（success/iterations/…）按结局补充。"""
+        self._engine.events.publish("dream_end", details={"trigger": trigger, **extra})
 
     # ------------------------------------------------------------------
     # dream prompt 构建（近期 session 预注入；dreamer 不持 file_read）
@@ -330,7 +320,7 @@ class DreamScheduler:
         """加载最近 ``_session_lookback`` 个 session 的消息摘要（截断到字符/条数上限）。
 
         按 session.timestamp 降序取真正最近的 N 个（:meth:`SessionStore.recent_session_ids`）——
-        ``list_sessions`` 按文件名字母序（session_id 是随机 hex）不反映时间先后（审查 #1）。
+        文件名字母序（session_id 是随机 hex）不反映时间先后（审查 #1）。
         返回拼装好的多行文本；无 session_store / 无会话 / 读取失败时返回空串。
         """
         if self._session_store is None:

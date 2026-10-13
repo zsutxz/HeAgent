@@ -183,6 +183,29 @@ def write_set_entries_overlap(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
     return a == b[: len(a)] or b == a[: len(b)]
 
 
+def _combine_story_outputs(specs: list[StorySpec], outputs: dict[str, Any]) -> str:
+    """按声明序合并 story 输出（AD-19）：跨批有洞恢复时 ``outputs`` 的 dict 插入序是
+    完成序，必须按 ``specs`` 声明序重排（批内记账序碰巧一致，洞场景不成立）。
+    空值条目剔除（None / 空串不进合并结果）。
+    """
+    return "\n\n---\n\n".join(
+        str(outputs[spec.id])
+        for spec in specs
+        if outputs.get(spec.id) is not None and str(outputs.get(spec.id, "")) != ""
+    )
+
+
+def _story_reset_update() -> dict[str, Any]:
+    """story 清场五连：``active_story`` 归位、索引回零、清空已完成簿记——重跑从第一条 story 开始。"""
+    return {
+        "active_story": None,
+        "active_epic": "",
+        "story_index": 0,
+        "completed_stories": [],
+        "story_outputs": {},
+    }
+
+
 class WorkflowRunner:
     """Run exactly one workflow step and never synthesize completion.
 
@@ -390,16 +413,8 @@ class WorkflowRunner:
             except WorkflowGateError as exc:
                 return await self._stop(WorkflowStatus.BLOCKED, step, str(exc), [], checkpoint)
             # 脚本声明的后续步骤计划（Story 51-7）：累计计划不得超过本 workflow 的声明步骤数。
-            # 无界声明是脚本缺陷，**有界失败**（BLOCKED + 落 checkpoint）比静默截断诚实。
             if len(self.state.requested_steps) + len(result.requested_steps) > len(self.workflow.steps):
-                return await self._stop(
-                    WorkflowStatus.BLOCKED,
-                    step,
-                    f"step '{step.name}' declared {len(result.requested_steps)} follow-up step(s), exceeding "
-                    f"the workflow's {len(self.workflow.steps)} declared step(s); the plan is refused",
-                    [],
-                    checkpoint,
-                )
+                return await self._refuse_oversized_plan(step, len(result.requested_steps), "step", checkpoint)
             executed_story_id = active_story.id if active_story is not None else None
             executed_story_index = self.state.story_index if is_story_loop else None
             update: dict[str, Any] = {
@@ -472,7 +487,7 @@ class WorkflowRunner:
         if not all(dependency in self.state.completed_stories for dependency in first.depends_on):
             return [first]
         batch = [first]
-        claimed = [self._write_set_parts(entry) for entry in first.write_set]
+        claimed = [write_set_parts(entry) for entry in first.write_set]
         for candidate in specs[self.state.story_index + 1 :]:
             if len(batch) >= step.max_parallel_stories:
                 break
@@ -484,9 +499,9 @@ class WorkflowRunner:
                 break
             if not all(dependency in self.state.completed_stories for dependency in candidate.depends_on):
                 break
-            candidate_entries = [self._write_set_parts(entry) for entry in candidate.write_set]
+            candidate_entries = [write_set_parts(entry) for entry in candidate.write_set]
             if any(
-                self._entries_overlap(claimed_entry, candidate_entry)
+                write_set_entries_overlap(claimed_entry, candidate_entry)
                 for claimed_entry in claimed
                 for candidate_entry in candidate_entries
             ):
@@ -509,16 +524,6 @@ class WorkflowRunner:
                 else {}
             ),
         )
-
-    @staticmethod
-    def _write_set_parts(entry: str) -> tuple[str, ...]:
-        """写集条目 → 规范路径段（委托模块级 :func:`write_set_parts`，历史调用点别名）。"""
-        return write_set_parts(entry)
-
-    @staticmethod
-    def _entries_overlap(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
-        """两条目是否路径相交（委托模块级 :func:`write_set_entries_overlap`）。"""
-        return write_set_entries_overlap(a, b)
 
     async def _gather_story_batch(
         self,
@@ -638,14 +643,7 @@ class WorkflowRunner:
             # 的 write_violation 丢弃一轮。
             self.state = self.state.model_copy(update={"story_parallel_revoked": True})
         if len(self.state.requested_steps) + len(follow_ups) > len(self.workflow.steps):
-            return await self._stop(
-                WorkflowStatus.BLOCKED,
-                step,
-                f"stories in step '{step.name}' declared {len(follow_ups)} follow-up step(s), exceeding "
-                f"the workflow's {len(self.workflow.steps)} declared step(s); the plan is refused",
-                [],
-                checkpoint,
-            )
+            return await self._refuse_oversized_plan(step, len(follow_ups), "stories in step", checkpoint)
         # 位置校正（有洞恢复的关键）：批内失败允许「completed 有洞」，story_index 必须落在
         # **首个未完成** Story 上——洞在中间时这是回摆（如 S-2✓/S-1✗ ⇒ 回到 S-1），不是单调
         # 前进。无洞历史下该值与单调推进一致。
@@ -662,14 +660,7 @@ class WorkflowRunner:
             }
         )
         all_done = all(spec.id in self.state.completed_stories for spec in specs)
-        # 合并序 = 声明序（AD-19）：跨批有洞恢复时 story_outputs 的 dict 插入序是完成序，
-        # 必须按 specs 声明序重排（批内记账序碰巧一致，洞场景不成立）。
-        combined = "\n\n---\n\n".join(
-            str(self.state.story_outputs[spec.id])
-            for spec in specs
-            if self.state.story_outputs.get(spec.id) is not None
-            and str(self.state.story_outputs.get(spec.id, "")) != ""
-        )
+        combined = _combine_story_outputs(specs, self.state.story_outputs)
         if first_failure is not None:
             self.state = self.state.model_copy(
                 update={
@@ -696,15 +687,7 @@ class WorkflowRunner:
                 update = self._approval_gate_update(step, combined)
             else:
                 update = self._step_advance_update(step, combined)
-                update.update(
-                    {
-                        "active_story": None,
-                        "active_epic": "",
-                        "story_index": 0,
-                        "completed_stories": [],
-                        "story_outputs": {},
-                    }
-                )
+                update.update(_story_reset_update())
             update["requested_steps"] = [*self.state.requested_steps, *follow_ups]
             self.state = self.state.model_copy(update=update)
         else:
@@ -852,8 +835,6 @@ class WorkflowRunner:
         _emit_step_event(emit, "workflow_paused", step=self._active_step_resource(), story=None)
         return self.state.model_copy(deep=True)
 
-    run = run_step
-
     def _callback_status(self, status: WorkflowStatus) -> WorkflowStatus:
         event = {
             WorkflowStatus.FAILED: WorkflowEvent.EXECUTOR_FAILED,
@@ -951,6 +932,25 @@ class WorkflowRunner:
         """
         return await self._persist(self._active_step_resource(), None)
 
+    async def _refuse_oversized_plan(
+        self,
+        step: WorkflowStepResource,
+        declared: int,
+        subject: str,
+        checkpoint: CheckpointCallback | None,
+    ) -> WorkflowRunResult:
+        """后续步骤计划超限（Story 51-7）：累计计划不得超过本 workflow 的声明步骤数。
+        无界声明是脚本缺陷，**有界失败**（BLOCKED + 落 checkpoint）比静默截断诚实。
+        """
+        return await self._stop(
+            WorkflowStatus.BLOCKED,
+            step,
+            f"{subject} '{step.name}' declared {declared} follow-up step(s), exceeding "
+            f"the workflow's {len(self.workflow.steps)} declared step(s); the plan is refused",
+            [],
+            checkpoint,
+        )
+
     async def _stop(
         self,
         status: WorkflowStatus,
@@ -1007,11 +1007,7 @@ class WorkflowRunner:
             "pending_output": output,
             "approval_round": self.state.approval_round + 1,
             "reason": step.approval.note or "step work is done; it awaits a human approval decision",
-            "active_story": None,
-            "active_epic": "",
-            "story_index": 0,
-            "completed_stories": [],
-            "story_outputs": {},
+            **_story_reset_update(),
         }
 
     def _step_advance_update(self, step: WorkflowStepResource, output: Any) -> dict[str, Any]:
@@ -1052,24 +1048,12 @@ class WorkflowRunner:
             next_index += 1
         if next_index >= len(story_specs) or all(spec.id in completed_stories for spec in story_specs):
             # 合并序 = 声明序（AD-19，同 _settle_story_batch）：有洞历史下插入序是完成序。
-            combined = "\n\n---\n\n".join(
-                str(story_outputs[spec.id])
-                for spec in story_specs
-                if story_outputs.get(spec.id) is not None and str(story_outputs.get(spec.id, "")) != ""
-            )
+            combined = _combine_story_outputs(story_specs, story_outputs)
             if step.approval.required:
                 # 挂门含 story 清场（_approval_gate_update 单点）：重跑从第一条 story 开始。
                 return self._approval_gate_update(step, combined)
             update = self._step_advance_update(step, combined)
-            update.update(
-                {
-                    "active_story": None,
-                    "active_epic": "",
-                    "story_index": 0,
-                    "completed_stories": [],
-                    "story_outputs": {},
-                }
-            )
+            update.update(_story_reset_update())
             return update
         next_story = story_specs[next_index]
         next_status = transition(

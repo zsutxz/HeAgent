@@ -15,6 +15,7 @@ import click
 import heagent.tools.builtins  # noqa: F401
 from heagent.cli.display import (
     _print_banner,
+    echo_firejail_hint,
 )
 from heagent.cli.wiring import _build_provider
 from heagent.config import Settings, get_settings
@@ -69,12 +70,9 @@ def _prune_runtime_artifacts(settings: Settings) -> None:
     具体实现在 ``heagent.cli.housekeeping``（单独成模块便于直接测试）；这里只做「失败不上抛」。
     记忆归档由 ``heagent.memory.auto_archive`` 处理。
     """
-    try:
-        from heagent.cli.housekeeping import prune_runtime_artifacts_sync
+    from heagent.cli.housekeeping import prune_runtime_artifacts_best_effort
 
-        prune_runtime_artifacts_sync(settings)
-    except Exception:
-        logger.warning("runtime artifact cleanup failed; continuing", exc_info=True)
+    prune_runtime_artifacts_best_effort(settings)
 
     # 记忆自动归档（独立 try-except，确保失败不影响其他清理）
     try:
@@ -208,19 +206,7 @@ def _run_cli_impl(
     load_agent_roles()
 
     # --- Sandbox warning ---
-    sandbox_resolved = sandbox or settings.sandbox_backend
-    if sandbox_resolved == "firejail":
-        import shutil as _shutil
-
-        if _shutil.which(settings.sandbox_firejail_path) is None:
-            click.echo(
-                f" WARNING: firejail not found ({settings.sandbox_firejail_path}). "
-                f"Shell commands will run WITHOUT sandbox isolation. "
-                f"Install firejail: sudo apt install firejail",
-                err=True,
-            )
-        else:
-            click.echo(f" firejail sandbox ENABLED ({settings.sandbox_firejail_path})", err=True)
+    echo_firejail_hint(sandbox or settings.sandbox_backend, settings, install_hint=True)
 
     # --- Interactive provider selection at startup ---
     if isinstance(provider, SwitchableProvider):

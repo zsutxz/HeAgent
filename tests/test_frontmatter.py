@@ -13,7 +13,6 @@ from heagent.pub.frontmatter import (
     FrontmatterSyntaxError,
     extract_h2_section,
     parse_inline_pairs,
-    parse_scalar,
     parse_strict_pairs,
     split_frontmatter,
 )
@@ -104,7 +103,7 @@ class TestParseStrictPairs:
         assert parse_strict_pairs("id: a\n\n# 注释\nname: b") == {"id": " a", "name": " b"}
 
     def test_raw_values_are_not_stripped(self) -> None:
-        """返回冒号后的原始值（strip 是调用方职责——artifacts 的 parse_scalar 内部 strip）。"""
+        """返回冒号后的原始值（strip 是调用方职责）。"""
         assert parse_strict_pairs("k:  value  ") == {"k": "  value  "}
 
     def test_line_without_colon_raises_with_line_number(self) -> None:
@@ -166,26 +165,3 @@ class TestParseInlinePairs:
 
     def test_never_raises_on_malformed_content(self) -> None:
         assert parse_inline_pairs("没有冒号\n: 空键\n\t坏行") == {"": " 空键"}
-
-
-class TestParseScalar:
-    @pytest.mark.parametrize(
-        ("raw", "expected"),
-        [
-            ("", ""),
-            ("  ", ""),
-            ("[1, 2]", [1, 2]),
-            ('{"a": 1}', {"a": 1}),
-            ("{invalid json: }", "{invalid json: }"),  # JSON 失败后 ast 亦失败 → 原样字符串
-            ("(1, 2)", "(1, 2)"),  # 圆括号不走 json/ast 分支（仅 [/{ 开头尝试）
-            ('"quoted"', "quoted"),
-            ("'quoted'", "quoted"),
-            ("true", True),
-            ("False", False),
-            ("TRUE", True),
-            ("plain", "plain"),
-            ("not a list [", "not a list ["),
-        ],
-    )
-    def test_scalar_coercion(self, raw: str, expected: object) -> None:
-        assert parse_scalar(raw) == expected

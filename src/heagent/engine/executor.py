@@ -28,7 +28,7 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from heagent.engine.observability import elapsed_ms
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
@@ -129,12 +129,14 @@ class ToolExecutor:
             return await self._dispatch(
                 call=call, verdict=verdict, guard=guard, handler=handler, run_context=run_context, emit=emit
             )
-        audited: ToolResult = await audit.run(
-            lambda: self._dispatch(
-                call=call, verdict=verdict, guard=guard, handler=handler, run_context=run_context, emit=emit
-            )
+        return cast(
+            "ToolResult",
+            await audit.run(
+                lambda: self._dispatch(
+                    call=call, verdict=verdict, guard=guard, handler=handler, run_context=run_context, emit=emit
+                )
+            ),
         )
-        return audited
 
     async def _dispatch(
         self,

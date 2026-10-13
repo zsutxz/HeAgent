@@ -9,7 +9,6 @@
   ``#`` 注释；无冒号、行首空白、重复或空 key 一律报错。
 - **宽档** :func:`parse_inline_pairs`——skills / slash / roles / skill_packages metadata 用：
   已知键前缀匹配或任意 ``key: value`` 行，未知键忽略、永不报错。
-- **标量** :func:`parse_scalar`——artifacts 的值 coercion（JSON/ast 尝试、引号剥壳、bool）。
 
 DAG 定位：与 ``persist.py`` / ``roles.py`` 同层的**零 heagent 依赖顶层模块**（仅 stdlib），
 任何模块可依赖；反向禁止——本文件不得 import heagent 的任何子模块。
@@ -21,10 +20,8 @@ DAG 定位：与 ``persist.py`` / ``roles.py`` 同层的**零 heagent 依赖顶�
 
 from __future__ import annotations
 
-import ast
-import json
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -115,24 +112,6 @@ def parse_inline_pairs(raw: str, keys: Sequence[str] = ()) -> dict[str, str]:
             key, value = line.split(":", 1)
             pairs[key.strip()] = value
     return pairs
-
-
-def parse_scalar(value: str) -> Any:
-    """标量值 coercion（artifacts 历史语义）：JSON/ast 尝试、成对引号剥壳、bool，否则原样字符串。"""
-    value = value.strip()
-    if not value:
-        return ""
-    if value.startswith(("[", "{")):
-        for parser in (json.loads, ast.literal_eval):
-            try:
-                return parser(value)
-            except (ValueError, SyntaxError, json.JSONDecodeError):
-                continue
-    if (len(value) >= 2 and value[0] == value[-1]) and value[0] in "\"'":
-        return value[1:-1]
-    if value.lower() in {"true", "false"}:
-        return value.lower() == "true"
-    return value
 
 
 _H2_SECTION_RE = re.compile(r"(?m)^##\s+([^\n#]+?)\s*$")

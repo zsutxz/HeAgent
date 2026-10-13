@@ -85,12 +85,6 @@ class GuiEventObserver:
         """返回 ``(缓冲内事件（时间正序）, 单调总数)``——供 :class:`~heagent.pub.event_lines.EventCursor` 差分。"""
         return list(self._buffer), self._total
 
-    def get_recent(self, limit: int = 100) -> list[tuple[float, str, dict[str, Any]]]:
-        """返回最近 N 条事件（最新在前）。"""
-        items = list(self._buffer)
-        items.reverse()
-        return items[:limit]
-
     def clear(self) -> None:
         """清空事件缓冲与总数（游标据此判「从头重来」，见 EventCursor.take）。"""
         self._buffer.clear()

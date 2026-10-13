@@ -686,12 +686,6 @@ class SessionStore:
             return 0
         return sum(1 for _ in self._base.glob("*.json"))
 
-    def list_sessions(self) -> list[str]:
-        """返回所有已保存的会话 ID（按文件名字母序）。"""
-        if not self._base.exists():
-            return []
-        return sorted(p.stem for p in self._base.glob("*.json"))
-
     def recent_session_ids(self, limit: int) -> list[str]:
         """返回最近 ``limit`` 个会话 ID（按文件 mtime 降序，同 mtime 按名字典序）。
 

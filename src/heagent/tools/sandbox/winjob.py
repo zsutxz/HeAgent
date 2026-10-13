@@ -192,6 +192,14 @@ class WinJobBackend:
             )
 
             # ── Wait for completion ──
+            async def kill_and_reap(catch: type[BaseException], label: str) -> None:
+                # Phase 4 V2：有界回收——无界 wait 在孙进程持管道时可无限挂起（超时/取消两路对称）。
+                try:
+                    proc.kill()
+                    await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=_REAP_WAIT_TIMEOUT)
+                except catch:
+                    logger.debug("%s cleanup: kill/wait failed", label, exc_info=True)
+
             try:
                 stdout, stderr = await asyncio.wait_for(
                     asyncio.to_thread(proc.communicate),
@@ -199,20 +207,10 @@ class WinJobBackend:
                 )
                 return _format_result(proc.returncode, stdout, stderr)
             except TimeoutError:
-                try:
-                    proc.kill()
-                    # Phase 4 V2：有界回收——无界 wait 在孙进程持管道时可无限挂起。
-                    await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=_REAP_WAIT_TIMEOUT)
-                except Exception as _exc:
-                    logger.debug("timeout cleanup: kill/wait failed", exc_info=True)
+                await kill_and_reap(Exception, "timeout")
                 return _TIMEOUT_RESULT.format(timeout=timeout)
             except asyncio.CancelledError:
-                try:
-                    proc.kill()
-                    # Phase 4 V2：同上，取消路径同样有界（对称）。
-                    await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=_REAP_WAIT_TIMEOUT)
-                except BaseException:
-                    logger.debug("cancel cleanup: kill/wait failed", exc_info=True)
+                await kill_and_reap(BaseException, "cancel")
                 raise
 
         finally:

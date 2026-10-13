@@ -2039,6 +2039,5 @@ __all__ = [
     "HttpStartupError",
     "RunEventPublisher",
     "build_http_app",
-    "format_sse",
     "read_web_asset",
 ]

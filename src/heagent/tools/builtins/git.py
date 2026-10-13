@@ -38,25 +38,23 @@ async def _run_git(*args: str, cwd: Path | None = None) -> str:
         stderr=asyncio.subprocess.PIPE,
         cwd=cwd or workspace_root(),
     )
+
+    async def kill_and_reap() -> None:
+        # wait_for 仅取消 await、不杀子进程——须显式终止防僵尸（进程可能已退出，失败静默）。
+        try:
+            proc.kill()
+            await reap_subprocess(proc)
+        except Exception:
+            pass
+
     try:
         stdout, stderr = await communicate_subprocess(proc, timeout=_GIT_TIMEOUT)
     except TimeoutError:
-        # wait_for 仅取消 await、不杀子进程——须显式终止防僵尸，再报超时
-        try:
-            proc.kill()
-            await reap_subprocess(proc)
-        except ProcessLookupError:
-            pass
-        except Exception:
-            pass
+        await kill_and_reap()
         raise RuntimeError(f"git {' '.join(args)} timed out after {_GIT_TIMEOUT}s") from None
     except asyncio.CancelledError:
         # P1-5 修复：CancelledError 单独捕获，kill+有界 reap 子进程防僵尸泄漏
-        try:
-            proc.kill()
-            await reap_subprocess(proc)
-        except (ProcessLookupError, Exception):
-            pass
+        await kill_and_reap()
         raise
 
     if proc.returncode != 0:

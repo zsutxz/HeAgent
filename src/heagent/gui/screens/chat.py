@@ -68,7 +68,6 @@ class ChatScreen(Screen[None]):
         self._bridge = bridge
         self._state = state
         self._pending_submit: asyncio.Task[None] | None = None
-        self._pending_switch: asyncio.Task[None] | None = None
 
     def compose(self) -> ComposeResult:
         yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True)
@@ -291,7 +290,7 @@ class ChatScreen(Screen[None]):
             except ValueError as exc:
                 log.write(f"[red]切换失败: {exc}[/]")
 
-        self._pending_switch = asyncio.create_task(_switch())
+        asyncio.create_task(_switch())  # noqa: RUF006 —— fire-and-forget：Textual 事件循环持有任务至完成
 
     def action_clear_screen(self) -> None:
         log = self.query_one("#chat-log", RichLog)

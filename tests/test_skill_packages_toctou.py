@@ -82,7 +82,6 @@ def test_resource_readers_use_one_opened_descriptor(monkeypatch: pytest.MonkeyPa
     readers = {
         "read_entry": ("SKILL.md", lambda: package.read_entry().text),
         "read_resource": ("step.md", lambda: package.read_resource("step.md")),
-        "read_step": ("step.md", lambda: package.read_step("step.md")),
         "read_reference": ("references/ref.md", lambda: package.read_reference("ref.md")),
         "read_template": ("templates/template.md", lambda: package.read_template("template.md")),
         "read_asset": ("assets/asset.md", lambda: package.read_asset("asset.md")),

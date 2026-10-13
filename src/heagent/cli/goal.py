@@ -8,7 +8,6 @@ import logging
 import os
 import sys
 import time
-from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from pathlib import Path
@@ -50,13 +49,13 @@ from heagent.goal.application import (
     resolve_bound_workflow,
 )
 from heagent.goal.application import (
+    load_validated_workflow as _load_validated_workflow,
+)
+from heagent.goal.application import (
     resolve_skill_package as _resolve_skill_package,
 )
 from heagent.goal.application import (
     restore_runner as _goal_declarative_runner,
-)
-from heagent.goal.application import (
-    validate_goal_workflow as _validate_goal_workflow,
 )
 from heagent.goal.decisions import DecisionAction, DecisionRecord, decision_store
 from heagent.goal.doctor import diagnose_workflow
@@ -86,13 +85,13 @@ from heagent.goal.quality_gates import gate_declaration_problem, is_registered_g
 from heagent.goal.script_api import ScriptRequest, ScriptResponse
 from heagent.goal.script_runtime import GoalScriptRuntimeError, ScriptRuntime
 from heagent.goal.status_view import project_status_view
-from heagent.goal.workflow_loader import SkillWorkflowError, read_workflow, workflow_revision
+from heagent.goal.workflow_loader import SkillWorkflowError, workflow_revision
 from heagent.pub.persist import atomic_write_text
 from heagent.pub.types import ToolCall, ToolResult
 from heagent.pub.workspace import WorkspacePaths
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator, Callable, Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from heagent.agent.sub import SubAgentResult
     from heagent.cron.jobs import JobStore
@@ -145,20 +144,6 @@ def _echo(message: str, *, err: bool = True) -> None:
     click.echo(message, err=err)
 
 
-@asynccontextmanager
-async def _goal_mutex() -> AsyncIterator[None]:
-    """goal 域互斥（:func:`heagent.goal.mutex.goal_mutex`）的 CLI 侧别名。
-
-    进程内快速路径 + 跨进程 ``.heagent/goal.lock`` 文件锁的复合互斥，本体连同
-    重入语义都在 :mod:`heagent.goal.mutex`（台账 A32②：锁下沉后由变更内核
-    ``advance`` / ``pause_resume`` / ``record_decision`` 自持，CLI 外层组合式
-    读改写仍整段持锁，同 task 重入零开销）。文件锁超时抛 ``OSError``——显性失败，
-    由 ``_goal_runner`` / ``_goal_cron_advance`` 收口为用户可见提示。
-    """
-    async with goal_mutex():
-        yield
-
-
 # =============================================================================
 # /goal 命令族（Story 41.1：目标驱动开发工作流——skill 正文直读 + 逐 story 会话）
 # =============================================================================
@@ -207,9 +192,7 @@ def _goal_declarative_workflow() -> WorkflowResource | None:
     if package is None:
         return None
     try:
-        workflow = read_workflow(package, "workflow.md")
-        _validate_goal_workflow(workflow)
-        return workflow
+        return _load_validated_workflow(package)
     except (SkillWorkflowError, ValueError, OSError) as exc:
         raise ValueError(f"declarative workflow configuration is invalid: {exc}") from exc
 
@@ -354,12 +337,12 @@ async def _goal_execute_step(
     if not result.success:
         return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=str(result.output))
     try:
-        output_text = result.output if isinstance(result.output, str) else str(result.output)
-        if result.output is None or (isinstance(result.output, str) and not output_text.strip()):
+        if result.output is None or (isinstance(result.output, str) and not result.output.strip()):
             return WorkflowStepResult(
                 status=WorkflowStatus.FAILED,
                 reason=f"step '{step.name}' produced empty output",
             )
+        output_text = result.output if isinstance(result.output, str) else str(result.output)
         atomic_write_text(goal_step_artifact_path(goal_dir, step, story), output_text)
     except OSError as exc:
         return WorkflowStepResult(status=WorkflowStatus.FAILED, reason=f"failed to persist step output: {exc}")
@@ -836,8 +819,7 @@ async def _goal_declarative_doctor(args: str = "") -> None:
             _echo(f"[goal] doctor: workflow package is unavailable: {skill_id}", err=True)
             return
         try:
-            workflow = read_workflow(package, "workflow.md")
-            _validate_goal_workflow(workflow)
+            workflow = _load_validated_workflow(package)
         except (SkillWorkflowError, OSError, ValueError) as exc:
             _echo(f"[goal] doctor: declarative workflow configuration is invalid: {exc}", err=True)
             return
@@ -922,7 +904,7 @@ async def _goal_declarative_decision(
     :func:`_goal_declarative_advance` 同一推进缝）——amend 推进的就是带补充的重跑；reject
     不推进（工作被驳回，BLOCKED 等待修订后 resume）。
     """
-    async with _goal_mutex():
+    async with goal_mutex():
         goal_dir = _goal_declarative_active_dir()
         if goal_dir is None:
             _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
@@ -941,7 +923,7 @@ async def _goal_declarative_decisions(workflow: WorkflowResource) -> None:
     读取也进 goal 域锁（审查 #9）：并发写方 append 一半时读方不会把半截文件误报成
     「损坏」——锁内读是防止撕裂读的防线（store 自身的独占创建只保证写侧）。
     """
-    async with _goal_mutex():
+    async with goal_mutex():
         goal_dir = _goal_declarative_active_dir()
         if goal_dir is None:
             _echo("[goal] no active declarative goal", err=True)
@@ -1100,7 +1082,7 @@ async def _goal_declarative_verify(
     求值路径的 ``EvidenceError`` / ``OSError`` 在此收口为用户可见失败——它们**不是** goal
     域锁竞争，不得落进外层的「另一进程正在推进」误诊文案（review #4）。
     """
-    async with _goal_mutex():
+    async with goal_mutex():
         goal_dir = _goal_declarative_active_dir()
         if goal_dir is None:
             _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
@@ -1282,7 +1264,7 @@ async def _goal_declarative_run(
 ) -> None:
     try:
         for _ in range(workflow.max_rounds):
-            async with _goal_mutex():
+            async with goal_mutex():
                 outcome = await _goal_declarative_advance(provider, engine, workflow)
             if outcome != _GOAL_ADVANCED:
                 return
@@ -1417,8 +1399,7 @@ async def _goal_start_new(
         _echo(f"[goal] workflow.md is required: workflow package '{skill_id}' is unavailable; {hint}", err=True)
         return
     try:
-        workflow = read_workflow(package, "workflow.md")
-        _validate_goal_workflow(workflow)
+        workflow = _load_validated_workflow(package)
         revision = workflow_revision(package, workflow)
     except (SkillWorkflowError, OSError, ValueError) as exc:
         _echo(f"[goal] declarative workflow configuration is invalid: {exc}", err=True)
@@ -1491,12 +1472,12 @@ async def _goal_declarative_dispatch(
         if not rest:
             _goal_usage()
         else:
-            async with _goal_mutex():
+            async with goal_mutex():
                 await _goal_start_new(provider, engine, rest, cron_store=cron_store)
     elif head in ("next", "status", "reset", "run", "pause", "decisions") and rest:
         _goal_usage()
     elif head == "next":
-        async with _goal_mutex():
+        async with goal_mutex():
             if (workflow := await _goal_bound_workflow()) is not None:
                 await _goal_declarative_advance(provider, engine, workflow)
     elif head == "run":
@@ -1516,7 +1497,7 @@ async def _goal_declarative_dispatch(
         if (workflow := await _goal_bound_workflow()) is not None:
             await _goal_declarative_pause_resume(workflow, resume=False)
     elif head == "resume":
-        async with _goal_mutex():
+        async with goal_mutex():
             if (workflow := await _goal_bound_workflow()) is not None and await _goal_declarative_pause_resume(
                 workflow, resume=True, response=rest
             ):
@@ -1546,7 +1527,7 @@ async def _goal_declarative_dispatch(
         _echo("[goal] audit subcommand has been removed; supported subcommands are listed below.", err=True)
         _goal_usage()
     elif head == "reset":
-        async with _goal_mutex():
+        async with goal_mutex():
             _goal_reset()
     elif head == "auto":
         if (workflow := await _goal_bound_workflow()) is not None:
@@ -1555,7 +1536,7 @@ async def _goal_declarative_dispatch(
         _echo(f"[goal] unknown subcommand {args.strip()!r}; did you mean `/goal {intended}`?", err=True)
         _goal_usage()
     else:
-        async with _goal_mutex():
+        async with goal_mutex():
             await _goal_start_new(provider, engine, args.strip(), cron_store=cron_store)
 
 
@@ -1684,7 +1665,7 @@ async def _goal_cron_advance(
     workflow，不读当前配置——配置换包后 cron 仍按绑定推进或显性失败，绝不静默换流程。
     """
     try:
-        async with _goal_mutex():
+        async with goal_mutex():
             current = _goal_active_md()
             if current is None or current.parent.name != goal_id:
                 removed = _goal_auto_remove(store, goal_id)

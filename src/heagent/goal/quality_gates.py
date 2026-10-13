@@ -303,6 +303,50 @@ def gate_declaration_problem(clauses: StepValidationClauses) -> str | None:
 # ── 求值器 ────────────────────────────────────────────────────────────
 
 
+async def _prescan_stale_commands(
+    step: WorkflowStepResource,
+    *,
+    store: EvidenceStore,
+    goal_id: str,
+    story_id: str | None,
+    workflow_id: str,
+    revision: str,
+    workspace: Path,
+    max_age: timedelta,
+    now: datetime | None,
+) -> tuple[list[str], list[str], list[EvidenceRecord] | None, list[EvidenceRecord]]:
+    """``if_stale`` 策略的既有证据预扫描：返回 ``(待重跑命令, 复用命令, 预扫 scope 或 None, 漂移证据)``。
+
+    漂移错误只在重跑后的最终收集处记一次，这里不重复记；漂移证据不进预求值范围，
+    对应声明命令按「无匹配证据」处理 → 进重跑清单。无待重跑命令 → 本函数不会再
+    追加证据，预扫描即最终扫描（快路径）；否则 scope/漂移留空，重跑后重扫。
+    """
+    clauses = step.validation_clauses
+    pre_scope, pre_drifted = await _collect_scope(
+        store,
+        step_name=step.name,
+        goal_id=goal_id,
+        story_id=story_id,
+        workflow_id=workflow_id,
+        revision=revision,
+    )
+    pre_results = _command_results(
+        clauses,
+        [(record, evidence) for record in pre_scope for evidence in record.commands],
+        workspace=workspace,
+        moment=now or datetime.now(UTC),
+        max_age=max_age,
+    )
+    # _command_results 恒「每条声明命令恰一个结果」且按声明序返回——strict=True 把这个
+    # 不变量钉进代码，两表长度将来分歧即响亮失败。
+    paired = list(zip(clauses.commands, pre_results, strict=True))
+    commands_to_rerun = [declared for declared, item in paired if not item.passed]
+    reused = [declared for declared, item in paired if item.passed]
+    if commands_to_rerun:
+        return commands_to_rerun, reused, None, []
+    return commands_to_rerun, reused, pre_scope, pre_drifted
+
+
 async def verify_step(
     step: WorkflowStepResource,
     *,
@@ -348,32 +392,17 @@ async def verify_step(
     scope: list[EvidenceRecord] | None = None
     drifted: list[EvidenceRecord] = []
     if rerun and rerun_policy == "if_stale":
-        pre_scope, pre_drifted = await _collect_scope(
-            store,
-            step_name=step.name,
+        commands_to_rerun, reused, scope, drifted = await _prescan_stale_commands(
+            step,
+            store=store,
             goal_id=goal_id,
             story_id=story_id,
             workflow_id=workflow_id,
             revision=revision,
-        )
-        # 漂移错误只在重跑后的最终收集处记一次，这里不重复记；漂移证据不进预求值范围，
-        # 对应声明命令按「无匹配证据」处理 → 进重跑清单。
-        pre_results = _command_results(
-            clauses,
-            [(record, evidence) for record in pre_scope for evidence in record.commands],
             workspace=workspace,
-            moment=now or datetime.now(UTC),
             max_age=max_age,
+            now=now,
         )
-        # _command_results 恒「每条声明命令恰一个结果」且按声明序返回——strict=True 把这个
-        # 不变量钉进代码，两表长度将来分歧即响亮失败。
-        paired = list(zip(clauses.commands, pre_results, strict=True))
-        commands_to_rerun = [declared for declared, item in paired if not item.passed]
-        reused = [declared for declared, item in paired if item.passed]
-        if not commands_to_rerun:
-            # 无待重跑命令 → 本函数不会再追加证据，预扫描即最终扫描：快路径免一次全量
-            # list_records（成本随目标证据量单调增长）。有待重跑必须重扫，新证据在重跑后落盘。
-            scope, drifted = pre_scope, pre_drifted
     if rerun:
         errors.extend(
             await _controlled_rerun(

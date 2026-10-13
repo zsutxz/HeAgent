@@ -35,6 +35,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import DotEnvSettingsSource, EnvSettingsSource
 
 from heagent.config import GLOBAL_SETTING_FILE, Settings
+from heagent.config.envfile import iter_env_lines
 from heagent.config.user_settings import (
     SettingsError,
     UserMarkdownSettingsSource,
@@ -562,10 +563,6 @@ _SECRET_SUFFIXES = ("_API_KEY", "_API_KEYS")
 # ── 分类 ──
 
 
-def _all_specs() -> tuple[ConfigGroupSpec, ...]:
-    return (*WHITELIST_GROUPS, *EXCLUSION_GROUPS)
-
-
 def whitelist() -> frozenset[str]:
     """可写白名单（46 键）——由分组常量派生，不重复书写。"""
     return frozenset(key for spec in WHITELIST_GROUPS for key in spec.keys)
@@ -703,6 +700,31 @@ def _looks_blank(raw_value: str) -> bool:
     return head.strip() == ""
 
 
+class _ScanRead(NamedTuple):
+    """诊断源文件的读入结果（``_scan_file_common`` 的产物）。"""
+
+    raw: bytes
+    text: str
+    encoding_ok: bool
+
+
+def _scan_file_common(file_path: Path) -> _ScanRead | None:
+    """两个扫描器的共享读入前奏：字节 + ``errors="replace"`` 兜底解码 + UTF-8 完好性。
+
+    读失败返回 ``None``（存在性判断与占位模型回报由调用方以其各自的类型做）。
+    """
+    try:
+        raw = file_path.read_bytes()
+    except OSError:
+        return None
+    try:
+        raw.decode("utf-8")
+        encoding_ok = True
+    except UnicodeDecodeError:
+        encoding_ok = False
+    return _ScanRead(raw, raw.decode("utf-8", errors="replace"), encoding_ok)
+
+
 def scan_env_file(path: str | Path | None) -> EnvScan:
     """读 ``.env`` 的**行级诊断**（重复键 / 空值行 / 行内注释 / 键的原写法）。
 
@@ -713,38 +735,25 @@ def scan_env_file(path: str | Path | None) -> EnvScan:
     if path is None:
         return EnvScan()
     file_path = Path(path)
-    try:
-        raw = file_path.read_bytes()
-    except OSError:
+    scanned = _scan_file_common(file_path)
+    if scanned is None:
         return EnvScan(path=str(file_path), exists=file_path.exists(), readable=False)
-
-    try:
-        raw.decode("utf-8")
-        encoding_ok = True
-    except UnicodeDecodeError:
-        # 非 UTF-8（编码坏了）：值求解会整体降级，行级诊断也只能 best-effort——键名可能被替换字符
-        # 污染，因此**不用它**判定「未知键」（否则会报出乱码键名）。
-        encoding_ok = False
-    text = raw.decode("utf-8", errors="replace")
+    raw, text, encoding_ok = scanned
+    # 非 UTF-8（编码坏了）：值求解会整体降级，行级诊断也只能 best-effort——键名可能被替换字符
+    # 污染，因此**不用它**判定「未知键」（否则会报出乱码键名）。
     has_bom = text.startswith(BOM)
     if has_bom:
         text = text[len(BOM) :]
 
     # ``splitlines()``：0 字节文件算 0 行、末行换行不额外算一行（评审发现·镜头二⑤：原先按
-    # ``split("\n")`` 段数计，0 字节 .env 会谎报 1 行）。
+    # ``split("\n")`` 段数计，0 字节 .env 会谎报 1 行）。行解析内核与 envfile 共享（键名/
+    # export 口径不漂移），但行切分刻意不同：诊断侧归一化 CRLF，保真侧逐字节。
     lines = text.replace("\r\n", "\n").splitlines()
     counts: dict[str, int] = {}
     names: dict[str, str] = {}
     blanks: set[str] = set()
     commented: set[str] = set()
-    for line in lines:
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        name, _, raw_value = stripped.partition("=")
-        name = name.strip()
-        if name.lower().startswith("export "):
-            name = name[len("export ") :].strip()
+    for _, name, raw_value in iter_env_lines(lines):
         if not name:
             continue
         lower = name.lower()
@@ -786,17 +795,11 @@ def scan_setting_md(path: str | Path | None) -> SettingMdScan:
     if path is None:
         return SettingMdScan()
     file_path = Path(path)
-    try:
-        raw = file_path.read_bytes()
-    except OSError:
+    scanned = _scan_file_common(file_path)
+    if scanned is None:
         return SettingMdScan(path=str(file_path), exists=file_path.exists(), readable=False)
-    try:
-        raw.decode("utf-8")
-        encoding_ok = True
-    except UnicodeDecodeError:
-        # 编码坏了：frontmatter 解析只能 best-effort，键名可能被替换字符污染——不做解析诊断。
-        encoding_ok = False
-    text = raw.decode("utf-8", errors="replace")
+    raw, text, encoding_ok = scanned
+    # 编码坏了：frontmatter 解析只能 best-effort，键名可能被替换字符污染——不做解析诊断。
     lines = text.replace("\r\n", "\n").splitlines()
     names: dict[str, str] = {}
     parse_error: str | None = None
@@ -1189,7 +1192,7 @@ def _group_reports(
     """
     labels: dict[str, str] = {}
     members: dict[str, list[str]] = {}
-    for spec in (*_all_specs(), UNKNOWN_GROUP):
+    for spec in (*WHITELIST_GROUPS, *EXCLUSION_GROUPS, UNKNOWN_GROUP):
         labels.setdefault(spec.id, spec.label)
         members.setdefault(spec.id, [])
     for env_key in sorted(key.upper() for key in Settings.model_fields):

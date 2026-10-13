@@ -41,6 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from heagent.pub.persist import atomic_write_bytes, delete_entries, scan_dir
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable, Iterator
     from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,25 @@ def fingerprint(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def iter_env_lines(lines: Iterable[str]) -> Iterator[tuple[int, str, str]]:
+    """共享的 ``.env`` 行解析内核：产出 ``(行号, 键名, ``=`` 后原始值文本)``。
+
+    跳过空行 / ``#`` 注释行 / 无 ``=`` 行；剥 ``export `` 前缀；空键行**照常产出**（键名为
+    ``""``）——是否跳过由调用方决定（``read_value`` 靠 ``== target`` 天然过滤，索引/诊断侧
+    显式 ``continue``）。行切分策略也由调用方传入：保真路径用 ``split("\\n")``（见
+    :func:`parse_index`），诊断侧用归一化 ``splitlines``。
+    """
+    for position, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        name, _, raw_value = stripped.partition("=")
+        name = name.strip()
+        if name.lower().startswith("export "):
+            name = name[len("export ") :].strip()
+        yield position, name, raw_value
+
+
 def parse_index(text: str) -> EnvFileIndex:
     """逐行索引 ``.env``：键、同键最后一行、注释/空行、重复键、行尾风格、BOM（F6）。
 
@@ -136,14 +156,7 @@ def parse_index(text: str) -> EnvFileIndex:
     counts: dict[str, int] = {}
     names: dict[str, str] = {}
     commented: set[str] = set()
-    for position, segment in enumerate(segments):
-        stripped = segment.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        name, _, raw_value = stripped.partition("=")
-        name = name.strip()
-        if name.lower().startswith("export "):
-            name = name[len("export ") :].strip()
+    for position, name, raw_value in iter_env_lines(segments):
         if not name:
             continue
         lower = name.lower()
@@ -204,14 +217,8 @@ def read_value(text: str, key: str) -> str | None:
     有效值一律以 ``Settings`` 为准（脊柱 §7 坑 1）。
     """
     target = key.strip().lower()
-    for segment in reversed(text.split("\n")):
-        stripped = segment.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        name, _, raw_value = stripped.partition("=")
-        name = name.strip()
-        if name.lower().startswith("export "):
-            name = name[len("export ") :].strip()
+    # 倒序扫描 + 首个命中即返回 = 「后者胜」；`iter_env_lines` 只做 enumerate，接受反向迭代器。
+    for _, name, raw_value in iter_env_lines(reversed(text.split("\n"))):
         if name.lower() == target:
             return parse_value(raw_value)
     return None
@@ -359,6 +366,7 @@ __all__ = [
     "check_key",
     "check_value",
     "fingerprint",
+    "iter_env_lines",
     "parse_index",
     "parse_value",
     "prune_backups",

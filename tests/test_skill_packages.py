@@ -70,7 +70,7 @@ class TestSkillPackage:
 
         monkeypatch.setattr(os, "open", record_open)
 
-        assert SkillPackage(skill_id="he-build", root=tmp_path).read_step("step-01.md") == "first"
+        assert SkillPackage(skill_id="he-build", root=tmp_path).read_resource("step-01.md") == "first"
         assert reads == ["step-01.md"], "只允许打开被请求的那一个资源文件（不得顺手读别的步骤）"
 
     @pytest.mark.parametrize("path", ["/tmp/outside.md", "C:/outside.md", "../outside.md"])

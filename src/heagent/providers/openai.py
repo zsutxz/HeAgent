@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from openai import AsyncOpenAI
 
-from heagent.providers.base import ProviderMetadata
+from heagent.providers.base import ProviderMetadata, parse_tool_arguments
 from heagent.providers.retry import wrap_provider_error
 from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
 
@@ -80,10 +80,7 @@ def _parse_tool_calls(raw: list[object]) -> list[ToolCall]:
             continue
         name = getattr(fn, "name", "")
         args_str = getattr(fn, "arguments", "{}")
-        try:
-            args = json.loads(args_str) if isinstance(args_str, str) else {}
-        except json.JSONDecodeError:
-            args = {}
+        args = parse_tool_arguments(args_str) if isinstance(args_str, str) else {}
         result.append(ToolCall(id=tc_id, name=name, arguments=args))
     return result
 
@@ -99,6 +96,41 @@ def _build_usage(usage: object) -> TokenUsage:
 
 # 流式 tool_calls 增量未到达时使用的零用量常量（避免每次创建新实例）。
 _ZERO_USAGE = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+
+
+def _accumulate_tool_call_delta(tc_acc: dict[int, dict[str, str]], delta: object) -> None:
+    """把一条流式 chunk 的 ``delta.tool_calls`` 增量按 index 累积进 ``tc_acc``。
+
+    OpenAI 流式 API 分多个 chunk 逐步发送 tool_calls：首次出现含 ``id`` 与
+    ``function.name``，后续 chunk 含 ``function.arguments`` 增量追加。
+    """
+    for tc in delta.tool_calls:  # type: ignore[attr-defined]
+        idx: int = tc.index
+        if idx not in tc_acc:
+            tc_acc[idx] = {"id": "", "name": "", "arguments": ""}
+        if tc.id:
+            tc_acc[idx]["id"] = tc.id
+        if tc.function:
+            if tc.function.name:
+                tc_acc[idx]["name"] = tc.function.name
+            if tc.function.arguments:
+                tc_acc[idx]["arguments"] += tc.function.arguments
+
+
+def _materialize_tool_calls(tc_acc: dict[int, dict[str, str]]) -> list[ToolCall]:
+    """流结束后把累积的 tool_calls 片段物化为完整 ToolCall 列表（按 index 排序）。
+
+    ``arguments`` 是增量拼接的 JSON 字符串，此处统一反序列化；畸形输入
+    （解析失败 / 非 JSON 对象）退化为空 dict——与 ``_parse_tool_calls`` 同口径。
+    """
+    tool_calls: list[ToolCall] = []
+    for idx in sorted(tc_acc.keys()):
+        tc = tc_acc[idx]
+        if tc["id"] and tc["name"]:
+            # 参数必须是 JSON 对象；畸形输入（数组/字符串/数字）退化为空 dict
+            args = parse_tool_arguments(tc["arguments"])
+            tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
+    return tool_calls
 
 
 class OpenAIProvider:
@@ -232,17 +264,7 @@ class OpenAIProvider:
 
                     # 增量累积 tool_calls（OpenAI 分多个 chunk 逐步发送）
                     if getattr(delta, "tool_calls", None):
-                        for tc in delta.tool_calls:
-                            idx: int = tc.index
-                            if idx not in tc_acc:
-                                tc_acc[idx] = {"id": "", "name": "", "arguments": ""}
-                            if tc.id:
-                                tc_acc[idx]["id"] = tc.id
-                            if tc.function:
-                                if tc.function.name:
-                                    tc_acc[idx]["name"] = tc.function.name
-                                if tc.function.arguments:
-                                    tc_acc[idx]["arguments"] += tc.function.arguments
+                        _accumulate_tool_call_delta(tc_acc, delta)
 
                     # 文本内容即时下推（tool_calls 留在最终 chunk 统一产出）
                     if delta.content:
@@ -255,21 +277,9 @@ class OpenAIProvider:
                         )
 
                 # 流结束：产出最终 chunk，携带完整的累积 tool_calls + usage + finish_reason
-                tool_calls: list[ToolCall] = []
-                for idx in sorted(tc_acc.keys()):
-                    tc = tc_acc[idx]
-                    if tc["id"] and tc["name"]:
-                        try:
-                            parsed: object = json.loads(tc["arguments"]) if tc["arguments"] else {}
-                        except json.JSONDecodeError:
-                            parsed = {}
-                        # 参数必须是 JSON 对象；畸形输入（数组/字符串/数字）退化为空 dict
-                        args: dict[str, object] = parsed if isinstance(parsed, dict) else {}
-                        tool_calls.append(ToolCall(id=tc["id"], name=tc["name"], arguments=args))
-
                 yield ProviderResponse(
                     content="",
-                    tool_calls=tool_calls,
+                    tool_calls=_materialize_tool_calls(tc_acc),
                     usage=final_usage,
                     model=model,
                     finish_reason=finish_reason or "stop",

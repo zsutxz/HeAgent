@@ -81,7 +81,7 @@ _CREDENTIAL_KEY_NAME = re.compile(
     """
 )
 
-# ⑤ URL 内嵌凭证：``https://user:pass@host`` → ``https://user:***@host``。
+# ⑥ URL 内嵌凭证：``https://user:pass@host`` → ``https://user:***@host``。
 _URL_USERINFO = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://[^/\s:@]+):([^/\s@]+)@")
 
 # 默认遍历深度：足够覆盖 ``details`` 这类浅层结构，又不为深层嵌套付出代价。

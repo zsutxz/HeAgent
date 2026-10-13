@@ -137,6 +137,25 @@ class ProjectRegistry:
         registered.sort(key=lambda item: item.last_opened_at or "", reverse=True)
         return [*registered, entries[0]]
 
+    def _rewrite_registry(
+        self,
+        action: str,
+        rewrite: Callable[[builtins_list[_StoredProject]], tuple[builtins_list[_StoredProject], _StoredProject]],
+    ) -> ProjectEntry:
+        """Registry rewrite scaffold: decode(fail-closed) → ``rewrite``（返回新条目表 + 结果条目）→
+        atomic write → public entry."""
+        result: _StoredProject | None = None
+
+        def update(raw: str) -> tuple[str, None]:
+            nonlocal result
+            entries, result = rewrite(self._decode_or_raise(raw))
+            return self._encode(entries), None
+
+        atomic_update_text(self._path, update)
+        if result is None:
+            raise RuntimeError(f"project {action} completed without a result")
+        return self._public(result)
+
     def register(self, path: str | Path, name: str | None = None) -> ProjectEntry:
         normalized = normalize_project_path(path)
         target = Path(normalized)
@@ -146,49 +165,35 @@ class ProjectRegistry:
         if not display_name or len(display_name) > MAX_PROJECT_NAME_CHARS:
             raise ProjectRegistryError("invalid_request", "project name is invalid")
         entry_id = project_id_for(normalized)
-        result: _StoredProject | None = None
 
-        def update(raw: str) -> tuple[str, None]:
-            nonlocal result
-            entries = self._decode_or_raise(raw)
+        def rewrite(entries: builtins_list[_StoredProject]) -> tuple[builtins_list[_StoredProject], _StoredProject]:
             identity = os.path.normcase(normalized)
             for entry in entries:
                 if os.path.normcase(entry.path) == identity:
-                    result = entry
-                    return self._encode(entries), None
+                    return entries, entry
             if len(entries) >= MAX_PROJECTS - 1:
                 raise ProjectRegistryError("project_limit_reached", "project registry is full")
             if not target.is_dir():
                 raise ProjectRegistryError("invalid_project_path", "project path must be an existing directory")
-            result = _StoredProject(id=entry_id, name=display_name, path=normalized)
-            entries.append(result)
-            return self._encode(entries), None
+            entry = _StoredProject(id=entry_id, name=display_name, path=normalized)
+            return [*entries, entry], entry
 
-        atomic_update_text(self._path, update)
-        if result is None:
-            raise RuntimeError("project registration completed without a result")
-        return self._public(result)
+        return self._rewrite_registry("registration", rewrite)
 
     def _mutate_entry(
         self, project_id: str, action: str, mutate: Callable[[_StoredProject], _StoredProject]
     ) -> ProjectEntry:
         """Registry entry mutation scaffold: decode → locate by id → mutate → persist atomically → project."""
-        result: _StoredProject | None = None
 
-        def update(raw: str) -> tuple[str, None]:
-            nonlocal result
-            entries = self._decode_or_raise(raw)
+        def rewrite(entries: builtins_list[_StoredProject]) -> tuple[builtins_list[_StoredProject], _StoredProject]:
             for index, entry in enumerate(entries):
                 if entry.id == project_id:
-                    result = mutate(entry)
-                    entries[index] = result
-                    return self._encode(entries), None
+                    updated = mutate(entry)
+                    entries[index] = updated
+                    return entries, updated
             raise ProjectRegistryError("unknown_project", "no such project")
 
-        atomic_update_text(self._path, update)
-        if result is None:
-            raise RuntimeError(f"project {action} completed without a result")
-        return self._public(result)
+        return self._rewrite_registry(action, rewrite)
 
     def rename(self, project_id: str, name: str) -> ProjectEntry:
         display_name = name.strip()
@@ -199,20 +204,14 @@ class ProjectRegistry:
     def remove(self, project_id: str) -> ProjectEntry:
         if project_id == "default":
             raise ProjectRegistryError("project_not_removable", "default project cannot be removed")
-        result: _StoredProject | None = None
 
-        def update(raw: str) -> tuple[str, None]:
-            nonlocal result
-            entries = self._decode_or_raise(raw)
-            result = next((entry for entry in entries if entry.id == project_id), None)
-            if result is None:
-                raise ProjectRegistryError("unknown_project", "no such project")
-            return self._encode([entry for entry in entries if entry.id != project_id]), None
+        def rewrite(entries: builtins_list[_StoredProject]) -> tuple[builtins_list[_StoredProject], _StoredProject]:
+            for entry in entries:
+                if entry.id == project_id:
+                    return [item for item in entries if item.id != project_id], entry
+            raise ProjectRegistryError("unknown_project", "no such project")
 
-        atomic_update_text(self._path, update)
-        if result is None:
-            raise RuntimeError("project removal completed without a result")
-        return self._public(result)
+        return self._rewrite_registry("removal", rewrite)
 
     def touch(self, project_id: str) -> ProjectEntry:
         if project_id == "default":

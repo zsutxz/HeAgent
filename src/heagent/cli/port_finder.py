@@ -27,11 +27,9 @@ def find_available_port(preferred_port: int, host: str = "127.0.0.1", max_attemp
     for offset in range(max_attempts):
         port = preferred_port + offset
         try:
-            # 测试端口是否可用
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.bind((host, port))
-                # 成功绑定，端口可用
                 if offset > 0:
                     logger.info(
                         "Port %d was in use, using port %d instead (offset +%d)",
@@ -41,12 +39,10 @@ def find_available_port(preferred_port: int, host: str = "127.0.0.1", max_attemp
                     )
                 return port
         except OSError as exc:
-            # 端口被占用或其他绑定错误
             if offset == 0:
                 logger.debug("Port %d is in use, trying next available port: %s", port, exc)
             continue
 
-    # 所有尝试都失败
     raise RuntimeError(
         f"No available port found in range {preferred_port}-{preferred_port + max_attempts - 1}. "
         f"All {max_attempts} ports are in use. "

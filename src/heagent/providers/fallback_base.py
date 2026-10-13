@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import NoReturn
 
-from heagent.providers.retry import ErrorCategory, classify_exception
+from heagent.providers.retry import ErrorCategory, classify_exception, is_pool_fallback_error, wrap_provider_error
 from heagent.pub.exceptions import ProviderError
 
 
@@ -22,14 +22,12 @@ def raise_as_provider_error(error: Exception) -> NoReturn:
     retry.raise_provider_error 的合并版本。
 
     - 已经是 ProviderError：原样抛出，保留 cause 链
-    - 其他异常：包装为 ProviderError，原异常作为 cause
+    - 其他异常：包装为 ProviderError，原异常作为 cause（状态码提取委托
+      :func:`heagent.providers.retry.wrap_provider_error`，DRY 单一来源）
     """
     if isinstance(error, ProviderError):
         raise error
-    # 提取状态码与消息（duck-type，兼容 SDK 异常）
-    status = getattr(error, "status_code", None) or getattr(error, "status", None)
-    message = getattr(error, "message", None) or str(error)
-    raise ProviderError(message, status_code=status) from error
+    raise wrap_provider_error(error) from error
 
 
 class FallbackPolicy:
@@ -67,8 +65,6 @@ class FallbackPolicy:
         池内换档会静默改掉用户选定的模型，AUTH_FAILED 属配置问题不该偷偷换。
         委托给 retry.is_pool_fallback_error 保持向后兼容。
         """
-        from heagent.providers.retry import is_pool_fallback_error
-
         return is_pool_fallback_error(error)
 
 

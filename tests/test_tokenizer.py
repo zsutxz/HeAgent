@@ -19,7 +19,7 @@ import pytest
 
 from heagent.agent.loop import AgentLoop, AgentState
 from heagent.config import reset_settings
-from heagent.context.compressor import _DEFAULT_PROMPT
+from heagent.context.compressor import STRUCTURED_SUMMARY_PROMPT
 from heagent.context.tokens import (
     calibration_factor,
     count_tokens,
@@ -150,10 +150,10 @@ class TestCalibration:
 class TestStructuredCompactionPrompt:
     def test_prompt_requires_four_sections(self) -> None:
         for section in ("## Goal", "## Changed files", "## Todo", "## Constraints and failures"):
-            assert section in _DEFAULT_PROMPT
+            assert section in STRUCTURED_SUMMARY_PROMPT
 
     def test_prompt_demands_verbatim_details(self) -> None:
-        assert "verbatim" in _DEFAULT_PROMPT
+        assert "verbatim" in STRUCTURED_SUMMARY_PROMPT
 
 
 class TestLoopWiring:

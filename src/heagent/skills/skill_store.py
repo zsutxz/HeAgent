@@ -43,11 +43,21 @@ from heagent.skills.skill_rewrite import (
 from heagent.tools.path_safety import open_text_under_root
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from heagent.skills.skill_models import SkillMatch
 
 logger = logging.getLogger(__name__)
+
+
+def _mutate_meta_file(path: Path, updates_fn: Callable[[SkillMeta], dict[str, object]]) -> None:
+    """原子改写 meta.yaml：空白文件按空 meta 起步，``updates_fn(meta)`` 给出字段更新后重渲染。"""
+
+    def apply(raw: str) -> tuple[str, bool]:
+        meta = parse_meta_yaml(raw) if raw.strip() else SkillMeta()
+        return render_meta_yaml(meta.model_copy(update=updates_fn(meta))), True
+
+    atomic_update_text(path, apply)
 
 
 def default_skill_roots(project_root: str | Path) -> list[str]:
@@ -448,16 +458,15 @@ class SkillStore:
             updated = atomic_update_text(md_path, apply)
             if tags is not None or priority is not None:
 
-                def apply_meta(meta_raw: str) -> tuple[str, bool]:
-                    meta = parse_meta_yaml(meta_raw) if meta_raw.strip() else SkillMeta()
+                def apply_meta(_: SkillMeta) -> dict[str, object]:
                     meta_updates: dict[str, object] = {}
                     if tags is not None:
                         meta_updates["tags"] = tags
                     if priority is not None:
                         meta_updates["priority"] = priority
-                    return render_meta_yaml(meta.model_copy(update=meta_updates)), True
+                    return meta_updates
 
-                atomic_update_text(meta_path, apply_meta)
+                _mutate_meta_file(meta_path, apply_meta)
         return str(md_path) if updated else None
 
     # ---- 使用追踪与策展 ----
@@ -472,15 +481,14 @@ class SkillStore:
             return
         meta_path = owner / validate_skill_name(name) / META_FILENAME
 
-        def increment(meta_raw: str) -> tuple[str, bool]:
-            meta = parse_meta_yaml(meta_raw) if meta_raw.strip() else SkillMeta()
-            updated = meta.model_copy(
-                update={"usage_count": meta.usage_count + 1, "last_used": datetime.now().isoformat()}
-            )
-            return render_meta_yaml(updated), True
+        def increment(meta: SkillMeta) -> dict[str, object]:
+            return {
+                "usage_count": meta.usage_count + 1,
+                "last_used": datetime.now().isoformat(),
+            }
 
         with self._mutation_lock:
-            atomic_update_text(meta_path, increment)
+            _mutate_meta_file(meta_path, increment)
 
     def stale_skills(self, days: int = 30) -> list[str]:
         """返回超过 N 天未使用的技能名称列表。"""

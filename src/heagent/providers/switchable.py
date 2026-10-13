@@ -131,11 +131,6 @@ class SwitchableProvider:
             )
         return result
 
-    @property
-    def _current(self) -> BaseProvider:
-        """当前活跃的 provider 实例（内部使用）。"""
-        return self._providers[self._active]
-
     # ------------------------------------------------------------------
     # 自动回退：按「活跃 → 池中其余」顺序尝试，限流/瞬时错误触发
     # ------------------------------------------------------------------
@@ -257,7 +252,7 @@ class SwitchableProvider:
 
     def get_metadata(self) -> ProviderMetadata:
         """返回当前活跃 provider 的能力描述。"""
-        meta = self._current.get_metadata()
+        meta = self.current.get_metadata()
         return ProviderMetadata(
             name=f"switchable:{self._active}",
             model=meta.model,

@@ -469,19 +469,30 @@ class Settings(BaseSettings):
         """
         return self._parse_str_list_map(self.sandbox_profiles, "SANDBOX_PROFILES")
 
+    def _json_object(self, raw: str, env_name: str, shape: str, *, warn: bool = True) -> dict[str, object]:
+        """共享 JSON 配置内核：空串 / 非 JSON / 非 JSON object 告警后返回 ``{}``（不阻断启动）。
+
+        ``shape`` 是「合法形状」的告警文案片段（如 ``{tool: profile}``）；``warn=False``
+        用于静默降级的消费面（如价格表缺失只影响成本显示，不必每次启动告警）。
+        """
+        if not raw.strip():
+            return {}
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            if warn:
+                logger.warning("%s is not valid JSON (%s); ignored", env_name, exc)
+            return {}
+        if not isinstance(payload, dict):
+            if warn:
+                logger.warning("%s must be a JSON object of %s; ignored", env_name, shape)
+            return {}
+        return payload
+
     @property
     def sandbox_tool_profiles_map(self) -> dict[str, str]:
         """``SANDBOX_TOOL_PROFILES``（JSON）解析结果：工具名 → profile 名。"""
-        if not self.sandbox_tool_profiles.strip():
-            return {}
-        try:
-            payload = json.loads(self.sandbox_tool_profiles)
-        except json.JSONDecodeError as exc:
-            logger.warning("SANDBOX_TOOL_PROFILES is not valid JSON (%s); ignored", exc)
-            return {}
-        if not isinstance(payload, dict):
-            logger.warning("SANDBOX_TOOL_PROFILES must be a JSON object of {tool: profile}; ignored")
-            return {}
+        payload = self._json_object(self.sandbox_tool_profiles, "SANDBOX_TOOL_PROFILES", "{tool: profile}")
         result: dict[str, str] = {}
         for tool, profile in payload.items():
             if not isinstance(tool, str) or not tool.strip() or not isinstance(profile, str) or not profile.strip():
@@ -494,16 +505,7 @@ class Settings(BaseSettings):
 
     def _parse_str_list_map(self, raw: str, env_name: str) -> dict[str, tuple[str, ...]]:
         """解析 ``{name: [str, ...]}`` 形状的 JSON；坏条目跳过、整体非法告警丢弃。"""
-        if not raw.strip():
-            return {}
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            logger.warning("%s is not valid JSON (%s); ignored", env_name, exc)
-            return {}
-        if not isinstance(payload, dict):
-            logger.warning("%s must be a JSON object of {profile: [args]}; ignored", env_name)
-            return {}
+        payload = self._json_object(raw, env_name, "{profile: [args]}")
         result: dict[str, tuple[str, ...]] = {}
         for name, args in payload.items():
             if not isinstance(name, str) or not name.strip():
@@ -528,14 +530,7 @@ class Settings(BaseSettings):
 
     def _parse_routing_pools(self, raw: str) -> dict[str, RoutingPoolSpec]:
         """解析 ``ROUTING_POOLS`` JSON；非法内容告警后丢弃（不阻断启动）。"""
-        try:
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            logger.warning("ROUTING_POOLS is not valid JSON (%s); ignored", exc)
-            return {}
-        if not isinstance(payload, dict):
-            logger.warning("ROUTING_POOLS must be a JSON object of {entry: spec}; ignored")
-            return {}
+        payload = self._json_object(raw, "ROUTING_POOLS", "{entry: spec}")
 
         specs: dict[str, RoutingPoolSpec] = {}
         for entry, spec in payload.items():
@@ -555,14 +550,7 @@ class Settings(BaseSettings):
     @property
     def model_pricing_map(self) -> dict[str, dict[str, float]]:
         """解析模型价格表 JSON；无效 JSON 返回空 dict（不崩溃、不显示成本）。"""
-        if not self.model_pricing:
-            return {}
-        try:
-            data = json.loads(self.model_pricing)
-        except (json.JSONDecodeError, TypeError):
-            return {}
-        if not isinstance(data, dict):
-            return {}
+        data = self._json_object(self.model_pricing, "MODEL_PRICING", "{model: {input, output}}", warn=False)
         result: dict[str, dict[str, float]] = {}
         for model, prices in data.items():
             if isinstance(prices, dict):

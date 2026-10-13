@@ -37,6 +37,18 @@ _SHA256_HEX = re.compile(r"^[0-9a-fA-F]{64}$")
 # （`resources` 与渲染器 `outputs` 同形），故它是包的**兄弟文件**（`<root>/../manifest.lock`）而非
 # 包内产物。同样复用既有产物、不为本特性新增文件或字段。
 _LOCK_NAME = "manifest.lock"
+#: 凭据文件「读不到 / 损坏」的哨兵。不复用 ``None``：合法 JSON ``null`` 同样解析为
+#: ``None``，不得与错误形态混淆（二者后续告警路径不同）。
+_NO_JSON = object()
+
+
+def _filter_hash_map(mapping: dict[object, object]) -> dict[str, str]:
+    """只保留 str→str 且值形如 sha256 hex 的条目（渲染器 ``outputs`` / 导入器 ``resources`` 同口径）。"""
+    return {
+        name: value
+        for name, value in mapping.items()
+        if isinstance(name, str) and isinstance(value, str) and _SHA256_HEX.match(value)
+    }
 
 
 class SkillPackageError(ValueError):
@@ -176,9 +188,6 @@ class SkillPackage(BaseModel):
                 reason = f"cannot read {label}: {exc}"
             raise SkillPackageResourceError(self.skill_id, resource, reason) from exc
 
-    def read_step(self, resource: str) -> str:
-        return self.read_resource(resource)
-
     # 声明式工作流装配（read_workflow 及其解析助手、WorkflowResource 模型、SkillWorkflowError）
     # 已于 2026-09-20 归位到 /goal 领域层：goal/workflow_loader.py（解析）与
     # engine/workflow_resource.py（运行时模型）。本模块只保留技能包的通用资源索引与安全读取。
@@ -207,18 +216,12 @@ class SkillPackage(BaseModel):
         return self.read_resource(relative)
 
     def _pinned_hashes(self) -> dict[str, str]:
-        """本包的完整性凭据（``<root>/manifest.json`` 的 ``outputs`` 表）；无凭据返回 ``{}``。
+        """本包的完整性凭据；无凭据返回 ``{}``。
 
         凭据**复用**渲染器既有产物（``_bmad/scripts/render_skill.py`` 在生成目录写
         ``manifest.json``，``outputs`` 即逐文件 sha256），不为本特性新增文件或 lock 字段。
-
-        判定语义（刻意保守，避免误伤其他生产者）：
-
-        - **无** ``manifest.json``：未托管包（手写技能占多数）⇒ ``{}``，读取行为与改动前逐字节一致；
-        - **有但** JSON 损坏 / ``outputs`` 形状不符：记一条 warning 后返回 ``{}``——``manifest.json``
-          是通用文件名，可能属于别的工具，不能据此拒读（代价：攻击者可借此关闭校验；但能写该目录者
-          本就能直接改写 ``SKILL.md``，这仍属 defense-in-depth 而非边界）；
-        - **有且合法**：返回 ``{相对 POSIX 路径: sha256}``，读取时逐资源比对。
+        判定语义见 :meth:`_renderer_hashes` / :meth:`_imported_hashes`（先渲染器后导入器，
+        取首个非空者）。
         """
         if self._pinned is not None:
             return self._pinned
@@ -243,40 +246,22 @@ class SkillPackage(BaseModel):
         - **有且合法**：返回 ``{相对 POSIX 路径: sha256}``，读取时逐资源比对。
         """
         pinned: dict[str, str] = {}
-        raw = b""
         # 先 stat 再读：未托管包（手写技能占多数）因此**零额外 open**——读取次数的刻画测试
         # （tests/test_skill_packages_toctou.py 的「恰好一个描述符」与 EINVAL 回退）依赖这一点。
         # 门控只是「要不要尝试读凭据」，真正的读取仍走围栏内核；探测后被删的竞态等同未托管。
         manifest_path = self.root / _MANIFEST_NAME
+        payload: object = _NO_JSON
         if manifest_path.is_file():
-            try:
-                raw = read_bytes_under_root(self.root, manifest_path)
-            except FileNotFoundError:
-                raw = b""  # 竞态：stat 后、open 前被删 → 等同未托管
-            except OSError as exc:
+            payload = self._read_json_or_none(root=self.root, path=manifest_path, label="manifest")
+        if payload is not _NO_JSON:
+            outputs = payload.get("outputs") if isinstance(payload, dict) else None
+            if isinstance(outputs, dict):
+                pinned = _filter_hash_map(outputs)
+            if not pinned:
                 logger.warning(
-                    "Skill package '%s' manifest unreadable, skipping integrity check: %s", self.skill_id, exc
+                    "Skill package '%s' manifest has no usable 'outputs' hashes, skipping integrity check",
+                    self.skill_id,
                 )
-        if raw:
-            try:
-                payload = json.loads(raw.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                logger.warning(
-                    "Skill package '%s' manifest is not valid JSON, skipping integrity check: %s", self.skill_id, exc
-                )
-            else:
-                outputs = payload.get("outputs") if isinstance(payload, dict) else None
-                if isinstance(outputs, dict):
-                    pinned = {
-                        str(name): str(value)
-                        for name, value in outputs.items()
-                        if isinstance(name, str) and isinstance(value, str) and _SHA256_HEX.match(value)
-                    }
-                if not pinned:
-                    logger.warning(
-                        "Skill package '%s' manifest has no usable 'outputs' hashes, skipping integrity check",
-                        self.skill_id,
-                    )
         if pinned:
             object.__setattr__(self, "_pinned_source", _MANIFEST_NAME)
         return pinned
@@ -302,23 +287,8 @@ class SkillPackage(BaseModel):
         lock_path = self.root.parent / _LOCK_NAME
         if not lock_path.is_file():
             return pinned
-        try:
-            raw = read_bytes_under_root(self.root.parent, lock_path)
-        except FileNotFoundError:
-            return pinned  # 竞态：stat 后、open 前被删 → 等同未托管
-        except OSError as exc:
-            logger.warning(
-                "Skill package '%s' manifest.lock unreadable, skipping integrity check: %s", self.skill_id, exc
-            )
-            return pinned
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            logger.warning(
-                "Skill package '%s' manifest.lock is not valid JSON, skipping integrity check: %s",
-                self.skill_id,
-                exc,
-            )
+        payload = self._read_json_or_none(root=self.root.parent, path=lock_path, label="manifest.lock")
+        if payload is _NO_JSON:
             return pinned
         entry = self._lock_entry(payload)
         if entry is None:
@@ -327,11 +297,7 @@ class SkillPackage(BaseModel):
         if resources is None:
             return pinned  # 老 lock：只钉了入口
         if isinstance(resources, dict):
-            pinned = {
-                str(name): str(value)
-                for name, value in resources.items()
-                if isinstance(name, str) and isinstance(value, str) and _SHA256_HEX.match(value)
-            }
+            pinned = _filter_hash_map(resources)
         if not pinned:
             logger.warning(
                 "Skill package '%s' manifest.lock has no usable 'resources' hashes, skipping integrity check",
@@ -340,6 +306,26 @@ class SkillPackage(BaseModel):
             return pinned
         object.__setattr__(self, "_pinned_source", _LOCK_NAME)
         return pinned
+
+    def _read_json_or_none(self, *, root: Path, path: Path, label: str) -> object:
+        """围栏内读取并解析 JSON 凭据文件；缺失（含竞态删除）静默、不可读 / 损坏记 warning。
+
+        两种错误形态都返回 :data:`_NO_JSON` 哨兵，调用方按「无凭据」处理。
+        """
+        try:
+            raw = read_bytes_under_root(root, path)
+        except FileNotFoundError:
+            return _NO_JSON  # 竞态：stat 后、open 前被删 → 等同未托管
+        except OSError as exc:
+            logger.warning("Skill package '%s' %s unreadable, skipping integrity check: %s", self.skill_id, label, exc)
+            return _NO_JSON
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            logger.warning(
+                "Skill package '%s' %s is not valid JSON, skipping integrity check: %s", self.skill_id, label, exc
+            )
+            return _NO_JSON
 
     def _lock_entry(self, payload: object) -> dict[str, object] | None:
         """在 lock 里找**本包**条目：先按规范化目标路径，再按 ``canonical_id`` 兜底。

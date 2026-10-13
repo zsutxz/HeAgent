@@ -216,18 +216,20 @@ class PolicyEngine:
         sandbox_profile = self._sandbox_profile(call)
 
         # 5) 审批：显式策略优先，注解感知 MCP 工具缺省行为（FR-A3/A4/A5）。
-        if self._requires_approval(call, schema=schema) and not self._approval_granted(call, context=context):
-            reason = self._approval_reason(call, schema=schema)
-            logger.info("PolicyEngine requires approval for '%s': %s", call.name, reason)
+        approval_reason = self._approval_trigger(call, schema=schema)
+        if approval_reason is not None and not self._approval_granted(call, context=context):
+            logger.info("PolicyEngine requires approval for '%s': %s", call.name, approval_reason)
             return PolicyVerdict(
                 mode=ToolExecutionMode.APPROVAL_REQUIRED,
                 source="approval_tools" if call.name in self.approval_tools else "mcp_approval",
-                reason=reason,
+                reason=approval_reason,
                 sandbox_profile=sandbox_profile,
             )
 
         # 6) 沙箱：需沙箱但当前 run 未授权 → 要求沙箱授权（reason 提示需 grant）。
-        if sandbox_profile is not None and not self._sandbox_granted(call, context=context):
+        if sandbox_profile is not None and not self.context_grants_sandbox(
+            call, context=context, sandbox_profile=sandbox_profile
+        ):
             return PolicyVerdict(
                 mode=ToolExecutionMode.SANDBOX_REQUIRED,
                 source="sandbox_tools" if call.name in self.sandbox_tools else "sandbox_mcp_tools",
@@ -352,9 +354,8 @@ class PolicyEngine:
             return None
         return Path(root).resolve()
 
-    def _requires_approval(self, call: ToolCall, *, schema: ToolSchema | None = None) -> bool:
-        """该工具是否需审批：显式策略（``approval_tools`` / ``approval_mcp_tools``）优先；
-        对 MCP 工具，若传入了 ``schema``，则按 annotations 确定缺省审批行为（FR-A3/A4/A5）。
+    def _approval_trigger(self, call: ToolCall, *, schema: ToolSchema | None = None) -> str | None:
+        """审批触发的**单一分类源**：返回触发说明文案；无需审批返回 ``None``。
 
         优先级（前者短路）：
         1. 显式策略命中（``approval_tools`` 含该工具，或开启 ``approval_mcp_tools`` 且为 MCP 工具）；
@@ -366,48 +367,27 @@ class PolicyEngine:
         """
         # 1) 显式策略始终优先。
         if call.name in self.approval_tools:
-            return True
+            return f"Tool '{call.name}' requires approval by policy (in approval_tools)."
         if self.approval_mcp_tools and self._is_mcp_tool(call):
-            return True
+            return f"MCP tool '{call.name}' requires approval by policy (approval_mcp_tools=True)."
 
         # 2) MCP 工具 + schema → 注解感知裁决。
         if self._is_mcp_tool(call) and schema is not None:
             ann = schema.annotations
             # 2a) destructiveHint → 需审批（FR-A3）。
             if ann is not None and ann.destructiveHint:
-                return True
+                return f"MCP tool '{call.name}' requires approval (destructiveHint)."
             # 2b) readOnlyHint → 免审批（FR-A4）。
             if ann is not None and ann.readOnlyHint:
-                return False
+                return None
             # 2c) annotations 存在但两个 hint 均为 False → fail-safe 需审批（FR-A5）。
             if ann is not None:
-                return True
+                return f"MCP tool '{call.name}' requires approval (annotations present, neither hint set; fail-safe)."
             # 2d) 缺 annotations（None）→ fail-safe 需审批（FR-A5）。
-            if ann is None:
-                return True
+            return f"MCP tool '{call.name}' requires approval (no annotations; fail-safe)."
 
         # 3) schema 为 None（V1 内置工具）或非 MCP 工具 → 既有路径。
-        return False
-
-    def _approval_reason(self, call: ToolCall, *, schema: ToolSchema | None = None) -> str:
-        """生成审批原因的友好说明，反映是 annotations 还是显式策略触发。"""
-        # 显式策略
-        if call.name in self.approval_tools:
-            return f"Tool '{call.name}' requires approval by policy (in approval_tools)."
-        if self.approval_mcp_tools and self._is_mcp_tool(call):
-            return f"MCP tool '{call.name}' requires approval by policy (approval_mcp_tools=True)."
-
-        # MCP 注解触发
-        if self._is_mcp_tool(call) and schema is not None:
-            ann = schema.annotations
-            if ann is not None and ann.destructiveHint:
-                return f"MCP tool '{call.name}' requires approval (destructiveHint)."
-            if ann is not None:
-                return f"MCP tool '{call.name}' requires approval (annotations present, neither hint set; fail-safe)."
-            if ann is None:
-                return f"MCP tool '{call.name}' requires approval (no annotations; fail-safe)."
-
-        return f"Tool '{call.name}' requires approval by policy."
+        return None
 
     def _sandbox_profile(self, call: ToolCall) -> str | None:
         """返回该工具应使用的沙箱配置名；无需沙箱则返回 None。
@@ -429,15 +409,6 @@ class PolicyEngine:
         if "*" in approved_tools or call.name in approved_tools:
             return True
         return self._is_mcp_tool(call) and "__mcp__" in approved_tools
-
-    def _sandbox_granted(self, call: ToolCall, *, context: RunContext | None) -> bool:
-        """当前 run 是否已授予该工具的沙箱执行权（委托 :meth:`context_grants_sandbox`）。"""
-        sandbox_profile = self._sandbox_profile(call)
-        return self.context_grants_sandbox(
-            call,
-            context=context,
-            sandbox_profile=sandbox_profile,
-        )
 
     @staticmethod
     def _context_name_set(context: RunContext | None, key: str) -> set[str]:

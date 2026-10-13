@@ -29,6 +29,7 @@ from typing import Any
 
 import click
 
+from heagent.cli.display import _current_version
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.cli.wiring import _build_provider
 from heagent.config import Settings, get_settings
@@ -49,17 +50,6 @@ logger = logging.getLogger(__name__)
 def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -> None:
     """记一条日志，**绝不让观测故障影响生命周期行为**（与网络传输层同一立场）。"""
     safe_log(logger, level, message, *args, exc_info=exc_info)
-
-
-def _current_version() -> str:
-    """当前包版本（健康检查对外报告用）。
-
-    在**函数内**导入根包：模块级导入根包会与 ``console`` 的命令注册形成回环风险，而这里只在真正
-    启动 HTTP 服务时才需要版本号（与 ``cli.display._current_version`` 同一手法）。
-    """
-    from heagent import __version__
-
-    return __version__
 
 
 def _reject_non_finite(ctx: click.Context, param: click.Parameter, value: float | None) -> float | None:

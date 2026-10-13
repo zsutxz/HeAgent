@@ -274,3 +274,11 @@ def prune_runtime_artifacts_sync(
     except RuntimeError:
         logger.debug("housekeeping skipped: running inside an event loop", exc_info=True)
         return {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0}
+
+
+def prune_runtime_artifacts_best_effort(settings: Settings | None = None) -> None:
+    """启动时回收运行时产物（CLI/GUI 入口共用的 best-effort 包装）：失败只记 warning，绝不阻断启动。"""
+    try:
+        prune_runtime_artifacts_sync(settings)
+    except Exception:
+        logger.warning("runtime artifact cleanup failed; continuing", exc_info=True)
