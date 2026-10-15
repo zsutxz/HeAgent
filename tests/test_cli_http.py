@@ -91,7 +91,8 @@ def test_registered_as_explicit_subcommand() -> None:
 def test_build_server_config_uses_settings_defaults() -> None:
     settings = get_settings()
 
-    config = build_server_config(settings)
+    # 显式钉住端口路径：默认顺延开启后，裸调用会因 8766 被真实占用而环境化（2026-10-15）。
+    config = build_server_config(settings, port=settings.http_port)
 
     assert config == HttpServerConfig(
         host=settings.http_host,
@@ -123,7 +124,12 @@ def test_build_server_config_overrides_only_the_given_fields() -> None:
     assert (config.host, config.max_connections) == (settings.http_host, settings.http_max_connections)
 
 
-def test_defaults_reach_the_listening_config(captured_server: dict[str, HttpServer]) -> None:
+def test_defaults_reach_the_listening_config(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer]
+) -> None:
+    # 默认顺延开启后端口可能被真实占用而顺延：钉住 finder=0 断言纯默认值（2026-10-15）。
+    monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
+    reset_settings()
     result = CliRunner().invoke(main, ["http-server"])
 
     assert result.exit_code == 0, result.output
@@ -298,18 +304,19 @@ def test_startup_failure_is_reported_without_a_listening_banner(monkeypatch: pyt
 
 
 def test_explicit_port_is_never_silently_replaced() -> None:
-    """端口顺延的两条边界：**默认关闭**，且**显式 ``--port`` 永不被改写**。
+    """端口顺延的两条边界：**默认开启（10 次）**，且**显式 ``--port`` 永不被改写**。
 
-    2026-09-27 的「端口自动查找」最初默认开启、对**显式端口**也顺延 ⇒ 占用端口时服务照常起来，
-    上面那条「启动失败必须显性」的用例于是永久 hang（全量套件跑不完）。现在：默认
-    ``HTTP_PORT_AUTO_FIND_ATTEMPTS=0``（绑定失败显性），显式开启后也只对「未显式指定端口」生效。
+    2026-09-27 的「端口自动查找」最初对**显式端口**也顺延 ⇒ 占用端口时服务照常起来，
+    上面那条「启动失败必须显性」的用例于是永久 hang（全量套件跑不完）⇒ 曾改为默认关闭。
+    2026-10-15 契约修订：默认重新开启（=10，多开实例不冲突），但「显式端口永不顺延」
+    的 fail-loud 契约不变——hang 的根因（显式端口被改写）早已修掉。
     """
     holder = socket.socket()
     holder.bind(("127.0.0.1", 0))
     holder.listen(1)
     busy = holder.getsockname()[1]
     try:
-        assert Settings(_env_file=None).http_port_auto_find_attempts == 0, "默认必须是关闭的（绑定失败要显性）"
+        assert Settings(_env_file=None).http_port_auto_find_attempts == 10, "默认必须开启顺延（多开不冲突）"
 
         settings = Settings(_env_file=None, http_port=busy, http_port_auto_find_attempts=10)
         assert build_server_config(settings, port=busy).port == busy, "显式端口被静默改写"

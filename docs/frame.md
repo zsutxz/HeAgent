@@ -847,7 +847,7 @@ HeAgentError (base)
 | `sandbox_nproc_limit` | 0 | 沙箱 shell 进程数限额（firejail `--rlimit-nproc` / winjob Active Process）；触发行为同上。⚠ 语义不对称：firejail 侧按**真实 UID** 计数（非 per-sandbox），winjob 侧为 job 作用域 |
 | `http_host` | `127.0.0.1` | HTTP 网页入口绑定地址；非回环值启动时日志记一条 `event=exposed` 且 stderr 打印一行告警（判定单点复用 `network/exposure.py`） |
 | `http_port` | 8766 | HTTP 网页入口端口（1..65535；默认 8766） |
-| `http_port_auto_find_attempts` | 0 | 端口被占用时自动**顺延**的尝试次数（`port+1…`）；**默认 0 = 关闭**（绑定失败必须显性——脚本靠退出码判断服务起没起来，Epic 49 Story 49-2 契约）。开启后**只对未显式传 `--port` 的路径生效**：显式端口是契约，冲突仍 fail-loud。2026-09-27 加入 |
+| `http_port_auto_find_attempts` | 10 | 端口被占用时自动**顺延**的尝试次数（`port+1…`）；**默认 10 = 开启**（2026-10-15 契约修订：多开实例不冲突；原默认 0 = fail-loud，源自 Epic 49 Story 49-2——hang 根因「显式端口被改写」已修，显式 `--port` 契约保留）。Windows 下探测 socket 不设 `SO_REUSEADDR`，与真实监听语义一致，避免占用探测失真。2026-09-27 加入 |
 | `http_max_connections` | 16 | 同时打开的 HTTP 客户端连接上限（交给 Uvicorn `limit_concurrency`，超限连接被直接拒绝而非排队） |
 | `http_max_subscribers` | 16 | **每 run** 的 SSE 订阅者上限（同一 run 的并发事件流；超限回 429 `rate_limited`）。2026-09-28 从 `http_max_connections` 拆出（默认值同值 ⇒ 行为不变）——连接额度由 Uvicorn 在**进 ASGI 之前**拒绝，复用同一个键会让超额订阅拿裸 `text/plain` 503、429 分支不可达 |
 | `http_max_inflight_runs` | 1 | **每项目**同时在途的网页 Agent 运行上限（MVP 单会话单运行；超限提交收 `run_conflict`） |

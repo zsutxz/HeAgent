@@ -87,10 +87,10 @@ def build_server_config(
     - **范围规则唯一**：CLI 侧先用 ``click`` 的 range 类型拦一道，最终仍由
       :class:`HttpServerConfig`（Pydantic）统一校验，避免 CLI 与 env 两套规则漂移。
 
-    端口自动查找：当端口**不是调用方显式指定**（``port is None``）且被占用、
-    且 ``http_port_auto_find_attempts > 0`` 时，自动尝试后续端口（port+1, port+2...）。
-    显式 ``--port`` 是契约：冲突时保持原端口、交由绑定失败显性报错——否则「启动失败」
-    会静默变成「服务跑在另一个端口上」，脚本与状态行都无从知晓（NFR-10 无回归）。
+    端口自动查找：当端口**不是调用方显式指定**（``port is None``）且被占用时，
+    自动尝试后续端口（port+1, port+2...），默认 10 次（``http_port_auto_find_attempts``，
+    2026-10-15 起默认开启）。显式 ``--port`` 是契约：冲突时保持原端口、交由绑定失败显性报错
+    ——否则「启动失败」会静默变成「服务跑在另一个端口上」，脚本与状态行都无从知晓（NFR-10 无回归）。
     """
     # 解析端口，支持自动查找
     target_port = settings.http_port if port is None else port

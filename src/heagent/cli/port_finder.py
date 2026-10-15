@@ -2,6 +2,7 @@
 
 import logging
 import socket
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,10 @@ def find_available_port(preferred_port: int, host: str = "127.0.0.1", max_attemp
         port = preferred_port + offset
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                # 探测语义必须与真实监听一致：POSIX 上 asyncio/uvicorn 默认设 SO_REUSEADDR，
+                # Windows 上 asyncio 刻意不设（REUSEADDR 在 Windows 允许强绑他人端口，探测会失真）。
+                if sys.platform != "win32":
+                    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 s.bind((host, port))
                 if offset > 0:
                     logger.info(

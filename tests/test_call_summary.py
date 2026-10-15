@@ -38,7 +38,7 @@ class _BrokenArguments(Mapping[str, object]):
         ("content_search", {"directory": ".", "query": "policy"}, ". — policy"),
         # ── shell / 联网 / git ──────────────────────────────────────
         ("shell", {"command": "pytest -q"}, "pytest -q"),
-        # shell 命令不截断：超过 40 / 72 字符也全文保留（审查要看全「跑了什么」）
+        # shell 命令不截断：超过 40 / 120 字符也全文保留（审查要看全「跑了什么」）
         (
             "shell",
             {"command": "cd /d E:\\AI\\HeAgent && git diff src/heagent/agent/loop.py"},
@@ -91,7 +91,7 @@ class TestTruncation:
         summary = summarize_tool_call("file_read", {"path": "a" * 200})
 
         assert summary.endswith("…")
-        assert len(summary) == 72
+        assert len(summary) == 120
 
     def test_shell_command_is_never_truncated(self) -> None:
         """shell 命令全文保留——截断后无法判断「它到底跑了什么」（审查 / 审计）。"""
@@ -103,13 +103,13 @@ class TestTruncation:
         assert "…" not in summary
 
     def test_long_multiline_shell_command_keeps_every_character(self) -> None:
-        """多行长命令折叠为单行后仍零丢失，且不受 40 / 72 任一上限约束。"""
+        """多行长命令折叠为单行后仍零丢失，且不受 40 / 120 任一上限约束。"""
         command = "\n".join(f"echo step-{index}" for index in range(50))
 
         summary = summarize_tool_call("shell", {"command": command})
 
         assert summary == " ".join(f"echo step-{index}" for index in range(50))
-        assert len(summary) > 72
+        assert len(summary) > 120
 
     def test_freeform_task_and_fact_stay_clipped(self) -> None:
         """自由文本（子 Agent 任务 / 记忆事实）仍按 40 字符截断。"""
@@ -149,10 +149,10 @@ class TestActivityLabel:
         assert activity_label("", "") == ""
 
     def test_label_length_is_bounded_for_clipped_targets(self) -> None:
-        """作用对象经 summarize 后≤72 字符，故标签长度有界（shell 例外：全文，见 TestTruncation）。"""
+        """作用对象经 summarize 后≤120 字符，故标签长度有界（shell 例外：全文，见 TestTruncation）。"""
         target = summarize_tool_call("file_read", {"path": "p" * 200})
 
-        assert len(activity_label("file_read", target)) == len("file_read → ") + 72
+        assert len(activity_label("file_read", target)) == len("file_read → ") + 120
 
 
 class TestTableIntegrity:
