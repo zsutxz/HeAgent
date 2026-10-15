@@ -11,6 +11,8 @@
 [core]
 project_name = "heagent"
 output_folder = "{project-root}/_bmad-output"
+# 6.12.4 installer 新增默认 key，默认值 English 与中文语境不符，钉住。
+communication_language = "中文"
 
 # HeAgent 团队固定配置（续）——产物路径写成显式形式。
 # 背景：BMad 渲染器 render_skill.py 只展开 {project-root}，不展开嵌套的 {output_folder}，
