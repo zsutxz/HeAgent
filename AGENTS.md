@@ -138,4 +138,4 @@ heagent http-server                # HTTP 网页入口（127.0.0.1:8766，需 pi
 
 核心立场：`SafetyGuard`/`PolicyEngine`/sandbox 均非真正安全边界，须 OS 级沙箱兜底。
 
-活动缺口：MCP stdio server 子进程不经沙箱（中-高）；同一会话文件的两个写者整份覆盖对方历史（中）；技能资源 TOCTOU 残余竞态（专项评估）。
+活动缺口：MCP stdio server 子进程不经沙箱（中-高）；会话文件并发写主害已由 `save(base=...)` 保守合并闭合（2026-09-27，Z-D21），残余为不可安全判定形态仍丢对方一侧（有 WARNING 不静默）与交叉追加无法定序（不丢数据），登记 A34 挂起待裁定（低）；技能资源 TOCTOU 残余竞态（专项评估）。
