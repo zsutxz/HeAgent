@@ -30,6 +30,7 @@
 | A3 / A4 / A5 / A11 / A24 | 入口、GUI、观测与运行姿态 | 已闭合，正文留在相关周期记录或提交证据中 |
 | A1 / A6 | 技能资源与路径级审批前置裁定 | 裁定维持现状或维持条件性；边界见 `docs/frame.md` 五 |
 | A29 / A30 / A31 / A32 | 2026-10-07 架构简化与层次收敛 | 已闭合；证据见提交记录、源码和测试 |
+| 技能资源 TOCTOU 残余竞态专项评估 | 已评估（2026-10-20）。事实：单一安全内核 `path_safety.read_bytes_under_root`（围栏 resolve → 加固 open → fstat 普通文件校验 → 持 fd 读满）双通道——POSIX 逐组件 openat（2026-09-27 硬化）收窄至组件级竞态，Windows 无 dir_fd 走整路径回退（窗口与硬化前同宽，本机实际通道）；importer 落地为 verify-before-land（temp 复制后复核逐文件摘要，通过才 `os.replace`，检查期哈希→落地拷贝的窗口已闭合）；包读侧另有钉定摘要校验。裁决：check 与 use 同进程同权限，TOCTOU 不跨越信任域——能赢下任一窗口的攻击者无需竞态即可直写技能根或经 shell 直读凭证（frame.md 既有登记面），无新增可提升暴露面 ⇒ **不另立收窄周期**，维持 OS 沙箱兜底立场。附带确证：manifest.csv / `_hash` 直读为 load-bearing 例外（csv raw newline 语义 / 任意位置临时树哈希，围栏不适用）；`skill_meta.load_meta` 在 src 内零调用方（死代码路径，非活窗口）；`SkillStore._read_text` 实例锁已覆盖 Windows 读写互斥。边界：`tools/path_safety.py`、`skills/{skill_store,skill_packages,skill_importer}.py` |
 
 ## 维护规则
 
