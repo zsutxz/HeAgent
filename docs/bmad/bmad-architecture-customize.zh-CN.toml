@@ -1,0 +1,117 @@
+# ============================================================================
+# 中文翻译（阅读参考），不是权威源文件。
+# 源文件：.claude/skills/bmad-architecture/customize.toml
+# 翻译日期：2026-10-16
+# 约定：键名与字符串值一律保留英文原文 —— 它们是功能性配置，照抄进覆盖 TOML 才会生效；
+#       仅把注释译为中文，并在示例值与评审提示词处补中文对照。
+#       原文每次更新都会被整体覆盖，本翻译不会自动跟随，一切以原文为准。
+# ============================================================================
+
+# 请勿编辑 —— 每次更新都会被覆盖。
+#
+# bmad-architecture 的工作流定制面（customization surface）。
+#
+# 覆盖文件（不在此处编辑）：
+#   {project-root}/_bmad/custom/bmad-architecture.toml         （团队级）
+#   {project-root}/_bmad/custom/bmad-architecture.user.toml    （个人级）
+
+[workflow]
+
+# --- 以下各项可配置。覆盖文件的合并遵循 BMad 结构规则：---
+#   标量：覆盖方胜出 • 数组：追加
+
+# 在标准激活流程（加载配置、问候）之前要运行的步骤。
+# 用于预检加载、已批准技术栈的策略检查等。
+activation_steps_prepend = []
+
+# 在问候之后、工作流正式开始之前要运行的步骤。
+# 用于那些「用户已被确认、只需做一次」的上下文密集的准备工作。
+activation_steps_append = []
+
+# 工作流在整个运行期间始终记住的持久事实
+# （已批准技术栈、禁用依赖、平台约束、合规护栏）。
+# 每条可以是：一句字面描述、以 `skill:` 为前缀的技能，或以 `file:` 为前缀的
+# 路径 / 通配符（其内容会被作为事实加载）。
+#
+# 默认为空。仓库级上下文应放在 AGENTS.md（见 bmad-project-context），
+# 每个技能本来就能看到它；此处只放「仅本技能需要」的上下文，按需加载，
+# 而不是当常驻记忆一直背着。常见选项（写在团队/个人覆盖 TOML 中）：
+#   "Our org is AWS-only -- do not propose GCP or Azure."   # 本组织只用 AWS，不要建议 GCP / Azure
+#   "file:{project-root}/docs/engineering-standards.md"
+#   "file:{project-root}/**/project-context.md"             # 如果你维护 project-context.md
+persistent_facts = []
+
+# 工作流完成时执行（在主线定稿、且已告知用户之后）。
+# 字符串标量（单条指令）或按序执行的指令数组。留空表示不执行。
+on_complete = ""
+
+# 架构主线（spine）模板。它被视为专家先验知识，而非检查清单 ——
+# LLM 会依项目、抽象高度（altitude）与领域对它做适配，并删掉项目真正不需要的章节。
+# 在团队/个人 TOML 中覆盖该路径，即可强制使用另一种主线形态。
+spine_template = "assets/spine-template.md"
+
+# 运行目录位置。ARCHITECTURE-SPINE.md、它的 .memlog.md，以及本次运行产出的任何
+# 更完整的渲染稿，都落在 `{spine_output_path}/{run_folder_pattern}/` 内。
+# 「续跑检查」会扫描 `{spine_output_path}`，寻找此前未完成的运行。
+#
+# 默认模式适用于常见情形（一个项目一份主线，抽象高度在 epic 之上）。
+# 在 EPIC 高度下，应覆盖 run_folder_pattern 以携带 epic 身份，避免同一天内
+# 多个按 epic 的运行互相冲突 —— 例如（在团队/个人 TOML 中）设为
+# "architecture-epic-{epic_id}"，把 {epic_id} 绑定到驱动用的 spec / 激活载荷。
+# 无头（headless）调用方也可以改为传入显式的 doc_workspace，从而完全绕过该模式。
+spine_output_path = "{planning_artifacts}/architecture"
+run_folder_pattern = "architecture-{project_name}-{date}"
+
+# 文案编辑标准，仅在定稿（finalize）阶段应用于本次运行产出的「更完整的散文文档」
+# （讨论报告、完整架构文档或设计增补件）—— 绝不应用于主线，也不应用于其他短小、
+# 结构化的输出：后者按设计就很简洁，决策承载在 AD-n 块与图中。
+# 每条都是 `skill:`、`file:` 或纯文本指令，在用户看到打磨后的草稿之前应用。
+# 建议顺序：先做结构性润色，文案细节放最后。仅追加。
+# 默认条目会按序运行 bmad-review 的两个编辑视角：先结构，再在结构发现之上做文案。
+# `lenses=` 后缀用于命名这些视角；去掉该后缀则由 bmad-review 自行挑选适合内容的视角。
+doc_standards = [
+  "skill:bmad-review lenses=structure,prose",
+]
+
+# 外部来源注册表。用自然语言描述 LLM 在运行期间可以「按需」（而非预先）查阅的
+# 知识库、MCP 工具或内部系统 —— 已批准技术栈目录、内部平台文档、版本注册表。
+# 每条需写明工具名、触发条件，以及它需要的字段。若某个具名工具在运行期不可用，
+# LLM 会退回标准行为（例如网页调研）并标注该缺口。默认为空。
+#
+# 示例（写在团队/个人覆盖 TOML 中）：
+#   "When choosing a datastore, consult corp:platform_catalog before recommending one."
+#       # 挑选数据存储时，先查 corp:platform_catalog 再给建议
+#   "For current library versions, query corp:artifact_registry before web search."
+#       # 查库的当前版本时，先问 corp:artifact_registry 再上网搜
+external_sources = []
+
+# 外部交接（handoff）路由，在定稿阶段把输出推送到本地文件之外
+# （Confluence、Notion、工单系统）。每条需写明 MCP 工具、目标位置及必需字段。
+# 在文案打磨之后运行；返回的 URL / ID 会被展示出来。不可用的工具会被跳过并标记；
+# 本地文件始终存在。默认为空。
+external_handoffs = []
+
+# --- 定稿评审者（finalize reviewers）---
+# 在验证闸门（定稿与「校验」意图）处，作为并行子代理额外拉起的评审视角，
+# 叠加在技能内置的 good-spine 检查清单与 lint_spine.py 机械底线之上。
+# 该闸门按利害程度把关 —— 一次性的主线可以静默运行它，也可以直接跳过它 ——
+# 但只要闸门运行，此处每一条都会随之运行（即「配置即底线」，绝不允许挑着跑）；
+# 只有临时（ad-hoc）视角是可选的，而无头模式下绝不跳过闸门。
+#
+# 条目遵循标准前缀约定：
+#   "skill:NAME"   以子代理形式调用该具名评审技能，针对 ARCHITECTURE-SPINE.md
+#   "file:PATH"    把该文件作为评审提示词加载；拉起一个对抗式子代理来执行它
+#   纯文本          直接把该文本用作子代理的评审提示词
+#
+# 按需解析（不在激活时解析）。覆盖 TOML 可以追加。
+finalize_reviewers = [
+  # 逐条核查每个已敲定的决策：它是查过网 / 在现实中验证过，还是仅凭训练数据断言？
+  # 包括当前的库 / 框架版本、每个被点名的技术是否仍然存在且适配，以及（绿地项目下）
+  # 它所依赖的任何脚手架（starter）当下的默认值。凡可能过期、又未对照网络、
+  # 既有项目或当前脚手架确认过的，一律标记出来。
+  "Verify every committed decision was web-researched or reality-checked rather than asserted from training data: current library/framework versions, that each named technology still exists and fits, and — greenfield — the live defaults of any starter it leans on. Flag anything that could be out of date and wasn't confirmed against the web, the existing project, or the current starter.",
+  # 以对抗者姿态攻击这份主线：构造下一层的两个单元，各自逐字遵守每一条 AD，
+  # 却仍然构建出不兼容的结果 —— 共享数据形状冲突、同一实体有两个所有者、
+  # 状态变更路径互相矛盾。你找到的每一对，都是需要用新增或收紧 AD 来堵上的洞。
+  "Attack the spine as an adversary: construct two units one level down that each obey every AD to the letter yet still build incompatibly — clashing shared-data shapes, two owners of one entity, conflicting state-mutation paths. Every pair you find is a hole to close with a new or tightened AD.",
+]
