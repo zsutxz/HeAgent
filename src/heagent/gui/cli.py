@@ -22,9 +22,9 @@ def _is_missing_textual(error: ImportError) -> bool:
 @click.option("--model", default=None, help="Model name (default: per-provider setting)")
 @click.option(
     "--sandbox",
-    type=click.Choice(["passthrough", "firejail"]),
+    type=click.Choice(["auto", "passthrough", "firejail", "winjob", "docker"]),
     default=None,
-    help="Sandbox backend for shell execution",
+    help="Sandbox backend for shell execution (default: SANDBOX_BACKEND / auto)",
 )
 @click.option(
     "--sandbox-session-workspace/--no-sandbox-session-workspace",
@@ -81,10 +81,11 @@ def gui_cmd(
 
     prune_runtime_artifacts_best_effort(_settings)
 
-    # 沙箱提醒（GUI 只认显式 --sandbox firejail 旗标）
-    from heagent.cli.display import echo_firejail_hint
+    # 沙箱提醒：按**解析后**的后端提示（旗标优先、回落 Settings），与 EngineContainer.default
+    # 的取值口径一致——只传旗标会在靠 .env 启用时静默（本机即此形态）。
+    from heagent.cli.display import echo_sandbox_hint
 
-    echo_firejail_hint(sandbox, _settings)
+    echo_sandbox_hint(sandbox or _settings.sandbox_backend, _settings)
 
     try:
         # gui_main 是同步入口（内部自行运行 Textual 事件循环）；

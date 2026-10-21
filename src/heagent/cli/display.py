@@ -22,26 +22,55 @@ if TYPE_CHECKING:
     from heagent.pub.types import StreamEvent, TokenUsage
 
 
-def echo_firejail_hint(backend: str | None, settings: Settings, *, install_hint: bool = False) -> None:
-    """firejail 沙箱启动提示（CLI / GUI 入口共用）。
+def echo_sandbox_hint(backend: str | None, settings: Settings, *, install_hint: bool = False) -> None:
+    """沙箱后端启动提示（CLI / GUI 入口共用）。
 
-    ``backend`` 由调用方解析后传入：CLI 用 ``sandbox or settings.sandbox_backend``，
-    GUI 只认显式 ``--sandbox firejail`` 旗标——判定条件不同，提示文案同源。
+    ``backend`` 由调用方解析后传入（CLI / GUI / HTTP 三入口同口径：旗标优先、
+    回落 ``settings.sandbox_backend``），提示文案同源。
     ``install_hint`` 仅 CLI 输出（GUI 提示不附安装指引）。
+
+    只对**可能真隔离**的后端出声（``firejail`` / ``docker``）；``auto`` / ``passthrough`` /
+    ``winjob`` 保持静默——前三者要么没有隔离能力，要么在装配期才被解析成实际后端。
+
+    提示的是**请求**而非既成事实：docker daemon 不可达时 resolver 会回退 passthrough
+    （见 ``engine/container.py`` 的可用性闸），故本函数只做 CLI 存在性检查；实际生效档以
+    ``SandboxDecision.effective_backend`` / 启动日志为准。
     """
-    if backend != "firejail":
-        return
     import shutil
 
-    if shutil.which(settings.sandbox_firejail_path) is None:
-        hint = " Install firejail: sudo apt install firejail" if install_hint else ""
+    name = (backend or "").strip().lower()
+    if name == "firejail":
+        if shutil.which(settings.sandbox_firejail_path) is None:
+            hint = " Install firejail: sudo apt install firejail" if install_hint else ""
+            click.echo(
+                f" WARNING: firejail not found ({settings.sandbox_firejail_path}). "
+                f"Shell commands will run WITHOUT sandbox isolation.{hint}",
+                err=True,
+            )
+        else:
+            click.echo(f" firejail sandbox ENABLED ({settings.sandbox_firejail_path})", err=True)
+        return
+    if name != "docker":
+        return
+    if shutil.which("docker") is None:
+        hint = " Install Docker: https://docs.docker.com/get-docker/" if install_hint else ""
         click.echo(
-            f" WARNING: firejail not found ({settings.sandbox_firejail_path}). "
-            f"Shell commands will run WITHOUT sandbox isolation.{hint}",
+            f" WARNING: docker CLI not found. Shell commands will fall back to passthrough (no isolation).{hint}",
             err=True,
         )
-    else:
-        click.echo(f" firejail sandbox ENABLED ({settings.sandbox_firejail_path})", err=True)
+        return
+    detail = f"image={settings.sandbox_docker_image}, network={'bridge' if settings.sandbox_network else 'none'}"
+    digest = settings.sandbox_docker_digest.strip()
+    if digest:
+        detail += f", digest={digest[:19]}..."
+    click.echo(
+        f" docker sandbox REQUESTED ({detail}); falls back to passthrough if the daemon is unreachable",
+        err=True,
+    )
+
+
+# 旧名保留为别名：语义已从「firejail 专用」扩为「后端无关」，库消费者的 import 不破。
+echo_firejail_hint = echo_sandbox_hint
 
 
 def _current_version() -> str:

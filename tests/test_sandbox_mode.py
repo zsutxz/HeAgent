@@ -10,7 +10,9 @@
 
 from __future__ import annotations
 
+import ast
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -346,3 +348,55 @@ class TestFirejailResourceLimitsArgv:
         backend = FirejailBackend(memory_limit_mb=0, cpu_seconds=0, nproc_limit=0)
         argv = backend._build_argv("echo hi", None)
         assert not any(a.startswith("--rlimit") for a in argv)
+
+
+class TestEntrypointBackendChoices:
+    """三个入口的 ``--sandbox`` 取值集必须都含 ``docker``。
+
+    历史漂移：``heagent gui`` 只有 passthrough/firejail、``http-server`` 缺 docker
+    ——后端能跑但入口选不到（本机正是靠 .env 才绕过去）。用 AST 只读 ``--sandbox``
+    那个 option 的 Choice 字面量（同文件其他 Choice 不算数），不 import 入口模块
+    （GUI 包一 import 就拉 textual，CI 会被 importorskip 静默跳过）。
+    """
+
+    @staticmethod
+    def _sandbox_choices(path: Path) -> set[str]:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            if node.func.attr != "option" or not node.args:
+                continue
+            first = node.args[0]
+            if not (isinstance(first, ast.Constant) and first.value == "--sandbox"):
+                continue
+            for sub in ast.walk(node):
+                if not (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)):
+                    continue
+                if sub.func.attr != "Choice":
+                    continue
+                for arg in sub.args:
+                    if isinstance(arg, ast.List):
+                        return {
+                            e.value for e in arg.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                        }
+        return set()
+
+    @pytest.mark.parametrize("rel", ["cli/console.py", "cli/http.py", "gui/cli.py"])
+    def test_every_entrypoint_offers_docker(self, rel: str) -> None:
+        choices = self._sandbox_choices(Path(__file__).resolve().parents[1] / "src" / "heagent" / rel)
+        assert "docker" in choices, f"{rel} 的 --sandbox 缺 docker：{sorted(choices)}"
+
+    @pytest.mark.parametrize("rel", ["cli/console.py", "cli/http.py", "gui/cli.py"])
+    def test_every_entrypoint_announces_the_sandbox(self, rel: str) -> None:
+        """启动提示必须接线到每个入口，且按**解析后**后端取值。
+
+        历史形态：只有 CLI 打提示，GUI 传的是原始旗标（靠 .env 启用时静默）、
+        ``http-server`` 完全没有——服务跑起来后「shell 有没有进容器」只能翻日志。
+        入口模块导入即拉重依赖，故这里做源码级接线断言，不做运行时验证。
+        """
+        source = (Path(__file__).resolve().parents[1] / "src" / "heagent" / rel).read_text(encoding="utf-8")
+        assert "echo_sandbox_hint(" in source, f"{rel} 未接线沙箱启动提示"
+        assert ("sandbox or settings.sandbox_backend" in source) or (
+            "sandbox or _settings.sandbox_backend" in source
+        ), f"{rel} 只传旗标 → 靠 .env 启用后端时提示静默"

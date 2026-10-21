@@ -15,7 +15,7 @@ import click
 import heagent.tools.builtins  # noqa: F401
 from heagent.cli.display import (
     _print_banner,
-    echo_firejail_hint,
+    echo_sandbox_hint,
 )
 from heagent.cli.wiring import _build_provider
 from heagent.config import Settings, get_settings
@@ -206,7 +206,7 @@ def _run_cli_impl(
     load_agent_roles()
 
     # --- Sandbox warning ---
-    echo_firejail_hint(sandbox or settings.sandbox_backend, settings, install_hint=True)
+    echo_sandbox_hint(sandbox or settings.sandbox_backend, settings, install_hint=True)
 
     # --- Interactive provider selection at startup ---
     if isinstance(provider, SwitchableProvider):

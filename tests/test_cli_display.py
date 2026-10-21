@@ -181,3 +181,68 @@ def test_package_version_matches_pyproject() -> None:
     declared = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["version"]
 
     assert heagent.__version__ == declared
+
+
+# --- 沙箱启动提示（echo_sandbox_hint）-----------------------------------------
+# 判据目的：让「这次到底请求了哪种隔离」在启动时一眼可见——firejail 一直有提示，
+# docker 档此前完全静默（用户只能翻日志才知道有没有上容器）。
+
+
+def test_sandbox_hint_is_silent_for_non_isolating_backends(capsys: pytest.CaptureFixture[str]) -> None:
+    """auto / passthrough / winjob 无隔离能力，启动时不制造噪音。"""
+    settings = get_settings()
+    for backend in (None, "", "auto", "passthrough", "winjob"):
+        cli_display.echo_sandbox_hint(backend, settings)
+    assert capsys.readouterr().err == ""
+
+
+def test_sandbox_hint_keeps_firejail_messages_unchanged(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """firejail 分支文案逐字保留（重构前已有的行为，别在扩后端口径时改掉）。"""
+    settings = get_settings()
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    cli_display.echo_sandbox_hint("firejail", settings, install_hint=True)
+    err = capsys.readouterr().err
+    assert f"WARNING: firejail not found ({settings.sandbox_firejail_path})" in err
+    assert "Shell commands will run WITHOUT sandbox isolation." in err
+    assert "sudo apt install firejail" in err
+
+
+def test_sandbox_hint_reports_docker_request(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """docker 档必须出声，并把镜像与网络档如实写出来（便于对照 sandbox_decision）。"""
+    settings = get_settings()
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/docker")
+    cli_display.echo_sandbox_hint("docker", settings)
+    err = capsys.readouterr().err
+    assert "docker sandbox REQUESTED" in err
+    assert f"image={settings.sandbox_docker_image}" in err
+    assert "network=none" in err
+    assert "falls back to passthrough" in err
+
+
+def test_sandbox_hint_warns_when_docker_cli_missing(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """CLI 缺席 = 必然降级，必须明确说「没有隔离」而不是假装已启用。"""
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    cli_display.echo_sandbox_hint("docker", get_settings(), install_hint=True)
+    err = capsys.readouterr().err
+    assert "WARNING: docker CLI not found" in err
+    assert "docs.docker.com" in err
+
+
+def test_sandbox_hint_shows_bridge_and_pinned_digest(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """网络档与 digest pin 都影响隔离强度，提示行必须反映实际配置。"""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "sandbox_network", True)
+    monkeypatch.setattr(settings, "sandbox_docker_digest", "sha256:" + "a" * 64)
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/bin/docker")
+    cli_display.echo_sandbox_hint("Docker", settings)  # 大小写无关
+    err = capsys.readouterr().err
+    assert "network=bridge" in err
+    assert "digest=sha256:" in err

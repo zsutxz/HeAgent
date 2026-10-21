@@ -29,7 +29,7 @@ from typing import Any
 
 import click
 
-from heagent.cli.display import _current_version
+from heagent.cli.display import _current_version, echo_sandbox_hint
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.cli.wiring import _build_provider
 from heagent.config import Settings, get_settings
@@ -350,7 +350,7 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
 @click.option("--soul", default=None, help="Path to custom SOUL.md personality file")
 @click.option(
     "--sandbox",
-    type=click.Choice(["auto", "passthrough", "firejail", "winjob"]),
+    type=click.Choice(["auto", "passthrough", "firejail", "winjob", "docker"]),
     default=None,
     help="Sandbox backend for shell execution (default: auto = probe firejail)",
 )
@@ -391,6 +391,9 @@ def http_server_cmd(
     _prune_runtime_artifacts(settings)
     # 角色是 system prompt 的组成部分（技能匹配 / 子 Agent 委派都读它），与其它入口一致地加载。
     load_agent_roles()
+    # 沙箱提示：与 CLI / GUI 同源（请求档 + CLI 存在性检查）。服务化入口尤其需要——
+    # 没有这行，`http-server` 跑起来后「shell 到底有没有进容器」只能翻日志。
+    echo_sandbox_hint(sandbox or settings.sandbox_backend, settings, install_hint=True)
     provider = _build_provider(settings, model)
     config = build_server_config(
         settings,
