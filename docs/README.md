@@ -22,6 +22,7 @@
 - [架构参考](frame.md)：当前数据流、模块边界、配置、运行时治理和已知缺口。
 - [部署说明](../deploy/README.md)：部署资产的真实适用范围和限制。
 - [「Goal 工作流」专题](goal-workflow.md)：`/goal`、`workflow.md`、Epic/Story 和 checkpoint 的职责边界。
+- [「沙箱机制」专题](sandbox.md)：`CommandRunner` 四档后端、端到端调用链、会话层，以及 `container` 档（2026-10-21）相对旧形态的变化。
 
 ## 推荐阅读路径
 
@@ -35,6 +36,7 @@
 | --- | --- |
 | LLM、工具和 Agent 如何串起来 | [`frame.md`](frame.md) 的“数据流”和“核心模块” |
 | 策略、审批、ledger、沙箱 | [`frame.md`](frame.md) 的 `engine/` 与“已知缺口” |
+| 沙箱到底怎么跑 / 命令有没有被隔离 | [「沙箱机制」专题](sandbox.md)（调用链、四档后端、`container` 档前提） |
 | Epic/Story 如何由 Markdown 驱动 | [「Goal 工作流」专题](goal-workflow.md) 与 [`.heagent/skills/he-goal/workflow.md`](../.heagent/skills/he-goal/workflow.md) |
 | 事件流 / rollout 字段含义 | [`frame.md`](frame.md) 的「事件契约」小节（4.15） |
 | 网页入口 / 写浏览器端 / HTTP API | [README「HTTP 网页入口（实验性）」](../README.md) 与 [`frame.md`](frame.md) 的 4.17（SSE 重连 / 同源防线 / 限额 / 观测） |
