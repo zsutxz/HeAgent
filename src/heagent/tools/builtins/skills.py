@@ -109,7 +109,9 @@ def _split_pipe_fields(
     return _split_pipe(steps), _split_pipe(tags), _split_pipe(triggers), _split_pipe(negative_triggers)
 
 
-async def _store_write(store: SkillStore, write: Callable[[SkillStore], Awaitable[T]], *, success: Callable[[T], str]) -> str:
+async def _store_write(
+    store: SkillStore, write: Callable[[SkillStore], Awaitable[T]], *, success: Callable[[T], str]
+) -> str:
     """共享写兜错：``ValueError`` 统一兜成 ``Error: {exc}`` 文案，成功则由 ``success`` 渲染结果。
 
     SkillRewriteError（正文含 Pattern/Steps 之外的章节，改写会丢正文）继承 ValueError。
@@ -191,9 +193,9 @@ async def skill_update(
             negative_triggers=negative_list,
             priority=priority,
         ),
-        success=lambda path: f"Skill '{name}' updated at {path}"
-        if path is not None
-        else f"Error: failed to update skill '{name}'.",
+        success=lambda path: (
+            f"Skill '{name}' updated at {path}" if path is not None else f"Error: failed to update skill '{name}'."
+        ),
     )
 
 
