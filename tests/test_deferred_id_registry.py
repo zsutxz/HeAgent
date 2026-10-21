@@ -3,7 +3,9 @@
 Pinned drift shapes (all of them really happened in this repo): a ledger's
 status-summary table declaring different IDs than its actual sections; the same
 A-number meaning two different things in two ledgers (the A19 incident); code
-citing an A-number that no document registers.
+citing an A-number that no document registers; active-count declarations
+drifting from the archive's actual rows (2026-10-20: A34–A36 registered while
+four documents still declared 0).
 """
 
 from __future__ import annotations
@@ -82,11 +84,20 @@ def _code_citations() -> dict[str, list[str]]:
 
 
 def test_archive_uses_the_current_compact_shape() -> None:
+    """活动区允许非空（0e8a330 起挂起待裁定项可驻留总账），但表形与计数必须诚实。"""
     lines = _lines(ARCHIVE)
     start = _heading_index(lines, "## 活动（未闭合）条目")
     end = _heading_index(lines, "## 已按 Epic 归档")
-    assert lines[start + 2].strip() == "无。"
-    assert "当前活动项为 0 条" in lines[2]
+    # 数据行 = 以 "|" 起始且含分隔线之外的字符（分隔线字符集 ⊆ {-, |, 空格}）
+    data_rows = [line for line in lines[start:end] if line.startswith("|") and set(line.strip("| ")) - {"-", "|", " "}]
+    assert data_rows, "active zone has no table rows"
+    for line in data_rows:
+        assert len(_cells(line)) == 4, f"active row is not 4 cells: {line[:60]}"
+    declared = re.search(r"当前活动项为 (\d+) 条", lines[2])
+    assert declared is not None, "archive header does not declare the active count"
+    assert int(declared.group(1)) == len(data_rows) - 1, (
+        f"header declares {declared.group(1)}, table has {len(data_rows) - 1}"
+    )
     assert not any(line.startswith("## A 编号登记表") for line in lines[start:end])
 
 
@@ -114,7 +125,7 @@ def test_code_cites_only_documented_a_numbers() -> None:
 def test_every_epic_ledger_declares_exactly_its_sections() -> None:
     """A ledger's status-summary rows must name exactly its ID sections: no orphan rows, no missing sections."""
     files = _epic_ledgers()
-    assert len(files) == 10, f"expected 10 Epic ledgers, found {len(files)}"
+    assert len(files) == 11, f"expected 11 Epic ledgers, found {len(files)}"
     for path in files:
         declared: set[str] = set()
         sections: set[str] = set()
@@ -147,7 +158,7 @@ def test_each_a_number_is_sectioned_in_at_most_one_ledger() -> None:
 
 def test_epic_ledgers_without_id_sections_carry_a_no_active_marker() -> None:
     files = _epic_ledgers()
-    assert len(files) == 10, f"expected 10 Epic ledgers, found {len(files)}"
+    assert len(files) == 11, f"expected 11 Epic ledgers, found {len(files)}"
     for path in files:
         lines = _lines(path)
         has_id_sections = any(line.startswith(HEADING) and _token(line[3:]) for line in lines)
@@ -158,7 +169,9 @@ def test_epic_ledgers_without_id_sections_carry_a_no_active_marker() -> None:
             )
 
 
-def test_all_active_count_declarations_are_zero() -> None:
+def test_active_count_declarations_match_the_archive() -> None:
+    """凡声明活动计数处，声明值必须等于总账活动区实际行数（历史叙事中的非现行计数不在此列）。"""
+    actual = len(_table(ARCHIVE, "## 活动（未闭合）条目"))
     sites = (
         ARCHIVE,
         OVERVIEW,
@@ -168,6 +181,10 @@ def test_all_active_count_declarations_are_zero() -> None:
     for path in sites:
         text = path.read_text(encoding="utf-8")
         # (?<!\d) so a nonzero count ending in 0 (e.g. "10 条") cannot pass as zero.
-        assert re.search(r"活动(?:项|区|台账)[^\n]{0,30}(?<!\d)0 条", text), (
-            f"{path.name} has no zero active-count declaration"
+        assert re.search(rf"活动(?:项|区|台账)[^\n]{{0,30}}(?<!\d){actual} 条", text), (
+            f"{path.name} does not declare the actual active count ({actual})"
         )
+        if actual != 0:
+            assert not re.search(r"活动(?:项|区|台账)[^\n]{0,30}(?<!\d)0 条", text), (
+                f"{path.name} still declares zero active items while {actual} are open"
+            )

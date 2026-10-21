@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import re
 import socket
 from typing import Any
 
@@ -180,10 +181,13 @@ def test_interactive_mode_serves_alongside_the_repl(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.embedded_http_service
-def test_bind_failure_fails_the_command_without_entering_the_cli(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Any
-) -> None:
-    """端口被占用：命令显式失败、**不进入 run**、不吐 traceback、不谎报「已监听」。"""
+def test_env_port_conflict_drifts_instead_of_failing(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """env 端口被占用：按 2026-10-15 契约（a545613）**顺延**到后续端口继续服务，run 正常完成。
+
+    「绑定失败显性失败、不进入 run、不谎报已监听」的 fail-loud 契约保留给**显式 --port**，
+    由 ``tests/test_cli_http.py::test_explicit_port_is_never_silently_replaced`` 钉住；
+    默认 CLI 入口无 ``--port``，env 端口即自动端口，冲突时顺延而非失败。
+    """
     holder = socket.socket()
     holder.bind(("127.0.0.1", 0))
     holder.listen(1)
@@ -195,11 +199,10 @@ def test_bind_failure_fails_the_command_without_entering_the_cli(
     finally:
         holder.close()
 
-    assert result.exit_code == 1
-    assert "HTTP server failed to start" in result.output
-    assert "web UI" not in result.output
-    assert "Traceback" not in result.output
-    assert provider.calls == 0
+    assert result.exit_code == 0, result.output
+    assert provider.calls == 1
+    drift = re.search(r"web UI: http://127\.0\.0\.1:(\d+)", result.output)
+    assert drift is not None and int(drift.group(1)) > port, f"expected drifted port above {port}: {result.output}"
 
 
 @pytest.mark.embedded_http_service

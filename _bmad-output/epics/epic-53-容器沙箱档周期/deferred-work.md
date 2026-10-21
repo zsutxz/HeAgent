@@ -2,6 +2,13 @@
 
 > 本 epic 内挂起项；跨周期条目仍归 `implementation-artifacts/deferred-work-archive.md` 总账。
 
+## 状态总览
+
+| ID | 条目 | 状态 | 闭合者 |
+|----|------|------|--------|
+| D53-1 | 期二：MCP stdio server 进容器 | 挂起待触发（期一闭合后由用户裁定是否开期二） | — |
+| D53-2 | 期二：审批降级接入 PolicyEngine | 挂起待触发（同 D53-1） | — |
+
 ## D53-1 期二：MCP stdio server 进容器
 
 - **来源**：AGENTS.md 活动缺口「MCP stdio server 子进程不经沙箱（中-高）」；frame.md:1271 裁定「不单独开缝、须整体 OS 级沙箱兜底」——容器档落地后该兜底首次成为可实施项。
