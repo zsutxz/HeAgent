@@ -148,6 +148,9 @@ _execute_in_sandbox()
 
 - HeAgent 进程跑在**宿主 Windows** 上；`shell` 工具的后端是 `DockerRunner`
   （`SANDBOX_BACKEND=docker` 或 CLI `--sandbox docker`）⇒ **每条命令都是一台新的一次性容器**。
+- 本机已在 `.env` 显式钉 `SANDBOX_BACKEND=docker`（2026-10-21）：`auto` 只探 firejail，
+  靠启动参数的话一旦忘带 `--sandbox docker` 就会**静默裸跑**；`.env` 固化后所有入口同档，
+  需要裸跑时用 `--sandbox passthrough` 显式覆盖。
 - 三条判据（同一会话内连续实测）：
   1. 三次 `hostname` 各不相同（`8987d93ceaab` / `a550a1ff5e23` / `35217c3af666`）；
   2. 容器内 `/proc/1/cmdline` = `sh -c <整条命令>` —— 正是 `docker run … IMAGE sh -c` 的形态；
