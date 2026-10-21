@@ -142,11 +142,25 @@ def _docker_spawn(argv: list[str]) -> subprocess.Popen[bytes]:
     )
 
 
+def _is_gone(stderr: str | None) -> bool:
+    """inspect 的 stderr 是否表示**容器已不存在**（``--rm`` 删除后的常态，非故障）。
+
+    只认 daemon 的「无此对象」语义：容器已消失 = 清理目标已达成。其余 rc≠0（daemon 不可达、
+    权限、超时）仍按「状态不确定」处理——**不能**把两者混为一谈，否则每发超时都会白等一次
+    ``rm -f`` 并打出假 traceback（真实缺陷，2026-10-21）。
+    """
+    if not stderr:
+        return False
+    text = stderr.strip().lower()
+    return "no such object" in text or "no such container" in text
+
+
 def _docker_kill(docker_path: str, name: str) -> None:
     """按容器名精确 ``docker kill -- <name>``——杀 CLI 进程**不会**停容器，超时/取消必须显式杀。
 
-    kill 后校验容器确已停止（``inspect .State.Running``）；仍活着或校验失败 → WARNING +
-    ``docker rm -f`` 兜底（审查修复批）：孤儿容器带着 workspace 写挂载存活是真实暴露面。
+    kill 后校验容器确已停止（``inspect .State.Running``）；容器**已因 ``--rm`` 删除**视为清理
+    完成直接返回；仍活着或状态真不确定 → WARNING + ``docker rm -f`` 兜底（审查修复批）：
+    孤儿容器带着 workspace 写挂载存活是真实暴露面。
     兜底也失败只 warning 留痕（清理是兜底动作，不制造二次异常）；有界等待
     （``_REAP_WAIT_TIMEOUT``）——kill 自身挂死不得拖垮清理路径。
     """
@@ -172,6 +186,11 @@ def _docker_kill(docker_path: str, name: str) -> None:
             logger.warning("docker kill left container %s state uncertain; removing as fallback", name)
             fallback = True
         else:
+            # ``--rm`` 容器被杀后自行删除，inspect 必然 ``No such object``（rc=1）——
+            # 这是**清理已达成**，不是「状态不确定」，不得据此重复 rm -f（否则会撞上
+            # daemon 的删除锁白等满 _REAP_WAIT_TIMEOUT 并打出一条假 traceback）。
+            if _is_gone(probe.stderr):
+                return
             fallback = probe.returncode != 0 or probe.stdout.strip() != "false"
     if not fallback:
         return
@@ -182,8 +201,10 @@ def _docker_kill(docker_path: str, name: str) -> None:
             capture_output=True,
             timeout=_REAP_WAIT_TIMEOUT,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        logger.warning("docker rm -f %s also failed; container may be orphaned", name, exc_info=True)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # 不带 exc_info：清理失败是兜底动作的留痕，打印整段 traceback 会让人误判成程序崩溃。
+        # 异常类型与消息已经足够定位（有界超时 vs daemon 失联）。
+        logger.warning("docker rm -f %s also failed; container may be orphaned (%s: %s)", name, type(exc).__name__, exc)
 
 
 def _docker_inspect_digest(docker_path: str, image: str) -> str | None:

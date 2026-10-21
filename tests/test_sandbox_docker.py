@@ -488,6 +488,51 @@ def test_kill_no_fallback_when_container_stopped(monkeypatch: pytest.MonkeyPatch
     assert not any(c[1] == "rm" for c in calls)
 
 
+def test_kill_no_fallback_when_rm_removed(monkeypatch: pytest.MonkeyPatch):  # 判据15e：--rm 已删 ⇒ 清理达成
+    """``--rm`` 容器被杀后自行删除，inspect 报 ``No such object``——这是清理达成，**不是**故障。
+
+    回归锁定（2026-10-21）：此前 rc≠0 一律判「状态不确定」，导致每条超时/取消的命令都白等
+    一次 ``rm -f``（撞 daemon 删除锁）并打出假 traceback。
+    """
+    calls: list[list[str]] = []
+
+    class _RmRemoved(_FakeSubprocess):
+        def __init__(self) -> None:
+            pass
+
+        def run(self, argv, capture_output=False, text=False, timeout=None):
+            calls.append(list(argv))
+            if argv[1] == "inspect":
+                return subprocess.CompletedProcess(argv, 1, stdout="", stderr="Error: No such object: heagent-gone")
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(f"{MODULE}.subprocess", _RmRemoved())
+    _docker_kill("docker", "heagent-gone")
+    assert not any(c[1] == "rm" for c in calls)
+
+
+def test_kill_fallback_when_daemon_unreachable(monkeypatch: pytest.MonkeyPatch):  # 判据15f：真不确定仍兜底
+    """inspect rc≠0 但错误**不是**「无此对象」（daemon 失联等）⇒ 仍按不确定兜底。
+
+    与 15e 成对：两个分支必须由 stderr 语义区分，不能靠 returncode 一刀切。
+    """
+    calls: list[list[str]] = []
+
+    class _DaemonDown(_FakeSubprocess):
+        def __init__(self) -> None:
+            pass
+
+        def run(self, argv, capture_output=False, text=False, timeout=None):
+            calls.append(list(argv))
+            if argv[1] == "inspect":
+                return subprocess.CompletedProcess(argv, 1, stdout="", stderr="Cannot connect to the Docker daemon")
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(f"{MODULE}.subprocess", _DaemonDown())
+    _docker_kill("docker", "heagent-uncertain")
+    assert calls[-1][:3] == ["docker", "rm", "-f"]
+
+
 async def test_digest_pin_mismatch_rejects(monkeypatch: pytest.MonkeyPatch):  # 判据16：digest 不符显性拒绝
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"out", stderr=b"")
