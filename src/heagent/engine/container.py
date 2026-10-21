@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 def _resolve_command_runner(
     settings: ResolvedRuntimeConfig, backend: str, workspace_root: str | None
 ) -> CommandRunner | None:
-    """按沙箱后端名解析 ``CommandRunner``：``firejail`` / ``winjob`` → 对应后端实例，其余透传 ``None``。
+    """按沙箱后端名解析 ``CommandRunner``：``firejail`` / ``winjob`` / ``docker`` → 对应后端实例，其余透传 ``None``。
 
     winjob 探测失败（不可用）只告警并回退透传——诚实于实际隔离能力。
     """
@@ -69,6 +69,12 @@ def _resolve_command_runner(
                 nproc_limit=settings.sandbox_nproc_limit,
             )
         logger.warning("WinJobBackend requested but not available; falling back to Passthrough")
+    if backend == "docker":
+        from heagent.tools.sandbox import DockerRunner
+
+        # 53-1：镜像 / 网络档的 Settings 配置面在 53-2 落地；此处以模块默认值
+        # （python:3.11-slim / --network=none）构造，可用性探测缓存在实例上。
+        return DockerRunner()
     return None
 
 
@@ -269,12 +275,21 @@ class EngineContainer:
             if backend == "firejail":
                 effective_backend = "firejail" if command_runner.available else "passthrough"
             else:
-                effective_backend = "winjob"
+                # 非 firejail 分支此前硬编码 "winjob"；docker 档落地后按后端名通用化
+                # （winjob 在 _resolve_command_runner 内已过可用性闸，语义不变）。
+                effective_backend = backend if command_runner.available else "passthrough"
         container.sandbox_decision = SandboxDecision(
             requested_backend=settings.sandbox_backend,
             effective_backend=effective_backend,
-            filesystem_isolation=effective_backend == "firejail",
-            network_isolation=effective_backend == "firejail" and not settings.sandbox_network,
+            filesystem_isolation=effective_backend in {"firejail", "docker"},
+            network_isolation=(
+                effective_backend == "firejail" and not settings.sandbox_network
+            )
+            or (
+                effective_backend == "docker"
+                and command_runner is not None
+                and getattr(command_runner, "isolates_network", lambda: False)()
+            ),
             reason=(
                 "passthrough explicitly selected"
                 if settings.sandbox_backend.strip().lower() == "passthrough"
@@ -297,7 +312,9 @@ class EngineContainer:
         if settings.sandbox_enforce and command_runner is not None:
             container.policy.sandbox_tools.add("shell")
             tier = getattr(getattr(command_runner, "tier", None), "value", None)
-            if not settings.sandbox_network and tier != "firejail":
+            # container 档（DockerRunner）默认 --network=none，具备网络约束能力——不进
+            # 「无法约束出网」告警面；per-runner 网络档的精确判定随 53-2 配置面细化。
+            if not settings.sandbox_network and tier not in {"firejail", "container"}:
                 logger.info(
                     "SANDBOX_NETWORK=false but backend %r cannot restrict outbound traffic; "
                     "network isolation is NOT in effect",

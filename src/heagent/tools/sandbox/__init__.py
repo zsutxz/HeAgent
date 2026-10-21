@@ -33,6 +33,7 @@ from heagent.tools.sandbox.contracts import (
     reset_sandbox_profile,
     reset_sandbox_workspace,
 )
+from heagent.tools.sandbox.docker import DockerRunner
 from heagent.tools.sandbox.firejail import FirejailBackend
 from heagent.tools.sandbox.process import (
     _REAP_WAIT_TIMEOUT,
@@ -67,6 +68,7 @@ from heagent.tools.sandbox.winjob import WinJobBackend, _winjob_spawn
 
 __all__ = [
     "CommandRunner",
+    "DockerRunner",
     "FirejailBackend",
     "PassthroughRunner",
     "SandboxSession",
