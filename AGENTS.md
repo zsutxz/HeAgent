@@ -6,9 +6,9 @@
 
 HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP server**。`SafetyGuard`、`PolicyEngine`、`ToolExecutor` 和 sandbox 后端**均非真正安全边界**（命令黑名单可绕过、工具返回内容无围栏进入上下文、prompt injection 无隔离）。
 
-**不可在不可信内容或不可信 LLM 输出下裸跑**——必须配 OS 级沙箱（容器/firejail）。修改安全相关代码时勿将其当作有效边界。
+**不可在不可信内容或不可信 LLM 输出下裸跑**——必须配 OS 级沙箱（容器/firejail；容器档 Docker 后端已于 2026-10-21 落地，`--sandbox docker` 显式启用，**默认链路未启用**）。修改安全相关代码时勿将其当作有效边界。
 
-MCP 特定风险：stdio server 拉起任意本地子进程、HTTP server 连任意远程端点、`Tool.annotations` 是 server 自声明不可信、工具输出启发式围栏不阻断——须 OS 级沙箱兜底。
+MCP 特定风险：stdio server 拉起任意本地子进程、HTTP server 连任意远程端点、`Tool.annotations` 是 server 自声明不可信、工具输出启发式围栏不阻断——须 OS 级沙箱兜底（container 档 Docker 后端不覆盖 MCP stdio——进容器挂 epic-53 期二 D53-1）。
 
 ## 文档布局
 
@@ -136,6 +136,6 @@ heagent http-server                # HTTP 网页入口（127.0.0.1:8766，需 pi
 
 完整清单见 `docs/frame.md` 五与 `_bmad-output/implementation-artifacts/deferred-work-archive.md`。
 
-核心立场：`SafetyGuard`/`PolicyEngine`/sandbox 均非真正安全边界，须 OS 级沙箱兜底。
+核心立场：`SafetyGuard`/`PolicyEngine`/sandbox 均非真正安全边界，须 OS 级沙箱兜底（shell 路径的兜底实施项 = container 档 Docker 后端，Epic 53 期一，默认未启用、非绝对边界；MCP stdio 未覆盖）。
 
 活动缺口：MCP stdio server 子进程不经沙箱（中-高）；会话文件并发写主害已由 `save(base=...)` 保守合并闭合（2026-09-27，Z-D21），残余登记 A34 挂起待裁定（低）；技能资源 TOCTOU 残余竞态已专项评估（2026-10-20）：窗口收窄至组件级（POSIX 逐组件 openat）/与硬化前同宽（Windows 回退通道），全部窗口不跨越可提升信任域（能赢竞态者无需竞态即可直写技能根或经 shell 直读凭证），裁定不另立收窄周期，维持 OS 沙箱兜底立场——正文见总账「跨周期勘察与裁定索引」。
