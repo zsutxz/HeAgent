@@ -72,9 +72,11 @@ def _resolve_command_runner(
     if backend == "docker":
         from heagent.tools.sandbox import DockerRunner
 
-        # 53-1：镜像 / 网络档的 Settings 配置面在 53-2 落地；此处以模块默认值
-        # （python:3.11-slim / --network=none）构造，可用性探测缓存在实例上。
-        return DockerRunner()
+        # 配置面（53-2）：镜像换=工具链换；网络档按 brief D2——SANDBOX_NETWORK=True 才 bridge。
+        return DockerRunner(
+            image=settings.sandbox_docker_image,
+            network="bridge" if settings.sandbox_network else "none",
+        )
     return None
 
 
@@ -282,9 +284,7 @@ class EngineContainer:
             requested_backend=settings.sandbox_backend,
             effective_backend=effective_backend,
             filesystem_isolation=effective_backend in {"firejail", "docker"},
-            network_isolation=(
-                effective_backend == "firejail" and not settings.sandbox_network
-            )
+            network_isolation=(effective_backend == "firejail" and not settings.sandbox_network)
             or (
                 effective_backend == "docker"
                 and command_runner is not None

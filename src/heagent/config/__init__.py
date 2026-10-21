@@ -290,7 +290,8 @@ class Settings(BaseSettings):
     # "auto"（默认）= 探测可用后端：firejail 可用则用（Linux/macOS），否则 passthrough。
     #   Windows 的 "winjob" 需显式指定——WinJob 无文件系统隔离，自动启用会改变所有
     #   shell 命令的进程语义而收益有限（故 auto 不选它）。
-    # "passthrough" = 零隔离；"firejail" = FirejailBackend；"winjob" = WinJobBackend。
+    # "passthrough" = 零隔离；"firejail" = FirejailBackend；"winjob" = WinJobBackend；
+    #   "docker" = DockerRunner（Epic 53，CONTAINER 档：每命令一次性容器，OS 级强隔离兜底）。
     # CLI --sandbox flag 可覆盖；显式指定而不可用时降级 Passthrough 并告警。
     sandbox_backend: str = Field(default="auto")
     # 权限档位（P0-2）：
@@ -300,7 +301,8 @@ class Settings(BaseSettings):
     # 非法值经 sandbox_mode_resolved 回退 workspace-write 并告警（不阻断启动）。
     sandbox_mode: str = Field(default="workspace-write")
     # 沙箱网络开关（P0-2）：False（默认）= 禁止子进程出站。仅真实沙箱后端可强制
-    # （firejail 映射为 --net=none）；passthrough / winjob 无网络隔离能力，会记提示
+    # （firejail 映射为 --net=none；docker 映射为 --network=none，True 时 bridge——brief D2）；
+    # passthrough / winjob 无网络隔离能力，会记提示
     # 而非假装生效。宿主进程内的 HTTP 工具（web_fetch）不受此开关约束。
     sandbox_network: bool = Field(default=False)
     # 沙箱强制开关（P0-2）：True（默认）= 探测到**真实**沙箱后端时，自动把 shell 纳入
@@ -309,6 +311,9 @@ class Settings(BaseSettings):
     sandbox_enforce: bool = Field(default=True)
     # firejail 可执行文件路径（PATH 查找或绝对路径）。
     sandbox_firejail_path: str = Field(default="firejail")
+    # docker 沙箱镜像（Epic 53 / brief D4）：Story 53-2 构建的镜像标签；基座
+    # python:3.11-slim 的 pin digest 见 docker/sandbox/Dockerfile。换镜像=换工具链，不改隔离语义。
+    sandbox_docker_image: str = Field(default="heagent-sandbox:3.11")
     # 沙箱会话目录开关（FR-1）：True 时每个 run 经 EngineContainer.create_run_context
     # 在 `<cwd>/.heagent/sandboxes/<run_id>/` 幂等创建 per-run workspace，并经
     # RunContext.metadata["sandbox_workspace"] 送达后端（Firejail 作 --private 根、

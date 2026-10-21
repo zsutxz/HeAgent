@@ -264,7 +264,7 @@ _RUN_OPTIONS = [
     click.option("--soul", default=None, help="Path to custom SOUL.md personality file"),
     click.option(
         "--sandbox",
-        type=click.Choice(["auto", "passthrough", "firejail", "winjob"]),
+        type=click.Choice(["auto", "passthrough", "firejail", "winjob", "docker"]),
         default=None,
         help="Sandbox backend for shell execution (default: auto = probe firejail)",
     ),

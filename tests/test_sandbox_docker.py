@@ -205,10 +205,20 @@ async def test_docker_failure_is_explicit_not_fallback(  # 判据9：运行期 d
     assert "called" not in fallbacks  # 不降级：静默回透传会伪造「已在沙箱里跑」
 
 
-def test_resolver_builds_docker_runner():  # 判据10：engine 选择分支（53-2 接 Settings 前走模块默认）
+def test_resolver_builds_docker_runner():  # 判据10：engine 选择分支吃 Settings（镜像 + 网络档 D2）
+    from types import SimpleNamespace
+
     from heagent.engine.container import _resolve_command_runner
     from heagent.tools.sandbox.docker import DockerRunner as _DR
 
-    runner = _resolve_command_runner(None, "docker", None)
+    settings = SimpleNamespace(sandbox_docker_image="heagent-sandbox:3.11", sandbox_network=False)
+    runner = _resolve_command_runner(settings, "docker", None)
     assert isinstance(runner, _DR)
     assert runner.tier is SandboxTier.CONTAINER
+    assert runner.isolates_network() is True
+
+    bridged = _resolve_command_runner(
+        SimpleNamespace(sandbox_docker_image="img:x", sandbox_network=True), "docker", None
+    )
+    assert bridged.isolates_network() is False
+    assert "img:x" in repr(bridged)
