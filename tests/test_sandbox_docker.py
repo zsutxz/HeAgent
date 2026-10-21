@@ -222,3 +222,34 @@ def test_resolver_builds_docker_runner():  # 判据10：engine 选择分支吃 S
     )
     assert bridged.isolates_network() is False
     assert "img:x" in repr(bridged)
+
+
+def test_sandbox_decision_full_chain_docker(
+    monkeypatch: pytest.MonkeyPatch,
+):  # 判据11：Settings→resolver→runner→decision→executor→元数据全链
+    from heagent.config import Settings
+    from heagent.engine.container import EngineContainer
+
+    # 可用链：docker 档 runner 注入 executor，decision 三事实 + run 上下文元数据同源
+    monkeypatch.setattr("heagent.tools.sandbox.DockerRunner.available", True)
+    engine = EngineContainer.default(settings=Settings(_env_file=None, sandbox_backend="docker"))
+    runner = engine.executor.sandbox_runner
+    assert isinstance(runner, DockerRunner) and runner.tier is SandboxTier.CONTAINER
+    decision = engine.sandbox_decision
+    assert decision.requested_backend == "docker"
+    assert decision.effective_backend == "docker"
+    assert decision.filesystem_isolation is True
+    assert decision.network_isolation is True  # --network=none 默认（brief D2）
+    ctx = engine.create_run_context()
+    assert ctx.metadata["sandbox_decision"]["effective_backend"] == "docker"
+
+    # bridge 档：SANDBOX_NETWORK=True 显式开启后网络隔离事实翻转
+    bridged = EngineContainer.default(settings=Settings(_env_file=None, sandbox_backend="docker", sandbox_network=True))
+    assert bridged.sandbox_decision.network_isolation is False
+
+    # 不可用链：decision 诚实降级——effective passthrough、隔离双 False
+    monkeypatch.setattr("heagent.tools.sandbox.DockerRunner.available", False)
+    degraded = EngineContainer.default(settings=Settings(_env_file=None, sandbox_backend="docker"))
+    assert degraded.sandbox_decision.effective_backend == "passthrough"
+    assert degraded.sandbox_decision.filesystem_isolation is False
+    assert degraded.sandbox_decision.network_isolation is False
