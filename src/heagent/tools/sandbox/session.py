@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from heagent.tools.runtime import RuntimeSlot
+from heagent.tools.sandbox.docker import CONTAINER_WORKDIR, DockerRunner
 from heagent.tools.sandbox.process import get_command_runner
 from heagent.tools.sandbox.winjob import WinJobBackend
 
@@ -90,6 +91,9 @@ class SandboxSession:
     def __init__(self, workspace: str | Path) -> None:
         self.workspace = Path(workspace)
         self.cwd: Path = self.workspace
+        # docker 后端的**容器侧** cwd（宿主路径无法直接 cd——挂载点固定 /workspace）；
+        # 与宿主侧 self.cwd 并行维护，teardown 仍用宿主 self.workspace。
+        self._docker_cwd: str = CONTAINER_WORKDIR
 
     def _wrap(self, command: str, *, cmd_shell: bool) -> str:
         """把命令包装成「在 session.cwd 下执行 + 末尾上报新 cwd（marker 行 + 路径行）+ 退出码保持」。
@@ -119,6 +123,19 @@ class SandboxSession:
                 path = lines[i + 1].strip()
                 if path:
                     return Path(path)
+        return None
+
+    @staticmethod
+    def _extract_cwd_raw(output: str) -> str | None:
+        """marker 行后一行的**原始字符串**（不过 ``Path`` 规范化——docker 容器侧路径是 POSIX 形态，
+        Windows 宿主的 ``Path`` 会把它改写成反斜杠）。"""
+        lines = output.splitlines()
+        for i, line in enumerate(lines):
+            parts = line.strip().split()
+            if parts and parts[0] == _MARKER and i + 1 < len(lines):
+                path = lines[i + 1].strip()
+                if path:
+                    return path
         return None
 
     @staticmethod
@@ -161,10 +178,29 @@ class SandboxSession:
         rest = result[nl:] if nl >= 0 else ""
         return f"exit_code={rc}{rest}"
 
+    def _wrap_docker(self, command: str) -> str:
+        """docker 后端专用 wrap：容器内 cwd 保持 + POSIX marker + 退出码复原。
+
+        宿主路径无法直接 cd——挂载点固定 ``/workspace``，cwd 跟踪用容器侧路径
+        （``self._docker_cwd``）；wrap 形态与 POSIX 分支同型（`cd` + 分组 + marker + exit 复原）。
+        """
+        return f'cd "{self._docker_cwd}" && {{ {command}; }}; __rc=$?; printf "\n{_MARKER}\n%s\n" "$PWD"; exit "$__rc"'
+
     async def run(self, command: str, *, timeout: int) -> str:
         """在当前会话执行命令：cd 前缀 + 执行 + cwd/rc 回填 + 输出清理。"""
         runner = get_command_runner()
-        # Windows 上 create_subprocess_shell 走 cmd.exe（Passthrough/WinJob 均 cmd）；
+        if isinstance(runner, DockerRunner):
+            # docker 后端（审查修复批）：cd 用容器侧 cwd，宿主 cmd/POSIX wrap 不适用
+            # （宿主路径在容器内不存在；Windows 宿主的 cmd wrap 语法喂给 sh 必坏）。
+            result = await runner.run(self._wrap_docker(command), timeout=timeout)
+            new_container_cwd = self._extract_cwd_raw(result)
+            if new_container_cwd is not None:
+                self._docker_cwd = new_container_cwd
+            rc = self._extract_rc(result)
+            if rc is not None:
+                result = self._rewrite_exit_code(result, rc)
+            return self._strip_marker(result)
+        # Windows 上 create_subprocess_shell 走 cmd wrap（Passthrough/WinJob 均 cmd）；
         # Linux 上 sh（Passthrough/Firejail 均 POSIX）。WinJob 恒 cmd。
         cmd_shell = isinstance(runner, WinJobBackend) or sys.platform == "win32"
         result = await runner.run(self._wrap(command, cmd_shell=cmd_shell), timeout=timeout)

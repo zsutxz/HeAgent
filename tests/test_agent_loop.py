@@ -909,6 +909,45 @@ class TestSandboxWorkspaceVisibility:
         assert "<shell-workspace>" in system
         assert str(session) in system
 
+    def test_prompt_block_names_container_workdir_for_docker(self) -> None:
+        """docker 后端：块内追加容器侧路径锚——模型拿宿主路径写 shell 命令必然落空。"""
+        from heagent.agent.system_prompt import build_system_prompt
+
+        system = build_system_prompt(
+            None,
+            "",
+            soul=None,
+            context_dir=None,
+            skills=None,
+            facts=None,
+            profile=None,
+            sandbox_workspace="/host/sess",
+            container_workdir="/workspace",
+        )
+
+        assert system is not None
+        assert "/workspace" in system
+        assert "mounted at /workspace" in system
+
+    def test_prompt_block_omits_container_note_without_docker(self) -> None:
+        """非容器后端：不得出现容器措辞（否则模型会把宿主路径写成 /workspace）。"""
+        from heagent.agent.system_prompt import build_system_prompt
+
+        system = build_system_prompt(
+            None,
+            "",
+            soul=None,
+            context_dir=None,
+            skills=None,
+            facts=None,
+            profile=None,
+            sandbox_workspace="/host/sess",
+        )
+
+        assert system is not None
+        assert "container" not in system.lower()
+        assert "mounted at" not in system
+
     def test_prompt_block_absent_without_workspace(self) -> None:
         """未生效（None/空串）时不注入——宁可不提示，也不报一个与真实 cwd 不符的路径。"""
         from heagent.agent.system_prompt import build_system_prompt
@@ -987,3 +1026,54 @@ class TestSandboxWorkspaceVisibility:
         # 故断言「任何 SYSTEM 消息都不含该块」，而非假定一定有一条。
         systems = [m.content for m in provider.calls[0] if m.role == Role.SYSTEM]
         assert all("<shell-workspace>" not in (content or "") for content in systems)
+
+
+class TestContainerWorkdirAnchor:
+    """审查修复批 D：容器内工作目录锚只在 docker 后端**实际生效**时给出。
+
+    与 ``_bound_sandbox_workspace`` 同源判定——报错路径比不报更坏（E40-D2 同型立场）。
+    """
+
+    @staticmethod
+    def _loop_with(runner: object) -> tuple[AgentLoop, object]:
+        from heagent.engine import EngineContainer
+
+        engine = EngineContainer(command_runner=runner)  # type: ignore[arg-type]
+        loop = AgentLoop(StubProvider([_final("done")]), engine=engine, max_iterations=5)
+        return loop, engine
+
+    def _ctx(self, **metadata: object):
+        from heagent.engine.context import RunContext
+
+        return RunContext(metadata=dict(metadata))
+
+    def test_container_workdir_for_docker_backend(self) -> None:
+        """docker 后端 + 决策报 docker → 给出 ``/workspace``。"""
+        from heagent.tools.sandbox.docker import DockerRunner
+
+        loop, _engine = self._loop_with(DockerRunner())
+        ctx = self._ctx(sandbox_decision={"effective_backend": "docker"})
+        assert loop._bound_container_workdir(ctx) == "/workspace"
+
+    def test_no_workdir_for_non_docker_backend(self) -> None:
+        """firejail 后端：宿主路径就是 shell 的真实 cwd，不该提容器内路径。"""
+        from heagent.tools.sandbox.docker import DockerRunner
+
+        loop, _engine = self._loop_with(DockerRunner())
+        ctx = self._ctx(sandbox_decision={"effective_backend": "firejail"})
+        assert loop._bound_container_workdir(ctx) is None
+
+    def test_no_workdir_when_no_runner(self) -> None:
+        """无沙箱后端（决策即便残留 docker 字样）→ None：与 ``_bound_sandbox_workspace`` 同口径。"""
+        loop, _engine = self._loop_with(None)
+        ctx = self._ctx(sandbox_decision={"effective_backend": "docker"})
+        assert loop._bound_container_workdir(ctx) is None
+
+    def test_no_workdir_without_decision_metadata(self) -> None:
+        """metadata 缺 ``sandbox_decision`` / 形状可疑 → None（不猜）。"""
+        from heagent.tools.sandbox.docker import DockerRunner
+
+        loop, _engine = self._loop_with(DockerRunner())
+        assert loop._bound_container_workdir(self._ctx()) is None
+        assert loop._bound_container_workdir(self._ctx(sandbox_decision="docker")) is None
+        assert loop._bound_container_workdir(self._ctx(sandbox_decision=None)) is None

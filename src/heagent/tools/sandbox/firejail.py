@@ -119,6 +119,10 @@ class FirejailBackend:
         argv.extend(["--", "sh", "-c", command])
         return argv
 
+    def isolates_network(self) -> bool:
+        """``--net=none`` 追加与否的事实源（``sandbox_network=False`` ⇒ 隔离态）——Protocol 契约。"""
+        return not self._network
+
     async def run(self, command: str, *, timeout: int) -> str:
         # FR-S3：优雅降级——firejail 不可用时走 Passthrough
         if not self._firejail_available:

@@ -179,6 +179,7 @@ async def init_new_run(
         system,
         prompt=prompt,
         sandbox_workspace=loop._bound_sandbox_workspace(run_context),
+        container_workdir=loop._bound_container_workdir(run_context),
     )
     if system_content:
         state.messages.append(Message(role=Role.SYSTEM, content=system_content))

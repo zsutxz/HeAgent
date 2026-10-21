@@ -1299,6 +1299,64 @@ async def test_session_preserves_tail_marker_after_stdout_truncation(tmp_path: P
     assert "[truncated]" in result
 
 
+# ── docker 后端的会话 cwd（容器侧路径，审查修复批 2026-10-21）────────────────
+
+
+def _docker_session_runner(tmp_path: Path, outputs: list[str]) -> object:
+    """构造真 ``DockerRunner`` 子类：只替换 ``run`` 以捕获 wrap 文本并回放预置输出。"""
+    from heagent.tools.sandbox.docker import DockerRunner
+
+    captured: list[str] = []
+
+    class _Capturing(DockerRunner):
+        async def run(self, command: str, *, timeout: int) -> str:
+            captured.append(command)
+            return outputs.pop(0) if outputs else "exit_code=0\n"
+
+    runner = _Capturing(docker_path="docker", workspace=tmp_path)
+    return runner, captured  # type: ignore[return-value]
+
+
+def test_extract_cwd_raw_keeps_posix_shape() -> None:
+    """容器侧路径必须是原始 POSIX 字符串——``Path`` 在 Windows 宿主会改写成反斜杠。"""
+    out = "exit_code=0\nstdout:\nHEAGENT_CWD\n/workspace/sub\nstderr:\n"
+    assert SandboxSession._extract_cwd_raw(out) == "/workspace/sub"
+    assert SandboxSession._extract_cwd_raw("exit_code=0\nstdout:\nhello\n") is None
+
+
+@pytest.mark.asyncio
+async def test_docker_session_cwd_persists_across_commands(tmp_path: Path) -> None:
+    """容器内 ``cd sub`` 后，下一条命令从 ``/workspace/sub`` 起步（容器侧 cwd 跨命令保持）。"""
+    runner, captured = _docker_session_runner(  # type: ignore[misc]
+        tmp_path,
+        [
+            "exit_code=0\nstdout:\nHEAGENT_CWD\n/workspace/sub\nstderr:\n",
+            "exit_code=0\nstdout:\nHEAGENT_CWD\n/workspace/sub\nstderr:\n",
+        ],
+    )
+    s = SandboxSession(tmp_path)
+    with bind_command_runner(runner):  # type: ignore[arg-type]
+        await s.run("mkdir sub && cd sub", timeout=10)
+        await s.run("pwd", timeout=10)
+
+    assert 'cd "/workspace/sub"' in captured[1]
+    assert s.cwd == tmp_path, "容器侧 cwd 不得污染宿主侧 cwd"
+
+
+@pytest.mark.asyncio
+async def test_docker_session_rewrites_exit_code(tmp_path: Path) -> None:
+    """容器侧 rc 回填与 POSIX 分支同型：marker 带回的真实退出码覆盖进程级 exit_code。"""
+    runner, _captured = _docker_session_runner(  # type: ignore[misc]
+        tmp_path, ["exit_code=0\nstdout:\noops\nHEAGENT_CWD 4\n/workspace\nstderr:\n"]
+    )
+    s = SandboxSession(tmp_path)
+    with bind_command_runner(runner):  # type: ignore[arg-type]
+        result = await s.run("false", timeout=10)
+
+    assert result.startswith("exit_code=4")
+    assert "HEAGENT_CWD" not in result
+
+
 def test_format_result_leaves_small_output_untouched() -> None:
     assert _format_result(1, b"ok", b"warn\n") == "exit_code=1\nstdout:\nokstderr:\nwarn\n"
     assert _format_result(None, b"", b"") == "exit_code=None\n"

@@ -83,21 +83,36 @@ def _code_citations() -> dict[str, list[str]]:
     return cited
 
 
+def _active_rows() -> list[list[str]]:
+    """总账活动区**数据行**（口径统一处，审查修复批 H）：首格含 ID token（含数字）即数据行。
+
+    表头（首格 ``ID`` 无数字）与分隔线自动排除——弃用「含连字符真超集」的脆弱判据
+    （纯中文活动行不含 ``-`` 时会从计数中消失，契约反而冻结错误计数）。
+    """
+    lines = _lines(ARCHIVE)
+    start = _heading_index(lines, "## 活动（未闭合）条目")
+    end = _heading_index(lines, "## 已按 Epic 归档")
+    rows = []
+    for line in lines[start:end]:
+        if line.startswith("|"):
+            cells = _cells(line)
+            if cells and _token(cells[0]):
+                rows.append(cells)
+    return rows
+
+
 def test_archive_uses_the_current_compact_shape() -> None:
     """活动区允许非空（0e8a330 起挂起待裁定项可驻留总账），但表形与计数必须诚实。"""
     lines = _lines(ARCHIVE)
     start = _heading_index(lines, "## 活动（未闭合）条目")
     end = _heading_index(lines, "## 已按 Epic 归档")
-    # 数据行 = 以 "|" 起始且含分隔线之外的字符（分隔线字符集 ⊆ {-, |, 空格}）
-    data_rows = [line for line in lines[start:end] if line.startswith("|") and set(line.strip("| ")) - {"-", "|", " "}]
+    data_rows = _active_rows()
     assert data_rows, "active zone has no table rows"
-    for line in data_rows:
-        assert len(_cells(line)) == 4, f"active row is not 4 cells: {line[:60]}"
+    for row in data_rows:
+        assert len(row) == 4, f"active row is not 4 cells: {row}"
     declared = re.search(r"当前活动项为 (\d+) 条", lines[2])
-    assert declared is not None, "archive header does not declare the active count"
-    assert int(declared.group(1)) == len(data_rows) - 1, (
-        f"header declares {declared.group(1)}, table has {len(data_rows) - 1}"
-    )
+    assert declared is not None, "archive header must declare the active count"
+    assert int(declared.group(1)) == len(data_rows), f"header declares {declared.group(1)}, table has {len(data_rows)}"
     assert not any(line.startswith("## A 编号登记表") for line in lines[start:end])
 
 
@@ -171,12 +186,15 @@ def test_epic_ledgers_without_id_sections_carry_a_no_active_marker() -> None:
 
 def test_active_count_declarations_match_the_archive() -> None:
     """凡声明活动计数处，声明值必须等于总账活动区实际行数（历史叙事中的非现行计数不在此列）。"""
-    actual = len(_table(ARCHIVE, "## 活动（未闭合）条目"))
+    actual = len(_active_rows())
     sites = (
         ARCHIVE,
         OVERVIEW,
         ROOT / "_bmad-output" / "README.md",
         ROOT / "_bmad-output" / "retrospective-all-cycles.md",
+        # implementation-artifacts/README.md 也声明计数（53-3 刷新）——ver-gap 修复：缺它则
+        # 该点回退 0 条时全量门照绿。文本形如「活动项 3 条（…）」，与上方正则天然匹配。
+        ROOT / "_bmad-output" / "implementation-artifacts" / "README.md",
     )
     for path in sites:
         text = path.read_text(encoding="utf-8")

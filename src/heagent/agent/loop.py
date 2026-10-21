@@ -77,6 +77,7 @@ from heagent.pub.types import (
 )
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
+from heagent.tools.sandbox.docker import CONTAINER_WORKDIR
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Awaitable, Callable, Iterator
@@ -416,7 +417,11 @@ class AgentLoop:
     # ------------------------------------------------------------------
 
     def _build_system(
-        self, user_system: str | None, prompt: str = "", sandbox_workspace: str | None = None
+        self,
+        user_system: str | None,
+        prompt: str = "",
+        sandbox_workspace: str | None = None,
+        container_workdir: str | None = None,
     ) -> str | None:
         """合并生成系统提示词（委托 :func:`build_system_prompt`，保留 skills.record_usage 副作用）。"""
         return build_system_prompt(
@@ -428,6 +433,7 @@ class AgentLoop:
             facts=self.facts,
             profile=self.profile,
             sandbox_workspace=sandbox_workspace,
+            container_workdir=container_workdir,
             settings=self._runtime,
         )
 
@@ -443,6 +449,18 @@ class AgentLoop:
             return None
         value = run_context.metadata.get("sandbox_workspace")
         return value if isinstance(value, str) and value else None
+
+    def _bound_container_workdir(self, run_context: RunContext) -> str | None:
+        """本 run 的容器内工作目录锚（docker 后端且会话目录生效时 ``/workspace``，否则 None）。
+
+        审查修复批 D：容器把会话目录挂载在固定路径，模型必须知道**容器侧**路径锚——否则
+        它拿宿主路径写 shell 命令必然落空。与 ``_bound_sandbox_workspace`` 同源判定。
+        """
+        if self.engine.executor.sandbox_runner is None:
+            return None
+        decision = run_context.metadata.get("sandbox_decision")
+        backend = decision.get("effective_backend") if isinstance(decision, dict) else None
+        return CONTAINER_WORKDIR if backend == "docker" else None
 
     def _get_tools(self) -> list[ToolSchema]:
         """取发送给 LLM 的工具 Schema 列表，按 policy 白名单过滤（P5-1）。

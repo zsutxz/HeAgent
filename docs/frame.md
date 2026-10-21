@@ -154,7 +154,7 @@ AgentLoop.run(prompt)
 | `slash.py` | 交互模式斜杠命令注册表 + `.heagent/commands/*.md` 用户自定义命令加载 | 顶层 `slash.py` |
 | `terminal.py` | 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断） | 顶层 `terminal.py` |
 | `wiring.py` | Provider 组合根 + `ensure_runtime_config` / `build_cron_job_runner`（CLI/GUI 共用） | 顶层 `wiring.py` |
-| `housekeeping.py` | 启动期运行时产物保留期回收（日志 / 会话 / 编辑快照 / 沙箱会话目录） | 顶层 `housekeeping.py` |
+| `housekeeping.py` | 启动期运行时产物保留期回收（日志 / 会话 / 编辑快照 / 沙箱会话目录 / 已停止 `heagent-*` 容器） | 顶层 `housekeeping.py` |
 
 **缝（monkeypatch 模块路径）按调用方分模块**：`_run_prompt` / `_run_single` 在 `interactive`（其调用方
 `_run_chat` 同模块）；console 的命令层用**函数内导入**读 `_run_single`；`_build_loop` 在 `composition`
@@ -446,7 +446,7 @@ SafetyGuard
 
 **FirejailBackend：** `profiles` dict（profile 名 → firejail 参数映射）供 `PolicyEngine` 裁决出的 profile 名选用（配置注入见下段）；`shutil.which` 构造期检测 firejail 可用性，不可用时 `run()` 优雅降级到 Passthrough（warn + 不崩溃）；Linux 进程组 killing（`start_new_session` + `os.killpg`）解决 `sh -c "cmd &"` 子孙泄漏；自动 `--private=<workspace_root>` OS 级文件系统隔离。⚠ `FirejailBackend` 仅隔离 shell 子进程、Linux-only、非完美边界——须 OS 级沙箱兜底。
 
-**DockerRunner（container 档首个实现，Epic 53 期一，2026-10-21）：** `tools/sandbox/docker.py`——每命令一次性容器、短命命令捕获形状（argv 组装恒以 `sh -c` 收尾，不容长命双向管道）；镜像经 `Settings.sandbox_docker_image`（默认 `heagent-sandbox:3.11`，构建文件 `docker/sandbox/Dockerfile` 以 digest pin `python:3.11-slim` 基座，`ARG BASE` 保留换源重建通道）；网络档按 brief D2——`--network=none` 默认，`SANDBOX_NETWORK=True` 才 bridge；workspace 以会话目录挂载 `/workspace` 并作容器工作目录；探测 = CLI 在 PATH 且 daemon 应答（单实例缓存），不可用时 `run()` 显性降级 Passthrough（warn + 不崩溃，同 Firejail 惯例；**运行期** docker 错误不降级、显性失败）；超时/取消经 `docker kill --name` 精确清理（杀 CLI 进程不停容器）。仅覆盖 `execute_in_sandbox` 注入的 shell 路径；宿主内核 / Docker daemon 自身逃逸风险仍在——container 档是 OS 级强隔离兜底、**非绝对边界**。
+**DockerRunner（container 档首个实现，Epic 53 期一，2026-10-21）：** `tools/sandbox/docker.py`——每命令一次性容器、短命命令捕获形状（argv 组装恒以 `sh -c` 收尾，不容长命双向管道）；镜像经 `Settings.sandbox_docker_image`（默认 `heagent-sandbox:3.11`，与 `DockerRunner.DEFAULT_IMAGE` 同源，交叉校验测试钉住；构建文件 `docker/sandbox/Dockerfile` 以 digest pin 基座，`ARG BASE` 保留换源重建通道）；网络档按 brief D2（决策记录 `_bmad-output/epics/epic-53-容器沙箱档周期/brief.md`）——`--network=none` 默认，`SANDBOX_NETWORK=True` 才 bridge；workspace 挂载 FR-1 会话目录优先、缺省回落 workspace_root（firejail `--private` 同型语义，不给静默无挂载）；容器硬化 `--cap-drop=ALL` + `no-new-privileges` + 非 root `sandbox` 用户；资源限额 `--memory`/`--pids-limit` 映射（`cpu_seconds` 无诚实映射，配置了打提示）；探测 = CLI 在 PATH 且 daemon 应答，resolver 期可用性闸（不可用告警回透传，事件/决策不再报 container 档），`run()` 内首触探测走线程池；超时/取消经 `docker kill -- <name>` 精确清理（kill 后校验、失败升级 WARNING + `rm -f` 兜底；杀 CLI 进程不停容器）。仅覆盖 `execute_in_sandbox` 注入的 shell 路径；宿主内核 / Docker daemon 自身逃逸风险仍在——container 档是 OS 级强隔离兜底、**非绝对边界**。
 
 **沙箱硬化配置接入：** 后端能力经四组配置项接入配置面（**默认全关闭，默认行为逐字节不变**）：① `SANDBOX_PROFILES`（JSON：profile 名 → firejail 参数表，如 `{"default": ["--seccomp", "--caps.drop=all"]}`）经 `container.default()` 传入 `FirejailBackend.profiles`——高级隔离参数（--seccomp/--caps 类）由此声明；② `SANDBOX_TOOL_PROFILES`（JSON：工具名 → profile 名）叠加进 `PolicyEngine.sandbox_profiles`，per-tool 差异化选用 profile（与代码内映射同形状，不引入新抽象）；③ 资源限额 `SANDBOX_MEMORY_LIMIT_MB` / `SANDBOX_CPU_SECONDS`（0=关闭）——firejail 映射 `--rlimit-as` / `--rlimit-cpu`（排在 profile 参数后、`--` 前），WinJob 映射 `JOB_OBJECT_LIMIT_JOB_MEMORY` / `JOB_OBJECT_LIMIT_PROCESS_TIME`（与恒开的 KILL_ON_JOB_CLOSE 按位或）；④ 进程数限额 `SANDBOX_NPROC_LIMIT`（0=关闭）——firejail 映射 `--rlimit-nproc`，WinJob 映射 `JOB_OBJECT_LIMIT_ACTIVE_PROCESS` + `ActiveProcessLimit`。**限额触发为显性失败**：子进程被终止 → 非零退出码经正常结果回传（对齐超时 `exit_code=-1` 先例），不静默截断输出；JSON 配置坏行/坏条目告警丢弃（对齐 `routing_pool_map` 容错）。⚠ 进程数限额两后端语义不对称：firejail 侧底层 `setrlimit(RLIMIT_NPROC)` 按**真实 UID** 计数（非 per-sandbox 作用域），WinJob 侧才是 job 作用域，故默认关闭。以上均 defense-in-depth，**非真正安全边界**，须 OS 级沙箱兜底。
 
@@ -828,7 +828,8 @@ HeAgentError (base)
 | `safety_blocked_tools` | `[]` | 工具名黑名单（**JSON 数组**，元素为正则片段、大小写不敏感）：命中即由 `SafetyGuard` 在执行前拦截，对内置 / shell / MCP 工具同等生效（默认空=不拦） |
 | `sandbox_backend` | `auto` | Shell 沙箱后端：`auto`（探测 firejail，缺则回退 passthrough）/ `passthrough` / `firejail` / `winjob`（Windows 需显式指定）/ `docker`（container 档，Epic 53，需 Docker daemon） |
 | `sandbox_firejail_path` | `firejail` | firejail 可执行文件路径（PATH 查找或绝对路径） |
-| `sandbox_docker_image` | `heagent-sandbox:3.11` | 容器档镜像（53-2 配置面）；换镜像=换容器内工具链，构建文件 `docker/sandbox/Dockerfile` |
+| `sandbox_docker_image` | `heagent-sandbox:3.11` | 容器档镜像（Epic 53 期一）；换镜像=换容器内工具链，构建文件 `docker/sandbox/Dockerfile` |
+| `sandbox_docker_digest` | `""` | 运行期 digest pin（Epic 53 审查修复批）：非空时首 run 前 inspect 校验本地 tag 的 repo digest，不符显性拒绝；构建后 `docker image inspect` 取值填入 |
 | `sandbox_mode` | `workspace-write` | 权限档位：`read-only`（只放行只读工具，未知工具 fail-closed）/ `workspace-write` / `danger-full-access`（跳过围栏与凭证 deny 预检）；非法值回退并告警 |
 | `sandbox_network` | False | 是否允许子进程出站；False 时 firejail 追加 `--net=none`、docker 追加 `--network=none`（即容器档默认隔离态，D2），True 时 docker 走 bridge（显式开启），其余后端记「网络隔离未生效」 |
 | `run_retention_days` | 7 | `.heagent/runs/` 运行快照（`<run_id>.json` + 配套 `.lock` + `<run_id>/` 产物目录）保留天数；全新 run 启动时清理一次（0=禁用）。`pub/persist.py` 刻意保留 `.lock`（规避 unlink 竞态），本项是 runs 侧唯一回收时机 |
@@ -845,9 +846,9 @@ HeAgentError (base)
 | `sandbox_env_allowlist` | `""` | 逗号分隔的 env 豁免变量名（如 `GITHUB_TOKEN`）：命中者不参与 `scrub_sensitive_env` 的敏感剥离；空=全剥离 |
 | `sandbox_profiles` | `""` | JSON：profile 名 → firejail 参数表（如 `{"default": ["--seccomp", "--caps.drop=all"]}`），高级隔离参数由此声明、默认关闭；坏 JSON/坏条目告警丢弃 |
 | `sandbox_tool_profiles` | `""` | JSON：工具名 → profile 名（per-tool 参数粒度），叠加进 `PolicyEngine.sandbox_profiles`；空=现状（缺省落 `default`） |
-| `sandbox_memory_limit_mb` | 0 | 沙箱 shell 内存限额（MB；firejail `--rlimit-as` / winjob Job Memory）；0=关闭。触发=子进程被终止 → 非零退出码（显性失败） |
-| `sandbox_cpu_seconds` | 0 | 沙箱 shell CPU 时间限额（秒；firejail `--rlimit-cpu` / winjob Process Time）；触发行为同上 |
-| `sandbox_nproc_limit` | 0 | 沙箱 shell 进程数限额（firejail `--rlimit-nproc` / winjob Active Process）；触发行为同上。⚠ 语义不对称：firejail 侧按**真实 UID** 计数（非 per-sandbox），winjob 侧为 job 作用域 |
+| `sandbox_memory_limit_mb` | 0 | 沙箱 shell 内存限额（MB；firejail `--rlimit-as` / winjob Job Memory / docker `--memory`）；0=关闭。触发=子进程被终止 → 非零退出码（显性失败） |
+| `sandbox_cpu_seconds` | 0 | 沙箱 shell CPU 时间限额（秒；firejail `--rlimit-cpu` / winjob Process Time）；触发行为同上。⚠ docker 后端**无诚实映射**（`--cpus` 是速率上限非时间上限）——配置了只打提示、不生效 |
+| `sandbox_nproc_limit` | 0 | 沙箱 shell 进程数限额（firejail `--rlimit-nproc` / winjob Active Process / docker `--pids-limit`）；触发行为同上。⚠ 语义不对称：firejail 侧按**真实 UID** 计数（非 per-sandbox），winjob 侧为 job 作用域 |
 | `http_host` | `127.0.0.1` | HTTP 网页入口绑定地址；非回环值启动时日志记一条 `event=exposed` 且 stderr 打印一行告警（判定单点复用 `network/exposure.py`） |
 | `http_port` | 8766 | HTTP 网页入口端口（1..65535；默认 8766） |
 | `http_port_auto_find_attempts` | 10 | 端口被占用时自动**顺延**的尝试次数（`port+1…`）；**默认 10 = 开启**（2026-10-15 契约修订：多开实例不冲突；原默认 0 = fail-loud，源自 Epic 49 Story 49-2——hang 根因「显式端口被改写」已修，显式 `--port` 契约保留）。Windows 下探测 socket 不设 `SO_REUSEADDR`，与真实监听语义一致，避免占用探测失真。2026-09-27 加入 |
@@ -1270,8 +1271,8 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 缺口 | 说明 |
 |------|------|
 | 流式 tool_calls 回退 | `run_stream()` 流式模式不返回 `tool_calls`，命中时回退 `send()` 重取（已知设计权衡） |
-| MCP / engine sandbox 安全边界 | `SafetyGuard` / `PolicyEngine` / `FirejailBackend` / MCP 围栏均非真正安全边界——shell 路径的 OS 级兜底实施项现为 container 档 Docker 后端（Epic 53 期一，2026-10-21；**默认链路未启用**，显式 `--sandbox docker` / env 选择；非绝对边界）；MCP stdio 仍在兜底之外（期二 D53-1） |
-| MCP stdio 子进程不在任何沙箱后端内（**2026-09-27 裁定：不实施**） | MCP stdio server 由 SDK 自行 `anyio.open_process` spawn，不经 `ToolExecutor.execute_in_sandbox` ⇒ Firejail/WinJob 零覆盖（无 FS 隔离、无 `--net=none`）。**裁定 (c) 不做**：闭合要先裁决**隔离档**（`--net=none` 会让靠网络连上游 API 的 server 全失效；`--private` 换 HOME 影响 token / 缓存落点），再新开一条「包裹 argv → 返回活进程」的 seam（既有后端只实现短命命令捕获的 `CommandRunner`，`_build_argv` 恒以 `sh -c` 收尾，形状容不下长命双向 JSON-RPC 管道），且 Windows 的 job 对象必须**创建时**指定（无该缝）。**env 不是暴露面**：SDK 只继承 `DEFAULT_INHERITED_ENV_VARS`（win32 12 项 / POSIX 6 项）并与显式 `env` 合并，不继承 `*_API_KEY` 等。⇒ 登记为**已知暴露面**，须整体 OS 级沙箱兜底；正文见 `_bmad-output/archive/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（Z-D24）。**2026-10-21 注**：container 档 Docker 后端已落地，本行兜底首次成为可实施项——MCP stdio 进容器挂 epic-53 期二（D53-1），2026-09-27 裁定不撤 |
+| MCP / engine sandbox 安全边界 | `SafetyGuard` / `PolicyEngine` / `FirejailBackend` / MCP 围栏均非真正安全边界——shell 路径的 OS 级兜底实施项现为 container 档 Docker 后端（Epic 53 期一，2026-10-21；**默认链路未启用**，显式 `--sandbox docker` / env 选择；非绝对边界） |
+| MCP stdio 子进程不在任何沙箱后端内（2026-09-27 裁定不实施；2026-10-21 起兜底可实施，挂 D53-1） | MCP stdio server 由 SDK 自行 `anyio.open_process` spawn，不经 `ToolExecutor.execute_in_sandbox` ⇒ Firejail/WinJob 零覆盖（无 FS 隔离、无 `--net=none`）。**裁定 (c) 不做**：闭合要先裁决**隔离档**（`--net=none` 会让靠网络连上游 API 的 server 全失效；`--private` 换 HOME 影响 token / 缓存落点），再新开一条「包裹 argv → 返回活进程」的 seam（既有后端只实现短命命令捕获的 `CommandRunner`，`_build_argv` 恒以 `sh -c` 收尾，形状容不下长命双向 JSON-RPC 管道），且 Windows 的 job 对象必须**创建时**指定（无该缝）。**env 不是暴露面**：SDK 只继承 `DEFAULT_INHERITED_ENV_VARS`（win32 12 项 / POSIX 6 项）并与显式 `env` 合并，不继承 `*_API_KEY` 等。⇒ 登记为**已知暴露面**，须整体 OS 级沙箱兜底；正文见 `_bmad-output/archive/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（Z-D24）。**2026-10-21 注**：container 档 Docker 后端已落地，本行兜底首次成为可实施项——MCP stdio 进容器挂 epic-53 期二（D53-1），2026-09-27 裁定不撤 |
 | 用户可配置 MCP 签名入口 | 项目级 `.heagent/injection_signatures.json` 已接入并进程内缓存；全局级配置仍 deferred；签名围栏仍是非真正安全边界 |
 | 凭证 deny 项目级配置入口 | `.heagent/path_deny.json`（2026-09-17）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒；非真正边界（见文件安全行） |
 | Dreaming 联网注入围栏 | `web_fetch` 返回路径已接 `guard_content`（Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；仍是非真正边界（标记仅 observable defense-in-depth），dreamer 须 OS 级沙箱兜底（见 4.6 dream.py） |
@@ -1322,7 +1323,7 @@ src/heagent/
 │   ├── slash.py             # 交互模式斜杠命令注册与路由（2026-09-26 自顶层迁入）
 │   ├── terminal.py          # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断；2026-09-26 自顶层迁入）
 │   ├── wiring.py            # Provider 组合根 + ensure_runtime_config / build_cron_job_runner（CLI/GUI 共用；2026-09-26 自顶层迁入）
-│   └── housekeeping.py      # 启动期运行时产物回收：日志 / 会话 / 编辑快照 / 崩溃 run 的沙箱会话目录（2026-09-26 自顶层迁入）
+│   └── housekeeping.py      # 启动期运行时产物回收：日志 / 会话 / 编辑快照 / 崩溃 run 的沙箱会话目录 / 已停止 heagent-* 容器（2026-09-26 自顶层迁入）
 ├── web/                     # 内置网页资源包（HTML/CSS/JS，随 wheel 分发；经 importlib.resources 读取）
 ├── pub/                     # 公共层：零 heagent 运行栈依赖（任何层可依赖；`__init__.py` 零 import，2026-09-26）
 │   ├── exceptions.py        # 异常层级

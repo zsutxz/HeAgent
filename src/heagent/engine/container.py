@@ -72,11 +72,29 @@ def _resolve_command_runner(
     if backend == "docker":
         from heagent.tools.sandbox import DockerRunner
 
-        # 配置面（53-2）：镜像换=工具链换；网络档按 brief D2——SANDBOX_NETWORK=True 才 bridge。
-        return DockerRunner(
+        # 可用性闸（审查修复批，对齐 winjob）：不可用只告警并回透传——装配期诚实于实际
+        # 隔离能力，杜绝「请求 container 档、事件报 container 档、执行全裸」的降级错位
+        # （run() 内的 Passthrough 兜底保留为纵深防御，不再是主降级路径）。
+        # 网络档按 brief D2：SANDBOX_NETWORK=True 才 bridge；workspace_root 兜底挂载
+        # （firejail --private 同型语义）；限额映射见 DockerRunner（cpu_seconds 无诚实映射）。
+        runner = DockerRunner(
             image=settings.sandbox_docker_image,
             network="bridge" if settings.sandbox_network else "none",
+            workspace=Path(workspace_root) if workspace_root else None,
+            memory_limit_mb=settings.sandbox_memory_limit_mb,
+            nproc_limit=settings.sandbox_nproc_limit,
+            digest=settings.sandbox_docker_digest or None,
         )
+        if settings.sandbox_cpu_seconds > 0:
+            logger.warning(
+                "SANDBOX_CPU_SECONDS=%d configured but docker backend has no honest CPU-time limit "
+                "(--cpus is a rate cap, not CPU seconds); the limit is NOT enforced",
+                settings.sandbox_cpu_seconds,
+            )
+        if not runner.available:
+            logger.warning("DockerRunner requested but not available; falling back to Passthrough")
+            return None
+        return runner
     return None
 
 
@@ -284,12 +302,12 @@ class EngineContainer:
             requested_backend=settings.sandbox_backend,
             effective_backend=effective_backend,
             filesystem_isolation=effective_backend in {"firejail", "docker"},
-            network_isolation=(effective_backend == "firejail" and not settings.sandbox_network)
-            or (
-                effective_backend == "docker"
-                and command_runner is not None
-                and getattr(command_runner, "isolates_network", lambda: False)()
-            ),
+            # 网络隔离事实源统一为 isolates_network()（Protocol 契约，四后端全实现）；
+            # effective_backend 闸防「决策档与实际后端不符」的注入路径，getattr 兜底仅防
+            # duck-typed runner 缺方法（fail-safe False）。
+            network_isolation=command_runner is not None
+            and command_runner.isolates_network()
+            and effective_backend in {"firejail", "docker"},
             reason=(
                 "passthrough explicitly selected"
                 if settings.sandbox_backend.strip().lower() == "passthrough"
@@ -311,10 +329,10 @@ class EngineContainer:
         # 未授权」导致 shell 全线被拒的整类故障。
         if settings.sandbox_enforce and command_runner is not None:
             container.policy.sandbox_tools.add("shell")
-            tier = getattr(getattr(command_runner, "tier", None), "value", None)
-            # container 档（DockerRunner）默认 --network=none，具备网络约束能力——不进
-            # 「无法约束出网」告警面；per-runner 网络档的精确判定随 53-2 配置面细化。
-            if not settings.sandbox_network and tier not in {"firejail", "container"}:
+            # 告警豁免按实际网络能力判定（审查修复批）：isolates_network() 为 Protocol 契约
+            # （四后端全实现），「档位够高但网络档错配」（bridge runner + 网络关）不再靠
+            # 档位集合豁免提示；daemon 不可达经 resolver 可用性闸已降级，不会走到这里。
+            if not settings.sandbox_network and not command_runner.isolates_network():
                 logger.info(
                     "SANDBOX_NETWORK=false but backend %r cannot restrict outbound traffic; "
                     "network isolation is NOT in effect",

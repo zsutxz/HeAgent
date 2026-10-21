@@ -7,9 +7,16 @@
 #
 # 工具链立场：只装 git + ca-certificates（git 为 shell 工作流高频依赖，CA 供 bridge 档 TLS）。
 # 其余按项目自备：容器默认 --network=none，pip 装包会显性失败——这是 D2 的立场而非缺陷。
+#
+# 非 root 用户（审查修复批 2026-10-21）：命令以 sandbox 运行（argv 同时带
+# --cap-drop=ALL + no-new-privileges），防 root-in-container；POSIX 宿主上挂载目录
+# 归属宿主用户时容器侧可能不可写——失败显性，chown 或挂载调整由宿主侧处理。
 ARG BASE=python:3.11-slim@sha256:e88e9763f943ec1834f992a4b51e0f24500486803e8bc534e5767af9ea65f6ce
 FROM ${BASE}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -s /bin/sh sandbox
+
+USER sandbox

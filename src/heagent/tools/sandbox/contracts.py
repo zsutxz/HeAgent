@@ -30,10 +30,9 @@ _TIER_RANK: dict[str, int] = {
 class SandboxTier(StrEnum):
     """沙箱后端强度分级（passthrough < job < firejail < container）。
 
-    强度递增；``container`` 档（OS 级强隔离，如 Docker / bubblewrap / AppContainer）
-    为预留枚举，当前无实现后端。仅 ``container`` 档允许审批降级
-    （:attr:`can_relax_approval`）——弱后端（passthrough/job/firejail）一律维持原
-    审批要求（NFR-2，测试锁定）。
+    强度递增；``container`` 档（OS 级强隔离）实现后端 = ``DockerRunner``（Epic 53）。
+    仅 ``container`` 档允许审批降级（:attr:`can_relax_approval`）——弱后端
+    （passthrough/job/firejail）一律维持原审批要求（NFR-2，测试锁定）。
     """
 
     PASSTHROUGH = "passthrough"
@@ -68,6 +67,14 @@ class CommandRunner(Protocol):
 
     async def run(self, command: str, *, timeout: int) -> str:
         """执行 ``command``，返回 ``exit_code=...\nstdout:...\nstderr:...`` 格式结果。"""
+        ...
+
+    def isolates_network(self) -> bool:
+        """后端当前是否实际约束出站网络（无约束能力的后端恒 False）。
+
+        SandboxDecision 的 ``network_isolation`` 事实源 + 「网络隔离未生效」告警面的判定点
+        ——按**实际能力**而非档位集合判定，避免「档位够高但网络档错配」时既无隔离也无提示。
+        """
         ...
 
 

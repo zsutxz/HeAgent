@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import subprocess
 import time
 from pathlib import Path
 from typing import Any
@@ -162,7 +163,7 @@ async def test_run_housekeeping_prunes_all_four_targets(tmp_path: Path) -> None:
 
     result = await run_housekeeping(settings=conf, workspace=tmp_path)
 
-    assert result == {"logs": 1, "sessions": 1, "snapshots": 1, "sandboxes": 1}
+    assert result == {"logs": 1, "sessions": 1, "snapshots": 1, "sandboxes": 1, "containers": 0}
     assert not old_log.exists()
     assert not session_file.exists()
     assert not snapshot_run.exists()
@@ -234,8 +235,146 @@ def test_sync_wrapper_short_circuits_when_all_disabled(tmp_path: Path, monkeypat
 
     monkeypatch.setattr("heagent.cli.housekeeping.run_housekeeping", _spy)
 
-    assert prune_runtime_artifacts_sync(conf) == {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0}
+    assert prune_runtime_artifacts_sync(conf) == {
+        "logs": 0,
+        "sessions": 0,
+        "snapshots": 0,
+        "sandboxes": 0,
+        "containers": 0,
+    }
     assert called is False
+
+
+# ── 已停止容器的回收（Epic 53 审查修复批：孤儿容器带着写挂载滞留）─────
+
+
+class _FakeDockerCli:
+    """``subprocess`` 替身：按 argv 的第二个 token（``ps``/``rm``）分派预置结果。
+
+    ``prune_exited_sandbox_containers`` 经 ``asyncio.to_thread(subprocess.run, argv, ...)``
+    调用，故替身只需实现 ``run`` 与两个异常类型。
+    """
+
+    TimeoutExpired = subprocess.TimeoutExpired
+
+    def __init__(self, *, ps: object = None, rm: object = None) -> None:
+        self.calls: list[list[str]] = []
+        self._ps = ps
+        self._rm = rm
+
+    def run(self, argv, **_kwargs):  # noqa: ANN001, ANN003
+        self.calls.append(list(argv))
+        result = self._ps if argv[1] == "ps" else self._rm
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
+
+def _cp(argv, returncode: int = 0, stdout: str = ""):  # noqa: ANN001, ANN202
+    return subprocess.CompletedProcess(argv, returncode, stdout=stdout, stderr="")
+
+
+async def test_prune_exited_containers_removes_listed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """列出的已停止 ``heagent-*`` 容器逐个 ``rm``，返回删除数。"""
+    fake = _FakeDockerCli(ps=_cp([], stdout="abc123\ndef456\n"), rm=_cp([]))
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(hk, "subprocess", fake)
+
+    assert await hk.prune_exited_sandbox_containers() == 2
+    rms = [c for c in fake.calls if c[1] == "rm"]
+    assert [c[-1] for c in rms] == ["abc123", "def456"]
+    # 只清**已停止**：过滤条件必须带 status=exited，运行中的活命令不可区分须一律不碰。
+    ps = next(c for c in fake.calls if c[1] == "ps")
+    assert "status=exited" in ps
+
+
+async def test_prune_exited_containers_skips_without_cli(monkeypatch: pytest.MonkeyPatch) -> None:
+    """容器后端缺席（docker 不在 PATH）静默跳过——不制造噪音，也不报错。"""
+    fake = _FakeDockerCli(ps=_cp([], stdout="abc123\n"), rm=_cp([]))
+    monkeypatch.setattr(shutil, "which", lambda name: None)
+    monkeypatch.setattr(hk, "subprocess", fake)
+
+    assert await hk.prune_exited_sandbox_containers() == 0
+    assert fake.calls == []
+
+
+async def test_prune_exited_containers_survives_ps_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``docker ps`` 失败（daemon 挂死/超时）返回 0，不上抛——best-effort 不阻断启动。"""
+    fake = _FakeDockerCli(ps=OSError("daemon gone"), rm=_cp([]))
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(hk, "subprocess", fake)
+
+    assert await hk.prune_exited_sandbox_containers() == 0
+
+
+async def test_prune_exited_containers_counts_only_successful_rm(  # noqa: ANN001
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """单条 ``rm`` 失败只记 warning 并留待下次，不影响其余条目，也不虚增返回计数。"""
+    removed: list[str] = []
+
+    class _Partial(_FakeDockerCli):
+        def run(self, argv, **_kwargs):
+            self.calls.append(list(argv))
+            if argv[1] == "ps":
+                return _cp(argv, stdout="ok1\nlocked\n")
+            if argv[-1] == "locked":
+                raise OSError("device busy")
+            removed.append(argv[-1])
+            return _cp(argv)
+
+    fake = _Partial()
+    monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(hk, "subprocess", fake)
+
+    with caplog.at_level(logging.WARNING, logger="heagent.cli.housekeeping"):
+        assert await hk.prune_exited_sandbox_containers() == 1
+    assert removed == ["ok1"]
+    assert any("left for next startup" in r.message for r in caplog.records)
+
+
+async def test_run_housekeeping_isolates_container_sweep_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """容器清扫抛错不拖垮其余四类，也不上抛（与既有逐类隔离同型）。"""
+    conf = _settings(tmp_path)
+
+    async def _boom() -> int:
+        raise OSError("docker exploded")
+
+    monkeypatch.setattr(hk, "prune_exited_sandbox_containers", _boom)
+
+    with caplog.at_level(logging.WARNING, logger="heagent.cli.housekeeping"):
+        result = await run_housekeeping(settings=conf, workspace=tmp_path)
+
+    assert result["containers"] == 0
+    assert any("container sweep failed" in r.message for r in caplog.records)
+
+
+def test_sync_wrapper_still_sweeps_when_retention_all_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """四类保留期全 0 时**仍然**扫一次容器（容器清扫不依赖保留期），且不进 run_housekeeping。"""
+    conf = _settings(
+        tmp_path,
+        log_retention_days=0,
+        session_retention_days=0,
+        edit_snapshot_retention_days=0,
+        sandbox_dir_retention_days=0,
+    )
+    # 上面的短路用例把 prune_exited_sandbox_containers 留在原实现（which("docker")=None → 0）；
+    # 这里替换成真返回 3，证明确实走到了清扫而不是被一概短路掉。
+    removed: list[bool] = []
+
+    async def _sweep() -> int:
+        removed.append(True)
+        return 3
+
+    monkeypatch.setattr(hk, "prune_exited_sandbox_containers", _sweep)
+
+    result = prune_runtime_artifacts_sync(conf)
+
+    assert removed == [True]
+    assert result["containers"] == 3
+    assert result["logs"] == 0
 
 
 # ── 沙箱会话目录回收（E40-D1：崩溃 run 的孤儿目录）────────────────────

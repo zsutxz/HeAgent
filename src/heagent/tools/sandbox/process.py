@@ -299,6 +299,10 @@ class PassthroughRunner:
         """passthrough 无任何平台依赖，恒可用。"""
         return True
 
+    def isolates_network(self) -> bool:
+        """透传无网络约束能力，恒 False（Protocol 契约，见 contracts.CommandRunner）。"""
+        return False
+
     async def run(self, command: str, *, timeout: int) -> str:
         return await _run_subprocess_shell(command, timeout=timeout)
 

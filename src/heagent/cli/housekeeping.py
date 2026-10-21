@@ -1,4 +1,4 @@
-"""CLI/GUI 启动时的运行时产物回收（日志 / 会话 / 编辑快照 / 沙箱会话目录）。
+"""CLI/GUI 启动时的运行时产物回收（日志 / 会话 / 编辑快照 / 沙箱会话目录 / 已停止容器）。
 
 **为什么单独放这里**：``.heagent/runs`` 与 ``.heagent/ledger`` 属 engine 的 run 级治理，
 由 ``EngineContainer.prune_*_once`` 在全新 run 启动时回收；而**日志**、**会话**
@@ -8,6 +8,11 @@
 文件（最老 101 天）、edit-snapshots 只增不减；沙箱会话目录则由 run 正常结束的 teardown
 删除，**崩溃 / SIGKILL 的 run 会留下孤儿目录**（E40-D1）。它们不依赖 engine（四类目录在
 CLI 启动时即为已知），故统一在本模块回收，由 CLI/GUI 启动时调用一次。
+
+第五类（Epic 53 审查修复批）是 **``heagent-*`` 已停止容器**：容器后端每命令一次性容器带
+``--rm``，但 kill 兜底也失败的孤儿 / daemon 崩溃时未兑现的残骸会带着 workspace 写挂载滞留。
+只清**已停止**的（运行中的可能是活命令，不可区分，一律不碰）；docker CLI 缺席静默跳过。
+它**不依赖保留期**（无 ``*_RETENTION_DAYS`` 开关），故四类保留期全 0 时仍单独跑一次。
 
 全部 **best-effort**：任何失败只记日志，绝不阻断启动——清理是维护动作，不是功能；
 保留期设为 ``*_RETENTION_DAYS=0`` 即整类禁用。
@@ -20,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -200,19 +206,62 @@ async def prune_sandbox_dirs(
     return outcome.deleted
 
 
+async def prune_exited_sandbox_containers() -> int:
+    """回收崩溃遗留的**已停止** ``heagent-*`` 容器（审查修复批）：返回删除数。
+
+    **为什么需要**：容器后端（Epic 53）的容器名前缀 ``heagent-``——kill 兜底也失败的
+    孤儿、daemon 崩溃时 ``--rm`` 未兑现的残骸，会带着 workspace 写挂载滞留。只清**已停止**
+    的（运行中的可能是活命令，不可区分，一律不碰）；容器后端缺席（CLI 不在 PATH）静默跳过。
+    best-effort：任何失败只记日志，不阻断启动。
+    """
+    import shutil as _shutil
+
+    if _shutil.which("docker") is None:
+        return 0
+    try:
+        listed = await asyncio.to_thread(
+            subprocess.run,
+            ["docker", "ps", "-a", "--filter", "name=heagent-", "--filter", "status=exited", "-q"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        logger.debug("container sweep: docker ps failed; skipping", exc_info=True)
+        return 0
+    if listed.returncode != 0 or not listed.stdout.strip():
+        return 0
+    removed = 0
+    for cid in listed.stdout.split():
+        try:
+            done = await asyncio.to_thread(
+                subprocess.run,
+                ["docker", "rm", "--", cid.strip()],
+                capture_output=True,
+                timeout=10,
+            )
+            if done.returncode == 0:
+                removed += 1
+        except (OSError, subprocess.TimeoutExpired):
+            logger.warning("container sweep: docker rm %s failed; left for next startup", cid.strip())
+    if removed:
+        logger.info("Container sweep removed %d exited heagent-* containers", removed)
+    return removed
+
+
 async def run_housekeeping(
     *, settings: Settings | None = None, workspace: Path | None = None, log_dir: Path | None = None
 ) -> dict[str, int]:
     """按 Settings 的保留期回收日志 / 会话 / 编辑快照 / 沙箱会话目录，返回各目标删除数。
 
-    四类各自独立 try：某一类失败（权限、路径不存在）不影响其余，也不影响启动流程。
+    五类各自独立 try：某一类失败（权限、路径不存在）不影响其余，也不影响启动流程。
     节流复用 ``PRUNE_MIN_INTERVAL_SECONDS``（与 runs/ledger 同一开关，各自独立标记文件）——
     短命 CLI 进程在间隔内启动时几乎零清理成本。
     """
     conf = settings or get_settings()
     interval = conf.prune_min_interval_seconds
     root = workspace or Path.cwd()
-    targets: dict[str, int] = {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0}
+    targets: dict[str, int] = {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0, "containers": 0}
 
     try:
         targets["logs"] = await prune_logs(
@@ -247,6 +296,11 @@ async def run_housekeeping(
     except Exception:
         logger.warning("sandbox session dir cleanup failed", exc_info=True)
 
+    try:
+        targets["containers"] = await prune_exited_sandbox_containers()
+    except Exception:
+        logger.warning("container sweep failed", exc_info=True)
+
     if any(targets.values()):
         logger.info("housekeeping pruned %s", ", ".join(f"{k}={v}" for k, v in targets.items() if v))
     return targets
@@ -268,7 +322,13 @@ def prune_runtime_artifacts_sync(
         or conf.edit_snapshot_retention_days
         or conf.sandbox_dir_retention_days
     ):
-        return {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0}
+        # 容器清扫不依赖保留期（永远 best-effort 跑一次）；其余四类保留期全 0 时仅清扫容器。
+        containers = 0
+        try:
+            containers = asyncio.run(prune_exited_sandbox_containers())
+        except RuntimeError:
+            logger.debug("container sweep skipped: running inside an event loop", exc_info=True)
+        return {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0, "containers": containers}
     try:
         return asyncio.run(run_housekeeping(settings=conf, workspace=workspace, log_dir=log_dir))
     except RuntimeError:

@@ -35,6 +35,7 @@ def build_system_prompt(
     facts: FactStore | None,
     profile: ProfileStore | None,
     sandbox_workspace: str | None = None,
+    container_workdir: str | None = None,
     settings: Settings | None = None,
 ) -> str | None:
     """合并生成一条系统提示词（含人格 / 项目上下文 / 沙箱工作目录 / 技能 / 记忆 / 用户画像）。
@@ -66,7 +67,7 @@ def build_system_prompt(
         _identity_block(soul),
         user_system,
         _project_context_block(context_dir, settings),
-        _shell_workspace_block(sandbox_workspace),
+        _shell_workspace_block(sandbox_workspace, container_workdir),
         _skills_block(skills, prompt, settings),
         _memory_block(facts, settings),
         _memory_nudge_block(facts, settings),
@@ -108,21 +109,28 @@ def _project_context_block(context_dir: str | None, settings: Settings | None = 
     return f"<project-context>\n{context}\n</project-context>"
 
 
-def _shell_workspace_block(sandbox_workspace: str | None) -> str | None:
+def _shell_workspace_block(sandbox_workspace: str | None, container_workdir: str | None = None) -> str | None:
     """``<shell-workspace>``：per-run shell 工作目录（仅**真正生效**时注入）。
 
     E40-D2：这是该目录暴露给模型的**唯一**通道（system prompt），而非 tool schema / result
-    ——单一来源避免两处说法漂移。
+    ——单一来源避免两处说法漂移。docker 后端追加容器侧路径锚（审查修复批 D）。
     """
     if not sandbox_workspace:
         return None
     logger.debug("Injected per-run shell workspace into system prompt: %s", sandbox_workspace)
+    container_note = (
+        f"\nShell commands run inside a one-shot Docker container: the directory above is mounted "
+        f"at {container_workdir} inside the container; use that path in shell commands.\n"
+        if container_workdir
+        else ""
+    )
     return (
         "<shell-workspace>\n"
         "Shell commands in this run start in this directory and keep their working directory "
         "across commands:\n"
-        f"{sandbox_workspace}\n\n"
-        "It is per-run scratch space. Relative paths in file tools resolve against the workspace "
+        f"{sandbox_workspace}\n"
+        f"{container_note}"
+        "\nIt is per-run scratch space. Relative paths in file tools resolve against the workspace "
         "root instead, so pass an absolute path when a shell command and a file tool must touch "
         "the same file.\n"
         "</shell-workspace>"

@@ -314,6 +314,10 @@ class Settings(BaseSettings):
     # docker 沙箱镜像（Epic 53 / brief D4）：Story 53-2 构建的镜像标签；基座
     # python:3.11-slim 的 pin digest 见 docker/sandbox/Dockerfile。换镜像=换工具链，不改隔离语义。
     sandbox_docker_image: str = Field(default="heagent-sandbox:3.11")
+    # docker 运行期 digest pin（审查修复批）：非空时首 run 前 inspect 校验本地 tag 的
+    # repo digest 以 sha256:<…> 结尾，不符显性拒绝——本地 tag 可被 retag 静默换载荷
+    # （D4 的运行期落实）。空（默认）= 不校验；构建后可用 `docker image inspect` 取值填入。
+    sandbox_docker_digest: str = Field(default="")
     # 沙箱会话目录开关（FR-1）：True 时每个 run 经 EngineContainer.create_run_context
     # 在 `<cwd>/.heagent/sandboxes/<run_id>/` 幂等创建 per-run workspace，并经
     # RunContext.metadata["sandbox_workspace"] 送达后端（Firejail 作 --private 根、

@@ -101,6 +101,10 @@ class WinJobBackend:
         """Windows Job Objects available on current platform."""
         return _winjob_platform_available()
 
+    def isolates_network(self) -> bool:
+        """Job Objects 无网络约束能力，恒 False（Protocol 契约，见 contracts.CommandRunner）。"""
+        return False
+
     async def run(self, command: str, *, timeout: int) -> str:
         if not self.available:
             logger.warning("WinJobBackend not available; falling back to Passthrough")
