@@ -2,7 +2,7 @@
 title: '56-1 WS server 拆分与端点迁移'
 type: 'feature'
 created: '2026-10-24'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 1
 baseline_commit: '38c0b8ee2cfc37a3ce4f8bd178610907a9eec5fc'

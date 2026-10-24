@@ -45,7 +45,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 10-24-2026 12:00
+last_updated: 10-24-2026 15:30
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -579,10 +579,10 @@ development_status:
   # （静态 token fail-closed）+ TLS 可选；本地模式保持 Epic 54/55 语义。
   # 经 WS 提交 run 翻 Epic 54 D2 案；配置/项目/会话只走本机 HTTP。
   # 阶段映射：A=56-1；B=56-2,56-3；C=56-4
-  epic-56: backlog
-  56-1-ws-server-split: backlog
-  56-2-external-mode-auth-tls: backlog
-  56-3-ws-run-submit: backlog
+  epic-56: in-progress
+  56-1-ws-server-split: done  # 2026-10-24 交付（67554d9）+ 三层自审 9 条发现全处置
+  56-2-external-mode-auth-tls: in-review  # 2026-10-24 实施完成（认证 fail-closed + TLS 可选），三层自审 10 条处置
+  56-3-ws-run-submit: in-review  # 2026-10-24 实施完成（集合级端点 /api/runs/ws + run 命令帧），三层自审 10 条处置
   56-4-docs-contracts-quality-gate: backlog
   epic-56-retrospective: optional
 action_items:
