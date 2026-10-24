@@ -1,6 +1,6 @@
 # Story 53-1 · DockerRunner 与注入接线
 
-状态：**review**（2026-10-21）——代码与判据全绿；真实 daemon 链路验证挂 53-2（镜像供给落地后跑 integration 用例）。
+状态：**done**（2026-10-21 判据全绿 + 变异体 6/6 精确变红；真实 daemon 链路已由 53-2 integration 3/3 实证。2026-10-24 用户 walkthrough 验收通过）。
 
 ## 范围
 

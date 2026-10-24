@@ -45,7 +45,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 10-09-2026 14:24
+last_updated: 10-24-2026 12:00
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -545,11 +545,11 @@ development_status:
   # 兜底，**非绝对边界**）。期二（MCP stdio 进容器 / 审批降级接入 PolicyEngine）见该 epic
   # 目录下 deferred-work.md（D53-1 / D53-2，挂起待用户裁定）。
   # 阶段映射：A=53-1；B=53-2；C=53-3
-  epic-53: in-progress
-  53-1-docker-runner: review
-  53-2-sandbox-image-config: review
-  53-3-docs-contracts-quality-gate: review
-  epic-53-retrospective: optional
+  epic-53: done  # 期一收口：2026-10-24 用户 walkthrough 验收通过；docker.io 直连验证残余转 D53-3（retro 更正：装配链已全接，walkthrough 误报已撤）
+  53-1-docker-runner: done
+  53-2-sandbox-image-config: done
+  53-3-docs-contracts-quality-gate: done
+  epic-53-retrospective: done
 
   # ═══════════════════════════════════════════════════════════════
   # WebSocket 入口周期 · Epic 54（2026-10-23 立项并登记本文件）
@@ -557,12 +557,12 @@ development_status:
   # 与 HTTP+SSE 并存、SSE 零改动；WS 升级的 Origin 防线由 WS 层自建（既有中间件不覆盖非 http scope）。
   # WS 同 HTTP：无认证 / 无 TLS / 非安全边界，OS 沙箱兜底立场不变。
   # 阶段映射：A=54-1；B=54-2；C=54-3；D=54-4
-  epic-54: in-progress
-  54-1-ws-protocol-frames: planned
-  54-2-deps-and-config: planned
-  54-3-ws-endpoint: planned
-  54-4-docs-contracts-quality-gate: planned
-  epic-54-retrospective: optional
+  epic-54: done  # 2026-10-24 收口纠正：4 story 交付物随 e554d19/ab83d3d → 压缩提交 98ef6d8 入库并随 0.8.2 发布；状态行自 planned 一次性纠正
+  54-1-ws-protocol-frames: done
+  54-2-deps-and-config: done
+  54-3-ws-endpoint: done
+  54-4-docs-contracts-quality-gate: done
+  epic-54-retrospective: done      # 未补做；需要时跑 bmad-retrospective
 
   # ═══════════════════════════════════════════════════════════════
   # CLI 旁路周期 · Epic 55（2026-10-23/24 实现，随压缩提交 98ef6d8 入库；2026-10-24 回溯补 brief 并登记本文件）
@@ -588,8 +588,8 @@ development_status:
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
     epic: 52
-    action: "真实 LLM 全链冒烟：用一个小 goal 走完 /goal new → next → run（含并行批授权与审计事件观察），顺带验证绑旧 revision
-      的 goal 在 resume 时的漂移处置"
+    action: "真实 LLM 全链冒烟：用一个小 goal 走完 /goal new → next → run（含并行批授权与审计事件观察），顺带验证绑旧
+      revision 的 goal 在 resume 时的漂移处置"
     owner: "tan"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-52-retro-2026-10-09.md"
@@ -606,3 +606,49 @@ action_items:
     owner: "tan"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-52-retro-2026-10-09.md"
+  - id: "epic-54-retro-item-4-裁定并修复-f4-test_http_ws_e2e-关停用例-assert-ta"
+    epic: 54
+    action: "裁定并修复 F4：test_http_ws_e2e 关停用例 assert task.done() 与 close() 契约冲突（HEAD
+      稳定红，见 epic-54 retro）——判定测试过断言或 close 提前返回并修复；挂入 Epic 56 期一顺带"
+    owner: "Epic 56 周期会话"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-54-retro-2026-10-24.md"
+  - id: "epic-54-retro-item-5-补-epic-54-测试缺口-随-epic-56-的-56-1-重建测试面-替身"
+    epic: 54
+    action: "补 Epic 54 测试缺口（随 Epic 56 的 56-1 重建测试面）：替身纯逻辑面 test_ws_server.py / WS
+      慢消费者判据 / 缺依赖 404 探针"
+    owner: "Epic 56 周期会话"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-54-retro-2026-10-24.md"
+  - id: "epic-54-retro-item-6-实现会话收尾清单增加状态回写步骤-story-文件状态头与-sprint-sta"
+    epic: 54
+    action: "实现会话收尾清单增加状态回写步骤：story 文件状态头与 sprint-status story 行实现后即时回写（Epic 54 全部漏回写的根因闭环）"
+    owner: "流程-所有实现会话"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-54-retro-2026-10-24.md"
+  - id: "epic-54-retro-item-7-squash-操作后必须真实创建并保留-backup-ref-98ef6d8-引"
+    epic: 54
+    action: "squash 操作后必须真实创建并保留 backup ref（98ef6d8 引用的 backup/pre-squash-abb406a
+      不存在），保留至验收期满"
+    owner: "流程-squash 会话"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-54-retro-2026-10-24.md"
+  - id: "epic-53-retro-item-8-评审前置规则并入实现会话收尾清单-与-epic-54-retro-a3-同一流程"
+    epic: 53
+    action: "评审前置规则并入实现会话收尾清单（与 epic-54 retro A3 同一流程位）：读 story 全文 + 行为验证先行于论断（walkthrough
+      误报事件根因闭环）"
+    owner: "流程-所有实现/评审会话"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-53-retro-2026-10-24.md"
+  - id: "epic-53-retro-item-9-政策-台账-纯-docs-类提交也跑契约测试子集-0e8a330-台账契约红-1"
+    epic: 53
+    action: "政策/台账/纯 docs 类提交也跑契约测试子集（0e8a330 台账契约红 1 天 + a545613 端口顺延，两例同根因）"
+    owner: "流程-提交纪律"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-53-retro-2026-10-24.md"
+  - id: "epic-53-retro-item-10-修复批硬化旗标补负向变异验证-删旗标必红-随期二或-epic-56-期一"
+    epic: 53
+    action: "修复批硬化旗标补负向变异验证（删旗标必红），随期二或 Epic 56 期一"
+    owner: "Epic 56 周期会话"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-53-retro-2026-10-24.md"

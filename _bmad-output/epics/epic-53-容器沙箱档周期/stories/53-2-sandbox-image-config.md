@@ -1,6 +1,6 @@
 # Story 53-2 · 镜像、配置面与网络档
 
-状态：**review**（2026-10-21）——单测 102 绿（含配置判据）+ **真实 daemon integration 3/3**；SandboxDecision 的 docker 路径全链判据挂 53-3 质量门。
+状态：**done**（2026-10-21 单测 102 绿 + **真实 daemon integration 3/3**；SandboxDecision 全链判据已由 53-3 判据 11 闭合。2026-10-24 用户 walkthrough 验收通过）。
 
 ## 交付物
 
