@@ -2,7 +2,7 @@
 title: '56-3 经 WS 提交 run'
 type: 'feature'
 created: '2026-10-24'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 1
 baseline_commit: '67554d9ecd2405ac688cc6671d0701d977be80fc'

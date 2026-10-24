@@ -45,7 +45,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 10-24-2026 15:30
+last_updated: 10-24-2026 16:40
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -579,12 +579,12 @@ development_status:
   # （静态 token fail-closed）+ TLS 可选；本地模式保持 Epic 54/55 语义。
   # 经 WS 提交 run 翻 Epic 54 D2 案；配置/项目/会话只走本机 HTTP。
   # 阶段映射：A=56-1；B=56-2,56-3；C=56-4
-  epic-56: in-progress
+  epic-56: done  # 2026-10-24 期一收口：4 story 全部交付 + 用户批准转 done；retro 已补做
   56-1-ws-server-split: done  # 2026-10-24 交付（67554d9）+ 三层自审 9 条发现全处置
-  56-2-external-mode-auth-tls: in-review  # 2026-10-24 实施完成（认证 fail-closed + TLS 可选），三层自审 10 条处置
-  56-3-ws-run-submit: in-review  # 2026-10-24 实施完成（集合级端点 /api/runs/ws + run 命令帧），三层自审 10 条处置
-  56-4-docs-contracts-quality-gate: backlog
-  epic-56-retrospective: optional
+  56-2-external-mode-auth-tls: done  # 2026-10-24（00e37b2）：认证 fail-closed + TLS 可选；三层自审 10 条处置
+  56-3-ws-run-submit: done  # 2026-10-24（00e37b2）：集合级端点 /api/runs/ws + run 命令帧；三层自审 10 条处置
+  56-4-docs-contracts-quality-gate: done  # 2026-10-24：文档/契约/质量门收口 + 3 条继承项闭环（F4 裁定、F5/F6 判据、9/9 变异）
+  epic-56-retrospective: done  # epic-56-retro-2026-10-24.md
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
     epic: 52
@@ -611,14 +611,14 @@ action_items:
     action: "裁定并修复 F4：test_http_ws_e2e 关停用例 assert task.done() 与 close() 契约冲突（HEAD
       稳定红，见 epic-54 retro）——判定测试过断言或 close 提前返回并修复；挂入 Epic 56 期一顺带"
     owner: "Epic 56 周期会话"
-    status: open
+    status: done  # 56-1 重写该用例时闭环：改为 await asyncio.wait_for(task) 后再断言（不再依赖「close 返回即调度巧合」）；56-4 复跑 10/10 绿，契约面见 story 56-4 Review Triage Log
     ref: "_bmad-output/implementation-artifacts/epic-54-retro-2026-10-24.md"
   - id: "epic-54-retro-item-5-补-epic-54-测试缺口-随-epic-56-的-56-1-重建测试面-替身"
     epic: 54
     action: "补 Epic 54 测试缺口（随 Epic 56 的 56-1 重建测试面）：替身纯逻辑面 test_ws_server.py / WS
       慢消费者判据 / 缺依赖 404 探针"
     owner: "Epic 56 周期会话"
-    status: open
+    status: done  # 替身面由 56-1 交付；慢消费者判据见 test_ws_server.py（56-4）；缺依赖 404 探针见 test_ws_missing_dependency.py（56-4）
     ref: "_bmad-output/implementation-artifacts/epic-54-retro-2026-10-24.md"
   - id: "epic-54-retro-item-6-实现会话收尾清单增加状态回写步骤-story-文件状态头与-sprint-sta"
     epic: 54
@@ -650,5 +650,5 @@ action_items:
     epic: 53
     action: "修复批硬化旗标补负向变异验证（删旗标必红），随期二或 Epic 56 期一"
     owner: "Epic 56 周期会话"
-    status: open
+    status: done  # 56-4 实测 9/9 变异体变红（.heagent/tmp/mutate_hardening.py：cap-drop / no-new-privileges / 非 root / network / --rm / --pull=never / --memory / --pids-limit / 位置前移）
     ref: "_bmad-output/implementation-artifacts/epic-53-retro-2026-10-24.md"

@@ -2,7 +2,7 @@
 title: '56-2 对外模式：认证与 TLS'
 type: 'feature'
 created: '2026-10-24'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 1
 baseline_commit: '67554d9ecd2405ac688cc6671d0701d977be80fc'
