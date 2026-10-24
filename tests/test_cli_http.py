@@ -50,9 +50,9 @@ def captured_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> dict[str,
     """把 ``_serve_web`` 换成「记录双 server 即返回」：参数断言不需要真的绑定端口。"""
     captured: dict[str, Any] = {}
 
-    async def fake_serve(http_server: HttpServer, ws_server: Any) -> None:
+    async def fake_serve(http_server: HttpServer, ws_servers: Any) -> None:
         captured["server"] = http_server
-        captured["ws"] = ws_server
+        captured["ws"] = ws_servers
 
     monkeypatch.setattr("heagent.cli.http._serve_web", fake_serve)
     monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: _StubProvider())
@@ -72,6 +72,9 @@ def test_help_lists_http_options() -> None:
         "--ws-host",
         "--ws-port",
         "--ws-max-connections",
+        "--ws-external-host",
+        "--ws-external-port",
+        "--ws-external-readonly",
         "--max-inflight-runs",
         "--max-request-bytes",
         "--event-buffer-size",
@@ -97,7 +100,7 @@ def test_ws_connection_limit_cli_override_reaches_config_without_mutating_settin
     result = CliRunner().invoke(main, ["http-server", "--ws-max-connections", "3"])
 
     assert result.exit_code == 0, result.output
-    assert captured_server["ws"].config.ws_max_connections == 3
+    assert captured_server["ws"][0].config.ws_max_connections == 3
     assert settings.ws_max_connections == 7
 
 
@@ -111,7 +114,7 @@ def test_ws_connection_limit_environment_value_reaches_config(
     result = CliRunner().invoke(main, ["http-server"])
 
     assert result.exit_code == 0, result.output
-    assert captured_server["ws"].config.ws_max_connections == 9
+    assert captured_server["ws"][0].config.ws_max_connections == 9
 
 
 def test_ws_listener_env_reaches_ws_server_config(
@@ -126,7 +129,7 @@ def test_ws_listener_env_reaches_ws_server_config(
     result = CliRunner().invoke(main, ["http-server"])
 
     assert result.exit_code == 0, result.output
-    ws_server = captured_server["ws"]
+    ws_server = captured_server["ws"][0]
     assert (ws_server.config.host, ws_server.config.port) == ("127.0.0.1", 9443)
 
 
@@ -685,11 +688,63 @@ def test_external_ws_bind_with_token_announces_token_and_plaintext(
     result = CliRunner().invoke(main, ["http-server", "--ws-host", "0.0.0.0"])
 
     assert result.exit_code == 0, result.output
-    assert captured_server["ws"].config.requires_auth is True
+    assert captured_server["ws"][0].config.requires_auth is True
     assert "WS_AUTH_TOKEN in the project .env is ignored" not in result.output
     assert "external WS mode without TLS" in result.output
     # token 绝不出现在命令输出里。
     assert "s3cret" not in result.output
+
+
+def test_external_listener_cli_overrides_build_a_second_listener(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer], tmp_path: Path
+) -> None:
+    """期二 D8：`--ws-external-host/--ws-external-port` 落到第二个 listener，主 listener 不受影响。"""
+    monkeypatch.setattr(Settings, "_user_setting_file", _write_user_setting(tmp_path, "s3cret"))
+    monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
+    reset_settings()
+
+    result = CliRunner().invoke(
+        main,
+        ["http-server", "--ws-external-host", "0.0.0.0", "--ws-external-port", "9202"],
+    )
+
+    assert result.exit_code == 0, result.output
+    servers = captured_server["ws"]
+    assert [server.config.mode for server in servers] == ["local", "external"]
+    assert servers[0].config.port == 9001
+    assert (servers[1].config.host, servers[1].config.port) == ("0.0.0.0", 9202)
+    # 对外那条按 mode 分流告警：不能套用 HTTP 的「no authentication」文案（它是 token 认证）。
+    assert "external mode; Bearer token required; PLAINTEXT" in result.output
+
+
+def test_external_readonly_cli_flag_reaches_the_listener(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer], tmp_path: Path
+) -> None:
+    """P2-A3：`--ws-external-readonly` 让对外 listener 只订阅、不提交（主 listener 不受影响）。"""
+    monkeypatch.setattr(Settings, "_user_setting_file", _write_user_setting(tmp_path, "s3cret"))
+
+    result = CliRunner().invoke(
+        main,
+        ["http-server", "--ws-external-host", "0.0.0.0", "--ws-external-readonly"],
+    )
+
+    assert result.exit_code == 0, result.output
+    servers = captured_server["ws"]
+    assert [server.config.readonly for server in servers] == [False, True]
+
+
+def test_external_listener_cli_override_rejects_a_loopback_host(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer], tmp_path: Path
+) -> None:
+    """期二 D8：CLI 覆盖同样走 fail-loud 校验（回环地址不是被静默忽略）。"""
+    monkeypatch.setattr(Settings, "_user_setting_file", _write_user_setting(tmp_path, "s3cret"))
+
+    result = CliRunner().invoke(main, ["http-server", "--ws-external-host", "127.0.0.1"])
+
+    assert result.exit_code == 1, result.output
+    assert "non-loopback" in result.output
+    assert "server" not in captured_server
+    assert "Traceback" not in result.output
 
 
 def test_project_env_token_is_reported_as_ignored(
@@ -703,4 +758,4 @@ def test_project_env_token_is_reported_as_ignored(
 
     assert result.exit_code == 0, result.output
     assert "WS_AUTH_TOKEN in the project .env is ignored" in result.output
-    assert captured_server["ws"].config.requires_auth is False
+    assert captured_server["ws"][0].config.requires_auth is False

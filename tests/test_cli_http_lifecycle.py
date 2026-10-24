@@ -46,10 +46,19 @@ def _free_port() -> int:
 
 
 def _assert_port_free(port: int) -> None:
-    """能立刻重新绑定 ⇒ 端口已释放（服务真的关了，而不是「忘了关但进程还活着」）。"""
+    """端口上已没有 listener：connect 必须被拒绝。
+
+    刻意**不用** ``bind`` 判定（2026-10-24，epic-56 retro P2-A1）：服务关闭后同一四元组进入
+    TIME_WAIT 是正常 OS 行为，``bind`` 会报 ``EADDRINUSE``——Linux 上要加 ``SO_REUSEADDR`` 才能
+    立刻重绑，而 Windows 的 ``SO_REUSEADDR`` 又允许抢占别人正在监听的端口（会让断言假绿）。
+    两头都不是可靠判据。「还有人在听吗」只有 connect 能回答：回环上未监听的端口立刻回 RST
+    （``ECONNREFUSED``），已关闭的 listener 因此**必然**让这里抛错。
+    """
     probe = socket.socket()
+    probe.settimeout(2.0)
     try:
-        probe.bind(("127.0.0.1", port))
+        with pytest.raises(OSError):
+            probe.connect(("127.0.0.1", port))
     finally:
         probe.close()
 
@@ -286,9 +295,10 @@ def test_explicit_subcommands_never_start_the_embedded_service(
     _drive(monkeypatch, tmp_path, provider)
     served: list[str] = []
 
-    async def fake_serve_web(http_server: object, ws_server: object) -> None:
+    async def fake_serve_web(http_server: object, ws_servers: object) -> None:
         served.append("http")
-        assert ws_server is not None  # 双 server：显式命令同样装配 WS listener（56-1）
+        # 多 listener（Epic 56 期二）：显式命令同样装配 WS listener，且至少有一条（56-1）。
+        assert isinstance(ws_servers, tuple) and ws_servers
 
     monkeypatch.setattr("heagent.cli.http._serve_web", fake_serve_web)
     # cli/http.py 模块级绑定了 `_build_provider`（与 cli/console.py 是两处名字），逐一打桩。

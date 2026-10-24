@@ -101,6 +101,11 @@ class WsServerConfig(BaseModel):
     # TLS 证书 / 私钥路径（PEM）；二者同时给出才启用 wss。
     tls_cert_file: str | None = None
     tls_key_file: str | None = None
+    # **只读旁观**（Epic 56 期二 P2-A3）：True 时这条 listener 不注册提交端点（`/api/runs/ws`），
+    # 已订阅连接上的 `cancel` 回 `invalid_request`（不断连）——只能看，不能下命令。
+    # 与 listener 模式正交：本地/对外都可设，但入口层只为对外 listener 暴露配置键
+    # （`WS_EXTERNAL_READONLY`）；本地 listener 的只读需求目前没有产品场景。
+    readonly: bool = False
 
     @property
     def mode(self) -> str:
@@ -143,10 +148,12 @@ def build_ws_app(
     run_service: Any | None = None,
     cli_hub: Any | None = None,
 ) -> ASGIApp:
-    """构造 WS server 的 ASGI 应用：只挂两条 WebSocketRoute，零 HTTP 路由（D1/D2）。
+    """构造 WS server 的 ASGI 应用：只挂 WebSocketRoute，零 HTTP 路由（D1/D2/D9）。
 
     ``run_service`` / ``cli_hub`` 是注入的进程内状态（D1 接缝事实）：为 None 时对应端点
-    不注册（升级直接被 Starlette 拒掉）。同源防线经 ``origin_violation`` 回调注入端点——两条
+    不注册（升级直接被 Starlette 拒掉）。**端点可见性由 listener 身份决定**（期二 D9）：
+    `mode == "local"` 才注册 CLI 旁路，对外 listener 恒不注册（终端内容不外溢）；提交与订阅
+    两个端点两条 listener 都注册。同源防线经 ``origin_violation`` 回调注入端点——两条
     端点在 accept 前执行校验（http_server 时代的同一口径）；访问日志由端点自身的结构化
     ``ws_open``/``ws_close`` 事件承担，无需 ASGI 中间件。
 
@@ -174,19 +181,21 @@ def build_ws_app(
     if run_service is not None:
         from heagent.network.ws_server import build_runs_collection_endpoint, build_ws_endpoint
 
-        # 集合级端点先注册（`/api/runs/ws` 与 `/api/runs/{run_id}/ws` 段数不同，不会互相遮蔽；
-        # 顺序只是让「提交通道」在路由表里排在订阅通道之前，便于阅读）。
-        routes.append(
-            routing.WebSocketRoute(
-                RUNS_SUBMIT_PATH,
-                endpoint=build_runs_collection_endpoint(
-                    run_service,
-                    origin_violation=_origin_violation,
-                    max_connections=config.ws_max_connections,
-                    authorize=authorize,
-                ),
+        if not config.readonly:
+            # 集合级端点先注册（`/api/runs/ws` 与 `/api/runs/{run_id}/ws` 段数不同，不会互相遮蔽；
+            # 顺序只是让「提交通道」在路由表里排在订阅通道之前，便于阅读）。
+            # 只读 listener 上**不注册**它：提交能力不给，连「试一下拿 run_conflict」的机会都没有。
+            routes.append(
+                routing.WebSocketRoute(
+                    RUNS_SUBMIT_PATH,
+                    endpoint=build_runs_collection_endpoint(
+                        run_service,
+                        origin_violation=_origin_violation,
+                        max_connections=config.ws_max_connections,
+                        authorize=authorize,
+                    ),
+                )
             )
-        )
         routes.append(
             routing.WebSocketRoute(
                 RUNS_WS_PATH,
@@ -195,10 +204,14 @@ def build_ws_app(
                     origin_violation=_origin_violation,
                     max_connections=config.ws_max_connections,
                     authorize=authorize,
+                    readonly=config.readonly,
                 ),
             )
         )
-    if cli_hub is not None:
+    if cli_hub is not None and config.mode == "local":
+        # D9：终端观众席**只**挂本地 listener。装配层（`build_ws_servers`）本来就不会把 hub
+        # 传给对外 listener，这里再判一次 mode 是 defense-in-depth——「某个调用方直接构造了
+        # 对外 WsServer(cli_hub=...)」也不该把终端事件流投递到网络。
         from heagent.network.ws_server import build_cli_ws_endpoint
 
         routes.append(
@@ -306,7 +319,7 @@ class WsServer:
         self._log_ws_unavailable_once(server)
         _safe_log(
             logging.INFO,
-            "ws event=started address=%s mode=%s tls=%s",
+            "ws event=started address=%s listener=%s tls=%s",
             self.address,
             self.config.mode,
             "wss" if self.config.tls_enabled else "ws",
@@ -315,7 +328,7 @@ class WsServer:
             # D4：对外明文跑必须日志可见（与 exposure 告警两条独立信息：一条说「谁能连」，一条说「没加密」）。
             _safe_log(
                 logging.WARNING,
-                "ws event=plaintext_external address=%s transport=ws "
+                "ws event=plaintext_external address=%s listener=external transport=ws "
                 "hint=configure WS_TLS_CERT_FILE and WS_TLS_KEY_FILE to serve wss",
                 self.address,
             )
@@ -331,14 +344,14 @@ class WsServer:
             # 对外模式：exposure 文案「no authentication」已不成立（认证强制），单列一条准确的暴露记录。
             _safe_log(
                 logging.WARNING,
-                "ws event=exposed host=%s mode=external auth=token tls=%s",
+                "ws event=exposed host=%s listener=external auth=token tls=%s",
                 self.config.host,
                 "wss" if self.config.tls_enabled else "ws",
             )
         else:
             warning = exposure_warning(self.config.host)
             if warning is not None:
-                _safe_log(logging.WARNING, "ws event=exposed host=%s %s", self.config.host, warning)
+                _safe_log(logging.WARNING, "ws event=exposed host=%s listener=local %s", self.config.host, warning)
         if not await self._probe_ready():
             # 绑定成功但 listener 不可连 ⇒ 回滚，绝不对外宣称「已启动」。
             self._server = None

@@ -18,6 +18,11 @@ MCP 特定风险：stdio server 拉起任意本地子进程、HTTP server 连任
   `~/.heagent/setting.md`，项目 `.env` 无效），缺 token **拒绝启动**（fail-closed），Origin 防线不适用；TLS 可选
   （`WS_TLS_CERT_FILE`/`WS_TLS_KEY_FILE` 配齐即 wss，不配则启动告警）。认证**不是绝对边界**（token 可泄露、
   明文可被中间人观察）。HTTP listener **没有**对外模式——它始终按本地模式的口径对待，不要把它绑到公网。
+- **双监听并存**（Epic 56 期二 D8–D14，`WS_EXTERNAL_HOST` 非空时）：主 listener 保持本地模式（免 token），
+  再加一条**恒为对外模式**的 listener（默认 `9002`，token 强制、可独立配 TLS）。两条 listener 共享同一运行状态机
+  （订阅额度按 run 计 ⇒ 天然共享；提交席位与认证限速各一份）。**端点可见性不同**：终端旁路 `/api/cli/ws`
+  **只**挂本地 listener，任何对外 listener 都不注册（终端事件可能含文件内容，token 只降低风险不消除风险）；
+  期一允许的「单对外 listener + 旁路开」起改为跳过旁路并告警。
 - **对外能提交 run ⇒ 容器沙箱档（`--sandbox docker`）从建议升级为强烈建议**：一次 run 会真的执行 `shell`。
   浏览器 WebSocket API 无法自定义请求头 ⇒ 对外模式面向 IDE 插件 / 桌面客户端，不面向浏览器页面。
 
@@ -30,6 +35,7 @@ MCP 特定风险：stdio server 拉起任意本地子进程、HTTP server 连任
 | `docs/frame.md` | 架构权威——改架构/数据流/模块内部前先读此 |
 | `docs/design.md` | 功能设计与理念 |
 | `docs/iteration.md` | 迭代流程 |
+| `docs/testing.md` | 测试与门禁判读（红了怎么分诊、`verify_baseline.py` 用法、marker 口径、历史噪声记录） |
 | `_bmad-output/implementation-artifacts/deferred-work-archive.md` | 架构/代码优化台账（触发条件/严重度/冻结边界） |
 | `_bmad-output/consolidated-overview.md` | 统一整合总览（Epic 1-50 + S1-S4 主题/状态/story 映射） |
 
@@ -105,6 +111,10 @@ bandit -r src/ -ll
 
 # 本地全门（冒烟 + 回归/覆盖率 + ruff + format + mypy + bandit，fail-fast）
 python scripts/quality_gate.py
+
+# 门禁红了的**第一步**：在干净 HEAD 副本上复跑同一批用例（判「环境产物 vs 回归」）
+# 用法与判读规则见 `docs/testing.md`（VERDICT: environmental / REGRESSION / clean）
+python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
 
 # 自动修复格式
 ruff format src tests

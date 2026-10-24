@@ -1209,7 +1209,7 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 ——`network/` 只承载传输（HTTP 协议模型 / 路由 / 运行服务 / 安全响应头 / 静态资源 / listener
 生命周期），装配在入口层 `cli/http.py`；`network/` 不构造 Agent，运行入口由入口层以可调用对象注入。
 
-**Epic 56 D1 起是「同进程双 server」**：本节的 HTTP listener（默认 `127.0.0.1:8766`）只服务
+**Epic 56 D1 起是「同进程双 server」（期二可再起一条对外 WS listener，共 2–3 条）**：本节的 HTTP listener（默认 `127.0.0.1:8766`）只服务
 HTTP+SSE 与内嵌网页，**不含任何 WS 路由**；WS 能力全部迁到独立 listener（默认 `127.0.0.1:9001`，
 见 4.17.1），两者共享的只有注入的进程内状态（`HttpRunService` / `CliEventHub`）与 `network/`
 同层协议模型。入口层 `EmbeddedHttpService` 拥有**两条** listener、一个生命周期：HTTP 先启动、
@@ -1226,7 +1226,7 @@ HTTP+SSE 与内嵌网页，**不含任何 WS 路由**；WS 能力全部迁到独
 | 安全响应头 | 每个响应带 `Content-Security-Policy: default-src 'none'; script-src 'self'; …; frame-ancestors 'none'`、`X-Content-Type-Options: nosniff`、`X-Frame-Options: DENY`、`Referrer-Policy: no-referrer`、`Cache-Control: no-store`（**默认不落缓存副本**，2026-09-28 补：此前只有 SSE 路径带该头，`GET /api/session` 的进程内会话快照与其它 JSON / 错误响应都能被浏览器或中间代理缓存；**已显式设置的不覆盖**——静态资源保留 `no-cache`（允许缓存但必须回源校验，Epic 50 D8 的口径），SSE 保留 `no-store` + `x-accel-buffering: no`）；页面**不加载任何第三方脚本**（CSP 不允许内联；测试断言页面所有 `src` / `href` 都是同源绝对路径） |
 | 渲染纪律 | 页面脚本只用 `textContent` / `createTextNode` 渲染提示词、回答与工具输出（**永不** `.innerHTML`）；HTML 里没有内联脚本或样式 |
 | 输入与键盘 | 输入框是**多行** `<textarea>`（`rows=3`，`maxlength` = `MAX_PROMPT_CHARS`，有测试钉住「多行 + 有上限」）。**Enter 发送、Shift+Enter 换行**，Ctrl/Cmd+Enter 同样发送；**输入法组合态（`isComposing` / `keyCode 229`）一律不发送**——否则中文选词时敲回车会把半个词发出去。提交时前端 `trim()` 掉首尾空白（中间换行原样进 prompt），空内容静默忽略；行为由 `tests/test_http_web_ui.py` 的 node 探针（case E）钉住 |
-| 默认 CLI 自启动 | `heagent` / `heagent "prompt"` / `heagent run ...` 在**同一个 asyncio 生命周期**内启动内嵌服务（`cli.interactive._embedded_http_service` + `cli.http.EmbeddedHttpService`）：交互模式与 REPL 共存、单次模式与那次 run 并存且 run 结束即关闭并释放端口。**Epic 56 起该服务 = 双 server**（HTTP 8766 + WS 9001，见上段）——WS 起不来时回滚已启动的 HTTP，绝不留下「网页能开、订阅打不开」的半启动状态。`gui` / `http-server` / `init` / `replay` 都不经过该路径（**不派生第二个实例**）。启动失败（端口冲突 / 缺 `heagent[http]` / WS 配置不成立）转成命令级错误（exit 1），绝不出现「聊天正常但页面打不开」；serve 循环意外结束时交互模式如实报出并退出（AD-5 的假可用状态禁令）|
+| 默认 CLI 自启动 | `heagent` / `heagent "prompt"` / `heagent run ...` 在**同一个 asyncio 生命周期**内启动内嵌服务（`cli.interactive._embedded_http_service` + `cli.http.EmbeddedHttpService`）：交互模式与 REPL 共存、单次模式与那次 run 并存且 run 结束即关闭并释放端口。**Epic 56 起该服务 = 双 server**（HTTP 8766 + WS 9001，见上段；期二配 `WS_EXTERNAL_HOST` 时再加一条对外 WS listener），WS 起不来（任一 listener）时回滚已启动的全部，绝不留下「网页能开、订阅打不开」的半启动状态。`gui` / `http-server` / `init` / `replay` 都不经过该路径（**不派生第二个实例**）。启动失败（端口冲突 / 缺 `heagent[http]` / WS 配置不成立）转成命令级错误（exit 1），绝不出现「聊天正常但页面打不开」；serve 循环意外结束时交互模式如实报出并退出（AD-5 的假可用状态禁令）|
 | 运行 API | `POST /api/runs`（请求体**只认** `prompt`，`extra="forbid"` ⇒ 塞 provider/model/system/沙箱/迭代预算一律 400；单运行约束：已有在途 run 时 409 `run_conflict`，**不排队不覆盖**）、`GET /api/runs/{run_id}/events`（SSE）、`DELETE /api/runs/{run_id}`（协作式取消，只作用于该 run，幂等）、`GET /api/session`（会话 id / 当前运行状态 / 已完成历史）。请求体按块读取，超过 `HTTP_MAX_REQUEST_BYTES` 立即中断（413 `request_too_large`），不用 ``request.body()`` 把大小交给客户端决定；该上限默认按「最大 prompt 的最坏 JSON 字节数」派生（见配置表），两者口径不一致时中文提示词会在远未到字符上限前就被 413 拒（2026-09-23 修复） |
 | 事件与投影 | 事件类型 `text` / `tool_call` / `tool_result` / `done` / `error` / `cancelled` / `timed_out`；`id` 从 1 单调递增、`data` 是单行 JSON；文本字段入缓冲前截断到 16384 字符并显式标记；`done` 带**该次运行**的 model 与 usage。会话投影只有一条路径：仅 `COMPLETED` 的 run 投影 prompt + 最终回答，失败 / 取消 / 超时**绝不**把部分文本写进历史（AD-3）；运行记录按 `HTTP_RUN_HISTORY_SIZE` 保留，**只淘汰终态记录**（在途运行必须始终可按 id 取消 / 订阅，全部在途时宁可暂时超出上限——否则记录凭空消失而它仍占着名额），淘汰后按 id 订阅得 `unknown_run` |
 | 取消、重连与终态 | 终态转换**首个获胜**（AD-10）：完成 / `DELETE` / 运行超时 / 关停竞争时只产生一个终态事件，名额在 done callback 里归还（**含「任务未被调度就被取消」的病态路径**——那时协程体不执行，靠 callback 兜底补写 `cancelled`）。`Last-Event-ID: N` 只重放**严格大于** N 的事件；游标早于缓冲窗口（`N < oldest_seq - 1`）返回 409 `resync_required`（不发看似连续的流），客户端据此拉 `/api/session` 快照；空闲流每 15 秒发一条 SSE 注释心跳（`yield None` → `: ping`，不占 ID）。**断线只释放订阅者、绝不取消运行**（取消只能走 `DELETE`）。订阅者队列与事件窗口**同界**：消费端被背压卡住（客户端不读）时**结束该订阅者的流**（客户端带游标重连 → ring buffer 补齐或 409 重新同步），既不无限堆积内存、也不静默跳过事件（2026-09-23 评审修复）|
@@ -1245,14 +1245,17 @@ WS listener（4.17.1）**同属入口面、不是安全边界**：本地模式�
 **独立 listener**（Epic 56 D1）：`WsServer` 自建 ASGI app，**零 HTTP 路由**（控制台页 / 静态资源 /
 REST / 健康检查一律 404），默认 `127.0.0.1:9001`，配置面为 `WS_HOST` / `WS_PORT` /
 `WS_MAX_CONNECTIONS` / `WS_SHUTDOWN_TIMEOUT` / `WS_CLI_BYPASS_ENABLED` / `WS_TLS_CERT_FILE` /
-`WS_TLS_KEY_FILE`（HTTP 侧不再有 `HTTP_WS_*` 旋钮）。**端口 8766 → 9001 是 Epic 56 的唯一 breaking
-change**：三条端点路径不变，客户端只需改端口。三条端点共用这一 listener：
+`WS_TLS_KEY_FILE`（HTTP 侧不再有 `HTTP_WS_*` 旋钮）；**期二（D8）另加可选的第二条对外 listener**：
+`WS_EXTERNAL_HOST`（默认空 = 不启用）/ `WS_EXTERNAL_PORT`（默认 `9002`）/
+`WS_EXTERNAL_TLS_CERT_FILE` / `WS_EXTERNAL_TLS_KEY_FILE`。**端口 8766 → 9001 是 Epic 56 的唯一
+breaking change**：三条端点路径不变，客户端只需改端口。三条端点共用 listener；**对外 listener 上
+只有前两条**：
 
-| 端点 | 作用 |
-| --- | --- |
-| `WS /api/runs/ws` | **集合级**：经 WS 提交 run（Epic 56 D2 新增；见下表「提交 run」行） |
-| `WS /api/runs/{run_id}/ws` | 单 run 订阅 + `{cancel, ping}`（Epic 54） |
-| `WS /api/cli/ws` | CLI 旁路只读事件流（Epic 55，默认关；见 4.17.1.1） |
+| 端点 | 作用 | 本地 listener | 对外 listener |
+| --- | --- | --- | --- |
+| `WS /api/runs/ws` | **集合级**：经 WS 提交 run（Epic 56 D2 新增；见下表「提交 run」行） | ✅ | ✅（token 后） |
+| `WS /api/runs/{run_id}/ws` | 单 run 订阅 + `{cancel, ping}`（Epic 54） | ✅ | ✅（token 后） |
+| `WS /api/cli/ws` | CLI 旁路只读事件流（Epic 55，默认关；见 4.17.1.1） | ✅（开关开时） | ❌ **不注册**（D9） |
 
 | 关注点 | 实现事实 |
 | --- | --- |
@@ -1265,7 +1268,9 @@ change**：三条端点路径不变，客户端只需改端口。三条端点共
 | 限额与心跳 | `WS_MAX_CONNECTIONS` 默认 `16`，按 run 独立于 SSE 订阅池；检查与登记在同一同步方法完成。心跳使用协议级 ping，`ws_ping_interval=15s`、`ws_ping_timeout=20s`，不发送应用层心跳帧。提交端点**不占**订阅名额（它不订阅事件、不建 run 记录）。 |
 | 入站上界 | 三条上限（Epic 56 Story 56-3 起）：`WS_MAX_COMMAND_CHARS=4096`（**非 run** 帧的字符上限）、`WS_MAX_INBOUND_CHARS=6×MAX_PROMPT_CHARS+信封余量`（入站文本的廉价预检——按 `ensure_ascii` 最坏转义推算，否则合法的最大 prompt 会被挡在协议层外）、`WS_MAX_FRAME_BYTES=MAX_REQUEST_BYTES_FOR_MAX_PROMPT`（Uvicorn `ws_max_size`，与 HTTP 请求体上限同源）。应用层超限关闭码 `1009`。关闭码 `1000` 正常结束、`1001` 服务关停、`1008` 策略/协议违规、`1011` 内部错误。 |
 | 可选依赖 | `websockets>=13.0,<18` 直接声明在 `http` extra；服务端不直接导入 `websockets`，由 Uvicorn 选择协议实现。缺少实现时 HTTP 仍可启动、记录一次 `ws_unavailable` 安装诊断，且 WS 升级回 **404**（可执行判据：`tests/network/test_ws_missing_dependency.py`，子进程阻断 import + 裸 socket 探测）。 |
-| 监听模式 | 单个 WS listener **按绑定地址切模式**（Epic 56 D5）：回环绑定 = 本地模式（Origin/Host 防线、无认证、Epic 54/55 语义逐字保持）；非回环绑定 = 对外模式（Host/Origin **不适用**——客户端用任意主机名连本 listener，`Host` 白名单会把它全拒掉；防线地位由 token 认证取代）。 |
+| 监听模式 | **主 listener** 按绑定地址切模式（Epic 56 D5）：回环绑定 = 本地模式（Origin/Host 防线、无认证、Epic 54/55 语义逐字保持）；非回环绑定 = 对外模式（Host/Origin **不适用**——客户端用任意主机名连本 listener，`Host` 白名单会把它全拒掉；防线地位由 token 认证取代）。 |
+| 只读旁观（Epic 56 期二 P2-A3，`WS_EXTERNAL_READONLY`，默认关） | `WsServerConfig.readonly` 为真时该 listener **不注册**提交端点 `/api/runs/ws`（提交能力不给，连「试一下拿 `run_conflict`」的机会都没有），已订阅连接上的 `cancel` 回 `invalid_request` 且**不断连**（事件流照常、运行不受影响），`ping` 正常。用「不支持」而不是「静默忽略」——客户端必须知道它连的是观众席。入口层只为**对外** listener 暴露该键（`--ws-external-readonly/--ws-external-writable` 三态覆盖）；判据 `tests/network/test_ws_e2e.py::test_readonly_listener_allows_subscription_but_rejects_commands` + 架构契约的路由集断言。 |
+| 双监听并存（Epic 56 期二 D8–D14） | 主 listener 是回环（本地模式）时，`WS_EXTERNAL_HOST` 非空**再起一条对外 listener**（默认 `9002`），两者共享同一 `HttpRunService`（run 记录 / 名额 / `cancel` 语义天然一致，订阅额度按 run record 共享；提交席位池与认证限速则**每个 listener 各一份**）。**端点可见性由 listener 身份决定**：`/api/cli/ws` 只在本地 listener 注册，对外 listener 恒不注册（终端事件可能含文件内容，token 只降低风险、不消除风险）；`build_ws_app` 自身再判一次 `mode` 作为纵深（即使调用方误传 `cli_hub` 也不注册）。配置 fail-loud 四例：`WS_EXTERNAL_HOST` 取回环值 / 主 listener 已非回环时再配对外键 / 对外 listener 缺 token / 对外 TLS 半配。对外 TLS 键缺省**成对继承** `WS_TLS_*`（可配出「本地明文 + 对外 wss」）。入口层 `build_ws_servers()` 返回 1–2 条 listener，启动顺序 HTTP → 本地 WS → 对外 WS（任一失败回滚已启动的全部），关停 HTTP 先、WS 后；日志与公告以 `listener=local|external` 区分。**连带收紧**：期一允许的「`WS_HOST=0.0.0.0` + `WS_CLI_BYPASS_ENABLED=true`」起改为跳过旁路并打 `ws event=cli_bypass_skipped reason=external_listener` WARNING。 |
 | 认证（对外模式，Epic 56 D3） | 静态 token 的 `Authorization: Bearer <token>` 在 **`accept()` 之前**校验（`network/ws_auth.py` 是纯逻辑面：严格单头 `Bearer` 解析 + `hmac.compare_digest` 常量时间比较 + 按来源地址的失败滑窗)。失败 `close(1008)`、**不发错误信封**（与 Origin 拒绝同形：真实 Uvicorn 下客户端拿 HTTP 403，无 body）；"缺 token / token 错 / 被限速" 对外不可区分。token 真源是**用户级 `~/.heagent/setting.md` 的 `WS_AUTH_TOKEN`**（`Settings.user_ws_auth_token` 直读该文件）——它**不是** `Settings` 字段，项目 `.env` / 系统环境变量一律不参与（否则仓库作者可预置一个已知 token；写在项目 `.env` 里时命令层启动告警，且配置面板照常把它报成未知键）。非回环绑定缺 token ⇒ 配置构造期 `WsConfigError`（fail-closed，**绝不**降级成「无认证对外」）。凭证只走**握手头**——浏览器 WebSocket API 无法自定义请求头，故对外模式不支持浏览器直连（本机控制台走 HTTP，不受影响）。 |
 | TLS（Epic 56 D4） | `WS_TLS_CERT_FILE` + `WS_TLS_KEY_FILE`（PEM）**要么都给要么都不给**（半配即 `WsConfigError`），配齐则 listener 走 `wss`（uvicorn `ssl_certfile` / `ssl_keyfile`）。对外模式不配 TLS 时启动打 `ws event=plaintext_external` 告警（明文运行必须可见），本地模式配了 TLS 也照常生效。 |
 | 安全立场 | WS 与 HTTP/SSE 同档：**本地模式无认证、无 TLS、回环不等于可信**，Origin 校验只是 CSWSH 的纵深措施；**对外模式（非回环绑定）例外——认证强制且 token 缺失拒绝启动**，但认证不是绝对边界（token 可泄露、连接仍可能被中间人观察，无 TLS 时尤其如此），OS 级沙箱兜底立场不变。 |
@@ -1284,7 +1289,7 @@ change**：三条端点路径不变，客户端只需改端口。三条端点共
 | 续传与背压 | `?last_event_id=N` 只补 `seq > N`；窗口已淘汰开头（含「无游标但 `oldest_seq > 1`」）回 `resync_required` 错误帧。订阅队列与缓冲同界，落后一整窗口即结束该流（客户端带游标重连）——与 SSE / run-WS 同一口径。 |
 | 发布点 | 入口层 `cli/interactive.py`：`_consume_stream` 逐条镜像 `StreamEvent`（text / tool_call / tool_result / done），进入即 `begin_run`、退出（含取消与异常）即 `end_run`；单次模式走非流式 `loop.run`，只发一条终态 `done`，**不假装有增量**。中枢经 `ContextVar` 传递（`_run_prompt` 的签名是 3 处测试 patch 的契约，不能加参数）。 |
 | 故障隔离 | 中枢 `publish_*` 自身不抛；入口层 `_hub_call` 是第二道垫片——旁路坏了最坏只是「外部看不到」，终端输出 / 退出码 / 主循环状态逐字不变。 |
-| 装配 | `cli/http.py::build_http_service` 在 `WS_CLI_BYPASS_ENABLED` 为真时建 hub 并注入 `WsServer(cli_hub=...)`（Epic 56 D7 起宿主 = WS server，9001）；未注入 ⇒ 路由不注册（Uvicorn 在「应用未 accept」时给客户端裸 403，不是应用层 404）。开启时 stderr 打一行 `[ws] CLI event stream (read-only): ws://…/api/cli/ws`，避免「开了但不知道在哪」。 |
+| 装配 | `cli/http.py::build_ws_servers` 在 `WS_CLI_BYPASS_ENABLED` 为真时建 hub 并注入**本地 listener**（Epic 56 D7 起宿主 = WS server，9001；期二 D9：对外 listener 恒不注入，且 `build_ws_app` 再判一次 `mode`）；未注入 ⇒ 路由不注册（Uvicorn 在「应用未 accept」时给客户端裸 403，不是应用层 404）。主 listener 本身是对外模式（期一单对外）⇒ 旁路被**跳过**并打 `ws event=cli_bypass_skipped reason=external_listener`。开启时 stderr 打一行 `[ws] CLI event stream (read-only): ws://…/api/cli/ws`，避免「开了但不知道在哪」。 |
 | 同源防线 | 与 run-WS 共用 `_request_origin_violation`（accept 前校验，违规 close ⇒ 客户端拿 403）。既有 ASGI 中间件对非 `http` scope 放行，故 CSWSH 防线由 WS 层单独执行。 |
 | 安全立场 | 与 HTTP/SSE/WS 同档：**无认证、无 TLS、回环不等于可信**，Origin 校验只是纵深措施；默认关，需要时显式开，OS 级沙箱兜底立场不变。 |
 
@@ -1636,7 +1641,7 @@ python -m heagent
   └── 一次性 Cron 任务成功后自动从 JobStore 删除
 ```
 
-**HTTP + WS 双入口流程（Epic 49 HTTP / Epic 54–56 WS；Epic 56 D1 起同进程双 server）：**
+**HTTP + WS 双入口流程（Epic 49 HTTP / Epic 54–56 WS；Epic 56 D1 起同进程双 server，期二可加一条对外 WS listener）：**
 
 默认 CLI（`heagent` / `heagent "prompt"` / `heagent run ...`）会**内嵌**启动同一套服务——生命周期
 包在 `cli.interactive._embedded_http_service`（`cli.http.EmbeddedHttpService`）里，与 CLI 共享一个

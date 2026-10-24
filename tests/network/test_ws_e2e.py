@@ -601,3 +601,215 @@ async def test_idle_submit_connection_is_closed_by_server_shutdown_within_budget
         await ws.close()
         if not task.done():
             await _stop(server, task)
+
+
+# ---- 期二（Epic 56 D9/D11）：双监听并存 ----
+
+
+class _Pair:
+    """一对共享同一运行状态机的 listener：本地（免 token）+ 对外（token 强制）。"""
+
+    def __init__(self, local: WsServer, external: WsServer, service: HttpRunService) -> None:
+        self.local = local
+        self.external = external
+        self.service = service
+        self.tasks: list[asyncio.Task[None]] = []
+
+    async def start(self) -> None:
+        for server in (self.local, self.external):
+            await server.start()
+            self.tasks.append(asyncio.create_task(server.serve_forever()))
+        await asyncio.sleep(0)
+
+    async def stop(self) -> None:
+        await self.service.close()
+        for server in (self.local, self.external):
+            await server.close()
+        for task in self.tasks:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(task, timeout=5)
+
+
+async def _start_pair(executor: _Executor, *, ws_limit: int = 4) -> _Pair:
+    """本地 listener 挂 CLI 旁路；对外 listener 不挂（D9），两者共享 run_service（D11 订阅额度共享）。"""
+    from heagent.network.cli_event_hub import CliEventHub
+
+    service = HttpRunService(_server_config(), executor)
+    local = WsServer(
+        _ws_config(ws_max_connections=ws_limit),
+        run_service=service,
+        cli_hub=CliEventHub(max_connections=ws_limit),
+    )
+    external = WsServer(
+        WsServerConfig(host="0.0.0.0", port=0, auth_token="s3cret", shutdown_timeout=1, ws_max_connections=ws_limit),
+        run_service=service,
+    )
+    pair = _Pair(local, external, service)
+    await pair.start()
+    return pair
+
+
+_AUTH = [("authorization", "Bearer s3cret")]
+
+
+@pytest.mark.asyncio
+async def test_dual_listeners_serve_the_same_run_with_identical_event_streams() -> None:
+    """D9/D11：同一 run 从两个 listener 订阅，收到**同源**事件（seq 单调且一致）。"""
+    executor = _Executor()
+    pair = await _start_pair(executor)
+    try:
+        record = await pair.service.start_run("answer")
+        await executor.started.wait()
+        executor.release.set()
+        while not record.is_terminal:
+            await asyncio.sleep(0)
+
+        local_uri = f"ws://127.0.0.1:{pair.local.port}/api/runs/{record.run_id}/ws"
+        external_uri = f"ws://127.0.0.1:{pair.external.port}/api/runs/{record.run_id}/ws"
+        expected = [event.seq for event in record.events]
+
+        async with websockets.connect(local_uri) as local_ws:
+            local_seqs = [json.loads(await local_ws.recv())["event"]["seq"] for _ in expected]
+        async with websockets.connect(external_uri, additional_headers=_AUTH) as external_ws:
+            external_seqs = [json.loads(await external_ws.recv())["event"]["seq"] for _ in expected]
+
+        assert local_seqs == expected
+        assert external_seqs == expected
+    finally:
+        await pair.stop()
+
+
+@pytest.mark.asyncio
+async def test_external_listener_does_not_serve_the_cli_bypass_route() -> None:
+    """D9：对外 listener 上 `/api/cli/ws` 未注册 ⇒ 升级被拒（403）；本地同路径可达。"""
+    executor = _Executor()
+    pair = await _start_pair(executor)
+    try:
+        async with websockets.connect(f"ws://127.0.0.1:{pair.local.port}/api/cli/ws"):
+            pass  # 本地可达即关闭
+
+        with pytest.raises(websockets.exceptions.InvalidStatus) as rejected:
+            async with websockets.connect(f"ws://127.0.0.1:{pair.external.port}/api/cli/ws", additional_headers=_AUTH):
+                pass
+        assert rejected.value.response.status_code == 403
+    finally:
+        await pair.stop()
+
+
+@pytest.mark.asyncio
+async def test_local_listener_accepts_a_run_without_a_token() -> None:
+    """D9：本地 listener 保持期一语义——免 token 即可经 WS 提交 run。"""
+    executor = _Executor()
+    pair = await _start_pair(executor)
+    try:
+        async with websockets.connect(f"ws://127.0.0.1:{pair.local.port}/api/runs/ws") as ws:
+            await ws.send(json.dumps({"command": "run", "prompt": "from-local"}))
+            ack = json.loads(await ws.recv())
+        assert ack["command"] == "run"
+        assert ack["run_id"]
+        assert pair.service.active_runs == 1
+    finally:
+        executor.release.set()
+        await pair.stop()
+
+
+@pytest.mark.asyncio
+async def test_external_listener_requires_a_token_for_the_same_submit_endpoint() -> None:
+    """D3/D9：同一条提交端点，在对外 listener 上缺 token ⇒ 403 且不建运行；带 token ⇒ ack。"""
+    executor = _Executor()
+    pair = await _start_pair(executor)
+    try:
+        external_submit = f"ws://127.0.0.1:{pair.external.port}/api/runs/ws"
+
+        with pytest.raises(websockets.exceptions.InvalidStatus) as rejected:
+            async with websockets.connect(external_submit):
+                pass
+        assert rejected.value.response.status_code == 403
+        assert pair.service.active_runs == 0
+
+        async with websockets.connect(external_submit, additional_headers=_AUTH) as ws:
+            await ws.send(json.dumps({"command": "run", "prompt": "from-external"}))
+            ack = json.loads(await ws.recv())
+        assert ack["command"] == "run"
+        assert ack["run_id"]
+        assert pair.service.active_runs == 1
+    finally:
+        executor.release.set()
+        await pair.stop()
+
+
+@pytest.mark.asyncio
+async def test_submit_slots_are_counted_per_listener_while_subscriptions_are_shared() -> None:
+    """D11：提交席位每个 listener 各一份（本地占满不影响对外）；订阅额度按 run 共享。"""
+    executor = _Executor()
+    pair = await _start_pair(executor, ws_limit=2)
+    try:
+        local_submit = f"ws://127.0.0.1:{pair.local.port}/api/runs/ws"
+        external_submit = f"ws://127.0.0.1:{pair.external.port}/api/runs/ws"
+
+        held = [await websockets.connect(local_submit) for _ in range(2)]
+        try:
+            # 本地提交席位已满：第三条本地连接收 rate_limited。
+            async with websockets.connect(local_submit) as overflow:
+                frame = json.loads(await overflow.recv())
+                assert frame["type"] == "error"
+                assert frame["error"]["error"]["code"] == HttpErrorCode.RATE_LIMITED.value
+
+            # 对外 listener 的席位独立：同额度下仍可提交。
+            async with websockets.connect(external_submit, additional_headers=_AUTH) as ws:
+                await ws.send(json.dumps({"command": "run", "prompt": "independent-slots"}))
+                ack = json.loads(await ws.recv())
+                assert ack["command"] == "run"
+                assert ack["run_id"]
+        finally:
+            for ws in held:
+                await ws.close()
+    finally:
+        await pair.stop()
+
+
+@pytest.mark.asyncio
+async def test_readonly_listener_allows_subscription_but_rejects_commands() -> None:
+    """P2-A3：只读旁观 listener——订阅可用；提交端点不存在；`cancel` 被拒不生效。"""
+    executor = _Executor()
+    service = HttpRunService(_server_config(), executor)
+    readonly = WsServer(
+        WsServerConfig(host="0.0.0.0", port=0, auth_token="s3cret", shutdown_timeout=1, readonly=True),
+        run_service=service,
+    )
+    await readonly.start()
+    task = asyncio.create_task(readonly.serve_forever())
+    await asyncio.sleep(0)
+    base = f"ws://127.0.0.1:{readonly.port}"
+    try:
+        record = await service.start_run("answer")
+        # 提交端点未注册 ⇒ 即便带正确 token 也拿 403（不是「先收到 run_conflict」）。
+        with pytest.raises(websockets.exceptions.InvalidStatus) as rejected:
+            async with websockets.connect(f"{base}/api/runs/ws", additional_headers=_AUTH):
+                pass
+        assert rejected.value.response.status_code == 403
+
+        async with websockets.connect(f"{base}/api/runs/{record.run_id}/ws", additional_headers=_AUTH) as ws:
+            await executor.started.wait()
+            await ws.send('{"command":"cancel"}')
+            frame = await asyncio.wait_for(_next_error_frame(ws), timeout=3)
+
+        assert frame["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
+        assert "read-only" in frame["error"]["error"]["message"]
+        # 取消被拒不等于运行被取消：executor 没收到 CancelledError，run 仍在跑。
+        assert executor.cancelled == 0
+        assert record.is_terminal is False
+    finally:
+        executor.release.set()
+        await service.close()
+        await readonly.close()
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(task, timeout=5)
+
+
+async def _next_error_frame(ws: Any) -> Any:
+    """在事件流里找到第一条错误帧（事件帧可能先到，顺序不保证）。"""
+    while True:
+        frame = json.loads(await ws.recv())
+        if frame.get("type") == "error":
+            return frame

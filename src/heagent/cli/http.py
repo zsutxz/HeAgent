@@ -37,7 +37,7 @@ from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.cli.wiring import _build_provider
 from heagent.config import WS_AUTH_TOKEN_KEY, Settings, get_settings
 from heagent.network.cli_event_hub import CliEventHub
-from heagent.network.exposure import exposure_warning
+from heagent.network.exposure import exposure_warning, is_loopback_host
 from heagent.network.http_server import (
     HttpDependencyError,
     HttpRunService,
@@ -137,57 +137,80 @@ def _ws_url(server: WsServer) -> str:
 
 
 def _ws_access_note(config: WsServerConfig) -> str:
-    """公告里的访问口径：本地模式无认证，对外模式「token required + 明文/wss」。"""
+    """公告里的访问口径：本地模式无认证，对外模式「token required + 明文/wss」；只读另标。"""
+    suffix = "; read-only" if config.readonly else ""
     if config.requires_auth:
         transport = "TLS" if config.tls_enabled else "PLAINTEXT"
-        return f"(external mode; Bearer token required; {transport})"
-    return "(run & CLI WebSocket entry; local only; no authentication)"
+        return f"(external mode; Bearer token required; {transport}{suffix})"
+    return f"(run & CLI WebSocket entry; local only; no authentication{suffix})"
 
 
-async def _serve_web(http_server: HttpServer, ws_server: WsServer) -> None:
-    """启动双 server 并运行到取消 / 关闭（Epic 56 D1：HTTP 与 WS 完全分离、入口层统一编排）。
+async def _serve_web(http_server: HttpServer, ws_servers: tuple[WsServer, ...]) -> None:
+    """启动 HTTP + 1–2 个 WS listener 并运行到取消 / 关闭（Epic 56 D1 拆分、期二 D12 多 listener）。
 
     ``start()`` 在 try 之外：它失败时要么 listener 没建起来、要么内部已回滚，不需要再 close；
     一旦进入服务循环，任何退出路径都必须走 ``close()``，否则 Ctrl+C 会留下悬挂的 listener。
+    任一 WS listener 起不来 ⇒ 回滚**已启动的全部**（含 HTTP），绝不留半启动状态。
     """
     await http_server.start()
+    started: list[WsServer] = []
     try:
-        # WS 起不来（端口被占且显式指定 / 就绪探测失败）时回滚 HTTP，绝不留「HTTP 活着、
-        # WS 缺席」的半启动状态——那正是 AD-5 禁止的假可用。
-        await ws_server.start()
+        for ws_server in ws_servers:
+            await ws_server.start()
+            started.append(ws_server)
     except BaseException:
+        # 回滚：先关已起的 WS，再关 HTTP（此刻还没有 run 在跑，顺序只为与正常关停同构）。
+        for ws_server in reversed(started):
+            await ws_server.close()
         await http_server.close()
         raise
     click.echo(
         f"[http] listening on http://{http_server.address}  (open this URL in a browser; no authentication)",
         err=True,
     )
-    click.echo(f"[ws] listening on {_ws_url(ws_server)}  {_ws_access_note(ws_server.config)}", err=True)
+    for ws_server in ws_servers:
+        click.echo(f"[ws] listening on {_ws_url(ws_server)}  {_ws_access_note(ws_server.config)}", err=True)
     try:
-        await asyncio.gather(http_server.serve_forever(), ws_server.serve_forever())
+        await asyncio.gather(
+            http_server.serve_forever(),
+            *(ws_server.serve_forever() for ws_server in ws_servers),
+        )
     finally:
         # D1 关停顺序：HTTP 先（排空运行到终态），WS 后（关残余订阅连接 + listener）。
         await http_server.close()
-        await ws_server.close()
+        await asyncio.gather(*(ws_server.close() for ws_server in ws_servers))
 
 
 class EmbeddedHttpService:
     """默认 CLI **内嵌**网页入口的生命周期（同进程、同一 asyncio 生命周期）。
 
-    Epic 56 D1 起入口 = **双 server**：HTTP listener（8766，控制台 + REST/SSE）+ WS listener
-    （9001，run 订阅 + CLI 旁路的唯一宿主）。名字保留 ``EmbeddedHttpService``：它仍是入口层
-    那个「伴随 CLI 的网页服务」单元，只是自此拥有两条 listener、一个生命周期。
+    Epic 56 D1 起入口 = **多 listener**：HTTP listener（8766，控制台 + REST/SSE）+ **1 或 2 个**
+    WS listener（期一：9001；期二双监听：9001 本地 + 9002 对外）。名字保留 ``EmbeddedHttpService``：
+    它仍是入口层那个「伴随 CLI 的网页服务」单元，只是自此拥有 N 条 listener、一个生命周期。
 
-    - ``start()``：先 HTTP 后 WS 绑定 + 就绪门禁（WS 失败回滚 HTTP 并抛错）+ 后台 serve 任务 + stderr 公告；
+    - ``start()``：先 HTTP 后逐个 WS 绑定 + 就绪门禁（任一 WS 失败回滚已启动的全部）+ 后台 serve 任务 + stderr 公告；
     - ``close()``：幂等、全程有界，**HTTP 先**（排空运行到终态）**WS 后**（关订阅连接 + listener）；
     - ``failure``：任一 serve 循环**意外**结束时的首个异常。交互模式每轮检查它——任一 listener
       挂掉而 CLI 还在正常聊天，等于「页面/订阅打不开但看着一切正常」，正是 AD-5 要消除的假可用状态。
     """
 
-    def __init__(self, http_server: HttpServer, ws_server: WsServer, *, cli_hub: Any | None = None) -> None:
+    def __init__(
+        self,
+        http_server: HttpServer,
+        ws_servers: WsServer | tuple[WsServer, ...],
+        *,
+        cli_hub: Any | None = None,
+    ) -> None:
         self._http = http_server
-        self._ws = ws_server
-        # CLI 旁路中枢（Epic 55，Epic 56 D7 起宿主 = WS listener）：``None`` = 未开启。
+        # 单 listener（期一形态）与多 listener（期二双监听）同一入口：接受单个实例或元组，
+        # 内部一律按元组处理（``servers[0]`` = 主 listener）。
+        self._ws_servers: tuple[WsServer, ...] = (
+            (ws_servers,) if isinstance(ws_servers, WsServer) else tuple(ws_servers)
+        )
+        if not self._ws_servers:
+            raise ValueError("EmbeddedHttpService requires at least one WS server")
+        # CLI 旁路中枢（Epic 55，Epic 56 D7 起宿主 = WS listener）：``None`` = 未开启**或**
+        # 因 listener 身份被跳过（D9：对外 listener 不提供终端观众席）。
         self._cli_hub = cli_hub
         self._tasks: list[asyncio.Task[None]] = []
         self._failure: BaseException | None = None
@@ -199,9 +222,19 @@ class EmbeddedHttpService:
         return self._http.address
 
     @property
+    def ws_servers(self) -> tuple[WsServer, ...]:
+        """所有 WS listener（``[0]`` = 主 listener；双监听时 ``[1]`` = 对外 listener）。"""
+        return self._ws_servers
+
+    @property
     def ws_address(self) -> str:
-        """WS listener 实际监听地址（stderr 公告与诊断用）。"""
-        return self._ws.address
+        """**主** WS listener 实际监听地址（期一属性，语义不变）。"""
+        return self._ws_servers[0].address
+
+    @property
+    def ws_addresses(self) -> tuple[str, ...]:
+        """全部 WS listener 的实际监听地址（双监听时含对外 listener）。"""
+        return tuple(server.address for server in self._ws_servers)
 
     @property
     def cli_hub(self) -> Any | None:
@@ -214,17 +247,25 @@ class EmbeddedHttpService:
         return self._failure
 
     async def start(self) -> None:
-        """启动双 server 并进入后台服务循环；绑定 / 就绪失败时抛错且不留下任务。"""
+        """启动 HTTP 与所有 WS listener 并进入后台服务循环；任一绑定 / 就绪失败时抛错且不留残留。"""
         await self._http.start()
+        started: list[WsServer] = []
         try:
-            # WS 起不来时回滚已启动的 HTTP：半启动（HTTP 活着、WS 缺席）是 AD-5 禁止的假可用。
-            await self._ws.start()
+            # 任一 WS 起不来时回滚**已启动的全部**：半启动（HTTP 活着、某个 WS 缺席）是 AD-5 禁止的假可用。
+            for ws_server in self._ws_servers:
+                await ws_server.start()
+                started.append(ws_server)
         except BaseException:
+            for ws_server in reversed(started):
+                await ws_server.close()
             await self._http.close()
             raise
         self._tasks = [
             asyncio.create_task(self._http.serve_forever(), name="heagent-http-serve"),
-            asyncio.create_task(self._ws.serve_forever(), name="heagent-ws-serve"),
+            *(
+                asyncio.create_task(ws_server.serve_forever(), name=f"heagent-ws-serve-{index}")
+                for index, ws_server in enumerate(self._ws_servers)
+            ),
         ]
         for task in self._tasks:
             task.add_done_callback(self._on_serve_done)
@@ -232,16 +273,22 @@ class EmbeddedHttpService:
             f"[http] web UI: http://{self.address}  (local only; no authentication)",
             err=True,
         )
-        click.echo(
-            f"[ws] event stream: {_ws_url(self._ws)}  {_ws_access_note(self._ws.config)}",
-            err=True,
-        )
+        for ws_server in self._ws_servers:
+            click.echo(
+                f"[ws] event stream: {_ws_url(ws_server)}  {_ws_access_note(ws_server.config)}",
+                err=True,
+            )
         if self._cli_hub is not None:
             # 开启即多暴露一条旁路通道：把地址打出来，别让用户「开了但不知道在哪」。
-            scheme = "wss" if self._ws.config.tls_enabled else "ws"
+            # 旁路只挂在本地 listener 上（D9），公告因此必须指向**真正承载它**的那条。
+            host_server = next(
+                (server for server in self._ws_servers if server.cli_hub is not None),
+                self._ws_servers[0],
+            )
+            scheme = "wss" if host_server.config.tls_enabled else "ws"
             click.echo(
-                f"[ws] CLI event stream (read-only): {scheme}://{self.ws_address}{CLI_WS_PATH}"
-                f"  {_ws_access_note(self._ws.config)}",
+                f"[ws] CLI event stream (read-only): {scheme}://{host_server.address}{CLI_WS_PATH}"
+                f"  {_ws_access_note(host_server.config)}",
                 err=True,
             )
 
@@ -261,16 +308,16 @@ class EmbeddedHttpService:
         _safe_log(logging.ERROR, "%s stopped unexpectedly: %s", task.get_name(), error)
 
     async def close(self) -> None:
-        """停止双 server 并回收 serve 任务（幂等、有界；HTTP 先 WS 后）。"""
+        """停止所有 listener 并回收 serve 任务（幂等、有界；HTTP 先 WS 后）。"""
         if self._closed:
             return
         self._closed = True
         # D1 关停顺序：HTTP 的 close() 排空在途运行到终态（SSE 随之终结），WS 的 close() 再关
         # 残余订阅连接与 listener——顺序颠倒会让订阅者错过终态事件。
         await self._http.close()
-        await self._ws.close()
+        await asyncio.gather(*(ws_server.close() for ws_server in self._ws_servers))
         tasks, self._tasks = self._tasks, []
-        budget = max(self._http.config.shutdown_timeout, self._ws.config.shutdown_timeout) + 1.0
+        budget = max(self._http.config.shutdown_timeout, *(s.config.shutdown_timeout for s in self._ws_servers)) + 1.0
         for task in tasks:
             if task is None or task is asyncio.current_task():
                 continue
@@ -332,6 +379,147 @@ def build_ws_server_config(
         raise WsConfigError(_first_validation_message(exc)) from exc
 
 
+def _clean_path(value: str | None) -> str | None:
+    """把可选路径配置归一化：空串 / 纯空白视为未配置（``.env`` 里写 ``KEY=`` 的常见形态）。"""
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _external_tls_files(settings: Settings) -> tuple[str | None, str | None]:
+    """对外 listener 的 TLS 文件对（Epic 56 D10）：**成对**独配，否则整对继承主 listener。
+
+    规则刻意只有两种合法形态：① 对外 cert/key 都不设 ⇒ 整对继承 ``WS_TLS_*``（期一单对外部署
+    的配置照旧生效）；② 都设 ⇒ 用它们。只设一半直接 fail-loud——混搭会让 A 的证书配 B 的私钥，
+    握手期才报一个难懂的错误。
+    """
+    cert = _clean_path(settings.ws_external_tls_cert_file)
+    key = _clean_path(settings.ws_external_tls_key_file)
+    if cert or key:
+        if not (cert and key):
+            raise WsConfigError(
+                "WS_EXTERNAL_TLS_CERT_FILE and WS_EXTERNAL_TLS_KEY_FILE must be set together "
+                "(set both to override the primary listener's TLS, or neither to inherit it)"
+            )
+        return cert, key
+    return _clean_path(settings.ws_tls_cert_file), _clean_path(settings.ws_tls_key_file)
+
+
+def build_external_ws_server_config(
+    settings: Settings,
+    *,
+    primary: WsServerConfig,
+    host: str | None = None,
+    port: int | None = None,
+    max_connections: int | None = None,
+    shutdown_timeout: float | None = None,
+    readonly: bool | None = None,
+) -> WsServerConfig | None:
+    """构造**对外** listener 的配置（Epic 56 期二 D8）；未启用返回 ``None``。
+
+    ``None`` 是默认形态（不配 ``WS_EXTERNAL_HOST`` ⇒ 与期一逐字等价）。启用时必须满足三条：
+
+    - 绑定地址**非回环**：回环客户端已由主 listener（免 token）服务，再配一个回环对外 listener
+      只会让同一个本机客户端有两个入口；
+    - **主 listener 必须是本地模式**：主 listener 已经对外时再配一个对外 listener，等于两个对外
+      入口共享同一状态机，运维无从判断该连哪个 ⇒ 显式拒绝；
+    - token 必须存在（沿用 D5 fail-closed），TLS 半配同样拒绝（:func:`_external_tls_files`）。
+    """
+    raw_host = settings.ws_external_host if host is None else host
+    resolved_host = (raw_host or "").strip()
+    if not resolved_host:
+        if host is not None:
+            raise WsConfigError("--ws-external-host must not be empty (omit it to disable the external listener)")
+        return None
+    if is_loopback_host(resolved_host):
+        raise WsConfigError(
+            f"WS_EXTERNAL_HOST must be a non-loopback address (got {resolved_host!r}); "
+            "the primary listener already serves loopback clients without authentication"
+        )
+    if primary.mode != "local":
+        raise WsConfigError(
+            f"WS_EXTERNAL_HOST requires a loopback primary listener (WS_HOST={primary.host!r} is already "
+            "external); drop one of the two to keep a single external entry point"
+        )
+    token = settings.user_ws_auth_token
+    cert, key = _external_tls_files(settings)
+    try:
+        return WsServerConfig(
+            host=resolved_host,
+            port=_resolve_listener_port(settings, resolved_host, port, default_port=settings.ws_external_port),
+            ws_max_connections=settings.ws_max_connections if max_connections is None else max_connections,
+            shutdown_timeout=settings.ws_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
+            auth_token=SecretStr(token) if token else None,
+            tls_cert_file=cert,
+            tls_key_file=key,
+            readonly=settings.ws_external_readonly if readonly is None else readonly,
+        )
+    except ValidationError as exc:
+        raise WsConfigError(_first_validation_message(exc)) from exc
+
+
+def build_ws_servers(
+    settings: Settings,
+    *,
+    run_service: Any | None = None,
+    cli_bypass: bool | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    max_connections: int | None = None,
+    shutdown_timeout: float | None = None,
+    external_host: str | None = None,
+    external_port: int | None = None,
+    external_readonly: bool | None = None,
+) -> tuple[tuple[WsServer, ...], CliEventHub | None]:
+    """构造 1–2 个 WS listener 与**实际挂载**的 CLI 旁路中枢（Epic 56 期二 D8/D9/D12）。
+
+    返回 ``(servers, hub)``：``servers[0]`` 是主 listener（期一语义逐字不变），``servers[1]``
+    （若存在）是对外 listener。``hub`` 为 ``None`` 表示旁路未启用**或**因 listener 身份被跳过——
+    两种情况对入口层等价（没有可发布的通道）。
+
+    ``cli_bypass`` 缺省取 ``settings.ws_cli_bypass_enabled``；``http-server`` 命令显式传 ``False``
+    （它没有终端轮次可看，期一行为照旧）。
+
+    D9 连带收紧：旁路只在**本地模式**的主 listener 上挂载。期一允许「``WS_HOST=0.0.0.0`` +
+    ``WS_CLI_BYPASS_ENABLED=true``」把终端事件流推到对外 listener，期二起改为跳过并 WARNING。
+    """
+    primary = build_ws_server_config(
+        settings,
+        host=host,
+        port=port,
+        max_connections=max_connections,
+        shutdown_timeout=shutdown_timeout,
+    )
+    external = build_external_ws_server_config(
+        settings,
+        primary=primary,
+        host=external_host,
+        port=external_port,
+        max_connections=max_connections,
+        shutdown_timeout=shutdown_timeout,
+        readonly=external_readonly,
+    )
+    enabled = settings.ws_cli_bypass_enabled if cli_bypass is None else cli_bypass
+    hub: CliEventHub | None = None
+    if enabled:
+        if primary.mode == "local":
+            hub = CliEventHub(max_connections=primary.ws_max_connections)
+        else:
+            # 不静默：用户打开了开关就必须能看到「为什么没有这条流」。
+            _safe_log(
+                logging.WARNING,
+                "ws event=cli_bypass_skipped reason=external_listener host=%s "
+                "hint=the CLI event stream is served only on a loopback listener",
+                primary.host,
+            )
+    servers = [WsServer(primary, run_service=run_service, cli_hub=hub)]
+    if external is not None:
+        # 对外 listener 永不带 hub（D9）：即使主 listener 那条被跳过也一样。
+        servers.append(WsServer(external, run_service=run_service))
+    return tuple(servers), hub
+
+
 def _first_validation_message(exc: ValidationError) -> str:
     """取 Pydantic 校验的首条错误文案（不带 ``Value error, `` 前缀，便于直接给用户看）。"""
     errors = exc.errors()
@@ -357,21 +545,22 @@ def _project_env_declares(env_key: str) -> bool:
 
 
 def build_http_service(settings: Settings, *, executor: Any | None = None) -> EmbeddedHttpService:
-    """按 ``Settings`` 构造默认 CLI 的内嵌网页入口（双 server：HTTP 8766 + WS 9001，Epic 56 D1）。
+    """按 ``Settings`` 构造默认 CLI 的内嵌网页入口（HTTP 8766 + 1–2 个 WS listener，Epic 56 D1/期二）。
 
     默认 CLI **不提供** HTTP/WS 相关 CLI 选项（brief：不做含糊的参数透传），因此这里不带覆盖参数——
-    绑定地址与限额全部来自 ``HTTP_*`` / ``WS_*`` 设置；需要覆盖时用显式 `heagent http-server`。
+    绑定地址与限额全部来自 ``HTTP_*`` / ``WS_*`` / ``WS_EXTERNAL_*`` 设置；需要覆盖时用显式
+    `heagent http-server`。
 
     ``executor`` 是运行入口（入口层的 :class:`HttpAgentHandler`）：为 ``None`` 时 HTTP 只提供健康
     检查与静态页（Story 49-1 的形态），``/api/runs*`` 与 ``/api/session`` 不注册；WS 侧的 run
     订阅端点同样不注册（端点随 ``run_service`` 注入）。
 
-    ``settings.ws_cli_bypass_enabled`` 为真时**另建**一个 :class:`CliEventHub` 并在 WS server 上
-    注册 ``/api/cli/ws``（Epic 55 的 CLI 旁路，Epic 56 D7 起宿主 = WS server）：它与 ``executor``
-    无关——旁路订阅的是**终端自己那一轮** run，不是网页创建的 run。
+    ``settings.ws_cli_bypass_enabled`` 为真时**另建**一个 :class:`CliEventHub` 并在**本地模式的** WS
+    listener 上注册 ``/api/cli/ws``（Epic 55 的 CLI 旁路，Epic 56 D7 起宿主 = WS server）：它与
+    ``executor`` 无关——旁路订阅的是**终端自己那一轮** run，不是网页创建的 run。它**不会**挂到对外
+    listener 上（期二 D9）：终端事件可能含文件内容，认证只降低风险、不消除风险。
     """
     config = build_server_config(settings)
-    ws_config = build_ws_server_config(settings)
     run_service = HttpRunService(config, executor) if executor is not None else None
     workspace = WorkspacePaths.from_root(getattr(settings, "workspace_root", None) or os.getcwd())
     console = HttpProjectConsole(
@@ -383,7 +572,8 @@ def build_http_service(settings: Settings, *, executor: Any | None = None) -> Em
         handler_factory=executor.for_workspace if isinstance(executor, HttpAgentHandler) else None,
         write_enabled=settings.http_console_write_enabled,
     )
-    cli_hub = CliEventHub(max_connections=ws_config.ws_max_connections) if settings.ws_cli_bypass_enabled else None
+    # 1–2 个 WS listener（期二双监听）+ 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
+    ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service)
     return EmbeddedHttpService(
         HttpServer(
             config,
@@ -391,7 +581,7 @@ def build_http_service(settings: Settings, *, executor: Any | None = None) -> Em
             run_service=run_service,
             console=console,
         ),
-        WsServer(ws_config, run_service=run_service, cli_hub=cli_hub),
+        ws_servers,
         cli_hub=cli_hub,
     )
 
@@ -452,7 +642,26 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     "--ws-max-connections",
     type=click.IntRange(min=1),
     default=None,
-    help="Max WebSocket connections (per run and CLI hub total; default: WS_MAX_CONNECTIONS / 16)",
+    help="Max WebSocket connections (per run and CLI hub total; applied to every WS listener; "
+    "default: WS_MAX_CONNECTIONS / 16)",
+)
+@click.option(
+    "--ws-external-host",
+    default=None,
+    help="Second WS listener for external clients (default: WS_EXTERNAL_HOST / disabled); must be "
+    "non-loopback and requires WS_AUTH_TOKEN in ~/.heagent/setting.md",
+)
+@click.option(
+    "--ws-external-port",
+    type=click.IntRange(min=1, max=65535),
+    default=None,
+    help="External WS listener port (default: WS_EXTERNAL_PORT / 9002)",
+)
+@click.option(
+    "--ws-external-readonly/--ws-external-writable",
+    default=None,
+    help="Make the external WS listener read-only (no run submission, cancel rejected); "
+    "default: WS_EXTERNAL_READONLY / off",
 )
 @click.option(
     "--max-inflight-runs",
@@ -531,6 +740,9 @@ def http_server_cmd(
     ws_host: str | None,
     ws_port: int | None,
     ws_max_connections: int | None,
+    ws_external_host: str | None,
+    ws_external_port: int | None,
+    ws_external_readonly: bool | None,
     max_inflight_runs: int | None,
     max_total_inflight: int | None,
     max_request_bytes: int | None,
@@ -583,23 +795,12 @@ def http_server_cmd(
         sandbox_backend=sandbox,
         soul_path=soul,
     )
-    try:
-        ws_config = build_ws_server_config(settings, host=ws_host, port=ws_port, max_connections=ws_max_connections)
-    except WsConfigError as exc:
-        # 对外模式缺 token / TLS 半配：配置不成立，压根不该尝试绑定（fail-closed）。
-        raise click.ClickException(f"WS server configuration is invalid: {exc}") from None
     if _project_env_declares(WS_AUTH_TOKEN_KEY):
         # D3：凭证只认用户级 setting.md。项目 .env 写了也不生效——说清楚，否则用户会以为
         # 「仓库里配了 token 就是认证过的」，而实际对外模式会直接拒绝启动（或本地模式根本没认证）。
         click.echo(
             f"[ws] WARNING: {WS_AUTH_TOKEN_KEY.upper()} in the project .env is ignored"
             " (the WS token is read only from ~/.heagent/setting.md)",
-            err=True,
-        )
-    if ws_config.requires_auth and not ws_config.tls_enabled:
-        click.echo(
-            "[ws] WARNING: external WS mode without TLS (plaintext); "
-            "configure WS_TLS_CERT_FILE and WS_TLS_KEY_FILE to serve wss",
             err=True,
         )
     workspace = WorkspacePaths.from_root(os.getcwd())
@@ -619,18 +820,48 @@ def http_server_cmd(
         run_service=run_service,
         console=console,
     )
-    ws_server = WsServer(ws_config, run_service=run_service)
-    # 非回环绑定：启动前先向 stderr 打印一次明确告警（无认证 / 无 TLS / 非生产安全边界）。
-    # 判定与文案来自 ``network.exposure``——与 ``HttpServer.start()`` / ``WsServer.start()``
-    # 的 ``event=exposed`` 同源；WS 的对外模式（认证 fail-closed）在 56-2 落地。
+    try:
+        # 期二 D8/D9/D12：主 listener + 可选对外 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
+        ws_servers, _hub = build_ws_servers(
+            settings,
+            run_service=run_service,
+            cli_bypass=False,
+            host=ws_host,
+            port=ws_port,
+            max_connections=ws_max_connections,
+            external_host=ws_external_host,
+            external_port=ws_external_port,
+            external_readonly=ws_external_readonly,
+        )
+    except WsConfigError as exc:
+        # 对外缺 token / 对外键取回环 / 主 listener 已对外 / TLS 半配：配置不成立，压根不该尝试绑定。
+        raise click.ClickException(f"WS server configuration is invalid: {exc}") from None
+    # 非回环绑定：启动前先向 stderr 打印一次明确告警。HTTP 侧固定「无认证」口径；WS 侧按 mode
+    # 分流——对外模式是 token 认证，套用 exposure_warning 的「no authentication」文案会撒谎。
     warning = exposure_warning(config.host)
     if warning is not None:
         click.echo(f"[http] WARNING: {warning}", err=True)
-    ws_warning = exposure_warning(ws_config.host)
-    if ws_warning is not None:
-        click.echo(f"[ws] WARNING: {ws_warning}", err=True)
+    for ws in ws_servers:
+        ws_config = ws.config
+        if ws_config.requires_auth:
+            transport = "TLS" if ws_config.tls_enabled else "PLAINTEXT"
+            click.echo(
+                f"[ws] WARNING: exposed on {ws_config.host}:{ws_config.port} "
+                f"(external mode; Bearer token required; {transport})",
+                err=True,
+            )
+        else:
+            ws_warning = exposure_warning(ws_config.host)
+            if ws_warning is not None:
+                click.echo(f"[ws] WARNING: {ws_warning}", err=True)
+    if any(ws.config.requires_auth and not ws.config.tls_enabled for ws in ws_servers):
+        click.echo(
+            "[ws] WARNING: external WS mode without TLS (plaintext); "
+            "configure WS_TLS_CERT_FILE and WS_TLS_KEY_FILE (or the WS_EXTERNAL_TLS_* pair) to serve wss",
+            err=True,
+        )
     try:
-        asyncio.run(_serve_web(server, ws_server))
+        asyncio.run(_serve_web(server, ws_servers))
     except KeyboardInterrupt:
         # Ctrl+C：asyncio.run 先取消主任务、跑完 ``_serve_http`` 的 finally（有界 close），再把
         # KeyboardInterrupt 抛回来。用户主动停止不是错误——安静退出，不打印 traceback。
@@ -647,9 +878,11 @@ def http_server_cmd(
 __all__ = [
     "EmbeddedHttpService",
     "HttpAgentHandler",
+    "build_external_ws_server_config",
     "build_http_service",
     "build_server_config",
     "build_ws_server_config",
+    "build_ws_servers",
     "embedded_http_error_message",
     "http_server_cmd",
 ]

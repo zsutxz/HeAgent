@@ -112,8 +112,19 @@ async def _send_event_stream(
             await websocket.send_text(WsEventFrame(event=event).model_dump_json())
 
 
-async def _handle_commands(websocket: WebSocketLike, service: RunWebSocketService, run_id: str) -> None:
-    """处理 cancel/ping 两条命令；断线异常由调用方收敛为连接结束。"""
+async def _handle_commands(
+    websocket: WebSocketLike,
+    service: RunWebSocketService,
+    run_id: str,
+    *,
+    readonly: bool = False,
+) -> None:
+    """处理 cancel/ping 两条命令；断线异常由调用方收敛为连接结束。
+
+    ``readonly``（只读旁观 listener）只禁**控制面**命令：``cancel`` 回 ``invalid_request`` 且
+    **不断连**（订阅者继续收事件），``ping`` 照常。用「不支持」而不是「静默忽略」——客户端必须
+    知道它连的是观众席。
+    """
     while True:
         try:
             text = await websocket.receive_text()
@@ -145,6 +156,13 @@ async def _handle_commands(websocket: WebSocketLike, service: RunWebSocketServic
             continue
 
         if command is WsCommand.CANCEL:
+            if readonly:
+                await _send_error_frame(
+                    websocket,
+                    HttpErrorCode.INVALID_REQUEST,
+                    "this listener is read-only; cancel is not available",
+                )
+                continue
             current = await service.cancel_run(run_id)
         else:
             current = service.run(run_id)
@@ -161,11 +179,13 @@ async def _run_connection_tasks(
     queue: asyncio.Queue[RunEventPayload | None],
     cursor: int | None,
     run_id: str,
+    *,
+    readonly: bool = False,
 ) -> None:
     """双向读写并发运行；任一路结束即取消另一侧并收尾。"""
     await _supervise(
         _send_event_stream(websocket, record, queue, cursor),
-        _handle_commands(websocket, service, run_id),
+        _handle_commands(websocket, service, run_id, readonly=readonly),
     )
 
 
@@ -410,8 +430,12 @@ def build_ws_endpoint(
     origin_violation: OriginCheck,
     max_connections: int,
     authorize: AuthCheck | None = None,
+    readonly: bool = False,
 ) -> Callable[[WebSocketLike], Awaitable[None]]:
-    """构造单 run WebSocket endpoint；Origin 规则、连接额度与认证由宿主单点注入。"""
+    """构造单 run WebSocket endpoint；Origin 规则、连接额度与认证由宿主单点注入。
+
+    ``readonly`` 透传给命令处理：只读 listener 上 ``cancel`` 被拒绝、事件流照常。
+    """
 
     async def endpoint(websocket: WebSocketLike) -> None:
         started = time.perf_counter()
@@ -440,7 +464,7 @@ def build_ws_endpoint(
             service.register_ws(connection_id, run_id, websocket)
             registered = True
             logger.info("http event=ws_open run_id=%s connection_id=%s", run_id, connection_id)
-            await _run_connection_tasks(websocket, service, record, queue, cursor, run_id)
+            await _run_connection_tasks(websocket, service, record, queue, cursor, run_id, readonly=readonly)
             with contextlib.suppress(Exception):
                 await websocket.close()
         except asyncio.CancelledError:

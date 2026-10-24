@@ -446,6 +446,23 @@ class Settings(BaseSettings):
     # 对外模式不配 TLS 时启动告警（明文运行必须可见），但不拒绝启动——D4 明确「可选」。
     ws_tls_cert_file: str | None = None
     ws_tls_key_file: str | None = None
+    # ---- 期二（Epic 56 D8）：第二个 WS listener（对外），与主 listener 并存 ----
+    # 空 / 未设 = 不启用（默认即期一形态）。非空即启用，且**必须非回环**——回环地址已由主
+    # listener 承担，配成回环值属配置错误（启动期 fail-loud，见 `build_external_ws_server_config`）。
+    # 主 listener 自己已是非回环（期一单对外部署）时再配本键同样 fail-loud：两个对外 listener
+    # 只会让「哪个是主」变成运维猜谜。
+    ws_external_host: str | None = None
+    # 对外 listener 端口，默认 9002（9001 已被主 listener 占用；0.0.0.0:9001 与 127.0.0.1:9001
+    # 在 Windows 上就冲突）。未显式指定时沿用端口顺延（与 HTTP / 主 WS 同口径）。
+    ws_external_port: int = Field(default=9002, ge=1, le=65535)
+    # 对外 listener 的 TLS（D10）：**成对**给才生效；两个都不给则整对继承 `WS_TLS_*`。
+    # 只给一半 ⇒ fail-loud（绝不 A 的证书配 B 的私钥）。
+    ws_external_tls_cert_file: str | None = None
+    ws_external_tls_key_file: str | None = None
+    # 只读旁观（P2-A3，默认关）：True 时对外 listener **不注册**提交端点 `/api/runs/ws`，
+    # 且订阅连接上的 `cancel` 被拒绝（`invalid_request`、不断连）——「给看不给下命令」。
+    # 默认关 = 保持期二已交付语义（对外可提交 run，D2 冻结值）；开启是显式的收紧动作。
+    ws_external_readonly: bool = False
     # 注意：对外模式的 token **不是**这里的字段（见下方 `user_ws_auth_token` 属性）——它是凭证，
     # 只认用户级 setting.md；做成 Settings 字段会让项目 .env / 系统环境变量能够覆盖它。
     # CLI 旁路订阅（Epic 55，Epic 56 D7 起宿主 = WS server）：给 `WS /api/cli/ws` 开一条只读

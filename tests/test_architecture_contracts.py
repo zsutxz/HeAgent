@@ -1012,3 +1012,56 @@ def test_ws_endpoints_and_commands_stay_closed() -> None:
     assert paths == ["/api/cli/ws", "/api/runs/ws", "/api/runs/{run_id}/ws"]
     assert {item.value for item in WsCommand} == {"run", "cancel", "ping"}
     assert "build_runs_collection_endpoint" in ws_server_all
+
+
+def test_external_ws_listener_never_exposes_the_cli_bypass_surface() -> None:
+    """期二 D9：对外 listener 的 WS 路由集**恰为** {提交, 订阅}——终端旁路只属于本地 listener。
+
+    这条判据把「对外多一个端点 = 多一个暴露面」变成可执行的：即使调用方把 hub 传给对外
+    listener（最坏情况），`build_ws_app` 也必须按 `mode` 拒绝注册 `/api/cli/ws`。
+    """
+    import pytest
+
+    pytest.importorskip("starlette")
+    from starlette.routing import WebSocketRoute
+
+    from heagent.network.ws_host import WsServerConfig, build_ws_app
+
+    def _paths(config: WsServerConfig) -> list[str]:
+        app = build_ws_app(config, run_service=object(), cli_hub=object())
+        return sorted(route.path for route in app.routes if isinstance(route, WebSocketRoute))
+
+    assert _paths(WsServerConfig(host="127.0.0.1")) == [
+        "/api/cli/ws",
+        "/api/runs/ws",
+        "/api/runs/{run_id}/ws",
+    ]
+    assert _paths(WsServerConfig(host="0.0.0.0", auth_token="s3cret")) == [
+        "/api/runs/ws",
+        "/api/runs/{run_id}/ws",
+    ]
+    # 只读旁观（P2-A3）：提交端点在路由表里**不存在**，只留订阅。
+    assert _paths(WsServerConfig(host="0.0.0.0", auth_token="s3cret", readonly=True)) == [
+        "/api/runs/{run_id}/ws",
+    ]
+
+
+def test_dual_listener_docs_stay_in_sync() -> None:
+    """期二 D14：用户可见的四份文档必须同时提到对外 listener 与它的端点可见性不变量。
+
+    文档漂移是真实的运维风险（运维按 `deploy/README.md` 配环境；按 `AGENTS.md` 判断暴露面）。
+    这条判据只钉「关键事实在场」，不比较文案措辞——措辞自由，事实不许缺。
+    """
+    frame = (TARGET_ROOT / "docs/frame.md").read_text(encoding="utf-8")
+    agents = (TARGET_ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    deploy = (TARGET_ROOT / "deploy/README.md").read_text(encoding="utf-8")
+    example = (TARGET_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for name, text in (("docs/frame.md", frame), ("deploy/README.md", deploy), (".env.example", example)):
+        assert "WS_EXTERNAL_HOST" in text, name
+        assert "WS_EXTERNAL_TLS_CERT_FILE" in text, name
+    # 端点可见性不变量必须在「安全声明」与「部署说明」两处都写明（只写在代码注释里等于没写）。
+    for name, text in (("AGENTS.md", agents), ("deploy/README.md", deploy), ("docs/frame.md", frame)):
+        assert "/api/cli/ws" in text, name
+    assert "双监听并存" in agents
+    assert "只挂在本地 listener" in deploy or "只挂本地 listener" in deploy
