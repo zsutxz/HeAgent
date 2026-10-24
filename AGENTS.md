@@ -10,6 +10,17 @@ HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP s
 
 MCP 特定风险：stdio server 拉起任意本地子进程、HTTP server 连任意远程端点、`Tool.annotations` 是 server 自声明不可信、工具输出启发式围栏不阻断——须 OS 级沙箱兜底（container 档 Docker 后端不覆盖 MCP stdio——进容器挂 epic-53 期二 D53-1）。
 
+**网络入口分两档，别混着说**（Epic 49 HTTP / Epic 54–56 WS）：
+
+- **本地模式**（listener 绑回环，默认）：HTTP+SSE（8766）与 WS（9001）**都无认证、无 TLS**；回环绑定不是信任依据，
+  回环客户端同样不可信，Origin/Host 校验只是入口层 defense-in-depth。
+- **对外模式**（WS listener 绑非回环，Epic 56 D5）：**强制** `Authorization: Bearer <token>`（token 只读用户级
+  `~/.heagent/setting.md`，项目 `.env` 无效），缺 token **拒绝启动**（fail-closed），Origin 防线不适用；TLS 可选
+  （`WS_TLS_CERT_FILE`/`WS_TLS_KEY_FILE` 配齐即 wss，不配则启动告警）。认证**不是绝对边界**（token 可泄露、
+  明文可被中间人观察）。HTTP listener **没有**对外模式——它始终按本地模式的口径对待，不要把它绑到公网。
+- **对外能提交 run ⇒ 容器沙箱档（`--sandbox docker`）从建议升级为强烈建议**：一次 run 会真的执行 `shell`。
+  浏览器 WebSocket API 无法自定义请求头 ⇒ 对外模式面向 IDE 插件 / 桌面客户端，不面向浏览器页面。
+
 ## 文档布局
 
 **架构权威 = `docs/frame.md`**（数据流 / 模块依赖 DAG / 核心模块详解 / 调用链 / 技术规范）。修改 `agent/`、`providers/`、`tools/` 或 `engine/` 前先阅读它。
@@ -62,6 +73,7 @@ HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**�
 - 新增 provider / tool **禁止**从 `agent/` 导入
 - `engine/` 依赖 `pub` + `tools` 部分 + `events.protocol`，被 `agent/` 依赖
 - `network/` 不得导入运行栈（agent/engine/providers/tools/memory/skills/context/cron/events）与配置（config/pub.projects/pub.workspace）；WS 端点同样必须保持该依赖边界
+- `network/ws_server.py` **不得**导入 `network/http_server.py`（同层传输模块互不依赖；`HttpRunConflictError` 等共享契约住 `http_protocol.py`）——`tests/test_architecture_contracts.py` 有可执行断言
 - 跨模块数据用 Pydantic 模型（`pub/types.py`），**禁止**原始 dict
 - 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**
 
@@ -102,7 +114,7 @@ heagent "写一个快速排序"           # 单次执行
 heagent                            # 交互模式
 heagent init --project             # 初始化项目配置
 heagent gui                        # TUI（需 pip install -e ".[gui]"）
-heagent http-server                # HTTP 网页入口（127.0.0.1:8766，需 pip install "heagent[http]"）
+heagent http-server                # HTTP 网页入口（127.0.0.1:8766）+ WS 入口（127.0.0.1:9001），需 pip install "heagent[http]"
 ```
 
 异步测试由 `pytest-asyncio` 自动驱动；provider 测试放在 `tests/providers/`。
@@ -140,6 +152,6 @@ heagent http-server                # HTTP 网页入口（127.0.0.1:8766，需 pi
 
 完整清单见 `docs/frame.md` 五与 `_bmad-output/implementation-artifacts/deferred-work-archive.md`。
 
-核心立场：`SafetyGuard`/`PolicyEngine`/sandbox 均非真正安全边界，须 OS 级沙箱兜底（shell 路径的兜底实施项 = container 档 Docker 后端，Epic 53 期一，默认未启用、非绝对边界；MCP stdio 未覆盖）。WS 与 HTTP/SSE 同样无认证、无 TLS、回环不等于可信；WS 的 Origin 校验只是入口层 defense-in-depth，不改变 OS 沙箱兜底立场。
+核心立场：`SafetyGuard`/`PolicyEngine`/sandbox 均非真正安全边界，须 OS 级沙箱兜底（shell 路径的兜底实施项 = container 档 Docker 后端，Epic 53 期一，默认未启用、非绝对边界；MCP stdio 未覆盖）。WS 与 HTTP/SSE 同属入口面：**本地模式**同样无认证、无 TLS，回环不等于可信，WS 的 Origin 校验只是入口层 defense-in-depth；**对外模式**（WS 绑非回环）强制静态 token 且缺 token 拒绝启动，但认证不是绝对边界——两种模式都不改变 OS 沙箱兜底立场，对外能提交 run 时容器沙箱档强烈建议。
 
 活动缺口：MCP stdio server 子进程不经沙箱（中-高）；会话文件并发写主害已由 `save(base=...)` 保守合并闭合（2026-09-27，Z-D21），残余登记 A34 挂起待裁定（低）；技能资源 TOCTOU 残余竞态已专项评估（2026-10-20）：窗口收窄至组件级（POSIX 逐组件 openat）/与硬化前同宽（Windows 回退通道），全部窗口不跨越可提升信任域（能赢竞态者无需竞态即可直写技能根或经 shell 直读凭证），裁定不另立收窄周期，维持 OS 沙箱兜底立场——正文见总账「跨周期勘察与裁定索引」。

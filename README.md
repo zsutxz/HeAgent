@@ -116,10 +116,11 @@ heagent "用一句话解释 asyncio"  # 单次模式：网页入口随这次运�
 heagent http-server            # 只起网页服务（不进 CLI 循环）
 ```
 
-网页栈是可选依赖，缺失时命令会提示安装方式：`pip install "heagent[http]"`。默认只绑 `127.0.0.1:8766`：
+网页栈是可选依赖，缺失时命令会提示安装方式：`pip install "heagent[http]"`。**Epic 56 起是双 listener**：HTTP+SSE 与控制台固定在本节监听器（默认 `127.0.0.1:8766`），**WebSocket 能力在独立监听器**（默认 `127.0.0.1:9001`，见下节）。
 
 ```bash
 heagent http-server --port 9100 --max-inflight-runs 1
+heagent http-server --ws-port 9101 --ws-max-connections 8   # WS listener 独立顺延/指定
 heagent http-server --host 0.0.0.0                       # ⚠ 对外暴露：启动会打「无认证 / 无 TLS」告警
 heagent http-server --model deepseek-v4-pro --sandbox firejail
 ```
@@ -149,6 +150,48 @@ API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","
 - 会话投影与事件缓冲是**进程内状态**（进程退出即丢）；限额（连接 / 在途运行 / 请求体 / 事件缓存 / 运行时长 / 关闭等待）由 `HTTP_*` 设置控制（见 `.env.example`）。
 
 `gui` / `http-server` / `init` / `replay` 都不会附带启动第二份 HTTP 服务；默认 CLI 起的就是这一份，随 CLI 退出而关闭。
+
+## WebSocket 入口（9001，Epic 54–56）
+
+WS 与 HTTP+SSE **并存但拓扑分离**：独立 listener（默认 `127.0.0.1:9001`）、独立 ASGI app、**零 HTTP 路由**
+（控制台页 / REST / 健康检查在这个端口上全是 404），是全部 WS 能力的唯一宿主。
+
+> ⚠ **breaking change**：Epic 56 之前 WS 端点挂在 HTTP 端口（8766）下；现在**端口改为 9001**，路径不变。
+> 只需改端口，帧契约与端点路径逐字未变。
+
+| 端点 | 用途 |
+| --- | --- |
+| `WS /api/runs/ws` | **提交 run**（Epic 56 新增）：发 `{"command":"run","prompt":"…"}`，收 `ack{run_id,status}`；名额满回 `run_conflict`（不排队） |
+| `WS /api/runs/{run_id}/ws` | 订阅单个 run：先按 `?last_event_id=N` 重放缓存，再跟随实时事件；命令 `{"command":"cancel"}` / `{"command":"ping"}` |
+| `WS /api/cli/ws` | CLI 旁路只读事件流（`WS_CLI_BYPASS_ENABLED=true` 才有）：看**终端里那一轮** run 的事件，仅 `ping` |
+
+```bash
+# 提交 → 拿 run_id → 订阅（aiohttp / websockets 等客户端示意）
+ws://127.0.0.1:9001/api/runs/ws          # → {"command":"run","prompt":"写一个快速排序"}
+ws://127.0.0.1:9001/api/runs/<run_id>/ws # → 事件帧（seq 单调）；{"command":"cancel"} 等价 DELETE
+```
+
+**两种模式，按绑定地址自动切换**（`WS_HOST`）：
+
+| | 本地模式（回环绑定，默认） | 对外模式（非回环绑定） |
+|---|---|---|
+| 认证 | 无 | **强制** `Authorization: Bearer <token>`（握手前校验，失败 1008/HTTP 403） |
+| token 来源 | — | **只认** `~/.heagent/setting.md` 的 `WS_AUTH_TOKEN`（项目 `.env` 无效并告警） |
+| 缺 token | 不适用 | **拒绝启动**（fail-closed，绝不降级成无认证对外） |
+| Origin/Host 防线 | 启用 | 不适用（防线由 token 取代） |
+| TLS | 可选 | 可选：`WS_TLS_CERT_FILE` + `WS_TLS_KEY_FILE` 配齐即 wss；不配 = 明文 + 启动告警 |
+
+```bash
+# 对外模式示例（token 放在用户级配置，不放项目 .env）
+heagent http-server --ws-host 0.0.0.0 --ws-port 9001
+#   ~/.heagent/setting.md:  WS_AUTH_TOKEN: <随机长串>
+#   WS_TLS_CERT_FILE / WS_TLS_KEY_FILE（PEM）配齐即走 wss
+```
+
+⚠ **这也不是安全边界**：本地模式与 HTTP 入口同档（无认证、无 TLS、回环不等于可信）；对外模式的 token 认证
+不是绝对边界（token 可泄露、明文可被中间人观察），且**浏览器 WebSocket API 无法自定义请求头**——对外模式
+面向 IDE 插件 / 桌面客户端，不面向浏览器页面。经 WS 提交 run 会真的跑 Agent（含 `shell`）⇒ **容器沙箱档
+（`--sandbox docker`）强烈建议**，见 [`docs/sandbox.md`](docs/sandbox.md)。
 
 ## Goal 工作流
 

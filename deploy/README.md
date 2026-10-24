@@ -89,6 +89,57 @@ spec 要点：
 - `collect_all("textual")`：GUI（textual 扩展）含动态 widget/screen 加载，整体收集。
 - openai / anthropic / httpx / pydantic 为常规静态导入，由 Analysis 自动追踪。
 
+## 网络入口（`heagent http-server`）
+
+`heagent http-server` 起的是**同进程两个 listener**（Epic 56 D1 起）：
+
+| listener | 默认地址 | 内容 | 开关 |
+|---|---|---|---|
+| HTTP+SSE | `127.0.0.1:8766` | 网页控制台、REST、SSE；**不含任何 WS 路由** | `HTTP_HOST` / `HTTP_PORT` |
+| WebSocket | `127.0.0.1:9001` | 三条 WS 端点（提交 / 订阅 / CLI 旁路），零 HTTP 路由 | `WS_HOST` / `WS_PORT` |
+
+> ⚠ **端口迁移（Epic 56 的唯一 breaking change）**：Epic 56 之前 WS 端点挂在 HTTP 端口 8766 下；
+> 现在在 **9001**，路径不变。旧客户端只需把连接 URL 的端口从 8766 改成 9001。
+
+### 三种部署姿态
+
+1. **单机自用（默认，推荐）**：两个 listener 都绑回环，token 与 TLS 都不需要；本机客户端连
+   `ws://127.0.0.1:9001/...`。
+2. **对外只读订阅**：`WS_HOST=0.0.0.0` + `WS_AUTH_TOKEN`（用户级 `~/.heagent/setting.md`）——客户端必须
+   带 `Authorization: Bearer <token>`；缺 token **拒绝启动**（fail-closed）。
+3. **对外且加密**：在姿态 2 基础上配 `WS_TLS_CERT_FILE` / `WS_TLS_KEY_FILE`（PEM，二者必须同时给），
+   listener 走 `wss://`。不配 TLS 时启动会打 `event=plaintext_external` 告警（明文运行可见）。
+
+```dotenv
+# 示例：项目 .env 里只放绑定与限额；token 不放这里（见下）
+WS_HOST=0.0.0.0
+WS_PORT=9001
+WS_MAX_CONNECTIONS=16
+WS_TLS_CERT_FILE=/etc/heagent/tls/fullchain.pem
+WS_TLS_KEY_FILE=/etc/heagent/tls/privkey.pem
+```
+
+```yaml
+# ~/.heagent/setting.md（用户级，优先级低于项目 .env；但 WS token 只从这里读）
+---
+WS_AUTH_TOKEN: <随机长串，建议 openssl rand -hex 32 生成>
+---
+```
+
+**为什么 token 只认用户级文件**：项目 `.env` 常常被仓库 / CI / 其他人写，若它也能供给 token，
+仓库作者就能预置一个「攻击者已知」的凭证让对外监听器照单全收。写在项目 `.env` 里**不生效**，
+启动时会有显式告警，配置面板也会把它列为未知键。
+
+### 安全前置（必读）
+
+- HTTP 入口（8766）**无认证、无 TLS**，回环绑定不等于可信——**不要**把它绑到非回环地址后直接暴露公网，
+  也不要在它前面套反向代理（`forwarded-*` 头会被直接拒绝，反向代理部署不在支持范围）。
+- WS 对外模式的 token 认证**不是绝对边界**：token 会泄露、明文可被中间人观察；限速只挡同一来源的
+  暴力尝试。需要更强的隔离就在前面加 TLS，并把整个进程放进容器 / VM。
+- 经 HTTP 或 WS 提交的 run 会真的执行 Agent（含 `shell` 工具）⇒ **容器沙箱档（`--sandbox docker`）
+  强烈建议**（`.env` 里 `SANDBOX_BACKEND=docker`）；它仍不是绝对边界，见 `docs/sandbox.md`。
+- 浏览器 WebSocket API 无法自定义请求头 ⇒ 对外模式面向 IDE 插件 / 桌面客户端；浏览器侧仍用 HTTP 控制台。
+
 ## 生产前检查项
 
 - **API Key**：通过 `.env.production` 或环境变量注入，勿硬编码。

@@ -21,7 +21,7 @@ from heagent.config import Settings
 from heagent.config.catalog import RESOURCE_CEILINGS, classify, whitelist
 from heagent.network.cli_event_hub import CliEventHub
 from heagent.network.http_protocol import MAX_REQUEST_BYTES_FOR_MAX_PROMPT, RunOutcome
-from heagent.network.http_server import HttpRunService, HttpServerConfig
+from heagent.network.http_server import HttpRunService, HttpServerConfig, _RunRecord
 from heagent.network.ws_host import (
     RUNS_WS_PATH,
     WsServer,
@@ -422,3 +422,57 @@ def test_build_server_config_no_longer_carries_ws_knob() -> None:
 
     config = build_server_config(Settings())
     assert not hasattr(config, "ws_max_connections")
+
+
+# ---- Epic 56 Story 56-4：WS 慢消费者判据（Epic 54 retro F5 的「判据 10」缺口）----
+
+
+@pytest.mark.asyncio
+async def test_ws_slow_consumer_is_dropped_with_a_sentinel_not_silently_skipped() -> None:
+    """订阅者不消费 ⇒ 队列满时**结束该流**（哨兵入队 + 连接注销），绝不静默丢事件。
+
+    端到端语义：客户端把事件读走的速度跟不上生产者的速度时，服务端不能无限堆积也不能静默跳过——
+    它会结束那条流（``None`` 哨兵），客户端据 ``close`` 重连并带 ``?last_event_id=N`` 从 ring buffer
+    补齐（越过窗口则收 ``resync_required``）。这条判据钉的是**服务端这一半**（WS 队列与 SSE 同语义）。
+    """
+    from heagent.network.http_protocol import RunEventKind
+
+    record = _RunRecord("slow", "prompt", buffer_size=2)
+    queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=record.subscriber_queue_size)
+    assert record.try_add_ws_subscriber(queue, limit=4)
+
+    record.append(RunEventKind.TEXT, text="a")
+    record.append(RunEventKind.TEXT, text="b")
+    assert queue.full()  # 队列与事件窗口同界（2）
+    assert len(record.ws_subscribers) == 1  # 还没满到越界，订阅仍在
+
+    # 第 3 条越过窗口 ⇒ 该订阅者被踢出并以哨兵结束其流。
+    record.append(RunEventKind.TEXT, text="c")
+    assert record.ws_subscribers == set()
+    drained = [queue.get_nowait() for _ in range(queue.qsize())]
+    assert drained[-1] is None  # 哨兵：消费端据此结束，而不是干等心跳
+    assert all(item is None or item.seq <= 2 for item in drained)  # 不塞半截新事件
+    # ring buffer 仍完整保留窗口内的事件：客户端重连可续传（游标 < 最老 → resync_required）。
+    assert [event.seq for event in record.events] == [2, 3]
+    assert record.oldest_seq == 2
+
+
+@pytest.mark.asyncio
+async def test_ws_and_sse_subscriber_pools_stay_independent_under_backpressure() -> None:
+    """WS 被踢不影响同 run 的 SSE 订阅者（两套队列、两套额度、两条背压路径）。"""
+    from heagent.network.http_protocol import RunEventKind
+
+    record = _RunRecord("mixed", "prompt", buffer_size=2)
+    sse_queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=record.subscriber_queue_size)
+    ws_queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=record.subscriber_queue_size)
+    assert record.try_add_subscriber(sse_queue, limit=4)
+    assert record.try_add_ws_subscriber(ws_queue, limit=4)
+
+    for text in ("a", "b", "c"):
+        record.append(RunEventKind.TEXT, text=text)
+        if text == "b":
+            # SSE 侧持续消费，WS 侧停读：只有 WS 会被踢。
+            sse_queue.get_nowait()
+    assert record.subscribers == {sse_queue}
+    assert record.ws_subscribers == set()
+    assert sse_queue.qsize() > 0

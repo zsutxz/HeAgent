@@ -975,3 +975,40 @@ def test_transition_fields_helper_is_the_only_status_writer() -> None:
     assert ast.unparse(status_value.func) == "transition", ast.unparse(status_value)
     assert ast.unparse(status_value.args[1]) == "event", ast.unparse(status_value)
     assert ast.unparse(last_event_value) == "event.value", ast.unparse(last_event_value)
+
+
+def test_ws_server_does_not_import_the_http_transport_module() -> None:
+    """Epic 56 Story 56-3：两条 WS 端点的实现不得反向依赖 HTTP 传输模块。
+
+    ``ws_server`` 是端点逻辑（提交 / 订阅 / CLI 旁路），``http_server`` 是 HTTP app + 运行服务；
+    同层传输模块互相导入会把「WS 拆分出去」这件事悄悄退回去（改 HTTP 的装配就会波及 WS）。
+    共享契约（``HttpRunConflictError`` / ``RunRequest`` / 错误信封）住在 ``http_protocol``——那才是
+    两边都该伸手的地方。``ws_host`` 只允许取 ``_require_module`` 这一个延迟导入辅助。
+    """
+    offenders: list[str] = []
+    for module in ("network/ws_server.py", "network/ws_auth.py", "network/ws_protocol.py"):
+        runtime, _typing = _imports(SRC / module)
+        offenders.extend(f"{module} → {name}" for name in runtime | _typing if name == "heagent.network.http_server")
+    assert offenders == [], "WS 端点反向依赖了 HTTP 传输模块：" + "; ".join(offenders)
+
+    # 反面证据：ws_host 只取延迟导入辅助（不是整套 HTTP 实现）。
+    runtime, _typing = _imports(SRC / "network/ws_host.py")
+    assert "heagent.network.http_server" in runtime
+    source = (SRC / "network/ws_host.py").read_text(encoding="utf-8")
+    assert "from heagent.network.http_server import _require_module" in source
+
+
+def test_ws_endpoints_and_commands_stay_closed() -> None:
+    """三条 WS 端点路径与命令集是**封闭契约**：多一条端点 = 多一个对外面，必须走 story 评审。
+
+    D2 的能力边界（配置 / 项目 / 会话 / 对话框只走本机 HTTP）靠这条断言兜底：WS listener 上只允许
+    ``/api/runs/ws``（提交）、``/api/runs/{run_id}/ws``（订阅）、``/api/cli/ws``（旁路）。
+    """
+    from heagent.network.ws_protocol import WsCommand
+    from heagent.network.ws_server import __all__ as ws_server_all
+
+    source = (SRC / "network/ws_host.py").read_text(encoding="utf-8")
+    paths = sorted(set(re.findall(r'^(?:RUNS_WS_PATH|RUNS_SUBMIT_PATH|CLI_WS_PATH) = "([^"]+)"', source, re.M)))
+    assert paths == ["/api/cli/ws", "/api/runs/ws", "/api/runs/{run_id}/ws"]
+    assert {item.value for item in WsCommand} == {"run", "cancel", "ping"}
+    assert "build_runs_collection_endpoint" in ws_server_all
