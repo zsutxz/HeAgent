@@ -16,6 +16,7 @@ import pytest
 from heagent.network.cli_event_hub import CliEventHub
 from heagent.network.http_protocol import HttpErrorCode
 from heagent.network.ws_host import WsServer, WsServerConfig
+from heagent.network.ws_protocol import WS_MAX_COMMAND_CHARS
 
 websockets = pytest.importorskip("websockets")
 
@@ -294,7 +295,8 @@ async def test_cli_ws_oversized_command_closes_with_too_large() -> None:
     uri = f"ws://127.0.0.1:{server.port}/api/cli/ws"
     try:
         async with websockets.connect(uri) as ws:
-            await ws.send("x" * 5000)
+            # 56-3 起非 `run` 帧守 `WS_MAX_COMMAND_CHARS`：超限 ⇒ 1009（垃圾文本仍走 malformed/1008）。
+            await ws.send(json.dumps({"command": "ping", "pad": "x" * (WS_MAX_COMMAND_CHARS + 200)}))
             with pytest.raises(websockets.exceptions.ConnectionClosed) as closed:
                 await asyncio.wait_for(ws.recv(), timeout=2)
             assert closed.value.rcvd.code == 1009

@@ -34,7 +34,7 @@ from typing import Any, ClassVar, Literal, NamedTuple, get_args, get_origin
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import DotEnvSettingsSource, EnvSettingsSource
 
-from heagent.config import GLOBAL_SETTING_FILE, Settings
+from heagent.config import GLOBAL_SETTING_FILE, WS_AUTH_TOKEN_KEY, Settings
 from heagent.config.envfile import iter_env_lines
 from heagent.config.user_settings import (
     SettingsError,
@@ -53,6 +53,12 @@ BOM = "\ufeff"
 
 #: 凭证的**定长**掩码：常量、零信息量（既不反映长度也不含原文字符）。
 MASK = "********"
+
+#: 合法但**不属于** ``Settings`` 字段的用户级键：它们存在用户 ``setting.md`` 里却不是配置项。
+#: 目前只有 WS 对外模式的 token（Epic 56 D3：凭证只认用户级文件，刻意不进「env > 项目 .env >
+#: 用户 md」优先级链）。列入本集合的唯一作用是让「未知键」诊断不误报它；它**不**成为可写项，
+#: 也不出现在配置面板条目里（面板按 ``Settings.model_fields`` 装配）。
+USER_ONLY_SETTING_KEYS = frozenset({WS_AUTH_TOKEN_KEY})
 
 #: 未知键列表的上界：条目来自文件内容，必须有界（响应体不随 `.env` 内容膨胀）。
 MAX_UNKNOWN_KEYS = 64
@@ -1164,13 +1170,18 @@ def _unknown_keys(
     仍必须报出来——否则 AC5 的诊断恰在最需要它的输入上消失（评审发现·镜头二③）。两个门：文件不可读
     或**非 UTF-8**（键名会被替换字符污染）时不报。注意 ``EnvSettingsSource`` 会**丢掉**未知的系统
     环境变量（实测），因此系统层不可能贡献未知键。
+
+    ``USER_ONLY_SETTING_KEYS`` **只对用户层生效**：它们是合法的用户级键（如 WS token），但写在
+    项目 ``.env`` 里既不生效也不合法——那条路径必须照常报成未知键，否则「写错地方」会被诊断
+    面板当作正常键吞掉（与「凭证只认用户级文件」的立场一致）。
     """
     found: list[UnknownKeyReport] = []
     for source, scan in scans.items():
         if not scan.readable or not scan.encoding_ok:
             continue
+        allowed = known | USER_ONLY_SETTING_KEYS if source is ConfigSource.GLOBAL_SETTING else known
         for name in scan.declared_keys:
-            if name.lower() in known:
+            if name.lower() in allowed:
                 continue
             found.append(UnknownKeyReport(key=name, source=source))
     truncated = len(found) > MAX_UNKNOWN_KEYS
@@ -1303,6 +1314,7 @@ __all__ = [
     "MASK",
     "RESOURCE_CEILINGS",
     "UNKNOWN_GROUP",
+    "USER_ONLY_SETTING_KEYS",
     "VALUE_GUARDS",
     "WHITELIST_GROUPS",
     "ConfigClassification",

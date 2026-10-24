@@ -54,6 +54,7 @@ from heagent.network.http_protocol import (
     TERMINAL_RUN_STATUSES,
     HealthResponse,
     HttpErrorCode,
+    HttpRunConflictError,
     RunEventKind,
     RunEventPayload,
     RunOutcome,
@@ -160,18 +161,6 @@ class HttpDependencyError(RuntimeError):
 
 class HttpStartupError(RuntimeError):
     """HTTP 服务未能绑定或未通过就绪探测。"""
-
-
-class HttpRunConflictError(RuntimeError):
-    """已有在途运行（或服务正在关闭 / **服务级总额已满**），拒绝新运行（AD-3 的单运行约束）。
-
-    ``code`` 是给客户端的稳定码：项目级冲突与服务关闭都是 ``run_conflict``，服务级总额（跨项目
-    共享的 ``max_total_inflight``）是 ``total_inflight_limit``——两者「等谁结束」的语义不同。
-    """
-
-    def __init__(self, message: str, *, code: HttpErrorCode = HttpErrorCode.RUN_CONFLICT) -> None:
-        super().__init__(message)
-        self.code = code
 
 
 class HttpServerConfig(BaseModel):

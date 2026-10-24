@@ -649,3 +649,58 @@ def test_write_channel_applies_on_the_next_run_only(tmp_path: Path) -> None:
     assert before.executor.settings.max_iterations == 5  # 旧 handler 不被就地改写
     assert written.changes[0].key == "MAX_ITERATIONS" and written.changes[0].value == 42
     assert written.changes[0].source.value == "project_env"
+
+
+# ---- Epic 56 Story 56-2/56-3：对外模式在命令层的显式失败与公告 ----
+
+
+def _write_user_setting(tmp_path: Path, token: str | None) -> Path:
+    path = tmp_path / "setting.md"
+    body = "---\n" + (f"WS_AUTH_TOKEN: {token}\n" if token is not None else "\n") + "---\n"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def test_external_ws_bind_without_token_fails_closed_at_the_command_level(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer], tmp_path: Path
+) -> None:
+    """非回环 WS 绑定缺 token：命令级一行可读错误 + exit 1，**不**打印任何监听公告。"""
+    monkeypatch.setattr(Settings, "_user_setting_file", _write_user_setting(tmp_path, None))
+
+    result = CliRunner().invoke(main, ["http-server", "--ws-host", "0.0.0.0"])
+
+    assert result.exit_code == 1, result.output
+    assert "WS_AUTH_TOKEN" in result.output
+    assert "Traceback" not in result.output
+    assert "[ws] listening" not in result.output
+    assert "server" not in captured_server  # 根本没进服务编排
+
+
+def test_external_ws_bind_with_token_announces_token_and_plaintext(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer], tmp_path: Path
+) -> None:
+    """有 token + 无 TLS：公告写 wss 以外的真实传输，并给出明文告警（D4 的可见性要求）。"""
+    monkeypatch.setattr(Settings, "_user_setting_file", _write_user_setting(tmp_path, "s3cret"))
+
+    result = CliRunner().invoke(main, ["http-server", "--ws-host", "0.0.0.0"])
+
+    assert result.exit_code == 0, result.output
+    assert captured_server["ws"].config.requires_auth is True
+    assert "WS_AUTH_TOKEN in the project .env is ignored" not in result.output
+    assert "external WS mode without TLS" in result.output
+    # token 绝不出现在命令输出里。
+    assert "s3cret" not in result.output
+
+
+def test_project_env_token_is_reported_as_ignored(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer], tmp_path: Path
+) -> None:
+    """项目 `.env` 里写 token 不生效：启动时必须说出来（否则用户以为已经认证过）。"""
+    monkeypatch.setattr(Settings, "_user_setting_file", _write_user_setting(tmp_path, None))
+    (tmp_path / ".env").write_text("WS_AUTH_TOKEN=from-project-env\n", encoding="utf-8")
+
+    result = CliRunner().invoke(main, ["http-server"])
+
+    assert result.exit_code == 0, result.output
+    assert "WS_AUTH_TOKEN in the project .env is ignored" in result.output
+    assert captured_server["ws"].config.requires_auth is False

@@ -20,7 +20,7 @@ from pydantic import ValidationError
 from heagent.config import Settings
 from heagent.config.catalog import RESOURCE_CEILINGS, classify, whitelist
 from heagent.network.cli_event_hub import CliEventHub
-from heagent.network.http_protocol import RunOutcome
+from heagent.network.http_protocol import MAX_REQUEST_BYTES_FOR_MAX_PROMPT, RunOutcome
 from heagent.network.http_server import HttpRunService, HttpServerConfig
 from heagent.network.ws_host import (
     RUNS_WS_PATH,
@@ -113,7 +113,8 @@ def test_uvicorn_ws_options_moved_to_ws_host() -> None:
     assert "ws_ping_timeout=WS_PING_TIMEOUT_SECONDS" in ws_source
     assert WS_PING_INTERVAL_SECONDS == 15.0
     assert WS_PING_TIMEOUT_SECONDS == 20.0
-    assert WS_MAX_FRAME_BYTES == 64 * 1024
+    # 帧上限随 56-3 抬高到「装得下最大 prompt」（与 HTTP 请求体上限同源），不再是 64 KiB。
+    assert WS_MAX_FRAME_BYTES == MAX_REQUEST_BYTES_FOR_MAX_PROMPT
     assert "ws_max_size=" not in http_source
     assert "ws_ping_interval=" not in http_source
 
@@ -315,6 +316,19 @@ async def test_ws_server_close_alone_never_cancels_runs() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ws_server_with_unreadable_tls_files_fails_loud() -> None:
+    """TLS 配齐但文件读不到 ⇒ 启动显性失败（绝不静默降级成明文）。"""
+    server = WsServer(
+        _ws_config(
+            tls_cert_file="tests/fixtures/ws_tls/does-not-exist.pem",
+            tls_key_file="tests/fixtures/ws_tls/does-not-exist.key",
+        )
+    )
+    with pytest.raises(WsStartupError):
+        await server.start()
+
+
+@pytest.mark.asyncio
 async def test_ws_server_start_fails_loud_when_port_explicitly_taken() -> None:
     """显式端口被占 ⇒ WsStartupError（fail-loud，不静默换端口）。"""
     with socket.socket() as blocker:
@@ -343,15 +357,50 @@ def test_ws_unavailable_diagnostic_is_logged_once(monkeypatch: pytest.MonkeyPatc
 # ---- 组合根装配（build_ws_server_config / 双 server 编排）----
 
 
-def test_build_ws_server_config_maps_settings_and_overrides() -> None:
+def test_ws_app_registers_the_submit_route_only_with_a_run_service() -> None:
+    """56-3：集合级端点 `/api/runs/ws` 与订阅端点同生同灭（都随 `run_service` 注入）。"""
+    from starlette.routing import WebSocketRoute
+
+    from heagent.network.ws_host import RUNS_SUBMIT_PATH, RUNS_WS_PATH
+
+    def _paths(**kwargs: Any) -> list[str]:
+        app = build_ws_app(_ws_config(), **kwargs)
+        return [item.path for item in app.routes if isinstance(item, WebSocketRoute)]
+
+    assert _paths() == []
+    assert _paths(run_service=HttpRunService(_http_config(), None)) == [RUNS_SUBMIT_PATH, RUNS_WS_PATH]
+    assert sorted(_paths(cli_hub=CliEventHub())) == ["/api/cli/ws"]
+    # 集合级端点路径与订阅端点不冲突：段数不同，按 id 订阅仍走原路由。
+    assert RUNS_SUBMIT_PATH == "/api/runs/ws"
+    assert RUNS_WS_PATH == "/api/runs/{run_id}/ws"
+
+
+def test_local_mode_app_exposes_all_three_routes() -> None:
+    from starlette.routing import WebSocketRoute
+
+    app = build_ws_app(_ws_config(), run_service=HttpRunService(_http_config(), None), cli_hub=CliEventHub())
+    paths = [item.path for item in app.routes if isinstance(item, WebSocketRoute)]
+    assert paths == ["/api/runs/ws", "/api/runs/{run_id}/ws", "/api/cli/ws"]
+
+
+def test_build_ws_server_config_maps_settings_and_overrides(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from heagent.cli.http import build_ws_server_config
+    from heagent.network.ws_host import WsConfigError
 
     assert build_ws_server_config(Settings()).port == 9001
     assert build_ws_server_config(Settings(ws_port=9100)).port == 9100
     assert build_ws_server_config(Settings(), port=9200).port == 9200
-    assert build_ws_server_config(Settings(), host="0.0.0.0").host == "0.0.0.0"
     assert build_ws_server_config(Settings(), max_connections=7).ws_max_connections == 7
     assert build_ws_server_config(Settings(), shutdown_timeout=9).shutdown_timeout == 9.0
+    # 56-2 D5：非回环绑定缺 token ⇒ fail-closed（不再静默产出一个「无认证对外」的配置）。
+    with pytest.raises(WsConfigError):
+        build_ws_server_config(Settings(), host="0.0.0.0")
+    setting = tmp_path / "setting.md"
+    setting.write_text("---\nWS_AUTH_TOKEN: s3cret\n---\n", encoding="utf-8")
+    monkeypatch.setattr(Settings, "_user_setting_file", setting)
+    external = build_ws_server_config(Settings(), host="0.0.0.0")
+    assert external.host == "0.0.0.0"
+    assert external.requires_auth is True
 
 
 def test_build_ws_server_config_autofind_starts_from_ws_port(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -9,9 +9,12 @@ from __future__ import annotations
 import json
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from heagent.network.http_protocol import (
+    JSON_ENVELOPE_ALLOWANCE_BYTES,
+    MAX_PROMPT_CHARS,
+    MAX_REQUEST_BYTES_FOR_MAX_PROMPT,
     SSE_HEARTBEAT_SECONDS,
     HttpErrorEnvelope,
     RunEventPayload,
@@ -20,10 +23,21 @@ from heagent.network.http_protocol import (
 )
 
 # 应用层命令按字符数限制；底层 uvicorn 另有字节级帧上限。
-WS_MAX_INBOUND_CHARS = 4096
+# 三条上限（Epic 56 Story 56-3 起）：
+# - ``WS_MAX_FRAME_BYTES`` = uvicorn ``ws_max_size``（字节）：必须**容得下协议允许的最大 prompt**
+#   （与 HTTP 的请求体上限同源，见 ``MAX_REQUEST_BYTES_FOR_MAX_PROMPT``），否则会出现「字符上限
+#   远未到、传输层先把连接掐了」的口径矛盾；它对出站帧同样生效（服务端事件帧远小于此）。
+# - ``WS_MAX_INBOUND_CHARS`` = 入站文本的**廉价预检**上限（字符）。按**最坏 JSON 转义**推算：
+#   ``ensure_ascii=True``（多数 JSON 库的默认）下每个中日韩字符变成 ``\uXXXX``（6 个 ASCII 字符），
+#   于是协议允许的最大 prompt 会产生约 197 K 字符的文本。上限若按原始字符数（32 K）来定，
+#   **合法**的最大 prompt 会被协议层挡在门外（实现期实测踩到 1009），所以这里按转义后的最坏值算。
+# - ``WS_MAX_COMMAND_CHARS`` = **非 run** 帧（cancel / ping）的上限（字符）：命令面刻意保持最小，
+#   不给「用 300 KiB 的 ping 让服务端解析」留口子。
+WS_MAX_FRAME_BYTES = MAX_REQUEST_BYTES_FOR_MAX_PROMPT
+WS_MAX_INBOUND_CHARS = 6 * MAX_PROMPT_CHARS + JSON_ENVELOPE_ALLOWANCE_BYTES
+WS_MAX_COMMAND_CHARS = 4096
 WS_PING_INTERVAL_SECONDS = SSE_HEARTBEAT_SECONDS
 WS_PING_TIMEOUT_SECONDS = 20.0
-WS_MAX_FRAME_BYTES = 64 * 1024
 
 # WebSocket close-code 的单一来源，供端点和测试复用。
 WS_CLOSE_POLICY = 1008
@@ -41,10 +55,15 @@ class WsFrameType(StrEnum):
 
 
 class WsCommand(StrEnum):
-    """客户端首期允许的封闭命令集合。"""
+    """客户端允许的封闭命令集合。
+
+    ``run`` 只在**集合级**端点 ``WS /api/runs/ws`` 上有效（Epic 56 D2：经 WS 提交 run）；
+    单 run 端点与 CLI 旁路收到它一律回 ``invalid_request``（提交能力不外溢）。
+    """
 
     CANCEL = "cancel"
     PING = "ping"
+    RUN = "run"
 
 
 class WsFrameErrorKind(StrEnum):
@@ -122,17 +141,33 @@ class WsErrorFrame(BaseModel):
 
 
 class WsCommandFrame(BaseModel):
-    """客户端发来的命令帧。"""
+    """客户端发来的命令帧。
+
+    ``prompt`` 与 ``run`` **互斥绑定**：``run`` 必须带 prompt，其余命令带 prompt 一律 MALFORMED。
+    这种「按命令判字段」的校验放在模型里而不是解析器里，是为了让运行时与测试共用同一份规则。
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     command: WsCommand
+    prompt: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_prompt_presence(self) -> WsCommandFrame:
+        if self.command is WsCommand.RUN:
+            if self.prompt is None:
+                raise ValueError("the run command requires a prompt")
+        elif self.prompt is not None:
+            raise ValueError("prompt is only valid for the run command")
+        return self
 
 
 def parse_command_frame(text: str) -> WsCommandFrame:
     """解析并校验一条客户端命令帧。
 
-    长度检查先于 JSON 解析，避免把超限输入交给解析器。
+    长度检查先于 JSON 解析，避免把超限输入交给解析器。两级上限：``WS_MAX_INBOUND_CHARS``
+    是总闸（含 prompt），``WS_MAX_COMMAND_CHARS`` 再把非 ``run`` 命令钉回小上限——解析出命令
+    之后才知道该用哪一档，因此这一档检查只能在 JSON 解析之后做。
     """
 
     if len(text) > WS_MAX_INBOUND_CHARS:
@@ -143,12 +178,19 @@ def parse_command_frame(text: str) -> WsCommandFrame:
     except (TypeError, json.JSONDecodeError):
         raise WsFrameError(WsFrameErrorKind.MALFORMED) from None
 
-    if not isinstance(raw, dict) or set(raw) != {"command"}:
+    if not isinstance(raw, dict):
         raise WsFrameError(WsFrameErrorKind.MALFORMED)
 
     command = raw.get("command")
     if not isinstance(command, str) or command not in {item.value for item in WsCommand}:
         raise WsFrameError(WsFrameErrorKind.UNKNOWN_COMMAND)
+
+    allowed_keys = {"command", "prompt"} if command == WsCommand.RUN.value else {"command"}
+    if command != WsCommand.RUN.value and len(text) > WS_MAX_COMMAND_CHARS:
+        # 先判大小再判语义：上限是资源保护，比「字段拼错」更该优先给出。
+        raise WsFrameError(WsFrameErrorKind.TOO_LARGE)
+    if set(raw) != allowed_keys:
+        raise WsFrameError(WsFrameErrorKind.MALFORMED)
 
     try:
         return WsCommandFrame.model_validate(raw)
@@ -161,6 +203,7 @@ __all__ = [
     "WS_CLOSE_INTERNAL",
     "WS_CLOSE_POLICY",
     "WS_CLOSE_TOO_LARGE",
+    "WS_MAX_COMMAND_CHARS",
     "WS_MAX_FRAME_BYTES",
     "WS_MAX_INBOUND_CHARS",
     "WS_PING_INTERVAL_SECONDS",

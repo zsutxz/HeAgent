@@ -10,10 +10,18 @@ import contextlib
 import logging
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, Protocol
 
-from heagent.network.http_protocol import HttpErrorCode, RunEventPayload, error_envelope
+from pydantic import ValidationError
+
+from heagent.network.http_protocol import (
+    HttpErrorCode,
+    HttpRunConflictError,
+    RunEventPayload,
+    RunRequest,
+    error_envelope,
+)
 from heagent.network.ws_protocol import (
     WS_CLOSE_GOING_AWAY,
     WS_CLOSE_POLICY,
@@ -50,6 +58,8 @@ class WebSocketLike(Protocol):
 
 
 OriginCheck = Callable[[dict[str, Any]], str | None]
+#: 认证回调：``None`` = 通过，否则是拒绝原因（Epic 56 D3）。accept **之前**执行。
+AuthCheck = Callable[[Mapping[str, Any]], str | None]
 
 
 class RunWebSocketService(Protocol):
@@ -57,12 +67,15 @@ class RunWebSocketService(Protocol):
 
     Epic 56 D1：WS 连接额度自 ``HttpServerConfig`` 迁入 ``WsServerConfig``，经
     :func:`build_ws_endpoint` 的 ``max_connections`` 参数注入——端点因此不感知任何配置类。
+    Epic 56 D2：``start_run`` 是**集合级端点**（经 WS 提交 run）的入口，与 ``POST /api/runs``
+    共用同一个实现（名额判定/记录/任务生成只有一处）。
     """
 
     _closing: bool
 
     def run(self, run_id: str) -> Any | None: ...
     def needs_resync(self, record: Any, last_event_id: int | None) -> bool: ...
+    async def start_run(self, prompt: str) -> Any: ...
     async def cancel_run(self, run_id: str) -> Any | None: ...
     def register_ws(self, connection_id: str, run_id: str, websocket: WebSocketLike) -> None: ...
     def unregister_ws(self, connection_id: str) -> None: ...
@@ -122,6 +135,15 @@ async def _handle_commands(websocket: WebSocketLike, service: RunWebSocketServic
                 )
             return
 
+        if command is WsCommand.RUN:
+            # 提交能力只在集合级端点（D2）：这条连接早已绑定某个 run，回错误帧但**不断连**。
+            await _send_error_frame(
+                websocket,
+                HttpErrorCode.INVALID_REQUEST,
+                "the run command is only accepted on the run collection endpoint",
+            )
+            continue
+
         if command is WsCommand.CANCEL:
             current = await service.cancel_run(run_id)
         else:
@@ -145,6 +167,178 @@ async def _run_connection_tasks(
         _send_event_stream(websocket, record, queue, cursor),
         _handle_commands(websocket, service, run_id),
     )
+
+
+class _SubmissionSlots:
+    """提交连接席位的**原子**计数（检查 + 登记在同一个同步方法内完成，A9③ 口径）。
+
+    提交端点不订阅事件、不建 run 记录，因此它没有 run 端点那种「按 run 计」的额度；但一条
+    空闲连接同样占着内存与文件描述符，且 Uvicorn 的 ``limit_concurrency`` **不约束 WS 连接**
+    （Epic 54 实测）。对外模式下这等于「拿着 token 就能开无限条空闲连接」——所以这里补一个与
+    ``ws_max_connections`` 同额度的席位池：检查与登记不可分割，绝不用「先查后加」两段代码
+    （并发握手能一起穿过限额，活动台账 A9③ 的老坑）。
+    """
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._in_use = 0
+
+    @property
+    def in_use(self) -> int:
+        """当前占用的席位（诊断与判据用）。"""
+        return self._in_use
+
+    def try_acquire(self) -> bool:
+        """原子地占一个席位；满则返回 ``False``（调用方回 ``rate_limited`` 并关闭连接）。"""
+        if self._in_use >= self._limit:
+            return False
+        self._in_use += 1
+        return True
+
+    def release(self) -> None:
+        """归还一个席位（下限守 0，重复归还不放大额度）。"""
+        if self._in_use > 0:
+            self._in_use -= 1
+
+
+def _is_blank_prompt(error: ValidationError) -> bool:
+    """``RunRequest`` 的「非空」校验失败 ⇒ ``empty_prompt``（与 HTTP 400 的分类口径一致）。"""
+    return any("blank" in str(item.get("msg", "")) for item in error.errors())
+
+
+async def _submit_run(websocket: WebSocketLike, service: RunWebSocketService, prompt: str) -> None:
+    """提交一次运行：校验复用 ``RunRequest``，创建复用 ``HttpRunService.start_run``。
+
+    错误一律走错误帧且**不断连**（客户端可继续提交）：输入类 ``empty_prompt`` / ``invalid_request``、
+    名额类 ``run_conflict`` / ``total_inflight_limit`` / 关停 ``shutting_down``——与
+    ``POST /api/runs`` 的状态码语义一一对应，只是换了传输层。
+    """
+    try:
+        request = RunRequest.model_validate({"prompt": prompt})
+    except ValidationError as exc:
+        code = HttpErrorCode.EMPTY_PROMPT if _is_blank_prompt(exc) else HttpErrorCode.INVALID_REQUEST
+        await _send_error_frame(websocket, code, "prompt is invalid")
+        return
+    try:
+        record = await service.start_run(request.prompt)
+    except HttpRunConflictError as exc:
+        await _send_error_frame(websocket, exc.code, str(exc))
+        return
+    await websocket.send_text(
+        WsAckFrame(command=WsCommand.RUN, run_id=record.run_id, status=record.status).model_dump_json()
+    )
+
+
+async def _handle_submit_commands(websocket: WebSocketLike, service: RunWebSocketService) -> None:
+    """集合级连接的命令循环：``run``（提交）与 ``ping``；``cancel`` 明确拒绝且不断连。
+
+    这条连接**不绑定任何 run**（D2 的期一形状：提交连接不转事件流）。客户端拿到 ack 里的
+    ``run_id`` 后经既有 ``/api/runs/{run_id}/ws`` 订阅——单 run 端点形状因此保持不变。
+    """
+    while True:
+        try:
+            text = await websocket.receive_text()
+        except Exception as exc:
+            if type(exc).__name__ == "WebSocketDisconnect":
+                return
+            raise
+        try:
+            frame = parse_command_frame(text)
+        except WsFrameError as exc:
+            if exc.kind is WsFrameErrorKind.TOO_LARGE:
+                await websocket.close(code=WS_CLOSE_TOO_LARGE)
+            else:
+                await _send_error(
+                    websocket,
+                    HttpErrorCode.INVALID_REQUEST,
+                    "invalid WebSocket command",
+                    close_code=WS_CLOSE_POLICY,
+                )
+            return
+
+        if frame.command is WsCommand.RUN:
+            await _submit_run(websocket, service, frame.prompt or "")
+            continue
+        if frame.command is WsCommand.CANCEL:
+            # 没有 run 绑定就没有可取消对象：与 CLI 旁路的处理同形（显式不支持，不静默忽略）。
+            await _send_error_frame(
+                websocket,
+                HttpErrorCode.INVALID_REQUEST,
+                "cancel requires a run subscription (use /api/runs/{run_id}/ws)",
+            )
+            continue
+        # ping：连接级 ack（不带 RunStatus，run_id 为空串 = 此刻无绑定）。
+        await websocket.send_text(WsCliAckFrame(command=frame.command, run_id="").model_dump_json())
+
+
+def build_runs_collection_endpoint(
+    service: RunWebSocketService,
+    *,
+    origin_violation: OriginCheck,
+    max_connections: int,
+    authorize: AuthCheck | None = None,
+) -> Callable[[WebSocketLike], Awaitable[None]]:
+    """构造**集合级**端点（``WS /api/runs/ws``）：经 WS 提交 run（Epic 56 D2）。
+
+    与 ``build_ws_endpoint`` 的关键差异：路径里没有 ``run_id``，因此不查询 run、不订阅事件、
+    不占 WS 订阅名额——它只是「提交 + ack」的命令通道。提交出的运行仍归 ``HttpRunService``
+    所有（名额 / 记录 / 任务生成全部复用），所以 D6 的单用户共享语义自动成立。
+
+    ``max_connections`` 是这条**连接**面自己的席位池（见 :class:`_SubmissionSlots`）：额度取
+    ``WsServerConfig.ws_max_connections``，与 run 订阅额度同值但各自计数（一条连接只做提交、
+    不订阅，混在一个池里会让调订阅额度意外地限制提交通道）。
+    """
+    slots = _SubmissionSlots(max_connections)
+
+    async def endpoint(websocket: WebSocketLike) -> None:
+        started = time.perf_counter()
+        connection_id = uuid.uuid4().hex[:12]
+        if await _reject_unauthenticated(websocket, authorize, transport="runs_submit"):
+            return
+        if await _reject_bad_origin(websocket, origin_violation, "-"):
+            return
+        await websocket.accept()
+        if not slots.try_acquire():
+            await _send_error(
+                websocket,
+                HttpErrorCode.RATE_LIMITED,
+                "too many WebSocket submit connections",
+                close_code=WS_CLOSE_POLICY,
+            )
+            return
+        try:
+            if service._closing:
+                await _send_error(
+                    websocket,
+                    HttpErrorCode.SHUTTING_DOWN,
+                    "server is shutting down",
+                    close_code=WS_CLOSE_GOING_AWAY,
+                )
+                return
+            logger.info("ws event=submit_open connection_id=%s", connection_id)
+            await _handle_submit_commands(websocket, service)
+            with contextlib.suppress(Exception):
+                await websocket.close()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("ws event=submit_failed connection_id=%s", connection_id)
+            with contextlib.suppress(Exception):
+                await _send_error(
+                    websocket,
+                    HttpErrorCode.SERVER_ERROR,
+                    "internal server error",
+                    close_code=1011,
+                )
+        finally:
+            slots.release()
+            logger.info(
+                "ws event=submit_close connection_id=%s elapsed_ms=%d",
+                connection_id,
+                int((time.perf_counter() - started) * 1000),
+            )
+
+    return endpoint
 
 
 async def _supervise(*coros: Any) -> None:
@@ -215,13 +409,16 @@ def build_ws_endpoint(
     *,
     origin_violation: OriginCheck,
     max_connections: int,
+    authorize: AuthCheck | None = None,
 ) -> Callable[[WebSocketLike], Awaitable[None]]:
-    """构造单 run WebSocket endpoint；Origin 规则与连接额度由宿主（ws_host/http_server 时代为后者）单点注入。"""
+    """构造单 run WebSocket endpoint；Origin 规则、连接额度与认证由宿主单点注入。"""
 
     async def endpoint(websocket: WebSocketLike) -> None:
         started = time.perf_counter()
         connection_id = uuid.uuid4().hex[:12]
         run_id = str(websocket.path_params.get("run_id", ""))
+        if await _reject_unauthenticated(websocket, authorize, transport="runs"):
+            return
         if await _reject_bad_origin(websocket, origin_violation, run_id):
             return
         await websocket.accept()
@@ -270,6 +467,23 @@ def build_ws_endpoint(
             )
 
     return endpoint
+
+
+async def _reject_unauthenticated(websocket: WebSocketLike, authorize: AuthCheck | None, *, transport: str) -> bool:
+    """握手前认证（Epic 56 D3）：失败时**未 accept 即 close(1008)**，不发错误信封。
+
+    与 Origin 拒绝的区别：Origin 违规是「配置不符」（本机模式），认证失败是「凭证不对」
+    （对外模式）。两者都在 accept 之前完成，因此客户端拿到的都是 HTTP 403（无 body）——
+    对探测者而言，「没有这个端点」与「token 错」不可区分。
+    """
+    if authorize is None:
+        return False
+    reason = authorize(websocket.scope)
+    if reason is None:
+        return False
+    logger.warning("ws event=auth_rejected transport=%s reason=%s", transport, reason)
+    await websocket.close(code=WS_CLOSE_POLICY)
+    return True
 
 
 async def _reject_bad_origin(websocket: WebSocketLike, origin_violation: OriginCheck, run_id: str) -> bool:
@@ -328,6 +542,13 @@ async def _cli_handle_commands(websocket: WebSocketLike, hub: CliEventHub) -> No
                 "cancel is not supported on the CLI event stream",
             )
             continue
+        if command is WsCommand.RUN:
+            await _send_error_frame(
+                websocket,
+                HttpErrorCode.INVALID_REQUEST,
+                "the run command is only accepted on the run collection endpoint",
+            )
+            continue
         await websocket.send_text(WsCliAckFrame(command=command, run_id=hub.active_run_id).model_dump_json())
 
 
@@ -335,16 +556,20 @@ def build_cli_ws_endpoint(
     hub: CliEventHub,
     *,
     origin_violation: OriginCheck,
+    authorize: AuthCheck | None = None,
 ) -> Callable[[WebSocketLike], Awaitable[None]]:
     """构造 CLI 旁路端点（``WS /api/cli/ws``）：只读观众席，跨轮次。
 
     与 :func:`build_ws_endpoint` 的三处差异都是**刻意的**：不按 ``run_id`` 路由（一条流看所有轮）、
-    拒绝 ``cancel``（终端独占取消通道）、额度按 hub 计而不是按 run 计。
+    拒绝 ``cancel``（终端独占取消通道）、额度按 hub 计而不是按 run 计。认证门与 run 端点同源
+    （D7：旁路随迁进 WS server，对外模式下同样要 token）。
     """
 
     async def endpoint(websocket: WebSocketLike) -> None:
         started = time.perf_counter()
         connection_id = uuid.uuid4().hex[:12]
+        if await _reject_unauthenticated(websocket, authorize, transport="cli_ws"):
+            return
         violation = origin_violation(websocket.scope)
         if violation is not None:
             logger.warning("http event=origin_rejected transport=cli_ws reason=%s", violation)
@@ -424,8 +649,10 @@ def build_cli_ws_endpoint(
 
 
 __all__ = [
+    "AuthCheck",
     "RunWebSocketService",
     "WebSocketLike",
     "build_cli_ws_endpoint",
+    "build_runs_collection_endpoint",
     "build_ws_endpoint",
 ]

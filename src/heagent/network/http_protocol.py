@@ -325,6 +325,23 @@ def clip_text(value: str, *, limit: int = MAX_EVENT_TEXT_CHARS) -> str:
     return value[:limit] + _TRUNCATION_SUFFIX
 
 
+class HttpRunConflictError(RuntimeError):
+    """已有在途运行（或服务正在关闭 / **服务级总额已满**），拒绝新运行（AD-3 的单运行约束）。
+
+    ``code`` 是给客户端的稳定码：项目级冲突与服务关闭都是 ``run_conflict``，服务级总额（跨项目
+    共享的 ``max_total_inflight``）是 ``total_inflight_limit``——两者「等谁结束」的语义不同。
+
+    **住在协议层**（Epic 56 Story 56-3 自 ``http_server`` 迁入）：经 WS 提交 run 与
+    ``POST /api/runs`` 走同一个 ``HttpRunService.start_run``，两条传输层都要把同一个冲突映射成
+    错误信封。放在协议模块 ⇒ ``ws_server`` 不必导入 ``http_server``（传输层之间的反向依赖）。
+    ``http_server`` 保留 re-export，既有导入点不受影响。
+    """
+
+    def __init__(self, message: str, *, code: HttpErrorCode = HttpErrorCode.RUN_CONFLICT) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 __all__ = [
     "GENERIC_ERROR_MESSAGE",
     "HTTP_SCHEMA_VERSION",
@@ -341,6 +358,7 @@ __all__ = [
     "HttpErrorCode",
     "HttpErrorDetail",
     "HttpErrorEnvelope",
+    "HttpRunConflictError",
     "HttpUsage",
     "RunEventKind",
     "RunEventPayload",

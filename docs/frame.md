@@ -1233,18 +1233,24 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 ### 4.17.1 WebSocket 入口（Epic 54）
 
 WebSocket 与 HTTP/SSE **并存**，不改变 SSE 契约。端点为
-`GET /api/runs/{run_id}/ws`，只订阅单个既有 run，不经 WS 创建新 run，也不提供审批通道。
+`GET /api/runs/{run_id}/ws`，只订阅单个既有 run，不经**该端点**创建新 run，也不提供审批通道
+（经 WS 创建 run 走集合级端点 `/api/runs/ws`，见下表「提交 run」行）。
 
 | 关注点 | 实现事实 |
 | --- | --- |
-| 帧契约 | `network/ws_protocol.py` 定义封闭的 `event` / `ack` / `error` 帧；事件负载嵌套复用 `RunEventPayload`，错误复用 `error_envelope()` 与 `HttpErrorCode`。命令仅 `{cancel, ping}`。 |
+| 帧契约 | `network/ws_protocol.py` 定义封闭的 `event` / `ack` / `error` 帧；事件负载嵌套复用 `RunEventPayload`，错误复用 `error_envelope()` 与 `HttpErrorCode`。命令集封闭为 `{run, cancel, ping}`，其中 **`run` 只在集合级端点 `/api/runs/ws` 有效**（单 run 端点与 CLI 旁路收到它回 `invalid_request` 且不断连）。 |
 | 事件与续传 | WS 复用 `_RunRecord` 的 ring buffer、单调 `seq`、背压踢除和终态哨兵；`?last_event_id=N` 只补 `seq > N`，越过窗口返回 `resync_required` 错误帧。 |
 | 命令 | `cancel` 与 `DELETE /api/runs/{run_id}` 使用同一协作式取消语义并保持幂等；`ping` 返回 `ack`。断线只注销 WS 连接，不取消 run。 |
-| 同源防线 | WS 升级在 `accept()` 前复用 `_request_origin_violation` 校验 Host/Origin。Origin 违规时客户端看到 HTTP 403、无错误 body；缺少 Origin 的非浏览器客户端按既有 HTTP 口径放行。既有 ASGI 中间件对 `scope["type"] != "http"` 直接放行，因此 CSWSH 防线由 WS 层单独执行。 |
-| 限额与心跳 | `WS_MAX_CONNECTIONS` 默认 `16`，按 run 独立于 SSE 订阅池；检查与登记在同一同步方法完成。心跳使用协议级 ping，`ws_ping_interval=15s`、`ws_ping_timeout=20s`，不发送应用层心跳帧。 |
-| 入站上界 | 应用层命令文本最多 `4096` 个字符；Uvicorn `ws_max_size=64 KiB`。应用层超限关闭码为 `1009`。关闭码 `1000` 表示正常结束，`1001` 表示服务关停，`1008` 表示策略/协议违规，`1011` 表示内部错误。 |
+| 提交 run（Epic 56 D2，`WS /api/runs/ws`） | **集合级**端点（路径无 `run_id`；与 `/api/runs/{run_id}/ws` 段数不同，不互相遮蔽）：收 `{"command":"run","prompt":…}` 后**复用** `RunRequest` 校验与 `HttpRunService.start_run` 创建（名额 / 记录 / 任务生成只有一处实现），回 `ack{command:run, run_id, status}`。错误走错误帧且**不断连**：空白 prompt `empty_prompt`、空串/超长 prompt `invalid_request`、名额满 `run_conflict` / 服务级总额 `total_inflight_limit`、关停 `shutting_down`——与 `POST /api/runs` 的状态码语义一一对应。**期一交互形状**：提交连接**不转事件流**，客户端拿 `run_id` 后经既有单 run 端点订阅；该连接上的 `cancel` 回 `invalid_request`（没有绑定对象）、`ping` 回连接级 ack（`run_id` 空串）。 |
+| 同源防线 | WS 升级在 `accept()` 前复用 `_request_origin_violation` 校验 Host/Origin（**仅本地模式**；对外模式的 Host/Origin 不适用，见监听模式/认证两行）。Origin 违规时客户端看到 HTTP 403、无错误 body；缺少 Origin 的非浏览器客户端按既有 HTTP 口径放行。既有 ASGI 中间件对 `scope["type"] != "http"` 直接放行，因此 CSWSH 防线由 WS 层单独执行。 |
+| 限额与心跳 | `WS_MAX_CONNECTIONS` 默认 `16`，按 run 独立于 SSE 订阅池；检查与登记在同一同步方法完成。心跳使用协议级 ping，`ws_ping_interval=15s`、`ws_ping_timeout=20s`，不发送应用层心跳帧。提交端点**不占**订阅名额（它不订阅事件、不建 run 记录）。 |
+| 入站上界 | 三条上限（Epic 56 Story 56-3 起）：`WS_MAX_COMMAND_CHARS=4096`（**非 run** 帧的字符上限）、`WS_MAX_INBOUND_CHARS=6×MAX_PROMPT_CHARS+信封余量`（入站文本的廉价预检——按 `ensure_ascii` 最坏转义推算，否则合法的最大 prompt 会被挡在协议层外）、`WS_MAX_FRAME_BYTES=MAX_REQUEST_BYTES_FOR_MAX_PROMPT`（Uvicorn `ws_max_size`，与 HTTP 请求体上限同源）。应用层超限关闭码 `1009`。关闭码 `1000` 正常结束、`1001` 服务关停、`1008` 策略/协议违规、`1011` 内部错误。 |
 | 可选依赖 | `websockets>=13.0,<18` 直接声明在 `http` extra；服务端不直接导入 `websockets`，由 Uvicorn 选择协议实现。缺少实现时 HTTP 仍可启动，并记录一次 `ws_unavailable` 安装诊断。 |
-| 安全立场 | WS 与 HTTP/SSE 同档：无认证、无 TLS、回环不等于可信，也不是安全边界；Origin 校验只是 CSWSH 防御的纵深措施，OS 级沙箱兜底立场不变。 |
+| 监听模式 | 单个 WS listener **按绑定地址切模式**（Epic 56 D5）：回环绑定 = 本地模式（Origin/Host 防线、无认证、Epic 54/55 语义逐字保持）；非回环绑定 = 对外模式（Host/Origin **不适用**——客户端用任意主机名连本 listener，`Host` 白名单会把它全拒掉；防线地位由 token 认证取代）。 |
+| 认证（对外模式，Epic 56 D3） | 静态 token 的 `Authorization: Bearer <token>` 在 **`accept()` 之前**校验（`network/ws_auth.py` 是纯逻辑面：严格单头 `Bearer` 解析 + `hmac.compare_digest` 常量时间比较 + 按来源地址的失败滑窗)。失败 `close(1008)`、**不发错误信封**（与 Origin 拒绝同形：真实 Uvicorn 下客户端拿 HTTP 403，无 body）；"缺 token / token 错 / 被限速" 对外不可区分。token 真源是**用户级 `~/.heagent/setting.md` 的 `WS_AUTH_TOKEN`**（`Settings.user_ws_auth_token` 直读该文件）——它**不是** `Settings` 字段，项目 `.env` / 系统环境变量一律不参与（否则仓库作者可预置一个已知 token；写在项目 `.env` 里时命令层启动告警，且配置面板照常把它报成未知键）。非回环绑定缺 token ⇒ 配置构造期 `WsConfigError`（fail-closed，**绝不**降级成「无认证对外」）。凭证只走**握手头**——浏览器 WebSocket API 无法自定义请求头，故对外模式不支持浏览器直连（本机控制台走 HTTP，不受影响）。 |
+| TLS（Epic 56 D4） | `WS_TLS_CERT_FILE` + `WS_TLS_KEY_FILE`（PEM）**要么都给要么都不给**（半配即 `WsConfigError`），配齐则 listener 走 `wss`（uvicorn `ssl_certfile` / `ssl_keyfile`）。对外模式不配 TLS 时启动打 `ws event=plaintext_external` 告警（明文运行必须可见），本地模式配了 TLS 也照常生效。 |
+| 安全立场 | WS 与 HTTP/SSE 同档：**本地模式无认证、无 TLS、回环不等于可信**，Origin 校验只是 CSWSH 的纵深措施；**对外模式（非回环绑定）例外——认证强制且 token 缺失拒绝启动**，但认证不是绝对边界（token 可泄露、连接仍可能被中间人观察，无 TLS 时尤其如此），OS 级沙箱兜底立场不变。 |
+
 #### 4.17.1.1 CLI 旁路订阅（Epic 55）
 
 `/api/runs/{run_id}/ws` 订阅的是**网页创建的 run**；终端里那一轮 run 由 CLI 自己持有，既没有
@@ -1255,7 +1261,7 @@ WebSocket 与 HTTP/SSE **并存**，不改变 SSE 契约。端点为
 | --- | --- |
 | 状态源 | `network/cli_event_hub.py::CliEventHub`：seq 跨轮次单调、环形缓冲 `CLI_EVENT_BUFFER_SIZE`(256)、订阅席位上限（取 `WS_MAX_CONNECTIONS`，按**整条流**计）、`close()` / `reopen()` 与 `HttpRunService` 同形态。**不建 run 记录**，因此不存在"淘汰 / 会话投影 / 取消"这些 HTTP 侧的语义。 |
 | 帧契约 | `WsCliEventFrame`（`type` + **`run_id`** + `event`）与 `WsCliAckFrame`（`command` + `run_id`，**不带** `RunStatus`）。与 `WsEventFrame` / `WsAckFrame` 分开定义 ⇒ `/api/runs/{id}/ws` 的既有契约逐字不变。 |
-| 命令面 | 仅 `ping`（回 ack，`run_id` 为空串表示此刻没有在跑的轮次）。`cancel` 回 `invalid_request` 错误帧但**不关闭连接**——旁路不拥有运行，「不支持」必须显式告知，不能静默忽略。 |
+| 命令面 | 仅 `ping`（回 ack，`run_id` 为空串表示此刻没有在跑的轮次）。`cancel` 回 `invalid_request` 错误帧但**不关闭连接**——旁路不拥有运行，「不支持」必须显式告知，不能静默忽略。`run`（提交）同理拒绝：它只在集合级端点 `/api/runs/ws` 有效（Epic 56 D2 的边界：旁路是观众席，不是生产通道）。 |
 | 续传与背压 | `?last_event_id=N` 只补 `seq > N`；窗口已淘汰开头（含「无游标但 `oldest_seq > 1`」）回 `resync_required` 错误帧。订阅队列与缓冲同界，落后一整窗口即结束该流（客户端带游标重连）——与 SSE / run-WS 同一口径。 |
 | 发布点 | 入口层 `cli/interactive.py`：`_consume_stream` 逐条镜像 `StreamEvent`（text / tool_call / tool_result / done），进入即 `begin_run`、退出（含取消与异常）即 `end_run`；单次模式走非流式 `loop.run`，只发一条终态 `done`，**不假装有增量**。中枢经 `ContextVar` 传递（`_run_prompt` 的签名是 3 处测试 patch 的契约，不能加参数）。 |
 | 故障隔离 | 中枢 `publish_*` 自身不抛；入口层 `_hub_call` 是第二道垫片——旁路坏了最坏只是「外部看不到」，终端输出 / 退出码 / 主循环状态逐字不变。 |

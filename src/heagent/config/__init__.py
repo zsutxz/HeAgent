@@ -19,10 +19,15 @@ from typing import Any, ClassVar, Literal
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from heagent.config.user_settings import UserMarkdownSettingsSource
+from heagent.config.user_settings import UserMarkdownSettingsSource, read_setting_md
 from heagent.pub.types import RoutingPoolSpec, RuntimeConfigSource
 
 logger = logging.getLogger(__name__)
+
+#: WS 对外模式 token 在用户级 ``setting.md`` 里的键名（Epic 56 D3）。
+#: 它**不是** ``Settings`` 字段（见 :attr:`Settings.user_ws_auth_token` 的说明）；
+#: ``config/catalog.py`` 把它计入「已知键」白名单，配置面板不会把它报成 unknown_key。
+WS_AUTH_TOKEN_KEY = "ws_auth_token"  # nosec B105 - 这是键名不是凭证 # noqa: S105
 
 # 沙箱权限档位（P0-2）的合法取值；非法配置回退 ``workspace-write``（见 Settings.sandbox_mode_resolved）。
 SANDBOX_MODES: frozenset[str] = frozenset({"read-only", "workspace-write", "danger-full-access"})
@@ -427,8 +432,8 @@ class Settings(BaseSettings):
     http_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 
     # ---- WS 入口（Epic 56 D1：与 HTTP 完全分离的独立 server，唯一宿主所有 WS 能力） ----
-    # 定位与 HTTP 入口同档：**实验性、无认证、无 TLS**（本机模式）；默认只绑 loopback。
-    # 回环绑定 = 本地模式（Origin 防线）；非回环 = 对外模式（56-2 落地认证 fail-closed）。
+    # 定位：回环绑定 = 本地模式（Origin 防线、**无认证**，与 HTTP 入口同档）；非回环绑定 =
+    # 对外模式（D5：Bearer token 强制、**缺 token 拒绝启动** fail-closed、Origin 不适用）。
     ws_host: str = Field(default="127.0.0.1", min_length=1)
     # 默认 9001（8766 → 9001 是 Epic 56 的唯一 breaking change：两条 WS 端点路径不变、换端口）。
     ws_port: int = Field(default=9001, ge=1, le=65535)
@@ -437,6 +442,12 @@ class Settings(BaseSettings):
     ws_max_connections: int = Field(default=16, ge=1)
     # WS server 关闭排空的等待上限（秒）：关既有连接 → 停 listener 全程有界。
     ws_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+    # TLS（D4）：PEM 证书 / 私钥路径，**两者都给才启用 wss**（半配由 WsServerConfig fail-loud）。
+    # 对外模式不配 TLS 时启动告警（明文运行必须可见），但不拒绝启动——D4 明确「可选」。
+    ws_tls_cert_file: str | None = None
+    ws_tls_key_file: str | None = None
+    # 注意：对外模式的 token **不是**这里的字段（见下方 `user_ws_auth_token` 属性）——它是凭证，
+    # 只认用户级 setting.md；做成 Settings 字段会让项目 .env / 系统环境变量能够覆盖它。
     # CLI 旁路订阅（Epic 55，Epic 56 D7 起宿主 = WS server）：给 `WS /api/cli/ws` 开一条只读
     # 事件流，把**终端里那一轮** run 的事件实时推给外部客户端。**默认关**——它与 HTTP 入口同档
     # 无认证、无 TLS，开了等于让能连上该端口的本机进程看到终端 agent 的工具输出（可能含文件内容）；
@@ -464,6 +475,23 @@ class Settings(BaseSettings):
     @property
     def approval_tool_list(self) -> list[str]:
         return _parse_comma_list(self.approval_tools)
+
+    @property
+    def user_ws_auth_token(self) -> str | None:
+        """WS 对外模式的 token：**只**读用户级 ``~/.heagent/setting.md`` 的 ``WS_AUTH_TOKEN``。
+
+        刻意不做成 Settings 字段（Epic 56 D3）：字段会进入「系统环境变量 > 项目 ``.env`` >
+        用户 setting.md」的优先级链，于是**仓库作者**可以在项目 ``.env`` 里预置一个「攻击者已知」
+        的 token，让对外监听器照单全收。凭证只认用户级文件 ⇒ 项目配置无法参与。
+
+        ``None`` = 未配置（对外模式据此 fail-closed）；空串 / 全空白同判。文件语法错时
+        :class:`~heagent.config.user_settings.SettingsError` 原样上抛（配置坏了就该立刻看见）。
+        """
+        path = type(self)._user_setting_file
+        if path is None:
+            return None
+        token = read_setting_md(Path(path)).get(WS_AUTH_TOKEN_KEY, "").strip()
+        return token or None
 
     @property
     def sandbox_mode_resolved(self) -> str:

@@ -25,14 +25,17 @@ import contextlib
 import logging
 import math
 import os
+import re
+from pathlib import Path
 from typing import Any
 
 import click
+from pydantic import SecretStr, ValidationError
 
 from heagent.cli.display import _current_version, echo_sandbox_hint
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.cli.wiring import _build_provider
-from heagent.config import Settings, get_settings
+from heagent.config import WS_AUTH_TOKEN_KEY, Settings, get_settings
 from heagent.network.cli_event_hub import CliEventHub
 from heagent.network.exposure import exposure_warning
 from heagent.network.http_server import (
@@ -42,7 +45,7 @@ from heagent.network.http_server import (
     HttpServerConfig,
     HttpStartupError,
 )
-from heagent.network.ws_host import CLI_WS_PATH, WsServer, WsServerConfig, WsStartupError
+from heagent.network.ws_host import CLI_WS_PATH, WsConfigError, WsServer, WsServerConfig, WsStartupError
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.workspace import WorkspacePaths
 
@@ -127,6 +130,20 @@ def build_server_config(
     )
 
 
+def _ws_url(server: WsServer) -> str:
+    """WS listener 的公告 URL（TLS 配齐即 ``wss``）。"""
+    scheme = "wss" if server.config.tls_enabled else "ws"
+    return f"{scheme}://{server.address}"
+
+
+def _ws_access_note(config: WsServerConfig) -> str:
+    """公告里的访问口径：本地模式无认证，对外模式「token required + 明文/wss」。"""
+    if config.requires_auth:
+        transport = "TLS" if config.tls_enabled else "PLAINTEXT"
+        return f"(external mode; Bearer token required; {transport})"
+    return "(run & CLI WebSocket entry; local only; no authentication)"
+
+
 async def _serve_web(http_server: HttpServer, ws_server: WsServer) -> None:
     """启动双 server 并运行到取消 / 关闭（Epic 56 D1：HTTP 与 WS 完全分离、入口层统一编排）。
 
@@ -145,7 +162,7 @@ async def _serve_web(http_server: HttpServer, ws_server: WsServer) -> None:
         f"[http] listening on http://{http_server.address}  (open this URL in a browser; no authentication)",
         err=True,
     )
-    click.echo(f"[ws] listening on ws://{ws_server.address}  (run & CLI WebSocket entry; no authentication)", err=True)
+    click.echo(f"[ws] listening on {_ws_url(ws_server)}  {_ws_access_note(ws_server.config)}", err=True)
     try:
         await asyncio.gather(http_server.serve_forever(), ws_server.serve_forever())
     finally:
@@ -216,14 +233,15 @@ class EmbeddedHttpService:
             err=True,
         )
         click.echo(
-            f"[ws] event stream: ws://{self.ws_address}  (local only; no authentication)",
+            f"[ws] event stream: {_ws_url(self._ws)}  {_ws_access_note(self._ws.config)}",
             err=True,
         )
         if self._cli_hub is not None:
-            # 开启即多暴露一条无认证通道：把地址打出来，别让用户「开了但不知道在哪」。
+            # 开启即多暴露一条旁路通道：把地址打出来，别让用户「开了但不知道在哪」。
+            scheme = "wss" if self._ws.config.tls_enabled else "ws"
             click.echo(
-                f"[ws] CLI event stream (read-only): ws://{self.ws_address}{CLI_WS_PATH}"
-                "  (local only; no authentication)",
+                f"[ws] CLI event stream (read-only): {scheme}://{self.ws_address}{CLI_WS_PATH}"
+                f"  {_ws_access_note(self._ws.config)}",
                 err=True,
             )
 
@@ -290,14 +308,52 @@ def build_ws_server_config(
     不写回 Settings；范围规则由 :class:`WsServerConfig`（Pydantic）统一校验。端口自动查找与
     HTTP listener 同一开关（``http_port_auto_find_attempts``）：两条 listener 独立顺延
     （HTTP 自 8766、WS 自 9001），实际端口以启动公告为准。
+
+    **对外模式的三件接线**（Epic 56 D3/D4/D5）：
+
+    - ``auth_token`` 来自 :attr:`Settings.user_ws_auth_token`（只读用户级 ``setting.md``；项目
+      ``.env`` / 系统环境变量一律不参与）；
+    - 非回环绑定缺 token ⇒ :class:`WsConfigError`（fail-closed，绝不降级成无认证对外）；
+    - TLS cert/key 来自 ``WS_TLS_CERT_FILE`` / ``WS_TLS_KEY_FILE``，半配同样 fail-loud。
     """
     resolved_host = settings.ws_host if host is None else host
-    return WsServerConfig(
-        host=resolved_host,
-        port=_resolve_listener_port(settings, resolved_host, port, default_port=settings.ws_port),
-        ws_max_connections=settings.ws_max_connections if max_connections is None else max_connections,
-        shutdown_timeout=settings.ws_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
-    )
+    token = settings.user_ws_auth_token
+    try:
+        return WsServerConfig(
+            host=resolved_host,
+            port=_resolve_listener_port(settings, resolved_host, port, default_port=settings.ws_port),
+            ws_max_connections=settings.ws_max_connections if max_connections is None else max_connections,
+            shutdown_timeout=settings.ws_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
+            auth_token=SecretStr(token) if token else None,
+            tls_cert_file=settings.ws_tls_cert_file,
+            tls_key_file=settings.ws_tls_key_file,
+        )
+    except ValidationError as exc:
+        raise WsConfigError(_first_validation_message(exc)) from exc
+
+
+def _first_validation_message(exc: ValidationError) -> str:
+    """取 Pydantic 校验的首条错误文案（不带 ``Value error, `` 前缀，便于直接给用户看）。"""
+    errors = exc.errors()
+    if not errors:
+        return "invalid WS server configuration"
+    message = str(errors[0].get("msg", "")).strip()
+    prefix = "Value error, "
+    return message[len(prefix) :] if message.startswith(prefix) else message
+
+
+def _project_env_declares(env_key: str) -> bool:
+    """项目 ``.env`` 是否声明了该键（用于「写错位置」的显式告警，不作为取值路径）。
+
+    只做行级文本匹配：值本身**不读**（读了也不能用——凭证只认用户级 ``setting.md``）。
+    """
+    path = Path(".env")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    pattern = re.compile(rf"^\s*{re.escape(env_key)}\s*=", re.IGNORECASE | re.MULTILINE)
+    return pattern.search(text) is not None
 
 
 def build_http_service(settings: Settings, *, executor: Any | None = None) -> EmbeddedHttpService:
@@ -344,10 +400,12 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     """把内嵌 HTTP 的启动失败转成一行命令级文案；其它异常返回 ``None``（由调用方原样传播）。
 
     绑定失败与「缺可选依赖」都必须让默认 CLI **显式失败**（story 49-2 AC）：静默降级成「没有网页
-    入口但聊天照常」是明确禁止的行为。
+    入口但聊天照常」是明确禁止的行为。WS 配置不成立（对外模式缺 token / TLS 半配）同属显式失败。
     """
     if isinstance(exc, HttpStartupError):
         return f"HTTP server failed to start: {exc}"
+    if isinstance(exc, WsConfigError):
+        return f"WS server configuration is invalid: {exc}"
     if isinstance(exc, WsStartupError):
         return f"WS server failed to start: {exc}"
     if isinstance(exc, HttpDependencyError):
@@ -525,8 +583,27 @@ def http_server_cmd(
         sandbox_backend=sandbox,
         soul_path=soul,
     )
-    ws_config = build_ws_server_config(settings, host=ws_host, port=ws_port, max_connections=ws_max_connections)
+    try:
+        ws_config = build_ws_server_config(settings, host=ws_host, port=ws_port, max_connections=ws_max_connections)
+    except WsConfigError as exc:
+        # 对外模式缺 token / TLS 半配：配置不成立，压根不该尝试绑定（fail-closed）。
+        raise click.ClickException(f"WS server configuration is invalid: {exc}") from None
+    if _project_env_declares(WS_AUTH_TOKEN_KEY):
+        # D3：凭证只认用户级 setting.md。项目 .env 写了也不生效——说清楚，否则用户会以为
+        # 「仓库里配了 token 就是认证过的」，而实际对外模式会直接拒绝启动（或本地模式根本没认证）。
+        click.echo(
+            f"[ws] WARNING: {WS_AUTH_TOKEN_KEY.upper()} in the project .env is ignored"
+            " (the WS token is read only from ~/.heagent/setting.md)",
+            err=True,
+        )
+    if ws_config.requires_auth and not ws_config.tls_enabled:
+        click.echo(
+            "[ws] WARNING: external WS mode without TLS (plaintext); "
+            "configure WS_TLS_CERT_FILE and WS_TLS_KEY_FILE to serve wss",
+            err=True,
+        )
     workspace = WorkspacePaths.from_root(os.getcwd())
+
     run_service = HttpRunService(config, handler)
     console = HttpProjectConsole(
         workspace.root,
@@ -572,6 +649,7 @@ __all__ = [
     "HttpAgentHandler",
     "build_http_service",
     "build_server_config",
+    "build_ws_server_config",
     "embedded_http_error_message",
     "http_server_cmd",
 ]
