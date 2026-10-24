@@ -716,7 +716,7 @@ async def test_frozen_revision_flows_into_verify_step(
 
 _SHIPPED_SKILLS = Path(__file__).resolve().parents[1] / ".heagent" / "skills"
 
-_SHIPPED_WORKFLOW_PACKAGES = ("he-work",)
+_SHIPPED_WORKFLOW_PACKAGES = ("he-loop",)
 
 
 @pytest.mark.parametrize("skill_id", _SHIPPED_WORKFLOW_PACKAGES)
@@ -743,14 +743,14 @@ def test_shipped_workflow_packages_pass_catalog_loader_and_doctor(skill_id: str)
 
 
 def test_shipped_packages_cover_both_revision_paths() -> None:
-    """he-work 演示派生路径（16 位十六进制摘要），he-goal 演示声明路径。
+    """he-loop 演示派生路径（16 位十六进制摘要），he-goal 演示声明路径。
 
     he-security / he-product / he-engineering / he-migration 已弃用移除；
     声明 revision 的冻结语义另由 fixture 用例（声明 "7"）覆盖。
     """
     import re
 
-    package = resolve_skill_package("he-work")
+    package = resolve_skill_package("he-loop")
     assert package is not None
     workflow = read_workflow(package, "workflow.md")
     revision = workflow_revision(package, workflow)

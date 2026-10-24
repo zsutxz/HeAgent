@@ -172,7 +172,7 @@ class _GateContext:
 
 # ── ``gate:`` 注册表：宿主内置命名质量门的通用词汇（名字 → 语义 + 求值函数）──────
 
-GATE_TESTS_PASS = "tests-pass"  # noqa: S105 - gate vocabulary label, not a credential
+GATE_TESTS_PASS = "tests-pass"  # nosec B105 - 阀门词表标签，非凭证 # noqa: S105
 GATE_GIT_CHANGES = "git-changes"
 
 

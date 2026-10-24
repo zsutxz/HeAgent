@@ -90,6 +90,10 @@ class WorkflowCheckpoint(BaseModel):
     # 并发授权（批派生恒串行），不撤销围栏。可选字段，旧 checkpoint 缺它读作 False（AD-2
     # 修订版允许追加可选字段，requested_steps 同款先例）。checkpoint 唯一新增字段（AD-16）。
     story_parallel_revoked: bool = False
+    # 驱动本次转换的事件（A38，2026-10-23）：取值为 `WorkflowEvent` 的字符串形态。可选字段，
+    # 旧 checkpoint 缺它读作空串（AD-2 修订版允许追加可选字段，active_epic / requested_steps
+    # 同款先例）——`next_action` 只说明理由，说明不了「经哪个事件落到这个状态」。
+    last_event: str = ""
     next_action: str = ""
     tool_in_flight: bool = False
     created_at: str = Field(default_factory=_iso_now)

@@ -1,21 +1,24 @@
 from __future__ import annotations
 
 import asyncio
+import json
 
 import pytest
 
 from heagent.engine.checkpoint import WorkflowCheckpoint, WorkflowCheckpointStore, WorkflowPhase, WorkflowStatus
+from heagent.engine.workflow_events import WorkflowEvent
 from heagent.engine.workflow_runner import (
     StorySpec,
     WorkflowGateError,
     WorkflowRunResult,
     WorkflowRunner,
     WorkflowStepResult,
+    _bounded_reason,
     _emit_step_event,
     required_sections,
 )
 from heagent.goal.workflow_loader import parse_story_list
-from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
+from heagent.engine.workflow_resource import StepApproval, WorkflowResource, WorkflowStepResource
 
 
 def _workflow(*steps: WorkflowStepResource) -> WorkflowResource:
@@ -55,10 +58,11 @@ async def _cancelled_story_callback(_step, _story):
 
 
 class _BatchInterrupt(BaseException):
-    """非 Cancelled 的 BaseException 替身。
+    """非取消类 BaseException 的替身（走 EXECUTOR_FAILED）。
 
-    不用真实 KeyboardInterrupt：asyncio 任务内的 KI 会被事件循环直接上抛打断
-    loop，无法在 await 处断言；两者走同一 EXECUTOR_FAILED 分支。
+    不用真实 KeyboardInterrupt：asyncio 任务内的 KI 会被事件循环直接上抛打断 loop，
+    无法在 await 处断言；且 KI / SystemExit 自 A39（2026-10-23）起与 CancelledError
+    同路落 PENDING——本替身刻意不属于该类，用于锁定「其余 BaseException 仍落 FAILED」。
     """
 
 
@@ -109,7 +113,18 @@ async def test_pause_and_resume_emit_transition_events_fail_soft() -> None:
 
     runner.pause(emit=emit)
     assert runner.state.status is WorkflowStatus.WAITING_USER
-    assert events == [("workflow_paused", {"step": "step-01.md", "story": "", "duration_ms": 0, "error_kind": ""})]
+    assert events == [
+        (
+            "workflow_paused",
+            {
+                "step": "step-01.md",
+                "story": "",
+                "duration_ms": 0,
+                "error_kind": "",
+                "transition_event": WorkflowEvent.USER_PAUSE.value,
+            },
+        )
+    ]
 
     runner.resume(emit=emit)
     assert runner.state.status is WorkflowStatus.PENDING
@@ -480,3 +495,207 @@ def test_emit_isolation_covers_hostile_duck_step_and_story() -> None:
     assert events[-1][0] == "workflow_step_completed"
     assert events[-1][1]["step"] == "step-01.md"
     assert events[-1][1]["story"] == ""
+
+
+def test_bounded_reason_keeps_boundary_text_and_truncates_beyond_it() -> None:
+    """A37：恰好 2000 字符不截断，超出 1 字符即截断并标记省略。
+
+    2000 是行为契约（落盘体积上限），故意写成字面量而不是引用被测常量——改上限时
+    本用例必须显式跟着改，否则等于把判据交给被测对象自己声明。
+    """
+    assert _bounded_reason("x" * 2000) == "x" * 2000
+    truncated = _bounded_reason("x" * 2001)
+    assert len(truncated) == 2000
+    assert truncated.endswith("...")
+
+
+@pytest.mark.asyncio
+async def test_oversized_failure_reason_is_bounded_in_state_and_checkpoint(tmp_path) -> None:
+    """A37：超长异常文本不得整段进 checkpoint（内存状态与落盘 next_action 都有硬上限）。"""
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    runner = WorkflowRunner(workflow, goal_id="goal", run_id="run", checkpoint_store=store)
+
+    async def callback(_step):
+        raise RuntimeError("boom " + "x" * 5000)
+
+    with pytest.raises(RuntimeError):
+        await runner.run_step(callback)
+    assert len(runner.state.reason) <= 2000
+    assert runner.state.reason.startswith("boom ")
+    assert runner.state.reason.endswith("...")
+    checkpoints = await store.list_checkpoints(goal_id="goal")
+    assert checkpoints, "failure must persist a checkpoint"
+    assert len(checkpoints[-1].next_action) <= 2000
+
+
+def test_keyboard_interrupt_is_treated_as_user_cancellation() -> None:
+    """A39：KI 与 CancelledError 同路（CANCELLED → PENDING，可恢复），不再落 FAILED。
+
+    直接测吸收点：真实 KI 在 asyncio 任务内会被 ``Task.__step`` 重抛进事件循环，
+    无法在 await 处断言终态（同 ``_BatchInterrupt`` 的既有说明）。
+    """
+    runner = WorkflowRunner(_workflow(WorkflowStepResource(index=1, name="step-01.md", instructions="")))
+    runner.state = runner.state.model_copy(update={"status": WorkflowStatus.RUNNING})
+    event = runner._absorb_step_exception(KeyboardInterrupt())
+    assert event is WorkflowEvent.CANCELLED
+    assert runner.state.status is WorkflowStatus.PENDING
+    assert runner.state.reason == "cancelled"
+
+
+def test_system_exit_is_treated_as_user_cancellation() -> None:
+    """A39：SystemExit 同为用户取消（落 PENDING 可恢复），不被当成执行器故障。"""
+    runner = WorkflowRunner(_workflow(WorkflowStepResource(index=1, name="step-01.md", instructions="")))
+    runner.state = runner.state.model_copy(update={"status": WorkflowStatus.RUNNING})
+    event = runner._absorb_step_exception(SystemExit(0))
+    assert event is WorkflowEvent.CANCELLED
+    assert runner.state.status is WorkflowStatus.PENDING
+
+
+def _approval_step(index: int) -> WorkflowStepResource:
+    return WorkflowStepResource(
+        index=index, name=f"step-{index:02d}.md", instructions="", approval=StepApproval(required=True)
+    )
+
+
+@pytest.mark.asyncio
+async def test_every_transition_records_the_event_that_drove_it(tmp_path) -> None:
+    """A38：``last_event`` 与 ``status`` 同源写入，并随 checkpoint 落盘、可跨恢复读回。
+
+    没有它，审计只能看到「状态不是 RUNNING」，看不到是完成、被取消还是执行器失败。
+    """
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    store = WorkflowCheckpointStore(str(tmp_path / "checkpoints"), workflow_path=str(tmp_path / "workflow.json"))
+    runner = WorkflowRunner(workflow, goal_id="goal", run_id="run", checkpoint_store=store)
+
+    await runner.run_step(lambda _: WorkflowStepResult(output="ok"))
+
+    assert runner.state.status is WorkflowStatus.COMPLETED
+    assert runner.state.last_event == WorkflowEvent.FINAL_STEP_COMPLETED.value
+    checkpoint = (await store.list_checkpoints(goal_id="goal"))[-1]
+    assert checkpoint.last_event == WorkflowEvent.FINAL_STEP_COMPLETED.value
+    restored = WorkflowRunner.from_checkpoint(workflow, checkpoint, checkpoint_store=store)
+    assert restored.state.last_event == WorkflowEvent.FINAL_STEP_COMPLETED.value
+
+
+@pytest.mark.asyncio
+async def test_old_checkpoint_without_last_event_still_loads(tmp_path) -> None:
+    """AD-2：``last_event`` 是**追加的可选**字段——盘上没有该键的旧 checkpoint 照常加载。
+
+    兼容性判据刻意手写一份「旧形状」JSON（而不是存一份新 checkpoint 再删键）：它钉的是
+    「字段缺失」这一形态，任何把该字段改成必填的改动都会在这里变红。
+    """
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    checkpoint_dir = tmp_path / "checkpoints"
+    checkpoint_dir.mkdir()
+    payload = {
+        "checkpoint_id": "goal-run-step-1",
+        "goal_id": "goal",
+        "phase": WorkflowPhase.IMPLEMENTATION.value,
+        "status": WorkflowStatus.PENDING.value,
+        "run_id": "run",
+        "active_step": 0,
+        "completed_steps": [],
+        "next_action": "legacy",
+        "created_at": "2026-01-01T00:00:00.000000",
+    }
+    (checkpoint_dir / "goal-run-step-1.json").write_text(json.dumps(payload), encoding="utf-8")
+    store = WorkflowCheckpointStore(str(checkpoint_dir), workflow_path=str(tmp_path / "workflow.json"))
+
+    checkpoints = await store.list_checkpoints(goal_id="goal")
+
+    assert len(checkpoints) == 1
+    assert checkpoints[0].last_event == ""
+    restored = WorkflowRunner.from_checkpoint(workflow, checkpoints[0], checkpoint_store=store)
+    assert restored.state.last_event == ""
+
+
+@pytest.mark.asyncio
+async def test_failure_and_cancellation_events_name_their_transition_event() -> None:
+    """A38：两种「非 RUNNING」终态事件各自标明驱动事件（失败与取消可区分）。"""
+    workflow = _workflow(WorkflowStepResource(index=1, name="step-01.md", instructions=""))
+    events: list[tuple[str, dict]] = []
+
+    def emit(kind, *, details=None):
+        events.append((kind, details or {}))
+
+    async def boom(_step):
+        raise RuntimeError("boom")
+
+    runner = WorkflowRunner(workflow)
+    with pytest.raises(RuntimeError):
+        await runner.run_step(boom, emit=emit)
+    assert events[-1][0] == "workflow_step_failed"
+    assert events[-1][1]["transition_event"] == WorkflowEvent.EXECUTOR_FAILED.value
+    assert runner.state.last_event == WorkflowEvent.EXECUTOR_FAILED.value
+
+    async def cancel(_step):
+        raise asyncio.CancelledError()
+
+    runner = WorkflowRunner(workflow)
+    events.clear()
+    with pytest.raises(asyncio.CancelledError):
+        await runner.run_step(cancel, emit=emit)
+    assert events[-1][1]["transition_event"] == WorkflowEvent.CANCELLED.value
+    assert runner.state.last_event == WorkflowEvent.CANCELLED.value
+
+
+@pytest.mark.asyncio
+async def test_approval_decisions_record_their_events_and_bound_the_note() -> None:
+    """A38 + A37：挂门/批准/拒绝各自留痕；超长拒绝理由截断而不整段进状态。"""
+    workflow = _workflow(_approval_step(1), WorkflowStepResource(index=2, name="step-02.md", instructions=""))
+
+    events: list[tuple[str, dict]] = []
+
+    def emit(kind, *, details=None):
+        events.append((kind, details or {}))
+
+    runner = WorkflowRunner(workflow)
+    await runner.run_step(lambda _: WorkflowStepResult(output="draft"))
+    assert runner.state.last_event == WorkflowEvent.APPROVAL_REQUIRED.value
+
+    runner.approve(emit=emit)
+    # 状态里留的是**最后**一次转换（批准后紧接完成簿记推进，落到 step_completed）；
+    # 批准这个事件本身由观测事件承载——两处合起来才没有信息缺口。
+    assert [kind for kind, _ in events] == ["workflow_approved"]
+    assert events[0][1]["transition_event"] == WorkflowEvent.USER_APPROVE.value
+    assert runner.state.last_event == WorkflowEvent.STEP_COMPLETED.value
+
+    rejected = WorkflowRunner(workflow)
+    await rejected.run_step(lambda _: WorkflowStepResult(output="draft"))
+    rejected.reject("x" * 5000)
+    assert rejected.state.last_event == WorkflowEvent.USER_REJECT.value
+    assert rejected.state.status is WorkflowStatus.BLOCKED
+    assert len(rejected.state.reason) == 2000
+    assert rejected.state.reason.endswith("...")
+
+
+@pytest.mark.asyncio
+async def test_batch_failure_reason_is_bounded_and_records_the_event() -> None:
+    """A37 补漏 + A38：批结算失败路径同样截断，并记录 executor_failed。
+
+    批路径的 ``reason`` 与串行路径同属「状态写点」，漏了它就等于给长 traceback 留了
+    一条绕过上限的通道。
+    """
+    workflow = _workflow(
+        WorkflowStepResource(index=1, name="step-01.md", instructions="", story_loop="epics.md", max_parallel_stories=2)
+    )
+    stories = [
+        StorySpec(id="S-1", summary="One", epic="E1", parallel_group="g", write_set=["src/a.py"]),
+        StorySpec(id="S-2", summary="Two", epic="E1", parallel_group="g", write_set=["src/b.py"]),
+    ]
+
+    async def callback(_step, story, _execution):
+        if story.id == "S-2":
+            raise RuntimeError("boom " + "x" * 5000)
+        return WorkflowStepResult(output=story.id)
+
+    runner = WorkflowRunner(workflow)
+    with pytest.raises(RuntimeError, match="boom"):
+        await runner.run_step(callback, stories=stories)
+
+    assert runner.state.status is WorkflowStatus.FAILED
+    assert runner.state.last_event == WorkflowEvent.EXECUTOR_FAILED.value
+    assert len(runner.state.reason) == 2000
+    assert runner.state.reason.startswith("boom ")
+    assert runner.state.reason.endswith("...")

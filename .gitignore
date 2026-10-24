@@ -73,3 +73,6 @@ news/
 
 # 本地独立练习仓库（llm-training，自带 .git，不入库）
 project/
+
+# 客户端本地设置（机器相关，不进库；共享的 .claude/reviews、.claude/skills 仍受跟踪）
+.claude/settings.local.json

@@ -26,6 +26,9 @@ COMMANDS = (
     ("ruff lint", ["ruff", "check", "src", "tests", "scripts"]),
     ("ruff format", ["ruff", "format", "--check", "src", "tests", "scripts"]),
     ("mypy", ["mypy", "src"]),
+    # CI 的 lint job 是 fail-fast 源头（bandit 失败会连带 test 矩阵全部跳过）；
+    # 本地门不含这一条时，「本地全绿 / CI 全红」无从察觉（2026-10-23 实测过一次）。
+    ("bandit", [sys.executable, "-m", "bandit", "-r", "src/", "-ll"]),
 )
 
 

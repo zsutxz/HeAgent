@@ -66,6 +66,11 @@ from heagent.network.http_protocol import (
     error_envelope,
     sanitize_message,
 )
+from heagent.network.ws_protocol import (
+    WS_MAX_FRAME_BYTES,
+    WS_PING_INTERVAL_SECONDS,
+    WS_PING_TIMEOUT_SECONDS,
+)
 from heagent.pub.safe_logging import safe_log
 
 if TYPE_CHECKING:
@@ -73,6 +78,7 @@ if TYPE_CHECKING:
 
     from starlette.types import ASGIApp, Receive, Scope, Send
 
+    from heagent.network.cli_event_hub import CliEventHub
     from heagent.network.http_console_protocol import ConsoleHandler
 
     # 入口层交回的可调用对象：把 prompt 跑成 Agent 运行，并通过 publisher 推事件。
@@ -122,6 +128,8 @@ _RUNS_PATH = "/api/runs"
 _RUN_DETAIL_PATH = "/api/runs/{run_id}"
 _RUN_EVENTS_PATH = "/api/runs/{run_id}/events"
 _SESSION_PATH = "/api/session"
+# CLI 旁路订阅（Epic 55）：跨轮次的只读事件流，见 ``network/cli_event_hub.py``。
+_CLI_WS_PATH = "/api/cli/ws"
 _PROJECTS_PATH = "/api/projects"
 _PROJECT_PATH = "/api/projects/{project_id}"
 _PROJECT_SESSIONS_PATH = "/api/projects/{project_id}/sessions"
@@ -135,7 +143,7 @@ _PROJECT_CONFIG_PATH = "/api/projects/{project_id}/config"
 _DIALOG_PICK_PATH = "/api/dialogs/pick-directory"
 
 # 通配绑定地址：就绪探测改走回环（见 :func:`_probe_host`）。这里**只识别**，不在此绑定。
-_WILDCARD_HOSTS = frozenset({"", "0.0.0.0", "*"})  # noqa: S104 - 识别通配地址，非绑定
+_WILDCARD_HOSTS = frozenset({"", "0.0.0.0", "*"})  # nosec B104 - 仅识别通配地址，本模块不在此绑定 # noqa: S104
 _IPV6_WILDCARDS = frozenset({"::", "[::]"})
 
 # 就绪探测与关闭排空的预算（秒）。探测是进程内回环请求，正常在毫秒级返回。
@@ -188,6 +196,8 @@ class HttpServerConfig(BaseModel):
     # 拆出的理由：连接额度由 Uvicorn 在**进 ASGI 之前**拒绝 ⇒ 超额订阅拿不到错误信封 / 安全头 / 访问日志，
     # 429 ``rate_limited`` 分支实际不可达；订阅面现在有独立旋钮，调大连接额度不再被迫放大它。
     max_subscribers: int = Field(default=16, ge=1)
+    # 每个 run 的 WS 连接独立额度；WS 不受 Uvicorn limit_concurrency 管理，也不占 SSE 订阅额度。
+    ws_max_connections: int = Field(default=16, ge=1)
     # **每个项目各自**的在途运行上限（Story 50-3 的 D9）：全局上限 = 项目数 × 该值，因此「A 项目在跑」
     # 不挡 B 项目；``POST /api/runs``（无项目归属）自己算一档，语义与 Epic 49 逐字相同。
     max_inflight_runs: int = Field(default=1, ge=1)
@@ -310,6 +320,7 @@ class _RunRecord:
         # 有界 ring buffer：越过窗口的重连（49-4）据此判定 resync_required。
         self.events: deque[RunEventPayload] = deque(maxlen=buffer_size)
         self.subscribers: set[asyncio.Queue[RunEventPayload | None]] = set()
+        self.ws_subscribers: set[asyncio.Queue[RunEventPayload | None]] = set()
         # 订阅者队列与事件窗口**同界**：消费端（SSE 响应写 socket）被背压卡住时不能无限堆积，
         # 到界即结束该订阅者的流（见 :meth:`_drop_lagging_subscriber`）。
         self.subscriber_queue_size = buffer_size
@@ -351,6 +362,11 @@ class _RunRecord:
                 queue.put_nowait(payload)
             except asyncio.QueueFull:
                 self._drop_lagging_subscriber(queue)
+        for queue in list(self.ws_subscribers):
+            try:
+                queue.put_nowait(payload)
+            except asyncio.QueueFull:
+                self._drop_lagging_ws_subscriber(queue)
         return payload
 
     def consume_deadline_reason(self) -> str | None:
@@ -375,6 +391,23 @@ class _RunRecord:
             return False
         self.subscribers.add(queue)
         return True
+
+    def try_add_ws_subscriber(self, queue: asyncio.Queue[RunEventPayload | None], limit: int) -> bool:
+        """WS 订阅限额检查与登记在同步临界段内完成，且与 SSE 池完全独立。"""
+        if len(self.ws_subscribers) >= limit:
+            return False
+        self.ws_subscribers.add(queue)
+        return True
+
+    def _drop_lagging_ws_subscriber(self, queue: asyncio.Queue[RunEventPayload | None]) -> None:
+        """WS 队列背压与 SSE 同语义：结束该流，让客户端按游标续传。"""
+        self.ws_subscribers.discard(queue)
+        while True:
+            try:
+                queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        queue.put_nowait(None)
 
     def _drop_lagging_subscriber(self, queue: asyncio.Queue[RunEventPayload | None]) -> None:
         """订阅者跟不上（有界队列已满）：**结束它的流**，而不是无限堆积或静默丢事件。
@@ -405,9 +438,10 @@ class _RunRecord:
         return True
 
     def close_subscribers(self) -> None:
-        """终态事件写完后通知所有订阅者「流到此结束」（``None`` 是哨兵，不占事件 ID）。"""
-        for queue in list(self.subscribers):
-            queue.put_nowait(None)
+        """终态事件写完后通知 SSE 与 WS 订阅者「流到此结束」。"""
+        for queue in (*self.subscribers, *self.ws_subscribers):
+            with contextlib.suppress(asyncio.QueueFull):
+                queue.put_nowait(None)
 
 
 class RunEventPublisher:
@@ -470,6 +504,7 @@ class HttpRunService:
         self._messages: list[SessionMessage] = []
         self._current_run_id: str | None = None
         self._closing = False
+        self._ws_connections: dict[str, tuple[str, Any]] = {}
 
     # ---- 查询 ----
 
@@ -668,6 +703,45 @@ class HttpRunService:
     def subscriber_count(self, record: _RunRecord) -> int:
         """该运行当前的 SSE 订阅者数（限额判定与测试用）。"""
         return len(record.subscribers)
+
+    def ws_connection_count(self, record: _RunRecord) -> int:
+        """该运行当前的 WS 连接数；不计入 SSE subscriber_count。"""
+        return len(record.ws_subscribers)
+
+    def register_ws(self, connection_id: str, run_id: str, websocket: Any) -> None:
+        """登记已通过独立限额的 WS 连接，供有界关停关闭。"""
+        self._ws_connections[connection_id] = (run_id, websocket)
+
+    def unregister_ws(self, connection_id: str) -> None:
+        """移除断线或已关闭的 WS 连接登记。"""
+        self._ws_connections.pop(connection_id, None)
+
+    async def close_websockets(self) -> None:
+        """通知所有已登记连接服务关闭，并在每个 shutdown_timeout 内完成收尾。"""
+        connections = tuple(self._ws_connections.items())
+        if not connections:
+            return
+
+        async def close_one(connection_id: str, run_id: str, websocket: Any) -> None:
+            with contextlib.suppress(Exception):
+                from heagent.network.ws_protocol import WS_CLOSE_GOING_AWAY, WsErrorFrame
+
+                envelope = error_envelope(HttpErrorCode.SHUTTING_DOWN, "server is shutting down")
+                await websocket.send_text(WsErrorFrame(error=envelope).model_dump_json())
+                await websocket.close(code=WS_CLOSE_GOING_AWAY)
+            self.unregister_ws(connection_id)
+            _safe_log(
+                logging.INFO,
+                "http event=ws_close run_id=%s connection_id=%s close_code=%d",
+                run_id,
+                connection_id,
+                1001,
+            )
+
+        await asyncio.wait_for(
+            asyncio.gather(*(close_one(key, run_id, websocket) for key, (run_id, websocket) in connections)),
+            timeout=self.config.shutdown_timeout,
+        )
 
     async def close(self) -> None:
         """停止接收新运行、使在途运行进入终态、等待运行任务退出（有界，AD-5 的关闭序列）。
@@ -1682,6 +1756,7 @@ def build_http_app(
     version: str,
     run_service: HttpRunService | None = None,
     console: ConsoleHandler | None = None,
+    cli_hub: CliEventHub | None = None,
 ) -> ASGIApp:
     """构造网页入口的 ASGI 应用（健康检查 + 运行 API/SSE + 包内静态页 + 安全头）。
 
@@ -1689,6 +1764,10 @@ def build_http_app(
     也不需要在导入期触碰包元数据。``run_service`` 是**注入的运行服务**（AD-1 的接缝）——为 ``None``
     时不注册 ``/api/runs*``、``/api/session`` 或 ``/api/projects*``（那些路径回 404），Story 49-1 的用法因此保持不变。
     错误响应一律走 :func:`_json_error`，异常细节只进服务端日志。
+
+    ``cli_hub`` 是**CLI 终端运行的旁路中枢**（Epic 55）：为 ``None`` 时不注册 ``/api/cli/ws``
+    （该路径回 404）。它与 ``run_service`` 互相独立——旁路不拥有运行，也不该因为「网页侧有 run
+    服务」或「没有」而存在或消失。
     """
     applications = _require_module("starlette.applications")
     responses = _require_module("starlette.responses")
@@ -1750,15 +1829,38 @@ def build_http_app(
         routing.Route("/", endpoint=index, methods=["GET"]),
     ]
     if run_service is not None:
+        from heagent.network.ws_server import build_ws_endpoint
+
+        ws_endpoint = build_ws_endpoint(
+            run_service,
+            origin_violation=lambda scope: _request_origin_violation(
+                scope,
+                hosts=_allowed_hosts(config),
+                ports=_allowed_ports(config),
+            ),
+        )
         create_run, run_events, cancel_run, session_endpoint = _build_run_endpoints(responses, config, run_service)
         routes.extend(
             [
+                routing.WebSocketRoute("/api/runs/{run_id}/ws", endpoint=ws_endpoint),
                 routing.Route(_RUNS_PATH, endpoint=create_run, methods=["POST"]),
                 routing.Route(_RUN_EVENTS_PATH, endpoint=run_events, methods=["GET"]),
                 routing.Route(_RUN_DETAIL_PATH, endpoint=cancel_run, methods=["DELETE"]),
                 routing.Route(_SESSION_PATH, endpoint=session_endpoint, methods=["GET"]),
             ]
         )
+    if cli_hub is not None:
+        from heagent.network.ws_server import build_cli_ws_endpoint
+
+        cli_ws_endpoint = build_cli_ws_endpoint(
+            cli_hub,
+            origin_violation=lambda scope: _request_origin_violation(
+                scope,
+                hosts=_allowed_hosts(config),
+                ports=_allowed_ports(config),
+            ),
+        )
+        routes.append(routing.WebSocketRoute(_CLI_WS_PATH, endpoint=cli_ws_endpoint))
     if console is not None:
         list_projects, register_project, rename_project, remove_project = _build_project_endpoints(
             responses, console, config
@@ -1840,11 +1942,13 @@ class HttpServer:
         version: str,
         run_service: HttpRunService | None = None,
         console: ConsoleHandler | None = None,
+        cli_hub: CliEventHub | None = None,
     ) -> None:
         self.config = config
         self.version = version
         self.run_service = run_service
         self.console = console
+        self.cli_hub = cli_hub
         self._app: ASGIApp | None = None
         self._server: Any = None
         # 生命周期锁与「已关闭」标记：``close()`` 必须**等到**收尾真正完成才返回。只用一个布尔
@@ -1852,13 +1956,18 @@ class HttpServer:
         # （生命周期锁 + 布尔标记是本项目入口服务的既有形态）。
         self._lifecycle_lock = asyncio.Lock()
         self._closed = False
+        self._ws_unavailable_logged = False
 
     @property
     def app(self) -> ASGIApp:
         """ASGI 应用（延迟构造一次；测试可用 ASGI transport 直接打，无需真实 listener）。"""
         if self._app is None:
             self._app = build_http_app(
-                self.config, version=self.version, run_service=self.run_service, console=self.console
+                self.config,
+                version=self.version,
+                run_service=self.run_service,
+                console=self.console,
+                cli_hub=self.cli_hub,
             )
         return self._app
 
@@ -1904,6 +2013,9 @@ class HttpServer:
                 # 绝不信任 forwarded-* 头（AD-6）：同源判定必须基于真实 listener 地址。
                 proxy_headers=False,
                 limit_concurrency=self.config.max_connections + _CONCURRENCY_PROBE_RESERVE,
+                ws_max_size=WS_MAX_FRAME_BYTES,
+                ws_ping_interval=WS_PING_INTERVAL_SECONDS,
+                ws_ping_timeout=WS_PING_TIMEOUT_SECONDS,
                 # 关闭时连接排空的硬上界（Uvicorn 默认 None = 无限等待）。
                 timeout_graceful_shutdown=max(1, math.ceil(self.config.shutdown_timeout)),
             )
@@ -1922,6 +2034,14 @@ class HttpServer:
         except OSError as exc:
             raise HttpStartupError(f"HTTP server could not bind {self.address}: {exc}") from exc
         self._server = server
+        ws_protocol_class = getattr(server.config, "ws_protocol_class", None)
+        if ws_protocol_class is None and not self._ws_unavailable_logged:
+            self._ws_unavailable_logged = True
+            _safe_log(
+                logging.WARNING,
+                "http event=ws_unavailable install_hint=%s",
+                "pip install 'heagent[http]' (WebSocket support requires websockets)",
+            )
         _safe_log(logging.INFO, "http event=started address=%s", self.address)
         warning = exposure_warning(self.config.host)
         if warning is not None:
@@ -1937,6 +2057,10 @@ class HttpServer:
             # 409 ``run_conflict``（`server is shutting down`）拒绝——正是 AD-5 要消除的
             # 「看起来正常但不可用」。
             self.run_service.reopen()
+        if self.cli_hub is not None:
+            # 同一条理由：``close()`` 置上的「停止接收」标记不可逆，重新 ``start()`` 后
+            # 新连接会被一律回 ``shutting_down``——那正是 AD-5 禁止的「看着在运行、其实不可用」。
+            self.cli_hub.reopen()
 
     async def serve_forever(self) -> None:
         """阻塞式服务循环；Uvicorn 主循环退出（``should_exit``）或异常时返回/抛出。"""
@@ -1963,6 +2087,11 @@ class HttpServer:
             service = self.run_service
             if service is not None:
                 await service.close()
+                await service.close_websockets()
+            if self.cli_hub is not None:
+                # 顺序同 run_service：先置「停止接收」（新连接立刻收 shutting_down），再关既有连接。
+                self.cli_hub.close()
+                await self.cli_hub.close_websockets(timeout=self.config.shutdown_timeout)
             server, self._server = self._server, None
             if server is None:
                 self._closed = True

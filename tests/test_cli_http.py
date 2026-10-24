@@ -68,6 +68,7 @@ def test_help_lists_http_options() -> None:
         "--port",
         "--max-connections",
         "--max-subscribers",
+        "--ws-max-connections",
         "--max-inflight-runs",
         "--max-request-bytes",
         "--event-buffer-size",
@@ -79,6 +80,35 @@ def test_help_lists_http_options() -> None:
     assert "127.0.0.1" in result.output
     assert "8766" in result.output
     assert "no authentication" in result.output
+    assert "--ws-max-connections" in result.output
+
+
+def test_ws_connection_limit_cli_override_reaches_config_without_mutating_settings(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer]
+) -> None:
+    monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
+    monkeypatch.setenv("HTTP_WS_MAX_CONNECTIONS", "7")
+    reset_settings()
+    settings = get_settings()
+
+    result = CliRunner().invoke(main, ["http-server", "--ws-max-connections", "3"])
+
+    assert result.exit_code == 0, result.output
+    assert captured_server["server"].config.ws_max_connections == 3
+    assert settings.http_ws_max_connections == 7
+
+
+def test_ws_connection_limit_environment_value_reaches_config(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer]
+) -> None:
+    monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
+    monkeypatch.setenv("HTTP_WS_MAX_CONNECTIONS", "9")
+    reset_settings()
+
+    result = CliRunner().invoke(main, ["http-server"])
+
+    assert result.exit_code == 0, result.output
+    assert captured_server["server"].config.ws_max_connections == 9
 
 
 def test_registered_as_explicit_subcommand() -> None:
@@ -99,6 +129,7 @@ def test_build_server_config_uses_settings_defaults() -> None:
         port=settings.http_port,
         max_connections=settings.http_max_connections,
         max_subscribers=settings.http_max_subscribers,
+        ws_max_connections=settings.http_ws_max_connections,
         max_inflight_runs=settings.http_max_inflight_runs,
         max_total_inflight=settings.http_max_total_inflight,
         max_request_bytes=settings.http_max_request_bytes,
@@ -258,6 +289,7 @@ def test_cli_overrides_reach_the_config_without_mutating_settings(
         ["--port", "70000"],
         ["--max-connections", "0"],
         ["--max-subscribers", "0"],
+        ["--ws-max-connections", "0"],
         ["--max-inflight-runs", "0"],
         ["--max-total-inflight", "-1"],
         ["--max-request-bytes", "0"],

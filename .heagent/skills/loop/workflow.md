@@ -1,6 +1,6 @@
-# work 开发工作流（流程契约）
+# /loop 开发工作流（流程契约）
 
-本文件是 `/work` 工作流的**完整可执行契约**与唯一真源。执行者是主会话 agent（下称**宿主**）：
+本文件是 `/loop` 工作流的**完整可执行契约**与唯一真源。执行者是主会话 agent（下称**宿主**）：
 宿主按本契约逐步驱动流程，每个步骤用一个**全新**的子会话（`task_delegate`）执行；没有 Python
 状态机，全部状态由宿主按本契约落盘维护。任何步骤都不得跳过。
 
@@ -90,7 +90,7 @@
 prompt 以「推进 goal」开头的 job）：
 
 > 推进 goal：读取 `_he-output/works/current` 指向的 goal 目录的 progress.md 与 brief.md，按
-> `.heagent/skills/work/workflow.md` 的宿主执行循环推进一步。若当前处于等待用户输入或审批门，
+> `.heagent/skills/loop/workflow.md` 的宿主执行循环推进一步。若当前处于等待用户输入或审批门，
 > 不要推进，原样报告等待项。
 
 ## 全局标准

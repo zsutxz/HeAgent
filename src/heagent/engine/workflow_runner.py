@@ -36,6 +36,26 @@ from heagent.pub.types import StoryExecutionContext, StorySpec
 
 logger = logging.getLogger(__name__)
 
+#: 状态 reason / checkpoint next_action 的字符上限（A37）：只限制落盘与展示体积，
+#: 语义是**截断不抛**——截断不得改变控制流，超长异常文本也不该把 checkpoint 撑爆。
+_MAX_REASON_CHARS = 2000
+
+#: 视为「用户取消」的异常（A39，2026-10-23 裁定）：一律经 CANCELLED 落 PENDING
+#: （可恢复，resume 即重跑）。KeyboardInterrupt / SystemExit 与 CancelledError 同路——
+#: Ctrl-C 的语义是「先停下、稍后重来」，落 FAILED 会让重启后必须显式 resume 才能继续。
+_CANCEL_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    asyncio.CancelledError,
+    KeyboardInterrupt,
+    SystemExit,
+)
+
+
+def _bounded_reason(text: str) -> str:
+    """把状态 reason 截到 :data:`_MAX_REASON_CHARS`（A37）：尾部标记省略，绝不抛异常。"""
+    if len(text) <= _MAX_REASON_CHARS:
+        return text
+    return text[: _MAX_REASON_CHARS - 3] + "..."
+
 
 def _emit_step_event(
     emit: Callable[..., None] | None,
@@ -123,6 +143,10 @@ class WorkflowRunnerState(BaseModel):
     # 复位**——撤销的是并发授权（此后批派生恒串行），不撤销围栏（串行重跑仍带 allowlist）。
     # 随 checkpoint 持久化，重启后仍生效；恢复只能由人改 checkpoint 或开新 goal。
     story_parallel_revoked: bool = False
+    # 驱动最近一次状态转换的事件（A38）：取值 = `WorkflowEvent`。与 ``status`` 由**同一个**
+    # event 同源写入（唯一写点是 ``_transition_fields``），审计因此能区分「被取消」「执行器
+    # 失败」「人工拒绝」这些最终都表现为非 RUNNING 的转换。
+    last_event: str = ""
 
 
 class WorkflowStepResult(BaseModel):
@@ -261,7 +285,7 @@ class WorkflowRunner:
             # 恒等于 list(outputs)」不变量下不可达且等值（两边同空），随镜像派生化一并删除（A33①）。
             outputs=dict(checkpoint.outputs),
             acceptance_evidence=list(checkpoint.acceptance_evidence),
-            reason=checkpoint.next_action,
+            reason=_bounded_reason(checkpoint.next_action),
             active_story=checkpoint.active_story,
             active_epic=checkpoint.active_epic,
             story_index=checkpoint.story_index if checkpoint.story_index is not None else 0,
@@ -273,6 +297,7 @@ class WorkflowRunner:
             approval_round=checkpoint.approval_round,
             requested_steps=list(checkpoint.requested_steps),
             story_parallel_revoked=checkpoint.story_parallel_revoked,
+            last_event=checkpoint.last_event,
         )
         kwargs.setdefault("phase", checkpoint.phase)
         return cls(workflow, state, goal_id=checkpoint.goal_id, run_id=checkpoint.run_id, **kwargs)
@@ -352,7 +377,7 @@ class WorkflowRunner:
 
         started = time.perf_counter()
         _emit_step_event(emit, "workflow_step_started", step=step, story=active_story)
-        self.state = self.state.model_copy(update={"status": transition(self.state.status, WorkflowEvent.START)})
+        self.state = self.state.model_copy(update=self._transition_fields(WorkflowEvent.START))
         results: list[Any] = []
         try:
             if len(batch) > 1:
@@ -366,7 +391,8 @@ class WorkflowRunner:
         except BaseException as exc:
             # 批的取消窗口覆盖整段并发执行：步骤级取消传播取消整批，未落账成员如实记
             # cancelled（不谎报 failed，AD-19）；串行成员维持 51-8 语义（取消/失败二分）。
-            self._absorb_step_exception(exc)
+            transition_event = self._absorb_step_exception(exc)
+            cancelled = transition_event is WorkflowEvent.CANCELLED
             if active_story is not None:
                 if len(batch) > 1:
                     for member in batch:
@@ -374,11 +400,8 @@ class WorkflowRunner:
                 else:
                     # 取消（可恢复，步骤落 PENDING）与失败（FAILED）的 story 状态如实区分，
                     # 不与步骤状态表矛盾（评审 LOW）；取消没有独立状态值，用事件词汇表。
-                    story_status = (
-                        WorkflowEvent.CANCELLED.value
-                        if isinstance(exc, asyncio.CancelledError)
-                        else WorkflowStatus.FAILED.value
-                    )
+                    # 判定口径与 _absorb_step_exception 同源（A39）：KI / SystemExit 也算取消。
+                    story_status = WorkflowEvent.CANCELLED.value if cancelled else WorkflowStatus.FAILED.value
                     self._record_story_status(active_story.id, story_status)
             _emit_step_event(
                 emit,
@@ -387,7 +410,8 @@ class WorkflowRunner:
                 story=active_story,
                 duration_ms=elapsed_ms(started),
                 error_kind=error_kind_for(exc),
-                error=str(exc),
+                error=_bounded_reason(str(exc)),
+                transition_event=transition_event.value,
             )
             await self._persist_interrupted(step, checkpoint)
             raise
@@ -425,7 +449,10 @@ class WorkflowRunner:
             update.update(self._completion_update(step, story_specs, result.output, is_story_loop=is_story_loop))
             self.state = self.state.model_copy(update=update)
         else:
-            update = {"status": self._callback_status(result.status), "reason": result.reason}
+            update = {
+                **self._transition_fields(self._callback_event(result.status)),
+                "reason": _bounded_reason(result.reason),
+            }
             if result.write_violation:
                 # 串行-with-context 的审计判负同样撤销并发授权（AD-18 Goal 级语义；
                 # 批路径在 _settle_story_batch 置闩，此处是串行收口的对称写点）。
@@ -664,8 +691,8 @@ class WorkflowRunner:
         if first_failure is not None:
             self.state = self.state.model_copy(
                 update={
-                    "status": transition(self.state.status, WorkflowEvent.EXECUTOR_FAILED),
-                    "reason": str(first_failure) or WorkflowEvent.EXECUTOR_FAILED.value,
+                    **self._transition_fields(WorkflowEvent.EXECUTOR_FAILED),
+                    "reason": _bounded_reason(str(first_failure) or WorkflowEvent.EXECUTOR_FAILED.value),
                 }
             )
             _emit_step_event(
@@ -675,13 +702,18 @@ class WorkflowRunner:
                 story=None,
                 duration_ms=elapsed_ms(started),
                 error_kind=error_kind_for(first_failure),
-                error=str(first_failure),
+                error=_bounded_reason(str(first_failure)),
+                transition_event=WorkflowEvent.EXECUTOR_FAILED.value,
             )
             await self._persist_interrupted(step, checkpoint)
             raise first_failure
         if first_incomplete is not None:
-            next_status = self._callback_status(first_incomplete.status)
-            self.state = self.state.model_copy(update={"status": next_status, "reason": first_incomplete.reason})
+            self.state = self.state.model_copy(
+                update={
+                    **self._transition_fields(self._callback_event(first_incomplete.status)),
+                    "reason": _bounded_reason(first_incomplete.reason),
+                }
+            )
         elif all_done:
             if step.approval.required:
                 update = self._approval_gate_update(step, combined)
@@ -691,13 +723,12 @@ class WorkflowRunner:
             update["requested_steps"] = [*self.state.requested_steps, *follow_ups]
             self.state = self.state.model_copy(update=update)
         else:
-            next_status = transition(
-                self.state.status,
-                WorkflowEvent.CHECKPOINT_REQUIRED if self._checkpoint_declared(step) else WorkflowEvent.STEP_COMPLETED,
+            event = (
+                WorkflowEvent.CHECKPOINT_REQUIRED if self._checkpoint_declared(step) else WorkflowEvent.STEP_COMPLETED
             )
             self.state = self.state.model_copy(
                 update={
-                    "status": next_status,
+                    **self._transition_fields(event),
                     "requested_steps": [*self.state.requested_steps, *follow_ups],
                 }
             )
@@ -781,17 +812,29 @@ class WorkflowRunner:
             self.state = self.state.model_copy(update={"active_step": previous})
             raise
 
-    def _absorb_step_exception(self, exc: BaseException) -> None:
+    def _transition_fields(self, event: WorkflowEvent) -> dict[str, Any]:
+        """经唯一转换表推进状态，并把驱动事件记进 ``last_event``（A38）。
+
+        状态与事件由**同一个** ``event`` 派生，因此不存在「改了状态却留着上一个事件」的
+        半更新路径：所有状态写点都返回本方法的 dict（``{**fields, ...}``），不得在别处
+        再单独写 ``status``。
+        """
+        return {"status": transition(self.state.status, event), "last_event": event.value}
+
+    def _absorb_step_exception(self, exc: BaseException) -> WorkflowEvent:
         """异常/取消经唯一转换表落状态，不用直写掩盖（51-2）。
 
-        串行 story 路径使用：取消走 CANCELLED，
-        其余 BaseException 走 EXECUTOR_FAILED；``str(exc)`` 为空（如无参
-        CancelledError）时以事件名兜底，避免空 reason 抹掉可追溯性。
+        取消语义（A39，2026-10-23 裁定）：``CancelledError`` / ``KeyboardInterrupt`` /
+        ``SystemExit`` 一律视为用户取消，经 CANCELLED 落 PENDING（可恢复）；其余
+        ``BaseException`` 走 EXECUTOR_FAILED 落 FAILED。``str(exc)`` 为空（无参
+        CancelledError、KeyboardInterrupt）时以事件名兜底，避免空 reason 抹掉可追溯性。
+        返回值是该次转换所用事件，供调用方发射 ``transition_event`` 与判定 story 状态。
         """
-        event = WorkflowEvent.CANCELLED if isinstance(exc, asyncio.CancelledError) else WorkflowEvent.EXECUTOR_FAILED
+        event = WorkflowEvent.CANCELLED if isinstance(exc, _CANCEL_EXCEPTIONS) else WorkflowEvent.EXECUTOR_FAILED
         self.state = self.state.model_copy(
-            update={"status": transition(self.state.status, event), "reason": str(exc) or event.value}
+            update={**self._transition_fields(event), "reason": _bounded_reason(str(exc) or event.value)}
         )
+        return event
 
     async def _persist_interrupted(self, step: WorkflowStepResource, checkpoint: CheckpointCallback | None) -> None:
         """异常路径转换后的状态落盘（51-2 评审递延，51-8 收口）。
@@ -828,14 +871,21 @@ class WorkflowRunner:
         """User-requested pause through the single transition table (51-2 Review P7)."""
         self.state = self.state.model_copy(
             update={
-                "status": transition(self.state.status, WorkflowEvent.USER_PAUSE),
+                **self._transition_fields(WorkflowEvent.USER_PAUSE),
                 "reason": "user requested pause; resume to continue",
             }
         )
-        _emit_step_event(emit, "workflow_paused", step=self._active_step_resource(), story=None)
+        _emit_step_event(
+            emit,
+            "workflow_paused",
+            step=self._active_step_resource(),
+            story=None,
+            transition_event=WorkflowEvent.USER_PAUSE.value,
+        )
         return self.state.model_copy(deep=True)
 
-    def _callback_status(self, status: WorkflowStatus) -> WorkflowStatus:
+    def _callback_event(self, status: WorkflowStatus) -> WorkflowEvent:
+        """回调给出的终态 → 驱动事件（A38：``status`` 与 ``last_event`` 必须同源）。"""
         event = {
             WorkflowStatus.FAILED: WorkflowEvent.EXECUTOR_FAILED,
             WorkflowStatus.WAITING_USER: WorkflowEvent.USER_PAUSE,
@@ -843,7 +893,10 @@ class WorkflowRunner:
         }.get(status)
         if event is None:
             raise ValueError(f"unsupported callback status: {status}")
-        return transition(self.state.status, event)
+        return event
+
+    def _callback_status(self, status: WorkflowStatus) -> WorkflowStatus:
+        return transition(self.state.status, self._callback_event(status))
 
     def resume(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
         """Explicitly resume a paused, blocked, or failed active step.
@@ -860,9 +913,15 @@ class WorkflowRunner:
             )
         if self.state.status in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
             self.state = self.state.model_copy(
-                update={"status": transition(self.state.status, WorkflowEvent.USER_RESUME), "reason": ""}
+                update={**self._transition_fields(WorkflowEvent.USER_RESUME), "reason": ""}
             )
-            _emit_step_event(emit, "workflow_resumed", step=self._active_step_resource(), story=None)
+            _emit_step_event(
+                emit,
+                "workflow_resumed",
+                step=self._active_step_resource(),
+                story=None,
+                transition_event=WorkflowEvent.USER_RESUME.value,
+            )
         return self.state.model_copy(deep=True)
 
     def approve(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
@@ -873,11 +932,17 @@ class WorkflowRunner:
         COMPLETED、声明 checkpoint 的再挂起、普通步 → PENDING），不另写一份完成语义。
         """
         step = self._require_approval_decision()
-        self.state = self.state.model_copy(update={"status": transition(self.state.status, WorkflowEvent.USER_APPROVE)})
+        self.state = self.state.model_copy(update=self._transition_fields(WorkflowEvent.USER_APPROVE))
         update = self._step_advance_update(step, self.state.pending_output)
         update.update({"awaiting_approval": False, "pending_output": None})
         self.state = self.state.model_copy(update=update)
-        _emit_step_event(emit, "workflow_approved", step=step, story=None)
+        _emit_step_event(
+            emit,
+            "workflow_approved",
+            step=step,
+            story=None,
+            transition_event=WorkflowEvent.USER_APPROVE.value,
+        )
         return self.state.model_copy(deep=True)
 
     def reject(self, reason: str, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
@@ -889,13 +954,20 @@ class WorkflowRunner:
         step = self._require_approval_decision()
         self.state = self.state.model_copy(
             update={
-                "status": transition(self.state.status, WorkflowEvent.USER_REJECT),
+                **self._transition_fields(WorkflowEvent.USER_REJECT),
                 "awaiting_approval": False,
                 "pending_output": None,
-                "reason": reason,
+                "reason": _bounded_reason(reason),
             }
         )
-        _emit_step_event(emit, "workflow_rejected", step=step, story=None, reason=reason)
+        _emit_step_event(
+            emit,
+            "workflow_rejected",
+            step=step,
+            story=None,
+            reason=_bounded_reason(reason),
+            transition_event=WorkflowEvent.USER_REJECT.value,
+        )
         return self.state.model_copy(deep=True)
 
     def amend(self, supplement: str, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
@@ -908,13 +980,20 @@ class WorkflowRunner:
         step = self._require_approval_decision()
         self.state = self.state.model_copy(
             update={
-                "status": transition(self.state.status, WorkflowEvent.USER_AMEND),
+                **self._transition_fields(WorkflowEvent.USER_AMEND),
                 "awaiting_approval": False,
                 "pending_output": None,
                 "reason": "",
             }
         )
-        _emit_step_event(emit, "workflow_amended", step=step, story=None, reason=supplement)
+        _emit_step_event(
+            emit,
+            "workflow_amended",
+            step=step,
+            story=None,
+            reason=supplement,
+            transition_event=WorkflowEvent.USER_AMEND.value,
+        )
         return self.state.model_copy(deep=True)
 
     def _require_approval_decision(self) -> WorkflowStepResource:
@@ -962,13 +1041,18 @@ class WorkflowRunner:
         event = (
             WorkflowEvent.INPUT_MISSING if self.state.status is WorkflowStatus.PENDING else WorkflowEvent.GATE_FAILED
         )
-        next_status = transition(self.state.status, event)
-        if next_status is not status:
+        fields = self._transition_fields(event)
+        if fields["status"] is not status:
             raise ValueError(f"stop status {status} disagrees with {event}")
-        self.state = self.state.model_copy(update={"status": next_status, "reason": reason})
+        bounded_reason = _bounded_reason(reason)
+        self.state = self.state.model_copy(update={**fields, "reason": bounded_reason})
         checkpoint_id = await self._persist(step, checkpoint)
         return WorkflowRunResult(
-            status=status, step_index=step.index, reason=reason, missing=missing, checkpoint_id=checkpoint_id
+            status=status,
+            step_index=step.index,
+            reason=bounded_reason,
+            missing=missing,
+            checkpoint_id=checkpoint_id,
         )
 
     def _completion_update(
@@ -1002,11 +1086,11 @@ class WorkflowRunner:
         决策错误归因到某条 story（审查 #7）。
         """
         return {
-            "status": transition(self.state.status, WorkflowEvent.APPROVAL_REQUIRED),
+            **self._transition_fields(WorkflowEvent.APPROVAL_REQUIRED),
             "awaiting_approval": True,
             "pending_output": output,
             "approval_round": self.state.approval_round + 1,
-            "reason": step.approval.note or "step work is done; it awaits a human approval decision",
+            "reason": _bounded_reason(step.approval.note or "step work is done; it awaits a human approval decision"),
             **_story_reset_update(),
         }
 
@@ -1023,13 +1107,12 @@ class WorkflowRunner:
             if self._checkpoint_declared(step)
             else WorkflowEvent.STEP_COMPLETED
         )
-        next_status = transition(self.state.status, event)
         outputs = {**self.state.outputs, step.name: output}
         for reference in self._references(step.output):
             outputs[reference] = output
         return {
+            **self._transition_fields(event),
             "active_step": self.state.active_step + 1,
-            "status": next_status,
             "completed_steps": completed,
             "outputs": outputs,
         }
@@ -1056,13 +1139,10 @@ class WorkflowRunner:
             update.update(_story_reset_update())
             return update
         next_story = story_specs[next_index]
-        next_status = transition(
-            self.state.status,
-            WorkflowEvent.CHECKPOINT_REQUIRED if self._checkpoint_declared(step) else WorkflowEvent.STEP_COMPLETED,
-        )
+        event = WorkflowEvent.CHECKPOINT_REQUIRED if self._checkpoint_declared(step) else WorkflowEvent.STEP_COMPLETED
         return {
+            **self._transition_fields(event),
             "story_index": next_index,
-            "status": next_status,
             "completed_stories": completed_stories,
             "story_outputs": story_outputs,
             "active_story": next_story.id,
@@ -1160,7 +1240,8 @@ class WorkflowRunner:
             outputs=dict(self.state.outputs),
             acceptance_evidence=list(self.state.acceptance_evidence),
             completed_steps=list(self.state.completed_steps),
-            next_action=self.state.reason,
+            last_event=self.state.last_event,
+            next_action=_bounded_reason(self.state.reason),
         )
         aggregate_status = self.state.status
         if aggregate_status is WorkflowStatus.COMPLETED and self.phase is not WorkflowPhase.DONE:
@@ -1175,7 +1256,7 @@ class WorkflowRunner:
             active_story=self.state.active_story,
             story_statuses=dict(self.state.story_statuses),
             status=aggregate_status,
-            next_action=self.state.reason,
+            next_action=_bounded_reason(self.state.reason),
         )
         await self.checkpoint_store.save(checkpoint, workflow_state)
         return checkpoint.checkpoint_id

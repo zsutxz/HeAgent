@@ -1,7 +1,7 @@
 ---
-name: work
-description: 目标驱动开发（声明式 8 步工作流）：/work 命令与多阶段大目标的触发与执行
-triggers: [/work, work 工作流]
+name: loop
+description: 目标驱动开发（声明式 8 步工作流）：/loop 命令与多阶段大目标的触发与执行
+triggers: [/loop, loop 工作流]
 negative_triggers: [/goal, code review, 代码评审, 技能评审, 重构, refactor]
 ---
 
@@ -9,24 +9,26 @@ negative_triggers: [/goal, code review, 代码评审, 技能评审, 重构, refa
 
 ## Pattern
 
-多阶段大目标（从需求到交付的完整项目）走 `/work` 工作流；单点改动、一次性问答直接做，不要启动工作流。
-本技能是 `/work` 命令的执行契约：命令把参数交给你，你按本技能与同包 `workflow.md` 自主驱动整个流程
+多阶段大目标（从需求到交付的完整项目）走 `/loop` 工作流；单点改动、一次性问答直接做，不要启动工作流。
+本技能是 `/loop` 命令的执行契约：命令把参数交给你，你按本技能与同包 `workflow.md` 自主驱动整个流程
 （无 Python 状态机，状态全靠文件）。工作流共 8 步：市场调研、发散构思、需求分析、产品范围、架构设计、
 故事细化、逐故事实现、系统集成测试。
 
 与旧 `/goal` 的隔离：旧命令由 Python 状态机驱动，状态在 `_he-output/goals/`；本命令的状态在
 `_he-output/works/`，两者互不兼容、互不迁移。不要把旧 goal 目录当本命令的状态读写，反之亦然。
 
-**本包目录 `work/`（canonical id `he-work`）不要改回 `goal`/`goal_new`/`goal2`。** 包 id 取 meta.yaml 的
-`canonical_id`（缺省回落目录名），须带 `he-`/`bmad-` 前缀，否则整包无法解析。目录若叫 `goal`，id 会
-兜底成 `he-goal`，与旧包 `he-goal/` 同 id 冲突并遮蔽，`/goal` 失效。`SKILL.md` 的 `name` 只作
-别名来源，不参与 id 校验。命令名与包目录名是两回事。
+**命名格局（2026-10-23 定稿）：命令 `/loop`（`commands/loop.md`）↔ 包目录 `loop/`（canonical id
+`he-loop`）↔ 状态根 `_he-output/works/`。** 状态根与命令不同名是有意为之（works/ 里有在跑 goal，
+改名留待其收口后另议），不要改回 `goal`/`goal_new`/`goal2`/`work`，也不要再把任何一侧「对齐」。
+包 id 取 meta.yaml 的 `canonical_id`（缺省回落 SKILL.md `name`，再回落目录名），须带 `he-`/`bmad-`
+前缀，否则整包无法解析；meta.yaml 未被 git 跟踪，fresh clone 靠 `name: loop` 兜底派生 `he-loop`，
+两者必须一致。目录若叫 `goal`，id 会兜底成 `he-goal`，与旧包 `he-goal/` 同 id 冲突并遮蔽，`/goal` 失效。
 
-本包定义的是宿主 Agent 驱动的文件协议，不是 `src/heagent` 中的确定性 Python `/work` 状态机。
+本包定义的是宿主 Agent 驱动的文件协议，不是 `src/heagent` 中的确定性 Python `/loop` 状态机。
 命令入口会把本文件和同包 `workflow.md` 作为提示词交给当前 Agent；因此 Agent 必须自己执行状态文件读写，并在最终回复中报告确切产物与验证结果。
-不得把旧 `/goal` 的 `_he-output/goals/`、checkpoint 或 `WorkflowRunner` 当作本命令的状态来源，也不得声称仅因 `he-work` 能被 workflow loader 加载就已完成 `/work` 宿主实现。
+不得把旧 `/goal` 的 `_he-output/goals/`、checkpoint 或 `WorkflowRunner` 当作本命令的状态来源，也不得声称仅因 `he-loop` 能被 workflow loader 加载就已完成 `/loop` 宿主实现。
 
-优化或实现本命令时，先补充 `/work` 专用 dispatcher、`_he-output/works/` 状态读写和隔离测试；在此之前，`status`、`review`、`approve`、`reset` 等语义由 Agent 按本契约执行，不能当作 CLI 层强制保证。
+优化或实现本命令时，先补充 `/loop` 专用 dispatcher、`_he-output/works/` 状态读写和隔离测试；在此之前，`status`、`review`、`approve`、`reset` 等语义由 Agent 按本契约执行，不能当作 CLI 层强制保证。
 
 按第一个参数分派（`$ARGUMENTS` 由命令注入；无参数 = 打印用法与当前状态）：
 
@@ -58,7 +60,7 @@ negative_triggers: [/goal, code review, 代码评审, 技能评审, 重构, refa
 ## Steps
 
 1. 判断是否真是多阶段目标：只改一处、只答一个问题、只做一次探查都不要启动工作流。
-2. 用户问进度用 `/work status`；要审查文档和状态用 `/work review [step]`；要一次推多步用 `/work run`；想无人值守用 `/work auto`。
-3. 步骤停在等用户输入时，提示 `/work resume <回复>`；回答会记入决策日志并写入需求文档的用户补充段。
+2. 用户问进度用 `/loop status`；要审查文档和状态用 `/loop review [step]`；要一次推多步用 `/loop run`；想无人值守用 `/loop auto`。
+3. 步骤停在等用户输入时，提示 `/loop resume <回复>`；回答会记入决策日志并写入需求文档的用户补充段。
 4. 不要手改 `brief.md` 的「原始需求」段，也不要改 `epics.md` 里已冻结的验收标准。
-5. 中断不丢进度（progress.md 在盘）：提示 `/work next` 或 `/work resume` 续跑即可。
+5. 中断不丢进度（progress.md 在盘）：提示 `/loop next` 或 `/loop resume` 续跑即可。

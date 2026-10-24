@@ -69,10 +69,6 @@ def echo_sandbox_hint(backend: str | None, settings: Settings, *, install_hint: 
     )
 
 
-# 旧名保留为别名：语义已从「firejail 专用」扩为「后端无关」，库消费者的 import 不破。
-echo_firejail_hint = echo_sandbox_hint
-
-
 def _current_version() -> str:
     """源码版本号（``heagent.__version__``，与 ``pyproject.toml`` 同步）。
 

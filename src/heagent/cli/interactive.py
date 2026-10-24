@@ -18,8 +18,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import uuid
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -48,11 +50,14 @@ from heagent.cli.slash import SlashRegistry, load_custom_commands
 from heagent.cli.terminal import KeyInterruptMonitor
 from heagent.config import GLOBAL_CONFIG_DIR, Settings, get_settings
 from heagent.context.session import SessionStore
+from heagent.context.tokens import count_tokens
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.providers.router import active_model, display_reason
 from heagent.providers.switchable import SwitchableProvider
 from heagent.pub.exceptions import BudgetExceeded, HeAgentError
+from heagent.pub.safe_logging import safe_log
+from heagent.pub.types import Message, Role
 from heagent.pub.workspace import WorkspacePaths
 from heagent.skills import SkillStore
 from heagent.skills.skill_store import default_skill_roots
@@ -64,6 +69,7 @@ if TYPE_CHECKING:
 
     from heagent.agent.loop import AgentLoop
     from heagent.cron.jobs import JobStore
+    from heagent.network.cli_event_hub import CliEventHub
     from heagent.providers.base import BaseProvider
 
 
@@ -76,6 +82,44 @@ def _report_mcp_discovery_failures(mcp_manager: object) -> None:
         return
     for failure in mcp_manager.discovery_failures:
         click.echo(f"[mcp] server '{failure.server}' 连接/发现失败，已隔离：{failure.reason}", err=True)
+
+
+# 当前任务可见的 CLI 旁路中枢（Epic 55）。用 contextvar 而不是参数传递的理由：``_run_prompt``
+# 被 3 处测试 patch，**签名是契约**；而 hub 只在「本次 CLI 运行 + 本次内嵌服务」范围内有效，
+# 进程级全局会让 gui / http-server 之类的同进程实例看到不该看到的东西。
+_CLI_HUB: ContextVar[CliEventHub | None] = ContextVar("heagent_cli_event_hub", default=None)
+
+logger = logging.getLogger(__name__)
+
+
+@contextlib.asynccontextmanager
+async def _cli_hub_scope(http: Any) -> AsyncIterator[Any]:
+    """把内嵌 HTTP 服务上的旁路中枢挂到当前任务的 contextvar 上。
+
+    服务未开启旁路（`HTTP_CLI_WS_ENABLED` 关）或测试替身没有该属性时，作用域里是 ``None`` ——
+    所有发布点因此天然是空操作，不需要在调用处再判一次「功能开没开」。
+    """
+    hub = getattr(http, "cli_hub", None)
+    token = _CLI_HUB.set(hub) if hub is not None else None
+    try:
+        yield hub
+    finally:
+        if token is not None:
+            _CLI_HUB.reset(token)
+
+
+def _hub_call(hub: CliEventHub | None, method: str, *args: Any, **kwargs: Any) -> None:
+    """调用旁路中枢的一个方法；**任何异常都降级为一条 warning**。
+
+    旁路是可观测面：它坏了最坏只是「外部看不到这一轮」，绝不能影响终端那份输出、退出码或
+    主循环状态。中枢自身已对扇出异常兜底，这里的垫片是入口层的第二道（测试替身 / 未来实现）。
+    """
+    if hub is None:
+        return
+    try:
+        getattr(hub, method)(*args, **kwargs)
+    except Exception:
+        safe_log(logger, logging.WARNING, "cli_ws publish failed: method=%s", method, exc_info=True)
 
 
 @contextlib.asynccontextmanager
@@ -137,8 +181,15 @@ async def _run_single(
     if sink is not None:
         engine.events.subscribe(sink)
 
-    async with _embedded_http_service(settings, provider), mcp_ctx or contextlib.nullcontext() as mcp_manager:
+    async with (
+        _embedded_http_service(settings, provider) as http,
+        _cli_hub_scope(http),
+        mcp_ctx or contextlib.nullcontext() as mcp_manager,
+    ):
         _report_mcp_discovery_failures(mcp_manager)
+        hub = _CLI_HUB.get()
+        # 单次模式走 ``loop.run``（非流式）：旁路只能给出一条最终答案，不假装有增量。
+        _hub_call(hub, "begin_run")
         loop, _ = _build_loop(
             settings, provider, max_iterations, soul_path, engine=engine, sandbox_backend=sandbox_backend
         )
@@ -148,14 +199,18 @@ async def _run_single(
                 sink.assistant_message(result)
             else:
                 click.echo(result)
+            _hub_call(hub, "publish_done", result)
             _print_usage(loop.last_usage, model=loop.provider.get_metadata().model)
         except BudgetExceeded as exc:
             click.echo(f"[budget exceeded] {exc.message}", err=True)
+            _hub_call(hub, "publish_error", exc.message)
         except HeAgentError as exc:
             click.echo(f"[error] {exc.message}", err=True)
+            _hub_call(hub, "publish_error", exc.message)
         finally:
             # 活动回顾放 finally：出错/超预算时「它到底动了什么」往往才是最需要看的。
             show_tool_activity(loop)
+            _hub_call(hub, "end_run")
 
 
 def _setup_readline() -> None:
@@ -223,7 +278,11 @@ async def _run_chat(
         system=system,
     )
 
-    async with _embedded_http_service(settings, provider) as http, mcp_ctx or contextlib.nullcontext() as mcp_manager:
+    async with (
+        _embedded_http_service(settings, provider) as http,
+        _cli_hub_scope(http),
+        mcp_ctx or contextlib.nullcontext() as mcp_manager,
+    ):
         _report_mcp_discovery_failures(mcp_manager)
         paths = WorkspacePaths.from_root(os.getcwd())
         session = SessionStore(str(paths.sessions))
@@ -383,18 +442,81 @@ async def _run_prompt(loop: AgentLoop, prompt: str, system: str | None, session_
 async def _consume_stream(
     loop: AgentLoop, prompt: str, system: str | None, session_id: str, line_state: _LineState
 ) -> None:
-    """消费 ``loop.run_stream`` 并打印；业务异常在此收口（CancelledError 透传）。"""
+    """消费 ``loop.run_stream`` 并打印；业务异常在此收口（CancelledError 透传）。
+
+    同时把同一批事件镜像到 CLI 旁路（``_CLI_HUB``，未开启时为 ``None`` —— 零开销空操作）。
+    旁路窗口由本函数界定：进入即开一轮、退出（含取消 / 异常）即收一轮，因此订阅者看到的
+    ``run_id`` 恰好对应终端里的一次交互，不会把两轮混成一段。
+    """
+    hub = _CLI_HUB.get()
+    _hub_call(hub, "begin_run")
     try:
         async for event in loop.run_stream(prompt, system=system, session_id=session_id):
             _print_stream_event(event, line_state)
+            _mirror_stream_event(hub, event)
         if not line_state.at_line_start:
             click.echo("")
             line_state.at_line_start = True
         _print_usage(loop.last_usage, model=loop.provider.get_metadata().model)
+    except asyncio.CancelledError:
+        _hub_call(hub, "publish_cancelled")
+        raise
     except BudgetExceeded as exc:
         click.echo(f"[budget exceeded] {exc.message}", err=True)
+        _hub_call(hub, "publish_error", exc.message)
     except HeAgentError as exc:
         click.echo(f"[error] {exc.message}", err=True)
+        _hub_call(hub, "publish_error", exc.message)
+    finally:
+        _hub_call(hub, "end_run")
+
+
+def _mirror_stream_event(hub: CliEventHub | None, event: Any) -> None:
+    """把一条 ``StreamEvent`` 映射到旁路事件（与 HTTP 入口的映射同口径）。"""
+    if hub is None:
+        return
+    if event.type == "text":
+        _hub_call(hub, "publish_text", event.text)
+    elif event.type == "tool_call":
+        _hub_call(hub, "publish_tool_call", event.tool_name, event.tool_target)
+    elif event.type == "tool_result":
+        _hub_call(hub, "publish_tool_result", event.tool_name, event.tool_result_content, is_error=event.tool_error)
+    elif event.type == "done":
+        _hub_call(hub, "publish_done", event.final_answer)
+
+
+async def _compact_session(
+    loop: AgentLoop | None,
+    session: SessionStore | None,
+    session_id: str,
+) -> None:
+    """``/compact`` 主体（独立函数：控制 ``_build_slash_registry`` 复杂度，调用面显式）。"""
+    if session is None or not session_id:
+        click.echo("[compact] 无会话存储，无法压缩。", err=True)
+        return
+    prior = await asyncio.to_thread(session.load, session_id)
+    convo = [m for m in prior if m.role != Role.SYSTEM]
+    if not convo:
+        click.echo("[compact] 会话历史为空，无需压缩。", err=True)
+        return
+    if loop is not None and loop.compressor is not None:
+        # token_count/max_tokens 传 1/1 强制越过阈值：手动压缩不看出水线。
+        seed = await loop.compressor.compress(convo, token_count=1, max_tokens=1)
+    elif loop is not None and loop.window_reset is not None:
+        summary = await loop.window_reset._summarize(convo)
+        # 摘要必须落非 SYSTEM 角色：init_new_run 载入会话时会剔除旧 SYSTEM。
+        seed = [
+            Message(role=Role.USER, content=f"[Conversation summary]\n{summary}"),
+            Message(role=Role.ASSISTANT, content="已加载进度摘要，继续。"),
+        ]
+    else:
+        click.echo("[compact] 未配置上下文管理策略（compressor / window_reset）。", err=True)
+        return
+    # base=prior 保守合并：防并发写者在读后写前追加被整份覆盖（Z-D21 同一防线）。
+    await asyncio.to_thread(session.save, session_id, seed, base=prior)
+    if loop is not None:
+        loop.last_context_tokens = count_tokens(seed)
+    click.echo(f"[compact] 已压缩：{len(prior)} -> {len(seed)} 条消息。", err=True)
 
 
 def _build_slash_registry(
@@ -422,7 +544,13 @@ def _build_slash_registry(
     async def _clear(args: str) -> None:
         if session is not None:
             session.delete(session_id)
+        if loop is not None:
+            # 计数器挂在 loop 上，不随 session 删除更新；不归零则状态行滞留旧值。
+            loop.last_context_tokens = 0
         click.echo("[clear] Session history cleared. Next message starts fresh.", err=True)
+
+    async def _compact(args: str) -> None:
+        await _compact_session(loop, session, session_id)
 
     async def _help(args: str) -> None:
         click.echo("Available slash commands:", err=True)
@@ -438,6 +566,7 @@ def _build_slash_registry(
 
     registry.register("deferred", "列出 deferred-work 台账（遗留项登记）", _deferred)
     registry.register("clear", "清空当前会话上下文", _clear)
+    registry.register("compact", "摘要并压缩当前会话上下文", _compact)
     registry.register("help", "列出所有斜杠命令", _help)
 
     async def _goal(args: str) -> None:

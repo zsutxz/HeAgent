@@ -34,7 +34,6 @@ from heagent.pub.types import ToolAnnotations, ToolCall, ToolSchema
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from pathlib import Path
 
 
 def _call(name: str, **args: object) -> ToolCall:
@@ -377,9 +376,7 @@ class TestEntrypointBackendChoices:
                     continue
                 for arg in sub.args:
                     if isinstance(arg, ast.List):
-                        return {
-                            e.value for e in arg.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)
-                        }
+                        return {e.value for e in arg.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)}
         return set()
 
     @pytest.mark.parametrize("rel", ["cli/console.py", "cli/http.py", "gui/cli.py"])

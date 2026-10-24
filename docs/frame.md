@@ -26,7 +26,10 @@
   - [4.14 技能资源读取 TOCTOU 评估与安全打开加固（Epic 46.1/46.2）](#414-技能资源读取-toctou-评估与安全打开加固epic-461462)
   - [4.15 事件契约 (`events/`)](#415-事件契约-events)
   - [4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)](#417-http-网页入口-networkhttp_--clihttppy--web)
+  - [4.17.1 WebSocket 入口（Epic 54）](#4171-websocket-入口epic-54)
+  - [4.17.1.1 CLI 旁路订阅（Epic 55）](#41711-cli-旁路订阅epic-55)
   - [4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#418-网页控制台-pubworkspacepy--pubprojectspy--configcatalogpy--configwritepy--clihttppy--clidialogspy--web)
+
 - [五、已知缺口](#五已知缺口)
 - [六、目录结构](#六目录结构)
 - [七、完整调用链](#七完整调用链)
@@ -853,7 +856,9 @@ HeAgentError (base)
 | `http_port` | 8766 | HTTP 网页入口端口（1..65535；默认 8766） |
 | `http_port_auto_find_attempts` | 10 | 端口被占用时自动**顺延**的尝试次数（`port+1…`）；**默认 10 = 开启**（2026-10-15 契约修订：多开实例不冲突；原默认 0 = fail-loud，源自 Epic 49 Story 49-2——hang 根因「显式端口被改写」已修，显式 `--port` 契约保留）。Windows 下探测 socket 不设 `SO_REUSEADDR`，与真实监听语义一致，避免占用探测失真。2026-09-27 加入 |
 | `http_max_connections` | 16 | 同时打开的 HTTP 客户端连接上限（交给 Uvicorn `limit_concurrency`，超限连接被直接拒绝而非排队） |
-| `http_max_subscribers` | 16 | **每 run** 的 SSE 订阅者上限（同一 run 的并发事件流；超限回 429 `rate_limited`）。2026-09-28 从 `http_max_connections` 拆出（默认值同值 ⇒ 行为不变）——连接额度由 Uvicorn 在**进 ASGI 之前**拒绝，复用同一个键会让超额订阅拿裸 `text/plain` 503、429 分支不可达 |
+| `http_max_subscribers` | 16 | **每 run** 的 SSE 订阅者上限（同一 run 的并发事件流；超限回 429 `rate_limited`）。与 WS 连接额度独立。 |
+| `http_ws_max_connections` | 16 | **每 run** 的 WebSocket 连接上限；独立于 SSE 订阅池，超额连接在 accept 后收到 `rate_limited` 错误帧。CLI 旁路（`http_cli_ws_enabled`）复用同一个数值，但按**整条旁路流**计（旁路只有一条流）。 |
+| `http_cli_ws_enabled` | False | **CLI 旁路订阅开关**（Epic 55）：开启时默认 CLI 的内嵌 listener 多注册一条 `WS /api/cli/ws`，把**终端里那一轮** run 的事件（文本增量 / 工具调用 / 终态）实时推给旁路订阅者。只读、跨轮次、不占运行名额、不写会话历史、没有 `cancel` 通道（终端独占 Ctrl+C / 双击 Esc）。**默认关**——与 HTTP 入口同档无认证无 TLS，开了等于让本机能连上该端口的进程看到终端 agent 的工具输出（可能含文件内容）。 |
 | `http_max_inflight_runs` | 1 | **每项目**同时在途的网页 Agent 运行上限（MVP 单会话单运行；超限提交收 `run_conflict`） |
 | `http_max_total_inflight` | 0 | **服务级**在途运行总额（跨项目共享）；0 = 不限 ⇒ 不设时全局上限 = 项目数 × `http_max_inflight_runs`；超限提交收 `total_inflight_limit`（2026-09-27 新增） |
 | `http_max_request_bytes` | 394240 | 单个 JSON 请求体的字节上限（超限收 `request_too_large`）。默认 = `12 × MAX_PROMPT_CHARS(32768) + 1 KiB` 信封，**保证协议允许的最大 prompt 在任何客户端编码下都发得进来**（旧默认 65536 使中文约 2.18 万字就撞 413——2026-09-23 修复；三处默认值的关系由 `tests/network/test_http_protocol.py` 钉住） |
@@ -1201,9 +1206,9 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 
 | 关注点 | 实现事实（Story 49-1/49-2/49-3 已交付部分） |
 | --- | --- |
-| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **35** 码（含项目注册表 / 会话 / 控制台稳定错误码，口径与分组见 4.18）、`{"error":{"code","message"}}` 信封、`HealthResponse`（字段封闭：`status` / `service` / `version` / `schema_version`）；`sanitize_message` 是客户端文案唯一出口（折叠空白 + **掩码宿主绝对路径** + 截断到 `MAX_ERROR_MESSAGE_CHARS`），**不含** traceback / 异常类名 / 绝对路径——掩码是启发式（Windows 盘符与 UNC 全掩；POSIX 要求 ≥3 段，以免误伤 `/api/health`、`and/or`、URL），与 `pub/safe_logging` 同一立场：**非安全边界**（2026-09-23 评审修复：此前上游 `HeAgentError.message` 里带的路径会原样透传）|
-| 传输层 | `network/http_server.py`：`HttpServerConfig`（**12** 个有界字段，默认值与 `HTTP_*` 一致）+ `HttpServer`（`start` / `serve_forever` / `close`）；`build_http_app` 组装健康检查 + 静态资源 + 安全头 |
-| 可选依赖 | starlette / uvicorn 由 `pyproject.toml` 的 `http` extra **直接声明**，且只在真要服务时经 `importlib.import_module` 加载；缺依赖抛 `HttpDependencyError` → 命令给出 `pip install 'heagent[http]'`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`（源码中不存在顶层 starlette/uvicorn 导入） |
+| 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **35** 码 + `network/ws_protocol.py`：WS `event` / `ack` / `error` 帧与 `{cancel,ping}` 命令；错误信封与事件负载复用 HTTP/SSE 模型。 |
+| 传输层 | `network/http_server.py`：HTTP/SSE 生命周期与 `WebSocketRoute` 接线；`network/ws_server.py`：WS 双向读写、续传、命令和连接清理；两者均不构造 Agent。 |
+| 可选依赖 | `starlette` / `uvicorn` / `websockets>=13.0,<18` 由 `pyproject.toml` 的 `http` extra **直接声明**；服务端只延迟导入 Starlette/Uvicorn，不直接导入 `websockets`。缺少 HTTP 栈抛 `HttpDependencyError`；缺少 WS 协议实现时 HTTP 仍可启动并记录 `ws_unavailable`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`。 |
 | 就绪门禁 | `start()` 只在「listener 已绑定**且**用真实网络连接打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」。**通配绑定**（`0.0.0.0` / `::`）的探测改走回环地址（连 `0.0.0.0` 是未定义行为），故允许集对通配值额外接受 `127.0.0.1` / `localhost` / `[::1]`（探测的 Host 头按 authority 语法给 IPv6 加方括号）——通配绑定可从本机浏览器访问，但经其它网卡地址访问仍被 `origin_forbidden` 拒绝（非回环联网不受支持）。连接的 `limit_concurrency` 额外预留 1 条给就绪探测，否则 `HTTP_MAX_CONNECTIONS=1` 会让入口**永远起不来**（以上两项为 2026-09-23 评审修复）；探测收尾（`writer.close()` 之后的 `await writer.wait_closed()`）**自带 `_PROBE_TIMEOUT` 上界**——对端只收不关（或黑洞）时不再把就绪门禁拖成无界等待（2026-09-28 修复，`tests/network/test_http_server.py::TestProbeBoundedClose`）|
 | 关闭 | `close()` 幂等且全程有界：设 `should_exit` → Uvicorn `shutdown()`（连接排空受 `timeout_graceful_shutdown` 约束）→ 等待 serve 循环退出（超时则取消），整体再包一层 `wait_for`。信号**不归 Uvicorn 管**（不调 `serve()` / `capture_signals`）：`KeyboardInterrupt` 由 CLI 接住并安静退出 |
 | 静态资源 | `src/heagent/web/` 内 `index.html` / `app.js` / `styles.css`，经 `importlib.resources.files("heagent.web")` 读取（AD-11 唯一查找方式；wheel 里以 `zipimport` 加载已实测）；**白名单**路由同时挡掉路径穿越与「散落文件被意外发布」 |
@@ -1222,6 +1227,44 @@ workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._work
 ⚠ **安全立场**：本入口**无认证、无 TLS**，回环绑定不是认证边界，回环客户端同样
 不可信；运行本入口须放在容器 / VM 等 OS 级隔离中（见五、已知缺口与 CLAUDE.md 安全声明）。
 
+### 4.17.1 WebSocket 入口（Epic 54）
+
+WebSocket 与 HTTP/SSE **并存**，不改变 SSE 契约。端点为
+`GET /api/runs/{run_id}/ws`，只订阅单个既有 run，不经 WS 创建新 run，也不提供审批通道。
+
+| 关注点 | 实现事实 |
+| --- | --- |
+| 帧契约 | `network/ws_protocol.py` 定义封闭的 `event` / `ack` / `error` 帧；事件负载嵌套复用 `RunEventPayload`，错误复用 `error_envelope()` 与 `HttpErrorCode`。命令仅 `{cancel, ping}`。 |
+| 事件与续传 | WS 复用 `_RunRecord` 的 ring buffer、单调 `seq`、背压踢除和终态哨兵；`?last_event_id=N` 只补 `seq > N`，越过窗口返回 `resync_required` 错误帧。 |
+| 命令 | `cancel` 与 `DELETE /api/runs/{run_id}` 使用同一协作式取消语义并保持幂等；`ping` 返回 `ack`。断线只注销 WS 连接，不取消 run。 |
+| 同源防线 | WS 升级在 `accept()` 前复用 `_request_origin_violation` 校验 Host/Origin。Origin 违规时客户端看到 HTTP 403、无错误 body；缺少 Origin 的非浏览器客户端按既有 HTTP 口径放行。既有 ASGI 中间件对 `scope["type"] != "http"` 直接放行，因此 CSWSH 防线由 WS 层单独执行。 |
+| 限额与心跳 | `HTTP_WS_MAX_CONNECTIONS` 默认 `16`，按 run 独立于 SSE 订阅池；检查与登记在同一同步方法完成。心跳使用协议级 ping，`ws_ping_interval=15s`、`ws_ping_timeout=20s`，不发送应用层心跳帧。 |
+| 入站上界 | 应用层命令文本最多 `4096` 个字符；Uvicorn `ws_max_size=64 KiB`。应用层超限关闭码为 `1009`。关闭码 `1000` 表示正常结束，`1001` 表示服务关停，`1008` 表示策略/协议违规，`1011` 表示内部错误。 |
+| 可选依赖 | `websockets>=13.0,<18` 直接声明在 `http` extra；服务端不直接导入 `websockets`，由 Uvicorn 选择协议实现。缺少实现时 HTTP 仍可启动，并记录一次 `ws_unavailable` 安装诊断。 |
+| 安全立场 | WS 与 HTTP/SSE 同档：无认证、无 TLS、回环不等于可信，也不是安全边界；Origin 校验只是 CSWSH 防御的纵深措施，OS 级沙箱兜底立场不变。 |
+#### 4.17.1.1 CLI 旁路订阅（Epic 55）
+
+`/api/runs/{run_id}/ws` 订阅的是**网页创建的 run**；终端里那一轮 run 由 CLI 自己持有，既没有
+`_RunRecord`，也不占 `HTTP_MAX_INFLIGHT_RUNS` 名额。`WS /api/cli/ws` 因此是**另一条流**：只读、
+跨轮次、旁路（观众席）而非控制台。
+
+| 关注点 | 实现事实 |
+| --- | --- |
+| 状态源 | `network/cli_event_hub.py::CliEventHub`：seq 跨轮次单调、环形缓冲 `CLI_EVENT_BUFFER_SIZE`(256)、订阅席位上限（取 `HTTP_WS_MAX_CONNECTIONS`，按**整条流**计）、`close()` / `reopen()` 与 `HttpRunService` 同形态。**不建 run 记录**，因此不存在"淘汰 / 会话投影 / 取消"这些 HTTP 侧的语义。 |
+| 帧契约 | `WsCliEventFrame`（`type` + **`run_id`** + `event`）与 `WsCliAckFrame`（`command` + `run_id`，**不带** `RunStatus`）。与 `WsEventFrame` / `WsAckFrame` 分开定义 ⇒ `/api/runs/{id}/ws` 的既有契约逐字不变。 |
+| 命令面 | 仅 `ping`（回 ack，`run_id` 为空串表示此刻没有在跑的轮次）。`cancel` 回 `invalid_request` 错误帧但**不关闭连接**——旁路不拥有运行，「不支持」必须显式告知，不能静默忽略。 |
+| 续传与背压 | `?last_event_id=N` 只补 `seq > N`；窗口已淘汰开头（含「无游标但 `oldest_seq > 1`」）回 `resync_required` 错误帧。订阅队列与缓冲同界，落后一整窗口即结束该流（客户端带游标重连）——与 SSE / run-WS 同一口径。 |
+| 发布点 | 入口层 `cli/interactive.py`：`_consume_stream` 逐条镜像 `StreamEvent`（text / tool_call / tool_result / done），进入即 `begin_run`、退出（含取消与异常）即 `end_run`；单次模式走非流式 `loop.run`，只发一条终态 `done`，**不假装有增量**。中枢经 `ContextVar` 传递（`_run_prompt` 的签名是 3 处测试 patch 的契约，不能加参数）。 |
+| 故障隔离 | 中枢 `publish_*` 自身不抛；入口层 `_hub_call` 是第二道垫片——旁路坏了最坏只是「外部看不到」，终端输出 / 退出码 / 主循环状态逐字不变。 |
+| 装配 | `cli/http.py::build_http_service` 在 `HTTP_CLI_WS_ENABLED` 为真时建 hub 并注入 `HttpServer(cli_hub=...)`；未注入 ⇒ 路由不注册（Uvicorn 在「应用未 accept」时给客户端裸 403，不是应用层 404）。开启时 stderr 打一行 `[http] CLI event stream (read-only): ws://…/api/cli/ws`，避免「开了但不知道在哪」。 |
+| 同源防线 | 与 run-WS 共用 `_request_origin_violation`（accept 前校验，违规 close ⇒ 客户端拿 403）。既有 ASGI 中间件对非 `http` scope 放行，故 CSWSH 防线由 WS 层单独执行。 |
+| 安全立场 | 与 HTTP/SSE/WS 同档：**无认证、无 TLS、回环不等于可信**，Origin 校验只是纵深措施；默认关，需要时显式开，OS 级沙箱兜底立场不变。 |
+
+判据：`tests/network/test_cli_event_hub.py`（16 例：seq / 窗口 / 限额 / 背压 / 关停）、
+`tests/network/test_http_cli_ws.py`（9 例：真实 TCP + 真 websockets 客户端）、
+`tests/test_cli_ws_publish.py`（7 例：逐类镜像 / 取消与报错收尾 / 故障隔离）、
+`tests/network/test_http_ws_config.py`（默认关 + 只读归类 + 开关接线）。
+
 ### 4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)
 
 Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左栏项目与会话、右栏对话、设置独立成面板
@@ -1234,7 +1277,7 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 项目注册表 | `pub/projects.py`：`<服务启动工作区>/.heagent/console/projects.json`（可用 `HTTP_CONSOLE_PROJECTS_FILE` 覆盖；**默认不写用户 home**）。条目上限 **32**；id 不透明（`p` + 8 位十六进制，由路径规范化派生）；**写侧 fail-closed**（内容无法解析时拒绝改写，绝不回写空表）；目录失效不删登记而是标 `available=false` |
 | 会话持久化 | `context/session.py` 的 `SessionStore` 按项目派生（`<项目根>/.heagent/sessions/<sid>.json`），与 CLI **同库同格式**；列表只读轻量元数据（D6）；**损坏文件回 `session_unreadable`**（D1），绝不当空会话覆盖。**并发写不再整份覆盖**（2026-09-27 修，见 4.5）：运行落盘带**内容基线** `base=`，别的写者追加过的消息会被保守合并（两段都保留），判不出来则退回 last-write-wins + WARNING |
 | 配置来源求解（只读面） | `config_catalog.build_config_report`：四层来源 **系统环境变量 > 项目 `.env` > 用户 `~/.heagent/setting.md` > 字段默认值**，逐项给出有效值 / 来源徽标 / 可写性 / 只读原因；凭证只回「已配置 + 定长掩码」（**掩码域 = `*_API_KEY` / `*_API_KEYS` 后缀**；`*_BASE_URL` 等键的值**原样回传**——凭证写在 URL userinfo 里不会被打码，见台账同名条目）；行级诊断（重复键 / 空值键 / 行内注释 / BOM / 未知键）逐条标注 |
-| 可写面划分（D2/D3） | 实测 **109 字段 = 白名单 48 + 排除 61、残留 0**（2026-09-27 复测）；优先级 **显式白名单 > 模式排除**，排除之间**显式行 > 模式行**（`HTTP_CONSOLE_*` 因此归「控制台自身」而非「监听面」） |
+| 可写面划分（D2/D3） | 实测 **115 字段 = 白名单 48 + 排除 67、残留 0**（2026-10-24 复测；上一版记录的 109/61 在本次测量前已滞后 5 个字段）；优先级 **显式白名单 > 模式排除**，排除之间**显式行 > 模式行**（`HTTP_CONSOLE_*` 因此归「控制台自身」而非「监听面」） |
 | 配置写入通道 | `config/write.apply_config_write`：**10 步 + 1 项生效语义** —— 闸门 → 回环来源 → 键白名单 → 值守卫 → 指纹 → 候选构造（`Settings(_env_file=候选)` 必须能构造）→ 备份 → 保真写 → 回读 → 审计；第 11 项 = 让该项目运行时缓存失效。**回环判定留在传输层**（网络层不认识 Settings），`envfile.py` 做行级保真（**只重写值区**：EOL / BOM / 注释 / 未修改行字节逐一不变），`pub/persist.atomic_update_bytes` 做字节级原子写 + **锁内**回读校验与回滚。**跨进程锁内只做「指纹判定 + 备份 + 落盘」**（2026-09-27 收窄，台账 A14③）：候选构造（候选构造经 `with_user_setting_layer` 注入用户层 md + 读候选临时文件 + 环境，是整条流水线最贵的一步）与**备份目录回收**都移到锁外；锁外用文件快照构造的候选会在锁内**复检内容基线**，快照过期（含「改走又改回」这种病态形态）则在锁内重做一次，绝不把基于旧内容的候选写下去。回收失败只告警（维护动作），不把已经落盘的写改写成错误——**回滚本身失败**时抛 `persist.RollbackFailedError`（`__cause__` = 原回读异常，`rollback_error` = 回滚失败原因），写通道据此给出如实文案（不再无条件宣称「已回滚」）并落 `rollback_failed` 审计（2026-09-27 修，台账 A14②）。⚠ **副作用**：锁文件与目标**同目录**（`<项目根>/.env.lock`），即写一次项目配置就在**用户的项目根**留下一个锁文件——HeAgent 自己的仓库有 `.gitignore` 条目，用户的项目没有；锁的落点语义不改（改落点会破坏「同一把锁贯穿读改写」），故这里只作说明（台账同名条目记录） |
 | 资源旋钮上界 | `config_catalog.RESOURCE_CEILINGS`：21 个「只有下界」的数值键按族给上界（days 3650 / seconds 604800 / bytes 8 MiB / tokens 1M / count 100；迭代 10000 与上下文窗口 16M 自成刻度）。**只作用于写通道与面板展示**，不改 `Settings` 定义语义（手工改 `.env` 不受约束）。**同一常量还是「高影响键」的事实源**（2026-09-27，台账 A13）：`impact_for(key)` → 配置项的 `impact` 字段（`high` / `normal`），面板据此挂徽标并在写入确认框里点名 —— 文案取自后端 `labels`，**前端零硬编码键名**（UX-DR3 的差异化确认） |
 | 生效语义 | 写成功后**丢该项目运行时缓存** ⇒ 下一次 run 重新解析快照、**在途 run 继续用旧快照**（无热生效；响应里 `applied=next_run`） |
@@ -1282,7 +1325,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 沙箱后端分级 | `SandboxTier`（FR-2，2026-08-26）container 档首个实现后端 `DockerRunner` 已落地（Epic 53 期一，2026-10-21；仅 shell 路径、默认链路未启用）；审批降级（`can_relax_approval`）**仍未接入** `PolicyEngine` 裁决，弱后端一律维持原审批要求——分级不产生新安全边界 |
 | 沙箱 env 豁免非安全边界 | `sandbox_env_allowlist`（FR-3，2026-08-26）仅豁免 `scrub_sensitive_env` 剥离，非真正边界——shell 工具仍可读任意环境变量，须 OS 级沙箱兜底 |
 | SandboxSession 非安全边界 | `SandboxSession`（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 非完美边界——须 OS 级沙箱兜底；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（`cli/housekeeping.prune_sandbox_dirs` + `sandbox_dir_retention_days`），仍非安全边界 |
-| HTTP 入口非安全边界 | `heagent http-server` 与默认 CLI 的内嵌网页入口（Epic 49，实验性）**无认证、无 TLS**：回环绑定与启动告警同样只是提示。网页运行走的仍是既有治理链（`PolicyEngine` → `ToolExecutor` → `SafetyGuard` → handler），但入口本身不构成边界——须 OS 级沙箱兜底，且不要把端口暴露给不可信网络（见 4.17） |
+| WebSocket 入口非安全边界（Epic 54） | `GET /api/runs/{run_id}/ws` 与 HTTP/SSE 同样无认证、无 TLS、回环不等于可信；既有 ASGI 中间件对非 `http` scope 放行，因此 WS 层单独复用 `_request_origin_violation` 做 Origin/Host 校验。该校验是 defense-in-depth，不是认证或 OS 安全边界。 |
 | HTTP 入口不接 MCP | 网页入口**不连接** `.mcp.json` 声明的 server（入口层隔离第三方代码的既有决策）：入口无认证，自动拉起第三方 stdio 子进程 / 连远端端点等于把触达面暴露给任何能连上端口的人 |
 | HTTP 会话/事件无持久化 | 网页入口的会话投影、运行记录与 SSE 事件缓冲都是**进程内状态**：进程退出即丢；事件缓冲按 `HTTP_EVENT_BUFFER_SIZE` 有界，越过窗口的重连只能得到 `resync_required` 并改拉 `/api/session` 快照。首版有意如此（持久化见 4.17 与架构脊柱的延后决策） |
 | 日志行的凭证脱敏（**启发式，非边界**；2026-09-23 交付） | `LoggingObserver` 打印前对 `target`/`details` 掩码：键值（`API_KEY=…`/`token: …`）、CLI 旗标、厂商前缀（`sk-`/`ghp_`/`AKIA`/`AIza`/JWT）、`Bearer`、URL userinfo，以及**凭证命名的键**（短值无形状可认）。**肯定漏网**：模式匹配非完备，`shell` target 仍不截断（审查需要原文），且 `logs/`、`.heagent/runs/`（快照/rollout）按设计保存完整 prompt 与消息——仍须 OS 级沙箱与「不要把凭证写进命令或路径」 |
@@ -1436,9 +1479,12 @@ src/heagent/
 │   ├── protocol.py          # RunEvent + EngineEvent → RunEvent 映射
 │   └── sink.py              # JsonlSink（stdout/rollout）+ read_rollout / render_event
 │
-├── network/                 # 网络入口传输层（Epic 49–50 HTTP；协议/生命周期/暴露判定，不依赖运行栈）
-│   ├── http_protocol.py     # HTTP 协议模型：35 个稳定错误码 + 错误信封 + HealthResponse + 运行/事件/会话模型（Epic 49；`HttpErrorCode` 实测 35 成员，含项目/会话/控制台/目录选择/服务级总额码，口径见 4.17/4.18）
-│   ├── http_server.py       # HttpServer（就绪门禁/有界关闭/静态资源白名单/安全响应头）+ HttpRunService（单用户会话、运行记录与事件 ring buffer、SSE 订阅）
+├── network/                 # 网络入口传输层（Epic 49–50 HTTP/SSE + Epic 54 WebSocket；协议/生命周期/暴露判定，不依赖运行栈）
+│   ├── http_protocol.py     # HTTP/SSE 协议模型与稳定错误码
+│   ├── ws_protocol.py       # WebSocket 帧模型、命令枚举、上界与关闭码
+│   ├── http_server.py       # HttpServer、HttpRunService、HTTP/SSE 路由与 WebSocketRoute 接线
+│   ├── ws_server.py         # WebSocket 双向读写、游标续传、命令处理与连接生命周期（run 订阅 + CLI 旁路）
+│   ├── cli_event_hub.py     # CLI 终端运行的旁路事件中枢：seq / 环形缓冲 / 订阅席位 / 有界关停（Epic 55）
 │   ├── http_console_protocol.py  # 网页控制台协议模型：项目/会话/配置面板与写通道的请求-响应契约（Epic 50）
 │   └── exposure.py          # 回环判定 + 「无认证 / 无 TLS / 非生产边界」告警文案（单点，不解析 DNS）
 │
@@ -1670,7 +1716,7 @@ PUT /api/projects/{id}/config  {changes:[{key,value}], fingerprint}
 
 Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测试覆盖。`tests/test_goal_workflow_smoke.py` 使用无网络执行，验证两个 story 单元、workflow/checkpoint、ledger 与 EventBus 证据，并覆盖损坏状态显式失败（legacy 阶段状态机与其 route 门控已于 2026-09 删除）。
 
-本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format 和 mypy；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal` 的步骤权威是 `.heagent/skills/he-goal/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 仍只是纵深防御措施，不是 OS 安全边界。
+本地可运行 `python scripts/quality_gate.py` 串行执行冒烟、默认回归/覆盖率、ruff lint、ruff format、mypy 和 bandit（`-ll`，与 CI lint job 同参数——本地门缺这一步时「本地绿 / CI 红」无从察觉）；CI 另设无凭据的 `goal-smoke` job。真实 LLM 冒烟只能作为显式外部步骤，凭据缺失必须记录 blocked。当前声明式 `/goal` 的步骤权威是 `.heagent/skills/he-goal/workflow.md`；目标目录中的 `workflow.json` 只保存运行时元数据。SafetyGuard、path_safety 与 engine sandbox 仍只是纵深防御措施，不是 OS 安全边界。
 
 ### 8.2 Goal/Epic/Story 产物契约
 

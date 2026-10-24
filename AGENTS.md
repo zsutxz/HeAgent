@@ -53,7 +53,7 @@ HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**�
 - `context/` — 上下文压缩/会话持久化/token 估算
 - `memory/` — 自学习闭环（facts / profile / soul / dream）
 - `skills/` — 技能库域包（store / models / rewrite / catalog / packages / meta / importer；2026-10-10 自 memory/ 迁出）
-- `network/` — 入口传输层（HTTP + SSE；TCP 入口已于 2026-09-27 删除，勿按旧文档恢复）
+- `network/` — 入口传输层（HTTP + SSE + WebSocket；TCP 入口已于 2026-09-27 删除，勿按旧文档恢复）
 - `cli/` — 入口层包（console / composition / interactive / goal / http / http_console / dialogs / init / display / slash / terminal / wiring / housekeeping / port_finder）
 
 ## 硬约束
@@ -61,7 +61,7 @@ HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**�
 - 依赖方向固定为 `pub → config → providers/tools/context → engine → agent → cli/gui/goal`，下层不得反向导入入口层
 - 新增 provider / tool **禁止**从 `agent/` 导入
 - `engine/` 依赖 `pub` + `tools` 部分 + `events.protocol`，被 `agent/` 依赖
-- `network/` 不得导入运行栈（agent/engine/providers/tools/memory/skills/context/cron/events）与配置（config/pub.projects/pub.workspace）
+- `network/` 不得导入运行栈（agent/engine/providers/tools/memory/skills/context/cron/events）与配置（config/pub.projects/pub.workspace）；WS 端点同样必须保持该依赖边界
 - 跨模块数据用 Pydantic 模型（`pub/types.py`），**禁止**原始 dict
 - 工具执行链固定为 **`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler**
 
@@ -85,10 +85,14 @@ pytest --cov --cov-report=term-missing
 pytest -m integration
 pytest -m benchmark
 
-# 静态检查
+# 静态检查（CI lint job 同参数；bandit 只认 `# nosec`，不认 ruff 的 `# noqa: S###`）
 ruff check src tests
 ruff format --check src tests
 mypy src
+bandit -r src/ -ll
+
+# 本地全门（冒烟 + 回归/覆盖率 + ruff + format + mypy + bandit，fail-fast）
+python scripts/quality_gate.py
 
 # 自动修复格式
 ruff format src tests
@@ -136,6 +140,6 @@ heagent http-server                # HTTP 网页入口（127.0.0.1:8766，需 pi
 
 完整清单见 `docs/frame.md` 五与 `_bmad-output/implementation-artifacts/deferred-work-archive.md`。
 
-核心立场：`SafetyGuard`/`PolicyEngine`/sandbox 均非真正安全边界，须 OS 级沙箱兜底（shell 路径的兜底实施项 = container 档 Docker 后端，Epic 53 期一，默认未启用、非绝对边界；MCP stdio 未覆盖）。
+核心立场：`SafetyGuard`/`PolicyEngine`/sandbox 均非真正安全边界，须 OS 级沙箱兜底（shell 路径的兜底实施项 = container 档 Docker 后端，Epic 53 期一，默认未启用、非绝对边界；MCP stdio 未覆盖）。WS 与 HTTP/SSE 同样无认证、无 TLS、回环不等于可信；WS 的 Origin 校验只是入口层 defense-in-depth，不改变 OS 沙箱兜底立场。
 
 活动缺口：MCP stdio server 子进程不经沙箱（中-高）；会话文件并发写主害已由 `save(base=...)` 保守合并闭合（2026-09-27，Z-D21），残余登记 A34 挂起待裁定（低）；技能资源 TOCTOU 残余竞态已专项评估（2026-10-20）：窗口收窄至组件级（POSIX 逐组件 openat）/与硬化前同宽（Windows 回退通道），全部窗口不跨越可提升信任域（能赢竞态者无需竞态即可直写技能根或经 shell 直读凭证），裁定不另立收窄周期，维持 OS 沙箱兜底立场——正文见总账「跨周期勘察与裁定索引」。

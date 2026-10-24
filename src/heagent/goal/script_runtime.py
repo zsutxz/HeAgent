@@ -89,7 +89,7 @@ class ScriptRuntime:
             "__builtins__": _SAFE_BUILTINS,
             "__name__": "__goal_script__",
         }
-        exec(compile(script.tree, f"scripts/{script.name}", "exec"), namespace, namespace)  # noqa: S102
+        exec(compile(script.tree, f"scripts/{script.name}", "exec"), namespace, namespace)  # nosec B102 - 受控脚本入口，语法树白名单已拒危险构造 # noqa: S102
         entry = namespace.get(SCRIPT_ENTRYPOINT)
         if not callable(entry):
             raise GoalScriptRuntimeError(f"GoalScript must define callable {SCRIPT_ENTRYPOINT}(goal)")

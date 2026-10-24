@@ -33,6 +33,7 @@ from heagent.cli.display import _current_version, echo_sandbox_hint
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.cli.wiring import _build_provider
 from heagent.config import Settings, get_settings
+from heagent.network.cli_event_hub import CliEventHub
 from heagent.network.exposure import exposure_warning
 from heagent.network.http_server import (
     HttpDependencyError,
@@ -43,6 +44,9 @@ from heagent.network.http_server import (
 )
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.workspace import WorkspacePaths
+
+# 与 ``network/`` 的路由常量保持一致（这里要用它打印公告，避免两处各写一个字面量）。
+_CLI_WS_PATH = "/api/cli/ws"
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +74,7 @@ def build_server_config(
     port: int | None = None,
     max_connections: int | None = None,
     max_subscribers: int | None = None,
+    ws_max_connections: int | None = None,
     max_inflight_runs: int | None = None,
     max_total_inflight: int | None = None,
     max_request_bytes: int | None = None,
@@ -118,6 +123,7 @@ def build_server_config(
         port=final_port,
         max_connections=settings.http_max_connections if max_connections is None else max_connections,
         max_subscribers=settings.http_max_subscribers if max_subscribers is None else max_subscribers,
+        ws_max_connections=(settings.http_ws_max_connections if ws_max_connections is None else ws_max_connections),
         max_inflight_runs=settings.http_max_inflight_runs if max_inflight_runs is None else max_inflight_runs,
         max_total_inflight=(settings.http_max_total_inflight if max_total_inflight is None else max_total_inflight),
         max_request_bytes=settings.http_max_request_bytes if max_request_bytes is None else max_request_bytes,
@@ -160,8 +166,10 @@ class EmbeddedHttpService:
       正常聊天，等于「页面打不开但看着一切正常」，正是 AD-5 要消除的假可用状态。
     """
 
-    def __init__(self, server: HttpServer) -> None:
+    def __init__(self, server: HttpServer, *, cli_hub: Any | None = None) -> None:
         self._server = server
+        # CLI 旁路中枢（Epic 55）：``None`` = 未开启（路由未注册，客户端拿不到这条流）。
+        self._cli_hub = cli_hub
         self._task: asyncio.Task[None] | None = None
         self._failure: BaseException | None = None
         self._closed = False
@@ -170,6 +178,11 @@ class EmbeddedHttpService:
     def address(self) -> str:
         """实际监听地址（stderr 公告与诊断用）。"""
         return self._server.address
+
+    @property
+    def cli_hub(self) -> Any | None:
+        """CLI 旁路中枢（未开启时为 ``None``）；入口层据此把终端 run 的事件发出来。"""
+        return self._cli_hub
 
     @property
     def failure(self) -> BaseException | None:
@@ -185,6 +198,13 @@ class EmbeddedHttpService:
             f"[http] web UI: http://{self.address}  (local only; no authentication)",
             err=True,
         )
+        if self._cli_hub is not None:
+            # 开启即多暴露一条无认证通道：把地址打出来，别让用户「开了但不知道在哪」。
+            click.echo(
+                f"[http] CLI event stream (read-only): ws://{self.address}{_CLI_WS_PATH}"
+                "  (local only; no authentication)",
+                err=True,
+            )
 
     def _on_serve_done(self, task: asyncio.Task[None]) -> None:
         """serve 循环收尾回调：只有**意外**结束才记 ERROR 并暴露给所有者。"""
@@ -239,6 +259,10 @@ def build_http_service(settings: Settings, *, executor: Any | None = None) -> Em
 
     ``executor`` 是运行入口（入口层的 :class:`HttpAgentHandler`）：为 ``None`` 时服务只提供健康检查与
     静态页（Story 49-1 的形态），``/api/runs*`` 与 ``/api/session`` 不注册。
+
+    ``settings.http_cli_ws_enabled`` 为真时**另建**一个 :class:`CliEventHub` 并注册 ``/api/cli/ws``
+    （Epic 55 的 CLI 旁路）：它与 ``executor`` 无关——旁路订阅的是**终端自己那一轮** run，不是网页
+    创建的 run；两者共用同一个 listener 端口。
     """
     config = build_server_config(settings)
     run_service = HttpRunService(config, executor) if executor is not None else None
@@ -252,7 +276,17 @@ def build_http_service(settings: Settings, *, executor: Any | None = None) -> Em
         handler_factory=executor.for_workspace if isinstance(executor, HttpAgentHandler) else None,
         write_enabled=settings.http_console_write_enabled,
     )
-    return EmbeddedHttpService(HttpServer(config, version=_current_version(), run_service=run_service, console=console))
+    cli_hub = CliEventHub(max_connections=config.ws_max_connections) if settings.http_cli_ws_enabled else None
+    return EmbeddedHttpService(
+        HttpServer(
+            config,
+            version=_current_version(),
+            run_service=run_service,
+            console=console,
+            cli_hub=cli_hub,
+        ),
+        cli_hub=cli_hub,
+    )
 
 
 def embedded_http_error_message(exc: BaseException) -> str | None:
@@ -291,6 +325,12 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     type=click.IntRange(min=1),
     default=None,
     help="Max SSE subscribers per run; extra ones get 429 rate_limited (default: HTTP_MAX_SUBSCRIBERS / 16)",
+)
+@click.option(
+    "--ws-max-connections",
+    type=click.IntRange(min=1),
+    default=None,
+    help="Max WebSocket connections per run (default: HTTP_WS_MAX_CONNECTIONS / 16)",
 )
 @click.option(
     "--max-inflight-runs",
@@ -366,6 +406,7 @@ def http_server_cmd(
     port: int | None,
     max_connections: int | None,
     max_subscribers: int | None,
+    ws_max_connections: int | None,
     max_inflight_runs: int | None,
     max_total_inflight: int | None,
     max_request_bytes: int | None,
@@ -401,6 +442,7 @@ def http_server_cmd(
         port=port,
         max_connections=max_connections,
         max_subscribers=max_subscribers,
+        ws_max_connections=ws_max_connections,
         max_inflight_runs=max_inflight_runs,
         max_total_inflight=max_total_inflight,
         max_request_bytes=max_request_bytes,

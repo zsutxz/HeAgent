@@ -48,14 +48,14 @@ def _winjob_spawn(command: str, workspace: Path | None) -> subprocess.Popen[byte
     # 隔离由 Job Objects + OS 级沙箱兜底承担，而非靠这里「检查输入」；``cmd`` 为 Windows
     # 系统内置解释器，无绝对路径可给（沿用改动前的调用形态）。
     if workspace is None:
-        return subprocess.Popen(  # noqa: S603
-            ["cmd", "/c", command],  # noqa: S607
+        return subprocess.Popen(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
+            ["cmd", "/c", command],  # nosec B607 - 系统命令按可执行路径检索，非用户输入 # noqa: S607
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             env=scrub_sensitive_env(allowlist=_env_allowlist()),
         )
-    return subprocess.Popen(  # noqa: S603
-        ["cmd", "/c", command],  # noqa: S607
+    return subprocess.Popen(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
+        ["cmd", "/c", command],  # nosec B607 - 系统命令按可执行路径检索，非用户输入 # noqa: S607
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         cwd=str(workspace),

@@ -39,7 +39,7 @@ _TEMPLATE_PREFIX = "templates/"
 class DoctorSeverity(StrEnum):
     """Grading of one preflight observation; ``WARN`` never counts as a pass."""
 
-    PASS = "pass"  # noqa: S105 - grading label, not a credential
+    PASS = "pass"  # nosec B105 - 分级标签，非凭证 # noqa: S105
     WARN = "warn"
     FAIL = "fail"
 

@@ -255,6 +255,33 @@ class TestLifecycle:
         finally:
             await server.close()
 
+    async def test_start_without_websocket_protocol_logs_once_and_keeps_http_available(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        uvicorn = http_server._require_module("uvicorn")
+        real_config = uvicorn.Config
+
+        def missing_ws_config(*args: Any, **kwargs: Any) -> Any:
+            config = real_config(*args, **kwargs)
+            config.load()
+            config.ws_protocol_class = None
+            return config
+
+        monkeypatch.setattr(uvicorn, "Config", missing_ws_config)
+        server = HttpServer(_config(), version=_VERSION)
+        with caplog.at_level(logging.WARNING, logger="heagent.network.http_server"):
+            await server.start()
+            await server.start()
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(f"http://127.0.0.1:{server.port}/api/health")
+            assert response.status_code == 200
+            warnings = [record for record in caplog.records if "event=ws_unavailable" in record.getMessage()]
+            assert len(warnings) == 1
+            assert "heagent[http]" in warnings[0].getMessage()
+        finally:
+            await server.close()
+
     async def test_start_and_close_are_idempotent(self) -> None:
         server = HttpServer(_config(), version=_VERSION)
         await server.start()

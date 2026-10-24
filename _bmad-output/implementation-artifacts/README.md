@@ -6,7 +6,7 @@
 
 | 路径 | 用途 | 当前状态 |
 | --- | --- | --- |
-| `deferred-work-archive.md` | 跨周期 deferred 的唯一总账；活动区和闭合索引以此为准 | 活动项 3 条（2026-10-20，A34–A36） |
+| `deferred-work-archive.md` | 跨周期 deferred 的唯一总账；活动区和闭合索引以此为准 | 活动项 3 条（2026-10-20，A34–A36；A37–A39 已归档 Epic 51） |
 | `deferred-work.md` | 2026-09-29/30 code review 的精简摘要，包含已闭合索引和仍需裁定的观察项 | 历史审查附件，不是活动总账 |
 | `arch-optimization-cycle/` | 架构优化周期的计划与 Phase 0–5 执行记录 | 全部 `done`，仅供追溯 |
 

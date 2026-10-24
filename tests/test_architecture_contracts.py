@@ -861,7 +861,7 @@ def test_pyproject_does_not_declare_a_dead_pytest_benchmark_table() -> None:
 
 
 #: 工作流包名的静态兜底名单：派生通道（SKILL.md 读盘）失效（目录缺失等）时判据不致漏空。
-_STATIC_WORKFLOW_PACKAGE_NAMES = ("he-goal", "he-work")
+_STATIC_WORKFLOW_PACKAGE_NAMES = ("he-goal", "he-loop")
 
 
 def _workflow_package_names() -> tuple[str, ...]:
@@ -919,15 +919,17 @@ def test_workflow_state_writes_go_through_the_transition_table() -> None:
     背景（2026-09-29）：`run_step` 异常分支曾直写 ``PENDING``、``pause_resume`` 曾直写
     ``WAITING_USER``，非法转换被静默修正。收敛后每个状态赋值必须可追溯到一个事件。
     本判据扫描 ``model_copy(update={..., "status": ...})`` 的全部出现：值表达式必须是
-    ``transition(...)`` 调用，或命中白名单（内部已核实经 ``transition()`` 的间接形态）。
+    ``transition(...)`` 调用。
     新增任何 ``WorkflowStatus.X`` 字面量直写即红——请改走 ``transition(status, event)``。
+
+    **2026-10-23（A38）起本判据只覆盖一半**：runner 里的状态写点改为
+    ``update={**self._transition_fields(event), ...}`` 展开，字面 ``"status"`` 键就此消失，
+    展开形态在 AST 里看不见。另一半——helper 内部确实走 ``transition()`` 且同时写
+    ``last_event``——由 :func:`test_transition_fields_helper_is_the_only_status_writer` 钉住。
+    放行表因此清空（两条旧条目 ``self._callback_status(result.status)`` / ``next_status``
+    已随重构消失，留着只会让人误以为那些形态仍被允许）。
     """
-    allowed_expressions = {
-        # workflow_runner._callback_status：内部即 transition(self.state.status, event)。
-        "self._callback_status(result.status)",
-        # workflow_runner._stop：next_status 在两行前由 transition(...) 计算并已做一致性校验。
-        "next_status",
-    }
+    allowed_expressions: set[str] = set()
     offenders: list[str] = []
     for path in sorted(SRC.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -950,3 +952,26 @@ def test_workflow_state_writes_go_through_the_transition_table() -> None:
                     if not is_direct_transition and rendered not in allowed_expressions:
                         offenders.append(f"{path.relative_to(SRC)}:{node.lineno} -> {rendered}")
     assert offenders == [], "状态直写绕过 transition()：" + "; ".join(offenders)
+
+
+def test_transition_fields_helper_is_the_only_status_writer() -> None:
+    """A38：``_transition_fields(event)`` 必须走 ``transition()`` 并同时写 ``last_event``。
+
+    直接读 helper 的 AST 而不是跑行为：行为判据只能证明「某条路径结果对」，证明不了
+    「helper 自己还在走转换表」。若只留上一个字面键判据，把 helper 改成
+    ``{"status": WorkflowStatus.PENDING, ...}`` 这种直写**不会变红**——守卫静默失效的样子。
+    """
+    tree = ast.parse((SRC / "engine" / "workflow_runner.py").read_text(encoding="utf-8"))
+    helpers = [
+        node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_transition_fields"
+    ]
+    assert len(helpers) == 1, f"helper 必须唯一：{len(helpers)}"
+    returns = [node for node in ast.walk(helpers[0]) if isinstance(node, ast.Return)]
+    assert len(returns) == 1, f"helper 必须只有一个 return：{len(returns)}"
+    value = returns[0].value
+    assert isinstance(value, ast.Dict), "helper 必须返回字面 dict（审计要能读到键名）"
+    assert [key.value for key in value.keys if isinstance(key, ast.Constant)] == ["status", "last_event"]
+    status_value, last_event_value = value.values
+    assert ast.unparse(status_value.func) == "transition", ast.unparse(status_value)
+    assert ast.unparse(status_value.args[1]) == "event", ast.unparse(status_value)
+    assert ast.unparse(last_event_value) == "event.value", ast.unparse(last_event_value)

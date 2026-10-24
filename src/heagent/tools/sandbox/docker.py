@@ -64,7 +64,7 @@ def _docker_available(docker_path: str) -> bool:
     if shutil.which(docker_path) is None:
         return False
     try:
-        probe = subprocess.run(  # noqa: S603
+        probe = subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
             [docker_path, "version", "--format", "{{.Server.Version}}"],
             capture_output=True,
             timeout=5,
@@ -135,21 +135,21 @@ def build_run_argv(
 
 def _docker_spawn(argv: list[str]) -> subprocess.Popen[bytes]:
     """启动 docker CLI 子进程——无 shell、不透传宿主 env 覆盖（可测缝，winjob 同型）。"""
-    return subprocess.Popen(  # noqa: S603
+    return subprocess.Popen(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
         argv,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
 
 
-def _is_gone(stderr: str | None) -> bool:
+def _is_gone(returncode: int, stderr: str | None) -> bool:
     """inspect 的 stderr 是否表示**容器已不存在**（``--rm`` 删除后的常态，非故障）。
 
     只认 daemon 的「无此对象」语义：容器已消失 = 清理目标已达成。其余 rc≠0（daemon 不可达、
     权限、超时）仍按「状态不确定」处理——**不能**把两者混为一谈，否则每发超时都会白等一次
     ``rm -f`` 并打出假 traceback（真实缺陷，2026-10-21）。
     """
-    if not stderr:
+    if returncode == 0 or not stderr:
         return False
     text = stderr.strip().lower()
     return "no such object" in text or "no such container" in text
@@ -166,7 +166,7 @@ def _docker_kill(docker_path: str, name: str) -> None:
     """
     fallback = False
     try:
-        subprocess.run(  # noqa: S603
+        subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
             [docker_path, "kill", "--", name],
             capture_output=True,
             timeout=_REAP_WAIT_TIMEOUT,
@@ -176,7 +176,7 @@ def _docker_kill(docker_path: str, name: str) -> None:
         fallback = True
     if not fallback:
         try:
-            probe = subprocess.run(  # noqa: S603
+            probe = subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
                 [docker_path, "inspect", "-f", "{{.State.Running}}", "--", name],
                 capture_output=True,
                 text=True,
@@ -189,14 +189,14 @@ def _docker_kill(docker_path: str, name: str) -> None:
             # ``--rm`` 容器被杀后自行删除，inspect 必然 ``No such object``（rc=1）——
             # 这是**清理已达成**，不是「状态不确定」，不得据此重复 rm -f（否则会撞上
             # daemon 的删除锁白等满 _REAP_WAIT_TIMEOUT 并打出一条假 traceback）。
-            if _is_gone(probe.stderr):
+            if _is_gone(probe.returncode, probe.stderr):
                 return
             fallback = probe.returncode != 0 or probe.stdout.strip() != "false"
     if not fallback:
         return
     logger.warning("docker kill left container %s alive or uncertain; issuing docker rm -f fallback", name)
     try:
-        subprocess.run(  # noqa: S603
+        subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
             [docker_path, "rm", "-f", "--", name],
             capture_output=True,
             timeout=_REAP_WAIT_TIMEOUT,
@@ -213,7 +213,7 @@ def _docker_inspect_digest(docker_path: str, image: str) -> str | None:
     可测缝（判据桩点）：运行期 digest pin 校验的唯一实现点。
     """
     try:
-        proc = subprocess.run(  # noqa: S603
+        proc = subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
             [docker_path, "image", "inspect", "--format", "{{json .RepoDigests}}", "--", image],
             capture_output=True,
             text=True,
