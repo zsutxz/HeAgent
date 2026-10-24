@@ -398,14 +398,6 @@ class Settings(BaseSettings):
     # 错误信封 / 安全响应头 / 访问日志全部缺席，429 rate_limited 分支实际不可达。
     # 默认值与原连接额度一致（16）⇒ **默认行为逐字节不变**；调大连接额度时订阅面不再被迫同步放大。
     http_max_subscribers: int = Field(default=16, ge=1)
-    # 每个 run 的独立 WebSocket 连接额度。Uvicorn 的 limit_concurrency 不限制 WS；
-    # 与 SSE 订阅池分离，避免 WS 连接消耗 SSE 配额并污染 subscriber_count 语义。
-    http_ws_max_connections: int = Field(default=16, ge=1)
-    # CLI 旁路订阅（Epic 55）：给 `WS /api/cli/ws` 开一条只读事件流，把**终端里那一轮** run 的
-    # 事件（文本增量 / 工具调用 / 终态）实时推给外部客户端。**默认关**——它与 HTTP 入口同档
-    # 无认证、无 TLS，开了等于让能连上该端口的本机进程看到终端 agent 的工具输出（可能含文件内容）；
-    # 旁路不占运行名额、不写会话历史、不提供取消通道（终端独占 Ctrl+C / 双击 Esc）。
-    http_cli_ws_enabled: bool = False
     # 同时在途的网页 Agent 运行上限；MVP 固定为 1（单会话单运行），超限的提交收 run_conflict。
     http_max_inflight_runs: int = Field(default=1, ge=1)
     # **服务级**在途运行总额（跨项目共享）；0 = 不限（默认 ⇒ D9 的「并发随项目数线性」语义不变）。
@@ -433,6 +425,23 @@ class Settings(BaseSettings):
     http_tool_inflight_timeout: float = Field(default=3600.0, ge=0, allow_inf_nan=False)
     # 服务关闭时「停止接收 → 终结在途 run → 关闭订阅 → 关闭 listener」全程的等待上限（秒）。
     http_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+
+    # ---- WS 入口（Epic 56 D1：与 HTTP 完全分离的独立 server，唯一宿主所有 WS 能力） ----
+    # 定位与 HTTP 入口同档：**实验性、无认证、无 TLS**（本机模式）；默认只绑 loopback。
+    # 回环绑定 = 本地模式（Origin 防线）；非回环 = 对外模式（56-2 落地认证 fail-closed）。
+    ws_host: str = Field(default="127.0.0.1", min_length=1)
+    # 默认 9001（8766 → 9001 是 Epic 56 的唯一 breaking change：两条 WS 端点路径不变、换端口）。
+    ws_port: int = Field(default=9001, ge=1, le=65535)
+    # WS 连接额度（迁移自 `http_ws_max_connections`）：既是每个 run 的订阅额度，也是 CLI 旁路
+    # hub 的连接总额。WS 不经 Uvicorn limit_concurrency，超额在 ASGI 层原子检查+登记。
+    ws_max_connections: int = Field(default=16, ge=1)
+    # WS server 关闭排空的等待上限（秒）：关既有连接 → 停 listener 全程有界。
+    ws_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+    # CLI 旁路订阅（Epic 55，Epic 56 D7 起宿主 = WS server）：给 `WS /api/cli/ws` 开一条只读
+    # 事件流，把**终端里那一轮** run 的事件实时推给外部客户端。**默认关**——它与 HTTP 入口同档
+    # 无认证、无 TLS，开了等于让能连上该端口的本机进程看到终端 agent 的工具输出（可能含文件内容）；
+    # 旁路不占运行名额、不写会话历史、不提供取消通道（终端独占 Ctrl+C / 双击 Esc）。
+    ws_cli_bypass_enabled: bool = False
     # ---- 网页控制台的配置写入通道（Epic 50 Story 50-5） ----
     # **默认关**（I12）：关闭时配置面全只读，且**网页无法通过任何请求打开它**——它不在白名单里
     # （配置目录把它列进「控制台自身」排除组），写入通道因此改不到自己。

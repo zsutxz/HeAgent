@@ -1,4 +1,4 @@
-"""Epic 54 Story 54-3：WebSocket 端点端到端契约。"""
+"""Epic 54 Story 54-3 端到端契约，Epic 56 D1 起驱动 = WsServer（9001，宿主迁移）。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from typing import Any
 import pytest
 
 from heagent.network.http_protocol import HttpErrorCode, RunOutcome, RunStatus
-from heagent.network.http_server import HttpRunService, HttpServer, HttpServerConfig
+from heagent.network.http_server import HttpRunService, HttpServerConfig
+from heagent.network.ws_host import WsServer, WsServerConfig
 
 websockets = pytest.importorskip("websockets")
 
@@ -38,18 +39,27 @@ def _server_config(**kwargs: Any) -> HttpServerConfig:
     return HttpServerConfig(port=0, request_timeout=0, idle_timeout=0, tool_inflight_timeout=0, **kwargs)
 
 
+def _ws_config(**kwargs: Any) -> WsServerConfig:
+    return WsServerConfig(port=0, shutdown_timeout=1, **kwargs)
+
+
 async def _start(
     executor: _Executor, *, ws_limit: int = 4, buffer_size: int = 16
-) -> tuple[HttpServer, HttpRunService, asyncio.Task[None]]:
-    config = _server_config(ws_max_connections=ws_limit, event_buffer_size=buffer_size)
-    service = HttpRunService(config, executor)
-    server = HttpServer(config, version="test", run_service=service)
+) -> tuple[WsServer, HttpRunService, asyncio.Task[None]]:
+    """双配置装配：运行状态机吃 HTTP 配置（进程内注入），WS listener 吃 WsServerConfig（D1 接缝事实）。"""
+    service = HttpRunService(
+        _server_config(event_buffer_size=buffer_size),
+        executor,
+    )
+    server = WsServer(_ws_config(ws_max_connections=ws_limit), run_service=service)
     await server.start()
     task = asyncio.create_task(server.serve_forever())
+    # 让 serve 协程先进入 main_loop（防「建任务后立刻 close」的首次调度竞态，同旧注释）。
+    await asyncio.sleep(0)
     return server, service, task
 
 
-async def _stop(server: HttpServer, task: asyncio.Task[None]) -> None:
+async def _stop(server: WsServer, task: asyncio.Task[None]) -> None:
     await server.close()
     await asyncio.wait_for(task, timeout=5)
 
@@ -197,6 +207,8 @@ async def test_shutdown_closes_websocket_and_cancels_run_within_budget() -> None
         while service.ws_connection_count(record) == 0:
             await asyncio.sleep(0)
         started = asyncio.get_running_loop().time()
+        # 入口层编排口径：HTTP 侧先排空运行到终态（service.close），WS 侧再关连接与 listener。
+        await service.close()
         await server.close()
         elapsed = asyncio.get_running_loop().time() - started
         frames: list[dict[str, Any]] = []
@@ -210,8 +222,9 @@ async def test_shutdown_closes_websocket_and_cancels_run_within_budget() -> None
         assert ws.close_code == 1001
         assert record.status is RunStatus.CANCELLED
         assert service.ws_connection_count(record) == 0
-        assert elapsed <= 2 * service.config.shutdown_timeout + 2
-        await server.close()
+        assert elapsed <= 2 * server.config.shutdown_timeout + 2
+        # main_loop 以 0.1s 轮询 should_exit：显式等 serve 任务退出，不和调度竞速。
+        await asyncio.wait_for(task, timeout=5)
         assert task.done()
     finally:
         await ws.close()

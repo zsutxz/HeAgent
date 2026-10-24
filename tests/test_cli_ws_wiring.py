@@ -1,8 +1,8 @@
-"""CLI 旁路的**装配**契约：``build_http_service`` → ``HttpServer`` → 路由 → 中枢。
+"""CLI 旁路的**装配**契约：``build_http_service`` → ``WsServer`` → 路由 → 中枢（Epic 56 D7）。
 
-为什么单独一个文件：其余用例都直接构造 ``HttpServer(cli_hub=...)``，因此「真实入口忘了把中枢
+为什么单独一个文件：其余用例都直接构造 ``WsServer(cli_hub=...)``，因此「真实入口忘了把中枢
 传下去」这类漏接不会变红（``EmbeddedHttpService.cli_hub`` 有值、路由却没注册）。这里从**入口函数**
-起步，用真 TCP 连一次 ``/api/cli/ws``。
+起步，用真 TCP 连一次 ``/api/cli/ws``（9001 侧）。
 """
 
 from __future__ import annotations
@@ -24,12 +24,12 @@ pytestmark = pytest.mark.embedded_http_service
 
 @pytest.mark.asyncio
 async def test_service_built_from_settings_serves_the_cli_event_stream() -> None:
-    service = build_http_service(Settings(http_cli_ws_enabled=True), executor=None)
+    service = build_http_service(Settings(ws_cli_bypass_enabled=True), executor=None)
     assert service.cli_hub is not None
     await service.start()
     try:
         hub = service.cli_hub
-        uri = f"ws://{service.address}/api/cli/ws"
+        uri = f"ws://{service.ws_address}/api/cli/ws"
         async with websockets.connect(uri) as ws:
             hub.begin_run()
             hub.publish_text("from the terminal")
@@ -44,7 +44,7 @@ async def test_service_built_from_settings_serves_the_cli_event_stream() -> None
 
 @pytest.mark.asyncio
 async def test_disabled_switch_leaves_the_route_unregistered() -> None:
-    service = build_http_service(Settings(http_cli_ws_enabled=False), executor=None)
+    service = build_http_service(Settings(ws_cli_bypass_enabled=False), executor=None)
     assert service.cli_hub is None
     await service.start()
     try:

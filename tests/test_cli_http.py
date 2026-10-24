@@ -47,13 +47,14 @@ class _StubProvider:
 
 @pytest.fixture()
 def captured_server(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> dict[str, HttpServer]:
-    """把 ``_serve_http`` 换成「记录 server 即返回」：参数断言不需要真的绑定端口。"""
-    captured: dict[str, HttpServer] = {}
+    """把 ``_serve_web`` 换成「记录双 server 即返回」：参数断言不需要真的绑定端口。"""
+    captured: dict[str, Any] = {}
 
-    async def fake_serve(server: HttpServer) -> None:
-        captured["server"] = server
+    async def fake_serve(http_server: HttpServer, ws_server: Any) -> None:
+        captured["server"] = http_server
+        captured["ws"] = ws_server
 
-    monkeypatch.setattr("heagent.cli.http._serve_http", fake_serve)
+    monkeypatch.setattr("heagent.cli.http._serve_web", fake_serve)
     monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: _StubProvider())
     monkeypatch.chdir(tmp_path)
     return captured
@@ -68,6 +69,8 @@ def test_help_lists_http_options() -> None:
         "--port",
         "--max-connections",
         "--max-subscribers",
+        "--ws-host",
+        "--ws-port",
         "--ws-max-connections",
         "--max-inflight-runs",
         "--max-request-bytes",
@@ -87,28 +90,44 @@ def test_ws_connection_limit_cli_override_reaches_config_without_mutating_settin
     monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer]
 ) -> None:
     monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
-    monkeypatch.setenv("HTTP_WS_MAX_CONNECTIONS", "7")
+    monkeypatch.setenv("WS_MAX_CONNECTIONS", "7")
     reset_settings()
     settings = get_settings()
 
     result = CliRunner().invoke(main, ["http-server", "--ws-max-connections", "3"])
 
     assert result.exit_code == 0, result.output
-    assert captured_server["server"].config.ws_max_connections == 3
-    assert settings.http_ws_max_connections == 7
+    assert captured_server["ws"].config.ws_max_connections == 3
+    assert settings.ws_max_connections == 7
 
 
 def test_ws_connection_limit_environment_value_reaches_config(
     monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer]
 ) -> None:
     monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
-    monkeypatch.setenv("HTTP_WS_MAX_CONNECTIONS", "9")
+    monkeypatch.setenv("WS_MAX_CONNECTIONS", "9")
     reset_settings()
 
     result = CliRunner().invoke(main, ["http-server"])
 
     assert result.exit_code == 0, result.output
-    assert captured_server["server"].config.ws_max_connections == 9
+    assert captured_server["ws"].config.ws_max_connections == 9
+
+
+def test_ws_listener_env_reaches_ws_server_config(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, Any]
+) -> None:
+    """WS_HOST/WS_PORT env 经 http-server 命令落到 WsServer 配置（D1：WS 面独立成配置）。"""
+    monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
+    monkeypatch.setenv("WS_HOST", "127.0.0.1")
+    monkeypatch.setenv("WS_PORT", "9443")
+    reset_settings()
+
+    result = CliRunner().invoke(main, ["http-server"])
+
+    assert result.exit_code == 0, result.output
+    ws_server = captured_server["ws"]
+    assert (ws_server.config.host, ws_server.config.port) == ("127.0.0.1", 9443)
 
 
 def test_registered_as_explicit_subcommand() -> None:
@@ -129,7 +148,6 @@ def test_build_server_config_uses_settings_defaults() -> None:
         port=settings.http_port,
         max_connections=settings.http_max_connections,
         max_subscribers=settings.http_max_subscribers,
-        ws_max_connections=settings.http_ws_max_connections,
         max_inflight_runs=settings.http_max_inflight_runs,
         max_total_inflight=settings.http_max_total_inflight,
         max_request_bytes=settings.http_max_request_bytes,

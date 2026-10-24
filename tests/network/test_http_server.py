@@ -25,7 +25,7 @@ pytest.importorskip("starlette")
 import httpx
 from pydantic import ValidationError
 
-from heagent.network import http_server
+from heagent.network import http_server, origin
 from heagent.network.http_protocol import MAX_REQUEST_BYTES_FOR_MAX_PROMPT, HttpErrorCode, RunOutcome
 from heagent.network.http_server import (
     HttpRunService,
@@ -252,33 +252,6 @@ class TestLifecycle:
             assert response.status_code == 200
             assert response.json()["version"] == _VERSION
             assert response.headers["x-content-type-options"] == "nosniff"
-        finally:
-            await server.close()
-
-    async def test_start_without_websocket_protocol_logs_once_and_keeps_http_available(
-        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        uvicorn = http_server._require_module("uvicorn")
-        real_config = uvicorn.Config
-
-        def missing_ws_config(*args: Any, **kwargs: Any) -> Any:
-            config = real_config(*args, **kwargs)
-            config.load()
-            config.ws_protocol_class = None
-            return config
-
-        monkeypatch.setattr(uvicorn, "Config", missing_ws_config)
-        server = HttpServer(_config(), version=_VERSION)
-        with caplog.at_level(logging.WARNING, logger="heagent.network.http_server"):
-            await server.start()
-            await server.start()
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(f"http://127.0.0.1:{server.port}/api/health")
-            assert response.status_code == 200
-            warnings = [record for record in caplog.records if "event=ws_unavailable" in record.getMessage()]
-            assert len(warnings) == 1
-            assert "heagent[http]" in warnings[0].getMessage()
         finally:
             await server.close()
 
@@ -523,18 +496,18 @@ class TestBindingAndConcurrencyBudget:
 
     def test_wildcard_binding_only_adds_loopback_aliases(self) -> None:
         """通配绑定额外接受等价本机写法；普通非回环 host 不额外放宽（反 DNS-rebinding）。"""
-        assert http_server._allowed_hosts(_config(host="0.0.0.0")) >= {
+        assert origin.allowed_hosts(_config(host="0.0.0.0")) >= {
             "0.0.0.0",
             "127.0.0.1",
             "localhost",
             "[::1]",
         }
-        assert http_server._allowed_hosts(_config(host="::")) >= {"::", "[::1]"}
-        assert http_server._allowed_hosts(_config(host="192.168.1.5")) == frozenset({"192.168.1.5"})
+        assert origin.allowed_hosts(_config(host="::")) >= {"::", "[::1]"}
+        assert origin.allowed_hosts(_config(host="192.168.1.5")) == frozenset({"192.168.1.5"})
 
     @pytest.mark.parametrize(("host", "expected"), [("0.0.0.0", "127.0.0.1"), ("::", "::1")])
     def test_wildcards_are_probed_over_loopback(self, host: str, expected: str) -> None:
-        assert http_server._probe_host(host) == expected
+        assert origin.probe_host(host) == expected
 
 
 class TestCloseAndRestartSemantics:

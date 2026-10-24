@@ -66,10 +66,11 @@ from heagent.network.http_protocol import (
     error_envelope,
     sanitize_message,
 )
-from heagent.network.ws_protocol import (
-    WS_MAX_FRAME_BYTES,
-    WS_PING_INTERVAL_SECONDS,
-    WS_PING_TIMEOUT_SECONDS,
+from heagent.network.origin import (
+    allowed_hosts,
+    allowed_ports,
+    probe_host,
+    request_origin_violation,
 )
 from heagent.pub.safe_logging import safe_log
 
@@ -78,7 +79,6 @@ if TYPE_CHECKING:
 
     from starlette.types import ASGIApp, Receive, Scope, Send
 
-    from heagent.network.cli_event_hub import CliEventHub
     from heagent.network.http_console_protocol import ConsoleHandler
 
     # 入口层交回的可调用对象：把 prompt 跑成 Agent 运行，并通过 publisher 推事件。
@@ -128,8 +128,6 @@ _RUNS_PATH = "/api/runs"
 _RUN_DETAIL_PATH = "/api/runs/{run_id}"
 _RUN_EVENTS_PATH = "/api/runs/{run_id}/events"
 _SESSION_PATH = "/api/session"
-# CLI 旁路订阅（Epic 55）：跨轮次的只读事件流，见 ``network/cli_event_hub.py``。
-_CLI_WS_PATH = "/api/cli/ws"
 _PROJECTS_PATH = "/api/projects"
 _PROJECT_PATH = "/api/projects/{project_id}"
 _PROJECT_SESSIONS_PATH = "/api/projects/{project_id}/sessions"
@@ -141,10 +139,6 @@ _PROJECT_RUNS_PATH = "/api/projects/{project_id}/runs"
 _PROJECT_CONFIG_PATH = "/api/projects/{project_id}/config"
 # 非项目作用域的控制台端点（Story 50-8）：在**服务端所在机器**弹原生目录选择窗口。
 _DIALOG_PICK_PATH = "/api/dialogs/pick-directory"
-
-# 通配绑定地址：就绪探测改走回环（见 :func:`_probe_host`）。这里**只识别**，不在此绑定。
-_WILDCARD_HOSTS = frozenset({"", "0.0.0.0", "*"})  # nosec B104 - 仅识别通配地址，本模块不在此绑定 # noqa: S104
-_IPV6_WILDCARDS = frozenset({"::", "[::]"})
 
 # 就绪探测与关闭排空的预算（秒）。探测是进程内回环请求，正常在毫秒级返回。
 _PROBE_TIMEOUT = 5.0
@@ -196,8 +190,6 @@ class HttpServerConfig(BaseModel):
     # 拆出的理由：连接额度由 Uvicorn 在**进 ASGI 之前**拒绝 ⇒ 超额订阅拿不到错误信封 / 安全头 / 访问日志，
     # 429 ``rate_limited`` 分支实际不可达；订阅面现在有独立旋钮，调大连接额度不再被迫放大它。
     max_subscribers: int = Field(default=16, ge=1)
-    # 每个 run 的 WS 连接独立额度；WS 不受 Uvicorn limit_concurrency 管理，也不占 SSE 订阅额度。
-    ws_max_connections: int = Field(default=16, ge=1)
     # **每个项目各自**的在途运行上限（Story 50-3 的 D9）：全局上限 = 项目数 × 该值，因此「A 项目在跑」
     # 不挡 B 项目；``POST /api/runs``（无项目归属）自己算一档，语义与 Epic 49 逐字相同。
     max_inflight_runs: int = Field(default=1, ge=1)
@@ -992,122 +984,6 @@ class HttpRunService:
 
 # ── 同源防线与请求观测（Story 49-5） ──
 
-# 我们不信任任何代理头：反向代理部署不在 MVP 支持范围（AD-6），出现这些头即拒绝请求——
-# 否则 `X-Forwarded-Host` 就能把「跨站请求」伪装成本机同源请求（DNS rebinding 的常见变体）。
-_UNTRUSTED_FORWARD_HEADERS = frozenset(
-    {b"forwarded", b"x-forwarded-for", b"x-forwarded-host", b"x-forwarded-proto", b"x-real-ip"}
-)
-
-# 回环绑定时接受的等价本机写法：三者指向同一个 listener（浏览器地址栏习惯不同），拒绝其中
-# 任何一个都会让「本机自用」这个主用例失效。**非回环绑定只用配置的那个名字**（不额外放宽）。
-_LOOPBACK_HOST_ALIASES = ("127.0.0.1", "localhost", "[::1]")
-
-
-def _canonical_authority(value: str) -> str | None:
-    """规范化 ``Host`` 的 authority：小写、省略 http 默认端口 80。
-
-    返回 ``None`` 表示格式不可信（含路径/查询、非数字端口、越界端口、空值）——调用方按拒绝处理。
-    IPv6 字面量写成 ``[::1]:8766``（方括号是 authority 的一部分）。
-    """
-    text = value.strip().lower()
-    if not text or "/" in text or "?" in text:
-        return None
-    if text.startswith("["):
-        end = text.find("]")
-        if end < 0:
-            return None
-        host = text[: end + 1]
-        rest = text[end + 1 :]
-        port = rest[1:] if rest.startswith(":") else ""
-    elif ":" in text:
-        host, _, port = text.rpartition(":")
-    else:
-        host, port = text, ""
-    if port and (not port.isdigit() or int(port) > 65535):
-        return None
-    effective = int(port) if port else 80
-    return host if effective == 80 else f"{host}:{effective}"
-
-
-def _allowed_hosts(config: HttpServerConfig) -> frozenset[str]:
-    """允许的 host 名集合：配置 host + （**仅当它是回环时**）等价本机写法。
-
-    这是「请求必须打在本 listener 上」的判据，用于挡住 Host 伪装（例如把 ``evil.example`` 解析到
-    127.0.0.1 的 DNS rebinding）。**不是认证**：能连上端口的本机进程可以随便伪造 Host。
-    """
-    host = config.host.strip().lower()
-    names = {host}
-    # 通配绑定（``0.0.0.0`` / ``::`` / ``*``）没有单一主机名：就绪探测与浏览器都是从回环地址
-    # 打进这个 listener 的（见 :func:`_probe_host`），因此把等价本机写法一并接受——否则探测会
-    # 撞上自己的 Host 校验（403），``HTTP_HOST=0.0.0.0`` 永远起不来。
-    # 这不削弱反 DNS-rebinding：伪造的域名（``evil.example``）仍在拒绝之列；通配绑定的其它网卡
-    # 地址也仍按「不匹配 listener 名」拒绝（非回环联网不受支持，见 CLI help 与 exposure 告警）。
-    if is_loopback_host(host) or host in _WILDCARD_HOSTS or host in _IPV6_WILDCARDS:
-        names.update(_LOOPBACK_HOST_ALIASES)
-    return frozenset(names)
-
-
-def _allowed_ports(config: HttpServerConfig) -> frozenset[int] | None:
-    """允许的端口集合；``None`` 表示「任意端口」。
-
-    ``port=0``（操作系统分配随机端口，只用于程序化/测试）时构建 app 还不知道实际端口，故不限制
-    端口；CLI 与 ``HTTP_PORT`` 都限定 1..65535，生产路径永远有确定的端口。
-    """
-    return None if config.port == 0 else frozenset({config.port})
-
-
-def _split_authority(authority: str) -> tuple[str, int]:
-    """把规范化后的 authority 拆成 ``(host, port)``；无端口视为 http 默认端口 80。"""
-    if authority.startswith("["):
-        end = authority.find("]")
-        host = authority[: end + 1]
-        rest = authority[end + 1 :]
-        return host, int(rest[1:]) if rest.startswith(":") else 80
-    host, sep, port = authority.rpartition(":")
-    if not sep:
-        return authority, 80
-    return host, int(port)
-
-
-def _request_origin_violation(
-    scope: MutableMapping[str, Any],
-    *,
-    hosts: frozenset[str],
-    ports: frozenset[int] | None,
-) -> str | None:
-    """请求是否违反同源防线；返回违规原因（供日志），``None`` 表示通过。
-
-    规则（AD-6）：
-
-    1. 出现任何 forwarded-* 头 ⇒ 拒绝（见 :data:`_UNTRUSTED_FORWARD_HEADERS`）；
-    2. ``Host`` 必须恰好一个、且规范化后的 host/port 都在允许集合内；
-    3. 若带 ``Origin``：不得为 ``null``/空，且必须等于 ``http://`` 加该 authority（同源）。
-       **缺少 Origin** 只表示「非浏览器客户端」（curl / 脚本），Host 已校验故放行。
-    """
-    headers = scope.get("headers") or []
-    if any(name.lower() in _UNTRUSTED_FORWARD_HEADERS for name, _value in headers):
-        return "untrusted forwarded header"
-    host_headers = [value.decode("latin-1") for name, value in headers if name.lower() == b"host"]
-    if len(host_headers) != 1:
-        return "missing or duplicated Host header"
-    authority = _canonical_authority(host_headers[0])
-    if authority is None:
-        return "malformed Host header"
-    host, port = _split_authority(authority)
-    if host not in hosts:
-        return "host not allowed"
-    if ports is not None and port not in ports:
-        return "port not allowed"
-    for name, value in headers:
-        if name.lower() != b"origin":
-            continue
-        origin = value.decode("latin-1").strip().lower()
-        if not origin or origin == "null":
-            return "null Origin"
-        if origin != f"http://{authority}":
-            return "origin mismatch"
-    return None
-
 
 async def _send_json(
     send: Send, status_code: int, payload: dict[str, Any], *, extra: tuple[tuple[bytes, bytes], ...] = ()
@@ -1140,7 +1016,7 @@ class _OriginGuardMiddleware:
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
-        violation = _request_origin_violation(scope, hosts=self.hosts, ports=self.ports)
+        violation = request_origin_violation(scope, hosts=self.hosts, ports=self.ports)
         if violation is None:
             await self.app(scope, receive, send)
             return
@@ -1756,7 +1632,6 @@ def build_http_app(
     version: str,
     run_service: HttpRunService | None = None,
     console: ConsoleHandler | None = None,
-    cli_hub: CliEventHub | None = None,
 ) -> ASGIApp:
     """构造网页入口的 ASGI 应用（健康检查 + 运行 API/SSE + 包内静态页 + 安全头）。
 
@@ -1764,10 +1639,7 @@ def build_http_app(
     也不需要在导入期触碰包元数据。``run_service`` 是**注入的运行服务**（AD-1 的接缝）——为 ``None``
     时不注册 ``/api/runs*``、``/api/session`` 或 ``/api/projects*``（那些路径回 404），Story 49-1 的用法因此保持不变。
     错误响应一律走 :func:`_json_error`，异常细节只进服务端日志。
-
-    ``cli_hub`` 是**CLI 终端运行的旁路中枢**（Epic 55）：为 ``None`` 时不注册 ``/api/cli/ws``
-    （该路径回 404）。它与 ``run_service`` 互相独立——旁路不拥有运行，也不该因为「网页侧有 run
-    服务」或「没有」而存在或消失。
+    Epic 56 D1：WS 路由已全部迁出本 app（宿主 = ``network/ws_host.py``），本 app 只剩纯 HTTP+SSE。
     """
     applications = _require_module("starlette.applications")
     responses = _require_module("starlette.responses")
@@ -1829,38 +1701,15 @@ def build_http_app(
         routing.Route("/", endpoint=index, methods=["GET"]),
     ]
     if run_service is not None:
-        from heagent.network.ws_server import build_ws_endpoint
-
-        ws_endpoint = build_ws_endpoint(
-            run_service,
-            origin_violation=lambda scope: _request_origin_violation(
-                scope,
-                hosts=_allowed_hosts(config),
-                ports=_allowed_ports(config),
-            ),
-        )
         create_run, run_events, cancel_run, session_endpoint = _build_run_endpoints(responses, config, run_service)
         routes.extend(
             [
-                routing.WebSocketRoute("/api/runs/{run_id}/ws", endpoint=ws_endpoint),
                 routing.Route(_RUNS_PATH, endpoint=create_run, methods=["POST"]),
                 routing.Route(_RUN_EVENTS_PATH, endpoint=run_events, methods=["GET"]),
                 routing.Route(_RUN_DETAIL_PATH, endpoint=cancel_run, methods=["DELETE"]),
                 routing.Route(_SESSION_PATH, endpoint=session_endpoint, methods=["GET"]),
             ]
         )
-    if cli_hub is not None:
-        from heagent.network.ws_server import build_cli_ws_endpoint
-
-        cli_ws_endpoint = build_cli_ws_endpoint(
-            cli_hub,
-            origin_violation=lambda scope: _request_origin_violation(
-                scope,
-                hosts=_allowed_hosts(config),
-                ports=_allowed_ports(config),
-            ),
-        )
-        routes.append(routing.WebSocketRoute(_CLI_WS_PATH, endpoint=cli_ws_endpoint))
     if console is not None:
         list_projects, register_project, rename_project, remove_project = _build_project_endpoints(
             responses, console, config
@@ -1910,23 +1759,9 @@ def build_http_app(
         },
     )
     # 包装顺序（由外到内）：安全头（保证连被拒的响应也带）→ 请求观测 → 同源防线 → 应用路由。
-    guarded = _OriginGuardMiddleware(app, hosts=_allowed_hosts(config), ports=_allowed_ports(config))
+    guarded = _OriginGuardMiddleware(app, hosts=allowed_hosts(config), ports=allowed_ports(config))
     logged = _AccessLogMiddleware(guarded)
     return _SecurityHeadersMiddleware(logged, _SECURITY_HEADERS)
-
-
-def _probe_host(host: str) -> str:
-    """就绪探测用的连接地址：通配绑定（``0.0.0.0`` / ``::`` / 空串）改用回环地址。
-
-    连 ``0.0.0.0`` 在多数平台上是未定义/失败行为，而「通配绑定是否真的能服务」完全可以经
-    回环地址验证（通配包含回环）。
-    """
-    candidate = host.strip()
-    if candidate in _IPV6_WILDCARDS:
-        return "::1"
-    if candidate in _WILDCARD_HOSTS:
-        return "127.0.0.1"
-    return candidate
 
 
 class HttpServer:
@@ -1942,13 +1777,11 @@ class HttpServer:
         version: str,
         run_service: HttpRunService | None = None,
         console: ConsoleHandler | None = None,
-        cli_hub: CliEventHub | None = None,
     ) -> None:
         self.config = config
         self.version = version
         self.run_service = run_service
         self.console = console
-        self.cli_hub = cli_hub
         self._app: ASGIApp | None = None
         self._server: Any = None
         # 生命周期锁与「已关闭」标记：``close()`` 必须**等到**收尾真正完成才返回。只用一个布尔
@@ -1956,7 +1789,6 @@ class HttpServer:
         # （生命周期锁 + 布尔标记是本项目入口服务的既有形态）。
         self._lifecycle_lock = asyncio.Lock()
         self._closed = False
-        self._ws_unavailable_logged = False
 
     @property
     def app(self) -> ASGIApp:
@@ -1967,7 +1799,6 @@ class HttpServer:
                 version=self.version,
                 run_service=self.run_service,
                 console=self.console,
-                cli_hub=self.cli_hub,
             )
         return self._app
 
@@ -2013,9 +1844,6 @@ class HttpServer:
                 # 绝不信任 forwarded-* 头（AD-6）：同源判定必须基于真实 listener 地址。
                 proxy_headers=False,
                 limit_concurrency=self.config.max_connections + _CONCURRENCY_PROBE_RESERVE,
-                ws_max_size=WS_MAX_FRAME_BYTES,
-                ws_ping_interval=WS_PING_INTERVAL_SECONDS,
-                ws_ping_timeout=WS_PING_TIMEOUT_SECONDS,
                 # 关闭时连接排空的硬上界（Uvicorn 默认 None = 无限等待）。
                 timeout_graceful_shutdown=max(1, math.ceil(self.config.shutdown_timeout)),
             )
@@ -2034,14 +1862,6 @@ class HttpServer:
         except OSError as exc:
             raise HttpStartupError(f"HTTP server could not bind {self.address}: {exc}") from exc
         self._server = server
-        ws_protocol_class = getattr(server.config, "ws_protocol_class", None)
-        if ws_protocol_class is None and not self._ws_unavailable_logged:
-            self._ws_unavailable_logged = True
-            _safe_log(
-                logging.WARNING,
-                "http event=ws_unavailable install_hint=%s",
-                "pip install 'heagent[http]' (WebSocket support requires websockets)",
-            )
         _safe_log(logging.INFO, "http event=started address=%s", self.address)
         warning = exposure_warning(self.config.host)
         if warning is not None:
@@ -2057,10 +1877,6 @@ class HttpServer:
             # 409 ``run_conflict``（`server is shutting down`）拒绝——正是 AD-5 要消除的
             # 「看起来正常但不可用」。
             self.run_service.reopen()
-        if self.cli_hub is not None:
-            # 同一条理由：``close()`` 置上的「停止接收」标记不可逆，重新 ``start()`` 后
-            # 新连接会被一律回 ``shutting_down``——那正是 AD-5 禁止的「看着在运行、其实不可用」。
-            self.cli_hub.reopen()
 
     async def serve_forever(self) -> None:
         """阻塞式服务循环；Uvicorn 主循环退出（``should_exit``）或异常时返回/抛出。"""
@@ -2086,12 +1902,9 @@ class HttpServer:
                 return
             service = self.run_service
             if service is not None:
+                # Epic 56 D1：WS 连接的收尾（close_websockets / cli_hub）随拆分归 WS server 所有；
+                # 本方法只排空运行到终态并停 HTTP listener（SSE 订阅随之终结）。
                 await service.close()
-                await service.close_websockets()
-            if self.cli_hub is not None:
-                # 顺序同 run_service：先置「停止接收」（新连接立刻收 shutting_down），再关既有连接。
-                self.cli_hub.close()
-                await self.cli_hub.close_websockets(timeout=self.config.shutdown_timeout)
             server, self._server = self._server, None
             if server is None:
                 self._closed = True
@@ -2121,7 +1934,7 @@ class HttpServer:
         真的能服务」这件事用一次手写 `GET` 就能验证——返回 200 即通过，其余（连接失败、超时、
         5xx、畸形响应行）一律视为未就绪。
         """
-        host = _probe_host(self.config.host)
+        host = probe_host(self.config.host)
         port = self.port
         started_at = time.perf_counter()
         try:

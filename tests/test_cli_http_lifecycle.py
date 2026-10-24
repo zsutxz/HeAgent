@@ -286,10 +286,11 @@ def test_explicit_subcommands_never_start_the_embedded_service(
     _drive(monkeypatch, tmp_path, provider)
     served: list[str] = []
 
-    async def fake_serve_http(_server: object) -> None:
+    async def fake_serve_web(http_server: object, ws_server: object) -> None:
         served.append("http")
+        assert ws_server is not None  # 双 server：显式命令同样装配 WS listener（56-1）
 
-    monkeypatch.setattr("heagent.cli.http._serve_http", fake_serve_http)
+    monkeypatch.setattr("heagent.cli.http._serve_web", fake_serve_web)
     # cli/http.py 模块级绑定了 `_build_provider`（与 cli/console.py 是两处名字），逐一打桩。
     monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: provider)
     rollout = tmp_path / "rollout.jsonl"

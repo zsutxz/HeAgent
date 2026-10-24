@@ -53,9 +53,12 @@ OriginCheck = Callable[[dict[str, Any]], str | None]
 
 
 class RunWebSocketService(Protocol):
-    """ws_server 所需的最小运行服务端口。"""
+    """ws_server 所需的最小运行服务端口。
 
-    config: Any
+    Epic 56 D1：WS 连接额度自 ``HttpServerConfig`` 迁入 ``WsServerConfig``，经
+    :func:`build_ws_endpoint` 的 ``max_connections`` 参数注入——端点因此不感知任何配置类。
+    """
+
     _closing: bool
 
     def run(self, run_id: str) -> Any | None: ...
@@ -176,6 +179,7 @@ async def _prepare_subscription(
     websocket: WebSocketLike,
     service: RunWebSocketService,
     run_id: str,
+    max_connections: int,
 ) -> tuple[Any | None, int | None, asyncio.Queue[RunEventPayload | None] | None]:
     """验证运行与游标并原子登记独立 WS 配额。"""
     record = service.run(run_id)
@@ -195,7 +199,7 @@ async def _prepare_subscription(
         )
         return None, None, None
     queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue(maxsize=record.subscriber_queue_size)
-    if not record.try_add_ws_subscriber(queue, service.config.ws_max_connections):
+    if not record.try_add_ws_subscriber(queue, max_connections):
         await _send_error(
             websocket,
             HttpErrorCode.RATE_LIMITED,
@@ -210,8 +214,9 @@ def build_ws_endpoint(
     service: RunWebSocketService,
     *,
     origin_violation: OriginCheck,
+    max_connections: int,
 ) -> Callable[[WebSocketLike], Awaitable[None]]:
-    """构造单 run WebSocket endpoint；Origin 规则由 http_server 单点注入。"""
+    """构造单 run WebSocket endpoint；Origin 规则与连接额度由宿主（ws_host/http_server 时代为后者）单点注入。"""
 
     async def endpoint(websocket: WebSocketLike) -> None:
         started = time.perf_counter()
@@ -232,7 +237,7 @@ def build_ws_endpoint(
                     close_code=WS_CLOSE_GOING_AWAY,
                 )
                 return
-            record, cursor, queue = await _prepare_subscription(websocket, service, run_id)
+            record, cursor, queue = await _prepare_subscription(websocket, service, run_id, max_connections)
             if record is None or queue is None:
                 return
             service.register_ws(connection_id, run_id, websocket)

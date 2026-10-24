@@ -1,7 +1,8 @@
 """CLI 旁路 WS 端点端到端契约（Epic 55）：真实 TCP + 真实 websockets 客户端。
 
-与 ``test_http_ws_e2e.py`` 同手法（``port=0`` + ``serve_forever`` + 真客户端），区别是被测端点
+与 ``test_ws_e2e.py`` 同手法（``port=0`` + ``serve_forever`` + 真客户端），区别是被测端点
 ``/api/cli/ws`` 订阅的是**终端自己那一轮** run（跨轮次、无 run 记录、无取消通道）。
+Epic 56 D1/D7：宿主自 HttpServer 迁至 WsServer（9001），本文件随之改驱动并更名。
 """
 
 from __future__ import annotations
@@ -14,17 +15,17 @@ import pytest
 
 from heagent.network.cli_event_hub import CliEventHub
 from heagent.network.http_protocol import HttpErrorCode
-from heagent.network.http_server import HttpServer, HttpServerConfig
+from heagent.network.ws_host import WsServer, WsServerConfig
 
 websockets = pytest.importorskip("websockets")
 
 
-def _server_config(**kwargs: Any) -> HttpServerConfig:
-    return HttpServerConfig(port=0, request_timeout=0, idle_timeout=0, tool_inflight_timeout=0, **kwargs)
+def _ws_config() -> WsServerConfig:
+    return WsServerConfig(port=0, shutdown_timeout=1)
 
 
-async def _start(hub: CliEventHub | None, **config_kwargs: Any) -> tuple[HttpServer, asyncio.Task[None]]:
-    server = HttpServer(_server_config(**config_kwargs), version="test", cli_hub=hub)
+async def _start(hub: CliEventHub | None) -> tuple[WsServer, asyncio.Task[None]]:
+    server = WsServer(_ws_config(), cli_hub=hub)
     await server.start()
     task = asyncio.create_task(server.serve_forever())
     # 让 serve 循环真正进入 ``main_loop`` 再返回：否则「建任务后立刻 close()」的用例里
@@ -33,7 +34,7 @@ async def _start(hub: CliEventHub | None, **config_kwargs: Any) -> tuple[HttpSer
     return server, task
 
 
-async def _stop(server: HttpServer, task: asyncio.Task[None]) -> None:
+async def _stop(server: WsServer, task: asyncio.Task[None]) -> None:
     await server.close()
     await asyncio.wait_for(task, timeout=5)
 

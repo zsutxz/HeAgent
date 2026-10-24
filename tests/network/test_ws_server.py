@@ -1,0 +1,375 @@
+"""Epic 56 Story 56-1：WS server 宿主（ws_host）纯逻辑面 + 分离判据。
+
+与 e2e（``test_ws_e2e.py`` / ``test_cli_ws_e2e.py``）的分工：这里用替身与真实 listener 钉住
+**配置契约、路由注册矩阵、双 server 分离判据与生命周期**；端到端语义（订阅/续传/cancel/ping/
+限额/关停）随 56-1 迁入 e2e 文件（原 ``test_http_ws_e2e`` / ``test_http_cli_ws``，HttpServer
+驱动 → WsServer 驱动）。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import socket
+from pathlib import Path
+from typing import Any
+
+import pytest
+from pydantic import ValidationError
+
+from heagent.config import Settings
+from heagent.config.catalog import RESOURCE_CEILINGS, classify, whitelist
+from heagent.network.cli_event_hub import CliEventHub
+from heagent.network.http_protocol import RunOutcome
+from heagent.network.http_server import HttpRunService, HttpServerConfig
+from heagent.network.ws_host import (
+    RUNS_WS_PATH,
+    WsServer,
+    WsServerConfig,
+    WsStartupError,
+    build_ws_app,
+)
+from heagent.network.ws_protocol import WS_MAX_FRAME_BYTES, WS_PING_INTERVAL_SECONDS, WS_PING_TIMEOUT_SECONDS
+
+websockets = pytest.importorskip("websockets")
+
+
+class _BlockingExecutor:
+    """先发三帧事件再挂起等待释放的替身运行器（供生命周期用例）。"""
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.cancelled = 0
+
+    async def __call__(self, prompt: str, publisher: Any) -> RunOutcome:
+        publisher.text("hello")
+        publisher.tool_call("shell", "echo hello")
+        publisher.tool_result("shell", "hello", is_error=False)
+        self.started.set()
+        try:
+            await self.release.wait()
+        except asyncio.CancelledError:
+            self.cancelled += 1
+            raise
+        return RunOutcome(answer=prompt)
+
+
+# ---- 配置契约（自 test_http_ws_config.py 迁入并按 D1 更名）----
+
+
+def test_ws_config_defaults_are_synced_with_settings() -> None:
+    """``WS_MAX_CONNECTIONS`` 设置与 ``WsServerConfig`` 默认值同源同校验（迁移自 54-2 契约）。"""
+    settings_field = Settings.model_fields["ws_max_connections"]
+    config_field = WsServerConfig.model_fields["ws_max_connections"]
+
+    assert settings_field.default == config_field.default == 16
+    assert Settings().ws_max_connections == 16
+    assert WsServerConfig().ws_max_connections == 16
+    for value in (0, -1):
+        with pytest.raises(ValidationError):
+            Settings(ws_max_connections=value)
+        with pytest.raises(ValidationError):
+            WsServerConfig(ws_max_connections=value)
+
+
+def test_ws_server_config_defaults_pin_d1_topology() -> None:
+    """默认 127.0.0.1:9001 是 D1 冻结值；port=0（随机端口）仅测试用。"""
+    config = WsServerConfig()
+    assert (config.host, config.port, config.ws_max_connections, config.shutdown_timeout) == (
+        "127.0.0.1",
+        9001,
+        16,
+        5.0,
+    )
+    with pytest.raises(ValidationError):
+        WsServerConfig(port=0 - 1)
+    with pytest.raises(ValidationError):
+        WsServerConfig(shutdown_timeout=0)
+
+
+def test_ws_limit_is_classified_as_read_only_listening_surface() -> None:
+    result = classify("WS_MAX_CONNECTIONS")
+    assert result.reason == "listening_surface"
+    assert not result.writable
+    assert "WS_MAX_CONNECTIONS" not in whitelist()
+    assert "WS_MAX_CONNECTIONS" not in RESOURCE_CEILINGS
+    assert classify("WS_HOST").reason == "listening_surface"
+    assert classify("WS_PORT").reason == "listening_surface"
+
+
+def test_ws_config_documented_in_env_example() -> None:
+    example = Path(".env.example").read_text(encoding="utf-8")
+    assert "WS_MAX_CONNECTIONS=16" in example
+    assert "HTTP_WS_MAX_CONNECTIONS" not in example
+
+
+def test_uvicorn_ws_options_moved_to_ws_host() -> None:
+    """uvicorn WS 参数随 D1 迁移：ws_host 有、http_server 无（既有 54-2 契约换宿主）。"""
+    ws_source = Path("src/heagent/network/ws_host.py").read_text(encoding="utf-8")
+    http_source = Path("src/heagent/network/http_server.py").read_text(encoding="utf-8")
+    assert "ws_max_size=WS_MAX_FRAME_BYTES" in ws_source
+    assert "ws_ping_interval=WS_PING_INTERVAL_SECONDS" in ws_source
+    assert "ws_ping_timeout=WS_PING_TIMEOUT_SECONDS" in ws_source
+    assert WS_PING_INTERVAL_SECONDS == 15.0
+    assert WS_PING_TIMEOUT_SECONDS == 20.0
+    assert WS_MAX_FRAME_BYTES == 64 * 1024
+    assert "ws_max_size=" not in http_source
+    assert "ws_ping_interval=" not in http_source
+
+
+# ---- CLI 旁路开关（自 54-2/55 契约迁入并按 D7 更名）----
+
+
+def test_cli_bypass_is_off_by_default_and_documented() -> None:
+    """默认关是契约：无认证的本机通道不该因为拆分就自己打开。"""
+    assert Settings().ws_cli_bypass_enabled is False
+    example = Path(".env.example").read_text(encoding="utf-8")
+    assert "WS_CLI_BYPASS_ENABLED=false" in example
+    assert "HTTP_CLI_WS_ENABLED" not in example
+
+
+def test_cli_bypass_switch_is_classified_as_read_only_listening_surface() -> None:
+    result = classify("WS_CLI_BYPASS_ENABLED")
+    assert result.reason == "listening_surface"
+    assert not result.writable
+    assert "WS_CLI_BYPASS_ENABLED" not in whitelist()
+
+
+@pytest.mark.embedded_http_service
+def test_embedded_service_only_attaches_a_hub_when_the_switch_is_on() -> None:
+    """embedded_http_service 标记：要断言真实的 build_http_service（conftest 默认打桩）。"""
+    from heagent.cli.http import build_http_service
+
+    assert build_http_service(Settings(), executor=None).cli_hub is None
+    hub = build_http_service(Settings(ws_cli_bypass_enabled=True), executor=None).cli_hub
+    assert hub is not None
+    # 额度取自同一个监听面旋钮：旁路只有一条流，故按 hub 计（与每 run 的 WS 额度是不同口径）。
+    assert hub.max_connections == Settings().ws_max_connections
+
+
+# ---- 路由注册矩阵与分离判据（D1 可执行判据）----
+
+
+def _ws_config(**kwargs: Any) -> WsServerConfig:
+    return WsServerConfig(port=0, shutdown_timeout=1, **kwargs)
+
+
+def _http_config(**kwargs: Any) -> HttpServerConfig:
+    return HttpServerConfig(port=0, request_timeout=0, idle_timeout=0, tool_inflight_timeout=0, **kwargs)
+
+
+async def _raw_status(port: int, path: str) -> int:
+    """异步裸 HTTP GET 的状态行（异步用例禁同步 urllib：会阻塞事件循环自身造成假超时）。"""
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        request = ("GET " + path + " HTTP/1.1\r\n" + "host: 127.0.0.1:%d\r\n" + "connection: close\r\n\r\n") % port
+        writer.write(request.encode())
+        await writer.drain()
+        line = await asyncio.wait_for(reader.readline(), timeout=3)
+        return int(line.split()[1])
+    finally:
+        writer.close()
+
+
+def _run_app_matrix(app: Any) -> tuple[int, int]:
+    """对 app 各打一个 HTTP GET 与一次 WS 升级（ASGI 层），返回 (http_status, ws_close_code)。"""
+    from starlette.testclient import TestClient
+
+    client = TestClient(app)
+    response = client.get("/api/health")
+    try:
+        with client.websocket_connect(RUNS_WS_PATH.replace("{run_id}", "nope")) as ws:
+            ws.receive_json()
+            close_code = -1
+    except Exception as exc:  # TestClient 把「未 accept 即关」收敛为异常
+        close_code = getattr(exc, "code", -1)
+    return response.status_code, close_code
+
+
+def test_ws_app_has_zero_http_surface() -> None:
+    """D1 判据之 9001 侧：REST / 控制台页 / 健康检查全 404（Starlette 默认 404 文本）。"""
+    config = _ws_config()
+    for app in (
+        build_ws_app(config),
+        build_ws_app(config, run_service=HttpRunService(_http_config(), None)),
+        build_ws_app(config, cli_hub=CliEventHub()),
+    ):
+        from starlette.testclient import TestClient
+
+        client = TestClient(app)
+        for path in ("/", "/api/health", "/api/runs", "/api/projects", "/api/session"):
+            response = client.get(path)
+            assert response.status_code == 404, path
+            assert response.headers["content-type"].startswith("text/plain")
+
+
+def test_http_app_no_longer_hosts_websocket_routes() -> None:
+    from starlette.testclient import WebSocketDisconnect
+
+    """D1 判据之 8766 侧（ASGI 层）：HTTP app 对任意 WS 升级路径不再 accept。"""
+    from starlette.testclient import TestClient
+
+    from heagent.network.http_server import HttpServer
+
+    server = HttpServer(_http_config(), version="test")
+    client = TestClient(server.app)
+    with pytest.raises(WebSocketDisconnect), client.websocket_connect("/api/runs/nope/ws"):
+        pass
+
+
+@pytest.mark.asyncio
+async def test_http_listener_rejects_ws_upgrade_over_real_tcp() -> None:
+    """D1 判据之 8766 侧（真实 TCP）：升级被拒、未 accept。
+
+    裁定①A：钉实测「非 101、未 accept」（Starlette 1.3.1 在真实 Uvicorn 下回 HTTP 403），
+    不钉 brief 验收措辞的字面 404——判据本质是「8766 上 WS 不可达」。
+    """
+    service = HttpRunService(_http_config(), _BlockingExecutor())
+    from heagent.network.http_server import HttpServer
+
+    server = HttpServer(_http_config(), version="test", run_service=service)
+    await server.start()
+    task = asyncio.create_task(server.serve_forever())
+    try:
+        with pytest.raises(websockets.exceptions.InvalidStatus) as rejected:
+            async with websockets.connect(f"ws://127.0.0.1:{server.port}/api/runs/x/ws"):
+                pass
+        assert rejected.value.response.status_code == 403
+        # 同一 listener 的 HTTP 面零改动：健康检查照常 200。
+        assert await _raw_status(server.port, "/api/health") == 200
+    finally:
+        await server.close()
+        await asyncio.wait_for(task, timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_ws_listener_serves_no_http_api_over_real_tcp() -> None:
+    """D1 判据之 9001 侧（真实 TCP）：REST/静态页/健康检查全 404，WS 端点可达。"""
+    service = HttpRunService(_http_config(), _BlockingExecutor())
+    hub = CliEventHub()
+    server = WsServer(_ws_config(), run_service=service, cli_hub=hub)
+    await server.start()
+    task = asyncio.create_task(server.serve_forever())
+    try:
+        for path in ("/", "/api/health", "/api/runs", "/api/projects", "/web/app.js"):
+            assert await _raw_status(server.port, path) == 404, path
+        # 端点本体可达：无 run 记录时订阅被端点拒绝（unknown_run），而非路由 403。
+        async with websockets.connect(f"ws://127.0.0.1:{server.port}/api/runs/x/ws") as ws:
+            frame = json.loads(await ws.recv())
+        assert frame["type"] == "error"
+        assert frame["error"]["error"]["code"] == "unknown_run"
+    finally:
+        await server.close()
+        await asyncio.wait_for(task, timeout=5)
+
+
+# ---- WsServer 生命周期 ----
+
+
+@pytest.mark.asyncio
+async def test_ws_server_start_serves_and_closes_idempotently() -> None:
+    server = WsServer(_ws_config(), run_service=HttpRunService(_http_config(), _BlockingExecutor()))
+    await server.start()
+    # 让 serve 协程先进入 main_loop 再 close：否则协程体在 _server 已置空后才首次被调度，
+    # 会抛 RuntimeError（test_http_cli_ws 时代的同一坑）。
+    task = asyncio.create_task(server.serve_forever())
+    await asyncio.sleep(0)
+    try:
+        assert server.port > 0
+        assert server.address == f"127.0.0.1:{server.port}"
+        await server.close()
+        await server.close()  # 幂等
+    finally:
+        await asyncio.wait_for(task, timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_ws_server_close_alone_never_cancels_runs() -> None:
+    """断线语义（D1 拆分后归属 WS 侧）：关 WS listener 只注销连接，绝不取消运行。
+
+    运行的终结归 HTTP 侧的 service.close()（入口层编排 HTTP 先、WS 后）。
+    """
+    executor = _BlockingExecutor()
+    service = HttpRunService(_http_config(), executor)
+    server = WsServer(_ws_config(), run_service=service)
+    await server.start()
+    task = asyncio.create_task(server.serve_forever())
+    record = await service.start_run("answer")
+    try:
+        await executor.started.wait()
+        uri = f"ws://127.0.0.1:{server.port}/api/runs/{record.run_id}/ws"
+        async with websockets.connect(uri):
+            while service.ws_connection_count(record) == 0:
+                await asyncio.sleep(0)
+        await asyncio.sleep(0.1)
+        await server.close()
+        await asyncio.wait_for(task, timeout=5)
+        assert record.status.value == "running"
+        assert service.ws_connection_count(record) == 0
+    finally:
+        executor.release.set()
+        await service.close()
+        if not task.done():
+            await asyncio.wait_for(task, timeout=5)
+
+
+@pytest.mark.asyncio
+async def test_ws_server_start_fails_loud_when_port_explicitly_taken() -> None:
+    """显式端口被占 ⇒ WsStartupError（fail-loud，不静默换端口）。"""
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        taken = blocker.getsockname()[1]
+        server = WsServer(WsServerConfig(host="127.0.0.1", port=taken, shutdown_timeout=1))
+        with pytest.raises(WsStartupError):
+            await server.start()
+
+
+def test_ws_unavailable_diagnostic_is_logged_once(monkeypatch: pytest.MonkeyPatch, caplog: Any) -> None:
+    """缺 websockets（ws_protocol_class=None）⇒ 安装诊断一条、且只记一次（spec I/O 矩阵行）。"""
+    import logging
+
+    server = WsServer(_ws_config())
+    fake = type("FakeServer", (), {"config": type("FakeConfig", (), {"ws_protocol_class": None})()})()
+    with caplog.at_level(logging.WARNING, logger="heagent.network.ws_host"):
+        server._log_ws_unavailable_once(fake)
+        server._log_ws_unavailable_once(fake)
+    hints = [rec for rec in caplog.records if "ws_unavailable" in rec.getMessage()]
+    assert len(hints) == 1
+    assert "heagent[http]" in hints[0].getMessage()
+
+
+# ---- 组合根装配（build_ws_server_config / 双 server 编排）----
+
+
+def test_build_ws_server_config_maps_settings_and_overrides() -> None:
+    from heagent.cli.http import build_ws_server_config
+
+    assert build_ws_server_config(Settings()).port == 9001
+    assert build_ws_server_config(Settings(ws_port=9100)).port == 9100
+    assert build_ws_server_config(Settings(), port=9200).port == 9200
+    assert build_ws_server_config(Settings(), host="0.0.0.0").host == "0.0.0.0"
+    assert build_ws_server_config(Settings(), max_connections=7).ws_max_connections == 7
+    assert build_ws_server_config(Settings(), shutdown_timeout=9).shutdown_timeout == 9.0
+
+
+def test_build_ws_server_config_autofind_starts_from_ws_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    """自动顺延的基准 = WS 端口（9001），不是 HTTP 端口——两条 listener 独立漂移。"""
+    from heagent.cli.http import build_ws_server_config
+
+    with socket.socket() as blocker:
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        taken = blocker.getsockname()[1]
+        monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "5")
+        config = build_ws_server_config(Settings(ws_port=taken))
+        assert config.port == taken + 1
+
+
+def test_build_server_config_no_longer_carries_ws_knob() -> None:
+    """D1：HTTP 配置面不再有 ws_max_connections（旋钮迁 WS 配置面）。"""
+    from heagent.cli.http import build_server_config
+
+    config = build_server_config(Settings())
+    assert not hasattr(config, "ws_max_connections")

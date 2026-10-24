@@ -96,7 +96,7 @@ logger = logging.getLogger(__name__)
 async def _cli_hub_scope(http: Any) -> AsyncIterator[Any]:
     """把内嵌 HTTP 服务上的旁路中枢挂到当前任务的 contextvar 上。
 
-    服务未开启旁路（`HTTP_CLI_WS_ENABLED` 关）或测试替身没有该属性时，作用域里是 ``None`` ——
+    服务未开启旁路（`WS_CLI_BYPASS_ENABLED` 关）或测试替身没有该属性时，作用域里是 ``None`` ——
     所有发布点因此天然是空操作，不需要在调用处再判一次「功能开没开」。
     """
     hub = getattr(http, "cli_hub", None)

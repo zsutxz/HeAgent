@@ -32,3 +32,7 @@
 - **违规写无补救语义**（workflow_runner.py:633）：判负只置 FAILED+闩，越集文件留工作区；闩后串行重跑新基线已含旧违规，审计对其失明。需人工清理指引或回滚工具；与基线盲区同族。
 - **_host_artifact_relpath 参照系**（cli/goal.py:454-457）：resolve+relative_to 大小写敏感（Windows 大小写漂移→静默 ""），workspace≠repo root 时跨参照系比较。当前部署两者相等；失败方向是误判非漏判。
 - **52-3 AC1 端到端围栏贯通冒烟**：围栏 BLOCKED 由 52-1 单测、宿主参数传递由 52-3 断言分段覆盖；单一贯通（工具链真拦越集写）测试留待后续补。
+
+- source_spec: `_bmad-output/epics/epic-56-WS对外入口周期/stories/56-1-ws-server-split.md`
+  summary: EmbeddedHttpService 双 serve 循环之一意外死亡时 failure 属性的传播路径缺直接测试
+  evidence: triage#3（low）。现有覆盖 = fake 单循环死亡的 lifecycle 测试（打桩层）+ 真实双 server 干净启停；真实双 listener 故障注入（杀掉 heagent-http-serve 任务后断言 failure 暴露且另一 listener 有界收尾）未落地。适合作 56-4 质量门或 retro 补测试面时一并处理。

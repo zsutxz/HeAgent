@@ -385,7 +385,8 @@ EXCLUSION_GROUPS: tuple[ConfigGroupSpec, ...] = (
     ConfigGroupSpec(
         id="listening",
         label="监听面",
-        patterns=("HTTP_*",),
+        # Epic 56 D1：WS server 独立成 WS_* 配置面，与 HTTP_* 同属「监听面」。
+        patterns=("HTTP_*", "WS_*"),
         reason="listening_surface",
     ),
     ConfigGroupSpec(

@@ -64,7 +64,7 @@ class CliEventHub:
     """CLI 旁路事件的唯一状态源（seq / 缓冲 / 订阅者 / 关停）。
 
     ``max_connections`` 是**整个旁路流**的连接上限（不是每 run）：旁路只有一条流，与
-    ``/api/runs/{id}/ws`` 的「每 run 一份额度」是不同口径，故从 ``HTTP_WS_MAX_CONNECTIONS``
+    ``/api/runs/{id}/ws`` 的「每 run 一份额度」是不同口径，故从 ``WS_MAX_CONNECTIONS``
     取值但语义按 hub 计。
     """
 

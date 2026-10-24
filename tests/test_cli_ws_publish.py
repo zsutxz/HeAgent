@@ -173,9 +173,7 @@ def test_mirror_is_a_no_op_without_a_hub() -> None:
 def test_scope_propagates_into_the_stream_mirror() -> None:
     """``_cli_hub_scope`` 的作用域必须真的到达 ``_consume_stream``（contextvar 传播判据）。"""
     hub = _RecordingHub()
-    loop = _StubLoop(
-        [StreamEvent(type="text", text="hi"), StreamEvent(type="done", final_answer="ok")]
-    )
+    loop = _StubLoop([StreamEvent(type="text", text="hi"), StreamEvent(type="done", final_answer="ok")])
 
     async def scenario() -> None:
         async with interactive._cli_hub_scope(SimpleNamespace(cli_hub=hub)):
