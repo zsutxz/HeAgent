@@ -51,3 +51,26 @@ Epic 54/55 语义。经 WS **提交 run** 翻 Epic 54 D2 案；配置/项目/会
 | D3 认证、D4 TLS、D5 监听模式 | 56-2 |
 | D2 提交 run、D6 单用户共享 | 56-3 |
 | 全部判据收口与文档义务 | 56-4 |
+
+---
+
+# 期二 Story 列表（双 WS 监听并存，2026-10-24 立项；冻结值见 `brief.md` D8–D14）
+
+| Story | 名称 | 依赖 | 状态 | 交付物 | 验收要点 |
+|---|---|---|---|---|---|
+| 56-5 | 配置面与双 listener 装配 | 期一 56-1..56-4 | backlog | Settings 新增 `ws_external_host`（默认 `None`）/ `ws_external_port`（默认 `9002`）/ `ws_external_tls_cert_file` / `ws_external_tls_key_file`；`WsServerConfig` 增加 `listener` 标签（`local`/`external`）；`build_ws_servers()` 返回 1–2 个 `WsServer`；`EmbeddedHttpService` 持有 server 列表；CLI `--ws-external-host` / `--ws-external-port`；`.env.example` +4 键 | 不配 `WS_EXTERNAL_HOST` 时既有全部测试**零改动**全绿；配置矩阵四例 fail-loud（对外键回环值 / 主 listener 已非回环时再配对外 / 对外缺 token / TLS 半配）；双 listener 各自公告与 `listener=` 日志；启动失败回滚已启动的全部 |
+| 56-6 | 端点可见性与双监听安全不变量 | 56-5 | backlog | 对外 listener 仅注册提交 + 订阅（不注册 `/api/cli/ws`）；`WS_CLI_BYPASS_ENABLED=true` + 对外 listener ⇒ 跳过旁路 + `ws event=cli_bypass_skipped` WARNING；对外 TLS 独立键与 `WS_TLS_*` 继承；双监听 e2e 判据 | 本地（无 token）与对外（token）**同时**可连；同一 run 两 listener 订阅拿同源 `seq`；对外打 `/api/cli/ws` ⇒ 403；单对外 + 旁路开 ⇒ 旁路被跳过且日志可见；提交席位两 listener 独立计数 |
+| 56-8 | 对外 listener 只读旁观（retro P2-A3） | 56-6 | done | `WsServerConfig.readonly`（listener 级）；`build_ws_app` 不注册提交端点；`cancel` 拒绝不断连；Settings `WS_EXTERNAL_READONLY`（默认关）；CLI `--ws-external-readonly/--ws-external-writable`（三态）；文档 + 四层判据 | 只读 listener 提交端点 403；订阅正常；`cancel` 回 `invalid_request` 且运行未取消；默认关（零行为变化）；CLI 可把设置里的 `true` 显式关掉 |
+| 56-7 | 文档、契约与质量门 | 56-6 | backlog | `docs/frame.md` 4.17/4.18 双监听拓扑（配置表 +4 键、模式派生表）；`AGENTS.md` 安全声明补双监听口径；`deploy/README.md` 部署示例；`tests/test_architecture_contracts.py` 钉「对外 listener 端点集 = {提交, 订阅}」；全量门禁实测登记 | 契约测试可执行地断言端点集；`pytest` / `ruff check` / `ruff format --check` / `mypy src`（+`--platform linux`）/ `bandit -r src/ -ll` / `scripts/quality_gate.py` 全绿并登记实测数字 |
+
+## 期二实施约束
+
+1. 交付顺序 `56-5 → 56-6 → 56-7`（串行：56-6 依赖 56-5 的装配形状）；`56-8` 由期二 retro P2-A3 追加，依赖 56-6。
+2. **零行为变化红线**：不配 `WS_EXTERNAL_HOST` 时，期二代码路径与期一逐字等价；既有测试不得为迁就新形状而放宽断言。
+3. 端点逻辑仍然**不重写**：56-6 只决定「哪个 listener 注册哪些路由」，`ws_server.py` 端点函数体不动。
+4. 限额语义按 D11：订阅共享（既有实现）、提交席位与认证限速按 listener 各自一份，**不新增**额度键。
+5. 安全 fail-closed 红线沿用期一：对外 listener 缺 token / 回环 / TLS 半配一律启动期拒绝，绝不降级。
+6. 新增 Settings 字段三处同步：`.env.example` + `catalog.classify` 归组（`WS_*` 模式已覆盖，需实测确认）+ `docs/frame.md` 配置表。
+7. 每个 story 的验证命令执行后登记**实测**结果；不伪造未运行的命令。
+
+> 期一 56-1..56-4 的交付与验收记录见上方表格与 `stories/`；期二 story 正文见 `stories/56-{5,6,7}-*.md`。

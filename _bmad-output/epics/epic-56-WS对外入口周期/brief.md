@@ -72,3 +72,56 @@
 
 - 不做：双 WS 监听并存（本机免 token + 对外有 token 同时服务，期二另裁）、多租户/多用户隔离、细粒度权限、反向代理支持、控制台前端切换 WS
 - 不改：本机 HTTP/SSE 既有行为、AGENTS.md 依赖方向与 OS 沙箱兜底立场
+
+---
+
+# 期二 · 双 WS 监听并存（2026-10-24 立项，D8–D14 同日由用户拍板冻结）
+
+> 决策来源 = `phase2-proposal.md`（勘察 + 提案）→ **用户 2026-10-24 回复「按推荐的走」**，本表为冻结值。
+> 期一 D1–D7 全部继续有效；期二只**扩面**，不改期一任何冻结值（D5 的「期二另裁」由此节闭合）。
+
+## 期二目标
+
+在**同一进程**内再起**一个** WS listener，使「本机免 token」与「对外带 token」**同时**可用：
+
+- **主 listener**：沿用 `WS_HOST` / `WS_PORT`，**期一语义逐字不变**（回环 = 本地模式；非回环 = 对外模式）；
+- **对外 listener**（新增，可缺省不启用）：非回环绑定 + token 强制 + TLS 可选；
+- 两者共享同一个 `HttpRunService`（run 记录、名额、`cancel` 语义因此天然一致），
+  **端点可见性不同**：终端内容（`/api/cli/ws`）**只**出现在本地 listener 上。
+
+## 冻结决策（D8–D14）
+
+| # | 决策 | 冻结值 |
+|---|------|--------|
+| D8 | 配置面 | **主/副双键**：`WS_HOST` / `WS_PORT`（主 listener，期一语义不变）+ 新增 `WS_EXTERNAL_HOST`（默认 `None` = 不启用）+ `WS_EXTERNAL_PORT`（默认 `9002`）。`WS_EXTERNAL_HOST` 非空即启用对外 listener，且**必须非回环**（回环值 fail-loud）；主 listener 已非回环时再配 `WS_EXTERNAL_HOST` ⇒ fail-loud（两个对外 listener 无意义）。列表式 `WS_BIND` **否** |
+| D9 | 端点可见性 | 提交 `/api/runs/ws` 与订阅 `/api/runs/{run_id}/ws` 在**两个** listener 上都注册；CLI 旁路 `/api/cli/ws` **只**在本地 listener 注册，对外 listener 上不注册（客户端拿 403）。**连带收紧**：任何对外 listener 都不提供 CLI 旁路——期一的「`WS_HOST=0.0.0.0` + `WS_CLI_BYPASS_ENABLED=true`」组合起改为跳过旁路并打 `ws event=cli_bypass_skipped reason=external_listener` WARNING |
+| D10 | TLS 归属 | 对外 listener 用 `WS_EXTERNAL_TLS_CERT_FILE` / `WS_EXTERNAL_TLS_KEY_FILE`，**缺省继承** `WS_TLS_*`；半配 fail-loud（期一同口径）。这样「本地明文 + 对外 wss」可配，而期一单对外部署的既有配置照旧生效 |
+| D11 | 限额 | 订阅额度按 run record 天然共享（无需改动）；提交席位池每个 listener 各 `ws_max_connections` 席（双监听上限 2×N）；认证失败限速每个 listener 独立窗口。**不新增** `WS_EXTERNAL_MAX_CONNECTIONS` |
+| D12 | 装配与生命周期 | 新增 `build_ws_servers()` 返回 1–2 个 `WsServer`；`EmbeddedHttpService` 持有 server **列表**。启动顺序 HTTP → 本地 WS → 对外 WS，任一失败**回滚已启动的全部**；关停 HTTP 先（排空在途 run 到终态）再逐个 WS（并行）。公告与日志带 `listener=local|external` 标记（既有事件名不变） |
+| D13 | 观测 | 对外 listener 沿用期一 `ws event=exposed host=… mode=external auth=token tls=…` 与 `ws event=plaintext_external`（补 `listener=` 标记）；本地 listener 沿用 `exposure_warning` 判定 |
+| D14 | 文档与契约义务 | `docs/frame.md` 4.17/4.18 增双监听拓扑（配置表 +4 键、模式派生表补「主=本地 / 副=对外」行）；`AGENTS.md` 安全声明补双监听口径（立场不变）；`deploy/README.md` 补双监听部署示例；`.env.example` +4 键 + 一行「终端旁路只在本地 listener」；`tests/test_architecture_contracts.py` 钉住「对外 listener 端点集 = {提交, 订阅}」 |
+
+## 期二范围（story 拆分见 `epics.md` 期二节）
+
+1. **配置面与双 listener 装配**（56-5）：Settings 4 键、`WsServerConfig` 增加 listener 标签、
+   `build_ws_servers()`、`EmbeddedHttpService` 列表化、CLI `--ws-external-host` / `--ws-external-port`、`.env.example`
+2. **端点可见性与双监听安全不变量**（56-6）：对外 listener 仅注册提交 + 订阅；CLI 旁路跳过 + WARNING；
+   对外独立 TLS 键与继承；双监听 e2e 判据
+3. **文档、契约与质量门**（56-7）：`frame.md` / `AGENTS.md` / `deploy/README.md` / 架构契约 / 全量门禁实测登记
+
+## 期二验收标准
+
+1. **零行为变化**：不配 `WS_EXTERNAL_HOST` 时期二与期一完全等价（既有全部测试零改动全绿）
+2. 双监听并存：本地 listener（无 token 可连）与对外 listener（必须 token）**同时**服务；
+   同一 run 从两个 listener 订阅拿到**同源**事件（`seq` 单调且一致）
+3. 对外 listener 上 `/api/cli/ws` **不可达**（403）；`WS_CLI_BYPASS_ENABLED=true` + 单对外 ⇒ 旁路被跳过且日志可见
+4. 配置 fail-loud 四例：`WS_EXTERNAL_HOST` 回环值 / 主 listener 已非回环时再配对外 / 对外缺 token / TLS 半配
+5. 提交席位双 listener 独立计数（2×`WS_MAX_CONNECTIONS`），订阅额度仍按 run 共享
+6. 启动/关停全有界：任一 listener 起不来 ⇒ 已启动的全部回滚，不留半启动状态
+7. `pytest` / `ruff check` / `ruff format --check` / `mypy src` / `bandit -r src/ -ll` / 架构契约全绿（实测登记）
+
+## 期二冻结边界
+
+- 不做：多租户/多用户隔离、细粒度权限（按 listener / 按端点授权）、反向代理支持、
+  `WS_EXTERNAL_MAX_CONNECTIONS`（额度复用 `WS_MAX_CONNECTIONS`）、对外 listener 上的终端旁路
+- 不改：期一 D1–D7、本机 HTTP/SSE 行为、`network/` 依赖方向、OS 沙箱兜底立场
