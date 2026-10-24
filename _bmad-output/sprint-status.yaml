@@ -563,6 +563,28 @@ development_status:
   54-3-ws-endpoint: planned
   54-4-docs-contracts-quality-gate: planned
   epic-54-retrospective: optional
+
+  # ═══════════════════════════════════════════════════════════════
+  # CLI 旁路周期 · Epic 55（2026-10-23/24 实现，随压缩提交 98ef6d8 入库；2026-10-24 回溯补 brief 并登记本文件）
+  # CLI 终端轮次的旁路事件中枢：/api/cli/ws 跨轮次只读观众席流；终端独占所有权，
+  # cancel 拒绝不断连；无 story 拆分（回溯周期，brief 遗留节已声明不再补拆）。
+  epic-55: done  # 代码随 98ef6d8 入库；无 story 行（回溯周期，brief 遗留节声明不再补拆）
+  epic-55-retrospective: optional
+
+  # ═══════════════════════════════════════════════════════════════
+  # WS 对外入口周期 · Epic 56（2026-10-24 立项并登记本文件）
+  # HTTP 与 WS 完全分离：HTTP server 纯 HTTP+SSE（回环 only，移除全部 WS 路由）；
+  # 新 WS server 独立 ASGI app（默认 127.0.0.1:9001，零 HTTP 路由），两条既有 WS 端点迁入
+  # （路径不变、端口 8766→9001 唯一 breaking change）。对外模式（非回环绑定）= 认证强制
+  # （静态 token fail-closed）+ TLS 可选；本地模式保持 Epic 54/55 语义。
+  # 经 WS 提交 run 翻 Epic 54 D2 案；配置/项目/会话只走本机 HTTP。
+  # 阶段映射：A=56-1；B=56-2,56-3；C=56-4
+  epic-56: backlog
+  56-1-ws-server-split: backlog
+  56-2-external-mode-auth-tls: backlog
+  56-3-ws-run-submit: backlog
+  56-4-docs-contracts-quality-gate: backlog
+  epic-56-retrospective: optional
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
     epic: 52
