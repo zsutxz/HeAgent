@@ -33,7 +33,6 @@ _GPT_POOL = (
 def _clear_all_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     for key in (
         "DEEPSEEK_API_KEY",
-        "OPENAI_API_KEY",
         "OPENAI_RESPONSES_API_KEY",
         "ANTHROPIC_API_KEY",
         "KIMI_API_KEY",
@@ -456,16 +455,6 @@ class TestBuildProviderGpt:
         )
         assert isinstance(provider, OpenAIResponsesProvider)
         assert provider.get_metadata().model == "gpt-5.6-sol"
-
-    def test_gpt_and_openai_coexist_in_pool(self, hermetic) -> None:
-        provider = _build_provider(
-            Settings(openai_api_key="sk-chat", openai_responses_api_key="sk-gpt"),
-            None,
-        )
-        assert isinstance(provider, SwitchableProvider)
-        assert set(provider.names) == {"openai", "gpt"}
-        assert isinstance(provider.providers["openai"], OpenAIProvider)
-        assert isinstance(provider.providers["gpt"], OpenAIResponsesProvider)
 
 
 class TestBuildProviderGptRouting:

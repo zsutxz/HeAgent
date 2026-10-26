@@ -558,8 +558,6 @@ class TestSecrets:
             "GLM_API_KEY",
             "KIMI_API_KEY",
             "OLLAMA_API_KEY",
-            "OPENAI_API_KEY",
-            "OPENAI_API_KEYS",
             "OPENAI_RESPONSES_API_KEY",
         }
         for item in _report(_write(tmp_path / ".env", [])).items:
@@ -570,7 +568,7 @@ class TestSecrets:
         project = _write(tmp_path / ".env", ["KIMI_API_KEY=kimi-live-key"])
         items = _by_key(_report(project))
         present = items["KIMI_API_KEY"]
-        absent = items["OPENAI_API_KEY"]
+        absent = items["OPENAI_RESPONSES_API_KEY"]
         assert (present.configured, present.masked) == (True, MASK)  # type: ignore[union-attr]
         assert (absent.configured, absent.masked) == (False, None)  # type: ignore[union-attr]
 
@@ -587,10 +585,10 @@ class TestSecrets:
 
     def test_multi_key_list_does_not_leak(self, tmp_path: Path) -> None:
         """AC4 负向：多密钥（逗号列表）同样只回布尔 + 常量掩码。"""
-        project = _write(tmp_path / ".env", ["OPENAI_API_KEYS=key-one,key-two"])
+        project = _write(tmp_path / ".env", ["ANTHROPIC_API_KEYS=key-one,key-two"])
         report = _report(project)
         payload = json.dumps(report.model_dump(mode="json"), ensure_ascii=False)
-        item = _by_key(report)["OPENAI_API_KEYS"]
+        item = _by_key(report)["ANTHROPIC_API_KEYS"]
         assert (item.value, item.masked, item.configured) == (None, MASK, True)  # type: ignore[union-attr]
         assert "key-one" not in payload and "key-two" not in payload
 
@@ -598,7 +596,7 @@ class TestSecrets:
         marker = "sk-live-MARKER-1234567890"
         project = _write(
             tmp_path / ".env",
-            [f"KIMI_API_KEY={marker}", f"OPENAI_API_KEY={marker}", f"ANTHROPIC_API_KEYS={marker}"],
+            [f"KIMI_API_KEY={marker}", f"DEEPSEEK_API_KEY={marker}", f"ANTHROPIC_API_KEYS={marker}"],
         )
         payload = json.dumps(_report(project).model_dump(mode="json"), ensure_ascii=False)
         assert marker not in payload

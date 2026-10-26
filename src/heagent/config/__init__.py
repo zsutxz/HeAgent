@@ -40,7 +40,7 @@ GLOBAL_SETTING_FILE: Path = GLOBAL_CONFIG_DIR / "setting.md"
 LEGACY_GLOBAL_ENV_FILE: Path = GLOBAL_CONFIG_DIR / ".env"
 
 # 路由池可绑定的 provider 条目名（与 cli._build_provider 的池内条目名一致）。
-ROUTING_POOL_ENTRIES: frozenset[str] = frozenset({"deepseek", "kimi", "glm", "ollama", "openai", "gpt", "anthropic"})
+ROUTING_POOL_ENTRIES: frozenset[str] = frozenset({"deepseek", "kimi", "glm", "ollama", "gpt", "anthropic"})
 
 
 def _parse_comma_list(v: str) -> list[str]:
@@ -94,7 +94,6 @@ class Settings(BaseSettings):
 
     # ---- API 密钥（可选，在 Provider 使用时校验） ----
     deepseek_api_key: str | None = None  # DeepSeek API Key
-    openai_api_key: str | None = None  # OpenAI API Key
     anthropic_api_key: str | None = None  # Anthropic API Key
     kimi_api_key: str | None = None  # Kimi (Moonshot AI) API Key
     glm_api_key: str | None = None  # GLM (智谱 AI) API Key
@@ -102,14 +101,13 @@ class Settings(BaseSettings):
 
     # ---- API 基础 URL（用于 OpenAI 兼容的第三方服务） ----
     deepseek_base_url: str | None = None  # DeepSeek 默认 https://api.deepseek.com/v1
-    openai_base_url: str | None = None  # OpenAI 兼容服务（如 vLLM / 自营代理）
     anthropic_base_url: str | None = None  # Anthropic 代理地址
     kimi_base_url: str | None = None  # Kimi 默认 https://api.moonshot.cn/v1
     glm_base_url: str | None = None  # GLM 默认 https://open.bigmodel.cn/api/paas/v4
     openai_responses_base_url: str | None = None  # Responses API 中转站（如 https://www.komapi.top/v1）
 
     # ---- 各 Provider 默认模型（--model CLI 参数可覆盖） ----
-    default_model: str = "gpt-4o"  # OpenAI 默认模型名称
+    default_model: str = "gpt-4o"  # anthropic 条目的兜底模型
     deepseek_model: str = "deepseek-v4-pro"  # DeepSeek 默认模型
     kimi_model: str = "kimi-k3"  # Kimi (Moonshot) 默认模型
     glm_model: str = "glm-5.3"  # GLM (智谱) 默认模型
@@ -130,7 +128,6 @@ class Settings(BaseSettings):
     anthropic_prompt_caching: bool = True
 
     # ---- 多密钥池（逗号分隔存储，运行时解析为列表） ----
-    openai_api_keys: str = ""
     anthropic_api_keys: str = ""
 
     # ---- 智能路由（唯一入口：ROUTING_POOLS 声明式路由池） ----
@@ -482,10 +479,6 @@ class Settings(BaseSettings):
     http_console_projects_file: str | None = None
 
     @property
-    def openai_key_pool(self) -> list[str]:
-        return _parse_comma_list(self.openai_api_keys)
-
-    @property
     def anthropic_key_pool(self) -> list[str]:
         return _parse_comma_list(self.anthropic_api_keys)
 
@@ -645,13 +638,11 @@ class ResolvedRuntimeConfig(Settings):
     workspace_root: str | None = None
     sources: tuple[RuntimeConfigSource, ...] = ()
     deepseek_api_key: str | None = Field(default=None, repr=False, exclude=True)
-    openai_api_key: str | None = Field(default=None, repr=False, exclude=True)
     anthropic_api_key: str | None = Field(default=None, repr=False, exclude=True)
     kimi_api_key: str | None = Field(default=None, repr=False, exclude=True)
     glm_api_key: str | None = Field(default=None, repr=False, exclude=True)
     openai_responses_api_key: str | None = Field(default=None, repr=False, exclude=True)
     ollama_api_key: str | None = Field(default=None, repr=False, exclude=True)
-    openai_api_keys: str = Field(default="", repr=False, exclude=True)
     anthropic_api_keys: str = Field(default="", repr=False, exclude=True)
 
     def source_for(self, name: str) -> str:

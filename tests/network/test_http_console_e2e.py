@@ -101,7 +101,7 @@ def _project(root: Path) -> Path:
     (root / ".env").write_bytes(
         b"# project env\r\n"
         + f"KIMI_API_KEY={SHORT_SECRET}\r\n".encode()
-        + f"OPENAI_API_KEYS={POOL_SECRET}\r\n".encode()
+        + f"ANTHROPIC_API_KEYS={POOL_SECRET}\r\n".encode()
         + f"DEFAULT_MODEL={MARKER}-model\r\n".encode()
         + b"MAX_ITERATIONS=25\r\n"
     )
@@ -302,7 +302,7 @@ async def test_no_credential_leaks_across_five_faces(tmp_path: Path, caplog: pyt
     ]
     items = {entry["key"]: entry for group in panel.json()["groups"] for entry in group["items"]}
     assert items["KIMI_API_KEY"]["value"] is None and items["KIMI_API_KEY"]["masked"] == "*" * 8
-    assert items["OPENAI_API_KEYS"]["value"] is None
+    assert items["ANTHROPIC_API_KEYS"]["value"] is None
     assert panel.json()["labels"]["credential"].strip()  # 只回「已配置 + 掩码」，文案由后端给
 
     # ④ 日志：上述所有动作产生的全部日志记录里都不得出现标记。

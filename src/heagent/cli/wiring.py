@@ -61,7 +61,6 @@ _ENTRY_CREDENTIAL_HINTS = {
     "kimi": "KIMI_API_KEY",
     "glm": "GLM_API_KEY",
     "ollama": "OLLAMA_ENABLED",
-    "openai": "OPENAI_API_KEY",
     "gpt": "OPENAI_RESPONSES_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
 }
@@ -160,7 +159,7 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     ) -> None:
         """把一个 provider 条目放进池。
 
-        ``specs`` / ``model`` / ``continuity`` 与调用形状在 7 个条目里完全相同，故就地绑定，
+        ``specs`` / ``model`` / ``continuity`` 与调用形状在 6 个条目里完全相同，故就地绑定，
         只留各条目的差异（守卫、默认模型、默认 base_url、构建器）。keyword-only 是刻意的：
         ``default_model`` 与 ``default_base_url`` 极易位置传参互换（后者可为 None）。
         """
@@ -201,10 +200,6 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
         build = _openai_builder(settings, key=settings.ollama_api_key or "ollama", base_url=url)
         _entry("ollama", default_model=settings.ollama_model, default_base_url=url, build=build)
 
-    if settings.openai_api_key or settings.openai_key_pool:
-        build = _openai_pool_builder(settings)
-        _entry("openai", default_model=settings.default_model, default_base_url=settings.openai_base_url, build=build)
-
     if settings.openai_responses_api_key:
         build = _responses_builder(
             settings,
@@ -233,7 +228,7 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     if not named:
         click.echo(
             "Error: No API key configured. Set DEEPSEEK_API_KEY, KIMI_API_KEY, "
-            "GLM_API_KEY, OPENAI_API_KEY, OPENAI_RESPONSES_API_KEY or ANTHROPIC_API_KEY "
+            "GLM_API_KEY, OPENAI_RESPONSES_API_KEY or ANTHROPIC_API_KEY "
             "in environment, or enable the local Ollama entry with OLLAMA_ENABLED=true.",
             err=True,
         )
@@ -292,20 +287,6 @@ def _key_rotated_builder(
         return provider
 
     return build
-
-
-def _openai_pool_builder(settings: Settings) -> ProviderBuilder:
-    """openai 条目构建器（Chat Completions，多密钥池）。"""
-    return _key_rotated_builder(
-        settings.openai_api_key,
-        settings.openai_key_pool,
-        lambda key, tier_model, url: OpenAIProvider(
-            api_key=key,
-            model=tier_model,
-            base_url=url,
-            max_tokens=settings.max_output_tokens,
-        ),
-    )
 
 
 def _anthropic_pool_builder(settings: Settings) -> ProviderBuilder:

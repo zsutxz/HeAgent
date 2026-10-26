@@ -14,7 +14,7 @@ from heagent.cli.slash import SlashRegistry
 
 def _clear_all_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
     """Clear all known API key environment variables for hermetic tests."""
-    for key in ("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "KIMI_API_KEY", "GLM_API_KEY"):
+    for key in ("DEEPSEEK_API_KEY", "ANTHROPIC_API_KEY", "KIMI_API_KEY", "GLM_API_KEY"):
         monkeypatch.delenv(key, raising=False)
 
 
@@ -82,7 +82,7 @@ class TestCLI:
 
     def test_interactive_empty_enter_then_eof_exits(self, monkeypatch):
         """Interactive mode no longer exits on empty Enter; exits cleanly on EOF."""
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setenv("KIMI_API_KEY", "test-key")
         runner = CliRunner()
         # Simulate empty Enter then EOF (input stream exhausted)
         result = runner.invoke(main, input="\n")
@@ -91,7 +91,7 @@ class TestCLI:
 
     def test_interactive_empty_enter_is_skipped(self, monkeypatch):
         """空回车不退出：空行被跳过，后续消息仍进入 run。"""
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setenv("KIMI_API_KEY", "test-key")
         runner = CliRunner()
         called: list[str] = []
 
@@ -105,7 +105,7 @@ class TestCLI:
 
     def test_model_flag_accepted(self, monkeypatch):
         """``heagent run --model`` is accepted by the run subcommand."""
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setenv("KIMI_API_KEY", "test-key")
         runner = CliRunner()
         result = runner.invoke(main, ["run", "--help"])
         assert "--model" in result.output

@@ -41,7 +41,6 @@ class SwitchableProvider:
         sp = SwitchableProvider({
             "deepseek": OpenAIProvider(api_key="sk-xxx", model="deepseek-v4-pro", base_url="..."),
             "kimi":     OpenAIProvider(api_key="sk-yyy", model="kimi-k3", base_url="..."),
-            "openai":   OpenAIProvider(api_key="sk-zzz", model="gpt-4o"),
         }, default="deepseek")
 
         await sp.send(messages)          # 使用 deepseek

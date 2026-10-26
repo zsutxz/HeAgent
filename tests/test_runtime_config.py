@@ -19,22 +19,22 @@ def clean_settings():
 def test_snapshot_detaches_collections_and_credentials():
     settings = Settings(
         _env_file=None,
-        openai_api_key="private-key",
+        anthropic_api_key="private-key",
         safety_blocked_tools=["shell"],
-        routing_pools='{"openai":{"tiers":{"fast":"first"}}}',
+        routing_pools='{"gpt":{"tiers":{"fast":"first"}}}',
     )
     config = resolve_runtime_config(settings)
     settings.safety_blocked_tools = ["file_write"]
     settings.routing_pools = ""
     pool = config.routing_pool_map
-    pool["openai"].tiers["fast"] = "changed"
+    pool["gpt"].tiers["fast"] = "changed"
     assert config.safety_blocked_tools == ("shell",)
-    assert config.routing_pool_map["openai"].tiers["fast"] == "first"
+    assert config.routing_pool_map["gpt"].tiers["fast"] == "first"
     with pytest.raises(ValidationError):
         config.max_iterations = 1
     assert "private-key" not in repr(config)
     assert "private-key" not in config.model_dump_json()
-    assert resolve_runtime_config(config, plan_mode=True).openai_api_key == "private-key"
+    assert resolve_runtime_config(config, plan_mode=True).anthropic_api_key == "private-key"
 
 
 def test_explicit_false_wins_and_records_origin():

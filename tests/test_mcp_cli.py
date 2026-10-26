@@ -85,7 +85,7 @@ class TestCLIMCPIntegration:
 
     def test_disabled_skips_config_load(self, monkeypatch, clean_settings, tmp_path):
         """mcp_enabled=False → load_mcp_config 完全不被调用（门控生效）。"""
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setenv("KIMI_API_KEY", "test-key")
         monkeypatch.setenv("MCP_ENABLED", "false")
         monkeypatch.chdir(tmp_path)
 
@@ -106,7 +106,7 @@ class TestCLIMCPIntegration:
 
     def test_enabled_no_config_pure_builtin_no_error(self, monkeypatch, clean_settings, tmp_path):
         """mcp_enabled=True 但无 .mcp.json → 纯内置模式不报错不阻断（FR-7）。"""
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setenv("KIMI_API_KEY", "test-key")
         monkeypatch.chdir(tmp_path)  # 无 .mcp.json
 
         result = CliRunner().invoke(main, input="\n")
@@ -114,7 +114,7 @@ class TestCLIMCPIntegration:
 
     def test_bad_config_reports_error(self, monkeypatch, clean_settings, tmp_path):
         """坏配置（未设 ${ENV}）→ fail-fast 友好报告，非 traceback（FR-8）。"""
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setenv("KIMI_API_KEY", "test-key")
         monkeypatch.delenv("MISSING_TOKEN", raising=False)
         _write_mcp_json(
             tmp_path / ".mcp.json",
@@ -128,7 +128,7 @@ class TestCLIMCPIntegration:
 
     def test_enabled_with_config_enters_and_exits_manager(self, monkeypatch, clean_settings, tmp_path):
         """有效配置 → MCPClientManager 在会话期进入、退出时回收（FR-2 生命周期）。"""
-        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setenv("KIMI_API_KEY", "test-key")
         _write_mcp_json(tmp_path / ".mcp.json", {"mcpServers": {"s": {"command": "x"}}})
         monkeypatch.chdir(tmp_path)
 

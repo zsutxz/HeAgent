@@ -24,11 +24,6 @@ class TestEnvLoading:
         s = Settings()
         assert s.deepseek_api_key == "sk-test-ds"
 
-    def test_loads_openai_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test-oai")
-        s = Settings()
-        assert s.openai_api_key == "sk-test-oai"
-
     def test_loads_anthropic_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test-ant")
         s = Settings()
@@ -154,10 +149,10 @@ class TestPrecedence:
     def test_system_env_overrides_dotenv(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         """同 key 同时存在于 .env 与系统环境变量时，系统环境变量胜出。"""
         env_file = tmp_path / ".env"
-        env_file.write_text("OPENAI_API_KEY=from-dotenv\n", encoding="utf-8")
-        monkeypatch.setenv("OPENAI_API_KEY", "from-system")
+        env_file.write_text("KIMI_API_KEY=from-dotenv\n", encoding="utf-8")
+        monkeypatch.setenv("KIMI_API_KEY", "from-system")
         s = Settings(_env_file=env_file)
-        assert s.openai_api_key == "from-system"
+        assert s.kimi_api_key == "from-system"
 
     def test_system_env_fills_gap_not_in_dotenv(self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch) -> None:
         """.env 未声明的 key，由系统环境变量兜底填充。"""
@@ -175,11 +170,6 @@ class TestPrecedence:
 
 
 class TestMultiKeyParsing:
-    def test_comma_separated_openai_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("OPENAI_API_KEYS", "sk-1,sk-2,sk-3")
-        s = Settings()
-        assert s.openai_key_pool == ["sk-1", "sk-2", "sk-3"]
-
     def test_comma_separated_anthropic_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("ANTHROPIC_API_KEYS", "ant-1, ant-2 , ant-3")
         s = Settings()
@@ -187,13 +177,12 @@ class TestMultiKeyParsing:
 
     def test_empty_keys_yield_empty_list(self) -> None:
         s = Settings()
-        assert s.openai_key_pool == []
         assert s.anthropic_key_pool == []
 
     def test_single_key_pool(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("OPENAI_API_KEYS", "sk-solo")
+        monkeypatch.setenv("ANTHROPIC_API_KEYS", "ant-solo")
         s = Settings()
-        assert s.openai_key_pool == ["sk-solo"]
+        assert s.anthropic_key_pool == ["ant-solo"]
 
 
 class TestValidation:
@@ -250,13 +239,13 @@ class TestValidation:
 
 class TestSingleton:
     def test_get_settings_returns_same_instance(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-singleton")
+        monkeypatch.setenv("KIMI_API_KEY", "sk-singleton")
         from heagent.config import get_settings
 
         s1 = get_settings()
         s2 = get_settings()
         assert s1 is s2
-        assert s1.openai_api_key == "sk-singleton"
+        assert s1.kimi_api_key == "sk-singleton"
 
     def test_reset_settings_creates_new_instance(self) -> None:
         from heagent.config import get_settings
@@ -363,20 +352,16 @@ class TestDefaults:
         assert s.retry_max_delay == 30.0
 
     def test_default_single_api_keys_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
         s = Settings(_env_file=None)
-        assert s.openai_api_key is None
         assert s.anthropic_api_key is None
 
     def test_default_api_keys_empty_str(self) -> None:
         s = Settings()
-        assert s.openai_api_keys == ""
         assert s.anthropic_api_keys == ""
 
     def test_default_key_pools_empty(self) -> None:
         s = Settings()
-        assert s.openai_key_pool == []
         assert s.anthropic_key_pool == []
 
     def test_default_mcp_enabled(self) -> None:
@@ -396,52 +381,52 @@ class TestUserSettingMd:
 
     def test_user_setting_used_when_no_project_override(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """用户层是默认值来源：项目 .env 未覆盖时生效。"""
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("KIMI_API_KEY", raising=False)
 
         setting_md = tmp_path / "setting.md"
-        setting_md.write_text("---\nOPENAI_API_KEY: user-key\n---\n\n# 用户级设置\n", encoding="utf-8")
+        setting_md.write_text("---\nKIMI_API_KEY: user-key\n---\n\n# 用户级设置\n", encoding="utf-8")
 
         layer = with_user_setting_layer(setting_md, Settings)
         s = layer(_env_file=[str(tmp_path / "absent.env")])
-        assert s.openai_api_key == "user-key"
+        assert s.kimi_api_key == "user-key"
 
     def test_project_env_overrides_user_setting(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """项目 .env 覆盖用户层（源序：dotenv 在 md 源之前）。"""
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("KIMI_API_KEY", raising=False)
 
         setting_md = tmp_path / "setting.md"
-        setting_md.write_text("---\nOPENAI_API_KEY: user-key\n---\n", encoding="utf-8")
+        setting_md.write_text("---\nKIMI_API_KEY: user-key\n---\n", encoding="utf-8")
         project_env = tmp_path / "project.env"
-        project_env.write_text("OPENAI_API_KEY=project-key\n", encoding="utf-8")
+        project_env.write_text("KIMI_API_KEY=project-key\n", encoding="utf-8")
 
         layer = with_user_setting_layer(setting_md, Settings)
         s = layer(_env_file=[str(project_env)])
-        assert s.openai_api_key == "project-key"
+        assert s.kimi_api_key == "project-key"
 
     def test_system_env_overrides_both(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """显式环境变量优先级最高，覆盖项目 .env 与用户层。"""
-        monkeypatch.setenv("OPENAI_API_KEY", "system-key")
+        monkeypatch.setenv("KIMI_API_KEY", "system-key")
 
         setting_md = tmp_path / "setting.md"
-        setting_md.write_text("---\nOPENAI_API_KEY: user-key\n---\n", encoding="utf-8")
+        setting_md.write_text("---\nKIMI_API_KEY: user-key\n---\n", encoding="utf-8")
         project_env = tmp_path / "project.env"
-        project_env.write_text("OPENAI_API_KEY=project-key\n", encoding="utf-8")
+        project_env.write_text("KIMI_API_KEY=project-key\n", encoding="utf-8")
 
         layer = with_user_setting_layer(setting_md, Settings)
         s = layer(_env_file=[str(project_env)])
-        assert s.openai_api_key == "system-key"
+        assert s.kimi_api_key == "system-key"
 
     def test_missing_user_setting_falls_back_to_defaults(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """用户层文件不存在时静默跳过，回退到字段默认值。"""
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("KIMI_API_KEY", raising=False)
 
         layer = with_user_setting_layer(tmp_path / "absent.md", Settings)
         s = layer(_env_file=[str(tmp_path / "absent.env")])
-        assert s.openai_api_key is None
+        assert s.kimi_api_key is None
 
     def test_unparseable_user_setting_is_loud(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """用户层语法错必须大声失败（显性失败原则），不像缺失那样静默。"""
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        monkeypatch.delenv("KIMI_API_KEY", raising=False)
 
         setting_md = tmp_path / "setting.md"
         setting_md.write_text("KEY: value\n", encoding="utf-8")  # 无 frontmatter
