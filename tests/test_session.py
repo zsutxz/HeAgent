@@ -1,4 +1,10 @@
-"""Tests for session persistence."""
+"""Tests for session persistence.
+
+A34 / S-8 scope: the concurrent-write cases below lock the behavior observed on
+2026-10-26 only; they do not decide the pending isolation-versus-discard question
+(OQ-5). In particular, an unreadable on-disk session currently falls back to the
+incoming writer without a WARNING.
+"""
 
 from __future__ import annotations
 
