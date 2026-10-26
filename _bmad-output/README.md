@@ -41,4 +41,4 @@ _bmad-output/
 
 ## 当前状态（2026-10-23）
 
-Epic 1–52 与 S1–S4 均已交付（Epic 53 容器沙箱档在途：3 story 在 `review`；Epic 48 TCP 网络接口已于 2026-09-27 从代码删除，commit `4217b5d`，历史文档见 `archive/epics/epic-48-TCP网络接口周期/`）。完整状态以 [`sprint-status.yaml`](sprint-status.yaml) 为准；活动台账当前 **3 条**（2026-10-20 A34–A36 挂账；2026-10-23 登记的 A37–A39 已当日实施并归档 Epic 51），未闭合遗留项见 [`implementation-artifacts/deferred-work-archive.md`](implementation-artifacts/deferred-work-archive.md)。
+Epic 1–52 与 S1–S4 均已交付（Epic 53 容器沙箱档在途：3 story 在 `review`；Epic 48 TCP 网络接口已于 2026-09-27 从代码删除，commit `4217b5d`，历史文档见 `archive/epics/epic-48-TCP网络接口周期/`）。完整状态以 [`sprint-status.yaml`](sprint-status.yaml) 为准；活动台账当前 **9 条**（A34–A36 + A40–A44 + A49；2026-10-23 登记的 A37–A39 已当日实施并归档 Epic 51；2026-10-26 S-6 四态归一），未闭合遗留项见 [`implementation-artifacts/deferred-work-archive.md`](implementation-artifacts/deferred-work-archive.md)。
