@@ -145,14 +145,15 @@ def _ws_access_note(config: WsServerConfig) -> str:
     return f"(run & CLI WebSocket entry; local only; no authentication{suffix})"
 
 
-async def _serve_web(http_server: HttpServer, ws_servers: tuple[WsServer, ...]) -> None:
+async def _serve_web(http_server: HttpServer | None, ws_servers: tuple[WsServer, ...]) -> None:
     """启动 HTTP + 1–2 个 WS listener 并运行到取消 / 关闭（Epic 56 D1 拆分、期二 D12 多 listener）。
 
     ``start()`` 在 try 之外：它失败时要么 listener 没建起来、要么内部已回滚，不需要再 close；
     一旦进入服务循环，任何退出路径都必须走 ``close()``，否则 Ctrl+C 会留下悬挂的 listener。
     任一 WS listener 起不来 ⇒ 回滚**已启动的全部**（含 HTTP），绝不留半启动状态。
     """
-    await http_server.start()
+    if http_server is not None:
+        await http_server.start()
     started: list[WsServer] = []
     try:
         for ws_server in ws_servers:
@@ -162,22 +163,23 @@ async def _serve_web(http_server: HttpServer, ws_servers: tuple[WsServer, ...]) 
         # 回滚：先关已起的 WS，再关 HTTP（此刻还没有 run 在跑，顺序只为与正常关停同构）。
         for ws_server in reversed(started):
             await ws_server.close()
-        await http_server.close()
+        if http_server is not None:
+            await http_server.close()
         raise
-    click.echo(
-        f"[http] listening on http://{http_server.address}  (open this URL in a browser; no authentication)",
-        err=True,
-    )
+    if http_server is not None:
+        click.echo(
+            f"[http] listening on http://{http_server.address}  (open this URL in a browser; no authentication)",
+            err=True,
+        )
     for ws_server in ws_servers:
         click.echo(f"[ws] listening on {_ws_url(ws_server)}  {_ws_access_note(ws_server.config)}", err=True)
+    http_serve = [] if http_server is None else [http_server.serve_forever()]
     try:
-        await asyncio.gather(
-            http_server.serve_forever(),
-            *(ws_server.serve_forever() for ws_server in ws_servers),
-        )
+        await asyncio.gather(*http_serve, *(ws_server.serve_forever() for ws_server in ws_servers))
     finally:
         # D1 关停顺序：HTTP 先（排空运行到终态），WS 后（关残余订阅连接 + listener）。
-        await http_server.close()
+        if http_server is not None:
+            await http_server.close()
         await asyncio.gather(*(ws_server.close() for ws_server in ws_servers))
 
 
@@ -196,7 +198,7 @@ class EmbeddedHttpService:
 
     def __init__(
         self,
-        http_server: HttpServer,
+        http_server: HttpServer | None,
         ws_servers: WsServer | tuple[WsServer, ...],
         *,
         cli_hub: Any | None = None,
@@ -207,8 +209,7 @@ class EmbeddedHttpService:
         self._ws_servers: tuple[WsServer, ...] = (
             (ws_servers,) if isinstance(ws_servers, WsServer) else tuple(ws_servers)
         )
-        if not self._ws_servers:
-            raise ValueError("EmbeddedHttpService requires at least one WS server")
+        # 双关（HTTP+WS 均禁用）= 休眠服务：交互模式显式全关时合法；`http-server` 命令在命令层 fail-fast。
         # CLI 旁路中枢（Epic 55，Epic 56 D7 起宿主 = WS listener）：``None`` = 未开启**或**
         # 因 listener 身份被跳过（D9：对外 listener 不提供终端观众席）。
         self._cli_hub = cli_hub
@@ -218,7 +219,9 @@ class EmbeddedHttpService:
 
     @property
     def address(self) -> str:
-        """HTTP listener 实际监听地址（stderr 公告与诊断用）。"""
+        """HTTP listener 实际监听地址（stderr 公告与诊断用）；HTTP 禁用时无意义。"""
+        if self._http is None:
+            raise RuntimeError("HTTP listener is disabled (HTTP_ENABLED=false)")
         return self._http.address
 
     @property
@@ -228,7 +231,9 @@ class EmbeddedHttpService:
 
     @property
     def ws_address(self) -> str:
-        """**主** WS listener 实际监听地址（期一属性，语义不变）。"""
+        """**主** WS listener 实际监听地址（期一属性，语义不变）；WS 禁用时无意义。"""
+        if not self._ws_servers:
+            raise RuntimeError("WS listener is disabled (WS_ENABLED=false)")
         return self._ws_servers[0].address
 
     @property
@@ -248,7 +253,8 @@ class EmbeddedHttpService:
 
     async def start(self) -> None:
         """启动 HTTP 与所有 WS listener 并进入后台服务循环；任一绑定 / 就绪失败时抛错且不留残留。"""
-        await self._http.start()
+        if self._http is not None:
+            await self._http.start()
         started: list[WsServer] = []
         try:
             # 任一 WS 起不来时回滚**已启动的全部**：半启动（HTTP 活着、某个 WS 缺席）是 AD-5 禁止的假可用。
@@ -258,10 +264,15 @@ class EmbeddedHttpService:
         except BaseException:
             for ws_server in reversed(started):
                 await ws_server.close()
-            await self._http.close()
+            if self._http is not None:
+                await self._http.close()
             raise
         self._tasks = [
-            asyncio.create_task(self._http.serve_forever(), name="heagent-http-serve"),
+            *(
+                [asyncio.create_task(self._http.serve_forever(), name="heagent-http-serve")]
+                if self._http is not None
+                else []
+            ),
             *(
                 asyncio.create_task(ws_server.serve_forever(), name=f"heagent-ws-serve-{index}")
                 for index, ws_server in enumerate(self._ws_servers)
@@ -269,10 +280,11 @@ class EmbeddedHttpService:
         ]
         for task in self._tasks:
             task.add_done_callback(self._on_serve_done)
-        click.echo(
-            f"[http] web UI: http://{self.address}  (local only; no authentication)",
-            err=True,
-        )
+        if self._http is not None:
+            click.echo(
+                f"[http] web UI: http://{self.address}  (local only; no authentication)",
+                err=True,
+            )
         for ws_server in self._ws_servers:
             click.echo(
                 f"[ws] event stream: {_ws_url(ws_server)}  {_ws_access_note(ws_server.config)}",
@@ -314,10 +326,14 @@ class EmbeddedHttpService:
         self._closed = True
         # D1 关停顺序：HTTP 的 close() 排空在途运行到终态（SSE 随之终结），WS 的 close() 再关
         # 残余订阅连接与 listener——顺序颠倒会让订阅者错过终态事件。
-        await self._http.close()
+        if self._http is not None:
+            await self._http.close()
         await asyncio.gather(*(ws_server.close() for ws_server in self._ws_servers))
         tasks, self._tasks = self._tasks, []
-        budget = max(self._http.config.shutdown_timeout, *(s.config.shutdown_timeout for s in self._ws_servers)) + 1.0
+        timeouts = [s.config.shutdown_timeout for s in self._ws_servers]
+        if self._http is not None:
+            timeouts.append(self._http.config.shutdown_timeout)
+        budget = max(timeouts, default=5.0) + 1.0
         for task in tasks:
             if task is None or task is asyncio.current_task():
                 continue
@@ -484,6 +500,10 @@ def build_ws_servers(
     D9 连带收紧：旁路只在**本地模式**的主 listener 上挂载。期一允许「``WS_HOST=0.0.0.0`` +
     ``WS_CLI_BYPASS_ENABLED=true``」把终端事件流推到对外 listener，期二起改为跳过并 WARNING。
     """
+    if not settings.ws_enabled:
+        # WS_ENABLED=false：不构造任何 WS listener（旁路中枢也无从挂载）。
+        return (), None
+
     primary = build_ws_server_config(
         settings,
         host=host,
@@ -547,6 +567,8 @@ def _project_env_declares(env_key: str) -> bool:
 def build_http_service(settings: Settings, *, executor: Any | None = None) -> EmbeddedHttpService:
     """按 ``Settings`` 构造默认 CLI 的内嵌网页入口（HTTP 8766 + 1–2 个 WS listener，Epic 56 D1/期二）。
 
+    ``HTTP_ENABLED`` / ``WS_ENABLED`` 为假时对应 listener 不装配；两者都为假 ⇒ 休眠服务（零监听）。
+
     默认 CLI **不提供** HTTP/WS 相关 CLI 选项（brief：不做含糊的参数透传），因此这里不带覆盖参数——
     绑定地址与限额全部来自 ``HTTP_*`` / ``WS_*`` / ``WS_EXTERNAL_*`` 设置；需要覆盖时用显式
     `heagent http-server`。
@@ -563,27 +585,26 @@ def build_http_service(settings: Settings, *, executor: Any | None = None) -> Em
     config = build_server_config(settings)
     run_service = HttpRunService(config, executor) if executor is not None else None
     workspace = WorkspacePaths.from_root(getattr(settings, "workspace_root", None) or os.getcwd())
-    console = HttpProjectConsole(
-        workspace.root,
-        projects_file=settings.http_console_projects_file,
-        runs=run_service,
-        # 只有入口层的真实 handler 知道怎么为「另一个项目根」派生运行时；注入的是别的可调用对象
-        # （测试替身）时**不**假装能给项目起跑——会话 API 仍可用，项目内运行回 project_unavailable。
-        handler_factory=executor.for_workspace if isinstance(executor, HttpAgentHandler) else None,
-        write_enabled=settings.http_console_write_enabled,
-    )
-    # 1–2 个 WS listener（期二双监听）+ 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
-    ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service)
-    return EmbeddedHttpService(
-        HttpServer(
+    http_server: HttpServer | None = None
+    if settings.http_enabled:
+        console = HttpProjectConsole(
+            workspace.root,
+            projects_file=settings.http_console_projects_file,
+            runs=run_service,
+            # 只有入口层的真实 handler 知道怎么为「另一个项目根」派生运行时；注入的是别的可调用对象
+            # （测试替身）时**不**假装能给项目起跑——会话 API 仍可用，项目内运行回 project_unavailable。
+            handler_factory=executor.for_workspace if isinstance(executor, HttpAgentHandler) else None,
+            write_enabled=settings.http_console_write_enabled,
+        )
+        http_server = HttpServer(
             config,
             version=_current_version(),
             run_service=run_service,
             console=console,
-        ),
-        ws_servers,
-        cli_hub=cli_hub,
-    )
+        )
+    # 1–2 个 WS listener（期二双监听）+ 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
+    ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service)
+    return EmbeddedHttpService(http_server, ws_servers, cli_hub=cli_hub)
 
 
 def embedded_http_error_message(exc: BaseException) -> str | None:
@@ -765,6 +786,11 @@ def http_server_cmd(
 
     _setup_logging()
     settings = get_settings()
+    if not settings.http_enabled and not settings.ws_enabled:
+        raise click.ClickException(
+            "Both HTTP_ENABLED and WS_ENABLED are false - nothing to serve; "
+            "enable at least one entry in ~/.heagent/setting.md (interactive mode runs fine with both off)."
+        )
     _prune_runtime_artifacts(settings)
     # 角色是 system prompt 的组成部分（技能匹配 / 子 Agent 委派都读它），与其它入口一致地加载。
     load_agent_roles()
@@ -806,20 +832,22 @@ def http_server_cmd(
     workspace = WorkspacePaths.from_root(os.getcwd())
 
     run_service = HttpRunService(config, handler)
-    console = HttpProjectConsole(
-        workspace.root,
-        projects_file=settings.http_console_projects_file,
-        runs=run_service,
-        handler_factory=handler.for_workspace,
-        write_enabled=settings.http_console_write_enabled,
-        dialog_backend=dialog_backend,
-    )
-    server = HttpServer(
-        config,
-        version=_current_version(),
-        run_service=run_service,
-        console=console,
-    )
+    server: HttpServer | None = None
+    if settings.http_enabled:
+        console = HttpProjectConsole(
+            workspace.root,
+            projects_file=settings.http_console_projects_file,
+            runs=run_service,
+            handler_factory=handler.for_workspace,
+            write_enabled=settings.http_console_write_enabled,
+            dialog_backend=dialog_backend,
+        )
+        server = HttpServer(
+            config,
+            version=_current_version(),
+            run_service=run_service,
+            console=console,
+        )
     try:
         # 期二 D8/D9/D12：主 listener + 可选对外 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
         ws_servers, _hub = build_ws_servers(
@@ -838,9 +866,10 @@ def http_server_cmd(
         raise click.ClickException(f"WS server configuration is invalid: {exc}") from None
     # 非回环绑定：启动前先向 stderr 打印一次明确告警。HTTP 侧固定「无认证」口径；WS 侧按 mode
     # 分流——对外模式是 token 认证，套用 exposure_warning 的「no authentication」文案会撒谎。
-    warning = exposure_warning(config.host)
-    if warning is not None:
-        click.echo(f"[http] WARNING: {warning}", err=True)
+    if server is not None:
+        warning = exposure_warning(config.host)
+        if warning is not None:
+            click.echo(f"[http] WARNING: {warning}", err=True)
     for ws in ws_servers:
         ws_config = ws.config
         if ws_config.requires_auth:

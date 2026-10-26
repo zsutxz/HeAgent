@@ -383,6 +383,7 @@ class Settings(BaseSettings):
     # （复用 `network.exposure` 的判定与文案）。这里刻意**没有** `HTTP_ENABLED` 开关：启动语义由
     # 「调用了哪个命令」唯一决定，配置里不出现第二套状态。
     # 非法值（端口越界、计数为 0、非正超时）由 Pydantic 显式校验失败，不静默变成「无限制」。
+    http_enabled: bool = Field(default=True)  # False = 不装配 HTTP listener（仅 WS 或全关）
     http_host: str = Field(default="127.0.0.1", min_length=1)
     # 默认 8766。
     http_port: int = Field(default=8766, ge=1, le=65535)
@@ -431,6 +432,7 @@ class Settings(BaseSettings):
     # ---- WS 入口（Epic 56 D1：与 HTTP 完全分离的独立 server，唯一宿主所有 WS 能力） ----
     # 定位：回环绑定 = 本地模式（Origin 防线、**无认证**，与 HTTP 入口同档）；非回环绑定 =
     # 对外模式（D5：Bearer token 强制、**缺 token 拒绝启动** fail-closed、Origin 不适用）。
+    ws_enabled: bool = Field(default=True)  # False = 不装配 WS listener（仅 HTTP 或全关）
     ws_host: str = Field(default="127.0.0.1", min_length=1)
     # 默认 9001（8766 → 9001 是 Epic 56 的唯一 breaking change：两条 WS 端点路径不变、换端口）。
     ws_port: int = Field(default=9001, ge=1, le=65535)

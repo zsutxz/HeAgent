@@ -848,11 +848,13 @@ HeAgentError (base)
 | `sandbox_memory_limit_mb` | 0 | 沙箱 shell 内存限额（MB；firejail `--rlimit-as` / winjob Job Memory / docker `--memory`）；0=关闭。触发=子进程被终止 → 非零退出码（显性失败） |
 | `sandbox_cpu_seconds` | 0 | 沙箱 shell CPU 时间限额（秒；firejail `--rlimit-cpu` / winjob Process Time）；触发行为同上。⚠ docker 后端**无诚实映射**（`--cpus` 是速率上限非时间上限）——配置了只打提示、不生效 |
 | `sandbox_nproc_limit` | 0 | 沙箱 shell 进程数限额（firejail `--rlimit-nproc` / winjob Active Process / docker `--pids-limit`）；触发行为同上。⚠ 语义不对称：firejail 侧按**真实 UID** 计数（非 per-sandbox），winjob 侧为 job 作用域 |
+| `http_enabled` | `True` | 是否装配 HTTP listener（8766）；`False` = 不启动（仅 WS 或全关；全关时 `http-server` 命令拒绝启动，交互模式无网页入口） |
 | `http_host` | `127.0.0.1` | HTTP 网页入口绑定地址；非回环值启动时日志记一条 `event=exposed` 且 stderr 打印一行告警（判定单点复用 `network/exposure.py`） |
 | `http_port` | 8766 | HTTP 网页入口端口（1..65535；默认 8766） |
 | `http_port_auto_find_attempts` | 10 | 端口被占用时自动**顺延**的尝试次数（`port+1…`）；**默认 10 = 开启**（2026-10-15 契约修订：多开实例不冲突；原默认 0 = fail-loud，源自 Epic 49 Story 49-2——hang 根因「显式端口被改写」已修，显式 `--port` 契约保留）。Windows 下探测 socket 不设 `SO_REUSEADDR`，与真实监听语义一致，避免占用探测失真。2026-09-27 加入 |
 | `http_max_connections` | 16 | 同时打开的 HTTP 客户端连接上限（交给 Uvicorn `limit_concurrency`，超限连接被直接拒绝而非排队） |
 | `http_max_subscribers` | 16 | **每 run** 的 SSE 订阅者上限（同一 run 的并发事件流；超限回 429 `rate_limited`）。与 WS 连接额度独立。 |
+| `ws_enabled` | `True` | 是否装配 WS listener（9001 主 + 可选 9002 对外）；`False` = 不启动 |
 | `ws_host` | `127.0.0.1` | WS listener 绑定地址（Epic 56 D1：与 HTTP 完全分离的独立 server）。**按绑定地址切模式**（D5）：回环 = 本地模式（Origin/Host 防线、无认证）；非回环 = 对外模式（Bearer token 强制、token 缺失**拒绝启动** fail-closed、Origin 不适用），非回环启动另有 `event=exposed mode=external` 记录 |
 | `ws_port` | 9001 | WS 入口端口（1..65535）。三条端点（提交 `/api/runs/ws`、订阅 `/api/runs/{run_id}/ws`、旁路 `/api/cli/ws`）路径不变、端口 8766 → 9001 是 Epic 56 的**唯一 breaking change** |
 | `ws_max_connections` | 16 | **每 run** 的 WebSocket 订阅上限 + CLI 旁路 hub 的连接总额 + **提交端点的连接席位**（迁移自 `http_ws_max_connections`）；三处各自计数、同值同源。独立于 SSE 订阅池，超额在 accept 后收到 `rate_limited` 错误帧（检查+登记同一步） |

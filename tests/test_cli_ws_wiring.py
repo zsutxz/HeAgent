@@ -54,3 +54,34 @@ async def test_disabled_switch_leaves_the_route_unregistered() -> None:
         assert rejected.value.response.status_code == 403
     finally:
         await service.close()
+
+
+@pytest.mark.asyncio
+async def test_entry_flags_http_only_builds_no_ws_listeners() -> None:
+    """WS_ENABLED=false：HTTP listener 照常装配，WS 侧零 listener。"""
+    service = build_http_service(Settings(http_enabled=True, ws_enabled=False), executor=None)
+    assert service._http is not None
+    assert service.ws_servers == ()
+    with pytest.raises(RuntimeError, match="WS_ENABLED=false"):
+        _ = service.ws_address
+
+
+@pytest.mark.asyncio
+async def test_entry_flags_ws_only_builds_no_http_server() -> None:
+    """HTTP_ENABLED=false：WS listener 照常装配，HTTP 侧为 None。"""
+    service = build_http_service(Settings(http_enabled=False, ws_enabled=True), executor=None)
+    assert service._http is None
+    assert len(service.ws_servers) == 1
+    with pytest.raises(RuntimeError, match="HTTP_ENABLED=false"):
+        _ = service.address
+
+
+@pytest.mark.asyncio
+async def test_entry_flags_all_disabled_yields_dormant_service() -> None:
+    """双关 = 休眠服务：start/close 全程零绑定、零任务、无 failure。"""
+    service = build_http_service(Settings(http_enabled=False, ws_enabled=False), executor=None)
+    assert service._http is None
+    assert service.ws_servers == ()
+    await service.start()
+    assert service.failure is None
+    await service.close()
