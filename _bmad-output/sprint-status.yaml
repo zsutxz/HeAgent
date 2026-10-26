@@ -589,26 +589,32 @@ development_status:
   56-7-phase2-docs-contracts-quality-gate: done  # 期二：frame.md/AGENTS.md/deploy README + 端点集契约 + 全量门禁
   56-8-external-readonly: done  # 期二 retro P2-A3：只读旁观 listener（不注册提交端点 + cancel 拒绝不断连），默认关
   epic-56-retrospective: done  # 期一 epic-56-retro-2026-10-24.md；期二 epic-56-retro-phase2-2026-10-24.md
+  epic-57: in-progress  # retro 遗留清理周期（2026-10-26 立项）：清空 7 条 open action items 后版本升 0.8.3
+  57-1-session-closing-checklist: done  # 2026-10-26：§1.6 四条规则落盘，契约子集 35 passed
+  57-2-port-finder-test-env-robustness: done  # 2026-10-26：_reserve_block 动态取口，7/7 三连跑绿，ruff/format 绿
+  57-3-e2e-fence-smoke: done  # 2026-10-26：2 例贯通测试（真实 handler 全链），台账 52-3 AC1 闭合 + 错位窗口附带发现登记
+  57-4-real-llm-smoke: done  # 2026-10-26：临时 workspace 单步包两 goal 全链（deepseek 真实），3 AC 落地，Resolution 留档
+  epic-57-retrospective: optional
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
     epic: 52
     action: "真实 LLM 全链冒烟：用一个小 goal 走完 /goal new → next → run（含并行批授权与审计事件观察），顺带验证绑旧
       revision 的 goal 在 resume 时的漂移处置"
     owner: "tan"
-    status: open
+    status: done  # 57-4 闭环（2026-10-26）：全链冒烟真实执行（3 AC 落地）；并行批授权 N/A（单 story），事件流 rollout 留档缺口登记 deferred-work
     ref: "_bmad-output/implementation-artifacts/epic-52-retro-2026-10-09.md"
   - id: "epic-52-retro-item-2-port_finder-环境敏感排查-test_respects_max_att"
     epic: 52
     action: "port_finder 环境敏感排查：test_respects_max_attempts 稳定失败且 stash 基线复现（环境端口状态敏感）"
     owner: "tan"
-    status: open
+    status: done  # 57-2 闭环（2026-10-26）：根因=测试硬编码 55xxx 段依赖环境端口状态（多开端口顺延/Windows 排除区间）；动态 _reserve_block 替代，意图断言不变
     ref: "_bmad-output/implementation-artifacts/epic-52-retro-2026-10-09.md"
   - id: "epic-52-retro-item-3-审计语义深化-5-项-基线盲区-兄弟误归因-违规写补救-产物参照系-端到端围栏冒"
     epic: 52
     action: "审计语义深化 5 项：基线盲区/兄弟误归因/违规写补救/产物参照系/端到端围栏冒烟，见 deferred-work.md（触发条件指向 AD-20
       worktree 层）"
     owner: "tan"
-    status: open
+    status: done  # 57-3 闭环（2026-10-26）：e2e 围栏贯通已落地（tests/test_write_allowlist.py::test_e2e_chain_*）；其余 4 项维持 implementation-artifacts/deferred-work.md 挂账（触发条件不变，根治指向 AD-20 worktree 层）
     ref: "_bmad-output/implementation-artifacts/epic-52-retro-2026-10-09.md"
   - id: "epic-54-retro-item-4-裁定并修复-f4-test_http_ws_e2e-关停用例-assert-ta"
     epic: 54
@@ -628,27 +634,27 @@ action_items:
     epic: 54
     action: "实现会话收尾清单增加状态回写步骤：story 文件状态头与 sprint-status story 行实现后即时回写（Epic 54 全部漏回写的根因闭环）"
     owner: "流程-所有实现会话"
-    status: open
+    status: done  # 57-1 闭环（2026-10-26）：规则落盘 docs/iteration.md §1.6 第 1 条
     ref: "_bmad-output/implementation-artifacts/epic-54-retro-2026-10-24.md"
   - id: "epic-54-retro-item-7-squash-操作后必须真实创建并保留-backup-ref-98ef6d8-引"
     epic: 54
     action: "squash 操作后必须真实创建并保留 backup ref（98ef6d8 引用的 backup/pre-squash-abb406a
       不存在），保留至验收期满"
     owner: "流程-squash 会话"
-    status: open
+    status: done  # 57-1 闭环（2026-10-26）：规则落盘 docs/iteration.md §1.6 第 2 条
     ref: "_bmad-output/implementation-artifacts/epic-54-retro-2026-10-24.md"
   - id: "epic-53-retro-item-8-评审前置规则并入实现会话收尾清单-与-epic-54-retro-a3-同一流程"
     epic: 53
     action: "评审前置规则并入实现会话收尾清单（与 epic-54 retro A3 同一流程位）：读 story 全文 + 行为验证先行于论断（walkthrough
       误报事件根因闭环）"
     owner: "流程-所有实现/评审会话"
-    status: open
+    status: done  # 57-1 闭环（2026-10-26）：规则落盘 docs/iteration.md §1.6 第 3 条
     ref: "_bmad-output/implementation-artifacts/epic-53-retro-2026-10-24.md"
   - id: "epic-53-retro-item-9-政策-台账-纯-docs-类提交也跑契约测试子集-0e8a330-台账契约红-1"
     epic: 53
     action: "政策/台账/纯 docs 类提交也跑契约测试子集（0e8a330 台账契约红 1 天 + a545613 端口顺延，两例同根因）"
     owner: "流程-提交纪律"
-    status: open
+    status: done  # 57-1 闭环（2026-10-26）：规则落盘 docs/iteration.md §1.6 第 4 条；57-1 自证 35 passed
     ref: "_bmad-output/implementation-artifacts/epic-53-retro-2026-10-24.md"
   - id: "epic-53-retro-item-10-修复批硬化旗标补负向变异验证-删旗标必红-随期二或-epic-56-期一"
     epic: 53

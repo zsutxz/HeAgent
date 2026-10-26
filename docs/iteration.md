@@ -78,6 +78,22 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 - **回顾字段**：每个 epic 配 `epic-N-retrospective`，状态 `optional`（可做不做）或 `done`（已完成）。
 - **单一权威（2026-07-23）**：全周期 sprint-status 统一在 `_bmad-output/sprint-status.yaml`，旧文件保留作为只读归档。
 
+### 1.6 实现会话收尾清单（2026-10-26 落盘，闭环 Epic 53/54 retro 4 条 process item）
+
+**每个实现会话结束前逐条核对**；4 条均为已发生失误的根因闭环，不是新增流程税。
+
+1. **状态回写**（源：epic-54 retro A3；根因：Epic 54 全部 story 漏回写 sprint-status）——story 实现完成即回写两处：
+   story 文件 frontmatter `status` + `_bmad-output/sprint-status.yaml` 对应 story 行；会话收尾前核对该 epic 名下
+   无 `in-progress` / `review` / `ready-for-dev` 残留。
+2. **squash 后真实保留 backup ref**（源：epic-54 retro A4；根因：98ef6d8 提交信息引用了不存在的 `backup/pre-squash-abb406a`）——
+   squash/amend 类改写历史操作后立即 `git branch backup/pre-<op>-<short-sha>`，保留至验收期满；
+   提交信息**不得引用不存在的 ref**。
+3. **评审前置**（源：epic-53 retro A53-1；根因：walkthrough 误报事件）——评审/验收论断前必须**读完 story 全文** +
+   **实际运行行为验证**（跑测试/复现路径），禁止仅凭 diff 或转述下结论。
+4. **契约测试子集不豁免**（源：epic-53 retro A53-2；根因：0e8a330 台账契约红 1 天 + a545613 端口顺延，非代码提交绕过契约）——
+   政策/台账/纯 docs 类提交也须跑 `pytest tests/test_architecture_contracts.py -q`（台账契约与文档强耦合，
+   非代码提交同样能打破）。
+
 ---
 
 ## 二、迭代历程（怎么走到现在）
