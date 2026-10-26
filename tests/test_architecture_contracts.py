@@ -970,11 +970,50 @@ def test_transition_fields_helper_is_the_only_status_writer() -> None:
     assert len(returns) == 1, f"helper 必须只有一个 return：{len(returns)}"
     value = returns[0].value
     assert isinstance(value, ast.Dict), "helper 必须返回字面 dict（审计要能读到键名）"
-    assert [key.value for key in value.keys if isinstance(key, ast.Constant)] == ["status", "last_event"]
-    status_value, last_event_value = value.values
+    assert [key.value for key in value.keys if isinstance(key, ast.Constant)] == [
+        "status",
+        "last_event",
+        "transition_reason",
+    ]
+    status_value, last_event_value, reason_value = value.values
     assert ast.unparse(status_value.func) == "transition", ast.unparse(status_value)
     assert ast.unparse(status_value.args[1]) == "event", ast.unparse(status_value)
     assert ast.unparse(last_event_value) == "event.value", ast.unparse(last_event_value)
+    # S-1：理由必须过 `_bounded_reason` 收敛（直接落 `reason` 会让 2000 字符上限失效）。
+    assert isinstance(reason_value, ast.Call), ast.unparse(reason_value)
+    assert ast.unparse(reason_value.func) == "_bounded_reason", ast.unparse(reason_value)
+
+
+def test_workflow_runner_error_kind_comes_from_the_closed_mapping() -> None:
+    """S-2 / I-6：失败事件的 ``error_kind`` 必须来自 ``error_kind_for``，不得内联映射表。
+
+    失败分类是**封闭映射**（``events/protocol.py::_ERROR_KIND_BY_TYPE`` + 兜底
+    ``ERROR_KIND_EXCEPTION``）：消费方靠它做聚合，一旦 runner 自己在调用点写
+    ``{"RuntimeError": "boom"}`` 之类的字典，同一异常在不同路径会有两种分类名，聚合静默失真。
+    判据读 AST 而非行为——行为只能证明「某条路径分对了」，证明不了「没有第二套映射」。
+    """
+    tree = ast.parse((SRC / "engine" / "workflow_runner.py").read_text(encoding="utf-8"))
+    emit_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "_emit_step_event"
+    ]
+    assert emit_calls, "_emit_step_event 调用点消失：判据失去观测面"
+    offenders: list[str] = []
+    checked = 0
+    for call in emit_calls:
+        for kw in call.keywords:
+            if kw.arg != "error_kind":
+                continue
+            checked += 1
+            value = kw.value
+            is_closed = (
+                isinstance(value, ast.Call) and isinstance(value.func, ast.Name) and value.func.id == "error_kind_for"
+            )
+            if not is_closed:
+                offenders.append(f"line {call.lineno} -> {ast.unparse(value)}")
+    assert checked >= 2, f"失败路径的 error_kind 发射点不足：{checked}"
+    assert offenders == [], "error_kind 绕过封闭映射：" + "; ".join(offenders)
 
 
 def test_ws_server_does_not_import_the_http_transport_module() -> None:

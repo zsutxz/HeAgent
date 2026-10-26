@@ -147,6 +147,10 @@ class WorkflowRunnerState(BaseModel):
     # event 同源写入（唯一写点是 ``_transition_fields``），审计因此能区分「被取消」「执行器
     # 失败」「人工拒绝」这些最终都表现为非 RUNNING 的转换。
     last_event: str = ""
+    # 发那个事件的**理由**（S-1）：自由文本、经 ``_bounded_reason`` 收敛，与 ``last_event`` 正交——
+    # 后者答「经哪个事件」，本字段答「为什么发它」，``next_action`` 答「下一步做什么」。
+    # 可选字段带默认值，旧 checkpoint 缺它读作空串（AD-2 修订版允许追加可选字段）。
+    transition_reason: str = ""
 
 
 class WorkflowStepResult(BaseModel):
@@ -298,6 +302,7 @@ class WorkflowRunner:
             requested_steps=list(checkpoint.requested_steps),
             story_parallel_revoked=checkpoint.story_parallel_revoked,
             last_event=checkpoint.last_event,
+            transition_reason=checkpoint.transition_reason,
         )
         kwargs.setdefault("phase", checkpoint.phase)
         return cls(workflow, state, goal_id=checkpoint.goal_id, run_id=checkpoint.run_id, **kwargs)
@@ -446,11 +451,15 @@ class WorkflowRunner:
                 # FIFO 追加：本步声明的后续步骤排在已有计划之后（先来先执行，顺序可预期）。
                 "requested_steps": [*self.state.requested_steps, *result.requested_steps],
             }
-            update.update(self._completion_update(step, story_specs, result.output, is_story_loop=is_story_loop))
+            update.update(
+                self._completion_update(
+                    step, story_specs, result.output, is_story_loop=is_story_loop, reason=result.reason
+                )
+            )
             self.state = self.state.model_copy(update=update)
         else:
             update = {
-                **self._transition_fields(self._callback_event(result.status)),
+                **self._transition_fields(self._callback_event(result.status), reason=result.reason),
                 "reason": _bounded_reason(result.reason),
             }
             if result.write_violation:
@@ -691,7 +700,10 @@ class WorkflowRunner:
         if first_failure is not None:
             self.state = self.state.model_copy(
                 update={
-                    **self._transition_fields(WorkflowEvent.EXECUTOR_FAILED),
+                    **self._transition_fields(
+                        WorkflowEvent.EXECUTOR_FAILED,
+                        reason=str(first_failure) or WorkflowEvent.EXECUTOR_FAILED.value,
+                    ),
                     "reason": _bounded_reason(str(first_failure) or WorkflowEvent.EXECUTOR_FAILED.value),
                 }
             )
@@ -812,14 +824,22 @@ class WorkflowRunner:
             self.state = self.state.model_copy(update={"active_step": previous})
             raise
 
-    def _transition_fields(self, event: WorkflowEvent) -> dict[str, Any]:
-        """经唯一转换表推进状态，并把驱动事件记进 ``last_event``（A38）。
+    def _transition_fields(self, event: WorkflowEvent, *, reason: str = "") -> dict[str, Any]:
+        """经唯一转换表推进状态，并把驱动事件与其理由记进 ``last_event`` / ``transition_reason``。
 
         状态与事件由**同一个** ``event`` 派生，因此不存在「改了状态却留着上一个事件」的
         半更新路径：所有状态写点都返回本方法的 dict（``{**fields, ...}``），不得在别处
-        再单独写 ``status``。
+        再单独写 ``status`` / ``last_event`` / ``transition_reason``。
+
+        ``reason`` 缺省空串 = 调用点未声明理由（此时 ``transition_reason`` 如实置空，不沿用
+        上一次转换的理由——那会把旧理由错挂到新事件上）。长度只由 :func:`_bounded_reason`
+        收敛，写入路径永不抛异常（观测不得反噬主流程）。
         """
-        return {"status": transition(self.state.status, event), "last_event": event.value}
+        return {
+            "status": transition(self.state.status, event),
+            "last_event": event.value,
+            "transition_reason": _bounded_reason(reason),
+        }
 
     def _absorb_step_exception(self, exc: BaseException) -> WorkflowEvent:
         """异常/取消经唯一转换表落状态，不用直写掩盖（51-2）。
@@ -831,8 +851,9 @@ class WorkflowRunner:
         返回值是该次转换所用事件，供调用方发射 ``transition_event`` 与判定 story 状态。
         """
         event = WorkflowEvent.CANCELLED if isinstance(exc, _CANCEL_EXCEPTIONS) else WorkflowEvent.EXECUTOR_FAILED
+        reason = str(exc) or event.value
         self.state = self.state.model_copy(
-            update={**self._transition_fields(event), "reason": _bounded_reason(str(exc) or event.value)}
+            update={**self._transition_fields(event, reason=reason), "reason": _bounded_reason(reason)}
         )
         return event
 
@@ -871,7 +892,7 @@ class WorkflowRunner:
         """User-requested pause through the single transition table (51-2 Review P7)."""
         self.state = self.state.model_copy(
             update={
-                **self._transition_fields(WorkflowEvent.USER_PAUSE),
+                **self._transition_fields(WorkflowEvent.USER_PAUSE, reason="user requested pause; resume to continue"),
                 "reason": "user requested pause; resume to continue",
             }
         )
@@ -954,7 +975,7 @@ class WorkflowRunner:
         step = self._require_approval_decision()
         self.state = self.state.model_copy(
             update={
-                **self._transition_fields(WorkflowEvent.USER_REJECT),
+                **self._transition_fields(WorkflowEvent.USER_REJECT, reason=reason),
                 "awaiting_approval": False,
                 "pending_output": None,
                 "reason": _bounded_reason(reason),
@@ -980,7 +1001,7 @@ class WorkflowRunner:
         step = self._require_approval_decision()
         self.state = self.state.model_copy(
             update={
-                **self._transition_fields(WorkflowEvent.USER_AMEND),
+                **self._transition_fields(WorkflowEvent.USER_AMEND, reason=supplement),
                 "awaiting_approval": False,
                 "pending_output": None,
                 "reason": "",
@@ -1062,6 +1083,7 @@ class WorkflowRunner:
         output: Any,
         *,
         is_story_loop: bool,
+        reason: str = "",
     ) -> dict[str, Any]:
         """**非 story 循环**步骤完成后的状态更新：审批门挂起或完成簿记。
 
@@ -1073,7 +1095,7 @@ class WorkflowRunner:
             return self._story_advance_update(step, story_specs, output)
         if step.approval.required:
             return self._approval_gate_update(step, output)
-        return self._step_advance_update(step, output)
+        return self._step_advance_update(step, output, reason=reason)
 
     def _approval_gate_update(self, step: WorkflowStepResource, output: Any) -> dict[str, Any]:
         """审批门挂起更新（Story 51-5）：步骤做完了工作，但声明了 ``approval: required``。
@@ -1085,16 +1107,17 @@ class WorkflowRunner:
         **单点清场**：门挂起后步骤未完成，重跑从第一条 story 开始，决策记录也不会把步骤级
         决策错误归因到某条 story（审查 #7）。
         """
+        gate_reason = step.approval.note or "step work is done; it awaits a human approval decision"
         return {
-            **self._transition_fields(WorkflowEvent.APPROVAL_REQUIRED),
+            **self._transition_fields(WorkflowEvent.APPROVAL_REQUIRED, reason=gate_reason),
             "awaiting_approval": True,
             "pending_output": output,
             "approval_round": self.state.approval_round + 1,
-            "reason": _bounded_reason(step.approval.note or "step work is done; it awaits a human approval decision"),
+            "reason": _bounded_reason(gate_reason),
             **_story_reset_update(),
         }
 
-    def _step_advance_update(self, step: WorkflowStepResource, output: Any) -> dict[str, Any]:
+    def _step_advance_update(self, step: WorkflowStepResource, output: Any, *, reason: str = "") -> dict[str, Any]:
         # 完成簿记按**本步**的声明序号推进（``step.index`` 1-based），不按 ``state.active_step``：
         # 两者在「按声明顺序线性推进」时恒等；但 :meth:`run_declared_step` 会让活动步跳到脚本
         # 指名的后续步骤，此时只有 step.index 能给出正确的下一位置（Story 51-7 A1）。
@@ -1111,7 +1134,7 @@ class WorkflowRunner:
         for reference in self._references(step.output):
             outputs[reference] = output
         return {
-            **self._transition_fields(event),
+            **self._transition_fields(event, reason=reason),
             "active_step": self.state.active_step + 1,
             "completed_steps": completed,
             "outputs": outputs,
@@ -1241,6 +1264,7 @@ class WorkflowRunner:
             acceptance_evidence=list(self.state.acceptance_evidence),
             completed_steps=list(self.state.completed_steps),
             last_event=self.state.last_event,
+            transition_reason=self.state.transition_reason,
             next_action=_bounded_reason(self.state.reason),
         )
         aggregate_status = self.state.status

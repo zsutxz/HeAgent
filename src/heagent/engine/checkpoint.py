@@ -18,9 +18,14 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from heagent.engine.workflow_events import WorkflowEvent
 from heagent.pub.persist import atomic_write_text, load_json_model
+
+#: ``last_event`` 的封闭词汇表（S-2 / I-3）：取值只能是 ``WorkflowEvent`` 的一员或空串。
+#: 空串 = 旧 checkpoint 未记录该字段（AD-2 只追加口径），不是非法值。
+_WORKFLOW_EVENT_VALUES: frozenset[str] = frozenset(event.value for event in WorkflowEvent)
 
 
 def _iso_now() -> str:
@@ -94,9 +99,28 @@ class WorkflowCheckpoint(BaseModel):
     # 旧 checkpoint 缺它读作空串（AD-2 修订版允许追加可选字段，active_epic / requested_steps
     # 同款先例）——`next_action` 只说明理由，说明不了「经哪个事件落到这个状态」。
     last_event: str = ""
+    # 发那个事件的**理由**（S-1，2026-10-26）：自由文本，与 `last_event` 正交——后者答「经哪个
+    # 事件」，本字段答「为什么发它」，`next_action` 答「下一步做什么」。可选字段带默认值，旧
+    # checkpoint 缺它读作空串（AD-2 修订版允许追加可选字段，`last_event` 同款先例）。
+    transition_reason: str = ""
     next_action: str = ""
     tool_in_flight: bool = False
     created_at: str = Field(default_factory=_iso_now)
+
+    @field_validator("last_event")
+    @classmethod
+    def _last_event_in_vocabulary(cls, value: str) -> str:
+        """I-3：驱动事件必须闭集内（空串表示旧档案未记录，合法）。
+
+        非法取值一律 fail-loud 并**点名**该值——驱动事件决定状态归因，猜错会把人引向
+        错误结论；静默接受等于让「经哪个事件落到这个状态」这项审计失去意义。
+        """
+        if value and value not in _WORKFLOW_EVENT_VALUES:
+            raise WorkflowCheckpointError(
+                f"checkpoint last_event {value!r} is not a WorkflowEvent value; "
+                f"legal values: {sorted(_WORKFLOW_EVENT_VALUES)}"
+            )
+        return value
 
 
 class WorkflowCheckpointError(ValueError):

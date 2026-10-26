@@ -299,7 +299,7 @@ class BaseProvider(Protocol):
 抛出保留既有 cause 链，否则包装并保留原始 cause 与状态码），避免裸 SDK 异常穿透到 CLI。
 
 ```
-ProviderChain([deepseek, KeyRotatingProvider([openai×N]), KeyRotatingProvider([anthropic×N])])
+ProviderChain([deepseek, KeyRotatingProvider([anthropic×N])])
   │
   ├── 当前 Provider → 失败(可回退) → _advance() 切下一个 Provider
   ├── 任一 NON_TRANSIENT → 立即抛出 ProviderError（不回退）
@@ -334,7 +334,6 @@ Middleware 接入 `AgentLoop.middlewares`。
 AgentLoop
   ├─ provider = ProviderChain([                    # 外层：跨 Provider 类型回退（NON_TRANSIENT 不回退）
   │     deepseek,                                   #   单 key
-  │     KeyRotatingProvider([openai sk1, sk2, ...]),# 中层：同 Provider 多 key 轮换（429/401 触发）
   │     KeyRotatingProvider([anthropic k1, k2, ...])# 中层
   │   ])
   └─ middlewares = [make_retry_middleware()]         # 内层：仅 TRANSIENT 指数退避重试
@@ -767,8 +766,7 @@ HeAgentError (base)
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `deepseek_api_key` | None | DeepSeek API Key（优先） |
-| `active_provider` | None | 默认激活的 provider 条目名（多条目时作为启动选择与 `SwitchableProvider` 的默认项）；未设或该条目不可用 → 回退到第一个可用条目（构建顺序 `deepseek` → `kimi` → `glm` → `ollama` → `openai` → `gpt` → `anthropic`） |
-| `openai_api_key` | None | OpenAI API Key |
+| `active_provider` | None | 默认激活的 provider 条目名（多条目时作为启动选择与 `SwitchableProvider` 的默认项）；未设或该条目不可用 → 回退到第一个可用条目（构建顺序 `deepseek` → `kimi` → `glm` → `ollama` → `gpt` → `anthropic`） |
 | `anthropic_api_key` | None | Anthropic API Key |
 | `kimi_api_key` / `glm_api_key` | None | Kimi、GLM Provider API Key |
 | `openai_responses_api_key` | None | OpenAI Responses API / 中转站 API Key |
@@ -778,15 +776,13 @@ HeAgentError (base)
 | `ollama_model` | None | Ollama 模型名（启用时必填，否则 fail-fast） |
 | `ollama_api_key` | None | Ollama 占位 key（缺省用 `"ollama"`；Ollama 不校验 key） |
 | `deepseek_base_url` | None | DeepSeek API 基础 URL |
-| `openai_base_url` | None | OpenAI 兼容服务 URL |
 | `anthropic_base_url` | None | Anthropic 代理地址 |
 | `kimi_base_url` / `glm_base_url` | None | Kimi、GLM API 基础 URL（缺省用内置端点 `api.moonshot.cn/v1` / `open.bigmodel.cn/api/paas/v4`） |
 | `anthropic_prompt_caching` | True | Anthropic 提示词缓存（注入 cache_control 断点，FR-3；不兼容代理时关闭） |
 | `routing_pools` | "" | 声明式路由池 JSON（任意 provider 条目多档池；改档位/角色/关键词无需改代码） |
 | `routing_reasoning_continuity` | False | 推理链续接（**所有池的默认值**，单池可用 spec 的 `reasoning_continuity` 覆盖）：true 时「上一轮走了 pro 且思考痕迹仍在历史中」继续走 pro，否则只按当前请求命中关键词判定 |
-| `openai_api_keys` | "" | OpenAI 多密钥池（逗号分隔） |
 | `anthropic_api_keys` | "" | Anthropic 多密钥池（逗号分隔） |
-| `default_model` | `gpt-4o` | openai（Chat Completions）/ anthropic 条目的兜底模型 |
+| `default_model` | `gpt-4o` | anthropic 条目的兜底模型 |
 | `deepseek_model` / `kimi_model` / `glm_model` | `deepseek-v4-pro` / `kimi-k3` / `glm-5.3` | 各 Provider 默认模型（**仅该条目未出现在 `routing_pools` 时生效**；有池时模型由池的 `tiers` 决定，`--model` 亦被忽略并告警） |
 | `openai_model` | `gpt-5.6-terra` | gpt（Responses API）条目默认模型（声明 gpt 池时由 `tiers` 决定） |
 | `max_iterations` | 50 | Agent 循环最大迭代次数 |
@@ -1009,6 +1005,43 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
 
 每个步骤或 Story 都由新的 SubAgent/RunContext 执行。`WorkflowRunner` 负责顺序、输入、输出、checkpoint
 和恢复；它不决定 Epic/Story 的拆分方法。
+
+**状态迁移与中断语义矩阵（S-3，2026-10-26）**。`src/heagent/engine/workflow_transition.py` 的
+`_TRANSITIONS` 是**唯一**迁移表，任何状态赋值都必须经它（`tests/test_architecture_contracts.py` 有两条
+AST 判据钉住：写点必须走 `transition()`，且唯一写点 `_transition_fields` 必须同时写状态与驱动事件）。
+下表把「事件 → 原因 → 落点」固化成可核对的形式：事件列取值集合必须与 `WorkflowEvent` 完全一致
+（缺一个或写错一个都会被 `tests/test_workflow_transition_reason.py::test_interrupt_matrix_covers_vocabulary` 打红），
+中断语义只固化 **A39（2026-10-23）已裁定**的口径，本表不新增裁决。
+
+<!-- S-3:transition-matrix:start -->
+
+| 状态 | 事件 | 原因 | 下一步 | 代码锚点 |
+|---|---|---|---|---|
+| `PENDING` | `start` | 步骤开始执行 | → `RUNNING` | `src/heagent/engine/workflow_transition.py:11` |
+| `PENDING` | `input_missing` | 必需输入缺失，无法开工 | → `BLOCKED` | `src/heagent/engine/workflow_transition.py:11` |
+| `PENDING` · `RUNNING` | `user_pause` | 用户主动暂停（`/goal pause`） | → `WAITING_USER` | `src/heagent/engine/workflow_runner.py:875` |
+| `RUNNING` | `step_completed` | 普通步骤完成且仍有后续步骤 | → `PENDING` | `src/heagent/engine/workflow_runner.py:1114` |
+| `RUNNING` | `final_step_completed` | 末步完成 | → `COMPLETED` | `src/heagent/engine/workflow_runner.py:1114` |
+| `RUNNING` | `checkpoint_required` | 该步声明了 checkpoint，需人工确认后继续 | → `WAITING_USER` | `src/heagent/engine/workflow_runner.py:1114` |
+| `RUNNING` | `approval_required` | 该步声明 `approval: required`，完成簿记延后 | → `WAITING_USER` | `src/heagent/engine/workflow_runner.py:1095` |
+| `RUNNING` | `gate_failed` | 步骤完成门求值未通过 | → `BLOCKED` | `src/heagent/engine/workflow_transition.py:11` |
+| `RUNNING` | `executor_failed` | 执行器/回调抛非取消异常（见中断语义表） | → `FAILED` | `src/heagent/engine/workflow_runner.py:839` |
+| `RUNNING` | `cancelled` | 用户取消（见中断语义表，可恢复） | → `PENDING` | `src/heagent/engine/workflow_runner.py:839` |
+| `WAITING_USER` | `user_resume` | 用户回复并恢复执行（**不等于批准**）；`BLOCKED` / `FAILED` 恢复同此事件 | → `PENDING` | `src/heagent/engine/workflow_transition.py:11` |
+| `WAITING_USER` | `user_approve` | 人工批准：唯一把该步标记完成的路径 | → `RUNNING` | `src/heagent/engine/workflow_runner.py:935` |
+| `WAITING_USER` | `user_reject` | 人工驳回：步骤未完成，修订后 `resume` 重跑 | → `BLOCKED` | `src/heagent/engine/workflow_runner.py:957` |
+| `WAITING_USER` | `user_amend` | 带补充重跑，补充同时进需求文档「用户补充」段 | → `PENDING` | `src/heagent/engine/workflow_runner.py:983` |
+
+**中断语义（A39，2026-10-23 裁定，本表只固化不重裁）**：
+
+| 异常类型 | 事件 | 落状态 | 可恢复 | 代码锚点 |
+|---|---|---|---|---|
+| `asyncio.CancelledError` | `cancelled` | `PENDING` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:839` |
+| `KeyboardInterrupt` | `cancelled` | `PENDING` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:839` |
+| `SystemExit` | `cancelled` | `PENDING` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:839` |
+| 其余 `BaseException` | `executor_failed` | `FAILED` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:839` |
+
+<!-- S-3:transition-matrix:end -->
 
 **声明门控并行与写集围栏（Epic 52，AD-16..20）**。`max_parallel_stories > 1` 只是授权门的上限，
 不等于并发度：每次推进由 `WorkflowRunner._parallel_batch` 从声明（`parallel_group` / `write_set` /
