@@ -1,4 +1,10 @@
-"""Tests for port finder utility."""
+"""Tests for port finder utility.
+
+环境敏感性说明（Epic 57-2）：历史版本硬编码 55xxx 固定端口段，隐含假设「该段处于预期占用/空闲状态」。
+本机多开实例端口顺延（a545613 起默认开启）或 Windows 排除端口区间（Hyper-V/WSL/Docker 保留段）覆盖该段时
+前提即被破坏——epic-52 期 test_respects_max_attempts 因此稳定失败（环境复现）。现行版本统一经
+`_reserve_block` 动态取口，不再依赖任何固定段。
+"""
 
 from __future__ import annotations
 
@@ -10,59 +16,81 @@ import pytest
 from heagent.cli.port_finder import find_available_port
 
 
+def _bind_block(base: int, count: int) -> list[socket.socket] | None:
+    """尝试连续绑定 [base, base+count)；任一失败则清理已打开的 socket 并返回 None。"""
+    sockets: list[socket.socket] = []
+    for offset in range(count):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.bind(("127.0.0.1", base + offset))
+        except OSError:
+            s.close()
+            for opened in sockets:
+                opened.close()
+            return None
+        sockets.append(s)
+    return sockets
+
+
+def _reserve_block(count: int, tries: int = 20) -> tuple[int, list[socket.socket]]:
+    """占住 count 个连续可用端口，返回 (base, sockets)。
+
+    以 OS 临时口（bind 0）为起点探测，碰撞（被并发抢占或落入排除区间）即换起点重试，
+    有界 tries 次后显性失败——测试前提由测试自身建立，不依赖环境端口状态。
+    """
+    for _ in range(tries):
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe.bind(("127.0.0.1", 0))
+        base = probe.getsockname()[1]
+        probe.close()
+        if base + count - 1 > 65535:
+            continue
+        sockets = _bind_block(base, count)
+        if sockets is not None:
+            return base, sockets
+    raise RuntimeError(f"could not reserve {count} consecutive free ports after {tries} tries")
+
+
 class TestFindAvailablePort:
     def test_returns_preferred_port_when_available(self) -> None:
         """首选端口可用时直接返回。"""
-        # 使用一个极不可能被占用的高位端口
-        port = find_available_port(55000)
-        assert port == 55000
+        base, (holder,) = _reserve_block(1)
+        holder.close()
+        assert find_available_port(base) == base
 
     def test_finds_next_available_port_when_preferred_is_in_use(self) -> None:
         """首选端口被占用时，尝试后续端口。"""
-        # 先占用一个端口
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 55001))
-            # 尝试获取从 55001 开始的可用端口
-            port = find_available_port(55001, max_attempts=10)
-            # 应该返回 55002（55001 被占用）
-            assert port == 55002
+        base, (holder, nxt) = _reserve_block(2)
+        nxt.close()
+        try:
+            port = find_available_port(base, max_attempts=10)
+            assert port == base + 1
+        finally:
+            holder.close()
 
     def test_respects_max_attempts(self) -> None:
         """尊重 max_attempts 参数。"""
-        # 占用连续的多个端口
-        sockets = []
+        base, sockets = _reserve_block(6)
+        sockets[-1].close()  # 释放第 6 个端口：前 5 个占用、第 6 个可用
         try:
-            for offset in range(5):
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.bind(("127.0.0.1", 55010 + offset))
-                sockets.append(s)
-
-            # 尝试最多 3 次，应该失败（前 3 个都被占用）
+            # 前 3 个都被占用：max_attempts=3 应失败
             with pytest.raises(RuntimeError, match="No available port found"):
-                find_available_port(55010, max_attempts=3)
+                find_available_port(base, max_attempts=3)
 
-            # 尝试最多 10 次，应该成功（第 6 个端口可用）
-            port = find_available_port(55010, max_attempts=10)
-            assert port == 55015
+            # 第 6 个端口可用：max_attempts=10 应成功
+            assert find_available_port(base, max_attempts=10) == base + 5
         finally:
             for s in sockets:
                 s.close()
 
     def test_raises_runtime_error_when_no_port_available(self) -> None:
         """所有尝试的端口都被占用时抛出 RuntimeError。"""
-        # 占用连续的 15 个端口
-        sockets = []
+        base, sockets = _reserve_block(15)
         try:
-            for offset in range(15):
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                s.bind(("127.0.0.1", 55020 + offset))
-                sockets.append(s)
-
-            # 尝试最多 10 次，应该失败
             with pytest.raises(RuntimeError) as exc_info:
-                find_available_port(55020, max_attempts=10)
+                find_available_port(base, max_attempts=10)
 
-            assert "No available port found in range 55020-55029" in str(exc_info.value)
+            assert f"No available port found in range {base}-{base + 9}" in str(exc_info.value)
             assert "Please specify a different port" in str(exc_info.value)
         finally:
             for s in sockets:
@@ -70,14 +98,15 @@ class TestFindAvailablePort:
 
     def test_works_with_different_hosts(self) -> None:
         """支持不同的绑定地址。"""
-        # 测试 127.0.0.1
-        port1 = find_available_port(55030, host="127.0.0.1")
-        assert port1 >= 55030
+        base, (holder,) = _reserve_block(1)
+        holder.close()
+        assert find_available_port(base, host="127.0.0.1") == base
 
-        # 测试 0.0.0.0（需要权限，可能失败）
+        # 0.0.0.0（需要权限，可能失败）
+        base2, (holder2,) = _reserve_block(1)
+        holder2.close()
         try:
-            port2 = find_available_port(55040, host="0.0.0.0")
-            assert port2 >= 55040
+            assert find_available_port(base2, host="0.0.0.0") == base2
         except (OSError, PermissionError):
             # 某些环境可能不允许绑定 0.0.0.0
             pytest.skip("Cannot bind to 0.0.0.0 in this environment")
@@ -102,12 +131,14 @@ class TestFindAvailablePort:
         caplog.set_level(logging.INFO, logger="heagent.cli.port_finder")
 
         # 占用首选端口
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 55060))
-
-            port = find_available_port(55060, max_attempts=10)
-            assert port == 55061
+        base, (holder, nxt) = _reserve_block(2)
+        nxt.close()
+        try:
+            port = find_available_port(base, max_attempts=10)
+            assert port == base + 1
 
             # 验证日志
-            assert any("Port 55060 was in use" in record.message for record in caplog.records)
-            assert any("using port 55061 instead" in record.message for record in caplog.records)
+            assert any(f"Port {base} was in use" in record.message for record in caplog.records)
+            assert any(f"using port {base + 1} instead" in record.message for record in caplog.records)
+        finally:
+            holder.close()

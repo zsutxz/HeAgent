@@ -7,6 +7,7 @@ SubAgent 经显式参数注入该键（reserved，用户 / role metadata 不可�
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +18,10 @@ from heagent.agent.sub import SubAgent
 from heagent.engine import EngineContainer, PolicyEngine, RunContext, ToolExecutionMode
 from heagent.providers.base import ProviderMetadata
 from heagent.pub.types import ProviderResponse, StreamEvent, TokenUsage, ToolCall
+import heagent.tools.builtins  # noqa: F401  # @tool 注册副作用：真实 file_write 进全局注册表
+from heagent.tools.path_safety import bind_workspace_root
+from heagent.tools.registry import ToolRegistry
+from heagent.tools.safety import SafetyGuard
 
 
 def _policy(tmp_path: Path, **kwargs: Any) -> PolicyEngine:
@@ -229,3 +234,69 @@ async def test_param_wins_over_metadata_forgery(tmp_path: Path, capture_loop: li
     assert result.success
     assert capture_loop and capture_loop[0] is not None
     assert capture_loop[0].metadata["write_allowlist"] == ["src"]
+
+
+# ── 端到端贯通：真实工具链真拦越集写（52-3 AC1，Epic 57-3）────────────────────
+# 此前 BLOCKED 判定（policy 单测）与宿主参数传递（52-3 断言）分段覆盖，「工具链真拦越集写」
+# 的单一贯通缺失——本节以真实注册表 handler 走 policy → executor 全链闭合该缺口。
+
+
+def _spy_invoke(registry: ToolRegistry, touched: list[ToolCall]):
+    """镜像主链路 handler 调用形态（agent/tool_execution._invoke：先调用再等协程），
+    外裹触达记录——记录器只做断言仪器，围栏 / executor / 真实 handler 均不打桩。"""
+
+    async def invoke(call: ToolCall) -> object:
+        touched.append(call)
+        handler = registry.get_handler(call.name)
+        if handler is None:
+            raise RuntimeError(f"Unknown tool: {call.name}")
+        result = handler(**call.arguments)
+        if asyncio.iscoroutine(result):
+            return await result
+        return result
+
+    return invoke
+
+
+async def test_e2e_chain_writes_real_file_inside_set(tmp_path: Path) -> None:
+    """集内写：policy DIRECT → executor 调度真实 file_write handler，文件真实落盘。"""
+    registry = ToolRegistry.get()
+    engine = EngineContainer(workspace_root=str(tmp_path))
+    context = _ctx(tmp_path, {"write_allowlist": ["src"]})
+    call = _call("file_write", {"path": "src/ok.md", "content": "hello"})
+
+    verdict = engine.policy.evaluate_tool_call(call, context=context, schema=registry.get_schema("file_write"))
+    assert verdict.mode is ToolExecutionMode.DIRECT
+
+    touched: list[ToolCall] = []
+    # 与主链路 _runtime_scope 同形态：真实 handler 从运行时绑定解析根（非 RunContext），
+    # 不绑则写进进程 cwd（贯通首跑已实证该缝隙——产物落 repo src/，已清理）。
+    with bind_workspace_root(tmp_path):
+        result = await engine.executor.execute(
+            call=call, verdict=verdict, guard=SafetyGuard(), handler=_spy_invoke(registry, touched), run_context=context
+        )
+    assert not result.is_error
+    assert (tmp_path / "src" / "ok.md").read_text(encoding="utf-8") == "hello"
+    assert touched == [call]  # 真实 handler 被触达
+
+
+async def test_e2e_chain_blocks_out_of_set_before_handler(tmp_path: Path) -> None:
+    """越集写：围栏 BLOCKED → executor 不触达 handler，文件不落盘。"""
+    registry = ToolRegistry.get()
+    engine = EngineContainer(workspace_root=str(tmp_path))
+    context = _ctx(tmp_path, {"write_allowlist": ["src"]})
+    call = _call("file_write", {"path": "docs/x.md", "content": "hi"})
+
+    verdict = engine.policy.evaluate_tool_call(call, context=context, schema=registry.get_schema("file_write"))
+    assert verdict.mode is ToolExecutionMode.BLOCKED
+    assert verdict.source == "write_allowlist"
+
+    touched: list[ToolCall] = []
+    with bind_workspace_root(tmp_path):
+        result = await engine.executor.execute(
+            call=call, verdict=verdict, guard=SafetyGuard(), handler=_spy_invoke(registry, touched), run_context=context
+        )
+    assert result.is_error
+    assert "write set" in result.content
+    assert touched == []  # 拦截发生在 handler 之前
+    assert not (tmp_path / "docs" / "x.md").exists()
