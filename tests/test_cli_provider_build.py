@@ -24,8 +24,8 @@ from heagent.pub.types import Message, Role
 
 # 测试用池规格：deepseek 二分（池内名 fast/pro）、gpt 三档（terra/luna/sol + 显式 roles）。
 _DEEPSEEK_POOL = '{"deepseek": {"tiers": {"fast": "deepseek-flash", "pro": "deepseek-v4-pro"}}}'
-_GPT_POOL = (
-    '{"gpt": {"tiers": {"terra": "gpt-5.6-terra", "luna": "gpt-5.6-luna", "sol": "gpt-5.6-sol"},'
+_OPENAI_POOL = (
+    '{"openai": {"tiers": {"terra": "gpt-5.6-terra", "luna": "gpt-5.6-luna", "sol": "gpt-5.6-sol"},'
     ' "roles": {"fast": "terra", "mid": "luna", "pro": "sol"}, "default": "terra"}}'
 )
 
@@ -232,7 +232,7 @@ class TestBuildProviderDeclarativeRouting:
             Settings(
                 openai_responses_api_key="sk-gpt",
                 routing_pools=(
-                    '{"gpt": {"tiers": {"terra": "gpt-5.6-terra", "luna": "gpt-5.6-luna", "sol": "gpt-5.6-sol"},'
+                    '{"openai": {"tiers": {"terra": "gpt-5.6-terra", "luna": "gpt-5.6-luna", "sol": "gpt-5.6-sol"},'
                     ' "roles": {"fast": "terra", "mid": "luna", "pro": "sol"}, "default": "terra"}}'
                 ),
             ),
@@ -439,15 +439,15 @@ class TestBuildProviderGpt:
             None,
         )
         assert isinstance(provider, SwitchableProvider)
-        assert set(provider.names) == {"kimi", "gpt"}
-        assert isinstance(provider.providers["gpt"], OpenAIResponsesProvider)
+        assert set(provider.names) == {"kimi", "openai"}
+        assert isinstance(provider.providers["openai"], OpenAIResponsesProvider)
 
-    def test_model_flag_overrides_gpt_default(self, hermetic) -> None:
+    def test_model_flag_overrides_openai_default(self, hermetic) -> None:
         provider = _build_provider(Settings(openai_responses_api_key="sk-gpt"), "gpt-5.5")
         assert isinstance(provider, OpenAIResponsesProvider)
         assert provider.get_metadata().model == "gpt-5.5"
 
-    def test_openai_model_setting_drives_gpt_entry(self, hermetic) -> None:
+    def test_openai_model_setting_drives_openai_entry(self, hermetic) -> None:
         """OPENAI_MODEL（Settings.openai_model）是 gpt 条目（Responses API）的默认模型。"""
         provider = _build_provider(
             Settings(openai_responses_api_key="sk-gpt", openai_model="gpt-5.6-sol"),
@@ -463,7 +463,7 @@ class TestBuildProviderGptRouting:
     def test_gpt_pool_only_gpt_returns_routing_provider(self, hermetic) -> None:
         """只有 gpt 且声明了三档池 → 直接返回 RoutingProvider（terra/luna/sol）。"""
         provider = _build_provider(
-            Settings(openai_responses_api_key="sk-gpt", routing_pools=_GPT_POOL),
+            Settings(openai_responses_api_key="sk-gpt", routing_pools=_OPENAI_POOL),
             None,
         )
         assert isinstance(provider, RoutingProvider)
@@ -473,22 +473,22 @@ class TestBuildProviderGptRouting:
     def test_gpt_pool_plus_kimi_returns_switchable_with_routing_gpt(self, hermetic) -> None:
         """gpt 三档池 + 第二个 provider → SwitchableProvider，gpt 条目为 RoutingProvider。"""
         provider = _build_provider(
-            Settings(kimi_api_key="sk-kimi", openai_responses_api_key="sk-gpt", routing_pools=_GPT_POOL),
+            Settings(kimi_api_key="sk-kimi", openai_responses_api_key="sk-gpt", routing_pools=_OPENAI_POOL),
             None,
         )
         assert isinstance(provider, SwitchableProvider)
-        assert set(provider.names) == {"kimi", "gpt"}
-        gpt_entry = provider.providers["gpt"]
-        assert isinstance(gpt_entry, RoutingProvider)
-        # /model 列表展示：gpt 条目展示 terra/luna/sol 三个模型
-        summary = provider.info()["gpt"]
+        assert set(provider.names) == {"kimi", "openai"}
+        openai_entry = provider.providers["openai"]
+        assert isinstance(openai_entry, RoutingProvider)
+        # /model 列表展示：openai 条目展示 terra/luna/sol 三个模型
+        summary = provider.info()["openai"]
         assert "gpt-5.6-terra" in summary.model
         assert "gpt-5.6-luna" in summary.model
         assert "gpt-5.6-sol" in summary.model
 
     def test_gpt_pool_without_key_degrades_gracefully(self, hermetic) -> None:
         """声明了三档池但无 Responses API 密钥 → 优雅降级：其余 provider 照常可用。"""
-        provider = _build_provider(Settings(kimi_api_key="sk-kimi", routing_pools=_GPT_POOL), None)
+        provider = _build_provider(Settings(kimi_api_key="sk-kimi", routing_pools=_OPENAI_POOL), None)
         assert isinstance(provider, OpenAIProvider)
 
     def test_gpt_without_pool_is_plain_responses(self, hermetic) -> None:

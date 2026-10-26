@@ -21,15 +21,15 @@ def test_snapshot_detaches_collections_and_credentials():
         _env_file=None,
         anthropic_api_key="private-key",
         safety_blocked_tools=["shell"],
-        routing_pools='{"gpt":{"tiers":{"fast":"first"}}}',
+        routing_pools='{"openai":{"tiers":{"fast":"first"}}}',
     )
     config = resolve_runtime_config(settings)
     settings.safety_blocked_tools = ["file_write"]
     settings.routing_pools = ""
     pool = config.routing_pool_map
-    pool["gpt"].tiers["fast"] = "changed"
+    pool["openai"].tiers["fast"] = "changed"
     assert config.safety_blocked_tools == ("shell",)
-    assert config.routing_pool_map["gpt"].tiers["fast"] == "first"
+    assert config.routing_pool_map["openai"].tiers["fast"] == "first"
     with pytest.raises(ValidationError):
         config.max_iterations = 1
     assert "private-key" not in repr(config)

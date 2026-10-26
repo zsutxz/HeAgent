@@ -40,7 +40,7 @@ GLOBAL_SETTING_FILE: Path = GLOBAL_CONFIG_DIR / "setting.md"
 LEGACY_GLOBAL_ENV_FILE: Path = GLOBAL_CONFIG_DIR / ".env"
 
 # 路由池可绑定的 provider 条目名（与 cli._build_provider 的池内条目名一致）。
-ROUTING_POOL_ENTRIES: frozenset[str] = frozenset({"deepseek", "kimi", "glm", "ollama", "gpt", "anthropic"})
+ROUTING_POOL_ENTRIES: frozenset[str] = frozenset({"deepseek", "kimi", "glm", "ollama", "openai", "claude"})
 
 
 def _parse_comma_list(v: str) -> list[str]:
@@ -107,11 +107,11 @@ class Settings(BaseSettings):
     openai_responses_base_url: str | None = None  # Responses API 中转站（如 https://www.komapi.top/v1）
 
     # ---- 各 Provider 默认模型（--model CLI 参数可覆盖） ----
-    default_model: str = "gpt-4o"  # anthropic 条目的兜底模型
+    default_model: str = "gpt-4o"  # claude 条目的兜底模型
     deepseek_model: str = "deepseek-v4-pro"  # DeepSeek 默认模型
     kimi_model: str = "kimi-k3"  # Kimi (Moonshot) 默认模型
     glm_model: str = "glm-5.3"  # GLM (智谱) 默认模型
-    openai_model: str = "gpt-5.6-terra"  # gpt（Responses API）条目默认模型（env: OPENAI_MODEL）
+    openai_model: str = "gpt-5.6-terra"  # openai（Responses API）条目默认模型（env: OPENAI_MODEL）
 
     # ---- 本地 Ollama（OpenAI 兼容 /v1；无真实 API Key） ----
     # ollama_enabled 默认 False：本地端点属显式 opt-in——避免默认向 localhost 发请求，
@@ -133,9 +133,9 @@ class Settings(BaseSettings):
     # ---- 智能路由（唯一入口：ROUTING_POOLS 声明式路由池） ----
     # JSON 形如：
     #   {"glm": {"tiers": {"fast": "glm-5.3-flash", "pro": "glm-5.3"}},
-    #    "gpt": {"tiers": {"terra": "gpt-5.6-terra", "luna": "gpt-5.6-luna", "sol": "gpt-5.6-sol"},
+    #    "openai": {"tiers": {"terra": "gpt-5.6-terra", "luna": "gpt-5.6-luna", "sol": "gpt-5.6-sol"},
     #            "roles": {"fast": "terra", "mid": "luna", "pro": "sol"}, "default": "terra"}}
-    # 键须为 provider 条目名（deepseek/kimi/glm/ollama/openai/gpt/anthropic），**条目出现在这里
+    # 键须为 provider 条目名（deepseek/claude/openai/kimi/glm/ollama），**条目出现在这里
     # 即为启用该池**（必须有对应凭据）；没有按 provider 的专用开关。档位模型、角色映射、默认档、
     # 关键词（命中即路由到该档）、base_url 覆盖全在配置里——**调整路由池无需改代码**。
     # 无效 JSON / 非法规格 / 未知条目名 → 告警并忽略该条（不阻断启动）。

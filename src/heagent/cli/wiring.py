@@ -61,8 +61,8 @@ _ENTRY_CREDENTIAL_HINTS = {
     "kimi": "KIMI_API_KEY",
     "glm": "GLM_API_KEY",
     "ollama": "OLLAMA_ENABLED",
-    "gpt": "OPENAI_RESPONSES_API_KEY",
-    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_RESPONSES_API_KEY",
+    "claude": "ANTHROPIC_API_KEY",
 }
 
 
@@ -81,7 +81,7 @@ def _openai_builder(settings: Settings, *, key: str, base_url: str | None) -> Pr
 
 
 def _responses_builder(settings: Settings, *, key: str, base_url: str | None) -> ProviderBuilder:
-    """单密钥 Responses API 条目的构建器（gpt 条目）：每档一个模型名。"""
+    """单密钥 Responses API 条目的构建器（openai 条目）：每档一个模型名。"""
 
     def build(tier_model: str, override: str | None) -> BaseProvider:
         return OpenAIResponsesProvider(
@@ -178,6 +178,25 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
         build = _openai_builder(settings, key=settings.deepseek_api_key, base_url=url)
         _entry("deepseek", default_model=settings.deepseek_model, default_base_url=url, build=build)
 
+    if settings.anthropic_api_key or settings.anthropic_key_pool:
+        build = _anthropic_pool_builder(settings)
+        _entry(
+            "claude", default_model=settings.default_model, default_base_url=settings.anthropic_base_url, build=build
+        )
+
+    if settings.openai_responses_api_key:
+        build = _responses_builder(
+            settings,
+            key=settings.openai_responses_api_key,
+            base_url=settings.openai_responses_base_url,
+        )
+        _entry(
+            "openai",
+            default_model=settings.openai_model,
+            default_base_url=settings.openai_responses_base_url,
+            build=build,
+        )
+
     if settings.kimi_api_key:
         url = settings.kimi_base_url or _KIMI_BASE_URL
         build = _openai_builder(settings, key=settings.kimi_api_key, base_url=url)
@@ -199,22 +218,6 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
         url = settings.ollama_base_url or _OLLAMA_BASE_URL
         build = _openai_builder(settings, key=settings.ollama_api_key or "ollama", base_url=url)
         _entry("ollama", default_model=settings.ollama_model, default_base_url=url, build=build)
-
-    if settings.openai_responses_api_key:
-        build = _responses_builder(
-            settings,
-            key=settings.openai_responses_api_key,
-            base_url=settings.openai_responses_base_url,
-        )
-        _entry(
-            "gpt", default_model=settings.openai_model, default_base_url=settings.openai_responses_base_url, build=build
-        )
-
-    if settings.anthropic_api_key or settings.anthropic_key_pool:
-        build = _anthropic_pool_builder(settings)
-        _entry(
-            "anthropic", default_model=settings.default_model, default_base_url=settings.anthropic_base_url, build=build
-        )
 
     for entry in specs:
         if entry not in named:
@@ -290,7 +293,7 @@ def _key_rotated_builder(
 
 
 def _anthropic_pool_builder(settings: Settings) -> ProviderBuilder:
-    """anthropic 条目构建器（多密钥池）。"""
+    """claude 条目构建器（多密钥池）。"""
     return _key_rotated_builder(
         settings.anthropic_api_key,
         settings.anthropic_key_pool,

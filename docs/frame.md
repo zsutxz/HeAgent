@@ -766,7 +766,7 @@ HeAgentError (base)
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `deepseek_api_key` | None | DeepSeek API Key（优先） |
-| `active_provider` | None | 默认激活的 provider 条目名（多条目时作为启动选择与 `SwitchableProvider` 的默认项）；未设或该条目不可用 → 回退到第一个可用条目（构建顺序 `deepseek` → `kimi` → `glm` → `ollama` → `gpt` → `anthropic`） |
+| `active_provider` | None | 默认激活的 provider 条目名（多条目时作为启动选择与 `SwitchableProvider` 的默认项）；未设或该条目不可用 → 回退到第一个可用条目（构建顺序 `deepseek` → `claude` → `openai` → `kimi` → `glm` → `ollama`） |
 | `anthropic_api_key` | None | Anthropic API Key |
 | `kimi_api_key` / `glm_api_key` | None | Kimi、GLM Provider API Key |
 | `openai_responses_api_key` | None | OpenAI Responses API / 中转站 API Key |
@@ -782,9 +782,9 @@ HeAgentError (base)
 | `routing_pools` | "" | 声明式路由池 JSON（任意 provider 条目多档池；改档位/角色/关键词无需改代码） |
 | `routing_reasoning_continuity` | False | 推理链续接（**所有池的默认值**，单池可用 spec 的 `reasoning_continuity` 覆盖）：true 时「上一轮走了 pro 且思考痕迹仍在历史中」继续走 pro，否则只按当前请求命中关键词判定 |
 | `anthropic_api_keys` | "" | Anthropic 多密钥池（逗号分隔） |
-| `default_model` | `gpt-4o` | anthropic 条目的兜底模型 |
+| `default_model` | `gpt-4o` | claude 条目的兜底模型 |
 | `deepseek_model` / `kimi_model` / `glm_model` | `deepseek-v4-pro` / `kimi-k3` / `glm-5.3` | 各 Provider 默认模型（**仅该条目未出现在 `routing_pools` 时生效**；有池时模型由池的 `tiers` 决定，`--model` 亦被忽略并告警） |
-| `openai_model` | `gpt-5.6-terra` | gpt（Responses API）条目默认模型（声明 gpt 池时由 `tiers` 决定） |
+| `openai_model` | `gpt-5.6-terra` | openai（Responses API）条目默认模型（声明 openai 池时由 `tiers` 决定） |
 | `max_iterations` | 50 | Agent 循环最大迭代次数 |
 | `max_context_tokens` | 512000 | 模型上下文窗口大小 |
 | `max_output_tokens` | None | 单次输出 token 上限（None=不设；本地思考模型建议设） |

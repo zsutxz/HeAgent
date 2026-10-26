@@ -498,14 +498,14 @@ class TestRoutingPoolMap:
         settings = Settings(
             routing_pools=(
                 '{"deepseek": {"tiers": {"fast": "ds-fast", "pro": "ds-pro"}},'
-                ' "gpt": {"tiers": {"terra": "t", "luna": "l", "sol": "s"},'
+                ' "openai": {"tiers": {"terra": "t", "luna": "l", "sol": "s"},'
                 ' "roles": {"fast": "terra", "mid": "luna", "pro": "sol"}}}'
             )
         )
         specs = settings.routing_pool_map
-        assert set(specs) == {"deepseek", "gpt"}
+        assert set(specs) == {"deepseek", "openai"}
         assert specs["deepseek"].pro_name == "pro"
-        assert (specs["gpt"].fast_name, specs["gpt"].mid_name, specs["gpt"].pro_name) == (
+        assert (specs["openai"].fast_name, specs["openai"].mid_name, specs["openai"].pro_name) == (
             "terra",
             "luna",
             "sol",
