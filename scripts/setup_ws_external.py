@@ -142,6 +142,24 @@ def upsert_frontmatter_value(raw: str, key: str, value: str) -> str:
 # ---------------------------------------------------------------- 文件操作
 
 
+def read_text_exact(path: Path) -> str:
+    """按字节读 UTF-8 文本：**不做** universal-newline 折叠。
+
+    ``Path.read_text`` 的默认 newline 模式会把 CRLF 折成 LF —— 用它读、再用原 EOL 写回，
+    等于把一个 CRLF 文件静默改写成 LF（diff 与编辑器都不显眼）。
+    """
+    return path.read_bytes().decode("utf-8")
+
+
+def write_text_exact(path: Path, text: str) -> None:
+    """按字节写 UTF-8 文本：**不做**换行翻译。
+
+    ``Path.write_text`` 走 text mode，Windows 上会把每个 ``\\n`` 翻成 ``\\r\\n``（本仓
+    ``.env`` / ``setting.md`` 多数是 LF）——落盘即破坏 EOL 口径，故一律写字节。
+    """
+    path.write_bytes(text.encode("utf-8"))
+
+
 def backup(path: Path, backup_dir: Path) -> Path | None:
     if not path.is_file():
         return None
@@ -188,11 +206,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"自动探测到本机地址 {host}（若这不是要暴露的那块网卡，请用 --host 指定）\n")
 
     # 2) token：复用已有，否则生成
-    setting_raw = setting_path.read_text(encoding="utf-8") if setting_path.is_file() else ""
+    setting_raw = read_text_exact(setting_path) if setting_path.is_file() else ""
     token = args.token or read_frontmatter_value(setting_raw, TOKEN_KEY) or secrets.token_urlsafe(32)
 
     # 3) 计算两份新内容
-    env_raw = env_path.read_text(encoding="utf-8")
+    env_raw = read_text_exact(env_path)
     new_env = upsert_env_value(env_raw, ENV_KEY, host)
     if setting_path.is_file():
         new_setting = upsert_frontmatter_value(setting_raw, TOKEN_KEY, token)
@@ -216,8 +234,8 @@ def main(argv: list[str] | None = None) -> int:
         if saved is not None:
             print(f"备份 {path} -> {saved}")
     setting_path.parent.mkdir(parents=True, exist_ok=True)
-    setting_path.write_text(new_setting, encoding="utf-8")
-    env_path.write_text(new_env, encoding="utf-8")
+    write_text_exact(setting_path, new_setting)
+    write_text_exact(env_path, new_env)
     print("\n写入完成。下一步：")
     print("  1) 重启 heagent（配置在启动时读一次）")
     print("  2) 日志确认：ws event=started ... listener=external tls=wss")

@@ -131,59 +131,37 @@ class Settings(BaseSettings):
     anthropic_api_keys: str = ""
 
     # ---- 智能路由（唯一入口：ROUTING_POOLS 声明式路由池） ----
-    # JSON 形如：
-    #   {"glm": {"tiers": {"fast": "glm-5.3-flash", "pro": "glm-5.3"}},
-    #    "openai": {"tiers": {"terra": "gpt-5.6-terra", "luna": "gpt-5.6-luna", "sol": "gpt-5.6-sol"},
-    #            "roles": {"fast": "terra", "mid": "luna", "pro": "sol"}, "default": "terra"}}
-    # 键须为 provider 条目名（deepseek/claude/openai/kimi/glm/ollama），**条目出现在这里
-    # 即为启用该池**（必须有对应凭据）；没有按 provider 的专用开关。档位模型、角色映射、默认档、
-    # 关键词（命中即路由到该档）、base_url 覆盖全在配置里——**调整路由池无需改代码**。
-    # 无效 JSON / 非法规格 / 未知条目名 → 告警并忽略该条（不阻断启动）。
+    # JSON：键 = provider 条目名（出现即启用该池，须有凭据），值含 tiers/roles/default/keywords/base_url；
+    # 无效 JSON / 未知条目 → 告警并忽略该条。完整规格见 .env.example 第 4 节。
     routing_pools: str = Field(default="")
 
-    # 推理链续接（判据 1，**所有池的默认值**，单池可用 "reasoning_continuity" 覆盖）：true 时
-    # 「上一轮走了 pro 且思考痕迹仍在历史中」会让后续轮次即使没命中关键词也继续走 pro；
-    # 默认 false = 尽量用 fast（只按**当前请求**是否命中关键词判定，历史命中不再锁定）。
+    # true = 上轮 pro 的思考痕迹仍在历史时继续走 pro；默认 false = 只按当前请求判定（单池可覆盖）。
     routing_reasoning_continuity: bool = Field(default=False)
 
     # ---- 框架运行参数 ----
     max_iterations: int = Field(default=50, ge=1)
     goal_max_iterations: int = Field(default=20, ge=1)
-    # 子 Agent 委派的最大嵌套深度（0=禁止任何委派）。超限时 task_delegate /
-    # task_parallel 返回 status=error，避免 LLM 自我委派无限递归。
+    # 子 Agent 委派最大嵌套深度（0=禁止委派；超限 task_delegate / task_parallel 返回 status=error）。
     subagent_max_depth: int = Field(default=3, ge=0)
-    # 嵌套子代理（task_delegate / task_parallel）的兜底迭代预算：角色未声明
-    # `max_iterations` 时生效（优先级：显式参数 > 角色声明 > 本项）。默认 20 与
-    # 此前写死在 SubAgent / 角色解析里的值一致。
+    # 嵌套子代理兜底迭代预算（优先级：显式参数 > 角色声明 > 本项）。
     subagent_max_iterations: int = Field(default=20, ge=1)
-    # Checkpoint decision policy for declarative /goal workflows.  Workflow
-    # frontmatter may override this process-wide default.
+    # 声明式 /goal 工作流的 checkpoint 策略；工作流 frontmatter 可覆盖。
     goal_checkpoint_mode: Literal["auto", "prompt"] = "prompt"
-    # Open-question decision policy for declarative /goal step subagents.
-    # block=stop with waiting_user on competing interpretations (default);
-    # default=proceed with recommended defaults and record assumptions.
-    # Workflow frontmatter may override this process-wide default.
+    # /goal 步骤子代理的开放问题策略：block=停 waiting_user；default=按推荐默认推进并记录假设。
     goal_open_question_mode: Literal["block", "default"] = "block"
-    # /goal 工作流包 id：由 skill catalog 在技能库里按 id/别名解析（默认包
-    # .heagent/skills/he-goal/，workflow.md 与 templates/ 是其运行时资源）。
-    # 换工作流只需换 id 或替换包内容，不必改代码。
+    # /goal 工作流包 id，由 skill catalog 按 id/别名解析（默认包 .heagent/skills/he-goal/）。
     goal_workflow_skill: str = "he-goal"
-    # 是否把「▶ 启动 / ✔ 完成 + 状态行」进度公告写到 stderr。嵌套子代理与交互输入行
-    # 共用终端，公告可能被误提交为提示词；ANNOUNCE_PROGRESS=false 可静音。
+    # ▶/✔ 进度公告写 stderr；与交互输入行共用终端、可能被误提交为提示词，false 静音。
     announce_progress: bool = Field(default=True)
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
     # 上下文管理策略："compressor"=原地摘要压缩（默认）；"reset"=窗口重置（清窗后 resume 续跑，D3 互斥）。
     context_strategy: str = Field(default="compressor")
     # 窗口重置触发阈值（context_strategy=reset 时生效）。
     window_reset_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
-    # 默认上下文窗口 512k：与 .env.example 文档一致。注意 window_reset/compressor
-    # 的触发阈值 = threshold % of window，窗口越大触发越晚（0.8 × 512k ≈ 410k）；
-    # 须确认所用模型实际上下文 ≥512k，否则压缩触发前就会先撞上 API 上限报 400。
-    # （历史：574c2d9 曾把默认改为 1M，导致这两套机制在默认配置下几乎永不触发。）
+    # 触发阈值 = threshold % of window：窗口越大触发越晚，须确认模型实际上下文 ≥ 此值，
+    # 否则压缩触发前先撞 API 400。
     max_context_tokens: int = Field(default=512000, ge=1)
-    # 单次输出的最大 token 数（OpenAI 兼容 Chat Completions 的 max_tokens、Responses 的
-    # max_output_tokens、Anthropic 的 max_tokens）。None = 不设上限（沿用各 provider 默认）。
-    # 本地思考模型（如 Ollama 的 qwen3.5 等）无上限时可能无限生成，本地测试建议设一个值（如 4096）。
+    # 单次输出 token 上限（各 provider 的 max_tokens）；None = 沿用 provider 默认。本地思考模型建议设。
     max_output_tokens: int | None = Field(default=None, ge=1)
     shell_timeout: int = Field(default=120, ge=1)
 
@@ -193,10 +171,8 @@ class Settings(BaseSettings):
     log_file_level: str | None = Field(default=None)  # 文件日志级别; None=回退到 log_level
 
     # ---- Token 计量（P0-3） ----
-    # auto（默认）= 装了 tiktoken 就用真实 tokenizer，否则用 CJK 感知启发式（并按 provider
-    #   真实 usage 在线校准系数）；estimate = 强制启发式（对齐旧行为 / 离线复现）；
-    #   tiktoken = 强制真实 tokenizer（依赖缺失时告警一次后回退估算）。
-    # 注：计量结果直接决定压缩阈值与窗口重置判定，偏差会放大为「该压缩时没压缩」或白丢上下文。
+    # auto（默认）= 有 tiktoken 用真实 tokenizer，否则 CJK 启发式 + 真实 usage 在线校准；
+    # estimate = 强制启发式；tiktoken = 强制真实（缺失告警一次后回退）。计量偏差会放大为误压缩或白丢上下文。
     tokenizer: str = Field(default="auto")
 
     # ---- 重试策略参数 ----
@@ -214,32 +190,22 @@ class Settings(BaseSettings):
 
     # ---- 上下文文件参数 ----
     context_files_enabled: bool = Field(default=True)
-    # 分层发现的字节总预算：超预算时**近端优先**（越靠近 cwd 越具体），被丢弃/截断的文件
-    # 以显式标记回报，绝不静默。
+    # 字节总预算：超预算近端优先（越靠近 cwd 越具体），被丢弃/截断者显式标记回报。
     context_files_max_bytes: int = Field(default=32768, ge=1)
-    # 是否纳入用户级 `~/.heagent/AGENTS.md`（排在最前、最泛）。默认关闭：全局文件会静默
-    # 影响每个项目，且会让测试依赖开发机 home。
+    # 是否纳入用户级 ~/.heagent/AGENTS.md；默认关——全局文件会静默影响每个项目。
     context_files_user_level: bool = Field(default=False)
 
     # ---- 事件传输（JSONL / rollout）----
-    # 是否把每次 run 的事件落盘为 .heagent/runs/<run_id>/rollout.jsonl（可 `heagent replay` 回放）。
-    # 默认关闭：落盘内容含命令与工具原始输出（与工具返回同等不可信），按需开启。
+    # 每 run 事件落盘 .heagent/runs/<run_id>/rollout.jsonl（可 replay 回放）；含工具原始输出，按需开启。
     events_rollout_enabled: bool = Field(default=False)
 
     # ---- 记忆提醒参数 ----
     memory_nudge_enabled: bool = Field(default=True)
-    # 注入 system prompt 的 <memory> 字节预算（0 = 不限制）。MEMORY.md 是 append-only 且**整份**注入，
-    # 无预算时它会无界增长（2026-09-23 实测：336 KB / 170 条 = 每轮 89K token 的 SYSTEM 前缀）。
-    # 超预算时按**文件顺序**保留前部条目（整理后的长期约定在文件头部、会话学习记录追加在尾部），
-    # 并在块尾显式标注省略条数 + 打一条 warning——绝不静默丢内容；文件本体不被修改，
-    # 超预算的条目仍在盘上，整理 MEMORY.md 即可释放。默认 98304（96 KB，约 2 倍当前使用量）。
+    # <memory> 注入字节预算（0=不限）：MEMORY.md 为 append-only 整份注入，无预算会无界增长。
+    # 超预算按文件顺序保留前部并在块尾显式标注省略数；文件本体不改，整理 MEMORY.md 即释放。
     memory_inject_max_bytes: int = Field(default=98_304, ge=0)
-    # MEMORY.md 自动归档参数（2026-10-10 重写，替换原 memory_auto_archive_days）：
-    # MEMORY.md 的 fact 总字节超过此值就启动一次归档——把「前 20 条核心约定」与「最新的尾部」
-    # 之外的**中间老条目**移入 .heagent/memory/archive/MEMORY-archive.md；0=禁用自动归档。
-    # 为什么是字节而不是天数：事实条目没有真实时间戳（事实格式只有 `- <text>`），任何「年龄」都只能靠
-    # 外推猜（原实现用 DAYS_PER_FACT=7 外推，造出过 archive/2023-04.md 这类虚构月份文件，见台账）。
-    # 默认 49152 = 注入预算 memory_inject_max_bytes 的一半，让文件在 `_fit_facts` 开始省略**最新**条目之前被修剪。
+    # MEMORY.md fact 总字节超此值启动一次归档：中间老条目移入 archive/MEMORY-archive.md；0=禁用。
+    # 按字节而非天数（事实条目无时间戳，年龄靠外推会出错）；默认 = 注入预算的一半，先修剪后省略。
     memory_archive_trigger_bytes: int = Field(default=49_152, ge=0)
     # 自动归档的跨进程节流（秒）：距上次归档不足该间隔就跳过扫描（0=每次都扫）。
     memory_archive_min_interval_seconds: int = Field(default=86400, ge=0)  # 默认 1 天
@@ -252,8 +218,7 @@ class Settings(BaseSettings):
     cron_tick_seconds: int = Field(default=60, ge=10)
 
     # ---- Dreaming（离线记忆巩固）参数 ----
-    # dream_enabled 默认 False：dreaming = 无人监督后台跑 + 联网 + 改持久记忆，opt-in。
-    # 非安全边界（PolicyEngine/role/web 围栏均非真边界，须 OS 级沙箱兜底）。
+    # 默认 False：无人监督后台跑 + 联网 + 改持久记忆，非安全边界（须 OS 级沙箱兜底），opt-in。
     dream_enabled: bool = Field(default=False)
     dream_cron: str = Field(default="0 3 * * *")  # cron 触发表达式（凌晨 3 点低峰）
     dream_idle_minutes: int = Field(default=30, ge=0)  # idle 触发阈值（分钟）；0 = 禁用 idle 触发
@@ -265,18 +230,13 @@ class Settings(BaseSettings):
     ledger_retention_days: int = Field(default=7, ge=0)
 
     # ---- Run 快照自动清理参数 ----
-    # .heagent/runs/ 的 run 快照（`<run_id>.json` + 配套 .lock + `<run_id>/` 产物目录）超过此天数
-    # 在 run 启动时自动删除；0=禁用清理。默认 7 天与 ledger 对齐——persist.py 刻意保留 .lock
-    # 以规避 unlink 竞态，故必须有回收方，否则 runs 目录随运行次数单调增长（实测 84 天 6 万文件）。
+    # .heagent/runs/ 的 run 快照超过此天数在 run 启动时自动删除；persist.py 刻意保留 .lock（规避
+    # unlink 竞态），本项是 runs 侧唯一回收方。0=禁用。
     run_retention_days: int = Field(default=7, ge=0)
-    # 过期清理的跨进程节流（秒）：距上次清理不足该间隔就跳过扫描（0=每次都扫）。
-    # 每次全新 run 启动都要扫 `.heagent/runs` + `.heagent/ledger`，短命 CLI 进程（每次调用
-    # 都是新进程）在这层节流下能省掉几乎全部扫描成本；保留期以天计，延迟清理无副作用。
+    # 过期清理的跨进程节流（秒）：短命 CLI 进程靠这层省掉重复扫描（0=每次都扫）。
     prune_min_interval_seconds: int = Field(default=900, ge=0)
 
-    # ---- 运行时产物保留期（日志 / 会话 / 编辑快照，由 CLI 启动时的 cli/housekeeping 回收）----
-    # 这三类此前没有回收方，会随使用单调增长（实测 84 天：logs 21 MiB、sessions 83 MiB、
-    # edit-snapshots 只增不减）。0=禁用该类清理。
+    # 三类此前无回收方、随使用单调增长，由 CLI 启动时 housekeeping 回收；0=禁用该类清理。
     log_retention_days: int = Field(default=14, ge=0)
     # 会话文件（`.heagent/sessions/`）：老会话基本不会被 --continue 再用，保留 30 天。
     session_retention_days: int = Field(default=30, ge=0)
@@ -289,73 +249,45 @@ class Settings(BaseSettings):
     safety_blocked_tools: list[str] = Field(default_factory=list)
 
     # ---- 沙箱后端与权限档位（FR-S4 / P0-2） ----
-    # "auto"（默认）= 探测可用后端：firejail 可用则用（Linux/macOS），否则 passthrough。
-    #   Windows 的 "winjob" 需显式指定——WinJob 无文件系统隔离，自动启用会改变所有
-    #   shell 命令的进程语义而收益有限（故 auto 不选它）。
-    # "passthrough" = 零隔离；"firejail" = FirejailBackend；"winjob" = WinJobBackend；
-    #   "docker" = DockerRunner（Epic 53，CONTAINER 档：每命令一次性容器，OS 级强隔离兜底）。
-    # CLI --sandbox flag 可覆盖；显式指定而不可用时降级 Passthrough 并告警。
+    # auto（默认）= 探测 firejail 可用则用，否则 passthrough（零隔离）；winjob / docker 须显式指定
+    # （WinJob 无文件系统隔离，auto 不自动选）；docker = 每命令一次性容器（OS 级强隔离兜底）。
+    # CLI --sandbox 可覆盖；显式指定而不可用时降级 Passthrough 并告警。
     sandbox_backend: str = Field(default="auto")
-    # 权限档位（P0-2）：
-    #   read-only          = 只放行只读工具，其余一律 BLOCKED（fail-closed）；
-    #   workspace-write    = 现状：写操作受工作区围栏 + 凭证 deny + 审批管辖；
-    #   danger-full-access = 跳过围栏与 deny 预检（显式危险模式，仅限受控环境）。
-    # 非法值经 sandbox_mode_resolved 回退 workspace-write 并告警（不阻断启动）。
+    # read-only = 只放行只读工具（fail-closed）；workspace-write = 工作区围栏 + 凭证 deny + 审批管辖；
+    # danger-full-access = 跳过围栏与 deny 预检（显式危险，仅限受控环境）。
+    # 非法值经 sandbox_mode_resolved 回退 workspace-write 并告警。
     sandbox_mode: str = Field(default="workspace-write")
-    # 沙箱网络开关（P0-2）：False（默认）= 禁止子进程出站。仅真实沙箱后端可强制
-    # （firejail 映射为 --net=none；docker 映射为 --network=none，True 时 bridge——brief D2）；
-    # passthrough / winjob 无网络隔离能力，会记提示
-    # 而非假装生效。宿主进程内的 HTTP 工具（web_fetch）不受此开关约束。
+    # False（默认）= 禁止子进程出站（firejail --net=none / docker --network=none）；passthrough /
+    # winjob 无隔离能力只记提示。宿主进程内的 web_fetch 不受此开关约束。
     sandbox_network: bool = Field(default=False)
-    # 沙箱强制开关（P0-2）：True（默认）= 探测到**真实**沙箱后端时，自动把 shell 纳入
-    # PolicyEngine.sandbox_tools 并授权当次 run 走沙箱路径（否则要手工配 sandbox_tools）。
-    # 无真实后端（passthrough）时不改变任何行为——不给「已在沙箱里跑」的假象。
+    # True（默认）= 探测到真实沙箱后端时自动把 shell 纳入沙箱工具集并授权走沙箱路径；passthrough 下不改变行为。
     sandbox_enforce: bool = Field(default=True)
     # firejail 可执行文件路径（PATH 查找或绝对路径）。
     sandbox_firejail_path: str = Field(default="firejail")
-    # docker 沙箱镜像（Epic 53 / brief D4）：Story 53-2 构建的镜像标签；基座
-    # python:3.11-slim 的 pin digest 见 docker/sandbox/Dockerfile。换镜像=换工具链，不改隔离语义。
+    # docker 沙箱镜像标签（构建见 docker/sandbox/Dockerfile）；换镜像=换工具链，不改隔离语义。
     sandbox_docker_image: str = Field(default="heagent-sandbox:3.11")
-    # docker 运行期 digest pin（审查修复批）：非空时首 run 前 inspect 校验本地 tag 的
-    # repo digest 以 sha256:<…> 结尾，不符显性拒绝——本地 tag 可被 retag 静默换载荷
-    # （D4 的运行期落实）。空（默认）= 不校验；构建后可用 `docker image inspect` 取值填入。
+    # 运行期 digest pin：非空时首 run 前 inspect 校验本地 tag 的 repo digest，不符显性拒绝（防 retag 换载荷）。
     sandbox_docker_digest: str = Field(default="")
-    # 沙箱会话目录开关（FR-1）：True 时每个 run 经 EngineContainer.create_run_context
-    # 在 `<cwd>/.heagent/sandboxes/<run_id>/` 幂等创建 per-run workspace，并经
-    # RunContext.metadata["sandbox_workspace"] 送达后端（Firejail 作 --private 根、
-    # WinJob 作子进程 cwd——目录约定，无文件系统隔离）。默认 False：行为与现状一致。
+    # True 时每 run 在 `<cwd>/.heagent/sandboxes/<run_id>/` 幂等创建 per-run workspace，经
+    # RunContext.metadata["sandbox_workspace"] 送达后端（firejail --private 根 / winjob 子进程 cwd）。
     sandbox_session_workspace: bool = Field(default=False)
-    # 沙箱 env 豁免 allowlist（FR-3）：逗号分隔的环境变量名（如 "GITHUB_TOKEN,CUSTOM_SECRET"）。
-    # 命中 allowlist 的变量不参与 scrub_sensitive_env 的敏感剥离。空 = 全剥离（现状）。
+    # 逗号分隔的环境变量名，命中者不参与敏感剥离；空 = 全剥离。
     sandbox_env_allowlist: str = Field(default="")
     # 沙箱会话目录保留开关（FR-4）：True = run 结束后保留会话目录；False（默认）= 删除。
     sandbox_session_keep: bool = Field(default=False)
-    # 沙箱会话目录保留天数（E40-D1）：崩溃 run 留下的 `.heagent/sandboxes/<run_id>/` 不经过
-    # 正常 teardown，由 CLI/GUI 启动时的 cli/housekeeping 按本保留期回收（0=禁用）。
-    # 7 天与编辑快照同档——它是 per-run 临时工作区，比 run 快照（30 天）短命得多。
+    # 崩溃 run 的孤儿会话目录由 CLI/GUI 启动时按本保留期回收（0=禁用）。
     sandbox_dir_retention_days: int = Field(default=7, ge=0)
-    # 沙箱 profile → firejail 参数映射（2026-09-17 硬化批）：JSON 对象
-    # ``{"<profile名>": ["--seccomp", "--caps.drop=all"]}``。经 FirejailBackend.profiles
-    # 生效，使 "default"/"mcp"/自定义 profile 产生实际参数差异（高级隔离参数 --seccomp/
-    # --caps 由此声明，默认关闭）。空 = 零参数（现状）。均为 defense-in-depth，
-    # 非真正安全边界（见 CLAUDE.md 安全声明）。
+    # profile → firejail 参数映射（JSON {"<profile名>": ["--seccomp", ...]}）：高级隔离参数由此声明，默认关闭。
+    # 均为 defense-in-depth 启发式层，非真正安全边界。
     sandbox_profiles: str = Field(default="")
-    # 工具 → 沙箱 profile 名映射（per-tool 参数粒度）：JSON 对象 ``{"<工具名>": "<profile名>"}``。
-    # 注入 PolicyEngine.sandbox_profiles（与代码内 sandbox_profiles 参数同形状、叠加生效），
-    # 使单个工具可差异化选用 profile。空 = 现状（工具名映射缺省落 "default"）。
+    # 工具 → profile 名映射（JSON {"<工具名>": "<profile名>"}），与代码内映射叠加生效；空 = 落 "default"。
     sandbox_tool_profiles: str = Field(default="")
-    # 沙箱 shell 内存限额（MB，0=关闭）：firejail 映射 --rlimit-as；WinJob 映射
-    # JOB_OBJECT_LIMIT_JOB_MEMORY。限额触发 → 子进程被终止 → 非零退出码经正常结果回传
-    # （显性失败，对齐超时语义；不静默截断输出）。
+    # 沙箱 shell 内存限额（MB，0=关闭）：firejail --rlimit-as / winjob Job Memory；触发即终止子进程、显性失败。
     sandbox_memory_limit_mb: int = Field(default=0, ge=0)
-    # 沙箱 shell CPU 时间限额（秒，0=关闭）：firejail 映射 --rlimit-cpu；WinJob 映射
-    # JOB_OBJECT_LIMIT_PROCESS_TIME。触发行为同内存限额（显性失败）。
+    # 沙箱 shell CPU 时间限额（秒，0=关闭）：firejail --rlimit-cpu / winjob Process Time；触发行为同上。
     sandbox_cpu_seconds: int = Field(default=0, ge=0)
-    # 沙箱 shell 进程数限额（0=关闭）：firejail 映射 --rlimit-nproc；WinJob 映射
-    # JOB_OBJECT_LIMIT_ACTIVE_PROCESS + ActiveProcessLimit。触发行为同内存限额（显性失败）。
-    # ⚠ 两个后端语义不对称（不掩盖）：firejail 的 --rlimit-nproc 底层是 setrlimit(RLIMIT_NPROC)，
-    # Linux 上按**真实 UID** 计数（非 cgroup/job 作用域），设小了会波及同一用户的其他进程；
-    # WinJob 的 ActiveProcessLimit 才是 job 作用域。故默认关闭，按需显式开启。
+    # 沙箱 shell 进程数限额（0=关闭）：firejail --rlimit-nproc / winjob ActiveProcessLimit。
+    # ⚠ 语义不对称：firejail 按 Linux 真实 UID 计数（波及同用户其他进程），winjob 才是 job 作用域，故默认关。
     sandbox_nproc_limit: int = Field(default=0, ge=0)
 
     # ---- 审批参数（Epic 29） ----
@@ -363,8 +295,7 @@ class Settings(BaseSettings):
     approval_tools: str = Field(default="")
 
     # ---- 用户事件钩子（Epic 32） ----
-    # false = 不加载 .heagent/hooks.json。hooks 是用户自配置的本地命令（非安全边界），
-    # 不可信仓库可投放该文件自动执行——故须显式开启（防供给链式自动执行）。
+    # hooks 是用户自配置的本地命令（非安全边界），不可信仓库可投放该文件——故须显式开启。
     hooks_enabled: bool = Field(default=False)
 
     # ---- Plan Mode（Epic 33） ----
@@ -376,109 +307,73 @@ class Settings(BaseSettings):
     model_pricing: str = Field(default="")
 
     # ---- HTTP 网页入口（Epic 49 Story 49-1） ----
-    # 默认 CLI（`heagent` / `heagent "prompt"` / `heagent run ...`）在**同一进程**内自动启动 HTTP
-    # 服务并把本地地址打到 stderr；`heagent http-server` 也能单独拉起只提供网页服务的进程。
-    # 显式 `gui` / `http-server` / `init` / `replay` 子命令不会附带启动第二实例。
-    # 定位：**实验性、无认证、无 TLS**，默认只绑 loopback；非回环绑定必须显式告警
-    # （复用 `network.exposure` 的判定与文案）。启动语义仍由「调用了哪个命令」决定；`http_enabled`
-    # 只是**装配开关**（配置层持久关闭用），默认 CLI 另有单次覆盖 `--no-http` / `--no-ws`
-    # 只作用于本次进程（不改配置、不改 Settings 单例）。
-    # 非法值（端口越界、计数为 0、非正超时）由 Pydantic 显式校验失败，不静默变成「无限制」。
+    # 默认 CLI 在同一进程内自动启动 HTTP 服务并把本地地址打到 stderr；`heagent http-server` 单独拉起；
+    # 显式 gui / init / replay 不附带启动。定位：实验性、无认证、无 TLS，默认只绑 loopback。
+    # http_enabled 只是装配开关（持久关闭用），CLI 另有单次覆盖 --no-http / --no-ws（不改 Settings 单例）。
+    # 非法值由 Pydantic 显式校验失败，不静默放宽。
     http_enabled: bool = Field(default=True)  # False = 不装配 HTTP listener（仅 WS 或全关）
     http_host: str = Field(default="127.0.0.1", min_length=1)
-    # 默认 8766。
     http_port: int = Field(default=8766, ge=1, le=65535)
-    # HTTP 端口自动查找尝试次数：端口被占用时自动尝试后续端口（8767, 8768...）
-    # 默认 10：多开实例时自动顺延，实际监听地址以启动时打到 stderr 的 ``[http] listening on ...`` 为准。
-    # 显式 ``--port`` 是契约：冲突仍 fail-loud、不顺延（脚本与状态行靠它判断服务起没起来，
-    # Epic 49 Story 49-2）。2026-10-15 契约修订：默认从关闭改为开启（用户要求多开不冲突）。
+    # 端口被占时自动顺延（默认 10 = 开），实际监听地址以启动时 stderr 的 [http] listening on ... 为准；
+    # 显式 --port 是契约：冲突仍 fail-loud、不顺延。
     http_port_auto_find_attempts: int = Field(default=10, ge=0, le=100)
-    # 同时打开的客户端连接上限（uvicorn limit_concurrency）；超限的连接收 503，不排队。
-    # 内部另预留 1 条给就绪探测 / 健康检查——探测自己也要占一条连接，否则设为 1 时入口永远起不来。
+    # 客户端连接上限（超限收 503 不排队）；内部另预留 1 条给就绪探测。
     http_max_connections: int = Field(default=16, ge=1)
-    # 每个 run 的 **SSE 订阅者**上限（同一条 run 的并发事件流）。
-    # 2026-09-28 从 `http_max_connections` 里**拆出来**：超额订阅此前只能靠连接额度兜，
-    # 而连接额度由 Uvicorn 在进入 ASGI **之前**拒绝 ⇒ 客户端拿到裸 text/plain 503，本入口的
-    # 错误信封 / 安全响应头 / 访问日志全部缺席，429 rate_limited 分支实际不可达。
-    # 默认值与原连接额度一致（16）⇒ **默认行为逐字节不变**；调大连接额度时订阅面不再被迫同步放大。
+    # 每 run 的 SSE 订阅者上限（与连接额度分开：超额订阅回 429 rate_limited，走本入口错误信封而非裸 503）。
     http_max_subscribers: int = Field(default=16, ge=1)
     # 同时在途的网页 Agent 运行上限；MVP 固定为 1（单会话单运行），超限的提交收 run_conflict。
     http_max_inflight_runs: int = Field(default=1, ge=1)
-    # **服务级**在途运行总额（跨项目共享）；0 = 不限（默认 ⇒ D9 的「并发随项目数线性」语义不变）。
-    # 设正数后所有项目加总不得超过它，超限的提交收 total_inflight_limit（409）。它与
-    # `http_max_inflight_runs` **同时**生效：那个是每项目上限，这个是服务总额。
+    # 服务级在途运行总额（跨项目共享；0 = 不限），与每项目上限 http_max_inflight_runs 同时生效。
     http_max_total_inflight: int = Field(default=0, ge=0)
-    # 单个请求体的字节上限（JSON body；超限收 request_too_large，不读完再拒绝）。
-    # 默认 394 240 = 12 × MAX_PROMPT_CHARS(32 768) + 1 KiB 信封——**必须**容纳协议允许的最大
-    # prompt，否则会出现「字符上限远未到、却先撞传输层 413」的口径矛盾（旧默认 65 536 时，
-    # 中文实际只能用到约 2.18 万字）。`config` 是底层模块、不得依赖 `network/`，故此处写具体
-    # 数字；它与 `network.http_protocol` 的关系由 `tests/network/test_http_protocol.py` 钉住。
+    # 请求体字节上限（超限收 request_too_large）；默认值必须容纳协议允许的最大 prompt——config 是底层
+    # 模块不得依赖 network/，故写死数字，与 network.http_protocol 的关系由 tests 钉住。
     http_max_request_bytes: int = Field(default=394_240, ge=1)
     # 每个 run 的 SSE 事件环形缓冲条数；超出窗口的重连收 resync_required（AD-4）。
     http_event_buffer_size: int = Field(default=512, ge=1)
     # 已终结 run 记录的保留条数；淘汰后按其 id 订阅得 unknown_run（AD-4）。
     http_run_history_size: int = Field(default=64, ge=1)
-    # 单次网页 Agent 运行的**总时长**硬上限（秒）；0 = 不限制（默认）。它只该是运维显式设的兜底
-    # 闸门——「跑得久」不等于「卡死」，墙钟当默认会误杀长任务（多轮工具 / 子代理 / goal 工作流）。
+    # 单次运行总时长硬上限（秒；0=不限默认）——只该是运维兜底闸门，墙钟当默认会误杀长任务。
     http_request_timeout: float = Field(default=0.0, ge=0, allow_inf_nan=False)
-    # 单次网页 Agent 运行的**静默**上限（秒）：既没有新事件、也没有在途工具时才开始计时，到点按
-    # timed_out 终结并释放 In-flight 名额；0 = 关闭静默判定。
+    # 单次运行静默上限（秒）：无新事件且无在途工具才计时，到点按 timed_out 终结；0 = 关闭。
     http_idle_timeout: float = Field(default=300.0, ge=0, allow_inf_nan=False)
-    # 单个在途工具的最长在途时间（秒）：超时按「工具卡死」终结该 run（默认 1 小时）。
-    # 与 http_idle_timeout 分开：长工具期间同样没有事件，用静默阈值会误杀正常长调用。
+    # 单个在途工具最长在途时间（秒）；与静默阈值分开——长工具期间同样无事件，静默阈值会误杀。
     http_tool_inflight_timeout: float = Field(default=3600.0, ge=0, allow_inf_nan=False)
     # 服务关闭时「停止接收 → 终结在途 run → 关闭订阅 → 关闭 listener」全程的等待上限（秒）。
     http_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 
     # ---- WS 入口（Epic 56 D1：与 HTTP 完全分离的独立 server，唯一宿主所有 WS 能力） ----
-    # 定位：回环绑定 = 本地模式（Origin 防线、**无认证**，与 HTTP 入口同档）；非回环绑定 =
-    # 对外模式（D5：Bearer token 强制、**缺 token 拒绝启动** fail-closed、Origin 不适用）。
+    # 回环 = 本地模式（无认证，Origin 只是入口层防线）；非回环 = 对外模式（Bearer token 强制、缺 token 拒绝启动）。
     ws_enabled: bool = Field(default=True)  # False = 不装配 WS listener（仅 HTTP 或全关）
     ws_host: str = Field(default="127.0.0.1", min_length=1)
-    # 默认 9001（8766 → 9001 是 Epic 56 的唯一 breaking change：两条 WS 端点路径不变、换端口）。
     ws_port: int = Field(default=9001, ge=1, le=65535)
-    # WS 连接额度（迁移自 `http_ws_max_connections`）：既是每个 run 的订阅额度，也是 CLI 旁路
-    # hub 的连接总额。WS 不经 Uvicorn limit_concurrency，超额在 ASGI 层原子检查+登记。
+    # 每 run 订阅额度 + CLI 旁路连接总额；不经 Uvicorn limit_concurrency，超额在 ASGI 层原子检查+登记。
     ws_max_connections: int = Field(default=16, ge=1)
     # WS server 关闭排空的等待上限（秒）：关既有连接 → 停 listener 全程有界。
     ws_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
-    # TLS（D4）：PEM 证书 / 私钥路径，**两者都给才启用 wss**（半配由 WsServerConfig fail-loud）。
-    # 对外模式不配 TLS 时启动告警（明文运行必须可见），但不拒绝启动——D4 明确「可选」。
+    # PEM 证书/私钥：两者都给才启用 wss（半配 fail-loud）；对外不配 TLS 时启动告警但不拒绝。
     ws_tls_cert_file: str | None = None
     ws_tls_key_file: str | None = None
     # ---- 期二（Epic 56 D8）：第二个 WS listener（对外），与主 listener 并存 ----
-    # 空 / 未设 = 不启用（默认即期一形态）。非空即启用，且**必须非回环**——回环地址已由主
-    # listener 承担，配成回环值属配置错误（启动期 fail-loud，见 `build_external_ws_server_config`）。
-    # 主 listener 自己已是非回环（期一单对外部署）时再配本键同样 fail-loud：两个对外 listener
-    # 只会让「哪个是主」变成运维猜谜。
+    # 空 = 不启用（默认）；非空即启用且必须非回环（回环归主 listener；主 listener 已非回环时再配同样 fail-loud）。
     ws_external_host: str | None = None
-    # 对外 listener 端口，默认 9002（9001 已被主 listener 占用；0.0.0.0:9001 与 127.0.0.1:9001
-    # 在 Windows 上就冲突）。未显式指定时沿用端口顺延（与 HTTP / 主 WS 同口径）。
+    # 对外 listener 端口，默认 9002；未显式指定时沿用端口顺延（与 HTTP / 主 WS 同口径）。
     ws_external_port: int = Field(default=9002, ge=1, le=65535)
-    # 对外 listener 的 TLS（D10）：**成对**给才生效；两个都不给则整对继承 `WS_TLS_*`。
-    # 只给一半 ⇒ fail-loud（绝不 A 的证书配 B 的私钥）。
+    # 成对给才生效；都不给则整对继承 WS_TLS_*；只给一半 fail-loud（绝不 A 的证书配 B 的私钥）。
     ws_external_tls_cert_file: str | None = None
     ws_external_tls_key_file: str | None = None
-    # 只读旁观（P2-A3，默认关）：True 时对外 listener **不注册**提交端点 `/api/runs/ws`，
-    # 且订阅连接上的 `cancel` 被拒绝（`invalid_request`、不断连）——「给看不给下命令」。
-    # 默认关 = 保持期二已交付语义（对外可提交 run，D2 冻结值）；开启是显式的收紧动作。
+    # 只读旁观（默认关）：true 时对外 listener 不注册提交端点、cancel 回 invalid_request——给看不给下命令。
     ws_external_readonly: bool = False
-    # 注意：对外模式的 token **不是**这里的字段（见下方 `user_ws_auth_token` 属性）——它是凭证，
-    # 只认用户级 setting.md；做成 Settings 字段会让项目 .env / 系统环境变量能够覆盖它。
-    # CLI 旁路订阅（Epic 55，Epic 56 D7 起宿主 = WS server）：给 `WS /api/cli/ws` 开一条只读
-    # 事件流，把**终端里那一轮** run 的事件实时推给外部客户端。**默认关**——它与 HTTP 入口同档
-    # 无认证、无 TLS，开了等于让能连上该端口的本机进程看到终端 agent 的工具输出（可能含文件内容）；
-    # 旁路不占运行名额、不写会话历史、不提供取消通道（终端独占 Ctrl+C / 双击 Esc）。
+    # 对外模式的 token 不是 Settings 字段（见 user_ws_auth_token 属性）：凭证只认用户级 setting.md，
+    # 做成字段会让项目 .env / 系统环境变量能够覆盖它。
+    # CLI 旁路订阅：把终端那轮 run 的事件只读推给外部客户端；默认关——无认证，开了等于让能连上的
+    # 本机进程看到终端 agent 工具输出。不占运行名额、不写会话历史、无取消通道。
     ws_cli_bypass_enabled: bool = False
     # ---- 网页控制台的配置写入通道（Epic 50 Story 50-5） ----
-    # **默认关**（I12）：关闭时配置面全只读，且**网页无法通过任何请求打开它**——它不在白名单里
-    # （配置目录把它列进「控制台自身」排除组），写入通道因此改不到自己。
-    # 开启渠道 = 任何**启动**配置（系统环境变量 / 项目 .env / 全局 .env）；开启时入口层会在 stderr
-    # 与日志打一条高亮告警：任何能连上该端口的人都能改项目 .env。写通道本身**不是安全边界**
-    # （沿用 Epic 49 的立场：无认证、无 TLS）。
+    # 默认关：关闭时配置面全只读，且网页无法通过任何请求打开它（不在白名单，写入通道改不到自己）。
+    # 开启渠道 = 任何启动配置；开启时入口层打高亮告警：任何能连上的人都能改项目 .env。
+    # 写通道本身不是安全边界（无认证、无 TLS）。
     http_console_write_enabled: bool = False
-    # 项目注册表落点覆盖（缺省 = `<服务启动工作区>/.heagent/console/projects.json`，见脊柱 §4）。
-    # 需要机器级共享时显式指向 `~/.heagent/projects.json`；缺省**不写用户 home**。
+    # 项目注册表落点覆盖（缺省 <服务启动工作区>/.heagent/console/projects.json；缺省不写用户 home）。
     http_console_projects_file: str | None = None
 
     @property
