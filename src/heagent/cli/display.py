@@ -69,6 +69,20 @@ def echo_sandbox_hint(backend: str | None, settings: Settings, *, install_hint: 
     )
 
 
+def echo_web_entry_overrides(*, http_disabled: bool, ws_disabled: bool) -> None:
+    """显式关闭网页入口的某条 listener 时打一行说明（不静默；双关时标明零监听）。
+
+    两个入口共用（默认 CLI 的 ``--no-http`` / ``--no-ws``、``http-server`` 的同名 flag）：与
+    :func:`echo_sandbox_hint` 同一立场——用户显式要求的降级必须在 stderr 看得到，否则
+    「以为开着、其实没监听」只能靠翻代码发现。
+    """
+    if not http_disabled and not ws_disabled:
+        return
+    skipped = " + ".join(name for name, off in (("HTTP", http_disabled), ("WS", ws_disabled)) if off)
+    tail = "（本进程零监听）" if http_disabled and ws_disabled else ""
+    click.echo(f"[web] {skipped} entry disabled by CLI flag for this process{tail}", err=True)
+
+
 def _current_version() -> str:
     """源码版本号（``heagent.__version__``，与 ``pyproject.toml`` 同步）。
 

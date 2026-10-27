@@ -174,6 +174,8 @@ def _run_cli_impl(
     json_output: bool = False,
     sandbox_session_workspace: bool | None = None,
     sandbox_session_keep: bool | None = None,
+    no_http: bool = False,
+    no_ws: bool = False,
 ) -> None:
     """Core CLI routine — logging, provider, MCP, dispatch to single/chat."""
     if resume_session:
@@ -232,6 +234,8 @@ def _run_cli_impl(
                 json_output=json_output,
                 sandbox_session_workspace=sandbox_session_workspace,
                 sandbox_session_keep=sandbox_session_keep,
+                no_http=no_http,
+                no_ws=no_ws,
             )
         )
     else:
@@ -248,6 +252,8 @@ def _run_cli_impl(
                 plan_mode=resolved_plan,
                 sandbox_session_workspace=sandbox_session_workspace,
                 sandbox_session_keep=sandbox_session_keep,
+                no_http=no_http,
+                no_ws=no_ws,
             )
         )
 
@@ -307,6 +313,20 @@ _RUN_OPTIONS = [
         default=False,
         help="Single-shot: emit a JSONL event stream on stdout (human output stays on stderr)",
     ),
+    click.option(
+        "--no-http",
+        "no_http",
+        is_flag=True,
+        default=False,
+        help="Do not start the embedded HTTP web entry for this process (WS listeners unaffected)",
+    ),
+    click.option(
+        "--no-ws",
+        "no_ws",
+        is_flag=True,
+        default=False,
+        help="Do not start the embedded WebSocket listeners for this process (HTTP entry unaffected)",
+    ),
 ]
 
 
@@ -335,8 +355,8 @@ class DefaultGroup(click.Group):
     ) -> tuple[str | None, click.Command | None, list[str]]:
         """已注册子命令优先；其余一律回退到默认命令 run 解析。
 
-        ``heagent "prompt"`` 与 ``heagent --model X "prompt"`` 都依赖该回退——
-        未知选项随后仍由 run 自身的解析器报错，不会静默吞掉。
+        ``heagent "prompt"`` 依赖该回退。注意 click 8 的 Group **先**解析自身选项，因此带选项的
+        形态（``heagent --model X "prompt"``）不成立——那类调用要写成 ``heagent run --model X …``。
         """
         if args and args[0] in self.commands:
             return super().resolve_command(ctx, args)
@@ -382,6 +402,8 @@ def run(
     json_output: bool = False,
     sandbox_session_workspace: bool | None = None,
     sandbox_session_keep: bool | None = None,
+    no_http: bool = False,
+    no_ws: bool = False,
 ) -> None:
     """Run HeAgent in single-shot or interactive mode."""
     _run_cli_impl(
@@ -397,6 +419,8 @@ def run(
         json_output=json_output,
         sandbox_session_workspace=sandbox_session_workspace,
         sandbox_session_keep=sandbox_session_keep,
+        no_http=no_http,
+        no_ws=no_ws,
     )
 
 

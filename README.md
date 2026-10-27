@@ -101,8 +101,10 @@ heagent init --project
 | `--max-iterations N` | 主 Agent 最大迭代数 |
 | `--continue` / `--resume ID` | 继续最近或指定会话 |
 | `--plan` | 只读规划模式，禁止 shell 和写入类工具 |
-| `--sandbox auto\|passthrough\|firejail\|winjob` | 选择 shell 执行后端 |
+| `--sandbox auto\|passthrough\|firejail\|winjob\|docker` | 选择 shell 执行后端 |
 | `--json` | 单次执行时将 JSONL 事件流输出到 stdout |
+| `--no-http` | 本次进程不启动内嵌 HTTP 网页入口（WS 监听不受影响） |
+| `--no-ws` | 本次进程不启动内嵌 WS 监听（HTTP 网页入口不受影响） |
 
 交互模式支持 `/model`、`/route`、`/goal`、`/clear` 和 `/help`。自定义命令放在 `.heagent/commands/*.md`，自定义角色放在 `.heagent/agents/*.md`。
 
@@ -150,6 +152,14 @@ API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","
 - 会话投影与事件缓冲是**进程内状态**（进程退出即丢）；限额（连接 / 在途运行 / 请求体 / 事件缓存 / 运行时长 / 关闭等待）由 `HTTP_*` 设置控制（见 `.env.example`）。
 
 `gui` / `http-server` / `init` / `replay` 都不会附带启动第二份 HTTP 服务；默认 CLI 起的就是这一份，随 CLI 退出而关闭。
+
+**怎么关**（三条路，互不冲突）：
+
+- 单次/临时：`heagent run --no-http "…"`（连 WS 一起关：`--no-http --no-ws`）；只关 WS：`--no-ws`。只影响本次进程。
+  交互模式同样可用：`heagent run --no-http`。注意默认 CLI 的选项挂在 `run` 子命令上（`heagent --no-http` 会被 click 报 No such option）。
+- `heagent http-server` 的同名 flag 语义相同：`heagent http-server --no-http`（只起 WS）/ `--no-ws`（只起 HTTP）；两个都给会 fail-fast 报「nothing to serve」。
+- 持久：`.env` / `~/.heagent/setting.md` 里 `HTTP_ENABLED=false`（`WS_ENABLED=false` 关 WS；两者都 false = 零监听，交互模式仍可用）。改后需重启进程。
+- 已在运行的进程：Ctrl+C（有界排空，`HTTP_SHUTDOWN_TIMEOUT` 默认 5 秒）或结束该 PID。**没有**运行期关停端点。
 
 ## WebSocket 入口（9001，Epic 54–56）
 

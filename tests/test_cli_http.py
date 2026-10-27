@@ -65,6 +65,8 @@ def test_help_lists_http_options() -> None:
 
     assert result.exit_code == 0
     for option in (
+        "--no-http",
+        "--no-ws",
         "--host",
         "--port",
         "--max-connections",
@@ -759,3 +761,43 @@ def test_project_env_token_is_reported_as_ignored(
     assert result.exit_code == 0, result.output
     assert "WS_AUTH_TOKEN in the project .env is ignored" in result.output
     assert captured_server["ws"][0].config.requires_auth is False
+
+
+def test_no_http_flag_starts_only_the_ws_listener(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, Any]
+) -> None:
+    """``--no-http``：只起 WS，且必须明说 HTTP 被 CLI 关掉（不静默）。"""
+    monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
+    reset_settings()
+
+    result = CliRunner().invoke(main, ["http-server", "--no-http"])
+
+    assert result.exit_code == 0, result.output
+    assert captured_server["server"] is None
+    assert len(captured_server["ws"]) == 1
+    assert "[web] HTTP entry disabled by CLI flag" in result.output
+
+
+def test_no_ws_flag_starts_only_the_http_listener(
+    monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, Any]
+) -> None:
+    """``--no-ws``：只起 HTTP。"""
+    monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
+    reset_settings()
+
+    result = CliRunner().invoke(main, ["http-server", "--no-ws"])
+
+    assert result.exit_code == 0, result.output
+    assert captured_server["server"] is not None
+    assert captured_server["ws"] == ()
+    assert "[web] WS entry disabled by CLI flag" in result.output
+
+
+def test_both_no_flags_fail_fast(captured_server: dict[str, Any]) -> None:
+    """两个 flag 同时给 = 什么都不起：命令层 fail-loud，不留「启动成功但零监听」的假可用。"""
+    result = CliRunner().invoke(main, ["http-server", "--no-http", "--no-ws"])
+
+    assert result.exit_code != 0
+    assert "nothing to serve" in result.output
+    assert "server" not in captured_server
+    assert "Traceback" not in result.output

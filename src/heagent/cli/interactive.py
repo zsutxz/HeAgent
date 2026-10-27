@@ -42,6 +42,7 @@ from heagent.cli.display import (
     _LineState,
     _print_stream_event,
     _print_usage,
+    echo_web_entry_overrides,
     show_deferred_work,
     show_tool_activity,
 )
@@ -122,8 +123,23 @@ def _hub_call(hub: CliEventHub | None, method: str, *args: Any, **kwargs: Any) -
         safe_log(logger, logging.WARNING, "cli_ws publish failed: method=%s", method, exc_info=True)
 
 
+def _listener_overrides(no_http: bool, no_ws: bool) -> dict[str, bool | None]:
+    """``--no-http`` / ``--no-ws`` → 装配覆盖参数（``None`` = 照配置装配）。
+
+    单一换算点：``_run_single`` / ``_run_chat`` 都经它，避免两处各写一遍三态表达式。
+    返回 dict 以便直接 ``**`` 展开给 :func:`_embedded_http_service` 的关键字参数。
+    """
+    return {"http_enabled": False if no_http else None, "ws_enabled": False if no_ws else None}
+
+
 @contextlib.asynccontextmanager
-async def _embedded_http_service(settings: Settings, provider: BaseProvider) -> AsyncIterator[Any]:
+async def _embedded_http_service(
+    settings: Settings,
+    provider: BaseProvider,
+    *,
+    http_enabled: bool | None = None,
+    ws_enabled: bool | None = None,
+) -> AsyncIterator[Any]:
     """默认 CLI 的内嵌 HTTP 服务（Epic 49 Story 49-2/49-3）。
 
     交互模式与 REPL 共存、单次模式与那次 run 并存；两种模式都在**同一个 asyncio 生命周期**内启动
@@ -139,12 +155,18 @@ async def _embedded_http_service(settings: Settings, provider: BaseProvider) -> 
     ``build_http_service`` / ``HttpAgentHandler`` 在**函数内**导入：``cli/http`` 在模块尾部 import 本
     模块注册命令，模块级互相导入会成环。测试缝因此落在 ``heagent.cli.http.build_http_service``
     （**不要**在本模块顶部绑定该名字，否则缝会漂到 cli 上、既有 patch 目标失效）。
+
+    ``http_enabled`` / ``ws_enabled`` 是 ``--no-http`` / ``--no-ws`` 的**进程内**覆盖（``None`` =
+    照配置）：只改本次装配，不动配置文件与 Settings 单例。
     """
     from heagent.cli.http import build_http_service  # noqa: PLC0415
     from heagent.cli.http_console import HttpAgentHandler  # noqa: PLC0415
 
     handler = HttpAgentHandler(provider, settings)
-    async with build_http_service(settings, executor=handler) as service:
+    echo_web_entry_overrides(http_disabled=http_enabled is False, ws_disabled=ws_enabled is False)
+    async with build_http_service(
+        settings, executor=handler, http_enabled=http_enabled, ws_enabled=ws_enabled
+    ) as service:
         yield service
 
 
@@ -160,6 +182,8 @@ async def _run_single(
     json_output: bool = False,
     sandbox_session_workspace: bool | None = None,
     sandbox_session_keep: bool | None = None,
+    no_http: bool = False,
+    no_ws: bool = False,
 ) -> None:
     """Run a single prompt and print the result.
 
@@ -182,7 +206,7 @@ async def _run_single(
         engine.events.subscribe(sink)
 
     async with (
-        _embedded_http_service(settings, provider) as http,
+        _embedded_http_service(settings, provider, **_listener_overrides(no_http, no_ws)) as http,
         _cli_hub_scope(http),
         mcp_ctx or contextlib.nullcontext() as mcp_manager,
     ):
@@ -266,6 +290,8 @@ async def _run_chat(
     plan_mode: bool = False,
     sandbox_session_workspace: bool | None = None,
     sandbox_session_keep: bool | None = None,
+    no_http: bool = False,
+    no_ws: bool = False,
 ) -> None:
     """Run interactive chat mode."""
     _setup_readline()
@@ -279,7 +305,7 @@ async def _run_chat(
     )
 
     async with (
-        _embedded_http_service(settings, provider) as http,
+        _embedded_http_service(settings, provider, **_listener_overrides(no_http, no_ws)) as http,
         _cli_hub_scope(http),
         mcp_ctx or contextlib.nullcontext() as mcp_manager,
     ):
@@ -313,6 +339,9 @@ async def _run_chat(
         click.echo(
             f"HeAgent interactive mode (session: {session_id}). Type your message (Esc to pause, Enter to resume, double Esc to interrupt, Ctrl+C to exit)."
         )
+        if getattr(http, "is_dormant", False):
+            # 休眠服务：一个 listener 都没有。显式说一次，别让「以为网页入口开着」成为默认假设。
+            click.echo("[web] zero listeners in this process (HTTP and WS disabled); terminal only", err=True)
 
         try:
             if scheduler:
@@ -322,8 +351,9 @@ async def _run_chat(
             while True:
                 # 网页入口挂掉后 CLI 继续正常聊天 = 「页面打不开但看着一切正常」的假可用
                 # 状态（AD-5）。每轮检查一次：把 serve 循环的意外结束如实报出并退出交互。
+                # 前缀用 `[web]` 而非 `[http]`：`--no-http` / `HTTP_ENABLED=false` 时挂掉的是 WS。
                 if http.failure is not None:
-                    click.echo(f"[http] service stopped unexpectedly: {http.failure}", err=True)
+                    click.echo(f"[web] service stopped unexpectedly: {http.failure}", err=True)
                     break
                 try:
                     status = _format_status(loop)

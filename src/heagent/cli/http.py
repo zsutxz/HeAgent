@@ -32,7 +32,7 @@ from typing import Any
 import click
 from pydantic import SecretStr, ValidationError
 
-from heagent.cli.display import _current_version, echo_sandbox_hint
+from heagent.cli.display import _current_version, echo_sandbox_hint, echo_web_entry_overrides
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
 from heagent.cli.wiring import _build_provider
 from heagent.config import WS_AUTH_TOKEN_KEY, Settings, get_settings
@@ -221,7 +221,7 @@ class EmbeddedHttpService:
     def address(self) -> str:
         """HTTP listener 实际监听地址（stderr 公告与诊断用）；HTTP 禁用时无意义。"""
         if self._http is None:
-            raise RuntimeError("HTTP listener is disabled (HTTP_ENABLED=false)")
+            raise RuntimeError("HTTP listener is disabled (HTTP_ENABLED=false or --no-http)")
         return self._http.address
 
     @property
@@ -233,7 +233,7 @@ class EmbeddedHttpService:
     def ws_address(self) -> str:
         """**主** WS listener 实际监听地址（期一属性，语义不变）；WS 禁用时无意义。"""
         if not self._ws_servers:
-            raise RuntimeError("WS listener is disabled (WS_ENABLED=false)")
+            raise RuntimeError("WS listener is disabled (WS_ENABLED=false or --no-ws)")
         return self._ws_servers[0].address
 
     @property
@@ -245,6 +245,15 @@ class EmbeddedHttpService:
     def cli_hub(self) -> Any | None:
         """CLI 旁路中枢（未开启时为 ``None``）；入口层据此把终端 run 的事件发出来。"""
         return self._cli_hub
+
+    @property
+    def is_dormant(self) -> bool:
+        """两条入口都没装配（休眠服务，零监听）。
+
+        与「某一条被关」区分开：交互模式在休眠时显式提示一次，避免用户以为网页入口还在，
+        而实际上本进程一个 listener 都没有。
+        """
+        return self._http is None and not self._ws_servers
 
     @property
     def failure(self) -> BaseException | None:
@@ -480,6 +489,7 @@ def build_ws_servers(
     *,
     run_service: Any | None = None,
     cli_bypass: bool | None = None,
+    enabled: bool | None = None,
     host: str | None = None,
     port: int | None = None,
     max_connections: int | None = None,
@@ -494,14 +504,17 @@ def build_ws_servers(
     （若存在）是对外 listener。``hub`` 为 ``None`` 表示旁路未启用**或**因 listener 身份被跳过——
     两种情况对入口层等价（没有可发布的通道）。
 
+    ``enabled`` 缺省取 ``settings.ws_enabled``；默认 CLI 的 ``--no-ws`` 传 ``False``
+    （只关本次进程的 WS 监听，不改配置文件、不改 Settings 单例）。
+
     ``cli_bypass`` 缺省取 ``settings.ws_cli_bypass_enabled``；``http-server`` 命令显式传 ``False``
     （它没有终端轮次可看，期一行为照旧）。
 
     D9 连带收紧：旁路只在**本地模式**的主 listener 上挂载。期一允许「``WS_HOST=0.0.0.0`` +
     ``WS_CLI_BYPASS_ENABLED=true``」把终端事件流推到对外 listener，期二起改为跳过并 WARNING。
     """
-    if not settings.ws_enabled:
-        # WS_ENABLED=false：不构造任何 WS listener（旁路中枢也无从挂载）。
+    if not (settings.ws_enabled if enabled is None else enabled):
+        # WS_ENABLED=false（或 --no-ws）：不构造任何 WS listener（旁路中枢也无从挂载）。
         return (), None
 
     primary = build_ws_server_config(
@@ -520,9 +533,9 @@ def build_ws_servers(
         shutdown_timeout=shutdown_timeout,
         readonly=external_readonly,
     )
-    enabled = settings.ws_cli_bypass_enabled if cli_bypass is None else cli_bypass
+    bypass_enabled = settings.ws_cli_bypass_enabled if cli_bypass is None else cli_bypass
     hub: CliEventHub | None = None
-    if enabled:
+    if bypass_enabled:
         if primary.mode == "local":
             hub = CliEventHub(max_connections=primary.ws_max_connections)
         else:
@@ -564,14 +577,22 @@ def _project_env_declares(env_key: str) -> bool:
     return pattern.search(text) is not None
 
 
-def build_http_service(settings: Settings, *, executor: Any | None = None) -> EmbeddedHttpService:
+def build_http_service(
+    settings: Settings,
+    *,
+    executor: Any | None = None,
+    http_enabled: bool | None = None,
+    ws_enabled: bool | None = None,
+) -> EmbeddedHttpService:
     """按 ``Settings`` 构造默认 CLI 的内嵌网页入口（HTTP 8766 + 1–2 个 WS listener，Epic 56 D1/期二）。
 
     ``HTTP_ENABLED`` / ``WS_ENABLED`` 为假时对应 listener 不装配；两者都为假 ⇒ 休眠服务（零监听）。
+    ``http_enabled`` / ``ws_enabled`` 是**本次进程**的显式覆盖（``None`` = 照配置取值），供默认 CLI
+    的 ``--no-http`` / ``--no-ws`` 使用：只影响本次装配，不写回配置文件、也不改 Settings 单例。
 
-    默认 CLI **不提供** HTTP/WS 相关 CLI 选项（brief：不做含糊的参数透传），因此这里不带覆盖参数——
-    绑定地址与限额全部来自 ``HTTP_*`` / ``WS_*`` / ``WS_EXTERNAL_*`` 设置；需要覆盖时用显式
-    `heagent http-server`。
+    默认 CLI **不提供** HTTP/WS 的绑定与限额选项（brief：不做含糊的参数透传），因此这里不带
+    地址/端口覆盖参数——绑定地址与限额全部来自 ``HTTP_*`` / ``WS_*`` / ``WS_EXTERNAL_*`` 设置；
+    需要覆盖时用显式 `heagent http-server`。
 
     ``executor`` 是运行入口（入口层的 :class:`HttpAgentHandler`）：为 ``None`` 时 HTTP 只提供健康
     检查与静态页（Story 49-1 的形态），``/api/runs*`` 与 ``/api/session`` 不注册；WS 侧的 run
@@ -585,8 +606,10 @@ def build_http_service(settings: Settings, *, executor: Any | None = None) -> Em
     config = build_server_config(settings)
     run_service = HttpRunService(config, executor) if executor is not None else None
     workspace = WorkspacePaths.from_root(getattr(settings, "workspace_root", None) or os.getcwd())
+    http_on = settings.http_enabled if http_enabled is None else http_enabled
+    ws_on = settings.ws_enabled if ws_enabled is None else ws_enabled
     http_server: HttpServer | None = None
-    if settings.http_enabled:
+    if http_on:
         console = HttpProjectConsole(
             workspace.root,
             projects_file=settings.http_console_projects_file,
@@ -603,7 +626,7 @@ def build_http_service(settings: Settings, *, executor: Any | None = None) -> Em
             console=console,
         )
     # 1–2 个 WS listener（期二双监听）+ 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
-    ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service)
+    ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service, enabled=ws_on)
     return EmbeddedHttpService(http_server, ws_servers, cli_hub=cli_hub)
 
 
@@ -625,6 +648,20 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
 
 
 @click.command("http-server")
+@click.option(
+    "--no-http",
+    "no_http",
+    is_flag=True,
+    default=False,
+    help="Do not start the HTTP listener for this process (WS listeners unaffected)",
+)
+@click.option(
+    "--no-ws",
+    "no_ws",
+    is_flag=True,
+    default=False,
+    help="Do not start the WebSocket listeners for this process (HTTP listener unaffected)",
+)
 @click.option(
     "--host",
     default=None,
@@ -754,6 +791,8 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     "use auto/tkinter/powershell to enable when needed)",
 )
 def http_server_cmd(
+    no_http: bool,
+    no_ws: bool,
     host: str | None,
     port: int | None,
     max_connections: int | None,
@@ -786,11 +825,18 @@ def http_server_cmd(
 
     _setup_logging()
     settings = get_settings()
-    if not settings.http_enabled and not settings.ws_enabled:
+    # 三态：配置层的 HTTP_ENABLED / WS_ENABLED 再叠加本次进程的 --no-http / --no-ws
+    # （flag 只能**关**，不能开——避免「配置说关、命令行悄悄开」这种反向意外）。
+    http_on = settings.http_enabled and not no_http
+    ws_on = settings.ws_enabled and not no_ws
+    if not http_on and not ws_on:
         raise click.ClickException(
-            "Both HTTP_ENABLED and WS_ENABLED are false - nothing to serve; "
-            "enable at least one entry in ~/.heagent/setting.md (interactive mode runs fine with both off)."
+            "Both HTTP and WS entries are disabled - nothing to serve "
+            "(check HTTP_ENABLED / WS_ENABLED, or drop --no-http / --no-ws); "
+            "interactive mode runs fine with both off."
         )
+    # 公告放在 fail-fast 之后：「什么都不起」是错误，不该先打一行「已按你的要求关闭」。
+    echo_web_entry_overrides(http_disabled=no_http, ws_disabled=no_ws)
     _prune_runtime_artifacts(settings)
     # 角色是 system prompt 的组成部分（技能匹配 / 子 Agent 委派都读它），与其它入口一致地加载。
     load_agent_roles()
@@ -833,7 +879,7 @@ def http_server_cmd(
 
     run_service = HttpRunService(config, handler)
     server: HttpServer | None = None
-    if settings.http_enabled:
+    if http_on:
         console = HttpProjectConsole(
             workspace.root,
             projects_file=settings.http_console_projects_file,
@@ -854,6 +900,7 @@ def http_server_cmd(
             settings,
             run_service=run_service,
             cli_bypass=False,
+            enabled=ws_on,
             host=ws_host,
             port=ws_port,
             max_connections=ws_max_connections,
