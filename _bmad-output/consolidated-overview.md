@@ -1,7 +1,7 @@
 # HeAgent BMad 开发文档整合总览
 
-> **生成与维护**：2026-08-18 建立，持续按代码和 `sprint-status.yaml` 校正；最近一次全仓整理为 2026-09-26。**2026-09-28 复核**：§17.4-A 的活动台账索引（13 → 8 条）、陈旧证据路径与版本号已按实测刷新；**A 编号亦于同日统一**（A1~A19 + A23/A24 与台账「A 编号登记表」一一对应，同号异义已消除；A20~A22 为撤号）。本文只保留全周期摘要、状态索引和文档地图；活动 deferred 的正文以 [`implementation-artifacts/deferred-work-archive.md`](implementation-artifacts/deferred-work-archive.md) 为准，周期级闭合条目以各自 `deferred-work.md` 为准。**2026-10-23 复核**：Epic 51 收口为 `done`、Epic 52 交付完成、Epic 53（容器沙箱档）补登记；§15/§17 的状态、计数与版本号按当日实测刷新。
-> **范围**：`_bmad-output/` 全部 **21 个开发周期**（Epic 1-53 + S1-S4）+ 补丁 spec 归档（原 `patches/`）+ engine 增量，整合自各周期 brief / prd / architecture / epics / stories / sprint-status / retrospective / deferred-work 与补丁 spec 共 90+ 份文档。
+> **生成与维护**：2026-08-18 建立，按代码与 `sprint-status.yaml` 持续校正；最近复核 **2026-10-27**（Epic 54–57 补登记，§1/§2/§15/§17 刷新）。本文只保留全周期摘要、状态索引和文档地图；活动 deferred 正文以 [`implementation-artifacts/deferred-work-archive.md`](implementation-artifacts/deferred-work-archive.md) 为准，周期级闭合条目以各自 `deferred-work.md` 为准。
+> **范围**：`_bmad-output/` 全部 **25 个开发周期**（Epic 1-57 + S1-S4）+ 补丁 spec 归档（原 `patches/`）+ engine 增量，整合自各周期 brief / prd / architecture / epics / stories / sprint-status / retrospective / deferred-work 与补丁 spec 共 90+ 份文档。
 > **定位**：本文是 BMad 规划产物的**统一导航与综合摘要**（兼 epic 总目录，原 EPICS-INDEX.md 已并入）——按周期纵向梳理「意图 → 需求 → 架构 → 拆分 → 状态」，横向提供**统一编号索引**与**跨周期模式**。它**不是当前代码事实**：代码现状以 `docs/frame.md` 为准，规划与实现冲突时以 `src/` 为准。
 > **权威状态**：所有 Epic/Story 状态以 `_bmad-output/sprint-status.yaml`（2026-07-23 整合，唯一写目标）为单一权威。
 
@@ -79,7 +79,10 @@
 | Epic 51 | goal-workflow-trusted-delivery | `/goal` 与 workflow 可信交付优化：预检与统一状态视图、显式事件/转换表、结构化执行证据、真实质量 Gate、步骤级审批、多 workflow 冻结、受控 GoalScript 与写集证明的安全并行（2026-09-29 建立；8 Story 全部 `done`，**2026-10-23 收口**；A25–A28/A33/A37–A39 全部闭合归档） |
 | Epic 52 | safe-parallel-story-executor | goal 工作流安全并行 Story 执行器：声明门控批次（七条件）+ policy 层写集围栏 + 宿主 Git 写集审计与单向撤销闩，让 `max_parallel_stories` 真实生效；worktree 物理隔离为后续增强层（2026-10-09 建立 / 交付；5 Story 全部 `done`，retrospective 已补做） |
 | Epic 53 | container-sandbox-tier | 容器沙箱档：`SandboxTier.CONTAINER` 从预留枚举落为 `DockerRunner` 后端（shell 进容器，`--network=none` 默认 + bridge 显式开启，镜像 pin digest，不可用则显性降级 Passthrough）；**OS 级强隔离兜底、非绝对边界**，弱后端一律不得审批降级（NFR-2）（2026-10-20 立项；3 Story 均 `review`，2026-10-21 交付判据；期二 MCP stdio 进容器 / 审批降级接入挂 `deferred-work.md` D53-1 / D53-2，待用户裁定） |
-| Epic 54 | websocket-entry | WebSocket 入口与 HTTP/SSE 并存：单 run 事件订阅、ring buffer 游标续传、`cancel`/`ping` 命令、`ack`/`error` 帧、Origin 防线、独立 per-run 连接限额和有界关停；无认证、无 TLS、回环不等于可信（2026-10-23 交付，4 Story done） |
+| Epic 54 | websocket-entry | WebSocket 入口与 HTTP/SSE 并存：单 run 事件订阅、ring buffer 游标续传、`cancel`/`ping` 命令、`ack`/`error` 帧、Origin 防线、独立 per-run 连接限额和有界关停；无认证、无 TLS、回环不等于可信（4 Story done；交付物随压缩提交 `98ef6d8` 于 2026-10-24 入库并随 0.8.2 发布） |
+| Epic 55 | CLI 旁路 | 终端旁路事件中枢：`/api/cli/ws` 跨轮次只读观众席流，只挂本地 listener（终端事件可能含文件内容）；无 story（回溯周期），随 `98ef6d8` 入库并随 0.8.2 发布 |
+| Epic 56 | WS 对外入口 | HTTP/WS 完全分离，WS 独立 ASGI app（默认 9001，唯一 breaking）；对外模式强制 Bearer token（fail-closed）+ TLS 可选；期二双 listener 并存与端点可见性（8 story，2026-10-24 交付，两期 retro 各一份） |
+| Epic 57 | retro 遗留清理 | 清空 epic-52/53/54 retro 的 7 条 open items 后收口（2026-10-26 立项，`in-progress`） |
 
 **FR 编号空间**（互不冲突，引用须写全限定）：主线 `FR-1~24`；MCP V1 `FR-1~11`；MCP 升级准备 `FR-1~5`；MCP V2 `FR-A1~A7 / FR-B1~B4 / FR-C1~C4`；Sandbox `FR-S1~S7`；健壮性 `FR-A1~A5 + FR-C1~C6`；质量工程 `FR-Q1~Q20`；GUI `FR-G1~G24`；interaction `FR-A1~A5 / FR-B1~B3 / FR-C~G 各 1~4`；文件安全 `FR-1~5`（本地）；沙箱会话化 `FR-1~5`（本地，FR-5 deferred）。
 
@@ -120,7 +123,9 @@
 | 2026-09-17~20 | **架构与代码优化批次**：persist/roles/frontmatter 自 engine 迁出（Z-D1/D2）、cli_init.py / goal/document.py 拆分、沙箱硬化配置接入（SANDBOX_PROFILES 等）、凭证 deny 项目级入口（F-D1）、goal 跨进程锁（E41-D5）、O_NOFOLLOW 加固（Epic 46.2）、问卷删除 + /simplify 收敛 |
 | 2026-09-21~22 | **架构优化周期（Phase 0–5）交付**：组合根收敛 / loop façade / workflow 解耦（goal/application）/ sandbox·MCP·skills 三域拆分 + 子进程内核统一 + safe-open 单点 / **事件契约 v2**（duration_ms·error_kind + workflow_step_*）+ 4 新 benchmark + 文档收口（extending/troubleshooting/goal-workflow/frame 4.15）；周期档案 `implementation-artifacts/arch-optimization-cycle/`；全量 2061 passed / 90.88% |
 | 2026-09-22~24 | **网络入口三周期（Epic 48-50）**：Epic 48 TCP 网络接口（6 story，09-22 建立并交付，**09-27 删除**，commit `4217b5d`）；Epic 49 HTTP 网页入口（6 story，09-23 交付）；Epic 50 网页控制台（8 story，09-23 建立 / 09-24 实现 / **09-27 收口为 `done`**，四轮收口评审已出并放行、retrospective 已补做；09-24 追加 **Story 50-8** 体验优化轮） |
-| 2026-09-29~10-23 | **Epic 51-53**：Epic 51 `/goal` 与 workflow 可信交付优化收口（8 story，A25–A28/A33/A37–A39 全部闭合）；Epic 52 安全并行 story 执行器交付（5 story，写集围栏 + 宿主 Git 审计 + 单向撤销闩，四层评审 22 patch 全处置）；Epic 53 容器沙箱档落地期一（3 story `review`：`DockerRunner` + 镜像 pin + 网络档 + 显性降级留痕）。同期主线小改：`/work`→`/loop` 技能改名、`/compact` 手动压缩命令、docker 档启动提示与三入口 `--sandbox` 取值平权、本地质量门补齐 bandit 并与 CI lint job 对齐 |
+| 2026-09-29~10-23 | **Epic 51-53**：Epic 51 `/goal` 与 workflow 可信交付优化收口（8 story，A25–A28/A33/A37–A39 全部闭合）；Epic 52 安全并行 story 执行器交付（5 story，写集围栏 + 宿主 Git 审计 + 单向撤销闩，四层评审 22 patch 全处置）；Epic 53 容器沙箱档落地期一（3 story，**2026-10-24 walkthrough 收口**：`DockerRunner` + 镜像 pin + 网络档 + 显性降级留痕）。同期主线小改：`/work`→`/loop` 技能改名、`/compact` 手动压缩命令、docker 档启动提示与三入口 `--sandbox` 取值平权、本地质量门补齐 bandit 并与 CI lint job 对齐 |
+
+| 2026-10-24~26 | **网络入口收尾（Epic 53-56）与 Epic 57 立项**：Epic 53 walkthrough 收口；54/55/56 交付物随 `98ef6d8` 入库并随 0.8.2 发布（版本现 `0.8.3`）；条目改名 gpt→openai、anthropic→claude（`24b0bd1`）；HTTP/WS 独立开关（`de8311b`）；Epic 57 立项（4 story 当日全 done，收口在途） |
 
 > **文档滞后说明（2026-09-15 更新）**：`docs/iteration.md` 已补齐至 2026-09-15（含 8-9 月增量与整理记录），8 月上旬增量（Dreaming / steering / 发布）亦已回写 `sprint-status.yaml` 与各周期目录。**若本文与 `docs/iteration.md` / `sprint-status.yaml` 冲突，以后二者为准**；代码现状以 `docs/frame.md` 为准。
 
@@ -651,8 +656,11 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 > - **Epic 50（网页控制台）** → `epics/epic-50-网页控制台周期/`：brief + epics + ARCHITECTURE-SPINE + 8 个 story（含 2026-09-24 追加的 50-8 体验优化轮）+ 单文件 `reviews.md`（2026-09-26 由 8 份文档合并：规划评审 + 四轮评审 + 三份验收）+ `retrospective-epic-50.md`（2026-09-27 补做）
 > - **Epic 51（`/goal` 与 workflow 可信交付优化）** → `epics/epic-51-goal-workflow优化周期/`：brief + ARCHITECTURE-SPINE + epics + 8 个 story + `deferred-work.md`（2026-09-29 建立 → **2026-10-23 收口为 `done`**，deferred「当前活动项无」）
 > - **Epic 52（goal 工作流安全并行 Story 执行器）** → `epics/epic-52-安全并行story执行周期/`：brief + ARCHITECTURE-SPINE（AD-16..20）+ epics + 5 个 story + `epic-52-retro-2026-10-09.md`（2026-10-09 交付，5 story 全 `done`，retrospective 已补做）
-> - **Epic 53（容器沙箱档）** → `epics/epic-53-容器沙箱档周期/`：brief（D1–D4 冻结决策）+ epics + 3 个 story + `deferred-work.md`（D53-1/D53-2 期二挂起）；镜像构建文件在 `docker/sandbox/Dockerfile`（2026-10-20 立项，2026-10-21 三 story 进 `review`）
-> - **Epic 54（WebSocket 入口）** → `epics/epic-54-WebSocket入口周期/`：brief（D1–D9 冻结决策）+ epics + 4 个 story；实现 `network/ws_protocol.py` / `network/ws_server.py` 与 HTTP/SSE 接线，4 Story 于 2026-10-23 全部交付
+> - **Epic 53（容器沙箱档）** → `epics/epic-53-容器沙箱档周期/`：brief（D1–D4 冻结决策）+ epics + 3 个 story + `deferred-work.md`（D53-1/D53-2 期二挂起）；镜像构建文件在 `docker/sandbox/Dockerfile`（2026-10-20 立项，3 story **2026-10-24 用户 walkthrough 收口**）
+> - **Epic 54（WebSocket 入口）** → `epics/epic-54-WebSocket入口周期/`：brief（D1–D9 冻结决策）+ epics + 4 个 story；实现 `network/ws_protocol.py` / `network/ws_server.py` 与 HTTP/SSE 接线，4 Story done（交付物随 `98ef6d8` 于 2026-10-24 入库并随 0.8.2 发布）+ retro 产物 `epic-54-retro-2026-10-24.md`
+> - **Epic 55（CLI 旁路）** → `epics/epic-55-CLI旁路周期/`：brief（回溯补登记，无 story）
+> - **Epic 56（WS 对外入口）** → `epics/epic-56-WS对外入口周期/`：brief + epics + phase2-proposal + 8 个 story + 两期 retro
+> - **Epic 57（retro 遗留清理）** → `epics/epic-57-retro遗留清理周期/`：epics + 4 个 story（收口在途）
 
 ### 12.1 周期 10：文件安全与凭证防护（Epic 36-39）· 2026-08-24
 
@@ -813,11 +821,15 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | 50 | 网页控制台（工作区一等化 / 项目注册表 / 会话 API / 配置四层来源与写入通道 / 两栏 UI） | 8 | **done**（8 story 均 `done`，2026-09-27 收口；四轮收口评审已出并放行，retrospective 已补做） |
 | 51 | `/goal` 与 workflow 可信交付优化（预检/状态视图 / 事件转换 / 结构化证据 / 真实 Gate / 审批 / 模板冻结 / GoalScript / 安全并行） | 8 | **done**（8 story 全部 `done`，2026-10-23 收口；A25–A28/A33/A37–A39 全部闭合归档；retrospective `optional` 未补做） |
 | 52 | goal 工作流安全并行 Story 执行器（声明门控批次 / 写集围栏 / 宿主 Git 审计 + 撤销闩） | 5 | done（2026-10-09 交付并通过四层评审；retrospective 已补做） |
-| 53 | 容器沙箱档（`DockerRunner` + 镜像 pin + 网络档 + 显性降级留痕；期二 MCP stdio / 审批降级挂 deferred） | 3 | **in-progress**（3 story 均 `review`，2026-10-21 交付判据；真实 daemon integration 3/3） |
+| 53 | 容器沙箱档（`DockerRunner` + 镜像 pin + 网络档 + 显性降级留痕；期二 MCP stdio / 审批降级挂 deferred） | 3 | **done**（3 story done，**2026-10-24 用户 walkthrough 收口**；期二挂 D53-1/D53-2） |
+| 54 | WebSocket 入口（单 run 订阅 / 游标续传 / cancel·ping / Origin 防线 / per-run 限额；无认证无 TLS） | 4 | **done**（2026-10-24 收口纠正：交付物随 `98ef6d8` 入库并随 0.8.2 发布；retro 产物在周期目录） |
+| 55 | CLI 旁路（`/api/cli/ws` 终端直订，只挂本地 listener） | 0 | **done**（回溯登记无 story 行；随 `98ef6d8` 入库并随 0.8.2 发布） |
+| 56 | WS 对外入口（强制 Bearer token / 可选 TLS / 双 listener 并存 / 端点可见性） | 8 | **done**（期一 4 + 期二 4，均 2026-10-24 交付；两期 retro 各一份） |
+| 57 | retro 遗留清理（清空 7 条 open retro action items） | 4 | **in-progress**（2026-10-26 立项，57-1..57-4 当日全 done，epic 收口在途） |
 
-> **retrospective 补做**：2026-09-18 补做 5 份正式回顾（36、37、40、41、42，见 commit `d4b0387`），2026-09-23 补做 Epic 48（`epic-48-TCP网络接口周期/retrospective-epic-48.md`），2026-09-27 补做 Epic 50（`epic-50-网页控制台周期/retrospective-epic-50.md`，其 `epic-50-retrospective` 已随之改 `done`）；其余 epic 的 `optional` 字段未改，上表照实标注。2026-09-27 实测仍为 `optional` 的 epic 共 **16 个**（含 Epic 49）；**2026-10-23 实测 18 个**（新增 Epic 51、Epic 53，Epic 52 已补做），逐条清单见 §17.4-C。
+> **retrospective 补做**：36/37/40/41/42（2026-09-18，`d4b0387`）、Epic 48（09-23）、Epic 50（09-27，键值随之改 `done`）；36/37/40/41/42 键值已于 2026-10-27 归一 `done`。实测仍为 `optional` 的 epic 共 **14 个**（2026-10-27：25-28 / 38-39 / 43-46 / 49 / 51 / 55 / 57，均未补做），清单见 §17.4-C；Epic 54 / 56 retro 产物在各周期目录。
 
-**Story 文件归档（2026-09-24 实测）**：路径形如 `epics/<周期>/epic-NN-<主题>/stories/` 或周期级 `epics/<周期>/stories/`——按 `_bmad-output/**/stories/` 全深度实测为 **32 个目录 / 118 个 story 文件**（2026-10-23 实测；原记「28 / 102」为 2026-09-24 值，「25 / 82」「28 / 101」已失效）。建有 `stories/` 的：`epic-01`、`epic-05`、`epic-14/15/16`、`epic-19`、`epic-25~28`、`epic-36~39`、`epic-40`（周期级）、`epic-42`（周期级）、`epic-43~46`、`epic-47`、`epic-48`、`epic-49`（周期级）、`epic-50`（周期级）、`epic-S1~S4`；其余 epic 无独立 story 文件，仅登记于 sprint-status **（2026-09-27 复核：sprint-status 里已无 `in-progress` / `review`——Epic 50 的 8 个 story 于 2026-09-27 全部转 `done`；仍有 6 个 36-39 story 文件的 frontmatter 写 `status: backlog`（sprint-status 早已 `done`）——见 §17.4-C。）**。**2026-10-23 复核：`review` 3 条（53-1~53-3），`in-progress` story 0 条。**
+**Story 文件归档**：路径形如 `epics/<周期>/epic-NN-<主题>/stories/` 或周期级 `epics/<周期>/stories/`——**35 个目录 / 134 个 story 文件**（2026-10-27 实测）。建有 `stories/` 的：`epic-01/05/14/15/16/19`、`epic-25~28`、`epic-36~40`、`epic-42`、`epic-43~48`、`epic-49/50`、`epic-51~54`、`epic-56/57`（40/42/49/50/51~54/56/57 为周期级）、`epic-S1~S4`；其余 epic 仅登记于 sprint-status。6 个 36-39 story 文件 frontmatter 仍写 `status: backlog`（sprint-status 早已 `done`），见 §17.4-C。`review` / `in-progress` story 现为 **0 条**（53-1~53-3 已随 2026-10-24 walkthrough 转 done）。
 
 **跨周期 Action Items（3 条全部 closed）**：Epic 13 FR-3 auto-unregister（2026-07-01，commit 3203e4a）；DP-4 第一半 SafetyGuard 执行前拦截（2026-07-08）；DP-4 第二半 MCP 返回内容围栏（2026-07-10）。
 
@@ -875,7 +887,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | # | 模式 | 现状与建议 |
 |---|------|-----------|
 | 1 | 安全边界诚实度 | **长期基调（非待办）**：SafetyGuard/engine sandbox 均非真边界但命名像边界——命名/文档应持续降低「安全」期望，各文档已统一标注 defense-in-depth |
-| 2 | 回顾不及时 | **部分改善**（2026-09-27 复核）：至今只有 epic-13 属「实时回顾」；**16 个 epic 的 retrospective 仍标 `optional`**（25-28 / 36-39 / 40 / 41 / 42 / 43-46 / 49；**2026-10-23 实测 18 个**，新增 Epic 51 / 53），其中 5 个已于 2026-09-18 补做、Epic 48 于 2026-09-23 补做、**Epic 50 于 2026-09-27 补做**（余 13 个未补做）——清单见 §17.4-C |
+| 2 | 回顾不及时 | **部分改善**：retrospective 仍 `optional` 的 epic 共 **14 个**（2026-10-27 实测：25-28 / 38-39 / 43-46 / 49 / 51 / 55 / 57，均未补做；36/37/40/41/42、48、50 已补做）——清单见 §17.4-C |
 | 3 | 静默降级 | **仍开**：firejail / WinJob 不可用仅 `logger.warning` + 降级 Passthrough，无 CLI banner 或首次加载提示——落点见 §17.4-D（原此处引的 `tools/sandbox.py:423` 已随该模块包化失效） |
 | 4 | 编号冲突 | 两份 Epic 14 同名异义已 2026-07-23 统一——编号空间现无冲突 |
 | 5 | 复杂度接受 | **已裁定接受**：`agent/loop.py` 的 `run_stream` 仍以 `noqa: C901` 放行（抽函数后实测仍 17 > 15，依据写入 docstring）——证据见 §17.4-B8，不再作为待拆分项 |
@@ -904,11 +916,11 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ## 十七、当前状态与下一步
 
-### 17.1 当前状态（截至 2026-10-23）
+### 17.1 当前状态（截至 2026-10-27）
 
-- **规划产物**：**21 个周期**（Epic 1-53 + S1-S4）登记于 `sprint-status.yaml`（2026-10-23 实测 57 个 epic 键：**56 个 `done` + 1 个 `in-progress`（Epic 53）**）——**Epic 51 于 2026-10-23 收口、Epic 52 已交付**，**retrospective 仍为 `optional` 的 epic 共 18 个**（25-28 / 36-39 / 40 / 41 / 42 / 43-46 / 49 / 51 / 53；其中 36、37、40、41、42 已于 2026-09-18 补做、Epic 48 已于 2026-09-23 补做、**Epic 50 已于 2026-09-27 补做**，余 13 个未补做，清单见 §17.4-C，交付记录见各周期目录与 `retrospective-all-cycles.md`）。产物整理：`patches/` 解散并按归属 epic 归档（2026-09-15）、跨周期 deferred 台账重组为「活动条目 + 勘察类闭合归档」（2026-09-17）、story 产物按 Epic 分组。
+- **规划产物**：**25 个周期**（Epic 1-57 + S1-S4）登记于 `sprint-status.yaml`（2026-10-27 实测 **59 个 epic 键：58 `done` + 1 `in-progress`**——Epic 57 retro 遗留清理在途）；retrospective 仍 `optional` 的 epic 共 **14 个**（均未补做，清单见 §17.4-C）。产物整理：`patches/` 按归属 epic 归档（2026-09-15）、deferred 台账重组（2026-09-17）、story 产物按 Epic 分组。
 - **架构优化周期（2026-09-21~22 交付）**：6 阶段全部 done——组合根收敛（`ResolvedRuntimeConfig`）/ loop façade（策略五模块 + `mark_terminal`）/ workflow 解耦（`goal/application.py`，cli_goal 991→680）/ 三域拆分（`tools/sandbox/` 包、MCP `client`+`registry_bridge`+`discovery_failures`、skills 四文件）+ 子进程监督内核统一（`cap_channel`/`reap_subprocess`）+ safe-open 单点（`open_text_under_root`）/ **事件契约 v2**（`RunEvent.duration_ms`/`error_kind`，SCHEMA_VERSION=2 黄金测试锚定 + workflow_step_* 事件）+ benchmark 基建 + 文档收口（`docs/extending.md` / `docs/troubleshooting.md` / `docs/goal-workflow.md` / frame 4.15）。档案：`implementation-artifacts/arch-optimization-cycle/`。
-- **代码现状**（2026-10-24 复核，`src/` 最新提交 `98ef6d8`；版本 `0.8.3`）：`engine/` 运行时治理（权限档位 `sandbox_mode` / `ToolExecutor` / store·ledger·observability）+ `events/` 机器可读事件流（rollout + replay）+ 分层上下文文件发现 + 真实 tokenizer / 结构化压缩 + `file_edit` 编辑原语；`/goal` 声明式工作流（`.heagent/skills/he-goal/workflow.md` 技能包 + `engine/workflow_runner.py` / `engine/artifacts.py` + `cli_goal.py` / `goal/document.py`；原 `engine/agile.py` 已删、`engine/workflow.py` 仅存 state/checkpoint-store）；沙箱会话化 + 权限档位化 + **沙箱硬化配置接入**（`SANDBOX_PROFILES` / `SANDBOX_TOOL_PROFILES` / 内存·CPU 限额，2026-09-17）；技能包运行时（含 `O_NOFOLLOW` 加固）；凭证防护（deny 表 + **项目级 `.heagent/path_deny.json`** + `scrub_sensitive_env`）；**跨进程 goal 锁**（`persist.file_lock`）；provider 组合根抽出为 `wiring.py`；`cli_init.py` / `frontmatter.py` / `goal/document.py` 等拆分（2026-09-17）。
+；2026-10-26 起条目改名 gpt→openai、anthropic→claude（`24b0bd1`），HTTP/WS 独立开关 `HTTP_ENABLED` / `WS_ENABLED`（`de8311b`）。
 - **测试基线**：**3765 passed / 50 skipped / 28 deselected**（`pytest` 全量，2026-10-23 实测；deselect = integration + benchmark + 本机 WSL2 恒红的 3 条 `test_cli_http_lifecycle` 端口断言）；覆盖率 **92.47%**（gate 87）；`scripts/quality_gate.py` **六门**（goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy / **bandit `-ll`**，与 CI lint job 同参数）；代码量 `src/` 42,277 行（168 个 `.py`）+ `tests/` 54,426 行（159 个 `.py`）。
 
 ### 17.2 已知缺口（详见 frame.md 第五章）
@@ -925,9 +937,10 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### 17.3 下一步（路线图）
 
-> 完整清单（**0 条**活动台账项——2026-10-07 第二次清空 + 纪律类产物滞后 + 技术债候选 + 已决策关闭）见 **17.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（**9 条**活动台账项——2026-10-26 S-6 四态归一：A34–A36 + A40–A44 + A49）见 **17.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本已 `0.8.3`；`.github/workflows` 目前只有 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
+- ⏳ **Epic 57（在途）**：retro 遗留清理（2026-10-26 立项，4 story 已 done）——清空 7 条 open retro items 后收口。
 - ✅ **安全纵深（已裁定不做）**：MCP stdio server 子进程接入沙箱 —— 2026-09-27 用户裁定 (c) **不实施**（长命双向管道与既有 `CommandRunner` 形状冲突 + 隔离档属产品取舍 + 仍非边界），登记为已知暴露面（§17.4-A2 → Z-D24）。
 - ⏳ **技能资源 TOCTOU 后续**：descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox（§17.4-A1）。
 - ⏳ **技术债**：benchmark 数据入库（历史趋势）、sandbox 开箱即用 profile 预设、Prompts/slash 结构化注册表（`engine/workflow.py` legacy 相位机归档已于 2026-09-17 `d835bd8` 完成）。
@@ -997,7 +1010,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 - **6 个 story 的 frontmatter 仍为 `status: backlog`**（与实际交付不符）：`36-1`、`36-2`、`36-3`、`37-1`、`38-1`、`39-1`（同 epic 的 `36-4` 已是 `done`）。
 - **`45-1` / `45-2` 无 story 文件**（该 epic 目录下只有 `45-3`）；`spec-45-3` / `spec-46-1` 已在归档提交中删除或改名（仅存 git 历史）。
-- **18 个 epic 的 retrospective 状态仍为 `optional`**：25-28、36-39、40、41、42、43-46、49、51、53（2026-10-23 逐条数自 `sprint-status.yaml`）；其中 36、37、40、41、42 已于 2026-09-18 补做、Epic 48 已于 2026-09-23 补做、**Epic 50 已于 2026-09-27 补做**（其 `epic-50-retrospective` 已随之改 `done`），余 13 个未补做。
+- **14 个 epic 的 retrospective 键值仍为 `optional`**：25-28、38-39、43-46、49、51、55、57（2026-10-27 实测自 `sprint-status.yaml`，均未补做）。已补做：36/37/40/41/42（09-18，键值已归一 `done`）、Epic 48（09-23）、Epic 50（09-27）。Epic 54 / 56 retro 产物在各周期目录。
 - **`S4-1` 仍 `skipped`**（executor emit `sandbox_backend` + `sandbox_pid`）——沙箱执行轨迹不可追溯。
 - `_bmad-output/README.md` 的导航已统一到当前归档规则：活动项只指向 `implementation-artifacts/deferred-work-archive.md`，已闭合项按归属 Epic 进入各周期 `deferred-work.md`。
 

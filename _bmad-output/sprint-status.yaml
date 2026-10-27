@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-10-23
+# last_updated: 2026-10-26
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -373,11 +373,11 @@ development_status:
   36-2-credential-read-deny: done
   36-3-policy-credential-deny-precheck: done
   36-4-safetyguard-credential-destructive-guard: done
-  epic-36-retrospective: optional
+  epic-36-retrospective: done  # 2026-09-18 补做（d4b0387）
 
   epic-37: done  # 凭证环境变量 scrubbing（FR-F3）
   37-1-env-scrubbing: done
-  epic-37-retrospective: optional
+  epic-37-retrospective: done  # 2026-09-18 补做（d4b0387）
 
   epic-38: done  # .heagent/ 内部状态读 deny（FR-F4）
   38-1-internal-state-read-deny: done
@@ -396,7 +396,7 @@ development_status:
   40-2-backend-strength-tiering: done
   40-3-env-scrub-allowlist: done
   40-4-sandbox-session-lifecycle: done
-  epic-40-retrospective: optional
+  epic-40-retrospective: done  # 2026-09-18 补做（d4b0387）
 
   # ═══════════════════════════════════════════════════════════════
   # 目标驱动开发周期 · Epic 41（2026-08-29 交付，FR-1~4；/goal 启动 skill 执行工作流）
@@ -407,7 +407,7 @@ development_status:
   41-2-run-loop-run-metadata: done
   41-3-cron-auto-unattended: done
   41-4-docs-regression-smoke: done
-  epic-41-retrospective: optional
+  epic-41-retrospective: done  # 2026-09-18 补做（d4b0387）
 
   # ═══════════════════════════════════════════════════════════════
   # BMad 技能包运行时周期 · Epic 42（2026-08-31 规划，2026-09-01 交付，FR1~FR8）
@@ -419,7 +419,7 @@ development_status:
   42-3-skill-step-runner: done
   42-4-skill-importer: done
   42-5-compatibility-regression: done
-  epic-42-retrospective: optional
+  epic-42-retrospective: done  # 2026-09-18 补做（d4b0387）
 
   # ═══════════════════════════════════════════════════════════════
   # 目标级工作流周期 · Epic 43–46（2026-09-01，FR1~FR5）
@@ -589,7 +589,7 @@ development_status:
   56-7-phase2-docs-contracts-quality-gate: done  # 期二：frame.md/AGENTS.md/deploy README + 端点集契约 + 全量门禁
   56-8-external-readonly: done  # 期二 retro P2-A3：只读旁观 listener（不注册提交端点 + cancel 拒绝不断连），默认关
   epic-56-retrospective: done  # 期一 epic-56-retro-2026-10-24.md；期二 epic-56-retro-phase2-2026-10-24.md
-  epic-57: in-progress  # retro 遗留清理周期（2026-10-26 立项）：清空 7 条 open action items 后版本升 0.8.3
+  epic-57: in-progress  # retro 遗留清理（2026-10-26 立项）：清空 7 条 open retro items 后收口；0.8.3 已 bump（696cdbc）
   57-1-session-closing-checklist: done  # 2026-10-26：§1.6 四条规则落盘，契约子集 35 passed
   57-2-port-finder-test-env-robustness: done  # 2026-10-26：_reserve_block 动态取口，7/7 三连跑绿，ruff/format 绿
   57-3-e2e-fence-smoke: done  # 2026-10-26：2 例贯通测试（真实 handler 全链），台账 52-3 AC1 闭合 + 错位窗口附带发现登记

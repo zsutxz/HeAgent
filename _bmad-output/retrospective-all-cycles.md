@@ -1,8 +1,8 @@
 # HeAgent 全周期综合回顾
 
 > 生成: 2026-07-22；最近一次整理: 2026-09-26。本文是历史回顾与跨周期教训，不是状态台账；活动 deferred 的正文以 [`implementation-artifacts/deferred-work-archive.md`](implementation-artifacts/deferred-work-archive.md) 为准。
-> 覆盖: Epic 1–50 + S1–S4，**19 个周期**（**54 个 Epic 条目** = Epic 1–50 + S1–S4；另含架构优化周期 Phase 0–5，非 BMad 流程）
-> 基准: **2061 passed / 9 skipped / 18 deselected**（2026-09-22 实测）、ruff / mypy clean、覆盖率 **90.88%**（gate 87）
+> 覆盖: Epic 1–57 + S1–S4，**26 个周期**（**61 个 Epic 条目** = Epic 1–57 + S1–S4；另含架构优化周期 Phase 0–5，非 BMad 流程；2026-10-27 刷新）
+> 基准: **3765 passed / 50 skipped / 28 deselected**（2026-10-23 实测）、ruff / mypy clean、覆盖率 **92.47%**（gate 87）
 >
 > 归档更新：2026-09-14 已完成实现 spec 按 Epic 40 / Epic 47 归档；2026-09-15 `patches/` 目录解散（补丁 spec 按归属 epic 归档）、跨周期 deferred 台账按 epic 归并。
 > **口径说明**：早期章节是正式回顾，后续章节包含补录速览；未完成正式回顾的周期会明确标注 `optional`。Epic 48 / 50 有正式回顾；Epic 49 依据交付记录与评审产物摘录，状态以 `sprint-status.yaml` 为准。
@@ -169,6 +169,10 @@
 | 做对 | `close()` 坚持「有界返回 + warning + 结算登记」（无法强杀时如实写进 docstring，而非假装干净）；`_safe_log` 单点收口 + 注入式测试（Epic 48 共 10 个变异体全部精确变红后按 sha256 逐字节还原）；配置 / 协议各自唯一读取点（`tcp_*`、`HTTP_*`）；收口分两轮（先实现、后收口）并把评审发现当场分成「已修 / 未修如实登记」两栏；Epic 50 写通道沿用全项目纪律（fail-closed 校验 + 备份 + 审计 + 冻结边界 + 前端不硬编码键名）。 |
 | 改进（2026-09-24 复核） | ① **Epic 48 回顾自己点名的「5 条缺口只进 `frame.md`、未进活动台账」已处理**——2026-09-23 补登活动台账，其中「运行栈日志非观测故障免疫」「入口日志未脱敏」当日闭合（**Z-D10 / Z-D11**，2026-09-24 已按归属 epic 回填 `epics/epic-48-TCP网络接口周期/deferred-work.md`），「TCP 入口不写 rollout」仍在活动区（**A7**）。② **Epic 50 的 retrospective 已按 Epic 48 先例在收口时补做**（2026-09-27：`epic-50-网页控制台周期/retrospective-epic-50.md` + `epic-50-retrospective: done`）；Epic 49 仍未补做（`optional`）。③ Epic 50 两轮收口评审的发现被如实分成两栏：**3 条已闭合**（`Z-D13` / `Z-D14` / `Z-D15`，2026-09-24 回填 `epics/epic-50-网页控制台周期/deferred-work.md`）与 **7 条仍开**（活动台账 **A8~A14**，其中 **A11「非回环运行姿态 + cron 跨会话后置执行」标 `blocked` 待人裁决**）。**2026-09-28 复核**：这 7 条的后续状态——3 条已闭合（运行时归因与兜底族 `a1f7c67`、高影响键风险标记 = `RESOURCE_CEILINGS`、写入通道四类残余四面处置）、1 条已闭合（非回环运行姿态 ① 裁定维持现状 + cron ② 已闭合 ⇒ 两半均已了结，2026-09-28 状态归一）、余 3 条仍在活动区（跨项目并发无全局上限 / 控制台阻塞 I/O / 浏览器级 UI 验收）；活动区实测共 **7 条**（2026-09-28 闭合 A4 后再减 1）；同日第六轮按裁定再闭合 5 条（跨项目并发 / 控制台阻塞 I/O / 浏览器验收 / 宿主 GUI 拉起面 / 原生窗口判据）⇒ **2 条**；第七轮交付 A1④、第八轮按裁定闭合 A1、第九轮按裁定归档 A6 ⇒ **0 条**。④ 立场不变：三个入口**都不是安全边界**（无认证 / 无 TLS；回环判定与启动告警只是提示），须 OS 级沙箱兜底。 |
 
+### 1x. 收尾周期（Epic 51–57）· 2026-09~10
+
+> 2026-10-27 补记：正式综合回顾未并入本文，各周期 retro / 评审产物在各自目录——Epic 51（10-23 收口）、52（10-09 交付）、53（10-24 walkthrough 收口）、54（retro 10-24）、55（回溯登记）、56（两期 retro）、57（在途）。状态以 `sprint-status.yaml` 为准。
+
 ---
 
 ## 二、跨周期模式：做对了什么
@@ -197,7 +201,7 @@
 | # | 模式 | 现状 |
 |---|------|------|
 | 1 | **安全边界诚实度** | **长期基调（非待办）**：命名/文档应持续降低「安全」期望，各文档已统一标注 defense-in-depth |
-| 2 | **回顾不及时** | **部分改善**（2026-09-27 复核）：**16 个 epic 的 retrospective 仍为 `optional`**（25-28 / 36-39 / 40 / 41 / 42 / 43-46 / **49**）；其中 36、37、40、41、42 已于 2026-09-18 补做、**Epic 48 于 2026-09-23 补做、Epic 50 于 2026-09-27 补做**，余 11 个未补做 |
+| 2 | **回顾不及时** | **部分改善**：retrospective 仍 `optional` 的 epic 共 **14 个**（2026-10-27 实测：25-28 / 38-39 / 43-46 / 49 / 51 / 55 / 57，均未补做；36/37/40/41/42、48、50 已补做） |
 | 3 | **静默降级** | **仍开**：firejail / WinJob 不可用仅 `logger.warning` + 降级 Passthrough，无 CLI banner 或首次加载提示——落点见 `consolidated-overview.md` §17.4-D（原此处引的 `tools/sandbox.py:423` 已随该模块包化失效） |
 | 4 | **编号冲突** | 已 2026-07-23 统一编号空间，现无冲突 |
 | 5 | **复杂度接受** | **已裁定接受**：`run_stream` 的 `noqa: C901` 有实测依据（抽出共用步骤后仍 17 > 15），理由已写入 `agent/loop.py:404,418` docstring——不再作为待拆分项 |
@@ -213,13 +217,13 @@
 
 | 指标 | 数值 |
 |------|------|
-| 总 Epic 数 | **54**（Epic 1–50 + S1–S4），分属 **19 个周期**（18 个 BMad 周期 + 1 个架构优化） |
-| 总 Story 数 | **102 个 story 文件（28 个 `stories/` 目录）**（2026-09-26 按 `_bmad-output/**/stories/` 全深度实测；原记 82 / 25 的计数口径未留档，101 为 2026-09-24 追加 Story 50-8 之前的值）+ quick-dev 直接执行项（Epic 29–35 等无独立 story 文件） |
-| 总测试数 | **2061 passed / 9 skipped / 18 deselected**（2026-09-22；deselect = integration + benchmark） |
-| 覆盖率 | **90.88%**（gate 87；`scripts/quality_gate.py` 五门：goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy） |
-| 代码行数 | ~55,600（`src/` 25,768 + `tests/` 29,794，2026-09-22 计数；130 / 106 个 `.py`） |
-| 外部依赖 | 核心 5（openai / anthropic / pydantic / pydantic-settings / mcp）+ 可选（tiktoken 真实 tokenizer；textual GUI） |
-| 开发周期 | 2026-05-26 → 2026-09-24（**121 天**） |
+| 总 Epic 数 | **61**（Epic 1–57 + S1–S4），分属 **26 个周期**（25 个 BMad 周期 + 1 个架构优化；2026-10-27 实测） |
+| 总 Story 数 | **134 个 story 文件（35 个 `stories/` 目录）**（2026-10-27 实测；历史值：102/28=2026-09-26、118/32=2026-10-23）+ quick-dev 直接执行项（Epic 29–35 等无独立 story 文件） |
+| 总测试数 | **3765 passed / 50 skipped / 28 deselected**（2026-10-23 实测；deselect = integration + benchmark + 本机 WSL2 恒红 3 条端口断言） |
+| 覆盖率 | **92.47%**（gate 87；`scripts/quality_gate.py` 六门：goal smoke / 回归+覆盖率 / ruff check / ruff format / mypy / bandit `-ll`） |
+| 代码行数 | ~96,700（`src/` 42,277 + `tests/` 54,426，2026-10-23 计数；168 / 159 个 `.py`） |
+| 外部依赖 | 核心 6（openai / anthropic / tiktoken / pydantic / pydantic-settings / mcp；2026-10-26 起配置条目名 gpt→openai、anthropic→claude）+ 可选（tiktoken 真实 tokenizer；textual GUI） |
+| 开发周期 | 2026-05-26 → 2026-10-27（**154 天**） |
 
 ---
 
@@ -241,7 +245,7 @@
 
 - 6 个 36-39 story 的 frontmatter 仍为 `status: backlog`（`36-1`/`36-2`/`36-3`/`37-1`/`38-1`/`39-1`）。
 - `45-1` / `45-2` 无 story 文件（该 epic 仅 `45-3`）；`spec-45-3` / `spec-46-1` 已在归档提交中删除或改名。
-- **16 个 epic 的 retrospective 状态仍为 `optional`**（25-28 / 36-39 / 40 / 41 / 42 / 43-46 / **49**）；其中 36、37、40、41、42 已于 2026-09-18 补做、**Epic 48 已于 2026-09-23 补做、Epic 50 已于 2026-09-27 补做**，余 11 个未补做。
+- **14 个 epic 的 retrospective 仍为 `optional`**（2026-10-27 实测：25-28 / 38-39 / 43-46 / 49 / 51 / 55 / 57，均未补做）；已补做：36/37/40/41/42（09-18）、Epic 48（09-23）、Epic 50（09-27）。
 - `S4-1`（executor emit `sandbox_backend` + `sandbox_pid`）仍 `skipped` —— 沙箱执行轨迹不可追溯。
 - `_bmad-output/README.md:13` 仍描述 `implementation-artifacts/` 含 `deferred-work.md` 与母规划 spec——两者均已不存在（现为 `deferred-work-archive.md`；**2026-09-20 已修正该描述**）。
 
