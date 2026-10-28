@@ -1,8 +1,9 @@
 """Story 49-1 / 50-3：``heagent http-server`` CLI 接线（命令注册 / 参数映射 / 不隐式监听 / 单项目运行时）。
 
 本文件只测**入口层**：命令注册、参数映射、绑定失败的可读错误、「导入 CLI 不会拉起可选 HTTP 栈」，
-以及 Story 50-3 的两条接线不变量——**HTTP 进程内不构造 ``CronScheduler``**（评审 F2）与**每个项目
-各自独立的运行时切片**。HTTP 传输层与生命周期行为在 ``tests/network/test_http_server.py``。
+以及 Story 50-3 的接线不变量——**HTTP 入口拥有完整 cron 工具面、但 handler 内不启停调度器**
+（2026-10-28 改判：原「不绑 cron 工具」的 A11② 形态已按用户裁决撤销）与**每个项目各自独立的
+运行时切片**。HTTP 传输层与生命周期行为在 ``tests/network/test_http_server.py``。
 """
 
 from __future__ import annotations
@@ -442,13 +443,17 @@ def test_explicit_subcommand_paths_do_not_go_through_the_embedded_service(
 # ── Story 50-3：单项目运行时的接线不变量 ──
 
 
-def test_new_loop_refuses_to_own_a_cron_scheduler(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """评审 F2：传入 session 后，「HTTP 侧没有后台调度」必须靠**显式** ``enable_cron=False``。
+def test_new_loop_binds_the_full_cron_surface(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """2026-10-28 裁决：网页会话与交互模式拥有**同一套** cron 工具面（``enable_cron=True``）。
 
-    两半都钉住：①``new_loop()`` 真的把 ``enable_cron=False`` 与 ``session`` 传下去；②即便
-    ``_build_loop`` 将来不听话地回了调度器，``new_loop()`` 也必须**显式失败**——把带无人监督执行面的
-    运行时装进 HTTP 进程是 49-5 明令禁止的形态，静默忽略等于把 forbid 变成注释。
+    接线断言三条：①``enable_cron=True`` 与 session 一起传下去；②loop 真的绑了**该项目**的
+    ``JobStore``（端口可达者因此能 `cron_list`，也能 `cron_add`/`cron_remove`——A11② 的写面风险
+    改为显式接受，任务由交互模式 / GUI 的调度器触发）；③本方法**不启动**调度器：即便
+    ``_build_loop`` 回了 ``CronScheduler``，也只是丢弃（不 start、不抛），进程级 start/stop
+    归 ``cli/interactive.py`` 与 ``gui/app.py``。
     """
+    from heagent.cron.jobs import JobStore
+
     seen: dict[str, Any] = {}
     real_build = cli_module._build_loop  # noqa: SLF001 - 本用例的意义就是钉住「谁调它、怎么调」
 
@@ -457,26 +462,26 @@ def test_new_loop_refuses_to_own_a_cron_scheduler(monkeypatch: pytest.MonkeyPatc
         return real_build(*args, **kwargs)
 
     monkeypatch.setattr("heagent.cli.composition._build_loop", spy)
-    store = SessionStore(str(tmp_path / "sessions"))
-    handler = HttpAgentHandler(_StubProvider(), get_settings(), workspace_root=tmp_path, session_store=store)
+    sessions = SessionStore(str(tmp_path / "sessions"))
+    settings = Settings(_env_file=None, cron_enabled=True)
+    handler = HttpAgentHandler(_StubProvider(), settings, workspace_root=tmp_path, session_store=sessions)
 
     loop = handler.new_loop()
 
-    assert seen["enable_cron"] is False
-    assert seen["session"] is store
-    assert loop.session is store  # 运行因此真的会写这个会话存储（此前是 session=None）
-    # A11②（2026-09-27）：只拒调度器不够——cron 工具会把任务写进项目的 jobs.json，
-    # 而它们在本进程 IDLE 永不触发、却在后续 CLI 会话里无人监督地执行。
-    assert loop.cron_store is None
+    assert seen["enable_cron"] is True
+    assert seen["session"] is sessions
+    assert loop.session is sessions  # 运行因此真的会写这个会话存储（此前是 session=None）
+    assert isinstance(loop.cron_store, JobStore)
+    # store 指向该项目的 jobs.json，读到的是**盘上现值**（list_jobs 每次加载、无缓存）——
+    # 交互式 CLI 刚写的任务，网页会话的下一次 run 立刻可见。
+    cron_file = WorkspacePaths.from_root(tmp_path).cron_file
+    writer = JobStore(str(cron_file))
+    writer.add(writer.create_job("nightly report", "0 9 * * *"))
+    assert [job.prompt for job in loop.cron_store.list_jobs()] == ["nightly report"]
 
+    # 调度器被丢弃：不 start、不抛（旧实现见到 scheduler 即 raise，那会让本姿态不可实现）。
     monkeypatch.setattr("heagent.cli.composition._build_loop", lambda *args, **kwargs: (loop, object()))
-    with pytest.raises(RuntimeError, match="must not own a CronScheduler"):
-        handler.new_loop()
-
-    monkeypatch.setattr("heagent.cli.composition._build_loop", lambda *args, **kwargs: (loop, None))
-    monkeypatch.setattr(loop, "cron_store", object())
-    with pytest.raises(RuntimeError, match="must not bind cron tools"):
-        handler.new_loop()
+    assert handler.new_loop() is loop
 
 
 def test_for_workspace_rebinds_paths_and_sessions_per_project(tmp_path: Path) -> None:

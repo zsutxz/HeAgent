@@ -279,17 +279,21 @@ class HttpAgentHandler:
         ``.heagent/sessions/{session_id}.json``（此前是 ``session=None``，这正是网页不落盘的根因）；
         ``session`` 为 ``None`` 时行为与 Epic 49 逐字相同。
 
-        ``enable_cron=False`` 是**显式**拒绝，不是副作用：``_build_loop`` 的调度器分支含
-        ``session is not None`` 条件，传入会话后「HTTP 侧没有后台调度」再也不能靠 ``session=None``
-        偶然成立（评审 F2）。返回值里若真出现调度器，本方法**显式失败**——把带无人监督执行面的
-        运行时装进 HTTP 进程是 49-5 明令禁止的形态，绝不静默忽略。
-        2026-09-27 加固（活动台账 A11②）：只拒调度器不够——绑进 loop 的 cron 工具仍能写
-        `<项目>/.heagent/cron/jobs.json`，任务在本进程 IDLE 永不触发、却会在后续 CLI
-        会话里无人监督地执行；故这里**同时**断言 loop 未绑 cron 工具。
+        ``enable_cron=True``（2026-10-28 用户裁决改判）：网页会话与交互模式拥有**同一套** cron
+        工具面（``cron_add`` / ``cron_list`` / ``cron_remove``）。此前为拦住「网页写的任务在本进程
+        IDLE 永不触发、却会在后续 CLI 会话里无人监督地执行」（活动台账 A11②）而传
+        ``enable_cron=False``，现在把该风险显式接受：任务落在项目的 ``jobs.json``，与交互模式 / GUI
+        **同一份文件**，由它们的调度器触发。
+
+        **本方法不启动后台调度**：``_build_loop`` 在有会话时会顺带构造一个 ``CronScheduler``，
+        这里直接丢弃（构造只赋值字段，不建 task，无资源泄漏）。scheduler 的 start/stop 属**进程级**
+        生命周期（``cli/interactive.py``、``gui/app.py``），而 handler 只负责每次 run 的 loop——
+        若将来要让网页进程自己也跑调度，应挂在 ``EmbeddedHttpService`` 生命周期上，
+        绝不能按 run 启停（那会随每个请求重复起停调度器）。
         """
         from heagent.cli.composition import _build_loop  # noqa: PLC0415 —— patch 缝落在此模块（见其 docstring）
 
-        loop, scheduler = _build_loop(
+        loop, _scheduler = _build_loop(
             self.settings,
             self.provider,
             self.max_iterations or self.settings.max_iterations,
@@ -301,12 +305,8 @@ class HttpAgentHandler:
             facts=self.facts,
             profile=self.profile,
             soul=self.soul,
-            enable_cron=False,
+            enable_cron=True,
         )
-        if scheduler is not None:
-            raise RuntimeError("HTTP runtime must not own a CronScheduler")
-        if loop.cron_store is not None:
-            raise RuntimeError("HTTP runtime must not bind cron tools")
         return loop
 
     async def __call__(
