@@ -595,6 +595,17 @@ development_status:
   57-3-e2e-fence-smoke: done  # 2026-10-26：2 例贯通测试（真实 handler 全链），台账 52-3 AC1 闭合 + 错位窗口附带发现登记
   57-4-real-llm-smoke: done  # 2026-10-26：临时 workspace 单步包两 goal 全链（deepseek 真实），3 AC 落地，Resolution 留档
   epic-57-retrospective: optional
+
+  # ═══════════════════════════════════════════════════════════════
+  # cron 结果推送周期 · Epic 58（2026-10-28 立项并登记本文件）
+  # 来源：客户端实测 cron 三轮触发、零帧到达（docs/hello.txt）；用户 2026-10-28 裁决 B 案。
+  # 新只读端点 WS /api/notifications/ws（跨轮次 seq + 环形缓冲 + 游标重放 + 背压踢人），
+  # 由 CRON_PUSH_ENABLED 控制中枢构造与端点注册；CRON_ECHO_TO_TERMINAL 单独控制终端回显。
+  # network 层抽 EventStreamHub 通用核，CliEventHub / NotificationHub 都是薄适配（D3）。
+  epic-58: in-progress  # 2026-10-28 开工：58-1 交付待评审；58-2（入口接线）未开始
+  58-1-notification-hub-and-endpoint: review  # 2026-10-28：通用核 + 通知中枢 + /api/notifications/ws；全量 4067 passed / 覆盖 92.38%
+  58-2-cron-notify-wiring: backlog
+  epic-58-retrospective: optional
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
     epic: 52

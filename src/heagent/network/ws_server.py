@@ -34,6 +34,7 @@ from heagent.network.ws_protocol import (
     WsEventFrame,
     WsFrameError,
     WsFrameErrorKind,
+    WsNotificationFrame,
     parse_command_frame,
 )
 
@@ -42,6 +43,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from heagent.network.cli_event_hub import CliEventHub, CliSubscription
+    from heagent.network.notification_hub import NotificationHub, NotificationSubscription
 
 
 class WebSocketLike(Protocol):
@@ -672,11 +674,167 @@ def build_cli_ws_endpoint(
     return endpoint
 
 
+async def _notification_send_events(websocket: WebSocketLike, subscription: NotificationSubscription) -> None:
+    """先重放 backlog，再写实时队列；``None`` 哨兵表示「服务端结束该流」。
+
+    stream id 只在中枢内部用于日志与关停：通知帧不带它（客户端按 ``job_id`` + ``seq`` 定位）。
+    """
+    for _stream_id, payload in subscription.backlog:
+        await websocket.send_text(WsNotificationFrame(notification=payload).model_dump_json())
+    while True:
+        item = await subscription.queue.get()
+        if item is None:
+            return
+        _stream_id, payload = item
+        await websocket.send_text(WsNotificationFrame(notification=payload).model_dump_json())
+
+
+async def _notification_handle_commands(websocket: WebSocketLike) -> None:
+    """通知流的命令面：``ping`` 回 ack；``cancel`` / ``run`` 一律拒绝且**不断连接**。
+
+    与 CLI 旁路同口径：只读流不拥有任何东西，把「不支持」说出来（而不是静默忽略），客户端
+    才知道它连的是通知流。
+    """
+    while True:
+        try:
+            text = await websocket.receive_text()
+        except Exception as exc:
+            if type(exc).__name__ == "WebSocketDisconnect":
+                return
+            raise
+        try:
+            command = parse_command_frame(text).command
+        except WsFrameError as exc:
+            if exc.kind is WsFrameErrorKind.TOO_LARGE:
+                await websocket.close(code=WS_CLOSE_TOO_LARGE)
+            else:
+                await _send_error(
+                    websocket,
+                    HttpErrorCode.INVALID_REQUEST,
+                    "invalid WebSocket command",
+                    close_code=WS_CLOSE_POLICY,
+                )
+            return
+
+        if command is WsCommand.RUN:
+            await _send_error_frame(
+                websocket,
+                HttpErrorCode.INVALID_REQUEST,
+                "the run command is only accepted on the run collection endpoint",
+            )
+            continue
+        if command is WsCommand.CANCEL:
+            await _send_error_frame(
+                websocket,
+                HttpErrorCode.INVALID_REQUEST,
+                "the notification stream is read-only; there is nothing to cancel",
+            )
+            continue
+        await websocket.send_text(WsCliAckFrame(command=command, run_id="").model_dump_json())
+
+
+def build_notification_ws_endpoint(
+    hub: NotificationHub,
+    *,
+    origin_violation: OriginCheck,
+    authorize: AuthCheck | None = None,
+) -> Callable[[WebSocketLike], Awaitable[None]]:
+    """构造只读通知流端点（``WS /api/notifications/ws``）：跨作业、跨执行的一条流。
+
+    与 :func:`build_cli_ws_endpoint` 的三处相同点都是刻意的：不按 id 路由（一条流看所有通知）、
+    拒绝 ``cancel``（通知流没有可取消的对象）、额度按 hub 计而不是按作业计。差别只有一处：
+    旁路的 ``run_id`` 在这里没有意义，ack 帧的 ``run_id`` 恒为空串。
+    """
+
+    async def endpoint(websocket: WebSocketLike) -> None:
+        started = time.perf_counter()
+        connection_id = uuid.uuid4().hex[:12]
+        if await _reject_unauthenticated(websocket, authorize, transport="notifications"):
+            return
+        violation = origin_violation(websocket.scope)
+        if violation is not None:
+            logger.warning("http event=origin_rejected transport=notifications reason=%s", violation)
+            # 在 accept 前 close：客户端拿 HTTP 403；不透出 host allow-list 或错误信封。
+            await websocket.close()
+            return
+        await websocket.accept()
+        subscription: NotificationSubscription | None = None
+        registered = False
+        try:
+            if hub.closing:
+                await _send_error(
+                    websocket,
+                    HttpErrorCode.SHUTTING_DOWN,
+                    "server is shutting down",
+                    close_code=WS_CLOSE_GOING_AWAY,
+                )
+                return
+            cursor, invalid = _parse_cursor(websocket)
+            if invalid:
+                await _send_error(
+                    websocket,
+                    HttpErrorCode.INVALID_REQUEST,
+                    "invalid event cursor",
+                    close_code=WS_CLOSE_POLICY,
+                )
+                return
+            if hub.needs_resync(cursor):
+                await _send_error(
+                    websocket,
+                    HttpErrorCode.RESYNC_REQUIRED,
+                    "event cursor is older than the buffered window; reconnect without a cursor",
+                    close_code=WS_CLOSE_POLICY,
+                )
+                return
+            subscription = hub.open_subscription(cursor)
+            if subscription is None:
+                await _send_error(
+                    websocket,
+                    HttpErrorCode.RATE_LIMITED,
+                    "too many WebSocket connections",
+                    close_code=WS_CLOSE_POLICY,
+                )
+                return
+            hub.register_ws(connection_id, "", websocket)
+            registered = True
+            logger.info("http event=notification_ws_open connection_id=%s", connection_id)
+            await _supervise(
+                _notification_send_events(websocket, subscription),
+                _notification_handle_commands(websocket),
+            )
+            with contextlib.suppress(Exception):
+                await websocket.close()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("http event=notification_ws_failed connection_id=%s", connection_id)
+            with contextlib.suppress(Exception):
+                await _send_error(
+                    websocket,
+                    HttpErrorCode.SERVER_ERROR,
+                    "internal server error",
+                    close_code=1011,
+                )
+        finally:
+            if subscription is not None:
+                hub.remove_subscriber(subscription.queue)
+            if registered:
+                hub.unregister_ws(connection_id)
+            logger.info(
+                "http event=notification_ws_close connection_id=%s elapsed_ms=%d",
+                connection_id,
+                int((time.perf_counter() - started) * 1000),
+            )
+
+    return endpoint
+
+
 __all__ = [
     "AuthCheck",
     "RunWebSocketService",
     "WebSocketLike",
     "build_cli_ws_endpoint",
+    "build_notification_ws_endpoint",
     "build_runs_collection_endpoint",
     "build_ws_endpoint",
 ]

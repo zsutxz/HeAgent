@@ -1038,19 +1038,29 @@ def test_ws_server_does_not_import_the_http_transport_module() -> None:
 
 
 def test_ws_endpoints_and_commands_stay_closed() -> None:
-    """三条 WS 端点路径与命令集是**封闭契约**：多一条端点 = 多一个对外面，必须走 story 评审。
+    """四条 WS 端点路径与命令集是**封闭契约**：多一条端点 = 多一个对外面，必须走 story 评审。
 
     D2 的能力边界（配置 / 项目 / 会话 / 对话框只走本机 HTTP）靠这条断言兜底：WS listener 上只允许
-    ``/api/runs/ws``（提交）、``/api/runs/{run_id}/ws``（订阅）、``/api/cli/ws``（旁路）。
+    ``/api/runs/ws``（提交）、``/api/runs/{run_id}/ws``（订阅）、``/api/cli/ws``（旁路）、
+    ``/api/notifications/ws``（Epic 58 只读通知流）。命令集**不随端点增加**——通知流只放行 ``ping``。
     """
     from heagent.network.ws_protocol import WsCommand
     from heagent.network.ws_server import __all__ as ws_server_all
 
     source = (SRC / "network/ws_host.py").read_text(encoding="utf-8")
-    paths = sorted(set(re.findall(r'^(?:RUNS_WS_PATH|RUNS_SUBMIT_PATH|CLI_WS_PATH) = "([^"]+)"', source, re.M)))
-    assert paths == ["/api/cli/ws", "/api/runs/ws", "/api/runs/{run_id}/ws"]
+    paths = sorted(
+        set(
+            re.findall(
+                r'^(?:RUNS_WS_PATH|RUNS_SUBMIT_PATH|CLI_WS_PATH|NOTIFICATIONS_WS_PATH) = "([^"]+)"',
+                source,
+                re.M,
+            )
+        )
+    )
+    assert paths == ["/api/cli/ws", "/api/notifications/ws", "/api/runs/ws", "/api/runs/{run_id}/ws"]
     assert {item.value for item in WsCommand} == {"run", "cancel", "ping"}
     assert "build_runs_collection_endpoint" in ws_server_all
+    assert "build_notification_ws_endpoint" in ws_server_all
 
 
 def test_external_ws_listener_never_exposes_the_cli_bypass_surface() -> None:
@@ -1081,6 +1091,46 @@ def test_external_ws_listener_never_exposes_the_cli_bypass_surface() -> None:
     ]
     # 只读旁观（P2-A3）：提交端点在路由表里**不存在**，只留订阅。
     assert _paths(WsServerConfig(host="0.0.0.0", auth_token="s3cret", readonly=True)) == [
+        "/api/runs/{run_id}/ws",
+    ]
+
+
+def test_notification_stream_is_registered_on_every_listener_but_never_carries_the_terminal_bypass() -> None:
+    """Epic 58 D2：只读通知流三档 listener 都注册；**旁路仍然只挂本地**（D9 不被本周期放宽）。
+
+    通知流送的是「宿主自己排的 cron 的产物」，对外 listener 本身已强制 token（fail-closed）；
+    旁路旁观的是「宿主的终端」，两者暴露面不同，不能因为多了一条流就顺手把旁路也放到对外。
+    """
+    import pytest
+
+    pytest.importorskip("starlette")
+    from starlette.routing import WebSocketRoute
+
+    from heagent.network.ws_host import WsServerConfig, build_ws_app
+
+    def _paths(config: WsServerConfig, *, notification_hub: object | None = object()) -> list[str]:
+        app = build_ws_app(config, run_service=object(), cli_hub=object(), notification_hub=notification_hub)
+        return sorted(route.path for route in app.routes if isinstance(route, WebSocketRoute))
+
+    assert _paths(WsServerConfig(host="127.0.0.1")) == [
+        "/api/cli/ws",
+        "/api/notifications/ws",
+        "/api/runs/ws",
+        "/api/runs/{run_id}/ws",
+    ]
+    assert _paths(WsServerConfig(host="0.0.0.0", auth_token="s3cret")) == [
+        "/api/notifications/ws",
+        "/api/runs/ws",
+        "/api/runs/{run_id}/ws",
+    ]
+    assert _paths(WsServerConfig(host="0.0.0.0", auth_token="s3cret", readonly=True)) == [
+        "/api/notifications/ws",
+        "/api/runs/{run_id}/ws",
+    ]
+    # 中枢缺席 ⇒ 路由不注册（客户端拿 403，不是应用层 404）。
+    assert _paths(WsServerConfig(host="127.0.0.1"), notification_hub=None) == [
+        "/api/cli/ws",
+        "/api/runs/ws",
         "/api/runs/{run_id}/ws",
     ]
 

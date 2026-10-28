@@ -284,6 +284,36 @@ class RunEventPayload(BaseModel):
     usage: HttpUsage | None = None
 
 
+class NotificationKind(StrEnum):
+    """只读通知流的稳定类型名（客户端按它分派渲染；开集处理未知值）。"""
+
+    CRON_RESULT = "cron_result"
+
+
+class CronResultStatus(StrEnum):
+    """一次 cron 执行的终局（成功携带最终答案，失败携带错误首行）。"""
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class NotificationPayload(BaseModel):
+    """通知流里的一条（``WS /api/notifications/ws`` 的事件负载）。
+
+    ``seq`` 由中枢统一分配、**跨作业跨执行单调**（客户端只用它做游标）；文本字段在入缓冲前
+    由 :func:`clip_text` 截断——与 ``RunEventPayload`` 同一有界口径。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: NotificationKind
+    seq: int = Field(ge=1)
+    job_id: str = ""
+    cron: str = ""
+    status: CronResultStatus = CronResultStatus.COMPLETED
+    text: str = ""
+
+
 class RunOutcome(BaseModel):
     """入口层交回的运行结果（服务层据此写终态记录与会话投影）。
 
@@ -359,7 +389,10 @@ __all__ = [
     "HttpErrorDetail",
     "HttpErrorEnvelope",
     "HttpRunConflictError",
+    "CronResultStatus",
     "HttpUsage",
+    "NotificationKind",
+    "NotificationPayload",
     "RunEventKind",
     "RunEventPayload",
     "RunOutcome",

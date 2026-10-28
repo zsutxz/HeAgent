@@ -17,6 +17,7 @@ from heagent.network.http_protocol import (
     MAX_REQUEST_BYTES_FOR_MAX_PROMPT,
     SSE_HEARTBEAT_SECONDS,
     HttpErrorEnvelope,
+    NotificationPayload,
     RunEventPayload,
     RunStatus,
     error_envelope,
@@ -47,11 +48,12 @@ WS_CLOSE_GOING_AWAY = 1001
 
 
 class WsFrameType(StrEnum):
-    """服务端输出帧的封闭类型集合。"""
+    """服务端输出帧的封闭类型集合（Epic 58 起多了只读通知流的一档）。"""
 
     EVENT = "event"
     ACK = "ack"
     ERROR = "error"
+    NOTIFICATION = "notification"
 
 
 class WsCommand(StrEnum):
@@ -129,6 +131,19 @@ class WsCliAckFrame(BaseModel):
     type: WsFrameType = WsFrameType.ACK
     command: WsCommand
     run_id: str = ""
+
+
+class WsNotificationFrame(BaseModel):
+    """通知流帧（Epic 58）：一次 cron 执行的结果。
+
+    与 :class:`WsEventFrame` 分开而不是复用：通知不是 run 的事件（没有 ``run_id``、不能取消、
+    没有终态状态机），把它塞进 run 的事件契约会让客户端误以为能订阅/控制一条运行。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: WsFrameType = WsFrameType.NOTIFICATION
+    notification: NotificationPayload
 
 
 class WsErrorFrame(BaseModel):
@@ -218,6 +233,7 @@ __all__ = [
     "WsFrameError",
     "WsFrameErrorKind",
     "WsFrameType",
+    "WsNotificationFrame",
     "parse_command_frame",
     "error_envelope",
 ]

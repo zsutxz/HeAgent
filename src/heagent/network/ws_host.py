@@ -1,14 +1,14 @@
 """WS server 宿主（Epic 56 D1）：所有 WS 能力的唯一宿主——独立 ASGI app、独立配置、独立监听器。
 
 与 HTTP server（``http_server.py``）**完全分离**：本 app 零 HTTP 路由（控制台页 / 静态资源 /
-REST / 健康检查一律 404），HTTP app 亦不再挂任何 WS 路由。三条 WS 端点共用这一个 listener：
+REST / 健康检查一律 404），HTTP app 亦不再挂任何 WS 路由。四条 WS 端点共用这一个 listener：
 run 订阅 ``/api/runs/{run_id}/ws`` 与 CLI 旁路 ``/api/cli/ws`` 自 HTTP app 迁入（路径不变、
-端口迁移 8766 → 9001，唯一 breaking change），提交 run 的集合级端点 ``/api/runs/ws`` 是本周期
-新增（Epic 56 D2）。端点逻辑复用 ``ws_server.py`` 不重写，本模块只负责装配、监听器生命周期与
-uvicorn WS 参数。
+端口迁移 8766 → 9001，唯一 breaking change），提交 run 的集合级端点 ``/api/runs/ws`` 是 Epic 56
+新增（D2），只读通知流 ``/api/notifications/ws`` 是 Epic 58 新增（cron 结果主动投递）。
+端点逻辑复用 ``ws_server.py`` 不重写，本模块只负责装配、监听器生命周期与 uvicorn WS 参数。
 
 9001 没有健康端点可打，就绪判据改为**真实 TCP 连通**（D1 接缝事实：共享的只有注入的进程内
-状态 ``HttpRunService`` / ``CliEventHub`` 与 ``network/`` 同层协议模型）。监听模式按绑定地址切
+状态 ``HttpRunService`` / ``CliEventHub`` / ``NotificationHub`` 与 ``network/`` 同层协议模型）。监听模式按绑定地址切
 （D5）：回环 = 本地模式（Origin 防线、无认证，Epic 54/55 语义逐字保持）；非回环 = 对外模式
 （Bearer token 强制、token 缺失拒绝启动、Origin 不适用），TLS 可选（cert/key 配齐即 wss）。
 认证的纯逻辑面在 ``ws_auth.py``，本模块只负责装配与生命周期。
@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 RUNS_WS_PATH = "/api/runs/{run_id}/ws"
 RUNS_SUBMIT_PATH = "/api/runs/ws"
 CLI_WS_PATH = "/api/cli/ws"
+NOTIFICATIONS_WS_PATH = "/api/notifications/ws"
 
 # 就绪探测与关闭排空的预算（秒）。探测是进程内回环 TCP 连接，正常毫秒级返回。
 _PROBE_TIMEOUT = 5.0
@@ -147,6 +148,7 @@ def build_ws_app(
     *,
     run_service: Any | None = None,
     cli_hub: Any | None = None,
+    notification_hub: Any | None = None,
 ) -> ASGIApp:
     """构造 WS server 的 ASGI 应用：只挂 WebSocketRoute，零 HTTP 路由（D1/D2/D9）。
 
@@ -224,6 +226,22 @@ def build_ws_app(
                 ),
             )
         )
+    if notification_hub is not None:
+        # Epic 58 D2：通知流对**所有** listener 注册（含对外与 readonly）。与旁路的差别是刻意的：
+        # 旁路旁观的是「宿主的终端」，通知流送的是「宿主自己排的 cron 的产物」，而对外 listener
+        # 本身已强制 token（fail-closed）——再叠一层模式判据只会让跨网客户端拿不到它。
+        from heagent.network.ws_server import build_notification_ws_endpoint
+
+        routes.append(
+            routing.WebSocketRoute(
+                NOTIFICATIONS_WS_PATH,
+                endpoint=build_notification_ws_endpoint(
+                    notification_hub,
+                    origin_violation=_origin_violation,
+                    authorize=authorize,
+                ),
+            )
+        )
     # Starlette() 无类型标注，直返会触发 no-any-return；经类型化局部变量收敛。
     app: ASGIApp = applications.Starlette(routes=routes)
     return app
@@ -238,10 +256,12 @@ class WsServer:
         *,
         run_service: Any | None = None,
         cli_hub: Any | None = None,
+        notification_hub: Any | None = None,
     ) -> None:
         self.config = config
         self.run_service = run_service
         self.cli_hub = cli_hub
+        self.notification_hub = notification_hub
         self._app: ASGIApp | None = None
         self._server: Any = None
         # 生命周期锁 + 布尔标记：close() 等同一次收尾完成（HttpServer 既有口径）。
@@ -257,6 +277,7 @@ class WsServer:
                 self.config,
                 run_service=self.run_service,
                 cli_hub=self.cli_hub,
+                notification_hub=self.notification_hub,
             )
         return self._app
 
@@ -357,10 +378,11 @@ class WsServer:
             self._server = None
             await self._stop_listener(server)
             raise WsStartupError(f"WS server started but {self.address} is not servable")
-        if self.cli_hub is not None:
-            # close() 置上的「停止接收」标记不可逆：重新 start() 后必须重开，否则新连接一律收
-            # shutting_down——AD-5 禁止的「看着在运行、其实不可用」（同 HttpServer.start 口径）。
-            self.cli_hub.reopen()
+        for hub in (self.cli_hub, self.notification_hub):
+            if hub is not None:
+                # close() 置上的「停止接收」标记不可逆：重新 start() 后必须重开，否则新连接一律收
+                # shutting_down——AD-5 禁止的「看着在运行、其实不可用」（同 HttpServer.start 口径）。
+                hub.reopen()
 
     async def serve_forever(self) -> None:
         """阻塞式服务循环；Uvicorn 主循环退出（should_exit）或异常时返回/抛出。"""
@@ -382,10 +404,11 @@ class WsServer:
                 return
             if self.run_service is not None:
                 await self.run_service.close_websockets()
-            if self.cli_hub is not None:
-                # 先置「停止接收」（新连接立刻收 shutting_down），再关既有连接。
-                self.cli_hub.close()
-                await self.cli_hub.close_websockets(timeout=self.config.shutdown_timeout)
+            for hub in (self.cli_hub, self.notification_hub):
+                if hub is not None:
+                    # 先置「停止接收」（新连接立刻收 shutting_down），再关既有连接。
+                    hub.close()
+                    await hub.close_websockets(timeout=self.config.shutdown_timeout)
             server, self._server = self._server, None
             if server is None:
                 self._closed = True
@@ -434,6 +457,7 @@ class WsServer:
 
 __all__ = [
     "CLI_WS_PATH",
+    "NOTIFICATIONS_WS_PATH",
     "RUNS_SUBMIT_PATH",
     "RUNS_WS_PATH",
     "WsConfigError",
