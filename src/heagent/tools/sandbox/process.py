@@ -133,7 +133,7 @@ def _format_result(returncode: int | None, stdout: bytes, stderr: bytes) -> str:
 
 
 _TIMEOUT_RESULT = "exit_code=-1\nstderr: Command timed out after {timeout}s"
-_REAP_WAIT_TIMEOUT = 5.0
+_REAP_WAIT_TIMEOUT = 10.0
 
 _SENSITIVE_ENV_SUFFIXES = (
     "_API_KEY",

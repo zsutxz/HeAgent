@@ -372,10 +372,10 @@ class TestPassthroughRunner:
     @pytest.mark.asyncio
     async def test_kill_block_does_not_swallow_keyboardinterrupt(self) -> None:
         """code review patch：kill 块用 ``except Exception``（非 BaseException）——KeyboardInterrupt
-        不被吞、立即逸出（不被 5s reap wait 延迟）。
+        不被吞、立即逸出（不被 reap wait 上限延迟）。
 
         ``_kill_and_reap`` 的 kill 块若用 ``except BaseException``（buggy），``KeyboardInterrupt`` 被
-        吞后落到 ``await wait_for(..., _REAP_WAIT_TIMEOUT)`` → shutdown 信号丢失 + 延迟最多 5s。
+        吞后落到 ``await wait_for(..., _REAP_WAIT_TIMEOUT)`` → shutdown 信号丢失 + 延迟最多 ``_REAP_WAIT_TIMEOUT``。
         修复后 ``except Exception`` 仅 catch kill 权限失败（``PermissionError``/``OSError``），
         ``KeyboardInterrupt``（BaseException）立即逸出、wait 不执行。直接测 ``_kill_and_reap``。
         """
