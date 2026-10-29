@@ -230,12 +230,16 @@ AgentLoop.run(prompt)
 1. <identity>        — SOUL.md 人格（最顶层，insert(0) 插到最前）
 2. 用户 system 字符串
 3. <project-context> — 上下文文件（CONTEXT.md > AGENTS.md > CLAUDE.md）
-4. <shell-workspace> — 本 run 的 shell 沙箱工作目录（E40-D2；仅真正生效时注入）
-5. <skills>          — 自动匹配的技能
-6. <memory>          — 事实记忆
-7. <memory-nudge>    — 记忆保存提醒
-8. <profile>         — 用户画像
+4. <memory>          — 事实记忆
+5. <memory-nudge>    — 记忆保存提醒
+6. <profile>         — 用户画像
+7. <shell-workspace> — 本 run 的 shell 沙箱工作目录（E40-D2；仅真正生效时注入）
+8. <skills>          — 自动匹配的技能
 ```
+
+稳定前缀原则（2026-10-29）：1-6 是跨 run 稳定块，7-8 是 per-run（沙箱路径）/ per-prompt（技能匹配）
+易变块。自动前缀缓存（deepseek/openai 等）按字节匹配、从第一个分叉字节起失效，易变块必须整体排在
+稳定块之后，否则排在其后的 memory 等稳定内容每次新 run 都吃全价输入。
 
 #### middleware.py — 中间件管道
 
@@ -1640,11 +1644,11 @@ AgentLoop(provider, skills, facts, profile, compressor, soul, cron_store, ...).r
   │     ├── <identity>            — SOUL.md 人格
   │     ├── 用户 system 字符串
   │     ├── <project-context>     — CONTEXT.md / AGENTS.md / CLAUDE.md
-  │     ├── <shell-workspace>     — 本 run 的 shell 沙箱工作目录（真正生效时；E40-D2）
-  │     ├── <skills>              — SkillStore.match() 自动匹配 ≤ skill_max_auto_invoke 个
   │     ├── <memory>              — 事实记忆列表
   │     ├── <memory-nudge>        — 记忆保存提醒（紧随 memory）
-  │     └── <profile>             — 用户画像
+  │     ├── <profile>             — 用户画像
+  │     ├── <shell-workspace>     — 本 run 的 shell 沙箱工作目录（真正生效时；E40-D2）
+  │     └── <skills>              — SkillStore.match() 自动匹配 ≤ skill_max_auto_invoke 个
   │
   ▼ 循环开始 ─────────────────────────────
   │

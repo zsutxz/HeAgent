@@ -38,22 +38,27 @@ def build_system_prompt(
     container_workdir: str | None = None,
     settings: Settings | None = None,
 ) -> str | None:
-    """合并生成一条系统提示词（含人格 / 项目上下文 / 沙箱工作目录 / 技能 / 记忆 / 用户画像）。
+    """合并生成一条系统提示词（含人格 / 项目上下文 / 记忆 / 用户画像 / 沙箱工作目录 / 技能）。
 
     各块按以下**注入顺序**拼装（顺序即优先级呈现，影响 LLM 对提示的权重）：
 
       1. ``<identity>``    SOUL.md 人格（放在**最前**，作为基底身份）；
       2. user_system       调用方显式传入的附加系统提示词；
       3. ``<project-context>`` 项目上下文文件（受 settings.context_files_enabled 开关）；
-      4. ``<shell-workspace>`` per-run 沙箱会话目录（仅在其**真正生效**时注入；见
-                           ``sandbox_workspace``）——让模型知道 shell 命令的工作目录在哪，
-                           避免 shell 写入位置与 file 工具的相对路径假设分叉（E40-D2）；
-      5. ``<skills>``      按 prompt 相似度自动匹配的技能（命中则注入内容；未命中但
-                           存在技能时给一条引导提示）；
-      6. ``<memory>``      facts 长期记忆（受 ``memory_inject_max_bytes`` 预算：超预算保留文件
+      4. ``<memory>``      facts 长期记忆（受 ``memory_inject_max_bytes`` 预算：超预算保留文件
                            前部条目并在块尾显式标注省略条数）；若开启 memory_nudge 再追加
                            ``<memory-nudge>`` 提醒；
-      7. ``<profile>``     用户画像。
+      5. ``<profile>``     用户画像；
+      6. ``<shell-workspace>`` per-run 沙箱会话目录（仅在其**真正生效**时注入；见
+                           ``sandbox_workspace``）——让模型知道 shell 命令的工作目录在哪，
+                           避免 shell 写入位置与 file 工具的相对路径假设分叉（E40-D2）；
+      7. ``<skills>``      按 prompt 相似度自动匹配的技能（命中则注入内容；未命中但
+                           存在技能时给一条引导提示）。
+
+    **稳定前缀原则（2026-10-29）**：1-5 是跨 run 稳定的内容块，6-7 是 per-run（沙箱路径）/
+    per-prompt（技能匹配）易变块。deepseek/openai 等自动前缀缓存按字节匹配、从第一个分叉字节
+    起失效——易变块若排在稳定块之前，其后的 memory（通常最大）每次新 run 都吃全价输入；
+    故稳定块必须整体排在易变块之前（块内相对次序即优先级，勿再让易变块插队）。
 
     无任何内容时返回 None（不插入空 SYSTEM 消息）。``prompt`` 仅用于技能相似度匹配。
 
@@ -67,11 +72,11 @@ def build_system_prompt(
         _identity_block(soul),
         user_system,
         _project_context_block(context_dir, settings),
-        _shell_workspace_block(sandbox_workspace, container_workdir),
-        _skills_block(skills, prompt, settings),
         _memory_block(facts, settings),
         _memory_nudge_block(facts, settings),
         _profile_block(profile),
+        _shell_workspace_block(sandbox_workspace, container_workdir),
+        _skills_block(skills, prompt, settings),
     ]
     parts = [block for block in blocks if block]
     return "\n\n".join(parts) if parts else None
