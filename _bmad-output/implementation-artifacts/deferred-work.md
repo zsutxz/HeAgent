@@ -17,6 +17,7 @@
 | A43 | `_host_artifact_relpath` 参照系（`cli/goal.py:454-457`） | `active` | 同上 |
 | A44 | 交互 REPL 不挂事件 rollout sink | `active` | 同上 |
 | A49 | `EmbeddedHttpService.failure` 传播路径缺直接测试 | `active` | 同上 |
+| A50 | `auto_archive._append_archive` 无锁读改写（epic-59 审查发现同族缺陷） | `active` | 同上 |
 
 > 已闭合的 4 条（A45 中断语义 / A46 cause 链 / A47 reason 无上限 / A48 失败事件缺驱动字段）正文与证据
 > 在 archive 的「本轮闭合」段；Epic 52 审计语义 4 项的处置同样在 archive 的活动表（A40–A43），不再在本文件重复。

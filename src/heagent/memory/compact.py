@@ -289,12 +289,16 @@ def _append_archive_section(archive_path: Path, fact_lines: list[str]) -> None:
     """把本批被移除条目留底为归档新小节（小节 + 真实 UTC 时间戳；格式沿用 auto_archive）。
 
     「留底先行」由调用方保证：本函数先于 MEMORY.md 重写调用，写失败 ⇒ 异常向上抛 ⇒ 整批拒绝。
+    追加走 :func:`atomic_update_text`（归档自身 ``.lock`` 内读改写）：并发 compact 的留底小节
+    互相不被覆盖——留底丢失是**无声且不可检测**的数据丢失（被移除条目既不在 MEMORY.md 也不在
+    archive），比 MEMORY.md 的比较后写冲突更严重，故必须在归档文件自己的锁上串行化。
     """
-    archive_path.parent.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
-    section = f"## 批次 {stamp}（{len(fact_lines)} 条；fact_compact）\n\n" + "\n".join(fact_lines) + "\n"
-    if archive_path.exists():
-        existing = archive_path.read_text(encoding="utf-8").rstrip("\n")
-        archive_path.write_text(f"{existing}\n\n{section}", encoding="utf-8")
-    else:
-        archive_path.write_text(f"{_ARCHIVE_HEADER}\n{section}", encoding="utf-8")
+
+    def _append(current: str) -> tuple[str, bool]:
+        stamp = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        section = f"## 批次 {stamp}（{len(fact_lines)} 条；fact_compact）\n\n" + "\n".join(fact_lines) + "\n"
+        if current:
+            return f"{current.rstrip(chr(10))}\n\n{section}", True
+        return f"{_ARCHIVE_HEADER}\n{section}", True
+
+    atomic_update_text(archive_path, _append)

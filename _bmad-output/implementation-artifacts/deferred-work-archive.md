@@ -1,6 +1,6 @@
 # Deferred Work Archive
 
-> 跨周期 deferred 的唯一总账；当前活动项为 9 条（A34 / A35 / A36 / A40–A44 / A49）。
+> 跨周期 deferred 的唯一总账；当前活动项为 10 条（A34 / A35 / A36 / A40–A44 / A49 / A50）。
 > **四态语义（2026-10-26 S-6 起）**：`active`（有触发条件、未排期）／`scheduled`（已挂到 story 或 sprint）／
 > `frozen`（挂起待裁定，**必须带裁定指针**）／`retired`（显式退役，5 字段齐备）。
 > 条目正文只在本文件；`deferred-work.md` 只保留入口与索引（同一 ID 不得同时出现在两个文件）。
@@ -18,6 +18,7 @@
 | A43 | `_host_artifact_relpath` 参照系（`cli/goal.py:454-457`） | `active` | `resolve` + `relative_to` 大小写敏感（Windows 大小写漂移 → 静默 `""`），`workspace≠repo root` 时跨参照系比较。当前部署两者相等；失败方向是误判非漏判。触发条件：workspace 与 repo root 分离部署 |
 | A44 | 交互 REPL 不挂事件 rollout sink | `active` | 2026-10-26 Epic 57-4 冒烟附带发现：`JsonlSink` 唯一 subscribe 在单次模式路径（`interactive.py:182`），交互 REPL 从不订阅 ⇒ `EVENTS_ROLLOUT_ENABLED` 在交互模式不生效（audit 只剩 checkpoint/快照/租约）。触发条件：需要交互会话事件回放或审计留档；根治指向 REPL 启动路径按 settings 挂 sink（rollout 含工具原始输出，默认关闭是有意设计） |
 | A49 | `EmbeddedHttpService.failure` 传播路径缺直接测试 | `active` | 来源 Epic 56-1 triage#3（low）：双 serve 循环之一意外死亡时 `failure` 属性的传播缺直接测试。现有覆盖 = fake 单循环死亡的 lifecycle 测试（打桩层）+ 真实双 server 干净启停；真实双 listener 故障注入未落地。触发条件：下一次改 HTTP/WS 双 server 装配时一并补测 |
+| A50 | `auto_archive._append_archive` 无锁 read-modify-write（与 epic-59 修复前同款） | `active` | origin=新增。来源 Epic 59 审查（2026-10-29）：`memory/auto_archive.py` 的归档追加是无锁读改写，并发写者互相覆盖留底小节（无声丢档）。compact 侧已修（归档追加收进 `atomic_update_text` 锁内）；auto_archive 侧风险更低（启动单次 + 跨进程节流，无并发 compact 场景），但同族缺陷。最小修法同款：`_append_archive` 改走 `atomic_update_text`。触发条件：下一次改 auto_archive 时顺带修复，或出现并发归档场景 |
 
 ## 已按 Epic 归档
 

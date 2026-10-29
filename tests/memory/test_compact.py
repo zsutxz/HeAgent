@@ -139,8 +139,10 @@ class TestConcurrency:
 
         def spy(path: Path, update: object, **kwargs: object) -> bool:
             # 在 compact 预读之后、锁内写之前模拟并发 fact_add 追加。
-            with Path(path).open("a", encoding="utf-8") as handle:
-                handle.write("- 并发追加的事实\n")
+            # 只对 MEMORY.md 注入：归档追加（审查修复后同样走 atomic_update_text）不是注入目标。
+            if Path(path) == memory_path:
+                with memory_path.open("a", encoding="utf-8") as handle:
+                    handle.write("- 并发追加的事实\n")
             return real_update(path, update, **kwargs)  # type: ignore[arg-type]
 
         monkeypatch.setattr(compact_mod, "atomic_update_text", spy)
@@ -434,3 +436,31 @@ class TestFactStoreDrain:
         stats = store.compact([CompactMerge(sources=["aaa bbb ccc"], target="user prefers dark mode always")])
         assert stats.applied_merges == 0
         assert store.drain_compactions() == []
+
+
+class TestArchiveSerialization:
+    """审查 HIGH 修复的回归判据：归档追加必须经 atomic_update_text 锁内串行化。"""
+
+    def test_archive_append_goes_through_lock(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """无锁 read-modify-write 会让并发 compact 互相覆盖留底小节（无声数据丢失）。
+
+        本用例钉机制而非竞态：归档路径必须经 :func:`atomic_update_text`（归档自身 .lock），
+        与 MEMORY.md 的比较后写共用同一锁原语族。
+        """
+        memory_path = tmp_path / "memory" / "MEMORY.md"
+        _create_memory_file(memory_path, ["aaa bbb ccc"])
+        locked_paths: list[Path] = []
+
+        real_update = compact_mod.atomic_update_text
+
+        def spy(path: Path, update: object, **kwargs: object) -> bool:
+            locked_paths.append(Path(path))
+            return real_update(path, update, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(compact_mod, "atomic_update_text", spy)
+
+        compact_facts(memory_path, [CompactMerge(sources=["aaa bbb ccc"], target="merged entry text here")])
+
+        archive_path = memory_path.parent / "archive" / "MEMORY-archive.md"
+        assert archive_path in locked_paths, "归档追加必须经 atomic_update_text（锁内串行化）"
+        assert "merged entry text here" in memory_path.read_text(encoding="utf-8")

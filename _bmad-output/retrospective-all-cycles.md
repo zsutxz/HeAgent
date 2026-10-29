@@ -231,7 +231,7 @@
 
 > **权威来源**：活动（未闭合）条目 = `_bmad-output/implementation-artifacts/deferred-work-archive.md`；Epic/Story 状态 = `_bmad-output/sprint-status.yaml`；安全缺口 = `docs/frame.md` 五。逐条证据与「已闭环却仍被列为待办」的修正表见 `consolidated-overview.md` §17.4。
 
-### 5.1 活动台账未闭合（9 条——2026-10-26 S-6 归一，**索引**）
+### 5.1 活动台账未闭合（10 条——2026-10-26 S-6 归一，**索引**）
 
 > **2026-09-28 复核**：活动区实测 **2 条**（此前写的 23 条为历史值——其间 21 条条目闭合 / 按归属归档并移出活动区，计数长期未同步；同日第五轮校正为 7、第六轮按产品裁定闭合 A8 / A10 / A12 / A15 / A16 五条、第七轮交付 A1④、第八轮按裁定闭合 A1、第九轮按裁定归档 A6 ⇒ **0 条**，活动台账**首次清空**）；**2026-10-07**：Story 51-8 清理轮按纪律补录 4 条（**A25**~**A28**），同日全项目 /simplify 轮再补录 5 条（**A29**~**A33**，14 项跳过发现按主题归并）⇒ 当前 **9 条**；**2026-10-20**：0e8a330 落账 **A34**–**A36**（会话并发写残余 / HTTP 持久化 / 全局签名入口）⇒ 现行 **3 条**；**2026-10-23**：本轮改进落账 **A37**–**A39**（reason 长度上限 / 事件与 checkpoint 的转换原因 / KI·SystemExit 取消语义，判据 `tests/test_workflow_runner.py`）（同日**已实施并闭合**，正文按归属归档 Epic 51 `epics/epic-51-goal-workflow优化周期/deferred-work.md`）⇒ 现行 **3 条**；**2026-10-26**：S-6 四态归一（active / scheduled / frozen / retired），把 Epic 52 review 的 4 项与 Epic 56-1 的 1 项纳入活动表（A40–A44），并闭合 A45–A48，现行 **9 条**。编号口径（本系列编号与台账编号不同义的两处）见 `consolidated-overview.md` §17.4-A。
 
