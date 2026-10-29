@@ -215,15 +215,18 @@ def _memory_block(facts: FactStore | None, settings: Settings | None = None) -> 
     预算只计被注入的条目（`- {fact}` 序列化后的字节，含换行），省略标注本身不计入。
 
     标注是**陈述事实**、不是对模型的指令：`.heagent/memory/` 属内部状态，文件工具读拒
-    （``path_safety.check_read_denied``），`fact_add` 亦只增不减——**模型无法自行整理该文件**；
+    （``path_safety.check_read_denied``），`fact_add` 亦只增不减——**模型无法用文件工具整理该文件**；
     故标注只说明「需由用户整理」，以免诱导模型盲写整份文件（那会抹掉未注入的尾部条目）。
+    例外（epic-59）：`memory_compact_enabled=True` 时 `fact_compact` 可合并语义重复条目
+    （批量精确改写，不盲写整份），此时标注指向该机制与 dream 离线压缩。
     """
     if not facts:
         return None
     facts_list = facts.load()
     if not facts_list:
         return None
-    budget = (settings or get_settings()).memory_inject_max_bytes
+    effective_settings = settings or get_settings()
+    budget = effective_settings.memory_inject_max_bytes
     kept, omitted = _fit_facts(facts_list, budget)
     items = "\n".join(f"- {fact}" for fact in kept)
     if omitted:
@@ -233,9 +236,16 @@ def _memory_block(facts: FactStore | None, settings: Settings | None = None) -> 
             len(facts_list),
             budget,
         )
+        # 口径随开关条件化（FR7）：关闭时维持「需由用户整理」（不诱导模型去调一个会显性报错的工具）；
+        # 开启时指向 fact_compact / dream 压缩机制。两态都不给「盲写整份文件」的暗示。
+        remediation = (
+            "可由 fact_compact 工具合并语义重复/过时条目（或等 dream 离线巩固自动压缩）以释放预算"
+            if effective_settings.memory_compact_enabled
+            else "该文件不对工具开放，需由用户整理以释放预算"
+        )
         note = (
             f"- （另有 {omitted} 条较新记忆未注入：MEMORY.md 共 {len(facts_list)} 条，本次注入 {len(kept)} 条；"
-            f"MEMORY_INJECT_MAX_BYTES={budget}。该文件不对工具开放，需由用户整理以释放预算）"
+            f"MEMORY_INJECT_MAX_BYTES={budget}。{remediation}）"
         )
         # 保留为空时不留空的事实行（否则块内会出现连续空行）。
         items = f"{items}\n{note}" if items else note

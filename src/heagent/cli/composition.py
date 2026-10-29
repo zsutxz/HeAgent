@@ -258,6 +258,7 @@ def _build_dream_scheduler(
     if not settings.dream_enabled:
         return None
     from heagent.agent.sub import SubAgent  # noqa: PLC0415
+    from heagent.memory.compact import aggregate_compactions  # noqa: PLC0415
     from heagent.memory.dream import DreamResult, DreamScheduler  # noqa: PLC0415
     from heagent.pub.roles import get_role  # noqa: PLC0415
 
@@ -278,12 +279,17 @@ def _build_dream_scheduler(
             max_iterations=max_iterations,
             announcer=SUBAGENT_ANNOUNCER,
         )
+        # compact 统计的窗口归属（epic-59 D8）：run 前 drain 丢弃 dream 外的旧账
+        # （未归属的统计随该次 run 的工具返回文本可见，不重复计），run 后 drain 即本次窗口。
+        facts.drain_compactions()
         result = await agent.run(prompt)
+        compact = aggregate_compactions(facts.drain_compactions())
         return DreamResult(
             success=result.success,
             iterations=result.iterations,
             output=result.output,
             run_id=result.run_id,
+            compact=compact,
         )
 
     return DreamScheduler(

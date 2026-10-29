@@ -10,6 +10,7 @@ LLM 可经 ``fact_add`` 内置工具（``tools/builtins/memory.py``）写入。
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -45,6 +46,10 @@ class FactStore:
 
     def __init__(self, path: str = ".heagent/memory/MEMORY.md") -> None:
         self._path = Path(path)
+        #: 压缩统计累积（供 dream 闭包做窗口归属：run 前 drain 丢旧账，run 后 drain 即本次窗口）。
+        #: compact 在 to_thread 里执行、drain 在事件循环侧，故配锁。
+        self._compactions: list[CompactStats] = []
+        self._compactions_lock = threading.Lock()
 
     def add(self, fact: str) -> bool:
         """添加一条事实。
@@ -83,7 +88,19 @@ class FactStore:
         实现住 :mod:`heagent.memory.compact`（与 auto_archive 同款的自包含维护模块，本类保持薄）；
         开关（``memory_compact_enabled``）属工具层 fail-closed 职责，不在本方法内判定。
         """
-        return compact_facts(self._path, merges)
+        stats = compact_facts(self._path, merges)
+        if stats.applied_merges > 0:
+            # 只记录真实发生的压缩（无操作=全被拒不进窗口统计：拒绝原因已在工具返回文本里，
+            # 进 dream_end 会变成「removed=0 但携带 compact 键」的假信号）。
+            with self._compactions_lock:
+                self._compactions.append(stats)
+        return stats
+
+    def drain_compactions(self) -> list[CompactStats]:
+        """取走并清空累积的压缩统计（dream 闭包做窗口归属用；语义见 ``__init__`` 注记）。"""
+        with self._compactions_lock:
+            drained, self._compactions = self._compactions, []
+        return drained
 
     @classmethod
     def _append_fact(cls, raw: str, fact: str) -> tuple[str, bool]:

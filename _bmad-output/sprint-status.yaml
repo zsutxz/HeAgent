@@ -614,9 +614,9 @@ development_status:
   # 新工具 fact_compact（tools/builtins/，留底先行 + atomic_update_text compare-after-read +
   # memory_compact_enabled 默认 False 工具层 fail-closed）；dreamer 白名单最小扩展；
   # system prompt 超预算口径同步（D1–D8 冻结决策见 epic 目录 epics.md）。
-  epic-59: in-progress  # 2026-10-29 立项即开工：story 已拆落盘（epic-59-MEMORY语义压缩周期/epics.md）；59-1 交付待评审
+  epic-59: in-progress  # 2026-10-29 立项即开工：59-1/59-2 同日交付待评审，retro 待评审后
   59-1-fact-compact-tool: review  # 2026-10-29：memory/compact.py 写侧唯一入口（留底先行 + compare-after-read + AC5 顺序化判重）+ 工具层 fail-closed；42 新测全绿，全量 4188 passed
-  59-2-dream-compact-wiring: backlog
+  59-2-dream-compact-wiring: review  # 2026-10-29：dream prompt 指令段 + 白名单 + drain 窗口归属 → dream_end compact 统计 + system_prompt 条件化标注；全量 4199 passed
   epic-59-retrospective: optional
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"

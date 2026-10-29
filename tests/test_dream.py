@@ -263,6 +263,7 @@ def test_ac4_dreamer_role_allowlist_blocks_dangerous_tools() -> None:
 
     # 白名单内容校验
     assert "fact_add" in policy.allowed_tools
+    assert "fact_compact" in policy.allowed_tools, "epic-59：白名单最小扩展只加 fact_compact"
     assert "web_fetch" in policy.allowed_tools
     # 黑名单内容校验
     assert "shell" in policy.blocked_tools
@@ -276,7 +277,7 @@ def test_ac4_dreamer_role_allowlist_blocks_dangerous_tools() -> None:
         assert not verdict.allowed, f"{blocked_name!r} should be BLOCKED by dreamer policy"
 
     # 放行的工具（在白名单、不在黑名单 → DIRECT）
-    for allowed_name in ("fact_add", "web_fetch", "skill_create", "skill_curate"):
+    for allowed_name in ("fact_add", "fact_compact", "web_fetch", "skill_create", "skill_curate"):
         call = ToolCall(id="x", name=allowed_name, arguments={})
         verdict = policy.evaluate_tool_call(call)
         assert verdict.allowed, f"{allowed_name!r} should be ALLOWED by dreamer policy"
@@ -613,3 +614,124 @@ async def test_session_preload_runs_off_the_event_loop(tmp_path) -> None:  # noq
 
     assert store.threads, "预注入至少读一次会话索引"
     assert all(thread != loop_thread for thread in store.threads), store.threads
+
+
+# ── epic-59 59-2：语义压缩接线 ───────────────────────────────────────────────
+
+
+def _scheduler_with(settings: Settings, runner: Callable[[str], Awaitable[DreamResult]]) -> DreamScheduler:
+    return DreamScheduler(runner, engine=EngineContainer(), settings=settings)
+
+
+async def test_compact_directive_absent_when_switch_off() -> None:
+    """59-2 AC1：开关关闭（默认）⇒ dream prompt 不含压缩指令段，行为与现状一致。"""
+    settings = Settings(_env_file=None, dream_enabled=True, dream_idle_minutes=0)
+    scheduler = _scheduler_with(settings, _make_runner(_DoneProvider()))
+    assert "memory-compaction" not in scheduler._build_dream_prompt()
+    assert "fact_compact" not in scheduler._build_dream_prompt()
+
+
+async def test_compact_directive_present_when_switch_on() -> None:
+    """59-2 AC2：开关开启 ⇒ dream prompt 含压缩指令段（工具用法 + 「不确定不改」）。"""
+    settings = Settings(_env_file=None, dream_enabled=True, dream_idle_minutes=0, memory_compact_enabled=True)
+    scheduler = _scheduler_with(settings, _make_runner(_DoneProvider()))
+    prompt = scheduler._build_dream_prompt()
+    assert "<memory-compaction>" in prompt
+    assert "fact_compact" in prompt
+    assert "不确定就不改" in prompt
+
+
+async def test_dream_end_details_carry_compact_stats() -> None:
+    """59-2 AC3/D8：dream_end details 携带 compact 统计（不新增事件类型）。"""
+
+    from heagent.memory.compact import CompactStats
+
+    async def _runner(prompt: str) -> DreamResult:
+        return DreamResult(
+            success=True,
+            compact=CompactStats(
+                applied_merges=1,
+                removed=2,
+                added=1,
+                facts_before=10,
+                facts_after=9,
+                bytes_freed=123,
+                archive_path="archive/MEMORY-archive.md",
+            ),
+        )
+
+    settings = Settings(_env_file=None, dream_enabled=True, dream_cron="* * * * *", dream_idle_minutes=0)
+    engine = EngineContainer()
+    scheduler = DreamScheduler(_runner, engine=engine, settings=settings)
+    await scheduler._check_and_dream()
+
+    end = [e for e in _dream_events(engine) if e.event_type == "dream_end"]
+    assert end and end[-1].details.get("compact") is not None
+    compact = end[-1].details["compact"]
+    assert compact["removed"] == 2
+    assert compact["bytes_freed"] == 123
+    assert compact["archive_path"] == "archive/MEMORY-archive.md"
+
+
+async def test_dream_end_has_no_compact_key_when_none() -> None:
+    """未发生压缩（compact=None）⇒ dream_end details 不携带 compact 键（事件形态与现状一致）。"""
+
+    async def _runner(prompt: str) -> DreamResult:
+        return DreamResult(success=True)
+
+    settings = Settings(_env_file=None, dream_enabled=True, dream_cron="* * * * *", dream_idle_minutes=0)
+    engine = EngineContainer()
+    scheduler = DreamScheduler(_runner, engine=engine, settings=settings)
+    await scheduler._check_and_dream()
+
+    end = [e for e in _dream_events(engine) if e.event_type == "dream_end"]
+    assert end and "compact" not in end[-1].details
+
+
+async def test_compact_tool_error_is_fail_soft_for_dream(tmp_path) -> None:  # noqa: ANN001
+    """59-2 AC5：compact 报错（开关关）不拖垮 dream——错误走工具返回通道，dream_end 照常收尾。
+
+    dreamer 第一轮调 fact_compact（开关默认关 ⇒ 显性错误字符串）、第二轮收尾；
+    dream 侧无特殊分支，工具错误不产生异常路径。
+    """
+
+    class _CompactCallProvider:
+        """Round 1: emit a fact_compact call. Round 2: finish with text."""
+
+        def __init__(self) -> None:
+            self._round = 0
+
+        async def send(self, messages: list[Message], *, tools=None) -> ProviderResponse:  # noqa: ANN001
+            self._round += 1
+            if self._round == 1:
+                return ProviderResponse(
+                    content="",
+                    tool_calls=[ToolCall(id="call_1", name="fact_compact", arguments={"merges": []})],
+                    usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                    model="stub",
+                    finish_reason="tool_calls",
+                )
+            return ProviderResponse(
+                content="done",
+                usage=TokenUsage(prompt_tokens=1, completion_tokens=1, total_tokens=2),
+                model="stub",
+                finish_reason="stop",
+            )
+
+        async def stream(self, messages: list[Message], *, tools=None) -> AsyncIterator[ProviderResponse]:  # noqa: ANN001
+            yield await self.send(messages, tools=tools)
+
+        def get_metadata(self) -> ProviderMetadata:
+            return ProviderMetadata(name="stub", model="stub")
+
+    facts = FactStore(path=str(tmp_path / "facts.md"))  # 开关默认关 ⇒ fact_compact 调用即错误字符串
+    runner = _make_runner(_CompactCallProvider(), facts=facts)
+    settings = Settings(_env_file=None, dream_enabled=True, dream_cron="* * * * *", dream_idle_minutes=0)
+    engine = EngineContainer()
+    scheduler = DreamScheduler(runner, engine=engine, settings=settings)
+    await scheduler._check_and_dream()
+
+    end = [e for e in _dream_events(engine) if e.event_type == "dream_end"]
+    assert end, "compact 工具错误不得中断 dream（dream_end 照常发布）"
+    assert end[-1].details.get("success") is True
+    assert "compact" not in end[-1].details

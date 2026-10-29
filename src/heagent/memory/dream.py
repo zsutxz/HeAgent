@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     from heagent.context.session import SessionStore
     from heagent.engine.container import EngineContainer
     from heagent.engine.observability import EngineEvent
+    from heagent.memory.compact import CompactStats
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,17 @@ logger = logging.getLogger(__name__)
 _SESSION_MSG_CHAR_CAP: int = 800
 # 预注入 prompt 中单条 session 摘要的消息条数上限，避免单 session 占满预算。
 _SESSION_MSG_COUNT_CAP: int = 20
+
+# 语义压缩指令段（仅 memory_compact_enabled=True 时拼进 dream prompt；AC2）。
+# 写侧准则的完整版在 fact_compact 的 description 里（唯一触达模型的闸门），此处只给行为指令。
+_COMPACTION_DIRECTIVE = (
+    "<memory-compaction>\n"
+    "长期记忆（MEMORY.md）可能积累语义重复/过时的条目。请评估既有条目并用 fact_compact 工具合并：\n"
+    '- 每条 merge 传 {"sources": [与现有条目逐字一致的原文, ...], "target": 合并后的单条新条目}；\n'
+    "- source 必须逐字精确且唯一；target 会追加到文件尾部，请写成自含上下文的独立条目。\n"
+    "只合并有把握语义重复或过时的条目——不确定就不改（宁重复勿误删）。被移除条目会自动留底归档。\n"
+    "</memory-compaction>"
+)
 
 
 def _retrieve_task_exception(task: asyncio.Task[None]) -> None:
@@ -81,6 +93,9 @@ class DreamResult:
     iterations: int = 0
     output: str = ""
     run_id: str = ""
+    #: 本次 dream 窗口内的 MEMORY.md 压缩统计（由 dream_runner 闭包从 FactStore drain 聚合；
+    #: ``None`` = 未发生压缩或未开启 ``memory_compact_enabled``，dream_end 不携带 compact 键）。
+    compact: CompactStats | None = None
 
 
 # DreamRunner: agent 层注入的 dream 执行协议（prompt → DreamResult）。
@@ -263,11 +278,16 @@ class DreamScheduler:
             # 预注入会列全部 session 并整份读近来 N 个（同步 I/O，随会话数线性）⇒ 卸载到线程池。
             prompt = await asyncio.to_thread(self._build_dream_prompt)
             result = await self._dream_runner(prompt)
+            extra: dict[str, object] = {}
+            if result.compact is not None:
+                # D8：复用 dream 既有事件通道，compact 统计随 dream_end details 发布（FR6）。
+                extra["compact"] = result.compact.model_dump(mode="json")
             self._publish_dream_end(
                 trigger,
                 success=result.success,
                 iterations=result.iterations,
                 run_id=result.run_id,
+                **extra,
             )
             logger.info(
                 "Dream ended (trigger=%s, success=%s, iterations=%d)",
@@ -303,6 +323,7 @@ class DreamScheduler:
 
         dreamer 不持 ``file_read``（最小权限），故 session 历史由本调度器预加载、截断、
         拼进 prompt。session 读取失败不阻断 dream（记日志后继续，仅缺少 session 材料）。
+        语义压缩指令段仅 ``memory_compact_enabled=True`` 时拼入（AC1：关闭时与现状一致）。
         """
         header = (
             "开始离线记忆巩固。以下是近期会话历史摘要（已截断），请据此执行巩固任务。"
@@ -314,6 +335,8 @@ class DreamScheduler:
             parts.append(f"<recent-sessions>\n{session_block}\n</recent-sessions>")
         else:
             parts.append("<recent-sessions>\n（无可用近期会话历史或读取失败。）\n</recent-sessions>")
+        if self._settings.memory_compact_enabled:
+            parts.append(_COMPACTION_DIRECTIVE)
         return "\n\n".join(parts)
 
     def _load_recent_sessions(self) -> str:

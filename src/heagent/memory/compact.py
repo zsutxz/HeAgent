@@ -101,6 +101,28 @@ class CompactStats(BaseModel):
     rejected: list[CompactRejection] = Field(default_factory=list)
 
 
+def aggregate_compactions(stats: Sequence[CompactStats]) -> CompactStats | None:
+    """把一个时间窗口内的多次压缩统计聚合成单份（dream_end 事件用；D8）。
+
+    计数类字段（applied_merges/removed/added/bytes_freed）求和；``facts_before`` 取首份、
+    ``facts_after`` 取末份（窗口首尾口径）；``archive_path`` 取最后一个非空留底位置；
+    ``rejected`` 按序拼接。空窗口返回 ``None``（事件侧不携带 compact 键）。
+    """
+    if not stats:
+        return None
+    first, last = stats[0], stats[-1]
+    return CompactStats(
+        applied_merges=sum(s.applied_merges for s in stats),
+        removed=sum(s.removed for s in stats),
+        added=sum(s.added for s in stats),
+        facts_before=first.facts_before,
+        facts_after=last.facts_after,
+        bytes_freed=sum(s.bytes_freed for s in stats),
+        archive_path=next((s.archive_path for s in reversed(stats) if s.archive_path), ""),
+        rejected=[r for s in stats for r in s.rejected],
+    )
+
+
 def compact_facts(memory_path: Path | str, merges: Sequence[CompactMerge]) -> CompactStats:
     """按「合并计划」语义压缩 MEMORY.md：留底先行 + 锁内比较后写。
 

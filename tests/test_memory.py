@@ -555,6 +555,16 @@ class TestMemoryInjectionBudget:
         assert one_byte_short is not None
         assert "fact-000" in one_byte_short and "fact-001" not in one_byte_short
 
+    def test_over_budget_note_points_to_compact_when_switch_on(self, tmp_path: Path) -> None:
+        """epic-59 FR7：``memory_compact_enabled=True`` 时超预算标注指向 fact_compact/dream 压缩机制。"""
+        store = _facts_file(tmp_path, 20)
+
+        block = _memory_block(store, Settings(memory_inject_max_bytes=500, memory_compact_enabled=True))
+
+        assert block is not None
+        assert "fact_compact" in block
+        assert "需由用户整理" not in block
+
     def test_budget_counts_bytes_not_characters(self, tmp_path: Path) -> None:
         """CJK 事实按**字节**计预算：``中``×10 的一条是 33 字节（字符只有 13 个）。"""
         path = tmp_path / "MEMORY.md"

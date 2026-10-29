@@ -20,9 +20,13 @@ import pytest  # noqa: TC002 - pytest.raises 是运行期用法
 import heagent.memory.compact as compact_mod
 from heagent.memory.compact import (
     CompactMerge,
+    CompactRejection,
+    CompactStats,
     FactCompactConflictError,
+    aggregate_compactions,
     compact_facts,
 )
+from heagent.memory.facts import FactStore
 
 _HEADING = "条；fact_compact）"
 
@@ -352,3 +356,81 @@ class TestEncoding:
 
         with pytest.raises(ValueError, match="ghost entry"):
             compact_facts(memory_path, [CompactMerge(sources=["ghost entry"], target="merged entry text here")])
+
+
+class TestAggregate:
+    """窗口聚合（59-2 dream_end 统计的源头）：计数求和、首尾口径、rejected 拼接、空窗口 None。"""
+
+    def test_empty_window_returns_none(self) -> None:
+        assert aggregate_compactions([]) is None
+
+    def test_single_stats_passes_through_semantics(self) -> None:
+        stats = CompactStats(
+            applied_merges=1,
+            removed=2,
+            added=1,
+            facts_before=10,
+            facts_after=9,
+            bytes_freed=50,
+            archive_path="a.md",
+        )
+        agg = aggregate_compactions([stats])
+        assert agg is not None
+        assert (agg.applied_merges, agg.removed, agg.added) == (1, 2, 1)
+        assert (agg.facts_before, agg.facts_after) == (10, 9)
+        assert agg.archive_path == "a.md"
+
+    def test_multi_window_first_before_last_after_sums_and_rejected_concat(self) -> None:
+        first = CompactStats(
+            applied_merges=1,
+            removed=2,
+            added=1,
+            facts_before=10,
+            facts_after=9,
+            bytes_freed=30,
+            archive_path="a.md",
+            rejected=[CompactRejection(sources=["s1"], target="t1", reason="dup")],
+        )
+        last = CompactStats(
+            applied_merges=2,
+            removed=3,
+            added=2,
+            facts_before=9,
+            facts_after=8,
+            bytes_freed=-5,
+            archive_path="",
+        )
+        agg = aggregate_compactions([first, last])
+        assert agg is not None
+        assert (agg.applied_merges, agg.removed, agg.added) == (3, 5, 3)
+        assert (agg.facts_before, agg.facts_after) == (10, 8)  # 首/尾口径
+        assert agg.bytes_freed == 25  # 可为负的净变化如实求和
+        assert agg.archive_path == "a.md"  # 取最后一个非空留底位置
+        assert [r.target for r in agg.rejected] == ["t1"]
+
+
+class TestFactStoreDrain:
+    """FactStore 实例级累积 + drain（dream 闭包窗口归属的存储侧判据）。"""
+
+    def test_compact_accumulates_and_drain_clears(self, tmp_path: Path) -> None:
+        store = FactStore(path=str(tmp_path / "memory" / "MEMORY.md"))
+        store.add("aaa bbb ccc")
+        store.add("ddd eee fff")
+
+        stats = store.compact([CompactMerge(sources=["aaa bbb ccc"], target="merged entry text here")])
+        assert stats.applied_merges == 1
+
+        drained = store.drain_compactions()
+        assert len(drained) == 1
+        assert drained[0].applied_merges == 1
+        assert store.drain_compactions() == []  # drain 即清空
+
+    def test_rejected_only_compact_not_recorded(self, tmp_path: Path) -> None:
+        """全部被判重拒绝的「无操作」压缩不留统计（未发生移除，进窗口统计会是假信号）。"""
+        store = FactStore(path=str(tmp_path / "memory" / "MEMORY.md"))
+        store.add("aaa bbb ccc")
+        store.add("user prefers dark mode")
+
+        stats = store.compact([CompactMerge(sources=["aaa bbb ccc"], target="user prefers dark mode always")])
+        assert stats.applied_merges == 0
+        assert store.drain_compactions() == []

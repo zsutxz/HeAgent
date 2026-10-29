@@ -10,7 +10,7 @@ inputDocuments:
 # Epic 59：MEMORY.md 语义压缩周期（dream 侧整理）
 
 - 创建：2026-10-29
-- 状态：planned（story 已拆，未实现；用户批准后 story 转 ready-for-dev）
+- 状态：delivered（59-1/59-2 同日实现落库待评审：fb3475d + 84452a6 + 59-2 提交；全量 4199 passed）
 - 基线 commit：bf81b1d
 - 来源：
   - 会话分析（2026-10-29）：MEMORY.md 现状链路——`fact_add` 只增不减、注入超预算省略**尾部最新**条目、
