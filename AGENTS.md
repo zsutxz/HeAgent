@@ -4,27 +4,19 @@
 
 ## ⚠️ 安全声明
 
-HeAgent 执行 shell / 读写文件 / 调外部 API，并可连接**外部 MCP server**。`SafetyGuard`、`PolicyEngine`、`ToolExecutor` 和 sandbox 后端**均非真正安全边界**（命令黑名单可绕过、工具返回内容无围栏进入上下文、prompt injection 无隔离）。
+> **派生副本，真源 = [`docs/frame.md`](docs/frame.md) 的「安全口径（canonical）」（§4.19）。** 要素条目与真源
+> 一一对应、不增不删；两者不一致时以真源为准。本段不承载独立论证，不得在此扩写要素正文。
 
-**不可在不可信内容或不可信 LLM 输出下裸跑**——必须配 OS 级沙箱（容器/firejail；容器档 Docker 后端已于 2026-10-21 落地，`--sandbox docker` 显式启用，**默认链路未启用**）。修改安全相关代码时勿将其当作有效边界。
+HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP server**；工具返回内容直接进入模型上下文。
 
-MCP 特定风险：stdio server 拉起任意本地子进程、HTTP server 连任意远程端点、`Tool.annotations` 是 server 自声明不可信、工具输出启发式围栏不阻断——须 OS 级沙箱兜底（container 档 Docker 后端不覆盖 MCP stdio——进容器挂 epic-53 期二 D53-1）。
+1. **三层非边界**：`SafetyGuard` / `PolicyEngine` / sandbox 后端均非真正安全边界。
+2. **OS 级沙箱兜底**：容器档 Docker 后端默认未启用、启用也非绝对边界；MCP stdio 不经沙箱属已知缺口（挂 epic-53 期二 D53-1）。
+3. **本地模式**（listener 绑回环，默认）：HTTP 与 WS 均无认证、无 TLS；回环绑定不等于可信；`Origin` / `Host` 校验只是入口层 defense-in-depth。
+4. **对外模式**（WS listener 绑非回环，Epic 56 D5）：强制 `Authorization: Bearer <token>`（token 只读用户级 `~/.heagent/setting.md`，项目 `.env` 无效），缺 token 拒绝启动（fail-closed）；认证不是绝对边界；浏览器 WebSocket API 无法自定义请求头。
+5. **端点可见性**：HTTP listener 没有对外模式；终端旁路 `/api/cli/ws` 只挂本地 listener（`WS_EXTERNAL_HOST` 非空时的**双监听并存**下，对外 listener 恒不注册）；只读通知流 `/api/notifications/ws` 随 listener 注册，对外 listener 上同样可见（token 之后）。
+6. **已知缺口与台账**：清单落 `_bmad-output/implementation-artifacts/deferred-work-archive.md`，本节不复述。
 
-**网络入口分两档，别混着说**（Epic 49 HTTP / Epic 54–56 WS）：
-
-- **本地模式**（listener 绑回环，默认）：HTTP+SSE（8766）与 WS（9001）**都无认证、无 TLS**；回环绑定不是信任依据，
-  回环客户端同样不可信，Origin/Host 校验只是入口层 defense-in-depth。
-- **对外模式**（WS listener 绑非回环，Epic 56 D5）：**强制** `Authorization: Bearer <token>`（token 只读用户级
-  `~/.heagent/setting.md`，项目 `.env` 无效），缺 token **拒绝启动**（fail-closed），Origin 防线不适用；TLS 可选
-  （`WS_TLS_CERT_FILE`/`WS_TLS_KEY_FILE` 配齐即 wss，不配则启动告警）。认证**不是绝对边界**（token 可泄露、
-  明文可被中间人观察）。HTTP listener **没有**对外模式——它始终按本地模式的口径对待，不要把它绑到公网。
-- **双监听并存**（Epic 56 期二 D8–D14，`WS_EXTERNAL_HOST` 非空时）：主 listener 保持本地模式（免 token），
-  再加一条**恒为对外模式**的 listener（默认 `9002`，token 强制、可独立配 TLS）。两条 listener 共享同一运行状态机
-  （订阅额度按 run 计 ⇒ 天然共享；提交席位与认证限速各一份）。**端点可见性不同**：终端旁路 `/api/cli/ws`
-  **只**挂本地 listener，任何对外 listener 都不注册（终端事件可能含文件内容，token 只降低风险不消除风险）；
-  期一允许的「单对外 listener + 旁路开」起改为跳过旁路并告警。
-- **对外能提交 run ⇒ 容器沙箱档（`--sandbox docker`）从建议升级为强烈建议**：一次 run 会真的执行 `shell`。
-  浏览器 WebSocket API 无法自定义请求头 ⇒ 对外模式面向 IDE 插件 / 桌面客户端，不面向浏览器页面。
+落点提示：端口 / provider / 认证 / TLS 键等机制细节见 `docs/frame.md` 4.17 与 4.17.1；对外能提交 run 时**强烈建议**启用容器沙箱档（`--sandbox docker`）。
 
 ## 文档布局
 
@@ -162,6 +154,6 @@ heagent http-server                # HTTP 网页入口（127.0.0.1:8766）+ WS �
 
 完整清单见 `docs/frame.md` 五与 `_bmad-output/implementation-artifacts/deferred-work-archive.md`。
 
-核心立场：`SafetyGuard`/`PolicyEngine`/sandbox 均非真正安全边界，须 OS 级沙箱兜底（shell 路径的兜底实施项 = container 档 Docker 后端，Epic 53 期一，默认未启用、非绝对边界；MCP stdio 未覆盖）。WS 与 HTTP/SSE 同属入口面：**本地模式**同样无认证、无 TLS，回环不等于可信，WS 的 Origin 校验只是入口层 defense-in-depth；**对外模式**（WS 绑非回环）强制静态 token 且缺 token 拒绝启动，但认证不是绝对边界——两种模式都不改变 OS 沙箱兜底立场，对外能提交 run 时容器沙箱档强烈建议。
+核心立场：三层非边界 / OS 级沙箱兜底 / 本地与对外两种入口模式 / 端点可见性的口径见 [`docs/frame.md`](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本段不重复论证。
 
 活动缺口：MCP stdio server 子进程不经沙箱（中-高）；会话文件并发写主害已由 `save(base=...)` 保守合并闭合（2026-09-27，Z-D21），残余登记 A34 挂起待裁定（低）；技能资源 TOCTOU 残余竞态已专项评估（2026-10-20）：窗口收窄至组件级（POSIX 逐组件 openat）/与硬化前同宽（Windows 回退通道），全部窗口不跨越可提升信任域（能赢竞态者无需竞态即可直写技能根或经 shell 直读凭证），裁定不另立收窄周期，维持 OS 沙箱兜底立场——正文见总账「跨周期勘察与裁定索引」。

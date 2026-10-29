@@ -13,8 +13,7 @@
 - 默认后端 = `PassthroughRunner`：直接 `create_subprocess`，**零隔离**。
 - 要真隔离必须换后端：`firejail`（本机 namespace，Linux/macOS）或 `docker`（每命令一次性容器）。
 - **所有后端都只覆盖 `shell` 路径**——文件工具、HTTP 工具、MCP 子进程都不在其中。
-- 沙箱是 OS 级兜底，**不是安全边界**：`SafetyGuard`、`PolicyEngine`、`path_safety`、
-  `firejail`、`DockerRunner` 全部可被绕过或存在逃逸面（宿主内核 / Docker daemon）。
+- 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见同目录 [`frame.md`](frame.md) 的「安全口径（canonical）」（§4.19）；本文件不重复论证。
 
 ## 1. 端到端调用链
 

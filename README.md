@@ -142,10 +142,8 @@ API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","
 - 事件带从 1 开始的单调 `id`；断线重连带 `Last-Event-ID: N` 即可续读，越过缓存窗口会得到 `409 resync_required`（页面会自动拉会话快照重新同步，**不**伪造连续流）。
 - 断线**不会**取消运行；要停止必须显式 `DELETE`。空闲事件流每 15 秒一条心跳（SSE 注释帧）。
 
-**这不是生产级服务，也不是安全边界**：
+> 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见 [docs/frame.md](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本文件不重复论证。
 
-- 无认证、无 TLS；默认仅回环可见，绑非回环地址时启动会明确告警——告警只是提示，回环绑定也不构成信任。请在容器 / VM 等 OS 级隔离中运行，并限制出站网络与文件系统权限。
-- 请求必须打在**本 listener** 的 `Host` 上，且状态变更请求的 `Origin` 必须同源（`null` / 跨站 / 重复 Host / `forwarded-*` 头一律 403）。这是 defense-in-depth：**能连上回环端口的本机进程照样可以伪造请求头直接调 API**。
 - 页面不加载任何第三方脚本、带严格 CSP、提示词与 Agent 输出**按纯文本渲染**（不注入 HTML）。
 - 网络入口**不连接** `.mcp.json` 的 MCP server、**不安装** stdin 审批处理器（需要审批的工具按既有 fail-safe 语义阻断）。
 - 运行走的仍是既有治理链（`PolicyEngine` → `ToolExecutor` → `SafetyGuard` → handler）；请求体**不能**改 provider / model / system / 工具策略 / 沙箱 / 迭代预算。
@@ -198,10 +196,9 @@ heagent http-server --ws-host 0.0.0.0 --ws-port 9001
 #   WS_TLS_CERT_FILE / WS_TLS_KEY_FILE（PEM）配齐即走 wss
 ```
 
-⚠ **这也不是安全边界**：本地模式与 HTTP 入口同档（无认证、无 TLS、回环不等于可信）；对外模式的 token 认证
-不是绝对边界（token 可泄露、明文可被中间人观察），且**浏览器 WebSocket API 无法自定义请求头**——对外模式
-面向 IDE 插件 / 桌面客户端，不面向浏览器页面。经 WS 提交 run 会真的跑 Agent（含 `shell`）⇒ **容器沙箱档
-（`--sandbox docker`）强烈建议**，见 [`docs/sandbox.md`](docs/sandbox.md)。
+> 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见 [docs/frame.md](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本文件不重复论证。
+
+经 WS 提交 run 会真的跑 Agent（含 `shell`）⇒ 对外能提交 run 时建议启用容器沙箱档（`--sandbox docker`），机制见 [`docs/sandbox.md`](docs/sandbox.md)。
 
 ## Goal 工作流
 
@@ -260,8 +257,8 @@ HOOKS_ENABLED=false
 
 HeAgent 能执行 shell、读写文件、调用外部 API，并把工具返回内容再次送入模型上下文。请始终假定不可信网页、文件、MCP server 和工具输出可能含 prompt injection。
 
-- `SafetyGuard`、路径校验、`PolicyEngine` 和内置 sandbox **不是完整安全边界**。
-- 处理不可信任务时，请在容器、VM 或其他 OS 级隔离中运行，并限制文件系统和出站网络。
+> 安全口径（三层非边界 / OS 级沙箱兜底 / 本地与对外两种模式 / 端点可见性）见 [docs/frame.md](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本文件不重复论证。
+
 - `firejail` 仅适用于 Linux；不可用时回退到 `passthrough`。Windows `winjob` 仅做进程级约束，不隔离文件系统。
 - Hooks 以当前用户权限执行本地命令，默认关闭；启用前必须确认仓库可信。
 

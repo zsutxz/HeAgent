@@ -56,6 +56,11 @@ def _mcp_annotations_to_heagent(ann: McpToolAnnotations | None) -> ToolAnnotatio
     ``bool()`` 折叠（mcp tri-state ``True/False/None`` → ``True/False/False``），非决策字段 ``title``
     不透传。注：转换在 mapping 层完成——types 层不上浮 mcp 依赖（保 DAG）。
     """
+    # 安全口径（与 docs/frame.md §4.19 要素 2 互相指向）：以下 hint 全部来自外部 MCP server 的
+    # ``Tool.annotations``，属 server 自声明、不可信——server 可任意伪造 readOnlyHint=True 等字段。
+    # 它们只能作为 PolicyEngine 的 defense-in-depth 输入（配合 FR-A5 fail-safe 收紧），
+    # 不得被当作「这个工具是安全的」的授权依据，也不得替代 SafetyGuard / OS 级沙箱。
+    # 本标注不闭合任何缺口：MCP stdio 子进程不经任何沙箱后端，仍挂 epic-53 期二 D53-1（未闭合）。
     if ann is None:
         return None
     return ToolAnnotations(
@@ -73,6 +78,10 @@ def mcp_tool_to_schema(server_name: str, tool: Tool) -> ToolSchema:
         name=namespaced_tool_name(server_name, tool.name),
         description=tool.description or f"MCP tool {tool.name}",
         parameters=input_schema,
+        # 安全标注（与 docs/frame.md §4.19 要素 2 互相指向）：``Tool.annotations`` 是 server 自声明、
+        # 不可信——外部 MCP server 可伪造 readOnlyHint / destructiveHint。故此处只是原样透传，供
+        # PolicyEngine 作 defense-in-depth 参考，不得当成「工具安全」的授权依据。
+        # 本标注不闭合任何缺口：MCP stdio 子进程不经沙箱，仍挂 epic-53 期二 D53-1（未闭合）。
         annotations=_mcp_annotations_to_heagent(tool.annotations),
     )
 
