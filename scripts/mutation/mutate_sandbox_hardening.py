@@ -21,7 +21,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]  # 本文件在 scripts/ 下
+ROOT = Path(__file__).resolve().parents[2]  # 本文件在 scripts/mutation/ 下
 MUT_ROOT = ROOT / ".heagent" / "tmp" / "mut"  # 一次性产物（gitignore）
 TARGET_REL = "src/heagent/tools/sandbox/docker.py"
 TEST_FILE = "tests/test_sandbox_docker.py"

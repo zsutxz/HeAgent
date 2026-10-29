@@ -24,7 +24,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 FRAME = ROOT / "docs" / "frame.md"
 CONFIG = ROOT / "src" / "heagent" / "config" / "__init__.py"
 TEST = "tests/test_security_posture_contract.py"

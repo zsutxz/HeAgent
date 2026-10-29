@@ -36,7 +36,7 @@
 | ID | 主题 | 闭合证据 |
 | --- | --- | --- |
 | A45 | `KeyboardInterrupt` / `SystemExit` 与 `CancelledError` 的中断语义不完全一致 | 语义已于 2026-10-23 裁定（A39）；本轮 S-3 把「三分支 → `cancelled`、其余 → `executor_failed`」固化成 `docs/frame.md` 的矩阵表，由 `tests/test_workflow_transition_reason.py::test_interrupt_matrix_matches_absorb_semantics` 与 `::test_interrupt_matrix_covers_vocabulary` 双向钉住 |
-| A46 | 异常处理中的 `transition()` 理论上可能覆盖原始异常 | `src/heagent/engine/workflow_transition.py:41` 的 `raise … from exc` 保留 cause 链；`tests/test_workflow_transition_reason.py::test_transition_failure_preserves_cause_chain` 断言 `__cause__` 为 `KeyError`；`scripts/mutate_state_invariants.py` 的 M5（去掉 `from exc`）会把它打红 |
+| A46 | 异常处理中的 `transition()` 理论上可能覆盖原始异常 | `src/heagent/engine/workflow_transition.py:41` 的 `raise … from exc` 保留 cause 链；`tests/test_workflow_transition_reason.py::test_transition_failure_preserves_cause_chain` 断言 `__cause__` 为 `KeyError`；`scripts/mutation/mutate_state_invariants.py` 的 M5（去掉 `from exc`）会把它打红 |
 | A47 | `reason: str(exc)` 可无上限写入 `next_action` / `blocked_reason` | `src/heagent/engine/workflow_runner.py:41` `_MAX_REASON_CHARS = 2000` + `:53-57` `_bounded_reason`（A37 已落）；`tests/test_workflow_transition_reason.py::test_bounded_reason_caps_without_raising` 与 `::test_oversized_reason_is_truncated_on_write` 钉住 |
 | A48 | `workflow_step_failed` 未记录驱动转换的事件类型；checkpoint 缺 `last_event` / `transition_reason` | `last_event` 已由 A38 落地（`workflow_runner.py:149`、`checkpoint.py`）；`transition_reason` 由本轮 S-1 补齐（字段 + 唯一写点 + 双向往返）；`workflow_step_failed` 的 `transition_event` 在 `:408` / `:700` 两处发射 |
 

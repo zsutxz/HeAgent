@@ -22,7 +22,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 WORK = ROOT / ".heagent" / "tmp" / "heagent-next-cycle" / "s-2"
 TIMEOUT_SECONDS = 900
 
