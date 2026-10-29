@@ -11,8 +11,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from heagent.memory.compact import CompactMerge, CompactStats, compact_facts
 from heagent.pub.persist import atomic_update_text
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +76,14 @@ class FactStore:
         # 普通 UTF-8 读出（BOM 字符仍在），故写回前同样剥离 ⇒ 与读路径口径一致，并把文件
         # 归一化为 UTF-8 无 BOM（见 `_strip_bom`）。
         return atomic_update_text(self._path, lambda current: self._append_fact(_strip_bom(current), fact))
+
+    def compact(self, merges: Sequence[CompactMerge]) -> CompactStats:
+        """按「合并计划」语义压缩 MEMORY.md（Epic 59 写侧唯一入口；留底先行 + 比较后写）。
+
+        实现住 :mod:`heagent.memory.compact`（与 auto_archive 同款的自包含维护模块，本类保持薄）；
+        开关（``memory_compact_enabled``）属工具层 fail-closed 职责，不在本方法内判定。
+        """
+        return compact_facts(self._path, merges)
 
     @classmethod
     def _append_fact(cls, raw: str, fact: str) -> tuple[str, bool]:

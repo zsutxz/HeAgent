@@ -297,6 +297,9 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
         keys=(
             "MEMORY_NUDGE_ENABLED",
             "MEMORY_INJECT_MAX_BYTES",
+            # 语义压缩写侧开关（Epic 59）：与归档两键同属记忆整理旋钮，但它是无人监督删改的
+            # 显式 opt-in（默认 False，对齐 DREAM_ENABLED 立场），故与注入开关同组可见可写。
+            "MEMORY_COMPACT_ENABLED",
             "SKILL_MATCH_THRESHOLD",
             "SKILL_MAX_AUTO_INVOKE",
             "SKILL_MAX_AUTO_INVOKE_TOKENS",

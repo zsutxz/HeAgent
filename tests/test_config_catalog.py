@@ -376,7 +376,7 @@ class TestClassification:
 
     def test_whitelist_keys_all_exist(self) -> None:
         assert whitelist() <= ENV_KEYS
-        assert len(whitelist()) == 48  # D3 裁定后的口径（38 + 8）+ 2026-09-27 记忆归档 2 键
+        assert len(whitelist()) == 49  # D3 裁定后的口径（38 + 8）+ 记忆归档 2 键 + epic-59 语义压缩 1 键
 
     def test_partition_is_complete(self) -> None:
         """AC9：每个字段都落在白名单或某条排除规则里 —— 残留 0（没有「只读但无原因」）。"""

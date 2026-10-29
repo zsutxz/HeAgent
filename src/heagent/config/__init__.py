@@ -209,6 +209,9 @@ class Settings(BaseSettings):
     memory_archive_trigger_bytes: int = Field(default=49_152, ge=0)
     # 自动归档的跨进程节流（秒）：距上次归档不足该间隔就跳过扫描（0=每次都扫）。
     memory_archive_min_interval_seconds: int = Field(default=86400, ge=0)  # 默认 1 天
+    # MEMORY.md 语义压缩（fact_compact 工具）写侧开关：默认 False——无人监督下删改持久记忆
+    # 须显式 opt-in（对齐 dream_enabled 立场）；关闭时工具层显性报错（fail-closed），不静默成功。
+    memory_compact_enabled: bool = Field(default=False)
 
     # ---- 技能策展参数 ----
     skill_curator_stale_days: int = Field(default=30, ge=1)

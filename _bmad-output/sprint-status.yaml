@@ -603,9 +603,21 @@ development_status:
   # 由 CRON_PUSH_ENABLED 控制中枢构造与端点注册；CRON_ECHO_TO_TERMINAL 单独控制终端回显。
   # network 层抽 EventStreamHub 通用核，CliEventHub / NotificationHub 都是薄适配（D3）。
   epic-58: in-progress  # 2026-10-28 开工：58-1 交付待评审；58-2（入口接线）未开始
-  58-1-notification-hub-and-endpoint: review  # 2026-10-28：通用核 + 通知中枢 + /api/notifications/ws；全量 4067 passed / 覆盖 92.38%
+  58-1-notification-hub-and-endpoint: review  # 2026-10-28：通用核 + 通知中枢 + /api/notifications/ws；全量 4067 passed / 覆盖 92.68%
   58-2-cron-notify-wiring: backlog
   epic-58-retrospective: optional
+
+  # ═══════════════════════════════════════════════════════════════
+  # MEMORY.md 语义压缩周期 · Epic 59（2026-10-29 立项并登记本文件）
+  # 来源：会话分析 MEMORY.md 现状链路（fact_add 只增不减 / 注入超预算省略尾部 / 启动 auto_archive
+  # 仅确定性移出 / dream 只会追加）；用户 2026-10-29 裁定语义压缩走 dream 侧处理，BMAD 流程立项。
+  # 新工具 fact_compact（tools/builtins/，留底先行 + atomic_update_text compare-after-read +
+  # memory_compact_enabled 默认 False 工具层 fail-closed）；dreamer 白名单最小扩展；
+  # system prompt 超预算口径同步（D1–D8 冻结决策见 epic 目录 epics.md）。
+  epic-59: in-progress  # 2026-10-29 立项即开工：story 已拆落盘（epic-59-MEMORY语义压缩周期/epics.md）；59-1 交付待评审
+  59-1-fact-compact-tool: review  # 2026-10-29：memory/compact.py 写侧唯一入口（留底先行 + compare-after-read + AC5 顺序化判重）+ 工具层 fail-closed；42 新测全绿，全量 4188 passed
+  59-2-dream-compact-wiring: backlog
+  epic-59-retrospective: optional
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
     epic: 52
