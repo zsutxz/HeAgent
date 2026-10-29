@@ -45,7 +45,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 10-24-2026 17:55
+last_updated: 10-29-2026 15:41
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -614,10 +614,10 @@ development_status:
   # 新工具 fact_compact（tools/builtins/，留底先行 + atomic_update_text compare-after-read +
   # memory_compact_enabled 默认 False 工具层 fail-closed）；dreamer 白名单最小扩展；
   # system prompt 超预算口径同步（D1–D8 冻结决策见 epic 目录 epics.md）。
-  epic-59: in-progress  # 2026-10-29 立项即开工：59-1/59-2 同日交付待评审，retro 待评审后
-  59-1-fact-compact-tool: review  # 2026-10-29：memory/compact.py 写侧唯一入口（留底先行 + compare-after-read + AC5 顺序化判重）+ 工具层 fail-closed；42 新测全绿，全量 4188 passed
-  59-2-dream-compact-wiring: review  # 2026-10-29：dream prompt 指令段 + 白名单 + drain 窗口归属 → dream_end compact 统计 + system_prompt 条件化标注；全量 4199 passed
-  epic-59-retrospective: optional
+  epic-59: in-progress  # 2026-10-29 立项即开工：59-1/59-2 同日交付（fb3475d/84452a6/eb36ea5），评审修复后转 done（a8b0fc6/99dba35/361e8e0），retro 随后
+  59-1-fact-compact-tool: done  # 2026-10-29：memory/compact.py 写侧唯一入口（留底先行 + compare-after-read + AC5 顺序化判重）+ 工具层 fail-closed；ecc:code-reviewer 终态评审 0 CRITICAL（HIGH=归档锁竞争已修 a8b0fc6）；全量 4200 passed
+  59-2-dream-compact-wiring: done  # 2026-10-29：dream prompt 指令段 + 白名单 + drain 窗口归属 → dream_end compact 统计 + system_prompt 条件化标注；与 59-1 同批评审同判据
+  epic-59-retrospective: done
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
     epic: 52
@@ -685,3 +685,17 @@ action_items:
     owner: "Epic 56 周期会话"
     status: done  # 56-4 实测 9/9 变异体变红（.heagent/tmp/mutate_hardening.py：cap-drop / no-new-privileges / 非 root / network / --rm / --pull=never / --memory / --pids-limit / 位置前移）
     ref: "_bmad-output/implementation-artifacts/epic-53-retro-2026-10-24.md"
+  - id: "epic-59-retro-item-11-真实-llm-dream-compact-冒烟-dream_enabled-me"
+    epic: 59
+    action: "真实 LLM dream+compact 冒烟：dream_enabled + memory_compact_enabled 开启跑一次
+      idle dream，观察 dream_end compact 统计与 archive 留底小节（含 ；fact_compact 标记）及 no-op
+      不进统计的事件形态"
+    owner: "tan"
+    status: open
+    ref: "_bmad-output/epics/epic-59-MEMORY语义压缩周期/epic-59-retro-2026-10-29.md"
+  - id: "epic-59-retro-item-12-push-epic-59-六提交连同此前周期待推远端"
+    epic: 59
+    action: "push：epic-59 六提交连同此前周期待推远端"
+    owner: "tan"
+    status: open
+    ref: "_bmad-output/epics/epic-59-MEMORY语义压缩周期/epic-59-retro-2026-10-29.md"

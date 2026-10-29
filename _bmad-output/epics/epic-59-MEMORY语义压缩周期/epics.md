@@ -115,7 +115,8 @@ MEMORY.md 不动。
 **AC4 显性失败** source 在文件中缺失或不唯一 ⇒ 整批拒绝（不部分应用），错误点名问题条目。
 
 **AC5 判重口径** target 仅对「未被本批删除的条目」做 70% 词级判重，命中拒绝该 merge（被删 source
-不参与判重）。
+不参与判重）。多条 merge **顺序化应用**：后一条 merge 的判重集合包含前序 merge 已追加的 target
+（批内产物互不重复；2026-10-29 retro 补写，实现与测试先于此句落地）。
 
 **AC6 开关 fail-closed** `memory_compact_enabled` 默认 False；关闭时工具直接返回错误（缺失宁可
 显性报错），不静默成功。
