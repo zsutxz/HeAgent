@@ -120,10 +120,7 @@ async def fact_compact(merges: list[dict[str, Any]]) -> str:
     if not merges:
         return "Error: merges must not be empty."
     try:
-        parsed = [
-            CompactMerge(sources=item["sources"], target=item["target"])
-            for item in merges
-        ]
+        parsed = [CompactMerge(sources=item["sources"], target=item["target"]) for item in merges]
     except (KeyError, TypeError, ValidationError) as exc:
         return f"Error: each merge must be {{'sources': [entry text, ...], 'target': new entry text}} ({exc})."
     try:
