@@ -2,7 +2,7 @@
 
 与 ``test_ws_e2e.py`` 同手法（``port=0`` + ``serve_forever`` + 真客户端），区别是被测端点
 ``/api/cli/ws`` 订阅的是**终端自己那一轮** run（跨轮次、无 run 记录、无取消通道）。
-Epic 56 D1/D7：宿主自 HttpServer 迁至 WsServer（9001），本文件随之改驱动并更名。
+Epic 56 D1/D7：宿主自 HttpServer 迁至 WsServer（9901），本文件随之改驱动并更名。
 """
 
 from __future__ import annotations

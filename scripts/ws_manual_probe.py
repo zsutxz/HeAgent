@@ -2,15 +2,15 @@
 
 用法（宿主 Windows，仓库根下；`.venv` 已装 websockets）：
 
-  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9001 ping
-  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9001 submit --prompt "写一个快速排序"
-  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9001 sub <run_id>
-  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9001 cancel <run_id>
-  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9001 bad
-  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9001 handshake --origin http://127.0.0.1:8766
+  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9901 ping
+  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9901 submit --prompt "写一个快速排序"
+  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9901 sub <run_id>
+  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9901 cancel <run_id>
+  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9901 bad
+  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9901 handshake --origin http://127.0.0.1:8766
   .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9002 handshake --token "<你的 token>"
-  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py wss://127.0.0.1:9001 ping --insecure
-  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9001 cli --seconds 5
+  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py wss://127.0.0.1:9901 ping --insecure
+  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9901 cli --seconds 5
 
 端点与入口归属（测之前先对号，否则 `cli` 用例必然 403）：
 
@@ -226,7 +226,7 @@ CASES = {
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="WebSocket 手测探针")
-    parser.add_argument("base", help="ws://127.0.0.1:9001")
+    parser.add_argument("base", help="ws://127.0.0.1:9901")
     parser.add_argument("case", choices=sorted(CASES))
     parser.add_argument("run_id", nargs="?", default=None, help="sub / cancel 需要")
     parser.add_argument("--prompt", default="ping", help="submit 用的 prompt")

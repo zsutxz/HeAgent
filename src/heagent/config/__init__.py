@@ -348,7 +348,7 @@ class Settings(BaseSettings):
     # 回环 = 本地模式（无认证，Origin 只是入口层防线）；非回环 = 对外模式（Bearer token 强制、缺 token 拒绝启动）。
     ws_enabled: bool = Field(default=True)  # False = 不装配 WS listener（仅 HTTP 或全关）
     ws_host: str = Field(default="127.0.0.1", min_length=1)
-    ws_port: int = Field(default=9001, ge=1, le=65535)
+    ws_port: int = Field(default=9901, ge=1, le=65535)
     # 每 run 订阅额度 + CLI 旁路连接总额；不经 Uvicorn limit_concurrency，超额在 ASGI 层原子检查+登记。
     ws_max_connections: int = Field(default=16, ge=1)
     # WS server 关闭排空的等待上限（秒）：关既有连接 → 停 listener 全程有界。

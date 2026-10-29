@@ -2,7 +2,7 @@
 
 为什么单独一个文件：其余用例都直接构造 ``WsServer(cli_hub=...)``，因此「真实入口忘了把中枢
 传下去」这类漏接不会变红（``EmbeddedHttpService.cli_hub`` 有值、路由却没注册）。这里从**入口函数**
-起步，用真 TCP 连一次 ``/api/cli/ws``（9001 侧）。
+起步，用真 TCP 连一次 ``/api/cli/ws``（9901 侧）。
 """
 
 from __future__ import annotations

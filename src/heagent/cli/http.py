@@ -187,7 +187,7 @@ class EmbeddedHttpService:
     """默认 CLI **内嵌**网页入口的生命周期（同进程、同一 asyncio 生命周期）。
 
     Epic 56 D1 起入口 = **多 listener**：HTTP listener（8766，控制台 + REST/SSE）+ **1 或 2 个**
-    WS listener（期一：9001；期二双监听：9001 本地 + 9002 对外）。名字保留 ``EmbeddedHttpService``：
+    WS listener（期一：9901；期二双监听：9901 本地 + 9002 对外）。名字保留 ``EmbeddedHttpService``：
     它仍是入口层那个「伴随 CLI 的网页服务」单元，只是自此拥有 N 条 listener、一个生命周期。
 
     - ``start()``：先 HTTP 后逐个 WS 绑定 + 就绪门禁（任一 WS 失败回滚已启动的全部）+ 后台 serve 任务 + stderr 公告；
@@ -379,7 +379,7 @@ def build_ws_server_config(
 
     不写回 Settings；范围规则由 :class:`WsServerConfig`（Pydantic）统一校验。端口自动查找与
     HTTP listener 同一开关（``http_port_auto_find_attempts``）：两条 listener 独立顺延
-    （HTTP 自 8766、WS 自 9001），实际端口以启动公告为准。
+    （HTTP 自 8766、WS 自 9901），实际端口以启动公告为准。
 
     **对外模式的三件接线**（Epic 56 D3/D4/D5）：
 
@@ -694,7 +694,7 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     "--ws-port",
     type=click.IntRange(min=1, max=65535),
     default=None,
-    help="WS listener bind port (default: WS_PORT / 9001)",
+    help="WS listener bind port (default: WS_PORT / 9901)",
 )
 @click.option(
     "--ws-max-connections",

@@ -3,11 +3,12 @@
 与 HTTP server（``http_server.py``）**完全分离**：本 app 零 HTTP 路由（控制台页 / 静态资源 /
 REST / 健康检查一律 404），HTTP app 亦不再挂任何 WS 路由。四条 WS 端点共用这一个 listener：
 run 订阅 ``/api/runs/{run_id}/ws`` 与 CLI 旁路 ``/api/cli/ws`` 自 HTTP app 迁入（路径不变、
-端口迁移 8766 → 9001，唯一 breaking change），提交 run 的集合级端点 ``/api/runs/ws`` 是 Epic 56
+端口迁移 8766 → 9001 是 Epic 56 唯一 breaking change；现行默认端口 9901），提交 run 的集合级端点
+``/api/runs/ws`` 是 Epic 56
 新增（D2），只读通知流 ``/api/notifications/ws`` 是 Epic 58 新增（cron 结果主动投递）。
 端点逻辑复用 ``ws_server.py`` 不重写，本模块只负责装配、监听器生命周期与 uvicorn WS 参数。
 
-9001 没有健康端点可打，就绪判据改为**真实 TCP 连通**（D1 接缝事实：共享的只有注入的进程内
+WS listener 没有健康端点可打，就绪判据改为**真实 TCP 连通**（D1 接缝事实：共享的只有注入的进程内
 状态 ``HttpRunService`` / ``CliEventHub`` / ``NotificationHub`` 与 ``network/`` 同层协议模型）。监听模式按绑定地址切
 （D5）：回环 = 本地模式（Origin 防线、无认证，Epic 54/55 语义逐字保持）；非回环 = 对外模式
 （Bearer token 强制、token 缺失拒绝启动、Origin 不适用），TLS 可选（cert/key 配齐即 wss）。
@@ -91,7 +92,7 @@ class WsServerConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     host: str = Field(default="127.0.0.1", min_length=1)
-    port: int = Field(default=9001, ge=0, le=65535)
+    port: int = Field(default=9901, ge=0, le=65535)
     # WS 连接额度（迁移自 HttpServerConfig.ws_max_connections）：既是每个 run 的订阅额度
     # （run 端点经 max_connections 参数注入），也是 CLI 旁路 hub 的连接总额。
     ws_max_connections: int = Field(default=16, ge=1)

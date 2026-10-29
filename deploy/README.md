@@ -96,23 +96,23 @@ spec 要点：
 | listener | 默认地址 | 内容 | 开关 |
 |---|---|---|---|
 | HTTP+SSE | `127.0.0.1:8766` | 网页控制台、REST、SSE；**不含任何 WS 路由** | `HTTP_HOST` / `HTTP_PORT` |
-| WebSocket（主 / 本地） | `127.0.0.1:9001` | 提交 + 订阅 + CLI 旁路（旁路需开关），零 HTTP 路由 | `WS_HOST` / `WS_PORT` |
+| WebSocket（主 / 本地） | `127.0.0.1:9901` | 提交 + 订阅 + CLI 旁路（旁路需开关），零 HTTP 路由 | `WS_HOST` / `WS_PORT` |
 | WebSocket（对外，可选） | 无（`WS_EXTERNAL_HOST` 非空才启用，端口默认 `9002`） | **只有**提交 + 订阅；token 强制 | `WS_EXTERNAL_HOST` / `WS_EXTERNAL_PORT` |
 
 > ⚠ **端口迁移（Epic 56 的唯一 breaking change）**：Epic 56 之前 WS 端点挂在 HTTP 端口 8766 下；
-> 现在在 **9001**，路径不变。旧客户端只需把连接 URL 的端口从 8766 改成 9001。
+> 现在在 **9001**（**2026-10-29 起默认 9901**），路径不变。旧客户端只需把连接 URL 的端口从 8766 改成启动公告里的实际端口。
 
 ### 四种部署姿态
 
 1. **单机自用（默认，推荐）**：两个 listener 都绑回环，token 与 TLS 都不需要；本机客户端连
-   `ws://127.0.0.1:9001/...`。
+   `ws://127.0.0.1:9901/...`。
 2. **对外只读订阅**：`WS_HOST=0.0.0.0` + `WS_AUTH_TOKEN`（用户级 `~/.heagent/setting.md`）——客户端必须
    带 `Authorization: Bearer <token>`；缺 token **拒绝启动**（fail-closed）。
 3. **对外且加密**：在姿态 2 基础上配 `WS_TLS_CERT_FILE` / `WS_TLS_KEY_FILE`（PEM，二者必须同时给），
    listener 走 `wss://`。不配 TLS 时启动会打 `event=plaintext_external` 告警（明文运行可见）。
 4. **本机免 token + 对外带 token 同时服务（期二双监听）**：主 listener 保持回环（姿态 1 的体验不变），
-   另配 `WS_EXTERNAL_HOST` 起第二条对外 listener。客户端从 9001（本机）或 9002（对外，带 token）连
-   **同一个** run；两条 listener 共享运行状态机，因此 9001 提交的 run 可以从 9002 订阅（反之亦然）。
+   另配 `WS_EXTERNAL_HOST` 起第二条对外 listener。客户端从 9901（本机）或 9002（对外，带 token）连
+   **同一个** run；两条 listener 共享运行状态机，因此 9901 提交的 run 可以从 9002 订阅（反之亦然）。
    对外那条可用 `WS_EXTERNAL_TLS_CERT_FILE` / `WS_EXTERNAL_TLS_KEY_FILE` 单独上 TLS（不给则整对继承
    `WS_TLS_*`），于是「本地明文 + 对外 wss」可配。
    若对外只给「看」不给「下命令」，加 **`WS_EXTERNAL_READONLY=true`**（或 `--ws-external-readonly`）：
@@ -121,7 +121,7 @@ spec 要点：
 ```dotenv
 # 姿态 4 示例：主 listener 回环免 token；对外的第二条 listener 带 token（token 仍只在 setting.md）
 WS_HOST=127.0.0.1
-WS_PORT=9001
+WS_PORT=9901
 WS_MAX_CONNECTIONS=16
 WS_EXTERNAL_HOST=0.0.0.0
 WS_EXTERNAL_PORT=9002
@@ -142,7 +142,7 @@ WS_EXTERNAL_TLS_KEY_FILE=/etc/heagent/tls/privkey.pem
 ```dotenv
 # 姿态 2/3 示例：单个对外 listener（不带 TLS 时明文，启动告警）
 WS_HOST=0.0.0.0
-WS_PORT=9001
+WS_PORT=9901
 WS_MAX_CONNECTIONS=16
 WS_TLS_CERT_FILE=/etc/heagent/tls/fullchain.pem
 WS_TLS_KEY_FILE=/etc/heagent/tls/privkey.pem

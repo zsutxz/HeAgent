@@ -118,7 +118,7 @@ heagent "用一句话解释 asyncio"  # 单次模式：网页入口随这次运�
 heagent http-server            # 只起网页服务（不进 CLI 循环）
 ```
 
-网页栈是可选依赖，缺失时命令会提示安装方式：`pip install "heagent[http]"`。**Epic 56 起是双 listener**：HTTP+SSE 与控制台固定在本节监听器（默认 `127.0.0.1:8766`），**WebSocket 能力在独立监听器**（默认 `127.0.0.1:9001`，见下节）。
+网页栈是可选依赖，缺失时命令会提示安装方式：`pip install "heagent[http]"`。**Epic 56 起是双 listener**：HTTP+SSE 与控制台固定在本节监听器（默认 `127.0.0.1:8766`），**WebSocket 能力在独立监听器**（默认 `127.0.0.1:9901`，见下节）。
 
 ```bash
 heagent http-server --port 9100 --max-inflight-runs 1
@@ -159,12 +159,12 @@ API 与页面**同源**（`/api` 前缀，请求错误一律 `{"error":{"code","
 - 持久：`.env` / `~/.heagent/setting.md` 里 `HTTP_ENABLED=false`（`WS_ENABLED=false` 关 WS；两者都 false = 零监听，交互模式仍可用）。改后需重启进程。
 - 已在运行的进程：Ctrl+C（有界排空，`HTTP_SHUTDOWN_TIMEOUT` 默认 5 秒）或结束该 PID。**没有**运行期关停端点。
 
-## WebSocket 入口（9001，Epic 54–56）
+## WebSocket 入口（9901，Epic 54–56）
 
-WS 与 HTTP+SSE **并存但拓扑分离**：独立 listener（默认 `127.0.0.1:9001`）、独立 ASGI app、**零 HTTP 路由**
+WS 与 HTTP+SSE **并存但拓扑分离**：独立 listener（默认 `127.0.0.1:9901`）、独立 ASGI app、**零 HTTP 路由**
 （控制台页 / REST / 健康检查在这个端口上全是 404），是全部 WS 能力的唯一宿主。
 
-> ⚠ **breaking change**：Epic 56 之前 WS 端点挂在 HTTP 端口（8766）下；现在**端口改为 9001**，路径不变。
+> ⚠ **breaking change**：Epic 56 之前 WS 端点挂在 HTTP 端口（8766）下；现在**端口改为 9001**（现行默认 **9901**，2026-10-29 起），路径不变。
 > 只需改端口，帧契约与端点路径逐字未变。
 
 | 端点 | 用途 |
@@ -175,8 +175,8 @@ WS 与 HTTP+SSE **并存但拓扑分离**：独立 listener（默认 `127.0.0.1:
 
 ```bash
 # 提交 → 拿 run_id → 订阅（aiohttp / websockets 等客户端示意）
-ws://127.0.0.1:9001/api/runs/ws          # → {"command":"run","prompt":"写一个快速排序"}
-ws://127.0.0.1:9001/api/runs/<run_id>/ws # → 事件帧（seq 单调）；{"command":"cancel"} 等价 DELETE
+ws://127.0.0.1:9901/api/runs/ws          # → {"command":"run","prompt":"写一个快速排序"}
+ws://127.0.0.1:9901/api/runs/<run_id>/ws # → 事件帧（seq 单调）；{"command":"cancel"} 等价 DELETE
 ```
 
 **两种模式，按绑定地址自动切换**（`WS_HOST`）：
@@ -191,7 +191,7 @@ ws://127.0.0.1:9001/api/runs/<run_id>/ws # → 事件帧（seq 单调）；{"com
 
 ```bash
 # 对外模式示例（token 放在用户级配置，不放项目 .env）
-heagent http-server --ws-host 0.0.0.0 --ws-port 9001
+heagent http-server --ws-host 0.0.0.0 --ws-port 9901
 #   ~/.heagent/setting.md:  WS_AUTH_TOKEN: <随机长串>
 #   WS_TLS_CERT_FILE / WS_TLS_KEY_FILE（PEM）配齐即走 wss
 ```

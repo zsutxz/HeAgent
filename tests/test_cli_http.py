@@ -718,7 +718,7 @@ def test_external_listener_cli_overrides_build_a_second_listener(
     assert result.exit_code == 0, result.output
     servers = captured_server["ws"]
     assert [server.config.mode for server in servers] == ["local", "external"]
-    assert servers[0].config.port == 9001
+    assert servers[0].config.port == 9901
     assert (servers[1].config.host, servers[1].config.port) == ("0.0.0.0", 9202)
     # 对外那条按 mode 分流告警：不能套用 HTTP 的「no authentication」文案（它是 token 认证）。
     assert "external mode; Bearer token required; PLAINTEXT" in result.output

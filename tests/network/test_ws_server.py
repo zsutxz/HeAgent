@@ -74,11 +74,11 @@ def test_ws_config_defaults_are_synced_with_settings() -> None:
 
 
 def test_ws_server_config_defaults_pin_d1_topology() -> None:
-    """默认 127.0.0.1:9001 是 D1 冻结值；port=0（随机端口）仅测试用。"""
+    """默认 127.0.0.1:9901 是 D1 冻结值；port=0（随机端口）仅测试用。"""
     config = WsServerConfig()
     assert (config.host, config.port, config.ws_max_connections, config.shutdown_timeout) == (
         "127.0.0.1",
-        9001,
+        9901,
         16,
         5.0,
     )
@@ -214,7 +214,7 @@ def _run_app_matrix(app: Any) -> tuple[int, int]:
 
 
 def test_ws_app_has_zero_http_surface() -> None:
-    """D1 判据之 9001 侧：REST / 控制台页 / 健康检查全 404（Starlette 默认 404 文本）。"""
+    """D1 判据之 9901 侧：REST / 控制台页 / 健康检查全 404（Starlette 默认 404 文本）。"""
     config = _ws_config()
     for app in (
         build_ws_app(config),
@@ -271,7 +271,7 @@ async def test_http_listener_rejects_ws_upgrade_over_real_tcp() -> None:
 
 @pytest.mark.asyncio
 async def test_ws_listener_serves_no_http_api_over_real_tcp() -> None:
-    """D1 判据之 9001 侧（真实 TCP）：REST/静态页/健康检查全 404，WS 端点可达。"""
+    """D1 判据之 9901 侧（真实 TCP）：REST/静态页/健康检查全 404，WS 端点可达。"""
     service = HttpRunService(_http_config(), _BlockingExecutor())
     hub = CliEventHub()
     server = WsServer(_ws_config(), run_service=service, cli_hub=hub)
@@ -460,7 +460,7 @@ def test_build_ws_server_config_maps_settings_and_overrides(monkeypatch: pytest.
     from heagent.cli.http import build_ws_server_config
     from heagent.network.ws_host import WsConfigError
 
-    assert build_ws_server_config(Settings()).port == 9001
+    assert build_ws_server_config(Settings()).port == 9901
     assert build_ws_server_config(Settings(ws_port=9100)).port == 9100
     assert build_ws_server_config(Settings(), port=9200).port == 9200
     assert build_ws_server_config(Settings(), max_connections=7).ws_max_connections == 7
@@ -477,7 +477,7 @@ def test_build_ws_server_config_maps_settings_and_overrides(monkeypatch: pytest.
 
 
 def test_build_ws_server_config_autofind_starts_from_ws_port(monkeypatch: pytest.MonkeyPatch) -> None:
-    """自动顺延的基准 = WS 端口（9001），不是 HTTP 端口——两条 listener 独立漂移。"""
+    """自动顺延的基准 = WS 端口（9901），不是 HTTP 端口——两条 listener 独立漂移。"""
     from heagent.cli.http import build_ws_server_config
 
     with socket.socket() as blocker:
@@ -562,7 +562,7 @@ def _user_setting(tmp_path: Path, token: str = "s3cret") -> Path:
 
 
 def _fixed_settings(**overrides: Any) -> Settings:
-    """端口固定（关自动顺延）的设置替身：断言 9001/9002 时不希望被真实占用影响。"""
+    """端口固定（关自动顺延）的设置替身：断言 9901/9002 时不希望被真实占用影响。"""
     return Settings(http_port_auto_find_attempts=0, **overrides)
 
 
@@ -574,7 +574,7 @@ def test_build_ws_servers_defaults_to_a_single_local_listener() -> None:
 
     assert len(servers) == 1
     assert servers[0].config.mode == "local"
-    assert servers[0].config.port == 9001
+    assert servers[0].config.port == 9901
     assert hub is None
 
 
@@ -586,7 +586,7 @@ def test_build_ws_servers_adds_a_second_external_listener(monkeypatch: pytest.Mo
     servers, hub = build_ws_servers(_fixed_settings(ws_external_host="0.0.0.0", ws_cli_bypass_enabled=True))
 
     assert [server.config.mode for server in servers] == ["local", "external"]
-    assert servers[0].config.port == 9001
+    assert servers[0].config.port == 9901
     assert (servers[1].config.host, servers[1].config.port) == ("0.0.0.0", 9002)
     # 旁路只挂本地 listener；对外 listener 的 cli_hub 恒为 None（终端内容不外溢）。
     assert hub is not None
@@ -698,7 +698,7 @@ def test_cli_bypass_is_skipped_on_an_external_primary_listener(
 def test_cli_bypass_stays_on_the_local_listener_when_both_are_enabled(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """双监听 + 旁路开：中枢挂本地 listener，公告据此指向 9001 而不是对外那条。"""
+    """双监听 + 旁路开：中枢挂本地 listener，公告据此指向 9901 而不是对外那条。"""
     from heagent.cli.http import build_ws_servers
 
     monkeypatch.setattr(Settings, "_user_setting_file", _user_setting(tmp_path))
