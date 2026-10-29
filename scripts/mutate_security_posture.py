@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -34,7 +35,17 @@ WS_BYPASS = "    ws_cli_bypass_enabled: bool = False"
 
 
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, cwd=ROOT, capture_output=True, text=True, check=False)
+    # 显式 UTF-8：text=True 不带 encoding 时按 locale（本机 GBK）解码子进程输出，中文（UTF-8）输出
+    # 会让解码线程死亡 ⇒ stdout=None，随后主流程拼接直接 TypeError（2026-10-29 实测事故）。
+    return subprocess.run(
+        args,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
 
 
 def _pytest_subset(selector: str) -> subprocess.CompletedProcess[str]:
@@ -56,10 +67,24 @@ def _backup() -> None:
     shutil.copyfile(CONFIG, BACKUP_DIR / "config.bak")
 
 
-def _restore() -> None:
-    # 同上：只还原内容（`_write` 走 write_bytes），避免 copystat 在 9p 上 EPERM 半途而废。
-    _write(FRAME, _read(BACKUP_DIR / "frame.md.bak"))
-    _write(CONFIG, _read(BACKUP_DIR / "config.bak"))
+def _restore() -> list[str]:
+    """逐文件独立还原：一个失败不跳过另一个；临时文件 + `os.replace` 原子替换；返回失败清单。
+
+    2026-10-29 实测：原实现第一文件写入失败（本机偶发 Errno 22）会跳过第二文件，留脏工作区。
+    """
+    errors: list[str] = []
+    for bak, target in (
+        (BACKUP_DIR / "frame.md.bak", FRAME),
+        (BACKUP_DIR / "config.bak", CONFIG),
+    ):
+        try:
+            data = bak.read_bytes()
+            tmp = target.with_name(f".{target.name}.restore-tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, target)
+        except OSError as exc:
+            errors.append(f"还原 {target.name} 失败: {exc}")
+    return errors
 
 
 def _baseline_green() -> bool:
@@ -92,6 +117,7 @@ def _mutate_backend_default() -> tuple[bool, str]:
 def main() -> int:
     _backup()
     failures: list[str] = []
+    restore_errors: list[str] = []
     try:
         if not _baseline_green():
             failures.append("baseline 不是绿的：先修守卫本身，变异验证无意义")
@@ -101,7 +127,7 @@ def main() -> int:
             failures.append(f"M1 施加失败：{why}")
         else:
             result = _pytest_subset("frame_canonical or numbers_six")
-            out = result.stdout + result.stderr
+            out = (result.stdout or "") + (result.stderr or "")
             red = result.returncode != 0
             named = "docs/frame.md" in out and "要素 3" in out
             print(f"[M1 删第 3 要素] red={red} named={named}")
@@ -109,14 +135,14 @@ def main() -> int:
                 failures.append("M1 没有变红：G1 未能守住要素缺失")
             elif not named:
                 failures.append("M1 变红了但失败信息没点名 docs/frame.md + 要素 3")
-        _restore()
+        restore_errors += _restore()
 
         ok, why = _mutate_backend_default()
         if not ok:
             failures.append(f"M2 施加失败：{why}")
         else:
             result = _pytest_subset("security_side_booleans")
-            out = result.stdout + result.stderr
+            out = (result.stdout or "") + (result.stderr or "")
             red = result.returncode != 0
             named = "ws_cli_bypass_enabled" in out
             print(f"[M2 旁路默认改 True] red={red} named={named}")
@@ -124,9 +150,12 @@ def main() -> int:
                 failures.append("M2 没有变红：G2 未能守住安全侧布尔默认")
             elif not named:
                 failures.append("M2 变红了但失败信息没点名 ws_cli_bypass_enabled")
-        _restore()
+        restore_errors += _restore()
     finally:
-        _restore()
+        restore_errors += _restore()
+
+    if restore_errors:
+        failures = restore_errors + failures
 
     if failures:
         print("VERDICT: FAIL")
