@@ -392,11 +392,14 @@ def test_kill_fallback_when_kill_fails(monkeypatch: pytest.MonkeyPatch):  # 判�
         def __init__(self) -> None:  # 不设实例 run——方法即实现；仅继承异常类型等类属性
             pass
 
-        def run(self, argv, capture_output=False, timeout=None):
+        def run(self, argv, capture_output=False, text=False, timeout=None):
             calls.append(list(argv))
             if argv[1] == "kill":
                 raise subprocess.TimeoutExpired(cmd=argv, timeout=5)
-            return subprocess.CompletedProcess(argv, 0)
+            # inspect：容器仍在运行（kill 超时后 inspect 确认容器存活 → 走 rm -f 兜底）
+            if argv[1] == "inspect":
+                return subprocess.CompletedProcess(argv, 0, stdout="true\n", stderr="")
+            return subprocess.CompletedProcess(argv, 0, stdout="", stderr="")
 
     monkeypatch.setattr(f"{MODULE}.subprocess", _KillFails())
     _docker_kill("docker", "heagent-orphan")

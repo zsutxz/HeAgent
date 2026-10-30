@@ -158,13 +158,13 @@ def _is_gone(returncode: int, stderr: str | None) -> bool:
 def _docker_kill(docker_path: str, name: str) -> None:
     """按容器名精确 ``docker kill -- <name>``——杀 CLI 进程**不会**停容器，超时/取消必须显式杀。
 
-    kill 后校验容器确已停止（``inspect .State.Running``）；容器**已因 ``--rm`` 删除**视为清理
-    完成直接返回；仍活着或状态真不确定 → WARNING + ``docker rm -f`` 兜底（审查修复批）：
-    孤儿容器带着 workspace 写挂载存活是真实暴露面。
-    兜底也失败只 warning 留痕（清理是兜底动作，不制造二次异常）；有界等待
-    （``_REAP_WAIT_TIMEOUT``）——kill 自身挂死不得拖垮清理路径。
+    kill 后（无论成功与否）**始终**做一次 ``inspect`` 确认容器存活状态：``--rm`` 容器被杀后
+    自行删除，inspect 返回 ``No such object`` 即清理已达成，直接返回，不走 ``rm -f``（否则
+    会撞上 daemon 的删除锁白等满 ``_REAP_WAIT_TIMEOUT`` 并打出假 traceback）。
+    kill 失败时也先 inspect：Windows 命名管道并发压力下 kill 常超时但容器早已消失；跳过
+    inspect 直接 ``rm -f`` 会额外浪费一个 ``_REAP_WAIT_TIMEOUT`` 周期。
+    仍活着或状态真不确定 → WARNING + ``docker rm -f`` 兜底；兜底也失败只 warning 留痕。
     """
-    fallback = False
     try:
         subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
             [docker_path, "kill", "--", name],
@@ -172,26 +172,26 @@ def _docker_kill(docker_path: str, name: str) -> None:
             timeout=_REAP_WAIT_TIMEOUT,
         )
     except (OSError, subprocess.TimeoutExpired):
-        logger.debug("docker kill %s failed", name, exc_info=True)
+        logger.debug("docker kill %s failed or timed out; will inspect to confirm state", name, exc_info=True)
+
+    # 无论 kill 成功与否，inspect 给出最终答案——避免对已消失容器重复 rm -f。
+    fallback = False
+    try:
+        probe = subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
+            [docker_path, "inspect", "-f", "{{.State.Running}}", "--", name],
+            capture_output=True,
+            text=True,
+            timeout=_REAP_WAIT_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        logger.warning("docker kill left container %s state uncertain; removing as fallback", name)
         fallback = True
-    if not fallback:
-        try:
-            probe = subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
-                [docker_path, "inspect", "-f", "{{.State.Running}}", "--", name],
-                capture_output=True,
-                text=True,
-                timeout=_REAP_WAIT_TIMEOUT,
-            )
-        except (OSError, subprocess.TimeoutExpired):
-            logger.warning("docker kill left container %s state uncertain; removing as fallback", name)
-            fallback = True
-        else:
-            # ``--rm`` 容器被杀后自行删除，inspect 必然 ``No such object``（rc=1）——
-            # 这是**清理已达成**，不是「状态不确定」，不得据此重复 rm -f（否则会撞上
-            # daemon 的删除锁白等满 _REAP_WAIT_TIMEOUT 并打出一条假 traceback）。
-            if _is_gone(probe.returncode, probe.stderr):
-                return
-            fallback = probe.returncode != 0 or probe.stdout.strip() != "false"
+    else:
+        # ``--rm`` 容器被杀后自行删除，inspect 必然 ``No such object``（rc=1）——清理已达成。
+        if _is_gone(probe.returncode, probe.stderr):
+            return
+        fallback = probe.returncode != 0 or probe.stdout.strip() != "false"
+
     if not fallback:
         return
     logger.warning("docker kill left container %s alive or uncertain; issuing docker rm -f fallback", name)
@@ -203,7 +203,6 @@ def _docker_kill(docker_path: str, name: str) -> None:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         # 不带 exc_info：清理失败是兜底动作的留痕，打印整段 traceback 会让人误判成程序崩溃。
-        # 异常类型与消息已经足够定位（有界超时 vs daemon 失联）。
         logger.warning("docker rm -f %s also failed; container may be orphaned (%s: %s)", name, type(exc).__name__, exc)
 
 
@@ -253,6 +252,7 @@ class DockerRunner:
         digest: str | None = None,
         memory_limit_mb: int = 0,
         nproc_limit: int = 0,
+        max_cleanup_concurrency: int = 2,
     ) -> None:
         self._docker_path = docker_path
         self._image = image
@@ -263,6 +263,9 @@ class DockerRunner:
         self._nproc_limit = nproc_limit
         self._probe_cache: bool | None = None
         self._digest_checked = False
+        # 限制同时进行的 docker kill/rm-f 并发数：Windows 命名管道并发压力下多个清理操作
+        # 同时排队会让每条都等满超时；串行清理避免堆积（2 条并发是合理上限，单条显著慢）。
+        self._cleanup_sem = asyncio.Semaphore(max_cleanup_concurrency)
 
     @property
     def available(self) -> bool:
@@ -327,14 +330,16 @@ class DockerRunner:
         proc = await asyncio.to_thread(_docker_spawn, argv)
 
         async def kill_and_reap(catch: type[BaseException], label: str) -> None:
-            try:
-                await asyncio.to_thread(_docker_kill, self._docker_path, name)
+            # 串行化清理：并发清理操作在 Windows 命名管道上互相拖慢，限流后排队执行。
+            async with self._cleanup_sem:
                 try:
-                    await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=_REAP_WAIT_TIMEOUT)
+                    await asyncio.to_thread(_docker_kill, self._docker_path, name)
+                    try:
+                        await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=_REAP_WAIT_TIMEOUT)
+                    except catch:
+                        logger.debug("%s cleanup: wait failed", label, exc_info=True)
                 except catch:
-                    logger.debug("%s cleanup: wait failed", label, exc_info=True)
-            except catch:
-                logger.debug("%s cleanup: kill/wait failed", label, exc_info=True)
+                    logger.debug("%s cleanup: kill/wait failed", label, exc_info=True)
 
         try:
             stdout, stderr = await asyncio.wait_for(
