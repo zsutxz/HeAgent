@@ -614,10 +614,11 @@ development_status:
   # 新工具 fact_compact（tools/builtins/，留底先行 + atomic_update_text compare-after-read +
   # memory_compact_enabled 默认 False 工具层 fail-closed）；dreamer 白名单最小扩展；
   # system prompt 超预算口径同步（D1–D8 冻结决策见 epic 目录 epics.md）。
-  epic-59: in-progress  # 2026-10-29 立项即开工：59-1/59-2 同日交付（fb3475d/84452a6/eb36ea5），评审修复后转 done（a8b0fc6/99dba35/361e8e0），retro 随后
+  epic-59: in-progress  # 2026-10-29 立项即开工：59-1/59-2 同日交付（fb3475d/84452a6/eb36ea5），评审修复后转 done（a8b0fc6/99dba35/361e8e0），retro 随后；2026-10-30 post-retro 追加 59-3
   59-1-fact-compact-tool: done  # 2026-10-29：memory/compact.py 写侧唯一入口（留底先行 + compare-after-read + AC5 顺序化判重）+ 工具层 fail-closed；ecc:code-reviewer 终态评审 0 CRITICAL（HIGH=归档锁竞争已修 a8b0fc6）；全量 4200 passed
   59-2-dream-compact-wiring: done  # 2026-10-29：dream prompt 指令段 + 白名单 + drain 窗口归属 → dream_end compact 统计 + system_prompt 条件化标注；与 59-1 同批评审同判据
-  epic-59-retrospective: done
+  59-3-recency-first-memory-order: in-progress  # 2026-10-30 post-retro 追加并当日开工（短暂立项 epic-60 同日转回）：读序翻转 保头截尾→最新优先（_fit_facts + 省略标注 + auto_archive 去 CORE_FACTS_TO_KEEP + 指令补写 + compact.py:198 注释一致化 + 文档同步）；D9–D13 见 epics.md §Story 59.3
+  epic-59-retrospective: done  # 2026-10-29：accepted-with-open-items；覆盖面仅 59-1/59-2，59-3 为 post-retro 追加（retro 文档有追记）
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
     epic: 52

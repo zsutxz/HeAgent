@@ -80,6 +80,7 @@ MEMORY.md 超注入预算后不再只能手动整理：dream 在离线时段（i
 |----|------|----|------|
 | 59-1 | memory 域 `fact_compact` 工具（留底先行 + 并发安全） | `tools/builtins/` + `config/`（开关） | 无 |
 | 59-2 | dream 接线 + 开关 + 口径收口 | `memory/dream.py` + `pub/roles.py` + `agent/system_prompt.py` + docs | 59-1 |
+| 59-3 | memory 读序翻转：最新优先注入 + auto_archive 同步（post-retro 追加，2026-10-30） | `agent/system_prompt.py` + `memory/auto_archive.py` + `memory/dream.py` + `tools/builtins/memory.py` + docs | 59-1 / 59-2 |
 | 收口 | 全量门禁 + sprint-status 回写 + 周期归档 | — | 59-1 / 59-2 |
 
 ### FR Coverage Map
@@ -153,3 +154,27 @@ So that MEMORY.md 注入预算自愈，无需手动整理。
 **AC7 门禁** 新增测试全绿 + `ruff check` / `mypy` 通过。
 
 **收口** 全量门禁 + `sprint-status.yaml` 回写 + 周期目录归档（epic-58 同款）。
+
+### Story 59.3: memory 读序翻转——最新优先注入 + auto_archive 同步 + 压缩指令补写（post-retro 追加，2026-10-30）
+
+> 追加缘由：epic-59 收尾复核发现 `compact.py:198` 注释矛盾（「尾部最可能保留」与 `_fit_facts`
+> 保头截尾相反，审查漏网）；端到端实证确认后，用户裁定**翻转读序**而非改注释——翻转后注释论证
+> 自动成立。本 story 属读序/淘汰序（与 59-1/59-2 的写侧压缩分属两侧），因缺陷归属与 retro item-11
+> 顺带闭环而留在本 epic 名下；曾短暂立项 epic-60，同日转回（目录已删）。
+
+| ID | 决策 | 理由 / 代价 |
+|----|------|-------------|
+| D9 | 注入选取**从尾部倒装**：预算内保留最新后缀、省略最旧前缀；`<memory>` 块内**展示保持文件序**（旧→新） | 「合并历史、保留最新的」（用户 2026-10-30 裁定）；对齐主流 recency-first；代价：头部整理约定失去位序保护 |
+| D10 | **不做**「头部 N 条钉住」折中，头部无保护位 | 用户明确接受（暴露冲突而非折中——纯序立场，不混合） |
+| D11 | auto_archive 同步翻转：删 `CORE_FACTS_TO_KEEP` 头部钉住，保留=装进 trigger 预算的最新后缀、归档=最旧前缀 | 与 D9 同一价值序；留底先行 + 比较后写 + fail-soft 契约不变 |
+| D12 | 压缩指令补写：「优先合并较旧的历史条目，保留最新表述」进 `_COMPACTION_DIRECTIVE` 与 `fact_compact` description | 「合并历史」语义落进 LLM 选择面；description 是写侧唯一闸门 |
+| D13 | `compact_facts` 执行语义**零改动**；仅 `compact.py:198` 注释与新序一致化 | 注释矛盾由读序翻转自然消解；59-1 交付行为不回归 |
+
+**机制后果（冻结认知）**：新序下超预算时最旧前缀是「黑暗区」——合并黑暗区条目**不增加注入面**；
+merge 的注入增益 = 把全文件总字节拉回预算内（轻度超预算有效，重度超预算只改善盘面卫生）。
+
+**AC**：AC1 注入选取翻转（保尾/省旧/返回文件序/budget<=0 不限/整条注入或省略）；AC2 省略标注「较旧」+
+remediation 两态不变；AC3 auto_archive 新序（无钉住/留底先行/比较后写/fail-soft/开关禁用）；
+AC4 指令补写触达模型；AC5 compact.py:198 注释一致化且 compact 全 AC 不回归；AC6 文档同步
+（frame.md/iteration.md/注释 grep 无旧口径残留）；AC7 全门绿。
+判据与交付面明细见 `stories/59-3-recency-first-memory-order.md`。
