@@ -21,6 +21,9 @@ if TYPE_CHECKING:
     from heagent.config import Settings
     from heagent.pub.types import StreamEvent, TokenUsage
 
+#: cron 结果终端回显的正文上限（Epic 58 D6）：单行展示，超出截断加省略号。
+CRON_ECHO_MAX_CHARS = 500
+
 
 def echo_sandbox_hint(backend: str | None, settings: Settings, *, install_hint: bool = False) -> None:
     """沙箱后端启动提示（CLI / GUI 入口共用）。
@@ -81,6 +84,24 @@ def echo_web_entry_overrides(*, http_disabled: bool, ws_disabled: bool) -> None:
     skipped = " + ".join(name for name, off in (("HTTP", http_disabled), ("WS", ws_disabled)) if off)
     tail = "（本进程零监听）" if http_disabled and ws_disabled else ""
     click.echo(f"[web] {skipped} entry disabled by CLI flag for this process{tail}", err=True)
+
+
+def echo_cron_result(job_id: str, status: str, text: str) -> None:
+    """终端回显一条 cron 结果（Epic 58 D6）：stderr、单行、带 ``[cron <job_id>]`` 前缀。
+
+    为什么是 **stderr**：``--json``（单次模式）下 stdout 是 JSONL 契约，最终答案经
+    ``assistant_message`` 事件交出；回显若走 stdout 就会污染管道消费方。交互模式虽无 ``--json``，
+    两模式共用同一实现，只留一处口径。
+
+    ``status`` 取 ``completed`` / ``failed``（``CronResultStatus`` 的值）：失败时前缀后加
+    ``failed:``，让「跑完了但没结果」在终端一眼可分辨，且仍然只占一行。正文按
+    :data:`CRON_ECHO_MAX_CHARS` 截断、换行折成 ``⏎``——后台输出再长也不该把终端刷屏。
+    """
+    body = text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", " ⏎ ")
+    if len(body) > CRON_ECHO_MAX_CHARS:
+        body = body[:CRON_ECHO_MAX_CHARS] + "…"
+    prefix = f"[cron {job_id}]" if status == "completed" else f"[cron {job_id}] failed:"
+    click.echo(f"{prefix} {body}".rstrip(), err=True)
 
 
 def _current_version() -> str:

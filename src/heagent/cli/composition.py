@@ -47,6 +47,7 @@ from heagent.skills.skill_store import default_skill_roots
 from heagent.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
+    from heagent.cli.wiring import CronNotifier
     from heagent.context.session import SessionStore
     from heagent.providers.base import BaseProvider
 
@@ -91,6 +92,7 @@ def _build_loop(
     profile: ProfileStore | None = None,
     soul: SoulStore | None = None,
     enable_cron: bool = True,
+    cron_notifier: CronNotifier | None = None,
 ) -> tuple[AgentLoop, CronScheduler | None]:
     """Build the loop runtime and optional cron scheduler.
 
@@ -143,6 +145,7 @@ def _build_loop(
             window_reset=window_reset,
             context_dir=str(paths.root),
             subagent_announcer=SUBAGENT_ANNOUNCER,
+            cron_notifier=cron_notifier,
         )
         scheduler = CronScheduler(
             cron_store,

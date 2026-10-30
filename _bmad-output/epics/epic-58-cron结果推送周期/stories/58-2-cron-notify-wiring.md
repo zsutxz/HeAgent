@@ -2,7 +2,7 @@
 title: '58-2 入口接线：两个变量 + cron notifier + 终端回显 + 文档/契约收口'
 type: 'feature'
 created: '2026-10-28'
-status: 'backlog'
+status: 'ready-for-dev'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'a372f2b80ce308b81426be82c361827c12912676'
@@ -92,15 +92,15 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `config/__init__.py` + `config/catalog.py` + `.env.example` 两键落地
-- [ ] `.env` 追加两键（**字节级**：先 `read_bytes` 复核行数 / EOL / BOM / 末行换行，只追加不重排，
+- [x] `config/__init__.py` + `config/catalog.py` + `.env.example` 两键落地
+- [x] `.env` 追加两键（**字节级**：先 `read_bytes` 复核行数 / EOL / BOM / 末行换行，只追加不重排，
       写回保持原 EOL 与末行状态；报告给出精确到行的 diff）
-- [ ] `cli/http.py` 中枢构造 + `EmbeddedHttpService.notification_hub` + 对外 listener WARNING
-- [ ] `cli/display.py::echo_cron_result`
-- [ ] `cli/interactive.py::_build_cron_notifier` + 传参
-- [ ] `cli/composition.py` / `cli/wiring.py` 透传与发布点
-- [ ] 新测试两份 + 装配判据
-- [ ] 文档三处同步（AGENTS / frame / deploy）
+- [x] `cli/http.py` 中枢构造 + `EmbeddedHttpService.notification_hub` + 对外 listener WARNING
+- [x] `cli/display.py::echo_cron_result`
+- [x] `cli/interactive.py::_build_cron_notifier` + 传参
+- [x] `cli/composition.py` / `cli/wiring.py` 透传与发布点
+- [x] 新测试两份 + 装配判据
+- [x] 文档三处同步（AGENTS / frame / deploy）
 
 **Acceptance Criteria:**
 - Given push=true、echo=false，when 一次 cron 执行完成，then 已连接客户端收到
@@ -132,8 +132,31 @@ context: []
 4. ≤60s 内应收到一条 `cron_result`；终端同时出现一行 `[cron <job_id>] hello`
 5. 判据分层：有 `[accepted]` 无帧 = 发布点没接上；无 `[accepted]` = 路由没注册（flag 没生效）
 
-**实测结果（待填）:**
-- （实现会话填写）
+**实测结果（2026-10-30，容器 `py311-venv-linux`，`PYTHONPATH=/workspace/src`）:**
+
+| 命令 | 实测 |
+|------|------|
+| `pytest -q`（全量，终态） | **4187 passed, 50 skipped, 25 deselected**，6 分 10 秒 |
+| `pytest -q --cov`（覆盖率门限 87%，终态） | **92.46%**，同 4187 passed |
+| `pytest tests/test_cron_notify.py tests/test_cli_cron_echo.py tests/network/test_notification_cron_e2e.py -q` | **22 passed**（6 + 14 + 2） |
+| `pytest tests/test_config.py tests/test_config_catalog.py tests/test_architecture_contracts.py tests/network -q` | **666 passed** |
+| `ruff check src tests` | All checks passed |
+| `ruff format --check src tests` | 360 files already formatted |
+| `mypy src` | Success: no issues found in 177 source files |
+| `bandit -r src/ -ll` | No issues identified（High/Medium 0） |
+| `.env` 字节级追加 | 46 → 49 行；`eol=LF (crlf=0)` 保持；`bom=False`；`trailing_newline=False` 保持；见下 |
+
+`.env` 追加内容（精确到行，既有 46 行零改动）：
+
+```
+47: # cron 结果推送（Epic 58）：推送 / 终端回显（两个独立开关）
+48: CRON_PUSH_ENABLED=True
+49: CRON_ECHO_TO_TERMINAL=True
+```
+
+**未做的一步（需用户在场）**：真实进程手工验收。本机活进程 `logs/heagent-20261030-140420.log`
+的 PID 于 14:04 启动，`Settings` 已固化 ⇒ 新键不生效；须重启 `heagent` 交互进程后再连
+`ws(s)://127.0.0.1:9901/api/notifications/ws` 验收（判据分层见本文末）。
 
 ## Spec Change Log
 
@@ -142,6 +165,86 @@ context: []
 ## Implementation Notes
 
 <!-- Agent-owned. Append-only during implementation. -->
+
+### 2026-10-30 根因取证：App 零投递 = 本 story 未实现（58-1 无发布方 + 中枢未装配）
+
+**现象（用户观测）**：cron `1661798f` 每分钟正常产出 hello；App 推送连接「在线」且横跨多次触发；会话零投递。
+
+**结论**：客户端与 cron 都不是主因。断点两处，全落在本 story 的交付范围。
+
+**断点 A —— `/api/notifications/ws` 在生产装配里根本不注册**
+
+- `cli/http.py:549`、`cli/http.py:552`：`build_ws_servers` 构造 `WsServer(primary, run_service=..., cli_hub=hub)` 与
+  `WsServer(external, run_service=...)`，**两处都不传** `notification_hub`。
+- `network/ws_host.py:229`：`if notification_hub is not None:` 才注册 `/api/notifications/ws`；为 `None` 时路由表中无此条。
+- 全仓 `NotificationHub(...)` 实例化点**仅存在于 tests**（`tests/network/test_notification_hub.py`、
+  `test_notification_ws_e2e.py`），生产代码零处。
+- 后果：客户端连该路径拿到 uvicorn 在「应用未 accept」时补的 **403**（不是应用层 404；
+  `tests/network/test_cli_ws_e2e.py:168-179` 已钉此口径）。
+
+**断点 B —— 即使中枢装上，也没有任何东西往里发布**
+
+- `network/notification_hub.py:51` 的 `publish_cron_result`：调用方只有 tests，**生产零调用**。
+- `cli/wiring.py:383` 的 `_run_job`：`await loop.run(prompt)` 的返回值直接丢弃（`AgentLoop.run` 声明返回
+  `str`，`agent/loop.py:244-259`），runner 签名仍是 `-> None`。
+- `cron/scheduler.py:166`：只把结果写成 engine 事件 `cron_job_started` / `cron_job_completed` / `cron_job_failed`，
+  从不进通知中枢；失败路径同样无通知。
+
+**实测证据（活进程 `logs/heagent-20261030-140420.log`，325 行）**
+
+| 判据 | 实测 |
+|------|------|
+| listener 数量 | 1 条，`L5 ws event=started address=127.0.0.1:9901 listener=local tls=wss` |
+| cron `1661798f` 触发 | 3 次且全成功：`14:14:39` → `14:15:43` → `14:16:44`（均带 `cron_job_completed`） |
+| 另一 job `3055f010` | `14:15:41` 起跑、`14:15:43` 完成 |
+| `notification_ws_open` 计数 | **0** |
+| `/api/notifications/ws` 真实握手 | 近期 5 个日志中命中 4 次，**全部是排查工具调用回显**，零次真实握手 |
+| 被 accept 的端点 | 仅 `/api/cli/ws`（14:04:25、14:04:41）与 `/api/runs/ws`、`/api/runs/<id>/ws` |
+
+⇒ 「App 在线」不可能建立在 `/api/notifications/ws` 上（路由不存在，握手必 403）；若 App 连的是
+`/api/runs/ws`，它确实在线，但按 epic D1 **设计上永远收不到 cron 帧**。
+
+**本 story 的闭合判据（除 AC 外新增两条回归防线）**
+
+1. 装配判据：`CRON_PUSH_ENABLED=true` 时，`build_ws_servers` 返回的**每一个** `WsServer.notification_hub`
+   非 `None`，且 `build_ws_app` 的路由集合包含 `/api/notifications/ws`。
+2. 发布判据：一次真实 cron 执行（stub runner 的 `loop.run` 返回 `"hello"`）后，订阅者收到
+   `status=completed, text=hello`——即「`loop.run` 的返回值必须流到 `publish_cron_result`」这条链有断言。
+
+### 2026-10-30 实现记录（58-2 落地）
+
+**改动清单（按层）**
+
+| 文件 | 改动 |
+|------|------|
+| `config/__init__.py` | `cron_push_enabled` / `cron_echo_to_terminal` 两字段，默认 `False`（不改变现行为） |
+| `config/catalog.py` | `cron` 组 keys 由 1 条扩到 3 条 ⇒ 两键**可写**（`whitelist()` 49 → 51） |
+| `.env.example` | 第 10 段补两键说明（含「失败也送达」「goal 推进不发」） |
+| `.env`（本机） | 字节级追加第 47–49 行；LF / 无 BOM / 末行无换行 全部保持 |
+| `cli/http.py` | `build_ws_servers(..., push_enabled=None)` 三态；push 真才建 `NotificationHub` 并挂**每个** listener；对外 listener 存在时打 `ws event=cron_push_exposed`；`EmbeddedHttpService.notification_hub`（只读属性）；`build_http_service` 抬中枢 |
+| `cli/wiring.py` | `CronNotifier` 类型 + `build_cron_job_runner(..., cron_notifier=None)`；`_run_job` 改为 `answer = await loop.run(prompt)` → `_notify(COMPLETED, answer)`；异常路径 `_notify(FAILED, 首行)` 后 **继续上抛**；`_notify` 单点 try/except（warning 后丢弃）；`_first_line` 叶子函数 |
+| `cli/composition.py` | `_build_loop(..., cron_notifier=None)` 透传给 runner |
+| `cli/interactive.py` | `_build_cron_notifier(service, config)`（两开关扇出；push 无中枢时 warning）；`_run_chat` 经 `ensure_runtime_config(engine)` 快照构造后传入 |
+| `cli/display.py` | `CRON_ECHO_MAX_CHARS = 500` + `echo_cron_result(job_id, status, text)`（stderr / 单行 / `[cron <job_id>]` / `failed:` / 截断） |
+| 测试 | 新增 `tests/test_cron_notify.py`(6)、`tests/test_cli_cron_echo.py`(14)、`tests/network/test_notification_cron_e2e.py`(2)；`tests/conftest.py` 的 `_StubEmbeddedHttp` 补 `cli_hub` / `notification_hub` 两属性（与真实服务同形）；`tests/test_config_catalog.py` 白名单计数 49 → 51 |
+
+**story 之外的四处补充（都属「不补就是假可用」类）**
+
+1. `build_ws_servers` 增 `push_enabled: bool | None` 三态覆盖（与 `cli_bypass` / `enabled` 同风格）：
+   装配判据与 `http-server` 都需要在不改 Settings 的前提下开关中枢。
+2. `heagent http-server` 显式传 `push_enabled=False`：该入口 `enable_cron=False`，中枢建了也永远不会
+   有帧——注册一条永不投递的端点正是本 story 要消灭的那类假可用。
+3. `_build_cron_notifier` 在「开了推送但本进程没有中枢」（`WS_ENABLED=false` / `--no-ws`）时打 warning：
+   默认的静默失败正是本次故障的形态。
+4. `tests/conftest.py` 的替身补两个中枢属性：否则每次交互模式测试都会走进那条 warning（噪声假红风险）。
+
+**明确的未覆盖项（设计取舍，不是遗漏）**
+
+- `heagent gui`（TUI）入口**不接** notifier：该入口不构造 HTTP/WS 服务（无中枢 ⇒ 推送无从谈起），
+  且在没有 TTY 语义的 Textual 界面里往 stderr 回显会破坏渲染。结果：`heagent gui` 里的 cron
+  既不推送也不回显。若将来 TUI 也要这条能力，落点是 `GuiState` 的通知区而不是 stderr。
+- 通知载荷的 `cron`（表达式）字段当前恒为空串：`cron/scheduler.py` 的 `create_run_context` metadata
+  只写 `job_id`，而本 story 的 Never 明确不改 scheduler；要补需先改约束（一处 metadata 增键）。
 
 ## Review Triage Log
 

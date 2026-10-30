@@ -817,6 +817,8 @@ HeAgentError (base)
 | `skill_curator_stale_days` | 30 | `skill_curate` 未显式传 `days` 时的过期天数默认值 |
 | `cron_enabled` | True | 是否启用 cron 调度 |
 | `cron_tick_seconds` | 60 | 调度器检查间隔（秒） |
+| `cron_push_enabled` | False | 是否把 cron 每轮终局推送到 `WS /api/notifications/ws`（Epic 58；默认关 ⇒ 中枢不建、端点不注册）。与 `cron_echo_to_terminal` **互相独立** |
+| `cron_echo_to_terminal` | False | 是否在终端 stderr 回显一行 `[cron <job_id>] …`（Epic 58；单行、`\n` 折成 `⏎`、500 字符截断；不碰 stdout 的 JSONL 契约） |
 | `dream_enabled` | False | 是否启用 dreaming（离线记忆巩固，opt-in；无人监督后台跑+联网+改持久记忆） |
 | `dream_cron` | `0 3 * * *` | dream cron 触发表达式（构造期 fail-fast 校验，须 5 字段） |
 | `dream_idle_minutes` | 30 | dream idle 触发阈值（分钟，距上次 run 结束；0=禁用 idle 触发） |
@@ -1358,7 +1360,10 @@ cron 作业由后台调度器跑（`cron/scheduler.py`），一轮执行只有�
 判据：`tests/network/test_event_stream_hub.py`（10 例：通用核 seq / 窗口 / 背压 / 关停）、
 `tests/network/test_notification_hub.py`（7 例：载荷 / 跨作业单调 / 文本有界）、
 `tests/network/test_notification_ws_e2e.py`（8 例：真实 TCP + 真 websockets 客户端）、
-`tests/test_architecture_contracts.py`（端点集封闭契约：多一条端点必须走 story 评审）。
+`tests/test_architecture_contracts.py`（端点集封闭契约：多一条端点必须走 story 评审）、
+`tests/test_cron_notify.py`（6 例：发布点——最终答案 / 失败首行 + 异常上抛 / goal 分支零通知 / 通知器故障隔离）、
+`tests/test_cli_cron_echo.py`（14 例：两开关四组合 + 回显形态 + 装配判据「中枢挂每个 listener、路由随开关注册」）、
+`tests/network/test_notification_cron_e2e.py`（2 例：**整链**——真 AgentLoop(stub provider) → runner → notifier → 中枢 → 真实 TCP → 真 websockets 客户端，成功与失败各一条）。
 
 ### 4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)
 
@@ -1420,7 +1425,8 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
    可被中间人观察）；浏览器 WebSocket API 无法自定义请求头 ⇒ 对外模式**不适用**于浏览器页面。
 5. **端点可见性**：**HTTP listener 没有对外模式**（恒按本地模式口径对待，不得绑公网）；终端旁路
    `/api/cli/ws` **只**挂本地 listener（任何对外 listener 恒不注册）；只读通知流 `/api/notifications/ws`
-   （Epic 58）随 listener 注册，**对外 listener 上同样可见**（token 之后）。
+   （Epic 58）随 listener 注册，**对外 listener 上同样可见**（token 之后）——但**仅当**
+   `CRON_PUSH_ENABLED=true` 建起中枢时注册；关闭（默认）则路由不存在，客户端拿裸 403。
 6. **已知缺口与台账指针**：缺口清单落 `_bmad-output/implementation-artifacts/deferred-work-archive.md`
    与本文件「五、已知缺口」，**本节不复述**；本节只裁定边界地位，**不宣告任何缺口已闭合**。
 ## 五、已知缺口

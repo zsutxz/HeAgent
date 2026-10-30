@@ -326,7 +326,13 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
             "MEMORY_ARCHIVE_MIN_INTERVAL_SECONDS",
         ),
     ),
-    ConfigGroupSpec(id="cron", label="定时调度", keys=("CRON_TICK_SECONDS",)),
+    ConfigGroupSpec(
+        id="cron",
+        label="定时调度",
+        # 结果推送两键（Epic 58 D4）：与 tick 同组可见可写——「调度」这件事的两端：
+        # 多久扫一次（tick）与扫完把结果送哪里去（push / echo）。
+        keys=("CRON_TICK_SECONDS", "CRON_PUSH_ENABLED", "CRON_ECHO_TO_TERMINAL"),
+    ),
     ConfigGroupSpec(
         id="observability",
         label="日志与观测",

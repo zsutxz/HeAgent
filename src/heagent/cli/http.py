@@ -45,6 +45,7 @@ from heagent.network.http_server import (
     HttpServerConfig,
     HttpStartupError,
 )
+from heagent.network.notification_hub import NotificationHub
 from heagent.network.ws_host import CLI_WS_PATH, WsConfigError, WsServer, WsServerConfig, WsStartupError
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.workspace import WorkspacePaths
@@ -202,6 +203,7 @@ class EmbeddedHttpService:
         ws_servers: WsServer | tuple[WsServer, ...],
         *,
         cli_hub: Any | None = None,
+        notification_hub: Any | None = None,
     ) -> None:
         self._http = http_server
         # 单 listener（期一形态）与多 listener（期二双监听）同一入口：接受单个实例或元组，
@@ -213,6 +215,10 @@ class EmbeddedHttpService:
         # CLI 旁路中枢（Epic 55，Epic 56 D7 起宿主 = WS listener）：``None`` = 未开启**或**
         # 因 listener 身份被跳过（D9：对外 listener 不提供终端观众席）。
         self._cli_hub = cli_hub
+        # cron 结果通知中枢（Epic 58）：``None`` = CRON_PUSH_ENABLED=false（端点未注册）。它不是
+        # listener 的私有状态——中枢由 `build_ws_servers` 建一份并挂到每个 listener，这里只是把它
+        # 抬到「服务单元」这一层，供入口层构造的 cron notifier 发布。
+        self._notification_hub = notification_hub
         self._tasks: list[asyncio.Task[None]] = []
         self._failure: BaseException | None = None
         self._closed = False
@@ -245,6 +251,11 @@ class EmbeddedHttpService:
     def cli_hub(self) -> Any | None:
         """CLI 旁路中枢（未开启时为 ``None``）；入口层据此把终端 run 的事件发出来。"""
         return self._cli_hub
+
+    @property
+    def notification_hub(self) -> Any | None:
+        """cron 结果通知中枢（``CRON_PUSH_ENABLED=false`` 时为 ``None``）；入口层据此构造 notifier。"""
+        return self._notification_hub
 
     @property
     def is_dormant(self) -> bool:
@@ -497,6 +508,7 @@ def build_ws_servers(
     external_host: str | None = None,
     external_port: int | None = None,
     external_readonly: bool | None = None,
+    push_enabled: bool | None = None,
 ) -> tuple[tuple[WsServer, ...], CliEventHub | None]:
     """构造 1–2 个 WS listener 与**实际挂载**的 CLI 旁路中枢（Epic 56 期二 D8/D9/D12）。
 
@@ -512,6 +524,10 @@ def build_ws_servers(
 
     D9 连带收紧：旁路只在**本地模式**的主 listener 上挂载。期一允许「``WS_HOST=0.0.0.0`` +
     ``WS_CLI_BYPASS_ENABLED=true``」把终端事件流推到对外 listener，期二起改为跳过并 WARNING。
+
+    ``push_enabled``（Epic 58）缺省取 ``settings.cron_push_enabled``：为真时建一个
+    :class:`NotificationHub` 挂到**每个** listener（``WsServer.notification_hub``）——返回形状
+    因此保持不变（中枢由调用方经 ``servers[i].notification_hub`` 取出再交给服务单元）。
     """
     if not (settings.ws_enabled if enabled is None else enabled):
         # WS_ENABLED=false（或 --no-ws）：不构造任何 WS listener（旁路中枢也无从挂载）。
@@ -546,10 +562,26 @@ def build_ws_servers(
                 "hint=the CLI event stream is served only on a loopback listener",
                 primary.host,
             )
-    servers = [WsServer(primary, run_service=run_service, cli_hub=hub)]
+    # Epic 58 D2/D4：`CRON_PUSH_ENABLED=true` 才建中枢 ⇒ 否则 `/api/notifications/ws` 连路由都不注册
+    # （客户端拿 403，而不是「连上了但永远没帧」这种假可用）。中枢按 listener 数共用一份：
+    # seq / 环形缓冲 / 订阅者都是进程级状态，两条 listener 各建一份会把游标语义拆散。
+    push = settings.cron_push_enabled if push_enabled is None else push_enabled
+    notification_hub: NotificationHub | None = (
+        NotificationHub(max_connections=primary.ws_max_connections) if push else None
+    )
+    if notification_hub is not None and external is not None:
+        # D2 已接受这个代价，但必须可见：对外 listener 上送的是宿主 cron 的 LLM 输出。
+        _safe_log(
+            logging.WARNING,
+            "ws event=cron_push_exposed host=%s hint=cron results are served on the external "
+            "listener too; keep CRON_PUSH_ENABLED=false or narrow WS_EXTERNAL_HOST to avoid it",
+            external.host,
+        )
+    servers = [WsServer(primary, run_service=run_service, cli_hub=hub, notification_hub=notification_hub)]
     if external is not None:
-        # 对外 listener 永不带 hub（D9）：即使主 listener 那条被跳过也一样。
-        servers.append(WsServer(external, run_service=run_service))
+        # 对外 listener 永不带 CLI 旁路（D9）：即使主 listener 那条被跳过也一样。
+        # 通知中枢则相反——**每个** listener 都挂（Epic 58 D2：对外已有 token 认证，不再叠模式判据）。
+        servers.append(WsServer(external, run_service=run_service, notification_hub=notification_hub))
     return tuple(servers), hub
 
 
@@ -627,7 +659,10 @@ def build_http_service(
         )
     # 1–2 个 WS listener（期二双监听）+ 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
     ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service, enabled=ws_on)
-    return EmbeddedHttpService(http_server, ws_servers, cli_hub=cli_hub)
+    # 通知中枢的真源同样在 build_ws_servers（同一份挂到每个 listener）：这里只把它抬到服务单元，
+    # 供入口层构造的 cron notifier 发布。没有任何 listener ⇒ 无中枢。
+    notification_hub = ws_servers[0].notification_hub if ws_servers else None
+    return EmbeddedHttpService(http_server, ws_servers, cli_hub=cli_hub, notification_hub=notification_hub)
 
 
 def embedded_http_error_message(exc: BaseException) -> str | None:
@@ -896,11 +931,14 @@ def http_server_cmd(
         )
     try:
         # 期二 D8/D9/D12：主 listener + 可选对外 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
+        # Epic 58：本进程**没有 cron**（`enable_cron=False`），中枢建了也永远不会有帧 ⇒ 显式不建，
+        # 免得客户端连上一条永不投递的「假可用」流。
         ws_servers, _hub = build_ws_servers(
             settings,
             run_service=run_service,
             cli_bypass=False,
             enabled=ws_on,
+            push_enabled=False,
             host=ws_host,
             port=ws_port,
             max_connections=ws_max_connections,

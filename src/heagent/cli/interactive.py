@@ -42,6 +42,7 @@ from heagent.cli.display import (
     _LineState,
     _print_stream_event,
     _print_usage,
+    echo_cron_result,
     echo_web_entry_overrides,
     show_deferred_work,
     show_tool_activity,
@@ -49,6 +50,7 @@ from heagent.cli.display import (
 from heagent.cli.goal import _goal_runner
 from heagent.cli.slash import SlashRegistry, load_custom_commands
 from heagent.cli.terminal import KeyInterruptMonitor
+from heagent.cli.wiring import ensure_runtime_config
 from heagent.config import GLOBAL_CONFIG_DIR, Settings, get_settings
 from heagent.context.session import SessionStore
 from heagent.context.tokens import count_tokens
@@ -69,8 +71,11 @@ if TYPE_CHECKING:
     from contextlib import AbstractAsyncContextManager
 
     from heagent.agent.loop import AgentLoop
+    from heagent.cli.wiring import CronNotifier
+    from heagent.config import ResolvedRuntimeConfig
     from heagent.cron.jobs import JobStore
     from heagent.network.cli_event_hub import CliEventHub
+    from heagent.network.http_protocol import CronResultStatus
     from heagent.providers.base import BaseProvider
 
 
@@ -121,6 +126,42 @@ def _hub_call(hub: CliEventHub | None, method: str, *args: Any, **kwargs: Any) -
         getattr(hub, method)(*args, **kwargs)
     except Exception:
         safe_log(logger, logging.WARNING, "cli_ws publish failed: method=%s", method, exc_info=True)
+
+
+def _build_cron_notifier(service: Any, config: ResolvedRuntimeConfig) -> CronNotifier | None:
+    """按两个**独立**开关构造 cron 结果投递回调（Epic 58 D4/D5/D6）。
+
+    - ``cron_push_enabled``：往 ``service.notification_hub`` 发布（中枢缺席 = 本进程没有 WS listener
+      或 push 未开 ⇒ 该支路空操作）；
+    - ``cron_echo_to_terminal``：终端 stderr 回显一行（与网络侧完全独立）。
+
+    两个支路都关 ⇒ 返回 ``None``：runner 侧零开销，也不会产生任何输出（默认口径，不改变现行为）。
+    开关取值读的是 ``engine.runtime_config`` 的解析快照（与 ``composition`` 的 Phase 1 同一口径），
+    不在这里二次 ``get_settings()``。
+
+    回调本身**不**捕获异常：单次调用的隔离在 ``wiring._notify`` 里（一处兜底，cron 结果不受影响）。
+    """
+    hub = getattr(service, "notification_hub", None)
+    push = bool(config.cron_push_enabled) and hub is not None
+    echo = bool(config.cron_echo_to_terminal)
+    if bool(config.cron_push_enabled) and hub is None:
+        # 开了推送却没有中枢（WS_ENABLED=false / --no-ws / 装配未注入）：不能让用户以为「推着」。
+        safe_log(
+            logger,
+            logging.WARNING,
+            "cron_push_enabled=true but no notification hub in this process "
+            "(WS disabled or --no-ws); cron results will not be pushed",
+        )
+    if not push and not echo:
+        return None
+
+    def _notify(job_id: str, status: CronResultStatus, text: str) -> None:
+        if push and hub is not None:
+            hub.publish_cron_result(job_id=job_id, status=status, text=text)
+        if echo:
+            echo_cron_result(job_id, status, text)
+
+    return _notify
 
 
 def _listener_overrides(no_http: bool, no_ws: bool) -> dict[str, bool | None]:
@@ -331,6 +372,7 @@ async def _run_chat(
             facts=facts,
             profile=profile,
             soul=soul,
+            cron_notifier=_build_cron_notifier(http, ensure_runtime_config(engine)),
         )
         dream_scheduler = _build_dream_scheduler(settings, provider, engine, session, skills, facts, profile, soul)
         registry = _build_slash_registry(

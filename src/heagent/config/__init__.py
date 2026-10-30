@@ -219,6 +219,11 @@ class Settings(BaseSettings):
     # ---- Cron 调度参数 ----
     cron_enabled: bool = Field(default=True)
     cron_tick_seconds: int = Field(default=60, ge=10)
+    # cron 结果推送（Epic 58 D4）：两个**互相独立**的开关，默认都 False（不改变现行为）。
+    # push = 建通知中枢并把 `WS /api/notifications/ws` 挂上 listener；echo = 终端 stderr 回显一行。
+    # 可以只回显不推送（无 WS listener 的入口），也可以只推送不回显（无人值守）。
+    cron_push_enabled: bool = Field(default=False)
+    cron_echo_to_terminal: bool = Field(default=False)
 
     # ---- Dreaming（离线记忆巩固）参数 ----
     # 默认 False：无人监督后台跑 + 联网 + 改持久记忆，非安全边界（须 OS 级沙箱兜底），opt-in。

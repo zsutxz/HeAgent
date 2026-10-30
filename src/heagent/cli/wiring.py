@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from heagent.memory.facts import FactStore
     from heagent.memory.profile import ProfileStore
     from heagent.memory.soul import SoulStore
+    from heagent.network.http_protocol import CronResultStatus
     from heagent.providers.base import BaseProvider
     from heagent.pub.types import RoutingPoolSpec
     from heagent.skills import SkillStore
@@ -47,7 +48,18 @@ if TYPE_CHECKING:
     # cron job runner：(prompt, run_context) → None（Phase 2 C3 共享缝的返回类型）
     CronJobRunner = Callable[[str, RunContext], Awaitable[None]]
 
+    # cron 结果通知器（Epic 58 D5）：(job_id, status, text) → None。入口层构造（网络中枢 + 终端回显），
+    # wiring 只负责调用 —— runner 因此不认识任何网络类型，`network/` 也不必反向依赖运行栈。
+    CronNotifier = Callable[[str, "CronResultStatus", str], None]
+
 logger = logging.getLogger(__name__)
+
+
+def _first_line(exc: BaseException) -> str:
+    """异常的首个非空行（失败通知只带一行，绝不把 traceback 塞进通知流/终端）。"""
+    text = str(exc).strip()
+    return text.splitlines()[0] if text else type(exc).__name__
+
 
 # provider 条目的默认 base_url（未配置对应 *_BASE_URL 时使用）。
 _DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
@@ -344,6 +356,7 @@ def build_cron_job_runner(
     window_reset: WindowResetConfig | None = None,
     context_dir: str | None = None,
     subagent_announcer: SubAgentAnnouncer | None = None,
+    cron_notifier: CronNotifier | None = None,
 ) -> CronJobRunner:
     """构造 cron 任务的 job runner（原 cli/gui 两处 ``_run_job`` 的逐字合并，Phase 2 C3）。
 
@@ -354,13 +367,29 @@ def build_cron_job_runner(
 
     ``heagent.cli.goal`` 经函数体内惰性导入：wiring 与 cli/goal 同属入口层，但 cli/goal
     装载侧会经 wiring 建 provider，模块级互导即成环。
+
+    ``cron_notifier``（Epic 58 D5）是入口层注入的**结果投递回调**：一次执行产出**一条**通知
+    （成功带最终答案、失败带异常首行）。回调抛异常一律 warning 后丢弃——后台任务的成功与否
+    不该被「通知送不出去」改写。
     """
+
+    def _notify(run_context: RunContext, status: CronResultStatus, text: str) -> None:
+        """把一次执行的终局交给通知器；**任何**异常都不得影响 cron 执行结果。"""
+        if cron_notifier is None:
+            return
+        job_id = str(run_context.metadata.get("job_id", "") or "")
+        try:
+            cron_notifier(job_id, status, text)
+        except Exception:
+            logger.warning("cron notifier failed; notification dropped (job=%s)", job_id, exc_info=True)
 
     async def _run_job(prompt: str, run_context: RunContext) -> None:
         from heagent.cli.goal import _goal_auto_goal_id, _goal_cron_advance
+        from heagent.network.http_protocol import CronResultStatus  # noqa: PLC0415 —— 见上方惰性导入说明
 
         goal_id = _goal_auto_goal_id(prompt)
         if goal_id is not None:
+            # D5：goal 自动推进不是「给用户的回答」——不发通知（零投递、零回显）。
             await _goal_cron_advance(provider, engine, cron_store, goal_id)
             return
         loop = AgentLoop(
@@ -380,6 +409,13 @@ def build_cron_job_runner(
             run_context=run_context,
             subagent_announcer=subagent_announcer,
         )
-        await loop.run(prompt)
+        try:
+            answer = await loop.run(prompt)
+        except Exception as exc:
+            # 失败也要送达（客户端/终端需要知道「跑了但没结果」），但异常**继续上抛**：
+            # scheduler 仍要 ledger.fail + 更新 last_run（D5 只排除 goal 推进分支）。
+            _notify(run_context, CronResultStatus.FAILED, _first_line(exc))
+            raise
+        _notify(run_context, CronResultStatus.COMPLETED, answer)
 
     return _run_job

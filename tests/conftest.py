@@ -59,6 +59,9 @@ class _StubEmbeddedHttp:
         self.failure: BaseException | None = None
         self.started = False
         self.closed = False
+        # 与真实服务同形的中枢属性（Epic 58）：替身没有 listener ⇒ 两个中枢都缺席。
+        self.cli_hub: object | None = None
+        self.notification_hub: object | None = None
 
     async def start(self) -> None:
         self.started = True

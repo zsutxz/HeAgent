@@ -138,6 +138,9 @@ WS_EXTERNAL_TLS_KEY_FILE=/etc/heagent/tls/privkey.pem
 - **CLI 旁路 `/api/cli/ws` 只挂在本地 listener 上**：对外 listener 不注册该路由（终端事件可能含文件内容，
   token 只降低风险、不消除风险）。若主 listener 本身是对外模式（姿态 2/3）且打开了
   `WS_CLI_BYPASS_ENABLED`，旁路会被**跳过**并打 `ws event=cli_bypass_skipped` 告警。
+- **cron 结果通知流 `/api/notifications/ws` 两条 listener 都注册**（Epic 58 D2）：它送的是宿主自己 cron 的
+  产物，对外那条已强制 token。该端点只在 `CRON_PUSH_ENABLED=true` 时存在（默认关 ⇒ 路由不注册，客户端拿裸 403）；
+  对外可见意味着宿主 LLM 输出会离开本机，启动时打 `ws event=cron_push_exposed` 告警。
 
 ```dotenv
 # 姿态 2/3 示例：单个对外 listener（不带 TLS 时明文，启动告警）
