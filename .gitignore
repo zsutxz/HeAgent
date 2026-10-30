@@ -72,7 +72,6 @@ debug.log
 # news/ 运行产物默认忽略，仅 skill 研究报告与案例卡入库（2026-10-30）
 news/*
 !news/skillresearch.md
-!news/skill_example/
 
 # 本地独立练习仓库（llm-training，自带 .git，不入库）
 project/
