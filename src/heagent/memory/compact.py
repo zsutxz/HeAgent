@@ -195,7 +195,9 @@ def compact_facts(memory_path: Path | str, merges: Sequence[CompactMerge]) -> Co
             rejected=rejected,
         )
 
-    # ── 改写：被移除行删除，其余行原序原位（AC1）；target 追加到文件末尾（最新尾，_fit_facts 预算内最可能保留）。
+    # ── 改写：被移除行删除，其余行原序原位（AC1）；target 追加到文件末尾（尾部 = 最新 =
+    # 59-3 保尾注入序下最先注入、预算内最可能保留。59-1 时注入尚为保头截尾，此句当时与行为
+    # 相反属注释错误；59-3 读序翻转后论证成立，行为零改动）。
     kept = [line for i, line in enumerate(lines) if i not in removed_line_ids]
     new_text = "\n".join(kept)
     if new_text and not new_text.endswith("\n"):

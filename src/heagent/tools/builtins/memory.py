@@ -102,6 +102,8 @@ async def profile_update(section: str, value: str) -> str:
         "Merge semantic duplicates and outdated entries in long-term memory (MEMORY.md) to free injection budget. "
         'Pass merges=[{"sources": [exact existing entry texts], "target": rewritten single entry}]; '
         "each source must match an existing entry exactly and uniquely (never line numbers). "
+        "Prefer merging older historical entries and keep the newest wording (newest entries "
+        "survive injection priority). "
         "Removed entries are archived before MEMORY.md is rewritten, so a merge is recoverable. "
         "A target that duplicates a surviving entry (>70% word overlap) is rejected for that merge — "
         "merge conservatively: when uncertain, do not merge. "

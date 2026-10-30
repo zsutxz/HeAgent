@@ -1,4 +1,4 @@
-"""MEMORY.md 自动归档 — 超预算时把「中间的老条目」移出，保证注入不省略。
+"""MEMORY.md 自动归档 — 超预算时把「最旧前缀」移出，保证注入不省略。
 
 在 CLI 启动时调用 `maybe_archive_old_facts()`（`cli/console.py::_prune_runtime_artifacts`）。
 
@@ -11,16 +11,18 @@
    （40 个文件实为同一次写入：mtime 全等、文件头时间戳全等）。
 2. **原实现会静默丢弃内容**。重写时只保留「首个 fact 之前的行」+ fact 行，fact 之后的任何非 ``- `` 行
    （小节标题、空行）被无声删除（``elif fact_start_idx == -1``）。
-3. **触发条件与真实需要无关**。真正需要整理的唯一客观信号是「注入预算即将装不下」——``_fit_facts``
-   超预算时省略的是**最新的尾部**条目，所以必须赶在那之前把**中间的老条目**移走。
+3. **触发条件与真实需要无关**。真正需要整理的唯一客观信号是「注入预算即将装不下」——
+   ``_fit_facts`` 超预算时省略的是**最旧的前部**条目（2026-10-30 59-3 读序翻转后的口径；翻转前
+   省略的是最新尾部，当时本模块移走的是「头部钉住与尾部之间的中间段」），auto_archive 保留最新
+   后缀、移走的正是同一段最旧前缀——归档后注入不再省略。
 
 现行口径（每一条都有 ``tests/memory/test_auto_archive.py`` 的判据）：
 
 - **落点**：单一 append-only ``.heagent/memory/archive/MEMORY-archive.md``；每批一个小节，标题带
   **真实** UTC 时间戳（归档动作发生的时间）。没有真实日期可分，就不再声称有。
 - **触发**：MEMORY.md 的 fact 总字节 > ``memory_archive_trigger_bytes``（``0`` = 禁用）。
-- **保留**：前 ``CORE_FACTS_TO_KEEP`` 条（核心约定，永久保留）+ **尾部**（最新）能装进预算的那些条；
-  被移走的是两者**中间**的条目（即较老的学习记录），保持文件原序。
+- **保留**：从**最新**条目往前装、能装进 ``memory_archive_trigger_bytes`` 的**尾部后缀**；
+  被移走的是**最旧前缀**（59-3 D11：无头部钉住，``CORE_FACTS_TO_KEEP`` 已删），保持文件原序。
 - **重写**：逐行删除被移走的 fact 行，其余行（header 与任何非 fact 行）**原位保留**。
 - **并发**：MEMORY.md 的重写走 ``pub.persist.atomic_update_text``（跨进程锁 + 比较后写），
   并发 ``fact_add`` 的追加不会被整份覆盖。
@@ -43,9 +45,6 @@ from heagent.config import Settings, get_settings
 from heagent.pub.persist import atomic_update_text
 
 logger = logging.getLogger(__name__)
-
-#: 归档时永久保留的头部条目数（核心约定写在文件前部；见 MEMORY.md 头部与 ``_fit_facts``）。
-CORE_FACTS_TO_KEEP = 20
 
 #: fact 行前缀（``FactStore._parse_facts`` 的唯一判定口径）。
 _FACT_PREFIX = "- "
@@ -103,21 +102,18 @@ def _build_plan(text: str, trigger_bytes: int) -> tuple[list[str], str | None, i
     lines = text.split("\n")
     fact_indexes = [i for i, line in enumerate(lines) if line.startswith(_FACT_PREFIX)]
 
-    pinned = fact_indexes[:CORE_FACTS_TO_KEEP]
-    rest = fact_indexes[CORE_FACTS_TO_KEEP:]
-    budget = trigger_bytes - sum(_fact_line_bytes(lines[i]) for i in pinned)
-
-    keep_tail: list[int] = []
+    # 从**最新**往前装、装不下就停 ⇒ 保留最新后缀，被移走的是最旧前缀（59-3 D11：无头部钉住）。
+    keep: list[int] = []
     used = 0
-    for i in reversed(rest):  # 从**最新**往前装，装不下就停 ⇒ 被移走的是较老的那一段
+    for i in reversed(fact_indexes):
         size = _fact_line_bytes(lines[i])
-        if used + size > budget:
+        if used + size > trigger_bytes:
             break
-        keep_tail.append(i)
+        keep.append(i)
         used += size
 
-    keep = set(pinned) | set(keep_tail)
-    archived = [i for i in fact_indexes if i not in keep]
+    keep_set = set(keep)
+    archived = [i for i in fact_indexes if i not in keep_set]
     if not archived:
         return [], None, len(fact_indexes)
     removed = set(archived)

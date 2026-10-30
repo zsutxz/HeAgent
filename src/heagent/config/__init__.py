@@ -202,7 +202,7 @@ class Settings(BaseSettings):
     # ---- 记忆提醒参数 ----
     memory_nudge_enabled: bool = Field(default=True)
     # <memory> 注入字节预算（0=不限）：MEMORY.md 为 append-only 整份注入，无预算会无界增长。
-    # 超预算按文件顺序保留前部并在块尾显式标注省略数；文件本体不改，整理 MEMORY.md 即释放。
+    # 超预算从尾部倒装保留最新后缀（59-3 读序翻转）并在块尾显式标注省略数；文件本体不改，整理 MEMORY.md 即释放。
     memory_inject_max_bytes: int = Field(default=98_304, ge=0)
     # MEMORY.md fact 总字节超此值启动一次归档：中间老条目移入 archive/MEMORY-archive.md；0=禁用。
     # 按字节而非天数（事实条目无时间戳，年龄靠外推会出错）；默认 = 注入预算的一半，先修剪后省略。

@@ -45,8 +45,8 @@ def build_system_prompt(
       1. ``<identity>``    SOUL.md 人格（放在**最前**，作为基底身份）；
       2. user_system       调用方显式传入的附加系统提示词；
       3. ``<project-context>`` 项目上下文文件（受 settings.context_files_enabled 开关）；
-      4. ``<memory>``      facts 长期记忆（受 ``memory_inject_max_bytes`` 预算：超预算保留文件
-                           前部条目并在块尾显式标注省略条数）；若开启 memory_nudge 再追加
+      4. ``<memory>``      facts 长期记忆（受 ``memory_inject_max_bytes`` 预算：超预算从尾部倒装
+                           保留最新后缀，块尾显式标注省略条数）；若开启 memory_nudge 再追加
                            ``<memory-nudge>`` 提醒；
       5. ``<profile>``     用户画像；
       6. ``<shell-workspace>`` per-run 沙箱会话目录（仅在其**真正生效**时注入；见
@@ -207,8 +207,9 @@ def _memory_block(facts: FactStore | None, settings: Settings | None = None) -> 
     MEMORY.md 是 append-only、**整份**注入、且 `fact_add` 只增不减——没有预算时它会无界增长
     （2026-09-23 实测 336 KB / 170 条 = 每轮 89K token 的 SYSTEM 前缀）。超预算时：
 
-    - **按文件顺序保留前部条目**（整理后的长期约定在文件头部、会话学习记录追加在尾部），
-      故被省略的是**较新的尾部条目**；
+    - **从尾部倒装保留最新后缀**（59-3 读序翻转，D9：会话学习记录追加在尾部 = 最新增量知识
+      优先注入；代价：头部整理过的旧约定失去位序保护，最先被省略——用户 2026-10-30 接受），
+      故被省略的是**最旧的前部条目**；
     - 在块尾追加一条**省略标注**（说明省略条数、总条数与预算值），并打一条 warning——绝不静默；
     - **不改动文件本体**：超预算条目仍在盘上，`fact_add` 仍可追加，整理 MEMORY.md 即释放预算。
 
@@ -216,7 +217,7 @@ def _memory_block(facts: FactStore | None, settings: Settings | None = None) -> 
 
     标注是**陈述事实**、不是对模型的指令：`.heagent/memory/` 属内部状态，文件工具读拒
     （``path_safety.check_read_denied``），`fact_add` 亦只增不减——**模型无法用文件工具整理该文件**；
-    故标注只说明「需由用户整理」，以免诱导模型盲写整份文件（那会抹掉未注入的尾部条目）。
+    故标注只说明「需由用户整理」，以免诱导模型盲写整份文件（那会抹掉未注入的最旧条目）。
     例外（epic-59）：`memory_compact_enabled=True` 时 `fact_compact` 可合并语义重复条目
     （批量精确改写，不盲写整份），此时标注指向该机制与 dream 离线压缩。
     """
@@ -244,7 +245,7 @@ def _memory_block(facts: FactStore | None, settings: Settings | None = None) -> 
             else "该文件不对工具开放，需由用户整理以释放预算"
         )
         note = (
-            f"- （另有 {omitted} 条较新记忆未注入：MEMORY.md 共 {len(facts_list)} 条，本次注入 {len(kept)} 条；"
+            f"- （另有 {omitted} 条较旧记忆未注入：MEMORY.md 共 {len(facts_list)} 条，本次注入 {len(kept)} 条；"
             f"MEMORY_INJECT_MAX_BYTES={budget}。{remediation}）"
         )
         # 保留为空时不留空的事实行（否则块内会出现连续空行）。
@@ -254,22 +255,24 @@ def _memory_block(facts: FactStore | None, settings: Settings | None = None) -> 
 
 
 def _fit_facts(facts: list[str], budget: int) -> tuple[list[str], int]:
-    """按字节预算取文件顺序的前 N 条；``budget <= 0`` 表示不限制。返回 ``(保留, 省略数)``。
+    """按字节预算**从尾部倒装**，保留最新后缀（59-3 读序翻转）。``budget <= 0`` 表示不限制。
 
-    单条事实**要么整条注入、要么整条省略**（不截断）：一条被切掉后半句的约定比没有它更危险。
-    因此预算小于首条事实时保留为空——由调用方的省略标注如实说明。
+    返回 ``(保留, 省略数)``；保留值**保持文件序**（旧→新，D9：只翻转选取方向、不改展示序），
+    被省略的是最旧前缀。单条事实**要么整条注入、要么整条省略**（不截断）：一条被切掉后半句的
+    约定比没有它更危险。预算装不下最旧首条时保留为空——由调用方的省略标注如实说明。
     """
     if budget <= 0:
         return list(facts), 0
-    kept: list[str] = []
+    kept_reversed: list[str] = []
     used = 0
-    for fact in facts:
+    for fact in reversed(facts):
         size = len(f"- {fact}\n".encode())
         if used + size > budget:
             break
-        kept.append(fact)
+        kept_reversed.append(fact)
         used += size
-    return kept, len(facts) - len(kept)
+    kept_reversed.reverse()
+    return kept_reversed, len(facts) - len(kept_reversed)
 
 
 def _memory_nudge_block(facts: FactStore | None, settings: Settings | None = None) -> str | None:

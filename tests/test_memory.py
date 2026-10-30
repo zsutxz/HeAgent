@@ -464,7 +464,7 @@ def _facts_file(tmp_path: Path, count: int, *, size: int = 100) -> FactStore:
 
 
 class TestMemoryInjectionBudget:
-    """``<memory>`` 注入受 ``memory_inject_max_bytes`` 约束：保留前部 + 显式标注，绝不静默。"""
+    """``<memory>`` 注入受 ``memory_inject_max_bytes`` 约束：保留最新后缀（保尾）+ 显式标注，绝不静默。"""
 
     def test_zero_budget_injects_every_fact(self, tmp_path: Path) -> None:
         store = _facts_file(tmp_path, 5)
@@ -483,7 +483,7 @@ class TestMemoryInjectionBudget:
         assert len([line for line in block.splitlines() if line.startswith("- ")]) == 3
         assert "未注入" not in block
 
-    def test_over_budget_keeps_the_head_and_marks_omissions(
+    def test_over_budget_keeps_the_newest_suffix_and_marks_omissions(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         store = _facts_file(tmp_path, 20)
@@ -492,14 +492,14 @@ class TestMemoryInjectionBudget:
 
         assert block is not None
         lines = [line for line in block.splitlines() if line.startswith("- ")]
-        assert any("fact-000" in line for line in lines)
-        assert not any("fact-019" in line for line in lines), "尾部（最新）条目超预算时被省略"
+        assert not any("fact-000" in line for line in lines), "头部（最旧）条目超预算时最先被省略"
+        assert any("fact-019" in line for line in lines), "尾部（最新）条目预算内保留"
         marker = lines[-1]
         assert "未注入" in marker
         assert "MEMORY.md 共 20 条" in marker
         assert "MEMORY_INJECT_MAX_BYTES=500" in marker
-        # 保留前部 ⇒ 省略的是**尾部（较新）**条目，标注不得把方向写反成「较早」。
-        assert "较新" in marker and "较早" not in marker
+        # 保留尾部 ⇒ 省略的是**头部（较旧）**条目，标注不得把方向写反成「较新」。
+        assert "较旧" in marker and "较新" not in marker
         # 标注是陈述事实而非对模型的指令：`.heagent/memory` 读拒 + fact_add 只增不减 ⇒ 模型无法自行整理。
         assert "需由用户整理" in marker and "请整理" not in marker
         assert "Memory injection exceeds" in caplog.text
@@ -543,17 +543,17 @@ class TestMemoryInjectionBudget:
         assert wide is not None and "未注入" not in wide
 
     def test_budget_boundary_is_inclusive(self, tmp_path: Path) -> None:
-        """``used + size > budget`` 的等号边界：恰好等于前 N 条的字节和时保留这 N 条。"""
+        """``used + size > budget`` 的等号边界：恰好等于最新 N 条的字节和时保留这 N 条（59-3 保尾序）。"""
         store = _facts_file(tmp_path, 3, size=10)
         per_item = len(f"- fact-000-{'x' * 10}\n".encode())
 
         exact = _memory_block(store, Settings(memory_inject_max_bytes=per_item * 2))
         assert exact is not None
-        assert "fact-001" in exact and "fact-002" not in exact
+        assert "fact-002" in exact and "fact-000" not in exact
 
         one_byte_short = _memory_block(store, Settings(memory_inject_max_bytes=per_item * 2 - 1))
         assert one_byte_short is not None
-        assert "fact-000" in one_byte_short and "fact-001" not in one_byte_short
+        assert "fact-002" in one_byte_short and "fact-001" not in one_byte_short
 
     def test_over_budget_note_points_to_compact_when_switch_on(self, tmp_path: Path) -> None:
         """epic-59 FR7：``memory_compact_enabled=True`` 时超预算标注指向 fact_compact/dream 压缩机制。"""

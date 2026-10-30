@@ -289,7 +289,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 
 ### 3.2 内存注入预算解决方案
 
-**问题**：MEMORY.md 采用 append-only 策略，条目持续增长导致超出默认注入预算（49152 字节），最新事实被省略。解决方案为三层：扩大注入预算（`MEMORY_INJECT_MAX_BYTES=98304`）、`memory/auto_archive.py` 自动归档超限老条目、手动整理（压缩原则与工具见 MEMORY.md 文件头部注记）。
+**问题**：MEMORY.md 采用 append-only 策略，条目持续增长导致超出默认注入预算（49152 字节），最新事实被省略（历史口径：当时注入为保头截尾；2026-10-30 story 59-3 已翻转为保尾省头，现行口径见 `frame.md` §4.6）。解决方案为三层：扩大注入预算（`MEMORY_INJECT_MAX_BYTES=98304`）、`memory/auto_archive.py` 自动归档超限老条目、手动整理（压缩原则与工具见 MEMORY.md 文件头部注记）。
 
 **权威口径**：早期「按估算天数归档 / 按月分文件」（`.archive-stamp`）口径已于 2026-10-10 重写删除；现行触发阈值、归档落点、并发写语义与测试判据一律以 [`frame.md` §4.6](frame.md) 为准（判据 `tests/memory/test_auto_archive.py`）。原方案文档 `memory-budget-solution.md` 已删除。
 

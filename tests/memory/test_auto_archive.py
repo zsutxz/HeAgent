@@ -1,9 +1,9 @@
-"""Tests for MEMORY.md auto-archive mechanism (2026-10-10 重写后的口径).
+"""Tests for MEMORY.md auto-archive mechanism (2026-10-30 59-3 读序翻转后的口径).
 
 覆盖三件事：
 
-1. **策略**：超 `memory_archive_trigger_bytes` 时只移走「前 N 条核心约定」与「最新尾部」之间的
-   中间条目，保持文件原序，且不丢条目。
+1. **策略**：超 `memory_archive_trigger_bytes` 时保留**最新尾部后缀**（从最新往前装进预算），
+   移走**最旧前缀**，保持文件原序，且不丢条目（59-3 D11：无头部钉住，`CORE_FACTS_TO_KEEP` 已删）。
 2. **两条回归**（原实现的缺陷，必须有判据钉住）：① 不再产生 ``<YYYY-MM>.md`` 这类**虚构月份**文件；
    ② 重写时**不再丢弃** fact 之后的非 ``- `` 行（小节标题 / 空行）。
 3. **并发**：MEMORY.md 走 ``atomic_update_text`` + 比较后写，并发 ``fact_add`` 的追加不会被整卷覆盖。
@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 import heagent.memory.auto_archive as auto_archive
 from heagent.config import Settings
-from heagent.memory.auto_archive import CORE_FACTS_TO_KEEP, maybe_archive_old_facts
+from heagent.memory.auto_archive import maybe_archive_old_facts
 
 if TYPE_CHECKING:  # pytest 只用于注解 ⇒ 放类型检查块（TC002）
     import pytest
@@ -87,22 +87,22 @@ class TestGating:
 
 
 class TestTrimPolicy:
-    def test_archives_the_middle_and_keeps_core_plus_newest(self, tmp_path: Path) -> None:
-        """保留 = 前 ``CORE_FACTS_TO_KEEP`` 条 + 能装进预算的**尾部**；移走的是中间那一段。"""
+    def test_archives_the_oldest_prefix_and_keeps_the_newest_suffix(self, tmp_path: Path) -> None:
+        """保留 = 从最新往前装进预算的**尾部后缀**；移走的是最旧前缀（59-3 D11：无头部钉住）。"""
         memory_path = tmp_path / "memory" / "MEMORY.md"
         total = 60
         facts = _uniform_facts(total)
         _create_memory_file(memory_path, facts)
         per_line = _line_bytes(facts[0])
-        tail = 10
-        trigger = (CORE_FACTS_TO_KEEP + tail) * per_line
+        tail = 30
+        trigger = tail * per_line
 
         result = maybe_archive_old_facts(memory_path, _settings(trigger))
 
-        assert result["archived"] == total - CORE_FACTS_TO_KEEP - tail
-        assert result["kept"] == CORE_FACTS_TO_KEEP + tail
+        assert result["archived"] == total - tail
+        assert result["kept"] == tail
         remaining = _facts_of(memory_path)
-        assert remaining == facts[:CORE_FACTS_TO_KEEP] + facts[total - tail :]
+        assert remaining == facts[total - tail :]
 
     def test_no_fact_is_lost_and_original_order_is_preserved(self, tmp_path: Path) -> None:
         memory_path = tmp_path / "memory" / "MEMORY.md"
@@ -110,7 +110,7 @@ class TestTrimPolicy:
         _create_memory_file(memory_path, facts)
         per_line = _line_bytes(facts[0])
 
-        maybe_archive_old_facts(memory_path, _settings((CORE_FACTS_TO_KEEP + 5) * per_line))
+        maybe_archive_old_facts(memory_path, _settings(5 * per_line))
 
         archived = _facts_of(memory_path.parent / "archive" / "MEMORY-archive.md")
         kept = _facts_of(memory_path)
@@ -137,7 +137,7 @@ class TestTrimPolicy:
         first = _uniform_facts(50, pad=40)
         per_line = _line_bytes(first[0])
         _create_memory_file(memory_path, first)
-        trigger = (CORE_FACTS_TO_KEEP + 5) * per_line
+        trigger = 5 * per_line
         maybe_archive_old_facts(memory_path, _settings(trigger))
 
         # 追加足够多的新条目，使文件再次超阈值
@@ -160,7 +160,7 @@ class TestRegressionOldDefects:
         facts = _uniform_facts(50)
         _create_memory_file(memory_path, facts)
 
-        maybe_archive_old_facts(memory_path, _settings((CORE_FACTS_TO_KEEP + 5) * _line_bytes(facts[0])))
+        maybe_archive_old_facts(memory_path, _settings(5 * _line_bytes(facts[0])))
 
         archive_dir = memory_path.parent / "archive"
         assert not list(archive_dir.glob("[0-9][0-9][0-9][0-9]-[0-9][0-9].md"))
@@ -171,7 +171,7 @@ class TestRegressionOldDefects:
         facts = _uniform_facts(50)
         _create_memory_file(memory_path, facts)
 
-        maybe_archive_old_facts(memory_path, _settings((CORE_FACTS_TO_KEEP + 5) * _line_bytes(facts[0])))
+        maybe_archive_old_facts(memory_path, _settings(5 * _line_bytes(facts[0])))
 
         text = (memory_path.parent / "archive" / "MEMORY-archive.md").read_text(encoding="utf-8")
         headings = [ln for ln in text.splitlines() if ln.startswith("## 批次")]
@@ -181,40 +181,38 @@ class TestRegressionOldDefects:
     def test_non_fact_lines_after_a_fact_survive_the_rewrite(self, tmp_path: Path) -> None:
         """回归②：fact 之后的小节标题 / 空行**不再**被静默丢弃（原实现只保留首个 fact 之前的行）。
 
-        ⚠ 构造要点（第一版判据是**假裁判**）：fact 数必须 > ``CORE_FACTS_TO_KEEP``，否则全部落在
-        「永久保留区」⇒ 根本不触发归档 ⇒ 断言因「文件没动」而通过，抓不住任何缺陷。
+        ⚠ 构造要点（防**假裁判**）：fact 数必须多到真实触发归档，否则断言因「文件没动」而通过，
+        抓不住任何缺陷。
         """
         memory_path = tmp_path / "memory" / "MEMORY.md"
-        pad = 40
-        pinned = [f"pinned-{i:02d}-" + "x" * pad for i in range(CORE_FACTS_TO_KEEP)]
-        tail = [f"tail-{i:02d}-" + "x" * pad for i in range(CORE_FACTS_TO_KEEP, CORE_FACTS_TO_KEEP + 10)]
-        body = ["# 标题", "", "> 头部说明", ""]
-        body += [f"- {f}" for f in pinned]
+        head = ["# 标题", "", "> 头部说明", ""]
+        body_facts = _uniform_facts(34)
+        body = head + [f"- {f}" for f in body_facts[:14]]
         body += ["", "## 小节甲（夹在中间）", ""]
-        body += [f"- {f}" for f in tail]
+        body += [f"- {f}" for f in body_facts[14:]]
         body += ["", "## 小节乙（尾注）", ""]
         memory_path.parent.mkdir(parents=True, exist_ok=True)
         memory_path.write_text("\n".join(body) + "\n", encoding="utf-8")
 
-        per_line = _line_bytes(pinned[0])
-        trigger = len(pinned) * per_line + 4 * per_line  # 只装得下 4 条尾部 ⇒ 中间 6 条被移走
+        per_line = _line_bytes(body_facts[0])
+        trigger = 4 * per_line  # 只装得下 4 条最新 ⇒ 其余 30 条被移走
         result = maybe_archive_old_facts(memory_path, _settings(trigger))
 
-        assert result["archived"] == 6, "前提：本用例必须真的发生归档，否则断言毫无意义"
+        assert result["archived"] == 30, "前提：本用例必须真的发生归档，否则断言毫无意义"
         after = memory_path.read_text(encoding="utf-8").splitlines()
         assert "# 标题" in after
         assert "> 头部说明" in after
         assert "## 小节甲（夹在中间）" in after  # ← 原实现在这里静默删掉
         assert "## 小节乙（尾注）" in after
         assert "" in after  # 空行同样保留
-        assert _facts_of(memory_path) == pinned + tail[-4:]
+        assert _facts_of(memory_path) == body_facts[-4:]
 
     def test_untouched_lines_stay_byte_identical(self, tmp_path: Path) -> None:
         """除了被移走的 fact 行，其它行逐字不动（含头部与空行）。"""
         memory_path = tmp_path / "memory" / "MEMORY.md"
         facts = _uniform_facts(50)
         _create_memory_file(memory_path, facts)
-        trigger = (CORE_FACTS_TO_KEEP + 5) * _line_bytes(facts[0])
+        trigger = 5 * _line_bytes(facts[0])
         before = memory_path.read_text(encoding="utf-8").splitlines()
 
         maybe_archive_old_facts(memory_path, _settings(trigger))
@@ -230,7 +228,7 @@ class TestThrottle:
         memory_path = tmp_path / "memory" / "MEMORY.md"
         facts = _uniform_facts(50)
         _create_memory_file(memory_path, facts)
-        trigger = (CORE_FACTS_TO_KEEP + 5) * _line_bytes(facts[0])
+        trigger = 5 * _line_bytes(facts[0])
 
         settings = _settings(trigger, throttle=3600)
         maybe_archive_old_facts(memory_path, settings)
@@ -262,7 +260,7 @@ class TestConcurrency:
 
         monkeypatch.setattr(auto_archive, "atomic_update_text", spy)
 
-        result = maybe_archive_old_facts(memory_path, _settings((CORE_FACTS_TO_KEEP + 5) * _line_bytes(facts[0])))
+        result = maybe_archive_old_facts(memory_path, _settings(5 * _line_bytes(facts[0])))
 
         assert result["archived"] == 0  # 放弃裁剪
         remaining = _facts_of(memory_path)
