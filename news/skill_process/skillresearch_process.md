@@ -2,7 +2,7 @@
 
 本文件承接 `news/skillresearch.md` 外置的过程内容（2026-11-02 用户指令：报告保持结论简洁，过程放到其他文件）。结论只在报告（核心价值→检查点→案例索引），本文件只记录过程；逐案细节在本目录各案例卡。
 
-## 候选筛选（十轮）
+## 候选筛选（十一轮）
 
 热度仅决定选谁、不证明质量；均为当日 GitHub API 快照。
 
@@ -17,8 +17,11 @@
 | 八 | 10-28 | addyosmani/agent-skills（样本 context-engineering；并行协议首跑） | 111,194★ |
 | 九 | 10-30 | ECC 复核（用户点名，非热度选例）：本地目录副本 E:/AI/ecc-trimmed（post-2.2.3 快照 ef648e01） | 292,862★/43,341 forks/push 同日超前本地 |
 | 十 | 11-02 | VoltAgent/awesome-agent-skills（首个目录/发现层对象：README 2002 行全读 + 73 节确定性清点 + 三区间深读 + 3 样本 frontmatter curl 抽验） | 36,726★/4,043 forks；当期最高星未研究对象 |
+| 十一 | 11-02 | ECC 再复核·行为准则专项（用户点名，非热度选例）：AGENTS+CLAUDE 总纲 / rules common 10 件+README / hooks 24 件+memory-persistence 链 / 语言档抽样（python/typescript） | 292,862★；本地快照 ef648e01 不变 |
 
-第六/七/八轮候选中 VoltAgent/awesome-agent-skills（36,408★）登记未读留后续，第十轮 11-02 完成补读。第七/八/九/十轮为并行子 agent 读取协议（子 agent 只读取转述附 file:line 证据、主 agent 抽查核对）；第九轮 11 子 agent、16 处抽查全吻合；第十轮 5 子代理（其中官方区第一段因 API 限流中断后由下一会话从 transcript 回收完整报告续跑，本地 README 缓存零重跑复用），主线程抽查 6 处全吻合（含裁定一处跨报告位置矛盾：VoltAgent 自家节为官方区第 2 位而非第 1）；案例卡随后按用户指令改为统一现状卡（旧轮次标注与 skill-comply 样本移出，5 件样本）。候选池已清空，下一轮需重新筛 GitHub 选例。
+第六/七/八轮候选中 VoltAgent/awesome-agent-skills（36,408★）登记未读留后续，第十轮 11-02 完成补读。第七/八/九/十/十一轮为并行子 agent 读取协议（子 agent 只读取转述附 file:line 证据、主 agent 抽查核对）；第九轮 11 子 agent、16 处抽查全吻合；第十轮 5 子代理（其中官方区第一段因 API 限流中断后由下一会话从 transcript 回收完整报告续跑，本地 README 缓存零重跑复用），主线程抽查 6 处全吻合（含裁定一处跨报告位置矛盾：VoltAgent 自家节为官方区第 2 位而非第 1）；第十一轮 4 子代理（总纲/rules-common/hooks/语言档），主线程抽查 2 处逐字吻合（rules/README.md:104-107、rules/common/agents.md:51-59）。案例卡随后按用户指令改为统一现状卡（旧轮次标注与 skill-comply 样本移出，5 件样本）。候选池已清空，下一轮需重新筛 GitHub 选例。
+
+**案例卡结构重做（2026-11-02，第十一轮同日用户指令「总结输出还是太复杂：要深入到项目的 agent/skill 做深度分析、使用长场景、读者迅速了解核心观点」）**：卡片模板把「解剖样本」改为「长场景」（端到端链路按阶段推进，每站固定节奏 触发→强制→若无此技能→兑现核心观点），SKILL.md/ps1 生成链同步；mattpocock 卡首个按新结构重写，材料升级 = 本机已装插件 v1.2.3 全量 38 个 SKILL.md（主流程 13 个通读，第七轮「仅深读 1 个样本」的主流程部分就此清账，其余 25 个仍仅 description 级）；报告新增 §19（流程图一级资产/编排极薄/触发权分配/双轴不重排）。
 
 ## 历史案例要点（一、二轮正文压缩；细节已并入报告核心价值）
 
@@ -39,6 +42,7 @@
 - platform.claude.com 页面代码示例在渲染中缺失，按文字论述取证。
 - 样本集中于 Anthropic 生态 + 一个社区框架 + 四个高星库，未覆盖 Codex/Gemini 平台约定；不构成权威排名。
 - 第十轮为静态阅读 README 单文件 + 3 样本 frontmatter 抽验；officialskills.sh 各页面与被收录仓库未系统访问（3 样本外）；「无捏造」结论限于 3 样本；徽章 1497+ vs 实测 1231 的差异成因未定；CONTRIBUTING 口径以第十轮前一会话主线程亲读为据。
+- 第十一轮（ECC 行为准则专项）rules 层为抽样非全读：21 语言档只深读 python/typescript，rules 全层 ~100 文件仅覆盖 common 10 件 + README；5 个 Stop hook 实现、install.sh（疑似遗留接口）未核；语言档 frontmatter `paths` glob 的消费端（安装器是否真的按 glob 过滤安装）未验证，两层规则体系的「按项目命中」是基于文档自述。
 
 ## 参考资料
 
@@ -46,7 +50,7 @@
 - [Skill authoring best practices（platform.claude.com）](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)（2026-10-26 全文）
 - [anthropics/skills](https://github.com/anthropics/skills)（2026-10-24；183,391★）
 - [obra/superpowers](https://github.com/obra/superpowers)（2026-10-26；304,853★）及 [writing-skills](https://github.com/obra/superpowers/blob/main/skills/writing-skills/SKILL.md)、[systematic-debugging](https://github.com/obra/superpowers/blob/main/skills/systematic-debugging/SKILL.md) 全文
-- [affaan-m/ECC](https://github.com/affaan-m/ECC)（2026-10-26 初研 v2.2.1 / 2026-10-30 复核目录副本 ef648e01；292,862★）→ [ecc.md](ecc.md)
+- [affaan-m/ECC](https://github.com/affaan-m/ECC)（2026-10-26 初研 v2.2.1 / 2026-10-30 复核目录副本 ef648e01 / 2026-11-02 行为准则专项再复核；292,862★）→ [ecc.md](ecc.md)
 - [mgechev/skills-best-practices](https://github.com/mgechev/skills-best-practices)（2026-10-27 全库取回；2,278★）→ [mgechev-skills-best-practices.md](mgechev-skills-best-practices.md)；配套 [mgechev/skillgrade](https://github.com/mgechev/skillgrade) 与 [SkillsBench (arXiv 2602.12670)](https://arxiv.org/abs/2602.12670) 登记未读
 - [google/skills](https://github.com/google/skills)（2026-10-28；21,619★）→ [google-skills.md](google-skills.md)
 - [mattpocock/skills](https://github.com/mattpocock/skills)（2026-10-28；304,944★）→ [mattpocock-skills.md](mattpocock-skills.md)

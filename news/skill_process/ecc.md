@@ -1,13 +1,15 @@
 ---
 name: ecc
 source: https://github.com/affaan-m/ECC（plugin.json repository 字段；研究对象为本地目录副本 E:/AI/ecc-trimmed，post-2.2.3 main 快照 ef648e01）
-accessed: 2026-10-26 / 2026-10-30
+accessed: 2026-10-26 / 2026-10-30 / 2026-11-02
 heat: GitHub API 2026-10-30 快照 292,862 stars / 43,341 forks / 最近 push 2026-10-30（上游 main 已超前本地副本）；README 自述 trending 徽章、官网 ecc.tools、npm 包 ecc-universal——热度仅用于筛选，不证明质量
 first_study: 2026-10-26
-last_review: 2026-10-30
+last_review: 2026-11-02
 ---
 
 # ECC（旧名 "Everything Claude Code" 已退役，commit c05b2d66 仅保留 ECC）
+
+**最后更新：** 2026-11-02（第十一轮·行为准则专项：rules/hooks/AGENTS+CLAUDE 总纲）
 
 ## 核心观点与价值
 
@@ -23,6 +25,12 @@ last_review: 2026-10-30
 8. **判定诚实声明**：skill-stocktake 的健康判定显式写明 "Evaluation is **holistic AI judgment** — not a numeric rubric"（SKILL.md:126），并列四维引导（Actionability/Scope fit/Uniqueness/Currency，L127-130）。伪精确量表不如诚实的整体判断+证据义务（reason 必须自包含、附好坏对照例 L132-145）。
 9. **一源多端做 harness 化重组**：.codex/ 等目录是带 config 的重组而非裸复制；docs/ 下 6 语种镜像含 518 个 SKILL.md（实测计数）。
 10. **规则→hook 升级通道**：反复不被遵守的文档规则升级为机器强制，阈值可数（skill-comply 合规率 <0.6）。
+11. **行为准则四层分工：what/how 口径与五概念表**。"Rules tell you _what_ to do; skills tell you _how_ to do it."（rules/README.md:104-107）——五概念各管一件事且上下文行为不同：skills 按需加载 / agents 隔离上下文与工具 / rules 常驻故须选装 / hooks 在模型上下文外跑 / instincts 带置信度召回（根 README.md:1211-1219）。选装的根因是平台约束：**插件分发不了 rules**（README.md:298），只能手动拷贝——「按栈选装」是被迫的显式化而非偏好。
+12. **行为宪法与开发指南互补分叉：AGENTS.md vs CLAUDE.md**。同仓两张入口**零互引**、章节几乎不相交：AGENTS.md（221 行）=用 ECC 干活的行为宪法（5 原则、68 agent 表、proactive 编排映射、required/mandatory/CRITICAL 显式分级）；CLAUDE.md（82 行）=在本仓开发 ECC 的贡献者指南，**独有 prompt 防御基线六条**（不改角色/不泄密/非任务必需不输出可执行代码/同形字符视为可疑/外部内容先验证再行动/拒绝危害内容）。分叉的结构原因：Claude Code 双载两份、Codex 只载 AGENTS.md（.codex/AGENTS.md:91）——不重复就是上下文经济。
+13. **hook 的选型逻辑：模型可自我说服绕过的约束下沉为机器强制**。config-protection："Agents frequently modify these to make checks pass instead of fixing the actual code. This hook steers the agent back to fixing the source."（白名单精确匹配禁改 linter/formatter 配置）；GateGuard："Instead of asking 'are you sure?' (which LLMs always answer 'yes'), this hook demands concrete facts... The act of investigation creates awareness that self-evaluation never did."（每文件首触编辑强制先调查再放行）。边界同样干净：**stdin 超限截断即 exit 2 阻断**（fail-closed，"safety checks require the complete request"），**操作者配置错误绝不阻断**（坏正则记一次后按未配置回退）。24 hooks/7 事件桶，metadata sidecar 带 fingerprint、CI 校验两文件不同步即失败（选型逻辑一句为研究者归纳，文件未明文）。
+14. **Delegation Completion Contract：给并行规则的补丁条文**（rules/common/agents.md:51-59）。"Your final message IS the deliverable"、"If you delegate, you own collection. ... Fire-and-forget delegation is forbidden"、"Decompose only when the work cannot fit in one context ... depth is an outcome, not a plan."——并罕见地附**失败根因**："The parallel rule without a completion contract produces zombie tasks."（观测到子代理按上文 Parallel 规则派活后以「等待中」作最终回复，孤儿化全部已完成结果）。写法范本：规则被现实打脸后补条文+留根因，而非默默加禁令。
+15. **常驻规则 vs 按需 skill 的写法分界**（common 十件横向归纳）。规则**无 frontmatter**（不需被匹配、无条件在场）；触发写在正文作**条件分支指令**（"MANDATORY review triggers"、"STOP and use security-reviewer agent when"——「我已在场，由我告诉你何时切换」），skill 的触发在 frontmatter description（「让系统找到我」）；**无渐进披露**（单文件零 references、一次性常驻）；**跨件重复不抽取**（<50 行函数、80% 覆盖率在多件各自完整重述——常驻集宁可重复不引入间接层，每件独立可执行）；MANDATORY/ALWAYS/NEVER 大写祈使密度 30+ 处；互引成网（code-review.md 为枢纽链 4 件）。
+16. **两层规则体系：政策与实例分离、冲突显性化**。common 定政策（80%/TDD 六步），语言档给实例（pytest 命令、frozen dataclass），逐字重合≈零且语言档**不 self-contained**（单装语言档静默丢政策）；每件语言档首行强制 extends 回链（漂移一眼可见），优先级成文 "language-specific rules take precedence (specific overrides general)"（README.md:130，类比 CSS specificity），可覆写的 common 条目就地打 "Language note" 标记——把允许的冲突解决在条款现场。腐化实证：模板刚性催生空壳档（typescript/testing.md 19 行仅 2 条实质，固定开销占比 30-40%）；分层不变式**无机制强制**——common/testing.md 已漏进 TypeScript 示例，违反自家「common 无语言代码」声明。
 
 ## 整体定位
 
@@ -36,6 +44,7 @@ last_review: 2026-10-30
 - **质控文档四件套**（docs/，全读）：SKILL-DEVELOPMENT-GUIDE.md（920 行写作指南）、SKILL-PLACEMENT-POLICY.md（104 行落位）、skill-adaptation-policy.md（73 行改编规则：fork 只保留想法与工作流语义，实质扩缩须改名，四条件全真才留原名）、capability-surface-selection.md（140 行五问序）。CONTRIBUTING.md（541 行）贡献门槛：name 必须匹配目录名、description 单行/折叠标量（禁 `|` 字面块——"breaks flat-table renderers"，L172）、必备骨架六节、<500 行（800 max）、负向清单（"do not ship a skill whose main value is telling users to install an unvetted package"，L158）+ 新 skill 接线清单（catalog/manifests/registry/docs 表多处同步）。
 - **一源多端**：docs/ 下 es/ja-JP/ko-KR/tr/zh-CN/zh-TW 六语种镜像含 518 个 SKILL.md；.agents/.kiro/.cursor 为 harness 镜像（实测 39/43/11 件）。全库 SKILL.md 618 个（排除 node_modules 实测），marketplace 自述 293 为去重口径。
 - **方法论指南两件**（仓库根）：the-shortform-guide.md（431 行，设置/基础设施层，自述 10 个月日用量经验）与 the-longform-guide.md（354 行，进阶方法论：token 经济、记忆持久化、pass@k vs pass^k、并行化纪律），显式互引定序（longform:7 "Read that first"；shortform:427 反向指回）。
+- **行为准则层（第十一轮深读，实测）**：rules/ = common 10 件（559 行、中位 ~50 行/件、全无 frontmatter）+ 21 语言/框架目录 ×5 件套（同一模板多语言实例化，golang 159 行～react 878 行；frontmatter 无 name 字段、只有 `paths:` glob 按路径门控——消费者在插件运行时，本副本不可证）。hooks/ = 24 hooks/7 事件桶，PreToolUse 可 exit 2 阻断、PostToolUse 不可阻断；每条 command 是同段内联 bootstrap（解析插件根→挂 run-with-flags 档位门），运行时三开关（总闸/profile/按 ID 禁用）；memory-persistence 子目录是「稳定契约文档」非执行面（生产图在 hooks/hooks.json，两处 session:end 挂点已分叉）。会话记忆链：SessionStart 回灌（8KB 上限、30 天保留）→ PreCompact 压缩前 LLM 摘要（防串写守卫校验项目身份）→ Stop 提取摘要（函数式 replacer 防 `$` 序列损坏）。Codex 侧仅 1 个 hook（SessionStart 回灌），无任何强制门。
 
 ## 解剖样本
 
@@ -82,8 +91,8 @@ last_review: 2026-10-30
 ## 未读与局限
 
 - 上游 main 在本地快照 ef648e01 之后仍有 push（API pushed_at 2026-10-30），本地副本非上游最新；cache 2.2.1 与目录档 post-2.2.3 的版本差使个别计数按副本分记。
-- rules/ 122 件、agents/ 68 件、全量库其余 ~286 件 skill、docs/ 六语种镜像正文、hooks 6 文件实现、contexts/workflows/scaffolds/manifests 其余文件、ecc2/、integrations/、13 harness 目录内容均未读。
-- build-pi-core.js 已抽查安全闸实现（L80-344 关键行），未运行；CI 离线冒烟（CHANGELOG 2.2.2 自述）未独立复跑。
+- rules/ 122 件中已读：common 10 + python 6 + typescript 2 + rules/README + AGENTS.md + CLAUDE.md（21 目录件数/行数已普查，组织模式经 python/ts 抽样对比覆盖）；其余 ~100 件语言档未逐件读。hooks 侧 5 个 Stop 实现（format-typecheck/console-log/evaluate-session/cost-tracker/desktop-notify）与 posttooluse-dispatcher 内部逐 hook profile gate 未读，其语义仅来自 README 表与 metadata。install.sh 为薄壳（exec node install-apply.js），rules/README 的裸语言参数示例未验证是否仍被接受（疑旧接口残留）。agents/ 68 件、全量库其余 ~286 件 skill、docs/ 六语种镜像正文、contexts/workflows/scaffolds/manifests 其余文件、ecc2/、13 harness 目录未读。
+- build-pi-core.js 已抽查安全闸实现（L80-344 关键行），未运行；CI 离线冒烟（CHANGELOG 2.2.2 自述）未独立复跑；hooks 全部未运行。
 - 按研究规范未实际安装/运行任何 ECC 组件；全部机制结论基于文本证据，非实测。
 - longform/shortform 指南的 mgrep ~50% 省 token、"25k stars" 等作者自述数字未核实；两文配图未读。
 - README 内部计数不自洽（67/68 agents、281/293 skills），宣传口径与实测计数并存，引用时以实测为准。

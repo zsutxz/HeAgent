@@ -1,9 +1,9 @@
 # AI Agent Skill 写作研究
 
-**最后更新：** 2026-11-02 13:52（第十轮·VoltAgent；每次更新报告时刷新此行）
-**研究日期：** 2026-10-24 起共十轮。逐案细节见 `skill_process/` 案例卡；候选筛选、逐轮记录、历史案例要点、局限与参考资料见 [skillresearch_process.md](skill_process/skillresearch_process.md)（2026-11-02 起本报告保持结论简洁，过程外置）。
+**最后更新：** 2026-11-02 14:46（第十一轮·ECC 行为准则专项 + mattpocock 卡长场景重做；每次更新报告时刷新此行）
+**研究日期：** 2026-10-24 起共十一轮。逐案细节见 `skill_process/` 案例卡；候选筛选、逐轮记录、历史案例要点、局限与参考资料见 [skillresearch_process.md](skill_process/skillresearch_process.md)（2026-11-02 起本报告保持结论简洁，过程外置）。
 **范围：** Agent Skills 开放格式规范、Anthropic 官方（agentskills 指南 + platform.claude.com 文档 + 官方样例库）、obra/superpowers、ECC、mgechev/skills-best-practices、google/skills、mattpocock/skills、addyosmani/agent-skills、VoltAgent/awesome-agent-skills 的逐案深读，以及 skill 的写作、触发与评测方法。
-**摘要：** 好 skill 是能改变 Agent 执行结果的专业操作知识：从真实失败中抽取、按触发/契约/决策路径/失败处理组织、按失败类型选指导形式、触发与改善分开验证并核算成本。跨十轮收敛的硬结论：描述只管触发且不内嵌流程（三独立来源收敛）、发现层负例指名有效而执行层否定有害、停止条件写可数判据、可机械判定的规则下沉为脚本或构建闸（不留在 prompt）、评测从作者自觉升级为入库门禁、治理闭环四环（查重→选装→盘点→遵从）；目录层对偶结论——目录一句话是特征摘要、触发规格只在 frontmatter，目录名与技能真名常不一致，从目录复用描述必回读原文对齐真名。
+**摘要：** 好 skill 是能改变 Agent 执行结果的专业操作知识：从真实失败中抽取、按触发/契约/决策路径/失败处理组织、按失败类型选指导形式、触发与改善分开验证并核算成本。跨十一轮收敛的硬结论：描述只管触发且不内嵌流程（三独立来源收敛）、发现层负例指名有效而执行层否定有害、停止条件写可数判据、可机械判定的规则下沉为脚本或构建闸（不留在 prompt）、评测从作者自觉升级为入库门禁、治理闭环四环（查重→选装→盘点→遵从）；行为准则层——常驻规则与按需技能写法分道（what/how），模型可自我说服绕过的约束下沉为 hook 机器强制，并行委派必须配完成契约；目录层对偶结论——目录一句话是特征摘要、触发规格只在 frontmatter，目录名与技能真名常不一致，从目录复用描述必回读原文对齐真名。
 
 ## 核心价值
 
@@ -125,6 +125,24 @@ awesome-list 目录（1231 条）README 一句话与 frontmatter 的保真度实
 
 **参考：** [skill_process/voltagent-awesome-agent-skills.md](skill_process/voltagent-awesome-agent-skills.md)。
 
+### 17. 常驻规则与按需技能写法分道；规则体系两层分离（ECC 行为准则专项）
+
+四层分工一句话：**"Rules tell you _what_ to do; skills tell you _how_ to do it."**（rules/README.md:104-107，已核对原文）——规则常驻注入管「做什么/不许做什么」，skill 按需加载管「怎么做」，hook 在模型上下文外管机器强制，agent 管隔离上下文。落位按载体能力判，不是按内容重要性判。**写法分界**（rules/common/agents.md:51-59 等，已核对）：常驻规则**无 frontmatter**（不走路由，每次都在）、**无渐进披露**（常驻=全量付费，条目必须比 skill 更精）、条件分支写进正文（"当 X 时…"——不会被 description 路由）、重复内容**不抽取共享文件**（各注入路径独立整读，共享文件反增双份加载）。**两层规则体系**：common 10 文件无 frontmatter 恒装；21 语言档 ×5 文件带 frontmatter `paths` glob 按项目命中安装、`extends` 回链所属 common；优先级 specific overrides general；语言档用 "Language note" 标记局部覆盖 common 通则而非整段重写。**空壳档风险**：语言档只放覆盖标记无实质内容时，装了 glob 反而稀释 common——覆盖必须带实质。
+
+**参考：** [skill_process/ecc.md](skill_process/ecc.md)。
+
+### 18. 模型可自我说服绕过的约束下沉 hook；并行委派必须配完成契约（ECC）
+
+**hook 选型判据**：反复不被遵守、且模型能自我说服绕过的纪律才值得机器强制（GateGuard 强制事实依据、config-protection 白名单保护配置文件）——hook 生效在模型上下文之外，模型不可协商。**强制点必须选事前**：PreToolUse 可 exit-2 硬拦，PostToolUse 只能观测不能拦。**fail-closed 有边界**：hook 输入被截断/解析失败按拦截处理（宁误拦不漏放），但操作员配置错误不拦（区分被保护对象与操作员自身）。**Delegation Completion Contract**（delegation-patterns）："Your final message IS the deliverable"——并行委派禁止 fire-and-forget，"the parallel rule without a completion contract produces zombie tasks"；子代理返回不是免检输入，主代理必须逐项验收（本报告第九/十/十一轮的抽查核对协议即此原则的应用）。
+
+**参考：** [skill_process/ecc.md](skill_process/ecc.md)。
+
+### 19. 技能库首先是流程：路由图一级资产、编排极薄、触发权显式分配（mattpocock v1.2.3 深读）
+
+库自带路由（ask-matt："You don't remember every skill, so ask"）：主流程 idea→ship + 三条 on-ramp 汇入 + 词汇层垫底——**路由是技能库的一级资产**，不留给读者自己拼图。**编排技能极薄**：grill-with-docs 正文 7 行 = "Call the Skill tool twice"，implement 15 行 = "Use /tdd … use /code-review … Commit"——复杂度在链上，不在任何单点。**触发权按风险显式分配**：规划/写操作类一律 user-invoked（`disable-model-invocation: true`，人扣扳机），参考/纪律类才 model-invoked（tdd/diagnosing-bugs/code-review/wizard）。**评审双轴不重排**："Don't pick a single winner across axes"——分轴聚合就是为了防止一轴掩盖另一轴。小机制三件：借用模板用 frontmatter `metadata.credits` 注明出处（借用礼仪机制化）；diagnosing-bugs 的 Redact 段把脱敏写成正文第一步（写出来的纪律——与 ECC 的 hook 机器强制是同一目标的路线对照）；handoff 交接文档写 OS 临时目录、不污染工作区。
+
+**参考：** [skill_process/mattpocock-skills.md](skill_process/mattpocock-skills.md)。
+
 ## 检查点
 
 - [ ] description 能让 Agent 识别真实用户意图，用正例、near-miss、负例验证触发边界；**描述不内嵌流程摘要**；负向边界指名替代技能；单行/折叠标量（禁字面块）。
@@ -147,6 +165,10 @@ awesome-list 目录（1231 条）README 一句话与 frontmatter 的保真度实
 - [ ] 逐句猎杀 no-op（默认即服从=删整句）；复述环境内容的行改成指针或删除；leading word 用预训练概念锚定行为。
 - [ ] 入库/发布附评测资产（≥3 正触发 + ≥2 负触发带归属断言 + ≥1 行为 eval + 真实 fixtures）；示例代码可编译；长度硬指标之外自查结构性重复与导航有效性。
 - [ ] 写作前过能力面五问序（rule/skill/MCP/脚本/API，从小面起步）；新建前先搜后建，创建决定权留给用户；fork 改编只留想法与语义、实质扩缩改名；非 Curated 来源不入库、带 .provenance.json。
+- [ ] 常驻准则与按需技能分家：必须常驻的 what 进规则（无 frontmatter、无渐进披露、条件分支写正文、不抽共享文件），按需的 how 进 skill；语言/场景档只在有实质覆盖内容时才装（空壳档稀释 common）。
+- [ ] 模型能自我说服绕过的纪律下沉 hook：强制点选事前（PreToolUse 可拦、PostToolUse 只能观测）；输入截断 fail-closed，操作员配置错误不拦。
+- [ ] 并行委派配完成契约：子代理最终消息即交付物、主代理逐项验收，禁止 fire-and-forget。
+- [ ] 设计多技能库先画流程图（路由是一级资产）；编排技能保持极薄（只指名相邻技能）；触发权显式分配（规划/写操作 user-invoked 人扣扳机，参考/纪律类才 model-invoked）。
 - [ ] 步骤 model-neutral；执行体用脚本不写内联代码。
 - [ ] 想写「教写 skill」类元技能前，先查目标生态是否已有官方/领域版 skill-creator（该类技能是各生态自带基础设施，先复用再考虑新造）。
 
@@ -156,10 +178,10 @@ awesome-list 目录（1231 条）README 一句话与 frontmatter 的保真度实
 |---|---|---|---|
 | 一 | Anthropic skill-creator 等 | 官方样例：评测闭环、反默认设计、分层资源 | （正文并入核心价值） |
 | 二 | superpowers writing-skills / systematic-debugging | 社区框架：TDD 化文档工程、阶段门纪律 | （正文并入核心价值） |
-| 三 | ECC | 治理合集：治理闭环四环、构建期安全闸、五问序 | [ecc.md](skill_process/ecc.md) |
+| 三 | ECC | 治理合集：治理闭环四环、构建期安全闸、五问序、行为准则分层 | [ecc.md](skill_process/ecc.md) |
 | 四 | mgechev/skills-best-practices | 个人 meta-skill：确定性闸门、零基建验证梯 | [mgechev-skills-best-practices.md](skill_process/mgechev-skills-best-practices.md) |
 | 五 | google/skills | 平台官方库：联邦分发、取数协议、attribution 遥测 | [google-skills.md](skill_process/google-skills.md) |
-| 六 | mattpocock/skills | curated 个人库：两种负载、词汇工程、修剪纪律 | [mattpocock-skills.md](skill_process/mattpocock-skills.md) |
+| 六 | mattpocock/skills | curated 个人库：主流程接力路由、seam 纪律、双轴评审、词汇工程 | [mattpocock-skills.md](skill_process/mattpocock-skills.md) |
 | 七 | addyosmani/agent-skills | 评测门禁制：CI 强制 eval、反合理化节序 | [addyosmani-agent-skills.md](skill_process/addyosmani-agent-skills.md) |
 | 八 | VoltAgent/awesome-agent-skills | 跨生态策展目录：双轨收录、目录压缩失真、名实分离 | [voltagent-awesome-agent-skills.md](skill_process/voltagent-awesome-agent-skills.md) |
 

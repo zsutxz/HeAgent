@@ -9,6 +9,8 @@ last_review: 2026-10-27
 
 # mgechev/skills-best-practices
 
+**最后更新：** 2026-10-27
+
 ## 核心观点与价值
 
 本卡最重要的一节，综合报告主要从这里引用：

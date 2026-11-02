@@ -1,55 +1,86 @@
 ---
 name: mattpocock-skills
 source: https://github.com/mattpocock/skills
-accessed: 2026-10-28
-heat: 304,944 stars / 25,661 forks（2026-10-28 API 快照，当期最高星 skill 仓库；创建 2026-02-03，最近 push 2026-10-27）
+accessed: 2026-10-28 / 2026-11-02
+heat: 304,944 stars / 25,661 forks（2026-10-28 API 快照，当期最高星 skill 仓库）
 first_study: 2026-10-28
-last_review: 2026-10-28
+last_review: 2026-11-02
 ---
 
 # mattpocock/skills
 
-## 核心观点与价值
+**最后更新：** 2026-11-02（结构重做：长场景承载技能链深度分析；材料 = 本机插件 v1.2.3 全量 38 个 SKILL.md，主流程 13 个已通读）
 
-本卡最重要的一节，综合报告主要从这里引用：
+Matt Pocock（Total TypeScript 作者）的个人日用库，自述 "Skills For Real Engineers——not vibe coding"。**一句话核心：技能库首先是一条流程，技能是流程上的站。**
 
-1. **两种负载是 agent 文档架构的总账本。** context load（常驻材料的窗口成本）与 cognitive load（人类记住「有哪些文档、何时取用」的成本）是每份文档、每个指针都要花费的两本预算；拆不拆、内联还是披露、model-invoked 还是 user-invoked，全是同一权衡在不同位置的再分配。关键立场：认知负载**不是**要最小化的成本——"The human is the index"，它是 human agency 的价格，该花在人类判断重要的地方（SKILL.md "The two loads" 节）。这把「常驻成本 vs 按需成本」（官方口径）扩展成带人类维度的完整记账模型。
-2. **指针的措辞，而非其目标，决定触发可靠性。** skill 的 description 与 AGENTS.md 里指向文档的一行是同一对象（context pointer）；「必须有但措辞弱」是 variance bug——先磨措辞，磨不动才内联。指针写法三条：引导词前置（触发工作就在这发生）、每个分支一个触发词（同义词改名 = 一个分支写两遍）、删掉正文已携带的身份信息（SKILL.md "Context pointers" 节）。
-3. **完成判据是双杠杆：clarity × demand。** 每步以「什么算做完」结束；清晰度防 premature completion（可见的后续步骤产生赶工拉力，判据清晰度是阻力），要求量驱动 legwork（潜藏在措辞里的挖掘活，如 "every modified model accounted for"）——纯 reference 文档也能靠 "every rule applied" 携带穷尽性标准。防守顺序固定：先磨判据（局部、便宜）；只有判据不可再磨**且观察到赶工**才拆分隐藏后续步骤，且隐藏只在真上下文边界（hand-off / subagent dispatch）有效——inline 调用后续步骤仍在上下文里，清不掉（SKILL.md "Steps and completion criteria" 节）。
-4. **leading word：用预训练概念锚定行为。** 模型预训练里已有的紧凑概念（_red_、_tight_、_tracer bullets_、_fog of war_）以 token 身份反复出现时积累分布式定义，用最少 token 锚定整片行为；自造词招募不到先验，定义成本自己付。双重锚定：正文内锚执行（词出现即取同一行为），指针内锚调用（同一词活在 prompt/文档/代码库里，agent 把共享语言链接到材料）。重构机会的识别：三处拼写的三元组（"fast, deterministic, low-overhead" → _tight_）、用一句话指意（"a loop you believe in" → _red_，把模糊闸门变成二元可观察状态）（SKILL.md "Leading words" 节）。
-5. **执行层默认正向措辞，否定是失败模式。** 靠禁令引导会把被禁行为拉进上下文、变得更可用（_Don't think of an elephant_）；否定是弱修饰词，强激活的概念会碾过它，禁令半读成做这件事的指令。正向表述目标行为（"write one-line comments"），被禁的根本不说出口；禁令只保留给无法正向表述的硬护栏，且必须配对正向目标。与 google/skills 的负向触发合并看：**发现层（description 路由）负例指名有效，执行层（正文措辞）否定有害**——两层分工不同。
-6. **修剪纪律与三个命名失败模式。** no-op 猎杀：模型默认就服从的指令白付负载，判据「相对默认是否改变行为」是 model-relative 而非 reader-relative——分歧靠跑文档解决、不靠辩论；失败时整句删除而非削词。duplication 与 co-location 相区分（重复 = 一个含义在两处；分散 = 一个含义碎在多处），单一真相源原则下唯一允许的重复是 leading word（重复 token 不重复含义）。**环境也是真相源**：`package.json` scripts、config、`--help` 查得到的别写进文档——复述环境的文档是 cache，只缓存 agent 查不到的（不成文约定、选择背后的理由、配置不自认的坑）。长期失败模式 sediment（沉积）：增加显得安全、删除显得危险，层层沉积直到要钻透它们找活行（SKILL.md "Pruning" 节）。
+## 核心观点（30 秒版）
 
-## 整体定位
+1. **库自带路由图**：ask-matt 开篇 "You don't remember every skill, so ask"（ask-matt:9），把 38 个技能组织成一条主流程（idea→ship）+ 三条 on-ramp（bug/巨量工作/积累的 issue）+ 两层词汇（domain-modeling/codebase-design）——路由本身是一级资产，不是读者自己拼的。
+2. **编排层极薄**：grill-with-docs 正文只有 7 行 = "Call the Skill tool twice, for grilling and domain-modeling"（grill-with-docs:7）；implement 15 行 = "Use /tdd where possible, at pre-agreed seams … use /code-review … Commit"（implement:9-13）。复杂度在链上，不在任何单点。
+3. **一切测试挂在 seam（缝）上**：spec 阶段先画缝并确认（"ideal number is one"，to-spec:15）；tdd 拒绝在未确认缝上写测试（"No test is written at an unconfirmed seam"，tdd:22）；bug 修复先造红色回路再谈假设（diagnosing-bugs Phase 1）。缝是贯穿三技能的同一词汇，由 codebase-design 供给。
+4. **触发权按风险分配**：规划/写操作类全部 user-invoked（setup/to-spec/to-tickets/implement/grill 系/wait-what 等 14 个带 `disable-model-invocation: true`——人扣扳机）；tdd/diagnosing-bugs/code-review/wizard 等 model-invoked——可自动、风险低的才放手给模型。触发权是显式设计决策，不是默认。
+5. **技能的主业是对抗默认行为**：to-spec 第一段 "Do NOT interview the user"（to-spec:7）；diagnosing-bugs "stop: jumping straight to a hypothesis is the exact failure this skill prevents"（:66）；code-review "Don't pick a single winner across axes"（:78）——每条都在命名并阻止一种模型天然倾向。
+6. **上下文按阶段记账**：规划三站一个不间断窗口（"Keep steps 1–3 in one unbroken context window"，ask-matt:30），每张票 /clear 后新窗口 implement（票自包含所以上下文可弃）；接近 smart zone（~150k）就在阶段边界 /compact（ask-matt:32）。
+7. **写作技术层**（writing-for-agents 样本，报告 §1/2/3/4/13 已收录）：两种负载（context/cognitive）、指针措辞决定触发、完成判据 clarity×demand、leading word 锚定、no-op 猎杀与 sediment 修剪。
+8. **治理闭环**：issue 双门槛（观察到失败+符合哲学）、`.out-of-scope/` 负向档案、changesets 版本化每次行为修订——「skill 越少越短，维持正确越便宜」。
 
-Matt Pocock（Total TypeScript / AI Hero 作者）的个人日用 skills 仓库，自述 "Skills For Real Engineers——not vibe coding"。与 GSD、BMAD、Spec-Kit 等「接管整个流程」的框架正面对立：小、易改、可组合、声称 any model 可用（README 开篇）。热度为当期 GitHub skills 类仓库最高档（304,944★）。封闭作者制：PR 仅 collaborator 可开（CONTRIBUTING.md），新 skill 提案与捐赠直接关闭（`.out-of-scope/new-skills.md`：每个 skill 是永久维护面，必须与其它 skill、docs 页、ask-matt 路由图、plugin manifest 保持同步——「skill 越少越短，维持正确越便宜」）。
+## 长场景：一句话需求，从对齐到 PR
 
-## 体系结构与组织机制
+> 场景：你在自己的 SaaS 仓库里对 agent 说——「帮我把订单做成可以导出 CSV，运营一直要」。一句话需求，背后藏着权限、字段、编码、定时还是手动等十几个没说的决策。看这个库怎么接。
 
-- **按成熟度分层目录**：`skills/` 下 engineering（20）/ productivity（6）/ misc（4）/ in-progress（7）/ deprecated（README）；misc 冻结不维护（SCOPE.md：issue 一律关闭）；in-progress 单独隔离，不进默认安装面。全库 291 个 tree 条目、38 个 SKILL.md。
-- **多 harness 单源分发**：README 写明五条安装通道（Claude Code plugin 官方市场自动更新、Codex plugin、GitHub Copilot、Gemini CLI、`npx skills` 覆盖 cursor/opencode/devin/windsurf/amp/pi）；每个 skill 内 `agents/openai.yaml` 承载 Codex 特定配置（如 `policy.allow_implicit_invocation: false` 实现 user-invoked）——与 ECC 的 monorepo 多 harness 镜像目录不同，此处是单源 + 每 skill 一个适配文件。
-- **issue 质控 bar（SCOPE.md）**：issue 存活须同时满足①观察到的失败（真实 session 跑了什么、skill 做了什么、期望什么；假想改进不过 bar）②符合哲学（不碰 `.out-of-scope/` 档案、非配置选项、非单人 workflow 适配）。一字修复与重写同 bar；reaction 与 +1 不计。无法判定的 issue 一轮提问 + needs-info 标签，14 天不回自动关。
-- **负向范围档案（`.out-of-scope/`）**：8 个文件各记录一个被拒概念及理由（new-skills、subagent-recursion、native-question-tool、harness-name-collisions、question-limits 等）——拒绝本身被文档化为可引用资产，提重复提案前先读档案。
-- **修订版本化（`.changeset/`）**：skill 的每次行为修订走 changesets 管理，一条 patch note 绑定 issue 号（样本 `tdd-seam-tradeoffs.md`：`tdd` 给每个提议的 seam 加一行「抓什么/漏什么」注记，#607）——skill 有 semver 化变更日志，为「行为变化可追溯」提供了比 CI 自愈 issue 更细的机制。
-- **人类面/Agent 面同名映射**：`docs/engineering/*.md`、`docs/productivity/*.md` 与 `skills/` 同名一一对应，人类文档带 aihero.dev 词典链接；仓库自身也吃自己的狗粮（根 GLOSSARY.md、AGENTS.md、`.agents/adr/` 两篇 ADR）。
-- **理念叙事**：README 按三大失败模式组织（#1 对齐失败 → grilling 系列；#2 冗长 → 共享语言 GLOSSARY/ADR，引 DDD；#3 代码不工作 → 小步 + TDD），每个失败模式引经典软件工程文献（《Pragmatic Programmer》、Evans）站台。
-- **setup skill 抽象环境差异**：`setup-matt-pocock-skills` 每 repo 跑一次，把 issue tracker（GitHub/GitLab/local/自述）、triage 标签、docs 位置写进配置——其余 skill 面向抽象的 tracker/docs 接口而非硬编码 GitHub。
+### 第 0 站 · 地基（每仓库一次）：setup-matt-pocock-skills
 
-## 解剖样本：writing-for-agents
+先探仓库（remote/AGENTS.md/CONTEXT.md/monorepo 信号），再三节问答：issue tracker 在哪（GitHub/GitLab/本地 `.scratch/`/其他自由描述）、triage 标签用不用默认五个、领域文档单上下文还是多上下文。产出 `docs/agents/*.md` + 在 CLAUDE.md（存在哪个改哪个，"Never create AGENTS.md when CLAUDE.md already exists"，setup:80）写 `## Agent skills` 块。**若无此步**：后面每个技能都要重新问一遍 tracker 在哪——配置被抽成一次性的仓库资产。
 
-一句话定位：写任何 agent 消费文档的通用参考——skill、AGENTS.md/CLAUDE.md、指针可达文档；"The packaging differs; the writing does not"（SKILL.md:6）。v1.1 前名 `writing-great-skills`，改名以承认适用域远大于 skill（docs 面）。
+### 第 1 站 · 对齐：grill-with-docs = 两个技能的组合
 
-- **触发边界**：description 仅两句——做什么（"Writing documents for agents"）+ 触发（"Use when creating or editing skills, or modifying AGENTS.md or CLAUDE.md"），无流程摘要，符合其自身指针学说。
-- **形态自指**：全 reference、零步骤——它自己就是「all reference 是合法形态」的实例，并靠 demand 型措辞（no-op 判据、每个含义单一真相源）对读者携带穷尽性标准。这补上了第三轮 superpowers 案例边界里「参考型 skill 的内容组织几乎未被覆盖」的空白。
-- **skill 专属机制按条件披露**：frontmatter、invocation 选择、router skill 全部外置到 `SKILL-MECHANICS.md`，SKILL.md:8 一行指针限定「写 skill 时才读」——渐进披露的教科书执行：非 skill 文档场景不付这笔负载。SKILL-MECHANICS 的核心增量为：model-invoked（description 常驻 = context load 换 discoverability，且 model-invocation 包含用户可达，不会移除人的入口）vs user-invoked（`disable-model-invocation: true`，零 context load，人是索引）；两个 user-invoked skill 共需的 reference 两边都住不下（无 description 互相点不着）→ 推到 skill 系统外的普通文件；router skill：user-invoked 多到记不住时用一个 router 命名其余（只能 hint 不能 fire）；按 invocation 拆分：只有当独立 leading word 值得一条新常驻 description 时才拆。
-- **写作技术全部概念化**：每个 lever = 命名概念 + 定义 + 判别测试 + 失败模式 + 药方（context pointer / two loads / information hierarchy / completion criterion / leading word / negation / sprawl / sediment / no-op），不用 MUST 清单、不用阶段门——与 superpowers 纪律型形态（红旗表 + 计数器）构成谱系另一端：**纪律靠表，判断靠词**。
-- **设计本质（研究者解释）**：它把「写 agent 文档」从风格偏好重构为一套可检验的负载会计与词汇工程；几乎所有建议都可归结为两种负载的再分配或先验的招募，因此能跨 packaging（skill/AGENTS.md/spec/提示词）迁移。
-- **成立前提与代价**：前提是读者能接受高概念密度——全篇自造/半自造术语（context pointer、two loads、legwork、leading word、sediment）本身就是其 leading word 学说的展示，对新手是一笔一次性认知负载；未提供验证协议（无对照/微测试指引），效果验证交给了它的姊妹工程实践而非本 skill。
+7 行正文调用 grilling + domain-modeling。grilling 把需求画成**设计树**，按**轮次**追问：每轮把「前沿」（前提已定的全部问题）一次问完、编号、附推荐答案（grilling:8）；**事实 agent 自己查**（派 sub-agent，"don't ask the user for anything you could look up yourself"，:26），**决策归用户**；完成判据 = 前沿清空、"nothing left silently assumed"，且用户确认共识前不动手（:28）。domain-modeling 同步把新词落进 CONTEXT.md、难逆决策落成 ADR。**若无此技能**：agent 拿着一句话需求直接开写，十几个未决策全靠它猜——对齐失败（三大失败模式之首）。
+
+### 第 2 站 · 固化：to-spec 把对话变 spec
+
+第一段就划界："Do NOT interview the user; just synthesize"（to-spec:7）。写之前先画测试缝并跟用户确认——"Existing seams should be preferred… Use the highest seam possible… the ideal number is one"（:15）。模板七节，两条硬约束：user stories 要 "A LONG, numbered list"、"extremely extensive"；实现决策**禁止文件路径和代码片段**——"They may end up being outdated very quickly"（:55，spec 是决策记录不是代码）。发布打 `ready-for-agent` 标签。**若无此技能**：决策散在对话里，下个会话就蒸发。
+
+### 第 3 站 · 拆票：to-tickets 的 tracer-bullet 纵切片
+
+每票三规则：**纵切**穿所有层（"schema, API, UI, tests: vertical, NOT a horizontal slice"，to-tickets:31）、**单票可 demo**、**单窗口装得下**（"sized to fit in a single fresh context window"，:33——为第 4 站的 /clear 铺路）。每票声明 blocking edges；宽 refactor 是唯一例外，走 expand–contract 序列保 CI 恒绿。拆完三问用户（粒度/依赖边/合并拆分），迭代到批准再发布，然后 "Work the **frontier**"（:65）——只做阻塞已清的票。**若无此技能**：水平切片（先写完所有 schema 再写 API）让每张票都无法独立验证。
+
+### 第 4 站 · 实现：implement 驱动 tdd
+
+你手动敲 `/implement <票号>`（user-invoked）。15 行正文是纯编排：用 /tdd、勤跑类型检查、最后 /code-review、commit。tdd 接管循环，三条纪律：**只在预约定缝上写测试**（"Before writing any test, write down the seams under test and confirm them with the user"，tdd:22——缝从第 2 站传过来）；**红在绿前**、一次一片；**重构不进循环**——"It belongs to the review stage (see the code-review skill)"（:38，职责外移）。三反模式有名字：implementation-coupled（重构就碎）、tautological（自证通过）、horizontal slicing（bulk 测试验证想象的行为）。接口形状本身有疑问时调 codebase-design 拿词汇——"a reference to consult, not a session to run"。**若无此技能**：测试追着实现写，mock 到私有方法，重构一次碎一片。
+
+### 侧线 · 中途撞上间歇性 bug：diagnosing-bugs 六阶段
+
+实现中报错间歇出现，description 命中 "reports something broken/throwing/failing/slow"——模型自动触发（model-invoked）。**Redact 先行**：一切展示的命令/输出/工件先脱敏，循环对 env var 构建让凭证留在环境里（:14，v1.2.3 新增 #779）。Phase 1 唯一目标：造**紧的红色回路**——"**This is the skill.** Everything else is mechanical"（:20），十种造法按序尝试，完成后必须过五判据（red-capable/deterministic/fast/agent-runnable/已跑过一次），"No red-capable command, no Phase 2"（:66）。Phase 2 复现+最小化（每个残留元素 load-bearing）；Phase 3 先出 **3–5 个可证伪假设排序**再测任何一个（"Single-hypothesis generation anchors on the first plausible idea"，:90），列表给用户看但不阻塞；Phase 4 一次改一个变量、debug 日志打 `[DEBUG-a4f2]` 前缀（清理=一次 grep，:110）；Phase 5 回归测试**写在修复前**，且只在正确的缝上——"If no correct seam exists, that itself is the finding"（:120，架构问题升级而非硬测）；Phase 6 清单收尾，正确假设写进 commit——"so the next debugger learns"（:138）。**若无此技能**：读完代码直接给理论，改两行，bug 两周后回来。
+
+### 第 5 站 · 评审：code-review 双轴不重排
+
+"Review the changes since a fixed point"——先钉死基点并验证 ref 有效、diff 非空（坏 ref 在这里失败，不进子代理）。两轴**并行子代理**："so they don't pollute each other's context"（code-review:11）：Standards 轴对照仓库文档规范 + 固定 Fowler 气味基线（12 条随技能自带，两条约束：**仓库规范覆盖基线**（:40）、**永远是 judgement call**、工具已管的跳过（:41））；Spec 轴对照原始 issue/spec 找缺失/越界/假实现。聚合纪律："Don't pick a single winner across axes: that's the reranking the separation exists to prevent"（:78）——分轴就是为了防止一轴掩盖另一轴。**若无此技能**：一份混排评审清单，规范问题和需求偏差互相淹没。
+
+### 第 6 站 · 交付：pr 三段式
+
+`## Summary`（用最小视图：伪代码/调用树/组件树/mermaid/diff 按需选）+ `## Evidence`（before/after，截图 S-tier、执行结果 A-tier，pr:160）+ `## Merge Danger`（one-way/two-way door + blast radius 一词——"A PR that is cheap to roll back is lower risk"，:166）。全文用 CONTEXT.md 领域语言。frontmatter `metadata.credits` 注明模板借自 Humanlayer show-me（pr:6）——**借用注明出处被机制化**。**若无此技能**：PR 正文复述 diff，评审人自己找证据。
+
+### 横切机制（任何一站可用）
+
+- **wait-what**（7 行）："`Stop. That last message did not land: re-pitch it.`"（wait-what:3）——没听懂就打断，要求用简明英语+CONTEXT.md 词汇重讲。
+- **handoff**：交接文档写 **OS 临时目录不进工作区**（handoff:8）、必含 "suggested skills" 段（:10）、不复制已有工件只引路径、脱敏。
+- **阶段边界五选项**：Continue / /clear / /handoff / Subagent / /compact（默认垫底）——决策做在边界上，phase 中途不做。
+
+## 主流程之外的地图（ask-matt 一览）
+
+- **On-ramp 三条**：bug 堆积→/triage（只 triage 外来的，自产票已 agent-ready）；难 bug→/diagnosing-bugs；雾太大一次装不下→/wayfinder（产**决策**不产交付物，雾散后汇入 /to-spec——"it hands off, it doesn't build"）。
+- **词汇层垫底**：domain-modeling（领域词/ADR）与 codebase-design（deep module/seam 词汇）是两个 model-invoked 参考，被上面的技能按需拉取——**共享词汇是技能间协议**。
+- **Standalone**：prototype（抛弃式回答一个设计问题，结果作为 primary source 存 prototype/ 分支）、research（后台代理读材料落引用文件）、to-questionnaire（把问题写给**别人**填）、resolving-merge-conflicts（按意图逐 hunk 解，永不 --abort）、wizard（只为只有人能做的步骤生成 bash 向导——"If the agent could just do it itself, it should"）、teach、writing-for-agents。
+
+## 体系结构与治理（压缩）
+
+- **成熟度分层**：engineering(18)/productivity(6)/misc(4, 冻结)/in-progress(8, 隔离)/deprecated；v1.2.3 多 harness 单源分发（Claude Code 插件/Codex/Copilot/Gemini CLI/npx skills），每 skill 一个 `agents/openai.yaml` 适配文件。
+- **issue 双门槛**（SCOPE.md）：①观察到的失败（真实 session 证据，假想改进不过 bar）②符合哲学；`.out-of-scope/` 8 个文件把**拒绝本身**档案化；changesets 给每次行为修订绑定 issue 号——skill 有 semver 化变更日志。
+- **人/Agent 面同名映射**：docs/engineering/*.md 与 skills/ 同名一一对应；仓库吃自己狗粮（GLOSSARY.md/AGENTS.md/ADR）。
+- **v1.2.3 变更样例**（CHANGELOG）：diagnosing-bugs 加 Redact 段；code-review 系去掉 Claude Code 专属工具名（跨 harness 可跟随）；wizard 删时间估算——变更全是行为级的，走 changesets。
 
 ## 未读与局限
 
-- 38 个 SKILL.md 仅深读本样本 1 个（+ SKILL-MECHANICS.md 全文）；其余 37 个只有 `skills/engineering/README.md` 的一句话定位，未逐一打开。
-- `.agents/` 附属文件（invocation.md、writing-docs.md、ADR 0001/0002）、`.changeset/` 其余 17 个、`docs/engineering/*` 19 篇、GLOSSARY.md 内容未读（GLOSSARY.md 已取回未读）。
-- docs 面仅读 writing-for-agents 一篇的前半；README 后半（失败模式 #3 之后）未读。
-- 未运行任何 skill，未验证 trigger 表现；多 harness 通道仅按 README 与 `agents/openai.yaml` 的树内存在性记录，未实测各端安装。
-- 热度为单日 API 快照；「当期最高星」截至 2026-10-28。
+- 本轮通读 13 个 SKILL.md（主流程 8 + 横切 3 + ask-matt + setup）；其余 25 个（triage/wayfinder/domain-modeling/codebase-design/prototype/research/wizard/grill-me/teach/to-questionnaire/resolving-merge-conflicts/improve-codebase-architecture 及 in-progress·misc 全部）仅有 description 与 ask-matt 转述，未逐文件打开。
+- 引用行号以本机插件 v1.2.3 为准，上游可能已推进；writing-for-agents 深读基于第七轮取回文本（SKILL.md + SKILL-MECHANICS.md），本轮未复读。
+- 未运行任何 skill，未验证触发表现；多 harness 通道未实测安装。
