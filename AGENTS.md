@@ -112,11 +112,13 @@ python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
 ruff format src tests
 
 # 运行 HeAgent（python -m heagent 为等价入口）
+# ⚠ 必须在仓库根启动：workspace_root = 进程 cwd，从盘根启动会把整盘以 9p 挂进容器沙箱
 heagent "写一个快速排序"           # 单次执行
 heagent                            # 交互模式
 heagent init --project             # 初始化项目配置
 heagent gui                        # TUI（需 pip install -e ".[gui]"）
 heagent http-server                # HTTP 网页入口（127.0.0.1:8766）+ WS 入口（127.0.0.1:9901），需 pip install "heagent[http]"
+powershell scripts/start_heagent.ps1   # 等价封装：cwd 钉在仓库根再启动（推荐，Windows）
 ```
 
 异步测试由 `pytest-asyncio` 自动驱动；provider 测试放在 `tests/providers/`。
