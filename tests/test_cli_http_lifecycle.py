@@ -18,8 +18,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 import socket
+import time
 from typing import Any
 
 import pytest
@@ -67,6 +69,35 @@ async def _fetch_health(port: int) -> int:
     """**异步**请求健康检查：测试与服务共用同一个事件循环，同步 httpx 会把服务一起阻塞。"""
     async with httpx.AsyncClient(timeout=5.0) as client:
         return (await client.get(f"http://127.0.0.1:{port}/api/health")).status_code
+
+
+async def _raw_status(port: int) -> int:
+    """裸 HTTP GET 的状态码：连不上 / 无应答都会抛错，故「返回了状态码」= accept 循环还活着。
+
+    WS listener 没有健康端点，这里不断言具体码（404/426 都证明 ASGI 栈在应答），只证明**有人在听**。
+    异步实现是硬要求：同步 urllib 会阻塞与服务共用的那个事件循环，自己把服务憋死。
+    """
+    reader, writer = await asyncio.open_connection("127.0.0.1", port)
+    try:
+        writer.write(b"GET / HTTP/1.1\r\nhost: 127.0.0.1\r\nconnection: close\r\n\r\n")
+        await writer.drain()
+        status_line = await asyncio.wait_for(reader.readline(), timeout=5.0)
+    finally:
+        writer.close()
+    match = re.match(rb"HTTP/1\.[01] (\d{3})", status_line)
+    assert match, status_line
+    return int(match.group(1))
+
+
+async def _await_failure(service: Any, *, timeout: float) -> BaseException:
+    """轮询 ``EmbeddedHttpService.failure``（交互模式每轮就是这么检查的），超时即判失败。"""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        failure = service.failure
+        if failure is not None:
+            return failure
+        await asyncio.sleep(0.05)
+    raise AssertionError("serve 循环死掉后 failure 仍未置位")
 
 
 class _RecordingProvider:
@@ -335,6 +366,57 @@ async def test_service_lifecycle_is_idempotent_and_reports_no_failure(
 
     assert service.failure is None
     _assert_port_free(port)
+
+
+@pytest.mark.embedded_http_service
+async def test_one_listener_dying_is_surfaced_while_the_others_keep_serving() -> None:
+    """A49：**真实**双 listener 故障注入 —— 一条 serve 循环真死，``failure`` 拿到首个异常，其余仍活。
+
+    注入点选在 uvicorn 自己的 poll 循环里（``Config.callback_notify`` 抛错 ⇒ ``Server.main_loop``
+    在 tick 中抛出），不替换 HeAgent 的 ``serve_forever``：被测的传播链（done callback →
+    ``_failure`` → 所有者轮询）与真实运行时同一条。其余全部真实：真 socket、真端口、真 HTTP/WS 栈。
+    """
+    from heagent.cli.http import EmbeddedHttpService
+    from heagent.network.http_server import HttpServer, HttpServerConfig
+    from heagent.network.ws_host import WsServer, WsServerConfig
+
+    http_server = HttpServer(
+        HttpServerConfig(port=0, request_timeout=0, idle_timeout=0, tool_inflight_timeout=0),
+        version="test",
+    )
+    survivor = WsServer(WsServerConfig(port=0, shutdown_timeout=1))
+    doomed = WsServer(WsServerConfig(port=0, shutdown_timeout=1))
+    service = EmbeddedHttpService(http_server, (survivor, doomed))
+
+    await service.start()
+    try:
+        assert service.failure is None
+        survivor_port = survivor.port
+        assert await _fetch_health(http_server.port) == 200  # 起点：三条 listener 都活着
+
+        async def _boom() -> None:
+            raise RuntimeError("serve loop died (injected)")
+
+        uvicorn_server: Any = doomed._server
+        assert uvicorn_server is not None
+        uvicorn_server.config.callback_notify = _boom
+        uvicorn_server.last_notified = 0.0  # 下一 tick（≤100ms）就触发
+
+        failure = await _await_failure(service, timeout=5.0)
+        assert isinstance(failure, RuntimeError), failure
+        assert "injected" in str(failure)
+
+        # 兄弟 listener 仍活：真实 TCP + 真实 ASGI 应答（监听循环没被连带杀掉）
+        assert (await _raw_status(survivor_port)) // 100 in {2, 4, 5}
+        # HTTP 入口也仍活
+        assert await _fetch_health(http_server.port) == 200
+        # 首个异常不被后来的抖动覆盖
+        assert service.failure is failure
+    finally:
+        await service.close()
+
+    assert service.failure is not None  # 关闭不清空历史失败（所有者据此收尾）
+    _assert_port_free(survivor_port)
 
 
 @pytest.mark.embedded_http_service
