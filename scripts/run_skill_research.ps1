@@ -16,7 +16,7 @@ $log = Join-Path $runDir 'skill_research-last-run.log'
 "=== run start ===" | Out-File -FilePath $log -Encoding utf8
 
 $prompt = @"
-使用 skill_research 技能（.claude/skills/skill_research/SKILL.md），从 GitHub 读取一个使用最广或 star 最多的 agent skill 对象，提取其核心观点与价值（其他事项附后），按该技能流程把案例卡（以核心观点与价值开篇，含解剖样本）写入 news/skill_process/<对象名>.md，并基于 news/skill_process/ 全部案例更新 news/skillresearch.md 报告——报告只保留从各 skill 获取的核心价值（重复的整理合并）与检查点，保持结论简洁；研究过程与历史记录外置更新到 news/skill_process/skillresearch_process.md。这是无人值守的定时任务(headless)，禁止停下来询问用户、禁止等待选择，必须一路执行到底。
+使用 skill_research 技能（.claude/skills/skill_research/SKILL.md），从 GitHub 读取一个使用最广或 star 最多的 agent skill 对象，提取其核心观点与价值（其他事项附后），按该技能流程把案例卡（以核心观点与价值开篇，深度分析用长场景承载）写入 news/skill_process/<对象名>.md，并基于 news/skill_process/ 全部案例更新 news/skillresearch.md 报告——报告只保留从各 skill 获取的核心价值（重复的整理合并）与检查点，保持结论简洁；研究过程与历史记录外置更新到 news/skill_process/skillresearch_process.md。研究时执行传播与接收面采样（star 增速分页抽样、contributors/commit 频次、HN/Reddit/博客正反讨论、issues 负面证据），结论标注 [文本]/〔传播〕/〔推断〕层级；材料优先读本机已装插件缓存。这是无人值守的定时任务(headless)，禁止停下来询问用户、禁止等待选择，必须一路执行到底。
 
 联网回退链：优先 WebSearch / web_reader；若报错或被拦，改用 curl 直拉官方来源（如 GitHub raw 文件）；若联网工具整体不可用，则只更新检查日期并在来源说明如实记录"今日因网络受限未更新"，绝不编造来源或结论。
 

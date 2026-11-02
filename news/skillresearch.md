@@ -187,4 +187,4 @@ awesome-list 目录（1231 条）README 一句话与 frontmatter 的保真度实
 
 ---
 
-**可信度边界**：所有轮次均未运行被研究 skill、无对照评测；机制结论基于文本证据与来源自述，非独立实测。逐轮局限、候选筛选、历史案例要点与完整参考资料见 [skillresearch_process.md](skill_process/skillresearch_process.md)。
+**可信度边界**：所有轮次均未运行被研究 skill、无对照评测；机制结论基于文本证据与来源自述，非独立实测。2026-11-02 起方法扩展增加传播与接收面采样（star 增速/贡献者/社区讨论/负面证据），此前热度均为单日快照、传播结论缺数据支撑。逐轮局限、候选筛选、历史案例要点与完整参考资料见 [skillresearch_process.md](skill_process/skillresearch_process.md)。
