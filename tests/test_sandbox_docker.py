@@ -400,7 +400,7 @@ def test_kill_fallback_when_kill_fails(monkeypatch: pytest.MonkeyPatch):  # 判�
         def __init__(self) -> None:  # 不设实例 run——方法即实现；仅继承异常类型等类属性
             pass
 
-        def run(self, argv, capture_output=False, text=False, timeout=None):
+        def run(self, argv, capture_output=False, text=False, timeout=None, **kwargs):
             calls.append(list(argv))
             if argv[1] == "kill":
                 raise subprocess.TimeoutExpired(cmd=argv, timeout=5)
@@ -423,7 +423,7 @@ def test_kill_rm_fallback_failure_only_warns(  # 判据15c：兜底也失败 →
         def __init__(self) -> None:
             pass
 
-        def run(self, argv, capture_output=False, text=False, timeout=None):
+        def run(self, argv, capture_output=False, text=False, timeout=None, **kwargs):
             raise OSError("docker daemon gone")
 
     monkeypatch.setattr(f"{MODULE}.subprocess", _AllFail())
@@ -442,7 +442,7 @@ def test_kill_inspect_failure_triggers_fallback(  # 判据15d：状态不确定 
         def __init__(self) -> None:
             pass
 
-        def run(self, argv, capture_output=False, text=False, timeout=None):
+        def run(self, argv, capture_output=False, text=False, timeout=None, **kwargs):
             calls.append(list(argv))
             if argv[1] == "inspect":
                 raise subprocess.TimeoutExpired(cmd=argv, timeout=5)
@@ -490,7 +490,7 @@ def test_kill_no_fallback_when_container_stopped(monkeypatch: pytest.MonkeyPatch
         def __init__(self) -> None:  # 同上：实例不遮蔽方法
             pass
 
-        def run(self, argv, capture_output=False, text=False, timeout=None):
+        def run(self, argv, capture_output=False, text=False, timeout=None, **kwargs):
             calls.append(list(argv))
             return subprocess.CompletedProcess(argv, 0, stdout="false\n" if argv[1] == "inspect" else "", stderr="")
 
@@ -511,7 +511,7 @@ def test_kill_no_fallback_when_rm_removed(monkeypatch: pytest.MonkeyPatch):  # �
         def __init__(self) -> None:
             pass
 
-        def run(self, argv, capture_output=False, text=False, timeout=None):
+        def run(self, argv, capture_output=False, text=False, timeout=None, **kwargs):
             calls.append(list(argv))
             if argv[1] == "inspect":
                 return subprocess.CompletedProcess(argv, 1, stdout="", stderr="Error: No such object: heagent-gone")
@@ -533,7 +533,7 @@ def test_kill_fallback_when_daemon_unreachable(monkeypatch: pytest.MonkeyPatch):
         def __init__(self) -> None:
             pass
 
-        def run(self, argv, capture_output=False, text=False, timeout=None):
+        def run(self, argv, capture_output=False, text=False, timeout=None, **kwargs):
             calls.append(list(argv))
             if argv[1] == "inspect":
                 return subprocess.CompletedProcess(argv, 1, stdout="", stderr="Cannot connect to the Docker daemon")
@@ -625,7 +625,7 @@ def test_kill_double_timeout_reports_unresponsive_without_rm(  # 判据15g：双
         def __init__(self) -> None:
             pass
 
-        def run(self, argv, capture_output=False, text=False, timeout=None):
+        def run(self, argv, capture_output=False, text=False, timeout=None, **kwargs):
             calls.append(list(argv))
             raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout)
 
@@ -641,7 +641,7 @@ def test_kill_reports_healthy_when_container_stopped(monkeypatch: pytest.MonkeyP
         def __init__(self) -> None:
             pass
 
-        def run(self, argv, capture_output=False, text=False, timeout=None):
+        def run(self, argv, capture_output=False, text=False, timeout=None, **kwargs):
             return subprocess.CompletedProcess(argv, 0, stdout="false\n" if argv[1] == "inspect" else "", stderr="")
 
     monkeypatch.setattr(f"{MODULE}.subprocess", _KillOK())
@@ -939,3 +939,57 @@ def test_probe_os_error_is_unavailable(monkeypatch: pytest.MonkeyPatch):  # 判�
     monkeypatch.setattr(f"{MODULE}.subprocess", _FakeSubprocess(_run))
     assert _docker_available("docker") is False
     assert calls["n"] == 1
+
+
+# ---- docker CLI 不继承终端句柄（2026-11-02：用户终端启动的实例里 docker.exe 在 daemon 之前挂死）----
+
+
+def _assert_cli_isolated(kwargs: dict) -> None:
+    import sys
+
+    assert kwargs.get("stdin") == subprocess.DEVNULL
+    if sys.platform == "win32":
+        assert kwargs.get("creationflags", 0) & subprocess.CREATE_NO_WINDOW
+
+
+def test_docker_spawn_detaches_stdin_and_console(monkeypatch: pytest.MonkeyPatch):  # 判据25：spawn 不继承终端
+    seen: dict = {}
+
+    class _Sub:
+        PIPE = subprocess.PIPE
+
+        @staticmethod
+        def Popen(argv, **kw):
+            seen.update(kw)
+            return object()
+
+    monkeypatch.setattr(f"{MODULE}.subprocess", _Sub)
+    _docker_spawn(["docker", "run"])
+    _assert_cli_isolated(seen)
+
+
+@pytest.mark.parametrize("caller", ["probe", "kill", "digest"])
+def test_docker_cli_runs_detach_stdin_and_console(monkeypatch: pytest.MonkeyPatch, caller: str):  # 判据25b
+    from heagent.tools.sandbox import docker as mod
+
+    seen: list[dict] = []
+
+    class _R:
+        returncode = 1
+        stdout = ""
+        stderr = "Error: No such object: x"
+
+    def _run(argv, **kw):
+        seen.append(kw)
+        return _R()
+
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(f"{MODULE}.subprocess", _FakeSubprocess(_run))
+    {
+        "probe": lambda: mod._probe_daemon_reason("docker"),
+        "kill": lambda: mod._docker_kill("docker", "heagent-x"),
+        "digest": lambda: mod._docker_inspect_digest("docker", "img"),
+    }[caller]()
+    assert seen
+    for kw in seen:
+        _assert_cli_isolated(kw)

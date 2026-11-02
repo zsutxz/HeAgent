@@ -32,9 +32,10 @@ import json
 import logging
 import shutil
 import subprocess
+import sys
 import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from heagent.tools.sandbox.contracts import SandboxTier, get_sandbox_workspace
 from heagent.tools.sandbox.process import (
@@ -95,6 +96,14 @@ _DAEMON_HINT = (
 )
 
 
+# docker CLI 子进程不继承服务进程的终端句柄（2026-11-02）：用户终端启动的实例里 docker.exe 曾在
+# daemon 之前挂死，换 Git Bash 父进程即愈；stdin 断开、Windows 上不挂控制台，二者都只改句柄继承，
+# 不改命令语义（不带 -i 的 docker 命令本就不读 stdin）。模块导入时算好，测试替换 subprocess 模块也不受影响。
+_CLI_ISOLATION: dict[str, Any] = {"stdin": subprocess.DEVNULL}
+if sys.platform == "win32":
+    _CLI_ISOLATION["creationflags"] = subprocess.CREATE_NO_WINDOW
+
+
 def _probe_daemon_reason(docker_path: str) -> str:
     """探测一次 daemon 并返回**失败原因**（``ok`` / ``timeout`` / ``unavailable``）。
 
@@ -115,6 +124,7 @@ def _probe_daemon_reason(docker_path: str) -> str:
             probe = subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
                 [docker_path, "version", "--format", "{{.Server.Version}}"],
                 capture_output=True,
+                **_CLI_ISOLATION,
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired:
@@ -200,6 +210,7 @@ def _docker_spawn(argv: list[str]) -> subprocess.Popen[bytes]:
         argv,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        **_CLI_ISOLATION,
     )
 
 
@@ -237,6 +248,7 @@ def _docker_kill(docker_path: str, name: str) -> bool:
         subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
             [docker_path, "kill", "--", name],
             capture_output=True,
+            **_CLI_ISOLATION,
             timeout=_REAP_WAIT_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
@@ -251,6 +263,7 @@ def _docker_kill(docker_path: str, name: str) -> bool:
         probe = subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
             [docker_path, "inspect", "-f", "{{.State.Running}}", "--", name],
             capture_output=True,
+            **_CLI_ISOLATION,
             text=True,
             timeout=_REAP_WAIT_TIMEOUT,
         )
@@ -276,6 +289,7 @@ def _docker_kill(docker_path: str, name: str) -> bool:
         subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
             [docker_path, "rm", "-f", "--", name],
             capture_output=True,
+            **_CLI_ISOLATION,
             timeout=_REAP_WAIT_TIMEOUT,
         )
     except subprocess.TimeoutExpired as exc:
@@ -296,6 +310,7 @@ def _docker_inspect_digest(docker_path: str, image: str) -> str | None:
         proc = subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
             [docker_path, "image", "inspect", "--format", "{{json .RepoDigests}}", "--", image],
             capture_output=True,
+            **_CLI_ISOLATION,
             text=True,
             timeout=_REAP_WAIT_TIMEOUT,
         )
