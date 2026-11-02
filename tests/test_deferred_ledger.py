@@ -290,18 +290,27 @@ def test_duplicate_across_states_is_reported() -> None:
     assert any("互斥破坏" in item and "A34" in item for item in findings), findings
 
 
+def _first_active_id() -> str:
+    """从**真台账**的活动段取一个活动 ID（不硬编码——A 号会随批次闭合而搬家）。"""
+    active_ids = [ident for row in rows(split_sections(_archive_text())[ACTIVE]) for ident in ids_in(row[0])]
+    assert active_ids, "活动段为空：本文件的负面用例需要一个活动 ID 才能构造"
+    return active_ids[0]
+
+
 def test_dropped_id_is_reported() -> None:
     """把一条活动条目整行删掉 ⇒ 全集断言必须点名它。"""
-    lines = [line for line in _archive_text().splitlines() if not line.startswith("| A49 |")]
+    dropped = _first_active_id()
+    lines = [line for line in _archive_text().splitlines() if not line.startswith(f"| {dropped} |")]
     findings = audit("\n".join(lines), _entry_text())
-    assert any("条目静默消失" in item and "A49" in item for item in findings), findings
+    assert any("条目静默消失" in item and dropped in item for item in findings), findings
 
 
 def test_entry_table_must_track_active_ids() -> None:
     """入口表漏掉一条活动 ID ⇒ 单一真源断言必须报（而不是静默只读一半）。"""
-    mutated = "\n".join(line for line in _entry_text().splitlines() if not line.startswith("| A49 |"))
+    dropped = _first_active_id()
+    mutated = "\n".join(line for line in _entry_text().splitlines() if not line.startswith(f"| {dropped} |"))
     findings = audit(_archive_text(), mutated)
-    assert any("入口表与活动段不一致" in item and "A49" in item for item in findings), findings
+    assert any("入口表与活动段不一致" in item and dropped in item for item in findings), findings
 
 
 def test_empty_landing_is_reported() -> None:

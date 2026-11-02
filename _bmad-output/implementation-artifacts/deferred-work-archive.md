@@ -1,6 +1,6 @@
 # Deferred Work Archive
 
-> 跨周期 deferred 的唯一总账；当前活动项为 10 条（A34 / A35 / A36 / A40–A44 / A49 / A50）。
+> 跨周期 deferred 的唯一总账；当前活动项为 7 条（A34 / A35 / A36 / A40–A43）。
 > **四态语义（2026-10-26 S-6 起）**：`active`（有触发条件、未排期）／`scheduled`（已挂到 story 或 sprint）／
 > `frozen`（挂起待裁定，**必须带裁定指针**）／`retired`（显式退役，5 字段齐备）。
 > 条目正文只在本文件；`deferred-work.md` 只保留入口与索引（同一 ID 不得同时出现在两个文件）。
@@ -16,9 +16,6 @@
 | A41 | 兄弟 Story 越集写互相误归因（`cli/goal.py:440-444`） | `frozen` | 共享工作区审计无法按写者归属，兄弟 Story 越集写会落入本 Story 的 Δ 判负（连带置闩）。**裁定指针：AD-20（OQ-4 未裁）**；短期靠围栏预防层降低概率 |
 | A42 | 违规写无补救语义（`workflow_runner.py:633`） | `frozen` | 判负只置 FAILED + 闩，越集文件留工作区；闩后串行重跑新基线已含旧违规，审计对其失明。需人工清理指引或回滚工具；与基线盲区同族（**裁定指针：AD-20 族，OQ-4 未裁**） |
 | A43 | `_host_artifact_relpath` 参照系（`cli/goal.py:454-457`） | `active` | `resolve` + `relative_to` 大小写敏感（Windows 大小写漂移 → 静默 `""`），`workspace≠repo root` 时跨参照系比较。当前部署两者相等；失败方向是误判非漏判。触发条件：workspace 与 repo root 分离部署 |
-| A44 | 交互 REPL 不挂事件 rollout sink | `active` | 2026-10-26 Epic 57-4 冒烟附带发现：`JsonlSink` 唯一 subscribe 在单次模式路径（`interactive.py:182`），交互 REPL 从不订阅 ⇒ `EVENTS_ROLLOUT_ENABLED` 在交互模式不生效（audit 只剩 checkpoint/快照/租约）。触发条件：需要交互会话事件回放或审计留档；根治指向 REPL 启动路径按 settings 挂 sink（rollout 含工具原始输出，默认关闭是有意设计） |
-| A49 | `EmbeddedHttpService.failure` 传播路径缺直接测试 | `active` | 来源 Epic 56-1 triage#3（low）：双 serve 循环之一意外死亡时 `failure` 属性的传播缺直接测试。现有覆盖 = fake 单循环死亡的 lifecycle 测试（打桩层）+ 真实双 server 干净启停；真实双 listener 故障注入未落地。触发条件：下一次改 HTTP/WS 双 server 装配时一并补测 |
-| A50 | `auto_archive._append_archive` 无锁 read-modify-write（与 epic-59 修复前同款） | `active` | origin=新增。来源 Epic 59 审查（2026-10-29）：`memory/auto_archive.py` 的归档追加是无锁读改写，并发写者互相覆盖留底小节（无声丢档）。compact 侧已修（归档追加收进 `atomic_update_text` 锁内）；auto_archive 侧风险更低（启动单次 + 跨进程节流，无并发 compact 场景），但同族缺陷。最小修法同款：`_append_archive` 改走 `atomic_update_text`。触发条件：下一次改 auto_archive 时顺带修复，或出现并发归档场景 |
 
 ## 已按 Epic 归档
 
@@ -29,7 +26,7 @@
 | Z-D24 / A2 | Epic S1-S4 沙箱裁定 | 已闭合（裁定不实施） | [`epic-S1-S4.../deferred-work.md`](../archive/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md) |
 | A25 / A26 / A27 / A28 / A33 / A37 / A38 / A39 | Epic 51 Goal/workflow 收口优化 | 已闭合 | [`epic-51.../deferred-work.md`](../epics/epic-51-goal-workflow优化周期/deferred-work.md) |
 
-## 本轮闭合（2026-10-26，S-6 归一；证据齐备，**不是**退役）
+## 本轮闭合（2026-10-26 S-6 归一 + 2026-11-02 小步清债；证据齐备，**不是**退役）
 
 > 这些条目原先散在 `deferred-work.md` 的「仍需维护的观察」与 Epic 52 review 段里。S-6 归一时逐条核对代码，
 > 确认已被既有实现或本轮 E1 闭合。与「退役」的区别：这里有可复跑的判据，不是「不做」。
@@ -40,6 +37,9 @@
 | A46 | 异常处理中的 `transition()` 理论上可能覆盖原始异常 | `src/heagent/engine/workflow_transition.py:41` 的 `raise … from exc` 保留 cause 链；`tests/test_workflow_transition_reason.py::test_transition_failure_preserves_cause_chain` 断言 `__cause__` 为 `KeyError`；`scripts/mutation/mutate_state_invariants.py` 的 M5（去掉 `from exc`）会把它打红 |
 | A47 | `reason: str(exc)` 可无上限写入 `next_action` / `blocked_reason` | `src/heagent/engine/workflow_runner.py:41` `_MAX_REASON_CHARS = 2000` + `:53-57` `_bounded_reason`（A37 已落）；`tests/test_workflow_transition_reason.py::test_bounded_reason_caps_without_raising` 与 `::test_oversized_reason_is_truncated_on_write` 钉住 |
 | A48 | `workflow_step_failed` 未记录驱动转换的事件类型；checkpoint 缺 `last_event` / `transition_reason` | `last_event` 已由 A38 落地（`workflow_runner.py:149`、`checkpoint.py`）；`transition_reason` 由本轮 S-1 补齐（字段 + 唯一写点 + 双向往返）；`workflow_step_failed` 的 `transition_event` 在 `:408` / `:700` 两处发射 |
+| A50 | `auto_archive._append_archive` 无锁 read-modify-write（origin=新增，2026-10-29 epic-59 审查落账；2026-11-02 闭合） | `src/heagent/memory/auto_archive.py` 的 `_append_archive` 改走 `atomic_update_text`（归档文件自身 `.lock` 内读改写，与 `memory/compact.py::_append_archive_section` 同款）。判据 `tests/memory/test_auto_archive.py::TestArchiveAppendSerialization`（2 例：① 机制——归档路径必须出现在 `atomic_update_text` 调用里；② 行为——两写者并发追加两段小节都在）。判据强度已用组件副本变异验证（2/2 变红）：把 `_append_archive` 退回裸读写即打红。`docs/frame.md` §4.6 补「归档文件自身的追加也在自身 `.lock` 内读改写」一句，判据条数 14 → 16 例 |
+| A49 | `EmbeddedHttpService.failure` 传播路径缺直接测试（2026-11-02 闭合） | 真实双 listener 故障注入已落地：`tests/test_cli_http_lifecycle.py::test_one_listener_dying_is_surfaced_while_the_others_keep_serving`——真 HTTP server + 两个真 WS listener（真 socket / 真端口），在 **uvicorn 自己的 poll 循环**里注入（`Config.callback_notify` 抛错 ⇒ `Server.main_loop` 在 tick 中抛出，不替换 HeAgent 的 `serve_forever`），断言 `failure` 拿到该异常且不被后续抖动覆盖、兄弟 listener 仍应答（裸 HTTP 状态行）、HTTP 健康端点仍 200、`close()` 后历史失败不被清空。判据强度已用组件副本变异验证（去掉 `_failure = error` 即打红）。`docs/frame.md` §4.17「默认 CLI 自启动」行补该传播链与判据落点 |
+| A44 | 交互 REPL 不挂事件 rollout sink（2026-11-02 闭合） | `src/heagent/cli/interactive.py::_run_chat` 在引擎构造后与单次模式同口径订阅 `_build_event_sink(settings, json_output=False)`（默认关闭不变，rollout 含工具原始输出；REPL 无 `--json` ⇒ sink 恒不含 stdout 流）。判据 `tests/test_cli_events_rollout.py`（2 例成对：① 开关关闭 ⇒ 一轮跑完后零 rollout 文件，且先断言 provider 真被调 1 次；② 开关打开 ⇒ `<rollout_dir>/<run_id>/rollout.jsonl` 落盘，kinds 含 `run_started` 且以 `run_completed` 收尾）。判据强度已用组件副本变异验证（去掉订阅 ⇒ 「开关打开」用例变红，「关闭」用例保持绿）。`docs/frame.md` §4.12 补「订阅点」一段 |
 
 - **52-3 AC1（端到端围栏贯通冒烟）**：已闭合（2026-10-26，Epic 57-3）——真实注册表 `file_write` handler 经
   `policy.evaluate_tool_call → executor.execute` 全链贯通：集内写真实落盘、越集写围栏 BLOCKED 且 handler 零触达。
