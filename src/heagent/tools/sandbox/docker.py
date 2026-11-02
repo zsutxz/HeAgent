@@ -32,6 +32,7 @@ import json
 import logging
 import shutil
 import subprocess
+import time
 import uuid
 from typing import TYPE_CHECKING
 
@@ -54,6 +55,27 @@ DEFAULT_IMAGE = "heagent-sandbox:3.11"
 CONTAINER_WORKDIR = "/workspace"
 # 容器内非 root 用户（docker/sandbox/Dockerfile 同名创建）：命令默认以其运行。
 CONTAINER_USER = "sandbox"
+
+# daemon 心跳探测的复用窗口（秒）：健康时最多每 30s 付一次 ``docker version``（Windows 约
+# 150–300ms），换来「daemon 挂起后下一次调用 5s 内失败」而不是白等满命令超时（2026-11-02）。
+_HEALTH_PROBE_TTL_SECONDS = 30.0
+# 判定「daemon 无响应」后的熔断窗口（秒）：期间不 spawn 容器，直接返回显性诊断——历史形态是
+# 每条命令都实测 timeout + 40s 清理链才回报（2026-11-02 实测 3 次共 ~305s）。
+_DEGRADED_COOLDOWN_SECONDS = 120.0
+
+# 熔断期内**未执行**命令的返回（保留 ``Command timed out`` 前缀，goal/evidence 的超时归类不漂移）。
+_DAEMON_PAUSED_RESULT = (
+    "exit_code=-1\n"
+    "stderr: Command timed out after 0s (NOT executed): container sandbox paused — docker daemon "
+    "unresponsive; retrying in ~{retry_in}s. Restart Docker Desktop, or rerun with "
+    "--sandbox passthrough. Do not retry in a loop."
+)
+# 超时后发现清理链全线不应答时追加的诊断（区分「命令慢」与「daemon 挂」）。
+_DAEMON_HINT = (
+    "\n[daemon-unresponsive] docker CLI did not answer within the cleanup budget, so this was not a "
+    "slow command — the container sandbox is paused for {cooldown}s. Restart Docker Desktop or rerun "
+    "with --sandbox passthrough; do not retry in a loop."
+)
 
 
 def _docker_available(docker_path: str) -> bool:
@@ -155,7 +177,7 @@ def _is_gone(returncode: int, stderr: str | None) -> bool:
     return "no such object" in text or "no such container" in text
 
 
-def _docker_kill(docker_path: str, name: str) -> None:
+def _docker_kill(docker_path: str, name: str) -> bool:
     """按容器名精确 ``docker kill -- <name>``——杀 CLI 进程**不会**停容器，超时/取消必须显式杀。
 
     kill 后（无论成功与否）**始终**做一次 ``inspect`` 确认容器存活状态：``--rm`` 容器被杀后
@@ -164,15 +186,25 @@ def _docker_kill(docker_path: str, name: str) -> None:
     kill 失败时也先 inspect：Windows 命名管道并发压力下 kill 常超时但容器早已消失；跳过
     inspect 直接 ``rm -f`` 会额外浪费一个 ``_REAP_WAIT_TIMEOUT`` 周期。
     仍活着或状态真不确定 → WARNING + ``docker rm -f`` 兜底；兜底也失败只 warning 留痕。
+
+    返回值 = 「daemon 无响应」判定（**不是**清理是否成功）：任一 docker CLI 调用撞
+    ``TimeoutExpired`` 即为真。调用方据此熔断沙箱——2026-11-02 事故里 daemon 整段挂起时
+    每次超时都要白等满 4×10s 清理链，且模型无从知道该重启 Docker Desktop。
+    kill **与** inspect 双双超时 ⇒ 省掉必然也超时的 ``rm -f``（再省 10s）。
     """
+    unresponsive = False
+    kill_timed_out = False
     try:
         subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
             [docker_path, "kill", "--", name],
             capture_output=True,
             timeout=_REAP_WAIT_TIMEOUT,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        logger.debug("docker kill %s failed or timed out; will inspect to confirm state", name, exc_info=True)
+    except subprocess.TimeoutExpired:
+        logger.debug("docker kill %s timed out; will inspect to confirm state", name, exc_info=True)
+        unresponsive = kill_timed_out = True
+    except OSError:
+        logger.debug("docker kill %s failed (CLI error); will inspect to confirm state", name, exc_info=True)
 
     # 无论 kill 成功与否，inspect 给出最终答案——避免对已消失容器重复 rm -f。
     fallback = False
@@ -183,17 +215,23 @@ def _docker_kill(docker_path: str, name: str) -> None:
             text=True,
             timeout=_REAP_WAIT_TIMEOUT,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except subprocess.TimeoutExpired:
+        logger.warning("docker kill left container %s state uncertain; daemon not answering inspect", name)
+        if kill_timed_out:
+            # kill 与 inspect 双超时 = CLI 整体挂起；``rm -f`` 必然同样超时，不再白等一个周期。
+            return True
+        fallback = True
+    except OSError:
         logger.warning("docker kill left container %s state uncertain; removing as fallback", name)
         fallback = True
     else:
         # ``--rm`` 容器被杀后自行删除，inspect 必然 ``No such object``（rc=1）——清理已达成。
         if _is_gone(probe.returncode, probe.stderr):
-            return
+            return unresponsive
         fallback = probe.returncode != 0 or probe.stdout.strip() != "false"
 
     if not fallback:
-        return
+        return unresponsive
     logger.warning("docker kill left container %s alive or uncertain; issuing docker rm -f fallback", name)
     try:
         subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
@@ -201,9 +239,13 @@ def _docker_kill(docker_path: str, name: str) -> None:
             capture_output=True,
             timeout=_REAP_WAIT_TIMEOUT,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired as exc:
         # 不带 exc_info：清理失败是兜底动作的留痕，打印整段 traceback 会让人误判成程序崩溃。
         logger.warning("docker rm -f %s also failed; container may be orphaned (%s: %s)", name, type(exc).__name__, exc)
+        return True
+    except OSError as exc:
+        logger.warning("docker rm -f %s also failed; container may be orphaned (%s: %s)", name, type(exc).__name__, exc)
+    return unresponsive
 
 
 def _docker_inspect_digest(docker_path: str, image: str) -> str | None:
@@ -263,6 +305,10 @@ class DockerRunner:
         self._nproc_limit = nproc_limit
         self._probe_cache: bool | None = None
         self._digest_checked = False
+        # daemon 健康心跳与熔断（2026-11-02）：``_last_health_probe`` 是最近一次探测成功/失败的
+        # ``monotonic()`` 时刻；``_degraded_until`` 之前不再 spawn（直接返回显性诊断）。
+        self._last_health_probe = 0.0
+        self._degraded_until = 0.0
         # 限制同时进行的 docker kill/rm-f 并发数：Windows 命名管道并发压力下多个清理操作
         # 同时排队会让每条都等满超时；串行清理避免堆积（2 条并发是合理上限，单条显著慢）。
         self._cleanup_sem = asyncio.Semaphore(max_cleanup_concurrency)
@@ -275,6 +321,7 @@ class DockerRunner:
         """
         if self._probe_cache is None:
             self._probe_cache = _docker_available(self._docker_path)
+            self._last_health_probe = time.monotonic()
         return self._probe_cache
 
     @property
@@ -291,16 +338,49 @@ class DockerRunner:
         """容器网络是否隔离（``--network=none``）——SandboxDecision docker 档的事实源。"""
         return self._network == "none"
 
+    async def _health_check(self) -> bool:
+        """daemon 健康心跳：``_HEALTH_PROBE_TTL_SECONDS`` 内复用上次结论。
+
+        探测失败**不**改 ``_probe_cache``：那是装配期的可用性闸（False ⇒ 退 Passthrough），
+        运行期的 daemon 抖动不该触发静默透传——只用于熔断与显性诊断（2026-11-02）。
+        """
+        if time.monotonic() - self._last_health_probe < _HEALTH_PROBE_TTL_SECONDS:
+            return True
+        healthy = await asyncio.to_thread(_docker_available, self._docker_path)
+        self._last_health_probe = time.monotonic()
+        return healthy
+
+    def _pause(self) -> None:
+        """进入熔断窗口：下次 :meth:`run` 起一跳内不再 spawn 容器。"""
+        self._degraded_until = time.monotonic() + _DEGRADED_COOLDOWN_SECONDS
+
+    def _paused_result(self) -> str:
+        """熔断期内**未执行**命令的返回文案（含剩余窗口，供人/模型决定该重启 daemon）。"""
+        remaining = max(0.0, self._degraded_until - time.monotonic())
+        return _DAEMON_PAUSED_RESULT.format(retry_in=max(1, int(remaining) + 1))
+
     async def run(self, command: str, *, timeout: int) -> str:
         # 探测缓存未暖时经线程池探测（审查修复批）：run() 首触不再阻塞事件循环最长 5s；
         # engine 装配链在 resolver 可用性闸处已同步探测过（构造期探测是装配协议的一部分）。
         if self._probe_cache is None:
             self._probe_cache = await asyncio.to_thread(_docker_available, self._docker_path)
+            self._last_health_probe = time.monotonic()
         if not self._probe_cache:
             logger.warning(
                 "DockerRunner not available (CLI missing or daemon unreachable); falling back to Passthrough"
             )
             return await PassthroughRunner().run(command, timeout=timeout)
+
+        # 熔断窗口内直接失败：daemon 挂起时每条命令白等满 timeout + 清理链是纯浪费，
+        # 且模型会把「超时」误读成「命令慢」而重试（2026-11-02 实测连续 3 次共 ~305s）。
+        if time.monotonic() < self._degraded_until:
+            return self._paused_result()
+        if not await self._health_check():
+            self._pause()
+            logger.warning(
+                "docker daemon health probe failed; container sandbox paused for %ss", _DEGRADED_COOLDOWN_SECONDS
+            )
+            return self._paused_result()
 
         # 运行期 digest pin（审查修复批）：配置了 digest 则首 run 前校验本地 tag 的 repo
         # digest，不符显性拒绝——本地 tag 可被 retag 静默换载荷（D4 的运行期落实）。
@@ -329,17 +409,25 @@ class DockerRunner:
         )
         proc = await asyncio.to_thread(_docker_spawn, argv)
 
-        async def kill_and_reap(catch: type[BaseException], label: str) -> None:
+        async def kill_and_reap(catch: type[BaseException], label: str) -> bool:
+            """清理容器；返回「daemon 无响应」判定（任一 docker CLI 调用超时）。"""
             # 串行化清理：并发清理操作在 Windows 命名管道上互相拖慢，限流后排队执行。
             async with self._cleanup_sem:
                 try:
-                    await asyncio.to_thread(_docker_kill, self._docker_path, name)
-                    try:
-                        await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=_REAP_WAIT_TIMEOUT)
-                    except catch:
-                        logger.debug("%s cleanup: wait failed", label, exc_info=True)
+                    unresponsive = bool(await asyncio.to_thread(_docker_kill, self._docker_path, name))
                 except catch:
-                    logger.debug("%s cleanup: kill/wait failed", label, exc_info=True)
+                    logger.debug("%s cleanup: kill failed", label, exc_info=True)
+                    return False
+                if unresponsive:
+                    # daemon 不应答时 CLI 子进程也不会退出：白等一个周期不如直接放弃
+                    # 并让调用方熔断（2026-11-02，每个周期 10s）。poll 只做句柄回收。
+                    proc.poll()
+                    return True
+                try:
+                    await asyncio.wait_for(asyncio.to_thread(proc.wait), timeout=_REAP_WAIT_TIMEOUT)
+                except catch:
+                    logger.debug("%s cleanup: wait failed", label, exc_info=True)
+                return False
 
         try:
             stdout, stderr = await asyncio.wait_for(
@@ -348,8 +436,19 @@ class DockerRunner:
             )
             return _format_result(proc.returncode, stdout, stderr)
         except TimeoutError:
-            await kill_and_reap(Exception, "timeout")
-            return _TIMEOUT_RESULT.format(timeout=timeout)
+            unresponsive = await kill_and_reap(Exception, "timeout")
+            if not unresponsive:
+                return _TIMEOUT_RESULT.format(timeout=timeout)
+            # 命令超时 + 清理链全线超时 = daemon 挂了，不是命令慢：熔断并给出可操作的诊断。
+            self._pause()
+            logger.warning(
+                "docker daemon unresponsive during cleanup of %s; container sandbox paused for %ss",
+                name,
+                _DEGRADED_COOLDOWN_SECONDS,
+            )
+            return _TIMEOUT_RESULT.format(timeout=timeout) + _DAEMON_HINT.format(
+                cooldown=int(_DEGRADED_COOLDOWN_SECONDS)
+            )
         except asyncio.CancelledError:
             await kill_and_reap(BaseException, "cancel")
             raise

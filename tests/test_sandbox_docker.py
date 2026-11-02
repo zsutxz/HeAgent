@@ -44,6 +44,10 @@ class _FakeProc:
     def wait(self) -> int | None:
         return self.returncode
 
+    def poll(self) -> int | None:
+        """真实 ``Popen`` 同形：清理放弃路径用它回收句柄（不阻塞）。"""
+        return self.returncode
+
 
 class _FakeSubprocess:
     """``subprocess`` 模块替身：只覆盖探测路径用到的 ``run`` 与异常类型。"""
@@ -598,3 +602,116 @@ async def test_session_docker_wrap_keeps_container_cwd(  # 判据19：session×d
     assert _MARKER in wrapped and "exit" in wrapped
     assert session._docker_cwd == "/workspace/sub"  # 容器侧 cwd 已前移
     assert "hello" in result and _MARKER not in result  # marker 行已清理
+
+
+# ---------------------------------------------------------------------------
+# daemon 无响应：熔断 + 诊断（2026-11-02 事故判据）
+# 事故形态：宿主 Docker Desktop daemon 整段挂起 ⇒ 每条 shell 实测 timeout + 40s 清理链，
+# 模型连续重试 3 次共白等约 305s。以下判据把「白等」钉成「首跳失败 + 后续秒回」。
+# ---------------------------------------------------------------------------
+
+
+def test_kill_double_timeout_reports_unresponsive_without_rm(  # 判据15g：双超时短路
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """kill 与 inspect 双超时 = CLI 整体挂起：判「daemon 无响应」，不再白等必然超时的 rm -f。"""
+    calls: list[list[str]] = []
+
+    class _AllTimeout(_FakeSubprocess):
+        def __init__(self) -> None:
+            pass
+
+        def run(self, argv, capture_output=False, text=False, timeout=None):
+            calls.append(list(argv))
+            raise subprocess.TimeoutExpired(cmd=argv, timeout=timeout)
+
+    monkeypatch.setattr(f"{MODULE}.subprocess", _AllTimeout())
+    assert _docker_kill("docker", "heagent-hang") is True
+    assert not any(c[1] == "rm" for c in calls)  # 少白等一个 _REAP_WAIT_TIMEOUT
+
+
+def test_kill_reports_healthy_when_container_stopped(monkeypatch: pytest.MonkeyPatch):  # 判据15h
+    """健康 daemon 上正常停容器 ⇒ 返回 False（不得误触发熔断）。"""
+
+    class _KillOK(_FakeSubprocess):
+        def __init__(self) -> None:
+            pass
+
+        def run(self, argv, capture_output=False, text=False, timeout=None):
+            return subprocess.CompletedProcess(argv, 0, stdout="false\n" if argv[1] == "inspect" else "", stderr="")
+
+    monkeypatch.setattr(f"{MODULE}.subprocess", _KillOK())
+    assert _docker_kill("docker", "heagent-ok") is False
+
+
+async def test_timeout_with_unresponsive_cleanup_pauses_sandbox(  # 判据17：超时后熔断
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """命令超时 **且** 清理链不应答 ⇒ 结果带可操作诊断，且下一次调用不再 spawn（秒回）。"""
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=None, delay=2.0)
+    _install(spawn_calls, fake, monkeypatch)
+    monkeypatch.setattr(f"{MODULE}._docker_kill", lambda path, name: spawn_calls.append(["KILL", name]) or True)
+    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+
+    runner = DockerRunner()
+    first = await runner.run("sleep 30", timeout=1)
+    assert first.startswith(_TIMEOUT_RESULT.format(timeout=1))  # goal/evidence 的超时归类不漂移
+    assert "[daemon-unresponsive]" in first
+    assert "--sandbox passthrough" in first
+
+    spawned_before = len([c for c in spawn_calls if c[0] != "KILL"])
+    second = await runner.run("echo hi", timeout=1)
+    assert "NOT executed" in second and "paused" in second
+    assert len([c for c in spawn_calls if c[0] != "KILL"]) == spawned_before  # 未 spawn 新容器
+    assert "paused" not in second or "retrying in" in second
+
+
+async def test_paused_window_expires_and_resumes(monkeypatch: pytest.MonkeyPatch):  # 判据17b
+    """熔断窗口到期后自动恢复：心跳探针成功即照常执行。"""
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
+    _install(spawn_calls, fake, monkeypatch)
+    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+
+    runner = DockerRunner()
+    runner._degraded_until = time.monotonic() - 1.0  # 窗口已过
+    result = await runner.run("echo hi", timeout=5)
+    assert result.startswith("exit_code=0")
+    assert len([c for c in spawn_calls if c[0] != "KILL"]) == 1
+
+
+async def test_health_probe_failure_pauses_without_spawn(  # 判据18：心跳探针失败即熔断
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """装配期可用性闸（``available``）曾为 True，运行期 daemon 转挂 ⇒ 不 spawn、不退 passthrough。"""
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
+    _install(spawn_calls, fake, monkeypatch)
+    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    runner = DockerRunner()
+    assert runner.available is True  # 装配期闸通过；_probe_cache 暖、_last_health_probe 记时
+
+    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: False)  # daemon 转挂
+    runner._last_health_probe = 0.0  # 心跳过期 → 强制重探
+    result = await runner.run("echo hi", timeout=5)
+    assert "NOT executed" in result
+    assert not [c for c in spawn_calls if c[0] != "KILL"]  # 未 spawn 容器
+
+
+async def test_health_probe_reused_within_ttl(monkeypatch: pytest.MonkeyPatch):  # 判据18b
+    """TTL 内的连续调用只付一次 ``docker version`` 探针（健康路径不显著增加命令延迟）。"""
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
+    _install(spawn_calls, fake, monkeypatch)
+    probes = {"n": 0}
+
+    def _probe(path: str) -> bool:
+        probes["n"] += 1
+        return True
+
+    monkeypatch.setattr(f"{MODULE}._docker_available", _probe)
+    runner = DockerRunner()
+    await runner.run("echo 1", timeout=5)
+    await runner.run("echo 2", timeout=5)
+    assert probes["n"] == 1
