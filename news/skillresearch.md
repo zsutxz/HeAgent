@@ -1,8 +1,9 @@
 # AI Agent Skill 写作研究
 
-**研究日期：** 2026-10-24 起共九轮（第四/三轮 2026-10-26、第五轮 10-27、第六/七/八轮 10-28、第九轮·ECC 复核 10-30）。自第四轮起逐案细节外置到 `skill_example/<对象名>.md` 案例卡，本报告只留综合方法与案例索引；案例卡以「核心观点与价值」开篇，报告固定三部分（核心价值→检查点→研究过程与重要参考点）。
-**范围：** Agent Skills 开放格式规范、Anthropic 官方（agentskills 指南 + platform.claude.com 文档 + 官方样例库）、obra/superpowers、ECC、mgechev/skills-best-practices、google/skills、mattpocock/skills、addyosmani/agent-skills 的逐案深读，以及 skill 的写作、触发与评测方法。
-**摘要：** 好 skill 是能改变 Agent 执行结果的专业操作知识：从真实失败中抽取、按触发/契约/决策路径/失败处理组织、按失败类型选指导形式、触发与改善分开验证并核算成本。跨九轮收敛的硬结论：描述只管触发且不内嵌流程（三独立来源收敛）、发现层负例指名有效而执行层否定有害、停止条件写可数判据、可机械判定的规则下沉为脚本或构建闸（不留在 prompt）、评测从作者自觉升级为入库门禁、治理闭环四环（查重→选装→盘点→遵从）。
+**最后更新：** 2026-11-02 13:52（第十轮·VoltAgent；每次更新报告时刷新此行）
+**研究日期：** 2026-10-24 起共十轮。逐案细节见 `skill_process/` 案例卡；候选筛选、逐轮记录、历史案例要点、局限与参考资料见 [skillresearch_process.md](skill_process/skillresearch_process.md)（2026-11-02 起本报告保持结论简洁，过程外置）。
+**范围：** Agent Skills 开放格式规范、Anthropic 官方（agentskills 指南 + platform.claude.com 文档 + 官方样例库）、obra/superpowers、ECC、mgechev/skills-best-practices、google/skills、mattpocock/skills、addyosmani/agent-skills、VoltAgent/awesome-agent-skills 的逐案深读，以及 skill 的写作、触发与评测方法。
+**摘要：** 好 skill 是能改变 Agent 执行结果的专业操作知识：从真实失败中抽取、按触发/契约/决策路径/失败处理组织、按失败类型选指导形式、触发与改善分开验证并核算成本。跨十轮收敛的硬结论：描述只管触发且不内嵌流程（三独立来源收敛）、发现层负例指名有效而执行层否定有害、停止条件写可数判据、可机械判定的规则下沉为脚本或构建闸（不留在 prompt）、评测从作者自觉升级为入库门禁、治理闭环四环（查重→选装→盘点→遵从）；目录层对偶结论——目录一句话是特征摘要、触发规格只在 frontmatter，目录名与技能真名常不一致，从目录复用描述必回读原文对齐真名。
 
 ## 核心价值
 
@@ -18,7 +19,7 @@
 
 description 是 Agent 无需打开正文就能"执行"的最短文本：内嵌流程摘要等于给绕过正文的捷径——superpowers 有实测失败案例（描述含"评审穿插"→Agent 只评审一次），mattpocock 指针学说与 addyosmani 明文规则（"Do not summarize the workflow"，docs/skill-anatomy.md:42）三独立来源收敛：**what 只写到"够选择"的粒度，步骤/阶段数/决策结构只留正文**。负向触发写**邻接指名**：google/skills 73% 的 description 含 "Don't use…（use X）"，负例既抑制误触发又把正确路由候选塞进同一句。指针措辞决定触发可靠性：引导词前置、每分支一个触发词、删正文已携带的身份信息。生成与构建两档强制（ECC）：skill-create 模板强制 "Use when" 开头并在替换前校验（commands/skill-create.md:118-130，但靠 LLM 自觉执行）；pi/core 构建闸把同类校验下沉为构建失败条件（build-pi-core.js:132-137）——能进构建管线的校验才是机器保证。
 
-**参考：** [description 优化指南](https://github.com/agentskills/agentskills/blob/main/docs/skill-creation/optimizing-descriptions.mdx)（正负提示、near-miss、调优/验证集分离）；冲突记录见第三部分。
+**参考：** [description 优化指南](https://github.com/agentskills/agentskills/blob/main/docs/skill-creation/optimizing-descriptions.mdx)（正负提示、near-miss、调优/验证集分离）。platform.claude.com 的 what+when 口径与 superpowers「只写 when」不同层（发现层选对 vs 遵从层真读正文）：综合口径 = what 到够选择粒度、流程结构只留正文；实测发现描述被当执行捷径时先砍描述流程内容。
 
 ### 3. 决策路径：默认值、阶段门、可数停止条件与完成判据
 
@@ -56,7 +57,7 @@ superpowers 措辞对照测试：对产出形状错误，禁令组无效内容�
 - **两种负载记账**（mattpocock）：context load（常驻材料的窗口成本）与 cognitive load（人类记住"有哪些文档、何时取用"）分开算；"The human is the index"；user-invoked 省 context 花认知，多到记不住用 router skill 集中还债。
 - **库级构建期安全闸**（ECC）：发布档由显式白名单确定性生成，构建在违规时硬失败——非白名单 URL、pipe-to-shell、密钥、绝对家目录路径（三 OS）、symlink、坏 frontmatter、重名（build-pi-core.js:87,132-137,293-332，已核对实现）；每个排除对象进 CURATION.md 台账。配套硬指标：长度 200-500 行/800 max（SKILL-DEVELOPMENT-GUIDE.md:439）、示例代码按可编译资产验收（`tsc --noEmit`/`py_compile`/`go build`，:608-626）。**反样本**：同库 python-patterns（751 行）擦线过闸却零经济性——无外置、Good/Bad 双份代码、bare except 重复两处（L155-162≈L738-749，已核对）、速查表后置不起导航——行数 gate 拦不住结构性重复。
 
-**参考：** [Agent Skills specification](https://github.com/agentskills/agentskills/blob/main/docs/specification.mdx)；[platform.claude.com 最佳实践](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)；[skill_example/mgechev-skills-best-practices.md](skill_example/mgechev-skills-best-practices.md)、[skill_example/ecc.md](skill_example/ecc.md)。
+**参考：** [Agent Skills specification](https://github.com/agentskills/agentskills/blob/main/docs/specification.mdx)；[platform.claude.com 最佳实践](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)；[skill_process/mgechev-skills-best-practices.md](skill_process/mgechev-skills-best-practices.md)、[skill_process/ecc.md](skill_process/ecc.md)。
 
 ### 7. 对照与基线证明增量：TDD 化验证、微测试与评测门禁
 
@@ -68,7 +69,7 @@ superpowers 措辞对照测试：对产出形状错误，禁令组无效内容�
 - **零基础设施验证梯**（mgechev）：①只贴 frontmatter 生成正/负触发提示并自评 description 宽窄→②喂全文让 LLM 模拟执行、标出被迫猜测的行→③换位 QA 提攻击性问题→④按答案重构。无 baseline 对照、攻击者与被攻击者同模型，与 TDD 梯互补不替代。
 - **评测门禁制**（addyosmani）：新 skill 必附 eval——≥3 正触发 + 2 负触发（带兄弟技能归属断言）+ 1 行为 eval + 真实 fixtures，CI 强制（CONTRIBUTING.md:44）；被拒变更记量化台账。负触发评测是 description 邻接指名在评测层的对偶。
 
-**参考：** [评测指南（agentskills）](https://github.com/agentskills/agentskills/blob/main/docs/skill-creation/evaluating-skills.mdx)；[skill_example/addyosmani-agent-skills.md](skill_example/addyosmani-agent-skills.md)。
+**参考：** [评测指南（agentskills）](https://github.com/agentskills/agentskills/blob/main/docs/skill-creation/evaluating-skills.mdx)；[skill_process/addyosmani-agent-skills.md](skill_process/addyosmani-agent-skills.md)。
 
 ### 8. 让安全规则成为每条执行路径的一部分
 
@@ -90,7 +91,7 @@ skill 声称了流程，就要能回答「Agent 不看说明书时做到了吗�
 
 查目录/文档/API 的技能，最危险是把「没查到」当「查到了」：**响应到达 ≠ 答案**——返回体过 parse/内容校验才算成功，401/403/空集按失败处理；**凭记忆作答伪装成取数结果是最坏结局**（回复里没有任何东西能与真实查询区分）；证书失败为终态、逐一点名禁一切绕过（`curl -k`、`--insecure` 等——返回内容即将成为指令来源）；429 降级到廉价端点而不回退记忆；网络失败有降级梯且在**回复里**显性报告。MCP 特有：声明了 server 不等于连得上，工具缺失属正常态、直接走 REST 备援。
 
-**参考：** [skill_example/google-skills.md](skill_example/google-skills.md)。
+**参考：** [skill_process/google-skills.md](skill_process/google-skills.md)。
 
 ### 11. 技能侧 attribution 遥测（google/skills）
 
@@ -98,7 +99,7 @@ skill 声称了流程，就要能回答「Agent 不看说明书时做到了吗�
 
 ### 12. 生态设计空间：作者制、分发、知识位置与治理形态
 
-**作者制**：官方库封闭作者+内部验证；社区框架（superpowers）与治理合集（ECC）开放贡献，分别用 TDD 评测与遵从测量补质量——作者越分散越需要测量设施。**分发**：单体库 / 联邦 marketplace（google/skills 16 个插件钉回各产品仓库，中央库只做版本化聚合）/ monorepo 多 harness 镜像（ECC）。**知识位置**：写进技能本体 vs 外置到活检索服务、技能只装取数协议（渐进披露的库级终极形态，代价是多一跳网络依赖）。**治理形态四例**：curated 个人库（mattpocock：issue 双门槛、`.out-of-scope/` 负向档案、changesets 版本化）、评测门禁制（addyosmani）、治理闭环四环（ECC：查重 skill-scout「创建需用户选择或无近似匹配」→选装 agent-sort→盘点 skill-stocktake→遵从 skill-comply；stocktake 判定显式声明 "holistic AI judgment — not a numeric rubric" 并强制 reason 自包含含证据——判定诚实比伪精确量表更可信）、TDD 化评测（superpowers）。
+**作者制**：官方库封闭作者+内部验证；社区框架（superpowers）与治理合集（ECC）开放贡献，分别用 TDD 评测与遵从测量补质量——作者越分散越需要测量设施。**分发**：单体库 / 联邦 marketplace（google/skills 16 个插件钉回各产品仓库，中央库只做版本化聚合）/ monorepo 多 harness 镜像（ECC）/ 跨生态人工策展目录（VoltAgent：双轨收录 officialskills.sh 统一页 593 + GitHub 深链 632，赞助位无披露、分类随投稿漂移——目录层治理问题与技能层不同物）。**知识位置**：写进技能本体 vs 外置到活检索服务、技能只装取数协议（渐进披露的库级终极形态，代价是多一跳网络依赖）。**治理形态五例**：curated 个人库（mattpocock：issue 双门槛、`.out-of-scope/` 负向档案、changesets 版本化）、评测门禁制（addyosmani）、治理闭环四环（ECC：查重 skill-scout「创建需用户选择或无近似匹配」→选装 agent-sort→盘点 skill-stocktake→遵从 skill-comply；stocktake 判定显式声明 "holistic AI judgment — not a numeric rubric" 并强制 reason 自包含含证据——判定诚实比伪精确量表更可信）、TDD 化评测（superpowers）、人工策展 + 口头规则（VoltAgent：hand-picked 定位语 + 3 小时门槛 + ≤10 词规则，README 内置 Quality Criteria 表，实测执行落差约 40% 超词）。
 
 **参考：** 各案例卡。
 
@@ -110,11 +111,24 @@ skill 声称了流程，就要能回答「Agent 不看说明书时做到了吗�
 
 一个能力该做成什么载体？固定顺序五问（capability-surface-selection.md:17-28，已核对原文）：①确定性必触发、无模型判断→rule；②按需 playbook→skill；③多客户端结构化交互→MCP；④一次性本地动作→本地脚本（需要时再包 skill）；⑤窄远程调用→直连 API；拿不准"从小面起步"（L135-140）。价值在问的顺序：先排除 rule/MCP，把 skill 留给真正按需的知识层。配套落位按「来源×是否发布」：Curated→repo 随发布；Learned/Imported/Evolved→用户目录不入库、须 `.provenance.json`（SKILL-PLACEMENT-POLICY.md L7-12,31,41）。
 
-**参考：** [skill_example/ecc.md](skill_example/ecc.md)。
+**参考：** [skill_process/ecc.md](skill_process/ecc.md)。
+
+### 15. 目录一句话是特征摘要：触发规格只在 frontmatter；目录名≠技能真名（VoltAgent）
+
+awesome-list 目录（1231 条）README 一句话与 frontmatter 的保真度实证（3 样本 curl 对比，无一捏造、全部实质缩水）：压缩第一损失永远是**触发条件**（口语触发短语、动词覆盖面、"Use when..." 句式），第二是机制与证据（247 站点样本、eval loop、real-browser inspector），第三是结构（多技能分工与互斥路由——skill-optimizer 条目下 skill-generalizer 整条零呈现）。**与 §2 成对偶**：目录层（给人浏览）压掉的恰是路由层（给 agent）最需要的——面向人的目录文本不可作为触发判断依据，凡复用目录描述必回读 frontmatter 原文。**名实分离**：2/3 样本目录条目名≠frontmatter name（taste-skill→design-taste-frontend；skill-optimizer→仓库中不存在该名技能）——目录条目以仓库名行世，以 name 为锚的安装/触发/引用存在对齐裂缝，跨层引用先对齐真名。
+
+**参考：** [skill_process/voltagent-awesome-agent-skills.md](skill_process/voltagent-awesome-agent-skills.md)。
+
+### 16. 元技能是各生态自带的基础设施，密度极低（VoltAgent）
+
+跨生态目录 1231 条中通用元技能仅 8 条（0.65%）；anthropics/microsoft/apollographql 三家各自造 skill-creator（前两家描述逐字近似），领域限定版（sentry-sdk-skill-creator、apollographql/skill-creator）是衍生模式——「教写 skill」被视为每个生态自带的基础设施而非共享公共品，新生态起步时 skill-creator 是标配。目录层同样自带元指导：README 内置 Quality Standards 节（第三人称 description、~100 token/<500 行、no absolute paths、scoped tools）——把质量标准写进目录文件本身。
+
+**参考：** [skill_process/voltagent-awesome-agent-skills.md](skill_process/voltagent-awesome-agent-skills.md)。
 
 ## 检查点
 
 - [ ] description 能让 Agent 识别真实用户意图，用正例、near-miss、负例验证触发边界；**描述不内嵌流程摘要**；负向边界指名替代技能；单行/折叠标量（禁字面块）。
+- [ ] 从目录/marketplace 文案引用描述时回读 frontmatter 原文——目录一句话是特征摘要，触发规格与多技能路由只在 frontmatter；跨层引用以 name 为锚时先对齐技能真名（目录条目名≠frontmatter name 常见）。
 - [ ] 输入、产出、成功标准和授权边界明确。
 - [ ] 流程包含默认路径、关键分支、失败恢复、检查点和**可数的**退出/升级条件。
 - [ ] 写指导前对基线失败分类，形式与失败类型匹配；执行层默认正向措辞（禁令只留给硬护栏且配正向目标）。
@@ -134,66 +148,21 @@ skill 声称了流程，就要能回答「Agent 不看说明书时做到了吗�
 - [ ] 入库/发布附评测资产（≥3 正触发 + ≥2 负触发带归属断言 + ≥1 行为 eval + 真实 fixtures）；示例代码可编译；长度硬指标之外自查结构性重复与导航有效性。
 - [ ] 写作前过能力面五问序（rule/skill/MCP/脚本/API，从小面起步）；新建前先搜后建，创建决定权留给用户；fork 改编只留想法与语义、实质扩缩改名；非 Curated 来源不入库、带 .provenance.json。
 - [ ] 步骤 model-neutral；执行体用脚本不写内联代码。
+- [ ] 想写「教写 skill」类元技能前，先查目标生态是否已有官方/领域版 skill-creator（该类技能是各生态自带基础设施，先复用再考虑新造）。
 
-## 研究过程与重要参考点
-
-### 候选筛选（九轮）
-
-热度仅决定选谁、不证明质量；均为当日 GitHub API 快照。
-
-| 轮次 | 日期 | 对象 | 热度与依据 |
-|---|---|---|---|
-| 一~二 | 10-24 | agentskills 规范/指南；anthropics/skills（skill-creator、frontend-design、pdf 等） | 183,391★；官方样例库起步 |
-| 三 | 10-26 | obra/superpowers（writing-skills、systematic-debugging）+ platform.claude.com 文档 | 304,853★；刻意换生态 |
-| 四 | 10-26 | ECC（用户指定生态；本地 v2.2.1，样本 skill-comply） | 全库 618 SKILL.md（含镜像） |
-| 五 | 10-27 | mgechev/skills-best-practices（全库 5 文件 100% 覆盖） | 2,278★；与研究主题直接同构 |
-| 六 | 10-28 | google/skills（第二平台官方库，样本 gke-node-notready） | 21,619★；联邦分发 |
-| 七 | 10-28 | mattpocock/skills（样本 writing-for-agents） | 304,944★；当期最高星未研究对象 |
-| 八 | 10-28 | addyosmani/agent-skills（样本 context-engineering；并行协议首跑） | 111,194★ |
-| 九 | 10-30 | ECC 复核（用户点名，非热度选例）：本地目录副本 E:/AI/ecc-trimmed（post-2.2.3 快照 ef648e01） | 292,862★/43,341 forks/push 同日超前本地 |
-
-第六/七/八轮候选中 VoltAgent/awesome-agent-skills（36,408★）登记未读留后续。第七/八/九轮为并行子 agent 读取协议（子 agent 只读取转述附 file:line 证据、主 agent 抽查核对）；第九轮 11 子 agent、16 处抽查全吻合；案例卡随后按用户指令改为统一现状卡（旧轮次标注与 skill-comply 样本移出，5 件样本）。
-
-### 案例索引
+## 案例索引
 
 | 案例 | 对象 | 一句话定位 | 案例卡 |
 |---|---|---|---|
-| 一 | Anthropic skill-creator 等 | 官方样例：评测闭环、反默认设计、分层资源 | （正文并入核心价值，见下「历史案例要点」） |
-| 二 | superpowers writing-skills / systematic-debugging | 社区框架：TDD 化文档工程、阶段门纪律 | 同上 |
-| 三 | ECC | 治理合集：治理闭环四环、构建期安全闸、五问序 | [ecc.md](skill_example/ecc.md) |
-| 四 | mgechev/skills-best-practices | 个人 meta-skill：确定性闸门、零基建验证梯 | [mgechev-skills-best-practices.md](skill_example/mgechev-skills-best-practices.md) |
-| 五 | google/skills | 平台官方库：联邦分发、取数协议、attribution 遥测 | [google-skills.md](skill_example/google-skills.md) |
-| 六 | mattpocock/skills | curated 个人库：两种负载、词汇工程、修剪纪律 | [mattpocock-skills.md](skill_example/mattpocock-skills.md) |
-| 七 | addyosmani/agent-skills | 评测门禁制：CI 强制 eval、反合理化节序 | [addyosmani-agent-skills.md](skill_example/addyosmani-agent-skills.md) |
+| 一 | Anthropic skill-creator 等 | 官方样例：评测闭环、反默认设计、分层资源 | （正文并入核心价值） |
+| 二 | superpowers writing-skills / systematic-debugging | 社区框架：TDD 化文档工程、阶段门纪律 | （正文并入核心价值） |
+| 三 | ECC | 治理合集：治理闭环四环、构建期安全闸、五问序 | [ecc.md](skill_process/ecc.md) |
+| 四 | mgechev/skills-best-practices | 个人 meta-skill：确定性闸门、零基建验证梯 | [mgechev-skills-best-practices.md](skill_process/mgechev-skills-best-practices.md) |
+| 五 | google/skills | 平台官方库：联邦分发、取数协议、attribution 遥测 | [google-skills.md](skill_process/google-skills.md) |
+| 六 | mattpocock/skills | curated 个人库：两种负载、词汇工程、修剪纪律 | [mattpocock-skills.md](skill_process/mattpocock-skills.md) |
+| 七 | addyosmani/agent-skills | 评测门禁制：CI 强制 eval、反合理化节序 | [addyosmani-agent-skills.md](skill_process/addyosmani-agent-skills.md) |
+| 八 | VoltAgent/awesome-agent-skills | 跨生态策展目录：双轨收录、目录压缩失真、名实分离 | [voltagent-awesome-agent-skills.md](skill_process/voltagent-awesome-agent-skills.md) |
 
-### 历史案例要点（一、二轮正文压缩；细节已并入核心价值）
+---
 
-- **skill-creator**（Anthropic）：草拟→真实测试提示→with/without 基线→定性定量评估→改写→扩测；输出质量与触发评测分开，可定位失效在正文还是入口。小样本适合发现问题、不证明可靠性。
-- **frontend-design**（Anthropic）：brief 驱动方向 + tokens/线框短计划 + 构建前反事实审查（"是否套任意 brief 都成立"）——低成本反默认门。
-- **pdf**（Anthropic）：短入口 + 按任务分层长资源；表单先检测字段再分流，脚本错误回字段修正成恢复回路。314 行接近阈值、示例常驻成本不低。
-- **superpowers `writing-skills`**：Iron Law（无失败测试不写 skill）；description 只写触发条件、第三人称、动名词命名；跨 skill 用 REQUIRED BACKGROUND 语义标记不强制加载；文末强制走完部署清单禁批量裸产。前提=可重复低成本独立上下文测试通道。
-- **superpowers `systematic-debugging`**：四阶段逐级设门 + 红旗清单 + 合理化表 + 修复失败 ≥3 次强制停；"95% 无根因=调查不完整"是修辞断言。触发面极宽，大库中可能过度触发。
-- **platform.claude.com 官方文档**：plan-validate-execute（批量/破坏性操作先产结构化计划、脚本验证后执行）、脚本"解决而非转交"、常量给依据、frontmatter 硬校验（name≤64、description≤1024 字符）。
-- **冲突记录（保留）**：platform.claude.com 说 description 含 what+when，superpowers 实测要求只写 when——二者不同层（发现层选对 vs 遵从层真读正文）。综合口径：what 到够选择粒度、流程结构只留正文；实测发现描述被当执行捷径时先砍描述流程内容。
-- **mcp-builder / webapp-testing / doc-coauthoring**（第一轮）：分析已并入核心价值各条。
-
-### 局限
-
-- 所有轮次均未运行被研究 skill、无对照评测；机制结论基于文本证据与来源自述，非独立实测。热度均为单日快照。
-- 第三轮起有对象级未读清单（各案例卡「未读与局限」节）；第九轮（ECC 复核）上游 main 超前本地快照，rules/agents/全量库其余 ~286 件、六语种镜像等未读，build-pi-core.js 安全闸为代码抽查非运行验证。
-- 第八轮 "70+ agents" 与 WikiSkill 负迁移结论为来源自述；第五轮校验脚本「STYLE WARNING 标签但 exit(1)」为静态阅读发现；superpowers 措辞对照实验只有来源自述、无原始数据。
-- platform.claude.com 页面代码示例在渲染中缺失，按文字论述取证。
-- 样本集中于 Anthropic 生态 + 一个社区框架 + 四个高星库，未覆盖 Codex/Gemini 平台约定；不构成权威排名。
-
-### 参考资料
-
-- [Agent Skills specification](https://github.com/agentskills/agentskills/blob/main/docs/specification.mdx)、[best-practices](https://github.com/agentskills/agentskills/blob/main/docs/skill-creation/best-practices.mdx)、[evaluating-skills](https://github.com/agentskills/agentskills/blob/main/docs/skill-creation/evaluating-skills.mdx)、[optimizing-descriptions](https://github.com/agentskills/agentskills/blob/main/docs/skill-creation/optimizing-descriptions.mdx)、[using-scripts](https://github.com/agentskills/agentskills/blob/main/docs/skill-creation/using-scripts.mdx)（agentskills/agentskills，2026-10-24；26,546★）
-- [Skill authoring best practices（platform.claude.com）](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)（2026-10-26 全文）
-- [anthropics/skills](https://github.com/anthropics/skills)（2026-10-24；183,391★）
-- [obra/superpowers](https://github.com/obra/superpowers)（2026-10-26；304,853★）及 [writing-skills](https://github.com/obra/superpowers/blob/main/skills/writing-skills/SKILL.md)、[systematic-debugging](https://github.com/obra/superpowers/blob/main/skills/systematic-debugging/SKILL.md) 全文
-- [affaan-m/ECC](https://github.com/affaan-m/ECC)（2026-10-26 初研 v2.2.1 / 2026-10-30 复核目录副本 ef648e01；292,862★）→ [skill_example/ecc.md](skill_example/ecc.md)
-- [mgechev/skills-best-practices](https://github.com/mgechev/skills-best-practices)（2026-10-27 全库取回；2,278★）→ [skill_example/mgechev-skills-best-practices.md](skill_example/mgechev-skills-best-practices.md)；配套 [mgechev/skillgrade](https://github.com/mgechev/skillgrade) 与 [SkillsBench (arXiv 2602.12670)](https://arxiv.org/abs/2602.12670) 登记未读
-- [google/skills](https://github.com/google/skills)（2026-10-28；21,619★）→ [skill_example/google-skills.md](skill_example/google-skills.md)
-- [mattpocock/skills](https://github.com/mattpocock/skills)（2026-10-28；304,944★）→ [skill_example/mattpocock-skills.md](skill_example/mattpocock-skills.md)
-- [addyosmani/agent-skills](https://github.com/addyosmani/agent-skills)（2026-10-28；111,194★）→ [skill_example/addyosmani-agent-skills.md](skill_example/addyosmani-agent-skills.md)
-- [VoltAgent/awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills)（36,408★；仅热度参考，未读）
+**可信度边界**：所有轮次均未运行被研究 skill、无对照评测；机制结论基于文本证据与来源自述，非独立实测。逐轮局限、候选筛选、历史案例要点与完整参考资料见 [skillresearch_process.md](skill_process/skillresearch_process.md)。
