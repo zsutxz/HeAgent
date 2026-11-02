@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import re
+import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -146,7 +148,7 @@ class TestTrimPolicy:
         maybe_archive_old_facts(memory_path, _settings(trigger))
 
         archive_dir = memory_path.parent / "archive"
-        assert [p.name for p in archive_dir.iterdir()] == ["MEMORY-archive.md"]
+        assert sorted(p.name for p in archive_dir.iterdir() if p.suffix != ".lock") == ["MEMORY-archive.md"]
         merged = (archive_dir / "MEMORY-archive.md").read_text(encoding="utf-8")
         headings = [ln for ln in merged.splitlines() if ln.startswith("## ")]
         assert len(headings) == 2
@@ -254,8 +256,10 @@ class TestConcurrency:
         real_update = auto_archive.atomic_update_text
 
         def spy(path: Path, update, **kwargs):  # type: ignore[no-untyped-def]
-            with Path(path).open("a", encoding="utf-8") as handle:
-                handle.write("- 并发追加的事实\n")
+            # 只在 MEMORY.md 上注入并发写者；归档文件也走同一原语，别把用例搅混
+            if Path(path) == memory_path:
+                with Path(path).open("a", encoding="utf-8") as handle:
+                    handle.write("- 并发追加的事实\n")
             return real_update(path, update, **kwargs)
 
         monkeypatch.setattr(auto_archive, "atomic_update_text", spy)
@@ -268,3 +272,68 @@ class TestConcurrency:
         assert remaining[: len(facts)] == facts  # 原有条目一条不少
         # 先落底 ⇒ 归档文件已存在（可能与正文重复），这是设计取舍
         assert (memory_path.parent / "archive" / "MEMORY-archive.md").exists()
+
+
+class TestArchiveAppendSerialization:
+    """A50 的判据：归档追加必须与 ``compact`` 同款——在归档文件自己的 ``.lock`` 内读改写。"""
+
+    def test_archive_append_goes_through_lock(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """钉机制：``_append_archive`` 必须经 :func:`atomic_update_text`（否则并发吞小节）。"""
+        archive_path = tmp_path / "memory" / "archive" / "MEMORY-archive.md"
+        locked_paths: list[Path] = []
+
+        real_update = auto_archive.atomic_update_text
+
+        def spy(path: Path, update, **kwargs):  # type: ignore[no-untyped-def]
+            locked_paths.append(Path(path))
+            return real_update(path, update, **kwargs)
+
+        monkeypatch.setattr(auto_archive, "atomic_update_text", spy)
+
+        auto_archive._append_archive(archive_path, ["- 甲"])
+
+        assert archive_path in locked_paths, "归档追加必须经 atomic_update_text（锁内串行化）"
+
+    def test_concurrent_appends_do_not_lose_sections(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """两个写者并发追加 ⇒ 两段小节都在（无锁 read-modify-write 会丢一段）。
+
+        竞态用**确定性注入**而非靠线程抢跑：把归档文件的 ``Path.write_text`` 拖慢 200ms —— 这条
+        路径只有无锁实现会走（锁实现走 ``_write_temp_text`` 的临时文件 + ``os.replace``）⇒
+        无锁实现必然「双方都读到旧内容，后写者覆盖先写者」，锁实现则第二个写者被 flock 挡住、
+        读到的是第一个写者已落盘的内容。变异校验：把 ``_append_archive`` 退回裸 read-modify-write
+        （组件副本上做，见 ``.heagent/tmp/mut_a50.py`` 的做法）⇒ 本用例变红。
+        """
+        archive_path = tmp_path / "memory" / "archive" / "MEMORY-archive.md"
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        archive_path.write_text(f"{auto_archive._ARCHIVE_HEADER}\n", encoding="utf-8")
+
+        real_write_text = Path.write_text
+
+        def slow_write(self: Path, *args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+            if self.name == archive_path.name:
+                time.sleep(0.2)  # 让「读旧内容」的两个写者在写之前都已完成读取
+            return real_write_text(self, *args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(Path, "write_text", slow_write)
+
+        start = threading.Barrier(2)
+        errors: list[BaseException] = []
+
+        def writer(fact: str) -> None:
+            try:
+                start.wait(timeout=5)
+                auto_archive._append_archive(archive_path, [fact])
+            except Exception as exc:  # 线程内异常要带回主线程断言
+                errors.append(exc)
+
+        threads = [threading.Thread(target=writer, args=(f"- 并发条目{i}",)) for i in range(2)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        assert not errors, errors
+        text = archive_path.read_text(encoding="utf-8")
+        headings = [ln for ln in text.splitlines() if ln.startswith("## 批次")]
+        assert len(headings) == 2, text  # 无锁实现只剩 1 段
+        assert "- 并发条目0" in text and "- 并发条目1" in text

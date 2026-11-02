@@ -25,7 +25,8 @@
   被移走的是**最旧前缀**（59-3 D11：无头部钉住，``CORE_FACTS_TO_KEEP`` 已删），保持文件原序。
 - **重写**：逐行删除被移走的 fact 行，其余行（header 与任何非 fact 行）**原位保留**。
 - **并发**：MEMORY.md 的重写走 ``pub.persist.atomic_update_text``（跨进程锁 + 比较后写），
-  并发 ``fact_add`` 的追加不会被整份覆盖。
+  并发 ``fact_add`` 的追加不会被整份覆盖；归档文件的追加同样在它自己的 ``.lock`` 内读改写，
+  并发归档不互相吞小节。
 - **失败 fail-soft**：任何异常只记 WARNING 并返回全 0，绝不阻断启动。
 - **归档先于裁剪**：宁可留底里可能多一条重复条目，也不让条目「移出但没落档」。
 
@@ -122,15 +123,22 @@ def _build_plan(text: str, trigger_bytes: int) -> tuple[list[str], str | None, i
 
 
 def _append_archive(archive_path: Path, fact_lines: list[str]) -> None:
-    """把一批 fact 行追加成新小节（标题带真实 UTC 时间戳）。"""
-    archive_path.parent.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
-    section = f"## 批次 {stamp}（{len(fact_lines)} 条）\n\n" + "\n".join(fact_lines) + "\n"
-    if archive_path.exists():
-        existing = archive_path.read_text(encoding="utf-8").rstrip("\n")
-        archive_path.write_text(f"{existing}\n\n{section}", encoding="utf-8")
-    else:
-        archive_path.write_text(f"{_ARCHIVE_HEADER}\n{section}", encoding="utf-8")
+    """把一批 fact 行追加成新小节（标题带真实 UTC 时间戳）。
+
+    追加走 :func:`atomic_update_text`（归档文件自身 ``.lock`` 内读改写，与
+    :mod:`heagent.memory.compact` 的 ``_append_archive_section`` 同款）：两个写者并发归档时
+    互相覆盖小节 = **无声且不可检测**的数据丢失（条目既不在 MEMORY.md、也不在留底里），
+    故不能省这把锁（活动台账 A50）。
+    """
+
+    def _append(current: str) -> tuple[str, None]:
+        stamp = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        section = f"## 批次 {stamp}（{len(fact_lines)} 条）\n\n" + "\n".join(fact_lines) + "\n"
+        if current:
+            return f"{current.rstrip(chr(10))}\n\n{section}", None
+        return f"{_ARCHIVE_HEADER}\n{section}", None
+
+    atomic_update_text(archive_path, _append)
 
 
 def _replace_if_unchanged(path: Path, before: str, after: str) -> bool:
