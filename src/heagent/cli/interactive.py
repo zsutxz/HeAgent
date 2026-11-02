@@ -345,6 +345,13 @@ async def _run_chat(
         system=system,
     )
 
+    # 交互 REPL 与单次模式同口径：rollout 落盘只由 ``EVENTS_ROLLOUT_ENABLED`` 决定（默认关闭，
+    # 落盘含工具原始输出）；sink 自己按 run_id 分片，长驻 REPL 每轮一个文件。此前 REPL 从不订阅
+    # ⇒ 该开关在交互模式是死键（活动台账 A44）。REPL 没有 ``--json``，stdout 流恒不启用。
+    sink = _build_event_sink(settings, json_output=False)
+    if sink is not None:
+        engine.events.subscribe(sink)
+
     async with (
         _embedded_http_service(settings, provider, **_listener_overrides(no_http, no_ws)) as http,
         _cli_hub_scope(http),
