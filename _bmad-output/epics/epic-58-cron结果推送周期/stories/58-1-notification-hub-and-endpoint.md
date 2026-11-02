@@ -2,7 +2,7 @@
 title: '58-1 通知中枢与 /api/notifications/ws 端点（network 层）'
 type: 'feature'
 created: '2026-10-28'
-status: 'review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'a372f2b80ce308b81426be82c361827c12912676'
@@ -108,14 +108,14 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `network/event_stream_hub.py` —— 通用核（从 `cli_event_hub.py` 提炼，行为等价）
-- [ ] `network/cli_event_hub.py` —— 薄适配；既有 41 例零改动全绿
-- [ ] `network/notification_hub.py` + `http_protocol.py` 载荷模型
-- [ ] `network/ws_protocol.py` —— `NOTIFICATION` 帧类型与帧模型
-- [ ] `network/ws_server.py` —— `build_notification_ws_endpoint`
-- [ ] `network/ws_host.py` —— 路径常量 + 注册 + 生命周期接线
-- [ ] 契约测试两条判据同步；新增三份测试文件
-- [ ] `docs/frame.md` 的 network 模块表与端点表补 `notification_hub` / `/api/notifications/ws`
+- [x] `network/event_stream_hub.py` —— 通用核（从 `cli_event_hub.py` 提炼，行为等价）
+- [x] `network/cli_event_hub.py` —— 薄适配；既有 41 例零改动全绿
+- [x] `network/notification_hub.py` + `http_protocol.py` 载荷模型
+- [x] `network/ws_protocol.py` —— `NOTIFICATION` 帧类型与帧模型
+- [x] `network/ws_server.py` —— `build_notification_ws_endpoint`
+- [x] `network/ws_host.py` —— 路径常量 + 注册 + 生命周期接线
+- [x] 契约测试两条判据同步；新增三份测试文件
+- [x] `docs/frame.md` 的 network 模块表与端点表补 `notification_hub` / `/api/notifications/ws`
 
 **Acceptance Criteria:**
 - Given `NotificationHub` 已发布 3 条（job A、job B、job A），when 订阅者首连，then 收到 3 条、
@@ -183,6 +183,16 @@ context: []
 - `docs/frame.md` 顺带修正一处既有文档漂移：4.17.1.1 的判据行此前引用 `test_http_cli_ws.py`(9) /
   `test_http_ws_config.py`，两个文件早已不存在（Epic 56 期一迁入 WS server 时更名）——改成实际的
   4 个文件与例数。
+
+- 2026-11-02 收口回写（状态 `review` → `done`）：交付物逐条核在实树——`network/event_stream_hub.py`（10950B）/
+  `network/notification_hub.py`（3063B）存在，`tests/network/test_notification_hub.py`（4455B）在册，
+  八条 Execution 全部落点到位 ⇒ 勾选。
+  实测（容器 + `.heagent/tmp/py311-venv-linux`，`PATH` 前置 venv bin 跑 `python scripts/quality_gate.py`）：
+  **六门 all passed**；回归/覆盖率 **4214 passed, 50 skipped, 25 deselected**（235.93s），覆盖率 **93%**（≥87%）；
+  ruff lint / format（374 files）/ mypy（177 files）/ bandit（High 0 / Medium 0）全绿。
+  定向子集 `pytest tests/test_cron_notify.py tests/test_cli_cron_echo.py tests/network/test_notification_cron_e2e.py
+  tests/network/test_notification_hub.py tests/test_architecture_contracts.py -q` → **66 passed**（7.86s，含 58-2 用例）。
+  本轮**零代码改动**：只回写 story 状态与 `sprint-status.yaml`。
 
 ## Review Triage Log
 

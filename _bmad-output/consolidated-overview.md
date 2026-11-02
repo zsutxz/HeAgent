@@ -660,7 +660,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 > - **Epic 54（WebSocket 入口）** → `epics/epic-54-WebSocket入口周期/`：brief（D1–D9 冻结决策）+ epics + 4 个 story；实现 `network/ws_protocol.py` / `network/ws_server.py` 与 HTTP/SSE 接线，4 Story done（交付物随 `98ef6d8` 于 2026-10-24 入库并随 0.8.2 发布）+ retro 产物 `epic-54-retro-2026-10-24.md`
 > - **Epic 55（CLI 旁路）** → `epics/epic-55-CLI旁路周期/`：brief（回溯补登记，无 story）
 > - **Epic 56（WS 对外入口）** → `epics/epic-56-WS对外入口周期/`：brief + epics + phase2-proposal + 8 个 story + 两期 retro
-> - **Epic 57（retro 遗留清理）** → `epics/epic-57-retro遗留清理周期/`：epics + 4 个 story（收口在途）
+> - **Epic 57（retro 遗留清理）** → `epics/epic-57-retro遗留清理周期/`：epics + 4 个 story（2026-11-02 收口 `done`：7 条 open retro items 全闭环）= 另注：Epic 58（cron 结果推送）与 Epic 59（MEMORY 语义压缩）**未入本总览表**，状态以 `sprint-status.yaml` 为准（2026-11-02 两者均已 `done`）
 
 ### 12.1 周期 10：文件安全与凭证防护（Epic 36-39）· 2026-08-24
 

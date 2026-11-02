@@ -204,7 +204,7 @@ class Settings(BaseSettings):
     # <memory> 注入字节预算（0=不限）：MEMORY.md 为 append-only 整份注入，无预算会无界增长。
     # 超预算从尾部倒装保留最新后缀（59-3 读序翻转）并在块尾显式标注省略数；文件本体不改，整理 MEMORY.md 即释放。
     memory_inject_max_bytes: int = Field(default=98_304, ge=0)
-    # MEMORY.md fact 总字节超此值启动一次归档：中间老条目移入 archive/MEMORY-archive.md；0=禁用。
+    # MEMORY.md fact 总字节超此值启动一次归档：最旧前缀移入 archive/MEMORY-archive.md；0=禁用。
     # 按字节而非天数（事实条目无时间戳，年龄靠外推会出错）；默认 = 注入预算的一半，先修剪后省略。
     memory_archive_trigger_bytes: int = Field(default=49_152, ge=0)
     # 自动归档的跨进程节流（秒）：距上次归档不足该间隔就跳过扫描（0=每次都扫）。

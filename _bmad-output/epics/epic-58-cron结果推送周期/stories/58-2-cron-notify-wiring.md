@@ -2,7 +2,7 @@
 title: '58-2 入口接线：两个变量 + cron notifier + 终端回显 + 文档/契约收口'
 type: 'feature'
 created: '2026-10-28'
-status: 'ready-for-dev'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: 'a372f2b80ce308b81426be82c361827c12912676'
@@ -249,3 +249,30 @@ context: []
 ## Review Triage Log
 
 <!-- 三层自审（blind-hunter / edge-case-hunter / verification-gap）逐层执行后追加。 -->
+
+**2026-11-02 三层自审（回写 `done` 前补齐：本段此前为空——58-1 有 6 条、58-2 一条没有）**
+
+| # | 层 | 发现 | 判定 | 证据 / 路由 |
+|---|---|---|---|---|
+| 1 | blind-hunter | `_notify` 从 `run_context.metadata["job_id"]` 取值，缺失时静默退化成空串（终端打 `[cron ]`、帧 `job_id=""`） | low（接受） | 可达性 = 0：runner 只由 `cron/scheduler.py` 构造，它必写 `job_id`；且 `test_job_id_comes_from_run_context_metadata` 钉住取值来源。若将来出现第二个构造点，需在此处改 fail-loud |
+| 2 | blind-hunter | 取消失败分支漏通知：`except Exception` 不接 `asyncio.CancelledError`（3.11 起继承 `BaseException`）⇒ 关停/取消的那次执行不发 `failed` | 按设计（接受） | 关停时中枢自身在 `close()` 收尾，此刻再投一条 `failed` 属「往将关的管道写」；D5 的口径是「一轮执行的终局」，取消不是终局（无 ledger 结论） |
+| 3 | blind-hunter | 失败重试会为**同一次作业**产生多条 `failed` 帧（每轮一条） | 按设计（接受） | 通知口径「一次执行 = 一条」（58-1 不变量）；`seq` 跨执行单调正是让客户端自己归并/去重的契约，本层不做去重（`NotificationHub.publish_cron_result` 无去重态） |
+| 4 | edge-case-hunter | 回显截断在**折行之后**计数：`\n` 已膨胀成 ` ⏎ `（3 字符）再比 `CRON_ECHO_MAX_CHARS` | 无缺陷（偏保守） | `cli/display.py:100-102`：先 `replace` 再切 → 视觉长度只会更短，不会超宽；`test_long_text_is_clipped` 钉住 |
+| 5 | edge-case-hunter | notifier 持有的是**构造时快照**的 hub；若中枢中途被替换则发往旧实例 | 无缺陷（不可达） | `_build_cron_notifier`（`cli/interactive.py:145`）与 `EmbeddedHttpService` 同生命周期，代码里没有热替换路径；重启即新进程新 notifier |
+| 6 | verification-gap | 「开了推送但进程内没有中枢」这条静默失败路径（`WS_ENABLED=false` / `--no-ws`）是否只是注释承诺？ | 已覆盖 | `tests/test_cli_cron_echo.py::test_push_requested_without_a_hub_warns_instead_of_pretending` + `test_ws_disabled_means_no_hub_even_with_push_on` |
+| 7 | verification-gap | `heagent http-server` 显式 `push_enabled=False` 会不会被 `CRON_PUSH_ENABLED=True` 覆盖回去？ | 已覆盖 | `cli/http.py:941` 传 `push_enabled=False`；三态语义「显式值压过 Settings」由 `test_explicit_override_off_beats_the_settings_flag` 钉住 |
+| 8 | verification-gap | 「真实 cron 执行 → 真实客户端收到帧」是否只有替身链？ | 已覆盖（真 TCP） | `tests/network/test_notification_cron_e2e.py` 两例：成功带 `completed` 文本、失败带 `failed` 首行（真实 listener + 真实 runner） |
+
+**收口实测（2026-11-02，容器 + `.heagent/tmp/py311-venv-linux`）**
+
+- `python scripts/quality_gate.py`（`PATH` 前置 venv bin）→ **all gates passed**：回归/覆盖率
+  **4214 passed, 50 skipped, 25 deselected**（235.93s）、覆盖率 **93%**、ruff lint/format（374 files）、
+  `mypy src`（177 files）、`bandit -r src/ -ll`（High 0 / Medium 0）全绿。
+- 定向子集 `pytest tests/test_cron_notify.py tests/test_cli_cron_echo.py tests/network/test_notification_cron_e2e.py
+  tests/network/test_notification_hub.py tests/test_architecture_contracts.py -q` → **66 passed**（7.86s）。
+- 交付物在实树：`network/notification_hub.py` / `tests/test_cron_notify.py` / `tests/test_cli_cron_echo.py` /
+  `tests/network/test_notification_cron_e2e.py` 均在册；`config/__init__.py` 两字段、`cli/http.py` 三态、
+  `cli/wiring.py` 发布点、`cli/interactive.py` 扇出、`cli/display.py` 回显逐条核在源码。
+- **仍未做**：本文 Verification 段的「真实进程手工验收」——需在宿主重启 `heagent` 交互进程后
+  （进程启动即固化 `Settings`）连 `ws(s)://127.0.0.1:9901/api/notifications/ws` 观察。自动 e2e 已覆盖
+  同一链路（真 TCP + 真 runner），故不阻塞收口；这条留给用户在宿主侧确认。

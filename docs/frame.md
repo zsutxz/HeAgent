@@ -812,7 +812,7 @@ HeAgentError (base)
 | `events_rollout_enabled` | False | 是否把每次 run 的事件落盘为 `.heagent/runs/<run_id>/rollout.jsonl`（默认关闭；内容含工具原始输出） |
 | `memory_nudge_enabled` | True | 是否注入记忆保存提醒 |
 | `memory_inject_max_bytes` | 98304 | 注入 `<memory>` 的字节预算（0=不限制）；超预算**从尾部倒装保留最新后缀**（2026-10-30 59-3 读序翻转，省略最旧前缀）并在块尾显式标注省略条数 + warning，文件本体不改动（`MEMORY.md` 是 append-only 且整份注入，无预算会无界增长） |
-| `memory_archive_trigger_bytes` | 49152 | MEMORY.md 的 fact 总字节超此值时自动归档「前 20 条核心约定」与「最新尾部」之间的中间老条目到 `archive/MEMORY-archive.md`（0=禁用自动归档） |
+| `memory_archive_trigger_bytes` | 49152 | MEMORY.md 的 fact 总字节超此值时自动归档**最旧前缀**到 `archive/MEMORY-archive.md`（保留能装进此预算的最新后缀；0=禁用自动归档；2026-10-30 59-3 读序翻转后无头部钉住） |
 | `memory_archive_min_interval_seconds` | 86400 | 自动归档的跨进程节流间隔（秒；0=每次都扫） |
 | `skill_curator_stale_days` | 30 | `skill_curate` 未显式传 `days` 时的过期天数默认值 |
 | `cron_enabled` | True | 是否启用 cron 调度 |

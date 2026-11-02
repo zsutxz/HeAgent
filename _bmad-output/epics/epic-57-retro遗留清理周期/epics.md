@@ -1,7 +1,7 @@
 # Epic 57：retro 遗留清理周期
 
 - 创建：2026-10-26
-- 状态：in-progress
+- 状态：done（2026-11-02 回写：7 条 open retro items 全部闭环后收口；详见 `../sprint-status.yaml` epic-57 行）
 - 基线 commit：54aa99e
 - 来源：Epic 52/53/54 三份 retro 共 7 条 open action items（sprint-status `action_items`），用户 2026-10-26 裁定「A 路线：清存量」，完成后版本提升 0.8.3。
 

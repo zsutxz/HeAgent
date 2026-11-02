@@ -589,7 +589,7 @@ development_status:
   56-7-phase2-docs-contracts-quality-gate: done  # 期二：frame.md/AGENTS.md/deploy README + 端点集契约 + 全量门禁
   56-8-external-readonly: done  # 期二 retro P2-A3：只读旁观 listener（不注册提交端点 + cancel 拒绝不断连），默认关
   epic-56-retrospective: done  # 期一 epic-56-retro-2026-10-24.md；期二 epic-56-retro-phase2-2026-10-24.md
-  epic-57: in-progress  # retro 遗留清理（2026-10-26 立项）：清空 7 条 open retro items 后收口；0.8.3 已 bump（696cdbc）
+  epic-57: done  # retro 遗留清理（2026-10-26 立项）：7 条 open retro items 全部 done 后收口（52-1/52-2/52-3 + 54-6/54-7 + 53-8/53-9；另 54-4/54-5/53-10 由 Epic 56 闭环）；0.8.3 已 bump（696cdbc）；2026-11-02 回写
   57-1-session-closing-checklist: done  # 2026-10-26：§1.6 四条规则落盘，契约子集 35 passed
   57-2-port-finder-test-env-robustness: done  # 2026-10-26：_reserve_block 动态取口，7/7 三连跑绿，ruff/format 绿
   57-3-e2e-fence-smoke: done  # 2026-10-26：2 例贯通测试（真实 handler 全链），台账 52-3 AC1 闭合 + 错位窗口附带发现登记
@@ -602,9 +602,9 @@ development_status:
   # 新只读端点 WS /api/notifications/ws（跨轮次 seq + 环形缓冲 + 游标重放 + 背压踢人），
   # 由 CRON_PUSH_ENABLED 控制中枢构造与端点注册；CRON_ECHO_TO_TERMINAL 单独控制终端回显。
   # network 层抽 EventStreamHub 通用核，CliEventHub / NotificationHub 都是薄适配（D3）。
-  epic-58: in-progress  # 2026-10-28 开工：58-1 交付待评审；58-2（入口接线）未开始
-  58-1-notification-hub-and-endpoint: review  # 2026-10-28：通用核 + 通知中枢 + /api/notifications/ws；全量 4067 passed / 覆盖 92.68%
-  58-2-cron-notify-wiring: backlog
+  epic-58: done  # 2026-10-28 开工，2026-11-02 两 story 均 done 收口（58-1 中枢+端点 / 58-2 入口接线）；retro 未做（optional，需要时跑 bmad-retrospective）
+  58-1-notification-hub-and-endpoint: done  # 2026-10-28 交付（58-1 六条三层自审全处置）；2026-11-02 回写 done：六门 all passed / 4214 passed / 覆盖率 93%
+  58-2-cron-notify-wiring: done  # 2026-10-30 实现（bbc00e9）；2026-11-02 回写 done：补齐此前空白的八条三层自审 + 六门 all passed / 4214 passed / 覆盖率 93%；真实进程手工验收待用户在宿主重启后确认
   epic-58-retrospective: optional
 
   # ═══════════════════════════════════════════════════════════════
@@ -614,10 +614,10 @@ development_status:
   # 新工具 fact_compact（tools/builtins/，留底先行 + atomic_update_text compare-after-read +
   # memory_compact_enabled 默认 False 工具层 fail-closed）；dreamer 白名单最小扩展；
   # system prompt 超预算口径同步（D1–D8 冻结决策见 epic 目录 epics.md）。
-  epic-59: in-progress  # 2026-10-29 立项即开工：59-1/59-2 同日交付（fb3475d/84452a6/eb36ea5），评审修复后转 done（a8b0fc6/99dba35/361e8e0），retro 随后；2026-10-30 post-retro 追加 59-3
+  epic-59: done  # 2026-10-29 立项即开工：59-1/59-2 同日交付（fb3475d/84452a6/eb36ea5），评审修复后转 done（a8b0fc6/99dba35/361e8e0），retro 随后；2026-10-30 post-retro 追加 59-3，2026-11-02 59-3 收口 ⇒ 本 epic 三 story 全 done（item-11/12 仍 open，owner=tan）
   59-1-fact-compact-tool: done  # 2026-10-29：memory/compact.py 写侧唯一入口（留底先行 + compare-after-read + AC5 顺序化判重）+ 工具层 fail-closed；ecc:code-reviewer 终态评审 0 CRITICAL（HIGH=归档锁竞争已修 a8b0fc6）；全量 4200 passed
   59-2-dream-compact-wiring: done  # 2026-10-29：dream prompt 指令段 + 白名单 + drain 窗口归属 → dream_end compact 统计 + system_prompt 条件化标注；与 59-1 同批评审同判据
-  59-3-recency-first-memory-order: in-progress  # 2026-10-30 post-retro 追加并当日开工（短暂立项 epic-60 同日转回）：读序翻转 保头截尾→最新优先（_fit_facts + 省略标注 + auto_archive 去 CORE_FACTS_TO_KEEP + 指令补写 + compact.py:198 注释一致化 + 文档同步）；D9–D13 见 epics.md §Story 59.3
+  59-3-recency-first-memory-order: done  # 2026-10-30 post-retro 追加并当日实现（读序翻转 保头截尾→最新优先：_fit_facts + 省略标注 + auto_archive 去 CORE_FACTS_TO_KEEP + 指令补写 + compact.py:198 注释一致化 + 文档同步）；2026-11-02 回写 done：AC1–AC7 逐条取证 + 补修 2 处旧口径残留（frame.md 设置表行 / config 字段注释）；六门 all passed / 4214 passed / 覆盖率 93% / 定向子集 142 passed
   epic-59-retrospective: done  # 2026-10-29：accepted-with-open-items；覆盖面仅 59-1/59-2，59-3 为 post-retro 追加（retro 文档有追记）
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
