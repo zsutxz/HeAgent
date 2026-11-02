@@ -86,6 +86,7 @@ def test_available_false_when_daemon_unreachable(monkeypatch: pytest.MonkeyPatch
         raise subprocess.TimeoutExpired(cmd=argv, timeout=5)
 
     monkeypatch.setattr(f"{MODULE}.subprocess", _FakeSubprocess(raise_timeout))
+    monkeypatch.setattr(f"{MODULE}._HEALTH_PROBE_RETRY_DELAY_SECONDS", 0.0)
     assert _docker_available("docker") is False
 
 
@@ -715,3 +716,96 @@ async def test_health_probe_reused_within_ttl(monkeypatch: pytest.MonkeyPatch): 
     await runner.run("echo 1", timeout=5)
     await runner.run("echo 2", timeout=5)
     assert probes["n"] == 1
+
+
+def test_probe_retries_before_declaring_daemon_dead(monkeypatch: pytest.MonkeyPatch):  # 判据20
+    """一次 ``docker version`` 超时不足以判死：Docker Desktop 数秒级卡顿 ≠ daemon 挂。"""
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(f"{MODULE}._HEALTH_PROBE_RETRY_DELAY_SECONDS", 0.0)
+    calls = {"n": 0}
+
+    class _OK:
+        returncode = 0
+
+    def _run(argv, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise subprocess.TimeoutExpired(cmd=argv, timeout=kwargs.get("timeout"))
+        return _OK()
+
+    monkeypatch.setattr(f"{MODULE}.subprocess", _FakeSubprocess(_run))
+    assert _docker_available("docker") is True
+    assert calls["n"] == 2
+
+
+def test_probe_all_attempts_failing_reports_dead(monkeypatch: pytest.MonkeyPatch):  # 判据20b
+    """全部尝试都失败才判死，且重试次数有界（不无限重试）。"""
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/docker")
+    monkeypatch.setattr(f"{MODULE}._HEALTH_PROBE_RETRY_DELAY_SECONDS", 0.0)
+    calls = {"n": 0}
+
+    def _run(argv, **kwargs):
+        calls["n"] += 1
+        raise subprocess.TimeoutExpired(cmd=argv, timeout=kwargs.get("timeout"))
+
+    monkeypatch.setattr(f"{MODULE}.subprocess", _FakeSubprocess(_run))
+    assert _docker_available("docker") is False
+    assert calls["n"] == 2
+
+
+async def test_half_open_probe_resumes_within_cooldown(monkeypatch: pytest.MonkeyPatch):  # 判据21
+    """熔断窗口内 daemon 恢复 ⇒ 复探成功后立刻执行，不等满窗口（实测误判形态的修复判据）。"""
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
+    _install(spawn_calls, fake, monkeypatch)
+    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+
+    runner = DockerRunner()
+    assert runner.available is True
+    runner._degraded_until = time.monotonic() + 120.0
+    runner._last_health_probe = 0.0  # 心跳过期 ⇒ 允许半开复探
+    result = await runner.run("echo hi", timeout=5)
+    assert result.startswith("exit_code=0")
+    assert len([c for c in spawn_calls if c[0] != "KILL"]) == 1
+    assert runner._degraded_until == 0.0  # 熔断已解除
+
+
+async def test_half_open_probe_failure_extends_cooldown(monkeypatch: pytest.MonkeyPatch):  # 判据21b
+    """窗口内复探仍失败 ⇒ 不 spawn，并顺延熔断窗口（daemon 真挂时行为不退化）。"""
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
+    _install(spawn_calls, fake, monkeypatch)
+    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+
+    runner = DockerRunner()
+    assert runner.available is True
+    runner._degraded_until = time.monotonic() + 60.0
+    runner._last_health_probe = 0.0
+    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: False)
+    result = await runner.run("echo hi", timeout=5)
+    assert "NOT executed" in result and "paused" in result
+    assert not [c for c in spawn_calls if c[0] != "KILL"]
+    assert runner._degraded_until > time.monotonic() + 100.0  # 顺延到 now+120
+
+
+async def test_half_open_skipped_within_probe_ttl(monkeypatch: pytest.MonkeyPatch):  # 判据21c
+    """心跳仍新鲜时熔断期内不重复付探针（窗口内开销保持 0）。"""
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
+    _install(spawn_calls, fake, monkeypatch)
+    probes = {"n": 0}
+
+    def _probe(path: str) -> bool:
+        probes["n"] += 1
+        return True
+
+    monkeypatch.setattr(f"{MODULE}._docker_available", _probe)
+    runner = DockerRunner()
+    assert runner.available is True  # 装配期闸：暖 _probe_cache，run() 不再首触探测
+    probes_before = probes["n"]
+    runner._degraded_until = time.monotonic() + 120.0
+    runner._last_health_probe = time.monotonic()  # 刚探测过
+    result = await runner.run("echo hi", timeout=5)
+    assert "NOT executed" in result
+    assert probes["n"] == probes_before  # 窗口内心跳新鲜 ⇒ 不再付探针
+    assert not [c for c in spawn_calls if c[0] != "KILL"]

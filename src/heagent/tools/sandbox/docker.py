@@ -59,6 +59,13 @@ CONTAINER_USER = "sandbox"
 # daemon 心跳探测的复用窗口（秒）：健康时最多每 30s 付一次 ``docker version``（Windows 约
 # 150–300ms），换来「daemon 挂起后下一次调用 5s 内失败」而不是白等满命令超时（2026-11-02）。
 _HEALTH_PROBE_TTL_SECONDS = 30.0
+# 单次探测的 CLI 超时 / 尝试次数 / 重试退避（秒）：Docker Desktop 在负载下有数秒级卡顿——
+# 2026-11-02 实测误判形态：probe 5s 超时判死并熔断 120s，而同一分钟内的 ``docker run`` 只需
+# 567ms。单次超时即判死的代价过大，改为「两次都失败才算死」：多付 ≤5.5s，显著降低误判率；
+# 真挂时相对「timeout + 40s 清理链」仍是数量级改善。
+_HEALTH_PROBE_TIMEOUT_SECONDS = 5.0
+_HEALTH_PROBE_ATTEMPTS = 2
+_HEALTH_PROBE_RETRY_DELAY_SECONDS = 0.5
 # 判定「daemon 无响应」后的熔断窗口（秒）：期间不 spawn 容器，直接返回显性诊断——历史形态是
 # 每条命令都实测 timeout + 40s 清理链才回报（2026-11-02 实测 3 次共 ~305s）。
 _DEGRADED_COOLDOWN_SECONDS = 120.0
@@ -81,19 +88,27 @@ _DAEMON_HINT = (
 def _docker_available(docker_path: str) -> bool:
     """探测 = CLI 在 PATH **且** daemon 应答（``docker version`` 短超时探针）。
 
-    结果由 :attr:`DockerRunner.available` 缓存；本函数保持纯探测无缓存。
+    失败重试 ``_HEALTH_PROBE_ATTEMPTS`` 次（2026-11-02 二次修订）：单次超时不足以区分
+    「daemon 挂了」与「Docker Desktop 卡了几秒」，而误判的代价是 120s 全停。两次都失败才
+    判死。结果由 :attr:`DockerRunner.available` / 心跳缓存；本函数保持纯探测无缓存。
     """
     if shutil.which(docker_path) is None:
         return False
-    try:
-        probe = subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
-            [docker_path, "version", "--format", "{{.Server.Version}}"],
-            capture_output=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return probe.returncode == 0
+    for attempt in range(_HEALTH_PROBE_ATTEMPTS):
+        try:
+            probe = subprocess.run(  # nosec B603 - 参数为内部构造的固定列表，不经命令解释器 # noqa: S603
+                [docker_path, "version", "--format", "{{.Server.Version}}"],
+                capture_output=True,
+                timeout=_HEALTH_PROBE_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        else:
+            if probe.returncode == 0:
+                return True
+        if attempt + 1 < _HEALTH_PROBE_ATTEMPTS:
+            time.sleep(_HEALTH_PROBE_RETRY_DELAY_SECONDS)
+    return False
 
 
 def _mount_spec(workspace: Path | None) -> str | None:
@@ -338,6 +353,12 @@ class DockerRunner:
         """容器网络是否隔离（``--network=none``）——SandboxDecision docker 档的事实源。"""
         return self._network == "none"
 
+    async def _probe_daemon(self) -> bool:
+        """真探测一次 daemon（线程池执行，失败重试在 ``_docker_available`` 内），并记录时刻。"""
+        healthy = await asyncio.to_thread(_docker_available, self._docker_path)
+        self._last_health_probe = time.monotonic()
+        return healthy
+
     async def _health_check(self) -> bool:
         """daemon 健康心跳：``_HEALTH_PROBE_TTL_SECONDS`` 内复用上次结论。
 
@@ -346,9 +367,7 @@ class DockerRunner:
         """
         if time.monotonic() - self._last_health_probe < _HEALTH_PROBE_TTL_SECONDS:
             return True
-        healthy = await asyncio.to_thread(_docker_available, self._docker_path)
-        self._last_health_probe = time.monotonic()
-        return healthy
+        return await self._probe_daemon()
 
     def _pause(self) -> None:
         """进入熔断窗口：下次 :meth:`run` 起一跳内不再 spawn 容器。"""
@@ -358,6 +377,29 @@ class DockerRunner:
         """熔断期内**未执行**命令的返回文案（含剩余窗口，供人/模型决定该重启 daemon）。"""
         remaining = max(0.0, self._degraded_until - time.monotonic())
         return _DAEMON_PAUSED_RESULT.format(retry_in=max(1, int(remaining) + 1))
+
+    async def _admit_within_cooldown(self) -> str | None:
+        """熔断窗口内的一次放行判定：``None`` = 可以执行，否则返回「未执行」结果文案。
+
+        - 不在窗口内 ⇒ ``None``（走正常健康心跳）；
+        - 窗口内且心跳新鲜 ⇒ 直接拒绝，不付探针；
+        - 窗口内但心跳过期 ⇒ **半开复探**：daemon 恢复则解除熔断并放行（2026-11-02 二次
+          修订，修复「daemon 已恢复仍被拒满 120s」），仍不应答则顺延窗口。
+        """
+        if time.monotonic() >= self._degraded_until:
+            return None
+        if time.monotonic() - self._last_health_probe < _HEALTH_PROBE_TTL_SECONDS:
+            return self._paused_result()
+        if await self._probe_daemon():
+            logger.info("docker daemon answered again; container sandbox resumed")
+            self._degraded_until = 0.0
+            return None
+        self._pause()
+        logger.warning(
+            "docker daemon still unresponsive; container sandbox paused for another %ss",
+            _DEGRADED_COOLDOWN_SECONDS,
+        )
+        return self._paused_result()
 
     async def run(self, command: str, *, timeout: int) -> str:
         # 探测缓存未暖时经线程池探测（审查修复批）：run() 首触不再阻塞事件循环最长 5s；
@@ -373,8 +415,10 @@ class DockerRunner:
 
         # 熔断窗口内直接失败：daemon 挂起时每条命令白等满 timeout + 清理链是纯浪费，
         # 且模型会把「超时」误读成「命令慢」而重试（2026-11-02 实测连续 3 次共 ~305s）。
-        if time.monotonic() < self._degraded_until:
-            return self._paused_result()
+        # 窗口内的半开复探见 ``_admit_within_cooldown``。
+        paused = await self._admit_within_cooldown()
+        if paused is not None:
+            return paused
         if not await self._health_check():
             self._pause()
             logger.warning(
