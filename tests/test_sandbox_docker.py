@@ -16,6 +16,9 @@ from heagent.tools.sandbox.contracts import SandboxTier, bind_sandbox_workspace
 from heagent.tools.sandbox.process import bind_command_runner
 from heagent.tools.sandbox.docker import (
     DEFAULT_IMAGE,
+    _PROBE_OK,
+    _PROBE_TIMEOUT,
+    _PROBE_UNAVAILABLE,
     _docker_available,
     _docker_inspect_digest,
     _docker_kill,
@@ -168,7 +171,7 @@ async def test_run_uses_bound_workspace_and_formats_result(  # 判据6：会话�
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"hello", stderr=b"")
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)  # 替身链不真实探测 daemon
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)  # 替身链不真实探测 daemon
     runner = DockerRunner()
     with bind_sandbox_workspace(Path("E:/demo/session")):
         result = await runner.run("echo hello", timeout=5)
@@ -181,7 +184,7 @@ async def test_timeout_kills_container_and_reports(monkeypatch: pytest.MonkeyPat
     spawn_calls: list = []
     fake = _FakeProc(returncode=None, delay=2.0)
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)  # 替身链不真实探测 daemon
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)  # 替身链不真实探测 daemon
     runner = DockerRunner()
     result = await runner.run("sleep 30", timeout=1)
     assert result == _TIMEOUT_RESULT.format(timeout=1)
@@ -193,7 +196,7 @@ async def test_cancel_kills_container_and_propagates(monkeypatch: pytest.MonkeyP
     spawn_calls: list = []
     fake = _FakeProc(returncode=None, delay=5.0)
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)  # 替身链不真实探测 daemon
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)  # 替身链不真实探测 daemon
     runner = DockerRunner()
     task = asyncio.create_task(runner.run("sleep 30", timeout=10))
     await asyncio.sleep(0.05)
@@ -216,7 +219,7 @@ async def test_docker_failure_is_explicit_not_fallback(  # 判据9：运行期 d
         return ""
 
     monkeypatch.setattr(PassthroughRunner, "run", no_fallback)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)  # 替身链不真实探测 daemon
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)  # 替身链不真实探测 daemon
     runner = DockerRunner()
     result = await runner.run("echo hi", timeout=5)
     assert result == _format_result(125, b"", b"docker: image not found")
@@ -230,7 +233,7 @@ def test_resolver_builds_docker_runner(monkeypatch: pytest.MonkeyPatch):  # 判�
     from heagent.tools.sandbox.docker import DockerRunner as _DR
 
     # 可用性闸（审查修复批）：resolver 现在同步探测，替身链一律桩掉真实 daemon 探测。
-    monkeypatch.setattr("heagent.tools.sandbox.docker._docker_available", lambda p: True)
+    monkeypatch.setattr("heagent.tools.sandbox.docker._probe_daemon_reason", lambda p: _PROBE_OK)
     settings = SimpleNamespace(
         sandbox_docker_image="heagent-sandbox:3.11",
         sandbox_network=False,
@@ -298,7 +301,7 @@ def test_resolver_gate_unavailable_docker(monkeypatch: pytest.MonkeyPatch):  # �
 
     from heagent.engine.container import _resolve_command_runner
 
-    monkeypatch.setattr("heagent.tools.sandbox.docker._docker_available", lambda p: False)
+    monkeypatch.setattr("heagent.tools.sandbox.docker._probe_daemon_reason", lambda p: _PROBE_UNAVAILABLE)
     settings = SimpleNamespace(
         sandbox_docker_image="img:x",
         sandbox_network=False,
@@ -317,7 +320,7 @@ async def test_workspace_fallback_mount(  # 判据13：workspace_root 兜底挂�
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
     runner = DockerRunner(workspace=Path("E:/demo/ws"))
     result = await runner.run("echo ok", timeout=5)
     assert result == _format_result(0, b"ok", b"")
@@ -328,7 +331,7 @@ async def test_workspace_bind_wins_over_fallback(monkeypatch: pytest.MonkeyPatch
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
     runner = DockerRunner(workspace=Path("E:/demo/ws"))
     with bind_sandbox_workspace(Path("E:/demo/session")):
         await runner.run("echo ok", timeout=5)
@@ -340,7 +343,7 @@ def test_resource_limits_argv_mapping(monkeypatch: pytest.MonkeyPatch):  # 判�
 
     from heagent.engine.container import _resolve_command_runner
 
-    monkeypatch.setattr("heagent.tools.sandbox.docker._docker_available", lambda p: True)
+    monkeypatch.setattr("heagent.tools.sandbox.docker._probe_daemon_reason", lambda p: _PROBE_OK)
     settings = SimpleNamespace(
         sandbox_docker_image="img:x",
         sandbox_network=False,
@@ -376,7 +379,7 @@ def test_cpu_seconds_honesty_warning_resolver(  # 判据14b：cpu_seconds 无诚
 
     from heagent.engine.container import _resolve_command_runner
 
-    monkeypatch.setattr("heagent.tools.sandbox.docker._docker_available", lambda p: True)
+    monkeypatch.setattr("heagent.tools.sandbox.docker._probe_daemon_reason", lambda p: _PROBE_OK)
     settings = SimpleNamespace(
         sandbox_docker_image="img:x",
         sandbox_network=False,
@@ -545,7 +548,7 @@ async def test_digest_pin_mismatch_rejects(monkeypatch: pytest.MonkeyPatch):  # 
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"out", stderr=b"")
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
     monkeypatch.setattr(f"{MODULE}._docker_inspect_digest", lambda p, i: "sha256:" + "a" * 64)
     runner = DockerRunner(digest="sha256:" + "b" * 64)
     with pytest.raises(RuntimeError, match="digest mismatch"):
@@ -558,7 +561,7 @@ async def test_digest_pin_match_runs(  # 判据16b：相符则放行
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"out", stderr=b"")
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
     monkeypatch.setattr(f"{MODULE}._docker_inspect_digest", lambda p, i: "sha256:" + "a" * 64)
     runner = DockerRunner(digest="sha256:" + "a" * 64)
     result = await runner.run("echo hi", timeout=5)
@@ -593,7 +596,7 @@ async def test_session_docker_wrap_keeps_container_cwd(  # 判据19：session×d
     stdout = f"exit_code=0\nhello\n{_MARKER}\n/workspace/sub\n".encode()
     fake = _FakeProc(returncode=0, stdout=stdout, stderr=b"")
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
     runner = DockerRunner(workspace=Path("E:/demo/ws"))
     session = SandboxSession("E:/demo/ws")
     with bind_command_runner(runner), bind_sandbox_session(session):
@@ -653,7 +656,7 @@ async def test_timeout_with_unresponsive_cleanup_pauses_sandbox(  # 判据17：�
     fake = _FakeProc(returncode=None, delay=2.0)
     _install(spawn_calls, fake, monkeypatch)
     monkeypatch.setattr(f"{MODULE}._docker_kill", lambda path, name: spawn_calls.append(["KILL", name]) or True)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
 
     runner = DockerRunner()
     first = await runner.run("sleep 30", timeout=1)
@@ -673,7 +676,7 @@ async def test_paused_window_expires_and_resumes(monkeypatch: pytest.MonkeyPatch
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
 
     runner = DockerRunner()
     runner._degraded_until = time.monotonic() - 1.0  # 窗口已过
@@ -689,11 +692,11 @@ async def test_health_probe_failure_pauses_without_spawn(  # 判据18：心跳�
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
     runner = DockerRunner()
     assert runner.available is True  # 装配期闸通过；_probe_cache 暖、_last_health_probe 记时
 
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: False)  # daemon 转挂
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_UNAVAILABLE)  # daemon 转挂
     runner._last_health_probe = 0.0  # 心跳过期 → 强制重探
     result = await runner.run("echo hi", timeout=5)
     assert "NOT executed" in result
@@ -707,11 +710,11 @@ async def test_health_probe_reused_within_ttl(monkeypatch: pytest.MonkeyPatch): 
     _install(spawn_calls, fake, monkeypatch)
     probes = {"n": 0}
 
-    def _probe(path: str) -> bool:
+    def _probe(path: str) -> str:
         probes["n"] += 1
-        return True
+        return _PROBE_OK
 
-    monkeypatch.setattr(f"{MODULE}._docker_available", _probe)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", _probe)
     runner = DockerRunner()
     await runner.run("echo 1", timeout=5)
     await runner.run("echo 2", timeout=5)
@@ -758,7 +761,7 @@ async def test_half_open_probe_resumes_within_cooldown(monkeypatch: pytest.Monke
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
 
     runner = DockerRunner()
     assert runner.available is True
@@ -775,13 +778,13 @@ async def test_half_open_probe_failure_extends_cooldown(monkeypatch: pytest.Monk
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
     _install(spawn_calls, fake, monkeypatch)
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: True)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
 
     runner = DockerRunner()
     assert runner.available is True
     runner._degraded_until = time.monotonic() + 60.0
     runner._last_health_probe = 0.0
-    monkeypatch.setattr(f"{MODULE}._docker_available", lambda p: False)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_UNAVAILABLE)
     result = await runner.run("echo hi", timeout=5)
     assert "NOT executed" in result and "paused" in result
     assert not [c for c in spawn_calls if c[0] != "KILL"]
@@ -795,11 +798,11 @@ async def test_half_open_skipped_within_probe_ttl(monkeypatch: pytest.MonkeyPatc
     _install(spawn_calls, fake, monkeypatch)
     probes = {"n": 0}
 
-    def _probe(path: str) -> bool:
+    def _probe(path: str) -> str:
         probes["n"] += 1
-        return True
+        return _PROBE_OK
 
-    monkeypatch.setattr(f"{MODULE}._docker_available", _probe)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", _probe)
     runner = DockerRunner()
     assert runner.available is True  # 装配期闸：暖 _probe_cache，run() 不再首触探测
     probes_before = probes["n"]
@@ -809,3 +812,109 @@ async def test_half_open_skipped_within_probe_ttl(monkeypatch: pytest.MonkeyPatc
     assert "NOT executed" in result
     assert probes["n"] == probes_before  # 窗口内心跳新鲜 ⇒ 不再付探针
     assert not [c for c in spawn_calls if c[0] != "KILL"]
+
+
+async def test_probe_timeout_uses_short_cooldown(monkeypatch: pytest.MonkeyPatch):  # 判据22
+    """仅探针**超时** ⇒ 30s 短窗，且文案不提「重启 Docker Desktop」。
+
+    2026-11-02 13:58 事故形态：9 分钟无 docker 活动后同一批三条并行 shell 的探针各耗尽预算
+    （每条 duration≈10.5s）、判死并熔断 120s，而 2 分钟后同一 daemon 的单条命令仅 610ms。
+    该形态是「慢」（可能冷启动），错归因成「需重启 Desktop」会让模型把用户带去错误处置。
+    """
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
+    _install(spawn_calls, fake, monkeypatch)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
+    runner = DockerRunner()
+    assert runner.available is True  # 装配期闸通过
+
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_TIMEOUT)
+    runner._last_health_probe = 0.0  # 心跳过期 → 强制重探
+    result = await runner.run("echo hi", timeout=5)
+
+    assert "NOT executed" in result and "paused" in result
+    assert "cold start" in result  # 显式说明是「慢」而非「死」
+    assert "--sandbox passthrough" in result
+    assert "Restart Docker Desktop" not in result  # 超时形态不劝重启
+    remaining = runner._degraded_until - time.monotonic()
+    assert 0 < remaining <= 31  # 短窗（30s），不是整窗 120s
+    assert not [c for c in spawn_calls if c[0] != "KILL"]  # 未 spawn 容器
+
+
+async def test_probe_hard_failure_uses_full_cooldown(monkeypatch: pytest.MonkeyPatch):  # 判据22b
+    """CLI **明确报错**（连不上 / daemon 未启动）⇒ 整窗 120s，文案保留重启建议。
+
+    真不可用重试不会自愈，频繁复探只是噪声；与「超时」分档正是为了让误判代价只落在短窗上。
+    """
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
+    _install(spawn_calls, fake, monkeypatch)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
+    runner = DockerRunner()
+    assert runner.available is True
+
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_UNAVAILABLE)
+    runner._last_health_probe = 0.0
+    result = await runner.run("echo hi", timeout=5)
+
+    assert "NOT executed" in result
+    assert "Restart Docker Desktop" in result and "--sandbox passthrough" in result
+    remaining = runner._degraded_until - time.monotonic()
+    assert remaining > 100  # 整窗 120s
+    assert not [c for c in spawn_calls if c[0] != "KILL"]
+
+
+async def test_concurrent_runs_share_one_probe(monkeypatch: pytest.MonkeyPatch):  # 判据23
+    """同一批并行调用只付一次探针（single-flight）：并行自查会互相拖慢 Docker CLI。"""
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
+    _install(spawn_calls, fake, monkeypatch)
+    probes = {"n": 0}
+
+    def _probe(path: str) -> str:
+        probes["n"] += 1
+        time.sleep(0.05)  # 放大竞争窗口：无折叠时三路会各自探
+        return _PROBE_OK
+
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", _probe)
+    runner = DockerRunner()
+    assert runner.available is True
+    probes["n"] = 0
+    runner._last_health_probe = 0.0  # 心跳过期 ⇒ 三条并发都会尝试心跳
+
+    results = await asyncio.gather(*(runner.run("echo hi", timeout=5) for _ in range(3)))
+
+    assert all(r.startswith("exit_code=0") for r in results)
+    assert probes["n"] == 1  # 锁内二次检查 TTL：只探一次
+    assert len([c for c in spawn_calls if c[0] != "KILL"]) == 3  # 命令本身不被折叠
+
+
+def test_probe_hard_failure_skips_remaining_budget(monkeypatch: pytest.MonkeyPatch):  # 判据24
+    """CLI 明确报错立即判死，不再付后续超时预算（真挂时 1s 内判死，不白等 11.5s）。"""
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/docker")
+    calls = {"n": 0}
+
+    class _Fail:
+        returncode = 1
+
+    def _run(argv, **kwargs):
+        calls["n"] += 1
+        return _Fail()
+
+    monkeypatch.setattr(f"{MODULE}.subprocess", _FakeSubprocess(_run))
+    assert _docker_available("docker") is False
+    assert calls["n"] == 1
+
+
+def test_probe_os_error_is_unavailable(monkeypatch: pytest.MonkeyPatch):  # 判据24b
+    """CLI 存在但执行失败（``OSError``）同样按「明确不可用」立即判死，不重试。"""
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/docker")
+    calls = {"n": 0}
+
+    def _run(argv, **kwargs):
+        calls["n"] += 1
+        raise OSError("cannot execute")
+
+    monkeypatch.setattr(f"{MODULE}.subprocess", _FakeSubprocess(_run))
+    assert _docker_available("docker") is False
+    assert calls["n"] == 1

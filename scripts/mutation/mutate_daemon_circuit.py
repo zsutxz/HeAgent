@@ -1,9 +1,16 @@
-"""daemon 心跳/熔断的**负向变异验证**（2026-11-02 二次修订：重试 + 半开复探必须真的被守住）。
+"""daemon 心跳/熔断的**负向变异验证**（2026-11-02 三次修订：重试 / 半开复探 / 分档 / 折叠必须被守住）。
 
-背景：2026-11-02 11:10 实测误判形态——`docker version` 单次 5s 超时就判 daemon 死并熔断 120s，
-而同一分钟内 `docker run` 只需 567ms；熔断期里 daemon 早已恢复，后续命令仍被判「未执行」。
-修复引入两条不变量：① 探测两次都失败才算死；② 窗口内心跳过期即半开复探、恢复即放行、失败即顺延。
-本脚本把 `tools/sandbox/docker.py` 复制到 `.heagent/tmp/mut-circuit/` 下逐条回退这两条，
+背景：
+- 2026-11-02 11:10 误判形态——`docker version` 单次 5s 超时即判死并熔断 120s，而同一分钟内
+  `docker run` 只需 567ms；熔断期里 daemon 早已恢复，后续命令仍被判「未执行」。
+- 2026-11-02 13:58 误判形态——9 分钟无 docker 活动后同一批三条并行 shell 的探针各耗尽 5s×2
+  预算、判死并熔断 120s，2 分钟后同一 daemon 的单条命令只 610ms；模型据此劝用户重启 Desktop。
+
+修复后的不变量（每条都要有判据压住）：
+① 探测多次（递增预算）都失败才算死；② 只有**超时**走 30s 短窗、明确报错才整窗 120s；
+③ 窗口内心跳过期即半开复探，恢复即放行、失败即顺延；④ 同批并发只付一次探针（single-flight）；
+⑤ CLI 明确报错立即判死，不耗尽剩余超时预算。
+本脚本把 `tools/sandbox/docker.py` 复制到 `.heagent/tmp/mut-circuit/` 下逐条回退这些不变量，
 要求**每条变异都红**（否则判据不足以护住该不变量）。
 
 用法（在仓库根；不需要 docker daemon）：
@@ -29,13 +36,23 @@ TEST_FILE = "tests/test_sandbox_docker.py"
 
 # (id, 说明, [(原文, 替换), ...])；每条原文必须**恰好出现一次**，否则脚本报错退出。
 MUTATIONS: list[tuple[str, str, list[tuple[str, str]]]] = [
-    ("M1", "探测退化回单次（一次超时就判死）", [("_HEALTH_PROBE_ATTEMPTS = 2", "_HEALTH_PROBE_ATTEMPTS = 1")]),
+    (
+        "M1",
+        "探测退化回单次（一次超时就判死）",
+        [
+            (
+                "_HEALTH_PROBE_TIMEOUTS: tuple[float, ...] = (3.0, 8.0)",
+                "_HEALTH_PROBE_TIMEOUTS: tuple[float, ...] = (3.0,)",
+            )
+        ],
+    ),
     (
         "M2",
         "熔断窗内不半开复探（退回「拒满整窗」旧行为）",
         [
             (
-                "        if await self._probe_daemon():\n"
+                "        reason = await self._probe_daemon()\n"
+                "        if reason == _PROBE_OK:\n"
                 '            logger.info("docker daemon answered again; container sandbox resumed")\n'
                 "            self._degraded_until = 0.0\n"
                 "            return None\n",
@@ -59,12 +76,50 @@ MUTATIONS: list[tuple[str, str, list[tuple[str, str]]]] = [
         "半开复探失败不顺延窗口",
         [
             (
-                "        self._pause()\n"
+                "        self._pause(reason)\n"
                 "        logger.warning(\n"
-                '            "docker daemon still unresponsive; container sandbox paused for another %ss",\n'
-                "            _DEGRADED_COOLDOWN_SECONDS,\n"
+                '            "docker daemon still unresponsive (%s); container sandbox paused for another %ss",\n'
+                "            reason,\n"
+                "            self._cooldown_for(reason),\n"
                 "        )\n",
                 "",
+            )
+        ],
+    ),
+    (
+        "M5",
+        "分档退化：仅超时也走整窗 120s（误判代价回到整窗）",
+        [
+            (
+                "        return _SLOW_COOLDOWN_SECONDS if reason == _PROBE_TIMEOUT else _DEGRADED_COOLDOWN_SECONDS",
+                "        return _DEGRADED_COOLDOWN_SECONDS",
+            )
+        ],
+    ),
+    (
+        "M6",
+        "去掉探测 single-flight（同批并发各探一次）",
+        [
+            (
+                "        async with self._probe_lock:\n"
+                "            if time.monotonic() - self._last_health_probe < _HEALTH_PROBE_TTL_SECONDS:\n"
+                "                return self._last_probe_reason\n",
+                "        if True:\n",
+            )
+        ],
+    ),
+    (
+        "M7",
+        "明确报错不短路（耗尽剩余超时预算才判死）",
+        [
+            (
+                "            if probe.returncode == 0:\n"
+                "                return _PROBE_OK\n"
+                "            return _PROBE_UNAVAILABLE\n",
+                "            if probe.returncode == 0:\n"
+                "                return _PROBE_OK\n"
+                "            last_reason = _PROBE_UNAVAILABLE\n"
+                "            continue\n",
             )
         ],
     ),
