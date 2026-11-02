@@ -418,8 +418,29 @@ class WsServer:
             await self._stop_listener(server)
             self._closed = True
 
+    @staticmethod
+    def _defuse_closing_connections(server: Any) -> None:
+        """让 uvicorn 的 ``shutdown()`` 跳过已在 closing 的连接，避免 ``InvalidState`` 中断整个关停。
+
+        hub 先发了 close 帧，连接进入 closing 却要等 ``connection_lost`` 才出 ``server_state.connections``；
+        此间 uvicorn 对它再 ``send_close(1012)`` 会抛异常，跳过其余连接的关闭与 ``lifespan.shutdown()``。
+        只换实例级 shutdown、不动连接集合：``connection_lost`` 仍会 ``remove(self)``，摘早了会 KeyError。
+        """
+        state = getattr(server, "server_state", None)
+        for connection in list(getattr(state, "connections", ())):
+            ws_state = getattr(getattr(connection, "conn", None), "state", None)
+            if ws_state is None or getattr(ws_state, "name", "OPEN") == "OPEN":
+                continue
+
+            def _quiet_shutdown(conn: Any = connection) -> None:
+                conn.stop_keepalive()
+                conn.transport.close()
+
+            connection.shutdown = _quiet_shutdown
+
     async def _stop_listener(self, server: Any) -> None:
         budget = self.config.shutdown_timeout + _SHUTDOWN_GRACE_MARGIN
+        self._defuse_closing_connections(server)
         try:
             await asyncio.wait_for(server.shutdown(), timeout=budget)
         except TimeoutError:

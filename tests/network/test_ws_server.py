@@ -341,6 +341,42 @@ async def test_ws_server_close_alone_never_cancels_runs() -> None:
 
 
 @pytest.mark.asyncio
+async def test_ws_server_close_survives_connection_already_closing(caplog: pytest.LogCaptureFixture) -> None:
+    """关停竞态：已进入 closing 的连接不得中断 uvicorn 的 shutdown()。
+
+    uvicorn 只在 connection_lost 才把连接摘出 server_state.connections，而 shutdown() 对每个已握手
+    连接无条件 send_close(1012)；closing 态下 websockets 抛 InvalidState，整个关停（含等待排空与
+    lifespan.shutdown）被跳过。这里只改 sans-IO 状态机、不写 transport，造出确定性的「closing 未摘除」。
+    """
+    executor = _BlockingExecutor()
+    service = HttpRunService(_http_config(), executor)
+    server = WsServer(_ws_config(), run_service=service)
+    await server.start()
+    task = asyncio.create_task(server.serve_forever())
+    record = await service.start_run("answer")
+    try:
+        await executor.started.wait()
+        uri = f"ws://127.0.0.1:{server.port}/api/runs/{record.run_id}/ws"
+        async with websockets.connect(uri):
+            while service.ws_connection_count(record) == 0:
+                await asyncio.sleep(0)
+            state = server._server.server_state
+            assert state.connections
+            for connection in list(state.connections):
+                connection.conn.send_close(1001)
+            with caplog.at_level("WARNING"):
+                await server.close()
+        assert "shutdown_failed" not in caplog.text
+        assert not state.connections
+        await asyncio.wait_for(task, timeout=5)
+    finally:
+        executor.release.set()
+        await service.close()
+        if not task.done():
+            await asyncio.wait_for(task, timeout=5)
+
+
+@pytest.mark.asyncio
 async def test_ws_server_with_unreadable_tls_files_fails_loud() -> None:
     """TLS 配齐但文件读不到 ⇒ 启动显性失败（绝不静默降级成明文）。"""
     server = WsServer(
