@@ -306,6 +306,33 @@ class TestCredentialDestructiveCommand:
     @pytest.mark.parametrize(
         "cmd",
         [
+            "echo evil >| ~/.netrc",  # noclobber 强制覆盖
+            "echo evil >> ~/.netrc",  # 追加写
+            "cmd 2>/dev/null > ~/.netrc",  # stderr 丢空 + 真覆盖同一命令段
+        ],
+    )
+    def test_blocks_redirect_variants_to_credential(self, cmd: str) -> None:
+        guard = SafetyGuard()
+        with pytest.raises(SafetyViolation):
+            guard.check(_shell_call(cmd))
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
+            # 回归 2026-11-02：2>/dev/null 的 `>` 此前会跨 ; | && 扫到后面的凭据路径（假阳性）
+            "ls -la ~/ 2>/dev/null; ls -la ~/.git-credentials 2>&1",
+            "ls -la ~/ 2>/dev/null && ls -la ~/.netrc",
+            "cat ~/.git-credentials 2>/dev/null | head -5",
+            "ls -la ~/.git-credentials 2>&1",
+        ],
+    )
+    def test_allows_stderr_redirect_unrelated_to_credential_write(self, cmd: str) -> None:
+        guard = SafetyGuard()
+        guard.check(_shell_call(cmd))  # 不应抛异常
+
+    @pytest.mark.parametrize(
+        "cmd",
+        [
             "rm report.txt",
             "mv report.txt /tmp/backup",
             "cp report.txt backup.txt",

@@ -81,6 +81,8 @@ _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
 
 
 # 凭证文件/目录的破坏性命令拦截（rm/mv/rmdir/unlink/重定向覆盖 作用于凭证路径）——Epic 36 延伸。
+# 重定向匹配不跨命令分隔符（; | && 换行）：否则 `… 2>/dev/null; ls -la ~/.git-credentials` 会把丢弃
+# stderr 的 `>` 当成写凭据的假阳性；`>|`（noclobber 覆盖）单独放行一个 `|`，真覆盖仍拦。
 # 非真正安全边界：shell 可用 base64 / python -c 等绕过，仅拦「合作模式下尊重工具拒绝」的模型。
 _CREDENTIAL_PATH_ALT = (
     r"authorized_keys|id_rsa|id_ed25519|id_dsa|\.ssh|\.aws|\.gnupg|\.kube"
@@ -89,7 +91,7 @@ _CREDENTIAL_PATH_ALT = (
 
 _CREDENTIAL_DESTRUCTIVE_PATTERNS: list[re.Pattern[str]] = [
     re.compile(rf"\b(?:rm|mv|rmdir|unlink)\b[^\n]*?(?:{_CREDENTIAL_PATH_ALT})", re.IGNORECASE),
-    re.compile(rf">[^>\n]*?(?:{_CREDENTIAL_PATH_ALT})", re.IGNORECASE),
+    re.compile(rf">(?:\|)?[^>;|&\n]*?(?:{_CREDENTIAL_PATH_ALT})", re.IGNORECASE),
 ]
 
 
