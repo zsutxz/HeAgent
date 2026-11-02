@@ -65,12 +65,11 @@ _HEALTH_PROBE_TTL_SECONDS = 30.0
 # 单条 shell 只有 610ms。慢 ≠ 死，故逐次递增预算（3s 快判 → 8s 吸收冷启动），总预算 11.5s。
 _HEALTH_PROBE_TIMEOUTS: tuple[float, ...] = (3.0, 8.0)
 _HEALTH_PROBE_RETRY_DELAY_SECONDS = 0.5
-# 判定「daemon 无响应」后的熔断窗口（秒）：期间不 spawn 容器，直接返回显性诊断——历史形态是
+# 判定「daemon 不可用」后的熔断窗口（秒）：期间不 spawn 容器，直接返回显性诊断——历史形态是
 # 每条命令都实测 timeout + 40s 清理链才回报（2026-11-02 实测 3 次共 ~305s）。
-# 分两档：CLI **明确报错**（连接被拒 / daemon 未启动）重试也不会自愈 ⇒ 整窗；仅**超时**
-# （慢、可能冷启动）⇒ 短窗 + 更早半开复探，把「误判代价」从 120s 全停压到 30s。
+# 只有**硬失败**才进窗：探针 CLI 明确报错（连接被拒 / daemon 未启动）或命令超时后清理链整体
+# 挂起。**探针超时不算**——那是「慢」，见 ``DockerRunner.run`` 的放行分支（2026-11-02 四次修订）。
 _DEGRADED_COOLDOWN_SECONDS = 120.0
-_SLOW_COOLDOWN_SECONDS = 30.0
 
 # 探针判定：``ok`` / ``timeout``（CLI 不应答，慢） / ``unavailable``（CLI 明确报错或缺失）。
 _PROBE_OK = "ok"
@@ -80,19 +79,13 @@ _PROBE_UNAVAILABLE = "unavailable"
 _PROBE_HUNG = "hung"
 
 # 熔断期内**未执行**命令的返回（保留 ``Command timed out`` 前缀，goal/evidence 的超时归类不漂移）。
+# 文案只覆盖**硬失败**：这种形态重试不会自愈，重启 Desktop 才是可操作建议。探针超时（慢、
+# 可能冷启动）不进熔断、命令照常执行，故不需要单独的「慢」文案（2026-11-02 四次修订）。
 _DAEMON_PAUSED_RESULT = (
     "exit_code=-1\n"
     "stderr: Command timed out after 0s (NOT executed): container sandbox paused — docker daemon "
     "unresponsive; retrying in ~{retry_in}s. Restart Docker Desktop, or rerun with "
     "--sandbox passthrough. Do not retry in a loop."
-)
-# 仅仅「探针超时」的熔断文案：不提「重启 Docker Desktop」——实测该形态 2 分钟内自愈，让模型
-# 去劝用户重启 Desktop 是错误归因（2026-11-02 事故：三条并行命令各自打了一遍「重启」建议）。
-_DAEMON_SLOW_RESULT = (
-    "exit_code=-1\n"
-    "stderr: Command timed out after 0s (NOT executed): container sandbox paused — docker CLI did not "
-    "answer within {budget}s (slow CLI or Docker Desktop cold start, not necessarily dead); retrying in "
-    "~{retry_in}s. Wait for the automatic retry, or rerun with --sandbox passthrough. Do not retry in a loop."
 )
 # 超时后发现清理链全线不应答时追加的诊断（区分「命令慢」与「daemon 挂」）。
 _DAEMON_HINT = (
@@ -108,8 +101,8 @@ def _probe_daemon_reason(docker_path: str) -> str:
     逐次用递增预算 ``_HEALTH_PROBE_TIMEOUTS``：单次超时不足以区分「daemon 挂了」与
     「Docker Desktop 冷启动卡了几秒」，而误判的代价是整窗全停。
 
-    两类失败语义不同（2026-11-02 三次修订的依据）：
-    - **超时**（``TimeoutExpired``）= CLI 不应答但进程还在 ⇒ 慢，可能自愈；
+    两类失败语义不同（2026-11-02 三次、四次修订的依据）：
+    - **超时**（``TimeoutExpired``）= CLI 不应答但进程还在 ⇒ 慢，可能自愈 ⇒ 调用方**不**进熔断；
     - **明确报错**（非零返回 / ``OSError``，典型 ``Cannot connect to the Docker daemon``）
       = 重试也不会自愈 ⇒ 立即返回，省下后面的超时预算（真挂时 1s 内判死）。
     混合场景（先超时、后明确报错）取更强证据 = ``unavailable``。
@@ -351,14 +344,13 @@ class DockerRunner:
         self._nproc_limit = nproc_limit
         self._probe_cache: bool | None = None
         self._digest_checked = False
-        # daemon 健康心跳与熔断（2026-11-02）：``_last_health_probe`` 是最近一次探测成功/失败的
+        # daemon 健康心跳与熔断（2026-11-02）：``_last_health_probe`` 是最近一次探测的
         # ``monotonic()`` 时刻；``_degraded_until`` 之前不再 spawn（直接返回显性诊断）。
-        # ``_last_probe_reason`` 记录该次探测的判定（ok/timeout/unavailable），供并发折叠复用与
-        # 分档熔断；``_degraded_reason`` 决定熔断文案与窗口长度。
+        # ``_last_probe_reason`` 记录该次探测的判定（ok/timeout/unavailable），供并发折叠复用；
+        # 只有硬失败（unavailable / 清理链挂起）才把 ``_degraded_until`` 推后。
         self._last_health_probe = 0.0
         self._last_probe_reason = _PROBE_UNAVAILABLE
         self._degraded_until = 0.0
-        self._degraded_reason = _PROBE_UNAVAILABLE
         # 探测 single-flight（2026-11-02 三次修订）：模型常在同一 tool batch 并行发多条 shell，
         # 每条都会走心跳；无折叠时 N 路并行 probe 同时打 Docker CLI（Windows 命名管道 + WSL2
         # 转发），既互相拖慢也让同一判定重复落日志。锁内二次检查 TTL 使一轮并发只付一次探针。
@@ -419,25 +411,24 @@ class DockerRunner:
         reason = await self._probe_daemon()
         return None if reason == _PROBE_OK else reason
 
-    def _cooldown_for(self, reason: str) -> float:
-        """判定 → 熔断窗口长度（秒）：只有「纯超时」走短窗，其余按整窗。"""
-        return _SLOW_COOLDOWN_SECONDS if reason == _PROBE_TIMEOUT else _DEGRADED_COOLDOWN_SECONDS
-
     def _pause(self, reason: str) -> None:
-        """进入熔断窗口：下次 :meth:`run` 起一跳内不再 spawn 容器；窗口长度按判定分档。"""
-        self._degraded_reason = reason
-        self._degraded_until = time.monotonic() + self._cooldown_for(reason)
+        """进入熔断窗口：下次 :meth:`run` 起一跳内不再 spawn 容器。
+
+        窗口长度恒为 ``_DEGRADED_COOLDOWN_SECONDS``；``reason`` 供调用方落日志（``unavailable`` /
+        ``hung``）——**慢**（探针超时）根本不进这里（2026-11-02 四次修订）。日志留在调用点，
+        因为那里才知道上下文（容器名 / 是否半开复探）。
+        """
+        logger.warning(
+            "container sandbox paused for %ss (reason=%s)",
+            _DEGRADED_COOLDOWN_SECONDS,
+            reason,
+        )
+        self._degraded_until = time.monotonic() + _DEGRADED_COOLDOWN_SECONDS
 
     def _paused_result(self) -> str:
         """熔断期内**未执行**命令的返回文案（含剩余窗口，供人/模型决定下一步）。"""
         remaining = max(0.0, self._degraded_until - time.monotonic())
-        retry_in = max(1, int(remaining) + 1)
-        if self._degraded_reason == _PROBE_TIMEOUT:
-            return _DAEMON_SLOW_RESULT.format(
-                budget=sum(_HEALTH_PROBE_TIMEOUTS),
-                retry_in=retry_in,
-            )
-        return _DAEMON_PAUSED_RESULT.format(retry_in=retry_in)
+        return _DAEMON_PAUSED_RESULT.format(retry_in=max(1, int(remaining) + 1))
 
     async def _admit_within_cooldown(self) -> str | None:
         """熔断窗口内的一次放行判定：``None`` = 可以执行，否则返回「未执行」结果文案。
@@ -445,7 +436,9 @@ class DockerRunner:
         - 不在窗口内 ⇒ ``None``（走正常健康心跳）；
         - 窗口内且心跳新鲜 ⇒ 直接拒绝，不付探针；
         - 窗口内但心跳过期 ⇒ **半开复探**：daemon 恢复则解除熔断并放行（2026-11-02 二次
-          修订，修复「daemon 已恢复仍被拒满 120s」），仍不应答则顺延窗口。
+          修订，修复「daemon 已恢复仍被拒满 120s」）；复探只是**超时**同样放行——窗口由硬
+          失败建立，而「慢」不足以继续否决命令（四次修订，见 :meth:`run`）；仍**明确报错**
+          才顺延窗口。
         """
         if time.monotonic() >= self._degraded_until:
             return None
@@ -456,12 +449,14 @@ class DockerRunner:
             logger.info("docker daemon answered again; container sandbox resumed")
             self._degraded_until = 0.0
             return None
+        if reason == _PROBE_TIMEOUT:
+            logger.warning(
+                "docker daemon probe timed out after the hard failure; sandbox resumed and running this "
+                "command anyway (slow CLI, not necessarily dead)"
+            )
+            self._degraded_until = 0.0
+            return None
         self._pause(reason)
-        logger.warning(
-            "docker daemon still unresponsive (%s); container sandbox paused for another %ss",
-            reason,
-            self._cooldown_for(reason),
-        )
         return self._paused_result()
 
     async def run(self, command: str, *, timeout: int) -> str:
@@ -485,14 +480,18 @@ class DockerRunner:
         if paused is not None:
             return paused
         failure = await self._health_check()
-        if failure is not None:
+        if failure is not None and failure != _PROBE_TIMEOUT:
             self._pause(failure)
-            logger.warning(
-                "docker daemon health probe failed (%s); container sandbox paused for %ss",
-                failure,
-                self._cooldown_for(failure),
-            )
             return self._paused_result()
+        if failure == _PROBE_TIMEOUT:
+            # 慢不否决（2026-11-02 四次修订）：探针 11.5s 都没应答说明 docker CLI 卡（Windows 进程
+            # 创建 + WSL2 唤醒 + 9p 挂载），而**同一份卡顿也会拖慢 ``docker run``**——把命令跳过
+            # 等于替它放弃；实测该形态下命令往往能跑完（15:26 探针后的命令 519ms/781ms），而
+            # cron 作业曾被 0ms 跳过（15:00:55 / 15:18:16）。故放行本次命令，让它的 timeout 与
+            # 清理链兜底（真挂 ⇒ 清理链整体超时 ⇒ ``_PROBE_HUNG`` 整窗）。
+            logger.warning(
+                "docker daemon probe timed out (slow CLI, not necessarily dead); running this command anyway"
+            )
 
         # 运行期 digest pin（审查修复批）：配置了 digest 则首 run 前校验本地 tag 的 repo
         # digest，不符显性拒绝——本地 tag 可被 retag 静默换载荷（D4 的运行期落实）。
@@ -553,13 +552,9 @@ class DockerRunner:
                 return _TIMEOUT_RESULT.format(timeout=timeout)
             # 命令超时 + 清理链全线超时 = daemon 挂了，不是命令慢：熔断并给出可操作的诊断。
             self._pause(_PROBE_HUNG)
-            logger.warning(
-                "docker daemon unresponsive during cleanup of %s; container sandbox paused for %ss",
-                name,
-                self._cooldown_for(_PROBE_HUNG),
-            )
+            logger.warning("docker CLI did not answer during cleanup of %s", name)
             return _TIMEOUT_RESULT.format(timeout=timeout) + _DAEMON_HINT.format(
-                cooldown=int(self._cooldown_for(_PROBE_HUNG))
+                cooldown=int(_DEGRADED_COOLDOWN_SECONDS)
             )
         except asyncio.CancelledError:
             await kill_and_reap(BaseException, "cancel")

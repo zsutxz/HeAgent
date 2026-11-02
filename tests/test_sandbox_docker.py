@@ -791,6 +791,28 @@ async def test_half_open_probe_failure_extends_cooldown(monkeypatch: pytest.Monk
     assert runner._degraded_until > time.monotonic() + 100.0  # 顺延到 now+120
 
 
+async def test_half_open_timeout_resumes_sandbox(monkeypatch: pytest.MonkeyPatch):  # 判据21d
+    """窗口内复探**只是超时** ⇒ 放行并解除熔断（硬失败才能续窗；慢不否决也适用于半开复探）。
+
+    否则「daemon 从硬失败恢复但 CLI 仍在冷启动」会被续窗，等于把恢复期无限延长。
+    """
+    spawn_calls: list = []
+    fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
+    _install(spawn_calls, fake, monkeypatch)
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
+
+    runner = DockerRunner()
+    assert runner.available is True
+    runner._degraded_until = time.monotonic() + 60.0
+    runner._last_health_probe = 0.0
+    monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_TIMEOUT)
+    result = await runner.run("echo hi", timeout=5)
+
+    assert result.startswith("exit_code=0")
+    assert runner._degraded_until == 0.0  # 窗口被解除，不续窗
+    assert len([c for c in spawn_calls if c[0] != "KILL"]) == 1
+
+
 async def test_half_open_skipped_within_probe_ttl(monkeypatch: pytest.MonkeyPatch):  # 判据21c
     """心跳仍新鲜时熔断期内不重复付探针（窗口内开销保持 0）。"""
     spawn_calls: list = []
@@ -814,12 +836,13 @@ async def test_half_open_skipped_within_probe_ttl(monkeypatch: pytest.MonkeyPatc
     assert not [c for c in spawn_calls if c[0] != "KILL"]
 
 
-async def test_probe_timeout_uses_short_cooldown(monkeypatch: pytest.MonkeyPatch):  # 判据22
-    """仅探针**超时** ⇒ 30s 短窗，且文案不提「重启 Docker Desktop」。
+async def test_probe_timeout_does_not_block_command(monkeypatch: pytest.MonkeyPatch):  # 判据22
+    """仅探针**超时**（CLI 慢）⇒ 不进熔断，本次命令照常执行（慢不否决）。
 
-    2026-11-02 13:58 事故形态：9 分钟无 docker 活动后同一批三条并行 shell 的探针各耗尽预算
-    （每条 duration≈10.5s）、判死并熔断 120s，而 2 分钟后同一 daemon 的单条命令仅 610ms。
-    该形态是「慢」（可能冷启动），错归因成「需重启 Desktop」会让模型把用户带去错误处置。
+    2026-11-02 四次实测形态：探针耗尽 3s+8s 预算（duration 11515ms / 11510ms），把 15:00:42
+    cron 作业的 ``date /t`` 与 15:18 的 ``ls -la`` 直接判成「NOT executed」（0ms 跳过），而同一
+    daemon 在 30s 后只需 519ms。慢 ≠ 不可用：探针吃的卡顿与 ``docker run`` 是同一份，跳过命令
+    等于替它放弃；真挂时由命令 timeout + 清理链（``hung``）兜底。
     """
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")
@@ -832,19 +855,17 @@ async def test_probe_timeout_uses_short_cooldown(monkeypatch: pytest.MonkeyPatch
     runner._last_health_probe = 0.0  # 心跳过期 → 强制重探
     result = await runner.run("echo hi", timeout=5)
 
-    assert "NOT executed" in result and "paused" in result
-    assert "cold start" in result  # 显式说明是「慢」而非「死」
-    assert "--sandbox passthrough" in result
-    assert "Restart Docker Desktop" not in result  # 超时形态不劝重启
-    remaining = runner._degraded_until - time.monotonic()
-    assert 0 < remaining <= 31  # 短窗（30s），不是整窗 120s
-    assert not [c for c in spawn_calls if c[0] != "KILL"]  # 未 spawn 容器
+    assert result.startswith("exit_code=0")  # 命令真的执行了
+    assert "NOT executed" not in result
+    assert runner._degraded_until == 0.0  # 未进熔断
+    assert len([c for c in spawn_calls if c[0] != "KILL"]) == 1  # 容器被 spawn 了一次
 
 
 async def test_probe_hard_failure_uses_full_cooldown(monkeypatch: pytest.MonkeyPatch):  # 判据22b
     """CLI **明确报错**（连不上 / daemon 未启动）⇒ 整窗 120s，文案保留重启建议。
 
-    真不可用重试不会自愈，频繁复探只是噪声；与「超时」分档正是为了让误判代价只落在短窗上。
+    真不可用重试不会自愈，频繁复探只是噪声；与「探针超时」区分正是为了让熔断只落在**硬失败**上
+    （慢则放行，见判据22）。
     """
     spawn_calls: list = []
     fake = _FakeProc(returncode=0, stdout=b"ok", stderr=b"")

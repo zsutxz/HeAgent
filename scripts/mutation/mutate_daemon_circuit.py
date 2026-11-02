@@ -7,9 +7,9 @@
   预算、判死并熔断 120s，2 分钟后同一 daemon 的单条命令只 610ms；模型据此劝用户重启 Desktop。
 
 修复后的不变量（每条都要有判据压住）：
-① 探测多次（递增预算）都失败才算死；② 只有**超时**走 30s 短窗、明确报错才整窗 120s；
-③ 窗口内心跳过期即半开复探，恢复即放行、失败即顺延；④ 同批并发只付一次探针（single-flight）；
-⑤ CLI 明确报错立即判死，不耗尽剩余超时预算。
+① 探测多次（递增预算）都失败才算死；② 探针超时（慢）**不**否决命令——只有硬失败才进熔断；
+③ 窗口内心跳过期即半开复探，恢复或仅超时都放行、硬失败才顺延；④ 同批并发只付一次探针
+（single-flight）；⑤ CLI 明确报错立即判死，不耗尽剩余超时预算。
 本脚本把 `tools/sandbox/docker.py` 复制到 `.heagent/tmp/mut-circuit/` 下逐条回退这些不变量，
 要求**每条变异都红**（否则判据不足以护住该不变量）。
 
@@ -76,23 +76,18 @@ MUTATIONS: list[tuple[str, str, list[tuple[str, str]]]] = [
         "半开复探失败不顺延窗口",
         [
             (
-                "        self._pause(reason)\n"
-                "        logger.warning(\n"
-                '            "docker daemon still unresponsive (%s); container sandbox paused for another %ss",\n'
-                "            reason,\n"
-                "            self._cooldown_for(reason),\n"
-                "        )\n",
+                "        self._pause(reason)\n        return self._paused_result()\n",
                 "",
             )
         ],
     ),
     (
         "M5",
-        "分档退化：仅超时也走整窗 120s（误判代价回到整窗）",
+        "慢不否决退化：探针超时也暂停（命令被跳过）",
         [
             (
-                "        return _SLOW_COOLDOWN_SECONDS if reason == _PROBE_TIMEOUT else _DEGRADED_COOLDOWN_SECONDS",
-                "        return _DEGRADED_COOLDOWN_SECONDS",
+                "        if failure is not None and failure != _PROBE_TIMEOUT:\n",
+                "        if failure is not None:\n",
             )
         ],
     ),
@@ -120,6 +115,24 @@ MUTATIONS: list[tuple[str, str, list[tuple[str, str]]]] = [
                 "                return _PROBE_OK\n"
                 "            last_reason = _PROBE_UNAVAILABLE\n"
                 "            continue\n",
+            )
+        ],
+    ),
+    (
+        "M8",
+        "半开复探超时也续窗（恢复期被无限延长）",
+        [
+            (
+                "        if reason == _PROBE_TIMEOUT:\n"
+                "            logger.warning(\n"
+                '                "docker daemon probe timed out after the hard failure; sandbox resumed and running this "\n'
+                '                "command anyway (slow CLI, not necessarily dead)"\n'
+                "            )\n"
+                "            self._degraded_until = 0.0\n"
+                "            return None\n",
+                "        if reason == _PROBE_TIMEOUT:\n"
+                "            self._pause(reason)\n"
+                "            return self._paused_result()\n",
             )
         ],
     ),
