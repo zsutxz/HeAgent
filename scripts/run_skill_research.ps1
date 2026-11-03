@@ -1,6 +1,6 @@
 ﻿# ============================================================
 # skill_research 每日定时任务包装脚本（无人值守 headless，经 Claude Code）
-# 由 Windows 任务计划程序 HeAgent-WriteGoodSkill-Daily 每天 09:20 触发
+# 由 Windows 任务计划程序 HeAgent-WriteGoodSkill-Daily 每天 09:30 触发
 # 2026-10-26 自 codex exec 移植到 claude.cmd；技能本体在 .claude/skills/skill_research/（仓库项目级）
 # 日志：news\runs\skill_research-last-run.log
 # ============================================================

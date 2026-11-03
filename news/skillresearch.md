@@ -1,9 +1,9 @@
 # AI Agent Skill 写作研究
 
-**最后更新：** 2026-11-02 14:46（第十一轮·ECC 行为准则专项 + mattpocock 卡长场景重做；每次更新报告时刷新此行）
-**研究日期：** 2026-10-24 起共十一轮。逐案细节见 `skill_process/` 案例卡；候选筛选、逐轮记录、历史案例要点、局限与参考资料见 [skillresearch_process.md](skill_process/skillresearch_process.md)（2026-11-02 起本报告保持结论简洁，过程外置）。
-**范围：** Agent Skills 开放格式规范、Anthropic 官方（agentskills 指南 + platform.claude.com 文档 + 官方样例库）、obra/superpowers、ECC、mgechev/skills-best-practices、google/skills、mattpocock/skills、addyosmani/agent-skills、VoltAgent/awesome-agent-skills 的逐案深读，以及 skill 的写作、触发与评测方法。
-**摘要：** 好 skill 是能改变 Agent 执行结果的专业操作知识：从真实失败中抽取、按触发/契约/决策路径/失败处理组织、按失败类型选指导形式、触发与改善分开验证并核算成本。跨十一轮收敛的硬结论：描述只管触发且不内嵌流程（三独立来源收敛）、发现层负例指名有效而执行层否定有害、停止条件写可数判据、可机械判定的规则下沉为脚本或构建闸（不留在 prompt）、评测从作者自觉升级为入库门禁、治理闭环四环（查重→选装→盘点→遵从）；行为准则层——常驻规则与按需技能写法分道（what/how），模型可自我说服绕过的约束下沉为 hook 机器强制，并行委派必须配完成契约；目录层对偶结论——目录一句话是特征摘要、触发规格只在 frontmatter，目录名与技能真名常不一致，从目录复用描述必回读原文对齐真名。
+**最后更新：** 2026-11-03 06:45（第十二轮·ponytail；每次更新报告时刷新此行）
+**研究日期：** 2026-10-24 起共十二轮。逐案细节见 `skill_process/` 案例卡；候选筛选、逐轮记录、历史案例要点、局限与参考资料见 [skillresearch_process.md](skill_process/skillresearch_process.md)（2026-11-02 起本报告保持结论简洁，过程外置）。
+**范围：** Agent Skills 开放格式规范、Anthropic 官方（agentskills 指南 + platform.claude.com 文档 + 官方样例库）、obra/superpowers、ECC、mgechev/skills-best-practices、google/skills、mattpocock/skills、addyosmani/agent-skills、VoltAgent/awesome-agent-skills、DietrichGebert/ponytail 的逐案深读，以及 skill 的写作、触发与评测方法。
+**摘要：** 好 skill 是能改变 Agent 执行结果的专业操作知识：从真实失败中抽取、按触发/契约/决策路径/失败处理组织、按失败类型选指导形式、触发与改善分开验证并核算成本。跨十二轮收敛的硬结论：描述只管触发且不内嵌流程（三独立来源收敛）、发现层负例指名有效而执行层否定有害、停止条件写可数判据、可机械判定的规则下沉为脚本或构建闸（不留在 prompt）、评测从作者自觉升级为入库门禁、治理闭环四环（查重→选装→盘点→遵从）；行为准则层——常驻规则与按需技能写法分道（what/how），模型可自我说服绕过的约束下沉为 hook 机器强制，并行委派必须配完成契约；目录层对偶结论——目录一句话是特征摘要、触发规格只在 frontmatter，目录名与技能真名常不一致，从目录复用描述必回读原文对齐真名；第十二轮（ponytail）补上实证地基——「操作化措辞优于态度化措辞」有受控实验证据、规则措辞变更可设三臂基准门禁、暂缓决定可债务化记账、自报收益指标需要反幻觉边界。
 
 ## 核心价值
 
@@ -17,7 +17,7 @@
 
 ### 2. 触发归 description：不内嵌流程、负向指名、指针措辞
 
-description 是 Agent 无需打开正文就能"执行"的最短文本：内嵌流程摘要等于给绕过正文的捷径——superpowers 有实测失败案例（描述含"评审穿插"→Agent 只评审一次），mattpocock 指针学说与 addyosmani 明文规则（"Do not summarize the workflow"，docs/skill-anatomy.md:42）三独立来源收敛：**what 只写到"够选择"的粒度，步骤/阶段数/决策结构只留正文**。负向触发写**邻接指名**：google/skills 73% 的 description 含 "Don't use…（use X）"，负例既抑制误触发又把正确路由候选塞进同一句。指针措辞决定触发可靠性：引导词前置、每分支一个触发词、删正文已携带的身份信息。生成与构建两档强制（ECC）：skill-create 模板强制 "Use when" 开头并在替换前校验（commands/skill-create.md:118-130，但靠 LLM 自觉执行）；pi/core 构建闸把同类校验下沉为构建失败条件（build-pi-core.js:132-137）——能进构建管线的校验才是机器保证。
+description 是 Agent 无需打开正文就能"执行"的最短文本：内嵌流程摘要等于给绕过正文的捷径——superpowers 有实测失败案例（描述含"评审穿插"→Agent 只评审一次），mattpocock 指针学说与 addyosmani 明文规则（"Do not summarize the workflow"，docs/skill-anatomy.md:42）三独立来源收敛：**what 只写到"够选择"的粒度，步骤/阶段数/决策结构只留正文**。负向触发写**邻接指名**：google/skills 73% 的 description 含 "Don't use…（use X）"，负例既抑制误触发又把正确路由候选塞进同一句。指针措辞决定触发可靠性：引导词前置、每分支一个触发词、删正文已携带的身份信息。生成与构建两档强制（ECC）：skill-create 模板强制 "Use when" 开头并在替换前校验（commands/skill-create.md:118-130，但靠 LLM 自觉执行）；pi/core 构建闸把同类校验下沉为构建失败条件（build-pi-core.js:132-137）——能进构建管线的校验才是机器保证。**触发词类别可扩展到情绪信号**（ponytail）：description 除领域动词外还收「用户抱怨」——"or complains about over-engineering or bloat"（skills/ponytail/SKILL.md:3-8），把「用户不满意现状」写成显式路由条件。
 
 **参考：** [description 优化指南](https://github.com/agentskills/agentskills/blob/main/docs/skill-creation/optimizing-descriptions.mdx)（正负提示、near-miss、调优/验证集分离）。platform.claude.com 的 what+when 口径与 superpowers「只写 when」不同层（发现层选对 vs 遵从层真读正文）：综合口径 = what 到够选择粒度、流程结构只留正文；实测发现描述被当执行捷径时先砍描述流程内容。
 
@@ -36,7 +36,7 @@ description 是 Agent 无需打开正文就能"执行"的最短文本：内嵌�
 | 漏掉必备元素 | 结构槽位：模板 REQUIRED 字段 | 散文提醒 |
 | 行为应取决于条件 | 绑定可观察谓词的条件 | 无条件规则+豁免条款 |
 
-superpowers 措辞对照测试：对产出形状错误，禁令组无效内容显著多于配方组、甚至差于无指导；豁免条款不产生作用域，真有例外改写成条件谓词。**分层规则：发现层（description 路由）负例指名有效，执行层（正文措辞）否定有害**——否定是 elephant 效应（_don't think of an elephant_），禁令半读成做的指令；正向表述目标行为，禁令只留给无法正向表述的硬护栏且必须配正向目标（mattpocock "Negation" 节，与「纪律失败才用禁令」兼容）。使用前先对自己的场景微测试（结论来自 superpowers 自述实验，勿默认外推）。
+superpowers 措辞对照测试：对产出形状错误，禁令组无效内容显著多于配方组、甚至差于无指导；豁免条款不产生作用域，真有例外改写成条件谓词。**分层规则：发现层（description 路由）负例指名有效，执行层（正文措辞）否定有害**——否定是 elephant 效应（_don't think of an elephant_），禁令半读成做的指令；正向表述目标行为，禁令只留给无法正向表述的硬护栏且必须配正向目标（mattpocock "Negation" 节，与「纪律失败才用禁令」兼容）。使用前先对自己的场景微测试（结论来自 superpowers 自述实验，勿默认外推）。**ponytail 把这条从主张升级为受控实验**：修 bug 规则不写「要追溯根因」（态度）而写 `"grep every caller of the function you touch, then fix the root cause once in the shared code."`（skills/ponytail/SKILL.md:38）——对照实验里 pre-fix 版与纯 prose 版（"trace the flow end to end"）在 Opus 上均 0/3，只有操作版指令 6/6（ponytail 卡引 benchmarks/results/2026-06-22:50-52）；配套框架技巧：**把期望行为表述为目标价值系统内的最小阻力路径**（root-cause 修复 = "更懒/更小的 diff"），让 skill 自己的本能拉向正确行为而非逆本能下禁令。
 
 **参考：** [superpowers `writing-skills` "Match the Form to the Failure" 与 "Micro-Test Wording"](https://github.com/obra/superpowers/blob/main/skills/writing-skills/SKILL.md)。
 
@@ -56,6 +56,7 @@ superpowers 措辞对照测试：对产出形状错误，禁令组无效内容�
 - **库级路由**（google/skills）：常驻规则层只装命名前缀路由表，全量发现交运行时生成目录（带 "Do not edit by hand" 防手改标记）；fetch 优先于 install。
 - **两种负载记账**（mattpocock）：context load（常驻材料的窗口成本）与 cognitive load（人类记住"有哪些文档、何时取用"）分开算；"The human is the index"；user-invoked 省 context 花认知，多到记不住用 router skill 集中还债。
 - **库级构建期安全闸**（ECC）：发布档由显式白名单确定性生成，构建在违规时硬失败——非白名单 URL、pipe-to-shell、密钥、绝对家目录路径（三 OS）、symlink、坏 frontmatter、重名（build-pi-core.js:87,132-137,293-332，已核对实现）；每个排除对象进 CURATION.md 台账。配套硬指标：长度 200-500 行/800 max（SKILL-DEVELOPMENT-GUIDE.md:439）、示例代码按可编译资产验收（`tsc --noEmit`/`py_compile`/`go build`，:608-626）。**反样本**：同库 python-patterns（751 行）擦线过闸却零经济性——无外置、Good/Bad 双份代码、bare except 重复两处（L155-162≈L738-749，已核对）、速查表后置不起导航——行数 gate 拦不住结构性重复。
+- **skill 对自身同样记账**（ponytail）：极简 skill 本身必须极简——SKILL.md 115→95 行（"the minimalism skill should not be 2× caveman's length"）；输出侧配对规则 "if the explanation is longer than the code, delete the explanation"；注入器按 level 过滤 SKILL.md 时普通规则 bullet 必须 verbatim 保留、只有 mode 键名的表格行/工作示例可裁（hook 注释记录了「普通 bullet 被误当工作示例静默丢弃」的真实踩坑与引号值判定修复）；规则集的 skill 版/常驻版双形态经字节比对 + 不变量 canary 同步（见 §17）。
 
 **参考：** [Agent Skills specification](https://github.com/agentskills/agentskills/blob/main/docs/specification.mdx)；[platform.claude.com 最佳实践](https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices)；[skill_process/mgechev-skills-best-practices.md](skill_process/mgechev-skills-best-practices.md)、[skill_process/ecc.md](skill_process/ecc.md)。
 
@@ -68,6 +69,7 @@ superpowers 措辞对照测试：对产出形状错误，禁令组无效内容�
 - **多模型测试**（platform.claude.com）：按计划使用的每个模型分别验证；Claude A/B 迭代法观察导航信号（意外阅读顺序、漏跟引用、反复读同一文件、从不访问的文件）。
 - **零基础设施验证梯**（mgechev）：①只贴 frontmatter 生成正/负触发提示并自评 description 宽窄→②喂全文让 LLM 模拟执行、标出被迫猜测的行→③换位 QA 提攻击性问题→④按答案重构。无 baseline 对照、攻击者与被攻击者同模型，与 TDD 梯互补不替代。
 - **评测门禁制**（addyosmani）：新 skill 必附 eval——≥3 正触发 + 2 负触发（带兄弟技能归属断言）+ 1 行为 eval + 真实 fixtures，CI 强制（CONTRIBUTING.md:44）；被拒变更记量化台账。负触发评测是 description 邻接指名在评测层的对偶。
+- **规则措辞变更门禁**（ponytail，强度最高）：改 ruleset 任何措辞的 PR 必须附三臂基准——baseline / main / 改动分支，同任务同模型、每臂 ≥6 runs，且同时给出「该起效的任务上起效了」与「至少一个可能被打破的现有任务上没被打破（a new rule often fights an old one）」的数字，"Without that, the PR gets closed, however good the idea is"（CONTRIBUTING.md:16-29）；任务夹具带 good/bad 参考，`--selftest` 证明判卷器抓得到差异（:42-43）。把「改一条措辞」等同于「改一个产品」。**测量与门槛分离**：loc.js 恒过只记录、correctness.js 不过即败（"A broken one-liner that scores great on LOC will fail on correctness"，benchmarks/README.md:94-99），React/FastAPI 检查是结构匹配非运行执行也如实标注；**判卷器自证**：行为判卷器由无 API 单测证明能分辨行为有无（tests/behavior.test.js:2-6），LLM judge 带 self-test 门与同代码对照设计（盲评回复时让两个回复描述同一 diff，分离「文风效应」与「代码效应」）。
 
 **参考：** [评测指南（agentskills）](https://github.com/agentskills/agentskills/blob/main/docs/skill-creation/evaluating-skills.mdx)；[skill_process/addyosmani-agent-skills.md](skill_process/addyosmani-agent-skills.md)。
 
@@ -84,6 +86,7 @@ skill 声称了流程，就要能回答「Agent 不看说明书时做到了吗�
 - **概率/确定性分工**：LLM 只做语义分类，时序校验与合规率计算全为确定性代码。
 - **自带正/反夹具**：合规与违规人工 trace + 手写 spec 入库，判卷器可离线自测——「夹具即文档」。
 - **低于阈值升级 hook**：合规率 <0.6 的步骤从文档升级为机器强制——反复不被遵守的规则不该继续靠文档。
+- **第二独立实现**（ponytail 行为门）：同一问题（「skill 是否产生行为而非携带文本」）的另一实现——三个行为探针（硬件校准旋钮/用户要求的详细说明/一个可运行检查）跑 baseline vs skill 两臂，"the no-skill arm should mostly FAIL these gates, the ponytail arm should pass them. That delta is the point."（benchmarks/behavior.yaml:11-12）；探针判卷器接受真实改述（"tuning knobs"/"reads off" 算过）而非字面匹配。两个生态独立收敛到「探针 + 对照臂 + 判卷器自测」，该做法可视为已验证模式。
 
 **参考：** [affaan-m/ECC](https://github.com/affaan-m/ECC) `skills/skill-comply/`（样本详情原在案例卡解剖样本节，2026-10-30 按用户指令移出，要点保留本条）。
 
@@ -99,7 +102,7 @@ skill 声称了流程，就要能回答「Agent 不看说明书时做到了吗�
 
 ### 12. 生态设计空间：作者制、分发、知识位置与治理形态
 
-**作者制**：官方库封闭作者+内部验证；社区框架（superpowers）与治理合集（ECC）开放贡献，分别用 TDD 评测与遵从测量补质量——作者越分散越需要测量设施。**分发**：单体库 / 联邦 marketplace（google/skills 16 个插件钉回各产品仓库，中央库只做版本化聚合）/ monorepo 多 harness 镜像（ECC）/ 跨生态人工策展目录（VoltAgent：双轨收录 officialskills.sh 统一页 593 + GitHub 深链 632，赞助位无披露、分类随投稿漂移——目录层治理问题与技能层不同物）。**知识位置**：写进技能本体 vs 外置到活检索服务、技能只装取数协议（渐进披露的库级终极形态，代价是多一跳网络依赖）。**治理形态五例**：curated 个人库（mattpocock：issue 双门槛、`.out-of-scope/` 负向档案、changesets 版本化）、评测门禁制（addyosmani）、治理闭环四环（ECC：查重 skill-scout「创建需用户选择或无近似匹配」→选装 agent-sort→盘点 skill-stocktake→遵从 skill-comply；stocktake 判定显式声明 "holistic AI judgment — not a numeric rubric" 并强制 reason 自包含含证据——判定诚实比伪精确量表更可信）、TDD 化评测（superpowers）、人工策展 + 口头规则（VoltAgent：hand-picked 定位语 + 3 小时门槛 + ≤10 词规则，README 内置 Quality Criteria 表，实测执行落差约 40% 超词）。
+**作者制**：官方库封闭作者+内部验证；社区框架（superpowers）与治理合集（ECC）开放贡献，分别用 TDD 评测与遵从测量补质量——作者越分散越需要测量设施。**分发**：单体库 / 联邦 marketplace（google/skills 16 个插件钉回各产品仓库，中央库只做版本化聚合）/ monorepo 多 harness 镜像（ECC）/ 跨生态人工策展目录（VoltAgent：双轨收录 officialskills.sh 统一页 593 + GitHub 深链 632，赞助位无披露、分类随投稿漂移——目录层治理问题与技能层不同物）/ 单一真源 + 薄适配器（ponytail：36 host 适配表逐 host 记验证版本与平台缺口，hook 每次从 SKILL.md 现读注入而非持副本，7 副本字节比对 + 10 条不变量短语 canary 防漂移，竞品 SKILL.md vendor 进库当对照臂）。**知识位置**：写进技能本体 vs 外置到活检索服务、技能只装取数协议（渐进披露的库级终极形态，代价是多一跳网络依赖）。**治理形态六例**：curated 个人库（mattpocock：issue 双门槛、`.out-of-scope/` 负向档案、changesets 版本化）、评测门禁制（addyosmani）、治理闭环四环（ECC：查重 skill-scout「创建需用户选择或无近似匹配」→选装 agent-sort→盘点 skill-stocktake→遵从 skill-comply；stocktake 判定显式声明 "holistic AI judgment — not a numeric rubric" 并强制 reason 自包含含证据——判定诚实比伪精确量表更可信）、TDD 化评测（superpowers）、人工策展 + 口头规则（VoltAgent：hand-picked 定位语 + 3 小时门槛 + ≤10 词规则，README 内置 Quality Criteria 表，实测执行落差约 40% 超词）、**基准门禁制个人库**（ponytail：skill 本体封闭作者、规则集开放但三臂基准强制——见 §7；独立第三方基准含负面结果照单全收并标注 "the numbers are theirs ... corroboration rather than official figures"）。
 
 **参考：** 各案例卡。
 
@@ -127,7 +130,7 @@ awesome-list 目录（1231 条）README 一句话与 frontmatter 的保真度实
 
 ### 17. 常驻规则与按需技能写法分道；规则体系两层分离（ECC 行为准则专项）
 
-四层分工一句话：**"Rules tell you _what_ to do; skills tell you _how_ to do it."**（rules/README.md:104-107，已核对原文）——规则常驻注入管「做什么/不许做什么」，skill 按需加载管「怎么做」，hook 在模型上下文外管机器强制，agent 管隔离上下文。落位按载体能力判，不是按内容重要性判。**写法分界**（rules/common/agents.md:51-59 等，已核对）：常驻规则**无 frontmatter**（不走路由，每次都在）、**无渐进披露**（常驻=全量付费，条目必须比 skill 更精）、条件分支写进正文（"当 X 时…"——不会被 description 路由）、重复内容**不抽取共享文件**（各注入路径独立整读，共享文件反增双份加载）。**两层规则体系**：common 10 文件无 frontmatter 恒装；21 语言档 ×5 文件带 frontmatter `paths` glob 按项目命中安装、`extends` 回链所属 common；优先级 specific overrides general；语言档用 "Language note" 标记局部覆盖 common 通则而非整段重写。**空壳档风险**：语言档只放覆盖标记无实质内容时，装了 glob 反而稀释 common——覆盖必须带实质。
+四层分工一句话：**"Rules tell you _what_ to do; skills tell you _how_ to do it."**（rules/README.md:104-107，已核对原文）——规则常驻注入管「做什么/不许做什么」，skill 按需加载管「怎么做」，hook 在模型上下文外管机器强制，agent 管隔离上下文。落位按载体能力判，不是按内容重要性判。**写法分界**（rules/common/agents.md:51-59 等，已核对）：常驻规则**无 frontmatter**（不走路由，每次都在）、**无渐进披露**（常驻=全量付费，条目必须比 skill 更精）、条件分支写进正文（"当 X 时…"——不会被 description 路由）、重复内容**不抽取共享文件**（各注入路径独立整读，共享文件反增双份加载）。**两层规则体系**：common 10 文件无 frontmatter 恒装；21 语言档 ×5 文件带 frontmatter `paths` glob 按项目命中安装、`extends` 回链所属 common；优先级 specific overrides general；语言档用 "Language note" 标记局部覆盖 common 通则而非整段重写。**空壳档风险**：语言档只放覆盖标记无实质内容时，装了 glob 反而稀释 common——覆盖必须带实质。**第二来源佐证**（ponytail）：同一规则集的双形态发行——常驻版 `.agents/rules/ponytail.md` 30 行（无 frontmatter、无 levels、无会话语义），按需版 `skills/ponytail/SKILL.md`（frontmatter + 触发词 + 三档 level + 会话持久语义），两形态以字节比对 + 不变量短语 canary 强制同步；hook 缺 fallback 时注入的也是常驻版内容（ponytail 卡）。
 
 **参考：** [skill_process/ecc.md](skill_process/ecc.md)。
 
@@ -142,6 +145,18 @@ awesome-list 目录（1231 条）README 一句话与 frontmatter 的保真度实
 库自带路由（ask-matt："You don't remember every skill, so ask"）：主流程 idea→ship + 三条 on-ramp 汇入 + 词汇层垫底——**路由是技能库的一级资产**，不留给读者自己拼图。**编排技能极薄**：grill-with-docs 正文 7 行 = "Call the Skill tool twice"，implement 15 行 = "Use /tdd … use /code-review … Commit"——复杂度在链上，不在任何单点。**触发权按风险显式分配**：规划/写操作类一律 user-invoked（`disable-model-invocation: true`，人扣扳机），参考/纪律类才 model-invoked（tdd/diagnosing-bugs/code-review/wizard）。**评审双轴不重排**："Don't pick a single winner across axes"——分轴聚合就是为了防止一轴掩盖另一轴。小机制三件：借用模板用 frontmatter `metadata.credits` 注明出处（借用礼仪机制化）；diagnosing-bugs 的 Redact 段把脱敏写成正文第一步（写出来的纪律——与 ECC 的 hook 机器强制是同一目标的路线对照）；handoff 交接文档写 OS 临时目录、不污染工作区。
 
 **参考：** [skill_process/mattpocock-skills.md](skill_process/mattpocock-skills.md)。
+
+### 20. 规则措辞的生命周期治理：issue→证伪复现器→对照实验→回归检查→诚实判定（ponytail）
+
+skill 的每条规则都是一个假设，ponytail 给出了一条完整的假设检验流水线：**issue 报告行为失败**（#245 "Dangerously lazy"：shortest-diff 本能让 agent 只补被告警的路径）→ **可证伪复现器**（trace-transfer：评分器专考报告*未点名*的兄弟调用方；bad 参考答案在 happy path 完全正确、只在争议点偷工——"This run is built to be able to *disprove* the fix, not flatter it"）→ **操作化措辞修复 + 价值内框架**（§4）→ **对照实验**（pre-fix 0/3、纯 prose 版 0/3、操作版 6/6——把「起效的是操作措辞而非 prose 情绪」钉死）→ **回归检查**（27 任务 pre/post：安全恒 1.0、省码保持、correctness 无系统变化）→ **诚实判定**（#245 fixed and validated；#217 rung 按请求发布但复现失败——"the behavioural value is unproven here"；Haiku 不改善且 baseline 同样全挂——判定为模型能力天花板而非回归）。配套两个诚实机制：**null 结果公开**（盲评裁判对无 skill 臂回复质量判无显著差异 p=0.09/0.22，如实写进结果文件；README 亲手给自家单发基准头条打 honesty note——"counts prose, not just code, and overstates the win"）；**反样本公开**（per-task 表保留 ponytail 行数多于 baseline 的格子，vibe-md2html PT5 139 行 vs PT 106 行）。对比 §7 的门禁：门禁管「进门时有效」，本条管「进门后持续被检验」。
+
+**参考：** [skill_process/ponytail.md](skill_process/ponytail.md) 引 benchmarks/results/2026-06-22、2026-10-07-agentic。
+
+### 21. 暂缓债务化与自报指标的反幻觉边界（ponytail）
+
+**暂缓决定要有格式、账本和复审权**：已知限制写成固定格式注释 `"shortcut: <the limit>, <when to upgrade>"`（skills/ponytail/SKILL.md:42），三环互认——写作端打标、评审端把已声明 shortcut 认定为 "a decision, not a finding, unless the expected load already crosses it"（ponytail-review/SKILL.md:63-64，避免同一决定被反复翻案）、记账端 /ponytail-debt 收账并对「没写升级触发」的标记打 `no-trigger` 标——"those are the ones that silently rot"（ponytail-debt/SKILL.md:36-37）；结尾强制计数 `<N> markers, <M> with no trigger.`，标记词可由用户替换。**自报收益要设反幻觉边界**：记分牌技能明文 NEVER 打印单仓库节省数字——"the unbuilt version was never written, so there is no real baseline to subtract from in a live repo"（ponytail-gain/SKILL.md:44-48），要真数指向 /ponytail-debt 的实数账本而非现场编反事实；基准数字声明 "They are measured, not computed from the current repo"。这是 §10「取数型反幻觉」在**自我指标**上的对偶：没有真实基线的对比数就是幻觉，宁缺毋造。
+
+**参考：** [skill_process/ponytail.md](skill_process/ponytail.md)。
 
 ## 检查点
 
@@ -171,6 +186,13 @@ awesome-list 目录（1231 条）README 一句话与 frontmatter 的保真度实
 - [ ] 设计多技能库先画流程图（路由是一级资产）；编排技能保持极薄（只指名相邻技能）；触发权显式分配（规划/写操作 user-invoked 人扣扳机，参考/纪律类才 model-invoked）。
 - [ ] 步骤 model-neutral；执行体用脚本不写内联代码。
 - [ ] 想写「教写 skill」类元技能前，先查目标生态是否已有官方/领域版 skill-creator（该类技能是各生态自带基础设施，先复用再考虑新造）。
+- [ ] 规则措辞可执行化：每条规则写成操作（grep X、运行 Y、输出字段 Z）而非态度句；期望行为表述为目标价值系统内的最小阻力路径，不逆本能下禁令（ponytail #245 对照实验：操作版 6/6 vs prose 版 0/3）。
+- [ ] 改规则 = 改产品：措辞变更附三臂基准（baseline/main/change、同任务同模型、每臂 ≥6 runs、收益任务 + 回归任务双证据）；任务夹具带 good/bad 参考且判卷器过 --selftest。
+- [ ] 证伪设计：评分器考「报告未点名的失效路径」；bad 参考答案在 happy path 正确、只在争议点偷工；行为门探针验证「规则产生行为而非携带文本」（no-skill 臂应挂、skill 臂应过）。
+- [ ] 判卷器先自证：评分脚本/LLM judge 有无 API 自测证明能分辨行为有无；测量指标与门槛指标分离并声明；结构匹配检查如实标注非运行验证；LLM 盲评配同代码对照与 self-test 门。
+- [ ] 暂缓债务化：已知限制用固定格式注释（`shortcut: <限制>, <升级触发>`）；账本给无触发者打 no-trigger 标并以计数收尾；评审把已声明 shortcut 认定为决定而非发现（除非负载越限）。
+- [ ] 自报收益设反幻觉边界：不给无真实基线的现场反事实数字（"the unbuilt version was never written"），要真数指向可数账本；null 结果与反样本（本方法更差的格子）如实公开。
+- [ ] 多 harness/多副本分发以单一真源 + 薄适配器发行：注入器从源文件现读；副本字节比对 + 载荷规则不变量短语 canary（每条带出处）；生成式同步作为已知升级路径；平台能力缺口（如丢弃 SubagentStart、被动 hook 不能注入）逐 host 记录在适配表。
 
 ## 案例索引
 
@@ -184,7 +206,8 @@ awesome-list 目录（1231 条）README 一句话与 frontmatter 的保真度实
 | 六 | mattpocock/skills | curated 个人库：主流程接力路由、seam 纪律、双轴评审、词汇工程 | [mattpocock-skills.md](skill_process/mattpocock-skills.md) |
 | 七 | addyosmani/agent-skills | 评测门禁制：CI 强制 eval、反合理化节序 | [addyosmani-agent-skills.md](skill_process/addyosmani-agent-skills.md) |
 | 八 | VoltAgent/awesome-agent-skills | 跨生态策展目录：双轨收录、目录压缩失真、名实分离 | [voltagent-awesome-agent-skills.md](skill_process/voltagent-awesome-agent-skills.md) |
+| 十二 | DietrichGebert/ponytail | 基准门禁制个人库：操作化措辞受控实验、三臂规则门禁、暂缓债务化、单一真源分发 | [ponytail.md](skill_process/ponytail.md) |
 
 ---
 
-**可信度边界**：所有轮次均未运行被研究 skill、无对照评测；机制结论基于文本证据与来源自述，非独立实测。2026-11-02 起方法扩展增加传播与接收面采样（star 增速/贡献者/社区讨论/负面证据），此前热度均为单日快照、传播结论缺数据支撑。逐轮局限、候选筛选、历史案例要点与完整参考资料见 [skillresearch_process.md](skill_process/skillresearch_process.md)。
+**可信度边界**：所有轮次均未运行被研究 skill、无对照评测；机制结论基于文本证据与来源自述，非独立实测（ponytail 案例的基准数字为作者自报，第三方独立基准未复跑）。2026-11-02 起方法扩展增加传播与接收面采样（star 增速/贡献者/社区讨论/负面证据），此前热度均为单日快照、传播结论缺数据支撑；第十二轮 ponytail 的 star 增速曲线因 stargazers 端点要求认证且本机无 gh CLI **未采样**（仅有总量快照）。逐轮局限、候选筛选、历史案例要点与完整参考资料见 [skillresearch_process.md](skill_process/skillresearch_process.md)。
