@@ -549,8 +549,8 @@ development_status:
   53-1-docker-runner: done
   53-2-sandbox-image-config: done
   53-3-docs-contracts-quality-gate: done
-  53-4-approval-relaxation-container: done  # 期二 D53-2（2026-11-03）：审批降级接入 PolicyEngine（真进沙箱 + 容器档 + 后端可用 + 读取未抛错 四条件）；12 passed + 零回归 305 passed + 变异体 5/5；待用户 walkthrough
-  53-5-mcp-stdio-in-container: done  # 期二 D53-1（2026-11-03）：MCP stdio 经 docker run -i 长命管道进同一镜像容器（env 只透传声明键）；后端不可用 ⇒ 显性降级 + 每次 WARNING；16 passed + 变异体 6/6 + 六门 all passed；待用户 walkthrough
+  53-4-approval-relaxation-container: done  # 期二 D53-2（2026-11-03）：审批降级接入 PolicyEngine（真进沙箱 + 容器档 + 后端可用 + 读取未抛错 四条件）；12 passed + 零回归 305 passed + 变异体 5/5；walkthrough 收口（2026-11-03 用户验收：探针 docker 模式 PASS + 孤儿容器零残留亲验；审批交互抽样未跑，裁定接受机器层证据）
+  53-5-mcp-stdio-in-container: done  # 期二 D53-1（2026-11-03）：MCP stdio 经 docker run -i 长命管道进同一镜像容器（env 只透传声明键）；后端不可用 ⇒ 显性降级 + 每次 WARNING；16 passed + 变异体 6/6 + 六门 all passed；walkthrough 收口（2026-11-03 用户验收：整链探针 PASS + 容器零残留亲验）
   epic-53-retrospective: done
 
   # ═══════════════════════════════════════════════════════════════

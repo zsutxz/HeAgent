@@ -1,6 +1,6 @@
 # Story 53-5 · MCP stdio server 进容器（期二 D53-1）
 
-状态：**done**（2026-11-03 判据 11 条全绿 + 变异体 6/6 精确变红 + 六门 all passed；待用户 walkthrough 验收）
+状态：**done + walkthrough 已验收**（2026-11-03 判据 11 条全绿 + 变异体 6/6 精确变红 + 六门 all passed；用户验收：整链探针 docker 模式 PASS + 容器零残留亲验）
 
 ## 范围
 
