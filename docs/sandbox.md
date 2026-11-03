@@ -107,6 +107,32 @@ _execute_in_sandbox()
 协议契约（`contracts.py`，四后端全实现）：`tier` / `available` / `run` / `isolates_network`。
 `SandboxTier.can_relax_approval` 仅 `container` 为 True（弱后端不得因档位跳过审批）。
 
+**审批降级接入（期二 D53-2 / Story 53-4，2026-11-03）**：`PolicyEngine` 第 5 步的审批判定
+接入该信号——四条全成立才放松：① 工具在 `sandbox_tools` 内且非 MCP（宿主工具与尚未进容器的
+MCP stdio 不放松）；② 后端 `tier.can_relax_approval` 为真；③ 后端 `available` 为真（`DockerRunner.tier`
+是类属性恒 `container`，降级 Passthrough 时若不看可用性会把宿主裸跑当容器隔离）；④ 读取后端状态
+未抛错。放松落 `PolicyVerdict.approval_relaxed=True` + WARNING 留痕，**不**绕过沙箱授权
+（`SANDBOX_REQUIRED` 照旧），判据 `tests/test_sandbox_approval_relax.py`。
+
+## 3.1 MCP stdio 进容器（期二 D53-1 / Story 53-5，2026-11-03）
+
+`SANDBOX_BACKEND=docker` 时，`.mcp.json` 里每个 stdio server 都经**同一镜像容器**拉起：
+
+- 形状：把 SDK 的 stdio 子进程换成 **docker CLI** —— `docker run -i --rm --pull=never
+  --cap-drop=ALL --security-opt no-new-privileges --user sandbox --network <none|bridge>
+  [--memory/--pids-limit] [-e KEY…] [-v <ws>:/workspace -w /workspace] <image> <cmd> <args…>`；
+  `-i` 保持 stdin ⇒ 容器内进程的 stdin/stdout 就是 JSON-RPC 管道（**长命双向**，刻意不复用
+  `CommandRunner` 的 `sh -c` 短命形状）。实现在 `tools/mcp/stdio_sandbox.py`，接入点
+  `client.default_transport_opener(stdio_sandbox=…)`。
+- env：只对 `.mcp.json` 里该 server **显式声明**的 env 名发 `-e KEY`（不带值 ⇒ docker 从 CLI
+  进程 env 取值；**值不进 argv**，`ps` 不可见）；宿主其它变量不进容器。
+- 降级（用户 2026-11-03 裁定 = **显性降级**）：CLI 缺席 / daemon 不应答 / 探测抛错 ⇒ 仍按原样
+  在**宿主**拉起 server，但**每次连接**都打 WARNING，绝不静默假装已隔离（探测本身按 30s TTL 复用）。
+- 已知边界：镜像里没有的二进制（典型 `npx` / node）会显性失败——镜像供给属配置面职责；
+  容器档仍**不是绝对边界**（宿主内核 / daemon 逃逸面见 §4.19）。判据 `tests/test_mcp_stdio_sandbox.py`；
+  整链探针 `scripts/mcp_stdio_container_probe.py`（`--mode fake` 走替身 docker CLI 打通 argv→握手→工具调用；
+  `--mode docker` 需在**宿主**跑，容器沙箱内无 docker CLI / socket）。
+
 ## 4. 会话层（与安全无关，但影响可用性）
 
 - `SandboxSession`（`tools/sandbox/session.py`）：同一 run 内跨命令保持 cwd。

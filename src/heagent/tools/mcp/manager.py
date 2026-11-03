@@ -34,6 +34,7 @@ import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
+from functools import partial
 from typing import TYPE_CHECKING
 
 from mcp.types import BlobResourceContents, TextContent, TextResourceContents
@@ -53,6 +54,7 @@ if TYPE_CHECKING:
     from mcp import ClientSession
 
     from heagent.tools.mcp.config import MCPConfig, ServerConfig
+    from heagent.tools.mcp.stdio_sandbox import StdioSandboxSpec
 
 logger = logging.getLogger(__name__)
 
@@ -88,6 +90,7 @@ class MCPClientManager:
         health_check_interval: float = _DEFAULT_HEALTH_CHECK_INTERVAL,
         shutdown_timeout: float = _DEFAULT_SHUTDOWN_TIMEOUT,
         transport_opener: TransportOpener | None = None,
+        stdio_sandbox: StdioSandboxSpec | None = None,
     ) -> None:
         if health_check_interval <= 0:
             # 非正值会让 _watch 把 interval 直接当 wait_for timeout，首轮 ping 即超时 →
@@ -106,6 +109,9 @@ class MCPClientManager:
         self._shutdown_timeout = shutdown_timeout
         # transport 开启端口：缺省 SDK 实现；注入点供测试/替换（无需 class-patch 缝）。
         self._transport_opener = transport_opener
+        # stdio server 的容器规格（Epic 53 期二 D53-1）：非 None ⇒ 缺省 opener 带上它，
+        # 使 stdio server 经 docker 拉起；后端不可用时 opener 内部显性降级回宿主。
+        self._stdio_sandbox = stdio_sandbox
         self._server_tasks: list[asyncio.Task[None]] = []
         self._stops: list[asyncio.Event] = []
         # 已连 session 查找表：server 原始名 → ClientSession
@@ -254,10 +260,16 @@ class MCPClientManager:
         本方法保留为**monkeypatch 缝宿主**（测试 class-patch 此方法注入 fake transport）
         并负责连接成功日志（带 server 名，属生命周期编排侧信息）。
         """
-        opener = self._transport_opener or default_transport_opener
+        opener = self._transport_opener or self._resolve_transport_opener()
         async with opener(cfg) as session:
             logger.info("MCP server '%s' 已连接（%s）", name, type(cfg).__name__)
             yield session
+
+    def _resolve_transport_opener(self) -> TransportOpener:
+        """缺省 opener：有 stdio 容器规格时绑定它（``functools.partial``），否则用 SDK 原样实现。"""
+        if self._stdio_sandbox is None:
+            return default_transport_opener
+        return partial(default_transport_opener, stdio_sandbox=self._stdio_sandbox)
 
     async def _discover_and_register(self, name: str, session: ClientSession) -> None:
         """发现 server 工具并经 RegistryBridge 注册（namespace 冲突跳过 + 告警，FR-6）。"""

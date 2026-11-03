@@ -60,7 +60,8 @@ def _mcp_annotations_to_heagent(ann: McpToolAnnotations | None) -> ToolAnnotatio
     # ``Tool.annotations``，属 server 自声明、不可信——server 可任意伪造 readOnlyHint=True 等字段。
     # 它们只能作为 PolicyEngine 的 defense-in-depth 输入（配合 FR-A5 fail-safe 收紧），
     # 不得被当作「这个工具是安全的」的授权依据，也不得替代 SafetyGuard / OS 级沙箱。
-    # 本标注不闭合任何缺口：MCP stdio 子进程不经任何沙箱后端，仍挂 epic-53 期二 D53-1（未闭合）。
+    # 本标注不闭合任何缺口：MCP stdio 子进程只在容器档后端可用时经镜像容器拉起（Epic 53 期二 53-5），
+    # 因后端不可用而降级宿主执行时仍是既有暴露面。
     if ann is None:
         return None
     return ToolAnnotations(
@@ -81,7 +82,8 @@ def mcp_tool_to_schema(server_name: str, tool: Tool) -> ToolSchema:
         # 安全标注（与 docs/frame.md §4.19 要素 2 互相指向）：``Tool.annotations`` 是 server 自声明、
         # 不可信——外部 MCP server 可伪造 readOnlyHint / destructiveHint。故此处只是原样透传，供
         # PolicyEngine 作 defense-in-depth 参考，不得当成「工具安全」的授权依据。
-        # 本标注不闭合任何缺口：MCP stdio 子进程不经沙箱，仍挂 epic-53 期二 D53-1（未闭合）。
+        # 本标注不闭合任何缺口：MCP stdio 子进程只在容器档后端可用时经镜像容器拉起
+        # （Epic 53 期二 53-5），降级宿主执行时仍是既有暴露面。
         annotations=_mcp_annotations_to_heagent(tool.annotations),
     )
 

@@ -14,11 +14,12 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import httpx
 from mcp import ClientSession
-from mcp.client.stdio import StdioServerParameters, stdio_client
+from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 
 from heagent.tools.mcp.config import HttpServerConfig, ServerConfig, StdioServerConfig
 from heagent.tools.mcp.session_api import handshake
+from heagent.tools.mcp.stdio_sandbox import StdioSandboxSpec, stdio_params
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -37,10 +38,18 @@ class TransportOpener(Protocol):
 
 
 @asynccontextmanager
-async def default_transport_opener(cfg: ServerConfig) -> AsyncIterator[ClientSession]:
-    """建立 transport + ClientSession（SDK 默认实现：stdio / Streamable HTTP 分派 + 握手）。"""
+async def default_transport_opener(
+    cfg: ServerConfig,
+    *,
+    stdio_sandbox: StdioSandboxSpec | None = None,
+) -> AsyncIterator[ClientSession]:
+    """建立 transport + ClientSession（SDK 默认实现：stdio / Streamable HTTP 分派 + 握手）。
+
+    ``stdio_sandbox`` 非 None 时 stdio server 经容器拉起（Epic 53 期二 D53-1）；后端不可用
+    则**显性降级**回宿主执行（每次 WARNING，见 :mod:`.stdio_sandbox`）。
+    """
     if isinstance(cfg, StdioServerConfig):
-        params = StdioServerParameters(command=cfg.command, args=cfg.args, env=cfg.env or None)
+        params = stdio_params(cfg, stdio_sandbox)
         async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
             await handshake(session)
             yield session

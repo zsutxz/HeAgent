@@ -157,6 +157,10 @@ class EngineContainer:
             else:
                 self.executor.sandbox_runner = self.command_runner
 
+        # 期二 D53-2：审批降级需要读「当前沙箱后端」的档位与可用性。用惰性 provider 而不是
+        # 构造期快照——runner 可能在注入后才被替换，快照会让放松判定与实际执行面漂移。
+        self.policy.sandbox_runner_provider = lambda: self.executor.sandbox_runner
+
     def _session_workspace_enabled(self) -> bool:
         """沙箱会话目录是否开启（E40-D4）：容器显式值（CLI）优先，否则跟随 Settings（env）。
 

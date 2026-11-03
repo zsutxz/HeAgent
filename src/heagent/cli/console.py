@@ -26,7 +26,7 @@ from heagent.providers.switchable import SwitchableProvider
 from heagent.pub.exceptions import HeAgentError
 from heagent.pub.roles import load_agent_roles
 from heagent.pub.safe_logging import install_logging_fault_guard
-from heagent.tools.mcp import MCPClientManager, load_mcp_config
+from heagent.tools.mcp import MCPClientManager, StdioSandboxSpec, load_mcp_config
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Coroutine
@@ -127,6 +127,24 @@ async def _prompt_startup_provider(provider: SwitchableProvider) -> None:
             raise SystemExit(0) from None
 
 
+def _stdio_sandbox_spec(settings: Settings) -> StdioSandboxSpec | None:
+    """按 Settings 构造 MCP stdio 进容器的规格（Epic 53 期二 D53-1）。
+
+    只在 ``SANDBOX_BACKEND=docker`` 时启用：其它后端（passthrough / job / firejail）没有
+    容器档能力，套上 docker 包裹等于违背用户选择；后端不可用的降级由
+    :mod:`heagent.tools.mcp.stdio_sandbox` 内部按「显性降级 + 每次 WARNING」处理。
+    """
+    if settings.sandbox_backend.strip().lower() != "docker":
+        return None
+    return StdioSandboxSpec(
+        image=settings.sandbox_docker_image,
+        network="bridge" if settings.sandbox_network else "none",
+        workspace=str(Path.cwd()),
+        memory_limit_mb=settings.sandbox_memory_limit_mb,
+        pids_limit=settings.sandbox_nproc_limit,
+    )
+
+
 def _mcp_lifecycle(settings: Settings) -> AbstractAsyncContextManager[Any]:
     """Return the MCP lifecycle context manager based on current settings."""
     if not settings.mcp_enabled:
@@ -135,7 +153,7 @@ def _mcp_lifecycle(settings: Settings) -> AbstractAsyncContextManager[Any]:
     config = load_mcp_config(settings.mcp_config_path)
     if config.is_empty:
         return contextlib.nullcontext()
-    return MCPClientManager(config)
+    return MCPClientManager(config, stdio_sandbox=_stdio_sandbox_spec(settings))
 
 
 def _run_with_embedded_http(awaitable_factory: Callable[[], Coroutine[Any, Any, None]]) -> None:

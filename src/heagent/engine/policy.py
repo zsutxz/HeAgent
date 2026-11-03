@@ -14,6 +14,9 @@
 4'. **写集围栏**（:meth:`_validate_write_allowlist`，Epic 52 AD-17）—— 本 run 声明了
    ``write_allowlist`` 时，file_write / file_edit 目标路径越集 → ``BLOCKED``；
 5. **审批**（``approval_tools``）—— 需审批且当前 run 未授权 → ``APPROVAL_REQUIRED``；
+   **例外（期二 D53-2，FR-2）**：调用真在**容器档且后端可用**时放松审批
+   （``PolicyVerdict.approval_relaxed=True`` + WARNING 留痕；弱后端与宿主执行面不放松，
+   见 :meth:`PolicyEngine._container_relaxes_approval`）；
    对 MCP 工具，如果传入了 ``schema``（含 ``annotations``），则：
    - ``destructiveHint`` → 需要审批（FR-A3）；
    - ``readOnlyHint`` → 不需审批（FR-A4，除非被显式策略覆盖：``approval_tools`` / ``approval_mcp_tools`` 优先）；
@@ -44,10 +47,14 @@ from heagent.tools.path_safety import (
     check_write_denied,
     resolve_under_root,
 )
+from heagent.tools.sandbox.contracts import SandboxTier
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from heagent.engine.context import RunContext
     from heagent.pub.types import ToolCall, ToolSchema
+    from heagent.tools.sandbox.contracts import CommandRunner
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +82,9 @@ class PolicyVerdict(BaseModel):
     reason: str = ""
     sandbox_profile: str | None = None
     source: str = "policy"
+    # 审批是否**因容器档生效而被放松**（期二 D53-2）：仅当调用真在容器内执行、且后端
+    # 可用时为 True。默认 False ⇒ 既有行为逐字节不变。
+    approval_relaxed: bool = False
 
     @property
     def allowed(self) -> bool:
@@ -135,6 +145,7 @@ class PolicyEngine:
         approval_mcp_tools: bool = False,
         sandbox_mcp_tools: bool = False,
         sandbox_mode: str = "workspace-write",
+        sandbox_runner_provider: Callable[[], CommandRunner | None] | None = None,
     ) -> None:
         # 工作区根（绝对路径）；为 None 时 _validate_paths 不做围栏。
         self.workspace_root = workspace_root
@@ -155,6 +166,9 @@ class PolicyEngine:
         # 权限档位（P0-2）：read-only / workspace-write / danger-full-access。
         # 空串或未知值按最保守的现状语义处理（workspace-write），不静默放宽。
         self.sandbox_mode = (sandbox_mode or "").strip().lower() or "workspace-write"
+        # 沙箱后端读取器（期二 D53-2）：惰性返回当前 runner（无后端 ⇒ None）。装配方
+        # （EngineContainer）在 runner 注入后接线；未接线 ⇒ 审批降级一律不生效（fail-safe）。
+        self.sandbox_runner_provider = sandbox_runner_provider
 
     def evaluate_tool_call(
         self,
@@ -217,16 +231,24 @@ class PolicyEngine:
 
         # 5) 审批：显式策略优先，注解感知 MCP 工具缺省行为（FR-A3/A4/A5）。
         approval_reason = self._approval_trigger(call, schema=schema)
+        relaxed_reason: str | None = None
         if approval_reason is not None and not self._approval_granted(call, context=context):
-            logger.info("PolicyEngine requires approval for '%s': %s", call.name, approval_reason)
-            return PolicyVerdict(
-                mode=ToolExecutionMode.APPROVAL_REQUIRED,
-                source="approval_tools" if call.name in self.approval_tools else "mcp_approval",
-                reason=approval_reason,
-                sandbox_profile=sandbox_profile,
-            )
+            if self._container_relaxes_approval(call):
+                # 期二 D53-2：容器档**实际生效**时审批放松（FR-2），但显性留痕、不静默。
+                relaxed_reason = f"approval relaxed by container sandbox: {approval_reason}"
+                logger.warning("PolicyEngine relaxed approval for '%s': %s", call.name, approval_reason)
+            else:
+                logger.info("PolicyEngine requires approval for '%s': %s", call.name, approval_reason)
+                return PolicyVerdict(
+                    mode=ToolExecutionMode.APPROVAL_REQUIRED,
+                    source="approval_tools" if call.name in self.approval_tools else "mcp_approval",
+                    reason=approval_reason,
+                    sandbox_profile=sandbox_profile,
+                )
+        approval_relaxed = relaxed_reason is not None
 
         # 6) 沙箱：需沙箱但当前 run 未授权 → 要求沙箱授权（reason 提示需 grant）。
+        # 审批放松**不**绕过沙箱授权（D-53-4-4：两个旋钮互不代偿）。
         if sandbox_profile is not None and not self.context_grants_sandbox(
             call, context=context, sandbox_profile=sandbox_profile
         ):
@@ -235,17 +257,26 @@ class PolicyEngine:
                 source="sandbox_tools" if call.name in self.sandbox_tools else "sandbox_mcp_tools",
                 reason=f"Tool '{call.name}' requires sandbox '{sandbox_profile}' by policy.",
                 sandbox_profile=sandbox_profile,
+                approval_relaxed=approval_relaxed,
             )
         # 6') 需沙箱且已授权：mode 仍为 SANDBOX_REQUIRED（指示 executor 走沙箱路径），reason 留空。
         if sandbox_profile is not None:
             return PolicyVerdict(
                 mode=ToolExecutionMode.SANDBOX_REQUIRED,
                 source="sandbox_tools" if call.name in self.sandbox_tools else "sandbox_mcp_tools",
+                reason=relaxed_reason or "",
                 sandbox_profile=sandbox_profile,
+                approval_relaxed=approval_relaxed,
             )
 
         # 7) 其余：直接执行。
-        return PolicyVerdict(mode=ToolExecutionMode.DIRECT, sandbox_profile=sandbox_profile, source="default")
+        return PolicyVerdict(
+            mode=ToolExecutionMode.DIRECT,
+            reason=relaxed_reason or "",
+            sandbox_profile=sandbox_profile,
+            source="default",
+            approval_relaxed=approval_relaxed,
+        )
 
     def _is_read_only(self, call: ToolCall, *, schema: ToolSchema | None) -> bool:
         """该调用是否只读（read-only 档的放行判定）。
@@ -353,6 +384,38 @@ class PolicyEngine:
         if not root:
             return None
         return Path(root).resolve()
+
+    def _container_relaxes_approval(self, call: ToolCall) -> bool:
+        """容器档**实际生效**时是否可放松审批（期二 D53-2，FR-2 的接入点）。
+
+        四个条件全部成立才放松（任一不成立即维持原审批要求）：
+
+        1. 调用**真的进沙箱**——工具在 ``sandbox_tools`` 内，且不是 MCP 工具。宿主执行面
+           （``file_write`` / ``file_edit`` / ``git_*``）与尚未进容器的 MCP stdio（D53-1
+           前置）一律不放松：放松它们等于**假隔离**换来免审批。
+        2. 后端档位 ``tier.can_relax_approval`` 为真（NFR-2 冻结边界：passthrough / job /
+           firejail 恒为假）。
+        3. 后端**当前可用** ``available`` 为真。``DockerRunner.tier`` 是类属性恒
+           ``CONTAINER``，而降级路径会 fallback 到 ``PassthroughRunner``（宿主裸跑）——
+           只判档位会把「宿主执行」误当「容器隔离」。
+        4. provider 未抛异常。异常 / 未接线 / 缺属性一律按「不放松」处理（fail-safe，与
+           :meth:`ToolExecutor._runner_tier` 的未知即最弱档同口径）。
+        """
+        if self.sandbox_runner_provider is None:
+            return False
+        if call.name not in self.sandbox_tools or self._is_mcp_tool(call):
+            return False
+        try:
+            runner = self.sandbox_runner_provider()
+        except Exception:  # noqa: BLE001 - 读取后端状态失败即不放松（fail-safe）
+            logger.warning("PolicyEngine could not read sandbox runner; approval stays required", exc_info=True)
+            return False
+        if runner is None:
+            return False
+        tier = getattr(runner, "tier", SandboxTier.PASSTHROUGH)
+        if not tier.can_relax_approval:
+            return False
+        return bool(getattr(runner, "available", False))
 
     def _approval_trigger(self, call: ToolCall, *, schema: ToolSchema | None = None) -> str | None:
         """审批触发的**单一分类源**：返回触发说明文案；无需审批返回 ``None``。

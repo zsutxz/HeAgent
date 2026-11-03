@@ -145,6 +145,11 @@ def _docker_available(docker_path: str) -> bool:
     return _probe_daemon_reason(docker_path) == _PROBE_OK
 
 
+def docker_available(docker_path: str = "docker") -> bool:
+    """公共可用性闸（供 MCP stdio 进容器等旁路复用；语义同 :func:`_docker_available`）。"""
+    return _docker_available(docker_path)
+
+
 def _mount_spec(workspace: Path | None) -> str | None:
     """宿主 workspace 路径 → ``docker -v`` 挂载值；未 bind 会话目录时 ``None``（纯函数可测缝）。
 

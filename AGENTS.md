@@ -10,7 +10,7 @@
 HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP server**；工具返回内容直接进入模型上下文。
 
 1. **三层非边界**：`SafetyGuard` / `PolicyEngine` / sandbox 后端均非真正安全边界。
-2. **OS 级沙箱兜底**：容器档 Docker 后端默认未启用、启用也非绝对边界；MCP stdio 不经沙箱属已知缺口（挂 epic-53 期二 D53-1）。
+2. **OS 级沙箱兜底**：容器档 Docker 后端默认未启用、启用也非绝对边界；MCP stdio 子进程在 `SANDBOX_BACKEND=docker` 且 daemon 可用时经同一镜像容器拉起（Epic 53 期二 53-5，D53-1 闭合），后端不可用时显性降级为宿主执行并每次 WARNING。
 3. **本地模式**（listener 绑回环，默认）：HTTP 与 WS 均无认证、无 TLS；回环绑定不等于可信；`Origin` / `Host` 校验只是入口层 defense-in-depth。
 4. **对外模式**（WS listener 绑非回环，Epic 56 D5）：强制 `Authorization: Bearer <token>`（token 只读用户级 `~/.heagent/setting.md`，项目 `.env` 无效），缺 token 拒绝启动（fail-closed）；认证不是绝对边界；浏览器 WebSocket API 无法自定义请求头。
 5. **端点可见性**：HTTP listener 没有对外模式；终端旁路 `/api/cli/ws` 只挂本地 listener（`WS_EXTERNAL_HOST` 非空时的**双监听并存**下，对外 listener 恒不注册）；只读通知流 `/api/notifications/ws` 随 listener 注册，对外 listener 上同样可见（token 之后）——但仅在 `CRON_PUSH_ENABLED=true` 建起中枢时注册，默认关 ⇒ 路由不存在（客户端拿裸 403）。
@@ -170,4 +170,4 @@ WS 对外排障工具链（`scripts/`，细节见各脚本头注释）：`setup_
 
 核心立场：三层非边界 / OS 级沙箱兜底 / 本地与对外两种入口模式 / 端点可见性的口径见 [`docs/frame.md`](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本段不重复论证。
 
-活动缺口：MCP stdio server 子进程不经沙箱（中-高）；会话文件并发写主害已由 `save(base=...)` 保守合并闭合（2026-09-27，Z-D21），残余登记 A34 挂起待裁定（低）；技能资源 TOCTOU 残余竞态已专项评估（2026-10-20）：窗口收窄至组件级（POSIX 逐组件 openat）/与硬化前同宽（Windows 回退通道），全部窗口不跨越可提升信任域（能赢竞态者无需竞态即可直写技能根或经 shell 直读凭证），裁定不另立收窄周期，维持 OS 沙箱兜底立场——正文见总账「跨周期勘察与裁定索引」。
+活动缺口：MCP stdio server 子进程**已进容器**（Epic 53 期二 53-5，2026-11-03；`SANDBOX_BACKEND=docker` 且 daemon 可用时经同一镜像容器拉起，不可用时显性降级 + 每次 WARNING）；会话文件并发写主害已由 `save(base=...)` 保守合并闭合（2026-09-27，Z-D21），残余登记 A34 挂起待裁定（低）；技能资源 TOCTOU 残余竞态已专项评估（2026-10-20）：窗口收窄至组件级（POSIX 逐组件 openat）/与硬化前同宽（Windows 回退通道），全部窗口不跨越可提升信任域（能赢竞态者无需竞态即可直写技能根或经 shell 直读凭证），裁定不另立收窄周期，维持 OS 沙箱兜底立场——正文见总账「跨周期勘察与裁定索引」。

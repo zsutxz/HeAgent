@@ -488,26 +488,33 @@ def test_mcp_annotation_conversion_declares_self_declared_and_untrusted() -> Non
         )
 
 
-def test_mcp_annotations_passthrough_marks_known_gap_unclosed() -> None:
-    """判据 2：``annotations=`` 透传点上方 10 行内声明「自声明 / 不可信」并点名 D53-1 未闭合。"""
+def test_mcp_annotations_passthrough_marks_residual_exposure() -> None:
+    """判据 2：``annotations=`` 透传点上方 10 行内声明「自声明 / 不可信」并写明进容器的实施面。
+
+    2026-11-03（Story 53-5）起 MCP stdio **已进容器**（D53-1 闭合），故本断言由「点名 D53-1
+    未闭合」改为「点名实施 story 53-5 + 降级宿主时仍是暴露面」——标注不闭合缺口的口径不变。
+    """
     lines = _mcp_mapping_lines()
     anchor = "annotations=_mcp_annotations_to_heagent("
     hits = [index for index, line in enumerate(lines) if anchor in line]
     assert hits, f"{MCP_MAPPING_SRC} 中找不到锚点：{anchor!r}"
     index = hits[-1]
     window = "\n".join(lines[max(0, index - 10) : index + 1])
-    for keyword in (*MCP_ANNOTATION_HINT_KEYWORDS, "D53-1"):
+    for keyword in (*MCP_ANNOTATION_HINT_KEYWORDS, "53-5", "暴露面"):
         assert keyword in window, (
             f"{MCP_MAPPING_SRC} 的 {anchor} 上方 10 行内缺少关键词 {keyword!r}；"
-            "应声明 annotations 自声明 / 不可信，并写明 MCP stdio 沙箱缺口 D53-1 未闭合"
+            "应声明 annotations 自声明 / 不可信，并写明 stdio 进容器的实施 story（53-5）与降级残留暴露面"
         )
 
 
 def test_mcp_canonical_section_points_back_to_the_stdio_gap() -> None:
-    """判据 3：canonical §4.19 反向指向 MCP stdio 缺口（代码 → canonical → 缺口 双向在场）。"""
+    """判据 3：canonical §4.19 反向指向 MCP stdio 的沙箱口径（代码 → canonical 双向在场）。
+
+    2026-11-03（Story 53-5）闭合 D53-1：关键词随之由「未闭合」改为实施 story 53-5 + 降级语义。
+    """
     section, _start_lineno = _slice_section(_read_doc(FRAME_DOC), CANONICAL_HEADING)
-    for keyword in ("MCP stdio", "D53-1"):
+    for keyword in ("MCP stdio", "53-5", "显性降级"):
         assert keyword in section, (
             f"{FRAME_DOC} 的 {CANONICAL_HEADING!r} 段缺少关键词 {keyword!r}；"
-            "canonical 要素 2 必须写明 MCP stdio 未进沙箱并挂 epic-53 期二 D53-1"
+            "canonical 要素 2 必须写明 MCP stdio 经容器拉起（53-5）与后端不可用时的显性降级"
         )

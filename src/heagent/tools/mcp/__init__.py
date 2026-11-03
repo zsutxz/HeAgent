@@ -21,12 +21,14 @@ from heagent.tools.mcp.config import (
     load_mcp_config,
 )
 from heagent.tools.mcp.manager import MCPClientManager, MCPServerFailure
+from heagent.tools.mcp.stdio_sandbox import StdioSandboxSpec
 
 __all__ = [
     "HttpServerConfig",
     "MCPClientManager",
     "MCPConfig",
     "MCPServerFailure",
+    "StdioSandboxSpec",
     "StdioServerConfig",
     "load_mcp_config",
 ]
