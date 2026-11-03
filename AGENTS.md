@@ -18,16 +18,20 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 
 落点提示：端口 / provider / 认证 / TLS 键等机制细节见 `docs/frame.md` 4.17 与 4.17.1；对外能提交 run 时**强烈建议**启用容器沙箱档（`--sandbox docker`）。
 
+<!-- bmad:context -->
+<!-- Verified 2026-11-03 against 31cf7cb. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->
+
 ## 文档布局
 
-**架构权威 = `docs/frame.md`**（数据流 / 模块依赖 DAG / 核心模块详解 / 调用链 / 技术规范）。修改 `agent/`、`providers/`、`tools/` 或 `engine/` 前先阅读它。
+**架构权威 = `docs/frame.md`**（数据流 / 模块依赖 DAG / 核心模块详解 / 调用链 / 技术规范）。修改 `agent/`、`providers/`、`tools/` 或 `engine/` 前先阅读它。docs/ 全目录索引见 `docs/README.md`。
 
 | 路径 | 用途 |
 |------|------|
-| `docs/frame.md` | 架构权威——改架构/数据流/模块内部前先读此 |
 | `docs/design.md` | 功能设计与理念 |
 | `docs/iteration.md` | 迭代流程 |
 | `docs/testing.md` | 测试与门禁判读（红了怎么分诊、`verify_baseline.py` 用法、marker 口径、历史噪声记录） |
+| `docs/sandbox.md` | 沙箱机制导读——改沙箱后端/档位前先读 |
+| `docs/goal-workflow.md` | /goal 声明式工作流导读——改 `goal/` 或 `.heagent/skills/he-goal/` 前先读 |
 | `_bmad-output/implementation-artifacts/deferred-work-archive.md` | 架构/代码优化台账（触发条件/严重度/冻结边界） |
 | `_bmad-output/consolidated-overview.md` | 统一整合总览（Epic 1-50 + S1-S4 主题/状态/story 映射） |
 
@@ -38,32 +42,36 @@ HeAgent 是单进程异步 Python 库，编排 LLM ↔ 工具执行循环。**�
 ### 模块依赖 DAG
 
 ```
-公共层 pub/（零 heagent 依赖）：exceptions · types · safe_logging · persist · frontmatter · roles · workspace · task_shutdown · projects
-配置面 config/（依赖 pub/）：Settings · catalog · write · envfile
+公共层 pub/（零 heagent 依赖）
+配置面 config/（依赖 pub/）
 
 主脊：  providers ─┐
-        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ · gui · goal/）
+        tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ · gui/ · goal/）
         context ───┘
 
 旁支：  memory（对 engine 仅 TYPE_CHECKING）
-        skills（2026-10-10 自 memory/ 迁出的技能库域包，同档禁区）
+        skills（同档禁区；2026-10-10 自 memory/ 迁出）
         events（运行期仅依赖 pub.exceptions）
+        cron（运行期依赖 engine——与 memory/skills 的 TYPE_CHECKING 档不同）
         network/（仅 stdlib + pydantic + pub.safe_logging，被入口层单向使用）
+投递面：web/（HTML/CSS/JS 静态资源，零 heagent 导入，契约测试钉死）
 ```
 
 ### 核心模块
 
-- `agent/` — `AgentLoop` 主循环 + middleware + 子 Agent
-- `providers/` — LLM provider + 智能路由 + 多层容错（chain / key_rotation / retry / switchable）
-- `tools/` — `@tool` 注册 + `SafetyGuard` + `path_safety` + `builtins/` + `mcp/` 桥接
-- `engine/` — 运行时治理（`PolicyEngine` + `ToolExecutor` + store/ledger/observability）
-- `pub/` — 公共层（异常/类型/日志/持久化/frontmatter/角色/工作区/任务关停/项目）
-- `config/` — 配置面（Settings / catalog / write / envfile）
+- `agent/` — AgentLoop 主循环 + middleware + 子 Agent
+- `providers/` — LLM provider + 智能路由 + 多层容错
+- `tools/` — @tool 注册 + SafetyGuard + path_safety + builtins/ + mcp/ 桥接 + 沙箱后端
+- `engine/` — 运行时治理（PolicyEngine + ToolExecutor + store/ledger/observability）
+- `pub/` — 公共层（异常/类型/日志/持久化/frontmatter/角色/工作区/项目）
+- `config/` — 配置面（Settings / 项目与用户级配置读写）
 - `context/` — 上下文压缩/会话持久化/token 估算
-- `memory/` — 自学习闭环（facts / profile / soul / dream）
-- `skills/` — 技能库域包（store / models / rewrite / catalog / packages / meta / importer；2026-10-10 自 memory/ 迁出）
-- `network/` — 入口传输层（HTTP + SSE + WebSocket；TCP 入口已于 2026-09-27 删除，勿按旧文档恢复）
-- `cli/` — 入口层包（console / composition / interactive / goal / http / http_console / dialogs / init / display / slash / terminal / wiring / housekeeping / port_finder）
+- `memory/` — 自学习闭环（含语义压缩）
+- `skills/` — 技能库域包
+- `network/` — 入口传输层（HTTP + SSE + WebSocket）
+- `web/` — 控制台静态投递面
+- `cron/` — 定时任务域
+- `cli/` / `gui/` / `goal/` — 入口层
 
 ## 硬约束
 
@@ -95,9 +103,9 @@ pytest --cov --cov-report=term-missing
 pytest -m integration
 pytest -m benchmark
 
-# 静态检查（CI lint job 同参数；bandit 只认 `# nosec`，不认 ruff 的 `# noqa: S###`）
-ruff check src tests
-ruff format --check src tests
+# 静态检查（CI lint job 同参数，含 scripts/；bandit 只认 `# nosec`，不认 ruff 的 `# noqa: S###`）
+ruff check src tests scripts
+ruff format --check src tests scripts
 mypy src
 bandit -r src/ -ll
 
@@ -105,7 +113,7 @@ bandit -r src/ -ll
 python scripts/quality_gate.py
 
 # 门禁红了的**第一步**：在干净 HEAD 副本上复跑同一批用例（判「环境产物 vs 回归」）
-# 用法与判读规则见 `docs/testing.md`（VERDICT: environmental / REGRESSION / clean）
+# 用法与判读规则见 `docs/testing.md`（VERDICT: environmental / REGRESSION / clean / inconclusive）
 python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
 
 # 自动修复格式
@@ -122,6 +130,8 @@ powershell scripts/start_heagent.ps1   # 等价封装：cwd 钉在仓库根再�
 ```
 
 异步测试由 `pytest-asyncio` 自动驱动；provider 测试放在 `tests/providers/`。
+
+WS 对外排障工具链（`scripts/`，细节见各脚本头注释）：`setup_ws_external.py` 配置对外 listener → `gen_ws_cert.py` 签发/轮换 TLS → `ws_manual_probe.py` 真实客户端手测（配 `tls_ws_stub.py` 自证握手）→ `cleanup_orphan_containers.ps1` 清理孤儿沙箱容器。
 
 ## 代码规范
 
@@ -151,6 +161,8 @@ powershell scripts/start_heagent.ps1   # 等价封装：cwd 钉在仓库根再�
 ## 仓库卫生
 
 - `.heagent/`、`_bmad-output/`、日志和本地状态属于运行或规划产物；不要提交密钥、`.env` 或生成文件
+
+<!-- /bmad:context -->
 
 ## 已知缺口
 
