@@ -207,7 +207,8 @@ def _prepare(mode: str) -> StdioSandboxSpec:
 def _server_path(mode: str) -> str:
     if mode == "fake":
         return str(SERVER)
-    return str(Path("/workspace") / SERVER.relative_to(ROOT))
+    # 容器内路径必须 POSIX 形态：Windows 上 Path.__str__ 给反斜杠，容器(Linux)会当成单文件名
+    return (Path("/workspace") / SERVER.relative_to(ROOT)).as_posix()
 
 
 async def _run(mode: str, spec: StdioSandboxSpec) -> tuple[list[str], dict[str, object]]:
