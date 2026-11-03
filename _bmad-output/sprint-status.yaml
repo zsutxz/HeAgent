@@ -545,10 +545,12 @@ development_status:
   # 兜底，**非绝对边界**）。期二（MCP stdio 进容器 / 审批降级接入 PolicyEngine）见该 epic
   # 目录下 deferred-work.md（D53-1 / D53-2，挂起待用户裁定）。
   # 阶段映射：A=53-1；B=53-2；C=53-3
-  epic-53: done  # 期一收口：2026-10-24 用户 walkthrough 验收通过；docker.io 直连验证残余转 D53-3（retro 更正：装配链已全接，walkthrough 误报已撤）
+  epic-53: done  # 期一收口：2026-10-24 用户 walkthrough 验收通过；docker.io 直连验证残余转 D53-3（retro 更正：装配链已全接，walkthrough 误报已撤）；期二 2026-11-03 用户裁定开启（53-4 审批降级 / 53-5 MCP stdio）
   53-1-docker-runner: done
   53-2-sandbox-image-config: done
   53-3-docs-contracts-quality-gate: done
+  53-4-approval-relaxation-container: done  # 期二 D53-2（2026-11-03）：审批降级接入 PolicyEngine（真进沙箱 + 容器档 + 后端可用 + 读取未抛错 四条件）；12 passed + 零回归 305 passed + 变异体 5/5；待用户 walkthrough
+  53-5-mcp-stdio-in-container: done  # 期二 D53-1（2026-11-03）：MCP stdio 经 docker run -i 长命管道进同一镜像容器（env 只透传声明键）；后端不可用 ⇒ 显性降级 + 每次 WARNING；16 passed + 变异体 6/6 + 六门 all passed；待用户 walkthrough
   epic-53-retrospective: done
 
   # ═══════════════════════════════════════════════════════════════
