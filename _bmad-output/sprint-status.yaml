@@ -616,7 +616,7 @@ development_status:
   # 新工具 fact_compact（tools/builtins/，留底先行 + atomic_update_text compare-after-read +
   # memory_compact_enabled 默认 False 工具层 fail-closed）；dreamer 白名单最小扩展；
   # system prompt 超预算口径同步（D1–D8 冻结决策见 epic 目录 epics.md）。
-  epic-59: done  # 2026-10-29 立项即开工：59-1/59-2 同日交付（fb3475d/84452a6/eb36ea5），评审修复后转 done（a8b0fc6/99dba35/361e8e0），retro 随后；2026-10-30 post-retro 追加 59-3，2026-11-02 59-3 收口 ⇒ 本 epic 三 story 全 done（item-11/12 仍 open，owner=tan）
+  epic-59: done  # 2026-10-29 立项即开工：59-1/59-2 同日交付（fb3475d/84452a6/eb36ea5），评审修复后转 done（a8b0fc6/99dba35/361e8e0），retro 随后；2026-10-30 post-retro 追加 59-3，2026-11-02 59-3 收口 ⇒ 本 epic 三 story 全 done（item-11 已闭环 2026-11-03；item-12 push 仍 open，owner=tan）
   59-1-fact-compact-tool: done  # 2026-10-29：memory/compact.py 写侧唯一入口（留底先行 + compare-after-read + AC5 顺序化判重）+ 工具层 fail-closed；ecc:code-reviewer 终态评审 0 CRITICAL（HIGH=归档锁竞争已修 a8b0fc6）；全量 4200 passed
   59-2-dream-compact-wiring: done  # 2026-10-29：dream prompt 指令段 + 白名单 + drain 窗口归属 → dream_end compact 统计 + system_prompt 条件化标注；与 59-1 同批评审同判据
   59-3-recency-first-memory-order: done  # 2026-10-30 post-retro 追加并当日实现（读序翻转 保头截尾→最新优先：_fit_facts + 省略标注 + auto_archive 去 CORE_FACTS_TO_KEEP + 指令补写 + compact.py:198 注释一致化 + 文档同步）；2026-11-02 回写 done：AC1–AC7 逐条取证 + 补修 2 处旧口径残留（frame.md 设置表行 / config 字段注释）；六门 all passed / 4214 passed / 覆盖率 93% / 定向子集 142 passed
@@ -694,7 +694,7 @@ action_items:
       idle dream，观察 dream_end compact 统计与 archive 留底小节（含 ；fact_compact 标记）及 no-op
       不进统计的事件形态"
     owner: "tan"
-    status: open
+    status: done  # 2026-11-03 闭环：独立 workspace（.heagent/tmp/dream-smoke-20261103/，不触碰仓库记忆）经生产装配链（_build_provider deepseek-flash + _build_dream_scheduler 同 interactive.py 闭包）真实 idle dream ×2。Phase A：dream_end 携带 compact{applied_merges:2, removed:4, facts 6→4, bytes_freed:68, archive_path 非空}，归档留底「批次 2026-11-03 05:52:15 UTC（4 条；fact_compact）」4 条被删原文逐字在档；Phase B：无 fact_compact 调用、dream_end 无 compact 键（F5④ no-op 不进统计的事件形态实证）；真实用量 ~36K tok；证据 smoke-report.md（tmp 运行产物不入库）
     ref: "_bmad-output/epics/epic-59-MEMORY语义压缩周期/epic-59-retro-2026-10-29.md"
   - id: "epic-59-retro-item-12-push-epic-59-六提交连同此前周期待推远端"
     epic: 59
