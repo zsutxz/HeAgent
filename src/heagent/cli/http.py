@@ -243,11 +243,6 @@ class EmbeddedHttpService:
         return self._ws_servers[0].address
 
     @property
-    def ws_addresses(self) -> tuple[str, ...]:
-        """全部 WS listener 的实际监听地址（双监听时含对外 listener）。"""
-        return tuple(server.address for server in self._ws_servers)
-
-    @property
     def cli_hub(self) -> Any | None:
         """CLI 旁路中枢（未开启时为 ``None``）；入口层据此把终端 run 的事件发出来。"""
         return self._cli_hub
@@ -378,6 +373,14 @@ class EmbeddedHttpService:
         await self.close()
 
 
+def _ws_config(**kw: Any) -> WsServerConfig:
+    """构造 ``WsServerConfig``；校验失败转 :class:`WsConfigError`（取首条消息）。"""
+    try:
+        return WsServerConfig(**kw)
+    except ValidationError as exc:
+        raise WsConfigError(_first_validation_message(exc)) from exc
+
+
 def build_ws_server_config(
     settings: Settings,
     *,
@@ -401,18 +404,15 @@ def build_ws_server_config(
     """
     resolved_host = settings.ws_host if host is None else host
     token = settings.user_ws_auth_token
-    try:
-        return WsServerConfig(
-            host=resolved_host,
-            port=_resolve_listener_port(settings, resolved_host, port, default_port=settings.ws_port),
-            ws_max_connections=settings.ws_max_connections if max_connections is None else max_connections,
-            shutdown_timeout=settings.ws_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
-            auth_token=SecretStr(token) if token else None,
-            tls_cert_file=settings.ws_tls_cert_file,
-            tls_key_file=settings.ws_tls_key_file,
-        )
-    except ValidationError as exc:
-        raise WsConfigError(_first_validation_message(exc)) from exc
+    return _ws_config(
+        host=resolved_host,
+        port=_resolve_listener_port(settings, resolved_host, port, default_port=settings.ws_port),
+        ws_max_connections=settings.ws_max_connections if max_connections is None else max_connections,
+        shutdown_timeout=settings.ws_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
+        auth_token=SecretStr(token) if token else None,
+        tls_cert_file=settings.ws_tls_cert_file,
+        tls_key_file=settings.ws_tls_key_file,
+    )
 
 
 def _clean_path(value: str | None) -> str | None:
@@ -480,19 +480,16 @@ def build_external_ws_server_config(
         )
     token = settings.user_ws_auth_token
     cert, key = _external_tls_files(settings)
-    try:
-        return WsServerConfig(
-            host=resolved_host,
-            port=_resolve_listener_port(settings, resolved_host, port, default_port=settings.ws_external_port),
-            ws_max_connections=settings.ws_max_connections if max_connections is None else max_connections,
-            shutdown_timeout=settings.ws_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
-            auth_token=SecretStr(token) if token else None,
-            tls_cert_file=cert,
-            tls_key_file=key,
-            readonly=settings.ws_external_readonly if readonly is None else readonly,
-        )
-    except ValidationError as exc:
-        raise WsConfigError(_first_validation_message(exc)) from exc
+    return _ws_config(
+        host=resolved_host,
+        port=_resolve_listener_port(settings, resolved_host, port, default_port=settings.ws_external_port),
+        ws_max_connections=settings.ws_max_connections if max_connections is None else max_connections,
+        shutdown_timeout=settings.ws_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
+        auth_token=SecretStr(token) if token else None,
+        tls_cert_file=cert,
+        tls_key_file=key,
+        readonly=settings.ws_external_readonly if readonly is None else readonly,
+    )
 
 
 def build_ws_servers(

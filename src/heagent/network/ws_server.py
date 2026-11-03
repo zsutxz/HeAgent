@@ -205,11 +205,6 @@ class _SubmissionSlots:
         self._limit = limit
         self._in_use = 0
 
-    @property
-    def in_use(self) -> int:
-        """当前占用的席位（诊断与判据用）。"""
-        return self._in_use
-
     def try_acquire(self) -> bool:
         """原子地占一个席位；满则返回 ``False``（调用方回 ``rate_limited`` 并关闭连接）。"""
         if self._in_use >= self._limit:

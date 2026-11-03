@@ -202,6 +202,14 @@ def _goal_declarative_active_dir() -> Path | None:
     return goal_md.parent if goal_md is not None else None
 
 
+def _active_goal_dir_or_hint() -> Path | None:
+    """活动 goal 目录空守卫单点：无活动 goal 回显 ``/goal new`` 提示，调用方拿 ``None`` 即 return。"""
+    goal_dir = _goal_declarative_active_dir()
+    if goal_dir is None:
+        _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+    return goal_dir
+
+
 def _goal_declarative_prompt(
     workflow: WorkflowResource,
     step_name: str,
@@ -228,9 +236,7 @@ def _goal_declarative_prompt(
 
 async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | None, GoalAdvanceContext | None]:
     """Load and validate goal state before advancing; a non-None outcome means stop."""
-    goal_dir = _goal_declarative_active_dir()
-    if goal_dir is None:
-        _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+    if (goal_dir := _active_goal_dir_or_hint()) is None:
         return _GOAL_FAILED, None
     try:
         description = goal_description(goal_dir)
@@ -905,9 +911,7 @@ async def _goal_declarative_decision(
     不推进（工作被驳回，BLOCKED 等待修订后 resume）。
     """
     async with goal_mutex():
-        goal_dir = _goal_declarative_active_dir()
-        if goal_dir is None:
-            _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+        if (goal_dir := _active_goal_dir_or_hint()) is None:
             return
         outcome = await record_decision(workflow, goal_dir, action=action, text=args.strip())
         if outcome.message:
@@ -1083,9 +1087,7 @@ async def _goal_declarative_verify(
     域锁竞争，不得落进外层的「另一进程正在推进」误诊文案（review #4）。
     """
     async with goal_mutex():
-        goal_dir = _goal_declarative_active_dir()
-        if goal_dir is None:
-            _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+        if (goal_dir := _active_goal_dir_or_hint()) is None:
             return
         try:
             runner = await _goal_declarative_runner(workflow, goal_dir)
@@ -1146,12 +1148,7 @@ async def _goal_step_output_text(goal_dir: Path, step: Any, story: Any) -> str |
 
 async def _goal_live_git_evidence(workspace: Path) -> GitEvidence:
     """只读 Git 端口的实时查询（白名单内确定性查询，AD-11）；仓库不可用时返回空证据。"""
-    from heagent.goal.git_port import GitPortError, ReadOnlyGitPort  # noqa: PLC0415
-
-    try:
-        return await ReadOnlyGitPort(workspace).evidence()
-    except GitPortError:
-        return GitEvidence()
+    return await _audit_git_evidence(workspace) or GitEvidence()
 
 
 def _goal_verify_command_runner(engine: EngineContainer | None) -> GovernedCommandPort | None:
@@ -1338,9 +1335,7 @@ async def _goal_resolve_bound() -> tuple[Path, WorkflowResource] | None:
     所有**作用于既有 goal** 的命令经此取流程（Story 51-6，AD-8）：漂移 / 缺包 / 配置非法
     在此显性失败，绝不静默换流程。默认包 id 由入口注入（``Settings.goal_workflow_skill``）。
     """
-    goal_dir = _goal_declarative_active_dir()
-    if goal_dir is None:
-        _echo("[goal] no active declarative goal; use /goal new <description>", err=True)
+    if (goal_dir := _active_goal_dir_or_hint()) is None:
         return None
     try:
         return goal_dir, resolve_bound_workflow(goal_dir, get_settings().goal_workflow_skill)

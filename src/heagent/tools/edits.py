@@ -50,8 +50,6 @@ MAX_DIFF_SOURCE_BYTES = 512 * 1024
 # diff 回执双上限（行数 + 字符数）：防长 diff 刷爆上下文。
 MAX_DIFF_LINES = 40
 MAX_DIFF_CHARS = 4000
-# 快照目录（相对 workspace 根的相对路径）：与 sandbox 会话目录同属 .heagent/tmp 运行态产物。
-SNAPSHOT_DIRNAME = "edit-snapshots"
 # manifest 文件名（append-only JSONL，一行一次编辑）。
 MANIFEST_NAME = "manifest.jsonl"
 

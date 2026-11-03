@@ -57,6 +57,23 @@ def _bounded_reason(text: str) -> str:
     return text[: _MAX_REASON_CHARS - 3] + "..."
 
 
+#: 签名探测的位置参数种类。两者**故意不同**、勿统一：执行契约（≥3）不含 ``*args``（宽签名
+#: 不算实现契约，fail-closed——tests/test_story_parallel_scheduling.py 有断言锚点）；
+#: story 回调（≥2）含 ``*args``（历史宽容）。
+_POSITIONAL_KINDS = (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+_POSITIONAL_KINDS_WITH_VARARGS = (*_POSITIONAL_KINDS, inspect.Parameter.VAR_POSITIONAL)
+
+
+def _positional_arity(callback: Callable[..., Any], kinds: tuple[inspect._ParameterKind, ...], minimum: int) -> bool:
+    """``kinds`` 过滤后的显式位置参数 ≥ ``minimum`` 即真；签名不可得（TypeError/ValueError）fail-closed 假。"""
+    try:
+        signature = inspect.signature(callback)
+    except (TypeError, ValueError):
+        return False
+    positional = [parameter for parameter in signature.parameters.values() if parameter.kind in kinds]
+    return len(positional) >= minimum
+
+
 def _emit_step_event(
     emit: Callable[..., None] | None,
     kind: str,
@@ -496,16 +513,7 @@ class WorkflowRunner:
         :class:`StoryExecutionContext`。两参老回调 → fail-closed 串行；``*args`` 形状的
         回调**不算**实现契约（fail-closed：宽签名测试桩不得借 varargs 意外获得并发授权）。
         """
-        try:
-            signature = inspect.signature(callback)
-        except (TypeError, ValueError):
-            return False
-        positional = [
-            parameter
-            for parameter in signature.parameters.values()
-            if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)
-        ]
-        return len(positional) >= 3
+        return _positional_arity(callback, _POSITIONAL_KINDS, minimum=3)
 
     def _parallel_batch(self, step: WorkflowStepResource, specs: list[StorySpec]) -> list[StorySpec]:
         """批派生纯函数（Epic 52 AD-16）：批次是推导不是状态，每次推进重新计算。
@@ -972,23 +980,7 @@ class WorkflowRunner:
         落 ``BLOCKED``（与声明门未过同一恢复语义：``/goal resume`` 重跑该步）；拒绝理由进
         状态 ``reason``。reject **不**发生完成簿记——步骤不被标记完成。
         """
-        step = self._require_approval_decision()
-        self.state = self.state.model_copy(
-            update={
-                **self._transition_fields(WorkflowEvent.USER_REJECT, reason=reason),
-                "awaiting_approval": False,
-                "pending_output": None,
-                "reason": _bounded_reason(reason),
-            }
-        )
-        _emit_step_event(
-            emit,
-            "workflow_rejected",
-            step=step,
-            story=None,
-            reason=_bounded_reason(reason),
-            transition_event=WorkflowEvent.USER_REJECT.value,
-        )
+        self._decision_update(WorkflowEvent.USER_REJECT, "workflow_rejected", reason, bounded=True, emit=emit)
         return self.state.model_copy(deep=True)
 
     def amend(self, supplement: str, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
@@ -998,24 +990,28 @@ class WorkflowRunner:
         的语义差别在恢复方式与决策记录的 action，两者都不推进、各记一条（AD-3：独立事件，
         不互相顶替）。
         """
+        self._decision_update(WorkflowEvent.USER_AMEND, "workflow_amended", supplement, bounded=False, emit=emit)
+        return self.state.model_copy(deep=True)
+
+    def _decision_update(
+        self, event: WorkflowEvent, event_name: str, reason: str, *, bounded: bool, emit: Callable[..., None] | None
+    ) -> None:
+        """reject / amend 的共同审批决策流：require 决策 → 状态转换 → 清门字段 → emit（deep copy 留给公开方法）。
+
+        ``bounded=True``（reject）：理由经 :func:`_bounded_reason` 收敛后**落状态**、事件携带同值；
+        ``bounded=False``（amend）：状态理由清空，事件携带补充原文。
+        """
         step = self._require_approval_decision()
+        emit_reason = _bounded_reason(reason) if bounded else reason
         self.state = self.state.model_copy(
             update={
-                **self._transition_fields(WorkflowEvent.USER_AMEND, reason=supplement),
+                **self._transition_fields(event, reason=reason),
                 "awaiting_approval": False,
                 "pending_output": None,
-                "reason": "",
+                "reason": emit_reason if bounded else "",
             }
         )
-        _emit_step_event(
-            emit,
-            "workflow_amended",
-            step=step,
-            story=None,
-            reason=supplement,
-            transition_event=WorkflowEvent.USER_AMEND.value,
-        )
-        return self.state.model_copy(deep=True)
+        _emit_step_event(emit, event_name, step=step, story=None, reason=emit_reason, transition_event=event.value)
 
     def _require_approval_decision(self) -> WorkflowStepResource:
         """审批决策的前置：必须真的有步骤在等决策，否则显性失败（不静默无操作）。"""
@@ -1219,16 +1215,7 @@ class WorkflowRunner:
 
     @staticmethod
     def _accepts_story(callback: Callable[..., Any]) -> bool:
-        try:
-            signature = inspect.signature(callback)
-        except (TypeError, ValueError):
-            return False
-        positional = [
-            parameter
-            for parameter in signature.parameters.values()
-            if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD, parameter.VAR_POSITIONAL)
-        ]
-        return len(positional) >= 2
+        return _positional_arity(callback, _POSITIONAL_KINDS_WITH_VARARGS, minimum=2)
 
     @staticmethod
     def _checkpoint_declared(step: WorkflowStepResource) -> bool:

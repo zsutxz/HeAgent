@@ -263,6 +263,9 @@ class _RunRecord:
     本对象**不**持有 ``AgentLoop``，也不碰 Provider——那些属于入口层注入的 executor。
     """
 
+    # SSE 与 WS 订阅者队列的共用类型：两个订阅管理助手的签名用。
+    _SubscriberQueue = asyncio.Queue[RunEventPayload | None]
+
     def __init__(
         self,
         run_id: str,
@@ -342,12 +345,12 @@ class _RunRecord:
             try:
                 queue.put_nowait(payload)
             except asyncio.QueueFull:
-                self._drop_lagging_subscriber(queue)
+                self._drop_lagging_subscriber(self.subscribers, queue)
         for queue in list(self.ws_subscribers):
             try:
                 queue.put_nowait(payload)
             except asyncio.QueueFull:
-                self._drop_lagging_ws_subscriber(queue)
+                self._drop_lagging_subscriber(self.ws_subscribers, queue)
         return payload
 
     def consume_deadline_reason(self) -> str | None:
@@ -368,38 +371,29 @@ class _RunRecord:
         旧实现「先查后加」跨两处（端点数、生成器登记）⇒ 并发 ``GET .../events`` 能一起
         穿过限额，每个订阅者还驻留一个事件队列（活动台账 A9③）。返回 ``False`` 表示已满。
         """
-        if len(self.subscribers) >= limit:
-            return False
-        self.subscribers.add(queue)
-        return True
+        return self._try_add_subscriber(self.subscribers, queue, limit)
 
     def try_add_ws_subscriber(self, queue: asyncio.Queue[RunEventPayload | None], limit: int) -> bool:
         """WS 订阅限额检查与登记在同步临界段内完成，且与 SSE 池完全独立。"""
-        if len(self.ws_subscribers) >= limit:
+        return self._try_add_subscriber(self.ws_subscribers, queue, limit)
+
+    def _try_add_subscriber(self, subscribers: set[_SubscriberQueue], queue: _SubscriberQueue, limit: int) -> bool:
+        if len(subscribers) >= limit:
             return False
-        self.ws_subscribers.add(queue)
+        subscribers.add(queue)
         return True
 
-    def _drop_lagging_ws_subscriber(self, queue: asyncio.Queue[RunEventPayload | None]) -> None:
-        """WS 队列背压与 SSE 同语义：结束该流，让客户端按游标续传。"""
-        self.ws_subscribers.discard(queue)
-        while True:
-            try:
-                queue.get_nowait()
-            except asyncio.QueueEmpty:
-                break
-        queue.put_nowait(None)
-
-    def _drop_lagging_subscriber(self, queue: asyncio.Queue[RunEventPayload | None]) -> None:
+    def _drop_lagging_subscriber(self, subscribers: set[_SubscriberQueue], queue: _SubscriberQueue) -> None:
         """订阅者跟不上（有界队列已满）：**结束它的流**，而不是无限堆积或静默丢事件。
 
-        队列与事件窗口同界，因此「队列满」等价于「该订阅者落后整整一个窗口」——它无论如何都要走
-        重新同步路径，此时丢掉队列里的旧事件并不可惜：客户端会带 ``Last-Event-ID`` 重连，服务端
-        按 ring buffer 补齐；若游标已越出窗口，``needs_resync`` 回 409，客户端拉 ``/api/session``
-        快照收敛（AD-4 的既有恢复路径）。哨兵 ``None`` 让生成器**立即**结束该流（客户端据此重连），
-        而不是干等心跳超时。规则：宁可让客户端重连，也不静默跳过事件。
+        SSE 与 WS 队列背压同语义：结束该流，让客户端按游标续传。队列与事件窗口同界，因此
+        「队列满」等价于「该订阅者落后整整一个窗口」——它无论如何都要走重新同步路径，此时丢掉
+        队列里的旧事件并不可惜：客户端会带 ``Last-Event-ID`` 重连，服务端按 ring buffer 补齐；
+        若游标已越出窗口，``needs_resync`` 回 409，客户端拉 ``/api/session`` 快照收敛（AD-4 的
+        既有恢复路径）。哨兵 ``None`` 让生成器**立即**结束该流（客户端据此重连），而不是干等
+        心跳超时。规则：宁可让客户端重连，也不静默跳过事件。
         """
-        self.subscribers.discard(queue)
+        subscribers.discard(queue)
         while True:
             try:
                 queue.get_nowait()
