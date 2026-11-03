@@ -16,7 +16,7 @@ $log = Join-Path $runDir 'learningclaude-last-run.log'
 "=== run start ===" | Out-File -FilePath $log -Encoding utf8
 
 $prompt = @"
-使用 learningclaude 技能（.claude/skills/learningclaude/SKILL.md），调研 Claude Code 与 Claude 模型的最新功能、新闻、基础用法、最佳实践与官方教程，并严格按该技能流程更新 news/learningclaude.md。这是无人值守的定时任务(headless)，禁止停下来询问用户、禁止等待选择，必须一路执行到底。
+使用 learningclaude 技能（.claude/skills/learningclaude/SKILL.md），调研 Claude Code 与 Claude 模型的最新功能、新闻、基础用法、最佳实践与官方教程，并严格按该技能流程更新 news/learningclaude/ 三件套（claude_base.md 基础用法、report.md 主报告（高级与最新方法）、log.md 版本与新闻记录）。这是无人值守的定时任务(headless)，禁止停下来询问用户、禁止等待选择，必须一路执行到底。
 
 联网回退链：优先 WebSearch / web_reader；若报错或被拦，改用 curl 直拉官方来源（如 GitHub raw 的 CHANGELOG.md）；若联网工具整体不可用，则只更新检查日期并在来源说明如实记录"今日因网络受限未更新"，绝不凭模型记忆编造版本号或功能。
 
