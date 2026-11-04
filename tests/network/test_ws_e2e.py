@@ -392,6 +392,28 @@ async def test_external_plaintext_and_ignored_token_are_logged(caplog: pytest.Lo
     assert any("auth_token_ignored" in message for message in messages)
 
 
+@pytest.mark.asyncio
+async def test_local_auth_exposure_logs_use_the_local_label(caplog: pytest.LogCaptureFixture) -> None:
+    """2026-11-04 D5 修订的可观测性：本地+强制认证+明文 ⇒ `plaintext_local_auth` 与 `exposed ... listener=local`；
+    开关打开后 `auth_token_ignored` 不再出现（token 生效了）。"""
+    import logging
+
+    executor = _Executor()
+    with caplog.at_level(logging.WARNING, logger="heagent.network.ws_host"):
+        local = WsServer(
+            _ws_config(auth_token="s3cret", local_auth=True),
+            run_service=HttpRunService(_server_config(), executor),
+        )
+        await local.start()
+        local_task = asyncio.create_task(local.serve_forever())
+        await asyncio.sleep(0)
+        await _stop(local, local_task)
+    messages = [record.getMessage() for record in caplog.records]
+    assert any("plaintext_local_auth" in message for message in messages)
+    assert any("exposed" in message and "listener=local" in message for message in messages)
+    assert not any("auth_token_ignored" in message for message in messages)
+
+
 # ---- Epic 56 Story 56-3：经 WS 提交 run（集合级端点 /api/runs/ws）----
 
 
@@ -711,6 +733,45 @@ async def test_local_listener_accepts_a_run_without_a_token() -> None:
     finally:
         executor.release.set()
         await pair.stop()
+
+
+@pytest.mark.asyncio
+async def test_local_auth_enforces_token_on_local_endpoints_including_bypass() -> None:
+    """2026-11-04 D5 修订（旁路决策：一起收）：本地强制认证 ⇒ `/api/cli/ws` 与提交端点都要 token。
+
+    无 token ⇒ accept 前拒绝（与对外模式同形 403）；带 token ⇒ 旁路可达、提交照常 ack。
+    """
+    from heagent.network.cli_event_hub import CliEventHub
+
+    executor = _Executor()
+    service = HttpRunService(_server_config(), executor)
+    local = WsServer(
+        _ws_config(auth_token="s3cret", local_auth=True, ws_max_connections=4),
+        run_service=service,
+        cli_hub=CliEventHub(max_connections=4),
+    )
+    await local.start()
+    task = asyncio.create_task(local.serve_forever())
+    await asyncio.sleep(0)
+    try:
+        base = f"ws://127.0.0.1:{local.port}"
+        with pytest.raises(websockets.exceptions.InvalidStatus) as no_token:
+            async with websockets.connect(f"{base}/api/cli/ws"):
+                pass
+        assert no_token.value.response.status_code == 403
+
+        async with websockets.connect(f"{base}/api/cli/ws", additional_headers=_AUTH):
+            pass  # 带 token ⇒ 旁路可达
+
+        async with websockets.connect(f"{base}/api/runs/ws", additional_headers=_AUTH) as ws:
+            await ws.send(json.dumps({"command": "run", "prompt": "from-local-auth"}))
+            ack = json.loads(await ws.recv())
+        assert ack["command"] == "run"
+        assert ack["run_id"]
+        assert service.active_runs == 1
+    finally:
+        executor.release.set()
+        await _stop(local, task)
 
 
 @pytest.mark.asyncio

@@ -376,6 +376,9 @@ class Settings(BaseSettings):
     # CLI 旁路订阅：把终端那轮 run 的事件只读推给外部客户端；默认关——无认证，开了等于让能连上的
     # 本机进程看到终端 agent 工具输出。不占运行名额、不写会话历史、无取消通道。
     ws_cli_bypass_enabled: bool = False
+    # **本地强制认证**（2026-11-04 D5 修订）：True 时回环主 WS listener 也强制 Bearer 认证——token
+    # 真源仍是用户级 setting.md（D3 不变）。默认 False = D5 原语义（回环免 token）。
+    ws_local_auth_enabled: bool = False
     # ---- 网页控制台的配置写入通道（Epic 50 Story 50-5） ----
     # 默认关：关闭时配置面全只读，且网页无法通过任何请求打开它（不在白名单，写入通道改不到自己）。
     # 开启渠道 = 任何启动配置；开启时入口层打高亮告警：任何能连上的人都能改项目 .env。

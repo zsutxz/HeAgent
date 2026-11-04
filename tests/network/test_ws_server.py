@@ -162,6 +162,20 @@ def test_cli_bypass_switch_is_classified_as_read_only_listening_surface() -> Non
     assert "WS_CLI_BYPASS_ENABLED" not in whitelist()
 
 
+def test_local_auth_switch_is_off_by_default_and_documented() -> None:
+    """默认关是契约：回环免 token 是默认形态；开关在 .env.example 有文档、落 listening_surface 分类。"""
+    assert Settings().ws_local_auth_enabled is False
+    example = Path(".env.example").read_text(encoding="utf-8")
+    assert "WS_LOCAL_AUTH_ENABLED=false" in example
+
+
+def test_local_auth_switch_is_classified_as_listening_surface() -> None:
+    result = classify("WS_LOCAL_AUTH_ENABLED")
+    assert result.reason == "listening_surface"
+    assert not result.writable
+    assert "WS_LOCAL_AUTH_ENABLED" not in whitelist()
+
+
 @pytest.mark.embedded_http_service
 def test_embedded_service_only_attaches_a_hub_when_the_switch_is_on() -> None:
     """embedded_http_service 标记：要断言真实的 build_http_service（conftest 默认打桩）。"""

@@ -138,11 +138,12 @@ def _ws_url(server: WsServer) -> str:
 
 
 def _ws_access_note(config: WsServerConfig) -> str:
-    """公告里的访问口径：本地模式无认证，对外模式「token required + 明文/wss」；只读另标。"""
+    """公告里的访问口径：本地免 token / 本地强制 token / 对外 token 三态；只读另标。"""
     suffix = "; read-only" if config.readonly else ""
     if config.requires_auth:
         transport = "TLS" if config.tls_enabled else "PLAINTEXT"
-        return f"(external mode; Bearer token required; {transport}{suffix})"
+        label = "external mode" if config.mode == "external" else "local mode (WS_LOCAL_AUTH_ENABLED)"
+        return f"({label}; Bearer token required; {transport}{suffix})"
     return f"(run & CLI WebSocket entry; local only; no authentication{suffix})"
 
 
@@ -410,6 +411,7 @@ def build_ws_server_config(
         ws_max_connections=settings.ws_max_connections if max_connections is None else max_connections,
         shutdown_timeout=settings.ws_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
         auth_token=SecretStr(token) if token else None,
+        local_auth=settings.ws_local_auth_enabled,
         tls_cert_file=settings.ws_tls_cert_file,
         tls_key_file=settings.ws_tls_key_file,
     )
@@ -456,8 +458,8 @@ def build_external_ws_server_config(
 
     ``None`` 是默认形态（不配 ``WS_EXTERNAL_HOST`` ⇒ 与期一逐字等价）。启用时必须满足三条：
 
-    - 绑定地址**非回环**：回环客户端已由主 listener（免 token）服务，再配一个回环对外 listener
-      只会让同一个本机客户端有两个入口；
+    - 绑定地址**非回环**：回环客户端已由主 listener 服务（免 token，除非 `WS_LOCAL_AUTH_ENABLED=true`——
+      2026-11-04 D5 修订），再配一个回环对外 listener 只会让同一个本机客户端有两个入口；
     - **主 listener 必须是本地模式**：主 listener 已经对外时再配一个对外 listener，等于两个对外
       入口共享同一状态机，运维无从判断该连哪个 ⇒ 显式拒绝；
     - token 必须存在（沿用 D5 fail-closed），TLS 半配同样拒绝（:func:`_external_tls_files`）。
@@ -471,7 +473,7 @@ def build_external_ws_server_config(
     if is_loopback_host(resolved_host):
         raise WsConfigError(
             f"WS_EXTERNAL_HOST must be a non-loopback address (got {resolved_host!r}); "
-            "the primary listener already serves loopback clients without authentication"
+            "the primary listener already serves loopback clients"
         )
     if primary.mode != "local":
         raise WsConfigError(
@@ -956,9 +958,10 @@ def http_server_cmd(
         ws_config = ws.config
         if ws_config.requires_auth:
             transport = "TLS" if ws_config.tls_enabled else "PLAINTEXT"
+            label = "external mode" if ws_config.mode == "external" else "local mode (WS_LOCAL_AUTH_ENABLED)"
             click.echo(
                 f"[ws] WARNING: exposed on {ws_config.host}:{ws_config.port} "
-                f"(external mode; Bearer token required; {transport})",
+                f"({label}; Bearer token required; {transport})",
                 err=True,
             )
         else:

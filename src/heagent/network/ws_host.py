@@ -99,7 +99,11 @@ class WsServerConfig(BaseModel):
     shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
     # 对外模式的静态 token（D3）：真源是用户级 setting.md，**不**来自项目 .env / 系统环境。
     # 本地模式下即使配置了也不启用认证（D5：单监听器按绑定地址切模式）。
+    # 2026-11-04 D5 修订：`local_auth` 打开后回环绑定也强制认证——默认 False = D5 原语义逐字保持。
     auth_token: SecretStr | None = None
+    # **本地强制认证**（2026-11-04 D5 修订）：True 时回环绑定也强制 Bearer 认证。非回环绑定时冗余
+    # （对外模式本就强制认证）。入口层键 ``WS_LOCAL_AUTH_ENABLED``；默认关。
+    local_auth: bool = False
     # TLS 证书 / 私钥路径（PEM）；二者同时给出才启用 wss。
     tls_cert_file: str | None = None
     tls_key_file: str | None = None
@@ -116,8 +120,8 @@ class WsServerConfig(BaseModel):
 
     @property
     def requires_auth(self) -> bool:
-        """是否需要 Bearer 认证（= 对外模式）。"""
-        return self.mode == "external"
+        """是否需要 Bearer 认证（对外绑定，或回环绑定 + 本地强制认证开关）。"""
+        return self.mode == "external" or self.local_auth
 
     @property
     def auth_secret(self) -> str:
@@ -132,12 +136,13 @@ class WsServerConfig(BaseModel):
         return bool(self.tls_cert_file and self.tls_key_file)
 
     @model_validator(mode="after")
-    def _validate_external_mode(self) -> WsServerConfig:
-        """对外模式缺 token 直接拒绝构造（D5 fail-closed）；TLS 半配同样拒绝（D4）。"""
+    def _validate_auth_and_tls(self) -> WsServerConfig:
+        """强制认证缺 token 直接拒绝构造（D5 fail-closed；2026-11-04 修订含本地开关）；TLS 半配同样拒绝（D4）。"""
         if self.requires_auth and not self.auth_secret:
             raise ValueError(
-                "binding the WS listener to a non-loopback host requires WS_AUTH_TOKEN in "
-                "~/.heagent/setting.md (external mode is fail-closed; use a loopback address for local mode)"
+                "auth-enforcing WS listeners require WS_AUTH_TOKEN in "
+                "~/.heagent/setting.md (a non-loopback bind or WS_LOCAL_AUTH_ENABLED=true on a "
+                "loopback bind are both fail-closed; use a loopback address without the flag for local mode)"
             )
         if bool(self.tls_cert_file) != bool(self.tls_key_file):
             raise ValueError("WS TLS requires both WS_TLS_CERT_FILE and WS_TLS_KEY_FILE")
@@ -346,7 +351,7 @@ class WsServer:
             self.config.mode,
             "wss" if self.config.tls_enabled else "ws",
         )
-        if self.config.requires_auth and not self.config.tls_enabled:
+        if self.config.mode == "external" and not self.config.tls_enabled:
             # D4：对外明文跑必须日志可见（与 exposure 告警两条独立信息：一条说「谁能连」，一条说「没加密」）。
             _safe_log(
                 logging.WARNING,
@@ -354,8 +359,17 @@ class WsServer:
                 "hint=configure WS_TLS_CERT_FILE and WS_TLS_KEY_FILE to serve wss",
                 self.address,
             )
+        if self.config.mode == "local" and self.config.requires_auth and not self.config.tls_enabled:
+            # 2026-11-04 D5 修订：回环 + 强制认证 + 明文 ⇒ token 在回环明文上传输也必须可见
+            # （本机窃听者可读到 token；与对外明文是两条独立告警，listener 标签不同）。
+            _safe_log(
+                logging.WARNING,
+                "ws event=plaintext_local_auth address=%s listener=local transport=ws "
+                "hint=configure WS_TLS_CERT_FILE and WS_TLS_KEY_FILE to serve wss",
+                self.address,
+            )
         if not self.config.requires_auth and self.config.auth_secret:
-            # 本地模式刻意不启用认证（D5）：token 配了也不生效，说清楚以免留下虚假安全感。
+            # 开关关时本地模式刻意不启用认证（D5 原语义）：token 配了也不生效，说清楚以免留下虚假安全感。
             _safe_log(
                 logging.WARNING,
                 "ws event=auth_token_ignored reason=loopback_bind hint=auth is enforced only for non-loopback binds",
@@ -363,11 +377,13 @@ class WsServer:
         from heagent.network.exposure import exposure_warning
 
         if self.config.requires_auth:
-            # 对外模式：exposure 文案「no authentication」已不成立（认证强制），单列一条准确的暴露记录。
+            # 强制认证的 listener：exposure 文案「no authentication」已不成立（认证强制），单列一条准确的
+            # 暴露记录；listener 标签按绑定模式出（对外=external，本地开关=local），不再硬编码。
             _safe_log(
                 logging.WARNING,
-                "ws event=exposed host=%s listener=external auth=token tls=%s",
+                "ws event=exposed host=%s listener=%s auth=token tls=%s",
                 self.config.host,
+                self.config.mode,
                 "wss" if self.config.tls_enabled else "ws",
             )
         else:

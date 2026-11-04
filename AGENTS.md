@@ -11,7 +11,7 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 
 1. **三层非边界**：`SafetyGuard` / `PolicyEngine` / sandbox 后端均非真正安全边界。
 2. **OS 级沙箱兜底**：容器档 Docker 后端默认未启用、启用也非绝对边界；MCP stdio 子进程在 `SANDBOX_BACKEND=docker` 且 daemon 可用时经同一镜像容器拉起（Epic 53 期二 53-5，D53-1 闭合），后端不可用时显性降级为宿主执行并每次 WARNING。
-3. **本地模式**（listener 绑回环，默认）：HTTP 与 WS 均无认证、无 TLS；回环绑定不等于可信；`Origin` / `Host` 校验只是入口层 defense-in-depth。
+3. **本地模式**（listener 绑回环，默认）：HTTP 与 WS 均无认证、无 TLS；回环绑定不等于可信；`Origin` / `Host` 校验只是入口层 defense-in-depth；WS 主 listener 可经 `WS_LOCAL_AUTH_ENABLED=true` 也强制 Bearer token（2026-11-04 D5 修订，默认关；开启时含旁路 `/api/cli/ws`、本机消费者都要带 token）。
 4. **对外模式**（WS listener 绑非回环，Epic 56 D5）：强制 `Authorization: Bearer <token>`（token 只读用户级 `~/.heagent/setting.md`，项目 `.env` 无效），缺 token 拒绝启动（fail-closed）；认证不是绝对边界；浏览器 WebSocket API 无法自定义请求头。
 5. **端点可见性**：HTTP listener 没有对外模式；终端旁路 `/api/cli/ws` 只挂本地 listener（`WS_EXTERNAL_HOST` 非空时的**双监听并存**下，对外 listener 恒不注册）；只读通知流 `/api/notifications/ws` 随 listener 注册，对外 listener 上同样可见（token 之后）——但仅在 `CRON_PUSH_ENABLED=true` 建起中枢时注册，默认关 ⇒ 路由不存在（客户端拿裸 403）。
 6. **已知缺口与台账**：清单落 `_bmad-output/implementation-artifacts/deferred-work-archive.md`，本节不复述。

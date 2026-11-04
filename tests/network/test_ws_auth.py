@@ -162,6 +162,22 @@ def test_loopback_bind_is_local_mode_without_auth() -> None:
     assert WsServerConfig(auth_token="s3cret").requires_auth is False
 
 
+def test_local_auth_flag_forces_auth_on_loopback() -> None:
+    """2026-11-04 D5 修订：开关打开时回环绑定也强制 Bearer 认证（默认关 = D5 原语义逐字保持）。"""
+    config = WsServerConfig(auth_token="s3cret", local_auth=True)
+    assert config.mode == "local"
+    assert config.requires_auth is True
+    # 非回环绑定时开关冗余：对外模式本就强制认证，派生结果一致。
+    assert WsServerConfig(host="0.0.0.0", auth_token="s3cret", local_auth=True).requires_auth is True
+
+
+def test_local_auth_without_token_fails_closed() -> None:
+    """回环 + 开关 + 缺 token ⇒ 构造期拒绝（与对外模式同一 fail-closed 口径）。"""
+    with pytest.raises(ValidationError) as caught:
+        WsServerConfig(local_auth=True)
+    assert "WS_AUTH_TOKEN" in str(caught.value)
+
+
 def test_non_loopback_bind_requires_a_token() -> None:
     with pytest.raises(ValidationError) as caught:
         WsServerConfig(host="0.0.0.0")
@@ -259,6 +275,29 @@ def test_build_ws_server_config_wires_token_and_tls(tmp_path: Path, monkeypatch:
     assert config.tls_enabled is True
 
 
+def test_build_ws_server_config_wires_local_auth_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """开关接线：``WS_LOCAL_AUTH_ENABLED=true`` ⇒ 回环主 listener 的配置强制认证。"""
+    from heagent.cli.http import build_ws_server_config
+
+    setting = _write_setting_md(tmp_path / "setting.md", "WS_AUTH_TOKEN: s3cret")
+    monkeypatch.setattr(Settings, "_user_setting_file", setting)
+    config = build_ws_server_config(Settings(ws_local_auth_enabled=True))
+    assert config.requires_auth is True
+    assert config.auth_secret == "s3cret"
+
+
+def test_build_ws_server_config_local_auth_fails_closed_without_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """开关打开但 setting.md 无 token ⇒ 组合根拒绝构造（fail-closed，与对外模式同口径）。"""
+    from heagent.cli.http import build_ws_server_config
+
+    monkeypatch.setattr(Settings, "_user_setting_file", tmp_path / "missing.md")
+    with pytest.raises(WsConfigError) as caught:
+        build_ws_server_config(Settings(ws_local_auth_enabled=True))
+    assert "WS_AUTH_TOKEN" in str(caught.value)
+
+
 def test_announcements_reflect_mode_and_tls() -> None:
     """入口层公告不得在对外模式说「no authentication」，也不得把 wss 写成 ws。"""
     from heagent.cli.http import _ws_access_note, _ws_url
@@ -284,6 +323,12 @@ def test_announcements_reflect_mode_and_tls() -> None:
     assert "PLAINTEXT" in _ws_access_note(external.config)
     assert _ws_url(external_tls) == f"wss://{external_tls.address}"
     assert "TLS" in _ws_access_note(external_tls.config)
+    # 2026-11-04 D5 修订：本地+强制认证 ⇒ 公告说「local mode + Bearer token required」，不是「no authentication」。
+    local_auth = _FakeServer(WsServerConfig(auth_token="s3cret", local_auth=True))
+    assert "local mode" in _ws_access_note(local_auth.config)
+    assert "Bearer token required" in _ws_access_note(local_auth.config)
+    assert "PLAINTEXT" in _ws_access_note(local_auth.config)
+    assert "no authentication" not in _ws_access_note(local_auth.config)
 
 
 # ---- 端点前门：认证在 accept 之前 ----

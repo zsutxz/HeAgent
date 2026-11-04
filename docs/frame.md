@@ -871,6 +871,7 @@ HeAgentError (base)
 | `ws_tls_cert_file` | None | 对外模式 TLS 的 PEM 证书路径（D4）。与 `ws_tls_key_file` **要么都给要么都不给**（半配即 `WsConfigError` / 命令级 exit 1）；配齐即 listener 走 `wss`。不配 = 明文，对外模式启动打 `event=plaintext_external` 告警 |
 | `ws_tls_key_file` | None | 对外模式 TLS 的 PEM 私钥路径（同上） |
 | `ws_cli_bypass_enabled` | False | **CLI 旁路订阅开关**（Epic 55，Epic 56 D7 起宿主 = WS server）：开启时 WS listener 注册 `WS /api/cli/ws`，把**终端里那一轮** run 的事件（文本增量 / 工具调用 / 终态）实时推给旁路订阅者。只读、跨轮次、不占运行名额、不写会话历史、没有 `cancel` 通道（终端独占 Ctrl+C / 双击 Esc）。**默认关**——开了等于让能连上该端口的进程看到终端 agent 的工具输出（可能含文件内容），边界地位见 §4.19。 |
+| `ws_local_auth_enabled` | False | **本地强制认证开关**（2026-11-04 D5 修订）：True 时回环主 listener **也**强制 `Authorization: Bearer <token>`（含旁路端点 `/api/cli/ws`——旁路不再免认证）。开启前必须在 `~/.heagent/setting.md` 配 `WS_AUTH_TOKEN`，否则配置构造期拒绝启动（fail-closed，与对外模式同口径）。开启时该 listener 的前门由 Origin/Host 换成 token；本机消费者（console 的 run 订阅、观察脚本）都要带 token。非回环绑定时开关冗余（对外模式本就强制认证）。 |
 | `http_max_inflight_runs` | 1 | **每项目**同时在途的网页 Agent 运行上限（MVP 单会话单运行；超限提交收 `run_conflict`） |
 | `http_max_total_inflight` | 0 | **服务级**在途运行总额（跨项目共享）；0 = 不限 ⇒ 不设时全局上限 = 项目数 × `http_max_inflight_runs`；超限提交收 `total_inflight_limit`（2026-09-27 新增） |
 | `http_max_request_bytes` | 394240 | 单个 JSON 请求体的字节上限（超限收 `request_too_large`）。默认 = `12 × MAX_PROMPT_CHARS(32768) + 1 KiB` 信封，**保证协议允许的最大 prompt 在任何客户端编码下都发得进来**（旧默认 65536 使中文约 2.18 万字就撞 413——2026-09-23 修复；三处默认值的关系由 `tests/network/test_http_protocol.py` 钉住） |
@@ -1310,11 +1311,11 @@ breaking change**（默认值 2026-10-29 起为 9901、2026-11-04 起为 9201）
 | 限额与心跳 | `WS_MAX_CONNECTIONS` 默认 `16`，按 run 独立于 SSE 订阅池；检查与登记在同一同步方法完成。心跳使用协议级 ping，`ws_ping_interval=15s`、`ws_ping_timeout=20s`，不发送应用层心跳帧。提交端点**不占**订阅名额（它不订阅事件、不建 run 记录）。 |
 | 入站上界 | 三条上限（Epic 56 Story 56-3 起）：`WS_MAX_COMMAND_CHARS=4096`（**非 run** 帧的字符上限）、`WS_MAX_INBOUND_CHARS=6×MAX_PROMPT_CHARS+信封余量`（入站文本的廉价预检——按 `ensure_ascii` 最坏转义推算，否则合法的最大 prompt 会被挡在协议层外）、`WS_MAX_FRAME_BYTES=MAX_REQUEST_BYTES_FOR_MAX_PROMPT`（Uvicorn `ws_max_size`，与 HTTP 请求体上限同源）。应用层超限关闭码 `1009`。关闭码 `1000` 正常结束、`1001` 服务关停、`1008` 策略/协议违规、`1011` 内部错误。 |
 | 可选依赖 | `websockets>=13.0,<18` 直接声明在 `http` extra；服务端不直接导入 `websockets`，由 Uvicorn 选择协议实现。缺少实现时 HTTP 仍可启动、记录一次 `ws_unavailable` 安装诊断，且 WS 升级回 **404**（可执行判据：`tests/network/test_ws_missing_dependency.py`，子进程阻断 import + 裸 socket 探测）。 |
-| 监听模式 | **主 listener** 按绑定地址切模式（Epic 56 D5）：回环绑定 = 本地模式（Origin/Host 防线、无认证、Epic 54/55 语义逐字保持）；非回环绑定 = 对外模式（Host/Origin **不适用**——客户端用任意主机名连本 listener，`Host` 白名单会把它全拒掉；该 listener 的前门是 token 认证，边界地位见 §4.19）。 |
+| 监听模式 | **主 listener** 按绑定地址切模式（Epic 56 D5）：回环绑定 = 本地模式（Origin/Host 防线、无认证、Epic 54/55 语义逐字保持）；非回环绑定 = 对外模式（Host/Origin **不适用**——客户端用任意主机名连本 listener，`Host` 白名单会把它全拒掉；该 listener 的前门是 token 认证，边界地位见 §4.19）。**2026-11-04 D5 修订**：回环主 listener 可经 `WS_LOCAL_AUTH_ENABLED=true` **也**强制 token——开关打开时该 listener 的前门从 Origin/Host 换成 token（与对外模式同一防线替换逻辑：浏览器 WS API 无法自定义请求头，token 门天然挡浏览器直连），端点集不变（旁路照挂、一并强制 token）。 |
 | 只读旁观（Epic 56 期二 P2-A3，`WS_EXTERNAL_READONLY`，默认关） | `WsServerConfig.readonly` 为真时该 listener **不注册**提交端点 `/api/runs/ws`（提交能力不给，连「试一下拿 `run_conflict`」的机会都没有），已订阅连接上的 `cancel` 回 `invalid_request` 且**不断连**（事件流照常、运行不受影响），`ping` 正常。用「不支持」而不是「静默忽略」——客户端必须知道它连的是观众席。入口层只为**对外** listener 暴露该键（`--ws-external-readonly/--ws-external-writable` 三态覆盖）；判据 `tests/network/test_ws_e2e.py::test_readonly_listener_allows_subscription_but_rejects_commands` + 架构契约的路由集断言。 |
 | 双监听并存（Epic 56 期二 D8–D14） | 主 listener 是回环（本地模式）时，`WS_EXTERNAL_HOST` 非空**再起一条对外 listener**（默认 `9301`），两者共享同一 `HttpRunService`（run 记录 / 名额 / `cancel` 语义天然一致，订阅额度按 run record 共享；提交席位池与认证限速则**每个 listener 各一份**）。**端点可见性由 listener 身份决定**：`/api/cli/ws` 只在本地 listener 注册，对外 listener 恒不注册（终端事件可能含文件内容——端点可见性口径见 §4.19 要素 5）；`build_ws_app` 自身再判一次 `mode` 作为纵深（即使调用方误传 `cli_hub` 也不注册）。配置 fail-loud 四例：`WS_EXTERNAL_HOST` 取回环值 / 主 listener 已非回环时再配对外键 / 对外 listener 缺 token / 对外 TLS 半配。对外 TLS 键缺省**成对继承** `WS_TLS_*`（可配出「本地明文 + 对外 wss」）。入口层 `build_ws_servers()` 返回 1–2 条 listener，启动顺序 HTTP → 本地 WS → 对外 WS（任一失败回滚已启动的全部），关停 HTTP 先、WS 后；日志与公告以 `listener=local|external` 区分。**连带收紧**：期一允许的「`WS_HOST=0.0.0.0` + `WS_CLI_BYPASS_ENABLED=true`」起改为跳过旁路并打 `ws event=cli_bypass_skipped reason=external_listener` WARNING。 |
-| 认证（对外模式，Epic 56 D3） | 静态 token 的 `Authorization: Bearer <token>` 在 **`accept()` 之前**校验（`network/ws_auth.py` 是纯逻辑面：严格单头 `Bearer` 解析 + `hmac.compare_digest` 常量时间比较 + 按来源地址的失败滑窗)。失败 `close(1008)`、**不发错误信封**（与 Origin 拒绝同形：真实 Uvicorn 下客户端拿 HTTP 403，无 body）；"缺 token / token 错 / 被限速" 对外不可区分。token 真源是**用户级 `~/.heagent/setting.md` 的 `WS_AUTH_TOKEN`**（`Settings.user_ws_auth_token` 直读该文件）——它**不是** `Settings` 字段，项目 `.env` / 系统环境变量一律不参与（否则仓库作者可预置一个已知 token；写在项目 `.env` 里时命令层启动告警，且配置面板照常把它报成未知键）。非回环绑定缺 token ⇒ 配置构造期 `WsConfigError`（fail-closed，**绝不**降级成「无认证对外」）。凭证只走**握手头**——浏览器 WebSocket API 无法自定义请求头，故对外模式不支持浏览器直连（本机控制台走 HTTP，不受影响）。 |
-| TLS（Epic 56 D4） | `WS_TLS_CERT_FILE` + `WS_TLS_KEY_FILE`（PEM）**要么都给要么都不给**（半配即 `WsConfigError`），配齐则 listener 走 `wss`（uvicorn `ssl_certfile` / `ssl_keyfile`）。对外模式不配 TLS 时启动打 `ws event=plaintext_external` 告警（明文运行必须可见），本地模式配了 TLS 也照常生效。 |
+| 认证（对外模式，Epic 56 D3） | 静态 token 的 `Authorization: Bearer <token>` 在 **`accept()` 之前**校验（`network/ws_auth.py` 是纯逻辑面：严格单头 `Bearer` 解析 + `hmac.compare_digest` 常量时间比较 + 按来源地址的失败滑窗)。失败 `close(1008)`、**不发错误信封**（与 Origin 拒绝同形：真实 Uvicorn 下客户端拿 HTTP 403，无 body）；"缺 token / token 错 / 被限速" 对外不可区分。token 真源是**用户级 `~/.heagent/setting.md` 的 `WS_AUTH_TOKEN`**（`Settings.user_ws_auth_token` 直读该文件）——它**不是** `Settings` 字段，项目 `.env` / 系统环境变量一律不参与（否则仓库作者可预置一个已知 token；写在项目 `.env` 里时命令层启动告警，且配置面板照常把它报成未知键）。非回环绑定缺 token ⇒ 配置构造期 `WsConfigError`（fail-closed，**绝不**降级成「无认证对外」）。凭证只走**握手头**——浏览器 WebSocket API 无法自定义请求头，故对外模式不支持浏览器直连（本机控制台走 HTTP，不受影响）。**2026-11-04 D5 修订**：`WS_LOCAL_AUTH_ENABLED=true` 时回环主 listener 强制同一 token 门（accept 前校验、`close(1008)`、缺 token 构造期拒绝，口径逐字同对外模式），旁路端点**不再免认证**（token 真源与 fail-closed 同上）。 |
+| TLS（Epic 56 D4） | `WS_TLS_CERT_FILE` + `WS_TLS_KEY_FILE`（PEM）**要么都给要么都不给**（半配即 `WsConfigError`），配齐则 listener 走 `wss`（uvicorn `ssl_certfile` / `ssl_keyfile`）。对外模式不配 TLS 时启动打 `ws event=plaintext_external` 告警（明文运行必须可见），本地模式配了 TLS 也照常生效。**2026-11-04 D5 修订**：回环 + 强制认证 + 明文 ⇒ 打 `ws event=plaintext_local_auth`（token 在回环明文上传输，本机窃听可读，同样必须可见）。 |
 | 安全立场 | 与 4.17 / 4.17.1.1 / 4.17.1.2 同一口径，边界地位见 §4.19（本节只列机制事实）。 |
 
 #### 4.17.1.1 CLI 旁路订阅（Epic 55）
@@ -1424,6 +1425,8 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
    绝不静默假装已隔离）。
 3. **本地模式口径**（listener 绑回环，默认）：HTTP+SSE（9101）与 WS（9201）**都无认证、无 TLS**；
    **回环绑定不等于可信**（回环客户端同样不可信）；`Origin` / `Host` 校验只是**入口层 defense-in-depth**，不是认证。
+   **2026-11-04 D5 修订**：WS 主 listener 可经 `WS_LOCAL_AUTH_ENABLED=true` **也**强制 Bearer token（默认关）——
+   开启时前门由 Origin/Host 换成 token，旁路 `/api/cli/ws` 一并强制（不再免认证）；HTTP 无对外模式、不在本修订范围。
 4. **对外模式口径**（WS listener 绑非回环）：**强制** `Authorization: Bearer <token>`，缺 token
    **拒绝启动**（fail-closed，绝不降级成无认证对外）；认证**不是绝对边界**（token 可泄露、无 TLS 时连接
    可被中间人观察）；浏览器 WebSocket API 无法自定义请求头 ⇒ 对外模式**不适用**于浏览器页面。
@@ -1773,7 +1776,7 @@ python -m heagent http-server [--host H] [--port P] [--ws-host H] [--ws-port P] 
               │               ├── GET  /                      → 包内 index.html；GET /{asset} → 白名单资源
               │               └── 每个响应补 CSP / nosniff / 禁 framing；错误一律稳定信封
               │                   （**没有任何 WebSocketRoute**：9101 上的 WS 升级不可达）
-              └── WS listener（9201，三条端点；本地模式 Origin 前门 / 对外模式 token 前门）：
+              └── WS listener（9201，四条端点；本地模式 Origin 前门 / `WS_LOCAL_AUTH_ENABLED` 时 token 前门 / 对外模式 token 前门）：
                     ├── WS /api/runs/ws               → {"command":"run","prompt":…} ⇒ ack{run_id,status}
                     │                                    （名额判定/记录/任务生成复用 HttpRunService.start_run；
                     │                                      错误帧 run_conflict / total_inflight_limit / shutting_down /

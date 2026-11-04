@@ -304,6 +304,7 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 | 2026-09 | persist、roles 从 engine 迁出 | `src/heagent/pub/persist.py`、`src/heagent/pub/roles.py`；共享底层能力 |
 | 2026-09-17 | 集中 frontmatter 解析 | `src/heagent/pub/frontmatter.py`、`tests/test_architecture_contracts.py` |
 | 2026-09-20 | workflow 资源模型和装载职责分离 | `engine/workflow_resource.py`、`goal/workflow_loader.py`，路径均相对于 `src/heagent/` |
+| 2026-11-04 | WS 本地强制认证开关 `WS_LOCAL_AUTH_ENABLED`（Epic 56 D5 修订：回环主 listener 可选强制 Bearer token，含旁路端点，默认关） | `src/heagent/network/ws_host.py`（`WsServerConfig.local_auth` + `requires_auth` 派生）、`src/heagent/cli/http.py`（组合根接线 + 公告/告警三态）；判据 `tests/network/test_ws_auth.py`、`tests/network/test_ws_e2e.py`、`tests/network/test_ws_server.py`；安全口径见 [frame.md](frame.md) §4.19 |
 
 原始周期与验收证据见上文 §二 各周期与 [规划归档](../_bmad-output/README.md)。本表是历史摘要，不是新一轮待办。
 
