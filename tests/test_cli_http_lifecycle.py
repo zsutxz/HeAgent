@@ -12,7 +12,7 @@
 断言只能看到 `ConnectError`）。替换 provider 既能驱动真实的 run 路径，又能在 run **进行中**探测
 网页入口。
 
-`tests/conftest.py` 默认把内嵌服务替换成替身（否则每个 CLI 测试都会抢 8766 端口）；需要真实绑定
+`tests/conftest.py` 默认把内嵌服务替换成替身（否则每个 CLI 测试都会抢 9101 端口）；需要真实绑定
 的用例加 ``@pytest.mark.embedded_http_service`` 退出替身，并用随机空闲端口。
 """
 

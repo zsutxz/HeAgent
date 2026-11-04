@@ -321,7 +321,7 @@ class Settings(BaseSettings):
     # 非法值由 Pydantic 显式校验失败，不静默放宽。
     http_enabled: bool = Field(default=True)  # False = 不装配 HTTP listener（仅 WS 或全关）
     http_host: str = Field(default="127.0.0.1", min_length=1)
-    http_port: int = Field(default=8766, ge=1, le=65535)
+    http_port: int = Field(default=9101, ge=1, le=65535)
     # 端口被占时自动顺延（默认 10 = 开），实际监听地址以启动时 stderr 的 [http] listening on ... 为准；
     # 显式 --port 是契约：冲突仍 fail-loud、不顺延。
     http_port_auto_find_attempts: int = Field(default=10, ge=0, le=100)
@@ -353,7 +353,7 @@ class Settings(BaseSettings):
     # 回环 = 本地模式（无认证，Origin 只是入口层防线）；非回环 = 对外模式（Bearer token 强制、缺 token 拒绝启动）。
     ws_enabled: bool = Field(default=True)  # False = 不装配 WS listener（仅 HTTP 或全关）
     ws_host: str = Field(default="127.0.0.1", min_length=1)
-    ws_port: int = Field(default=9901, ge=1, le=65535)
+    ws_port: int = Field(default=9201, ge=1, le=65535)
     # 每 run 订阅额度 + CLI 旁路连接总额；不经 Uvicorn limit_concurrency，超额在 ASGI 层原子检查+登记。
     ws_max_connections: int = Field(default=16, ge=1)
     # WS server 关闭排空的等待上限（秒）：关既有连接 → 停 listener 全程有界。
@@ -364,8 +364,8 @@ class Settings(BaseSettings):
     # ---- 期二（Epic 56 D8）：第二个 WS listener（对外），与主 listener 并存 ----
     # 空 = 不启用（默认）；非空即启用且必须非回环（回环归主 listener；主 listener 已非回环时再配同样 fail-loud）。
     ws_external_host: str | None = None
-    # 对外 listener 端口，默认 9002；未显式指定时沿用端口顺延（与 HTTP / 主 WS 同口径）。
-    ws_external_port: int = Field(default=9002, ge=1, le=65535)
+    # 对外 listener 端口，默认 9301；未显式指定时沿用端口顺延（与 HTTP / 主 WS 同口径）。
+    ws_external_port: int = Field(default=9301, ge=1, le=65535)
     # 成对给才生效；都不给则整对继承 WS_TLS_*；只给一半 fail-loud（绝不 A 的证书配 B 的私钥）。
     ws_external_tls_cert_file: str | None = None
     ws_external_tls_key_file: str | None = None

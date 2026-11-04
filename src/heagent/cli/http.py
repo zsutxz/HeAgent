@@ -7,7 +7,7 @@
 
 Story 49-1 的职责只有「把服务拉起来、打得开网页、失败要显式」：
 
-- 默认绑 ``127.0.0.1:8766``，并把**实际**监听地址打到 stderr；
+- 默认绑 ``127.0.0.1:9101``，并把**实际**监听地址打到 stderr；
 - 非回环绑定复用 :mod:`heagent.network.exposure` 的判定与文案，启动前先告警；
 - 缺 ``heagent[http]`` 可选依赖、端口被占用、健康探测失败都在命令层转成可读错误
   （``ClickException``），既不吐 traceback，也绝不打印「已监听」。
@@ -187,8 +187,8 @@ async def _serve_web(http_server: HttpServer | None, ws_servers: tuple[WsServer,
 class EmbeddedHttpService:
     """默认 CLI **内嵌**网页入口的生命周期（同进程、同一 asyncio 生命周期）。
 
-    Epic 56 D1 起入口 = **多 listener**：HTTP listener（8766，控制台 + REST/SSE）+ **1 或 2 个**
-    WS listener（期一：9901；期二双监听：9901 本地 + 9002 对外）。名字保留 ``EmbeddedHttpService``：
+    Epic 56 D1 起入口 = **多 listener**：HTTP listener（9101，控制台 + REST/SSE）+ **1 或 2 个**
+    WS listener（期一：9201；期二双监听：9201 本地 + 9301 对外）。名字保留 ``EmbeddedHttpService``：
     它仍是入口层那个「伴随 CLI 的网页服务」单元，只是自此拥有 N 条 listener、一个生命周期。
 
     - ``start()``：先 HTTP 后逐个 WS 绑定 + 就绪门禁（任一 WS 失败回滚已启动的全部）+ 后台 serve 任务 + stderr 公告；
@@ -393,7 +393,7 @@ def build_ws_server_config(
 
     不写回 Settings；范围规则由 :class:`WsServerConfig`（Pydantic）统一校验。端口自动查找与
     HTTP listener 同一开关（``http_port_auto_find_attempts``）：两条 listener 独立顺延
-    （HTTP 自 8766、WS 自 9901），实际端口以启动公告为准。
+    （HTTP 自 9101、WS 自 9201），实际端口以启动公告为准。
 
     **对外模式的三件接线**（Epic 56 D3/D4/D5）：
 
@@ -613,7 +613,7 @@ def build_http_service(
     http_enabled: bool | None = None,
     ws_enabled: bool | None = None,
 ) -> EmbeddedHttpService:
-    """按 ``Settings`` 构造默认 CLI 的内嵌网页入口（HTTP 8766 + 1–2 个 WS listener，Epic 56 D1/期二）。
+    """按 ``Settings`` 构造默认 CLI 的内嵌网页入口（HTTP 9101 + 1–2 个 WS listener，Epic 56 D1/期二）。
 
     ``HTTP_ENABLED`` / ``WS_ENABLED`` 为假时对应 listener 不装配；两者都为假 ⇒ 休眠服务（零监听）。
     ``http_enabled`` / ``ws_enabled`` 是**本次进程**的显式覆盖（``None`` = 照配置取值），供默认 CLI
@@ -703,7 +703,7 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     "--port",
     type=click.IntRange(min=1, max=65535),
     default=None,
-    help="Bind port (default: HTTP_PORT / 8766)",
+    help="Bind port (default: HTTP_PORT / 9101)",
 )
 @click.option(
     "--max-connections",
@@ -726,7 +726,7 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     "--ws-port",
     type=click.IntRange(min=1, max=65535),
     default=None,
-    help="WS listener bind port (default: WS_PORT / 9901)",
+    help="WS listener bind port (default: WS_PORT / 9201)",
 )
 @click.option(
     "--ws-max-connections",
@@ -745,7 +745,7 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     "--ws-external-port",
     type=click.IntRange(min=1, max=65535),
     default=None,
-    help="External WS listener port (default: WS_EXTERNAL_PORT / 9002)",
+    help="External WS listener port (default: WS_EXTERNAL_PORT / 9301)",
 )
 @click.option(
     "--ws-external-readonly/--ws-external-writable",

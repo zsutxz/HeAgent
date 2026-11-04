@@ -239,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
     print("\n写入完成。下一步：")
     print("  1) 重启 heagent（配置在启动时读一次）")
     print("  2) 日志确认：ws event=started ... listener=external tls=wss")
-    print(f"  3) 放行 Windows 防火墙入站端口（默认 9002），再从另一台设备连 wss://{host}:9002/api/runs/ws")
+    print(f"  3) 放行 Windows 防火墙入站端口（默认 9301），再从另一台设备连 wss://{host}:9301/api/runs/ws")
     return 0
 
 

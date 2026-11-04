@@ -87,7 +87,7 @@ def test_help_lists_http_options() -> None:
     ):
         assert option in result.output
     assert "127.0.0.1" in result.output
-    assert "8766" in result.output
+    assert "9101" in result.output
     assert "no authentication" in result.output
     assert "--ws-max-connections" in result.output
 
@@ -146,7 +146,7 @@ def test_registered_as_explicit_subcommand() -> None:
 def test_build_server_config_uses_settings_defaults() -> None:
     settings = get_settings()
 
-    # 显式钉住端口路径：默认顺延开启后，裸调用会因 8766 被真实占用而环境化（2026-10-15）。
+    # 显式钉住端口路径：默认顺延开启后，裸调用会因 9101 被真实占用而环境化（2026-10-15）。
     config = build_server_config(settings, port=settings.http_port)
 
     assert config == HttpServerConfig(
@@ -163,7 +163,7 @@ def test_build_server_config_uses_settings_defaults() -> None:
         idle_timeout=settings.http_idle_timeout,
         shutdown_timeout=settings.http_shutdown_timeout,
     )
-    assert (config.host, config.port) == ("127.0.0.1", 8766)
+    assert (config.host, config.port) == ("127.0.0.1", 9101)
 
 
 def test_build_server_config_overrides_only_the_given_fields() -> None:
@@ -189,7 +189,7 @@ def test_defaults_reach_the_listening_config(
 
     assert result.exit_code == 0, result.output
     server = captured_server["server"]
-    assert (server.config.host, server.config.port) == ("127.0.0.1", 8766)
+    assert (server.config.host, server.config.port) == ("127.0.0.1", 9101)
     assert (server.config.max_connections, server.config.max_inflight_runs) == (16, 1)
     # 订阅额度与连接额度**各有旋钮**（2026-09-28 拆键）：默认值相同 ⇒ 默认行为不变。
     assert (server.config.max_connections, server.config.max_subscribers) == (16, 16)
@@ -300,7 +300,7 @@ def test_cli_overrides_reach_the_config_without_mutating_settings(
     assert server.config.max_subscribers == 4
     # ``0`` 是**合法**取值（关掉该时限 / 不设总时长上限），CLI 边界不得比配置层更严（2026-09-24）。
     assert (server.config.idle_timeout, server.config.request_timeout) == (0.0, 0.0)
-    assert (settings.http_port, settings.http_max_inflight_runs, settings.http_shutdown_timeout) == (8766, 1, 5.0)
+    assert (settings.http_port, settings.http_max_inflight_runs, settings.http_shutdown_timeout) == (9101, 1, 5.0)
     # CLI 覆盖不写回 Settings：服务级总额仍是 env / 默认值。
     assert settings.http_max_total_inflight == 0
     assert settings.http_idle_timeout == 300.0
@@ -718,7 +718,7 @@ def test_external_listener_cli_overrides_build_a_second_listener(
     assert result.exit_code == 0, result.output
     servers = captured_server["ws"]
     assert [server.config.mode for server in servers] == ["local", "external"]
-    assert servers[0].config.port == 9901
+    assert servers[0].config.port == 9201
     assert (servers[1].config.host, servers[1].config.port) == ("0.0.0.0", 9202)
     # 对外那条按 mode 分流告警：不能套用 HTTP 的「no authentication」文案（它是 token 认证）。
     assert "external mode; Bearer token required; PLAINTEXT" in result.output

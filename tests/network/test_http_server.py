@@ -186,7 +186,7 @@ class TestConfig:
         config = HttpServerConfig()
 
         assert config.host == "127.0.0.1"
-        assert config.port == 8766
+        assert config.port == 9101
         assert config.max_connections == 16
         assert config.max_inflight_runs == 1
         # 服务级在途总额**默认不限**（0）：D9 的「并发随项目数线性」是有意语义，收紧必须显式。

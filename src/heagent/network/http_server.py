@@ -173,7 +173,7 @@ class HttpServerConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     host: str = Field(default="127.0.0.1", min_length=1)
-    port: int = Field(default=8766, ge=0, le=65535)
+    port: int = Field(default=9101, ge=0, le=65535)
     max_connections: int = Field(default=16, ge=1)
     # 每个 run 的 **SSE 订阅者**上限：2026-09-28 从 ``max_connections`` 拆出（默认值相同 ⇒ 默认行为不变）。
     # 拆出的理由：连接额度由 Uvicorn 在**进 ASGI 之前**拒绝 ⇒ 超额订阅拿不到错误信封 / 安全头 / 访问日志，
