@@ -166,6 +166,15 @@ def test_apply_issues_a_chain_that_verifies_and_honours_days(tmp_path: Path) -> 
     assert (out_dir / "ca.pem").read_text(encoding="utf-8").strip() in chain
 
 
+def test_default_leaf_validity_is_30_days(tmp_path: Path) -> None:
+    """不带 --days 时必须签出 30 天——默认值是配置契约，不许静默回退。"""
+    binary = _openssl()
+    out_dir = tmp_path / "tls"
+    assert gen.main(["--out-dir", str(out_dir), "--openssl", binary, "--no-lan", "--apply"]) == 0
+    assert _run(binary, ["x509", "-in", "cert.pem", "-noout", "-checkend", str(29 * 86400)], out_dir).returncode == 0
+    assert _run(binary, ["x509", "-in", "cert.pem", "-noout", "-checkend", str(31 * 86400)], out_dir).returncode != 0
+
+
 def test_rotation_keeps_the_ca_so_clients_need_no_reimport(tmp_path: Path) -> None:
     binary = _openssl()
     out_dir = tmp_path / "tls"
