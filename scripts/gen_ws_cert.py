@@ -282,6 +282,22 @@ def write_text_lf(path: Path, text: str) -> None:
     path.write_bytes(text.encode("utf-8"))
 
 
+def tighten_key_permissions(path: Path) -> None:
+    """尽力把私钥权限收成 0600；文件系统不提供 POSIX 权限时只提示，不中断签发。
+
+    本仓的标准重签路径是容器内 openssl + 9p bind mount（Windows drvfs），该挂载上 ``chmod``
+    一律 EPERM。此前这里直接调用 ``Path.chmod``，于是证书其实**已签发成功**、脚本却以
+    traceback 退出（既不打「签发完成」，也不打客户端信任提示）。收紧改为尽力而为，
+    真正的私钥保护依赖材料目录本身的访问控制。
+    """
+    try:
+        path.chmod(0o600)
+    except OSError as exc:
+        reason = exc.strerror or exc
+        print(f"提示：无法把 {path.name} 收成 0600（{reason}）—— 该文件系统不提供 POSIX 权限，")
+        print("      私钥保护依赖材料目录本身的访问控制。")
+
+
 def backup_materials(out_dir: Path) -> Path | None:
     """把已有材料整体拷到 ``backup-<stamp>/``；没有可备份的返回 None。"""
     names = ("ca.pem", "ca.key", "cert.pem", "key.pem", "cert-chain.pem", "openssl-leaf.cnf", "ca.srl")
@@ -383,8 +399,8 @@ def main(argv: list[str] | None = None) -> int:
         config_name = "openssl-leaf.cnf"
         write_text_lf(out_dir / config_name, render_leaf_config(san_entries))
         issue_leaf(binary, out_dir, args.days, config_name)
-        (out_dir / "key.pem").chmod(0o600)
-        (out_dir / "ca.key").chmod(0o600)
+        tighten_key_permissions(out_dir / "key.pem")
+        tighten_key_permissions(out_dir / "ca.key")
         verified = verify_chain(binary, out_dir)
         described = describe_materials(binary, out_dir)
     except CertError as exc:
