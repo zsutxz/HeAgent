@@ -1,6 +1,6 @@
 # HeAgent 迭代开发指南与历程
 
-> 状态：历史历程与迭代方法。维护责任：各周期变更提交者。架构迁移索引见 [architecture-history.md](architecture-history.md)；历史测试数和状态不作为当前质量基线。
+> 状态：历史历程与迭代方法。维护责任：各周期变更提交者。架构迁移索引见本文件 §3.3；历史测试数和状态不作为当前质量基线。
 
 > 这份文档回答两件事：**项目是怎么一步步迭代到现在的**（历程），以及**怎么继续迭代**（流程）。架构看 [`frame.md`](frame.md)，愿景看 [`design.md`](design.md)，本文只讲「迭代」这一维度。
 
@@ -292,6 +292,28 @@ brief  →  prd  →  architecture  →  epics  →  stories  →  quick-dev  �
 **问题**：MEMORY.md 采用 append-only 策略，条目持续增长导致超出默认注入预算（49152 字节），最新事实被省略（历史口径：当时注入为保头截尾；2026-10-30 story 59-3 已翻转为保尾省头，现行口径见 `frame.md` §4.6）。解决方案为三层：扩大注入预算（`MEMORY_INJECT_MAX_BYTES=98304`）、`memory/auto_archive.py` 自动归档超限老条目、手动整理（压缩原则与工具见 MEMORY.md 文件头部注记）。
 
 **权威口径**：早期「按估算天数归档 / 按月分文件」（`.archive-stamp`）口径已于 2026-10-10 重写删除；现行触发阈值、归档落点、并发写语义与测试判据一律以 [`frame.md` §4.6](frame.md) 为准（判据 `tests/memory/test_auto_archive.py`）。原方案文档 `memory-budget-solution.md` 已删除。
+
+### 3.3 架构沿革与参考来源
+
+> 状态：历史索引；整理日期 2026-09-27，2026-11-04 自 `docs/architecture-history.md` 整体并入本节。维护责任：架构变更提交者。当前行为以 [frame.md](frame.md) 和源码为准。
+
+#### 迁移记录
+
+| 时间 | 变化 | 当前实现与证据 |
+| --- | --- | --- |
+| 2026-09 | persist、roles 从 engine 迁出 | `src/heagent/pub/persist.py`、`src/heagent/pub/roles.py`；共享底层能力 |
+| 2026-09-17 | 集中 frontmatter 解析 | `src/heagent/pub/frontmatter.py`、`tests/test_architecture_contracts.py` |
+| 2026-09-20 | workflow 资源模型和装载职责分离 | `engine/workflow_resource.py`、`goal/workflow_loader.py`，路径均相对于 `src/heagent/` |
+
+原始周期与验收证据见上文 §二 各周期与 [规划归档](../_bmad-output/README.md)。本表是历史摘要，不是新一轮待办。
+
+#### 参考实现
+
+[hermes-agent](https://github.com/NousResearch/hermes-agent.git)（NousResearch）——同源自学习 agent 架构（skills/facts/profile/soul 记忆、MCP、cron、多 provider 容错），设计与约定可作参考。注意 hermes 为**同步单文件巨型架构**（`run_agent.py`/`cli.py` 各逾万行、多平台 gateway/TUI），HeAgent 为**异步模块化单库**——**不可直接照搬**，须按 HeAgent 栈（Pydantic / asyncio / pytest-asyncio）改造适配；仅硬约束级条目进 `CLAUDE.md`，细节以本文件为准。（2026-09-17 自 CLAUDE.md「参考实现」节原样迁入，常驻改按需查阅。）
+
+#### path_safety 对 hermes 的借鉴
+
+`tools/path_safety.py` 的凭证 deny 与内部状态读 deny 借鉴自 hermes `file_safety.py`（2026-08-24），见 [当前工具架构](frame.md)。
 
 ---
 

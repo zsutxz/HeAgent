@@ -1,6 +1,6 @@
 # HeAgent 项目架构与工作流程
 
-> 状态：当前实现参考。历史来源与迁移索引见 [architecture-history.md](architecture-history.md)。维护责任：对应模块的变更提交者。
+> 状态：当前实现参考。历史来源与迁移索引见 [iteration.md §3.3 架构沿革](iteration.md)。维护责任：对应模块的变更提交者。
 
 > 相关文档：总览与快速开始见 [`README.md`](../README.md)，设计目标见 [`design.md`](design.md)，文档导航见 [`文档索引`](README.md)，部署边界见 [`deploy/README.md`](../deploy/README.md)，协作约定见 [`AGENTS.md`](../AGENTS.md)。本文为**代码实现层面的架构参考**，以当前 `src/` 实现为准。
 
@@ -1871,7 +1871,7 @@ Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测
 
 ## 九、历史与迁移
 
-参考实现来源和迁移索引已移至 [架构沿革](architecture-history.md)。本页保留当前行为、兼容约束和测试入口。
+参考实现来源和迁移索引已移至 [迭代历程 §3.3 架构沿革与参考来源](iteration.md)。本页保留当前行为、兼容约束和测试入口。
 
 ### 工作区状态路径（Story 50-1）
 
