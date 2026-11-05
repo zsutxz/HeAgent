@@ -47,6 +47,8 @@ from heagent.skills.skill_store import default_skill_roots
 from heagent.tools.registry import ToolRegistry
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from heagent.cli.wiring import CronNotifier
     from heagent.context.session import SessionStore
     from heagent.providers.base import BaseProvider
@@ -227,14 +229,17 @@ def _prepare_engine(
     return engine, system
 
 
-def _build_event_sink(settings: Settings, *, json_output: bool) -> JsonlSink | None:
+def _build_event_sink(settings: Settings, *, json_output: bool, root: Path | None = None) -> JsonlSink | None:
     """构造 JSONL 事件接收器（不需要则返回 None）。
 
     两个动作互相独立，刻意不做隐式耦合：``--json`` 只负责 stdout（用户可自行重定向成文件），
     rollout 落盘只由 ``EVENTS_ROLLOUT_ENABLED`` 决定（默认关闭——落盘含工具原始输出）。
+
+    ``root`` 缺省取进程 cwd（CLI 入口的 cwd 即工作区）；网页入口按**项目根**传入——一个控制台
+    进程可服务多个项目，rollout 必须落在所属项目的 ``.heagent/runs`` 下（活动台账 A35）。
     """
     stream = sys.stdout if json_output else None
-    rollout_dir = default_rollout_dir() if settings.events_rollout_enabled else None
+    rollout_dir = default_rollout_dir(root) if settings.events_rollout_enabled else None
     if stream is None and rollout_dir is None:
         return None
     return JsonlSink(stream=stream, rollout_dir=rollout_dir)

@@ -245,6 +245,14 @@ class HttpAgentHandler:
         self.facts = FactStore(str(paths.memory_file))
         self.profile = ProfileStore(str(paths.profile_file))
         self.soul = _build_soul(soul_path)
+        # 网页入口与 CLI 同口径：rollout 落盘只由 ``EVENTS_ROLLOUT_ENABLED`` 决定（默认关闭，
+        # 落盘含工具原始输出）。此前 handler 自建 engine 却从不订阅 sink ⇒ 该开关在网页入口是
+        # 死键（活动台账 A35 的前置缺口）。落点按**项目根**：多项目控制台下 cwd 不等于项目根。
+        from heagent.cli.composition import _build_event_sink  # noqa: PLC0415 —— 与 new_loop 同款延迟导入
+
+        sink = _build_event_sink(self.settings, json_output=False, root=paths.root)
+        if sink is not None:
+            self.engine.events.subscribe(sink)
 
     def for_workspace(self, paths: WorkspacePaths, session_store: SessionStore) -> HttpAgentHandler:
         """派生一个绑定到**另一个项目根**的同款运行时（控制台的 per-project 工厂，Story 50-3）。
