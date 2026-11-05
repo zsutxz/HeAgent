@@ -176,6 +176,29 @@ def test_corrupted_json_falls_back_to_builtin(tmp_path: Any) -> None:
     assert mapping._load_user_signatures(config) == []
 
 
+def test_global_signature_file_is_ignored_with_warning(tmp_path: Any, caplog: pytest.LogCaptureFixture) -> None:
+    """A36：全局签名文件**不加载**，但必须显式告警（静默忽略才是真正的缺陷面）。"""
+    global_path = tmp_path / "home" / ".heagent" / "injection_signatures.json"
+    global_path.parent.mkdir(parents=True)
+    global_path.write_text(json.dumps([{"pattern": "GLOBALONLY", "description": "全局签名"}]), encoding="utf-8")
+
+    with caplog.at_level("WARNING"):
+        loaded = mapping._load_user_signatures(tmp_path / "missing.json", global_path=global_path)
+
+    assert loaded == []  # 全局入口刻意不存在：不加载、不静默
+    assert "are ignored" in caplog.text
+    assert str(global_path) in caplog.text
+
+
+def test_missing_global_signature_file_stays_silent(tmp_path: Any, caplog: pytest.LogCaptureFixture) -> None:
+    """全局候选文件不存在时零噪声（告警只在「确实会被忽略」时出现）。"""
+    with caplog.at_level("WARNING"):
+        loaded = mapping._load_user_signatures(tmp_path / "missing.json", global_path=tmp_path / "nope.json")
+
+    assert loaded == []
+    assert "are ignored" not in caplog.text
+
+
 def test_lazy_load_cached_once(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = 0
 

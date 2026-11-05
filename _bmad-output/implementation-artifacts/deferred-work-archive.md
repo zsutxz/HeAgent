@@ -1,6 +1,6 @@
 # Deferred Work Archive
 
-> 跨周期 deferred 的唯一总账；当前活动项为 7 条（A34 / A35 / A36 / A40–A43）。
+> 跨周期 deferred 的唯一总账；当前活动项为 4 条（A34 / A35 / A36 / A41）。
 > **四态语义（2026-10-26 S-6 起）**：`active`（有触发条件、未排期）／`scheduled`（已挂到 story 或 sprint）／
 > `frozen`（挂起待裁定，**必须带裁定指针**）／`retired`（显式退役，5 字段齐备）。
 > 条目正文只在本文件；`deferred-work.md` 只保留入口与索引（同一 ID 不得同时出现在两个文件）。
@@ -10,12 +10,9 @@
 | ID | 主题 | 状态 | 说明 |
 | --- | --- | --- | --- |
 | A34 | 会话文件并发写残余：不可安全判定形态回退时丢对方一侧 | `frozen` | 主害已闭合（Z-D21，commit `9860a17`）。残余形态：共享前缀被改写 / 磁盘比基线短 / 基线对不上 / 文件不可解析 ⇒ 回退时丢对方一侧（WARNING 点名原因，不静默）。候选加固 = 把不可判形态的对方侧隔离进 sidecar 而非丢弃。**裁定指针：OQ-5 未裁定（「隔离 vs 丢弃」语义）**，故本轮只补确定性并发写回归测试（S-8），不改语义。触发条件 = 出现真实触发案例或用户裁定升级 |
-| A35 | HTTP 入口会话/事件持久化（在途 run 与 SSE 缓冲重启即丢） | `active` | 会话历史已落盘（SessionStore，CLI 与网页共用），重启只丢在途 run 与 SSE 事件缓冲（重连有 `resync_required`→快照兜底）。最小收敛路径 = 复用既有钩子 `EVENTS_ROLLOUT_ENABLED`（per-run `rollout.jsonl`，默认关）做重连回放，不新做投影持久化架构。触发条件 = 重启丢在途 run 实际困扰 ≥2 次，或长 run（>10min）常态化 |
-| A36 | 全局级 MCP 注入签名配置入口 | `active` | 项目级 `.heagent/injection_signatures.json` 已接入并进程内缓存；2026-10-20 查证项目级与全局级文件均不存在（零使用）⇒ 现在加全局入口属 YAGNI。触发条件 = 实际开始写自定义签名且需跨项目共享。注意：签名围栏非真正安全边界，加码不改变「须 OS 沙箱兜底」立场 |
-| A40 | 审计基线已脏文件检测盲区（`cli/goal.py:434`） | `frozen` | 宿主 Git 审计以「会话前后路径差集」为增量语义：before 集已脏的集外 tracked 文件被本 Story 再改时检测不到。AD-18 定义即路径级增量。**裁定指针：根治在 AD-20 worktree 物理隔离层，OQ-4 未裁（本轮继续挂账）**。触发条件：并行批启动时工作区已有未提交集外改动 |
-| A41 | 兄弟 Story 越集写互相误归因（`cli/goal.py:440-444`） | `frozen` | 共享工作区审计无法按写者归属，兄弟 Story 越集写会落入本 Story 的 Δ 判负（连带置闩）。**裁定指针：AD-20（OQ-4 未裁）**；短期靠围栏预防层降低概率 |
-| A42 | 违规写无补救语义（`workflow_runner.py:633`） | `frozen` | 判负只置 FAILED + 闩，越集文件留工作区；闩后串行重跑新基线已含旧违规，审计对其失明。需人工清理指引或回滚工具；与基线盲区同族（**裁定指针：AD-20 族，OQ-4 未裁**） |
-| A43 | `_host_artifact_relpath` 参照系（`cli/goal.py:454-457`） | `active` | `resolve` + `relative_to` 大小写敏感（Windows 大小写漂移 → 静默 `""`），`workspace≠repo root` 时跨参照系比较。当前部署两者相等；失败方向是误判非漏判。触发条件：workspace 与 repo root 分离部署 |
+| A35 | HTTP 入口会话/事件持久化（在途 run 与 SSE 缓冲重启即丢） | `active` | 会话历史已落盘（SessionStore，CLI 与网页共用），重启只丢在途 run 与 SSE 事件缓冲（重连有 `resync_required`→快照兜底）。**2026-11-05 前置缺口已闭合**：网页 handler 自建 engine 却从不订阅事件接收器 ⇒ `EVENTS_ROLLOUT_ENABLED` 在网页入口是死键（与 A44 闭合前的 REPL 同款）；现按**项目根**订阅（`_build_event_sink(root=…)`，多项目控制台下 cwd ≠ 项目根）。判据 `tests/test_http_events_rollout.py`（2 例成对：默认关零文件 / 开关开落项目根且以 `run_completed` 收尾）+ 变异 3/3 全红（`scripts/mutation/mutate_http_rollout_sink.py`）。**残余 = 读侧回放**：重启后仍未从 `.heagent/runs/<run_id>/rollout.jsonl` 重放（复用既有 `read_rollout`，不新做投影持久化架构）。触发条件不变 = 重启丢在途 run 实际困扰 ≥2 次，或长 run（>10min）常态化。**2026-11-05 用户裁定：不做**（读侧回放继续挂账，状态维持 `active`；理由 = 它要动 SSE/WS 重连语义，而触发条件尚未到） |
+| A36 | 全局级 MCP 注入签名配置入口 | `active` | **2026-11-05 复核仍零使用**：项目级与全局级 `.heagent/injection_signatures.json` 均不存在 ⇒ 加全局入口属 YAGNI（跨项目共享的现成成本 = 复制一个 JSON 文件）。本轮收窄「静默失效」：项目级缺失时若全局文件存在，加载器显式 WARNING 说明它被忽略（不加载、不静默），判据 `tests/test_mcp_mapping.py::test_global_signature_file_is_ignored_with_warning`（另有零噪声对照）+ 变异 2/2 全红（`scripts/mutation/mutate_mcp_signature_hint.py`）。触发条件 = 实际开始写自定义签名且需跨项目共享。注意：签名围栏非真正安全边界，加码不改变「须 OS 沙箱兜底」立场。**2026-11-05 用户裁定：保留**（维持 `active` + 显式告警口径，不转 `retired`） |
+| A41 | 兄弟 Story 越集写互相误归因（`cli/goal.py:440-444`） | `frozen` | 共享工作区审计无法按写者归属，兄弟 Story 越集写会落入本 Story 的 Δ 判负（连带置闩）。**裁定指针：AD-20（OQ-4 未裁）**；短期靠围栏预防层降低概率。**2026-11-05 收窄（用户裁定：一并处理至可行边界）**：判负消息与 `workflow_write_audit` 事件如实披露「写者无法归属到本 Story」（`shared_workspace` + `a sibling may be the author`），不再默认归因到本 Story；判负语义（FAILED + 撤闩）不变——写集并集对批内每个成员同形，越集写同样会被**写者自己**的审计判负，故误伤面 = 「无辜兄弟也失败 + 闩」，根因仍需 AD-20 物理隔离（判据 `tests/test_story_write_audit.py::test_violation_discloses_shared_workspace_attribution` / `::test_solo_batch_violation_has_no_attribution_caveat` + 变异 `scripts/mutation/mutate_write_audit_content_delta.py` M4） |
 
 ## 已按 Epic 归档
 
@@ -26,7 +23,7 @@
 | Z-D24 / A2 | Epic S1-S4 沙箱裁定 | 已闭合（裁定不实施） | [`epic-S1-S4.../deferred-work.md`](../archive/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md) |
 | A25 / A26 / A27 / A28 / A33 / A37 / A38 / A39 | Epic 51 Goal/workflow 收口优化 | 已闭合 | [`epic-51.../deferred-work.md`](../epics/epic-51-goal-workflow优化周期/deferred-work.md) |
 
-## 本轮闭合（2026-10-26 S-6 归一 + 2026-11-02 小步清债；证据齐备，**不是**退役）
+## 本轮闭合（2026-10-26 S-6 归一 + 2026-11-02 小步清债 + 2026-11-05 审计语义收窄；证据齐备，**不是**退役）
 
 > 这些条目原先散在 `deferred-work.md` 的「仍需维护的观察」与 Epic 52 review 段里。S-6 归一时逐条核对代码，
 > 确认已被既有实现或本轮 E1 闭合。与「退役」的区别：这里有可复跑的判据，不是「不做」。
@@ -40,6 +37,9 @@
 | A50 | `auto_archive._append_archive` 无锁 read-modify-write（origin=新增，2026-10-29 epic-59 审查落账；2026-11-02 闭合） | `src/heagent/memory/auto_archive.py` 的 `_append_archive` 改走 `atomic_update_text`（归档文件自身 `.lock` 内读改写，与 `memory/compact.py::_append_archive_section` 同款）。判据 `tests/memory/test_auto_archive.py::TestArchiveAppendSerialization`（2 例：① 机制——归档路径必须出现在 `atomic_update_text` 调用里；② 行为——两写者并发追加两段小节都在）。判据强度已用组件副本变异验证（2/2 变红）：把 `_append_archive` 退回裸读写即打红。`docs/frame.md` §4.6 补「归档文件自身的追加也在自身 `.lock` 内读改写」一句，判据条数 14 → 16 例 |
 | A49 | `EmbeddedHttpService.failure` 传播路径缺直接测试（2026-11-02 闭合） | 真实双 listener 故障注入已落地：`tests/test_cli_http_lifecycle.py::test_one_listener_dying_is_surfaced_while_the_others_keep_serving`——真 HTTP server + 两个真 WS listener（真 socket / 真端口），在 **uvicorn 自己的 poll 循环**里注入（`Config.callback_notify` 抛错 ⇒ `Server.main_loop` 在 tick 中抛出，不替换 HeAgent 的 `serve_forever`），断言 `failure` 拿到该异常且不被后续抖动覆盖、兄弟 listener 仍应答（裸 HTTP 状态行）、HTTP 健康端点仍 200、`close()` 后历史失败不被清空。判据强度已用组件副本变异验证（去掉 `_failure = error` 即打红）。`docs/frame.md` §4.17「默认 CLI 自启动」行补该传播链与判据落点 |
 | A44 | 交互 REPL 不挂事件 rollout sink（2026-11-02 闭合） | `src/heagent/cli/interactive.py::_run_chat` 在引擎构造后与单次模式同口径订阅 `_build_event_sink(settings, json_output=False)`（默认关闭不变，rollout 含工具原始输出；REPL 无 `--json` ⇒ sink 恒不含 stdout 流）。判据 `tests/test_cli_events_rollout.py`（2 例成对：① 开关关闭 ⇒ 一轮跑完后零 rollout 文件，且先断言 provider 真被调 1 次；② 开关打开 ⇒ `<rollout_dir>/<run_id>/rollout.jsonl` 落盘，kinds 含 `run_started` 且以 `run_completed` 收尾）。判据强度已用组件副本变异验证（去掉订阅 ⇒ 「开关打开」用例变红，「关闭」用例保持绿）。`docs/frame.md` §4.12 补「订阅点」一段 |
+| A40 | 审计基线已脏文件检测盲区（2026-11-05 闭合） | Δ 由「after 路径集 \\ before 路径集」改为**内容指纹**比较：会话前采集 `_WriteAuditBaseline`（Git 证据 + 已脏 tracked 路径的流式 sha256），会话后用自己的指纹表逐路径比对（`_content_fingerprints` / `_fingerprint_paths`，仓库根相对解析同 A43）。既有脏文件被本 Story 再改 ⇒ 指纹变化 ⇒ 判负；未改动的既有脏文件不误报。判据 `tests/test_story_write_audit.py::test_dirty_baseline_file_touched_again_is_flagged` / `::test_dirty_baseline_file_untouched_is_not_flagged`；判据强度 `scripts/mutation/mutate_write_audit_content_delta.py` M1（退回路径差集即红）。残余：文件读不到（权限 / 中途消失）记空串 ⇒ 与「基线不存在」同向（多判负、不漏判）；把既有脏改动**还原成 HEAD 内容**会让该路径离开变更集、无法捕获（净效果为零，方向仍是多判负）。`docs/frame.md` §4.13 审计段同步 |
+| A42 | 违规写无补救语义（2026-11-05 闭合） | 条目原文要求「人工清理指引**或**回滚工具」，本轮交付指引面：判负时把越集路径 + 基线 revision 写进 `workflow_write_audit` 事件留档（闩后串行重跑的新基线已含旧违规 ⇒ 该事件是唯一持久记录），reason 内给 `git diff <base> -- <path>` / `git restore --source=<base> -- <path>`（新建路径改为删除）。判据 `::test_violation_event_records_paths_base_and_remediation` + 变异 M2 / M3。残余 = 自动回滚未做（需会话前快照，属 AD-20 层，非本条目要求） |
+| A43 | `_host_artifact_relpath` 参照系（2026-11-05 闭合） | 旧记载的两条前提经实测**否证**：`Path.relative_to` 在 Windows flavour 大小写不敏感、唯一调用点 `_goal_verify_workspace` 已 `.resolve()`。真实残量 = 三源参照系不同（`git diff --name-only` = 仓库根相对、`git ls-files --others` = cwd 相对、产物 = 工作区相对）；收窄 = `_git_toplevel` + `_repo_relpath` 把产物换算成仓库根相对后并入 tracked 豁免，untracked 侧维持 cwd 相对（同根部署为恒等变换）。判据 `::test_repo_relpath_reference_system_branches` / `::test_subdir_workspace_excludes_host_artifact` / `::test_subdir_workspace_untracked_artifact_not_warned` + `scripts/mutation/mutate_write_audit_reference.py` 4/4 红。**2026-11-05 用户裁定：残余可读作已足够**（`GIT_DIR` 重定向 / 走不到 `.git` 时退回旧语义，方向是多判负、不漏判）⇒ 本轮闭合，不另立收窄周期 |
 
 - **52-3 AC1（端到端围栏贯通冒烟）**：已闭合（2026-10-26，Epic 57-3）——真实注册表 `file_write` handler 经
   `policy.evaluate_tool_call → executor.execute` 全链贯通：集内写真实落盘、越集写围栏 BLOCKED 且 handler 零触达。

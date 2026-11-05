@@ -953,7 +953,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 
 **CLI 契约**：`heagent run "…" --json` 时 **stdout 只出 JSONL**（`run_started` 开头、`run_completed`/`run_failed` 收尾、`assistant_message` 交回答案），横幅 / 用量 / 活动回顾等人读信息一律走 stderr，故可直接管道消费；`heagent replay <file> [--json]` 回放。两个动作**互不隐式耦合**：`--json` 不落盘（可自行重定向），落盘不要求输出到 stdout。
 
-**订阅点**：单次模式与**交互 REPL** 都在引擎构造后经同一个 `cli/composition.py::_build_event_sink` 订阅——`--json` 只决定 stdout 流，`EVENTS_ROLLOUT_ENABLED` 只决定落盘；长驻 REPL 每轮 run 落一个分片（sink 逐事件 open/close，不持有常驻句柄）。REPL 没有 `--json`，故其 sink 恒不含 stdout 流（活动台账 A44，2026-11-02 闭合）。
+**订阅点**：单次模式与**交互 REPL** 都在引擎构造后经同一个 `cli/composition.py::_build_event_sink` 订阅——`--json` 只决定 stdout 流，`EVENTS_ROLLOUT_ENABLED` 只决定落盘；长驻 REPL 每轮 run 落一个分片（sink 逐事件 open/close，不持有常驻句柄）。REPL 没有 `--json`，故其 sink 恒不含 stdout 流（活动台账 A44，2026-11-02 闭合）。**网页入口**（`cli/http_console.HttpAgentHandler`）同样在构造时订阅，且 `root=` 传**项目根**——多项目控制台下进程 cwd 不等于项目根，按 cwd 落盘会把 A 项目事件写进 B 项目；此前 handler 自建 engine 却从不订阅 ⇒ 该开关在网页入口曾是死键（活动台账 A35 前置缺口，2026-11-05 闭合，判据 `tests/test_http_events_rollout.py`）。
 
 **不可信性**：JSONL 的 `target` / `details` 携带命令与工具原始输出（含 MCP / 远端内容），与工具返回**同等不可信**，不得因「结构化」提升信任；rollout 属项目内部状态（`.heagent/` 已 gitignore，path_safety 亦设内部状态读拒），不得改写到可提交路径。
 
@@ -1070,6 +1070,19 @@ path_safety / 工作区围栏同构：纵深防御**（边界地位见 §4.19；
 Git 审计事后检测（`cli/goal.py` 的 `_audit_story_writes`：per-story 会话前后只读 Git 增量基线，
 tracked 增量越出「本 Story 写集 ∪ 兄弟写集 ∪ 宿主自写产物」→ FAILED + `write_violation` → 撤销闩
 单向置位（随 checkpoint 持久化，重启后该 Goal 仍串行）；untracked 增量只发警告事件不判负）。
+产物豁免同时按**两种参照系**登记：`git diff --name-only` 报**仓库根**相对路径、`git ls-files
+--others` 报 **cwd**（= 工作区）相对路径，故产物以工作区相对记入 untracked 豁免、并换算成仓库根
+相对（`_git_toplevel` / `_repo_relpath`）后记入 tracked 豁免；工作区恰为仓库根时两式逐字相同
+（当前部署，恒等变换），工作区仅为子目录时才真正生效（A43）。
+**Δ 是内容级增量**：对 `git diff --name-only` 报出的每条路径取流式 sha256（会话前基线、会话后各一次），
+同名路径只有在内容真的变了才算增量——路径集合差集看不见「会话前已脏的集外文件被本 Story 再改」
+（路径前后都在 ⇒ 差额恒为空），也放得过「既有脏文件本 Story 没碰」（不该判负）；指纹读不到
+（权限 / 中途消失）记空串、按增量处理（方向：多判负、不漏判）（A40）。判负时越集路径 + 基线 revision
+进 `workflow_write_audit` 事件**留档**（闩后该 Goal 串行、新基线已含旧违规 ⇒ 该事件是越集写的唯一
+持久记录），reason 内附 `git diff <base> -- <path>` / `git restore --source=<base> -- <path>` 的人工
+清理指引（自动回滚需会话前快照，属 AD-20 层，A42）。共享工作区里写者**无法归属到某个 Story**
+（写集并集对批内每个成员同形 ⇒ 越集写同样会被写者自己的审计判负），故消息与事件如实标注
+`shared_workspace` / 「a sibling may be the author」而不是默认归因（A41）。
 批内并发走 `gather(return_exceptions=True)`（单成员失败不连坐；步骤级取消取消整批落 PENDING）；
 manual 模式 checkpoint 确认每批一次。worktree / OS 级物理隔离是后续增强层（AD-20）：改变围栏与
 审计的实现强度，不改变本节契约。
@@ -1234,7 +1247,7 @@ Phase 5 C1：+`duration_ms`/`error_kind`；旧 rollout 缺省读、新字段被�
 | `context_compressed` / `window_reset` | `agent/context_runtime.py` | `before,after` | — |
 | `workflow_step_started` / `workflow_step_completed` / `workflow_step_failed` | `engine/workflow_runner`（`emit` 注入端口，缺省 None=不发） | `step,story`（+`result`/`error`） | 三种带 duration；failed 带 error_kind。串行逐条各发一组（`story` 非空）；声明门控并行批（Epic 52）= 单组形状：`started` 一条（story=批首成员）+ 批收口一条（story 空），逐成员归因走 `workflow_story_batch_scheduled` |
 | `workflow_story_batch_scheduled` | `engine/workflow_runner`（`_gather_story_batch`，Epic 52 Story 52-2） | `step,members,limit`（`story` 为空） | 授权批派发时发一条：批成员 id 与声明上限 |
-| `workflow_write_audit` | `cli/goal.py`（`_emit_write_audit_event`，Epic 52 Story 52-3） | `step,story,untracked` / `skipped` | 宿主 Git 写集审计的观测事件：`untracked=[...]` 为警告（不判负）；`skipped=git_unavailable` 为非 Git 跳过说明；emit 异常隔离 |
+| `workflow_write_audit` | `cli/goal.py`（`_emit_write_audit_event`，Epic 52 Story 52-3） | `step,story,untracked` / `skipped` / `violations,base,shared_workspace` | 宿主 Git 写集审计的观测事件：`untracked=[...]` 为警告（不判负）；`skipped=git_unavailable` 为非 Git 跳过说明；`violations=[...]` + `base`（基线 revision）+ `shared_workspace` 为**判负留档**（闩后串行重跑的新基线已含旧违规，事件是唯一持久记录；`shared_workspace=true` 表示批内写者无法归属到本 Story，A41/A42）；emit 异常隔离 |
 | `workflow_approved` / `workflow_rejected` / `workflow_amended` | `engine/workflow_runner`（审批决策方法，Story 51-5） | `step`（+`reason`：拒绝理由 / 修订补充） | — |
 | `workflow_gate_evaluated` | `cli/goal.py`（`_emit_goal_gate_event`，Story 51-8 收口 51-4 递延） | `step,story,source,verdict,failed,clause_errors,rerun,rerun_evidence,reused_commands` | 完成门（`source=completion_gate`）与 `/goal verify`（`source=verify_run`）每次结构化求值各发一条，带 duration；emit 异常隔离 |
 | `dream_start` / `dream_end`、`cron_job_*` | `memory/dream.py`、`cron/scheduler.py`（开集现状收编） | `success` 等 | — |
@@ -1443,7 +1456,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 流式 tool_calls 回退 | `run_stream()` 流式模式不返回 `tool_calls`，命中时回退 `send()` 重取（已知设计权衡） |
 | MCP / engine sandbox 安全边界 | 三层非边界与 OS 级兜底立场见 §4.19；本行的缺口事实是 shell 路径的兜底实施项 = container 档 Docker 后端（Epic 53 期一，2026-10-21；**默认链路未启用**，须显式 --sandbox docker / env 选择） |
 | MCP stdio 子进程不经沙箱——**已闭合**（Epic 53 期二 53-5，2026-11-03；2026-09-27 的「裁定 (c) 不做」被 2026-10-21 起的容器档兜底推翻） | 实施：`SANDBOX_BACKEND=docker` 时 `cli/console.py::_stdio_sandbox_spec` 产出 `StdioSandboxSpec`，`MCPClientManager(stdio_sandbox=…)` → `default_transport_opener` → `tools/mcp/stdio_sandbox.py::stdio_params` 把 SDK 的 stdio 子进程换成 **docker CLI**：`docker run -i --rm --pull=never --cap-drop=ALL --security-opt no-new-privileges --user sandbox --network <none|bridge> <image> <server-cmd> …`，容器内进程的 stdin/stdout 即 JSON-RPC 管道（长命双向，不经 `CommandRunner` 的 `sh -c` 短命形状）。env 只对 `.mcp.json` 显式声明的键发 `-e KEY`（不带值，值不进 argv），宿主其它变量不进容器。**降级**：daemon 不可用 / CLI 缺席 / 探测抛错 ⇒ 显性降级回宿主执行，**每次**连接打 WARNING（判据 `tests/test_mcp_stdio_sandbox.py`）。残留：镜像里没有的二进制（典型 `npx`）会显性失败——属预期，镜像供给是配置面职责；边界地位仍见 §4.19（容器档非绝对边界）。历史裁定正文见 `_bmad-output/archive/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（Z-D24） |
-| 用户可配置 MCP 签名入口 | 项目级 `.heagent/injection_signatures.json` 已接入并进程内缓存；全局级配置仍 deferred；签名围栏的边界地位见 §4.19 |
+| 用户可配置 MCP 签名入口 | 项目级 `.heagent/injection_signatures.json` 已接入并进程内缓存；全局级入口仍 deferred（活动台账 A36：2026-11-05 复核项目级与全局级文件均不存在，零使用 ⇒ 加全局入口属 YAGNI）；但全局文件存在时加载器**显式 WARNING 说明其被忽略**（静默失效才是缺陷面，判据 `tests/test_mcp_mapping.py::test_global_signature_file_is_ignored_with_warning`）；签名围栏的边界地位见 §4.19 |
 | 凭证 deny 项目级配置入口 | `.heagent/path_deny.json`（2026-09-17）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒；边界地位见 §4.19 |
 | Dreaming 联网注入围栏 | `web_fetch` 返回路径已接 `guard_content`（Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；标记仅 observable defense-in-depth（边界地位见 §4.19），dreamer 的兜底要求见 4.6 dream.py |
 | 交互式审批非安全边界 | 审批闭环（Epic 29）把「要不要执行」交给用户，边界地位见 §4.19（见 4.12 approval.py） |

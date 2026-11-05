@@ -144,6 +144,9 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 # Project-local additions are intentionally process-cached: changing this file
 # while a process is running must not silently change the guard's behavior.
 _USER_SIGNATURES_PATH = Path(".heagent") / "injection_signatures.json"
+# 全局级入口**刻意不存在**（活动台账 A36：零使用 ⇒ YAGNI）。但把签名写进 ``~/.heagent/``
+# 是很自然的直觉，静默忽略会让用户以为围栏已生效 ⇒ 项目级缺失时探一次并显式 WARNING。
+_GLOBAL_SIGNATURES_HINT = Path(".heagent") / "injection_signatures.json"  # 相对用户 home
 _USER_PATTERNS: list[tuple[re.Pattern[str], str, str]] | None = None
 _TOKENIZER_MARKERS = (
     "<|im_start|>",
@@ -161,14 +164,41 @@ _INJECTION_WARNING_TEMPLATE = (
 )
 
 
-def _load_user_signatures(path: Path | None = None) -> list[tuple[re.Pattern[str], str, str]]:
-    """Load valid project-local injection signatures, skipping invalid entries."""
+def _warn_ignored_global_signatures(global_path: Path | None = None) -> None:
+    """全局候选文件存在时显式告警：全局入口不存在，只有项目级生效（活动台账 A36）。
+
+    静默忽略是这里真正的缺陷面——用户按「工具通用配置」直觉把文件放进 ``~/.heagent/`` 时，
+    围栏看起来配好了、实际一次都没生效。探测是 best-effort：读不到 home / 探测报错都静默
+    放弃（不能让一次提示打断 MCP 结果映射）。
+    """
+    try:
+        probe = global_path if global_path is not None else Path.home() / _GLOBAL_SIGNATURES_HINT
+        exists = probe.is_file()
+    except (OSError, RuntimeError):
+        return
+    if exists:
+        logger.warning(
+            "Global MCP injection signatures at %s are ignored: only the project-local "
+            ".heagent/injection_signatures.json is loaded; copy the file into the project to enable it",
+            probe,
+        )
+
+
+def _load_user_signatures(
+    path: Path | None = None, *, global_path: Path | None = None
+) -> list[tuple[re.Pattern[str], str, str]]:
+    """Load valid project-local injection signatures, skipping invalid entries.
+
+    ``global_path`` 仅供测试注入（缺省 ``<用户 home>/.heagent/injection_signatures.json``）：
+    它只用来**探测并告警**被忽略的全局文件，不参与加载。
+    """
     signature_path = path or _USER_SIGNATURES_PATH
     try:
         if path is None:
             signature_path = resolve_under_root(str(_USER_SIGNATURES_PATH), workspace_root())
         raw = signature_path.read_text(encoding="utf-8")
     except FileNotFoundError:
+        _warn_ignored_global_signatures(global_path)
         return []
     except (OSError, UnicodeError, WorkspacePathError) as exc:
         logger.error("Unable to read user MCP injection signatures from %s: %s", signature_path, exc)

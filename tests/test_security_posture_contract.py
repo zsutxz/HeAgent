@@ -208,6 +208,9 @@ _DOCUMENTED_BOOL_DEFAULTS: tuple[str, ...] = (
     # 对外 listener 的只读旁观：True 更严，但 Epic 56 期二 P2-A3 显式选择「默认 False = 可提交」，
     # 属已记录的产品能力（见 docs/frame.md 4.17.1）；本守卫只钉「口径被静默改掉」。
     "ws_external_readonly",
+    # 回环主 listener 也强制 Bearer 认证：True 更严，但 D5 修订（2026-11-04）显式选择「默认关」——
+    # 本机消费者（含终端旁路）不必带 token，开启后全部端点统一要 token（见 docs/frame.md 4.19 要素 3）。
+    "ws_local_auth_enabled",
 )
 
 # 显式映射表：谓词组 → 字段。反射到的字段必须全部命中此处，差集非空即红（不 skip）。
