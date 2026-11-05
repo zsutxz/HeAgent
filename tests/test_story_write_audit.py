@@ -109,6 +109,21 @@ def test_write_set_coverage_semantics() -> None:
     assert not cli_goal._covered_by_write_set("anything/else", [""])  # 空条目免检是 fail-open，已修
 
 
+def test_repo_relpath_reference_system_branches(tmp_path: Path) -> None:
+    """A43 参照系换算的四个分支：同根恒等 / 子目录加前缀 / 参照根未知退回 / 空串原样。"""
+    repo = tmp_path / "repo"
+    workspace = repo / "sub"
+    workspace.mkdir(parents=True)
+    assert cli_goal._git_toplevel(workspace) is None  # 祖先里没有 .git ⇒ 参照根不可知
+    assert cli_goal._repo_relpath("a/b.md", workspace, None) == "a/b.md"
+    (repo / ".git").mkdir()
+    assert cli_goal._git_toplevel(workspace) == repo
+    assert cli_goal._git_toplevel(repo) == repo
+    assert cli_goal._repo_relpath("a/b.md", workspace, repo) == "sub/a/b.md"
+    assert cli_goal._repo_relpath("a/b.md", repo, repo) == "a/b.md"  # 同根：恒等变换
+    assert cli_goal._repo_relpath("", workspace, repo) == ""
+
+
 @pytest.mark.asyncio
 async def test_tracked_write_outside_set_fails_with_violation(
     git_workspace: Path, monkeypatch: pytest.MonkeyPatch
@@ -125,6 +140,109 @@ async def test_tracked_write_outside_set_fails_with_violation(
     assert result.write_violation is True
     assert "src/rogue.py" in result.reason
     assert calls[0]["write_allowlist"] == ["src/a.py"]
+
+
+@pytest.mark.asyncio
+async def test_dirty_baseline_file_touched_again_is_flagged(
+    git_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A40：会话前**已脏**的集外文件被本 Story 再改 —— 路径差集看不见，内容指纹必须看见。
+
+    旧语义是「after 路径集 \\ before 路径集」：该路径在两个集合里都出现 ⇒ 差额为空 ⇒ 越集写
+    静默漏判（且会话内 ``git commit`` 也洗不白，因为 base 钉在 before.head 上）。
+    """
+    _tracked(git_workspace, "src/rogue.py", "sneak = 0\n")
+    _commit_all(git_workspace, "plant rogue")
+    _tracked(git_workspace, "src/rogue.py", "dirty before the session\n")  # 会话前就脏，未提交
+    goal_dir = _goal_dir(git_workspace)
+    _session_stub(monkeypatch, writes=("src/rogue.py",))
+
+    result = await _run_step(_StubEngine(), goal_dir, _execution())
+
+    assert result.status is WorkflowStatus.FAILED
+    assert result.write_violation is True
+    assert "src/rogue.py" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_dirty_baseline_file_untouched_is_not_flagged(
+    git_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A40 对照：既有脏文件本 Story 没碰 ⇒ 内容指纹不变 ⇒ 不判负（不能把「脏」本身当违规）。"""
+    _tracked(git_workspace, "src/rogue.py", "sneak = 0\n")
+    _commit_all(git_workspace, "plant rogue")
+    _tracked(git_workspace, "src/rogue.py", "dirty before the session\n")
+    goal_dir = _goal_dir(git_workspace)
+    _session_stub(monkeypatch)  # 会话不写任何 tracked 文件
+
+    result = await _run_step(_StubEngine(), goal_dir, _execution())
+
+    assert result.status is WorkflowStatus.COMPLETED, result.reason
+    assert result.write_violation is False
+
+
+@pytest.mark.asyncio
+async def test_violation_event_records_paths_base_and_remediation(
+    git_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A42：判负必须留档（越集路径 + 基线 revision）并给出可执行的人工清理指引。
+
+    留档意义在「闩后串行重跑的新基线已含旧违规」——观测事件是那条越集写唯一的持久记录。
+    """
+    _tracked(git_workspace, "src/rogue.py", "sneak = 0\n")
+    _commit_all(git_workspace, "plant rogue")
+    goal_dir = _goal_dir(git_workspace)
+    engine = _StubEngine()
+    _session_stub(monkeypatch, writes=("src/rogue.py",))
+
+    result = await _run_step(engine, goal_dir, _execution())
+
+    assert result.status is WorkflowStatus.FAILED
+    events = [details for kind, details in engine.published if kind == "workflow_write_audit"]
+    assert len(events) == 1
+    assert events[0]["violations"] == ["src/rogue.py"]
+    assert events[0]["base"], "事件必须留档基线 revision（闩后重跑的新基线不再含它）"
+    assert "git restore --source=" in result.reason
+    assert f"git diff {events[0]['base']} -- <path>" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_violation_discloses_shared_workspace_attribution(
+    git_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A41：共享工作区里写者无法归属到本 Story —— 消息与事件必须如实披露，不能默认背锅。"""
+    _tracked(git_workspace, "src/rogue.py", "sneak = 0\n")
+    _commit_all(git_workspace, "plant rogue")
+    goal_dir = _goal_dir(git_workspace)
+    engine = _StubEngine()
+    _session_stub(monkeypatch, writes=("src/rogue.py",))
+
+    result = await _run_step(engine, goal_dir, _execution())  # batch_members = s-1 / s-2
+
+    assert result.status is WorkflowStatus.FAILED
+    assert "cannot be attributed to this story" in result.reason
+    events = [details for kind, details in engine.published if kind == "workflow_write_audit"]
+    assert events[0]["shared_workspace"] is True
+
+
+@pytest.mark.asyncio
+async def test_solo_batch_violation_has_no_attribution_caveat(
+    git_workspace: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A41 对照：批里只有自己时不存在归因歧义 —— 不加免责话术（别把必要信息稀释掉）。"""
+    _tracked(git_workspace, "src/rogue.py", "sneak = 0\n")
+    _commit_all(git_workspace, "plant rogue")
+    goal_dir = _goal_dir(git_workspace)
+    engine = _StubEngine()
+    _session_stub(monkeypatch, writes=("src/rogue.py",))
+    solo = StoryExecutionContext(story_id="s-1", parallel=False, write_allowlist=["src/a.py"], batch_members=["s-1"])
+
+    result = await _run_step(engine, goal_dir, solo)
+
+    assert result.status is WorkflowStatus.FAILED
+    assert "cannot be attributed" not in result.reason
+    events = [details for kind, details in engine.published if kind == "workflow_write_audit"]
+    assert events[0]["shared_workspace"] is False
 
 
 @pytest.mark.asyncio
@@ -189,6 +307,63 @@ async def test_host_artifact_write_not_flagged(git_workspace: Path, monkeypatch:
 
     assert result.status is WorkflowStatus.COMPLETED
     assert artifact.read_text(encoding="utf-8") == "body"
+
+
+def _subdir_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
+    """仓库根 = tmp_path，工作区 = tmp_path/sub（workspace≠repo root 的部署形态）。"""
+    monkeypatch.chdir(tmp_path)
+    _tracked(tmp_path, "sub/src/base.py", "x = 1\n")
+    _git("init", cwd=tmp_path)
+    _commit_all(tmp_path, "base")
+    workspace = tmp_path / "sub"
+    (workspace / "_he-output" / "goals" / "demo").mkdir(parents=True, exist_ok=True)
+    return tmp_path, workspace
+
+
+def _subdir_engine(workspace: Path) -> StubGitEngine:
+    engine = StubGitEngine()
+    engine.workspace_root = str(workspace)
+    return engine
+
+
+@pytest.mark.asyncio
+async def test_subdir_workspace_excludes_host_artifact(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """工作区是仓库子目录时，宿主自写产物仍不判负（A43 参照系）。
+
+    ``git diff --name-only`` 报**仓库根**相对路径（实测 ``-C <repo/sub>`` 也报 ``sub/...``），
+    而产物路径按工作区相对——不同参照系，差额判负前必须把产物补成仓库根相对。
+    """
+    _, workspace = _subdir_repo(tmp_path, monkeypatch)
+    goal_dir = workspace / "_he-output" / "goals" / "demo"
+    artifact = cli_goal.goal_step_artifact_path(goal_dir, _step(), _story())
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text("previous\n", encoding="utf-8")
+    _commit_all(tmp_path, "plant artifact")
+    _session_stub(monkeypatch)
+
+    result = await _run_step(_subdir_engine(workspace), goal_dir, _execution())
+
+    assert result.status is WorkflowStatus.COMPLETED, result.reason
+    assert result.write_violation is False
+    assert artifact.read_text(encoding="utf-8") == "body"
+
+
+@pytest.mark.asyncio
+async def test_subdir_workspace_untracked_artifact_not_warned(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """子目录工作区下产物未 tracked：``ls-files --others`` 是 cwd 相对，与产物同参照系，
+    不该被当「可疑 untracked 增量」告警（补仓库根相对时不能把这一支弄坏）。"""
+    _, workspace = _subdir_repo(tmp_path, monkeypatch)
+    goal_dir = workspace / "_he-output" / "goals" / "demo"
+    _session_stub(monkeypatch)
+    engine = _subdir_engine(workspace)
+
+    result = await _run_step(engine, goal_dir, _execution())
+
+    assert result.status is WorkflowStatus.COMPLETED
+    warned = [
+        details for kind, details in engine.published if kind == "workflow_write_audit" and details.get("untracked")
+    ]
+    assert warned == []
 
 
 @pytest.mark.asyncio

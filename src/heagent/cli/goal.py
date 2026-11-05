@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import hashlib
 import logging
 import os
 import sys
 import time
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -319,7 +321,7 @@ async def _goal_execute_step(
     # 审计基线在会话**开始前**采集（AD-18）：Δ = after \ before，兄弟并发写与门命令产物
     # 因此天然落在 after 里、按声明排除。基线采集失败（非 Git）→ 跳过审计，围栏不撤。
     workspace = _goal_verify_workspace(engine)
-    baseline = await _audit_git_evidence(workspace) if execution is not None else None
+    baseline = await _write_audit_baseline(workspace) if execution is not None else None
     if execution is not None and baseline is None:
         _emit_write_audit_event(engine, step=step, story=story, skipped="git_unavailable")
     result = await _goal_session(
@@ -407,6 +409,14 @@ def _emit_write_audit_event(engine: EngineContainer | None, *, step: Any, story:
     _emit_step_event(emit, "workflow_write_audit", step=step, story=story, **details)
 
 
+@dataclass(frozen=True)
+class _WriteAuditBaseline:
+    """会话前的审计基线：Git 证据 + 已脏 tracked 路径的**内容指纹**（A40 内容级增量）。"""
+
+    evidence: GitEvidence
+    fingerprints: dict[str, str]
+
+
 async def _audit_story_writes(
     engine: EngineContainer | None,
     workspace: Path,
@@ -414,52 +424,162 @@ async def _audit_story_writes(
     step: Any,
     story: Any,
     execution: StoryExecutionContext,
-    before: GitEvidence,
+    before: _WriteAuditBaseline,
 ) -> str:
     """一次 Story 的 Git 写集审计（AD-18）：返回判负理由（空串 = 通过）。
 
     会话 + 质量门结束后采集 after（基线钉在 before 的 head 上——会话内 ``git commit``
-    不洗白已提交的越集写），``Δ = after \\ before``；判负式
-    ``(Δ.changed \\ 声明写集并集 \\ 宿主自写产物) 非空``——声明写集并集 = 本 Story 的
-    ``write_allowlist`` ∪ 兄弟写集（并发兄弟的合法写在共享工作区里必然落进本 Story 的
-    Git 增量，不排除就是互诬告）；豁免产物含本 Story 与全部批成员的宿主产物路径
+    不洗白已提交的越集写），``Δ`` 取**内容级**增量（A40）：同名路径只有在目标侧内容指纹
+    真的变了才算增量；判负式 ``(Δ \\ 声明写集并集 \\ 宿主自写产物) 非空``——声明写集并集 =
+    本 Story 的 ``write_allowlist`` ∪ 兄弟写集（并发兄弟的合法写在共享工作区里必然落进本
+    Story 的 Git 增量，不排除就是互诬告）；豁免产物含本 Story 与全部批成员的宿主产物路径
     （``_he-output`` 被 tracked 时并发批互不诬告）。untracked 增量剔除产物路径后发警告
     事件不判负（验证夹具 / 新产物常态，AC4；产物自身是必然噪声，不发）。after 采集
     失败（仓库中途不可用）→ 放弃本次审计（不诬告）。
     """
-    after = await _audit_git_evidence(workspace, base=before.head)
+    after = await _audit_git_evidence(workspace, base=before.evidence.head)
     if after is None:
         _emit_write_audit_event(engine, step=step, story=story, skipped="git_unavailable")
         return ""
-    before_changed = set(before.changed_files)
-    changed_delta = [path for path in after.changed_files if path not in before_changed]
-    before_untracked = set(before.untracked_files)
+    # 内容级增量（A40）：路径集合差集看不见「会话前已脏的集外文件被本 Story 再改」——路径
+    # 在 before 与 after 里都出现，Δ 因此漏判。改按目标侧内容指纹比较后：未改动的既有脏
+    # 文件不误报、被再改的既有脏文件不再隐形；指纹读不到（权限 / 中途删除）记空串，与
+    # before 不同即算增量（方向 = 多判负、不漏判）。
+    after_fingerprints = await _content_fingerprints(workspace, after.changed_files)
+    changed_delta = [
+        path for path in after.changed_files if before.fingerprints.get(path) != after_fingerprints.get(path)
+    ]
+    before_untracked = set(before.evidence.untracked_files)
     untracked_delta = [path for path in after.untracked_files if path not in before_untracked]
     allowed = [*execution.write_allowlist]
     artifacts = {_host_artifact_relpath(goal_dir, step, story, workspace)}
     for member_id, sibling in execution.sibling_write_sets.items():
         allowed.extend(sibling)
         artifacts.add(_host_artifact_relpath(goal_dir, step, SimpleNamespace(id=member_id), workspace))
-    allowed.extend(path for path in artifacts if path)
+    artifact_paths = [path for path in artifacts if path]
+    allowed.extend(artifact_paths)
+    # tracked 差额来自 ``git diff --name-only``，报的是**仓库根**相对路径（实测
+    # ``-C <repo/sub>`` 也报 ``sub/...``）；产物路径按**工作区**相对。工作区不是仓库根时
+    # 必须补成同一参照系，否则宿主自写产物被当越集写判负并撤并行授权（A43）。
+    # 同根部署下两者逐字相同（恒等变换，行为不变）。
+    toplevel = _git_toplevel(workspace)
+    allowed.extend(_repo_relpath(path, workspace, toplevel) for path in artifact_paths)
     if untracked_delta:
+        # untracked 来自 ``git ls-files --others``，是 **cwd**（= 工作区）相对，与产物同参照系。
         signal = [path for path in untracked_delta if path not in artifacts]
         if signal:
             _emit_write_audit_event(engine, step=step, story=story, untracked=signal)
     violations = sorted(path for path in changed_delta if not _covered_by_write_set(path, allowed))
     if not violations:
         return ""
+    # 判负的两条补充语义（A41 / A42，2026-11-05）：
+    # ① 共享工作区**无法把写者归属到某个 Story**——兄弟成员越集写同样落进本 Story 的 Δ，
+    #    消息必须如实披露「不能归因」，别让读者当成「本 Story 写的」。
+    # ② 判负原先只置 FAILED + 闩：越集文件留在工作区，而闩后串行重跑的新基线已含旧违规
+    #    （审计对它失明）⇒ 把越集路径与基线 revision 写进观测事件留档，并在 reason 里给出
+    #    可直接执行的人工清理指引（本条只做「指引」，不做自动回滚——回滚需要会话前快照，
+    #    属 AD-20 worktree / 快照层）。
+    shared_workspace = len(execution.batch_members) > 1
+    _emit_write_audit_event(
+        engine,
+        step=step,
+        story=story,
+        violations=violations,
+        base=before.evidence.head,
+        shared_workspace=shared_workspace,
+    )
+    attribution = (
+        "; shared workspace: the writer cannot be attributed to this story (a sibling may be the author)"
+        if shared_workspace
+        else ""
+    )
+    base = before.evidence.head
     return (
-        f"story '{execution.story_id}' wrote outside its declared write set: {', '.join(violations)}; "
-        "parallel authorization for this goal is revoked"
+        f"story '{execution.story_id}' wrote outside its declared write set: {', '.join(violations)}{attribution}; "
+        f"parallel authorization for this goal is revoked; remediation: review with `git diff {base} -- <path>`, "
+        f"then discard with `git restore --source={base} -- <path>` (delete the path instead if it was newly created)"
     )
 
 
+async def _write_audit_baseline(workspace: Path) -> _WriteAuditBaseline | None:
+    """采集会话前基线；仓库不可用（``GitPortError``）返回 ``None``（= 本次审计跳过）。"""
+    evidence = await _audit_git_evidence(workspace)
+    if evidence is None:
+        return None
+    return _WriteAuditBaseline(
+        evidence=evidence, fingerprints=await _content_fingerprints(workspace, evidence.changed_files)
+    )
+
+
+async def _content_fingerprints(workspace: Path, paths: Sequence[str]) -> dict[str, str]:
+    """``{仓库根相对路径: 内容 sha256}``：审计的内容级增量判据（A40）。
+
+    路径来自 ``git diff --name-only``，是**仓库根**相对（同 A43 的参照系事实），故按仓库
+    顶层目录解析；顶层不可知时退回工作区（工作区即仓库根的当前部署两者同形）。文件读不到
+    （删除 / 权限）记空串——与「基线里不存在」的 ``None`` 区分，两者都被当作增量，方向是
+    多判负、不漏判。
+    """
+    root = _git_toplevel(workspace) or workspace
+    return await asyncio.to_thread(_fingerprint_paths, root, list(paths))
+
+
+#: 指纹分块大小：只做流式哈希，绝不把整文件读进内存（仓库里可能有数百 MB 的产物）。
+_FINGERPRINT_CHUNK_BYTES = 1 << 20
+
+
+def _fingerprint_paths(root: Path, paths: list[str]) -> dict[str, str]:
+    """线程池里跑的分块哈希（库代码不做同步 I/O；单文件异常只记空串）。"""
+    digests: dict[str, str] = {}
+    for relpath in paths:
+        digest = hashlib.sha256()
+        try:
+            with (root / relpath).open("rb") as handle:
+                for chunk in iter(lambda: handle.read(_FINGERPRINT_CHUNK_BYTES), b""):
+                    digest.update(chunk)
+        except OSError:
+            digests[relpath] = ""
+            continue
+        digests[relpath] = digest.hexdigest()
+    return digests
+
+
 def _host_artifact_relpath(goal_dir: Path, step: Any, story: Any, workspace: Path) -> str:
-    """宿主自写产物相对工作区根的 posix 路径（不在工作区内返回空串——无需排除）。"""
+    """宿主自写产物**相对工作区根**的 posix 路径（不在工作区内返回空串——无需排除）。
+
+    参照系是工作区，不是仓库根：与 ``git diff --name-only`` 的差额集不同源，比较前必须经
+    :func:`_repo_relpath` 换算（A43）。
+    """
     try:
         return goal_step_artifact_path(goal_dir, step, story).resolve().relative_to(workspace).as_posix()
     except ValueError:
         return ""
+
+
+def _git_toplevel(workspace: Path) -> Path | None:
+    """``workspace`` 所在仓库的顶层目录（最近的含 ``.git`` 的祖先）。
+
+    ``.git`` 是目录（普通仓库）或文件（worktree / 子模块）都算命中。走不到（``GIT_DIR``
+    重定向、非仓库）返回 ``None``——调用方退回「产物按工作区相对」，即工作区恰为仓库根时
+    的既有语义（fail-safe：宁可多判负，不漏判）。
+    """
+    for candidate in (workspace, *workspace.parents):
+        if (candidate / ".git").exists():
+            return candidate
+    return None
+
+
+def _repo_relpath(relpath: str, workspace: Path, toplevel: Path | None) -> str:
+    """工作区相对路径 → 仓库根相对（与 ``git diff --name-only`` 同参照系）。
+
+    工作区即仓库根（当前部署）或参照根不可知时原样返回——此时两种参照系同形。
+    """
+    if not relpath or toplevel is None or toplevel == workspace:
+        return relpath
+    try:
+        prefix = workspace.relative_to(toplevel).as_posix()
+    except ValueError:
+        return relpath
+    return f"{prefix}/{relpath}" if prefix else relpath
 
 
 #: 脚本 facade 的**只读**操作：脚本执行期同步回答（读已持久化的输入 / 产物，不涉及状态）。
