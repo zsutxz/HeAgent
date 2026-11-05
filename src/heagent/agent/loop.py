@@ -520,7 +520,8 @@ class AgentLoop:
                 response.usage.total_tokens - estimated,
             )
             # P0-3：把「实际 vs 估算」的偏差回收成校准系数（输入侧同量纲才可比）。
-            # 这是全局唯一的校准入口——非流式调用必经此处，流式 usage 缺失时无样本可学。
+            # 主循环校准入口（旁路调用经 context.sidecall.send_accounted 同样记账；
+            # 流式 usage 缺失时主循环无样本可学）。
             from heagent.context.tokens import note_actual_usage
 
             note_actual_usage(
@@ -535,6 +536,9 @@ class AgentLoop:
                 "model": response.model,
                 "finish_reason": response.finish_reason,
                 "actual_tokens": response.usage.total_tokens,
+                # 输入/输出分项：运行统计报表按「输入+输出=总计」展示（历史日志只有总计）。
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
                 "duration_ms": _provider_duration_ms,
             },
         )

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 
 import click
 
+from heagent.context.sidecall import send_accounted
 from heagent.goal.document import _GOAL_ID_RE, _slug
 from heagent.pub.types import Message, Role
 
@@ -43,12 +44,16 @@ _GOAL_NAME_PROMPT = (
 async def llm_project_id(provider: BaseProvider, description: str) -> str:
     """Generate the goal id via a one-shot LLM call; fall back loudly on failure.
 
-    一次性直调 ``provider.send``（同 context/window_reset、context/compressor 先例），
+    一次性经 ``context.sidecall.send_accounted`` 调用（同 compressor/window_reset 记账收口），
     不经 SubAgent 会话。任何失败（调用异常/空内容/清洗后非法/超长）都回退
     ``_FALLBACK_ID`` 并向 stderr 显性提示。
     """
     try:
-        resp = await provider.send([Message(role=Role.USER, content=f"{_GOAL_NAME_PROMPT}{description}")])
+        resp = await send_accounted(
+            provider,
+            [Message(role=Role.USER, content=f"{_GOAL_NAME_PROMPT}{description}")],
+            caller="goal_naming",
+        )
         candidate = _slug(resp.content.strip().strip("`").strip().casefold())
     except Exception as exc:  # provider 网络故障、假 provider 缺 send 等一律走回退
         logger.warning("goal naming via llm call failed: %s", exc)

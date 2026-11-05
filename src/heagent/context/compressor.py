@@ -16,6 +16,7 @@ import json
 import logging
 from typing import TYPE_CHECKING
 
+from heagent.context.sidecall import send_accounted
 from heagent.context.tokens import estimate_text_tokens
 from heagent.pub.types import Message, ProviderResponse, Role
 
@@ -247,8 +248,10 @@ class ContextCompressor:
         try:
             # 残余非流式调用：大上下文经代理中转（如 Cloudflare）有读超时风险，
             # 失败已被下方 except 吞为占位符，不致崩；如需根治可切 provider.stream。
-            resp: ProviderResponse = await self.provider.send(
-                [Message(role=Role.USER, content=f"{STRUCTURED_SUMMARY_PROMPT}\n\n{prompt}")]
+            resp: ProviderResponse = await send_accounted(
+                self.provider,
+                [Message(role=Role.USER, content=f"{STRUCTURED_SUMMARY_PROMPT}\n\n{prompt}")],
+                caller="compressor",
             )
         except Exception:
             # 摘要失败时不抛异常、不中断主循环：返回简短占位符，

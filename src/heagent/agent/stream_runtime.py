@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import TYPE_CHECKING
 
 from heagent.agent.run_lifecycle import (
@@ -72,6 +73,15 @@ async def stream_run(  # noqa: C901
                     model = ""
                     finish_reason = ""
                     reasoning_content = ""
+                    from heagent.context.tokens import count_tokens
+
+                    stream_estimated = count_tokens(state.messages)
+                    stream_started = time.perf_counter()
+                    loop._emit(
+                        "provider_call_started",
+                        run_context=run_context,
+                        details={"message_count": len(state.messages), "estimated_tokens": stream_estimated},
+                    )
 
                     async for chunk in loop.provider.stream(state.messages, tools=tools or None):
                         if chunk.content:
@@ -112,6 +122,27 @@ async def stream_run(  # noqa: C901
                         model=model,
                         finish_reason=finish_reason or "stop",
                         reasoning_content=reasoning_content or None,
+                    )
+
+                    if response.usage and response.usage.total_tokens > 0:
+                        from heagent.context.tokens import note_actual_usage
+
+                        note_actual_usage(
+                            response.model,
+                            estimated=stream_estimated,
+                            actual=response.usage.prompt_tokens,
+                        )
+                    loop._emit(
+                        "provider_call_completed",
+                        run_context=run_context,
+                        details={
+                            "model": response.model,
+                            "finish_reason": response.finish_reason,
+                            "actual_tokens": response.usage.total_tokens,
+                            "prompt_tokens": response.usage.prompt_tokens,
+                            "completion_tokens": response.usage.completion_tokens,
+                            "duration_ms": max(int((time.perf_counter() - stream_started) * 1000), 0),
+                        },
                     )
 
                     from heagent.agent.context_runtime import maybe_compress, maybe_window_reset

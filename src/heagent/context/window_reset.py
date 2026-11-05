@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from heagent.context.compressor import STRUCTURED_SUMMARY_PROMPT, render_message_for_summary
+from heagent.context.sidecall import send_accounted
 from heagent.pub.types import Message, ProviderResponse, Role
 
 if TYPE_CHECKING:
@@ -133,8 +134,10 @@ class WindowReset:
         try:
             # 残余非流式调用：大上下文经代理中转（如 Cloudflare）有读超时风险，
             # 失败已被下方 except 吞为占位符，不致崩；如需根治可切 provider.stream。
-            resp: ProviderResponse = await self.provider.send(
-                [Message(role=Role.USER, content=f"{self.config.summary_prompt}\n\n{prompt}")]
+            resp: ProviderResponse = await send_accounted(
+                self.provider,
+                [Message(role=Role.USER, content=f"{self.config.summary_prompt}\n\n{prompt}")],
+                caller="window_reset",
             )
         except Exception:
             # 摘要失败时不抛异常、不中断主循环：返回占位符，

@@ -125,6 +125,18 @@ class TestAgentLoop:
         assert result == "hello world"
 
     @pytest.mark.asyncio
+    async def test_provider_call_completed_carries_usage_split(self) -> None:
+        """报表口径：``provider_call_completed`` 必须带输入/输出分项（统计按 `A+B=C` 展示）。"""
+        loop = AgentLoop(StubProvider([_final("done")]), max_iterations=5)
+        await loop.run("hi")
+        events = [e for e in loop.engine.events.recent_events if e.event_type == "provider_call_completed"]
+        assert events, "provider_call_completed 未发出"
+        details = events[-1].details
+        assert details["prompt_tokens"] == 10
+        assert details["completion_tokens"] == 5
+        assert details["actual_tokens"] == 15
+
+    @pytest.mark.asyncio
     async def test_session_restore_keeps_system_first(self, tmp_path) -> None:
         """回归：恢复会话历史后 SYSTEM 提示词必须仍是消息列表第一条。
 

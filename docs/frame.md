@@ -621,13 +621,23 @@ encoding（模型名不被识别时退 `cl100k_base`），否则用 CJK 感知�
 `tiktoken` = 强制真实（依赖缺失时告警一次后回退）。encoding 按模型缓存（含「不可用」这一结果，
 避免反复尝试导入）。
 
-校准：`AgentLoop._call_provider` 在拿到真实 `usage.prompt_tokens` 时调用 `note_actual_usage`——
-这是**唯一**校准入口（非流式调用必经此处；流式 usage 缺失时无样本可学）。坏样本被丢弃
+校准入口（2026-11-05 起两类）：主循环 `AgentLoop._call_provider` 与旁路调用经
+`context.sidecall.send_accounted`（context 压缩 / 窗口重置 / goal 命名——此前直调
+`provider.send` 零日志零样本，统计低估）。两者都在拿到真实 `usage.prompt_tokens` 时调用
+`note_actual_usage`。坏样本被丢弃
 （`actual<=0`，或比值超出 0.2~5），因为坏样本会把压缩阈值带偏。启发式路径返回
 `round(raw × factor)`，两条路径量纲因此可比。
 
 ⚠ 计量结果直接喂给压缩阈值与窗口重置判定：偏差会放大成「该压缩时没压缩（撞 API 400）」
 或「提前压缩、白丢上下文」，故不再满足于纯估算。
+
+#### sidecall.py — 旁路调用统一记账（2026-11-05）
+
+主循环的模型调用自带日志与校准（`AgentLoop._call_provider`）；context 压缩、窗口重置、
+goal 命名三类旁路此前直调 `provider.send`，在日志与统计里完全隐形。`send_accounted(provider,
+messages, *, caller)` 是统一记账入口：估算 → 调用 → 计时 → 调用日志（格式对齐
+`_call_provider`，caller 标签区分来源）→ 校准；usage 缺失显性告警、失败原样上抛，处置
+（占位符/显性回退）归调用方。
 
 #### compressor.py — 上下文压缩
 
@@ -1581,6 +1591,7 @@ src/heagent/
 ├── context/                 # 上下文管理
 │   ├── loader.py            # 上下文文件分层扫描（仓库根 → cwd，CONTEXT.md > AGENTS.md > CLAUDE.md）
 │   ├── tokens.py            # CJK 感知 Token 估算
+│   ├── sidecall.py          # 旁路 provider 调用统一记账（压缩/重置/命名留日志与校准）
 │   ├── compressor.py        # 消息压缩
 │   ├── window_reset.py      # 窗口重置 + checkpoint-resume（P3）
 │   └── session.py           # 会话持久化
