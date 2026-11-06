@@ -693,6 +693,8 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 **语义压缩（epic-59，2026-10-29）**：归档只做确定性字节移出，语义重复/过时条目的**合并改写**由 `memory/compact.py` 承载、经 `fact_compact` 工具（`tools/builtins/memory.py`，写侧唯一入口）在 **dream 侧**执行——启动路径零新增 LLM（确定性逻辑交给代码）。写侧纪律：source 以**条目原文精确匹配**定位（非行号），缺失/不唯一/批内重复引用即整批拒绝并点名；**留底先行**（被移除条目先写同一 `archive/MEMORY-archive.md`，小节标题带 `；fact_compact` 标记区分写者，留底失败整批拒绝）；MEMORY.md 重写走 `atomic_update_text` compare-after-read（并发 `fact_add` 追加不被吞，冲突放弃本批、留底保留——宁重复不丢失）；target 对「未被本批移除的条目」做 70% 词级判重，命中只拒该条 merge（多条 merge 顺序化应用，后序判重集合含前序 target）。开关 `memory_compact_enabled` **默认 False**、工具层 fail-closed（无人监督删改持久记忆须显式 opt-in，对齐 `dream_enabled` 立场；关闭时 dream prompt 与现状一致——dreamer 系统提示/白名单虽无条件含 `fact_compact`，调用会被工具层显性拒绝，故巩固行为不变）。接线：dream prompt 仅在开启时拼 `<memory-compaction>` 指令段；dreamer 白名单仅加 `fact_compact`；dream 闭包对 `FactStore.drain_compactions()` 做**窗口归属**（run 前 drain 丢旧账、run 后 drain 聚合为本次窗口统计）→ `DreamResult.compact` → `dream_end` details 携带 compact 统计（不新增事件类型）。注入侧超预算标注随开关条件化：开启指向 `fact_compact`/dream 压缩，关闭维持「需由用户整理」。判据：`tests/memory/test_compact.py`、`tests/test_fact_compact_tool.py`、`tests/test_dream.py`。
 
+**崩溃窗口口径（2026-11-06 定向审查裁定，无缺口）**：`compact_facts` 在「留底已写 → MEMORY.md 比较后写」之间崩溃，残留为留底与现行**并存的可检测重复态**（archive 小节带 `fact_compact` 标记即崩溃遗留的合成痕迹），无静默丢失路径——归档并发覆盖已由 A50 闭合、比较后写防并发吞写（冲突放弃本批、留底保留）；同批 merge 可原样重放恢复（source 精确匹配仍唯一在场），失败方向与「宁重复不丢失」一致，不引入锁文件语义。
+
 #### 技能库（顶层 `skills/` 包，2026-10-10 自 memory/ 迁出）
 
 > **Phase 4 C4（2026-09-21）拆分 + 2026-10-10 迁出**：原单文件 `skills.py` 先拆为 `skill_models.py`（模型 + `parse_skill_md` + 名称校验）、`skill_rewrite.py`（渲染 / `body_survives_rerender` / frontmatter 就地改写）、`skill_catalog.py`（匹配 + 过期盘点，以 store 为数据源的纯函数）、`skill_store.py`（`SkillStore` 门面）；`skills.py` re-export 兼容。`SkillStore` 文件读取走 `path_safety.open_text_under_root` 单一安全入口（契约测试钉 `os.open` 白名单 = path_safety + persist 锁文件）。
@@ -725,6 +727,8 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 事件：`dream_start` / `dream_end`（trigger / success / iterations / run_id）经 `EventBus` 发布，`LoggingObserver` 落日志。
 
+**触发投递语义（misfire 口径，2026-11-06 成文）**：双触发 tick 是**判定式而非队列式**——每 tick（`cron_tick_seconds`，默认 60s）以 `cron_matches(now)` 判定「此刻是否命中」，无排队、无补跑：进程宕机跨过整个命中窗口、或命中时已有 dream 在跑（`_dreaming` 互斥只防并发，不提供窗口幂等——快速 dream 收口后同窗口 tick 再命中会再跑一次），该次触发丢弃；idle 是机会主义触发（非预约），不适用 misfire。`CronScheduler`（§4.7）由**分钟级 ledger key** 提供每逻辑分钟至多一次的幂等（`ledger.complete` 先于 `last_run` 写回，P1-10；失败也盖 `last_run`，防每分钟热重试 P1-11），但同样**宕机窗口不补跑**——对跳过敏感的无人值守批次须在调用方（外部任务计划器或包装脚本）层自做 catch-up，框架内不补跑。
+
 ⚠ **安全立场**：dreaming = 无人监督 + 联网（`web_fetch`）+ 改持久记忆，被污染网页可经 prompt injection 跨会话污染记忆库——这是本模块的真实风险面，边界地位见 §4.19；OS 沙箱就绪后 dreamer 须迁移进沙箱。`web_fetch` 返回经 `guard_content` 启发式围栏（Epic 35，2026-08-19：命中内置注入签名加 warning 标记后透传，不阻断；与 MCP `bridge_result` 同语义）。
 
 ### 4.7 Cron 调度 (`cron/`)
@@ -744,7 +748,7 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 | 手写 cron 解析 | 5-field（分 时 日 月 星期），支持 `*`、`*/N`、范围 `1-5`、步进 `1-30/10`、逗号列表；实现在纯叶子 `cron/expr.py`（`cron_matches`），`scheduler.py` 的 `CronScheduler._matches` 为薄委托（`memory/dream` 经 `cron.expr` 共用，不 reach-through 调度器） |
 | 构造函数注入 | provider + stores，执行时创建独立 AgentLoop |
 
-一次性任务（`recurring=False`）成功后自动删除。
+一次性任务（`recurring=False`）成功后自动删除。投递语义（misfire 口径）与 dream 共用同一口径，见 §4.6 dream「触发投递语义」。
 
 ### 4.8 共享类型 (`pub/types.py`)
 
@@ -1268,6 +1272,12 @@ crash 前缀可回放）；`heagent replay` 人读渲染有值时追加 `[Nms]` 
 黄金测试改字段须 bump `SCHEMA_VERSION` 并同步 `_EXPECTED_FIELDS`。
 workflow 事件经 `goal/application.advance(emit=...)` 透传、`cli.goal._workflow_event_emitter`
 绑 `EngineContainer.events` 总线；emit 异常隔离（warning，不改变业务控制流）。
+
+**事件域分型与分发语义（2026-11-06，dsh 对标采纳）**：HeAgent 事件分**两域一约定**——
+- **运行事实域**（持久）：`RunEvent` JSONL（本节前两表）——`rollout.jsonl` append-only、crash 前缀可回放；只在挂了 sink 的入口存在（`EVENTS_ROLLOUT_ENABLED` / `--json`；交互 REPL 默认不挂 ⇒ 57-4 口径：交互模式的观察只能走 EventBus 直订阅）。
+- **进程观察域**（易失）：`EventBus`（`engine/observability.py`）同步按序派发给观察者、有界保留最近 200 条（`retain`）；不落盘、不回放，丢失即丢失（缓冲窗口内 `recent_events` 可查）。
+- **消费隔离约定**：EventBus 观察者异常逐个捕获记录（不影响其他观察者、不向发布方传播）；workflow `emit` 注入端口异常隔离同口径（warning，不改业务控制流）。
+分发词汇：**观察**（EventBus 订阅，改不了流）/ **拦截**（agent middleware，不在 events/ 域）/ **扇出**（同步扇出、独立异常域）。事件无 nack/重投/补偿——持久域靠 append-only 回放，观察域以有界缓冲为界。
 
 ### 4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)
 
@@ -1895,6 +1905,15 @@ Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测
 ### 8.3 声明式敏捷流程收口
 
 `.heagent/skills/he-goal/workflow.md` 是必需且自包含的 `/goal` 工作流。它声明初始化过程和完整的有序步骤；CLI 只把受支持的声明映射为确定性操作。`WorkflowRunner` 每次调用执行一个声明步骤，持久化从零开始编号的已完成步骤 checkpoint，并拒绝缺失输入、无效输出以及不匹配的工作流恢复状态。`brief.md` 是目标的持久需求文档（创建时保存原始请求，随后由步骤 01 在初步分析后写入派生需求）；重命名之前创建的目标继续使用自己的 `require.md`（或更早的 `GOAL.md`），由 `goal/document.py` 按最新名称优先解析，并将解析出的文件名注入步骤提示词的 `{goal_document}`，因此工作流声明不会硬编码文件名。它取代 `goal.txt`，并且有意不作为 `parse_artifact()` 的 Goal 产物。Goal 文档和 `workflow.json` 仍位于 `_he-output/` 下。新目标在 `checkpoint-workspace.txt` 记录绝对工作区，并将 checkpoint 存放在 `<workspace>/.heagent/checkpoints/<goal_id>/`；没有该标记的目标继续使用原有的目标目录内 `checkpoints/`。无效标记会显式失败；缺少工作流也会显式失败。原先命令式的 `goal.txt` 看板路径已经删除，声明式 Runner 是唯一的 `/goal` 执行路径。转换策略仍由当前工作流及其确定性 Runner 负责。工作流本身作为技能包（`he-goal`）提供，并通过 `SkillCatalog`/`SkillResolver` 解析；因此每次运行的策略（`max_rounds`、`auto_schedule`、开放问题措辞）以及步骤提示词/门禁措辞，都声明在包内的（`workflow.md`；步骤/门禁模板文件名由 frontmatter `prompt_template` / `gate_template` 键声明，文件为 `templates/prompt.md` / `templates/gate.md`）。模板是否必需也由这些声明控制：声明的模板缺失或为空时，加载器会显式失败（`required_resources` 与模板键条目都会做前缀规范化且逐项强制检查；拼写错误的名称会导致加载失败，不会被静默忽略）；未声明但内容为空的模板会在渲染提示词时显式失败，不会生成空的步骤提示词或门禁块；CLI 不包含内置模板文案。
+
+### 8.4 工程纪律条款
+
+Canonical 工程纪律（评审与实现共用判据；2026-11-06 自 dsh AGENTS 纪律精选采纳）：
+
+1. **fails loud at load**：自含的配置/装配错误在装载期显性失败。既有先例：http-server 双开关全关 fail-fast、对外模式缺 token 拒启动、畸形 cron 构造期校验。「静默降级」是例外，必须有明文立场（如 MCP 桥接降级 WARNING + 每次提醒）。
+2. **常量≠配置**：部署可变项必须是可校验 Config 字段；`DEFAULT_*` 常量不算可配置——这是「用户声明优于代码立场」的判定线。
+3. **空 catch 必须具名**：`except Exception:` 后空处理（或仅 pass）必须注释写明吞掉的是什么错误、为什么安全；匿名吞错违反显性失败准则。
+4. **不解释的对称破缺暗示漏提取**：并行值/对称结构出现无理由差异时先怀疑漏提取；有理由的不对称必须在差异处留注释（先例：workflow_runner 串行/批两路闩置位 AD-18 刻意不对称并留注）。
 
 ## 九、历史与迁移
 

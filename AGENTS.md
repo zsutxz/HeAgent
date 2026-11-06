@@ -164,6 +164,10 @@ WS 对外排障工具链（`scripts/`，细节见各脚本头注释）：`setup_
 
 <!-- /bmad:context -->
 
+## 工程纪律指针
+
+工程纪律四条款（fails loud at load / 常量≠配置 / 空 catch 具名 / 不解释的对称破缺暗示漏提取）的 canonical 在 [`docs/frame.md`](docs/frame.md) §8.4；本文件只留指针不承载正文——纳管块内条目会随 /bmad-project-context refresh 被替换，纪律条款必须置于块外才能存活。
+
 ## 已知缺口
 
 完整清单见 `docs/frame.md` 五与 `_bmad-output/implementation-artifacts/deferred-work-archive.md`。
