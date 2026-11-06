@@ -47,11 +47,6 @@ logger = logging.getLogger(__name__)
 STREAM_BUFFER_SIZE = 256
 
 
-def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -> None:
-    """记一条日志，**绝不让观测故障影响事件发布**。"""
-    safe_log(logger, level, message, *args, exc_info=exc_info)
-
-
 class SequencedPayload(Protocol):
     """流内载荷的最小结构面：一个单调序号即可（游标只依赖它）。"""
 
@@ -158,7 +153,7 @@ class EventStreamHub(Generic[PayloadT]):
             payload: PayloadT = build(self._next_seq)
         except Exception:
             # 字段有界化 / 校验失败：只读流少一条事件，绝不打断正在跑的那一轮。
-            _safe_log(logging.WARNING, "%s event=publish_failed", self._log_prefix, exc_info=True)
+            safe_log(logger, logging.WARNING, "%s event=publish_failed", self._log_prefix, exc_info=True)
             return
         self._next_seq += 1
         self._buffer.append((stream_id, payload))
@@ -200,7 +195,7 @@ class EventStreamHub(Generic[PayloadT]):
                 break
         with contextlib.suppress(asyncio.QueueFull):
             queue.put_nowait(None)
-        _safe_log(logging.WARNING, "%s event=subscriber_dropped reason=queue_full", self._log_prefix)
+        safe_log(logger, logging.WARNING, "%s event=subscriber_dropped reason=queue_full", self._log_prefix)
 
     # ---- 关停 ----
 
@@ -233,7 +228,8 @@ class EventStreamHub(Generic[PayloadT]):
                 await websocket.send_text(WsErrorFrame(error=envelope).model_dump_json())
                 await websocket.close(code=WS_CLOSE_GOING_AWAY)
             self.unregister_ws(connection_id)
-            _safe_log(
+            safe_log(
+                logger,
                 logging.INFO,
                 "%s event=ws_close %s=%s connection_id=%s",
                 self._log_prefix,

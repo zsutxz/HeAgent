@@ -58,11 +58,6 @@ _PROBE_TIMEOUT = 5.0
 _SHUTDOWN_GRACE_MARGIN = 1.0
 
 
-def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -> None:
-    """记一条日志，绝不让观测故障影响协议行为（网络传输层的既有立场）。"""
-    safe_log(logger, level, message, *args, exc_info=exc_info)
-
-
 class WsStartupError(RuntimeError):
     """WS server 未能绑定或未通过就绪探测。"""
 
@@ -344,7 +339,8 @@ class WsServer:
             raise WsStartupError(f"WS server could not bind {self.address}: {exc}") from exc
         self._server = server
         self._log_ws_unavailable_once(server)
-        _safe_log(
+        safe_log(
+            logger,
             logging.INFO,
             "ws event=started address=%s listener=%s tls=%s",
             self.address,
@@ -353,7 +349,8 @@ class WsServer:
         )
         if self.config.mode == "external" and not self.config.tls_enabled:
             # D4：对外明文跑必须日志可见（与 exposure 告警两条独立信息：一条说「谁能连」，一条说「没加密」）。
-            _safe_log(
+            safe_log(
+                logger,
                 logging.WARNING,
                 "ws event=plaintext_external address=%s listener=external transport=ws "
                 "hint=configure WS_TLS_CERT_FILE and WS_TLS_KEY_FILE to serve wss",
@@ -362,7 +359,8 @@ class WsServer:
         if self.config.mode == "local" and self.config.requires_auth and not self.config.tls_enabled:
             # 2026-11-04 D5 修订：回环 + 强制认证 + 明文 ⇒ token 在回环明文上传输也必须可见
             # （本机窃听者可读到 token；与对外明文是两条独立告警，listener 标签不同）。
-            _safe_log(
+            safe_log(
+                logger,
                 logging.WARNING,
                 "ws event=plaintext_local_auth address=%s listener=local transport=ws "
                 "hint=configure WS_TLS_CERT_FILE and WS_TLS_KEY_FILE to serve wss",
@@ -370,7 +368,8 @@ class WsServer:
             )
         if not self.config.requires_auth and self.config.auth_secret:
             # 开关关时本地模式刻意不启用认证（D5 原语义）：token 配了也不生效，说清楚以免留下虚假安全感。
-            _safe_log(
+            safe_log(
+                logger,
                 logging.WARNING,
                 "ws event=auth_token_ignored reason=loopback_bind hint=auth is enforced only for non-loopback binds",
             )
@@ -379,7 +378,8 @@ class WsServer:
         if self.config.requires_auth:
             # 强制认证的 listener：exposure 文案「no authentication」已不成立（认证强制），单列一条准确的
             # 暴露记录；listener 标签按绑定模式出（对外=external，本地开关=local），不再硬编码。
-            _safe_log(
+            safe_log(
+                logger,
                 logging.WARNING,
                 "ws event=exposed host=%s listener=%s auth=token tls=%s",
                 self.config.host,
@@ -389,7 +389,9 @@ class WsServer:
         else:
             warning = exposure_warning(self.config.host)
             if warning is not None:
-                _safe_log(logging.WARNING, "ws event=exposed host=%s listener=local %s", self.config.host, warning)
+                safe_log(
+                    logger, logging.WARNING, "ws event=exposed host=%s listener=local %s", self.config.host, warning
+                )
         if not await self._probe_ready():
             # 绑定成功但 listener 不可连 ⇒ 回滚，绝不对外宣称「已启动」。
             self._server = None
@@ -460,14 +462,14 @@ class WsServer:
         try:
             await asyncio.wait_for(server.shutdown(), timeout=budget)
         except TimeoutError:
-            _safe_log(logging.WARNING, "ws event=shutdown_timeout phase=listener")
+            safe_log(logger, logging.WARNING, "ws event=shutdown_timeout phase=listener")
             server.force_exit = True
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(server.shutdown(), timeout=budget)
         except asyncio.CancelledError:
             raise
         except Exception:
-            _safe_log(logging.WARNING, "ws event=shutdown_failed", exc_info=True)
+            safe_log(logger, logging.WARNING, "ws event=shutdown_failed", exc_info=True)
 
     async def _probe_ready(self) -> bool:
         """用真实 TCP 连接验证 listener 可连（本 server 无 HTTP 健康端点，D1 接缝事实）。"""
@@ -476,7 +478,7 @@ class WsServer:
         try:
             _reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=_PROBE_TIMEOUT)
         except (OSError, TimeoutError) as exc:
-            _safe_log(logging.WARNING, "ws event=probe_failed phase=connect error=%r", exc)
+            safe_log(logger, logging.WARNING, "ws event=probe_failed phase=connect error=%r", exc)
             return False
         writer.close()
         return True
@@ -486,7 +488,8 @@ class WsServer:
         ws_protocol_class = getattr(server.config, "ws_protocol_class", None)
         if ws_protocol_class is None and not self._ws_unavailable_logged:
             self._ws_unavailable_logged = True
-            _safe_log(
+            safe_log(
+                logger,
                 logging.WARNING,
                 "ws event=ws_unavailable install_hint=%s",
                 "pip install 'heagent[http]' (WebSocket support requires websockets)",

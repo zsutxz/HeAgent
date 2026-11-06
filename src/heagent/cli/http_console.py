@@ -82,11 +82,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -> None:
-    """记一条日志，**绝不让观测故障影响生命周期行为**（绑定**本模块** logger，故与 http.py 各留一份）。"""
-    safe_log(logger, level, message, *args, exc_info=exc_info)
-
-
 # 项目运行入口的工厂：给定项目路径派生结果与会话存储，返回该项目专属的运行入口。
 # 网络层只看到不透明项目 id；项目根 → 运行时的解析全部留在入口层（脊柱 I1）。
 ProjectHandlerFactory = Callable[[WorkspacePaths, SessionStore], "HttpAgentHandler"]
@@ -361,7 +356,7 @@ def _project_settings(root: Path, *, fallback: Settings) -> Settings:
         # ``_env_file`` 是 pydantic-settings 的运行时参数（mypy 按字段合成的签名看不到它）。
         return Settings(_env_file=[str(root / ".env")])  # type: ignore[call-arg]
     except Exception as exc:  # noqa: BLE001 - 降级而非带崩：项目配置坏了不该让控制台整体失败
-        _safe_log(logging.WARNING, "Project %s .env is unusable; using server settings: %s", root, exc)
+        safe_log(logger, logging.WARNING, "Project %s .env is unusable; using server settings: %s", root, exc)
         return fallback
 
 
@@ -510,7 +505,8 @@ class HttpProjectConsole:
         self._config_generations: dict[str, int] = {}
         if write_enabled:
             # D4：开关一旦打开就必须**在启动时**说清楚代价（stderr + 日志），不能只写在文档里。
-            _safe_log(
+            safe_log(
+                logger,
                 logging.WARNING,
                 "Config write channel enabled (HTTP_CONSOLE_WRITE_ENABLED): anyone who can reach this "
                 "port can modify the project .env. This entry has no authentication and is not a "
@@ -827,4 +823,4 @@ class HttpProjectConsole:
         try:
             self.registry.touch(project_id)
         except (ProjectRegistryError, OSError) as exc:
-            _safe_log(logging.WARNING, "Unable to touch project %s: %s", project_id, exc)
+            safe_log(logger, logging.WARNING, "Unable to touch project %s: %s", project_id, exc)

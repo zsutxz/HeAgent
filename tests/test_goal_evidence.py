@@ -22,6 +22,7 @@ from heagent.goal.evidence import (
     _MAX_OUTPUT_SUMMARY_CHARS,
     _TIMEOUT_MARKING,
     EVIDENCE_SCHEMA_VERSION,
+    TRUNCATION_MARKER,
     CommandEvidence,
     CommandOutcome,
     EvidenceError,
@@ -45,6 +46,7 @@ from heagent.goal.git_port import (
     _parse_branch_line,
 )
 from heagent.goal.workflow_loader import SkillWorkflowError, parse_validation_clauses, read_workflow
+from heagent.network.http_protocol import _TRUNCATION_SUFFIX
 from heagent.skills.skill_packages import SkillPackage
 from heagent.pub.types import ToolCall, ToolResult
 
@@ -807,3 +809,13 @@ def test_real_workflow_package_parses_its_declared_sections() -> None:
     assert declared, "he-goal 声明了 section 子句；解析后应非空"
     for step in steps:
         assert step.validation_clauses.sections == required_sections(step.validation_rules)
+
+
+def test_truncation_marker_mirror_pin() -> None:
+    """跨模块截断标记镜像钉（C5，2026-11-06）：goal 与 network 两侧常量逐字节一致。
+
+    同 MAX_SESSION_TITLE_CHARS 镜像先例（tests/network/test_http_console_config.py）——
+    跨层不为字符串常量建 import 依赖，靠测试钉住漂移。memory/dream.py:375 另有内联
+    字面量属展示层截断，非常量、不钉。
+    """
+    assert TRUNCATION_MARKER == _TRUNCATION_SUFFIX

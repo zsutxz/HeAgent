@@ -203,15 +203,6 @@ class HttpServerConfig(BaseModel):
     shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 
 
-def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -> None:
-    """记一条日志，**绝不让观测故障影响协议行为**（网络传输层的既有立场）。
-
-    ``logger`` 被替换 / handler 抛异常 / logging 配置损坏时，请求仍必须拿到正常响应：
-    观测故障只该降级成「少一条日志」。
-    """
-    safe_log(logger, level, message, *args, exc_info=exc_info)
-
-
 def _require_module(name: str) -> Any:
     """延迟导入可选依赖模块；缺失时给出可诊断的安装提示。
 
@@ -550,7 +541,7 @@ class HttpRunService:
             # 只有「无项目归属」的运行（Epic 49 的 ``POST /api/runs``）驱动 ``/api/session`` 投影，
             # 项目内运行不改变它——49 端点的语义因此逐字不变（R3/I13）。
             self._current_run_id = record.run_id
-        _safe_log(logging.INFO, "http event=run_started run_id=%s", record.run_id)
+        safe_log(logger, logging.INFO, "http event=run_started run_id=%s", record.run_id)
         task: asyncio.Task[None] = asyncio.create_task(
             self._execute(record, executor or self._executor), name=f"heagent-http-run-{record.run_id}"
         )
@@ -632,7 +623,8 @@ class HttpRunService:
             record.append(RunEventKind.CANCELLED, message="run cancelled")
             record.close_subscribers()
         # 统一终态观测（AD-9）：只有不透明 run id、状态与耗时——**不含** prompt、回答或工具输出。
-        _safe_log(
+        safe_log(
+            logger,
             logging.INFO if record.status is RunStatus.COMPLETED else logging.WARNING,
             "http event=run_finished run_id=%s status=%s elapsed_ms=%d",
             run_id,
@@ -658,7 +650,7 @@ class HttpRunService:
             task.cancel()
             _done, pending = await asyncio.wait({task}, timeout=self.config.shutdown_timeout)
             if pending:
-                _safe_log(logging.WARNING, "http event=cancel_timeout run_id=%s", run_id)
+                safe_log(logger, logging.WARNING, "http event=cancel_timeout run_id=%s", run_id)
         return record
 
     def needs_resync(self, record: _RunRecord, last_event_id: int | None) -> bool:
@@ -705,7 +697,8 @@ class HttpRunService:
                 await websocket.send_text(WsErrorFrame(error=envelope).model_dump_json())
                 await websocket.close(code=WS_CLOSE_GOING_AWAY)
             self.unregister_ws(connection_id)
-            _safe_log(
+            safe_log(
+                logger,
                 logging.INFO,
                 "http event=ws_close run_id=%s connection_id=%s close_code=%d",
                 run_id,
@@ -732,7 +725,7 @@ class HttpRunService:
         if tasks:
             _done, pending = await asyncio.wait(tasks, timeout=self.config.shutdown_timeout)
             if pending:
-                _safe_log(logging.WARNING, "http event=run_shutdown_timeout pending=%d", len(pending))
+                safe_log(logger, logging.WARNING, "http event=run_shutdown_timeout pending=%d", len(pending))
         self._run_tasks.clear()
 
     # ---- 运行执行 ----
@@ -856,7 +849,7 @@ class HttpRunService:
         except Exception as exc:
             # 运行是后台任务，异常不会走 Starlette / Uvicorn 的 traceback 通道：诊断细节只进服务端
             # 日志（客户端拿脱敏文案），否则真实缺陷的栈会被彻底丢掉。
-            _safe_log(logging.ERROR, "http event=run_failed run_id=%s", record.run_id, exc_info=True)
+            safe_log(logger, logging.ERROR, "http event=run_failed run_id=%s", record.run_id, exc_info=True)
             if record.claim_terminal(RunStatus.FAILED):
                 record.error_message = _client_error_message(exc)
                 record.append(RunEventKind.ERROR, message=record.error_message)
@@ -865,7 +858,8 @@ class HttpRunService:
             reason = record.consume_deadline_reason()
             if reason is not None and not self._closing:
                 # 时限已到但 executor 吞掉取消正常返回：终态按实际结果，但「时限没生效」必须可见。
-                _safe_log(
+                safe_log(
+                    logger,
                     logging.WARNING,
                     "http event=timeout_ignored run_id=%s reason=%s elapsed_ms=%d",
                     record.run_id,
@@ -1004,7 +998,8 @@ class _OriginGuardMiddleware:
             await self.app(scope, receive, send)
             return
         # 违规原因只进服务端日志；客户端拿固定的脱敏文案（不透露允许的 host 集合）。
-        _safe_log(
+        safe_log(
+            logger,
             logging.WARNING,
             "http event=origin_rejected method=%s path=%s reason=%s",
             scope.get("method"),
@@ -1048,7 +1043,8 @@ class _AccessLogMiddleware:
         try:
             await self.app(scope, receive, send_with_headers)
         finally:
-            _safe_log(
+            safe_log(
+                logger,
                 logging.INFO if status < 400 else logging.WARNING,
                 "http event=request request_id=%s method=%s path=%s status=%s elapsed_ms=%d",
                 request_id,
@@ -1193,10 +1189,10 @@ def _console_error_response(responses: Any, exc: BaseException, *, event: str) -
         try:
             code = HttpErrorCode(exc.code)
         except ValueError:
-            _safe_log(logging.ERROR, "http event=%s unknown_console_code=%s", event, exc.code)
+            safe_log(logger, logging.ERROR, "http event=%s unknown_console_code=%s", event, exc.code)
             return _json_error(responses, HttpErrorCode.SERVER_ERROR, "request failed", status_code=500)
         return _json_error(responses, code, str(exc), status_code=_CONSOLE_ERROR_STATUS.get(code, 400))
-    _safe_log(logging.ERROR, "http event=%s handler_failed", event, exc_info=True)
+    safe_log(logger, logging.ERROR, "http event=%s handler_failed", event, exc_info=True)
     return _json_error(responses, HttpErrorCode.SERVER_ERROR, "request failed", status_code=500)
 
 
@@ -1639,7 +1635,7 @@ def build_http_app(
         try:
             payload = read_web_asset(name)
         except (KeyError, OSError, ModuleNotFoundError):
-            _safe_log(logging.ERROR, "http event=asset_unavailable asset=%s", name)
+            safe_log(logger, logging.ERROR, "http event=asset_unavailable asset=%s", name)
             return _json_error(
                 responses,
                 HttpErrorCode.SERVER_ERROR,
@@ -1676,7 +1672,7 @@ def build_http_app(
 
     async def server_error(request: Any, exc: Any) -> Any:  # noqa: ARG001
         # 详细 traceback 只进服务端 error 日志；客户端拿固定文案。
-        _safe_log(logging.ERROR, "http event=request_error", exc_info=True)
+        safe_log(logger, logging.ERROR, "http event=request_error", exc_info=True)
         return _json_error(responses, HttpErrorCode.SERVER_ERROR, "internal server error", status_code=500)
 
     routes = [
@@ -1845,10 +1841,10 @@ class HttpServer:
         except OSError as exc:
             raise HttpStartupError(f"HTTP server could not bind {self.address}: {exc}") from exc
         self._server = server
-        _safe_log(logging.INFO, "http event=started address=%s", self.address)
+        safe_log(logger, logging.INFO, "http event=started address=%s", self.address)
         warning = exposure_warning(self.config.host)
         if warning is not None:
-            _safe_log(logging.WARNING, "http event=exposed host=%s %s", self.config.host, warning)
+            safe_log(logger, logging.WARNING, "http event=exposed host=%s %s", self.config.host, warning)
         if not await self._probe_health():
             # 绑定成功但应用不可服务 ⇒ 回滚，绝不对外宣称「已启动」。
             self._server = None
@@ -1901,14 +1897,14 @@ class HttpServer:
         try:
             await asyncio.wait_for(server.shutdown(), timeout=budget)
         except TimeoutError:
-            _safe_log(logging.WARNING, "http event=shutdown_timeout phase=listener")
+            safe_log(logger, logging.WARNING, "http event=shutdown_timeout phase=listener")
             server.force_exit = True
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(server.shutdown(), timeout=budget)
         except asyncio.CancelledError:
             raise
         except Exception:
-            _safe_log(logging.WARNING, "http event=shutdown_failed", exc_info=True)
+            safe_log(logger, logging.WARNING, "http event=shutdown_failed", exc_info=True)
 
     async def _probe_health(self) -> bool:
         """用**真实 TCP 连接**打通一次 ``/api/health``（AD-5 的就绪判据）。
@@ -1923,7 +1919,7 @@ class HttpServer:
         try:
             reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=_PROBE_TIMEOUT)
         except (OSError, TimeoutError) as exc:
-            _safe_log(logging.WARNING, "http event=probe_failed phase=connect error=%r", exc)
+            safe_log(logger, logging.WARNING, "http event=probe_failed phase=connect error=%r", exc)
             return False
         try:
             # IPv6 字面量的 authority 必须带方括号：``::1:8766`` 会被拆成 host ``::1`` +
@@ -1934,7 +1930,7 @@ class HttpServer:
             await writer.drain()
             status_line = await asyncio.wait_for(reader.readline(), timeout=_PROBE_TIMEOUT)
         except (OSError, TimeoutError) as exc:
-            _safe_log(logging.WARNING, "http event=probe_failed phase=request error=%r", exc)
+            safe_log(logger, logging.WARNING, "http event=probe_failed phase=request error=%r", exc)
             return False
         finally:
             writer.close()
@@ -1944,9 +1940,10 @@ class HttpServer:
                 await asyncio.wait_for(writer.wait_closed(), timeout=_PROBE_TIMEOUT)
         ok = b" 200 " in status_line
         if not ok:
-            _safe_log(logging.WARNING, "http event=probe_failed phase=status status=%r", status_line[:32])
+            safe_log(logger, logging.WARNING, "http event=probe_failed phase=status status=%r", status_line[:32])
         else:
-            _safe_log(
+            safe_log(
+                logger,
                 logging.DEBUG,
                 "http event=probe_ok elapsed_ms=%d",
                 int((time.perf_counter() - started_at) * 1000),

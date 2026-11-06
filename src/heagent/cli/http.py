@@ -53,11 +53,6 @@ from heagent.pub.workspace import WorkspacePaths
 logger = logging.getLogger(__name__)
 
 
-def _safe_log(level: int, message: str, *args: object, exc_info: bool = False) -> None:
-    """记一条日志，**绝不让观测故障影响生命周期行为**（与网络传输层同一立场）。"""
-    safe_log(logger, level, message, *args, exc_info=exc_info)
-
-
 def _reject_non_finite(ctx: click.Context, param: click.Parameter, value: float | None) -> float | None:
     """拒绝 ``NaN`` / ``Inf`` 超时值（``click.FloatRange`` 本身会放行它们）。
 
@@ -329,11 +324,11 @@ class EmbeddedHttpService:
             return
         if self._closed:
             # 关闭期间 serve 循环因 listener 已关闭而报错属正常收尾，不该污染 `failure`。
-            _safe_log(logging.WARNING, "%s ended during shutdown: %s", task.get_name(), error)
+            safe_log(logger, logging.WARNING, "%s ended during shutdown: %s", task.get_name(), error)
             return
         if self._failure is None:
             self._failure = error
-        _safe_log(logging.ERROR, "%s stopped unexpectedly: %s", task.get_name(), error)
+        safe_log(logger, logging.ERROR, "%s stopped unexpectedly: %s", task.get_name(), error)
 
     async def close(self) -> None:
         """停止所有 listener 并回收 serve 任务（幂等、有界；HTTP 先 WS 后）。"""
@@ -356,7 +351,7 @@ class EmbeddedHttpService:
             try:
                 await asyncio.wait_for(task, timeout=budget)
             except TimeoutError:
-                _safe_log(logging.WARNING, "%s did not stop within %.1fs; cancelling", task.get_name(), budget)
+                safe_log(logger, logging.WARNING, "%s did not stop within %.1fs; cancelling", task.get_name(), budget)
                 task.cancel()
                 with contextlib.suppress(Exception):
                     await task
@@ -364,7 +359,7 @@ class EmbeddedHttpService:
                 raise
             except Exception as exc:
                 # 已在 done callback 记过 ERROR：此处既不重抛（会掩盖退出原因），也不静默（已记录）。
-                _safe_log(logging.WARNING, "%s ended while closing: %s", task.get_name(), exc)
+                safe_log(logger, logging.WARNING, "%s ended while closing: %s", task.get_name(), exc)
 
     async def __aenter__(self) -> EmbeddedHttpService:
         await self.start()
@@ -555,7 +550,8 @@ def build_ws_servers(
             hub = CliEventHub(max_connections=primary.ws_max_connections)
         else:
             # 不静默：用户打开了开关就必须能看到「为什么没有这条流」。
-            _safe_log(
+            safe_log(
+                logger,
                 logging.WARNING,
                 "ws event=cli_bypass_skipped reason=external_listener host=%s "
                 "hint=the CLI event stream is served only on a loopback listener",
@@ -570,7 +566,8 @@ def build_ws_servers(
     )
     if notification_hub is not None and external is not None:
         # D2 已接受这个代价，但必须可见：对外 listener 上送的是宿主 cron 的 LLM 输出。
-        _safe_log(
+        safe_log(
+            logger,
             logging.WARNING,
             "ws event=cron_push_exposed host=%s hint=cron results are served on the external "
             "listener too; keep CRON_PUSH_ENABLED=false or narrow WS_EXTERNAL_HOST to avoid it",

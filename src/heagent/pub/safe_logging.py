@@ -104,7 +104,9 @@ def safe_log(
     几乎不再返回 ``False``（两层是叠加关系，不是二选一）。
 
     ``logger_`` 显式传入（而非模块级 logger）是刻意的：本模块可被 ``network/`` 等
-    低层包依赖，不能替调用方决定 logger 归属。
+    低层包依赖，不能替调用方决定 logger 归属。调用方立场（原五处模块级 ``_safe_log``
+    垫片 2026-11-06 收敛至此）：观测故障只降级为「少一条日志」，绝不改变请求/协议/
+    生命周期行为。
     """
     try:
         logger_.log(level, message, *args, exc_info=exc_info)
