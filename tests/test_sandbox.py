@@ -1417,3 +1417,41 @@ class TestChannelDecoding:
 
         assert "[truncated]" in result
         assert "中" in result
+
+
+@pytest.mark.asyncio
+async def test_posix_tree_kill_policy_aligned_with_hooks(monkeypatch: pytest.MonkeyPatch) -> None:
+    """C4（2026-11-06）：sandbox 的进程组回收策略与 engine/hooks 对齐——全 POSIX 建组+杀组。
+
+    hooks 先例（engine/hooks.py）：shell 命令树在所有非 win32 平台 start_new_session + killpg。
+    sandbox 此前仅 linux 建组 ⇒ macOS 的 ``cmd &`` 孙进程超时/取消时泄漏。现在同一口径；
+    win32 分支不变（无组语义，proc.kill() 只杀直接子进程）。显式把 ``sys.platform`` 钉到
+    darwin 走目标分支（autouse fixture 已把 os.killpg mock 成 no-op，只在此测试内记录调用）。
+    Windows 解释器无 ``signal.SIGKILL`` 属性——按真实 POSIX 值补 mock（Linux/macOS 均为 9）。
+    """
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr("signal.SIGKILL", 9, raising=False)
+    assert sandbox_process._spawn_kwargs()["start_new_session"] is True
+
+    killed_via_group: list[tuple[int, int]] = []
+    monkeypatch.setattr("os.killpg", lambda pid, sig: killed_via_group.append((pid, sig)), raising=False)
+
+    class _FakeProc(_FakeProcBase):
+        def __init__(self) -> None:
+            self.killed = False
+            self.returncode = None
+
+        def kill(self) -> None:
+            self.killed = True
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            return b"", b""
+
+        async def wait(self) -> int:
+            self.returncode = 0
+            return 0
+
+    proc = _FakeProc()
+    await _kill_and_reap(proc)  # type: ignore[arg-type]
+    assert killed_via_group == [(proc.pid, 9)]
+    assert proc.killed is False

@@ -223,10 +223,11 @@ async def communicate_subprocess(proc: asyncio.subprocess.Process, *, timeout: f
 
 async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
     try:
-        if sys.platform == "linux":
-            # start_new_session=True 保证 proc.pid 即进程组长 pid，直接对其组发 SIGKILL。
-            # 不用 os.getpgid(proc.pid)：子进程已退出且 PID 被 OS 回收时，getpgid 会返回别的
-            # 进程的 pgid，导致 killpg 误杀无关进程组（PID 复用竞态）。
+        if sys.platform != "win32":
+            # 全 POSIX（与 engine/hooks.py 同口径，C4 2026-11-06）：start_new_session 保证
+            # proc.pid 即进程组长 pid，直接对其组发 SIGKILL；不用 os.getpgid(proc.pid)——子进程
+            # 已退出且 PID 被 OS 回收时 getpgid 会返回别的进程的 pgid，误杀无关组（PID 复用竞态）。
+            # win32 无组语义，proc.kill() 只杀直接子进程（任务树回收由 winjob/docker 后端兜底）。
             with suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGKILL)
         else:
@@ -243,9 +244,9 @@ def _validate_timeout(timeout: int) -> None:
 
 
 def _spawn_kwargs() -> dict[str, object]:
-    """子进程启动的公共 kwargs：双管道 + 新会话（Linux 进程组隔离）+ 剥离敏感环境变量。"""
+    """子进程启动的公共 kwargs：双管道 + 新会话（POSIX 进程组隔离）+ 剥离敏感环境变量。"""
     kwargs: dict[str, object] = {"stdout": asyncio.subprocess.PIPE, "stderr": asyncio.subprocess.PIPE}
-    if sys.platform == "linux":
+    if sys.platform != "win32":
         kwargs["start_new_session"] = True
     kwargs["env"] = scrub_sensitive_env(allowlist=_env_allowlist())
     return kwargs
