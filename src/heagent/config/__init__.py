@@ -163,7 +163,6 @@ class Settings(BaseSettings):
     max_context_tokens: int = Field(default=512000, ge=1)
     # 单次输出 token 上限（各 provider 的 max_tokens）；None = 沿用 provider 默认。本地思考模型建议设。
     max_output_tokens: int | None = Field(default=None, ge=1)
-    shell_timeout: int = Field(default=120, ge=1)
 
     # ---- 日志参数 ----
     log_dir: str = Field(default="logs")  # 日志文件目录，每次启动创建新文件

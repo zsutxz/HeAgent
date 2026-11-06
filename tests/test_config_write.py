@@ -276,7 +276,7 @@ class TestValueValidation:
             # （那条规则本身是对的）。这几个键的守卫由上方的 catalog 用例覆盖，端到端另见
             # `test_a_retention_ceiling_applies_once_it_is_not_environment_provided`。
             ("SKILL_CURATOR_STALE_DAYS", "1000000000"),  # days 族
-            ("SHELL_TIMEOUT", "1000000000"),  # seconds 族
+            ("CRON_TICK_SECONDS", "1000000000"),  # seconds 族
             ("MEMORY_INJECT_MAX_BYTES", "1000000000"),  # bytes 族
             ("SKILL_MAX_MANUAL_LOAD_TOKENS", "1000000000"),  # tokens 族
             ("SUBAGENT_MAX_DEPTH", "1000000000"),  # count 族
@@ -320,12 +320,12 @@ class TestValueValidation:
         # 保留期 / 间隔族同样：真在人类尺度内的值必须照写（含「0 = 禁用回收 / 不限制」这一既有语义）。
         _run(
             paths,
-            [("SKILL_CURATOR_STALE_DAYS", "365"), ("SHELL_TIMEOUT", "7200"), ("MEMORY_INJECT_MAX_BYTES", "0")],
+            [("SKILL_CURATOR_STALE_DAYS", "365"), ("CRON_TICK_SECONDS", "7200"), ("MEMORY_INJECT_MAX_BYTES", "0")],
             fingerprint=envfile.fingerprint(raw),
         )
         raw = paths.env_file.read_bytes()
         assert b"SKILL_CURATOR_STALE_DAYS=365" in raw
-        assert b"SHELL_TIMEOUT=7200" in raw
+        assert b"CRON_TICK_SECONDS=7200" in raw
         assert b"MEMORY_INJECT_MAX_BYTES=0" in raw
 
     def test_a_retention_ceiling_applies_once_it_is_not_environment_provided(

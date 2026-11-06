@@ -97,11 +97,6 @@ class TestEnvLoading:
         s = Settings()
         assert s.window_reset_threshold == 0.7
 
-    def test_shell_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SHELL_TIMEOUT", "60")
-        s = Settings()
-        assert s.shell_timeout == 60
-
     def test_log_dir(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("LOG_DIR", "/custom/logs")
         s = Settings()
@@ -215,11 +210,6 @@ class TestValidation:
         monkeypatch.setenv("MAX_ITERATIONS", "0")
         with pytest.raises(ValidationError):
             Settings(_env_file=None)
-
-    def test_shell_timeout_zero_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("SHELL_TIMEOUT", "0")
-        with pytest.raises(ValidationError):
-            Settings()
 
     def test_retry_max_attempts_zero_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("RETRY_MAX_ATTEMPTS", "0")
@@ -340,10 +330,6 @@ class TestDefaults:
     def test_default_compression_threshold(self) -> None:
         s = Settings()
         assert s.compression_threshold == 0.8
-
-    def test_default_shell_timeout(self) -> None:
-        s = Settings()
-        assert s.shell_timeout == 120
 
     def test_default_retry_params(self) -> None:
         s = Settings()

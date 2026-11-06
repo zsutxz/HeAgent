@@ -812,7 +812,6 @@ HeAgentError (base)
 | `compression_threshold` | 0.8 | 上下文压缩触发阈值 |
 | `context_strategy` | `compressor` | 上下文管理策略：`compressor`=原地摘要压缩（默认）/ `reset`=窗口重置（清窗后 resume 续跑；与 compressor 互斥） |
 | `window_reset_threshold` | 0.6 | 窗口重置触发阈值（`context_strategy=reset` 时生效） |
-| `shell_timeout` | 120 | Shell 命令超时（秒） |
 | `retry_max_attempts` | 3 | 最大重试次数 |
 | `retry_base_delay` | 1.0 | 重试基础延迟（秒） |
 | `retry_max_delay` | 30.0 | 重试最大延迟（秒） |

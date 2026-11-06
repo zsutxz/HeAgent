@@ -245,7 +245,7 @@ class ConfigGroupSpec(BaseModel):
     reason: str | None = None
 
 
-#: 可写白名单（fail-closed：显式允许子集，**不是**排除法）——46 键，D3 裁定后口径。
+#: 可写白名单（fail-closed：显式允许子集，**不是**排除法）——键数由下方分组常量派生，不另记数。
 WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
     ConfigGroupSpec(
         id="models",
@@ -273,7 +273,6 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
             "SUBAGENT_MAX_ITERATIONS",
             "SUBAGENT_MAX_DEPTH",
             "MAX_OUTPUT_TOKENS",
-            "SHELL_TIMEOUT",
             "ANNOUNCE_PROGRESS",
         ),
     ),
@@ -518,10 +517,9 @@ RESOURCE_CEILINGS: dict[str, float] = {
     "SANDBOX_DIR_RETENTION_DAYS": 3650.0,
     "SESSION_RETENTION_DAYS": 3650.0,
     "SKILL_CURATOR_STALE_DAYS": 3650.0,
-    # seconds = 604800：间隔 / 超时（默认值 60 / 120 / 900 秒）
+    # seconds = 604800：间隔 / 超时（默认值 60 / 900 秒）
     "CRON_TICK_SECONDS": 604800.0,
     "PRUNE_MIN_INTERVAL_SECONDS": 604800.0,
-    "SHELL_TIMEOUT": 604800.0,
     # bytes = 8388608：文本预算（默认值 32768 / 98304 / 49152）
     "CONTEXT_FILES_MAX_BYTES": 8_388_608.0,
     "MEMORY_INJECT_MAX_BYTES": 8_388_608.0,
@@ -580,7 +578,7 @@ _SECRET_SUFFIXES = ("_API_KEY", "_API_KEYS")
 
 
 def whitelist() -> frozenset[str]:
-    """可写白名单（46 键）——由分组常量派生，不重复书写。"""
+    """可写白名单——由分组常量派生，不重复书写。"""
     return frozenset(key for spec in WHITELIST_GROUPS for key in spec.keys)
 
 

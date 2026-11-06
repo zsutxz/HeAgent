@@ -113,12 +113,12 @@ class TestSourceSolve:
 
     def test_global_env_is_used_when_project_silent(self, tmp_path: Path) -> None:
         global_md = _global_md(tmp_path, ["MAX_ITERATIONS=77"])
-        project = _write(tmp_path / ".env", ["SHELL_TIMEOUT=9"])
+        project = _write(tmp_path / ".env", ["CRON_TICK_SECONDS=60"])
         report = _report(project, global_md)
         items = _by_key(report)
         assert items["MAX_ITERATIONS"].source is ConfigSource.GLOBAL_SETTING  # type: ignore[union-attr]
         assert items["MAX_ITERATIONS"].value == 77  # type: ignore[union-attr]
-        assert items["SHELL_TIMEOUT"].source is ConfigSource.PROJECT_ENV  # type: ignore[union-attr]
+        assert items["CRON_TICK_SECONDS"].source is ConfigSource.PROJECT_ENV  # type: ignore[union-attr]
 
     def test_project_overrides_global(self, tmp_path: Path) -> None:
         global_md = _global_md(tmp_path, ["MAX_ITERATIONS=77"])
@@ -215,9 +215,9 @@ class TestEnvFilePitfalls:
 
     def test_inline_comment_is_stripped_and_noted(self, tmp_path: Path) -> None:
         """坑 6：行内注释被剥掉（值 = ``99`` 而不是 ``'99 # note'``），且注释本身有诊断。"""
-        project = _write(tmp_path / ".env", ["SHELL_TIMEOUT=99   # inline note"])
-        item = _by_key(_report(project))["SHELL_TIMEOUT"]  # type: ignore[index]
-        assert item.value == 99  # type: ignore[union-attr]
+        project = _write(tmp_path / ".env", ["CRON_TICK_SECONDS=120   # inline note"])
+        item = _by_key(_report(project))["CRON_TICK_SECONDS"]  # type: ignore[index]
+        assert item.value == 120  # type: ignore[union-attr]
         assert "inline_comment_in_project_env" in item.notes  # type: ignore[union-attr]
 
     def test_empty_value_is_not_reported_as_default(self, tmp_path: Path) -> None:
@@ -326,11 +326,11 @@ class TestBomTolerance:
 
     def test_head_bom_first_key_is_annotated(self, tmp_path: Path) -> None:
         """BOM 容差不是静默行为：首个键的条目上要写明「已按容差读取」。"""
-        bommed = _write(tmp_path / ".env", raw=BOM.encode() + b"MAX_ITERATIONS=777\nSHELL_TIMEOUT=9\n")
+        bommed = _write(tmp_path / ".env", raw=BOM.encode() + b"MAX_ITERATIONS=777\nCRON_TICK_SECONDS=60\n")
         report = _report(bommed)
         items = _by_key(report)
         assert "bom_stripped_in_project_env" in items["MAX_ITERATIONS"].notes  # type: ignore[union-attr]
-        assert "bom_stripped_in_project_env" not in items["SHELL_TIMEOUT"].notes  # type: ignore[union-attr]
+        assert "bom_stripped_in_project_env" not in items["CRON_TICK_SECONDS"].notes  # type: ignore[union-attr]
 
     def test_mid_file_bom_key_is_flagged_not_silently_default(self, tmp_path: Path) -> None:
         """T9b②：**非文件头**的 BOM（键名被污染）必须点名，而不是静默显示为 default。"""
@@ -348,9 +348,9 @@ class TestBomTolerance:
         """绊线本身可执行：任何层漏出 BOM 前缀键都会被点名（当前实现下正常输入为空）。"""
         layers = {
             ConfigSource.PROJECT_ENV: {"max_iterations": "1"},
-            ConfigSource.SYSTEM_ENV: {f"{BOM}max_iterations": "1", f"{BOM}shell_timeout": "1"},
+            ConfigSource.SYSTEM_ENV: {f"{BOM}max_iterations": "1", f"{BOM}retry_base_delay": "1"},
         }
-        assert bom_prefixed_keys(layers) == (f"{BOM}max_iterations", f"{BOM}shell_timeout")
+        assert bom_prefixed_keys(layers) == (f"{BOM}max_iterations", f"{BOM}retry_base_delay")
         assert bom_prefixed_keys({ConfigSource.PROJECT_ENV: {"max_iterations": "1"}}) == ()
 
 
@@ -377,8 +377,8 @@ class TestClassification:
     def test_whitelist_keys_all_exist(self) -> None:
         assert whitelist() <= ENV_KEYS
         # D3 裁定后的口径（38 + 8）+ 记忆归档 2 键 + epic-59 语义压缩 1 键
-        # + epic-58 cron 结果推送 2 键（CRON_PUSH_ENABLED / CRON_ECHO_TO_TERMINAL）
-        assert len(whitelist()) == 51
+        # + epic-58 cron 结果推送 2 键 − 死键 shell_timeout 移除（2026-11-06 C1，生产读者为零）
+        assert len(whitelist()) == 50
 
     def test_partition_is_complete(self) -> None:
         """AC9：每个字段都落在白名单或某条排除规则里 —— 残留 0（没有「只读但无原因」）。"""
@@ -515,7 +515,6 @@ class TestGuards:
             # seconds = 604800（7 天）
             "CRON_TICK_SECONDS": 604800.0,
             "PRUNE_MIN_INTERVAL_SECONDS": 604800.0,
-            "SHELL_TIMEOUT": 604800.0,
             # bytes = 8388608（8 MiB）
             "CONTEXT_FILES_MAX_BYTES": 8_388_608.0,
             "MEMORY_INJECT_MAX_BYTES": 8_388_608.0,
