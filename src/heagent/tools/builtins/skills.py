@@ -223,10 +223,19 @@ async def skill_list() -> str:
 
 @tool(read_only=True)
 async def skill_load(name: str) -> str:
-    """Read one named skill's complete SKILL.md without executing it or its resources."""
+    """Read one named skill's complete SKILL.md without executing it or its resources.
+
+    B4 user surface: a skill with meta.yaml ``user_invocable: false`` is refused with an
+    explicit error (defaults keep both surfaces enabled, backward compatible).
+    """
     store = _store()
     if store is None:
         return "Error: skill tools not configured."
+    parsed = await asyncio.to_thread(store.parse, name)
+    if parsed is None:
+        return f"Error: skill '{name}' not found or has an invalid name."
+    if not parsed.user_invocable:
+        return f"Error: skill '{name}' is not user-invocable (user_invocable: false)."
     content = await asyncio.to_thread(store.load, name)
     if content is None:
         return f"Error: skill '{name}' not found or has an invalid name."

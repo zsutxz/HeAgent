@@ -215,6 +215,14 @@ class TestSkillLoad:
         assert "exceeds" in await skill_load("large")
 
     @pytest.mark.asyncio
+    async def test_load_refuses_non_user_invocable_skill(self, skill_store: SkillStore) -> None:
+        """B4: meta.yaml ``user_invocable: false`` refuses explicit loads with an explicit error."""
+        await skill_create("guarded", "Guarded", "guarded", "step")
+        meta_path = skill_store.authoring_root / "guarded" / "meta.yaml"
+        meta_path.write_text("user_invocable: false\n", encoding="utf-8", newline="\n")
+        assert "not user-invocable" in await skill_load("guarded")
+
+    @pytest.mark.asyncio
     async def test_read_package_resource(self, skill_store: SkillStore) -> None:
         await skill_create("pkg", "Package", "pkg", "step")
         resource = skill_store.authoring_root / "pkg" / "customize.toml"

@@ -30,6 +30,8 @@ class TestSkillMetaModel:
             aliases=["goal", "g"],
             version="1.0",
             available=False,
+            model_invocable=False,
+            user_invocable=False,
             tags=["goal", "workflow"],
             created="2026-09-19",
             priority=3,
@@ -44,7 +46,13 @@ class TestSkillMetaModel:
     def test_render_omits_defaults_and_always_writes_usage_count(self) -> None:
         text = render_meta_yaml(SkillMeta(tags=["a"], usage_count=0))
         assert text == "tags: [a]\nusage_count: 0\n"
-        assert "available" not in text and "priority" not in text and "last_used" not in text
+        assert (
+            "available" not in text
+            and "model_invocable" not in text
+            and "user_invocable" not in text
+            and "priority" not in text
+            and "last_used" not in text
+        )
 
     def test_camel_case_aliases_normalize(self) -> None:
         meta = parse_meta_yaml("canonicalId: he-goal\nsourceId: legacy\n")
@@ -59,6 +67,12 @@ class TestSkillMetaModel:
     def test_invalid_available_flag_raises(self) -> None:
         with pytest.raises(SkillMetaError, match="available flag"):
             parse_meta_yaml("available: maybe\n")
+
+    def test_invalid_invocable_flags_raise(self) -> None:
+        with pytest.raises(SkillMetaError, match="model_invocable flag"):
+            parse_meta_yaml("model_invocable: maybe\n")
+        with pytest.raises(SkillMetaError, match="user_invocable flag"):
+            parse_meta_yaml("user_invocable: maybe\n")
 
     def test_non_integer_usage_count_raises(self) -> None:
         with pytest.raises(SkillMetaError, match="non-integer"):

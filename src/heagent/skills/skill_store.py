@@ -340,6 +340,8 @@ class SkillStore:
                 "created": meta.created,
                 "tags": meta.tags,
                 "priority": meta.priority,
+                "model_invocable": meta.model_invocable,
+                "user_invocable": meta.user_invocable,
                 "usage_count": meta.usage_count,
                 "last_used": meta.last_used,
             }

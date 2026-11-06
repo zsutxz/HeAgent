@@ -29,6 +29,8 @@ META_KEYS = frozenset(
         "aliases",
         "version",
         "available",
+        "model_invocable",
+        "user_invocable",
         "tags",
         "created",
         "priority",
@@ -49,6 +51,8 @@ META_KEY_ORDER = (
     "aliases",
     "version",
     "available",
+    "model_invocable",
+    "user_invocable",
     "tags",
     "created",
     "priority",
@@ -73,6 +77,9 @@ class SkillMeta(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     version: str = ""
     available: bool = True
+    #: 双开关（B4，2026-11-06）：False = 该调用面禁用本技能（缺省两开，向后兼容）。
+    model_invocable: bool = True
+    user_invocable: bool = True
     tags: list[str] = Field(default_factory=list)
     created: str = ""
     priority: int = 0
@@ -111,6 +118,10 @@ def parse_meta_yaml(text: str) -> SkillMeta:
     available_value = known.get("available", "true").strip().lower()
     if available_value not in {"true", "false", "1", "0", "yes", "no"}:
         raise SkillMetaError(f"invalid available flag '{available_value}'")
+    for flag_name in ("model_invocable", "user_invocable"):
+        flag_value = known.get(flag_name, "true").strip().lower()
+        if flag_value not in {"true", "false", "1", "0", "yes", "no"}:
+            raise SkillMetaError(f"invalid {flag_name} flag '{flag_value}'")
     try:
         priority = int(known.get("priority", "").strip()) if known.get("priority", "").strip() else 0
         usage_count = int(known.get("usage_count", "").strip()) if known.get("usage_count", "").strip() else 0
@@ -122,6 +133,8 @@ def parse_meta_yaml(text: str) -> SkillMeta:
         aliases=parse_inline_list(known.get("aliases", "")),
         version=known.get("version", "").strip(),
         available=available_value not in {"false", "0", "no"},
+        model_invocable=known.get("model_invocable", "true").strip().lower() not in {"false", "0", "no"},
+        user_invocable=known.get("user_invocable", "true").strip().lower() not in {"false", "0", "no"},
         tags=parse_inline_list(known.get("tags", "")),
         created=known.get("created", "").strip().strip("\"'"),
         priority=priority,
@@ -143,6 +156,10 @@ def render_meta_yaml(meta: SkillMeta) -> str:
         lines.append(f"version: {meta.version}")
     if not meta.available:
         lines.append("available: false")
+    if not meta.model_invocable:
+        lines.append("model_invocable: false")
+    if not meta.user_invocable:
+        lines.append("user_invocable: false")
     if meta.tags:
         lines.append(f"tags: [{', '.join(meta.tags)}]")
     if meta.created:

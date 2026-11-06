@@ -45,6 +45,8 @@ class SkillContent(BaseModel):
     triggers: list[str] = Field(default_factory=list)
     negative_triggers: list[str] = Field(default_factory=list)
     priority: int = 0
+    model_invocable: bool = True
+    user_invocable: bool = True
     usage_count: int = 0
     last_used: str = ""
 

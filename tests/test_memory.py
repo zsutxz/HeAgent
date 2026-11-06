@@ -183,6 +183,16 @@ class TestSkillStore:
         s.save("deploy", "Deploy", "deploy production", ["step"])
         assert _matching_names(s, "weather forecast", threshold=0.3) == []
 
+    def test_model_invocable_false_excluded_from_matching(self, tmp_path: object) -> None:
+        """B4: a skill with meta.yaml ``model_invocable: false`` is excluded from auto-injection matching."""
+        s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
+        s.save("deploy", "Deploy", "deploy to production", ["step"])
+        skill_dir = s.authoring_root / "deploy"
+        (skill_dir / "meta.yaml").write_text("model_invocable: false\n", encoding="utf-8", newline="\n")
+        assert _matching_names(s, "deploy the app to production", threshold=0.3) == []
+        (skill_dir / "meta.yaml").write_text("model_invocable: true\n", encoding="utf-8", newline="\n")
+        assert "deploy" in _matching_names(s, "deploy the app to production", threshold=0.3)
+
     def test_matching_skills_empty_prompt(self, tmp_path: object) -> None:
         s = SkillStore(base_dir=str(tmp_path / "sk"))  # type: ignore[operator]
         s.save("deploy", "Deploy", "deploy production", ["step"])
