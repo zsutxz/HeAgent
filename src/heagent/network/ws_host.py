@@ -150,6 +150,7 @@ def build_ws_app(
     run_service: Any | None = None,
     cli_hub: Any | None = None,
     notification_hub: Any | None = None,
+    version: str = "",
 ) -> ASGIApp:
     """构造 WS server 的 ASGI 应用：只挂 WebSocketRoute，零 HTTP 路由（D1/D2/D9）。
 
@@ -163,6 +164,8 @@ def build_ws_app(
     对外模式（D5）两处行为切换：① 同源/Host 防线**不适用**（客户端用任意主机名连本 listener，
     Host 白名单会把它全拒掉；防线地位由 token 认证取代）；② 认证门注入两个端点，在 accept 之前
     执行（失败 close(1008)）。限速状态挂在 app 上（一个 app = 一个 listener = 一份限速窗口）。
+
+    ``version`` 由入口层注入（56-9）：四端点 ``accept()`` 后经 hello 首帧下发；空版本=测试装配形态。
     """
     applications = _require_module("starlette.applications")
     routing = _require_module("starlette.routing")
@@ -196,6 +199,7 @@ def build_ws_app(
                         origin_violation=_origin_violation,
                         max_connections=config.ws_max_connections,
                         authorize=authorize,
+                        version=version,
                     ),
                 )
             )
@@ -208,6 +212,7 @@ def build_ws_app(
                     max_connections=config.ws_max_connections,
                     authorize=authorize,
                     readonly=config.readonly,
+                    version=version,
                 ),
             )
         )
@@ -224,6 +229,7 @@ def build_ws_app(
                     cli_hub,
                     origin_violation=_origin_violation,
                     authorize=authorize,
+                    version=version,
                 ),
             )
         )
@@ -240,6 +246,7 @@ def build_ws_app(
                     notification_hub,
                     origin_violation=_origin_violation,
                     authorize=authorize,
+                    version=version,
                 ),
             )
         )
@@ -258,8 +265,12 @@ class WsServer:
         run_service: Any | None = None,
         cli_hub: Any | None = None,
         notification_hub: Any | None = None,
+        version: str = "",
     ) -> None:
         self.config = config
+        # 版本由入口层注入（``heagent.__version__``，56-9）：四端点 accept 后经 hello 首帧下发；
+        # 空 = 测试装配形态，端点侧 debug 跳过（不静默）。
+        self.version = version
         self.run_service = run_service
         self.cli_hub = cli_hub
         self.notification_hub = notification_hub
@@ -279,6 +290,7 @@ class WsServer:
                 run_service=self.run_service,
                 cli_hub=self.cli_hub,
                 notification_hub=self.notification_hub,
+                version=self.version,
             )
         return self._app
 

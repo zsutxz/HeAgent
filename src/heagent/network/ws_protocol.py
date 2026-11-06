@@ -48,8 +48,15 @@ WS_CLOSE_GOING_AWAY = 1001
 
 
 class WsFrameType(StrEnum):
-    """服务端输出帧的封闭类型集合（Epic 58 起多了只读通知流的一档）。"""
+    """服务端输出帧的封闭类型集合（Epic 58 起多了只读通知流的一档）。
 
+    ``hello`` 是**连接首帧**（56-9）：``accept()`` 成功后立即下发、先于任何 event / ack /
+    error / notification 帧，内容只有服务端版本。它不属于任何一条流（没有 ``run_id``、没有
+    ``seq``、不可续传）——客户端据此判断对端版本与协议兼容性，连「随后被配额 / 游标 / 关停
+    判据拒绝」的连接也能先拿到它。
+    """
+
+    HELLO = "hello"
     EVENT = "event"
     ACK = "ack"
     ERROR = "error"
@@ -82,6 +89,22 @@ class WsFrameError(ValueError):
     def __init__(self, kind: WsFrameErrorKind) -> None:
         self.kind = kind
         super().__init__(kind.value)
+
+
+class WsHelloFrame(BaseModel):
+    """连接首帧：服务端当前版本（``heagent.__version__``，由入口层注入）。
+
+    与其余四类帧**分开**定义而不是给它们加字段：它描述的是「这条连接的两端」，不是任何一条
+    流的内容——不带 ``run_id`` / ``seq`` / 事件载荷，也不进入环形缓冲，因此续传
+    （``?last_event_id``）与游标语义逐字不变。客户端应把它当作「可忽略的类型」处理
+    （不认识就跳过），版本号是唯一语义内容。生产装配（入口层 ``cli/http``）注入 ``heagent.__version__``，由 wiring 测试钉死；空版本=测试
+    装配形态，端点侧跳过并记 debug（不静默）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: WsFrameType = WsFrameType.HELLO
+    version: str
 
 
 class WsEventFrame(BaseModel):

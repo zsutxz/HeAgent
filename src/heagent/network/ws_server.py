@@ -34,6 +34,7 @@ from heagent.network.ws_protocol import (
     WsEventFrame,
     WsFrameError,
     WsFrameErrorKind,
+    WsHelloFrame,
     WsNotificationFrame,
     parse_command_frame,
 )
@@ -92,6 +93,19 @@ async def _send_error_frame(websocket: WebSocketLike, code: HttpErrorCode, messa
 async def _send_error(websocket: WebSocketLike, code: HttpErrorCode, message: str, *, close_code: int) -> None:
     await _send_error_frame(websocket, code, message)
     await websocket.close(code=close_code)
+
+
+async def _send_hello(websocket: WebSocketLike, version: str) -> None:
+    """accept() 后的**连接首帧**（56-9）：先于任何流帧，让客户端先拿到服务端版本。
+
+    空版本（测试装配形态未注入）跳过并记 debug——生产装配恒注入（``cli/http`` 传
+    ``heagent.__version__``），跳过可循证不静默。认证 / Origin 拒绝发生在 accept 之前，
+    被拒连接不经 hello（协议面不扩）。
+    """
+    if not version:
+        logger.debug("ws event=hello_skipped reason=version_not_injected")
+        return
+    await websocket.send_text(WsHelloFrame(version=version).model_dump_json())
 
 
 async def _send_event_stream(
@@ -294,6 +308,7 @@ def build_runs_collection_endpoint(
     origin_violation: OriginCheck,
     max_connections: int,
     authorize: AuthCheck | None = None,
+    version: str = "",
 ) -> Callable[[WebSocketLike], Awaitable[None]]:
     """构造**集合级**端点（``WS /api/runs/ws``）：经 WS 提交 run（Epic 56 D2）。
 
@@ -315,6 +330,7 @@ def build_runs_collection_endpoint(
         if await _reject_bad_origin(websocket, origin_violation, "-"):
             return
         await websocket.accept()
+        await _send_hello(websocket, version)
         if not slots.try_acquire():
             await _send_error(
                 websocket,
@@ -428,6 +444,7 @@ def build_ws_endpoint(
     max_connections: int,
     authorize: AuthCheck | None = None,
     readonly: bool = False,
+    version: str = "",
 ) -> Callable[[WebSocketLike], Awaitable[None]]:
     """构造单 run WebSocket endpoint；Origin 规则、连接额度与认证由宿主单点注入。
 
@@ -443,6 +460,7 @@ def build_ws_endpoint(
         if await _reject_bad_origin(websocket, origin_violation, run_id):
             return
         await websocket.accept()
+        await _send_hello(websocket, version)
         record: Any | None = None
         queue: asyncio.Queue[RunEventPayload | None] | None = None
         registered = False
@@ -578,6 +596,7 @@ def build_cli_ws_endpoint(
     *,
     origin_violation: OriginCheck,
     authorize: AuthCheck | None = None,
+    version: str = "",
 ) -> Callable[[WebSocketLike], Awaitable[None]]:
     """构造 CLI 旁路端点（``WS /api/cli/ws``）：只读观众席，跨轮次。
 
@@ -598,6 +617,7 @@ def build_cli_ws_endpoint(
             await websocket.close()
             return
         await websocket.accept()
+        await _send_hello(websocket, version)
         subscription: CliSubscription | None = None
         registered = False
         try:
@@ -733,6 +753,7 @@ def build_notification_ws_endpoint(
     *,
     origin_violation: OriginCheck,
     authorize: AuthCheck | None = None,
+    version: str = "",
 ) -> Callable[[WebSocketLike], Awaitable[None]]:
     """构造只读通知流端点（``WS /api/notifications/ws``）：跨作业、跨执行的一条流。
 
@@ -753,6 +774,7 @@ def build_notification_ws_endpoint(
             await websocket.close()
             return
         await websocket.accept()
+        await _send_hello(websocket, version)
         subscription: NotificationSubscription | None = None
         registered = False
         try:

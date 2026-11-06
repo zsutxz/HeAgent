@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import socket
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,12 @@ from pydantic import ValidationError
 from heagent.config import Settings
 from heagent.config.catalog import RESOURCE_CEILINGS, classify, whitelist
 from heagent.network.cli_event_hub import CliEventHub
-from heagent.network.http_protocol import MAX_REQUEST_BYTES_FOR_MAX_PROMPT, RunOutcome
+from heagent.network.http_protocol import (
+    MAX_REQUEST_BYTES_FOR_MAX_PROMPT,
+    HttpErrorCode,
+    RunOutcome,
+)
+from heagent.network.ws_server import build_runs_collection_endpoint, build_ws_endpoint
 from heagent.network.http_server import HttpRunService, HttpServerConfig, _RunRecord
 from heagent.network.ws_host import (
     RUNS_WS_PATH,
@@ -32,6 +38,30 @@ from heagent.network.ws_host import (
 from heagent.network.ws_protocol import WS_MAX_FRAME_BYTES, WS_PING_INTERVAL_SECONDS, WS_PING_TIMEOUT_SECONDS
 
 websockets = pytest.importorskip("websockets")
+
+
+class _RecordingWebSocket:
+    """最小 WebSocketLike 替身：记录 accept 与全部出站帧（56-9 hello 顺序契约用）。"""
+
+    def __init__(self) -> None:
+        self.scope: dict[str, Any] = {}
+        self.path_params: dict[str, Any] = {}
+        self.query_params: dict[str, Any] = {}
+        self.accepted = False
+        self.closed_code: int | None = None
+        self.sent: list[str] = []
+
+    async def accept(self) -> None:
+        self.accepted = True
+
+    async def close(self, code: int = 1000) -> None:
+        self.closed_code = code
+
+    async def receive_text(self) -> str:
+        raise AssertionError("hello ordering test never reads inbound frames")
+
+    async def send_text(self, data: str) -> None:
+        self.sent.append(data)
 
 
 class _BlockingExecutor:
@@ -56,6 +86,75 @@ class _BlockingExecutor:
 
 
 # ---- 配置契约（自 test_http_ws_config.py 迁入并按 D1 更名）----
+
+
+def _origin_ok(_scope: dict[str, Any]) -> None:
+    """OriginCheck 替身：永不违规（同步口径——_reject_bad_origin 同步调用它）。"""
+    return None
+
+
+@pytest.mark.asyncio
+async def test_submit_endpoint_sends_hello_before_quota_error() -> None:
+    """56-9：accept 后先发 hello 再走配额判定——被拒连接也先拿到版本（顺序契约）。"""
+    service: Any = object()
+    endpoint = build_runs_collection_endpoint(
+        service,
+        origin_violation=_origin_ok,
+        max_connections=0,
+        version="v9-test",
+    )
+    ws = _RecordingWebSocket()
+    await endpoint(ws)
+
+    assert ws.accepted is True
+    assert [json.loads(frame)["type"] for frame in ws.sent] == ["hello", "error"]
+    assert json.loads(ws.sent[0]) == {"type": "hello", "version": "v9-test"}
+    assert json.loads(ws.sent[1])["error"]["error"]["code"] == HttpErrorCode.RATE_LIMITED.value
+
+
+class _EmptyRunService:
+    """订阅端点顺序钉替身：非关停、无任何 run → 首个订阅判定是 UNKNOWN_RUN。"""
+
+    _closing = False
+
+    def run(self, run_id: str) -> None:
+        return None
+
+
+@pytest.mark.asyncio
+async def test_subscribe_endpoint_sends_hello_before_unknown_run_error() -> None:
+    """56-9：订阅端点同样 accept 后先发 hello，再走首个订阅判定（顺序契约覆盖 build_ws_endpoint）。"""
+    endpoint = build_ws_endpoint(
+        _EmptyRunService(),
+        origin_violation=_origin_ok,
+        max_connections=4,
+        version="v9-test",
+    )
+    ws = _RecordingWebSocket()
+    await endpoint(ws)
+
+    assert ws.accepted is True
+    assert [json.loads(frame)["type"] for frame in ws.sent] == ["hello", "error"]
+    assert json.loads(ws.sent[0]) == {"type": "hello", "version": "v9-test"}
+    assert json.loads(ws.sent[1])["error"]["error"]["code"] == HttpErrorCode.UNKNOWN_RUN.value
+
+
+@pytest.mark.asyncio
+async def test_empty_version_skips_hello_but_stays_visible(caplog: pytest.LogCaptureFixture) -> None:
+    """56-9：空版本=测试装配形态 → 不发 hello（既有严格首帧 e2e 赖此零改动），但 debug 有痕不静默。"""
+    service: Any = object()
+    endpoint = build_runs_collection_endpoint(
+        service,
+        origin_violation=_origin_ok,
+        max_connections=0,
+    )
+    ws = _RecordingWebSocket()
+    with caplog.at_level(logging.DEBUG, logger="heagent.network.ws_server"):
+        await endpoint(ws)
+
+    assert ws.accepted is True
+    assert [json.loads(frame)["type"] for frame in ws.sent] == ["error"]
+    assert any(record.getMessage() == "ws event=hello_skipped reason=version_not_injected" for record in caplog.records)
 
 
 def test_ws_config_defaults_are_synced_with_settings() -> None:

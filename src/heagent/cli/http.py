@@ -573,11 +573,26 @@ def build_ws_servers(
             "listener too; keep CRON_PUSH_ENABLED=false or narrow WS_EXTERNAL_HOST to avoid it",
             external.host,
         )
-    servers = [WsServer(primary, run_service=run_service, cli_hub=hub, notification_hub=notification_hub)]
+    servers = [
+        WsServer(
+            primary,
+            run_service=run_service,
+            cli_hub=hub,
+            notification_hub=notification_hub,
+            version=_current_version(),
+        )
+    ]
     if external is not None:
         # 对外 listener 永不带 CLI 旁路（D9）：即使主 listener 那条被跳过也一样。
         # 通知中枢则相反——**每个** listener 都挂（Epic 58 D2：对外已有 token 认证，不再叠模式判据）。
-        servers.append(WsServer(external, run_service=run_service, notification_hub=notification_hub))
+        servers.append(
+            WsServer(
+                external,
+                run_service=run_service,
+                notification_hub=notification_hub,
+                version=_current_version(),
+            )
+        )
     return tuple(servers), hub
 
 

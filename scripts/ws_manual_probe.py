@@ -81,8 +81,16 @@ async def recv_json(ws, timeout: float) -> dict | None:
         return {"__notjson__": raw}
 
 
+async def greet(ws) -> None:
+    """56-9 起连接首帧是 hello（版本首帧，可忽略类型）：读到就展示；旧服务端无 hello 时 2s 超时继续。"""
+    first = await recv_json(ws, 2)
+    if first and first.get("type") == "hello":
+        ok(f"hello 首帧 version={first.get('version')}")
+
+
 async def case_ping(args: argparse.Namespace) -> int:
     async with open_ws(args, "/api/runs/ws") as ws:
+        await greet(ws)
         show("->", '{"command":"ping"}')
         await ws.send('{"command":"ping"}')
         frame = await recv_json(ws, 5)
@@ -95,6 +103,7 @@ async def case_ping(args: argparse.Namespace) -> int:
 
 async def case_submit(args: argparse.Namespace) -> int:
     async with open_ws(args, "/api/runs/ws") as ws:
+        await greet(ws)
         body = json.dumps({"command": "run", "prompt": args.prompt}, ensure_ascii=False)
         show("->", body)
         await ws.send(body)
@@ -132,6 +141,7 @@ async def case_sub(args: argparse.Namespace) -> int:
 async def case_cancel(args: argparse.Namespace) -> int:
     async with open_ws(args, f"/api/runs/{args.run_id}/ws") as ws:
         print(f"connected: {args.base}/api/runs/{args.run_id}/ws")
+        await greet(ws)
         first = await recv_json(ws, 10)
         if first is None or "__closed__" in first:
             fail("订阅后无法读取帧，不能验证 cancel")
@@ -154,6 +164,7 @@ async def case_cancel(args: argparse.Namespace) -> int:
 
 async def case_bad(args: argparse.Namespace) -> int:
     async with open_ws(args, "/api/runs/ws") as ws:
+        await greet(ws)
         show("->", "not-json")
         await ws.send("not-json")
         frame = await recv_json(ws, 5)

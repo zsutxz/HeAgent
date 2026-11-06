@@ -24,7 +24,7 @@ def _ws_config() -> WsServerConfig:
 
 
 async def _start(hub: NotificationHub | None) -> tuple[WsServer, asyncio.Task[None]]:
-    server = WsServer(_ws_config(), notification_hub=hub)
+    server = WsServer(_ws_config(), notification_hub=hub, version="0.0.0-e2e")
     await server.start()
     task = asyncio.create_task(server.serve_forever())
     # 让 serve 循环真正进入 ``main_loop`` 再返回（同 test_cli_ws_e2e 的理由）。
@@ -46,8 +46,10 @@ async def test_notification_ws_streams_cron_results_with_monotonic_seq() -> None
         async with websockets.connect(uri) as ws:
             hub.publish_cron_result(job_id="job-a", status=CronResultStatus.COMPLETED, text="hello", cron="* * * * *")
             hub.publish_cron_result(job_id="job-b", status=CronResultStatus.FAILED, text="boom")
+            hello = json.loads(await ws.recv())
             frames = [json.loads(await ws.recv()) for _ in range(2)]
 
+        assert hello == {"type": "hello", "version": "0.0.0-e2e"}
         assert [frame["type"] for frame in frames] == ["notification"] * 2
         payloads = [frame["notification"] for frame in frames]
         assert [item["kind"] for item in payloads] == ["cron_result"] * 2
@@ -70,17 +72,20 @@ async def test_notification_ws_cursor_resumes_and_rejects_evicted_cursor() -> No
             hub.publish_cron_result(job_id="job", status=CronResultStatus.COMPLETED, text=f"n{index}")
 
         async with websockets.connect(f"{base}?last_event_id=1") as ws:
+            assert json.loads(await ws.recv()) == {"type": "hello", "version": "0.0.0-e2e"}
             resumed = [json.loads(await ws.recv()) for _ in range(2)]
         assert [item["notification"]["seq"] for item in resumed] == [2, 3]
 
         with pytest.raises(websockets.exceptions.ConnectionClosed):
             async with websockets.connect(f"{base}?last_event_id=0") as ws:
+                assert json.loads(await ws.recv()) == {"type": "hello", "version": "0.0.0-e2e"}
                 frame = json.loads(await ws.recv())
                 assert frame["error"]["error"]["code"] == HttpErrorCode.RESYNC_REQUIRED.value
                 await ws.recv()
 
         with pytest.raises(websockets.exceptions.ConnectionClosed):
             async with websockets.connect(f"{base}?last_event_id=abc") as ws:
+                assert json.loads(await ws.recv()) == {"type": "hello", "version": "0.0.0-e2e"}
                 frame = json.loads(await ws.recv())
                 assert frame["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
                 await ws.recv()
@@ -96,6 +101,7 @@ async def test_notification_ws_ping_acks_with_an_empty_run_id_and_refuses_comman
     uri = f"ws://127.0.0.1:{server.port}/api/notifications/ws"
     try:
         async with websockets.connect(uri) as ws:
+            assert json.loads(await ws.recv()) == {"type": "hello", "version": "0.0.0-e2e"}
             await ws.send('{"command":"ping"}')
             assert json.loads(await ws.recv()) == {"type": "ack", "command": "ping", "run_id": ""}
 
@@ -127,6 +133,7 @@ async def test_notification_ws_limit_returns_rate_limited_frame() -> None:
             await asyncio.sleep(0)
         second = await websockets.connect(uri)
         async with second:
+            assert json.loads(await second.recv()) == {"type": "hello", "version": "0.0.0-e2e"}
             frame = json.loads(await second.recv())
             assert frame["type"] == "error"
             assert frame["error"]["error"]["code"] == HttpErrorCode.RATE_LIMITED.value
@@ -160,6 +167,7 @@ async def test_notification_ws_shutdown_notifies_and_closes_connections() -> Non
     try:
         while hub.connection_count < 1:
             await asyncio.sleep(0)
+        assert json.loads(await ws.recv()) == {"type": "hello", "version": "0.0.0-e2e"}
         await server.close()
         frame = json.loads(await asyncio.wait_for(ws.recv(), timeout=2))
         assert frame["error"]["error"]["code"] == HttpErrorCode.SHUTTING_DOWN.value
@@ -201,6 +209,7 @@ async def test_notification_ws_reopen_after_close_accepts_new_connections() -> N
     uri = f"ws://127.0.0.1:{server.port}/api/notifications/ws"
     try:
         async with websockets.connect(uri) as ws:
+            assert json.loads(await ws.recv()) == {"type": "hello", "version": "0.0.0-e2e"}
             hub.publish_cron_result(job_id="job", status=CronResultStatus.COMPLETED, text="after-restart")
             frame = json.loads(await ws.recv())
         assert frame["notification"]["text"] == "after-restart"

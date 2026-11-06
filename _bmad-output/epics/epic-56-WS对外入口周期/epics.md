@@ -62,6 +62,7 @@ Epic 54/55 语义。经 WS **提交 run** 翻 Epic 54 D2 案；配置/项目/会
 | 56-6 | 端点可见性与双监听安全不变量 | 56-5 | backlog | 对外 listener 仅注册提交 + 订阅（不注册 `/api/cli/ws`）；`WS_CLI_BYPASS_ENABLED=true` + 对外 listener ⇒ 跳过旁路 + `ws event=cli_bypass_skipped` WARNING；对外 TLS 独立键与 `WS_TLS_*` 继承；双监听 e2e 判据 | 本地（无 token）与对外（token）**同时**可连；同一 run 两 listener 订阅拿同源 `seq`；对外打 `/api/cli/ws` ⇒ 403；单对外 + 旁路开 ⇒ 旁路被跳过且日志可见；提交席位两 listener 独立计数 |
 | 56-8 | 对外 listener 只读旁观（retro P2-A3） | 56-6 | done | `WsServerConfig.readonly`（listener 级）；`build_ws_app` 不注册提交端点；`cancel` 拒绝不断连；Settings `WS_EXTERNAL_READONLY`（默认关）；CLI `--ws-external-readonly/--ws-external-writable`（三态）；文档 + 四层判据 | 只读 listener 提交端点 403；订阅正常；`cancel` 回 `invalid_request` 且运行未取消；默认关（零行为变化）；CLI 可把设置里的 `true` 显式关掉 |
 | 56-7 | 文档、契约与质量门 | 56-6 | backlog | `docs/frame.md` 4.17/4.18 双监听拓扑（配置表 +4 键、模式派生表）；`AGENTS.md` 安全声明补双监听口径；`deploy/README.md` 部署示例；`tests/test_architecture_contracts.py` 钉「对外 listener 端点集 = {提交, 订阅}」；全量门禁实测登记 | 契约测试可执行地断言端点集；`pytest` / `ruff check` / `ruff format --check` / `mypy src`（+`--platform linux`）/ `bandit -r src/ -ll` / `scripts/quality_gate.py` 全绿并登记实测数字 |
+| 56-9 | WS hello 版本首帧（2026-11-06 追加） | 56-8 | in-progress | 四端点 `accept()` 后、配额/游标/关停判定前下发 `{"type":"hello","version":…}`；版本入口层注入（`heagent.__version__` 经 `WsServer → build_ws_app → builders` 参数链），传输层不读包元数据；空版本（测试装配）跳过并记 debug；协议契约：hello 不属任何流（无 run_id/seq、不进环形缓冲、续传语义不变），客户端按可忽略类型处理 | 单测：WsHelloFrame 形状钉；submit 端点 hello 先于配额错误帧、订阅端点 hello 先于 UNKNOWN_RUN 错误帧；通知 e2e 首帧=hello；wiring 注入 `heagent.__version__`；e2e 不注入 version 走跳过路径故零改动；frame.md 协议节同步 |
 
 ## 期二实施约束
 

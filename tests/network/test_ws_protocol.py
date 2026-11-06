@@ -35,8 +35,16 @@ from heagent.network.ws_protocol import (
     WsFrameError,
     WsFrameErrorKind,
     WsFrameType,
+    WsHelloFrame,
     parse_command_frame,
 )
+
+
+def test_hello_frame_carries_only_the_server_version() -> None:
+    """56-9：hello 首帧只含版本；形状钉死（type=hello + version，extra=forbid）。"""
+    dumped = WsHelloFrame(version="0.8.4").model_dump(mode="json")
+
+    assert dumped == {"type": "hello", "version": "0.8.4"}
 
 
 def test_event_frame_round_trip_preserves_nested_sse_payload() -> None:

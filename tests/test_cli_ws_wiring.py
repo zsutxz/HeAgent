@@ -16,6 +16,7 @@ pytest.importorskip("starlette")
 pytest.importorskip("uvicorn")
 websockets = pytest.importorskip("websockets")
 
+from heagent import __version__  # noqa: E402
 from heagent.cli.http import build_http_service  # noqa: E402
 from heagent.config import Settings  # noqa: E402
 
@@ -34,7 +35,9 @@ async def test_service_built_from_settings_serves_the_cli_event_stream() -> None
             hub.begin_run()
             hub.publish_text("from the terminal")
             hub.end_run()
+            hello = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
             frame = json.loads(await asyncio.wait_for(ws.recv(), timeout=5))
+        assert hello == {"type": "hello", "version": __version__}
         assert frame["type"] == "event"
         assert frame["event"]["kind"] == "text"
         assert frame["event"]["text"] == "from the terminal"
