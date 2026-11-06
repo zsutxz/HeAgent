@@ -158,7 +158,7 @@ AgentLoop.run(prompt)
 | `slash.py` | 交互模式斜杠命令注册表 + `.heagent/commands/*.md` 用户自定义命令加载 | 顶层 `slash.py` |
 | `terminal.py` | 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断） | 顶层 `terminal.py` |
 | `wiring.py` | Provider 组合根 + `ensure_runtime_config` / `build_cron_job_runner`（CLI/GUI 共用） | 顶层 `wiring.py` |
-| `housekeeping.py` | 启动期运行时产物保留期回收（日志 / 会话 / 编辑快照 / 沙箱会话目录 / 已停止 `heagent-*` 容器） | 顶层 `housekeeping.py` |
+| `housekeeping.py` | 启动期运行时产物保留期回收（日志 / 会话 / 编辑快照 / 沙箱会话目录 / 已停止 `heagent-*` 容器） | 顶层 `housekeeping.py`（2026-11-06 迁回顶层） |
 
 **缝（monkeypatch 模块路径）按调用方分模块**：`_run_prompt` / `_run_single` 在 `interactive`（其调用方
 `_run_chat` 同模块）；console 的命令层用**函数内导入**读 `_run_single`；`_build_loop` 在 `composition`
@@ -465,7 +465,7 @@ SafetyGuard
 
 **SandboxSession 会话生命周期（FR-4，2026-08-26）：** 引入 `SandboxSession` 会话作用域——同一 run 的连续 shell 命令共享同一 session workspace（40.1 目录）并**跨命令保持 cwd**：`run()` 以「cd 前缀 + 末尾上报（POSIX `printf $PWD` / cmd `cd`）回填 `session.cwd`」包装命令，多步操作（写→编译→运行）自然衔接；包装同时**保持用户命令退出码**（POSIX `exit "$__rc"` 复原 / Windows `call echo %^ERRORLEVEL%` 经 marker 行带回并由 `run()` 回填 `exit_code=`，修复包装后失败命令恒 `exit_code=0` 的缺陷；`exit N` 直退类命令 marker 缺失属固有限制，rc 仍正确）。会话经 `get_or_create_session(run_id)` 按 run 缓存、`bind_sandbox_session` 送达 shell handler（handler 优先走 session）；`EngineContainer.close_run`（`AgentLoop._persist_and_cache` 尾部调用）teardown 按 `sandbox_session_keep`（默认 False=删除）清理会话目录。⚠ 会话只提供 cwd 保持约定（「cd 前缀 + 尾捕获」），WinJob 无文件系统隔离、Firejail 亦无完整隔离；边界地位见 §4.19。
 
-**E40 补齐（2026-09-15，四项）：** ① **孤儿目录 GC（E40-D1）**——crash / SIGKILL 的 run 不走 teardown，其 `<workspace>/.heagent/sandboxes/<run_id>/` 由 CLI/GUI 启动时的 `cli/housekeeping.prune_sandbox_dirs` 按 `sandbox_dir_retention_days`（默认 7 天）回收：判活取「目录 + **直接子项**」最新 mtime（正在写的 run 不被删；只扫一层，成本有界），非目录条目与符号链接一律不动（符号链接记 warning，绝不穿透），单趟删除数有上限、删除失败记 warning 留待下次启动。约定根由 `tools.sandbox.sandbox_sessions_root(workspace)` 单一表达（创建方与回收方共用，防空漂移）。② **目录对模型可见（E40-D2）**——`_build_system()` 在本 run 会话目录**真正生效**（存在真实沙箱后端）时注入 `<shell-workspace>` 块，告知绝对路径与「file 工具相对路径按 workspace root 解析」的差异；开关开但后端缺席（passthrough）时**不报路径**（与真实 cwd 不一致比不提示更坏）。③ **WinJob cwd 可测缝（E40-D3）**——子进程启动收敛到 `_winjob_spawn(command, workspace)` 单点（未 bind 时不传 `cwd`，与改动前逐字段一致），使该决定可在非 Windows 平台被断言（原实现写在 `run()` 两条 `Popen` 分支里，Linux CI 整段跳过）。④ **CLI/GUI 平权（E40-D4）**——`--sandbox-session-workspace` / `--sandbox-session-keep`（含 `--no-...`）三态覆盖 `Settings`（未传标志时行为与改动前逐字节一致）。
+**E40 补齐（2026-09-15，四项）：** ① **孤儿目录 GC（E40-D1）**——crash / SIGKILL 的 run 不走 teardown，其 `<workspace>/.heagent/sandboxes/<run_id>/` 由 CLI/GUI 启动时的 `housekeeping.prune_sandbox_dirs` 按 `sandbox_dir_retention_days`（默认 7 天）回收：判活取「目录 + **直接子项**」最新 mtime（正在写的 run 不被删；只扫一层，成本有界），非目录条目与符号链接一律不动（符号链接记 warning，绝不穿透），单趟删除数有上限、删除失败记 warning 留待下次启动。约定根由 `tools.sandbox.sandbox_sessions_root(workspace)` 单一表达（创建方与回收方共用，防空漂移）。② **目录对模型可见（E40-D2）**——`_build_system()` 在本 run 会话目录**真正生效**（存在真实沙箱后端）时注入 `<shell-workspace>` 块，告知绝对路径与「file 工具相对路径按 workspace root 解析」的差异；开关开但后端缺席（passthrough）时**不报路径**（与真实 cwd 不一致比不提示更坏）。③ **WinJob cwd 可测缝（E40-D3）**——子进程启动收敛到 `_winjob_spawn(command, workspace)` 单点（未 bind 时不传 `cwd`，与改动前逐字段一致），使该决定可在非 Windows 平台被断言（原实现写在 `run()` 两条 `Popen` 分支里，Linux CI 整段跳过）。④ **CLI/GUI 平权（E40-D4）**——`--sandbox-session-workspace` / `--sandbox-session-keep`（含 `--no-...`）三态覆盖 `Settings`（未传标志时行为与改动前逐字节一致）。
 
 #### call_summary.py — 工具调用「作用对象」摘要（纯展示辅助）
 
@@ -782,7 +782,7 @@ HeAgentError (base)
 - `pydantic-settings` 的 `Settings` 类，从 `.env` + 环境变量加载
 - **加载优先级**：系统环境变量 > 项目 `.env` > 用户 `~/.heagent/setting.md`（YAML frontmatter，`config/user_settings.py`）> 字段默认值；同 key 冲突时高优先级来源胜出。顺序由 `Settings.settings_customise_sources` 的源元组决定（md 源插在 dotenv 源之后）；`.env` 是项目级专用格式，用户级是 markdown。
 - `get_settings()` 单例访问，`reset_settings()` 用于测试重置
-- **运行配置快照（Phase 1，2026-09-21）**：`ResolvedRuntimeConfig`（冻结 `Settings` 子类，集合深拷贝、凭证 `exclude` 不入 repr/JSON）+ `resolve_runtime_config(settings=None, **overrides)`——显式非 `None` 覆盖才生效（保留「显式 `False` 反向压过 env `True`」三态语义），每个字段经 `RuntimeConfigSource` 记录来源（`settings`/`override`）。入口层（`cli.composition._build_loop`/`gui_main`）组装期解析一次，engine（`EngineContainer.runtime_config`，并把实际生效后端记入 `SandboxDecision` 写入 run metadata）与两类 loop（主/cron）共用同一份；`AgentLoop`/`SubAgent` 业务执行（压缩/窗口重置/委派深度/提示词块/技能预算）只读快照，运行中全局 Settings 漂移不影响已创建的运行。`PolicyVerdict.source` 标记裁决来源。业务方法禁止隐式 `get_settings()`；构造期回退与无 run 绑定的工具路径（cli/housekeeping/dream/skills 未绑定回退）除外，详见下表口径。
+- **运行配置快照（Phase 1，2026-09-21）**：`ResolvedRuntimeConfig`（冻结 `Settings` 子类，集合深拷贝、凭证 `exclude` 不入 repr/JSON）+ `resolve_runtime_config(settings=None, **overrides)`——显式非 `None` 覆盖才生效（保留「显式 `False` 反向压过 env `True`」三态语义），每个字段经 `RuntimeConfigSource` 记录来源（`settings`/`override`）。入口层（`cli.composition._build_loop`/`gui_main`）组装期解析一次，engine（`EngineContainer.runtime_config`，并把实际生效后端记入 `SandboxDecision` 写入 run metadata）与两类 loop（主/cron）共用同一份；`AgentLoop`/`SubAgent` 业务执行（压缩/窗口重置/委派深度/提示词块/技能预算）只读快照，运行中全局 Settings 漂移不影响已创建的运行。`PolicyVerdict.source` 标记裁决来源。业务方法禁止隐式 `get_settings()`；构造期回退与无 run 绑定的工具路径（housekeeping/dream/skills 未绑定回退）除外，详见下表口径。
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
@@ -1483,7 +1483,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 沙箱会话目录非安全边界 | `sandbox_session_workspace`（FR-1，2026-08-26）只提供 per-run 目录约定：WinJob 仅把目录作为子进程 cwd（**零文件系统/网络隔离**），Firejail `--private` 亦无完整隔离——边界地位见 §4.19（见 4.4 sandbox.py） |
 | 沙箱后端分级 | `SandboxTier`（FR-2，2026-08-26）container 档首个实现后端 `DockerRunner` 已落地（Epic 53 期一，2026-10-21；仅 shell 路径、默认链路未启用）；审批降级（`can_relax_approval`）已于 Epic 53 期二（Story 53-4，2026-11-03）接入 `PolicyEngine`，仅当「真进沙箱 + 容器档 + 后端可用」时放松、弱后端一律维持原审批要求——分级的边界地位见 §4.19 |
 | 沙箱 env 豁免非安全边界 | `sandbox_env_allowlist`（FR-3，2026-08-26）仅豁免 `scrub_sensitive_env` 剥离，边界地位见 §4.19 |
-| SandboxSession 非安全边界 | SandboxSession（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 无完整隔离——边界地位见 §4.19；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（cli/housekeeping.prune_sandbox_dirs + sandbox_dir_retention_days） |
+| SandboxSession 非安全边界 | SandboxSession（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 无完整隔离——边界地位见 §4.19；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（housekeeping.prune_sandbox_dirs + sandbox_dir_retention_days） |
 | WebSocket 入口非安全边界（Epic 54 / Epic 56 / Epic 58） | 四条 WS 端点（提交 /api/runs/ws、订阅 /api/runs/{run_id}/ws、旁路 /api/cli/ws、通知流 /api/notifications/ws）的边界地位见 §4.19（要素 3–5）。本行的缺口事实：对外模式的凭证机制是静态 token（只读用户级 ~/.heagent/setting.md）+ 握手前常量时间比较 + 按来源失败限速，且只走握手头 ⇒ 不支持浏览器直连；**对外能提交 run ⇒ 容器沙箱档（--sandbox docker）从建议升级为强烈建议**（仍默认未启用） |
 | HTTP 入口不接 MCP | 网页入口**不连接** `.mcp.json` 声明的 server（入口层隔离第三方代码的既有决策）：入口的边界地位见 §4.19，自动拉起第三方 stdio 子进程 / 连远端端点等于把触达面暴露给任何能连上端口的人 |
 | HTTP 会话/事件无持久化 | 网页入口的会话投影、运行记录与 SSE 事件缓冲都是**进程内状态**：进程退出即丢；事件缓冲按 `HTTP_EVENT_BUFFER_SIZE` 有界，越过窗口的重连只能得到 `resync_required` 并改拉 `/api/session` 快照。首版有意如此（持久化见 4.17 与架构脊柱的延后决策） |
@@ -1511,6 +1511,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 src/heagent/
 ├── __init__.py
 ├── __main__.py              # python -m heagent 入口
+├── housekeeping.py          # 启动期运行时产物保留期回收（2026-11-06 自 cli/ 迁回顶层；维护面模块，下层不得反向导入）
 ├── cli/                     # 入口层命名空间（2026-09-26 收编原七个平铺 cli*.py；`__init__.py` 零 import）
 │   ├── console.py           # Click 命令组 + 参数解析 + 启动编排（入口脚本 `heagent.cli.console:main`；原 cli.py）
 │   ├── composition.py       # 装配：provider→engine→loop / soul / 上下文策略 / plan mode / dream / 事件 sink（2026-09-26 自 cli.py 拆出）
@@ -1524,8 +1525,7 @@ src/heagent/
 │   ├── skill_merge.py       # /skill-merge 跨根同名技能交互收口（skills 双根，2026-10-10）
 │   ├── slash.py             # 交互模式斜杠命令注册与路由（2026-09-26 自顶层迁入）
 │   ├── terminal.py          # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断；2026-09-26 自顶层迁入）
-│   ├── wiring.py            # Provider 组合根 + ensure_runtime_config / build_cron_job_runner（CLI/GUI 共用；2026-09-26 自顶层迁入）
-│   └── housekeeping.py      # 启动期运行时产物回收：日志 / 会话 / 编辑快照 / 崩溃 run 的沙箱会话目录 / 已停止 heagent-* 容器（2026-09-26 自顶层迁入）
+│   └── wiring.py            # Provider 组合根 + ensure_runtime_config / build_cron_job_runner（CLI/GUI 共用；2026-09-26 自顶层迁入）
 ├── web/                     # 内置网页资源包（HTML/CSS/JS，随 wheel 分发；经 importlib.resources 读取）
 ├── pub/                     # 公共层：零 heagent 运行栈依赖（任何层可依赖；`__init__.py` 零 import，2026-09-26）
 │   ├── exceptions.py        # 异常层级

@@ -17,7 +17,7 @@ CLI 启动时即为已知），故统一在本模块回收，由 CLI/GUI 启动�
 全部 **best-effort**：任何失败只记日志，绝不阻断启动——清理是维护动作，不是功能；
 保留期设为 ``*_RETENTION_DAYS=0`` 即整类禁用。
 
-属于 CLI 辅助层（与 ``cli.py`` 同侧），不参与 engine 依赖 DAG。
+启动期维护模块（2026-11-06 自 ``cli/`` 迁回顶层——09-26 收编时被裹挟入包）：不在运行时调用链上，下层不得反向导入（契约表与 goal 同档位）。
 """
 
 from __future__ import annotations
@@ -333,7 +333,7 @@ def prune_runtime_artifacts_sync(
         return asyncio.run(run_housekeeping(settings=conf, workspace=workspace, log_dir=log_dir))
     except RuntimeError:
         logger.debug("housekeeping skipped: running inside an event loop", exc_info=True)
-        return {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0}
+        return {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0, "containers": 0}
 
 
 def prune_runtime_artifacts_best_effort(settings: Settings | None = None) -> None:

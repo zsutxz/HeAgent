@@ -1,4 +1,4 @@
-"""``heagent.cli.housekeeping`` 测试 — 日志 / 会话 / 编辑快照的保留期回收。
+"""``heagent.housekeeping`` 测试 — 日志 / 会话 / 编辑快照 / 沙箱会话目录 / 已停止容器的保留期回收。
 
 覆盖：三类各自的按天数回收与「新鲜不动」、非目标后缀不动、保留期 0 禁用、节流、
 ``run_housekeeping`` 的逐类隔离（一类失败不影响其余）与同步包装的短路。
@@ -16,11 +16,10 @@ from typing import Any
 
 import pytest
 
-from heagent.cli import housekeeping as hk
+from heagent import housekeeping as hk
 from heagent.config import Settings, reset_settings
 from heagent.context.session import SessionStore
 from heagent.pub import persist
-from heagent.cli.housekeeping import prune_logs, prune_runtime_artifacts_sync, prune_sandbox_dirs, run_housekeeping
 from heagent.tools.edits import prune_snapshots
 from heagent.tools.sandbox import sandbox_sessions_root
 
@@ -79,7 +78,7 @@ def _sandbox_dir(workspace: Path, run_id: str, *, age_days: float | None = None)
 async def test_prune_logs_removes_old_keeps_fresh_and_other_suffixes(tmp_path: Path) -> None:
     old, fresh, other = _make_logs(tmp_path)
 
-    assert await prune_logs(tmp_path / "logs", 14) == 1
+    assert await hk.prune_logs(tmp_path / "logs", 14) == 1
 
     assert not old.exists()
     assert fresh.exists()
@@ -89,7 +88,7 @@ async def test_prune_logs_removes_old_keeps_fresh_and_other_suffixes(tmp_path: P
 async def test_prune_logs_disabled_when_zero(tmp_path: Path) -> None:
     old, _fresh, _other = _make_logs(tmp_path)
 
-    assert await prune_logs(tmp_path / "logs", 0) == 0
+    assert await hk.prune_logs(tmp_path / "logs", 0) == 0
     assert old.exists()
 
 
@@ -161,7 +160,7 @@ async def test_run_housekeeping_prunes_all_four_targets(tmp_path: Path) -> None:
 
     orphan = _sandbox_dir(tmp_path, "crashed-run", age_days=30)
 
-    result = await run_housekeeping(settings=conf, workspace=tmp_path)
+    result = await hk.run_housekeeping(settings=conf, workspace=tmp_path)
 
     assert result == {"logs": 1, "sessions": 1, "snapshots": 1, "sandboxes": 1, "containers": 0}
     assert not old_log.exists()
@@ -183,13 +182,13 @@ async def test_run_housekeeping_is_throttled_across_calls(tmp_path: Path) -> Non
     old_session.write_text("{}", encoding="utf-8")
     _age(old_session, days=60)
 
-    assert (await run_housekeeping(settings=conf, workspace=tmp_path))["sessions"] == 1
+    assert (await hk.run_housekeeping(settings=conf, workspace=tmp_path))["sessions"] == 1
 
     another = sessions / "another-old.json"
     another.write_text("{}", encoding="utf-8")
     _age(another, days=60)
 
-    assert (await run_housekeeping(settings=conf, workspace=tmp_path))["sessions"] == 0  # 被节流
+    assert (await hk.run_housekeeping(settings=conf, workspace=tmp_path))["sessions"] == 0  # 被节流
     assert another.exists()
 
 
@@ -209,8 +208,8 @@ async def test_run_housekeeping_isolates_target_failures(
 
     monkeypatch.setattr(hk, "prune_logs", _boom)
 
-    with caplog.at_level(logging.WARNING, logger="heagent.cli.housekeeping"):
-        result = await run_housekeeping(settings=conf, workspace=tmp_path)
+    with caplog.at_level(logging.WARNING, logger="heagent.housekeeping"):
+        result = await hk.run_housekeeping(settings=conf, workspace=tmp_path)
 
     assert result["logs"] == 0
     assert result["sessions"] == 1  # 其余照常
@@ -233,9 +232,9 @@ def test_sync_wrapper_short_circuits_when_all_disabled(tmp_path: Path, monkeypat
         called = True
         return {}
 
-    monkeypatch.setattr("heagent.cli.housekeeping.run_housekeeping", _spy)
+    monkeypatch.setattr("heagent.housekeeping.run_housekeeping", _spy)
 
-    assert prune_runtime_artifacts_sync(conf) == {
+    assert hk.prune_runtime_artifacts_sync(conf) == {
         "logs": 0,
         "sessions": 0,
         "snapshots": 0,
@@ -243,6 +242,32 @@ def test_sync_wrapper_short_circuits_when_all_disabled(tmp_path: Path, monkeypat
         "containers": 0,
     }
     assert called is False
+
+
+def test_prune_runtime_artifacts_sync_event_loop_fallback_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同步包装在事件循环内（asyncio.run 抛 RuntimeError）的兜底返回与正常路径同形（5 键）。"""
+    conf = _settings(
+        tmp_path,
+        log_retention_days=1,
+        session_retention_days=0,
+        edit_snapshot_retention_days=0,
+        sandbox_dir_retention_days=0,
+    )
+
+    def _raise_runtime_error(*_args: object, **_kwargs: object) -> dict[str, int]:
+        raise RuntimeError("cannot be called from a running event loop")
+
+    monkeypatch.setattr("heagent.housekeeping.asyncio.run", _raise_runtime_error)
+
+    assert hk.prune_runtime_artifacts_sync(conf) == {
+        "logs": 0,
+        "sessions": 0,
+        "snapshots": 0,
+        "sandboxes": 0,
+        "containers": 0,
+    }
 
 
 # ── 已停止容器的回收（Epic 53 审查修复批：孤儿容器带着写挂载滞留）─────
@@ -327,7 +352,7 @@ async def test_prune_exited_containers_counts_only_successful_rm(  # noqa: ANN00
     monkeypatch.setattr(shutil, "which", lambda name: "/usr/bin/docker")
     monkeypatch.setattr(hk, "subprocess", fake)
 
-    with caplog.at_level(logging.WARNING, logger="heagent.cli.housekeeping"):
+    with caplog.at_level(logging.WARNING, logger="heagent.housekeeping"):
         assert await hk.prune_exited_sandbox_containers() == 1
     assert removed == ["ok1"]
     assert any("left for next startup" in r.message for r in caplog.records)
@@ -344,8 +369,8 @@ async def test_run_housekeeping_isolates_container_sweep_failure(
 
     monkeypatch.setattr(hk, "prune_exited_sandbox_containers", _boom)
 
-    with caplog.at_level(logging.WARNING, logger="heagent.cli.housekeeping"):
-        result = await run_housekeeping(settings=conf, workspace=tmp_path)
+    with caplog.at_level(logging.WARNING, logger="heagent.housekeeping"):
+        result = await hk.run_housekeeping(settings=conf, workspace=tmp_path)
 
     assert result["containers"] == 0
     assert any("container sweep failed" in r.message for r in caplog.records)
@@ -370,7 +395,7 @@ def test_sync_wrapper_still_sweeps_when_retention_all_zero(tmp_path: Path, monke
 
     monkeypatch.setattr(hk, "prune_exited_sandbox_containers", _sweep)
 
-    result = prune_runtime_artifacts_sync(conf)
+    result = hk.prune_runtime_artifacts_sync(conf)
 
     assert removed == [True]
     assert result["containers"] == 3
@@ -390,7 +415,7 @@ async def test_prune_sandbox_dirs_removes_stale_keeps_active_and_fresh(tmp_path:
     _age(active, days=30)  # 目录自身做旧，子项保持新鲜 → 视为活跃
     fresh = _sandbox_dir(tmp_path, "fresh-run")
 
-    assert await prune_sandbox_dirs(tmp_path, 7) == 1
+    assert await hk.prune_sandbox_dirs(tmp_path, 7) == 1
 
     assert not orphan.exists()
     assert active.exists()
@@ -400,7 +425,7 @@ async def test_prune_sandbox_dirs_removes_stale_keeps_active_and_fresh(tmp_path:
 async def test_prune_sandbox_dirs_disabled_when_zero(tmp_path: Path) -> None:
     orphan = _sandbox_dir(tmp_path, "crashed-run", age_days=999)
 
-    assert await prune_sandbox_dirs(tmp_path, 0) == 0
+    assert await hk.prune_sandbox_dirs(tmp_path, 0) == 0
     assert orphan.exists()
 
 
@@ -412,7 +437,7 @@ async def test_prune_sandbox_dirs_skips_malformed_entries(tmp_path: Path) -> Non
     stray.write_text("x", encoding="utf-8")
     _age(stray, days=30)
 
-    assert await prune_sandbox_dirs(tmp_path, 7) == 0
+    assert await hk.prune_sandbox_dirs(tmp_path, 7) == 0
 
     assert stray.exists()
 
@@ -431,8 +456,8 @@ async def test_prune_sandbox_dirs_never_follows_symlinks(tmp_path: Path, caplog:
     except (OSError, NotImplementedError):  # pragma: no cover - 平台/权限不允许建链接
         pytest.skip("symlink creation not permitted on this platform")
 
-    with caplog.at_level(logging.WARNING, logger="heagent.cli.housekeeping"):
-        assert await prune_sandbox_dirs(tmp_path, 7) == 0
+    with caplog.at_level(logging.WARNING, logger="heagent.housekeeping"):
+        assert await hk.prune_sandbox_dirs(tmp_path, 7) == 0
 
     assert link.exists()
     assert keep.exists()  # 绝不穿透链接删目标
@@ -443,8 +468,8 @@ async def test_prune_sandbox_dirs_is_bounded_per_pass(tmp_path: Path, caplog: py
     """单趟删除数受 ``max_per_pass`` 限制，截断时记 warning（可观测，其余留待后续启动）。"""
     orphans = [_sandbox_dir(tmp_path, f"crashed-{i}", age_days=30) for i in range(3)]
 
-    with caplog.at_level(logging.WARNING, logger="heagent.cli.housekeeping"):
-        assert await prune_sandbox_dirs(tmp_path, 7, max_per_pass=2) == 2
+    with caplog.at_level(logging.WARNING, logger="heagent.housekeeping"):
+        assert await hk.prune_sandbox_dirs(tmp_path, 7, max_per_pass=2) == 2
 
     assert sum(1 for path in orphans if path.exists()) == 1
     assert any("per-pass cap" in record.message for record in caplog.records)
@@ -457,7 +482,7 @@ def test_sandbox_dir_activity_refuses_symlinked_dir(
     directory = _sandbox_dir(tmp_path, "run-x", age_days=30)
     monkeypatch.setattr(Path, "is_symlink", lambda self: self.name == "run-x")
 
-    with caplog.at_level(logging.WARNING, logger="heagent.cli.housekeeping"):
+    with caplog.at_level(logging.WARNING, logger="heagent.housekeeping"):
         newest, reclaimable = hk._sandbox_dir_activity(directory)
 
     assert newest == 0.0
@@ -485,8 +510,8 @@ async def test_prune_sandbox_dirs_reports_failure_and_continues(
 
     monkeypatch.setattr(persist, "shutil", _FlakyShutil(shutil))
 
-    with caplog.at_level(logging.WARNING, logger="heagent.cli.housekeeping"):
-        assert await prune_sandbox_dirs(tmp_path, 7) == 1
+    with caplog.at_level(logging.WARNING, logger="heagent.housekeeping"):
+        assert await hk.prune_sandbox_dirs(tmp_path, 7) == 1
 
     assert locked.exists()
     assert not removable.exists()
@@ -497,8 +522,8 @@ async def test_prune_sandbox_dirs_is_throttled(tmp_path: Path) -> None:
     """节流：间隔内的第二次调用不再扫描 / 删除（自己的标记文件，独立于其他类别）。"""
     _sandbox_dir(tmp_path, "crashed-run", age_days=30)
 
-    assert await prune_sandbox_dirs(tmp_path, 7, min_interval_seconds=3600) == 1
+    assert await hk.prune_sandbox_dirs(tmp_path, 7, min_interval_seconds=3600) == 1
 
     another = _sandbox_dir(tmp_path, "crashed-run-2", age_days=30)
-    assert await prune_sandbox_dirs(tmp_path, 7, min_interval_seconds=3600) == 0
+    assert await hk.prune_sandbox_dirs(tmp_path, 7, min_interval_seconds=3600) == 0
     assert another.exists()

@@ -56,7 +56,10 @@ _ENTRYPOINT_MODULES = (
 # goal/ 是入口层**域模块**（cli/goal.py 的装载/文档层，frame.md 六）：与组合根同属「下层不得反向
 # 导入」的入口面。此前只有 engine/memory 条目显式列它，其余包存在形式绕过（48-5 评审 W-7，
 # AST 实测运行期只有 cli/goal.py 导入 goal/）。
-_ENTRY_LAYER_MODULES = (*_ENTRYPOINT_MODULES, "heagent.goal")
+# housekeeping 是启动期维护模块（2026-11-06 自 cli/ 迁回顶层）：与 goal 同档位——下层不得反向
+# 导入（其 import 扇出 config/context/pub/tools，位置在运行栈之上）。迁出 cli/ 包根后原
+# ``heagent.cli`` 伞不再覆盖，须显式登记，否则反向依赖断言出现形式绕过。
+_ENTRY_LAYER_MODULES = (*_ENTRYPOINT_MODULES, "heagent.goal", "heagent.housekeeping")
 
 FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
     "providers": ("heagent.agent", *_ENTRY_LAYER_MODULES),
@@ -618,7 +621,7 @@ def test_entrypoints_do_not_duplicate_runtime_store_paths() -> None:
         "cli/http_console.py",
         "engine/container.py",
         "gui/__init__.py",
-        "cli/housekeeping.py",
+        "housekeeping.py",
         "tools/edits.py",
         "tools/sandbox/session.py",
     ]
@@ -707,7 +710,6 @@ def test_cli_package_layout_is_pinned() -> None:
         "dialogs",
         "display",
         "goal",
-        "housekeeping",
         "http",
         "http_console",
         "init",

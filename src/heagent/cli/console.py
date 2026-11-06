@@ -65,12 +65,12 @@ def _setup_logging() -> None:
 
 
 def _prune_runtime_artifacts(settings: Settings) -> None:
-    """启动时回收运行时产物（日志 / 会话 / 编辑快照 / 记忆归档）：best-effort，绝不阻断启动。
+    """启动时回收运行时产物（日志 / 会话 / 编辑快照 / 沙箱会话目录 / 已停止容器）+ 记忆归档：best-effort，绝不阻断启动。
 
-    具体实现在 ``heagent.cli.housekeeping``（单独成模块便于直接测试）；这里只做「失败不上抛」。
+    具体实现在 ``heagent.housekeeping``（单独成模块便于直接测试）；这里只做「失败不上抛」。
     记忆归档由 ``heagent.memory.auto_archive`` 处理。
     """
-    from heagent.cli.housekeeping import prune_runtime_artifacts_best_effort
+    from heagent.housekeeping import prune_runtime_artifacts_best_effort
 
     prune_runtime_artifacts_best_effort(settings)
 

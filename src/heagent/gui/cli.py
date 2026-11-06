@@ -76,8 +76,8 @@ def gui_cmd(
 
     logger.info("GUI session started — log file: %s", _log_file)
 
-    # 启动时回收运行时产物（日志 / 会话 / 编辑快照）：与 CLI 同一实现，best-effort。
-    from heagent.cli.housekeeping import prune_runtime_artifacts_best_effort
+    # 启动时回收运行时产物（日志 / 会话 / 编辑快照 / 沙箱会话目录 / 已停止容器）：与 CLI 同一实现，best-effort。
+    from heagent.housekeeping import prune_runtime_artifacts_best_effort
 
     prune_runtime_artifacts_best_effort(_settings)
 

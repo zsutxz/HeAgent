@@ -143,7 +143,7 @@ MCP stdio 不放松）；② 后端 `tier.can_relax_approval` 为真；③ 后�
 - 会话目录（FR-1，`SANDBOX_SESSION_WORKSPACE`）：`<workspace>/.heagent/sandboxes/<run_id>/`，
   幂等创建；`run_id` 非法或目标为符号链接 ⇒ `ValueError`（防路径逃逸锚定）。
   - firejail 作 `--private` 根；winjob 仅作子进程 cwd；docker 作挂载源。
-  - 清理：正常结束按 `SANDBOX_SESSION_KEEP` 决定；崩溃遗留由 `cli/housekeeping.prune_sandbox_dirs`
+  - 清理：正常结束按 `SANDBOX_SESSION_KEEP` 决定；崩溃遗留由 `housekeeping.prune_sandbox_dirs`
     按 `SANDBOX_DIR_RETENTION_DAYS`（默认 7 天）回收。
 - 目录约定**不是**安全边界（`session.py` docstring 明示）。
 
