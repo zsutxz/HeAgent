@@ -20,10 +20,13 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from heagent.pub.frontmatter import extract_h2_section, parse_strict_pairs, split_frontmatter
-from heagent.pub.persist import atomic_update_text
+from heagent.pub.persist import atomic_update_text, atomic_write_text
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # goal 状态目录（相对路径，使用时锚定 Path.cwd()）。workflow 包的定位由 cli/goal 经
 # Settings.goal_workflow_skill + skill catalog 解析，不在本模块硬编码。
@@ -194,3 +197,43 @@ def goal_document_title(text: str) -> str:
     if not title:
         raise ValueError("declarative requirement document must declare a title")
     return title
+
+
+def reserve_goal_id(
+    base_id: str,
+    workspace_root: Path,
+    checkpoint_dir_for: Callable[[str, Path], Path],
+) -> str | None:
+    """goal id 冲突后缀分配（``""`` + ``-a..-z`` 共 27 候选）。
+
+    占位判定双查：GOALS_DIR 目录与 checkpoint 目录（``checkpoint_dir_for`` 注入——
+    application 层反向依赖本模块，import 即成环，故由入口层注入；本模块保持仅依赖
+    pub）。27 个候选取尽返回 None；呈现与重试由调用方决定——搬规则不搬呈现。
+    """
+    goal_id = base_id
+    goal_dir = GOALS_DIR / goal_id
+    for suffix in [""] + [f"-{chr(ord('a') + index)}" for index in range(26)]:
+        if not goal_dir.exists() and not checkpoint_dir_for(goal_id, workspace_root).exists():
+            break
+        goal_id = base_id + suffix
+        goal_dir = GOALS_DIR / goal_id
+    else:
+        return None
+    return goal_id
+
+
+def write_goal_bundle(
+    goal_dir: Path,
+    document_text: str,
+    paths_root: Path,
+    init_checkpoint_workspace: Callable[[Path, Path], None],
+) -> None:
+    """三步写：goal 文档 → checkpoint 工作区 → ``current`` 指针。
+
+    crash 半挂现状成文：文档写成功而 current 写失败 ⇒ 半挂（文档在、current 指旧
+    goal）——行为等价保留，不新增回滚/补偿机制；呈现（OSError/ValueError → 调用方
+    ``_echo``）由调用方完成——搬规则不搬呈现。
+    """
+    atomic_write_text(goal_document_path(goal_dir), document_text)
+    init_checkpoint_workspace(goal_dir, paths_root)
+    atomic_write_text(GOALS_DIR / "current", goal_dir.name)

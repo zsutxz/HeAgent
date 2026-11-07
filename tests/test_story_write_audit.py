@@ -20,6 +20,7 @@ from heagent.engine import (
 from heagent.engine.checkpoint import WorkflowCheckpointStore
 from heagent.engine.workflow_runner import WorkflowRunner, WorkflowStepResult
 from heagent.goal import application
+from heagent.goal import write_audit
 from heagent.goal.workflow_loader import parse_story_list
 from heagent.pub.types import StoryExecutionContext
 
@@ -102,11 +103,11 @@ async def _run_step(
 
 def test_write_set_coverage_semantics() -> None:
     """判负覆盖语义与引擎批派生同源：目录条目覆盖子树、大小写不敏感；空/死条目不构成豁免。"""
-    assert cli_goal._covered_by_write_set("src/x.py", ["src"])
-    assert cli_goal._covered_by_write_set("SRC/X.PY", ["src"])
-    assert not cli_goal._covered_by_write_set("docs/x.md", ["src"])
-    assert cli_goal._covered_by_write_set("src/a.py", ["src/a.py"])
-    assert not cli_goal._covered_by_write_set("anything/else", [""])  # 空条目免检是 fail-open，已修
+    assert write_audit._covered_by_write_set("src/x.py", ["src"])
+    assert write_audit._covered_by_write_set("SRC/X.PY", ["src"])
+    assert not write_audit._covered_by_write_set("docs/x.md", ["src"])
+    assert write_audit._covered_by_write_set("src/a.py", ["src/a.py"])
+    assert not write_audit._covered_by_write_set("anything/else", [""])  # 空条目免检是 fail-open，已修
 
 
 def test_repo_relpath_reference_system_branches(tmp_path: Path) -> None:
@@ -114,14 +115,14 @@ def test_repo_relpath_reference_system_branches(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     workspace = repo / "sub"
     workspace.mkdir(parents=True)
-    assert cli_goal._git_toplevel(workspace) is None  # 祖先里没有 .git ⇒ 参照根不可知
-    assert cli_goal._repo_relpath("a/b.md", workspace, None) == "a/b.md"
+    assert write_audit._git_toplevel(workspace) is None  # 祖先里没有 .git ⇒ 参照根不可知
+    assert write_audit._repo_relpath("a/b.md", workspace, None) == "a/b.md"
     (repo / ".git").mkdir()
-    assert cli_goal._git_toplevel(workspace) == repo
-    assert cli_goal._git_toplevel(repo) == repo
-    assert cli_goal._repo_relpath("a/b.md", workspace, repo) == "sub/a/b.md"
-    assert cli_goal._repo_relpath("a/b.md", repo, repo) == "a/b.md"  # 同根：恒等变换
-    assert cli_goal._repo_relpath("", workspace, repo) == ""
+    assert write_audit._git_toplevel(workspace) == repo
+    assert write_audit._git_toplevel(repo) == repo
+    assert write_audit._repo_relpath("a/b.md", workspace, repo) == "sub/a/b.md"
+    assert write_audit._repo_relpath("a/b.md", repo, repo) == "a/b.md"  # 同根：恒等变换
+    assert write_audit._repo_relpath("", workspace, repo) == ""
 
 
 @pytest.mark.asyncio

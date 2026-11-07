@@ -14,7 +14,7 @@
 ② 参照根不可知时退回旧语义（多判负、不漏判）；③ ``ls-files`` 那一支维持 cwd 相对，不能被
 换算弄坏；④ 换算方向必须从工作区指向仓库根。
 
-本脚本把 ``cli/goal.py`` 复制到 ``.heagent/tmp/mut-write-audit/`` 下逐条回退这些不变量，
+本脚本把 ``goal/write_audit.py`` 复制到 ``.heagent/tmp/mut-write-audit/`` 下逐条回退这些不变量，
 要求**每条变异都红**（否则判据不足以护住该不变量）。
 
 用法（在仓库根；不需要 git 仓库以外的任何依赖）：
@@ -28,6 +28,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -35,7 +36,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]  # 本文件在 scripts/mutation/ 下
 MUT_ROOT = ROOT / ".heagent" / "tmp" / "mut-write-audit"  # 一次性产物（gitignore）
-TARGET_REL = "src/heagent/cli/goal.py"
+TARGET_REL = "src/heagent/goal/write_audit.py"
 TEST_FILE = "tests/test_story_write_audit.py"
 
 # (id, 说明, [(原文, 替换), ...])；每条原文必须**恰好出现一次**，否则脚本报错退出。
@@ -103,8 +104,9 @@ def _run_tests() -> tuple[int, int]:
         cwd=MUT_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=900,
-        env={"PYTHONPATH": str(MUT_ROOT / "src"), "PATH": "/usr/local/bin:/usr/bin:/bin"},
+        env={**os.environ, "PYTHONPATH": str(MUT_ROOT / "src")},
     )
     failed = sum(1 for line in result.stdout.splitlines() if line.strip().startswith(("FAILED ", "ERROR ")))
     return result.returncode, failed

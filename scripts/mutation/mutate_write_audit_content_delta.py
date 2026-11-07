@@ -9,7 +9,7 @@
 - **A42**：判负不再只置 FAILED + 闩——越集路径 + 基线 revision 进观测事件留档（闩后串行
   重跑的新基线已含旧违规，事件是唯一持久记录），reason 里给可执行的人工清理命令。
 
-本脚本把 ``cli/goal.py`` 复制到 ``.heagent/tmp/mut-write-audit-delta/`` 下逐条回退这些
+本脚本把 ``goal/write_audit.py`` 复制到 ``.heagent/tmp/mut-write-audit-delta/`` 下逐条回退这些
 不变量，要求**每条变异都红**（否则判据不足以护住该不变量）。
 
 用法（在仓库根）：
@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -30,7 +31,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]  # 本文件在 scripts/mutation/ 下
 MUT_ROOT = ROOT / ".heagent" / "tmp" / "mut-write-audit-delta"  # 一次性产物（gitignore）
-TARGET_REL = "src/heagent/cli/goal.py"
+TARGET_REL = "src/heagent/goal/write_audit.py"
 TEST_FILE = "tests/test_story_write_audit.py"
 
 # (id, 说明, [(原文, 替换), ...])；每条原文必须**恰好出现一次**，否则脚本报错退出。
@@ -95,8 +96,9 @@ def _run_tests() -> tuple[int, int]:
         cwd=MUT_ROOT,
         capture_output=True,
         text=True,
+        encoding="utf-8",
         timeout=900,
-        env={"PYTHONPATH": str(MUT_ROOT / "src"), "PATH": "/usr/local/bin:/usr/bin:/bin"},
+        env={**os.environ, "PYTHONPATH": str(MUT_ROOT / "src")},
     )
     failed = sum(1 for line in result.stdout.splitlines() if line.strip().startswith(("FAILED ", "ERROR ")))
     return result.returncode, failed
