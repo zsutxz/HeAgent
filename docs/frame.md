@@ -157,11 +157,11 @@ AgentLoop.run(prompt)
 | `display.py` | 终端渲染辅助（CLI 与 GUI 共用） | `cli_display.py` |
 | `slash.py` | 交互模式斜杠命令注册表 + `.heagent/commands/*.md` 用户自定义命令加载 | 顶层 `slash.py` |
 | `terminal.py` | 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断） | 顶层 `terminal.py` |
-| `wiring.py` | Provider 组合根 + `ensure_runtime_config` / `build_cron_job_runner`（CLI/GUI 共用） | 顶层 `wiring.py` |
+| `wiring.py` | provider 呈现薄壳（规则在 `providers/composition.py`，2026-11-07 迁出）+ `ensure_runtime_config` / `build_cron_job_runner`（CLI/GUI 共用） | 顶层 `wiring.py` |
 | `housekeeping.py` | 启动期运行时产物保留期回收（日志 / 会话 / 编辑快照 / 沙箱会话目录 / 已停止 `heagent-*` 容器） | 顶层 `housekeeping.py`（2026-11-06 迁回顶层） |
 
 **缝（monkeypatch 模块路径）按调用方分模块**：`_run_prompt` / `_run_single` 在 `interactive`（其调用方
-`_run_chat` 同模块）；console 的命令层用**函数内导入**读 `_run_single`；`_build_loop` 在 `composition`
+`_run_chat` 同模块）；console 的命令层用**函数内导入**读 `_run_single`；`_build_loop` 在 `cli/composition`
 （网络侧 `http.py` / `http_console.py` 函数内导入，CLI 侧 `interactive` 模块级导入）。
 覆盖率 omit 只含命令层/交互层/`goal`/`display`（见 `pyproject.toml`）。
 
@@ -280,6 +280,12 @@ class BaseProvider(Protocol):
 ```
 
 使用 `typing.Protocol`（结构化子类型），无需继承。
+
+#### composition.py — 装配规则真身（批次 9 卡 B 迁入）
+
+- 从 `Settings` 读配置 → 造 provider 栈（6 条目 × 单模型/声明式路由池、named 插入序契约、Ollama 准入）——原 `cli/wiring.py` 组合根，2026-11-07 迁入 providers 层
+- 致命配置错误抛 `ProviderConfigError`；终端呈现（`click.echo(err=True)` + `SystemExit(1)`）由 `cli/wiring.py` 呈现薄壳完成——搬规则不搬呈现
+- `settings` 参数注入；`Settings` 仅 TYPE_CHECKING 引用，运行期零 config 依赖
 
 #### openai.py — OpenAI 兼容 Provider
 
@@ -1525,7 +1531,7 @@ src/heagent/
 │   ├── skill_merge.py       # /skill-merge 跨根同名技能交互收口（skills 双根，2026-10-10）
 │   ├── slash.py             # 交互模式斜杠命令注册与路由（2026-09-26 自顶层迁入）
 │   ├── terminal.py          # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断；2026-09-26 自顶层迁入）
-│   └── wiring.py            # Provider 组合根 + ensure_runtime_config / build_cron_job_runner（CLI/GUI 共用；2026-09-26 自顶层迁入）
+│   └── wiring.py            # provider 呈现薄壳（规则在 providers/composition.py，2026-11-07 迁出）+ ensure_runtime_config / build_cron_job_runner（CLI/GUI 共用；2026-09-26 自顶层迁入）
 ├── web/                     # 内置网页资源包（HTML/CSS/JS，随 wheel 分发；经 importlib.resources 读取）
 ├── pub/                     # 公共层：零 heagent 运行栈依赖（任何层可依赖；`__init__.py` 零 import，2026-09-26）
 │   ├── exceptions.py        # 异常层级
@@ -1558,8 +1564,9 @@ src/heagent/
 │   ├── delegation.py        # 子 Agent 委派回调（tools ↔ agent 依赖倒置）
 │   └── sub.py               # 子 Agent（并行任务 + 角色化）
 │
-├── providers/               # LLM Provider（互不依赖）
+├── providers/               # LLM Provider（实现互不依赖；composition.py 为装配规则真身，依赖各实现）
 │   ├── base.py              # BaseProvider Protocol
+│   ├── composition.py       # provider 装配规则真身（2026-11-07 批次9卡B 迁入；致命呈现由 cli/wiring 薄壳完成）
 │   ├── openai.py            # OpenAI 兼容（含 DeepSeek）
 │   ├── anthropic.py         # Anthropic（含提示词缓存 FR-3）
 │   ├── chain.py             # ProviderChain 回退链（外层，FR-4 回退精度）
@@ -1781,7 +1788,7 @@ python -m heagent
 python -m heagent http-server [--host H] [--port P] [--ws-host H] [--ws-port P] ...
   │
   ├── _setup_logging() → get_settings() → _prune_runtime_artifacts()
-  ├── load_agent_roles() → cli/wiring._build_provider()          # 服务级共享 provider
+  ├── load_agent_roles() → cli/wiring._build_provider()          # 服务级共享 provider（规则在 providers/composition，wiring 为呈现薄壳）
   ├── HttpAgentHandler(...)                                   # 每次运行新建 AgentLoop（不装审批、不连 MCP）
   ├── HttpRunService(config, handler)                         # 单用户会话 + 运行记录/事件缓冲的唯一所有者
   ├── HttpServer(config, version=heagent.__version__, run_service=service)

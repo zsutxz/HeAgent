@@ -16,6 +16,8 @@ from heagent.cli.console import _build_provider
 from heagent.cli.composition import _extract_routing
 from heagent.config import Settings, reset_settings
 from heagent.providers.anthropic import AnthropicProvider
+from heagent.providers.composition import ProviderConfigError
+from heagent.providers.composition import _build_provider as composition_build_provider
 from heagent.providers.openai import OpenAIProvider
 from heagent.providers.responses import OpenAIResponsesProvider
 from heagent.providers.router import RoutingProvider
@@ -533,3 +535,21 @@ class TestRoutingContinuityWiring:
         )
         assert isinstance(provider, RoutingProvider)
         assert provider._router.continuity is False
+
+
+class TestProviderConfigErrorContract:
+    """卡 B 双侧契约钉（评审 #4）：规则侧抛 ProviderConfigError（ValueError 子类），
+    薄壳映射 SystemExit(1) 且 stderr 同字节——退出码半契约此前未经直接断言。"""
+
+    def test_rules_side_raises_value_error_subtype(self, hermetic) -> None:
+        """零凭据 Settings → composition 规则侧抛 ProviderConfigError（非 SystemExit）。"""
+        with pytest.raises(ProviderConfigError) as excinfo:
+            composition_build_provider(Settings(), None)
+        assert isinstance(excinfo.value, ValueError)
+
+    def test_shell_maps_to_exit_code_one(self, hermetic, capsys) -> None:
+        """薄壳把 ProviderConfigError 转成 SystemExit(1) + 同字节 stderr。"""
+        with pytest.raises(SystemExit) as excinfo:
+            _build_provider(Settings(), None)
+        assert excinfo.value.code == 1
+        assert "No API key configured" in capsys.readouterr().err
