@@ -21,6 +21,7 @@ from heagent.tools.sandbox import (
     _kill_and_reap,
     bind_command_runner,
     bind_sandbox_profile,
+    bind_sandbox_session,
     bind_sandbox_workspace,
     cap_channel,
     configure_command_runner,
@@ -1124,19 +1125,19 @@ class TestSandboxSession:
     """FR-4: SandboxSession 会话作用域 + cwd 跨命令保持 + teardown。"""
 
     def test_initial_cwd_is_workspace(self, tmp_path: Path) -> None:
-        s = SandboxSession(tmp_path)
+        s = SandboxSession(tmp_path, runner=PassthroughRunner())
         assert s.cwd == tmp_path
         assert s.workspace == tmp_path
 
     def test_wrap_posix(self, tmp_path: Path) -> None:
-        s = SandboxSession(tmp_path)
+        s = SandboxSession(tmp_path, runner=PassthroughRunner())
         wrapped = s._wrap("pwd", cmd_shell=False)
         assert str(tmp_path) in wrapped
         assert "HEAGENT_CWD" in wrapped
         assert "$PWD" in wrapped
 
     def test_wrap_cmd(self, tmp_path: Path) -> None:
-        s = SandboxSession(tmp_path)
+        s = SandboxSession(tmp_path, runner=PassthroughRunner())
         wrapped = s._wrap("pwd", cmd_shell=True)
         assert str(tmp_path) in wrapped
         assert "HEAGENT_CWD" in wrapped
@@ -1166,9 +1167,8 @@ class TestSandboxSession:
                 captured.append(command)
                 return "exit_code=0\nstdout:\nhello\nHEAGENT_CWD\n/fake/sub\nstderr:\n"
 
-        s = SandboxSession(tmp_path)
-        with bind_command_runner(_Runner()):
-            result = await s.run("echo hi", timeout=10)
+        s = SandboxSession(tmp_path, runner=_Runner())
+        result = await s.run("echo hi", timeout=10)
         assert str(tmp_path) in captured[0]
         assert "HEAGENT_CWD" in captured[0]
         assert s.cwd == Path("/fake/sub")
@@ -1181,15 +1181,14 @@ class TestSandboxSession:
 
         跨平台命令（mkdir/cd/echo 为 cmd 与 sh 通用）；不依赖 pwd/ls（POSIX-only）。
         """
-        s = SandboxSession(tmp_path)
-        with bind_command_runner(PassthroughRunner()):
-            await s.run("mkdir sub && cd sub && echo hi > a", timeout=15)
+        s = SandboxSession(tmp_path, runner=PassthroughRunner())
+        await s.run("mkdir sub && cd sub && echo hi > a", timeout=15)
         assert s.cwd == tmp_path / "sub"
         assert (tmp_path / "sub" / "a").exists()
 
     @pytest.mark.asyncio
     async def test_close_removes_workspace(self, tmp_path: Path) -> None:
-        s = SandboxSession(tmp_path)
+        s = SandboxSession(tmp_path, runner=PassthroughRunner())
         (tmp_path / "x.txt").write_text("hi", encoding="utf-8")
         await s.close(keep=False)
         assert not tmp_path.exists()
@@ -1225,9 +1224,8 @@ class TestSandboxSession:
             async def run(self, command, *, timeout):
                 return "exit_code=0\nstdout:\nhello\nHEAGENT_CWD 7\n/fake/sub\nstderr:\n"
 
-        s = SandboxSession(tmp_path)
-        with bind_command_runner(_Runner()):
-            result = await s.run("anything", timeout=10)
+        s = SandboxSession(tmp_path, runner=_Runner())
+        result = await s.run("anything", timeout=10)
         assert result.startswith("exit_code=7")
         assert "HEAGENT_CWD" not in result
         assert s.cwd == Path("/fake/sub")
@@ -1235,24 +1233,65 @@ class TestSandboxSession:
     @pytest.mark.asyncio
     async def test_run_failure_exit_code_preserved(self, tmp_path: Path) -> None:
         """失败命令退出码必须透传（真实 shell，LLM 靠 exit_code 判断失败；回归：包装后恒 0）。"""
-        s = SandboxSession(tmp_path)
-        with bind_command_runner(PassthroughRunner()):
-            result = await s.run('python -c "import sys; sys.exit(3)"', timeout=30)
+        s = SandboxSession(tmp_path, runner=PassthroughRunner())
+        result = await s.run('python -c "import sys; sys.exit(3)"', timeout=30)
         assert result.startswith("exit_code=3")
 
     @pytest.mark.asyncio
     async def test_run_success_exit_code_zero(self, tmp_path: Path) -> None:
         """成功命令退出码保持 0（修复不引入反向回归）。"""
-        s = SandboxSession(tmp_path)
-        with bind_command_runner(PassthroughRunner()):
-            result = await s.run("echo ok_session", timeout=15)
+        s = SandboxSession(tmp_path, runner=PassthroughRunner())
+        result = await s.run("echo ok_session", timeout=15)
         assert result.startswith("exit_code=0")
 
     @pytest.mark.asyncio
     async def test_close_keeps_workspace(self, tmp_path: Path) -> None:
-        s = SandboxSession(tmp_path)
+        s = SandboxSession(tmp_path, runner=PassthroughRunner())
         await s.close(keep=True)
         assert tmp_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_session_runner_captured_at_construction_not_global_slot(self, tmp_path: Path) -> None:
+        """B1 解耦钉：session.run 用构造期注入的 runner；全局 slot 另 bind 的 runner 不生效。"""
+
+        class _Ctor:
+            tier = SandboxTier.PASSTHROUGH
+
+            async def run(self, command: str, *, timeout: int) -> str:
+                return "exit_code=0\nstdout:\nHEAGENT_CWD\n/fake/from-ctor\nstderr:\n"
+
+        class _Global:
+            tier = SandboxTier.PASSTHROUGH
+
+            async def run(self, command: str, *, timeout: int) -> str:
+                return "exit_code=0\nstdout:\nHEAGENT_CWD\n/fake/from-global\nstderr:\n"
+
+        s = SandboxSession(tmp_path, runner=_Ctor())
+        with bind_command_runner(_Global()):
+            await s.run("echo hi", timeout=10)
+        assert s.cwd == Path("/fake/from-ctor"), "构造期 runner 生效；全局 slot 的 /fake/from-global 不得生效"
+
+    @pytest.mark.asyncio
+    async def test_shell_handler_prefers_session_over_global_runner_slot(self, tmp_path: Path) -> None:
+        """B1 优先级钉：session 与全局 runner 并存 → shell handler 走 session（session-first 成文）。"""
+        from heagent.tools.builtins.shell import shell
+
+        class _SessionRunner:
+            tier = SandboxTier.PASSTHROUGH
+
+            async def run(self, command: str, *, timeout: int) -> str:
+                return f"exit_code=0\nstdout:\nHEAGENT_CWD\n{tmp_path / 'from-session'}\nstderr:\n"
+
+        class _GlobalRunner:
+            tier = SandboxTier.PASSTHROUGH
+
+            async def run(self, command: str, *, timeout: int) -> str:
+                return f"exit_code=0\nstdout:\nHEAGENT_CWD\n{tmp_path / 'from-global'}\nstderr:\n"
+
+        session = SandboxSession(tmp_path, runner=_SessionRunner())
+        with bind_command_runner(_GlobalRunner()), bind_sandbox_session(session):
+            await shell(command="echo pick-me", timeout=10)
+        assert session.cwd == tmp_path / "from-session"
 
 
 def test_format_result_caps_oversized_stdout_and_keeps_the_tail() -> None:
@@ -1289,9 +1328,8 @@ async def test_session_preserves_tail_marker_after_stdout_truncation(tmp_path: P
         async def run(self, command: str, *, timeout: int) -> str:
             return _format_result(0, raw_stdout, b"")
 
-    session = SandboxSession(tmp_path)
-    with bind_command_runner(_Runner()):
-        result = await session.run("echo oversized", timeout=10)
+    session = SandboxSession(tmp_path, runner=_Runner())
+    result = await session.run("echo oversized", timeout=10)
 
     assert session.cwd == marker_path
     assert result.startswith("exit_code=7")
@@ -1334,10 +1372,9 @@ async def test_docker_session_cwd_persists_across_commands(tmp_path: Path) -> No
             "exit_code=0\nstdout:\nHEAGENT_CWD\n/workspace/sub\nstderr:\n",
         ],
     )
-    s = SandboxSession(tmp_path)
-    with bind_command_runner(runner):  # type: ignore[arg-type]
-        await s.run("mkdir sub && cd sub", timeout=10)
-        await s.run("pwd", timeout=10)
+    s = SandboxSession(tmp_path, runner=runner)  # type: ignore[arg-type]
+    await s.run("mkdir sub && cd sub", timeout=10)
+    await s.run("pwd", timeout=10)
 
     assert 'cd "/workspace/sub"' in captured[1]
     assert s.cwd == tmp_path, "容器侧 cwd 不得污染宿主侧 cwd"
@@ -1349,9 +1386,8 @@ async def test_docker_session_rewrites_exit_code(tmp_path: Path) -> None:
     runner, _captured = _docker_session_runner(  # type: ignore[misc]
         tmp_path, ["exit_code=0\nstdout:\noops\nHEAGENT_CWD 4\n/workspace\nstderr:\n"]
     )
-    s = SandboxSession(tmp_path)
-    with bind_command_runner(runner):  # type: ignore[arg-type]
-        result = await s.run("false", timeout=10)
+    s = SandboxSession(tmp_path, runner=runner)  # type: ignore[arg-type]
+    result = await s.run("false", timeout=10)
 
     assert result.startswith("exit_code=4")
     assert "HEAGENT_CWD" not in result

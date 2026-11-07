@@ -407,7 +407,7 @@ class ToolExecutor:
             # 用 or 收窄类型（避免 bandit S101 assert）。
             if workspace is None or run_context is None:
                 return await handler(call)
-            session = get_or_create_session(run_context.run_id, workspace)
+            session = get_or_create_session(run_context.run_id, workspace, runner=self.sandbox_runner)
             with bind_sandbox_workspace(workspace), bind_sandbox_session(session):
                 return await handler(call)
 

@@ -598,8 +598,8 @@ async def test_session_docker_wrap_keeps_container_cwd(  # 判据19：session×d
     _install(spawn_calls, fake, monkeypatch)
     monkeypatch.setattr(f"{MODULE}._probe_daemon_reason", lambda p: _PROBE_OK)
     runner = DockerRunner(workspace=Path("E:/demo/ws"))
-    session = SandboxSession("E:/demo/ws")
-    with bind_command_runner(runner), bind_sandbox_session(session):
+    session = SandboxSession("E:/demo/ws", runner=runner)
+    with bind_sandbox_session(session):
         result = await session.run("echo hello", timeout=5)
     wrapped = spawn_calls[0][-1]  # sh -c 的命令串
     assert wrapped.startswith('cd "/workspace" && { echo hello; }')

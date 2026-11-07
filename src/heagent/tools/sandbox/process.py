@@ -314,6 +314,10 @@ _DEFAULT_RUNNER = PassthroughRunner()
 
 
 def configure_command_runner(runner: CommandRunner | None) -> None:
+    """设置进程级默认 runner——**测试缝**（B1 成文）：生产装配走 executor.sandbox_runner
+    （container 构造期判定）+ 执行期 ``bind_command_runner``；本函数生产零调用（re-export
+    保留），仅供测试建立进程级缺省。
+    """
     _command_runner_slot.configure(runner)
 
 

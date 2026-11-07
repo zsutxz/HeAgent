@@ -145,17 +145,13 @@ class EngineContainer:
             self.run_store._enable_locks = True
             self.ledger._enable_locks = True
 
-        # P1-22 修复：仅在 executor 未显式设置 sandbox_runner 时注入（含显式 None），
-        # 避免覆盖调用方「禁用沙箱」的意图。command_runner 非 None 而 executor 已有
-        # runner 时记 warning，使运营方可感知配置冲突。
-        if self.command_runner is not None:
-            if self.executor.sandbox_runner is not None:
-                logger.warning(
-                    "command_runner is set but executor.sandbox_runner is already %s; command_runner is ignored",
-                    type(self.executor.sandbox_runner).__name__,
-                )
-            else:
-                self.executor.sandbox_runner = self.command_runner
+        # 执行世界 runner 装配判定（B1 seam，2026-11-07）：executor.sandbox_runner **优先**
+        # （executor 面是权威执行面——双 runner 并存时 command_runner 不会生效）；仅 executor
+        # 未设时把 command_runner 装配进去（P1-22 语义保留：container 端显式 None = 「禁用
+        # 沙箱」意图，不注入）。此前双 runner 并存仅运行期 WARNING+忽略，判定散落运行期；
+        # 现在构造期显式判定，规则成文、冲突不再漂移进运行期。
+        if self.executor.sandbox_runner is None and self.command_runner is not None:
+            self.executor.sandbox_runner = self.command_runner
 
         # 期二 D53-2：审批降级需要读「当前沙箱后端」的档位与可用性。用惰性 provider 而不是
         # 构造期快照——runner 可能在注入后才被替换，快照会让放松判定与实际执行面漂移。

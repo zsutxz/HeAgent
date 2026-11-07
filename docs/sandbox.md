@@ -42,9 +42,9 @@ _execute_in_sandbox()
         │
         ▼
     handler = tools/builtins/shell.py::shell()
-        session = get_sandbox_session()
-        有会话 → SandboxSession.run(cmd)   # 包 cd + marker + rc 回填
-        无会话 → CommandRunner.run(cmd, timeout)
+        session = get_sandbox_session()              # 会话优先（B1 成文）
+        有会话 → SandboxSession.run(cmd)   # runner 构造期注入；包 cd + marker + rc 回填
+        无会话 → CommandRunner.run(cmd, timeout)  # 全局 runner 兜底
         │
         ▼
     PassthroughRunner / FirejailBackend / WinJobBackend / DockerRunner
@@ -60,7 +60,7 @@ _execute_in_sandbox()
 | 策略裁决 | `engine/policy.py::PolicyEngine.evaluate` |
 | 四路分发 | `engine/executor.py::ToolExecutor._dispatch` |
 | 沙箱执行（可被库消费者覆写） | `engine/executor.py::ToolExecutor.execute_in_sandbox` |
-| 后端注入 | `tools/sandbox/contracts.py::bind_command_runner` 等 `RuntimeSlot` |
+| 后端注入 | `tools/sandbox/process.py::bind_command_runner` 等 `RuntimeSlot` |
 | handler 取后端 | `tools/builtins/shell.py::shell` → `get_command_runner()` |
 | 后端实现 | `tools/sandbox/{process,firejail,winjob,docker}.py` |
 

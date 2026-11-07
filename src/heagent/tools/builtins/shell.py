@@ -1,11 +1,13 @@
 """Shell 命令执行工具。
 
-经 :func:`~heagent.tools.sandbox.get_command_runner` 取当前 :class:`CommandRunner`
-后端执行命令——默认 :class:`~heagent.tools.sandbox.PassthroughRunner`（直接
-``create_subprocess_shell``）；``SANDBOX_REQUIRED`` 路径下由
-:class:`~heagent.engine.executor.ToolExecutor` ``bind_command_runner`` 注入沙箱后端
-（如 :class:`~heagent.tools.sandbox.FirejailBackend`）。stdout/stderr 捕获与超时保护
-由后端负责，本 handler 仅声明参数与委托。
+执行面**会话优先**（FR-4 / B1 成文）：RuntimeSlot 注入的
+:class:`~heagent.tools.sandbox.SandboxSession`（executor 沙箱路径经
+``bind_sandbox_session`` 送达）存在时走 ``session.run``——同一 run 内 cwd 跨命令保持；
+无会话时回落 ``get_command_runner()``（RuntimeSlot 注入的后端，默认 Passthrough；
+``SANDBOX_REQUIRED`` 路径下 executor ``bind_command_runner`` 注入的沙箱后端）。会话优先
+此前只活在代码里，此处成文；代码零变化（B1）。
+
+stdout/stderr 捕获与超时保护由后端/会话负责，本 handler 仅声明参数与委托。
 """
 
 from __future__ import annotations

@@ -17,11 +17,12 @@ from typing import TYPE_CHECKING
 
 from heagent.tools.runtime import RuntimeSlot
 from heagent.tools.sandbox.docker import CONTAINER_WORKDIR, DockerRunner
-from heagent.tools.sandbox.process import get_command_runner
 from heagent.tools.sandbox.winjob import WinJobBackend
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+    from heagent.tools.sandbox.contracts import CommandRunner
 
 
 _MARKER = "HEAGENT_CWD"
@@ -88,8 +89,12 @@ class SandboxSession:
     OS 级沙箱兜底（见 CLAUDE.md）。
     """
 
-    def __init__(self, workspace: str | Path) -> None:
+    def __init__(self, workspace: str | Path, *, runner: CommandRunner) -> None:
         self.workspace = Path(workspace)
+        # runner 构造期注入（B1 seam，2026-11-07）：run() 读构造时的 runner，不读全局 runner
+        # slot——「runner 泄漏进 session 世界」的全局读已消除；shell handler 的「会话优先、
+        # 全局 runner 兜底」优先级不变，成文于 tools/builtins/shell.py docstring。
+        self._runner = runner
         self.cwd: Path = self.workspace
         # docker 后端的**容器侧** cwd（宿主路径无法直接 cd——挂载点固定 /workspace）；
         # 与宿主侧 self.cwd 并行维护，teardown 仍用宿主 self.workspace。
@@ -188,7 +193,7 @@ class SandboxSession:
 
     async def run(self, command: str, *, timeout: int) -> str:
         """在当前会话执行命令：cd 前缀 + 执行 + cwd/rc 回填 + 输出清理。"""
-        runner = get_command_runner()
+        runner = self._runner
         if isinstance(runner, DockerRunner):
             # docker 后端（审查修复批）：cd 用容器侧 cwd，宿主 cmd/POSIX wrap 不适用
             # （宿主路径在容器内不存在；Windows 宿主的 cmd wrap 语法喂给 sh 必坏）。
@@ -221,11 +226,12 @@ class SandboxSession:
 _sandbox_sessions: dict[str, SandboxSession] = {}
 
 
-def get_or_create_session(run_id: str, workspace: str | Path) -> SandboxSession:
-    """按 run_id 获取/创建会话（同一 run 复用同一会话）。"""
+def get_or_create_session(run_id: str, workspace: str | Path, *, runner: CommandRunner) -> SandboxSession:
+    """按 run_id 获取/创建会话（同一 run 复用同一会话）；``runner`` 构造期透传（B1）——
+    会话的 runner 在首次创建时定死；已存在的会话忽略 ``runner`` 实参（构造期绑定语义）。"""
     session = _sandbox_sessions.get(run_id)
     if session is None:
-        session = SandboxSession(workspace)
+        session = SandboxSession(workspace, runner=runner)
         _sandbox_sessions[run_id] = session
     return session
 
