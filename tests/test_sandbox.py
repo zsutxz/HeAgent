@@ -1293,6 +1293,27 @@ class TestSandboxSession:
             await shell(command="echo pick-me", timeout=10)
         assert session.cwd == tmp_path / "from-session"
 
+    def test_session_rejects_none_runner(self, tmp_path: Path) -> None:
+        """runner=None 构造即显性 ValueError——装配缺失在接线点炸，不拖到首条命令 AttributeError。"""
+        with pytest.raises(ValueError, match="runner"):
+            SandboxSession(tmp_path, runner=None)  # type: ignore[arg-type]
+
+    def test_get_or_create_session_rejects_silent_runner_rebind(self, tmp_path: Path) -> None:
+        """同 runner 复用同一会话；换 runner 不清场 → 显性 ValueError（拒绝静默换绑）。"""
+        from heagent.tools.sandbox.session import get_or_create_session, pop_session
+
+        class _R:
+            tier = SandboxTier.PASSTHROUGH
+
+            async def run(self, command: str, *, timeout: int) -> str:
+                return "exit_code=0\nstdout:\nstderr:\n"
+
+        first = get_or_create_session("rebind-check", tmp_path, runner=_R())
+        assert get_or_create_session("rebind-check", tmp_path, runner=first._runner) is first
+        with pytest.raises(ValueError, match="different runner"):
+            get_or_create_session("rebind-check", tmp_path, runner=_R())
+        pop_session("rebind-check")
+
 
 def test_format_result_caps_oversized_stdout_and_keeps_the_tail() -> None:
     """A megabyte-scale result is capped, still marked, and its tail survives."""

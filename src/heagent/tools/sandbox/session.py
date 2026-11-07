@@ -90,6 +90,10 @@ class SandboxSession:
     """
 
     def __init__(self, workspace: str | Path, *, runner: CommandRunner) -> None:
+        if runner is None:
+            raise ValueError(
+                "SandboxSession requires an explicit runner (got None); executor wiring must supply sandbox_runner"
+            )
         self.workspace = Path(workspace)
         # runner 构造期注入（B1 seam，2026-11-07）：run() 读构造时的 runner，不读全局 runner
         # slot——「runner 泄漏进 session 世界」的全局读已消除；shell handler 的「会话优先、
@@ -228,11 +232,18 @@ _sandbox_sessions: dict[str, SandboxSession] = {}
 
 def get_or_create_session(run_id: str, workspace: str | Path, *, runner: CommandRunner) -> SandboxSession:
     """按 run_id 获取/创建会话（同一 run 复用同一会话）；``runner`` 构造期透传（B1）——
-    会话的 runner 在首次创建时定死；已存在的会话忽略 ``runner`` 实参（构造期绑定语义）。"""
+    会话的 runner 在首次创建时定死；已存在会话收到**不同** runner 实参时显性拒绝（拒绝
+    静默换绑：一 backend 一会话，cwd 双轨记账按后端各异，换绑必须先 teardown 清场）。"""
     session = _sandbox_sessions.get(run_id)
     if session is None:
         session = SandboxSession(workspace, runner=runner)
         _sandbox_sessions[run_id] = session
+    elif session._runner is not runner:
+        raise ValueError(
+            f"sandbox session {run_id!r} already exists bound to a different runner "
+            f"({type(session._runner).__name__}); refusing silent rebind — "
+            "teardown (pop_session/close_run) must precede re-wiring"
+        )
     return session
 
 
