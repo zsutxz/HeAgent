@@ -58,6 +58,32 @@ class StreamStubProvider:
         return ProviderMetadata(name="stub", model="stub", supports_streaming=True)
 
 
+class AnonymousModelStreamProvider:
+    """流式 chunk 全程不带 model（模拟只回 usage 的兼容端点），模型名只在元数据里。"""
+
+    def __init__(self, metadata_model: str) -> None:
+        self._metadata_model = metadata_model
+
+    async def send(self, messages: list[Message], *, tools=None) -> ProviderResponse:
+        return ProviderResponse(
+            content="final answer",
+            usage=TokenUsage(prompt_tokens=5, completion_tokens=10, total_tokens=15),
+            model="",
+            finish_reason="stop",
+        )
+
+    async def stream(self, messages: list[Message], *, tools=None) -> AsyncIterator[ProviderResponse]:
+        yield ProviderResponse(
+            content="final answer",
+            usage=TokenUsage(prompt_tokens=5, completion_tokens=10, total_tokens=15),
+            model="",
+            finish_reason="stop",
+        )
+
+    def get_metadata(self) -> ProviderMetadata:
+        return ProviderMetadata(name="relay", model=self._metadata_model, supports_streaming=True)
+
+
 class TestRunStream:
     async def test_yields_text_events(self) -> None:
         provider = StreamStubProvider(["Hello", " world", "!"])
@@ -97,6 +123,23 @@ class TestRunStream:
             pass
 
         assert loop.last_context_tokens > 0
+
+    async def test_model_falls_back_to_provider_metadata(self) -> None:
+        """流式 chunk 不带 model 时，``provider_call_completed`` 用元数据模型名归因（不落 unknown 桶）。"""
+        loop = AgentLoop(AnonymousModelStreamProvider("deepseek-flash"))
+        async for _ in loop.run_stream("hi"):
+            pass
+        events = [e for e in loop.engine.events.recent_events if e.event_type == "provider_call_completed"]
+        assert events[-1].details["model"] == "deepseek-flash"
+        assert loop.last_model == "deepseek-flash"
+
+    async def test_routing_pool_metadata_is_not_used_as_model_name(self) -> None:
+        """路由池元数据是「fast:…, mid:…」多模型列举 ⇒ 无法归因单次调用，保持空串。"""
+        loop = AgentLoop(AnonymousModelStreamProvider("fast:deepseek-flash, mid:glm-4"))
+        async for _ in loop.run_stream("hi"):
+            pass
+        events = [e for e in loop.engine.events.recent_events if e.event_type == "provider_call_completed"]
+        assert events[-1].details["model"] == ""
 
     async def test_stream_events_order(self) -> None:
         """所有 text 事件应在 done 之前。"""

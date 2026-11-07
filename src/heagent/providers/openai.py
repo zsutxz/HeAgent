@@ -277,11 +277,14 @@ class OpenAIProvider:
                         )
 
                 # 流结束：产出最终 chunk，携带完整的累积 tool_calls + usage + finish_reason
+                # model 回落：部分兼容端点（DeepSeek 等中转）的 usage 哨兵块只带 usage、不带
+                # model；缺回落时流式调用在运行统计里整桶落进 unknown——provider 自己知道本次
+                # 请求用的模型名，故以 self._model 兜底。
                 yield ProviderResponse(
                     content="",
                     tool_calls=_materialize_tool_calls(tc_acc),
                     usage=final_usage,
-                    model=model,
+                    model=model or self._model,
                     finish_reason=finish_reason or "stop",
                     reasoning_content=reasoning_content or None,
                 )

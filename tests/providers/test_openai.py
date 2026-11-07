@@ -270,6 +270,31 @@ class TestStream:
         assert chunks[0].content == "Hello"
 
     @patch("heagent.providers.openai.AsyncOpenAI")
+    async def test_stream_falls_back_to_configured_model(self, mock_cls: MagicMock) -> None:
+        """部分中转端点的 usage 哨兵块只带 usage、不带 model：最终 chunk 必须回落到配置的模型名。
+
+        缺回落时流式调用在运行统计里落 *unknown* 桶（2026-11-06 实测 91 次）。
+        """
+        mock_client = AsyncMock()
+        mock_cls.return_value = mock_client
+        mock_client.chat.completions.create = AsyncMock(
+            return_value=_FakeAsyncStream(
+                [
+                    _mock_chunk(content="Hello", model=""),
+                    _mock_chunk(has_choices=False, usage=_mock_usage(), model=""),
+                ]
+            )
+        )
+
+        chunks = [
+            chunk
+            async for chunk in OpenAIProvider(api_key="sk-test", model="deepseek-flash").stream(
+                [Message(role=Role.USER, content="hi")]
+            )
+        ]
+        assert chunks[-1].model == "deepseek-flash"
+
+    @patch("heagent.providers.openai.AsyncOpenAI")
     async def test_stream_preserves_reasoning_content(self, mock_cls: MagicMock) -> None:
         mock_client = AsyncMock()
         mock_cls.return_value = mock_client

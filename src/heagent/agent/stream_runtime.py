@@ -36,6 +36,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _metadata_model(provider: object) -> str:
+    """流式 chunk 全程未带模型名时的兜底：取 provider 元数据里的模型名。
+
+    只在中转端点连 usage 哨兵块都不回 ``model`` 时才走到这里（provider 自身的
+    ``stream`` 已经先做过一次 ``self._model`` 回落）。路由池的元数据是
+    ``fast:…, mid:…`` 这种多模型列举，单次调用无法归因到其中之一，宁可留空
+    （统计侧落 *unknown* 桶）也不编造档位归属。
+    """
+    try:
+        model = provider.get_metadata().model  # type: ignore[attr-defined]
+    except Exception as exc:  # noqa: BLE001 — 归因失败不得中断主循环，原因进日志
+        logger.debug("provider metadata unavailable for model attribution: %s", exc)
+        return ""
+    return "" if "," in model else model
+
+
 async def stream_run(  # noqa: C901
     loop: AgentLoop,
     prompt: str,
@@ -99,6 +115,9 @@ async def stream_run(  # noqa: C901
                             finish_reason = chunk.finish_reason
                         if chunk.reasoning_content:
                             reasoning_content += chunk.reasoning_content
+
+                    if not model:
+                        model = _metadata_model(loop.provider)
 
                     # 部分 Provider（DeepSeek 等）流式 API 不支持 usage-bearing chunk，
                     # chunk_usage 始终为零 → 用量显示、压缩、窗口重置全部失效。
