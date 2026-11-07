@@ -649,17 +649,20 @@ class TestToolExecutor:
         assert container.executor.sandbox_runner is backend
 
     def test_container_dual_runner_resolution_prefers_executor_runner(self, caplog: pytest.LogCaptureFixture) -> None:
-        """B1 判定钉：双 runner 并存 → executor.sandbox_runner 优先，无运行期 WARNING（构造期显式判定）。"""
+        """B1 判定钉：双 runner 并存 → executor.sandbox_runner 优先（构造期判定 + 一条 INFO 痕迹）。"""
         from heagent.tools.sandbox import FirejailBackend, PassthroughRunner
 
         executor_runner = FirejailBackend()
         command_runner = PassthroughRunner()
         executor = ToolExecutor(sandbox_runner=executor_runner)
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.INFO):
             container = EngineContainer(executor=executor, command_runner=command_runner)
         assert container.executor.sandbox_runner is executor_runner
         assert container.executor.sandbox_runner is not command_runner
-        assert not any("command_runner is set but" in rec.getMessage() for rec in caplog.records)
+        # 观测点：冲突不再告警，但必须留一条可检索的 INFO（「我配的 runner 为什么没生效」）
+        ignored = [rec for rec in caplog.records if "command_runner is set but" in rec.getMessage()]
+        assert [rec.levelno for rec in ignored] == [logging.INFO]
+        assert "FirejailBackend" in ignored[0].getMessage()
 
     def test_subagent_inherits_runner_via_replace(self) -> None:
         """SubAgent 经 replace(engine, policy=...) 只换 policy，executor 引用不变 → 继承父 runner。"""

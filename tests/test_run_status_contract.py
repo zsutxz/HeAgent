@@ -25,8 +25,6 @@ from heagent.pub.types import Message, ProviderResponse, TokenUsage
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-pytestmark = pytest.mark.asyncio
-
 
 @pytest.fixture(autouse=True)
 def _reset_settings_singleton():

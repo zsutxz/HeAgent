@@ -149,9 +149,17 @@ class EngineContainer:
         # （executor 面是权威执行面——双 runner 并存时 command_runner 不会生效）；仅 executor
         # 未设时把 command_runner 装配进去（P1-22 语义保留：container 端显式 None = 「禁用
         # 沙箱」意图，不注入）。此前双 runner 并存仅运行期 WARNING+忽略，判定散落运行期；
-        # 现在构造期显式判定，规则成文、冲突不再漂移进运行期。
+        # 现在构造期显式判定，规则成文、冲突不再漂移进运行期，只留一条 INFO 痕迹。
         if self.executor.sandbox_runner is None and self.command_runner is not None:
             self.executor.sandbox_runner = self.command_runner
+        elif self.executor.sandbox_runner is not None and self.command_runner is not None:
+            # 冲突面观测点（2026-11-07 裁定恢复）：判定已上提到构造期，但「我配的 runner 为什么
+            # 没生效」仍需一条可检索的痕迹——降级为 INFO（不是告警：双 runner 并存是合法装配，
+            # executor 面本就权威），文案沿用卡 E 之前的原文，便于按旧日志检索。
+            logger.info(
+                "command_runner is set but executor.sandbox_runner is already %s; command_runner is ignored",
+                type(self.executor.sandbox_runner).__name__,
+            )
 
         # 期二 D53-2：审批降级需要读「当前沙箱后端」的档位与可用性。用惰性 provider 而不是
         # 构造期快照——runner 可能在注入后才被替换，快照会让放松判定与实际执行面漂移。

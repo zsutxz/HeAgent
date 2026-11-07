@@ -20,8 +20,6 @@ if TYPE_CHECKING:
 
     from heagent.engine.context import RunContext
 
-pytestmark = pytest.mark.asyncio
-
 
 @pytest.fixture(autouse=True)
 def _reset_settings_singleton():

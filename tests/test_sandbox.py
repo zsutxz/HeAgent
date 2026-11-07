@@ -1294,8 +1294,8 @@ class TestSandboxSession:
         assert session.cwd == tmp_path / "from-session"
 
     def test_session_rejects_none_runner(self, tmp_path: Path) -> None:
-        """runner=None 构造即显性 ValueError——装配缺失在接线点炸，不拖到首条命令 AttributeError。"""
-        with pytest.raises(ValueError, match="runner"):
+        """runner=None 构造即显性 TypeError——装配缺失在接线点炸，不拖到首条命令 AttributeError。"""
+        with pytest.raises(TypeError, match="runner"):
             SandboxSession(tmp_path, runner=None)  # type: ignore[arg-type]
 
     def test_get_or_create_session_rejects_silent_runner_rebind(self, tmp_path: Path) -> None:
@@ -1309,7 +1309,7 @@ class TestSandboxSession:
                 return "exit_code=0\nstdout:\nstderr:\n"
 
         first = get_or_create_session("rebind-check", tmp_path, runner=_R())
-        assert get_or_create_session("rebind-check", tmp_path, runner=first._runner) is first
+        assert get_or_create_session("rebind-check", tmp_path, runner=first.runner) is first
         with pytest.raises(ValueError, match="different runner"):
             get_or_create_session("rebind-check", tmp_path, runner=_R())
         pop_session("rebind-check")

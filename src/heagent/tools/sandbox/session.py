@@ -91,7 +91,9 @@ class SandboxSession:
 
     def __init__(self, workspace: str | Path, *, runner: CommandRunner) -> None:
         if runner is None:
-            raise ValueError(
+            # 参数类型错（装配缺失的 None），不是值域错——用 TypeError 让调用方一眼分清
+            # 「接线没给」与「给的值不合法」（本模块的 ValueError 都留给值域/路径校验）。
+            raise TypeError(
                 "SandboxSession requires an explicit runner (got None); executor wiring must supply sandbox_runner"
             )
         self.workspace = Path(workspace)
@@ -103,6 +105,11 @@ class SandboxSession:
         # docker 后端的**容器侧** cwd（宿主路径无法直接 cd——挂载点固定 /workspace）；
         # 与宿主侧 self.cwd 并行维护，teardown 仍用宿主 self.workspace。
         self._docker_cwd: str = CONTAINER_WORKDIR
+
+    @property
+    def runner(self) -> CommandRunner:
+        """本会话绑定的 runner（只读）。run() 与 rebind 判定都经此读取，不直碰 ``_runner``。"""
+        return self._runner
 
     def _wrap(self, command: str, *, cmd_shell: bool) -> str:
         """把命令包装成「在 session.cwd 下执行 + 末尾上报新 cwd（marker 行 + 路径行）+ 退出码保持」。
@@ -197,7 +204,7 @@ class SandboxSession:
 
     async def run(self, command: str, *, timeout: int) -> str:
         """在当前会话执行命令：cd 前缀 + 执行 + cwd/rc 回填 + 输出清理。"""
-        runner = self._runner
+        runner = self.runner
         if isinstance(runner, DockerRunner):
             # docker 后端（审查修复批）：cd 用容器侧 cwd，宿主 cmd/POSIX wrap 不适用
             # （宿主路径在容器内不存在；Windows 宿主的 cmd wrap 语法喂给 sh 必坏）。
@@ -238,10 +245,10 @@ def get_or_create_session(run_id: str, workspace: str | Path, *, runner: Command
     if session is None:
         session = SandboxSession(workspace, runner=runner)
         _sandbox_sessions[run_id] = session
-    elif session._runner is not runner:
+    elif session.runner is not runner:
         raise ValueError(
             f"sandbox session {run_id!r} already exists bound to a different runner "
-            f"({type(session._runner).__name__}); refusing silent rebind — "
+            f"({type(session.runner).__name__}); refusing silent rebind — "
             "teardown (pop_session/close_run) must precede re-wiring"
         )
     return session
