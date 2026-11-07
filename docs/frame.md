@@ -1086,7 +1086,7 @@ AST 判据钉住：写点必须走 `transition()`，且唯一写点 `_transition
 `_validate_write_allowlist`：`file_write` / `file_edit` 目标越集 → BLOCKED，走
 `PolicyEngine.evaluate() → ToolExecutor → SafetyGuard → handler` 既有治理链，零旁路）。**定位与
 path_safety / 工作区围栏同构：纵深防御**（边界地位见 §4.19；shell 路径可绕过，故另有宿主
-Git 审计事后检测（`cli/goal.py` 的 `_audit_story_writes`：per-story 会话前后只读 Git 增量基线，
+Git 审计事后检测（`goal/write_audit.py` 的 `_audit_story_writes`，`cli/goal.py` 负责编排与呈现；2026-11-07 自 `cli/goal.py` 迁入该模块）：per-story 会话前后只读 Git 增量基线，
 tracked 增量越出「本 Story 写集 ∪ 兄弟写集 ∪ 宿主自写产物」→ FAILED + `write_violation` → 撤销闩
 单向置位（随 checkpoint 持久化，重启后该 Goal 仍串行）；untracked 增量只发警告事件不判负）。
 产物豁免同时按**两种参照系**登记：`git diff --name-only` 报**仓库根**相对路径、`git ls-files
@@ -1266,7 +1266,7 @@ Phase 5 C1：+`duration_ms`/`error_kind`；旧 rollout 缺省读、新字段被�
 | `context_compressed` / `window_reset` | `agent/context_runtime.py` | `before,after` | — |
 | `workflow_step_started` / `workflow_step_completed` / `workflow_step_failed` | `engine/workflow_runner`（`emit` 注入端口，缺省 None=不发） | `step,story`（+`result`/`error`） | 三种带 duration；failed 带 error_kind。串行逐条各发一组（`story` 非空）；声明门控并行批（Epic 52）= 单组形状：`started` 一条（story=批首成员）+ 批收口一条（story 空），逐成员归因走 `workflow_story_batch_scheduled` |
 | `workflow_story_batch_scheduled` | `engine/workflow_runner`（`_gather_story_batch`，Epic 52 Story 52-2） | `step,members,limit`（`story` 为空） | 授权批派发时发一条：批成员 id 与声明上限 |
-| `workflow_write_audit` | `cli/goal.py`（`_emit_write_audit_event`，Epic 52 Story 52-3） | `step,story,untracked` / `skipped` / `violations,base,shared_workspace` | 宿主 Git 写集审计的观测事件：`untracked=[...]` 为警告（不判负）；`skipped=git_unavailable` 为非 Git 跳过说明；`violations=[...]` + `base`（基线 revision）+ `shared_workspace` 为**判负留档**（闩后串行重跑的新基线已含旧违规，事件是唯一持久记录；`shared_workspace=true` 表示批内写者无法归属到本 Story，A41/A42）；emit 异常隔离 |
+| `workflow_write_audit` | `goal/write_audit.py`（`_emit_write_audit_event`，Epic 52 Story 52-3；2026-11-07 随写审计家族自 `cli/goal.py` 迁入） | `step,story,untracked` / `skipped` / `violations,base,shared_workspace` | 宿主 Git 写集审计的观测事件：`untracked=[...]` 为警告（不判负）；`skipped=git_unavailable` 为非 Git 跳过说明；`violations=[...]` + `base`（基线 revision）+ `shared_workspace` 为**判负留档**（闩后串行重跑的新基线已含旧违规，事件是唯一持久记录；`shared_workspace=true` 表示批内写者无法归属到本 Story，A41/A42）；emit 异常隔离 |
 | `workflow_approved` / `workflow_rejected` / `workflow_amended` | `engine/workflow_runner`（审批决策方法，Story 51-5） | `step`（+`reason`：拒绝理由 / 修订补充） | — |
 | `workflow_gate_evaluated` | `cli/goal.py`（`_emit_goal_gate_event`，Story 51-8 收口 51-4 递延） | `step,story,source,verdict,failed,clause_errors,rerun,rerun_evidence,reused_commands` | 完成门（`source=completion_gate`）与 `/goal verify`（`source=verify_run`）每次结构化求值各发一条，带 duration；emit 异常隔离 |
 | `dream_start` / `dream_end`、`cron_job_*` | `memory/dream.py`、`cron/scheduler.py`（开集现状收编） | `success` 等 | — |
@@ -1661,7 +1661,7 @@ src/heagent/
 │
 ├── goal/                    # /goal 域层（入口层，供 cli/goal 使用，下层不得反向导入）
 │   ├── application.py       # workflow use-case 确定性内核（校验/gate/story/checkpoint 推进；click-free，Phase 3）
-│   ├── document.py          # brief.md 定位/命名规则/增量更新（存量回落 require.md/GOAL.md）
+│   ├── document.py          # brief.md 定位/命名规则/增量更新（存量回落 require.md/GOAL.md）+ goal id 分配与三步写（reserve_goal_id / write_goal_bundle，2026-11-07 自 cli/goal.py 迁入）
 │   ├── naming.py            # /goal new 项目名 LLM 生成，失败显性回退 project（2026-09-21）
 │   ├── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性/validation: 证据子句解析）
 │   ├── doctor.py            # 声明驱动的只读预检（doctor_checks 词汇 → 结构化报告，Story 51-1）
@@ -1669,8 +1669,9 @@ src/heagent/
 │   ├── evidence.py          # 结构化执行证据：版本化模型 + 追加式存储 + 受治理结果证据化（Story 51-3）
 │   ├── git_port.py          # 只读 Git 端口：base/head/变更集与工作区冲突状态，从不 commit（Story 51-3）
 │   ├── decisions.py         # 人工决策日志：版本化模型 + 追加式存储（<goal_dir>/decisions/，Story 51-5）
-│   └── quality_gates.py     # 通用门禁求值器：validation: 结构化子句 → 证据/产物/只读 Git 比对；
-│                            #   gate: 宿主注册表（名字→语义+求值函数分派表）也在此（Story 51-4）
+│   ├── quality_gates.py     # 通用门禁求值器：validation: 结构化子句 → 证据/产物/只读 Git 比对；
+│   │                        #   gate: 宿主注册表（名字→语义+求值函数分派表）也在此（Story 51-4）
+│   └── write_audit.py       # Story 写集审计判负策略（AD-18 / A40 内容指纹 / A41-A43 披露与 remediation，2026-11-07 自 cli/goal.py 迁入）
 ├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）
 └── cron/                    # 定时调度
     ├── expr.py              # 5-field cron 表达式解析纯叶子（零 heagent 导入；memory/dream 与 cron/scheduler 共用）
