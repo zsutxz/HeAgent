@@ -98,7 +98,8 @@ def _run_tests() -> tuple[int, int]:
         text=True,
         encoding="utf-8",
         timeout=900,
-        env={**os.environ, "PYTHONPATH": str(MUT_ROOT / "src")},
+        # PYTHONUTF8=1：子进程输出恒 UTF-8，父侧 encoding="utf-8" 严格解码不随宿主 locale 漂移。
+        env={**os.environ, "PYTHONPATH": str(MUT_ROOT / "src"), "PYTHONUTF8": "1"},
     )
     failed = sum(1 for line in result.stdout.splitlines() if line.strip().startswith(("FAILED ", "ERROR ")))
     return result.returncode, failed
