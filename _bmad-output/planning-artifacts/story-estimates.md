@@ -1,5 +1,7 @@
 # HeAgent 项目改进计划 - Story 工作量估算表
 
+> **本表分组按 Epic 顺序、非优先级**；优先级唯一真源见 `_he-output/works/heagent-improvement-plan/epics.md`。
+
 **生成日期：** 2026-11-11  
 **总 Story 数：** 59 个  
 **总预计工作量：** 约 24-30 周

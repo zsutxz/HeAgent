@@ -49,6 +49,26 @@
   「围栏判 A 根、工具写 B 根」的错位窗口——当前主链路两者恒同源（loop 每 run 绑定 `run_context.workspace_root`），
   错位不可达；登记供未来改 run 上下文装配时复核。
 
+## 本轮非目标（heagent-improvement-plan，2026-11-11）
+
+> 来源：`_he-output/works/heagent-improvement-plan/step-04-define-product-scope/report.md` 的「非目标」段（11 条）。
+> 这些是**本轮明确不做**的项，不进活动表（不是 A 号待办），故不参与活动计数；`NG-` 前缀与 A 号体系隔离。
+
+| ID | 非目标 | 触发条件（何时重新评估） | 严重度 |
+| --- | --- | --- | --- |
+| NG-1 | 不从零建 CI、不新增 CI job（`ci.yml` 已有 8 job） | 勘差表（S-6）举证某 FR 缺口无法由现有 job 关闭 | Low |
+| NG-2 | 不启用 merge 自动发 PyPI beta（Q2） | 发布频率 ≥ 每月 1 次，且已配置 Trusted Publisher | Medium |
+| NG-3 | 不做 auto-bump（FR12.3） | 手工改版本号导致 ≥2 次发布事故 | Medium |
+| NG-4 | 不做 CHANGELOG 自动生成（FR12.4） | 用户/下游要求按版本查看变更，或发版频率 ≥ 每月 1 次 | Low |
+| NG-5 | 不做 devcontainer（FR13.1 残余） | 新贡献者环境搭建受阻 ≥2 次，或 CI 矩阵不足以复现问题 | Low |
+| NG-6 | 不在拆分期下调覆盖率门（Q3） | 不得触发；下调即违反 INV-6 | High |
+| NG-7 | 不一轮拆多个文件（RQ-4） | 不得触发；违反则三证据无法归因 | High |
+| NG-8 | 不删除既有架构守卫、不缩减 `FORBIDDEN_RUNTIME_IMPORTS`（RQ-5） | 不得触发；违反即 INV-4 失效 | High |
+| NG-9 | 不改 `network/` 既有 4xx/5xx 键名/语义/状态码，不把错误码做成对外 ABI（Q5 / RQ-8） | 有外部使用者明确要求，且愿意接受 breaking 版本 | High |
+| NG-10 | 不在传输层载荷携带文档链接（Q6 / RQ-9） | 有外部客户端明确要求从错误体取文档链接 | Low |
+| NG-11 | 不把 `pip-audit` 转硬门（OQ-3） | 出现高危 CVE 且现有软门未及时暴露 | Medium |
+| NG-12 | 不为文档引入新运行时依赖（`network/` 受 stdlib + pydantic + pub.safe_logging 约束） | 不得触发；违反即破 INV-4 | High |
+
 ## 显式退役（`retired`）
 
 > 语义：**已裁定不再修**（区别于「已修复归档」）。混进归档段会让后人二次调查同一问题。
