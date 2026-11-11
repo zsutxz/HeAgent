@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
-"""导出并校验 HeAgent 的契约快照（公共导出面 / 传输路由 / 异常类型）。
+"""导出并校验 HeAgent 的契约快照（公共导出面 / 传输路由 / 异常类型 / 传输错误码）。
+
+四份快照：
+
+- ``public``（INV-1）：公共导出面，`PUBLIC_MODULES` 各模块的 defined / imported / `__all__`
+- ``routes``（INV-2）：传输路由表，HTTP ``Route(...)`` 与 WS ``WebSocketRoute(...)``
+- ``exceptions``（INV-3）：异常类型集合 + ``HttpErrorCode`` 枚举取值
+- ``transport_errors``（INV-8）：错误信封键集 + 每个错误码的 HTTP 状态（S-11 起）
 
 纯 stdlib（argparse / ast / json / sys / pathlib）、AST 静态解析，不导入 heagent 本体，
 因此可在任何 Python 3.9+ 环境离线运行。
 
 用法::
 
-    python3 scripts/contract_snapshot.py --write          # 重新生成三份基线
+    python3 scripts/contract_snapshot.py --write          # 重新生成四份基线
     python3 scripts/contract_snapshot.py --check          # 校验基线是否与代码一致（默认）
     python3 scripts/contract_snapshot.py --write --only public
+    python3 scripts/contract_snapshot.py --print --only transport_errors   # 打印当前快照（不落盘）
 
 退出码：``0`` = 一致（或 ``--write`` 写成功）；``1`` = 与基线不一致（打印首个差异位置）；
 ``2`` = 参数或环境错误（基线缺失、源码树不可读）。
@@ -66,11 +74,15 @@ ROUTE_MODULES = (
 EXCEPTION_ROOT = "src/heagent"
 ERROR_SUFFIXES = ("Error", "Exception")
 HTTP_PROTOCOL_MODULE = "src/heagent/network/http_protocol.py"
+HTTP_SERVER_MODULE = "src/heagent/network/http_server.py"
+#: 错误码 → HTTP 状态的集中声明表（`_json_error` 的 status 兜底来源）
+STATUS_MAP_NAME = "_CONSOLE_ERROR_STATUS"
 
 SNAPSHOT_NAMES = {
     "public": "public_exports.json",
     "routes": "transport_routes.json",
     "exceptions": "exception_types.json",
+    "transport_errors": "transport_errors.json",
 }
 
 
@@ -175,7 +187,7 @@ def collect_public() -> dict[str, object]:
 
 
 def call_name(node: ast.AST) -> str | None:
-    """`Route(...)` / `routing.Route(...)` 都认作 "Route"。"""
+    """`Route(...)` / `routing.Route(...)` / `routing.WebSocketRoute(...)` 都取末段函数名。"""
     if isinstance(node, ast.Call):
         func = node.func
         if isinstance(func, ast.Name):
@@ -183,6 +195,10 @@ def call_name(node: ast.AST) -> str | None:
         if isinstance(func, ast.Attribute):
             return func.attr
     return None
+
+
+#: 路由注册的两种调用形态：HTTP `Route` 与 WS `WebSocketRoute`（S-11 起 WS 也进快照）
+ROUTE_CALLS = ("Route", "WebSocketRoute")
 
 
 def collect_routes() -> dict[str, object]:
@@ -200,9 +216,10 @@ def collect_routes() -> dict[str, object]:
         else:
             listener = "http_console"
         count = 0
-        # ast.walk 覆盖跨行 / 嵌套（if / try / 循环体内）的 Route(...) 调用
+        # ast.walk 覆盖跨行 / 嵌套（if / try / 循环体内）的 Route(...) / WebSocketRoute(...) 调用
         for node in ast.walk(tree):
-            if not isinstance(node, ast.Call) or call_name(node) != "Route":
+            call = call_name(node)
+            if not isinstance(node, ast.Call) or call not in ROUTE_CALLS:
                 continue
             count += 1
             path: str | None = None
@@ -227,7 +244,9 @@ def collect_routes() -> dict[str, object]:
                         if isinstance(element, ast.Constant) and isinstance(element.value, str)
                     ]
                 elif keyword.arg == "endpoint":
-                    name = dotted_tail(keyword.value)
+                    # `endpoint=handler` 取末段名；`endpoint=build_x(...)`（WS 全是这种工厂调用）
+                    # 取被调函数名——否则 WS 条目 name 恒为 null，等于没记下挂的是哪个端点。
+                    name = dotted_tail(keyword.value) or call_name(keyword.value)
             routes.append(
                 {
                     "listener": listener,
@@ -293,6 +312,140 @@ def collect_exceptions() -> dict[str, object]:
     return {"classes": entries, "http_error_codes": collect_http_error_codes()}
 
 
+# ---------------------------------------------------- E. transport_errors (INV-8)
+
+
+def class_fields(tree: ast.Module, class_name: str) -> dict[str, str]:
+    """类体内 `name: Type` 声明 → ``{name: 注解末段名}``（保持声明顺序）。"""
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef) or node.name != class_name:
+            continue
+        fields: dict[str, str] = {}
+        for item in node.body:
+            if isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                annotation = item.annotation
+                tail = dotted_tail(annotation)
+                if tail is None and isinstance(annotation, ast.Subscript):
+                    tail = dotted_tail(annotation.value)
+                fields[item.target.id] = tail or "<expr>"
+        return fields
+    raise LookupError(f"class {class_name} not found in {HTTP_PROTOCOL_MODULE}")
+
+
+def collect_status_map(tree: ast.Module) -> dict[str, int]:
+    """模块级 ``_CONSOLE_ERROR_STATUS: dict[HttpErrorCode, int] = {HttpErrorCode.X: 400}``。
+
+    只认 `AnnAssign` + `ast.Dict` 字面量：表一旦改成运行时计算（`.get` / 循环构造），
+    这里 fail-loud 而不是静默给出不完整映射。
+    """
+    for node in tree.body:
+        if not isinstance(node, ast.AnnAssign) or not isinstance(node.target, ast.Name):
+            continue
+        if node.target.id != STATUS_MAP_NAME:
+            continue
+        if not isinstance(node.value, ast.Dict):
+            raise ValueError(f"{STATUS_MAP_NAME} is not a dict literal in {HTTP_SERVER_MODULE}")
+        table: dict[str, int] = {}
+        for key, value in zip(node.value.keys, node.value.values, strict=True):
+            member: str | None = None
+            if isinstance(key, ast.Attribute):
+                member = key.attr
+            elif isinstance(key, ast.Name):
+                member = key.id
+            if member is None or not isinstance(value, ast.Constant) or not isinstance(value.value, int):
+                raise ValueError(f"unsupported {STATUS_MAP_NAME} entry in {HTTP_SERVER_MODULE}")
+            table[member] = value.value
+        return table
+    raise LookupError(f"{STATUS_MAP_NAME} not found in {HTTP_SERVER_MODULE}")
+
+
+def collect_call_site_statuses(tree: ast.Module) -> dict[str, set[int]]:
+    """`_json_error(responses, HttpErrorCode.X, ..., status_code=404)` 调用点 → ``{X: {404}}``。
+
+    只认**字面量枚举成员**（`ast.Attribute`）与**字面量整数** status：`status_code=_CONSOLE_ERROR_STATUS.get(...)`
+    这类表达式交给集中表，变量码（`_json_error(responses, code, ...)`）跳过——它们静态归不了因。
+    """
+    found: dict[str, set[int]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or call_name(node) != "_json_error" or len(node.args) < 2:
+            continue
+        code_arg = node.args[1]
+        if not isinstance(code_arg, ast.Attribute):
+            continue
+        # 必须字面写成 `HttpErrorCode.X`：`exc.code` 这类属性访问是**运行时取值**，
+        # 静态归不了因（谁抛的、抛哪个码），放进来会污染表。
+        if not isinstance(code_arg.value, ast.Name) or code_arg.value.id != "HttpErrorCode":
+            continue
+        for keyword in node.keywords:
+            if keyword.arg != "status_code":
+                continue
+            value = keyword.value
+            if isinstance(value, ast.Constant) and isinstance(value.value, int):
+                found.setdefault(code_arg.attr, set()).add(value.value)
+    return found
+
+
+def collect_transport_errors() -> dict[str, object]:
+    """错误信封键集 + 每个错误码的 HTTP 状态（AC：每项含 status / code / keys）。
+
+    状态取值两级真源，优先级从高到低：
+
+    1. ``_CONSOLE_ERROR_STATUS``（集中声明表，覆盖所有经 ``.get(code, 400)`` 出错的码）；
+    2. ``_json_error(..., status_code=N)`` 的**字面量**调用点（如 ``NOT_FOUND: 404``、
+       ``RATE_LIMITED: 429``）——这些码不走集中表，status 只写在调用处。
+
+    两级都没有（或调用点给出互相矛盾的多个值）落 ``status = null`` + 对应的 ``status_source``：
+    **不猜值**。``unmapped_codes`` 因此是一份「枚举里有、网络层没有可静态确定的出口」的清单。
+    """
+    protocol = parse_file(HTTP_PROTOCOL_MODULE)
+    envelope = class_fields(protocol, "HttpErrorEnvelope")
+    if sorted(envelope) != ["error"]:
+        raise ValueError(f"HttpErrorEnvelope fields changed: {sorted(envelope)}")
+    detail_keys = sorted(class_fields(protocol, "HttpErrorDetail"))
+    server = parse_file(HTTP_SERVER_MODULE)
+    status_map = collect_status_map(server)
+    call_sites = collect_call_site_statuses(server)
+    codes = collect_http_error_codes()["HttpErrorCode"]
+    unknown = sorted((set(status_map) | set(call_sites)) - set(codes))
+    if unknown:
+        raise ValueError(f"status declarations reference unknown HttpErrorCode members: {unknown}")
+    entries: list[dict[str, object]] = []
+    for member, value in sorted(codes.items(), key=lambda item: (item[1], item[0])):
+        declared = status_map.get(member)
+        observed = sorted(call_sites.get(member, ()))
+        if declared is not None:
+            status: int | None = declared
+            source = "console_status_map"
+        elif len(observed) == 1:
+            status = observed[0]
+            source = "call_site_literal"
+        elif observed:
+            status = None
+            source = "call_site_ambiguous"
+        else:
+            status = None
+            source = "unmapped"
+        entry: dict[str, object] = {
+            "code": value,
+            "enum_member": member,
+            "keys": list(detail_keys),
+            "status": status,
+            "status_source": source,
+        }
+        if len(observed) > 1:
+            entry["status_observed"] = observed
+        entries.append(entry)
+    return {
+        "envelope": {"error": detail_keys},
+        "entries": entries,
+        "status_sources": {
+            source: sum(1 for entry in entries if entry["status_source"] == source)
+            for source in ("console_status_map", "call_site_literal", "call_site_ambiguous", "unmapped")
+        },
+        "unmapped_codes": [entry["code"] for entry in entries if entry["status"] is None],
+    }
+
+
 # ------------------------------------------------------------ CLI 主流程
 
 
@@ -300,6 +453,7 @@ BUILDERS = {
     "public": collect_public,
     "routes": collect_routes,
     "exceptions": collect_exceptions,
+    "transport_errors": collect_transport_errors,
 }
 
 
@@ -364,16 +518,28 @@ def do_write(kinds: list[str]) -> int:
     return 0
 
 
+def do_print(kinds: list[str]) -> int:
+    """打印当前代码算出的快照（不落盘、不比对）—— 供子集/棘轮类守卫读现状。"""
+    for kind in kinds:
+        print(dump(BUILDERS[kind]()))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="导出/校验 HeAgent 契约快照")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--write", action="store_true", help="重新生成基线文件")
     mode.add_argument("--check", action="store_true", help="校验基线是否与代码一致（默认）")
+    mode.add_argument("--print", dest="do_print_flag", action="store_true", help="打印当前快照，不落盘不比对")
     parser.add_argument("--only", default="all", choices=["all", *SNAPSHOT_NAMES], help="只处理某一类快照")
     args = parser.parse_args(argv)
 
     kinds = list(SNAPSHOT_NAMES) if args.only == "all" else [args.only]
-    return do_write(kinds) if args.write else do_check(kinds)
+    if args.do_print_flag:
+        return do_print(kinds)
+    if args.write:
+        return do_write(kinds)
+    return do_check(kinds)
 
 
 if __name__ == "__main__":

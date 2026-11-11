@@ -1,0 +1,373 @@
+{
+  "entries": [
+    {
+      "code": "agent_error",
+      "enum_member": "AGENT_ERROR",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": null,
+      "status_source": "unmapped"
+    },
+    {
+      "code": "config_conflict",
+      "enum_member": "CONFIG_CONFLICT",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "config_write_failed",
+      "enum_member": "CONFIG_WRITE_FAILED",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 500,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "confirm_required",
+      "enum_member": "CONFIRM_REQUIRED",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 400,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "dialog_busy",
+      "enum_member": "DIALOG_BUSY",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "dialog_unavailable",
+      "enum_member": "DIALOG_UNAVAILABLE",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 503,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "empty_prompt",
+      "enum_member": "EMPTY_PROMPT",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": null,
+      "status_source": "unmapped"
+    },
+    {
+      "code": "field_not_writable",
+      "enum_member": "FIELD_NOT_WRITABLE",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 400,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "invalid_project_path",
+      "enum_member": "INVALID_PROJECT_PATH",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 400,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "invalid_request",
+      "enum_member": "INVALID_REQUEST",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 400,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "invalid_session_id",
+      "enum_member": "INVALID_SESSION_ID",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 400,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "invalid_value",
+      "enum_member": "INVALID_VALUE",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 400,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "loopback_required",
+      "enum_member": "LOOPBACK_REQUIRED",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 403,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "method_not_allowed",
+      "enum_member": "METHOD_NOT_ALLOWED",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 405,
+      "status_source": "call_site_literal"
+    },
+    {
+      "code": "not_found",
+      "enum_member": "NOT_FOUND",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 404,
+      "status_source": "call_site_literal"
+    },
+    {
+      "code": "origin_forbidden",
+      "enum_member": "ORIGIN_FORBIDDEN",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": null,
+      "status_source": "unmapped"
+    },
+    {
+      "code": "project_busy",
+      "enum_member": "PROJECT_BUSY",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "project_limit_reached",
+      "enum_member": "PROJECT_LIMIT_REACHED",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "project_not_removable",
+      "enum_member": "PROJECT_NOT_REMOVABLE",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "project_unavailable",
+      "enum_member": "PROJECT_UNAVAILABLE",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "rate_limited",
+      "enum_member": "RATE_LIMITED",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 429,
+      "status_source": "call_site_literal"
+    },
+    {
+      "code": "request_too_large",
+      "enum_member": "REQUEST_TOO_LARGE",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 413,
+      "status_source": "call_site_literal"
+    },
+    {
+      "code": "resync_required",
+      "enum_member": "RESYNC_REQUIRED",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "call_site_literal"
+    },
+    {
+      "code": "run_conflict",
+      "enum_member": "RUN_CONFLICT",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "server_error",
+      "enum_member": "SERVER_ERROR",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 500,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "session_busy",
+      "enum_member": "SESSION_BUSY",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "session_conflict",
+      "enum_member": "SESSION_CONFLICT",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "session_unreadable",
+      "enum_member": "SESSION_UNREADABLE",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "shutting_down",
+      "enum_member": "SHUTTING_DOWN",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": null,
+      "status_source": "unmapped"
+    },
+    {
+      "code": "timeout",
+      "enum_member": "TIMEOUT",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": null,
+      "status_source": "unmapped"
+    },
+    {
+      "code": "total_inflight_limit",
+      "enum_member": "TOTAL_INFLIGHT_LIMIT",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 409,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "unknown_project",
+      "enum_member": "UNKNOWN_PROJECT",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 404,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "unknown_run",
+      "enum_member": "UNKNOWN_RUN",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 404,
+      "status_source": "call_site_literal"
+    },
+    {
+      "code": "unknown_session",
+      "enum_member": "UNKNOWN_SESSION",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 404,
+      "status_source": "console_status_map"
+    },
+    {
+      "code": "write_disabled",
+      "enum_member": "WRITE_DISABLED",
+      "keys": [
+        "code",
+        "message"
+      ],
+      "status": 403,
+      "status_source": "console_status_map"
+    }
+  ],
+  "envelope": {
+    "error": [
+      "code",
+      "message"
+    ]
+  },
+  "status_sources": {
+    "call_site_ambiguous": 0,
+    "call_site_literal": 6,
+    "console_status_map": 24,
+    "unmapped": 5
+  },
+  "unmapped_codes": [
+    "agent_error",
+    "empty_prompt",
+    "origin_forbidden",
+    "shutting_down",
+    "timeout"
+  ]
+}

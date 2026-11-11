@@ -26,9 +26,9 @@
   },
   "registrations": {
     "src/heagent/network/http_server.py": 21,
-    "src/heagent/network/ws_host.py": 0
+    "src/heagent/network/ws_host.py": 4
   },
-  "route_count": 21,
+  "route_count": 25,
   "routes": [
     {
       "listener": "http",
@@ -242,6 +242,38 @@
       "path": "/{asset}",
       "path_expr": null,
       "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "ws",
+      "methods": [],
+      "name": "build_cli_ws_endpoint",
+      "path": "/api/cli/ws",
+      "path_expr": "CLI_WS_PATH",
+      "source": "src/heagent/network/ws_host.py"
+    },
+    {
+      "listener": "ws",
+      "methods": [],
+      "name": "build_notification_ws_endpoint",
+      "path": "/api/notifications/ws",
+      "path_expr": "NOTIFICATIONS_WS_PATH",
+      "source": "src/heagent/network/ws_host.py"
+    },
+    {
+      "listener": "ws",
+      "methods": [],
+      "name": "build_runs_collection_endpoint",
+      "path": "/api/runs/ws",
+      "path_expr": "RUNS_SUBMIT_PATH",
+      "source": "src/heagent/network/ws_host.py"
+    },
+    {
+      "listener": "ws",
+      "methods": [],
+      "name": "build_ws_endpoint",
+      "path": "/api/runs/{run_id}/ws",
+      "path_expr": "RUNS_WS_PATH",
+      "source": "src/heagent/network/ws_host.py"
     }
   ]
 }

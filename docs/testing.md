@@ -10,8 +10,16 @@ python scripts/quality_gate.py     # 七门：契约快照 → goal 冒烟 → �
                                    #       ruff format --check → mypy → bandit -ll（fail-fast）
 ```
 
-> 第 0 门 `contract snapshot`（2026-11-11 起）守 INV-1/INV-2/INV-3：公共导出面、传输路由表、
-> 异常类型集合的基线漂移；单次约 0.3 s。红了先跑 `python scripts/contract_snapshot.py --check` 看 diff。
+> 第 0 门 `contract snapshot`（2026-11-11 起）守 INV-1/INV-2/INV-3/INV-8：公共导出面、传输路由表
+> （HTTP `Route` **与** WS `WebSocketRoute`）、异常类型集合、传输错误码与错误信封键集共四份基线的漂移；
+> 单次约 0.4 s。红了先跑 `python scripts/contract_snapshot.py --check` 看 diff。
+>
+> 四份基线：`public_exports.json` / `transport_routes.json` / `exception_types.json` /
+> `transport_errors.json`。`transport_errors.json` 每个错误码一项（`status` / `code` / `keys`），
+> `status` 有值为「能静态确定」（来源见 `status_source`：集中表 `_CONSOLE_ERROR_STATUS` 或
+> `_json_error(..., status_code=N)` 调用点），`null` + `status_source="unmapped"` 表示枚举里有、
+> 网络层无静态可确定出口 —— **不猜值**，该清单即 `unmapped_codes`。
+> `--print --only <kind>` 打印当前快照不落盘，供子集/棘轮类守卫读现状。
 
 分项复跑（定位失败时用）：
 
@@ -88,7 +96,7 @@ python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
 ### L0 契约守卫（秒级，改任何代码都先跑）
 
 ```bash
-python scripts/contract_snapshot.py --check          # 公共导出面 / 传输路由 / 异常类型基线
+python scripts/contract_snapshot.py --check          # 四份基线：公共导出面 / 传输路由 / 异常类型 / 传输错误码
 pytest tests/test_contract_baselines.py tests/test_architecture_contracts.py -q
 ```
 
