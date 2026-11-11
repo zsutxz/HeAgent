@@ -43,7 +43,7 @@ def _run_check() -> subprocess.CompletedProcess[str]:
 
 
 def test_snapshot_check_passes() -> None:
-    """`--check` 必须 exit 0；否则三份基线已与实际代码漂移。"""
+    """`--check` 必须 exit 0；否则四份基线已与实际代码漂移。"""
     result = _run_check()
     assert result.returncode == 0, (
         f"contract snapshot drift (exit={result.returncode})\n"

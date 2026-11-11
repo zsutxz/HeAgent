@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 GATE_TIMEOUT_SECONDS = 900
 
 COMMANDS = (
-    # 第 0 门：契约快照（~0.3s）。架构 M1 要求「六门前插一门」，守住三份基线的静默漂移；
+    # 第 0 门：契约快照（~0.3s）。架构 M1 要求「六门前插一门」，守住四份基线（public / routes /
+    # exceptions / transport_errors）的静默漂移；
     # 若这里红了，先用 `python scripts/contract_snapshot.py --check` 看 diff，再判断是改代码还是重生基线。
     ("contract snapshot", [sys.executable, "scripts/contract_snapshot.py", "--check"]),
     ("goal workflow smoke", [sys.executable, "-m", "pytest", "tests/test_goal_workflow_smoke.py", "-q"]),
