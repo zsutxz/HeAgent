@@ -169,6 +169,33 @@ class TestGoalCommandRouting:
         assert (root / match.group(1) / "SKILL.md").is_file(), f"引用的技能包不存在：{match.group(1)}"
 
 
+class TestModelCommandRegistration:
+    """``/model`` 是路由池命令的唯一入口：旧名 ``/route`` 必须不再注册。
+
+    硬改名（``/route`` → ``/model``）的回归面在**静默失效**：旧名未注册时不报错，
+    输入 ``/route`` 会被当作普通 prompt 透传给 AgentLoop（多花一次 LLM 调用、且
+    用户以为命令生效了）。因此两个方向都要钉：新名在、旧名不在。
+    """
+
+    def _registry(self) -> SlashRegistry:
+        from heagent.cli.interactive import _build_slash_registry
+
+        return _build_slash_registry(
+            provider=None,  # type: ignore[arg-type] - 仅构造注册表，handler 不被调用
+            mcp_manager=None,
+            session=None,
+            session_id="test",
+            loop=None,  # type: ignore[arg-type]
+            system=None,
+        )
+
+    def test_model_registered_and_route_gone(self) -> None:
+        registry = self._registry()
+        assert registry.has("model")
+        assert "强制模型" in registry.describe("model")
+        assert not registry.has("route")
+
+
 class TestCompactAndClearStateRefresh:
     """``/compact`` 折叠会话历史为摘要并即时刷新状态行计数器；``/clear`` 同步归零。
 

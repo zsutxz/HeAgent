@@ -614,8 +614,8 @@ def _build_slash_registry(
     async def _provider(args: str) -> None:
         await _handle_provider_cmd(["/provider", *args.split()], provider)
 
-    async def _route(args: str) -> None:
-        await _handle_route_cmd(provider, args)
+    async def _model(args: str) -> None:
+        await _handle_model_cmd(provider, args)
 
     async def _mcp_prompt(args: str) -> None:
         await _handle_mcp_prompt(f"/mcp-prompt {args}".strip(), mcp_manager)
@@ -637,7 +637,7 @@ def _build_slash_registry(
             click.echo(f"  /{name}  {registry.describe(name)}", err=True)
 
     registry.register("provider", "切换 LLM provider", _provider)
-    registry.register("route", "智能路由状态 / 强制模型 (<name>|auto)", _route)
+    registry.register("model", "智能路由状态 / 强制模型 (<name>|auto)", _model)
     registry.register("mcp-prompt", "调度 MCP prompt", _mcp_prompt)
 
     async def _deferred(args: str) -> None:
@@ -731,36 +731,36 @@ async def _handle_provider_cmd(parts: list[str], provider: BaseProvider) -> None
         click.echo(f"[provider] {exc}", err=True)
 
 
-async def _handle_route_cmd(provider: BaseProvider, args: str = "") -> None:
-    """Handle /route slash command: show/force smart-routing model.
+async def _handle_model_cmd(provider: BaseProvider, args: str = "") -> None:
+    """Handle /model slash command: show/force smart-routing model.
 
-    ``/route``           显示路由池 + 最近决策 + 当前强制状态；
-    ``/route <name>``    强制固定使用池内某个模型（后续调用跳过启发式路由）；
-    ``/route auto``      清除强制，恢复自动路由。
+    ``/model``           显示路由池 + 最近决策 + 当前强制状态；
+    ``/model <name>``    强制固定使用池内某个模型（后续调用跳过启发式路由）；
+    ``/model auto``      清除强制，恢复自动路由。
     """
     routing, hint = _extract_routing(provider)
     if routing is None:
         if hint:
-            click.echo(f"[route] {hint}", err=True)
+            click.echo(f"[model] {hint}", err=True)
         else:
-            click.echo("[route] Smart routing not enabled (configure ROUTING_POOLS).", err=True)
+            click.echo("[model] Smart routing not enabled (configure ROUTING_POOLS).", err=True)
         return
 
     arg = (args or "").strip().lower()
     if arg == "auto":
         routing.set_force(None)
-        click.echo("[route] Forced model cleared; back to auto routing.", err=True)
+        click.echo("[model] Forced model cleared; back to auto routing.", err=True)
         return
     if arg:
         if arg in routing.names:
             try:
                 routing.set_force(arg)
             except ValueError as exc:
-                click.echo(f"[route] {exc}", err=True)
+                click.echo(f"[model] {exc}", err=True)
                 return
-            click.echo(f"[route] Forced model -> {arg} ({routing.current_model})", err=True)
+            click.echo(f"[model] Forced model -> {arg} ({routing.current_model})", err=True)
             return
-        click.echo(f"[route] Unknown argument {arg!r} (use: {' | '.join(routing.names)} | auto).", err=True)
+        click.echo(f"[model] Unknown argument {arg!r} (use: {' | '.join(routing.names)} | auto).", err=True)
         return
 
     click.echo("Smart routing pool:", err=True)

@@ -96,7 +96,7 @@ heagent init --project
 
 | 选项 | 说明 |
 | --- | --- |
-| `--model NAME` | 覆盖当前 Provider 的模型；已启用路由池时请用 `/route` 选档 |
+| `--model NAME` | 覆盖当前 Provider 的模型；已启用路由池时请用 `/model` 选档 |
 | `--system TEXT` | 设置本次运行的 system prompt |
 | `--max-iterations N` | 主 Agent 最大迭代数 |
 | `--continue` / `--resume ID` | 继续最近或指定会话 |
@@ -106,7 +106,7 @@ heagent init --project
 | `--no-http` | 本次进程不启动内嵌 HTTP 网页入口（WS 监听不受影响） |
 | `--no-ws` | 本次进程不启动内嵌 WS 监听（HTTP 网页入口不受影响） |
 
-交互模式支持 `/provider`、`/route`、`/goal`、`/clear` 和 `/help`。自定义命令放在 `.heagent/commands/*.md`，自定义角色放在 `.heagent/agents/*.md`。
+交互模式支持 `/provider`、`/model`、`/goal`、`/clear` 和 `/help`。自定义命令放在 `.heagent/commands/*.md`，自定义角色放在 `.heagent/agents/*.md`。
 
 ## HTTP 网页入口（实验性）
 

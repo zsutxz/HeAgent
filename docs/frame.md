@@ -382,17 +382,17 @@ AgentLoop
   回传实际选中项（供判据 ①）。内置复杂度表不含「为什么」「解释」「why」「explain」等纯疑问词
   （pro 主要误判源），需要时用该池 `ROUTING_POOLS` 的 `keywords` 追加回来。纯启发式（非安全机制）。
 - `RoutingProvider.send/stream`：`_pick()` 决策 → 未知名称回退 `default` → 委托。
-- `last_decision`（`RouteDecision`）记录最近一次决策，供日志/`/route` 命令观测。
+- `last_decision`（`RouteDecision`）记录最近一次决策，供日志/`/model` 命令观测。
 - **决策可见性**：`active_route_reason()` / `annotate_route()` 把最近一次决策的 reason 附到
   状态行模型名后（如 `deepseek-v4-pro←keyword:分析`），使「**为什么**是这个模型」当场可解释
-  ——关键词命中、推理链续接、`/route` 强制、池外名称回退四种来源在状态栏上原本完全同形，
+  ——关键词命中、推理链续接、`/model` 强制、池外名称回退四种来源在状态栏上原本完全同形，
   只能靠猜或翻日志。未启用路由 / 尚未决策时 `annotate_route` 原样返回模型名（展示串逐字节
   不变）；CLI 状态行（`cli.display._format_status`）与 GUI 状态栏共用该标注。兜底理由
-  `default_fast`（「没命中关键词、用默认档」）**不进展示层**——状态行不贴、`/route` 的
+  `default_fast`（「没命中关键词、用默认档」）**不进展示层**——状态行不贴、`/model` 的
   `last decision` 行不显示括号内理由（`display_reason()` 是唯一白名单入口，两处共用）。
   它不解释任何东西，还易被误读成模型名；需要观测时看日志（`active_route_reason()` 仍
   原样返回 `default_fast`）。
-  `/route <name>` 的强制与 `last_decision` **同步刷新**（`set_force` 即时写入 `forced`；
+  `/model <name>` 的强制与 `last_decision` **同步刷新**（`set_force` 即时写入 `forced`；
   清空强制时置空决策）——否则命令之后、下一次 LLM 调用之前，提示符会显示「新模型 +
   旧理由」的混合态（模型已换 luna、理由还是上一次的 `keyword:分析`），据此无法判断
   到底强制了没有。
@@ -406,7 +406,7 @@ AgentLoop
   旧版按 provider 的开关（`ROUTING_ENABLED` / `ROUTING_FAST_MODEL` / `ROUTING_PRO_MODEL` /
   `ROUTING_REASONING_KEYWORDS` / `GPT_ROUTING_*`）已移除。全局仅保留
   `ROUTING_REASONING_CONTINUITY`（所有池的续接默认值，可在池内覆盖）。
-  `/route <池内名>` 命令解包嵌套路由、展示当前生效池与最近决策；状态行同一决策另见
+  `/model <池内名>` 命令解包嵌套路由、展示当前生效池与最近决策；状态行同一决策另见
   `active_route_reason`。
 
 ### 4.4 Tool 系统 (`tools/`)

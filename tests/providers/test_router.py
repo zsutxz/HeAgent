@@ -398,7 +398,7 @@ class TestRoutingProvider:
         assert provider.current_model == "pro"
 
     def test_set_force_syncs_last_decision_immediately(self) -> None:
-        """`/route <name>` 后状态行立即自洽（模型与理由来自同一决策）。
+        """`/model <name>` 后状态行立即自洽（模型与理由来自同一决策）。
 
         回归（2026-09-10 实测）：force 只改 ``current_model``、``last_decision`` 仍是上一次
         启发式决策时，提示符会把新模型与旧理由拼在一起（如 ``gpt-5.6-luna←keyword:分析``）。
@@ -425,7 +425,7 @@ class TestRoutingProvider:
         assert annotate_route(provider, provider.current_model) == "pro←forced"
 
     async def test_clear_force_drops_stale_forced_decision(self) -> None:
-        """``/route auto`` 清空强制 → 决策置空（不留 ``forced`` 残留），模型回落默认档。"""
+        """``/model auto`` 清空强制 → 决策置空（不留 ``forced`` 残留），模型回落默认档。"""
         provider = RoutingProvider(
             {"fast": _make_provider("fast"), "pro": _make_provider("pro")},
             HeuristicRouter(fast="fast", pro="pro"),
@@ -630,7 +630,7 @@ class TestActiveRouteReason:
         assert annotate_route(provider, "deepseek-flash") == "deepseek-flash"
 
     async def test_forced_reason(self) -> None:
-        """`/route <name>` 强制后 reason=forced——状态栏可区分「强制」与「启发式选中」。"""
+        """`/model <name>` 强制后 reason=forced——状态栏可区分「强制」与「启发式选中」。"""
         provider = self._provider()
         provider.set_force("pro")
         await provider.send([_msg("你好")])

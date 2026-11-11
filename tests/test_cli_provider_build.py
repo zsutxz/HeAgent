@@ -103,7 +103,7 @@ class TestBuildProviderDeclarativeRouting:
     """声明式路由池：ROUTING_POOLS 声明档位/角色/关键词，调整池无需改代码。"""
 
     def test_pool_declared_by_config(self, hermetic) -> None:
-        """glm 条目按 JSON 规格构建为 flash/pro 池，/route 可直接驱动。"""
+        """glm 条目按 JSON 规格构建为 flash/pro 池，/model 可直接驱动。"""
         provider = _build_provider(
             Settings(
                 glm_api_key="sk-glm",
@@ -371,7 +371,7 @@ class TestBuildProviderMaxOutputTokens:
 
 
 class TestExtractRouting:
-    """/route 命令解包：支持 SwitchableProvider 嵌套。"""
+    """/model 命令解包：支持 SwitchableProvider 嵌套。"""
 
     def test_direct_routing(self, hermetic) -> None:
         provider = _build_provider(Settings(deepseek_api_key="sk-test", routing_pools=_DEEPSEEK_POOL), None)
@@ -414,7 +414,7 @@ class TestExtractRouting:
 
 
 class TestSwitchableAccessors:
-    """SwitchableProvider.current / .providers 只读访问器（供 /route 解包）。"""
+    """SwitchableProvider.current / .providers 只读访问器（供 /model 解包）。"""
 
     def test_current_and_providers_view(self) -> None:
         a = OpenAIProvider(api_key="sk-a", model="m-a", base_url="https://api.example.com/v1")

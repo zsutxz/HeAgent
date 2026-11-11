@@ -456,8 +456,8 @@ class TestFormatStatus:
         assert status == "[deepseek-v4-pro | 28.5K/1M tok | cmp@80% | 累计: 45.2K tok]"
 
 
-class TestRouteCommandOutput:
-    """/route 命令输出——与状态行共用同一套「不展示兜底理由」策略（display_reason）。"""
+class TestModelCommandOutput:
+    """/model 命令输出——与状态行共用同一套「不展示兜底理由」策略（display_reason）。"""
 
     @staticmethod
     def _routing():
@@ -482,24 +482,24 @@ class TestRouteCommandOutput:
 
     async def test_hides_default_fast(self, capsys):
         """兜底决策 → last decision 只报档位，不附 (default_fast)。"""
-        from heagent.cli.interactive import _handle_route_cmd
+        from heagent.cli.interactive import _handle_model_cmd
         from heagent.providers.router import RouteDecision
 
         provider = self._routing()
         provider.last_decision = RouteDecision(provider="terra", reason="default_fast")
-        await _handle_route_cmd(provider, "")
+        await _handle_model_cmd(provider, "")
         err = capsys.readouterr().err
         assert "last decision: terra" in err
         assert "default_fast" not in err
 
     async def test_keeps_keyword_reason(self, capsys):
         """非兜底理由照旧显示（如关键词命中），说明被滤掉的只有兜底那一档。"""
-        from heagent.cli.interactive import _handle_route_cmd
+        from heagent.cli.interactive import _handle_model_cmd
         from heagent.providers.router import RouteDecision
 
         provider = self._routing()
         provider.last_decision = RouteDecision(provider="luna", reason="keyword:分析")
-        await _handle_route_cmd(provider, "")
+        await _handle_model_cmd(provider, "")
         err = capsys.readouterr().err
         assert "last decision: luna (keyword:分析)" in err
 

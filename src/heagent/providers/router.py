@@ -181,7 +181,7 @@ class HeuristicRouter:
     的 tool 调用会让尾部消息变成 TOOL 结果，此时最近一条 USER 消息仍是本轮请求，不会
     漏判——这正是旧版「扫描全部历史」想解决的问题，现以更精准的方式覆盖，且不再有
     「长会话全量按 pro 计费」的副作用。确需「一次 pro 就一直 pro」时开 ``continuity=True``；
-    也确实想全程 fast 时用 ``/route fast`` 强制。
+    也确实想全程 fast 时用 ``/model fast`` 强制。
 
     这是**纯启发式**（非精确、非安全机制）：关键词可能误判（漏判简单任务 / 误判
     复杂任务），但对「多付一点钱 vs 少一次往返」的取舍足够实用。
@@ -316,7 +316,7 @@ class RoutingProvider:
             router: 路由策略，返回 ``RouteDecision``。
             default: Router 返回未知名称时的兜底 provider 名，必须在 providers 中。
             force: 可选；强制固定使用某个 provider 名（如 "pro"），None = 自动路由。
-                可在运行时用 ``set_force()`` 动态切换（对应 ``/route pro|fast|auto``）。
+                可在运行时用 ``set_force()`` 动态切换（对应 ``/model pro|fast|auto``）。
         """
         if not providers:
             raise ValueError("RoutingProvider requires at least one provider")
@@ -353,7 +353,7 @@ class RoutingProvider:
 
         传池外名称抛 ``ValueError``。设置后 ``_pick()`` 跳过 ``Router.route()``，
         直接使用强制项（reason="forced"）；``current_model`` 立即反映新模型，
-        ``last_decision`` 亦同步刷新——否则 ``/route <name>`` 之后、下一次调用之前的
+        ``last_decision`` 亦同步刷新——否则 ``/model <name>`` 之后、下一次调用之前的
         状态行会显示「新模型 + 旧理由」的自相矛盾组合（如 gpt-5.6-luna←keyword:分析）。
         """
         if name is not None and name not in self._providers:
@@ -525,7 +525,7 @@ def active_route_reason(provider: object) -> str | None:
     路由（嵌套链里找不到 RoutingProvider），或尚未发生过一次决策。
 
     为什么需要它：只显示「当前是 pro」无法回答「**为什么**是 pro」——关键词命中、推理链
-    续接、``/route`` 强制、池外名称回退四种来源在状态栏上完全同形，用户只能靠猜或翻日志。
+    续接、``/model`` 强制、池外名称回退四种来源在状态栏上完全同形，用户只能靠猜或翻日志。
     把 reason 附到状态行，决策即当场可解释（纯观测，不改变任何路由行为）。
     """
     seen = 0
@@ -552,8 +552,8 @@ _UNANNOTATED_REASONS = frozenset({"default_fast"})
 def display_reason(reason: str | None) -> str | None:
     """把原始 reason 映射为**展示用**理由；兜底理由（``default_fast``）返回 None = 不展示。
 
-    状态行（``annotate_route``）与 ``/route`` 命令共用同一策略，避免两处各写一份白名单；
-    原始 reason 不丢——``active_route_reason()``、日志与 ``/route`` 的排查入口仍在。
+    状态行（``annotate_route``）与 ``/model`` 命令共用同一策略，避免两处各写一份白名单；
+    原始 reason 不丢——``active_route_reason()``、日志与 ``/model`` 的排查入口仍在。
     """
     if not reason or reason in _UNANNOTATED_REASONS:
         return None
