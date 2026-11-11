@@ -45,6 +45,13 @@ jobs:
       - name: Contract snapshot (baselines unchanged)
         run: python scripts/contract_snapshot.py --check
 
+      - name: Docs build (mkdocs --strict)
+        # `mkdocs` 不在依赖树里（构建期工具而非库依赖），按需装；`--strict` 的真正含义是
+        # 「validation 里未 ignore 的告警一律 fail」——报告的一类口径见 `mkdocs.yml` 注释。
+        run: |
+          pip install mkdocs
+          mkdocs build --strict
+
   # ── 测试矩阵（多平台 × 多 Python 版本）──
   test:
     needs: lint

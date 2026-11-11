@@ -1,0 +1,41 @@
+site_name: HeAgent
+site_description: HeAgent —— 单进程异步 Python Agent 运行库的架构与运维文档
+docs_dir: docs
+# 构建产物落临时目录：`docs/` 是真源，`site/` 不入工作树（避免 `git status` 噪声与误提交）。
+site_dir: .heagent/tmp/mkdocs-site
+
+theme:
+  name: mkdocs
+  locale: zh
+
+nav:
+  - 首页: README.md
+  - 架构: frame.md
+  - 设计理念: design.md
+  - 迭代流程: iteration.md
+  - 测试与门禁: testing.md
+  - 沙箱机制: sandbox.md
+  - goal 工作流: goal-workflow.md
+  - 附: bmad/bmad-architecture-SKILL.zh-CN.md
+  - 附: bmad/learning_bmad.md
+  - 附: claude-updater/latest.md
+  - 附: claude-updater/tips/new_features.md
+
+# `--strict` 下 warning 即 error。下面四条 ignore 都是**必需项**而非放水——它们是同一件事的
+# 四个面：`docs/` 是**仓库内**文档（按仓库相对路径写作），消费者是仓库读者与 CI 断言
+# （`tests/` 里的链接守卫），不是站点访客。mkdocs 只认 `docs_dir` 内的文件与 GitHub 口径之外的
+# 锚点算法，四类告警因此必然出现，且都不是文档缺陷。
+validation:
+  links:
+    # ① 绝对路径链接：`docs/README.md` 里有 `/docs/xxx` 形态的仓库内绝对写法。
+    absolute_links: ignore
+    # ② 无法识别的链接目标（非相对 md 路径，如裸文件名、目录形态）。
+    unrecognized_links: ignore
+    # ③ `../` 跨目录链接：指向 `docs_dir` 之外（`../AGENTS.md`、`../src/...`、
+    #    `../_bmad-output/...`）。Step 04 裁决：不改文档结构、不动 `../` 链接，只配 validation。
+    not_found: ignore
+    # ④ 锚点口径差异：`docs/frame.md` 的页内 TOC 是**手写**锚点，按 GitHub 的 slug 规则拼的
+    #    （如 `#410-配置管理-config`、`#418-网页控制台-pubworkspacepy-…`）；mkdocs 走
+    #    python-markdown 的 slug 算法，对中文标题 + 反引号 + 括号的处理不同 ⇒ 26 条
+    #    「no such anchor」。这些锚点在仓库内（GitHub / 编辑器预览）有效，属渲染器口径差异。
+    anchors: ignore
