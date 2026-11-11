@@ -653,9 +653,18 @@ def test_config_layer_stays_out_of_the_runtime_stack() -> None:
         "heagent.events",
         *_ENTRY_LAYER_MODULES,
     }
+    # catalog 可能是单文件，也可能已拆成 config/catalog/ 子包（E3 绞杀者）——
+    # 两种形态都要覆盖，否则拆包后本断言读不到文件（FileNotFoundError）且新子模块漏检。
+    catalog_dir = SRC / "config" / "catalog"
+    catalog_single = SRC / "config" / "catalog.py"
+    catalog_modules = (
+        [p.relative_to(SRC).as_posix() for p in sorted(catalog_dir.rglob("*.py"))]
+        if catalog_dir.is_dir()
+        else [catalog_single.relative_to(SRC).as_posix()]
+    )
     for module in (
         "config/__init__.py",
-        "config/catalog.py",
+        *catalog_modules,
         "config/envfile.py",
         "config/write.py",
         "pub/projects.py",

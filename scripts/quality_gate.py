@@ -1,4 +1,8 @@
-"""Run deterministic quality gates in fail-fast order."""
+"""Run deterministic quality gates in fail-fast order.
+
+门序按「越便宜越先跑」排列：契约快照（~0.3s）→ goal 冒烟 → 全量回归+覆盖率 → 静态检查。
+契约快照门守 INV-1/INV-2/INV-3：公共导出面、传输路由表、异常类型集合的基线漂移。
+"""
 
 from __future__ import annotations
 
@@ -10,6 +14,9 @@ ROOT = Path(__file__).resolve().parents[1]
 GATE_TIMEOUT_SECONDS = 900
 
 COMMANDS = (
+    # 第 0 门：契约快照（~0.3s）。架构 M1 要求「六门前插一门」，守住三份基线的静默漂移；
+    # 若这里红了，先用 `python scripts/contract_snapshot.py --check` 看 diff，再判断是改代码还是重生基线。
+    ("contract snapshot", [sys.executable, "scripts/contract_snapshot.py", "--check"]),
     ("goal workflow smoke", [sys.executable, "-m", "pytest", "tests/test_goal_workflow_smoke.py", "-q"]),
     (
         "default regression and coverage",

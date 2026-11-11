@@ -1,0 +1,247 @@
+{
+  "path_constants": {
+    "src/heagent/network/http_server.py": {
+      "_DIALOG_PICK_PATH": "/api/dialogs/pick-directory",
+      "_HEALTH_PATH": "/api/health",
+      "_INDEX_ASSET": "index.html",
+      "_PROJECTS_PATH": "/api/projects",
+      "_PROJECT_CONFIG_PATH": "/api/projects/{project_id}/config",
+      "_PROJECT_PATH": "/api/projects/{project_id}",
+      "_PROJECT_RUNS_PATH": "/api/projects/{project_id}/runs",
+      "_PROJECT_SESSIONS_PATH": "/api/projects/{project_id}/sessions",
+      "_PROJECT_SESSION_EXTRA_PATH": "/api/projects/{project_id}/sessions/{session_id}/{extra:path}",
+      "_PROJECT_SESSION_PATH": "/api/projects/{project_id}/sessions/{session_id}",
+      "_RUNS_PATH": "/api/runs",
+      "_RUN_DETAIL_PATH": "/api/runs/{run_id}",
+      "_RUN_EVENTS_PATH": "/api/runs/{run_id}/events",
+      "_SESSION_PATH": "/api/session",
+      "_WEB_PACKAGE": "heagent.web"
+    },
+    "src/heagent/network/ws_host.py": {
+      "CLI_WS_PATH": "/api/cli/ws",
+      "NOTIFICATIONS_WS_PATH": "/api/notifications/ws",
+      "RUNS_SUBMIT_PATH": "/api/runs/ws",
+      "RUNS_WS_PATH": "/api/runs/{run_id}/ws"
+    }
+  },
+  "registrations": {
+    "src/heagent/network/http_server.py": 21,
+    "src/heagent/network/ws_host.py": 0
+  },
+  "route_count": 21,
+  "routes": [
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "index",
+      "path": "/",
+      "path_expr": null,
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "POST"
+      ],
+      "name": "pick_directory",
+      "path": "/api/dialogs/pick-directory",
+      "path_expr": "_DIALOG_PICK_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "health",
+      "path": "/api/health",
+      "path_expr": "_HEALTH_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "list_projects",
+      "path": "/api/projects",
+      "path_expr": "_PROJECTS_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "POST"
+      ],
+      "name": "register_project",
+      "path": "/api/projects",
+      "path_expr": "_PROJECTS_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "DELETE"
+      ],
+      "name": "remove_project",
+      "path": "/api/projects/{project_id}",
+      "path_expr": "_PROJECT_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "PATCH"
+      ],
+      "name": "rename_project",
+      "path": "/api/projects/{project_id}",
+      "path_expr": "_PROJECT_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "project_config",
+      "path": "/api/projects/{project_id}/config",
+      "path_expr": "_PROJECT_CONFIG_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "PUT"
+      ],
+      "name": "project_config_write",
+      "path": "/api/projects/{project_id}/config",
+      "path_expr": "_PROJECT_CONFIG_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "POST"
+      ],
+      "name": "create_project_run",
+      "path": "/api/projects/{project_id}/runs",
+      "path_expr": "_PROJECT_RUNS_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "POST"
+      ],
+      "name": "create_session",
+      "path": "/api/projects/{project_id}/sessions",
+      "path_expr": "_PROJECT_SESSIONS_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "list_sessions",
+      "path": "/api/projects/{project_id}/sessions",
+      "path_expr": "_PROJECT_SESSIONS_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "DELETE"
+      ],
+      "name": "delete_session",
+      "path": "/api/projects/{project_id}/sessions/{session_id}",
+      "path_expr": "_PROJECT_SESSION_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "get_session",
+      "path": "/api/projects/{project_id}/sessions/{session_id}",
+      "path_expr": "_PROJECT_SESSION_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "PATCH"
+      ],
+      "name": "rename_session",
+      "path": "/api/projects/{project_id}/sessions/{session_id}",
+      "path_expr": "_PROJECT_SESSION_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "DELETE",
+        "GET",
+        "PATCH",
+        "POST"
+      ],
+      "name": "session_malformed",
+      "path": "/api/projects/{project_id}/sessions/{session_id}/{extra:path}",
+      "path_expr": "_PROJECT_SESSION_EXTRA_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "POST"
+      ],
+      "name": "create_run",
+      "path": "/api/runs",
+      "path_expr": "_RUNS_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "DELETE"
+      ],
+      "name": "cancel_run",
+      "path": "/api/runs/{run_id}",
+      "path_expr": "_RUN_DETAIL_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "run_events",
+      "path": "/api/runs/{run_id}/events",
+      "path_expr": "_RUN_EVENTS_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "session_endpoint",
+      "path": "/api/session",
+      "path_expr": "_SESSION_PATH",
+      "source": "src/heagent/network/http_server.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "asset",
+      "path": "/{asset}",
+      "path_expr": null,
+      "source": "src/heagent/network/http_server.py"
+    }
+  ]
+}

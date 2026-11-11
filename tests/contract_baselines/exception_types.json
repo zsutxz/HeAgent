@@ -1,0 +1,1019 @@
+{
+  "classes": [
+    {
+      "bases": [],
+      "module": "heagent.agent.loop",
+      "name": "AgentLoop"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.cli.dialogs",
+      "name": "DialogBusyError"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.cli.dialogs",
+      "name": "DialogUnavailableError"
+    },
+    {
+      "bases": [],
+      "module": "heagent.cli.dialogs",
+      "name": "DirectoryPicker"
+    },
+    {
+      "bases": [],
+      "module": "heagent.cli.http",
+      "name": "EmbeddedHttpService"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "ConfigClassification"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "ConfigGroupReport"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "ConfigGroupSpec"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "ConfigGuard"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "ConfigItem"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "ConfigReport"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "ConfigSource"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "EnvFileReport"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "EnvScan"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "RoutingPoolView"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "RoutingPoolsReport"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.catalog",
+      "name": "UnknownKeyReport"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.envfile",
+      "name": "EnvFileIndex"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.config.envfile",
+      "name": "EnvWriteError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.config.user_settings",
+      "name": "SettingsError"
+    },
+    {
+      "bases": [
+        "PydanticBaseSettingsSource"
+      ],
+      "module": "heagent.config.user_settings",
+      "name": "UserMarkdownSettingsSource"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.write",
+      "name": "ConfigAuditEntry"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.write",
+      "name": "ConfigAuditRecord"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.write",
+      "name": "ConfigChange"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.config.write",
+      "name": "ConfigWriteCode"
+    },
+    {
+      "bases": [
+        "Exception"
+      ],
+      "module": "heagent.config.write",
+      "name": "ConfigWriteRejection"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.write",
+      "name": "ConfigWriteResult"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.context.session",
+      "name": "SessionMetadata"
+    },
+    {
+      "bases": [],
+      "module": "heagent.context.session",
+      "name": "SessionStore"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.engine.checkpoint",
+      "name": "WorkflowCheckpointError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.engine.workflow_runner",
+      "name": "WorkflowGateError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.engine.workflow_transition",
+      "name": "WorkflowTransitionError"
+    },
+    {
+      "bases": [
+        "Exception"
+      ],
+      "module": "heagent.goal.application",
+      "name": "_StorySourceError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.goal.decisions",
+      "name": "DecisionError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.goal.evidence",
+      "name": "EvidenceError"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.goal.git_port",
+      "name": "GitPortError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.goal.script_loader",
+      "name": "GoalScriptLoadError"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.goal.script_runtime",
+      "name": "GoalScriptRuntimeError"
+    },
+    {
+      "bases": [
+        "SkillPackageResourceError"
+      ],
+      "module": "heagent.goal.workflow_loader",
+      "name": "SkillWorkflowError"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.memory.compact",
+      "name": "FactCompactConflictError"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.cli_event_hub",
+      "name": "CliEventHub"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.event_stream_hub",
+      "name": "EventStreamHub"
+    },
+    {
+      "bases": [
+        "Protocol"
+      ],
+      "module": "heagent.network.event_stream_hub",
+      "name": "SequencedPayload"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.event_stream_hub",
+      "name": "StreamSubscription"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ConfigGroupResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ConfigGuardResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ConfigItemResponse"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ConfigSourceValue"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ConfigWriteChangeRequest"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ConfigWriteRequest"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ConfigWriteResponse"
+    },
+    {
+      "bases": [
+        "Protocol"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ConsoleHandler"
+    },
+    {
+      "bases": [
+        "Exception"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ConsoleOperationError"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "DirectoryPickResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "EnvFileStatusResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ProjectConfigResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ProjectEntryResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ProjectListResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ProjectRegisterRequest"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ProjectRenameRequest"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ProjectRunRequest"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "ProjectRunResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "RoutingPoolResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "RoutingPoolsResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "SessionCreateRequest"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "SessionDetailResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "SessionEntryResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "SessionListResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "SessionRenameRequest"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_console_protocol",
+      "name": "UnknownKeyResponse"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "CronResultStatus"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "HealthResponse"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "HttpErrorCode"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "HttpErrorDetail"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "HttpErrorEnvelope"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "HttpRunConflictError"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "HttpUsage"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "NotificationKind"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "NotificationPayload"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "RunEventKind"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "RunEventPayload"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "RunOutcome"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "RunRequest"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "RunStatus"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "RunStatusResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "SessionMessage"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "SessionResponse"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.network.http_server",
+      "name": "HttpDependencyError"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.network.http_server",
+      "name": "HttpRequestTooLargeError"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.http_server",
+      "name": "HttpRunService"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.http_server",
+      "name": "HttpServer"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_server",
+      "name": "HttpServerConfig"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.network.http_server",
+      "name": "HttpStartupError"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.http_server",
+      "name": "RunEventPublisher"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.notification_hub",
+      "name": "NotificationHub"
+    },
+    {
+      "bases": [
+        "Protocol"
+      ],
+      "module": "heagent.network.origin",
+      "name": "ListenerConfig"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.ws_auth",
+      "name": "AuthThrottle"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.network.ws_host",
+      "name": "WsConfigError"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.ws_host",
+      "name": "WsServer"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.ws_host",
+      "name": "WsServerConfig"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.network.ws_host",
+      "name": "WsStartupError"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsAckFrame"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsCliAckFrame"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsCliEventFrame"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsCommand"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsCommandFrame"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsErrorFrame"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsEventFrame"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsFrameError"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsFrameErrorKind"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsFrameType"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.ws_protocol",
+      "name": "WsNotificationFrame"
+    },
+    {
+      "bases": [
+        "Protocol"
+      ],
+      "module": "heagent.network.ws_server",
+      "name": "RunWebSocketService"
+    },
+    {
+      "bases": [
+        "Protocol"
+      ],
+      "module": "heagent.network.ws_server",
+      "name": "WebSocketLike"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.providers.composition",
+      "name": "ProviderConfigError"
+    },
+    {
+      "bases": [],
+      "module": "heagent.providers.fallback_base",
+      "name": "FallbackPolicy"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "BudgetExceeded"
+    },
+    {
+      "bases": [
+        "Exception"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "HeAgentError"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "PolicyViolation"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "ProviderError"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "SafetyViolation"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "SessionConflictError"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "SessionNotFoundError"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "SessionUnreadableError"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "ToolError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.pub.frontmatter",
+      "name": "FrontmatterSyntaxError"
+    },
+    {
+      "bases": [
+        "Exception"
+      ],
+      "module": "heagent.pub.persist",
+      "name": "RollbackFailedError"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.pub.projects",
+      "name": "ProjectEntry"
+    },
+    {
+      "bases": [],
+      "module": "heagent.pub.projects",
+      "name": "ProjectRegistry"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.pub.projects",
+      "name": "ProjectRegistryError"
+    },
+    {
+      "bases": [
+        "Exception"
+      ],
+      "module": "heagent.pub.projects",
+      "name": "_RegistryCorrupt"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.skills.skill_importer",
+      "name": "SkillImportError"
+    },
+    {
+      "bases": [],
+      "module": "heagent.skills.skill_importer",
+      "name": "SkillImporter"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.skills.skill_importer",
+      "name": "SkillLockEntry"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.skills.skill_importer",
+      "name": "SkillManifestEntry"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.skills.skill_importer",
+      "name": "SkillManifestLock"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.skills.skill_meta",
+      "name": "SkillMetaError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.skills.skill_models",
+      "name": "SkillRewriteError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.skills.skill_packages",
+      "name": "SkillCatalogError"
+    },
+    {
+      "bases": [
+        "SkillPackageError"
+      ],
+      "module": "heagent.skills.skill_packages",
+      "name": "SkillPackageEntryError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.skills.skill_packages",
+      "name": "SkillPackageError"
+    },
+    {
+      "bases": [
+        "SkillPackageError"
+      ],
+      "module": "heagent.skills.skill_packages",
+      "name": "SkillPackageResourceError"
+    },
+    {
+      "bases": [
+        "SkillCatalogError"
+      ],
+      "module": "heagent.skills.skill_packages",
+      "name": "SkillResolutionError"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.tools.path_safety",
+      "name": "WorkspacePathError"
+    }
+  ],
+  "http_error_codes": {
+    "HttpErrorCode": {
+      "AGENT_ERROR": "agent_error",
+      "CONFIG_CONFLICT": "config_conflict",
+      "CONFIG_WRITE_FAILED": "config_write_failed",
+      "CONFIRM_REQUIRED": "confirm_required",
+      "DIALOG_BUSY": "dialog_busy",
+      "DIALOG_UNAVAILABLE": "dialog_unavailable",
+      "EMPTY_PROMPT": "empty_prompt",
+      "FIELD_NOT_WRITABLE": "field_not_writable",
+      "INVALID_PROJECT_PATH": "invalid_project_path",
+      "INVALID_REQUEST": "invalid_request",
+      "INVALID_SESSION_ID": "invalid_session_id",
+      "INVALID_VALUE": "invalid_value",
+      "LOOPBACK_REQUIRED": "loopback_required",
+      "METHOD_NOT_ALLOWED": "method_not_allowed",
+      "NOT_FOUND": "not_found",
+      "ORIGIN_FORBIDDEN": "origin_forbidden",
+      "PROJECT_BUSY": "project_busy",
+      "PROJECT_LIMIT_REACHED": "project_limit_reached",
+      "PROJECT_NOT_REMOVABLE": "project_not_removable",
+      "PROJECT_UNAVAILABLE": "project_unavailable",
+      "RATE_LIMITED": "rate_limited",
+      "REQUEST_TOO_LARGE": "request_too_large",
+      "RESYNC_REQUIRED": "resync_required",
+      "RUN_CONFLICT": "run_conflict",
+      "SERVER_ERROR": "server_error",
+      "SESSION_BUSY": "session_busy",
+      "SESSION_CONFLICT": "session_conflict",
+      "SESSION_UNREADABLE": "session_unreadable",
+      "SHUTTING_DOWN": "shutting_down",
+      "TIMEOUT": "timeout",
+      "TOTAL_INFLIGHT_LIMIT": "total_inflight_limit",
+      "UNKNOWN_PROJECT": "unknown_project",
+      "UNKNOWN_RUN": "unknown_run",
+      "UNKNOWN_SESSION": "unknown_session",
+      "WRITE_DISABLED": "write_disabled"
+    }
+  }
+}

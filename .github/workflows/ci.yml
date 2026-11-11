@@ -42,6 +42,9 @@ jobs:
         run: pip-audit
         continue-on-error: true  # LOW 告警不 fail CI
 
+      - name: Contract snapshot (baselines unchanged)
+        run: python scripts/contract_snapshot.py --check
+
   # ── 测试矩阵（多平台 × 多 Python 版本）──
   test:
     needs: lint
