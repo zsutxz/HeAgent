@@ -41,6 +41,7 @@ Homepage = "https://github.com/zsutxz/HeAgent"
 Repository = "https://github.com/zsutxz/HeAgent"
 Issues = "https://github.com/zsutxz/HeAgent/issues"
 Documentation = "https://github.com/zsutxz/HeAgent/blob/main/docs/README.md"
+Changelog = "https://github.com/zsutxz/HeAgent/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [

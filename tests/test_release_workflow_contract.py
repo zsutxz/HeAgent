@@ -124,6 +124,55 @@ def test_version_is_plain_semver() -> None:
     assert not version.startswith("v"), f"version must not carry the tag prefix: {version!r}"
 
 
+# ------------------------------------------------------- CHANGELOG 载体（A51）
+
+CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+
+#: `## [Unreleased]` / `## [0.9.0] - 2026-11-11`
+CHANGELOG_HEADING = re.compile(r"^## \[(?P<label>Unreleased|\d+\.\d+\.\d+)\](?: - (?P<date>\d{4}-\d{2}-\d{2}))?$")
+
+
+def _changelog_text() -> str:
+    assert CHANGELOG.is_file(), f"missing {CHANGELOG.name}: 发布变更没有载体（A51 的残余缺口）"
+    return CHANGELOG.read_text(encoding="utf-8")
+
+
+def _changelog_headings() -> list[re.Match[str]]:
+    return [match for line in _changelog_text().splitlines() if (match := CHANGELOG_HEADING.match(line))]
+
+
+def test_changelog_has_unreleased_section() -> None:
+    """`## [Unreleased]` 段必须常驻：没有它，下一个版本的改动就无处落笔。"""
+    labels = [match.group("label") for match in _changelog_headings()]
+    assert "Unreleased" in labels, f"CHANGELOG.md has no `## [Unreleased]` heading (found: {labels})"
+
+
+def test_changelog_has_entry_for_current_version() -> None:
+    """当前 `__version__` 必须有对应版本节 —— bump 版本却忘了写变更是最常见的漏项。"""
+    version = _module_version()
+    entries = {match.group("label"): match.group("date") for match in _changelog_headings()}
+    assert version in entries, (
+        f"CHANGELOG.md has no entry for the current version {version} (found: {sorted(entries)})\n"
+        "bump 版本号时同步把 `## [Unreleased]` 的内容落成版本节"
+    )
+    assert entries[version], f"CHANGELOG.md entry for {version} has no `- YYYY-MM-DD` release date"
+
+
+def test_changelog_headings_are_well_formed() -> None:
+    """`## [` 开头的行必须全部是 `[X.Y.Z] - YYYY-MM-DD` 或裸 `[Unreleased]`。"""
+    malformed = [
+        line
+        for line in _changelog_text().splitlines()
+        if line.startswith("## [") and CHANGELOG_HEADING.match(line) is None
+    ]
+    assert not malformed, "CHANGELOG.md headings must be `## [X.Y.Z] - YYYY-MM-DD` or `## [Unreleased]`:\n" + "\n".join(
+        f"  - {line}" for line in malformed
+    )
+    unreleased = [m for m in _changelog_headings() if m.group("label") == "Unreleased"]
+    assert len(unreleased) == 1, f"CHANGELOG.md must have exactly one Unreleased heading, found {len(unreleased)}"
+    assert unreleased[0].group("date") is None, "`## [Unreleased]` must not carry a release date"
+
+
 def test_head_tag_matches_version_when_present() -> None:
     """HEAD 恰好带 `v*` tag 时，tag 必须与版本一致（发布那一刻的判据）。
 

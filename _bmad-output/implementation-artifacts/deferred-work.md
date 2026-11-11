@@ -12,7 +12,6 @@
 | A35 | HTTP 在途 run 与 SSE 缓冲重启即丢 | `active` | 同上 |
 | A36 | 全局级 MCP 注入签名入口（YAGNI，触发条件未到） | `active` | 同上 |
 | A41 | 兄弟 Story 越集写互相误归因（`goal/write_audit.py:146-157`；归因披露已落地，根因待 AD-20） | `frozen`（AD-20，OQ-4 未裁） | 同上 |
-| A51 | 发布面缺口（无 CHANGELOG / 无版本-tag 守卫；Q2 不启用自动发版） | `active` | [archive](deferred-work-archive.md#活动未闭合条目) |
 
 > 已闭合的 10 条（A40 内容级增量 / A42 判负补救指引 / A43 参照系换算 / A44 交互 REPL 挂 sink / A45 中断语义 / A46 cause 链 / A47 reason 无上限 / A48 失败事件缺驱动字段 / A49 双 listener 故障注入 / A50 归档追加加锁）正文与证据
 > 在 archive 的「本轮闭合」段；Epic 52 审计语义 4 项目前只剩 A41（A40/A42/A43 已闭合），不再在本文件重复。
