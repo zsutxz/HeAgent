@@ -98,6 +98,9 @@
         "whitelist"
       ],
       "defined": [
+        "__all__"
+      ],
+      "imported": [
         "BOM",
         "ConfigClassification",
         "ConfigGroupReport",
@@ -132,7 +135,6 @@
         "_SECRET_SUFFIXES",
         "_ScanRead",
         "_Solved",
-        "__all__",
         "_bounded",
         "_build_item",
         "_derive_guard",
@@ -148,44 +150,218 @@
         "_solve",
         "_system_layer",
         "_unknown_keys",
+        "annotations",
         "bom_prefixed_keys",
         "build_config_report",
         "classify",
         "guards_for",
         "impact_for",
         "is_secret_key",
-        "logger",
         "routing_report",
         "scan_env_file",
         "scan_setting_md",
         "system_env_keys",
         "whitelist"
+      ]
+    },
+    "heagent.config.catalog.classify": {
+      "all": null,
+      "defined": [
+        "classify",
+        "system_env_keys",
+        "whitelist"
+      ],
+      "imported": [
+        "ConfigClassification",
+        "EXCLUSION_GROUPS",
+        "UNKNOWN_GROUP",
+        "WHITELIST_GROUPS",
+        "_system_layer",
+        "annotations"
+      ]
+    },
+    "heagent.config.catalog.envscan": {
+      "all": null,
+      "defined": [
+        "SettingMdScan",
+        "_INLINE_COMMENT_RE",
+        "_ScanRead",
+        "_looks_blank",
+        "_scan_file_common",
+        "bom_prefixed_keys",
+        "scan_env_file",
+        "scan_setting_md"
+      ],
+      "imported": [
+        "BOM",
+        "EnvScan",
+        "FrontmatterSyntaxError",
+        "LayerMap",
+        "NamedTuple",
+        "Path",
+        "annotations",
+        "iter_env_lines",
+        "parse_strict_pairs",
+        "split_frontmatter"
+      ]
+    },
+    "heagent.config.catalog.groups": {
+      "all": null,
+      "defined": [
+        "EXCLUSION_GROUPS",
+        "LABELS",
+        "UNKNOWN_GROUP",
+        "WHITELIST_GROUPS"
+      ],
+      "imported": [
+        "ConfigGroupSpec",
+        "MAX_FILE_DIAGNOSTIC_KEYS",
+        "MAX_UNKNOWN_KEYS",
+        "annotations"
+      ]
+    },
+    "heagent.config.catalog.guards": {
+      "all": null,
+      "defined": [
+        "IMPACT_HIGH",
+        "IMPACT_NORMAL",
+        "RESOURCE_CEILINGS",
+        "VALUE_GUARDS",
+        "_derive_guard",
+        "_merge_guard",
+        "guards_for",
+        "impact_for"
+      ],
+      "imported": [
+        "Any",
+        "ConfigGuard",
+        "Literal",
+        "Settings",
+        "annotations",
+        "get_args",
+        "get_origin"
+      ]
+    },
+    "heagent.config.catalog.masking": {
+      "all": null,
+      "defined": [
+        "MASK",
+        "USER_ONLY_SETTING_KEYS",
+        "_SECRET_SUFFIXES",
+        "is_secret_key"
+      ],
+      "imported": [
+        "WS_AUTH_TOKEN_KEY",
+        "annotations"
+      ]
+    },
+    "heagent.config.catalog.models": {
+      "all": null,
+      "defined": [
+        "BOM",
+        "ConfigClassification",
+        "ConfigGroupReport",
+        "ConfigGroupSpec",
+        "ConfigGuard",
+        "ConfigItem",
+        "ConfigReport",
+        "ConfigSource",
+        "EnvFileReport",
+        "EnvScan",
+        "LayerMap",
+        "MAX_FILE_DIAGNOSTIC_KEYS",
+        "MAX_UNKNOWN_KEYS",
+        "RoutingPoolView",
+        "RoutingPoolsReport",
+        "UnknownKeyReport"
       ],
       "imported": [
         "Any",
         "BaseModel",
-        "ClassVar",
         "ConfigDict",
+        "Field",
+        "Literal",
+        "StrEnum",
+        "annotations"
+      ]
+    },
+    "heagent.config.catalog.report": {
+      "all": null,
+      "defined": [
+        "_bounded",
+        "_build_item",
+        "_group_reports",
+        "_item_notes",
+        "_resolve_source",
+        "_unknown_keys",
+        "build_config_report",
+        "routing_report"
+      ],
+      "imported": [
+        "Any",
+        "BOM",
+        "ConfigGroupReport",
+        "ConfigItem",
+        "ConfigReport",
+        "ConfigSource",
+        "EXCLUSION_GROUPS",
+        "EnvFileReport",
+        "EnvScan",
+        "GLOBAL_SETTING_FILE",
+        "LABELS",
+        "LayerMap",
+        "MASK",
+        "MAX_FILE_DIAGNOSTIC_KEYS",
+        "MAX_UNKNOWN_KEYS",
+        "Path",
+        "RoutingPoolView",
+        "RoutingPoolsReport",
+        "SettingMdScan",
+        "Settings",
+        "UNKNOWN_GROUP",
+        "USER_ONLY_SETTING_KEYS",
+        "UnknownKeyReport",
+        "WHITELIST_GROUPS",
+        "_solve",
+        "annotations",
+        "bom_prefixed_keys",
+        "classify",
+        "guards_for",
+        "impact_for",
+        "is_secret_key",
+        "scan_env_file",
+        "scan_setting_md"
+      ]
+    },
+    "heagent.config.catalog.sources": {
+      "all": null,
+      "defined": [
+        "_BomTolerantDotEnvSource",
+        "_CatalogSettings",
+        "_LenientSettings",
+        "_Solved",
+        "_dotenv_layer",
+        "_layer_map",
+        "_md_layer",
+        "_solve",
+        "_system_layer",
+        "logger"
+      ],
+      "imported": [
+        "Any",
+        "BOM",
+        "ClassVar",
+        "ConfigSource",
         "DotEnvSettingsSource",
         "EnvSettingsSource",
-        "Field",
-        "FrontmatterSyntaxError",
-        "GLOBAL_SETTING_FILE",
-        "Literal",
+        "LayerMap",
         "NamedTuple",
-        "Path",
         "Settings",
         "SettingsError",
-        "StrEnum",
+        "TYPE_CHECKING",
         "UserMarkdownSettingsSource",
-        "WS_AUTH_TOKEN_KEY",
         "annotations",
-        "get_args",
-        "get_origin",
-        "iter_env_lines",
-        "parse_strict_pairs",
         "read_setting_md",
-        "split_frontmatter",
         "with_user_setting_layer"
       ]
     },

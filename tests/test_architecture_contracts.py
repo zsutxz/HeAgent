@@ -758,9 +758,15 @@ def test_shared_layer_layout_is_pinned() -> None:
     本就是数据面；network 侧仍**显式**禁导 ``heagent.pub.projects``（见下表 network 条目）。
     ``heagent.config`` 的名字**刻意保持不变**（模块 → 包）——``from heagent.config import Settings``
     这条最大宗的导入面因此零改动。新增/搬移模块必须同步本表与 ``docs/frame.md`` 的目录树。
+    2026-11-11：``config/catalog`` 由单文件拆成子包（E3 绞杀者），仍在 ``heagent.config.catalog``
+    这个公共名下 re-export 全部符号；此处只把「平铺模块清单」与「子包清单」分开断言。
     """
     pub_modules = sorted(path.stem for path in (SRC / "pub").glob("*.py") if path.stem != "__init__")
     config_modules = sorted(path.stem for path in (SRC / "config").glob("*.py") if path.stem != "__init__")
+    # 2026-11-11（E3 绞杀者）：`catalog` 由单文件拆成子包，故出现在 packages 而非 modules。
+    config_packages = sorted(
+        path.name for path in (SRC / "config").iterdir() if path.is_dir() and (path / "__init__.py").is_file()
+    )
 
     assert pub_modules == [
         "event_lines",
@@ -774,7 +780,8 @@ def test_shared_layer_layout_is_pinned() -> None:
         "types",
         "workspace",
     ]
-    assert config_modules == ["catalog", "envfile", "user_settings", "write"]
+    assert config_modules == ["envfile", "user_settings", "write"]
+    assert config_packages == ["catalog"]
 
 
 def test_pub_package_shell_stays_thin() -> None:

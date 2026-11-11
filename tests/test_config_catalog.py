@@ -733,9 +733,16 @@ class TestReportShape:
         assert seen == set(whitelist())
 
     def test_catalog_has_no_runtime_imports(self) -> None:
-        """脊柱 §2：``config_catalog`` 不得依赖 engine / agent / 入口层。"""
-        source = (Path(__file__).resolve().parents[1] / "src" / "heagent" / "config" / "catalog.py").read_text(
-            encoding="utf-8"
-        )
-        for forbidden in ("heagent.engine", "heagent.agent", "heagent.cli", "heagent.network"):
-            assert f"from {forbidden}" not in source, forbidden
+        """脊柱 §2：``config_catalog`` 不得依赖 engine / agent / 入口层。
+
+        2026-11-11（E3 绞杀者）：catalog 可能是单文件，也可能是 ``config/catalog/`` 子包——
+        两种形态都要覆盖，否则拆包后本断言读不到文件（FileNotFoundError）且子模块漏检。
+        """
+        config_root = Path(__file__).resolve().parents[1] / "src" / "heagent" / "config"
+        package_dir = config_root / "catalog"
+        paths = sorted(package_dir.rglob("*.py")) if package_dir.is_dir() else [config_root / "catalog.py"]
+        assert paths, "catalog 源文件与子包都不存在"
+        for path in paths:
+            source = path.read_text(encoding="utf-8")
+            for forbidden in ("heagent.engine", "heagent.agent", "heagent.cli", "heagent.network"):
+                assert f"from {forbidden}" not in source, f"{path.name}: {forbidden}"

@@ -111,7 +111,7 @@ AgentLoop.run(prompt)
 
 ```
 公共层 pub/（零 heagent 依赖）：exceptions · types · safe_logging · persist · frontmatter · roles · workspace · task_shutdown
-配置面 config/（依赖 pub/）：__init__ = Settings · catalog = 来源求解 · write = 受闸门写通道 · envfile = .env 保真读写 · user_settings = 用户级 setting.md（读/迁移/用户层源）
+配置面 config/（依赖 pub/）：__init__ = Settings · catalog/ = 来源求解（2026-11-11 拆为 9 子模块：models·groups·masking·guards·envscan·sources·classify·report，由包壳统一 re-export）· write = 受闸门写通道 · envfile = .env 保真读写 · user_settings = 用户级 setting.md（读/迁移/用户层源）
 
 主脊：  providers ─┐
         tools ─────┼─→ engine ─→ agent ─→ 入口层（cli/ 包 · gui · goal/）
@@ -784,6 +784,14 @@ HeAgentError (base)
 **禁止**抛出裸 `Exception`。
 
 ### 4.10 配置管理 (`config/` 包)
+
+> `config/catalog/` 自 2026-11-11 起是**子包**（原 1350 行单文件，E3 绞杀者）：
+> `models`（Pydantic 模型）/ `groups`（分组数据表）/ `masking`（凭证掩码）/ `guards`（取值守卫与影响面）/
+> `envscan`（行级扫描）/ `sources`（四层来源求解）/ `classify`（键名分类）/ `report`（报表装配）；
+> `__init__.py` 只做 `X as X` 形式的显式 re-export，公共名 `heagent.config.catalog` 与 `__all__`（34 项）零变化。
+> **子模块是内部实现细节**：外部（含 `tests/`）只经 `heagent.config.catalog` 导入，直连
+> `catalog.models` 等子模块会绕过包壳契约、且不进 `public_exports.json`。
+> 依赖方向：models → groups/masking/guards/envscan/sources → classify → report（无环）。
 
 - `pydantic-settings` 的 `Settings` 类，从 `.env` + 环境变量加载
 - **加载优先级**：系统环境变量 > 项目 `.env` > 用户 `~/.heagent/setting.md`（YAML frontmatter，`config/user_settings.py`）> 字段默认值；同 key 冲突时高优先级来源胜出。顺序由 `Settings.settings_customise_sources` 的源元组决定（md 源插在 dotenv 源之后）；`.env` 是项目级专用格式，用户级是 markdown。
@@ -1506,7 +1514,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 网页请求可拉起**宿主 GUI 进程**（Story 50-8 R2，**新暴露面**；**裁定：维持现状** 2026-09-28） | `POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹原生窗口（子进程 `tkinter` / `powershell`）。防线只有「回环来源 + 单在途 + 冻结 argv + 300s 超时 kill」——回环 peer ≠ 可信（见上），任何能连上端口的本机进程都能让服务机弹窗（骚扰面）；其边界地位见 §4.19。**默认关闭**（`--dialog-backend` 默认 `none`，2026-09-27 修改）：需要时显式传 `--dialog-backend auto` 开启；内嵌服务同样默认关闭（`build_http_service` 不传该参数，`HttpProjectConsole` 默认值已同步改为 `"none"`）。与配置写入通道的 `HTTP_CONSOLE_WRITE_ENABLED` 默认 False 惯例一致 |
 | 原生目录选择在部分环境**不可用**（Story 50-8 R2） | ①无图形后端（容器 / 缺 `_tkinter` 的 Linux）；②服务跑在远程机器而浏览器在别处（窗口弹在服务机，对调用者无用）；③默认即 `--dialog-backend none`（禁用；2026-09-27 起，须显式传 `auto` / `tkinter` / `powershell` 才启用）。三种都回 `dialog_unavailable` 并**保留手工输入**（不静默失败、也没有服务端目录浏览 API —— 那会把宿主目录结构开放给回环客户端） |
 | 网页侧读取结果收敛是**展示策略**，不是数据边界（Story 50-8 R5 + `content_search` / `file_edit`） | 只是「网页事件流不放结果**正文**」——`file_read` / `file_edit` 成功时**整份置空**（对话区只留「工具名 → 作用对象」），`content_search` 成功时**折叠成去重的命中文件清单**（`cli.http_console._matched_files`；未命中消息与超大文件跳过行属诊断，原样保留）；同一份内容仍写进**会话文件**与 `rollout.jsonl`（审计 / 回放需要），模型侧也照旧收到全文；失败消息靠 `Error:` 前缀约定识别（内置工具的既有约定，若将来改结构化错误，该判据可退化为只看 `is_error`）。**已知限制（裁定：收紧规格）**：正文以 `Error:` 开头的文件（日志/错误报告/栈转储）成功读取时，整份正文会照旧显示在网页对话区——AC9「成功只显示文件名」与「失败消息可见」在该输入类上互斥。冻结边界：不得收敛失败消息（那会让诊断从页面消失） |
-| 配置掩码域是后缀制（**裁定：维持现状**） | 掩码域只认 `*_API_KEY` / `*_API_KEYS` 后缀（`config/catalog.py::is_secret_key`），而 `*_BASE_URL` 走排除组模式 ⇒ 把中转站 token 写进 base URL（如 `https://user:token@relay/v1`）的值会**原样回显**。`GET /api/projects/{id}/config` 无回环门 ⇒ 任何能连到服务的客户端都能读到。**裁定维持现状**理由：① URL 本身不以凭证命名；② 部分掩码会破坏诊断用途（"为什么连不上"需要完整 URL）；③ 同仓 `safe_logging` 已对 URL userinfo 脱敏，口径分场景。冻结边界：不得对 URL 做部分掩码（破坏诊断），不得给只读 GET 加回环门（与 49/50 姿态冲突） |
+| 配置掩码域是后缀制（**裁定：维持现状**） | 掩码域只认 `*_API_KEY` / `*_API_KEYS` 后缀（`config/catalog/masking.py::is_secret_key`），而 `*_BASE_URL` 走排除组模式 ⇒ 把中转站 token 写进 base URL（如 `https://user:token@relay/v1`）的值会**原样回显**。`GET /api/projects/{id}/config` 无回环门 ⇒ 任何能连到服务的客户端都能读到。**裁定维持现状**理由：① URL 本身不以凭证命名；② 部分掩码会破坏诊断用途（"为什么连不上"需要完整 URL）；③ 同仓 `safe_logging` 已对 URL userinfo 脱敏，口径分场景。冻结边界：不得对 URL 做部分掩码（破坏诊断），不得给只读 GET 加回环门（与 49/50 姿态冲突） |
 | 路径级审批分级（**裁定：维持条件性**，2026-09-28） | 审批粒度是**工具级**（`PolicyEngine.approval_tools` ∪ MCP `schema.annotations.destructiveHint`），**不看路径**；而 workspace 围栏（`evaluate_tool_call` 第 4 步 `_validate_paths`）对越界路径一律**硬阻断** ⇒ 今天**不存在**「被批准的 workspace 外写」这个对象，故本项**无触发场景**。**触发条件**：引入「非 workspace 的受控写」能力（如经审批向 workspace 外写）——届时改法 = 让第 4 步的越界结果按**声明式路径策略**在 `allow / ask / deny` 之间分级（未配置 = 现状逐字节不变；默认仍 fail-closed）。**若实现，判据要求**：越界且未声明 ⇒ 仍 `BLOCKED`；声明 `ask` ⇒ `APPROVAL_REQUIRED` 且拒绝后不落盘；凭证 basename 与内部状态目录**永远 deny**（不可被审批放行）；`..`／符号链接／短名按**解析后真实路径**分级（复用 `path_safety.resolve_under_root` 同一算法）；不得改变 `sandbox_mode` 语义。**冻结边界**：分级只是 `PolicyEngine` 的 defense-in-depth 标记（边界地位见 §4.19），不得放松 workspace 围栏默认值。证据见 `_bmad-output/implementation-artifacts/deferred-work-archive.md` 的「A6」小节 |
 
 ---

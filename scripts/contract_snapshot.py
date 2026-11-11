@@ -28,15 +28,35 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BASELINE_DIR = REPO_ROOT / "tests" / "contract_baselines"
 
+#: 每项可以是 `.py` 单文件，也可以是**已拆包的同名目录**（E3 绞杀者）——`expand_modules` 展开两者。
 PUBLIC_MODULES = (
     "src/heagent/__init__.py",
     "src/heagent/config/__init__.py",
-    "src/heagent/config/catalog.py",
+    "src/heagent/config/catalog",
     "src/heagent/pub/types.py",
     "src/heagent/pub/exceptions.py",
     "src/heagent/network/http_protocol.py",
     "src/heagent/network/http_console_protocol.py",
 )
+
+
+def expand_modules(rel: str) -> list[str]:
+    """把 ``rel`` 展开成实际 `.py` 列表。
+
+    - 路径本身是文件（`.../__init__.py`）→ 自身
+    - 路径是目录（`config/catalog`）→ 递归全部子模块（排序）
+    - 路径无后缀（`config/catalog`）→ 回退 `config/catalog.py`
+    """
+    direct = REPO_ROOT / rel
+    if direct.is_file():
+        return [rel]
+    if direct.is_dir():
+        return sorted(path.relative_to(REPO_ROOT).as_posix() for path in direct.rglob("*.py"))
+    single = REPO_ROOT / f"{rel}.py"
+    if single.is_file():
+        return [single.relative_to(REPO_ROOT).as_posix()]
+    raise FileNotFoundError(f"neither directory nor module file exists: {rel}")
+
 
 ROUTE_MODULES = (
     "src/heagent/network/http_server.py",
@@ -118,29 +138,36 @@ def dotted_tail(node: ast.AST) -> str | None:
 # ------------------------------------------------------- A. public_exports
 
 
+def _collect_one_public(rel_path: str, modules: dict[str, object]) -> None:
+    """把一个模块的 defined / imported / all 收集进 ``modules``。"""
+    tree = parse_file(rel_path)
+    defined: set[str] = set()
+    imported: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            defined.add(node.name)
+        elif isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    defined.add(target.id)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            defined.add(node.target.id)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                imported.add(alias.asname or alias.name)
+    modules[module_name(rel_path)] = {
+        "defined": sorted(defined),
+        "imported": sorted(imported),
+        "all": module_all(tree),
+    }
+
+
 def collect_public() -> dict[str, object]:
+    """收集公共导出面：每个 `PUBLIC_MODULES` 条目展开成单文件或整包的全部子模块。"""
     modules: dict[str, object] = {}
-    for rel_path in PUBLIC_MODULES:
-        tree = parse_file(rel_path)
-        defined: set[str] = set()
-        imported: set[str] = set()
-        for node in tree.body:
-            if isinstance(node, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
-                defined.add(node.name)
-            elif isinstance(node, ast.Assign):
-                for target in node.targets:
-                    if isinstance(target, ast.Name):
-                        defined.add(target.id)
-            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-                defined.add(node.target.id)
-            elif isinstance(node, ast.ImportFrom):
-                for alias in node.names:
-                    imported.add(alias.asname or alias.name)
-        modules[module_name(rel_path)] = {
-            "defined": sorted(defined),
-            "imported": sorted(imported),
-            "all": module_all(tree),
-        }
+    for spec in PUBLIC_MODULES:
+        for rel_path in expand_modules(spec):
+            _collect_one_public(rel_path, modules)
     return {"modules": modules}
 
 
