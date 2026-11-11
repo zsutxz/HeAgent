@@ -134,13 +134,13 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     每个 provider 条目既可以是**单模型**，也可以是**声明式多档路由池**：``ROUTING_POOLS``
     （JSON）按条目名声明档位/角色/默认档/关键词，命中即把该条目构建为 ``RoutingProvider``
     （按任务难度自动切档，``/route <池内名>`` 手动钉死），并**照常放入多 provider 池**
-    ——不影响「Multiple providers Choose」（启动选择 + ``/model`` 切换 + 自动回退）。
+    ——不影响「Multiple providers Choose」（启动选择 + ``/provider`` 切换 + 自动回退）。
 
     路由池只有这一个入口：条目出现在 ``ROUTING_POOLS`` 里即为启用该池
     （见 ``Settings.routing_pool_map``）；没有按 provider 的专用开关。
 
     本地 Ollama 经 ``OLLAMA_ENABLED=true`` 显式启用（OpenAI 兼容 ``/v1``、无需真实 key），
-    作为独立条目入池，可经 ``/model`` 切换、``--model`` 覆盖模型名。
+    作为独立条目入池，可经 ``/provider`` 切换、``--model`` 覆盖模型名。
     """
     named: dict[str, BaseProvider] = {}
     specs = settings.routing_pool_map

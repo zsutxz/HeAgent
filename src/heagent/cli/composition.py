@@ -325,6 +325,6 @@ def _extract_routing(provider: BaseProvider) -> tuple[RoutingProvider | None, st
         if routed:
             return None, (
                 f"Smart routing is on provider '{routed[0]}'; "
-                f"switch to it with /model {routed[0]} (active: {provider.active})."
+                f"switch to it with /provider {routed[0]} (active: {provider.active})."
             )
     return None, None

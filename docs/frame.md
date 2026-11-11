@@ -354,7 +354,7 @@ AgentLoop
 
 `SwitchableProvider` 持有 `{名称: provider}` 池（每个命名 provider 独立 key/base_url/model），实现 `BaseProvider` 协议、对 `AgentLoop` 透明。与 `ProviderChain` 的全自动按序回退不同，它以**用户当前选择**为默认起点，自动回退仅作「当前选择不可用时的应急接管」：
 
-- **手动切换**：`switch(name)` 经交互模式 `/model` 命令触发（cli.py）。
+- **手动切换**：`switch(name)` 经交互模式 `/provider` 命令触发（cli.py）。
 - **自动回退**：当前 provider 抛 `RATE_LIMITED`/`TRANSIENT`（429/5xx/超时）时自动切到池中下一个；`AUTH_FAILED`/`NON_TRANSIENT` 不回退（与 chain 同精度）。
 - **粘性停留**：成功回退后 `_active` 更新为新 provider，后续不再重试已限流的旧 provider。
 - **流式约束**：`stream()` 已下发 chunk 则不回退，防重复前缀。
@@ -400,7 +400,7 @@ AgentLoop
   档位（池内名 → 模型名）、角色映射（fast/mid/pro → 池内名）、默认档、各档追加关键词、
   `base_url` 覆盖。`_build_provider` 对每个条目查 `Settings.routing_pool_map`：命中即构建
   `RoutingProvider`（规格由 `RoutingPoolSpec` 校验，`pub/types.py`），否则单模型条目；两种情况
-  都照常放入 `SwitchableProvider` 池（Multiple providers Choose / `/model` 切换不受影响）。
+  都照常放入 `SwitchableProvider` 池（Multiple providers Choose / `/provider` 切换不受影响）。
   **新增/调整档位、模型名、角色、关键词全部只改配置，无需改代码**（新增 provider 条目仍需
   代码接入凭据）。路由池**只有这一个入口**：条目出现在 `ROUTING_POOLS` 里即为启用该池；
   旧版按 provider 的开关（`ROUTING_ENABLED` / `ROUTING_FAST_MODEL` / `ROUTING_PRO_MODEL` /

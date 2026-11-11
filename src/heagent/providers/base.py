@@ -42,7 +42,7 @@ class ProviderMetadata(BaseModel):
 
 
 class ProviderSummary(BaseModel):
-    """SwitchableProvider.info() 返回的单个 provider 摘要（/model 列表展示用）。
+    """SwitchableProvider.info() 返回的单个 provider 摘要（/provider 列表展示用）。
 
     跨模块数据用 Pydantic 模型（禁原始 dict），使 CLI 调用方可类型安全地属性访问。
     """

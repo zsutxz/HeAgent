@@ -2,7 +2,7 @@
 
 核心回归：``ROUTING_POOLS`` 声明了某条目时，该条目应为 ``RoutingProvider``（按池内档位
 自动切换），并**照常放入 ``SwitchableProvider`` 池**——不影响「Multiple providers Choose」
-（启动选择 + ``/model`` 切换 + 自动回退）。只有该一个 provider 时直接返回路由池。
+（启动选择 + ``/provider`` 切换 + 自动回退）。只有该一个 provider 时直接返回路由池。
 
 路由池只此一个入口：没有按 provider 的专用开关（``ROUTING_ENABLED`` / ``GPT_ROUTING_ENABLED``
 等已移除）——条目出现在 ``ROUTING_POOLS`` 里即为启用。
@@ -78,7 +78,7 @@ class TestBuildProviderRoutingComposition:
         assert isinstance(deepseek_entry, RoutingProvider)
         # 默认 active=deepseek → 路由当前生效
         assert isinstance(provider.current, RoutingProvider)
-        # /model 列表展示：deepseek 条目展示 fast/pro 两个模型
+        # /provider 列表展示：deepseek 条目展示 fast/pro 两个模型
         summary = provider.info()["deepseek"]
         assert "deepseek-flash" in summary.model
         assert "deepseek-v4-pro" in summary.model
@@ -390,7 +390,7 @@ class TestExtractRouting:
         assert hint is None
 
     def test_switchable_active_not_routing_gives_hint(self, hermetic) -> None:
-        """当前活跃 provider 非路由、池内另有路由 → 提示 /model 切回。"""
+        """当前活跃 provider 非路由、池内另有路由 → 提示 /provider 切回。"""
         provider = _build_provider(
             Settings(deepseek_api_key="sk-ds", kimi_api_key="sk-kimi", routing_pools=_DEEPSEEK_POOL),
             None,
@@ -404,7 +404,7 @@ class TestExtractRouting:
         routing, hint = _extract_routing(sp)
         assert routing is None
         assert hint is not None
-        assert "/model deepseek" in hint
+        assert "/provider deepseek" in hint
 
     def test_no_routing_anywhere(self, hermetic) -> None:
         provider = _build_provider(Settings(kimi_api_key="sk-kimi"), None)
@@ -482,7 +482,7 @@ class TestBuildProviderGptRouting:
         assert set(provider.names) == {"kimi", "openai"}
         openai_entry = provider.providers["openai"]
         assert isinstance(openai_entry, RoutingProvider)
-        # /model 列表展示：openai 条目展示 terra/luna/sol 三个模型
+        # /provider 列表展示：openai 条目展示 terra/luna/sol 三个模型
         summary = provider.info()["openai"]
         assert "gpt-5.6-terra" in summary.model
         assert "gpt-5.6-luna" in summary.model

@@ -1,7 +1,7 @@
 """可切换 Provider — 运行时在多个 LLM provider 之间手动/自动切换。
 
 ``SwitchableProvider`` 支持两种切换模式：
-  - **手动切换**：用户通过 ``/model`` 命令主动选择 provider。
+  - **手动切换**：用户通过 ``/provider`` 命令主动选择 provider。
   - **自动回退**：当前 provider 触发限流 (429) 或瞬时错误时，自动尝试池中下一个
     provider；成功后粘性停留在该 provider（后续调用不再浪费配额重试已限流的）。
 
@@ -58,7 +58,7 @@ class SwitchableProvider:
         """初始化可切换 provider 池。
 
         Args:
-            providers: ``{名称: provider 实例}`` 的字典，名称即 ``/model <name>`` 中的 name。
+            providers: ``{名称: provider 实例}`` 的字典，名称即 ``/provider <name>`` 中的 name。
             default: 初始活跃 provider 的名称，必须在 providers 中存在。
         """
         if not providers:
@@ -118,7 +118,7 @@ class SwitchableProvider:
         logger.info("Provider switched: %s → %s", old, name)
 
     def info(self) -> dict[str, ProviderSummary]:
-        """返回所有 provider 的元数据摘要，用于 ``/model`` 列表展示。"""
+        """返回所有 provider 的元数据摘要，用于 ``/provider`` 列表展示。"""
         result: dict[str, ProviderSummary] = {}
         for name, p in self._providers.items():
             meta = p.get_metadata()
@@ -141,7 +141,7 @@ class SwitchableProvider:
     def _note_fallback(self, from_name: str, to_name: str) -> None:
         """记录自动回退并粘性停留到新 provider。"""
         logger.warning(
-            "Auto-fallback: %s unavailable → switched to %s (sticky until /model or next failure)",
+            "Auto-fallback: %s unavailable → switched to %s (sticky until /provider or next failure)",
             from_name,
             to_name,
         )

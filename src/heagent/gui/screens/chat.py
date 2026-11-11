@@ -192,10 +192,10 @@ class ChatScreen(Screen[None]):
             log.write(WELCOME)
             return True
         if cmd == "/help":
-            log.write("[dim]/model /goal /goal /clear /help | Ctrl+L 清屏 | Esc 中止 | Ctrl+Q 退出[/]")
+            log.write("[dim]/provider /goal /clear /help | Ctrl+L 清屏 | Esc 中止 | Ctrl+Q 退出[/]")
             return True
-        if cmd == "/model":
-            self._model_cmd(args)
+        if cmd == "/provider":
+            self._provider_cmd(args)
             return True
         if cmd == "/goal":
             self._goal_cmd(args)
@@ -251,7 +251,7 @@ class ChatScreen(Screen[None]):
         if task is not None and not task.done():
             task.cancel()
 
-    def _model_cmd(self, args: str) -> None:
+    def _provider_cmd(self, args: str) -> None:
         log = self.query_one("#chat-log", RichLog)
         from heagent.gui.app import HeAgentApp
 

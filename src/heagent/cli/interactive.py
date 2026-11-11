@@ -611,8 +611,8 @@ def _build_slash_registry(
     """构造斜杠命令注册表：内置命令 + 用户自定义命令（Epic 31）。"""
     registry = SlashRegistry()
 
-    async def _model(args: str) -> None:
-        await _handle_model_cmd(["/model", *args.split()], provider)
+    async def _provider(args: str) -> None:
+        await _handle_provider_cmd(["/provider", *args.split()], provider)
 
     async def _route(args: str) -> None:
         await _handle_route_cmd(provider, args)
@@ -636,7 +636,7 @@ def _build_slash_registry(
         for name in registry.names():
             click.echo(f"  /{name}  {registry.describe(name)}", err=True)
 
-    registry.register("model", "切换 LLM 模型", _model)
+    registry.register("provider", "切换 LLM provider", _provider)
     registry.register("route", "智能路由状态 / 强制模型 (<name>|auto)", _route)
     registry.register("mcp-prompt", "调度 MCP prompt", _mcp_prompt)
 
@@ -707,15 +707,15 @@ async def _dispatch_slash_interactive(user_input: str, registry: SlashRegistry) 
         return True
 
 
-async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
-    """Handle /model slash command for runtime LLM switching."""
+async def _handle_provider_cmd(parts: list[str], provider: BaseProvider) -> None:
+    """Handle /provider slash command for runtime LLM provider switching."""
     if not isinstance(provider, SwitchableProvider):
-        click.echo("[model] Only one provider configured; switching not available.", err=True)
+        click.echo("[provider] Only one provider configured; switching not available.", err=True)
         return
 
     if len(parts) == 1:
         info = provider.info()
-        click.echo("Available models:", err=True)
+        click.echo("Available providers:", err=True)
         for name, meta in info.items():
             marker = "->" if meta.active else " "
             display_model = active_model(provider.providers[name]) or meta.model
@@ -726,9 +726,9 @@ async def _handle_model_cmd(parts: list[str], provider: BaseProvider) -> None:
     try:
         await provider.switch(name)
         display_model = active_model(provider.current) or provider.get_metadata().model
-        click.echo(f"[model] Switched to {name} ({display_model})", err=True)
+        click.echo(f"[provider] Switched to {name} ({display_model})", err=True)
     except ValueError as exc:
-        click.echo(f"[model] {exc}", err=True)
+        click.echo(f"[provider] {exc}", err=True)
 
 
 async def _handle_route_cmd(provider: BaseProvider, args: str = "") -> None:
