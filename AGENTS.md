@@ -168,6 +168,11 @@ WS 对外排障工具链（`scripts/`，细节见各脚本头注释）：`setup_
 
 工程纪律四条款（fails loud at load / 常量≠配置 / 空 catch 具名 / 不解释的对称破缺暗示漏提取）的 canonical 在 [`docs/frame.md`](docs/frame.md) §8.4；本文件只留指针不承载正文——纳管块内条目会随 /bmad-project-context refresh 被替换，纪律条款必须置于块外才能存活。
 
+## 文档站与发版契约（块外手工区，2026-11-12 /init 核验补入）
+
+- **文档站**：`mkdocs.yml` 建站，CI 跑 `mkdocs build --strict`（mkdocs 是构建期工具、不在依赖树，按需 `pip install mkdocs`）；`--strict` = 未 ignore 的告警一律 fail，告警口径见 `mkdocs.yml` 注释。动 `docs/` 后本地先 strict 构建再提。
+- **发版契约**：版本真源唯一——`src/heagent/__init__.py` 的 `__version__` 必须与 `pyproject.toml` 一致且为纯 semver；`CHANGELOG.md` 必须保有 `## [Unreleased]` 节与当前版本条目（`## [x.y.z] - 日期` 格式）。以上由 `tests/test_release_workflow_contract.py` 钉死（另钉：release job 仅 tag/手动触发 + OIDC 发布、CI job 数量恒定）。发版 = 两处同步 bump + CHANGELOG 归节。
+
 ## 已知缺口
 
 完整清单见 `docs/frame.md` 五与 `_bmad-output/implementation-artifacts/deferred-work-archive.md`。
