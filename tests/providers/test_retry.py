@@ -77,6 +77,13 @@ class TestClassifyException:
     def test_unprocessable_422_non_transient(self) -> None:
         assert classify_exception(_FakeSdkError("unprocessable", 422)) == ErrorCategory.NON_TRANSIENT
 
+    def test_model_not_supported_404_is_pool_fallback_eligible(self) -> None:
+        error = _FakeSdkError('Model "claude-haiku-5-5" is not supported by any configured account in this group', 404)
+        assert is_pool_fallback_error(error) is True
+
+    def test_unrelated_404_is_not_pool_fallback_eligible(self) -> None:
+        assert is_pool_fallback_error(_FakeSdkError("resource not found", 404)) is False
+
     def test_bare_exception_non_transient(self) -> None:
         """无状态码、无可识别关键词的异常默认归为 NON_TRANSIENT（不盲目回退）。"""
         assert classify_exception(RuntimeError("boom")) == ErrorCategory.NON_TRANSIENT

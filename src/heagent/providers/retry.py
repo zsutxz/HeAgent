@@ -135,7 +135,10 @@ def is_pool_fallback_error(error: Exception) -> bool:
     与另两方**有意不同**（见模块 docstring 策略矩阵）：``ProviderChain`` 与 ``KeyRotatingProvider``
     都回退 AUTH_FAILED——前者换一家 provider 就能救，后者换一把密钥正是解。
     """
-    return classify_exception(error) in (ErrorCategory.RATE_LIMITED, ErrorCategory.TRANSIENT)
+    status, message = _extract_status_message(error)
+    lowered = message.lower()
+    model_unavailable = status == 404 and "model" in lowered and ("not supported" in lowered or "not found" in lowered)
+    return model_unavailable or classify_exception(error) in (ErrorCategory.RATE_LIMITED, ErrorCategory.TRANSIENT)
 
 
 async def retry_with_backoff(
