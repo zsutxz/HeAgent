@@ -24,6 +24,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -211,6 +212,67 @@ class RunStore:
             return False
         await asyncio.to_thread(path.unlink)
         return True
+
+    async def close_stale_running(
+        self,
+        *,
+        max_idle_hours: float = 6.0,
+        now: datetime | None = None,
+    ) -> list[str]:
+        """把**陈旧** ``running`` 快照收尾为 ``FAILED``，返回被收尾的 run_id（升序）。
+
+        判据：``context.status == RUNNING`` 且 ``context.updated_at`` 距 ``now`` 超过
+        ``max_idle_hours``。活进程每轮迭代都经 ``RunContext.touch`` 刷新该字段，故超阈值
+        仍为 running 必是进程已死（崩溃 / 被杀 / 容器回收 / 宿主重启）。
+
+        三条不变量（缺一即污染统计或丢数据）：
+
+        * **只能写 ``FAILED``**：``RunStatus`` 只有 running/completed/failed，写别值会让
+          ``RunSnapshot`` 校验失败、该 run 在 ``runtime_stats`` 等读者眼里整条消失；
+          failed 仍可 ``resume()``，语义与「被门控终止」一致。
+        * **``updated_at`` 保持末次真实活动时刻**：``mark_terminal`` 会把时钟推到收尾时刻，
+          而时长口径是 ``updated_at - started_at`` ⇒ 不回填会凭空放大数小时到数天
+          （实测 4 个死 run 把某日的 run 累计时长从 4.2h 抬到 4.0d）。
+        * **payload 原样保留**：整份快照 load→save，``messages``/``results``/
+          ``final_answer`` 不动，收尾只改状态、时钟回填与 ``error``。
+
+        ``now`` 为 naive 本地时间（与 ``iso_now`` 同口径），仅供测试注入。
+        """
+        if max_idle_hours < 0:
+            raise ValueError(f"max_idle_hours must be >= 0, got {max_idle_hours!r}")
+        close_time = now or datetime.now()
+        closed: list[str] = []
+        for run_id in await self.list_runs():
+            snapshot = await self.load(run_id)
+            if snapshot is None:
+                continue
+            ctx = snapshot.context
+            if ctx.status != RunStatus.RUNNING:
+                continue
+            raw_updated = ctx.updated_at
+            try:
+                last = datetime.fromisoformat(raw_updated)
+            except ValueError:
+                logger.warning(
+                    "run %s has unparsable updated_at=%r; skipping stale-run sweep",
+                    run_id,
+                    raw_updated,
+                )
+                continue
+            idle_hours = (close_time - last).total_seconds() / 3600.0
+            if idle_hours <= max_idle_hours:
+                continue
+            ctx.mark_terminal(RunStatus.FAILED)
+            ctx.updated_at = raw_updated  # 回填：终态写入的 touch 不能当结束时刻
+            snapshot.error = (
+                f"interrupted: stale running snapshot (last update {raw_updated}, "
+                f"idle {idle_hours:.1f}h > {max_idle_hours}h); "
+                f"closed at {close_time.isoformat(timespec='seconds')} by RunStore.close_stale_running"
+            )
+            await self.save(snapshot)
+            closed.append(run_id)
+            logger.warning("closed stale running run %s (idle %.1fh)", run_id, idle_hours)
+        return closed
 
     async def prune(self, *, retention_days: int, min_interval_seconds: int = 0) -> int:
         """按保留期清理过期 run 快照，返回**删除项数**。``retention_days <= 0`` 时禁用（返回 0）。
