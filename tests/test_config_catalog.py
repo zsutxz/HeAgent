@@ -378,7 +378,8 @@ class TestClassification:
         assert whitelist() <= ENV_KEYS
         # D3 裁定后的口径（38 + 8）+ 记忆归档 2 键 + epic-59 语义压缩 1 键
         # + epic-58 cron 结果推送 2 键 − 死键 shell_timeout 移除（2026-11-06 C1，生产读者为零）
-        assert len(whitelist()) == 50
+        # + 陈旧 running 收尾阈值 RUN_STALE_IDLE_HOURS（2026-11-12 close_stale_running 接线）
+        assert len(whitelist()) == 51
 
     def test_partition_is_complete(self) -> None:
         """AC9：每个字段都落在白名单或某条排除规则里 —— 残留 0（没有「只读但无原因」）。"""
@@ -509,6 +510,7 @@ class TestGuards:
             "LEDGER_RETENTION_DAYS": 3650.0,
             "LOG_RETENTION_DAYS": 3650.0,
             "RUN_RETENTION_DAYS": 3650.0,
+            "RUN_STALE_IDLE_HOURS": 87600.0,  # 同族时间窗按小时计（3650 天）
             "SANDBOX_DIR_RETENTION_DAYS": 3650.0,
             "SESSION_RETENTION_DAYS": 3650.0,
             "SKILL_CURATOR_STALE_DAYS": 3650.0,

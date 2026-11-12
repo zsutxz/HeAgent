@@ -429,6 +429,30 @@ def test_shutdown_timeout_must_be_positive() -> None:
         MCPClientManager(MCPConfig(), shutdown_timeout=-1)
 
 
+def test_call_timeout_must_be_positive() -> None:
+    """call_timeout<=0 会让 call_tool 的 asyncio.timeout 立即超时 → 每次 MCP 调用必失败；构造期拒绝。"""
+    with pytest.raises(ValueError):
+        MCPClientManager(MCPConfig(), call_timeout=0)
+    with pytest.raises(ValueError):
+        MCPClientManager(MCPConfig(), call_timeout=-1)
+
+
+async def test_call_tool_timeout_raises_tool_error() -> None:
+    """挂死 server 的在途调用被 call_timeout 截断 → ToolError（FR-5 is_error 面），run 不被无限期卡死。"""
+
+    class _SlowSession:
+        async def call_tool(self, name, arguments):
+            await asyncio.sleep(30)
+
+    manager = MCPClientManager(MCPConfig(), call_timeout=0.05)
+    slow = _SlowSession()
+    manager._sessions["s"] = slow
+    handler = manager._make_handler(slow, "slow", "s")
+
+    with pytest.raises(ToolError, match="timed out"):
+        await handler()
+
+
 async def test_aexit_bounded_when_transport_close_hangs(monkeypatch: pytest.MonkeyPatch, caplog) -> None:
     """transport cm.__aexit__ 挂死（stdio 忽略 SIGTERM / HTTP 不 FIN）时 __aexit__ 仍有硬上界。
 

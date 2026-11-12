@@ -130,7 +130,8 @@ async def maybe_window_reset(
     # P1-3: usage reflects pre-call input tokens; count_tokens reflects current msg list
     # (including just-appended tool results); take max to avoid one-round lag.
     llm_tokens = usage.total_tokens if usage else 0
-    current_tokens = max(llm_tokens, count_tokens(state.messages))
+    # 校准读侧按模型查系数：写键 = note_actual_usage 的 response.model = loop.last_model。
+    current_tokens = max(llm_tokens, count_tokens(state.messages, model=loop.last_model))
     if not loop.window_reset.should_trigger(
         token_count=current_tokens,
         max_tokens=loop._runtime.max_context_tokens,

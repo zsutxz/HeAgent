@@ -240,6 +240,9 @@ class Settings(BaseSettings):
     # .heagent/runs/ 的 run 快照超过此天数在 run 启动时自动删除；persist.py 刻意保留 .lock（规避
     # unlink 竞态），本项是 runs 侧唯一回收方。0=禁用。
     run_retention_days: int = Field(default=7, ge=0)
+    # 陈旧 running 快照的收尾判据：updated_at 距今超过此小时数（活进程每轮迭代都 touch 快照）
+    # ⇒ 判定进程已死，run 启动时一次性收尾为 FAILED（close_stale_running）。0=禁用收尾扫描。
+    run_stale_idle_hours: float = Field(default=6.0, ge=0)
     # 过期清理的跨进程节流（秒）：短命 CLI 进程靠这层省掉重复扫描（0=每次都扫）。
     prune_min_interval_seconds: int = Field(default=900, ge=0)
 

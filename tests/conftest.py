@@ -27,6 +27,9 @@ from heagent.config import Settings, reset_settings
 # setdefault 不覆盖用户已在环境/.env 中显式设置的值。
 os.environ.setdefault("LEDGER_RETENTION_DAYS", "0")
 os.environ.setdefault("RUN_RETENTION_DAYS", "0")
+# 陈旧 running 收尾扫描同样关掉：close_stale_runs_once 与 prune 同挂点（新 run 启动时），
+# 不关的话测试会扫开发机真实 .heagent/runs（万级快照）把 run 启动拖到秒级。
+os.environ.setdefault("RUN_STALE_IDLE_HOURS", "0")
 # 清理节流也关掉：测试里新建容器若读到真实 .heagent 的节流标记就会静默不清理，断言会假失败。
 os.environ.setdefault("PRUNE_MIN_INTERVAL_SECONDS", "0")
 # 运行时产物保留期（日志 / 会话 / 编辑快照 / 沙箱会话目录）同样关掉：测试会真的调 CLI 入口，
@@ -139,6 +142,22 @@ def _seal_global_skill_roots(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     import heagent.skills.skill_store as skill_store_module
 
     monkeypatch.setattr(skill_store_module, "GLOBAL_CONFIG_DIR", tmp_path / "sealed-global-home" / ".heagent")
+
+
+@pytest.fixture(autouse=True)
+def _reset_token_calibration() -> None:
+    """隔离 token 校准的进程级全局状态（``tokens._CALIBRATION``）。
+
+    校准读侧接线（2026-11-12 审查修复）后，携带 usage 的 stub 样本会真实落键
+    （如 ``stub``），后续按模型键读侧的用例会被前面用例留下的系数污染——
+    窗口重置/压缩判定随之漂移。与 :func:`_isolate_dotenv_files` 隔离 Settings
+    单例同一立场：模块级可变状态在用例间必须归零。
+    """
+    from heagent.context.tokens import _CALIBRATION
+
+    _CALIBRATION.clear()
+    yield
+    _CALIBRATION.clear()
 
 
 @pytest.fixture()

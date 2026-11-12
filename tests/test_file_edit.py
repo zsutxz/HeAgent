@@ -17,7 +17,12 @@ import pytest
 
 import heagent.tools.edits as edits_mod
 from heagent.engine.policy import PolicyEngine
-from heagent.tools.builtins.file import file_edit, file_read, file_write
+from heagent.tools.builtins.file import (
+    _FILE_READ_MAX_BYTES,
+    file_edit,
+    file_read,
+    file_write,
+)
 from heagent.tools.edits import MANIFEST_NAME, bind_edit_snapshot_run, snapshot_root
 from heagent.tools.path_safety import reset_workspace_root, set_workspace_root
 from heagent.tools.registry import ToolRegistry
@@ -268,3 +273,32 @@ class TestReceiptsAndSnapshots:
         result = await file_write("big.txt", new)
         assert "more diff lines" in result
         assert len(result) < 2000
+
+
+class TestFileReadCap:
+    """file_read 10MB 字节上限：超限只读前 10MB + 尾注（P1-18 同型风险面）。"""
+
+    @pytest.mark.asyncio
+    async def test_over_cap_full_read_returns_prefix_with_note(self, tmp_path: Path) -> None:
+        data = b"A" * (_FILE_READ_MAX_BYTES + 1) + "尾部内容".encode()
+        _write_bytes(tmp_path / "big.log", data)
+        result = await file_read("big.log")
+        assert result.startswith("A" * 100)
+        assert "尾部内容" not in result
+        assert "truncated" in result
+        assert "offset/limit" in result
+
+    @pytest.mark.asyncio
+    async def test_under_cap_full_read_unchanged(self, tmp_path: Path) -> None:
+        (tmp_path / "small.txt").write_text("hello", encoding="utf-8")
+        result = await file_read("small.txt")
+        assert result == "hello"
+
+    @pytest.mark.asyncio
+    async def test_windowed_read_on_over_cap_file(self, tmp_path: Path) -> None:
+        """窗口读（offset/limit）作用于前 10MB，超限只进尾注，不炸。"""
+        data = b"line\n" * (_FILE_READ_MAX_BYTES // 5 + 100)
+        _write_bytes(tmp_path / "big.log", data)
+        result = await file_read("big.log", offset=2, limit=1)
+        assert result.splitlines()[0] == "line"
+        assert "10 MB read cap" in result

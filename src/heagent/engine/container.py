@@ -116,6 +116,8 @@ class EngineContainer:
     ledger_retention_days: int = 0
     # run 快照自动清理保留天数（0=禁用）；default() 从 Settings 读，手动构造默认 0。
     run_retention_days: int = 0
+    # 陈旧 running 快照收尾的空闲阈值小时数（0=禁用收尾扫描）；default() 从 Settings 读，手动构造默认 0。
+    run_stale_idle_hours: float = 0.0
     # 过期清理的跨进程节流秒数（0=每次都扫）；default() 从 Settings 读，手动构造默认 0（测试无节流）。
     prune_min_interval_seconds: int = 0
     # 沙箱会话目录开关（E40-D4）：None = 跟随 Settings（env）；True/False = 显式覆盖
@@ -130,6 +132,7 @@ class EngineContainer:
     # 两者独立：ledger 与 runs 各自的清理互不阻塞。
     _ledger_pruned: bool = field(default=False, init=False, repr=False)
     _runs_pruned: bool = field(default=False, init=False, repr=False)
+    _runs_stale_closed: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.runtime_config = resolve_runtime_config(
@@ -237,6 +240,30 @@ class EngineContainer:
             logger.info("Run snapshots pruned %d expired entries (retention=%dd)", n, self.run_retention_days)
         return n
 
+    async def close_stale_runs_once(self) -> int:
+        """首次调用时把陈旧 running 快照收尾为 FAILED，之后短路返回 0（去重）。
+
+        与 ``prune_runs_once`` 同构的维护动作：故障不中断 run（``CancelledError`` 不吞，
+        其余异常打 error 日志后返回 0）；去重标志与 ledger / run prune 两侧相互独立。
+        判据与阈值（``run_stale_idle_hours``，默认 6h、0=禁用）见
+        :meth:`RunStore.close_stale_running` 的 docstring。
+        """
+        if self._runs_stale_closed or self.run_stale_idle_hours <= 0:
+            return 0
+        self._runs_stale_closed = True
+        try:
+            closed = await self.run_store.close_stale_running(max_idle_hours=self.run_stale_idle_hours)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            raise
+        except Exception as exc:
+            logger.error("Stale running sweep failed (%s: %s); skipping", type(exc).__name__, exc)
+            return 0
+        if closed:
+            logger.info(
+                "Closed %d stale running snapshots as FAILED (idle > %sh)", len(closed), self.run_stale_idle_hours
+            )
+        return len(closed)
+
     @classmethod
     def default(
         cls,
@@ -326,6 +353,7 @@ class EngineContainer:
         )
         container.ledger_retention_days = settings.ledger_retention_days
         container.run_retention_days = settings.run_retention_days
+        container.run_stale_idle_hours = settings.run_stale_idle_hours
         container.prune_min_interval_seconds = settings.prune_min_interval_seconds
         # P0-2 权限档位：由 Settings 注入（非法值已在 sandbox_mode_resolved 回退 + 告警）。
         container.policy.sandbox_mode = settings.sandbox_mode_resolved

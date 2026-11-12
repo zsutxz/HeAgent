@@ -86,6 +86,7 @@ async def stream_run(  # noqa: C901
                     full_content = ""
                     tool_calls: list[ToolCall] = []
                     chunk_usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
+                    usage_is_estimated = False
                     model = ""
                     finish_reason = ""
                     reasoning_content = ""
@@ -125,13 +126,17 @@ async def stream_run(  # noqa: C901
                     if chunk_usage.total_tokens == 0:
                         from heagent.context.tokens import count_tokens, estimate_completion_tokens
 
-                        estimated_prompt = count_tokens(state.messages)
+                        # 用实际模型名查校准系数（读侧闭环）；usage_is_estimated 已挡住样本污染
+                        estimated_prompt = count_tokens(state.messages, model=model)
                         estimated_completion = estimate_completion_tokens(full_content, tool_calls)
                         chunk_usage = TokenUsage(
                             prompt_tokens=estimated_prompt,
                             completion_tokens=estimated_completion,
                             total_tokens=estimated_prompt + estimated_completion,
                         )
+                        # 本地估算兜底出的 usage 不得进校准器：estimated 与 stream_estimated 同源恒等，
+                        # 会注入 ratio=1.0 假样本，把 EMA 系数系统性拉平（坏样本比没有样本更糟）。
+                        usage_is_estimated = True
 
                     accumulated = loop._add_usage(accumulated, chunk_usage)
                     response = ProviderResponse(
@@ -143,7 +148,7 @@ async def stream_run(  # noqa: C901
                         reasoning_content=reasoning_content or None,
                     )
 
-                    if response.usage and response.usage.total_tokens > 0:
+                    if response.usage and response.usage.total_tokens > 0 and not usage_is_estimated:
                         from heagent.context.tokens import note_actual_usage
 
                         note_actual_usage(

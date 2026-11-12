@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 from heagent.tools.decorator import tool
 from heagent.tools.edits import (
+    _BOM,
     MAX_DIFF_SOURCE_BYTES,
     read_text_file,
     render_diff,
@@ -57,6 +58,29 @@ def _read_for_diff(path: Path) -> str | None:
         return None
 
 
+# file_read 的字节上限：对齐 content_search 的 10MB（P1-18 同型风险——大文件全量
+# 解码进内存 + 整段进 LLM 上下文）。file_edit/diff 的源回执仍走各自的既有上限。
+_FILE_READ_MAX_BYTES = 10 * 1024 * 1024
+
+
+def _read_text_bounded(path: Path) -> tuple[str, bool]:
+    """字节上限内的读取，与 ``read_text_file`` 同一文本形态（去 BOM、行尾归一 ``\n``）。
+
+    返回 ``(text, truncated)``。截断边界可能落在多字节 UTF-8 字符中间 ⇒ 仅截断读用
+    ``errors="replace"``；完整读保持严格解码（行为与改动前一致）。
+    """
+    with path.open("rb") as fh:
+        raw = fh.read(_FILE_READ_MAX_BYTES + 1)  # 多读 1 字节仅用于判截断
+    truncated = len(raw) > _FILE_READ_MAX_BYTES
+    if truncated:
+        raw = raw[:_FILE_READ_MAX_BYTES]
+    has_bom = raw.startswith(_BOM)
+    if has_bom:
+        raw = raw[len(_BOM) :]
+    text = raw.decode("utf-8", errors="replace" if truncated else "strict")
+    return text.replace("\r\n", "\n"), truncated
+
+
 def _receipt(header: str, body: str, snapshot: str | None) -> str:
     """拼装统一回执：``header`` + diff ``body`` +（可选）快照行。"""
     lines = [header]
@@ -92,6 +116,9 @@ async def file_read(
     limit:
         Maximum number of lines to return.  ``None`` (default) means all lines
         from ``offset`` to end of file.
+
+    读取上限 10 MB：超限文件只返回前 10 MB 并附尾注（与 ``content_search`` 同一
+    上限口径）；``file_edit`` 的匹配仍作用于完整文件，不受此上限影响。
     """
     try:
         resolved = resolve_workspace_path(path)
@@ -105,9 +132,13 @@ async def file_read(
 
         # 阻塞读经线程卸载（项目全异步纪律，同 memory/skills 工具范式）；
         # exists()/is_dir() 等控制流用的廉价元数据调用有意不包。
-        text = (await asyncio.to_thread(read_text_file, resolved)).text
+        # 10MB 字节上限：超限文件只读前 10MB（P1-18 同型风险面），编辑仍走 file_edit 的全量路径。
+        text, file_truncated = await asyncio.to_thread(_read_text_bounded, resolved)
 
         if offset is None and limit is None:
+            if file_truncated:
+                mb = _FILE_READ_MAX_BYTES // (1024 * 1024)
+                text += f"\n\n(truncated — file exceeds the {mb} MB read cap; use offset/limit to read later lines)"
             return text
 
         lines = text.splitlines()
@@ -129,12 +160,15 @@ async def file_read(
         result = "\n".join(selected)
 
         # Append tail note when truncation occurred
-        if start > 0 or end < total:
+        if start > 0 or end < total or file_truncated:
             notes: list[str] = []
             if start > 0:
                 notes.append(f"{start} lines above")
             if end < total:
                 notes.append(f"{total - end} lines below")
+            if file_truncated:
+                mb = _FILE_READ_MAX_BYTES // (1024 * 1024)
+                notes.append(f"file exceeds the {mb} MB read cap")
             result += f"\n\n(truncated — {', '.join(notes)}, use offset/limit to navigate)"
 
         return result

@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from heagent.agent.loop import AgentLoop
+from heagent.agent.run_lifecycle import AgentState, _ResumeState
 from heagent.config import reset_settings
 from heagent.engine import EngineContainer, HookConfig, HookManager
 from heagent.providers.base import ProviderMetadata
@@ -384,6 +385,31 @@ class TestHookIntegration:
 
         assert start_marker.read_text() == "ok"
         assert end_marker.read_text() == "ok"
+
+    @pytest.mark.asyncio
+    async def test_session_start_hook_fires_on_resume(self, workspace_dir: Path) -> None:
+        """resume 路径同样触发 SessionStart（此前只发 SessionEnd，成对 hook 在恢复路径失真）。"""
+        start_marker = workspace_dir / "start.txt"
+        engine = EngineContainer.default(workspace_root=str(workspace_dir))
+        engine.run_store = engine.run_store.__class__(base_dir=str(workspace_dir / "runs"))
+        engine.hooks = HookManager([HookConfig(event="SessionStart", command=_touch_cmd(start_marker))])
+        provider = StubProvider([_final("done")])
+        loop = AgentLoop(provider, engine=engine, context_dir=str(workspace_dir))
+
+        await loop._init_or_resume(
+            "again",
+            None,
+            None,
+            _ResumeState(
+                state=AgentState(),
+                run_context=loop._ensure_run_context(session_id=None),
+                prompt="again",
+                system=None,
+            ),
+            stream=False,
+        )
+
+        assert start_marker.read_text() == "ok"
 
 
 class TestHooksEnabledSwitch:

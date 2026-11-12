@@ -74,6 +74,7 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
         keys=(
             "LEDGER_RETENTION_DAYS",
             "RUN_RETENTION_DAYS",
+            "RUN_STALE_IDLE_HOURS",
             "LOG_RETENTION_DAYS",
             "SESSION_RETENTION_DAYS",
             "EDIT_SNAPSHOT_RETENTION_DAYS",

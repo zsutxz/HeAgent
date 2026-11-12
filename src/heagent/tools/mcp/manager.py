@@ -61,6 +61,7 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CONNECT_TIMEOUT: float = 10.0
 _DEFAULT_HEALTH_CHECK_INTERVAL: float = 5.0  # 运行时健康探测周期（FR-3 收紧：断连即注销）
 _DEFAULT_SHUTDOWN_TIMEOUT: float = 5.0  # __aexit__ 关停硬上界（transport close 挂死兜底）
+_DEFAULT_CALL_TIMEOUT: float = 60.0  # 运行期 call_tool 硬上界（对齐 git 工具 60s 先例：挂死 server 不得无限期卡死 run）
 
 
 class MCPServerFailure(BaseModel):
@@ -87,6 +88,7 @@ class MCPClientManager:
         *,
         registry: ToolRegistry | None = None,
         connect_timeout: float = _DEFAULT_CONNECT_TIMEOUT,
+        call_timeout: float = _DEFAULT_CALL_TIMEOUT,
         health_check_interval: float = _DEFAULT_HEALTH_CHECK_INTERVAL,
         shutdown_timeout: float = _DEFAULT_SHUTDOWN_TIMEOUT,
         transport_opener: TransportOpener | None = None,
@@ -100,11 +102,15 @@ class MCPClientManager:
             # 非正值会让 _await_shutdown 首轮 wait 立即返回（全部 pending）→ 不给任何 task
             # graceful 关停机会即 force-cancel（与 health_check_interval<=0 误判同构）。
             raise ValueError(f"shutdown_timeout 必须为正数（got {shutdown_timeout}）")
+        if call_timeout <= 0:
+            # 非正值让 call_tool 的 asyncio.timeout 立即超时 → 每次 MCP 调用必失败（fail-loud 于构造期）。
+            raise ValueError(f"call_timeout 必须为正数（got {call_timeout}）")
         self._config = config
         self._registry = registry or ToolRegistry.get()
         # registry 写入单一入口（server 工具 + 桥接工具的注册/注销与冲突策略收敛于此）
         self._bridge = RegistryBridge(self._registry)
         self._connect_timeout = connect_timeout
+        self._call_timeout = call_timeout
         self._health_check_interval = health_check_interval
         self._shutdown_timeout = shutdown_timeout
         # transport 开启端口：缺省 SDK 实现；注入点供测试/替换（无需 class-patch 缝）。
@@ -294,7 +300,16 @@ class MCPClientManager:
             # P1-17: session liveness check — if server disconnected, return semantic error
             if server_name and self._sessions.get(server_name) is not session:
                 raise ToolError(f"MCP server '{server_name}' disconnected")
-            result = await call_tool(session, tool_name, kwargs or None)
+            try:
+                # call_tool 硬上界（对齐 git 工具 60s 先例）：server 握手后挂死时，
+                # 已在途的这次调用不能把整个 run 无限期卡死。超时 → ToolError（FR-5 is_error）。
+                async with asyncio.timeout(self._call_timeout):
+                    result = await call_tool(session, tool_name, kwargs or None)
+            except TimeoutError as exc:
+                raise ToolError(
+                    f"MCP tool '{tool_name}' on server '{server_name or '?'}' "
+                    f"timed out after {self._call_timeout}s (call_timeout)"
+                ) from exc
             return bridge_result(result)
 
         return handler

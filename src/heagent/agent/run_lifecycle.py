@@ -131,6 +131,10 @@ async def init_or_resume(
         resume_details: dict[str, Any] = {"resume": True, "stream": stream}
         resume_details.update(_delegation_details(_resume.run_context))
         loop._emit("run_started", run_context=_resume.run_context, details=resume_details)
+        # SessionStart 与 init_new_run 同口径（emit 之后触发）：resume 是「同 run_id 上的新一次
+        # 尝试」，SessionEnd 在收尾恒发——半生命周期会让成对 hook（计时/审计）在恢复路径失真。
+        if loop.engine.hooks is not None:
+            await loop.engine.hooks.run_session(SESSION_START, _resume.run_context)
         return _RunInit(
             state=_resume.state,
             run_context=_resume.run_context,
@@ -167,6 +171,7 @@ async def init_new_run(
     """
     await loop.engine.prune_ledger_once()  # 全新 run 启动清理一次；resume 不触发（那次 run 启动已清过）
     await loop.engine.prune_runs_once()  # 同上去重：run 快照/锁/产物目录按 run_retention_days 回收
+    await loop.engine.close_stale_runs_once()  # 同上去重：崩溃进程遗留的陈旧 running 快照收尾为 FAILED
     state = AgentState(max_iterations=loop.max_iterations)
     accumulated = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
     run_context = loop._ensure_run_context(session_id=session_id)
@@ -361,7 +366,8 @@ async def persist_and_cache(
     # 当前上下文占用：以「下一轮将发送的消息」估算 token 数（区别于 last_usage 的累计值）。
     from heagent.context.tokens import count_tokens
 
-    loop.last_context_tokens = count_tokens(state.messages)
+    # 校准读侧：按本 run 实际模型（写键 = note_actual_usage 的 response.model）查系数
+    loop.last_context_tokens = count_tokens(state.messages, model=loop.last_model)
     if loop.engine.hooks is not None:
         await loop.engine.hooks.run_session(SESSION_END, run_context)
     await loop.engine.close_run(run_context)

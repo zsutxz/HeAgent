@@ -13,10 +13,14 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 import pytest
 
+from heagent.agent.loop import AgentLoop
+from heagent.config import get_settings, reset_settings
+from heagent.engine import EngineContainer
 from heagent.engine.context import RunContext, RunStatus
 from heagent.engine.store import RunStore
 from heagent.pub.types import Message, ToolResult
@@ -148,3 +152,96 @@ class TestCloseStaleRunning:
         store = RunStore(base_dir=str(tmp_path / "runs"))
         with pytest.raises(ValueError, match="max_idle_hours"):
             await store.close_stale_running(max_idle_hours=-1)
+
+
+class _StubProvider:
+    async def send(self, messages, *, tools=None):
+        from heagent.pub.types import ProviderResponse, TokenUsage
+
+        return ProviderResponse(
+            content="done",
+            usage=TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0),
+            model="stub",
+            finish_reason="stop",
+        )
+
+    async def stream(self, messages, *, tools=None):
+        yield await self.send(messages, tools=tools)
+
+    def get_metadata(self):
+        from heagent.providers.base import ProviderMetadata
+
+        return ProviderMetadata(name="stub", model="stub")
+
+
+class TestCloseStaleRunsOnce:
+    """``EngineContainer.close_stale_runs_once``：与 prune_runs_once 同构的去重/故障立场 + 接线。"""
+
+    @pytest.mark.asyncio
+    async def test_sweeps_then_dedupes(self, tmp_path) -> None:
+        store = RunStore(base_dir=str(tmp_path / "runs"))
+        ctx = _stale_ctx()
+        await _seed(store, ctx)
+        engine = EngineContainer(run_store=store, run_stale_idle_hours=6.0)
+
+        assert await engine.close_stale_runs_once() == 1
+        # 进程内只扫一次（_runs_stale_closed 去重）
+        assert await engine.close_stale_runs_once() == 0
+
+    @pytest.mark.asyncio
+    async def test_zero_threshold_disables_sweep(self, tmp_path) -> None:
+        """run_stale_idle_hours <= 0 = 禁用收尾扫描（测试经 conftest env 全局关闭）。"""
+        store = RunStore(base_dir=str(tmp_path / "runs"))
+        ctx = _stale_ctx()
+        await _seed(store, ctx)
+        engine = EngineContainer(run_store=store, run_stale_idle_hours=0)
+
+        assert await engine.close_stale_runs_once() == 0
+        snapshot = await store.load(ctx.run_id)
+        assert snapshot is not None
+        assert snapshot.context.status is RunStatus.RUNNING  # 未被动过
+
+    def test_default_threshold_is_six_hours(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # conftest 为测试隔离设了 RUN_STALE_IDLE_HOURS=0（见 tests/conftest.py），
+        # 故断言「出厂默认」前需先清掉该 env（对齐 test_run_store_prune 的 retention 写法）。
+        monkeypatch.delenv("RUN_STALE_IDLE_HOURS", raising=False)
+        reset_settings()
+
+        assert get_settings().run_stale_idle_hours == 6.0
+
+    def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("RUN_STALE_IDLE_HOURS", "12")
+        reset_settings()
+
+        assert get_settings().run_stale_idle_hours == 12.0
+
+    @pytest.mark.asyncio
+    async def test_failure_is_logged_and_swallowed(self, tmp_path, monkeypatch, caplog) -> None:
+        async def _boom() -> list[str]:
+            raise OSError("disk gone")
+
+        store = RunStore(base_dir=str(tmp_path / "fresh"))
+        engine = EngineContainer(run_store=store, run_stale_idle_hours=6.0)
+        monkeypatch.setattr(store, "close_stale_running", _boom)
+
+        with caplog.at_level(logging.ERROR, logger="heagent.engine.container"):
+            assert await engine.close_stale_runs_once() == 0
+
+        assert any("Stale running sweep failed" in record.message for record in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_loop_triggers_at_run_start(self, tmp_path, monkeypatch) -> None:
+        """全新 run 启动时触发一次（resume 不触发）——与 prune_runs_once 同挂点。"""
+        monkeypatch.chdir(tmp_path)
+        loop = AgentLoop(_StubProvider(), max_iterations=3)
+        calls: list[int] = []
+
+        async def _spy() -> int:
+            calls.append(1)
+            return 0
+
+        monkeypatch.setattr(loop.engine, "close_stale_runs_once", _spy)
+
+        await loop.run("hi")
+
+        assert len(calls) == 1

@@ -862,6 +862,31 @@ class TestToolActivity:
         assert loop.tool_activity == []
 
     @pytest.mark.asyncio
+    async def test_last_context_tokens_reads_calibration_by_run_model(
+        self, fresh_registry: ToolRegistry, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """校准读写键位闭环（回归锚）：读侧按 ``loop.last_model`` 查系数，写键 = response.model。
+
+        此前全部 ``count_tokens`` 调用点不传 model ⇒ 写键（模型名）/读键（空串）永不重合，
+        校准在生产链路永不生效（2026-11-12 审查发现）。
+        """
+        from heagent.context import tokens as tokens_mod
+
+        seen: list[str | None] = []
+        real = tokens_mod.count_tokens
+
+        def _spy(messages: list[object], *, model: str | None = None) -> int:
+            seen.append(model)
+            return real(messages, model=model)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(tokens_mod, "count_tokens", _spy)
+        loop = AgentLoop(StubProvider([_final("done")]), registry=fresh_registry, max_iterations=10)
+        await loop.run("hi")
+
+        assert loop.last_model == "stub"
+        assert seen[-1] == "stub"  # 收尾的 last_context_tokens 估算按本 run 实际模型查键
+
+    @pytest.mark.asyncio
     async def test_active_tool_cleared_when_run_is_cancelled(self, fresh_registry: ToolRegistry) -> None:
         """取消（双击 Esc / 中断）也必须清空在途工具，否则状态栏留着陈旧值。"""
         started = asyncio.Event()
