@@ -185,6 +185,8 @@ class SubAgent:
             block_mcp_tools=parent_policy.block_mcp_tools,
             approval_mcp_tools=parent_policy.approval_mcp_tools,
             sandbox_mcp_tools=parent_policy.sandbox_mcp_tools,
+            # 档位一并继承：read-only 不可经角色委派放宽（克隆漏传即退回构造默认 workspace-write）
+            sandbox_mode=parent_policy.sandbox_mode,
         )
         # dataclasses.replace：以 role_policy 覆写 policy 字段，其余字段保持不变。
         return replace(self._engine, policy=role_policy)

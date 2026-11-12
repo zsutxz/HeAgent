@@ -114,8 +114,17 @@ async def _send_event_stream(
     queue: asyncio.Queue[RunEventPayload | None],
     cursor: int | None,
 ) -> None:
-    """按游标先重放 ring buffer，再写实时队列事件。"""
-    for event in tuple(record.events):
+    """按游标先重放 ring buffer，再写实时队列事件。
+
+    登记与快照之间存在 await 窗口：窗口内 emit 的事件会「既进重放快照、又进实时队列」⇒
+    按已重放水位（max(cursor, 快照最大 seq)）去重，保证不重复投递（与 SSE 侧同修）。
+    """
+    snapshot = tuple(record.events)
+    replayed_upto = max(
+        cursor if cursor is not None else 0,
+        max((event.seq for event in snapshot), default=0),
+    )
+    for event in snapshot:
         if cursor is None or event.seq > cursor:
             await websocket.send_text(WsEventFrame(event=event).model_dump_json())
     if record.is_terminal:
@@ -124,8 +133,9 @@ async def _send_event_stream(
         event = await queue.get()
         if event is None:
             return
-        if cursor is None or event.seq > cursor:
-            await websocket.send_text(WsEventFrame(event=event).model_dump_json())
+        if event.seq <= replayed_upto:
+            continue
+        await websocket.send_text(WsEventFrame(event=event).model_dump_json())
 
 
 async def _handle_commands(

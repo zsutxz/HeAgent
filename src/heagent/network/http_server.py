@@ -933,10 +933,15 @@ class HttpRunService:
             queue = asyncio.Queue(maxsize=record.subscriber_queue_size)
             record.subscribers.add(queue)
         try:
-            # 注册订阅者与快照之间没有 ``await`` ⇒ 在单线程事件循环里是原子的：不会有事件
-            # 「既在快照里、又被投进队列」而重复发送。
+            # 生产路径在端点里先 try_add_subscriber、生成器首迭代才取快照，两者之间存在真实
+            # await 窗口：窗口内 emit 的事件会「既进重放快照、又进实时队列」。live 循环按已重放
+            # 水位（replayed_upto = max(cursor, 快照最大 seq)）去重，保证「不重复」契约成立。
             snapshot = tuple(record.events)
             is_terminal = record.is_terminal
+            replayed_upto = max(
+                last_event_id if last_event_id is not None else 0,
+                max((payload.seq for payload in snapshot), default=0),
+            )
             for payload in snapshot:
                 if last_event_id is None or payload.seq > last_event_id:
                     yield payload
@@ -952,7 +957,7 @@ class HttpRunService:
                     continue
                 if item is None:
                     return
-                if last_event_id is not None and item.seq <= last_event_id:
+                if item.seq <= replayed_upto:
                     continue
                 yield item
         finally:
@@ -1335,8 +1340,9 @@ def _loopback_error(responses: Any, request: Any) -> Any | None:
     判定复用 ``network.exposure.is_loopback_host``（含 IPv4 映射形式 ``::ffff:127.0.0.1``）。
     这是 defense-in-depth 而**不是认证**：能连上回环端口的本机进程可以伪造请求头。
 
-    适用面：项目登记 / 重命名 / 移除（Story 50-2）与**配置写入**（Story 50-5 流水线第 2 步——那一步
+    适用面：项目登记 / 移除（Story 50-2）与**配置写入**（Story 50-5 流水线第 2 步——那一步
     留在传输层，因为网络层不认识 ``Settings``，见 ``heagent.config.write`` 的模块 docstring）。
+    **重命名无回环门**——frame.md「已知缺口」有裁定维持现状，勿据旧文补门。
     """
     client = getattr(request, "client", None)
     host = getattr(client, "host", "") if client is not None else ""

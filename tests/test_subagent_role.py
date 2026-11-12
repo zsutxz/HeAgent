@@ -209,3 +209,21 @@ def test_subagent_role_policy_inherits_parent_governance() -> None:
     assert child_policy.block_mcp_tools is True
     assert child_policy.approval_mcp_tools is True
     assert child_policy.sandbox_mcp_tools is True
+
+
+def test_subagent_policy_clone_inherits_sandbox_mode() -> None:
+    """克隆路径必须继承档位：read-only 经角色委派被克隆成 workspace-write = P1 逃逸（回归锚）。"""
+    parent_engine = EngineContainer(
+        policy=PolicyEngine(
+            workspace_root="/workspace",
+            allowed_tools=["file_read", "file_write"],
+            blocked_tools=["content_search"],
+            sandbox_mode="read-only",
+        )
+    )
+    agent = SubAgent(
+        _ToolCallProvider(),
+        engine=parent_engine,
+        allowed_tools=["file_read", "file_write"],
+    )
+    assert agent._build_engine().policy.sandbox_mode == "read-only"
