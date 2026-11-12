@@ -84,3 +84,34 @@ async def test_run_node_is_pydantic_recursive(tmp_path) -> None:
     dumped = roots[0].model_dump_json()
     restored = RunNode.model_validate_json(dumped)
     assert restored.children[0].children[0].parent_run_id == parent.run_id
+
+
+async def test_build_run_tree_reads_context_only_not_full_snapshot(tmp_path, monkeypatch) -> None:
+    """树查询只解析 context：不走逐个 load 整份 RunSnapshot（万级快照 GUI 卡顿根因）。"""
+    store = RunStore(str(tmp_path / "runs"))
+    parent = await _persist(store, RunContext())
+    await _persist(store, RunContext(parent_run_id=parent.run_id))
+
+    async def _forbidden(run_id: str) -> None:
+        raise AssertionError(f"build_run_tree 不应逐个 load 整份快照：{run_id}")
+
+    monkeypatch.setattr(store, "load", _forbidden)
+    roots = await store.build_run_tree()
+    assert [r.run_id for r in roots] == [parent.run_id]
+    assert len(roots[0].children) == 1
+
+
+async def test_build_run_tree_tolerates_payload_corruption_with_valid_context(tmp_path) -> None:
+    """messages 损坏但 context 合法 → 节点仍在树中（树只依赖 context）；context 缺失 → 跳过。"""
+    import json
+
+    store = RunStore(str(tmp_path / "runs"))
+    rc = await _persist(store, RunContext())
+    path = tmp_path / "runs" / f"{rc.run_id}.json"
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw["messages"] = [{"bogus": True}]
+    path.write_text(json.dumps(raw), encoding="utf-8")
+    (tmp_path / "runs" / "no-context.json").write_text(json.dumps({"prompt": "p"}), encoding="utf-8")
+
+    roots = await store.build_run_tree()
+    assert [r.run_id for r in roots] == [rc.run_id]

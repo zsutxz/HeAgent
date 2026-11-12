@@ -176,20 +176,9 @@ class RunStore:
            不阻塞其余正常 run 的树构造。这与 :meth:`load` 的单条容错策略一致。
         """
         # 第一趟：为每个 run 建节点（带 parent_run_id / status）。
-        nodes: dict[str, RunNode] = {}
-        for run_id in await self.list_runs():
-            snapshot = await self.load(run_id)
-            if snapshot is None:
-                # 文件存在但解析失败（损坏 JSON / schema 不匹配）→ 记日志后跳过，
-                # 不阻塞其余正常 run 的树构造（P1-2 修复：显性可观测替代静默丢失）。
-                logger.warning("Skipping corrupted or unreadable run snapshot: %s", run_id)
-                continue
-            ctx = snapshot.context
-            nodes[run_id] = RunNode(
-                run_id=run_id,
-                parent_run_id=ctx.parent_run_id,
-                status=ctx.status,
-            )
+        # 一次 to_thread 批量读完，且只校验 context（树只要它）——万级快照下逐个 load
+        # 整份 RunSnapshot（含 messages）会让 GUI 运行树线性卡顿。
+        nodes = await asyncio.to_thread(self._read_tree_nodes)
 
         # 第二趟：把每个节点挂到父节点的 children；父不在 store 则视为根。
         roots: list[RunNode] = []
@@ -351,6 +340,28 @@ class RunStore:
         if total >= _PRUNE_PROGRESS_INTERVAL:
             logger.info("run store prune: done — deleted %d of %d entries", deleted, total)
         return deleted
+
+    def _read_tree_nodes(self) -> dict[str, RunNode]:
+        """同步批量读取全部快照的 context 并建节点（供 :meth:`build_run_tree` 线程卸载）。
+
+        校验口径：``context`` 仍经 ``RunContext`` 完整校验；``messages`` / ``results`` 等
+        payload 不解析——树只依赖 context，payload 损坏不影响层级查询（resume 走 :meth:`load`
+        仍完整校验）。损坏 JSON / context 不合 schema → 记 warning 跳过（P1-2 口径不变）。
+        """
+        nodes: dict[str, RunNode] = {}
+        if not self._base.exists():
+            return nodes
+        for path in sorted(self._base.glob("*.json")):
+            run_id = path.stem
+            try:
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                ctx = RunContext.model_validate(raw["context"])
+            except (OSError, ValueError, KeyError, TypeError) as exc:
+                # ValueError 覆盖 JSONDecodeError / UnicodeDecodeError / pydantic ValidationError
+                logger.warning("Skipping corrupted or unreadable run snapshot: %s (%s)", run_id, type(exc).__name__)
+                continue
+            nodes[run_id] = RunNode(run_id=run_id, parent_run_id=ctx.parent_run_id, status=ctx.status)
+        return nodes
 
     def _path(self, run_id: str) -> Path:
         """run_id → 快照文件路径（``<base>/<run_id>.json``）。"""
