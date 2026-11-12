@@ -2,7 +2,7 @@
 
 ``SwitchableProvider`` 支持两种切换模式：
   - **手动切换**：用户通过 ``/provider`` 命令主动选择 provider。
-  - **自动回退**：当前 provider 触发限流 (429) 或瞬时错误时，自动尝试池中下一个
+  - **自动回退**：当前 provider 触发限流 (429)、瞬时错误或 404 model 不可用时，自动尝试池中下一个
     provider；成功后粘性停留在该 provider（后续调用不再浪费配额重试已限流的）。
 
 与 ``ProviderChain``（全自动、不复位）不同，``SwitchableProvider`` 以用户选择为
@@ -131,7 +131,7 @@ class SwitchableProvider:
         return result
 
     # ------------------------------------------------------------------
-    # 自动回退：按「活跃 → 池中其余」顺序尝试，限流/瞬时错误触发
+    # 自动回退：按「活跃 → 池中其余」顺序尝试，限流/瞬时/404 model 不可用触发
     # ------------------------------------------------------------------
 
     def _ordered_names(self) -> list[str]:
@@ -157,8 +157,8 @@ class SwitchableProvider:
         """发送请求，当前 provider 不可用时自动回退。
 
         顺序：活跃 provider 优先 → 池中其余按注册顺序。
-        仅 RATE_LIMITED (429) 和 TRANSIENT (5xx/超时) 触发回退；
-        AUTH_FAILED / NON_TRANSIENT 直接上抛，不浪费时间重试。
+        RATE_LIMITED (429)、TRANSIENT (5xx/超时) 与 404 model 不可用触发回退；
+        AUTH_FAILED / 其余 NON_TRANSIENT 直接上抛，不浪费时间重试。
         成功回退后粘性停留在新 provider（后续调用不再重试已限流的旧 provider）。
 
         与 ``ProviderChain`` / ``KeyRotatingProvider`` 的回退循环结构同构，但**判据与粘性

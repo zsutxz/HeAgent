@@ -285,11 +285,11 @@ class RoutingProvider:
     委托；与 SwitchableProvider/ProviderChain 的「跨 vendor 出错回退」不同层——本类
     在**无错误**的正常路径上做主动选择。
 
-    **池内兄弟回退**：路由目标失败且错误为 RATE_LIMITED / TRANSIENT（与
-    ``SwitchableProvider`` 同一套 ``classify_exception`` 分类）时，先尝试池内其余
-    provider（如 flash 过载 → pro）再上抛——同 vendor 的 flash/pro 容量独立，比
+    **池内兄弟回退**：路由目标失败且命中池内换档判据（``is_pool_fallback_error``：
+    RATE_LIMITED / TRANSIENT，外加 404 model 不可用；与 ``SwitchableProvider`` 同一套）时，
+    先尝试池内其余 provider（如 flash 过载 → pro）再上抛——同 vendor 的 flash/pro 容量独立，比
     跨 vendor 粘性跳转（对话中途换模型、质量漂移）代价小。AUTH_FAILED /
-    NON_TRANSIENT 不回退（换兄弟模型也不会好转），直接上抛给外层
+    其余 NON_TRANSIENT 不回退（换兄弟模型也不会好转；404 model 不可用是唯一例外），直接上抛给外层
     ``SwitchableProvider`` 按条目回退。流式仅在**首个 chunk 前**失败才改道（已
     开始输出后无法重放前缀）。
 
@@ -426,7 +426,7 @@ class RoutingProvider:
     ) -> ProviderResponse:
         """按路由决策委托给选中的 provider 完成单次调用。
 
-        路由目标失败且为限流/瞬时错误时，回退到池内兄弟（见类 docstring）。
+        路由目标失败且命中池内换档判据（限流/瞬时/404 model 不可用）时，回退到池内兄弟（见类 docstring）。
 
         与 ``SwitchableProvider`` / ``ProviderChain`` / ``KeyRotatingProvider`` 的回退循环
         结构同源但形态有意不同：本类是**单兄弟单次重试**、无索引/粘性状态（每次调用重新

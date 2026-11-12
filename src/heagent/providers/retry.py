@@ -12,9 +12,9 @@
   - ``ProviderChain``（固定回退列表）：RATE_LIMITED / AUTH_FAILED / TRANSIENT 回退，即
     「非 NON_TRANSIENT 都回退」。列表里的 provider 各自持有有效密钥，认证失败换一家就能救
     （``tests/providers/test_chain.py`` 有专测）。
-  - ``RoutingProvider`` / ``SwitchableProvider``（池内换档）：仅 RATE_LIMITED / TRANSIENT
-    （:func:`is_pool_fallback_error`）。池内换档会**静默改掉用户选定的模型/vendor**，认证失败
-    属配置问题、不该偷偷换。
+  - ``RoutingProvider`` / ``SwitchableProvider``（池内换档）：RATE_LIMITED / TRANSIENT 外加
+    404 model 不可用（:func:`is_pool_fallback_error`）。池内换档会**静默改掉用户选定的模型/vendor**，
+    认证失败属配置问题、坏请求换档也不会好，不该偷偷换；404 死档位是唯一例外——换兄弟档位正是解。
   - ``KeyRotatingProvider``（换同一 provider 的密钥）：RATE_LIMITED / AUTH_FAILED。换密钥
     正是认证失败的解。
 """
@@ -126,18 +126,23 @@ def classify_exception(error: Exception) -> ErrorCategory:
 
 
 def is_pool_fallback_error(error: Exception) -> bool:
-    """池内换档是否值得：仅 RATE_LIMITED / TRANSIENT 触发回退。
+    """池内换档是否值得：RATE_LIMITED / TRANSIENT 外加 404 model 不可用触发回退。
 
     ``RoutingProvider``（声明式路由池）与 ``SwitchableProvider``（运行时 vendor 切换）共用本判据
     ——两者都是「在同一批凭据里换一个档位」，换档会静默改掉用户选定的模型/vendor，故 AUTH_FAILED
-    （配置问题）与 NON_TRANSIENT（坏请求）都不回退。
+    （配置问题）与其余 NON_TRANSIENT（坏请求）都不回退。唯一例外是 404 且消息指明 model 不可用
+    ——该档位已死，换兄弟档位正是解。
 
     与另两方**有意不同**（见模块 docstring 策略矩阵）：``ProviderChain`` 与 ``KeyRotatingProvider``
     都回退 AUTH_FAILED——前者换一家 provider 就能救，后者换一把密钥正是解。
     """
     status, message = _extract_status_message(error)
     lowered = message.lower()
-    model_unavailable = status == 404 and "model" in lowered and ("not supported" in lowered or "not found" in lowered)
+    model_unavailable = (
+        status == 404
+        and "model" in lowered
+        and ("not supported" in lowered or "not found" in lowered or "does not exist" in lowered)
+    )
     return model_unavailable or classify_exception(error) in (ErrorCategory.RATE_LIMITED, ErrorCategory.TRANSIENT)
 
 

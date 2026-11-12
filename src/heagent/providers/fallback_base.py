@@ -36,7 +36,7 @@ class FallbackPolicy:
     不同的容错层有不同的回退判据：
     - ProviderChain: 除了 NON_TRANSIENT 都回退（跨 provider 类型）
     - KeyRotatingProvider: 仅 RATE_LIMITED + AUTH_FAILED（同 provider 换 key）
-    - SwitchableProvider: 仅 RATE_LIMITED + TRANSIENT（池内换档）
+    - SwitchableProvider: RATE_LIMITED + TRANSIENT，外加 404 model 不可用（池内换档）
     """
 
     @staticmethod
@@ -60,7 +60,7 @@ class FallbackPolicy:
 
     @staticmethod
     def should_fallback_pool(error: Exception) -> bool:
-        """SwitchableProvider 的回退判据：RATE_LIMITED + TRANSIENT。
+        """SwitchableProvider 的回退判据：RATE_LIMITED + TRANSIENT，外加 404 model 不可用。
 
         池内换档会静默改掉用户选定的模型，AUTH_FAILED 属配置问题不该偷偷换。
         委托给 retry.is_pool_fallback_error 保持向后兼容。

@@ -148,3 +148,29 @@ class TestCronAddInvalidSchedule:
         result = await cron_add("test", "a-b * * * *")
         assert "Error" in result
         assert "Invalid cron field" in result
+
+    @pytest.mark.asyncio
+    async def test_cron_add_schedule_range_with_step_is_accepted(self, tmp_path: pytest.TempPathFactory) -> None:
+        """范围+步进（1-30/10）运行期解析器支持 ⇒ 校验层必须放行（V2 能力对齐，回归锚）。"""
+        store = JobStore(str(tmp_path / "jobs.json"))
+        configure_cron_tools(store)
+        result = await cron_add("test", "1-30/10 * * * *")
+        assert "Cron job created" in result
+
+    @pytest.mark.asyncio
+    async def test_cron_add_schedule_step_on_plain_value_is_rejected(self, tmp_path: pytest.TempPathFactory) -> None:
+        """纯值带步进（5/10）运行期 _parse_field 同拒 ⇒ 校验层不放行。"""
+        store = JobStore(str(tmp_path / "jobs.json"))
+        configure_cron_tools(store)
+        result = await cron_add("test", "5/10 * * * *")
+        assert "Error" in result
+        assert "Invalid cron field" in result
+
+    @pytest.mark.asyncio
+    async def test_cron_add_schedule_zero_step_is_rejected(self, tmp_path: pytest.TempPathFactory) -> None:
+        """步进 0（*/0）运行期同拒 ⇒ 校验层不放行。"""
+        store = JobStore(str(tmp_path / "jobs.json"))
+        configure_cron_tools(store)
+        result = await cron_add("test", "*/0 * * * *")
+        assert "Error" in result
+        assert "Invalid cron field" in result

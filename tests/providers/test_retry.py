@@ -81,6 +81,15 @@ class TestClassifyException:
         error = _FakeSdkError('Model "claude-haiku-5-5" is not supported by any configured account in this group', 404)
         assert is_pool_fallback_error(error) is True
 
+    def test_openai_does_not_exist_404_is_pool_fallback_eligible(self) -> None:
+        """OpenAI 兼容端点 404 标准措辞（"does not exist"）同样触发池内回退（cc28400 措辞集补漏）。"""
+        error = _FakeSdkError("The model 'gpt-x' does not exist or you do not have access to it.", 404)
+        assert is_pool_fallback_error(error) is True
+
+    def test_non_model_does_not_exist_404_stays_not_fallback_eligible(self) -> None:
+        """不含 model 字样的 404 依旧不回退——措辞集只扩 model 相关短语。"""
+        assert is_pool_fallback_error(_FakeSdkError("endpoint does not exist", 404)) is False
+
     def test_unrelated_404_is_not_pool_fallback_eligible(self) -> None:
         assert is_pool_fallback_error(_FakeSdkError("resource not found", 404)) is False
 

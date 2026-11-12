@@ -639,7 +639,7 @@ class WorkflowRunner:
         「每 Story 一次」收紧为「每批一次」——批已并发跑完，逐条确认无意义。
 
         聚合规则：存在异常 → EXECUTOR_FAILED + 重抛声明序首个异常（完成者已入账，事实就是
-        事实）；存在非 COMPLETED 结果 → ``_callback_status`` 映射；全部完成且收口 → 审批门
+        事实）；存在非 COMPLETED 结果 → ``_callback_event`` 映射；全部完成且收口 → 审批门
         或步骤推进；否则批间推进（checkpoint 声明则挂起等确认）。
 
         取消窗口与串行路径同构：本方法的持久化点可被取消打断（既有暴露面，不放大也不收敛）。
@@ -923,9 +923,6 @@ class WorkflowRunner:
         if event is None:
             raise ValueError(f"unsupported callback status: {status}")
         return event
-
-    def _callback_status(self, status: WorkflowStatus) -> WorkflowStatus:
-        return transition(self.state.status, self._callback_event(status))
 
     def resume(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
         """Explicitly resume a paused, blocked, or failed active step.

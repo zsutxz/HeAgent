@@ -527,14 +527,15 @@ class HttpProjectConsole:
 
     async def register_project(self, request: ProjectRegisterRequest) -> ProjectEntryResponse:
         try:
-            entry = self.registry.register(request.path, request.name)
+            # 注册表写含锁轮询（persist 原语内含 time.sleep）⇒ 卸载到线程，不卡事件循环（与读路径同口径）
+            entry = await asyncio.to_thread(self.registry.register, request.path, request.name)
         except ProjectRegistryError as exc:
             raise ConsoleOperationError(exc.code, str(exc)) from exc
         return ProjectEntryResponse(**entry.model_dump())
 
     async def rename_project(self, project_id: str, request: ProjectRenameRequest) -> ProjectEntryResponse:
         try:
-            entry = self.registry.rename(project_id, request.name)
+            entry = await asyncio.to_thread(self.registry.rename, project_id, request.name)
         except ProjectRegistryError as exc:
             raise ConsoleOperationError(exc.code, str(exc)) from exc
         return ProjectEntryResponse(**entry.model_dump())
@@ -549,7 +550,7 @@ class HttpProjectConsole:
 
     async def remove_project(self, project_id: str) -> None:
         try:
-            self.registry.remove(project_id)
+            await asyncio.to_thread(self.registry.remove, project_id)
         except ProjectRegistryError as exc:
             raise ConsoleOperationError(exc.code, str(exc)) from exc
         self._runtimes.pop(project_id, None)
@@ -574,7 +575,7 @@ class HttpProjectConsole:
         runtime = self._runtime_for(project_id)
         session_id = uuid.uuid4().hex
         try:
-            meta = runtime.sessions.create(session_id, title=request.title)
+            meta = await asyncio.to_thread(runtime.sessions.create, session_id, title=request.title)
         except ValueError as exc:  # 标题边界（协议层已挡一次）——入口层 fail-closed，不落半成品
             raise ConsoleOperationError(HttpErrorCode.INVALID_REQUEST, "session title is invalid") from exc
         except SessionConflictError as exc:
@@ -617,7 +618,9 @@ class HttpProjectConsole:
         runtime = self._runtime_for(project_id)
         sid = _guarded_session_id(session_id)
         try:
-            meta = runtime.sessions.rename(sid, request.title, expected_version=request.fingerprint)
+            meta = await asyncio.to_thread(
+                runtime.sessions.rename, sid, request.title, expected_version=request.fingerprint
+            )
         except SessionNotFoundError as exc:
             raise ConsoleOperationError(HttpErrorCode.UNKNOWN_SESSION, f"no session {sid!r}") from exc
         except SessionUnreadableError as exc:
@@ -632,7 +635,7 @@ class HttpProjectConsole:
         sid = _guarded_session_id(session_id)
         if self._runs is not None and self._runs.has_inflight_run(project_id=project_id, session_id=sid):
             raise ConsoleOperationError(HttpErrorCode.SESSION_BUSY, "session is in use by an in-flight run")
-        if not runtime.sessions.delete(sid):
+        if not await asyncio.to_thread(runtime.sessions.delete, sid):
             raise ConsoleOperationError(HttpErrorCode.UNKNOWN_SESSION, f"no session {sid!r}")
 
     async def start_project_run(self, project_id: str, request: ProjectRunRequest) -> ProjectRunResponse:

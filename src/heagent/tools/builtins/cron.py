@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -52,6 +53,8 @@ def _validate_schedule(schedule: str) -> str | None:
 
     仅做基本格式检查（5 字段、每字段仅含数字/`*`/`,`/`-`/`/`），
     不覆盖全部 cron 语义，但可拦截明显错误的输入。
+    对齐运行期解析器（cron/expr.py V2）：范围+步进（``1-30/10``）与 ``*/step`` 合法，
+    ``5/10``（纯值带步进）与步进 0 运行期同拒——校验层不得比执行层更严，也不替它放行。
     """
     parts = schedule.strip().split()
     if len(parts) != 5:
@@ -60,13 +63,19 @@ def _validate_schedule(schedule: str) -> str | None:
         if part == "*":
             continue
         for sub in part.split(","):
-            if sub.startswith("*/"):
-                sub = sub[2:]
-            if "-" in sub:
-                sub_parts = sub.split("-", 1)
-                if not all(p.isdigit() for p in sub_parts if p):
+            base, _, step = sub.partition("/")
+            if step:
+                if not step.isdigit() or int(step) == 0:
                     return f"Invalid cron field {i + 1}: {part!r}"
-            elif not sub.isdigit():
+                if base != "*" and "-" not in base:
+                    return f"Invalid cron field {i + 1}: {part!r}"
+            if base == "*":
+                continue
+            if "-" in base:
+                start, end = base.split("-", 1)
+                if not (start.isdigit() and end.isdigit()):
+                    return f"Invalid cron field {i + 1}: {part!r}"
+            elif not base.isdigit():
                 return f"Invalid cron field {i + 1}: {part!r}"
     return None
 
@@ -82,7 +91,8 @@ async def cron_add(prompt: str, schedule: str, recurring: bool = True) -> str:
     if err is not None:
         return f"Error: {err}"
     job = store.create_job(prompt, schedule, recurring=recurring)
-    store.add(job)
+    # store.add 是同步文件 I/O（含 Windows 替换退避）⇒ 卸载到线程，不卡事件循环（对齐 cron/scheduler.py 同一批 store 方法的先例）
+    await asyncio.to_thread(store.add, job)
     return f"Cron job created: id={job.id}, schedule='{schedule}', recurring={job.recurring}"
 
 
@@ -92,7 +102,7 @@ async def cron_list() -> str:
     store = _store()
     if store is None:
         return "Error: cron tools not configured."
-    jobs = store.list_jobs()
+    jobs = await asyncio.to_thread(store.list_jobs)
     parts: list[str] = []
 
     # P0-3：展示因损坏/非法而被跳过的条目数（静默消失→用户可感知）
@@ -123,6 +133,7 @@ async def cron_remove(job_id: str) -> str:
     store = _store()
     if store is None:
         return "Error: cron tools not configured."
-    if store.remove(job_id):
+    removed = await asyncio.to_thread(store.remove, job_id)
+    if removed:
         return f"Cron job '{job_id}' removed."
     return f"Error: cron job '{job_id}' not found."

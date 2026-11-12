@@ -266,7 +266,7 @@ class TestWinJobSpawnSeam:
         from heagent.tools.sandbox import _winjob_spawn
 
         captured = self._capture(monkeypatch)
-        monkeypatch.setenv("PATH", "C:\Windows")
+        monkeypatch.setenv("PATH", "C:\\Windows")
         monkeypatch.setenv("FAKE_API_KEY", "leak-me")
         monkeypatch.setenv("MY_TOKEN", "leak-me")
 
