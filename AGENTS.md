@@ -125,7 +125,7 @@ heagent "写一个快速排序"           # 单次执行
 heagent                            # 交互模式
 heagent init --project             # 初始化项目配置
 heagent gui                        # TUI（需 pip install -e ".[gui]"）
-heagent http-server                # HTTP 网页入口（127.0.0.1:9101）+ WS 入口（127.0.0.1:9901），需 pip install "heagent[http]"
+heagent http-server                # HTTP 网页入口（127.0.0.1:9101）+ WS 入口（127.0.0.1:9201），需 pip install "heagent[http]"
 powershell scripts/start_heagent.ps1   # 等价封装：cwd 钉在仓库根再启动（推荐，Windows）
 ```
 

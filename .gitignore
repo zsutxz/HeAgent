@@ -14,6 +14,8 @@ build/
 venv/
 
 # HeAgent runtime data
+# ⚠ .heagent/ 整目录忽略，但有刻意跟踪的例外（commands/loop.md、skills/he-goal/*、skills/loop/*，
+# 共 14 件）：git add 误报 ignored 时用 `git add -f`。别按「忽略规则=全未跟踪」清理这个目录。
 .heagent/
 logs/
 

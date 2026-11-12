@@ -12,7 +12,13 @@
 
 ## [Unreleased]
 
-（下一个版本待写。）
+### Added
+
+- `RunStore.close_stale_running`：把陈旧 running 快照收尾为 FAILED（崩溃进程遗留的 running 不再污染统计；`updated_at` 保持末次真实活动时刻，不回填时钟）。已接线：新 run 启动时自动触发一次（去重），阈值 `RUN_STALE_IDLE_HOURS`（默认 6h，0=禁用）。
+
+### Fixed
+
+- 池内回退纳入 404 model 不可用：失效档位由池内兄弟模型接管（判据 `is_pool_fallback_error`；同步覆盖 OpenAI 兼容端点的 "does not exist" 措辞）。
 
 ## [0.9.0] - 2026-11-11
 

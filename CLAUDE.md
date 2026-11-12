@@ -29,7 +29,7 @@ heagent "写一个快速排序"               # 单次执行（python -m heagent
 heagent                                # 交互模式（/provider 切 provider 条目、/model 钉路由池档位）
 heagent init --project                 # 初始化项目配置
 heagent gui                            # TUI（需 pip install -e ".[gui]"）
-heagent http-server                    # HTTP 127.0.0.1:9101 + WS 127.0.0.1:9901（需 ".[http]"）
+heagent http-server                    # HTTP 127.0.0.1:9101 + WS 127.0.0.1:9201（需 ".[http]"）
 powershell scripts/start_heagent.ps1   # Windows 推荐：cwd 钉在仓库根再启动
 # ⚠ 必须在仓库根启动：workspace_root = 进程 cwd，从盘根启动会把整盘挂进容器沙箱
 

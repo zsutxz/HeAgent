@@ -33,7 +33,7 @@ bandit -r src/ -ll
 
 ### 实测耗时基线（2026-11-11 起维护）
 
-> `scripts/quality_gate.py:10` 的 `GATE_TIMEOUT_SECONDS = 900` 是**门限常量**，不是实测耗时。
+> `scripts/quality_gate.py:14` 的 `GATE_TIMEOUT_SECONDS = 900` 是**门限常量**，不是实测耗时。
 > 下表记录真实墙钟，用于判断「这次是不是异常变慢」。
 
 | 日期 | HEAD | 命令 | wall clock | 备注 |

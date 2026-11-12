@@ -28,7 +28,7 @@
   - [4.17 HTTP 网页入口 (`network/http_*` + `cli/http.py` + `web/`)](#417-http-网页入口-networkhttp_--clihttppy--web)
   - [4.17.1 WebSocket 入口（Epic 54）](#4171-websocket-入口epic-54)
   - [4.17.1.1 CLI 旁路订阅（Epic 55）](#41711-cli-旁路订阅epic-55)
-  - [4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#418-网页控制台-pubworkspacepy--pubprojectspy--configcatalogpy--configwritepy--clihttppy--clidialogspy--web)
+  - [4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog/` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)](#418-网页控制台-pubworkspacepy--pubprojectspy--configcatalog--configwritepy--clihttppy--clidialogspy--web)
   - [4.19 安全口径（唯一真源）](#419-安全口径canonical)
 
 - [五、已知缺口](#五已知缺口)
@@ -133,7 +133,7 @@ AgentLoop.run(prompt)
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `pub.types`/`pub.exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `pub.exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
 - `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.pub.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
-- `network/` 是**入口传输层**（Epic 49–50）：只承载 HTTP 协议 / 路由 / 静态资源 / 连接与超时生命周期 / 暴露判定，运行期**不依赖运行栈**（`agent`/`engine`/`providers`/`tools`/`memory`/`context`/`cron`/`events`）与任何配置面模块（`config`（整包：Settings/catalog/write/envfile）/`pub.projects`/`pub.workspace`——粒度必须细到模块，唯一例外是零依赖的 `pub.safe_logging`）、任何入口层模块（`cli` 包（含 `cli/wiring.py`）/`cli/goal`/`cli/http`/`gui`）；Provider 与 `AgentLoop` 的装配由入口层 `cli/http.py` 单向伸手（契约断言：`test_architecture_contracts.py` 的 FORBIDDEN_RUNTIME_IMPORTS["network"]）
+- `network/` 是**入口传输层**（Epic 49–50）：只承载 HTTP 协议 / 路由 / 静态资源 / 连接与超时生命周期 / 暴露判定，运行期**不依赖运行栈**（`agent`/`engine`/`providers`/`tools`/`memory`/`skills`/`context`/`cron`/`events`）与任何配置面模块（`config`（整包：Settings/catalog/write/envfile）/`pub.projects`/`pub.workspace`——粒度必须细到模块，唯一例外是零依赖的 `pub.safe_logging`）、任何入口层模块（`cli` 包（含 `cli/wiring.py`）/`cli/goal`/`cli/http`/`gui`）；Provider 与 `AgentLoop` 的装配由入口层 `cli/http.py` 单向伸手（契约断言：`test_architecture_contracts.py` 的 FORBIDDEN_RUNTIME_IMPORTS["network"]）
 
 ---
 
@@ -334,6 +334,7 @@ ProviderChain([deepseek, KeyRotatingProvider([anthropic×N])])
   AUTH_FAILED (401/403)   → ProviderChain 回退 / KeyRotating 轮换；retry 中间件不重试
   TRANSIENT (5xx/超时/过载) → retry 中间件指数退避 + 随机抖动重试；也触发 ProviderChain 回退
   NON_TRANSIENT (400/422) → 各层均不重试/不回退，立即抛出
+                           （唯一例外：404 model 不可用仍触发池内换档回退，判据见 is_pool_fallback_error）
 ```
 
 `retry_with_backoff()` 仅对 `TRANSIENT` 错误重试；`make_retry_middleware()` 将其包装为
@@ -355,7 +356,7 @@ AgentLoop
 `SwitchableProvider` 持有 `{名称: provider}` 池（每个命名 provider 独立 key/base_url/model），实现 `BaseProvider` 协议、对 `AgentLoop` 透明。与 `ProviderChain` 的全自动按序回退不同，它以**用户当前选择**为默认起点，自动回退仅作「当前选择不可用时的应急接管」：
 
 - **手动切换**：`switch(name)` 经交互模式 `/provider` 命令触发（cli.py）。
-- **自动回退**：当前 provider 抛 `RATE_LIMITED`/`TRANSIENT`（429/5xx/超时）时自动切到池中下一个；`AUTH_FAILED`/`NON_TRANSIENT` 不回退（与 chain 同精度）。
+- **自动回退**：当前 provider 抛 `RATE_LIMITED`/`TRANSIENT`（429/5xx/超时）或 404 model 不可用（`is_pool_fallback_error`，2026-11-12 起）时自动切到池中下一个；`AUTH_FAILED`/其余 `NON_TRANSIENT` 不回退（与 chain 同精度）。
 - **粘性停留**：成功回退后 `_active` 更新为新 provider，后续不再重试已限流的旧 provider。
 - **流式约束**：`stream()` 已下发 chunk 则不回退，防重复前缀。
 
@@ -951,7 +952,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次 |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入；`heartbeat()` 由在途续租原语 `renew_lease_while_active`（本模块单源；`agent/tool_execution._renew_ledger_lease` 是其工具在途缝包装）与 `LedgerAudit`（audit-only 记账，`ToolExecutor.execute(audit=...)` 的可选审计面，幂等去重禁用）调用，使「过期 RUNNING = 孤儿」成为 prune 的可靠判据 |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布；`LoggingObserver` 经 `safe_logging.safe_log` 落日志（日志故障不改写调用方），并对 `target`/`details` 做启发式脱敏（`redact_secrets`/`redact_mapping`）；`EventBus.emit` 的观察者兜底同样走 `safe_log` |
-| 其余四个模块 | `checkpoint.py` / `workflow_resource.py` / `workflow_runner.py` / `artifacts.py`——职责见 4.13 与「六、目录结构」（本表不重复，避免两处漂移） |
+| 其余五个模块 | `checkpoint.py` / `workflow_resource.py` / `workflow_runner.py` / `workflow_events.py` / `workflow_transition.py`——职责见 4.13 与「六、目录结构」（本表不重复，避免两处漂移） |
 
 **已完成：**
 
@@ -1414,7 +1415,7 @@ cron 作业由后台调度器跑（`cron/scheduler.py`），一轮执行只有�
 `tests/test_cli_cron_echo.py`（14 例：两开关四组合 + 回显形态 + 装配判据「中枢挂每个 listener、路由随开关注册」）、
 `tests/network/test_notification_cron_e2e.py`（2 例：**整链**——真 AgentLoop(stub provider) → runner → notifier → 中枢 → 真实 TCP → 真 websockets 客户端，成功与失败各一条）。
 
-### 4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog.py` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)
+### 4.18 网页控制台 (`pub/workspace.py` + `pub/projects.py` + `config/catalog/` + `config/write.py` + `cli/http.py` + `cli/dialogs.py` + `web/`)
 
 Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左栏项目与会话、右栏对话、设置独立成面板
 （项目 / 会话 / 配置三层，全部走**项目内**路由）。分层不变——网络层只承载传输与路由，装配 / 注册表 /
@@ -1425,10 +1426,10 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 工作区模型 | `workspace.WorkspacePaths.from_root(root)` 是运行态路径（sessions / ledger / runs / memory / skills / user / cron / checkpoints / sandboxes / tmp / console / backups）的**唯一**来源；入口层装配期解析一次并注入 engine 与主 / cron loop，不在每次请求时重读 cwd |
 | 项目注册表 | `pub/projects.py`：`<服务启动工作区>/.heagent/console/projects.json`（可用 `HTTP_CONSOLE_PROJECTS_FILE` 覆盖；**默认不写用户 home**）。条目上限 **32**；id 不透明（`p` + 8 位十六进制，由路径规范化派生）；**写侧 fail-closed**（内容无法解析时拒绝改写，绝不回写空表）；目录失效不删登记而是标 `available=false` |
 | 会话持久化 | `context/session.py` 的 `SessionStore` 按项目派生（`<项目根>/.heagent/sessions/<sid>.json`），与 CLI **同库同格式**；列表只读轻量元数据（D6）；**损坏文件回 `session_unreadable`**（D1），绝不当空会话覆盖。**并发写不再整份覆盖**（2026-09-27 修，见 4.5）：运行落盘带**内容基线** `base=`，别的写者追加过的消息会被保守合并（两段都保留），判不出来则退回 last-write-wins + WARNING |
-| 配置来源求解（只读面） | `config_catalog.build_config_report`：四层来源 **系统环境变量 > 项目 `.env` > 用户 `~/.heagent/setting.md` > 字段默认值**，逐项给出有效值 / 来源徽标 / 可写性 / 只读原因；凭证只回「已配置 + 定长掩码」（**掩码域 = `*_API_KEY` / `*_API_KEYS` 后缀**；`*_BASE_URL` 等键的值**原样回传**——凭证写在 URL userinfo 里不会被打码，见台账同名条目）；行级诊断（重复键 / 空值键 / 行内注释 / BOM / 未知键）逐条标注 |
+| 配置来源求解（只读面） | `config/catalog/report.py::build_config_report`：四层来源 **系统环境变量 > 项目 `.env` > 用户 `~/.heagent/setting.md` > 字段默认值**，逐项给出有效值 / 来源徽标 / 可写性 / 只读原因；凭证只回「已配置 + 定长掩码」（**掩码域 = `*_API_KEY` / `*_API_KEYS` 后缀**；`*_BASE_URL` 等键的值**原样回传**——凭证写在 URL userinfo 里不会被打码，见台账同名条目）；行级诊断（重复键 / 空值键 / 行内注释 / BOM / 未知键）逐条标注 |
 | 可写面划分（D2/D3） | 实测 **115 字段 = 白名单 48 + 排除 67、残留 0**（2026-10-24 复测；上一版记录的 109/61 在本次测量前已滞后 5 个字段）；优先级 **显式白名单 > 模式排除**，排除之间**显式行 > 模式行**（`HTTP_CONSOLE_*` 因此归「控制台自身」而非「监听面」） |
 | 配置写入通道 | `config/write.apply_config_write`：**10 步 + 1 项生效语义** —— 闸门 → 回环来源 → 键白名单 → 值守卫 → 指纹 → 候选构造（`Settings(_env_file=候选)` 必须能构造）→ 备份 → 保真写 → 回读 → 审计；第 11 项 = 让该项目运行时缓存失效。**回环判定留在传输层**（网络层不认识 Settings），`envfile.py` 做行级保真（**只重写值区**：EOL / BOM / 注释 / 未修改行字节逐一不变），`pub/persist.atomic_update_bytes` 做字节级原子写 + **锁内**回读校验与回滚。**跨进程锁内只做「指纹判定 + 备份 + 落盘」**（2026-09-27 收窄，台账 A14③）：候选构造（候选构造经 `with_user_setting_layer` 注入用户层 md + 读候选临时文件 + 环境，是整条流水线最贵的一步）与**备份目录回收**都移到锁外；锁外用文件快照构造的候选会在锁内**复检内容基线**，快照过期（含「改走又改回」这种病态形态）则在锁内重做一次，绝不把基于旧内容的候选写下去。回收失败只告警（维护动作），不把已经落盘的写改写成错误——**回滚本身失败**时抛 `persist.RollbackFailedError`（`__cause__` = 原回读异常，`rollback_error` = 回滚失败原因），写通道据此给出如实文案（不再无条件宣称「已回滚」）并落 `rollback_failed` 审计（2026-09-27 修，台账 A14②）。⚠ **副作用**：锁文件与目标**同目录**（`<项目根>/.env.lock`），即写一次项目配置就在**用户的项目根**留下一个锁文件——HeAgent 自己的仓库有 `.gitignore` 条目，用户的项目没有；锁的落点语义不改（改落点会破坏「同一把锁贯穿读改写」），故这里只作说明（台账同名条目记录） |
-| 资源旋钮上界 | `config_catalog.RESOURCE_CEILINGS`：21 个「只有下界」的数值键按族给上界（days 3650 / seconds 604800 / bytes 8 MiB / tokens 1M / count 100；迭代 10000 与上下文窗口 16M 自成刻度）。**只作用于写通道与面板展示**，不改 `Settings` 定义语义（手工改 `.env` 不受约束）。**同一常量还是「高影响键」的事实源**（2026-09-27，台账 A13）：`impact_for(key)` → 配置项的 `impact` 字段（`high` / `normal`），面板据此挂徽标并在写入确认框里点名 —— 文案取自后端 `labels`，**前端零硬编码键名**（UX-DR3 的差异化确认） |
+| 资源旋钮上界 | `config/catalog/guards.py::RESOURCE_CEILINGS`：21 个「只有下界」的数值键按族给上界（days 3650 / seconds 604800 / bytes 8 MiB / tokens 1M / count 100；迭代 10000 与上下文窗口 16M 自成刻度）。**只作用于写通道与面板展示**，不改 `Settings` 定义语义（手工改 `.env` 不受约束）。**同一常量还是「高影响键」的事实源**（2026-09-27，台账 A13）：`impact_for(key)` → 配置项的 `impact` 字段（`high` / `normal`），面板据此挂徽标并在写入确认框里点名 —— 文案取自后端 `labels`，**前端零硬编码键名**（UX-DR3 的差异化确认） |
 | 生效语义 | 写成功后**丢该项目运行时缓存** ⇒ 下一次 run 重新解析快照、**在途 run 继续用旧快照**（无热生效；响应里 `applied=next_run`） |
 | 审计 | `<项目根>/.heagent/console/audit.jsonl`：一行一 JSON，只有键名 / 值的**哈希与长度** / 结果（`applied` / `rolled_back` / `rollback_failed`——后两者分别表示「回读不符但已还原」与「回读不符**且还原也失败**」，2026-09-27 补），**不含值**；行数上限 500（超限裁到最近 500 条，且只认这一个文件名 ⇒ 不碰同目录的 `projects.json`）；追加失败不阻断已成功的写，但响应如实带 `audit_recorded=false` |
 | 路由 | 项目 `GET/POST/PATCH/DELETE /api/projects*`；会话 `…/sessions*`；项目内运行 `POST /api/projects/{id}/runs`；配置 `GET/PUT /api/projects/{id}/config`；原生目录选择 `POST /api/dialogs/pick-directory`（Story 50-8，**非项目作用域**）；运行事件与取消沿用 4.17 的 `GET /api/runs/{id}/events`（SSE）与 `DELETE /api/runs/{id}` |
@@ -1554,7 +1555,7 @@ src/heagent/
 │   └── event_lines.py       # 引擎事件的展示层纯函数（EventCursor 差分 + 单行格式化；GUI 薄壳调用，2026-09-28 台账 A24）
 ├── config/                  # 配置面（依赖 pub/，2026-09-26 自顶层平铺收敛）
 │   ├── __init__.py          # pydantic-settings 配置（Settings / get_settings / resolve_runtime_config；原 config.py）
-│   ├── catalog.py           # 配置四层来源求解（原 config_catalog.py）
+│   ├── catalog/             # 配置四层来源求解（2026-11-11 拆为子包：models·groups·masking·guards·envscan·sources·classify·report，包壳统一 re-export）
 │   ├── write.py             # 受闸门的项目 .env 写流水线（原 config_write.py；Story 50-5）
 │   ├── envfile.py           # .env 行级保真读写（原 envfile.py；Story 50-5）
 │   └── user_settings.py     # 用户级 setting.md：读/渲染/一次性迁移 + 用户层 pydantic-settings 源
@@ -1646,7 +1647,8 @@ src/heagent/
 │   ├── checkpoint.py        # WorkflowCheckpointStore + GoalWorkflowState 运行时进度（2026-09-20 自 workflow.py 改名；load_state 恢复进度，与装载声明区分）
 │   ├── workflow_resource.py # 工作流资源模型 WorkflowResource/Step（2026-09-20 自 memory.skill_packages 迁入）
 │   ├── workflow_runner.py    # 声明式 workflow 单步执行器
-│   ├── artifacts.py          # Goal/Epic/Story 产物契约校验
+│   ├── workflow_events.py    # 工作流状态机驱动事件（WorkflowEvent 枚举）
+│   ├── workflow_transition.py # 状态机转换表 transition()（fail-loud 非法转换）
 │   ├── approval.py           # 交互式审批协议与状态
 │   ├── hooks.py              # 生命周期 Hook 调度
 │   └── observability.py     # EventBus / 事件
@@ -1913,9 +1915,13 @@ Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测
 
 ### 8.2 Goal/Epic/Story 产物契约
 
-声明式 BMad 工作流产物分为三层，各层职责固定。Goal 产物（`type: goal`）只包含 Epic 列表；`EPIC.md` 包含 Goal、Value、Scope、Dependencies、Acceptance Criteria、Stories 和 Definition of Done；每个 Story 文档包含 frontmatter、User Story、Given/When/Then 验收标准、Tasks 和 Definition of Done。ID 与父级引用由 `heagent.engine.artifacts.validate_hierarchy()` 校验。`/goal` CLI 不再写入 Goal 产物，而是持久化目标需求文档 `brief.md`；Epic/Story 列表存放在工作流自己的 `epics.md` 中。
+> **产物契约（三层 Goal/EPIC/Story）已退役**：声明式 `/goal` 切换后 CLI 不再写入 Goal 产物
+> （旧 `engine/artifacts.py` 的 `validate_hierarchy` / `parse_artifact` / `validate_sprint_status_path`
+> 均已随产物写路径删除，src 内无对应符号）；现行 `/goal` 持久化目标需求文档 `brief.md`，
+> Epic/Story 列表存放在工作流自己的 `epics.md`。工作流能力面校验由
+> `goal/application.py::validate_goal_workflow` 承担（entrypoint / on_create / executor 声明面）。
 
-`parse_artifact()` 遇到缺失或重复章节、未解决的 `TBD`、无效的 frontmatter 类型/状态或格式错误的父级元数据时会显式失败。模板位于 `.heagent/skills/he-goal/templates/`。历史 Epic/Story 状态只由 `_bmad-output/sprint-status.yaml` 维护；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。`validate_sprint_status_path()` 强制使用这个规范的只读目标。
+模板位于 `.heagent/skills/he-goal/templates/`（EPIC/STORY/GOAL/gate/prompt）。历史 Epic/Story 状态只由 `_bmad-output/sprint-status.yaml` 维护（BMad 外部工具写入，src 内无路径校验）；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。
 
 ### 8.3 声明式敏捷流程收口
 
