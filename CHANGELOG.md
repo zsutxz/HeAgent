@@ -18,6 +18,8 @@
 
 ### Fixed
 
+- `ProviderChain` / `KeyRotatingProvider` / `SwitchableProvider` 的 `send` 不再持锁跨网络 I/O（与 stream 同口径：锁内快照索引，调用不持锁），并发 LLM 调用不再被串行化。
+- `RunStore.build_run_tree` 改为单次线程卸载批量读取、只校验 `context`，万级快照下运行树查询不再逐个解析整份快照。
 - 池内回退纳入 404 model 不可用：失效档位由池内兄弟模型接管（判据 `is_pool_fallback_error`；同步覆盖 OpenAI 兼容端点的 "does not exist" 措辞）。
 
 ## [0.9.0] - 2026-11-11
