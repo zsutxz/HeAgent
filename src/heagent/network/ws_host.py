@@ -26,7 +26,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from heagent.network.exposure import is_loopback_host
-from heagent.network.http_server import _require_module
+from heagent.network.optional_deps import require_module as _require_module
 from heagent.network.origin import (
     allowed_hosts,
     allowed_ports,

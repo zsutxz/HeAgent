@@ -516,13 +516,6 @@
         "RuntimeError"
       ],
       "module": "heagent.network.http_server",
-      "name": "HttpDependencyError"
-    },
-    {
-      "bases": [
-        "RuntimeError"
-      ],
-      "module": "heagent.network.http_server",
       "name": "HttpRequestTooLargeError"
     },
     {
@@ -558,6 +551,13 @@
       "bases": [],
       "module": "heagent.network.notification_hub",
       "name": "NotificationHub"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.network.optional_deps",
+      "name": "HttpDependencyError"
     },
     {
       "bases": [

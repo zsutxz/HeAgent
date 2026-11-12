@@ -1309,7 +1309,7 @@ HTTP+SSE 与内嵌网页，**不含任何 WS 路由**；WS 能力全部迁到独
 | 关注点 | 实现事实（Story 49-1/49-2/49-3 已交付部分） |
 | --- | --- |
 | 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **35** 码（含 `HttpRunConflictError.code` 的冲突映射）+ `network/ws_protocol.py`：WS `hello` / `event` / `ack` / `error` / `notification` 帧（`hello` 为连接首帧，见 4.17.1 帧契约）与 `{run, cancel, ping}` 命令（`run` 仅集合级端点有效，见 4.17.1）；错误信封与事件负载复用 HTTP/SSE 模型。 |
-| 传输层 | `network/http_server.py`：**HTTP/SSE 独占**——listener 生命周期、路由、运行服务、安全响应头、静态资源；**不再挂任何 `WebSocketRoute`**（Epic 56 D1，9101 上的 WS 升级不可达）。WS 侧全部在 `network/ws_host.py`（listener + 装配）与 `network/ws_server.py`（端点逻辑、续传、命令）。两者均不构造 Agent；`ws_server` 亦**不得**导入 `http_server`（同层传输模块互不依赖，架构契约钉住）。 |
+| 传输层 | `network/http_server.py`：**HTTP/SSE 独占**——listener 生命周期、路由、运行服务、安全响应头、静态资源；**不再挂任何 `WebSocketRoute`**（Epic 56 D1，9101 上的 WS 升级不可达）。WS 侧全部在 `network/ws_host.py`（listener + 装配）与 `network/ws_server.py`（端点逻辑、续传、命令）。两者均不构造 Agent；`ws_server` 与 `ws_host` 均**不得**导入 `http_server`（同层传输模块互不依赖，架构契约钉住；共用的延迟导入辅助住 `network/optional_deps.py`）。 |
 | 可选依赖 | `starlette` / `uvicorn` / `websockets>=13.0,<18` 由 `pyproject.toml` 的 `http` extra **直接声明**；服务端只延迟导入 Starlette/Uvicorn，不直接导入 `websockets`。缺少 HTTP 栈抛 `HttpDependencyError`；缺少 WS 协议实现时 HTTP 仍可启动并记录 `ws_unavailable`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`。 |
 | 就绪门禁 | `start()` 只在「listener 已绑定**且**用真实网络连接打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」。**通配绑定**（`0.0.0.0` / `::`）的探测改走回环地址（连 `0.0.0.0` 是未定义行为），故允许集对通配值额外接受 `127.0.0.1` / `localhost` / `[::1]`（探测的 Host 头按 authority 语法给 IPv6 加方括号）——通配绑定可从本机浏览器访问，但经其它网卡地址访问仍被 `origin_forbidden` 拒绝（非回环联网不受支持）。连接的 `limit_concurrency` 额外预留 1 条给就绪探测，否则 `HTTP_MAX_CONNECTIONS=1` 会让入口**永远起不来**（以上两项为 2026-09-23 评审修复）；探测收尾（`writer.close()` 之后的 `await writer.wait_closed()`）**自带 `_PROBE_TIMEOUT` 上界**——对端只收不关（或黑洞）时不再把就绪门禁拖成无界等待（2026-09-28 修复，`tests/network/test_http_server.py::TestProbeBoundedClose`）|
 | 关闭 | `close()` 幂等且全程有界：设 `should_exit` → Uvicorn `shutdown()`（连接排空受 `timeout_graceful_shutdown` 约束）→ 等待 serve 循环退出（超时则取消），整体再包一层 `wait_for`。信号**不归 Uvicorn 管**（不调 `serve()` / `capture_signals`）：`KeyboardInterrupt` 由 CLI 接住并安静退出 |
@@ -1661,6 +1661,7 @@ src/heagent/
 │   ├── ws_protocol.py       # WebSocket 帧模型（event/ack/error/notification）、命令枚举（run/cancel/ping）、三条上界与关闭码
 │   ├── http_server.py       # HttpServer、HttpRunService、HTTP/SSE 路由与静态资源（Epic 56 起零 WS 路由）
 │   ├── ws_host.py           # WsServer / WsServerConfig / build_ws_app：独立 listener、四条 WS 端点的装配（Epic 56/58）
+│   ├── optional_deps.py     # 可选依赖延迟导入辅助 require_module + HttpDependencyError（http_server / ws_host 共用）
 │   ├── ws_server.py         # WS 端点逻辑：提交 run、单 run 订阅+游标续传、命令处理、连接生命周期
 │   ├── ws_auth.py           # 对外模式认证纯逻辑：Bearer 解析 / 常量时间比较 / 按来源失败限速（Epic 56）
 │   ├── event_stream_hub.py  # 只读事件流通用核：seq / 环形缓冲 / 游标重放 / 背压踢人 / 有界关停（Epic 58 D3）

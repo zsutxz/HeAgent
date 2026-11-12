@@ -1043,7 +1043,8 @@ def test_ws_server_does_not_import_the_http_transport_module() -> None:
     ``ws_server`` 是端点逻辑（提交 / 订阅 / CLI 旁路），``http_server`` 是 HTTP app + 运行服务；
     同层传输模块互相导入会把「WS 拆分出去」这件事悄悄退回去（改 HTTP 的装配就会波及 WS）。
     共享契约（``HttpRunConflictError`` / ``RunRequest`` / 错误信封）住在 ``http_protocol``——那才是
-    两边都该伸手的地方。``ws_host`` 只允许取 ``_require_module`` 这一个延迟导入辅助。
+    两边都该伸手的地方。延迟导入辅助住 ``optional_deps``（2026-11-12 自 ``http_server`` 私有名
+    ``_require_module`` 迁出），``ws_host`` 因此也不再导入 ``http_server``。
     """
     offenders: list[str] = []
     for module in ("network/ws_server.py", "network/ws_auth.py", "network/ws_protocol.py"):
@@ -1051,11 +1052,10 @@ def test_ws_server_does_not_import_the_http_transport_module() -> None:
         offenders.extend(f"{module} → {name}" for name in runtime | _typing if name == "heagent.network.http_server")
     assert offenders == [], "WS 端点反向依赖了 HTTP 传输模块：" + "; ".join(offenders)
 
-    # 反面证据：ws_host 只取延迟导入辅助（不是整套 HTTP 实现）。
+    # ws_host 经 optional_deps 取延迟导入辅助，不再伸手 http_server 的私有名。
     runtime, _typing = _imports(SRC / "network/ws_host.py")
-    assert "heagent.network.http_server" in runtime
-    source = (SRC / "network/ws_host.py").read_text(encoding="utf-8")
-    assert "from heagent.network.http_server import _require_module" in source
+    assert "heagent.network.http_server" not in runtime | _typing
+    assert "heagent.network.optional_deps" in runtime
 
 
 def test_ws_endpoints_and_commands_stay_closed() -> None:

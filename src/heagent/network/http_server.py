@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import importlib
 import json
 import logging
 import math
@@ -67,6 +66,11 @@ from heagent.network.http_protocol import (
     error_envelope,
     sanitize_message,
 )
+
+# 别名导入保住 monkeypatch 缝 ``heagent.network.http_server._require_module``；
+# HttpDependencyError 在本模块 __all__ 中再导出（入口层既有导入路径不变）。
+from heagent.network.optional_deps import HttpDependencyError
+from heagent.network.optional_deps import require_module as _require_module
 from heagent.network.origin import (
     allowed_hosts,
     allowed_ports,
@@ -155,10 +159,6 @@ _CONCURRENCY_PROBE_RESERVE = 1
 _MAX_EVENT_ID_DIGITS = 19
 
 
-class HttpDependencyError(RuntimeError):
-    """缺少可选 HTTP 依赖（``heagent[http]``）。"""
-
-
 class HttpStartupError(RuntimeError):
     """HTTP 服务未能绑定或未通过就绪探测。"""
 
@@ -201,22 +201,6 @@ class HttpServerConfig(BaseModel):
     # 默认 1 小时——远高于任何真实工具调用，但让「永不返回的工具」不再无界占住在途名额。
     tool_inflight_timeout: float = Field(default=3600.0, ge=0, allow_inf_nan=False)
     shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
-
-
-def _require_module(name: str) -> Any:
-    """延迟导入可选依赖模块；缺失时给出可诊断的安装提示。
-
-    ``network/`` 是传输层，不能假定 HTTP 栈一定装好（基础安装只含 MCP 等必需依赖）。
-    只有「真的要提供 HTTP 服务」的路径才走到这里，因此把导入失败收敛成一条安装指引
-    而不是 ImportError 栈。
-    """
-    try:
-        return importlib.import_module(name)
-    except ImportError as exc:  # pragma: no cover - 依赖齐全时不会触发（CI 装 http extra）
-        raise HttpDependencyError(
-            f"the HTTP entry point requires optional dependencies (missing {name!r}); "
-            "install them with: pip install 'heagent[http]'"
-        ) from exc
 
 
 def read_web_asset(name: str) -> bytes:
