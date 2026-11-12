@@ -167,25 +167,31 @@ class SwitchableProvider:
         docstring（「不要合并成一套」），护栏见 ``test_retry.py::TestPoolFallbackPolicy``。
         不共用模板；改其一时请对照另几处。
         """
+        # 与 stream() 的 P2-2 同口径：锁内快照 active 与 provider 实例，网络 I/O 不持锁。
         async with self._lock:
             active_before = self._active
-            last_error: Exception | None = None
+            ordered = self._ordered_names()
+            providers = {name: self._providers[name] for name in ordered}
 
-            for name in self._ordered_names():
-                provider = self._providers[name]
-                try:
-                    resp = await provider.send(messages, tools=tools)
-                    if name != active_before:
-                        self._note_fallback(active_before, name)
-                        self._active = name  # 粘性停留
-                    return resp
-                except Exception as e:
-                    if not FallbackPolicy.should_fallback_pool(e):
-                        raise
-                    logger.warning("Provider '%s' unavailable (%s), trying next...", name, classify_exception(e).value)
-                    last_error = e
+        last_error: Exception | None = None
+        for name in ordered:
+            provider = providers[name]
+            try:
+                resp = await provider.send(messages, tools=tools)
+            except Exception as e:
+                if not FallbackPolicy.should_fallback_pool(e):
+                    raise
+                logger.warning("Provider '%s' unavailable (%s), trying next...", name, classify_exception(e).value)
+                last_error = e
+                continue
+            if name != active_before:
+                async with self._lock:
+                    self._note_fallback(active_before, name)
+                    self._active = name  # 粘性停留
+            return resp
 
-            # 池耗尽：重置到原始活跃 provider，上抛最后一个错误
+        # 池耗尽：重置到原始活跃 provider，上抛最后一个错误
+        async with self._lock:
             self._active = active_before
         if last_error is not None:
             raise_as_provider_error(last_error)

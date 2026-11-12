@@ -71,37 +71,44 @@ class ProviderChain:
         NON_TRANSIENT（400/422 等客户端错误）立即抛出——切换 Provider 不会让坏请求变好，
         回退只会浪费配额并掩盖真实问题。回退链抛出的异常统一包装为 ProviderError。
         """
+        # 与 stream() 的 P1-3 同口径：锁内快照索引与 provider 列表，网络 I/O 不持锁——
+        # 否则并发 send 被整条回退循环串行化。
         async with self._lock:
-            last_error: Exception | None = None
             start = self._current_index  # 记录起始索引，失败后恢复
+            providers = list(self._providers)
 
-            for idx in range(start, len(self._providers)):
-                provider = self._providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
-                try:
-                    resp = await provider.send(messages, tools=tools)
-                    self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
-                    return resp
-                except Exception as e:
-                    category = classify_exception(e)
-                    logger.warning(
-                        "Provider %s failed (%s): %s",
-                        provider.get_metadata().name,
-                        category.value,
-                        e,
-                    )
-                    # 客户端错误 → 不回退，立即抛出
-                    if not FallbackPolicy.should_fallback_chain(e):
+        last_error: Exception | None = None
+        for idx in range(start, len(providers)):
+            provider = providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
+            try:
+                resp = await provider.send(messages, tools=tools)
+            except Exception as e:
+                category = classify_exception(e)
+                logger.warning(
+                    "Provider %s failed (%s): %s",
+                    provider.get_metadata().name,
+                    category.value,
+                    e,
+                )
+                # 客户端错误 → 不回退，立即抛出
+                if not FallbackPolicy.should_fallback_chain(e):
+                    async with self._lock:
                         self._current_index = start
-                        raise_as_provider_error(e)
-                    last_error = e
+                    raise_as_provider_error(e)
+                last_error = e
+                continue
+            async with self._lock:
+                self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
+            return resp
 
-            # 所有 Provider 均失败（均为可回退错误）→ 恢复索引，抛出最后的错误
+        # 所有 Provider 均失败（均为可回退错误）→ 恢复索引，抛出最后的错误
+        async with self._lock:
             self._current_index = start
-            if last_error is not None:
-                raise_as_provider_error(last_error)
-            # 理论不可达：providers 非空（__init__ 保证）且任意迭代要么 return 要么设 last_error。
-            # 仍以 ProviderError 兜底以遵守「禁止裸 Exception」契约。
-            raise ProviderError("All providers failed")
+        if last_error is not None:
+            raise_as_provider_error(last_error)
+        # 理论不可达：providers 非空（__init__ 保证）且任意迭代要么 return 要么设 last_error。
+        # 仍以 ProviderError 兜底以遵守「禁止裸 Exception」契约。
+        raise ProviderError("All providers failed")
 
     async def stream(
         self, messages: list[Message], *, tools: list[ToolSchema] | None = None

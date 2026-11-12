@@ -62,27 +62,32 @@ class KeyRotatingProvider:
         tools: list[ToolSchema] | None = None,
     ) -> ProviderResponse:
         """尝试当前密钥，429/401/403 时轮换重试。"""
+        # 与 stream() 的 P1-11 同口径：锁内快照索引与 provider 列表，网络 I/O 不持锁。
         async with self._lock:
-            last_error: Exception | None = None
             start = self._current_index
+            providers_snapshot = list(self._providers)
 
-            for idx in range(start, len(self._providers)):
-                provider = self._providers[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
-                try:
-                    resp = await provider.send(messages, tools=tools)
-                    self._current_index = idx  # 粘性：停在生效的 key 上（原 _advance 后不复位）
-                    return resp
-                except Exception as e:
-                    if not self._is_rotation_error(e):
-                        raise_as_provider_error(e)
-                    last_error = e
-                    logger.warning("Key #%d failed (rotatable): %s", idx, e)
+        last_error: Exception | None = None
+        for idx in range(start, len(providers_snapshot)):
+            provider = providers_snapshot[idx]  # 本地捕获实例，免疫共享索引被并发协程改写
+            try:
+                resp = await provider.send(messages, tools=tools)
+            except Exception as e:
+                if not self._is_rotation_error(e):
+                    raise_as_provider_error(e)
+                last_error = e
+                logger.warning("Key #%d failed (rotatable): %s", idx, e)
+                continue
+            async with self._lock:
+                self._current_index = idx  # 粘性：停在生效的 key 上（原 _advance 后不复位）
+            return resp
 
-            # 恢复原始索引
+        # 恢复原始索引
+        async with self._lock:
             self._current_index = start
-            if last_error is not None:
-                raise_as_provider_error(last_error)
-            raise ProviderError("All keys exhausted")
+        if last_error is not None:
+            raise_as_provider_error(last_error)
+        raise ProviderError("All keys exhausted")
 
     async def stream(
         self,
