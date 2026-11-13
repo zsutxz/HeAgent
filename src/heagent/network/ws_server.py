@@ -22,6 +22,7 @@ from heagent.network.http_protocol import (
     RunRequest,
     error_envelope,
 )
+from heagent.network.ws_auth import client_source
 from heagent.network.ws_protocol import (
     WS_CLOSE_GOING_AWAY,
     WS_CLOSE_POLICY,
@@ -530,7 +531,14 @@ async def _reject_unauthenticated(websocket: WebSocketLike, authorize: AuthCheck
     reason = authorize(websocket.scope)
     if reason is None:
         return False
-    logger.warning("ws event=auth_rejected transport=%s reason=%s", transport, reason)
+    # 带上来源地址：三条 listener 共用同一份日志，不带它无法区分「本机自己的客户端忘了带 token」
+    # 与「网段里的某个探测者」，而两者处置完全不同（前者改客户端，后者无视或加限速）。
+    logger.warning(
+        "ws event=auth_rejected transport=%s reason=%s source=%s",
+        transport,
+        reason,
+        client_source(websocket.scope),
+    )
     await websocket.close(code=WS_CLOSE_POLICY)
     return True
 

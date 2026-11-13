@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -391,6 +392,26 @@ async def test_endpoint_closes_1008_before_accept_when_token_missing() -> None:
     assert websocket.accepted is False
     assert websocket.close_code == AUTH_CLOSE_CODE == 1008
     assert websocket.sent == []  # 不泄露错误信封
+
+
+@pytest.mark.asyncio
+async def test_auth_rejection_log_names_the_source_address(caplog: pytest.LogCaptureFixture) -> None:
+    """拒绝日志必须带来源地址（且**不带** token）：否则分不清本机客户端漏配与网段探测者。"""
+    endpoint = build_ws_endpoint(
+        _NoRunService(),
+        origin_violation=lambda scope: None,
+        max_connections=4,
+        authorize=make_authorizer("s3cret", AuthThrottle()),
+    )
+    with caplog.at_level(logging.WARNING, logger="heagent.network.ws_server"):
+        await _invoke(endpoint, _FakeWebSocket(client=("192.168.2.50", 51234)))
+        await _invoke(endpoint, _FakeWebSocket(client=None))
+    lines = [r.getMessage() for r in caplog.records if "auth_rejected" in r.getMessage()]
+    assert lines == [
+        "ws event=auth_rejected transport=runs reason=missing source=192.168.2.50",
+        "ws event=auth_rejected transport=runs reason=missing source=unknown",
+    ]
+    assert all("s3cret" not in line for line in lines)
 
 
 @pytest.mark.asyncio
