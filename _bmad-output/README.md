@@ -42,3 +42,5 @@ _bmad-output/
 ## 当前状态（2026-10-27）
 
 Epic 1–56 与 S1–S4 均已交付（Epic 53 于 2026-10-24 walkthrough 收口；54/55/56 随 `98ef6d8` 入库并随 0.8.2 发布）；**Epic 57 retro 遗留清理在途**（2026-10-26 立项，4 story 已 done）。Epic 48 已于 2026-09-27 从代码删除（`4217b5d`），历史见 `archive/epics/epic-48-TCP网络接口周期/`。完整状态以 [`sprint-status.yaml`](sprint-status.yaml) 为准；活动台账条数与 ID 以 [`implementation-artifacts/deferred-work-archive.md`](implementation-artifacts/deferred-work-archive.md) 头部为准（活动台账 4 条：A34–A36 + A41）。
+
+2026-11-13：立项 Epic 61 Web 检索工具周期（backlog，spec 见 `epics/epic-61-Web检索周期/`）；同批复盘的 ② 多模态图像输入经用户裁定不做，③ 用户可配置 hooks 经核 Epic 32 已交付、撤销立项（残差转台账 A52/A53）。

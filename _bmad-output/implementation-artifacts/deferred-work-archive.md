@@ -1,6 +1,6 @@
 # Deferred Work Archive
 
-> 跨周期 deferred 的唯一总账；当前活动项为 4 条（A34 / A35 / A36 / A41）。
+> 跨周期 deferred 的唯一总账；当前活动项为 6 条（A34 / A35 / A36 / A41 / A52 / A53）。
 > **四态语义（2026-10-26 S-6 起）**：`active`（有触发条件、未排期）／`scheduled`（已挂到 story 或 sprint）／
 > `frozen`（挂起待裁定，**必须带裁定指针**）／`retired`（显式退役，5 字段齐备）。
 > 条目正文只在本文件；`deferred-work.md` 只保留入口与索引（同一 ID 不得同时出现在两个文件）。
@@ -13,6 +13,8 @@
 | A35 | HTTP 入口会话/事件持久化（在途 run 与 SSE 缓冲重启即丢） | `active` | 会话历史已落盘（SessionStore，CLI 与网页共用），重启只丢在途 run 与 SSE 事件缓冲（重连有 `resync_required`→快照兜底）。**2026-11-05 前置缺口已闭合**：网页 handler 自建 engine 却从不订阅事件接收器 ⇒ `EVENTS_ROLLOUT_ENABLED` 在网页入口是死键（与 A44 闭合前的 REPL 同款）；现按**项目根**订阅（`_build_event_sink(root=…)`，多项目控制台下 cwd ≠ 项目根）。判据 `tests/test_http_events_rollout.py`（2 例成对：默认关零文件 / 开关开落项目根且以 `run_completed` 收尾）+ 变异 3/3 全红（`scripts/mutation/mutate_http_rollout_sink.py`）。**残余 = 读侧回放**：重启后仍未从 `.heagent/runs/<run_id>/rollout.jsonl` 重放（复用既有 `read_rollout`，不新做投影持久化架构）。触发条件不变 = 重启丢在途 run 实际困扰 ≥2 次，或长 run（>10min）常态化。**2026-11-05 用户裁定：不做**（读侧回放继续挂账，状态维持 `active`；理由 = 它要动 SSE/WS 重连语义，而触发条件尚未到） |
 | A36 | 全局级 MCP 注入签名配置入口 | `active` | **2026-11-05 复核仍零使用**：项目级与全局级 `.heagent/injection_signatures.json` 均不存在 ⇒ 加全局入口属 YAGNI（跨项目共享的现成成本 = 复制一个 JSON 文件）。本轮收窄「静默失效」：项目级缺失时若全局文件存在，加载器显式 WARNING 说明它被忽略（不加载、不静默），判据 `tests/test_mcp_mapping.py::test_global_signature_file_is_ignored_with_warning`（另有零噪声对照）+ 变异 2/2 全红（`scripts/mutation/mutate_mcp_signature_hint.py`）。触发条件 = 实际开始写自定义签名且需跨项目共享。注意：签名围栏非真正安全边界，加码不改变「须 OS 沙箱兜底」立场。**2026-11-05 用户裁定：保留**（维持 `active` + 显式告警口径，不转 `retired`） |
 | A41 | 兄弟 Story 越集写互相误归因（`goal/write_audit.py:146-157`） | `frozen` | 共享工作区审计无法按写者归属，兄弟 Story 越集写会落入本 Story 的 Δ 判负（连带置闩）。**裁定指针：AD-20（OQ-4 未裁）**；短期靠围栏预防层降低概率。**2026-11-05 收窄（用户裁定：一并处理至可行边界）**：判负消息与 `workflow_write_audit` 事件如实披露「写者无法归属到本 Story」（`shared_workspace` + `a sibling may be the author`），不再默认归因到本 Story；判负语义（FAILED + 撤闩）不变——写集并集对批内每个成员同形，越集写同样会被**写者自己**的审计判负，故误伤面 = 「无辜兄弟也失败 + 闩」，根因仍需 AD-20 物理隔离（判据 `tests/test_story_write_audit.py::test_violation_discloses_shared_workspace_attribution` / `::test_solo_batch_violation_has_no_attribution_caveat` + 变异 `scripts/mutation/mutate_write_audit_content_delta.py` M4） |
+| A52 | 坏 `hooks.json` 静默跳过（engine/hooks.py load） | `active` | `HookManager.load` 对文件不存在/JSON 损坏/单条非法一律跳过 + WARNING——与「显性失败、缺失宁可显性报错」项目准则相悖。**2026-11-13 用户裁定：撤销 Epic 63 立项，残差转台账**；修正 = fail-fast（启动期坏配置显性报错指明条目；文件不存在保持合法空载）。触发条件 = 下一个进入实现的周期顺带执行（quick-dev 一发子弹即可，无需独立立项） |
+| A53 | PostToolUse hook stdout 不进对话上下文 | `active` | 现状 = PostToolUse 钩子 fire-and-forget（stdout 仅日志）；Claude Code 语义会把非阻断 stdout 注入 transcript。**2026-11-13 用户裁定：撤销 Epic 63 立项，残差转台账**；候选增强 = 非阻断 hook stdout 注入对话（需定预算与截断口径）。触发条件 = 出现把 hook 输出喂回模型的真实需求（当前零使用） |
 
 ## 已按 Epic 归档
 

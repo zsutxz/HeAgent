@@ -1,5 +1,5 @@
 # generated: 2026-05-26
-# last_updated: 2026-10-26
+# last_updated: 2026-11-13
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
@@ -45,7 +45,7 @@
 #   - done: Retrospective has been completed
 
 generated: 2026-05-26
-last_updated: 10-29-2026 15:41
+last_updated: 11-13-2026 15:00
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
@@ -621,6 +621,18 @@ development_status:
   59-2-dream-compact-wiring: done  # 2026-10-29：dream prompt 指令段 + 白名单 + drain 窗口归属 → dream_end compact 统计 + system_prompt 条件化标注；与 59-1 同批评审同判据
   59-3-recency-first-memory-order: done  # 2026-10-30 post-retro 追加并当日实现（读序翻转 保头截尾→最新优先：_fit_facts + 省略标注 + auto_archive 去 CORE_FACTS_TO_KEEP + 指令补写 + compact.py:198 注释一致化 + 文档同步）；2026-11-02 回写 done：AC1–AC7 逐条取证 + 补修 2 处旧口径残留（frame.md 设置表行 / config 字段注释）；六门 all passed / 4214 passed / 覆盖率 93% / 定向子集 142 passed
   epic-59-retrospective: done  # 2026-10-29：accepted-with-open-items；覆盖面仅 59-1/59-2，59-3 为 post-retro 追加（retro 文档有追记）
+
+  # ═══════════════════════════════════════════════════════════════
+  # Web 检索工具周期 · Epic 61（2026-11-13 立项并登记本文件）
+  # 来源：2026-11-13 功能复盘用户裁定立项（同批复盘的 ② 多模态图像输入经用户裁定不做；
+  # ③ 用户可配置 hooks 经核 Epic 32 已交付，同日裁定撤销立项：残差转台账 A52/A53）。
+  # spec：epics/epic-61-Web检索周期/SPEC.md（CAP-1~4；open questions：默认引擎选型等）
+  # 阶段映射：A=61-1；B=61-2；C=61-3
+  epic-61: backlog
+  61-1-search-backend-abstraction: backlog  # 检索引擎抽象+HTTP 客户端（可插拔声明面）
+  61-2-web-search-tool-safety: backlog  # web_search 工具封装+安全面同构覆盖
+  61-3-config-cli-docs-quality-gate: backlog  # 配置/CLI/文档+契约质量门收口
+  epic-61-retrospective: optional
 action_items:
   - id: "epic-52-retro-item-1-真实-llm-全链冒烟-用一个小-goal-走完-goal-new-next-r"
     epic: 52
