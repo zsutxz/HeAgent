@@ -9,6 +9,21 @@ source: _bmad-output/planning-artifacts/project-improvement-report.md
 
 # HeAgent 项目改进需求文档 (PRD)
 
+> ## 勘误（2026-11-13 实测核验，用户授权更正）
+>
+> 本文写于 2026-11-11，**保留原文不改**（frontmatter 的 `status: draft` 亦保留）。
+> 下列事实性错误按实测更正；与用户裁决冲突处一并标出。
+>
+> | 位置 | 原文表述 | 实测事实 / 裁决 | 处置 |
+> |---|---|---|---|
+> | FR12 描述 | 「建立 GitHub Actions 持续集成」 | **已存在**：`.github/workflows/ci.yml`（8 job）+ `codeql.yml`，均被 git 跟踪 | 需求改为「勘差 + ratchet」，不再从零建 CI |
+> | FR12 验收标准 | 「每次 merge 到 main 自动发布到 PyPI（beta 版本）」 | 与用户裁决 **Q2＝不启用 merge 自动发版** 冲突；现状为 tag `v*` → OIDC Trusted Publisher → `environment: release` | 以 Q2 为准，该验收标准作废 |
+> | FR12.4 | 「自动生成 CHANGELOG」 | CHANGELOG **载体**已于 2026-11-11 建立（`CHANGELOG.md`，A51），但「从 commit 自动生成」仍未做 | 收敛为「维护载体 + 版本↔tag 守卫已达；自动生成待触发条件」 |
+> | FR16.2 | 「集成 safety / pip-audit 安全扫描」 | 与 **FR15.1 完全重复**（同一条 `lint:pip-audit` step 已启用，软门 `continue-on-error: true`） | **合并到 FR15.1**；FR16 子需求实际 2 条，编号保留不再重复计工作量 |
+> | FR8.1 | 「选择并配置文档生成工具（Sphinx **或** MkDocs）」 | 2026-11-11 已定为 **MkDocs**（`mkdocs.yml`，`mkdocs build --strict` exit 0 / 0 warning） | 二选一已决，选 MkDocs |
+> | FR1.4 | 「拆分 `config/catalog.py`（1 350 行）」 | **已交付**：拆为 `config/catalog/` 9 文件，最大单文件 307 行，`__all__` 34 项零变化 | 标记 Done |
+> | FR1.1–FR1.3 行数 | 1 965 / 1 636 / 1 346 | 现 1 955 / 1 636 / 1 343 行（同期小改动所致，量级不变） | 以实测为准 |
+
 ## 一、文档概述
 
 **项目名称：** HeAgent 项目改进计划  
@@ -239,8 +254,8 @@ HeAgent 是一个架构清晰、文档完善的实验性 AI Agent 框架（v0.8.
 
 **验收标准：**
 - 每次 PR 自动运行全量测试
-- 每次 merge 到 main 自动发布到 PyPI（beta 版本）
-- CHANGELOG 自动从 commit 信息生成
+- ~~每次 merge 到 main 自动发布到 PyPI（beta 版本）~~ → **作废（2026-11-13）**：与用户裁决 Q2「不启用 merge 自动发版」冲突；现状为 tag `v*` → Trusted Publisher OIDC → `environment: release`
+- ~~CHANGELOG 自动从 commit 信息生成~~ → **部分达成（2026-11-13）**：`CHANGELOG.md` 载体已建（A51），自动生成仍未做
 
 **优先级：** 高（1-3 个月内完成）
 
@@ -307,7 +322,7 @@ HeAgent 是一个架构清晰、文档完善的实验性 AI Agent 框架（v0.8.
 
 **子需求：**
 - FR16.1：审查并精简依赖
-- FR16.2：集成 safety / pip-audit 安全扫描
+- ~~FR16.2：集成 safety / pip-audit 安全扫描~~ → **已合并到 FR15.1**（2026-11-13 核验：两者指向同一条 `lint:pip-audit` step，重复登记）
 - FR16.3：增加 `requirements.lock` 或使用 Poetry
 
 **验收标准：**

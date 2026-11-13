@@ -8,16 +8,33 @@ reviewDate: 2026-11-11
 
 # HeAgent 项目改进计划 - Epic Breakdown
 
+> ## 勘误（2026-11-13 实测核验，用户授权更正）
+>
+> 本文写于 2026-11-11，**保留原文不改**。下列事实性错误按实测更正。
+>
+> | 位置 | 原文表述 | 实测事实 | 处置 |
+> |---|---|---|---|
+> | Overview 统计摘要 | 「高优先级 21 / 中优先级 35 / 低优先级 3」 | 这是按 **PRD 优先级标签**汇总；姊妹文件 `story-estimates.md` 按 **Epic 顺序**分组（38 / 21 / 0）。两者**不可互相校验、不可相加解读**，总数都是 59 | 优先级唯一真源 = `_he-output/works/heagent-improvement-plan/epics.md`（2026-11-11 已在该文件 5 个 Epic 段各加 1 行声明） |
+> | Epic 4（CI/CD） | 「优先级最高：自动化基础设施能提升后续所有开发效率」+ 9 Story / 2 周量级 | 前提不成立：`.github/workflows/ci.yml`（8 job）+ `codeql.yml` **已存在**；真实缺口仅 CHANGELOG 载体 + 版本↔tag 守卫 | Epic 4 由「建设」降级为「勘差 + ratchet」；实际交付落在本工作流 E2 / E5 |
+> | FR15.1 / FR16.2 | 两条并列子需求 | 指向**同一条** `lint:pip-audit` step（重复登记） | FR16.2 合并进 FR15.1；59 story 中对应 1 条重复实现，有效实现数 58 |
+> | FR1.1–FR1.4 | 四个大文件行数 1 965 / 1 636 / 1 346 / 1 350 | FR1.4（`config/catalog.py`）**已交付**（拆为 9 文件，最大 307 行）；其余现为 1 955 / 1 636 / 1 343 行 | FR1.4 标 Done；行数以实测为准 |
+> | FR8.1 | 文档工具「Sphinx 或 MkDocs」未定 | 已定为 **MkDocs**（`mkdocs.yml`，`--strict` exit 0） | 二选一已决 |
+> | FR12.4 | 自动生成 CHANGELOG | `CHANGELOG.md` 载体已于 2026-11-11 建立（A51）；「从 commit 自动生成」仍未做 | 收敛为「载体 + 守卫已达」 |
+
 ## Overview
 
 本文档提供 HeAgent 项目改进计划的完整 Epic 和 Story 分解，将 PRD 中的需求分解为可实施的故事。
 
 **统计摘要：**
 - Epic 总数：8 个
-- Story 总数：59 个
+- Story 总数：59 个（2026-11-13 更正：其中 FR15.1 与 FR16.2 重复，**有效 58**）
 - 高优先级 Story：21 个（约 10-13 周）
 - 中优先级 Story：35 个（约 21-25 周）
 - 低优先级 Story：3 个（6 个月后）
+
+> **口径注（2026-11-13）**：上面三档是按 **PRD 优先级标签**汇总；`story-estimates.md` 按 **Epic 顺序**
+> 分组为 38 / 21 / 0。两者互不校验、也不可相加，总数都是 59。读优先级一律查
+> `_he-output/works/heagent-improvement-plan/epics.md`。
 
 ## Requirements Inventory
 
@@ -170,6 +187,9 @@ reviewDate: 2026-11-11
 
 **理由说明：**
 - Epic 4（CI/CD）优先级最高：自动化基础设施能提升后续所有开发效率
+  —— **2026-11-13 更正：前提不成立**。`.github/workflows/ci.yml`（8 job）+ `codeql.yml` 已存在；
+  真实缺口只有 CHANGELOG 载体（已建）与版本↔tag 守卫（已建断言）。本 Epic 降级为「勘差 + ratchet」，
+  实际交付落在 `_he-output/works/heagent-improvement-plan` 的 E2 / E5。
 - Epic 3（用户体验）紧随其后：降低配置错误率能快速提升用户满意度
 - Epic 1（架构重构）第三：为后续开发提供更好的代码基础
 - Epic 2（测试增强）第四：配合重构工作，确保质量不下降

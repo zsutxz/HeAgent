@@ -1,5 +1,20 @@
 # HeAgent 项目改进审查报告
 
+> ## 勘误（2026-11-13 实测核验，用户授权更正）
+>
+> 本文写于 2026-11-11，**保留原文不改**；下列事实性错误按实测更正，逐条给位置与测量方式。
+> 勘误的取证过程见 `_he-output/works/heagent-improvement-plan/step-03-analyze-requirements/report.md`
+> （Step 03 纠错节）与 `ci-gap-table.md`（7 条行级勘差）。
+>
+> | 位置 | 原文表述 | 实测事实 | 处置 |
+> |---|---|---|---|
+> | §6.2「持续集成」 | 「建议增加 `.github/workflows/` 配置」 | **已存在且被 git 跟踪**：`ci.yml`（8 个 job：lint / test 3OS×4py / goal-smoke / coverage / benchmark / dependency-review / integration / release）+ `codeql.yml` | 前提错误；真实缺口 = CHANGELOG 载体 + 版本↔tag 守卫（2–3 天量级） |
+> | §6.1 工程实践 | 「`quality_gate.py` 六道门」 | 2026-11-11 起为**七门**（首条为「第 0 门：契约快照」，守住四份基线） | 以 `quality_gate.py` 的 `COMMANDS` 为准 |
+> | SWOT「主要改进方向」 | 「⚠️ CI/CD 与自动化（GitHub Actions、发布流程）」 | CI 已有 8 job；CHANGELOG 载体 2026-11-11 已建（A51）；仍缺自动版本 bump 与「从 commit 自动生成 CHANGELOG」 | 降级为「发布流程增强」，非「从零建 CI」 |
+> | SWOT「4 个文件 > 800 行」 | 4 个 | 实测 **9 个** > 800 行（最大 `network/http_server.py` 1 955 行）；原口径实为「≥1 300 行」那一档（`config/catalog.py` 已于 2026-11-11 拆为 9 文件，剩 3 个 ≥1 300 行） | 口径分开写 |
+> | SWOT「+40% CI 自动化覆盖」 | 目标指标 | 已在本工作流 Step 04 **剔除**（无采集通道、无可增量空间） | 不作为目标 |
+> | 路线图「CI/CD 建设：GitHub Actions 配置」 | 待做 | 已具备（同上 8 job） | 改读为「CI 勘差 + ratchet」 |
+
 **生成日期：** 2026-11-11  
 **审查范围：** 架构、代码质量、测试覆盖、文档完善度、可维护性  
 **项目版本：** 0.8.4  
@@ -137,6 +152,7 @@ PolicyEngine → ToolExecutor → SafetyGuard → handler
 
 #### ✅ 完善的测试基础设施
 - **质量门禁**：`scripts/quality_gate.py` 六道门（冒烟 + 回归 + lint + format + mypy + bandit）
+  —— **2026-11-13 更正：现为七门**，首条为「第 0 门：契约快照」（守住四份基线），见文首勘误表
 - **基线验证**：`scripts/verify_baseline.py` 区分环境噪声与真实回归
 - **变异测试**：多个 `scripts/mutation/mutate_*.py` 验证判据强度
 - **集成测试**：真实 HTTP/WS 服务、Docker 沙箱 E2E
@@ -248,8 +264,12 @@ PolicyEngine → ToolExecutor → SafetyGuard → handler
 
 #### ⚠️ CI/CD 增强
 
+> **更正（2026-11-13）**：本节第 1 条的前提**不成立** —— `.github/workflows/ci.yml`（8 个 job）与
+> `codeql.yml` 早已存在且被 git 跟踪。真实缺口只有「CHANGELOG 载体」（2026-11-11 已建）与
+> 「版本号 ↔ git tag 守卫」（已建 3 例断言）；本节整体降级为「发布流程增强」，见文首勘误表。
+
 1. **持续集成**
-   - 建议增加 `.github/workflows/` 配置
+   - ~~建议增加 `.github/workflows/` 配置~~（已存在：8 job + CodeQL，见上）
    - 自动运行质量门禁
    - Pull Request 自动测试
 
