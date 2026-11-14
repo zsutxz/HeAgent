@@ -12,7 +12,7 @@ nav:
   - 首页: README.md
   - 架构: frame.md
   - 设计理念: design.md
-  - 迭代流程: iteration.md
+  - 日志: logs/iteration.md
   - 测试与门禁: testing.md
   - 沙箱机制: sandbox.md
   - goal 工作流: goal-workflow.md

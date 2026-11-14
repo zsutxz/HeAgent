@@ -848,7 +848,7 @@ def test_live_files_hold_no_reference_to_the_removed_tcp_entry() -> None:
     targets = sorted((root / "src" / "heagent").rglob("*.py"))
     targets += [root / name for name in ("README.md", "AGENTS.md", "CLAUDE.md", ".env.example")]
     # 显式列举而非 `docs/*.md`：`docs/news.md` 是**生成物**（且被 gitignore），新闻正文里出现
-    # `tcp` 完全正常，把它扫进来只会产生假红。`docs/iteration.md` 是历史日志，按「历史不动」豁免。
+    # `tcp` 完全正常，把它扫进来只会产生假红。`docs/logs/iteration.md` 是历史日志（2026-11-14 迁入 docs/logs/），按「历史不动」豁免。
     targets += [root / "docs" / name for name in ("README.md", "frame.md", "design.md", "goal-workflow.md")]
     offenders: dict[str, list[str]] = {}
     for path in targets:
