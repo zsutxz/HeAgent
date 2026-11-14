@@ -115,7 +115,7 @@ class MCPClientManager:
         self._shutdown_timeout = shutdown_timeout
         # transport 开启端口：缺省 SDK 实现；注入点供测试/替换（无需 class-patch 缝）。
         self._transport_opener = transport_opener
-        # stdio server 的容器规格（Epic 53 期二）：非 None ⇒ 缺省 opener 带上它，
+        # stdio server 的容器规格：非 None ⇒ 缺省 opener 带上它，
         # 使 stdio server 经 docker 拉起；后端不可用时 opener 内部显性降级回宿主。
         self._stdio_sandbox = stdio_sandbox
         self._server_tasks: list[asyncio.Task[None]] = []

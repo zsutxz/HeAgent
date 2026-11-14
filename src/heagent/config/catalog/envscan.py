@@ -5,12 +5,11 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from pathlib import Path
 from typing import NamedTuple
 
-from heagent.config.envfile import iter_env_lines
+from heagent.config.envfile import fingerprint, iter_env_lines
 from heagent.pub.frontmatter import FrontmatterSyntaxError, parse_strict_pairs, split_frontmatter
 
 from .models import BOM, EnvScan, LayerMap
@@ -105,7 +104,7 @@ def scan_env_file(path: str | Path | None) -> EnvScan:
         readable=True,
         encoding_ok=encoding_ok,
         has_bom=has_bom,
-        fingerprint=hashlib.sha256(raw).hexdigest(),
+        fingerprint=fingerprint(raw),
         line_count=len(lines),
         declared_keys=tuple(names.values()),
         name_by_lower=names,
@@ -156,7 +155,7 @@ def scan_setting_md(path: str | Path | None) -> SettingMdScan:
         readable=True,
         encoding_ok=encoding_ok,
         has_bom=text.startswith(BOM),
-        fingerprint=hashlib.sha256(raw).hexdigest(),
+        fingerprint=fingerprint(raw),
         line_count=len(lines),
         declared_keys=tuple(names.values()),
         name_by_lower=names,

@@ -99,6 +99,13 @@ def _resolve_command_runner(
 
 
 @dataclass
+class _PruneGate:
+    """进程内 prune 去重门：置位先于 await（并发调用不会重复清理）；各门相互独立互不阻塞。"""
+
+    done: bool = False
+
+
+@dataclass
 class EngineContainer:
     """跨多次 loop 执行共享的运行时服务集合。"""
 
@@ -128,10 +135,10 @@ class EngineContainer:
     sandbox_session_keep: bool | None = None
     runtime_config: ResolvedRuntimeConfig | None = field(default=None, repr=False)
     sandbox_decision: SandboxDecision | None = None
-    # 进程内去重标志：同一容器 prune_*_once 仅首次 run 触发（sub agent 继承父 engine 时不重复扫）。
-    # 两者独立：ledger 与 runs 各自的清理互不阻塞。
-    _ledger_pruned: bool = field(default=False, init=False, repr=False)
-    _runs_pruned: bool = field(default=False, init=False, repr=False)
+    # 进程内去重门：同一容器 prune_*_once 仅首次 run 触发（sub agent 继承父 engine 时不重复扫）。
+    # 两门相互独立：ledger 与 runs 各自的清理互不阻塞（陈旧快照收尾另有独立标志）。
+    _ledger_gate: _PruneGate = field(default_factory=_PruneGate, init=False, repr=False)
+    _runs_gate: _PruneGate = field(default_factory=_PruneGate, init=False, repr=False)
     _runs_stale_closed: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -193,51 +200,71 @@ class EngineContainer:
             logger.error("%s prune failed (%s: %s); skipping this run", label, type(exc).__name__, exc)
             return 0
 
+    async def _prune_gate_once(
+        self,
+        gate: _PruneGate,
+        *,
+        label: str,
+        subject: str,
+        noun: str,
+        retention_days: int,
+        prune: Callable[[], Awaitable[int]],
+    ) -> int:
+        """ledger / run 快照两处 prune 的同构机制单处化：去重门 + 保留期闸 + 成功日志。
+
+        去重标志**置位先于 await**（并发调用不会重复清理）；各门相互独立，互不阻塞。
+        清理故障立场（取消透传、其余 IO 故障只记 error 返回 0）由 :meth:`_prune_once` 统一。
+        ``subject``/``noun`` 只为保留逐字节的旧日志文案（"Ledger pruned … records" /
+        "Run snapshots pruned … entries"），便于按旧日志检索。
+        """
+        if gate.done or retention_days <= 0:
+            return 0
+        gate.done = True
+        n = await self._prune_once(prune, label=label)
+        if n:
+            logger.info("%s pruned %d expired %s (retention=%dd)", subject, n, noun, retention_days)
+        return n
+
     async def prune_ledger_once(self) -> int:
         """首次调用时清理过期 ledger 记录，之后短路返回 0（去重）。
 
-        ``ledger_retention_days <= 0`` 时禁用。清理 IO 故障不中断 run（对齐
-        ``persist.load_json_model`` 容错哲学）；已置 ``_ledger_pruned`` 标志本次不再重试。
+        ``ledger_retention_days <= 0`` 时禁用；清理 IO 故障不中断 run（容错哲学对齐
+        ``persist.load_json_model``）；去重门见 :meth:`_prune_gate_once`。
 
         ``CancelledError`` 不吞（透传给调用方处理 task 取消语义）；其余 ``Exception``
         打含异常类型+消息的 error 日志并返回 0 继续 run。
         """
-        if self._ledger_pruned or self.ledger_retention_days <= 0:
-            return 0
-        self._ledger_pruned = True
-        n = await self._prune_once(
-            lambda: self.ledger.prune(
+        return await self._prune_gate_once(
+            self._ledger_gate,
+            label="Ledger",
+            subject="Ledger",
+            noun="records",
+            retention_days=self.ledger_retention_days,
+            prune=lambda: self.ledger.prune(
                 retention_days=self.ledger_retention_days, min_interval_seconds=self.prune_min_interval_seconds
             ),
-            label="Ledger",
         )
-        if n:
-            logger.info("Ledger pruned %d expired records (retention=%dd)", n, self.ledger_retention_days)
-        return n
 
     async def prune_runs_once(self) -> int:
         """首次调用时清理过期 run 快照，之后短路返回 0（去重）。
 
-        与 :meth:`prune_ledger_once` 同构：``run_retention_days <= 0`` 时禁用；清理 IO 故障
-        不中断 run（``CancelledError`` 不吞，其余异常打 error 日志后返回 0）；``_runs_pruned``
-        与 ledger 的去重标志**相互独立**——两者互不阻塞。
+        与 :meth:`prune_ledger_once` 共用 :meth:`_prune_gate_once` 的去重门与故障立场；
+        ``run_retention_days <= 0`` 时禁用；门与门**相互独立**——互不阻塞。
 
         为什么需要它：``RunStore`` 每次 run 写 ``<run_id>.json`` + ``.json.lock``，而
         ``persist.py`` 刻意不删锁文件，若无人回收则 runs 目录随运行次数单调增长
         （实测 84 天积累 6 万个文件 / 700MB）。
         """
-        if self._runs_pruned or self.run_retention_days <= 0:
-            return 0
-        self._runs_pruned = True
-        n = await self._prune_once(
-            lambda: self.run_store.prune(
+        return await self._prune_gate_once(
+            self._runs_gate,
+            label="Run snapshot",
+            subject="Run snapshots",
+            noun="entries",
+            retention_days=self.run_retention_days,
+            prune=lambda: self.run_store.prune(
                 retention_days=self.run_retention_days, min_interval_seconds=self.prune_min_interval_seconds
             ),
-            label="Run snapshot",
         )
-        if n:
-            logger.info("Run snapshots pruned %d expired entries (retention=%dd)", n, self.run_retention_days)
-        return n
 
     async def close_stale_runs_once(self) -> int:
         """首次调用时把陈旧 running 快照收尾为 FAILED，之后短路返回 0（去重）。

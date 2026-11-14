@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GATE_TIMEOUT_SECONDS = 900
 
 COMMANDS = (
-    # 第 0 门：契约快照（~0.3s）。要求「六门前插一门」，守住四份基线（public / routes /
+    # 第 0 门：契约快照（~0.3s）。按「六门前插一门」的架构要求插入，守住四份基线（public / routes /
     # exceptions / transport_errors）的静默漂移；
     # 若这里红了，先用 `python scripts/contract_snapshot.py --check` 看 diff，再判断是改代码还是重生基线。
     ("contract snapshot", [sys.executable, "scripts/contract_snapshot.py", "--check"]),

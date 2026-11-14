@@ -29,6 +29,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from heagent.config.envfile import replace_or_append
+
 TOKEN_KEY = "ws_auth_token"  # noqa: S105 - 这是键名不是凭证
 ENV_KEY = "WS_EXTERNAL_HOST"
 LOOPBACK_PREFIXES = ("127.",)
@@ -83,24 +85,6 @@ def detect_eol(raw: str) -> str:
     crlf = raw.count("\r\n")
     lf = raw.count("\n") - crlf
     return "\r\n" if crlf > lf else "\n"
-
-
-def upsert_env_value(raw: str, key: str, value: str) -> str:
-    """在 dotenv 文本里就地替换 `KEY=...` 行；没有则追加到末尾（保持 EOL 与末行状态）。"""
-    eol = detect_eol(raw)
-    ends_with_eol = raw.endswith(eol)
-    lines = raw.split(eol)
-    if ends_with_eol:
-        lines = lines[:-1]
-    pattern = re.compile(rf"^\s*{re.escape(key)}\s*=", re.IGNORECASE)
-    replacement = f"{key}={value}"
-    for index, line in enumerate(lines):
-        if pattern.match(line):
-            lines[index] = replacement
-            break
-    else:
-        lines.append(replacement)
-    return eol.join(lines) + (eol if ends_with_eol else "")
 
 
 def read_frontmatter_value(raw: str, key: str) -> str | None:
@@ -211,7 +195,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # 3) 计算两份新内容
     env_raw = read_text_exact(env_path)
-    new_env = upsert_env_value(env_raw, ENV_KEY, host)
+    new_env = replace_or_append(env_raw, ENV_KEY, host)
     if setting_path.is_file():
         new_setting = upsert_frontmatter_value(setting_raw, TOKEN_KEY, token)
     else:

@@ -23,12 +23,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from heagent.memory.auto_archive import _append_archive, _fact_line_bytes
 from heagent.pub.exceptions import HeAgentError
 from heagent.pub.persist import atomic_update_text
 
@@ -47,15 +47,6 @@ _BOM = chr(0xFEFF)
 #: 归档目录名与文件名（相对 MEMORY.md 所在目录；与 auto_archive 同一留底文件）。
 _ARCHIVE_DIR = "archive"
 _ARCHIVE_NAME = "MEMORY-archive.md"
-
-# compact 首次创建留底文件时的文件头（auto_archive 已建文件时直接追加小节，不覆写其头部）。
-_ARCHIVE_HEADER = (
-    "# MEMORY.md 归档留底（不参与注入）\n"
-    "\n"
-    "> 本文件不进 system prompt，仅供检索与回溯；小节标题里的时间戳是**归档动作的真实时间**。\n"
-    "> 「批次 …（N 条）」小节由 ``heagent.memory.auto_archive`` 移出；"
-    "「批次 …（N 条；fact_compact）」小节由 ``heagent.memory.compact`` 的合并留底。\n"
-)
 
 
 class FactCompactConflictError(HeAgentError):
@@ -170,7 +161,7 @@ def compact_facts(memory_path: Path | str, merges: Sequence[CompactMerge]) -> Co
             for i, line in enumerate(lines)
             if i not in removed_line_ids and i not in own_ids and line.startswith(_FACT_PREFIX)
         )
-        if _word_overlap_duplicate(merge.target, survivors) or _word_overlap_duplicate(merge.target, appended):
+        if word_overlap_duplicate(merge.target, survivors) or word_overlap_duplicate(merge.target, appended):
             rejected.append(
                 CompactRejection(
                     sources=list(merge.sources),
@@ -268,10 +259,11 @@ def _validate_merges(merges: list[CompactMerge], occurrences: dict[str, list[int
     return problems
 
 
-def _word_overlap_duplicate(target: str, existing_texts: Iterable[str]) -> bool:
-    """AC5 判重：target 对给定条目文本做 70% 词级判重。
+def word_overlap_duplicate(target: str, existing_texts: Iterable[str]) -> bool:
+    """70% 词级判重：target 与任一 existing 的「交集 / 新条目词数」> 0.7 即判重（AC5）。
 
-    与 ``FactStore.add`` 同一公式（交集/新条目词数 > 0.7）。
+    ``FactStore.add`` / :func:`FactStore._append_fact` 与此处共用同一实现——三处判定永远
+    同源，阈值/分词口径改动只改这一个函数。
     """
     target_words = set(target.lower().split())
     for text in existing_texts:
@@ -279,11 +271,6 @@ def _word_overlap_duplicate(target: str, existing_texts: Iterable[str]) -> bool:
         if len(target_words & old_words) / max(len(target_words), 1) > 0.7:
             return True
     return False
-
-
-def _fact_line_bytes(line: str) -> int:
-    """一条 fact 行在注入侧占的字节数（与 ``_fit_facts`` 的 ``len(f"- {fact}\\n")`` 同口径）。"""
-    return len((line + "\n").encode("utf-8"))
 
 
 def _append_archive_section(archive_path: Path, fact_lines: list[str]) -> None:
@@ -295,11 +282,4 @@ def _append_archive_section(archive_path: Path, fact_lines: list[str]) -> None:
     archive），比 MEMORY.md 的比较后写冲突更严重，故必须在归档文件自己的锁上串行化。
     """
 
-    def _append(current: str) -> tuple[str, bool]:
-        stamp = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
-        section = f"## 批次 {stamp}（{len(fact_lines)} 条；fact_compact）\n\n" + "\n".join(fact_lines) + "\n"
-        if current:
-            return f"{current.rstrip(chr(10))}\n\n{section}", True
-        return f"{_ARCHIVE_HEADER}\n{section}", True
-
-    atomic_update_text(archive_path, _append)
+    _append_archive(archive_path, fact_lines, label="；fact_compact")

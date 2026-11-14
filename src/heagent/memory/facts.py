@@ -14,7 +14,12 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from heagent.memory.compact import CompactMerge, CompactStats, compact_facts
+from heagent.memory.compact import (
+    CompactMerge,
+    CompactStats,
+    compact_facts,
+    word_overlap_duplicate,
+)
 from heagent.pub.persist import atomic_update_text
 
 if TYPE_CHECKING:
@@ -72,11 +77,8 @@ class FactStore:
 
         existing = self._parse_facts(raw)
 
-        fact_words = set(fact.lower().split())  # 新事实的单词集合
-        for ef in existing:
-            overlap = fact_words & set(ef.lower().split())  # 关键词交集
-            if len(overlap) / max(len(fact_words), 1) > 0.7:  # 70% 阈值
-                return False
+        if word_overlap_duplicate(fact, existing):
+            return False
         # 追加写入（原子写整文件，防崩溃中途截断）；`current` 由 `atomic_update_text` 以
         # 普通 UTF-8 读出（BOM 字符仍在），故写回前同样剥离 ⇒ 与读路径口径一致，并把文件
         # 归一化为 UTF-8 无 BOM（见 `_strip_bom`）。
@@ -105,10 +107,8 @@ class FactStore:
     @classmethod
     def _append_fact(cls, raw: str, fact: str) -> tuple[str, bool]:
         existing = cls._parse_facts(raw)
-        words = set(fact.lower().split())
-        for old in existing:
-            if len(words & set(old.lower().split())) / max(len(words), 1) > 0.7:
-                return raw, False
+        if word_overlap_duplicate(fact, existing):
+            return raw, False
         return raw + f"- {fact}\n", True
 
     def load(self) -> list[str]:

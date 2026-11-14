@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest  # noqa: TC002 - pytest.raises 是运行期用法
 
+import heagent.memory.auto_archive as auto_archive_mod
 import heagent.memory.compact as compact_mod
 from heagent.memory.compact import (
     CompactMerge,
@@ -445,19 +446,20 @@ class TestArchiveSerialization:
         """无锁 read-modify-write 会让并发 compact 互相覆盖留底小节（无声数据丢失）。
 
         本用例钉机制而非竞态：归档路径必须经 :func:`atomic_update_text`（归档自身 .lock），
-        与 MEMORY.md 的比较后写共用同一锁原语族。
+        与 MEMORY.md 的比较后写共用同一锁原语族。归档追加的实现住在 auto_archive
+        （compact 经 ``_append_archive_section`` 薄委托复用），故 spy 缝跟随实现落点。
         """
         memory_path = tmp_path / "memory" / "MEMORY.md"
         _create_memory_file(memory_path, ["aaa bbb ccc"])
         locked_paths: list[Path] = []
 
-        real_update = compact_mod.atomic_update_text
+        real_update = auto_archive_mod.atomic_update_text
 
         def spy(path: Path, update: object, **kwargs: object) -> bool:
             locked_paths.append(Path(path))
             return real_update(path, update, **kwargs)  # type: ignore[arg-type]
 
-        monkeypatch.setattr(compact_mod, "atomic_update_text", spy)
+        monkeypatch.setattr(auto_archive_mod, "atomic_update_text", spy)
 
         compact_facts(memory_path, [CompactMerge(sources=["aaa bbb ccc"], target="merged entry text here")])
 

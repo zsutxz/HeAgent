@@ -38,12 +38,11 @@
 from __future__ import annotations
 
 import logging
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 from heagent.config import Settings, get_settings
-from heagent.pub.persist import atomic_update_text
+from heagent.pub.persist import atomic_update_text, stamp_is_recent, touch_prune_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -65,29 +64,6 @@ _ARCHIVE_HEADER = """# MEMORY.md 归档留底（不参与注入）
 > 条目本身不带时间戳（`FactStore` 的格式只有 `- <text>`）⇒ **文件顺序是唯一的先后凭据**：
 > 越靠前越早写入，同一批次内保持原文件顺序。
 """
-
-
-def _should_skip_prune(stamp_path: Path, min_interval_seconds: int) -> bool:
-    """检查是否应该跳过清理（基于上次清理时间戳和最小间隔）。"""
-    if min_interval_seconds <= 0:
-        return False
-    if not stamp_path.exists():
-        return False
-    try:
-        last_prune = float(stamp_path.read_text(encoding="utf-8").strip())
-        elapsed = time.time() - last_prune
-        return elapsed < min_interval_seconds
-    except (ValueError, OSError):
-        return False
-
-
-def _touch_stamp(stamp_path: Path) -> None:
-    """刷新节流标记；失败只记 DEBUG（节流是优化，坏掉不能影响归档本身）。"""
-    try:
-        stamp_path.parent.mkdir(parents=True, exist_ok=True)
-        stamp_path.write_text(str(time.time()), encoding="utf-8")
-    except OSError:
-        logger.debug("Cannot write archive stamp %s", stamp_path, exc_info=True)
 
 
 def _fact_line_bytes(line: str) -> int:
@@ -122,18 +98,17 @@ def _build_plan(text: str, trigger_bytes: int) -> tuple[list[str], str | None, i
     return [lines[i] for i in archived], new_text, len(keep)
 
 
-def _append_archive(archive_path: Path, fact_lines: list[str]) -> None:
-    """把一批 fact 行追加成新小节（标题带真实 UTC 时间戳）。
+def _append_archive(archive_path: Path, fact_lines: list[str], *, label: str = "") -> None:
+    """把一批 fact 行追加成新小节（标题带真实 UTC 时间戳；``label`` 区分写者，如 ``；fact_compact``）。
 
-    追加走 :func:`atomic_update_text`（归档文件自身 ``.lock`` 内读改写，与
-    :mod:`heagent.memory.compact` 的 ``_append_archive_section`` 同款）：两个写者并发归档时
+    追加走 :func:`atomic_update_text`（归档文件自身 ``.lock`` 内读改写）：两个写者并发归档时
     互相覆盖小节 = **无声且不可检测**的数据丢失（条目既不在 MEMORY.md、也不在留底里），
     故不能省这把锁（活动台账 A50）。
     """
 
     def _append(current: str) -> tuple[str, None]:
         stamp = datetime.now(tz=UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
-        section = f"## 批次 {stamp}（{len(fact_lines)} 条）\n\n" + "\n".join(fact_lines) + "\n"
+        section = f"## 批次 {stamp}（{len(fact_lines)} 条{label}）\n\n" + "\n".join(fact_lines) + "\n"
         if current:
             return f"{current.rstrip(chr(10))}\n\n{section}", None
         return f"{_ARCHIVE_HEADER}\n{section}", None
@@ -178,7 +153,7 @@ def maybe_archive_old_facts(
 
     memory_path = Path(memory_path)
     stamp_path = memory_path.parent / _STAMP_NAME
-    if _should_skip_prune(stamp_path, settings.memory_archive_min_interval_seconds):
+    if stamp_is_recent(stamp_path, settings.memory_archive_min_interval_seconds):
         logger.debug("Skipping memory auto-archive (last run was too recent)")
         return {"archived": 0, "kept": 0, "skipped": True}
 
@@ -193,7 +168,7 @@ def maybe_archive_old_facts(
 
         if not archived_lines or new_text is None:
             logger.info("No old facts to archive (fact bytes within %d)", trigger)
-            _touch_stamp(stamp_path)
+            touch_prune_stamp(stamp_path)
             return {"archived": 0, "kept": kept, "skipped": False}
 
         archive_path = memory_path.parent / _ARCHIVE_DIR / _ARCHIVE_NAME
@@ -205,10 +180,10 @@ def maybe_archive_old_facts(
                 len(archived_lines),
                 archive_path,
             )
-            _touch_stamp(stamp_path)
+            touch_prune_stamp(stamp_path)
             return {"archived": 0, "kept": kept, "skipped": False}
 
-        _touch_stamp(stamp_path)
+        touch_prune_stamp(stamp_path)
         logger.info(
             "Memory auto-archive completed: %d facts archived, %d kept (trigger: %d bytes)",
             len(archived_lines),
