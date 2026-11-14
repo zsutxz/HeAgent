@@ -1,6 +1,6 @@
 # Deferred Work Archive
 
-> 跨周期 deferred 的唯一总账；当前活动项为 6 条（A34 / A35 / A36 / A41 / A52 / A53）。
+> 跨周期 deferred 的唯一总账；当前活动项为 7 条（A34 / A35 / A36 / A41 / A52 / A53 / A54）。
 > **四态语义（2026-10-26 S-6 起）**：`active`（有触发条件、未排期）／`scheduled`（已挂到 story 或 sprint）／
 > `frozen`（挂起待裁定，**必须带裁定指针**）／`retired`（显式退役，5 字段齐备）。
 > 条目正文只在本文件；`deferred-work.md` 只保留入口与索引（同一 ID 不得同时出现在两个文件）。
@@ -15,6 +15,7 @@
 | A41 | 兄弟 Story 越集写互相误归因（`goal/write_audit.py:146-157`） | `frozen` | 共享工作区审计无法按写者归属，兄弟 Story 越集写会落入本 Story 的 Δ 判负（连带置闩）。**裁定指针：AD-20（OQ-4 未裁）**；短期靠围栏预防层降低概率。**2026-11-05 收窄（用户裁定：一并处理至可行边界）**：判负消息与 `workflow_write_audit` 事件如实披露「写者无法归属到本 Story」（`shared_workspace` + `a sibling may be the author`），不再默认归因到本 Story；判负语义（FAILED + 撤闩）不变——写集并集对批内每个成员同形，越集写同样会被**写者自己**的审计判负，故误伤面 = 「无辜兄弟也失败 + 闩」，根因仍需 AD-20 物理隔离（判据 `tests/test_story_write_audit.py::test_violation_discloses_shared_workspace_attribution` / `::test_solo_batch_violation_has_no_attribution_caveat` + 变异 `scripts/mutation/mutate_write_audit_content_delta.py` M4） |
 | A52 | 坏 `hooks.json` 静默跳过（engine/hooks.py load） | `active` | `HookManager.load` 对文件不存在/JSON 损坏/单条非法一律跳过 + WARNING——与「显性失败、缺失宁可显性报错」项目准则相悖。**2026-11-13 用户裁定：撤销 Epic 63 立项，残差转台账**；修正 = fail-fast（启动期坏配置显性报错指明条目；文件不存在保持合法空载）。触发条件 = 下一个进入实现的周期顺带执行（quick-dev 一发子弹即可，无需独立立项） |
 | A53 | PostToolUse hook stdout 不进对话上下文 | `active` | 现状 = PostToolUse 钩子 fire-and-forget（stdout 仅日志）；Claude Code 语义会把非阻断 stdout 注入 transcript。**2026-11-13 用户裁定：撤销 Epic 63 立项，残差转台账**；候选增强 = 非阻断 hook stdout 注入对话（需定预算与截断口径）。触发条件 = 出现把 hook 输出喂回模型的真实需求（当前零使用） |
+| A54 | /simplify 清理批（2026-11-14）缓修残差：真重构 8 项 | `active` | 2026-11-14 `/simplify` 四视角审查（REUSE 7 / SIMPLIFICATION 6 / EFFICIENCY 4 / ALTITUDE 5，去重后 19 机制）的「立即修」机械批已落 `954f9d4`；以下**缓修**项超出一次清理的体量，逐条留档（origin = 四份审查报告，`git log 954f9d4` 前的会话）：① ws_server 双胞胎端点构造器与会话骨架（两对 ~95 行孪生构造器）② cli/http 服务编排合一 ③ `SandboxDecision` 加类型化派生字段取代 agent 层 `isinstance(dict)` 鸭子解析（`agent/loop.py:453` `_bound_container_workdir`）④ WS/SSE「快照重放+水位去重」双写收敛到 `http_protocol.py` ⑤ http_server 的 register_ws/unregister_ws/close_websockets/needs_resync 登记面坐上 `EventStreamHub`（`http_server.py:640-696`）⑥ story 批基线一次采集 ⑦ 流式 token 重编码：`agent/stream_runtime.py:95` 每次流式调用全量 re-encode 且 usage 缺失分支再全量算一次（按消息 memoize / 复用 `stream_estimated`）⑧ policy 可用性预热 + WS 帧预序列化（帧对订阅者恒同，但预序列化点在三 hub 的 backlog/队列协议面，与 ④⑤ 同族同批）。触发条件 = 下一轮性能/网络专项周期按项领取；均为行为保持型重构，动手前过两道红线（monkeypatch 缝 grep + 本机可验证面） |
 
 ## 已按 Epic 归档
 

@@ -12,6 +12,9 @@
 | A35 | HTTP 在途 run 与 SSE 缓冲重启即丢 | `active` | 同上 |
 | A36 | 全局级 MCP 注入签名入口（YAGNI，触发条件未到） | `active` | 同上 |
 | A41 | 兄弟 Story 越集写互相误归因（`goal/write_audit.py:146-157`；归因披露已落地，根因待 AD-20） | `frozen`（AD-20，OQ-4 未裁） | 同上 |
+| A52 | 坏 `hooks.json` 静默跳过（engine/hooks.py load；修正 = 启动期 fail-fast） | `active` | 同上 |
+| A53 | PostToolUse hook stdout 不进对话上下文（候选增强，零使用） | `active` | 同上 |
+| A54 | /simplify 清理批（2026-11-14）缓修残差：真重构 8 项（ws_server 骨架 / SandboxDecision 类型化 / WS·SSE 重放收敛 / EventStreamHub 登记面 / 流式 token 重编码等） | `active` | 同上 |
 
 > 已闭合的 10 条（A40 内容级增量 / A42 判负补救指引 / A43 参照系换算 / A44 交互 REPL 挂 sink / A45 中断语义 / A46 cause 链 / A47 reason 无上限 / A48 失败事件缺驱动字段 / A49 双 listener 故障注入 / A50 归档追加加锁）正文与证据
 > 在 archive 的「本轮闭合」段；Epic 52 审计语义 4 项目前只剩 A41（A40/A42/A43 已闭合），不再在本文件重复。

@@ -12,6 +12,10 @@
 
 ## [Unreleased]
 
+### Changed
+
+- 内部单源化清理批（行为零变化，判据全绿）：词级判重公式三份拷贝收单点（`compact.word_overlap_duplicate`，`FactStore.add` 反向复用）；归档小节构造与字节账收敛到 `auto_archive._append_archive`/`_fact_line_bytes`（`compact._append_archive_section` 退化为薄委托）；`auto_archive` 跨进程节流改用 `pub.persist` 的 `stamp_is_recent`/`touch_prune_stamp`（与 store/ledger/housekeeping 同一节流序列）；`EngineContainer` 两处 prune 同构孪生收敛 `_prune_gate_once`（日志文案逐字节不变）；`setup_ws_external` / `envscan` 改用 `envfile.replace_or_append` / `envfile.fingerprint`。
+
 ### Added
 
 - `RunStore.close_stale_running`：把陈旧 running 快照收尾为 FAILED（崩溃进程遗留的 running 不再污染统计；`updated_at` 保持末次真实活动时刻，不回填时钟）。已接线：新 run 启动时自动触发一次（去重），阈值 `RUN_STALE_IDLE_HOURS`（默认 6h，0=禁用）。
