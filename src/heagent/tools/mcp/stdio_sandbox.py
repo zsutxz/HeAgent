@@ -33,7 +33,7 @@ from uuid import uuid4
 from mcp.client.stdio import StdioServerParameters
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
-from heagent.tools.sandbox.docker import CONTAINER_USER, CONTAINER_WORKDIR, docker_available
+from heagent.tools.sandbox.docker import CONTAINER_USER, CONTAINER_WORKDIR, docker_available, hardening_flags
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -95,8 +95,9 @@ def _mount_arg(workspace: str | None) -> list[str]:
 def build_run_argv(spec: StdioSandboxSpec, cfg: StdioServerConfig) -> list[str]:
     """组装 ``docker run`` argv（旗标与顺序单处决定；判据钉在这里）。
 
-    env 旗标**先于** IMAGE：``docker run`` 的选项只在镜像名之前解析，排在后面会被当成
-    容器内命令的参数而静默失效（与 DockerRunner 的限额旗标同一坑）。
+    硬化旗标段（cap-drop / no-new-privileges / user / 限额）与 DockerRunner 同源
+    （``docker.hardening_flags``，安全口径单处维护）。env 旗标**先于** IMAGE：
+    ``docker run`` 的选项只在镜像名之前解析，排在后面会被当成容器内命令的参数而静默失效。
     """
     argv = [
         spec.docker_path,
@@ -108,19 +109,10 @@ def build_run_argv(spec: StdioSandboxSpec, cfg: StdioServerConfig) -> list[str]:
         container_name(cfg),
         "--network",
         spec.network,
-        "--cap-drop=ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--user",
-        spec.user,
-        # 便于孤儿容器核查（scripts/cleanup_orphan_containers.ps1 口径一致）
-        "--label",
-        "heagent.mcp=stdio",
     ]
-    if spec.memory_limit_mb > 0:
-        argv += ["--memory", f"{spec.memory_limit_mb}m"]
-    if spec.pids_limit > 0:
-        argv += ["--pids-limit", str(spec.pids_limit)]
+    argv += hardening_flags(user=spec.user, memory_limit_mb=spec.memory_limit_mb, pids_limit=spec.pids_limit)
+    # 便于孤儿容器核查（scripts/cleanup_orphan_containers.ps1 口径一致）
+    argv += ["--label", "heagent.mcp=stdio"]
     # 只透传 server 自己声明的 env 名（不带值 ⇒ 从 docker CLI 进程 env 取）。
     for key in sorted(cfg.env):
         argv += ["-e", key]

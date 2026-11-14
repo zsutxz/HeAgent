@@ -31,6 +31,7 @@ from heagent.network.ws_protocol import (
     WsCliAckFrame,
     WsCliEventFrame,
     WsCommand,
+    WsCommandFrame,
     WsErrorFrame,
     WsEventFrame,
     WsFrameError,
@@ -139,6 +140,35 @@ async def _send_event_stream(
         await websocket.send_text(WsEventFrame(event=event).model_dump_json())
 
 
+async def _next_command(websocket: WebSocketLike) -> WsCommandFrame | None:
+    """命令循环前导（四条 listener 共用）：收一帧并解析，异常一律收敛为「连接结束」信号。
+
+    返回 ``None`` = 连接到此为止，调用方直接 ``return``：对端断开（``WebSocketDisconnect``）
+    静默结束；帧违规则已按口径处置——``TOO_LARGE`` 以 ``1009`` close，其余回
+    ``invalid_request`` 错误帧并以 ``WS_CLOSE_POLICY`` close。四条命令循环曾各抄一份
+    这段前导（逐字重复），收单处后协议变化只改这里。
+    """
+    try:
+        text = await websocket.receive_text()
+    except Exception as exc:
+        if type(exc).__name__ == "WebSocketDisconnect":
+            return None
+        raise
+    try:
+        return parse_command_frame(text)
+    except WsFrameError as exc:
+        if exc.kind is WsFrameErrorKind.TOO_LARGE:
+            await websocket.close(code=WS_CLOSE_TOO_LARGE)
+        else:
+            await _send_error(
+                websocket,
+                HttpErrorCode.INVALID_REQUEST,
+                "invalid WebSocket command",
+                close_code=WS_CLOSE_POLICY,
+            )
+        return None
+
+
 async def _handle_commands(
     websocket: WebSocketLike,
     service: RunWebSocketService,
@@ -153,25 +183,10 @@ async def _handle_commands(
     知道它连的是观众席。
     """
     while True:
-        try:
-            text = await websocket.receive_text()
-        except Exception as exc:
-            if type(exc).__name__ == "WebSocketDisconnect":
-                return
-            raise
-        try:
-            command = parse_command_frame(text).command
-        except WsFrameError as exc:
-            if exc.kind is WsFrameErrorKind.TOO_LARGE:
-                await websocket.close(code=WS_CLOSE_TOO_LARGE)
-            else:
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.INVALID_REQUEST,
-                    "invalid WebSocket command",
-                    close_code=WS_CLOSE_POLICY,
-                )
+        frame = await _next_command(websocket)
+        if frame is None:
             return
+        command = frame.command
 
         if command is WsCommand.RUN:
             # 提交能力只在集合级端点：这条连接早已绑定某个 run，回错误帧但**不断连**。
@@ -278,24 +293,8 @@ async def _handle_submit_commands(websocket: WebSocketLike, service: RunWebSocke
     ``run_id`` 后经既有 ``/api/runs/{run_id}/ws`` 订阅——单 run 端点形状因此保持不变。
     """
     while True:
-        try:
-            text = await websocket.receive_text()
-        except Exception as exc:
-            if type(exc).__name__ == "WebSocketDisconnect":
-                return
-            raise
-        try:
-            frame = parse_command_frame(text)
-        except WsFrameError as exc:
-            if exc.kind is WsFrameErrorKind.TOO_LARGE:
-                await websocket.close(code=WS_CLOSE_TOO_LARGE)
-            else:
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.INVALID_REQUEST,
-                    "invalid WebSocket command",
-                    close_code=WS_CLOSE_POLICY,
-                )
+        frame = await _next_command(websocket)
+        if frame is None:
             return
 
         if frame.command is WsCommand.RUN:
@@ -338,7 +337,7 @@ def build_runs_collection_endpoint(
         connection_id = uuid.uuid4().hex[:12]
         if await _reject_unauthenticated(websocket, authorize, transport="runs_submit"):
             return
-        if await _reject_bad_origin(websocket, origin_violation, "-"):
+        if await _reject_bad_origin(websocket, origin_violation, transport="ws", run_id="-"):
             return
         await websocket.accept()
         await _send_hello(websocket, version)
@@ -468,7 +467,7 @@ def build_ws_endpoint(
         run_id = str(websocket.path_params.get("run_id", ""))
         if await _reject_unauthenticated(websocket, authorize, transport="runs"):
             return
-        if await _reject_bad_origin(websocket, origin_violation, run_id):
+        if await _reject_bad_origin(websocket, origin_violation, transport="ws", run_id=run_id):
             return
         await websocket.accept()
         await _send_hello(websocket, version)
@@ -543,11 +542,27 @@ async def _reject_unauthenticated(websocket: WebSocketLike, authorize: AuthCheck
     return True
 
 
-async def _reject_bad_origin(websocket: WebSocketLike, origin_violation: OriginCheck, run_id: str) -> bool:
+async def _reject_bad_origin(
+    websocket: WebSocketLike,
+    origin_violation: OriginCheck,
+    *,
+    transport: str,
+    run_id: str = "",
+) -> bool:
+    """握手前同源门——四条 listener 共用一份拒绝协议（检查、日志口径、close 协议单处决定）。
+
+    与认证拒绝的区别：Origin 违规是「配置不符」（本机模式），认证失败是「凭证不对」（对外模式）；
+    两者都在 accept 之前完成，客户端拿到的都是 HTTP 403（无 body）——对探测者而言，
+    「没有这个端点」与「token/配置错」不可区分。日志保持各 listener 旧口径逐字节不变：
+    run 端点带 ``run_id=`` 字段（集合级提交传 ``"-"``），CLI/通知流不带。
+    """
     violation = origin_violation(websocket.scope)
     if violation is None:
         return False
-    logger.warning("http event=origin_rejected transport=ws run_id=%s reason=%s", run_id, violation)
+    if run_id:
+        logger.warning("http event=origin_rejected transport=%s run_id=%s reason=%s", transport, run_id, violation)
+    else:
+        logger.warning("http event=origin_rejected transport=%s reason=%s", transport, violation)
     # 在 accept 前 close：客户端拿 HTTP 403；不透出 host allow-list 或错误信封。
     await websocket.close()
     return True
@@ -572,25 +587,10 @@ async def _cli_handle_commands(websocket: WebSocketLike, hub: CliEventHub) -> No
     「不支持」而不是「静默忽略」，是为了让客户端**知道**它连的是观众席。
     """
     while True:
-        try:
-            text = await websocket.receive_text()
-        except Exception as exc:
-            if type(exc).__name__ == "WebSocketDisconnect":
-                return
-            raise
-        try:
-            command = parse_command_frame(text).command
-        except WsFrameError as exc:
-            if exc.kind is WsFrameErrorKind.TOO_LARGE:
-                await websocket.close(code=WS_CLOSE_TOO_LARGE)
-            else:
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.INVALID_REQUEST,
-                    "invalid WebSocket command",
-                    close_code=WS_CLOSE_POLICY,
-                )
+        frame = await _next_command(websocket)
+        if frame is None:
             return
+        command = frame.command
 
         if command is WsCommand.CANCEL:
             await _send_error_frame(
@@ -628,11 +628,7 @@ def build_cli_ws_endpoint(
         connection_id = uuid.uuid4().hex[:12]
         if await _reject_unauthenticated(websocket, authorize, transport="cli_ws"):
             return
-        violation = origin_violation(websocket.scope)
-        if violation is not None:
-            logger.warning("http event=origin_rejected transport=cli_ws reason=%s", violation)
-            # 在 accept 前 close：客户端拿 HTTP 403；不透出 host allow-list 或错误信封。
-            await websocket.close()
+        if await _reject_bad_origin(websocket, origin_violation, transport="cli_ws"):
             return
         await websocket.accept()
         await _send_hello(websocket, version)
@@ -729,25 +725,10 @@ async def _notification_handle_commands(websocket: WebSocketLike) -> None:
     才知道它连的是通知流。
     """
     while True:
-        try:
-            text = await websocket.receive_text()
-        except Exception as exc:
-            if type(exc).__name__ == "WebSocketDisconnect":
-                return
-            raise
-        try:
-            command = parse_command_frame(text).command
-        except WsFrameError as exc:
-            if exc.kind is WsFrameErrorKind.TOO_LARGE:
-                await websocket.close(code=WS_CLOSE_TOO_LARGE)
-            else:
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.INVALID_REQUEST,
-                    "invalid WebSocket command",
-                    close_code=WS_CLOSE_POLICY,
-                )
+        frame = await _next_command(websocket)
+        if frame is None:
             return
+        command = frame.command
 
         if command is WsCommand.RUN:
             await _send_error_frame(
@@ -785,11 +766,7 @@ def build_notification_ws_endpoint(
         connection_id = uuid.uuid4().hex[:12]
         if await _reject_unauthenticated(websocket, authorize, transport="notifications"):
             return
-        violation = origin_violation(websocket.scope)
-        if violation is not None:
-            logger.warning("http event=origin_rejected transport=notifications reason=%s", violation)
-            # 在 accept 前 close：客户端拿 HTTP 403；不透出 host allow-list 或错误信封。
-            await websocket.close()
+        if await _reject_bad_origin(websocket, origin_violation, transport="notifications"):
             return
         await websocket.accept()
         await _send_hello(websocket, version)

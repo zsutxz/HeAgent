@@ -161,6 +161,23 @@ def _mount_spec(workspace: Path | None) -> str | None:
     return f"{workspace.as_posix()}:{CONTAINER_WORKDIR}"
 
 
+def hardening_flags(*, user: str, memory_limit_mb: int = 0, pids_limit: int = 0) -> list[str]:
+    """``docker run`` 硬化旗标段（cap-drop / no-new-privileges / --user / 限额），单处决定。
+
+    命令沙箱（:func:`build_run_argv`）与 MCP stdio 容器（``tools/mcp/stdio_sandbox.py``）
+    共用同一份安全硬化口径——两处手抄会在维护中各自漂移，安全旗标尤其如此。
+    **必须排在 IMAGE 之前**：`docker run` 的选项只在镜像名之前被解析，排在镜像名之后
+    会变成容器内命令的参数（限额静默失效，容器照跑；真实 daemon integration 用例钉住）。
+    ``0`` = 关闭对应限额（零旗标，既有 argv 逐字节不变）；触发 = 容器被杀显性失败。
+    """
+    flags = ["--cap-drop=ALL", "--security-opt", "no-new-privileges", "--user", user]
+    if memory_limit_mb > 0:
+        flags += ["--memory", f"{memory_limit_mb}m"]
+    if pids_limit > 0:
+        flags += ["--pids-limit", str(pids_limit)]
+    return flags
+
+
 def build_run_argv(
     *,
     docker_path: str,
@@ -177,8 +194,8 @@ def build_run_argv(
 
     不传 ``--env``：容器 env 隔离的落点（见模块 docstring）。``--pull=never``：镜像缺席
     显性报错而非隐式拉取（隔离工具不制造网络依赖；镜像供给是 53-2 的配置面职责）。
-    硬化旗标：``--cap-drop=ALL`` + ``no-new-privileges`` + 非 root ``user``（审查修复批）；
-    ``user`` 参数化供测试断言与未来逐 run 覆盖。
+    硬化旗标段复用 :func:`hardening_flags`（``--cap-drop=ALL`` + ``no-new-privileges`` +
+    非 root ``user`` + 限额），与 MCP stdio 容器同源；``user`` 参数化供测试断言与未来逐 run 覆盖。
     """
     argv = [
         docker_path,
@@ -189,19 +206,8 @@ def build_run_argv(
         name,
         "--network",
         network,
-        "--cap-drop=ALL",
-        "--security-opt",
-        "no-new-privileges",
-        "--user",
-        user,
     ]
-    # 资源限额（0=关闭，默认零旗标 → 既有 argv 逐字节不变）；触发=容器被杀显性失败。
-    # ⚠ 必须排在 IMAGE **之前**：`docker run` 的选项只在镜像名之前被解析，排在镜像名之后
-    # 会变成容器内命令的参数（限额静默失效，容器照跑）。真实 daemon integration 用例钉住。
-    if memory_limit_mb > 0:
-        argv += ["--memory", f"{memory_limit_mb}m"]
-    if nproc_limit > 0:
-        argv += ["--pids-limit", str(nproc_limit)]
+    argv += hardening_flags(user=user, memory_limit_mb=memory_limit_mb, pids_limit=nproc_limit)
     mount = _mount_spec(workspace)
     if mount is not None:
         argv += ["-v", mount, "-w", CONTAINER_WORKDIR]
