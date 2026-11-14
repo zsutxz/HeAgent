@@ -1358,7 +1358,7 @@ async def test_session_preserves_tail_marker_after_stdout_truncation(tmp_path: P
     assert "[truncated]" in result
 
 
-# ── docker 后端的会话 cwd（容器侧路径，审查修复批 2026-10-21）────────────────
+# ── docker 后端的会话 cwd（容器侧路径）────────────────
 
 
 def _docker_session_runner(tmp_path: Path, outputs: list[str]) -> object:

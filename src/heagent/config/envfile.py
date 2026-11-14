@@ -66,7 +66,7 @@ MAX_KEY_CHARS = 64
 MAX_VALUE_CHARS = 8192
 
 #: 行内注释的起点：**空白 + ``#``**（``KEY=v  # c``）。与 ``config_catalog`` 的诊断口径一致。
-#: 实测 dotenv 的解析规则（探针 ``env_parse_probe``）：``KEY=#x`` 的 ``#`` **不是**注释（前面没有空白），
+#: 实测 dotenv 的解析规则：``KEY=#x`` 的 ``#`` **不是**注释（前面没有空白），
 #: ``KEY=x#y # z`` 取 ``x#y``，``KEY=x\t# c`` 取 ``x``——所以判据是「空白紧邻 ``#``」，且注释覆盖
 #: 到整行结束（值前的空白一并丢掉）。
 _INLINE_COMMENT_RE = re.compile(r"\s+#")

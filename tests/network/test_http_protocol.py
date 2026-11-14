@@ -43,7 +43,7 @@ class TestErrorCodes:
             "empty_prompt",
             "request_too_large",
             "run_conflict",
-            # 2026-09-27：服务级在途总额（可选 HTTP_MAX_TOTAL_INFLIGHT）满 ⇒ 与「本项目已有运行」
+            # 服务级在途总额（可选 HTTP_MAX_TOTAL_INFLIGHT）满 ⇒ 与「本项目已有运行」
             # 是不同语义（等任何一次运行 vs 等本项目/本会话），独立成码。
             "total_inflight_limit",
             "unknown_run",

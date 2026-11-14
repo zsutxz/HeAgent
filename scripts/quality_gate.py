@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 GATE_TIMEOUT_SECONDS = 900
 
 COMMANDS = (
-    # 第 0 门：契约快照（~0.3s）。架构 M1 要求「六门前插一门」，守住四份基线（public / routes /
+    # 第 0 门：契约快照（~0.3s）。要求「六门前插一门」，守住四份基线（public / routes /
     # exceptions / transport_errors）的静默漂移；
     # 若这里红了，先用 `python scripts/contract_snapshot.py --check` 看 diff，再判断是改代码还是重生基线。
     ("contract snapshot", [sys.executable, "scripts/contract_snapshot.py", "--check"]),
@@ -35,7 +35,7 @@ COMMANDS = (
     ("ruff format", ["ruff", "format", "--check", "src", "tests", "scripts"]),
     ("mypy", ["mypy", "src"]),
     # CI 的 lint job 是 fail-fast 源头（bandit 失败会连带 test 矩阵全部跳过）；
-    # 本地门不含这一条时，「本地全绿 / CI 全红」无从察觉（2026-10-23 实测过一次）。
+    # 本地门不含这一条时，「本地全绿 / CI 全红」无从察觉（实测发生过一次）。
     ("bandit", [sys.executable, "-m", "bandit", "-r", "src/", "-ll"]),
 )
 

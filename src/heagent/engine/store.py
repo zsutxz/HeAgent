@@ -92,7 +92,7 @@ class RunStore:
     def __init__(self, base_dir: str = ".heagent/runs") -> None:
         # 快照根目录；按需在 save() 时创建。
         self._base = Path(base_dir)
-        # 跨进程文件锁开关（经 EngineContainer.enable_file_locks 注入，V2）。
+        # 跨进程文件锁开关（经 EngineContainer.enable_file_locks 注入）。
         self._enable_locks: bool = False
 
     async def start(self, context: RunContext, *, prompt: str, system: str | None = None) -> str:

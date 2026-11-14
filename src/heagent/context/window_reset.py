@@ -112,7 +112,7 @@ class WindowReset:
         total_chars = 0
         for m in reversed(messages):
             # 组装走共用序列化（与 ContextCompressor 同一实现）；此处保留工具返回正文
-            # （tool_result_content=True），使清窗续跑不丢工具上下文（P1-6）。
+            # （tool_result_content=True），使清窗续跑不丢工具上下文。
             parts = render_message_for_summary(m, tool_result_content=True)
             if not parts:
                 continue

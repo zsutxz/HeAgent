@@ -153,8 +153,8 @@ class TestDescription:
         schema = ToolRegistry.get().get_schema("fact_compact")
         assert schema is not None, "fact_compact must be auto-registered by @tool"
         description = schema.description
-        assert "exactly and uniquely" in description  # D6 精确匹配
-        assert "archived before MEMORY.md is rewritten" in description  # D3 留底先行
-        assert "memory_compact_enabled" in description  # D5 默认关
+        assert "exactly and uniquely" in description  # 精确匹配
+        assert "archived before MEMORY.md is rewritten" in description  # 留底先行
+        assert "memory_compact_enabled" in description  # 默认关
         assert "when uncertain, do not merge" in description  # 不确定不改
         assert schema.parameters["properties"]["merges"] == {"type": "array"}  # 条目结构只在 description

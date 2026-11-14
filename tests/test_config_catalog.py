@@ -376,9 +376,9 @@ class TestClassification:
 
     def test_whitelist_keys_all_exist(self) -> None:
         assert whitelist() <= ENV_KEYS
-        # D3 裁定后的口径（38 + 8）+ 记忆归档 2 键 + epic-59 语义压缩 1 键
-        # + epic-58 cron 结果推送 2 键 − 死键 shell_timeout 移除（2026-11-06 C1，生产读者为零）
-        # + 陈旧 running 收尾阈值 RUN_STALE_IDLE_HOURS（2026-11-12 close_stale_running 接线）
+        # 口径（38 + 8）+ 记忆归档 2 键 + 语义压缩 1 键
+        # + cron 结果推送 2 键 − 死键 shell_timeout 移除（生产读者为零）
+        # + 陈旧 running 收尾阈值 RUN_STALE_IDLE_HOURS（close_stale_running 接线）
         assert len(whitelist()) == 51
 
     def test_partition_is_complete(self) -> None:
@@ -687,7 +687,7 @@ class TestReportShape:
         project = _write(tmp_path / ".env", raw=raw)
         report = _report(project)
         assert report.env_file.fingerprint == hashlib.sha256(raw).hexdigest()
-        assert report.env_file.line_count == 1  # 末行换行不额外算一行（评审发现·镜头二⑤）
+        assert report.env_file.line_count == 1  # 末行换行不额外算一行
 
     def test_empty_env_file_counts_zero_lines(self, tmp_path: Path) -> None:
         """0 字节的 .env 是 0 行（原先按 ``split("\\n")`` 段数计会谎报 1 行）。"""

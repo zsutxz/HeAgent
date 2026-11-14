@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 # 对外契约的字段集（黄金测试基准）：改字段必须先 bump SCHEMA_VERSION 并更新此处。
-# v2（Phase 5 C1）：+duration_ms / error_kind（旧文件缺省读、新字段被旧码 extra=ignore）。
+# v2：+duration_ms / error_kind（旧文件缺省读、新字段被旧码 extra=ignore）。
 _EXPECTED_FIELDS = {
     "schema_version",
     "seq",
@@ -90,7 +90,7 @@ class TestRunEventProtocol:
         """黄金测试：JSONL 的字段集是版本化契约，不得漂移。"""
         payload = json.loads(make_event("run_started", seq=1).to_jsonl())
         assert set(payload) == _EXPECTED_FIELDS
-        assert payload["schema_version"] == SCHEMA_VERSION == "2"  # v2（Phase 5 C1）
+        assert payload["schema_version"] == SCHEMA_VERSION == "2"
 
     def test_jsonl_is_a_single_line_even_with_newlines(self) -> None:
         """正文含换行/制表符时仍须是单行（JSON 转义），否则消费方按行解析会错位。"""
@@ -390,7 +390,7 @@ class TestEventStreamEndToEnd:
         assert "--json" in result.output
 
 
-# --- Phase 5 C1：耗时/失败分类契约 ---
+# --- 耗时/失败分类契约 ---
 
 
 class TestErrorKindMapping:

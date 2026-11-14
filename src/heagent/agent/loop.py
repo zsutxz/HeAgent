@@ -175,7 +175,7 @@ class AgentLoop:
                 之后业务执行（压缩/窗口重置/委派/提示词/技能预算）只读快照，全局 Settings 漂移不影响已创建的 loop。
         """
         self.provider = provider
-        # 运行配置快照（Phase 1）：构造期一次性解析；业务执行期只读快照。
+        # 运行配置快照：构造期一次性解析；业务执行期只读快照。
         self._runtime = resolve_runtime_config(runtime_config)
         self.registry = registry or ToolRegistry.get()
         self.guard = guard or SafetyGuard(blocked_tools=list(self._runtime.safety_blocked_tools))
@@ -184,7 +184,7 @@ class AgentLoop:
         self.facts = facts
         self.profile = profile
         self.session = session
-        # D3：compressor（就地压缩）与 window_reset（窗口重置）是两种互斥的上下文管理策略，
+        # compressor（就地压缩）与 window_reset（窗口重置）是两种互斥的上下文管理策略，
         # 每个 loop 只能启用其一；同时传入属于配置错误，直接报错而非默认其一。
         if compressor is not None and window_reset is not None:
             raise ValueError(
@@ -503,7 +503,7 @@ class AgentLoop:
         async def handler(req: Request) -> ProviderResponse:
             return await self.provider.send(req.messages, tools=req.tools or None)
 
-        # Phase 5 C1：provider 调用耗时（中间件链整体 wall time，perf_counter 单调钟）。
+        # provider 调用耗时（中间件链整体 wall time，perf_counter 单调钟）。
         _provider_started = time.perf_counter()
         if self.middlewares:
             chain = compose(self.middlewares, handler)
@@ -519,7 +519,7 @@ class AgentLoop:
                 estimated,
                 response.usage.total_tokens - estimated,
             )
-            # P0-3：把「实际 vs 估算」的偏差回收成校准系数（输入侧同量纲才可比）。
+            # 把「实际 vs 估算」的偏差回收成校准系数（输入侧同量纲才可比）。
             # 主循环校准入口（旁路调用经 context.sidecall.send_accounted 同样记账；
             # 流式 usage 缺失时主循环无样本可学）。
             from heagent.context.tokens import note_actual_usage

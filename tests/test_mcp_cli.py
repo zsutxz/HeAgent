@@ -150,7 +150,7 @@ class TestCLIMCPIntegration:
         assert events == ["enter", "exit"]
 
 
-# --- 发现阶段失败呈报（Phase 4 C2：不隐藏发现错误）---
+# --- 发现阶段失败呈报（不隐藏发现错误）---
 
 
 def test_report_mcp_discovery_failures_renders_stderr(clean_settings, capsys):

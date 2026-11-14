@@ -992,7 +992,7 @@ class TestRunHistoryRetention:
         assert service.run(second) is not None
 
 
-# ── A9：运行时归因与兜底族（2026-09-27） ──
+# ── 运行时归因与兜底族 ──
 
 
 async def test_a_consumed_deadline_does_not_blame_a_later_delete() -> None:

@@ -84,7 +84,7 @@ class StepValidationClauses(BaseModel):
     artifacts: list[str] = Field(default_factory=list)
     git_paths: list[str] = Field(default_factory=list)
     # 命名质量门：只存声明的名字。**名字的注册表校验由加载器接管**（goal/workflow_loader
-    # 经 goal/quality_gates 的宿主注册表校验，未注册名字加载期 fail-loud，Story 51-4）；
+    # 经 goal/quality_gates 的宿主注册表校验，未注册名字加载期 fail-loud）；
     # 模型只承载声明，绕过 loader 直构造模型由求值器兜底显性失败。
     gates: list[str] = Field(default_factory=list)
 
@@ -102,7 +102,7 @@ class StepValidationClauses(BaseModel):
 # ``approval:`` 的关键词词汇（单一真源）：步骤只能声明「要不要人工确认」，合法关键词只有
 # ``required``，其后可带一句给人读的说明（``approval: required 架构冻结前需人工确认``）。
 # 未声明 = 该步不需要人工确认（老包零行为变化）；其余取值由加载器（goal/workflow_loader）
-# 加载期 fail-loud。声明里只有「要不要」，没有步骤名 / 步骤序号（AD-13）。
+# 加载期 fail-loud。声明里只有「要不要」，没有步骤名 / 步骤序号。
 APPROVAL_KEYWORDS: tuple[str, ...] = ("required",)
 
 
@@ -176,9 +176,9 @@ class WorkflowResource(BaseModel):
     name: str
     instructions: str
     steps: list[WorkflowStepResource]
-    # workflow 的 revision（Story 51-6）：包 frontmatter 可显式声明；未声明时空串 = 由包内容
+    # workflow 的 revision：包 frontmatter 可显式声明；未声明时空串 = 由包内容
     # 推导（派生点唯一在 ``goal/workflow_loader.workflow_revision``）。声明与派生两条路都只是
-    # 「提供被冻结的值」——创建时冻结、恢复时比对是引擎不变量（AD-8），本模型不承载比对。
+    # 「提供被冻结的值」——创建时冻结、恢复时比对是引擎不变量，本模型不承载比对。
     revision: str = ""
     entrypoint: str = ""
     on_create: str = "persist_goal_identity"

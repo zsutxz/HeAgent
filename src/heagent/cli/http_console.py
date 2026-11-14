@@ -115,7 +115,7 @@ def _resolve_model(loop: AgentLoop) -> str | None:
     return loop.last_model or loop.provider.get_metadata().model
 
 
-#: **网页展示策略**（Story 50-8 R5，非安全边界、也不改变任何有界口径）：这些工具的**成功**结果内容
+#: **网页展示策略**（非安全边界、也不改变任何有界口径）：这些工具的**成功**结果内容
 #: 不进网页事件流——``file_read`` 会把整份文件正文灌进对话区、``file_edit`` 会把整份 diff（连同上下文
 #: 行）灌进去、``skill_load`` 会把整篇 ``SKILL.md``（含 frontmatter；实测某技能正文 7.7 KB）灌进去，
 #: 而网页只需要「读了 / 改了哪个文件、读了哪个技能」（作用对象由 ``tool_target`` 提供）。
@@ -226,14 +226,14 @@ class HttpAgentHandler:
         self.max_iterations = max_iterations
         self.sandbox_backend = sandbox_backend
         self._soul_path = soul_path
-        # 工作区根的三级取值：显式形参 → 注入引擎（测试）→ 进程 cwd（Epic 49 的既有兜底）。
+        # 工作区根的三级取值：显式形参 → 注入引擎（测试）→ 进程 cwd（既有兜底）。
         # 网络入口不装审批处理器（见类 docstring）；engine 可注入（测试）但默认自建。
         paths = WorkspacePaths.from_root(workspace_root or (engine.workspace_root if engine else None) or os.getcwd())
         self.paths = paths
         self.engine = engine or EngineContainer.default(
             workspace_root=str(paths.root), sandbox_backend=sandbox_backend, settings=settings
         )
-        # 运行时**传入**会话存储（Story 50-3）：为 ``None`` 时本运行时没有会话，行为与 Epic 49 一致；
+        # 运行时**传入**会话存储：为 ``None`` 时本运行时没有会话；
         # 控制台侧传入时，会话文件落在该项目的 ``paths.sessions``。
         self.session_store = session_store
         self.skills = SkillStore(default_skill_roots(paths.root))
@@ -241,8 +241,8 @@ class HttpAgentHandler:
         self.profile = ProfileStore(str(paths.profile_file))
         self.soul = _build_soul(soul_path)
         # 网页入口与 CLI 同口径：rollout 落盘只由 ``EVENTS_ROLLOUT_ENABLED`` 决定（默认关闭，
-        # 落盘含工具原始输出）。此前 handler 自建 engine 却从不订阅 sink ⇒ 该开关在网页入口是
-        # 死键（活动台账 A35 的前置缺口）。落点按**项目根**：多项目控制台下 cwd 不等于项目根。
+        # 落盘含工具原始输出）。handler 若不订阅 sink，该开关在网页入口就是死键。
+        # 落点按**项目根**：多项目控制台下 cwd 不等于项目根。
         from heagent.cli.composition import _build_event_sink  # noqa: PLC0415 —— 与 new_loop 同款延迟导入
 
         sink = _build_event_sink(self.settings, json_output=False, root=paths.root)
@@ -488,8 +488,8 @@ class HttpProjectConsole:
     ) -> None:
         self.registry = default_project_registry(workspace, projects_file)
         self.workspace = workspace
-        # 运行服务是**注入**的（AD-1 接缝）：在途判定与「会话最近一次运行状态」都取自它，
-        # 控制台因此不持有第二份会过期的索引（评审 R2/R4）。
+        # 运行服务是**注入**的：在途判定与「会话最近一次运行状态」都取自它，
+        # 控制台因此不持有第二份会过期的索引。
         self._runs = runs
         self._handler_factory = handler_factory
         self._runtimes: dict[str, _ProjectRuntime] = {}
@@ -497,14 +497,14 @@ class HttpProjectConsole:
         # 的每一层判定都必须与面板 / 运行期同源，否则会出现「面板说可写、写下去不生效」。
         self.write_enabled = write_enabled
         self.global_setting_file = Path(global_setting_file).expanduser() if global_setting_file is not None else None
-        # 原生目录选择（Story 50-8）：后端口径来自**启动配置**（`--dialog-backend`），单在途由入口层持有。
+        # 原生目录选择：后端口径来自**启动配置**（`--dialog-backend`），单在途由入口层持有。
         # 它会拉起宿主进程（弹窗），因此只服务「登记项目」这条链路；返回值不是权限——拿到路径后仍要过
         # ``registry.register`` 的存在性 / 目录性 / 规范化 / 去重 / 上限全套校验。
         self._picker = DirectoryPicker(dialog_backend)
-        # 每个项目的**配置代**：写成功后自增（UI 与测试用它观测「下一次运行生效」，I10）。
+        # 每个项目的**配置代**：写成功后自增（UI 与测试用它观测「下一次运行生效」）。
         self._config_generations: dict[str, int] = {}
         if write_enabled:
-            # D4：开关一旦打开就必须**在启动时**说清楚代价（stderr + 日志），不能只写在文档里。
+            # 开关一旦打开就必须**在启动时**说清楚代价（stderr + 日志），不能只写在文档里。
             safe_log(
                 logger,
                 logging.WARNING,
@@ -518,7 +518,7 @@ class HttpProjectConsole:
                 err=True,
             )
 
-    # ── 项目（Story 50-2） ──
+    # ── 项目 ──
 
     async def list_projects(self) -> ProjectListResponse:
         # 注册表读 + 每条目的 `Path.is_dir()` 都是同步 I/O（≤32 条）⇒ 经线程池卸载。
@@ -555,15 +555,15 @@ class HttpProjectConsole:
             raise ConsoleOperationError(exc.code, str(exc)) from exc
         self._runtimes.pop(project_id, None)
 
-    # ── 会话与项目内运行（Story 50-3） ──
+    # ── 会话与项目内运行 ──
 
     async def list_sessions(self, project_id: str) -> SessionListResponse:
         """该项目的会话列表（时间降序）。损坏文件也列出（``unreadable=true``），不静默消失。"""
         runtime = self._runtime_for(project_id)
         # 会话读是同步整份文件 I/O（随会话数线性增长）⇒ 经 to_thread 卸载，避免卡住同一循环里的
-        # 在途 SSE 流与其余请求（活动台账「控制台阻塞 I/O 与会话列表成本」条目）。
+        # 在途 SSE 流与其余请求。
         items = await asyncio.to_thread(runtime.sessions.list_metadata)
-        # 规模事实取自「数文件」而非列表长度：列表有 MAX_SESSION_LIST_ENTRIES 硬上限（A18）。
+        # 规模事实取自「数文件」而非列表长度：列表有 MAX_SESSION_LIST_ENTRIES 硬上限。
         counted = await asyncio.to_thread(runtime.sessions.count_sessions)
         return SessionListResponse(
             sessions=[_session_entry(item) for item in items],
@@ -579,7 +579,7 @@ class HttpProjectConsole:
         except ValueError as exc:  # 标题边界（协议层已挡一次）——入口层 fail-closed，不落半成品
             raise ConsoleOperationError(HttpErrorCode.INVALID_REQUEST, "session title is invalid") from exc
         except SessionConflictError as exc:
-            # 评审发现·镜头一⑩：``SessionConflictError`` 不是 ``ValueError``，漏捕会退化成不透明 500。
+            # ``SessionConflictError`` 不是 ``ValueError``，漏捕会退化成不透明 500。
             raise ConsoleOperationError(HttpErrorCode.SESSION_CONFLICT, str(exc)) from exc
         return _session_entry(meta)
 
@@ -661,7 +661,7 @@ class HttpProjectConsole:
         await asyncio.to_thread(self._touch, project_id)
         return ProjectRunResponse(run_id=record.run_id, session_id=session_id, status=record.status)
 
-    # ── 配置可见性（Story 50-4） ──
+    # ── 配置可见性 ──
 
     async def get_project_config(self, project_id: str) -> ProjectConfigResponse:
         """该项目的**有效**配置：值 + 来源 + 可写性 + 只读原因 + 诊断（只读；凭证仅掩码）。
@@ -678,7 +678,7 @@ class HttpProjectConsole:
         )
         return _config_response(project_id, report, write_enabled=self.write_enabled)
 
-    # ── 配置写入（Story 50-5） ──
+    # ── 配置写入 ──
 
     async def update_project_config(self, project_id: str, request: ConfigWriteRequest) -> ConfigWriteResponse:
         """执行配置写入流水线：闸门 → 项目 → 10 步（顶层模块）→ 生效语义（I10）。
@@ -747,7 +747,7 @@ class HttpProjectConsole:
         self._config_generations[project_id] = self._config_generations.get(project_id, 0) + 1
         self._runtimes.pop(project_id, None)
 
-    # ── 原生目录选择（Story 50-8） ──
+    # ── 原生目录选择 ──
 
     async def pick_directory(self) -> DirectoryPickResponse:
         """在**服务端所在机器**弹一次原生目录选择窗口（登记项目的便捷入口）。
@@ -771,7 +771,7 @@ class HttpProjectConsole:
     # ── 内部 ──
 
     def _project_entry(self, project_id: str) -> ProjectEntry:
-        # 每请求只 stat 目标项（台账 A10）：``registry.list()`` 会为**每条**已登记项目各做一次
+        # 每请求只 stat 目标项：``registry.list()`` 会为**每条**已登记项目各做一次
         # ``Path.is_dir()``（≤ 31 次），而这里只需要一条 ⇒ 走 ``registry.find``。
         entry = self.registry.find(project_id)
         if entry is None:

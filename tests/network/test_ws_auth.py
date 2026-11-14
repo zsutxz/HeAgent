@@ -159,7 +159,7 @@ def test_loopback_bind_is_local_mode_without_auth() -> None:
     config = WsServerConfig()
     assert config.mode == "local"
     assert config.requires_auth is False
-    # 本地模式即使配了 token 也不启用认证（D5：单监听器按绑定地址切模式）。
+    # 本地模式即使配了 token 也不启用认证（单监听器按绑定地址切模式）。
     assert WsServerConfig(auth_token="s3cret").requires_auth is False
 
 
@@ -324,7 +324,7 @@ def test_announcements_reflect_mode_and_tls() -> None:
     assert "PLAINTEXT" in _ws_access_note(external.config)
     assert _ws_url(external_tls) == f"wss://{external_tls.address}"
     assert "TLS" in _ws_access_note(external_tls.config)
-    # 2026-11-04 D5 修订：本地+强制认证 ⇒ 公告说「local mode + Bearer token required」，不是「no authentication」。
+    # 本地+强制认证 ⇒ 公告说「local mode + Bearer token required」，不是「no authentication」。
     local_auth = _FakeServer(WsServerConfig(auth_token="s3cret", local_auth=True))
     assert "local mode" in _ws_access_note(local_auth.config)
     assert "Bearer token required" in _ws_access_note(local_auth.config)

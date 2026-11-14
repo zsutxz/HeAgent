@@ -218,7 +218,7 @@ class ChatScreen(Screen[None]):
 
             def _sink(line: str) -> None:
                 # 与 CLI 同一批文案（冻结契约不改），只是投递到聊天日志而**不再**重定向 stderr：
-                # 后者会把 logging 与第三方输出一并吞进对话区（台账 A4b）。
+                # 后者会把 logging 与第三方输出一并吞进对话区。
                 log.write(f"[dim]{escape(line)}[/]")
 
             try:

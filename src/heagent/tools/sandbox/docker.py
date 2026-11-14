@@ -58,18 +58,18 @@ CONTAINER_WORKDIR = "/workspace"
 CONTAINER_USER = "sandbox"
 
 # daemon 心跳探测的复用窗口（秒）：健康时最多每 30s 付一次 ``docker version``（Windows 约
-# 150–300ms），换来「daemon 挂起后下一次调用 5s 内失败」而不是白等满命令超时（2026-11-02）。
+# 150–300ms），换来「daemon 挂起后下一次调用 5s 内失败」而不是白等满命令超时。
 _HEALTH_PROBE_TTL_SECONDS = 30.0
 # 探测的逐次 CLI 超时预算（秒）：Docker Desktop 在负载下有数秒级卡顿，且 WSL2 backend 在长时间
-# 无 docker 活动后会「冷启动」——2026-11-02 13:58 实测：9 分钟无 docker 活动后三条并行 shell 的
+# 无 docker 活动后会「冷启动」——实测：9 分钟无 docker 活动后三条并行 shell 的
 # 探针全部耗尽旧预算（5s×2，每条 duration≈10.5s）、判死并熔断 120s，而 2 分钟后同一 daemon 的
 # 单条 shell 只有 610ms。慢 ≠ 死，故逐次递增预算（3s 快判 → 8s 吸收冷启动），总预算 11.5s。
 _HEALTH_PROBE_TIMEOUTS: tuple[float, ...] = (3.0, 8.0)
 _HEALTH_PROBE_RETRY_DELAY_SECONDS = 0.5
 # 判定「daemon 不可用」后的熔断窗口（秒）：期间不 spawn 容器，直接返回显性诊断——历史形态是
-# 每条命令都实测 timeout + 40s 清理链才回报（2026-11-02 实测 3 次共 ~305s）。
+# 每条命令都实测 timeout + 40s 清理链才回报（实测 3 次共 ~305s）。
 # 只有**硬失败**才进窗：探针 CLI 明确报错（连接被拒 / daemon 未启动）或命令超时后清理链整体
-# 挂起。**探针超时不算**——那是「慢」，见 ``DockerRunner.run`` 的放行分支（2026-11-02 四次修订）。
+# 挂起。**探针超时不算**——那是「慢」，见 ``DockerRunner.run`` 的放行分支。
 _DEGRADED_COOLDOWN_SECONDS = 120.0
 
 # 探针判定：``ok`` / ``timeout``（CLI 不应答，慢） / ``unavailable``（CLI 明确报错或缺失）。
@@ -81,7 +81,7 @@ _PROBE_HUNG = "hung"
 
 # 熔断期内**未执行**命令的返回（保留 ``Command timed out`` 前缀，goal/evidence 的超时归类不漂移）。
 # 文案只覆盖**硬失败**：这种形态重试不会自愈，重启 Desktop 才是可操作建议。探针超时（慢、
-# 可能冷启动）不进熔断、命令照常执行，故不需要单独的「慢」文案（2026-11-02 四次修订）。
+# 可能冷启动）不进熔断、命令照常执行，故不需要单独的「慢」文案。
 _DAEMON_PAUSED_RESULT = (
     "exit_code=-1\n"
     "stderr: Command timed out after 0s (NOT executed): container sandbox paused — docker daemon "
@@ -96,7 +96,7 @@ _DAEMON_HINT = (
 )
 
 
-# docker CLI 子进程不继承服务进程的终端句柄（2026-11-02）：用户终端启动的实例里 docker.exe 曾在
+# docker CLI 子进程不继承服务进程的终端句柄：用户终端启动的实例里 docker.exe 曾在
 # daemon 之前挂死，换 Git Bash 父进程即愈；stdin 断开、Windows 上不挂控制台，二者都只改句柄继承，
 # 不改命令语义（不带 -i 的 docker 命令本就不读 stdin）。模块导入时算好，测试替换 subprocess 模块也不受影响。
 _CLI_ISOLATION: dict[str, Any] = {"stdin": subprocess.DEVNULL}
@@ -364,14 +364,14 @@ class DockerRunner:
         self._nproc_limit = nproc_limit
         self._probe_cache: bool | None = None
         self._digest_checked = False
-        # daemon 健康心跳与熔断（2026-11-02）：``_last_health_probe`` 是最近一次探测的
+        # daemon 健康心跳与熔断：``_last_health_probe`` 是最近一次探测的
         # ``monotonic()`` 时刻；``_degraded_until`` 之前不再 spawn（直接返回显性诊断）。
         # ``_last_probe_reason`` 记录该次探测的判定（ok/timeout/unavailable），供并发折叠复用；
         # 只有硬失败（unavailable / 清理链挂起）才把 ``_degraded_until`` 推后。
         self._last_health_probe = 0.0
         self._last_probe_reason = _PROBE_UNAVAILABLE
         self._degraded_until = 0.0
-        # 探测 single-flight（2026-11-02 三次修订）：模型常在同一 tool batch 并行发多条 shell，
+        # 探测 single-flight：模型常在同一 tool batch 并行发多条 shell，
         # 每条都会走心跳；无折叠时 N 路并行 probe 同时打 Docker CLI（Windows 命名管道 + WSL2
         # 转发），既互相拖慢也让同一判定重复落日志。锁内二次检查 TTL 使一轮并发只付一次探针。
         self._probe_lock = asyncio.Lock()
@@ -480,7 +480,7 @@ class DockerRunner:
         return self._paused_result()
 
     async def run(self, command: str, *, timeout: int) -> str:
-        # 探测缓存未暖时经线程池探测（审查修复批）：run() 首触不再阻塞事件循环最长一个探针预算；
+        # 探测缓存未暖时经线程池探测：run() 首触不再阻塞事件循环最长一个探针预算；
         # engine 装配链在 resolver 可用性闸处已同步探测过（构造期探测是装配协议的一部分）。
         if self._probe_cache is None:
             reason = await asyncio.to_thread(_probe_daemon_reason, self._docker_path)
@@ -494,7 +494,7 @@ class DockerRunner:
             return await PassthroughRunner().run(command, timeout=timeout)
 
         # 熔断窗口内直接失败：daemon 挂起时每条命令白等满 timeout + 清理链是纯浪费，
-        # 且模型会把「超时」误读成「命令慢」而重试（2026-11-02 实测连续 3 次共 ~305s）。
+        # 且模型会把「超时」误读成「命令慢」而重试（实测连续 3 次共 ~305s）。
         # 窗口内的半开复探见 ``_admit_within_cooldown``。
         paused = await self._admit_within_cooldown()
         if paused is not None:
@@ -504,7 +504,7 @@ class DockerRunner:
             self._pause(failure)
             return self._paused_result()
         if failure == _PROBE_TIMEOUT:
-            # 慢不否决（2026-11-02 四次修订）：探针 11.5s 都没应答说明 docker CLI 卡（Windows 进程
+            # 慢不否决：探针 11.5s 都没应答说明 docker CLI 卡（Windows 进程
             # 创建 + WSL2 唤醒 + 9p 挂载），而**同一份卡顿也会拖慢 ``docker run``**——把命令跳过
             # 等于替它放弃；实测该形态下命令往往能跑完（15:26 探针后的命令 519ms/781ms），而
             # cron 作业曾被 0ms 跳过（15:00:55 / 15:18:16）。故放行本次命令，让它的 timeout 与
@@ -513,8 +513,8 @@ class DockerRunner:
                 "docker daemon probe timed out (slow CLI, not necessarily dead); running this command anyway"
             )
 
-        # 运行期 digest pin（审查修复批）：配置了 digest 则首 run 前校验本地 tag 的 repo
-        # digest，不符显性拒绝——本地 tag 可被 retag 静默换载荷（D4 的运行期落实）。
+        # 运行期 digest pin：配置了 digest 则首 run 前校验本地 tag 的 repo
+        # digest，不符显性拒绝——本地 tag 可被 retag 静默换载荷。
         if self._digest and not self._digest_checked:
             actual = await asyncio.to_thread(_docker_inspect_digest, self._docker_path, self._image)
             if actual is None or not actual.endswith(self._digest):
@@ -525,7 +525,7 @@ class DockerRunner:
             self._digest_checked = True
 
         name = f"heagent-{uuid.uuid4().hex[:12]}"
-        # 挂载兜底（审查修复批）：FR-1 会话目录优先，缺省回落 resolver 传入的 workspace_root
+        # 挂载兜底：FR-1 会话目录优先，缺省回落 resolver 传入的 workspace_root
         # ——不给「无挂载、写入随 --rm 蒸发还报成功」的静默形态（firejail --private 同型语义）。
         workspace = get_sandbox_workspace() or self._workspace
         argv = build_run_argv(
@@ -551,7 +551,7 @@ class DockerRunner:
                     return False
                 if unresponsive:
                     # daemon 不应答时 CLI 子进程也不会退出：白等一个周期不如直接放弃
-                    # 并让调用方熔断（2026-11-02，每个周期 10s）。poll 只做句柄回收。
+                    # 并让调用方熔断（每个周期 10s）。poll 只做句柄回收。
                     proc.poll()
                     return True
                 try:

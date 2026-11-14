@@ -23,8 +23,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from heagent.engine.workflow_events import WorkflowEvent
 from heagent.pub.persist import atomic_write_text, load_json_model
 
-#: ``last_event`` 的封闭词汇表（S-2 / I-3）：取值只能是 ``WorkflowEvent`` 的一员或空串。
-#: 空串 = 旧 checkpoint 未记录该字段（AD-2 只追加口径），不是非法值。
+#: ``last_event`` 的封闭词汇表：取值只能是 ``WorkflowEvent`` 的一员或空串。
+#: 空串 = 旧 checkpoint 未记录该字段（只追加口径），不是非法值。
 _WORKFLOW_EVENT_VALUES: frozenset[str] = frozenset(event.value for event in WorkflowEvent)
 
 
@@ -67,10 +67,10 @@ class WorkflowCheckpoint(BaseModel):
     active_step: int | None = Field(default=None, ge=0)
     active_story: str | None = None
     # 当前 Story 所属 Epic（runner 在 story 循环处记录）。可选字段：旧 checkpoint 缺它就为空，
-    # 由视图显示「未知」，绝不回读 story 文档去猜（AD-2 修订版允许追加可选字段）。
+    # 由视图显示「未知」，绝不回读 story 文档去猜（只追加口径允许追加可选字段）。
     active_epic: str = ""
-    # 旧盘文件可能仍带 `artifact_refs` / `active_stories` 两个已派生化删除的镜像字段
-    # （A26 / A33①，2026-10-07）：前者恒等于 `outputs` 键表、后者恒等于 `[active_story]`，
+    # 旧盘文件可能仍带 `artifact_refs` / `active_stories` 两个已派生化删除的镜像字段：
+    # 前者恒等于 `outputs` 键表、后者恒等于 `[active_story]`，
     # pydantic 默认 extra='ignore' 容忍读，恢复一律从 `outputs` / `active_story` 现场派生。
     outputs: dict[str, Any] = Field(default_factory=dict)
     acceptance_evidence: list[str] = Field(default_factory=list)
@@ -79,29 +79,29 @@ class WorkflowCheckpoint(BaseModel):
     completed_stories: list[str] = Field(default_factory=list)
     story_outputs: dict[str, Any] = Field(default_factory=dict)
     story_statuses: dict[str, str] = Field(default_factory=dict)
-    # 步骤级审批门（Story 51-5）：True = 活动步做完工作、挂起等一个人工决策。可选字段：
-    # 旧 checkpoint 缺它读作 False（AD-2 修订版允许追加可选字段，active_epic 同款先例）。
+    # 步骤级审批门：True = 活动步做完工作、挂起等一个人工决策。可选字段：
+    # 旧 checkpoint 缺它读作 False（只追加口径允许追加可选字段，active_epic 同款先例）。
     awaiting_approval: bool = False
     # 审批门挂起期间步骤的产物：approve 落定完成簿记时的输出来源（不进 completed 的 outputs，
     # 因为步骤此刻还没被标记完成）。
     pending_output: Any = None
     # 审批门发生轮次（参与 checkpoint 幂等键，见 WorkflowRunner._checkpoint_id）。
     approval_round: int = Field(default=0, ge=0)
-    # 脚本步骤声明的后续声明步骤计划（Story 51-7）：可选字段，旧 checkpoint 缺它读作空计划
-    # （AD-2 修订版允许追加可选字段，active_epic / awaiting_approval 同款先例）。**必须持久化**：
+    # 脚本步骤声明的后续声明步骤计划：可选字段，旧 checkpoint 缺它读作空计划
+    # （只追加口径允许追加可选字段，active_epic / awaiting_approval 同款先例）。**必须持久化**：
     # 分支选择若只活在内存里，进程重启后会退回声明顺序，「可确定恢复」就此失效。
     requested_steps: list[str] = Field(default_factory=list)
-    # 写集违规撤销闩（Epic 52 AD-16/AD-18）：宿主审计判负后置 True，单向不可复位——撤销的是
-    # 并发授权（批派生恒串行），不撤销围栏。可选字段，旧 checkpoint 缺它读作 False（AD-2
-    # 修订版允许追加可选字段，requested_steps 同款先例）。checkpoint 唯一新增字段（AD-16）。
+    # 写集违规撤销闩：宿主审计判负后置 True，单向不可复位——撤销的是
+    # 并发授权（批派生恒串行），不撤销围栏。可选字段，旧 checkpoint 缺它读作 False
+    # （只追加口径允许追加可选字段，requested_steps 同款先例）。checkpoint 唯一新增字段。
     story_parallel_revoked: bool = False
-    # 驱动本次转换的事件（A38，2026-10-23）：取值为 `WorkflowEvent` 的字符串形态。可选字段，
-    # 旧 checkpoint 缺它读作空串（AD-2 修订版允许追加可选字段，active_epic / requested_steps
+    # 驱动本次转换的事件：取值为 `WorkflowEvent` 的字符串形态。可选字段，
+    # 旧 checkpoint 缺它读作空串（只追加口径允许追加可选字段，active_epic / requested_steps
     # 同款先例）——`next_action` 只说明理由，说明不了「经哪个事件落到这个状态」。
     last_event: str = ""
-    # 发那个事件的**理由**（S-1，2026-10-26）：自由文本，与 `last_event` 正交——后者答「经哪个
+    # 发那个事件的**理由**：自由文本，与 `last_event` 正交——后者答「经哪个
     # 事件」，本字段答「为什么发它」，`next_action` 答「下一步做什么」。可选字段带默认值，旧
-    # checkpoint 缺它读作空串（AD-2 修订版允许追加可选字段，`last_event` 同款先例）。
+    # checkpoint 缺它读作空串（只追加口径允许追加可选字段，`last_event` 同款先例）。
     transition_reason: str = ""
     next_action: str = ""
     tool_in_flight: bool = False
@@ -258,7 +258,7 @@ class GoalWorkflowState(BaseModel):
     active_step: int | None = Field(default=None, ge=0)
     active_story: str | None = None
     # 旧 workflow.json 可能仍带 `active_stories` / `artifact_refs` 两个已派生化删除的镜像
-    # 字段（A26 / A33①）：容忍读（extra='ignore'），聚合态不再复制它们。
+    # 字段：容忍读（extra='ignore'），聚合态不再复制它们。
     story_statuses: dict[str, str] = Field(default_factory=dict)
     status: WorkflowStatus = WorkflowStatus.PENDING
     next_action: str = ""

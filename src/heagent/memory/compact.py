@@ -144,7 +144,7 @@ def compact_facts(memory_path: Path | str, merges: Sequence[CompactMerge]) -> Co
     except FileNotFoundError:
         raw = ""
     except UnicodeDecodeError as exc:
-        # 同 ``FactStore.add``：UnicodeDecodeError 文本不含路径，点名后再抛（Z-D12）。
+        # 同 ``FactStore.add``：UnicodeDecodeError 文本不含路径，点名后再抛。
         raise ValueError(f"MEMORY.md is not valid UTF-8 ({memory_path}): {exc}") from exc
 
     before = raw.lstrip(_BOM)
@@ -159,7 +159,7 @@ def compact_facts(memory_path: Path | str, merges: Sequence[CompactMerge]) -> Co
     if problems:
         raise ValueError("\n".join(problems))
 
-    # ── 顺序化应用（AC5）：后一条 merge 的判重集合包含前序 merge 已追加的 target。
+    # ── 顺序化应用：后一条 merge 的判重集合包含前序 merge 已追加的 target。
     removed_line_ids: set[int] = set()
     appended: list[str] = []
     rejected: list[CompactRejection] = []
@@ -195,21 +195,20 @@ def compact_facts(memory_path: Path | str, merges: Sequence[CompactMerge]) -> Co
             rejected=rejected,
         )
 
-    # ── 改写：被移除行删除，其余行原序原位（AC1）；target 追加到文件末尾（尾部 = 最新 =
-    # 59-3 保尾注入序下最先注入、预算内最可能保留。59-1 时注入尚为保头截尾，此句当时与行为
-    # 相反属注释错误；59-3 读序翻转后论证成立，行为零改动）。
+    # ── 改写：被移除行删除，其余行原序原位；target 追加到文件末尾（尾部 = 最新 =
+    # 保尾注入序下最先注入、预算内最可能保留）。
     kept = [line for i, line in enumerate(lines) if i not in removed_line_ids]
     new_text = "\n".join(kept)
     if new_text and not new_text.endswith("\n"):
         new_text += "\n"
     new_text += "".join(f"- {target}\n" for target in appended)
 
-    # ── 留底先行（D3）：写失败（OSError）⇒ 异常向上抛，MEMORY.md 未动、整批拒绝。
+    # ── 留底先行：写失败（OSError）⇒ 异常向上抛，MEMORY.md 未动、整批拒绝。
     archive_path = memory_path.parent / _ARCHIVE_DIR / _ARCHIVE_NAME
     archive_lines = [lines[i] for i in sorted(removed_line_ids)]
     _append_archive_section(archive_path, archive_lines)
 
-    # ── 比较后写（D4）：锁内内容与预读不一致 ⇒ 放弃本批，留底保留（宁重复不丢失）。
+    # ── 比较后写：锁内内容与预读不一致 ⇒ 放弃本批，留底保留（宁重复不丢失）。
     def _update(current: str) -> tuple[str, bool]:
         if current.lstrip(_BOM) != before:
             return current, False

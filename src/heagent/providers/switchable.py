@@ -67,7 +67,7 @@ class SwitchableProvider:
             raise ValueError(f"Default provider {default!r} not in provider pool")
         self._providers = dict(providers)
         self._active: str = default
-        # P2-2 修复：防并发 switch/send/stream 对 _active 的竞态修改。
+        # 防并发 switch/send/stream 对 _active 的竞态修改。
         self._lock = asyncio.Lock()
 
     # -- 公共 API --
@@ -167,7 +167,7 @@ class SwitchableProvider:
         docstring（「不要合并成一套」），护栏见 ``test_retry.py::TestPoolFallbackPolicy``。
         不共用模板；改其一时请对照另几处。
         """
-        # 与 stream() 的 P2-2 同口径：锁内快照 active 与 provider 实例，网络 I/O 不持锁。
+        # 与 stream() 同口径：锁内快照 active 与 provider 实例，网络 I/O 不持锁。
         async with self._lock:
             active_before = self._active
             ordered = self._ordered_names()
@@ -213,7 +213,7 @@ class SwitchableProvider:
         与 ``ProviderChain`` / ``KeyRotatingProvider`` 的 stream 回退结构同构，判据与粘性
         语义有意不同（见 ``send()`` docstring 与 ``retry.py`` 策略矩阵），不共用模板。
         """
-        # P2-2 修复：锁内读取 active 与获取 provider 实例，释放锁后迭代——
+        # 锁内读取 active 与获取 provider 实例，释放锁后迭代——
         # 避免长时间持锁串行化并发 consumer。
         async with self._lock:
             active_before = self._active

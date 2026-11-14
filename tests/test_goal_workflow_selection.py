@@ -310,7 +310,7 @@ async def test_status_resolves_the_frozen_binding_not_the_current_setting(
     assert "1/3" not in err
 
 
-# ── ③b dispatch 逐臂：settings ≠ 绑定时按冻结绑定解析（51-6 审查 H1）──────────
+# ── dispatch 逐臂：settings ≠ 绑定时按冻结绑定解析──────────
 
 
 class _RecordingCronStore:
@@ -337,7 +337,7 @@ class _RecordingCronStore:
 
 
 # 逐臂核对 ``_goal_declarative_dispatch`` 分支表后列出的**绑定臂**：作用于既有 goal 的每条
-# 命令都必须按冻结绑定解析（51-6 审查 H1：此前仅 status/next/cron 三臂有负向覆盖）。
+# 命令都必须按冻结绑定解析（此前仅 status/next/cron 三臂有负向覆盖）。
 # 其余各臂不解析 workflow、不进本表：``new`` 与裸描述是创建臂（按当前配置/选项选择，
 # 见下方专属测试）；``reset`` 只清 current 指针；``audit`` 是已移除提示；拼错提示与
 # 「命令带多余参数报用法表」两臂只回显用法。

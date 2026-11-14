@@ -62,7 +62,7 @@ class WebSocketLike(Protocol):
 
 
 OriginCheck = Callable[[dict[str, Any]], str | None]
-#: 认证回调：``None`` = 通过，否则是拒绝原因（Epic 56 D3）。accept **之前**执行。
+#: 认证回调：``None`` = 通过，否则是拒绝原因。accept **之前**执行。
 AuthCheck = Callable[[Mapping[str, Any]], str | None]
 
 
@@ -174,7 +174,7 @@ async def _handle_commands(
             return
 
         if command is WsCommand.RUN:
-            # 提交能力只在集合级端点（D2）：这条连接早已绑定某个 run，回错误帧但**不断连**。
+            # 提交能力只在集合级端点：这条连接早已绑定某个 run，回错误帧但**不断连**。
             await _send_error_frame(
                 websocket,
                 HttpErrorCode.INVALID_REQUEST,

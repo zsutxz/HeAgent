@@ -254,7 +254,7 @@ class TestWinJobSpawnSeam:
         _winjob_spawn("echo hi", None)
 
         assert "cwd" not in captured
-        # Phase 4 V1：env kwarg 恒在（剥离敏感变量后的净化环境）。
+        # env kwarg 恒在（剥离敏感变量后的净化环境）。
         assert set(captured) == {"argv", "stdout", "stderr", "env"}
 
     def test_spawn_env_strips_sensitive_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -311,7 +311,7 @@ class ConfigItemResponse(BaseModel):
     configured: bool = False
     masked: str | None = None
     guards: ConfigGuardResponse | None = None
-    impact: str = "normal"  # ``high`` = 资源旋钮（由服务端 ``config_catalog.impact_for`` 声明，A13）
+    impact: str = "normal"  # ``high`` = 资源旋钮（由服务端 ``config_catalog.impact_for`` 声明）
     notes: tuple[str, ...] = ()
     routing: RoutingPoolsResponse | None = None
 
@@ -469,7 +469,7 @@ class ConsoleHandler(Protocol):
 
     async def remove_project(self, project_id: str) -> None: ...
 
-    # ── 会话与项目内运行（Story 50-3） ──
+    # ── 会话与项目内运行 ──
 
     async def list_sessions(self, project_id: str) -> SessionListResponse: ...
 
@@ -485,15 +485,15 @@ class ConsoleHandler(Protocol):
 
     async def start_project_run(self, project_id: str, request: ProjectRunRequest) -> ProjectRunResponse: ...
 
-    # ── 配置可见性（Story 50-4） ──
+    # ── 配置可见性 ──
 
     async def get_project_config(self, project_id: str) -> ProjectConfigResponse: ...
 
-    # ── 配置写入（Story 50-5） ──
+    # ── 配置写入 ──
 
     async def update_project_config(self, project_id: str, request: ConfigWriteRequest) -> ConfigWriteResponse: ...
 
-    # ── 原生目录选择（Story 50-8） ──
+    # ── 原生目录选择 ──
 
     async def pick_directory(self) -> DirectoryPickResponse: ...
 

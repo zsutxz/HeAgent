@@ -161,7 +161,7 @@ class TestWiringJudge:
         assert [server.config.mode for server in servers] == ["local", "external"]
         hub = servers[0].notification_hub
         assert isinstance(hub, NotificationHub)
-        # D2：对外 listener 也挂——同一份中枢（seq / 游标是进程级语义，不能拆成两份）。
+        # 对外 listener 也挂——同一份中枢（seq / 游标是进程级语义，不能拆成两份）。
         assert servers[1].notification_hub is hub
         assert NOTIFICATIONS_WS_PATH in _paths(servers[0])
         assert NOTIFICATIONS_WS_PATH in _paths(servers[1])

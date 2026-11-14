@@ -108,7 +108,7 @@ def _build_loop(
     只拒调度器不够，绑进 loop 的 cron 工具仍能写 `<项目>/.heagent/cron/jobs.json`，
     而那些任务在本进程 IDLE 永不触发、却会在后续 CLI 会话里无人监督地执行。
     """
-    # Phase 1：组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
+    # 组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
     config = ensure_runtime_config(engine) if engine is not None else resolve_runtime_config(settings)
     paths = WorkspacePaths.from_root(
         (engine.workspace_root if engine else None) or config.workspace_root or os.getcwd()
@@ -287,7 +287,7 @@ def _build_dream_scheduler(
             max_iterations=max_iterations,
             announcer=SUBAGENT_ANNOUNCER,
         )
-        # compact 统计的窗口归属（epic-59 D8）：run 前 drain 丢弃 dream 外的旧账
+        # compact 统计的窗口归属：run 前 drain 丢弃 dream 外的旧账
         # （未归属的统计随该次 run 的工具返回文本可见，不重复计），run 后 drain 即本次窗口。
         facts.drain_compactions()
         result = await agent.run(prompt)

@@ -569,8 +569,8 @@ def atomic_update_bytes(
                 try:
                     _restore_bytes(path, current)
                 except OSError as restore_exc:
-                    # 回滚失败**不是**内部细节：盘上已是中间态，调用方必须能如实上报
-                    # （台账 A14②）。日志照旧留一条，异常换成显式的出口类型。
+                    # 回滚失败**不是**内部细节：盘上已是中间态，调用方必须能如实上报；
+                    # 日志照旧留一条，异常走显式的出口类型。
                     logger.error("Rollback failed for %s: %s", path, restore_exc)
                     raise RollbackFailedError(verify_exc, restore_exc) from verify_exc
                 raise

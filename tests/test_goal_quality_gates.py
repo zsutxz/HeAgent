@@ -1095,9 +1095,6 @@ async def test_completion_gate_turns_an_evaluation_failure_into_blocked(
     assert "gate evaluation error" in err and "disk gone" in err
 
 
-# ── review 修复批次的新判据（#7/#8/#9/#10/#11/#12）──────────────────────────
-
-
 async def test_truncated_evidence_prefix_must_match_uniquely(tmp_path: Path) -> None:
     """截断证据前缀命中多条声明命令：显性判「无法定位匹配」，不任配（review #7）。"""
     clauses = StepValidationClauses(commands=["pytest -q", "pytest tests/"])

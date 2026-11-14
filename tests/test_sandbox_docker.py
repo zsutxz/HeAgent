@@ -232,7 +232,7 @@ def test_resolver_builds_docker_runner(monkeypatch: pytest.MonkeyPatch):  # 判�
     from heagent.engine.container import _resolve_command_runner
     from heagent.tools.sandbox.docker import DockerRunner as _DR
 
-    # 可用性闸（审查修复批）：resolver 现在同步探测，替身链一律桩掉真实 daemon 探测。
+    # 可用性闸：resolver 现在同步探测，替身链一律桩掉真实 daemon 探测。
     monkeypatch.setattr("heagent.tools.sandbox.docker._probe_daemon_reason", lambda p: _PROBE_OK)
     settings = SimpleNamespace(
         sandbox_docker_image="heagent-sandbox:3.11",
@@ -279,7 +279,7 @@ def test_sandbox_decision_full_chain_docker(
     assert decision.requested_backend == "docker"
     assert decision.effective_backend == "docker"
     assert decision.filesystem_isolation is True
-    assert decision.network_isolation is True  # --network=none 默认（brief D2）
+    assert decision.network_isolation is True  # --network=none 默认
     ctx = engine.create_run_context()
     assert ctx.metadata["sandbox_decision"]["effective_backend"] == "docker"
 
@@ -313,7 +313,7 @@ def test_resolver_gate_unavailable_docker(monkeypatch: pytest.MonkeyPatch):  # �
     assert _resolve_command_runner(settings, "docker", None) is None
 
 
-async def test_workspace_fallback_mount(  # 判据13：workspace_root 兜底挂载（审查修复批 A）
+async def test_workspace_fallback_mount(  # 判据13：workspace_root 兜底挂载
     monkeypatch: pytest.MonkeyPatch,
 ):
     """FR-1 未 bind 时回落 runner 持有的 workspace（firejail --private 同型语义）——不给静默无挂载。"""
@@ -586,7 +586,7 @@ def test_isolates_network_protocol_surface():  # 判据18：四后端 isolates_n
     assert DockerRunner(network="bridge").isolates_network() is False
 
 
-async def test_session_docker_wrap_keeps_container_cwd(  # 判据19：session×docker 容器侧 cwd（审查修复批 D）
+async def test_session_docker_wrap_keeps_container_cwd(  # 判据19：session×docker 容器侧 cwd
     monkeypatch: pytest.MonkeyPatch,
 ):
     """FR-1 开 + docker 后端：wrap 用容器侧 cwd（/workspace 起）+ POSIX marker + 退出码复原。"""
@@ -609,7 +609,7 @@ async def test_session_docker_wrap_keeps_container_cwd(  # 判据19：session×d
 
 
 # ---------------------------------------------------------------------------
-# daemon 无响应：熔断 + 诊断（2026-11-02 事故判据）
+# daemon 无响应：熔断 + 诊断（事故判据）
 # 事故形态：宿主 Docker Desktop daemon 整段挂起 ⇒ 每条 shell 实测 timeout + 40s 清理链，
 # 模型连续重试 3 次共白等约 305s。以下判据把「白等」钉成「首跳失败 + 后续秒回」。
 # ---------------------------------------------------------------------------
@@ -941,7 +941,7 @@ def test_probe_os_error_is_unavailable(monkeypatch: pytest.MonkeyPatch):  # 判�
     assert calls["n"] == 1
 
 
-# ---- docker CLI 不继承终端句柄（2026-11-02：用户终端启动的实例里 docker.exe 在 daemon 之前挂死）----
+# ---- docker CLI 不继承终端句柄（用户终端启动的实例里 docker.exe 在 daemon 之前挂死）----
 
 
 def _assert_cli_isolated(kwargs: dict) -> None:

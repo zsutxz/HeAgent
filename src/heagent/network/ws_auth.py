@@ -25,7 +25,7 @@ from typing import Any
 
 from heagent.network.ws_protocol import WS_CLOSE_POLICY
 
-#: 认证失败的 close code：policy violation（D3 冻结值，与协议面单一来源同值）。
+#: 认证失败的 close code：policy violation（与协议面单一来源同值）。
 AUTH_CLOSE_CODE = WS_CLOSE_POLICY
 
 #: 同一来源在窗口内允许的失败次数上限；达到即不再比较 token。

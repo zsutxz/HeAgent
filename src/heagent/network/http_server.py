@@ -88,8 +88,8 @@ if TYPE_CHECKING:
 
     # 入口层交回的可调用对象：把 prompt 跑成 Agent 运行，并通过 publisher 推事件。
     #
-    # ``network/`` 只认这个形状，不认 ``AgentLoop``——这是 AD-1（传输层不构造 Agent）与 AD-7
-    # （治理链由既有 Agent 路径负责）的接缝；实现见入口层 ``cli.http.HttpAgentHandler``。
+    # ``network/`` 只认这个形状，不认 ``AgentLoop``——传输层不构造 Agent，治理链由既有
+    # Agent 路径负责；实现见入口层 ``cli.http.HttpAgentHandler``。
     RunExecutor = Callable[[str, "RunEventPublisher"], Awaitable[RunOutcome]]
 
 logger = logging.getLogger(__name__)
@@ -106,7 +106,7 @@ _WEB_ASSETS: dict[str, str] = {
     "styles.css": "text/css; charset=utf-8",
 }
 
-# 安全响应头（AD-6 / NFR6、NFR7）：严格 CSP + 禁嗅探 + 禁 framing + 不泄露 referrer。
+# 安全响应头（NFR6、NFR7）：严格 CSP + 禁嗅探 + 禁 framing + 不泄露 referrer。
 #
 # `default-src 'none'` 把所有资源默认关掉，再逐项开同源：页面因此**不能**加载第三方脚本、
 # 字体或图片，也不能内联 script/style（`script-src 'self'` 不含 'unsafe-inline'）——
@@ -120,10 +120,10 @@ _SECURITY_HEADERS: tuple[tuple[bytes, bytes], ...] = (
     (b"x-content-type-options", b"nosniff"),
     (b"x-frame-options", b"DENY"),
     (b"referrer-policy", b"no-referrer"),
-    # 缓存默认不落副本（2026-09-28 补）：此前只有 SSE 路径带 `cache-control`，于是
+    # 缓存默认不落副本：此前只有 SSE 路径带 `cache-control`，于是
     # `GET /api/session`（进程内会话快照：消息正文、标题、运行状态）与其它 JSON 响应都能被
     # 浏览器 / 中间代理缓存下来。**已显式设置的不覆盖**（中间件的既有语义）：静态资源自带
-    # `no-cache`（允许缓存但必须回源校验，Epic 50 D8 的口径）、SSE 自带
+    # `no-cache`（允许缓存但必须回源校验）、SSE 自带
     # `no-store` + `x-accel-buffering: no` —— 两者都保持原样。
     (b"cache-control", b"no-store"),
 )
@@ -142,7 +142,7 @@ _PROJECT_SESSION_PATH = "/api/projects/{project_id}/sessions/{session_id}"
 _PROJECT_SESSION_EXTRA_PATH = "/api/projects/{project_id}/sessions/{session_id}/{extra:path}"
 _PROJECT_RUNS_PATH = "/api/projects/{project_id}/runs"
 _PROJECT_CONFIG_PATH = "/api/projects/{project_id}/config"
-# 非项目作用域的控制台端点（Story 50-8）：在**服务端所在机器**弹原生目录选择窗口。
+# 非项目作用域的控制台端点：在**服务端所在机器**弹原生目录选择窗口。
 _DIALOG_PICK_PATH = "/api/dialogs/pick-directory"
 
 # 就绪探测与关闭排空的预算（秒）。探测是进程内回环请求，正常在毫秒级返回。
@@ -175,14 +175,14 @@ class HttpServerConfig(BaseModel):
     host: str = Field(default="127.0.0.1", min_length=1)
     port: int = Field(default=9101, ge=0, le=65535)
     max_connections: int = Field(default=16, ge=1)
-    # 每个 run 的 **SSE 订阅者**上限：2026-09-28 从 ``max_connections`` 拆出（默认值相同 ⇒ 默认行为不变）。
+    # 每个 run 的 **SSE 订阅者**上限：从 ``max_connections`` 拆出（默认值相同 ⇒ 默认行为不变）。
     # 拆出的理由：连接额度由 Uvicorn 在**进 ASGI 之前**拒绝 ⇒ 超额订阅拿不到错误信封 / 安全头 / 访问日志，
     # 429 ``rate_limited`` 分支实际不可达；订阅面现在有独立旋钮，调大连接额度不再被迫放大它。
     max_subscribers: int = Field(default=16, ge=1)
-    # **每个项目各自**的在途运行上限（Story 50-3 的 D9）：全局上限 = 项目数 × 该值，因此「A 项目在跑」
-    # 不挡 B 项目；``POST /api/runs``（无项目归属）自己算一档，语义与 Epic 49 逐字相同。
+    # **每个项目各自**的在途运行上限：全局上限 = 项目数 × 该值，因此「A 项目在跑」
+    # 不挡 B 项目；``POST /api/runs``（无项目归属）自己算一档，语义保持不变。
     max_inflight_runs: int = Field(default=1, ge=1)
-    # **服务级**在途运行总额（跨项目共享）：``0`` = 不限（默认 ⇒ D9 的「并发随项目数线性」语义逐字
+    # **服务级**在途运行总额（跨项目共享）：``0`` = 不限（默认 ⇒「并发随项目数线性」语义逐字
     # 不变）。设 N > 0 后所有项目加总不得超过 N；它与 ``max_inflight_runs`` **同时**生效，先撞谁按谁
     # 拒（总额这一路回 ``total_inflight_limit``，见 :class:`HttpRunConflictError`）。
     max_total_inflight: int = Field(default=0, ge=0)
@@ -197,7 +197,7 @@ class HttpServerConfig(BaseModel):
     # 终结（0 = 关闭静默判定）。在途工具（``tool_call`` 已发、``tool_result`` 未到）算「有进展」：
     # 一次长的 shell / 子代理调用期间没有事件，但它显然没有卡死。
     idle_timeout: float = Field(default=300.0, ge=0, allow_inf_nan=False)
-    # 单个在途工具的最长在途时间（秒）：超过即按「工具卡死」终结（活动台账 A9② 的独立阈值）。
+    # 单个在途工具的最长在途时间（秒）：超过即按「工具卡死」终结（阈值独立于 idle_timeout）。
     # 默认 1 小时——远高于任何真实工具调用，但让「永不返回的工具」不再无界占住在途名额。
     tool_inflight_timeout: float = Field(default=3600.0, ge=0, allow_inf_nan=False)
     shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
@@ -214,7 +214,7 @@ def read_web_asset(name: str) -> bytes:
     return resources.files(_WEB_PACKAGE).joinpath(name).read_bytes()
 
 
-# ── 运行服务（Story 49-3） ──
+# ── 运行服务 ──
 
 
 def _client_error_message(exc: BaseException) -> str:
@@ -253,7 +253,7 @@ class _RunRecord:
         self.run_id = run_id
         self.prompt = prompt
         # 不透明的归属 id（入口层在建立运行时注入）：供「项目 / 会话是否有在途运行」与「会话最近
-        # 一次运行状态」查询使用。传输层不解释它们的语义，只做字符串比对（AD-1 的接缝）。
+        # 一次运行状态」查询使用。传输层不解释它们的语义，只做字符串比对。
         self.project_id = project_id
         self.session_id = session_id
         self.status = RunStatus.RUNNING
@@ -266,17 +266,17 @@ class _RunRecord:
         self.last_activity_at = self.created_at
         self.tools_in_flight = 0
         # 第一条在途工具的时刻（None = 当前无在途工具）：看门狗据此把「工具卡死」也判进静默
-        # 上限（A9②）——只数「有没有在途工具」会让永不返回的工具把名额无界占住。
+        # 上限——只数「有没有在途工具」会让永不返回的工具把名额无界占住。
         self.tools_in_flight_since: float | None = None
         # 看门狗终结本次运行的原因（"idle" / "tool" / "hard" / None）：终态归因与文案据此
         # 区分「卡死」「工具卡死」与「超过运维设的总时长上限」。字段**不清空**（终态文案、
         # 日志与测试都要读它），「是否已被那次取消消费」由 :attr:`deadline_consumed` 表达。
         self.deadline_reason: str | None = None
         self.deadline_consumed = False
-        # 用户显式 DELETE 的取消（A9①）：取消可能被 executor 吞过一次，那时
+        # 用户显式 DELETE 的取消：取消可能被 executor 吞过一次，那时
         # ``deadline_reason`` 仍在——归因必须看「谁发的取消」，不能只看它。
         self.user_cancel_requested = False
-        # 有界 ring buffer：越过窗口的重连（49-4）据此判定 resync_required。
+        # 有界 ring buffer：越过窗口的重连据此判定 resync_required。
         self.events: deque[RunEventPayload] = deque(maxlen=buffer_size)
         self.subscribers: set[asyncio.Queue[RunEventPayload | None]] = set()
         self.ws_subscribers: set[asyncio.Queue[RunEventPayload | None]] = set()
@@ -522,8 +522,8 @@ class HttpRunService:
         self._store(record)
         self._active.add(record.run_id)
         if project_id is None:
-            # 只有「无项目归属」的运行（Epic 49 的 ``POST /api/runs``）驱动 ``/api/session`` 投影，
-            # 项目内运行不改变它——49 端点的语义因此逐字不变（R3/I13）。
+            # 只有「无项目归属」的运行（``POST /api/runs``）驱动 ``/api/session`` 投影，
+            # 项目内运行不改变它——该端点的语义因此逐字不变（R3/I13）。
             self._current_run_id = record.run_id
         safe_log(logger, logging.INFO, "http event=run_started run_id=%s", record.run_id)
         task: asyncio.Task[None] = asyncio.create_task(
@@ -606,7 +606,7 @@ class HttpRunService:
         if record.claim_terminal(RunStatus.CANCELLED):
             record.append(RunEventKind.CANCELLED, message="run cancelled")
             record.close_subscribers()
-        # 统一终态观测（AD-9）：只有不透明 run id、状态与耗时——**不含** prompt、回答或工具输出。
+        # 统一终态观测：只有不透明 run id、状态与耗时——**不含** prompt、回答或工具输出。
         safe_log(
             logger,
             logging.INFO if record.status is RunStatus.COMPLETED else logging.WARNING,
@@ -629,7 +629,7 @@ class HttpRunService:
             return None
         task = self._run_tasks.get(run_id)
         if task is not None and not task.done():
-            # 标记「这是用户发的取消」（A9①），供 ``_execute`` 与看门狗归因区分。
+            # 标记「这是用户发的取消」，供 ``_execute`` 与看门狗归因区分。
             record.user_cancel_requested = True
             task.cancel()
             _done, pending = await asyncio.wait({task}, timeout=self.config.shutdown_timeout)
@@ -770,7 +770,7 @@ class HttpRunService:
                 record.deadline_reason = "idle"
                 break
             # 在途工具也要有**上限**：只数「有没有在途工具」会让永不返回的工具把在途名额无界
-            # 占住（活动台账 A9②）。阈值**独立**于 idle_timeout——长 shell / 子代理期间同样没有
+            # 占住。阈值**独立**于 idle_timeout——长 shell / 子代理期间同样没有
             # 事件，用静默阈值判工具卡死会误杀正常长调用（既有用例
             # ``test_in_flight_tool_stretches_the_idle_window`` 钉的正是这一点）。
             tool_limit = self.config.tool_inflight_timeout
@@ -810,7 +810,7 @@ class HttpRunService:
         try:
             outcome = await executor(record.prompt, RunEventPublisher(record))
         except asyncio.CancelledError:
-            # 用户显式 DELETE 优先于看门狗归因（A9①）：看门狗的第一次取消可能已被 executor
+            # 用户显式 DELETE 优先于看门狗归因：看门狗的第一次取消可能已被 executor
             # 吞掉（``deadline_reason`` 仍在且未被消费），此时单看它会把这次 DELETE 记成
             # ``timed_out`` 并吞掉取消——归因必须看「谁发的取消」。
             if record.user_cancel_requested and not self._closing:
@@ -948,7 +948,7 @@ class HttpRunService:
             record.subscribers.discard(queue)
 
 
-# ── 同源防线与请求观测（Story 49-5） ──
+# ── 同源防线与请求观测 ──
 
 
 async def _send_json(
@@ -1153,10 +1153,10 @@ _CONSOLE_ERROR_STATUS: dict[HttpErrorCode, int] = {
     # 服务级总额（跨项目共享）已满：同样是「等一次运行结束」，但等的是**任何**一次运行。
     HttpErrorCode.TOTAL_INFLIGHT_LIMIT: 409,
     HttpErrorCode.LOOPBACK_REQUIRED: 403,
-    # 原生目录选择（Story 50-8）：后端不可用 → 503（不是客户端错误）；已有一次在途 → 409。
+    # 原生目录选择：后端不可用 → 503（不是客户端错误）；已有一次在途 → 409。
     HttpErrorCode.DIALOG_UNAVAILABLE: 503,
     HttpErrorCode.DIALOG_BUSY: 409,
-    # 配置写入通道（Story 50-5）：闸门关 / 键只读 → 403；值非法 → 400；指纹冲突 → 409；写失败 → 500。
+    # 配置写入通道：闸门关 / 键只读 → 403；值非法 → 400；指纹冲突 → 409；写失败 → 500。
     HttpErrorCode.WRITE_DISABLED: 403,
     HttpErrorCode.FIELD_NOT_WRITABLE: 400,
     HttpErrorCode.INVALID_VALUE: 400,
@@ -1270,7 +1270,7 @@ def _build_run_endpoints(
             return _json_error(responses, HttpErrorCode.UNKNOWN_RUN, "no such run", status_code=404)
         cursor = _parse_last_event_id(request)
         if service.needs_resync(record, cursor):
-            # 游标早于缓冲窗口：**不**发一条「看起来连续」的流，明确要求重新同步（AD-4）。
+            # 游标早于缓冲窗口：**不**发一条「看起来连续」的流，明确要求重新同步。
             # 客户端应改拉 `/api/session` 快照，而不是把缺口当作没发生。
             return _json_error(
                 responses,
@@ -1279,9 +1279,9 @@ def _build_run_endpoints(
                 status_code=409,
             )
         # 限额检查与登记**同一步**完成（同步、无 await ⇒ 事件循环里原子）：旧实现把「先查后加」
-        # 拆在端点与生成器两处，并发 GET /events 能一起穿过限额（活动台账 A9③）。
+        # 拆在端点与生成器两处，并发 GET /events 能一起穿过限额。
         queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue(maxsize=record.subscriber_queue_size)
-        # 上限取自**订阅面自己的旋钮**（2026-09-28 起）：此前复用 `max_connections`，而连接额度由 Uvicorn
+        # 上限取自**订阅面自己的旋钮**：此前复用 `max_connections`，而连接额度由 Uvicorn
         # 在进 ASGI 之前拒绝 ⇒ 这条 429 分支实际不可达、客户端只拿到裸 503。
         if not record.try_add_subscriber(queue, config.max_subscribers):
             return _json_error(
@@ -1356,7 +1356,7 @@ def _confirm_required(responses: Any, request: Any, *, action: str) -> Any | Non
     )
 
 
-def _build_project_endpoints(  # noqa: C901 - 四个端点闭包共享同一套分支（与 50-2 原实现同口径）
+def _build_project_endpoints(  # noqa: C901 - 四个端点闭包共享同一套分支
     responses: Any, console: ConsoleHandler, config: HttpServerConfig
 ) -> tuple[Any, ...]:
     """项目注册表的四条路由（Story 50-2），全部围绕注入的入口层 handler 构造。"""
@@ -1416,7 +1416,7 @@ def _build_project_endpoints(  # noqa: C901 - 四个端点闭包共享同一套�
     return list_projects, register_project, rename_project, remove_project
 
 
-def _build_session_endpoints(  # noqa: C901 - 六个端点闭包共享同一套分支（与 50-2 同口径）
+def _build_session_endpoints(  # noqa: C901 - 六个端点闭包共享同一套分支
     responses: Any, console: ConsoleHandler, config: HttpServerConfig
 ) -> tuple[Any, ...]:
     """会话 API 与项目内运行入口（Story 50-3）：五条会话路由 + 一条运行入口。
@@ -1713,9 +1713,9 @@ def build_http_app(
                 ),
                 routing.Route(_PROJECT_RUNS_PATH, endpoint=create_project_run, methods=["POST"]),
                 routing.Route(_PROJECT_CONFIG_PATH, endpoint=project_config, methods=["GET"]),
-                # 写入通道（Story 50-5）：与 GET 同一路径、不同方法（Starlette 按 method 匹配）。
+                # 写入通道：与 GET 同一路径、不同方法（Starlette 按 method 匹配）。
                 routing.Route(_PROJECT_CONFIG_PATH, endpoint=project_config_write, methods=["PUT"]),
-                # 原生目录选择（Story 50-8）：非项目作用域 + 回环门 + 单在途（入口层持有）。
+                # 原生目录选择：非项目作用域 + 回环门 + 单在途（入口层持有）。
                 routing.Route(_DIALOG_PICK_PATH, endpoint=pick_directory, methods=["POST"]),
             ]
         )
@@ -1807,10 +1807,10 @@ class HttpServer:
                 # 配置并禁用既有 logger，把 HeAgent 的日志通道一起关掉。
                 log_config=None,
                 # access 日志由本模块的结构化日志取代：Uvicorn 的 access 行会带上完整路径与
-                # 查询串，而 AD-9 要求日志只含不透明的 request/run id、状态与耗时。
+                # 查询串，日志只应含不透明的 request/run id、状态与耗时。
                 access_log=False,
                 server_header=False,
-                # 绝不信任 forwarded-* 头（AD-6）：同源判定必须基于真实 listener 地址。
+                # 绝不信任 forwarded-* 头：同源判定必须基于真实 listener 地址。
                 proxy_headers=False,
                 limit_concurrency=self.config.max_connections + _CONCURRENCY_PROBE_RESERVE,
                 # 关闭时连接排空的硬上界（Uvicorn 默认 None = 无限等待）。
@@ -1820,7 +1820,7 @@ class HttpServer:
         try:
             # uvicorn 的 ``Server.startup()`` 假定 ``lifespan`` 已由 ``Server._serve()`` 建好，而我们
             # 刻意绕过 ``serve()``（它会把绑定错误转成 ``sys.exit``，还会抢进程信号——信号归 CLI
-            # 所有，见 AD-5），因此照它的顺序把这两步补齐。``Config.load()`` 对「传进来的 ASGI
+            # 所有），因此照它的顺序把这两步补齐。``Config.load()`` 对「传进来的 ASGI
             # 对象」只是打标记，不会重新 import。
             if not server.config.loaded:
                 server.config.load()
@@ -1843,8 +1843,7 @@ class HttpServer:
         if self.run_service is not None:
             # 重新武装运行入口：``close()`` 会把「停止接收」标记置上且不可逆，于是
             # ``close()`` → ``start()`` 之后健康检查照常 200，而每次 ``POST /api/runs`` 都被
-            # 409 ``run_conflict``（`server is shutting down`）拒绝——正是 AD-5 要消除的
-            # 「看起来正常但不可用」。
+            # 409 ``run_conflict``（`server is shutting down`）拒绝——避免「看起来正常但不可用」。
             self.run_service.reopen()
 
     async def serve_forever(self) -> None:
@@ -1871,7 +1870,7 @@ class HttpServer:
                 return
             service = self.run_service
             if service is not None:
-                # Epic 56 D1：WS 连接的收尾（close_websockets / cli_hub）随拆分归 WS server 所有；
+                # WS 连接的收尾（close_websockets / cli_hub）归 WS server 所有；
                 # 本方法只排空运行到终态并停 HTTP listener（SSE 订阅随之终结）。
                 await service.close()
             server, self._server = self._server, None
@@ -1924,7 +1923,7 @@ class HttpServer:
             return False
         finally:
             writer.close()
-            # 关连接**必须有界**（2026-09-28 补）：对端只收不关（或黑洞）时 `wait_closed()`
+            # 关连接**必须有界**：对端只收不关（或黑洞）时 `wait_closed()`
             # 会一直等下去，把就绪门禁拖成无界等待；超时即放弃收尾，按已拿到的状态行判定。
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(writer.wait_closed(), timeout=_PROBE_TIMEOUT)

@@ -33,7 +33,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Python 类型 → JSON Schema 类型 的映射表
-# P1-12 扩展：补充 list/dict 等容器类型的 origin 键
 _TYPE_MAP: dict[type, str] = {
     int: "integer",
     float: "number",
@@ -63,12 +62,12 @@ def _resolve_schema_type(annotation: Any) -> tuple[str, bool]:
         non_none = [a for a in args if a is not type(None)]
         is_nullable = len(non_none) < len(args)
         if len(non_none) == 1:
-            # P1-12：单非 None 类型的 Union，递归解析基础类型（含容器）
+            # 单非 None 类型的 Union，递归解析基础类型（含容器）
             return _resolve_schema_type(non_none[0])[0], is_nullable
         # 多类型 Union (str | int) 无法精确映射单一 JSON Schema type
         return "string", is_nullable
 
-    # P1-12：泛型容器如 list[str]、dict[str, int]——origin 为 list/dict 等
+    # 泛型容器如 list[str]、dict[str, int]——origin 为 list/dict 等
     if origin is not None:
         return _TYPE_MAP.get(origin, "string"), False
 
@@ -105,7 +104,7 @@ def tool(
         # 确定工具描述：显式指定 > docstring 首行
         tool_desc = description or (fn.__doc__ or "").strip().split("\n")[0]
 
-        # P1-13 修复：get_type_hints 在遇到无法解析的前向引用时会抛 NameError；
+        # get_type_hints 在遇到无法解析的前向引用时会抛 NameError；
         # 加 try/except 保护，fallback 到空 hints（所有参数按 str 处理）。
         try:
             hints = get_type_hints(fn)

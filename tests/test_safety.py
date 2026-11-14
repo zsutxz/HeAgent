@@ -30,7 +30,7 @@ class TestDangerousPatterns:
             "echo x | dd if=/dev/zero of=/dev/sda",
             "sudo dd if=/dev/zero of=/dev/sda",
             "cd /tmp; dd if=/dev/zero of=/dev/sda",
-            # 回归（2026-09-22）：锚定 dd 后必须保留空白/引号/括号/反引号这些
+            # 回归：锚定 dd 后必须保留空白/引号/括号/反引号这些
             # 「命令位置」锚点，否则换行、包装器与内联形式会整体漏过。
             "  dd if=/dev/zero of=/dev/sda",
             "cd /tmp\ndd if=/dev/zero of=/dev/sda",
@@ -63,7 +63,7 @@ class TestDangerousPatterns:
             "cat file.txt",
             "git status",
             "python script.py",
-            # 回归（2026-09-21）：'yyyy/MM/dd' 中的 dd 不再命中 \bdd\b 误伤只读 powershell 命令
+            # 回归：'yyyy/MM/dd' 中的 dd 不再命中 \bdd\b 误伤只读 powershell 命令
             "powershell -NoProfile -Command \"Get-Date -Format 'yyyy/MM/dd HH:mm:ss'; "
             "Get-ChildItem 'E:\\proj\\Temp' -Force | Out-String\"",
         ],
@@ -81,7 +81,7 @@ class TestInlineInterpreterCommands:
     @pytest.mark.parametrize(
         "cmd",
         [
-            # 运行时误拦的原始三条（2026-09-19 日志回归）
+            # 运行时误拦的原始三条（日志回归）
             'cmd /c "date /t & time /t"; python -c "import datetime;print(datetime.datetime.now().isoformat())" 2>&1',
             "python -c \"import datetime;print('NOW', datetime.datetime.now().isoformat())\"",
             "python -c \"import urllib.request,json;d=json.load(urllib.request.urlopen('https://api.github.com'))\"",

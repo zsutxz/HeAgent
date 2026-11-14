@@ -73,7 +73,7 @@ class HttpErrorCode(StrEnum):
     REQUEST_TOO_LARGE = "request_too_large"
     RUN_CONFLICT = "run_conflict"
     # 服务级在途总额（跨项目共享的可选 ``HTTP_MAX_TOTAL_INFLIGHT``）已满：与「本项目已有运行」是
-    # 不同语义（等**任何**一次运行结束 vs 等本项目/本会话），故独立成码（2026-09-27）。
+    # 不同语义（等**任何**一次运行结束 vs 等本项目/本会话），故独立成码。
     TOTAL_INFLIGHT_LIMIT = "total_inflight_limit"
     UNKNOWN_RUN = "unknown_run"
     UNKNOWN_PROJECT = "unknown_project"
@@ -89,10 +89,10 @@ class HttpErrorCode(StrEnum):
     SESSION_UNREADABLE = "session_unreadable"
     CONFIRM_REQUIRED = "confirm_required"
     LOOPBACK_REQUIRED = "loopback_required"
-    # 原生目录选择（Epic 50 Story 50-8）：后端不可用 / 已有一次在途。
+    # 原生目录选择：后端不可用 / 已有一次在途。
     DIALOG_UNAVAILABLE = "dialog_unavailable"
     DIALOG_BUSY = "dialog_busy"
-    # 配置写入通道（Epic 50 Story 50-5）：闸门关 / 键只读 / 值非法 / 指纹冲突 / 写失败。
+    # 配置写入通道：闸门关 / 键只读 / 值非法 / 指纹冲突 / 写失败。
     WRITE_DISABLED = "write_disabled"
     FIELD_NOT_WRITABLE = "field_not_writable"
     INVALID_VALUE = "invalid_value"
@@ -183,7 +183,7 @@ def error_envelope(code: HttpErrorCode, message: str) -> HttpErrorEnvelope:
     return HttpErrorEnvelope(error=HttpErrorDetail(code=code, message=sanitize_message(message)))
 
 
-# ── 运行与事件（Story 49-3 起） ──
+# ── 运行与事件 ──
 
 # 单条事件文本字段的上限（字符）。工具输出可以是几十 KB（例如 pytest 日志），而 SSE 是给浏览器
 # 逐帧看的：截断保证「有界」，并在末尾显式标记，绝不静默丢内容。
@@ -191,7 +191,7 @@ MAX_EVENT_TEXT_CHARS = 16_384
 _TRUNCATION_SUFFIX = "…[truncated]"
 
 # SSE 活跃流的心跳间隔（秒）：`id:` 与事件 ID 之外的注释帧（`: ping`），只用来保活连接、
-# 不占事件序号、不改变客户端游标（AD-4）。
+# 不占事件序号、不改变客户端游标。
 SSE_HEARTBEAT_SECONDS = 15.0
 
 # SSE 心跳帧（注释行；客户端按 SSE 规范忽略，仅用于探测连接是否还活着）。

@@ -44,7 +44,7 @@ def test_warning_states_the_three_risk_facts_and_stays_bounded() -> None:
     assert "no authentication" in warning
     assert "no TLS" in warning
     assert "not a production security boundary" in warning
-    # 不把「本机」当可信：文案必须同时说明回环客户端也不可信（story 48-5 的 Never 列表）。
+    # 不把「本机」当可信：文案必须同时说明回环客户端也不可信。
     assert "untrusted input" in warning
     # 有界：stderr 一行 / 日志一条，不刷屏。
     assert len(warning) < 400

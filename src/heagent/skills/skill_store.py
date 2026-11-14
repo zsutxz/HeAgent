@@ -103,8 +103,7 @@ class SkillStore:
         # 用 ``RLock`` 是因为 ``parse`` → ``load`` 等路径会嵌套获取。
         self._mutation_lock = threading.RLock()
 
-    # 拆分兼容面：测试经类名访问这两个改写内核（原 SkillStore 静态方法，随 Phase 4 C4
-    # 归位 skill_rewrite；别名保持类属性访问缝原位）。
+    # 拆分兼容面：测试经类名访问这两个改写内核；别名保持类属性访问缝原位。
     _render_skill_md = staticmethod(render_skill_md)
     _body_survives_rerender = staticmethod(body_survives_rerender)
 

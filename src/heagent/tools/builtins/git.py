@@ -53,7 +53,7 @@ async def _run_git(*args: str, cwd: Path | None = None) -> str:
         await kill_and_reap()
         raise RuntimeError(f"git {' '.join(args)} timed out after {_GIT_TIMEOUT}s") from None
     except asyncio.CancelledError:
-        # P1-5 修复：CancelledError 单独捕获，kill+有界 reap 子进程防僵尸泄漏
+        # CancelledError 单独捕获：kill + 有界 reap 子进程，防僵尸泄漏
         await kill_and_reap()
         raise
 

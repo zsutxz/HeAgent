@@ -76,7 +76,7 @@ async def test_real_exec_and_workspace_mount(tmp_path: Path):  # 真实执行 + 
 
 
 @requires_daemon
-async def test_real_network_isolation_by_default():  # D2：默认 --network=none 真实阻断出站
+async def test_real_network_isolation_by_default():  # 默认 --network=none 真实阻断出站
     _ensure_image()
     from heagent.tools.sandbox import DockerRunner
 
@@ -85,7 +85,7 @@ async def test_real_network_isolation_by_default():  # D2：默认 --network=non
         "python -c \"import socket; socket.create_connection(('1.1.1.1', 53), timeout=3)\"",
         timeout=60,
     )
-    # 审查修复批 G：区分「网络被阻断」与「docker 层坏/挂死」——容器命令必须真实到达并
+    # 区分「网络被阻断」与「docker 层坏/挂死」——容器命令必须真实到达并
     # 以非零码退出（连接失败签名），且不得是超时形态（挂死 ≠ 阻断实证）。
     assert not result.startswith("exit_code=-1"), f"probe hung until timeout, not blocked: {result[:200]}"
     assert "exit_code=0" not in result
@@ -93,7 +93,7 @@ async def test_real_network_isolation_by_default():  # D2：默认 --network=non
 
 
 @requires_daemon
-async def test_real_timeout_cleans_up_container():  # 审查修复批 C：真实链路的超时清理
+async def test_real_timeout_cleans_up_container():  # 真实链路的超时清理
     """超时路径真杀容器：短超时跑长命命令后，``heagent-*`` 无 running 残留（判据 7/8 的桩测不到真实 argv）。"""
     _ensure_image()
     from heagent.tools.sandbox import DockerRunner
@@ -125,7 +125,7 @@ async def test_real_env_isolation(monkeypatch: pytest.MonkeyPatch):  # 容器边
 
 
 @requires_daemon
-async def test_real_pids_limit_is_enforced():  # 审查修复批 E：--pids-limit 真实生效
+async def test_real_pids_limit_is_enforced():  # --pids-limit 真实生效
     """限额不是「argv 里有旗标」就算数：受限容器内粗粒度 fork 必须被打断（非零退出）。
 
     判据 14 只钉 argv 形状（替身），本条证「旗标确实约束了容器」。
@@ -144,7 +144,7 @@ async def test_real_pids_limit_is_enforced():  # 审查修复批 E：--pids-limi
 
 
 @requires_daemon
-async def test_real_memory_limit_is_enforced():  # 审查修复批 E：--memory 真实生效
+async def test_real_memory_limit_is_enforced():  # --memory 真实生效
     """受限内存下分配超额内存必须被杀（OOM），而非静默成功。"""
     _ensure_image()
     from heagent.tools.sandbox import DockerRunner
@@ -159,7 +159,7 @@ async def test_real_memory_limit_is_enforced():  # 审查修复批 E：--memory 
 
 
 @requires_daemon
-async def test_real_hardening_flags_apply():  # 审查修复批：cap-drop / 非 root 用户真实生效
+async def test_real_hardening_flags_apply():  # cap-drop / 非 root 用户真实生效
     """硬化旗标须在容器内可观测：非 root 用户 + 零有效 capability + 无法写系统路径。
 
     三条各自独立断言（不靠「整条命令非零退出」间接推断——末尾 `echo` 会把退出码抹成 0）。

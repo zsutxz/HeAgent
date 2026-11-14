@@ -148,8 +148,7 @@ def read_bytes_under_root(root: Path, relative: str | Path) -> bytes:
 
 # ── 「解析后安全打开」的两个内核（POSIX 逐组件 / 整路径回退）───────────────────────────
 #
-# 2026-09-27（活动台账「技能资源 TOCTOU 残余」的 Ask First 授权项，用户裁定「授权引入平台
-# 专用代码」）：把「解析一次 + 整路径 open」换成 **POSIX 逐组件 openat**——每个中间组件都用
+# 采用 **POSIX 逐组件 openat** 替代「解析一次 + 整路径 open」——每个中间组件都用
 # ``O_DIRECTORY | O_NOFOLLOW`` 打开，叶组件用 ``O_NOFOLLOW``。被收窄的窗口是「resolve 之后、
 # open 之前把中间目录换成符号链接」：整路径 open 会跟着链接走出去，逐组件 open 在该组件上
 # 直接 ``ELOOP``。
@@ -172,7 +171,7 @@ _NOFOLLOW_UNSUPPORTED = frozenset(
 #
 # **在导入期算一次**，不是每次调用重算：`os.open in os.supports_dir_fd` 是**函数对象身份**比较，
 # 任何把 ``os.open`` 包一层的代码（测试探针、观测装饰器）都会让它变 False ⇒ 整条逐组件硬化被
-# **静默**降级回宽窗口通道（2026-09-27 实测：`monkeypatch.setattr(os, "open", ...)` 后新通道
+# **静默**降级回宽窗口通道（实测：`monkeypatch.setattr(os, "open", ...)` 后新通道
 # 一次都没走）。能力只描述「这个解释器/平台有没有 dir_fd 版 open」，与谁当前挂在 ``os.open`` 上
 # 无关，故冻结为常量。
 _WALK_SUPPORTED = (

@@ -853,7 +853,7 @@ class TestOversizedSessionListing:
         assert [item.session_id for item in listed] == ["big"]
         meta = listed[0]
         assert meta.title == "Big one"  # 头部字段照旧可用
-        assert meta.message_count is None  # D6：大会话详情才给
+        assert meta.message_count is None  # 大会话详情才给
         assert meta.version == 3
         assert meta.timestamp == 1700000000.5
 

@@ -24,7 +24,7 @@ from heagent.network.http_protocol import (
 )
 
 # 应用层命令按字符数限制；底层 uvicorn 另有字节级帧上限。
-# 三条上限（Epic 56 Story 56-3 起）：
+# 三条上限：
 # - ``WS_MAX_FRAME_BYTES`` = uvicorn ``ws_max_size``（字节）：必须**容得下协议允许的最大 prompt**
 #   （与 HTTP 的请求体上限同源，见 ``MAX_REQUEST_BYTES_FOR_MAX_PROMPT``），否则会出现「字符上限
 #   远未到、传输层先把连接掐了」的口径矛盾；它对出站帧同样生效（服务端事件帧远小于此）。

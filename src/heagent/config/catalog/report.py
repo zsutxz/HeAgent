@@ -129,7 +129,7 @@ def _build_item(
     writable = classification.writable
     reason = classification.reason
     if writable and source is ConfigSource.SYSTEM_ENV:
-        # 系统环境变量提供 ⇒ 改 .env 不生效（覆盖不了进程环境），因此不可写（AC2）。
+        # 系统环境变量提供 ⇒ 改 .env 不生效（覆盖不了进程环境），因此不可写。
         writable, reason = False, "system_env"
     notes = list(_item_notes(field_lower, layers, scans, active))
     if bom_stripped_head is not None and bom_stripped_head.lower() == field_lower:

@@ -262,7 +262,7 @@ def test_session_limits_are_mirrored_not_drifted() -> None:
     """网络层不许 import 运行时模块，只能各持一份常量 —— 漂移必须由断言挡住。"""
     assert PROTOCOL_TITLE_CHARS == MAX_SESSION_TITLE_CHARS  # 协议侧 ↔ 存储侧
     assert MAX_SESSION_LIST_ENTRIES == MAX_SESSION_LIST_LIMIT
-    # A18：列表响应必须带 total——列表本身有硬上限，长度不等于总数（UI 曾据此少报）。
+    # 列表响应必须带 total——列表本身有硬上限，长度不等于总数（UI 曾据此少报）。
     assert SessionListResponse(sessions=[]).total == 0
     assert "total" in SessionListResponse.model_fields
     assert MAX_SESSION_ID_CHARS == 128  # 存储侧 ``_MAX_SESSION_ID_LEN``：由下面的同义性测试钉住
@@ -646,7 +646,7 @@ def test_rename_request_normalizes_and_bounds_the_title() -> None:
     assert SessionRenameRequest(title="t", fingerprint=3).fingerprint == 3
 
 
-# ── 阻塞 I/O 卸载（活动台账「控制台阻塞 I/O 与会话列表成本」，2026-09-27 修复）──
+# ── 阻塞 I/O 卸载 ──
 
 
 class _ThreadRecordingSessions:

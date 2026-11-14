@@ -35,19 +35,17 @@ class SafetyMode(StrEnum):
     WHITELIST = "whitelist"  # 白名单模式：仅允许匹配的命令
 
 
-# 内置的危险命令正则模式（不区分大小写），P1-2 补全：新增 poweroff/halt/curl-pipe-sh/wget-pipe-sh/
-# /dev/tcp reverse shell/chmod 777/chmod +s/eval/source/fork bomb 通用形式/rm 分离标志位。
-# P1-15 扩展：新增 nc/ncat 反向 shell、iptables/systemctl 防火墙/服务篡改、crontab 持久化。
-# P1-15 修订（2026-09-19）：撤销 python -c / perl -e 等内联解释器的整条禁（Agent 日常良性
-# 使用频繁自伤）。危险载荷无需专门拦截机制——payload 是整条命令的子串，含危险关键词的
-# 内联代码仍被本表命中；仅 base64 / exec 等混淆形式不在覆盖内（本护栏非真正安全边界）。
+# 内置的危险命令正则模式（不区分大小写）。
+# 不整条禁 python -c / perl -e 等内联解释器：Agent 日常良性使用频繁自伤。危险载荷无需
+# 专门拦截机制——payload 是整条命令的子串，含危险关键词的内联代码仍被本表命中；仅
+# base64 / exec 等混淆形式不在覆盖内（本护栏非真正安全边界）。
 _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
     re.compile(p, re.IGNORECASE)
     for p in [
         r"\brm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+|.*-rf\b|.*\s-f\b)",  # rm -rf / rm -f / rm ... -f
         r"\bformat\s+[a-zA-Z]:",  # format C:
         # dd 锚定命令位置（行首 / 空白 / ;&| / 引号括号 / $( / sudo|doas 之后）——裸
-        # \bdd\b 会把 'yyyy/MM/dd' 等日期 token 误判为磁盘操作（2026-09-21 实测误伤）。
+        # \bdd\b 会把 'yyyy/MM/dd' 等日期 token 误判为磁盘操作（实测误伤）。
         # 空白必须留在锚点集里：去掉它会让 `  dd ...` / `xargs dd` / `sh -c 'dd ...'`
         # 这类换行、包装器与内联形式全部漏过（日期 token 前的分隔符只可能是 / - .，
         # 故加入空白不会重新引入误伤）。已知残留缺口：路径限定的 `/bin/dd` 不再命中。
@@ -71,7 +69,6 @@ _DANGEROUS_PATTERNS: list[re.Pattern[str]] = [
         r"/dev/tcp/",  # /dev/tcp reverse shell
         r"\beval\b",  # eval 动态代码执行
         r"\bsource\b\s+(?:/|~|\.\.)",  # source 执行外部脚本
-        # P1-15 新增：以下模式覆盖此前遗漏的常见攻击向量
         r"\b(?:nc|ncat|netcat)\b.*-e\b",  # netcat -e reverse shell
         r"\biptables\b\s+-F\b",  # iptables 清空所有规则
         r"\bsystemctl\b\s+disable\b",  # systemctl 禁用服务
@@ -112,7 +109,7 @@ class SafetyGuard:
         self._allowed_compiled = [re.compile(p, re.IGNORECASE) for p in self._allowed]
         # 工具名 blacklist（对所有工具生效，含 MCP/内置/shell），按 call.name 正则命中拦截
         self._blocked_tools_compiled = [re.compile(p, re.IGNORECASE) for p in (blocked_tools or [])]
-        # P2-1 修复：用 deque 限长，防止长运行会话无限增长导致内存泄漏
+        # 用 deque 限长，防止长运行会话无限增长导致内存泄漏
         self._violation_log: deque[str] = deque(maxlen=1000)
 
     def _block(self, msg: str) -> NoReturn:
@@ -141,7 +138,7 @@ class SafetyGuard:
             if pat.search(call.name):
                 self._block(f"Blocked tool by name: {call.name}")
 
-        # 提取 command 参数（shell 工具或其他携带 command 的工具，P1-14 defense-in-depth）
+        # 提取 command 参数（shell 工具或其他携带 command 的工具，defense-in-depth）
         raw_command = call.arguments.get("command", "")
         if not isinstance(raw_command, str) or not raw_command:
             return

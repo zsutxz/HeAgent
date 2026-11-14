@@ -190,7 +190,7 @@ async def test_real_loop_streams_tool_events(tmp_path: Path) -> None:
     assert "pyproject.toml" in tool_call["tool_target"]
     assert frames[1][2]["tool_error"] is False
     assert frames[-1][2]["text"] == "read it"
-    # Story 50-8 R5：**成功**的读取类工具内容不进网页事件流（只留作用对象）。
+    # **成功**的读取类工具内容不进网页事件流（只留作用对象）。
     assert frames[1][2]["tool_output"] == ""
     assert "[tool.pytest]" not in json.dumps(frames)
 

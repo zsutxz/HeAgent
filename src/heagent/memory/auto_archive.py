@@ -103,7 +103,7 @@ def _build_plan(text: str, trigger_bytes: int) -> tuple[list[str], str | None, i
     lines = text.split("\n")
     fact_indexes = [i for i, line in enumerate(lines) if line.startswith(_FACT_PREFIX)]
 
-    # 从**最新**往前装、装不下就停 ⇒ 保留最新后缀，被移走的是最旧前缀（59-3 D11：无头部钉住）。
+    # 从**最新**往前装、装不下就停 ⇒ 保留最新后缀，被移走的是最旧前缀（无头部钉住）。
     keep: list[int] = []
     used = 0
     for i in reversed(fact_indexes):

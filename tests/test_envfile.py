@@ -191,7 +191,7 @@ class TestReplaceOrAppend:
 
         assert envfile.read_value(updated, "DEFAULT_MODEL") == "gpt-4o mini"
 
-    # ── BOM（评审 F6 / AC11） ──
+    # ── BOM ──
 
     def test_head_bom_key_is_replaced_not_appended_and_bom_survives(self) -> None:
         updated = envfile.replace_or_append(BOM_SAMPLE.decode("utf-8"), "MAX_ITERATIONS", "7")

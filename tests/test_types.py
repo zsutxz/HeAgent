@@ -99,7 +99,7 @@ def test_tool_annotations_has_no_title_field() -> None:
     assert not hasattr(ann2, "title")
 
 
-# --- ToolSchema.annotations（FR-A1：可选字段，缺省 None，V1 零回归）---
+# --- ToolSchema.annotations（可选字段，缺省 None，V1 零回归）---
 
 
 def test_tool_schema_annotations_defaults_none() -> None:

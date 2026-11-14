@@ -39,7 +39,7 @@ class GuiEventObserver:
         # 环形缓冲：deque[(timestamp, event_type_str, details_dict)]
         self._buffer: deque[tuple[float, str, dict[str, Any]]] = deque(maxlen=_MAX_EVENTS)
         #: 单调递增的事件总数（**不随缓冲淘汰回退**）——展示层的差分必须用它，
-        #: 用「缓冲窗口长度」做差会在窗口满时恒为 0，让事件日志永久冻结（台账 A24）。
+        #: 用「缓冲窗口长度」做差会在窗口满时恒为 0，让事件日志永久冻结。
         self._total = 0
 
     def handle(self, event: EngineEvent) -> None:

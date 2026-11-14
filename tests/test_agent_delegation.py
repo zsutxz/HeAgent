@@ -119,7 +119,7 @@ async def test_delegate_many_keeps_order_with_one_agent_per_task(monkeypatch) ->
 
     assert [o.task for o in outcomes] == ["a", "b", "c"]
     assert all(o.status == "ok" for o in outcomes)
-    # P1-1：每个 task 独立实例（同一实例被并发 run 会竞态读写内部状态）。
+    # 每个 task 独立实例（同一实例被并发 run 会竞态读写内部状态）。
     assert len(captured) == 3
 
 

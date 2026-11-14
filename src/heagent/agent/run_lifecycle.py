@@ -177,7 +177,7 @@ async def init_new_run(
     run_context = loop._ensure_run_context(session_id=session_id)
 
     # 拼装系统提示词（注入 soul/context/skills/facts/profile），先落 SYSTEM——
-    # 严格模板（如 Ollama）要求 SYSTEM 必须是消息数组的第一条。E40-D2：本 run 的
+    # 严格模板（如 Ollama）要求 SYSTEM 必须是消息数组的第一条。本 run 的
     # shell 沙箱工作目录（真正生效时）也在此告知模型。
     system_content = await asyncio.to_thread(
         loop._build_system,
@@ -347,7 +347,7 @@ async def persist_and_cache(
     无论成功/失败均调用：落盘会话消息、缓存 ``last_*`` 属性。
     """
     # 复位暂停态：无论完成/失败/取消（finally 块），均解除协作式暂停，
-    # 防止「暂停后被打断」的暂停态泄漏到下一次 run（P1 修复）。
+    # 防止「暂停后被打断」的暂停态泄漏到下一次 run。
     loop._pause_event.set()
     if loop.session and session_id:
         try:

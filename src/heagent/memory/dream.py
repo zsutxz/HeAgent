@@ -60,7 +60,7 @@ _SESSION_MSG_CHAR_CAP: int = 800
 # 预注入 prompt 中单条 session 摘要的消息条数上限，避免单 session 占满预算。
 _SESSION_MSG_COUNT_CAP: int = 20
 
-# 语义压缩指令段（仅 memory_compact_enabled=True 时拼进 dream prompt；AC2）。
+# 语义压缩指令段（仅 memory_compact_enabled=True 时拼进 dream prompt）。
 # 写侧准则的完整版在 fact_compact 的 description 里（唯一触达模型的闸门），此处只给行为指令。
 _COMPACTION_DIRECTIVE = (
     "<memory-compaction>\n"
@@ -128,8 +128,7 @@ class DreamScheduler:
             # 机会即 ERROR 放弃（与 CronScheduler / MCP shutdown_timeout<=0 同构误用）。fail-closed。
             raise ValueError(f"stop_timeout 必须为正数（got {stop_timeout})")
         self._dream_runner = dream_runner
-        # engine 必传（memory 运行期零 engine 依赖——不再回退 EngineContainer.default() 隐式装配；
-        # 缺省即显性 TypeError，装配责任归入口层组合根）。
+        # engine 必传（memory 运行期零 engine 依赖；缺省即显性 TypeError，装配责任归入口层组合根）。
         self._engine = engine
         self._session_store = session_store
         self._settings = settings or get_settings()
@@ -137,8 +136,8 @@ class DreamScheduler:
         self._stop_timeout = stop_timeout
         # dream 参数从 settings 读（构造时快照，运行中不动态变）。
         self._cron_expr: str = self._settings.dream_cron
-        # fail-fast：畸形 cron 在构造期暴露，避免 tick 循环每 cron_tick_seconds 秒刷一条 warning
-        # （审查 #4/#5）——5 字段非法会每 tick 刷屏，6 字段（带秒）会被 cron_matches 静默判 False 无诊断。
+        # fail-fast：畸形 cron 在构造期暴露，避免 tick 循环每 cron_tick_seconds 秒刷一条 warning——
+        # 5 字段非法会每 tick 刷屏，6 字段（带秒）会被 cron_matches 静默判 False 无诊断。
         self._validate_cron_expr(self._cron_expr)
         self._idle_minutes: int = self._settings.dream_idle_minutes
         self._session_lookback: int = self._settings.dream_session_lookback
@@ -250,7 +249,7 @@ class DreamScheduler:
         - cron / idle 同时命中时优先 cron（cron 是定时意图，idle 是机会主义）。
         """
         if self._dreaming:
-            return  # AC3：互斥，dream 进行中不起第二个。
+            return  # 互斥，dream 进行中不起第二个。
         now = datetime.now()
         # _cron_expr 已在构造期 fail-fast 校验（_validate_cron_expr），此处不再捕获 ValueError。
         cron_match = cron_matches(self._cron_expr, now)
@@ -271,8 +270,7 @@ class DreamScheduler:
         （除 ``CancelledError``），失败仅记日志 + dream_end(success=False)。
         """
         try:
-            # _dreaming=True 置于 try 内：publish/logger 若异常，finally 仍能释放互斥（审查 #3，
-            # 防永久死锁）。
+            # _dreaming=True 置于 try 内：publish/logger 若异常，finally 仍能释放互斥（防永久死锁）。
             self._dreaming = True
             self._engine.events.publish("dream_start", details={"trigger": trigger})
             logger.info("Dream started (trigger=%s)", trigger)
@@ -281,7 +279,7 @@ class DreamScheduler:
             result = await self._dream_runner(prompt)
             extra: dict[str, object] = {}
             if result.compact is not None:
-                # D8：复用 dream 既有事件通道，compact 统计随 dream_end details 发布（FR6）。
+                # 复用 dream 既有事件通道，compact 统计随 dream_end details 发布。
                 extra["compact"] = result.compact.model_dump(mode="json")
             self._publish_dream_end(
                 trigger,
@@ -308,7 +306,7 @@ class DreamScheduler:
         finally:
             self._dreaming = False
             # 任一退出路径（成功/失败/取消）都重置 idle 基准——失败/取消 dream 不发 run_completed，
-            # 若不重置则 idle 条件持续真、每 tick 重燃失败 dream 烧 provider token（审查 #2）。
+            # 若不重置则 idle 条件持续真、每 tick 重燃失败 dream 烧 provider token。
             self._last_active_ts = time.monotonic()
 
     def _publish_dream_end(self, trigger: str, **extra: object) -> None:

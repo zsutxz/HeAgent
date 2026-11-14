@@ -35,7 +35,7 @@ class JobStore:
 
     def __init__(self, path: str = ".heagent/cron/jobs.json") -> None:
         self._path = Path(path)
-        self._corruption_count: int = 0  # P0-3：最近一次 _load_all 跳过的损坏条目数
+        self._corruption_count: int = 0  # 最近一次 _load_all 跳过的损坏条目数
 
     @property
     def corruption_count(self) -> int:

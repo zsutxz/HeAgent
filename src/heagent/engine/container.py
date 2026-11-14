@@ -72,10 +72,10 @@ def _resolve_command_runner(
     if backend == "docker":
         from heagent.tools.sandbox import DockerRunner
 
-        # 可用性闸（审查修复批，对齐 winjob）：不可用只告警并回透传——装配期诚实于实际
+        # 可用性闸（对齐 winjob）：不可用只告警并回透传——装配期诚实于实际
         # 隔离能力，杜绝「请求 container 档、事件报 container 档、执行全裸」的降级错位
         # （run() 内的 Passthrough 兜底保留为纵深防御，不再是主降级路径）。
-        # 网络档按 brief D2：SANDBOX_NETWORK=True 才 bridge；workspace_root 兜底挂载
+        # 网络档：SANDBOX_NETWORK=True 才 bridge；workspace_root 兜底挂载
         # （firejail --private 同型语义）；限额映射见 DockerRunner（cpu_seconds 无诚实映射）。
         runner = DockerRunner(
             image=settings.sandbox_docker_image,
@@ -120,10 +120,10 @@ class EngineContainer:
     run_stale_idle_hours: float = 0.0
     # 过期清理的跨进程节流秒数（0=每次都扫）；default() 从 Settings 读，手动构造默认 0（测试无节流）。
     prune_min_interval_seconds: int = 0
-    # 沙箱会话目录开关（E40-D4）：None = 跟随 Settings（env）；True/False = 显式覆盖
+    # 沙箱会话目录开关：None = 跟随 Settings（env）；True/False = 显式覆盖
     # （CLI `--sandbox-session-workspace` / `--no-sandbox-session-workspace`）。
     sandbox_session_workspace: bool | None = None
-    # 沙箱会话目录 teardown 保留开关（E40-D4）：None = 跟随 Settings；True/False = 显式覆盖
+    # 沙箱会话目录 teardown 保留开关：None = 跟随 Settings；True/False = 显式覆盖
     # （CLI `--sandbox-session-keep` / `--no-sandbox-session-keep`）。
     sandbox_session_keep: bool | None = None
     runtime_config: ResolvedRuntimeConfig | None = field(default=None, repr=False)
@@ -143,28 +143,27 @@ class EngineContainer:
         )
         self.sandbox_session_workspace = self.runtime_config.sandbox_session_workspace
         self.sandbox_session_keep = self.runtime_config.sandbox_session_keep
-        # 注入 cross-process file locks（V2）
+        # 注入 cross-process file locks
         if self.enable_file_locks:
             self.run_store._enable_locks = True
             self.ledger._enable_locks = True
 
-        # 执行世界 runner 装配判定（B1 seam，2026-11-07）：executor.sandbox_runner **优先**
+        # 执行世界 runner 装配判定：executor.sandbox_runner **优先**
         # （executor 面是权威执行面——双 runner 并存时 command_runner 不会生效）；仅 executor
-        # 未设时把 command_runner 装配进去（P1-22 语义保留：container 端显式 None = 「禁用
-        # 沙箱」意图，不注入）。此前双 runner 并存仅运行期 WARNING+忽略，判定散落运行期；
-        # 现在构造期显式判定，规则成文、冲突不再漂移进运行期，只留一条 INFO 痕迹。
+        # 未设时把 command_runner 装配进去（container 端显式 None = 「禁用
+        # 沙箱」意图，不注入）。构造期显式判定，规则成文、冲突不再漂移进运行期，只留一条 INFO 痕迹。
         if self.executor.sandbox_runner is None and self.command_runner is not None:
             self.executor.sandbox_runner = self.command_runner
         elif self.executor.sandbox_runner is not None and self.command_runner is not None:
-            # 冲突面观测点（2026-11-07 裁定恢复）：判定已上提到构造期，但「我配的 runner 为什么
+            # 冲突面观测点：判定已上提到构造期，但「我配的 runner 为什么
             # 没生效」仍需一条可检索的痕迹——降级为 INFO（不是告警：双 runner 并存是合法装配，
-            # executor 面本就权威），文案沿用卡 E 之前的原文，便于按旧日志检索。
+            # executor 面本就权威），文案保持原文，便于按旧日志检索。
             logger.info(
                 "command_runner is set but executor.sandbox_runner is already %s; command_runner is ignored",
                 type(self.executor.sandbox_runner).__name__,
             )
 
-        # 期二 D53-2：审批降级需要读「当前沙箱后端」的档位与可用性。用惰性 provider 而不是
+        # 审批降级需要读「当前沙箱后端」的档位与可用性。用惰性 provider 而不是
         # 构造期快照——runner 可能在注入后才被替换，快照会让放松判定与实际执行面漂移。
         self.policy.sandbox_runner_provider = lambda: self.executor.sandbox_runner
 
@@ -301,7 +300,7 @@ class EngineContainer:
         backend = settings.sandbox_backend
         backend = backend.strip().lower()
         if backend == "auto":
-            # P0-2：自动档只认 firejail（Linux/macOS 的真实 OS 级隔离）。Windows 的 Job
+            # 自动档只认 firejail（Linux/macOS 的真实 OS 级隔离）。Windows 的 Job
             # Objects 需显式指定——它无文件系统隔离，自动启用会改掉所有 shell 命令的进程
             # 语义而隔离收益有限（诚实取舍，见 docs/frame.md 配置表）。
             import shutil as _shutil
@@ -330,7 +329,7 @@ class EngineContainer:
             if backend == "firejail":
                 effective_backend = "firejail" if command_runner.available else "passthrough"
             else:
-                # 非 firejail 分支此前硬编码 "winjob"；docker 档落地后按后端名通用化
+                # 非 firejail 分支按后端名通用化
                 # （winjob 在 _resolve_command_runner 内已过可用性闸，语义不变）。
                 effective_backend = backend if command_runner.available else "passthrough"
         container.sandbox_decision = SandboxDecision(
@@ -355,17 +354,17 @@ class EngineContainer:
         container.run_retention_days = settings.run_retention_days
         container.run_stale_idle_hours = settings.run_stale_idle_hours
         container.prune_min_interval_seconds = settings.prune_min_interval_seconds
-        # P0-2 权限档位：由 Settings 注入（非法值已在 sandbox_mode_resolved 回退 + 告警）。
+        # 权限档位：由 Settings 注入（非法值已在 sandbox_mode_resolved 回退 + 告警）。
         container.policy.sandbox_mode = settings.sandbox_mode_resolved
         if settings.approval_tool_list:
             container.policy.approval_tools = set(settings.approval_tool_list)
-        # P0-2 沙箱强制：**仅在探测到真实后端时**把 shell 纳入沙箱工具集——passthrough
+        # 沙箱强制：**仅在探测到真实后端时**把 shell 纳入沙箱工具集——passthrough
         # 平台保持零行为变更，不制造「命令已在沙箱里跑」的假象（诚实立场见 CLAUDE.md）。
         # 授权由 create_run_context 与策略同源写入 metadata，故不会出现「策略要求沙箱却
         # 未授权」导致 shell 全线被拒的整类故障。
         if settings.sandbox_enforce and command_runner is not None:
             container.policy.sandbox_tools.add("shell")
-            # 告警豁免按实际网络能力判定（审查修复批）：isolates_network() 为 Protocol 契约
+            # 告警豁免按实际网络能力判定：isolates_network() 为 Protocol 契约
             # （四后端全实现），「档位够高但网络档错配」（bridge runner + 网络关）不再靠
             # 档位集合豁免提示；daemon 不可达经 resolver 可用性闸已降级，不会走到这里。
             if not settings.sandbox_network and not command_runner.isolates_network():
@@ -374,7 +373,7 @@ class EngineContainer:
                     "network isolation is NOT in effect",
                     backend,
                 )
-        # per-tool 沙箱 profile 映射（2026-09-17 硬化批）：叠加进 policy 的 tool→profile
+        # per-tool 沙箱 profile 映射：叠加进 policy 的 tool→profile
         # 表（默认空 dict），配合 FirejailBackend.profiles 使单个工具差异化选用参数集。
         # 无策略强制（passthrough / enforce=false）时纯配置零行为。
         tool_profiles = settings.sandbox_tool_profiles_map
@@ -415,20 +414,20 @@ class EngineContainer:
         )
         if self.sandbox_decision is not None:
             ctx.metadata["sandbox_decision"] = self.sandbox_decision.model_dump()
-        # P0-2：**仅在真实沙箱后端在位时**才自动授权（与 EngineContainer.default 的 enforce
+        # **仅在真实沙箱后端在位时**才自动授权（与 EngineContainer.default 的 enforce
         # 同条件）。后端缺席（passthrough）时不写该键——策略要求沙箱而无授权仍按既有
         # fail-safe 阻断，既不制造「已在沙箱里跑」的假象，也不放宽「未授权即拒绝」的契约。
         if self.executor.sandbox_runner is not None:
             sandboxed_tools = sorted(self.policy.sandbox_tools)
             if sandboxed_tools:
                 ctx.metadata["sandboxed_tools"] = sandboxed_tools
-        # FR-1（沙箱会话目录）：开关开启时解析 per-run 目录并写入 metadata，
+        # 沙箱会话目录：开关开启时解析 per-run 目录并写入 metadata，
         # 由 ToolExecutor.execute_in_sandbox bind 给后端（Firejail --private 根 /
         # WinJob 子进程 cwd）。目录根锚定 workspace_root 回退链（root，上方已解析：
         # 参数→container→policy→cwd）而非进程 cwd——目录落在 file 工具围栏内；
         # 目标路径在 try 外预推导，except 严禁二次 Path.cwd() 重建（POSIX cwd 消失时
-        # 二次推导会抛新异常掩盖原始错误）。目录创建失败（权限/磁盘）→ 显性失败
-        # （NFR-1），严禁静默降级为「无目录继续跑」。
+        # 二次推导会抛新异常掩盖原始错误）。目录创建失败（权限/磁盘）→ 显性失败，
+        # 严禁静默降级为「无目录继续跑」。
         from heagent.tools.sandbox import sandbox_session_dir, sandbox_sessions_root
 
         if self._session_workspace_enabled():

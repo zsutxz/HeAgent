@@ -100,19 +100,19 @@ class TestConsoleLayout:
             "sidebar-toggle",  # 窄屏降级时的侧栏开合
             "project-list",  # 项目列表
             "project-form",  # 登记入口
-            "project-pick",  # 服务端原生目录选择（Story 50-8 R2）
+            "project-pick",  # 服务端原生目录选择
             "session-list",  # 会话列表
             "session-create",  # 新建会话
-            "session-count",  # 会话规模提示（Story 50-8 R1）
-            "session-more",  # 展开/收起（Story 50-8 R1）
+            "session-count",  # 会话规模提示
+            "session-more",  # 展开/收起
             "settings-button",  # 设置入口
             "settings-panel",  # 独立设置面板
             "settings-groups",  # 分组条目容器
             "settings-save",  # 保存
             "settings-gate",  # 写入闸门说明
             "settings-result",  # 保存结果反馈
-            "settings-diagnostics-summary",  # 诊断折叠标题（Story 50-8 R4）
-            "settings-unknown-summary",  # 未知键折叠标题（Story 50-8 R4）
+            "settings-diagnostics-summary",  # 诊断折叠标题
+            "settings-unknown-summary",  # 未知键折叠标题
             "unknown-keys",  # 未知键单列
             "confirm-overlay",  # 二次确认
             "confirm-text",

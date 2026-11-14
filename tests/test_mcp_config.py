@@ -23,7 +23,7 @@ def _write(path: Path, data: object) -> Path:
     return path
 
 
-# --- 纯内置模式（FR-7）---
+# --- 纯内置模式 ---
 
 
 def test_missing_file_returns_empty(tmp_path: Path) -> None:
@@ -85,7 +85,7 @@ def test_multiple_servers(tmp_path: Path) -> None:
     assert not cfg.is_empty
 
 
-# --- ${ENV} 插值（FR-8）---
+# --- ${ENV} 插值 ---
 
 
 def test_env_interpolation(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

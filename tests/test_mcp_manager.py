@@ -150,7 +150,7 @@ def _patch_transport(monkeypatch: pytest.MonkeyPatch, sessions: dict[str, StubSe
     monkeypatch.setattr(MCPClientManager, "_transport_and_session", fake_transport)
 
 
-# --- 连接 + 发现 + 注册（FR-1/2/4）---
+# --- 连接 + 发现 + 注册 ---
 
 
 async def test_connect_discovers_and_registers_stdio_and_http(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -187,7 +187,7 @@ async def test_empty_config_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     assert reg.list_names() == []
 
 
-# --- 失败 / 超时隔离（FR-3 / NFR-4 / NFR-6）---
+# --- 失败 / 超时隔离 ---
 
 
 async def test_single_server_failure_isolated(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -227,7 +227,7 @@ async def test_connect_timeout_isolated(monkeypatch: pytest.MonkeyPatch) -> None
         assert reg.list_names() == []
 
 
-# --- namespace 冲突（FR-6）---
+# --- namespace 冲突 ---
 
 
 async def test_namespace_collision_deduped(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -250,7 +250,7 @@ async def test_namespace_collision_deduped(monkeypatch: pytest.MonkeyPatch) -> N
     assert names.count("github_mcp__list") == 1
 
 
-# --- handler 桥接（FR-5）---
+# --- handler 桥接 ---
 
 
 async def test_handler_returns_bridged_text(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -277,7 +277,7 @@ async def test_handler_iserror_raises_toolerror(monkeypatch: pytest.MonkeyPatch)
             await handler()  # type: ignore[operator]
 
 
-# --- 卸载（FR-2 生命周期）---
+# --- 卸载（生命周期）---
 
 
 async def test_unregister_all_on_exit(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -289,7 +289,7 @@ async def test_unregister_all_on_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "s__run" not in reg.list_names()
 
 
-# --- 运行时断连主动 unregister（FR-3 收紧）---
+# --- 运行时断连主动 unregister ---
 
 
 def test_health_check_interval_must_be_positive() -> None:
@@ -545,7 +545,7 @@ async def test_aexit_mixed_hang_and_clean_server(monkeypatch: pytest.MonkeyPatch
     assert any("关停超时" in r.message for r in caplog.records)
 
 
-# --- _sessions 映射（Story 15-1: B/C 前置）---
+# --- _sessions 映射 ---
 
 
 async def test_sessions_populated_after_connect(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -622,7 +622,7 @@ async def test_get_session_after_disconnect_raises_tool_error(monkeypatch: pytes
             mgr._get_session("s")
 
 
-# --- mcp__list_resources 桥接工具（Story 15-2）---
+# --- mcp__list_resources 桥接工具 ---
 
 
 async def test_list_resources_registered_when_sessions_active(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -798,7 +798,7 @@ async def test_list_resources_bridge_skipped_on_name_collision(monkeypatch: pyte
     assert schema.description == "d"
 
 
-# --- mcp__read_resource 桥接工具（Story 15-3: FR-B2/B4）---
+# --- mcp__read_resource 桥接工具 ---
 
 
 async def test_read_resource_registered_when_sessions_active(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1035,7 +1035,7 @@ async def test_read_resource_both_bridge_tools_present(monkeypatch: pytest.Monke
     assert "mcp__read_resource" in names
 
 
-# --- Story 16-1: Prompts (list_prompts / get_prompt) ---
+# --- Prompts (list_prompts / get_prompt) ---
 
 
 async def test_list_prompts_aggregates_all_servers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1226,7 +1226,7 @@ async def test_list_prompts_after_disconnect(monkeypatch: pytest.MonkeyPatch) ->
     assert data[0]["server"] == "b"
 
 
-# --- 发现阶段失败结构化暴露（Phase 4 C2：单 server 隔离但不隐藏发现错误）---
+# --- 发现阶段失败结构化暴露（单 server 隔离但不隐藏发现错误）---
 
 
 async def test_discovery_failures_exposed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1271,7 +1271,7 @@ async def test_connect_timeout_recorded_in_discovery_failures(monkeypatch: pytes
         assert "0.05" in mgr.discovery_failures[0].reason
 
 
-# --- TransportOpener 注入端口（Phase 4 C2：最小 Protocol，无需 class-patch 缝）---
+# --- TransportOpener 注入端口（最小 Protocol，无需 class-patch 缝）---
 
 
 async def test_transport_opener_injection() -> None:

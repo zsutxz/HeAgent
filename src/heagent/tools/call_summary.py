@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 # 摘要总长上限（字符）：超长截断，防单个参数（超长路径 / 自由文本）刷屏。
-# 2026-10-15 应用户要求由 72 延长至 120：深层 Java 路径 72 字符不够用。
+# 取 120：深层 Java 路径 72 字符不够用。
 # shell 命令不受此限——见 :data:`_NO_TRUNCATE_TOOLS`。
 _MAX_LENGTH = 120
 # 自由文本参数（task / prompt / fact / query）的展示长度上限。

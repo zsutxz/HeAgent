@@ -41,10 +41,10 @@ if TYPE_CHECKING:
     from heagent.providers.base import BaseProvider
     from heagent.skills import SkillStore
 
-    # cron job runner：(prompt, run_context) → None（Phase 2 C3 共享缝的返回类型）
+    # cron job runner：(prompt, run_context) → None（共享缝的返回类型）
     CronJobRunner = Callable[[str, RunContext], Awaitable[None]]
 
-    # cron 结果通知器（Epic 58 D5）：(job_id, status, text) → None。入口层构造（网络中枢 + 终端回显），
+    # cron 结果通知器：(job_id, status, text) → None。入口层构造（网络中枢 + 终端回显），
     # wiring 只负责调用 —— runner 因此不认识任何网络类型，`network/` 也不必反向依赖运行栈。
     CronNotifier = Callable[[str, "CronResultStatus", str], None]
 
@@ -71,11 +71,11 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
 
 
 # ----------------------------------------------------------------------
-# loop 装配共享缝（Phase 2 C3）：入口层各 loop 构造点真正共用、且漂移风险高的
+# loop 装配共享缝：入口层各 loop 构造点真正共用、且漂移风险高的
 # 两段——engine 配置快照读回收窄与 cron job runner——收敛到此处。
 # 主 loop 本体仍由各入口显式构造：两入口在每个旋钮上都有真实产品差异
 # （session/上下文策略/soul/retry 中间件/context_dir），全量参数化会产出
-# 17 参 + 4 布尔旗的巨函，比两个显式构造点更难读（决策记录见 spec-phase2）。
+# 17 参 + 4 布尔旗的巨函，比两个显式构造点更难读。
 # ----------------------------------------------------------------------
 
 
@@ -140,7 +140,7 @@ def build_cron_job_runner(
 
         goal_id = _goal_auto_goal_id(prompt)
         if goal_id is not None:
-            # D5：goal 自动推进不是「给用户的回答」——不发通知（零投递、零回显）。
+            # goal 自动推进不是「给用户的回答」——不发通知（零投递、零回显）。
             await _goal_cron_advance(provider, engine, cron_store, goal_id)
             return
         loop = AgentLoop(
@@ -164,7 +164,7 @@ def build_cron_job_runner(
             answer = await loop.run(prompt)
         except Exception as exc:
             # 失败也要送达（客户端/终端需要知道「跑了但没结果」），但异常**继续上抛**：
-            # scheduler 仍要 ledger.fail + 更新 last_run（D5 只排除 goal 推进分支）。
+            # scheduler 仍要 ledger.fail + 更新 last_run（只有 goal 推进分支不发通知）。
             _notify(run_context, CronResultStatus.FAILED, _first_line(exc))
             raise
         _notify(run_context, CronResultStatus.COMPLETED, answer)

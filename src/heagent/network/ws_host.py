@@ -92,17 +92,17 @@ class WsServerConfig(BaseModel):
     # （run 端点经 max_connections 参数注入），也是 CLI 旁路 hub 的连接总额。
     ws_max_connections: int = Field(default=16, ge=1)
     shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
-    # 对外模式的静态 token（D3）：真源是用户级 setting.md，**不**来自项目 .env / 系统环境。
-    # 本地模式下即使配置了也不启用认证（D5：单监听器按绑定地址切模式）。
-    # 2026-11-04 D5 修订：`local_auth` 打开后回环绑定也强制认证——默认 False = D5 原语义逐字保持。
+    # 对外模式的静态 token：真源是用户级 setting.md，**不**来自项目 .env / 系统环境。
+    # 本地模式下即使配置了也不启用认证（单监听器按绑定地址切模式）。
+    # `local_auth` 打开后回环绑定也强制认证；默认 False = 保持「本地不强制认证」的原语义。
     auth_token: SecretStr | None = None
-    # **本地强制认证**（2026-11-04 D5 修订）：True 时回环绑定也强制 Bearer 认证。非回环绑定时冗余
+    # **本地强制认证**：True 时回环绑定也强制 Bearer 认证。非回环绑定时冗余
     # （对外模式本就强制认证）。入口层键 ``WS_LOCAL_AUTH_ENABLED``；默认关。
     local_auth: bool = False
     # TLS 证书 / 私钥路径（PEM）；二者同时给出才启用 wss。
     tls_cert_file: str | None = None
     tls_key_file: str | None = None
-    # **只读旁观**（Epic 56 期二 P2-A3）：True 时这条 listener 不注册提交端点（`/api/runs/ws`），
+    # **只读旁观**：True 时这条 listener 不注册提交端点（`/api/runs/ws`），
     # 已订阅连接上的 `cancel` 回 `invalid_request`（不断连）——只能看，不能下命令。
     # 与 listener 模式正交：本地/对外都可设，但入口层只为对外 listener 暴露配置键
     # （`WS_EXTERNAL_READONLY`）；本地 listener 的只读需求目前没有产品场景。
@@ -217,7 +217,7 @@ def build_ws_app(
             )
         )
     if cli_hub is not None and config.mode == "local":
-        # D9：终端观众席**只**挂本地 listener。装配层（`build_ws_servers`）本来就不会把 hub
+        # 终端观众席**只**挂本地 listener。装配层（`build_ws_servers`）本来就不会把 hub
         # 传给对外 listener，这里再判一次 mode 是 defense-in-depth——「某个调用方直接构造了
         # 对外 WsServer(cli_hub=...)」也不该把终端事件流投递到网络。
         from heagent.network.ws_server import build_cli_ws_endpoint
@@ -234,7 +234,7 @@ def build_ws_app(
             )
         )
     if notification_hub is not None:
-        # Epic 58 D2：通知流对**所有** listener 注册（含对外与 readonly）。与旁路的差别是刻意的：
+        # 通知流对**所有** listener 注册（含对外与 readonly）。与旁路的差别是刻意的：
         # 旁路旁观的是「宿主的终端」，通知流送的是「宿主自己排的 cron 的产物」，而对外 listener
         # 本身已强制 token（fail-closed）——再叠一层模式判据只会让跨网客户端拿不到它。
         from heagent.network.ws_server import build_notification_ws_endpoint
@@ -268,7 +268,7 @@ class WsServer:
         version: str = "",
     ) -> None:
         self.config = config
-        # 版本由入口层注入（``heagent.__version__``，56-9）：四端点 accept 后经 hello 首帧下发；
+        # 版本由入口层注入（``heagent.__version__``）：四端点 accept 后经 hello 首帧下发；
         # 空 = 测试装配形态，端点侧 debug 跳过（不静默）。
         self.version = version
         self.run_service = run_service
@@ -330,12 +330,12 @@ class WsServer:
                 access_log=False,
                 server_header=False,
                 proxy_headers=False,
-                # WS 限额不经 limit_concurrency（Epic 54 口径）：额度在 ASGI 层原子检查+登记。
+                # WS 限额不经 limit_concurrency：额度在 ASGI 层原子检查+登记。
                 ws_max_size=WS_MAX_FRAME_BYTES,
                 ws_ping_interval=WS_PING_INTERVAL_SECONDS,
                 ws_ping_timeout=WS_PING_TIMEOUT_SECONDS,
                 timeout_graceful_shutdown=max(1, math.ceil(self.config.shutdown_timeout)),
-                # TLS（D4）：cert/key 配齐即 wss；半配在 WsServerConfig 构造期已 fail-loud。
+                # TLS：cert/key 配齐即 wss；半配在 WsServerConfig 构造期已 fail-loud。
                 ssl_certfile=self.config.tls_cert_file,
                 ssl_keyfile=self.config.tls_key_file,
             )
@@ -360,7 +360,7 @@ class WsServer:
             "wss" if self.config.tls_enabled else "ws",
         )
         if self.config.mode == "external" and not self.config.tls_enabled:
-            # D4：对外明文跑必须日志可见（与 exposure 告警两条独立信息：一条说「谁能连」，一条说「没加密」）。
+            # 对外明文跑必须日志可见（与 exposure 告警是两条独立信息：一条说「谁能连」，一条说「没加密」）。
             safe_log(
                 logger,
                 logging.WARNING,
@@ -369,7 +369,7 @@ class WsServer:
                 self.address,
             )
         if self.config.mode == "local" and self.config.requires_auth and not self.config.tls_enabled:
-            # 2026-11-04 D5 修订：回环 + 强制认证 + 明文 ⇒ token 在回环明文上传输也必须可见
+            # 回环 + 强制认证 + 明文 ⇒ token 在回环明文上传输也必须可见
             # （本机窃听者可读到 token；与对外明文是两条独立告警，listener 标签不同）。
             safe_log(
                 logger,
@@ -379,7 +379,7 @@ class WsServer:
                 self.address,
             )
         if not self.config.requires_auth and self.config.auth_secret:
-            # 开关关时本地模式刻意不启用认证（D5 原语义）：token 配了也不生效，说清楚以免留下虚假安全感。
+            # 开关关时本地模式刻意不启用认证：token 配了也不生效，说清楚以免留下虚假安全感。
             safe_log(
                 logger,
                 logging.WARNING,
@@ -412,7 +412,7 @@ class WsServer:
         for hub in (self.cli_hub, self.notification_hub):
             if hub is not None:
                 # close() 置上的「停止接收」标记不可逆：重新 start() 后必须重开，否则新连接一律收
-                # shutting_down——AD-5 禁止的「看着在运行、其实不可用」（同 HttpServer.start 口径）。
+                # shutting_down——「看着在运行、其实不可用」是要消除的假象（同 HttpServer.start 口径）。
                 hub.reopen()
 
     async def serve_forever(self) -> None:

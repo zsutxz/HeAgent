@@ -190,7 +190,7 @@ class ContextCompressor:
         返回：
             摘要文本
         """
-        # effective_limit：min(window_limit, summary_input_limit)，收紧摘要输入上限（P1-4 修复）
+        # effective_limit：min(window_limit, summary_input_limit)，收紧摘要输入上限
         effective_limit = min(max_tokens, self.max_summary_tokens) if max_tokens > 0 else self.max_summary_tokens
         safety_limit = effective_limit - _SUMMARY_SAFETY_MARGIN
 

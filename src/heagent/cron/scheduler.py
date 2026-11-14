@@ -115,7 +115,7 @@ class CronScheduler:
         now = datetime.now()
         try:
             # store 的读写是同步文件 I/O（含 Windows 替换退避 time.sleep），经 to_thread 卸载，
-            # 不阻塞事件循环（对齐 273cb89 file/search 工具与 WorkflowCheckpointStore 先例）。
+            # 不阻塞事件循环（对齐 file/search 工具与 WorkflowCheckpointStore 先例）。
             jobs = await asyncio.to_thread(self._store.list_jobs)
         except Exception:
             logger.exception("Failed to load cron jobs; skipping this tick")
@@ -123,7 +123,7 @@ class CronScheduler:
         for job in jobs:
             if not job.enabled:
                 continue
-            # P0-2：per-job ValueError 保护 —— 非法 cron 表达式仅跳过当前 job
+            # per-job ValueError 保护 —— 非法 cron 表达式仅跳过当前 job
             try:
                 if not self._matches(job.cron, now):
                     continue
@@ -171,7 +171,7 @@ class CronScheduler:
                 run_id=run_context.run_id,
                 details={"job_id": job.id, "error": str(exc)},
             )
-            # 失败路径也更新 last_run——防止每分钟无限重试（P1-11 修复）。
+            # 失败路径也更新 last_run——防止每分钟无限重试。
             # ledger.fail() 清除了 lease_expires_at，下一分钟新 key 的 acquire 会成功；
             # last_run 不更新会导致同一个逻辑分钟被无限重入。
             from heagent.cron.jobs import _iso_now
@@ -180,8 +180,8 @@ class CronScheduler:
             logger.exception("Cron job '%s' execution failed", job.id)
             return
 
-        # 先写 ledger.complete（幂等标记），成功后再更新 last_run（P1-10 修复）。
-        # 原顺序 store.update 在前：若 ledger.complete 抛异常，last_run 已更新但
+        # 先写 ledger.complete（幂等标记），成功后再更新 last_run。
+        # 若顺序反过来 store.update 在前：ledger.complete 抛异常时 last_run 已更新但
         # 幂等未标记，下一分钟重复执行。
         await self._engine.ledger.complete(key, metadata={"job_id": job.id, "cron": job.cron})
         from heagent.cron.jobs import _iso_now

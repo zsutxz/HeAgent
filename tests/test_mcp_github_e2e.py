@@ -62,8 +62,8 @@ async def connected_github() -> ToolRegistry:
         await mgr.__aexit__(None, None, None)
 
 
-# 真实工具名（2026-06-20 有效 token 连 GitHub 官方远程 MCP server 实测确认），
-# 与 PRD/epics FR-9 预期命名一致。锁定真实名而非模糊匹配——server 改名应让 E2E 响亮失败。
+# 真实工具名（有效 token 连 GitHub 官方远程 MCP server 实测确认），
+# 锁定真实名而非模糊匹配——server 改名应让 E2E 响亮失败。
 LIST_ISSUES_TOOL = "github__list_issues"
 SEARCH_CODE_TOOL = "github__search_code"
 

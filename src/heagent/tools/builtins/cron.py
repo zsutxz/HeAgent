@@ -86,7 +86,7 @@ async def cron_add(prompt: str, schedule: str, recurring: bool = True) -> str:
     store = _store()
     if store is None:
         return "Error: cron tools not configured."
-    # P1-13 修复：预校验 schedule，阻止非法 cron 表达式静默入库
+    # 预校验 schedule，阻止非法 cron 表达式静默入库
     err = _validate_schedule(schedule)
     if err is not None:
         return f"Error: {err}"
@@ -105,7 +105,7 @@ async def cron_list() -> str:
     jobs = await asyncio.to_thread(store.list_jobs)
     parts: list[str] = []
 
-    # P0-3：展示因损坏/非法而被跳过的条目数（静默消失→用户可感知）
+    # 展示因损坏/非法而被跳过的条目数（静默消失→用户可感知）
     corrupted = store.corruption_count
     if corrupted == -1:
         parts.append("⚠️  Cron jobs file is corrupted or not a valid list — all entries skipped.")

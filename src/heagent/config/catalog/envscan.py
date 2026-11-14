@@ -80,8 +80,8 @@ def scan_env_file(path: str | Path | None) -> EnvScan:
     if has_bom:
         text = text[len(BOM) :]
 
-    # ``splitlines()``：0 字节文件算 0 行、末行换行不额外算一行（评审发现·镜头二⑤：原先按
-    # ``split("\n")`` 段数计，0 字节 .env 会谎报 1 行）。行解析内核与 envfile 共享（键名/
+    # ``splitlines()``：0 字节文件算 0 行、末行换行不额外算一行（按 ``split("\n")`` 段数计
+    # 会让 0 字节 .env 谎报 1 行）。行解析内核与 envfile 共享（键名/
     # export 口径不漂移），但行切分刻意不同：诊断侧归一化 CRLF，保真侧逐字节。
     lines = text.replace("\r\n", "\n").splitlines()
     counts: dict[str, int] = {}

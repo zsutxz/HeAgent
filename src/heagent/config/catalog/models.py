@@ -107,7 +107,7 @@ class ConfigItem(BaseModel):
     configured: bool = False
     masked: str | None = None
     guards: ConfigGuard | None = None
-    impact: str = "normal"  # 高影响标记（A13）：由 ``impact_for`` 从 ``RESOURCE_CEILINGS`` 派生
+    impact: str = "normal"  # 高影响标记：由 ``impact_for`` 从 ``RESOURCE_CEILINGS`` 派生
     notes: tuple[str, ...] = ()
     routing: RoutingPoolsReport | None = None
 
@@ -183,7 +183,7 @@ class EnvScan(BaseModel):
     inline_comment_keys: tuple[str, ...] = ()
 
 
-# ── 声明式常量：分组 / 白名单 / 排除规则（单一来源，Story 50-5 复用） ──
+# ── 声明式常量：分组 / 白名单 / 排除规则（单一来源） ──
 
 
 class ConfigGroupSpec(BaseModel):

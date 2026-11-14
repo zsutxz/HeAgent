@@ -11,7 +11,7 @@ from heagent.config import WS_AUTH_TOKEN_KEY
 MASK = "********"
 
 #: 合法但**不属于** ``Settings`` 字段的用户级键：它们存在用户 ``setting.md`` 里却不是配置项。
-#: 目前只有 WS 对外模式的 token（Epic 56 D3：凭证只认用户级文件，刻意不进「env > 项目 .env >
+#: 目前只有 WS 对外模式的 token（凭证只认用户级文件，刻意不进「env > 项目 .env >
 #: 用户 md」优先级链）。列入本集合的唯一作用是让「未知键」诊断不误报它；它**不**成为可写项，
 #: 也不出现在配置面板条目里（面板按 ``Settings.model_fields`` 装配）。
 USER_ONLY_SETTING_KEYS = frozenset({WS_AUTH_TOKEN_KEY})

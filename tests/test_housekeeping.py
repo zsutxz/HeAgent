@@ -270,7 +270,7 @@ def test_prune_runtime_artifacts_sync_event_loop_fallback_shape(
     }
 
 
-# ── 已停止容器的回收（Epic 53 审查修复批：孤儿容器带着写挂载滞留）─────
+# ── 已停止容器的回收（孤儿容器带着写挂载滞留）─────
 
 
 class _FakeDockerCli:
@@ -402,7 +402,7 @@ def test_sync_wrapper_still_sweeps_when_retention_all_zero(tmp_path: Path, monke
     assert result["logs"] == 0
 
 
-# ── 沙箱会话目录回收（E40-D1：崩溃 run 的孤儿目录）────────────────────
+# ── 沙箱会话目录回收（崩溃 run 的孤儿目录）────────────────────
 
 
 async def test_prune_sandbox_dirs_removes_stale_keeps_active_and_fresh(tmp_path: Path) -> None:

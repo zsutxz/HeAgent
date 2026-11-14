@@ -441,7 +441,7 @@ class TestProfileStore:
         assert p.load() == ""
 
 
-# --- Phase 4/5 回归：safe-open 内核 + 相对根（生产默认 ``.heagent/skills`` 即相对）---
+# --- safe-open 内核 + 相对根（生产默认 ``.heagent/skills`` 即相对）---
 
 
 def test_skill_store_default_relative_base_dir_roundtrip(tmp_path, monkeypatch) -> None:

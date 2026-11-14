@@ -107,7 +107,7 @@ async def stream_run(  # noqa: C901
                         if chunk.tool_calls:
                             tool_calls.extend(chunk.tool_calls)
                         if chunk.usage and chunk.usage.total_tokens > 0:
-                            # P1-2 修复：跨 chunk 的 usage 用累加而非覆盖
+                            # 跨 chunk 的 usage 用累加而非覆盖
                             # （非 OpenAI 提供者可能分多个 chunk 分发 usage）
                             chunk_usage = loop._add_usage(chunk_usage, chunk.usage)
                         if chunk.model:
@@ -174,10 +174,10 @@ async def stream_run(  # noqa: C901
                     await maybe_compress(loop, state, run_context, response.usage)
                     loop._append_assistant_message(state, response)
 
-                    # P1-1 修复：流式 delta 累积未能捕获 tool_calls、
+                    # 流式 delta 累积未能捕获 tool_calls、
                     # 但 finish_reason 指示 tool_calls 时，回退到非流式调用。
-                    # 此前不完整消息已追加入 messages，LLM 回退调用看到残缺历史
-                    # 并在覆盖后仍不一致；现先 pop 残缺消息、回退成功后再 append。
+                    # 不完整消息已追加入 messages，LLM 回退调用会看到残缺历史
+                    # 并在覆盖后仍不一致——故先 pop 残缺消息、回退成功后再 append。
                     if not response.tool_calls and finish_reason == "tool_calls":
                         state.messages.pop()  # 移除残缺的流式 assistant 消息
                         response = await loop._call_provider(state, run_context=run_context)

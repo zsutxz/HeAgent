@@ -58,7 +58,7 @@ def _read_for_diff(path: Path) -> str | None:
         return None
 
 
-# file_read 的字节上限：对齐 content_search 的 10MB（P1-18 同型风险——大文件全量
+# file_read 的字节上限：对齐 content_search 的 10MB（大文件全量
 # 解码进内存 + 整段进 LLM 上下文）。file_edit/diff 的源回执仍走各自的既有上限。
 _FILE_READ_MAX_BYTES = 10 * 1024 * 1024
 
@@ -132,7 +132,7 @@ async def file_read(
 
         # 阻塞读经线程卸载（项目全异步纪律，同 memory/skills 工具范式）；
         # exists()/is_dir() 等控制流用的廉价元数据调用有意不包。
-        # 10MB 字节上限：超限文件只读前 10MB（P1-18 同型风险面），编辑仍走 file_edit 的全量路径。
+        # 10MB 字节上限：超限文件只读前 10MB，编辑仍走 file_edit 的全量路径。
         text, file_truncated = await asyncio.to_thread(_read_text_bounded, resolved)
 
         if offset is None and limit is None:

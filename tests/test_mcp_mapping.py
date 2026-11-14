@@ -33,7 +33,7 @@ from heagent.tools.mcp.mapping import (
     normalize_server_name,
 )
 
-# --- namespace 规整（FR-6） ---
+# --- namespace 规整 ---
 
 
 def test_normalize_server_name() -> None:
@@ -51,7 +51,7 @@ def test_normalize_collision_basis() -> None:
     assert normalize_server_name("GitHub MCP") == normalize_server_name("github-mcp") == "github_mcp"
 
 
-# --- Tool → ToolSchema（FR-4） ---
+# --- Tool → ToolSchema ---
 
 
 def test_mcp_tool_to_schema_namespace_and_passthrough() -> None:
@@ -72,7 +72,7 @@ def test_mcp_tool_to_schema_missing_description_fallback() -> None:
     assert "search" in schema.description
 
 
-# --- CallToolResult → str（FR-5） ---
+# --- CallToolResult → str ---
 
 
 def _result(content: list[Any], is_error: bool = False) -> CallToolResult:
@@ -107,7 +107,7 @@ def test_empty_content_returns_empty_string() -> None:
     assert call_result_to_text(_result([])) == ""
 
 
-# --- bridge_result：isError → ToolError（FR-5 错误语义） ---
+# --- bridge_result：isError → ToolError（错误语义） ---
 
 
 def test_bridge_result_returns_text() -> None:
@@ -121,7 +121,7 @@ def test_bridge_result_iserror_raises_toolerror() -> None:
         bridge_result(r)
 
 
-# --- project-local injection signatures (DP-4 deferred completion) ---
+# --- project-local injection signatures ---
 
 
 def _set_user_signatures(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, entries: Any) -> None:
@@ -214,7 +214,7 @@ def test_lazy_load_cached_once(monkeypatch: pytest.MonkeyPatch) -> None:
     assert calls == 1
 
 
-# --- DP-4 第二半 + FR-B4：guard_content / bridge_result 注入围栏（标记透传，非真正边界） ---
+# --- 注入围栏：guard_content / bridge_result（标记透传，非真正边界） ---
 
 
 def test_guard_content_clean_passthrough() -> None:
@@ -285,7 +285,7 @@ def test_guard_content_deformation_not_matched_fn_accepted() -> None:
     assert guard_content(text) == text
 
 
-# --- bridge_result 使用 guard_content（零回归 + FR-B4） ---
+# --- bridge_result 使用 guard_content（零回归） ---
 
 
 def test_guard_clean_return_passthrough_unchanged() -> None:
@@ -335,7 +335,7 @@ def test_guard_empty_text_passthrough() -> None:
     assert bridge_result(_result([])) == ""
 
 
-# --- mcp_tool_to_schema 透传 annotations（FR-A2 / FR-A7 存储，Story 14-1）---
+# --- mcp_tool_to_schema 透传 annotations ---
 
 
 def _tool_with_annotations(annotations: object | None) -> Tool:

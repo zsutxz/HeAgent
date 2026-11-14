@@ -201,7 +201,7 @@ class ReadOnlyGitPort:
             raise GitPortError(f"git executable is not available: {exc}") from exc
         except OSError as exc:
             # spawn 的其余 OS 故障（权限 / 资源耗尽等）同样显性包成 GitPortError，
-            # 不让调用方（verify / 预检）收到裸 OSError（review #4）。
+            # 不让调用方（verify / 预检）收到裸 OSError。
             raise GitPortError(f"git {' '.join(args[:1])} could not be started: {exc}") from exc
         try:
             stdout, stderr = await communicate_subprocess(proc, timeout=_GIT_TIMEOUT_SECONDS)

@@ -86,7 +86,7 @@ async def test_real_http_enter_discover_call_exit(http_mcp_server: int) -> None:
     cfg = MCPConfig(servers={"test": HttpServerConfig(url=f"http://127.0.0.1:{port}/mcp")})
     reg = ToolRegistry()
     async with MCPClientManager(cfg, registry=reg, connect_timeout=10) as mgr:  # noqa: F841
-        # 发现 + namespace 化（FR-4/6）
+        # 发现 + namespace 化
         assert "test__echo" in reg.list_names(), f"应发现 test__echo，实际 {reg.list_names()}"
         # 跨 task 调用：handler 在测试 task，session 在 _server_loop task
         handler = reg.get_handler("test__echo")

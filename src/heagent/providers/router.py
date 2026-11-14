@@ -360,7 +360,7 @@ class RoutingProvider:
             raise ValueError(f"Forced provider {name!r} not in pool {sorted(self._providers)}")
         self._force = name
         # 观测一致性：current_model 立即反映强制项，last_decision 若停在旧决策上，状态行
-        # 就会把「已强制的模型」与「上一次启发式的理由」拼在一起（2026-09-10 实测：
+        # 就会把「已强制的模型」与「上一次启发式的理由」拼在一起（实测：
         # gpt-5.6-luna←keyword:分析）。清空强制时置空决策——残留 reason="forced" 同样是
         # 错的，此时 current_model 回落默认档。
         self.last_decision = RouteDecision(provider=name, reason="forced") if name is not None else None
@@ -544,7 +544,7 @@ def active_route_reason(provider: object) -> str | None:
 
 
 # 不展示的理由：``default_fast`` = 「没命中任何关键词，用默认档」——它不解释任何东西，
-# 反而容易被误读成模型名 / 路由名（2026-09-10 用户反馈）。原始 reason 仍由
+# 反而容易被误读成模型名 / 路由名（用户反馈）。原始 reason 仍由
 # ``active_route_reason`` 原样返回（日志 / 排查用），只是不进展示层输出。
 _UNANNOTATED_REASONS = frozenset({"default_fast"})
 

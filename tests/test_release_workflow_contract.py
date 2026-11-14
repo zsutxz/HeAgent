@@ -82,7 +82,7 @@ def test_ci_job_count_is_pinned() -> None:
     assert set(jobs) == expected, f"ci.yml jobs changed: got {sorted(set(jobs))}, expected {sorted(expected)}"
 
 
-# --------------------------------------------------- 版本号单一真源（A51 缺口）
+# --------------------------------------------------- 版本号单一真源
 
 
 def _module_version() -> str:
@@ -124,7 +124,7 @@ def test_version_is_plain_semver() -> None:
     assert not version.startswith("v"), f"version must not carry the tag prefix: {version!r}"
 
 
-# ------------------------------------------------------- CHANGELOG 载体（A51）
+# ------------------------------------------------------- CHANGELOG 载体
 
 CHANGELOG = REPO_ROOT / "CHANGELOG.md"
 

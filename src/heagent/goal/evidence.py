@@ -52,7 +52,7 @@ _TIMEOUT_MARKING = "Command timed out"
 _MAX_COMMAND_CHARS = 500
 _MAX_OUTPUT_SUMMARY_CHARS = 2000
 # 有界摘要的截断标记（**公开常量**）：goal/quality_gates 的命令身份匹配也消费它，
-# 两侧同源（Story 51-4 review #19——跨模块私有导入收敛为公开单一真源）。
+# 两侧同源（跨模块私有导入收敛为公开单一真源）。
 TRUNCATION_MARKER = "…[truncated]"
 # evidence id 白名单：单个路径安全名（charset 已排除路径分隔符与 ``.``，``..`` / 子目录
 # / Windows 盘符写法全部进不来），另拒 Windows 保留设备名（``con.json`` 一类在 Windows

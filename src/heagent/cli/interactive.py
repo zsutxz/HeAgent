@@ -90,7 +90,7 @@ def _report_mcp_discovery_failures(mcp_manager: object) -> None:
         click.echo(f"[mcp] server '{failure.server}' 连接/发现失败，已隔离：{failure.reason}", err=True)
 
 
-# 当前任务可见的 CLI 旁路中枢（Epic 55）。用 contextvar 而不是参数传递的理由：``_run_prompt``
+# 当前任务可见的 CLI 旁路中枢。用 contextvar 而不是参数传递的理由：``_run_prompt``
 # 被 3 处测试 patch，**签名是契约**；而 hub 只在「本次 CLI 运行 + 本次内嵌服务」范围内有效，
 # 进程级全局会让 gui / http-server 之类的同进程实例看到不该看到的东西。
 _CLI_HUB: ContextVar[CliEventHub | None] = ContextVar("heagent_cli_event_hub", default=None)
@@ -346,8 +346,8 @@ async def _run_chat(
     )
 
     # 交互 REPL 与单次模式同口径：rollout 落盘只由 ``EVENTS_ROLLOUT_ENABLED`` 决定（默认关闭，
-    # 落盘含工具原始输出）；sink 自己按 run_id 分片，长驻 REPL 每轮一个文件。此前 REPL 从不订阅
-    # ⇒ 该开关在交互模式是死键（活动台账 A44）。REPL 没有 ``--json``，stdout 流恒不启用。
+    # 落盘含工具原始输出）；sink 自己按 run_id 分片，长驻 REPL 每轮一个文件。REPL 若不订阅
+    # sink，该开关在交互模式就是死键。REPL 没有 ``--json``，stdout 流恒不启用。
     sink = _build_event_sink(settings, json_output=False)
     if sink is not None:
         engine.events.subscribe(sink)
@@ -360,7 +360,7 @@ async def _run_chat(
         _report_mcp_discovery_failures(mcp_manager)
         paths = WorkspacePaths.from_root(os.getcwd())
         session = SessionStore(str(paths.sessions))
-        # 会话复用（Epic 30）：--resume 指定 / --continue 最近 / 否则新建。
+        # 会话复用：--resume 指定 / --continue 最近 / 否则新建。
         session_id = _resolve_session_id(session, continue_session=continue_session, resume_session=resume_session)
         # 预构建记忆存储，与 DreamScheduler 共享同一份实例（dream 回写即主 loop 可见）。
         skills = SkillStore(default_skill_roots(paths.root))
@@ -399,7 +399,7 @@ async def _run_chat(
                 await dream_scheduler.start()
             while True:
                 # 网页入口挂掉后 CLI 继续正常聊天 = 「页面打不开但看着一切正常」的假可用
-                # 状态（AD-5）。每轮检查一次：把 serve 循环的意外结束如实报出并退出交互。
+                # 状态。每轮检查一次：把 serve 循环的意外结束如实报出并退出交互。
                 # 前缀用 `[web]` 而非 `[http]`：`--no-http` / `HTTP_ENABLED=false` 时挂掉的是 WS。
                 if http.failure is not None:
                     click.echo(f"[web] service stopped unexpectedly: {http.failure}", err=True)

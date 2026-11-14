@@ -30,7 +30,7 @@ _TOKENS_PER_MESSAGE = 3  # 每条消息的角色标签、分隔符开销
 _TOKENS_REPLY_PRIMING = 3  # 回复预填充 "<|assistant|/>" 开销
 _CHARS_PER_TOKEN = 4.0  # 非CJK文本的字符/token比
 
-# CJK 感知字符类（A29④）：区段与原逐字符分支链逐一对应——
+# CJK 感知字符类：区段与原逐字符分支链逐一对应——
 # CJK 统一表意 + 扩展 A/B/C + 兼容表意 + 平假名/片假名 + 韩文音节。
 _CJK_CHARS = re.compile("[一-鿿㐀-䶿𠀀-𪛟𪜀-𫜿豈-﫿぀-ゟ゠-ヿ가-힯]")
 

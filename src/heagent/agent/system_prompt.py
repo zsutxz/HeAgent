@@ -102,7 +102,7 @@ def _project_context_block(context_dir: str | None, settings: Settings | None = 
         return None
     from heagent.context.loader import load_context_files
 
-    # 显式传快照值：运行中不再由 loader 回读全局设置（Phase 1）。
+    # 显式传快照值：运行中不再由 loader 回读全局设置。
     context = load_context_files(
         context_dir,
         max_bytes=settings.context_files_max_bytes,

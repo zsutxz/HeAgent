@@ -478,7 +478,7 @@ async def test_each_project_run_uses_its_own_state_root(tmp_path: Path) -> None:
     assert Path(str(runtime_a.sessions._base)) != Path(str(runtime_default.sessions._base))  # noqa: SLF001
 
 
-# ── 收口评审补证（镜头三：可达却零覆盖的分支） ─────────────────────
+# ── 可达却零覆盖的分支 ─────────────────────
 
 
 async def test_a_run_cannot_be_started_in_an_unreadable_session(tmp_path: Path) -> None:

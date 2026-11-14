@@ -205,10 +205,10 @@ _SAFETY_SIDE_BOOL: tuple[tuple[str, bool], ...] = (
 
 # 有记录的产品默认（不是「安全侧」断言）：只要求仍是显式布尔，防止退化成 None / 三态。
 _DOCUMENTED_BOOL_DEFAULTS: tuple[str, ...] = (
-    # 对外 listener 的只读旁观：True 更严，但 Epic 56 期二 P2-A3 显式选择「默认 False = 可提交」，
+    # 对外 listener 的只读旁观：True 更严，但显式选择「默认 False = 可提交」，
     # 属已记录的产品能力（见 docs/frame.md 4.17.1）；本守卫只钉「口径被静默改掉」。
     "ws_external_readonly",
-    # 回环主 listener 也强制 Bearer 认证：True 更严，但 D5 修订（2026-11-04）显式选择「默认关」——
+    # 回环主 listener 也强制 Bearer 认证：True 更严，但显式选择「默认关」——
     # 本机消费者（含终端旁路）不必带 token，开启后全部端点统一要 token（见 docs/frame.md 4.19 要素 3）。
     "ws_local_auth_enabled",
 )
@@ -459,7 +459,7 @@ def test_token_key_is_user_only() -> None:
 
 
 # ---------------------------------------------------------------------------
-# S-11：MCP annotations「server 自声明 / 不可信」标注在场（只读源码文本，不 import mcp 模块）
+# MCP annotations「server 自声明 / 不可信」标注在场（只读源码文本，不 import mcp 模块）
 # ---------------------------------------------------------------------------
 
 MCP_MAPPING_SRC = REPO_ROOT / "src" / "heagent" / "tools" / "mcp" / "mapping.py"

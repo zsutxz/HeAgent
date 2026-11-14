@@ -328,7 +328,7 @@ def test_explicit_subcommands_never_start_the_embedded_service(
 
     async def fake_serve_web(http_server: object, ws_servers: object) -> None:
         served.append("http")
-        # 多 listener（Epic 56 期二）：显式命令同样装配 WS listener，且至少有一条（56-1）。
+        # 多 listener：显式命令同样装配 WS listener，且至少有一条。
         assert isinstance(ws_servers, tuple) and ws_servers
 
     monkeypatch.setattr("heagent.cli.http._serve_web", fake_serve_web)

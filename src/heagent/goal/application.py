@@ -487,7 +487,7 @@ class GoalAdvanceOutcome(BaseModel):
 
 
 # 入口注入的步骤执行端口。形状宽容（Callable[...]）：首选协议是四参
-# (inputs, step, story, execution)——实现它 Runner 才会授权并行（AD-17 条件 3）；
+# (inputs, step, story, execution)——实现它 Runner 才会授权并行；
 # 未实现第四参的宿主经 :func:`_run_step_without_execution` 兼容桥服务（fail-closed 串行），
 # 类型层面不把老宿主标成错误。第四参缺省 None = 串行现状。
 StepExecutor = Callable[..., Awaitable[WorkflowStepResult]]
@@ -578,8 +578,8 @@ async def _advance_checkpoint_decision(
     （CLI 为 TTY confirm 实现，其自身的提示文案由端口负责）。
     """
     if runner.state.awaiting_approval:
-        # 审批门挂起（Story 51-5）：cron / 无人值守推进不得自动批准人工 Gate，只有
-        # approve / reject / amend 三种显式决策能离开；文案按模式分流（审查 #13），
+        # 审批门挂起：cron / 无人值守推进不得自动批准人工 Gate，只有
+        # approve / reject / amend 三种显式决策能离开；文案按模式分流，
         # manual 模式不宣传 auto-advance。
         if mode == "auto":
             messages.append(
@@ -655,7 +655,7 @@ async def _advance_unlocked(
     description = context.description
     goal_dir = context.goal_dir
     messages: list[str] = []
-    # 脚本步骤**声明**的后续声明步骤（Story 51-7 的 A2 提交点）：计划存在 Runner 状态里并随
+    # 脚本步骤**声明**的后续声明步骤：计划存在 Runner 状态里并随
     # checkpoint 持久化（重启后仍按同一选择恢复），本循环只负责按序取队首提交。只有脚本
     # 步骤会往里放东西，老 workflow 因此逐字不变。
 
@@ -696,7 +696,7 @@ async def _advance_unlocked(
         try:
             if plan:
                 # 上一步（脚本步骤）声明的后续声明步骤优先执行：顺序权仍在 Runner，由
-                # :meth:`WorkflowRunner.run_declared_step` 校验并推进状态（Story 51-7 A1/A2）。
+                # :meth:`WorkflowRunner.run_declared_step` 校验并推进状态。
                 result = await runner.run_declared_step(plan[0], callback, inputs=inputs, emit=emit)
             else:
                 active_step = runner.workflow.steps[runner.state.active_step]
@@ -795,7 +795,7 @@ async def _pause_resume_unlocked(
                     message=f"[goal] workflow status={runner.state.status.value}; resume is not required",
                 )
             if runner.state.awaiting_approval:
-                # 审批门挂起（Story 51-5）：resume 不能隐式等同批准——先做显式决策。
+                # 审批门挂起：resume 不能隐式等同批准——先做显式决策。
                 return PauseResumeOutcome(
                     status=PauseResumeStatus.UNCHANGED,
                     message="[goal] the active step awaits a decision; /goal resume cannot approve it — "
@@ -804,7 +804,7 @@ async def _pause_resume_unlocked(
             if response:
                 goal_record_user_response(goal_dir, response)
             runner.resume()
-            # 决策日志契约（Story 51-5 引擎面）：resume 每次一条记录——它只标记「执行被
+            # 决策日志契约：resume 每次一条记录——它只标记「执行被
             # 恢复」，不改变审批门状态、不等于批准（挂门时的 resume 在上方被显性拒绝，
             # 不产生记录）。先落账再持久化，与 record_decision 同一次序。
             await decision_store(goal_dir).append(
@@ -892,13 +892,13 @@ async def _record_decision_unlocked(
     """:func:`record_decision` 的无锁内核（互斥由外壳持有；勿绕过外壳直接调用）。"""
     if action is DecisionAction.RESUME:
         # resume 有自己的 use-case（pause_resume 记一条 RESUME 决策 / advance 检查点决策），
-        # 不是决策命令；混进来会让「resume 当 approve 用」有一条静默通道（AD-3 负向验证锚点）。
+        # 不是决策命令；混进来会让「resume 当 approve 用」有一条静默通道。
         return DecisionOutcome(
             status=DecisionStatus.FAILED,
             message="[goal] resume is not a decision; use /goal resume (it cannot approve an approval gate)",
         )
     if action is not DecisionAction.APPROVE and not text.strip():
-        # 审查 #8：空白的拒绝理由 / 修订补充会落成空 reason 的 BLOCKED 与空审计记录。
+        # 空白的拒绝理由 / 修订补充会落成空 reason 的 BLOCKED 与空审计记录。
         return DecisionOutcome(
             status=DecisionStatus.FAILED,
             message=f"[goal] {action.value} requires a non-empty {'reason' if action is DecisionAction.REJECT else 'supplement'}; nothing was changed",
@@ -962,7 +962,7 @@ async def _record_decision_unlocked(
         and runner.state.status is WorkflowStatus.WAITING_USER
         and not runner.state.awaiting_approval
     ):
-        # 审查 #11：该步同时声明了 checkpoint——批准已完成簿记，剩下的是普通检查点等待。
+        # 该步同时声明了 checkpoint——批准已完成簿记，剩下的是普通检查点等待。
         message += " (the completion is booked; this step also declared a checkpoint — /goal resume continues)"
     return DecisionOutcome(
         status=DecisionStatus.RECORDED,

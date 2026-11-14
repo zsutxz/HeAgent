@@ -12,7 +12,7 @@ from heagent.tools.path_safety import WorkspacePathError, check_read_denied, res
 if TYPE_CHECKING:
     from pathlib import Path
 
-# P1-18 修复：content_search 文件大小上限（10 MB），防大文件 OOM。
+# content_search 文件大小上限（10 MB），防大文件 OOM。
 # 与 web_fetch 2 MB 上限同思路：对工作区内文件做防御性限制。
 _MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
@@ -69,7 +69,7 @@ def _content_search_impl(root: Path, regex: re.Pattern[str], file_pattern: str, 
         resolved = _resolve_searchable(str(path))
         if resolved is None or not resolved.is_file():
             continue
-        # P1-18 修复：跳过超大文件，避免 read_text() OOM
+        # 跳过超大文件：read_text() 整读会 OOM
         try:
             file_size = resolved.stat().st_size
         except OSError:

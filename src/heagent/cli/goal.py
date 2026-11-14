@@ -112,7 +112,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 测试仍经 ``heagent.cli.goal`` 访问的 re-export 符号：Phase 3 起确定性内核迁
+# 测试仍经 ``heagent.cli.goal`` 访问的 re-export 符号：确定性内核迁
 # goal/application 后，这两个符号在本模块已无内部调用点，靠 ``__all__`` 钉住
 # ruff F401（防自动移除）与 mypy no_implicit_reexport 的再导出语义。
 __all__ = ["goal_record_user_response", "goal_user_responses"]
@@ -124,7 +124,7 @@ _GOAL_AUTO_PREFIX = "goal-advance "
 # 不随文档约定变，故留本模块（goal/document.py 只做文档与命名，见其 docstring）。
 # 工作流包 id 的默认值只在 Settings.goal_workflow_skill 一处声明；本模块一律从配置读。
 # 技能库根（GOAL_SKILLS_ROOT）与 open-question 兜底文案已随确定性内核迁
-# goal/application.py，经顶部 import 保持本命名空间可用（Phase 3）。
+# goal/application.py，经顶部 import 保持本命名空间可用。
 _GOAL_ADVANCED = "advanced"
 _GOAL_DONE = "done"
 _GOAL_FAILED = "failed"
@@ -134,7 +134,7 @@ _GOAL_WAITING = "waiting"
 #: ``/goal`` 用户可见输出的**消息 sink**（GUI 用）。
 #: 默认 ``None`` ⇒ 仍走 ``click.echo(..., err=True)``，CLI 行为逐字不变。
 #: 为什么需要它：GUI 原先靠 ``contextlib.redirect_stderr`` 截获这些文案，但那会把**整个 stderr**
-#: 一起吞掉——包括 ``logging`` 记录与第三方库输出，全部倒进对话区（台账 A4b）。
+#: 一起吞掉——包括 ``logging`` 记录与第三方库输出，全部倒进对话区。
 _MESSAGE_SINK: ContextVar[Callable[[str], None] | None] = ContextVar("goal_message_sink", default=None)
 
 
@@ -152,7 +152,7 @@ def _echo(message: str, *, err: bool = True) -> None:
 
 
 # =============================================================================
-# /goal 命令族（Story 41.1：目标驱动开发工作流——skill 正文直读 + 逐 story 会话）
+# /goal 命令族（目标驱动开发工作流——skill 正文直读 + 逐 story 会话）
 # =============================================================================
 
 # 需求文档与命名层（slug 词表 / goal_id 规则 / 目录命名 / brief.md 生成与增量更新）
@@ -265,7 +265,7 @@ async def _goal_declarative_prepare(workflow: WorkflowResource) -> tuple[str | N
     # is explicit at the command boundary, then this call may continue the step.
     if runner.state.status is WorkflowStatus.WAITING_USER:
         if runner.state.awaiting_approval:
-            # 审批门挂起（Story 51-5）：指向显式决策，resume 在此状态会被显性拒绝。
+            # 审批门挂起：指向显式决策，resume 在此状态会被显性拒绝。
             _echo(
                 "[goal] a step awaits a human decision: /goal approve | /goal reject <原因> | /goal amend <补充> "
                 "(/goal decisions lists records)",
@@ -323,7 +323,7 @@ async def _goal_execute_step(
         validation_rules=step.validation_rules,
         declared_inputs=step.input,
     )
-    # 审计基线在会话**开始前**采集（AD-18）：Δ = after \ before，兄弟并发写与门命令产物
+    # 审计基线在会话**开始前**采集：Δ = after \ before，兄弟并发写与门命令产物
     # 因此天然落在 after 里、按声明排除。基线采集失败（非 Git）→ 跳过审计，围栏不撤。
     workspace = _goal_verify_workspace(engine)
     baseline = await _write_audit_baseline(workspace) if execution is not None else None
@@ -417,7 +417,7 @@ def _goal_script_declaration_error(workflow: WorkflowResource, step: Any, operat
                 "a script cannot request itself"
             )
         # 名字合法即接受（声明期）：**向前性**与**幂等跳过**由 WorkflowRunner 在提交时裁决
-        # （AD-1：步骤顺序权在状态机，不在脚本、也不在入口层的重复实现里）。
+        # （步骤顺序权在状态机，不在脚本、也不在入口层的重复实现里）。
         return ""
     return f"script operation {operation.operation!r} is not supported by this host"
 
@@ -708,7 +708,7 @@ async def _goal_declarative_doctor(args: str = "") -> None:
     workflow: WorkflowResource | None = None
     if goal_dir is not None:
         if option:
-            # 有活动 goal 时预检的是冻结绑定的包（AD-8）：显性提示选项被忽略，不静默失效。
+            # 有活动 goal 时预检的是冻结绑定的包：显性提示选项被忽略，不静默失效。
             _echo(
                 "[goal] doctor: the active goal is preflighted against its frozen binding; --workflow is ignored",
                 err=True,
@@ -787,7 +787,7 @@ async def _goal_declarative_pause_resume(workflow: WorkflowResource, *, resume: 
     return outcome.proceed
 
 
-# ── 步骤级审批与决策记录（Story 51-5）──────────────────────────────────────
+# ── 步骤级审批与决策记录 ──────────────────────────────────
 
 # /goal decisions 列表里单条原文的展示上限：决策日志保存全文，回显只留可定位的一行。
 _DECISION_TEXT_DISPLAY_LIMIT = 120
@@ -862,13 +862,13 @@ def _render_decision_records(records: list[DecisionRecord]) -> None:
         _echo(line, err=True)
 
 
-# ── /goal verify 与结构化完成门（Story 51-4）───────────────────────────────
+# ── /goal verify 与结构化完成门 ───────────────────────────────────
 
 # 受治理重跑的命令超时（秒）：声明验证可能是长测试套件，工具的 120s 默认会把长套件
-# 钉成 TIMEOUT——显式给足上界（review #16；不新增顶层配置键）。
+# 钉成 TIMEOUT——显式给足上界；不新增顶层配置键。
 _VERIFY_COMMAND_TIMEOUT_SECONDS = 600
 
-# 完成门串行锁（52-3 AC6）：并行 Story 的门命令不重叠。asyncio.Lock 绑定首个发生竞争
+# 完成门串行锁：并行 Story 的门命令不重叠。asyncio.Lock 绑定首个发生竞争
 # 等待的事件循环，跨 loop 复用会 RuntimeError——按运行中 loop 各持一把（同 loop 内互斥
 # 语义不变；跨 loop 本就无法用 asyncio 原语互斥，CLI 每进程单 loop 不受影响）。
 _GOAL_GATE_LOCKS: dict[int, asyncio.Lock] = {}
@@ -1002,7 +1002,7 @@ async def _goal_declarative_verify(
         if runner.done:
             _echo("[goal] declarative workflow is already complete; there is no active step to verify", err=True)
             return
-        # 显性守卫（review #14）：活动步越界 / 缺失（如 new 后尚未落任何 checkpoint 的残状）
+        # 显性守卫：活动步越界 / 缺失（如 new 后尚未落任何 checkpoint 的残状）
         # 显性提示返回，不 TypeError、不静默取 min() 兜底。
         active_step = runner.state.active_step
         if active_step is None or active_step >= len(workflow.steps):
@@ -1010,8 +1010,8 @@ async def _goal_declarative_verify(
             return
         step = workflow.steps[active_step]
         story_id = runner.state.active_story
-        # 跨模块数据用引擎模型（AD-4）：StorySpec 的 (id, epic) 即 `goal_step_artifact_path`
-        # 消费的鸭子契约；不用裸 SimpleNamespace（review #13）。
+        # 跨模块数据用引擎模型：StorySpec 的 (id, epic) 即 `goal_step_artifact_path`
+        # 消费的鸭子契约；不用裸 SimpleNamespace。
         story = StorySpec(id=story_id, epic=runner.state.active_epic) if story_id else None
         started = time.perf_counter()
         try:
@@ -1022,7 +1022,7 @@ async def _goal_declarative_verify(
                 story,
                 goal_dir,
                 rerun=args == "run",
-                # 51-4 递延「重复执行」收口：verify run 只补缺/失败/过期证据；完成门刚写下的
+                # verify run 只补缺/失败/过期证据，不重复执行：完成门刚写下的
                 # 新鲜成功证据复用不重跑（复用清单显性进报告）。verify 不重跑实现步骤，
                 # 两次求值之间没有步骤执行，新鲜证据仍然有效。
                 rerun_policy="if_stale",
@@ -1122,7 +1122,7 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
             return await produced
         return produced
 
-    # 容器构造期快照优先（review #22），缺席（手工构造的容器）才回退现场解析。
+    # 容器构造期快照优先，缺席（手工构造的容器）才回退现场解析。
     runtime = engine.runtime_config or resolve_runtime_config()
 
     def classify_outcome(result: ToolResult) -> CommandOutcome:
@@ -1135,7 +1135,7 @@ async def _run_governed_verify_command(engine: EngineContainer, command: str) ->
             return CommandOutcome.POLICY_BLOCKED
 
     # 命令失败（非零退出）≠ 执行失败：受治理执行本身完成，outcome 如实进 metadata。
-    # command 并入 complete 的 metadata（ledger.complete 整体替换 metadata，评审 M-1）：
+    # command 并入 complete 的 metadata（ledger.complete 整体替换 metadata）：
     # 审计记录必须能回答「哪条声明命令被受治理执行过」。租约须覆盖静态超时上界。
     audit = LedgerAudit(
         ledger=engine.ledger,

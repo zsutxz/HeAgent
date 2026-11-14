@@ -254,7 +254,7 @@ async def test_invalid_cursor_and_malformed_command_get_stable_error_frames() ->
             assert frame["error"]["error"]["code"] == HttpErrorCode.INVALID_REQUEST.value
 
         async with websockets.connect(f"ws://127.0.0.1:{server.port}/api/runs/{record.run_id}/ws") as ws:
-            # 56-3 起非 `run` 帧守小上限（`WS_MAX_COMMAND_CHARS`）：超限 ⇒ 1009。
+            # 非 `run` 帧守小上限（`WS_MAX_COMMAND_CHARS`）：超限 ⇒ 1009。
             await ws.send(json.dumps({"command": "ping", "pad": "x" * (WS_MAX_COMMAND_CHARS + 100)}))
             with pytest.raises(websockets.exceptions.ConnectionClosedError) as closed:
                 while True:
@@ -266,7 +266,7 @@ async def test_invalid_cursor_and_malformed_command_get_stable_error_frames() ->
         await _stop(server, task)
 
 
-# ---- Epic 56 Story 56-2：对外模式认证与 TLS（真实 listener）----
+# ---- 对外模式认证与 TLS（真实 listener）----
 
 TLS_CERT = "tests/fixtures/ws_tls/cert.pem"
 TLS_KEY = "tests/fixtures/ws_tls/key.pem"
@@ -414,7 +414,7 @@ async def test_local_auth_exposure_logs_use_the_local_label(caplog: pytest.LogCa
     assert not any("auth_token_ignored" in message for message in messages)
 
 
-# ---- Epic 56 Story 56-3：经 WS 提交 run（集合级端点 /api/runs/ws）----
+# ---- 经 WS 提交 run（集合级端点 /api/runs/ws）----
 
 
 async def _submit_uri(server: WsServer) -> str:
@@ -625,7 +625,7 @@ async def test_idle_submit_connection_is_closed_by_server_shutdown_within_budget
             await _stop(server, task)
 
 
-# ---- 期二（Epic 56 D9/D11）：双监听并存 ----
+# ---- 双监听并存 ----
 
 
 class _Pair:

@@ -200,8 +200,8 @@ class HookManager:
             )
             stdout, _ = await communicate_subprocess(proc, timeout=self._timeout)
             # 与 shell / git 走同一解码策略（UTF-8 优先 + 平台控制台代码页兜底）：hook 命令在
-            # Windows 上常是 cmd 内建命令，此前 `stdout.decode(errors="replace")` 用**首选编码**
-            # （cp936）解 UTF-8 输出会出乱码，反之亦然——单点策略同时覆盖两侧（2026-09-28）。
+            # Windows 上常是 cmd 内建命令，按**首选编码**（cp936）解 UTF-8 输出会出乱码，
+            # 反之亦然——单点策略同时覆盖两侧。
             return proc.returncode or 0, decode_channel(stdout)
         except TimeoutError:
             logger.warning("Hook timed out (%s): %s", hook.event, hook.command)
@@ -209,8 +209,7 @@ class HookManager:
             # - 直接子进程是 shell（cmd.exe / sh），kill 它杀不掉孙进程，且孙进程持有
             #   stdout 管道使 wait() 挂到孙进程退出——挂死的 hook 每次触发都泄漏进程。
             # - Windows 用 taskkill /T 按树终止；POSIX 用 killpg 杀整个进程组。
-            # - Phase 4 V3：与取消路径共用 _terminate_and_reap（管道回收有界 5s），
-            #   两条清理路径对称；此前超时路径不关管道且 wait() 无上界。
+            # - 与取消路径共用 _terminate_and_reap（管道回收有界 5s），两条清理路径对称。
             # 竞态下进程组恰已消亡则跳过（ProcessLookupError / Windows 已退出竞态）。
             if proc is not None:
                 try:

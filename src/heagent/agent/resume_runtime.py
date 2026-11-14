@@ -32,7 +32,7 @@ async def build_resume_state(loop: AgentLoop, run_id: str) -> tuple[RunSnapshot,
 
     # A FAILED snapshot stays resumable: transient failures are the whole point of
     # ``resume()``. ``RunContext.mark_terminal`` forbids a second terminal write on
-    # the same context (fail-loud reducer, Phase 2 C2), so re-arm the context to
+    # the same context (fail-loud reducer), so re-arm the context to
     # RUNNING here — resume means "start another attempt on this run_id", and the
     # finished attempt keeps its record in the checkpoint chain. Without this the
     # first terminal write of the resumed attempt raises RuntimeError, which

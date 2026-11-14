@@ -57,7 +57,7 @@ if TYPE_CHECKING:
     from heagent.goal.evidence import GitEvidence
 
 
-# ── 结构化求值结果（AD-4：跨模块只传模型）──────────────────────────────────
+# ── 结构化求值结果（跨模块只传模型）──────────────────────────────────
 
 
 class ClauseKind(StrEnum):
@@ -122,7 +122,7 @@ class VerificationReport(BaseModel):
         if self.results:
             summary = f"{len(self.results) - len(self.failed)}/{len(self.results)} passed"
         elif self.errors:
-            # 零子句但有求值错误：独立汇总文案——verdict=failed 与「没声明子句」不能自相矛盾（review #18）。
+            # 零子句但有求值错误：独立汇总文案——verdict=failed 与「没声明子句」不能自相矛盾。
             summary = f"0 clause(s) evaluated; {len(self.errors)} evaluation error(s)"
         else:
             summary = "no structured clauses declared (text gate only)"
@@ -146,11 +146,11 @@ class VerificationReport(BaseModel):
 
 
 #: 受控重跑端口：入口层把一条声明命令经治理链（``PolicyEngine.evaluate() → ToolExecutor →
-#: SafetyGuard → handler``）执行并**证据化**。求值器自身从不执行命令（AD-6），只消费端口
+#: SafetyGuard → handler``）执行并**证据化**。求值器自身从不执行命令，只消费端口
 #: 产出的证据。
 GovernedCommandPort = Callable[[str], Awaitable[CommandEvidence]]
 
-# 命令证据的时效缺省：过期证据不再满足 ``command:`` / ``tests-pass``（AC：过期证据不通过）。
+# 命令证据的时效缺省：过期证据不再满足 ``command:`` / ``tests-pass``。
 # 不引入顶层配置键（声明面口径）：需要不同窗口的工作流仍由调用方注入。
 DEFAULT_EVIDENCE_MAX_AGE: Final = timedelta(hours=24)
 
@@ -265,7 +265,7 @@ class QualityGateSpec(BaseModel):
     evaluate: Callable[[_GateContext], ClauseResult]
 
 
-#: 宿主内置命名质量门（通用词汇，AD-13/AD-14）：全部是**证据投影**——只读当前范围的证据
+#: 宿主内置命名质量门（通用词汇）：全部是**证据投影**——只读当前范围的证据
 #: 并给结论，不含任何具体流程知识；workflow 只能引用名字，不能提供实现或削弱参数。
 QUALITY_GATES: Final[Mapping[str, QualityGateSpec]] = MappingProxyType(
     {
@@ -577,7 +577,7 @@ def _command_results(
             continue
         record, evidence = match
         # 截断证据的前缀匹配必须**唯一**：同一条截断摘要命中多条声明命令时无法定位是哪条
-        # 命令的证据，显性判不匹配（review #7），不做任配。
+        # 命令的证据，显性判不匹配，不做任配。
         if kind == "prefix" and _truncated_prefix_is_ambiguous(clauses.commands, declared, evidence.command):
             results.append(
                 ClauseResult(

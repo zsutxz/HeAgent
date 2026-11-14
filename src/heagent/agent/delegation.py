@@ -92,7 +92,7 @@ def build_subagent_delegates(
         return _to_outcome(await _make(spec, system).run(task), spec)
 
     async def delegate_many(tasks: list[str], spec: RoleSpec | None, system: str | None) -> list[SubTaskOutcome]:
-        # 为每个 task 创建独立 SubAgent 实例（P1-1 修复：复用同一实例时并发 task 会
+        # 为每个 task 创建独立 SubAgent 实例（复用同一实例时并发 task 会
         # 竞态读写其内部状态）；run_parallel 保证结果与 tasks 等长且保序。
         agents = [_make(spec, system) for _ in tasks]
         results = await run_parallel(agents, tasks)

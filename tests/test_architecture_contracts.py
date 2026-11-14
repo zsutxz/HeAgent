@@ -29,7 +29,7 @@ TARGET_ROOT = Path(__file__).resolve().parents[1]  # 仓库根（TCP 残留判�
 # 用于识别 ``from heagent import <名>`` / ``from heagent.pub import <名>`` 这类**别名形态**。
 # 不能直接用 ``(SRC / name).is_dir()``——Windows 文件系统大小写不敏感，
 # ``from heagent import Agent``（包根符号再导出）会被误判成 ``heagent/agent`` 子包。
-# 2026-09-26 分层收敛后本表是识别器的唯一依据：包与模块、任意深度一视同仁
+# 分层收敛后本表是识别器的唯一依据：包与模块、任意深度一视同仁
 # （``pub.types`` / ``config.catalog`` 与 ``providers`` 同款处理，不再区分「子包」与「顶层模块」）。
 _KNOWN_MODULES = frozenset(
     entry
@@ -42,21 +42,21 @@ _KNOWN_MODULES = frozenset(
 
 # 包 → 运行期不得导入的 heagent 子模块（CLAUDE.md「硬约束（违反即架构错误）」）。
 # 入口层模块（cli 包 / gui）：组合根与展示适配只属于入口层，下层一律不得反向导入
-# （Phase 1 组合根收敛的契约化；新增入口模块须同步此表）。
-# 2026-09-26：原七个平铺模块 ``cli*.py`` 收进 ``heagent/cli/`` 包 ⇒ 本表按**包根**收敛为一条
+# （组合根收敛的契约化；新增入口模块须同步此表）。
+# 原七个平铺模块 ``cli*.py`` 收进 ``heagent/cli/`` 包 ⇒ 本表按**包根**收敛为一条
 # ``heagent.cli``（``_heagent_root`` 取模块路径第二段，故 ``heagent.cli.display`` 也归它）。
 # 这比原先更严：``cli_display``（展示辅助）与 ``cli_dialogs``（原生目录选择）此前各自单列，
 # 现在同属入口层——两者实测都只被入口层导入（GUI / cli/http.py）。
-# 2026-09-26 同日：顶层 ``wiring.py``（provider 组合根）迁入 ``heagent/cli/wiring.py``——
+# 顶层 ``wiring.py``（provider 组合根）迁入 ``heagent/cli/wiring.py``——
 # 它此前已单列在本表里，迁入后由 ``heagent.cli`` 包根覆盖，故条目删除（位置追上判据）。
 _ENTRYPOINT_MODULES = (
     "heagent.cli",
     "heagent.gui",
 )
 # goal/ 是入口层**域模块**（cli/goal.py 的装载/文档层，frame.md 六）：与组合根同属「下层不得反向
-# 导入」的入口面。此前只有 engine/memory 条目显式列它，其余包存在形式绕过（48-5 评审 W-7，
-# AST 实测运行期只有 cli/goal.py 导入 goal/）。
-# housekeeping 是启动期维护模块（2026-11-06 自 cli/ 迁回顶层）：与 goal 同档位——下层不得反向
+# 导入」的入口面。此前只有 engine/memory 条目显式列它，其余包存在形式绕过
+# （AST 实测运行期只有 cli/goal.py 导入 goal/）。
+# housekeeping 是启动期维护模块（自 cli/ 迁回顶层）：与 goal 同档位——下层不得反向
 # 导入（其 import 扇出 config/context/pub/tools，位置在运行栈之上）。迁出 cli/ 包根后原
 # ``heagent.cli`` 伞不再覆盖，须显式登记，否则反向依赖断言出现形式绕过。
 _ENTRY_LAYER_MODULES = (*_ENTRYPOINT_MODULES, "heagent.goal", "heagent.housekeeping")
@@ -66,15 +66,15 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
     "tools": ("heagent.agent", *_ENTRY_LAYER_MODULES),
     "engine": ("heagent.agent", *_ENTRY_LAYER_MODULES),
     "memory": ("heagent.agent", "heagent.engine", *_ENTRY_LAYER_MODULES),
-    # skills/ 是技能库域包（2026-10-10 自 memory/ 迁出）：同 memory 档位，禁运行栈反向依赖。
+    # skills/ 是技能库域包（自 memory/ 迁出）：同 memory 档位，禁运行栈反向依赖。
     "skills": ("heagent.agent", "heagent.engine", *_ENTRY_LAYER_MODULES),
     "context": ("heagent.agent", *_ENTRY_LAYER_MODULES),
     "cron": ("heagent.agent", *_ENTRY_LAYER_MODULES),
     # events/ 是事件传输层，运行期零 engine 依赖（引擎类型仅出现在 TYPE_CHECKING 里）。
     "events": ("heagent.agent", "heagent.engine", *_ENTRY_LAYER_MODULES),
-    # network/ 是入口传输层（Epic 48）：只承载 framing / 协议 / 连接生命周期，运行期不得伸手进
+    # network/ 是入口传输层：只承载 framing / 协议 / 连接生命周期，运行期不得伸手进
     # 运行时栈——Provider/Engine/AgentLoop 的装配是入口层（cli / wiring）单向伸手。
-    # Epic 50 的 I1 再收紧一档：**网络层不认识项目与配置**——``heagent.config``（Settings 本体 +
+    # 再收紧一档：**网络层不认识项目与配置**——``heagent.config``（Settings 本体 +
     # 配置目录 + 写通道 + envfile，一条覆盖整包）/ ``projects``（注册表）/ ``heagent.pub.workspace``
     # （状态根）一律不得出现在 network/ 里。
     # 粒度必须细到**模块**：``heagent.pub.safe_logging`` 是网络层唯一合法的 pub 依赖
@@ -94,7 +94,7 @@ FORBIDDEN_RUNTIME_IMPORTS: dict[str, tuple[str, ...]] = {
         "heagent.pub.workspace",
         *_ENTRY_LAYER_MODULES,
     ),
-    # 公共层 ``heagent/pub/``（2026-09-26 自顶层平铺模块收敛）：只许依赖标准库、Pydantic 与**同层**
+    # 公共层 ``heagent/pub/``（自顶层平铺模块收敛）：只许依赖标准库、Pydantic 与**同层**
     # 公共模块。这是「任何层都可以依赖 pub；pub 不依赖任何层」的可执行面——漏了这条，
     # ``pub/*.py`` 顺手 ``import heagent.engine`` 不会触发任何断言。
     "pub": (
@@ -555,7 +555,7 @@ def test_skill_modules_do_not_read_files_directly() -> None:
     assert offenders == [], "skill 模块裸读文件（绕过 safe-open 单一入口）：" + ", ".join(offenders)
 
 
-# ── Epic 49：HTTP 网页入口的可选依赖与投递面 ──
+# ── HTTP 网页入口的可选依赖与投递面 ──
 
 # 可选 HTTP 栈的顶层包名（pyproject 的 ``http`` extra 直接声明）。
 _OPTIONAL_ASGI_ROOTS = frozenset({"starlette", "uvicorn"})
@@ -656,7 +656,7 @@ def test_config_layer_stays_out_of_the_runtime_stack() -> None:
         "heagent.events",
         *_ENTRY_LAYER_MODULES,
     }
-    # catalog 可能是单文件，也可能已拆成 config/catalog/ 子包（E3 绞杀者）——
+    # catalog 可能是单文件，也可能已拆成 config/catalog/ 子包——
     # 两种形态都要覆盖，否则拆包后本断言读不到文件（FileNotFoundError）且新子模块漏检。
     catalog_dir = SRC / "config" / "catalog"
     catalog_single = SRC / "config" / "catalog.py"
@@ -698,7 +698,7 @@ def test_write_whitelist_is_a_subset_of_settings_and_holds_no_credentials() -> N
         assert verdict.reason is not None and verdict.reason in catalog.LABELS, key
 
 
-# ── 2026-09-26：CLI 入口层收进 `heagent/cli/` 包（原七个平铺 ``cli*.py``）──
+# ── CLI 入口层收进 `heagent/cli/` 包（原七个平铺 ``cli*.py``）──
 
 
 def test_cli_package_shell_stays_thin() -> None:
@@ -749,7 +749,7 @@ def test_entrypoint_script_points_at_an_importable_module() -> None:
     assert callable(getattr(importlib.import_module(module_name), attr))
 
 
-# ── 2026-09-26：公共层 ``pub/`` 与配置包 ``config/`` 的分层收敛（原顶层平铺模块）──
+# ── 公共层 ``pub/`` 与配置包 ``config/`` 的分层收敛（原顶层平铺模块）──
 
 
 def test_shared_layer_layout_is_pinned() -> None:
@@ -766,7 +766,7 @@ def test_shared_layer_layout_is_pinned() -> None:
     """
     pub_modules = sorted(path.stem for path in (SRC / "pub").glob("*.py") if path.stem != "__init__")
     config_modules = sorted(path.stem for path in (SRC / "config").glob("*.py") if path.stem != "__init__")
-    # 2026-11-11（E3 绞杀者）：`catalog` 由单文件拆成子包，故出现在 packages 而非 modules。
+    # `catalog` 由单文件拆成子包，故出现在 packages 而非 modules。
     config_packages = sorted(
         path.name for path in (SRC / "config").iterdir() if path.is_dir() and (path / "__init__.py").is_file()
     )
@@ -821,7 +821,7 @@ def test_config_package_only_depends_on_the_public_layer() -> None:
     assert runtime & forbidden == set(), f"config/__init__.py: {sorted(runtime & forbidden)}"
 
 
-#: Epic 48 的 TCP 入口（2026-09-27 `4217b5d` 整体删除）留下的**活文件残留**判据。
+#: TCP 入口整体删除后留下的**活文件残留**判据。
 #: 只禁「专有名词」令牌，不禁裸词 ``TCP``——``http_server`` 的「真实 TCP 连接」与
 #: ``tools/safety.py`` 的 ``/dev/tcp/`` 反连模式都是正当用法。
 _TCP_RESIDUE_TOKENS_CI = (
@@ -853,8 +853,8 @@ def test_live_files_hold_no_reference_to_the_removed_tcp_entry() -> None:
     offenders: dict[str, list[str]] = {}
     for path in targets:
         if not path.exists():
-            # 扫描对象是有意维护的活文件清单，个别成员可被有意移除（如 CLAUDE.md 于
-            # 2026-10-07 删除）：缺席即无可扫内容，跳过而非报错。
+            # 扫描对象是有意维护的活文件清单，个别成员可被有意移除（如 CLAUDE.md）：
+            # 缺席即无可扫内容，跳过而非报错。
             continue
         rel = path.relative_to(root).as_posix()
         text = path.read_text(encoding="utf-8")
@@ -1000,7 +1000,7 @@ def test_transition_fields_helper_is_the_only_status_writer() -> None:
     assert ast.unparse(status_value.func) == "transition", ast.unparse(status_value)
     assert ast.unparse(status_value.args[1]) == "event", ast.unparse(status_value)
     assert ast.unparse(last_event_value) == "event.value", ast.unparse(last_event_value)
-    # S-1：理由必须过 `_bounded_reason` 收敛（直接落 `reason` 会让 2000 字符上限失效）。
+    # 理由必须过 `_bounded_reason` 收敛（直接落 `reason` 会让 2000 字符上限失效）。
     assert isinstance(reason_value, ast.Call), ast.unparse(reason_value)
     assert ast.unparse(reason_value.func) == "_bounded_reason", ast.unparse(reason_value)
 
@@ -1110,7 +1110,7 @@ def test_external_ws_listener_never_exposes_the_cli_bypass_surface() -> None:
         "/api/runs/ws",
         "/api/runs/{run_id}/ws",
     ]
-    # 只读旁观（P2-A3）：提交端点在路由表里**不存在**，只留订阅。
+    # 只读旁观：提交端点在路由表里**不存在**，只留订阅。
     assert _paths(WsServerConfig(host="0.0.0.0", auth_token="s3cret", readonly=True)) == [
         "/api/runs/{run_id}/ws",
     ]

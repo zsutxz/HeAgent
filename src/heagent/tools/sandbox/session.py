@@ -97,7 +97,7 @@ class SandboxSession:
                 "SandboxSession requires an explicit runner (got None); executor wiring must supply sandbox_runner"
             )
         self.workspace = Path(workspace)
-        # runner 构造期注入（B1 seam，2026-11-07）：run() 读构造时的 runner，不读全局 runner
+        # runner 构造期注入：run() 读构造时的 runner，不读全局 runner
         # slot——「runner 泄漏进 session 世界」的全局读已消除；shell handler 的「会话优先、
         # 全局 runner 兜底」优先级不变，成文于 tools/builtins/shell.py docstring。
         self._runner = runner
@@ -206,7 +206,7 @@ class SandboxSession:
         """在当前会话执行命令：cd 前缀 + 执行 + cwd/rc 回填 + 输出清理。"""
         runner = self.runner
         if isinstance(runner, DockerRunner):
-            # docker 后端（审查修复批）：cd 用容器侧 cwd，宿主 cmd/POSIX wrap 不适用
+            # docker 后端：cd 用容器侧 cwd，宿主 cmd/POSIX wrap 不适用
             # （宿主路径在容器内不存在；Windows 宿主的 cmd wrap 语法喂给 sh 必坏）。
             result = await runner.run(self._wrap_docker(command), timeout=timeout)
             new_container_cwd = self._extract_cwd_raw(result)

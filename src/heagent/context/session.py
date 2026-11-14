@@ -53,13 +53,13 @@ WINDOWS_RESERVED_DEVICE_NAMES = frozenset(
 
 # 会话标题上限（字符）：标题进控制台列表、详情与页面，必须有界。
 MAX_SESSION_TITLE_CHARS = 120
-# A29③：list_metadata 元数据备忘录的容量上限；溢出即整表清空（下次列表全量重解析一次）。
+# list_metadata 元数据备忘录的容量上限；溢出即整表清空（下次列表全量重解析一次）。
 _META_CACHE_MAX_ENTRIES = 1024
 # 派生标题上限：它是摘要而非用户设定的标题，刻意比可设标题更短。
 MAX_DERIVED_TITLE_CHARS = 60
-# 一次列表返回的会话数上限（NFR-11 有界）；会话数本身无上限（每次交互都新建一个 id）。
+# 一次列表返回的会话数上限；会话数本身无上限（每次交互都新建一个 id）。
 MAX_SESSION_LIST_LIMIT = 200
-# 列表元数据读取的文件大小上限：超过则不数 ``message_count``（D6 的退化口径：详情才给）。
+# 列表元数据读取的文件大小上限：超过则不数 ``message_count``（退化口径：详情才给）。
 MAX_SESSION_METADATA_BYTES = 1_048_576
 # 无可用内容时的会话标题；列表与详情共用同一常量，避免后端与 UI 各写一份文案。
 UNNAMED_SESSION_TITLE = "未命名会话"
@@ -450,7 +450,7 @@ class SessionStore:
 
     def __init__(self, base_dir: str = ".heagent/sessions") -> None:
         self._base = Path(base_dir)
-        # A29③：list_metadata 的 (文件名, mtime_ns, size) → 元数据 备忘录。键含内容指纹
+        # list_metadata 的 (文件名, mtime_ns, size) → 元数据 备忘录。键含内容指纹
         # （原子替换写必换 mtime/size），故无需主动失效也正确；本店写点（save/create/
         # rename/delete）仍显式按名清除，收敛「同 tick 同尺寸改名」的碰撞窗口。溢出即清空
         # （列表页有条数硬上限，1024 足够覆盖；进程内多线程仅 get/set，GIL 原子性足够）。
@@ -638,7 +638,7 @@ class SessionStore:
                 continue
             try:
                 if info.st_size > MAX_SESSION_METADATA_BYTES:
-                    # 大会话：只读**头部**（键序保证元数据在前），不读整份文件、不解析消息数组（D6 口径）。
+                    # 大会话：只读**头部**（键序保证元数据在前），不读整份文件、不解析消息数组。
                     meta = _metadata_from_head(path.stem, _read_head(path, MAX_SESSION_METADATA_BYTES))
                     entries.append(meta)
                     self._meta_cache[cache_key] = meta

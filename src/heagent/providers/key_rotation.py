@@ -62,7 +62,7 @@ class KeyRotatingProvider:
         tools: list[ToolSchema] | None = None,
     ) -> ProviderResponse:
         """尝试当前密钥，429/401/403 时轮换重试。"""
-        # 与 stream() 的 P1-11 同口径：锁内快照索引与 provider 列表，网络 I/O 不持锁。
+        # 与 stream() 同口径：锁内快照索引与 provider 列表，网络 I/O 不持锁。
         async with self._lock:
             start = self._current_index
             providers_snapshot = list(self._providers)
@@ -103,7 +103,7 @@ class KeyRotatingProvider:
         与 ``ProviderChain.stream`` 结构同构，但**索引语义有意不同**：本类成功后停留到成功的
         那把密钥（粘性，后续复用），chain 则复位到 ``start``。故两者不共用模板。
         """
-        # P1-11：锁内快照索引 + provider 列表，释放锁后迭代
+        # 锁内快照索引 + provider 列表，释放锁后迭代
         async with self._lock:
             start = self._current_index
             providers_snapshot = list(self._providers)  # 快照，免疫并发修改

@@ -542,8 +542,8 @@ def apply_config_write(
     state = _WriteState(expected_fingerprint=expected_fingerprint, source=source)
     snapshot = _read_target_bytes(target)
 
-    # ── 锁外预备（台账 A14③）：行级替换 + **候选构造**是整条流水线最贵的一步（``Settings`` 会读
-    # 候选临时文件 / 全局 ``.env`` / 环境），此前它在跨进程锁内完成 ⇒ 并发热点下写方会撞锁超时，
+    # ── 锁外预备：行级替换 + **候选构造**是整条流水线最贵的一步（``Settings`` 会读
+    # 候选临时文件 / 全局 ``.env`` / 环境），放进跨进程锁会让并发热点下写方撞锁超时，
     # 拿到 ``config_write_failed`` 而不是 ``config_conflict``。现在锁内只剩「判定 + 备份 + 落盘」。
     prepared = _prepare_candidate(snapshot, changes=validated, global_setting_file=global_setting_file)
 
@@ -579,7 +579,7 @@ def apply_config_write(
         atomic_update_bytes(target, _update, verify=_verify, lock_timeout=WRITE_LOCK_TIMEOUT)
     except RollbackFailedError as exc:
         # **还原也失败**：盘上已不是写入前的内容 —— 文案与审计都不得再宣称「已回滚」
-        # （台账 A14②：旧实现对直接调 API 的客户端是假话）。原因随文案一并给出，便于定位。
+        # （对直接调 API 的客户端，「已回滚」的宣称是假话）。原因随文案一并给出，便于定位。
         # 这里**不**像下面那个 handler 那样查 ``readback_failed``：本类型的唯一来源就是「回读抛错
         # + 还原也抛错」，而回读一定先设过标志；即便将来换了别的 verify（不设标志），「回滚失败」
         # 本身也足以构成落审计的理由（文件已是中间态），漏记才是错。
@@ -597,7 +597,7 @@ def apply_config_write(
     except OSError as exc:
         raise ConfigWriteRejection(ConfigWriteCode.CONFIG_WRITE_FAILED, f"config write failed: {_short(exc)}") from exc
 
-    # ── 备份回收移到锁外（台账 A14③）：单次目录扫描不再占用跨进程锁（锁内只剩判定 / 备份 / 落盘）。
+    # ── 备份回收移到锁外：单次目录扫描不再占用跨进程锁（锁内只剩判定 / 备份 / 落盘）。
     if state.fingerprint_before is not None:
         _prune_backups_best_effort(backups_dir, retention_days=backup_retention_days, max_entries=max_backups)
 

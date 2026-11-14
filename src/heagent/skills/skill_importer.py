@@ -185,7 +185,7 @@ class SkillImporter:
         if not self.lock_path.exists():
             return SkillManifestLock()
         try:
-            # Phase 4 C4：文本读取经 open_text_under_root 单一安全入口（manifest.csv 例外：
+            # 文本读取经 open_text_under_root 单一安全入口（manifest.csv 例外：
             # csv.DictReader 需 raw newline 语义；_hash 需字节流——两者保留直读）。
             payload = open_text_under_root(self.lock_path.parent, self.lock_path)
             return SkillManifestLock.model_validate_json(payload)

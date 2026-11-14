@@ -76,7 +76,7 @@ def _parse_field(raw: str, *, min_val: int = 0, max_val: int = 59) -> list[int]:
             range_part, step_str = part.split("/", 1)
             # 畸形输入如 "*/5-10"（"-" 仅出现在步进侧）会让 range_part 缺 "-"，
             # 直接 split 解包会抛内部 "not enough values to unpack"；此处先校验，
-            # 抛域级错误（Epic 35 收尾）。
+            # 抛域级错误。
             if "-" not in range_part:
                 raise ValueError(f"Invalid cron field expression: {part!r}")
             start_str, end_str = range_part.split("-", 1)

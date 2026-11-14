@@ -87,7 +87,7 @@ class TestListRecordsEdgeCases:
         assert await ledger.list_records() == []
 
 
-# ── _is_lease_active() 边界（原 _is_expired，P1-23 重命名+反逻辑）─
+# ── _is_lease_active() 边界（原 _is_expired，重命名+反逻辑）─
 
 
 class TestIsLeaseActive:
@@ -256,7 +256,7 @@ class TestPrune:
             await ledger.complete("k:done")
 
 
-# ── LedgerAudit（A28：audit-only 记账，幂等去重禁用）──────────────
+# ── LedgerAudit（audit-only 记账，幂等去重禁用）──────────────
 
 
 class _AcquireBrokenLedger(ExecutionLedger):

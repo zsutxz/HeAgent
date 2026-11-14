@@ -53,7 +53,7 @@ def match_skill_details(store: SkillStore, prompt: str, threshold: float) -> lis
         if parsed is None:
             continue
         if not parsed.model_invocable:
-            # B4 (2026-11-06): meta.yaml model_invocable: false skills are excluded from auto-injection matching.
+            # meta.yaml model_invocable: false skills are excluded from auto-injection matching.
             continue
         if any(trigger.casefold() in prompt_text for trigger in parsed.negative_triggers):
             continue

@@ -82,7 +82,7 @@ class PolicyVerdict(BaseModel):
     reason: str = ""
     sandbox_profile: str | None = None
     source: str = "policy"
-    # 审批是否**因容器档生效而被放松**（期二 D53-2）：仅当调用真在容器内执行、且后端
+    # 审批是否**因容器档生效而被放松**：仅当调用真在容器内执行、且后端
     # 可用时为 True。默认 False ⇒ 既有行为逐字节不变。
     approval_relaxed: bool = False
 
@@ -110,7 +110,7 @@ class PolicyEngine:
     """
 
     # 受路径围栏约束的工具 → 其参数中表示路径的字段名。
-    # P1-15 修复：补全 git_status/git_diff/git_log/git_blame，使 git 路径越界在 policy 层
+    # git_status/git_diff/git_log/git_blame 亦在此登记，使 git 路径越界在 policy 层
     # 也被预检拦截，与 file 工具保持一致的「policy + handler」两层纵深防御。
     _PATH_FIELDS: dict[str, tuple[str, ...]] = {
         "file_read": ("path",),
@@ -128,7 +128,7 @@ class PolicyEngine:
     _DENY_READ_TOOLS: frozenset[str] = frozenset({"file_read", "file_search", "content_search"})
     _DENY_WRITE_TOOLS: frozenset[str] = frozenset({"file_write"})
 
-    # 写集围栏（Epic 52 AD-17，声明门控并行）约束的工具：目标路径必须落在本 run 的
+    # 写集围栏（声明门控并行）约束的工具：目标路径必须落在本 run 的
     # write_allowlist（context.metadata）内。只接写入类工具——读不构成写集冲突。
     _WRITE_ALLOW_TOOLS: frozenset[str] = frozenset({"file_write", "file_edit"})
 
@@ -163,10 +163,10 @@ class PolicyEngine:
         self.block_mcp_tools = block_mcp_tools
         self.approval_mcp_tools = approval_mcp_tools
         self.sandbox_mcp_tools = sandbox_mcp_tools
-        # 权限档位（P0-2）：read-only / workspace-write / danger-full-access。
+        # 权限档位：read-only / workspace-write / danger-full-access。
         # 空串或未知值按最保守的现状语义处理（workspace-write），不静默放宽。
         self.sandbox_mode = (sandbox_mode or "").strip().lower() or "workspace-write"
-        # 沙箱后端读取器（期二 D53-2）：惰性返回当前 runner（无后端 ⇒ None）。装配方
+        # 沙箱后端读取器：惰性返回当前 runner（无后端 ⇒ None）。装配方
         # （EngineContainer）在 runner 注入后接线；未接线 ⇒ 审批降级一律不生效（fail-safe）。
         self.sandbox_runner_provider = sandbox_runner_provider
 
@@ -183,7 +183,7 @@ class PolicyEngine:
         再工作区路径围栏，最后判审批与沙箱。``context`` 提供运行态授权信息；
         ``schema`` （含 ``annotations``）供注解感知裁决（MCP V2 写操作治理）。
         """
-        # 0) 权限档位（P0-2）：read-only 档只放行只读工具，其余一律硬阻断。
+        # 0) 权限档位：read-only 档只放行只读工具，其余一律硬阻断。
         # 放在最前是有意的——档位是「这次 run 允许做什么」的上限，不应被后续任何放行
         # 路径（白名单命中 / 审批已授予 / 沙箱已授权）绕过。
         if self.sandbox_mode == "read-only" and not self._is_read_only(call, schema=schema):
@@ -210,7 +210,7 @@ class PolicyEngine:
             return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=reason, source="block_mcp_tools")
 
         # 4) 工作区路径围栏：file/git 工具的路径参数越界 → 阻断。
-        # danger-full-access 档（P0-2）显式跳过围栏 + 凭证 deny 预检——该档语义即
+        # danger-full-access 档显式跳过围栏 + 凭证 deny 预检——该档语义即
         # 「不受工作区约束」，仅限受控环境；黑名单 / 白名单 / 审批仍然生效。
         if self.sandbox_mode != "danger-full-access":
             path_error = self._validate_paths(call, context=context)
@@ -218,7 +218,7 @@ class PolicyEngine:
                 logger.warning("PolicyEngine blocked '%s': %s", call.name, path_error)
                 return PolicyVerdict(mode=ToolExecutionMode.BLOCKED, reason=path_error, source="workspace_paths")
 
-            # 4') 写集围栏（Epic 52 AD-17）：声明门控并行的预防层——界内写路径必须落在
+            # 4') 写集围栏：声明门控并行的预防层——界内写路径必须落在
             # 本 run 的 write_allowlist 内。与围栏 / deny 同族（同一 block 内，同被
             # danger-full-access 跳过），独立 source 便于审计区分「越工作区」与「越声明写集」。
             allow_error = self._validate_write_allowlist(call, context=context)
@@ -229,12 +229,12 @@ class PolicyEngine:
         # 计算沙箱配置（该工具需沙箱则非 None）。
         sandbox_profile = self._sandbox_profile(call)
 
-        # 5) 审批：显式策略优先，注解感知 MCP 工具缺省行为（FR-A3/A4/A5）。
+        # 5) 审批：显式策略优先，注解感知 MCP 工具缺省行为。
         approval_reason = self._approval_trigger(call, schema=schema)
         relaxed_reason: str | None = None
         if approval_reason is not None and not self._approval_granted(call, context=context):
             if self._container_relaxes_approval(call):
-                # 期二 D53-2：容器档**实际生效**时审批放松（FR-2），但显性留痕、不静默。
+                # 容器档**实际生效**时审批放松，但显性留痕、不静默。
                 relaxed_reason = f"approval relaxed by container sandbox: {approval_reason}"
                 logger.warning("PolicyEngine relaxed approval for '%s': %s", call.name, approval_reason)
             else:
@@ -437,16 +437,16 @@ class PolicyEngine:
         # 2) MCP 工具 + schema → 注解感知裁决。
         if self._is_mcp_tool(call) and schema is not None:
             ann = schema.annotations
-            # 2a) destructiveHint → 需审批（FR-A3）。
+            # 2a) destructiveHint → 需审批。
             if ann is not None and ann.destructiveHint:
                 return f"MCP tool '{call.name}' requires approval (destructiveHint)."
-            # 2b) readOnlyHint → 免审批（FR-A4）。
+            # 2b) readOnlyHint → 免审批。
             if ann is not None and ann.readOnlyHint:
                 return None
-            # 2c) annotations 存在但两个 hint 均为 False → fail-safe 需审批（FR-A5）。
+            # 2c) annotations 存在但两个 hint 均为 False → fail-safe 需审批。
             if ann is not None:
                 return f"MCP tool '{call.name}' requires approval (annotations present, neither hint set; fail-safe)."
-            # 2d) 缺 annotations（None）→ fail-safe 需审批（FR-A5）。
+            # 2d) 缺 annotations（None）→ fail-safe 需审批。
             return f"MCP tool '{call.name}' requires approval (no annotations; fail-safe)."
 
         # 3) schema 为 None（V1 内置工具）或非 MCP 工具 → 既有路径。

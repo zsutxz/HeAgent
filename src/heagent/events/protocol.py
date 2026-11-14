@@ -48,20 +48,20 @@ KNOWN_KINDS: frozenset[str] = frozenset(
         "tool_call_completed",
         "tool_call_failed",
         "tool_call_blocked",
-        # workflow 步骤（Phase 5 C1：run_step 补发，此前零事件）
+        # workflow 步骤（run_step 补发）
         "workflow_step_started",
         "workflow_step_completed",
         "workflow_step_failed",
-        # 声明门控并行（Epic 52）：批派发与宿主 Git 写集审计
+        # 声明门控并行：批派发与宿主 Git 写集审计
         "workflow_story_batch_scheduled",
         "workflow_write_audit",
-        # workflow 步骤级人工决策（Story 51-5：approve / reject / amend，审批门的落定轨迹）
+        # workflow 步骤级人工决策（approve / reject / amend，审批门的落定轨迹）
         "workflow_approved",
         "workflow_rejected",
         "workflow_amended",
-        # 质量门求值（Story 51-8 收口的 emit 接线）与 goal 事件
+        # 质量门求值与 goal 事件
         "workflow_gate_evaluated",
-        # 记忆巩固 / cron（引擎实发现状收编，此前不在文档全集）
+        # 记忆巩固 / cron
         "dream_start",
         "dream_end",
         "cron_job_started",
@@ -83,7 +83,7 @@ def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-# error_kind 封闭映射（Phase 5 C1）：「败为何」的高频查询面，未匹配一律 ``exception``
+# error_kind 封闭映射：「败为何」的高频查询面，未匹配一律 ``exception``
 # 不猜（显性兜底）。映射表与 docs/frame.md 事件契约表同源——改这里须同步文档。
 ERROR_KIND_TIMEOUT = "timeout"
 ERROR_KIND_CANCELLED = "cancelled"
@@ -127,7 +127,7 @@ class RunEvent(BaseModel):
     kind: str
     tool: str = ""
     target: str = ""
-    # Phase 5 C1：「慢在哪 / 败为何」的高频查询面提升为顶层契约（v1→v2，双向可读：
+    # 「慢在哪 / 败为何」的高频查询面提升为顶层契约（v1→v2，双向可读：
     # 旧文件缺省读、新字段被旧代码 extra=ignore）。0 / 空串 = 未计时 / 无分类。
     duration_ms: int = 0
     error_kind: str = ""

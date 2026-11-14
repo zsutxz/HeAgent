@@ -551,7 +551,7 @@ async def test_auto_advance_never_approves_the_gate(gated_goal) -> None:
     assert await decision_store(goal_dir).list_records() == []
 
 
-# ---- 审查回归：并行批次挂门 / checkpoint 组合 / 原子性与兼容性 ------------------
+# ---- 并行批次挂门 / checkpoint 组合 / 原子性与兼容性 ------------------
 
 
 @pytest.mark.asyncio
@@ -927,7 +927,7 @@ async def test_goal_approve_and_decisions_reject_stray_arguments(
     assert "用法" in capsys.readouterr().err
 
 
-# ---- 内核自锁（台账 A32②）：三写方法的读改写区持 goal 域互斥 --------------------
+# ---- 内核自锁：三写方法的读改写区持 goal 域互斥 --------------------
 
 
 @pytest.mark.asyncio

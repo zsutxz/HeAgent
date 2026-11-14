@@ -85,7 +85,7 @@ class _BlockingExecutor:
         return RunOutcome(answer=prompt)
 
 
-# ---- 配置契约（自 test_http_ws_config.py 迁入并按 D1 更名）----
+# ---- 配置契约 ----
 
 
 def _origin_ok(_scope: dict[str, Any]) -> None:
@@ -237,13 +237,13 @@ def test_uvicorn_ws_options_moved_to_ws_host() -> None:
     assert "ws_ping_timeout=WS_PING_TIMEOUT_SECONDS" in ws_source
     assert WS_PING_INTERVAL_SECONDS == 15.0
     assert WS_PING_TIMEOUT_SECONDS == 20.0
-    # 帧上限随 56-3 抬高到「装得下最大 prompt」（与 HTTP 请求体上限同源），不再是 64 KiB。
+    # 帧上限抬高到「装得下最大 prompt」（与 HTTP 请求体上限同源），不再是 64 KiB。
     assert WS_MAX_FRAME_BYTES == MAX_REQUEST_BYTES_FOR_MAX_PROMPT
     assert "ws_max_size=" not in http_source
     assert "ws_ping_interval=" not in http_source
 
 
-# ---- CLI 旁路开关（自 54-2/55 契约迁入并按 D7 更名）----
+# ---- CLI 旁路开关 ----
 
 
 def test_cli_bypass_is_off_by_default_and_documented() -> None:
@@ -287,7 +287,7 @@ def test_embedded_service_only_attaches_a_hub_when_the_switch_is_on() -> None:
     assert hub.max_connections == Settings().ws_max_connections
 
 
-# ---- 路由注册矩阵与分离判据（D1 可执行判据）----
+# ---- 路由注册矩阵与分离判据 ----
 
 
 def _ws_config(**kwargs: Any) -> WsServerConfig:
@@ -614,7 +614,7 @@ def test_build_ws_server_config_maps_settings_and_overrides(monkeypatch: pytest.
     assert build_ws_server_config(Settings(), port=9200).port == 9200
     assert build_ws_server_config(Settings(), max_connections=7).ws_max_connections == 7
     assert build_ws_server_config(Settings(), shutdown_timeout=9).shutdown_timeout == 9.0
-    # 56-2 D5：非回环绑定缺 token ⇒ fail-closed（不再静默产出一个「无认证对外」的配置）。
+    # 非回环绑定缺 token ⇒ fail-closed（不再静默产出一个「无认证对外」的配置）。
     with pytest.raises(WsConfigError):
         build_ws_server_config(Settings(), host="0.0.0.0")
     setting = tmp_path / "setting.md"
@@ -646,7 +646,7 @@ def test_build_server_config_no_longer_carries_ws_knob() -> None:
     assert not hasattr(config, "ws_max_connections")
 
 
-# ---- Epic 56 Story 56-4：WS 慢消费者判据（Epic 54 retro F5 的「判据 10」缺口）----
+# ---- WS 慢消费者判据 ----
 
 
 @pytest.mark.asyncio
@@ -700,7 +700,7 @@ async def test_ws_and_sse_subscriber_pools_stay_independent_under_backpressure()
     assert sse_queue.qsize() > 0
 
 
-# ---- 期二（Epic 56 D8/D10/D12）：双 listener 装配 ----
+# ---- 双 listener 装配 ----
 
 
 def _user_setting(tmp_path: Path, token: str = "s3cret") -> Path:

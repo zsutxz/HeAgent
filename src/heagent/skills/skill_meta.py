@@ -77,7 +77,7 @@ class SkillMeta(BaseModel):
     aliases: list[str] = Field(default_factory=list)
     version: str = ""
     available: bool = True
-    #: 双开关（B4，2026-11-06）：False = 该调用面禁用本技能（缺省两开，向后兼容）。
+    #: 双开关：False = 该调用面禁用本技能（缺省两开，向后兼容）。
     model_invocable: bool = True
     user_invocable: bool = True
     tags: list[str] = Field(default_factory=list)

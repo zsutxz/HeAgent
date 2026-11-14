@@ -117,7 +117,7 @@ async def fact_compact(merges: list[dict[str, Any]]) -> str:
     if store is None:
         return "Error: fact tools not configured."
     if not get_settings().memory_compact_enabled:
-        # fail-closed（D5）：无人监督删改持久记忆默认不开；关闭即显性报错，不静默成功。
+        # fail-closed：无人监督删改持久记忆默认不开；关闭即显性报错，不静默成功。
         return "Error: memory compaction is disabled (memory_compact_enabled=false)."
     if not merges:
         return "Error: merges must not be empty."

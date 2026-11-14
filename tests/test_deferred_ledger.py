@@ -30,7 +30,7 @@ ARCHIVED = "已按 Epic 归档"
 INDEX = "跨周期勘察与裁定索引"
 SECTION_NAMES = (ACTIVE, CLOSED, RETIRED, ARCHIVED, INDEX)
 
-#: S-6（2026-10-26）归一退出时的条目快照，共 67 个 ID。新增条目必须带 `origin=新增` 才能越过它。
+#: 归一退出时的条目快照，共 67 个 ID。新增条目必须带 `origin=新增` 才能越过它。
 BASELINE_IDS = frozenset(
     {
         "A1",

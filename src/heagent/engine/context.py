@@ -46,7 +46,7 @@ class RunStatus(StrEnum):
     FAILED = "failed"  # 已失败：抛出异常或被门控终止
 
 
-# 终态集合：终态唯一写入口 ``RunContext.mark_terminal`` 的合法目标（Phase 2 C2）。
+# 终态集合：终态唯一写入口 ``RunContext.mark_terminal`` 的合法目标。
 _TERMINAL_STATUSES: frozenset[RunStatus] = frozenset({RunStatus.COMPLETED, RunStatus.FAILED})
 
 

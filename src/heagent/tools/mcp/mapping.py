@@ -144,7 +144,7 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 # Project-local additions are intentionally process-cached: changing this file
 # while a process is running must not silently change the guard's behavior.
 _USER_SIGNATURES_PATH = Path(".heagent") / "injection_signatures.json"
-# 全局级入口**刻意不存在**（活动台账 A36：零使用 ⇒ YAGNI）。但把签名写进 ``~/.heagent/``
+# 全局级入口**刻意不存在**（零使用 ⇒ YAGNI）。但把签名写进 ``~/.heagent/``
 # 是很自然的直觉，静默忽略会让用户以为围栏已生效 ⇒ 项目级缺失时探一次并显式 WARNING。
 _GLOBAL_SIGNATURES_HINT = Path(".heagent") / "injection_signatures.json"  # 相对用户 home
 _USER_PATTERNS: list[tuple[re.Pattern[str], str, str]] | None = None

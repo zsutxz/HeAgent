@@ -74,7 +74,7 @@ class SubagentToolRuntime:
     roles: dict[str, RoleSpec] | None = None
     depth: int = 0
     max_depth: int = 3
-    # A31③：角色 md 声明（``delegation_fallback:`` frontmatter 键）收集的委派兜底文案，
+    # 角色 md 声明（``delegation_fallback:`` frontmatter 键）收集的委派兜底文案，
     # 由 agent 层 bind 时传入；工具层零文案副本，未声明即空（结构化错误独立成立）。
     delegation_fallback: str = ""
 

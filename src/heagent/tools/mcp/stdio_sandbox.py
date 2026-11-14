@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # 可用性探测的复用窗口（秒）：与 DockerRunner 心跳同量级。健康时每个 spec 最多每 30s 付一次
-# ``docker version``；降级 WARNING 仍按**每次连接**打（用户裁定：显性降级 + 每次留痕）。
+# ``docker version``；降级 WARNING 仍按**每次连接**打（显性降级 + 每次留痕）。
 _PROBE_TTL_SECONDS = 30.0
 
 
@@ -54,7 +54,7 @@ class StdioSandboxSpec(BaseModel):
 
     image: str
     docker_path: str = "docker"
-    # none | bridge（沿用 brief D2：工具执行默认不需要网）。
+    # none | bridge（工具执行默认不需要网）。
     network: str = "none"
     # 宿主 workspace（posix 形态挂到 CONTAINER_WORKDIR）；None = 不挂载。
     workspace: str | None = None

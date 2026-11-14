@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from heagent.config import Settings
     from heagent.pub.types import StreamEvent, TokenUsage
 
-#: cron 结果终端回显的正文上限（Epic 58 D6）：单行展示，超出截断加省略号。
+#: cron 结果终端回显的正文上限：单行展示，超出截断加省略号。
 CRON_ECHO_MAX_CHARS = 500
 
 
@@ -221,7 +221,7 @@ def _format_status(loop: AgentLoop) -> str:
     return f"[{' | '.join(parts)}]"
 
 
-# 项目台账的规范路径：2026-09-17 起 `implementation-artifacts/deferred-work.md`
+# 项目台账的规范路径：`implementation-artifacts/deferred-work.md`
 # 并入 `deferred-work-archive.md`（活动条目 + 闭合归档同文件）。旧名一并作为回退保留，
 # 历史仓库 / 回退态照样能读——只认旧名会让 /deferred 静默漏掉整份项目台账。
 _DEFERRED_LEDGER = "implementation-artifacts/deferred-work-archive.md"

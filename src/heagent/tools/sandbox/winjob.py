@@ -89,7 +89,7 @@ class WinJobBackend:
     tier = SandboxTier.JOB
 
     def __init__(self, memory_limit_mb: int = 0, cpu_seconds: int = 0, nproc_limit: int = 0) -> None:
-        # 资源限额（2026-09-17 硬化批，2026-09-18 补进程数，0=关闭）：
+        # 资源限额（0=关闭）：
         # JOB_OBJECT_LIMIT_JOB_MEMORY / PROCESS_TIME / ACTIVE_PROCESS。
         # 触发为显性失败（进程被终止 → 非零退出码）。
         self._memory_limit_mb = memory_limit_mb
@@ -156,9 +156,9 @@ class WinJobBackend:
             # Configure job limits：KILL_ON_JOB_CLOSE 恒开；资源限额按配置叠加（0=关闭，
             # flags 与现状一致）。限额触发 → 进程被终止 → 非零退出码（显性失败）。
             # ⚠ 常量值以 Windows SDK（winnt.h）为准：PROCESS_TIME=0x2、ACTIVE_PROCESS=0x8。
-            # 2026-09-18 修正：此前 PROCESS_TIME 误写为 0x8（那是 ACTIVE_PROCESS 的位），
-            # 于是配了 CPU 限额时置位的是 ACTIVE_PROCESS 而 ActiveProcessLimit 仍为 0——
-            # 时间限额没生效，反而施加了「活动进程上限 0」。
+            # 位写错的后果：把 PROCESS_TIME 误写成 0x8 时，配了 CPU 限额置位的是
+            # ACTIVE_PROCESS 而 ActiveProcessLimit 仍为 0——时间限额没生效，反而施加了
+            # 「活动进程上限 0」。
             JOB_OBJECT_LIMIT_JOB_MEMORY = 0x00000200
             JOB_OBJECT_LIMIT_PROCESS_TIME = 0x00000002
             JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008

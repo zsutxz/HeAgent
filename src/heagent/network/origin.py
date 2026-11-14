@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 from heagent.network.exposure import is_loopback_host
 
-# 我们不信任任何代理头：反向代理部署不在 MVP 支持范围（AD-6），出现这些头即拒绝请求——
+# 我们不信任任何代理头：反向代理部署不在 MVP 支持范围，出现这些头即拒绝请求——
 # 否则 `X-Forwarded-Host` 就能把「跨站请求」伪装成本机同源请求（DNS rebinding 的常见变体）。
 _UNTRUSTED_FORWARD_HEADERS = frozenset(
     {b"forwarded", b"x-forwarded-for", b"x-forwarded-host", b"x-forwarded-proto", b"x-real-ip"}

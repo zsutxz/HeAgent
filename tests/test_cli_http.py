@@ -146,7 +146,7 @@ def test_registered_as_explicit_subcommand() -> None:
 def test_build_server_config_uses_settings_defaults() -> None:
     settings = get_settings()
 
-    # 显式钉住端口路径：默认顺延开启后，裸调用会因 9101 被真实占用而环境化（2026-10-15）。
+    # 显式钉住端口路径：默认顺延开启后，裸调用会因 9101 被真实占用而环境化。
     config = build_server_config(settings, port=settings.http_port)
 
     assert config == HttpServerConfig(
@@ -182,7 +182,7 @@ def test_build_server_config_overrides_only_the_given_fields() -> None:
 def test_defaults_reach_the_listening_config(
     monkeypatch: pytest.MonkeyPatch, captured_server: dict[str, HttpServer]
 ) -> None:
-    # 默认顺延开启后端口可能被真实占用而顺延：钉住 finder=0 断言纯默认值（2026-10-15）。
+    # 默认顺延开启后端口可能被真实占用而顺延：钉住 finder=0 断言纯默认值。
     monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
     reset_settings()
     result = CliRunner().invoke(main, ["http-server"])
@@ -191,12 +191,12 @@ def test_defaults_reach_the_listening_config(
     server = captured_server["server"]
     assert (server.config.host, server.config.port) == ("127.0.0.1", 9101)
     assert (server.config.max_connections, server.config.max_inflight_runs) == (16, 1)
-    # 订阅额度与连接额度**各有旋钮**（2026-09-28 拆键）：默认值相同 ⇒ 默认行为不变。
+    # 订阅额度与连接额度**各有旋钮**：默认值相同 ⇒ 默认行为不变。
     assert (server.config.max_connections, server.config.max_subscribers) == (16, 16)
-    # 服务级总额默认不限（0）——不设即保持「每项目各一份」的 D9 语义。
+    # 服务级总额默认不限（0）——不设即保持「每项目各一份」语义。
     assert server.config.max_total_inflight == 0
     assert (server.config.event_buffer_size, server.config.run_history_size) == (512, 64)
-    # 默认**不设**总时长硬上限（0 = 不限制），卡死交给 300s 的静默判定（2026-09-24 修复）。
+    # 默认**不设**总时长硬上限（0 = 不限制），卡死交给 300s 的静默判定。
     assert (server.config.request_timeout, server.config.idle_timeout) == (0.0, 300.0)
     assert server.config.shutdown_timeout == 5.0
     # 健康检查对外报告的版本号取自包元数据（不硬编码在传输层）。
@@ -298,7 +298,7 @@ def test_cli_overrides_reach_the_config_without_mutating_settings(
     assert (server.config.port, server.config.max_inflight_runs, server.config.shutdown_timeout) == (9401, 2, 1.5)
     assert server.config.max_total_inflight == 3
     assert server.config.max_subscribers == 4
-    # ``0`` 是**合法**取值（关掉该时限 / 不设总时长上限），CLI 边界不得比配置层更严（2026-09-24）。
+    # ``0`` 是**合法**取值（关掉该时限 / 不设总时长上限），CLI 边界不得比配置层更严。
     assert (server.config.idle_timeout, server.config.request_timeout) == (0.0, 0.0)
     assert (settings.http_port, settings.http_max_inflight_runs, settings.http_shutdown_timeout) == (9101, 1, 5.0)
     # CLI 覆盖不写回 Settings：服务级总额仍是 env / 默认值。
@@ -440,7 +440,7 @@ def test_explicit_subcommand_paths_do_not_go_through_the_embedded_service(
     assert embedded_http_services == []
 
 
-# ── Story 50-3：单项目运行时的接线不变量 ──
+# ── 单项目运行时的接线不变量 ──
 
 
 def test_new_loop_binds_the_full_cron_surface(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -569,7 +569,7 @@ def test_http_server_command_wires_the_console_for_project_runs(captured_server:
     assert Path(str(runtime.sessions._base)) == Path.cwd() / ".heagent" / "sessions"  # noqa: SLF001
 
 
-# ── Story 50-5：写入闸门 / 注册表落点 / 生效语义 ──
+# ── 写入闸门 / 注册表落点 / 生效语义 ──
 
 
 def test_write_gate_defaults_to_closed(captured_server: dict[str, HttpServer]) -> None:
@@ -661,7 +661,7 @@ def test_write_channel_applies_on_the_next_run_only(tmp_path: Path) -> None:
     assert written.changes[0].source.value == "project_env"
 
 
-# ---- Epic 56 Story 56-2/56-3：对外模式在命令层的显式失败与公告 ----
+# ---- 对外模式在命令层的显式失败与公告 ----
 
 
 def _write_user_setting(tmp_path: Path, token: str | None) -> Path:

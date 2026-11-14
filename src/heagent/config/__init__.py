@@ -24,12 +24,12 @@ from heagent.pub.types import RoutingPoolSpec, RuntimeConfigSource
 
 logger = logging.getLogger(__name__)
 
-#: WS 对外模式 token 在用户级 ``setting.md`` 里的键名（Epic 56 D3）。
+#: WS 对外模式 token 在用户级 ``setting.md`` 里的键名。
 #: 它**不是** ``Settings`` 字段（见 :attr:`Settings.user_ws_auth_token` 的说明）；
 #: ``config/catalog.py`` 把它计入「已知键」白名单，配置面板不会把它报成 unknown_key。
 WS_AUTH_TOKEN_KEY = "ws_auth_token"  # nosec B105 - 这是键名不是凭证 # noqa: S105
 
-# 沙箱权限档位（P0-2）的合法取值；非法配置回退 ``workspace-write``（见 Settings.sandbox_mode_resolved）。
+# 沙箱权限档位的合法取值；非法配置回退 ``workspace-write``（见 Settings.sandbox_mode_resolved）。
 SANDBOX_MODES: frozenset[str] = frozenset({"read-only", "workspace-write", "danger-full-access"})
 
 _settings: Settings | None = None  # 单例缓存
@@ -124,7 +124,7 @@ class Settings(BaseSettings):
     ollama_model: str | None = None  # 必填（启用时）：如 qwen3.5-9b-local:latest
     ollama_api_key: str | None = None  # Ollama 不校验 key，留空时用占位符 "ollama"
 
-    # ---- Anthropic 提示词缓存（FR-3） ----
+    # ---- Anthropic 提示词缓存 ----
     anthropic_prompt_caching: bool = True
 
     # ---- 多密钥池（逗号分隔存储，运行时解析为列表） ----
@@ -154,7 +154,7 @@ class Settings(BaseSettings):
     # ▶/✔ 进度公告写 stderr；与交互输入行共用终端、可能被误提交为提示词，false 静音。
     announce_progress: bool = Field(default=True)
     compression_threshold: float = Field(default=0.8, ge=0.0, le=1.0)
-    # 上下文管理策略："compressor"=原地摘要压缩（默认）；"reset"=窗口重置（清窗后 resume 续跑，D3 互斥）。
+    # 上下文管理策略："compressor"=原地摘要压缩（默认）；"reset"=窗口重置（清窗后 resume 续跑，两种策略互斥）。
     context_strategy: str = Field(default="compressor")
     # 窗口重置触发阈值（context_strategy=reset 时生效）。
     window_reset_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
@@ -169,7 +169,7 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO")  # 控制台(stderr)日志级别: DEBUG / INFO / WARNING / ERROR
     log_file_level: str | None = Field(default=None)  # 文件日志级别; None=回退到 log_level
 
-    # ---- Token 计量（P0-3） ----
+    # ---- Token 计量 ----
     # auto（默认）= 有 tiktoken 用真实 tokenizer，否则 CJK 启发式 + 真实 usage 在线校准；
     # estimate = 强制启发式；tiktoken = 强制真实（缺失告警一次后回退）。计量偏差会放大为误压缩或白丢上下文。
     tokenizer: str = Field(default="auto")
@@ -218,7 +218,7 @@ class Settings(BaseSettings):
     # ---- Cron 调度参数 ----
     cron_enabled: bool = Field(default=True)
     cron_tick_seconds: int = Field(default=60, ge=10)
-    # cron 结果推送（Epic 58 D4）：两个**互相独立**的开关，默认都 False（不改变现行为）。
+    # cron 结果推送：两个**互相独立**的开关，默认都 False（不改变现行为）。
     # push = 建通知中枢并把 `WS /api/notifications/ws` 挂上 listener；echo = 终端 stderr 回显一行。
     # 可以只回显不推送（无 WS listener 的入口），也可以只推送不回显（无人值守）。
     cron_push_enabled: bool = Field(default=False)
@@ -258,7 +258,7 @@ class Settings(BaseSettings):
     mcp_config_path: str = Field(default=".mcp.json")
     safety_blocked_tools: list[str] = Field(default_factory=list)
 
-    # ---- 沙箱后端与权限档位（FR-S4 / P0-2） ----
+    # ---- 沙箱后端与权限档位 ----
     # auto（默认）= 探测 firejail 可用则用，否则 passthrough（零隔离）；winjob / docker 须显式指定
     # （WinJob 无文件系统隔离，auto 不自动选）；docker = 每命令一次性容器（OS 级强隔离兜底）。
     # CLI --sandbox 可覆盖；显式指定而不可用时降级 Passthrough 并告警。
@@ -283,7 +283,7 @@ class Settings(BaseSettings):
     sandbox_session_workspace: bool = Field(default=False)
     # 逗号分隔的环境变量名，命中者不参与敏感剥离；空 = 全剥离。
     sandbox_env_allowlist: str = Field(default="")
-    # 沙箱会话目录保留开关（FR-4）：True = run 结束后保留会话目录；False（默认）= 删除。
+    # 沙箱会话目录保留开关：True = run 结束后保留会话目录；False（默认）= 删除。
     sandbox_session_keep: bool = Field(default=False)
     # 崩溃 run 的孤儿会话目录由 CLI/GUI 启动时按本保留期回收（0=禁用）。
     sandbox_dir_retention_days: int = Field(default=7, ge=0)
@@ -300,23 +300,23 @@ class Settings(BaseSettings):
     # ⚠ 语义不对称：firejail 按 Linux 真实 UID 计数（波及同用户其他进程），winjob 才是 job 作用域，故默认关。
     sandbox_nproc_limit: int = Field(default=0, ge=0)
 
-    # ---- 审批参数（Epic 29） ----
+    # ---- 审批参数 ----
     # 逗号分隔的需要交互审批的工具名（如 "shell,file_write"）。空 = 无审批工具。
     approval_tools: str = Field(default="")
 
-    # ---- 用户事件钩子（Epic 32） ----
+    # ---- 用户事件钩子 ----
     # hooks 是用户自配置的本地命令（非安全边界），不可信仓库可投放该文件——故须显式开启。
     hooks_enabled: bool = Field(default=False)
 
-    # ---- Plan Mode（Epic 33） ----
+    # ---- Plan Mode ----
     # True 时收敛为只读模式：仅允许 readOnlyHint=True 的内置工具，禁止写操作（CLI --plan 覆盖）。
     plan_mode: bool = Field(default=False)
 
-    # ---- 成本估算（Epic 34） ----
+    # ---- 成本估算 ----
     # 模型价格表 JSON：{"<model>": {"input": <$/M tok>, "output": <$/M tok>}}；空 = 不显示成本。
     model_pricing: str = Field(default="")
 
-    # ---- HTTP 网页入口（Epic 49 Story 49-1） ----
+    # ---- HTTP 网页入口 ----
     # 默认 CLI 在同一进程内自动启动 HTTP 服务并把本地地址打到 stderr；`heagent http-server` 单独拉起；
     # 显式 gui / init / replay 不附带启动。定位：实验性、无认证、无 TLS，默认只绑 loopback。
     # http_enabled 只是装配开关（持久关闭用），CLI 另有单次覆盖 --no-http / --no-ws（不改 Settings 单例）。
@@ -338,9 +338,9 @@ class Settings(BaseSettings):
     # 请求体字节上限（超限收 request_too_large）；默认值必须容纳协议允许的最大 prompt——config 是底层
     # 模块不得依赖 network/，故写死数字，与 network.http_protocol 的关系由 tests 钉住。
     http_max_request_bytes: int = Field(default=394_240, ge=1)
-    # 每个 run 的 SSE 事件环形缓冲条数；超出窗口的重连收 resync_required（AD-4）。
+    # 每个 run 的 SSE 事件环形缓冲条数；超出窗口的重连收 resync_required。
     http_event_buffer_size: int = Field(default=512, ge=1)
-    # 已终结 run 记录的保留条数；淘汰后按其 id 订阅得 unknown_run（AD-4）。
+    # 已终结 run 记录的保留条数；淘汰后按其 id 订阅得 unknown_run。
     http_run_history_size: int = Field(default=64, ge=1)
     # 单次运行总时长硬上限（秒；0=不限默认）——只该是运维兜底闸门，墙钟当默认会误杀长任务。
     http_request_timeout: float = Field(default=0.0, ge=0, allow_inf_nan=False)
@@ -351,7 +351,7 @@ class Settings(BaseSettings):
     # 服务关闭时「停止接收 → 终结在途 run → 关闭订阅 → 关闭 listener」全程的等待上限（秒）。
     http_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 
-    # ---- WS 入口（Epic 56 D1：与 HTTP 完全分离的独立 server，唯一宿主所有 WS 能力） ----
+    # ---- WS 入口（与 HTTP 完全分离的独立 server，唯一宿主所有 WS 能力） ----
     # 回环 = 本地模式（无认证，Origin 只是入口层防线）；非回环 = 对外模式（Bearer token 强制、缺 token 拒绝启动）。
     ws_enabled: bool = Field(default=True)  # False = 不装配 WS listener（仅 HTTP 或全关）
     ws_host: str = Field(default="127.0.0.1", min_length=1)
@@ -363,7 +363,7 @@ class Settings(BaseSettings):
     # PEM 证书/私钥：两者都给才启用 wss（半配 fail-loud）；对外不配 TLS 时启动告警但不拒绝。
     ws_tls_cert_file: str | None = None
     ws_tls_key_file: str | None = None
-    # ---- 期二（Epic 56 D8）：第二个 WS listener（对外），与主 listener 并存 ----
+    # ---- 第二个 WS listener（对外），与主 listener 并存 ----
     # 空 = 不启用（默认）；非空即启用且必须非回环（回环归主 listener；主 listener 已非回环时再配同样 fail-loud）。
     ws_external_host: str | None = None
     # 对外 listener 端口，默认 9301；未显式指定时沿用端口顺延（与 HTTP / 主 WS 同口径）。
@@ -378,10 +378,10 @@ class Settings(BaseSettings):
     # CLI 旁路订阅：把终端那轮 run 的事件只读推给外部客户端；默认关——无认证，开了等于让能连上的
     # 本机进程看到终端 agent 工具输出。不占运行名额、不写会话历史、无取消通道。
     ws_cli_bypass_enabled: bool = False
-    # **本地强制认证**（2026-11-04 D5 修订）：True 时回环主 WS listener 也强制 Bearer 认证——token
-    # 真源仍是用户级 setting.md（D3 不变）。默认 False = D5 原语义（回环免 token）。
+    # **本地强制认证**：True 时回环主 WS listener 也强制 Bearer 认证——token
+    # 真源仍是用户级 setting.md。默认 False = 回环免 token。
     ws_local_auth_enabled: bool = False
-    # ---- 网页控制台的配置写入通道（Epic 50 Story 50-5） ----
+    # ---- 网页控制台的配置写入通道 ----
     # 默认关：关闭时配置面全只读，且网页无法通过任何请求打开它（不在白名单，写入通道改不到自己）。
     # 开启渠道 = 任何启动配置；开启时入口层打高亮告警：任何能连上的人都能改项目 .env。
     # 写通道本身不是安全边界（无认证、无 TLS）。

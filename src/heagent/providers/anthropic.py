@@ -196,7 +196,7 @@ class AnthropicProvider:
             raise wrap_provider_error(e) from e
 
         text_parts: list[str] = []
-        # P1-10：检测 Claude 扩展思考 (thinking) 块——当前未在 Message 模型中回传，
+        # 检测 Claude 扩展思考 (thinking) 块——当前未在 Message 模型中回传，
         # 多轮 tools 续轮可能丢失推理上下文；记录 warning 供排查。
         for block in resp.content:
             if getattr(block, "type", None) == "thinking":
@@ -236,7 +236,7 @@ class AnthropicProvider:
                         model=self._model,
                         finish_reason="",
                     )
-                # P1-20 修复：get_final_message 失败时不静默丢失 tool_calls——
+                # get_final_message 失败时不静默丢失 tool_calls——
                 # 先 yield 带错误标记的 chunk 告知消费者流未正常终结，再抛 ProviderError。
                 try:
                     final = await stream.get_final_message()

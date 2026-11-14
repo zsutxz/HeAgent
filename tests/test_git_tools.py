@@ -330,7 +330,7 @@ class TestGitToolRegistration:
             assert schema.annotations.destructiveHint is None or schema.annotations.destructiveHint is False
 
 
-# --- Phase 4 C3：512KB/通道保头尾截断（巨型输出不进 LLM 上下文）---
+# --- 512KB/通道保头尾截断（巨型输出不进 LLM 上下文）---
 
 
 @pytest.mark.asyncio

@@ -391,7 +391,7 @@ def test_gate_error_names_the_headings_that_are_present() -> None:
         WorkflowRunner.validate_output(step, "## 3. 本轮实现动作\n\ntext\n")
 
 
-# --- Phase 5 C1：步骤粒度观测事件（emit 注入端口）---
+# --- 步骤粒度观测事件（emit 注入端口）---
 
 
 @pytest.mark.asyncio

@@ -58,7 +58,7 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
         keys=(
             "MEMORY_NUDGE_ENABLED",
             "MEMORY_INJECT_MAX_BYTES",
-            # 语义压缩写侧开关（Epic 59）：与归档两键同属记忆整理旋钮，但它是无人监督删改的
+            # 语义压缩写侧开关：与归档两键同属记忆整理旋钮，但它是无人监督删改的
             # 显式 opt-in（默认 False，对齐 DREAM_ENABLED 立场），故与注入开关同组可见可写。
             "MEMORY_COMPACT_ENABLED",
             "SKILL_MATCH_THRESHOLD",
@@ -78,10 +78,10 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
             "LOG_RETENTION_DAYS",
             "SESSION_RETENTION_DAYS",
             "EDIT_SNAPSHOT_RETENTION_DAYS",
-            # D2 裁定：显式白名单 > 模式排除 ⇒ 本键可写（保留天数是运维可调项，非隔离姿态）。
+            # 显式白名单 > 模式排除 ⇒ 本键可写（保留天数是运维可调项，非隔离姿态）。
             "SANDBOX_DIR_RETENTION_DAYS",
             "PRUNE_MIN_INTERVAL_SECONDS",
-            # 记忆自动归档（2026-09-27 新增字段的登记；2026-10-10 触发口径由「估算天数」改为「字节」）：
+            # 记忆自动归档（触发口径为「字节」）：
             # 触发阈值与节流间隔同属「数据生命周期旋钮」，与上面几项同型 —— 都支持 0 = 禁用，
             # 且都由 RESOURCE_CEILINGS 给上界。
             "MEMORY_ARCHIVE_TRIGGER_BYTES",
@@ -91,7 +91,7 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
     ConfigGroupSpec(
         id="cron",
         label="定时调度",
-        # 结果推送两键（Epic 58 D4）：与 tick 同组可见可写——「调度」这件事的两端：
+        # 结果推送两键：与 tick 同组可见可写——「调度」这件事的两端：
         # 多久扫一次（tick）与扫完把结果送哪里去（push / echo）。
         keys=("CRON_TICK_SECONDS", "CRON_PUSH_ENABLED", "CRON_ECHO_TO_TERMINAL"),
     ),
@@ -112,7 +112,7 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
     ),
 )
 
-#: 只读排除组（**显式行 > 模式行**，同型按表内顺序取首条 —— 脊柱 §8 R-c）。
+#: 只读排除组（**显式行 > 模式行**，同型按表内顺序取首条）。
 EXCLUSION_GROUPS: tuple[ConfigGroupSpec, ...] = (
     # ── 显式键行（先于一切模式行求值 ⇒ HTTP_CONSOLE_* 的只读原因是「控制台自身」而非「监听面」）──
     ConfigGroupSpec(
@@ -162,7 +162,7 @@ EXCLUSION_GROUPS: tuple[ConfigGroupSpec, ...] = (
     ConfigGroupSpec(
         id="listening",
         label="监听面",
-        # Epic 56 D1：WS server 独立成 WS_* 配置面，与 HTTP_* 同属「监听面」。
+        # WS server 独立成 WS_* 配置面，与 HTTP_* 同属「监听面」。
         patterns=("HTTP_*", "WS_*"),
         reason="listening_surface",
     ),
@@ -191,7 +191,7 @@ UNKNOWN_GROUP = ConfigGroupSpec(id="unclassified", label="未分类", reason="un
 
 #: 只读原因 / 诊断码的中文文案（响应随 ``labels`` 一并回给客户端，UI 无需硬编码）。
 LABELS: dict[str, str] = {
-    # 高影响键（A13）：徽标短文案 + 说明长文案
+    # 高影响键：徽标短文案 + 说明长文案
     "impact_high": "高影响",
     "impact_high_note": "有上界的资源旋钮：极端值会让下一次运行不可完成",
     # 只读原因
@@ -235,14 +235,14 @@ LABELS: dict[str, str] = {
         "服务启动时未开启配置写入（HTTP_CONSOLE_WRITE_ENABLED）：所有可写项在本页只读；"
         "网页无法自行开启，需在启动配置（系统环境变量 / 项目 .env / 全局 .env）里开启后重启服务"
     ),
-    # 面板级**一行短状态**（Story 50-8 R4）：上面那句长文案仍保留（写进 HTML `title` / 直接调 API
-    # 的客户端仍能读到完整解释），版面上只显示短文案；**R9 之后逐项那份重复已撤**（可写项只在头部
+    # 面板级**一行短状态**：上面那句长文案仍保留（写进 HTML `title` / 直接调 API
+    # 的客户端仍能读到完整解释），版面上只显示短文案；逐项那份重复已撤（可写项只在头部
     # 的徽标上说一次），本键改作徽标 `title` 的第一句。
     "write_channel_short": "未开启配置写入：可写项在本页只读",
-    # R9：挂在设置面板头部**项目名后面的紧凑徽标**文案。宽度是硬约束：设置列只有 ~364px，
+    # 挂在设置面板头部**项目名后面的紧凑徽标**文案。宽度是硬约束：设置列只有 ~364px，
     # 「项目设置 + 项目名徽标」已占 ~160px，再长的文案会换行 ⇒ 又变成「独占一行」。
     # 因此徽标只显示「只读」，完整原因（`write_channel_short` + `write_channel_disabled`）见 `title`。
     "write_channel_badge": "只读",
-    # 写入通道（Story 50-5）：写已生效但审计没落盘 —— 必须显式，不能让人误以为「已审计」。
+    # 写入通道：写已生效但审计没落盘 —— 必须显式，不能让人误以为「已审计」。
     "audit_not_recorded": "写入已生效，但审计记录未能落盘（服务端有 ERROR 日志；请检查 console 目录写权限）",
 }

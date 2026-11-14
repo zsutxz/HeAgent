@@ -105,7 +105,7 @@ async def _audit_story_writes(
     if after is None:
         _emit_write_audit_event(emit, step=step, story=story, skipped="git_unavailable")
         return ""
-    # 内容级增量（A40）：路径集合差集看不见「会话前已脏的集外文件被本 Story 再改」——路径
+    # 内容级增量：路径集合差集看不见「会话前已脏的集外文件被本 Story 再改」——路径
     # 在 before 与 after 里都出现，Δ 因此漏判。改按目标侧内容指纹比较后：未改动的既有脏
     # 文件不误报、被再改的既有脏文件不再隐形；指纹读不到（权限 / 中途删除）记空串，与
     # before 不同即算增量（方向 = 多判负、不漏判）。
@@ -124,7 +124,7 @@ async def _audit_story_writes(
     allowed.extend(artifact_paths)
     # tracked 差额来自 ``git diff --name-only``，报的是**仓库根**相对路径（实测
     # ``-C <repo/sub>`` 也报 ``sub/...``）；产物路径按**工作区**相对。工作区不是仓库根时
-    # 必须补成同一参照系，否则宿主自写产物被当越集写判负并撤并行授权（A43）。
+    # 必须补成同一参照系，否则宿主自写产物被当越集写判负并撤并行授权。
     # 同根部署下两者逐字相同（恒等变换，行为不变）。
     toplevel = _git_toplevel(workspace)
     allowed.extend(_repo_relpath(path, workspace, toplevel) for path in artifact_paths)
@@ -136,13 +136,13 @@ async def _audit_story_writes(
     violations = sorted(path for path in changed_delta if not _covered_by_write_set(path, allowed))
     if not violations:
         return ""
-    # 判负的两条补充语义（A41 / A42，2026-11-05）：
+    # 判负的两条补充语义：
     # ① 共享工作区**无法把写者归属到某个 Story**——兄弟成员越集写同样落进本 Story 的 Δ，
     #    消息必须如实披露「不能归因」，别让读者当成「本 Story 写的」。
-    # ② 判负原先只置 FAILED + 闩：越集文件留在工作区，而闩后串行重跑的新基线已含旧违规
+    # ② 只置 FAILED + 闩并不够：越集文件留在工作区，而闩后串行重跑的新基线已含旧违规
     #    （审计对它失明）⇒ 把越集路径与基线 revision 写进观测事件留档，并在 reason 里给出
     #    可直接执行的人工清理指引（本条只做「指引」，不做自动回滚——回滚需要会话前快照，
-    #    属 AD-20 worktree / 快照层）。
+    #    属 worktree / 快照层）。
     shared_workspace = len(execution.batch_members) > 1
     _emit_write_audit_event(
         emit,

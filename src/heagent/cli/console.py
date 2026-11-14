@@ -222,7 +222,7 @@ def _run_cli_impl(
     # 测试 patch `heagent.cli.interactive._run_single` 就打不中。
     from heagent.cli.interactive import _run_chat, _run_single  # noqa: PLC0415
 
-    # 加载配置文件驱动的自定义角色（Epic 34）：.heagent/agents/*.md + ~/.heagent/agents/*.md
+    # 加载配置文件驱动的自定义角色：.heagent/agents/*.md + ~/.heagent/agents/*.md
     load_agent_roles()
 
     # --- Sandbox warning ---
@@ -469,9 +469,9 @@ from heagent.gui.cli import gui_cmd  # noqa: E402
 
 main.add_command(gui_cmd)
 
-# HTTP 网页入口子命令（Epic 49 Story 49-1）：只有显式调用该命令才导入
+# HTTP 网页入口子命令：只有显式调用该命令才导入
 # 可选 HTTP 栈（`heagent[http]`）并绑定端口；普通 CLI 用法、gui、init、replay 都不监听 HTTP，
-# 也都不因缺 starlette/uvicorn 而失败。49-2 起默认 CLI 会**在同一进程内**另起 HTTP 服务，
+# 也都不因缺 starlette/uvicorn 而失败。默认 CLI 会**在同一进程内**另起 HTTP 服务，
 # 而显式 http-server 永远只起这一份（不派生子实例）。
 from heagent.cli.http import http_server_cmd  # noqa: E402
 

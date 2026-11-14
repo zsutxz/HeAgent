@@ -103,7 +103,7 @@ class SubAgent:
     ) -> None:
         # 组件依赖：缺省时回退到全局默认（与 AgentLoop 的兜底策略一致）。
         self._provider = provider
-        # 运行配置快照（Phase 1）：优先继承父 loop 传入的快照；构造期一次性解析，运行期不读全局。
+        # 运行配置快照：优先继承父 loop 传入的快照；构造期一次性解析，运行期不读全局。
         self._runtime = resolve_runtime_config(runtime_config)
         self._registry = registry or ToolRegistry.get()
         self._guard = guard or SafetyGuard(blocked_tools=list(self._runtime.safety_blocked_tools))
@@ -122,7 +122,7 @@ class SubAgent:
         self._role = role
         self._window_reset = window_reset
         self._metadata = copy.deepcopy(metadata) if metadata is not None else None
-        # 写集围栏（Epic 52 AD-17）：per-run 写路径白名单，经 run metadata 注入供
+        # 写集围栏：per-run 写路径白名单，经 run metadata 注入供
         # PolicyEngine 对 file_write/file_edit 做越集预检。键在 reserved 集中——
         # 用户 / role metadata 不可伪造或覆盖，只能经此显式参数传入。空列表等同未声明。
         self._write_allowlist = list(write_allowlist) if write_allowlist else None
@@ -236,7 +236,7 @@ class SubAgent:
         metadata["kind"] = "subagent"
         if self._role is not None:
             metadata["role"] = self._role.name
-        # 写集围栏（Epic 52 AD-17）：参数注入（reserved 已过滤同名伪造），None=未声明=现状。
+        # 写集围栏：参数注入（reserved 已过滤同名伪造），None=未声明=现状。
         if self._write_allowlist is not None:
             metadata["write_allowlist"] = list(self._write_allowlist)
         # 上下文管理：window_reset 优先（长任务跨窗口续跑）；否则走 in-place 压缩（默认）。

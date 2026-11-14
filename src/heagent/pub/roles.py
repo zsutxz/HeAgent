@@ -33,7 +33,7 @@ class RoleSpec(BaseModel):
     name: str
     # 角色系统提示词（注入为该子 Agent 的 system message）。
     system: str
-    # 允许的工具白名单；越权调用被 policy BLOCKED（D1：执行级拦截）。
+    # 允许的工具白名单；越权调用被 policy BLOCKED（执行级拦截）。
     allowed_tools: list[str] = Field(default_factory=list)
     # 显式黑名单（额外阻断）。
     blocked_tools: list[str] = Field(default_factory=list)
@@ -181,9 +181,8 @@ _SUPERVISOR_SYSTEM = """\
 # 安全立场（与 CLAUDE.md 文首一致）：dreamer 在无人监督下主动运行、联网、改持久记忆。
 # PolicyEngine 的工具白/黑名单均非真正安全边界（defense-in-depth 标记/拦截）——被污染网页内容
 # 可经 prompt injection 写入记忆库、影响后续所有会话（跨会话持久攻击面）。须 OS 级沙箱兜底。
-# ⚠ web_fetch 返回内容**已接** guard_content 启发式围栏（2026-09-15 勘误：此处曾记「当前不经
-# guard_content、端到端接入 deferred」，但 tools/builtins/web.py 早已接入、test_dream.py AC6 覆盖）
-# ——命中注入签名仅加 warning 标记后**透传、不阻断**，故 dreamer 联网结果仍属「不可信内容进上下文」。
+# ⚠ web_fetch 返回内容**已接** guard_content 启发式围栏（tools/builtins/web.py 已接入、
+# test_dream.py 覆盖）——命中注入签名仅加 warning 标记后**透传、不阻断**，故 dreamer 联网结果仍属「不可信内容进上下文」。
 # 上述均为 defense-in-depth，非真正安全边界——须 OS 级沙箱兜底。
 _DREAMER_SYSTEM = """\
 你是【做梦角色 Dreamer】。职责：在空闲时对近期会话历史与记忆库做离线巩固（去重 / 提炼 / 查证 / 归档）。
@@ -238,7 +237,7 @@ def _builtin_roles() -> list[RoleSpec]:
             system=_DREAMER_SYSTEM,
             # 白名单（最小权限）：仅 memory 维护 + web 查证；不含 file_read（session 历史由
             # DreamScheduler 预注入 prompt）、不含 shell/file_write（defense-in-depth）。
-            # fact_compact（epic-59）：语义压缩写侧唯一入口；工具自身还有 memory_compact_enabled
+            # fact_compact：语义压缩写侧唯一入口；工具自身还有 memory_compact_enabled
             # fail-closed 关，白名单放行 ≠ 开启（双层独立，本白名单只扩这一个工具面）。
             allowed_tools=[
                 "fact_add",

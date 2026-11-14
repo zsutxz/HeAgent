@@ -87,7 +87,7 @@ async def test_fail_closed_story_chain_with_approval_and_recovery(tmp_path) -> N
     assert second.status is WorkflowStatus.WAITING_USER  # 末条 story 后挂审批门
     assert seen == ["S-1", "S-2"]
 
-    # approve 放行：合并输出落 outputs，簿记延后到决策落定（51-5）
+    # approve 放行：合并输出落 outputs，簿记延后到决策落定
     approved = restored.approve()
     assert approved.status is WorkflowStatus.COMPLETED
     assert approved.outputs["step-01.md"] == "impl S-1\n\n---\n\nimpl S-2"
@@ -124,13 +124,13 @@ async def test_unknown_dependency_blocks_the_whole_chain_without_running(tmp_pat
             lambda data: {key: value for key, value in data.items() if key not in {"active_stories", "story_statuses"}},
             "legacy minimal shape",
         ),
-        # A26 / A33①：镜像字段（active_stories / artifact_refs）已从模型删除；旧盘文件携带
+        # 镜像字段（active_stories / artifact_refs）已从模型删除；旧盘文件携带
         # 陈旧镜像值恢复时必须被容忍读忽略——恢复一律派生自 active_story / outputs。
         (
             lambda data: {**data, "active_stories": ["S-STALE"], "artifact_refs": ["stale-ref"]},
             "stale derived mirrors are ignored",
         ),
-        # 52-5：Epic 52 新形态——撤销闩随 checkpoint 持久化且可回读；闩强制串行的语义由
+        # 撤销闩随 checkpoint 持久化且可回读；闩强制串行的语义由
         # test_story_parallel_scheduling::test_violation_latch_keeps_execution_on_serial_rerun 钉住。
         (lambda data: {**data, "story_parallel_revoked": True}, "revoked latch checkpoint"),
     ],
@@ -151,7 +151,7 @@ async def test_legacy_checkpoint_recovery_matrix(tmp_path, mutation, label: str)
     assert restored.done
 
 
-# ── Epic 52（Story 52-5）：并行全链样例 / 恢复矩阵新形态 / R4 并发冒烟 ─────────
+# ── 并行全链样例 / 恢复矩阵新形态 / 并发冒烟 ──────────────────────────────────
 
 
 _DISJOINT_THREE = """## E1
@@ -213,7 +213,7 @@ async def test_parallel_full_chain_host_wiring_with_git_audit(tmp_path, monkeypa
         story_id = kwargs["metadata"]["workflow_story"]
         sessions.append(story_id)
         allowlist = kwargs.get("write_allowlist")
-        assert allowlist == [story_of[story_id]]  # 围栏输入逐成员生效（52-1 联动）
+        assert allowlist == [story_of[story_id]]  # 围栏输入逐成员生效
         (tmp_path / story_of[story_id]).write_text(f"impl {story_id}\n", encoding="utf-8")
         return SimpleNamespace(success=True, output=f"impl {story_id}")
 
@@ -240,7 +240,7 @@ async def test_parallel_full_chain_host_wiring_with_git_audit(tmp_path, monkeypa
     assert sorted(sessions) == ["S-1", "S-2"]
     scheduled = [details for kind, details in events if kind == "workflow_story_batch_scheduled"]
     assert scheduled and scheduled[0]["members"] == ["S-1", "S-2"]
-    # step 事件形状（评审 D1 钉形）：批路径 = started 一条（story=批首成员）+ 收口一条
+    # step 事件形状：批路径 = started 一条（story=批首成员）+ 收口一条
     # （story 空）；审计事件只报真实信号（宿主产物噪声已被豁免集排除，此处信号 =
     # checkpoint 快照文件）。
     step_events = [(kind, details.get("story", "")) for kind, details in events if kind.startswith("workflow_step_")]
@@ -259,7 +259,7 @@ async def test_parallel_full_chain_host_wiring_with_git_audit(tmp_path, monkeypa
     assert second.status is WorkflowStatus.COMPLETED
     assert restored.done
     assert sessions.count("S-3") == 1 and sessions.count("S-1") == 1
-    # 串行收尾的 result.output 是单 story 输出（51-8 语义）；声明序合并落在步骤 outputs。
+    # 串行收尾的 result.output 是单 story 输出；声明序合并落在步骤 outputs。
     assert restored.state.outputs["step-01.md"] == "impl S-1\n\n---\n\nimpl S-2\n\n---\n\nimpl S-3"
     # 串行波的 step 事件形状：started 与 completed 都带该 story 归因（与批路径单组形状不同）。
     wave2 = [(kind, details.get("story", "")) for kind, details in events if kind.startswith("workflow_step_")][2:]

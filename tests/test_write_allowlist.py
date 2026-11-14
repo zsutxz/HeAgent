@@ -236,8 +236,8 @@ async def test_param_wins_over_metadata_forgery(tmp_path: Path, capture_loop: li
     assert capture_loop[0].metadata["write_allowlist"] == ["src"]
 
 
-# ── 端到端贯通：真实工具链真拦越集写（52-3 AC1，Epic 57-3）────────────────────
-# 此前 BLOCKED 判定（policy 单测）与宿主参数传递（52-3 断言）分段覆盖，「工具链真拦越集写」
+# ── 端到端贯通：真实工具链真拦越集写 ──────────────────────────────────────────
+# 此前 BLOCKED 判定（policy 单测）与宿主参数传递断言分段覆盖，「工具链真拦越集写」
 # 的单一贯通缺失——本节以真实注册表 handler 走 policy → executor 全链闭合该缺口。
 
 

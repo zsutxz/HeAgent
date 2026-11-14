@@ -28,7 +28,7 @@ def gui_main(
     from heagent.gui.state import GuiState
     from heagent.pub.workspace import WorkspacePaths
 
-    # Phase 1：组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
+    # 组装期一次性解析快照；engine 与两类 loop（主/cron）共用同一解析结果。
     paths = WorkspacePaths.from_root(Path.cwd())
     config = resolve_runtime_config()
 
@@ -46,9 +46,9 @@ def gui_main(
     from heagent.skills.skill_store import default_skill_roots
 
     skill_store = SkillStore(default_skill_roots(paths.root))
-    # Phase 2 C3（与 CLI 语义统一）：cron 关闭时不创建 JobStore——主 loop 的
+    # 与 CLI 语义统一：cron 关闭时不创建 JobStore——主 loop 的
     # cron_store 为 None，cron 工具不激活（此前 GUI 无条件创建，cron 关闭时工具
-    # 仍可见但无调度器驱动，属装配漂移；经用户确认统一到 CLI 语义）。
+    # 仍可见但无调度器驱动，属装配漂移）。
     job_store = JobStore(str(paths.cron_file)) if config.cron_enabled else None
     fact_store = FactStore(str(paths.memory_file))
     profile_store = ProfileStore(str(paths.profile_file))

@@ -308,7 +308,7 @@ class TestImportedPackageCredential:
         root, _ = _imported_package(tmp_path)
         lock_path = root.parent / "manifest.lock"
         payload = json.loads(lock_path.read_text(encoding="utf-8"))
-        del payload["entries"][0]["resources"]  # 2026-09-28 之前写下的 lock 就是没有这个键
+        del payload["entries"][0]["resources"]  # 此前写下的 lock 就是没有这个键
         lock_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
         with caplog.at_level("WARNING", logger="heagent.skills.skill_packages"):

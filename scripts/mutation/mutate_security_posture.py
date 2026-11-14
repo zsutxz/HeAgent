@@ -36,7 +36,7 @@ WS_BYPASS = "    ws_cli_bypass_enabled: bool = False"
 
 def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
     # 显式 UTF-8：text=True 不带 encoding 时按 locale（本机 GBK）解码子进程输出，中文（UTF-8）输出
-    # 会让解码线程死亡 ⇒ stdout=None，随后主流程拼接直接 TypeError（2026-10-29 实测事故）。
+    # 会让解码线程死亡 ⇒ stdout=None，随后主流程拼接直接 TypeError（实测事故）。
     return subprocess.run(
         args,
         cwd=ROOT,

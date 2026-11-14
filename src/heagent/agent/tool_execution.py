@@ -130,7 +130,7 @@ async def execute_tools(
     try:
         tasks = [execute_tool_call(loop, call, run_context=run_context) for call in calls]
         results = list(await asyncio.gather(*tasks, return_exceptions=True))
-        # 防 asyncio.gather 内部异常向上传播取消整批调用（P1-2 修复）：
+        # 防 asyncio.gather 内部异常向上传播取消整批调用：
         # 若 execute_tool_call 自身抛异常（如 ledger I/O 故障），把异常转成 error ToolResult，
         # 不中断同批其它工具调用。
         for i, raw in enumerate(results):
@@ -254,12 +254,12 @@ async def execute_tool_call(
         # ② 策略裁决；③ 查 handler。未知工具直接产出 error 结果，不走 executor。
         schema = loop.registry.get_schema(call.name)
         verdict = loop.engine.policy.evaluate_tool_call(call, context=run_context, schema=schema)
-        # ②.5 审批交互（Epic 29）：需审批且配置了审批处理器时，先询问再（重新）裁决。
-        # 未配置 handler 时 verdict 保持 APPROVAL_REQUIRED，走既有 executor 等同阻断路径（零回归）。
+        # ②.5 审批交互：需审批且配置了审批处理器时，先询问再（重新）裁决。
+        # 未配置 handler 时 verdict 保持 APPROVAL_REQUIRED，走既有 executor 等同阻断路径。
         if verdict.mode is ToolExecutionMode.APPROVAL_REQUIRED and loop.engine.approval_handler is not None:
             verdict = await _resolve_approval(loop, call, verdict, run_context)
         handler = loop.registry.get_handler(call.name)
-        # ②.6 PreToolUse hooks（Epic 32）：可阻断工具调用（block hook 退出码非 0 → 阻断）。
+        # ②.6 PreToolUse hooks：可阻断工具调用（block hook 退出码非 0 → 阻断）。
         hook_feedback: str | None = None
         if loop.engine.hooks is not None:
             hook_result = await loop.engine.hooks.run_pre_tool(call, run_context)
@@ -296,7 +296,7 @@ async def execute_tool_call(
                 run_context=run_context,
                 emit=loop._emit,
             )
-            # PostToolUse hooks（Epic 32）：通知，不阻断。
+            # PostToolUse hooks：通知，不阻断。
             if loop.engine.hooks is not None:
                 await loop.engine.hooks.run_post_tool(call, run_context)
 
@@ -306,7 +306,7 @@ async def execute_tool_call(
             await _record_ledger_outcome(loop, gate.cache_key, result)
         return result
     except Exception as exc:
-        # P1-2 修复：ledger acquire / policy evaluate 等非 handler 异常也转为 error ToolResult，
+        # ledger acquire / policy evaluate 等非 handler 异常也转为 error ToolResult，
         # 不向上抛导致 asyncio.gather 取消整批并发调用。
         logger.exception("Unhandled exception in execute_tool_call for %s", call.name)
         loop._emit(

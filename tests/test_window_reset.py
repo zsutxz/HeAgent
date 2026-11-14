@@ -63,7 +63,7 @@ def _final(content: str) -> ProviderResponse:
 
 
 # 摘要请求的识别标记**从共享常量派生**：此前硬编码旧 prompt 的前缀，prompt 一改
-# （P0-3 结构化四段）测试就静默走错分支，用「payload 耗尽 → 默认回复」冒充成功。
+# （结构化四段）测试就静默走错分支，用「payload 耗尽 → 默认回复」冒充成功。
 _SUMMARY_PREFIX = STRUCTURED_SUMMARY_PROMPT.split("\n", 1)[0]
 
 
@@ -413,7 +413,7 @@ async def test_cached_result_respects_policy_tightening(tmp_path) -> None:
 
 # ══════════════════════════════════════════════════════════════════════
 # 长时工具调用：在途续租 + 回写容错
-# （回归 2026-09-15：6 分半的 shell 跑超 120s 租约 → 记录被 prune 当孤儿删掉 →
+# （回归：6 分半的 shell 跑超 120s 租约 → 记录被 prune 当孤儿删掉 →
 #   complete 抛 Cannot complete non-existent key → 跑完的输出被换成一条记账报错）
 # ══════════════════════════════════════════════════════════════════════
 

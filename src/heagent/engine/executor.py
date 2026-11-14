@@ -229,7 +229,7 @@ class ToolExecutor:
         try:
             guard.check(call)
         except SafetyViolation as exc:
-            # P1-6：mode 标成 safety_blocked，以区分触发层（SafetyGuard）与策略层阻断。
+            # mode 标成 safety_blocked，以区分触发层（SafetyGuard）与策略层阻断。
             self._emit_tool_event(
                 emit,
                 "tool_call_blocked",
@@ -323,7 +323,7 @@ class ToolExecutor:
             _started = time.perf_counter()  # 同上：先绑定，except 分支无条件引用
             self._emit_tool_event(emit, "tool_call_started", call, run_context, {"mode": sandbox_mode, **sandbox_facts})
             # 子类 override 兼容：库消费者旧签名 execute_in_sandbox(*, call, profile, handler)
-            # 不含 run_context——签名探测后按需传参，防 TypeError（FR-1 review patch 5）。
+            # 不含 run_context——签名探测后按需传参，防 TypeError。
             if "run_context" in inspect.signature(self.execute_in_sandbox).parameters:
                 result = await self.execute_in_sandbox(
                     call=call,

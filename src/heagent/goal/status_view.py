@@ -95,7 +95,7 @@ def project_status_view(
         active_step_name=step_name,
         active_epic=state.active_epic,
         active_story=state.active_story,
-        # 串行化后「复数视图」至多单元素：由 active_story 现场派生（A26，字段已删除）。
+        # 串行化后「复数视图」至多单元素：由 active_story 现场派生（字段已删除）。
         active_stories=[state.active_story] if state.active_story else [],
         completed_steps=sorted(state.completed_steps),
         completed_stories=list(state.completed_stories),
@@ -121,7 +121,7 @@ def _recent_failures(state: WorkflowRunnerState) -> list[str]:
 def _recommended_commands(state: WorkflowRunnerState) -> list[str]:
     """Deterministic next actions for the current status, never a free-text suggestion."""
     if state.status is WorkflowStatus.WAITING_USER and state.awaiting_approval:
-        # 审批门挂起（Story 51-5）：只有显式人工决策能推进，resume 不在其列（不能隐式批准）。
+        # 审批门挂起：只有显式人工决策能推进，resume 不在其列（不能隐式批准）。
         return ["/goal approve", "/goal reject <原因>", "/goal amend <补充>", "/goal decisions"]
     match state.status:
         case WorkflowStatus.WAITING_USER:

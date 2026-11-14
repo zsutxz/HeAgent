@@ -48,7 +48,7 @@ class SkillWorkflowError(SkillPackageResourceError):
 
 # ``validation:`` 里可声明的证据子句（引擎词汇，与 ``section:`` 同处一个字符串、同一分隔符）。
 # 命名质量门 ``gate:`` 只声明名字；**名字必须在宿主注册表内**（goal/quality_gates 的
-# QUALITY_GATES，Story 51-4）：workflow 只能引用宿主门、不能发明或削弱，写出未注册名字
+# QUALITY_GATES）：workflow 只能引用宿主门、不能发明或削弱，写出未注册名字
 # = 加载期 fail-loud。
 _EVIDENCE_CLAUSE_NAMES = ("section", "command", "artifact", "git", "gate")
 # 子句形态：段首的单词 + 冒号。多词前缀（``Given a user: …``）不是子句，仍是普通文本门禁。
@@ -307,7 +307,7 @@ def read_workflow(package: SkillPackage, resource: str = "workflow.md") -> Workf
     status_fields = _declared_members(package, values, resource, key="status_fields", allowed=STATUS_FIELDS)
     return WorkflowResource(
         name=_value_text(values, "name", "id") or package.skill_id,
-        # ``revision``（Story 51-6）：缺省不报错、落空串 = 由包内容派生（workflow_revision）；
+        # ``revision``：缺省不报错、落空串 = 由包内容派生（workflow_revision）；
         # 老包不声明零行为变化。声明值原样保留（str(value).strip()，不做语义解释）。
         revision=_value_text(values, "revision"),
         instructions=(body.split("\n## Step ", 1)[0] if inline else body).strip(),
@@ -661,7 +661,7 @@ def _parallel_limit(package: SkillPackage, values: dict[str, Any], resource: str
     """Parse the bounded Step 07 concurrency setting without coercion."""
     limit = _bounded_int(package, values, resource, key="max_parallel_stories", default=1, maximum=5)
     if limit > 1:
-        # 声明门控并行（Epic 52 AD-16/17）：>1 只是授权门的第一个条件，实际并发由批派生的
+        # 声明门控并行：>1 只是授权门的第一个条件，实际并发由批派生的
         # 七条件门控（write_set / parallel_group / depends_on / 撤销闩 / 回调契约等）——
         # 声明不等于并发度，这个语义差异必须显性告知模板作者，但不构成警告。
         LOGGER.info(
@@ -703,7 +703,7 @@ def _parse_resource_frontmatter(text: str) -> tuple[dict[str, Any], str]:
     return values, text[end:]
 
 
-# ── story 列表解析（A31② 自 engine/workflow_runner 迁入：BMad S-1/E1 形状解析属声明域）──
+# ── story 列表解析（BMad S-1/E1 形状解析属声明域）──
 _STORY_ID = re.compile(r"^(?:story|s)[-_ ]?(\d+)$", re.IGNORECASE)
 _STORY_HEADING = re.compile(
     r"^#{1,6}\s+(?P<id>(?:story|s)[-_ ]?\d+)\s*[:：\-—]?\s*(?P<summary>.*)$",

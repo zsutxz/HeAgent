@@ -48,12 +48,12 @@ class FirejailBackend:
         self._firejail_path = firejail_path
         self._extra_args = tuple(extra_args)
         self._workspace_root = workspace_root
-        # P0-2：False 时在 argv 中插入 ``--net=none``（禁止子进程出站）。
+        # False 时在 argv 中插入 ``--net=none``（禁止子进程出站）。
         self._network = network
         self._profiles: dict[str, tuple[str, ...]] = {}
         if profiles:
             self._profiles = {k: tuple(v) for k, v in profiles.items()}
-        # 资源限额（2026-09-17 硬化批，2026-09-18 补进程数，0=关闭）：映射
+        # 资源限额（0=关闭）：映射
         # --rlimit-as / --rlimit-cpu / --rlimit-nproc。限额触发 → 子进程被终止 → 非零
         # 退出码经正常结果回传（显性失败，不静默截断）。
         self._memory_limit_mb = memory_limit_mb

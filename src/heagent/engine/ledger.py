@@ -138,7 +138,7 @@ class ExecutionLedger:
         # 同 key（如 LLM 重发 dup tool_call.id 经 gather）的 TOCTOU 互斥失效。
         # 仅进程内有效；跨进程共享同一 ledger 目录须 OS 级文件锁兜底。
         self._lock = asyncio.Lock()
-        # 跨进程文件锁开关（经 EngineContainer.enable_file_locks 注入，V2）。
+        # 跨进程文件锁开关（经 EngineContainer.enable_file_locks 注入）。
         self._enable_locks: bool = False
 
     # ── 公开 API ─────────────────────────────────────────────────
@@ -385,7 +385,7 @@ class ExecutionLedger:
         return deleted
 
 
-# ── 在途续租 + audit-only 记账（engine 自有的配对原语，A28）─────────────────
+# ── 在途续租 + audit-only 记账（engine 自有的配对原语）─────────────────
 
 
 async def renew_lease_while_active(

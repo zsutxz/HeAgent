@@ -71,7 +71,7 @@ class ProviderChain:
         NON_TRANSIENT（400/422 等客户端错误）立即抛出——切换 Provider 不会让坏请求变好，
         回退只会浪费配额并掩盖真实问题。回退链抛出的异常统一包装为 ProviderError。
         """
-        # 与 stream() 的 P1-3 同口径：锁内快照索引与 provider 列表，网络 I/O 不持锁——
+        # 与 stream() 同口径：锁内快照索引与 provider 列表，网络 I/O 不持锁——
         # 否则并发 send 被整条回退循环串行化。
         async with self._lock:
             start = self._current_index  # 记录起始索引，失败后恢复

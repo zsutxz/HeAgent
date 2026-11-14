@@ -357,7 +357,7 @@ async def test_real_console_rejects_non_loopback_project_registration() -> None:
     assert response.json()["error"]["code"] == HttpErrorCode.LOOPBACK_REQUIRED
 
 
-# ── PUT /api/projects/{id}/config（Story 50-5 的传输契约） ──
+# ── PUT /api/projects/{id}/config（传输契约） ──
 
 
 class FakeWriteConsole:

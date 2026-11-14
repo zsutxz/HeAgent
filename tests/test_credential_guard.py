@@ -37,7 +37,7 @@ def _workspace(tmp_path: Path) -> Generator[None, None, None]:
     reset_workspace_root()
 
 
-# ── FR-F1 / FR-F2 / FR-F4：deny 规则纯函数 ──────────────────────────
+# ── deny 规则纯函数 ──────────────────────────
 
 
 class TestDenyRuleBuilders:
@@ -96,7 +96,7 @@ class TestDenyRuleBuilders:
         }
 
 
-# ── FR-F1 / FR-F2 / FR-F4：check 函数 ──────────────────────────────
+# ── check 函数 ──────────────────────────────
 
 
 class TestCheckWriteDenied:
@@ -131,7 +131,7 @@ class TestCheckReadDenied:
         assert check_read_denied(str(tmp_path / "notes.txt")) is None
 
 
-# ── FR-F3：env scrubbing ──────────────────────────────────────────
+# ── env scrubbing ──────────────────────────────────────────
 
 
 class TestScrubSensitiveEnv:
@@ -196,7 +196,7 @@ class TestScrubSensitiveEnv:
         assert "OPENAI_API_KEY" not in result
 
 
-# ── FR-F1 / FR-F2：file handler 守卫 ───────────────────────────────
+# ── file handler 守卫 ───────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -238,7 +238,7 @@ class TestFileHandlerDeny:
         assert result == "[skill]\nname = 'brainstorming'\n"
 
 
-# ── FR-F1 / FR-F2：policy 预检 ─────────────────────────────────────
+# ── policy 预检 ─────────────────────────────────────
 
 
 class TestPolicyDenyPrecheck:
@@ -271,7 +271,7 @@ class TestPolicyDenyPrecheck:
         assert "secret-bearing" in verdict.reason
 
 
-# ── SafetyGuard 凭证路径破坏性命令拦截（Epic 36 延伸）────────────────
+# ── SafetyGuard 凭证路径破坏性命令拦截────────────────
 
 
 def _shell_call(command: str) -> ToolCall:
@@ -319,7 +319,7 @@ class TestCredentialDestructiveCommand:
     @pytest.mark.parametrize(
         "cmd",
         [
-            # 回归 2026-11-02：2>/dev/null 的 `>` 此前会跨 ; | && 扫到后面的凭据路径（假阳性）
+            # 2>/dev/null 的 `>` 此前会跨 ; | && 扫到后面的凭据路径（假阳性）
             "ls -la ~/ 2>/dev/null; ls -la ~/.git-credentials 2>&1",
             "ls -la ~/ 2>/dev/null && ls -la ~/.netrc",
             "cat ~/.git-credentials 2>/dev/null | head -5",
@@ -345,7 +345,7 @@ class TestCredentialDestructiveCommand:
         guard.check(_shell_call(cmd))  # 不应抛异常
 
 
-# ── 2026-09-17：项目级 deny 规则配置入口（.heagent/path_deny.json）──────────
+# ── 项目级 deny 规则配置入口（.heagent/path_deny.json）──────────
 
 
 class TestUserDenyRules:

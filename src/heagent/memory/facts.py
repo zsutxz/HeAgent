@@ -65,7 +65,7 @@ class FactStore:
                 raw = _strip_bom(self._path.read_text(encoding="utf-8"))
             except UnicodeDecodeError as exc:
                 # `UnicodeDecodeError` 文本**不含路径**，直接冒到工具层只会得到无法定位的
-                # codec 报错（Z-D12 冻结边界要求「错误可定位到该文件」），故点名后再抛。
+                # codec 报错（冻结边界要求「错误可定位到该文件」），故点名后再抛。
                 raise ValueError(f"MEMORY.md is not valid UTF-8 ({self._path}): {exc}") from exc
         else:
             raw = ""

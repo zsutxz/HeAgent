@@ -209,7 +209,7 @@ class TestBuiltinRegistration:
         assert "content_search" in names
 
 
-# --- Story 16-4: /mcp-prompt slash command tests ---
+# --- /mcp-prompt slash command tests ---
 
 
 class _MockMCPManager:

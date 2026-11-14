@@ -87,7 +87,7 @@ async def test_uncontended_goal_runs_and_lock_file_persists_harmlessly(
     assert len(step_spy) == 2  # 残留的 0 字节锁文件不阻塞下一次推进
 
 
-# ---- 内核自锁语义（台账 A32②）：重入与串行化 ------------------------------------
+# ---- 内核自锁语义：重入与串行化 ------------------------------------
 
 
 @pytest.mark.asyncio

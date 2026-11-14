@@ -36,11 +36,11 @@ from heagent.pub.types import StoryExecutionContext, StorySpec
 
 logger = logging.getLogger(__name__)
 
-#: 状态 reason / checkpoint next_action 的字符上限（A37）：只限制落盘与展示体积，
+#: 状态 reason / checkpoint next_action 的字符上限：只限制落盘与展示体积，
 #: 语义是**截断不抛**——截断不得改变控制流，超长异常文本也不该把 checkpoint 撑爆。
 _MAX_REASON_CHARS = 2000
 
-#: 视为「用户取消」的异常（A39，2026-10-23 裁定）：一律经 CANCELLED 落 PENDING
+#: 视为「用户取消」的异常：一律经 CANCELLED 落 PENDING
 #: （可恢复，resume 即重跑）。KeyboardInterrupt / SystemExit 与 CancelledError 同路——
 #: Ctrl-C 的语义是「先停下、稍后重来」，落 FAILED 会让重启后必须显式 resume 才能继续。
 _CANCEL_EXCEPTIONS: tuple[type[BaseException], ...] = (
@@ -139,11 +139,11 @@ class WorkflowRunnerState(BaseModel):
     story_index: int = Field(default=0, ge=0)
     completed_stories: list[str] = Field(default_factory=list)
     story_outputs: dict[str, Any] = Field(default_factory=dict)
-    # `active_stories` 已派生化删除（A26）：串行化后它恒等于 `[active_story]`（无活动 story
+    # `active_stories` 已派生化删除：串行化后它恒等于 `[active_story]`（无活动 story
     # 时空表），每个写点都只是镜像同步税。消费方（checkpoint / status_view）一律由
     # ``active_story`` 现场派生。
     story_statuses: dict[str, str] = Field(default_factory=dict)
-    # 步骤级审批门（Story 51-5）：True = 活动步做完工作、挂起等一个人工决策（approve /
+    # 步骤级审批门：True = 活动步做完工作、挂起等一个人工决策（approve /
     # reject / amend）；普通 resume 在此状态被拒绝，不能隐式顶替批准。
     awaiting_approval: bool = False
     # 审批门挂起期间的步骤产物：approve 落定完成簿记时的输出来源（步骤此刻未标记完成，
@@ -153,20 +153,20 @@ class WorkflowRunnerState(BaseModel):
     # reject / amend 重跑会把同一 (step, active, status) 位置再次挂门，而内容合法地不同——
     # 缺这个区分位会让第二次挂门撞上第一次的 checkpoint conflict。
     approval_round: int = Field(default=0, ge=0)
-    # 脚本步骤声明的后续声明步骤计划（Story 51-7）：FIFO，由 run_declared_step 消费。持久化
+    # 脚本步骤声明的后续声明步骤计划：FIFO，由 run_declared_step 消费。持久化
     # 进 checkpoint，使「条件选择了哪些后续步骤」在进程重启后仍可确定恢复。
     requested_steps: list[str] = Field(default_factory=list)
-    # 写集违规撤销闩（Epic 52 AD-18）：宿主审计判负（write_violation）后置 True，**单向不可
+    # 写集违规撤销闩：宿主审计判负（write_violation）后置 True，**单向不可
     # 复位**——撤销的是并发授权（此后批派生恒串行），不撤销围栏（串行重跑仍带 allowlist）。
     # 随 checkpoint 持久化，重启后仍生效；恢复只能由人改 checkpoint 或开新 goal。
     story_parallel_revoked: bool = False
-    # 驱动最近一次状态转换的事件（A38）：取值 = `WorkflowEvent`。与 ``status`` 由**同一个**
+    # 驱动最近一次状态转换的事件：取值 = `WorkflowEvent`。与 ``status`` 由**同一个**
     # event 同源写入（唯一写点是 ``_transition_fields``），审计因此能区分「被取消」「执行器
     # 失败」「人工拒绝」这些最终都表现为非 RUNNING 的转换。
     last_event: str = ""
-    # 发那个事件的**理由**（S-1）：自由文本、经 ``_bounded_reason`` 收敛，与 ``last_event`` 正交——
+    # 发那个事件的**理由**：自由文本、经 ``_bounded_reason`` 收敛，与 ``last_event`` 正交——
     # 后者答「经哪个事件」，本字段答「为什么发它」，``next_action`` 答「下一步做什么」。
-    # 可选字段带默认值，旧 checkpoint 缺它读作空串（AD-2 修订版允许追加可选字段）。
+    # 可选字段带默认值，旧 checkpoint 缺它读作空串（只追加口径允许追加可选字段）。
     transition_reason: str = ""
 
 
@@ -177,10 +177,10 @@ class WorkflowStepResult(BaseModel):
     output: Any = None
     evidence: list[str] = Field(default_factory=list)
     reason: str = ""
-    #: 该步**声明**的后续声明步骤名（Story 51-7 的 A1 端口入口；缺省空 = 老回调零行为变化）。
+    #: 该步**声明**的后续声明步骤名（缺省空 = 老回调零行为变化）。
     #: 只有 ``COMPLETED`` 的结果才会被采纳——失败 / 阻断的步骤不能把计划交给 Runner。
     requested_steps: list[str] = Field(default_factory=list)
-    #: True = 宿主审计判负：该 Story 实际写越声明写集（Epic 52 AD-18）。Runner 据此置撤销闩。
+    #: True = 宿主审计判负：该 Story 实际写越声明写集。Runner 据此置撤销闩。
     write_violation: bool = False
 
 
@@ -201,7 +201,7 @@ class WorkflowRunResult(BaseModel):
     #: True = 本次调用**没有执行任何步骤**（:meth:`WorkflowRunner.run_declared_step` 的幂等跳过）。
     #: 调用方据此区分「真的推进了」与「这个请求已被满足过」，不去猜 ``reason`` 文案。
     skipped: bool = False
-    #: 本次调用实际执行的 story id（按声明序；非 story 步骤为空）。供宿主/视图按批呈现（Epic 52）。
+    #: 本次调用实际执行的 story id（按声明序；非 story 步骤为空）。供宿主/视图按批呈现。
     executed_stories: list[str] = Field(default_factory=list)
 
 
@@ -303,7 +303,7 @@ class WorkflowRunner:
             status=restored_status,
             completed_steps=list(checkpoint.completed_steps),
             # `outputs` 是产物键表的唯一载体；旧字段的 `{reference: None}` 兜底在「artifact_refs
-            # 恒等于 list(outputs)」不变量下不可达且等值（两边同空），随镜像派生化一并删除（A33①）。
+            # 恒等于 list(outputs)」不变量下不可达且等值（两边同空），随镜像派生化一并删除。
             outputs=dict(checkpoint.outputs),
             acceptance_evidence=list(checkpoint.acceptance_evidence),
             reason=_bounded_reason(checkpoint.next_action),
@@ -388,10 +388,10 @@ class WorkflowRunner:
                     "active_epic": active_story.epic,
                 }
             )
-            # 声明门控并行（Epic 52 AD-17/AD-18）：上限 >1 且回调实现执行上下文契约才构造
+            # 声明门控并行：上限 >1 且回调实现执行上下文契约才构造
             # execution；撤销闩只撤销**批派生**（batch 置空），不撤销 execution——闩后串行
-            # 重跑仍带围栏输入与审计（AD-18 明文「闩撤销的是并发授权，不撤销围栏」）。
-            # 未声明 max_parallel_stories>1 或老回调时 execution 为 None——串行路径与 51-8
+            # 重跑仍带围栏输入与审计（闩撤销的是并发授权，不撤销围栏）。
+            # 未声明 max_parallel_stories>1 或老回调时 execution 为 None——串行路径与既有串行语义
             # 逐字节一致（派生结果长度 1 时同样走串行分支，见下方 ``len(batch) > 1`` 分叉）。
             if step.max_parallel_stories > 1 and self._accepts_execution(callback):
                 batch = [] if self.state.story_parallel_revoked else self._parallel_batch(step, story_specs)
@@ -412,7 +412,7 @@ class WorkflowRunner:
                     raise TypeError("step callback must return WorkflowStepResult")
         except BaseException as exc:
             # 批的取消窗口覆盖整段并发执行：步骤级取消传播取消整批，未落账成员如实记
-            # cancelled（不谎报 failed，AD-19）；串行成员维持 51-8 语义（取消/失败二分）。
+            # cancelled（不谎报 failed）；串行成员维持既有语义（取消/失败二分）。
             transition_event = self._absorb_step_exception(exc)
             cancelled = transition_event is WorkflowEvent.CANCELLED
             if active_story is not None:
@@ -421,8 +421,8 @@ class WorkflowRunner:
                         self._record_story_status(member.id, WorkflowEvent.CANCELLED.value)
                 else:
                     # 取消（可恢复，步骤落 PENDING）与失败（FAILED）的 story 状态如实区分，
-                    # 不与步骤状态表矛盾（评审 LOW）；取消没有独立状态值，用事件词汇表。
-                    # 判定口径与 _absorb_step_exception 同源（A39）：KI / SystemExit 也算取消。
+                    # 不与步骤状态表矛盾；取消没有独立状态值，用事件词汇表。
+                    # 判定口径与 _absorb_step_exception 同源：KI / SystemExit 也算取消。
                     story_status = WorkflowEvent.CANCELLED.value if cancelled else WorkflowStatus.FAILED.value
                     self._record_story_status(active_story.id, story_status)
             _emit_step_event(
@@ -458,7 +458,7 @@ class WorkflowRunner:
                 self._validate_output(step, result.output)
             except WorkflowGateError as exc:
                 return await self._stop(WorkflowStatus.BLOCKED, step, str(exc), [], checkpoint)
-            # 脚本声明的后续步骤计划（Story 51-7）：累计计划不得超过本 workflow 的声明步骤数。
+            # 脚本声明的后续步骤计划：累计计划不得超过本 workflow 的声明步骤数。
             if len(self.state.requested_steps) + len(result.requested_steps) > len(self.workflow.steps):
                 return await self._refuse_oversized_plan(step, len(result.requested_steps), "step", checkpoint)
             executed_story_id = active_story.id if active_story is not None else None
@@ -480,7 +480,7 @@ class WorkflowRunner:
                 "reason": _bounded_reason(result.reason),
             }
             if result.write_violation:
-                # 串行-with-context 的审计判负同样撤销并发授权（AD-18 Goal 级语义；
+                # 串行-with-context 的审计判负同样撤销并发授权（Goal 级语义；
                 # 批路径在 _settle_story_batch 置闩，此处是串行收口的对称写点）。
                 update["story_parallel_revoked"] = True
             self.state = self.state.model_copy(update=update)
@@ -683,7 +683,7 @@ class WorkflowRunner:
             elif first_incomplete is None:
                 first_incomplete = outcome
         if violation:
-            # 闩置位先于一切早退（AD-18 撤销即时性）：follow-up 超限等 BLOCK 不得把已检出
+            # 闩置位先于一切早退：follow-up 超限等 BLOCK 不得把已检出
             # 的 write_violation 丢弃一轮。
             self.state = self.state.model_copy(update={"story_parallel_revoked": True})
         if len(self.state.requested_steps) + len(follow_ups) > len(self.workflow.steps):
@@ -1113,7 +1113,7 @@ class WorkflowRunner:
     def _step_advance_update(self, step: WorkflowStepResource, output: Any, *, reason: str = "") -> dict[str, Any]:
         # 完成簿记按**本步**的声明序号推进（``step.index`` 1-based），不按 ``state.active_step``：
         # 两者在「按声明顺序线性推进」时恒等；但 :meth:`run_declared_step` 会让活动步跳到脚本
-        # 指名的后续步骤，此时只有 step.index 能给出正确的下一位置（Story 51-7 A1）。
+        # 指名的后续步骤，此时只有 step.index 能给出正确的下一位置。
         completed = [*self.state.completed_steps, step.index - 1]
         final = step.index >= len(self.workflow.steps)
         event = (
@@ -1139,14 +1139,14 @@ class WorkflowRunner:
         current = story_specs[self.state.story_index]
         completed_stories = [*self.state.completed_stories, current.id]
         story_outputs = {**self.state.story_outputs, current.id: output}
-        # 有洞恢复（Epic 52 批内部分失败后串行重跑）：越过已完成成员，不把活动位定到已完成
+        # 有洞恢复（批内部分失败后串行重跑）：越过已完成成员，不把活动位定到已完成
         # Story 上（否则会重复执行并制造重复 completed id）。无洞历史下循环零迭代，
-        # 行为与 51-8 逐字节一致。
+        # 行为与既有串行路径逐字节一致。
         next_index = self.state.story_index + 1
         while next_index < len(story_specs) and story_specs[next_index].id in completed_stories:
             next_index += 1
         if next_index >= len(story_specs) or all(spec.id in completed_stories for spec in story_specs):
-            # 合并序 = 声明序（AD-19，同 _settle_story_batch）：有洞历史下插入序是完成序。
+            # 合并序 = 声明序（同 _settle_story_batch）：有洞历史下插入序是完成序。
             combined = _combine_story_outputs(story_specs, story_outputs)
             if step.approval.required:
                 # 挂门含 story 清场（_approval_gate_update 单点）：重跑从第一条 story 开始。
@@ -1254,7 +1254,7 @@ class WorkflowRunner:
         aggregate_status = self.state.status
         if aggregate_status is WorkflowStatus.COMPLETED and self.phase is not WorkflowPhase.DONE:
             aggregate_status = WorkflowStatus.RUNNING
-        # `active_stories` / `artifact_refs` 已派生化删除（A26 / A33①）：前者恒等于
+        # `active_stories` / `artifact_refs` 已派生化删除：前者恒等于
         # `[active_story]`，后者恒等于 `outputs` 键表——两处都是纯镜像，写点同步即税。
         workflow_state = GoalWorkflowState(
             goal_id=self.goal_id,
@@ -1283,9 +1283,9 @@ class WorkflowRunner:
         """
         story_part = ""
         if self._is_story_step(step):
-            # 批次机制（max_parallel_stories>1 的 `-parallel-` 后缀）已随 Story 51-8 串行化删除
+            # 批次机制（max_parallel_stories>1 的 `-parallel-` 后缀）已随串行化删除
             # ——恢复路径从不按重建 id 找快照（restore_runner 按内容位匹配、load_latest_unfinished
-            # 按创建序扫描），旧格式文件天然容忍读，id 格式变更因此兼容（A25）。
+            # 按创建序扫描），旧格式文件天然容忍读，id 格式变更因此兼容。
             story_part = f"-story-{self.state.story_index}"
             # Story ids are normalized upstream; sanitize defensively so a
             # hand-built spec can never produce a path-unsafe checkpoint id.
@@ -1296,7 +1296,7 @@ class WorkflowRunner:
         # 发生过审批门（approval_round > 0，含 reject / amend 后的非挂起持久化）就带轮次后缀
         # ——第二轮的 blocked 与第一轮的 blocked 内容合法地不同，缺后缀会让 store 以
         # 「同 id 不同内容」拒绝（实证死锁：/goal new → reject → resume 重挂门 → 二次 reject
-        # 报 checkpoint conflict，Story 51-5 审查 #1）。
+        # 报 checkpoint conflict）。
         gate_part = f"-gate-{self.state.approval_round}" if self.state.approval_round else ""
         return (
             f"{self.goal_id}-{self.run_id}-step-{step.index}{story_part}"

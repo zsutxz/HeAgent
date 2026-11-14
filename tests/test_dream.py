@@ -417,7 +417,7 @@ async def test_idle_base_updates_on_run_completed() -> None:
     assert scheduler.last_active_ts >= old_ts, "run_completed should refresh last_active_ts"
 
 
-# ── 审查 patch 回归测试：fail-fast cron + 端到端 start/tick/stop + 失败 idle 重置 ──
+# ── fail-fast cron + 端到端 start/tick/stop + 失败 idle 重置 ──
 
 
 def test_malformed_cron_raises_at_construction() -> None:
@@ -616,7 +616,7 @@ async def test_session_preload_runs_off_the_event_loop(tmp_path) -> None:  # noq
     assert all(thread != loop_thread for thread in store.threads), store.threads
 
 
-# ── epic-59 59-2：语义压缩接线 ───────────────────────────────────────────────
+# ── 语义压缩接线 ───────────────────────────────────────────────
 
 
 def _scheduler_with(settings: Settings, runner: Callable[[str], Awaitable[DreamResult]]) -> DreamScheduler:
