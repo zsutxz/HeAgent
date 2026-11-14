@@ -49,8 +49,6 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
       web/（静态资源，零 heagent 导入，契约测试钉死）
 ```
 
-核心模块：`agent/`（AgentLoop 主循环+middleware+子 Agent）、`providers/`（LLM provider+智能路由+容错）、`tools/`（@tool 注册+SafetyGuard+path_safety+沙箱后端）、`engine/`（PolicyEngine+ToolExecutor+store/ledger/observability）、`pub/`（异常/类型/日志/持久化）、`config/`（Settings）、`context/`（压缩/会话持久化）、`network/`（HTTP+SSE+WS 传输）。
-
 **工具执行链固定**：`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler。
 
 ## 硬约束
