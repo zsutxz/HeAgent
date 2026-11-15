@@ -14,3 +14,4 @@
 - source_plan: `_bmad-output/initiative-heagent/tickets/epic-62-代码架构重构/tickets/story-62.1-network-http-server-py-plan.md`
   summary: 治理：/loop v7 重写（70f1484）自成一体的第二改动集，无票树 coverage。
   evidence: 62.1 review 发现 F7——initiative 仅 62.1+catalog 两 plan，loop 文件不在任何 plan，违背「新工作唯一入口 = 票树」；非代码缺陷，呈报用户裁定补票或追认（2026-11-15 62.1 review 提出）。
+  closure: 2026-11-15 用户裁定**追认闭合**——不补票（工作已落地且并行会话收尾中，事后簿记无调度价值；/loop 系 BMAD v7 工具链对齐，8 epic 无自然归属），票树规则只约束今后新工作。
