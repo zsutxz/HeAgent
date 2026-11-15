@@ -1,68 +1,43 @@
----
-id: story-s-<n>-<story-slug>
-type: story
-goal_id: goal-<goal-slug>
-epic_id: epic-<epic-slug>
-status: ready-for-dev
-title: <Story 标题>
----
-# <Story 标题>
+# Story 产物指引（BMAD v7）
 
-> goal 运行时契约：story 的真源是 `_he-output/works/<goal-id>/epics.md` 里的 `### S-N` 条目；
-> 该文件按 Epic 分段（`## E<N> — <标题>`），同一 Epic 的 story 编号连续。Step 07 逐条**串行**实现时
-> 把本模板落到 `step-07-implement-story/epic-<eN>/s-<n>/story.md`，写出后即冻结（只有人能改验收
-> 标准）。
+> 本文件是**产物指引**，不是要手抄的模板。v7 里一条 story 只有两件东西，路径都由脚本给出，
+> 一律不要自造：
+>
+> 1. **entry**：`{initiative}/tickets/epic-<slug>/tickets/tickets.toml` 的 `[[entry]]` 表。Step 06
+>    写入，字段与取值见 `.claude/skills/bmad-agent-po/assets/tickets-template.toml`。
+> 2. **plan**：`tickets.py find <ref>` 返回的 `plan` 绝对路径，由 `.claude/skills/bmad-build`
+>    按同包 `plan-template.md` 写出。frontmatter 的 `ticket` 必须等于 entry 的 `id`，`status`
+>    是 story 状态的**唯一真源**。
+>
+> 不要再产出 v6 的 `story.md` / `implementation.md` / `test-report.md` / `verify-report.md`
+> 四件套；需要附加证据时落 `_he-output/works/<goal-id>/step-07-implement-story/<ref>/notes.md`。
+> 只有评审、细化或发布需要 leaf 文件时才用 `tickets.py pull <ref>` 生成，不手写。
 
-## User Story
+## entry 必填字段
 
-作为 <角色>，我希望 <能力>，从而 <用户价值>。
+- `type`：`story` | `spike` | `bug`
+- `id`：epic 内从 1 起连续，永不复用
+- `title`
+- `description`：完成时是什么状态
+- `verify`：一条可跑或可观察的检查
+- `covers`：所属 epic 的 `R<n>`
+- `after`：仅前置（`<epic id>.<entry id>` 或 `epic-<slug>`），顺序靠表序
+- `hitl`：是否需要人操作
+- `risk`：`low` | `medium` | `high`
+- 可选：`plan_checkpoint` / `done_checkpoint` / `refine` / `estimate` / `references` / `notes`
+- 待裁决问题：`unknown`（一句话用户问题）——构建前必须清零
 
-## 运行时映射
+## plan 必须回答
 
-- 父 Epic：E<n>
-- Sprint：Sprint <n>
-- 优先级：P0 | P1 | P2
-- 依赖：S-<n> | none
+- **Intent**：问题与做法（`<frozen-after-approval>` 段，批准后只有人能改）
+- **Boundaries & Constraints**：`Always` / `Never` 两层
+- **Code Map**：相关文件、符号/行锚点、可复用点、只读约束
+- **Tasks & Acceptance**：可执行任务清单 + 可判定的验收标准
+- **Verification**：确切命令，宿主亲自跑并把结果写进 `progress.md`
+- **Implementation Notes / Review Triage Log / Plan Change Log**：随实现追加
 
-> 工作流严格串行：依赖只用于核对顺序合法（依赖必须由编号更小的 story 交付），不授权并行。
+## 状态推进
 
-`父 Epic` 必须与 `epics.md` 中包围该 Story 的 `## E<n> — <标题>` 段一致。`epics.md` 的
-`### S-n <标题>` 是 Step 07 的唯一执行清单；本文件是该清单冻结后的层级产物与验收快照。
-
-## Acceptance Criteria
-
-- Given <上下文>, when <动作>, then <可观察结果>。
-
-## Tasks
-
-- [ ] <含具体文件或符号的实现任务>
-
-## Code Map
-
-<相关文件、符号或行锚点、可复用代码与只读约束>
-
-## Boundaries
-
-- **Always**：<必须保持的边界>
-- **Ask First**：<修改前必须由人决定的边界>
-- **Never**：<禁止触碰的边界>
-
-## I/O Matrix
-
-仅在存在有意义的输入或状态场景时保留本节；否则删除整个 `## I/O Matrix`，禁止填写 N/A。
-
-| 场景 | 输入或状态 | 期望输出或行为 | 错误处理 |
-| --- | --- | --- | --- |
-| <场景> | <输入或状态> | <可观察结果> | <失败行为> |
-
-## Verification
-
-<确切测试命令或人工验证条件>
-
-## Sizing
-
-<为什么该 Story 能装入一次实现、测试和验证会话>
-
-## Definition of Done
-
-- <实现、测试、验收证据和残余风险检查均已完成>
+只用 `tickets.py mark <ref> <status>`（`draft` → `ready-for-dev` → `in-progress` → `in-review` →
+`built` → `done`，另有 `blocked` / `dropped`）。build 只到 `built`；`done` 只在用户 `approve`
+之后写。

@@ -1,42 +1,55 @@
 ---
-id: epic-<epic-slug>
 type: epic
-goal_id: goal-<goal-slug>
-status: planning
+parent: initiative-<slug>
 title: <Epic 标题>
+covers: [R1, R2]
+after: []
+refined: false
+sources: []
+companions: []
+risk: low
 ---
 # <Epic 标题>
 
-> goal 层级产物模板：Epic 层级的提案/记录快照。运行时 story 清单唯一写入
-> `_he-output/works/<goal-id>/epics.md`（`## E<N> — <标题>` 分段 + `### S-N <标题>` 条目），
-> 执行顺序由 `S-N` 编号决定，不在此维护另一套状态。
+> v7 epic 文件模板。路径固定 `{initiative}/tickets/epic-<slug>/epic-<slug>.md`，与本文件夹的
+> `tickets/tickets.toml` 成对。Step 04 只写「薄」版本：`Description`、`Outcome`、`Boundaries`、
+> 已知的 `Done when`、`covers`、`after`，并置 `refined: false`——**没有 `## Requirements`**。
+> Step 06 细化时补 `## Requirements`（每条一个 `R<n>`，引用父级 id）并置 `refined: true`。
+> story 清单**不在这里**：在本文件夹的 `tickets/tickets.toml`（表顺序即构建顺序）。v6 的
+> `## Stories` 段与 `S-N` 编号已废弃，不要写。
 
-## Goal
+## Description
 
-<本 Epic 要达成的目标>
+<这个 epic 交付什么，一句话到一段>
 
-## Value
+## Outcome
 
-<受益对象及可观察的交付价值>
+<完成时世界是什么状态；可观察>
 
-## Scope
+## Requirements
 
-<范围内行为与明确的范围外边界>
+由 Step 06 细化时写入（Step 04 删除本节或留空）：
 
-## Dependencies
+- R1 (parent R3): <一条可验证的要求>
 
-<前置 Epic、系统或决策；无依赖时写 None>
+## Constraints
 
-## Acceptance Criteria
+<必须保持的边界；引用 initiative 的 Constraints 时写 id 或短句>
 
-- <可观察的 Epic 级验收标准>
+## Done when
 
-## Stories
+- <可判定的完成条件；整 epic 的集成验证方式>
 
-- story-s-<n>-<story-id>: S-<n> <Story 标题>
+## Boundaries
 
-> 本节的键是 Story 层级产物的 `id`；冒号后的 `S-N` 是 `epics.md` 中 Story 条目的派生引用。
+<范围内行为与明确的范围外边界；consumed/configured 的 touch point 列在这里并注明归属>
 
-## Definition of Done
+## References
 
-- <该 Epic 完成前必须具备的证据与验证>
+- `{initiative}/initiative-<slug>.md`（父级信封）
+- `{initiative}/architecture-<slug>/architecture-<slug>.md`（采纳的决策 id）
+
+## Notes
+
+- Decision: <日期> <切片/细化决定，含被否掉的建议>
+- Source conflict: <代码与 Requirements 冲突时的实际情况与纠正建议>
