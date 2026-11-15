@@ -43,17 +43,19 @@ def _copy_component(target: Path) -> None:
     for rel in (
         "src/heagent/__init__.py",
         "src/heagent/config/__init__.py",
-        "src/heagent/config/catalog.py",
         "src/heagent/pub/types.py",
         "src/heagent/pub/exceptions.py",
         "src/heagent/network/http_protocol.py",
         "src/heagent/network/http_console_protocol.py",
-        "src/heagent/network/http_server.py",
         "src/heagent/network/ws_host.py",
     ):
         source = ROOT / rel
         if source.is_file():
             shutil.copyfile(source, target / rel)
+    # catalog 与 http_server 是包目录：必须整包复制——单文件条目会被 is_file() 静默
+    # 跳过，组件副本缺包后 --check 直接失败。
+    shutil.copytree(ROOT / "src" / "heagent" / "config" / "catalog", src / "config" / "catalog")
+    shutil.copytree(ROOT / "src" / "heagent" / "network" / "http_server", src / "network" / "http_server")
 
 
 def _run_check(target: Path) -> tuple[int, str]:
@@ -68,8 +70,8 @@ def _run_check(target: Path) -> tuple[int, str]:
 
 
 def _mutate_drop_export(target: Path) -> None:
-    """M1：从 `config/catalog.py` 的 `__all__` 删掉一项。"""
-    path = target / "src" / "heagent" / "config" / "catalog.py"
+    """M1：从 `config/catalog/__init__.py` 的 `__all__` 删掉一项。"""
+    path = target / "src" / "heagent" / "config" / "catalog" / "__init__.py"
     text = path.read_text(encoding="utf-8")
     start = text.index("__all__ = [")
     end = text.index("]", start)

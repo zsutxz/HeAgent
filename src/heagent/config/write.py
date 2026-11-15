@@ -26,7 +26,7 @@
 第 11 项是**生效语义**（I10）：写成功后由控制台把该项目运行时的配置代标记过期 —— 当前在途 run 继续
 用旧快照，下一次 run 重新解析。本模块只负责「落盘」，不假装知道谁在跑。
 
-分层：第 2 步留在传输层（``network.http_server._loopback_error``，与 50-2 的项目登记同一判定与同一
+分层：第 2 步留在传输层（``network.http_server.endpoints_console._loopback_error``，与 50-2 的项目登记同一判定与同一
 辅助函数）——网络层不认识 ``Settings``（I1），把闸门状态的副本塞进 ``HttpServerConfig`` 会制造第二个
 事实源（过期副本会「谎报已开启」）。代价是「非回环 + 闸门关闭」时先回 ``loopback_required``：对远端
 客户端少说一句本机策略，方向是收紧而不是放松。

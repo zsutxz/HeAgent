@@ -2,7 +2,7 @@
 
 本模块是 HTTP 传输层的**协议契约**：请求/响应/错误/事件模型 + 稳定错误码 + 文案净化。
 它只依赖 Pydantic 与标准库，不导入任何 ``heagent`` 运行时模块（``tests/test_architecture_contracts.py``
-的可执行断言），因此可以被 ``network/http_server.py``、入口层 ``cli/http.py`` 与测试共用。
+的可执行断言），因此可以被 ``network/http_server/`` 子包、入口层 ``cli/http.py`` 与测试共用。
 
 两条贯穿全 Epic 的协议纪律：
 
@@ -169,7 +169,7 @@ def sanitize_message(message: str, *, fallback: str = GENERIC_ERROR_MESSAGE) -> 
     只做「折叠空白 + 掩码绝对路径 + 截断」，**不做**通用脱敏——上游文案应当是项目自产的面向
     用户文本，凭据类信息由 ``safe_logging`` 负责（那是日志通道）；这里只兜住有明确承诺的那一条
     （见 :data:`_ABS_PATH_RE` 的说明）。协议边界不能假设上游永远干净
-    （与 ``http_server._client_error_message`` 同一立场，两处刻意各自持有，避免网络层内部互相导入）。
+    （与 ``http_server.service._client_error_message`` 同一立场，两处刻意各自持有，避免网络层内部互相导入）。
     """
     collapsed = " ".join(message.split())
     if not collapsed:

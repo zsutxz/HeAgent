@@ -236,8 +236,8 @@ def _deferred_ledgers(root: Path) -> list[Path]:
 
     bmad-build *writes* these ledgers but nothing read them back, so deferrals piled up
     unseen (three different locations by 2026-09-12).  This resolver is the missing reader:
-    the canonical (root open-items) path, four legacy spellings, then the goal-local Epic
-    ledgers.
+    the canonical (root open-items) path, four legacy spellings, then the initiative-scoped
+    and goal-local Epic ledgers.
     """
     candidates = [
         root / "_bmad-output" / _DEFERRED_LEDGER,
@@ -246,6 +246,7 @@ def _deferred_ledgers(root: Path) -> list[Path]:
         root / "_bmad-output" / _DEFERRED_LEGACY_ENTRY,
         root / "_bmad-output" / _DEFERRED_ROOT_LEGACY,
     ]
+    candidates.extend(sorted((root / "_bmad-output").glob("initiative-*/deferred-work.md")))
     candidates.extend(sorted((root / "_he-output" / "goals").glob("*/step-*/**/deferred-work.md")))
     return [path for path in candidates if path.is_file()]
 
