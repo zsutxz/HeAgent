@@ -1,7 +1,7 @@
 ---
 type: migration
 title: "Move v6 planning and implementation artifacts into the v7 initiative layout"
-status: draft
+status: done
 created: 2026-11-15
 module: method
 from: "6"
@@ -94,4 +94,21 @@ to: "7"
 
 ## 九、验证清单（步骤 15 执行后逐项记录结果于此）
 
-[待执行后回填 14 项 checklist 结果 + 契约测试 34 项复跑结果 + `tickets.py status` 输出]
+执行于 2026-11-15，提交 af19c7a（步骤7）/ 48eabbb（步骤8）/ f10cd73（步骤13+14）。
+
+| # | 项 | 结果 |
+|---|---|---|
+| 1 | 源文件全归属 | ✓ planning 4 文件入 initiative（epics.md→archive-v6）；implementation 8 文件原地保留（§五） |
+| 2 | 文档夹保名保内容+主文件随夹名 | ✓ prd-heagent/ project-improvement-report/ story-estimates/；backlog/ archive/ 含 .gitkeep |
+| 3 | 版本对齐全 | ✓ 无日期/编号版本对 |
+| 4 | tickets.py exit 0 + 计数一致 | ✓ exit 0；total 59 = 归档 epics.md 59 Story（58 planned + 1 done backlog 单列）；归档 sprint-status 追踪历史 61 epic（63 done + 1 backlog），与票树无关（§一已声明） |
+| 5 | 一 story 一 entry、一 record 一 plan | ✓ 59/59；1 plan（story-config-catalog-split-plan.md） |
+| 6 | plan 有 type/status、缺失披露 | ✓ type: refactor、status: done、record 缺失已声明；无 retro 需移动 |
+| 7 | covers 三层一致 | ✓ 违例 none；FR1-16 16/16 全覆盖（R17-23 NFR 无 entry，符合 coverage map 口径） |
+| 8 | 无可折叠 spec 目录残留 | ✓ 唯一 spec-goal-command/ 无 memlog，位于保留的 epics/ 历史档（§五） |
+| 9 | 存活路径可解析 | ✓ store 内 13 处改写；归档文件保持原路径（规则）；store 外 4 文件列 §六 由用户更新；契约测试 34 全绿佐证 |
+| 10 | active_initiative + output_folder | ✓ config.user.toml 已写；core.output_folder = {project-root}/_bmad-output |
+| 11 | 模块配置键无旧路径 | ✓ 无 |
+| 12 | git 归属 + 安装 current | ✓ 未拆仓、无双仓跟踪；setup --status current: true |
+| 13 | 备份齐全且未提交 | ✓ 342 文件核对齐；git log 全历史无备份路径 |
+| 14 | 计划记录完整 | ✓ 本表即回填 |
