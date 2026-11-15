@@ -173,6 +173,13 @@ WS 对外排障工具链（`scripts/`，细节见各脚本头注释）：`setup_
 - **文档站**：`mkdocs.yml` 建站，CI 跑 `mkdocs build --strict`（mkdocs 是构建期工具、不在依赖树，按需 `pip install mkdocs`）；`--strict` = 未 ignore 的告警一律 fail，告警口径见 `mkdocs.yml` 注释。动 `docs/` 后本地先 strict 构建再提。
 - **发版契约**：版本真源唯一——`src/heagent/__init__.py` 的 `__version__` 必须与 `pyproject.toml` 一致且为纯 semver；`CHANGELOG.md` 必须保有 `## [Unreleased]` 节与当前版本条目（`## [x.y.z] - 日期` 格式）。以上由 `tests/test_release_workflow_contract.py` 钉死（另钉：release job 仅 tag/手动触发 + OIDC 发布、CI job 数量恒定）。发版 = 两处同步 bump + CHANGELOG 归节。
 
+## BMAD v7 产物体系与读范围（块外手工区，2026-11-15 migration-1 后接线）
+
+- **Active initiative = `_bmad-output/initiative-heagent/`**（`_bmad/custom/config.user.toml` 的 `active_initiative`；epic 全局编号 **62–69**，entry 引用 `<epic>.<entry>`，如 `62.1` = 拆分 network/http_server.py）。**日常规划/实现/评审读取范围钉在 initiative 内**：信封 + 当前 epic 文件 + entry 的 plan；历史档是证据而非当前事实源（v7 口径：historical plans are evidence, not a replacement for the current code）。
+- **新工作唯一入口 = 票树**：对 bmad 说 build entry（如 build 62.1）；独立 intent 落 `_bmad-output/initiative-heagent/backlog/`；被替代的旧文档归档进同目录 `archive/`；`archive-v6/` 是 v6 追踪源归档（epics.md + sprint-status.yaml），台账多处活性引用仍指向它，勿删。
+- **根级台账职能**（v7 无对应物，保留）：`epic-overview.md`（状态总览）、`open-items.md`（未闭合条目——安全声明第 6 条与「已知缺口」节指向的锚点）、`retrospective-all-cycles.md`（历史唯一载体）、`README.md`（文档地图）。
+- **迁移记录**：`_bmad-output/migration-v6-v7.md`（v6→v7 migration-1，status: done，含 14 项 checklist 回填）。
+
 ## 已知缺口
 
 完整清单见 `docs/frame.md` 五与 `_bmad-output/open-items.md`「活动（未闭合）条目」节（闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
