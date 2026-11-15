@@ -4,8 +4,8 @@
 > 一律不要自造：
 >
 > 1. **entry**：`{initiative}/tickets/epic-<slug>/tickets/tickets.toml` 的 `[[entry]]` 表。Step 06
->    写入，字段与取值见 `.claude/skills/bmad-agent-po/assets/tickets-template.toml`。
-> 2. **plan**：`tickets.py find <ref>` 返回的 `plan` 绝对路径，由 `.claude/skills/bmad-build`
+>    写入，字段与取值见 `.heagent/skills/bmad-agent-po/assets/tickets-template.toml`（v7 安装源同路径在 `.claude/skills/`）。
+> 2. **plan**：`tickets.py find <ref>` 返回的 `plan` 绝对路径，由 `.heagent/skills/bmad-build`
 >    按同包 `plan-template.md` 写出。frontmatter 的 `ticket` 必须等于 entry 的 `id`，`status`
 >    是 story 状态的**唯一真源**。
 >

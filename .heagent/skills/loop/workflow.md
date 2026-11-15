@@ -16,8 +16,8 @@ story 清单。
 
 ## 票树接口（BMAD v7）
 
-工具统一前缀：`uv run {project-root}/_bmad/method/scripts/tickets.py --project-root {project-root}`；
-本机没有 `uv` 时改用装了 PyYAML 的解释器直接跑同一脚本。未设 `active_initiative` 时必须显式给
+工具统一前缀：`python {project-root}/_bmad/method/scripts/tickets.py --project-root {project-root}`
+（脚本需要 PyYAML；本机没有 `uv`，用装了 PyYAML 的解释器直接跑，例如项目 venv）。未设 `active_initiative` 时必须显式给
 `<dir>`（`_bmad-output/initiative-<slug>`），否则脚本报 `no active initiative`。
 
 - **布局**：`{output_folder}/initiative-<slug>/` 是 initiative 根，`output_folder` 默认
@@ -44,8 +44,14 @@ story 清单。
   id 不复用）。
 - **状态阶梯**：`draft → ready-for-dev → in-progress → in-review → built → done`，另有 `blocked` /
   `dropped`。**build 只到 `built`；`done` 只能由人或编排器写。**
-- **角色技能根**：`.claude/skills/<role>/SKILL.md`（v7 安装位置，`bmad-*` 都在这里）。
-  `.heagent/skills/` 只有本仓自建技能，不要再按旧路径找 bmad 角色。
+- **角色技能根**：`.heagent/skills/<role>/SKILL.md`（HeAgent 适配版：v7 角色方法已预渲染进包内，
+  无需再跑渲染器）。`.claude/skills/<role>/` 是 v7 官方安装源，且
+  `bmad-build` / `bmad-build-auto` / `bmad-agent-po` / `bmad-qa-generate-e2e-tests` /
+  `bmad-code-review` / `bmad-retrospective` 的 SKILL.md 只是「跑 `uv run render_skill.py`」的启动器
+  ——本机无 `uv`，子会话**不可**直接用。仅当 `.heagent/skills/` 缺该角色时，才回退读
+  `.claude/skills/<role>/` 的 `workflow.md` 与 `step-*.md` 原文。
+  **同步命令**：`python scripts/sync_bmad_role_skills.py`（`.claude/skills` 更新后重跑一次即可；
+  `--check` 只自检不写盘）。
 - **清单真源**：一条 epic 的 story 清单只有它的 `tickets/tickets.toml`（表序即执行序）；plan 与
   leaf 文件是逐条产物，不是清单。
 - **三条禁令**：状态一律经 `mark` 写，不手改 plan frontmatter；已批准的 entry 与 epic
@@ -203,7 +209,8 @@ Step 07 按各 epic `tickets.toml` 的**表序**、在 `after` 允许的范围�
 `_he-output/works/<goal-id>/step-NN-*/`。任何改动代码的步骤都必须重跑受影响的测试，并写明确切命令
 与结果。
 
-每个步骤的执行方法都由「执行角色」指名的 `.claude/skills/<role>/SKILL.md` 提供；宿主把该要点并入
+每个步骤的执行方法都由「执行角色」指名的 `.heagent/skills/<role>/SKILL.md` 提供（`.claude/skills/`
+是 v7 安装源，其 workflow 类 SKILL.md 依赖 `uv` 渲染，子会话不可直接用）；宿主把该要点并入
 子会话任务正文。本文件只维护步骤顺序、输入输出、验收核对、产物位置和工作流特有的边界。
 
 ## Step 01: market-research（市场调研）
@@ -366,7 +373,8 @@ checkpoint）。**缺任一章即未通过验收核对。**
 - 验收核对（每条 entry）：plan 含 `## Tasks & Acceptance`、`## Verification` 与实现/评审结论；宿主
   亲自跑完 `## Verification` 的记录命令且结果写入 progress.md；无遗留 Critical 发现
 
-`bmad-build` 是本步骤的实现、测试与评审方法论来源（计划模板在 `.claude/skills/bmad-build/plan-template.md`）。
+`bmad-build` 是本步骤的实现、测试与评审方法论来源（计划模板在 `.heagent/skills/bmad-build/plan-template.md`，
+v7 安装源同名文件在 `.claude/skills/bmad-build/`）。
 **严格串行**：每个子会话只处理一条 entry，按表序取 `tickets.py next <initiative>` 的
 `ready_to_start` 首行，或按用户点名的 `<ref>`；宿主在任务正文里给出该 entry 全文、epic 文件全文、
 `find` 返回的 plan 路径与 `brief.md` 路径，并附上 `after` 所指 entry 的 plan 中 Code Map /
