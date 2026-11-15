@@ -5,7 +5,7 @@
 > 基准: **3765 passed / 50 skipped / 28 deselected**（2026-10-23 实测）、ruff / mypy clean、覆盖率 **92.47%**（gate 87）
 >
 > 归档更新：2026-09-14 已完成实现 spec 按 Epic 40 / Epic 47 归档；2026-09-15 `patches/` 目录解散（补丁 spec 按归属 epic 归档）、跨周期 deferred 台账按 epic 归并。
-> **口径说明**：早期章节是正式回顾，后续章节包含补录速览；未完成正式回顾的周期会明确标注 `optional`。Epic 48 / 50 有正式回顾；Epic 49 依据交付记录与评审产物摘录，状态以 `sprint-status.yaml` 为准。
+> **口径说明**：早期章节是正式回顾，后续章节包含补录速览；未完成正式回顾的周期会明确标注 `optional`。Epic 48 / 50 有正式回顾；Epic 49 依据交付记录与评审产物摘录，状态以 `initiative-heagent/archive-v6/sprint-status.yaml`（已归档）为准。
 
 ---
 
@@ -160,7 +160,7 @@
 
 ### 16. 网络入口三周期（Epic 48–50）· 2026-09-22 – 2026-09-27
 
-> **来源（逐条可查，不做推测式回顾）**：Epic 48 按其正式回顾摘录；Epic 49 / 50 依据各自周期目录的交付与评审产物摘录。Epic 50 的评审已合并为 `epics/epic-50-网页控制台周期/reviews.md`，其回顾见同目录 `retrospective-epic-50.md`（2026-09-27 补做）。状态口径以 `sprint-status.yaml` 为准。
+> **来源（逐条可查，不做推测式回顾）**：Epic 48 按其正式回顾摘录；Epic 49 / 50 依据各自周期目录的交付与评审产物摘录。Epic 50 的评审已合并为 `epics/epic-50-网页控制台周期/reviews.md`，其回顾见同目录 `retrospective-epic-50.md`（2026-09-27 补做）。状态口径以 `initiative-heagent/archive-v6/sprint-status.yaml`（已归档）为准。
 
 | 维度 | 要点 |
 |------|------|
@@ -941,7 +941,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ### 十五、统一编号体系与状态矩阵
 
-#### 15.1 Epic 状态矩阵（权威 = `_bmad-output/sprint-status.yaml`，2026-09-24 复核）
+#### 15.1 Epic 状态矩阵（权威 = `_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml`，2026-09-24 复核；2026-11-15 归档）
 
 | Epic | 主题 | Stories | 状态 |
 |------|------|---------|------|
@@ -1247,7 +1247,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | Story 51-2（多 phase pause） | **生产路径不可达**：`_pause_resume_unlocked()` 首行 `if runner.done` 即返回 `UNCHANGED`（"declarative workflow is already complete"），`runner.pause()` 到不了 `COMPLETED` 态 | `src/heagent/goal/application.py::_pause_resume_unlocked` |
 | 52-3 AC1（端到端围栏贯通冒烟） | **已闭合**（2026-10-26，Epic 57-3）：真实注册表 `file_write` handler 经 `policy.evaluate_tool_call → executor.execute` 全链贯通 | `tests/test_write_allowlist.py::test_e2e_chain_*`（2 例）；附带发现见 archive 已归档表 |
 
-当前实现状态以源码、测试、`docs/frame.md` 和 `sprint-status.yaml` 为准；本文件不重复复制完整验收报告。
+当前实现状态以源码、测试、`docs/frame.md` 和 `initiative-heagent/archive-v6/sprint-status.yaml`（已归档）为准；本文件不重复复制完整验收报告。
 
 
 ---
@@ -1268,7 +1268,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ## 七、待完成工作（2026-09-27 复核）
 
-> **权威来源**：活动（未闭合）条目 = `_bmad-output/open-items.md`「活动（未闭合）条目」节（2026-11-15 起）；Epic/Story 状态 = `_bmad-output/sprint-status.yaml`；安全缺口 = `docs/frame.md` 五。修正表（B 组）见本文 §四。
+> **权威来源**：活动（未闭合）条目 = `_bmad-output/open-items.md`「活动（未闭合）条目」节（2026-11-15 起）；Epic/Story 状态 = `_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml`（已归档）；安全缺口 = `docs/frame.md` 五。修正表（B 组）见本文 §四。
 
 ### 7.1 活动台账未闭合（4 条——A34–A36 + A41，**索引**）
 

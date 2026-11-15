@@ -1,6 +1,6 @@
 # HeAgent Epic 总览
 
-> **生成与维护**：2026-08-18 建立（原 `consolidated-overview.md`），按代码与 `sprint-status.yaml` 持续校正；**2026-11-15 重组拆分**——周期详解与台账归档迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§二–§五），活动台账独立为 [`open-items.md`](open-items.md)。本文保留当前口径：状态、缺口、路线图、待完成索引与文档地图（epic 总目录）；未闭合问题清单见 [`open-items.md`](open-items.md)。
+> **生成与维护**：2026-08-18 建立（原 `consolidated-overview.md`），按代码与 `initiative-heagent/archive-v6/sprint-status.yaml`（已归档）持续校正；**2026-11-15 重组拆分**——周期详解与台账归档迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§二–§五），活动台账独立为 [`open-items.md`](open-items.md)。本文保留当前口径：状态、缺口、路线图、待完成索引与文档地图（epic 总目录）；未闭合问题清单见 [`open-items.md`](open-items.md)。
 
 ---
 
@@ -38,7 +38,7 @@
 
 ### 1.4 待完成工作（2026-09-24 整理）
 
-> **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `sprint-status.yaml` 为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
+> **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `initiative-heagent/archive-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
 #### A. 活动台账未闭合条目（7 条——A34/A35/A36/A41/A52/A53/A54，**索引**）
 
@@ -87,7 +87,7 @@
 | `_bmad-output/epic-overview.md` | **本文——当前状态与导航 + epic 总目录**（2026-11-15 自 consolidated-overview.md 重组定名；周期详解与台账归档已迁 retrospective-all-cycles.md） |
 | `_bmad-output/open-items.md` | **唯一活动台账**（未闭合问题清单，2026-11-15 定名） |
 | `_bmad-output/retrospective-all-cycles.md` | **历史记录唯一载体**（2026-11-15 四并二：周期回顾/详解 + deferred 闭合台账 §三 + review 闭合索引 §五） |
-| `_bmad-output/sprint-status.yaml` | **sprint 状态单一权威**（全 15 周期） |
+| `_bmad-output/initiative-heagent/archive-v6/sprint-status.yaml` | **sprint 状态单一权威**（全 15 周期；2026-11-15 归档） |
 | `_bmad-output/epics/epic-01-10-主线规划周期/` | 主线周期原始产物（Epic 1-10） |
 | `_bmad-output/epics/epic-11-18-MCP集成周期/` | MCP Client 集成周期（三阶段统一，2026-08-18 合并；含 Epic 11-18） |
 | `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/` | Sandbox 硬化（Epic S1-S4） |
@@ -111,7 +111,7 @@
 | `_bmad-output/epics/epic-59-MEMORY语义压缩周期/` | MEMORY 语义压缩（Epic 59，2026-10-29 立项 → 11-03 收口；`fact_compact` + dream 接线） |
 | `_bmad-output/epics/epic-60-结构精简周期/` | 结构精简批次 9（2026-11-06~07 五卡交付；**yaml 未登记键**，见 §1.4-C） |
 | `_bmad-output/epics/epic-61-Web检索周期/` | Web 检索工具（Epic 61，2026-11-13 立项，SPEC.md + 3 story backlog） |
-| `_bmad-output/planning-artifacts/` | 项目改进计划四件套（PRD / Epic 分解 / Story 估算 / 改进报告，2026-11-11） |
+| `_bmad-output/initiative-heagent/` | 项目改进计划 initiative（规划四件套 + v7 票树 + archive-v6；2026-11-11 立项，2026-11-15 迁移） |
 | `_bmad-output/epics/<周期>/[epic-NN-主题/]stories/` | 按 epic 归档的 story 文件（2026-09-26 全深度实测：**102 个**，**28 个** `stories/` 目录） |
 | `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录（原 `patches/<领域>/` 2026-09-15 解散） |
 | `_bmad-output/implementation-artifacts/arch-optimization-cycle/` | **架构优化周期档案**（总方案 + phase0..5 spec，各含执行记录；2026-09-22 归档，原 `docs/test.md` 已删并） |
