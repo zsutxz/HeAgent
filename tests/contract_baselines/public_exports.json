@@ -200,6 +200,7 @@
         "NamedTuple",
         "Path",
         "annotations",
+        "fingerprint",
         "iter_env_lines",
         "parse_strict_pairs",
         "split_frontmatter"
@@ -500,7 +501,9 @@
         "SessionMessage",
         "SessionResponse",
         "clip_text",
+        "cursor_out_of_window",
         "error_envelope",
+        "replay_then_follow",
         "sanitize_message"
       ],
       "defined": [
@@ -537,7 +540,9 @@
         "_TRUNCATION_SUFFIX",
         "__all__",
         "clip_text",
+        "cursor_out_of_window",
         "error_envelope",
+        "replay_then_follow",
         "sanitize_message"
       ],
       "imported": [
@@ -546,8 +551,10 @@
         "Field",
         "Literal",
         "StrEnum",
+        "TYPE_CHECKING",
         "annotations",
-        "field_validator"
+        "field_validator",
+        "overload"
       ]
     },
     "heagent.pub.exceptions": {

@@ -211,6 +211,11 @@
       "name": "StreamSubscription"
     },
     {
+      "bases": [],
+      "module": "heagent.network.event_stream_hub",
+      "name": "WsRegistry"
+    },
+    {
       "bases": [
         "BaseModel"
       ],

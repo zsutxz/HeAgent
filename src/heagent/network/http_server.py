@@ -34,6 +34,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from heagent.network.event_stream_hub import WsRegistry
 from heagent.network.exposure import exposure_warning, is_loopback_host
 from heagent.network.http_console_protocol import (
     ConfigWriteRequest,
@@ -63,7 +64,9 @@ from heagent.network.http_protocol import (
     SessionMessage,
     SessionResponse,
     clip_text,
+    cursor_out_of_window,
     error_envelope,
+    replay_then_follow,
     sanitize_message,
 )
 
@@ -454,7 +457,9 @@ class HttpRunService:
         self._messages: list[SessionMessage] = []
         self._current_run_id: str | None = None
         self._closing = False
-        self._ws_connections: dict[str, tuple[str, Any]] = {}
+        # 连接登记与有界关停委托 WsRegistry（与只读流同一实现，A54⑤）；
+        # 关停预算在本服务的方法面上仍取 shutdown_timeout（调用方无参调用，既有签名不变）。
+        self._ws_registry = WsRegistry(log_prefix="http", stream_label="run_id")
 
     # ---- 查询 ----
 
@@ -638,18 +643,9 @@ class HttpRunService:
         return record
 
     def needs_resync(self, record: _RunRecord, last_event_id: int | None) -> bool:
-        """客户端的游标是否已落在事件窗口之外（AD-4 的 ``resync_required`` 判据）。
-
-        语义（严格大于）：客户端说「我收到 N」时，只要 N+1 之后的事件都还在缓冲里就能无缝续读，
-        即 ``N >= oldest_seq - 1``；更小的 N 意味着中间事件已被 ring buffer 淘汰，**必须**重新
-        同步而不是发一条看似连续的流。没有游标（或 0）等价于「从头读」：若窗口已淘汰开头
-        （``oldest_seq > 1``），同样要求重新同步。
-        """
-        cursor = 0 if last_event_id is None else max(0, last_event_id)
-        oldest = record.oldest_seq
-        if oldest is None:
-            return False
-        return cursor < oldest - 1
+        """客户端的游标是否已落在事件窗口之外（AD-4 的 ``resync_required`` 判据；算术单源
+        ``http_protocol.cursor_out_of_window``，与只读流 / WS 共用）。"""
+        return cursor_out_of_window(last_event_id, record.oldest_seq)
 
     def subscriber_count(self, record: _RunRecord) -> int:
         """该运行当前的 SSE 订阅者数（限额判定与测试用）。"""
@@ -660,40 +656,16 @@ class HttpRunService:
         return len(record.ws_subscribers)
 
     def register_ws(self, connection_id: str, run_id: str, websocket: Any) -> None:
-        """登记已通过独立限额的 WS 连接，供有界关停关闭。"""
-        self._ws_connections[connection_id] = (run_id, websocket)
+        """登记已通过独立限额的 WS 连接，供有界关停关闭（委托 :class:`WsRegistry`）。"""
+        self._ws_registry.register_ws(connection_id, run_id, websocket)
 
     def unregister_ws(self, connection_id: str) -> None:
         """移除断线或已关闭的 WS 连接登记。"""
-        self._ws_connections.pop(connection_id, None)
+        self._ws_registry.unregister_ws(connection_id)
 
     async def close_websockets(self) -> None:
-        """通知所有已登记连接服务关闭，并在每个 shutdown_timeout 内完成收尾。"""
-        connections = tuple(self._ws_connections.items())
-        if not connections:
-            return
-
-        async def close_one(connection_id: str, run_id: str, websocket: Any) -> None:
-            with contextlib.suppress(Exception):
-                from heagent.network.ws_protocol import WS_CLOSE_GOING_AWAY, WsErrorFrame
-
-                envelope = error_envelope(HttpErrorCode.SHUTTING_DOWN, "server is shutting down")
-                await websocket.send_text(WsErrorFrame(error=envelope).model_dump_json())
-                await websocket.close(code=WS_CLOSE_GOING_AWAY)
-            self.unregister_ws(connection_id)
-            safe_log(
-                logger,
-                logging.INFO,
-                "http event=ws_close run_id=%s connection_id=%s close_code=%d",
-                run_id,
-                connection_id,
-                1001,
-            )
-
-        await asyncio.wait_for(
-            asyncio.gather(*(close_one(key, run_id, websocket) for key, (run_id, websocket) in connections)),
-            timeout=self.config.shutdown_timeout,
-        )
+        """通知所有已登记连接服务关闭，并在 shutdown_timeout 内完成收尾。"""
+        await self._ws_registry.close_websockets(timeout=self.config.shutdown_timeout)
 
     async def close(self) -> None:
         """停止接收新运行、使在途运行进入终态、等待运行任务退出（有界，AD-5 的关闭序列）。
@@ -907,7 +879,8 @@ class HttpRunService:
         """SSE 的事件源：先重放缓冲，再跟随实时事件；终态事件之后流立即结束（AD-4）。
 
         - ``last_event_id``（``Last-Event-ID``）只重放**严格大于**它的序号（缺口的判定由调用方
-          在建立流之前用 :meth:`needs_resync` 做完，这里只管「不重复」）；
+          在建立流之前用 :meth:`needs_resync` 做完，这里只管「不重复」——重放/去重/终态语义
+          单源 ``http_protocol.replay_then_follow``，与 WS run 订阅共用）；
         - ``yield None`` 表示**心跳**（注释帧，不占事件 ID、不推进游标）；
         - 订阅者只读：断线只移除本队列，**绝不**取消运行——取消只能通过 ``DELETE``；
         - ``queue`` 由调用方传入时表示**已经登记过**（限额检查与登记必须同一步完成，
@@ -918,32 +891,18 @@ class HttpRunService:
             record.subscribers.add(queue)
         try:
             # 生产路径在端点里先 try_add_subscriber、生成器首迭代才取快照，两者之间存在真实
-            # await 窗口：窗口内 emit 的事件会「既进重放快照、又进实时队列」。live 循环按已重放
-            # 水位（replayed_upto = max(cursor, 快照最大 seq)）去重，保证「不重复」契约成立。
+            # await 窗口；快照与终态必须在同一同步段内读出（无 await），终态事件先于流结束
+            # （AD-4）。重放与水位去重见 ``replay_then_follow``。
             snapshot = tuple(record.events)
             is_terminal = record.is_terminal
-            replayed_upto = max(
-                last_event_id if last_event_id is not None else 0,
-                max((payload.seq for payload in snapshot), default=0),
-            )
-            for payload in snapshot:
-                if last_event_id is None or payload.seq > last_event_id:
-                    yield payload
-            if is_terminal:
-                return
-            while True:
-                try:
-                    item = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
-                except TimeoutError:
-                    # 空闲期的保活帧：客户端（及中间层）据此判定连接仍然活着。超时取消的是
-                    # ``queue.get()`` 本身，不会丢掉已在队列里的事件。
-                    yield None
-                    continue
-                if item is None:
-                    return
-                if item.seq <= replayed_upto:
-                    continue
-                yield item
+            async for payload in replay_then_follow(
+                snapshot,
+                cursor=last_event_id,
+                is_terminal=is_terminal,
+                queue=queue,
+                heartbeat_seconds=heartbeat_seconds,
+            ):
+                yield payload
         finally:
             record.subscribers.discard(queue)
 

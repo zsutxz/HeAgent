@@ -21,6 +21,7 @@ from heagent.network.http_protocol import (
     RunEventPayload,
     RunRequest,
     error_envelope,
+    replay_then_follow,
 )
 from heagent.network.ws_auth import client_source
 from heagent.network.ws_protocol import (
@@ -116,27 +117,14 @@ async def _send_event_stream(
     queue: asyncio.Queue[RunEventPayload | None],
     cursor: int | None,
 ) -> None:
-    """按游标先重放 ring buffer，再写实时队列事件。
+    """按游标先重放 ring buffer，再写实时队列事件（重放/去重/终态语义单源 ``replay_then_follow``）。
 
-    登记与快照之间存在 await 窗口：窗口内 emit 的事件会「既进重放快照、又进实时队列」⇒
-    按已重放水位（max(cursor, 快照最大 seq)）去重，保证不重复投递（与 SSE 侧同修）。
+    快照与终态在同一同步段内读出（无 ``await``），终态事件先于流结束（AD-4）；协议级 ping
+    已由 Uvicorn 负责，这里不发应用层心跳。
     """
     snapshot = tuple(record.events)
-    replayed_upto = max(
-        cursor if cursor is not None else 0,
-        max((event.seq for event in snapshot), default=0),
-    )
-    for event in snapshot:
-        if cursor is None or event.seq > cursor:
-            await websocket.send_text(WsEventFrame(event=event).model_dump_json())
-    if record.is_terminal:
-        return
-    while True:
-        event = await queue.get()
-        if event is None:
-            return
-        if event.seq <= replayed_upto:
-            continue
+    is_terminal = record.is_terminal
+    async for event in replay_then_follow(snapshot, cursor=cursor, is_terminal=is_terminal, queue=queue):
         await websocket.send_text(WsEventFrame(event=event).model_dump_json())
 
 
@@ -312,6 +300,93 @@ async def _handle_submit_commands(websocket: WebSocketLike, service: RunWebSocke
         await websocket.send_text(WsCliAckFrame(command=frame.command, run_id="").model_dump_json())
 
 
+async def _ws_session(
+    websocket: WebSocketLike,
+    *,
+    transport: str,
+    authorize: AuthCheck | None,
+    origin_violation: OriginCheck,
+    origin_run_id: str,
+    version: str,
+    log_prefix: str,
+    log_name: str,
+    log_run_id: str | None,
+    closing_probe: Callable[[], bool],
+    session: Callable[[WebSocketLike, str], Awaitable[None]],
+    finalize: Callable[[str], None],
+) -> None:
+    """四条 listener 的**会话骨架**（A54①）：握手门 → accept/hello → 会话体 → 异常收敛 → 有界收尾。
+
+    四个端点构造器曾各抄一遍这段骨架（计时/uuid 前导、认证与 Origin 门、accept、hello、关停
+    检查、``CancelledError`` 重抛、异常收敛 ``server_error``+1011、finally 清理与 close 日志），
+    协议变化要改四处。差异全部参数化：
+
+    - ``origin_run_id``：Origin 拒绝日志里的 run_id 字段（run 端点带真值、集合级提交传 ``"-"``、
+      CLI/通知流传空串＝不带字段）；
+    - ``log_run_id``：open/failed/close 三条事件日志的 run_id（``None``＝日志不带该字段，区别于
+      空串——run 端点即使路径参数为空也按旧口径带 ``run_id=`` 字段）；
+    - ``closing_probe``：关停检查（run/提交读 ``service._closing``，只读流读 ``hub.closing``）；
+    - ``session``：端点差异本体（限额、订阅、登记、会话循环），首个参数是连接、第二个是
+      ``connection_id``（登记与 open 日志都要它）；
+    - ``finalize``：finally 清理（归还席位 / 摘订阅 / 注销连接），**幂等且可判「未获得」**
+      （提交席位只在真正 acquire 后才归还）。
+
+    日志事件名与字段逐字节保持各自旧口径；骨架内不新增任何日志。
+    """
+    started = time.perf_counter()
+    connection_id = uuid.uuid4().hex[:12]
+    if await _reject_unauthenticated(websocket, authorize, transport=transport):
+        return
+    if await _reject_bad_origin(websocket, origin_violation, transport=transport, run_id=origin_run_id):
+        return
+    await websocket.accept()
+    await _send_hello(websocket, version)
+    try:
+        if closing_probe():
+            await _send_error(
+                websocket,
+                HttpErrorCode.SHUTTING_DOWN,
+                "server is shutting down",
+                close_code=WS_CLOSE_GOING_AWAY,
+            )
+            return
+        await session(websocket, connection_id)
+        with contextlib.suppress(Exception):
+            await websocket.close()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        if log_run_id is not None:
+            logger.exception(
+                "%s event=%s_failed run_id=%s connection_id=%s", log_prefix, log_name, log_run_id, connection_id
+            )
+        else:
+            logger.exception("%s event=%s_failed connection_id=%s", log_prefix, log_name, connection_id)
+        with contextlib.suppress(Exception):
+            await _send_error(
+                websocket,
+                HttpErrorCode.SERVER_ERROR,
+                "internal server error",
+                close_code=1011,
+            )
+    finally:
+        finalize(connection_id)
+        elapsed = int((time.perf_counter() - started) * 1000)
+        if log_run_id is not None:
+            logger.info(
+                "%s event=%s_close run_id=%s connection_id=%s elapsed_ms=%d",
+                log_prefix,
+                log_name,
+                log_run_id,
+                connection_id,
+                elapsed,
+            )
+        else:
+            logger.info(
+                "%s event=%s_close connection_id=%s elapsed_ms=%d", log_prefix, log_name, connection_id, elapsed
+            )
+
+
 def build_runs_collection_endpoint(
     service: RunWebSocketService,
     *,
@@ -333,53 +408,50 @@ def build_runs_collection_endpoint(
     slots = _SubmissionSlots(max_connections)
 
     async def endpoint(websocket: WebSocketLike) -> None:
-        started = time.perf_counter()
-        connection_id = uuid.uuid4().hex[:12]
-        if await _reject_unauthenticated(websocket, authorize, transport="runs_submit"):
-            return
-        if await _reject_bad_origin(websocket, origin_violation, transport="ws", run_id="-"):
-            return
-        await websocket.accept()
-        await _send_hello(websocket, version)
-        if not slots.try_acquire():
-            await _send_error(
-                websocket,
-                HttpErrorCode.RATE_LIMITED,
-                "too many WebSocket submit connections",
-                close_code=WS_CLOSE_POLICY,
-            )
-            return
-        try:
+        acquired = False
+
+        async def session(ws: WebSocketLike, connection_id: str) -> None:
+            nonlocal acquired
+            # 席位 acquire 在关停检查之前（旧口径次序：满额连接先吃 rate_limited，
+            # 即使服务同时在关停）；未 acquire 的路径绝不 release（骨架 finally 会调 finalize）。
+            if not slots.try_acquire():
+                await _send_error(
+                    ws,
+                    HttpErrorCode.RATE_LIMITED,
+                    "too many WebSocket submit connections",
+                    close_code=WS_CLOSE_POLICY,
+                )
+                return
+            acquired = True
             if service._closing:
                 await _send_error(
-                    websocket,
+                    ws,
                     HttpErrorCode.SHUTTING_DOWN,
                     "server is shutting down",
                     close_code=WS_CLOSE_GOING_AWAY,
                 )
                 return
             logger.info("ws event=submit_open connection_id=%s", connection_id)
-            await _handle_submit_commands(websocket, service)
-            with contextlib.suppress(Exception):
-                await websocket.close()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("ws event=submit_failed connection_id=%s", connection_id)
-            with contextlib.suppress(Exception):
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.SERVER_ERROR,
-                    "internal server error",
-                    close_code=1011,
-                )
-        finally:
-            slots.release()
-            logger.info(
-                "ws event=submit_close connection_id=%s elapsed_ms=%d",
-                connection_id,
-                int((time.perf_counter() - started) * 1000),
-            )
+            await _handle_submit_commands(ws, service)
+
+        def finalize(connection_id: str) -> None:
+            if acquired:
+                slots.release()
+
+        await _ws_session(
+            websocket,
+            transport="runs_submit",
+            authorize=authorize,
+            origin_violation=origin_violation,
+            origin_run_id="-",
+            version=version,
+            log_prefix="ws",
+            log_name="submit",
+            log_run_id=None,
+            closing_probe=lambda: False,
+            session=session,
+            finalize=finalize,
+        )
 
     return endpoint
 
@@ -462,58 +534,42 @@ def build_ws_endpoint(
     """
 
     async def endpoint(websocket: WebSocketLike) -> None:
-        started = time.perf_counter()
-        connection_id = uuid.uuid4().hex[:12]
         run_id = str(websocket.path_params.get("run_id", ""))
-        if await _reject_unauthenticated(websocket, authorize, transport="runs"):
-            return
-        if await _reject_bad_origin(websocket, origin_violation, transport="ws", run_id=run_id):
-            return
-        await websocket.accept()
-        await _send_hello(websocket, version)
-        record: Any | None = None
-        queue: asyncio.Queue[RunEventPayload | None] | None = None
-        registered = False
-        try:
-            if service._closing:
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.SHUTTING_DOWN,
-                    "server is shutting down",
-                    close_code=WS_CLOSE_GOING_AWAY,
-                )
-                return
-            record, cursor, queue = await _prepare_subscription(websocket, service, run_id, max_connections)
+        state: dict[str, Any] = {"record": None, "queue": None, "registered": False}
+
+        async def session(ws: WebSocketLike, connection_id: str) -> None:
+            record, cursor, queue = await _prepare_subscription(ws, service, run_id, max_connections)
             if record is None or queue is None:
                 return
-            service.register_ws(connection_id, run_id, websocket)
-            registered = True
+            state["record"] = record
+            state["queue"] = queue
+            service.register_ws(connection_id, run_id, ws)
+            state["registered"] = True
             logger.info("http event=ws_open run_id=%s connection_id=%s", run_id, connection_id)
-            await _run_connection_tasks(websocket, service, record, queue, cursor, run_id, readonly=readonly)
-            with contextlib.suppress(Exception):
-                await websocket.close()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("http event=ws_failed run_id=%s connection_id=%s", run_id, connection_id)
-            with contextlib.suppress(Exception):
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.SERVER_ERROR,
-                    "internal server error",
-                    close_code=1011,
-                )
-        finally:
+            await _run_connection_tasks(ws, service, record, queue, cursor, run_id, readonly=readonly)
+
+        def finalize(connection_id: str) -> None:
+            record = state["record"]
+            queue = state["queue"]
             if record is not None and queue is not None:
                 record.ws_subscribers.discard(queue)
-            if registered:
+            if state["registered"]:
                 service.unregister_ws(connection_id)
-            logger.info(
-                "http event=ws_close run_id=%s connection_id=%s elapsed_ms=%d",
-                run_id,
-                connection_id,
-                int((time.perf_counter() - started) * 1000),
-            )
+
+        await _ws_session(
+            websocket,
+            transport="runs",
+            authorize=authorize,
+            origin_violation=origin_violation,
+            origin_run_id=run_id,
+            version=version,
+            log_prefix="http",
+            log_name="ws",
+            log_run_id=run_id,
+            closing_probe=lambda: service._closing,
+            session=session,
+            finalize=finalize,
+        )
 
     return endpoint
 
@@ -624,37 +680,16 @@ def build_cli_ws_endpoint(
     """
 
     async def endpoint(websocket: WebSocketLike) -> None:
-        started = time.perf_counter()
-        connection_id = uuid.uuid4().hex[:12]
-        if await _reject_unauthenticated(websocket, authorize, transport="cli_ws"):
-            return
-        if await _reject_bad_origin(websocket, origin_violation, transport="cli_ws"):
-            return
-        await websocket.accept()
-        await _send_hello(websocket, version)
-        subscription: CliSubscription | None = None
-        registered = False
-        try:
-            if hub.closing:
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.SHUTTING_DOWN,
-                    "server is shutting down",
-                    close_code=WS_CLOSE_GOING_AWAY,
-                )
-                return
-            cursor, invalid = _parse_cursor(websocket)
+        state: dict[str, Any] = {"subscription": None, "registered": False}
+
+        async def session(ws: WebSocketLike, connection_id: str) -> None:
+            cursor, invalid = _parse_cursor(ws)
             if invalid:
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.INVALID_REQUEST,
-                    "invalid event cursor",
-                    close_code=WS_CLOSE_POLICY,
-                )
+                await _send_error(ws, HttpErrorCode.INVALID_REQUEST, "invalid event cursor", close_code=WS_CLOSE_POLICY)
                 return
             if hub.needs_resync(cursor):
                 await _send_error(
-                    websocket,
+                    ws,
                     HttpErrorCode.RESYNC_REQUIRED,
                     "event cursor is older than the buffered window; reconnect without a cursor",
                     close_code=WS_CLOSE_POLICY,
@@ -663,42 +698,39 @@ def build_cli_ws_endpoint(
             subscription = hub.open_subscription(cursor)
             if subscription is None:
                 await _send_error(
-                    websocket,
-                    HttpErrorCode.RATE_LIMITED,
-                    "too many WebSocket connections",
-                    close_code=WS_CLOSE_POLICY,
+                    ws, HttpErrorCode.RATE_LIMITED, "too many WebSocket connections", close_code=WS_CLOSE_POLICY
                 )
                 return
-            hub.register_ws(connection_id, hub.active_run_id, websocket)
-            registered = True
+            state["subscription"] = subscription
+            hub.register_ws(connection_id, hub.active_run_id, ws)
+            state["registered"] = True
             logger.info("http event=cli_ws_open connection_id=%s", connection_id)
             await _supervise(
-                _cli_send_events(websocket, subscription),
-                _cli_handle_commands(websocket, hub),
+                _cli_send_events(ws, subscription),
+                _cli_handle_commands(ws, hub),
             )
-            with contextlib.suppress(Exception):
-                await websocket.close()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("http event=cli_ws_failed connection_id=%s", connection_id)
-            with contextlib.suppress(Exception):
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.SERVER_ERROR,
-                    "internal server error",
-                    close_code=1011,
-                )
-        finally:
+
+        def finalize(connection_id: str) -> None:
+            subscription = state["subscription"]
             if subscription is not None:
                 hub.remove_subscriber(subscription.queue)
-            if registered:
+            if state["registered"]:
                 hub.unregister_ws(connection_id)
-            logger.info(
-                "http event=cli_ws_close connection_id=%s elapsed_ms=%d",
-                connection_id,
-                int((time.perf_counter() - started) * 1000),
-            )
+
+        await _ws_session(
+            websocket,
+            transport="cli_ws",
+            authorize=authorize,
+            origin_violation=origin_violation,
+            origin_run_id="",
+            version=version,
+            log_prefix="http",
+            log_name="cli_ws",
+            log_run_id=None,
+            closing_probe=lambda: hub.closing,
+            session=session,
+            finalize=finalize,
+        )
 
     return endpoint
 
@@ -762,37 +794,16 @@ def build_notification_ws_endpoint(
     """
 
     async def endpoint(websocket: WebSocketLike) -> None:
-        started = time.perf_counter()
-        connection_id = uuid.uuid4().hex[:12]
-        if await _reject_unauthenticated(websocket, authorize, transport="notifications"):
-            return
-        if await _reject_bad_origin(websocket, origin_violation, transport="notifications"):
-            return
-        await websocket.accept()
-        await _send_hello(websocket, version)
-        subscription: NotificationSubscription | None = None
-        registered = False
-        try:
-            if hub.closing:
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.SHUTTING_DOWN,
-                    "server is shutting down",
-                    close_code=WS_CLOSE_GOING_AWAY,
-                )
-                return
-            cursor, invalid = _parse_cursor(websocket)
+        state: dict[str, Any] = {"subscription": None, "registered": False}
+
+        async def session(ws: WebSocketLike, connection_id: str) -> None:
+            cursor, invalid = _parse_cursor(ws)
             if invalid:
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.INVALID_REQUEST,
-                    "invalid event cursor",
-                    close_code=WS_CLOSE_POLICY,
-                )
+                await _send_error(ws, HttpErrorCode.INVALID_REQUEST, "invalid event cursor", close_code=WS_CLOSE_POLICY)
                 return
             if hub.needs_resync(cursor):
                 await _send_error(
-                    websocket,
+                    ws,
                     HttpErrorCode.RESYNC_REQUIRED,
                     "event cursor is older than the buffered window; reconnect without a cursor",
                     close_code=WS_CLOSE_POLICY,
@@ -801,42 +812,39 @@ def build_notification_ws_endpoint(
             subscription = hub.open_subscription(cursor)
             if subscription is None:
                 await _send_error(
-                    websocket,
-                    HttpErrorCode.RATE_LIMITED,
-                    "too many WebSocket connections",
-                    close_code=WS_CLOSE_POLICY,
+                    ws, HttpErrorCode.RATE_LIMITED, "too many WebSocket connections", close_code=WS_CLOSE_POLICY
                 )
                 return
-            hub.register_ws(connection_id, "", websocket)
-            registered = True
+            state["subscription"] = subscription
+            hub.register_ws(connection_id, "", ws)
+            state["registered"] = True
             logger.info("http event=notification_ws_open connection_id=%s", connection_id)
             await _supervise(
-                _notification_send_events(websocket, subscription),
-                _notification_handle_commands(websocket),
+                _notification_send_events(ws, subscription),
+                _notification_handle_commands(ws),
             )
-            with contextlib.suppress(Exception):
-                await websocket.close()
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("http event=notification_ws_failed connection_id=%s", connection_id)
-            with contextlib.suppress(Exception):
-                await _send_error(
-                    websocket,
-                    HttpErrorCode.SERVER_ERROR,
-                    "internal server error",
-                    close_code=1011,
-                )
-        finally:
+
+        def finalize(connection_id: str) -> None:
+            subscription = state["subscription"]
             if subscription is not None:
                 hub.remove_subscriber(subscription.queue)
-            if registered:
+            if state["registered"]:
                 hub.unregister_ws(connection_id)
-            logger.info(
-                "http event=notification_ws_close connection_id=%s elapsed_ms=%d",
-                connection_id,
-                int((time.perf_counter() - started) * 1000),
-            )
+
+        await _ws_session(
+            websocket,
+            transport="notifications",
+            authorize=authorize,
+            origin_violation=origin_violation,
+            origin_run_id="",
+            version=version,
+            log_prefix="http",
+            log_name="notification_ws",
+            log_run_id=None,
+            closing_probe=lambda: hub.closing,
+            session=session,
+            finalize=finalize,
+        )
 
     return endpoint
 

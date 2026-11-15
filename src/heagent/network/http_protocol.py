@@ -14,11 +14,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from enum import StrEnum
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, overload
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Sequence
 
 # HTTP API 的信封版本：出现在健康检查响应里，供客户端判断兼容性（不随 HeAgent 版本走）。
 HTTP_SCHEMA_VERSION = "1"
@@ -355,6 +359,96 @@ def clip_text(value: str, *, limit: int = MAX_EVENT_TEXT_CHARS) -> str:
     return value[:limit] + _TRUNCATION_SUFFIX
 
 
+def cursor_out_of_window(cursor: int | None, oldest_seq: int | None) -> bool:
+    """游标是否已落在事件窗口之外（``resync_required`` 判据的算术**单源**）。
+
+    语义（严格大于）：客户端说「我收到 N」时，只要 ``N >= oldest_seq - 1`` 就能无缝续读；
+    更小的 N 意味着中间事件已被 ring buffer 淘汰，**必须**重新同步而不是发一条看似连续的流。
+    没有游标等价于「从头读」：若窗口已淘汰开头（``oldest_seq > 1``），同样要求重新同步；
+    空缓冲（``oldest_seq is None``）永远不需要。
+
+    WS run 订阅（:mod:`~heagent.network.ws_server`）、SSE（``http_server.stream_events`` 前的
+    服务层判定）与两条只读流（:class:`~heagent.network.event_stream_hub.EventStreamHub`）共用
+    本函数——三处各写一遍迟早漂移（活动台账 A54⑤）。
+    """
+    if oldest_seq is None:
+        return False
+    effective = 0 if cursor is None else max(0, cursor)
+    return effective < oldest_seq - 1
+
+
+@overload
+def replay_then_follow(
+    snapshot: Sequence[RunEventPayload],
+    *,
+    cursor: int | None,
+    is_terminal: bool,
+    queue: asyncio.Queue[RunEventPayload | None],
+    heartbeat_seconds: None = None,
+) -> AsyncIterator[RunEventPayload]: ...
+
+
+@overload
+def replay_then_follow(
+    snapshot: Sequence[RunEventPayload],
+    *,
+    cursor: int | None,
+    is_terminal: bool,
+    queue: asyncio.Queue[RunEventPayload | None],
+    heartbeat_seconds: float,
+) -> AsyncIterator[RunEventPayload | None]: ...
+
+
+async def replay_then_follow(
+    snapshot: Sequence[RunEventPayload],
+    *,
+    cursor: int | None,
+    is_terminal: bool,
+    queue: asyncio.Queue[RunEventPayload | None],
+    heartbeat_seconds: float | None = None,
+) -> AsyncIterator[RunEventPayload | None]:
+    """「快照重放 + 水位去重」的**唯一**实现：先重放缓冲快照，再跟随实时队列（A54④）。
+
+    WS run 订阅（:mod:`~heagent.network.ws_server`）与 SSE（``http_server.stream_events``）
+    曾各抄一份这段循环——登记与快照之间存在真实 ``await`` 窗口：窗口内 emit 的事件会
+    「既进重放快照、又进实时队列」，靠**已重放水位**（``replayed_upto = max(cursor, 快照最大
+    seq)``）去重才能保证「不重复」契约成立。
+
+    - 重放只发**严格大于** ``cursor`` 的部分（``cursor=None`` = 从头读）；缺口的判定由调用方
+      在建立流之前用 :func:`cursor_out_of_window` 做完，这里只管「不重复」；
+    - ``is_terminal`` **必须与快照同拍捕获**（调用方在同一个同步段内 ``tuple(缓冲)`` 后立即读
+      终态，两读之间不得有 ``await``）——终态事件先于流结束（AD-4）；
+    - 队列哨兵 ``None`` = 流到此结束，**绝不**作为事件 ``yield``；
+    - ``heartbeat_seconds`` 给定时（SSE 用），队列空闲超时 ``yield None`` 心跳（不占事件 ID、
+      不推进游标）；WS 传 ``None``（协议级 ping 已由 Uvicorn 负责，不发应用层心跳）。
+    """
+    replayed_upto = max(
+        cursor if cursor is not None else 0,
+        max((payload.seq for payload in snapshot), default=0),
+    )
+    for payload in snapshot:
+        if cursor is None or payload.seq > cursor:
+            yield payload
+    if is_terminal:
+        return
+    while True:
+        if heartbeat_seconds is None:
+            item = await queue.get()
+        else:
+            try:
+                item = await asyncio.wait_for(queue.get(), timeout=heartbeat_seconds)
+            except TimeoutError:
+                # 空闲期的保活帧：客户端（及中间层）据此判定连接仍然活着。超时取消的是
+                # ``queue.get()`` 本身，不会丢掉已在队列里的事件。
+                yield None
+                continue
+        if item is None:
+            return
+        if item.seq <= replayed_upto:
+            continue
+        yield item
+
+
 class HttpRunConflictError(RuntimeError):
     """已有在途运行（或服务正在关闭 / **服务级总额已满**），拒绝新运行（AD-3 的单运行约束）。
 
@@ -402,6 +496,8 @@ __all__ = [
     "SessionMessage",
     "SessionResponse",
     "clip_text",
+    "cursor_out_of_window",
     "error_envelope",
+    "replay_then_follow",
     "sanitize_message",
 ]

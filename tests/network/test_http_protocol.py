@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import pytest
 from pydantic import ValidationError
 
@@ -22,7 +23,10 @@ from heagent.network.http_protocol import (
     HttpErrorCode,
     HttpErrorDetail,
     HttpErrorEnvelope,
+    RunEventKind,
+    RunEventPayload,
     error_envelope,
+    replay_then_follow,
     sanitize_message,
 )
 from heagent.network.http_server import HttpServerConfig, read_web_asset
@@ -202,3 +206,68 @@ class TestSanitizeMessageMasksHostPaths:
 
         assert len(out) <= MAX_ERROR_MESSAGE_CHARS
         assert out.startswith("<path>")
+
+
+class TestReplayThenFollow:
+    """「快照重放 + 水位去重」单源助手（A54④）：WS run 订阅与 SSE 共用，钉住四条契约。"""
+
+    @staticmethod
+    def _event(seq: int) -> RunEventPayload:
+        return RunEventPayload(kind=RunEventKind.TEXT, seq=seq, text=f"e{seq}")
+
+    @staticmethod
+    async def _collect(gen) -> list[int]:
+        return [e.seq async for e in gen if e is not None]
+
+    def _run(self, snapshot, *, cursor=None, is_terminal=False, queue, heartbeat_seconds=None):
+        return replay_then_follow(
+            snapshot,
+            cursor=cursor,
+            is_terminal=is_terminal,
+            queue=queue,
+            heartbeat_seconds=heartbeat_seconds,
+        )
+
+    async def test_replays_only_strictly_after_cursor(self) -> None:
+        queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue()
+        await queue.put(None)  # 哨兵：live 循环据此结束（重放面本身不结束流）
+        gen = self._run([self._event(1), self._event(2), self._event(3)], cursor=1, queue=queue)
+        assert await self._collect(gen) == [2, 3]
+
+    async def test_cursor_none_replays_everything(self) -> None:
+        queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue()
+        await queue.put(None)
+        gen = self._run([self._event(1), self._event(2)], queue=queue)
+        assert await self._collect(gen) == [1, 2]
+
+    async def test_watermark_dedups_snapshot_queue_overlap(self) -> None:
+        """登记与快照间的 await 窗口：事件既进快照又进队列 ⇒ 水位去重，绝不重复投递。"""
+        queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue()
+        await queue.put(self._event(2))  # 已在快照里的事件同时进了实时队列（水位去重跳过）
+        await queue.put(None)
+        gen = self._run([self._event(1), self._event(2)], queue=queue)
+        assert await self._collect(gen) == [1, 2]
+
+    async def test_terminal_ends_stream_after_replay(self) -> None:
+        queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue()
+        gen = self._run([self._event(1)], is_terminal=True, queue=queue)
+        assert await self._collect(gen) == [1]
+
+    async def test_queue_sentinel_none_ends_stream(self) -> None:
+        queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue()
+        await queue.put(self._event(1))
+        await queue.put(None)
+        gen = self._run([], queue=queue)
+        assert await self._collect(gen) == [1]
+
+    async def test_heartbeat_yields_none_on_idle(self) -> None:
+        queue: asyncio.Queue[RunEventPayload | None] = asyncio.Queue()
+        gen = self._run([], queue=queue, heartbeat_seconds=0.01)
+        agen = gen.__aiter__()
+        first = await agen.__anext__()
+        assert first is None  # 心跳
+        await queue.put(self._event(5))
+        assert (await agen.__anext__()).seq == 5
+        await queue.put(None)
+        with pytest.raises(StopAsyncIteration):
+            await agen.__anext__()

@@ -32,7 +32,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
-from heagent.network.http_protocol import HttpErrorCode
+from heagent.network.http_protocol import HttpErrorCode, cursor_out_of_window
 from heagent.network.ws_protocol import WS_CLOSE_GOING_AWAY, WsErrorFrame, error_envelope
 from heagent.pub.safe_logging import safe_log
 
@@ -67,6 +67,65 @@ class StreamSubscription(Generic[PayloadT]):
     queue: asyncio.Queue[tuple[str, PayloadT] | None]
 
 
+class WsRegistry:
+    """WS 连接登记与有界关停的唯一实现（A54⑤）。
+
+    run 服务（``http_server.HttpRunService``）与两条只读流（:class:`EventStreamHub`）曾各持
+    一份 ``connection_id → websocket`` 登记表与关停收尾——「登记面两份实现迟早漂移」与当年抽
+    通用核是同一条教训。本类只管「谁还连着」与「有界地把它们全部关掉」；谁可以在关停前
+    连进来（限额 / 认证 / 可见性）不归它管。
+
+    日志前缀与 stream 标签由宿主注入：关停日志保持各宿主旧口径（``<prefix> event=ws_close
+    <label>=<stream_id> connection_id=…``）。
+    """
+
+    def __init__(self, *, log_prefix: str, stream_label: str = "run_id") -> None:
+        self._log_prefix = log_prefix
+        self._stream_label = stream_label
+        self._ws_connections: dict[str, tuple[str, Any]] = {}
+
+    @property
+    def connection_count(self) -> int:
+        """当前登记的 WS 连接数（关停与测试用）。"""
+        return len(self._ws_connections)
+
+    def register_ws(self, connection_id: str, stream_id: str, websocket: Any) -> None:
+        """登记已通过限额的 WS 连接，供有界关停关闭。"""
+        self._ws_connections[connection_id] = (stream_id, websocket)
+
+    def unregister_ws(self, connection_id: str) -> None:
+        """移除断线或已关闭的 WS 连接登记。"""
+        self._ws_connections.pop(connection_id, None)
+
+    async def close_websockets(self, *, timeout: float = 5.0) -> None:
+        """通知所有已登记连接服务关闭，并有界收尾。"""
+        connections = tuple(self._ws_connections.items())
+        if not connections:
+            return
+
+        async def close_one(connection_id: str, stream_id: str, websocket: Any) -> None:
+            with contextlib.suppress(Exception):
+                # 与 HTTP/WS 既有口径一致：关停用 shutting_down + 1001。
+                envelope = error_envelope(HttpErrorCode.SHUTTING_DOWN, "server is shutting down")
+                await websocket.send_text(WsErrorFrame(error=envelope).model_dump_json())
+                await websocket.close(code=WS_CLOSE_GOING_AWAY)
+            self.unregister_ws(connection_id)
+            safe_log(
+                logger,
+                logging.INFO,
+                "%s event=ws_close %s=%s connection_id=%s",
+                self._log_prefix,
+                self._stream_label,
+                stream_id,
+                connection_id,
+            )
+
+        await asyncio.wait_for(
+            asyncio.gather(*(close_one(key, stream_id, websocket) for key, (stream_id, websocket) in connections)),
+            timeout=timeout,
+        )
+
+
 class EventStreamHub(Generic[PayloadT]):
     """只读事件流的状态源：seq / 缓冲 / 订阅者 / 关停。
 
@@ -95,8 +154,8 @@ class EventStreamHub(Generic[PayloadT]):
         self._buffer: deque[tuple[str, PayloadT]] = deque(maxlen=buffer_size)
         self._next_seq = 1
         self._subscribers: set[asyncio.Queue[tuple[str, PayloadT] | None]] = set()
-        # connection_id → (stream_id, websocket)：关停时按连接关闭，与 run_service 同形态。
-        self._ws_connections: dict[str, tuple[str, Any]] = {}
+        # 连接登记与有界关停是 WsRegistry 的职责（run 服务同款组合，A54⑤）。
+        self._ws = WsRegistry(log_prefix=log_prefix, stream_label=stream_label)
         self._closing = False
 
     # ---- 查询 ----
@@ -114,7 +173,7 @@ class EventStreamHub(Generic[PayloadT]):
     @property
     def connection_count(self) -> int:
         """当前登记的 WS 连接数（关停与测试用）。"""
-        return len(self._ws_connections)
+        return self._ws.connection_count
 
     @property
     def oldest_seq(self) -> int | None:
@@ -130,12 +189,9 @@ class EventStreamHub(Generic[PayloadT]):
         """游标是否已落在窗口之外（与 :meth:`HttpRunService.needs_resync` 同一语义）。
 
         没有游标等价于「从头读」：若窗口已淘汰开头（``oldest_seq > 1``），同样要求重新同步。
+        算术单源 ``http_protocol.cursor_out_of_window``——三条流 + WS 共用一份判据。
         """
-        oldest = self.oldest_seq
-        if oldest is None:
-            return False
-        effective = 0 if cursor is None else max(0, cursor)
-        return effective < oldest - 1
+        return cursor_out_of_window(cursor, self.oldest_seq)
 
     # ---- 写侧（子类调用；同步、不抛）----
 
@@ -200,12 +256,12 @@ class EventStreamHub(Generic[PayloadT]):
     # ---- 关停 ----
 
     def register_ws(self, connection_id: str, stream_id: str, websocket: Any) -> None:
-        """登记已通过限额的 WS 连接，供有界关停关闭。"""
-        self._ws_connections[connection_id] = (stream_id, websocket)
+        """登记已通过限额的 WS 连接，供有界关停关闭（委托 :class:`WsRegistry`）。"""
+        self._ws.register_ws(connection_id, stream_id, websocket)
 
     def unregister_ws(self, connection_id: str) -> None:
         """移除断线或已关闭的 WS 连接登记。"""
-        self._ws_connections.pop(connection_id, None)
+        self._ws.unregister_ws(connection_id)
 
     def close(self) -> None:
         """置「停止接收」标记（幂等）；之后的新连接直接收 ``shutting_down``。"""
@@ -217,31 +273,7 @@ class EventStreamHub(Generic[PayloadT]):
 
     async def close_websockets(self, *, timeout: float = 5.0) -> None:
         """通知所有已登记连接服务关闭，并有界收尾。"""
-        connections = tuple(self._ws_connections.items())
-        if not connections:
-            return
-
-        async def close_one(connection_id: str, stream_id: str, websocket: Any) -> None:
-            with contextlib.suppress(Exception):
-                # 与 HTTP/WS 既有口径一致：关停用 shutting_down + 1001。
-                envelope = error_envelope(HttpErrorCode.SHUTTING_DOWN, "server is shutting down")
-                await websocket.send_text(WsErrorFrame(error=envelope).model_dump_json())
-                await websocket.close(code=WS_CLOSE_GOING_AWAY)
-            self.unregister_ws(connection_id)
-            safe_log(
-                logger,
-                logging.INFO,
-                "%s event=ws_close %s=%s connection_id=%s",
-                self._log_prefix,
-                self._stream_label,
-                stream_id,
-                connection_id,
-            )
-
-        await asyncio.wait_for(
-            asyncio.gather(*(close_one(key, stream_id, websocket) for key, (stream_id, websocket) in connections)),
-            timeout=timeout,
-        )
+        await self._ws.close_websockets(timeout=timeout)
 
 
-__all__ = ["STREAM_BUFFER_SIZE", "EventStreamHub", "SequencedPayload", "StreamSubscription"]
+__all__ = ["STREAM_BUFFER_SIZE", "EventStreamHub", "SequencedPayload", "StreamSubscription", "WsRegistry"]

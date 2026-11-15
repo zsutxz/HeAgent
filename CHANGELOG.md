@@ -14,6 +14,7 @@
 
 ### Changed
 
+- 网络层单源化清理批（A54 网络族，行为保持型）：WS run 订阅与 SSE 的「快照重放 + 水位去重」收敛到 `http_protocol.replay_then_follow` 唯一实现——WS 侧终态判定随之改为**快照时刻捕获**，微竞态窗口内客户端改收终态事件而非裸关闭（对齐 AD-4「终态事件先于流结束」）；`resync_required` 判据算术单源 `http_protocol.cursor_out_of_window`（run/SSE/CLI 旁路/通知流四处共用）；WS 连接登记与有界关停收敛到 `event_stream_hub.WsRegistry`（`HttpRunService` 组合接入，其关停日志去掉 `close_code` 字段与 hub 口径统一）；ws_server 四条端点构造器的公共骨架（握手门→accept/hello→关停检查→会话体→异常收敛→有界收尾）收进 `_ws_session`，日志事件名逐字节保持。
 - 内部单源化清理批（行为零变化，判据全绿）：词级判重公式三份拷贝收单点（`compact.word_overlap_duplicate`，`FactStore.add` 反向复用）；归档小节构造与字节账收敛到 `auto_archive._append_archive`/`_fact_line_bytes`（`compact._append_archive_section` 退化为薄委托）；`auto_archive` 跨进程节流改用 `pub.persist` 的 `stamp_is_recent`/`touch_prune_stamp`（与 store/ledger/housekeeping 同一节流序列）；`EngineContainer` 两处 prune 同构孪生收敛 `_prune_gate_once`（日志文案逐字节不变）；`setup_ws_external` / `envscan` 改用 `envfile.replace_or_append` / `envfile.fingerprint`。
 
 ### Added
