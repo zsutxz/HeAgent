@@ -14,7 +14,7 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 3. **本地模式**（listener 绑回环，默认）：HTTP 与 WS 均无认证、无 TLS；回环绑定不等于可信；`Origin` / `Host` 校验只是入口层 defense-in-depth；WS 主 listener 可经 `WS_LOCAL_AUTH_ENABLED=true` 也强制 Bearer token（2026-11-04 D5 修订，默认关；开启时含旁路 `/api/cli/ws`、本机消费者都要带 token）。
 4. **对外模式**（WS listener 绑非回环，Epic 56 D5）：强制 `Authorization: Bearer <token>`（token 只读用户级 `~/.heagent/setting.md`，项目 `.env` 无效），缺 token 拒绝启动（fail-closed）；认证不是绝对边界；浏览器 WebSocket API 无法自定义请求头。
 5. **端点可见性**：HTTP listener 没有对外模式；终端旁路 `/api/cli/ws` 只挂本地 listener（`WS_EXTERNAL_HOST` 非空时的**双监听并存**下，对外 listener 恒不注册）；只读通知流 `/api/notifications/ws` 随 listener 注册，对外 listener 上同样可见（token 之后）——但仅在 `CRON_PUSH_ENABLED=true` 建起中枢时注册，默认关 ⇒ 路由不存在（客户端拿裸 403）。
-6. **已知缺口与台账**：清单落 `_bmad-output/implementation-artifacts/open-items.md`（闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三），本节不复述。
+6. **已知缺口与台账**：清单落 `_bmad-output/open-items.md`（「活动（未闭合）条目」节；闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三），本节不复述。
 
 落点提示：端口 / provider / 认证 / TLS 键等机制细节见 `docs/frame.md` 4.17 与 4.17.1；对外能提交 run 时**强烈建议**启用容器沙箱档（`--sandbox docker`）。
 
@@ -32,8 +32,8 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 | `docs/testing.md` | 测试与门禁判读（红了怎么分诊、`verify_baseline.py` 用法、marker 口径、历史噪声记录） |
 | `docs/sandbox.md` | 沙箱机制导读——改沙箱后端/档位前先读 |
 | `docs/goal-workflow.md` | /goal 声明式工作流导读——改 `goal/` 或 `.heagent/skills/he-goal/` 前先读 |
-| `_bmad-output/implementation-artifacts/open-items.md` | 已知缺口活动台账（状态/触发条件/裁定指针；闭合历史见 `retrospective-all-cycles.md` §三） |
-| `_bmad-output/consolidated-overview.md` | 统一整合总览（Epic 1-50 + S1-S4 主题/状态/story 映射） |
+| `_bmad-output/epic-overview.md` | 当前状态总览 + epic 总目录（文档地图；2026-11-15 自 consolidated-overview.md 重组定名） |
+| `_bmad-output/open-items.md` | 已知缺口活动台账（「活动（未闭合）条目」节；闭合历史见 `retrospective-all-cycles.md` §三） |
 
 ## 架构骨架
 
@@ -175,7 +175,7 @@ WS 对外排障工具链（`scripts/`，细节见各脚本头注释）：`setup_
 
 ## 已知缺口
 
-完整清单见 `docs/frame.md` 五与 `_bmad-output/implementation-artifacts/open-items.md`（闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
+完整清单见 `docs/frame.md` 五与 `_bmad-output/open-items.md`「活动（未闭合）条目」节（闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
 
 核心立场：三层非边界 / OS 级沙箱兜底 / 本地与对外两种入口模式 / 端点可见性的口径见 [`docs/frame.md`](docs/frame.md) 的「安全口径（canonical）」（§4.19）；本段不重复论证。
 

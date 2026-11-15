@@ -3,7 +3,7 @@
 # project: HeAgent
 # project_key: NOKEY
 # tracking_system: file-system
-# story_location: stories 已按 epic 归档至 _bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/；epic 总目录见 consolidated-overview.md
+# story_location: stories 已按 epic 归档至 _bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/；epic 总目录见 epic-overview.md「附：文档地图速查」
 #
 # CONSOLIDATION NOTE (2026-07-23):
 #   本文件是 HeAgent 全周期 sprint-status 的单一权威来源。
@@ -49,10 +49,10 @@ last_updated: 11-13-2026 15:00
 project: HeAgent
 project_key: NOKEY
 tracking_system: file-system
-story_location: _bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/（stories 
-  嵌套于所属周期目录，见 consolidated-overview.md）
+story_location: _bmad-output/epics/epic-区间-周期/epic-NN-主题/stories/（stories
+  嵌套于所属周期目录，epic 总目录见 epic-overview.md「附：文档地图速查」）
 # spec 归档口径（2026-09-15）：实现 spec 与补丁 spec 一律按**归属 epic** 归档到 `epics/<周期>/<epic-NN-主题>/`（原 `patches/` 目录已解散）；
-#   `implementation-artifacts/` 只保留未闭合 deferred 活动台账与未启动的母规划 spec。
+#   `implementation-artifacts/` 只保留实现期专题档案（活动台账 2026-11-15 已上移根目录 open-items.md）。
 
 development_status:
   # ═══════════════════════════════════════════════════════════════

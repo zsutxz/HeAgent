@@ -68,7 +68,7 @@ python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
 | 基线跑不起来（缺依赖 / worktree 失败） | 脚本自身失败（exit 2） | 先解决取证环境，**不得**把「跑不起来」当成「基线绿」 |
 
 为什么用 worktree 而不是 `git stash`：本仓可能被多个会话并发编辑（见 `AGENTS.md` 与
-`_bmad-output/implementation-artifacts/open-items.md`），`stash` 会动工作区、影响别人；
+`_bmad-output/open-items.md`），`stash` 会动工作区、影响别人；
 `worktree add --detach` 只读 HEAD，用完即删。
 
 ## 三、标记（marker）口径

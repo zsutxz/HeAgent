@@ -3,7 +3,7 @@
 > **归并来源**：`_bmad-output/patches/_meta/deferred-work.md`（原跨周期技术债台账，2026-09-15 整理后退役并删除）。
 > **归档规则**：按条目**归属的 epic** 归档（本周期 = sandbox 域，含 engine sandbox 后端）；「闭合者」注明实际完成它的 epic / 补丁 spec / commit。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码、测试与 commit。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/open-items.md`](../../implementation-artifacts/open-items.md)。
+> **活动（未闭合）遗留项**仍在 [`open-items.md`](../../open-items.md)。
 >
 > **立场不变**：以下全部为 defense-in-depth 硬化，**非完美边界**——`FirejailBackend` 仅隔离 `shell`
 > 子进程、`WinJobBackend` 无文件系统/网络隔离、file/memory 等宿主进程内 I/O 工具不受覆盖，

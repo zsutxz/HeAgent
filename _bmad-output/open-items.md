@@ -1,13 +1,13 @@
-# Open Items — 当前未完成清单
+# Open Items — 活动台账（未闭合问题清单）
 
-> 活动（未闭合）条目正文的**唯一真源**（2026-11-15 从 `deferred-work-archive.md` 抽出，用户裁定「未完成的抽出来、已处理的归入历史记录」）。
+> 活动项正文真源（2026-11-15 由 `implementation-artifacts/open-items.md` 上移根目录；同一 ID 的正文只在此一处，不得两处并存）。
 > 状态语义：`active`（有触发条件、未排期）／`scheduled`（已挂到 story 或 sprint）／`frozen`（挂起待裁定，**必须带裁定指针**——没有指针的「挂起」不是状态，是遗忘）。
-> `retired`（显式退役，5 字段齐备）的规范与历史记录在 [`retrospective-all-cycles.md`](../retrospective-all-cycles.md) §三。
-> **单向收敛**：同一 ID 的正文只在一个文件——活动项在本文件，闭合／退役／勘察在 archive；`deferred-work.md` 只留指针。
-
-当前活动项：**7 条**（`frozen` 2：A34 / A41；`active` 5：A35 / A36 / A52 / A53 / A54）。
+> `retired`（显式退役，5 字段齐备）的规范与历史记录在 [`retrospective-all-cycles.md`](retrospective-all-cycles.md) §三。
+> 当前状态总览与 epic 总目录见 [`epic-overview.md`](epic-overview.md)。
 
 ## 活动（未闭合）条目
+
+当前活动项：**7 条**（`frozen` 2：A34 / A41；`active` 5：A35 / A36 / A52 / A53 / A54）。
 
 | ID | 主题 | 状态 | 说明 |
 | --- | --- | --- | --- |
@@ -19,15 +19,15 @@
 | A53 | PostToolUse hook stdout 不进对话上下文 | `active` | 现状 = PostToolUse 钩子 fire-and-forget（stdout 仅日志）；Claude Code 语义会把非阻断 stdout 注入 transcript。**origin=新增（2026-11-13）：用户裁定撤销 Epic 63 立项，残差转台账**；候选增强 = 非阻断 hook stdout 注入对话（需定预算与截断口径）。触发条件 = 出现把 hook 输出喂回模型的真实需求（当前零使用） |
 | A54 | /simplify 清理批（2026-11-14）缓修残差：真重构 8 项（2026-11-15 起 ①④⑤ 已落） | `active` | **origin=新增（2026-11-14 /simplify 四视角审查）**。2026-11-14 `/simplify` 四视角审查（REUSE 7 / SIMPLIFICATION 6 / EFFICIENCY 4 / ALTITUDE 5，去重后 19 机制）的「立即修」机械批已落 `954f9d4`；以下**缓修**项超出一次清理的体量，逐条留档（origin = 四份审查报告，`git log 954f9d4` 前的会话）：① ws_server 双胞胎端点构造器与会话骨架（两对 ~95 行孪生构造器）② cli/http 服务编排合一 ③ `SandboxDecision` 加类型化派生字段取代 agent 层 `isinstance(dict)` 鸭子解析（`agent/loop.py:453` `_bound_container_workdir`）④ WS/SSE「快照重放+水位去重」双写收敛到 `http_protocol.py` ⑤ http_server 的 register_ws/unregister_ws/close_websockets/needs_resync 登记面坐上 `EventStreamHub`（`http_server.py:640-696`）⑥ story 批基线一次采集 ⑦ 流式 token 重编码：`agent/stream_runtime.py:95` 每次流式调用全量 re-encode 且 usage 缺失分支再全量算一次（按消息 memoize / 复用 `stream_estimated`）⑧ policy 可用性预热 + WS 帧预序列化（帧对订阅者恒同，但预序列化点在三 hub 的 backlog/队列协议面，与 ④⑤ 同族同批）。**2026-11-15 网络族推进（用户裁定：收敛到 SSE 语义 / ⑧ 本批不做）**：① = ws_server 四构造器收 `_ws_session` 会话骨架（握手门→accept/hello→closing→会话体→异常收敛→有界收尾，日志事件名逐字节保持）；④ = `http_protocol.replay_then_follow` 单源（WS 侧终态判定改**快照时刻捕获**——微竞态窗口内 WS 客户端改收终态事件，对齐 AD-4；SSE 心跳经参数注入）；⑤ = `cursor_out_of_window` 算术单源（三流 + WS）+ `WsRegistry` 连接登记与有界关停唯一实现（http_server 组合接入；其 close_websockets 日志去 close_code 字段，与 hub 口径统一，无测试钉死）。判据 `tests/network/test_http_protocol.py::TestReplayThenFollow`（6 例直钉）+ 既有 WS/SSE/hub 面全绿；⑧ 复核：'policy 可用性预热' 位点在代码/审查报告/台账均不可考（claude-mem 不可达、报告未落盘），帧预序列化经评估收益趋零（单用户 1–2 订阅者）且需改两条流的队列形状——**缓做**，待性能专项周期携原始报告复核。②③⑥⑦ 维持触发条件（下一轮性能/网络专项周期按项领取；动手前过两道红线） |
 
-## 速读（按行动姿态分组）
+### 速读（按行动姿态分组）
 
 - **等外部触发**：A35（重启丢 run 困扰 ≥2 次 / 长 run 常态化）、A36（实际写自定义签名且需跨项目共享）、A53（hook stdout 喂回模型的真实需求）
 - **有明确修法等排期**：A52（下一实现周期 quick-dev 一发子弹）、A54 残余 ②③⑥⑦（下一轮性能/网络专项周期领取；动手前过两道红线：monkeypatch 缝 grep + 本机可验证面）
 - **等用户裁定**：A34（OQ-5「隔离 vs 丢弃」）、A41（AD-20 / OQ-4 物理隔离）
 
-## 维护规则（活动项）
+### 维护规则（活动项）
 
-- 新增未闭合项**只写本文件**：先登记 ID、状态（active / scheduled / frozen）、触发条件、裁定与验收证据，再开始实施；不要在本目录另建活动清单或复活 archive 活动区。
+- 新增未闭合项**只写本节**：先登记 ID、状态（active / scheduled / frozen）、触发条件、裁定与验收证据，再开始实施；不要另建活动清单或复活历史档案活动区。
 - `frozen` 必须带裁定指针（哪个 OQ / 哪份记录）。
-- 闭合时把正文迁入 [`retrospective-all-cycles.md`](../retrospective-all-cycles.md) §三（台账），或按归属 Epic 进 `epics/<周期>/deferred-work.md`，并从本表移除；**同一 ID 不得两处并存**。显式退役（裁定永不修）走历史记录的 `retired` 5 字段规范。
+- 闭合时把正文迁入 [`retrospective-all-cycles.md`](retrospective-all-cycles.md) §三（台账），或按归属 Epic 进 `epics/<周期>/deferred-work.md`，并从本表移除；**同一 ID 不得两处并存**。显式退役（裁定永不修）走 §三 的 `retired` 5 字段规范。
 - `blocked` 需要产品或架构裁定，不能由实现者静默关闭。

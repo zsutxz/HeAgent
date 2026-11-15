@@ -1,6 +1,6 @@
 # HeAgent 全周期综合回顾
 
-> 生成: 2026-07-22；最近一次整理: 2026-09-26。本文是历史回顾与跨周期教训；活动 deferred 正文现以 `implementation-artifacts/open-items.md` 为准（2026-11-15 起）。
+> 生成: 2026-07-22；最近一次整理: 2026-09-26。本文是历史回顾与跨周期教训；活动 deferred 正文现以根目录 `open-items.md`（2026-11-15 由 consolidated-overview.md 与 implementation-artifacts/open-items.md 合并定名）「活动（未闭合）条目」节为准。
 > 覆盖: Epic 1–57 + S1–S4，**26 个周期**（**61 个 Epic 条目** = Epic 1–57 + S1–S4；另含架构优化周期 Phase 0–5，非 BMad 流程；2026-10-27 刷新）
 > 基准: **3765 passed / 50 skipped / 28 deselected**（2026-10-23 实测）、ruff / mypy clean、覆盖率 **92.47%**（gate 87）
 >
@@ -177,7 +177,7 @@
 
 ## 二、周期详解（迁自 consolidated-overview.md §一–十六）
 
-> 迁移注记：①「§17.x」指针指 consolidated-overview.md 对应节；②「deferred-work-archive.md」指针指本文 §三；③「A 编号登记表」在 epic-50 周期 deferred-work.md；④ 仅标题降级，内容逐字节保留。
+> 迁移注记：①「§17.x」指针指 consolidated-overview.md（2026-11-15 重组为 epic-overview.md，§十七重编为 §一/1.x）对应节；②「deferred-work-archive.md」指针指本文 §三；③「A 编号登记表」在 epic-50 周期 deferred-work.md；④ 仅标题降级，内容逐字节保留。
 
 ### 一、项目与 BMad 迭代模型
 
@@ -1069,7 +1069,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ## 三、deferred 闭合与归档台账（原 implementation-artifacts/deferred-work-archive.md）
 
-> 迁移注记：活动项不在本节（真源=open-items.md）；已闭合编号索引在本文 §四；「正文见 archive 的 X 小节」系旧档案用语，正文以 git 历史为准。
+> 迁移注记：活动项不在本节（真源=open-items.md「活动（未闭合）条目」节）；已闭合编号索引在本文 §四；「正文见 archive 的 X 小节」系旧档案用语，正文以 git 历史为准。
 
 ### 已按 Epic 归档
 
@@ -1165,7 +1165,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 > 迁移注记：原「台账 A 编号登记表」引用系旧布局用语，登记段在 epic-50 周期 deferred-work.md；Z-D8/Z-D9 闭合档案在本文 §三。
 
-> **2026-11-15 起**：完整正文（触发条件 / 状态 / 裁定指针）一律以 `implementation-artifacts/open-items.md` 为准；闭合与归档历史见本文 §三。本表只做导航、**不再复制**（以下为历史沿革，保留原样：2026-10-26 S-6 四态归一新增 A40–A44 / A49；2026-10-29 epic-59 审查落账 A50，其中 A45–A50 均已当轮或后续批次闭合，见 archive「本轮闭合」表；2026-10-20 落账 **A34**–**A36**（会话并发写残余 / HTTP 持久化 / 全局签名入口，0e8a330）挂起待裁定或待触发；2026-10-23 登记并**当日实施闭合**的 **A37**–**A39**（reason 长度上限 / 事件与 checkpoint 的转换原因 / KI·SystemExit 取消语义）已按 Epic 51 归档，正文见 `epics/epic-51-goal-workflow优化周期/deferred-work.md`——它们**不进**下方历史索引表（该表口径仍是 A1~A19 + A23~A33 的 26 行已闭合编号）；历史沿革：2026-10-07 两轮 /simplify 清理补录 A25~A33 ⇒ 由 0 复增至 9，同日第五轮批量处置 A29/A30/A31/A32 ⇒ 9→5，同日第六轮按用户指令闭合 A25 / A26 / A27 / A28 / A33 ⇒ 第二次清空；2026-09-28 曾**首次清空**——A8 / A10 / A12 / A15 / A16 按裁定、A1④ 交付、A1 与 A6 归档）。下表保留 **26 行已闭合 / 已失效**的编号（A1~A19 + A23~A33 全部划线），供旧引用追溯。**编号口径（2026-09-28 统一）**：本表 A 号与台账的「**A 编号登记表**」**已对齐**——A1~A19 + A23/A24 一一对应 21 个事项（A20~A22 为撤号，不复用；A25~A33 为 2026-10-07 新登记批次），**同号异义已消除**（旧账：A19 曾同时指「掩码域后缀制」与「原生目录选择端点默认开」，A17/A21 同指 R5 收敛判据）。撤号不复用，旧号对照见登记表的「旧号对照（撤号 / 让号）」段；引用**一律以台账登记表为准**。
+> **2026-11-15 起**：完整正文（触发条件 / 状态 / 裁定指针）一律以 `open-items.md`「活动（未闭合）条目」节为准；闭合与归档历史见本文 §三。本表只做导航、**不再复制**（以下为历史沿革，保留原样：2026-10-26 S-6 四态归一新增 A40–A44 / A49；2026-10-29 epic-59 审查落账 A50，其中 A45–A50 均已当轮或后续批次闭合，见 archive「本轮闭合」表；2026-10-20 落账 **A34**–**A36**（会话并发写残余 / HTTP 持久化 / 全局签名入口，0e8a330）挂起待裁定或待触发；2026-10-23 登记并**当日实施闭合**的 **A37**–**A39**（reason 长度上限 / 事件与 checkpoint 的转换原因 / KI·SystemExit 取消语义）已按 Epic 51 归档，正文见 `epics/epic-51-goal-workflow优化周期/deferred-work.md`——它们**不进**下方历史索引表（该表口径仍是 A1~A19 + A23~A33 的 26 行已闭合编号）；历史沿革：2026-10-07 两轮 /simplify 清理补录 A25~A33 ⇒ 由 0 复增至 9，同日第五轮批量处置 A29/A30/A31/A32 ⇒ 9→5，同日第六轮按用户指令闭合 A25 / A26 / A27 / A28 / A33 ⇒ 第二次清空；2026-09-28 曾**首次清空**——A8 / A10 / A12 / A15 / A16 按裁定、A1④ 交付、A1 与 A6 归档）。下表保留 **26 行已闭合 / 已失效**的编号（A1~A19 + A23~A33 全部划线），供旧引用追溯。**编号口径（2026-09-28 统一）**：本表 A 号与台账的「**A 编号登记表**」**已对齐**——A1~A19 + A23/A24 一一对应 21 个事项（A20~A22 为撤号，不复用；A25~A33 为 2026-10-07 新登记批次），**同号异义已消除**（旧账：A19 曾同时指「掩码域后缀制」与「原生目录选择端点默认开」，A17/A21 同指 R5 收敛判据）。撤号不复用，旧号对照见登记表的「旧号对照（撤号 / 让号）」段；引用**一律以台账登记表为准**。
 
 | # | 条目 | 严重度 |
 |---|------|--------|
@@ -1268,13 +1268,13 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 
 ## 七、待完成工作（2026-09-27 复核）
 
-> **权威来源**：活动（未闭合）条目 = `_bmad-output/implementation-artifacts/open-items.md`（2026-11-15 起）；Epic/Story 状态 = `_bmad-output/sprint-status.yaml`；安全缺口 = `docs/frame.md` 五。修正表（B 组）见本文 §四。
+> **权威来源**：活动（未闭合）条目 = `_bmad-output/open-items.md`「活动（未闭合）条目」节（2026-11-15 起）；Epic/Story 状态 = `_bmad-output/sprint-status.yaml`；安全缺口 = `docs/frame.md` 五。修正表（B 组）见本文 §四。
 
 ### 7.1 活动台账未闭合（4 条——A34–A36 + A41，**索引**）
 
 > **2026-09-28 复核**：活动区实测 **2 条**（此前写的 23 条为历史值——其间 21 条条目闭合 / 按归属归档并移出活动区，计数长期未同步；同日第五轮校正为 7、第六轮按产品裁定闭合 A8 / A10 / A12 / A15 / A16 五条、第七轮交付 A1④、第八轮按裁定闭合 A1、第九轮按裁定归档 A6 ⇒ **0 条**，活动台账**首次清空**）；**2026-10-07**：Story 51-8 清理轮按纪律补录 4 条（**A25**~**A28**），同日全项目 /simplify 轮再补录 5 条（**A29**~**A33**，14 项跳过发现按主题归并）⇒ 当前 **9 条**；**2026-10-20**：0e8a330 落账 **A34**–**A36**（会话并发写残余 / HTTP 持久化 / 全局签名入口）⇒ 现行 **3 条**；**2026-10-23**：本轮改进落账 **A37**–**A39**（reason 长度上限 / 事件与 checkpoint 的转换原因 / KI·SystemExit 取消语义，判据 `tests/test_workflow_runner.py`）（同日**已实施并闭合**，正文按归属归档 Epic 51 `epics/epic-51-goal-workflow优化周期/deferred-work.md`）⇒ 现行 **3 条**；**2026-10-26**：S-6 四态归一（active / scheduled / frozen / retired），把 Epic 52 review 的 4 项与 Epic 56-1 的 1 项纳入活动表（A40–A44），并闭合 A45–A48，现行 **9 条**。编号口径（本系列编号与台账编号不同义的两处）见 `consolidated-overview.md` §17.4-A。
 
-> （历史口径）正文原以 archive 活动区为准——该区已迁 `implementation-artifacts/open-items.md`；闭合台账在本文 §三，逐条摘要历史值在本文 §四。
+> （历史口径）正文原以 archive 活动区为准——该区已迁 `open-items.md`（2026-11-15 起住 `_bmad-output` 根）；闭合台账在本文 §三，逐条摘要历史值在本文 §四。
 >
 > **旧编号对照**：本条 2026-09-18 版列 A1~A4（TOCTOU / MCP stdio / cli 拆分 / 路径级审批）；新编号前三者不变，**路径级审批移到 A6**。原 A5（`RoleSpec.sandbox_profile` 死字段）与 A6（沙箱进程数限额）已于 2026-09-18 闭合——A5 取删除方向，A6 新增 `SANDBOX_NPROC_LIMIT` + 修正 WinJob `JOB_OBJECT_LIMIT_PROCESS_TIME` 常量（原误写 `0x8` 即 ACTIVE_PROCESS 位）；闭合档案见台账 **Z-D8 / Z-D9**。
 >
@@ -1309,4 +1309,4 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 ## 维护规则（历史区）
 
 > 本文是历史记录：内容为已发生事实的存档，日常不再修改，勘误以追加注记方式补在条目尾部，不改正文。
-> 活动项写入 implementation-artifacts/open-items.md；当前状态写入 consolidated-overview.md；Epic 级闭合条目按归属周期进 epics/<周期>/deferred-work.md，不在本文重复建档。
+> 活动项写入根目录 open-items.md；当前状态与 epic 总目录写入 epic-overview.md（均 2026-11-15 定名）；Epic 级闭合条目按归属周期进 epics/<周期>/deferred-work.md，不在本文重复建档。

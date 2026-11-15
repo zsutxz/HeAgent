@@ -7,9 +7,9 @@ citing an A-number that no document registers; active-count declarations
 drifting from the ledger's actual rows (2026-10-20: A34–A36 registered while
 four documents still declared 0).
 
-2026-11-15 起布局：活动项正文唯一真源 = implementation-artifacts/open-items.md；
-闭合／退役台账 = retrospective-all-cycles.md §三（原 deferred-work-archive.md 迁入）；
-周期级闭合正文 = epics/<周期>/deferred-work.md（archive/epics 已并入 epics，无独立归档区）。
+2026-11-15 起布局：活动项正文唯一真源 = 根目录 open-items.md「活动（未闭合）条目」节；
+当前状态总览与 epic 总目录 = epic-overview.md；闭合／退役台账 = retrospective-all-cycles.md §三；
+周期级闭合正文 = epics/<周期>/deferred-work.md。
 """
 
 from __future__ import annotations
@@ -18,9 +18,8 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ACTIVE = ROOT / "_bmad-output" / "implementation-artifacts" / "open-items.md"
+ACTIVE = ROOT / "_bmad-output" / "open-items.md"
 HISTORY = ROOT / "_bmad-output" / "retrospective-all-cycles.md"
-OVERVIEW = ROOT / "_bmad-output" / "consolidated-overview.md"
 EPICS = ROOT / "_bmad-output" / "epics"
 # Citation shape: the A-number must not be glued to letters/digits/hyphens/quotes
 # (rejects FR-A1, A1b, AD-1, string fixtures like "A1", and the A256 inside SHA256).
@@ -120,7 +119,7 @@ def test_active_ledger_uses_the_current_compact_shape() -> None:
     assert data_rows, "active zone has no table rows"
     for row in data_rows:
         assert len(row) == 4, f"active row is not 4 cells: {row}"
-    assert _declared_active_count("\n".join(lines[:start])) == len(data_rows)
+    assert _declared_active_count("\n".join(lines[start : start + 12])) == len(data_rows)
     assert not any(line.startswith("## A 编号登记表") for line in lines[:start])
 
 
@@ -197,7 +196,8 @@ def test_active_count_declarations_match_the_ledger() -> None:
     actual = len(_active_rows())
     sites = (
         ACTIVE,
-        OVERVIEW,
+        # epic-overview.md 的 1.3/1.4 也声明活动计数——同样纳入诚实性守卫。
+        ROOT / "_bmad-output" / "epic-overview.md",
         ROOT / "_bmad-output" / "README.md",
         # implementation-artifacts/README.md 也声明计数——ver-gap 修复：缺它则该点回退 0 条时全量门照绿。
         ROOT / "_bmad-output" / "implementation-artifacts" / "README.md",

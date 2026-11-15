@@ -196,7 +196,7 @@ per-run 写集围栏（越集 BLOCKED）、宿主只读 Git 写集审计与单�
   只对收口增量生效，故这两个章节靠步骤正文要求 + 步骤 08 复核。
 - 重任务步骤可用 `max_iterations: <1..1000>` 覆盖该步骤的 SubAgent 迭代预算（缺省继承
   `Settings.goal_max_iterations`）；原子大 Story 建议显式放宽，撞上限会让整步/整批以 `failed` 收场。
-- 遗留项台账：活动（未闭合）项写入 `_bmad-output/implementation-artifacts/open-items.md`
+- 遗留项台账：活动（未闭合）项写入 `_bmad-output/open-items.md`「活动（未闭合）条目」节
   （2026-11-15 起为唯一活动台账；闭合/归档历史见 `_bmad-output/retrospective-all-cycles.md` §三）（goal 内的
   Epic 级台账落在 `_he-output/goals/<goal-id>/step-*/…/deferred-work.md`）；`/deferred` 是它的 reader，
   会列出全部台账的条目数与最新条目。

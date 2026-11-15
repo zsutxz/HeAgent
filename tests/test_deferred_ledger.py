@@ -5,9 +5,10 @@
 既有 `tests/test_deferred_id_registry.py` 盯的是**形状与计数**；本文件盯的是**守恒**：一条都不许悄悄消失，
 也不许无痕重生。
 
-2026-11-15 起布局：活动段 = implementation-artifacts/open-items.md；闭合/退役/归档/索引 =
-retrospective-all-cycles.md §三（原 deferred-work-archive.md 迁入，h3 小节）。加载器把两处
-拼装成审计认知的五段形状，断言逻辑不变。
+2026-11-15 起布局：活动段 = 根目录 open-items.md「活动（未闭合）条目」节（由
+consolidated-overview.md 与 implementation-artifacts/open-items.md 合并定名）；闭合/退役/
+归档/索引 = retrospective-all-cycles.md §三（原 deferred-work-archive.md 迁入，h3 小节）。
+加载器把两处拼装成审计认知的五段形状，断言逻辑不变。
 
 设计要点：
 - 判据写成**纯函数** `audit(archive_text, entry_text) -> list[str]`，真实文件与合成样本走同一条代码路径；
@@ -23,10 +24,11 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ACTIVE_LEDGER = ROOT / "_bmad-output" / "implementation-artifacts" / "open-items.md"
+ACTIVE_LEDGER = ROOT / "_bmad-output" / "open-items.md"
 HISTORY = ROOT / "_bmad-output" / "retrospective-all-cycles.md"
-# 2026-11-15 起入口表与活动真源同文件（原 implementation-artifacts/deferred-work.md 已并入
-# open-items）：单一真源断言对真实文件退化为形状复核，函数行为仍由下方负面用例钉住。
+# 2026-11-15 起入口表与活动真源同文件（原 implementation-artifacts/deferred-work.md 已并入，
+# 活动台账又于同日并入当前状态总览、定名根目录 open-items.md）：单一真源断言对真实文件
+# 退化为形状复核，函数行为仍由下方负面用例钉住。
 ENTRY = ACTIVE_LEDGER
 
 ID_RE = re.compile(r"(?:Z-D\d+|A\d+)")

@@ -51,6 +51,8 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 
 **工具执行链固定**：`PolicyEngine.evaluate()` → `ToolExecutor` → `SafetyGuard.check()` → handler。
 
+**产物文档（`_bmad-output/`，规划/台账区，非代码事实源）**：`epic-overview.md` = 当前状态 + epic 总目录；`open-items.md` = **唯一活动台账**（未闭合问题清单）；`retrospective-all-cycles.md` = **历史唯一载体**（§三 闭合台账 / §四 编号索引）；`sprint-status.yaml` = Epic/Story 状态唯一写目标；周期产物在 `epics/`（活跃与已归档同目录混排，无 archive/）。文档导航见 `_bmad-output/README.md`。
+
 ## 硬约束
 
 - 跨模块数据一律 Pydantic 模型（`pub/types.py`），禁止原始 dict（例外：`AgentState`/`SubAgentResult` 用 dataclass）
@@ -60,6 +62,7 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 - `heagent/cli/__init__.py` 永不放 import（`test_cli_package_shell_stays_thin`）；子模块延迟导入必须指向实模块
 - 全异步：库代码无同步 I/O，CLI 经 `asyncio.run()` 桥接；日志 `logging.getLogger(__name__)` 仅标准库
 - Windows 开发机：subprocess `text=True` 必须显式 `encoding="utf-8"`，否则中文输出解码炸
+- `_bmad-output` 台账布局与 ID 守恒由契约测试钉死：`tests/test_deferred_id_registry.py`（活动计数诚实性，四站点）+ `tests/test_deferred_ledger.py`（67 基线 ID 守恒）——动 `open-items.md`/`epic-overview.md`/`retrospective`/周期 `deferred-work.md` 前先读测试头部注释，改台账路径须同步 `cli/display.py::_DEFERRED_LEDGER` 回退链
 
 ## 扩展与测试
 
@@ -70,7 +73,7 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 
 ## 安全口径
 
-Canonical 在 `docs/frame.md` §4.19：`SafetyGuard`/`PolicyEngine`/sandbox 后端**均非真正安全边界**（三层非边界），OS 级容器沙箱兜底；本地模式（默认）HTTP/WS 无认证，对外模式（WS 绑非回环）强制 Bearer token 且缺 token 拒绝启动；**对外能提交 run 时强烈建议 `--sandbox docker`**。已知缺口台账：`_bmad-output/implementation-artifacts/open-items.md`（闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
+Canonical 在 `docs/frame.md` §4.19：`SafetyGuard`/`PolicyEngine`/sandbox 后端**均非真正安全边界**（三层非边界），OS 级容器沙箱兜底；本地模式（默认）HTTP/WS 无认证，对外模式（WS 绑非回环）强制 Bearer token 且缺 token 拒绝启动；**对外能提交 run 时强烈建议 `--sandbox docker`**。已知缺口台账：`_bmad-output/open-items.md`（「活动（未闭合）条目」节；闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
 
 ## Git
 

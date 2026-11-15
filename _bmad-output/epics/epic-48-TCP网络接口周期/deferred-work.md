@@ -3,7 +3,7 @@
 > **归并来源**：`implementation-artifacts/deferred-work-archive.md` 的 **Z-D10 / Z-D11**（两条均出自本周期 **Story 48-5** 收口评审 C-1 / C-2）；2026-09-24 按「**条目闭合后按归属 epic 归档**」规则从活动台账的闭合归档区回填至本文件。
 > **归档规则**：按条目**归属的 epic** 归档；「闭合者」注明实际完成它的批次 / commit。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码与测试。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/open-items.md`](../../implementation-artifacts/open-items.md)（工作流 append-only 入口）——本周期相关未闭合条目 = **无**（原 A7「TCP 入口不写 rollout」已随入口删除标记 OBSOLETE → **Z-D18**）。
+> **活动（未闭合）遗留项**仍在 [`open-items.md`](../../open-items.md)（工作流 append-only 入口）——本周期相关未闭合条目 = **无**（原 A7「TCP 入口不写 rollout」已随入口删除标记 OBSOLETE → **Z-D18**）。
 
 ## 状态总览
 

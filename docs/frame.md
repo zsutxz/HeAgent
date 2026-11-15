@@ -1461,7 +1461,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 
 > **本节是安全口径的唯一真源**：本文件其它章节、`AGENTS.md`（派生副本）与各周期产物只引用不复述，
 > 表述不一致时以本节为准。本节只裁定「是不是边界」；校验点、限额、默认值等机制细节留在各自章节，
-> 缺口正文留在「五、已知缺口」与 `_bmad-output/implementation-artifacts/open-items.md`
+> 缺口正文留在「五、已知缺口」与 `_bmad-output/open-items.md`（「活动（未闭合）条目」节）
 > （活动项唯一真源；闭合/归档历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
 
 1. **三层非边界**：`SafetyGuard` / `PolicyEngine` / sandbox 后端**均非真正安全边界**——它们是
@@ -1482,7 +1482,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
    `/api/cli/ws` **只**挂本地 listener（任何对外 listener 恒不注册）；只读通知流 `/api/notifications/ws`
    （Epic 58）随 listener 注册，**对外 listener 上同样可见**（token 之后）——但**仅当**
    `CRON_PUSH_ENABLED=true` 建起中枢时注册；关闭（默认）则路由不存在，客户端拿裸 403。
-6. **已知缺口与台账指针**：活动缺口清单落 `_bmad-output/implementation-artifacts/open-items.md`
+6. **已知缺口与台账指针**：活动缺口清单落 `_bmad-output/open-items.md`（「活动（未闭合）条目」节）
    （闭合/归档历史见 `_bmad-output/retrospective-all-cycles.md` §三）与本文件「五、已知缺口」，**本节不复述**；
    本节只裁定边界地位，**不宣告任何缺口已闭合**。
 ## 五、已知缺口
