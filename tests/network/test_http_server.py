@@ -35,6 +35,8 @@ from heagent.network.http_server import (
     build_http_app,
     read_web_asset,
 )
+from heagent.network.http_server import app as http_server_app
+from heagent.network.http_server import listener as http_server_listener
 
 _VERSION = "9.9.9"
 # 页面里所有 src/href 引用（用于断言「不加载第三方资源」）。
@@ -322,7 +324,7 @@ class TestLifecycle:
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """非回环绑定的告警来自 ``network.exposure``（此处打桩文案，避免真绑非回环地址）。"""
-        monkeypatch.setattr(http_server, "exposure_warning", lambda host: "exposure-under-test")
+        monkeypatch.setattr(http_server_listener, "exposure_warning", lambda host: "exposure-under-test")
         server = HttpServer(_config(), version=_VERSION)
         with caplog.at_level(logging.INFO, logger="heagent.network.http_server"):
             await server.start()
@@ -372,7 +374,7 @@ class TestProbeBoundedClose:
             return _Reader(), _Writer()
 
         monkeypatch.setattr(asyncio, "open_connection", _open_connection)
-        monkeypatch.setattr(http_server, "_PROBE_TIMEOUT", 0.05)
+        monkeypatch.setattr(http_server_listener, "_PROBE_TIMEOUT", 0.05)
 
         # 外层再套一层时限：未修复时这里会挂住，套一层让「未修复」表现为**失败**而不是挂死。
         assert await asyncio.wait_for(server._probe_health(), timeout=1.0) is True
@@ -439,7 +441,7 @@ class TestFallbackErrorEnvelope:
         def _boom(_name: str) -> bytes:
             raise RuntimeError("disk exploded at C:\\secret\\page.html")
 
-        monkeypatch.setattr(http_server, "read_web_asset", _boom)
+        monkeypatch.setattr(http_server_app, "read_web_asset", _boom)
         async with _app_client(build_http_app(_config(), version=_VERSION)) as client:
             response = await client.get("/")
 
@@ -456,7 +458,7 @@ class TestFallbackErrorEnvelope:
         def _missing(_name: str) -> bytes:
             raise OSError("missing packaged asset")
 
-        monkeypatch.setattr(http_server, "read_web_asset", _missing)
+        monkeypatch.setattr(http_server_app, "read_web_asset", _missing)
         async with _app_client(build_http_app(_config(), version=_VERSION)) as client:
             response = await client.get("/app.js")
 

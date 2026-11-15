@@ -518,39 +518,39 @@
     },
     {
       "bases": [
-        "RuntimeError"
-      ],
-      "module": "heagent.network.http_server",
-      "name": "HttpRequestTooLargeError"
-    },
-    {
-      "bases": [],
-      "module": "heagent.network.http_server",
-      "name": "HttpRunService"
-    },
-    {
-      "bases": [],
-      "module": "heagent.network.http_server",
-      "name": "HttpServer"
-    },
-    {
-      "bases": [
         "BaseModel"
       ],
-      "module": "heagent.network.http_server",
+      "module": "heagent.network.http_server.config",
       "name": "HttpServerConfig"
     },
     {
       "bases": [
         "RuntimeError"
       ],
-      "module": "heagent.network.http_server",
+      "module": "heagent.network.http_server.config",
       "name": "HttpStartupError"
     },
     {
       "bases": [],
-      "module": "heagent.network.http_server",
+      "module": "heagent.network.http_server.listener",
+      "name": "HttpServer"
+    },
+    {
+      "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.network.http_server.pipeline",
+      "name": "HttpRequestTooLargeError"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.http_server.records",
       "name": "RunEventPublisher"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.http_server.service",
+      "name": "HttpRunService"
     },
     {
       "bases": [],

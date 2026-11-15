@@ -231,7 +231,10 @@ def test_external_listener_keys_are_classified_as_read_only_listening_surface() 
 def test_uvicorn_ws_options_moved_to_ws_host() -> None:
     """uvicorn WS 参数随 D1 迁移：ws_host 有、http_server 无（既有 54-2 契约换宿主）。"""
     ws_source = Path("src/heagent/network/ws_host.py").read_text(encoding="utf-8")
-    http_source = Path("src/heagent/network/http_server.py").read_text(encoding="utf-8")
+    # http_server 自 62.1 起是子包：断言扫全部子模块（任何一处反弹都算违例）。
+    http_sources = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(Path("src/heagent/network/http_server").glob("*.py"))
+    )
     assert "ws_max_size=WS_MAX_FRAME_BYTES" in ws_source
     assert "ws_ping_interval=WS_PING_INTERVAL_SECONDS" in ws_source
     assert "ws_ping_timeout=WS_PING_TIMEOUT_SECONDS" in ws_source
@@ -239,8 +242,8 @@ def test_uvicorn_ws_options_moved_to_ws_host() -> None:
     assert WS_PING_TIMEOUT_SECONDS == 20.0
     # 帧上限抬高到「装得下最大 prompt」（与 HTTP 请求体上限同源），不再是 64 KiB。
     assert WS_MAX_FRAME_BYTES == MAX_REQUEST_BYTES_FOR_MAX_PROMPT
-    assert "ws_max_size=" not in http_source
-    assert "ws_ping_interval=" not in http_source
+    assert "ws_max_size=" not in http_sources
+    assert "ws_ping_interval=" not in http_sources
 
 
 # ---- CLI 旁路开关 ----

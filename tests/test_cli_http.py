@@ -386,13 +386,13 @@ def test_explicit_port_is_never_silently_replaced() -> None:
 
 def test_missing_http_extra_reports_the_install_hint(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     """缺 ``heagent[http]`` 时给安装诊断，而不是 ImportError 栈。"""
-    from heagent.network import http_server as http_server_module
     from heagent.network.http_server import HttpDependencyError
+    from heagent.network.http_server import listener as http_server_listener
 
     def _missing(name: str) -> Any:
         raise HttpDependencyError(f"missing {name!r}; install with: pip install 'heagent[http]'")
 
-    monkeypatch.setattr(http_server_module, "_require_module", _missing)
+    monkeypatch.setattr(http_server_listener, "_require_module", _missing)
     monkeypatch.setattr("heagent.cli.http._build_provider", lambda settings, model: _StubProvider())
     monkeypatch.chdir(tmp_path)
 

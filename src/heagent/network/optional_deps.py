@@ -4,8 +4,10 @@
 本模块是 ``http_server`` 与 ``ws_host`` 共享这一辅助的唯一落点：此前 ``ws_host`` 直接取
 ``http_server`` 的私有名 ``_require_module``，同层传输模块的私有跨模块依赖无契约钉住。
 
-monkeypatch 缝：``http_server`` 以 ``_require_module`` 别名导入 :func:`require_module`，
-测试 patch ``heagent.network.http_server._require_module`` 的既有缝保持有效。
+monkeypatch 缝：``http_server``（62.1 起是子包）的 ``app`` / ``listener`` 子模块各自以
+``_require_module`` 别名导入 :func:`require_module`，测试 patch
+``heagent.network.http_server.listener._require_module``（缺依赖路径经 ``HttpServer.start``
+先触发）与 ``heagent.network.http_server.app._require_module``。
 """
 
 from __future__ import annotations

@@ -66,15 +66,22 @@ def expand_modules(rel: str) -> list[str]:
     raise FileNotFoundError(f"neither directory nor module file exists: {rel}")
 
 
+def _http_server_files() -> list[str]:
+    """HTTP 传输层子包（62.1 起为目录）的全部 .py（排序）：状态表与 ``_json_error`` 调用点扫描用。"""
+    root = REPO_ROOT / HTTP_SERVER_PACKAGE
+    return sorted(path.relative_to(REPO_ROOT).as_posix() for path in root.rglob("*.py"))
+
+
 ROUTE_MODULES = (
-    "src/heagent/network/http_server.py",
+    "src/heagent/network/http_server",
     "src/heagent/network/ws_host.py",
 )
 
 EXCEPTION_ROOT = "src/heagent"
 ERROR_SUFFIXES = ("Error", "Exception")
 HTTP_PROTOCOL_MODULE = "src/heagent/network/http_protocol.py"
-HTTP_SERVER_MODULE = "src/heagent/network/http_server.py"
+#: HTTP 传输层自 62.1 起是**子包**：状态表与调用点扫描按目录展开后聚合（`_http_server_files`）。
+HTTP_SERVER_PACKAGE = "src/heagent/network/http_server"
 #: 错误码 → HTTP 状态的集中声明表（`_json_error` 的 status 兜底来源）
 STATUS_MAP_NAME = "_CONSOLE_ERROR_STATUS"
 
@@ -205,59 +212,60 @@ def collect_routes() -> dict[str, object]:
     path_constants: dict[str, dict[str, str]] = {}
     registrations: dict[str, int] = {}
     routes: list[dict[str, object]] = []
-    for rel_path in ROUTE_MODULES:
-        tree = parse_file(rel_path)
-        constants = string_assignments(tree)
-        path_constants[rel_path] = constants
-        if "ws_host" in rel_path:
-            listener = "ws"
-        elif "http_server" in rel_path:
-            listener = "http"
-        else:
-            listener = "http_console"
-        count = 0
-        # ast.walk 覆盖跨行 / 嵌套（if / try / 循环体内）的 Route(...) / WebSocketRoute(...) 调用
-        for node in ast.walk(tree):
-            call = call_name(node)
-            if not isinstance(node, ast.Call) or call not in ROUTE_CALLS:
-                continue
-            count += 1
-            path: str | None = None
-            path_expr: str | None = None
-            if node.args:
-                first = node.args[0]
-                if isinstance(first, ast.Constant) and isinstance(first.value, str):
-                    path = first.value
-                elif isinstance(first, ast.Name):
-                    path_expr = first.id
-                    path = constants.get(first.id, f"<unresolved: {first.id}>")
-                else:
-                    path_expr = "<expr>"
-                    path = "<unresolved: <expr>>"
-            methods: list[str] = []
-            name: str | None = None
-            for keyword in node.keywords:
-                if keyword.arg == "methods" and isinstance(keyword.value, (ast.List, ast.Tuple, ast.Set)):
-                    methods = [
-                        element.value
-                        for element in keyword.value.elts
-                        if isinstance(element, ast.Constant) and isinstance(element.value, str)
-                    ]
-                elif keyword.arg == "endpoint":
-                    # `endpoint=handler` 取末段名；`endpoint=build_x(...)`（WS 全是这种工厂调用）
-                    # 取被调函数名——否则 WS 条目 name 恒为 null，等于没记下挂的是哪个端点。
-                    name = dotted_tail(keyword.value) or call_name(keyword.value)
-            routes.append(
-                {
-                    "listener": listener,
-                    "name": name,
-                    "path": path,
-                    "path_expr": path_expr,
-                    "methods": sorted(methods),
-                    "source": rel_path,
-                }
-            )
-        registrations[rel_path] = count
+    for spec in ROUTE_MODULES:
+        for rel_path in expand_modules(spec):
+            tree = parse_file(rel_path)
+            constants = string_assignments(tree)
+            path_constants[rel_path] = constants
+            if "ws_host" in rel_path:
+                listener = "ws"
+            elif "http_server" in rel_path:
+                listener = "http"
+            else:
+                listener = "http_console"
+            count = 0
+            # ast.walk 覆盖跨行 / 嵌套（if / try / 循环体内）的 Route(...) / WebSocketRoute(...) 调用
+            for node in ast.walk(tree):
+                call = call_name(node)
+                if not isinstance(node, ast.Call) or call not in ROUTE_CALLS:
+                    continue
+                count += 1
+                path: str | None = None
+                path_expr: str | None = None
+                if node.args:
+                    first = node.args[0]
+                    if isinstance(first, ast.Constant) and isinstance(first.value, str):
+                        path = first.value
+                    elif isinstance(first, ast.Name):
+                        path_expr = first.id
+                        path = constants.get(first.id, f"<unresolved: {first.id}>")
+                    else:
+                        path_expr = "<expr>"
+                        path = "<unresolved: <expr>>"
+                methods: list[str] = []
+                name: str | None = None
+                for keyword in node.keywords:
+                    if keyword.arg == "methods" and isinstance(keyword.value, (ast.List, ast.Tuple, ast.Set)):
+                        methods = [
+                            element.value
+                            for element in keyword.value.elts
+                            if isinstance(element, ast.Constant) and isinstance(element.value, str)
+                        ]
+                    elif keyword.arg == "endpoint":
+                        # `endpoint=handler` 取末段名；`endpoint=build_x(...)`（WS 全是这种工厂调用）
+                        # 取被调函数名——否则 WS 条目 name 恒为 null，等于没记下挂的是哪个端点。
+                        name = dotted_tail(keyword.value) or call_name(keyword.value)
+                routes.append(
+                    {
+                        "listener": listener,
+                        "name": name,
+                        "path": path,
+                        "path_expr": path_expr,
+                        "methods": sorted(methods),
+                        "source": rel_path,
+                    }
+                )
+            registrations[rel_path] = count
     # 列表顺序显式排序：json sort_keys 不覆盖数组，顺序必须自带确定性
     routes.sort(key=lambda item: (item["listener"], item["path"] or "", item["name"] or "", item["source"]))
     return {
@@ -332,8 +340,8 @@ def class_fields(tree: ast.Module, class_name: str) -> dict[str, str]:
     raise LookupError(f"class {class_name} not found in {HTTP_PROTOCOL_MODULE}")
 
 
-def collect_status_map(tree: ast.Module) -> dict[str, int]:
-    """模块级 ``_CONSOLE_ERROR_STATUS: dict[HttpErrorCode, int] = {HttpErrorCode.X: 400}``。
+def _status_map_in_tree(rel_path: str, tree: ast.Module) -> dict[str, int] | None:
+    """单文件内的 ``_CONSOLE_ERROR_STATUS`` 字面量表；无则 ``None``。
 
     只认 `AnnAssign` + `ast.Dict` 字面量：表一旦改成运行时计算（`.get` / 循环构造），
     这里 fail-loud 而不是静默给出不完整映射。
@@ -344,7 +352,7 @@ def collect_status_map(tree: ast.Module) -> dict[str, int]:
         if node.target.id != STATUS_MAP_NAME:
             continue
         if not isinstance(node.value, ast.Dict):
-            raise ValueError(f"{STATUS_MAP_NAME} is not a dict literal in {HTTP_SERVER_MODULE}")
+            raise ValueError(f"{STATUS_MAP_NAME} is not a dict literal in {rel_path}")
         table: dict[str, int] = {}
         for key, value in zip(node.value.keys, node.value.values, strict=True):
             member: str | None = None
@@ -353,10 +361,10 @@ def collect_status_map(tree: ast.Module) -> dict[str, int]:
             elif isinstance(key, ast.Name):
                 member = key.id
             if member is None or not isinstance(value, ast.Constant) or not isinstance(value.value, int):
-                raise ValueError(f"unsupported {STATUS_MAP_NAME} entry in {HTTP_SERVER_MODULE}")
+                raise ValueError(f"unsupported {STATUS_MAP_NAME} entry in {rel_path}")
             table[member] = value.value
         return table
-    raise LookupError(f"{STATUS_MAP_NAME} not found in {HTTP_SERVER_MODULE}")
+    return None
 
 
 def collect_call_site_statuses(tree: ast.Module) -> dict[str, set[int]]:
@@ -402,9 +410,22 @@ def collect_transport_errors() -> dict[str, object]:
     if sorted(envelope) != ["error"]:
         raise ValueError(f"HttpErrorEnvelope fields changed: {sorted(envelope)}")
     detail_keys = sorted(class_fields(protocol, "HttpErrorDetail"))
-    server = parse_file(HTTP_SERVER_MODULE)
-    status_map = collect_status_map(server)
-    call_sites = collect_call_site_statuses(server)
+    server_files = _http_server_files()
+    server_trees = [parse_file(rel_path) for rel_path in server_files]
+    status_maps = [
+        table
+        for rel_path, tree in zip(server_files, server_trees, strict=True)
+        if (table := _status_map_in_tree(rel_path, tree)) is not None
+    ]
+    if len(status_maps) != 1:
+        raise LookupError(
+            f"{STATUS_MAP_NAME} must be declared exactly once in {HTTP_SERVER_PACKAGE}; found {len(status_maps)}"
+        )
+    status_map = status_maps[0]
+    call_sites: dict[str, set[int]] = {}
+    for tree in server_trees:
+        for member, statuses in collect_call_site_statuses(tree).items():
+            call_sites.setdefault(member, set()).update(statuses)
     codes = collect_http_error_codes()["HttpErrorCode"]
     unknown = sorted((set(status_map) | set(call_sites)) - set(codes))
     if unknown:

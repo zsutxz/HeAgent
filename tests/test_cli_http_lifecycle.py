@@ -250,13 +250,13 @@ def test_missing_http_extra_fails_the_command_with_the_install_hint(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
     """缺 ``heagent[http]``：显式失败并给安装提示（不静默降级成「没有网页入口但聊天照常」）。"""
-    from heagent.network import http_server as http_server_module
     from heagent.network.http_server import HttpDependencyError
+    from heagent.network.http_server import listener as http_server_listener
 
     def _missing(name: str) -> Any:
         raise HttpDependencyError(f"missing {name!r}; install them with: pip install 'heagent[http]'")
 
-    monkeypatch.setattr(http_server_module, "_require_module", _missing)
+    monkeypatch.setattr(http_server_listener, "_require_module", _missing)
     provider = _RecordingProvider()
     _drive(monkeypatch, tmp_path, provider)
 
