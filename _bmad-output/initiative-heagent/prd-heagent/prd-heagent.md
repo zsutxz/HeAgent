@@ -1,4 +1,5 @@
 ---
+type: prd
 title: HeAgent 项目改进需求文档 (PRD)
 version: 1.0
 created: 2026-11-11
