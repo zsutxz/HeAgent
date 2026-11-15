@@ -11,7 +11,7 @@
 调试工具直接吐给用户，一并约束更省心。
 
 Q6 + 切片预算（Step 04 裁决）：若首跑有命中，**不改 `network/`**，而是逐条登记
-`_bmad-output/implementation-artifacts/deferred-work-archive.md` 并回审批门。
+`_bmad-output/implementation-artifacts/open-items.md` 并回审批门。
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ def test_network_layer_has_no_documentation_links() -> None:
     assert not hits, (
         "G-8 violated: transport layer references documentation sites\n"
         + "\n".join(f"  - {hit}" for hit in hits)
-        + "\n（处置口径：不改 network/，逐条登记 deferred-work-archive.md 并回审批门）"
+        + "\n（处置口径：不改 network/，逐条登记 open-items.md 并回审批门）"
     )
 
 

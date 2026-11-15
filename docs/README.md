@@ -42,7 +42,7 @@
 | 网页入口 / 写浏览器端 / HTTP API | [README「HTTP 网页入口（实验性）」](../README.md) 与 [`frame.md`](frame.md) 的 4.17（SSE 重连 / 同源防线 / 限额 / 观测） |
 | 网页控制台：多项目 / 会话 / 配置面板与写入 | [`frame.md`](frame.md) 的 4.18（工作区模型 / 项目注册表 / 会话持久化 / 四层配置来源 / 写通道 10 步 / 生效语义 / 安全立场与已知缺口） |
 | 如何新增 provider / tool / 技能包 | [项目协作规则](../AGENTS.md) 的「新增扩展点」章 |
-| GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/archive/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
+| GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
 | 历史为什么这样演进 | [`logs/iteration.md`](logs/iteration.md) 与 [`_bmad-output/`](../_bmad-output/README.md) |
 
 ## 设计与维护
@@ -70,7 +70,7 @@ python -m pytest -m benchmark -q --benchmark-storage=./benchmark-data --benchmar
 
 - [`_bmad-output/README.md`](../_bmad-output/README.md)：Epic、Story、spec、retrospective 和 patch 的归档导航。
 - [`_bmad-output/sprint-status.yaml`](../_bmad-output/sprint-status.yaml)：规划状态的单一权威。
-- [GUI 集成方案](../_bmad-output/archive/epics/epic-25-28-GUI界面周期/gui-plan.md)：GUI 设计与实现对照（随 Epic 25-28 归档）。
+- [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md)：GUI 设计与实现对照（随 Epic 25-28 收口）。
 - [BMad 设计记录](../_bmad-output/epics/epic-47-声明式BMad敏捷工作流周期/bmad-heagent-plan.md)：工作流设计的历史背景和当前实现指针；不作为待办清单。
 
 ## 权威规则

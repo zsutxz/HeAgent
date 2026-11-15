@@ -46,7 +46,7 @@ FRAME_ELEMENT_PHRASES: dict[int, tuple[str, ...]] = {
     3: ("无认证", "无 TLS", "回环绑定不等于可信"),
     4: ("Authorization: Bearer", "fail-closed", "浏览器 WebSocket API"),
     5: ("/api/cli/ws", "/api/notifications/ws", "没有对外模式"),
-    6: ("deferred-work-archive.md",),
+    6: ("open-items.md",),
 }
 
 # 派生副本措辞不同，故短语集独立；要素数量与编号必须与真源一一对应。
@@ -56,7 +56,7 @@ AGENTS_ELEMENT_PHRASES: dict[int, tuple[str, ...]] = {
     3: ("无认证", "无 TLS", "回环绑定不等于可信"),
     4: ("Authorization: Bearer", "fail-closed", "浏览器 WebSocket API"),
     5: ("/api/cli/ws", "/api/notifications/ws", "没有对外模式"),
-    6: ("deferred-work-archive.md",),
+    6: ("open-items.md",),
 }
 
 

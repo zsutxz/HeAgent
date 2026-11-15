@@ -5,6 +5,10 @@
 既有 `tests/test_deferred_id_registry.py` 盯的是**形状与计数**；本文件盯的是**守恒**：一条都不许悄悄消失，
 也不许无痕重生。
 
+2026-11-15 起布局：活动段 = implementation-artifacts/open-items.md；闭合/退役/归档/索引 =
+retrospective-all-cycles.md §三（原 deferred-work-archive.md 迁入，h3 小节）。加载器把两处
+拼装成审计认知的五段形状，断言逻辑不变。
+
 设计要点：
 - 判据写成**纯函数** `audit(archive_text, entry_text) -> list[str]`，真实文件与合成样本走同一条代码路径；
   否则「负面用例」只能靠改真实文件，既危险又不可复跑。
@@ -19,8 +23,11 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ARCHIVE = ROOT / "_bmad-output" / "implementation-artifacts" / "deferred-work-archive.md"
-ENTRY = ROOT / "_bmad-output" / "implementation-artifacts" / "deferred-work.md"
+ACTIVE_LEDGER = ROOT / "_bmad-output" / "implementation-artifacts" / "open-items.md"
+HISTORY = ROOT / "_bmad-output" / "retrospective-all-cycles.md"
+# 2026-11-15 起入口表与活动真源同文件（原 implementation-artifacts/deferred-work.md 已并入
+# open-items）：单一真源断言对真实文件退化为形状复核，函数行为仍由下方负面用例钉住。
+ENTRY = ACTIVE_LEDGER
 
 ID_RE = re.compile(r"(?:Z-D\d+|A\d+)")
 ACTIVE = "活动（未闭合）条目"
@@ -241,9 +248,23 @@ def audit(archive_text: str, entry_text: str) -> list[str]:
 # --------------------------------------------------------------------------- 真实台账
 
 
+def _ledger_text() -> str:
+    """组装审计台账全文：open-items 活动段 + retrospective §三 四个小节（h3 归一成 h2，原文不动）。
+
+    2026-11-15 起 `deferred-work-archive.md` 拆成两处：活动项真源 = open-items.md；
+    闭合/退役/归档/索引 = retrospective-all-cycles.md §三（h3 小节）。审计只认 h2 五段形状，
+    故在此归一标题层级，被审计文件本身保持原样。
+    """
+    active = ACTIVE_LEDGER.read_text(encoding="utf-8")
+    history = HISTORY.read_text(encoding="utf-8")
+    for name in (ARCHIVED, CLOSED, RETIRED, INDEX):
+        history = history.replace(f"\n### {name}", f"\n## {name}")
+    return f"{active}\n{history}"
+
+
 def test_real_ledgers_are_conserved() -> None:
     """四断言对真实台账全绿：S-6 归一后的结构确实守恒。"""
-    findings = audit(ARCHIVE.read_text(encoding="utf-8"), ENTRY.read_text(encoding="utf-8"))
+    findings = audit(_ledger_text(), ENTRY.read_text(encoding="utf-8"))
     assert findings == [], "台账不守恒：\n" + "\n".join(f"  - {item}" for item in findings)
 
 
@@ -251,7 +272,7 @@ def test_real_ledgers_are_conserved() -> None:
 
 
 def _archive_text() -> str:
-    return ARCHIVE.read_text(encoding="utf-8")
+    return _ledger_text()
 
 
 def _entry_text() -> str:

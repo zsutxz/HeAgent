@@ -221,11 +221,12 @@ def _format_status(loop: AgentLoop) -> str:
     return f"[{' | '.join(parts)}]"
 
 
-# 项目台账的规范路径：`implementation-artifacts/deferred-work.md`
-# 并入 `deferred-work-archive.md`（活动条目 + 闭合归档同文件）。旧名一并作为回退保留，
-# 历史仓库 / 回退态照样能读——只认旧名会让 /deferred 静默漏掉整份项目台账。
-_DEFERRED_LEDGER = "implementation-artifacts/deferred-work-archive.md"
-_DEFERRED_LEGACY = "implementation-artifacts/deferred-work.md"
+# 项目台账的规范路径：`implementation-artifacts/open-items.md`（2026-11-15 起为活动项唯一真源；
+# 活动区曾住 `deferred-work-archive.md`，其闭合归档已迁 retrospective-all-cycles.md §三）。
+# 旧名一并作为回退保留，历史仓库 / 回退态照样能读——只认新名会让 /deferred 静默漏掉整份项目台账。
+_DEFERRED_LEDGER = "implementation-artifacts/open-items.md"
+_DEFERRED_LEGACY = "implementation-artifacts/deferred-work-archive.md"
+_DEFERRED_LEGACY_ENTRY = "implementation-artifacts/deferred-work.md"
 _DEFERRED_ROOT_LEGACY = "deferred-work.md"
 
 
@@ -234,12 +235,13 @@ def _deferred_ledgers(root: Path) -> list[Path]:
 
     bmad-build *writes* these ledgers but nothing read them back, so deferrals piled up
     unseen (three different locations by 2026-09-12).  This resolver is the missing reader:
-    the canonical (archived) path, the two legacy spellings, then the goal-local Epic
+    the canonical (open-items) path, three legacy spellings, then the goal-local Epic
     ledgers.
     """
     candidates = [
         root / "_bmad-output" / _DEFERRED_LEDGER,
         root / "_bmad-output" / _DEFERRED_LEGACY,
+        root / "_bmad-output" / _DEFERRED_LEGACY_ENTRY,
         root / "_bmad-output" / _DEFERRED_ROOT_LEGACY,
     ]
     candidates.extend(sorted((root / "_he-output" / "goals").glob("*/step-*/**/deferred-work.md")))

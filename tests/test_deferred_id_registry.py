@@ -1,11 +1,15 @@
-"""Contracts for the compact deferred-work archive.
+"""Contracts for the compact deferred-work ledgers.
 
 Pinned drift shapes (all of them really happened in this repo): a ledger's
 status-summary table declaring different IDs than its actual sections; the same
 A-number meaning two different things in two ledgers (the A19 incident); code
 citing an A-number that no document registers; active-count declarations
-drifting from the archive's actual rows (2026-10-20: A34–A36 registered while
+drifting from the ledger's actual rows (2026-10-20: A34–A36 registered while
 four documents still declared 0).
+
+2026-11-15 起布局：活动项正文唯一真源 = implementation-artifacts/open-items.md；
+闭合／退役台账 = retrospective-all-cycles.md §三（原 deferred-work-archive.md 迁入）；
+周期级闭合正文 = epics/<周期>/deferred-work.md（archive/epics 已并入 epics，无独立归档区）。
 """
 
 from __future__ import annotations
@@ -14,10 +18,10 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ARCHIVE = ROOT / "_bmad-output" / "implementation-artifacts" / "deferred-work-archive.md"
+ACTIVE = ROOT / "_bmad-output" / "implementation-artifacts" / "open-items.md"
+HISTORY = ROOT / "_bmad-output" / "retrospective-all-cycles.md"
 OVERVIEW = ROOT / "_bmad-output" / "consolidated-overview.md"
 EPICS = ROOT / "_bmad-output" / "epics"
-ARCHIVED_EPICS = ROOT / "_bmad-output" / "archive" / "epics"
 # Citation shape: the A-number must not be glued to letters/digits/hyphens/quotes
 # (rejects FR-A1, A1b, AD-1, string fixtures like "A1", and the A256 inside SHA256).
 CITE = re.compile(r"(?<![A-Za-z0-9_'\"-])A(0|[1-9]\d*)(?![0-9A-Za-z])")
@@ -53,7 +57,7 @@ def _table(path: Path, heading: str) -> list[list[str]]:
     start = _heading_index(lines, heading)
     rows: list[list[str]] = []
     for line in lines[start + 1 :]:
-        if line.startswith("## "):
+        if line.startswith(HEADING):
             break
         if line.startswith("| ") and set(line.strip("| ")) > {"-", "|", " "}:
             rows.append(_cells(line))
@@ -61,12 +65,12 @@ def _table(path: Path, heading: str) -> list[list[str]]:
 
 
 def _epic_ledgers() -> list[Path]:
-    """活跃与已归档周期的 ledger：归档搬迁后两者共同构成完整 Epic 台账集合。"""
-    return sorted([*EPICS.rglob("deferred-work.md"), *ARCHIVED_EPICS.rglob("deferred-work.md")])
+    """全部 Epic 周期的 ledger：2026-11-15 起 archive/epics 并入 epics，单一目录承载。"""
+    return sorted(EPICS.rglob("deferred-work.md"))
 
 
 def _documented_a_numbers() -> set[str]:
-    paths = [ARCHIVE, *_epic_ledgers()]
+    paths = [ACTIVE, HISTORY, *_epic_ledgers()]
     return {f"A{int(match.group(1))}" for path in paths for line in _lines(path) for match in CITE.finditer(line)}
 
 
@@ -84,16 +88,16 @@ def _code_citations() -> dict[str, list[str]]:
 
 
 def _active_rows() -> list[list[str]]:
-    """总账活动区**数据行**（口径统一处，审查修复批 H）：首格含 ID token（含数字）即数据行。
+    """活动台账（open-items.md）**数据行**：首格含 ID token（含数字）即数据行。
 
-    表头（首格 ``ID`` 无数字）与分隔线自动排除——弃用「含连字符真超集」的脆弱判据
-    （纯中文活动行不含 ``-`` 时会从计数中消失，契约反而冻结错误计数）。
+    表头（首格 ``ID`` 无数字）与分隔线自动排除。
     """
-    lines = _lines(ARCHIVE)
+    lines = _lines(ACTIVE)
     start = _heading_index(lines, "## 活动（未闭合）条目")
-    end = _heading_index(lines, "## 已按 Epic 归档")
     rows = []
-    for line in lines[start:end]:
+    for line in lines[start:]:
+        if line.startswith("## ") and not line.startswith("## 活动"):
+            break
         if line.startswith("|"):
             cells = _cells(line)
             if cells and _token(cells[0]):
@@ -101,23 +105,28 @@ def _active_rows() -> list[list[str]]:
     return rows
 
 
-def test_archive_uses_the_current_compact_shape() -> None:
-    """活动区允许非空（0e8a330 起挂起待裁定项可驻留总账），但表形与计数必须诚实。"""
-    lines = _lines(ARCHIVE)
+def _declared_active_count(text: str) -> int:
+    """头部声明的活动计数；open-items.md 口径形如「当前活动项：**7 条**」。"""
+    declared = re.search(r"当前活动项：\*\*(\d+) 条\*\*", text)
+    assert declared is not None, "open-items header must declare the active count"
+    return int(declared.group(1))
+
+
+def test_active_ledger_uses_the_current_compact_shape() -> None:
+    """活动区允许非空（挂起待裁定项可驻留真源），但表形与计数必须诚实。"""
+    lines = _lines(ACTIVE)
     start = _heading_index(lines, "## 活动（未闭合）条目")
-    end = _heading_index(lines, "## 已按 Epic 归档")
     data_rows = _active_rows()
     assert data_rows, "active zone has no table rows"
     for row in data_rows:
         assert len(row) == 4, f"active row is not 4 cells: {row}"
-    declared = re.search(r"当前活动项为 (\d+) 条", lines[2])
-    assert declared is not None, "archive header must declare the active count"
-    assert int(declared.group(1)) == len(data_rows), f"header declares {declared.group(1)}, table has {len(data_rows)}"
-    assert not any(line.startswith("## A 编号登记表") for line in lines[start:end])
+    assert _declared_active_count("\n".join(lines[:start])) == len(data_rows)
+    assert not any(line.startswith("## A 编号登记表") for line in lines[:start])
 
 
-def test_archive_epic_index_has_existing_targets() -> None:
-    rows = _table(ARCHIVE, "## 已按 Epic 归档")
+def test_history_epic_index_has_existing_targets() -> None:
+    """retrospective §三「已按 Epic 归档」表的每行链接都必须落到 epics/ 下真实文件。"""
+    rows = _table(HISTORY, "### 已按 Epic 归档")
     assert rows
     for row in rows:
         assert len(row) == 4
@@ -126,7 +135,6 @@ def test_archive_epic_index_has_existing_targets() -> None:
         target_dir = Path(links[0]).parent.name
         resolved = [
             *EPICS.glob(f"{target_dir}/deferred-work.md"),
-            *ARCHIVED_EPICS.glob(f"{target_dir}/deferred-work.md"),
         ]
         assert resolved, f"archive row target does not resolve: {links[0]}"
 
@@ -184,25 +192,23 @@ def test_epic_ledgers_without_id_sections_carry_a_no_active_marker() -> None:
             )
 
 
-def test_active_count_declarations_match_the_archive() -> None:
-    """凡声明活动计数处，声明值必须等于总账活动区实际行数（历史叙事中的非现行计数不在此列）。"""
+def test_active_count_declarations_match_the_ledger() -> None:
+    """凡声明活动计数处，声明值必须等于活动台账（open-items.md）实际行数（历史叙事中的非现行计数不在此列）。"""
     actual = len(_active_rows())
     sites = (
-        ARCHIVE,
+        ACTIVE,
         OVERVIEW,
         ROOT / "_bmad-output" / "README.md",
-        ROOT / "_bmad-output" / "retrospective-all-cycles.md",
-        # implementation-artifacts/README.md 也声明计数（53-3 刷新）——ver-gap 修复：缺它则
-        # 该点回退 0 条时全量门照绿。文本形如「活动项 3 条（…）」，与上方正则天然匹配。
+        # implementation-artifacts/README.md 也声明计数——ver-gap 修复：缺它则该点回退 0 条时全量门照绿。
         ROOT / "_bmad-output" / "implementation-artifacts" / "README.md",
     )
     for path in sites:
         text = path.read_text(encoding="utf-8")
         # (?<!\d) so a nonzero count ending in 0 (e.g. "10 条") cannot pass as zero.
-        assert re.search(rf"活动(?:项|区|台账)[^\n]{{0,30}}(?<!\d){actual} 条", text), (
+        assert re.search(rf"活动(?:项|区|台账)?[^\n]{{0,40}}(?<!\d){actual} 条", text), (
             f"{path.name} does not declare the actual active count ({actual})"
         )
         if actual != 0:
-            assert not re.search(r"活动(?:项|区|台账)[^\n]{0,30}(?<!\d)0 条", text), (
+            assert not re.search(r"活动(?:项|区|台账)?[^\n]{0,40}(?<!\d)0 条", text), (
                 f"{path.name} still declares zero active items while {actual} are open"
             )
