@@ -1461,7 +1461,8 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 
 > **本节是安全口径的唯一真源**：本文件其它章节、`AGENTS.md`（派生副本）与各周期产物只引用不复述，
 > 表述不一致时以本节为准。本节只裁定「是不是边界」；校验点、限额、默认值等机制细节留在各自章节，
-> 缺口正文留在「五、已知缺口」与 `_bmad-output/implementation-artifacts/deferred-work-archive.md`。
+> 缺口正文留在「五、已知缺口」与 `_bmad-output/implementation-artifacts/open-items.md`
+> （活动项唯一真源；闭合/归档历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
 
 1. **三层非边界**：`SafetyGuard` / `PolicyEngine` / sandbox 后端**均非真正安全边界**——它们是
    defense-in-depth 的标记与拦截层（机制见 4.4 `safety.py` / `path_safety.py`、4.12 `policy.py`）。
@@ -1481,15 +1482,16 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
    `/api/cli/ws` **只**挂本地 listener（任何对外 listener 恒不注册）；只读通知流 `/api/notifications/ws`
    （Epic 58）随 listener 注册，**对外 listener 上同样可见**（token 之后）——但**仅当**
    `CRON_PUSH_ENABLED=true` 建起中枢时注册；关闭（默认）则路由不存在，客户端拿裸 403。
-6. **已知缺口与台账指针**：缺口清单落 `_bmad-output/implementation-artifacts/deferred-work-archive.md`
-   与本文件「五、已知缺口」，**本节不复述**；本节只裁定边界地位，**不宣告任何缺口已闭合**。
+6. **已知缺口与台账指针**：活动缺口清单落 `_bmad-output/implementation-artifacts/open-items.md`
+   （闭合/归档历史见 `_bmad-output/retrospective-all-cycles.md` §三）与本文件「五、已知缺口」，**本节不复述**；
+   本节只裁定边界地位，**不宣告任何缺口已闭合**。
 ## 五、已知缺口
 
 | 缺口 | 说明 |
 |------|------|
 | 流式 tool_calls 回退 | `run_stream()` 流式模式不返回 `tool_calls`，命中时回退 `send()` 重取（已知设计权衡） |
 | MCP / engine sandbox 安全边界 | 三层非边界与 OS 级兜底立场见 §4.19；本行的缺口事实是 shell 路径的兜底实施项 = container 档 Docker 后端（Epic 53 期一，2026-10-21；**默认链路未启用**，须显式 --sandbox docker / env 选择） |
-| MCP stdio 子进程不经沙箱——**已闭合**（Epic 53 期二 53-5，2026-11-03；2026-09-27 的「裁定 (c) 不做」被 2026-10-21 起的容器档兜底推翻） | 实施：`SANDBOX_BACKEND=docker` 时 `cli/console.py::_stdio_sandbox_spec` 产出 `StdioSandboxSpec`，`MCPClientManager(stdio_sandbox=…)` → `default_transport_opener` → `tools/mcp/stdio_sandbox.py::stdio_params` 把 SDK 的 stdio 子进程换成 **docker CLI**：`docker run -i --rm --pull=never --cap-drop=ALL --security-opt no-new-privileges --user sandbox --network <none|bridge> <image> <server-cmd> …`，容器内进程的 stdin/stdout 即 JSON-RPC 管道（长命双向，不经 `CommandRunner` 的 `sh -c` 短命形状）。env 只对 `.mcp.json` 显式声明的键发 `-e KEY`（不带值，值不进 argv），宿主其它变量不进容器。**降级**：daemon 不可用 / CLI 缺席 / 探测抛错 ⇒ 显性降级回宿主执行，**每次**连接打 WARNING（判据 `tests/test_mcp_stdio_sandbox.py`）。残留：镜像里没有的二进制（典型 `npx`）会显性失败——属预期，镜像供给是配置面职责；边界地位仍见 §4.19（容器档非绝对边界）。历史裁定正文见 `_bmad-output/archive/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（Z-D24） |
+| MCP stdio 子进程不经沙箱——**已闭合**（Epic 53 期二 53-5，2026-11-03；2026-09-27 的「裁定 (c) 不做」被 2026-10-21 起的容器档兜底推翻） | 实施：`SANDBOX_BACKEND=docker` 时 `cli/console.py::_stdio_sandbox_spec` 产出 `StdioSandboxSpec`，`MCPClientManager(stdio_sandbox=…)` → `default_transport_opener` → `tools/mcp/stdio_sandbox.py::stdio_params` 把 SDK 的 stdio 子进程换成 **docker CLI**：`docker run -i --rm --pull=never --cap-drop=ALL --security-opt no-new-privileges --user sandbox --network <none|bridge> <image> <server-cmd> …`，容器内进程的 stdin/stdout 即 JSON-RPC 管道（长命双向，不经 `CommandRunner` 的 `sh -c` 短命形状）。env 只对 `.mcp.json` 显式声明的键发 `-e KEY`（不带值，值不进 argv），宿主其它变量不进容器。**降级**：daemon 不可用 / CLI 缺席 / 探测抛错 ⇒ 显性降级回宿主执行，**每次**连接打 WARNING（判据 `tests/test_mcp_stdio_sandbox.py`）。残留：镜像里没有的二进制（典型 `npx`）会显性失败——属预期，镜像供给是配置面职责；边界地位仍见 §4.19（容器档非绝对边界）。历史裁定正文见 `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（Z-D24） |
 | 用户可配置 MCP 签名入口 | 项目级 `.heagent/injection_signatures.json` 已接入并进程内缓存；全局级入口仍 deferred（活动台账 A36：2026-11-05 复核项目级与全局级文件均不存在，零使用 ⇒ 加全局入口属 YAGNI）；但全局文件存在时加载器**显式 WARNING 说明其被忽略**（静默失效才是缺陷面，判据 `tests/test_mcp_mapping.py::test_global_signature_file_is_ignored_with_warning`）；签名围栏的边界地位见 §4.19 |
 | 凭证 deny 项目级配置入口 | `.heagent/path_deny.json`（2026-09-17）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒；边界地位见 §4.19 |
 | Dreaming 联网注入围栏 | `web_fetch` 返回路径已接 `guard_content`（Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；标记仅 observable defense-in-depth（边界地位见 §4.19），dreamer 的兜底要求见 4.6 dream.py |
@@ -1510,7 +1512,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 备份与审计仍在宿主文件系统上 | 两者都在项目状态根内、已进内部状态读拒集合（工具读不到、也无任何网页下载端点），但**没有加密**：备份是写入前的**原样配置**（可能含凭证），审计含键名与值的哈希。兜底要求见 §4.19（另需磁盘权限） |
 | 跨项目并发默认无全局上限（**D9 已裁定**） | 默认（`HTTP_MAX_TOTAL_INFLIGHT=0`）在途上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32），**无全局软上限**；`HTTP_MAX_CONNECTIONS` 不随项目数放大 ⇒ 多项目并行时连接层可能先成为瓶颈（既有限制面的延续）。多项目并行是有意能力，见 4.18。**2026-09-27 起**可选设 `HTTP_MAX_TOTAL_INFLIGHT=N` 得到**服务级**总额（跨项目共享，超限 409 `total_inflight_limit`）；它**不改写**上面这条按项目语义，只是叠加一层 |
 | 非回环运行姿态（**裁定：维持现状**） | 项目**重命名**、四个**会话**写操作与项目内**运行入口**当前**没有**回环门（登记 / 移除 / 配置写入有）。**裁定维持现状**理由：① 这是 Epic 49 的设计姿态，Epic 50 未扩大暴露面；② 入口的边界地位见 §4.19；③ 添加回环门会破坏既有端点契约。冻结边界：不得把闸门表述为安全边界 |
-| 控制台 UI 无自动化回归 | `tests/js/console_acceptance.mjs` 需要真实浏览器（CDP）与 `heagent[http]`，而 CI 侧没有任何浏览器（workflow 里没有 node / 浏览器步骤，依赖也不含 playwright/puppeteer；install 步骤只装 `.[dev,gui,http]`（lint job）与 `.[dev,http]`（test / coverage / benchmark / goal-smoke）） ⇒ 只能**手动**跑（清单见 `archive/epics/epic-50-网页控制台周期/reviews.md`）。CI 里跑得动的是 node 探针（最小 DOM 替身）；DOM API 的 `click()` 会绕过命中测试，故「真浏览器」这一步不可省略。**裁定：保持手动**（2026-09-28）——冻结边界禁止为它给 dev 依赖加 playwright/puppeteer；「真实模型 → SSE → 流式渲染」这条链的前端侧由 node 探针覆盖、服务端由 Epic 49 用例覆盖，本机无可用 provider 时不升级为门禁 |
+| 控制台 UI 无自动化回归 | `tests/js/console_acceptance.mjs` 需要真实浏览器（CDP）与 `heagent[http]`，而 CI 侧没有任何浏览器（workflow 里没有 node / 浏览器步骤，依赖也不含 playwright/puppeteer；install 步骤只装 `.[dev,gui,http]`（lint job）与 `.[dev,http]`（test / coverage / benchmark / goal-smoke）） ⇒ 只能**手动**跑（清单见 `epics/epic-50-网页控制台周期/reviews.md`）。CI 里跑得动的是 node 探针（最小 DOM 替身）；DOM API 的 `click()` 会绕过命中测试，故「真浏览器」这一步不可省略。**裁定：保持手动**（2026-09-28）——冻结边界禁止为它给 dev 依赖加 playwright/puppeteer；「真实模型 → SSE → 流式渲染」这条链的前端侧由 node 探针覆盖、服务端由 Epic 49 用例覆盖，本机无可用 provider 时不升级为门禁 |
 | `cli_console.py` 从未落地（脊柱 D7 的覆盖率口径作废） | 脊柱 §10 / D7 预判控制台逻辑会拆到独立模块 `cli_console.py` 并「默认不 omit」；实现期它**没有存在过**——控制台装配在 `cli/http.py`（**不在**覆盖率 omit 列表里，靠测试覆盖，实测 `cli/http.py` 计入总量）。若将来拆分，口径随模块走并在此更新。**2026-09-26 补充**：交互式 CLI 主体现位于 `cli/console.py`（原 `cli.py`）+ `cli/interactive.py`（REPL 与斜杠命令族，自 cli.py 拆出），与 `cli/goal.py`、`cli/display.py` 一并列入覆盖率 omit（`pyproject.toml`）；`cli/composition.py`（装配）、`cli/init.py`、`cli/http.py`、`cli/http_console.py`、`cli/dialogs.py` 仍计入总量（实测 `http.py` 83% / `http_console.py` 93% / `composition.py` 92%） |
 | 网页请求可拉起**宿主 GUI 进程**（Story 50-8 R2，**新暴露面**；**裁定：维持现状** 2026-09-28） | `POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹原生窗口（子进程 `tkinter` / `powershell`）。防线只有「回环来源 + 单在途 + 冻结 argv + 300s 超时 kill」——回环 peer ≠ 可信（见上），任何能连上端口的本机进程都能让服务机弹窗（骚扰面）；其边界地位见 §4.19。**默认关闭**（`--dialog-backend` 默认 `none`，2026-09-27 修改）：需要时显式传 `--dialog-backend auto` 开启；内嵌服务同样默认关闭（`build_http_service` 不传该参数，`HttpProjectConsole` 默认值已同步改为 `"none"`）。与配置写入通道的 `HTTP_CONSOLE_WRITE_ENABLED` 默认 False 惯例一致 |
 | 原生目录选择在部分环境**不可用**（Story 50-8 R2） | ①无图形后端（容器 / 缺 `_tkinter` 的 Linux）；②服务跑在远程机器而浏览器在别处（窗口弹在服务机，对调用者无用）；③默认即 `--dialog-backend none`（禁用；2026-09-27 起，须显式传 `auto` / `tkinter` / `powershell` 才启用）。三种都回 `dialog_unavailable` 并**保留手工输入**（不静默失败、也没有服务端目录浏览 API —— 那会把宿主目录结构开放给回环客户端） |

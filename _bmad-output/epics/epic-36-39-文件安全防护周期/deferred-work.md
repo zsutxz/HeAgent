@@ -3,7 +3,7 @@
 > **归档规则**：按条目**归属的 epic** 归档（本周期 = 凭证 deny / env scrubbing / 内部状态读 deny / 安全声明）；
 > 「闭合者」注明实际完成它的批次 / commit。
 > **只登记已闭合项**——原始长文历史不再保留，结论全部指向代码与测试。
-> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/deferred-work-archive.md`](../../implementation-artifacts/deferred-work-archive.md)。
+> **活动（未闭合）遗留项**仍在 [`implementation-artifacts/open-items.md`](../../implementation-artifacts/open-items.md)。
 >
 > **立场不变**：以下全部为 defense-in-depth 启发式层，**非真正安全边界**——shell 工具仍可
 > `cat .env` 绕过，须 OS 级沙箱兜底（见 CLAUDE.md 安全声明）。

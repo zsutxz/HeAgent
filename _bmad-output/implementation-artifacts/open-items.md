@@ -1,0 +1,33 @@
+# Open Items — 当前未完成清单
+
+> 活动（未闭合）条目正文的**唯一真源**（2026-11-15 从 `deferred-work-archive.md` 抽出，用户裁定「未完成的抽出来、已处理的归入历史记录」）。
+> 状态语义：`active`（有触发条件、未排期）／`scheduled`（已挂到 story 或 sprint）／`frozen`（挂起待裁定，**必须带裁定指针**——没有指针的「挂起」不是状态，是遗忘）。
+> `retired`（显式退役，5 字段齐备）的规范与历史记录在 [`retrospective-all-cycles.md`](../retrospective-all-cycles.md) §三。
+> **单向收敛**：同一 ID 的正文只在一个文件——活动项在本文件，闭合／退役／勘察在 archive；`deferred-work.md` 只留指针。
+
+当前活动项：**7 条**（`frozen` 2：A34 / A41；`active` 5：A35 / A36 / A52 / A53 / A54）。
+
+## 活动（未闭合）条目
+
+| ID | 主题 | 状态 | 说明 |
+| --- | --- | --- | --- |
+| A34 | 会话文件并发写残余：不可安全判定形态回退时丢对方一侧 | `frozen` | 主害已闭合（Z-D21，commit `9860a17`）。残余形态：共享前缀被改写 / 磁盘比基线短 / 基线对不上 / 文件不可解析 ⇒ 回退时丢对方一侧（WARNING 点名原因，不静默）。候选加固 = 把不可判形态的对方侧隔离进 sidecar 而非丢弃。**裁定指针：OQ-5 未裁定（「隔离 vs 丢弃」语义）**，故本轮只补确定性并发写回归测试（S-8），不改语义。触发条件 = 出现真实触发案例或用户裁定升级 |
+| A35 | HTTP 入口会话/事件持久化（在途 run 与 SSE 缓冲重启即丢） | `active` | 会话历史已落盘（SessionStore，CLI 与网页共用），重启只丢在途 run 与 SSE 事件缓冲（重连有 `resync_required`→快照兜底）。**2026-11-05 前置缺口已闭合**：网页 handler 自建 engine 却从不订阅事件接收器 ⇒ `EVENTS_ROLLOUT_ENABLED` 在网页入口是死键（与 A44 闭合前的 REPL 同款）；现按**项目根**订阅（`_build_event_sink(root=…)`，多项目控制台下 cwd ≠ 项目根）。判据 `tests/test_http_events_rollout.py`（2 例成对：默认关零文件 / 开关开落项目根且以 `run_completed` 收尾）+ 变异 3/3 全红（`scripts/mutation/mutate_http_rollout_sink.py`）。**残余 = 读侧回放**：重启后仍未从 `.heagent/runs/<run_id>/rollout.jsonl` 重放（复用既有 `read_rollout`，不新做投影持久化架构）。触发条件不变 = 重启丢在途 run 实际困扰 ≥2 次，或长 run（>10min）常态化。**2026-11-05 用户裁定：不做**（读侧回放继续挂账，状态维持 `active`；理由 = 它要动 SSE/WS 重连语义，而触发条件尚未到） |
+| A36 | 全局级 MCP 注入签名配置入口 | `active` | **2026-11-05 复核仍零使用**：项目级与全局级 `.heagent/injection_signatures.json` 均不存在 ⇒ 加全局入口属 YAGNI（跨项目共享的现成成本 = 复制一个 JSON 文件）。本轮收窄「静默失效」：项目级缺失时若全局文件存在，加载器显式 WARNING 说明它被忽略（不加载、不静默），判据 `tests/test_mcp_mapping.py::test_global_signature_file_is_ignored_with_warning`（另有零噪声对照）+ 变异 2/2 全红（`scripts/mutation/mutate_mcp_signature_hint.py`）。触发条件 = 实际开始写自定义签名且需跨项目共享。注意：签名围栏非真正安全边界，加码不改变「须 OS 沙箱兜底」立场。**2026-11-05 用户裁定：保留**（维持 `active` + 显式告警口径，不转 `retired`） |
+| A41 | 兄弟 Story 越集写互相误归因（`goal/write_audit.py:146-157`） | `frozen` | 共享工作区审计无法按写者归属，兄弟 Story 越集写会落入本 Story 的 Δ 判负（连带置闩）。**裁定指针：AD-20（OQ-4 未裁）**；短期靠围栏预防层降低概率。**2026-11-05 收窄（用户裁定：一并处理至可行边界）**：判负消息与 `workflow_write_audit` 事件如实披露「写者无法归属到本 Story」（`shared_workspace` + `a sibling may be the author`），不再默认归因到本 Story；判负语义（FAILED + 撤闩）不变——写集并集对批内每个成员同形，越集写同样会被**写者自己**的审计判负，故误伤面 = 「无辜兄弟也失败 + 闩」，根因仍需 AD-20 物理隔离（判据 `tests/test_story_write_audit.py::test_violation_discloses_shared_workspace_attribution` / `::test_solo_batch_violation_has_no_attribution_caveat` + 变异 `scripts/mutation/mutate_write_audit_content_delta.py` M4） |
+| A52 | 坏 `hooks.json` 静默跳过（engine/hooks.py load） | `active` | `HookManager.load` 对文件不存在/JSON 损坏/单条非法一律跳过 + WARNING——与「显性失败、缺失宁可显性报错」项目准则相悖。**2026-11-13 用户裁定：撤销 Epic 63 立项，残差转台账**；修正 = fail-fast（启动期坏配置显性报错指明条目；文件不存在保持合法空载）。触发条件 = 下一个进入实现的周期顺带执行（quick-dev 一发子弹即可，无需独立立项） |
+| A53 | PostToolUse hook stdout 不进对话上下文 | `active` | 现状 = PostToolUse 钩子 fire-and-forget（stdout 仅日志）；Claude Code 语义会把非阻断 stdout 注入 transcript。**2026-11-13 用户裁定：撤销 Epic 63 立项，残差转台账**；候选增强 = 非阻断 hook stdout 注入对话（需定预算与截断口径）。触发条件 = 出现把 hook 输出喂回模型的真实需求（当前零使用） |
+| A54 | /simplify 清理批（2026-11-14）缓修残差：真重构 8 项（2026-11-15 起 ①④⑤ 已落） | `active` | 2026-11-14 `/simplify` 四视角审查（REUSE 7 / SIMPLIFICATION 6 / EFFICIENCY 4 / ALTITUDE 5，去重后 19 机制）的「立即修」机械批已落 `954f9d4`；以下**缓修**项超出一次清理的体量，逐条留档（origin = 四份审查报告，`git log 954f9d4` 前的会话）：① ws_server 双胞胎端点构造器与会话骨架（两对 ~95 行孪生构造器）② cli/http 服务编排合一 ③ `SandboxDecision` 加类型化派生字段取代 agent 层 `isinstance(dict)` 鸭子解析（`agent/loop.py:453` `_bound_container_workdir`）④ WS/SSE「快照重放+水位去重」双写收敛到 `http_protocol.py` ⑤ http_server 的 register_ws/unregister_ws/close_websockets/needs_resync 登记面坐上 `EventStreamHub`（`http_server.py:640-696`）⑥ story 批基线一次采集 ⑦ 流式 token 重编码：`agent/stream_runtime.py:95` 每次流式调用全量 re-encode 且 usage 缺失分支再全量算一次（按消息 memoize / 复用 `stream_estimated`）⑧ policy 可用性预热 + WS 帧预序列化（帧对订阅者恒同，但预序列化点在三 hub 的 backlog/队列协议面，与 ④⑤ 同族同批）。**2026-11-15 网络族推进（用户裁定：收敛到 SSE 语义 / ⑧ 本批不做）**：① = ws_server 四构造器收 `_ws_session` 会话骨架（握手门→accept/hello→closing→会话体→异常收敛→有界收尾，日志事件名逐字节保持）；④ = `http_protocol.replay_then_follow` 单源（WS 侧终态判定改**快照时刻捕获**——微竞态窗口内 WS 客户端改收终态事件，对齐 AD-4；SSE 心跳经参数注入）；⑤ = `cursor_out_of_window` 算术单源（三流 + WS）+ `WsRegistry` 连接登记与有界关停唯一实现（http_server 组合接入；其 close_websockets 日志去 close_code 字段，与 hub 口径统一，无测试钉死）。判据 `tests/network/test_http_protocol.py::TestReplayThenFollow`（6 例直钉）+ 既有 WS/SSE/hub 面全绿；⑧ 复核：'policy 可用性预热' 位点在代码/审查报告/台账均不可考（claude-mem 不可达、报告未落盘），帧预序列化经评估收益趋零（单用户 1–2 订阅者）且需改两条流的队列形状——**缓做**，待性能专项周期携原始报告复核。②③⑥⑦ 维持触发条件（下一轮性能/网络专项周期按项领取；动手前过两道红线） |
+
+## 速读（按行动姿态分组）
+
+- **等外部触发**：A35（重启丢 run 困扰 ≥2 次 / 长 run 常态化）、A36（实际写自定义签名且需跨项目共享）、A53（hook stdout 喂回模型的真实需求）
+- **有明确修法等排期**：A52（下一实现周期 quick-dev 一发子弹）、A54 残余 ②③⑥⑦（下一轮性能/网络专项周期领取；动手前过两道红线：monkeypatch 缝 grep + 本机可验证面）
+- **等用户裁定**：A34（OQ-5「隔离 vs 丢弃」）、A41（AD-20 / OQ-4 物理隔离）
+
+## 维护规则（活动项）
+
+- 新增未闭合项**只写本文件**：先登记 ID、状态（active / scheduled / frozen）、触发条件、裁定与验收证据，再开始实施；不要在本目录另建活动清单或复活 archive 活动区。
+- `frozen` 必须带裁定指针（哪个 OQ / 哪份记录）。
+- 闭合时把正文迁入 [`retrospective-all-cycles.md`](../retrospective-all-cycles.md) §三（台账），或按归属 Epic 进 `epics/<周期>/deferred-work.md`，并从本表移除；**同一 ID 不得两处并存**。显式退役（裁定永不修）走历史记录的 `retired` 5 字段规范。
+- `blocked` 需要产品或架构裁定，不能由实现者静默关闭。
