@@ -1,0 +1,57 @@
+# Initiative 的 epic 分解，构建顺序即表顺序。
+[[epic]]
+id = 1
+slug = "epic-代码架构重构"
+title = "代码架构重构"
+description = "超过 800 行的大文件全部拆分完成，复杂热点消除，单文件均低于 1000 行。"
+covers = ["R1", "R3"]
+
+[[epic]]
+id = 2
+slug = "epic-测试体系增强"
+title = "测试体系增强"
+description = "边界、错误路径与性能基准测试补齐，fixture 与测试数据集中管理，参数化消除重复。"
+covers = ["R5", "R6"]
+
+[[epic]]
+id = 3
+slug = "epic-用户体验优化"
+title = "用户体验优化"
+description = "FAQ、错误索引、调优指南、示例库齐备，错误信息友好、进度可见、帮助上下文化。"
+covers = ["R7", "R9", "R10", "R11"]
+
+[[epic]]
+id = 4
+slug = "epic-工程自动化"
+title = "工程自动化"
+description = "质量门禁与 PR 全量测试全自动，版本、CHANGELOG、发布流程自动化，开发环境一键就绪。"
+covers = ["R12", "R13"]
+
+[[epic]]
+id = 5
+slug = "epic-性能优化"
+title = "性能优化"
+description = "元数据与技能匹配缓存、批量预计算与懒加载全部落地，冷启动显著降低。"
+covers = ["R4"]
+
+[[epic]]
+id = 6
+slug = "epic-安全增强"
+title = "安全增强"
+description = "输入验证统一，审计与敏感操作留痕完整，密钥管理增强，端点与沙箱逃逸测试覆盖，依赖精简并锁定。"
+covers = ["R14", "R15", "R16"]
+
+[[epic]]
+id = 7
+slug = "epic-文档与API"
+title = "文档与 API"
+description = "MkDocs API 文档覆盖全部公开 API 并自动部署。"
+covers = ["R8"]
+
+[[epic]]
+id = 8
+slug = "epic-异常体系完善"
+title = "异常体系完善"
+description = "统一异常层次与错误码体系覆盖全部核心模块，错误可程序化处理。"
+covers = ["R2"]
+

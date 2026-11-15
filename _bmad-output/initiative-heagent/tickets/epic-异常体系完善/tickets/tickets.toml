@@ -1,0 +1,37 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。
+[[entry]]
+id = 1
+type = "story"
+title = "为核心模块定义专用异常"
+description = "provider/tool/engine/agent 各至少 3 个专用异常定义完成。"
+verify = "命名清晰反映错误类型，异常包含清晰错误描述。"
+covers = ["R2"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "8-1-module-exceptions"
+
+[[entry]]
+id = 2
+type = "story"
+title = "建立异常层次结构"
+description = "异常层次结构（基类 → 分类 → 具体异常）建立。"
+verify = "所有异常继承 HeAgentException，按分类组织，便于 catch。"
+covers = ["R2"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "8-2-exception-hierarchy"
+
+[[entry]]
+id = 3
+type = "story"
+title = "设计并实现统一错误码体系"
+description = "统一错误码体系设计与实现完成。"
+verify = "错误码唯一标识错误类型，文档含码到类型到建议的映射，可程序化解析。"
+covers = ["R2"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "8-3-error-codes"
+

@@ -1,0 +1,121 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。
+[[entry]]
+id = 1
+type = "story"
+title = "设计统一输入验证框架"
+description = "统一输入验证框架覆盖所有用户输入。"
+verify = "统一验证、失败返回清晰错误、支持自定义规则。"
+covers = ["R14"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "6-1-input-validation"
+
+[[entry]]
+id = 2
+type = "story"
+title = "增强工具执行审计日志"
+description = "工具执行审计日志含时间戳、操作者、工具名、参数、结果。"
+verify = "结构化存储，可导出与分析。"
+covers = ["R14"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "6-2-audit-log"
+
+[[entry]]
+id = 3
+type = "story"
+title = "实现敏感操作留痕"
+description = "会话删除、配置修改等敏感操作留痕。"
+verify = "含操作类型、时间、操作者、前后状态，不可篡改，可查询导出。"
+covers = ["R14"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "6-3-sensitive-trace"
+
+[[entry]]
+id = 4
+type = "story"
+title = "支持密钥轮换提醒"
+description = "密钥超 90 天启动时提醒轮换。"
+verify = "含密钥名称、使用天数、建议操作，提醒周期可配置。"
+covers = ["R14"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "6-4-key-rotation"
+
+[[entry]]
+id = 5
+type = "story"
+title = "支持系统 keyring 密钥存储"
+description = "系统 keyring 密钥存储可用。"
+verify = "支持环境变量与 keyring 两种存储方式，可配置启用。"
+covers = ["R14"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "6-5-keyring"
+
+[[entry]]
+id = 6
+type = "story"
+title = "集成依赖漏洞扫描"
+description = "safety / pip-audit 依赖漏洞扫描入 CI。"
+verify = "高危漏洞使 CI 失败，扫描结果可导出。"
+covers = ["R15"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "6-6-deps-vuln-scan"
+
+[[entry]]
+id = 7
+type = "story"
+title = "编写 HTTP/WS 端点安全测试"
+description = "HTTP/WS 端点安全测试（认证/授权/输入验证）就位。"
+verify = "覆盖所有对外端点且测试通过。"
+covers = ["R15"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "6-7-endpoint-security"
+
+[[entry]]
+id = 8
+type = "story"
+title = "编写沙箱逃逸测试"
+description = "沙箱逃逸测试含至少 5 个攻击向量。"
+verify = "验证沙箱隔离有效且测试通过。"
+covers = ["R15"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "6-8-sandbox-escape"
+
+[[entry]]
+id = 9
+type = "story"
+title = "审查并精简依赖"
+description = "依赖必要性审查与精简完成。"
+verify = "核心依赖减少 >10%，移除未使用依赖，考虑轻量替代。"
+covers = ["R16"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "6-9-deps-slim"
+
+[[entry]]
+id = 10
+type = "story"
+title = "增加依赖锁定"
+description = "requirements.lock 或等价锁定机制建立。"
+verify = "依赖版本锁定，构建可复现，更新流程清晰。"
+covers = ["R16"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "6-10-deps-lock"
+

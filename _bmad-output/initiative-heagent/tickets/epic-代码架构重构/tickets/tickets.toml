@@ -1,0 +1,85 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。
+[[entry]]
+id = 1
+type = "story"
+title = "拆分 network/http_server.py"
+description = "network/http_server.py 按 routes/、handlers/、middleware/ 完成拆分，单文件均低于 1000 行。"
+verify = "拆分后所有文件 <1000 行，全量测试通过，架构契约测试更新并通过，无循环依赖。"
+covers = ["R1"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "1-1-http-server-split"
+
+[[entry]]
+id = 2
+type = "story"
+title = "拆分 cli/goal.py"
+description = "cli/goal.py 拆为 goal/cli_commands.py（命令解析与执行）与 goal/cli_display.py（结果展示）。"
+verify = "两文件各自 <1000 行，职责分离清晰，goal 相关测试全部通过。"
+covers = ["R1"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "1-2-goal-cli-split"
+
+[[entry]]
+id = 3
+type = "story"
+title = "拆分 engine/workflow_runner.py"
+description = "engine/workflow_runner.py 的状态机逻辑提取至 engine/state_machine.py，可独立测试。"
+verify = "状态机逻辑独立可测，workflow_runner.py <1000 行，workflow 相关测试全部通过。"
+covers = ["R1"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "1-3-workflow-runner-split"
+
+[[entry]]
+id = 4
+type = "story"
+title = "拆分 config/catalog.py"
+description = "config/catalog.py 拆为 catalog/schema.py 与 catalog/validator.py，配置定义与验证分离。"
+verify = "schema 与 validator 各自 <1000 行，配置加载与验证功能行为不变。"
+covers = ["R1"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "1-4-config-catalog-split"
+
+[[entry]]
+id = 5
+type = "story"
+title = "提取会话管理共享逻辑"
+description = "cli/http_console.py 与 cli/interactive.py 的会话管理逻辑抽取为 cli/session_manager.py 供双方复用。"
+verify = "共享模块建立，两个文件均复用该逻辑，CLI 测试全部通过。"
+covers = ["R3"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "1-5-session-manager-extract"
+
+[[entry]]
+id = 6
+type = "story"
+title = "重构 goal/application.py 多层嵌套"
+description = "goal/application.py 的多层条件嵌套以策略模式或责任链模式完成重构。"
+verify = "最大嵌套深度 ≤3 层，圈复杂度 <10，goal 功能测试全部通过。"
+covers = ["R3"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "1-6-application-nesting"
+
+[[entry]]
+id = 7
+type = "story"
+title = "消除魔法数字"
+description = "代码裸数字（0/1/-1 除外）全部收敛为具名常量。"
+verify = "配置值全部定义于常量模块并有注释说明，全量测试通过。"
+covers = ["R3"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "1-7-magic-numbers"
+

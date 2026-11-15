@@ -1,0 +1,61 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。
+[[entry]]
+id = 1
+type = "story"
+title = "实现 Provider 元数据缓存"
+description = "Provider 元数据 LRU 缓存生效。"
+verify = "命中率 >80%，缓存大小可配置，失效机制正确。"
+covers = ["R4"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "5-1-provider-metadata-cache"
+
+[[entry]]
+id = 2
+type = "story"
+title = "实现技能匹配结果缓存"
+description = "技能匹配结果缓存生效。"
+verify = "技能库未变更时命中缓存，变更自动失效，命中提速 >30%。"
+covers = ["R4"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "5-2-skill-match-cache"
+
+[[entry]]
+id = 3
+type = "story"
+title = "优化技能匹配为批量预计算"
+description = "技能匹配批量预计算落地。"
+verify = "匹配性能提升 >30%（基准对比），不影响启动时间。"
+covers = ["R4"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "5-3-batch-precompute"
+
+[[entry]]
+id = 4
+type = "story"
+title = "实现技能包按需懒加载"
+description = "技能包按需懒加载生效。"
+verify = "未使用不加载，首次使用懒加载，冷启动降低 >20%。"
+covers = ["R4"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "5-4-skill-lazyload"
+
+[[entry]]
+id = 5
+type = "story"
+title = "延迟导入大型依赖"
+description = "anthropic、openai 等大型依赖延迟导入。"
+verify = "首次使用才导入，冷启动降低 >20%。"
+covers = ["R4"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "5-5-deferred-imports"
+

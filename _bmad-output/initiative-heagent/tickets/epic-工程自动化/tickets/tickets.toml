@@ -1,0 +1,109 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。
+[[entry]]
+id = 1
+type = "story"
+title = "配置 GitHub Actions 质量门禁"
+description = "GitHub Actions 自动运行 scripts/quality_gate.py 质量门禁。"
+verify = "门禁含冒烟、回归、ruff、mypy、bandit，失败阻止 merge。"
+covers = ["R12"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-1-quality-gate"
+
+[[entry]]
+id = 2
+type = "story"
+title = "配置 PR 自动测试"
+description = "PR 触发全量测试（unit + integration + benchmark）。"
+verify = "结果显示在 PR 页面，失败阻止 merge。"
+covers = ["R12"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-2-pr-tests"
+
+[[entry]]
+id = 3
+type = "story"
+title = "实现自动化版本号管理"
+description = "merge 到 main 触发语义化版本号自动管理。"
+verify = "版本符合 semver 并同步 pyproject.toml 与 __init__.py。"
+covers = ["R12"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-3-version-mgmt"
+
+[[entry]]
+id = 4
+type = "story"
+title = "实现自动生成 CHANGELOG"
+description = "CHANGELOG 依 commit 信息自动生成。"
+verify = "符合 Keep a Changelog 规范，按版本与分类组织。"
+covers = ["R12"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-4-changelog"
+
+[[entry]]
+id = 5
+type = "story"
+title = "实现 PyPI 发布自动化"
+description = "PyPI beta 发布自动化。"
+verify = "自动构建 wheel 并发布，失败时发送通知。"
+covers = ["R12"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-5-pypi-publish"
+
+[[entry]]
+id = 6
+type = "story"
+title = "提供开发环境配置"
+description = "devcontainer.json 或 Dockerfile.dev 一键开发环境就绪。"
+verify = "包含全部必需依赖与预配置检查工具，启动 <5 分钟。"
+covers = ["R13"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-6-dev-env"
+
+[[entry]]
+id = 7
+type = "story"
+title = "实现结构化日志"
+description = "结构化日志（支持 JSON 输出）落地。"
+verify = "含时间戳、级别、模块、消息、上下文，可经环境变量切换格式。"
+covers = ["R13"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-7-structured-logging"
+
+[[entry]]
+id = 8
+type = "story"
+title = "提供调试模式"
+description = "调试模式输出完整堆栈追踪与中间变量。"
+verify = "可经环境变量启用。"
+covers = ["R13"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-8-debug-mode"
+
+[[entry]]
+id = 9
+type = "story"
+title = "集成性能分析工具"
+description = "py-spy 等性能分析工具集成。"
+verify = "生成火焰图报告并指出热点函数，提供分析脚本。"
+covers = ["R13"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "4-9-profiling"
+

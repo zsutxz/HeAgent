@@ -1,0 +1,97 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。
+[[entry]]
+id = 1
+type = "story"
+title = "增加大上下文窗口边界测试"
+description = "接近 512K tokens 的大上下文边界测试就位。"
+verify = "覆盖上下文压缩触发点与 token 估算准确性，测试通过且无内存泄漏。"
+covers = ["R5"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "2-1-context-boundary-tests"
+
+[[entry]]
+id = 2
+type = "story"
+title = "增加并发工具调用极限测试"
+description = "10+ 并发工具调用极限场景测试就位。"
+verify = "覆盖并发安全性与资源竞争，测试通过且无死锁。"
+covers = ["R5"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "2-2-concurrent-tool-tests"
+
+[[entry]]
+id = 3
+type = "story"
+title = "增加 Provider 全部失败场景测试"
+description = "Provider 全部失败场景的容错测试就位。"
+verify = "系统返回友好错误且不崩溃，覆盖重试与回退逻辑。"
+covers = ["R5"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "2-3-provider-failure-tests"
+
+[[entry]]
+id = 4
+type = "story"
+title = "增加沙箱容器启动失败恢复测试"
+description = "Docker daemon 不可用时的沙箱降级测试就位。"
+verify = "检测失败并降级非沙箱模式，用户收到清晰 WARNING，覆盖降级后的工具执行。"
+covers = ["R5"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "2-4-sandbox-recovery-tests"
+
+[[entry]]
+id = 5
+type = "story"
+title = "建立核心路径性能基线"
+description = "≥5 个核心路径（token 估算、上下文压缩）性能基线建立。"
+verify = "基准测试纳入 CI，性能回归超 10% 时 CI 失败。"
+covers = ["R5"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "2-5-perf-baseline"
+
+[[entry]]
+id = 6
+type = "story"
+title = "提取常用 fixture 到 conftest.py"
+description = "≥10 个可复用 fixture 收敛至 tests/conftest.py。"
+verify = "测试文件改为导入而非重复定义，全量测试通过。"
+covers = ["R6"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "2-6-conftest-fixtures"
+
+[[entry]]
+id = 7
+type = "story"
+title = "建立测试数据管理机制"
+description = "tests/fixtures/ 测试数据集中管理机制建立。"
+verify = "数据文件集中存放、相对路径引用、命名与文档清晰。"
+covers = ["R6"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "2-7-test-data-mgmt"
+
+[[entry]]
+id = 8
+type = "story"
+title = "使用参数化测试减少重复"
+description = "结构相似测试用 pytest.mark.parametrize 完成参数化重构。"
+verify = "参数化覆盖率 >30%，测试代码量减少 >20%，全量通过。"
+covers = ["R6"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "2-8-parametrize"
+

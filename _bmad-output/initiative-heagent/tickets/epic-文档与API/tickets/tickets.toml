@@ -1,0 +1,37 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。
+[[entry]]
+id = 1
+type = "story"
+title = "选择并配置文档生成工具"
+description = "文档生成工具选定并完成配置（勘误：已定 MkDocs，strict 门已建）。"
+verify = "本地一键生成，托管 Read the Docs 或 GitHub Pages。"
+covers = ["R8"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "7-1-doc-tool"
+
+[[entry]]
+id = 2
+type = "story"
+title = "为核心模块补充 docstring"
+description = "核心模块公开 API docstring 补齐。"
+verify = "含功能描述、参数、返回值、异常、示例，格式符合工具要求。"
+covers = ["R8"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "7-2-docstrings"
+
+[[entry]]
+id = 3
+type = "story"
+title = "配置自动化文档生成流程"
+description = "main 分支触发文档自动生成与部署。"
+verify = "自动从 docstring 生成 API 文档并部署，文档与代码版本一致。"
+covers = ["R8"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "7-3-doc-pipeline"
+

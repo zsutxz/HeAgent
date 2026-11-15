@@ -1,0 +1,169 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。
+[[entry]]
+id = 1
+type = "story"
+title = "编写 FAQ 文档"
+description = "docs/faq.md 收录 ≥20 个常见问题及解决方案。"
+verify = "按配置/使用/故障排查分类，包含代码示例与命令。"
+covers = ["R7"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-1-faq"
+
+[[entry]]
+id = 2
+type = "story"
+title = "建立错误信息解释索引"
+description = "docs/errors.md 错误信息解释索引建立。"
+verify = "覆盖 >80% 用户可见错误，每条含错误码/描述/原因/方案，可按码或关键词检索。"
+covers = ["R7"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-2-error-index"
+
+[[entry]]
+id = 3
+type = "story"
+title = "编写性能调优指南"
+description = "docs/performance.md 性能调优指南就位。"
+verify = "含分析方法、常见瓶颈、优化建议、参数说明与推荐值、测试方法。"
+covers = ["R7"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-3-performance-guide"
+
+[[entry]]
+id = 4
+type = "story"
+title = "建立示例库"
+description = "examples/ 收录 ≥5 个可运行示例。"
+verify = "含自定义 tool、Provider 扩展、技能包开发示例，各带 README 与完整代码。"
+covers = ["R7"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-4-examples"
+
+[[entry]]
+id = 5
+type = "story"
+title = "优化错误信息格式"
+description = "错误信息统一为描述 + 可用选项 + 文档链接格式。"
+verify = "格式统一易读，所有用户可见错误包含可操作建议。"
+covers = ["R9"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-5-error-format"
+
+[[entry]]
+id = 6
+type = "story"
+title = "实现配置诊断工具"
+description = "heagent doctor 配置诊断工具上线。"
+verify = "检测 ≥10 类常见配置问题，含描述与修复建议，运行 <5 秒。"
+covers = ["R9"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-6-doctor"
+
+[[entry]]
+id = 7
+type = "story"
+title = "实现启动配置验证"
+description = "启动时必需配置验证生效。"
+verify = "覆盖 >90% 必需配置项，错误信息清晰，验证耗时 <100ms。"
+covers = ["R9"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-7-startup-validation"
+
+[[entry]]
+id = 8
+type = "story"
+title = "为工具执行添加进度条"
+description = "超过 3 秒的工具执行展示实时进度提示。"
+verify = "进度实时更新且不影响性能。"
+covers = ["R10"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-8-tool-progress"
+
+[[entry]]
+id = 9
+type = "story"
+title = "为大文件读写添加进度提示"
+description = "大于 10MB 的文件读写展示进度。"
+verify = "提示含已处理大小、总大小、预计剩余时间且实时更新。"
+covers = ["R10"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-9-file-progress"
+
+[[entry]]
+id = 10
+type = "story"
+title = "实现 Cron 任务状态查询"
+description = "heagent cron status 定时任务状态查询可用。"
+verify = "显示运行/成功/失败状态、最后与下次执行时间、失败错误信息。"
+covers = ["R10"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-10-cron-status"
+
+[[entry]]
+id = 11
+type = "story"
+title = "实现后台任务进度查询"
+description = "后台任务（如上下文压缩）进度可经 API 查询。"
+verify = "返回进度百分比与状态，响应 <100ms，信息准确。"
+covers = ["R10"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-11-bg-task-progress"
+
+[[entry]]
+id = 12
+type = "story"
+title = "实现详细帮助命令"
+description = "REPL /help <command> 详细帮助可用。"
+verify = "所有斜杠命令含语法、参数说明、示例且格式统一。"
+covers = ["R11"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-12-help-command"
+
+[[entry]]
+id = 13
+type = "story"
+title = "错误时自动建议相关命令"
+description = "错误发生时自动给出 ≥2 个相关命令建议。"
+verify = "建议与错误场景相关且可直接执行。"
+covers = ["R11"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-13-command-suggest"
+
+[[entry]]
+id = 14
+type = "story"
+title = "实现交互式配置向导"
+description = "heagent init --interactive 交互式配置向导可用。"
+verify = "覆盖 >80% 常用配置项，提供说明与推荐值，生成并验证配置文件。"
+covers = ["R11"]
+after = []
+hitl = false
+risk = "low"
+v6_key = "3-14-init-wizard"
+
