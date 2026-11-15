@@ -61,6 +61,7 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 - **monkeypatch 缝是搬移红线**：搬代码前先 grep patch 字符串路径（如 `heagent.cli.console._run_prompt`）
 - `heagent/cli/__init__.py` 永不放 import（`test_cli_package_shell_stays_thin`）；子模块延迟导入必须指向实模块
 - 全异步：库代码无同步 I/O，CLI 经 `asyncio.run()` 桥接；日志 `logging.getLogger(__name__)` 仅标准库
+- **代码注释只写当前不变量与契约，保持简单**；开发历程（story 号、评审过程、日期沿革）不入代码注释——变更史归 git log 与 BMAD 产物文档；存量历史注释不主动回洗，动到哪处顺手净化哪处
 - Windows 开发机：subprocess `text=True` 必须显式 `encoding="utf-8"`，否则中文输出解码炸
 - `_bmad-output` 台账布局与 ID 守恒由契约测试钉死：`tests/test_deferred_id_registry.py`（活动计数诚实性，四站点）+ `tests/test_deferred_ledger.py`（67 基线 ID 守恒）——动 `open-items.md`/`epic-overview.md`/`retrospective`/周期 `deferred-work.md` 前先读测试头部注释，改台账路径须同步 `cli/display.py::_DEFERRED_LEDGER` 回退链
 
@@ -78,5 +79,6 @@ Canonical 在 `docs/frame.md` §4.19：`SafetyGuard`/`PolicyEngine`/sandbox 后�
 ## Git
 
 - 提交信息用**中文** Conventional Commit（`feat(provider): 增加模型回退`）
+- 提交信息只写**修改点**（改了什么/为什么），不写开发过程叙事（评审轮次、triage 统计、plan 闭合状态等）——过程记录归 plan/台账
 - **每次 `git commit` 前必须呈报提交信息与文件清单，获得明确同意后才执行**
 - 提交前跑相关测试 + `ruff check` + `mypy`
