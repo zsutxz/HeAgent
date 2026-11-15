@@ -77,7 +77,7 @@ HeAgent 是一个架构清晰、文档完善的实验性 AI Agent 框架（v0.8.
 - story-estimates/（Story 工作量估算）
 - archive-v6/epics.md（v6 原始分解与勘误，2026-11-13）
 - archive-v6/sprint-status.yaml（v6 全周期 Epic/Story 状态，2026-05~11）
-- migration-v6-v7/migration-v6-v7.md（迁移计划与验证记录）
+- _bmad-output/migration-v6-v7.md（迁移计划与验证记录，2026-11-15 status: done）
 
 ## Notes
 
