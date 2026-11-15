@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # /// script
-# requires-python = ">=3.8"
+# requires-python = ">=3.11"
+# dependencies = ["pyyaml>=6.0.2,<7"]
 # ///
 """memlog — an append-only memory log: LLM-optimal working memory for a skill.
 
@@ -20,8 +21,9 @@ Three invariants make it trustworthy:
   1. Append-only, chronological. Entries land at the end, in the order they happen.
      Nothing is ever inserted backward, reordered, edited, or removed. There is no
      edit or delete subcommand by design; history is never rewritten.
-  2. Write-only / blind. Every command is an atomic, context-free write and echoes the
-     new state as one line of JSON, so the caller never re-reads the file mid-session.
+  2. Write-only / blind. Every command is a context-free write and echoes the new state
+     as one line of JSON, so the caller never re-reads the file mid-session. `append` adds
+     its line with one OS append write, so concurrent appenders never drop each other.
      The one time the file is read is on resume — and the caller reads it itself, not
      via this script.
   3. No lifecycle status. A memory log has no "complete" flag. Whether the work is done,
@@ -31,8 +33,12 @@ Three invariants make it trustworthy:
      resume learns the state by reading the last entries — the same way it learns
      everything else.
 
-Atomicity: every write goes to a temp file, is flushed and fsync'd, then atomically
-renamed over the target, so a crash never leaves a half-written entry.
+The frontmatter is YAML whose values all read as text, one line per field.
+
+Atomicity: `init` and `set` write a temp file, flush and fsync it, then atomically rename
+it over the target. `append` never rewrites the file: it adds the entry at the end of file
+in a single append write (O_APPEND on POSIX, a FILE_APPEND_DATA handle on Windows), which the
+OS places after whatever other processes appended, so parallel appends all land.
 
 The file shape (.memlog.md):
 
@@ -66,6 +72,7 @@ Commands:
 Addressing: `--workspace` is the run folder, and the memlog is always {workspace}/.memlog.md.
 `--path` points straight at the memlog file instead, for callers that already hold the path.
 """
+
 from __future__ import annotations  # keep type-hint syntax lazy so the script runs on 3.8+
 
 import argparse
@@ -74,6 +81,8 @@ import os
 import sys
 from datetime import datetime
 from pathlib import Path
+
+import yaml
 
 MEMLOG = ".memlog.md"
 
@@ -87,30 +96,28 @@ def resolve(args) -> Path:
     return Path(args.path) if args.path else Path(args.workspace) / MEMLOG
 
 
-def split(text: str) -> tuple[dict, str]:
-    """Return (frontmatter dict in source order, body str). Frontmatter is plain key: value.
-
-    The closing fence is the first line that is *exactly* `---`, so a `---` inside a
-    field value (topic/goal are free user text) never truncates the frontmatter.
-    """
+def fence(text: str) -> tuple[str, str]:
+    """Return (frontmatter text, body). The closing fence is the first line that is exactly `---`."""
     lines = text.splitlines()
     if not lines or lines[0] != "---":
         raise ValueError(".memlog.md has no frontmatter")
     end = next((i for i in range(1, len(lines)) if lines[i] == "---"), None)
     if end is None:
         raise ValueError(".memlog.md frontmatter is not terminated")
-    meta: dict[str, str] = {}
-    for line in lines[1:end]:
-        if ":" in line:
-            k, v = line.split(":", 1)
-            meta[k.strip()] = v.strip()
-    return meta, "\n".join(lines[end + 1:]).lstrip("\n")
+    return "\n".join(lines[1:end]), "\n".join(lines[end + 1 :]).lstrip("\n")
+
+
+def split(text: str) -> tuple[dict, str]:
+    """Return (frontmatter as a dict of text values in source order, body)."""
+    front, body = fence(text)
+    return yaml.load(front, Loader=yaml.BaseLoader) or {}, body
 
 
 def render(meta: dict, body: str) -> str:
-    # Neutralize newlines in values so a multi-line field can't break the fence on re-read.
-    fm = "\n".join(f"{k}: {' '.join(str(v).splitlines())}" for k, v in meta.items())
-    return "---\n" + fm + "\n---\n\n" + body.rstrip("\n") + "\n"
+    # Fold newlines so each field stays on one line.
+    meta = {" ".join(k.splitlines()): " ".join(str(v).splitlines()) for k, v in meta.items()}
+    fm = yaml.safe_dump(meta, sort_keys=False, allow_unicode=True, width=float("inf"))
+    return "---\n" + fm + "---\n\n" + body.rstrip("\n") + "\n"
 
 
 def touch(meta: dict) -> None:
@@ -129,17 +136,76 @@ def write_atomic(path: Path, text: str) -> None:
     os.replace(tmp, path)
 
 
+def append_line(path: Path, text: str) -> None:
+    """Add text at end of file in one OS append write, then sync it to disk. Never creates the file."""
+    data = text.replace("\n", os.linesep).encode("utf-8")  # match text-mode line endings
+    if sys.platform != "win32":
+        fd = os.open(path, os.O_WRONLY | os.O_APPEND)
+        try:
+            if os.write(fd, data) != len(data):
+                raise OSError(f"short write appending to {path}")
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        return
+    # The CRT's append mode seeks then writes in two steps; a handle with only
+    # FILE_APPEND_DATA access makes Windows itself place every write at end of file.
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
+    ]
+    k32.CreateFileW.restype = wintypes.HANDLE
+    k32.WriteFile.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_char_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p,
+    ]
+    k32.WriteFile.restype = wintypes.BOOL
+    k32.FlushFileBuffers.argtypes = [wintypes.HANDLE]
+    k32.FlushFileBuffers.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    file_append_data, share_all, open_existing, normal = 0x4, 0x7, 3, 0x80
+    handle = k32.CreateFileW(str(path), file_append_data, share_all, None, open_existing, normal, None)
+    if handle is None or handle == wintypes.HANDLE(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        written = wintypes.DWORD()
+        if not k32.WriteFile(handle, data, len(data), ctypes.byref(written), None):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if written.value != len(data):
+            raise OSError(f"short write appending to {path}")
+        if not k32.FlushFileBuffers(handle):
+            raise ctypes.WinError(ctypes.get_last_error())
+    finally:
+        k32.CloseHandle(handle)
+
+
 def entry_count(body: str) -> int:
     return sum(1 for ln in body.splitlines() if ln.startswith("- "))
 
 
 def ack(path: Path, body: str) -> None:
     """Echo new state so the caller never re-reads the file to know where it stands."""
-    print(json.dumps({
-        "ok": True,
-        "memlog": str(path),
-        "entries": entry_count(body),
-    }))
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "memlog": str(path),
+                "entries": entry_count(body),
+            }
+        )
+    )
 
 
 def cmd_init(args) -> int:
@@ -163,17 +229,16 @@ def cmd_init(args) -> int:
 
 def cmd_append(args) -> int:
     path = resolve(args)
-    meta, body = split(path.read_text(encoding="utf-8"))
+    raw = path.read_text(encoding="utf-8")
+    fence(raw)  # a log without frontmatter fails here, before anything is written
     text = " ".join(args.text.split())  # collapse newlines/runs → one-line entry, no prose bloat
     label = args.type or ""
     if args.by:
         label = f"{label} by {args.by}".strip()  # attribution: "(idea by user)" / "(by coach)"
     tag = f"({label}) " if label else ""
     entry = f"- {tag}{text}"
-    body = (body.rstrip("\n") + "\n" + entry) if body.strip() else entry  # always at the end
-    touch(meta)
-    write_atomic(path, render(meta, body))
-    ack(path, body)
+    append_line(path, ("" if raw.endswith("\n") else "\n") + entry + "\n")
+    ack(path, fence(path.read_text(encoding="utf-8"))[1])
     return 0
 
 

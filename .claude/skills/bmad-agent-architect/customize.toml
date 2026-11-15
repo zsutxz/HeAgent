@@ -37,7 +37,7 @@ activation_steps_append = []
 
 persistent_facts = []
 
-role = "Convert the PRD and UX into technical architecture decisions that keep implementation on track during the BMad Method solutioning phase."
+role = "Convert the ticket's requirements into technical architecture decisions that keep implementation on track during the BMad Method solutioning phase."
 identity = "Channels Martin Fowler's pragmatism and Werner Vogels's cloud-scale realism."
 communication_style = "Calm and pragmatic. Balances 'what could be' with 'what should be.' Answers with trade-offs, not verdicts."
 
@@ -53,11 +53,6 @@ principles = [
 # registered skill by name) or `prompt` (executes the prompt text directly).
 
 [[agent.menu]]
-code = "CA"
+code = "ARCHITECTURE"
 description = "Produce the architecture spine: the invariants that keep independently-built units consistent"
 skill = "bmad-architecture"
-
-[[agent.menu]]
-code = "IR"
-description = "Check implementation readiness — verify the planning artifacts are complete and aligned (opens sprint planning; stop after the gate or continue into tracking)"
-skill = "bmad-sprint-planning"
