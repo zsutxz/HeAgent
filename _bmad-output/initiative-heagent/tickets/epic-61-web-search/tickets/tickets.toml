@@ -1,0 +1,33 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。epic 61 为新能力 epic（非 v6 迁移），无 v6_key。
+[[entry]]
+id = 1
+type = "story"
+title = "web_search 引擎抽象层"
+description = "Tavily 设为默认检索引擎（stdlib HTTPS+JSON 直调，零第三方依赖），引擎经配置声明可插拔；未配密钥时工具照常注册、调用显性报错（复用 pub/exceptions 的 TRANSIENT/NON_TRANSIENT 容错面）。"
+verify = "配置切到测试替身引擎检索正常且 src 零 diff；无密钥调用返回显性错误而非空列表；全量测试通过。"
+covers = []
+after = []
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 2
+type = "story"
+title = "web_search 工具注册与安全面对齐"
+description = "tools/builtins/ 新增 web_search（@tool 装饰器、read_only），检索结果注入上下文前确定性截断（条数/字节预算）；SafetyGuard/审批/容器沙箱与 web_fetch 同构覆盖；web_search 加入 pub/roles.py 中 web_fetch 所在角色的 allowed_tools（至少 dreamer）。"
+verify = "web_fetch 现有 guard/审批/沙箱测试形态在 web_search 上同构覆盖并全绿；dreamer 查证链路可发起检索。"
+covers = []
+after = [1]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 3
+type = "story"
+title = "web_search 配置面与文档收口"
+description = "引擎/密钥经 env/config 声明注入（凭据不入库不入日志），文档收口对齐 web_fetch 文档位，真实密钥冒烟一次通过（参照 57-4 先例：临时 workspace，不触碰仓库记忆）。"
+verify = "配置切到 Tavily 真实密钥冒烟通过；文档 strict 构建通过；全量测试+ruff+mypy 绿。"
+covers = []
+after = [2]
+hitl = false
+risk = "low"

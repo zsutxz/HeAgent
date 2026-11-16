@@ -1,5 +1,12 @@
 # Initiative 的 epic 分解，构建顺序即表顺序。
 [[epic]]
+id = 61
+slug = "epic-61-web-search"
+title = "Web 检索工具周期"
+description = "web_search 内建工具：Tavily 默认引擎、引擎可插拔、安全面与 web_fetch 同构，密钥缺失显性报错。"
+covers = []
+
+[[epic]]
 id = 62
 slug = "epic-62-代码架构重构"
 title = "代码架构重构"
