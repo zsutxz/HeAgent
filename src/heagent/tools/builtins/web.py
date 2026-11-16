@@ -20,6 +20,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from heagent.config import get_settings
+from heagent.tools.builtins.web_search_engine import create_engine
 from heagent.tools.decorator import tool
 from heagent.tools.mcp.mapping import guard_content
 
@@ -180,4 +182,42 @@ async def web_fetch(url: str, max_length: int = 50000) -> str:
 
     # 注入启发式围栏（Epic 35）：与 MCP bridge_result 对齐——命中内置注入签名则加
     # warning 标记后透传（不阻断）。非真正安全边界，须 OS 级沙箱兜底（见 CLAUDE.md）。
+    return guard_content(text)
+
+
+# ── web_search：按主题检索（引擎面见 web_search_engine.py）──────────────────
+
+# 每条摘要字符上限（注入上下文前的确定性预算：条数切片 × 摘要上限双闸，零概率模型参与）
+_SEARCH_SNIPPET_MAX_CHARS = 600
+
+
+@tool(read_only=True)
+async def web_search(query: str, max_results: int = 5) -> str:
+    """Search the web via the configured engine (default Tavily). Returns numbered results (title, URL, snippet). Read-only.
+
+    缺引擎密钥/引擎不可达/限流显性报错，不静默返回空结果。返回文本过注入启发式围栏（同 web_fetch）。
+
+    Args:
+        query: The search query.
+        max_results: 返回条数上限（默认 5，钳位 [1, 10]）。
+    """
+    settings = get_settings()
+    engine = create_engine(settings.web_search_engine, api_key=settings.web_search_api_key)
+    q = query.strip()
+    if not q:
+        # 工具面入口校验先于引擎（可插拔引擎不保证各自校验）
+        raise RuntimeError("web_search 查询不能为空")
+    n = min(max(max_results, 1), 10)
+    # 工具面自有预算闸：即使引擎违反 max_results 契约超发，也在注入上下文前确定性切片
+    results = list(await engine.search(q, max_results=n))[:n]
+
+    lines: list[str] = []
+    for i, r in enumerate(results, 1):
+        snippet = (
+            r.snippet if len(r.snippet) <= _SEARCH_SNIPPET_MAX_CHARS else r.snippet[:_SEARCH_SNIPPET_MAX_CHARS] + "…"
+        )
+        lines.append(f"[{i}] {r.title}\n    {r.url}\n    {snippet}")
+    text = "\n\n".join(lines)
+    if not text.strip():
+        return "（无检索结果）"
     return guard_content(text)
