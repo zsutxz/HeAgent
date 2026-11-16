@@ -3,7 +3,7 @@ title: "Story 61.2 web_search 工具注册与安全面对齐"
 type: feature
 ticket: 2
 created: "2026-11-16"
-status: built
+status: done
 baseline_revision: "66a5b9f"
 risk: low
 context:

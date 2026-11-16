@@ -3,7 +3,7 @@ title: "Story 61.1 web_search 引擎抽象层"
 type: feature
 ticket: 1
 created: "2026-11-16"
-status: built
+status: done
 baseline_revision: "792b5d3"
 risk: low
 context:

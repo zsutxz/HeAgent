@@ -27,10 +27,10 @@
 
 ### 1.3 下一步（路线图）
 
-> 完整清单（活动台账项——当前 6 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（活动台账项——当前 7 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本 `0.9.0`；A51 部分闭合——`CHANGELOG.md` + 版本真源守卫 + mkdocs strict 已落，2026-11-11；`.github/workflows` 仍仅 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
-- 🔜 **Epic 61 Web 检索工具周期**：2026-11-13 立项（用户裁定），3 story 全 backlog（检索引擎抽象 / web_search 工具+安全面 / 配置文档质量门）；SPEC open question（默认引擎选型）待裁定后开工。
+- ✅ **Epic 61 Web 检索工具周期（已闭合）**：2026-11-13 立项，2026-11-16 全链交付闭合——61.1 引擎层 `66a5b9f`、61.2 工具面 `1877250`、61.3 文档收口随本批收口提交入库；真实密钥冒烟经用户裁定跳过，挂账 A55（等 WEB_SEARCH_API_KEY）。
 - ✅ **Epic 57（已收口）**：retro 遗留清理 2026-10-26 四 story 全 done；retro action item-12（push 待推远端）仍 open，owner=tan。
 - ✅ **安全纵深（已裁定不做）**：MCP stdio server 子进程接入沙箱 —— 2026-09-27 用户裁定 (c) **不实施**（长命双向管道与既有 `CommandRunner` 形状冲突 + 隔离档属产品取舍 + 仍非边界），登记为已知暴露面（§1.4-A2 → Z-D24）。
 - ⏳ **技能资源 TOCTOU 后续**：descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox（§1.4-A1）。
@@ -40,7 +40,7 @@
 
 > **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `initiative-heagent/archive-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（6 条——A34/A35/A36/A41/A53/A54，**索引**）
+#### A. 活动台账未闭合条目（7 条——A34/A35/A36/A41/A53/A54/A55，**索引**）
 
 > **2026-11-15 起**：活动项正文见 [`open-items.md`](open-items.md)（唯一活动台账）。
 > 已闭合编号索引（26 行表）、B 组修正表与 E 组决策关闭记录已迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§三/§四）。
@@ -110,7 +110,7 @@
 | `_bmad-output/epics/epic-58-cron结果推送周期/` | cron 结果推送（Epic 58，2026-10-28 立项 → 11-02 收口；`EventStreamHub` 通用核） |
 | `_bmad-output/epics/epic-59-MEMORY语义压缩周期/` | MEMORY 语义压缩（Epic 59，2026-10-29 立项 → 11-03 收口；`fact_compact` + dream 接线） |
 | `_bmad-output/epics/epic-60-结构精简周期/` | 结构精简批次 9（2026-11-06~07 五卡交付；**yaml 未登记键**，见 §1.4-C） |
-| `_bmad-output/epics/epic-61-Web检索周期/` | Web 检索工具（Epic 61，2026-11-13 立项，SPEC.md + 3 story backlog） |
+| `_bmad-output/epics/epic-61-Web检索周期/` | Web 检索工具（Epic 61，2026-11-13 立项，2026-11-16 交付闭合；SPEC.md + 票树 3 story 全 done，冒烟残差挂账 A55） |
 | `_bmad-output/initiative-heagent/` | 项目改进计划 initiative（规划四件套 + v7 票树 + archive-v6；2026-11-11 立项，2026-11-15 迁移） |
 | `_bmad-output/epics/<周期>/[epic-NN-主题/]stories/` | 按 epic 归档的 story 文件（2026-09-26 全深度实测：**102 个**，**28 个** `stories/` 目录） |
 | `_bmad-output/epics/<周期>/<epic-NN-主题>/` | 补丁 spec 与 story 同目录（原 `patches/<领域>/` 2026-09-15 解散） |
