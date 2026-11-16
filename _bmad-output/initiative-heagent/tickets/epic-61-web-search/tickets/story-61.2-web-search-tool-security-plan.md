@@ -26,7 +26,7 @@ context:
 
 ## Tasks & Acceptance
 
-- [ ] web_search @tool 注册（read_only annotations）+ 引擎解析 + 双层确定性截断 + guard_content 围栏 + 空结果显性文案
-- [ ] dreamer 白名单 + 系统提示词工具清单 + 查证任务措辞 + 安全立场注释块同步
-- [ ] 测试：注册形态 / 替身引擎全链 / 截断预算 / max_results 钳位 / 无密钥显性报错 / guard 围栏透传 / dreamer 白名单
-- [ ] 门禁：相关面 pytest + ruff + format + mypy 全绿；独立 review 处置
+- [x] web_search @tool 注册（read_only annotations）+ 引擎解析 + 确定性截断（双层预算 2026-11-16 由 82388f2 补全为四层）+ guard_content 围栏 + 空结果显性文案（1877250）
+- [x] dreamer 白名单 + 系统提示词工具清单 + 查证任务措辞 + 安全立场注释块同步（1877250）
+- [x] 测试：注册形态 / 替身引擎全链 / 截断预算 / max_results 钳位 / 无密钥显性报错 / guard 围栏透传 / dreamer 白名单（1877250；82388f2 增补钳位与汇总闸守卫）
+- [x] 门禁：相关面 pytest + ruff + format + mypy 全绿；独立 review 处置（retro 五镜头 2026-11-16，修复批 82388f2）

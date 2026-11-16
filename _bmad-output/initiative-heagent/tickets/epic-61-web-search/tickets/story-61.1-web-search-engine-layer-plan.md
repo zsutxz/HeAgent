@@ -42,4 +42,4 @@ context:
 
 ## Review
 
-待独立 review 代理结论。
+独立评审经 Epic 61 retro 五镜头完成（2026-11-16：adversarial / edge-case / verification-gap / structure / prose），发现全数对源复核并入档 `epic-61-web-search-retrospective.md`；引擎面相关修复（形状契约 / 3xx 分支 / 重复注册守卫 / 分类自携 / trust_env 钉）随 82388f2 落地。

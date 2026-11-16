@@ -122,8 +122,8 @@ headless: false
 - A11：双层钳位 [1,10]/[1,20] 分工无契约文字——等第二引擎出现时一并写协议 docstring
 - E7：空白字段条目误报「（无检索结果）」——边际，accept-as-is 观察项
 
-记录面（owner=用户，retro 不改 plan）：
-- R1：61.2 plan 四框补勾 + 61.1 plan Review 节结论补录（工作实际已交付 `1877250`，纯记录同步）
+记录面（retro 不改 plan；经用户指令 2026-11-16 会话内补全）：
+- R1 ✓：61.2 plan 四框补勾 + 61.1 plan Review 节结论补录（工作实际已交付 `1877250` + `82388f2`，纯记录同步）
 
 ## Decision records
 
