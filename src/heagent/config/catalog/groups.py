@@ -145,7 +145,9 @@ EXCLUSION_GROUPS: tuple[ConfigGroupSpec, ...] = (
         keys=("LOG_DIR", "GOAL_WORKFLOW_SKILL"),
         reason="host_path",
     ),
-    ConfigGroupSpec(id="outbound", label="出站与端点", keys=("ACTIVE_PROVIDER",), reason="outbound_redirect"),
+    ConfigGroupSpec(
+        id="outbound", label="出站与端点", keys=("ACTIVE_PROVIDER", "WEB_SEARCH_ENGINE"), reason="outbound_redirect"
+    ),
     ConfigGroupSpec(
         id="run_semantics",
         label="运行语义开关",

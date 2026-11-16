@@ -389,6 +389,12 @@ class Settings(BaseSettings):
     # 项目注册表落点覆盖（缺省 <服务启动工作区>/.heagent/console/projects.json；缺省不写用户 home）。
     http_console_projects_file: str | None = None
 
+    # ---- Web 检索（web_search 引擎面）----
+    # 引擎名查 web_search_engine 的 registry；换引擎 = 改此声明，src 零 diff。未知名 fail-loud。
+    web_search_engine: str = Field(default="tavily", min_length=1)
+    # 空 = 未配置：web_search 工具常在，调用时显性报错（注册面不因缺密钥收窄）。
+    web_search_api_key: str = Field(default="")
+
     @property
     def anthropic_key_pool(self) -> list[str]:
         return _parse_comma_list(self.anthropic_api_keys)
@@ -555,6 +561,7 @@ class ResolvedRuntimeConfig(Settings):
     openai_responses_api_key: str | None = Field(default=None, repr=False, exclude=True)
     ollama_api_key: str | None = Field(default=None, repr=False, exclude=True)
     anthropic_api_keys: str = Field(default="", repr=False, exclude=True)
+    web_search_api_key: str = Field(default="", repr=False, exclude=True)
 
     def source_for(self, name: str) -> str:
         for item in self.sources:

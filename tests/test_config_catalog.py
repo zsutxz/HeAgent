@@ -562,6 +562,7 @@ class TestSecrets:
             "KIMI_API_KEY",
             "OLLAMA_API_KEY",
             "OPENAI_RESPONSES_API_KEY",
+            "WEB_SEARCH_API_KEY",
         }
         for item in _report(_write(tmp_path / ".env", [])).items:
             if item.key in secrets:

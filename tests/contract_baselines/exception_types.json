@@ -892,6 +892,13 @@
     },
     {
       "bases": [
+        "ToolError"
+      ],
+      "module": "heagent.tools.builtins.web_search_engine",
+      "name": "SearchEngineError"
+    },
+    {
+      "bases": [
         "ValueError"
       ],
       "module": "heagent.tools.path_safety",
