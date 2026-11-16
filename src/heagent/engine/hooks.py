@@ -98,27 +98,32 @@ class HookManager:
 
     @classmethod
     def load(cls, path: str | Path, *, timeout: float = _DEFAULT_HOOK_TIMEOUT) -> HookManager:
-        """从 ``hooks.json`` 加载；文件不存在 / 损坏 / 单项非法均不崩溃（跳过）。"""
+        """从 ``hooks.json`` 加载；文件不存在 = 合法空载，坏配置 fail-fast（显性报错指明条目）。
+
+        与「显性失败、缺失宁可显性报错」准则对齐：静默跳过会让用户以为 hook 在跑。
+        """
         p = Path(path)
         if not p.exists():
             return cls([], timeout=timeout)
         try:
             data = json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
-            logger.warning("Failed to parse hooks config %s: %s", path, exc)
-            return cls([], timeout=timeout)
-        raw_hooks = data.get("hooks", []) if isinstance(data, dict) else []
+            raise RuntimeError(f"hooks 配置不可解析 {path}: {exc}") from None
+        if not isinstance(data, dict):
+            raise RuntimeError(f"hooks 配置 {path} 非法：顶层必须是对象，收到 {type(data).__name__}")
+        raw_hooks = data.get("hooks", [])
+        if not isinstance(raw_hooks, list):
+            raise RuntimeError(f"hooks 配置 {path} 非法：'hooks' 必须是数组")
         hooks: list[HookConfig] = []
-        for raw in raw_hooks:
+        for i, raw in enumerate(raw_hooks):
             if not isinstance(raw, dict):
-                continue
+                raise RuntimeError(f"hooks 配置 {path} 第 {i + 1} 条非法：必须是对象，收到 {type(raw).__name__}")
             try:
                 hook = HookConfig(**raw)
-            except Exception as exc:  # noqa: BLE001 - 单条非法跳过，不影响其他 hook
-                logger.warning("Invalid hook config %r: %s", raw, exc)
-                continue
+            except Exception as exc:
+                raise RuntimeError(f"hooks 配置 {path} 第 {i + 1} 条非法（{raw!r}）: {exc}") from None
             if hook.event in (SESSION_START, SESSION_END) and hook.matcher:
-                # session 事件无工具名可匹配，matcher 恒不生效——告警防静默错配置。
+                # session 事件无工具名可匹配，matcher 恒不生效——告警防静默错配置（条目结构合法，保留加载）。
                 logger.warning("Hook %r: matcher has no effect on %s events", hook.command, hook.event)
             hooks.append(hook)
         return cls(hooks, timeout=timeout)

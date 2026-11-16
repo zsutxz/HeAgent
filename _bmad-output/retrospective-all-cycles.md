@@ -1246,6 +1246,7 @@ AD-1 benchmark 退化阈值 20%（共享 CI runner 波动大）；AD-2 compare �
 | Story 51-2（异常路径落盘） | **已闭合**：`run_step()` 的异常分支经 `_absorb_step_exception()` 转换后由 `_persist_interrupted()` 落盘（`asyncio.shield` + 双层 except，落盘失败只告警不替换原异常） | `src/heagent/engine/workflow_runner.py::_persist_interrupted`；`tests/test_story_loop.py::test_story_failure_persists_failed_checkpoint` |
 | Story 51-2（多 phase pause） | **生产路径不可达**：`_pause_resume_unlocked()` 首行 `if runner.done` 即返回 `UNCHANGED`（"declarative workflow is already complete"），`runner.pause()` 到不了 `COMPLETED` 态 | `src/heagent/goal/application.py::_pause_resume_unlocked` |
 | 52-3 AC1（端到端围栏贯通冒烟） | **已闭合**（2026-10-26，Epic 57-3）：真实注册表 `file_write` handler 经 `policy.evaluate_tool_call → executor.execute` 全链贯通 | `tests/test_write_allowlist.py::test_e2e_chain_*`（2 例）；附带发现见 archive 已归档表 |
+| A52（2026-11-16 交付） | **已闭合**：`HookManager.load` 坏配置 fail-fast——坏 JSON/顶层非对象/`hooks` 非数组/单条非法均显性报错（指明文件与条目序号），文件不存在保持合法空载；matcher-on-session 告警语义不变 | `src/heagent/engine/hooks.py::load`；`tests/test_hooks.py`（3 例翻转 + 2 例新增） |
 
 当前实现状态以源码、测试、`docs/frame.md` 和 `initiative-heagent/archive-v6/sprint-status.yaml`（已归档）为准；本文件不重复复制完整验收报告。
 

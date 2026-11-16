@@ -95,34 +95,53 @@ class TestHookLoad:
     def test_load_nonexistent(self, tmp_path) -> None:
         assert HookManager.load(str(tmp_path / "nope.json"))._hooks == []
 
-    def test_load_invalid_json(self, tmp_path) -> None:
+    def test_load_non_dict_top_level_fails_fast(self, tmp_path) -> None:
+        """顶层非对象（如裸数组）fail-fast，不静默空载。"""
+        p = tmp_path / "hooks.json"
+        p.write_text("[]", encoding="utf-8")
+        with pytest.raises(RuntimeError, match="顶层必须是对象"):
+            HookManager.load(str(p))
+
+    def test_load_hooks_not_list_fails_fast(self, tmp_path) -> None:
+        """'hooks' 键非数组 fail-fast，不静默空载。"""
+        p = tmp_path / "hooks.json"
+        p.write_text(json.dumps({"hooks": "echo hi"}), encoding="utf-8")
+        with pytest.raises(RuntimeError, match="'hooks' 必须是数组"):
+            HookManager.load(str(p))
+
+    def test_load_invalid_json_fails_fast(self, tmp_path) -> None:
+        """坏 JSON fail-fast（显性报错指明文件），不静默空载。"""
         p = tmp_path / "hooks.json"
         p.write_text("not json", encoding="utf-8")
-        assert HookManager.load(str(p))._hooks == []
+        with pytest.raises(RuntimeError, match="不可解析"):
+            HookManager.load(str(p))
 
-    def test_load_skips_invalid_entry(self, tmp_path) -> None:
+    def test_load_invalid_entry_fails_fast_with_index(self, tmp_path) -> None:
+        """单条非法 fail-fast：显性报错指明条目序号与内容，不静默跳过。"""
         p = tmp_path / "hooks.json"
         p.write_text(
             json.dumps(
                 {
                     "hooks": [
-                        {"event": "PreToolUse"},  # 缺 command，应跳过
-                        {"event": "PreToolUse", "command": "echo hi"},
+                        {"event": "PreToolUse", "command": "echo good"},
+                        {"event": "PreToolUse"},  # 缺 command -> 第 2 条报错
                     ]
                 }
             ),
             encoding="utf-8",
         )
-        assert len(HookManager.load(str(p))._hooks) == 1
+        with pytest.raises(RuntimeError, match="第 2 条"):
+            HookManager.load(str(p))
 
     def test_load_rejects_unknown_event(self, tmp_path) -> None:
-        """拼错事件名（Literal 校验失败）→ 加载期跳过，而非静默注册永不触发的 hook。"""
+        """拼错事件名（Literal 校验失败）-> 加载期显性报错，而非静默注册永不触发的 hook。"""
         p = tmp_path / "hooks.json"
         p.write_text(
             json.dumps({"hooks": [{"event": "PostToolUs", "command": "echo hi"}]}),
             encoding="utf-8",
         )
-        assert HookManager.load(str(p))._hooks == []
+        with pytest.raises(RuntimeError, match="第 1 条"):
+            HookManager.load(str(p))
 
     def test_load_warns_matcher_on_session_event(self, tmp_path, caplog) -> None:
         """session 事件配 matcher（恒不生效）→ 保留加载但告警，防静默错配置。"""

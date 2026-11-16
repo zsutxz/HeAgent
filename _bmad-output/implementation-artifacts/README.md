@@ -6,7 +6,7 @@
 
 | 路径 | 用途 | 当前状态 |
 | --- | --- | --- |
-| ~~`open-items.md`~~（2026-11-15 已上移 [`../open-items.md`](../open-items.md)） | 活动台账现住根目录 `open-items.md`「活动（未闭合）条目」节 | 活动项 7 条（A34/A41 `frozen`；A35/A36/A52/A53/A54 `active`；A54 的 ①④⑤ 已落 `13fd68e`，残余 ②③⑥⑦ 缓修 + ⑧ 缓做） |
+| ~~`open-items.md`~~（2026-11-15 已上移 [`../open-items.md`](../open-items.md)） | 活动台账现住根目录 `open-items.md`「活动（未闭合）条目」节 | 活动项 6 条（A34/A41 `frozen`；A35/A36/A53/A54 `active`；A54 的 ①④⑤ 已落 `13fd68e`，残余 ②③⑥⑦ 缓修 + ⑧ 缓做） |
 | `arch-optimization-cycle/` | 架构优化周期的计划与 Phase 0–5 执行记录 | 全部 `done`，仅供追溯 |
 
 > 2026-11-15 四并二重组：本目录原 `deferred-work.md`（review 附件）与 `deferred-work-archive.md`（闭合台账）
