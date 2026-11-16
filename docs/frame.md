@@ -125,7 +125,7 @@ AgentLoop.run(prompt)
 
 **依赖规则：**
 - `agent/` 是顶层编排器，依赖所有其他模块
-- `providers/` 和 `tools/` 互不依赖
+- `providers/` 和 `tools/` 互不依赖（唯一声明例外：`tools/builtins/web_search_engine.py → providers.retry` 复用容错分类判据，`test_architecture_contracts.py::test_tools_providers_edge_is_pinned_to_retry` 钉死唯一性）
 - `pub/exceptions.py` 和 `pub/types.py` 是叶子模块，无内部依赖
 - 新增 Provider 或 Tool **禁止**从 `agent/` 导入（**全仓无例外**：`builtins/subagent.py` 只持可注入委派回调，子 Agent 编排由 `agent/delegation.py` 提供、`AgentLoop._runtime_scope` 每 run 绑定；`tools/mcp/*` 同）
 - **分层（2026-09-26 收敛）**：`pub/` 是**公共层**——收零 heagent 运行栈依赖的共用模块（exceptions/types/safe_logging/persist/frontmatter/roles/workspace/task_shutdown/event_lines），**任何层都可依赖它、它不依赖任何层**（`pub/__init__.py` 零 import）；`config/` 是其**上一层**的配置面（`__init__.py` 即 Settings 本体 + catalog 来源求解 + write 写通道 + envfile 保真读写 + user_settings 用户级 setting.md），只依赖 `pub/` 与 stdlib/pydantic。persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖：`pub/persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`pub/roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`pub/safe_logging.py`（零 heagent 依赖，2026-09-23）收敛日志卫生：`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，`network/`（不得依赖 engine）与 engine/agent 共用同一实现；`pub/frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / 时为 memory.skills 与 memory.skill_packages，现 skills 包 / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
@@ -536,7 +536,7 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
   （回执不出现 snapshot 行，仅记日志）。快照 GC 见「五、已知缺口」。
 - ⚠ 行尾保真与快照均属**可用性**护栏（快照目录位于 workspace 内、可被 shell 删除），边界地位见 §4.19。
 
-#### builtins/ — 26 个内置工具
+#### builtins/ — 29 个内置工具（运行时 ToolRegistry 注册数，2026-11-16 实计）
 
 **基础工具（6 个）：**
 
@@ -584,12 +584,12 @@ GUI 聊天日志 / 状态栏、工具活动台账统一经它拼接。各展示�
 | `task_parallel` | 并行执行多个子任务（`tasks_json` 传 JSON 数组，`run_parallel()` 汇总；同 `role`/`system`）；返回 `{"status": ok/partial/error, "outcomes": [SubTaskOutcome...]}`（P5-3） |
 | `task_status` | 读回本 run 已完成的委派步骤（`run_context.metadata['completed_steps']`，含 iterations/run_id，跨窗口重置存活，P2/P5-3） |
 
-**Web 工具（2 个，`web.py` + `web_search_engine.py`）：**
+**Web 工具（2 个，`web.py`）：**
 
 | 工具 | 功能 |
 |------|------|
 | `web_fetch` | 抓取 HTTP URL 内容（`@tool(read_only=True)`，`max_length` 截断；SSRF 围栏 + 流式截断 + 重定向再校验） |
-| `web_search` | 按主题检索（`@tool(read_only=True)`，引擎经 `WEB_SEARCH_ENGINE` 声明可插拔、默认 Tavily；条数硬切片 × 摘要 600 字符确定性双闸 + guard_content 围栏；无密钥工具常在、调用显性报错） |
+| `web_search` | 按主题检索（`@tool(read_only=True)`，引擎经 `WEB_SEARCH_ENGINE` 声明可插拔、默认 Tavily；条数硬切片 + 摘要/title/url 钳位 + 汇总 ≤20000 字符确定性预算 + `guard_content` 围栏；无密钥时工具常在、调用显性报错） |
 
 **Git 工具（4 个，`git.py`，均 `@tool(read_only=True)`）：**
 
@@ -737,7 +737,7 @@ CLI 经 `CONTEXT_STRATEGY`（`compressor`/`reset`）二选一接线，`WINDOW_RE
 
 **触发投递语义（misfire 口径，2026-11-06 成文）**：双触发 tick 是**判定式而非队列式**——每 tick（`cron_tick_seconds`，默认 60s）以 `cron_matches(now)` 判定「此刻是否命中」，无排队、无补跑：进程宕机跨过整个命中窗口、或命中时已有 dream 在跑（`_dreaming` 互斥只防并发，不提供窗口幂等——快速 dream 收口后同窗口 tick 再命中会再跑一次），该次触发丢弃；idle 是机会主义触发（非预约），不适用 misfire。`CronScheduler`（§4.7）由**分钟级 ledger key** 提供每逻辑分钟至多一次的幂等（`ledger.complete` 先于 `last_run` 写回，P1-10；失败也盖 `last_run`，防每分钟热重试 P1-11），但同样**宕机窗口不补跑**——对跳过敏感的无人值守批次须在调用方（外部任务计划器或包装脚本）层自做 catch-up，框架内不补跑。
 
-⚠ **安全立场**：dreaming = 无人监督 + 联网（`web_fetch` / `web_search`）+ 改持久记忆，被污染网页可经 prompt injection 跨会话污染记忆库——这是本模块的真实风险面，边界地位见 §4.19；OS 沙箱就绪后 dreamer 须迁移进沙箱。`web_fetch` / `web_search` 返回经 `guard_content` 启发式围栏（Epic 35，2026-08-19：命中内置注入签名加 warning 标记后透传，不阻断；与 MCP `bridge_result` 同语义）。
+⚠ **安全立场**：dreaming = 无人监督 + 联网（`web_fetch` / `web_search`）+ 改持久记忆，被污染网页可经 prompt injection 跨会话污染记忆库——这是本模块的真实风险面，边界地位见 §4.19；OS 沙箱就绪后 dreamer 须迁移进沙箱。`web_fetch` / `web_search` 返回经 `guard_content` 启发式围栏（机制出自 Epic 35，2026-08-19：命中内置注入签名加 warning 标记后透传，不阻断；与 MCP `bridge_result` 同语义）。
 
 ### 4.7 Cron 调度 (`cron/`)
 
@@ -1495,7 +1495,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | MCP stdio 子进程不经沙箱——**已闭合**（Epic 53 期二 53-5，2026-11-03；2026-09-27 的「裁定 (c) 不做」被 2026-10-21 起的容器档兜底推翻） | 实施：`SANDBOX_BACKEND=docker` 时 `cli/console.py::_stdio_sandbox_spec` 产出 `StdioSandboxSpec`，`MCPClientManager(stdio_sandbox=…)` → `default_transport_opener` → `tools/mcp/stdio_sandbox.py::stdio_params` 把 SDK 的 stdio 子进程换成 **docker CLI**：`docker run -i --rm --pull=never --cap-drop=ALL --security-opt no-new-privileges --user sandbox --network <none|bridge> <image> <server-cmd> …`，容器内进程的 stdin/stdout 即 JSON-RPC 管道（长命双向，不经 `CommandRunner` 的 `sh -c` 短命形状）。env 只对 `.mcp.json` 显式声明的键发 `-e KEY`（不带值，值不进 argv），宿主其它变量不进容器。**降级**：daemon 不可用 / CLI 缺席 / 探测抛错 ⇒ 显性降级回宿主执行，**每次**连接打 WARNING（判据 `tests/test_mcp_stdio_sandbox.py`）。残留：镜像里没有的二进制（典型 `npx`）会显性失败——属预期，镜像供给是配置面职责；边界地位仍见 §4.19（容器档非绝对边界）。历史裁定正文见 `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（Z-D24） |
 | 用户可配置 MCP 签名入口 | 项目级 `.heagent/injection_signatures.json` 已接入并进程内缓存；全局级入口仍 deferred（活动台账 A36：2026-11-05 复核项目级与全局级文件均不存在，零使用 ⇒ 加全局入口属 YAGNI）；但全局文件存在时加载器**显式 WARNING 说明其被忽略**（静默失效才是缺陷面，判据 `tests/test_mcp_mapping.py::test_global_signature_file_is_ignored_with_warning`）；签名围栏的边界地位见 §4.19 |
 | 凭证 deny 项目级配置入口 | `.heagent/path_deny.json`（2026-09-17）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒；边界地位见 §4.19 |
-| Dreaming 联网注入围栏 | `web_fetch` / `web_search` 返回路径已接 `guard_content`（Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；标记仅 observable defense-in-depth（边界地位见 §4.19），dreamer 的兜底要求见 4.6 dream.py |
+| Web 工具注入围栏 | `web_fetch` / `web_search` 返回路径已接 `guard_content`（机制出自 Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；标记仅 observable defense-in-depth（边界地位见 §4.19），dreamer 的兜底要求见 4.6 dream.py |
 | 交互式审批非安全边界 | 审批闭环（Epic 29）把「要不要执行」交给用户，边界地位见 §4.19（见 4.12 approval.py） |
 | 文件安全与凭证防护非边界 | path_safety 凭证 deny / scrub_sensitive_env 均为 defense-in-depth 启发式层（2026-08-24），边界地位见 §4.19 |
 | 沙箱会话目录非安全边界 | `sandbox_session_workspace`（FR-1，2026-08-26）只提供 per-run 目录约定：WinJob 仅把目录作为子进程 cwd（**零文件系统/网络隔离**），Firejail `--private` 亦无完整隔离——边界地位见 §4.19（见 4.4 sandbox.py） |
@@ -1604,7 +1604,7 @@ src/heagent/
 │   │   ├── client.py        # TransportOpener Protocol + 默认实现（Phase 4 C2）
 │   │   ├── registry_bridge.py  # 注册/注销单一入口（Phase 4 C2）
 │   │   └── manager.py       # MCPClientManager（生命周期 façade + discovery_failures）
-│   └── builtins/            # 内置工具（26 个）
+│   └── builtins/            # 内置工具（29 个）
 │       ├── __init__.py      # 触发注册
 │       ├── shell.py         # shell 命令执行
 │       ├── file.py          # 文件读写
@@ -1613,7 +1613,7 @@ src/heagent/
 │       ├── memory.py        # 记忆管理（fact_add/profile_update）
 │       ├── cron.py          # Cron 管理（add/list/remove）
 │       ├── subagent.py      # 子 Agent 委派工具（仅持可注入回调，不导入 agent/）
-│       ├── web.py           # web_fetch（HTTP 抓取）+ web_search（检索工具面，read-only）
+│       ├── web.py           # web_fetch（HTTP 抓取，read-only）+ web_search（检索工具面，read-only）
 │       ├── web_search_engine.py  # web_search 引擎面（SearchEngine 协议/Tavily/registry，非 @tool）
 │       └── git.py           # Git 工具（status/diff/log/blame，read-only）
 │
