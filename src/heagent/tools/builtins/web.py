@@ -1,13 +1,16 @@
-"""Web fetch 工具 — 抓取 http(s) URL 的文本内容供 Agent 查阅在线文档。
+"""Web 工具 — web_fetch（抓取 http(s) URL 文本）+ web_search（按主题检索）。
 
-只读操作。``readOnlyHint=True`` 为信息性标注（PolicyEngine 对内置工具不经注解裁决，
+均只读。``readOnlyHint=True`` 为信息性标注（PolicyEngine 对内置工具不经注解裁决，
 按非 ``approval_tools`` 自动放行；注解不改变放行结果）。
 
-安全立场（与 CLAUDE.md 一致）：本工具的 SSRF/围栏防护仅为 defense-in-depth，
-**非真正安全边界**——须 OS 级沙箱兜底。已知缺口：
+安全立场（与 CLAUDE.md 一致）：两工具的防护（web_fetch 的 SSRF 围栏、web_search 的
+确定性预算闸与 guard_content 注入围栏）仅为 defense-in-depth，
+**非真正安全边界**——须 OS 级沙箱兜底。已知缺口（web_fetch）：
 - DNS rebinding：校验时解析的 IP 与 httpx 实际连接时二次解析的 IP 可能不同，
   根治需 IP-pinning 自定义 transport，未实现（依赖 OS 沙箱兜底）。
 - 端口不受限（理论上可探测内网端口）；未做端口白名单，避免误伤 :8080/:8443 等合法站点。
+web_search 走固定引擎端点（无用户 URL，无 SSRF 校验面）；返回内容与 web_fetch 同等不可信，
+截断预算与 guard_content 同为启发式层。
 """
 
 from __future__ import annotations
@@ -187,8 +190,11 @@ async def web_fetch(url: str, max_length: int = 50000) -> str:
 
 # ── web_search：按主题检索（引擎面见 web_search_engine.py）──────────────────
 
-# 每条摘要字符上限（注入上下文前的确定性预算：条数切片 × 摘要上限双闸，零概率模型参与）
+# 注入上下文前的确定性预算（条数切片 + 字段钳位 + 汇总闸，零概率模型参与；三层互为 defense-in-depth）
 _SEARCH_SNIPPET_MAX_CHARS = 600
+_SEARCH_TITLE_MAX_CHARS = 200
+_SEARCH_URL_MAX_CHARS = 500
+_SEARCH_TOTAL_MAX_CHARS = 20000
 
 
 @tool(read_only=True)
@@ -201,12 +207,12 @@ async def web_search(query: str, max_results: int = 5) -> str:
         query: The search query.
         max_results: 返回条数上限（默认 5，钳位 [1, 10]）。
     """
-    settings = get_settings()
-    engine = create_engine(settings.web_search_engine, api_key=settings.web_search_api_key)
     q = query.strip()
     if not q:
-        # 工具面入口校验先于引擎（可插拔引擎不保证各自校验）
+        # 入口校验先于引擎构造（可插拔引擎不保证各自校验；错名+空白组合时优先报入口错）
         raise RuntimeError("web_search 查询不能为空")
+    settings = get_settings()
+    engine = create_engine(settings.web_search_engine, api_key=settings.web_search_api_key)
     n = min(max(max_results, 1), 10)
     # 工具面自有预算闸：即使引擎违反 max_results 契约超发，也在注入上下文前确定性切片
     results = list(await engine.search(q, max_results=n))[:n]
@@ -216,8 +222,16 @@ async def web_search(query: str, max_results: int = 5) -> str:
         snippet = (
             r.snippet if len(r.snippet) <= _SEARCH_SNIPPET_MAX_CHARS else r.snippet[:_SEARCH_SNIPPET_MAX_CHARS] + "…"
         )
-        lines.append(f"[{i}] {r.title}\n    {r.url}\n    {snippet}")
+        title = r.title[:_SEARCH_TITLE_MAX_CHARS]
+        url = r.url[:_SEARCH_URL_MAX_CHARS]
+        lines.append(f"[{i}] {title}\n    {url}\n    {snippet}")
     text = "\n\n".join(lines)
+    if len(text) > _SEARCH_TOTAL_MAX_CHARS:
+        # 汇总闸：字段钳位后理论不可达，作为 61.2 冻结意图的 defense-in-depth 保留
+        text = (
+            text[:_SEARCH_TOTAL_MAX_CHARS]
+            + f"\n\n[已截断：原 {len(text)} 字符，超出 {_SEARCH_TOTAL_MAX_CHARS} 汇总预算]"
+        )
     if not text.strip():
         return "（无检索结果）"
     return guard_content(text)

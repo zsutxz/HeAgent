@@ -19,6 +19,7 @@
 
 ### Added
 
+- web_search 内建工具（Epic 61）：按主题检索发现新 URL。引擎可插拔（`WEB_SEARCH_ENGINE`，默认 Tavily）；无密钥工具常在、调用显性报错（`WEB_SEARCH_API_KEY`）；条数/摘要/title/url/汇总四层确定性预算 + `guard_content` 注入围栏；dreamer 与主 loop 同面开放。
 - `RunStore.close_stale_running`：把陈旧 running 快照收尾为 FAILED（崩溃进程遗留的 running 不再污染统计；`updated_at` 保持末次真实活动时刻，不回填时钟）。已接线：新 run 启动时自动触发一次（去重），阈值 `RUN_STALE_IDLE_HOURS`（默认 6h，0=禁用）。
 
 ### Fixed

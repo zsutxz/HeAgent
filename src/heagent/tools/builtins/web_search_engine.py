@@ -32,6 +32,13 @@ _MAX_QUERY_CHARS = 400
 _MAX_RESULTS_CAP = 20
 # 引擎调用超时（总读 + 单独 connect）
 _ENGINE_TIMEOUT = httpx.Timeout(20.0, connect=5.0)
+# 错误分类自携人类可读指引（模型可见面，指引是确定性文本——重试立场仍归调用方）
+_CATEGORY_HINTS: dict[ErrorCategory, str] = {
+    ErrorCategory.RATE_LIMITED: "检索引擎限流，稍后重试；",
+    ErrorCategory.AUTH_FAILED: "检索引擎认证失败，检查 WEB_SEARCH_API_KEY；",
+    ErrorCategory.TRANSIENT: "检索引擎临时错误，可稍后重试；",
+    ErrorCategory.NON_TRANSIENT: "检索引擎拒绝了请求（查询或参数问题），重试无效；",
+}
 
 
 class SearchResult(BaseModel):
@@ -103,13 +110,21 @@ class TavilyEngine:
             raise SearchEngineError(f"检索请求超时: {q[:50]}", category=ErrorCategory.TRANSIENT) from exc
         except httpx.RequestError as exc:
             raise SearchEngineError(f"检索请求失败: {exc}", category=ErrorCategory.TRANSIENT) from exc
-        if response.status_code >= 400:
-            # 分类复用容错面判据：包 ProviderError 走 classify_error 的标准入口
-            provider_error = ProviderError(response.text[:200], status_code=response.status_code)
+        if 300 <= response.status_code < 400:
             raise SearchEngineError(
-                f"检索引擎 HTTP {response.status_code}: {response.text[:200]}",
+                f"检索引擎重定向 {response.status_code}（API 直连不应重定向，疑网关劫持）",
                 status_code=response.status_code,
-                category=classify_error(provider_error),
+                category=ErrorCategory.TRANSIENT,
+            )
+        if response.status_code >= 400:
+            # 分类复用容错面判据：包 ProviderError 走 classify_error 的标准入口；
+            # 分类自携人类可读指引（模型可见面，指引是确定性文本——重试立场仍归调用方）
+            provider_error = ProviderError(response.text[:200], status_code=response.status_code)
+            category = classify_error(provider_error)
+            raise SearchEngineError(
+                f"{_CATEGORY_HINTS[category]}检索引擎 HTTP {response.status_code}: {response.text[:200]}",
+                status_code=response.status_code,
+                category=category,
             )
 
         try:
@@ -121,18 +136,34 @@ class TavilyEngine:
                 category=ErrorCategory.NON_TRANSIENT,
             ) from exc
 
+        if not isinstance(data, dict) or not isinstance(data.get("results"), list):
+            raise SearchEngineError(
+                f"检索引擎响应形状非法（非对象或缺 results 列表，契约漂移）: {response.text[:200]}",
+                status_code=response.status_code,
+                category=ErrorCategory.NON_TRANSIENT,
+            )
+
         results: list[SearchResult] = []
-        for item in data.get("results", []):
-            url = item.get("url", "")
-            if not url:
+        dropped = 0
+        for item in data["results"]:
+            if not isinstance(item, dict) or not item.get("url"):
+                dropped += 1
                 continue
             results.append(
                 SearchResult(
                     title=item.get("title", ""),
-                    url=url,
+                    url=item.get("url", ""),
                     snippet=item.get("content", ""),
                 )
             )
+        if not results and dropped:
+            raise SearchEngineError(
+                f"检索引擎返回 {dropped} 条但全部缺 url（契约漂移），不冒充零命中",
+                status_code=response.status_code,
+                category=ErrorCategory.NON_TRANSIENT,
+            )
+        if dropped:
+            logger.warning("web_search 引擎返回 %d 条中 %d 条缺 url 或形状非法，已丢弃", len(data["results"]), dropped)
         return results
 
 
@@ -140,7 +171,12 @@ _ENGINE_REGISTRY: dict[str, Callable[[str], SearchEngine]] = {}
 
 
 def register_engine(name: str, factory: Callable[[str], SearchEngine]) -> None:
-    """注册引擎工厂（name → 工厂；工厂收 api_key，返回引擎实例）。"""
+    """注册引擎工厂（name → 工厂；工厂收 api_key）。
+
+    重复注册同名显性报错——不允许静默 last-wins 换掉已注册引擎（扩展点卫生）。
+    """
+    if name in _ENGINE_REGISTRY:
+        raise SearchEngineError(f"检索引擎 '{name}' 已注册，禁止覆盖")
     _ENGINE_REGISTRY[name] = factory
 
 

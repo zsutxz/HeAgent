@@ -34,6 +34,7 @@ def _install_mock(monkeypatch: pytest.MonkeyPatch, handler):
         return handler(request)
 
     def _factory(*args, **kwargs):
+        captured["client_kwargs"] = kwargs
         kwargs.pop("transport", None)
         return real_client(*args, transport=httpx.MockTransport(_wrapped), **kwargs)
 
@@ -55,6 +56,14 @@ class TestTavilyRequestShape:
         assert [r.title for r in results] == ["T1", "T2"]
         assert results[0].url == "https://a.example/1"
         assert results[0].snippet == "s1"
+
+    async def test_client_kwargs_observed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """生产代码必须把 timeout/trust_env=False 传给 AsyncClient（与 web_fetch 同口径的测试钉，A8）。"""
+        captured = _install_mock(monkeypatch, lambda r: _json_response(_TAVILY_PAYLOAD))
+        engine = wse.create_engine("tavily", api_key="k")
+        await engine.search("q")
+        assert captured["client_kwargs"]["trust_env"] is False
+        assert captured["client_kwargs"]["timeout"] == wse._ENGINE_TIMEOUT
 
     async def test_item_without_url_is_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         payload = {"results": [{"title": "bad"}, {"title": "ok", "url": "https://x/1"}]}
@@ -151,3 +160,63 @@ class TestRegistry:
     def test_unknown_engine_fails_loud(self) -> None:
         with pytest.raises(wse.SearchEngineError, match="未知检索引擎"):
             wse.create_engine("nonexistent-engine")
+
+
+class TestResponseShapeContract:
+    """B1/A6：JSON 合法但形状异常必须显性报错（NON_TRANSIENT），不裸崩不冒充空结果。"""
+
+    async def _expect_shape_error(self, monkeypatch, payload) -> None:
+        _install_mock(monkeypatch, lambda r: _json_response(payload))
+        engine = wse.TavilyEngine(api_key="k")
+        with pytest.raises(wse.SearchEngineError, match="形状非法|缺 url"):
+            await engine.search("q")
+
+    async def test_root_not_object_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        await self._expect_shape_error(monkeypatch, [1, 2])
+
+    async def test_missing_results_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        await self._expect_shape_error(monkeypatch, {"data": []})
+
+    async def test_results_not_list_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        await self._expect_shape_error(monkeypatch, {"results": "x"})
+
+    async def test_non_dict_items_dropped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        payload = {"results": ["junk", {"url": "https://x/1", "title": "ok"}]}
+        _install_mock(monkeypatch, lambda r: _json_response(payload))
+        engine = wse.TavilyEngine(api_key="k")
+        results = await engine.search("q")
+        assert [r.title for r in results] == ["ok"]
+
+    async def test_all_items_dropped_raises_not_fake_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """全部条目缺 url 时显性报错，不静默返回 [] 冒充零命中（B2）。"""
+        payload = {"results": [{"title": "a"}, {"title": "b"}]}
+        _install_mock(monkeypatch, lambda r: _json_response(payload))
+        engine = wse.TavilyEngine(api_key="k")
+        with pytest.raises(wse.SearchEngineError, match="全部缺 url"):
+            await engine.search("q")
+
+    async def test_genuinely_empty_results_return_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """真实零命中（results 为空列表）返回 []，与契约漂移可区分。"""
+        _install_mock(monkeypatch, lambda r: _json_response({"results": []}))
+        engine = wse.TavilyEngine(api_key="k")
+        assert await engine.search("q") == []
+
+
+class TestRedirectAndRegistry:
+    async def test_redirect_response_raises_transient(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """3xx 显性报错为 TRANSIENT，不落入 JSON 分支被误分类（B4）。"""
+        _install_mock(monkeypatch, lambda r: _json_response(_TAVILY_PAYLOAD, status=302))
+        engine = wse.TavilyEngine(api_key="k")
+        with pytest.raises(wse.SearchEngineError, match="重定向") as excinfo:
+            await engine.search("q")
+        assert excinfo.value.category == ErrorCategory.TRANSIENT
+
+    def test_duplicate_registration_raises(self) -> None:
+        """重复注册同名引擎显性报错，禁止静默 last-wins（B5）。"""
+        saved = wse._ENGINE_REGISTRY
+        wse._ENGINE_REGISTRY = dict(saved)
+        try:
+            with pytest.raises(wse.SearchEngineError, match="已注册"):
+                wse.register_engine("tavily", lambda api_key: wse._make_tavily(api_key))
+        finally:
+            wse._ENGINE_REGISTRY = saved

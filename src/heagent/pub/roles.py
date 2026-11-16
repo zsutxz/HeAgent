@@ -182,7 +182,7 @@ _SUPERVISOR_SYSTEM = """\
 # PolicyEngine 的工具白/黑名单均非真正安全边界（defense-in-depth 标记/拦截）——被污染网页内容
 # 可经 prompt injection 写入记忆库、影响后续所有会话（跨会话持久攻击面）。须 OS 级沙箱兜底。
 # ⚠ web_fetch / web_search 返回内容**已接** guard_content 启发式围栏（tools/builtins/web.py 已接入、
-# test_dream.py 覆盖）——命中注入签名仅加 warning 标记后**透传、不阻断**，故 dreamer 联网结果仍属「不可信内容进上下文」。
+# test_epic35.py / test_web_search_tool.py 覆盖布线）——命中注入签名仅加 warning 标记后**透传、不阻断**，故 dreamer 联网结果仍属「不可信内容进上下文」。
 # 上述均为 defense-in-depth，非真正安全边界——须 OS 级沙箱兜底。
 _DREAMER_SYSTEM = """\
 你是【做梦角色 Dreamer】。职责：在空闲时对近期会话历史与记忆库做离线巩固（去重 / 提炼 / 查证 / 归档）。

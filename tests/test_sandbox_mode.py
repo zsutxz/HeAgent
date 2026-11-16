@@ -85,7 +85,10 @@ class TestSandboxSettings:
 
 
 class TestReadOnlyMode:
-    @pytest.mark.parametrize("tool", ["file_read", "file_search", "content_search", "git_status", "web_fetch"])
+    @pytest.mark.parametrize(
+        "tool",
+        ["file_read", "file_search", "content_search", "git_status", "web_fetch", "web_search"],
+    )
     def test_read_only_tools_allowed(self, tool: str) -> None:
         engine = PolicyEngine(sandbox_mode="read-only")
         assert _verdict(engine, tool) is not ToolExecutionMode.BLOCKED

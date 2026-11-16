@@ -237,6 +237,23 @@ def test_no_reverse_dependency_on_agent() -> None:
     assert offenders == [], "运行期反向依赖：" + ", ".join(offenders)
 
 
+def test_tools_providers_edge_is_pinned_to_retry() -> None:
+    """tools→providers 唯一声明边：仅 ``web_search_engine.py → providers.retry``（容错分类判据复用）。
+
+    frame.md DAG 规则「providers 与 tools 互不依赖」的唯一声明例外，在此钉死唯一性——
+    边扩散时本测试先红，届时裁定扩例或下沉 ``pub/``。
+    """
+    allowed = {"tools/builtins/web_search_engine.py"}
+    offenders: list[str] = []
+    for path in _package_modules("tools"):
+        runtime, _ = _imports(path)
+        rel = path.relative_to(SRC).as_posix()
+        hits = sorted(t for t in runtime if t.startswith("heagent.providers"))
+        if hits and rel not in allowed:
+            offenders.append(f"{rel} → {hits}")
+    assert offenders == [], "tools→providers 边扩散：" + ", ".join(offenders)
+
+
 def test_workspace_paths_is_the_only_state_path_module() -> None:
     source = (SRC / "pub" / "workspace.py").read_text(encoding="utf-8")
     assert "from heagent" not in source

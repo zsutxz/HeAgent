@@ -121,3 +121,36 @@ class TestDreamerFace:
         assert "web_search" in dreamer.allowed_tools
         assert "web_fetch" in dreamer.allowed_tools
         assert "file_read" not in dreamer.allowed_tools
+
+
+class TestOutputBudget:
+    async def test_title_url_clamped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """title/url 同受确定性钳位，600 闸不再只钳 snippet（A1/E2）。"""
+        engine = _EngineStub([_result("T" * 50000, url="u" * 50000)])
+        _patch_tool(monkeypatch, engine)
+        out = await web_search("q")
+        assert out.count("T") == 200
+        assert out.count("u") == 500
+
+    async def test_total_budget_gate(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """汇总 ≤20000 闸 + 截断标注（A1；常量 monkeypatch 至 100 使闸可达）。"""
+        from heagent.tools.builtins import web
+
+        engine = _EngineStub([_result(f"T{i}", snippet="s" * 40) for i in range(5)])
+        _patch_tool(monkeypatch, engine)
+        monkeypatch.setattr(web, "_SEARCH_TOTAL_MAX_CHARS", 100)
+        out = await web_search("q")
+        assert "[已截断" in out
+        assert len(out) < 200
+
+    async def test_blank_query_wins_over_bad_engine_name(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """入口校验先于引擎构造：错名+空白组合优先报入口错（A12）。"""
+        from heagent.tools.builtins import web
+
+        class _BadEngineSettings:
+            web_search_engine = "no-such-engine"
+            web_search_api_key = "k"
+
+        monkeypatch.setattr(web, "get_settings", lambda: _BadEngineSettings())
+        with pytest.raises(RuntimeError, match="查询不能为空"):
+            await web_search("   ")

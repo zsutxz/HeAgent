@@ -277,7 +277,7 @@ def test_ac4_dreamer_role_allowlist_blocks_dangerous_tools() -> None:
         assert not verdict.allowed, f"{blocked_name!r} should be BLOCKED by dreamer policy"
 
     # 放行的工具（在白名单、不在黑名单 → DIRECT）
-    for allowed_name in ("fact_add", "fact_compact", "web_fetch", "skill_create", "skill_curate"):
+    for allowed_name in ("fact_add", "fact_compact", "web_fetch", "web_search", "skill_create", "skill_curate"):
         call = ToolCall(id="x", name=allowed_name, arguments={})
         verdict = policy.evaluate_tool_call(call)
         assert verdict.allowed, f"{allowed_name!r} should be ALLOWED by dreamer policy"

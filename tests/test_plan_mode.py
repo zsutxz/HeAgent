@@ -111,6 +111,7 @@ class TestApplyPlanMode:
         assert "file_read" in allowed
         assert "git_status" in allowed
         assert "web_fetch" in allowed
+        assert "web_search" in allowed
         # 写工具排除
         assert "shell" not in allowed
         assert "file_write" not in allowed
