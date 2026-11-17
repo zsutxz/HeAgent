@@ -18,6 +18,7 @@ from heagent.engine import (
     WorkflowStepResource,
 )
 from heagent.engine.checkpoint import WorkflowCheckpointStore
+from heagent.engine.story_batch import _accepts_execution
 from heagent.engine.workflow_runner import WorkflowRunner, WorkflowStepResult
 from heagent.goal import application
 from heagent.goal import write_audit
@@ -430,8 +431,8 @@ def test_step_executor_protocol_bridge_shape() -> None:
 
     assert application._executor_accepts_execution(four_param)
     assert not application._executor_accepts_execution(three_param)
-    assert WorkflowRunner._accepts_execution(partial(application._run_step_with_inputs, {}, four_param))
-    assert not WorkflowRunner._accepts_execution(partial(application._run_step_without_execution, {}, three_param))
+    assert _accepts_execution(partial(application._run_step_with_inputs, {}, four_param))
+    assert not _accepts_execution(partial(application._run_step_without_execution, {}, three_param))
 
 
 @pytest.mark.asyncio

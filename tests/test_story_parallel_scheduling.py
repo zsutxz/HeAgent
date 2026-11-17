@@ -19,6 +19,7 @@ from heagent.engine.checkpoint import (
     WorkflowStatus,
 )
 from heagent.engine.workflow_resource import WorkflowResource, WorkflowStepResource
+from heagent.engine.story_batch import _accepts_execution
 from heagent.engine.workflow_runner import WorkflowRunner, WorkflowRunnerState, WorkflowStepResult
 from heagent.goal.workflow_loader import parse_story_list
 
@@ -433,10 +434,10 @@ def test_accepts_execution_probe() -> None:
     def varargs(*args: Any) -> WorkflowStepResult:  # pragma: no cover - signature probe
         raise NotImplementedError
 
-    assert WorkflowRunner._accepts_execution(two) is False
-    assert WorkflowRunner._accepts_execution(three) is True
+    assert _accepts_execution(two) is False
+    assert _accepts_execution(three) is True
     # *args 宽签名不算实现契约（fail-closed：测试桩不得借 varargs 意外获得并发授权）。
-    assert WorkflowRunner._accepts_execution(varargs) is False
+    assert _accepts_execution(varargs) is False
 
 
 @pytest.mark.asyncio

@@ -122,8 +122,13 @@
       "bases": [
         "ValueError"
       ],
-      "module": "heagent.engine.workflow_runner",
+      "module": "heagent.engine.state_machine",
       "name": "WorkflowGateError"
+    },
+    {
+      "bases": [],
+      "module": "heagent.engine.workflow_runner",
+      "name": "WorkflowRunner"
     },
     {
       "bases": [

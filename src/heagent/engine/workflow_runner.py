@@ -8,11 +8,8 @@ import logging
 import re
 import time
 from collections.abc import Awaitable, Callable, Iterable, Mapping
-from pathlib import PurePosixPath
 from typing import Any
 from uuid import uuid4
-
-from pydantic import BaseModel, Field
 
 from heagent.engine.checkpoint import (
     GoalWorkflowState,
@@ -21,7 +18,42 @@ from heagent.engine.checkpoint import (
     WorkflowPhase,
     WorkflowStatus,
 )
-from heagent.engine.observability import elapsed_ms
+from heagent.engine.observability import _emit_step_event, elapsed_ms
+from heagent.engine.state_machine import (
+    _CANCEL_EXCEPTIONS,
+    _MAX_REASON_CHARS,
+    WorkflowGateError,
+    WorkflowRunnerState,
+    WorkflowRunResult,
+    WorkflowStepResult,
+    _approval_gate_update,
+    _approve_state,
+    _bounded_reason,
+    _callback_event,
+    _cancel_or_failure_event,
+    _checkpoint_declared,
+    _combine_story_outputs,
+    _completion_update,
+    _decision_state,
+    _is_done,
+    _pause_state,
+    _references,
+    _resume_update,
+    _step_advance_update,
+    _stop_event,
+    _story_reset_update,
+    _transition_fields,
+    _validate_state,
+)
+from heagent.engine.story_batch import (
+    _accepts_execution,
+    _execution_context,
+    _gather_story_batch,
+    _invoke_callback,
+    _parallel_batch,
+    write_set_entries_overlap,
+    write_set_parts,
+)
 from heagent.engine.workflow_events import WorkflowEvent
 from heagent.engine.workflow_resource import (
     WorkflowResource,
@@ -29,83 +61,26 @@ from heagent.engine.workflow_resource import (
     output_contains_section,
     section_titles,
 )
-from heagent.engine.workflow_transition import transition
 from heagent.events.protocol import error_kind_for
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import StoryExecutionContext, StorySpec
 
+__all__ = [
+    "_CANCEL_EXCEPTIONS",
+    "_MAX_REASON_CHARS",
+    "_emit_step_event",
+    "write_set_entries_overlap",
+    "write_set_parts",
+    "WorkflowGateError",
+    "WorkflowRunner",
+    "WorkflowRunnerState",
+    "WorkflowRunResult",
+    "WorkflowStepResult",
+    "StorySpec",
+    "required_sections",
+]
+
 logger = logging.getLogger(__name__)
-
-#: 状态 reason / checkpoint next_action 的字符上限：只限制落盘与展示体积，
-#: 语义是**截断不抛**——截断不得改变控制流，超长异常文本也不该把 checkpoint 撑爆。
-_MAX_REASON_CHARS = 2000
-
-#: 视为「用户取消」的异常：一律经 CANCELLED 落 PENDING
-#: （可恢复，resume 即重跑）。KeyboardInterrupt / SystemExit 与 CancelledError 同路——
-#: Ctrl-C 的语义是「先停下、稍后重来」，落 FAILED 会让重启后必须显式 resume 才能继续。
-_CANCEL_EXCEPTIONS: tuple[type[BaseException], ...] = (
-    asyncio.CancelledError,
-    KeyboardInterrupt,
-    SystemExit,
-)
-
-
-def _bounded_reason(text: str) -> str:
-    """把状态 reason 截到 :data:`_MAX_REASON_CHARS`（A37）：尾部标记省略，绝不抛异常。"""
-    if len(text) <= _MAX_REASON_CHARS:
-        return text
-    return text[: _MAX_REASON_CHARS - 3] + "..."
-
-
-#: 签名探测的位置参数种类。两者**故意不同**、勿统一：执行契约（≥3）不含 ``*args``（宽签名
-#: 不算实现契约，fail-closed——tests/test_story_parallel_scheduling.py 有断言锚点）；
-#: story 回调（≥2）含 ``*args``（历史宽容）。
-_POSITIONAL_KINDS = (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-_POSITIONAL_KINDS_WITH_VARARGS = (*_POSITIONAL_KINDS, inspect.Parameter.VAR_POSITIONAL)
-
-
-def _positional_arity(callback: Callable[..., Any], kinds: tuple[inspect._ParameterKind, ...], minimum: int) -> bool:
-    """``kinds`` 过滤后的显式位置参数 ≥ ``minimum`` 即真；签名不可得（TypeError/ValueError）fail-closed 假。"""
-    try:
-        signature = inspect.signature(callback)
-    except (TypeError, ValueError):
-        return False
-    positional = [parameter for parameter in signature.parameters.values() if parameter.kind in kinds]
-    return len(positional) >= minimum
-
-
-def _emit_step_event(
-    emit: Callable[..., None] | None,
-    kind: str,
-    *,
-    step: Any,
-    story: Any,
-    duration_ms: int = 0,
-    error_kind: str = "",
-    **extra: Any,
-) -> None:
-    """工作流观测事件的**唯一**隔离包装（Phase 5 C1；A27 统一）：emit-None 早退 + try/except
-    + ``safe_log`` 忽略——可观测性不得改变业务控制流。
-
-    ``step`` / ``story`` 是鸭子契约（引擎侧传 ``WorkflowStepResource`` / ``StorySpec``，CLI
-    质量门传宿主对象）：属性访问故障与 emit 异常同在隔离内，绝不传播进业务流，payload
-    构造因此也在隔离内。``duration_ms`` / ``error_kind`` 进 details，由传输层
-    ``from_engine_event`` 提升到 RunEvent 顶层（EngineEvent 模型与 GUI 消费面不动）。
-    ``**extra`` 的取值在调用方实参处求值——调用方只应传自有类型化模型字段或字面量。
-    """
-    if emit is None:
-        return
-    try:
-        payload: dict[str, Any] = {
-            "step": step.name,
-            "story": story.id if story is not None else "",
-            "duration_ms": duration_ms,
-            "error_kind": error_kind,
-            **extra,
-        }
-        emit(kind, details=payload)
-    except Exception:  # noqa: BLE001 - 观测失败仅告警
-        safe_log(logger, logging.WARNING, "workflow step event %r emit failed; ignored", kind, exc_info=True)
 
 
 def required_sections(validation_rules: str | None) -> list[str]:
@@ -120,135 +95,9 @@ def required_sections(validation_rules: str | None) -> list[str]:
     return section_titles(validation_rules)
 
 
-class WorkflowGateError(ValueError):
-    """Raised when a step cannot satisfy its declared contract."""
-
-
-class WorkflowRunnerState(BaseModel):
-    """Serializable progress for a declarative workflow."""
-
-    active_step: int = Field(default=0, ge=0)
-    status: WorkflowStatus = WorkflowStatus.PENDING
-    completed_steps: list[int] = Field(default_factory=list)
-    outputs: dict[str, Any] = Field(default_factory=dict)
-    acceptance_evidence: list[str] = Field(default_factory=list)
-    reason: str = ""
-    active_story: str | None = None
-    # 当前 Story 所属 Epic：runner 在 story 循环处从已解析的 Story 记录里取值（不读文档、不猜层级）。
-    active_epic: str = ""
-    story_index: int = Field(default=0, ge=0)
-    completed_stories: list[str] = Field(default_factory=list)
-    story_outputs: dict[str, Any] = Field(default_factory=dict)
-    # `active_stories` 已派生化删除：串行化后它恒等于 `[active_story]`（无活动 story
-    # 时空表），每个写点都只是镜像同步税。消费方（checkpoint / status_view）一律由
-    # ``active_story`` 现场派生。
-    story_statuses: dict[str, str] = Field(default_factory=dict)
-    # 步骤级审批门：True = 活动步做完工作、挂起等一个人工决策（approve /
-    # reject / amend）；普通 resume 在此状态被拒绝，不能隐式顶替批准。
-    awaiting_approval: bool = False
-    # 审批门挂起期间的步骤产物：approve 落定完成簿记时的输出来源（步骤此刻未标记完成，
-    # 所以还不进 ``outputs``）。
-    pending_output: Any = None
-    # 审批门在该 goal 上的第几次发生（单调递增，gate 每次挂起 +1）。参与 checkpoint 幂等键：
-    # reject / amend 重跑会把同一 (step, active, status) 位置再次挂门，而内容合法地不同——
-    # 缺这个区分位会让第二次挂门撞上第一次的 checkpoint conflict。
-    approval_round: int = Field(default=0, ge=0)
-    # 脚本步骤声明的后续声明步骤计划：FIFO，由 run_declared_step 消费。持久化
-    # 进 checkpoint，使「条件选择了哪些后续步骤」在进程重启后仍可确定恢复。
-    requested_steps: list[str] = Field(default_factory=list)
-    # 写集违规撤销闩：宿主审计判负（write_violation）后置 True，**单向不可
-    # 复位**——撤销的是并发授权（此后批派生恒串行），不撤销围栏（串行重跑仍带 allowlist）。
-    # 随 checkpoint 持久化，重启后仍生效；恢复只能由人改 checkpoint 或开新 goal。
-    story_parallel_revoked: bool = False
-    # 驱动最近一次状态转换的事件：取值 = `WorkflowEvent`。与 ``status`` 由**同一个**
-    # event 同源写入（唯一写点是 ``_transition_fields``），审计因此能区分「被取消」「执行器
-    # 失败」「人工拒绝」这些最终都表现为非 RUNNING 的转换。
-    last_event: str = ""
-    # 发那个事件的**理由**：自由文本、经 ``_bounded_reason`` 收敛，与 ``last_event`` 正交——
-    # 后者答「经哪个事件」，本字段答「为什么发它」，``next_action`` 答「下一步做什么」。
-    # 可选字段带默认值，旧 checkpoint 缺它读作空串（只追加口径允许追加可选字段）。
-    transition_reason: str = ""
-
-
-class WorkflowStepResult(BaseModel):
-    """Callback result returned after executing one step."""
-
-    status: WorkflowStatus = WorkflowStatus.COMPLETED
-    output: Any = None
-    evidence: list[str] = Field(default_factory=list)
-    reason: str = ""
-    #: 该步**声明**的后续声明步骤名（缺省空 = 老回调零行为变化）。
-    #: 只有 ``COMPLETED`` 的结果才会被采纳——失败 / 阻断的步骤不能把计划交给 Runner。
-    requested_steps: list[str] = Field(default_factory=list)
-    #: True = 宿主审计判负：该 Story 实际写越声明写集。Runner 据此置撤销闩。
-    write_violation: bool = False
-
-
-class WorkflowRunResult(BaseModel):
-    """Validated public result of one runner invocation."""
-
-    status: WorkflowStatus
-    step_index: int | None = None
-    output: Any = None
-    reason: str = ""
-    missing: list[str] = Field(default_factory=list)
-    acceptance_evidence: list[str] = Field(default_factory=list)
-    checkpoint_id: str | None = None
-    story_id: str | None = None
-    story_index: int | None = None
-    #: 本步声明的后续步骤名（透传自 :class:`WorkflowStepResult`；由调用方按序提交）。
-    requested_steps: list[str] = Field(default_factory=list)
-    #: True = 本次调用**没有执行任何步骤**（:meth:`WorkflowRunner.run_declared_step` 的幂等跳过）。
-    #: 调用方据此区分「真的推进了」与「这个请求已被满足过」，不去猜 ``reason`` 文案。
-    skipped: bool = False
-    #: 本次调用实际执行的 story id（按声明序；非 story 步骤为空）。供宿主/视图按批呈现。
-    executed_stories: list[str] = Field(default_factory=list)
-
-
 WorkflowCallback = Callable[[WorkflowStepResource], WorkflowStepResult | Awaitable[WorkflowStepResult]]
 StoryWorkflowCallback = Callable[[WorkflowStepResource, StorySpec], WorkflowStepResult | Awaitable[WorkflowStepResult]]
 CheckpointCallback = Callable[[WorkflowRunnerState], Awaitable[None] | None]
-
-
-def write_set_parts(entry: str) -> tuple[str, ...]:
-    """写集条目 → 规范路径段（交集/覆盖判定的纯词法形态，零文件系统 I/O）。
-
-    分隔符统一、大小写折叠（Windows 不敏感）；空串 / ``.`` 产出空段。含 ``..`` 的条目按
-    字面段参与前缀判定——可能误报冲突（fail-closed 方向，安全），真实越界由围栏的
-    ``resolve_under_root`` 兜底（死条目永不匹配，见 52-1）。模块级公共函数：宿主审计
-    （cli/goal）与引擎批派生必须消费同一份词法，不得各写一份（AD-18 同源诉求）。
-    """
-
-    text = entry.strip().replace("\\", "/").casefold()
-    return tuple(segment for segment in PurePosixPath(text).parts if segment not in {"", ".", "/"})
-
-
-def write_set_entries_overlap(a: tuple[str, ...], b: tuple[str, ...]) -> bool:
-    """两条目是否路径相交：一方是另一方的前缀（相等亦算）——目录条目覆盖子树。"""
-    return a == b[: len(a)] or b == a[: len(b)]
-
-
-def _combine_story_outputs(specs: list[StorySpec], outputs: dict[str, Any]) -> str:
-    """按声明序合并 story 输出（AD-19）：跨批有洞恢复时 ``outputs`` 的 dict 插入序是
-    完成序，必须按 ``specs`` 声明序重排（批内记账序碰巧一致，洞场景不成立）。
-    空值条目剔除（None / 空串不进合并结果）。
-    """
-    return "\n\n---\n\n".join(
-        str(outputs[spec.id])
-        for spec in specs
-        if outputs.get(spec.id) is not None and str(outputs.get(spec.id, "")) != ""
-    )
-
-
-def _story_reset_update() -> dict[str, Any]:
-    """story 清场五连：``active_story`` 归位、索引回零、清空已完成簿记——重跑从第一条 story 开始。"""
-    return {
-        "active_story": None,
-        "active_epic": "",
-        "story_index": 0,
-        "completed_stories": [],
-        "story_outputs": {},
-    }
 
 
 class WorkflowRunner:
@@ -280,7 +129,7 @@ class WorkflowRunner:
         self.run_id = run_id or uuid4().hex
         self.checkpoint_store = checkpoint_store
         self.phase = phase
-        self._validate_state()
+        _validate_state(self.state, self.workflow)
 
     @classmethod
     def from_checkpoint(
@@ -326,17 +175,7 @@ class WorkflowRunner:
 
     @property
     def done(self) -> bool:
-        return self.state.status is WorkflowStatus.COMPLETED and self.state.active_step >= len(self.workflow.steps)
-
-    def _validate_state(self) -> None:
-        if self.state.active_step > len(self.workflow.steps):
-            raise ValueError("active step is out of range")
-        if len(set(self.state.completed_steps)) != len(self.state.completed_steps):
-            raise ValueError("completed step indexes must be unique")
-        if any(index < 0 or index >= len(self.workflow.steps) for index in self.state.completed_steps):
-            raise ValueError("completed step index is out of range")
-        if len(set(self.state.completed_stories)) != len(self.state.completed_stories):
-            raise ValueError("completed story ids must be unique")
+        return _is_done(self.state, len(self.workflow.steps))
 
     async def run_step(  # noqa: C901 - story-loop safety gates share the single runner transition point
         self,
@@ -393,19 +232,19 @@ class WorkflowRunner:
             # 重跑仍带围栏输入与审计（闩撤销的是并发授权，不撤销围栏）。
             # 未声明 max_parallel_stories>1 或老回调时 execution 为 None——串行路径与既有串行语义
             # 逐字节一致（派生结果长度 1 时同样走串行分支，见下方 ``len(batch) > 1`` 分叉）。
-            if step.max_parallel_stories > 1 and self._accepts_execution(callback):
-                batch = [] if self.state.story_parallel_revoked else self._parallel_batch(step, story_specs)
-                execution = self._execution_context(active_story, batch)
+            if step.max_parallel_stories > 1 and _accepts_execution(callback):
+                batch = [] if self.state.story_parallel_revoked else _parallel_batch(self.state, step, story_specs)
+                execution = _execution_context(active_story, batch)
 
         started = time.perf_counter()
         _emit_step_event(emit, "workflow_step_started", step=step, story=active_story)
-        self.state = self.state.model_copy(update=self._transition_fields(WorkflowEvent.START))
+        self.state = self.state.model_copy(update=_transition_fields(self.state, WorkflowEvent.START))
         results: list[Any] = []
         try:
             if len(batch) > 1:
-                results = await self._gather_story_batch(step, batch, callback, emit)
+                results = await _gather_story_batch(step, batch, callback, emit)
             else:
-                result = self._invoke_callback(callback, step, active_story, execution)
+                result = _invoke_callback(callback, step, active_story, execution)
                 if inspect.isawaitable(result):
                     result = await result
                 if not isinstance(result, WorkflowStepResult):
@@ -469,14 +308,20 @@ class WorkflowRunner:
                 "requested_steps": [*self.state.requested_steps, *result.requested_steps],
             }
             update.update(
-                self._completion_update(
-                    step, story_specs, result.output, is_story_loop=is_story_loop, reason=result.reason
+                _completion_update(
+                    self.state,
+                    step,
+                    story_specs,
+                    len(self.workflow.steps),
+                    result.output,
+                    is_story_loop=is_story_loop,
+                    reason=result.reason,
                 )
             )
             self.state = self.state.model_copy(update=update)
         else:
             update = {
-                **self._transition_fields(self._callback_event(result.status), reason=result.reason),
+                **_transition_fields(self.state, _callback_event(result.status), reason=result.reason),
                 "reason": _bounded_reason(result.reason),
             }
             if result.write_violation:
@@ -503,100 +348,6 @@ class WorkflowRunner:
     def _record_story_status(self, story_id: str, status: str) -> None:
         """逐 Story 状态的唯一写点（批次机制移除后）：status_view 与恢复诊断依赖它，字段永空等于静默失明（Story 51-8）。"""
         self.state = self.state.model_copy(update={"story_statuses": {**self.state.story_statuses, story_id: status}})
-
-    @staticmethod
-    def _accepts_execution(callback: Callable[..., Any]) -> bool:
-        """回调是否实现三参执行上下文契约（Epic 52 AD-17 授权条件 3）。
-
-        仿 ``_accepts_story`` 的签名探测：**显式**位置参数 ≥3 = 宿主声明了
-        ``(step, story, execution)`` 形状、实现了写集围栏 + Git 审计契约，才有能力接住
-        :class:`StoryExecutionContext`。两参老回调 → fail-closed 串行；``*args`` 形状的
-        回调**不算**实现契约（fail-closed：宽签名测试桩不得借 varargs 意外获得并发授权）。
-        """
-        return _positional_arity(callback, _POSITIONAL_KINDS, minimum=3)
-
-    def _parallel_batch(self, step: WorkflowStepResource, specs: list[StorySpec]) -> list[StorySpec]:
-        """批派生纯函数（Epic 52 AD-16）：批次是推导不是状态，每次推进重新计算。
-
-        从 ``story_index`` 起、遇首个不合规未完成 Story 即止；已完成成员跳过（不入批也不
-        截断——批内有洞恢复时重推导）。七条件见 Epic 52 ARCHITECTURE-SPINE §2：上限、
-        未撤销闩、三参契约三者由调用方前置检查；本函数检查同 non-empty ``parallel_group``、
-        ``write_set`` 非空且批内两两不相交（路径段前缀判定：``src`` 覆盖 ``src/x.py``）、
-        ``depends_on ⊆ completed_stories``（不允许依赖批内成员——依赖并发中的 Story 不可证
-        安全）、批大小 ≤ 上限。同输入同输出，重启/重放安全。
-        """
-        first = specs[self.state.story_index]
-        if not first.parallel_group or not first.write_set:
-            return [first]
-        if not all(dependency in self.state.completed_stories for dependency in first.depends_on):
-            return [first]
-        batch = [first]
-        claimed = [write_set_parts(entry) for entry in first.write_set]
-        for candidate in specs[self.state.story_index + 1 :]:
-            if len(batch) >= step.max_parallel_stories:
-                break
-            if candidate.id in self.state.completed_stories:
-                continue
-            if not candidate.parallel_group or candidate.parallel_group != first.parallel_group:
-                break
-            if not candidate.write_set:
-                break
-            if not all(dependency in self.state.completed_stories for dependency in candidate.depends_on):
-                break
-            candidate_entries = [write_set_parts(entry) for entry in candidate.write_set]
-            if any(
-                write_set_entries_overlap(claimed_entry, candidate_entry)
-                for claimed_entry in claimed
-                for candidate_entry in candidate_entries
-            ):
-                break
-            batch.append(candidate)
-            claimed.extend(candidate_entries)
-        return batch
-
-    def _execution_context(self, active_story: StorySpec, batch: list[StorySpec]) -> StoryExecutionContext:
-        """构造单条 Story 的执行上下文（围栏输入 + 审计输入，AD-17/AD-19）。"""
-        parallel = len(batch) > 1
-        return StoryExecutionContext(
-            story_id=active_story.id,
-            parallel=parallel,
-            write_allowlist=list(active_story.write_set),
-            batch_members=[member.id for member in batch],
-            sibling_write_sets=(
-                {member.id: list(member.write_set) for member in batch if member.id != active_story.id}
-                if parallel
-                else {}
-            ),
-        )
-
-    async def _gather_story_batch(
-        self,
-        step: WorkflowStepResource,
-        batch: list[StorySpec],
-        callback: Callable[..., Any],
-        emit: Callable[..., None] | None,
-    ) -> list[Any]:
-        """并发执行一个授权批（AD-19）：``gather(return_exceptions=True)`` 双语义。
-
-        批内单 Story 异常作为结果位收集（不取消同批，与 ``agent/tool_execution`` 的工具
-        批先例同构）；步骤级取消传播取消整批（CancelledError 上抛，由 run_step 统一 except
-        记 cancelled 落 PENDING）。发 ``workflow_story_batch_scheduled``（成员 + 依据）。
-        """
-        contexts = {member.id: self._execution_context(member, batch) for member in batch}
-        _emit_step_event(
-            emit,
-            "workflow_story_batch_scheduled",
-            step=step,
-            story=None,
-            members=[member.id for member in batch],
-            limit=step.max_parallel_stories,
-        )
-        return list(
-            await asyncio.gather(
-                *(self._invoke_callback(callback, step, member, contexts[member.id]) for member in batch),
-                return_exceptions=True,
-            )
-        )
 
     async def _validate_batch_outputs(
         self,
@@ -708,7 +459,8 @@ class WorkflowRunner:
         if first_failure is not None:
             self.state = self.state.model_copy(
                 update={
-                    **self._transition_fields(
+                    **_transition_fields(
+                        self.state,
                         WorkflowEvent.EXECUTOR_FAILED,
                         reason=str(first_failure) or WorkflowEvent.EXECUTOR_FAILED.value,
                     ),
@@ -730,25 +482,23 @@ class WorkflowRunner:
         if first_incomplete is not None:
             self.state = self.state.model_copy(
                 update={
-                    **self._transition_fields(self._callback_event(first_incomplete.status)),
+                    **_transition_fields(self.state, _callback_event(first_incomplete.status)),
                     "reason": _bounded_reason(first_incomplete.reason),
                 }
             )
         elif all_done:
             if step.approval.required:
-                update = self._approval_gate_update(step, combined)
+                update = _approval_gate_update(self.state, step, combined)
             else:
-                update = self._step_advance_update(step, combined)
+                update = _step_advance_update(self.state, step, len(self.workflow.steps), combined)
                 update.update(_story_reset_update())
             update["requested_steps"] = [*self.state.requested_steps, *follow_ups]
             self.state = self.state.model_copy(update=update)
         else:
-            event = (
-                WorkflowEvent.CHECKPOINT_REQUIRED if self._checkpoint_declared(step) else WorkflowEvent.STEP_COMPLETED
-            )
+            event = WorkflowEvent.CHECKPOINT_REQUIRED if _checkpoint_declared(step) else WorkflowEvent.STEP_COMPLETED
             self.state = self.state.model_copy(
                 update={
-                    **self._transition_fields(event),
+                    **_transition_fields(self.state, event),
                     "requested_steps": [*self.state.requested_steps, *follow_ups],
                 }
             )
@@ -832,23 +582,6 @@ class WorkflowRunner:
             self.state = self.state.model_copy(update={"active_step": previous})
             raise
 
-    def _transition_fields(self, event: WorkflowEvent, *, reason: str = "") -> dict[str, Any]:
-        """经唯一转换表推进状态，并把驱动事件与其理由记进 ``last_event`` / ``transition_reason``。
-
-        状态与事件由**同一个** ``event`` 派生，因此不存在「改了状态却留着上一个事件」的
-        半更新路径：所有状态写点都返回本方法的 dict（``{**fields, ...}``），不得在别处
-        再单独写 ``status`` / ``last_event`` / ``transition_reason``。
-
-        ``reason`` 缺省空串 = 调用点未声明理由（此时 ``transition_reason`` 如实置空，不沿用
-        上一次转换的理由——那会把旧理由错挂到新事件上）。长度只由 :func:`_bounded_reason`
-        收敛，写入路径永不抛异常（观测不得反噬主流程）。
-        """
-        return {
-            "status": transition(self.state.status, event),
-            "last_event": event.value,
-            "transition_reason": _bounded_reason(reason),
-        }
-
     def _absorb_step_exception(self, exc: BaseException) -> WorkflowEvent:
         """异常/取消经唯一转换表落状态，不用直写掩盖（51-2）。
 
@@ -858,10 +591,10 @@ class WorkflowRunner:
         CancelledError、KeyboardInterrupt）时以事件名兜底，避免空 reason 抹掉可追溯性。
         返回值是该次转换所用事件，供调用方发射 ``transition_event`` 与判定 story 状态。
         """
-        event = WorkflowEvent.CANCELLED if isinstance(exc, _CANCEL_EXCEPTIONS) else WorkflowEvent.EXECUTOR_FAILED
+        event = _cancel_or_failure_event(exc)
         reason = str(exc) or event.value
         self.state = self.state.model_copy(
-            update={**self._transition_fields(event, reason=reason), "reason": _bounded_reason(reason)}
+            update={**_transition_fields(self.state, event, reason=reason), "reason": _bounded_reason(reason)}
         )
         return event
 
@@ -898,12 +631,7 @@ class WorkflowRunner:
 
     def pause(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
         """User-requested pause through the single transition table (51-2 Review P7)."""
-        self.state = self.state.model_copy(
-            update={
-                **self._transition_fields(WorkflowEvent.USER_PAUSE, reason="user requested pause; resume to continue"),
-                "reason": "user requested pause; resume to continue",
-            }
-        )
+        self.state = _pause_state(self.state)
         _emit_step_event(
             emit,
             "workflow_paused",
@@ -913,17 +641,6 @@ class WorkflowRunner:
         )
         return self.state.model_copy(deep=True)
 
-    def _callback_event(self, status: WorkflowStatus) -> WorkflowEvent:
-        """回调给出的终态 → 驱动事件（A38：``status`` 与 ``last_event`` 必须同源）。"""
-        event = {
-            WorkflowStatus.FAILED: WorkflowEvent.EXECUTOR_FAILED,
-            WorkflowStatus.WAITING_USER: WorkflowEvent.USER_PAUSE,
-            WorkflowStatus.BLOCKED: WorkflowEvent.GATE_FAILED,
-        }.get(status)
-        if event is None:
-            raise ValueError(f"unsupported callback status: {status}")
-        return event
-
     def resume(self, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
         """Explicitly resume a paused, blocked, or failed active step.
 
@@ -932,15 +649,9 @@ class WorkflowRunner:
         """
         if self.done:
             return self.state.model_copy(deep=True)
-        if self.state.awaiting_approval:
-            raise WorkflowGateError(
-                "the active step awaits an approval decision (/goal approve | /goal reject | /goal amend); "
-                "resume does not approve it"
-            )
-        if self.state.status in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
-            self.state = self.state.model_copy(
-                update={**self._transition_fields(WorkflowEvent.USER_RESUME), "reason": ""}
-            )
+        update = _resume_update(self.state)
+        if update:
+            self.state = self.state.model_copy(update=update)
             _emit_step_event(
                 emit,
                 "workflow_resumed",
@@ -954,14 +665,11 @@ class WorkflowRunner:
         """人工批准（Story 51-5）：接受挂起步骤的工作并落定完成簿记。
 
         这是审批门离开 ``WAITING_USER`` 且步骤被标记完成的**唯一**路径。门先经 USER_APPROVE
-        抬回 RUNNING，随后完成簿记与普通步骤路径共用 :meth:`_step_advance_update`（末步 →
-        COMPLETED、声明 checkpoint 的再挂起、普通步 → PENDING），不另写一份完成语义。
+        抬回 RUNNING，随后完成簿记与普通步骤路径共用状态机的 :func:`_step_advance_update`
+        （末步 → COMPLETED、声明 checkpoint 的再挂起、普通步 → PENDING），不另写一份完成语义。
         """
         step = self._require_approval_decision()
-        self.state = self.state.model_copy(update=self._transition_fields(WorkflowEvent.USER_APPROVE))
-        update = self._step_advance_update(step, self.state.pending_output)
-        update.update({"awaiting_approval": False, "pending_output": None})
-        self.state = self.state.model_copy(update=update)
+        self.state = _approve_state(self.state, step, len(self.workflow.steps))
         _emit_step_event(
             emit,
             "workflow_approved",
@@ -974,10 +682,20 @@ class WorkflowRunner:
     def reject(self, reason: str, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
         """人工拒绝（Story 51-5）：驳回挂起的工作；步骤保持未完成、必须重做。
 
-        落 ``BLOCKED``（与声明门未过同一恢复语义：``/goal resume`` 重跑该步）；拒绝理由进
-        状态 ``reason``。reject **不**发生完成簿记——步骤不被标记完成。
+        落 ``BLOCKED``（与声明门未过同一恢复语义：``/goal resume`` 重跑该步）；拒绝理由经
+        :func:`_bounded_reason` 收敛后进状态 ``reason`` 并随事件携带同值。reject **不**发生
+        完成簿记——步骤不被标记完成。
         """
-        self._decision_update(WorkflowEvent.USER_REJECT, "workflow_rejected", reason, bounded=True, emit=emit)
+        step = self._require_approval_decision()
+        self.state = _decision_state(self.state, WorkflowEvent.USER_REJECT, reason, bounded=True)
+        _emit_step_event(
+            emit,
+            "workflow_rejected",
+            step=step,
+            story=None,
+            reason=_bounded_reason(reason),
+            transition_event=WorkflowEvent.USER_REJECT.value,
+        )
         return self.state.model_copy(deep=True)
 
     def amend(self, supplement: str, *, emit: Callable[..., None] | None = None) -> WorkflowRunnerState:
@@ -987,28 +705,17 @@ class WorkflowRunner:
         的语义差别在恢复方式与决策记录的 action，两者都不推进、各记一条（AD-3：独立事件，
         不互相顶替）。
         """
-        self._decision_update(WorkflowEvent.USER_AMEND, "workflow_amended", supplement, bounded=False, emit=emit)
-        return self.state.model_copy(deep=True)
-
-    def _decision_update(
-        self, event: WorkflowEvent, event_name: str, reason: str, *, bounded: bool, emit: Callable[..., None] | None
-    ) -> None:
-        """reject / amend 的共同审批决策流：require 决策 → 状态转换 → 清门字段 → emit（deep copy 留给公开方法）。
-
-        ``bounded=True``（reject）：理由经 :func:`_bounded_reason` 收敛后**落状态**、事件携带同值；
-        ``bounded=False``（amend）：状态理由清空，事件携带补充原文。
-        """
         step = self._require_approval_decision()
-        emit_reason = _bounded_reason(reason) if bounded else reason
-        self.state = self.state.model_copy(
-            update={
-                **self._transition_fields(event, reason=reason),
-                "awaiting_approval": False,
-                "pending_output": None,
-                "reason": emit_reason if bounded else "",
-            }
+        self.state = _decision_state(self.state, WorkflowEvent.USER_AMEND, supplement, bounded=False)
+        _emit_step_event(
+            emit,
+            "workflow_amended",
+            step=step,
+            story=None,
+            reason=supplement,
+            transition_event=WorkflowEvent.USER_AMEND.value,
         )
-        _emit_step_event(emit, event_name, step=step, story=None, reason=emit_reason, transition_event=event.value)
+        return self.state.model_copy(deep=True)
 
     def _require_approval_decision(self) -> WorkflowStepResource:
         """审批决策的前置：必须真的有步骤在等决策，否则显性失败（不静默无操作）。"""
@@ -1052,10 +759,8 @@ class WorkflowRunner:
         missing: list[str],
         checkpoint: CheckpointCallback | None,
     ) -> WorkflowRunResult:
-        event = (
-            WorkflowEvent.INPUT_MISSING if self.state.status is WorkflowStatus.PENDING else WorkflowEvent.GATE_FAILED
-        )
-        fields = self._transition_fields(event)
+        event = _stop_event(self.state.status)
+        fields = _transition_fields(self.state, event)
         if fields["status"] is not status:
             raise ValueError(f"stop status {status} disagrees with {event}")
         bounded_reason = _bounded_reason(reason)
@@ -1068,102 +773,6 @@ class WorkflowRunner:
             missing=missing,
             checkpoint_id=checkpoint_id,
         )
-
-    def _completion_update(
-        self,
-        step: WorkflowStepResource,
-        story_specs: list[StorySpec],
-        output: Any,
-        *,
-        is_story_loop: bool,
-        reason: str = "",
-    ) -> dict[str, Any]:
-        """**非 story 循环**步骤完成后的状态更新：审批门挂起或完成簿记。
-
-        审批门的判定仅有两处（「声明说了算」）：本方法（非 story 步骤）与
-        :meth:`_story_advance_update` 的末条 Story。两处都只在 ``step.approval.required`` 时挂门，
-        挂起形态由 :meth:`_approval_gate_update` 单点产出。
-        """
-        if is_story_loop:
-            return self._story_advance_update(step, story_specs, output)
-        if step.approval.required:
-            return self._approval_gate_update(step, output)
-        return self._step_advance_update(step, output, reason=reason)
-
-    def _approval_gate_update(self, step: WorkflowStepResource, output: Any) -> dict[str, Any]:
-        """审批门挂起更新（Story 51-5）：步骤做完了工作，但声明了 ``approval: required``。
-
-        完成簿记（``completed_steps`` / ``active_step`` / ``outputs``）**延后**到 approve 落定
-        ——「reject / amend 不把步骤标记完成」由「先挂起、后落定」直接保证，不需要任何回滚。
-        挂起产物存 ``pending_output``（此刻步骤未完成，不能进 ``outputs``）；状态经唯一转换表
-        落 ``WAITING_USER``，只有 approve / reject / amend 三种人工决策能离开。story 簿记在此
-        **单点清场**：门挂起后步骤未完成，重跑从第一条 story 开始，决策记录也不会把步骤级
-        决策错误归因到某条 story（审查 #7）。
-        """
-        gate_reason = step.approval.note or "step work is done; it awaits a human approval decision"
-        return {
-            **self._transition_fields(WorkflowEvent.APPROVAL_REQUIRED, reason=gate_reason),
-            "awaiting_approval": True,
-            "pending_output": output,
-            "approval_round": self.state.approval_round + 1,
-            "reason": _bounded_reason(gate_reason),
-            **_story_reset_update(),
-        }
-
-    def _step_advance_update(self, step: WorkflowStepResource, output: Any, *, reason: str = "") -> dict[str, Any]:
-        # 完成簿记按**本步**的声明序号推进（``step.index`` 1-based），不按 ``state.active_step``：
-        # 两者在「按声明顺序线性推进」时恒等；但 :meth:`run_declared_step` 会让活动步跳到脚本
-        # 指名的后续步骤，此时只有 step.index 能给出正确的下一位置。
-        completed = [*self.state.completed_steps, step.index - 1]
-        final = step.index >= len(self.workflow.steps)
-        event = (
-            WorkflowEvent.FINAL_STEP_COMPLETED
-            if final
-            else WorkflowEvent.CHECKPOINT_REQUIRED
-            if self._checkpoint_declared(step)
-            else WorkflowEvent.STEP_COMPLETED
-        )
-        outputs = {**self.state.outputs, step.name: output}
-        for reference in self._references(step.output):
-            outputs[reference] = output
-        return {
-            **self._transition_fields(event, reason=reason),
-            "active_step": self.state.active_step + 1,
-            "completed_steps": completed,
-            "outputs": outputs,
-        }
-
-    def _story_advance_update(
-        self, step: WorkflowStepResource, story_specs: list[StorySpec], output: Any
-    ) -> dict[str, Any]:
-        current = story_specs[self.state.story_index]
-        completed_stories = [*self.state.completed_stories, current.id]
-        story_outputs = {**self.state.story_outputs, current.id: output}
-        # 有洞恢复（批内部分失败后串行重跑）：越过已完成成员，不把活动位定到已完成
-        # Story 上（否则会重复执行并制造重复 completed id）。无洞历史下循环零迭代，
-        # 行为与既有串行路径逐字节一致。
-        next_index = self.state.story_index + 1
-        while next_index < len(story_specs) and story_specs[next_index].id in completed_stories:
-            next_index += 1
-        if next_index >= len(story_specs) or all(spec.id in completed_stories for spec in story_specs):
-            # 合并序 = 声明序（同 _settle_story_batch）：有洞历史下插入序是完成序。
-            combined = _combine_story_outputs(story_specs, story_outputs)
-            if step.approval.required:
-                # 挂门含 story 清场（_approval_gate_update 单点）：重跑从第一条 story 开始。
-                return self._approval_gate_update(step, combined)
-            update = self._step_advance_update(step, combined)
-            update.update(_story_reset_update())
-            return update
-        next_story = story_specs[next_index]
-        event = WorkflowEvent.CHECKPOINT_REQUIRED if self._checkpoint_declared(step) else WorkflowEvent.STEP_COMPLETED
-        return {
-            **self._transition_fields(event),
-            "story_index": next_index,
-            "completed_stories": completed_stories,
-            "story_outputs": story_outputs,
-            "active_story": next_story.id,
-            "active_epic": next_story.epic,
-        }
 
     def _resolve_stories(self, step: WorkflowStepResource, stories: Iterable[StorySpec] | None) -> list[StorySpec]:
         if not self._is_story_step(step):
@@ -1194,29 +803,6 @@ class WorkflowRunner:
     @staticmethod
     def _is_story_step(step: WorkflowStepResource) -> bool:
         return bool(step.story_loop and step.story_loop.strip())
-
-    @staticmethod
-    def _invoke_callback(
-        callback: Callable[..., Any],
-        step: WorkflowStepResource,
-        story: StorySpec | None,
-        execution: StoryExecutionContext | None = None,
-    ) -> Any:
-        if story is not None:
-            if not WorkflowRunner._accepts_story(callback):
-                raise TypeError("story-loop step callback must accept (step, story)")
-            if execution is not None:
-                return callback(step, story, execution)
-            return callback(step, story)
-        return callback(step)
-
-    @staticmethod
-    def _accepts_story(callback: Callable[..., Any]) -> bool:
-        return _positional_arity(callback, _POSITIONAL_KINDS_WITH_VARARGS, minimum=2)
-
-    @staticmethod
-    def _checkpoint_declared(step: WorkflowStepResource) -> bool:
-        return step.checkpoint.strip().casefold() in {"true", "user", "human", "checkpoint", "waiting_user"}
 
     async def _persist(self, step: WorkflowStepResource, callback: CheckpointCallback | None) -> str | None:
         if callback:
@@ -1305,15 +891,10 @@ class WorkflowRunner:
 
     @staticmethod
     def _missing_inputs(step: WorkflowStepResource, values: Mapping[str, Any] | Iterable[str]) -> list[str]:
-        required = WorkflowRunner._references(step.input)
+        required = _references(step.input)
         available = set(values)
         lowered = {str(key).lower() for key in available}
         return [item for item in required if item not in available and item.lower() not in lowered]
-
-    @staticmethod
-    def _references(declaration: str) -> list[str]:
-        """Parse the workflow's explicit comma/newline-delimited artifact references."""
-        return [item.strip() for item in re.split(r"[,\n]", declaration) if item.strip()]
 
     @staticmethod
     def validate_output(step: WorkflowStepResource, output: Any) -> None:
@@ -1337,7 +918,7 @@ class WorkflowRunner:
                         f"step '{step.name}' output is missing section: {section} (present H2 headings: {found})"
                     )
         if step.output and isinstance(output, Mapping):
-            names = WorkflowRunner._references(step.output)
+            names = _references(step.output)
             missing = [name for name in names if name not in output]
             if missing:
                 raise WorkflowGateError("step output is missing: " + ", ".join(missing))

@@ -953,7 +953,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次 |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入；`heartbeat()` 由在途续租原语 `renew_lease_while_active`（本模块单源；`agent/tool_execution._renew_ledger_lease` 是其工具在途缝包装）与 `LedgerAudit`（audit-only 记账，`ToolExecutor.execute(audit=...)` 的可选审计面，幂等去重禁用）调用，使「过期 RUNNING = 孤儿」成为 prune 的可靠判据 |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布；`LoggingObserver` 经 `safe_logging.safe_log` 落日志（日志故障不改写调用方），并对 `target`/`details` 做启发式脱敏（`redact_secrets`/`redact_mapping`）；`EventBus.emit` 的观察者兜底同样走 `safe_log` |
-| 其余五个模块 | `checkpoint.py` / `workflow_resource.py` / `workflow_runner.py` / `workflow_events.py` / `workflow_transition.py`——职责见 4.13 与「六、目录结构」（本表不重复，避免两处漂移） |
+| 其余七个模块 | `checkpoint.py` / `state_machine.py` / `story_batch.py` / `workflow_resource.py` / `workflow_runner.py` / `workflow_events.py` / `workflow_transition.py`——职责见 4.13 与「六、目录结构」（本表不重复，避免两处漂移） |
 
 **已完成：**
 
@@ -1062,27 +1062,27 @@ AST 判据钉住：写点必须走 `transition()`，且唯一写点 `_transition
 |---|---|---|---|---|
 | `PENDING` | `start` | 步骤开始执行 | → `RUNNING` | `src/heagent/engine/workflow_transition.py:11` |
 | `PENDING` | `input_missing` | 必需输入缺失，无法开工 | → `BLOCKED` | `src/heagent/engine/workflow_transition.py:11` |
-| `PENDING` · `RUNNING` | `user_pause` | 用户主动暂停（`/goal pause`） | → `WAITING_USER` | `src/heagent/engine/workflow_runner.py:875` |
-| `RUNNING` | `step_completed` | 普通步骤完成且仍有后续步骤 | → `PENDING` | `src/heagent/engine/workflow_runner.py:1114` |
-| `RUNNING` | `final_step_completed` | 末步完成 | → `COMPLETED` | `src/heagent/engine/workflow_runner.py:1114` |
-| `RUNNING` | `checkpoint_required` | 该步声明了 checkpoint，需人工确认后继续 | → `WAITING_USER` | `src/heagent/engine/workflow_runner.py:1114` |
-| `RUNNING` | `approval_required` | 该步声明 `approval: required`，完成簿记延后 | → `WAITING_USER` | `src/heagent/engine/workflow_runner.py:1095` |
+| `PENDING` · `RUNNING` | `user_pause` | 用户主动暂停（`/goal pause`） | → `WAITING_USER` | `src/heagent/engine/state_machine.py:311` |
+| `RUNNING` | `step_completed` | 普通步骤完成且仍有后续步骤 | → `PENDING` | `src/heagent/engine/state_machine.py:248` |
+| `RUNNING` | `final_step_completed` | 末步完成 | → `COMPLETED` | `src/heagent/engine/state_machine.py:248` |
+| `RUNNING` | `checkpoint_required` | 该步声明了 checkpoint，需人工确认后继续 | → `WAITING_USER` | `src/heagent/engine/state_machine.py:248` |
+| `RUNNING` | `approval_required` | 该步声明 `approval: required`，完成簿记延后 | → `WAITING_USER` | `src/heagent/engine/state_machine.py:228` |
 | `RUNNING` | `gate_failed` | 步骤完成门求值未通过 | → `BLOCKED` | `src/heagent/engine/workflow_transition.py:11` |
-| `RUNNING` | `executor_failed` | 执行器/回调抛非取消异常（见中断语义表） | → `FAILED` | `src/heagent/engine/workflow_runner.py:839` |
-| `RUNNING` | `cancelled` | 用户取消（见中断语义表，可恢复） | → `PENDING` | `src/heagent/engine/workflow_runner.py:839` |
+| `RUNNING` | `executor_failed` | 执行器/回调抛非取消异常（见中断语义表） | → `FAILED` | `src/heagent/engine/workflow_runner.py:589` |
+| `RUNNING` | `cancelled` | 用户取消（见中断语义表，可恢复） | → `PENDING` | `src/heagent/engine/workflow_runner.py:589` |
 | `WAITING_USER` | `user_resume` | 用户回复并恢复执行（**不等于批准**）；`BLOCKED` / `FAILED` 恢复同此事件 | → `PENDING` | `src/heagent/engine/workflow_transition.py:11` |
-| `WAITING_USER` | `user_approve` | 人工批准：唯一把该步标记完成的路径 | → `RUNNING` | `src/heagent/engine/workflow_runner.py:935` |
-| `WAITING_USER` | `user_reject` | 人工驳回：步骤未完成，修订后 `resume` 重跑 | → `BLOCKED` | `src/heagent/engine/workflow_runner.py:957` |
-| `WAITING_USER` | `user_amend` | 带补充重跑，补充同时进需求文档「用户补充」段 | → `PENDING` | `src/heagent/engine/workflow_runner.py:983` |
+| `WAITING_USER` | `user_approve` | 人工批准：唯一把该步标记完成的路径 | → `RUNNING` | `src/heagent/engine/state_machine.py:331` |
+| `WAITING_USER` | `user_reject` | 人工驳回：步骤未完成，修订后 `resume` 重跑 | → `BLOCKED` | `src/heagent/engine/state_machine.py:338` |
+| `WAITING_USER` | `user_amend` | 带补充重跑，补充同时进需求文档「用户补充」段 | → `PENDING` | `src/heagent/engine/state_machine.py:338` |
 
 **中断语义（A39，2026-10-23 裁定，本表只固化不重裁）**：
 
 | 异常类型 | 事件 | 落状态 | 可恢复 | 代码锚点 |
 |---|---|---|---|---|
-| `asyncio.CancelledError` | `cancelled` | `PENDING` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:839` |
-| `KeyboardInterrupt` | `cancelled` | `PENDING` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:839` |
-| `SystemExit` | `cancelled` | `PENDING` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:839` |
-| 其余 `BaseException` | `executor_failed` | `FAILED` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:839` |
+| `asyncio.CancelledError` | `cancelled` | `PENDING` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:589` |
+| `KeyboardInterrupt` | `cancelled` | `PENDING` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:589` |
+| `SystemExit` | `cancelled` | `PENDING` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:589` |
+| 其余 `BaseException` | `executor_failed` | `FAILED` | 是（`resume`） | `src/heagent/engine/workflow_runner.py:589` |
 
 <!-- S-3:transition-matrix:end -->
 
@@ -1650,6 +1650,8 @@ src/heagent/
 │   ├── ledger.py            # ExecutionLedger 幂等/租约（async I/O）
 │   ├── checkpoint.py        # WorkflowCheckpointStore + GoalWorkflowState 运行时进度（2026-09-20 自 workflow.py 改名；load_state 恢复进度，与装载声明区分）
 │   ├── workflow_resource.py # 工作流资源模型 WorkflowResource/Step（2026-09-20 自 memory.skill_packages 迁入）
+│   ├── state_machine.py     # 状态模型 + 唯一状态写点 _transition_fields + update 推导 + 决策内核
+│   ├── story_batch.py       # story 并行批派生/收集 + 回调调用契约 + 写集词法
 │   ├── workflow_runner.py    # 声明式 workflow 单步执行器
 │   ├── workflow_events.py    # 工作流状态机驱动事件（WorkflowEvent 枚举）
 │   ├── workflow_transition.py # 状态机转换表 transition()（fail-loud 非法转换）

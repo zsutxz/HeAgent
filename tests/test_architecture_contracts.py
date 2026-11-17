@@ -999,7 +999,7 @@ def test_transition_fields_helper_is_the_only_status_writer() -> None:
     「helper 自己还在走转换表」。若只留上一个字面键判据，把 helper 改成
     ``{"status": WorkflowStatus.PENDING, ...}`` 这种直写**不会变红**——守卫静默失效的样子。
     """
-    tree = ast.parse((SRC / "engine" / "workflow_runner.py").read_text(encoding="utf-8"))
+    tree = ast.parse((SRC / "engine" / "state_machine.py").read_text(encoding="utf-8"))
     helpers = [
         node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "_transition_fields"
     ]

@@ -28,6 +28,7 @@ from heagent.engine.workflow_runner import (
     _MAX_REASON_CHARS,
     _bounded_reason,
 )
+from heagent.engine.state_machine import _transition_fields
 
 
 def _workflow() -> WorkflowResource:
@@ -125,8 +126,8 @@ def test_transition_fields_are_orthogonal_and_reset() -> None:
     """正交性：同一事件换理由不影响 ``last_event``；未声明理由的转换把 ``transition_reason`` 置空。"""
     runner = _runner()
 
-    with_reason = runner._transition_fields(WorkflowEvent.START, reason="started by user")
-    without_reason = runner._transition_fields(WorkflowEvent.START)
+    with_reason = _transition_fields(runner.state, WorkflowEvent.START, reason="started by user")
+    without_reason = _transition_fields(runner.state, WorkflowEvent.START)
     assert with_reason["last_event"] == without_reason["last_event"] == WorkflowEvent.START.value
     assert with_reason["transition_reason"] == "started by user"
     assert without_reason["transition_reason"] == ""
@@ -134,7 +135,7 @@ def test_transition_fields_are_orthogonal_and_reset() -> None:
     runner.state = runner.state.model_copy(update=with_reason)
     assert runner.state.transition_reason == "started by user"
 
-    runner.state = runner.state.model_copy(update=runner._transition_fields(WorkflowEvent.STEP_COMPLETED))
+    runner.state = runner.state.model_copy(update=_transition_fields(runner.state, WorkflowEvent.STEP_COMPLETED))
     assert runner.state.transition_reason == ""
     assert runner.state.last_event == WorkflowEvent.STEP_COMPLETED.value
 
@@ -329,12 +330,12 @@ def test_interrupt_matrix_matches_absorb_semantics() -> None:
     assert SystemExit in _CANCEL_EXCEPTIONS
 
     runner = WorkflowRunner(_workflow())
-    runner.state = runner.state.model_copy(update=runner._transition_fields(WorkflowEvent.START))
+    runner.state = runner.state.model_copy(update=_transition_fields(runner.state, WorkflowEvent.START))
     assert runner._absorb_step_exception(KeyboardInterrupt()) is WorkflowEvent.CANCELLED
     assert runner.state.status is WorkflowStatus.PENDING
 
     runner = WorkflowRunner(_workflow())
-    runner.state = runner.state.model_copy(update=runner._transition_fields(WorkflowEvent.START))
+    runner.state = runner.state.model_copy(update=_transition_fields(runner.state, WorkflowEvent.START))
     assert runner._absorb_step_exception(RuntimeError("boom")) is WorkflowEvent.EXECUTOR_FAILED
     assert runner.state.status is WorkflowStatus.FAILED
 

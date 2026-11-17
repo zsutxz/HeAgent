@@ -22,7 +22,7 @@ from heagent.engine.context import iso_now
 from heagent.pub.safe_logging import redact_mapping, redact_secrets, safe_log
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Callable, Iterable
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,40 @@ logger = logging.getLogger(__name__)
 def elapsed_ms(started: float) -> int:
     """``perf_counter`` 起点 → 整数毫秒（下取整，非负）：run / 工具 / 门事件的统一耗时换算。"""
     return max(int((time.perf_counter() - started) * 1000), 0)
+
+
+def _emit_step_event(
+    emit: Callable[..., None] | None,
+    kind: str,
+    *,
+    step: Any,
+    story: Any,
+    duration_ms: int = 0,
+    error_kind: str = "",
+    **extra: Any,
+) -> None:
+    """工作流观测事件的**唯一**隔离包装（Phase 5 C1；A27 统一）：emit-None 早退 + try/except
+    + ``safe_log`` 忽略——可观测性不得改变业务控制流。
+
+    ``step`` / ``story`` 是鸭子契约（引擎侧传 ``WorkflowStepResource`` / ``StorySpec``，CLI
+    质量门传宿主对象）：属性访问故障与 emit 异常同在隔离内，绝不传播进业务流，payload
+    构造因此也在隔离内。``duration_ms`` / ``error_kind`` 进 details，由传输层
+    ``from_engine_event`` 提升到 RunEvent 顶层（EngineEvent 模型与 GUI 消费面不动）。
+    ``**extra`` 的取值在调用方实参处求值——调用方只应传自有类型化模型字段或字面量。
+    """
+    if emit is None:
+        return
+    try:
+        payload: dict[str, Any] = {
+            "step": step.name,
+            "story": story.id if story is not None else "",
+            "duration_ms": duration_ms,
+            "error_kind": error_kind,
+            **extra,
+        }
+        emit(kind, details=payload)
+    except Exception:  # noqa: BLE001 - 观测失败仅告警
+        safe_log(logger, logging.WARNING, "workflow step event %r emit failed; ignored", kind, exc_info=True)
 
 
 class EngineEvent(BaseModel):
