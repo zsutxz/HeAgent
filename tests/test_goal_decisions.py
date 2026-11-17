@@ -769,7 +769,7 @@ def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls.append(prompt)
         return SimpleNamespace(success=True, output=f"output-{len(calls)}")
 
-    monkeypatch.setattr("heagent.cli.goal._goal_session", run_step)
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
     return calls
 
 

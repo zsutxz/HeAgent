@@ -117,7 +117,7 @@ omit = [
     # `cli/dialogs.py` **不** omit。
     "*/cli/console.py",
     "*/cli/interactive.py",
-    "*/cli/goal.py",
+    "*/cli/goal/*",
     "*/cli/display.py",
     "*/cli/terminal.py",
     "*/__main__.py",

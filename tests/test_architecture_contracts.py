@@ -53,9 +53,9 @@ _ENTRYPOINT_MODULES = (
     "heagent.cli",
     "heagent.gui",
 )
-# goal/ 是入口层**域模块**（cli/goal.py 的装载/文档层，frame.md 六）：与组合根同属「下层不得反向
+# goal/ 是入口层**域模块**（cli/goal/ 子包的装载/文档层，frame.md 六）：与组合根同属「下层不得反向
 # 导入」的入口面。此前只有 engine/memory 条目显式列它，其余包存在形式绕过
-# （AST 实测运行期只有 cli/goal.py 导入 goal/）。
+# （AST 实测运行期只有 cli/goal/ 子包导入 goal/）。
 # housekeeping 是启动期维护模块（自 cli/ 迁回顶层）：与 goal 同档位——下层不得反向
 # 导入（其 import 扇出 config/context/pub/tools，位置在运行栈之上）。迁出 cli/ 包根后原
 # ``heagent.cli`` 伞不再覆盖，须显式登记，否则反向依赖断言出现形式绕过。
@@ -453,8 +453,8 @@ def test_goal_application_use_case_is_click_free() -> None:
     """Phase 3：goal/application.py 的 use-case **运行期**禁止依赖 Click 与入口模块。
 
     workflow 校验 / gate 渲染 / story 选择 / checkpoint 恢复与推进全部收敛在
-    ``goal/application``；用户可见文案以结构化 outcome（messages）携带、由 cli/goal.py
-    统一渲染。该模块一旦 import ``click`` / ``heagent.cli*`` / ``heagent.gui*``，
+    ``goal/application``；用户可见文案以结构化 outcome（messages）携带、由 cli/goal/
+    子包统一渲染。该模块一旦 import ``click`` / ``heagent.cli*`` / ``heagent.gui*``，
     use-case 就再也离不开 Click 环境（test.md Phase 3 验收「同一 workflow use-case
     可在无 Click 环境下运行」），GUI 原生渲染的演进路径也被焊死。``goal/naming.py``
     的 click.echo 是入口侧回退提示，不属 use-case，不在本契约内。
@@ -636,7 +636,7 @@ def test_entrypoints_do_not_duplicate_runtime_store_paths() -> None:
         "cli/console.py",
         "cli/composition.py",
         "cli/interactive.py",
-        "cli/goal.py",
+        *sorted(f"cli/goal/{path.name}" for path in (SRC / "cli" / "goal").glob("*.py")),
         "cli/http.py",
         "cli/http_console.py",
         "engine/container.py",
@@ -738,7 +738,6 @@ def test_cli_package_layout_is_pinned() -> None:
         "console",
         "dialogs",
         "display",
-        "goal",
         "http",
         "http_console",
         "init",

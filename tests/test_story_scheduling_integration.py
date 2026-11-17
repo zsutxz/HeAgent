@@ -217,7 +217,7 @@ async def test_parallel_full_chain_host_wiring_with_git_audit(tmp_path, monkeypa
         (tmp_path / story_of[story_id]).write_text(f"impl {story_id}\n", encoding="utf-8")
         return SimpleNamespace(success=True, output=f"impl {story_id}")
 
-    monkeypatch.setattr("heagent.cli.goal._goal_session", fake_session)
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", fake_session)
 
     async def host(inputs, step, story=None, execution=None):
         return await cli_goal._goal_execute_step(

@@ -142,11 +142,13 @@ async def test_cli_doctor_probes_the_directory_the_store_writes(
         seen.append(checkpoint_dir)
         return GoalDoctorReport(workflow=workflow.name)
 
-    monkeypatch.setattr(goal_cli, "_goal_declarative_active_dir", lambda: goal_dir)
-    monkeypatch.setattr(goal_cli, "resolve_bound_workflow", lambda _goal_dir, _default: _workflow())
-    monkeypatch.setattr(goal_cli, "_resolve_skill_package", lambda _skill_id: _package(tmp_path / "workflow"))
-    monkeypatch.setattr(goal_cli, "diagnose_workflow", _spy)
-    monkeypatch.setattr(goal_cli, "_echo", lambda message, *, err=True: None)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_active_dir", lambda: goal_dir)
+    monkeypatch.setattr("heagent.cli.goal.commands.resolve_bound_workflow", lambda _goal_dir, _default: _workflow())
+    monkeypatch.setattr(
+        "heagent.cli.goal.commands._resolve_skill_package", lambda _skill_id: _package(tmp_path / "workflow")
+    )
+    monkeypatch.setattr("heagent.cli.goal.commands.diagnose_workflow", _spy)
+    monkeypatch.setattr("heagent.cli.goal.commands._echo", lambda message, *, err=True: None)
 
     await goal_cli._goal_declarative_doctor()
 
@@ -167,10 +169,12 @@ async def test_cli_doctor_with_an_active_goal_says_the_workflow_option_is_ignore
     def _spy(workflow: WorkflowResource, package: SkillPackage, resolve_role: object, *, checkpoint_dir=None):
         return GoalDoctorReport(workflow=workflow.name)
 
-    monkeypatch.setattr(goal_cli, "_goal_declarative_active_dir", lambda: goal_dir)
-    monkeypatch.setattr(goal_cli, "resolve_bound_workflow", lambda _goal_dir, _default: _workflow())
-    monkeypatch.setattr(goal_cli, "_resolve_skill_package", lambda _skill_id: _package(tmp_path / "workflow"))
-    monkeypatch.setattr(goal_cli, "diagnose_workflow", _spy)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_active_dir", lambda: goal_dir)
+    monkeypatch.setattr("heagent.cli.goal.commands.resolve_bound_workflow", lambda _goal_dir, _default: _workflow())
+    monkeypatch.setattr(
+        "heagent.cli.goal.commands._resolve_skill_package", lambda _skill_id: _package(tmp_path / "workflow")
+    )
+    monkeypatch.setattr("heagent.cli.goal.commands.diagnose_workflow", _spy)
 
     await goal_cli._goal_declarative_doctor("--workflow he-elsewhere")
 

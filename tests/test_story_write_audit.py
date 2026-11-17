@@ -73,7 +73,7 @@ def _session_stub(monkeypatch: pytest.MonkeyPatch, *, writes: tuple[str, ...] = 
             _tracked(Path.cwd(), rel, f"touched {rel}\n")
         return SimpleNamespace(success=True, output="body")
 
-    monkeypatch.setattr("heagent.cli.goal._goal_session", run_step)
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
     return calls
 
 
@@ -402,7 +402,7 @@ async def test_parallel_gates_run_serialized(monkeypatch: pytest.MonkeyPatch) ->
             reused_commands=[],
         )
 
-    monkeypatch.setattr("heagent.cli.goal._goal_verify_report", fake_report)
+    monkeypatch.setattr("heagent.cli.goal.verify._goal_verify_report", fake_report)
     step = WorkflowStepResource(
         index=1,
         name="s",

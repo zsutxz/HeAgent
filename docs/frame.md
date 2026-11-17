@@ -990,7 +990,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 
 ### 4.13 Goal 驱动工作流 (`/goal`)
 
-`/goal` 是 CLI 层的机制入口（命令族实现位于 `cli/goal.py`）。当前工作流的唯一方法论入口是
+`/goal` 是 CLI 层的机制入口（命令族实现位于 `cli/goal/` 子包）。当前工作流的唯一方法论入口是
 `.heagent/skills/he-goal/workflow.md`（属 `he-goal` 包，由 skill catalog 按 id/别名解析）；步骤声明中的 `role` 再解析对应的 `.heagent/skills/*/SKILL.md`。
 声明的确定性装载在 `goal/workflow_loader.py`（`read_workflow(package)`：frontmatter 策略、内嵌步骤、
 `required_resources` 模板必需性），产出 `engine/workflow_resource.py` 的 `WorkflowResource` 供
@@ -998,7 +998,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 **确定性内核与渲染分离（2026-09-21 Phase 3）**：workflow 校验、gate/prompt 装配、story 选择、
 checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 docstring）与推进 use-case
 （`advance`/`pause_resume`，用户可见文案以结构化 outcome.messages 携带）收敛在
-`goal/application.py`——click-free（架构契约测试钉死 import 图）；`cli/goal.py` 是渲染薄壳
+`goal/application.py`——click-free（架构契约测试钉死 import 图）；`cli/goal/` 子包是渲染薄壳
 （messages 逐行 `click.echo(err=True)`）+ 缝宿主（`_goal_session`/`_goal_declarative_prepare`/
 `_goal_declarative_advance`/`_goal_runner` 等测试缝原位）+ settings 注入边界。CLI/GUI/cron
 三入口仍收敛同一 use-case（GUI 经 `_goal_runner`、cron 经 `_goal_cron_advance`），无复制推进逻辑。
@@ -1018,7 +1018,7 @@ checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 d
   的通用求值器把声明子句比对到证据（`goal/evidence.py` 的 `<goal_dir>/evidence/`）、产物文件与只读 Git
   （`goal/git_port.py`），产出结构化通过/失败报告（经 `_echo` 漏斗）。`verify run` 先把声明命令经治理链
   （PolicyEngine → ToolExecutor → SafetyGuard → shell handler）受控重跑并落证据；绝不重跑实现步骤、
-  不改 Runner 状态。步骤完成门（`cli/goal.py` 的 `_goal_structured_gate`）复用同一求值器：步骤产物落盘后
+  不改 Runner 状态。步骤完成门（`cli/goal/verify.py` 的 `_goal_structured_gate`）复用同一求值器：步骤产物落盘后
   求值，未通过经 `WorkflowRunner` 的 `GATE_FAILED` 事件进 `BLOCKED`。`gate:` 名字由宿主注册表
   （`QUALITY_GATES`，名字 → 语义 + 求值函数分派表）提供，加载期由 `workflow_loader` 校验（未注册或
   声明条件不满足均 fail-loud）。
@@ -1096,7 +1096,7 @@ AST 判据钉住：写点必须走 `transition()`，且唯一写点 `_transition
 `_validate_write_allowlist`：`file_write` / `file_edit` 目标越集 → BLOCKED，走
 `PolicyEngine.evaluate() → ToolExecutor → SafetyGuard → handler` 既有治理链，零旁路）。**定位与
 path_safety / 工作区围栏同构：纵深防御**（边界地位见 §4.19；shell 路径可绕过，故另有宿主
-Git 审计事后检测（`goal/write_audit.py` 的 `_audit_story_writes`，`cli/goal.py` 负责编排与呈现；2026-11-07 自 `cli/goal.py` 迁入该模块）：per-story 会话前后只读 Git 增量基线，
+Git 审计事后检测（`goal/write_audit.py` 的 `_audit_story_writes`，`cli/goal/` 子包负责编排与呈现；2026-11-07 自 `cli/goal.py` 迁入该模块）：per-story 会话前后只读 Git 增量基线，
 tracked 增量越出「本 Story 写集 ∪ 兄弟写集 ∪ 宿主自写产物」→ FAILED + `write_violation` → 撤销闩
 单向置位（随 checkpoint 持久化，重启后该 Goal 仍串行）；untracked 增量只发警告事件不判负）。
 产物豁免同时按**两种参照系**登记：`git diff --name-only` 报**仓库根**相对路径、`git ls-files
@@ -1278,7 +1278,7 @@ Phase 5 C1：+`duration_ms`/`error_kind`；旧 rollout 缺省读、新字段被�
 | `workflow_story_batch_scheduled` | `engine/workflow_runner`（`_gather_story_batch`，Epic 52 Story 52-2） | `step,members,limit`（`story` 为空） | 授权批派发时发一条：批成员 id 与声明上限 |
 | `workflow_write_audit` | `goal/write_audit.py`（`_emit_write_audit_event`，Epic 52 Story 52-3；2026-11-07 随写审计家族自 `cli/goal.py` 迁入） | `step,story,untracked` / `skipped` / `violations,base,shared_workspace` | 宿主 Git 写集审计的观测事件：`untracked=[...]` 为警告（不判负）；`skipped=git_unavailable` 为非 Git 跳过说明；`violations=[...]` + `base`（基线 revision）+ `shared_workspace` 为**判负留档**（闩后串行重跑的新基线已含旧违规，事件是唯一持久记录；`shared_workspace=true` 表示批内写者无法归属到本 Story，A41/A42）；emit 异常隔离 |
 | `workflow_approved` / `workflow_rejected` / `workflow_amended` | `engine/workflow_runner`（审批决策方法，Story 51-5） | `step`（+`reason`：拒绝理由 / 修订补充） | — |
-| `workflow_gate_evaluated` | `cli/goal.py`（`_emit_goal_gate_event`，Story 51-8 收口 51-4 递延） | `step,story,source,verdict,failed,clause_errors,rerun,rerun_evidence,reused_commands` | 完成门（`source=completion_gate`）与 `/goal verify`（`source=verify_run`）每次结构化求值各发一条，带 duration；emit 异常隔离 |
+| `workflow_gate_evaluated` | `cli/goal/verify.py`（`_emit_goal_gate_event`，Story 51-8 收口 51-4 递延） | `step,story,source,verdict,failed,clause_errors,rerun,rerun_evidence,reused_commands` | 完成门（`source=completion_gate`）与 `/goal verify`（`source=verify_run`）每次结构化求值各发一条，带 duration；emit 异常隔离 |
 | `dream_start` / `dream_end`、`cron_job_*` | `memory/dream.py`、`cron/scheduler.py`（开集现状收编） | `success` 等 | — |
 | `assistant_message`（传输层补充） | `events/sink.py` | `content` | — |
 
@@ -1514,7 +1514,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 跨项目并发默认无全局上限（**D9 已裁定**） | 默认（`HTTP_MAX_TOTAL_INFLIGHT=0`）在途上限 = 项目数 × `HTTP_MAX_INFLIGHT_RUNS`（默认最多 32），**无全局软上限**；`HTTP_MAX_CONNECTIONS` 不随项目数放大 ⇒ 多项目并行时连接层可能先成为瓶颈（既有限制面的延续）。多项目并行是有意能力，见 4.18。**2026-09-27 起**可选设 `HTTP_MAX_TOTAL_INFLIGHT=N` 得到**服务级**总额（跨项目共享，超限 409 `total_inflight_limit`）；它**不改写**上面这条按项目语义，只是叠加一层 |
 | 非回环运行姿态（**裁定：维持现状**） | 项目**重命名**、四个**会话**写操作与项目内**运行入口**当前**没有**回环门（登记 / 移除 / 配置写入有）。**裁定维持现状**理由：① 这是 Epic 49 的设计姿态，Epic 50 未扩大暴露面；② 入口的边界地位见 §4.19；③ 添加回环门会破坏既有端点契约。冻结边界：不得把闸门表述为安全边界 |
 | 控制台 UI 无自动化回归 | `tests/js/console_acceptance.mjs` 需要真实浏览器（CDP）与 `heagent[http]`，而 CI 侧没有任何浏览器（workflow 里没有 node / 浏览器步骤，依赖也不含 playwright/puppeteer；install 步骤只装 `.[dev,gui,http]`（lint job）与 `.[dev,http]`（test / coverage / benchmark / goal-smoke）） ⇒ 只能**手动**跑（清单见 `epics/epic-50-网页控制台周期/reviews.md`）。CI 里跑得动的是 node 探针（最小 DOM 替身）；DOM API 的 `click()` 会绕过命中测试，故「真浏览器」这一步不可省略。**裁定：保持手动**（2026-09-28）——冻结边界禁止为它给 dev 依赖加 playwright/puppeteer；「真实模型 → SSE → 流式渲染」这条链的前端侧由 node 探针覆盖、服务端由 Epic 49 用例覆盖，本机无可用 provider 时不升级为门禁 |
-| `cli_console.py` 从未落地（脊柱 D7 的覆盖率口径作废） | 脊柱 §10 / D7 预判控制台逻辑会拆到独立模块 `cli_console.py` 并「默认不 omit」；实现期它**没有存在过**——控制台装配在 `cli/http.py`（**不在**覆盖率 omit 列表里，靠测试覆盖，实测 `cli/http.py` 计入总量）。若将来拆分，口径随模块走并在此更新。**2026-09-26 补充**：交互式 CLI 主体现位于 `cli/console.py`（原 `cli.py`）+ `cli/interactive.py`（REPL 与斜杠命令族，自 cli.py 拆出），与 `cli/goal.py`、`cli/display.py` 一并列入覆盖率 omit（`pyproject.toml`）；`cli/composition.py`（装配）、`cli/init.py`、`cli/http.py`、`cli/http_console.py`、`cli/dialogs.py` 仍计入总量（实测 `http.py` 83% / `http_console.py` 93% / `composition.py` 92%） |
+| `cli_console.py` 从未落地（脊柱 D7 的覆盖率口径作废） | 脊柱 §10 / D7 预判控制台逻辑会拆到独立模块 `cli_console.py` 并「默认不 omit」；实现期它**没有存在过**——控制台装配在 `cli/http.py`（**不在**覆盖率 omit 列表里，靠测试覆盖，实测 `cli/http.py` 计入总量）。若将来拆分，口径随模块走并在此更新。**2026-09-26 补充**：交互式 CLI 主体现位于 `cli/console.py`（原 `cli.py`）+ `cli/interactive.py`（REPL 与斜杠命令族，自 cli.py 拆出），与 `cli/goal/` 子包、`cli/display.py` 一并列入覆盖率 omit（`pyproject.toml`）；`cli/composition.py`（装配）、`cli/init.py`、`cli/http.py`、`cli/http_console.py`、`cli/dialogs.py` 仍计入总量（实测 `http.py` 83% / `http_console.py` 93% / `composition.py` 92%） |
 | 网页请求可拉起**宿主 GUI 进程**（Story 50-8 R2，**新暴露面**；**裁定：维持现状** 2026-09-28） | `POST /api/dialogs/pick-directory` 会在**服务端所在机器**弹原生窗口（子进程 `tkinter` / `powershell`）。防线只有「回环来源 + 单在途 + 冻结 argv + 300s 超时 kill」——回环 peer ≠ 可信（见上），任何能连上端口的本机进程都能让服务机弹窗（骚扰面）；其边界地位见 §4.19。**默认关闭**（`--dialog-backend` 默认 `none`，2026-09-27 修改）：需要时显式传 `--dialog-backend auto` 开启；内嵌服务同样默认关闭（`build_http_service` 不传该参数，`HttpProjectConsole` 默认值已同步改为 `"none"`）。与配置写入通道的 `HTTP_CONSOLE_WRITE_ENABLED` 默认 False 惯例一致 |
 | 原生目录选择在部分环境**不可用**（Story 50-8 R2） | ①无图形后端（容器 / 缺 `_tkinter` 的 Linux）；②服务跑在远程机器而浏览器在别处（窗口弹在服务机，对调用者无用）；③默认即 `--dialog-backend none`（禁用；2026-09-27 起，须显式传 `auto` / `tkinter` / `powershell` 才启用）。三种都回 `dialog_unavailable` 并**保留手工输入**（不静默失败、也没有服务端目录浏览 API —— 那会把宿主目录结构开放给回环客户端） |
 | 网页侧读取结果收敛是**展示策略**，不是数据边界（Story 50-8 R5 + `content_search` / `file_edit`） | 只是「网页事件流不放结果**正文**」——`file_read` / `file_edit` 成功时**整份置空**（对话区只留「工具名 → 作用对象」），`content_search` 成功时**折叠成去重的命中文件清单**（`cli.http_console._matched_files`；未命中消息与超大文件跳过行属诊断，原样保留）；同一份内容仍写进**会话文件**与 `rollout.jsonl`（审计 / 回放需要），模型侧也照旧收到全文；失败消息靠 `Error:` 前缀约定识别（内置工具的既有约定，若将来改结构化错误，该判据可退化为只看 `is_error`）。**已知限制（裁定：收紧规格）**：正文以 `Error:` 开头的文件（日志/错误报告/栈转储）成功读取时，整份正文会照旧显示在网页对话区——AC9「成功只显示文件名」与「失败消息可见」在该输入类上互斥。冻结边界：不得收敛失败消息（那会让诊断从页面消失） |
@@ -1535,7 +1535,7 @@ src/heagent/
 │   ├── composition.py       # 装配：provider→engine→loop / soul / 上下文策略 / plan mode / dream / 事件 sink（2026-09-26 自 cli.py 拆出）
 │   ├── interactive.py       # 单次/交互执行：REPL + 斜杠命令族 + 内嵌 HTTP 挂载点（2026-09-26 自 cli.py 拆出）
 │   ├── init.py              # heagent init 子命令（全局配置/项目上下文模板生成，2026-09-17 自 cli.py 拆出）
-│   ├── goal.py              # /goal 命令族（声明式工作流分发 + cron 自动推进）
+│   ├── goal/                # /goal 命令族子包（声明式工作流分发 + cron 自动推进；messages 输出漏斗 / verify 门禁与受治理重跑 / execution 步骤执行 / commands 命令面，__init__ 全量再导出）
 │   ├── http.py              # http-server 子命令 + HTTP 服务装配（入口层组合根；Epic 49）
 │   ├── http_console.py      # 网页控制台的项目/会话/配置面（Epic 50；2026-09-26 自 cli_http.py 拆出）
 │   ├── dialogs.py           # 服务端原生「选择目录」对话框（Story 50-8）

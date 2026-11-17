@@ -98,9 +98,9 @@ async def test_cli_status_renders_the_shared_projection(monkeypatch: pytest.Monk
     async def _runner(_workflow: WorkflowResource, _goal_dir: Path) -> SimpleNamespace:
         return SimpleNamespace(state=state)
 
-    monkeypatch.setattr(goal_cli, "_echo", lambda message, *, err=True: captured.append(message))
-    monkeypatch.setattr(goal_cli, "_goal_declarative_active_dir", lambda: tmp_path / "demo")
-    monkeypatch.setattr(goal_cli, "_goal_declarative_runner", _runner)
+    monkeypatch.setattr("heagent.cli.goal.commands._echo", lambda message, *, err=True: captured.append(message))
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_active_dir", lambda: tmp_path / "demo")
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_runner", _runner)
 
     await goal_cli._goal_declarative_status(_workflow())
 
@@ -170,9 +170,9 @@ async def test_cli_status_shows_the_epic_without_reading_any_document(
     async def _runner(_workflow: WorkflowResource, _goal_dir: Path) -> SimpleNamespace:
         return SimpleNamespace(state=state)
 
-    monkeypatch.setattr(goal_cli, "_echo", lambda message, *, err=True: captured.append(message))
-    monkeypatch.setattr(goal_cli, "_goal_declarative_active_dir", lambda: goal_dir)
-    monkeypatch.setattr(goal_cli, "_goal_declarative_runner", _runner)
+    monkeypatch.setattr("heagent.cli.goal.commands._echo", lambda message, *, err=True: captured.append(message))
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_active_dir", lambda: goal_dir)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_runner", _runner)
 
     await goal_cli._goal_declarative_status(_story_workflow())
 
@@ -218,10 +218,10 @@ async def test_cron_goal_job_drives_the_shared_advance_use_case(
         calls.append("advance")
         return goal_cli._GOAL_ADVANCED
 
-    monkeypatch.setattr(goal_cli, "_goal_declarative_advance", _advance)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_advance", _advance)
     # cron 与手动命令同一解析口径——推进 goal 冻结绑定的 workflow。
-    monkeypatch.setattr(goal_cli, "resolve_bound_workflow", lambda _goal_dir, _default: _workflow())
-    monkeypatch.setattr(goal_cli, "_goal_active_md", lambda: tmp_path / "demo" / "brief.md")
+    monkeypatch.setattr("heagent.cli.goal.commands.resolve_bound_workflow", lambda _goal_dir, _default: _workflow())
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_active_md", lambda: tmp_path / "demo" / "brief.md")
 
     await goal_cli._goal_cron_advance(provider=None, engine=None, store=None, goal_id="demo")
 

@@ -649,7 +649,7 @@ def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls.append(prompt)
         return SimpleNamespace(success=True, output=f"output-{len(calls)}")
 
-    monkeypatch.setattr("heagent.cli.goal._goal_session", run_step)
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
     return calls
 
 
@@ -727,7 +727,7 @@ async def test_goal_verify_run_uses_the_governed_port_and_records_evidence(
             exit_code=0 if passing["ok"] else 1,
         )
 
-    monkeypatch.setattr(cli_goal, "_goal_verify_command_runner", lambda engine: port)
+    monkeypatch.setattr("heagent.cli.goal.verify._goal_verify_command_runner", lambda engine: port)
     _rewrite_package_workflow(gate_cwd, "pytest -q")
     await _goal_runner(SimpleNamespace(), None, "new build a gate")
     err = capsys.readouterr().err
@@ -761,7 +761,7 @@ async def test_goal_verify_run_reuses_fresh_command_evidence(
             exit_code=0,
         )
 
-    monkeypatch.setattr(cli_goal, "_goal_verify_command_runner", lambda engine: port)
+    monkeypatch.setattr("heagent.cli.goal.verify._goal_verify_command_runner", lambda engine: port)
     package = gate_cwd / ".heagent" / "skills" / "he-goal"
     # command 过 + artifact 缺：门挂起（步骤保持活动），命令证据已新鲜成功
     (package / "workflow.md").write_text(
@@ -796,7 +796,7 @@ async def test_gate_and_verify_emit_gate_evaluated_events(
 
         return emit
 
-    monkeypatch.setattr(cli_goal, "_workflow_event_emitter", capture)
+    monkeypatch.setattr("heagent.cli.goal.verify._workflow_event_emitter", capture)
     recorded: list[str] = []
     passing = {"ok": False}
 
@@ -809,7 +809,7 @@ async def test_gate_and_verify_emit_gate_evaluated_events(
             exit_code=0 if passing["ok"] else 1,
         )
 
-    monkeypatch.setattr(cli_goal, "_goal_verify_command_runner", lambda engine: port)
+    monkeypatch.setattr("heagent.cli.goal.verify._goal_verify_command_runner", lambda engine: port)
     _rewrite_package_workflow(gate_cwd, "pytest -q")
     await _goal_runner(SimpleNamespace(), None, "new build a gate")
     capsys.readouterr()
@@ -1027,7 +1027,7 @@ async def test_goal_verify_reports_a_workflow_without_an_active_step(
     async def restored(_workflow: object, _goal_dir: object) -> WorkflowRunner:
         return runner
 
-    monkeypatch.setattr(cli_goal, "_goal_declarative_runner", restored)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_runner", restored)
 
     await _goal_runner(SimpleNamespace(), None, "verify")
 
@@ -1050,7 +1050,7 @@ async def test_goal_verify_exits_early_on_a_completed_workflow(
     async def restored(_workflow: object, _goal_dir: object) -> WorkflowRunner:
         return runner
 
-    monkeypatch.setattr(cli_goal, "_goal_declarative_runner", restored)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_runner", restored)
 
     await _goal_runner(SimpleNamespace(), None, "verify")
 
@@ -1068,7 +1068,7 @@ async def test_goal_verify_reports_its_own_io_failure_not_a_lock_contention(
     def broken(_goal_dir: Path) -> object:
         raise OSError("disk gone")
 
-    monkeypatch.setattr(cli_goal, "evidence_store", broken)
+    monkeypatch.setattr("heagent.cli.goal.verify.evidence_store", broken)
 
     await _goal_runner(SimpleNamespace(), None, "verify")
 
@@ -1086,7 +1086,7 @@ async def test_completion_gate_turns_an_evaluation_failure_into_blocked(
     def broken(_goal_dir: Path) -> object:
         raise OSError("disk gone")
 
-    monkeypatch.setattr(cli_goal, "evidence_store", broken)
+    monkeypatch.setattr("heagent.cli.goal.verify.evidence_store", broken)
 
     await _goal_runner(SimpleNamespace(), None, "new build a gate")
 

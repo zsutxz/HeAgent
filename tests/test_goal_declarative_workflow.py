@@ -75,7 +75,7 @@ def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls.append(prompt)
         return SimpleNamespace(success=True, output=f"output-{len(calls)}")
 
-    monkeypatch.setattr("heagent.cli.goal._goal_session", run_step)
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
     return calls
 
 
@@ -168,7 +168,7 @@ def advance_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     async def noop_advance(*args: object, **kwargs: object) -> None:
         return None
 
-    monkeypatch.setattr("heagent.cli.goal._goal_declarative_advance", noop_advance)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_advance", noop_advance)
 
 
 @pytest.mark.asyncio
@@ -253,7 +253,7 @@ async def test_declarative_resume_advances_once_under_goal_lock(
         observed.append(goal_mutex._auto_lock.locked())
         return await original(provider, engine, workflow)
 
-    monkeypatch.setattr(cli_goal, "_goal_declarative_advance", observe_advance)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_advance", observe_advance)
     await _goal_runner(SimpleNamespace(), None, "resume")
 
     assert len(successful_step) == 2
@@ -648,7 +648,7 @@ async def test_empty_subagent_output_fails_without_persisting_empty_artifact(
         del provider, engine, prompt, kwargs
         return SimpleNamespace(success=True, output="  \n")
 
-    monkeypatch.setattr(cli_goal, "_goal_session", empty_goal_session)
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", empty_goal_session)
 
     await _goal_runner(SimpleNamespace(), None, "new empty output workflow")
 
@@ -937,7 +937,7 @@ async def test_step_iteration_budget_overrides_the_global_default(
         seen.append(kwargs.get("max_iterations"))
         return SimpleNamespace(success=True, output="body")
 
-    monkeypatch.setattr("heagent.cli.goal._goal_session", run_step)
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
     workflow = WorkflowResource(name="demo", instructions="", steps=[], prompt_template="step prompt")
     goal_dir = declarative_cwd / "_he-output" / "goals" / "demo"
     goal_dir.mkdir(parents=True, exist_ok=True)
@@ -1012,7 +1012,7 @@ async def test_blocked_step_reports_the_way_out(
     async def prepare(prepared_workflow: object) -> tuple[None, object]:
         return None, context
 
-    monkeypatch.setattr(cli_goal, "_goal_declarative_prepare", prepare)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_prepare", prepare)
     outcome = await cli_goal._goal_declarative_advance(SimpleNamespace(), None, workflow)
     err = capsys.readouterr().err
     assert "[goal] step blocked: step 'step-01.md' output is missing section: 实现摘要" in err

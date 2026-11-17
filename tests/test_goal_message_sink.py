@@ -50,7 +50,7 @@ async def test_goal_runner_binds_the_sink_for_its_call_chain(
     def boom() -> object:
         raise ValueError("workflow missing")
 
-    monkeypatch.setattr(cli_goal, "_goal_declarative_workflow", boom)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_workflow", boom)
     await cli_goal._goal_runner(object(), None, "status", on_message=lines.append)  # type: ignore[arg-type]
 
     assert lines == ["[goal] workflow missing"], "内部输出未走 sink"
@@ -65,20 +65,26 @@ async def test_goal_runner_without_sink_still_writes_stderr(
     def boom() -> object:
         raise ValueError("workflow missing")
 
-    monkeypatch.setattr(cli_goal, "_goal_declarative_workflow", boom)
+    monkeypatch.setattr("heagent.cli.goal.commands._goal_declarative_workflow", boom)
     await cli_goal._goal_runner(object(), None, "status")  # type: ignore[arg-type]
     assert "[goal] workflow missing" in capsys.readouterr().err
 
 
 def test_all_goal_output_goes_through_the_echo_funnel() -> None:
-    """历史 40+ 处 ``click.echo`` 必须都已收敛到 ``_echo``（除 ``_echo`` 自身的兜底调用）。"""
-    source = Path(cli_goal.__file__).read_text(encoding="utf-8")
-    direct = [
-        ln.strip()
-        for ln in source.splitlines()
-        if "click.echo(" in ln and "``" not in ln and not ln.lstrip().startswith("#")
-    ]
-    assert direct == ["click.echo(message, err=err)"], f"仍有绕过 sink 的直接输出：{direct}"
+    """历史 40+ 处 ``click.echo`` 必须都已收敛到 ``_echo``（除 ``_echo`` 自身的兜底调用）。
+
+    扫描面是子包全模块：漏斗真身住 ``messages.py``，其余模块出现 ``click.echo`` 直呼即违约。
+    """
+    package_dir = Path(cli_goal.__file__).parent
+    funnel: list[str] = []
+    offenders: list[str] = []
+    for path in sorted(package_dir.glob("*.py")):
+        for ln in path.read_text(encoding="utf-8").splitlines():
+            stripped = ln.strip()
+            if "click.echo(" in ln and "``" not in ln and not stripped.startswith("#"):
+                (funnel if path.name == "messages.py" else offenders).append(stripped)
+    assert offenders == [], f"仍有绕过 sink 的直接输出：{offenders}"
+    assert funnel == ["click.echo(message, err=err)"], f"漏斗兜底被破坏：{funnel}"
 
 
 def test_gui_logging_no_longer_targets_stderr() -> None:

@@ -169,7 +169,7 @@ def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         calls.append(prompt)
         return SimpleNamespace(success=True, output=f"output-{len(calls)}")
 
-    monkeypatch.setattr("heagent.cli.goal._goal_session", run_step)
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
     return calls
 
 
@@ -701,7 +701,7 @@ async def test_frozen_revision_flows_into_verify_step(
         captured["workflow_id"] = kwargs.get("workflow_id")
         return await real_verify(step, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(cli_goal, "verify_step", spy)
+    monkeypatch.setattr("heagent.cli.goal.verify.verify_step", spy)
 
     await _goal_runner(SimpleNamespace(), None, "new gated goal")
 
