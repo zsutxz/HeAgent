@@ -30,11 +30,14 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from heagent.engine import (
+    GoalWorkflowState,
+    WorkflowCheckpoint,
     WorkflowCheckpointError,
     WorkflowCheckpointStore,
     WorkflowPhase,
     WorkflowResource,
     WorkflowRunner,
+    WorkflowRunResult,
     WorkflowStatus,
     WorkflowStepResult,
     required_sections,
@@ -266,40 +269,47 @@ async def restore_runner(workflow: WorkflowResource, goal_dir: Path) -> Workflow
     checkpoints = await store.list_checkpoints(goal_id=goal_dir.name)
     workflow_state = await store.load_state()
     if workflow_state is not None:
-        # Match against the persisted active_skill (workflow.json) rather than the
-        # current workflow.name, so a workflow rename does not strand existing goals.
-        matching = [
-            checkpoint
-            for checkpoint in checkpoints
-            if checkpoint.active_step == workflow_state.active_step
-            and checkpoint.active_skill == workflow_state.active_skill
-            and (
-                checkpoint.status is workflow_state.status
-                or (checkpoint.status is WorkflowStatus.COMPLETED and workflow_state.status is WorkflowStatus.RUNNING)
-            )
-        ]
+        matching = _matching_checkpoints(checkpoints, workflow_state)
         if matching:
-            return WorkflowRunner.from_checkpoint(
-                workflow,
-                matching[-1],
-                checkpoint_store=store,
-                phase=WorkflowPhase.IMPLEMENTATION,
-            )
+            return _runner_from_checkpoint(workflow, matching[-1], store)
         if checkpoints:
             raise WorkflowCheckpointError("workflow configuration does not match the persisted goal state")
     # Each goal owns its checkpoint directory, so the latest checkpoint for this
     # goal is the authoritative recovery point. Do not make recovery contingent
     # on optional descriptive metadata such as ``active_skill``.
     if checkpoints:
-        return WorkflowRunner.from_checkpoint(
-            workflow,
-            checkpoints[-1],
-            checkpoint_store=store,
-            phase=WorkflowPhase.IMPLEMENTATION,
-        )
+        return _runner_from_checkpoint(workflow, checkpoints[-1], store)
     return WorkflowRunner(
         workflow,
         goal_id=goal_dir.name,
+        checkpoint_store=store,
+        phase=WorkflowPhase.IMPLEMENTATION,
+    )
+
+
+def _matching_checkpoints(
+    checkpoints: list[WorkflowCheckpoint], workflow_state: GoalWorkflowState
+) -> list[WorkflowCheckpoint]:
+    """按 active_step + active_skill 匹配快照（workflow 改名不搁浅存量 goal），
+    status 宽容一个「快照已完成但聚合仍在跑」的相位差。"""
+    return [
+        checkpoint
+        for checkpoint in checkpoints
+        if checkpoint.active_step == workflow_state.active_step
+        and checkpoint.active_skill == workflow_state.active_skill
+        and (
+            checkpoint.status is workflow_state.status
+            or (checkpoint.status is WorkflowStatus.COMPLETED and workflow_state.status is WorkflowStatus.RUNNING)
+        )
+    ]
+
+
+def _runner_from_checkpoint(
+    workflow: WorkflowResource, checkpoint: WorkflowCheckpoint, store: WorkflowCheckpointStore
+) -> WorkflowRunner:
+    return WorkflowRunner.from_checkpoint(
+        workflow,
+        checkpoint,
         checkpoint_store=store,
         phase=WorkflowPhase.IMPLEMENTATION,
     )
@@ -353,6 +363,11 @@ def open_question_policy(workflow: WorkflowResource, fallback_mode: str) -> str:
     return workflow.open_question_block or _DEFAULT_OPEN_QUESTION_BLOCK
 
 
+def _is_input_body(value: Any) -> bool:
+    """该输入项是否承载可渲染正文：去重只针对非空字符串（其余原样保留）。"""
+    return isinstance(value, str) and bool(value)
+
+
 def dedupe_inputs(inputs: Mapping[str, Any], declared: str = "") -> list[tuple[str, Any]]:
     """Render each distinct input body once, under its most meaningful key.
 
@@ -365,16 +380,12 @@ def dedupe_inputs(inputs: Mapping[str, Any], declared: str = "") -> list[tuple[s
     wanted = {item.strip() for item in re.split(r"[,\n]", declared) if item.strip()}
     chosen: dict[str, str] = {}
     for name, value in inputs.items():
-        if not (isinstance(value, str) and value):
+        if not _is_input_body(value):
             continue
         current = chosen.get(value)
         if current is None or (name in wanted and current not in wanted):
             chosen[value] = name
-    return [
-        (name, value)
-        for name, value in inputs.items()
-        if not (isinstance(value, str) and value) or chosen[value] == name
-    ]
+    return [(name, value) for name, value in inputs.items() if not _is_input_body(value) or chosen[value] == name]
 
 
 def role_instructions(workflow: WorkflowResource, step_name: str) -> str:
@@ -564,6 +575,13 @@ async def _run_step_without_execution(
     return await execute_step(inputs, step, story)
 
 
+def _checkpoint_arrived(result: WorkflowRunResult, runner: WorkflowRunner) -> bool:
+    """步骤/Story 检查点是否已抵达：声明检查点的完成成员已记账。"""
+    step_checkpoint = result.step_index is not None and (result.step_index - 1) in runner.state.completed_steps
+    story_checkpoint = result.story_id is not None and result.story_id in runner.state.completed_stories
+    return step_checkpoint or story_checkpoint
+
+
 async def _advance_checkpoint_decision(
     result: Any,
     runner: WorkflowRunner,
@@ -592,9 +610,7 @@ async def _advance_checkpoint_decision(
                 "/goal approve | /goal reject <原因> | /goal amend <补充> (/goal decisions lists records)"
             )
         return GoalAdvanceStatus.WAITING
-    step_checkpoint = result.step_index is not None and (result.step_index - 1) in runner.state.completed_steps
-    story_checkpoint = result.story_id is not None and result.story_id in runner.state.completed_stories
-    if not (step_checkpoint or story_checkpoint):
+    if not _checkpoint_arrived(result, runner):
         return GoalAdvanceStatus.WAITING
     if mode == "auto":
         runner.resume(emit=emit)
@@ -641,6 +657,98 @@ async def advance(
         )
 
 
+async def _advance_run_step(
+    runner: WorkflowRunner,
+    goal_dir: Path,
+    callback: Callable[..., Awaitable[WorkflowStepResult]],
+    inputs: dict[str, Any],
+    emit: Callable[[str], None] | None,
+) -> WorkflowRunResult:
+    """声明步骤优先的执行分流（_advance_unlocked 循环体的取步执行，脚本步骤声明的
+    后续声明步骤排在普通步骤之前，顺序权在 Runner）。"""
+    plan = runner.state.requested_steps
+    if plan:
+        return await runner.run_declared_step(plan[0], callback, inputs=inputs, emit=emit)
+    active_step = runner.workflow.steps[runner.state.active_step]
+    stories = _stories_for(goal_dir, active_step)
+    return await runner.run_step(callback, inputs=inputs, stories=stories, emit=emit)
+
+
+def _blocked_step_messages(result: WorkflowRunResult, runner: WorkflowRunner, messages: list[str]) -> None:
+    """BLOCKED 指路文案：被门拦下的步骤须人工确认后重跑（文案逐字保持）。"""
+    reason = result.reason or runner.state.reason or "the step output failed its gate"
+    messages.append(f"[goal] step blocked: {reason}")
+    messages.append(
+        "[goal] the step must be re-run: record a human acknowledgement with "
+        "`/goal resume <说明>` (the active step then executes again); `/goal status` shows the state."
+    )
+
+
+def _result_label(result: WorkflowRunResult) -> str:
+    """结果行前缀：声明步骤号（缺省 `-`）与可选 story 标签。"""
+    step_label = result.step_index if result.step_index is not None else "-"
+    story_label = f" story={result.story_id}" if result.story_id else ""
+    return f"step={step_label}{story_label}"
+
+
+def _advance_dispatch(
+    result: WorkflowRunResult,
+    runner: WorkflowRunner,
+    mode: str,
+    messages: list[str],
+) -> GoalAdvanceStatus | None:
+    """结果状态 → 终态或继续信号；``WAITING`` = 回落信号（调用方转 checkpoint 决策），
+    ``None`` = 继续循环（skipped，或 PENDING 有后续声明步骤 / auto 模式）。
+    """
+    messages.append(f"[goal] declarative workflow: {_result_label(result)} status={result.status.value}")
+    if result.skipped:
+        # 已完成的声明步骤：不重跑、不改状态（幂等），继续消费计划。
+        messages.append(f"[goal] {result.reason}")
+        return None
+    if result.status is WorkflowStatus.COMPLETED:
+        return GoalAdvanceStatus.DONE
+    if result.status is WorkflowStatus.PENDING:
+        if runner.state.requested_steps or mode == "auto":
+            return None
+        return GoalAdvanceStatus.ADVANCED
+    if result.status is not WorkflowStatus.WAITING_USER:
+        if result.status is WorkflowStatus.BLOCKED:
+            _blocked_step_messages(result, runner, messages)
+        return GoalAdvanceStatus.FAILED
+    return GoalAdvanceStatus.WAITING  # 回落信号：调用方转 checkpoint 决策
+
+
+def _step_inputs(
+    description: str,
+    user_responses: str,
+    project_context: str | None,
+    outputs: Mapping[str, Any],
+) -> dict[str, Any]:
+    """步骤输入装配：意图 + 用户补充 + 项目上下文（缺失时给显性兜底文案）+ 已完成产物。"""
+    return {
+        "user intent": description,
+        "user responses": user_responses or "No user response has been recorded.",
+        "existing project context": project_context
+        or "No project context file was found; inspect the current workspace before making assumptions.",
+        **outputs,
+    }
+
+
+async def _advance_next(
+    result: WorkflowRunResult,
+    runner: WorkflowRunner,
+    mode: str,
+    confirm_checkpoint: Callable[[], bool],
+    messages: list[str],
+    emit: Callable[..., None] | None,
+) -> GoalAdvanceStatus | None:
+    """一次结果 → 终态（``None`` = 继续推进循环）：WAITING_USER 交 checkpoint 决策。"""
+    status = _advance_dispatch(result, runner, mode, messages)
+    if status is not GoalAdvanceStatus.WAITING:
+        return status
+    return await _advance_checkpoint_decision(result, runner, mode, confirm_checkpoint, messages, emit)
+
+
 async def _advance_unlocked(
     context: GoalAdvanceContext,
     execute_step: StepExecutor,
@@ -684,60 +792,19 @@ async def _advance_unlocked(
         except OSError as exc:
             messages.append(f"[goal] declarative requirement document is unreadable: {exc}")
             return outcome(GoalAdvanceStatus.FAILED)
-        inputs: dict[str, Any] = {
-            "user intent": description,
-            "user responses": user_responses or "No user response has been recorded.",
-            "existing project context": load_project_context()
-            or "No project context file was found; inspect the current workspace before making assumptions.",
-            **runner.state.outputs,
-        }
+        inputs = _step_inputs(description, user_responses, load_project_context(), runner.state.outputs)
         callback = partial(bridge, inputs, execute_step)
-        plan = runner.state.requested_steps
         try:
-            if plan:
-                # 上一步（脚本步骤）声明的后续声明步骤优先执行：顺序权仍在 Runner，由
-                # :meth:`WorkflowRunner.run_declared_step` 校验并推进状态。
-                result = await runner.run_declared_step(plan[0], callback, inputs=inputs, emit=emit)
-            else:
-                active_step = runner.workflow.steps[runner.state.active_step]
-                stories = _stories_for(goal_dir, active_step)
-                result = await runner.run_step(callback, inputs=inputs, stories=stories, emit=emit)
+            result = await _advance_run_step(runner, goal_dir, callback, inputs, emit)
         except _StorySourceError as exc:
             messages.append(f"[goal] declarative story source failed: {exc}")
             return outcome(GoalAdvanceStatus.FAILED)
         except (WorkflowCheckpointError, ValueError, TypeError) as exc:
             messages.append(f"[goal] declarative workflow failed: {exc}")
             return outcome(GoalAdvanceStatus.FAILED)
-        story_label = f" story={result.story_id}" if result.story_id else ""
-        messages.append(
-            f"[goal] declarative workflow: step={result.step_index if result.step_index is not None else '-'}"
-            f"{story_label} status={result.status.value}"
-        )
-        if result.skipped:
-            # 已完成的声明步骤：不重跑、不改状态（幂等），继续消费计划。
-            messages.append(f"[goal] {result.reason}")
-            continue
-        if result.status is WorkflowStatus.COMPLETED:
-            return outcome(GoalAdvanceStatus.DONE)
-        if result.status is WorkflowStatus.PENDING:
-            if runner.state.requested_steps or mode == "auto":
-                continue
-            return outcome(GoalAdvanceStatus.ADVANCED)
-        if result.status is not WorkflowStatus.WAITING_USER:
-            if result.status is WorkflowStatus.BLOCKED:
-                reason = result.reason or runner.state.reason or "the step output failed its gate"
-                messages.append(f"[goal] step blocked: {reason}")
-                messages.append(
-                    "[goal] the step must be re-run: record a human acknowledgement with "
-                    "`/goal resume <说明>` (the active step then executes again); `/goal status` shows the state."
-                )
-            return outcome(GoalAdvanceStatus.FAILED)
-
-        # WAITING_USER from a completed step is a checkpoint decision; an
-        # interrupted callback must never be treated as implicit approval.
-        decision = await _advance_checkpoint_decision(result, runner, mode, confirm_checkpoint, messages, emit)
-        if decision is not None:
-            return outcome(decision)
+        status = await _advance_next(result, runner, mode, confirm_checkpoint, messages, emit)
+        if status is not None:
+            return outcome(status)
 
 
 class PauseResumeStatus(StrEnum):
@@ -882,6 +949,69 @@ async def record_decision(
         return await _record_decision_unlocked(workflow, goal_dir, action=action, text=text)
 
 
+def _decision_failure_outcome(action: DecisionAction, record: DecisionRecord | None, exc: Exception) -> DecisionOutcome:
+    """失败披露：已落账的部分副作用必须显性（否则「决策已生效却无审计」是静默态）。"""
+    if record is None:
+        detail = "no record was written"
+        decision_id = ""
+    else:
+        detail = f"decision {record.decision_id[:8]} is already recorded"
+        decision_id = record.decision_id
+    return DecisionOutcome(
+        status=DecisionStatus.FAILED,
+        decision_id=decision_id,
+        message=f"[goal] {action.value} failed: {exc} ({detail}; check /goal decisions and /goal status)",
+    )
+
+
+def _decision_input_guard(action: DecisionAction, text: str) -> str:
+    """决策入参守卫：返回失败文案，空串 = 放行（文案逐字保持）。"""
+    if action is DecisionAction.RESUME:
+        # resume 有自己的 use-case（pause_resume 记一条 RESUME 决策 / advance 检查点决策），
+        # 不是决策命令；混进来会让「resume 当 approve 用」有一条静默通道。
+        return "[goal] resume is not a decision; use /goal resume (it cannot approve an approval gate)"
+    if action is not DecisionAction.APPROVE and not text.strip():
+        # 空白的拒绝理由 / 修订补充会落成空 reason 的 BLOCKED 与空审计记录。
+        required = "reason" if action is DecisionAction.REJECT else "supplement"
+        return f"[goal] {action.value} requires a non-empty {required}; nothing was changed"
+    return ""
+
+
+def _decision_supplement_note(goal_dir: Path, action: DecisionAction, text: str) -> str:
+    """reject / amend 的原文落需求文档「用户补充」段；写失败只降级为提示（账已生效，不回滚）。"""
+    if not text or action is DecisionAction.APPROVE:
+        return ""
+    try:
+        goal_record_user_response(goal_dir, text)
+    except OSError as exc:
+        return f" (warning: the text did not reach the requirement document: {exc})"
+    return ""
+
+
+def _decision_success_message(
+    action: DecisionAction,
+    runner: WorkflowRunner,
+    step_name: str,
+    story_id: str,
+    record: DecisionRecord,
+    supplement_note: str,
+) -> str:
+    """成功文案：动作 + 落定后状态 + 决策号；approve 兼带检查点时点明剩余等待。"""
+    message = (
+        f"[goal] {action.value} recorded: step={step_name}"
+        + (f" story={story_id}" if story_id else "")
+        + f" status={runner.state.status.value} decision={record.decision_id[:8]}"
+    )
+    if (
+        action is DecisionAction.APPROVE
+        and runner.state.status is WorkflowStatus.WAITING_USER
+        and not runner.state.awaiting_approval
+    ):
+        # 该步同时声明了 checkpoint——批准已完成簿记，剩下的是普通检查点等待。
+        message += " (the completion is booked; this step also declared a checkpoint — /goal resume continues)"
+    return message + supplement_note
+
+
 async def _record_decision_unlocked(
     workflow: WorkflowResource,
     goal_dir: Path,
@@ -890,19 +1020,9 @@ async def _record_decision_unlocked(
     text: str = "",
 ) -> DecisionOutcome:
     """:func:`record_decision` 的无锁内核（互斥由外壳持有；勿绕过外壳直接调用）。"""
-    if action is DecisionAction.RESUME:
-        # resume 有自己的 use-case（pause_resume 记一条 RESUME 决策 / advance 检查点决策），
-        # 不是决策命令；混进来会让「resume 当 approve 用」有一条静默通道。
-        return DecisionOutcome(
-            status=DecisionStatus.FAILED,
-            message="[goal] resume is not a decision; use /goal resume (it cannot approve an approval gate)",
-        )
-    if action is not DecisionAction.APPROVE and not text.strip():
-        # 空白的拒绝理由 / 修订补充会落成空 reason 的 BLOCKED 与空审计记录。
-        return DecisionOutcome(
-            status=DecisionStatus.FAILED,
-            message=f"[goal] {action.value} requires a non-empty {'reason' if action is DecisionAction.REJECT else 'supplement'}; nothing was changed",
-        )
+    guard_error = _decision_input_guard(action, text)
+    if guard_error:
+        return DecisionOutcome(status=DecisionStatus.FAILED, message=guard_error)
     record: DecisionRecord | None = None
     try:
         runner = await restore_runner(workflow, goal_dir)
@@ -937,36 +1057,11 @@ async def _record_decision_unlocked(
         await decision_store(goal_dir).append(record)
         await runner.persist_state()
     except (WorkflowCheckpointError, ValueError, TypeError, OSError) as exc:
-        detail = (
-            f"decision {record.decision_id[:8]} is already recorded" if record is not None else "no record was written"
-        )
-        return DecisionOutcome(
-            status=DecisionStatus.FAILED,
-            decision_id=record.decision_id if record is not None else "",
-            message=f"[goal] {action.value} failed: {exc} ({detail}; check /goal decisions and /goal status)",
-        )
-    supplement_note = ""
-    if text and action is not DecisionAction.APPROVE:
-        try:
-            goal_record_user_response(goal_dir, text)
-        except OSError as exc:
-            # 账已生效：补充只是执行面输入，写失败不回滚决策，但必须显性暴露（不静默）。
-            supplement_note = f" (warning: the text did not reach the requirement document: {exc})"
-    message = (
-        f"[goal] {action.value} recorded: step={step.name}"
-        + (f" story={story_id}" if story_id else "")
-        + f" status={runner.state.status.value} decision={record.decision_id[:8]}"
-    )
-    if (
-        action is DecisionAction.APPROVE
-        and runner.state.status is WorkflowStatus.WAITING_USER
-        and not runner.state.awaiting_approval
-    ):
-        # 该步同时声明了 checkpoint——批准已完成簿记，剩下的是普通检查点等待。
-        message += " (the completion is booked; this step also declared a checkpoint — /goal resume continues)"
+        return _decision_failure_outcome(action, record, exc)
+    supplement_note = _decision_supplement_note(goal_dir, action, text)
     return DecisionOutcome(
         status=DecisionStatus.RECORDED,
         proceed=action is not DecisionAction.REJECT,
         decision_id=record.decision_id,
-        message=message + supplement_note,
+        message=_decision_success_message(action, runner, step.name, story_id, record, supplement_note),
     )
