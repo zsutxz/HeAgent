@@ -39,7 +39,8 @@ story 清单。
   `next <dir>`（`ready_to_refine` / `ready_to_start` / `in_progress` / `blocked` 分组，行上可能带
   `plan_checkpoint` / `done_checkpoint` / `drift`，`blocked` 行带 `waiting_on` / `blocked_reason` /
   `unknown`）、`find [<dir>] <ref>`（单票：`story_file` / `epic_file` / `plan` / `description` /
-  `verify`）、`pull [<dir>] <ref>`（给 entry 拉出 leaf 文件，只在评审/细化/发布时需要）、
+  `verify`）、`pull <dir> <id>`（给 entry 拉出 leaf 文件，只在评审/细化/发布时需要；与 `find` 不同，
+  `dir` **必填、不回落** active initiative——`pull 62.1` 会缺参报错）、
   `mark [<dir>] <ref> <status>`（把状态写进 plan，repo store 唯一合法写法）、`move`（换文件夹，
   id 不复用）。
 - **状态阶梯**：`draft → ready-for-dev → in-progress → in-review → built → done`，另有 `blocked` /

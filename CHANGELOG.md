@@ -16,9 +16,12 @@
 
 - 网络层单源化清理批（A54 网络族，行为保持型）：WS run 订阅与 SSE 的「快照重放 + 水位去重」收敛到 `http_protocol.replay_then_follow` 唯一实现——WS 侧终态判定随之改为**快照时刻捕获**，微竞态窗口内客户端改收终态事件而非裸关闭（对齐 AD-4「终态事件先于流结束」）；`resync_required` 判据算术单源 `http_protocol.cursor_out_of_window`（run/SSE/CLI 旁路/通知流四处共用）；WS 连接登记与有界关停收敛到 `event_stream_hub.WsRegistry`（`HttpRunService` 组合接入，其关停日志去掉 `close_code` 字段与 hub 口径统一）；ws_server 四条端点构造器的公共骨架（握手门→accept/hello→关停检查→会话体→异常收敛→有界收尾）收进 `_ws_session`，日志事件名逐字节保持。
 - 内部单源化清理批（行为零变化，判据全绿）：词级判重公式三份拷贝收单点（`compact.word_overlap_duplicate`，`FactStore.add` 反向复用）；归档小节构造与字节账收敛到 `auto_archive._append_archive`/`_fact_line_bytes`（`compact._append_archive_section` 退化为薄委托）；`auto_archive` 跨进程节流改用 `pub.persist` 的 `stamp_is_recent`/`touch_prune_stamp`（与 store/ledger/housekeeping 同一节流序列）；`EngineContainer` 两处 prune 同构孪生收敛 `_prune_gate_once`（日志文案逐字节不变）；`setup_ws_external` / `envscan` 改用 `envfile.replace_or_append` / `envfile.fingerprint`。
+- 代码门禁范围扩到 `examples/`：`ruff check` / `ruff format --check` 的路径面加入 `examples`（CI、pre-commit、`scripts/quality_gate.py`、`docs/testing.md` 同步），示例代码漂移不再静默；`examples/**` 只放行 RUF001/002/003（全角标点是中文示例的写作约定），其余规则与 `src` 同标准。`mypy src` 仍不含 `examples`。
+- `/help` 渲染面（列表版 / 详情版 / 未知命令建议）自 `cli/interactive.py` 拆到 `cli/help_view.py`：纯展示模块，注册与派发仍在 `interactive.py`，`/help` 输出逐字不变。
 
 ### Added
 
+- `tests/test_architecture_contracts.py::test_source_files_stay_under_the_line_ceiling`：`src/heagent/**/*.py` 单文件 ≤1000 行的常驻门禁（超限点名文件与行数）。Epic 62 的「单文件均低于 1000 行」Outcome 此前只有手工 `wc -l` 记账、无判据。
 - web_search 内建工具（Epic 61）：按主题检索发现新 URL。引擎可插拔（`WEB_SEARCH_ENGINE`，默认 Tavily）；无密钥工具常在、调用显性报错（`WEB_SEARCH_API_KEY`）；条数/摘要/title/url/汇总四层确定性预算 + `guard_content` 注入围栏；dreamer 与主 loop 同面开放。
 - `RunStore.close_stale_running`：把陈旧 running 快照收尾为 FAILED（崩溃进程遗留的 running 不再污染统计；`updated_at` 保持末次真实活动时刻，不回填时钟）。已接线：新 run 启动时自动触发一次（去重），阈值 `RUN_STALE_IDLE_HOURS`（默认 6h，0=禁用）。
 

@@ -83,3 +83,4 @@ HeAgent 是一个架构清晰、文档完善的实验性 AI Agent 框架（v0.8.
 
 - Action item: epic-52-retro-item-1 真实 LLM 全链冒烟（用一个小 goal 走完 /goal new → next → run，含并行批授权与审计事件观察，顺带验证绑旧 revision 的 goal 在 resume 时的漂移处置）；owner: tan；epic: 52。源自归档 sprint-status.yaml action_items，属历史 Epic 52 的 provenance，非本计划 8 epic。
 - 本 initiative 由 v6 planning-artifacts/ 迁移而来（migration-1，2026-11-15），Story 1.4 按勘误记 done，其余 58 entry 为 backlog。
+- 票树之外的**使能改动**：`70f1484`（`.heagent/skills/loop/` 的 v7 工作流重写，2026-11-15）**不建追认票**、也不立 ADR。理由：① 它只改 skill 正文与三份模板（`SKILL.md` / `workflow.md` / `templates/`），无 `src/` 代码、无可执行判据，追认票会造出「有票无 verify 无 build 记录」的假凭据（Epic 62 retro V4 正在批评票态凭据不对称）；② ADR 写入门槛是「仓库内无既有记录」，而 v7 口径本体已记在 `AGENTS.md` / `CLAUDE.md` 的「BMAD v7 产物体系」节与该提交的 message 里。溯源入口 = 本行（票树根文件即达）。登记理由见 `_bmad-output/open-items.md` 的 A57 ②。

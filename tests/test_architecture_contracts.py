@@ -743,6 +743,7 @@ def test_cli_package_layout_is_pinned() -> None:
         "display",
         "doctor",
         "errors",
+        "help_view",
         "http",
         "http_config",
         "http_console",
@@ -1201,3 +1202,24 @@ def test_dual_listener_docs_stay_in_sync() -> None:
         assert "/api/cli/ws" in text, name
     assert "双监听并存" in agents
     assert "只挂在本地 listener" in deploy or "只挂本地 listener" in deploy
+
+
+# 单文件行数上限（Epic 62 Outcome「单文件 ≤1000 行」的可执行化）。
+# 门限取整不取紧：971 行的 interactive.py 是当前最大值，留 29 行余量给小的增补，
+# 真正的意图是「不再长出 2000 行的上帝模块」，不是逼人为了 5 行去拆文件。
+MAX_SOURCE_FILE_LINES = 1000
+
+
+def test_source_files_stay_under_the_line_ceiling() -> None:
+    """``src/heagent`` 下任何 .py 不得超过 ``MAX_SOURCE_FILE_LINES``；超限即红并点名。
+
+    为什么用行数而不是圈复杂度：行数是**可协商的硬边界**（不需要工具、不会因重构漂移），
+    复杂度已有 ``scripts/complexity.py`` 的 ratchet 单独守。两者互补——行数管「文件装了什么」，
+    cc 管「函数写了什么」。新增长到 1000 行以上时先拆（如 ``cli/help_view.py`` 的拆法），再加功能。
+    """
+    offenders: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        line_count = len(path.read_text(encoding="utf-8").splitlines())
+        if line_count > MAX_SOURCE_FILE_LINES:
+            offenders.append(f"{path.relative_to(TARGET_ROOT).as_posix()}: {line_count}")
+    assert offenders == [], f"以下源文件超过 {MAX_SOURCE_FILE_LINES} 行，请先拆模块再加功能：\n" + "\n".join(offenders)

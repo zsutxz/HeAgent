@@ -149,6 +149,7 @@ AgentLoop.run(prompt)
 | `console.py` | Click 命令组 + 参数解析 + 单次/交互的**启动编排**（`run` / `replay` / `_run_cli_impl`） | `cli.py` |
 | `composition.py` | 装配：provider→engine→AgentLoop、soul、上下文策略、plan mode、dream 调度、事件 sink、路由提取 | `cli.py` 拆出 |
 | `interactive.py` | 单次/交互**执行**：REPL 循环、斜杠命令族、会话 id 解析、内嵌 HTTP 的挂载点 | `cli.py` 拆出 |
+| `help_view.py` | `/help` 渲染面：列表版（名字对齐）、详情版（语法/参数/示例三段）、未知命令建议——纯展示，注册与派发仍在 `interactive.py`（2026-11-18 自 `interactive.py` 拆出，守单文件 1000 行上限） | `cli.py` 拆出 |
 | `init.py` | `heagent init` 子命令（全局配置与项目上下文模板） | `cli_init.py` |
 | `goal/` | `/goal` 命令族子包（commands / execution / messages / verify；Story 62.2 拆包） | `cli_goal.py` |
 | `port_finder.py` | 端口顺延查找（preferred..preferred+9 内找空口） | 新增 |
@@ -958,7 +959,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `tasks.py` | 后台任务进度注册表（四态 + 百分比单调 + TTL/条数淘汰；生产者侧 `TaskScope`，查询侧经入口层注入 `GET /api/tasks`；Story 64.11） | 新增 |
 | `hooks.py` | `HookConfig`/`HookManager` — 用户可配置事件钩子（PreToolUse/PostToolUse/SessionStart/SessionEnd，Epic 32） |
 | `policy.py` | `PolicyEngine` — 准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
-| `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端；FR-1 会话目录经 `bind_sandbox_workspace` 送达；FR-2 后端强度档位经 `_runner_tier()` 查询并随 emit 事件 `sandbox_tier` 可观测（见 4.4 sandbox.py） |
+| `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端；FR-1 会话目录经 `bind_sandbox_workspace` 送达；FR-2 后端强度档位经 `_runner_tier()` 查询并随 emit 事件 `sandbox_tier` 可观测（机制见 `docs/sandbox.md`；拆分见 §4.4 的 `tools/sandbox/` 说明） |
 | `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次 |
 | `ledger.py` | `ExecutionLedger` — `.heagent/ledger/` 幂等与租约（async I/O），防 window_reset 重发 + 防并发/重入；`heartbeat()` 由在途续租原语 `renew_lease_while_active`（本模块单源；`agent/tool_execution._renew_ledger_lease` 是其工具在途缝包装）与 `LedgerAudit`（audit-only 记账，`ToolExecutor.execute(audit=...)` 的可选审计面，幂等去重禁用）调用，使「过期 RUNNING = 孤儿」成为 prune 的可靠判据 |
 | `observability.py` | `EventBus`/`EngineEvent`/`LoggingObserver` — 运行时事件发布；`LoggingObserver` 经 `safe_logging.safe_log` 落日志（日志故障不改写调用方），并对 `target`/`details` 做启发式脱敏（`redact_secrets`/`redact_mapping`）；`EventBus.emit` 的观察者兜底同样走 `safe_log` |
@@ -973,7 +974,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 
 **已知限制：**
 
-- **Sandbox 后端**：`execute_in_sandbox()` 默认 Passthrough 透传；`FirejailBackend` 仅隔离 shell 子进程、非完美边界（见 4.4 sandbox.py）
+- **Sandbox 后端**：`execute_in_sandbox()` 默认 Passthrough 透传；`FirejailBackend` 仅隔离 shell 子进程、非完美边界（机制见 `docs/sandbox.md`）
 - **安全边界**：SafetyGuard / PolicyEngine / sandbox 三层的边界地位见 §4.19。
 
 #### 事件传输：JSONL / rollout（`events/`）
@@ -1510,7 +1511,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | Web 工具注入围栏 | `web_fetch` / `web_search` 返回路径已接 `guard_content`（机制出自 Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；标记仅 observable defense-in-depth（边界地位见 §4.19），dreamer 的兜底要求见 4.6 dream.py |
 | 交互式审批非安全边界 | 审批闭环（Epic 29）把「要不要执行」交给用户，边界地位见 §4.19（见 4.12 approval.py） |
 | 文件安全与凭证防护非边界 | path_safety 凭证 deny / scrub_sensitive_env 均为 defense-in-depth 启发式层（2026-08-24），边界地位见 §4.19 |
-| 沙箱会话目录非安全边界 | `sandbox_session_workspace`（FR-1，2026-08-26）只提供 per-run 目录约定：WinJob 仅把目录作为子进程 cwd（**零文件系统/网络隔离**），Firejail `--private` 亦无完整隔离——边界地位见 §4.19（见 4.4 sandbox.py） |
+| 沙箱会话目录非安全边界 | `sandbox_session_workspace`（FR-1，2026-08-26）只提供 per-run 目录约定：WinJob 仅把目录作为子进程 cwd（**零文件系统/网络隔离**），Firejail `--private` 亦无完整隔离——边界地位见 §4.19（机制见 `docs/sandbox.md`） |
 | 沙箱后端分级 | `SandboxTier`（FR-2，2026-08-26）container 档首个实现后端 `DockerRunner` 已落地（Epic 53 期一，2026-10-21；仅 shell 路径、默认链路未启用）；审批降级（`can_relax_approval`）已于 Epic 53 期二（Story 53-4，2026-11-03）接入 `PolicyEngine`，仅当「真进沙箱 + 容器档 + 后端可用」时放松、弱后端一律维持原审批要求——分级的边界地位见 §4.19 |
 | 沙箱 env 豁免非安全边界 | `sandbox_env_allowlist`（FR-3，2026-08-26）仅豁免 `scrub_sensitive_env` 剥离，边界地位见 §4.19 |
 | SandboxSession 非安全边界 | SandboxSession（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 无完整隔离——边界地位见 §4.19；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（housekeeping.prune_sandbox_dirs + sandbox_dir_retention_days） |
@@ -1546,6 +1547,7 @@ src/heagent/
 │   ├── console.py           # Click 命令组 + 参数解析 + 启动编排（入口脚本 `heagent.cli.console:main`；原 cli.py）
 │   ├── composition.py       # 装配：provider→engine→loop / soul / 上下文策略 / plan mode / dream / 事件 sink（2026-09-26 自 cli.py 拆出）
 │   ├── interactive.py       # 单次/交互执行：REPL + 斜杠命令族 + 内嵌 HTTP 挂载点（2026-09-26 自 cli.py 拆出）
+│   ├── help_view.py         # /help 渲染面：列表版 + 详情版 + 未知命令建议（纯展示；2026-11-18 自 interactive.py 拆出）
 │   ├── init.py              # heagent init 子命令（全局配置/项目上下文模板生成，2026-09-17 自 cli.py 拆出）
 │   ├── goal/                # /goal 命令族子包（声明式工作流分发 + cron 自动推进；2026-11-17 Story 62.2 自 cli/goal.py 拆出，__init__ 全量再导出）
 │   │   ├── commands.py      # 命令面：命令处理器、参数解析/分发、cron 自动推进与 runner 入口

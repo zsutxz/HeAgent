@@ -20,7 +20,7 @@
 | A55 | Epic 61 web_search 真实 Tavily 冒烟（61.3 验收残差） | `active` | **origin=新增（2026-11-16 Epic 61 收口，用户裁定跳过冒烟先闭合）**：61.1 引擎层（`66a5b9f`）/61.2 工具面（`1877250`）/61.3 文档收口已交付，三票 mark done；web_search 全链（config 解析→引擎调用→截断→围栏）未经真实密钥验证。闭合动作 = 用户提供 WEB_SEARCH_API_KEY 入 `.env` 后跑一次全链冒烟（参照 57-4 先例：临时 workspace，不触碰仓库记忆；key 不入 transcript/不入库/不入日志），通过后闭合 A55 并四处计数 7→6 |
 | A56 | Epic 64 收口残差：任务进度跨进程不可见 / `examples/` 不在代码门禁范围 | `active` | **origin=新增（2026-11-18 Epic 64 收口）**，两项均为实测事实：
 ① **跨进程不可见**：`GET /api/tasks` 读的是**进程内**单例注册表（`engine/tasks.py::default_task_registry`），生产者当前只有上下文压缩（`agent/context_runtime.py::maybe_compress` 与 CLI `/compact`）⇒ 同进程的网页/内嵌入口能读到，跨进程（如另起的 `http-server` 实例、cron 子进程）读不到。判据 `tests/test_cli_epic64_wiring.py`（同进程 200）与 `tests/network/test_http_tasks.py`（注入式来源）。闭合动作 = 真需要跨进程时再上 IPC/落盘投影；触发条件 = 出现真实的「网页端看不到别的进程在跑什么」诉求。
-② **`examples/` 不在门禁范围**：`ruff check src tests scripts` 与 `mypy src` 都不覆盖 64.4 建立的 `examples/`（五个可运行示例）⇒ 示例代码漂移不会红。闭合动作 = 把 `examples/` 纳入 ruff（至少 check + format）并在 `docs/testing.md` 注明；触发条件 = 示例与 API 首次漂移或用户报「示例跑不通」。 |
+② ~~**`examples/` 不在门禁范围**~~ → **2026-11-18 已闭合**：`ruff check` / `ruff format --check` 的路径面已加 `examples`（`scripts/quality_gate.py`、`ci.yml`、`.pre-commit-config.yaml`、`docs/testing.md` 同步；`ruff.toml` 为 `examples/**` 只放行 RUF001/002/003 全角标点，其余规则同标准）⇒ 现存 112 条告警清零（修 7 条实质问题、105 条为中文标点）；**`mypy src` 仍不含 examples**（示例是自包含演示脚本，纳入需单独定口径，不属本项闭合范围）。 |
 
 ### 速读（按行动姿态分组）
 

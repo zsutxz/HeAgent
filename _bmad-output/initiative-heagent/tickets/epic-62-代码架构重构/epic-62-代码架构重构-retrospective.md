@@ -141,7 +141,7 @@ headless: false
 
 62 收口后仍未做（全部为实测项，不含推测）：
 
-1. **`<1000 行` 无门禁**（F3 / V2）：建议加一条文件行数契约测试（如「`src/heagent/**/*.py` 逐文件 ≤1000，超限点名」）。当前 HEAD 最大 `cli/interactive.py` 995 行——**余量 5 行**；工作树一条未提交的 Epic 64 改动已把它推到 1026（`wc -l` 实测），即该不变量随时会破且无人报警。
+1. ~~**`<1000 行` 无门禁**（F3 / V2）~~ → **已闭合**（2026-11-18）：`tests/test_architecture_contracts.py::test_source_files_stay_under_the_line_ceiling` 逐文件断言（`MAX_SOURCE_FILE_LINES = 1000`，超限点名文件与行数）；同时把 `cli/interactive.py` 的 `/help` 渲染面拆到新模块 `cli/help_view.py`（1026 → 971 行），让现行最大文件合规。原始记录：当时 HEAD 最大文件 995 行、余量 5 行，工作树一条未提交改动已把它推到 1026 ⇒ 该不变量随时会破且无人报警。
 2. **`network/http_server/service.py` 仍偏大**：548 行 = 该包 13 个模块总量（2601 行）的 21%，是包内最大单文件（`wc -l` 实测）。若继续拆，下一刀切 `service`（运行服务聚合面）。
 3. **`cli/goal/commands.py` 834 行**：62.2 时 829、现 834，为 `cli/goal/` 子包最大；距红线 166 行。
 4. **`docs/frame.md:1323` 传输层行**（HEAD 实测）仍是单文件口径，已被工作树未提交改动修正 ⇒ 随该批次提交即闭合；同批应把 62.1 的「遗留观察」写进 `open-items.md`，否则同类漂移还会丢（F10）。
