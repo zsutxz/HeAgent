@@ -31,6 +31,7 @@ from typing import Any
 import click
 
 from heagent.cli.display import _current_version, echo_sandbox_hint, echo_web_entry_overrides
+from heagent.cli.errors import ANCHOR_CLI_ERRORS, exit_with_hints, with_hints
 from heagent.cli.http_config import (
     _reject_non_finite,
     build_external_ws_server_config,
@@ -368,6 +369,27 @@ def build_http_service(
     return EmbeddedHttpService(http_server, ws_servers, cli_hub=cli_hub, notification_hub=notification_hub)
 
 
+# 启动失败时给用户的可执行选项：``embedded_http_error_message``（默认 CLI 内嵌入口）与
+# ``http_server_cmd``（显式 http-server 子命令）共用同一组，避免两处漂移。
+_HTTP_STARTUP_OPTIONS: tuple[str, ...] = (
+    "pick another port: --port <n> (or leave --port unset so auto-find can shift it)",
+    "check nothing else is bound to that address: netstat -ano | findstr :<port>",
+)
+_WS_STARTUP_OPTIONS: tuple[str, ...] = (
+    "pick another port: --ws-port <n> (two listeners shift independently)",
+    "check the TLS files exist and form a complete cert/key pair",
+)
+_WS_CONFIG_OPTIONS: tuple[str, ...] = (
+    "expose a second listener instead of rebinding: WS_HOST=127.0.0.1 + WS_EXTERNAL_HOST=<lan-ip>",
+    "or keep WS_HOST on loopback (127.0.0.1) to stay in local mode",
+    "for external mode put WS_AUTH_TOKEN in ~/.heagent/setting.md (project .env is ignored)",
+)
+_DEPENDENCY_OPTIONS: tuple[str, ...] = (
+    'install the extra: pip install "heagent[http]"',
+    "or disable the entry for this run: --no-http / --no-ws",
+)
+
+
 def embedded_http_error_message(exc: BaseException) -> str | None:
     """把内嵌 HTTP 的启动失败转成一行命令级文案；其它异常返回 ``None``（由调用方原样传播）。
 
@@ -375,13 +397,29 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     入口但聊天照常」是明确禁止的行为。WS 配置不成立（对外模式缺 token / TLS 半配）同属显式失败。
     """
     if isinstance(exc, HttpStartupError):
-        return f"HTTP server failed to start: {exc}"
+        return with_hints(
+            f"HTTP server failed to start: {exc}",
+            options=_HTTP_STARTUP_OPTIONS,
+            anchor=ANCHOR_CLI_ERRORS,
+        )
     if isinstance(exc, WsConfigError):
-        return f"WS server configuration is invalid: {exc}"
+        return with_hints(
+            f"WS server configuration is invalid: {exc}",
+            options=_WS_CONFIG_OPTIONS,
+            anchor=ANCHOR_CLI_ERRORS,
+        )
     if isinstance(exc, WsStartupError):
-        return f"WS server failed to start: {exc}"
+        return with_hints(
+            f"WS server failed to start: {exc}",
+            options=_WS_STARTUP_OPTIONS,
+            anchor=ANCHOR_CLI_ERRORS,
+        )
     if isinstance(exc, HttpDependencyError):
-        return str(exc)
+        return with_hints(
+            str(exc),
+            options=_DEPENDENCY_OPTIONS,
+            anchor=ANCHOR_CLI_ERRORS,
+        )
     return None
 
 
@@ -651,7 +689,11 @@ def http_server_cmd(
         )
     except WsConfigError as exc:
         # 对外缺 token / 对外键取回环 / 主 listener 已对外 / TLS 半配：配置不成立，压根不该尝试绑定。
-        raise click.ClickException(f"WS server configuration is invalid: {exc}") from None
+        exit_with_hints(
+            f"WS server configuration is invalid: {exc}",
+            options=_WS_CONFIG_OPTIONS,
+            anchor=ANCHOR_CLI_ERRORS,
+        )
     # 非回环绑定：启动前先向 stderr 打印一次明确告警。HTTP 侧固定「无认证」口径；WS 侧按 mode
     # 分流——对外模式是 token 认证，套用 exposure_warning 的「no authentication」文案会撒谎。
     if server is not None:
@@ -685,12 +727,24 @@ def http_server_cmd(
         # KeyboardInterrupt 抛回来。用户主动停止不是错误——安静退出，不打印 traceback。
         click.echo("[http] stopped", err=True)
     except HttpStartupError as exc:
-        # 绑定失败 / 就绪探测失败：只给一行可诊断文案，不打印任何「已监听」，也不吐 traceback。
-        raise click.ClickException(f"HTTP server failed to start: {exc}") from None
+        # 绑定失败 / 就绪探测失败：只给可诊断文案，不打印任何「已监听」，也不吐 traceback。
+        exit_with_hints(
+            f"HTTP server failed to start: {exc}",
+            options=_HTTP_STARTUP_OPTIONS,
+            anchor=ANCHOR_CLI_ERRORS,
+        )
     except WsStartupError as exc:
-        raise click.ClickException(f"WS server failed to start: {exc}") from None
+        exit_with_hints(
+            f"WS server failed to start: {exc}",
+            options=_WS_STARTUP_OPTIONS,
+            anchor=ANCHOR_CLI_ERRORS,
+        )
     except HttpDependencyError as exc:
-        raise click.ClickException(str(exc)) from None
+        exit_with_hints(
+            str(exc),
+            options=_DEPENDENCY_OPTIONS,
+            anchor=ANCHOR_CLI_ERRORS,
+        )
 
 
 __all__ = [

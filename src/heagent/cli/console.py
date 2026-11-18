@@ -17,6 +17,7 @@ from heagent.cli.display import (
     _print_banner,
     echo_sandbox_hint,
 )
+from heagent.cli.errors import ANCHOR_CLI_ERRORS, exit_with_hints, report_with_hints
 from heagent.cli.wiring import _build_provider
 from heagent.config import Settings, get_settings
 from heagent.context.session import validate_session_id
@@ -202,7 +203,14 @@ def _run_cli_impl(
         try:
             validate_session_id(resume_session)
         except ValueError as exc:
-            raise click.ClickException(f"invalid --resume session id: {exc}") from exc
+            exit_with_hints(
+                f"invalid --resume session id: {exc}",
+                options=(
+                    "use a session id copied from the session list (it must not contain path separators)",
+                    "omit --resume to start a fresh session",
+                ),
+                anchor=ANCHOR_CLI_ERRORS,
+            )
 
     if sys.stdout and hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -235,7 +243,14 @@ def _run_cli_impl(
     try:
         mcp_ctx = _mcp_lifecycle(settings)
     except HeAgentError as exc:
-        click.echo(f"[mcp config error] {exc.message}", err=True)
+        report_with_hints(
+            f"[mcp config error] {exc.message}",
+            options=(
+                "fix the JSON in .mcp.json (or MCP_CONFIG_PATH)",
+                "or set MCP_ENABLED=false to start without MCP servers",
+            ),
+            anchor=ANCHOR_CLI_ERRORS,
+        )
         raise SystemExit(1) from None
 
     if prompt:
@@ -449,7 +464,15 @@ def replay_cmd(path: Path, as_json: bool) -> None:
     """Replay a rollout / JSONL event file (from ``--json`` or ``EVENTS_ROLLOUT_ENABLED``)."""
     events = read_rollout(path)
     if not events:
-        click.echo(f"[replay] no events in {path}", err=True)
+        report_with_hints(
+            f"[replay] no events in {path}",
+            options=(
+                "point replay at a rollout file: .heagent/runs/<run_id>/rollout.jsonl",
+                "or at a --json capture written by `heagent run --json`",
+                "enable EVENTS_ROLLOUT_ENABLED=true if you expected rollout files to exist",
+            ),
+            anchor=ANCHOR_CLI_ERRORS,
+        )
         return
     for event in events:
         click.echo(event.to_jsonl() if as_json else render_event(event))
@@ -460,6 +483,7 @@ def replay_cmd(path: Path, as_json: bool) -> None:
 from heagent.cli.init import init_cmd  # noqa: E402
 
 main.add_command(init_cmd)
+
 
 # Set run as the default command (heagent "hello" -> run "hello")
 main.set_default_command("run")

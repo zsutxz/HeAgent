@@ -18,9 +18,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-import click
-
 from heagent.agent.loop import AgentLoop
+from heagent.cli.errors import ANCHOR_CLI_ERRORS, report_with_hints
 from heagent.providers.composition import ProviderConfigError
 from heagent.providers.composition import _build_provider as _composition_build_provider
 
@@ -66,8 +65,49 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     try:
         return _composition_build_provider(settings, model)
     except ProviderConfigError as exc:
-        click.echo(str(exc), err=True)
+        _report_provider_config_error(str(exc))
         raise SystemExit(1) from None
+
+
+#: provider 配置错误的「可做什么」提示。按**稳定子串**区分（不是行首前缀：消息本身以 ``Error: ``
+#: 开头）——这两条文案是 providers 层的稳定契约（``composition.py`` 的 docstring：消息文本即终端
+#: 字节），呈现层据此补建议而不改原文。
+_PROVIDER_OPTIONS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "No API key configured",
+        (
+            "put one credential in .env: DEEPSEEK_API_KEY / KIMI_API_KEY / GLM_API_KEY / "
+            "OPENAI_RESPONSES_API_KEY / ANTHROPIC_API_KEY",
+            "or use a local model: OLLAMA_ENABLED=true + OLLAMA_MODEL=<name>",
+        ),
+    ),
+    (
+        "OLLAMA_ENABLED=true requires OLLAMA_MODEL",
+        (
+            "set OLLAMA_MODEL=qwen3:8b (or any model you have pulled)",
+            "list local models: curl http://127.0.0.1:11434/api/tags",
+        ),
+    ),
+)
+
+
+def _report_provider_config_error(message: str) -> None:
+    """把 provider 配置错误渲染成「原文 + Try + Docs」。
+
+    未登记的文案也走同一形状：给一条通用动作（核对凭据），不静默吞掉。
+    """
+    for marker, options in _PROVIDER_OPTIONS:
+        if marker in message:
+            report_with_hints(message, options=options, anchor=ANCHOR_CLI_ERRORS)
+            return
+    report_with_hints(
+        message,
+        options=(
+            "check the provider entry this message names in .env or ~/.heagent/setting.md",
+            "entry names are deepseek / claude / openai / kimi / glm / ollama (see docs/faq.md)",
+        ),
+        anchor=ANCHOR_CLI_ERRORS,
+    )
 
 
 # ----------------------------------------------------------------------
