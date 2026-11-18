@@ -110,7 +110,7 @@ AgentLoop.run(prompt)
 ## 三、模块依赖关系 (DAG)
 
 ```
-公共层 pub/（零 heagent 依赖）：exceptions · types · safe_logging · persist · frontmatter · roles · workspace · task_shutdown
+公共层 pub/（零 heagent 依赖）：exceptions · types · safe_logging · log_config · persist · frontmatter · roles · workspace · task_shutdown
 配置面 config/（依赖 pub/）：__init__ = Settings · catalog/ = 来源求解（2026-11-11 拆为 9 子模块：models·groups·masking·guards·envscan·sources·classify·report，由包壳统一 re-export）· write = 受闸门写通道 · envfile = .env 保真读写 · user_settings = 用户级 setting.md（读/迁移/用户层源）
 
 主脊：  providers ─┐
@@ -128,7 +128,7 @@ AgentLoop.run(prompt)
 - `providers/` 和 `tools/` 互不依赖（唯一声明例外：`tools/builtins/web_search_engine.py → providers.retry` 复用容错分类判据，`test_architecture_contracts.py::test_tools_providers_edge_is_pinned_to_retry` 钉死唯一性）
 - `pub/exceptions.py` 和 `pub/types.py` 是叶子模块，无内部依赖
 - 新增 Provider 或 Tool **禁止**从 `agent/` 导入（**全仓无例外**：`builtins/subagent.py` 只持可注入委派回调，子 Agent 编排由 `agent/delegation.py` 提供、`AgentLoop._runtime_scope` 每 run 绑定；`tools/mcp/*` 同）
-- **分层（2026-09-26 收敛）**：`pub/` 是**公共层**——收零 heagent 运行栈依赖的共用模块（exceptions/types/safe_logging/persist/frontmatter/roles/workspace/task_shutdown/event_lines），**任何层都可依赖它、它不依赖任何层**（`pub/__init__.py` 零 import）；`config/` 是其**上一层**的配置面（`__init__.py` 即 Settings 本体 + catalog 来源求解 + write 写通道 + envfile 保真读写 + user_settings 用户级 setting.md），只依赖 `pub/` 与 stdlib/pydantic。persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖：`pub/persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`pub/roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`pub/safe_logging.py`（零 heagent 依赖，2026-09-23）收敛日志卫生：`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，`network/`（不得依赖 engine）与 engine/agent 共用同一实现；`pub/frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / 时为 memory.skills 与 memory.skill_packages，现 skills 包 / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
+- **分层（2026-09-26 收敛）**：`pub/` 是**公共层**——收零 heagent 运行栈依赖的共用模块（exceptions/types/safe_logging/log_config/persist/frontmatter/roles/workspace/task_shutdown/event_lines），**任何层都可依赖它、它不依赖任何层**（`pub/__init__.py` 零 import）；`config/` 是其**上一层**的配置面（`__init__.py` 即 Settings 本体 + catalog 来源求解 + write 写通道 + envfile 保真读写 + user_settings 用户级 setting.md），只依赖 `pub/` 与 stdlib/pydantic。persist/roles 2026-09 自 `engine/` 迁出，消除下层模块反向依赖：`pub/persist.py` 供 engine/tools/context/memory/cron/goal/housekeeping 共用；`pub/roles.py` 供 engine.policy/agent.sub/tools.builtins.subagent/cli 共用；`pub/safe_logging.py`（零 heagent 依赖，2026-09-23）收敛日志卫生：`safe_log` 逐调用点容错 + `install_logging_fault_guard()` 进程级守卫 + `redact_secrets`/`redact_details` 启发式脱敏，`network/`（不得依赖 engine）与 engine/agent 共用同一实现；`pub/frontmatter.py`（零 heagent 依赖，2026-09-17）收敛原六处手写 `---` frontmatter 解析器（engine.artifacts / 时为 memory.skills 与 memory.skill_packages，现 skills 包 / goal.workflow_loader / slash / roles；skill_packages 原两处其一随工作流装配迁入 goal），严/宽两档 + 两个分隔符变体，架构契约断言正则不得漂移出该模块
 - `memory/` 运行期**不依赖 `engine/`**（`memory/dream.py` 的 `EngineContainer` 仅 TYPE_CHECKING 引用，实例由入口层注入、无 `default()` 回退；契约断言见 `test_architecture_contracts.py` FORBIDDEN_RUNTIME_IMPORTS）
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `pub.types`/`pub.exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `pub.exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
@@ -929,6 +929,8 @@ HeAgentError (base)
 | `log_dir` | `logs` | 日志文件目录（相对 cwd），每次启动新建 `heagent-<时间戳>.log` |
 | `log_level` | `INFO` | stderr 控制台日志级别：`DEBUG` / `INFO` / `WARNING` / `ERROR` |
 | `log_file_level` | None | 文件日志级别；未设（None）时回退到 `log_level` |
+| `log_format` | `text` | 日志行格式：`text`（人读，与历史输出逐字一致）/ `json`（单行 JSON：`timestamp` 带时区偏移、`extra=` 注入落 `context`、异常落 `exc_info`）。实现单点 `pub/log_config.py`，CLI / GUI / HTTP 三个装配点共用（Epic 65） |
+| `debug_mode` | False | 调试模式（`DEBUG_MODE`，Epic 65）：日志级别强制 `DEBUG`（暴露既有的入参/中间量插桩，压过 `LOG_LEVEL`）+ CLI 错误出口在既有三段之后追加 `Traceback (DEBUG_MODE=true):` 段；默认关，**不改任何安全面**（审批 / 沙箱 / plan mode 各自独立） |
 
 ---
 
@@ -971,7 +973,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 - **策略门控链**：`PolicyEngine.evaluate()` → `ToolExecutor.execute()` → `SafetyGuard.check()`，串行执行，职责分离
 - **角色化 + checkpoint-resume**：supervisor 委派角色化 `SubAgent`，结构化结果写 `metadata['completed_steps']`；`window_reset` 清窗重建 + `resume`/`resume_stream` 跨窗口续跑；`build_run_tree()` 树形聚合；Schema 级工具隐藏
 - **持久化健壮性**：store/ledger 全部 async I/O + 原子写 + 损坏 JSON 容错；可选跨进程文件锁（`EngineContainer(enable_file_locks=True)`）
-- **日志卫生（2026-09-23）**：`pub/safe_logging` 两层防线——插桩/best-effort 路径逐调用点 `safe_log`；入口层（CLI/GUI）配置 logging 时调 `install_logging_fault_guard()`，把 `logging.Handler.handle` 包一层（失败仍走 stdlib `handleError` 诊断，但不向业务传播），故运行栈任意 `logger.*` 不再中断 run。同时 `LoggingObserver` 对 `target`/`details` 按凭证形态掩码——日志行不再出现 `API_KEY=…`/`sk-…` 原文。**残留**：宿主在守卫安装前打日志、或自行还原 `Handler.handle`（`safe_logging.ORIGINAL_HANDLER_HANDLE`）时不在此保证内 |
+- **日志卫生（2026-09-23）**：`pub/safe_logging` 两层防线——插桩/best-effort 路径逐调用点 `safe_log`；入口层（CLI/GUI）配置 logging 时调 `install_logging_fault_guard()`，把 `logging.Handler.handle` 包一层（失败仍走 stdlib `handleError` 诊断，但不向业务传播），故运行栈任意 `logger.*` 不再中断 run。同时 `LoggingObserver` 对 `target`/`details` 按凭证形态掩码——日志行不再出现 `API_KEY=…`/`sk-…` 原文。**残留**：宿主在守卫安装前打日志、或自行还原 `Handler.handle`（`safe_logging.ORIGINAL_HANDLER_HANDLE`）时不在此保证内。**行格式**（Epic 65）：`LOG_FORMAT=json` 时三个装配点（CLI stderr+文件 / GUI 文件 / HTTP 复用 CLI）共用 `pub/log_config.make_formatter` 的 `JsonFormatter`——单行 JSON，`extra=` 注入落 `context`、异常落 `exc_info`；默认 `text` 与历史输出逐字一致（`runtime_stats` 按行正则解析，形状不得漂移） |
 
 **已知限制：**
 

@@ -60,16 +60,29 @@ python -m pytest -m benchmark -q --benchmark-storage=./benchmark-data \
 
 ### 3. 单点 profile（定位热点）
 
-benchmark 告诉你「慢了」，profile 告诉你「慢在哪一行」：
+benchmark 告诉你「慢了」，profile 告诉你「慢在哪一行」。仓库自带 `scripts/profile_run.py`
+（标准库 `cProfile`，零新依赖），报告含「按 tottime 排的热点函数」+「按 cumtime 排的调用表」：
 
 ```bash
-# 在仓库根执行（workspace_root = 进程 cwd，从盘根启动会把整盘挂进容器沙箱）
-python -m cProfile -o profile.out -m heagent "用一句话解释 asyncio"
-python -c "import pstats; pstats.Stats('profile.out').sort_stats('cumtime').print_stats(20)"
+# 剖面一个模块；`--` 之后原样转给目标
+python scripts/profile_run.py --module pytest -- tests/test_agent_loop.py -q
+python scripts/profile_run.py --module heagent -- "用一句话解释 asyncio"
+
+# 剖面一个脚本，并指定报告落点 / 表格深度
+python scripts/profile_run.py --script scripts/collect_stats.py --out .heagent/tmp/cli.prof.txt --top 40
 ```
 
-异步/等待占比高时，cProfile 会把时间算在 `await` 处，此时改用采样型 profiler（如 `py-spy top -- python -m heagent ...`，
-需自行安装）。**不要**用 profile 结果做绝对性能判断——插桩本身会放大耗时。
+报告默认落 `.heagent/tmp/profile-<时间戳>.txt`，stdout 同时打热点摘要（不打开文件就能看）。
+
+异步/等待占比高时，cProfile 会把时间算在 `await` 处，此时改用采样型 profiler attach 到**运行中的进程**
+（需自行安装 `py-spy`，且容器内通常要 `--cap-add SYS_PTRACE`）：
+
+```bash
+py-spy record -o .heagent/tmp/heagent.svg --pid <PID>   # 火焰图
+py-spy top --pid <PID>                                  # 实时热点
+```
+
+**不要**用 profile 结果做绝对性能判断——插桩本身会放大耗时。
 
 ## 二、常见瓶颈
 

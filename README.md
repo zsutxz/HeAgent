@@ -297,6 +297,20 @@ ruff format --check src tests examples
 mypy src
 ```
 
+### 开发容器（devcontainer）
+
+VS Code / Dev Containers 用户可直接「Reopen in Container」，环境自带 Python 3.11、
+`dev` / `gui` / `http` 三套 extras 与 pre-commit 钩子（`.devcontainer/devcontainer.json`）：
+
+```bash
+# 首次构建 + 依赖安装约 2–3 分钟（镜像层缓存后 1 分钟内）
+# 容器内可直接跑全门：
+python scripts/quality_gate.py
+```
+
+容器转发三条 listener 默认端口 9101 / 9201 / 9301，与 `Settings` 默认值一致，
+改默认端口时须同步 `.devcontainer/devcontainer.json`（由 `tests/test_devcontainer_contract.py` 拦下）。
+
 模块依赖、测试与安全约束见 [AGENTS.md](AGENTS.md)。测试、代码、配置与历史文档的权威关系见 [文档索引](docs/README.md)。
 
 ## 深入阅读
