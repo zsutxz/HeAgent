@@ -161,6 +161,7 @@ AgentLoop.run(prompt)
 | `errors.py` | CLI 错误的统一出口：描述 + `Try:` 可用选项 + `Docs:` 文档锚点（Story 64.5） | 新增 |
 | `doctor.py` | `heagent doctor` 配置诊断（只读；11 组检查产出 25 个诊断码，Story 64.6） | 新增 |
 | `cron_cmd.py` | `heagent cron status` 定时任务状态查询（只读 `jobs.json`：状态 / 最后与下次执行 / 失败原因，Story 64.10） | 新增 |
+| `audit_cmd.py` | `heagent audit list\|export\|verify`：审计 JSONL 的查询 / 导出 / 哈希链校验（只读 `<状态根>/audit/tool-audit.jsonl`，Story 67.2 / 67.3） | 新增 |
 | `progress.py` | 进度原语：工具执行超 3s 的实时耗时行 + 大文件（>10MB）读写进度（Story 64.8 / 64.9） | 新增 |
 | `run_history.py` | 重启后的**读侧事件回放**（A35）：从 `<项目根>/.heagent/runs/<id>/rollout.jsonl` 读回引擎事件并映射成 SSE 负载（工具输出未落盘 ⇒ 如实标注；缺终态补 `cancelled` 说明）；run_id 过白名单 + 路径越界校验。入口层模块——它同时认识 `events` 与 `network` 模型，`network/` 自身不得导入运行栈 | 新增 |
 | `suggestions.py` | 错误场景 → ≥2 条**可执行命令**建议的声明式映射表（Story 64.13） | 新增 |
@@ -1582,6 +1583,7 @@ src/heagent/
 │   ├── roles.py             # RoleSpec + 内置角色注册表（agent/tools/engine 共用）
 │   ├── frontmatter.py       # 共享 frontmatter 解析（零 heagent 依赖；六处手写解析器收敛，2026-09-17）
 │   ├── safe_logging.py      # 日志卫生（safe_log 容错 + 故障守卫 + 启发式脱敏；零 heagent 依赖，2026-09-23）
+│   ├── audit.py             # 追加式审计面（工具执行 + 敏感操作 JSONL，prev/digest 哈希链；Story 67.2 / 67.3）
 │   ├── workspace.py         # 状态根派生的规范路径（WorkspacePaths）
 │   ├── task_shutdown.py     # 后台调度 task 关停内核（cron/dream 共用）
 │   ├── projects.py          # 网页控制台项目注册表（零运行栈依赖；2026-09-26 自顶层迁入）

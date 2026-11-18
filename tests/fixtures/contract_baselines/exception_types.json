@@ -846,6 +846,34 @@
     },
     {
       "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.pub.audit",
+      "name": "AuditEntry"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.pub.audit",
+      "name": "ChainVerdict"
+    },
+    {
+      "bases": [
+        "AuditEntry"
+      ],
+      "module": "heagent.pub.audit",
+      "name": "OperationAuditEntry"
+    },
+    {
+      "bases": [
+        "AuditEntry"
+      ],
+      "module": "heagent.pub.audit",
+      "name": "ToolAuditEntry"
+    },
+    {
+      "bases": [
         "HeAgentError"
       ],
       "module": "heagent.pub.exceptions",
@@ -949,6 +977,13 @@
     },
     {
       "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.pub.validation",
+      "name": "InputValidationError"
+    },
+    {
+      "bases": [
         "ValueError"
       ],
       "module": "heagent.skills.skill_importer",
@@ -1035,6 +1070,13 @@
       ],
       "module": "heagent.tools.builtins.web_search_engine",
       "name": "SearchEngineError"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.tools.mcp.sdk",
+      "name": "McpSdkMissingError"
     },
     {
       "bases": [

@@ -66,6 +66,7 @@ from heagent.network.http_server import (
     HttpRunService,
     RunEventPublisher,
 )
+from heagent.pub.audit import record_operation
 from heagent.pub.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
 from heagent.pub.projects import ProjectEntry, ProjectRegistryError, default_project_registry
 from heagent.pub.safe_logging import safe_log
@@ -710,6 +711,18 @@ class HttpProjectConsole:
             )
         except ConfigWriteRejection as exc:
             raise ConsoleOperationError(exc.code, str(exc)) from exc
+        # 统一审计面（Story 67.3）：配置写入只补一条跨操作统一留痕，**值**一律不进本文件
+        # （既有 ``config/write.py`` 审计已记键名 + 哈希 + 长度，格式冻结、此处不碰）。
+        # 选调用方而非 ``config/write.py`` 的理由：这里同时握有「客户端旧指纹 / 写成功后新指纹 /
+        # 变更键」三者，且拿到结果即代表写入流水线整体成功（含回读校验）；
+        # 记录点是 ``<项目状态根>/audit/``，与会话删除 / 技能删除共用同一条链。
+        record_operation(
+            operation="config.write",
+            target=f"project:{project_id}",
+            before={"fingerprint": request.fingerprint, "keys": [change.key for change in request.changes]},
+            after={"fingerprint": result.fingerprint, "keys": list(result.keys)},
+            state_dir=runtime.paths.state_dir,
+        )
         self._invalidate_runtime(project_id)
         # 写后条目要复用同一求解器（同源），故整块响应构造一并卸载（写已在锁内完成，这里只是读回）。
         return await asyncio.to_thread(self._write_response, project_id, runtime, result)

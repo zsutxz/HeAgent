@@ -28,11 +28,12 @@ import logging
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from heagent.engine.observability import elapsed_ms
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.events.protocol import error_kind_for
+from heagent.pub.audit import current_operator, record_tool_execution, state_dir_for
 from heagent.pub.exceptions import PolicyViolation, SafetyViolation
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import ToolCall, ToolResult
@@ -124,7 +125,44 @@ class ToolExecutor:
         规格（scope / 键 / 元数据），不再手写 acquire→execute→complete/fail 配对；台账
         故障只记日志，绝不影响执行结果（观测不得改变业务控制流）。缺省 ``None`` = 零行为
         变化（AgentLoop 主链路的幂等记账在 ``agent/tool_execution``，不经此参数）。
+
+        **审计留痕**（Story 67.2）：本方法是「工具真的被执行」的**唯一**出口，故一行工具审计
+        （:func:`heagent.pub.audit.record_tool_execution`）在此落盘——一次 ``execute`` 一行，
+        DIRECT / SANDBOX / 阻断三路都留痕。写入 fail-soft（异常只 WARNING），不改变返回值，
+        也不改变任何控制流；没有 ``run_context`` 时不落盘（无 run 即无操作者与落点归属，
+        也就不是一次「可归属的执行」）。
         """
+        started = time.perf_counter()
+        try:
+            result = await self._execute_core(
+                call=call,
+                verdict=verdict,
+                guard=guard,
+                handler=handler,
+                run_context=run_context,
+                emit=emit,
+                audit=audit,
+            )
+        except BaseException as exc:  # noqa: BLE001 - 先留痕再原样上抛（审计不得改变异常面）
+            self._record_audit(
+                call=call, verdict=verdict, run_context=run_context, started=started, error_kind=error_kind_for(exc)
+            )
+            raise
+        self._record_audit(call=call, verdict=verdict, run_context=run_context, started=started, result=result)
+        return result
+
+    async def _execute_core(
+        self,
+        *,
+        call: ToolCall,
+        verdict: PolicyVerdict,
+        guard: SafetyGuard,
+        handler: Handler,
+        run_context: RunContext | None,
+        emit: Callable[..., None] | None,
+        audit: LedgerAudit | None,
+    ) -> ToolResult:
+        """分发本体（有 ``audit`` 时罩在台账里）；从 :meth:`execute` 抽出以便审计包围整段。"""
         if audit is None:
             return await self._dispatch(
                 call=call, verdict=verdict, guard=guard, handler=handler, run_context=run_context, emit=emit
@@ -136,6 +174,49 @@ class ToolExecutor:
                     call=call, verdict=verdict, guard=guard, handler=handler, run_context=run_context, emit=emit
                 )
             ),
+        )
+
+    def _record_audit(
+        self,
+        *,
+        call: ToolCall,
+        verdict: PolicyVerdict,
+        run_context: RunContext | None,
+        started: float,
+        result: ToolResult | None = None,
+        error_kind: str | None = None,
+    ) -> None:
+        """把这一次执行镜像进审计面（一次执行一行）；参数脱敏与链计算在 ``pub.audit`` 内。
+
+        ``result is None`` 表示执行路径抛了异常（台账故障等）：记 ``error`` + 该异常的
+        ``error_kind``，异常仍由调用方原样上抛。策略层阻断按 ``blocked`` 记（``verdict`` 是最
+        终裁决，故这里能区分「被拦下」与「跑失败」）。
+        """
+        if run_context is None:
+            return
+        blocked = verdict.mode in (ToolExecutionMode.BLOCKED, ToolExecutionMode.APPROVAL_REQUIRED)
+        status: Literal["ok", "error", "blocked"]
+        kind: str | None
+        if result is None:
+            status, kind = "error", error_kind or "tool_error"
+        elif blocked:
+            status, kind = "blocked", "policy_blocked"
+        elif result.is_error:
+            status, kind = "error", "tool_error"
+        else:
+            status, kind = "ok", None
+        record_tool_execution(
+            tool=call.name,
+            args=call.arguments,
+            status=status,
+            duration_ms=elapsed_ms(started),
+            error_kind=kind,
+            # ``RunContext`` 是鸭子契约（有测试用只带 run_id 的替身）：缺字段按「无该归属」处理。
+            operator=current_operator(
+                run_id=getattr(run_context, "run_id", None),
+                session_id=getattr(run_context, "session_id", None),
+            ),
+            state_dir=state_dir_for(getattr(run_context, "workspace_root", None)),
         )
 
     async def _dispatch(

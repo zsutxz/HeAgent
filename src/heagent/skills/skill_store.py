@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel
 
 from heagent.config import GLOBAL_CONFIG_DIR
+from heagent.pub.audit import fingerprint_dir, record_operation
 from heagent.pub.persist import atomic_update_text, atomic_write_text
 from heagent.skills.skill_catalog import SkillMatchCache
 from heagent.skills.skill_catalog import match_skill_details as _match_skill_details
@@ -299,7 +300,12 @@ class SkillStore:
         return result
 
     def delete(self, name: str) -> bool:
-        """删除指定技能目录。全局根技能显性拒绝（可逆删除只在 authoring 根做）。"""
+        """删除指定技能目录。全局根技能显性拒绝（可逆删除只在 authoring 根做）。
+
+        删除是**敏感操作**（Story 67.3）：真删掉后落一条 ``skill.delete`` 审计，``before`` 只带
+        文件数与目录内容指纹（**不存**技能正文）。落点是创作根的父目录（技能库固定是
+        ``<状态根>/skills``）。审计 fail-soft：写不进去只是少一条记录，不影响返回值。
+        """
         try:
             owner = self.owner_root(name)
         except ValueError:
@@ -312,7 +318,15 @@ class SkillStore:
         skill_dir = self.authoring_root / validate_skill_name(name)
         with self._mutation_lock:
             if skill_dir.is_dir():
+                summary = fingerprint_dir(skill_dir)
                 shutil.rmtree(skill_dir)
+                record_operation(
+                    operation="skill.delete",
+                    target=name,
+                    before=summary,
+                    after=None,
+                    state_dir=self.authoring_root.parent,
+                )
                 return True
         return False
 

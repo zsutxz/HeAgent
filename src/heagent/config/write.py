@@ -49,7 +49,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -57,9 +57,12 @@ from heagent.config import GLOBAL_SETTING_FILE, Settings, envfile
 from heagent.config.catalog import classify, guards_for, routing_report, system_env_keys
 from heagent.config.user_settings import with_user_setting_layer
 from heagent.pub.persist import RollbackFailedError, atomic_update_bytes, atomic_write_bytes
+from heagent.pub.validation import InputValidationError, Rule, validate
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
+
+    from heagent.config.catalog import ConfigGuard
 
 logger = logging.getLogger(__name__)
 
@@ -189,32 +192,77 @@ def _number(value: float) -> str:
     return f"{value:g}"
 
 
+def _enum_allow_empty(values: tuple[str, ...]) -> Callable[[Any], str | None]:
+    """空串放行的枚举判定（``LOG_FILE_LEVEL`` 这类「不设置 = 用默认」的键）。
+
+    消息文案与 :class:`heagent.pub.validation.Rule` 的原生 ``enum`` 规则同一形状
+    （``must be one of …``），两处都被 ``tests/test_config_write.py::TestGuards`` 逐字钉住。
+    """
+    allowed = ", ".join(values)
+
+    def check(value: Any) -> str | None:
+        if value == "" or value in values:
+            return None
+        return f"must be one of {allowed}"
+
+    return check
+
+
+def _range_check(guard: ConfigGuard) -> Callable[[Any], str | None]:
+    """上下界判定（值在协议层是**字符串**：先解析、再判有限性、最后比边界）。
+
+    解析与比较顺序不可换：``"abc"`` 必须先报「不是数字」而不是「小于下界」，``nan`` 也不能靠比较
+    得出「在界内」。
+    """
+
+    def check(value: Any) -> str | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return "must be a number"
+        if not math.isfinite(number):
+            return "must be a finite number"
+        minimum, maximum = guard.minimum, guard.maximum
+        if minimum is not None and (number < minimum or (guard.exclusive_minimum and number == minimum)):
+            return f"must be {'greater than' if guard.exclusive_minimum else 'at least'} {_number(minimum)}"
+        if maximum is not None and (number > maximum or (guard.exclusive_maximum and number == maximum)):
+            return f"must be {'less than' if guard.exclusive_maximum else 'at most'} {_number(maximum)}"
+        return None
+
+    return check
+
+
+def _guard_rules(key: str, guard: ConfigGuard) -> tuple[Rule, ...]:
+    """把一个 ``ConfigGuard`` 译成统一验证框架的规则链（判定口径与原因文案逐字不变）。
+
+    枚举用框架原生 ``enum`` 规则；上下界与「空串放行」是写通道特有语义（值先当字符串解析、
+    ``allow_empty`` 是「不设置」而非空值），因此注入 ``check`` callable——这正是框架「自定义规则
+    不必改框架」的用法，写通道没有第二套取值判定。
+    """
+    if guard.kind == "enum":
+        if guard.allow_empty:
+            return (Rule(field=key, label="enum", check=_enum_allow_empty(guard.values)),)
+        return (Rule(field=key, enum=guard.values),)
+    return (Rule(field=key, label="range", check=_range_check(guard)),)
+
+
 def guard_reason(key: str, value: str) -> str | None:
     """值是否满足该键的守卫约束；不满足返回**字段级原因**（``None`` = 通过或该键无约束）。
 
     ``config_catalog.guards_for`` 已经把「显式守卫（写通道口径）」与「``Settings`` 字段元数据派生的
     边界」合并：``MAX_ITERATIONS`` 这类强校验字段因此也会先在这里被挡下（更早给出可读原因），
     而弱校验字段（``LOG_LEVEL`` / ``RETRY_*``，I6 对它们是**空门**）的全部约束都来自这张表。
+
+    判定本体在 :func:`heagent.pub.validation.validate`（统一输入验证框架）——本函数只把结构化 issue
+    收敛成调用方要的**单条**原因，不另立第二套取值判定。守卫是每键单值判定，故取首条 issue。
     """
     guard = guards_for(key)
     if guard is None:
         return None
-    if value == "" and guard.allow_empty:
-        return None
-    if guard.kind == "enum":
-        if value not in guard.values:
-            return f"must be one of {', '.join(guard.values)}"
-        return None
     try:
-        number = float(value)
-    except ValueError:
-        return "must be a number"
-    if not math.isfinite(number):
-        return "must be a finite number"
-    if guard.minimum is not None and (number < guard.minimum or (guard.exclusive_minimum and number == guard.minimum)):
-        return f"must be {'greater than' if guard.exclusive_minimum else 'at least'} {_number(guard.minimum)}"
-    if guard.maximum is not None and (number > guard.maximum or (guard.exclusive_maximum and number == guard.maximum)):
-        return f"must be {'less than' if guard.exclusive_maximum else 'at most'} {_number(guard.maximum)}"
+        validate({key: value}, _guard_rules(key, guard))
+    except InputValidationError as exc:
+        return exc.issues[0].message
     return None
 
 

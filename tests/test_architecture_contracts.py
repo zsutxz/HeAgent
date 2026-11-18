@@ -736,6 +736,7 @@ def test_cli_package_layout_is_pinned() -> None:
     """布局即契约：新增/重命名入口子模块必须同步本表与 frame.md 的目录树。"""
     actual = sorted(path.stem for path in (SRC / "cli").glob("*.py") if path.stem != "__init__")
     assert actual == [
+        "audit_cmd",
         "composition",
         "console",
         "cron_cmd",
@@ -799,6 +800,7 @@ def test_shared_layer_layout_is_pinned() -> None:
     )
 
     assert pub_modules == [
+        "audit",
         "event_lines",
         "exceptions",
         "frontmatter",
@@ -809,6 +811,7 @@ def test_shared_layer_layout_is_pinned() -> None:
         "safe_logging",
         "task_shutdown",
         "types",
+        "validation",
         "workspace",
     ]
     assert config_modules == ["envfile", "user_settings", "validation", "write"]

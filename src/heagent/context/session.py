@@ -31,6 +31,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from heagent.pub.audit import fingerprint_file, record_operation
 from heagent.pub.exceptions import SessionConflictError, SessionNotFoundError, SessionUnreadableError
 from heagent.pub.persist import atomic_update_text, prune_entries_by_mtime, reap_dangling_locks
 from heagent.pub.types import Message, Role
@@ -748,12 +749,26 @@ class SessionStore:
         return result
 
     def delete(self, session_id: str) -> bool:
-        """删除指定会话文件。返回是否成功删除。"""
+        """删除指定会话文件。返回是否成功删除。
+
+        删除是**敏感操作**（Story 67.3）：真删掉后落一条 ``session.delete`` 审计，``before`` 只带
+        文件指纹与字节数（**不存**会话内容）。落点是 ``self._base`` 的父目录——会话库固定是
+        ``<状态根>/sessions``，故父目录即状态根。审计 fail-soft：写不进去只是少一条记录，
+        不影响本方法返回值。
+        """
         validate_session_id(session_id)
         path = self._base / f"{session_id}.json"
         if path.exists():
+            summary = fingerprint_file(path)
             path.unlink()
             self._invalidate_meta(session_id)
+            record_operation(
+                operation="session.delete",
+                target=session_id,
+                before=summary,
+                after=None,
+                state_dir=self._base.parent,
+            )
             return True
         return False
 

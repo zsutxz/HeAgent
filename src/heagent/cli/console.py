@@ -515,6 +515,11 @@ from heagent.cli.cron_cmd import cron_cmd  # noqa: E402
 
 main.add_command(cron_cmd)
 
+# 审计面：list / export / verify 只读审计 JSONL（不启运行时，也不导入 agent/engine）。
+from heagent.cli.audit_cmd import audit_cmd  # noqa: E402
+
+main.add_command(audit_cmd)
+
 
 # Set run as the default command (heagent "hello" -> run "hello")
 main.set_default_command("run")
