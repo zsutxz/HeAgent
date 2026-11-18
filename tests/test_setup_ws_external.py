@@ -86,21 +86,20 @@ def test_apply_keeps_existing_setting_md_crlf(tmp_path: Path) -> None:
     assert b"ws_auth_token: test-token-123\r\n" in raw
 
 
-# ---------------------------------------------------------------- 纯函数：dotenv 改写
+# ---------------------------------------------------------------- 单一实现：dotenv 改写
 
 
-@pytest.mark.parametrize(
-    ("raw", "expected"),
-    [
-        ("A=1\nB=2", "A=1\nB=2\nWS_EXTERNAL_HOST=new"),
-        ("A=1\nWS_EXTERNAL_HOST=old\nB=2\n", "A=1\nWS_EXTERNAL_HOST=new\nB=2\n"),
-        ("# WS_EXTERNAL_HOST=example\nA=1\n", "# WS_EXTERNAL_HOST=example\nA=1\nWS_EXTERNAL_HOST=new\n"),
-        ("A=1\r\nB=2\r\n", "A=1\r\nB=2\r\nWS_EXTERNAL_HOST=new\r\n"),
-        ("ws_external_host=old\n", "WS_EXTERNAL_HOST=new\n"),
-    ],
-)
-def test_upsert_env_value(raw: str, expected: str) -> None:
-    assert setup_ws.upsert_env_value(raw, "WS_EXTERNAL_HOST", "new") == expected
+def test_env_rewrite_delegates_to_the_shared_solver() -> None:
+    """``.env`` 改写必须复用 ``heagent.config.envfile``——脚本里不得再长出一份平行实现。
+
+    各形态的保真口径（追加 / 替换 / 行内注释 / CRLF / 无末行换行 / 大小写键）由
+    ``tests/test_envfile.py`` 逐条钉住；本用例只钉「这里用的是同一份实现」，
+    避免两处实现随时间漂移（曾经的本地 ``upsert_env_value`` 就是这么被淘汰的）。
+    """
+    from heagent.config.envfile import replace_or_append
+
+    assert setup_ws.replace_or_append is replace_or_append
+    assert not hasattr(setup_ws, "upsert_env_value"), "脚本又不经 envfile 自己改 .env 了"
 
 
 # ---------------------------------------------------------------- 纯函数：frontmatter
