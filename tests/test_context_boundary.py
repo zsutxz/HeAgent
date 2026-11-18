@@ -20,6 +20,7 @@ from typing import Any
 
 from heagent.agent.context_runtime import maybe_compress
 from heagent.agent.run_lifecycle import AgentState
+from heagent.config import Settings
 from heagent.context import tokens as tokens_mod
 from heagent.context.compressor import ContextCompressor
 from heagent.context.tokens import (
@@ -332,3 +333,18 @@ class TestMaybeCompressAtScale:
 
         assert emitted == []
         assert len(state.messages) == _SCALE_ROUNDS * 4
+
+
+class TestConstantsMatchSourceDefaults:
+    """模块常量必须与 src 默认值同源。
+
+    本文件的标准值（512K 窗口、80%/60% 阈值、4096 摘要上限）是字面量；若源码默认值
+    变更而这里不同步，边界断言会静默测到「历史默认值」而不是当前契约——故钉同源。
+    """
+
+    def test_constants_track_source_defaults(self) -> None:
+        assert Settings.model_fields["max_context_tokens"].default == MAX_CTX
+        comp = ContextCompressor(CapturingStubProvider())
+        assert comp.threshold == COMPRESS_THRESHOLD
+        assert comp.max_summary_tokens == MAX_SUMMARY_TOKENS
+        assert WindowReset(CapturingStubProvider()).config.threshold == RESET_THRESHOLD

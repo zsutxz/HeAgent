@@ -31,7 +31,6 @@ from heagent.tools.safety import SafetyGuard
 _BATCH = 12
 # barrier 等待超时：并发成立时毫秒级到达；串行退化时首个调用超时显性红（不挂死）
 _BARRIER_TIMEOUT = 2.0
-_CANCEL_DELAY = 0.1
 
 
 class _EmitRecorder:
@@ -101,6 +100,16 @@ def _named_calls(n: int) -> list[ToolCall]:
     return [ToolCall(id=f"c{i}", name=f"t{i}", arguments={}) for i in range(n)]
 
 
+async def _wait_until(predicate: Callable[[], bool], *, timeout: float = 5.0) -> None:
+    """轮询直到条件成立（替代固定 sleep：慢机不误红，快机不空等）。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while not predicate():
+        if loop.time() > deadline:
+            raise AssertionError(f"条件在 {timeout}s 内未成立")
+        await asyncio.sleep(0)
+
+
 class TestBatchConcurrency:
     """12 并发批次的并发性证明、结果顺序契约与在途展示态。"""
 
@@ -125,8 +134,11 @@ class TestBatchConcurrency:
     async def test_inflight_label_and_activity_ledger_at_scale(self, tmp_path: Any) -> None:
         """在途展示态：批次飞行中 active_tool 聚合标签，结束后清空；台账留全部 12 条。"""
         release = asyncio.Event()
+        started = 0
 
         async def hold_until_released() -> str:
+            nonlocal started
+            started += 1
             await asyncio.wait_for(release.wait(), timeout=5)
             return "ok"
 
@@ -135,7 +147,7 @@ class TestBatchConcurrency:
         calls = _calls(_BATCH)
 
         task = asyncio.create_task(execute_tools(loop, calls, state))
-        await asyncio.sleep(0.05)  # 让 12 个 handler 全部停在 release 等待（批次在途）
+        await _wait_until(lambda: started == _BATCH)  # 12 个 handler 全部在飞（批次在途）
         assert loop.active_tool.startswith("fast")
         assert loop.active_tool.endswith("(+11)")
         assert len(loop.tool_activity) == _BATCH
@@ -250,8 +262,11 @@ class TestCancellation:
     async def test_cancel_clears_inflight_state(self, tmp_path: Any) -> None:
         """批次被外部取消：active_tool 经 finally 清空，批次完成事件不再发出。"""
         never = asyncio.Barrier(_BATCH + 1)  # 12 个 handler 永远凑不满 → 全部卡在等待
+        stuck_count = 0
 
         async def stuck() -> str:
+            nonlocal stuck_count
+            stuck_count += 1
             await asyncio.wait_for(never.wait(), timeout=30)
             return "unreachable"
 
@@ -260,7 +275,7 @@ class TestCancellation:
         calls = _calls(_BATCH)
 
         task = asyncio.create_task(execute_tools(loop, calls, state))
-        await asyncio.sleep(_CANCEL_DELAY)
+        await _wait_until(lambda: stuck_count == _BATCH)  # 全部在飞后才取消
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task

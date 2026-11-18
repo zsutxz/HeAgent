@@ -16,3 +16,4 @@
 - **新增数据**：一律放 `tests/fixtures/<域>/`，域目录小写，配 `README.md` 说明来源与再生方式（`ws_tls/` 为先例）。
 - **引用方式**：模块级常量经 `Path(__file__)` 锚定（如 `Path(__file__).resolve().parents[2] / "tests" / "fixtures" / ...`）；测试体内优先注入 conftest 的 `fixtures_dir` fixture。禁止裸的 CWD 相对字符串（`"tests/fixtures/..."`）——pytest 从其他目录启动即断。
 - **运行期残留不是数据**：`tests/.heagent/`（goal 测试运行产物，gitignore 覆盖）与 `__pycache__/` 不进 fixtures/，契约测试已排除。
+- **标准值同源**：测试里引用「窗口/阈值」类标准值时，必须在同文件断言它与源码默认值同源（`Settings.model_fields[...].default`、`ContextCompressor().threshold` 等），不得只抄字面量——否则源码默认值变更后，边界断言会静默测到历史值（先例：`tests/test_context_boundary.py::TestConstantsMatchSourceDefaults`）。
