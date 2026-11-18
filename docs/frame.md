@@ -152,6 +152,7 @@ AgentLoop.run(prompt)
 | `init.py` | `heagent init` 子命令（全局配置与项目上下文模板） | `cli_init.py` |
 | `goal.py` | `/goal` 命令族（声明式工作流分发 + cron 自动推进） | `cli_goal.py` |
 | `http.py` | `http-server` 子命令 + HTTP 服务/生命周期装配（Epic 49） | `cli_http.py` |
+| `http_config.py` | HTTP/WS listener 配置装配：`Settings` + CLI 覆盖 → `HttpServerConfig` / `WsServerConfig`（纯派生，Story 62.8 自 `http.py` 拆出） | `cli_http.py` 拆出 |
 | `http_console.py` | 网页控制台的**项目/会话/配置面**（Epic 50；`HttpProjectConsole` / `HttpAgentHandler`） | `cli_http.py` 拆出 |
 | `dialogs.py` | 服务端原生「选择目录」对话框（Story 50-8） | `cli_dialogs.py` |
 | `display.py` | 终端渲染辅助（CLI 与 GUI 共用） | `cli_display.py` |
@@ -177,7 +178,7 @@ AgentLoop.run(prompt)
 | 重试中间件 | 通过 `make_retry_middleware()` 接入 AgentLoop |
 | Token 统计 | 每次回答后显示 `[tokens: N in + M out = T total]` |
 | 运行暂停/恢复/中断 | 交互模式运行期间按 Esc 暂停当前 run、Enter 恢复、双击 Esc 打断（取消当前 run、回到输入状态，见 `cli/terminal.py`） |
-| HTTP 入口 | `heagent http-server`（实验性，实现拆在 `cli/http.py` + `cli/http_console.py` + `network/http_*.py` + 包内 `web/`，协议、静态页与安全立场见 4.17） |
+| HTTP 入口 | `heagent http-server`（实验性，实现拆在 `cli/http.py` + `cli/http_config.py` + `cli/http_console.py` + `network/http_*.py` + 包内 `web/`，协议、静态页与安全立场见 4.17） |
 
 ### 4.2 Agent 核心 (`agent/`)
 
@@ -998,7 +999,9 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 **确定性内核与渲染分离（2026-09-21 Phase 3）**：workflow 校验、gate/prompt 装配、story 选择、
 checkpoint 恢复（`restore_runner`，恢复顺序与显性失败语义见其 docstring）与推进 use-case
 （`advance`/`pause_resume`，用户可见文案以结构化 outcome.messages 携带）收敛在
-`goal/application.py`——click-free（架构契约测试钉死 import 图）；`cli/goal/` 子包是渲染薄壳
+`goal/application.py`，声明面（包加载/校验、绑定冻结、门禁与 open-question 策略、prompt 装配）
+在 `goal/workflow_support.py`（2026-11-17 Story 62.8 拆出，`application` 再导出保导入面）——
+两模块均 click-free（架构契约测试钉死 import 图）；`cli/goal/` 子包是渲染薄壳
 （messages 逐行 `click.echo(err=True)`）+ 缝宿主（`_goal_session`/`_goal_declarative_prepare`/
 `_goal_declarative_advance`/`_goal_runner` 等测试缝原位）+ settings 注入边界。CLI/GUI/cron
 三入口仍收敛同一 use-case（GUI 经 `_goal_runner`、cron 经 `_goal_cron_advance`），无复制推进逻辑。
@@ -1380,7 +1383,7 @@ breaking change**（默认值 2026-10-29 起为 9901、2026-11-04 起为 9201）
 | 续传与背压 | `?last_event_id=N` 只补 `seq > N`；窗口已淘汰开头（含「无游标但 `oldest_seq > 1`」）回 `resync_required` 错误帧。订阅队列与缓冲同界，落后一整窗口即结束该流（客户端带游标重连）——与 SSE / run-WS 同一口径。 |
 | 发布点 | 入口层 `cli/interactive.py`：`_consume_stream` 逐条镜像 `StreamEvent`（text / tool_call / tool_result / done），进入即 `begin_run`、退出（含取消与异常）即 `end_run`；单次模式走非流式 `loop.run`，只发一条终态 `done`，**不假装有增量**。中枢经 `ContextVar` 传递（`_run_prompt` 的签名是 3 处测试 patch 的契约，不能加参数）。 |
 | 故障隔离 | 中枢 `publish_*` 自身不抛；入口层 `_hub_call` 是第二道垫片——旁路坏了最坏只是「外部看不到」，终端输出 / 退出码 / 主循环状态逐字不变。 |
-| 装配 | `cli/http.py::build_ws_servers` 在 `WS_CLI_BYPASS_ENABLED` 为真时建 hub 并注入**本地 listener**（Epic 56 D7 起宿主 = WS server，9201；期二 D9：对外 listener 恒不注入，且 `build_ws_app` 再判一次 `mode`）；未注入 ⇒ 路由不注册（Uvicorn 在「应用未 accept」时给客户端裸 403，不是应用层 404）。主 listener 本身是对外模式（期一单对外）⇒ 旁路被**跳过**并打 `ws event=cli_bypass_skipped reason=external_listener`。开启时 stderr 打一行 `[ws] CLI event stream (read-only): ws://…/api/cli/ws`，避免「开了但不知道在哪」。 |
+| 装配 | `cli/http_config.py::build_ws_servers` 在 `WS_CLI_BYPASS_ENABLED` 为真时建 hub 并注入**本地 listener**（Epic 56 D7 起宿主 = WS server，9201；期二 D9：对外 listener 恒不注入，且 `build_ws_app` 再判一次 `mode`）；未注入 ⇒ 路由不注册（Uvicorn 在「应用未 accept」时给客户端裸 403，不是应用层 404）。主 listener 本身是对外模式（期一单对外）⇒ 旁路被**跳过**并打 `ws event=cli_bypass_skipped reason=external_listener`。开启时 stderr 打一行 `[ws] CLI event stream (read-only): ws://…/api/cli/ws`，避免「开了但不知道在哪」。 |
 | 同源防线 | 与 run-WS 共用 `_request_origin_violation`（accept 前校验，违规 close ⇒ 客户端拿 403）。既有 ASGI 中间件对非 `http` scope 放行，故 CSWSH 防线由 WS 层单独执行。 |
 | 安全立场 | 与其它三条端点同一口径，边界地位见 §4.19；默认关，需要时显式开。 |
 
@@ -1404,7 +1407,7 @@ cron 作业由后台调度器跑（`cron/scheduler.py`），一轮执行只有�
 | 命令面 | 仅 `ping`（回 `WsCliAckFrame`，`run_id` 恒为空串）。`cancel` / `run` 回 `invalid_request` 且**不断连**（只读流没有可取消或可提交的对象）。 |
 | 续传与背压 | `?last_event_id=N` 只补 `seq > N`；窗口越界（含无游标但 `oldest_seq > 1`）回 `resync_required`。订阅队列与缓冲同界，落后一整窗口即结束该流（同 SSE / run-WS / 旁路）。 |
 | 可见性 | 与旁路**刻意不同**（Epic 58 D2）：中枢注入即注册，本地 / 对外 / 只读 listener **都注册**——通知流送的是宿主自己排的 cron 的产物，对外 listener 本身已强制 token（fail-closed）；旁路旁观的「宿主的终端」才必须留在本地。 |
-| 装配 | `cli/http.py::build_ws_servers` 在 `CRON_PUSH_ENABLED` 为真时建中枢并注入每一条 listener；未注入 ⇒ 路由不注册（Uvicorn 给客户端裸 403，不是应用层 404）。发布点由入口层把 `cron_notifier` 注入 `build_cron_job_runner`（一次执行一条；goal 自动推进分支不发）。 |
+| 装配 | `cli/http_config.py::build_ws_servers` 在 `CRON_PUSH_ENABLED` 为真时建中枢并注入每一条 listener；未注入 ⇒ 路由不注册（Uvicorn 给客户端裸 403，不是应用层 404）。发布点由入口层把 `cron_notifier` 注入 `build_cron_job_runner`（一次执行一条；goal 自动推进分支不发）。 |
 | 与终端回显的关系 | 两条路互不依赖：`CRON_PUSH_ENABLED` 管推送，`CRON_ECHO_TO_TERMINAL` 管终端 stderr 单行回显（`[cron <job_id>] …`），四种组合都合法（Epic 58 D4/D6）。 |
 | 安全立场 | 与其它三条端点同一口径，边界地位见 §4.19；对外 listener 上意味着宿主 LLM 输出会离开本机。 |
 
@@ -1537,6 +1540,7 @@ src/heagent/
 │   ├── init.py              # heagent init 子命令（全局配置/项目上下文模板生成，2026-09-17 自 cli.py 拆出）
 │   ├── goal/                # /goal 命令族子包（声明式工作流分发 + cron 自动推进；messages 输出漏斗 / verify 门禁与受治理重跑 / execution 步骤执行 / commands 命令面，__init__ 全量再导出）
 │   ├── http.py              # http-server 子命令 + HTTP 服务装配（入口层组合根；Epic 49）
+│   ├── http_config.py       # HTTP/WS listener 配置装配（Settings + CLI 覆盖 → *Config；2026-11-17 Story 62.8 自 http.py 拆出）
 │   ├── http_console.py      # 网页控制台的项目/会话/配置面（Epic 50；2026-09-26 自 cli_http.py 拆出）
 │   ├── dialogs.py           # 服务端原生「选择目录」对话框（Story 50-8）
 │   ├── display.py           # 终端渲染辅助（CLI 与 GUI 共用；原 cli_display.py）
@@ -1677,7 +1681,8 @@ src/heagent/
 │   └── exposure.py          # 回环判定 + 「无认证 / 无 TLS / 非生产边界」告警文案（单点，不解析 DNS）
 │
 ├── goal/                    # /goal 域层（入口层，供 cli/goal 使用，下层不得反向导入）
-│   ├── application.py       # workflow use-case 确定性内核（校验/gate/story/checkpoint 推进；click-free，Phase 3）
+│   ├── application.py       # workflow use-case 确定性内核（story 选择/checkpoint 恢复/推进；click-free，Phase 3）
+│   ├── workflow_support.py  # workflow 声明面：包加载/校验、绑定冻结、门禁与 open-question 策略、prompt 装配（2026-11-17 Story 62.8 拆出）
 │   ├── document.py          # brief.md 定位/命名规则/增量更新（存量回落 require.md/GOAL.md）+ goal id 分配与三步写（reserve_goal_id / write_goal_bundle，2026-11-07 自 cli/goal.py 迁入）
 │   ├── naming.py            # /goal new 项目名 LLM 生成，失败显性回退 project（2026-09-21）
 │   ├── workflow_loader.py   # workflow.md 声明装配 read_workflow（frontmatter 策略/内嵌步骤/模板必需性/validation: 证据子句解析）
@@ -1926,7 +1931,7 @@ Epic 43-45 的目标级编排、checkpoint、恢复和 CLI 审计由确定性测
 > （旧 `engine/artifacts.py` 的 `validate_hierarchy` / `parse_artifact` / `validate_sprint_status_path`
 > 均已随产物写路径删除，src 内无对应符号）；现行 `/goal` 持久化目标需求文档 `brief.md`，
 > Epic/Story 列表存放在工作流自己的 `epics.md`。工作流能力面校验由
-> `goal/application.py::validate_goal_workflow` 承担（entrypoint / on_create / executor 声明面）。
+> `goal/workflow_support.py::validate_goal_workflow` 承担（entrypoint / on_create / executor 声明面）。
 
 模板位于 `.heagent/skills/he-goal/templates/`（EPIC/STORY/GOAL/gate/prompt）。历史 Epic/Story 状态只由 `_bmad-output/sprint-status.yaml` 维护（BMad 外部工具写入，src 内无路径校验）；`workflow.json` 只保存运行时元数据，绝不作为第二份状态看板。
 

@@ -14,6 +14,10 @@ from heagent.context.tokens import estimate_cost
 from heagent.providers.router import active_model, annotate_route
 from heagent.tools.call_summary import activity_label
 
+# token 数的进位阈值（与 event_lines.format_duration 的秒进位同构但口径独立）。
+_THOUSAND = 1000
+_MILLION = 1_000_000
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -195,10 +199,10 @@ def format_tokens_k(n: int) -> str:
     此处合并为唯一实现点。边界行为刻意保持不变：``999_999`` 仍渲染为 ``1000.0K``
     （K 分支不去进位到 M）。
     """
-    if n < 1000:
+    if n < _THOUSAND:
         return str(n)
-    if n >= 1_000_000:
-        m = n / 1_000_000
+    if n >= _MILLION:
+        m = n / _MILLION
         return f"{int(m)}M" if m == int(m) else f"{m:.1f}M"
     k = n / 1000
     return f"{int(k)}K" if k == int(k) else f"{k:.1f}K"

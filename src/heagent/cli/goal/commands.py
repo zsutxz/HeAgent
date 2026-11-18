@@ -74,6 +74,9 @@ from heagent.goal.status_view import project_status_view
 from heagent.goal.workflow_loader import SkillWorkflowError, workflow_revision
 from heagent.pub.workspace import WorkspacePaths
 
+# cron 计划的标准五字段（CLI 侧入参校验；调度语义见 cron/expr.py）。
+_CRON_FIELD_COUNT = 5
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from pathlib import Path
@@ -443,7 +446,9 @@ async def _goal_declarative_auto(
     schedule = args or workflow.auto_schedule or _GOAL_AUTO_DEFAULT_CRON
     try:
         fields = schedule.split()
-        if len(fields) != 5 or any(not field or any(not part.strip() for part in field.split(",")) for field in fields):
+        if len(fields) != _CRON_FIELD_COUNT or any(
+            not field or any(not part.strip() for part in field.split(",")) for field in fields
+        ):
             raise ValueError("cron must contain five non-empty fields")
         cron_matches(schedule, datetime.now(UTC))
     except (TypeError, ValueError) as exc:

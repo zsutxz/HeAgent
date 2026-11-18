@@ -121,14 +121,16 @@ def build_http_app(
 
     async def http_exception(request: Any, exc: Any) -> Any:  # noqa: ARG001
         status = getattr(exc, "status_code", 500)
-        if status == 405:
+        # 状态码保持**字面量**：契约基线（transport_errors.json）按调用点字面量采集
+        # status_source=call_site_literal，抽常量会让静态扫描失去来源（Story 62.7 实测）。
+        if status == 405:  # noqa: PLR2004
             return _json_error(
                 responses,
                 HttpErrorCode.METHOD_NOT_ALLOWED,
                 "method not allowed for this endpoint",
                 status_code=405,
             )
-        if status == 404:
+        if status == 404:  # noqa: PLR2004
             return _json_error(responses, HttpErrorCode.NOT_FOUND, "no such endpoint", status_code=404)
         return _json_error(responses, HttpErrorCode.SERVER_ERROR, "request failed", status_code=int(status))
 

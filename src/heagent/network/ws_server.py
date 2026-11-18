@@ -42,6 +42,9 @@ from heagent.network.ws_protocol import (
     parse_command_frame,
 )
 
+# int64 的十进制最大位数（越长即非合法事件 id，不必再解析）。
+_MAX_EVENT_ID_DIGITS = 19
+
 logger = logging.getLogger(__name__)
 
 
@@ -479,7 +482,7 @@ def _parse_cursor(websocket: WebSocketLike) -> tuple[int | None, bool]:
     raw = websocket.query_params.get("last_event_id")
     if raw is None:
         return None, False
-    if not raw.isascii() or not raw.isdigit() or len(raw) > 19:
+    if not raw.isascii() or not raw.isdigit() or len(raw) > _MAX_EVENT_ID_DIGITS:
         return None, True
     return int(raw), False
 

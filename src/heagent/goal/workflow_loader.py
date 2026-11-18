@@ -39,6 +39,9 @@ from heagent.pub.frontmatter import (
 from heagent.pub.types import StorySpec
 from heagent.skills.skill_packages import SkillPackage, SkillPackageResourceError
 
+# epic 参考行的最小单元格数（编号 + 引用 + 摘要）。
+_MIN_CELLS_WITH_EPIC_REF = 3
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -147,7 +150,7 @@ def _split_clause_segments(package: SkillPackage, origin: str, validation_rules:
 
 def _strip_outer_quotes(value: str) -> str:
     """剥掉**一对平衡的**外层引号；内层引号原样保留（声明的命令要逐字保真）。"""
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:  # noqa: PLR2004
         return value[1:-1]
     return value
 
@@ -764,7 +767,7 @@ def _story_table_entry(stripped: str) -> tuple[str, str, str] | None:
     cells = [cell.strip() for cell in stripped.strip("|").split("|")]
     summary = match.group("summary").strip()
     epic_hint = ""
-    if len(cells) >= 3 and _is_epic_reference(cells[1]):
+    if len(cells) >= _MIN_CELLS_WITH_EPIC_REF and _is_epic_reference(cells[1]):
         epic_hint = _normalize_epic_id(cells[1])
         summary = next((cell for cell in reversed(cells[2:]) if cell), summary)
     return match.group("id"), summary, epic_hint

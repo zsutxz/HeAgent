@@ -32,6 +32,9 @@ from heagent.memory.auto_archive import _append_archive, _fact_line_bytes
 from heagent.pub.exceptions import HeAgentError
 from heagent.pub.persist import atomic_update_text
 
+# 判「同义条目」的词集重叠比例阈值。
+_DUPLICATE_OVERLAP_RATIO = 0.7
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
@@ -268,7 +271,8 @@ def word_overlap_duplicate(target: str, existing_texts: Iterable[str]) -> bool:
     target_words = set(target.lower().split())
     for text in existing_texts:
         old_words = set(text.lower().split())
-        if len(target_words & old_words) / max(len(target_words), 1) > 0.7:
+        overlap = len(target_words & old_words) / max(len(target_words), 1)
+        if overlap > _DUPLICATE_OVERLAP_RATIO:
             return True
     return False
 

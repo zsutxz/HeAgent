@@ -48,6 +48,10 @@ def _store() -> JobStore | None:
     return runtime.store if runtime is not None else None
 
 
+# 标准 cron 五字段（分 时 日 月 周）——工具入参校验与 cron/expr 同一口径。
+_CRON_FIELD_COUNT = 5
+
+
 def _validate_schedule(schedule: str) -> str | None:
     """快速校验 cron 表达式合法性；非法返回错误消息，合法返回 None。
 
@@ -57,7 +61,7 @@ def _validate_schedule(schedule: str) -> str | None:
     ``5/10``（纯值带步进）与步进 0 运行期同拒——校验层不得比执行层更严，也不替它放行。
     """
     parts = schedule.strip().split()
-    if len(parts) != 5:
+    if len(parts) != _CRON_FIELD_COUNT:
         return f"Invalid cron schedule: expected 5 fields, got {len(parts)} — example: '0 9 * * *'"
     for i, part in enumerate(parts):
         if part == "*":

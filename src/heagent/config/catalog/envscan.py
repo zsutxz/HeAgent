@@ -28,7 +28,7 @@ def _looks_blank(raw_value: str) -> bool:
     value = raw_value.strip()
     if not value or value.startswith("#"):
         return True
-    if len(value) > 2 and value[0] in "\"'" and value.endswith(value[0]):
+    if len(value) > 2 and value[0] in "\"'" and value.endswith(value[0]):  # noqa: PLR2004
         return False
     head = value.split("#", 1)[0] if _INLINE_COMMENT_RE.search(value) else value
     return head.strip() == ""

@@ -18,10 +18,15 @@ if TYPE_CHECKING:
 __all__ = ["cron_matches"]
 
 
+# 标准 cron 五字段（分 时 日 月 周）；周字段允许 7 作周日别名（POSIX/Dow 两种写法都收）。
+_CRON_FIELD_COUNT = 5
+_SUNDAY_ALIAS = 7
+
+
 def cron_matches(cron_expr: str, dt: datetime) -> bool:
     """Evaluate a 5-field cron expression with range/step support (V2)."""
     parts = cron_expr.strip().split()
-    if len(parts) != 5:
+    if len(parts) != _CRON_FIELD_COUNT:
         return False
 
     # weekday：标准 cron 中 Sunday 同时用 0 和 7 表示，此处映射到 0；
@@ -47,8 +52,8 @@ def _field_matches(expr: str, value: int, *, min_val: int = 0, max_val: int = 59
     等全部语法。原修复仅覆盖 ``expr=="7"`` 的精确匹配，范围/列表中的 7 会漏判周日。
     """
     values = _parse_field(expr, min_val=min_val, max_val=max_val)
-    if max_val == 7:
-        values = [0 if v == 7 else v for v in values]
+    if max_val == _SUNDAY_ALIAS:
+        values = [0 if v == _SUNDAY_ALIAS else v for v in values]
     return value in values
 
 

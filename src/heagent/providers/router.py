@@ -35,6 +35,9 @@ from heagent.providers.base import ProviderMetadata
 from heagent.providers.retry import is_pool_fallback_error
 from heagent.pub.types import Role
 
+# provider 委托链的遍历上限（防环；正常链远小于此）。
+_MAX_PROVIDER_WALK = 10
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -504,7 +507,7 @@ def active_model(provider: object) -> str | None:
     供 CLI 提示符前缀 / GUI 状态栏复用，避免各处重复鸭子类型判断。
     """
     seen = 0
-    while provider is not None and seen < 10:
+    while provider is not None and seen < _MAX_PROVIDER_WALK:
         model = getattr(provider, "current_model", None)
         if isinstance(model, str) and model:
             return model
@@ -530,7 +533,7 @@ def active_route_reason(provider: object) -> str | None:
     """
     seen = 0
     current = provider
-    while current is not None and seen < 10:
+    while current is not None and seen < _MAX_PROVIDER_WALK:
         decision = getattr(current, "last_decision", None)
         if decision is not None:
             reason = getattr(decision, "reason", None)

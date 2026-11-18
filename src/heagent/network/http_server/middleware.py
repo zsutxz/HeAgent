@@ -17,6 +17,9 @@ from heagent.network.http_protocol import HttpErrorCode, error_envelope
 from heagent.network.origin import request_origin_violation
 from heagent.pub.safe_logging import safe_log
 
+# 4xx/5xx 起算错误面：此后访问日志抬到 WARNING。
+_ERROR_STATUS_MIN = 400
+
 if TYPE_CHECKING:
     from collections.abc import MutableMapping
 
@@ -130,7 +133,7 @@ class _AccessLogMiddleware:
         finally:
             safe_log(
                 logger,
-                logging.INFO if status < 400 else logging.WARNING,
+                logging.INFO if status < _ERROR_STATUS_MIN else logging.WARNING,
                 "http event=request request_id=%s method=%s path=%s status=%s elapsed_ms=%d",
                 request_id,
                 scope.get("method"),

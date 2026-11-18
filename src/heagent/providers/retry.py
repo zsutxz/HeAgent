@@ -28,6 +28,12 @@ from typing import TYPE_CHECKING
 
 from heagent.pub.exceptions import ProviderError
 
+# HTTP 状态 → 错误类别的判据字面量（分类唯一来源，见模块 docstring）。
+_HTTP_TOO_MANY_REQUESTS = 429
+_HTTP_NOT_FOUND = 404
+_HTTP_SERVER_ERROR_MIN = 500
+_HTTP_SERVER_ERROR_MAX = 599
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -49,16 +55,16 @@ def _classify(status: int | None, message: str) -> ErrorCategory:
     msg = message.lower()
 
     if status is not None and status > 0:
-        if status == 429:
+        if status == _HTTP_TOO_MANY_REQUESTS:
             return ErrorCategory.RATE_LIMITED
         if status in (401, 403):
             return ErrorCategory.AUTH_FAILED
-        if 500 <= status <= 599:
+        if _HTTP_SERVER_ERROR_MIN <= status <= _HTTP_SERVER_ERROR_MAX:
             return ErrorCategory.TRANSIENT
         return ErrorCategory.NON_TRANSIENT
 
     # 限流：429 状态码或消息中包含 rate/429
-    if status == 429 or "rate" in msg or "429" in msg:
+    if status == _HTTP_TOO_MANY_REQUESTS or "rate" in msg or "429" in msg:
         return ErrorCategory.RATE_LIMITED
     # 认证失败：401/403 状态码或消息中包含 auth/401/forbidden
     if status in (401, 403) or "auth" in msg or "401" in msg or "forbidden" in msg:
@@ -139,7 +145,7 @@ def is_pool_fallback_error(error: Exception) -> bool:
     status, message = _extract_status_message(error)
     lowered = message.lower()
     model_unavailable = (
-        status == 404
+        status == _HTTP_NOT_FOUND
         and "model" in lowered
         and ("not supported" in lowered or "not found" in lowered or "does not exist" in lowered)
     )

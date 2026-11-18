@@ -14,6 +14,10 @@ if TYPE_CHECKING:
 
 from heagent.network.exposure import is_loopback_host
 
+# 端口号上限与 HTTP 默认端口（authority 归一化用）。
+_MAX_PORT_NUMBER = 65535
+_HTTP_DEFAULT_PORT = 80
+
 # 我们不信任任何代理头：反向代理部署不在 MVP 支持范围，出现这些头即拒绝请求——
 # 否则 `X-Forwarded-Host` 就能把「跨站请求」伪装成本机同源请求（DNS rebinding 的常见变体）。
 _UNTRUSTED_FORWARD_HEADERS = frozenset(
@@ -56,10 +60,10 @@ def canonical_authority(value: str) -> str | None:
         host, _, port = text.rpartition(":")
     else:
         host, port = text, ""
-    if port and (not port.isdigit() or int(port) > 65535):
+    if port and (not port.isdigit() or int(port) > _MAX_PORT_NUMBER):
         return None
-    effective = int(port) if port else 80
-    return host if effective == 80 else f"{host}:{effective}"
+    effective = int(port) if port else _HTTP_DEFAULT_PORT
+    return host if effective == _HTTP_DEFAULT_PORT else f"{host}:{effective}"
 
 
 def split_authority(authority: str) -> tuple[str, int]:

@@ -22,6 +22,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, TypeGuard
 
+# 毫秒 → 秒的进位基数。
+_MS_PER_SECOND = 1000
+
 if TYPE_CHECKING:  # pragma: no cover - 仅供类型检查（本文件启用 future annotations）
     from collections.abc import Mapping, Sequence
 
@@ -39,7 +42,7 @@ _MAX_ERROR_CHARS = 60
 
 def format_duration(ms: int) -> str:
     """毫秒 → 可读耗时（``999`` → ``999ms``，``1500`` → ``1.5s``）。"""
-    return f"{ms}ms" if ms < 1000 else f"{ms / 1000:.1f}s"
+    return f"{ms}ms" if ms < _MS_PER_SECOND else f"{ms / _MS_PER_SECOND:.1f}s"
 
 
 def _one_line(value: str) -> str:

@@ -13,6 +13,7 @@ select = [
     "C90",  # mccabe 圈复杂度
     "S",    # flake8-bandit 安全规则
     "PLC",  # Pylint 约定
+    "PLR2004",  # 魔法值比较（Story 62.7：阈值/上限一律具名常量，结构性字面量就地 noqa）
     "RUF",  # ruff 专项
     "PT",   # pytest 专项
     "PIE",  # flake8-pie
@@ -33,6 +34,7 @@ max-complexity = 15
     "PT001", "PT011", "PT012", "PT006", "PT018",  # pytest 风格偏好
     "RUF022", "RUF023", "RUF100",     # 排序/未用 noqa 风格
     "RUF043",                         # match 参数非 raw string
+    "PLR2004",                        # 断言里的期望值字面量是正文（与 S105 假 token 同理）
     "SIM105", "S110",                 # try-except-pass
     "F401", "E741", "F811", "TC003", "TC005", "I001",  # import 约定
 ]
@@ -41,6 +43,7 @@ max-complexity = 15
     "RUF001", "RUF002", "RUF003",     # 中文全角字符（项目约定）
     "S101", "S603", "S607",           # 断言与子进程调用（脚本本职）
     "PT018", "E501", "PLC0415",       # 断言组合 / 行长 / 延迟导入
+    "PLR2004",                        # 验收脚本里的期望值字面量是正文
 ]
 # src 层豁免
 "src/**/*.py" = [
@@ -53,6 +56,9 @@ max-complexity = 15
 ]
 
 # ── 以下为既有豁免（保留不变）──
+# 声明面再导出：application 以 PEP 484 显式别名（import X as X）保留 workflow_support 的导入面，
+# PLC0414 会把这类再导出误判成「多余别名」
+"src/heagent/goal/application.py" = ["PLC0414"]
 # CLI 入口 S110（console.py = 旧 cli.py）
 "src/heagent/cli/console.py" = ["S110"]
 # 预存：git 工具超时清理中的 try-except-pass

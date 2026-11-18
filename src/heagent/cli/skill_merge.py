@@ -14,6 +14,11 @@ from typing import TYPE_CHECKING
 
 import click
 
+# 交互菜单的「跳过」选项序号（与 click.Choice 的 default 同值）。
+_SKIP_CHOICE = 3
+# SKILL.md 描述的终端预览宽度。
+_DESCRIPTION_PREVIEW_CHARS = 60
+
 if TYPE_CHECKING:
     from heagent.cli.slash import SlashRegistry
     from heagent.skills.skill_store import SkillConflict, SkillStore
@@ -53,7 +58,7 @@ async def run_skill_merge(skills: SkillStore) -> None:
             type=click.IntRange(1, len(_CHOICES)),
             default=3,
         )
-        if choice == 3:
+        if choice == _SKIP_CHOICE:
             click.echo(f"[skill-merge] '{conflict.name}' skipped; global keeps winning.", err=True)
             continue
         winner = Path(conflict.effective_root if choice == 1 else conflict.shadowed_root)
@@ -103,4 +108,4 @@ def _description_at(root: Path, name: str) -> str:
     except (OSError, ValueError):
         return "(SKILL.md 不可读)"
     text = parsed.description
-    return text[:60] + ("..." if len(text) > 60 else "(空描述)")
+    return text[:_DESCRIPTION_PREVIEW_CHARS] + ("..." if len(text) > _DESCRIPTION_PREVIEW_CHARS else "(空描述)")

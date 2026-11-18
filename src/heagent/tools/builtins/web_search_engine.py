@@ -21,6 +21,11 @@ from pydantic import BaseModel
 from heagent.providers.retry import ErrorCategory, classify_error
 from heagent.pub.exceptions import ProviderError, ToolError
 
+# 检索引擎响应状态分档（3xx = 网关劫持疑点，4xx+ = 请求侧失败）。
+_HTTP_REDIRECT_MIN = 300
+_HTTP_REDIRECT_MAX = 400
+_HTTP_CLIENT_ERROR_MIN = 400
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -110,13 +115,13 @@ class TavilyEngine:
             raise SearchEngineError(f"检索请求超时: {q[:50]}", category=ErrorCategory.TRANSIENT) from exc
         except httpx.RequestError as exc:
             raise SearchEngineError(f"检索请求失败: {exc}", category=ErrorCategory.TRANSIENT) from exc
-        if 300 <= response.status_code < 400:
+        if _HTTP_REDIRECT_MIN <= response.status_code < _HTTP_REDIRECT_MAX:
             raise SearchEngineError(
                 f"检索引擎重定向 {response.status_code}（API 直连不应重定向，疑网关劫持）",
                 status_code=response.status_code,
                 category=ErrorCategory.TRANSIENT,
             )
-        if response.status_code >= 400:
+        if response.status_code >= _HTTP_CLIENT_ERROR_MIN:
             # 分类复用容错面判据：包 ProviderError 走 classify_error 的标准入口；
             # 分类自携人类可读指引（模型可见面，指引是确定性文本——重试立场仍归调用方）
             provider_error = ProviderError(response.text[:200], status_code=response.status_code)

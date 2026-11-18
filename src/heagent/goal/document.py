@@ -25,6 +25,9 @@ from typing import TYPE_CHECKING, Any
 from heagent.pub.frontmatter import extract_h2_section, parse_strict_pairs, split_frontmatter
 from heagent.pub.persist import atomic_update_text, atomic_write_text
 
+# 存量 goal id 为八位十六进制（新 id 走字母制，见 _GOAL_ID_RE）。
+_LEGACY_GOAL_ID_LENGTH = 8
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -116,7 +119,9 @@ def goal_document(description: str, goal_id: str, workflow_id: str = "", workflo
 
 def goal_id_is_valid(goal_id: str) -> bool:
     """Accept new letter-only ids and legacy eight-character hex ids."""
-    return bool(_GOAL_ID_RE.fullmatch(goal_id)) or (len(goal_id) == 8 and all(char in _GOAL_HEX for char in goal_id))
+    return bool(_GOAL_ID_RE.fullmatch(goal_id)) or (
+        len(goal_id) == _LEGACY_GOAL_ID_LENGTH and all(char in _GOAL_HEX for char in goal_id)
+    )
 
 
 def _epic_directory_name(epic: str) -> str:

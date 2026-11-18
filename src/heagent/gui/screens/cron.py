@@ -11,6 +11,9 @@ from textual.containers import Container, Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Footer, Header
 
+# 任务提示词的表格预览宽度。
+_PROMPT_PREVIEW_CHARS = 40
+
 if TYPE_CHECKING:
     from textual.app import ComposeResult
 
@@ -66,7 +69,7 @@ class CronScreen(Screen[None]):
         for job in self._store.list_jobs():
             status = "✅" if job.enabled else "⏸"
             last = job.last_run[:16] if job.last_run else "从未"
-            prompt = job.prompt[:40] + ("..." if len(job.prompt) > 40 else "")
+            prompt = job.prompt[:_PROMPT_PREVIEW_CHARS] + ("..." if len(job.prompt) > _PROMPT_PREVIEW_CHARS else "")
             table.add_row(job.id[:8], prompt, job.cron, status, last)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:

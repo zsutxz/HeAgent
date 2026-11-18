@@ -11,6 +11,9 @@ from textual.containers import Container, Horizontal, Vertical
 from textual.screen import ModalScreen, Screen
 from textual.widgets import Button, DataTable, Footer, Header, Input, Label, Static, TextArea
 
+# 技能描述的表格预览宽度。
+_DESCRIPTION_PREVIEW_CHARS = 40
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -70,7 +73,9 @@ class SkillScreen(Screen[None]):
                 continue
             usage = str(content.usage_count)
             last = content.last_used[:16] if content.last_used else "从未"
-            desc = content.description[:40] + ("..." if len(content.description) > 40 else "")
+            desc = content.description[:_DESCRIPTION_PREVIEW_CHARS] + (
+                "..." if len(content.description) > _DESCRIPTION_PREVIEW_CHARS else ""
+            )
             owner = self._store.owner_root(name)
             source = "全局" if owner is not None and owner == self._store.roots[0] else "项目"
             table.add_row(name, source, desc, usage, last)

@@ -205,7 +205,7 @@ def parse_value(raw: str) -> str:
     match = _comment_match(value)
     if match is not None:
         value = value[: match.start()].rstrip()
-    if len(value) >= 2 and value[0] in _QUOTES and value.endswith(value[0]):
+    if len(value) >= 2 and value[0] in _QUOTES and value.endswith(value[0]):  # noqa: PLR2004
         value = value[1:-1]
     return value
 
@@ -245,7 +245,7 @@ def check_value(value: str, *, key: str = "") -> None:
             "inline_comment",
             f"value for {key or 'key'} contains whitespace followed by '#' and would be parsed as a comment",
         )
-    if len(value) >= 2 and value[0] in _QUOTES and value.endswith(value[0]):
+    if len(value) >= 2 and value[0] in _QUOTES and value.endswith(value[0]):  # noqa: PLR2004
         raise EnvWriteError(
             "quoted", f"value for {key or 'key'} is wrapped in quotes and would be unquoted when parsed"
         )

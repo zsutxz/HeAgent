@@ -450,7 +450,7 @@ def test_loop_strategy_modules_do_not_runtime_import_loop_facade() -> None:
 
 
 def test_goal_application_use_case_is_click_free() -> None:
-    """Phase 3：goal/application.py 的 use-case **运行期**禁止依赖 Click 与入口模块。
+    """Phase 3：goal/application.py 与 goal/workflow_support.py 的 use-case **运行期**禁止依赖 Click 与入口模块。
 
     workflow 校验 / gate 渲染 / story 选择 / checkpoint 恢复与推进全部收敛在
     ``goal/application``；用户可见文案以结构化 outcome（messages）携带、由 cli/goal/
@@ -490,9 +490,10 @@ def test_goal_application_use_case_is_click_free() -> None:
         return found
 
     offenders = [
-        name
-        for name in runtime_imports(SRC / "goal" / "application.py")
-        if name == "click" or name.startswith(forbidden_prefixes)
+        f"goal/{name}"
+        for name in ("application.py", "workflow_support.py")
+        for module in runtime_imports(SRC / "goal" / name)
+        if module == "click" or module.startswith(forbidden_prefixes)
     ]
     assert offenders == [], "goal use-case 运行期依赖 Click/入口模块（无 Click 验收失效）：" + ", ".join(offenders)
 
@@ -638,6 +639,7 @@ def test_entrypoints_do_not_duplicate_runtime_store_paths() -> None:
         "cli/interactive.py",
         *sorted(f"cli/goal/{path.name}" for path in (SRC / "cli" / "goal").glob("*.py")),
         "cli/http.py",
+        "cli/http_config.py",
         "cli/http_console.py",
         "engine/container.py",
         "gui/__init__.py",
@@ -739,6 +741,7 @@ def test_cli_package_layout_is_pinned() -> None:
         "dialogs",
         "display",
         "http",
+        "http_config",
         "http_console",
         "init",
         "interactive",

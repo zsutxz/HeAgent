@@ -47,6 +47,9 @@ from heagent.config import Settings, get_settings
 from heagent.cron.expr import cron_matches
 from heagent.pub.task_shutdown import DEFAULT_STOP_TIMEOUT, await_task_stop, retrieve_task_exception
 
+# dream cron 与全局调度同为标准五字段表达式。
+_CRON_FIELD_COUNT = 5
+
 if TYPE_CHECKING:
     from heagent.context.session import SessionStore
     from heagent.engine.container import EngineContainer
@@ -388,7 +391,7 @@ class DreamScheduler:
         或 6 字段（带秒）被 :func:`heagent.cron.expr.cron_matches` 静默判 False 而无诊断（审查 #4/#5）。
         """
         parts = expr.split()
-        if len(parts) != 5:
+        if len(parts) != _CRON_FIELD_COUNT:
             raise ValueError(f"dream_cron 必须为 5 字段标准 cron 表达式（got {expr!r}）")
         try:
             cron_matches(expr, datetime.now())

@@ -83,3 +83,14 @@ hitl = false
 risk = "low"
 v6_key = "1-7-magic-numbers"
 
+[[entry]]
+id = 8
+type = "story"
+title = "拆分 goal/application.py 与 cli/http.py"
+description = "goal/application.py（1067 行）与 cli/http.py（1014 行）各拆出内聚模块，单文件均低于 1000 行（NFR3）。"
+verify = "拆分后两文件 <1000 行，导入面与 monkeypatch 缝零变化，全量测试与架构契约测试通过。"
+covers = ["R1"]
+after = []
+hitl = false
+risk = "low"
+v6_key = ""

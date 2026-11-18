@@ -38,7 +38,7 @@ def _unbracket(host: str) -> str:
     （随后既不匹配 ``localhost`` 也过不了 :mod:`ipaddress`，按暴露处理——不做特殊放行）。
     """
     stripped = host.strip()
-    if len(stripped) >= 2 and stripped.startswith("[") and stripped.endswith("]"):
+    if len(stripped) >= 2 and stripped.startswith("[") and stripped.endswith("]"):  # noqa: PLR2004
         inner = stripped[1:-1]
         try:
             ipaddress.IPv6Address(inner)

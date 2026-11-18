@@ -15,6 +15,9 @@ from heagent.providers.base import ProviderMetadata, parse_tool_arguments
 from heagent.providers.retry import wrap_provider_error
 from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
 
+# 推理链续接重试的触发状态码（部分端点对 reasoning_content 缺失回 400）。
+_HTTP_BAD_REQUEST = 400
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -170,7 +173,7 @@ class OpenAIProvider:
     @staticmethod
     def _needs_reasoning_retry(error: Exception, messages: list[Message]) -> bool:
         return (
-            getattr(error, "status_code", None) == 400
+            getattr(error, "status_code", None) == _HTTP_BAD_REQUEST
             and "reasoning_content" in str(error)
             and any(m.role == Role.ASSISTANT and m.tool_calls and m.reasoning_content is None for m in messages)
         )

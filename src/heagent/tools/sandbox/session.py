@@ -19,6 +19,9 @@ from heagent.tools.runtime import RuntimeSlot
 from heagent.tools.sandbox.docker import CONTAINER_WORKDIR, DockerRunner
 from heagent.tools.sandbox.winjob import WinJobBackend
 
+# 标记行最少两段（标记 + 值）。
+_MARKER_MIN_FIELDS = 2
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -159,7 +162,7 @@ class SandboxSession:
         """从 marker 行（``{MARKER} <rc>``）解析用户命令真实退出码；未找到/非整数返回 None。"""
         for line in output.splitlines():
             parts = line.strip().split()
-            if len(parts) >= 2 and parts[0] == _MARKER:
+            if len(parts) >= _MARKER_MIN_FIELDS and parts[0] == _MARKER:
                 with suppress(ValueError):
                     return int(parts[1])
         return None

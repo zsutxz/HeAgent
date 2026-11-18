@@ -302,7 +302,7 @@ def _right_of_arrow(raw: str) -> str:
 
 def _unquote(path: str) -> str:
     """porcelain 对含特殊字符路径加引号；去引号保留字面内容（不做转义解码，防非 ASCII 乱码）。"""
-    if path.startswith('"') and path.endswith('"') and len(path) >= 2:
+    if path.startswith('"') and path.endswith('"') and len(path) >= 2:  # noqa: PLR2004
         return path[1:-1]
     return path
 

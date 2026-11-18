@@ -66,6 +66,9 @@ from heagent.skills import SkillStore
 from heagent.skills.skill_store import default_skill_roots
 from heagent.tools.mcp import MCPClientManager
 
+# /mcp prompt 的形状：命令字 + 一个 server 名。
+_MCP_PROMPT_ARITY = 2
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from contextlib import AbstractAsyncContextManager
@@ -808,7 +811,7 @@ async def _handle_mcp_prompt(user_input: str, mcp_manager: Any) -> None:
             click.echo(f"  [{server}] {name}: {desc} ({arg_str})")
         return
 
-    if len(parts) == 2:
+    if len(parts) == _MCP_PROMPT_ARITY:
         server = parts[1]
         result = await mcp_manager.list_prompts(server)
         data = json.loads(result)
