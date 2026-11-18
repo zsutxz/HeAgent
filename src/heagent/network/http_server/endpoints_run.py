@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from heagent.network.http_protocol import (
@@ -15,7 +16,7 @@ from heagent.network.http_protocol import (
     RunStatusResponse,
 )
 
-from .pipeline import _json_error, _parse_last_event_id, _read_model, _sse_stream
+from .pipeline import _json_error, _parse_last_event_id, _read_model, _replay_stream, _sse_stream
 
 if TYPE_CHECKING:
     from heagent.network.http_protocol import RunEventPayload
@@ -24,10 +25,14 @@ if TYPE_CHECKING:
     from .service import HttpRunService
 
 
+RunHistorySource = Callable[[str], "list[RunEventPayload] | None"]
+
+
 def _build_run_endpoints(
     responses: Any,
     config: HttpServerConfig,
     service: HttpRunService,
+    history: RunHistorySource | None = None,
 ) -> tuple[Any, Any, Any, Any]:
     """构造运行 API 的四个端点（创建 / 事件流 / 取消 / 会话快照）。
 
@@ -61,7 +66,22 @@ def _build_run_endpoints(
         run_id = str(request.path_params.get("run_id", ""))
         record = service.run(run_id)
         if record is None:
-            return _json_error(responses, HttpErrorCode.UNKNOWN_RUN, "no such run", status_code=404)
+            # 进程内没有该 run（典型 = 重启后刷新页面）：有注入的历史来源就回放 rollout，
+            # 否则维持 404。回放是**一次性**流（读侧只读，不重跑、不跟随），客户端拿到终态即关闭。
+            replayed = history(run_id) if history is not None else None
+            if replayed is None:
+                return _json_error(responses, HttpErrorCode.UNKNOWN_RUN, "no such run", status_code=404)
+            cursor = _parse_last_event_id(request)
+            pending = [payload for payload in replayed if cursor is None or payload.seq > cursor]
+            return responses.StreamingResponse(
+                _replay_stream(pending),
+                media_type="text/event-stream",
+                headers={
+                    "cache-control": "no-store",
+                    "x-accel-buffering": "no",
+                    "x-heagent-replay": "rollout",
+                },
+            )
         cursor = _parse_last_event_id(request)
         if service.needs_resync(record, cursor):
             # 游标早于缓冲窗口：**不**发一条「看起来连续」的流，明确要求重新同步。

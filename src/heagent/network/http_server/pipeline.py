@@ -179,6 +179,12 @@ async def _sse_stream(
         yield SSE_HEARTBEAT_FRAME if payload is None else format_sse(payload)
 
 
+async def _replay_stream(payloads: list[RunEventPayload]) -> AsyncIterator[bytes]:
+    """历史上的一次性回放流（A35）：按序吐完即结束，不发心跳、不跟随（读侧只读）。"""
+    for payload in payloads:
+        yield format_sse(payload)
+
+
 def _parse_last_event_id(request: Any) -> int | None:
     """解析 ``Last-Event-ID`` 请求头（SSE 规范里是字符串）。
 

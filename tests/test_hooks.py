@@ -17,6 +17,7 @@ from heagent.agent.loop import AgentLoop
 from heagent.agent.run_lifecycle import AgentState, _ResumeState
 from heagent.config import reset_settings
 from heagent.engine import EngineContainer, HookConfig, HookManager
+from heagent.engine import hooks as hooks_module
 from heagent.providers.base import ProviderMetadata
 from heagent.tools.registry import ToolRegistry
 from heagent.pub.types import Message, ProviderResponse, TokenUsage, ToolCall, ToolSchema
@@ -217,6 +218,49 @@ class TestPreToolHook:
         assert result.feedback != ""
 
 
+class TestPostToolHook:
+    """PostToolUse 的 stdout 采集与预算（A53：非阻断输出进对话上下文）。"""
+
+    @pytest.mark.asyncio
+    async def test_stdout_is_returned_for_context(self) -> None:
+        hooks = [HookConfig(event="PostToolUse", command="echo lint-passed", matcher="shell")]
+        text = await HookManager(hooks).run_post_tool(ToolCall(id="1", name="shell", arguments={}))
+        assert text == "lint-passed"
+
+    @pytest.mark.asyncio
+    async def test_empty_stdout_yields_empty_string(self) -> None:
+        """无输出 = 空串（调用方据此不追加附注，避免出现空块）。"""
+        hooks = [HookConfig(event="PostToolUse", command="exit 0", matcher="shell")]
+        assert await HookManager(hooks).run_post_tool(ToolCall(id="1", name="shell", arguments={})) == ""
+
+    @pytest.mark.asyncio
+    async def test_matcher_filters_post_hooks(self) -> None:
+        hooks = [HookConfig(event="PostToolUse", command="echo only-for-shell", matcher="shell")]
+        text = await HookManager(hooks).run_post_tool(ToolCall(id="1", name="file_read", arguments={}))
+        assert text == ""
+
+    @pytest.mark.asyncio
+    async def test_per_hook_truncation_marks_explicitly(self) -> None:
+        """单条超出预算时截断并打标记——静默截断会把半截输出当完整事实。"""
+        payload = "x" * 3000
+        emit = f'"{sys.executable}" -c "print({payload!r})"'
+        hooks = [HookConfig(event="PostToolUse", command=emit, matcher="shell")]
+        text = await HookManager(hooks).run_post_tool(ToolCall(id="1", name="shell", arguments={}))
+        assert text.endswith(hooks_module._TRUNCATION_MARKER)
+        assert len(text) <= hooks_module._POST_TOOL_CONTEXT_MAX_CHARS + len(hooks_module._TRUNCATION_MARKER)
+
+    @pytest.mark.asyncio
+    async def test_total_budget_caps_across_hooks(self) -> None:
+        """多条 hook 的文本累计封顶；超出的文本被截断并打标记，不静默丢弃。"""
+        payload = "y" * 2500
+        emit = f'"{sys.executable}" -c "print({payload!r})"'
+        hooks = [HookConfig(event="PostToolUse", command=emit, matcher="shell") for _ in range(2)]
+        text = await HookManager(hooks).run_post_tool(ToolCall(id="1", name="shell", arguments={}))
+        assert hooks_module._TRUNCATION_MARKER in text
+        body = text.replace(hooks_module._TRUNCATION_MARKER, "")
+        assert len(body) <= hooks_module._POST_TOOL_CONTEXT_TOTAL_MAX_CHARS
+
+
 class TestHookTimeout:
     @pytest.mark.asyncio
     async def test_timeout_blocks_and_returns_promptly(self) -> None:
@@ -372,6 +416,49 @@ class TestHookIntegration:
         await loop.run("run shell")
 
         assert marker.read_text() == "ok"
+
+    @pytest.mark.asyncio
+    async def test_post_tool_stdout_lands_in_tool_result(self, workspace_dir: Path) -> None:
+        """A53：PostToolUse 的非空 stdout 以附注形式进入工具结果（模型能看到）。"""
+        registry = ToolRegistry()
+        registry.register(
+            ToolSchema(name="shell", description="shell", parameters={"type": "object", "properties": {}}),
+            lambda command="": "ran",
+        )
+        engine = EngineContainer.default(workspace_root=str(workspace_dir))
+        engine.run_store = engine.run_store.__class__(base_dir=str(workspace_dir / "runs"))
+        engine.hooks = HookManager([HookConfig(event="PostToolUse", command="echo hook-says-hi")])
+        provider = StubProvider([_tool_response("shell", {"command": "dir"}), _final("done")])
+        loop = AgentLoop(provider, registry=registry, engine=engine, context_dir=str(workspace_dir))
+
+        await loop.run("run shell")
+
+        snapshot = await engine.run_store.load(loop.last_run_context.run_id)
+        assert snapshot is not None
+        content = snapshot.results[0].content
+        assert content.startswith("ran")  # 正文不被改写，附注追加在后
+        assert "[PostToolUse hook output]" in content
+        assert "hook-says-hi" in content
+
+    @pytest.mark.asyncio
+    async def test_post_tool_silent_hook_leaves_result_untouched(self, workspace_dir: Path) -> None:
+        """无 stdout 的 PostToolUse hook 不得留下空附注块（无输出 = 无附注）。"""
+        registry = ToolRegistry()
+        registry.register(
+            ToolSchema(name="shell", description="shell", parameters={"type": "object", "properties": {}}),
+            lambda command="": "ran",
+        )
+        engine = EngineContainer.default(workspace_root=str(workspace_dir))
+        engine.run_store = engine.run_store.__class__(base_dir=str(workspace_dir / "runs"))
+        engine.hooks = HookManager([HookConfig(event="PostToolUse", command="exit 0")])
+        provider = StubProvider([_tool_response("shell", {"command": "dir"}), _final("done")])
+        loop = AgentLoop(provider, registry=registry, engine=engine, context_dir=str(workspace_dir))
+
+        await loop.run("run shell")
+
+        snapshot = await engine.run_store.load(loop.last_run_context.run_id)
+        assert snapshot is not None
+        assert snapshot.results[0].content == "ran"
 
     @pytest.mark.asyncio
     async def test_session_hooks_fire_on_run(self, workspace_dir: Path) -> None:

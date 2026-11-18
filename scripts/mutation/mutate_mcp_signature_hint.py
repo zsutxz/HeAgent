@@ -1,8 +1,10 @@
-"""全局 MCP 签名「显式忽略」告警的负向变异验证（A36，2026-11-05）。
+"""全局 + 项目级 MCP 签名合并语义的负向变异验证（A36；2026-11-18 改判为「真的加载」）。
 
-不变量：项目级签名缺失时，若 ``~/.heagent/injection_signatures.json`` 存在，必须**显式告警**
-说明它不会被加载。全局入口刻意不存在（零使用 ⇒ YAGNI，活动台账 A36），但静默忽略会让用户
-以为围栏已生效——那才是真正的缺陷面。
+不变量（三条，缺一即红）：
+
+1. 全局文件 ``~/.heagent/injection_signatures.json`` **参与加载**（项目级缺失也生效）；
+2. 同名 ``pattern`` 由**项目级覆盖**全局，且不产生重复条目；
+3. 坏条目在日志里**带来源**（global / project），两级并存时报错可归因。
 
 本脚本把 ``src`` / ``tests`` 复制到 ``.heagent/tmp/mut-mcp-signature/`` 后逐条回退该不变量，
 要求**每条变异都红**。
@@ -29,22 +31,32 @@ TEST_FILE = "tests/test_mcp_mapping.py"
 MUTATIONS: list[tuple[str, str, list[tuple[str, str]]]] = [
     (
         "M1",
-        "项目级缺失时不再探测全局文件（回到静默忽略）",
+        "全局文件不再参与加载（回到「只认项目级」）",
         [
             (
-                "    except FileNotFoundError:\n        _warn_ignored_global_signatures(global_path)\n",
-                "    except FileNotFoundError:\n",
-            )
+                '    for source, file_path in (("global", global_file), ("project", _project_signatures_file(path))):\n',
+                '    for source, file_path in (("project", _project_signatures_file(path)),):\n',
+            ),
         ],
     ),
     (
         "M2",
-        "忽略注入的 global_path（恒探真实 home ⇒ 告警不可测、不可控）",
+        "合并顺序反了：全局覆盖项目（项目级不再胜出）",
         [
             (
-                "        probe = global_path if global_path is not None else Path.home() / _GLOBAL_SIGNATURES_HINT\n",
-                "        probe = Path.home() / _GLOBAL_SIGNATURES_HINT\n",
-            )
+                '    for source, file_path in (("global", global_file), ("project", _project_signatures_file(path))):\n',
+                '    for source, file_path in (("project", _project_signatures_file(path)), ("global", global_file)):\n',
+            ),
+        ],
+    ),
+    (
+        "M3",
+        "坏条目的日志丢来源（一律写成 project，全局问题无从归因）",
+        [
+            (
+                '        logger.error("Skipping %s signature %d: invalid regex: %s", source, index, exc)\n',
+                '        logger.error("Skipping project signature %d: invalid regex: %s", index, exc)\n',
+            ),
         ],
     ),
 ]

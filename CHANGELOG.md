@@ -21,6 +21,9 @@
 
 ### Added
 
+- **PostToolUse hook 的 stdout 进对话上下文**（活动台账 A53）：非空 stdout 以 `[PostToolUse hook output]` 附注追加到工具结果——不改工具正文、不落成用户消息（hook 输出不获得用户指令权重），注入点在 ledger 记账之后（幂等缓存只存原始工具输出）；预算为单条 ≤2000 / 单次调用累计 ≤4000 字符，超限打显式截断标记。
+- **重启后的运行事件回放**（活动台账 A35）：`EVENTS_ROLLOUT_ENABLED=true` 时 `GET /api/runs/<id>/events` 在进程内无该记录时从 `<项目根>/.heagent/runs/<id>/rollout.jsonl` 一次性回放（响应头 `x-heagent-replay: rollout`，支持 `Last-Event-ID`），旧 run 在页面刷新后不再只剩 404。回放是粗粒度的且如实标注：rollout 不记工具输出原文、不记文本增量（最终答案仍完整）。
+- **全局级 MCP 注入签名入口**（活动台账 A36）：`<用户 home>/.heagent/injection_signatures.json` 现已**真的加载**，与项目级合并（全局作底、同名 `pattern` 项目级覆盖），坏条目报错带来源；此前该文件只触发一条「被忽略」告警。
 - `tests/test_architecture_contracts.py::test_source_files_stay_under_the_line_ceiling`：`src/heagent/**/*.py` 单文件 ≤1000 行的常驻门禁（超限点名文件与行数）。Epic 62 的「单文件均低于 1000 行」Outcome 此前只有手工 `wc -l` 记账、无判据。
 - web_search 内建工具（Epic 61）：按主题检索发现新 URL。引擎可插拔（`WEB_SEARCH_ENGINE`，默认 Tavily）；无密钥工具常在、调用显性报错（`WEB_SEARCH_API_KEY`）；条数/摘要/title/url/汇总四层确定性预算 + `guard_content` 注入围栏；dreamer 与主 loop 同面开放。
 - `RunStore.close_stale_running`：把陈旧 running 快照收尾为 FAILED（崩溃进程遗留的 running 不再污染统计；`updated_at` 保持末次真实活动时刻，不回填时钟）。已接线：新 run 启动时自动触发一次（去重），阈值 `RUN_STALE_IDLE_HOURS`（默认 6h，0=禁用）。

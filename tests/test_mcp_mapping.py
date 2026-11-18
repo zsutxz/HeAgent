@@ -125,9 +125,11 @@ def test_bridge_result_iserror_raises_toolerror() -> None:
 
 
 def _set_user_signatures(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, entries: Any) -> None:
+    """装项目级签名；``global_path`` 指到不存在的文件 ⇒ 不受宿主 ``~/.heagent/`` 影响（用例自洽）。"""
     config = tmp_path / "injection_signatures.json"
     config.write_text(json.dumps(entries), encoding="utf-8")
-    monkeypatch.setattr(mapping, "_USER_PATTERNS", mapping._load_user_signatures(config))
+    no_global = tmp_path / "no-such-global.json"
+    monkeypatch.setattr(mapping, "_USER_PATTERNS", mapping._load_user_signatures(config, global_path=no_global))
 
 
 def test_user_signature_hit_adds_warning(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
@@ -176,27 +178,62 @@ def test_corrupted_json_falls_back_to_builtin(tmp_path: Any) -> None:
     assert mapping._load_user_signatures(config) == []
 
 
-def test_global_signature_file_is_ignored_with_warning(tmp_path: Any, caplog: pytest.LogCaptureFixture) -> None:
-    """A36：全局签名文件**不加载**，但必须显式告警（静默忽略才是真正的缺陷面）。"""
+def test_global_signature_file_is_loaded(tmp_path: Any) -> None:
+    """A36（2026-11-18 起）：全局签名文件**参与加载**，项目级缺失也能生效。"""
     global_path = tmp_path / "home" / ".heagent" / "injection_signatures.json"
     global_path.parent.mkdir(parents=True)
     global_path.write_text(json.dumps([{"pattern": "GLOBALONLY", "description": "全局签名"}]), encoding="utf-8")
 
-    with caplog.at_level("WARNING"):
-        loaded = mapping._load_user_signatures(tmp_path / "missing.json", global_path=global_path)
+    loaded = mapping._load_user_signatures(tmp_path / "missing.json", global_path=global_path)
 
-    assert loaded == []  # 全局入口刻意不存在：不加载、不静默
-    assert "are ignored" in caplog.text
-    assert str(global_path) in caplog.text
+    assert [raw for _pat, _desc, raw in loaded] == ["GLOBALONLY"]
+
+
+def test_project_signature_overrides_global_same_pattern(tmp_path: Any) -> None:
+    """同名 ``pattern`` 由项目级覆盖（项目更具体），且不产生重复条目。"""
+    global_path = tmp_path / "home" / ".heagent" / "injection_signatures.json"
+    global_path.parent.mkdir(parents=True)
+    global_path.write_text(
+        json.dumps(
+            [
+                {"pattern": "SHARED", "description": "全局描述"},
+                {"pattern": "GLOBALONLY", "description": "全局独有"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    project_path = tmp_path / "injection_signatures.json"
+    project_path.write_text(json.dumps([{"pattern": "SHARED", "description": "项目描述"}]), encoding="utf-8")
+
+    loaded = mapping._load_user_signatures(project_path, global_path=global_path)
+
+    by_raw = {raw: desc for _pat, desc, raw in loaded}
+    assert by_raw == {"SHARED": "项目描述", "GLOBALONLY": "全局独有"}
 
 
 def test_missing_global_signature_file_stays_silent(tmp_path: Any, caplog: pytest.LogCaptureFixture) -> None:
-    """全局候选文件不存在时零噪声（告警只在「确实会被忽略」时出现）。"""
+    """全局文件不存在时零噪声（缺失是合法空载，不是错误）。"""
+    project_path = tmp_path / "injection_signatures.json"
+    project_path.write_text(json.dumps([{"pattern": "PROJ", "description": "项目签名"}]), encoding="utf-8")
+
     with caplog.at_level("WARNING"):
-        loaded = mapping._load_user_signatures(tmp_path / "missing.json", global_path=tmp_path / "nope.json")
+        loaded = mapping._load_user_signatures(project_path, global_path=tmp_path / "nope.json")
+
+    assert [raw for _pat, _desc, raw in loaded] == ["PROJ"]
+    assert caplog.text == ""
+
+
+def test_global_bad_entry_logs_its_source(tmp_path: Any, caplog: pytest.LogCaptureFixture) -> None:
+    """两级都能配 ⇒ 坏条目必须能归因到来源（global / project）。"""
+    global_path = tmp_path / "home" / ".heagent" / "injection_signatures.json"
+    global_path.parent.mkdir(parents=True)
+    global_path.write_text(json.dumps([{"pattern": "[", "description": "坏正则"}]), encoding="utf-8")
+
+    with caplog.at_level("ERROR"):
+        loaded = mapping._load_user_signatures(tmp_path / "missing.json", global_path=global_path)
 
     assert loaded == []
-    assert "are ignored" not in caplog.text
+    assert "global signature" in caplog.text
 
 
 def test_lazy_load_cached_once(monkeypatch: pytest.MonkeyPatch) -> None:

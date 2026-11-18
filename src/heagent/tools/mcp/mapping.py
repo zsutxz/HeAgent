@@ -144,9 +144,9 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 # Project-local additions are intentionally process-cached: changing this file
 # while a process is running must not silently change the guard's behavior.
 _USER_SIGNATURES_PATH = Path(".heagent") / "injection_signatures.json"
-# 全局级入口**刻意不存在**（零使用 ⇒ YAGNI）。但把签名写进 ``~/.heagent/``
-# 是很自然的直觉，静默忽略会让用户以为围栏已生效 ⇒ 项目级缺失时探一次并显式 WARNING。
-_GLOBAL_SIGNATURES_HINT = Path(".heagent") / "injection_signatures.json"  # 相对用户 home
+# 全局级入口（A36，2026-11-18 起**真的加载**）：``<用户 home>/.heagent/injection_signatures.json``。
+# 语义 = 全局作底、项目级同名 pattern 覆盖（项目配置更具体）。两级都在进程内缓存一次。
+_GLOBAL_SIGNATURES_PATH = Path(".heagent") / "injection_signatures.json"  # 相对用户 home
 _USER_PATTERNS: list[tuple[re.Pattern[str], str, str]] | None = None
 _TOKENIZER_MARKERS = (
     "<|im_start|>",
@@ -164,78 +164,78 @@ _INJECTION_WARNING_TEMPLATE = (
 )
 
 
-def _warn_ignored_global_signatures(global_path: Path | None = None) -> None:
-    """全局候选文件存在时显式告警：全局入口不存在，只有项目级生效（活动台账 A36）。
+def _project_signatures_file(path: Path | None) -> Path:
+    """项目级签名文件路径：显式传入优先，否则按工作区根解析（越界即索引错误，由读取处报告）。"""
+    if path is not None:
+        return path
+    return resolve_under_root(str(_USER_SIGNATURES_PATH), workspace_root())
 
-    静默忽略是这里真正的缺陷面——用户按「工具通用配置」直觉把文件放进 ``~/.heagent/`` 时，
-    围栏看起来配好了、实际一次都没生效。探测是 best-effort：读不到 home / 探测报错都静默
-    放弃（不能让一次提示打断 MCP 结果映射）。
+
+def _read_signature_file(file_path: Path, *, source: str) -> list[tuple[re.Pattern[str], str, str]]:
+    """读一个签名文件并校验条目；缺文件 = 合法空载（静默），坏条目逐条报错并跳过。
+
+    ``source``（``global`` / ``project``）进所有日志：两级都能配时，报错必须能归因到具体来源，
+    否则用户不知道该改哪个文件。
     """
     try:
-        probe = global_path if global_path is not None else Path.home() / _GLOBAL_SIGNATURES_HINT
-        exists = probe.is_file()
-    except (OSError, RuntimeError):
-        return
-    if exists:
-        logger.warning(
-            "Global MCP injection signatures at %s are ignored: only the project-local "
-            ".heagent/injection_signatures.json is loaded; copy the file into the project to enable it",
-            probe,
-        )
-
-
-def _load_user_signatures(
-    path: Path | None = None, *, global_path: Path | None = None
-) -> list[tuple[re.Pattern[str], str, str]]:
-    """Load valid project-local injection signatures, skipping invalid entries.
-
-    ``global_path`` 仅供测试注入（缺省 ``<用户 home>/.heagent/injection_signatures.json``）：
-    它只用来**探测并告警**被忽略的全局文件，不参与加载。
-    """
-    signature_path = path or _USER_SIGNATURES_PATH
-    try:
-        if path is None:
-            signature_path = resolve_under_root(str(_USER_SIGNATURES_PATH), workspace_root())
-        raw = signature_path.read_text(encoding="utf-8")
+        raw = file_path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        _warn_ignored_global_signatures(global_path)
         return []
     except (OSError, UnicodeError, WorkspacePathError) as exc:
-        logger.error("Unable to read user MCP injection signatures from %s: %s", signature_path, exc)
+        logger.error("Unable to read %s MCP injection signatures from %s: %s", source, file_path, exc)
         return []
 
     try:
         entries = json.loads(raw)
     except (json.JSONDecodeError, TypeError) as exc:
-        logger.error("Invalid user MCP injection signatures JSON at %s: %s", signature_path, exc)
+        logger.error("Invalid %s MCP injection signatures JSON at %s: %s", source, file_path, exc)
         return []
     if not isinstance(entries, list):
-        logger.error("User MCP injection signatures at %s must be a JSON array", signature_path)
+        logger.error("%s MCP injection signatures at %s must be a JSON array", source.capitalize(), file_path)
         return []
 
     patterns: list[tuple[re.Pattern[str], str, str]] = []
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
-            logger.error("Skipping user MCP signature %d: expected an object", index)
+            logger.error("Skipping %s signature %d: expected an object", source, index)
             continue
         pattern = entry.get("pattern")
         description = entry.get("description")
         if not isinstance(pattern, str) or not pattern:
-            logger.error("Skipping user MCP signature %d: pattern must be a non-empty string", index)
+            logger.error("Skipping %s signature %d: pattern must be a non-empty string", source, index)
             continue
         if not isinstance(description, str) or not description:
-            logger.error("Skipping user MCP signature %d: description must be a non-empty string", index)
+            logger.error("Skipping %s signature %d: description must be a non-empty string", source, index)
             continue
         if any(marker in description.lower() for marker in _TOKENIZER_MARKERS):
-            logger.warning("Skipping user MCP signature %d: description contains a tokenizer marker", index)
+            logger.warning("Skipping %s signature %d: description contains a tokenizer marker", source, index)
             continue
         try:
             compiled = re.compile(pattern)
         except re.error as exc:
-            logger.error("Skipping user MCP signature %d: invalid regex: %s", index, exc)
+            logger.error("Skipping %s signature %d: invalid regex: %s", source, index, exc)
             continue
         patterns.append((compiled, description, pattern))
     return patterns
+
+
+def _load_user_signatures(
+    path: Path | None = None, *, global_path: Path | None = None
+) -> list[tuple[re.Pattern[str], str, str]]:
+    """加载全局 + 项目级注入签名（全局作底、项目级同名 ``pattern`` 覆盖）。
+
+    ``path`` / ``global_path`` 仅供测试注入：缺省分别是「工作区根下的
+    ``.heagent/injection_signatures.json``」与「``<用户 home>/.heagent/injection_signatures.json``」。
+    两级合并按 ``pattern`` 字符串去重，项目级胜出（项目更具体）；返回顺序 = 全局声明序 + 项目新增项。
+    """
+    global_file = global_path if global_path is not None else Path.home() / _GLOBAL_SIGNATURES_PATH
+    merged: dict[str, tuple[re.Pattern[str], str, str]] = {}
+    for source, file_path in (("global", global_file), ("project", _project_signatures_file(path))):
+        for compiled, description, raw in _read_signature_file(file_path, source=source):
+            if raw in merged:
+                logger.debug("Project-level signature %r overrides the global one", raw)
+            merged[raw] = (compiled, description, raw)
+    return list(merged.values())
 
 
 def _user_patterns() -> list[tuple[re.Pattern[str], str, str]]:

@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from heagent.network.http_console_protocol import ConsoleHandler
 
     from .config import HttpServerConfig
+    from .endpoints_run import RunHistorySource
     from .endpoints_tasks import TaskProgressSource
     from .service import HttpRunService
 
@@ -79,6 +80,7 @@ def build_http_app(
     run_service: HttpRunService | None = None,
     console: ConsoleHandler | None = None,
     tasks: TaskProgressSource | None = None,
+    history: RunHistorySource | None = None,
 ) -> ASGIApp:
     """构造网页入口的 ASGI 应用（健康检查 + 运行 API/SSE + 包内静态页 + 安全头）。
 
@@ -87,6 +89,8 @@ def build_http_app(
     时不注册 ``/api/runs*``、``/api/session`` 或 ``/api/projects*``（那些路径回 404），Story 49-1 的用法因此保持不变。
     ``tasks`` 是**注入的任务进度来源**（同一条接缝）：为 ``None`` 时不注册 ``/api/tasks*``
     （那些路径回 404），生产者侧注册表由入口层持有并注入。
+    ``history`` 是**注入的历史回放来源**（A35）：进程内没有该 run 的记录时（重启后），
+    ``GET /api/runs/<id>/events`` 用它回放 rollout 里的事件；``None`` = 维持 404。
     错误响应一律走 :func:`_json_error`，异常细节只进服务端日志。
     Epic 56 D1：WS 路由已全部迁出本 app（宿主 = ``network/ws_host.py``），本 app 只剩纯 HTTP+SSE。
     """
@@ -152,7 +156,9 @@ def build_http_app(
         routing.Route("/", endpoint=index, methods=["GET"]),
     ]
     if run_service is not None:
-        create_run, run_events, cancel_run, session_endpoint = _build_run_endpoints(responses, config, run_service)
+        create_run, run_events, cancel_run, session_endpoint = _build_run_endpoints(
+            responses, config, run_service, history
+        )
         routes.extend(
             [
                 routing.Route(_RUNS_PATH, endpoint=create_run, methods=["POST"]),

@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from heagent.network.http_console_protocol import ConsoleHandler
 
     from .config import HttpServerConfig
+    from .endpoints_run import RunHistorySource
     from .endpoints_tasks import TaskProgressSource
     from .service import HttpRunService
 
@@ -64,12 +65,15 @@ class HttpServer:
         run_service: HttpRunService | None = None,
         console: ConsoleHandler | None = None,
         tasks: TaskProgressSource | None = None,
+        history: RunHistorySource | None = None,
     ) -> None:
         self.config = config
         self.version = version
         self.run_service = run_service
         self.console = console
         self.tasks = tasks
+        # 历史回放来源（A35）：进程内无该 run 时用它回放 rollout；None = 维持 404。
+        self.history = history
         self._app: ASGIApp | None = None
         self._server: Any = None
         # 生命周期锁与「已关闭」标记：``close()`` 必须**等到**收尾真正完成才返回。只用一个布尔
@@ -88,6 +92,7 @@ class HttpServer:
                 run_service=self.run_service,
                 console=self.console,
                 tasks=self.tasks,
+                history=self.history,
             )
         return self._app
 

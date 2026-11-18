@@ -10,8 +10,11 @@
   在工具执行链 / 会话生命周期中**显式 ``await`` 调用**，既支持异步执行也支持「阻断」语义。
 - 事件映射（对齐 Claude Code 语义）：
   - ``PreToolUse`` —— 工具执行前（可 ``block`` 阻断：命令退出码非 0 则阻断，stdout 作反馈）；
-  - ``PostToolUse`` —— 工具执行后（fire-and-forget 通知）；
+  - ``PostToolUse`` —— 工具执行后（不阻断；**非空 stdout 进对话上下文**，见下）；
   - ``SessionStart`` / ``SessionEnd`` —— 单次 run 开始 / 结束。
+- PostToolUse 的 stdout 预算（A53）：每条 hook 至多 ``_POST_TOOL_CONTEXT_MAX_CHARS`` 字符、一次工具
+  调用累计至多 ``_POST_TOOL_CONTEXT_TOTAL_MAX_CHARS``，超限显式打 ``_TRUNCATION_MARKER`` 而非静默丢弃。
+  注入权归调用方（``agent/tool_execution``，以工具结果附注形态追加），本模块只负责「执行 + 取文本」。
 - 注入环境变量：``HEAGENT_EVENT`` / ``HEAGENT_TOOL_NAME`` / ``HEAGENT_RUN_ID`` /
   ``HEAGENT_SESSION_ID`` 供 hook 命令读取。
 
@@ -50,6 +53,12 @@ SESSION_END = "SessionEnd"
 
 # hook 命令默认超时（秒）：防止恶意/挂死的 hook 拖死 agent 主循环。
 _DEFAULT_HOOK_TIMEOUT = 30.0
+
+# PostToolUse stdout 进上下文的预算（A53）：每条 hook 与每次工具调用各有上限。
+# 超限**显式截断**并打标记——静默截断会让模型把半截输出当完整事实。
+_POST_TOOL_CONTEXT_MAX_CHARS = 2000
+_POST_TOOL_CONTEXT_TOTAL_MAX_CHARS = 4000
+_TRUNCATION_MARKER = "…[hook output truncated]"
 
 # hook 子进程环境白名单：**不透传全量 os.environ**（防 API key 等敏感变量随 hook 命令
 # 外传），仅保留 shell 找到可执行文件所需的基本变量（跨平台并集）+ ``HEAGENT_*`` 前缀。
@@ -138,10 +147,31 @@ class HookManager:
                 return HookResult(blocked=True, feedback=stdout.strip() or f"Hook '{hook.command}' exited {code}")
         return HookResult()
 
-    async def run_post_tool(self, call: ToolCall, run_context: RunContext | None = None) -> None:
-        """PostToolUse：执行匹配的 hooks（通知，不阻断）。"""
+    async def run_post_tool(self, call: ToolCall, run_context: RunContext | None = None) -> str:
+        """PostToolUse：执行匹配的 hooks（不阻断），返回可注入上下文的 stdout 文本。
+
+        只收**非空** stdout；每条按 ``_POST_TOOL_CONTEXT_MAX_CHARS`` 截断、累计按
+        ``_POST_TOOL_CONTEXT_TOTAL_MAX_CHARS`` 封顶（达上限即停，剩余 hook 的文本不再收集，
+        hook 本身仍会执行）。无输出返回空串 —— 调用方据此决定是否追加附注。
+        """
+        parts: list[str] = []
+        used = 0
         for hook in self._matching(POST_TOOL_USE, call.name):
-            await self._run(hook, tool_name=call.name, run_context=run_context)
+            _code, stdout = await self._run(hook, tool_name=call.name, run_context=run_context)
+            text = stdout.strip()
+            if not text:
+                continue
+            if len(text) > _POST_TOOL_CONTEXT_MAX_CHARS:
+                text = text[:_POST_TOOL_CONTEXT_MAX_CHARS] + _TRUNCATION_MARKER
+            remaining = _POST_TOOL_CONTEXT_TOTAL_MAX_CHARS - used
+            if remaining <= 0:
+                logger.debug("PostToolUse hook output budget exhausted; dropping output of %r", hook.command)
+                continue
+            if len(text) > remaining:
+                text = text[:remaining] + _TRUNCATION_MARKER
+            parts.append(text)
+            used += len(text)
+        return "\n\n".join(parts)
 
     async def run_session(self, event: str, run_context: RunContext | None = None) -> None:
         """SessionStart / SessionEnd：执行匹配的 hooks（通知，不阻断）。"""

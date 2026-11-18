@@ -27,7 +27,7 @@
 
 ### 1.3 下一步（路线图）
 
-> 完整清单（活动台账项——当前 8 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（活动台账项——当前 5 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本 `0.9.0`；A51 部分闭合——`CHANGELOG.md` + 版本真源守卫 + mkdocs strict 已落，2026-11-11；`.github/workflows` 仍仅 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
 - ✅ **Epic 61 Web 检索工具周期（已闭合）**：2026-11-13 立项，2026-11-16 全链交付闭合——61.1 引擎层 `66a5b9f`、61.2 工具面 `1877250`、61.3 文档收口随本批收口提交入库；真实密钥冒烟经用户裁定跳过，挂账 A55（等 WEB_SEARCH_API_KEY）。
@@ -43,7 +43,7 @@
 
 > **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `initiative-heagent/archive-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（8 条——A34/A35/A36/A41/A53/A54/A55/A56，**索引**）
+#### A. 活动台账未闭合条目（5 条——A34/A41/A54/A55/A56，**索引**）
 
 > **2026-11-15 起**：活动项正文见 [`open-items.md`](open-items.md)（唯一活动台账）。
 > 已闭合编号索引（26 行表）、B 组修正表与 E 组决策关闭记录已迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§三/§四）。

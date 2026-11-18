@@ -751,6 +751,7 @@ def test_cli_package_layout_is_pinned() -> None:
         "interactive",
         "port_finder",
         "progress",
+        "run_history",
         "skill_merge",
         "slash",
         "suggestions",

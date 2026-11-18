@@ -92,6 +92,16 @@ async def _record_ledger_outcome(loop: AgentLoop, cache_key: str, result: ToolRe
         )
 
 
+def _append_hook_context(content: str, hook_output: str) -> str:
+    """把 PostToolUse hook 的 stdout 追加为工具结果附注（A53）。
+
+    用固定分隔标签而非裸拼接：模型需要能区分「工具自己说的话」与「hook 附注」，
+    否则 hook 输出会被当作工具事实读进推理。附注在正文之后，不改写正文本身。
+    """
+    block = f"[PostToolUse hook output]\n{hook_output}"
+    return f"{content}\n\n{block}" if content else block
+
+
 def _activity_labels(calls: list[ToolCall]) -> list[str]:
     """把一批调用渲染成活动标签 ``<tool> → <target>``（无作用对象时只留工具名）。
 
@@ -261,6 +271,8 @@ async def execute_tool_call(
         handler = loop.registry.get_handler(call.name)
         # ②.6 PreToolUse hooks：可阻断工具调用（block hook 退出码非 0 → 阻断）。
         hook_feedback: str | None = None
+        # PostToolUse 的 stdout（非空才进上下文，见 ④ 之后的附注逻辑）。
+        hook_context = ""
         if loop.engine.hooks is not None:
             hook_result = await loop.engine.hooks.run_pre_tool(call, run_context)
             if hook_result.blocked:
@@ -296,14 +308,19 @@ async def execute_tool_call(
                 run_context=run_context,
                 emit=loop._emit,
             )
-            # PostToolUse hooks：通知，不阻断。
+            # PostToolUse hooks：不阻断；非空 stdout 下注入对话上下文（见下方附注）。
             if loop.engine.hooks is not None:
-                await loop.engine.hooks.run_post_tool(call, run_context)
+                hook_context = await loop.engine.hooks.run_post_tool(call, run_context)
 
         # ④ 结果回写 ledger：成功记 complete（带结果供后续幂等），失败记 fail（允许重试）。
         #    记账失败不得改写工具结果——见 _record_ledger_outcome 的 docstring。
         if gate.cache_key is not None:
             await _record_ledger_outcome(loop, gate.cache_key, result)
+        # A53：hook stdout 以**附注**追加到工具结果（在 ledger 记账之后——幂等缓存只存原始
+        # 工具输出，重放不会带上一次运行的 hook 文本）。落成工具结果附注而非独立 USER 消息：
+        # hook 输出是用户自配置命令的产物，不该获得用户指令权重。
+        if hook_context:
+            result = result.model_copy(update={"content": _append_hook_context(result.content, hook_context)})
         return result
     except Exception as exc:
         # ledger acquire / policy evaluate 等非 handler 异常也转为 error ToolResult，

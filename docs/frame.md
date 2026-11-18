@@ -162,6 +162,7 @@ AgentLoop.run(prompt)
 | `doctor.py` | `heagent doctor` 配置诊断（只读；11 组检查产出 25 个诊断码，Story 64.6） | 新增 |
 | `cron_cmd.py` | `heagent cron status` 定时任务状态查询（只读 `jobs.json`：状态 / 最后与下次执行 / 失败原因，Story 64.10） | 新增 |
 | `progress.py` | 进度原语：工具执行超 3s 的实时耗时行 + 大文件（>10MB）读写进度（Story 64.8 / 64.9） | 新增 |
+| `run_history.py` | 重启后的**读侧事件回放**（A35）：从 `<项目根>/.heagent/runs/<id>/rollout.jsonl` 读回引擎事件并映射成 SSE 负载（工具输出未落盘 ⇒ 如实标注；缺终态补 `cancelled` 说明）；run_id 过白名单 + 路径越界校验。入口层模块——它同时认识 `events` 与 `network` 模型，`network/` 自身不得导入运行栈 | 新增 |
 | `suggestions.py` | 错误场景 → ≥2 条**可执行命令**建议的声明式映射表（Story 64.13） | 新增 |
 | `wizard.py` | `heagent init --interactive` 配置向导主体（45 项常用键按 11 个面分组，推荐值取自 `Settings` 字段默认，Story 64.14） | 新增 |
 | `slash.py` | 交互模式斜杠命令注册表 + `.heagent/commands/*.md` 用户自定义命令加载 | 顶层 `slash.py` |
@@ -957,7 +958,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `context.py` | `RunContext`（run_id/session_id/parent_run_id/workspace_root/iteration/metadata）、`RunStatus`；终态唯一写入口 `RunContext.mark_terminal`（Phase 2 C2：RUNNING→COMPLETED/FAILED 合法、终态再写显性失败；`touch` 是裸 setter 仅供迭代期刷新。取消路径不写终态——status 保持 RUNNING 可 resume） |
 | `approval.py` | `ApprovalHandler` 协议 + `ApprovalDecision`/`ApprovalRequest` + `ConsoleApprovalHandler`/`DenyAllApprovalHandler` — 交互式审批闭环（Epic 29） |
 | `tasks.py` | 后台任务进度注册表（四态 + 百分比单调 + TTL/条数淘汰；生产者侧 `TaskScope`，查询侧经入口层注入 `GET /api/tasks`；Story 64.11） | 新增 |
-| `hooks.py` | `HookConfig`/`HookManager` — 用户可配置事件钩子（PreToolUse/PostToolUse/SessionStart/SessionEnd，Epic 32） |
+| `hooks.py` | `HookConfig`/`HookManager` — 用户可配置事件钩子（PreToolUse/PostToolUse/SessionStart/SessionEnd，Epic 32）；PostToolUse 的**非空 stdout 进对话上下文**（以工具结果附注形态追加，单条 ≤2000 / 单次调用累计 ≤4000 字符，超限显式截断标记；注入点在 ledger 记账之后 ⇒ 幂等缓存只存原始工具输出） |
 | `policy.py` | `PolicyEngine` — 准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
 | `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端；FR-1 会话目录经 `bind_sandbox_workspace` 送达；FR-2 后端强度档位经 `_runner_tier()` 查询并随 emit 事件 `sandbox_tier` 可观测（机制见 `docs/sandbox.md`；拆分见 §4.4 的 `tools/sandbox/` 说明） |
 | `store.py` | `RunStore` — `.heagent/runs/` 运行快照（async I/O + 原子写），`build_run_tree()` 按 `parent_run_id` 聚合；`prune(retention_days=)` 按 mtime 轻量回收过期快照 + 配套 `.lock` + `<run_id>/` 产物目录（不 load Pydantic），由 `prune_runs_once()` 在全新 run 启动时触发一次 |
@@ -1506,7 +1507,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | 流式 tool_calls 回退 | `run_stream()` 流式模式不返回 `tool_calls`，命中时回退 `send()` 重取（已知设计权衡） |
 | MCP / engine sandbox 安全边界 | 三层非边界与 OS 级兜底立场见 §4.19；本行的缺口事实是 shell 路径的兜底实施项 = container 档 Docker 后端（Epic 53 期一，2026-10-21；**默认链路未启用**，须显式 --sandbox docker / env 选择） |
 | MCP stdio 子进程不经沙箱——**已闭合**（Epic 53 期二 53-5，2026-11-03；2026-09-27 的「裁定 (c) 不做」被 2026-10-21 起的容器档兜底推翻） | 实施：`SANDBOX_BACKEND=docker` 时 `cli/console.py::_stdio_sandbox_spec` 产出 `StdioSandboxSpec`，`MCPClientManager(stdio_sandbox=…)` → `default_transport_opener` → `tools/mcp/stdio_sandbox.py::stdio_params` 把 SDK 的 stdio 子进程换成 **docker CLI**：`docker run -i --rm --pull=never --cap-drop=ALL --security-opt no-new-privileges --user sandbox --network <none|bridge> <image> <server-cmd> …`，容器内进程的 stdin/stdout 即 JSON-RPC 管道（长命双向，不经 `CommandRunner` 的 `sh -c` 短命形状）。env 只对 `.mcp.json` 显式声明的键发 `-e KEY`（不带值，值不进 argv），宿主其它变量不进容器。**降级**：daemon 不可用 / CLI 缺席 / 探测抛错 ⇒ 显性降级回宿主执行，**每次**连接打 WARNING（判据 `tests/test_mcp_stdio_sandbox.py`）。残留：镜像里没有的二进制（典型 `npx`）会显性失败——属预期，镜像供给是配置面职责；边界地位仍见 §4.19（容器档非绝对边界）。历史裁定正文见 `_bmad-output/epics/epic-S1-S4-沙箱硬化周期/deferred-work.md`（Z-D24） |
-| 用户可配置 MCP 签名入口 | 项目级 `.heagent/injection_signatures.json` 已接入并进程内缓存；全局级入口仍 deferred（活动台账 A36：2026-11-05 复核项目级与全局级文件均不存在，零使用 ⇒ 加全局入口属 YAGNI）；但全局文件存在时加载器**显式 WARNING 说明其被忽略**（静默失效才是缺陷面，判据 `tests/test_mcp_mapping.py::test_global_signature_file_is_ignored_with_warning`）；签名围栏的边界地位见 §4.19 |
+| 用户可配置 MCP 签名入口 | **两级都生效**（2026-11-18 起，活动台账 A36 闭合）：项目级 `.heagent/injection_signatures.json` + 全局级 `<用户 home>/.heagent/injection_signatures.json`，两级均在进程内缓存一次（改文件需重启进程）；合并语义 = 全局作底、**同名 `pattern` 由项目级覆盖**，条目校验逐条报错并**带来源**（global / project），缺文件是合法空载。判据 `tests/test_mcp_mapping.py`（加载 / 覆盖 / 缺失零噪声 / 来源归因四例）+ 变异 3/3 全红（`scripts/mutation/mutate_mcp_signature_hint.py`）；签名围栏的边界地位见 §4.19 |
 | 凭证 deny 项目级配置入口 | `.heagent/path_deny.json`（2026-09-17）允许收紧（追加 deny 项）或放行显式列举项（精确路径 / basename 豁免；内部状态目录 deny 不接受豁免），无整体关闭入口、fail-safe 默认仍拒；边界地位见 §4.19 |
 | Web 工具注入围栏 | `web_fetch` / `web_search` 返回路径已接 `guard_content`（机制出自 Epic 35，2026-08-19：命中内置注入签名即加 warning 标记透传，不阻断），与 MCP `bridge_result` 同语义；标记仅 observable defense-in-depth（边界地位见 §4.19），dreamer 的兜底要求见 4.6 dream.py |
 | 交互式审批非安全边界 | 审批闭环（Epic 29）把「要不要执行」交给用户，边界地位见 §4.19（见 4.12 approval.py） |
@@ -1517,7 +1518,7 @@ argv（无 shell、无用户输入）+ 300s 超时 kill」，但它**不是**「
 | SandboxSession 非安全边界 | SandboxSession（FR-4，2026-08-26）会话 cwd 保持仅「cd 前缀 + 尾捕获」约定，WinJob 无 FS 隔离、Firejail 无完整隔离——边界地位见 §4.19；crash 孤儿目录 GC/保留策略已于 2026-09-15（E40-D1）交付（housekeeping.prune_sandbox_dirs + sandbox_dir_retention_days） |
 | WebSocket 入口非安全边界（Epic 54 / Epic 56 / Epic 58） | 四条 WS 端点（提交 /api/runs/ws、订阅 /api/runs/{run_id}/ws、旁路 /api/cli/ws、通知流 /api/notifications/ws）的边界地位见 §4.19（要素 3–5）。本行的缺口事实：对外模式的凭证机制是静态 token（只读用户级 ~/.heagent/setting.md）+ 握手前常量时间比较 + 按来源失败限速，且只走握手头 ⇒ 不支持浏览器直连；**对外能提交 run ⇒ 容器沙箱档（--sandbox docker）从建议升级为强烈建议**（仍默认未启用） |
 | HTTP 入口不接 MCP | 网页入口**不连接** `.mcp.json` 声明的 server（入口层隔离第三方代码的既有决策）：入口的边界地位见 §4.19，自动拉起第三方 stdio 子进程 / 连远端端点等于把触达面暴露给任何能连上端口的人 |
-| HTTP 会话/事件无持久化 | 网页入口的会话投影、运行记录与 SSE 事件缓冲都是**进程内状态**：进程退出即丢；事件缓冲按 `HTTP_EVENT_BUFFER_SIZE` 有界，越过窗口的重连只能得到 `resync_required` 并改拉 `/api/session` 快照。首版有意如此（持久化见 4.17 与架构脊柱的延后决策） |
+| HTTP 会话/事件无持久化（2026-11-18 A35 部分改判） | 网页入口的会话投影、运行记录与 SSE 事件缓冲都是**进程内状态**：进程退出即丢；事件缓冲按 `HTTP_EVENT_BUFFER_SIZE` 有界，越过窗口的重连只能得到 `resync_required` 并改拉 `/api/session` 快照。**读侧已补**：`EVENTS_ROLLOUT_ENABLED=true` 时旧 run 的 `GET /api/runs/<id>/events` 从 `<项目根>/.heagent/runs/<id>/rollout.jsonl` **一次性回放**（粗粒度：工具输出未落盘 ⇒ 标注、文本增量未落盘 ⇒ 以一条 `done` 交付完整答案；响应头 `x-heagent-replay: rollout`；进程内仍有记录时以内存为准），未开 rollout 或文件缺失仍 404。写侧（在途 run 跨进程续跑、事件缓冲持久化）仍不做 |
 | 日志行的凭证脱敏（**启发式，非边界**；2026-09-23 交付） | `LoggingObserver` 打印前对 `target`/`details` 掩码：键值（`API_KEY=…`/`token: …`）、CLI 旗标、厂商前缀（`sk-`/`ghp_`/`AKIA`/`AIza`/JWT）、`Bearer`、URL userinfo，以及**凭证命名的键**（短值无形状可认）。**肯定漏网**：模式匹配非完备，`shell` target 仍不截断（审查需要原文），且 `logs/`、`.heagent/runs/`（快照/rollout）按设计保存完整 prompt 与消息——边界地位与兜底要求见 §4.19；另遵守「不要把凭证写进命令或路径」 |
 | 控制台「回环来源」不等于安全（**评审 F9**，2026-09-24） | 写通道 / 项目登记 / 项目移除要求**回环来源**（`_loopback_error`），该闸门的边界地位见 §4.19（要素 3）；本行的缺口事实是跨站写入的实际防线只有 4.17 的 `Origin` / `Host` 校验（AD-6）。文档不得把回环门写成信任依据 |
 | 控制台「只读」不是安全边界 | 面板上的「只读 / 只读原因」是**用户体验标记**（`classify()` 的划分），不是访问控制：白名单之外的键照样能被任何能改 `.env` 的进程改动（边界地位见 §4.19）。写通道的 fail-closed 校验同样只作用于这条通道 |
@@ -1564,6 +1565,7 @@ src/heagent/
 │   ├── doctor.py            # heagent doctor 配置诊断（只读，11 组检查 / 25 个诊断码；Story 64.6）
 │   ├── cron_cmd.py          # heagent cron status：定时任务状态查询（只读 jobs.json；Story 64.10）
 │   ├── progress.py          # 工具执行耗时行 + 大文件读写进度（Story 64.8 / 64.9）
+│   ├── run_history.py       # 重启后的读侧事件回放：rollout.jsonl → SSE 负载（A35，2026-11-18）
 │   ├── suggestions.py       # 错误场景 → ≥2 条可执行命令建议（Story 64.13）
 │   ├── wizard.py            # heagent init --interactive 配置向导（Story 64.14）
 │   ├── skill_merge.py       # /skill-merge 跨根同名技能交互收口（skills 双根，2026-10-10）

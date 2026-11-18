@@ -44,6 +44,7 @@ from heagent.cli.http_config import (
     build_ws_servers,
 )
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
+from heagent.cli.run_history import run_history_source
 from heagent.cli.wiring import _build_provider, load_startup_settings
 from heagent.config import WS_AUTH_TOKEN_KEY, Settings
 from heagent.engine.tasks import default_task_registry
@@ -369,6 +370,8 @@ def build_http_service(
             # 进度注册表是**进程内**单例：网页入口与 CLI 同进程时，/api/tasks 读到的正是
             # 本进程里压缩等后台任务上报的进度（跨进程不共享，这是刻意的——没有 IPC）。
             tasks=RegistryTaskSource(default_task_registry()),
+            # A35：重启后旧 run 的事件从项目根的 rollout.jsonl 回放（读侧只读，粗粒度）。
+            history=run_history_source(workspace.root),
         )
     # 1–2 个 WS listener + 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
     ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service, enabled=ws_on)
@@ -680,6 +683,8 @@ def http_server_cmd(
             run_service=run_service,
             console=console,
             tasks=RegistryTaskSource(default_task_registry()),
+            # A35：重启后旧 run 的事件从项目根的 rollout.jsonl 回放（读侧只读，粗粒度）。
+            history=run_history_source(workspace.root),
         )
     try:
         # 主 listener + 可选对外 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
