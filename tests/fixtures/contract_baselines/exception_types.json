@@ -33,6 +33,55 @@
       "bases": [
         "BaseModel"
       ],
+      "module": "heagent.cli.suggestions",
+      "name": "CommandSuggestion"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.cli.suggestions",
+      "name": "ErrorScenario"
+    },
+    {
+      "bases": [
+        "Exception"
+      ],
+      "module": "heagent.cli.wizard",
+      "name": "WizardError"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.cli.wizard",
+      "name": "WizardItem"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.cli.wizard",
+      "name": "WizardKind"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.cli.wizard",
+      "name": "WizardResult"
+    },
+    {
+      "bases": [
+        "ValueError"
+      ],
+      "module": "heagent.cli.wizard",
+      "name": "_InvalidValue"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
       "module": "heagent.config.envfile",
       "name": "EnvFileIndex"
     },
@@ -56,6 +105,27 @@
       ],
       "module": "heagent.config.user_settings",
       "name": "UserMarkdownSettingsSource"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.validation",
+      "name": "ConfigIssue"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.validation",
+      "name": "RequiredCheck"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.config.validation",
+      "name": "StartupValidationResult"
     },
     {
       "bases": [
@@ -124,6 +194,30 @@
       ],
       "module": "heagent.engine.state_machine",
       "name": "WorkflowGateError"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.engine.tasks",
+      "name": "TaskProgress"
+    },
+    {
+      "bases": [],
+      "module": "heagent.engine.tasks",
+      "name": "TaskRegistry"
+    },
+    {
+      "bases": [],
+      "module": "heagent.engine.tasks",
+      "name": "TaskScope"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.engine.tasks",
+      "name": "TaskStatus"
     },
     {
       "bases": [],
@@ -534,6 +628,39 @@
       ],
       "module": "heagent.network.http_server.config",
       "name": "HttpStartupError"
+    },
+    {
+      "bases": [],
+      "module": "heagent.network.http_server.endpoints_tasks",
+      "name": "RegistryTaskSource"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_server.endpoints_tasks",
+      "name": "TaskListResponse"
+    },
+    {
+      "bases": [
+        "Protocol"
+      ],
+      "module": "heagent.network.http_server.endpoints_tasks",
+      "name": "TaskProgressSource"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_server.endpoints_tasks",
+      "name": "TaskProgressView"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.http_server.endpoints_tasks",
+      "name": "TaskStatusView"
     },
     {
       "bases": [],

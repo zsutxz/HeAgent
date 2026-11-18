@@ -9,6 +9,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
@@ -18,16 +19,39 @@ from heagent.pub.persist import atomic_write_text
 logger = logging.getLogger(__name__)
 
 
+class CronRunStatus(StrEnum):
+    """``CronJob.last_status`` 的**落盘值域**——只有这三个会被写入 ``jobs.json``。
+
+    只描述「一次执行到哪一步」，不描述「有没有到过」：从未执行是 ``last_status is None``，
+    展示侧的完整状态（never / unknown / interrupted 等）由
+    :mod:`heagent.cron.status` 依时间戳派生，不回写本字段。
+    """
+
+    RUNNING = "running"
+    SUCCESS = "success"
+    FAILED = "failed"
+
+
 class CronJob(BaseModel):
-    """定时任务定义。"""
+    """定时任务定义。
+
+    所有执行状态字段都是**可选**：旧版 ``jobs.json`` 缺这些键时照常加载（缺 = 未记录），
+    新版文件被旧版读取时多出的键被忽略（pydantic 默认 ``extra="ignore"``）。
+    """
 
     id: str  # 唯一标识符
     prompt: str  # 要执行的任务提示词
     cron: str  # 5-field cron 表达式
     recurring: bool = True  # True=循环，False=一次性
     created: str  # ISO 时间戳
-    last_run: str | None = None  # 上次执行时间
+    last_run: str | None = None  # 上次执行**结束**时间（UTC ISO）
     enabled: bool = True
+    # ``CronRunStatus`` 的值；用 ``str`` 而非枚举类型是为了容错——未知取值（手改/未来版本）
+    # 只让「状态展示」降级成 unknown，不得让整条 job 被当成损坏条目丢弃。
+    last_status: str | None = None  # running / success / failed
+    last_started: str | None = None  # 最近一次执行**开始**时间（UTC ISO，判「卡住的 running」）
+    last_success: str | None = None  # 最近一次成功时间（UTC ISO）
+    last_error: str | None = None  # 最近一次失败的「异常类型: 首行消息」（成功即清空）
 
 
 class JobStore:
@@ -120,6 +144,12 @@ class JobStore:
             return []
         jobs: list[CronJob] = []
         for j in data:
+            if not isinstance(j, dict):
+                # 顶层是列表但元素不是对象（手改文件 / 写坏的 JSON）：按损坏条目计数，
+                # 不当成致命错误——否则一次读状态就把整个 jobs 面拖崩。
+                logger.warning("Skipping non-object cron job entry: %r", j)
+                self._corruption_count += 1
+                continue
             try:
                 jobs.append(CronJob(**j))
             except ValidationError:

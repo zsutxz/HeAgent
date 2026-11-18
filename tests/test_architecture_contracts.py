@@ -738,6 +738,7 @@ def test_cli_package_layout_is_pinned() -> None:
     assert actual == [
         "composition",
         "console",
+        "cron_cmd",
         "dialogs",
         "display",
         "doctor",
@@ -748,10 +749,13 @@ def test_cli_package_layout_is_pinned() -> None:
         "init",
         "interactive",
         "port_finder",
+        "progress",
         "skill_merge",
         "slash",
+        "suggestions",
         "terminal",
         "wiring",
+        "wizard",
     ]
 
 
@@ -804,7 +808,7 @@ def test_shared_layer_layout_is_pinned() -> None:
         "types",
         "workspace",
     ]
-    assert config_modules == ["envfile", "user_settings", "write"]
+    assert config_modules == ["envfile", "user_settings", "validation", "write"]
     assert config_packages == ["catalog"]
 
 

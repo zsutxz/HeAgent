@@ -1,7 +1,7 @@
 """ASGI HTTP 传输层：静态资源、安全响应头与有界生命周期（Epic 49）。
 
 2026-11-15（Story 62.1）自单文件拆为子包（config / assets / records / service / pipeline /
-middleware / endpoints_run / endpoints_console / app / listener），公开 API 与导入面经本
+middleware / endpoints_run / endpoints_console / endpoints_tasks / app / listener），公开 API 与导入面经本
 ``__init__`` 全量 ``X as X`` 再导出保持零变化；层序无环：config → assets/records → service →
 pipeline → endpoints_* → middleware → app → listener。
 
@@ -35,6 +35,9 @@ from .assets import _WEB_ASSETS as _WEB_ASSETS
 from .assets import read_web_asset as read_web_asset
 from .config import HttpServerConfig as HttpServerConfig
 from .config import HttpStartupError as HttpStartupError
+from .endpoints_tasks import RegistryTaskSource as RegistryTaskSource
+from .endpoints_tasks import TaskProgressSource as TaskProgressSource
+from .endpoints_tasks import TaskProgressView as TaskProgressView
 from .listener import HttpServer as HttpServer
 from .pipeline import HttpRequestTooLargeError as HttpRequestTooLargeError
 from .pipeline import _parse_last_event_id as _parse_last_event_id
@@ -50,7 +53,10 @@ __all__ = [
     "HttpServer",
     "HttpServerConfig",
     "HttpStartupError",
+    "RegistryTaskSource",
     "RunEventPublisher",
+    "TaskProgressSource",
+    "TaskProgressView",
     "build_http_app",
     "read_web_asset",
 ]

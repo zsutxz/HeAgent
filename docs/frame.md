@@ -158,6 +158,10 @@ AgentLoop.run(prompt)
 | `display.py` | 终端渲染辅助（CLI 与 GUI 共用） | `cli_display.py` |
 | `errors.py` | CLI 错误的统一出口：描述 + `Try:` 可用选项 + `Docs:` 文档锚点（Story 64.5） | 新增 |
 | `doctor.py` | `heagent doctor` 配置诊断（只读；11 组检查产出 25 个诊断码，Story 64.6） | 新增 |
+| `cron_cmd.py` | `heagent cron status` 定时任务状态查询（只读 `jobs.json`：状态 / 最后与下次执行 / 失败原因，Story 64.10） | 新增 |
+| `progress.py` | 进度原语：工具执行超 3s 的实时耗时行 + 大文件（>10MB）读写进度（Story 64.8 / 64.9） | 新增 |
+| `suggestions.py` | 错误场景 → ≥2 条**可执行命令**建议的声明式映射表（Story 64.13） | 新增 |
+| `wizard.py` | `heagent init --interactive` 配置向导主体（推荐值取自 `Settings` 字段默认，Story 64.14） | 新增 |
 | `slash.py` | 交互模式斜杠命令注册表 + `.heagent/commands/*.md` 用户自定义命令加载 | 顶层 `slash.py` |
 | `terminal.py` | 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断） | 顶层 `terminal.py` |
 | `wiring.py` | provider 呈现薄壳（规则在 `providers/composition.py`，2026-11-07 迁出）+ `ensure_runtime_config` / `build_cron_job_runner`（CLI/GUI 共用） | 顶层 `wiring.py` |
@@ -950,6 +954,7 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `container.py` | `EngineContainer` — DI 容器，`default(workspace_root=)` 装配全部服务；`create_run_context` 含 FR-1 沙箱会话目录解析（根锚定 workspace_root 回退链，开关开启时写 `metadata["sandbox_workspace"]`、关闭时清除预含键，失败显性抛异常） |
 | `context.py` | `RunContext`（run_id/session_id/parent_run_id/workspace_root/iteration/metadata）、`RunStatus`；终态唯一写入口 `RunContext.mark_terminal`（Phase 2 C2：RUNNING→COMPLETED/FAILED 合法、终态再写显性失败；`touch` 是裸 setter 仅供迭代期刷新。取消路径不写终态——status 保持 RUNNING 可 resume） |
 | `approval.py` | `ApprovalHandler` 协议 + `ApprovalDecision`/`ApprovalRequest` + `ConsoleApprovalHandler`/`DenyAllApprovalHandler` — 交互式审批闭环（Epic 29） |
+| `tasks.py` | 后台任务进度注册表（四态 + 百分比单调 + TTL/条数淘汰；生产者侧 `TaskScope`，查询侧经入口层注入 `GET /api/tasks`；Story 64.11） | 新增 |
 | `hooks.py` | `HookConfig`/`HookManager` — 用户可配置事件钩子（PreToolUse/PostToolUse/SessionStart/SessionEnd，Epic 32） |
 | `policy.py` | `PolicyEngine` — 准入 allowlist/blocklist、MCP 门控、工作区路径围栏、审批/沙箱裁决 |
 | `executor.py` | `ToolExecutor` — 按 verdict 分发；内部串行 `SafetyGuard.check()`；sandbox 路径默认 Passthrough，可注入后端；FR-1 会话目录经 `bind_sandbox_workspace` 送达；FR-2 后端强度档位经 `_runner_tier()` 查询并随 emit 事件 `sandbox_tier` 可观测（见 4.4 sandbox.py） |
@@ -1325,6 +1330,7 @@ HTTP+SSE 与内嵌网页，**不含任何 WS 路由**；WS 能力全部迁到独
 | 输入与键盘 | 输入框是**多行** `<textarea>`（`rows=3`，`maxlength` = `MAX_PROMPT_CHARS`，有测试钉住「多行 + 有上限」）。**Enter 发送、Shift+Enter 换行**，Ctrl/Cmd+Enter 同样发送；**输入法组合态（`isComposing` / `keyCode 229`）一律不发送**——否则中文选词时敲回车会把半个词发出去。提交时前端 `trim()` 掉首尾空白（中间换行原样进 prompt），空内容静默忽略；行为由 `tests/test_http_web_ui.py` 的 node 探针（case E）钉住 |
 | 默认 CLI 自启动 | `heagent` / `heagent "prompt"` / `heagent run ...` 在**同一个 asyncio 生命周期**内启动内嵌服务（`cli.interactive._embedded_http_service` + `cli.http.EmbeddedHttpService`）：交互模式与 REPL 共存、单次模式与那次 run 并存且 run 结束即关闭并释放端口。**Epic 56 起该服务 = 双 server**（HTTP 9101 + WS 9201，见上段；期二配 `WS_EXTERNAL_HOST` 时再加一条对外 WS listener），WS 起不来（任一 listener）时回滚已启动的全部，绝不留下「网页能开、订阅打不开」的半启动状态。`gui` / `http-server` / `init` / `replay` 都不经过该路径（**不派生第二个实例**）。启动失败（端口冲突 / 缺 `heagent[http]` / WS 配置不成立）转成命令级错误（exit 1），绝不出现「聊天正常但页面打不开」；serve 循环意外结束时交互模式如实报出并退出（AD-5 的假可用状态禁令）。`EmbeddedHttpService.failure` 的传播链（serve 循环 done callback → `_failure` → 所有者轮询）由**真实**双 listener 故障注入钉住：注入点落在 uvicorn 自己的 `Server.main_loop`（`config.callback_notify` 抛错 ⇒ 下一 tick 抛出），不替换 HeAgent 的 `serve_forever`，断言首个异常不被后续抖动覆盖、兄弟 listener 仍应答（裸 HTTP 状态行）、HTTP 健康端点仍 200、`close()` 后历史失败不被清空（A49，2026-11-02 闭合；`tests/test_cli_http_lifecycle.py::test_one_listener_dying_is_surfaced_while_the_others_keep_serving`）|
 | 运行 API | `POST /api/runs`（请求体**只认** `prompt`，`extra="forbid"` ⇒ 塞 provider/model/system/沙箱/迭代预算一律 400；单运行约束：已有在途 run 时 409 `run_conflict`，**不排队不覆盖**）、`GET /api/runs/{run_id}/events`（SSE）、`DELETE /api/runs/{run_id}`（协作式取消，只作用于该 run，幂等）、`GET /api/session`（会话 id / 当前运行状态 / 已完成历史）。请求体按块读取，超过 `HTTP_MAX_REQUEST_BYTES` 立即中断（413 `request_too_large`），不用 ``request.body()`` 把大小交给客户端决定；该上限默认按「最大 prompt 的最坏 JSON 字节数」派生（见配置表），两者口径不一致时中文提示词会在远未到字符上限前就被 413 拒（2026-09-23 修复） |
+| 任务进度 API | `GET /api/tasks`（至多 64 条，最近有动静的排前面）与 `GET /api/tasks/{task_id}`（未知 / 已过保留期一律 404 `not_found`）。数据源是**入口层注入**的只读投影（`build_http_app(tasks=…)`，为 `None` 时这两条路由不注册 ⇒ 404）——传输层不认识 `engine.tasks`，故不需要 IPC、也不读磁盘；「响应 <100ms」由「只读内存 + 定长模型」这条结构保证而不是靠调优。进度注册表是**进程内**单例：网页入口与内嵌入口同进程才共享，跨进程各自独立（Story 64.11） |
 | 事件与投影 | 事件类型 `text` / `tool_call` / `tool_result` / `done` / `error` / `cancelled` / `timed_out`；`id` 从 1 单调递增、`data` 是单行 JSON；文本字段入缓冲前截断到 16384 字符并显式标记；`done` 带**该次运行**的 model 与 usage。会话投影只有一条路径：仅 `COMPLETED` 的 run 投影 prompt + 最终回答，失败 / 取消 / 超时**绝不**把部分文本写进历史（AD-3）；运行记录按 `HTTP_RUN_HISTORY_SIZE` 保留，**只淘汰终态记录**（在途运行必须始终可按 id 取消 / 订阅，全部在途时宁可暂时超出上限——否则记录凭空消失而它仍占着名额），淘汰后按 id 订阅得 `unknown_run` |
 | 取消、重连与终态 | 终态转换**首个获胜**（AD-10）：完成 / `DELETE` / 运行超时 / 关停竞争时只产生一个终态事件，名额在 done callback 里归还（**含「任务未被调度就被取消」的病态路径**——那时协程体不执行，靠 callback 兜底补写 `cancelled`）。`Last-Event-ID: N` 只重放**严格大于** N 的事件；游标早于缓冲窗口（`N < oldest_seq - 1`）返回 409 `resync_required`（不发看似连续的流），客户端据此拉 `/api/session` 快照；空闲流每 15 秒发一条 SSE 注释心跳（`yield None` → `: ping`，不占 ID）。重放与水位去重语义**单源** `http_protocol.replay_then_follow`（A54④：WS 与 SSE 曾各抄一份；2026-11-15 起 WS 侧终态判定也按快照时刻捕获，与 AD-4「终态事件先于流结束」对齐）。**断线只释放订阅者、绝不取消运行**（取消只能走 `DELETE`）。订阅者队列与事件窗口**同界**：消费端被背压卡住（客户端不读）时**结束该订阅者的流**（客户端带游标重连 → ring buffer 补齐或 409 重新同步），既不无限堆积内存、也不静默跳过事件（2026-09-23 评审修复）|
 | 限额与超时 | **三条时限都面向「卡死」而非「跑得久」**（2026-09-24 修复，2026-09-27 补第三条）：`HTTP_IDLE_TIMEOUT`（默认 300s）是**静默**上限——既没有新事件、也没有在途工具（`tool_call` 已发、`tool_result` 未到）时才计时，到点按 `timed_out` 终结，文案 `run stalled: no activity for Ns`；`HTTP_REQUEST_TIMEOUT`（默认 **0 = 不限制**）是运维显式设的**总时长**硬上限，文案 `run exceeded the configured time limit (Ns)`；`HTTP_TOOL_INFLIGHT_TIMEOUT`（默认 **3600s**）是**单个在途工具**的最长在途时间——只数「有没有在途工具」会让永不返回的工具把在途名额无界占住，文案 `run stalled: a tool has been in flight for over Ns`（**刻意不复用** `http_idle_timeout`：长 shell / 子代理期间同样没有事件，用静默阈值会误杀正常长调用，既有用例 `test_in_flight_tool_stretches_the_idle_window` 钉住）。旧实现把 300s **墙钟**当默认，长任务（多轮工具 / 子代理 / goal 工作流）会被误杀成 `timed_out`。时限由看门狗任务以「取消运行任务」实现 ⇒ **超时是协作式的**：executor 吞掉 `CancelledError` 时时限并未生效——终态按实际结果走，但服务端记 `event=timeout_ignored`（带 `reason=idle|tool|hard`）；运行内部（provider / 网络）自己抛的 `TimeoutError` 按 **failed** 归因，不谎报「超过配置时限」。三个时限都可设 0 关闭（全关时看门狗根本不启动）。归因**看谁发的取消**：用户 `DELETE` 优先于看门狗，且 `deadline_reason` **一次性消费**——否则 executor 吞掉看门狗那次取消后，之后的 `DELETE` 会被误记成 `timed_out` 并吞掉取消（2026-09-27 修复）。在途运行数 `HTTP_MAX_INFLIGHT_RUNS`（**每项目**各计一份，非等待式，满即 409 ⇒ 全局同时刻上限 = 项目数 × 该值，默认最多 32；2026-09-24 评审校正：原写「全局上限」）。可选的 `HTTP_MAX_TOTAL_INFLIGHT`（默认 **0 = 不限**）另设**服务级**总额、跨项目共享，两类上限**同时**生效、先撞谁按谁拒（超限 ⇒ 409 `total_inflight_limit`；2026-09-27 新增，D9 的按项目语义逐字不变）；客户端连接数上限交给 Uvicorn `limit_concurrency`（超额连接在**进 ASGI 之前**被拒），每 run 的 **SSE 订阅者**上限是**独立旋钮** `HTTP_MAX_SUBSCRIBERS`（默认 **16**，与连接额度同值 ⇒ 默认行为不变；2026-09-28 从 `HTTP_MAX_CONNECTIONS` 拆出——此前两者复用同一个键，超额订阅只能由 Uvicorn 在 ASGI 之前拒，客户端拿裸 `text/plain` 503、本入口的 429 `rate_limited` 分支**实际不可达**）；订阅者限额的**检查与登记在同一步完成**（`_RunRecord.try_add_subscriber`）——旧实现「先查后加」拆在端点与生成器两处，并发 `GET .../events` 能一起穿过限额（2026-09-27 修复）|
@@ -1548,6 +1554,10 @@ src/heagent/
 │   ├── display.py           # 终端渲染辅助（CLI 与 GUI 共用；原 cli_display.py）
 │   ├── errors.py            # CLI 错误的统一出口（描述 + Try 选项 + Docs 锚点；Story 64.5）
 │   ├── doctor.py            # heagent doctor 配置诊断（只读，11 组检查 / 25 个诊断码；Story 64.6）
+│   ├── cron_cmd.py          # heagent cron status：定时任务状态查询（只读 jobs.json；Story 64.10）
+│   ├── progress.py          # 工具执行耗时行 + 大文件读写进度（Story 64.8 / 64.9）
+│   ├── suggestions.py       # 错误场景 → ≥2 条可执行命令建议（Story 64.13）
+│   ├── wizard.py            # heagent init --interactive 配置向导（Story 64.14）
 │   ├── skill_merge.py       # /skill-merge 跨根同名技能交互收口（skills 双根，2026-10-10）
 │   ├── slash.py             # 交互模式斜杠命令注册与路由（2026-09-26 自顶层迁入）
 │   ├── terminal.py          # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断；2026-09-26 自顶层迁入）
@@ -1569,6 +1579,7 @@ src/heagent/
 │   ├── catalog/             # 配置四层来源求解（2026-11-11 拆为子包：models·groups·masking·guards·envscan·sources·classify·report，包壳统一 re-export）
 │   ├── write.py             # 受闸门的项目 .env 写流水线（原 config_write.py；Story 50-5）
 │   ├── envfile.py           # .env 行级保真读写（原 envfile.py；Story 50-5）
+│   ├── validation.py        # 启动期必需配置校验（只判「不满足必然起不来」，<100ms；Story 64.7）
 │   └── user_settings.py     # 用户级 setting.md：读/渲染/一次性迁移 + 用户层 pydantic-settings 源
 │
 ├── agent/                   # 顶层编排
@@ -1665,6 +1676,7 @@ src/heagent/
 │   ├── workflow_transition.py # 状态机转换表 transition()（fail-loud 非法转换）
 │   ├── approval.py           # 交互式审批协议与状态
 │   ├── hooks.py              # 生命周期 Hook 调度
+│   ├── tasks.py             # 后台任务进度注册表（四态 + 百分比单调 + TTL/条数淘汰；Story 64.11）
 │   └── observability.py     # EventBus / 事件
 ├── events/                  # 事件传输层（JSONL 契约 / rollout 落盘 / replay）
 │   ├── protocol.py          # RunEvent + EngineEvent → RunEvent 映射
@@ -1673,7 +1685,8 @@ src/heagent/
 ├── network/                 # 网络入口传输层（Epic 49–50 HTTP/SSE + Epic 54–56 WS；协议/生命周期/暴露判定，不依赖运行栈）
 │   ├── http_protocol.py     # HTTP/SSE 协议模型与稳定错误码（含 HttpRunConflictError 的唯一来源）
 │   ├── ws_protocol.py       # WebSocket 帧模型（event/ack/error/notification）、命令枚举（run/cancel/ping）、三条上界与关闭码
-│   ├── http_server.py       # HttpServer、HttpRunService、HTTP/SSE 路由与静态资源（Epic 56 起零 WS 路由）
+│   ├── http_server/         # HTTP/SSE 子包（2026-11-15 自单文件拆出：config/assets/records/service/pipeline/middleware/endpoints_{run,console,tasks}/app/listener）
+│   │                        #   endpoints_tasks.py = 后台任务进度查询（只认注入的 TaskProgressSource，Story 64.11）
 │   ├── ws_host.py           # WsServer / WsServerConfig / build_ws_app：独立 listener、四条 WS 端点的装配（Epic 56/58）
 │   ├── optional_deps.py     # 可选依赖延迟导入辅助 require_module + HttpDependencyError（http_server / ws_host 共用）
 │   ├── ws_server.py         # WS 端点逻辑：提交 run、单 run 订阅+游标续传、命令处理、连接生命周期
@@ -1702,6 +1715,7 @@ src/heagent/
 └── cron/                    # 定时调度
     ├── expr.py              # 5-field cron 表达式解析纯叶子（零 heagent 导入；memory/dream 与 cron/scheduler 共用）
     ├── jobs.py              # CronJob 模型 + JobStore 持久化
+    ├── status.py            # 执行状态派生与展示（never/running/success/failed/interrupted + next fire；Story 64.10）
     └── scheduler.py         # CronScheduler 后台调度器
 ```
 

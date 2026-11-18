@@ -10,20 +10,25 @@ HeAgent 的用户可见错误分三层，**先认形态再查表**：
 | 记不清属于哪层，只有一段报错原文 | — | [关键词跳转表](#关键词跳转表) |
 
 **CLI 错误块怎么读**：命令行失败分支统一输出固定结构——首行是原消息，随后是 `Try:` 列表
-与 `Docs:` 行：
+与 `Docs:` 行，接入建议命令的分支再接一段 `Try these commands:`：
 
 ```text
 Error: <原消息，逐字保留>
   Try:
     - <可执行动作，一条一行>
   Docs: docs/errors.md#三cli-与启动期错误
+  Try these commands:
+    - <可直接粘贴执行的命令>  # <这条命令用来做什么>
 ```
 
 - 首行的 `Error: ` 前缀由 click 的 `ClickException` 加；走 `[前缀] …` 形态的分支（如
   `[replay] no events in …`、`[mcp config error] …`）没有该前缀，消息本身即首行。
 - `Try:` 的每条都给出具体键名或命令；带 `<n>` / `<port>` 的占位符需替换成你自己的端口号。
 - `Docs:` 是**仓库相对路径**（本页随源码分发）；通过 wheel 安装时回到源码仓库看同名文件。
-- 状态行（`▶启动` / `✔完成`）、WARNING 与进度提示**不带**这两段——它们不是错误。
+- `Try these commands:` 是**可直接执行**的命令（至少两条，命令后的 `#` 是注释、整行可粘贴），
+  与 `Try:` 的分工是：`Try:` 讲「该做什么」，这一段给「照着敲什么」。场景对照见
+  [建议命令](#建议命令)。不是所有错误都有这一段——它按错误文本的场景映射产出。
+- 状态行（`▶启动` / `✔完成`）、WARNING 与进度提示**不带**这些段落——它们不是错误。
 
 **覆盖口径**：「用户可见错误」在本页被界定为三个可枚举集合的并集——传输层全部 **35** 个稳定码
 （`network/http_protocol.py::HttpErrorCode`，封闭集合）+ 框架层全部 **9** 个异常类
@@ -158,6 +163,44 @@ Error: <原消息，逐字保留>
 
 > 工具被拦下时**不会**在终端打一行自由文本，而是在工具结果里给 `is_error` 与正文、并发出
 > `tool_call_blocked` 事件——按上面的[框架异常](#二框架异常)节查。
+
+### 建议命令
+
+错误块末尾的 `Try these commands:` 段由 `src/heagent/cli/suggestions.py` 的声明式场景表产出：
+按错误文本里的关键词选场景，给出**至少两条可直接粘贴执行**的命令（命令后的 `#` 是注释，整行可
+执行，不需要替换任何占位符）。
+
+| 场景 | 触发关键词（节选） | 建议命令（示例） |
+| --- | --- | --- |
+| 凭据缺失 | `api key` / `api_key` / `credential` / `401` | `heagent init --interactive` / `heagent doctor` / `/provider` |
+| WS 对外缺 token | `ws_auth_token` / `bearer token` / `auth-enforcing` | `heagent init`（生成带 `WS_AUTH_TOKEN` 说明的用户级模板） / `heagent doctor` |
+| ⚠ 注意 | — | `--no-ws` **不能**绕过这道校验：启动校验作用于 `Settings`，早于本次进程的 `--no-ws` 覆盖生效 |
+| 端口占用 / 绑定失败 | `port` / `bind` / `address already in use` / `eaddrinuse` | `heagent http-server --port 9102` / `heagent http-server --ws-port 9202` / `heagent doctor` |
+| 沙箱后端不可用 | `sandbox` / `firejail` / `docker` / `winjob` | `heagent run --sandbox passthrough "hi"` / `heagent run --sandbox docker "hi"` / `heagent doctor` |
+| MCP 配置 / 连接失败 | `mcp` / `.mcp.json` | `heagent doctor` / `/mcp-prompt` |
+| 技能 / 工作流包不可用 | `skill` / `workflow role` / `workflow package` | `/goal doctor` / `heagent doctor` / `/help` |
+| 定时任务失败 | `cron` / `job store` / `schedule` | `/goal auto` / `heagent doctor` |
+| 会话 id 非法 / 会话缺失 | `session` / `--resume` / `rollout` / `replay` | `/clear` / `heagent run "hi"` |
+| provider 未配置 / 切换失败 | `provider` / `routing pool` / `not supported by any configured account` | `/provider` / `/model auto` / `heagent doctor` |
+| 配置键非法 | `invalid value` / `cannot parse` / `.env` / `config` | `heagent doctor` / `heagent init --interactive` |
+| 未识别场景（兜底） | 上述关键词全不命中 | `heagent doctor` / `/help` |
+
+示例：`HTTP server could not bind 127.0.0.1:9101: address unavailable` 命中「端口占用」场景，
+块尾给出
+
+```text
+  Try these commands:
+    - heagent http-server --port 9102  # 换一个 HTTP 端口（默认 9101 被占或不可绑时）
+    - heagent http-server --ws-port 9202  # WS 端口同样顺延一位（默认 9201）
+    - heagent doctor  # 只读体检：逐项列出问题键与修法
+```
+
+未命中任何关键词时走兜底（`heagent doctor` + `/help`），而不是「无建议」。
+
+维护：新增场景或调整命令时改 `suggestions.py` 的 `SCENARIOS`——每场景必须 ≥2 条（导入期校验，
+坏表当场抛错），命令必须是**真实存在**的 CLI 子命令或斜杠命令：`tests/test_cli_suggestions.py`
+用代码反射逐条校验（`heagent <sub>` 对 `console.main.commands`、`/<name>` 对
+`_build_slash_registry()` 的注册表、`--flag` 对该 click 命令的参数表），写错命令名测试即红。
 
 ## 关键词跳转表
 

@@ -29,6 +29,7 @@ from .endpoints_console import (
     _build_session_endpoints,
 )
 from .endpoints_run import _build_run_endpoints
+from .endpoints_tasks import _build_task_endpoints
 from .middleware import (
     _SECURITY_HEADERS,
     _AccessLogMiddleware,
@@ -43,6 +44,7 @@ if TYPE_CHECKING:
     from heagent.network.http_console_protocol import ConsoleHandler
 
     from .config import HttpServerConfig
+    from .endpoints_tasks import TaskProgressSource
     from .service import HttpRunService
 
 __all__ = ["build_http_app"]
@@ -65,6 +67,9 @@ _PROJECT_RUNS_PATH = "/api/projects/{project_id}/runs"
 _PROJECT_CONFIG_PATH = "/api/projects/{project_id}/config"
 # 非项目作用域的控制台端点：在**服务端所在机器**弹原生目录选择窗口。
 _DIALOG_PICK_PATH = "/api/dialogs/pick-directory"
+# 后台任务进度：进程内注册表的只读投影（列表 + 单条），数据由入口层注入。
+_TASKS_PATH = "/api/tasks"
+_TASK_DETAIL_PATH = "/api/tasks/{task_id}"
 
 
 def build_http_app(
@@ -73,12 +78,15 @@ def build_http_app(
     version: str,
     run_service: HttpRunService | None = None,
     console: ConsoleHandler | None = None,
+    tasks: TaskProgressSource | None = None,
 ) -> ASGIApp:
     """构造网页入口的 ASGI 应用（健康检查 + 运行 API/SSE + 包内静态页 + 安全头）。
 
     ``version`` 由入口层注入（来自 ``heagent.__version__``）：传输层因此不需要知道版本从哪来，
     也不需要在导入期触碰包元数据。``run_service`` 是**注入的运行服务**（AD-1 的接缝）——为 ``None``
     时不注册 ``/api/runs*``、``/api/session`` 或 ``/api/projects*``（那些路径回 404），Story 49-1 的用法因此保持不变。
+    ``tasks`` 是**注入的任务进度来源**（同一条接缝）：为 ``None`` 时不注册 ``/api/tasks*``
+    （那些路径回 404），生产者侧注册表由入口层持有并注入。
     错误响应一律走 :func:`_json_error`，异常细节只进服务端日志。
     Epic 56 D1：WS 路由已全部迁出本 app（宿主 = ``network/ws_host.py``），本 app 只剩纯 HTTP+SSE。
     """
@@ -191,6 +199,14 @@ def build_http_app(
                 routing.Route(_PROJECT_CONFIG_PATH, endpoint=project_config_write, methods=["PUT"]),
                 # 原生目录选择：非项目作用域 + 回环门 + 单在途（入口层持有）。
                 routing.Route(_DIALOG_PICK_PATH, endpoint=pick_directory, methods=["POST"]),
+            ]
+        )
+    if tasks is not None:
+        list_tasks, get_task = _build_task_endpoints(responses, tasks)
+        routes.extend(
+            [
+                routing.Route(_TASKS_PATH, endpoint=list_tasks, methods=["GET"]),
+                routing.Route(_TASK_DETAIL_PATH, endpoint=get_task, methods=["GET"]),
             ]
         )
     routes.append(routing.Route("/{asset}", endpoint=asset, methods=["GET"]))

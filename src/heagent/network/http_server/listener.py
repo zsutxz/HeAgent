@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from heagent.network.http_console_protocol import ConsoleHandler
 
     from .config import HttpServerConfig
+    from .endpoints_tasks import TaskProgressSource
     from .service import HttpRunService
 
 __all__ = ["HttpServer"]
@@ -62,11 +63,13 @@ class HttpServer:
         version: str,
         run_service: HttpRunService | None = None,
         console: ConsoleHandler | None = None,
+        tasks: TaskProgressSource | None = None,
     ) -> None:
         self.config = config
         self.version = version
         self.run_service = run_service
         self.console = console
+        self.tasks = tasks
         self._app: ASGIApp | None = None
         self._server: Any = None
         # 生命周期锁与「已关闭」标记：``close()`` 必须**等到**收尾真正完成才返回。只用一个布尔
@@ -84,6 +87,7 @@ class HttpServer:
                 version=self.version,
                 run_service=self.run_service,
                 console=self.console,
+                tasks=self.tasks,
             )
         return self._app
 

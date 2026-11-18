@@ -12,7 +12,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import difflib
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -31,20 +33,73 @@ class CustomSlashCommand(BaseModel):
 # 斜杠命令 handler：async (args: str) -> None。
 SlashHandler = Callable[[str], Awaitable[None]]
 
+#: ``/help <command>`` 详情里每段的最多条数（超出截断，只留前若干条免得刷屏）。
+_HELP_EXAMPLE_LIMIT = 8
+
+
+class SlashCommandInfo(BaseModel):
+    """一条斜杠命令的对外可见信息（``/help`` 列表与详情共用同一数据源）。
+
+    ``usage`` / ``arguments`` / ``examples`` 为空表示**未提供元数据**（如走 3 参
+    ``register`` 的调用方、或自定义命令）——渲染层负责给显式兜底文案，不留空块。
+    ``usage`` / ``arguments`` 为多行文本（渲染层按行缩进两格）。
+    """
+
+    name: str
+    description: str
+    usage: str = ""
+    arguments: str = ""
+    examples: list[str] = []
+    custom: bool = False
+
+
+@dataclass(frozen=True)
+class _Registration:
+    """注册表内部条目：命令信息 + handler（handler 不外泄到渲染层）。"""
+
+    info: SlashCommandInfo
+    handler: SlashHandler
+
 
 class SlashRegistry:
-    """斜杠命令注册表：``name → (description, handler)``。
+    """斜杠命令注册表：``name → (命令信息, handler)``。
 
     name 一律小写（大小写不敏感）；dispatch 返回是否命中（False = 未注册，调用方
     决定是否透传给 AgentLoop 当普通消息处理）。
     """
 
     def __init__(self) -> None:
-        self._commands: dict[str, tuple[str, SlashHandler]] = {}
+        self._commands: dict[str, _Registration] = {}
 
     def register(self, name: str, description: str, handler: SlashHandler) -> None:
-        """注册（或覆盖）一个斜杠命令。"""
-        self._commands[name.lower()] = (description, handler)
+        """注册（或覆盖）一个斜杠命令（仅描述，无详细帮助元数据）。"""
+        self.register_command(name, description, handler)
+
+    def register_command(
+        self,
+        name: str,
+        description: str,
+        handler: SlashHandler,
+        *,
+        usage: str = "",
+        arguments: str = "",
+        examples: Sequence[str] = (),
+        custom: bool = False,
+    ) -> None:
+        """注册（或覆盖）一个斜杠命令，并登记 ``/help <command>`` 所需的元数据。
+
+        ``custom=True`` 标记来自 ``.heagent/commands/*.md`` 的自定义命令——缺元数据时
+        渲染层据此给出「自定义命令，无参数说明」而非通用兜底。
+        """
+        info = SlashCommandInfo(
+            name=name.lower(),
+            description=description,
+            usage=usage,
+            arguments=arguments,
+            examples=list(examples)[:_HELP_EXAMPLE_LIMIT],
+            custom=custom,
+        )
+        self._commands[info.name] = _Registration(info=info, handler=handler)
 
     def has(self, name: str) -> bool:
         """是否已注册该命令名。"""
@@ -57,14 +112,40 @@ class SlashRegistry:
     def describe(self, name: str) -> str:
         """返回命令描述；未注册返回空串。"""
         entry = self._commands.get(name.lower())
-        return entry[0] if entry else ""
+        return entry.info.description if entry else ""
+
+    def info(self, name: str) -> SlashCommandInfo | None:
+        """返回命令的完整信息；未注册返回 None。"""
+        entry = self._commands.get(name.lower())
+        return entry.info if entry else None
+
+    def commands(self) -> list[SlashCommandInfo]:
+        """返回全部命令信息（按名排序，与 :meth:`names` 同序）。"""
+        return [self._commands[name].info for name in self.names()]
+
+    def suggest(self, name: str, *, limit: int = 3) -> list[str]:
+        """给出与 ``name`` 最接近的已注册命令名（拼错兜底，至少 1 条）。
+
+        ``difflib`` 判定无相似项时按「长度差 → 字典序」取最近一条——帮助页宁愿给一个
+        不完美建议，也不留空的「Did you mean」。
+        """
+        candidate = name.lower().strip()
+        names = self.names()
+        if not names:
+            return []
+        if not candidate:
+            return names[:limit]
+        matches = difflib.get_close_matches(candidate, names, n=limit, cutoff=0.5)
+        if matches:
+            return matches
+        return sorted(names, key=lambda item: (abs(len(item) - len(candidate)), item))[:1]
 
     async def dispatch(self, name: str, args: str) -> bool:
         """按名分发；命中返回 True，未命中返回 False。"""
         entry = self._commands.get(name.lower())
         if entry is None:
             return False
-        await entry[1](args)
+        await entry.handler(args)
         return True
 
 

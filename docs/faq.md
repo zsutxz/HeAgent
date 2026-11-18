@@ -30,6 +30,18 @@ OPENAI_RESPONSES_API_KEY or ANTHROPIC_API_KEY in environment, or enable the loca
 Ollama entry with OLLAMA_ENABLED=true.
 ```
 
+### 不想手动写配置文件，有向导吗？
+
+```bash
+heagent init --interactive
+```
+
+- 逐项问常用配置（19 项常用键全覆盖），每项给一句说明 + 推荐值（推荐值就是 `Settings` 字段默认，不另编一份）；
+  凭证类输入隐藏回显。
+- 写完先校验：逐键往返读回 → `Settings` 构造 → 结构体检（等价 `heagent doctor` 的 `.env` 诊断），
+  校验不过就不写盘，并给「描述 + Try + Docs」形态的修复建议。
+- **非 tty 调用会直接失败**（退出码 1）而不是把默认值静默写盘——CI / 管道里请改用环境变量或直接编辑文件。
+
 ### 配置文件有哪几层，谁覆盖谁？
 
 四层，优先级从高到低：
@@ -212,7 +224,8 @@ heagent run --system "你是 Python 专家" "写一个二分查找"   # 显式�
 
 - 默认 CLI 会在同一进程内起本机网页入口（`127.0.0.1:9101`）与 WS listener（`127.0.0.1:9201`）。
   这是**代码默认**（`HTTP_ENABLED` / `WS_ENABLED` 默认 true）；项目 `.env` 把它们置 false 就只剩终端。
-- 其余子命令：`heagent replay FILE`（回放 JSONL）、`heagent init`、`heagent gui`、`heagent http-server`。
+- 其余子命令：`heagent replay FILE`（回放 JSONL）、`heagent init`（含 `--interactive` 向导）、
+  `heagent doctor`（配置诊断）、`heagent cron status`（定时任务状态）、`heagent gui`、`heagent http-server`。
 - `heagent gui` 需要 `pip install -e ".[gui]"`；网页入口需要 `pip install "heagent[http]"`。
 
 ### 交互模式有哪些斜杠命令？
@@ -221,6 +234,7 @@ heagent run --system "你是 Python 专家" "写一个二分查找"   # 显式�
 /provider    切换 LLM provider
 /model       路由状态 / 强制定档（<池内名>|auto）
 /help        列出全部斜杠命令（含自定义命令）
+/help <cmd>  单个命令的语法 / 参数 / 示例（未知命令会给最接近的建议）
 /clear       清空当前会话上下文
 /compact     摘要并压缩当前会话
 /mcp-prompt  调度 MCP prompt
@@ -229,6 +243,13 @@ heagent run --system "你是 Python 专家" "写一个二分查找"   # 显式�
 ```
 
 未注册的名字不会被拦截，会**当作普通 prompt** 交给模型（多花一次调用）；旧名 `/route` 已不注册。
+
+### 命令跑了很久，终端停在 `[calling …]` 不动，正常吗？
+
+- 超过 **3 秒**的工具执行会出现原地刷新的耗时行（如 `[calling shell → pytest 3.5s]`）；
+  3 秒以内**刻意不显示**，避免正常快调用把终端刷满。
+- 超过 **10 MB** 的文件读写在同一行追加「已处理 / 总量 / 百分比 / 约剩 Ns」。
+- 管道或重定向（非 tty）降级成一行收尾摘要；`ANNOUNCE_PROGRESS=false` 则完全静默。
 
 ### 配置看起来没错但起不来，有自检工具吗？
 
@@ -305,6 +326,17 @@ heagent run --resume <session-id> "…"       # 指定会话
 产物在 `_he-output/goals/<goal-id>/`。工作流契约见 `.heagent/skills/he-goal/workflow.md`，
 导读见[「Goal 工作流」专题](goal-workflow.md)。
 
+### 定时任务现在是什么状态？
+
+```bash
+heagent cron status          # 人读：每 job 一行状态 + 最后/下次执行 + 失败原因
+heagent cron status --json   # 机器读
+```
+
+- 状态取自 `jobs.json` 的执行记录：`never` / `running` / `success` / `failed`，卡住的 `running` 会按开始时间判成 `interrupted`。
+- **时间口径要注意**：`last_run` 落盘是 UTC，而 cron 表达式按**宿主本地时**匹配——输出里两列分别标注，别混读。
+- 失败原因只留「异常类型: 首行消息」（截断），完整栈仍在 `logs/heagent-*.log`。
+
 ### 怎么接入 MCP server？
 
 在项目根放 `.mcp.json`，默认启用。
@@ -349,6 +381,9 @@ heagent http-server --port 9100 --ws-port 9201
 - 网页控制台的配置写入通道默认**关**（`HTTP_CONSOLE_WRITE_ENABLED=false`）：开启后任何能连上该端口
   的人都能改项目 `.env`，属显式危险操作。
 
+补充：控制台与 CLI 同进程时，`GET /api/tasks` 能读到后台任务（如上下文压缩）的实时进度；
+该路由只在入口层注入进度来源时注册，跨进程不共享（没有 IPC）。
+
 ## 三、故障排查
 
 ### `heagent: command not found` / 模块找不到
@@ -359,6 +394,23 @@ heagent http-server --port 9100 --ws-port 9201
 pip install -e ".[dev]"     # 开发安装
 python -m heagent "…"       # 与 heagent 等价的入口，用来判断是 PATH 还是安装问题
 ```
+
+### 启动直接报配置缺失并退出（不是 WARNING）
+
+启动期会做一次**同步、纯本地**的必需配置校验（<100ms，不联网、不探测端口），只判「不满足就一定起不来」的项，共 **6 项**：
+
+1. `provider_credentials` —— 一个凭据都没有（`OLLAMA_ENABLED=true` 时改判 `OLLAMA_MODEL` 是否为空）
+2. `ollama_model` —— 启用了 Ollama 但模型名为空
+3. `ws_auth_token` —— WS 启用且会落进对外/强制认证模式，但 `~/.heagent/setting.md` 里没有 `WS_AUTH_TOKEN`
+4. `ws_external_binding` —— `WS_EXTERNAL_HOST` 取了回环，或与 `WS_HOST` 同时非回环
+5. `ws_tls_pair` —— TLS 只配了一半（对外那对只在对外 listener 启用时才判）
+6. `sandbox_docker` —— `SANDBOX_BACKEND=docker` 但镜像名为空 / digest 不是 repo digest
+
+
+- 失败即**退出**（fail-loud），不做降级——降级会让错误推迟到第一次调用才暴露。
+- 与 `heagent doctor` 分工：doctor 是全量只读体检（含端口、docker daemon、技能双根冲突），启动校验只覆盖必需项。
+- 找不到具体哪个键时先跑 `heagent doctor`；报错块里的 `Try these commands:` 会给可直接执行的命令。
+- 注意 `--no-ws` / `--no-http` **不能**绕过这道校验：校验作用于 `Settings`，早于本次进程的命令行覆盖生效。
 
 ### 启动报 `No API key configured`
 

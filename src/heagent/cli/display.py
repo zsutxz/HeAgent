@@ -192,6 +192,21 @@ def _print_stream_event(event: StreamEvent, line_state: _LineState) -> None:
         _emit(f"{_line_prefix(line_state)}[failed{subject}]\n", line_state)
 
 
+#: 携带「工具执行进度」语义的事件类型（``tool_call`` 开表、``tool_result`` 停表）。
+_TOOL_EVENT_TYPES = ("tool_call", "tool_result")
+
+
+def tool_progress_label(event: StreamEvent) -> str | None:
+    """返回工具事件的进度标签（与 ``[calling …]`` 行同口径）；非工具事件返回 ``None``。
+
+    进度原语（``cli/progress.py``）不自行解读事件形状——事件类型与标签口径的唯一出口在本模块，
+    与 ``_print_stream_event`` 共用 ``activity_label``，避免两处漂移。
+    """
+    if event.type not in _TOOL_EVENT_TYPES:
+        return None
+    return activity_label(event.tool_name, event.tool_target)
+
+
 def format_tokens_k(n: int) -> str:
     """把 token 数渲染成 ``K``/``M`` 后缀短形式（CLI 状态行与 GUI 状态栏的唯一实现）。
 

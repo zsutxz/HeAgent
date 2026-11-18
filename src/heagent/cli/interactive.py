@@ -48,12 +48,15 @@ from heagent.cli.display import (
     show_tool_activity,
 )
 from heagent.cli.goal import _goal_runner
-from heagent.cli.slash import SlashRegistry, load_custom_commands
+from heagent.cli.progress import ToolProgress
+from heagent.cli.slash import SlashCommandInfo, SlashRegistry, load_custom_commands
 from heagent.cli.terminal import KeyInterruptMonitor
 from heagent.cli.wiring import ensure_runtime_config
 from heagent.config import GLOBAL_CONFIG_DIR, Settings, get_settings
+from heagent.context.compressor import compression_progress
 from heagent.context.session import SessionStore
 from heagent.context.tokens import count_tokens
+from heagent.engine.tasks import default_task_registry
 from heagent.memory.facts import FactStore
 from heagent.memory.profile import ProfileStore
 from heagent.providers.router import active_model, display_reason
@@ -64,6 +67,7 @@ from heagent.pub.types import Message, Role
 from heagent.pub.workspace import WorkspacePaths
 from heagent.skills import SkillStore
 from heagent.skills.skill_store import default_skill_roots
+from heagent.tools.builtins.file import file_progress
 from heagent.tools.mcp import MCPClientManager
 
 # /mcp prompt 的形状：命令字 + 一个 server 名。
@@ -532,10 +536,13 @@ async def _consume_stream(
     """
     hub = _CLI_HUB.get()
     _hub_call(hub, "begin_run")
+    progress = ToolProgress()
     try:
-        async for event in loop.run_stream(prompt, system=system, session_id=session_id):
-            _print_stream_event(event, line_state)
-            _mirror_stream_event(hub, event)
+        with file_progress(progress.file_bridge.report):
+            async for event in loop.run_stream(prompt, system=system, session_id=session_id):
+                progress.on_event(event)
+                _print_stream_event(event, line_state)
+                _mirror_stream_event(hub, event)
         if not line_state.at_line_start:
             click.echo("")
             line_state.at_line_start = True
@@ -550,6 +557,7 @@ async def _consume_stream(
         click.echo(f"[error] {exc.message}", err=True)
         _hub_call(hub, "publish_error", exc.message)
     finally:
+        await progress.aclose()
         _hub_call(hub, "end_run")
 
 
@@ -583,7 +591,13 @@ async def _compact_session(
         return
     if loop is not None and loop.compressor is not None:
         # token_count/max_tokens 传 1/1 强制越过阈值：手动压缩不看出水线。
-        seed = await loop.compressor.compress(convo, token_count=1, max_tokens=1)
+        # 进度写进进程内注册表（与网页入口 `GET /api/tasks` 读同一实例；跨进程不共享）：
+        # scope 退出即收尾，异常路径落 `failed`，不会留下永远 `running` 的条目。
+        with (
+            default_task_registry().scope("context_compression", message="compacting session") as task,
+            compression_progress(task.report),
+        ):
+            seed = await loop.compressor.compress(convo, token_count=1, max_tokens=1)
     elif loop is not None and loop.window_reset is not None:
         summary = await loop.window_reset._summarize(convo)
         # 摘要必须落非 SYSTEM 角色：init_new_run 载入会话时会剔除旧 SYSTEM。
@@ -599,6 +613,62 @@ async def _compact_session(
     if loop is not None:
         loop.last_context_tokens = count_tokens(seed)
     click.echo(f"[compact] 已压缩：{len(prior)} -> {len(seed)} 条消息。", err=True)
+
+
+# ``/help <command>`` 详情版的三个固定段落标签（与列表版共用同一数据源）。
+_HELP_USAGE_LABEL = "语法:"
+_HELP_ARGUMENTS_LABEL = "参数:"
+_HELP_EXAMPLES_LABEL = "示例:"
+
+
+def _render_help_list(registry: SlashRegistry) -> None:
+    """``/help`` 列表版：按命令名排序，名字列对齐 + 一句话描述。"""
+    names = registry.names()
+    width = max((len(name) for name in names), default=0)
+    click.echo("Available slash commands:", err=True)
+    for name in names:
+        click.echo(f"  /{name.ljust(width)}  {registry.describe(name)}", err=True)
+    click.echo("[help] Run /help <command> for syntax, arguments and examples.", err=True)
+
+
+def _help_argument_lines(info: SlashCommandInfo) -> list[str]:
+    """参数段内容：显式声明优先，缺元数据时给显式兜底（不渲染空块）。
+
+    兜底文案必须与「语法」段的自洽：语法在没有 ``usage`` 时只渲染 ``/<name>``（不写 ``[参数]``），
+    否则会出现「语法说有可选参数 / 参数说无参数」的自相矛盾。
+    """
+    if info.arguments.strip():
+        return info.arguments.strip().splitlines()
+    if info.custom:
+        return [f"自定义命令，无参数说明（正文见 .heagent/commands/{info.name}.md；$ARGUMENTS 替换为本次参数）。"]
+    return ["未提供参数说明。"]
+
+
+def _render_command_help(registry: SlashRegistry, name: str) -> None:
+    """``/help <command>`` 详情版：描述 + 语法 + 参数 + 示例，四段格式统一。"""
+    info = registry.info(name)
+    if info is None:
+        _render_unknown_command(registry, name)
+        return
+    click.echo(f"/{info.name}  {info.description or '（无描述）'}", err=True)
+    click.echo(_HELP_USAGE_LABEL, err=True)
+    for line in (info.usage.strip() or f"/{info.name}").splitlines():
+        click.echo(f"  {line}", err=True)
+    click.echo(_HELP_ARGUMENTS_LABEL, err=True)
+    for line in _help_argument_lines(info):
+        click.echo(f"  {line}", err=True)
+    click.echo(_HELP_EXAMPLES_LABEL, err=True)
+    for line in info.examples or [f"/{info.name}"]:
+        click.echo(f"  {line}", err=True)
+
+
+def _render_unknown_command(registry: SlashRegistry, name: str) -> None:
+    """未知命令：错误 + 最接近的命令建议 + 列表入口提示。"""
+    click.echo(f"[help] Unknown slash command: /{name}", err=True)
+    suggestions = registry.suggest(name)
+    if suggestions:
+        click.echo("[help] Did you mean: " + ", ".join(f"/{item}" for item in suggestions), err=True)
+    click.echo("[help] Run /help to list all commands.", err=True)
 
 
 def _build_slash_registry(
@@ -635,26 +705,104 @@ def _build_slash_registry(
         await _compact_session(loop, session, session_id)
 
     async def _help(args: str) -> None:
-        click.echo("Available slash commands:", err=True)
-        for name in registry.names():
-            click.echo(f"  /{name}  {registry.describe(name)}", err=True)
+        target = args.strip().split()[0].lstrip("/") if args.strip() else ""
+        if target:
+            _render_command_help(registry, target)
+        else:
+            _render_help_list(registry)
 
-    registry.register("provider", "切换 LLM provider", _provider)
-    registry.register("model", "智能路由状态 / 强制模型 (<name>|auto)", _model)
-    registry.register("mcp-prompt", "调度 MCP prompt", _mcp_prompt)
+    registry.register_command(
+        "provider",
+        "切换 LLM provider",
+        _provider,
+        usage="/provider\n/provider <name>",
+        arguments="<name>  provider 池内的条目名（省略时列出全部条目并标出当前生效项）。",
+        examples=["/provider", "/provider deepseek"],
+    )
+    registry.register_command(
+        "model",
+        "智能路由状态 / 强制模型 (<name>|auto)",
+        _model,
+        usage="/model\n/model <池内名|auto>",
+        arguments="<池内名>  强制路由到该档位（fast/mid/pro 等池内声明名）。\nauto      清除强制，恢复自动路由。",
+        examples=["/model", "/model pro", "/model auto"],
+    )
+    registry.register_command(
+        "mcp-prompt",
+        "调度 MCP prompt",
+        _mcp_prompt,
+        usage="/mcp-prompt\n/mcp-prompt <server>\n/mcp-prompt <server> <prompt> [k=v ...]",
+        arguments=(
+            "<server>  MCP server 名（省略时列出全部 server 下的 prompt）。\n"
+            "<prompt>  prompt 名。\n"
+            "k=v       传给 prompt 的具名参数，可多个（无 = 的 token 被忽略）。"
+        ),
+        examples=["/mcp-prompt", "/mcp-prompt filesystem", "/mcp-prompt filesystem summarize path=src"],
+    )
 
     async def _deferred(args: str) -> None:
         show_deferred_work(Path.cwd())
 
-    registry.register("deferred", "列出 deferred-work 台账（遗留项登记）", _deferred)
-    registry.register("clear", "清空当前会话上下文", _clear)
-    registry.register("compact", "摘要并压缩当前会话上下文", _compact)
-    registry.register("help", "列出所有斜杠命令", _help)
+    registry.register_command(
+        "deferred",
+        "列出 deferred-work 台账（遗留项登记）",
+        _deferred,
+        usage="/deferred",
+        arguments="无参数（读取当前目录的 deferred-work 台账，列出最近 10 条）。",
+        examples=["/deferred"],
+    )
+    registry.register_command(
+        "clear",
+        "清空当前会话上下文",
+        _clear,
+        usage="/clear",
+        arguments="无参数（删除当前会话历史，下一条消息从新会话开始）。",
+        examples=["/clear"],
+    )
+    registry.register_command(
+        "compact",
+        "摘要并压缩当前会话上下文",
+        _compact,
+        usage="/compact",
+        arguments="无参数（手动压缩，不看出水线；会话历史为空时提示无需压缩）。",
+        examples=["/compact"],
+    )
+    registry.register_command(
+        "help",
+        "列出所有斜杠命令",
+        _help,
+        usage="/help\n/help <command>",
+        arguments="<command>  要查看详细帮助的命令名（省略时列出全部命令）。",
+        examples=["/help", "/help goal"],
+    )
 
     async def _goal(args: str) -> None:
         await _goal_runner(provider, loop.engine, args, cron_store=cron_store)
 
-    registry.register("goal", "目标驱动开发（new/next/run/status/pause/resume/auto/reset）", _goal)
+    registry.register_command(
+        "goal",
+        "目标驱动开发（new/next/run/status/pause/resume/auto/reset）",
+        _goal,
+        usage="/goal <子命令> [参数...]",
+        arguments=(
+            "<目标描述>       新建 goal 并执行 planning 规程（等同 new 形式）。\n"
+            "new <描述>       新建 goal；--workflow <包id> 指定 workflow 包（创建时冻结）。\n"
+            "next             推进下一条 story（每步全新会话）。\n"
+            "status           查看进度。\n"
+            "doctor           [--workflow <包id>] 预检工作流与角色技能包。\n"
+            "verify [run]     按声明子句复核证据（run = 受控重跑声明的验证命令）。\n"
+            "approve          批准等待审批的步骤。\n"
+            "reject <原因>    驳回等待审批的工作（步骤未完成）。\n"
+            "amend <补充>     带补充重跑等待审批的步骤。\n"
+            "decisions        查看追加式决策日志。\n"
+            "reset            清除 current 指针（goal 目录保留）。\n"
+            "run              连续推进 goal（步数上限由 workflow 声明；Ctrl+C 可中断）。\n"
+            "resume [回复]    记录用户回答并继续 waiting_user 步骤。\n"
+            "pause            暂停当前 goal。\n"
+            "auto [cron]      注册 cron 自动推进（默认 */15 * * * *；off 注销）。"
+        ),
+        examples=["/goal new 实现用户登录", "/goal status", "/goal doctor"],
+    )
 
     if skills is not None:
         from heagent.cli.skill_merge import register_skill_merge
@@ -667,7 +815,7 @@ def _build_slash_registry(
         async def _custom(args: str, prompt: str = prompt) -> None:
             await _run_prompt(loop, _render_command_prompt(prompt, args), system, session_id)
 
-        registry.register(command.name, command.description, _custom)
+        registry.register_command(command.name, command.description, _custom, custom=True)
 
     return registry
 

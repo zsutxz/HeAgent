@@ -14,7 +14,9 @@
       "_RUNS_PATH": "/api/runs",
       "_RUN_DETAIL_PATH": "/api/runs/{run_id}",
       "_RUN_EVENTS_PATH": "/api/runs/{run_id}/events",
-      "_SESSION_PATH": "/api/session"
+      "_SESSION_PATH": "/api/session",
+      "_TASKS_PATH": "/api/tasks",
+      "_TASK_DETAIL_PATH": "/api/tasks/{task_id}"
     },
     "src/heagent/network/http_server/assets.py": {
       "_INDEX_ASSET": "index.html",
@@ -23,6 +25,7 @@
     "src/heagent/network/http_server/config.py": {},
     "src/heagent/network/http_server/endpoints_console.py": {},
     "src/heagent/network/http_server/endpoints_run.py": {},
+    "src/heagent/network/http_server/endpoints_tasks.py": {},
     "src/heagent/network/http_server/listener.py": {},
     "src/heagent/network/http_server/middleware.py": {},
     "src/heagent/network/http_server/pipeline.py": {},
@@ -37,11 +40,12 @@
   },
   "registrations": {
     "src/heagent/network/http_server/__init__.py": 0,
-    "src/heagent/network/http_server/app.py": 21,
+    "src/heagent/network/http_server/app.py": 23,
     "src/heagent/network/http_server/assets.py": 0,
     "src/heagent/network/http_server/config.py": 0,
     "src/heagent/network/http_server/endpoints_console.py": 0,
     "src/heagent/network/http_server/endpoints_run.py": 0,
+    "src/heagent/network/http_server/endpoints_tasks.py": 0,
     "src/heagent/network/http_server/listener.py": 0,
     "src/heagent/network/http_server/middleware.py": 0,
     "src/heagent/network/http_server/pipeline.py": 0,
@@ -49,7 +53,7 @@
     "src/heagent/network/http_server/service.py": 0,
     "src/heagent/network/ws_host.py": 4
   },
-  "route_count": 25,
+  "route_count": 27,
   "routes": [
     {
       "listener": "http",
@@ -252,6 +256,26 @@
       "name": "session_endpoint",
       "path": "/api/session",
       "path_expr": "_SESSION_PATH",
+      "source": "src/heagent/network/http_server/app.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "list_tasks",
+      "path": "/api/tasks",
+      "path_expr": "_TASKS_PATH",
+      "source": "src/heagent/network/http_server/app.py"
+    },
+    {
+      "listener": "http",
+      "methods": [
+        "GET"
+      ],
+      "name": "get_task",
+      "path": "/api/tasks/{task_id}",
+      "path_expr": "_TASK_DETAIL_PATH",
       "source": "src/heagent/network/http_server/app.py"
     },
     {

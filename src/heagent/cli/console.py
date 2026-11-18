@@ -17,8 +17,12 @@ from heagent.cli.display import (
     _print_banner,
     echo_sandbox_hint,
 )
-from heagent.cli.errors import ANCHOR_CLI_ERRORS, exit_with_hints, report_with_hints
-from heagent.cli.wiring import _build_provider
+from heagent.cli.errors import (
+    ANCHOR_CLI_ERRORS,
+    exit_with_command_hints,
+    report_with_command_hints,
+)
+from heagent.cli.wiring import _build_provider, load_startup_settings
 from heagent.config import Settings, get_settings
 from heagent.context.session import validate_session_id
 from heagent.events.sink import read_rollout, render_event
@@ -203,7 +207,7 @@ def _run_cli_impl(
         try:
             validate_session_id(resume_session)
         except ValueError as exc:
-            exit_with_hints(
+            exit_with_command_hints(
                 f"invalid --resume session id: {exc}",
                 options=(
                     "use a session id copied from the session list (it must not contain path separators)",
@@ -218,7 +222,8 @@ def _run_cli_impl(
     _setup_logging()
     _print_banner()
 
-    settings = get_settings()
+    # 走可读失败包装：坏 `.env` 不该把裸 pydantic 长报文甩给用户。
+    settings = load_startup_settings(get_settings)
     # 启动时回收运行时产物（日志 / 会话 / 编辑快照）：best-effort，失败只记日志不阻断启动。
     _prune_runtime_artifacts(settings)
     resolved_iterations = max_iterations or settings.max_iterations
@@ -243,7 +248,7 @@ def _run_cli_impl(
     try:
         mcp_ctx = _mcp_lifecycle(settings)
     except HeAgentError as exc:
-        report_with_hints(
+        report_with_command_hints(
             f"[mcp config error] {exc.message}",
             options=(
                 "fix the JSON in .mcp.json (or MCP_CONFIG_PATH)",
@@ -464,7 +469,7 @@ def replay_cmd(path: Path, as_json: bool) -> None:
     """Replay a rollout / JSONL event file (from ``--json`` or ``EVENTS_ROLLOUT_ENABLED``)."""
     events = read_rollout(path)
     if not events:
-        report_with_hints(
+        report_with_command_hints(
             f"[replay] no events in {path}",
             options=(
                 "point replay at a rollout file: .heagent/runs/<run_id>/rollout.jsonl",
@@ -488,6 +493,11 @@ main.add_command(init_cmd)
 from heagent.cli.doctor import doctor_cmd  # noqa: E402
 
 main.add_command(doctor_cmd)
+
+# 定时任务：status 只读 jobs.json（不启调度器），故不需要 engine 运行时。
+from heagent.cli.cron_cmd import cron_cmd  # noqa: E402
+
+main.add_command(cron_cmd)
 
 
 # Set run as the default command (heagent "hello" -> run "hello")

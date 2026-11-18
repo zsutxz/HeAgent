@@ -5,9 +5,10 @@ provider 装配**规则真身**已于 2026-11-07（批次 9 卡 B）迁至 ``hea
 绑定名作**呈现薄壳**：catch 后 ``click.echo(err=True)`` + ``SystemExit(1)``——搬规则不搬
 呈现，``console`` / ``http`` / ``gui`` 的绑定名与测试 patch 字符串零变化。
 
-剩余职责两件：``ensure_runtime_config``（构造期配置快照收窄，Phase 1）与
-``build_cron_job_runner``（原 cli/gui 两处 ``_run_job`` 的逐字合并，Phase 2 C3）——
-入口层各 loop 构造点真正共用、且漂移风险高的两段。
+剩余职责三件：``ensure_runtime_config``（构造期配置快照收窄，Phase 1）、
+``build_cron_job_runner``（原 cli/gui 两处 ``_run_job`` 的逐字合并，Phase 2 C3）与
+``ensure_startup_config`` / ``load_startup_settings``（启动期必需配置验证的挂载与呈现，
+规则侧在 ``heagent.config.validation``）——入口层各 loop 构造点真正共用、且漂移风险高的几段。
 
 分层：本模块是**入口层**（与 ``cli`` / ``gui`` 同级），依赖 ``providers`` / ``config``，
 不被任何下层模块导入——不构成反向依赖。
@@ -19,7 +20,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from heagent.agent.loop import AgentLoop
-from heagent.cli.errors import ANCHOR_CLI_ERRORS, report_with_hints
+from heagent.cli.errors import ANCHOR_CLI_ERRORS, report_with_command_hints
+from heagent.config import get_settings
+from heagent.config.validation import validate_startup
 from heagent.providers.composition import ProviderConfigError
 from heagent.providers.composition import _build_provider as _composition_build_provider
 
@@ -56,12 +59,51 @@ def _first_line(exc: BaseException) -> str:
     return text.splitlines()[0] if text else type(exc).__name__
 
 
+def ensure_startup_config(settings: Settings) -> None:
+    """启动期必需配置验证（Story 64.7）：有阻断项就渲染成「描述 + Try + Docs」并以退出码 1 结束。
+
+    验证本身是纯内存判据（见 :func:`heagent.config.validation.validate_startup`）；本函数只做入口层
+    呈现——**不**降级成 WARNING 后继续跑。挂载点是 :func:`_build_provider`：四个入口
+    （run / 交互 / http-server / gui）都经它装配 provider，一处即全覆盖。
+    """
+    result = validate_startup(settings)
+    if result.ok:
+        return
+    for issue in result.issues:
+        report_with_command_hints(issue.message, options=issue.options, anchor=ANCHOR_CLI_ERRORS)
+    raise SystemExit(1)
+
+
+def load_startup_settings(loader: Callable[[], Settings] | None = None) -> Settings:
+    """可读的配置加载失败包装：``Settings`` 构造/校验失败也走同一形状后退出。
+
+    裸 ``get_settings()`` 抛出的 pydantic ``ValidationError`` 是英文长报文，用户看不出「哪个键错了」；
+    这里保留原报文首行（它点名字段）并补两条动作。
+
+    ``loader`` 让调用方传入**自己模块里的** ``get_settings``：入口层的 monkeypatch 缝是按模块路径
+    打桩的（``heagent.cli.console.get_settings``），默认参数会绕过那些替身。
+    """
+    try:
+        return (loader or get_settings)()
+    except Exception as exc:  # noqa: BLE001 - 配置构造失败必须以可读方式终止，不向上抛裸栈
+        report_with_command_hints(
+            f"Error: configuration could not be loaded: {type(exc).__name__}: {_first_line(exc)}",
+            options=(
+                "fix the key/value this message names in .env or ~/.heagent/setting.md, then retry",
+                "run `heagent doctor` to see which configuration key is rejected",
+            ),
+            anchor=ANCHOR_CLI_ERRORS,
+        )
+        raise SystemExit(1) from None
+
+
 def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     """provider 装配呈现薄壳（批次 9 卡 B）：规则真身在 ``heagent.providers.composition``。
 
-    把规则侧 ``ProviderConfigError`` 转成终端呈现——``click.echo(err=True)`` +
-    ``SystemExit(1)``，消息字节与退出码不变。
+    装配前先跑启动期必需配置验证（Story 64.7）；规则侧的 ``ProviderConfigError`` 转成终端呈现——
+    ``click.echo(err=True)`` + ``SystemExit(1)``，消息字节与退出码不变。
     """
+    ensure_startup_config(settings)
     try:
         return _composition_build_provider(settings, model)
     except ProviderConfigError as exc:
@@ -98,9 +140,9 @@ def _report_provider_config_error(message: str) -> None:
     """
     for marker, options in _PROVIDER_OPTIONS:
         if marker in message:
-            report_with_hints(message, options=options, anchor=ANCHOR_CLI_ERRORS)
+            report_with_command_hints(message, options=options, anchor=ANCHOR_CLI_ERRORS)
             return
-    report_with_hints(
+    report_with_command_hints(
         message,
         options=(
             "check the provider entry this message names in .env or ~/.heagent/setting.md",

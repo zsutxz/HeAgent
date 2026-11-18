@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from heagent.tools.decorator import tool
@@ -31,9 +33,39 @@ from heagent.tools.path_safety import (
     resolve_workspace_path,
     workspace_root,
 )
+from heagent.tools.runtime import RuntimeSlot
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
+
+#: 大文件进度阈值（**字节**）：超过该大小的读 / 写才上报进度，小文件走零回调路径。
+FILE_PROGRESS_MIN_BYTES = 10 * 1024 * 1024
+#: 分块读写的块大小（**字节**）：既是分块 I/O 的粒度，也是进度上报粒度。
+FILE_PROGRESS_CHUNK_BYTES = 1024 * 1024
+
+#: 进度上报签名：``(已处理字节, 计划总量字节)``——只交换原始整数，tools 侧不感知展示层类型。
+FileProgressReporter = Callable[[int, int], None]
+
+_FILE_PROGRESS: RuntimeSlot[FileProgressReporter] = RuntimeSlot("heagent_file_progress")
+
+
+@contextmanager
+def file_progress(reporter: FileProgressReporter | None) -> Iterator[None]:
+    """在当前上下文绑定大文件读写进度上报器（``None`` = 解绑）。
+
+    与 ``heagent.context.compressor.compression_progress`` 同形态：只做上下文内绑定，不改进程
+    默认值。``asyncio.to_thread`` 会复制上下文，因此工作线程里的分块 I/O 读到同一个 reporter。
+    """
+    with _FILE_PROGRESS.bind(reporter):
+        yield
+
+
+def _progress_reporter(planned: int) -> FileProgressReporter | None:
+    """计划量不足阈值时直接返回 ``None``：小文件因此零回调开销。"""
+    if planned <= FILE_PROGRESS_MIN_BYTES:
+        return None
+    return _FILE_PROGRESS.get()
 
 
 def _writable(path: str) -> Path | str:
@@ -63,15 +95,40 @@ def _read_for_diff(path: Path) -> str | None:
 _FILE_READ_MAX_BYTES = 10 * 1024 * 1024
 
 
+def _read_bytes_bounded(path: Path, cap: int) -> tuple[bytes, bool]:
+    """分块读取至多 ``cap`` 字节（多读 1 字节仅供判截断），返回 ``(原始字节, 是否截断)``。
+
+    与一次 ``fh.read(cap + 1)`` 返回**完全相同的字节**；区别只是读被切成
+    ``FILE_PROGRESS_CHUNK_BYTES`` 大小的块，并在文件本身超过 ``FILE_PROGRESS_MIN_BYTES`` 时逐块上报
+    （阈值按**文件大小**判，进度总量按**计划读取量** ``min(文件大小, cap)`` 报——大文件被读上限截断，
+    以文件大小当总量会让进度永远到不了 100%）。
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:  # 取不到文件大小时不上报，读本体照旧（错误由调用方统一收敛）
+        size = 0
+    planned = min(size, cap)
+    report = _progress_reporter(size)
+    limit = cap + 1
+    buf = bytearray()
+    with path.open("rb") as fh:
+        while len(buf) < limit:
+            chunk = fh.read(min(FILE_PROGRESS_CHUNK_BYTES, limit - len(buf)))
+            if not chunk:
+                break
+            buf += chunk
+            if report is not None:
+                report(min(len(buf), planned), planned)
+    return bytes(buf), len(buf) > cap
+
+
 def _read_text_bounded(path: Path) -> tuple[str, bool]:
     """字节上限内的读取，与 ``read_text_file`` 同一文本形态（去 BOM、行尾归一 ``\n``）。
 
     返回 ``(text, truncated)``。截断边界可能落在多字节 UTF-8 字符中间 ⇒ 仅截断读用
     ``errors="replace"``；完整读保持严格解码（行为与改动前一致）。
     """
-    with path.open("rb") as fh:
-        raw = fh.read(_FILE_READ_MAX_BYTES + 1)  # 多读 1 字节仅用于判截断
-    truncated = len(raw) > _FILE_READ_MAX_BYTES
+    raw, truncated = _read_bytes_bounded(path, _FILE_READ_MAX_BYTES)
     if truncated:
         raw = raw[:_FILE_READ_MAX_BYTES]
     has_bom = raw.startswith(_BOM)
@@ -79,6 +136,23 @@ def _read_text_bounded(path: Path) -> tuple[str, bool]:
         raw = raw[len(_BOM) :]
     text = raw.decode("utf-8", errors="replace" if truncated else "strict")
     return text.replace("\r\n", "\n"), truncated
+
+
+def _write_text_progress(path: Path, content: str) -> None:
+    """把 ``content`` 以 UTF-8 分块写入 ``path``。
+
+    落盘字节与 ``path.write_bytes(content.encode("utf-8"))`` **逐字节相同**（含空内容建空文件），
+    超过 ``FILE_PROGRESS_MIN_BYTES`` 时按块上报进度。
+    """
+    data = content.encode("utf-8")
+    report = _progress_reporter(len(data))
+    with path.open("wb") as fh:
+        written = 0
+        for offset in range(0, len(data), FILE_PROGRESS_CHUNK_BYTES):
+            fh.write(data[offset : offset + FILE_PROGRESS_CHUNK_BYTES])
+            written += min(FILE_PROGRESS_CHUNK_BYTES, len(data) - offset)
+            if report is not None:
+                report(written, len(data))
 
 
 def _receipt(header: str, body: str, snapshot: str | None) -> str:
@@ -205,7 +279,7 @@ async def file_write(path: str, content: str) -> str:
     previous = await asyncio.to_thread(_read_for_diff, resolved)
     snapshot = await asyncio.to_thread(snapshot_before_write, resolved, op="write")
     try:
-        await asyncio.to_thread(resolved.write_bytes, content.encode("utf-8"))
+        await asyncio.to_thread(_write_text_progress, resolved, content)
     except OSError as exc:
         return f"Error writing file: {exc}"
 

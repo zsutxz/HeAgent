@@ -16,7 +16,17 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from heagent.cli.errors import ANCHOR_CLI_ERRORS, ERRORS_DOC, exit_with_hints, with_hints
+from heagent.cli.errors import (
+    ANCHOR_CLI_ERRORS,
+    ERRORS_DOC,
+    SUGGESTIONS_HEADER,
+    exit_with_command_hints,
+    exit_with_hints,
+    report_with_command_hints,
+    with_command_hints,
+    with_hints,
+)
+from heagent.cli.suggestions import CommandSuggestion, suggest_commands
 from heagent.cli.http import embedded_http_error_message
 from heagent.cli.wiring import _report_provider_config_error
 from heagent.network.http_server import HttpStartupError
@@ -192,3 +202,68 @@ class TestEntryPoints:
         assert f"[replay] no events in {empty}" in combined
         assert "  Try:" in combined
         assert f"Docs: {ERRORS_DOC}#{ANCHOR_CLI_ERRORS}" in combined
+
+
+class TestCommandSuggestions:
+    """建议命令段（Story 64.13）：只在传入 ``commands`` 时出现，且不破坏既有三段块。"""
+
+    def test_without_commands_output_is_unchanged(self) -> None:
+        """``commands`` 缺省与显式 ``None`` 必须逐字等同 64.5 的三段块（向后兼容的判据）。"""
+        legacy = with_hints("boom", options=("do a", "do b"), anchor="some-anchor")
+        explicit_none = with_hints("boom", options=("do a", "do b"), anchor="some-anchor", commands=None)
+        assert legacy == explicit_none
+        assert "Try these commands:" not in legacy
+        assert len(legacy.splitlines()) == 5
+
+    def test_empty_commands_are_rejected(self) -> None:
+        with pytest.raises(ValueError, match="at least 2"):
+            with_hints("boom", options=("do a",), anchor="a", commands=())
+
+    def test_single_command_is_rejected(self) -> None:
+        """票面要求 ≥2 条：只给一条时宁可在构造期炸，也不输出「只有一条可做」的假象。"""
+        with pytest.raises(ValueError, match="at least 2"):
+            with_hints(
+                "boom", options=("do a",), anchor="a", commands=(CommandSuggestion(command="heagent doctor", when="x"),)
+            )
+
+    def test_suggestion_block_follows_docs_line(self) -> None:
+        text = with_hints(
+            "[mcp config error] bad json",
+            options=("fix the JSON",),
+            anchor=ANCHOR_CLI_ERRORS,
+            commands=suggest_commands(scenario="mcp"),
+        )
+        lines = text.splitlines()
+        assert lines[0] == "[mcp config error] bad json"
+        assert lines[-1 - len(suggest_commands(scenario="mcp"))] == SUGGESTIONS_HEADER
+        docs_index = next(i for i, line in enumerate(lines) if line.startswith("  Docs:"))
+        assert lines[docs_index + 1] == SUGGESTIONS_HEADER
+
+    def test_exit_with_command_hints_keeps_click_prefix(self) -> None:
+        runner = CliRunner()
+
+        @click.command()
+        def cmd() -> None:
+            exit_with_command_hints(
+                "Error: No API key configured. Set DEEPSEEK_API_KEY",
+                options=("configure a key",),
+                anchor=ANCHOR_CLI_ERRORS,
+            )
+
+        result = runner.invoke(cmd)
+        combined = result.output + (getattr(result, "stderr", "") or "")
+        assert result.exit_code == 1
+        assert "Error: No API key configured" in combined
+        assert SUGGESTIONS_HEADER in combined
+        assert "heagent init --interactive" in combined
+
+    def test_report_with_command_hints_writes_stderr_without_exiting(self, capsys: pytest.CaptureFixture[str]) -> None:
+        report_with_command_hints("[replay] no events in x", options=("point it at a rollout file",))
+        err = capsys.readouterr().err
+        assert err.splitlines()[0] == "[replay] no events in x"
+        assert SUGGESTIONS_HEADER in err
+        assert "/clear" in err
+
+    def test_explicit_scenario_overrides_text(self) -> None:
+        text = with_command_hints("totally unrelated text", options=("x",), scenario="port")
+        assert "heagent http-server --port" in text

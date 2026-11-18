@@ -31,7 +31,11 @@ from typing import Any
 import click
 
 from heagent.cli.display import _current_version, echo_sandbox_hint, echo_web_entry_overrides
-from heagent.cli.errors import ANCHOR_CLI_ERRORS, exit_with_hints, with_hints
+from heagent.cli.errors import (
+    ANCHOR_CLI_ERRORS,
+    exit_with_command_hints,
+    with_command_hints,
+)
 from heagent.cli.http_config import (
     _reject_non_finite,
     build_external_ws_server_config,
@@ -40,14 +44,16 @@ from heagent.cli.http_config import (
     build_ws_servers,
 )
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
-from heagent.cli.wiring import _build_provider
-from heagent.config import WS_AUTH_TOKEN_KEY, Settings, get_settings
+from heagent.cli.wiring import _build_provider, load_startup_settings
+from heagent.config import WS_AUTH_TOKEN_KEY, Settings
+from heagent.engine.tasks import default_task_registry
 from heagent.network.exposure import exposure_warning
 from heagent.network.http_server import (
     HttpDependencyError,
     HttpRunService,
     HttpServer,
     HttpStartupError,
+    RegistryTaskSource,
 )
 from heagent.network.ws_host import CLI_WS_PATH, WsConfigError, WsServer, WsServerConfig, WsStartupError
 from heagent.pub.safe_logging import safe_log
@@ -360,6 +366,9 @@ def build_http_service(
             version=_current_version(),
             run_service=run_service,
             console=console,
+            # 进度注册表是**进程内**单例：网页入口与 CLI 同进程时，/api/tasks 读到的正是
+            # 本进程里压缩等后台任务上报的进度（跨进程不共享，这是刻意的——没有 IPC）。
+            tasks=RegistryTaskSource(default_task_registry()),
         )
     # 1–2 个 WS listener + 实际挂载的 CLI 旁路中枢：装配决策单一真源在 build_ws_servers。
     ws_servers, cli_hub = build_ws_servers(settings, run_service=run_service, enabled=ws_on)
@@ -397,25 +406,25 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     入口但聊天照常」是明确禁止的行为。WS 配置不成立（对外模式缺 token / TLS 半配）同属显式失败。
     """
     if isinstance(exc, HttpStartupError):
-        return with_hints(
+        return with_command_hints(
             f"HTTP server failed to start: {exc}",
             options=_HTTP_STARTUP_OPTIONS,
             anchor=ANCHOR_CLI_ERRORS,
         )
     if isinstance(exc, WsConfigError):
-        return with_hints(
+        return with_command_hints(
             f"WS server configuration is invalid: {exc}",
             options=_WS_CONFIG_OPTIONS,
             anchor=ANCHOR_CLI_ERRORS,
         )
     if isinstance(exc, WsStartupError):
-        return with_hints(
+        return with_command_hints(
             f"WS server failed to start: {exc}",
             options=_WS_STARTUP_OPTIONS,
             anchor=ANCHOR_CLI_ERRORS,
         )
     if isinstance(exc, HttpDependencyError):
-        return with_hints(
+        return with_command_hints(
             str(exc),
             options=_DEPENDENCY_OPTIONS,
             anchor=ANCHOR_CLI_ERRORS,
@@ -600,7 +609,8 @@ def http_server_cmd(
     from heagent.pub.roles import load_agent_roles  # noqa: PLC0415
 
     _setup_logging()
-    settings = get_settings()
+    # 走可读失败包装：Settings 构造/校验失败时给「描述 + Try + Docs」而不是裸 pydantic 长报文。
+    settings = load_startup_settings()
     # 三态：配置层的 HTTP_ENABLED / WS_ENABLED 再叠加本次进程的 --no-http / --no-ws
     # （flag 只能**关**，不能开——避免「配置说关、命令行悄悄开」这种反向意外）。
     http_on = settings.http_enabled and not no_http
@@ -669,6 +679,7 @@ def http_server_cmd(
             version=_current_version(),
             run_service=run_service,
             console=console,
+            tasks=RegistryTaskSource(default_task_registry()),
         )
     try:
         # 主 listener + 可选对外 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
@@ -689,7 +700,7 @@ def http_server_cmd(
         )
     except WsConfigError as exc:
         # 对外缺 token / 对外键取回环 / 主 listener 已对外 / TLS 半配：配置不成立，压根不该尝试绑定。
-        exit_with_hints(
+        exit_with_command_hints(
             f"WS server configuration is invalid: {exc}",
             options=_WS_CONFIG_OPTIONS,
             anchor=ANCHOR_CLI_ERRORS,
@@ -728,19 +739,19 @@ def http_server_cmd(
         click.echo("[http] stopped", err=True)
     except HttpStartupError as exc:
         # 绑定失败 / 就绪探测失败：只给可诊断文案，不打印任何「已监听」，也不吐 traceback。
-        exit_with_hints(
+        exit_with_command_hints(
             f"HTTP server failed to start: {exc}",
             options=_HTTP_STARTUP_OPTIONS,
             anchor=ANCHOR_CLI_ERRORS,
         )
     except WsStartupError as exc:
-        exit_with_hints(
+        exit_with_command_hints(
             f"WS server failed to start: {exc}",
             options=_WS_STARTUP_OPTIONS,
             anchor=ANCHOR_CLI_ERRORS,
         )
     except HttpDependencyError as exc:
-        exit_with_hints(
+        exit_with_command_hints(
             str(exc),
             options=_DEPENDENCY_OPTIONS,
             anchor=ANCHOR_CLI_ERRORS,

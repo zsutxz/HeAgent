@@ -14,6 +14,8 @@ import logging
 from typing import TYPE_CHECKING
 
 from heagent.agent.run_lifecycle import AgentState, checkpoint
+from heagent.context.compressor import compression_progress
+from heagent.engine.tasks import default_task_registry
 from heagent.pub.exceptions import BudgetExceeded
 from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolResult
 
@@ -89,12 +91,23 @@ async def maybe_compress(
     """
     if not loop.compressor or not usage:
         return
-    compressed = await loop.compressor.compress(
-        state.messages,
-        token_count=usage.total_tokens,
-        max_tokens=loop._runtime.max_context_tokens,
-    )
-    if compressed is not state.messages:
+    # 自动压缩是网页入口里唯一会跑很久的后台动作 ⇒ 在注册表里开端 scope，
+    # `GET /api/tasks` 才能读到「正在压缩 / 到哪一步」。注册表是进程内单例：
+    # 网页入口与 CLI 内嵌入口同进程时读到的正是这里上报的进度。
+    with (
+        default_task_registry().scope("context_compression", message="auto compressing context") as task,
+        compression_progress(task.report),
+    ):
+        compressed = await loop.compressor.compress(
+            state.messages,
+            token_count=usage.total_tokens,
+            max_tokens=loop._runtime.max_context_tokens,
+        )
+    if compressed is state.messages:
+        # 未超阈值 / 消息太少等提前返回：本条 run 没有真的压缩 ⇒ 摘除条目，
+        # 不留「completed 100%」噪声（`maybe_compress` 每轮迭代都调用）。
+        task.discard()
+    else:
         before = len(state.messages)
         state.messages = compressed
         logger.info("Context compressed: %d -> %d messages", before, len(state.messages))

@@ -9,6 +9,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from heagent.cron.expr import cron_matches
+from heagent.cron.jobs import CronRunStatus, _iso_now
+from heagent.cron.status import format_failure
 from heagent.engine import EngineContainer
 from heagent.pub.task_shutdown import DEFAULT_STOP_TIMEOUT, await_task_stop, retrieve_task_exception
 
@@ -157,6 +159,15 @@ class CronScheduler:
             "cron_job_started",
             details={"job_id": job.id, "schedule": job.cron},
         )
+        # 执行期状态：开始即写 running + last_started（供 `heagent cron status` 与滞留判死使用）。
+        # 只写这两个字段、不动 last_run——last_run 的语义仍是「一次执行**结束**的时刻」，
+        # 下面的成功/失败分支各自维护它。终态由后续 update 覆盖，本行不会残留。
+        await asyncio.to_thread(
+            self._store.update,
+            job.id,
+            last_status=CronRunStatus.RUNNING.value,
+            last_started=_iso_now(),
+        )
 
         run_context = self._engine.create_run_context(
             metadata={"kind": "cron", "job_id": job.id},
@@ -174,9 +185,14 @@ class CronScheduler:
             # 失败路径也更新 last_run——防止每分钟无限重试。
             # ledger.fail() 清除了 lease_expires_at，下一分钟新 key 的 acquire 会成功；
             # last_run 不更新会导致同一个逻辑分钟被无限重入。
-            from heagent.cron.jobs import _iso_now
-
-            await asyncio.to_thread(self._store.update, job.id, last_run=_iso_now())
+            # last_error 只留「异常类型: 首行」（截断），供 `heagent cron status` 展示。
+            await asyncio.to_thread(
+                self._store.update,
+                job.id,
+                last_run=_iso_now(),
+                last_status=CronRunStatus.FAILED.value,
+                last_error=format_failure(exc),
+            )
             logger.exception("Cron job '%s' execution failed", job.id)
             return
 
@@ -184,9 +200,15 @@ class CronScheduler:
         # 若顺序反过来 store.update 在前：ledger.complete 抛异常时 last_run 已更新但
         # 幂等未标记，下一分钟重复执行。
         await self._engine.ledger.complete(key, metadata={"job_id": job.id, "cron": job.cron})
-        from heagent.cron.jobs import _iso_now
-
-        await asyncio.to_thread(self._store.update, job.id, last_run=_iso_now())
+        finished = _iso_now()
+        await asyncio.to_thread(
+            self._store.update,
+            job.id,
+            last_run=finished,
+            last_status=CronRunStatus.SUCCESS.value,
+            last_success=finished,
+            last_error=None,  # 成功即清空上一次的失败信息（last_error 只描述「最近一次」）
+        )
         self._engine.events.publish(
             "cron_job_completed",
             run_id=run_context.run_id,

@@ -6,7 +6,8 @@
 ``gui_cmd`` 注册同模式）；测试直接 ``from heagent.cli.init import _init_project_context``。
 
 分层：本模块是入口层（``heagent/cli/`` 包内，与 console 同级），仅依赖 click 与 heagent.config，
-不被任何下层模块导入。
+不被任何下层模块导入。``--interactive`` 分支把落盘工作交给同层的 ``cli/wizard.py``（延迟导入：
+非交互路径不需要配置目录与求解器）。
 """
 
 from __future__ import annotations
@@ -22,7 +23,8 @@ _INIT_SETTING_TEMPLATE = """---
 # HeAgent 用户级配置（~/.heagent/setting.md）
 # 加载优先级：系统环境变量 > 项目 .env > 本文件 > 字段默认值
 # 意即：本文件是**全机默认值**；单个项目可在其 .env 中覆盖。.env 是项目级专用格式。
-# 写法：`KEY: value`（冒号+空格），`#` 整行注释；**不要**在值后面写 `#` 注释（会算进值）。
+# 写法：`KEY: value`（冒号+空格）；`#` 整行注释。值后面「空白 + #」起算行内注释、会被剥掉
+# （与 dotenv 口径一致），要写字面 `#` 请确保前面没有空白（或用引号包起来）。
 #
 # WS 对外模式（Epic 56）：把 WS 入口绑到非回环地址（如 WS_HOST=0.0.0.0）时必须配本项，
 # 否则对外监听器**拒绝启动**（fail-closed）。本项**只**从本文件读取——项目 .env 里写同名的
@@ -73,6 +75,29 @@ def _init_project_context() -> None:
     click.echo(f"[OK] Created project context template: {context_path}")
 
 
+def _init_interactive(project: bool) -> None:
+    """``--interactive`` 分支：先做与非交互路径相同的目录创建与一次性迁移，再交给向导写文件。
+
+    模板骨架不由本分支生成——向导会把用户确认的值直接写进 ``setting.md``（既有文件只改命中行），
+    两份模板文案并存只会漂移。终端能力先判：非 tty 时不该顺手建目录或迁移旧文件。
+    """
+    from heagent.cli.wizard import require_interactive_terminal, run_wizard
+
+    require_interactive_terminal()
+
+    if not GLOBAL_CONFIG_DIR.exists():
+        GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        click.echo(f"[OK] Created global config directory: {GLOBAL_CONFIG_DIR}")
+
+    migrated = ensure_user_settings_migrated(GLOBAL_SETTING_FILE, legacy_env_file=LEGACY_GLOBAL_ENV_FILE)
+    if migrated:
+        click.echo(f"[OK] Migrated legacy ~/.heagent/.env into {GLOBAL_SETTING_FILE} (renamed .env.migrated)")
+
+    run_wizard(setting_file=GLOBAL_SETTING_FILE)
+    if project:
+        _init_project_context()
+
+
 @click.command("init")
 @click.option(
     "--project",
@@ -81,13 +106,25 @@ def _init_project_context() -> None:
     default=False,
     help="Also generate project .heagent/CONTEXT.md template",
 )
-def init_cmd(project: bool) -> None:
+@click.option(
+    "--interactive",
+    "interactive",
+    is_flag=True,
+    default=False,
+    help="Interactive wizard: ask for common settings, then verify the written ~/.heagent/setting.md",
+)
+def init_cmd(project: bool, interactive: bool) -> None:
     """初始化 HeAgent 全局配置目录。
 
     在用户主目录创建 ``~/.heagent/``；先执行一次性迁移（旧 ``~/.heagent/.env`` →
     ``setting.md``），再生成带注释的用户级配置模板 ``~/.heagent/setting.md``（已存在则不覆盖）。
     ``--project`` 时额外生成项目 ``.heagent/CONTEXT.md``。
+    ``--interactive`` 时改走交互式配置向导（逐项询问常用配置并验证后原子写入同一个文件）。
     """
+    if interactive:
+        _init_interactive(project)
+        return
+
     created_dir = False
     if not GLOBAL_CONFIG_DIR.exists():
         GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)

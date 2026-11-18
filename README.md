@@ -70,7 +70,7 @@ heagent
 # 显式子命令
 heagent run --model deepseek-flash --system "你是 Python 专家" "写一个二分查找"
 
-# 初始化用户级配置；--project 额外创建 .heagent/CONTEXT.md 模板
+# 初始化用户级配置；--project 额外创建 .heagent/CONTEXT.md 模板；--interactive 走逐项向导
 heagent init --project
 ```
 
@@ -87,7 +87,9 @@ heagent init --project
 | --- | --- |
 | `heagent [PROMPT]` | 直接执行 prompt；无 prompt 时进入交互模式 |
 | `heagent run [PROMPT]` | 显式运行入口 |
-| `heagent init [--project]` | 初始化用户配置；可选创建项目上下文模板 |
+| `heagent init [--project] [--interactive]` | 初始化用户配置（`--interactive` 为逐项向导）；`--project` 额外创建项目上下文模板 |
+| `heagent doctor` | 只读配置诊断（25 个诊断码；有 error 级 finding 时退出码 1） |
+| `heagent cron status` | 定时任务状态：never／running／success／failed + 最后与下次执行 + 失败原因 |
 | `heagent gui` | 启动终端 UI，需要 `pip install -e ".[gui]"` |
 | `heagent replay FILE` | 回放 JSONL rollout 或事件文件 |
 | `heagent http-server` | 实验性网页入口（内置聊天页 + 同源 JSON/SSE API）；默认只绑 `127.0.0.1:9101` |
@@ -106,7 +108,7 @@ heagent init --project
 | `--no-http` | 本次进程不启动内嵌 HTTP 网页入口（WS 监听不受影响） |
 | `--no-ws` | 本次进程不启动内嵌 WS 监听（HTTP 网页入口不受影响） |
 
-交互模式支持 `/provider`、`/model`、`/goal`、`/clear` 和 `/help`。自定义命令放在 `.heagent/commands/*.md`，自定义角色放在 `.heagent/agents/*.md`。
+交互模式支持 `/provider`、`/model`、`/goal`、`/clear` 和 `/help`（`/help <命令>` 给语法、参数与示例）。自定义命令放在 `.heagent/commands/*.md`，自定义角色放在 `.heagent/agents/*.md`。
 
 ## HTTP 网页入口（实验性）
 

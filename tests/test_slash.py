@@ -45,6 +45,100 @@ class TestSlashRegistry:
         assert registry.describe("missing") == ""
 
 
+class TestSlashRegistryMetadata:
+    """注册表元数据与向后兼容：3 参 ``register`` 仍工作，``register_command`` 补详情字段。"""
+
+    @staticmethod
+    async def _noop(args: str) -> None:
+        return None
+
+    def test_legacy_three_arg_register_still_works(self) -> None:
+        registry = SlashRegistry()
+        registry.register("legacy", "旧式注册", self._noop)
+        assert registry.has("legacy")
+        assert registry.describe("legacy") == "旧式注册"
+        info = registry.info("legacy")
+        assert info is not None
+        assert (info.usage, info.arguments, info.examples, info.custom) == ("", "", [], False)
+
+    @pytest.mark.asyncio
+    async def test_legacy_registration_still_dispatches(self) -> None:
+        registry = SlashRegistry()
+        calls: list[str] = []
+
+        async def handler(args: str) -> None:
+            calls.append(args)
+
+        registry.register("legacy", "", handler)
+        assert (await registry.dispatch("legacy", "x")) is True
+        assert calls == ["x"]
+
+    def test_register_command_stores_metadata(self) -> None:
+        registry = SlashRegistry()
+        registry.register_command(
+            "Demo",
+            "演示命令",
+            self._noop,
+            usage="/demo <arg>",
+            arguments="<arg>  参数说明",
+            examples=["/demo one", "/demo two"],
+        )
+        info = registry.info("demo")  # 名字一律小写
+        assert info is not None
+        assert info.name == "demo"
+        assert info.description == "演示命令"
+        assert info.usage == "/demo <arg>"
+        assert info.arguments == "<arg>  参数说明"
+        assert info.examples == ["/demo one", "/demo two"]
+        assert info.custom is False
+
+    def test_commands_sorted_and_consistent_with_names(self) -> None:
+        registry = SlashRegistry()
+        registry.register_command("b", "bee", self._noop)
+        registry.register_command("a", "aye", self._noop)
+        assert [entry.name for entry in registry.commands()] == registry.names() == ["a", "b"]
+        assert registry.info("missing") is None
+
+    def test_custom_flag_recorded(self) -> None:
+        registry = SlashRegistry()
+        registry.register_command("mine", "自定义", self._noop, custom=True)
+        info = registry.info("mine")
+        assert info is not None and info.custom is True
+
+    def test_examples_are_capped(self) -> None:
+        registry = SlashRegistry()
+        registry.register_command("many", "多示例", self._noop, examples=[f"/many {i}" for i in range(12)])
+        info = registry.info("many")
+        assert info is not None
+        assert len(info.examples) == 8
+        assert info.examples[0] == "/many 0"
+
+    def test_reregistering_same_name_replaces_entry(self) -> None:
+        registry = SlashRegistry()
+        registry.register_command("dup", "第一版", self._noop, usage="/dup")
+        registry.register("dup", "第二版", self._noop)
+        assert registry.describe("dup") == "第二版"
+        info = registry.info("dup")
+        assert info is not None and info.usage == ""  # 覆盖即整条替换，不残留旧元数据
+        assert registry.names() == ["dup"]
+
+    def test_suggest_close_match(self) -> None:
+        registry = SlashRegistry()
+        for name in ("provider", "model", "help"):
+            registry.register(name, name, self._noop)
+        assert registry.suggest("providr") == ["provider"]
+
+    def test_suggest_falls_back_to_one_name(self) -> None:
+        registry = SlashRegistry()
+        for name in ("clear", "compact"):
+            registry.register(name, name, self._noop)
+        suggested = registry.suggest("zzzzzz")
+        assert len(suggested) == 1  # 无相似项也给一条，别留空建议
+
+    def test_suggest_on_empty_registry(self) -> None:
+        assert SlashRegistry().suggest("anything") == []
+
+
 class TestLoadCustomCommands:
     def test_loads_frontmatter(self, tmp_path) -> None:
         (tmp_path / "review.md").write_text(

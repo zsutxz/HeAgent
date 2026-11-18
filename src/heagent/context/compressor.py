@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
 from heagent.context.sidecall import send_accounted
@@ -50,6 +53,44 @@ STRUCTURED_SUMMARY_PROMPT = (
 # 摘要请求本身的安全缓冲区：预留足够的 token 空间给摘要提示词 + 回复
 # （提示词约 30 tokens，回复预留 512 tokens，简单旧消息不会用完）
 _SUMMARY_SAFETY_MARGIN = 1024  # tokens，为摘要提示词 + LLM 回复保底
+
+# 进度回调签名：(percent, message)。压缩器不认识任何注册表/传输层，只调用这个可调用对象；
+# 由上层（入口层）绑定到具体实现，因此 context 层不反向依赖 engine / network。
+ProgressReporter = Callable[[int, str], None]
+
+# 环境式进度钩子：生产者在**自己的一次压缩调用**外层用 :func:`compression_progress` 绑定上报器，
+# 压缩器在该上下文内取得它。用环境变量而非 ``compress`` 形参，是为保持该方法的既有签名契约
+# （它被多处替换实现与测试替身调用，加形参会让这些实现静默失配）；钩子缺席时压缩行为完全不变。
+_PROGRESS: ContextVar[ProgressReporter | None] = ContextVar("heagent_compressor_progress", default=None)
+
+# 上报区间：压缩内部把 0–100 分给三段——切分 10、摘要 20–90、组装完成 100。
+_PERCENT_SPLIT = 10
+_PERCENT_SUMMARY_START = 20
+_PERCENT_SUMMARY_END = 90
+_PERCENT_DONE = 100
+
+
+@contextmanager
+def compression_progress(reporter: ProgressReporter | None) -> Iterator[None]:
+    """把 ``reporter`` 绑定为**当前上下文**内压缩调用的进度上报器（可嵌套，退出即还原）。
+
+    只影响本上下文（``ContextVar`` 随任务复制），不污染并发中的其它压缩调用。
+    """
+    token = _PROGRESS.set(reporter)
+    try:
+        yield
+    finally:
+        _PROGRESS.reset(token)
+
+
+def _report(progress: ProgressReporter | None, percent: int, message: str) -> None:
+    """调用进度回调；回调自身出错只记日志，**绝不**影响压缩结果。"""
+    if progress is None:
+        return
+    try:
+        progress(percent, message)
+    except Exception:
+        logger.debug("Progress reporter failed at percent=%d", percent, exc_info=True)
 
 
 def render_message_for_summary(message: Message, *, tool_result_content: bool) -> list[str]:
@@ -157,8 +198,13 @@ class ContextCompressor:
         old = conversation[:split]
         recent = conversation[split:]
 
+        # 进度只在**真正开始压缩**时上报：未超阈值 / 消息太少等提前返回路径一次都不报
+        # （那不算「进行中的任务」，调用方的 scope 会按正常路径自己收尾）。
+        progress = _PROGRESS.get()
+        _report(progress, _PERCENT_SPLIT, "splitting messages")
+
         # 调用 LLM 生成旧消息摘要（带截断保护，防超出上下文窗口）
-        summary = await self._summarize(old, max_tokens=max_tokens)
+        summary = await self._summarize(old, max_tokens=max_tokens, progress=progress)
 
         # 组装压缩后的消息列表
         compressed = [
@@ -171,9 +217,16 @@ class ContextCompressor:
             len(old),
             self.threshold * 100,
         )
+        _report(progress, _PERCENT_DONE, "compression finished")
         return compressed
 
-    async def _summarize(self, messages: list[Message], max_tokens: int = 0) -> str:
+    async def _summarize(
+        self,
+        messages: list[Message],
+        max_tokens: int = 0,
+        *,
+        progress: ProgressReporter | None = None,
+    ) -> str:
         """调用 LLM 对旧消息生成摘要，带截断保护。
 
         如果旧消息的估算 token 数超过安全阈值（``effective_limit - SAFETY_MARGIN``），
@@ -187,9 +240,12 @@ class ContextCompressor:
         参数：
             messages: 需要摘要的旧消息列表
             max_tokens: 原始上下文窗口上限；为 0 时不截断（纯兼容）
+            progress: 可选进度回调，按「已处理的输入条目数 / 总数」在 20–90 之间线性上报
         返回：
             摘要文本
         """
+        _report(progress, _PERCENT_SUMMARY_START, f"summarizing {len(messages)} messages")
+
         # effective_limit：min(window_limit, summary_input_limit)，收紧摘要输入上限
         effective_limit = min(max_tokens, self.max_summary_tokens) if max_tokens > 0 else self.max_summary_tokens
         safety_limit = effective_limit - _SUMMARY_SAFETY_MARGIN
@@ -202,6 +258,7 @@ class ContextCompressor:
                 effective_limit,
                 _SUMMARY_SAFETY_MARGIN,
             )
+            _report(progress, _PERCENT_SUMMARY_END, "summarization skipped: context window too small")
             return "(conversation content omitted - context window too small to summarize by LLM)"
 
         prompt_parts: list[str] = []
@@ -210,7 +267,8 @@ class ContextCompressor:
         should_truncate = effective_limit > 0 and safety_limit > 0
 
         # 从末尾向前取消息（最新消息最重要），直到接近安全阈值（或不截断时全部取出）
-        for m in reversed(messages):
+        total = len(messages)
+        for index, m in enumerate(reversed(messages), start=1):
             # 组装走共用序列化（与 WindowReset 同一实现）；tool_result 只留标识符，
             # 因其返回值同时用于 token 估算，须与 tokens.count_tokens 的 TOOL 口径对齐。
             parts = render_message_for_summary(m, tool_result_content=False)
@@ -233,6 +291,12 @@ class ContextCompressor:
                 break
             estimated += msg_tokens
             prompt_parts.insert(0, text)  # 因为是从后向前遍历，插到头部恢复原序
+            # 分段循环即进度来源：百分比只随「已确定的输入条目数」前进，单调不减。
+            _report(
+                progress,
+                _PERCENT_SUMMARY_START + (_PERCENT_SUMMARY_END - _PERCENT_SUMMARY_START) * index // total,
+                f"summarizing {index}/{total} messages",
+            )
 
         # 如果一条消息都没保留，则强制包含最近一条（避免无意义的占位符）
         if not prompt_parts and messages:
@@ -242,6 +306,7 @@ class ContextCompressor:
 
         # 极少数情况：输入完全为空（不应发生）
         if not prompt_parts:
+            _report(progress, _PERCENT_SUMMARY_END, "summarization input is empty")
             return "(conversation content omitted - too large to summarize)"
 
         prompt = "\n".join(prompt_parts)
@@ -257,6 +322,8 @@ class ContextCompressor:
             # 摘要失败时不抛异常、不中断主循环：返回简短占位符，
             # 下次迭代若 token 仍超阈值会再次尝试压缩。
             logger.exception("Summary generation failed; returning placeholder")
+            _report(progress, _PERCENT_SUMMARY_END, "summarization failed")
             return "(summary unavailable - conversation history preserved in recent messages)"
 
+        _report(progress, _PERCENT_SUMMARY_END, "summary ready")
         return resp.content
