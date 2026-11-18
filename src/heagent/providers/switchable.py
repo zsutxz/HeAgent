@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from heagent.providers.base import BaseProvider, ProviderMetadata, ProviderSummary
 from heagent.providers.fallback_base import FallbackPolicy, raise_as_provider_error
+from heagent.providers.metadata_cache import ProviderMetadataCache
 from heagent.providers.retry import classify_exception
 from heagent.pub.exceptions import ProviderError
 
@@ -54,12 +55,19 @@ class SwitchableProvider:
         await sp.switch("deepseek")      # 用户手动切回 deepseek（配额已刷新）
     """
 
-    def __init__(self, providers: dict[str, BaseProvider], *, default: str) -> None:
+    def __init__(
+        self,
+        providers: dict[str, BaseProvider],
+        *,
+        default: str,
+        metadata_cache: ProviderMetadataCache | None = None,
+    ) -> None:
         """初始化可切换 provider 池。
 
         Args:
             providers: ``{名称: provider 实例}`` 的字典，名称即 ``/provider <name>`` 中的 name。
             default: 初始活跃 provider 的名称，必须在 providers 中存在。
+            metadata_cache: 可选的元数据缓存实例（调容量 / 共享观测面用）；None 则自建默认容量。
         """
         if not providers:
             raise ValueError("SwitchableProvider requires at least one provider")
@@ -69,6 +77,7 @@ class SwitchableProvider:
         self._active: str = default
         # 防并发 switch/send/stream 对 _active 的竞态修改。
         self._lock = asyncio.Lock()
+        self._metadata_cache = metadata_cache if metadata_cache is not None else ProviderMetadataCache()
 
     # -- 公共 API --
 
@@ -100,6 +109,21 @@ class SwitchableProvider:
         """
         return dict(self._providers)
 
+    @property
+    def metadata_cache(self) -> ProviderMetadataCache:
+        """元数据缓存实例（观测面：``hits`` / ``misses`` / ``hit_rate``）。"""
+        return self._metadata_cache
+
+    def _set_active(self, name: str) -> None:
+        """写 ``_active`` 的**唯一入口**：值真的变了才失效元数据缓存。
+
+        漏掉这里的失效会让 ``get_metadata()`` 继续返回上一个 active 的名字与模型，
+        而状态行/``/provider`` 列表正是读它；因此所有活跃指针写入都必须走本方法。
+        """
+        if self._active != name:
+            self._active = name
+            self._metadata_cache.invalidate(self)
+
     async def switch(self, name: str) -> None:
         """切换到指定名称的 provider。
 
@@ -114,7 +138,7 @@ class SwitchableProvider:
             raise ValueError(f"Unknown provider {name!r}. Available: {', '.join(sorted(self._providers.keys()))}")
         async with self._lock:
             old = self._active
-            self._active = name
+            self._set_active(name)
         logger.info("Provider switched: %s → %s", old, name)
 
     def info(self) -> dict[str, ProviderSummary]:
@@ -187,12 +211,12 @@ class SwitchableProvider:
             if name != active_before:
                 async with self._lock:
                     self._note_fallback(active_before, name)
-                    self._active = name  # 粘性停留
+                    self._set_active(name)  # 粘性停留
             return resp
 
         # 池耗尽：重置到原始活跃 provider，上抛最后一个错误
         async with self._lock:
-            self._active = active_before
+            self._set_active(active_before)
         if last_error is not None:
             raise_as_provider_error(last_error)
         raise ProviderError("All providers exhausted")
@@ -232,13 +256,13 @@ class SwitchableProvider:
                     # 成功回退 → 锁内更新 _active
                     async with self._lock:
                         self._note_fallback(active_before, name)
-                        self._active = name  # 粘性停留
+                        self._set_active(name)  # 粘性停留
                 return
             except Exception as e:
                 if delivered:
                     # 已下发输出，重放会重复——不回退，直接上抛
                     async with self._lock:
-                        self._active = active_before
+                        self._set_active(active_before)
                     raise
                 if not FallbackPolicy.should_fallback_pool(e):
                     raise
@@ -250,13 +274,17 @@ class SwitchableProvider:
                 last_error = e
 
         async with self._lock:
-            self._active = active_before
+            self._set_active(active_before)
         if last_error is not None:
             raise_as_provider_error(last_error)
         raise ProviderError("All providers exhausted for stream")
 
     def get_metadata(self) -> ProviderMetadata:
-        """返回当前活跃 provider 的能力描述。"""
+        """返回当前活跃 provider 的能力描述（经元数据缓存；切 active 后由缓存失效跟随）。"""
+        return self._metadata_cache.get(self, self._build_metadata)
+
+    def _build_metadata(self) -> ProviderMetadata:
+        """构造当前活跃 provider 的元数据（仅缓存未命中时调用）。"""
         meta = self.current.get_metadata()
         return ProviderMetadata(
             name=f"switchable:{self._active}",

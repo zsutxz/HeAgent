@@ -11,6 +11,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from heagent.providers.fallback_base import FallbackPolicy, raise_as_provider_error
+from heagent.providers.metadata_cache import ProviderMetadataCache
 from heagent.providers.retry import classify_exception
 from heagent.pub.exceptions import ProviderError
 
@@ -33,12 +34,19 @@ class ProviderChain:
     - 全部失败 → 重置为 deepseek 并抛出异常
     """
 
-    def __init__(self, providers: list[BaseProvider]) -> None:
+    def __init__(self, providers: list[BaseProvider], *, metadata_cache: ProviderMetadataCache | None = None) -> None:
+        """初始化回退链。
+
+        Args:
+            providers: 有序 provider 列表（非空），索引 0 为主 Provider。
+            metadata_cache: 可选的元数据缓存实例（调容量 / 共享观测面用）；None 则自建默认容量。
+        """
         if not providers:
             raise ValueError("ProviderChain requires at least one provider")
         self._providers = list(providers)
         self._current_index = 0  # 当前活跃 Provider 的索引
         self._lock = asyncio.Lock()  # 防并发索引漂移（H-2）
+        self._metadata_cache = metadata_cache if metadata_cache is not None else ProviderMetadataCache()
 
     @property
     def current(self) -> BaseProvider:
@@ -50,19 +58,34 @@ class ProviderChain:
         """返回所有 Provider 的列表副本。"""
         return list(self._providers)
 
+    @property
+    def metadata_cache(self) -> ProviderMetadataCache:
+        """元数据缓存实例（观测面：``hits`` / ``misses`` / ``hit_rate``）。"""
+        return self._metadata_cache
+
+    def _set_current_index(self, index: int) -> None:
+        """写 ``_current_index`` 的**唯一入口**：值真的变了才失效元数据缓存。
+
+        ``get_metadata()`` 转发 ``current``，索引一变返回值就变；所有索引写入都必须走本
+        方法，否则 ``get_metadata()`` 会继续返回回退前的 provider 元数据。
+        """
+        if self._current_index != index:
+            self._current_index = index
+            self._metadata_cache.invalidate(self)
+
     def _advance(self) -> bool:
         """将活跃索引后移一位（故障转移）。保留供测试使用。
 
         返回 True 表示成功切换，False 表示已无可用的 Provider。
         """
         if self._current_index < len(self._providers) - 1:
-            self._current_index += 1
+            self._set_current_index(self._current_index + 1)
             return True
         return False
 
     def reset(self) -> None:
         """重置到第一个 Provider（新一轮尝试时使用）。"""
-        self._current_index = 0
+        self._set_current_index(0)
 
     async def send(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> ProviderResponse:
         """依次尝试每个 Provider，直到成功或全部失败。
@@ -93,17 +116,17 @@ class ProviderChain:
                 # 客户端错误 → 不回退，立即抛出
                 if not FallbackPolicy.should_fallback_chain(e):
                     async with self._lock:
-                        self._current_index = start
+                        self._set_current_index(start)
                     raise_as_provider_error(e)
                 last_error = e
                 continue
             async with self._lock:
-                self._current_index = start  # 成功后复位到主 Provider（不粘性旁路）
+                self._set_current_index(start)  # 成功后复位到主 Provider（不粘性旁路）
             return resp
 
         # 所有 Provider 均失败（均为可回退错误）→ 恢复索引，抛出最后的错误
         async with self._lock:
-            self._current_index = start
+            self._set_current_index(start)
         if last_error is not None:
             raise_as_provider_error(last_error)
         # 理论不可达：providers 非空（__init__ 保证）且任意迭代要么 return 要么设 last_error。
@@ -140,13 +163,13 @@ class ProviderChain:
                     yield chunk
                 # 锁内：成功后复位到主 Provider（不粘性旁路）
                 async with self._lock:
-                    self._current_index = start
+                    self._set_current_index(start)
                 return
             except Exception as e:
                 # 已交付部分输出 → 不可回退（重放会重复），直接抛出并复位索引
                 if delivered:
                     async with self._lock:
-                        self._current_index = start
+                        self._set_current_index(start)
                     raise_as_provider_error(e)
                 category = classify_exception(e)
                 logger.warning(
@@ -157,16 +180,16 @@ class ProviderChain:
                 )
                 if not FallbackPolicy.should_fallback_chain(e):
                     async with self._lock:
-                        self._current_index = start
+                        self._set_current_index(start)
                     raise_as_provider_error(e)
                 last_error = e
         async with self._lock:
-            self._current_index = start
+            self._set_current_index(start)
         if last_error is not None:
             raise_as_provider_error(last_error)
         # 理论不可达：见 send() 同款注释。
         raise ProviderError("All providers failed for stream")
 
     def get_metadata(self) -> ProviderMetadata:
-        """返回当前活跃 Provider 的能力描述。"""
-        return self.current.get_metadata()
+        """返回当前活跃 Provider 的能力描述（经元数据缓存；索引变化后由缓存失效跟随）。"""
+        return self._metadata_cache.get(self, self.current.get_metadata)
