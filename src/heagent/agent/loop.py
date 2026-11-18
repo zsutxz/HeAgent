@@ -34,6 +34,8 @@ from contextlib import ExitStack, aclosing, contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from pydantic import ValidationError
+
 from heagent.agent.context_runtime import (
     add_usage,
     append_assistant_message,
@@ -69,6 +71,7 @@ from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import (
     Message,
     ProviderResponse,
+    SandboxDecision,
     StreamEvent,
     TokenUsage,
     ToolCall,
@@ -453,14 +456,22 @@ class AgentLoop:
     def _bound_container_workdir(self, run_context: RunContext) -> str | None:
         """本 run 的容器内工作目录锚（docker 后端且会话目录生效时 ``/workspace``，否则 None）。
 
-        审查修复批 D：容器把会话目录挂载在固定路径，模型必须知道**容器侧**路径锚——否则
-        它拿宿主路径写 shell 命令必然落空。与 ``_bound_sandbox_workspace`` 同源判定。
+        容器把会话目录挂载在固定路径，模型必须知道**容器侧**路径锚——否则它拿宿主路径写
+        shell 命令必然落空。与 ``_bound_sandbox_workspace`` 同源判定。
+
+        决策走 ``metadata["sandbox_decision"]``：进程内是 ``SandboxDecision`` 模型，落盘读回
+        （``RunSnapshot`` round-trip）是等价 dict ⇒ 一律经模型校验取值，形状不合法即 None。
         """
         if self.engine.executor.sandbox_runner is None:
             return None
         decision = run_context.metadata.get("sandbox_decision")
-        backend = decision.get("effective_backend") if isinstance(decision, dict) else None
-        return CONTAINER_WORKDIR if backend == "docker" else None
+        if decision is None:
+            return None
+        try:
+            parsed = SandboxDecision.model_validate(decision)
+        except ValidationError:
+            return None
+        return CONTAINER_WORKDIR if parsed.effective_backend == "docker" else None
 
     def _get_tools(self) -> list[ToolSchema]:
         """取发送给 LLM 的工具 Schema 列表，按 policy 白名单过滤（P5-1）。

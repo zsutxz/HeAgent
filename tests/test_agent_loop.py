@@ -22,6 +22,7 @@ from heagent.pub.types import (
     Message,
     ProviderResponse,
     Role,
+    SandboxDecision,
     TokenUsage,
     ToolCall,
     ToolSchema,
@@ -1056,7 +1057,7 @@ class TestSandboxWorkspaceVisibility:
 
 
 class TestContainerWorkdirAnchor:
-    """审查修复批 D：容器内工作目录锚只在 docker 后端**实际生效**时给出。
+    """容器内工作目录锚只在 docker 后端**实际生效**时给出。
 
     与 ``_bound_sandbox_workspace`` 同源判定——报错路径比不报更坏（E40-D2 同型立场）。
     """
@@ -1074,12 +1075,16 @@ class TestContainerWorkdirAnchor:
 
         return RunContext(metadata=dict(metadata))
 
+    @staticmethod
+    def _decision(backend: str) -> SandboxDecision:
+        return SandboxDecision(requested_backend=backend, effective_backend=backend)
+
     def test_container_workdir_for_docker_backend(self) -> None:
-        """docker 后端 + 决策报 docker → 给出 ``/workspace``。"""
+        """docker 后端 + 决策报 docker（进程内是模型）→ 给出 ``/workspace``。"""
         from heagent.tools.sandbox.docker import DockerRunner
 
         loop, _engine = self._loop_with(DockerRunner())
-        ctx = self._ctx(sandbox_decision={"effective_backend": "docker"})
+        ctx = self._ctx(sandbox_decision=self._decision("docker"))
         assert loop._bound_container_workdir(ctx) == "/workspace"
 
     def test_no_workdir_for_non_docker_backend(self) -> None:
@@ -1087,14 +1092,25 @@ class TestContainerWorkdirAnchor:
         from heagent.tools.sandbox.docker import DockerRunner
 
         loop, _engine = self._loop_with(DockerRunner())
-        ctx = self._ctx(sandbox_decision={"effective_backend": "firejail"})
+        ctx = self._ctx(sandbox_decision=self._decision("firejail"))
         assert loop._bound_container_workdir(ctx) is None
 
     def test_no_workdir_when_no_runner(self) -> None:
         """无沙箱后端（决策即便残留 docker 字样）→ None：与 ``_bound_sandbox_workspace`` 同口径。"""
         loop, _engine = self._loop_with(None)
-        ctx = self._ctx(sandbox_decision={"effective_backend": "docker"})
+        ctx = self._ctx(sandbox_decision=self._decision("docker"))
         assert loop._bound_container_workdir(ctx) is None
+
+    def test_workdir_survives_snapshot_round_trip(self) -> None:
+        """落盘读回（``RunSnapshot`` 把模型降级成等价 dict）后仍给出 ``/workspace``。"""
+        from heagent.engine.store import RunSnapshot
+        from heagent.tools.sandbox.docker import DockerRunner
+
+        loop, _engine = self._loop_with(DockerRunner())
+        snapshot = RunSnapshot(context=self._ctx(sandbox_decision=self._decision("docker")), prompt="p")
+        restored = RunSnapshot.model_validate_json(snapshot.model_dump_json())
+        assert isinstance(restored.context.metadata["sandbox_decision"], dict)
+        assert loop._bound_container_workdir(restored.context) == "/workspace"
 
     def test_no_workdir_without_decision_metadata(self) -> None:
         """metadata 缺 ``sandbox_decision`` / 形状可疑 → None（不猜）。"""
@@ -1103,4 +1119,6 @@ class TestContainerWorkdirAnchor:
         loop, _engine = self._loop_with(DockerRunner())
         assert loop._bound_container_workdir(self._ctx()) is None
         assert loop._bound_container_workdir(self._ctx(sandbox_decision="docker")) is None
+        # 半截 dict（缺 requested_backend）不再是合法决策：经模型校验后判形状不合法
+        assert loop._bound_container_workdir(self._ctx(sandbox_decision={"effective_backend": "docker"})) is None
         assert loop._bound_container_workdir(self._ctx(sandbox_decision=None)) is None

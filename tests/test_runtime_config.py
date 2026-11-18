@@ -51,7 +51,7 @@ def test_container_pins_settings_and_records_actual_backend(monkeypatch):
     second = engine.create_run_context()
     assert first.run_id != second.run_id
     assert first.metadata is not second.metadata
-    assert first.metadata["sandbox_decision"]["filesystem_isolation"] is False
+    assert first.metadata["sandbox_decision"].filesystem_isolation is False
 
 
 def test_unavailable_explicit_backend_reports_passthrough(monkeypatch):

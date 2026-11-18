@@ -281,7 +281,7 @@ def test_sandbox_decision_full_chain_docker(
     assert decision.filesystem_isolation is True
     assert decision.network_isolation is True  # --network=none 默认
     ctx = engine.create_run_context()
-    assert ctx.metadata["sandbox_decision"]["effective_backend"] == "docker"
+    assert ctx.metadata["sandbox_decision"].effective_backend == "docker"  # 存模型本身，非 model_dump
 
     # bridge 档：SANDBOX_NETWORK=True 显式开启后网络隔离事实翻转
     bridged = EngineContainer.default(settings=Settings(_env_file=None, sandbox_backend="docker", sandbox_network=True))

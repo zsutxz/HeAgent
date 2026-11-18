@@ -20,6 +20,7 @@
 - 内部单源化清理批（行为零变化，判据全绿）：词级判重公式三份拷贝收单点（`compact.word_overlap_duplicate`，`FactStore.add` 反向复用）；归档小节构造与字节账收敛到 `auto_archive._append_archive`/`_fact_line_bytes`（`compact._append_archive_section` 退化为薄委托）；`auto_archive` 跨进程节流改用 `pub.persist` 的 `stamp_is_recent`/`touch_prune_stamp`（与 store/ledger/housekeeping 同一节流序列）；`EngineContainer` 两处 prune 同构孪生收敛 `_prune_gate_once`（日志文案逐字节不变）；`setup_ws_external` / `envscan` 改用 `envfile.replace_or_append` / `envfile.fingerprint`。
 - 代码门禁范围扩到 `examples/`：`ruff check` / `ruff format --check` 的路径面加入 `examples`（CI、pre-commit、`scripts/quality_gate.py`、`docs/testing.md` 同步），示例代码漂移不再静默；`examples/**` 只放行 RUF001/002/003（全角标点是中文示例的写作约定），其余规则与 `src` 同标准。`mypy src` 仍不含 `examples`。
 - `/help` 渲染面（列表版 / 详情版 / 未知命令建议）自 `cli/interactive.py` 拆到 `cli/help_view.py`：纯展示模块，注册与派发仍在 `interactive.py`，`/help` 输出逐字不变。
+- `sandbox_decision` 退出鸭子解析（A54 ③，行为保持型）：`EngineContainer.create_run_context` 把 `SandboxDecision` **模型本身**写进 `metadata`（不再 `model_dump()` 降级成裸 dict），`AgentLoop._bound_container_workdir` 改用 `SandboxDecision.model_validate(...)` 取 `effective_backend`，形状不合法仍是 `None`（不猜）。落盘侧不变——`RunSnapshot.model_dump(mode="json")` 把模型降级成等价 dict，读回经同一校验。
 
 ### Added
 

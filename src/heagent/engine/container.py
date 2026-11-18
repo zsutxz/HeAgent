@@ -440,7 +440,9 @@ class EngineContainer:
             metadata=dict(metadata or {}),
         )
         if self.sandbox_decision is not None:
-            ctx.metadata["sandbox_decision"] = self.sandbox_decision.model_dump()
+            # 存模型本身而非 model_dump()：跨模块数据用 Pydantic（frozen），落盘时由
+            # RunSnapshot.model_dump(mode="json") 统一降级成 dict，读回侧经模型校验取值。
+            ctx.metadata["sandbox_decision"] = self.sandbox_decision
         # **仅在真实沙箱后端在位时**才自动授权（与 EngineContainer.default 的 enforce
         # 同条件）。后端缺席（passthrough）时不写该键——策略要求沙箱而无授权仍按既有
         # fail-safe 阻断，既不制造「已在沙箱里跑」的假象，也不放宽「未授权即拒绝」的契约。
