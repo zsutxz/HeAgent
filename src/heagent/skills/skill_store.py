@@ -29,6 +29,7 @@ from pydantic import BaseModel
 
 from heagent.config import GLOBAL_CONFIG_DIR
 from heagent.pub.persist import atomic_update_text, atomic_write_text
+from heagent.skills.skill_catalog import SkillMatchCache
 from heagent.skills.skill_catalog import match_skill_details as _match_skill_details
 from heagent.skills.skill_catalog import stale_skills as _stale_skills
 from heagent.skills.skill_meta import META_FILENAME, SkillMeta, parse_meta_yaml, render_meta_yaml
@@ -102,6 +103,8 @@ class SkillStore:
         # ``.lock`` 文件锁另行覆盖跨进程场景，:func:`_replace_with_retry` 兜住瞬时占用。
         # 用 ``RLock`` 是因为 ``parse`` → ``load`` 等路径会嵌套获取。
         self._mutation_lock = threading.RLock()
+        #: 技能匹配的进程内缓存（结果 + 索引），按技能库指纹失效；构造时**不**扫描技能库。
+        self.match_cache = SkillMatchCache()
 
     # 拆分兼容面：测试经类名访问这两个改写内核；别名保持类属性访问缝原位。
     _render_skill_md = staticmethod(render_skill_md)
@@ -521,5 +524,9 @@ class SkillStore:
     # ---- 匹配 ----
 
     def match_skill_details(self, prompt: str, threshold: float) -> list[SkillMatch]:
-        """Return explainable, backward-compatible skill matches."""
+        """Return explainable, backward-compatible skill matches.
+
+        结果与「与 prompt 无关的索引」都按技能库指纹缓存在 :attr:`match_cache`：同一
+        prompt 重复匹配零 ``parse``，技能文件一改即整体失效。
+        """
         return _match_skill_details(self, prompt, threshold)

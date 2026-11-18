@@ -3,22 +3,99 @@
 基于关键词/触发词的可解释匹配与过期盘点：:func:`match_skill_details` /
 :func:`stale_skills`。均为以 :class:`~heagent.skills.skill_store.SkillStore`
 为数据源的纯检索函数（本模块只经 TYPE_CHECKING 引用存储类型，依赖单向）。
+
+匹配分两段：与 prompt **无关**的部分一次性建成 :class:`SkillMatchIndex`（每技能一次
+``SkillStore.parse``），按技能库指纹缓存；与 prompt 相关的部分只做集合运算与阈值判定。
+结果再按 ``(指纹, prompt, threshold)`` 进 LRU 缓存，故同一 prompt 的重复匹配零解析。
+缓存随 ``SkillStore`` 实例存活（见 :class:`SkillMatchCache`），技能库任一文件被写 ⇒
+指纹变化 ⇒ 结果与索引一起失效，不靠 TTL、不靠手动清理。
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
+import threading
+from collections import OrderedDict
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
-from heagent.skills.skill_meta import SkillMetaError
+from pydantic import BaseModel, Field
+
+from heagent.skills.skill_meta import META_FILENAME, SkillMetaError
 from heagent.skills.skill_models import SkillMatch
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from heagent.skills.skill_store import SkillStore
 
 logger = logging.getLogger(__name__)
+
+#: 结果缓存容量（LRU）：一次 run 里的 prompt 数远小于此值，多子代理并发也在预算内。
+DEFAULT_MATCH_CACHE_ENTRIES = 32
+#: 索引缓存容量：槽位按技能库指纹划分，留几槽容错（并发线程交替构建）。
+_INDEX_CACHE_ENTRIES = 4
+
+
+class _LruCache:
+    """固定容量的线程安全 LRU。
+
+    技能读路径会被多个 ``asyncio.to_thread`` 工作线程并发调用（并行子代理各自构建系统
+    提示词），故读写都在锁内；键是任意不可变元组，值是**不可变使用**的缓存载荷。
+    """
+
+    __slots__ = ("_entries", "_lock", "_max_entries")
+
+    def __init__(self, max_entries: int) -> None:
+        self._max_entries = max(1, max_entries)
+        self._lock = threading.Lock()
+        self._entries: OrderedDict[object, object] = OrderedDict()
+
+    def get(self, key: object) -> object | None:
+        with self._lock:
+            value = self._entries.get(key)
+            if value is not None:
+                self._entries.move_to_end(key)
+            return value
+
+    def put(self, key: object, value: object) -> None:
+        with self._lock:
+            self._entries[key] = value
+            self._entries.move_to_end(key)
+            while len(self._entries) > self._max_entries:
+                self._entries.popitem(last=False)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+
+class SkillMatchCache:
+    """技能匹配的两处进程内缓存，随 :class:`~heagent.skills.skill_store.SkillStore` 实例存活。
+
+    刻意不做跨实例/跨进程共享：缓存只反映**本进程读到的文件状态**（技能库在别的进程
+    被改，这里看不到——那是下一次指纹重算的事）。``SkillStore.__init__`` 只新建这两个
+    空容器，不预扫描技能库（懒语义不变）。
+    """
+
+    __slots__ = ("index", "results")
+
+    def __init__(
+        self,
+        *,
+        results: int = DEFAULT_MATCH_CACHE_ENTRIES,
+        index: int = _INDEX_CACHE_ENTRIES,
+    ) -> None:
+        #: key = ``(技能库指纹, prompt, threshold)`` → ``list[SkillMatch]``
+        self.results = _LruCache(results)
+        #: key = 技能库指纹 → :class:`SkillMatchIndex`
+        self.index = _LruCache(index)
 
 
 def skill_tokens(text: str) -> set[str]:
@@ -36,13 +113,69 @@ def skill_tokens(text: str) -> set[str]:
     return tokens
 
 
-def match_skill_details(store: SkillStore, prompt: str, threshold: float) -> list[SkillMatch]:
-    """Return explainable, backward-compatible skill matches."""
-    if not prompt.strip():
-        return []
-    prompt_text = prompt.casefold()
-    prompt_tokens = skill_tokens(prompt)
-    matches: list[SkillMatch] = []
+def _stat_signature(path: Path) -> tuple[int, int]:
+    """文件 ``(mtime_ns, size)``；读不到（竞态删除）按全零计，本轮视作「无该文件」。"""
+    try:
+        info = path.stat()
+    except OSError:
+        return (0, 0)
+    return (info.st_mtime_ns, info.st_size)
+
+
+def skill_library_fingerprint(store: SkillStore) -> str:
+    """技能库内容指纹：匹配结果与索引的失效判据。
+
+    逐**生效根**技能取 ``meta.yaml`` 与 ``SKILL.md`` 的 ``(mtime_ns, size)``，连同技能名
+    排序后做 sha256，取前 16 位十六进制。任一技能文件被写（含 ``record_usage`` 回写
+    ``meta.yaml``）或技能增删 ⇒ 指纹变化 ⇒ 全部缓存失效。
+
+    只做 stat、不 open：比 :meth:`SkillStore.parse`（读盘 + YAML/frontmatter 解析）便宜
+    一个量级，故可以每次匹配都算一遍。
+    """
+    records: list[tuple[str, int, int, int, int]] = []
+    for name in store.list_skills():
+        owner = store.owner_root(name)
+        if owner is None:  # 竞态：list_skills 到 owner_root 之间目录被移走
+            continue
+        skill_dir = owner / name
+        meta_mtime, meta_size = _stat_signature(skill_dir / META_FILENAME)
+        md_mtime, md_size = _stat_signature(skill_dir / "SKILL.md")
+        records.append((name, meta_mtime, meta_size, md_mtime, md_size))
+    records.sort()
+    payload = "\n".join("|".join(str(field) for field in record) for record in records)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+class SkillIndexEntry(BaseModel):
+    """一个技能的**与 prompt 无关**的匹配特征。
+
+    全部来自一次 ``SkillStore.parse``：``pattern_tokens`` 是 ``pattern + tags`` 的词元袋
+    （匹配分母），``triggers`` 保留原文（命中后原样回填 ``SkillMatch.matched_triggers``），
+    ``triggers_folded`` / ``negative_triggers_folded`` 是 casefold 后的比对用形态。
+    """
+
+    name: str
+    priority: int = 0
+    pattern_tokens: frozenset[str] = Field(default_factory=frozenset)
+    triggers: tuple[str, ...] = ()
+    triggers_folded: tuple[str, ...] = ()
+    negative_triggers_folded: tuple[str, ...] = ()
+
+
+class SkillMatchIndex(BaseModel):
+    """技能库匹配索引：按技能库指纹缓存，任意 prompt 复用同一份。"""
+
+    fingerprint: str = ""
+    entries: tuple[SkillIndexEntry, ...] = ()
+
+
+def build_skill_index(store: SkillStore, *, fingerprint: str | None = None) -> SkillMatchIndex:
+    """一次遍历技能库构建索引：每个技能恰好一次 ``store.parse``。
+
+    跳过口径与逐 prompt 版本完全一致：旧格式残留（``SkillMetaError``）告警后跳过、
+    ``parse`` 返回 None 跳过、``model_invocable: false`` 不进自动匹配。
+    """
+    entries: list[SkillIndexEntry] = []
     for name in store.list_skills():
         try:
             parsed = store.parse(name)
@@ -55,23 +188,77 @@ def match_skill_details(store: SkillStore, prompt: str, threshold: float) -> lis
         if not parsed.model_invocable:
             # meta.yaml model_invocable: false skills are excluded from auto-injection matching.
             continue
-        if any(trigger.casefold() in prompt_text for trigger in parsed.negative_triggers):
+        entries.append(
+            SkillIndexEntry(
+                name=name,
+                priority=parsed.priority,
+                pattern_tokens=frozenset(skill_tokens(f"{parsed.pattern} {' '.join(parsed.tags)}")),
+                triggers=tuple(parsed.triggers),
+                triggers_folded=tuple(trigger.casefold() for trigger in parsed.triggers),
+                negative_triggers_folded=tuple(trigger.casefold() for trigger in parsed.negative_triggers),
+            )
+        )
+    return SkillMatchIndex(fingerprint=fingerprint or skill_library_fingerprint(store), entries=tuple(entries))
+
+
+def _index_for(store: SkillStore, fingerprint: str) -> SkillMatchIndex:
+    """取本指纹的索引；未命中（含技能库刚被写）则重建并回填缓存。"""
+    cached = store.match_cache.index.get(fingerprint)
+    if isinstance(cached, SkillMatchIndex):
+        return cached
+    index = build_skill_index(store, fingerprint=fingerprint)
+    store.match_cache.index.put(fingerprint, index)
+    return index
+
+
+def _match_index(
+    index: SkillMatchIndex,
+    prompt_text: str,
+    prompt_tokens: set[str],
+    threshold: float,
+) -> list[SkillMatch]:
+    """在索引上做集合运算与阈值判定；打分/排序口径与原逐技能版本逐字一致。"""
+    matches: list[SkillMatch] = []
+    for entry in index.entries:
+        if any(trigger in prompt_text for trigger in entry.negative_triggers_folded):
             continue
-        pattern_tokens = skill_tokens(f"{parsed.pattern} {' '.join(parsed.tags)}")
-        matched_triggers = [t for t in parsed.triggers if t.casefold() in prompt_text]
+        matched_triggers = [
+            original
+            for original, folded in zip(entry.triggers, entry.triggers_folded, strict=True)
+            if folded in prompt_text
+        ]
         trigger_hit = bool(matched_triggers)
-        if not pattern_tokens and not trigger_hit:
+        if not entry.pattern_tokens and not trigger_hit:
             continue
-        overlap = len(prompt_tokens & pattern_tokens)
-        ratio = overlap / len(pattern_tokens) if pattern_tokens else 0.0
+        overlap = len(prompt_tokens & entry.pattern_tokens)
+        ratio = overlap / len(entry.pattern_tokens) if entry.pattern_tokens else 0.0
         # Explicit triggers are high-confidence; ordinary matching retains the old threshold semantics.
         score = 1.0 if trigger_hit else ratio
         if score >= threshold:
             matches.append(
-                SkillMatch(name=name, score=score, priority=parsed.priority, matched_triggers=matched_triggers)
+                SkillMatch(name=entry.name, score=score, priority=entry.priority, matched_triggers=matched_triggers)
             )
     matches.sort(key=lambda item: (-bool(item.matched_triggers), -item.score, -item.priority, item.name))
     return matches
+
+
+def match_skill_details(store: SkillStore, prompt: str, threshold: float) -> list[SkillMatch]:
+    """Return explainable, backward-compatible skill matches.
+
+    结果按 ``(技能库指纹, prompt, threshold)`` 缓存；返回的是缓存载荷的**副本**，调用方
+    就地改写不会污染后续命中。
+    """
+    if not prompt.strip():
+        return []
+    fingerprint = skill_library_fingerprint(store)
+    key = (fingerprint, prompt, threshold)
+    cached = store.match_cache.results.get(key)
+    if isinstance(cached, list):
+        return [match.model_copy(deep=True) for match in cached]
+    prompt_text = prompt.casefold()
+    matches = _match_index(_index_for(store, fingerprint), prompt_text, skill_tokens(prompt), threshold)
+    store.match_cache.results.put(key, matches)
+    return [match.model_copy(deep=True) for match in matches]
 
 
 def stale_skills(store: SkillStore, days: int = 30) -> list[str]:
