@@ -71,206 +71,131 @@ def _make_mock_msvcrt(*, locking_side_effect=None):
     return mod
 
 
-# ── _acquire_lock_posix ───────────────────────────────────────────
+@pytest.fixture()
+def lock_fd(tmp_path):
+    """已打开的锁文件 fd（原 9 处 os.open + finally os.close 样板收敛）。"""
+    fd = os.open(str(tmp_path / "test.lock"), os.O_CREAT | os.O_RDWR)
+    try:
+        yield fd
+    finally:
+        os.close(fd)
 
 
-class TestAcquireLockPosix:
-    def test_success(self, tmp_path, monkeypatch):
-        """_acquire_lock_posix 正常获取锁。"""
-        mock_fcntl = _make_mock_fcntl()
-        monkeypatch.setitem(sys.modules, "fcntl", mock_fcntl)
+# ── 平台锁：acquire / release（POSIX 与 Windows 同构对合并参数化）──
 
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            _acquire_lock_posix(fd, timeout=1.0)
-            assert len(mock_fcntl._calls) == 1
-            assert mock_fcntl._calls[0][1] == mock_fcntl.LOCK_EX | mock_fcntl.LOCK_NB
-        finally:
-            os.close(fd)
 
-    def test_timeout_raises_oserror(self, tmp_path, monkeypatch):
-        """_acquire_lock_posix 超时抛 OSError。"""
-        mock_fcntl = _make_mock_fcntl(flock_side_effect=BlockingIOError())
-        monkeypatch.setitem(sys.modules, "fcntl", mock_fcntl)
+class TestPlatformLockAcquire:
+    """fcntl（POSIX）与 msvcrt（Windows）两平台 acquire 同构行为合并参数化。"""
 
+    @pytest.mark.parametrize(
+        ("make_mod", "modname", "target", "expected_op"),
+        [
+            pytest.param(
+                lambda: _make_mock_fcntl(),
+                "fcntl",
+                _acquire_lock_posix,
+                lambda mod: mod.LOCK_EX | mod.LOCK_NB,
+                id="posix",
+            ),
+            pytest.param(
+                lambda: _make_mock_msvcrt(),
+                "msvcrt",
+                _acquire_lock_windows,
+                None,
+                id="windows",
+            ),
+        ],
+    )
+    def test_success(self, lock_fd, monkeypatch, make_mod, modname, target, expected_op):
+        """正常获取锁：记录恰好一次调用；POSIX 额外断言 LOCK_EX|LOCK_NB 旗标。"""
+        mod = make_mod()
+        monkeypatch.setitem(sys.modules, modname, mod)
+        target(lock_fd, timeout=1.0)
+        assert len(mod._calls) == 1
+        if expected_op is not None:
+            assert mod._calls[0][1] == expected_op(mod)
+
+    @pytest.mark.parametrize(
+        ("make_mod", "modname", "target"),
+        [
+            pytest.param(
+                lambda: _make_mock_fcntl(flock_side_effect=BlockingIOError()),
+                "fcntl",
+                _acquire_lock_posix,
+                id="posix",
+            ),
+            pytest.param(
+                lambda: _make_mock_msvcrt(locking_side_effect=OSError()),
+                "msvcrt",
+                _acquire_lock_windows,
+                id="windows",
+            ),
+        ],
+    )
+    def test_timeout_raises_oserror(self, lock_fd, monkeypatch, make_mod, modname, target):
+        """超时抛 OSError（Failed to acquire）：伪时钟两跳越过 deadline。"""
+        monkeypatch.setitem(sys.modules, modname, make_mod())
         # 让 time.monotonic 第一次返回 0（设 deadline），第二次就超过超时
         monotonic_ticks = iter([0.0, 100.0])
         monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_ticks))
         monkeypatch.setattr(time, "sleep", lambda s: None)
-
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            with pytest.raises(OSError, match="Failed to acquire"):
-                _acquire_lock_posix(fd, timeout=0.01)
-        finally:
-            os.close(fd)
+        with pytest.raises(OSError, match="Failed to acquire"):
+            target(lock_fd, timeout=0.01)
 
 
-# ── _release_lock_posix ───────────────────────────────────────────
+class TestPlatformLockRelease:
+    """两平台 release 同构行为合并参数化；Windows 的静默吞错语义相反，单列。"""
 
+    @pytest.mark.parametrize(
+        ("make_mod", "modname", "target", "unlock_flag"),
+        [
+            pytest.param(lambda: _make_mock_fcntl(), "fcntl", _release_lock_posix, "LOCK_UN", id="posix"),
+            pytest.param(lambda: _make_mock_msvcrt(), "msvcrt", _release_lock_windows, "LK_UNLCK", id="windows"),
+        ],
+    )
+    def test_calls_unlock(self, lock_fd, monkeypatch, make_mod, modname, target, unlock_flag):
+        """正常释放：以 UN 旗标记录恰好一次调用。"""
+        mod = make_mod()
+        monkeypatch.setitem(sys.modules, modname, mod)
+        target(lock_fd)
+        assert len(mod._calls) == 1
+        assert mod._calls[0][1] == getattr(mod, unlock_flag)
 
-class TestReleaseLockPosix:
-    def test_calls_flock_with_lock_un(self, tmp_path, monkeypatch):
-        """_release_lock_posix 用 LOCK_UN 释放锁。"""
-        mock_fcntl = _make_mock_fcntl()
-        monkeypatch.setitem(sys.modules, "fcntl", mock_fcntl)
-
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            _release_lock_posix(fd)
-            assert len(mock_fcntl._calls) == 1
-            assert mock_fcntl._calls[0][1] == mock_fcntl.LOCK_UN
-        finally:
-            os.close(fd)
-
-
-# ── _acquire_lock_windows ─────────────────────────────────────────
-
-
-class TestAcquireLockWindows:
-    def test_success(self, tmp_path, monkeypatch):
-        """_acquire_lock_windows 正常获取锁（mock msvcrt.locking 成功）。"""
-        mock_msvcrt = _make_mock_msvcrt()
-        monkeypatch.setitem(sys.modules, "msvcrt", mock_msvcrt)
-
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            _acquire_lock_windows(fd, timeout=1.0)
-            assert len(mock_msvcrt._calls) == 1
-        finally:
-            os.close(fd)
-
-    def test_timeout_raises_oserror(self, tmp_path, monkeypatch):
-        """_acquire_lock_windows 超时抛 OSError。"""
-        mock_msvcrt = _make_mock_msvcrt(locking_side_effect=OSError())
-        monkeypatch.setitem(sys.modules, "msvcrt", mock_msvcrt)
-
-        monotonic_ticks = iter([0.0, 100.0])
-        monkeypatch.setattr(time, "monotonic", lambda: next(monotonic_ticks))
-        monkeypatch.setattr(time, "sleep", lambda s: None)
-
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            with pytest.raises(OSError, match="Failed to acquire"):
-                _acquire_lock_windows(fd, timeout=0.01)
-        finally:
-            os.close(fd)
-
-
-# ── _release_lock_windows ─────────────────────────────────────────
-
-
-class TestReleaseLockWindows:
-    def test_success(self, tmp_path, monkeypatch):
-        """_release_lock_windows 正常释放锁。"""
-        mock_msvcrt = _make_mock_msvcrt()
-        monkeypatch.setitem(sys.modules, "msvcrt", mock_msvcrt)
-
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            _release_lock_windows(fd)
-            assert len(mock_msvcrt._calls) == 1
-            assert mock_msvcrt._calls[0][1] == mock_msvcrt.LK_UNLCK
-        finally:
-            os.close(fd)
-
-    def test_oserror_on_unlock_is_silently_caught(self, tmp_path, monkeypatch):
+    def test_oserror_on_unlock_is_silently_caught(self, lock_fd, monkeypatch):
         """_release_lock_windows 在 unlock 抛 OSError 时静默忽略（覆盖 lines 95-96）。"""
-        mock_msvcrt = _make_mock_msvcrt(locking_side_effect=OSError("unlock failed"))
-        monkeypatch.setitem(sys.modules, "msvcrt", mock_msvcrt)
-
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            # 不应抛异常
-            _release_lock_windows(fd)
-        finally:
-            os.close(fd)
+        monkeypatch.setitem(sys.modules, "msvcrt", _make_mock_msvcrt(locking_side_effect=OSError("unlock failed")))
+        # 不应抛异常
+        _release_lock_windows(lock_fd)
 
 
 # ── _acquire_lock / _release_lock 平台分发 ──────────────────────
 
 
-class TestAcquireLockDispatch:
-    def test_linux_dispatches_to_posix(self, tmp_path, monkeypatch):
-        """sys.platform='linux' → _acquire_lock 走 POSIX 分支。"""
-        posix_called = []
+class TestPlatformDispatch:
+    """_acquire_lock / _release_lock 按 sys.platform 分发到对应平台实现（4 形态合一）。"""
+
+    @pytest.mark.parametrize(
+        ("entry", "impl_attr", "platform_name"),
+        [
+            pytest.param(_acquire_lock, "_acquire_lock_posix", "linux", id="acquire-linux"),
+            pytest.param(_acquire_lock, "_acquire_lock_windows", "win32", id="acquire-win32"),
+            pytest.param(_release_lock, "_release_lock_posix", "linux", id="release-linux"),
+            pytest.param(_release_lock, "_release_lock_windows", "win32", id="release-win32"),
+        ],
+    )
+    def test_dispatches_to_platform_impl(self, lock_fd, monkeypatch, entry, impl_attr, platform_name):
+        """sys.platform 命中 ⇒ 分发恰一次且收到原 fd。"""
+        calls = []
         monkeypatch.setattr(
-            "heagent.pub.persist._acquire_lock_posix",
-            lambda fd, timeout: posix_called.append(fd),
+            f"heagent.pub.persist.{impl_attr}",
+            lambda fd, *args: calls.append(fd),
         )
-        monkeypatch.setattr(sys, "platform", "linux")
-
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            _acquire_lock(fd, 1.0)
-            assert len(posix_called) == 1
-            assert posix_called[0] == fd
-        finally:
-            os.close(fd)
-
-    def test_win32_dispatches_to_windows(self, tmp_path, monkeypatch):
-        """sys.platform='win32' → _acquire_lock 走 Windows 分支。"""
-        win_called = []
-        monkeypatch.setattr(
-            "heagent.pub.persist._acquire_lock_windows",
-            lambda fd, timeout: win_called.append(fd),
-        )
-        monkeypatch.setattr(sys, "platform", "win32")
-
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            _acquire_lock(fd, 1.0)
-            assert len(win_called) == 1
-            assert win_called[0] == fd
-        finally:
-            os.close(fd)
-
-
-class TestReleaseLockDispatch:
-    def test_linux_dispatches_to_posix(self, tmp_path, monkeypatch):
-        """sys.platform='linux' → _release_lock 走 POSIX 分支。"""
-        posix_called = []
-        monkeypatch.setattr(
-            "heagent.pub.persist._release_lock_posix",
-            lambda fd: posix_called.append(fd),
-        )
-        monkeypatch.setattr(sys, "platform", "linux")
-
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            _release_lock(fd)
-            assert len(posix_called) == 1
-            assert posix_called[0] == fd
-        finally:
-            os.close(fd)
-
-    def test_win32_dispatches_to_windows(self, tmp_path, monkeypatch):
-        """sys.platform='win32' → _release_lock 走 Windows 分支。"""
-        win_called = []
-        monkeypatch.setattr(
-            "heagent.pub.persist._release_lock_windows",
-            lambda fd: win_called.append(fd),
-        )
-        monkeypatch.setattr(sys, "platform", "win32")
-
-        lock_path = tmp_path / "test.lock"
-        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
-        try:
-            _release_lock(fd)
-            assert len(win_called) == 1
-            assert win_called[0] == fd
-        finally:
-            os.close(fd)
+        monkeypatch.setattr(sys, "platform", platform_name)
+        if entry is _acquire_lock:
+            entry(lock_fd, 1.0)
+        else:
+            entry(lock_fd)
+        assert calls == [lock_fd]
 
 
 # ── atomic_write_text 错误路径 ────────────────────────────────────
