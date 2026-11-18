@@ -104,7 +104,9 @@ pytest tests/test_contract_baselines.py tests/test_architecture_contracts.py -q
 
 判据：全绿才继续；快照红了先看 diff 判断「有意变更（重生基线）」还是「意外漂移（改代码）」。
 
-当前规模：**L0 = 约 42 passed / 11 s**（2026-11-13 实测；数字随守卫增加而变，**以实跑为准**，不要拿任何写死的数字当判据）。
+当前规模：**L0 = 约 44 passed / 13 s**（2026-11-18 实测；数字随守卫增加而变，**以实跑为准**，不要拿任何写死的数字当判据）。
+
+> 其中一条是**单文件行数契约**：`test_source_files_stay_under_the_line_ceiling` 断言 `src/heagent/**/*.py` 逐文件 ≤ `MAX_SOURCE_FILE_LINES = 1000`。它红了就先把目标文件拆模块（示例：`cli/help_view.py` 自 `cli/interactive.py` 拆出纯展示面），**不要**上调常量绕过。
 
 ### L1 快速单文件（10–30 秒）
 

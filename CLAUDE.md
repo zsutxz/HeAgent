@@ -56,6 +56,7 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 ## 硬约束
 
 - 跨模块数据一律 Pydantic 模型（`pub/types.py`），禁止原始 dict（例外：`AgentState`/`SubAgentResult` 用 dataclass）
+- **单文件 ≤1000 行**：`src/heagent/**/*.py` 逐文件受 `tests/test_architecture_contracts.py::test_source_files_stay_under_the_line_ceiling` 约束（`MAX_SOURCE_FILE_LINES`），超限即红并点名；接近上限先拆模块再加功能（拆法示例：`cli/help_view.py` 自 `interactive.py` 拆出渲染面）
 - 新增 provider / tool 禁止从 `agent/` 导入；`network/` 不得导入运行栈（agent/engine/providers/tools/memory/skills/context/cron/events）与配置；`network/ws_server.py` 不得导入 `network/http_server.py`（共享契约住 `http_protocol.py`）
 - 改包间依赖后必须同步 `tests/test_architecture_contracts.py` 的 `FORBIDDEN_RUNTIME_IMPORTS` 并跑 `pytest tests/test_architecture_contracts.py -q`
 - **monkeypatch 缝是搬移红线**：搬代码前先 grep patch 字符串路径（如 `heagent.cli.console._run_prompt`）

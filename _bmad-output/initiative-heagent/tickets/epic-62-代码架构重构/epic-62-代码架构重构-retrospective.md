@@ -142,9 +142,9 @@ headless: false
 62 收口后仍未做（全部为实测项，不含推测）：
 
 1. ~~**`<1000 行` 无门禁**（F3 / V2）~~ → **已闭合**（2026-11-18）：`tests/test_architecture_contracts.py::test_source_files_stay_under_the_line_ceiling` 逐文件断言（`MAX_SOURCE_FILE_LINES = 1000`，超限点名文件与行数）；同时把 `cli/interactive.py` 的 `/help` 渲染面拆到新模块 `cli/help_view.py`（1026 → 971 行），让现行最大文件合规。原始记录：当时 HEAD 最大文件 995 行、余量 5 行，工作树一条未提交改动已把它推到 1026 ⇒ 该不变量随时会破且无人报警。
-2. **`network/http_server/service.py` 仍偏大**：548 行 = 该包 13 个模块总量（2601 行）的 21%，是包内最大单文件（`wc -l` 实测）。若继续拆，下一刀切 `service`（运行服务聚合面）。
-3. **`cli/goal/commands.py` 834 行**：62.2 时 829、现 834，为 `cli/goal/` 子包最大；距红线 166 行。
+2. ~~**`network/http_server/service.py` 仍偏大**~~ → **2026-11-18 裁定：不做**（用户在同批勘测后裁定）。勘测：548 行 = 该包 13 个模块总量（2601 行）的 21%，距 1000 行红线 452 行；按关注面切只能切成运行生命周期 ~200 / 看门狗 ~70 / 会话投影 ~60 / SSE 事件源 ~40 / WS 登记 ~40，最省的 A+B 组合也只到 ~400 行，却要把 `HttpRunService` 的方法改成「传 self 的函数」或再加一层 helper 类——而它是 AD-3 的**唯一所有者**，多一层间接不改善可测性（`tests/network/test_http_run_service.py` 已按行为覆盖）。结论与 62.5 dropped 同构：勘测显示切分收益不成立 ⇒ 维持现状，等真实修改热点出现再评估。
+3. **`cli/goal/commands.py` 834 行**：62.2 时 829、现 834（2026-11-18 复核仍未变），为 `cli/goal/` 子包最大；距红线 166 行。**2026-11-18 起该红线有判据**（Next#1 的行数契约）⇒ 漂移会被点名，不再是无人报警的观察项。
 4. **`docs/frame.md:1323` 传输层行**（HEAD 实测）仍是单文件口径，已被工作树未提交改动修正 ⇒ 随该批次提交即闭合；同批应把 62.1 的「遗留观察」写进 `open-items.md`，否则同类漂移还会丢（F10）。
 5. **62.1 triage 的三条 defer**（`/loop` v7 的 `sync_roles.py` 悬空引用、`workflow.md` 的 `pull` 参数契约失真、`70f1484` 无票树 coverage）——无台账承接，建议一并入 `open-items.md` 待裁定（`story-62.1-…-plan.md:115-117`）。
-6. **62.4 的 build record 缺口**（F7）：`baseline_revision` 未记载，可由 `e3554e3^` 反推回填；属票树可核验性，不影响交付事实。
+6. ~~**62.4 的 build record 缺口**（F7）~~ → **2026-11-18 裁定：不回填，登记即闭合**。`story-config-catalog-split-plan.md` 的 frontmatter 已显式声明「`baseline_revision` 未推断、不记载（迁移规则禁止以今日 HEAD 充当基线）」，且正文写明交付证据 = 归档 epics.md 勘误（2026-11-13 用户授权核验：拆为 `config/catalog/` 9 文件、最大 307 行、`__all__` 34 项零变化）⇒ 缺口是「迁移最小 plan 的已知取舍」，不是漏记；从 `e3554e3^` 反推虽可算，但那会把「未记载」改写成「事后推定」，反而降低凭据可信度。
 7. ~~**`epic-overview.md:35` 的 ⏳ 行**待 orchestrator 改 ✅~~ → **已改**（2026-11-18，同批新增 Epic 64 已收口行）；仍建议给「收口触发」补一条机制（例：最后一个 entry 落 `built` 即生成 retro 待办），否则 F6 的欠账会重演。
