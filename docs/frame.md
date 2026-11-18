@@ -157,6 +157,7 @@ AgentLoop.run(prompt)
 | `dialogs.py` | 服务端原生「选择目录」对话框（Story 50-8） | `cli_dialogs.py` |
 | `display.py` | 终端渲染辅助（CLI 与 GUI 共用） | `cli_display.py` |
 | `errors.py` | CLI 错误的统一出口：描述 + `Try:` 可用选项 + `Docs:` 文档锚点（Story 64.5） | 新增 |
+| `doctor.py` | `heagent doctor` 配置诊断（只读；11 组检查产出 25 个诊断码，Story 64.6） | 新增 |
 | `slash.py` | 交互模式斜杠命令注册表 + `.heagent/commands/*.md` 用户自定义命令加载 | 顶层 `slash.py` |
 | `terminal.py` | 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断） | 顶层 `terminal.py` |
 | `wiring.py` | provider 呈现薄壳（规则在 `providers/composition.py`，2026-11-07 迁出）+ `ensure_runtime_config` / `build_cron_job_runner`（CLI/GUI 共用） | 顶层 `wiring.py` |
@@ -1546,6 +1547,7 @@ src/heagent/
 │   ├── dialogs.py           # 服务端原生「选择目录」对话框（Story 50-8）
 │   ├── display.py           # 终端渲染辅助（CLI 与 GUI 共用；原 cli_display.py）
 │   ├── errors.py            # CLI 错误的统一出口（描述 + Try 选项 + Docs 锚点；Story 64.5）
+│   ├── doctor.py            # heagent doctor 配置诊断（只读，11 组检查 / 25 个诊断码；Story 64.6）
 │   ├── skill_merge.py       # /skill-merge 跨根同名技能交互收口（skills 双根，2026-10-10）
 │   ├── slash.py             # 交互模式斜杠命令注册与路由（2026-09-26 自顶层迁入）
 │   ├── terminal.py          # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断；2026-09-26 自顶层迁入）

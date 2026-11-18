@@ -230,6 +230,24 @@ heagent run --system "你是 Python 专家" "写一个二分查找"   # 显式�
 
 未注册的名字不会被拦截，会**当作普通 prompt** 交给模型（多花一次调用）；旧名 `/route` 已不注册。
 
+### 配置看起来没错但起不来，有自检工具吗？
+
+有：`heagent doctor`（只读，不调模型、不写文件）。
+
+```bash
+heagent doctor            # 人读：每条 finding 一行 severity/code + 一行 fix
+heagent doctor --json     # 机器读：JSON 数组，每项含 code/severity/message/fix
+```
+
+共 **25 个诊断码**（11 组检查）：无凭据、`ACTIVE_PROVIDER` 指向不存在或无凭据的条目、
+`OLLAMA_ENABLED` 缺模型、`MAX_OUTPUT_TOKENS` 不小于 `MAX_CONTEXT_TOKENS`、`ROUTING_POOLS`
+非法 JSON 或池条目无凭据、`.env` 缺失 / BOM / 重复键 / 空值键 / 未知键、WS 主/对外 listener
+缺 token、`WS_LOCAL_AUTH_ENABLED` 缺 token、`WS_EXTERNAL_HOST` 取回环或与主 listener 冲突、
+TLS 半配、端口已被监听、`APPROVAL_TOOLS` 含未注册工具、`SAFETY_BLOCKED_TOOLS` 拦了 `shell`、
+docker 后端探不到 daemon、技能双根同名冲突。
+
+退出码：有 `error` 级 finding 时为 1，否则 0——可以直接进 CI 或启动脚本。
+
 ### 怎么加自定义斜杠命令？
 
 在 `.heagent/commands/*.md`（项目级）或 `~/.heagent/commands/*.md`（用户级）放一个带 frontmatter 的

@@ -740,6 +740,7 @@ def test_cli_package_layout_is_pinned() -> None:
         "console",
         "dialogs",
         "display",
+        "doctor",
         "errors",
         "http",
         "http_config",

@@ -484,6 +484,11 @@ from heagent.cli.init import init_cmd  # noqa: E402
 
 main.add_command(init_cmd)
 
+# 配置诊断：只读，不启服务、不调模型；同样尾部导入以保持 `main` 先定义。
+from heagent.cli.doctor import doctor_cmd  # noqa: E402
+
+main.add_command(doctor_cmd)
+
 
 # Set run as the default command (heagent "hello" -> run "hello")
 main.set_default_command("run")
