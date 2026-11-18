@@ -14,8 +14,8 @@ pytest tests/test_agent_loop.py::test_basic_run   # 单个用例
 pytest --cov --cov-report=term-missing # 覆盖率（门限 87%；CI 口径）
 # ⚠ 本地 Py3.13 的 --cov 有 pydantic-settings×coverage 兼容 bug，本地验证用不带 cov 的 pytest
 
-ruff check src tests scripts           # 静态检查（CI lint 同参数；bandit 只认 # nosec）
-ruff format --check src tests scripts
+ruff check src tests scripts examples  # 静态检查（CI lint 同参数；bandit 只认 # nosec）
+ruff format --check src tests scripts examples
 mypy src
 bandit -r src/ -ll
 

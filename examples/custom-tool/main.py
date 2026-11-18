@@ -12,11 +12,14 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from heagent import Agent, tool
 from heagent.providers.base import ProviderMetadata
 from heagent.pub.types import ProviderResponse, TokenUsage, ToolCall
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 # ── 1. 定义一个工具：装饰即注册 ──────────────────────────────────────────

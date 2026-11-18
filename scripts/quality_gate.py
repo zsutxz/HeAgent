@@ -31,8 +31,8 @@ COMMANDS = (
             "--cov-fail-under=87",
         ],
     ),
-    ("ruff lint", ["ruff", "check", "src", "tests", "scripts"]),
-    ("ruff format", ["ruff", "format", "--check", "src", "tests", "scripts"]),
+    ("ruff lint", ["ruff", "check", "src", "tests", "scripts", "examples"]),
+    ("ruff format", ["ruff", "format", "--check", "src", "tests", "scripts", "examples"]),
     ("mypy", ["mypy", "src"]),
     # CI 的 lint job 是 fail-fast 源头（bandit 失败会连带 test 矩阵全部跳过）；
     # 本地门不含这一条时，「本地全绿 / CI 全红」无从察觉（实测发生过一次）。

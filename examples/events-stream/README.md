@@ -37,12 +37,12 @@ python examples/events-stream/main.py
 
 ```python
 EngineEvent(
-    event_type="tool_call_completed",          # 事件名，稳定判据
-    timestamp="2026-01-01T00:00:00+00:00",     # ISO 时间（示例值）
-    run_id="3f2a1c",                           # 关联 run（示例值）
-    iteration=1,                               # 第几轮迭代
-    tool_name="add",                           # 只有工具事件才非空
-    target="/tmp/demo.txt",                    # 作用对象：文件 / 命令 / 子 Agent 角色
+    event_type="tool_call_completed",  # 事件名，稳定判据
+    timestamp="2026-01-01T00:00:00+00:00",  # ISO 时间（示例值）
+    run_id="3f2a1c",  # 关联 run（示例值）
+    iteration=1,  # 第几轮迭代
+    tool_name="add",  # 只有工具事件才非空
+    target="/tmp/demo.txt",  # 作用对象：文件 / 命令 / 子 Agent 角色
     details={"duration_ms": 7, "mode": "direct"},  # 自由扩展字段
 )
 ```

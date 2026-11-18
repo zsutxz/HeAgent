@@ -55,15 +55,15 @@ MUTATIONS: tuple[Mutation, ...] = (
     Mutation(
         code="N1",
         target=".github/workflows/ci.yml",
-        old="        run: ruff check src tests scripts\n",
-        new="        run: ruff check src tests\n",
+        old="        run: ruff check src tests scripts examples\n",
+        new="        run: ruff check src tests examples\n",
         why="CI 少扫 scripts ⇒ 判据须点名差异",
     ),
     Mutation(
         code="N2",
         target="scripts/quality_gate.py",
-        old='("ruff lint", ["ruff", "check", "src", "tests", "scripts"]),',
-        new='("ruff lint", ["ruff", "check", "src", "tests"]),',
+        old='("ruff lint", ["ruff", "check", "src", "tests", "scripts", "examples"]),',
+        new='("ruff lint", ["ruff", "check", "src", "tests", "examples"]),',
         why="本地门少扫 scripts ⇒ 判据须点名差异",
     ),
     Mutation(

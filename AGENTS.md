@@ -104,8 +104,8 @@ pytest -m integration
 pytest -m benchmark
 
 # 静态检查（CI lint job 同参数，含 scripts/；bandit 只认 `# nosec`，不认 ruff 的 `# noqa: S###`）
-ruff check src tests scripts
-ruff format --check src tests scripts
+ruff check src tests scripts examples
+ruff format --check src tests scripts examples
 mypy src
 bandit -r src/ -ll
 

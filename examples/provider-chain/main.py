@@ -12,12 +12,15 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from heagent import Agent, ProviderChain
 from heagent.providers.base import ProviderMetadata
 from heagent.pub.exceptions import ProviderError
 from heagent.pub.types import ProviderResponse, TokenUsage
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 class BrokenProvider:

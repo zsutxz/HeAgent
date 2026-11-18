@@ -292,8 +292,8 @@ pytest
 pytest -m integration
 
 # 静态检查
-ruff check src tests
-ruff format --check src tests
+ruff check src tests examples
+ruff format --check src tests examples
 mypy src
 ```
 

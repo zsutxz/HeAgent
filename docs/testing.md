@@ -26,7 +26,7 @@ python scripts/quality_gate.py     # 七门：契约快照 → goal 冒烟 → �
 ```bash
 pytest -q --ignore=tests/test_cli_http_lifecycle.py   # 全量回归（快，不带覆盖率）
 pytest --cov --cov-report=term-missing                # 覆盖率
-ruff check src tests && ruff format --check src tests
+ruff check src tests examples && ruff format --check src tests examples
 mypy src && mypy src --platform linux                 # 本地双跑：CI 在 ubuntu 上跑，平台相关告警不同
 bandit -r src/ -ll
 ```

@@ -30,14 +30,14 @@ repos:
         entry: python -m ruff check --fix
         language: system
         types: [python]
-        files: ^(src|tests)/
+        files: ^(src|tests|examples)/
       # 后 format（统一排版，与 CI 的 ruff format --check 对齐）
       - id: ruff-format
         name: ruff format
         entry: python -m ruff format
         language: system
         types: [python]
-        files: ^(src|tests)/
+        files: ^(src|tests|examples)/
       # mypy 需完整模块图，固定跑整个 src（pass_filenames: false）
       - id: mypy
         name: mypy (strict)

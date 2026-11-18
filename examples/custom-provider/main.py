@@ -15,11 +15,14 @@ Provider 是**结构化协议**（`typing.Protocol`），不需要继承任何�
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from heagent import Agent
 from heagent.providers.base import BaseProvider, ProviderMetadata
 from heagent.pub.types import ProviderResponse, TokenUsage
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 class EchoProvider:

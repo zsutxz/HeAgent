@@ -22,6 +22,8 @@ GROUPS = {
     "chore": "内部重构（通常不进发布说明）",
 }
 BREAKING_MARK = "!"
+#: `git log --oneline` 里短 sha 的字符数——判「行首是 sha 前缀」用。
+SHORT_SHA_LEN = 7
 
 
 def group(lines: list[str]) -> dict[str, list[str]]:
@@ -32,14 +34,15 @@ def group(lines: list[str]) -> dict[str, list[str]]:
         if not line:
             continue
         # 去掉常见的 "<sha> " 前缀
-        if len(line) > 7 and line[7] == " " and all(c in "0123456789abcdef" for c in line[:7]):
-            line = line[8:]
+        if (
+            len(line) > SHORT_SHA_LEN
+            and line[SHORT_SHA_LEN] == " "
+            and all(c in "0123456789abcdef" for c in line[:SHORT_SHA_LEN])
+        ):
+            line = line[SHORT_SHA_LEN + 1 :]
         head = line.split(":", 1)[0]
         kind = head.split("(", 1)[0]
-        if BREAKING_MARK in head:
-            bucket = "破坏性变更"
-        else:
-            bucket = GROUPS.get(kind, "未分类")
+        bucket = "破坏性变更" if BREAKING_MARK in head else GROUPS.get(kind, "未分类")
         buckets.setdefault(bucket, []).append(line)
     return buckets
 

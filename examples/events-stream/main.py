@@ -13,13 +13,17 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 from heagent import Agent, EngineContainer
-from heagent.engine.observability import EngineEvent
 from heagent.providers.base import ProviderMetadata
 from heagent.pub.types import ProviderResponse, TokenUsage, ToolCall
 from heagent.tools.decorator import tool
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from heagent.engine.observability import EngineEvent
 
 
 @tool(read_only=True)
