@@ -492,13 +492,16 @@ async def test_ws_server_close_survives_connection_already_closing(caplog: pytes
             await asyncio.wait_for(task, timeout=5)
 
 
+_TLS_FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "ws_tls"
+
+
 @pytest.mark.asyncio
 async def test_ws_server_with_unreadable_tls_files_fails_loud() -> None:
     """TLS 配齐但文件读不到 ⇒ 启动显性失败（绝不静默降级成明文）。"""
     server = WsServer(
         _ws_config(
-            tls_cert_file="tests/fixtures/ws_tls/does-not-exist.pem",
-            tls_key_file="tests/fixtures/ws_tls/does-not-exist.key",
+            tls_cert_file=str(_TLS_FIXTURES / "does-not-exist.pem"),
+            tls_key_file=str(_TLS_FIXTURES / "does-not-exist.key"),
         )
     )
     with pytest.raises(WsStartupError):

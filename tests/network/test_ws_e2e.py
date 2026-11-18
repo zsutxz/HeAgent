@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -268,8 +269,8 @@ async def test_invalid_cursor_and_malformed_command_get_stable_error_frames() ->
 
 # ---- 对外模式认证与 TLS（真实 listener）----
 
-TLS_CERT = "tests/fixtures/ws_tls/cert.pem"
-TLS_KEY = "tests/fixtures/ws_tls/key.pem"
+TLS_CERT = str(Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "ws_tls" / "cert.pem")
+TLS_KEY = str(Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "ws_tls" / "key.pem")
 
 
 async def _start_external(

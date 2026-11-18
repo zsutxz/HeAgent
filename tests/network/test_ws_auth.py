@@ -33,7 +33,7 @@ from heagent.network.ws_auth import (
 from heagent.network.ws_host import WsConfigError, WsServerConfig, build_ws_app
 from heagent.network.ws_server import build_ws_endpoint
 
-TLS_FIXTURES = Path("tests/fixtures/ws_tls")
+TLS_FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "ws_tls"
 
 
 # ---- 纯逻辑：Bearer 解析 ----

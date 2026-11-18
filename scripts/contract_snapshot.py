@@ -34,7 +34,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-BASELINE_DIR = REPO_ROOT / "tests" / "contract_baselines"
+BASELINE_DIR = REPO_ROOT / "tests" / "fixtures" / "contract_baselines"
 
 #: 每项可以是 `.py` 单文件，也可以是**已拆包的同名目录**（E3 绞杀者）——`expand_modules` 展开两者。
 PUBLIC_MODULES = (

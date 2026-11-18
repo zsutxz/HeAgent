@@ -33,8 +33,8 @@ def _copy_component(target: Path) -> None:
     (target / "scripts").mkdir(parents=True)
     shutil.copyfile(ROOT / "scripts" / "contract_snapshot.py", target / "scripts" / "contract_snapshot.py")
     shutil.copytree(
-        ROOT / "tests" / "contract_baselines",
-        target / "tests" / "contract_baselines",
+        ROOT / "tests" / "fixtures" / "contract_baselines",
+        target / "tests" / "fixtures" / "contract_baselines",
     )
     src = target / "src" / "heagent"
     (src / "config").mkdir(parents=True)
@@ -81,7 +81,7 @@ def _mutate_drop_export(target: Path) -> None:
 
 def _mutate_baseline_name(target: Path) -> None:
     """M2：直接把基线里的一个名字改掉（模拟「手改基线而不改代码」）。"""
-    path = target / "tests" / "contract_baselines" / "public_exports.json"
+    path = target / "tests" / "fixtures" / "contract_baselines" / "public_exports.json"
     data = json.loads(path.read_text(encoding="utf-8"))
     modules = data["modules"]["heagent.config.catalog"]
     modules["defined"] = [*modules["defined"], "PHANTOM_SYMBOL_XYZ"]

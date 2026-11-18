@@ -27,7 +27,7 @@ from heagent.network.http_protocol import HttpErrorCode
 from heagent.network.http_server import _WEB_ASSETS, read_web_asset
 
 _NODE = shutil.which("node")
-_PROBE = Path(__file__).parent / "js" / "app_probe.js"
+_PROBE = Path(__file__).parent / "fixtures" / "js" / "app_probe.js"
 
 _HTML = read_web_asset("index.html").decode("utf-8")
 _JS = read_web_asset("app.js").decode("utf-8")

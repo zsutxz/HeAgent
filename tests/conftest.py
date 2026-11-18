@@ -226,3 +226,13 @@ def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
     return calls
+
+
+@pytest.fixture(scope="session")
+def fixtures_dir() -> Path:
+    """``tests/fixtures/`` 解析根（测试数据集中宿；契约见 ``tests/test_fixtures_contract.py``）。
+
+    经 ``__file__`` 锚定，与启动 CWD 无关；模块级常量无法注入 fixture 时，用同款
+    ``Path(__file__)`` 锚定（惯例见 ``tests/fixtures/README.md``）。
+    """
+    return Path(__file__).resolve().parent / "fixtures"

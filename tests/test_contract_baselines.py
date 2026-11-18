@@ -20,7 +20,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = "scripts/contract_snapshot.py"
-BASELINE_DIR = REPO_ROOT / "tests" / "contract_baselines"
+BASELINE_DIR = REPO_ROOT / "tests" / "fixtures" / "contract_baselines"
 BASELINE_FILES = (
     "public_exports.json",
     "transport_routes.json",

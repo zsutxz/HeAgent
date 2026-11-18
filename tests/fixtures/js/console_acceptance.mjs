@@ -7,7 +7,7 @@
  * 「点击 → 请求 → 磁盘文件真的变了」这条端到端链路。
  *
  * 用法：
- *   node tests/js/console_acceptance.mjs [--port 8917] [--python python] [--chrome <路径>] [--keep]
+ *   node tests/fixtures/js/console_acceptance.mjs [--port 8917] [--python python] [--chrome <路径>] [--keep]
  *
  * 输出：一张 markdown 表格（页面 → 步骤 → 期望 → 实测）与一行 `ACCEPTANCE {json}` 汇总；
  * 任何一行失败即退出码 1。截图落在临时工作区里（路径打印在输出里）。
