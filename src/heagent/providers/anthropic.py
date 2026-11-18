@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
-
-from anthropic import AsyncAnthropic
+import sys
+from typing import TYPE_CHECKING, Any
 
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.retry import wrap_provider_error
@@ -14,7 +13,22 @@ from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolC
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
+    from anthropic import AsyncAnthropic
+
 logger = logging.getLogger(__name__)
+
+
+def __getattr__(name: str) -> Any:
+    """PEP 562 懒导出 SDK 客户端类：``import heagent.providers.anthropic`` 不拉 anthropic。
+
+    以**模块属性**形式暴露而非只在构造函数内导入，是为了保住
+    ``heagent.providers.anthropic.AsyncAnthropic`` 这个既有 patch 缝（``tests/providers/test_anthropic.py``）。
+    """
+    if name == "AsyncAnthropic":
+        from anthropic import AsyncAnthropic
+
+        return AsyncAnthropic
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def _to_anthropic_messages(messages: list[Message]) -> list[dict[str, object]]:
@@ -148,6 +162,9 @@ def _parse_tool_use_blocks(blocks: Sequence[object]) -> list[ToolCall]:
 class AnthropicProvider:
     """Anthropic Claude API provider."""
 
+    # 注解是惰性字符串（模块级 ``from __future__ import annotations``），运行期不触发 SDK 导入。
+    _client: AsyncAnthropic
+
     def __init__(
         self,
         api_key: str,
@@ -159,7 +176,9 @@ class AnthropicProvider:
         self._model = model
         self._max_tokens = max_tokens
         self._prompt_caching = prompt_caching
-        self._client = AsyncAnthropic(api_key=api_key, base_url=base_url)
+        # SDK 延迟到构造期才导入；经模块属性取类，使测试对模块属性的 patch 依然生效。
+        client_cls = sys.modules[__name__].AsyncAnthropic
+        self._client = client_cls(api_key=api_key, base_url=base_url)
 
     def _build_kwargs(
         self,

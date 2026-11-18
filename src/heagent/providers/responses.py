@@ -18,9 +18,8 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING
-
-from openai import AsyncOpenAI
+import sys
+from typing import TYPE_CHECKING, Any
 
 from heagent.providers.base import ProviderMetadata, parse_tool_arguments
 from heagent.providers.retry import wrap_provider_error
@@ -29,7 +28,23 @@ from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolC
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from openai import AsyncOpenAI
+
 logger = logging.getLogger(__name__)
+
+
+def __getattr__(name: str) -> Any:
+    """PEP 562 懒导出 SDK 客户端类：``import heagent.providers.responses`` 不拉 openai。
+
+    以**模块属性**形式暴露而非只在构造函数内导入，是为了保住
+    ``heagent.providers.responses.AsyncOpenAI`` 这个既有 patch 缝（``tests/providers/test_responses.py``）。
+    """
+    if name == "AsyncOpenAI":
+        from openai import AsyncOpenAI
+
+        return AsyncOpenAI
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 # 默认覆盖 SDK 的 User-Agent：部分中转站（komapi.top 等）对 ``OpenAI/Python/...`` 返回 403。
 _DEFAULT_USER_AGENT = "Mozilla/5.0"
@@ -132,6 +147,9 @@ class OpenAIResponsesProvider:
     使用 openai AsyncOpenAI 客户端调用 ``responses.create``。
     """
 
+    # 注解是惰性字符串（模块级 ``from __future__ import annotations``），运行期不触发 SDK 导入。
+    _client: AsyncOpenAI
+
     def __init__(
         self,
         api_key: str,
@@ -145,8 +163,10 @@ class OpenAIResponsesProvider:
         self._model = model
         self._instructions = instructions
         self._max_output_tokens = max_output_tokens
+        # SDK 延迟到构造期才导入；经模块属性取类，使测试对模块属性的 patch 依然生效。
+        client_cls = sys.modules[__name__].AsyncOpenAI
         # 覆盖默认 User-Agent：部分中转站拦截 ``OpenAI/Python/...``。
-        self._client = AsyncOpenAI(
+        self._client = client_cls(
             api_key=api_key,
             base_url=base_url,
             default_headers={"User-Agent": user_agent},
