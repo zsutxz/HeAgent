@@ -7,7 +7,7 @@
 
 ## 活动（未闭合）条目
 
-当前活动项：**6 条**（`frozen` 2：A34 / A41；`active` 4：A54 / A55 / A56 / A58）。
+当前活动项：**5 条**（`frozen` 2：A34 / A41；`active` 3：A54 / A55 / A56）。
 
 | ID | 主题 | 状态 | 说明 |
 | --- | --- | --- | --- |
@@ -18,11 +18,9 @@
 | A56 | Epic 64 收口残差：任务进度跨进程不可见 / `examples/` 不在代码门禁范围 | `active` | **origin=新增（2026-11-18 Epic 64 收口）**，两项均为实测事实：
 ① **跨进程不可见**：`GET /api/tasks` 读的是**进程内**单例注册表（`engine/tasks.py::default_task_registry`），生产者当前只有上下文压缩（`agent/context_runtime.py::maybe_compress` 与 CLI `/compact`）⇒ 同进程的网页/内嵌入口能读到，跨进程（如另起的 `http-server` 实例、cron 子进程）读不到。判据 `tests/test_cli_epic64_wiring.py`（同进程 200）与 `tests/network/test_http_tasks.py`（注入式来源）。闭合动作 = 真需要跨进程时再上 IPC/落盘投影；触发条件 = 出现真实的「网页端看不到别的进程在跑什么」诉求。
 ② ~~**`examples/` 不在门禁范围**~~ → **2026-11-18 已闭合**：`ruff check` / `ruff format --check` 的路径面已加 `examples`（`scripts/quality_gate.py`、`ci.yml`、`.pre-commit-config.yaml`、`docs/testing.md` 同步；`ruff.toml` 为 `examples/**` 只放行 RUF001/002/003 全角标点，其余规则同标准）⇒ 现存 112 条告警清零（修 7 条实质问题、105 条为中文标点）；**`mypy src` 仍不含 examples**（示例是自包含演示脚本，纳入需单独定口径，不属本项闭合范围）。 |
-
-| A58 | `LOG_FORMAT=json` 后日志用量采集器读不到行 | `active` | **origin=新增（2026-11-18 Epic 65 收口）**：Epic 65 引入了 `LOG_FORMAT=json`（单行 JSON 日志），而按行正则解析 text 日志的消费方（`runtime_stats` 采集器，住在本地技能 `.heagent/skills/runtime_stats/collect.py`，非版本化产物）只认历史形状 ⇒ 切到 json 后 `news/usedstats.md` 的模型/token 列会采空。**默认 `text` 不受影响**（json 是 opt-in 诊断格式），且树内代码零日志解析器 ⇒ 不是回归，是新格式的已知消费缺口。闭合动作 = 给采集器加 JSON 分支（`json.loads` 单行 → 同名字段映射）或按格式自动分派；触发条件 = 用户实际长期使用 `LOG_FORMAT=json` 并需要统计口径（一次性排障不算）。
 ### 速读（按行动姿态分组）
 
-- **等外部触发**：A35（重启丢 run 困扰 ≥2 次 / 长 run 常态化）、A36（实际写自定义签名且需跨项目共享）、A53（hook stdout 喂回模型的真实需求）、A55（用户提供 WEB_SEARCH_API_KEY 后跑一次真实冒烟）、A58（长期使用 `LOG_FORMAT=json` 且需要日志用量统计）
+- **等外部触发**：A35（重启丢 run 困扰 ≥2 次 / 长 run 常态化）、A36（实际写自定义签名且需跨项目共享）、A53（hook stdout 喂回模型的真实需求）、A55（用户提供 WEB_SEARCH_API_KEY 后跑一次真实冒烟）
 - **有明确修法等排期**：A54 残余 ②③⑥⑦（下一轮性能/网络专项周期领取；动手前过两道红线：monkeypatch 缝 grep + 本机可验证面）
 - **等用户裁定**：A34（OQ-5「隔离 vs 丢弃」）、A41（AD-20 / OQ-4 物理隔离）
 
