@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
 
-from heagent.pub.exceptions import ToolError
+from heagent.pub.exceptions import ToolError, ToolExecutionError
 from heagent.tools.mcp.client import TransportOpener, default_transport_opener
 from heagent.tools.mcp.mapping import bridge_result, guard_content, mcp_tool_to_schema
 from heagent.tools.mcp.registry_bridge import RegistryBridge
@@ -295,6 +295,8 @@ class MCPClientManager:
     def _make_handler(self, session: ClientSession, tool_name: str, server_name: str = "") -> Callable[..., Any]:
         """构造 MCP 工具闭包 handler：call_tool → bridge_result（isError → raise ToolError）。
 
+        断连与调用超时抛 ``ToolExecutionError``（同为 ToolError 子类，仍是 is_error 结果）。
+
         handler 契约契合 AgentLoop._invoke（async + **arguments）；返回 str 作为
         ToolResult.content，抛 ToolError 被 _execute_one 转 is_error=True（FR-5）。
         session 由对应 server task 持有，handler 在调用方 task 跨 task await call_tool。
@@ -303,14 +305,14 @@ class MCPClientManager:
         async def handler(**kwargs: Any) -> str:
             # session liveness check — if server disconnected, return semantic error
             if server_name and self._sessions.get(server_name) is not session:
-                raise ToolError(f"MCP server '{server_name}' disconnected")
+                raise ToolExecutionError(f"MCP server '{server_name}' disconnected")
             try:
                 # call_tool 硬上界（对齐 git 工具 60s 先例）：server 握手后挂死时，
                 # 已在途的这次调用不能把整个 run 无限期卡死。超时 → ToolError（FR-5 is_error）。
                 async with asyncio.timeout(self._call_timeout):
                     result = await call_tool(session, tool_name, kwargs or None)
             except TimeoutError as exc:
-                raise ToolError(
+                raise ToolExecutionError(
                     f"MCP tool '{tool_name}' on server '{server_name or '?'}' "
                     f"timed out after {self._call_timeout}s (call_timeout)"
                 ) from exc
@@ -322,7 +324,7 @@ class MCPClientManager:
         """按 server 名查找已连 session；未连 / 断连时抛 ToolError（不裸 KeyError）。"""
         session = self._sessions.get(name)
         if session is None:
-            raise ToolError(f"MCP server '{name}' disconnected")
+            raise ToolExecutionError(f"MCP server '{name}' disconnected")
         return session
 
     def _unregister_server(self, name: str) -> None:

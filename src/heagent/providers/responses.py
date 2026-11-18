@@ -22,7 +22,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 from heagent.providers.base import ProviderMetadata, parse_tool_arguments
-from heagent.providers.retry import wrap_provider_error
+from heagent.providers.retry import raise_provider_error
 from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
 
 if TYPE_CHECKING:
@@ -203,7 +203,7 @@ class OpenAIResponsesProvider:
         try:
             resp = await self._client.responses.create(**kwargs)  # type: ignore[call-overload]
         except Exception as e:
-            raise wrap_provider_error(e) from e
+            raise_provider_error(e)
 
         text, tool_calls = _parse_output(resp.output)
         finish_reason = "tool_calls" if tool_calls else "stop"
@@ -253,7 +253,7 @@ class OpenAIResponsesProvider:
                             finish_reason=finish_reason,
                         )
         except Exception as e:
-            raise wrap_provider_error(e) from e
+            raise_provider_error(e)
 
     def get_metadata(self) -> ProviderMetadata:
         """返回 Provider 能力描述。"""

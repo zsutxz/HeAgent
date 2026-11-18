@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from heagent.providers.fallback_base import FallbackPolicy, raise_as_provider_error
 from heagent.providers.metadata_cache import ProviderMetadataCache
 from heagent.providers.retry import classify_exception
-from heagent.pub.exceptions import ProviderError
+from heagent.pub.exceptions import ConfigurationError, ProviderError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -42,7 +42,7 @@ class ProviderChain:
             metadata_cache: 可选的元数据缓存实例（调容量 / 共享观测面用）；None 则自建默认容量。
         """
         if not providers:
-            raise ValueError("ProviderChain requires at least one provider")
+            raise ConfigurationError("ProviderChain requires at least one provider")
         self._providers = list(providers)
         self._current_index = 0  # 当前活跃 Provider 的索引
         self._lock = asyncio.Lock()  # 防并发索引漂移（H-2）

@@ -35,7 +35,7 @@ class AgentState:
 
     messages: list[Message] = field(default_factory=list)  # 当前对话消息列表（SYSTEM/USER/ASSISTANT/TOOL）
     iteration: int = 0  # 当前已执行的迭代轮数（每轮 +1）
-    max_iterations: int = 50  # 迭代硬上限，超过即抛 BudgetExceeded
+    max_iterations: int = 50  # 迭代硬上限，超过即抛 IterationLimitError（BudgetExceeded 子类）
     results: list[ToolResult] = field(default_factory=list)  # 本轮累计的工具执行结果
     # 本次 run 起步时**磁盘上**的会话消息（``None`` = 无会话 / 恢复路径）。落盘时作为内容基线
     # 交给 ``SessionStore.save(base=...)``：并发写者新增的消息不再被整份覆盖（台账同名条目）。

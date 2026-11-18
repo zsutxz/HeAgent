@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
 from heagent.engine.context import iso_now
+from heagent.pub.exceptions import LedgerError
 from heagent.pub.persist import (
     atomic_write_text,
     load_json_model,
@@ -207,7 +208,7 @@ class ExecutionLedger:
             record = await self.get(key)
             if record is None:
                 if not recreate_if_missing:
-                    raise ValueError(await self._missing_record_message("complete", key))
+                    raise LedgerError(await self._missing_record_message("complete", key))
                 now = iso_now()
                 logger.warning(
                     "ledger record %r vanished before completion; recreating as COMPLETED to keep idempotency",
@@ -245,7 +246,7 @@ class ExecutionLedger:
         async with self._lock:
             record = await self.get(key)
             if record is None:
-                raise ValueError(await self._missing_record_message("fail", key))
+                raise LedgerError(await self._missing_record_message("fail", key))
             record.status = ExecutionStatus.FAILED
             record.updated_at = iso_now()
             record.finished_at = record.updated_at

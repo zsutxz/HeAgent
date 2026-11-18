@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from heagent.agent.run_lifecycle import AgentState, checkpoint
 from heagent.context.compressor import compression_progress
 from heagent.engine.tasks import default_task_registry
-from heagent.pub.exceptions import BudgetExceeded
+from heagent.pub.exceptions import IterationLimitError
 from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolResult
 
 if TYPE_CHECKING:
@@ -30,13 +30,14 @@ def begin_iteration(loop: AgentLoop, state: AgentState, run_context: RunContext)
     """推进迭代计数、发布 iteration_started 事件，并强制迭代硬上限。
 
     每轮循环入口调用：iteration+1 → touch 上下文 → 发事件 → 超过 max_iterations
-    即抛 ``BudgetExceeded``（显性失败，防止失控循环）。``run``/``run_stream`` 共用。
+    即抛 ``IterationLimitError``（``BudgetExceeded`` 子类，显性失败，防止失控循环）。
+    ``run``/``run_stream`` 共用。
     """
     state.iteration += 1
     run_context.touch(iteration=state.iteration)
     loop._emit("iteration_started", run_context=run_context)
     if state.iteration > state.max_iterations:
-        raise BudgetExceeded(f"Exceeded {state.max_iterations} iterations without final answer")
+        raise IterationLimitError(f"Exceeded {state.max_iterations} iterations without final answer")
 
 
 def append_assistant_message(loop: AgentLoop, state: AgentState, response: ProviderResponse) -> None:

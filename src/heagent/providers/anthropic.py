@@ -7,7 +7,7 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 from heagent.providers.base import ProviderMetadata
-from heagent.providers.retry import wrap_provider_error
+from heagent.providers.retry import raise_provider_error
 from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
 
 if TYPE_CHECKING:
@@ -212,7 +212,7 @@ class AnthropicProvider:
         except Exception as e:
             # 统一包装 SDK 异常（RateLimitError/APITimeoutError 等）为 ProviderError，
             # 使下游 KeyRotatingProvider/retry/Chain 始终面对 HeAgent 体系异常。
-            raise wrap_provider_error(e) from e
+            raise_provider_error(e)
 
         text_parts: list[str] = []
         # 检测 Claude 扩展思考 (thinking) 块——当前未在 Message 模型中回传，
@@ -281,7 +281,7 @@ class AnthropicProvider:
                     finish_reason=final.stop_reason or "end_turn",
                 )
         except Exception as e:
-            raise wrap_provider_error(e) from e
+            raise_provider_error(e)
 
     def get_metadata(self) -> ProviderMetadata:
         """Return provider capability metadata."""

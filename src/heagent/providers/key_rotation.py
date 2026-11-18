@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 
 from heagent.providers.base import BaseProvider, ProviderMetadata
 from heagent.providers.fallback_base import FallbackPolicy, raise_as_provider_error
-from heagent.pub.exceptions import ProviderError
+from heagent.pub.exceptions import ConfigurationError, ProviderError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -37,7 +37,7 @@ class KeyRotatingProvider:
 
     def __init__(self, providers: list[BaseProvider]) -> None:
         if not providers:
-            raise ValueError("KeyRotatingProvider requires at least one provider")
+            raise ConfigurationError("KeyRotatingProvider requires at least one provider")
         self._providers = list(providers)
         self._current_index = 0
         self._lock = asyncio.Lock()  # 防并发索引漂移

@@ -27,6 +27,8 @@ from __future__ import annotations
 from collections import OrderedDict
 from typing import TYPE_CHECKING
 
+from heagent.pub.exceptions import ConfigurationError
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -61,7 +63,7 @@ class ProviderMetadataCache:
             ValueError: ``max_size`` < 1。
         """
         if max_size < 1:
-            raise ValueError(f"ProviderMetadataCache max_size must be >= 1, got {max_size}")
+            raise ConfigurationError(f"ProviderMetadataCache max_size must be >= 1, got {max_size}")
         self._max_size = max_size
         self._entries: OrderedDict[object, ProviderMetadata] = OrderedDict()
         self._hits = 0

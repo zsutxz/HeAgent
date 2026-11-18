@@ -877,7 +877,37 @@
         "HeAgentError"
       ],
       "module": "heagent.pub.exceptions",
+      "name": "AgentError"
+    },
+    {
+      "bases": [
+        "AgentError",
+        "ValueError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "AgentResumeError"
+    },
+    {
+      "bases": [
+        "AgentError"
+      ],
+      "module": "heagent.pub.exceptions",
       "name": "BudgetExceeded"
+    },
+    {
+      "bases": [
+        "HeAgentError",
+        "ValueError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "ConfigurationError"
+    },
+    {
+      "bases": [
+        "HeAgentError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "EngineError"
     },
     {
       "bases": [
@@ -888,10 +918,40 @@
     },
     {
       "bases": [
-        "HeAgentError"
+        "BudgetExceeded"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "IterationLimitError"
+    },
+    {
+      "bases": [
+        "EngineError",
+        "ValueError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "LedgerError"
+    },
+    {
+      "bases": [
+        "EngineError",
+        "RuntimeError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "PolicyExecutionError"
+    },
+    {
+      "bases": [
+        "EngineError"
       ],
       "module": "heagent.pub.exceptions",
       "name": "PolicyViolation"
+    },
+    {
+      "bases": [
+        "ProviderError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "ProviderAuthError"
     },
     {
       "bases": [
@@ -902,14 +962,35 @@
     },
     {
       "bases": [
-        "HeAgentError"
+        "ProviderError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "ProviderRateLimitError"
+    },
+    {
+      "bases": [
+        "ProviderError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "ProviderResponseFormatError"
+    },
+    {
+      "bases": [
+        "ProviderError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "ProviderTimeoutError"
+    },
+    {
+      "bases": [
+        "ToolError"
       ],
       "module": "heagent.pub.exceptions",
       "name": "SafetyViolation"
     },
     {
       "bases": [
-        "HeAgentError"
+        "SessionError"
       ],
       "module": "heagent.pub.exceptions",
       "name": "SessionConflictError"
@@ -919,14 +1000,37 @@
         "HeAgentError"
       ],
       "module": "heagent.pub.exceptions",
+      "name": "SessionError"
+    },
+    {
+      "bases": [
+        "SessionError"
+      ],
+      "module": "heagent.pub.exceptions",
       "name": "SessionNotFoundError"
     },
     {
       "bases": [
-        "HeAgentError"
+        "SessionError"
       ],
       "module": "heagent.pub.exceptions",
       "name": "SessionUnreadableError"
+    },
+    {
+      "bases": [
+        "AgentError",
+        "ValueError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "SubAgentError"
+    },
+    {
+      "bases": [
+        "ToolError",
+        "ValueError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "ToolArgumentError"
     },
     {
       "bases": [
@@ -934,6 +1038,28 @@
       ],
       "module": "heagent.pub.exceptions",
       "name": "ToolError"
+    },
+    {
+      "bases": [
+        "ToolError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "ToolExecutionError"
+    },
+    {
+      "bases": [
+        "ToolError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "UnknownToolError"
+    },
+    {
+      "bases": [
+        "EngineError",
+        "ValueError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "WorkflowExecutionError"
     },
     {
       "bases": [

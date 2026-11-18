@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from heagent.agent.run_lifecycle import AgentState, _ResumeState
 from heagent.context.window_reset import WindowReset
 from heagent.engine import RunStatus
+from heagent.pub.exceptions import AgentResumeError
 
 if TYPE_CHECKING:
     from heagent.agent.loop import AgentLoop
@@ -26,7 +27,7 @@ async def build_resume_state(loop: AgentLoop, run_id: str) -> tuple[RunSnapshot,
     """从快照重建恢复状态；已完成的 run 返回 ``(snapshot, None)``。"""
     snapshot = await loop.engine.run_store.load(run_id)
     if snapshot is None:
-        raise ValueError(f"No run snapshot found for run_id={run_id!r}")
+        raise AgentResumeError(f"No run snapshot found for run_id={run_id!r}")
     if snapshot.context.status == RunStatus.COMPLETED:
         return snapshot, None
 

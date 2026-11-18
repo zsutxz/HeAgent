@@ -11,23 +11,22 @@ from __future__ import annotations
 
 from typing import NoReturn
 
-from heagent.providers.retry import ErrorCategory, classify_exception, is_pool_fallback_error, wrap_provider_error
+from heagent.providers.retry import ErrorCategory, classify_exception, is_pool_fallback_error, raise_provider_error
 from heagent.pub.exceptions import ProviderError
 
 
 def raise_as_provider_error(error: Exception) -> NoReturn:
-    """统一的错误包装：确保抛出的始终是 ProviderError。
+    """统一的错误包装：确保抛出的始终是 ProviderError 体系内的异常。
 
     这是 chain._raise_provider_error / key_rotation._raise_wrapped /
     retry.raise_provider_error 的合并版本。
 
     - 已经是 ProviderError：原样抛出，保留 cause 链
-    - 其他异常：包装为 ProviderError，原异常作为 cause（状态码提取委托
-      :func:`heagent.providers.retry.wrap_provider_error`，DRY 单一来源）
+    - 其他异常：包装成 ProviderError 体系里**最精确**的那一类（认证 / 限流 / 超时 / 通用），
+      原异常作为 cause（类型判定委托
+      :func:`heagent.providers.retry.raise_provider_error`，DRY 单一来源）
     """
-    if isinstance(error, ProviderError):
-        raise error
-    raise wrap_provider_error(error) from error
+    raise_provider_error(error)
 
 
 class FallbackPolicy:

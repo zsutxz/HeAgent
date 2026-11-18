@@ -34,7 +34,7 @@ from heagent.engine.observability import elapsed_ms
 from heagent.engine.policy import PolicyEngine, PolicyVerdict, ToolExecutionMode
 from heagent.events.protocol import error_kind_for
 from heagent.pub.audit import current_operator, record_tool_execution, state_dir_for
-from heagent.pub.exceptions import PolicyViolation, SafetyViolation
+from heagent.pub.exceptions import PolicyExecutionError, PolicyViolation, SafetyViolation
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import ToolCall, ToolResult
 from heagent.tools.call_summary import summarize_tool_call
@@ -63,7 +63,7 @@ def _session_workspace(run_context: RunContext | None) -> Path | None:
     """从 ``run_context.metadata`` 提取并校验沙箱会话目录（FR-1）。
 
     无键 / 非 str / 空串 → None（不 bind，行为与现状一致）；路径不存在 → 抛
-    ``RuntimeError("sandbox workspace missing: <path>")`` 显性失败（bind 前拦下，
+    ``PolicyExecutionError("sandbox workspace missing: <path>")``（RuntimeError 子类）显性失败（bind 前拦下，
     不让不存在的目录直入 ``--private=`` / ``cwd=``）。
     """
     if run_context is None:
@@ -73,7 +73,7 @@ def _session_workspace(run_context: RunContext | None) -> Path | None:
         return None
     path = Path(raw)
     if not path.exists():
-        raise RuntimeError(f"sandbox workspace missing: {path}")
+        raise PolicyExecutionError(f"sandbox workspace missing: {path}")
     return path
 
 

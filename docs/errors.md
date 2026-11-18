@@ -31,12 +31,12 @@ Error: <原消息，逐字保留>
 - 状态行（`▶启动` / `✔完成`）、WARNING 与进度提示**不带**这些段落——它们不是错误。
 
 **覆盖口径**：「用户可见错误」在本页被界定为三个可枚举集合的并集——传输层全部 **35** 个稳定码
-（`network/http_protocol.py::HttpErrorCode`，封闭集合）+ 框架层全部 **9** 个异常类
-（`pub/exceptions.py`）+ CLI/启动期 **12** 条常见报错，合计 **56** 条，三条链路各自 **100%** 覆盖。
+（`network/http_protocol.py::HttpErrorCode`，封闭集合）+ 框架层全部 **26** 个异常类
+（`pub/exceptions.py`，每个都带稳定码）+ CLI/启动期 **12** 条常见报错，合计 **73** 条，三条链路各自 **100%** 覆盖。
 可枚举集合之外的自由文本不在此口径内。
 
-**码的现状**：只有传输层有封闭码集合。框架层只有 9 个无 `code` 字段的异常类，CLI 层是自由文本
-——统一错误码体系尚未落地，届时为这两层补「错误码」列。码的语义分组与权威口径见
+**码的现状**：传输层（`HttpErrorCode`）与框架层（`pub/exceptions.py::code`）都是封闭码集合；
+CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义分组与权威口径见
 [架构参考 4.17](frame.md)。
 
 ## 一、传输层稳定错误码
@@ -128,19 +128,45 @@ Error: <原消息，逐字保留>
 
 ## 二、框架异常
 
-框架异常**不带稳定码**，但会以这些形态出现在工具结果、事件流与日志里：
+框架异常带**稳定错误码**（`pub/exceptions.py` 的 `code` 类属性，实例经 `exc.code` 读）。层次是三层：
+根 `HeAgentError`（旧称 `HeAgentException` 是它的别名）→ 分类（`ProviderError` / `ToolError` /
+`EngineError` / `AgentError` / `SessionError` / `ConfigurationError`）→ 具体异常；`except <分类>` 一次
+捕获一整类。码一经发布不改名、不复用（只增）。
 
-| 异常类 | 触发 | 用户看到什么 | 方案 |
+下表由 `error_catalog()` 生成，`tests/test_exceptions.py` 逐条比对——**不要手改表格**：改代码后跑测试，
+差异会被点名。
+
+| 码 | 异常类 | 含义 | 建议操作 |
 | --- | --- | --- | --- |
-| `HeAgentError` | 其余框架异常的基类 | 各自子类形态 | 按具体子类处理 |
-| `ProviderError` | Provider 调用失败（可带上游 `status_code`） | 重试耗尽后 run 失败 | 日志 `provider_call_completed` 里的 `details.model` 与上游状态码；认证问题查该条目的 `*_API_KEY` |
-| `ToolError` | 工具执行失败 | 工具结果为 `is_error=true` | 读工具返回正文；路径类错误见[常见问题](faq.md#三故障排查) |
-| `SafetyViolation` | `SafetyGuard.check()` 拦下调用 | 事件 `tool_call_blocked`，`details.mode="safety_blocked"` | 该调用**未执行**；看 `details.reason`，或 `SAFETY_BLOCKED_TOOLS` 是否误伤 |
-| `PolicyViolation` | `PolicyEngine.evaluate()` 拒绝 | 事件 `tool_call_blocked`，`details.mode` 为策略档位 | 该调用**未执行**；`SANDBOX_MODE=read-only` 会拦所有写操作与 shell |
-| `BudgetExceeded` | 迭代或 token 预算用尽 | run 以失败结束 | 调大 `MAX_ITERATIONS` / `SUBAGENT_MAX_ITERATIONS`，或拆小任务 |
-| `SessionConflictError` | 写入时带了 `expected_version` 且文件已变 | 仅 API 调用方可见 | 重新读取会话再写；不传 `expected_version` 即 last-write-wins |
-| `SessionNotFoundError` | 会话 id 无对应文件 | 与 `unknown_session` 同源 | 用服务端返回的 id |
-| `SessionUnreadableError` | 会话文件无法解析 | 与 `session_unreadable` 同源 | 备份后删除该会话文件 |
+| `E_HEAGENT` | `HeAgentError` | 框架内部错误的通用形态，未归入任何分类时才会直接出现 | 按具体子类处理；只有它本身说明该错误尚未归类 |
+| `E_PROVIDER` | `ProviderError` | Provider 调用失败，已用尽重试与回退 | 看日志 provider_call_completed 的 details.model 与上游状态码；认证问题核对该条目的 *_API_KEY |
+| `E_PROVIDER_AUTH` | `ProviderAuthError` | Provider 认证失败（401 / 403） | 核对 .env 里该条目的 *_API_KEY；池内换档刻意不覆盖认证失败（属配置问题） |
+| `E_PROVIDER_RATE_LIMIT` | `ProviderRateLimitError` | Provider 限流（429 或响应体命中 rate 关键词） | 等限流窗口重置；回退链会自动换 provider / 密钥，也可 /provider 手工切 |
+| `E_PROVIDER_TIMEOUT` | `ProviderTimeoutError` | Provider 调用超时（408 / 504 或消息命中超时关键词） | 重试该调用；持续超时查网络与中转站健康度，必要时 /provider 换一家 |
+| `E_PROVIDER_RESPONSE_FORMAT` | `ProviderResponseFormatError` | Provider 返回体形状不符合预期（如 choices 为空） | 确认上游是否兼容中转站（响应契约漂移）；换官方端点或换 provider |
+| `E_TOOL` | `ToolError` | 工具执行失败（分类层，具体原因看子类） | 读工具返回正文（is_error=true）；路径类错误见 docs/faq.md 故障排查 |
+| `E_TOOL_ARGUMENT` | `ToolArgumentError` | 工具参数不合法（缺必填参数或参数形状不对） | 按工具 Schema 补参数；文件类工具的路径须过 path_safety（工作区相对路径） |
+| `E_TOOL_EXECUTION` | `ToolExecutionError` | 工具开始执行后失败（调用超时、server 断连等） | 读工具返回正文；MCP 工具查 server 连接状态与 call_timeout 配置 |
+| `E_TOOL_UNKNOWN` | `UnknownToolError` | 调用了未注册或未启用的工具名 | 核对工具名；确认该工具已注册且未被 ALLOWED_TOOLS / BLOCKED_TOOLS 过滤 |
+| `E_TOOL_SAFETY_VIOLATION` | `SafetyViolation` | SafetyGuard 在 handler 之前拦下调用（危险命令 / 受保护路径） | 该调用未执行；看事件 tool_call_blocked 的 details.reason 与 SAFETY_BLOCKED_TOOLS 是否误伤 |
+| `E_ENGINE` | `EngineError` | 运行时治理层错误（分类层） | 按子类处理；治理层的拒绝一律「未执行」，先看事件流里的 details |
+| `E_ENGINE_POLICY_VIOLATION` | `PolicyViolation` | PolicyEngine 在 handler 之前拒绝调用（档位 / 白黑名单 / 审批未过） | 该调用未执行；看 tool_call_blocked 的 details.mode；SANDBOX_MODE=read-only 会拦所有写与 shell |
+| `E_ENGINE_LEDGER` | `LedgerError` | 执行台账（幂等记录）读写失败或记录状态不符 | 查 .heagent 下的台账记录文件；台账只是幂等缓存，任务可安全重跑 |
+| `E_ENGINE_POLICY_EXECUTION` | `PolicyExecutionError` | 策略裁决通过但执行环境不成立（沙箱会话目录缺失等） | 检查 run metadata 的 sandbox_workspace；或关闭沙箱会话目录让路径恢复存在 |
+| `E_ENGINE_WORKFLOW` | `WorkflowExecutionError` | 工作流步骤选择或状态推进不合法 | 核对 workflow 的 steps 声明与 active_step；恢复一律走 checkpoint，不猜、不静默跳过 |
+| `E_AGENT` | `AgentError` | Agent 循环与子 Agent 委派错误（分类层） | 按子类处理；预算 / 上限类错误改配置或拆小任务 |
+| `E_AGENT_BUDGET_EXCEEDED` | `BudgetExceeded` | 迭代或 token 预算用尽 | 调大 MAX_ITERATIONS / SUBAGENT_MAX_ITERATIONS，或把任务拆小 |
+| `E_AGENT_ITERATION_LIMIT` | `IterationLimitError` | 迭代硬上限用尽（本轮未给出最终回答） | 调大 MAX_ITERATIONS；或把任务拆成多轮 / 委派子 Agent |
+| `E_AGENT_SUBAGENT` | `SubAgentError` | 子 Agent 委派请求不成立（任务与 agent 数量不匹配等） | 核对委派调用参数；单任务走 subagent，多任务走并行委派且两列等长 |
+| `E_AGENT_RESUME` | `AgentResumeError` | 续跑时找不到该 run 的快照 | 用 run 列表里的真实 run_id；快照已被清理时只能重跑 |
+| `E_SESSION` | `SessionError` | 会话文件存取错误（分类层） | 按子类处理；会话文件在 .heagent/sessions/ 下 |
+| `E_SESSION_CONFLICT` | `SessionConflictError` | 会话文件在读取后被改动（显式传 expected_version 时的乐观锁冲突） | 重新读取会话再提交；不传 expected_version 即 last-write-wins |
+| `E_SESSION_NOT_FOUND` | `SessionNotFoundError` | 该会话 id 没有对应的会话文件 | 用会话列表 / 服务端返回的真实 id，不要自己拼路径 |
+| `E_SESSION_UNREADABLE` | `SessionUnreadableError` | 会话文件存在但无法解析 | 备份后删除 .heagent/sessions/ 下的该文件 |
+| `E_CONFIGURATION` | `ConfigurationError` | 配置面错配（键值不合法，或引用了池里不存在的名字） | 按 .env.example 对应键给合法值；heagent doctor 会逐项列出问题键 |
+
+**非框架异常**（`ValueError` / `OSError` 等直接冒到用户面前）没有码；`error_code_of(exc)` 统一返回
+`E_UNKNOWN`，不抛。
 
 ## 三、CLI 与启动期错误
 

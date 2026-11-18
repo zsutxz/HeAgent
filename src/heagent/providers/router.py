@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.retry import is_pool_fallback_error
+from heagent.pub.exceptions import ConfigurationError
 from heagent.pub.types import Role
 
 # provider 委托链的遍历上限（防环；正常链远小于此）。
@@ -322,9 +323,9 @@ class RoutingProvider:
                 可在运行时用 ``set_force()`` 动态切换（对应 ``/model pro|fast|auto``）。
         """
         if not providers:
-            raise ValueError("RoutingProvider requires at least one provider")
+            raise ConfigurationError("RoutingProvider requires at least one provider")
         if default not in providers:
-            raise ValueError(f"Default provider {default!r} not in provider pool")
+            raise ConfigurationError(f"Default provider {default!r} not in provider pool")
         self._providers = dict(providers)
         self._router = router
         self._default = default
@@ -360,7 +361,7 @@ class RoutingProvider:
         状态行会显示「新模型 + 旧理由」的自相矛盾组合（如 gpt-5.6-luna←keyword:分析）。
         """
         if name is not None and name not in self._providers:
-            raise ValueError(f"Forced provider {name!r} not in pool {sorted(self._providers)}")
+            raise ConfigurationError(f"Forced provider {name!r} not in pool {sorted(self._providers)}")
         self._force = name
         # 观测一致性：current_model 立即反映强制项，last_decision 若停在旧决策上，状态行
         # 就会把「已强制的模型」与「上一次启发式的理由」拼在一起（实测：

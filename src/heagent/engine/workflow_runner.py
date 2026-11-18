@@ -62,6 +62,7 @@ from heagent.engine.workflow_resource import (
     section_titles,
 )
 from heagent.events.protocol import error_kind_for
+from heagent.pub.exceptions import WorkflowExecutionError
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import StoryExecutionContext, StorySpec
 
@@ -122,7 +123,7 @@ class WorkflowRunner:
         phase: WorkflowPhase = WorkflowPhase.IMPLEMENTATION,
     ) -> None:
         if not workflow.steps:
-            raise ValueError("workflow requires at least one step")
+            raise WorkflowExecutionError("workflow requires at least one step")
         self.workflow = workflow
         self.state = state or WorkflowRunnerState()
         self.goal_id = goal_id or uuid4().hex[:8]
@@ -554,7 +555,7 @@ class WorkflowRunner:
         """
         target = next((step for step in self.workflow.steps if step.name == name), None)
         if target is None:
-            raise ValueError(f"not a declared workflow step: {name}")
+            raise WorkflowExecutionError(f"not a declared workflow step: {name}")
         if self.state.status in {WorkflowStatus.WAITING_USER, WorkflowStatus.BLOCKED, WorkflowStatus.FAILED}:
             return WorkflowRunResult(status=self.state.status, step_index=target.index, reason=self.state.reason)
         if target.index - 1 in self.state.completed_steps:
@@ -566,7 +567,7 @@ class WorkflowRunner:
                 skipped=True,
             )
         if self.done or target.index - 1 < self.state.active_step:
-            raise ValueError(
+            raise WorkflowExecutionError(
                 f"step '{name}' cannot be selected: it is behind the active step "
                 f"({self.workflow.steps[self.state.active_step].name}); a script may only select "
                 f"subsequent declared steps"
@@ -762,7 +763,7 @@ class WorkflowRunner:
         event = _stop_event(self.state.status)
         fields = _transition_fields(self.state, event)
         if fields["status"] is not status:
-            raise ValueError(f"stop status {status} disagrees with {event}")
+            raise WorkflowExecutionError(f"stop status {status} disagrees with {event}")
         bounded_reason = _bounded_reason(reason)
         self.state = self.state.model_copy(update={**fields, "reason": bounded_reason})
         checkpoint_id = await self._persist(step, checkpoint)

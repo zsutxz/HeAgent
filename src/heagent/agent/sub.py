@@ -22,6 +22,7 @@ from heagent.agent.loop import AgentLoop
 from heagent.config import ResolvedRuntimeConfig, resolve_runtime_config
 from heagent.engine import EngineContainer
 from heagent.engine.policy import PolicyEngine
+from heagent.pub.exceptions import SubAgentError
 from heagent.tools.registry import ToolRegistry
 from heagent.tools.safety import SafetyGuard
 
@@ -306,9 +307,11 @@ class SubAgent:
 async def run_parallel(agents: list[SubAgent], tasks: list[str]) -> list[SubAgentResult]:
     """并发执行多个子任务。
 
-    ``agents`` 与 ``tasks`` 按位置一一对应（``zip(..., strict=True)`` 保证
-    长度一致，否则报错）；用 ``asyncio.gather`` 同时调度，等待全部完成后
-    按原顺序返回各自的结果。
+    ``agents`` 与 ``tasks`` 按位置一一对应（长度必须相等，否则抛 ``SubAgentError``——
+    它同时是 ``ValueError`` 子类，保留旧 ``zip(strict=True)`` 的捕获语义）；用
+    ``asyncio.gather`` 同时调度，等待全部完成后按原顺序返回各自的结果。
     """
+    if len(agents) != len(tasks):
+        raise SubAgentError(f"run_parallel requires one agent per task: {len(agents)} agents vs {len(tasks)} tasks")
     coroutines = [agent.run(task) for agent, task in zip(agents, tasks, strict=True)]
     return await asyncio.gather(*coroutines)

@@ -16,6 +16,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING
 
+from heagent.pub.exceptions import ToolArgumentError
 from heagent.tools.decorator import tool
 from heagent.tools.path_safety import resolve_under_root, workspace_root
 from heagent.tools.sandbox import cap_channel, communicate_subprocess, reap_subprocess
@@ -121,6 +122,6 @@ async def git_blame(file_path: str) -> str:
         file_path: Path to the file (relative to workspace root). Required.
     """
     if not file_path.strip():
-        raise ValueError("file_path is required")
+        raise ToolArgumentError("file_path is required")
     rel = _validate_git_path(file_path)
     return await _run_git("blame", rel)

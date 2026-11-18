@@ -22,7 +22,7 @@ from heagent.providers.base import BaseProvider, ProviderMetadata, ProviderSumma
 from heagent.providers.fallback_base import FallbackPolicy, raise_as_provider_error
 from heagent.providers.metadata_cache import ProviderMetadataCache
 from heagent.providers.retry import classify_exception
-from heagent.pub.exceptions import ProviderError
+from heagent.pub.exceptions import ConfigurationError, ProviderError
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -70,9 +70,9 @@ class SwitchableProvider:
             metadata_cache: 可选的元数据缓存实例（调容量 / 共享观测面用）；None 则自建默认容量。
         """
         if not providers:
-            raise ValueError("SwitchableProvider requires at least one provider")
+            raise ConfigurationError("SwitchableProvider requires at least one provider")
         if default not in providers:
-            raise ValueError(f"Default provider {default!r} not in provider pool")
+            raise ConfigurationError(f"Default provider {default!r} not in provider pool")
         self._providers = dict(providers)
         self._active: str = default
         # 防并发 switch/send/stream 对 _active 的竞态修改。
@@ -135,7 +135,9 @@ class SwitchableProvider:
             ValueError: 名称不存在。
         """
         if name not in self._providers:
-            raise ValueError(f"Unknown provider {name!r}. Available: {', '.join(sorted(self._providers.keys()))}")
+            raise ConfigurationError(
+                f"Unknown provider {name!r}. Available: {', '.join(sorted(self._providers.keys()))}"
+            )
         async with self._lock:
             old = self._active
             self._set_active(name)

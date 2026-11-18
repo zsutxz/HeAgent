@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from heagent.engine import ApprovalDecision, ApprovalRequest, ToolExecutionMode
 from heagent.engine.ledger import renew_lease_while_active
+from heagent.pub.exceptions import UnknownToolError
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.types import ToolCall, ToolResult
 from heagent.tools.call_summary import activity_label, summarize_tool_call
@@ -387,11 +388,11 @@ async def _resolve_approval(
 async def invoke_handler(loop: AgentLoop, call: ToolCall) -> object:
     """解析并调用一次工具调用对应的注册 handler（executor 的执行回调）。
 
-    未知工具直接抛 RuntimeError（executor 外层会捕获并转成 ToolResult.error）。
+    未知工具直接抛 ``UnknownToolError``（executor 外层会捕获并转成 ToolResult.error）。
     """
     handler = loop.registry.get_handler(call.name)
     if handler is None:
-        raise RuntimeError(f"Unknown tool: {call.name}")
+        raise UnknownToolError(f"Unknown tool: {call.name}")
     return await _invoke(handler, call)
 
 

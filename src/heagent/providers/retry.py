@@ -24,15 +24,22 @@ from __future__ import annotations
 import asyncio
 import random
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
-from heagent.pub.exceptions import ProviderError
+from heagent.pub.exceptions import (
+    ProviderAuthError,
+    ProviderError,
+    ProviderRateLimitError,
+    ProviderTimeoutError,
+)
 
 # HTTP 状态 → 错误类别的判据字面量（分类唯一来源，见模块 docstring）。
+_HTTP_REQUEST_TIMEOUT = 408
 _HTTP_TOO_MANY_REQUESTS = 429
 _HTTP_NOT_FOUND = 404
 _HTTP_SERVER_ERROR_MIN = 500
 _HTTP_SERVER_ERROR_MAX = 599
+_HTTP_GATEWAY_TIMEOUT = 504
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -109,9 +116,43 @@ def wrap_provider_error(error: Exception) -> ProviderError:
 
     状态码与消息提取复用 _extract_status_message（duck-type status_code/status/
     message），保证 chain._raise_provider_error 与 provider 包装行为一致（DRY 单一来源）。
+
+    只保证「是 ProviderError」，不分细分类型——需要细分（认证 / 限流 / 超时）的
+    raise 点用 :func:`raise_provider_error`。
     """
     status, message = _extract_status_message(error)
     return ProviderError(message, status_code=status)
+
+
+def _is_timeout(status: int | None, message: str) -> bool:
+    """超时判据（与 :func:`_classify` 的 TRANSIENT 分支同一批关键词，取交集子集）。
+
+    连接类错误（``APIConnectionError``）刻意不算超时：换 provider 有意义，等一等没有。
+    """
+    if status in (_HTTP_REQUEST_TIMEOUT, _HTTP_GATEWAY_TIMEOUT):
+        return True
+    msg = message.lower()
+    return "timed out" in msg or "timeout" in msg
+
+
+def raise_provider_error(error: Exception) -> NoReturn:
+    """抛出**最精确**的 Provider 异常（认证 / 限流 / 超时 / 其余通用）并保留 cause 链。
+
+    provider 源头与回退层共用这一个 raise 入口，因此「哪类错误带哪个错误码」只在这里
+    判定（判据仍是 :func:`_classify`，与回退策略看到的类别同一份）。已经是 ProviderError
+    的原样上抛——不二次包装（双层包装会污染 ``__cause__`` 判据）。
+    """
+    if isinstance(error, ProviderError):
+        raise error
+    status, message = _extract_status_message(error)
+    category = _classify(status, message)
+    if category is ErrorCategory.AUTH_FAILED:
+        raise ProviderAuthError(message, status_code=status) from error
+    if category is ErrorCategory.RATE_LIMITED:
+        raise ProviderRateLimitError(message, status_code=status) from error
+    if _is_timeout(status, message):
+        raise ProviderTimeoutError(message, status_code=status) from error
+    raise ProviderError(message, status_code=status) from error
 
 
 def classify_error(error: ProviderError) -> ErrorCategory:

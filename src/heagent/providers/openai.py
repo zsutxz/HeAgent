@@ -11,7 +11,8 @@ import sys
 from typing import TYPE_CHECKING, Any
 
 from heagent.providers.base import ProviderMetadata, parse_tool_arguments
-from heagent.providers.retry import wrap_provider_error
+from heagent.providers.retry import raise_provider_error
+from heagent.pub.exceptions import ProviderResponseFormatError
 from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolCall, ToolSchema
 
 # 推理链续接重试的触发状态码（部分端点对 reasoning_content 缺失回 400）。
@@ -215,10 +216,12 @@ class OpenAIProvider:
                 try:
                     resp = await self._client.chat.completions.create(**kwargs)  # type: ignore[call-overload]
                 except Exception as retry_error:
-                    raise wrap_provider_error(retry_error) from retry_error
+                    raise_provider_error(retry_error)
             else:
-                raise wrap_provider_error(e) from e
+                raise_provider_error(e)
 
+        if not resp.choices:  # 兼容中转站偶尔回 {"choices": []}：不猜、当场判为响应格式错
+            raise ProviderResponseFormatError("provider returned no choices")
         choice = resp.choices[0]
         message = choice.message
         # 解析工具调用（LLM 判断需要调用工具时返回）
@@ -312,7 +315,7 @@ class OpenAIProvider:
                     reasoning_content=reasoning_content or None,
                 )
         except Exception as e:
-            raise wrap_provider_error(e) from e
+            raise_provider_error(e)
 
     def get_metadata(self) -> ProviderMetadata:
         """返回 Provider 能力描述。"""
