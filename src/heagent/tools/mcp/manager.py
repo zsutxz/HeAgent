@@ -37,13 +37,13 @@ from contextlib import asynccontextmanager
 from functools import partial
 from typing import TYPE_CHECKING
 
-from mcp.types import BlobResourceContents, TextContent, TextResourceContents
 from pydantic import BaseModel
 
 from heagent.pub.exceptions import ToolError
 from heagent.tools.mcp.client import TransportOpener, default_transport_opener
 from heagent.tools.mcp.mapping import bridge_result, guard_content, mcp_tool_to_schema
 from heagent.tools.mcp.registry_bridge import RegistryBridge
+from heagent.tools.mcp.sdk import mcp_types, require_sdk
 from heagent.tools.mcp.session_api import call_tool, list_tools, ping
 from heagent.tools.registry import ToolRegistry
 
@@ -105,6 +105,10 @@ class MCPClientManager:
         if call_timeout <= 0:
             # 非正值让 call_tool 的 asyncio.timeout 立即超时 → 每次 MCP 调用必失败（fail-loud 于构造期）。
             raise ValueError(f"call_timeout 必须为正数（got {call_timeout}）")
+        if transport_opener is None:
+            # 缺省 opener 走 mcp SDK：SDK 是可选依赖（`[mcp]` extra），构造期就核一次，
+            # 用户拿到的是一条安装命令而不是若干秒后被隔离的连接失败。
+            require_sdk("MCP 连接")
         self._config = config
         self._registry = registry or ToolRegistry.get()
         # registry 写入单一入口（server 工具 + 桥接工具的注册/注销与冲突策略收敛于此）
@@ -364,11 +368,12 @@ class MCPClientManager:
         except Exception as exc:  # noqa: BLE001 - 将任意 read_resource 失败转为 ToolError
             raise ToolError(f"Failed to read resource '{uri}' from server '{server}': {exc}") from exc
         # 转换资源内容为文本（类似 call_result_to_text 但作用于 ReadResourceResult.contents）
+        text_resource, blob_resource = mcp_types("TextResourceContents", "BlobResourceContents")
         parts: list[str] = []
         for content in resp.contents:
-            if isinstance(content, TextResourceContents):
+            if isinstance(content, text_resource):
                 parts.append(content.text)
-            elif isinstance(content, BlobResourceContents):
+            elif isinstance(content, blob_resource):
                 mime = content.mimeType or "application/octet-stream"
                 parts.append(f"[binary: {mime}]")
             else:
@@ -429,9 +434,10 @@ class MCPClientManager:
             resp = await session.get_prompt(name, arguments)
         except Exception as exc:  # noqa: BLE001 - 将任意 get_prompt 失败转为 ToolError
             raise ToolError(f"Failed to get prompt '{name}' from server '{server}': {exc}") from exc
+        (text_content,) = mcp_types("TextContent")
         parts: list[str] = []
         for msg in resp.messages:
-            if isinstance(msg.content, TextContent):
+            if isinstance(msg.content, text_content):
                 parts.append(msg.content.text)
             else:
                 parts.append(f"[{type(msg.content).__name__}]")

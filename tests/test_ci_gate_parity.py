@@ -42,9 +42,11 @@ LOCAL_GATE_TO_CI: dict[str, tuple[str, str]] = {
     "bandit": ("lint", "bandit -r src/ -ll"),
 }
 
-# CI 比本地多出来的两门：本地不跑（依赖漏洞扫描需联网索引、docs 构建要装 mkdocs）。
+# CI 比本地多出来的两门：本地默认不跑（依赖漏洞扫描需联网索引、docs 构建要装 mkdocs）。
+# pip-audit 的片段取完整参数面：`--strict`（依赖收集失败也判红）与 `--format json --output`
+# （报告落盘供 artifact 归档）是这条门的契约，收窄成裸 `pip-audit` 就等于退回「只打屏不落证据」。
 CI_ONLY_CHECKS: dict[str, tuple[str, str]] = {
-    "pip-audit": ("lint", "pip-audit"),
+    "pip-audit": ("lint", "pip-audit --strict -r requirements.lock --format json --output pip-audit.json"),
     "docs build": ("lint", "mkdocs build --strict"),
 }
 
@@ -125,6 +127,34 @@ def test_ci_only_checks_stay_in_place() -> None:
         if not _runs_command(_job_block(job), snippet)
     ]
     assert not missing, "CI-only checks disappeared:\n  " + "\n  ".join(missing)
+
+
+def test_pip_audit_report_is_archived_as_artifact() -> None:
+    """扫描报告必须作为 artifact 上传：红了时「哪条依赖哪个 CVE」只能靠落盘 JSON 复盘。"""
+    block = _job_block("lint")
+    upload_step = next((step for step in block.split("- name:") if "actions/upload-artifact@v4" in step), "")
+    assert upload_step, "lint job no longer uploads artifacts (pip-audit report has no archive)"
+    assert "pip-audit.json" in upload_step, (
+        "pip-audit report is not uploaded — a failing run would leave no machine-readable evidence"
+    )
+    assert re.search(r"^\s+if: always\(\)$", upload_step, flags=re.MULTILINE), (
+        "the upload step must run `if: always()`, otherwise a failing audit uploads nothing"
+    )
+
+
+def test_local_audit_gate_is_opt_in_and_matches_ci() -> None:
+    """`--with-audit` 是显式 opt-in（默认门序不含它），且参数面与 CI 逐字同源。"""
+    module = _quality_gate_module()
+    audit_label, audit_command = module.AUDIT_GATE
+    assert audit_label not in [label for label, _command in module.COMMANDS], (
+        "the audit gate must stay out of the default gate order (needs network index)"
+    )
+    joined = " ".join(str(part) for part in audit_command)
+    for flag in ("--strict", "-r requirements.lock", "--format json", "--output"):
+        assert flag in joined, f"local audit gate lost `{flag}`: {joined}"
+    assert audit_label in module._NETWORK_GATE_LABELS, (
+        "audit gate must be registered as a network-dependent gate (offline failures need triage hints)"
+    )
 
 
 def test_pull_request_runs_the_test_surface() -> None:

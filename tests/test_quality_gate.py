@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from scripts import quality_gate
 
 CI_WORKFLOW = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "ci.yml"
-#: 刻意**不**进本地门的 CI 步骤：需要联网查漏洞库（CI 侧本身也是 continue-on-error）。
+#: 刻意**不**进默认本地门的 CI 步骤：需要联网查漏洞库（本地走 `--with-audit` 显式 opt-in）。
 CI_ONLY_TOOLS = {"pip-audit"}
 #: CI lint job 的静态检查工具：每一条都必须在本地门里有等价入口。
 STATIC_TOOLS = {"ruff", "mypy", "bandit"}

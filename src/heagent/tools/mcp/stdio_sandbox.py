@@ -27,12 +27,12 @@ import hashlib
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from mcp.client.stdio import StdioServerParameters
 from pydantic import BaseModel, ConfigDict, PrivateAttr
 
+from heagent.tools.mcp.sdk import import_mcp
 from heagent.tools.sandbox.docker import CONTAINER_USER, CONTAINER_WORKDIR, docker_available, hardening_flags
 
 if TYPE_CHECKING:
@@ -121,8 +121,12 @@ def build_run_argv(spec: StdioSandboxSpec, cfg: StdioServerConfig) -> list[str]:
     return argv
 
 
-def stdio_params(cfg: StdioServerConfig, spec: StdioSandboxSpec | None) -> StdioServerParameters:
-    """按 spec 产出 SDK 的 stdio 参数：容器档可用 ⇒ 用 docker 包裹；否则显性降级回宿主。"""
+def stdio_params(cfg: StdioServerConfig, spec: StdioSandboxSpec | None) -> Any:
+    """按 spec 产出 SDK 的 stdio 参数：容器档可用 ⇒ 用 docker 包裹；否则显性降级回宿主。
+
+    SDK 类型在调用期解析（``mcp`` 是可选依赖，见 :mod:`.sdk`），故返回类型为 ``Any``。
+    """
+    StdioServerParameters = import_mcp("mcp.client.stdio").StdioServerParameters
     host = StdioServerParameters(command=cfg.command, args=cfg.args, env=cfg.env or None)
     if spec is None:
         return host

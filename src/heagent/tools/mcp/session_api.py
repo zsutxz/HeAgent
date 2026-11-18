@@ -22,18 +22,17 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from mcp.types import (
-    CallToolResult,
-    EmbeddedResource,
-    ImageContent,
-    TextContent,
-    Tool,
-)
+from heagent.tools.mcp.sdk import mcp_types
 
 if TYPE_CHECKING:
     from mcp import ClientSession
+    from mcp.types import CallToolResult, EmbeddedResource, ImageContent, TextContent, Tool
 
 logger = logging.getLogger(__name__)
+
+# ``mcp.types`` 成员的惰性再导出面（见模块级 ``__getattr__``）：SDK 是可选依赖，
+# import 本模块不得拉起它，否则 ``import heagent`` 在无 ``[mcp]`` extra 时就会炸。
+_LAZY_TYPE_NAMES = frozenset({"CallToolResult", "EmbeddedResource", "ImageContent", "TextContent", "Tool"})
 
 # inputSchema 非 dict 时的兜底（空 JSON Schema，与 v1 既有行为一致，NFR-1 零回归）。
 _EMPTY_SCHEMA: dict[str, object] = {"type": "object", "properties": {}}
@@ -51,6 +50,17 @@ __all__ = [
     "ping",
     "result_is_error",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """按需解析 ``mcp.types`` 成员（PEP 562）。
+
+    既有调用面（``from heagent.tools.mcp.session_api import CallToolResult``）不变，但解析发生在
+    **第一次取用**时：模块导入本身不碰 SDK。名字不在表内仍按常规 ``AttributeError`` 抛出。
+    """
+    if name in _LAZY_TYPE_NAMES:
+        return mcp_types(name)[0]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 async def handshake(session: ClientSession) -> None:

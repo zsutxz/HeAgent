@@ -20,18 +20,12 @@ from typing import TYPE_CHECKING, Any
 
 from heagent.pub.exceptions import ToolError
 from heagent.pub.types import ToolAnnotations, ToolSchema
-from heagent.tools.mcp.session_api import (
-    CallToolResult,
-    EmbeddedResource,
-    ImageContent,
-    TextContent,
-    Tool,
-    input_schema_of,
-    result_is_error,
-)
+from heagent.tools.mcp.sdk import mcp_types
+from heagent.tools.mcp.session_api import input_schema_of, result_is_error
 from heagent.tools.path_safety import WorkspacePathError, resolve_under_root, workspace_root
 
 if TYPE_CHECKING:
+    from mcp.types import CallToolResult, Tool
     from mcp.types import ToolAnnotations as McpToolAnnotations
 
 logger = logging.getLogger(__name__)
@@ -94,13 +88,16 @@ def call_result_to_text(result: CallToolResult) -> str:
     ``TextContent`` → text；``ImageContent`` → ``[image]``；``EmbeddedResource`` → ``[resource: uri]``；
     其余块 → ``[unknown: <type>]``；多块用 ``\\n`` 连接。不判断 ``isError``（由 ``bridge_result`` 处理）。
     """
+    # SDK 类型按需解析（``mcp`` 是可选依赖）：本函数只在真有 MCP 结果要桥接时被调用，
+    # 而那时 SDK 必然在场——模块导入期则完全不碰它。
+    text_content, image_content, embedded_resource = mcp_types("TextContent", "ImageContent", "EmbeddedResource")
     parts: list[str] = []
     for block in result.content:
-        if isinstance(block, TextContent):
+        if isinstance(block, text_content):
             parts.append(block.text)
-        elif isinstance(block, ImageContent):
+        elif isinstance(block, image_content):
             parts.append("[image]")
-        elif isinstance(block, EmbeddedResource):
+        elif isinstance(block, embedded_resource):
             uri: Any = getattr(block.resource, "uri", "?")
             parts.append(f"[resource: {uri}]")
         else:

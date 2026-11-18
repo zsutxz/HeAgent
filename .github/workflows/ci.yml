@@ -39,8 +39,22 @@ jobs:
         run: bandit -r src/ -ll
 
       - name: pip-audit (dependency vulns)
-        run: pip-audit
-        continue-on-error: true  # LOW 告警不 fail CI
+        # 审计输入是 `requirements.lock`（67.10 的参考锁定）而非当前环境：环境里本项目是
+        # editable 安装，pip-audit 会把它算作「跳过项」，`--strict` 于是每次都以退出码 1 结束
+        # （--skip-editable 也一样——--strict 把任何 skip 都判为 fatal）。锁文件是精确且可复现的
+        # 输入，本地与 CI 因此得到**同一个判定**。`--strict` 的含义 = 依赖收集失败也判红，
+        # 防止扫描器静默少扫；报告落 JSON 供 artifact 归档。
+        run: pip-audit --strict -r requirements.lock --format json --output pip-audit.json
+
+      - name: Upload pip-audit report
+        # 失败也要留证据（`if: always()`）：没有报告时，红了的 run 只能靠日志里被截断的表格判断。
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Contract snapshot (baselines unchanged)
         run: python scripts/contract_snapshot.py --check

@@ -78,3 +78,6 @@ project/
 
 # 客户端本地设置（机器相关，不进库；共享的 .claude/reviews、.claude/skills 仍受跟踪）
 .claude/settings.local.json
+
+# 依赖漏洞扫描报告（CI artifact / 本地 --with-audit 产物）
+pip-audit.json

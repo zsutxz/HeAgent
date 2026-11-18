@@ -13,17 +13,16 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import httpx
-from mcp import ClientSession
-from mcp.client.stdio import stdio_client
-from mcp.client.streamable_http import streamable_http_client
 
 from heagent.tools.mcp.config import HttpServerConfig, ServerConfig, StdioServerConfig
+from heagent.tools.mcp.sdk import import_mcp, require_sdk
 from heagent.tools.mcp.session_api import handshake
 from heagent.tools.mcp.stdio_sandbox import StdioSandboxSpec, stdio_params
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
     from contextlib import AbstractAsyncContextManager
+    from typing import Any
 
 
 @runtime_checkable
@@ -34,7 +33,7 @@ class TransportOpener(Protocol):
     yield 已 initialize 的 :class:`ClientSession`。
     """
 
-    def __call__(self, cfg: ServerConfig) -> AbstractAsyncContextManager[ClientSession]: ...
+    def __call__(self, cfg: ServerConfig) -> AbstractAsyncContextManager[Any]: ...
 
 
 @asynccontextmanager
@@ -42,15 +41,22 @@ async def default_transport_opener(
     cfg: ServerConfig,
     *,
     stdio_sandbox: StdioSandboxSpec | None = None,
-) -> AsyncIterator[ClientSession]:
+) -> AsyncIterator[Any]:
     """建立 transport + ClientSession（SDK 默认实现：stdio / Streamable HTTP 分派 + 握手）。
 
     ``stdio_sandbox`` 非 None 时 stdio server 经容器拉起（Epic 53 期二 D53-1）；后端不可用
     则**显性降级**回宿主执行（每次 WARNING，见 :mod:`.stdio_sandbox`）。
     """
+    # SDK 导入在**调用期**（可选依赖）：模块导入不碰 mcp，缺 `[mcp]` extra 时
+    # `import heagent` 与普通 CLI 照常，只有真要开连接时才拿到安装诊断。
+    require_sdk("MCP transport")
+    client_session = import_mcp("mcp").ClientSession
+    stdio_client = import_mcp("mcp.client.stdio").stdio_client
+    streamable_http_client = import_mcp("mcp.client.streamable_http").streamable_http_client
+
     if isinstance(cfg, StdioServerConfig):
         params = stdio_params(cfg, stdio_sandbox)
-        async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+        async with stdio_client(params) as (read, write), client_session(read, write) as session:
             await handshake(session)
             yield session
     elif isinstance(cfg, HttpServerConfig):
@@ -59,7 +65,7 @@ async def default_transport_opener(
         async with (
             httpx.AsyncClient(headers=cfg.headers) as http_client,
             streamable_http_client(cfg.url, http_client=http_client) as transport,
-            ClientSession(transport[0], transport[1]) as session,
+            client_session(transport[0], transport[1]) as session,
         ):
             await handshake(session)
             yield session

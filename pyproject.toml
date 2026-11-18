@@ -33,7 +33,6 @@ dependencies = [
     "openai>=2.37",
     "anthropic>=0.104",
     "click>=8.0",
-    "mcp>=1.29.1,<2",
 ]
 
 [project.urls]
@@ -44,6 +43,11 @@ Documentation = "https://github.com/zsutxz/HeAgent/blob/main/docs/README.md"
 Changelog = "https://github.com/zsutxz/HeAgent/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
+# MCP 桥接（外部 server 客户端）属可选能力：核心 6 项依赖不含 SDK，
+# 缺它时 `import heagent` 与普通 CLI 照常，只有 MCP 相关能力给安装诊断（`pip install "heagent[mcp]"`）。
+mcp = [
+    "mcp>=1.29.1,<2",
+]
 dev = [
     "pytest>=8.0,<10",
     "pytest-asyncio>=0.23,<2",
@@ -54,6 +58,8 @@ dev = [
     "bandit>=1.7,<2",
     "pip-audit>=2.7,<3",
     "pytest-benchmark>=4.0,<6",
+    # 与上面的 [mcp] extra 同窗口（两处同步）：测试与 CI 必须装得上 MCP，否则 MCP 用例整片降级。
+    "mcp>=1.29.1,<2",
 ]
 gui = [
     "textual>=1.0,<2.0",
