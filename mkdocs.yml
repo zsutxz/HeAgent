@@ -14,6 +14,9 @@ nav:
   - 设计理念: design.md
   - 日志: logs/iteration.md
   - 测试与门禁: testing.md
+  - 常见问题: faq.md
+  - 错误索引: errors.md
+  - 性能调优: performance.md
   - 沙箱机制: sandbox.md
   - goal 工作流: goal-workflow.md
   - 附: bmad/bmad-architecture-SKILL.zh-CN.md

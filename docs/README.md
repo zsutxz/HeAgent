@@ -12,6 +12,9 @@
 | 测试 | [质量门禁脚本](../scripts/quality_gate.py) | 各阶段实施者验证命令、结果、限制和待办 |
 | 部署 | [部署说明](../deploy/README.md) | 部署变更提交者同步环境前提 |
 | 产品设计 | [design.md](design.md) | 产品需求变更提交者同步目标与非目标 |
+| 使用问答 | [faq.md](faq.md) | 常见问题提交者补充问答与命令；机制细节仍归 frame.md |
+| 错误索引 | [errors.md](errors.md) | 新增/改名错误码与常见报错时同步四张表；码的权威口径仍归 frame.md 4.17 |
+| 性能调优 | [performance.md](performance.md) | 基准/阈值/常用开关变更时同步方法、瓶颈与推荐值 |
 | 迁移与历史 | [迭代历程](logs/iteration.md)（§3.3 架构沿革与参考来源；docs/logs/ 为日志文档目录） | 实施者在修改边界前核验兼容性与迁移测试；架构变更提交者追加事实和来源 |
 | 外部资料 | [新闻归档](news.md)（`docs/news.md` 已被 gitignore，属本地运行时产物，克隆后可能不存在） | 资料提交者保留采集日期与来源，不作为项目实现依据 |
 | 观测 | [frame.md 事件契约](frame.md) | 事件字段/发射点变更提交者同步逐 kind 表与黄金测试 |
@@ -20,6 +23,9 @@
 维护责任按变更角色定义，不虚构个人负责人。专题中的日期是分析或采集时间，不代表持续更新承诺。
 
 - [架构参考](frame.md)：当前数据流、模块边界、配置、运行时治理和已知缺口。
+- [常见问题](faq.md)：配置 / 使用 / 故障排查三栏问答；答案首句给结论、随后给命令，机制细节回指 frame.md。
+- [错误信息索引](errors.md)：传输层 35 码 + 框架 9 异常 + CLI 常见报错的「码 → 原因 → 修法」索引，附关键词跳转表。
+- [性能调优指南](performance.md)：三层分析方法、常见瓶颈判据、常用开关的推荐值与代价、benchmark 验证闭环。
 - [部署说明](../deploy/README.md)：部署资产的真实适用范围和限制。
 - [「Goal 工作流」专题](goal-workflow.md)：`/goal`、`workflow.md`、Epic/Story 和 checkpoint 的职责边界。
 - [「沙箱机制」专题](sandbox.md)：`CommandRunner` 四档后端、端到端调用链、会话层，以及 `container` 档（2026-10-21）相对旧形态的变化。
@@ -52,6 +58,8 @@
 - [质量门禁脚本](../scripts/quality_gate.py)：冒烟、回归与覆盖率、lint、format 和类型检查的执行入口。
 
 ## 性能基准
+
+> 判读口径、常见瓶颈与常用开关的推荐值见 [性能调优指南](performance.md)；本节只给命令。
 
 基准用例不进默认回归（`pyproject.toml` 的 `addopts` 已 deselect `benchmark` 标记），要显式运行：
 
