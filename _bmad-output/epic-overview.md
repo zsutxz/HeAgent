@@ -31,6 +31,8 @@
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本 `0.9.0`；A51 部分闭合——`CHANGELOG.md` + 版本真源守卫 + mkdocs strict 已落，2026-11-11；`.github/workflows` 仍仅 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
 - ✅ **Epic 61 Web 检索工具周期（已闭合）**：2026-11-13 立项，2026-11-16 全链交付闭合——61.1 引擎层 `66a5b9f`、61.2 工具面 `1877250`、61.3 文档收口随本批收口提交入库；真实密钥冒烟经用户裁定跳过，挂账 A55（等 WEB_SEARCH_API_KEY）。
+- ✅ **Epic 63 测试体系增强（已收口）**：2026-11-18 收口——63.1–63.8 全 finished（7 `done` + 63.4 `dropped`），`src/` 零改动；覆盖率实测 93.04%、CI 基准回归强制门禁（`cab4552`）、`tests/fixtures/` 唯一数据宿 + 参数化 78%（`b75075a`/`abf96d9`）。retro `accepted`（`initiative-heagent/tickets/epic-63-测试体系增强/epic-63-测试体系增强-retrospective.md`），三条 ADR 落 `initiative-heagent/decisions/`。
+- ⏳ **Epic 62 代码架构重构（未收口）**：6 票停在 `built`/state=`review`（62.1 / 62.2 / 62.3 / 62.6 / 62.7 / 62.8；62.4 done、62.5 dropped），无 retrospective 文件——补 retro 与票态收口是开 Epic 64 前的待办（见 Epic 63 retro「Open questions」）。
 - ✅ **Epic 57（已收口）**：retro 遗留清理 2026-10-26 四 story 全 done；retro action item-12（push 待推远端）仍 open，owner=tan。
 - ✅ **安全纵深（已裁定不做）**：MCP stdio server 子进程接入沙箱 —— 2026-09-27 用户裁定 (c) **不实施**（长命双向管道与既有 `CommandRunner` 形状冲突 + 隔离档属产品取舍 + 仍非边界），登记为已知暴露面（§1.4-A2 → Z-D24）。
 - ⏳ **技能资源 TOCTOU 后续**：descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox（§1.4-A1）。

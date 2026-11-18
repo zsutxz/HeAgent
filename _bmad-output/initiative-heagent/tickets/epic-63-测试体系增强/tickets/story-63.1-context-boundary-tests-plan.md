@@ -3,7 +3,7 @@ title: 'Story 63.1 增加大上下文窗口边界测试'
 type: test
 ticket: 1
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: 'd5e35879bc3f63264c61cac49119782c79510510'
 route: full
 route_source: auto

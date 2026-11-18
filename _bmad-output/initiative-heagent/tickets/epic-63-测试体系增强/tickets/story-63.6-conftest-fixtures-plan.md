@@ -3,7 +3,7 @@ title: 'Story 63.6 提取常用 fixture 到 conftest.py'
 type: test
 ticket: 6
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: 'cab4552'
 route: full
 route_source: auto

@@ -8,6 +8,7 @@
 | ------ | ------ |
 | 了解全周期与编号 + 活动台账 | [`open-items.md`](open-items.md)（2026-11-15 由 consolidated-overview.md 并入活动台账后定名） |
 | 查历史记录与跨周期教训 | [`retrospective-all-cycles.md`](retrospective-all-cycles.md) |
+| 查已定型的系统决策（ADR） | [`initiative-heagent/decisions/`](initiative-heagent/decisions/)（2026-11-18 起） |
 | 查看未闭合遗留项 | [`open-items.md`](open-items.md) 的「活动（未闭合）条目」节 |
 | 查看单一状态来源 | [`sprint-status.yaml`](initiative-heagent/archive-v6/sprint-status.yaml)（已归档） |
 | 深入某个周期 | `epics/<周期>/` 下的 `brief.md`、`prd.md`、`architecture.md`、`epics.md` 和 `stories/` |
@@ -19,6 +20,7 @@ _bmad-output/
 ├── open-items.md                     当前状态、路线图、文档地图 + **唯一活动台账**（2026-11-15 由 consolidated-overview.md 与 implementation-artifacts/open-items.md 合并定名）
 ├── retrospective-all-cycles.md       **历史记录唯一载体**（周期回顾/详解 + deferred 闭合台账 + review 闭合索引）
 ├── initiative-heagent/                v7 initiative：规划四件套 + 票树；sprint-status.yaml 归档于 archive-v6/
+│   └── decisions/                     ADR 决策记录（2026-11-18 起；一条一文件，索引见该目录 README）
 ├── implementation-artifacts/
 │   ├── README.md                     实现产物目录索引（活动台账已上移根目录 open-items.md）
 │   └── arch-optimization-cycle/       Phase 0–5 架构优化档案

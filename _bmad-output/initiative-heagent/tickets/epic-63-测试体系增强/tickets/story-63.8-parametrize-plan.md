@@ -3,7 +3,7 @@ title: 'Story 63.8 使用参数化测试减少重复'
 type: test
 ticket: 8
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: 'b75075a'
 route: full
 route_source: auto

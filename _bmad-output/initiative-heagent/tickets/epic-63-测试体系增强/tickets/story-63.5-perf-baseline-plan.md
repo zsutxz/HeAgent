@@ -3,7 +3,7 @@ title: 'Story 63.5 建立核心路径性能基线'
 type: ci
 ticket: 5
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '0d13b6c'
 route: full
 route_source: auto

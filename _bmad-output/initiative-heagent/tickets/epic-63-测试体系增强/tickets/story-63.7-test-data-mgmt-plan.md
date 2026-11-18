@@ -3,7 +3,7 @@ title: 'Story 63.7 建立测试数据管理机制'
 type: test
 ticket: 7
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '0df59ad'
 route: full
 route_source: auto

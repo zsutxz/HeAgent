@@ -39,8 +39,11 @@ risk: low
 ## Done when
 
 - 大上下文/并发/Provider 失败/沙箱降级测试就位
+  - as-built（2026-11-18）：前三项为新增测试面（`test_context_boundary` / `test_tool_concurrency` / `test_provider_all_fail`）；沙箱降级由既有 `tests/test_sandbox_docker.py` 49 判据覆盖，63.4 裁定 dropped（`4aaef8f`）。
 - ≥5 条性能基线入 CI
+  - as-built：基线本体（`tests/test_benchmarks.py`，14 条 `-m benchmark`）早于本 epic 存在；63.5 实际交付为 CI `--benchmark-compare-fail=mean:10%` 强制门禁与嵌套 glob 死分支修复（`cab4552`）。
 - conftest fixture ≥10、tests/fixtures/ 建立、参数化 >30%。
+  - as-built：4 个 canonical fixture + 21 处重复定义收敛（`0df59ad`）；`tests/fixtures/` 三域 + 三条可执行判据（`b75075a`）；参数化口径 = touched-scope 78%（`abf96d9`）。
 
 ## Boundaries
 

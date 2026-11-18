@@ -3,7 +3,7 @@ title: 'Story 63.2 增加并发工具调用极限测试'
 type: test
 ticket: 2
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '249873d'
 route: full
 route_source: auto
