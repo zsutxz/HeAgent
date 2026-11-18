@@ -1,0 +1,74 @@
+# 文档站点自动化（Story 68.3）：文档/源码变更 → `mkdocs build --strict` → GitHub Pages。
+#
+# 为什么是独立 workflow 而不是往 `ci.yml` 加 job：INV-9 钉死 `ci.yml` 的 job 数恒为 8
+# （`tests/test_release_workflow_contract.py::test_ci_job_count_is_pinned`），部署面只能另起文件。
+# 分工：`ci.yml` 的 docs step 是**PR 上的构建门**（快、不给权限）；本文件负责**构建 + 发布**。
+name: Docs
+
+on:
+  push:
+    # 本仓默认分支是 `master`（`ci.yml` 亦然）；`main` 保留给分支改名后的形态。
+    # 两者都列，避免「默认分支名与触发分支名不一致 ⇒ 部署永远不触发」这类静默失效。
+    branches: [main, master]
+    paths:
+      - docs/** # 文档正文
+      - mkdocs.yml # 站点结构与 validation 口径
+      - src/** # 版本号真源在 src/heagent/__init__.py，页脚版本随源码变
+      - scripts/build_docs.py # 构建入口本身
+      - .github/workflows/docs.yml # 本文件
+  workflow_dispatch: # 手动重发（站点样式/配置排查时不必等一次源码改动）
+
+# 最小权限：contents 只读（checkout）、pages 写（发布产物）、id-token 写（Pages 的 OIDC 身份）。
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时刻只允许一次 Pages 发布：连续推送时新 run 排队而不是让两次发布互相覆盖。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install mkdocs
+        # mkdocs 是构建期工具、不在依赖树里（`pyproject.toml` 亦然）；不必安装包本体
+        # ——版本号由 `scripts/build_docs.py` 用 AST 直接读 `src/heagent/__init__.py`。
+        run: pip install mkdocs
+
+      - name: Build docs (strict + version injected)
+        # `--strict` 下未 ignore 的 warning 即失败（口径见 `mkdocs.yml` 的 `validation:`）；
+        # 版本经 `!ENV` 注入站点页脚，来源是 `heagent.__version__` 单一真源。
+        run: python scripts/build_docs.py
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .heagent/tmp/mkdocs-site
+
+  deploy:
+    # 独立 job + `needs`：构建失败时 artifact 不存在，部署不会启动（失败即不发布）。
+    needs: build
+    # 只在默认分支发布：`workflow_dispatch` 允许从功能分支手动触发，那条 ref 的文档不该上站点
+    # （Story 68.3 的边界「不在 PR 上部署、只在 main」）。分支名两个都认：本仓现为 `master`。
+    if: github.ref_name == 'master' || github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

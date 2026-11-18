@@ -4,6 +4,17 @@ docs_dir: docs
 # 构建产物落临时目录：`docs/` 是真源，`site/` 不入工作树（避免 `git status` 噪声与误提交）。
 site_dir: .heagent/tmp/mkdocs-site
 
+# 站点版本与代码版本 = 同一个真源：`src/heagent/__init__.py::__version__`。
+# mkdocs 没有模板变量替换，官方机制是配置里的 `!ENV` 标签（`pyyaml_env_tag`，mkdocs 的传递依赖）：
+# `scripts/build_docs.py` 在**构建前**导出 `HEAGENT_DOC_VERSION` / `HEAGENT_DOC_COPYRIGHT` 再调 build。
+# 裸跑 `mkdocs build --strict`（CI 的 docs 门）时 `!ENV` 回退到下面的默认值 ⇒ 站点照常构建，
+# 只是不声明版本——门禁不依赖「谁先导出了变量」这个隐式前提。
+extra:
+  # 供主题覆盖读取的结构化版本号（内置主题不渲染 extra，故另配 copyright 落到页脚）。
+  version: !ENV [HEAGENT_DOC_VERSION, 'dev']
+# 内置 mkdocs 主题唯一的页脚槽位，因此版本落成每页页脚的这一行。
+copyright: !ENV [HEAGENT_DOC_COPYRIGHT, 'HeAgent 文档']
+
 theme:
   name: mkdocs
   locale: zh
