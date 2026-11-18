@@ -73,6 +73,7 @@ class JsonFormatter(logging.Formatter):
     """
 
     def format(self, record: logging.LogRecord) -> str:
+        """把一条日志记录渲染成单行 JSON（时间戳/级别/logger/消息 + 结构化 details）。"""
         payload: dict[str, Any] = {
             "timestamp": _iso_timestamp(record.created),
             "level": record.levelname,

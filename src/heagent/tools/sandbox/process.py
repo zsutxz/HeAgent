@@ -305,6 +305,7 @@ class PassthroughRunner:
         return False
 
     async def run(self, command: str, *, timeout: int) -> str:
+        """在宿主上执行一条 shell 命令并返回输出（passthrough 档：不做隔离，隔离靠 OS 沙箱后端）。"""
         return await _run_subprocess_shell(command, timeout=timeout)
 
 
@@ -322,15 +323,18 @@ def configure_command_runner(runner: CommandRunner | None) -> None:
 
 
 def reset_command_runner() -> None:
+    """复位命令执行钩子（撤销最近一次 bind）。"""
     _command_runner_slot.reset()
 
 
 @contextmanager
 def bind_command_runner(runner: CommandRunner | None) -> Iterator[None]:
+    """在该上下文内绑定自定义命令执行器（测试替身/特殊后端用）。"""
     with _command_runner_slot.bind(runner):
         yield
 
 
 def get_command_runner() -> CommandRunner:
+    """取当前绑定的命令执行器；未绑定时返回默认后端。"""
     runner = _command_runner_slot.get()
     return runner if runner is not None else _DEFAULT_RUNNER

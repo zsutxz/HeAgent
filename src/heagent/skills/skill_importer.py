@@ -59,6 +59,8 @@ class SkillLockEntry(BaseModel):
 
 
 class SkillManifestLock(BaseModel):
+    """导入索引文件 `manifest.lock` 的模型：版本号 + 每个已导入包的逐文件摘要表。"""
+
     version: int = 1
     entries: list[SkillLockEntry] = Field(default_factory=list)
 
@@ -91,6 +93,7 @@ class SkillImporter:
         self.lock_path = self.destination_root / "manifest.lock"
 
     def import_manifest(self) -> list[SkillLockEntry]:
+        """把一批技能目录登记进 `manifest.lock`（逐资源记 sha256，供读取期完整性校验）。"""
         entries = self._read_manifest()
         lock = self._read_lock()
         existing = {entry.canonical_id: entry for entry in lock.entries}

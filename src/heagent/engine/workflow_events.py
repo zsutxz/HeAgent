@@ -4,6 +4,13 @@ from enum import StrEnum
 
 
 class WorkflowEvent(StrEnum):
+    """驱动 Goal 工作流状态跃迁的内部事件词汇表。
+
+    只描述「发生了什么」，不携带处理策略——谁消费某个事件、能否离开某个挂起态由
+    ``workflow_runner`` 决定。取值同时是 checkpoint ``last_event`` 字段的封闭词汇表
+    （见 ``checkpoint._WORKFLOW_EVENT_VALUES``），故新增成员即放宽该字段的合法域。
+    """
+
     START = "start"
     STEP_COMPLETED = "step_completed"
     CHECKPOINT_REQUIRED = "checkpoint_required"

@@ -183,6 +183,7 @@ class ChainVerdict(BaseModel):
 
     @property
     def ok(self) -> bool:
+        """哈希链是否完好（首个断链行为 `None` 即完好）。"""
         return self.first_broken_line is None
 
 

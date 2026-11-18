@@ -176,6 +176,11 @@ class WorkflowRunner:
 
     @property
     def done(self) -> bool:
+        """工作流是否已真正走完：状态为 completed **且** 步骤游标已越过最后一步。
+
+        两个条件缺一不可——只看状态会在「最后一步完成但游标未推进」时提前收尾，只看
+        游标会把被取消/失败的工作流也当完成。只读投影，不触发跃迁。
+        """
         return _is_done(self.state, len(self.workflow.steps))
 
     async def run_step(  # noqa: C901 - story-loop safety gates share the single runner transition point

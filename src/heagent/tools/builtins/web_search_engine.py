@@ -94,6 +94,7 @@ class TavilyEngine:
         self._api_key = api_key
 
     async def search(self, query: str, max_results: int = 5) -> list[SearchResult]:
+        """执行一次搜索请求并返回结构化结果列表（HTTP 失败按统一分类上抛，不吞错）。"""
         if not self._api_key:
             raise SearchEngineError(
                 "web_search 未配置引擎密钥：经 WEB_SEARCH_API_KEY（env）或 web_search_api_key（config）配置 Tavily key"

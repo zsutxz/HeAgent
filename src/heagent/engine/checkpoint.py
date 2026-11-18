@@ -146,6 +146,13 @@ class WorkflowCheckpointStore:
         return self._base
 
     async def save(self, checkpoint: WorkflowCheckpoint, workflow_state: GoalWorkflowState | None = None) -> str:
+        """原子写入一份 checkpoint 与随附的聚合进度，返回 checkpoint 落盘路径。
+
+        三条硬约束：工具在飞时拒绝（``tool_in_flight`` 为真即抛，恢复时无法重建那半个
+        调用）；同一 id 只可写一次且内容须逐字段一致（不同即判冲突，避免静默覆盖历史）；
+        已有文件解析失败视为损坏、显性报错而非重建。``workflow_state`` 缺省时由
+        checkpoint 反推，显式给出则其 ``goal_id`` 必须一致。
+        """
         if checkpoint.tool_in_flight:
             raise WorkflowCheckpointError("cannot checkpoint a workflow with a tool in flight")
         path = self._path(checkpoint.checkpoint_id)
@@ -170,6 +177,11 @@ class WorkflowCheckpointStore:
         return str(path)
 
     async def load(self, checkpoint_id: str) -> WorkflowCheckpoint | None:
+        """按 id 读回一份 checkpoint；不存在返回 ``None``，存在但解析失败即抛。
+
+        「不存在」与「读不出来」必须区分：前者是正常的首次运行，后者若也被当成
+        ``None`` 会让调用方以为「没有进度」并从零重启，静默丢掉已完成的步骤。
+        """
         path = self._path(checkpoint_id)
         checkpoint = await asyncio.to_thread(load_json_model, path, WorkflowCheckpoint)
         if path.exists() and checkpoint is None:
@@ -266,6 +278,12 @@ class GoalWorkflowState(BaseModel):
 
     @model_validator(mode="after")
     def validate_terminal_status(self) -> GoalWorkflowState:
+        """校验「终止态」两个字段互相自洽，返回自身以便链式调用。
+
+        ``phase=done`` 与 ``status=completed`` 必须成对出现（任一单边都说明状态机跑
+        到了不该有的组合）；非法组合抛 ``ValueError`` 而非改正——猜测哪一侧才是真
+        意图会掩盖状态机的 bug。非终止态一律放行。
+        """
         if self.phase is WorkflowPhase.DONE and self.status is not WorkflowStatus.COMPLETED:
             raise ValueError("done phase requires completed status")
         if self.status is WorkflowStatus.COMPLETED and self.phase is not WorkflowPhase.DONE:

@@ -266,10 +266,12 @@ _sandbox_session_slot: RuntimeSlot[SandboxSession] = RuntimeSlot[SandboxSession]
 
 
 def get_sandbox_session() -> SandboxSession | None:
+    """取当前上下文绑定的沙箱会话（未绑定即为 `None`）。"""
     return _sandbox_session_slot.get()
 
 
 @contextmanager
 def bind_sandbox_session(session: SandboxSession | None) -> Iterator[None]:
+    """在该上下文内绑定沙箱会话；上下文退出即自动复位。"""
     with _sandbox_session_slot.bind(session):
         yield

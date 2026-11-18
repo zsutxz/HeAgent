@@ -83,15 +83,18 @@ _sandbox_profile_slot: RuntimeSlot[str | None] = RuntimeSlot[str | None]("heagen
 
 
 def get_sandbox_profile() -> str | None:
+    """取当前上下文绑定的沙箱档位（未绑定即为 `None`）。"""
     return _sandbox_profile_slot.get()
 
 
 def reset_sandbox_profile() -> None:
+    """复位档位绑定（撤销最近一次 bind，恢复外层值）。"""
     _sandbox_profile_slot.reset()
 
 
 @contextmanager
 def bind_sandbox_profile(profile: str | None) -> Iterator[None]:
+    """在该上下文内绑定沙箱档位；上下文退出即自动复位。"""
     with _sandbox_profile_slot.bind(profile):
         yield
 
@@ -101,14 +104,17 @@ _sandbox_workspace_slot: RuntimeSlot[Path | None] = RuntimeSlot[Path | None]("he
 
 
 def get_sandbox_workspace() -> Path | None:
+    """取当前上下文绑定的沙箱工作区根（未绑定即为 `None`）。"""
     return _sandbox_workspace_slot.get()
 
 
 def reset_sandbox_workspace() -> None:
+    """复位工作区根绑定（撤销最近一次 bind）。"""
     _sandbox_workspace_slot.reset()
 
 
 @contextmanager
 def bind_sandbox_workspace(path: Path | None) -> Iterator[None]:
+    """在该上下文内绑定沙箱工作区根；上下文退出即自动复位。"""
     with _sandbox_workspace_slot.bind(path):
         yield

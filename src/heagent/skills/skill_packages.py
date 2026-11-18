@@ -125,6 +125,7 @@ class SkillPackage(BaseModel):
     _pinned_source: str | None = PrivateAttr(default=None)
 
     def model_post_init(self, __context: object) -> None:
+        """构造期校验：包根必须是目录，entrypoint 不得绝对路径或含 `..`（越界失败前移）。"""
         root = self.root.expanduser().resolve(strict=False)
         if not root.is_dir():
             raise SkillPackageError(self.skill_id, str(root), "package root is missing or not a directory")
@@ -213,15 +214,19 @@ class SkillPackage(BaseModel):
     # 本模块只保留技能包的通用资源索引与安全读取。
 
     def read_reference(self, resource: str) -> str:
+        """读 `references/<name>`（按需单文件读，不扫描整个包）。"""
         return self._read_in("references", resource)
 
     def read_template(self, resource: str) -> str:
+        """读 `templates/<name>`（同上，按需单文件）。"""
         return self._read_in("templates", resource)
 
     def read_asset(self, resource: str) -> str:
+        """读 `assets/<name>`（同上，按需单文件）。"""
         return self._read_in("assets", resource)
 
     def read_script(self, resource: str) -> str:
+        """读 `scripts/<name>`（同上，按需单文件）。"""
         return self._read_in("scripts", resource)
 
     def _read_in(self, directory: str, resource: str) -> str:
@@ -410,10 +415,12 @@ class SkillPackage(BaseModel):
 
     @staticmethod
     def is_absolute(resource: str) -> bool:
+        """跨平台判断资源路径是否绝对（POSIX / Windows / 通用三种方言任一成立即为是）。"""
         return any(parser(resource).is_absolute() for parser in (PurePath, PurePosixPath, PureWindowsPath))
 
     @staticmethod
     def has_parent(resource: str) -> bool:
+        """判断资源路径是否含 `..`（三种方言任一命中即拒绝）。"""
         return any(".." in parser(resource).parts for parser in (PurePath, PurePosixPath, PureWindowsPath))
 
     def _load_meta(self) -> SkillMeta:
@@ -497,6 +504,7 @@ class SkillCatalog:
 
     @property
     def entries(self) -> list[SkillCatalogEntry]:
+        """返回索引条目的副本（调用方改动列表不影响目录自身）。"""
         return list(self._entries)
 
     @property
@@ -622,6 +630,7 @@ class SkillResolver:
         self.catalog = catalog
 
     def resolve(self, skill_id: str) -> SkillPackage:
+        """按 canonical id 或兼容别名解析出唯一可用包；零命中 / 多命中 / 包不可用都显性报错。"""
         if not isinstance(skill_id, str) or not skill_id.strip():
             raise SkillResolutionError(str(skill_id), "skill id is empty")
         entries = self.catalog.entries if isinstance(self.catalog, SkillCatalog) else list(self.catalog)

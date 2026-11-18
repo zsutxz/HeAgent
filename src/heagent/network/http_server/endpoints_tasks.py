@@ -82,9 +82,17 @@ class TaskListResponse(BaseModel):
 class TaskProgressSource(Protocol):
     """注入的进度来源（**同步**：只读内存，端点因此不 ``await``、不做磁盘扫描）。"""
 
-    def list_tasks(self) -> Sequence[TaskProgressView]: ...
+    def list_tasks(self) -> Sequence[TaskProgressView]:
+        """取当前有界的任务进度快照（上限即列表端点的返回上限）。
 
-    def task(self, task_id: str) -> TaskProgressView | None: ...
+        同步实现是刻意的：进度本来就在内存里，端点因此不必 ``await``、也不会在热路径
+        扫盘；实现方若在这里做 I/O 会直接卡住 HTTP 事件循环。
+        """
+        ...
+
+    def task(self, task_id: str) -> TaskProgressView | None:
+        """按 id 取单条进度；未知 id 返回 ``None``（端点据此回 404），不抛异常。"""
+        ...
 
 
 def _view(progress: Any) -> TaskProgressView:
@@ -104,9 +112,11 @@ class RegistryTaskSource:
         self._registry = registry
 
     def list_tasks(self) -> list[TaskProgressView]:
+        """把注册表快照转成网络层视图；条数上限由 ``snapshot(limit=...)`` 一次截断。"""
         return [_view(progress) for progress in self._registry.snapshot(limit=MAX_TASK_LIST_ENTRIES)]
 
     def task(self, task_id: str) -> TaskProgressView | None:
+        """把注册表单条进度转成视图；注册表查不到即 ``None``，不伪造空对象。"""
         progress = self._registry.get(task_id)
         return None if progress is None else _view(progress)
 

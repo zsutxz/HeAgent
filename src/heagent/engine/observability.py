@@ -122,6 +122,11 @@ class LoggingObserver:
         self._level = level
 
     def handle(self, event: EngineEvent) -> None:
+        """把一条事件镜像成一行日志（脱敏后），并吞掉日志设施自身的故障。
+
+        与协议条款同口径：本方法在 ``emit`` 的调用协程里同步跑，不得阻塞；走
+        ``safe_log`` 意味着日志写失败只会少一行，绝不把异常抛回业务控制流。
+        """
         safe_log(
             logger,
             self._level,

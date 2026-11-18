@@ -385,7 +385,8 @@ def replay_then_follow(
     is_terminal: bool,
     queue: asyncio.Queue[RunEventPayload | None],
     heartbeat_seconds: None = None,
-) -> AsyncIterator[RunEventPayload]: ...
+) -> AsyncIterator[RunEventPayload]:
+    """无心跳形态（WS 用）：输出只含事件，队列的 ``None`` 哨兵仅表示流结束。"""
 
 
 @overload
@@ -396,7 +397,8 @@ def replay_then_follow(
     is_terminal: bool,
     queue: asyncio.Queue[RunEventPayload | None],
     heartbeat_seconds: float,
-) -> AsyncIterator[RunEventPayload | None]: ...
+) -> AsyncIterator[RunEventPayload | None]:
+    """带心跳形态（SSE 用）：空闲超时会额外 ``yield None``，调用方须自行跳过它。"""
 
 
 async def replay_then_follow(

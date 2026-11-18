@@ -59,9 +59,21 @@ class SubAgentAnnouncer(Protocol):
     假实现捕获横幅），缺省 ``None`` 即静默。
     """
 
-    def started(self, name: str, purpose: str, *, run_id: str = "") -> None: ...
+    def started(self, name: str, purpose: str, *, run_id: str = "") -> None:
+        """子任务开跑时调用一次，用于打「谁在做什么」的进度横幅。
 
-    def finished(self, name: str, loop: AgentLoop, *, iterations: int = 0, ok: bool = True) -> None: ...
+        ``run_id`` 只在子任务已挂上运行上下文（有自己的 run 快照）时才有值；实现方
+        不得假定它非空——为空说明 ``context_dir`` 缺失、该子任务不落运行记录。
+        """
+        ...
+
+    def finished(self, name: str, loop: AgentLoop, *, iterations: int = 0, ok: bool = True) -> None:
+        """子任务结束时调用一次（成功与失败都调），用于收 Banner 并回报迭代轮数。
+
+        ``ok`` 区分成败而非异常类型：实现方若在失败分支二次抛异常，会盖掉子任务的
+        真实错误，故此处只做展示、不做判定。
+        """
+        ...
 
 
 class SubAgent:

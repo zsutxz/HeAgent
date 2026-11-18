@@ -426,6 +426,14 @@ class EngineContainer:
         metadata: dict[str, Any] | None = None,
         workspace_root: str | None = None,
     ) -> RunContext:
+        """为一次 loop 执行造一个 ``RunContext``，并把沙箱授权写进它的 metadata。
+
+        ``workspace_root`` 按「参数 → container → policy → 进程 cwd」回退，因为路径
+        围栏与 per-run 沙箱目录都以它为基线（回退到 cwd 是最后一档，也是为了不让围栏
+        失去锚点）。授权只在真实沙箱后端在位时写入：passthrough 下不写等于保持
+        「未授权即拒绝」的既有 fail-safe，而不是制造「已在沙箱里跑」的假象。会话目录
+        创建失败直接抛错、不降级为无目录继续跑。
+        """
         root: str | None = workspace_root
         if root is None:
             root = self.workspace_root

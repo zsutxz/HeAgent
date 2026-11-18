@@ -60,10 +60,25 @@ class WebSocketLike(Protocol):
     path_params: dict[str, Any]
     query_params: Any
 
-    async def accept(self) -> None: ...
-    async def close(self, code: int = 1000) -> None: ...
-    async def receive_text(self) -> str: ...
-    async def send_text(self, data: str) -> None: ...
+    async def accept(self) -> None:
+        """实现方在此完成握手（对应真实 websocket 的 `accept`）。"""
+
+    ...
+
+    async def close(self, code: int = 1000) -> None:
+        """实现方以给定关闭码结束连接（认证失败用 1008）。"""
+
+    ...
+
+    async def receive_text(self) -> str:
+        """实现方读一条文本帧；超长帧由实现方按 `WS_MAX_INBOUND_CHARS` 拒绝。"""
+
+    ...
+
+    async def send_text(self, data: str) -> None:
+        """实现方发一条文本帧（服务端到客户端的唯一出口）。"""
+
+    ...
 
 
 OriginCheck = Callable[[dict[str, Any]], str | None]
@@ -82,12 +97,35 @@ class RunWebSocketService(Protocol):
 
     _closing: bool
 
-    def run(self, run_id: str) -> Any | None: ...
-    def needs_resync(self, record: Any, last_event_id: int | None) -> bool: ...
-    async def start_run(self, prompt: str) -> Any: ...
-    async def cancel_run(self, run_id: str) -> Any | None: ...
-    def register_ws(self, connection_id: str, run_id: str, websocket: WebSocketLike) -> None: ...
-    def unregister_ws(self, connection_id: str) -> None: ...
+    def run(self, run_id: str) -> Any | None:
+        """按 run_id 取 run 记录；不存在返回 `None`（与「已结束但记录还在」区分开）。"""
+
+    ...
+
+    def needs_resync(self, record: Any, last_event_id: int | None) -> bool:
+        """判断客户端是否需要重置：`last_event_id` 落后于记录的可回放窗口时为真。"""
+
+    ...
+
+    async def start_run(self, prompt: str) -> Any:
+        """为一条 prompt 起 run 并返回记录（提交端点背后的一次调用）。"""
+
+    ...
+
+    async def cancel_run(self, run_id: str) -> Any | None:
+        """取消指定 run；不存在或已终止返回 `None`。"""
+
+    ...
+
+    def register_ws(self, connection_id: str, run_id: str, websocket: WebSocketLike) -> None:
+        """登记一个 WS 连接与 run 的绑定（推送与断线清理都靠这张表）。"""
+
+    ...
+
+    def unregister_ws(self, connection_id: str) -> None:
+        """注销连接绑定；对未知 id 幂等无操作。"""
+
+    ...
 
 
 async def _send_error_frame(websocket: WebSocketLike, code: HttpErrorCode, message: str) -> None:

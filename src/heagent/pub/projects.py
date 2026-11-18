@@ -89,6 +89,7 @@ class ProjectRegistry:
         self._default_path = normalize_project_path(default_path)
 
     def load(self) -> builtins_list[_StoredProject]:
+        """读取登记表文件并解析为内部条目；文件不存在视作空表（默认项由 `list()` 补齐）。"""
         try:
             raw = self._path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -122,6 +123,7 @@ class ProjectRegistry:
         return None
 
     def list(self) -> builtins_list[ProjectEntry]:
+        """返回对外项目列表：`default` 恒在首位，其余按登记顺序。"""
         entries = [self._default_entry()]
         entries.extend(
             ProjectEntry(
@@ -157,6 +159,7 @@ class ProjectRegistry:
         return self._public(result)
 
     def register(self, path: str | Path, name: str | None = None) -> ProjectEntry:
+        """登记一个已存在的目录并返回条目（路径先规范化；不可用路径显性拒绝）。"""
         normalized = normalize_project_path(path)
         target = Path(normalized)
         if not target.is_dir():
@@ -196,12 +199,14 @@ class ProjectRegistry:
         return self._rewrite_registry(action, rewrite)
 
     def rename(self, project_id: str, name: str) -> ProjectEntry:
+        """改项目显示名；空名或超长显性拒绝（不改路径与 id）。"""
         display_name = name.strip()
         if not display_name or len(display_name) > MAX_PROJECT_NAME_CHARS:
             raise ProjectRegistryError("invalid_request", "project name is invalid")
         return self._mutate_entry(project_id, "rename", lambda entry: entry.model_copy(update={"name": display_name}))
 
     def remove(self, project_id: str) -> ProjectEntry:
+        """撤登记一个项目；`default` 不可移除。"""
         if project_id == "default":
             raise ProjectRegistryError("project_not_removable", "default project cannot be removed")
 
@@ -214,6 +219,7 @@ class ProjectRegistry:
         return self._rewrite_registry("removal", rewrite)
 
     def touch(self, project_id: str) -> ProjectEntry:
+        """更新项目的最近使用时间戳；`default` 不写盘，直接返回。"""
         if project_id == "default":
             return next(item for item in self.list() if item.is_default)
         timestamp = datetime.now(UTC).isoformat()
@@ -276,6 +282,7 @@ class ProjectRegistry:
 
 
 def default_project_registry(workspace: str | Path, configured_path: str | Path | None = None) -> ProjectRegistry:
+    """按工作区根构造登记表句柄（显式配置路径优先，否则状态根下的 `projects.json`）。"""
     paths = WorkspacePaths.from_root(workspace)
     return ProjectRegistry(configured_path or paths.projects_file, default_path=paths.root)
 

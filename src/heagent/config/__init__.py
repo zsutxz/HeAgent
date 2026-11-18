@@ -81,6 +81,12 @@ class Settings(BaseSettings):
         dotenv_settings: Any,
         file_secret_settings: Any,
     ) -> tuple[Any, ...]:
+        """把用户级 ``setting.md`` 源插进 pydantic-settings 的源元组。
+
+        顺序即优先级（前者胜）：init 参数 > 系统环境变量 > 项目 ``.env`` > 用户
+        ``setting.md`` > 文件密钥。用户层刻意排在项目 ``.env`` **之后**——项目配置
+        由仓库作者掌握，不得被用户级文件悄悄推翻；反过来用户层仍能盖掉文件密钥。
+        """
         return (
             init_settings,
             env_settings,
@@ -411,6 +417,11 @@ class Settings(BaseSettings):
 
     @property
     def anthropic_key_pool(self) -> list[str]:
+        """``ANTHROPIC_API_KEYS``（逗号分隔）解析出的备用密钥池，供 claude 池内轮换。
+
+        与 ``secret("anthropic_api_key")`` 的主密钥互补：主密钥为空但池非空时 claude
+        条目照样注册（池成员各持有效密钥）；两者都空 = 未配置该 provider。
+        """
         return _parse_comma_list(self.anthropic_api_keys)
 
     def secret(self, name: str) -> str | None:
@@ -428,6 +439,11 @@ class Settings(BaseSettings):
 
     @property
     def approval_tool_list(self) -> list[str]:
+        """``APPROVAL_TOOLS``（逗号分隔）解析出的「执行前需人工批准」工具名集合。
+
+        引擎装配时并进 ``PolicyEngine.approval_tools``（空集合 = 无工具需批准，
+        即默认全自动）；名字拼错不会报错，只会让该工具静默落在免批组。
+        """
         return _parse_comma_list(self.approval_tools)
 
     @property
@@ -591,6 +607,12 @@ class ResolvedRuntimeConfig(Settings):
     web_search_api_key: str = Field(default="", repr=False, exclude=True)
 
     def source_for(self, name: str) -> str:
+        """查某配置项在本快照里的来源（``"settings"`` 或 ``"override"``）。
+
+        只回答「构建快照时谁赢了」，不是溯源审计——同一字段在 settings 侧究竟来自
+        环境变量还是 ``.env`` 已不可考。未收录的字段名抛 ``ValueError``（拼错就该
+        立刻看见，不做模糊匹配）。
+        """
         for item in self.sources:
             if item.field == name:
                 return item.source
@@ -620,6 +642,12 @@ def resolve_runtime_config(settings: Settings | None = None, **overrides: object
 
 
 def get_settings() -> Settings:
+    """取进程级单例配置，首次调用时才实例化。
+
+    单例是有意的：配置读取含磁盘 I/O（项目 ``.env`` + 用户 ``setting.md``），每次
+    组装配件都重读会让同进程里不同组件看到不同配置。代价是「改了 ``.env`` 需重启
+    进程」或显式调 :func:`reset_settings`——热重载不在本函数的职责内。
+    """
     global _settings
     if _settings is None:
         _settings = Settings()
@@ -627,5 +655,10 @@ def get_settings() -> Settings:
 
 
 def reset_settings() -> None:
+    """丢弃单例缓存，下次 :func:`get_settings` 重新从各配置源读取。
+
+    仅供测试与需要换配置的入口使用：已持有 ``Settings`` 实例的组件不会跟着更新，
+    因此复位后必须重新装配，否则新旧配置会同时生效。
+    """
     global _settings
     _settings = None

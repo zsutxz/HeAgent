@@ -125,6 +125,7 @@ class FirejailBackend:
 
     async def run(self, command: str, *, timeout: int) -> str:
         # FR-S3：优雅降级——firejail 不可用时走 Passthrough
+        """经 firejail 在受限沙箱里执行 shell 命令（文件系统与网络按 profile 收紧）。"""
         if not self._firejail_available:
             return await PassthroughRunner().run(command, timeout=timeout)
 

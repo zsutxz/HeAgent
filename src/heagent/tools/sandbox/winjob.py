@@ -106,6 +106,7 @@ class WinJobBackend:
         return False
 
     async def run(self, command: str, *, timeout: int) -> str:
+        """经 Windows Job Object 执行 shell 命令（限制进程树与内存，超限整组杀）。"""
         if not self.available:
             logger.warning("WinJobBackend not available; falling back to Passthrough")
             return await PassthroughRunner().run(command, timeout=timeout)

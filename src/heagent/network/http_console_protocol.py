@@ -67,6 +67,12 @@ def is_valid_session_id(value: str) -> bool:
 
 
 class ProjectEntryResponse(BaseModel):
+    """项目注册表里的一条：稳定短 id + 绝对路径 + 该目录当前是否仍可达。
+
+    ``available`` 由入口层现场探测（目录被挪走 / 盘符未挂载即假），不是登记时的历史值——
+    控制台据此把不可用项目置灰而不是等点击后才 500。
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(min_length=1, max_length=16)
@@ -78,12 +84,24 @@ class ProjectEntryResponse(BaseModel):
 
 
 class ProjectListResponse(BaseModel):
+    """项目列表响应：注册表全量（上限 32 条，注册表本身有界故不做分页）。
+
+    顺序由入口层给定而非 UI 推断：已登记项目按 ``last_opened_at`` 倒序（最近打开的在前），
+    ``default`` 恒在且固定排末尾——客户端不该自己重排或猜哪条是默认项目。
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     projects: list[ProjectEntryResponse] = Field(max_length=32)
 
 
 class ProjectRegisterRequest(BaseModel):
+    """``POST /api/projects`` 的请求体：一个目录路径 + 可选显示名（缺省取目录名）。
+
+    两端空白在校验**之前**就剥掉——路径规范化只处理分隔符、不处理空白，带尾空格的
+    输入会被当成另一个（多半不存在的）目录，先剥离才不会注册出一条点不开的项目。
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     path: str = Field(min_length=1, max_length=MAX_PROJECT_PATH_CHARS)
@@ -96,6 +114,12 @@ class ProjectRegisterRequest(BaseModel):
 
 
 class ProjectRenameRequest(BaseModel):
+    """``PATCH /api/projects/{id}`` 的请求体：只改显示名，不动路径。
+
+    路径是项目身份（id 即由规范化路径哈希得出），改名换路径等于换项目，故这里刻意
+    没有 path 字段。名字剥空白后为空即校验失败，不会被存成空标题。
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=MAX_PROJECT_NAME_CHARS)
@@ -457,45 +481,120 @@ class DirectoryPickResponse(BaseModel):
 
 
 class ConsoleHandler(Protocol):
-    """Project operations supplied by the entry layer; network knows no registry."""
+    """Project operations supplied by the entry layer; network knows no registry.
 
-    async def list_projects(self) -> ProjectListResponse: ...
+    每条方法对控制台的含义写在各自的 docstring 里。实现方（``cli/http_console.py``）
+    承担全部文件系统与会话知识；网络层只做模型校验与错误码映射，故这里的方法只承诺
+    「返回协议模型」或「抛 :class:`ConsoleOperationError`（带稳定码）」，不约定副作用顺序。
+    """
 
-    async def register_project(self, request: ProjectRegisterRequest) -> ProjectEntryResponse: ...
+    async def list_projects(self) -> ProjectListResponse:
+        """列出注册表里的全部项目（含 ``default``）；纯读，不探测目录外的文件。
 
-    async def rename_project(self, project_id: str, request: ProjectRenameRequest) -> ProjectEntryResponse: ...
+        列表顺序由实现方给定（已登记项按最近打开倒序、``default`` 固定末尾）。
+        """
+        ...
 
-    async def project_has_inflight_run(self, project_id: str) -> bool: ...
+    async def register_project(self, request: ProjectRegisterRequest) -> ProjectEntryResponse:
+        """登记一个项目目录并返回其条目；路径规范化与 id 分配在入口层。
 
-    async def remove_project(self, project_id: str) -> None: ...
+        同一目录重复登记应幂等返回既有条目、而不是造出第二条——去重由实现方保证，
+        网络层看不到注册表。
+        """
+        ...
+
+    async def rename_project(self, project_id: str, request: ProjectRenameRequest) -> ProjectEntryResponse:
+        """改项目显示名，返回更新后的条目；项目 id 与路径不变。"""
+        ...
+
+    async def project_has_inflight_run(self, project_id: str) -> bool:
+        """该项目当前是否有在途 run——移除前的护栏。
+
+        为真时端点回 ``project_busy`` 而不是移除，避免把跑到一半的 run 连同它的项目
+        一起从注册表里拽掉。
+        """
+        ...
+
+    async def remove_project(self, project_id: str) -> None:
+        """从注册表移除项目登记；**只断登记关系，不删磁盘上的项目目录**。
+
+        目录本身属于用户，删它是不可逆的外部副作用，故不属于「移除项目」的语义。
+        """
+        ...
 
     # ── 会话与项目内运行 ──
 
-    async def list_sessions(self, project_id: str) -> SessionListResponse: ...
+    async def list_sessions(self, project_id: str) -> SessionListResponse:
+        """列出该项目的会话入口（有界、不含消息正文）。
 
-    async def create_session(self, project_id: str, request: SessionCreateRequest) -> SessionEntryResponse: ...
+        解析不了的会话文件也**列出来**并置 ``unreadable``，不静默隐藏——用户不该发现
+        「会话凭空少了」。
+        """
+        ...
 
-    async def get_session(self, project_id: str, session_id: str) -> SessionDetailResponse: ...
+    async def create_session(self, project_id: str, request: SessionCreateRequest) -> SessionEntryResponse:
+        """新建一个空会话并返回其条目；会话 id 由实现方生成（客户端不能指定）。"""
+        ...
+
+    async def get_session(self, project_id: str, session_id: str) -> SessionDetailResponse:
+        """读一份会话详情：会话文件是对话历史的唯一权威，``run_id``/``status`` 如实报告。
+
+        会话文件损坏 / 无法解析时抛 :class:`ConsoleOperationError`（``session_unreadable``），
+        而不是回一份空历史——那会让用户以为记录被清了。
+        """
+        ...
 
     async def rename_session(
         self, project_id: str, session_id: str, request: SessionRenameRequest
-    ) -> SessionEntryResponse: ...
+    ) -> SessionEntryResponse:
+        """改会话标题；带 ``fingerprint`` 且与磁盘版本不一致时拒绝写入。
 
-    async def delete_session(self, project_id: str, session_id: str) -> None: ...
+        冲突语义刻意显式（``session_conflict``）而不是最后写入者胜：两个窗口同时改名时
+        静默覆盖会让用户丢掉自己刚改的那一份。
+        """
+        ...
 
-    async def start_project_run(self, project_id: str, request: ProjectRunRequest) -> ProjectRunResponse: ...
+    async def delete_session(self, project_id: str, session_id: str) -> None:
+        """删除该项目下的一份会话文件；不可恢复，故端点另有 ``confirm=true`` 闸门。"""
+        ...
+
+    async def start_project_run(self, project_id: str, request: ProjectRunRequest) -> ProjectRunResponse:
+        """在该项目内起一次 run 并立即返回 ``run_id``（后续走既有的 SSE / 取消端点）。
+
+        已有在途 run 时抛 ``ConsoleOperationError``（冲突码由实现方判定），本方法**不排队**：
+        静默排队会让客户端以为提交即刻开始跑。
+        """
+        ...
 
     # ── 配置可见性 ──
 
-    async def get_project_config(self, project_id: str) -> ProjectConfigResponse: ...
+    async def get_project_config(self, project_id: str) -> ProjectConfigResponse:
+        """按分组返回项目配置的生效值、来源层与合法约束；只读。
+
+        凭证项也列在 ``credentials`` 组里，但**值不回传**（只给掩码与「是否已配置」）且
+        ``writable=false``：面板需要让人看到「配了没」，回显密钥既无意义又是泄漏面。
+        """
+        ...
 
     # ── 配置写入 ──
 
-    async def update_project_config(self, project_id: str, request: ConfigWriteRequest) -> ConfigWriteResponse: ...
+    async def update_project_config(self, project_id: str, request: ConfigWriteRequest) -> ConfigWriteResponse:
+        """写白名单内的项目级非凭证配置，返回写入后的指纹与逐项结果。
+
+        fail-closed：白名单外的键、校验不过的值、指纹不匹配一律整单拒绝且不落盘（备份与
+        审计在入口层）。写通道本身不是安全边界，回环来源校验由端点在调用本方法前做。
+        """
+        ...
 
     # ── 原生目录选择 ──
 
-    async def pick_directory(self) -> DirectoryPickResponse: ...
+    async def pick_directory(self) -> DirectoryPickResponse:
+        """在服务机弹原生目录选择窗口，只回用户明确选中的那一个目录。
+
+        取消 / 超时 / 后端异常一律 ``cancelled=true`` 且不带任何目录信息（这里没有目录
+        浏览能力）；同时只允许一个在途窗口，并发时抛 ``dialog_busy``。
+        """
+        ...
 
 
 __all__ = [

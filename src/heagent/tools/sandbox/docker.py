@@ -488,6 +488,7 @@ class DockerRunner:
     async def run(self, command: str, *, timeout: int) -> str:
         # 探测缓存未暖时经线程池探测：run() 首触不再阻塞事件循环最长一个探针预算；
         # engine 装配链在 resolver 可用性闸处已同步探测过（构造期探测是装配协议的一部分）。
+        """在容器里执行一条 shell 命令并返回输出（镜像、挂载与资源限额由本档位 profile 决定）。"""
         if self._probe_cache is None:
             reason = await asyncio.to_thread(_probe_daemon_reason, self._docker_path)
             self._probe_cache = reason == _PROBE_OK
