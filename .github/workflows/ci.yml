@@ -305,3 +305,19 @@ jobs:
             ${{ secrets.DOCKERHUB_USERNAME }}/heagent:${{ env.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # ── 失败摘要（R12：发布失败必须留可读痕迹）──
+      # PyPI 不接受同版本重传 ⇒ 中途失败时第一要判的是「PyPI 有没有吃下这一版」。
+      # 摘要写进 run 页面 + GitHub 自带的工作流失败邮件即通知通道（无外部 webhook secret）。
+      - name: Release failure summary
+        if: failure()
+        run: |
+          {
+            echo "## Release FAILED — ${VERSION:-unknown}"
+            echo ""
+            echo "先核两件事再重跑："
+            echo "- 该版本号是否已被 PyPI 占用（占用了只能 bump 版本重发，不能重传）；"
+            echo "- \`pyproject.toml\` 与 \`src/heagent/__init__.py\` 的版本是否仍一致。"
+            echo ""
+            echo "run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          } >> "$GITHUB_STEP_SUMMARY"

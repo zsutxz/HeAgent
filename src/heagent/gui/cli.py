@@ -48,6 +48,7 @@ def gui_cmd(
     # ── 日志配置（stderr + 文件双写，与 CLI 模式 `_setup_logging` 同构）──
     from heagent.config import get_settings
     from heagent.gui import gui_main  # noqa: PLC0415
+    from heagent.pub.log_config import make_formatter
     from heagent.pub.safe_logging import install_logging_fault_guard
 
     install_logging_fault_guard()  # 日志设施故障不得中断会话（与 CLI 同一边界）
@@ -64,11 +65,11 @@ def gui_cmd(
     # ——历史上 GUI 靠重定向整个 stderr 截获 /goal 文案，会把日志一并倒进对话区。
     _file_handler = logging.FileHandler(str(_log_file), encoding="utf-8")
     _file_handler.setLevel(_file_level)
+    # 行格式与 CLI / HTTP 同一实现（`LOG_FORMAT`，默认 text）：GUI 的日志也是日志，格式不该另起一套。
+    _file_handler.setFormatter(make_formatter(_settings.log_format))
 
     logging.basicConfig(
         level=min(_console_level, _file_level),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[_file_handler],
         force=True,
     )

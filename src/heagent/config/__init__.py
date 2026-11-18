@@ -168,6 +168,8 @@ class Settings(BaseSettings):
     log_dir: str = Field(default="logs")  # 日志文件目录，每次启动创建新文件
     log_level: str = Field(default="INFO")  # 控制台(stderr)日志级别: DEBUG / INFO / WARNING / ERROR
     log_file_level: str | None = Field(default=None)  # 文件日志级别; None=回退到 log_level
+    # 日志行格式：text（默认，与历史输出逐字一致）/ json（单行 JSON，含 extra 上下文与 traceback）。
+    log_format: Literal["text", "json"] = Field(default="text")
 
     # ---- Token 计量 ----
     # auto（默认）= 有 tiktoken 用真实 tokenizer，否则 CJK 启发式 + 真实 usage 在线校准；
@@ -311,6 +313,11 @@ class Settings(BaseSettings):
     # ---- Plan Mode ----
     # True 时收敛为只读模式：仅允许 readOnlyHint=True 的内置工具，禁止写操作（CLI --plan 覆盖）。
     plan_mode: bool = Field(default=False)
+
+    # ---- 调试模式 ----
+    # True 时：日志级别强制 DEBUG（含既有中间变量插桩）+ CLI 错误出口追加完整 traceback。
+    # 面向排障，不改任何安全面（审批 / 沙箱 / plan mode 各自由自己的开关）。
+    debug_mode: bool = Field(default=False)
 
     # ---- 成本估算 ----
     # 模型价格表 JSON：{"<model>": {"input": <$/M tok>, "output": <$/M tok>}}；空 = 不显示成本。

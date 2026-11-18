@@ -379,7 +379,8 @@ class TestClassification:
         # 口径（38 + 8）+ 记忆归档 2 键 + 语义压缩 1 键
         # + cron 结果推送 2 键 − 死键 shell_timeout 移除（生产读者为零）
         # + 陈旧 running 收尾阈值 RUN_STALE_IDLE_HOURS（close_stale_running 接线）
-        assert len(whitelist()) == 51
+        # + 日志行格式 LOG_FORMAT / 调试模式 DEBUG_MODE（Epic 65 / R13）
+        assert len(whitelist()) == 53
 
     def test_partition_is_complete(self) -> None:
         """AC9：每个字段都落在白名单或某条排除规则里 —— 残留 0（没有「只读但无原因」）。"""

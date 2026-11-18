@@ -93,6 +93,8 @@ VALUE_GUARDS: dict[str, ConfigGuard] = {
     "LOG_FILE_LEVEL": ConfigGuard(
         kind="enum", values=("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"), allow_empty=True
     ),
+    # 与 Settings.log_format 的 Literal 同一取值域：写入通道先把关，别等启动时才 ValidationError。
+    "LOG_FORMAT": ConfigGuard(kind="enum", values=("text", "json")),
     "RETRY_MAX_ATTEMPTS": ConfigGuard(kind="range", maximum=10.0),
     "RETRY_BASE_DELAY": ConfigGuard(kind="range", maximum=60.0),
     "RETRY_MAX_DELAY": ConfigGuard(kind="range", maximum=600.0),

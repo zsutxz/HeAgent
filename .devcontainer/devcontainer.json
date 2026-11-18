@@ -1,0 +1,35 @@
+{
+  "name": "HeAgent dev (Python 3.11)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspaces/HeAgent",
+  "remoteUser": "vscode",
+
+  "postCreateCommand": "pip install -e \".[dev,gui,http]\" && pre-commit install",
+
+  "forwardPorts": [9101, 9201, 9301],
+  "portsAttributes": {
+    "9101": { "label": "HTTP 网页入口", "onAutoForward": "silent" },
+    "9201": { "label": "WS 主 listener（本地模式）", "onAutoForward": "silent" },
+    "9301": { "label": "WS 对外 listener", "onAutoForward": "silent" }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["charliermarsh.ruff", "ms-python.python", "ms-python.mypy-type-checker"],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"],
+        "editor.formatOnSave": false,
+        "files.eol": "\n"
+      }
+    }
+  },
+
+  "remoteEnv": {
+    "PYTHONUTF8": "1"
+  }
+}

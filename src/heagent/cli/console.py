@@ -29,6 +29,7 @@ from heagent.events.sink import read_rollout, render_event
 from heagent.providers.router import active_model
 from heagent.providers.switchable import SwitchableProvider
 from heagent.pub.exceptions import HeAgentError
+from heagent.pub.log_config import make_formatter
 from heagent.pub.roles import load_agent_roles
 from heagent.pub.safe_logging import install_logging_fault_guard
 from heagent.tools.mcp import MCPClientManager, StdioSandboxSpec, load_mcp_config
@@ -45,28 +46,43 @@ def _setup_logging() -> None:
 
     同时安装进程级日志故障守卫（:func:`~heagent.pub.safe_logging.install_logging_fault_guard`）：
     handler 写失败只降级成「少一条日志」，不得让成功的 run 因日志设施故障而失败。
+
+    行格式由 :func:`heagent.pub.log_config.make_formatter` 决定（``LOG_FORMAT``，默认 text）；
+    HTTP 入口复用本函数，因此三个入口的 json 口径天然一致。
     """
     install_logging_fault_guard()
     _settings = get_settings()
     _console_level = getattr(logging, _settings.log_level.upper(), logging.INFO)
     _file_level = getattr(logging, (_settings.log_file_level or _settings.log_level).upper(), _console_level)
+    if _settings.debug_mode:
+        # 调试模式压过 LOG_LEVEL：排障时不该还要再改一个键才看得到中间变量插桩。
+        _console_level = logging.DEBUG
+        _file_level = logging.DEBUG
     _log_dir = Path(_settings.log_dir)
     _log_dir.mkdir(parents=True, exist_ok=True)
     _log_file = _log_dir / f"heagent-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
 
+    _formatter = make_formatter(_settings.log_format)
+
     _console_handler = logging.StreamHandler(sys.stderr)
     _console_handler.setLevel(_console_level)
+    _console_handler.setFormatter(_formatter)
     _file_handler = logging.FileHandler(str(_log_file), encoding="utf-8")
     _file_handler.setLevel(_file_level)
+    _file_handler.setFormatter(_formatter)
 
     logging.basicConfig(
         level=min(_console_level, _file_level),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
         handlers=[_console_handler, _file_handler],
         force=True,
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
+    if _settings.debug_mode:
+        logger.info(
+            "DEBUG_MODE enabled — log level forced to DEBUG (console=%s, file=%s), CLI errors will carry tracebacks",
+            logging.getLevelName(_console_level),
+            logging.getLevelName(_file_level),
+        )
 
 
 def _prune_runtime_artifacts(settings: Settings) -> None:

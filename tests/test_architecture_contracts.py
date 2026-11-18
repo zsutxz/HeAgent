@@ -802,6 +802,7 @@ def test_shared_layer_layout_is_pinned() -> None:
         "event_lines",
         "exceptions",
         "frontmatter",
+        "log_config",
         "persist",
         "projects",
         "roles",

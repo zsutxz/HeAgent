@@ -98,7 +98,7 @@ WHITELIST_GROUPS: tuple[ConfigGroupSpec, ...] = (
     ConfigGroupSpec(
         id="observability",
         label="日志与观测",
-        keys=("LOG_LEVEL", "LOG_FILE_LEVEL", "EVENTS_ROLLOUT_ENABLED"),
+        keys=("LOG_LEVEL", "LOG_FILE_LEVEL", "LOG_FORMAT", "EVENTS_ROLLOUT_ENABLED", "DEBUG_MODE"),
     ),
     ConfigGroupSpec(
         id="providers",

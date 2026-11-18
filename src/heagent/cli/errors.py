@@ -33,6 +33,36 @@ ANCHOR_CLI_ERRORS = "三cli-与启动期错误"
 #: 建议段的抬头（两空格缩进，与 ``Try:`` / ``Docs:`` 同一视觉层级）。
 SUGGESTIONS_HEADER = "  Try these commands:"
 
+#: 调试模式下的 traceback 段抬头（默认不出现；出现即说明 ``DEBUG_MODE=true``）。
+TRACEBACK_HEADER = "  Traceback (DEBUG_MODE=true):"
+
+
+def _debug_traceback() -> str:
+    """``DEBUG_MODE=true`` 且当前确有异常在飞时，返回完整 traceback 文本；否则返回空串。
+
+    刻意**惰性**导入 ``heagent.config``：本模块的其余部分只依赖 click 与同层建议表，
+    保持「入口层轻量路径」不被 pydantic-settings 拖累。``get_settings()`` 有进程级缓存，
+    调试模式下多调几次也不构成开销。
+    """
+    import sys
+    import traceback
+
+    from heagent.config import get_settings
+
+    if not get_settings().debug_mode or sys.exc_info()[0] is None:
+        return ""
+    return traceback.format_exc()
+
+
+def _append_traceback(lines: list[str]) -> list[str]:
+    """把调试模式 traceback 段追加到错误块末尾（无异常或无调试模式时原样返回）。"""
+    trace = _debug_traceback()
+    if not trace:
+        return lines
+    lines.append(TRACEBACK_HEADER)
+    lines.extend(f"    {line}" for line in trace.rstrip().splitlines())
+    return lines
+
 
 def _render_commands(commands: Sequence[CommandSuggestion]) -> list[str]:
     """渲染建议段的行。
@@ -78,7 +108,8 @@ def with_hints(
     lines.append(f"  Docs: {link}")
     if commands is not None:
         lines.extend(_render_commands(commands))
-    return "\n".join(lines)
+    # traceback 恒在最后：错误块的既有三段（+ 建议段）形状与顺序不变，追加只发生在调试模式。
+    return "\n".join(_append_traceback(lines))
 
 
 def with_command_hints(
@@ -159,6 +190,7 @@ __all__ = [
     "ANCHOR_CLI_ERRORS",
     "ERRORS_DOC",
     "SUGGESTIONS_HEADER",
+    "TRACEBACK_HEADER",
     "exit_with_command_hints",
     "exit_with_hints",
     "report_with_command_hints",
