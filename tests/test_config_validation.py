@@ -63,9 +63,11 @@ class TestKeyRegistry:
     def test_coverage_above_threshold_uses_code_constants(self) -> None:
         """票面 verify「覆盖 >90%」：分子分母都从代码常量读出，比例不硬编码。"""
         covered, total = required_coverage()
+        # 两条恒等式只证明分子分母口径一致（都从同一对常量算出），不构成覆盖证据
         assert total == len(REQUIRED_SETTING_KEYS)
         assert covered == len(covered_setting_keys() & REQUIRED_SETTING_KEYS)
         assert total > 0
+        # 覆盖证据只有这一行比值：登记表两端同时漏改时恒等式仍会通过，比值断言才拦得住
         assert covered / total > 0.9, f"必需配置项覆盖率 {covered}/{total} 低于 90%"
         assert required_coverage_ratio() == pytest.approx(covered / total)
 

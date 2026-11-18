@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pytest
 
-from heagent.cron.expr import _parse_field, cron_matches
+from heagent.cron.expr import parse_field, cron_matches
 from heagent.cron.scheduler import CronScheduler
 
 
@@ -12,79 +12,79 @@ class TestCronRangeExpressions:
     """V2 新增：Cron 范围表达式支持。"""
 
     def test_range_basic_1_5(self):
-        """_parse_field("1-5", min_val=1, max_val=31) → [1,2,3,4,5]"""
-        result = _parse_field("1-5", min_val=1, max_val=31)
+        """parse_field("1-5", min_val=1, max_val=31) → [1,2,3,4,5]"""
+        result = parse_field("1-5", min_val=1, max_val=31)
         assert result == [1, 2, 3, 4, 5]
 
     def test_range_hour_9_17(self):
-        """_parse_field("9-17", min_val=0, max_val=23) → [9,...,17]"""
-        result = _parse_field("9-17", min_val=0, max_val=23)
+        """parse_field("9-17", min_val=0, max_val=23) → [9,...,17]"""
+        result = parse_field("9-17", min_val=0, max_val=23)
         assert result == list(range(9, 18))
 
     def test_step_basic_star_15(self):
-        """_parse_field("*/15", min_val=0, max_val=59) → [0,15,30,45]"""
-        result = _parse_field("*/15", min_val=0, max_val=59)
+        """parse_field("*/15", min_val=0, max_val=59) → [0,15,30,45]"""
+        result = parse_field("*/15", min_val=0, max_val=59)
         assert result == [0, 15, 30, 45]
 
     def test_step_hour_star_4(self):
-        """_parse_field("*/4", min_val=0, max_val=23) → [0,4,8,12,16,20]"""
-        result = _parse_field("*/4", min_val=0, max_val=23)
+        """parse_field("*/4", min_val=0, max_val=23) → [0,4,8,12,16,20]"""
+        result = parse_field("*/4", min_val=0, max_val=23)
         assert result == [0, 4, 8, 12, 16, 20]
 
     def test_range_with_step_1_30_10(self):
-        """_parse_field("1-30/10", min_val=1, max_val=31) → [1,11,21]"""
-        result = _parse_field("1-30/10", min_val=1, max_val=31)
+        """parse_field("1-30/10", min_val=1, max_val=31) → [1,11,21]"""
+        result = parse_field("1-30/10", min_val=1, max_val=31)
         assert result == [1, 11, 21]
 
     def test_comma_with_range(self):
-        """_parse_field("1-3,7-9", min_val=0, max_val=59) → [1,2,3,7,8,9]"""
-        result = _parse_field("1-3,7-9", min_val=0, max_val=59)
+        """parse_field("1-3,7-9", min_val=0, max_val=59) → [1,2,3,7,8,9]"""
+        result = parse_field("1-3,7-9", min_val=0, max_val=59)
         assert result == [1, 2, 3, 7, 8, 9]
 
     def test_star_alone(self):
-        """_parse_field("*", min_val=0, max_val=5) → [0,1,2,3,4,5]"""
-        result = _parse_field("*", min_val=0, max_val=5)
+        """parse_field("*", min_val=0, max_val=5) → [0,1,2,3,4,5]"""
+        result = parse_field("*", min_val=0, max_val=5)
         assert result == [0, 1, 2, 3, 4, 5]
 
     def test_single_digit(self):
-        """_parse_field("5", min_val=0, max_val=59) → [5]"""
-        result = _parse_field("5", min_val=0, max_val=59)
+        """parse_field("5", min_val=0, max_val=59) → [5]"""
+        result = parse_field("5", min_val=0, max_val=59)
         assert result == [5]
 
     def test_comma_list(self):
-        """_parse_field("1,3,5,7", min_val=0, max_val=59) → [1,3,5,7]"""
-        result = _parse_field("1,3,5,7", min_val=0, max_val=59)
+        """parse_field("1,3,5,7", min_val=0, max_val=59) → [1,3,5,7]"""
+        result = parse_field("1,3,5,7", min_val=0, max_val=59)
         assert result == [1, 3, 5, 7]
 
     def test_invalid_range_non_numeric_raises(self):
-        """_parse_field("a-b", min_val=0, max_val=59) → ValueError"""
+        """parse_field("a-b", min_val=0, max_val=59) → ValueError"""
         with pytest.raises(ValueError, match="Invalid cron range"):
-            _parse_field("a-b", min_val=0, max_val=59)
+            parse_field("a-b", min_val=0, max_val=59)
 
     def test_invalid_range_out_of_bounds_raises(self):
-        """_parse_field("1-100", min_val=0, max_val=59) → ValueError"""
+        """parse_field("1-100", min_val=0, max_val=59) → ValueError"""
         with pytest.raises(ValueError, match="out of"):
-            _parse_field("1-100", min_val=0, max_val=59)
+            parse_field("1-100", min_val=0, max_val=59)
 
     def test_invalid_step_zero_raises(self):
-        """_parse_field("*/0", min_val=0, max_val=59) → ValueError"""
+        """parse_field("*/0", min_val=0, max_val=59) → ValueError"""
         with pytest.raises(ValueError, match="must be positive"):
-            _parse_field("*/0", min_val=0, max_val=59)
+            parse_field("*/0", min_val=0, max_val=59)
 
     def test_invalid_range_reversed_raises(self):
-        """_parse_field("5-1", min_val=0, max_val=59) → ValueError"""
+        """parse_field("5-1", min_val=0, max_val=59) → ValueError"""
         with pytest.raises(ValueError, match="start"):
-            _parse_field("5-1", min_val=0, max_val=59)
+            parse_field("5-1", min_val=0, max_val=59)
 
     def test_out_of_bounds_value_raises(self):
-        """_parse_field("60", min_val=0, max_val=59) → ValueError"""
+        """parse_field("60", min_val=0, max_val=59) → ValueError"""
         with pytest.raises(ValueError, match="out of range"):
-            _parse_field("60", min_val=0, max_val=59)
+            parse_field("60", min_val=0, max_val=59)
 
     def test_invalid_expression_raises(self):
-        """_parse_field("abc", min_val=0, max_val=59) → ValueError"""
+        """parse_field("abc", min_val=0, max_val=59) → ValueError"""
         with pytest.raises(ValueError, match="Invalid cron field"):
-            _parse_field("abc", min_val=0, max_val=59)
+            parse_field("abc", min_val=0, max_val=59)
 
 
 class TestCronMatchesWithRanges:

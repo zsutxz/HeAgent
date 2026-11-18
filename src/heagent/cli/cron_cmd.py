@@ -18,7 +18,8 @@
 
 - ``0``：查询成功，且没有 job 的最近一次执行是 ``failed``；
 - ``1``：查询成功，但有 job 最近一次执行 ``failed``；
-- ``2``：``jobs.json`` 整体不可解析（损坏 / 不是列表）——没有任何可报告的内容。
+- ``2``：``jobs.json`` 整体不可用（存在但打不开 / 损坏 / 不是列表）——没有任何可报告的内容
+  （文件不存在是合法状态 = 没有定时任务，仍回 ``0``）。
 
 分层：入口层（``heagent/cli/``），只依赖 click + 标准库 + ``heagent.cron`` / ``heagent.pub``；
 不导入 ``agent`` / ``engine``——查状态不需要运行栈。
@@ -29,6 +30,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import NoReturn
 
 import click
 
@@ -90,26 +92,54 @@ def list_cmd(as_json: bool, jobs_file: Path | None) -> None:
 def _run(*, as_json: bool, jobs_file: Path | None, detailed: bool) -> None:
     """加载 → 渲染 → 按 job 状态决定退出码（两个子命令共用同一条管线）。"""
     path = jobs_file or _default_jobs_file()
+    # 先自判「存在但打不开」：JobStore.list_jobs() 把 OSError 与空列表合并成 []，
+    # 若不自判，权限/IO 错误会伪装成「没有定时任务」并以 0 退出。
+    unreadable = _unreadable_reason(path)
+    if unreadable is not None:
+        _bail_jobs_file(unreadable, path=path, as_json=as_json)
     store = JobStore(str(path))
     jobs = store.list_jobs()
     corrupted = store.corruption_count
     if corrupted == -1:
         # 整个文件不是合法 jobs 列表：没有任何可报告内容，脚本消费方必须知道（不能回空数组装成功）。
-        if as_json:
-            click.echo(json.dumps({"error": "jobs file is corrupted or not a list", "jobs_file": str(path)}))
-        else:
-            click.echo(f"[cron] jobs file is corrupted or not a list: {path}", err=True)
-        raise SystemExit(EXIT_JOBS_UNREADABLE)
+        _bail_jobs_file("jobs file is corrupted or not a list", path=path, as_json=as_json)
 
     statuses = build_statuses(jobs)
+    if corrupted > 0:
+        # 人读与 --json 都要报：脚本消费方同样需要察觉条目被跳过。
+        # 走 stderr，--json 的 stdout 保持为纯 JSON 数组。
+        click.echo(f"[cron] warning: {corrupted} job(s) skipped (corrupted or invalid fields)", err=True)
     if as_json:
         click.echo(json.dumps([item.model_dump(mode="json") for item in statuses], ensure_ascii=False))
     else:
-        if corrupted > 0:
-            click.echo(f"[cron] warning: {corrupted} job(s) skipped (corrupted or invalid fields)", err=True)
         _render(statuses, path=path, detailed=detailed)
 
     raise SystemExit(EXIT_JOB_FAILED if any(item.status is CronJobState.FAILED for item in statuses) else EXIT_OK)
+
+
+def _unreadable_reason(path: Path) -> str | None:
+    """``jobs.json`` 存在但打不开时返回带异常类型的描述，可读或不存在时返回 ``None``。
+
+    判据只覆盖「存在、``open`` 就失败」——权限不足、路径是目录、IO 错误；文件不存在属合法
+    状态（没有定时任务），不在此判据内。只用 ``open(..., "rb")`` 打开即关，不读内容，
+    避免把大文件整个读进内存。
+    """
+    if not path.exists():
+        return None
+    try:
+        with open(path, "rb"):
+            return None
+    except OSError as exc:
+        return f"jobs file is unreadable ({type(exc).__name__}: {exc})"
+
+
+def _bail_jobs_file(message: str, *, path: Path, as_json: bool) -> NoReturn:
+    """以 ``EXIT_JOBS_UNREADABLE`` 退出：``--json`` 给错误信封（stdout），人读走 stderr。"""
+    if as_json:
+        click.echo(json.dumps({"error": message, "jobs_file": str(path)}))
+    else:
+        click.echo(f"[cron] {message}: {path}", err=True)
+    raise SystemExit(EXIT_JOBS_UNREADABLE)
 
 
 def _default_jobs_file() -> Path:

@@ -215,7 +215,7 @@ def test_bridge_keeps_start_time_per_operation_and_resets_on_new_one() -> None:
 
 
 def test_progress_does_not_double_read_cost(tmp_path: Path) -> None:
-    """进度开启相对关闭的读耗时差异有上界（页缓存预热后比较，宽松上界防 flaky）。"""
+    """进度开启相对关闭的读耗时比值有上界（页缓存预热后比较；票面 Acceptance = 不到 2 倍）。"""
     path = tmp_path / "perf.txt"
     path.write_bytes(b"a" * (11 * MB))
     _read_text_bounded(path)  # 预热页缓存
@@ -235,4 +235,5 @@ def test_progress_does_not_double_read_cost(tmp_path: Path) -> None:
     with_progress = time.perf_counter() - start
 
     assert calls
-    assert with_progress <= baseline * 3 + 0.1
+    # 固定 +0.1s 吸收计时抖动（基线仅十余毫秒，纯比值在小基数上不稳），比值本身上界对齐票面
+    assert with_progress <= baseline * 2 + 0.1, f"with_progress={with_progress:.3f}s baseline={baseline:.3f}s"

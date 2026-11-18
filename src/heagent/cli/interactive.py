@@ -48,7 +48,7 @@ from heagent.cli.display import (
     show_tool_activity,
 )
 from heagent.cli.goal import _goal_runner
-from heagent.cli.progress import ToolProgress
+from heagent.cli.progress import EngineToolProgressAdapter, ToolProgress
 from heagent.cli.slash import SlashCommandInfo, SlashRegistry, load_custom_commands
 from heagent.cli.terminal import KeyInterruptMonitor
 from heagent.cli.wiring import ensure_runtime_config
@@ -81,6 +81,7 @@ if TYPE_CHECKING:
     from heagent.cli.wiring import CronNotifier
     from heagent.config import ResolvedRuntimeConfig
     from heagent.cron.jobs import JobStore
+    from heagent.engine.container import EngineContainer
     from heagent.network.cli_event_hub import CliEventHub
     from heagent.network.http_protocol import CronResultStatus
     from heagent.providers.base import BaseProvider
@@ -218,6 +219,32 @@ async def _embedded_http_service(
         yield service
 
 
+@contextlib.asynccontextmanager
+async def _single_run_progress(engine: EngineContainer, *, json_output: bool) -> AsyncIterator[ToolProgress | None]:
+    """单次执行的工具进度作用域：订阅引擎工具事件，退出时注销订阅并停表。
+
+    ``--json`` 时**整体不装配**（连订阅都不建）：stdout 的 JSONL 流与非 tty / 静音开关下的
+    零输出都是结构保证，不靠「写了但看不见」。非 tty 与 ``ANNOUNCE_PROGRESS=false`` 由
+    :class:`ToolProgress` 自身的默认开关判定（``enabled=None`` ⇒ 两者都关）。
+
+    大文件进度与交互模式同一条路：``file_progress`` 在当前上下文绑定 ``FileProgressBridge``，
+    工具工作线程经 ``asyncio.to_thread`` 复制上下文后读到同一个 reporter。
+    """
+    if json_output:
+        yield None
+        return
+    progress = ToolProgress()
+    adapter = EngineToolProgressAdapter(progress)
+    engine.events.subscribe(adapter)
+    try:
+        with file_progress(progress.file_bridge.report):
+            yield progress
+    finally:
+        # 注销必须先于停表：run 收尾后引擎仍可能发事件（活动回顾 / 下一轮），不能被计时。
+        adapter.detach(engine.events)
+        await progress.aclose()
+
+
 async def _run_single(
     prompt: str,
     provider: BaseProvider,
@@ -238,6 +265,9 @@ async def _run_single(
     ``json_output=True``（``--json``）时 **stdout 只出 JSONL 事件流**：最终答案作为
     ``assistant_message`` 事件交回，横幅 / 用量 / 活动回顾等人类可读信息本就走 stderr，
     故管道消费方拿到的是干净的事件流。
+
+    工具进度行（``[calling … done in N.Ns]``，仅 TTY 且超过 3 秒）同样只在 stderr：由
+    :func:`_single_run_progress` 把引擎事件喂给与交互模式同一套 ``ToolProgress``。
     """
     settings = get_settings()
     engine, system = _prepare_engine(
@@ -266,7 +296,8 @@ async def _run_single(
             settings, provider, max_iterations, soul_path, engine=engine, sandbox_backend=sandbox_backend
         )
         try:
-            result = await loop.run(prompt, system=system)
+            async with _single_run_progress(engine, json_output=json_output):
+                result = await loop.run(prompt, system=system)
             if sink is not None and json_output:
                 sink.assistant_message(result)
             else:

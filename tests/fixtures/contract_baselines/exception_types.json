@@ -45,6 +45,13 @@
     },
     {
       "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.cli.wizard",
+      "name": "CommonKeyGroup"
+    },
+    {
+      "bases": [
         "Exception"
       ],
       "module": "heagent.cli.wizard",

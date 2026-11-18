@@ -37,6 +37,8 @@ from heagent.engine import EngineContainer
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
     from heagent.engine.context import RunContext
 
 # 固定「现在」：本地时 naive（与 CronScheduler / next_fire 同一口径）。
@@ -64,6 +66,24 @@ def _write_jobs(path: Path, entries: list[dict[str, object]]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
     return path
+
+
+def _deny_open(monkeypatch: pytest.MonkeyPatch, path: Path) -> None:
+    """让 ``path`` 的 ``open`` 抛 ``PermissionError``（模拟权限/IO 不可读，其余路径直通）。
+
+    同时接管 ``builtins.open`` 与 ``io.open``——后者是 ``Path.read_text`` 的实际入口，
+    这样「命令自判可读性」与「存储层读文件」两条路都被拒，才等价于真实的权限错误。
+    """
+    real_open = open
+    denied = {str(path)}
+
+    def fake_open(file: object, *args: object, **kwargs: object):
+        if str(file) in denied:
+            raise PermissionError(13, "Permission denied")
+        return real_open(file, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    monkeypatch.setattr("io.open", fake_open)
 
 
 def _legacy_entry(job_id: str, *, last_run: str | None = None) -> dict[str, object]:
@@ -486,6 +506,56 @@ class TestCronStatusCli:
         assert result.exit_code == 0
         assert "1 job(s) skipped" in result.output
         assert "[job legacy01]" in result.output
+
+    def test_json_warns_on_skipped_entries_on_stderr(self, tmp_path: Path) -> None:
+        """``--json`` 也要报跳过计数：告警走 stderr，stdout 仍是纯净 JSON 数组。"""
+        path = _write_jobs(
+            tmp_path / "jobs.json",
+            [_legacy_entry("legacy01"), {"id": "broken", "prompt": "no cron field"}],
+        )
+        result = CliRunner().invoke(status_cmd, ["--jobs-file", str(path), "--json"])
+
+        assert result.exit_code == 0
+        assert [item["id"] for item in json.loads(result.stdout)] == ["legacy01"]
+        assert "1 job(s) skipped" in result.stderr
+        assert "skipped" not in result.stdout
+
+    def test_unreadable_file_exits_two_with_exception_type(self, tmp_path: Path, monkeypatch) -> None:
+        """文件存在但打不开（权限/IO）⇒ 退出码 2 且消息带异常类型（不得装成「没有任务」）。"""
+        path = _write_jobs(tmp_path / "jobs.json", [_legacy_entry("legacy01")])
+        _deny_open(monkeypatch, path)
+
+        result = CliRunner().invoke(status_cmd, ["--jobs-file", str(path)])
+
+        assert result.exit_code == 2
+        assert "unreadable" in result.stderr
+        assert "PermissionError" in result.stderr
+        assert "no jobs scheduled" not in result.output
+
+    def test_unreadable_file_json_reports_error_envelope(self, tmp_path: Path, monkeypatch) -> None:
+        """``--json`` 不可读时给错误信封（与 corrupted 同形），不回空数组装成功。"""
+        path = _write_jobs(tmp_path / "jobs.json", [_legacy_entry("legacy01")])
+        _deny_open(monkeypatch, path)
+
+        result = CliRunner().invoke(status_cmd, ["--jobs-file", str(path), "--json"])
+
+        assert result.exit_code == 2
+        payload = json.loads(result.stdout)
+        assert payload["jobs_file"] == str(path)
+        assert "unreadable" in payload["error"]
+        assert "PermissionError" in payload["error"]
+
+    def test_default_jobs_path_that_is_a_directory_exits_two(self, tmp_path: Path, monkeypatch) -> None:
+        """默认路径落在目录上（open 抛 IsADirectoryError）同样不可读——click 的 dir_okay 拦不到默认路径。"""
+        (tmp_path / ".heagent" / "cron" / "jobs.json").mkdir(parents=True)
+        monkeypatch.chdir(tmp_path)
+
+        result = CliRunner().invoke(status_cmd, [])
+
+        assert result.exit_code == 2
+        assert "unreadable" in result.stderr
+        assert "IsADirectoryError" in result.stderr
+        assert "no jobs scheduled" not in result.output
 
     def test_command_is_read_only(self, tmp_path: Path) -> None:
         """查状态不得改写 jobs.json（只读契约）。"""

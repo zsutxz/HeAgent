@@ -23,7 +23,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
-from heagent.cron.expr import _parse_field
+from heagent.cron.expr import parse_field
 from heagent.cron.jobs import CronJob, CronRunStatus
 
 logger = logging.getLogger(__name__)
@@ -151,7 +151,7 @@ def _parse_fields(cron_expr: str) -> tuple[list[int], ...]:
         raise ValueError(f"expected {_CRON_FIELD_COUNT} fields, got {len(parts)}")
     parsed: list[list[int]] = []
     for raw, (low, high) in zip(parts, _FIELD_RANGES, strict=True):
-        values = _parse_field(raw, min_val=low, max_val=high)
+        values = parse_field(raw, min_val=low, max_val=high)
         if high == _SUNDAY_ALIAS:  # 周字段 7 与 0 同为周日（与 cron_matches 的归一化一致）
             values = sorted({0 if value == _SUNDAY_ALIAS else value for value in values})
         parsed.append(values)

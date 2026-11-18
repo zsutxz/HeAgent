@@ -11,11 +11,17 @@
 2. **先验证后落盘**：候选内容写在临时目录里的同名文件，经 ``read_setting_md`` 往返、``Settings``
    构造、``build_config_report`` 结构校验全部通过后才原子替换目标文件；任何一步失败都不动目标文件。
 3. **不破坏既有内容**：只改命中的 frontmatter 行；注释、正文、未涉及的键、行尾风格一律原样保留。
-4. **覆盖范围有界**：只问「常用且安全」的项（:data:`WIZARD_ITEMS`）；沙箱 / 监听面 / 安全闸门等
-   posture 键刻意不进向导——改配置不该顺手改隔离姿态（``config.catalog`` 的只读原因同理）。
+4. **覆盖范围有界**：只问 :data:`COMMON_KEY_GROUPS` 列出的常用面，顺序即提问顺序（凭据 → 模型与预算
+   → 路由池 → 上下文 → 记忆与技能 → MCP → 入口（HTTP / WS）→ 观测 → 沙箱）；安全闸门
+   （``SAFETY_BLOCKED_TOOLS`` / ``APPROVAL_TOOLS``）、宿主路径、无人监督后台开关（``DREAM_*``）刻意
+   不进向导——在向导里顺手削 defense-in-depth 或改宿主任意路径不属于「常用配置」。沙箱与监听面**在**
+   清单内：向导是本地交互式操作、逐项按当前值现答，写进去的是用户自己的选择；``config.catalog``
+   的只读原因针对的是网页写通道，不是本向导。
 
 推荐值口径：默认取 ``Settings`` 的字段默认值（唯一事实源，:func:`_field_default_text` 现读），
 只有「字段默认值不是推荐起点」的键才在 :class:`WizardItem.recommend` 显式覆盖并写明理由。
+值域口径：优先用 ``catalog.guards_for``（单一事实源）；catalog 没有守卫的可枚举键才在
+:class:`WizardItem.choices` 显式列出（填错会被静默降级的那类键，如 ``SANDBOX_BACKEND``）。
 
 依赖面：click + ``heagent.config`` / ``heagent.config.catalog`` + 标准库；不导入 agent / providers /
 engine——向导是 CLI 的轻量配置路径。
@@ -85,10 +91,11 @@ class WizardKind(StrEnum):
 
 
 class WizardItem(BaseModel):
-    """向导的一项：键名 + 中文名 + 一句说明 + 推荐值。
+    """向导的一项：键名 + 中文名 + 一句说明 + 推荐值（+ 可选值域）。
 
     ``recommend=None`` 表示「推荐值 = 字段默认值」（唯一事实源在 ``Settings``）；显式给字符串只用于
-    「字段默认值不是推荐起点」的键。
+    「字段默认值不是推荐起点」的键。``choices`` 只在 ``catalog`` 没有枚举守卫时使用——它把值域钉在
+    交互这一层（写错不会有第二道校验兜住）。
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -98,6 +105,7 @@ class WizardItem(BaseModel):
     why: str
     recommend: str | None = None
     kind: WizardKind = WizardKind.TEXT
+    choices: tuple[str, ...] = ()
 
 
 class WizardResult(BaseModel):
@@ -126,36 +134,137 @@ class _InvalidValue(ValueError):
 
 # ── 常用配置项清单（覆盖率的分母）与向导覆盖项（分子） ──
 
-#: 「常用配置项」清单：票面 80% 覆盖率的分母。每项都必须是 ``config.catalog`` 能分类的已知键
-#: （测试钉住，防止清单与 ``Settings`` 字段漂移）；15–20 项是本清单的规模约定。
-COMMON_KEYS: tuple[str, ...] = (
-    "DEEPSEEK_API_KEY",
-    "OPENAI_RESPONSES_API_KEY",
-    "ACTIVE_PROVIDER",
-    "DEFAULT_MODEL",
-    "DEEPSEEK_MODEL",
-    "OLLAMA_ENABLED",
-    "OLLAMA_MODEL",
-    "ROUTING_POOLS",
-    "MAX_ITERATIONS",
-    "MAX_OUTPUT_TOKENS",
-    "MAX_CONTEXT_TOKENS",
-    "COMPRESSION_THRESHOLD",
-    "CONTEXT_STRATEGY",
-    "TOKENIZER",
-    "CONTEXT_FILES_ENABLED",
-    "CONTEXT_FILES_MAX_BYTES",
-    "MEMORY_NUDGE_ENABLED",
-    "SKILL_MATCH_THRESHOLD",
-    "LOG_LEVEL",
+
+class CommonKeyGroup(BaseModel):
+    """常用项的一个「面」：id（报告与测试引用）+ 中文面名 + 该面的键（顺序即提问顺序）。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    id: str
+    label: str
+    keys: tuple[str, ...]
+
+
+#: 「常用配置项」按面分组：票面 80% 覆盖率的分母，同时**决定提问顺序**——按依赖 / 心智顺序排，
+#: 别让用户先被问 WS 端口再被问 API key：凭据 → 模型与预算 → 路由池 → 上下文 → 记忆与技能 →
+#: MCP → 入口（HTTP / WS）→ 观测 → 沙箱（最后问：这一面最影响隔离姿态）。
+#: 每项都必须是 ``Settings`` 真实字段、且能被 ``config.catalog`` 分类（测试钉住，防清单与字段漂移）。
+COMMON_KEY_GROUPS: tuple[CommonKeyGroup, ...] = (
+    CommonKeyGroup(
+        id="provider_credentials",
+        label="Provider 与凭据",
+        keys=(
+            "DEEPSEEK_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "KIMI_API_KEY",
+            "GLM_API_KEY",
+            "OPENAI_RESPONSES_API_KEY",
+            "WEB_SEARCH_API_KEY",
+            "ACTIVE_PROVIDER",
+            "OLLAMA_ENABLED",
+        ),
+    ),
+    CommonKeyGroup(
+        id="models",
+        label="模型与输出预算",
+        keys=(
+            "DEFAULT_MODEL",
+            "DEEPSEEK_MODEL",
+            "KIMI_MODEL",
+            "GLM_MODEL",
+            "OPENAI_MODEL",
+            "OLLAMA_MODEL",
+            "MAX_OUTPUT_TOKENS",
+        ),
+    ),
+    CommonKeyGroup(
+        id="routing",
+        label="路由池",
+        keys=("ROUTING_POOLS", "ROUTING_REASONING_CONTINUITY"),
+    ),
+    CommonKeyGroup(
+        id="limits",
+        label="迭代预算",
+        keys=("MAX_ITERATIONS", "SUBAGENT_MAX_ITERATIONS"),
+    ),
+    CommonKeyGroup(
+        id="context",
+        label="上下文与压缩",
+        keys=(
+            "MAX_CONTEXT_TOKENS",
+            "COMPRESSION_THRESHOLD",
+            "CONTEXT_STRATEGY",
+            "TOKENIZER",
+            "CONTEXT_FILES_ENABLED",
+            "CONTEXT_FILES_MAX_BYTES",
+        ),
+    ),
+    CommonKeyGroup(
+        id="memory_skills",
+        label="记忆与技能",
+        keys=(
+            "MEMORY_NUDGE_ENABLED",
+            "MEMORY_INJECT_MAX_BYTES",
+            "SKILL_MATCH_THRESHOLD",
+            "SKILL_CURATOR_STALE_DAYS",
+        ),
+    ),
+    CommonKeyGroup(
+        id="mcp",
+        label="MCP 外部工具",
+        keys=("MCP_ENABLED", "MCP_CONFIG_PATH"),
+    ),
+    CommonKeyGroup(
+        id="http_entry",
+        label="HTTP 入口",
+        keys=("HTTP_ENABLED", "HTTP_HOST", "HTTP_PORT", "HTTP_MAX_INFLIGHT_RUNS"),
+    ),
+    CommonKeyGroup(
+        id="ws_entry",
+        label="WS 入口",
+        keys=("WS_ENABLED", "WS_HOST", "WS_PORT", "WS_EXTERNAL_HOST", "WS_LOCAL_AUTH_ENABLED"),
+    ),
+    CommonKeyGroup(
+        id="observability",
+        label="日志与事件",
+        keys=("LOG_LEVEL", "EVENTS_ROLLOUT_ENABLED"),
+    ),
+    CommonKeyGroup(
+        id="sandbox",
+        label="沙箱与执行后端",
+        keys=("SANDBOX_BACKEND", "SANDBOX_DOCKER_IMAGE", "SANDBOX_DOCKER_DIGEST"),
+    ),
 )
 
-#: 向导逐项询问的键（覆盖率分子）。顺序即提问顺序：先凭据与条目，再模型，再运行参数，最后观测。
+#: 常用项扁平清单（覆盖率的分母）：由 :data:`COMMON_KEY_GROUPS` 展平派生，不另写第二份。
+COMMON_KEYS: tuple[str, ...] = tuple(key for group in COMMON_KEY_GROUPS for key in group.keys)
+
+#: 向导逐项询问的键（覆盖率分子）。**顺序必须与** :data:`COMMON_KEYS` **一致**（测试钉住）：
+#: 分组表是提问顺序的唯一事实源，这里只补中文名 / 一句说明 / 推荐值口径。
 WIZARD_ITEMS: tuple[WizardItem, ...] = (
+    # ── Provider 与凭据 ──
     WizardItem(
         key="DEEPSEEK_API_KEY",
         label="DeepSeek API Key",
         why="写入本文件即成为全机默认；单个项目可在 .env 覆盖。留空 = 不改动",
+        kind=WizardKind.SECRET,
+    ),
+    WizardItem(
+        key="ANTHROPIC_API_KEY",
+        label="Anthropic API Key",
+        why="claude 条目用；同 provider 的多密钥轮换走另一键 ANTHROPIC_API_KEYS（逗号分隔）。留空 = 不改动",
+        kind=WizardKind.SECRET,
+    ),
+    WizardItem(
+        key="KIMI_API_KEY",
+        label="Kimi (Moonshot) API Key",
+        why="kimi 条目用；与 KIMI_MODEL 一起决定该条目能否启动。留空 = 不改动",
+        kind=WizardKind.SECRET,
+    ),
+    WizardItem(
+        key="GLM_API_KEY",
+        label="GLM (智谱) API Key",
+        why="glm 条目用；与 GLM_MODEL 一起决定该条目能否启动。留空 = 不改动",
         kind=WizardKind.SECRET,
     ),
     WizardItem(
@@ -166,10 +275,23 @@ WIZARD_ITEMS: tuple[WizardItem, ...] = (
         kind=WizardKind.SECRET,
     ),
     WizardItem(
+        key="WEB_SEARCH_API_KEY",
+        label="联网搜索 API Key",
+        why="web_search 工具用（引擎看 WEB_SEARCH_ENGINE，默认 tavily）；不填则调用时显性报错。留空 = 不改动",
+        kind=WizardKind.SECRET,
+    ),
+    WizardItem(
         key="ACTIVE_PROVIDER",
         label="默认 Provider 条目",
         why="启动时默认用哪个条目（deepseek / claude / openai / kimi / glm / ollama）；留空 = 自动选第一个有凭据的",
     ),
+    WizardItem(
+        key="OLLAMA_ENABLED",
+        label="启用本地 Ollama",
+        why="true 时才装配本地条目（默认端点 127.0.0.1:11434）；启用后 OLLAMA_MODEL 必填，否则启动即失败",
+        kind=WizardKind.BOOL,
+    ),
+    # ── 模型与输出预算 ──
     WizardItem(
         key="DEFAULT_MODEL",
         label="claude 条目的兜底模型",
@@ -181,10 +303,19 @@ WIZARD_ITEMS: tuple[WizardItem, ...] = (
         why="deepseek 条目未显式指定模型时用它；--model 可在单次运行覆盖",
     ),
     WizardItem(
-        key="OLLAMA_ENABLED",
-        label="启用本地 Ollama",
-        why="true 时才装配本地条目（默认端点 127.0.0.1:11434）；启用后 OLLAMA_MODEL 必填，否则启动即失败",
-        kind=WizardKind.BOOL,
+        key="KIMI_MODEL",
+        label="Kimi 默认模型",
+        why="kimi 条目未显式指定模型时用它；--model 可在单次运行覆盖",
+    ),
+    WizardItem(
+        key="GLM_MODEL",
+        label="GLM 默认模型",
+        why="glm 条目未显式指定模型时用它；--model 可在单次运行覆盖",
+    ),
+    WizardItem(
+        key="OPENAI_MODEL",
+        label="openai（Responses API）条目默认模型",
+        why="只作用于 wire_api=responses 的条目；--model 可在单次运行覆盖",
     ),
     WizardItem(
         key="OLLAMA_MODEL",
@@ -192,21 +323,35 @@ WIZARD_ITEMS: tuple[WizardItem, ...] = (
         why="OLLAMA_ENABLED=true 时必填（如 qwen3.5-9b-local:latest）；本地窗口通常远小于 MAX_CONTEXT_TOKENS",
     ),
     WizardItem(
+        key="MAX_OUTPUT_TOKENS",
+        label="单次输出 token 上限",
+        why="留空 = 沿用 provider 默认；本地思考模型常需要显式设定",
+        recommend="",
+    ),
+    # ── 路由池 ──
+    WizardItem(
         key="ROUTING_POOLS",
         label="路由池 JSON",
         why="声明式路由池（键 = 条目名，值含 tiers / roles）；留空 = 不自动换档，规格见 .env.example 第 4 节",
     ),
+    WizardItem(
+        key="ROUTING_REASONING_CONTINUITY",
+        label="推理链续接（继续走 pro 档）",
+        why="true = 上一轮实际命中 pro 档就继续用它；默认 false = 每轮按当前请求重选（池内单池可覆盖）",
+        kind=WizardKind.BOOL,
+    ),
+    # ── 迭代预算 ──
     WizardItem(
         key="MAX_ITERATIONS",
         label="单次运行最大迭代",
         why="一次 run 的 LLM ↔ 工具循环上限；无人值守的长任务才需要调高",
     ),
     WizardItem(
-        key="MAX_OUTPUT_TOKENS",
-        label="单次输出 token 上限",
-        why="留空 = 沿用 provider 默认；本地思考模型常需要显式设定",
-        recommend="",
+        key="SUBAGENT_MAX_ITERATIONS",
+        label="子 Agent 迭代上限",
+        why="task_delegate 子会话的兜底预算（优先级：显式参数 > 角色声明 > 本项）；与主循环上限分开算",
     ),
+    # ── 上下文与压缩 ──
     WizardItem(
         key="MAX_CONTEXT_TOKENS",
         label="上下文窗口 token 数",
@@ -238,6 +383,7 @@ WIZARD_ITEMS: tuple[WizardItem, ...] = (
         label="上下文文件字节预算",
         why="超预算按近端优先丢弃 / 截断并显式标注",
     ),
+    # ── 记忆与技能 ──
     WizardItem(
         key="MEMORY_NUDGE_ENABLED",
         label="记忆注入",
@@ -245,14 +391,112 @@ WIZARD_ITEMS: tuple[WizardItem, ...] = (
         kind=WizardKind.BOOL,
     ),
     WizardItem(
+        key="MEMORY_INJECT_MAX_BYTES",
+        label="记忆注入字节预算",
+        why="注入的字节预算（0 = 不限）；超预算只保留最新后缀并在块尾标注省略数，MEMORY.md 本体不动",
+    ),
+    WizardItem(
         key="SKILL_MATCH_THRESHOLD",
         label="技能自动匹配阈值（0–1）",
         why="匹配分数低于阈值的技能不会被自动注入",
     ),
     WizardItem(
+        key="SKILL_CURATOR_STALE_DAYS",
+        label="技能陈旧判定天数",
+        why="skill_curate 报「多久没被使用」的窗口；外部装入的技能恒为 0 次使用，别据此批量归档",
+    ),
+    # ── MCP 外部工具 ──
+    WizardItem(
+        key="MCP_ENABLED",
+        label="启用 MCP 外部工具",
+        why="true 才按 MCP_CONFIG_PATH 装配 MCP server；stdio 子进程在 docker 沙箱档下进同一镜像容器",
+        kind=WizardKind.BOOL,
+    ),
+    WizardItem(
+        key="MCP_CONFIG_PATH",
+        label="MCP 配置文件路径",
+        why="相对进程 cwd 的 .mcp.json；文件不存在 = 不装配（不报错）",
+    ),
+    # ── HTTP 入口 ──
+    WizardItem(
+        key="HTTP_ENABLED",
+        label="启用 HTTP 入口",
+        why="false = 不装配 HTTP listener；WS 是独立开关，仍按 WS_ENABLED 起停（CLI 另有 --no-http 单次覆盖）",
+        kind=WizardKind.BOOL,
+    ),
+    WizardItem(
+        key="HTTP_HOST",
+        label="HTTP 绑定地址",
+        why="HTTP 入口没有对外模式（无认证、无 TLS），只供本机 / 内网直连；对外暴露请走 WS_EXTERNAL_HOST",
+    ),
+    WizardItem(
+        key="HTTP_PORT",
+        label="HTTP 端口",
+        why="被占用时在 HTTP_PORT_AUTO_FIND_ATTEMPTS 内顺延（日志打 Port N was in use）；显式 --port 冲突仍 fail-loud",
+    ),
+    WizardItem(
+        key="HTTP_MAX_INFLIGHT_RUNS",
+        label="每项目并发 run 上限",
+        why="同一项目同时可提交的 run 数（超限的提交收 run_conflict）；控制台多标签并行时才调高",
+    ),
+    # ── WS 入口 ──
+    WizardItem(
+        key="WS_ENABLED",
+        label="启用 WS 入口",
+        why="false = 不装配 WS listener；HTTP 与 WS 是两个独立开关（CLI 另有 --no-ws 单次覆盖）",
+        kind=WizardKind.BOOL,
+    ),
+    WizardItem(
+        key="WS_HOST",
+        label="WS 绑定地址",
+        why="回环 = 本地模式（无认证）；改成非回环即升格为对外 listener，强制 Bearer token、缺 token 拒绝启动",
+    ),
+    WizardItem(
+        key="WS_PORT",
+        label="WS 端口",
+        why="被占用时同 HTTP 口径顺延；实际监听地址以启动日志 ws event=started 为准",
+    ),
+    WizardItem(
+        key="WS_EXTERNAL_HOST",
+        label="对外 WS 地址（第二个 listener）",
+        why="留空 = 不起对外 listener；非空须非回环，强制 Bearer token（token 只认用户级 setting.md），"
+        "此时终端旁路 /api/cli/ws 不注册",
+    ),
+    WizardItem(
+        key="WS_LOCAL_AUTH_ENABLED",
+        label="本地 WS 也强制认证",
+        why="true = 回环主 listener 也强制 Bearer token（含旁路 /api/cli/ws），本机消费者都要带 token",
+        kind=WizardKind.BOOL,
+    ),
+    # ── 日志与事件 ──
+    WizardItem(
         key="LOG_LEVEL",
         label="控制台日志级别",
         why="写到 stderr 的日志级别；排查问题临时用 DEBUG",
+    ),
+    WizardItem(
+        key="EVENTS_ROLLOUT_ENABLED",
+        label="事件落盘（rollout）",
+        why="true = 每次 run 的事件写进 .heagent/runs/<run_id>/rollout.jsonl（含工具原始输出），排查 / 回放用",
+        kind=WizardKind.BOOL,
+    ),
+    # ── 沙箱与执行后端（最后问：这一面最影响隔离姿态）──
+    WizardItem(
+        key="SANDBOX_BACKEND",
+        label="沙箱后端",
+        why="auto = 探到 firejail 才用、否则 passthrough（零隔离）；docker = OS 级兜底；winjob 须显式指定；"
+        "以上都不是真正的安全边界",
+        choices=("auto", "passthrough", "firejail", "winjob", "docker"),
+    ),
+    WizardItem(
+        key="SANDBOX_DOCKER_IMAGE",
+        label="沙箱镜像标签",
+        why="docker 档用的镜像（构建见 docker/sandbox/Dockerfile）；换镜像 = 换工具链，不改隔离语义",
+    ),
+    WizardItem(
+        key="SANDBOX_DOCKER_DIGEST",
+        label="沙箱镜像 digest 钉住",
+        why="非空时首个 run 前校验本地 tag 的 repo digest，不符显性拒绝（防 retag 换载荷）；留空 = 不钉",
     ),
 )
 
@@ -353,6 +597,9 @@ def _normalize(item: WizardItem, raw: object, guard: ConfigGuard | None) -> str:
         # click.Choice 已挡掉非法取值；这里只做大小写归一（Choice 不区分大小写时返回原选项）。
         return text
     if guard is not None and guard.kind == "range":
+        if guard.minimum is None and guard.maximum is None:
+            # 只有长度约束（``*_HOST`` 这类 min_length 字段）：是文本项，别当数字解析。
+            return text
         return _normalize_number(item.key, text, guard)
     return text
 
@@ -374,10 +621,9 @@ def _prompt_value(item: WizardItem, *, default: str, guard: ConfigGuard | None) 
     if item.kind is WizardKind.SECRET:
         secret_input = click.prompt("    值（不回显；留空 = 不改动）", default="", hide_input=True, show_default=False)
         return str(secret_input).strip()
-    if guard is not None and guard.kind == "enum":
-        choice = click.Choice(list(guard.values), case_sensitive=False)
-    else:
-        choice = None
+    # 值域来源：显式 choices 优先，否则用 catalog 的枚举守卫（两者都没有 = 自由文本）。
+    values = item.choices or (guard.values if guard is not None and guard.kind == "enum" else ())
+    choice = click.Choice(list(values), case_sensitive=False) if values else None
     while True:
         value: object
         if item.kind is WizardKind.BOOL:
@@ -688,9 +934,11 @@ def run_wizard(*, setting_file: Path | None = None, project_env_file: Path | Non
 
 
 __all__ = [
+    "COMMON_KEY_GROUPS",
     "COMMON_KEYS",
     "MIN_COVERAGE",
     "WIZARD_ITEMS",
+    "CommonKeyGroup",
     "WizardError",
     "WizardItem",
     "WizardKind",

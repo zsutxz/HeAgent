@@ -8,6 +8,9 @@
 - :class:`FileProgressBridge` / :func:`format_file_progress` —— 接收
   ``tools/builtins/file.py`` 分块上报的 ``(已处理字节, 计划总量字节)``，渲染
   「已处理 / 总量 / 百分比 / 预计剩余时间」，由 :class:`ToolProgress` 拼到同一行行尾。
+- :class:`EngineToolProgressAdapter` —— 把 ``engine.events`` 的工具事件换算成 ``StreamEvent``
+  喂给 :class:`ToolProgress`：单次执行走非流式 ``loop.run``，拿不到 ``StreamEvent``，但工具
+  生命周期在引擎侧是同一套 ``tool_call_started`` / ``tool_call_completed`` / ``tool_call_failed``。
 
 纪律：:meth:`ToolProgress.on_event` 与 :meth:`FileProgressBridge.report` 都不做 I/O（前者跑在
 ``run_stream`` 消费协程里，后者跑在工具工作线程里）；唯一写操作在 :meth:`ToolProgress._tick`
@@ -27,11 +30,12 @@ from pydantic import BaseModel
 
 from heagent.cli.display import tool_progress_label
 from heagent.config import get_settings
+from heagent.pub.types import StreamEvent
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from heagent.pub.types import StreamEvent
+    from heagent.engine.observability import EngineEvent
 
 #: 工具耗时阈值（**秒**）：低于此值的工具执行不显示任何进度行（避免噪声）。
 TOOL_PROGRESS_MIN_SECONDS: float = 3.0
@@ -274,3 +278,62 @@ class ToolProgress:
                 await task
         self._clear_line()
         self._active.clear()
+
+
+#: 引擎侧「工具开表」事件（``engine/executor.py::_emit_tool_event`` 的单点发出面）。
+_START_EVENT_TYPES = frozenset({"tool_call_started"})
+#: 引擎侧「工具停表」事件：在**已开表**的调用上成对出现；未开表的那条由适配器按计数丢弃。
+_STOP_EVENT_TYPES = frozenset({"tool_call_completed", "tool_call_failed"})
+
+
+class EngineToolProgressAdapter:
+    """把 :class:`ToolProgress` 接到 ``engine.events``：单次执行（非流式 ``loop.run``）的唯一适配点。
+
+    非流式路径没有 ``StreamEvent``，但工具生命周期在 ``engine/executor.py::_emit_tool_event`` 上
+    是同一套事件名 ⇒ 这里只做**形状换算**（``tool_call_started`` → ``tool_call``、完成/失败 →
+    ``tool_result``），进度原语与展示标签仍各只有一份实现。
+
+    配对按「工具名计数」：引擎事件不带调用 id，只能如此。``tool_call_blocked`` 与「未开表的
+    ``tool_call_failed``」（未知工具 / ledger 异常）**一律丢弃**——它们从不经 ``tool_call_started``，
+    转发出去会把**别的**在途工具误停表。
+
+    ``handle`` 由 ``EventBus.emit`` 在调用方协程里同步派发，故它只做内存记账（与
+    :meth:`ToolProgress.on_event` 同一纪律：不写 I/O、不阻塞事件循环）。
+    """
+
+    def __init__(self, progress: ToolProgress) -> None:
+        self._progress = progress
+        self._inflight: dict[str, int] = {}
+        self._detached = False
+
+    def handle(self, event: EngineEvent) -> None:
+        if self._detached:
+            return
+        kind = event.event_type
+        name = event.tool_name
+        if kind in _START_EVENT_TYPES:
+            self._inflight[name] = self._inflight.get(name, 0) + 1
+            self._progress.on_event(StreamEvent(type="tool_call", tool_name=name, tool_target=event.target))
+        elif kind in _STOP_EVENT_TYPES:
+            pending = self._inflight.get(name, 0)
+            if pending <= 0:
+                return
+            if pending == 1:
+                del self._inflight[name]
+            else:
+                self._inflight[name] = pending - 1
+            self._progress.on_event(
+                StreamEvent(type="tool_result", tool_name=name, tool_error=kind == "tool_call_failed")
+            )
+
+    def detach(self, bus: Any) -> None:
+        """注销自身（幂等）：run 结束后不得留常驻订阅者。
+
+        ``EventBus`` 只有 ``subscribe``、没有 ``unsubscribe`` 公共面，故按观察者列表移除自身；
+        移除失败也不影响正确性——``_detached`` 让后续事件全部早退（零输出、零记账）。
+        """
+        self._detached = True
+        self._inflight.clear()
+        observers = getattr(bus, "_observers", None)
+        if isinstance(observers, list) and self in observers:
+            observers.remove(self)

@@ -190,6 +190,8 @@ class TestReadOnlyMemory:
     """只读内存：耗时与来源规模无关，且端点不做 I/O。"""
 
     async def test_response_stays_under_100ms(self) -> None:
+        # 阈值刻意宽（100ms，远高于进程内 ASGI 实测的亚毫秒级）：这里只抓「端点开始做 I/O / 扫描」
+        # 这类数量级退化，紧阈值在共享 CI 上只会制造 flaky——数量级判据才是本用例要钉的东西。
         source = _StaticSource([_view(f"t{index:03d}") for index in range(endpoints_tasks.MAX_TASK_LIST_ENTRIES)])
         async with _client(source) as client:
             await client.get("/api/tasks")  # 预热（首次请求含路由与模型构建）

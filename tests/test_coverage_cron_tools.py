@@ -87,7 +87,7 @@ class TestCronAddInvalidSchedule:
             pytest.param("* * *", ("expected 5 fields", "got 3"), id="only-3-fields"),
             pytest.param("abc * * * *", ("Invalid cron field",), id="alpha-field"),
             pytest.param("a-b * * * *", ("Invalid cron field",), id="alpha-range"),
-            # V2 能力对齐回归锚：步进语义与运行期 _parse_field 同判（沿革见 git log V2 周期）。
+            # V2 能力对齐回归锚：步进语义与运行期 parse_field 同判（沿革见 git log V2 周期）。
             pytest.param("5/10 * * * *", ("Invalid cron field",), id="value-with-step"),
             pytest.param("*/0 * * * *", ("Invalid cron field",), id="zero-step"),
         ],

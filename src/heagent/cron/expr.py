@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from datetime import datetime
 
-__all__ = ["cron_matches"]
+__all__ = ["cron_matches", "parse_field"]
 
 
 # 标准 cron 五字段（分 时 日 月 周）；周字段允许 7 作周日别名（POSIX/Dow 两种写法都收）。
@@ -45,20 +45,33 @@ def _field_matches(expr: str, value: int, *, min_val: int = 0, max_val: int = 59
     """Return whether one cron field matches one numeric value.
 
     V2 扩展：支持范围表达式（``1-5``）和步进组合（``*/15`` / ``1-30/10``）。
-    内部走 ``_parse_field`` 统一解析 → 查值是否在展开列表中。
+    内部走 :func:`parse_field` 统一解析 → 查值是否在展开列表中。
 
     P1-12 扩展修复：对 weekday 字段 (max_val==7) 统一把 cron ``"7"``（周日）
     映射到内部值 0（周日），覆盖单值 ``"7"``、范围 ``"5-7"``、列表 ``"1,3,7"``
     等全部语法。原修复仅覆盖 ``expr=="7"`` 的精确匹配，范围/列表中的 7 会漏判周日。
     """
-    values = _parse_field(expr, min_val=min_val, max_val=max_val)
+    values = parse_field(expr, min_val=min_val, max_val=max_val)
     if max_val == _SUNDAY_ALIAS:
         values = [0 if v == _SUNDAY_ALIAS else v for v in values]
     return value in values
 
 
-def _parse_field(raw: str, *, min_val: int = 0, max_val: int = 59) -> list[int]:
-    """统一解析 cron 字段为展开数值列表（V2 新增）。
+def parse_field(raw: str, *, min_val: int = 0, max_val: int = 59) -> list[int]:
+    """把单个 cron 字段解析成展开后的升序去重整数列表。
+
+    公共契约（跨模块调用方按此写作，语义变更即破坏签名）：
+
+    - ``min_val`` / ``max_val``：该字段的**闭区间合法取值域**（分 0-59、时 0-23、
+      日 1-31、月 1-12、周 0-7）。它同时决定三件事——``*`` 展开的端点、
+      纯步进 ``*/N`` 的起点、单值/范围边界的越界校验阈值。
+    - 返回值：该字段命中的**全部取值**（升序、去重）。步进/范围按集合展开，
+      不做时刻组合计算，也不考虑「日与周同为受限时取 OR」之类调度层约定。
+    - 异常：表达式非法一律抛 ``ValueError``——语法不认识、步进非正整数、单值或范围
+      越出 ``[min_val, max_val]``、范围起点大于终点。**不返回空列表、不静默跳过
+      非法片段**；消息文案随异常类型一起构成契约（调用方按文案断言）。
+    - 周日归一化（``7`` → ``0``）不在此处做，由调用方按字段语义处理：本函数
+      只做字面展开，``parse_field("7", min_val=0, max_val=7)`` 返回 ``[7]``。
 
     支持的语法：
     - ``*`` → [min_val, ..., max_val]

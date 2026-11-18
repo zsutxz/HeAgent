@@ -6,21 +6,21 @@ from datetime import datetime
 
 import pytest
 
-from heagent.cron.expr import _parse_field, cron_matches
+from heagent.cron.expr import cron_matches, parse_field
 
 
 class TestCronMalformedRangeStep:
     def test_malformed_range_step_raises_domain_error(self) -> None:
         """畸形输入如 */5-10（"-" 仅在步进侧）应抛域级错误，而非内部解包错误。"""
         with pytest.raises(ValueError, match="Invalid cron field expression"):
-            _parse_field("*/5-10", min_val=0, max_val=59)
+            parse_field("*/5-10", min_val=0, max_val=59)
 
     def test_cron_matches_propagates_domain_error(self) -> None:
         with pytest.raises(ValueError, match="Invalid cron field expression"):
             cron_matches("*/5-10 * * * *", datetime(2026, 1, 1, 12, 0))
 
     def test_valid_range_step_still_works(self) -> None:
-        assert _parse_field("1-30/10", min_val=1, max_val=31) == [1, 11, 21]
+        assert parse_field("1-30/10", min_val=1, max_val=31) == [1, 11, 21]
 
 
 class TestWebFetchGuardContent:

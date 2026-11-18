@@ -36,7 +36,9 @@ Ollama entry with OLLAMA_ENABLED=true.
 heagent init --interactive
 ```
 
-- 逐项问常用配置（19 项常用键全覆盖），每项给一句说明 + 推荐值（推荐值就是 `Settings` 字段默认，不另编一份）；
+- 逐项问常用配置（**45 项**常用键，按「凭据 → 模型与预算 → 路由池 → 上下文 → 记忆与技能 → MCP →
+  HTTP/WS 入口 → 日志与事件 → 沙箱」的面顺序全覆盖），每项给一句说明 + 推荐值（推荐值就是
+  `Settings` 字段默认，不另编一份）；
   凭证类输入隐藏回显。
 - 写完先校验：逐键往返读回 → `Settings` 构造 → 结构体检（等价 `heagent doctor` 的 `.env` 诊断），
   校验不过就不写盘，并给「描述 + Try + Docs」形态的修复建议。

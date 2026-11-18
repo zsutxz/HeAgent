@@ -132,7 +132,7 @@ AgentLoop.run(prompt)
 - `memory/` 运行期**不依赖 `engine/`**（`memory/dream.py` 的 `EngineContainer` 仅 TYPE_CHECKING 引用，实例由入口层注入、无 `default()` 回退；契约断言见 `test_architecture_contracts.py` FORBIDDEN_RUNTIME_IMPORTS）
 - `engine/` 是运行时治理层（policy/executor/store/ledger/observability + workflow 运行时模型），依赖 `pub.types`/`pub.exceptions` + `tools.call_summary`/`tools.sandbox`/`tools.path_safety`（container 另有 lazy `config` 导入）；工作流资源模型在 `engine/workflow_resource.py`（原 memory.skill_packages，2026-09-20 迁入）；被 `agent/` 依赖（`AgentLoop` 经 `EngineContainer` 注入）
 - `events/` 是事件传输层（JSONL 对外契约），运行时**零 engine 依赖**（EngineEvent 仅 TYPE_CHECKING 引入）；反向地，`engine/` 运行期引用 `events.protocol` 的**纯函数单点** `error_kind_for`（Phase 5 C1 失败分类）——events.protocol 运行期仅依赖 `pub.exceptions`，该边无环且不引入 EngineEvent→RunEvent 的反向耦合（4.15）
-- `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`_parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.pub.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
+- `cron/expr.py` 是**零 heagent 导入的纯叶子**（5-field cron 表达式解析：`cron_matches`/`parse_field` 等），被 `cron/scheduler`（包内）与 `memory/dream` 共用——类比 `heagent.pub.persist`（纯 util）。`memory → cron` 包级边仅指此纯叶子（做 cron 匹配），**不依赖 `cron.scheduler` 调度器**；`CronScheduler._matches` 已降为薄委托（`return cron_matches(...)`）。
 - `network/` 是**入口传输层**（Epic 49–50）：只承载 HTTP 协议 / 路由 / 静态资源 / 连接与超时生命周期 / 暴露判定，运行期**不依赖运行栈**（`agent`/`engine`/`providers`/`tools`/`memory`/`skills`/`context`/`cron`/`events`）与任何配置面模块（`config`（整包：Settings/catalog/write/envfile）/`pub.projects`/`pub.workspace`——粒度必须细到模块，唯一例外是零依赖的 `pub.safe_logging`）、任何入口层模块（`cli` 包（含 `cli/wiring.py`）/`cli/goal`/`cli/http`/`gui`）；Provider 与 `AgentLoop` 的装配由入口层 `cli/http.py` 单向伸手（契约断言：`test_architecture_contracts.py` 的 FORBIDDEN_RUNTIME_IMPORTS["network"]）
 
 ---
@@ -150,7 +150,8 @@ AgentLoop.run(prompt)
 | `composition.py` | 装配：provider→engine→AgentLoop、soul、上下文策略、plan mode、dream 调度、事件 sink、路由提取 | `cli.py` 拆出 |
 | `interactive.py` | 单次/交互**执行**：REPL 循环、斜杠命令族、会话 id 解析、内嵌 HTTP 的挂载点 | `cli.py` 拆出 |
 | `init.py` | `heagent init` 子命令（全局配置与项目上下文模板） | `cli_init.py` |
-| `goal.py` | `/goal` 命令族（声明式工作流分发 + cron 自动推进） | `cli_goal.py` |
+| `goal/` | `/goal` 命令族子包（commands / execution / messages / verify；Story 62.2 拆包） | `cli_goal.py` |
+| `port_finder.py` | 端口顺延查找（preferred..preferred+9 内找空口） | 新增 |
 | `http.py` | `http-server` 子命令 + HTTP 服务/生命周期装配（Epic 49） | `cli_http.py` |
 | `http_config.py` | HTTP/WS listener 配置装配：`Settings` + CLI 覆盖 → `HttpServerConfig` / `WsServerConfig`（纯派生，Story 62.8 自 `http.py` 拆出） | `cli_http.py` 拆出 |
 | `http_console.py` | 网页控制台的**项目/会话/配置面**（Epic 50；`HttpProjectConsole` / `HttpAgentHandler`） | `cli_http.py` 拆出 |
@@ -161,7 +162,7 @@ AgentLoop.run(prompt)
 | `cron_cmd.py` | `heagent cron status` 定时任务状态查询（只读 `jobs.json`：状态 / 最后与下次执行 / 失败原因，Story 64.10） | 新增 |
 | `progress.py` | 进度原语：工具执行超 3s 的实时耗时行 + 大文件（>10MB）读写进度（Story 64.8 / 64.9） | 新增 |
 | `suggestions.py` | 错误场景 → ≥2 条**可执行命令**建议的声明式映射表（Story 64.13） | 新增 |
-| `wizard.py` | `heagent init --interactive` 配置向导主体（推荐值取自 `Settings` 字段默认，Story 64.14） | 新增 |
+| `wizard.py` | `heagent init --interactive` 配置向导主体（45 项常用键按 11 个面分组，推荐值取自 `Settings` 字段默认，Story 64.14） | 新增 |
 | `slash.py` | 交互模式斜杠命令注册表 + `.heagent/commands/*.md` 用户自定义命令加载 | 顶层 `slash.py` |
 | `terminal.py` | 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断） | 顶层 `terminal.py` |
 | `wiring.py` | provider 呈现薄壳（规则在 `providers/composition.py`，2026-11-07 迁出）+ `ensure_runtime_config` / `build_cron_job_runner`（CLI/GUI 共用） | 顶层 `wiring.py` |
@@ -184,7 +185,7 @@ AgentLoop.run(prompt)
 | 重试中间件 | 通过 `make_retry_middleware()` 接入 AgentLoop |
 | Token 统计 | 每次回答后显示 `[tokens: N in + M out = T total]` |
 | 运行暂停/恢复/中断 | 交互模式运行期间按 Esc 暂停当前 run、Enter 恢复、双击 Esc 打断（取消当前 run、回到输入状态，见 `cli/terminal.py`） |
-| HTTP 入口 | `heagent http-server`（实验性，实现拆在 `cli/http.py` + `cli/http_config.py` + `cli/http_console.py` + `network/http_*.py` + 包内 `web/`，协议、静态页与安全立场见 4.17） |
+| HTTP 入口 | `heagent http-server`（实验性，实现拆在 `cli/http.py` + `cli/http_config.py` + `cli/http_console.py` + `network/http_protocol.py` + `network/http_server/` + 包内 `web/`，协议、静态页与安全立场见 4.17） |
 
 ### 4.2 Agent 核心 (`agent/`)
 
@@ -1320,7 +1321,7 @@ HTTP+SSE 与内嵌网页，**不含任何 WS 路由**；WS 能力全部迁到独
 | 关注点 | 实现事实（Story 49-1/49-2/49-3 已交付部分） |
 | --- | --- |
 | 协议模型 | `network/http_protocol.py`：`HttpErrorCode` 封闭 **35** 码（含 `HttpRunConflictError.code` 的冲突映射）+ `network/ws_protocol.py`：WS `hello` / `event` / `ack` / `error` / `notification` 帧（`hello` 为连接首帧，见 4.17.1 帧契约）与 `{run, cancel, ping}` 命令（`run` 仅集合级端点有效，见 4.17.1）；错误信封与事件负载复用 HTTP/SSE 模型。 |
-| 传输层 | `network/http_server.py`：**HTTP/SSE 独占**——listener 生命周期、路由、运行服务、安全响应头、静态资源；**不再挂任何 `WebSocketRoute`**（Epic 56 D1，9101 上的 WS 升级不可达）。WS 侧全部在 `network/ws_host.py`（listener + 装配）与 `network/ws_server.py`（端点逻辑、续传、命令）。两者均不构造 Agent；`ws_server` 与 `ws_host` 均**不得**导入 `http_server`（同层传输模块互不依赖，架构契约钉住；共用的延迟导入辅助住 `network/optional_deps.py`）。 |
+| 传输层 | `network/http_server/`（子包：app / listener / service / pipeline / endpoints_*）：**HTTP/SSE 独占**——listener 生命周期、路由、运行服务、安全响应头、静态资源；**不再挂任何 `WebSocketRoute`**（Epic 56 D1，9101 上的 WS 升级不可达）。WS 侧全部在 `network/ws_host.py`（listener + 装配）与 `network/ws_server.py`（端点逻辑、续传、命令）。两者均不构造 Agent；`ws_server` 与 `ws_host` 均**不得**导入 `http_server`（同层传输模块互不依赖，架构契约钉住；共用的延迟导入辅助住 `network/optional_deps.py`）。 |
 | 可选依赖 | `starlette` / `uvicorn` / `websockets>=13.0,<18` 由 `pyproject.toml` 的 `http` extra **直接声明**；服务端只延迟导入 Starlette/Uvicorn，不直接导入 `websockets`。缺少 HTTP 栈抛 `HttpDependencyError`；缺少 WS 协议实现时 HTTP 仍可启动并记录 `ws_unavailable`。可执行断言：`tests/test_architecture_contracts.py::test_optional_asgi_stack_is_only_imported_lazily`。 |
 | 就绪门禁 | `start()` 只在「listener 已绑定**且**用真实网络连接打通一次 `/api/health`（200）」后返回；绑定失败（Uvicorn 在该路径上是 `sys.exit(STARTUP_FAILURE)`）与探测失败都转成 `HttpStartupError`，命令层给可读错误，**绝不**打印「已监听」。**通配绑定**（`0.0.0.0` / `::`）的探测改走回环地址（连 `0.0.0.0` 是未定义行为），故允许集对通配值额外接受 `127.0.0.1` / `localhost` / `[::1]`（探测的 Host 头按 authority 语法给 IPv6 加方括号）——通配绑定可从本机浏览器访问，但经其它网卡地址访问仍被 `origin_forbidden` 拒绝（非回环联网不受支持）。连接的 `limit_concurrency` 额外预留 1 条给就绪探测，否则 `HTTP_MAX_CONNECTIONS=1` 会让入口**永远起不来**（以上两项为 2026-09-23 评审修复）；探测收尾（`writer.close()` 之后的 `await writer.wait_closed()`）**自带 `_PROBE_TIMEOUT` 上界**——对端只收不关（或黑洞）时不再把就绪门禁拖成无界等待（2026-09-28 修复，`tests/network/test_http_server.py::TestProbeBoundedClose`）|
 | 关闭 | `close()` 幂等且全程有界：设 `should_exit` → Uvicorn `shutdown()`（连接排空受 `timeout_graceful_shutdown` 约束）→ 等待 serve 循环退出（超时则取消），整体再包一层 `wait_for`。信号**不归 Uvicorn 管**（不调 `serve()` / `capture_signals`）：`KeyboardInterrupt` 由 CLI 接住并安静退出 |
@@ -1546,11 +1547,16 @@ src/heagent/
 │   ├── composition.py       # 装配：provider→engine→loop / soul / 上下文策略 / plan mode / dream / 事件 sink（2026-09-26 自 cli.py 拆出）
 │   ├── interactive.py       # 单次/交互执行：REPL + 斜杠命令族 + 内嵌 HTTP 挂载点（2026-09-26 自 cli.py 拆出）
 │   ├── init.py              # heagent init 子命令（全局配置/项目上下文模板生成，2026-09-17 自 cli.py 拆出）
-│   ├── goal/                # /goal 命令族子包（声明式工作流分发 + cron 自动推进；messages 输出漏斗 / verify 门禁与受治理重跑 / execution 步骤执行 / commands 命令面，__init__ 全量再导出）
+│   ├── goal/                # /goal 命令族子包（声明式工作流分发 + cron 自动推进；2026-11-17 Story 62.2 自 cli/goal.py 拆出，__init__ 全量再导出）
+│   │   ├── commands.py      # 命令面：命令处理器、参数解析/分发、cron 自动推进与 runner 入口
+│   │   ├── execution.py     # 步骤执行面：声明式解析辅助、步骤执行、script 两阶段与 SubAgent 会话缝
+│   │   ├── messages.py      # 用户可见输出漏斗（sink ContextVar + _echo 单点出口）
+│   │   └── verify.py        # 验证面：质量门 / 证据求值 / 受治理重跑 / workflow 事件发射
 │   ├── http.py              # http-server 子命令 + HTTP 服务装配（入口层组合根；Epic 49）
 │   ├── http_config.py       # HTTP/WS listener 配置装配（Settings + CLI 覆盖 → *Config；2026-11-17 Story 62.8 自 http.py 拆出）
 │   ├── http_console.py      # 网页控制台的项目/会话/配置面（Epic 50；2026-09-26 自 cli_http.py 拆出）
 │   ├── dialogs.py           # 服务端原生「选择目录」对话框（Story 50-8）
+│   ├── port_finder.py       # 监听端口顺延查找（preferred…preferred+9 内取空口；2026-09-27）
 │   ├── display.py           # 终端渲染辅助（CLI 与 GUI 共用；原 cli_display.py）
 │   ├── errors.py            # CLI 错误的统一出口（描述 + Try 选项 + Docs 锚点；Story 64.5）
 │   ├── doctor.py            # heagent doctor 配置诊断（只读，11 组检查 / 25 个诊断码；Story 64.6）
@@ -1576,7 +1582,15 @@ src/heagent/
 │   └── event_lines.py       # 引擎事件的展示层纯函数（EventCursor 差分 + 单行格式化；GUI 薄壳调用，2026-09-28 台账 A24）
 ├── config/                  # 配置面（依赖 pub/，2026-09-26 自顶层平铺收敛）
 │   ├── __init__.py          # pydantic-settings 配置（Settings / get_settings / resolve_runtime_config；原 config.py）
-│   ├── catalog/             # 配置四层来源求解（2026-11-11 拆为子包：models·groups·masking·guards·envscan·sources·classify·report，包壳统一 re-export）
+│   ├── catalog/             # 配置四层来源求解（2026-11-11 E3 绞杀者拆为子包，行为零改动，包壳统一 re-export）
+│   │   ├── models.py        # 配置面 Pydantic 报表模型（ConfigReport / ConfigItem / ConfigGroupSpec 等）
+│   │   ├── groups.py        # 分组数据表：组规格、可写白名单来源、只读原因与展示标签
+│   │   ├── masking.py       # 凭证掩码口径：定长掩码、秘密键后缀判定与「空值」识别
+│   │   ├── guards.py        # 取值守卫与影响面：字段上界、值域守卫、impact 分级
+│   │   ├── envscan.py       # .env / setting.md 行级扫描（只产诊断，永不参与取值）
+│   │   ├── sources.py       # 四层来源求解器：pydantic-settings 单一来源 + 逐层失败降级
+│   │   ├── classify.py      # 键名分类：可写白名单、分类结果与系统环境键枚举
+│   │   └── report.py        # 报表装配：配置项、分组、未知键与路由池视图
 │   ├── write.py             # 受闸门的项目 .env 写流水线（原 config_write.py；Story 50-5）
 │   ├── envfile.py           # .env 行级保真读写（原 envfile.py；Story 50-5）
 │   ├── validation.py        # 启动期必需配置校验（只判「不满足必然起不来」，<100ms；Story 64.7）
@@ -1599,6 +1613,7 @@ src/heagent/
 │   ├── base.py              # BaseProvider Protocol
 │   ├── composition.py       # provider 装配规则真身（2026-11-07 批次9卡B 迁入；致命呈现由 cli/wiring 薄壳完成）
 │   ├── openai.py            # OpenAI 兼容（含 DeepSeek）
+│   ├── fallback_base.py     # 回退层共享基础设施：错误包装 / 回退决策 / 回退循环模板（2026-09-27）
 │   ├── anthropic.py         # Anthropic（含提示词缓存 FR-3）
 │   ├── chain.py             # ProviderChain 回退链（外层，FR-4 回退精度）
 │   ├── key_rotation.py      # KeyRotatingProvider 密钥池轮换（中层）
@@ -1613,7 +1628,13 @@ src/heagent/
 │   ├── safety.py            # SafetyGuard（shell 命令安全）
 │   ├── path_safety.py       # 工作区路径校验（文件工具）
 │   ├── edits.py             # 编辑原语：行尾/BOM 保真读写、diff 回执、落盘前快照
-│   ├── sandbox/             # 沙箱包（contracts/process/firejail/winjob/docker/session，Phase 4 C1 + Epic 53 container 档）
+│   ├── sandbox/             # 沙箱包（Phase 4 C1 自单文件拆出 + Epic 53 container 档；`__init__` re-export 历史公共名）
+│   │   ├── contracts.py     # 契约层：SandboxTier 强度分级 + CommandRunner Protocol + 注入 slot（零后端依赖）
+│   │   ├── process.py       # 进程监督内核：spawn / 超时 / 取消 / kill-reap / 输出截断的单点实现
+│   │   ├── firejail.py      # Firejail 后端（OS 级隔离，Linux-only，非完美边界）
+│   │   ├── winjob.py        # Windows Job Objects 后端（进程级隔离，随句柄关闭杀全树）
+│   │   ├── docker.py        # Docker 容器后端（CONTAINER 档首个实现，Epic 53 期一：短命命令一次性容器）
+│   │   └── session.py       # 沙箱会话目录约定与 per-run 会话作用域（目录约定，非安全边界）
 │   ├── call_summary.py      # 工具调用「作用对象」摘要（展示层共用）
 │   ├── runtime.py           # 工具运行态绑定（_runtime_scope）
 │   ├── mcp/                 # MCP 适配层
@@ -1622,7 +1643,8 @@ src/heagent/
 │   │   ├── session_api.py   # MCP SDK 会话字段兼容访问
 │   │   ├── client.py        # TransportOpener Protocol + 默认实现（Phase 4 C2）
 │   │   ├── registry_bridge.py  # 注册/注销单一入口（Phase 4 C2）
-│   │   └── manager.py       # MCPClientManager（生命周期 façade + discovery_failures）
+│   │   ├── manager.py       # MCPClientManager（生命周期 façade + discovery_failures）
+│   │   └── stdio_sandbox.py  # MCP stdio 子进程进容器（把 SDK 子进程换成 docker CLI 拉起，Story 53-5）
 │   └── builtins/            # 内置工具（29 个）
 │       ├── __init__.py      # 触发注册
 │       ├── shell.py         # shell 命令执行
@@ -1648,6 +1670,8 @@ src/heagent/
 │   ├── facts.py             # 事实存储 + 去重
 │   ├── profile.py           # 用户画像
 │   ├── soul.py              # 人格系统（全局/项目两级）
+│   ├── auto_archive.py      # 启动期 MEMORY.md 字节归档（超阈值移出最旧前缀进 archive/；2026-09-27）
+│   ├── compact.py           # MEMORY.md 语义压缩（Epic 59 写侧唯一入口：合并重复/过时条目，留底先行）
 │   └── dream.py             # 离线记忆巩固调度器（Dreaming 模式）
 │
 ├── skills/                  # 技能库域包（2026-10-10 自 memory/ 迁出）
@@ -1671,11 +1695,11 @@ src/heagent/
 │   ├── workflow_resource.py # 工作流资源模型 WorkflowResource/Step（2026-09-20 自 memory.skill_packages 迁入）
 │   ├── state_machine.py     # 状态模型 + 唯一状态写点 _transition_fields + update 推导 + 决策内核
 │   ├── story_batch.py       # story 并行批派生/收集 + 回调调用契约 + 写集词法
-│   ├── workflow_runner.py    # 声明式 workflow 单步执行器
-│   ├── workflow_events.py    # 工作流状态机驱动事件（WorkflowEvent 枚举）
-│   ├── workflow_transition.py # 状态机转换表 transition()（fail-loud 非法转换）
-│   ├── approval.py           # 交互式审批协议与状态
-│   ├── hooks.py              # 生命周期 Hook 调度
+│   ├── workflow_runner.py   # 声明式 workflow 单步执行器
+│   ├── workflow_events.py   # 工作流状态机驱动事件（WorkflowEvent 枚举）
+│   ├── workflow_transition.py  # 状态机转换表 transition()（fail-loud 非法转换）
+│   ├── approval.py          # 交互式审批协议与状态
+│   ├── hooks.py             # 生命周期 Hook 调度
 │   ├── tasks.py             # 后台任务进度注册表（四态 + 百分比单调 + TTL/条数淘汰；Story 64.11）
 │   └── observability.py     # EventBus / 事件
 ├── events/                  # 事件传输层（JSONL 契约 / rollout 落盘 / replay）
@@ -1685,9 +1709,20 @@ src/heagent/
 ├── network/                 # 网络入口传输层（Epic 49–50 HTTP/SSE + Epic 54–56 WS；协议/生命周期/暴露判定，不依赖运行栈）
 │   ├── http_protocol.py     # HTTP/SSE 协议模型与稳定错误码（含 HttpRunConflictError 的唯一来源）
 │   ├── ws_protocol.py       # WebSocket 帧模型（event/ack/error/notification）、命令枚举（run/cancel/ping）、三条上界与关闭码
-│   ├── http_server/         # HTTP/SSE 子包（2026-11-15 自单文件拆出：config/assets/records/service/pipeline/middleware/endpoints_{run,console,tasks}/app/listener）
-│   │                        #   endpoints_tasks.py = 后台任务进度查询（只认注入的 TaskProgressSource，Story 64.11）
+│   ├── http_server/         # HTTP/SSE 子包（2026-11-15 Story 62.1 自单文件拆出；层序无环：config → assets/records → service → pipeline → endpoints_* → middleware → app → listener，`__init__` 全量再导出）
+│   │   ├── config.py        # HttpServerConfig 与启动失败异常（层序最底层，只依赖 Pydantic + 请求上限常量）
+│   │   ├── assets.py        # 包内静态资源白名单与读取
+│   │   ├── records.py       # _RunRecord 单次运行状态源（有界事件缓冲 / 订阅者 / 终态转换，AD-3·AD-4）
+│   │   ├── service.py       # HttpRunService：运行生命周期、单运行名额、看门狗与 SSE 事件源（AD-3 唯一所有者）
+│   │   ├── pipeline.py      # 请求管线 helper：有界读体 / 校验 / 错误信封 / SSE 编码 / 控制台错误码状态表
+│   │   ├── endpoints_run.py  # 运行 API 端点：创建 / SSE 订阅 / 取消 / 会话快照
+│   │   ├── endpoints_console.py  # 控制台端点：项目 / 会话 / 配置 / 原生目录选择（分组与来源求解留入口层）
+│   │   ├── endpoints_tasks.py  # 后台任务进度查询端点（只认注入的 TaskProgressSource，Story 64.11）
+│   │   ├── middleware.py    # ASGI 中间件与安全响应头：同源防线 / 请求观测 / 安全头（包装序装配在 app）
+│   │   ├── app.py           # ASGI 应用装配：健康检查 + 运行/控制台路由 + 包内静态页（路由常量与注册同模块，供路由快照解析）
+│   │   └── listener.py      # HTTP listener 生命周期：绑定 / 就绪探测 / 有界关闭（start·serve_forever·close 三件套）
 │   ├── ws_host.py           # WsServer / WsServerConfig / build_ws_app：独立 listener、四条 WS 端点的装配（Epic 56/58）
+│   ├── origin.py            # 入口 listener 同源防线（AD-6）与探测地址推导（HTTP/WS 共用的单源；Epic 56 D1）
 │   ├── optional_deps.py     # 可选依赖延迟导入辅助 require_module + HttpDependencyError（http_server / ws_host 共用）
 │   ├── ws_server.py         # WS 端点逻辑：提交 run、单 run 订阅+游标续传、命令处理、连接生命周期
 │   ├── ws_auth.py           # 对外模式认证纯逻辑：Bearer 解析 / 常量时间比较 / 按来源失败限速（Epic 56）
@@ -1710,8 +1745,27 @@ src/heagent/
 │   ├── decisions.py         # 人工决策日志：版本化模型 + 追加式存储（<goal_dir>/decisions/，Story 51-5）
 │   ├── quality_gates.py     # 通用门禁求值器：validation: 结构化子句 → 证据/产物/只读 Git 比对；
 │   │                        #   gate: 宿主注册表（名字→语义+求值函数分派表）也在此（Story 51-4）
-│   └── write_audit.py       # Story 写集审计判负策略（AD-18 / A40 内容指纹 / A41-A43 披露与 remediation，2026-11-07 自 cli/goal.py 迁入）
-├── gui/                     # 可选 Textual GUI（chat/screens/widgets/state）
+│   ├── write_audit.py       # Story 写集审计判负策略（AD-18 / A40 内容指纹 / A41-A43 披露与 remediation，2026-11-07 自 cli/goal.py 迁入）
+│   ├── mutex.py             # goal 域互斥公共端口：进程内 asyncio.Lock + 跨进程 .heagent/goal.lock（单推进者不变量下沉，2026-10-07 / A32②）
+│   ├── script_api.py        # GoalScript 受限能力门面：只登记操作请求，准入与执行交给既有 Runner/治理链（Story 51-7）
+│   ├── script_loader.py     # GoalScript 资源加载与静态约束（唯一入口名 build_workflow，AST 白名单）
+│   └── script_runtime.py    # GoalScript 有界宿主执行：AST 指令预算 + host 调用回本进程（Story 51-7 两阶段）
+├── gui/                     # 可选 Textual GUI（需 `[gui]` extra；Epic 27 面板 + Epic 28 事件流）
+│   ├── app.py               # Textual App 根壳：持有 loop / bridge / state / stores，管理页面导航
+│   ├── bridge.py            # AgentLoop ↔ Textual 异步数据桥
+│   ├── cli.py               # `heagent gui` 子命令入口（建 Provider/AgentLoop 后交给 App）
+│   ├── observers.py         # EventBus → GuiState 观察者 + 事件环形缓冲（Epic 28）
+│   ├── state.py             # 响应式全局状态（Pydantic + Textual reactive 适配）
+│   ├── screens/             # 页面（每页一 Screen）
+│   │   ├── chat.py          # 主聊天界面（流式对话 + 工具调用可视化）
+│   │   ├── cron.py          # Cron 任务管理面板（DataTable + 添加/删除，Story 27-3）
+│   │   ├── cron_add.py      # 添加 Cron 任务弹窗
+│   │   ├── event_log.py     # 事件日志页面（Epic 28-1）
+│   │   ├── memory.py        # 记忆/画像只读浏览面板（Story 27-3）
+│   │   ├── runs.py          # 运行历史面板（运行树 + 详情/恢复，Epic 28-2/3）
+│   │   └── skills.py        # 技能管理面板（详情/创建弹窗，Story 27-2）
+│   └── widgets/             # 复用 widget
+│       └── event_log.py     # 引擎事件实时日志 widget（RichLog + 自动滚动，Epic 28-1）
 └── cron/                    # 定时调度
     ├── expr.py              # 5-field cron 表达式解析纯叶子（零 heagent 导入；memory/dream 与 cron/scheduler 共用）
     ├── jobs.py              # CronJob 模型 + JobStore 持久化
@@ -1729,7 +1783,7 @@ python -m heagent "your prompt"
   ▼
 __main__.py → heagent.cli.console:main()（`heagent.cli` 包的命令组；原 `cli.py`）
   │
-  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（26 个工具）
+  ├── import heagent.tools.builtins → @tool 注册到 ToolRegistry（29 个工具）
   ├── get_settings() → 读取 DEEPSEEK_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY（+ OLLAMA_ENABLED 本地条目）
   ├── _build_provider() → OpenAIProvider（含本地 ollama）/ AnthropicProvider / ProviderChain
   │
