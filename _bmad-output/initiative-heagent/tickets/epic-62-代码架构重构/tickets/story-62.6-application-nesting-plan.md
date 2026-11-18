@@ -3,7 +3,7 @@ title: 'Story 62.6 重构 goal/application.py 多层嵌套'
 type: refactor
 ticket: 6
 created: '2026-11-17'
-status: built
+status: done
 baseline_revision: '19668cf5693c79f8cc9cbdf44f38b58bd62ae9ef'
 route: full
 route_source: auto

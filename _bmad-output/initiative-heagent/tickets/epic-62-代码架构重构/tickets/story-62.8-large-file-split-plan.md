@@ -3,7 +3,7 @@ title: 'Story 62.8 拆分 goal/application.py 与 cli/http.py'
 type: refactor
 ticket: 8
 created: '2026-11-17'
-status: built
+status: done
 baseline_revision: 'f32acc7'
 route: full
 route_source: auto

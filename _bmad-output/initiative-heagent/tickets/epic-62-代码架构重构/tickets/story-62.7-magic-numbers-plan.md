@@ -3,7 +3,7 @@ title: 'Story 62.7 消除魔法数字'
 type: refactor
 ticket: 7
 created: '2026-11-17'
-status: built
+status: done
 baseline_revision: 'f32acc7'
 route: full
 route_source: auto

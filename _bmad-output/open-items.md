@@ -7,7 +7,7 @@
 
 ## 活动（未闭合）条目
 
-当前活动项：**7 条**（`frozen` 2：A34 / A41；`active` 5：A35 / A36 / A53 / A54 / A55）。
+当前活动项：**8 条**（`frozen` 2：A34 / A41；`active` 6：A35 / A36 / A53 / A54 / A55 / A56）。
 
 | ID | 主题 | 状态 | 说明 |
 | --- | --- | --- | --- |
@@ -18,6 +18,9 @@
 | A53 | PostToolUse hook stdout 不进对话上下文 | `active` | 现状 = PostToolUse 钩子 fire-and-forget（stdout 仅日志）；Claude Code 语义会把非阻断 stdout 注入 transcript。**origin=新增（2026-11-13）：用户裁定撤销 Epic 63 立项，残差转台账**；候选增强 = 非阻断 hook stdout 注入对话（需定预算与截断口径）。触发条件 = 出现把 hook 输出喂回模型的真实需求（当前零使用） |
 | A54 | /simplify 清理批（2026-11-14）缓修残差：真重构 8 项（2026-11-15 起 ①④⑤ 已落） | `active` | **origin=新增（2026-11-14 /simplify 四视角审查）**。2026-11-14 `/simplify` 四视角审查（REUSE 7 / SIMPLIFICATION 6 / EFFICIENCY 4 / ALTITUDE 5，去重后 19 机制）的「立即修」机械批已落 `954f9d4`；以下**缓修**项超出一次清理的体量，逐条留档（origin = 四份审查报告，`git log 954f9d4` 前的会话）：① ws_server 双胞胎端点构造器与会话骨架（两对 ~95 行孪生构造器）② cli/http 服务编排合一 ③ `SandboxDecision` 加类型化派生字段取代 agent 层 `isinstance(dict)` 鸭子解析（`agent/loop.py:453` `_bound_container_workdir`）④ WS/SSE「快照重放+水位去重」双写收敛到 `http_protocol.py` ⑤ http_server 的 register_ws/unregister_ws/close_websockets/needs_resync 登记面坐上 `EventStreamHub`（`http_server.py:640-696`）⑥ story 批基线一次采集 ⑦ 流式 token 重编码：`agent/stream_runtime.py:95` 每次流式调用全量 re-encode 且 usage 缺失分支再全量算一次（按消息 memoize / 复用 `stream_estimated`）⑧ policy 可用性预热 + WS 帧预序列化（帧对订阅者恒同，但预序列化点在三 hub 的 backlog/队列协议面，与 ④⑤ 同族同批）。**2026-11-15 网络族推进（用户裁定：收敛到 SSE 语义 / ⑧ 本批不做）**：① = ws_server 四构造器收 `_ws_session` 会话骨架（握手门→accept/hello→closing→会话体→异常收敛→有界收尾，日志事件名逐字节保持）；④ = `http_protocol.replay_then_follow` 单源（WS 侧终态判定改**快照时刻捕获**——微竞态窗口内 WS 客户端改收终态事件，对齐 AD-4；SSE 心跳经参数注入）；⑤ = `cursor_out_of_window` 算术单源（三流 + WS）+ `WsRegistry` 连接登记与有界关停唯一实现（http_server 组合接入；其 close_websockets 日志去 close_code 字段，与 hub 口径统一，无测试钉死）。判据 `tests/network/test_http_protocol.py::TestReplayThenFollow`（6 例直钉）+ 既有 WS/SSE/hub 面全绿；⑧ 复核：'policy 可用性预热' 位点在代码/审查报告/台账均不可考（claude-mem 不可达、报告未落盘），帧预序列化经评估收益趋零（单用户 1–2 订阅者）且需改两条流的队列形状——**缓做**，待性能专项周期携原始报告复核。②③⑥⑦ 维持触发条件（下一轮性能/网络专项周期按项领取；动手前过两道红线） |
 | A55 | Epic 61 web_search 真实 Tavily 冒烟（61.3 验收残差） | `active` | **origin=新增（2026-11-16 Epic 61 收口，用户裁定跳过冒烟先闭合）**：61.1 引擎层（`66a5b9f`）/61.2 工具面（`1877250`）/61.3 文档收口已交付，三票 mark done；web_search 全链（config 解析→引擎调用→截断→围栏）未经真实密钥验证。闭合动作 = 用户提供 WEB_SEARCH_API_KEY 入 `.env` 后跑一次全链冒烟（参照 57-4 先例：临时 workspace，不触碰仓库记忆；key 不入 transcript/不入库/不入日志），通过后闭合 A55 并四处计数 7→6 |
+| A56 | Epic 64 收口残差：任务进度跨进程不可见 / `examples/` 不在代码门禁范围 | `active` | **origin=新增（2026-11-18 Epic 64 收口）**，两项均为实测事实：
+① **跨进程不可见**：`GET /api/tasks` 读的是**进程内**单例注册表（`engine/tasks.py::default_task_registry`），生产者当前只有上下文压缩（`agent/context_runtime.py::maybe_compress` 与 CLI `/compact`）⇒ 同进程的网页/内嵌入口能读到，跨进程（如另起的 `http-server` 实例、cron 子进程）读不到。判据 `tests/test_cli_epic64_wiring.py`（同进程 200）与 `tests/network/test_http_tasks.py`（注入式来源）。闭合动作 = 真需要跨进程时再上 IPC/落盘投影；触发条件 = 出现真实的「网页端看不到别的进程在跑什么」诉求。
+② **`examples/` 不在门禁范围**：`ruff check src tests scripts` 与 `mypy src` 都不覆盖 64.4 建立的 `examples/`（五个可运行示例）⇒ 示例代码漂移不会红。闭合动作 = 把 `examples/` 纳入 ruff（至少 check + format）并在 `docs/testing.md` 注明；触发条件 = 示例与 API 首次漂移或用户报「示例跑不通」。 |
 
 ### 速读（按行动姿态分组）
 

@@ -3,7 +3,7 @@ title: 'Story 62.1 拆分 network/http_server.py'
 type: refactor
 ticket: 1
 created: '2026-11-15'
-status: built
+status: done
 baseline_revision: '2e3b7e26919c73a39b7d735b79aadececaa449bc'
 route: full
 route_source: auto

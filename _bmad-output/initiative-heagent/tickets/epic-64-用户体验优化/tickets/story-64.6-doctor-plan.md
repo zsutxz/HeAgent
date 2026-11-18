@@ -3,7 +3,7 @@ title: 'Story 64.6 实现配置诊断工具'
 type: feature
 ticket: 6
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '69fbd2a'
 route: full
 route_source: auto

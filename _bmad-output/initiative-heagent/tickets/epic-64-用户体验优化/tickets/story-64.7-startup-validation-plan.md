@@ -3,7 +3,7 @@ title: 'Story 64.7 实现启动配置验证'
 type: feature
 ticket: 7
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '8026aa9'
 route: full
 route_source: auto

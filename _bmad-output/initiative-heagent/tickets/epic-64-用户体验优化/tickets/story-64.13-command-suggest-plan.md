@@ -3,7 +3,7 @@ title: 'Story 64.13 错误时自动建议相关命令'
 type: feature
 ticket: 13
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '8026aa9'
 route: full
 route_source: auto

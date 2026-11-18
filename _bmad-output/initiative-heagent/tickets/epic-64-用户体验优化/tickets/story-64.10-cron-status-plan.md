@@ -3,7 +3,7 @@ title: 'Story 64.10 实现 Cron 任务状态查询'
 type: feature
 ticket: 10
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '8026aa9'
 route: full
 route_source: auto

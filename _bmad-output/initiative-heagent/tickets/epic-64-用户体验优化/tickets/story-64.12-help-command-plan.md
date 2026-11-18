@@ -3,7 +3,7 @@ title: 'Story 64.12 实现详细帮助命令'
 type: feature
 ticket: 12
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '8026aa9'
 route: full
 route_source: auto

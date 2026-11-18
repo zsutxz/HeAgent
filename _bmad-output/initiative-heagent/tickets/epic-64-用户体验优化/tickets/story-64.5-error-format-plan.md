@@ -3,7 +3,7 @@ title: 'Story 64.5 优化错误信息格式'
 type: feature
 ticket: 5
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '69fbd2a'
 route: full
 route_source: auto

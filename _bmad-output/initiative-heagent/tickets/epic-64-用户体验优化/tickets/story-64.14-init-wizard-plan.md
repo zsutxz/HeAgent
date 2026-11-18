@@ -3,7 +3,7 @@ title: 'Story 64.14 实现交互式配置向导'
 type: feature
 ticket: 14
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '8026aa9'
 route: full
 route_source: auto
@@ -32,7 +32,7 @@ context:
 **只写用户级** `~/.heagent/setting.md`，不碰项目 `.env`。
 
 **Verify 拆解：**
-- 「覆盖 >80% 常用配置项」→ 分母 = `COMMON_KEYS`（19 项，硬编码清单，每项都必须既是 `Settings` 真实字段、
+- 「覆盖 >80% 常用配置项」→ 分母 = `COMMON_KEYS`（45 项，硬编码清单（评审后按用户裁定自 19 项扩容，覆盖 11 个配置面），每项都必须既是 `Settings` 真实字段、
   又能被 `config.catalog` 分类）；分子 = `covered_keys()`（= `WIZARD_ITEMS` 的键集合）；`coverage()` 是二者交集
   之比。**实测 19/19 = 100.0%**，下限常量 `MIN_COVERAGE = 0.8`。
 - 「提供说明与推荐值」→ 每项三项文案：`label`（中文名）/ `why`（一句说明，含「留空 = 不改动」这类作用域约定）/
@@ -76,7 +76,7 @@ context:
 ## Code Map
 
 - `src/heagent/cli/wizard.py` — 新建（701 行）：
-  - 口径：`COMMON_KEYS`（分母，19 项）/ `WIZARD_ITEMS`（分子，19 项）/ `covered_keys()` / `coverage()` /
+  - 口径：`COMMON_KEYS`（分母，45 项）/ `WIZARD_ITEMS`（分子，45 项）/ `covered_keys()` / `coverage()` /
     `MIN_COVERAGE = 0.8`；
   - 模型：`WizardKind`（`text|bool|secret`）/ `WizardItem`（`key/label/why/recommend/kind`，frozen）/
     `WizardResult`（`path/written/unchanged/system_env/verified`，frozen）/ `WizardError`；
@@ -129,9 +129,9 @@ context:
 
 ## Implementation Notes
 
-- **覆盖率的分母 / 分子都可反查**：分母是 `COMMON_KEYS`（19 项手写清单，规模约定 15–20 项，测试断言区间）；
+- **覆盖率的分母 / 分子都可反查**：分母是 `COMMON_KEYS`（45 项手写清单，按 11 个配置面分组；评审后按用户裁定自 19 项扩容）；
   每项被两条断言守住——必须是 `Settings` 真实字段（防清单与字段漂移）、必须能被 `config.catalog.classify`
-  分类（不得落 `UNKNOWN_GROUP`，否则「来源」列会失去意义）。分子是 `WIZARD_ITEMS`（同样 19 项，顺序即提问顺序：
+  分类（不得落 `UNKNOWN_GROUP`，否则「来源」列会失去意义）。分子是 `WIZARD_ITEMS`（同样 45 项，顺序即提问顺序：
   先凭据与条目 → 模型 → 运行参数 → 观测）。
   **实测 `coverage() = 19/19 = 1.0`**（`MIN_COVERAGE = 0.8`，余量 20 个百分点），
   且 `set(COMMON_KEYS) - covered_keys() == set()`。
@@ -187,6 +187,6 @@ context:
   - `docs/faq.md` 写「非 tty 退出码 2」，实测 1（`exit_with_hints` 抛 `click.ClickException`）⇒ 改文档。
 - false：非 tty 在任何文件系统副作用之前拒绝、写入走 `atomic_write_bytes`、凭证 `hide_input=True`、
   既有 setting.md 的正文与行内注释保留、CRLF 跟随原文件。
-- 留待裁决：`COMMON_KEYS` 是手写的 19 项「常用配置项」，覆盖率 19/19 = 1.0 是相对该清单的恒等式；
-  相对 `Settings` 的 130 个字段 / `.env.example` 的 134 个键约 14%。票面「>80% 常用配置项」的分母口径
-  需要产品裁定（扩清单 vs 承认当前口径）。
+- **已裁决（2026-11-18）**：`COMMON_KEYS` 自 19 项扩到 **45 项 / 11 个配置面**，覆盖率仍为 45/45 = 1.0。
+  该比率是相对本清单的恒等式（不是「相对 Settings 130 字段」的覆盖证据），这一点在测试注释里写明；
+  清单本身的代表性由「11 个面各至少 1 键」的结构断言兜住。

@@ -27,12 +27,13 @@
 
 ### 1.3 下一步（路线图）
 
-> 完整清单（活动台账项——当前 7 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
+> 完整清单（活动台账项——当前 8 条）见 [`open-items.md`](open-items.md)；需要排期的路线级事项见 **1.4**；本节只列需要排期的路线级事项，正文一律不重复。
 
 - 🔜 **生产化**：PyPI 发布、Docker Hub 镜像、CI release workflow（版本 `0.9.0`；A51 部分闭合——`CHANGELOG.md` + 版本真源守卫 + mkdocs strict 已落，2026-11-11；`.github/workflows` 仍仅 `ci.yml` + `codeql.yml`，**尚无 release workflow**）。
 - ✅ **Epic 61 Web 检索工具周期（已闭合）**：2026-11-13 立项，2026-11-16 全链交付闭合——61.1 引擎层 `66a5b9f`、61.2 工具面 `1877250`、61.3 文档收口随本批收口提交入库；真实密钥冒烟经用户裁定跳过，挂账 A55（等 WEB_SEARCH_API_KEY）。
 - ✅ **Epic 63 测试体系增强（已收口）**：2026-11-18 收口——63.1–63.8 全 finished（7 `done` + 63.4 `dropped`），`src/` 零改动；覆盖率实测 93.04%、CI 基准回归强制门禁（`cab4552`）、`tests/fixtures/` 唯一数据宿 + 参数化 78%（`b75075a`/`abf96d9`）。retro `accepted`（`initiative-heagent/tickets/epic-63-测试体系增强/epic-63-测试体系增强-retrospective.md`），三条 ADR 落 `initiative-heagent/decisions/`。
-- ⏳ **Epic 62 代码架构重构（未收口）**：6 票停在 `built`/state=`review`（62.1 / 62.2 / 62.3 / 62.6 / 62.7 / 62.8；62.4 done、62.5 dropped），无 retrospective 文件——补 retro 与票态收口是开 Epic 64 前的待办（见 Epic 63 retro「Open questions」）。
+- ✅ **Epic 64 用户体验优化（已收口，2026-11-18）**：14/14 `done`（64.1–64.6 文档与错误形态、64.7 启动校验、64.8/64.9 进度、64.10 cron status、64.11 任务进度 API、64.12 /help 详情、64.13 错误建议命令、64.14 配置向导）；retro `accepted` 落 `initiative-heagent/tickets/epic-64-用户体验优化/epic-64-用户体验优化-retrospective.md`。收口残差两项登记 **A56**（进度跨进程不可见 / `examples/` 不在门禁范围）。
+- ✅ **Epic 62 代码架构重构（已收口，2026-11-18）**：62.1 / 62.2 / 62.3 / 62.6 / 62.7 / 62.8 经 `tickets.py mark` 置 `done`（62.4 早 done、62.5 dropped），retro `accepted` 落 `initiative-heagent/tickets/epic-62-代码架构重构/epic-62-代码架构重构-retrospective.md`——欠账由 Epic 63 retro 的 Open questions 起、Epic 64 收口时一并清。
 - ✅ **Epic 57（已收口）**：retro 遗留清理 2026-10-26 四 story 全 done；retro action item-12（push 待推远端）仍 open，owner=tan。
 - ✅ **安全纵深（已裁定不做）**：MCP stdio server 子进程接入沙箱 —— 2026-09-27 用户裁定 (c) **不实施**（长命双向管道与既有 `CommandRunner` 形状冲突 + 隔离档属产品取舍 + 仍非边界），登记为已知暴露面（§1.4-A2 → Z-D24）。
 - ⏳ **技能资源 TOCTOU 后续**：descriptor-relative open / 目录句柄、可信导入 snapshot、OS sandbox（§1.4-A1）。
@@ -42,7 +43,7 @@
 
 > **权威层级**：活动（未闭合）条目正文见 [`open-items.md`](open-items.md)（唯一活动台账，2026-11-15 定名）；Epic/Story 状态以 `initiative-heagent/archive-v6/sprint-status.yaml`（v6 全周期，已归档）为准；安全缺口以 `docs/frame.md` 五为准。本节同时登记**已闭环却仍被其他文档列为待办**的条目（B 组），避免下一轮重复勘察。
 
-#### A. 活动台账未闭合条目（7 条——A34/A35/A36/A41/A53/A54/A55，**索引**）
+#### A. 活动台账未闭合条目（8 条——A34/A35/A36/A41/A53/A54/A55/A56，**索引**）
 
 > **2026-11-15 起**：活动项正文见 [`open-items.md`](open-items.md)（唯一活动台账）。
 > 已闭合编号索引（26 行表）、B 组修正表与 E 组决策关闭记录已迁 [`retrospective-all-cycles.md`](retrospective-all-cycles.md)（§三/§四）。

@@ -3,7 +3,7 @@ title: 'Story 64.9 为大文件读写添加进度提示'
 type: feature
 ticket: 9
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '8026aa9'
 route: full
 route_source: auto
@@ -99,7 +99,7 @@ reporter（这是本方案不需要改 `tools/runtime.py` 的原因）。
 - [x] `cli/progress.py`：`FileProgressSample` / `format_file_progress` / `FileProgressBridge`。
 - [x] `cli/interactive.py`：绑定 reporter（极小改动）。
 - [x] `tests/test_file_progress.py`。
-- [ ] `pytest tests/test_file_progress.py tests/test_file_edit.py -q` 全绿（实测见交付报告）。
+- [x] `pytest tests/test_file_progress.py tests/test_file_edit.py -q` 全绿（18 例 + 既有 `test_file_edit`；12MB 写入字节级等价，进度开关耗时比值实测 max **1.18x**，断言已按票面收紧到 `< 2x`）。
 
 **Acceptance（对应票面 verify）：**
 

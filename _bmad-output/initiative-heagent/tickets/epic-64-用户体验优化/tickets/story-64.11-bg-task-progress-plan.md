@@ -3,7 +3,7 @@ title: 'Story 64.11 实现后台任务进度查询'
 type: feature
 ticket: 11
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '8026aa9'
 route: full
 route_source: auto

@@ -3,7 +3,7 @@ title: 'Story 64.8 为工具执行添加进度条'
 type: feature
 ticket: 8
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '8026aa9'
 route: full
 route_source: auto
@@ -97,7 +97,7 @@ ToolProgress(*, enabled: bool | None = None, stream: TextIO | None = None,
 - [x] `cli/display.py`：`tool_progress_label()`。
 - [x] `cli/interactive.py`：`_consume_stream` 接入 + `finally` 收尾。
 - [x] `tests/test_cli_progress.py`。
-- [ ] `pytest tests/test_cli_progress.py -q` 全绿（实测见下）。
+- [x] `pytest tests/test_cli_progress.py -q` 全绿（**11 passed**；收口时补 `tests/test_cli_single_progress.py` 12 例覆盖单次模式）。
 
 **Acceptance（对应票面 verify）：**
 
@@ -123,7 +123,7 @@ ToolProgress(*, enabled: bool | None = None, stream: TextIO | None = None,
 ## Verification
 
 命令：`/workspace/.heagent/tmp/py311-venv-linux/bin/python -m pytest tests/test_cli_progress.py -q`
-（结果见交付报告「实测」节）。测试全程不联网、不调真实 API：`StreamEvent` 直接构造，
+（实测：**11 passed**；3.6s 工具出 2 行刷新 + 收尾行共 125 字节，1.2s 工具 0 字节）。测试全程不联网、不调真实 API：`StreamEvent` 直接构造，
 时钟与刷新间隔用注入的小值（`min_seconds=0.01`）与注入的 `now` 假时钟，真实 `asyncio.sleep`
 只在小量级下跑。
 
@@ -139,7 +139,7 @@ ToolProgress(*, enabled: bool | None = None, stream: TextIO | None = None,
   共 **175 passed**。
 
 ⚠ **共享文件待集成**：`tests/test_architecture_contracts.py::test_cli_package_layout_is_pinned`
-的钉死清单需要加入 `"progress"`（本 lane 禁改该文件，精确插入位置见交付报告）。
+的钉死清单已由 orchestrator 一次性并入 `cron_cmd` / `progress` / `suggestions` / `wizard` 四行（字母序）。
 
 ## Review Triage Log
 

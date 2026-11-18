@@ -3,7 +3,7 @@ title: 'Story 62.3 拆分 engine/workflow_runner.py'
 type: refactor
 ticket: 3
 created: '2026-11-17'
-status: built
+status: done
 baseline_revision: '89281157340c85347d37be57818044d818f905ba'
 route: full
 route_source: auto

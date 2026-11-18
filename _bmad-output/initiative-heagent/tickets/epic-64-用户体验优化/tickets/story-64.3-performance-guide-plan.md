@@ -3,7 +3,7 @@ title: 'Story 64.3 编写性能调优指南'
 type: feature
 ticket: 3
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '198b2aa6a4af9bbdd7e6483f385db65a130de12c'
 route: full
 route_source: auto

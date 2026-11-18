@@ -3,7 +3,7 @@ title: 'Story 62.2 拆分 cli/goal.py'
 type: refactor
 ticket: 2
 created: '2026-11-16'
-status: built
+status: done
 baseline_revision: '6959a73aa7af45d5abbf673e0f4353a6623901da'
 route: full
 route_source: auto

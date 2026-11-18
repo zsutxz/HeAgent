@@ -3,7 +3,7 @@ title: 'Story 64.2 建立错误信息解释索引'
 type: feature
 ticket: 2
 created: '2026-11-18'
-status: built
+status: done
 baseline_revision: '198b2aa6a4af9bbdd7e6483f385db65a130de12c'
 route: full
 route_source: auto
