@@ -147,7 +147,15 @@ jobs:
         continue-on-error: true
 
       - name: Run benchmarks
-        run: pytest --benchmark-only --benchmark-autosave -m benchmark
+        run: |
+          # 基线取最近一次落盘（零填充序号 tail = 最新）；无基线（首次）只落盘不比较。
+          BASELINE=$(find benchmark-data -name "*.json" 2>/dev/null | sort | tail -1)
+          if [ -n "$BASELINE" ]; then
+            pytest --benchmark-only --benchmark-autosave --benchmark-storage=./benchmark-data/ \
+              --benchmark-compare="$BASELINE" --benchmark-compare-fail=mean:10% -m benchmark
+          else
+            pytest --benchmark-only --benchmark-autosave --benchmark-storage=./benchmark-data/ -m benchmark
+          fi
 
       - name: Upload benchmark data
         uses: actions/upload-artifact@v4
@@ -159,9 +167,9 @@ jobs:
       - name: Compare benchmarks
         if: success()
         run: |
-          if ls benchmark-data/*.json 2>/dev/null | head -1; then
+          if find benchmark-data -name "*.json" | head -1 | grep -q json; then
             echo "## Benchmark comparison" >> $GITHUB_STEP_SUMMARY
-            pytest-benchmark compare --group=group,func benchmark-data/*.json >> $GITHUB_STEP_SUMMARY 2>&1 || true
+            pytest-benchmark compare --group=group,func $(find benchmark-data -name "*.json") >> $GITHUB_STEP_SUMMARY 2>&1 || true
           else
             echo "No previous benchmark data — skipping comparison" >> $GITHUB_STEP_SUMMARY
           fi
