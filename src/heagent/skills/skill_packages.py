@@ -119,6 +119,7 @@ class SkillPackage(BaseModel):
     root: Path
     entrypoint: str = "SKILL.md"
     _metadata: SkillPackageMetadata | None = PrivateAttr(default=None)
+    _meta: SkillMeta | None = PrivateAttr(default=None)
     _pinned: dict[str, str] | None = PrivateAttr(default=None)
     #: 命中的凭据文件名（`manifest.json` 或 `manifest.lock`），只用于失败文案。
     _pinned_source: str | None = PrivateAttr(default=None)
@@ -137,6 +138,25 @@ class SkillPackage(BaseModel):
         if self._metadata is None:
             object.__setattr__(self, "_metadata", self.read_entry().metadata)
         return cast("SkillPackageMetadata", self._metadata)
+
+    @property
+    def entry_meta(self) -> SkillMeta:
+        """本次 entry 读取用到的 ``meta.yaml``（首次 ``_load_meta`` 后缓存，不再读盘）。"""
+        return self._load_meta()
+
+    def adopt_entry_text(self, text: str, meta: SkillMeta | None = None) -> None:
+        """注入**已读到**的 entry 正文，按本实例的 ``skill_id`` 重算元数据。
+
+        唯一调用方是 :meth:`SkillCatalog._index_package`：索引期为了定 ``canonical_id``
+        已用目录名读过同一份 entry（含完整性校验），正式包不必再读盘。`name` 的回落因此
+        走正式 ``skill_id``（canonical id），与 ``read_entry()`` 逐字段一致。
+
+        ``meta`` 由调用方传入已解析的 ``SkillMeta``（省一次 ``meta.yaml`` 读）；缺省时
+        按需读本包的 ``meta.yaml``。
+        """
+        object.__setattr__(
+            self, "_metadata", self._parse_metadata(text, meta if meta is not None else self._load_meta())
+        )
 
     def read_entry(self) -> SkillPackageEntry:
         """Read the package's SKILL.md entry point and parse basic frontmatter.
@@ -403,13 +423,18 @@ class SkillPackage(BaseModel):
         meta.yaml 解析失败（契约外键/非法值）抛 :class:`SkillMetaError` 显性失败——
         调用方（``_index_package``）据此产出带诊断的不可用条目，不做静默兜底。
         """
+        if self._meta is not None:
+            return self._meta
         meta_path = self.root / META_FILENAME
         if not meta_path.is_file():
-            return SkillMeta()
-        try:
-            return parse_meta_yaml(self._read_text(META_FILENAME))
-        except (FileNotFoundError, SkillPackageResourceError):
-            return SkillMeta()  # 竞态：stat 后被删 → 等同缺文件（镜像 manifest 探测语义）
+            meta = SkillMeta()
+        else:
+            try:
+                meta = parse_meta_yaml(self._read_text(META_FILENAME))
+            except (FileNotFoundError, SkillPackageResourceError):
+                meta = SkillMeta()  # 竞态：stat 后被删 → 等同缺文件（镜像 manifest 探测语义）
+        object.__setattr__(self, "_meta", meta)
+        return meta
 
     def _parse_metadata(self, text: str, meta: SkillMeta) -> SkillPackageMetadata:
         values: dict[str, str] = {}
@@ -534,7 +559,8 @@ class SkillCatalog:
         package_root_text = str(package_root.resolve(strict=False))
         try:
             provisional = SkillPackage(skill_id=source_id, root=package_root)
-            metadata = provisional.read_entry().metadata
+            entry = provisional.read_entry()
+            metadata = entry.metadata
             declared_id = metadata.canonical_id.strip() or metadata.name.strip() or source_id
             canonical_id = self._canonical_id(declared_id)
             source_id = metadata.source_id.strip() or metadata.name.strip() or source_id
@@ -547,7 +573,9 @@ class SkillCatalog:
                 aliases.append("he-" + canonical_id[5:])
             aliases = sorted(set(alias for alias in aliases if alias != canonical_id))
             package = SkillPackage(skill_id=canonical_id, root=package_root)
-            package.read_entry()
+            # 只读一次 entry：把首次读到的正文（已过完整性校验）+ 已解析 meta 注入正式包，
+            # 元数据按 canonical id 重算 —— 诊断与错误文案引用的是它，不是目录名。
+            package.adopt_entry_text(entry.text, provisional.entry_meta)
             return SkillCatalogEntry(
                 canonical_id=canonical_id,
                 source_id=source_id,
