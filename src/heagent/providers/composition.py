@@ -62,6 +62,21 @@ _ENTRY_CREDENTIAL_HINTS = {
 }
 
 
+def _secret(settings: Settings, name: str) -> str | None:
+    """按名解析一个凭据 —— 全部走配置面的**唯一收敛点** ``Settings.secret()``。
+
+    该收敛点先查系统 keyring（``KEYRING_ENABLED=true`` 时）再回退环境变量 / ``.env``，因此
+    「密钥存在哪儿」只有一处知识。duck-typed 句柄（测试替身、无 ``secret()`` 方法）退化为直接
+    读同名字段：本模块运行期不 import 配置面（见模块 docstring 的分层说明）。
+    """
+    resolve = getattr(settings, "secret", None)
+    if callable(resolve):
+        value = resolve(name)
+        return value if isinstance(value, str) else None
+    fallback = getattr(settings, name, None)
+    return fallback if isinstance(fallback, str) else None
+
+
 def _openai_builder(settings: Settings, *, key: str, base_url: str | None) -> ProviderBuilder:
     """单密钥 OpenAI 兼容条目的构建器（Chat Completions）：每档一个模型名。"""
 
@@ -145,6 +160,14 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
     named: dict[str, BaseProvider] = {}
     specs = settings.routing_pool_map
     continuity = settings.routing_reasoning_continuity
+    # 凭据一次性解析（keyring / 环境变量 / .env 的优先级只在 Settings.secret() 一处），
+    # 后面各条目的守卫与构建器都复用同一次结果。
+    deepseek_key = _secret(settings, "deepseek_api_key")
+    anthropic_key = _secret(settings, "anthropic_api_key")
+    responses_key = _secret(settings, "openai_responses_api_key")
+    kimi_key = _secret(settings, "kimi_api_key")
+    glm_key = _secret(settings, "glm_api_key")
+    ollama_key = _secret(settings, "ollama_api_key")
 
     def _entry(
         name: str,
@@ -169,21 +192,21 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
             continuity=continuity,
         )
 
-    if settings.deepseek_api_key:
+    if deepseek_key:
         url = settings.deepseek_base_url or _DEEPSEEK_BASE_URL
-        build = _openai_builder(settings, key=settings.deepseek_api_key, base_url=url)
+        build = _openai_builder(settings, key=deepseek_key, base_url=url)
         _entry("deepseek", default_model=settings.deepseek_model, default_base_url=url, build=build)
 
-    if settings.anthropic_api_key or settings.anthropic_key_pool:
-        build = _anthropic_pool_builder(settings)
+    if anthropic_key or settings.anthropic_key_pool:
+        build = _anthropic_pool_builder(settings, primary_key=anthropic_key)
         _entry(
             "claude", default_model=settings.default_model, default_base_url=settings.anthropic_base_url, build=build
         )
 
-    if settings.openai_responses_api_key:
+    if responses_key:
         build = _responses_builder(
             settings,
-            key=settings.openai_responses_api_key,
+            key=responses_key,
             base_url=settings.openai_responses_base_url,
         )
         _entry(
@@ -193,14 +216,14 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
             build=build,
         )
 
-    if settings.kimi_api_key:
+    if kimi_key:
         url = settings.kimi_base_url or _KIMI_BASE_URL
-        build = _openai_builder(settings, key=settings.kimi_api_key, base_url=url)
+        build = _openai_builder(settings, key=kimi_key, base_url=url)
         _entry("kimi", default_model=settings.kimi_model, default_base_url=url, build=build)
 
-    if settings.glm_api_key:
+    if glm_key:
         url = settings.glm_base_url or _GLM_BASE_URL
-        build = _openai_builder(settings, key=settings.glm_api_key, base_url=url)
+        build = _openai_builder(settings, key=glm_key, base_url=url)
         _entry("glm", default_model=settings.glm_model, default_base_url=url, build=build)
 
     if settings.ollama_enabled:
@@ -210,7 +233,7 @@ def _build_provider(settings: Settings, model: str | None) -> BaseProvider:
                 "(e.g. OLLAMA_MODEL=qwen3:8b; list local models: curl http://127.0.0.1:11434/api/tags).",
             )
         url = settings.ollama_base_url or _OLLAMA_BASE_URL
-        build = _openai_builder(settings, key=settings.ollama_api_key or "ollama", base_url=url)
+        build = _openai_builder(settings, key=ollama_key or "ollama", base_url=url)
         _entry("ollama", default_model=settings.ollama_model, default_base_url=url, build=build)
 
     for entry in specs:
@@ -284,10 +307,10 @@ def _key_rotated_builder(
     return build
 
 
-def _anthropic_pool_builder(settings: Settings) -> ProviderBuilder:
-    """claude 条目构建器（多密钥池）。"""
+def _anthropic_pool_builder(settings: Settings, *, primary_key: str | None) -> ProviderBuilder:
+    """claude 条目构建器（多密钥池）：``primary_key`` 由调用点经 ``Settings.secret()`` 解析。"""
     return _key_rotated_builder(
-        settings.anthropic_api_key,
+        primary_key,
         settings.anthropic_key_pool,
         lambda key, tier_model, url: AnthropicProvider(
             api_key=key,

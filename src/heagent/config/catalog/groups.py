@@ -158,6 +158,9 @@ EXCLUSION_GROUPS: tuple[ConfigGroupSpec, ...] = (
     ConfigGroupSpec(
         id="credentials",
         label="凭证",
+        # 密钥存储与轮换两键与凭证同组只读：换「密钥存在哪儿」/ 关掉轮换提醒都是安全姿态调整，
+        # 不该由网页控制台远程改（`*_API_KEY` 模式覆盖不到它们的名字，故显式列出）。
+        keys=("KEYRING_ENABLED", "KEY_ROTATION_REMIND_DAYS"),
         patterns=("*_API_KEY", "*_API_KEYS"),
         reason="credential",
     ),

@@ -130,6 +130,13 @@ class Settings(BaseSettings):
     # ---- 多密钥池（逗号分隔存储，运行时解析为列表） ----
     anthropic_api_keys: str = ""
 
+    # ---- 密钥存储与轮换（Story 67.5 / 67.4） ----
+    # true = 先查系统 keyring（`keyring` 是可选依赖，缺失即告警一次后回退），未命中回退环境变量/
+    # .env；默认 false 且不碰 keyring，取值与引入该开关前完全一致。解析收敛点 = config/keyring_store.py。
+    keyring_enabled: bool = False
+    # 密钥首次被观测到后使用超过该天数即在启动期 WARNING 提醒轮换；0 = 关闭提醒（不落盘不告警）。
+    key_rotation_remind_days: int = Field(default=90, ge=0)
+
     # ---- 智能路由（唯一入口：ROUTING_POOLS 声明式路由池） ----
     # JSON：键 = provider 条目名（出现即启用该池，须有凭据），值含 tiers/roles/default/keywords/base_url；
     # 无效 JSON / 未知条目 → 告警并忽略该条。完整规格见 .env.example 第 4 节。
@@ -405,6 +412,19 @@ class Settings(BaseSettings):
     @property
     def anthropic_key_pool(self) -> list[str]:
         return _parse_comma_list(self.anthropic_api_keys)
+
+    def secret(self, name: str) -> str | None:
+        """按名解析一个密钥（**唯一收敛点**）：系统 keyring（``KEYRING_ENABLED=true`` 时）→ 本实例字段。
+
+        装配层（``providers/composition.py``）走这里而不是直接读字段，于是「密钥存在哪儿」只有
+        :mod:`heagent.config.keyring_store` 一处知识。未命中返回 ``None``；空串与 ``None`` 同属
+        「未配置」，与 ``if settings.<key>`` 的真值口径一致。
+
+        刻意做成方法而非字段：它不是配置项，而是一次**解析动作**（keyring 查询有 I/O）。
+        """
+        from heagent.config.keyring_store import get_secret
+
+        return get_secret(name, settings=self)
 
     @property
     def approval_tool_list(self) -> list[str]:

@@ -17,6 +17,9 @@ CLI 启动时即为已知），故统一在本模块回收，由 CLI/GUI 启动�
 全部 **best-effort**：任何失败只记日志，绝不阻断启动——清理是维护动作，不是功能；
 保留期设为 ``*_RETENTION_DAYS=0`` 即整类禁用。
 
+另有**密钥轮换提醒**（Story 67.4，``report_key_rotation``）：不回收任何东西，只在启动期比对
+「密钥用了多少天」；状态落 ``.heagent/key_rotation.json``（只记名与日期，永不记值）。
+
 启动期维护模块（2026-11-06 自 ``cli/`` 迁回顶层——09-26 收编时被裹挟入包）：不在运行时调用链上，下层不得反向导入（契约表与 goal 同档位）。
 """
 
@@ -32,6 +35,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from heagent.config import get_settings
+from heagent.config.rotation import RotationReport, observe, secret_names
 from heagent.context.session import SessionStore
 from heagent.pub.persist import (
     delete_entries,
@@ -41,10 +45,13 @@ from heagent.pub.persist import (
     stamp_is_recent,
     touch_prune_stamp,
 )
+from heagent.pub.workspace import WorkspacePaths
 from heagent.tools.edits import prune_snapshots
 from heagent.tools.sandbox import sandbox_sessions_root
 
 if TYPE_CHECKING:
+    from datetime import date
+
     from heagent.config import Settings
 
 logger = logging.getLogger(__name__)
@@ -275,8 +282,6 @@ async def run_housekeeping(
         logger.warning("log retention cleanup failed", exc_info=True)
 
     try:
-        from heagent.pub.workspace import WorkspacePaths
-
         session_store = SessionStore(str(WorkspacePaths.from_root(root).sessions))
         targets["sessions"] = await session_store.prune(conf.session_retention_days, min_interval_seconds=interval)
     except Exception:
@@ -336,9 +341,61 @@ def prune_runtime_artifacts_sync(
         return {"logs": 0, "sessions": 0, "snapshots": 0, "sandboxes": 0, "containers": 0}
 
 
-def prune_runtime_artifacts_best_effort(settings: Settings | None = None) -> None:
-    """启动时回收运行时产物（CLI/GUI 入口共用的 best-effort 包装）：失败只记 warning，绝不阻断启动。"""
+def prune_runtime_artifacts_best_effort(settings: Settings | None = None, *, workspace: Path | None = None) -> None:
+    """启动时回收运行时产物（CLI/GUI 入口共用的 best-effort 包装）：失败只记 warning，绝不阻断启动。
+
+    另含**密钥轮换提醒**（Story 67.4）：只记密钥名与首次观测日、超期打 WARNING，不阻塞启动、
+    不失败（``KEY_ROTATION_REMIND_DAYS=0`` 时整条不运行）。
+    """
+    conf = settings if settings is not None else get_settings()
     try:
-        prune_runtime_artifacts_sync(settings)
+        prune_runtime_artifacts_sync(conf)
     except Exception:
         logger.warning("runtime artifact cleanup failed; continuing", exc_info=True)
+    try:
+        report_key_rotation(conf, workspace=workspace)
+    except Exception:
+        logger.warning("key rotation reminder failed; continuing", exc_info=True)
+
+
+def report_key_rotation(
+    settings: Settings | None = None,
+    *,
+    workspace: Path | None = None,
+    today: date | None = None,
+) -> RotationReport:
+    """比对密钥使用天数并告警（Story 67.4）：只写名字与日期，**从不写值**。
+
+    状态落 ``<项目状态根>/key_rotation.json``（``.heagent/``，随项目走）；首次观测即落盘、
+    之后不改写。超期条目逐条 WARNING（含密钥名、天数、建议操作），提醒本身不阻断启动。
+    """
+    conf = settings if settings is not None else get_settings()
+    remind_days = conf.key_rotation_remind_days
+    if remind_days <= 0:
+        return RotationReport(disabled=True)
+    root = workspace or Path.cwd()
+    names = secret_names(conf)
+    if not names:
+        return RotationReport()
+    report = observe(
+        names,
+        state_root=WorkspacePaths.from_root(root).state_dir,
+        remind_days=remind_days,
+        today=today,
+    )
+    if report.recorded:
+        logger.info(
+            "Key rotation: recorded first-seen date for %d secret(s) (%s)",
+            len(report.recorded),
+            ", ".join(report.recorded),
+        )
+    for entry in report.overdue:
+        logger.warning(
+            "Key rotation: %s has been in use for %d days (threshold %d days). "
+            "Rotate the credential in the place it is stored (system keyring / environment variable / .env), "
+            "then restart; set KEY_ROTATION_REMIND_DAYS=0 to disable this reminder.",
+            entry.name,
+            entry.age_days,
+            remind_days,
+        )
+    return report

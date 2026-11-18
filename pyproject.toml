@@ -98,6 +98,11 @@ module = [
 ]
 disallow_untyped_defs = false
 
+# `keyring` 是可选依赖（无 py.typed、dev 组不装），只在 KEYRING_ENABLED=true 时运行期导入。
+[[tool.mypy.overrides]]
+module = ["keyring"]
+ignore_missing_imports = true
+
 # ── Coverage (pytest-cov) ──
 # branch = true 启用分支覆盖，更诚实（此前 90% 为纯行覆盖）
 [tool.coverage.run]

@@ -814,7 +814,7 @@ def test_shared_layer_layout_is_pinned() -> None:
         "validation",
         "workspace",
     ]
-    assert config_modules == ["envfile", "user_settings", "validation", "write"]
+    assert config_modules == ["envfile", "keyring_store", "rotation", "user_settings", "validation", "write"]
     assert config_packages == ["catalog"]
 
 
