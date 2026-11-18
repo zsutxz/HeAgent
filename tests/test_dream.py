@@ -41,15 +41,10 @@ if TYPE_CHECKING:
 # ── 全局 fixture ─────────────────────────────────────────────────────────────
 
 
-@pytest.fixture(autouse=True)
-def _reset_settings() -> None:
-    """每个测试前后重置 Settings 单例（与项目惯例一致）。"""
-    reset_settings()
-    yield
-    reset_settings()
-
-
 # ── StubProvider（参考 test_subagent_role._ToolCallProvider）────────────────
+
+
+pytestmark = pytest.mark.usefixtures("clean_settings")
 
 
 class _DoneProvider:

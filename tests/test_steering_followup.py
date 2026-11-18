@@ -19,6 +19,9 @@ from heagent.pub.types import (
 )
 
 
+pytestmark = pytest.mark.usefixtures("clean_settings")
+
+
 class StubProvider:
     """In-memory provider that returns preconfigured responses."""
 
@@ -67,13 +70,6 @@ def _tool_resp(calls: list[ToolCall], content: str = "") -> ProviderResponse:
 
 def _msg_user(text: str) -> Message:
     return Message(role=Role.USER, content=text)
-
-
-@pytest.fixture(autouse=True)
-def _reset_settings() -> None:
-    reset_settings()
-    yield
-    reset_settings()
 
 
 class TestSteeringQueue:

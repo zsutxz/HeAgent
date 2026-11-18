@@ -20,16 +20,6 @@ from heagent.pub.exceptions import ToolError
 from heagent.tools.mcp import MCPClientManager
 
 
-@pytest.fixture()
-def clean_settings():
-    """Reset settings singleton for tests that need it."""
-    from heagent.config import reset_settings
-
-    reset_settings()
-    yield
-    reset_settings()
-
-
 def _write_mcp_json(path, payload: dict) -> None:
     path.write_text(json.dumps(payload), encoding="utf-8")
 

@@ -160,19 +160,6 @@ def goal_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-@pytest.fixture()
-def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """步骤执行缝的替身：成功输出，记录每次 prompt。"""
-    calls: list[str] = []
-
-    async def run_step(provider: object, engine: object, prompt: str, **kwargs: object) -> SimpleNamespace:
-        calls.append(prompt)
-        return SimpleNamespace(success=True, output=f"output-{len(calls)}")
-
-    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
-    return calls
-
-
 # ── ① 创建时冻结 ───────────────────────────────────────────────────────
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator, Iterator
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -26,8 +27,13 @@ from heagent.pub.safe_logging import (
     redact_secrets,
     safe_log,
 )
-from heagent.tools.registry import ToolRegistry
 from heagent.pub.types import ProviderResponse, TokenUsage
+
+if TYPE_CHECKING:
+    from heagent.tools.registry import ToolRegistry
+
+
+pytestmark = pytest.mark.usefixtures("clean_settings")
 
 
 class _RaisingHandler(logging.Handler):
@@ -76,19 +82,6 @@ def _final(content: str) -> ProviderResponse:
         model="stub",
         finish_reason="stop",
     )
-
-
-@pytest.fixture
-def fresh_registry() -> ToolRegistry:
-    """每个测试独享的非单例注册表。"""
-    return ToolRegistry()
-
-
-@pytest.fixture(autouse=True)
-def _reset_settings() -> Iterator[None]:
-    reset_settings()
-    yield
-    reset_settings()
 
 
 def _install_raising_handler(match: str) -> Iterator[_RaisingHandler]:

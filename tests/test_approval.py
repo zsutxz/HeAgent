@@ -83,17 +83,6 @@ class ExplodingHandler:
         raise RuntimeError("approval backend down")
 
 
-@pytest.fixture()
-def workspace_dir() -> Path:
-    base = Path.cwd() / ".test-workdirs"
-    path = base / f"approval-{uuid.uuid4().hex[:8]}"
-    path.mkdir(parents=True, exist_ok=True)
-    try:
-        yield path
-    finally:
-        shutil.rmtree(path, ignore_errors=True)
-
-
 def _shell_registry() -> tuple[ToolRegistry, list[str]]:
     calls: list[str] = []
     registry = ToolRegistry()

@@ -10,12 +10,7 @@ from heagent.config.user_settings import SettingsError, with_user_setting_layer
 from typing import Any
 
 
-@pytest.fixture(autouse=True)
-def _clean_settings() -> Any:
-    """Reset settings singleton before and after each test."""
-    reset_settings()
-    yield
-    reset_settings()
+pytestmark = pytest.mark.usefixtures("clean_settings")
 
 
 class TestEnvLoading:

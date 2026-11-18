@@ -28,6 +28,9 @@ from heagent.pub.types import (
 )
 
 
+pytestmark = pytest.mark.usefixtures("clean_settings")
+
+
 class StubProvider:
     """In-memory provider that returns preconfigured responses."""
 
@@ -70,19 +73,6 @@ def _tc(call_id: str, name: str, args: dict[str, object] | None = None) -> ToolC
 
 def _tool_resp(calls: list[ToolCall], content: str = "") -> ProviderResponse:
     return ProviderResponse(content=content, tool_calls=calls, usage=_usage(), model="stub", finish_reason="tool_calls")
-
-
-@pytest.fixture()
-def fresh_registry() -> ToolRegistry:
-    """Create a fresh non-singleton registry for each test."""
-    return ToolRegistry()
-
-
-@pytest.fixture(autouse=True)
-def _reset_settings() -> None:
-    reset_settings()
-    yield
-    reset_settings()
 
 
 class TestMiddlewareCompose:

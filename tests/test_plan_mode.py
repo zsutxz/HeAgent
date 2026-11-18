@@ -58,17 +58,6 @@ def _final(text: str) -> ProviderResponse:
     return ProviderResponse(content=text, usage=_usage(), model="stub", finish_reason="stop")
 
 
-@pytest.fixture()
-def workspace_dir() -> Path:
-    base = Path.cwd() / ".test-workdirs"
-    path = base / f"planmode-{uuid.uuid4().hex[:8]}"
-    path.mkdir(parents=True, exist_ok=True)
-    try:
-        yield path
-    finally:
-        shutil.rmtree(path, ignore_errors=True)
-
-
 class TestReadonlyAnnotations:
     def test_readonly_tools_marked(self) -> None:
         """内置只读工具应有 readOnlyHint=True；写工具不应有。"""

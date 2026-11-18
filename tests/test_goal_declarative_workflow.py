@@ -67,18 +67,6 @@ def declarative_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, goal_workfl
     return tmp_path
 
 
-@pytest.fixture()
-def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    calls: list[str] = []
-
-    async def run_step(provider: object, engine: object, prompt: str, **kwargs: object) -> SimpleNamespace:
-        calls.append(prompt)
-        return SimpleNamespace(success=True, output=f"output-{len(calls)}")
-
-    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
-    return calls
-
-
 @pytest.mark.asyncio
 async def test_declarative_commands_checkpoint_and_no_duplicate_completion(
     declarative_cwd: Path,

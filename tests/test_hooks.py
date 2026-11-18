@@ -69,17 +69,6 @@ def _final(text: str) -> ProviderResponse:
     return ProviderResponse(content=text, usage=_usage(), model="stub", finish_reason="stop")
 
 
-@pytest.fixture()
-def workspace_dir() -> Path:
-    base = Path.cwd() / ".test-workdirs"
-    path = base / f"hooks-{uuid.uuid4().hex[:8]}"
-    path.mkdir(parents=True, exist_ok=True)
-    try:
-        yield path
-    finally:
-        shutil.rmtree(path, ignore_errors=True)
-
-
 class TestHookLoad:
     def test_load_parses(self, tmp_path) -> None:
         p = tmp_path / "hooks.json"

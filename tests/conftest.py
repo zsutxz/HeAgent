@@ -17,11 +17,15 @@ from __future__ import annotations
 
 import os
 import shutil
+import uuid
+from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from heagent.config import Settings, reset_settings
+from heagent.tools.registry import ToolRegistry
 
 # 必须在 heagent.config 首次 import / get_settings() 之前设置（pydantic-settings 懒加载）。
 # setdefault 不覆盖用户已在环境/.env 中显式设置的值。
@@ -180,3 +184,45 @@ def goal_workflow_root(tmp_path: Path) -> Path:
         root / "templates",
     )
     return root
+
+
+# ── 跨文件收敛的可复用 fixture（重复定义收口到唯一定义）────────────────────
+
+
+@pytest.fixture()
+def clean_settings() -> Iterator[None]:
+    """Settings 单例前后归零（散布多个测试文件的同一份定义收敛至此）。"""
+    reset_settings()
+    yield
+    reset_settings()
+
+
+@pytest.fixture()
+def workspace_dir() -> Path:
+    """``.test-workdirs`` 下的独立工作目录，用后清理。"""
+    base = Path.cwd() / ".test-workdirs"
+    path = base / f"ws-{uuid.uuid4().hex[:8]}"
+    path.mkdir(parents=True, exist_ok=True)
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+@pytest.fixture()
+def fresh_registry() -> ToolRegistry:
+    """非单例的新 registry（文件内隔离，不污染全局注册表）。"""
+    return ToolRegistry()
+
+
+@pytest.fixture()
+def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """步骤执行缝的替身：成功输出，记录每次 prompt（goal 族测试共用）。"""
+    calls: list[str] = []
+
+    async def run_step(provider: object, engine: object, prompt: str, **kwargs: object) -> SimpleNamespace:
+        calls.append(prompt)
+        return SimpleNamespace(success=True, output=f"output-{len(calls)}")
+
+    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
+    return calls

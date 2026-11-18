@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 
 # 对外契约的字段集（黄金测试基准）：改字段必须先 bump SCHEMA_VERSION 并更新此处。
 # v2：+duration_ms / error_kind（旧文件缺省读、新字段被旧码 extra=ignore）。
+pytestmark = pytest.mark.usefixtures("clean_settings")
 _EXPECTED_FIELDS = {
     "schema_version",
     "seq",
@@ -63,13 +64,6 @@ class _StubProvider:
 
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(name="stub", model="stub")
-
-
-@pytest.fixture(autouse=True)
-def _clean_settings() -> Iterator[None]:
-    reset_settings()
-    yield
-    reset_settings()
 
 
 def _engine_event(event_type: str, **kwargs: object) -> EngineEvent:

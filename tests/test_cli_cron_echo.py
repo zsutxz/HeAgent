@@ -24,14 +24,8 @@ from heagent.network.ws_host import NOTIFICATIONS_WS_PATH
 if TYPE_CHECKING:
     from pathlib import Path
 
+pytestmark = pytest.mark.usefixtures("clean_settings")
 JOB_ID = "1661798f"
-
-
-@pytest.fixture(autouse=True)
-def _reset_settings_singleton():
-    reset_settings()
-    yield
-    reset_settings()
 
 
 class _Service:

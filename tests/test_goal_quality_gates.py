@@ -641,18 +641,6 @@ def _rewrite_package_workflow(gate_cwd: Path, command: str) -> None:
     )
 
 
-@pytest.fixture()
-def successful_step(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    calls: list[str] = []
-
-    async def run_step(provider: object, engine: object, prompt: str, **kwargs: object) -> SimpleNamespace:
-        calls.append(prompt)
-        return SimpleNamespace(success=True, output=f"output-{len(calls)}")
-
-    monkeypatch.setattr("heagent.cli.goal.execution._goal_session", run_step)
-    return calls
-
-
 @pytest.mark.asyncio
 async def test_completion_gate_blocks_until_the_declared_artifact_exists(
     gate_cwd: Path, successful_step: list[str], capsys: pytest.CaptureFixture[str]

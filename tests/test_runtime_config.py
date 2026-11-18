@@ -9,11 +9,7 @@ from heagent.engine.policy import PolicyEngine, ToolExecutionMode
 from heagent.pub.types import ToolCall
 
 
-@pytest.fixture(autouse=True)
-def clean_settings():
-    reset_settings()
-    yield
-    reset_settings()
+pytestmark = pytest.mark.usefixtures("clean_settings")
 
 
 def test_snapshot_detaches_collections_and_credentials():

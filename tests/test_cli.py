@@ -18,16 +18,6 @@ def _clear_all_api_keys(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(key, raising=False)
 
 
-@pytest.fixture()
-def clean_settings():
-    """Reset settings singleton for tests that need it."""
-    from heagent.config import reset_settings
-
-    reset_settings()
-    yield
-    reset_settings()
-
-
 class TestCLI:
     """CLI command tests using click.testing.CliRunner."""
 

@@ -27,6 +27,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+pytestmark = pytest.mark.usefixtures("clean_settings")
+
+
 class _StubProvider:
     async def send(self, messages: list[Message], *, tools: list[object] | None = None) -> ProviderResponse:
         return ProviderResponse(
@@ -38,13 +41,6 @@ class _StubProvider:
 
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(name="stub", model="stub")
-
-
-@pytest.fixture(autouse=True)
-def _clean_settings() -> Iterator[None]:
-    reset_settings()
-    yield
-    reset_settings()
 
 
 def _age(path: Path, *, days: float = 10) -> None:
