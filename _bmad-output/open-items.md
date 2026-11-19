@@ -7,7 +7,7 @@
 
 ## 活动（未闭合）条目
 
-当前活动项：**16 条**（`frozen` 4：A34 / A41 / A65 / A68；`active` 12：A54 / A55 / A56 / A59 / A62 / A66 / A67 / A69 / A70 / A71 / A72 / A73）。
+当前活动项：**17 条**（`frozen` 4：A34 / A41 / A65 / A68；`active` 13：A54 / A55 / A56 / A59 / A62 / A66 / A67 / A69 / A70 / A71 / A72 / A73 / A75）。
 
 | ID | 主题 | 状态 | 说明 |
 | --- | --- | --- | --- |
@@ -30,9 +30,10 @@
 | A72 | 入口层 `except HeAgentError` 仍是根类一把抓 | `active` | **origin=新增（2026-11-19 Epic 69 retro #2 升台账）**。异常分类层已可用（4 类 14 个专用异常 + 码表），但 `cli/` 与 `network/` 的入口兜底仍捕获根类，无法按类给不同出口行为。触发条件 = 下一轮错误面 / UX 工作；闭合动作 = 逐入口把捕获面收敛到具体层（对外错误形状与退出码不变，属内部重分类） |
 | A73 | web_search 边际观察批（装配校验 / 文案 / 钳位协议 / 空结果 / 异常类型张力） | `active` | **origin=新增（2026-11-19 Epic 61 retro deferred 批升台账）**。五条同族、单独立项会造噪声：[C4] 装配点引擎名校验 fail-loud（错名穿越启动、dream 中段才爆）；[C5] `WEB_SEARCH_ENGINE` 组理由文案失真（挂 outbound_redirect「准外泄通道」）；[A11] 双层钳位 `[1,10]`/`[1,20]` 分工无契约文字；[E7] 空白字段条目误报「（无检索结果）」；[A5] 工具面 `RuntimeError` vs 引擎 `ToolError` 张力（用户裁定维持惯例，第二引擎或程序化调用方出现时再议）。触发条件 = 第二引擎出现 / 控制台文案批 / 真实误配案例；闭合动作 = 按括号内条目逐项处置，处置完本行移入 `retrospective-all-cycles.md` §三 |
 
+| A75 | Epic 72 第一步宿主真机对账未实测 | `active` | **origin=新增（2026-11-19 Epic 72 retro）**。本机 `.env` 已落地（`WS_HOST=192.168.2.226` + `WS_LAN_NO_AUTH=true`，TLS 停用），容器内以私网 `172.17.0.3` 出同型证据（`9201` OPEN / `9301` REFUSED / 无 token `ping` → `ack` / 同 listener 坏 `Host` 被拒）；但**宿主真机**两项从未跑过：① `netstat -ano` 过滤 `:9201` 后的本地地址（判据：恰为 `192.168.2.226:9201`，无 `0.0.0.0:9201` / `127.0.0.1:9201` / `9301`）；② 客户端 `ws://192.168.2.226:9201` 的三处对账（界面「已连接 + 服务器版本」、`adb logcat -s AIHome` 的 `WEBSOCKET_OPENED` / `PUSH_CONNECTED`、服务端 `ws [accepted]`）。触发条件 = 用户在宿主执行一次；闭合动作 = 原始 `netstat` 行与探针输出写进 `initiative-heagent/tickets/epic-72-ws-lan-plaintext/tickets/story-72.5-landing-and-e2e-plan.md` 的 Evidence |
 ### 速读（按行动姿态分组）
 
-- **等外部触发**：A55（用户提供 WEB_SEARCH_API_KEY 后跑一次真实冒烟）
+- **等外部触发**：A55（用户提供 WEB_SEARCH_API_KEY 后跑一次真实冒烟）、A75（用户在宿主真机跑一次 `netstat` 与客户端三处对账）
 - **有明确修法等排期**：A54 残余 ②⑥⑦（下一轮性能/网络专项周期领取；动手前过两道红线：monkeypatch 缝 grep + 本机可验证面）、A59（缓存配置键 + 命中率出口）、A62（CLI 写盘留痕）、A66（依赖锁口径 + 审计白名单）、A67（devcontainer 实测回填）、A69（池内异模型缓存收益）、A70（技能指纹内容哈希）、A71（框架码只增快照）、A72（入口异常收窄）、A73（web_search 边际观察批）
 - **等用户裁定 / 恢复**：A34（OQ-5「隔离 vs 丢弃」）、A41（AD-20 / OQ-4 物理隔离）、A65（用户裁定暂停 Pages 发布，恢复条件已写明）、A68（release 失败推送是否引入 secret）
 
