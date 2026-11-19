@@ -242,9 +242,11 @@ heagent run --system "你是 Python 专家" "写一个二分查找"   # 显式�
 /mcp-prompt  调度 MCP prompt
 /deferred    列出 deferred-work 台账
 /goal        目标驱动开发（new/next/run/status/pause/resume/auto/reset/doctor）
+/loop        目标驱动开发 v7（8 步工作流；来自项目自定义命令 `.heagent/commands/loop.md`）
 ```
 
 未注册的名字不会被拦截，会**当作普通 prompt** 交给模型（多花一次调用）；旧名 `/route` 已不注册。
+`.heagent/commands/*.md` 里的自定义命令会出现在 `/help` 列表里，`custom: true` 的那几条即来自该目录。
 
 ### 命令跑了很久，终端停在 `[calling …]` 不动，正常吗？
 
@@ -327,6 +329,17 @@ heagent run --resume <session-id> "…"       # 指定会话
 
 产物在 `_he-output/goals/<goal-id>/`。工作流契约见 `.heagent/skills/he-goal/workflow.md`，
 导读见[「Goal 工作流」专题](goal-workflow.md)。
+
+### `/loop` 怎么用，产物在哪？
+
+`/loop` 是项目级自定义命令（`.heagent/commands/loop.md`），执行契约是同包的
+`.heagent/skills/loop/SKILL.md` ＋ `workflow.md`（两者都要读）。8 步：市场调研 → 发散构思 →
+需求分析 → 产品范围 → 架构设计 → 故事细化 → 逐故事实现 → 系统集成测试；Step 04 与 Step 06 是审批门。
+
+- 触发：`/loop <大目标描述>`；`reset` 只删 `_he-output/works/current` 指针，不删目标目录。
+- 运行状态：`_he-output/works/<goal-id>/progress.md` ＋ 指针 `_he-output/works/current`；每步用一个**全新** `task_delegate` 子会话，无 Python 状态机。
+- 规划与 story 状态：BMAD v7 票树 `_bmad-output/initiative-<slug>/tickets/`（`tickets.py mark` 是唯一合法写路径）；不再产出 `epics.md`，也不写 `sprint-status.yaml`。
+- 与 `/goal` 的关系：两套工作流**互不读写**对方的产物目录（`/goal` 在 `_he-output/goals/`，`/loop` 在 `_he-output/works/`）。
 
 ### 定时任务现在是什么状态？
 

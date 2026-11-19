@@ -100,11 +100,16 @@ python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
 ```bash
 python scripts/contract_snapshot.py --check          # 四份基线：公共导出面 / 传输路由 / 异常类型 / 传输错误码
 pytest tests/test_contract_baselines.py tests/test_architecture_contracts.py -q
+pytest tests/test_docs_links.py tests/test_deferred_id_registry.py -q   # 文档链接/锚点与台账计数诚实性
 ```
 
 判据：全绿才继续；快照红了先看 diff 判断「有意变更（重生基线）」还是「意外漂移（改代码）」。
+文档守卫红了就修文档而不是改断言：`test_docs_links.py` 按 GitHub slug 口径校验 `docs/**`、根
+`README/AGENTS/CLAUDE`、`_bmad-output/README.md` 的链接与手写 TOC 锚点（mkdocs 侧已 ignore
+anchors，这层是唯一机器守卫）；`test_deferred_id_registry.py` 要求凡出现「活动…N 条」都必须等于
+`open-items.md` 的实际行数（历史快照里的旧计数同样算数）。
 
-当前规模：**L0 = 约 44 passed / 13 s**（2026-11-18 实测；数字随守卫增加而变，**以实跑为准**，不要拿任何写死的数字当判据）。
+当前规模：**L0 = 约 55 passed / 15 s**（2026-11-19 实测；数字随守卫增加而变，**以实跑为准**，不要拿任何写死的数字当判据）。
 
 > 其中一条是**单文件行数契约**：`test_source_files_stay_under_the_line_ceiling` 断言 `src/heagent/**/*.py` 逐文件 ≤ `MAX_SOURCE_FILE_LINES = 1000`。它红了就先把目标文件拆模块（示例：`cli/help_view.py` 自 `cli/interactive.py` 拆出纯展示面），**不要**上调常量绕过。
 

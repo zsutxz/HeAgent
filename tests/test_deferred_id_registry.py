@@ -192,7 +192,13 @@ def test_epic_ledgers_without_id_sections_carry_a_no_active_marker() -> None:
 
 
 def test_active_count_declarations_match_the_ledger() -> None:
-    """凡声明活动计数处，声明值必须等于活动台账（open-items.md）实际行数（历史叙事中的非现行计数不在此列）。"""
+    """凡出现「活动…N 条」都必须等于活动台账（open-items.md）的实际行数。
+
+    旧口径只要求「文件里存在一处等于真值的声明、且不得声明 0」，于是同一文件里的
+    **陈旧计数**（如历史快照段的「活动 5 条」）能长期潜伏——2026-11-19 在
+    `_bmad-output/README.md` 里就同时存在「16 条」与「5 条」。现在改为逐处严格比对：
+    历史快照段要么随台账更新，要么改写成指向 `open-items.md` 的指针。
+    """
     actual = len(_active_rows())
     sites = (
         ACTIVE,
@@ -202,13 +208,14 @@ def test_active_count_declarations_match_the_ledger() -> None:
         # implementation-artifacts/README.md 也声明计数——ver-gap 修复：缺它则该点回退 0 条时全量门照绿。
         ROOT / "_bmad-output" / "implementation-artifacts" / "README.md",
     )
+    # (?<!\d) so a nonzero count ending in 0 (e.g. "10 条") cannot pass as zero.
+    declaration = re.compile(r"活动(?:项|区|台账)?[^\n]{0,40}?(?<!\d)(\d+) 条")
     for path in sites:
         text = path.read_text(encoding="utf-8")
-        # (?<!\d) so a nonzero count ending in 0 (e.g. "10 条") cannot pass as zero.
-        assert re.search(rf"活动(?:项|区|台账)?[^\n]{{0,40}}(?<!\d){actual} 条", text), (
-            f"{path.name} does not declare the actual active count ({actual})"
+        declared = [int(match.group(1)) for match in declaration.finditer(text)]
+        assert declared, f"{path.name} does not declare the actual active count ({actual})"
+        stale = sorted({value for value in declared if value != actual})
+        assert not stale, (
+            f"{path.name} declares stale active counts {stale} while the ledger has {actual}; "
+            "历史快照里的计数同样会误导读者——随台账更新，或改写成指向 open-items.md 的指针"
         )
-        if actual != 0:
-            assert not re.search(r"活动(?:项|区|台账)?[^\n]{0,40}(?<!\d)0 条", text), (
-                f"{path.name} still declares zero active items while {actual} are open"
-            )
