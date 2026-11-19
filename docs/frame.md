@@ -946,8 +946,11 @@ MCP server 桥接层（非必要功能，已交付）。连接时发现+注册�
 | `client.py` | `TransportOpener` Protocol + `default_transport_opener`（stdio/http 分派 + 握手），构造期可注入（Phase 4 C2） |
 | `registry_bridge.py` | `RegistryBridge` — server 工具 + 桥接工具注册/注销单一入口，命名冲突策略（Phase 4 C2） |
 | `manager.py` | `MCPClientManager`（生命周期 façade）— 并发连接+发现+注册，单 server 失败隔离；`discovery_failures` 结构化记录失败，cli 渲染 stderr（不隐藏发现错误） |
+| `sdk.py` | `import_mcp()` / `mcp_types()` / `require_sdk()` — mcp SDK 的**唯一导入通道**：本包任何模块都不得在 import 期 `from mcp… import …`（那会让缺可选依赖时 `import heagent` 直接炸）；缺包抛 `McpSdkMissingError`（`E_TOOL_MCP_SDK_MISSING`，带 `pip install "heagent[mcp]"` 提示） |
 
 ⚠ MCP 工具与内置工具同等不可信（执行前拦截 + 返回启发式围栏均已落地）；这两层的边界地位见 §4.19。
+
+**安装面（Story 67.9）**：`mcp` 自核心依赖移到可选 extra ⇒ 基础安装（6 项）不含 MCP SDK，需要 MCP 时 `pip install "heagent[mcp]"`（`dev` extra 已含它，测试与 CI 不降级）；缺包只影响 MCP 能力，`import heagent` 与普通 CLI 照常。
 
 ---
 
@@ -1455,7 +1458,8 @@ Epic 50 把 4.17 的「单项目聊天页」扩成**多项目控制台**：左�
 | 网页 cron 能力（2026-10-28，用户裁决改判） | `HttpAgentHandler.new_loop()` 以 `enable_cron=True` 组装：网页会话与交互模式 / GUI 共用同一份 `<项目>/.heagent/cron/jobs.json`，`cron_add` / `cron_list` / `cron_remove` 全部可用（原 A11② 的「不绑 cron 工具」形态**撤销**；此前网页侧一律回 `Error: cron tools not configured.`）。**handler 不启停调度器**：`_build_loop` 在有会话时顺带构造的 `CronScheduler` 被丢弃（构造只赋值字段、不建 task，无泄漏），start/stop 属进程级生命周期（`cli/interactive.py`、`gui/app.py`）⇒ 网页写的任务在本进程不触发，由那些入口的调度器执行；网页进程若也要自己跑调度，应挂 `EmbeddedHttpService` 生命周期，**不能**按 run 启停。同分钟跨进程重复执行由 `engine` ledger 的幂等键 + 租约兜底（`cron:{job_id}:{分钟}`，落 `.heagent/ledger/`）。⚠ 代价：绑定的是**可写** store ⇒ 端口可达者能增删该项目的定时任务（无认证、回环亦不可信）。判据：`tests/test_cli_http.py::test_new_loop_binds_the_full_cron_surface`（`enable_cron=True` 接线 + 同一 `jobs.json` 可见性 + 丢弃 scheduler 不抛） |
 | 网页侧工具结果收敛（Story 50-8 R5；2026-09-28 扩到 `content_search` / `file_edit`） | `cli.http_console._web_tool_output`：**两类收敛**——① `file_read` / `file_edit` 的**成功**结果内容**整份**不进网页事件流（前者是文件正文、后者是 `OK: edited …` + diff + 快照，对话区只显示「工具名 → 作用对象」）；② `content_search` 的成功结果**只留去重的命中文件清单**（`_matched_files` 剥掉 `路径:行号: 正文` 的行内容，保序去重）。**失败消息照旧**（内置工具用返回值 `Error: ...` 表达可预期失败，故判据 = `is_error` **或** 该前缀；无命中消息与超大文件跳过行同属诊断，**原样保留**）；会话文件 / `rollout.jsonl` / CLI / GUI **一字不变**（审计与回放不受影响），模型侧也照旧拿到全文 |
 | 控制台体验约束（Story 50-8 R1/R3/R4/R6/R7/R8） | 会话列表**默认只渲染最近 10 条**（服务端仍按时间降序给全量、硬上限 200；展开是本地 slice，且**当前会话永远可见**——落在窗口外时自动展开并隐藏展开按钮），规模提示与「显示全部」放在**会话面板最上面**（列表之上，R8）；侧栏**一列**：项目在上、会话在下（`display:flex`/`column`，**用户 2026-09-24 裁决，不得回退成多栏**）；对话区**占满所在列**（R7，2026-09-24 撤销 R6 的 48rem 限宽居中阅读列：`.chat-log > *` 与 `.composer > *` 只留 `width:100%`；设置面板打开时**对话列仍是三列里最宽的**）；侧栏 280px；设置面板只留**一行短状态**与逐项短只读标签，诊断 / 未知键折进默认收起的 `<details>`（标题带告警条数），逐项长说明压成徽标 + `title` |
-| 错误码 | `HttpErrorCode` 封闭 **35** 码，分组：项目注册表 6 / 会话 5 / 写通道 5 / 运行与边界 2（`confirm_required`、`loopback_required`）/ 原生目录选择 2（`dialog_unavailable`（503）、`dialog_busy`（409））/ 服务级在途总额 1（`total_inflight_limit`（409）），其余为 Epic 49 基础运行码。口径与实测方法：对 Epic 50 开工前提交做成员名 diff，不靠人工计数 |
+| 错误码 | 传输层 `HttpErrorCode` 封闭 **35** 码，分组：项目注册表 6 / 会话 5 / 写通道 5 / 运行与边界 2（`confirm_required`、`loopback_required`）/ 原生目录选择 2（`dialog_unavailable`（503）、`dialog_busy`（409））/ 服务级在途总额 1（`total_inflight_limit`（409）），其余为 Epic 49 基础运行码。口径与实测方法：对 Epic 50 开工前提交做成员名 diff，不靠人工计数 |
+| 框架异常码 | `pub/exceptions.py` 每个异常类带 `code`（形态 `E_<分类>_<具体>`，**只增不复用**），`error_catalog()` 给出码 → 类名 / 描述 / 建议，`error_code_of(exc)` 对非框架异常返回 `E_UNKNOWN`；当前 **29** 类，码表与 `docs/errors.md` 第二节逐条一致（`tests/test_exceptions.py` 钉死）。与传输层码是两套封闭集合，刻意不合并（Epic 69 / Story 69.3） |
 | 前端纪律 | 纯文本渲染（`createTextNode`，永不 `innerHTML`）；面板文案 / 只读原因 / 取值提示全部由后端 `labels` / `guards` / `source` 派生，**前端零硬编码**；零第三方资源、零内联脚本 / 事件属性；`[hidden]{display:none!important}` 全局兜底（作者样式的 `display:flex` 会压过 UA 的 `[hidden]`） |
 
 ⚠ **安全立场**（与 4.17 同一口径，边界地位见 §4.19）：绑定告警（`network.exposure`，判定单点）与写通道
@@ -1584,6 +1588,7 @@ src/heagent/
 │   ├── frontmatter.py       # 共享 frontmatter 解析（零 heagent 依赖；六处手写解析器收敛，2026-09-17）
 │   ├── safe_logging.py      # 日志卫生（safe_log 容错 + 故障守卫 + 启发式脱敏；零 heagent 依赖，2026-09-23）
 │   ├── audit.py             # 追加式审计面（工具执行 + 敏感操作 JSONL，prev/digest 哈希链；Story 67.2 / 67.3）
+│   ├── validation.py        # 统一输入验证框架（Rule 链 + 结构化 issue + InputValidationError；Story 67.1）
 │   ├── workspace.py         # 状态根派生的规范路径（WorkspacePaths）
 │   ├── task_shutdown.py     # 后台调度 task 关停内核（cron/dream 共用）
 │   ├── projects.py          # 网页控制台项目注册表（零运行栈依赖；2026-09-26 自顶层迁入）
@@ -1601,6 +1606,8 @@ src/heagent/
 │   │   └── report.py        # 报表装配：配置项、分组、未知键与路由池视图
 │   ├── write.py             # 受闸门的项目 .env 写流水线（原 config_write.py；Story 50-5）
 │   ├── envfile.py           # .env 行级保真读写（原 envfile.py；Story 50-5）
+│   ├── keyring_store.py     # 密钥唯一收敛点：KEYRING_ENABLED 时先查系统 keyring 再回退字段值（Story 67.5）
+│   ├── rotation.py          # 密钥轮换提醒：首次观测日期落 <状态根>/key_rotation.json，超期启动期 WARNING（Story 67.4）
 │   ├── validation.py        # 启动期必需配置校验（只判「不满足必然起不来」，<100ms；Story 64.7）
 │   └── user_settings.py     # 用户级 setting.md：读/渲染/一次性迁移 + 用户层 pydantic-settings 源
 │
@@ -1624,6 +1631,7 @@ src/heagent/
 │   ├── fallback_base.py     # 回退层共享基础设施：错误包装 / 回退决策 / 回退循环模板（2026-09-27）
 │   ├── anthropic.py         # Anthropic（含提示词缓存 FR-3）
 │   ├── chain.py             # ProviderChain 回退链（外层，FR-4 回退精度）
+│   ├── metadata_cache.py    # 聚合层 get_metadata 的进程内 LRU（显式失效 + hits/misses 观测面；Story 66.1）
 │   ├── key_rotation.py      # KeyRotatingProvider 密钥池轮换（中层）
 │   ├── retry.py             # 错误分类 + make_retry_middleware（内层）
 │   ├── responses.py         # OpenAI Responses API 兼容 Provider
@@ -1649,6 +1657,7 @@ src/heagent/
 │   │   ├── config.py        # MCPConfig + load_mcp_config（.mcp.json + ${ENV} 插值）
 │   │   ├── mapping.py       # mcp_tool_to_schema + bridge_result
 │   │   ├── session_api.py   # MCP SDK 会话字段兼容访问
+│   │   ├── sdk.py           # mcp SDK 导入唯一通道（可选依赖，缺包给安装诊断；Story 67.9）
 │   │   ├── client.py        # TransportOpener Protocol + 默认实现（Phase 4 C2）
 │   │   ├── registry_bridge.py  # 注册/注销单一入口（Phase 4 C2）
 │   │   ├── manager.py       # MCPClientManager（生命周期 façade + discovery_failures）
