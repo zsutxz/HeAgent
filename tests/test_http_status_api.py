@@ -414,6 +414,21 @@ class TestDeployment:
 
         assert source.status().sandbox_backend == "docker"
 
+    def test_protocol_caps_clip_overlong_deployment_values(self) -> None:
+        """超长配置只截断不 500：host 255 / 沙箱档位 32 / provider 名 64（协议上限，逐字钉死）。"""
+        from heagent.cli.http_status import _MAX_BACKEND_CHARS, _MAX_HOST_CHARS, _MAX_PROVIDER_CHARS
+
+        settings = Settings(_env_file=None, sandbox_backend="b" * 300, active_provider="p" * 300)
+        source = HttpStatusSource(version=_VERSION, max_inflight_runs=1, settings=settings)
+        long_ws = SimpleNamespace(config=SimpleNamespace(host="h" * 300, mode="local", tls_enabled=False), port=9201)
+        bind_status_source(source, (long_ws,))
+        snapshot = source.status()
+
+        assert (_MAX_HOST_CHARS, _MAX_BACKEND_CHARS, _MAX_PROVIDER_CHARS) == (255, 32, 64)
+        assert snapshot.listeners[0].host == "h" * 255
+        assert snapshot.sandbox_backend == "b" * 32
+        assert snapshot.active_provider == "p" * 64
+
     def test_effective_sandbox_backend_is_read_from_the_engine_decision(self) -> None:
         """``SANDBOX_BACKEND=auto`` / daemon 不可用时引擎降级成 ``passthrough``：状态必须报生效档位。"""
         from heagent.cli.http_status import _effective_sandbox_backend
@@ -440,7 +455,10 @@ class TestDeployment:
         provider.active = "openai"
         assert source.status().active_provider == "openai"
 
-    async def test_pools_default_to_an_empty_list(self) -> None:
+    async def test_pools_default_to_an_empty_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """未配置池时是空列表而不是 null；宿主机环境变量必须先摘掉，否则用例随机器变红。"""
+        for key in ("ACTIVE_PROVIDER", "ROUTING_POOLS", "SANDBOX_BACKEND", "HTTP_CONSOLE_WRITE_ENABLED"):
+            monkeypatch.delenv(key, raising=False)
         async with _client(_deployed(settings=Settings(_env_file=None))) as client:
             payload = (await client.get("/api/status")).json()
 
@@ -532,6 +550,41 @@ class TestDependencyState:
         finally:
             await server.close()
 
+    async def test_uptime_is_reported_as_absent_after_the_listener_closed(self) -> None:
+        """关闭后 uptime / started_at 归 ``None``：留着起点会让状态面报一个仍在增长的服务时长。"""
+        from heagent.network.http_server import HttpServer
+
+        server = HttpServer(HttpServerConfig(port=0), version=_VERSION)
+        await server.start()
+        assert server.uptime_seconds is not None
+        await server.close()
+
+        assert server.uptime_seconds is None
+        assert server.started_at is None
+        source = HttpStatusSource(version=_VERSION, max_inflight_runs=1)
+        bind_status_source(source, (), http_server=server)
+        assert source.status().uptime_seconds is None
+        assert source.status().started_at is None
+
+    async def test_uptime_restarts_from_zero_after_the_listener_restarted(self) -> None:
+        """``close()`` → ``start()`` 之后 uptime 从新起点算：旧起点必须被丢弃，而不是接着累加。"""
+        from heagent.network.http_server import HttpServer
+
+        server = HttpServer(HttpServerConfig(port=0), version=_VERSION)
+        await server.start()
+        try:
+            await asyncio.sleep(0.02)
+            before = server.uptime_seconds
+        finally:
+            await server.close()
+        await server.start()
+        try:
+            restarted = server.uptime_seconds
+            assert before is not None and before > 0
+            assert restarted is not None and restarted < before
+        finally:
+            await server.close()
+
     async def test_cron_jobs_come_from_the_workspace_jobs_file(self, tmp_path: Any) -> None:
         root = _workspace(tmp_path, jobs=_JOBS)
         async with _client(self._source(root)) as client:
@@ -595,6 +648,42 @@ class TestDependencyState:
 
         assert payload["skill_count"] == 2
         assert payload["memory_facts"] == 3
+
+    def test_skill_count_failure_degrades_to_zero_without_taking_the_rest_down(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """技能库读失败只把技能数降级为 0：不能整条状态变 500，也不能把记忆条目一起清零。"""
+        from heagent.cli import http_status
+
+        def _boom(*args: Any, **kwargs: Any) -> Any:
+            raise OSError("skills root unreadable")
+
+        monkeypatch.setattr(http_status, "SkillStore", _boom)
+        root = _workspace(tmp_path, facts=2)
+        with caplog.at_level(logging.WARNING, logger="heagent.cli.http_status"):
+            snapshot = self._source(root).status()
+
+        assert snapshot.skill_count == 0
+        assert snapshot.memory_facts == 2
+        assert any("skill_count_failed" in record.getMessage() for record in caplog.records)
+
+    def test_memory_fact_failure_degrades_to_zero_without_taking_the_rest_down(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """记忆文件读失败只把条数降级为 0：技能数照常给出，且失败不静默（有 WARNING）。"""
+        from heagent.cli import http_status
+
+        def _boom(*args: Any, **kwargs: Any) -> Any:
+            raise OSError("memory file unreadable")
+
+        monkeypatch.setattr(http_status, "FactStore", _boom)
+        root = _workspace(tmp_path, skills=("alpha",))
+        with caplog.at_level(logging.WARNING, logger="heagent.cli.http_status"):
+            snapshot = self._source(root).status()
+
+        assert snapshot.memory_facts == 0
+        assert snapshot.skill_count == 1
+        assert any("memory_count_failed" in record.getMessage() for record in caplog.records)
 
     async def test_dependency_reads_are_cached_for_a_short_window(
         self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
@@ -786,6 +875,67 @@ class TestRequestMetrics:
         assert error_code_from_body(b"plain text", headers) is None
         assert error_code_from_body(b"{" + b'"a": 1,' * 500 + b"}", headers) is None
         assert error_code_from_body(b'{"ok": true}', headers) is None
+
+    def test_real_source_maps_real_metrics_without_a_replica(self) -> None:
+        """映射由**真实** ``HttpStatusSource._request_metrics`` 完成：复刻映射的替身证明不了它。"""
+        from heagent.network.http_server.metrics import RequestMetrics
+
+        metrics = RequestMetrics()
+        metrics.record(status=200, elapsed_ms=10.0)
+        metrics.record(status=200, elapsed_ms=30.0)
+        metrics.record(status=304, elapsed_ms=20.0)
+        metrics.record(status=404, elapsed_ms=40.0, error_code="not_found")
+        metrics.record(status=502, elapsed_ms=50.0, error_code="bad_gateway")
+        metrics.record(status=503, elapsed_ms=60.0, error_code="unavailable")
+        metrics.record(status=500, elapsed_ms=70.0, error_code="internal_error")
+        metrics.record(status=500, elapsed_ms=80.0, error_code="internal_error")
+
+        source = _source()
+        source.attach_metrics(metrics)
+        requests = source.status().requests
+
+        assert requests.total == 8
+        # 每个分桶都要真的搬到另一端：漏搬一个桶就会恒 0 而不报错。
+        assert (requests.status_2xx, requests.status_3xx, requests.status_4xx, requests.status_5xx) == (2, 1, 1, 4)
+        # 8 个样本的中位数取有序后下标 4（不是两端平均）：10/20/30/40/**50**/60/70/80。
+        assert requests.latency_p50_ms == metrics.latency_p50_ms() == 50.0
+        assert requests.latency_max_ms == 80.0
+        assert [(item.code, item.count) for item in requests.error_codes] == [
+            ("internal_error", 2),
+            ("bad_gateway", 1),
+            ("not_found", 1),
+            ("unavailable", 1),
+        ]
+
+    def test_error_codes_are_capped_at_sixteen_keeping_the_loudest(self) -> None:
+        """错误码最多 16 条：超出的丢弃，但按频次排序后最吵的必须留下。"""
+        from heagent.network.http_server.metrics import RequestMetrics
+
+        metrics = RequestMetrics()
+        for index in range(20):
+            metrics.record(status=500, elapsed_ms=1.0, error_code=f"code_{index:02d}")
+        for _ in range(3):
+            metrics.record(status=500, elapsed_ms=1.0, error_code="code_19")
+
+        source = _source()
+        source.attach_metrics(metrics)
+        codes = source.status().requests.error_codes
+
+        assert len(codes) == 16
+        assert (codes[0].code, codes[0].count) == ("code_19", 4)
+        assert "code_19" not in [item.code for item in codes[1:]]
+
+    def test_metrics_stay_zero_until_the_app_attaches_them(self) -> None:
+        """载体没挂上时全 0（而不是 ``None`` 或异常）：没有 HTTP app 就没有请求可计数。"""
+        requests = _source().status().requests
+
+        assert (requests.total, requests.status_2xx, requests.latency_p50_ms, requests.latency_max_ms) == (
+            0,
+            0,
+            0.0,
+            0.0,
+        )
+        assert requests.error_codes == []
 
     async def test_endpoint_counts_its_own_requests_and_error_codes(self) -> None:
         console = _CountingStatusSource()

@@ -93,14 +93,23 @@ def test_help_lists_http_options() -> None:
 
 
 def test_http_server_command_wires_the_status_source(
-    captured_server: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    captured_server: dict[str, Any], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     """``http-server`` 必须注入状态来源：漏注入时真实入口的 ``/api/status`` 恒 404。
 
     命令本身经 ``asyncio.run`` 起服务，因此这里不断言 HTTP 响应（那要在 event loop 里），
     改为断言**装配产物**：source 已注入、且它真的出现在 app 的路由表里。
+    三处注入各防一件事：漏 ``provider=`` ⇒ 报配置里那个名字而不是运行中的实例；漏
+    ``workspace_root=`` ⇒ 依赖态恒 0；漏 ``sandbox_backend=``（生效值）⇒ 报请求档位。
     """
     monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
+    # 沙箱探测必须屏蔽真实 daemon：不屏蔽的话，「生效档位 vs 请求档位」这条断言随机器漂移。
+    monkeypatch.setattr(
+        "heagent.tools.sandbox.docker._probe_daemon_reason", lambda *_args, **_kwargs: "daemon-unreachable"
+    )
+    # 依赖态取的是**进程工作区**（fixture 已 chdir 到 tmp_path）：漏传 workspace_root 就恒 0。
+    (tmp_path / ".heagent" / "memory").mkdir(parents=True)
+    (tmp_path / ".heagent" / "memory" / "MEMORY.md").write_text("- a\n- b\n", encoding="utf-8")
 
     from heagent.cli import http as http_module
 
@@ -113,6 +122,10 @@ def test_http_server_command_wires_the_status_source(
             recorded.append(self)
 
     monkeypatch.setattr(http_module, "HttpAgentHandler", _RecordingHandler)
+    # provider 走**运行中的实例**（``handler.provider``）：哨兵名只出现在实例上，配置里没有它。
+    provider = _StubProvider()
+    provider.active = "stub-entry"  # type: ignore[attr-defined]
+    monkeypatch.setattr(http_module, "_build_provider", lambda settings, model: provider)
 
     result = CliRunner().invoke(main, ["http-server", "--sandbox", "docker"])
 
@@ -128,7 +141,13 @@ def test_http_server_command_wires_the_status_source(
     assert recorded, "命令没有构造 HttpAgentHandler"
     decision = recorded[0].engine.sandbox_decision
     assert decision is not None
-    assert snapshot.sandbox_backend == decision.effective_backend
+    # daemon 被屏蔽 ⇒ 生效档位是 passthrough，而请求档位是 docker：两者必须区分得开。
+    assert decision.effective_backend == "passthrough"
+    assert snapshot.sandbox_backend == "passthrough"
+    # provider 实例已接线（漏传会回落到配置值，哨兵名不可能出现）。
+    assert snapshot.active_provider == "stub-entry"
+    # 工作区根已接线（漏传 ⇒ 依赖态恒 0/空，而响应仍 200）。
+    assert snapshot.memory_facts == 2
 
     node = server.app
     while not hasattr(node, "routes"):

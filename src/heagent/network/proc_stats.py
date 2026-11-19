@@ -48,16 +48,22 @@ def read_process_stats() -> ProcessStats:
     return ProcessStats()
 
 
+def _proc_self() -> Path:
+    """``/proc/self`` 的实体路径；独立成函数以便测试注入替身目录。"""
+    return Path("/proc/self")
+
+
 def _read_procfs() -> ProcessStats:
     """Linux：``/proc/self/status`` 取 VmRSS/Threads，``/proc/self/stat`` 取 CPU 时钟节拍。"""
+    root = _proc_self()
     rss_bytes: int | None = None
     threads: int | None = None
-    for line in Path("/proc/self/status").read_text(encoding="ascii", errors="replace").splitlines():
+    for line in (root / "status").read_text(encoding="ascii", errors="replace").splitlines():
         if line.startswith("VmRSS:"):
             rss_bytes = int(line.split()[1]) * 1024
         elif line.startswith("Threads:"):
             threads = int(line.split()[1])
-    stat = Path("/proc/self/stat").read_text(encoding="ascii", errors="replace")
+    stat = (root / "stat").read_text(encoding="ascii", errors="replace")
     # 第 2 个字段是带括号的进程名，可能含空格 ⇒ 从最后一个 ')' 之后开始切。
     fields = stat[stat.rfind(")") + 2 :].split()
     ticks = int(fields[11]) + int(fields[12])  # utime + stime（第 14/15 字段）
@@ -65,7 +71,7 @@ def _read_procfs() -> ProcessStats:
     return ProcessStats(rss_bytes=rss_bytes, threads=threads, cpu_seconds=cpu_seconds, source=PROCFS_SOURCE)
 
 
-def _read_windows() -> ProcessStats:  # pragma: no cover - 只在 Windows 上执行
+def _read_windows() -> ProcessStats:
     """Windows：``GetProcessMemoryInfo`` 取 WorkingSetSize，``GetProcessTimes`` 取 CPU 时间。
 
     线程数走 ``Toolhelp32Snapshot`` 太重（每次采样要枚举全进程线程），因此 Windows 上留 ``None``。
@@ -90,6 +96,20 @@ def _read_windows() -> ProcessStats:  # pragma: no cover - 只在 Windows 上执
     # ``WinDLL`` 只在 Windows 上存在（在 Linux 上跑 mypy 时看不到它，故按平台忽略该属性检查）。
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)  # type: ignore[attr-defined]
     psapi = ctypes.WinDLL("psapi", use_last_error=True)  # type: ignore[attr-defined]
+    # 必须显式声明签名：64 位下 HANDLE 是 8 字节指针，未声明时 ctypes 按 C int 传参、按 int 回收返回值，
+    # 句柄会被截断成 32 位（API 失败或作用到错误的进程），``*_SIZE_T`` 字段的返回值同样会被截断。
+    kernel32.GetCurrentProcess.argtypes = []
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.POINTER(_MemoryCounters), wintypes.DWORD]
+    psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+    kernel32.GetProcessTimes.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+    ]
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
     process = kernel32.GetCurrentProcess()
 
     counters = _MemoryCounters()

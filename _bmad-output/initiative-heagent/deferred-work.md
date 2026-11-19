@@ -18,3 +18,4 @@
 - source_plan: `_bmad-output/initiative-heagent/tickets/epic-71-web-server-status/tickets/story-71.6-web-status-panel-plan.md`
   summary: Epic 71 review 的证据补齐批（11 条）统一折进台账 **A74**，不随 epic 收口逐条立项。
   evidence: 2026-11-19 两个镜头（`edge-case-hunter` + `verification-gap`）× 6 story 的独立子代理评审；当场修 12 处（provider 运行期读、cron 先过滤再截断、proc_stats 捕获面、面板取数超时、统计范围标注等），余下 11 条为「行为已正确但无判据」的证据缺口（前端执行级探针缺失、真实来源计数映射、装配接线与 `_clip` 上限、`/proc` 失败路径与 Windows 分支等），逐条正文见各 plan 的 `## Code Review` 与 `open-items.md` A74 行。另两项为待用户裁定（沙箱档位报请求值 vs 生效值；SSE 延迟是否计入 p50）。
+  closure: 2026-11-19 逐项补判据闭合（A74 移入 `retrospective-all-cycles.md` §三「本轮闭合」）——9 项测试证据 + 2 项 code 修复（Win32 签名声明、关闭后清启动起点）；node 探针在无 node 的 CI 恒 skip，CI 侧字段覆盖证据由结构守卫承担。

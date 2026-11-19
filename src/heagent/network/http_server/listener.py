@@ -112,7 +112,10 @@ class HttpServer:
 
     @property
     def uptime_seconds(self) -> float | None:
-        """已运行秒数（单调钟差值）；尚未成功启动为 ``None``。"""
+        """已运行秒数（单调钟差值）；尚未启动或**已关闭**为 ``None``。
+
+        关闭后清掉起点：留着它会让状态面报一个仍在增长的 uptime，而 listener 早已不在服务。
+        """
         if self._started_monotonic is None:
             return None
         return max(time.monotonic() - self._started_monotonic, 0.0)
@@ -224,10 +227,17 @@ class HttpServer:
             server, self._server = self._server, None
             if server is None:
                 self._closed = True
+                self._clear_start_marker()
                 return
             server.should_exit = True
             await self._stop_listener(server)
             self._closed = True
+            self._clear_start_marker()
+
+    def _clear_start_marker(self) -> None:
+        """丢弃本次启动时刻：状态面据此把 uptime / started_at 报成「没在运行」。"""
+        self._started_monotonic = None
+        self._started_at_wall = None
 
     async def _stop_listener(self, server: Any) -> None:
         budget = self.config.shutdown_timeout + _SHUTDOWN_GRACE_MARGIN

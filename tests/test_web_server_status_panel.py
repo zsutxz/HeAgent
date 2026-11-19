@@ -6,18 +6,26 @@
   三个面板元素、`/status-panel.js` 的白名单条目与页面引用、轮询启停与可见性分支、失败文案。
 - **页面绝不能有的**：HTML 注入 sink、第三方资源、`/api/status` 之外的端点字面量、硬编码版本号/主机名、
   徽标里的 `active_runs / max_inflight_runs` 比率、`app.js` 里的 `/api/status`（状态不进 5 秒 health 循环）。
-- **字段覆盖**：`StatusResponse` 及其嵌套模型的字段名必须全部出现在脚本里 —— 后端加字段而面板不跟进即红。
+- **字段覆盖**：`StatusResponse` 及其嵌套模型的字段必须以**消费形态**（`.field` 或 `["field"]`）出现在脚本里
+  —— 后端加字段而面板不跟进即红；名字只是出现在别的列表 / 字面量 / 局部变量里不算被渲染（C2 的修补点）。
   服务身份三字段豁免：顶栏 `#service-meta` 已从 `/api/health` 展示它们（Story 70.2 的既有契约）。
 
-真实浏览器里的轮询节奏由 node 探针覆盖（本机无 node ⇒ skip），因此静态断言只保证「可检形态」，
-不假装是运行时结果。
+**真实渲染结果**由 node 探针覆盖（`tests/fixtures/js/status_panel_probe.js`：最小 DOM 替身加载真实
+`status-panel.js` 并驱动一份完整 `StatusResponse`）。没有 node 的环境跳过该类用例（本机实测 `which node`
+无输出），因此这里的静态断言只保证「可检形态」，不假装是运行时结果。
 """
 
 from __future__ import annotations
 
+import json
 import re
+import shutil
+import subprocess
 from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
 
+import pytest
 from pydantic import BaseModel
 
 from heagent.network.http_protocol import (
@@ -68,6 +76,11 @@ def _strip_comments(source: str) -> str:
 
 _CODE = _strip_comments(_JS)
 
+# 可执行探针：在真 node 里加载真实脚本、渲染一份完整 StatusResponse。
+# 没有 node 的环境跳过相关用例（静态断言仍然生效）。
+_NODE = shutil.which("node")
+_PROBE = Path(__file__).parent / "fixtures" / "js" / "status_panel_probe.js"
+
 
 def _function_body(name: str) -> str:
     """取 `function <name>(…) { … }` 的函数体（按大括号配平，找不到即失败）。"""
@@ -86,16 +99,35 @@ def _function_body(name: str) -> str:
     raise AssertionError(f"函数 {name} 的大括号不配平")
 
 
+def _field_access_pattern(field: str) -> re.Pattern[str]:
+    """字段的**消费形态**：属性访问 `.field` 或下标访问 `["field"]` / `['field']`。
+
+    不能用子串匹配（`field in source`）：「名字还在别处出现」不等于「渲染行还在」。实测把
+    `["请求总数", num(requests.total)]` 整行删掉，`total` 仍出现在 `duration()` 的局部变量里，
+    子串守卫因此继续全绿 —— 面板已经不再展示请求总数，契约却毫无反应。
+    """
+    name = re.escape(field)
+    return re.compile(rf"\.{name}\b|\[\s*[\"']{name}[\"']\s*\]")
+
+
 def _missing_fields(models: Sequence[type[BaseModel]], source: str) -> list[str]:
-    """模型字段在脚本里找不到出现的那些（`字段名` 字面量即算被消费）。"""
+    """模型字段在脚本里没有以消费形态出现的那些（`.字段` / `["字段"]` 才算被渲染）。"""
     missing: list[str] = []
     for model in models:
         for name in model.model_fields:
             if name in _EXEMPT_FIELDS:
                 continue
-            if name not in source:
+            if _field_access_pattern(name).search(source) is None:
                 missing.append(f"{model.__name__}.{name}")
     return missing
+
+
+def _drop_lines_containing(source: str, needle: str) -> str:
+    """删掉所有包含 `needle` 的行（删除敏感性用例用；一行都没删掉即视为用例自身失效）。"""
+    lines = source.splitlines(keepends=True)
+    kept = [line for line in lines if needle not in line]
+    assert len(kept) < len(lines), f"脚本里没有包含 {needle} 的行，用例已失效"
+    return "".join(kept)
 
 
 class TestAssetWiring:
@@ -256,3 +288,76 @@ class TestFieldCoverage:
             rendered_by_nobody: int = 0
 
         assert _missing_fields((_ProbeModel,), _CODE) == ["_ProbeModel.rendered_by_nobody"]
+
+    def test_guard_requires_a_consumption_form(self) -> None:
+        """C2：出现形态必须是 `.字段` / `["字段"]`；裸单词（局部变量、函数名、字符串）不算渲染。"""
+
+        class _ProbeModel(BaseModel):
+            total: int = 0
+
+        bare_word = "const total = Math.max(0, seconds); function totalConnections() {}"
+        assert _missing_fields((_ProbeModel,), bare_word) == ["_ProbeModel.total"]
+        for consumed in ("num(requests.total)", 'row["total"]', "row['total']", "requests.total;"):
+            assert _missing_fields((_ProbeModel,), consumed) == [], consumed
+
+    def test_deleting_the_rendering_line_turns_the_guard_red(self) -> None:
+        """删除敏感性：删掉渲染行，守卫必须报出该字段（子串匹配时代不会——名字还在别处）。"""
+        pruned = _drop_lines_containing(_CODE, "requests.total")
+        assert _missing_fields(_STATUS_MODELS, pruned) == ["RequestMetricsSummary.total"]
+        # 旧口径（整份脚本子串命中即算）在同样的删改后仍然看不出问题，这正是 C2 的缺陷。
+        assert "total" in pruned
+
+    def test_deleting_every_active_runs_consumer_turns_the_guard_red(self) -> None:
+        """`active_runs` 有两个消费点（徽标与运行态行）：两行都删掉才算「面板不再展示在途数」。"""
+        pruned = _drop_lines_containing(_CODE, "status.active_runs")
+        assert _missing_fields(_STATUS_MODELS, pruned) == ["StatusResponse.active_runs"]
+
+
+def _run_probe(tmp_path: Path) -> dict[str, Any]:
+    """在 node 里跑一次状态面板探针（真实 `status-panel.js` + 最小 DOM 替身）。
+
+    探针输出一行 ``PROBE_RESULT {json}``；断言落在可观察的渲染结果上（徽标文案、页签行值），
+    而不是「源码里有没有某个字符串」。
+    """
+    (tmp_path / "status-panel.js").write_bytes(read_web_asset("status-panel.js"))
+    (tmp_path / "index.html").write_bytes(read_web_asset("index.html"))
+    # 固定 argv（node + 仓库内探针 + 两个临时文件路径），不经 shell、不含外部输入。
+    completed = subprocess.run(  # noqa: S603
+        [_NODE, str(_PROBE), str(tmp_path / "status-panel.js"), str(tmp_path / "index.html")],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=120,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    marker = "PROBE_RESULT "
+    line = next((line for line in completed.stdout.splitlines() if line.startswith(marker)), None)
+    assert line is not None, completed.stdout
+    return json.loads(line[len(marker) :])
+
+
+class TestStatusPanelProbe:
+    """C1：`status-panel.js` 的执行级回归（无 node 的环境跳过，静态契约仍然生效）。"""
+
+    def test_probe_fixture_is_committed(self) -> None:
+        """不依赖 node：探针文件在位，且按 PROBE_RESULT 契约执行真实脚本。"""
+        assert _PROBE.is_file(), "缺少 tests/fixtures/js/status_panel_probe.js"
+        text = _PROBE.read_text("utf-8")
+        assert "PROBE_RESULT " in text
+        assert "PROBE_ERROR" in text
+        assert "process.argv[2]" in text, "真实脚本路径必须由 argv 传入（跑的就是包内那一份）"
+        assert "new Function(src)()" in text, "探针执行真实脚本，而不是复述它的字符串"
+
+    @pytest.mark.skipif(_NODE is None, reason="需要 node 才能执行前端行为回归（本机实测无 node）")
+    def test_real_script_renders_a_full_status_payload(self, tmp_path: Path) -> None:
+        result = _run_probe(tmp_path)
+
+        assert result["checks"] >= 20, f"探针检查项只有 {result['checks']} 条，跑通也不构成覆盖"
+        observed = result["observed"]
+        assert observed["badge"] == "对外 · up 1h2m · run 3 · WS 5"
+        assert observed["tabs"] == ["运行态", "部署面", "依赖态", "资源", "请求计数"]
+        assert observed["calls"] == ["GET /api/status"]
+        assert ["2xx / 3xx", "111 / 4"] in observed["requestRows"]
+        assert ["RSS", "不可用"] in observed["resourceRows"]
+        assert observed["unexposedBadge"].startswith("未暴露")
