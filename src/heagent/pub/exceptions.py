@@ -12,12 +12,14 @@
     │   ├── ToolArgumentError
     │   ├── ToolExecutionError
     │   ├── UnknownToolError
-    │   └── SafetyViolation
-    ├── EngineError                    运行时治理（policy / ledger / workflow）
+    │   ├── SafetyViolation
+    │   └── McpSdkMissingError
+    ├── EngineError                    运行时治理（policy / ledger / workflow / 存储写冲突）
     │   ├── PolicyViolation
     │   ├── LedgerError
     │   ├── PolicyExecutionError
-    │   └── WorkflowExecutionError
+    │   ├── WorkflowExecutionError
+    │   └── FactCompactConflictError
     ├── AgentError                     循环与委派
     │   ├── BudgetExceeded
     │   │   └── IterationLimitError
@@ -28,6 +30,7 @@
     │   ├── SessionNotFoundError
     │   └── SessionUnreadableError
     └── ConfigurationError             配置面错配（键值不合法 / 名字不在池里）
+        └── InputValidationError
 
 分类层的用途是「一整类可 catch」：``except ToolError`` 覆盖全部工具异常，``except
 HeAgentError`` 覆盖全部框架异常。
@@ -50,9 +53,14 @@ HeAgentError`` 覆盖全部框架异常。
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    from heagent.pub.validation import ValidationIssue
 
 __all__ = [
     "AgentError",
@@ -60,10 +68,13 @@ __all__ = [
     "BudgetExceeded",
     "ConfigurationError",
     "EngineError",
+    "FactCompactConflictError",
     "HeAgentError",
     "HeAgentException",
+    "InputValidationError",
     "IterationLimitError",
     "LedgerError",
+    "McpSdkMissingError",
     "PolicyExecutionError",
     "PolicyViolation",
     "ProviderAuthError",
@@ -200,6 +211,18 @@ class SafetyViolation(ToolError):
     )
 
 
+class McpSdkMissingError(ToolError):
+    """MCP 桥接的可选依赖（``mcp`` SDK）未安装。
+
+    继承 ``ToolError``：MCP 工具面缺依赖属于工具能力不可用，``except ToolError`` 与既有入口层
+    的 ``except HeAgentError`` 都能把它渲染成一行可执行提示，而不是裸 traceback。
+    """
+
+    code: ClassVar[str] = "E_TOOL_MCP_SDK_MISSING"
+    description: ClassVar[str] = "MCP 桥接的可选依赖 mcp SDK 未安装（可选能力，不影响其余功能）"
+    suggestion: ClassVar[str] = '装可选依赖：pip install "heagent[mcp]"；不要 MCP 时保持 MCP_ENABLED=false'
+
+
 # ── Engine 分类 ──────────────────────────────────────────────────
 
 
@@ -255,6 +278,17 @@ class WorkflowExecutionError(EngineError, ValueError):
     code: ClassVar[str] = "E_ENGINE_WORKFLOW"
     description: ClassVar[str] = "工作流步骤选择或状态推进不合法"
     suggestion: ClassVar[str] = "核对 workflow 的 steps 声明与 active_step；恢复一律走 checkpoint，不猜、不静默跳过"
+
+
+class FactCompactConflictError(EngineError):
+    """记忆事实库在读与写之间被并发修改（compare-after-write 冲突）。
+
+    判定语义是「整批放弃、留底不动」：宁可在下次重跑，也不覆盖别人刚写入的事实。
+    """
+
+    code: ClassVar[str] = "E_ENGINE_STORE_CONFLICT"
+    description: ClassVar[str] = "存储在读与写之间被并发修改（fact_compact 的 MEMORY.md 冲突），整批放弃"
+    suggestion: ClassVar[str] = "重跑 fact_compact（被移出的条目已留底）；同写 MEMORY.md 的进程需串行化"
 
 
 # ── Agent 分类 ───────────────────────────────────────────────────
@@ -366,6 +400,28 @@ class ConfigurationError(HeAgentError, ValueError):
     suggestion: ClassVar[str] = "按 .env.example 对应键给合法值；heagent doctor 会逐项列出问题键"
 
 
+class InputValidationError(ConfigurationError):
+    """统一输入校验失败：``str()`` 逐字段列出问题，CLI / HTTP 可直接展示。
+
+    当前唯一接入面是配置写入的字段守卫（``config/write.py::guard_reason``）——即「用户输入的
+    键值不合法」；归在 ``ConfigurationError`` 下使 ``except ConfigurationError`` 能一次接住
+    「值不合法」的两种表达（单条原因 vs 多字段清单）。
+    """
+
+    code: ClassVar[str] = "E_CONFIGURATION_INVALID_INPUT"
+    description: ClassVar[str] = "输入校验失败（逐字段列出问题；当前接入面是配置写入守卫）"
+    suggestion: ClassVar[str] = "按提示改对应字段；键名与取值域见 .env.example，全局体检跑 heagent doctor"
+
+    def __init__(self, issues: Iterable[ValidationIssue]) -> None:
+        self.issues: tuple[ValidationIssue, ...] = tuple(issues)
+        super().__init__("invalid input: " + "; ".join(f"{issue.field}: {issue.message}" for issue in self.issues))
+
+    @property
+    def fields(self) -> tuple[str, ...]:
+        """涉及的字段名（按 issue 顺序去重）——调用方可用它高亮对应的输入项。"""
+        return tuple(dict.fromkeys(issue.field for issue in self.issues))
+
+
 #: ``HeAgentException`` 是旧称别名，不是第二个基类。
 HeAgentException = HeAgentError
 
@@ -395,11 +451,13 @@ _CATALOG_CLASSES: tuple[type[HeAgentError], ...] = (
     ToolExecutionError,
     UnknownToolError,
     SafetyViolation,
+    McpSdkMissingError,
     EngineError,
     PolicyViolation,
     LedgerError,
     PolicyExecutionError,
     WorkflowExecutionError,
+    FactCompactConflictError,
     AgentError,
     BudgetExceeded,
     IterationLimitError,
@@ -410,6 +468,7 @@ _CATALOG_CLASSES: tuple[type[HeAgentError], ...] = (
     SessionNotFoundError,
     SessionUnreadableError,
     ConfigurationError,
+    InputValidationError,
 )
 
 

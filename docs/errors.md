@@ -31,8 +31,8 @@ Error: <原消息，逐字保留>
 - 状态行（`▶启动` / `✔完成`）、WARNING 与进度提示**不带**这些段落——它们不是错误。
 
 **覆盖口径**：「用户可见错误」在本页被界定为三个可枚举集合的并集——传输层全部 **35** 个稳定码
-（`network/http_protocol.py::HttpErrorCode`，封闭集合）+ 框架层全部 **26** 个异常类
-（`pub/exceptions.py`，每个都带稳定码）+ CLI/启动期 **12** 条常见报错，合计 **73** 条，三条链路各自 **100%** 覆盖。
+（`network/http_protocol.py::HttpErrorCode`，封闭集合）+ 框架层全部 **29** 个异常类
+（`pub/exceptions.py`，每个都带稳定码）+ CLI/启动期 **12** 条常见报错，合计 **76** 条，三条链路各自 **100%** 覆盖。
 可枚举集合之外的自由文本不在此口径内。
 
 **码的现状**：传输层（`HttpErrorCode`）与框架层（`pub/exceptions.py::code`）都是封闭码集合；
@@ -149,11 +149,13 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 | `E_TOOL_EXECUTION` | `ToolExecutionError` | 工具开始执行后失败（调用超时、server 断连等） | 读工具返回正文；MCP 工具查 server 连接状态与 call_timeout 配置 |
 | `E_TOOL_UNKNOWN` | `UnknownToolError` | 调用了未注册或未启用的工具名 | 核对工具名；确认该工具已注册且未被 ALLOWED_TOOLS / BLOCKED_TOOLS 过滤 |
 | `E_TOOL_SAFETY_VIOLATION` | `SafetyViolation` | SafetyGuard 在 handler 之前拦下调用（危险命令 / 受保护路径） | 该调用未执行；看事件 tool_call_blocked 的 details.reason 与 SAFETY_BLOCKED_TOOLS 是否误伤 |
+| `E_TOOL_MCP_SDK_MISSING` | `McpSdkMissingError` | MCP 桥接的可选依赖 mcp SDK 未安装（可选能力，不影响其余功能） | 装可选依赖：pip install "heagent[mcp]"；不要 MCP 时保持 MCP_ENABLED=false |
 | `E_ENGINE` | `EngineError` | 运行时治理层错误（分类层） | 按子类处理；治理层的拒绝一律「未执行」，先看事件流里的 details |
 | `E_ENGINE_POLICY_VIOLATION` | `PolicyViolation` | PolicyEngine 在 handler 之前拒绝调用（档位 / 白黑名单 / 审批未过） | 该调用未执行；看 tool_call_blocked 的 details.mode；SANDBOX_MODE=read-only 会拦所有写与 shell |
 | `E_ENGINE_LEDGER` | `LedgerError` | 执行台账（幂等记录）读写失败或记录状态不符 | 查 .heagent 下的台账记录文件；台账只是幂等缓存，任务可安全重跑 |
 | `E_ENGINE_POLICY_EXECUTION` | `PolicyExecutionError` | 策略裁决通过但执行环境不成立（沙箱会话目录缺失等） | 检查 run metadata 的 sandbox_workspace；或关闭沙箱会话目录让路径恢复存在 |
 | `E_ENGINE_WORKFLOW` | `WorkflowExecutionError` | 工作流步骤选择或状态推进不合法 | 核对 workflow 的 steps 声明与 active_step；恢复一律走 checkpoint，不猜、不静默跳过 |
+| `E_ENGINE_STORE_CONFLICT` | `FactCompactConflictError` | 存储在读与写之间被并发修改（fact_compact 的 MEMORY.md 冲突），整批放弃 | 重跑 fact_compact（被移出的条目已留底）；同写 MEMORY.md 的进程需串行化 |
 | `E_AGENT` | `AgentError` | Agent 循环与子 Agent 委派错误（分类层） | 按子类处理；预算 / 上限类错误改配置或拆小任务 |
 | `E_AGENT_BUDGET_EXCEEDED` | `BudgetExceeded` | 迭代或 token 预算用尽 | 调大 MAX_ITERATIONS / SUBAGENT_MAX_ITERATIONS，或把任务拆小 |
 | `E_AGENT_ITERATION_LIMIT` | `IterationLimitError` | 迭代硬上限用尽（本轮未给出最终回答） | 调大 MAX_ITERATIONS；或把任务拆成多轮 / 委派子 Agent |
@@ -164,6 +166,7 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 | `E_SESSION_NOT_FOUND` | `SessionNotFoundError` | 该会话 id 没有对应的会话文件 | 用会话列表 / 服务端返回的真实 id，不要自己拼路径 |
 | `E_SESSION_UNREADABLE` | `SessionUnreadableError` | 会话文件存在但无法解析 | 备份后删除 .heagent/sessions/ 下的该文件 |
 | `E_CONFIGURATION` | `ConfigurationError` | 配置面错配（键值不合法，或引用了池里不存在的名字） | 按 .env.example 对应键给合法值；heagent doctor 会逐项列出问题键 |
+| `E_CONFIGURATION_INVALID_INPUT` | `InputValidationError` | 输入校验失败（逐字段列出问题；当前接入面是配置写入守卫） | 按提示改对应字段；键名与取值域见 .env.example，全局体检跑 heagent doctor |
 
 **非框架异常**（`ValueError` / `OSError` 等直接冒到用户面前）没有码；`error_code_of(exc)` 统一返回
 `E_UNKNOWN`，不抛。
@@ -181,7 +184,7 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 | `auth-enforcing WS listeners require WS_AUTH_TOKEN in ~/.heagent/setting.md` | WS 绑了非回环地址但没配 token | 在 `~/.heagent/setting.md` 加 `WS_AUTH_TOKEN: <长随机串>`；项目 `.env` 写不生效 |
 | `HTTP server could not bind <addr>: address unavailable` | 端口被占或地址不可绑 | 换端口（`--port` / `--ws-port`）；不显式传端口时会在 `preferred…preferred+9` 内自动顺延 |
 | `HTTP server started but /api/health is not servable` | 启动自检失败：listener 起来了但路由不可达 | 换端口重试；检查是否有代理/防火墙拦截回环 |
-| `the HTTP entry point requires optional dependencies (missing 'aiohttp')` | 没装 http extra | `pip install "heagent[http]"` |
+| `the HTTP entry point requires optional dependencies (missing 'starlette')` | 没装 http extra（`uvicorn` / `websockets` 缺失同一形态，`missing` 后是实际缺的模块名） | `pip install "heagent[http]"` |
 | `WebSocket support requires websockets` | 没装 ws 依赖 | `pip install "heagent[http]"` |
 | `sandbox backend ... unavailable`（启动日志 WARNING） | 指定后端不可用，已显性降级为宿主执行 | 装 firejail / 起 docker daemon；或 `--sandbox passthrough` 明确接受零隔离 |
 | `workflow role 'X' is unavailable` | `/goal` 声明的角色在技能库里找不到 | 把角色包放到 `.heagent/skills/<role>/` 或 `~/.heagent/skills/`（技能库全局优先） |

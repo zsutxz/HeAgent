@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 
 from heagent.memory.auto_archive import _append_archive, _fact_line_bytes
-from heagent.pub.exceptions import HeAgentError
+from heagent.pub.exceptions import FactCompactConflictError as FactCompactConflictError  # noqa: PLC0414
 from heagent.pub.persist import atomic_update_text
 
 # 判「同义条目」的词集重叠比例阈值。
@@ -50,10 +50,6 @@ _BOM = chr(0xFEFF)
 #: 归档目录名与文件名（相对 MEMORY.md 所在目录；与 auto_archive 同一留底文件）。
 _ARCHIVE_DIR = "archive"
 _ARCHIVE_NAME = "MEMORY-archive.md"
-
-
-class FactCompactConflictError(HeAgentError):
-    """compare-after-write 冲突：MEMORY.md 在读与写之间已被并发修改 ⇒ 整批放弃，留底已落档。"""
 
 
 class CompactMerge(BaseModel):

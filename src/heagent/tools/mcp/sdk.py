@@ -17,7 +17,7 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
-from heagent.pub.exceptions import HeAgentError
+from heagent.pub.exceptions import McpSdkMissingError as McpSdkMissingError  # noqa: PLC0414
 
 if TYPE_CHECKING:
     from types import ModuleType
@@ -26,14 +26,6 @@ if TYPE_CHECKING:
 INSTALL_HINT = 'pip install "heagent[mcp]"'
 
 _MESSAGE = "{feature}需要可选依赖 mcp，但当前环境未安装。安装：{hint}"
-
-
-class McpSdkMissingError(HeAgentError):
-    """可选依赖 ``mcp`` 不可用。
-
-    继承 ``HeAgentError`` 是为了让既有入口层（``cli/console.py`` 的 ``except HeAgentError``）
-    把它渲染成一行可执行提示，而不是裸 traceback。非 MCP 功能不受影响。
-    """
 
 
 def import_mcp(module: str = "mcp", *, feature: str = "MCP 支持") -> ModuleType:

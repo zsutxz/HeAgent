@@ -194,7 +194,7 @@ class TestLayerBoundary:
             elif isinstance(node, ast.Import):
                 heagent_imports.update(alias.name for alias in node.names if alias.name.startswith("heagent"))
 
-        assert heagent_imports == {"heagent.pub.exceptions.HeAgentError"}
+        assert heagent_imports == {"heagent.pub.exceptions.InputValidationError"}
 
 
 class TestConfigWriteEntryPoint:

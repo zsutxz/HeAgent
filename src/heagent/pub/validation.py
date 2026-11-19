@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from heagent.pub.exceptions import HeAgentError
+from heagent.pub.exceptions import InputValidationError as InputValidationError  # noqa: PLC0414
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -82,19 +82,6 @@ class ValidationIssue(BaseModel):
     field: str
     rule: str
     message: str
-
-
-class InputValidationError(HeAgentError):
-    """统一失败异常：``str()`` 逐字段列出问题，CLI / HTTP 可直接展示，不必二次拼装。"""
-
-    def __init__(self, issues: Iterable[ValidationIssue]) -> None:
-        self.issues: tuple[ValidationIssue, ...] = tuple(issues)
-        super().__init__("invalid input: " + "; ".join(f"{issue.field}: {issue.message}" for issue in self.issues))
-
-    @property
-    def fields(self) -> tuple[str, ...]:
-        """涉及的字段名（按 issue 顺序去重）——调用方可用它高亮对应的输入项。"""
-        return tuple(dict.fromkeys(issue.field for issue in self.issues))
 
 
 class Rule(BaseModel):

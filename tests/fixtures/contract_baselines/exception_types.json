@@ -288,13 +288,6 @@
       "name": "SkillWorkflowError"
     },
     {
-      "bases": [
-        "HeAgentError"
-      ],
-      "module": "heagent.memory.compact",
-      "name": "FactCompactConflictError"
-    },
-    {
       "bases": [],
       "module": "heagent.network.cli_event_hub",
       "name": "CliEventHub"
@@ -911,10 +904,24 @@
     },
     {
       "bases": [
+        "EngineError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "FactCompactConflictError"
+    },
+    {
+      "bases": [
         "Exception"
       ],
       "module": "heagent.pub.exceptions",
       "name": "HeAgentError"
+    },
+    {
+      "bases": [
+        "ConfigurationError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "InputValidationError"
     },
     {
       "bases": [
@@ -930,6 +937,13 @@
       ],
       "module": "heagent.pub.exceptions",
       "name": "LedgerError"
+    },
+    {
+      "bases": [
+        "ToolError"
+      ],
+      "module": "heagent.pub.exceptions",
+      "name": "McpSdkMissingError"
     },
     {
       "bases": [
@@ -1103,13 +1117,6 @@
     },
     {
       "bases": [
-        "HeAgentError"
-      ],
-      "module": "heagent.pub.validation",
-      "name": "InputValidationError"
-    },
-    {
-      "bases": [
         "ValueError"
       ],
       "module": "heagent.skills.skill_importer",
@@ -1196,13 +1203,6 @@
       ],
       "module": "heagent.tools.builtins.web_search_engine",
       "name": "SearchEngineError"
-    },
-    {
-      "bases": [
-        "HeAgentError"
-      ],
-      "module": "heagent.tools.mcp.sdk",
-      "name": "McpSdkMissingError"
     },
     {
       "bases": [
