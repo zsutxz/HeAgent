@@ -134,7 +134,7 @@ def _find_openssl(explicit: str | None) -> str:
 
 def _run(binary: str, args: list[str], *, cwd: Path) -> str:
     # 参数全部由本模块构造（不含外部拼接），不经 shell。
-    completed = subprocess.run(  # noqa: S603 - 定值参数
+    completed = subprocess.run(  # nosec B603 - 参数由本模块构造不经命令行壳 # noqa: S603 - 定值参数
         [binary, *args], cwd=str(cwd), capture_output=True, text=True, check=False
     )
     if completed.returncode != 0:
@@ -203,7 +203,7 @@ def _ws_host() -> str | None:
         host = get_settings().ws_host.strip()
     except Exception:  # noqa: BLE001 - 配置坏掉不阻断签发，SAN 仍有默认项与既有项
         return None
-    if not host or host in {"0.0.0.0", "::"}:  # noqa: S104 - 只是在比对通配绑定字面量，不在这里绑定
+    if not host or host in {"0.0.0.0", "::"}:  # nosec B104 - 只比对字面量不在此绑定 # noqa: S104 - 比对通配绑定字面量
         # 通配绑定不是客户端会连的地址 ⇒ 不进 SAN。
         return None
     return host
@@ -584,7 +584,7 @@ def verify(session: _Session) -> None:
         _fail(str(exc), code=EXIT_UNUSABLE)
 
     checks: list[tuple[str, bool, str]] = []
-    verified = subprocess.run(  # noqa: S603 - 定值参数
+    verified = subprocess.run(  # nosec B603 - 定值参数 # noqa: S603 - 定值参数
         [binary, "verify", "-CAfile", str(session.ca_cert), str(session.leaf_cert)],
         cwd=str(session.directory),
         capture_output=True,

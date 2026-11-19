@@ -182,6 +182,9 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 | `invalid --resume session id: ...` | `--resume` 的 id 含路径分隔符 / 控制字符 / 保留名 | 用会话列表里的真实 id；不要自己拼路径 |
 | `[mcp config error] ...` | `.mcp.json` 解析失败或引用的 server 不可用 | 校验 JSON 语法；必要时 `MCP_ENABLED=false` 先跑起来 |
 | `auth-enforcing WS listeners require WS_AUTH_TOKEN in ~/.heagent/setting.md` | WS 绑了非回环地址但没配 token | 在 `~/.heagent/setting.md` 加 `WS_AUTH_TOKEN: <长随机串>`；项目 `.env` 写不生效 |
+| `WS_TLS_CERT_FILE and WS_TLS_KEY_FILE are not a pair` | 证书与私钥不是同一对（常见：只换了其中一份） | `heagent tls verify` 看哪份材料不对；`heagent tls issue` 用同一身份密钥重签 |
+| `WS TLS materials are unreadable` | cert/key 指向的文件读不出、不是 PEM 或私钥非 RSA | 指到 `.heagent/tls/` 的 `cert.pem` + `key.pem`；缺失就用 `heagent tls init` / `heagent tls issue` 重建 |
+| `WS TLS certificate ... expires in N days`（启动日志 WARNING） | 叶证书余量 < 7 天（过期后是握手期全失败） | `heagent tls issue`（复用身份密钥 ⇒ 客户端 pin 不变） |
 | `HTTP server could not bind <addr>: address unavailable` | 端口被占或地址不可绑 | 换端口（`--port` / `--ws-port`）；不显式传端口时会在 `preferred…preferred+9` 内自动顺延 |
 | `HTTP server started but /api/health is not servable` | 启动自检失败：listener 起来了但路由不可达 | 换端口重试；检查是否有代理/防火墙拦截回环 |
 | `the HTTP entry point requires optional dependencies (missing 'starlette')` | 没装 http extra（`uvicorn` / `websockets` 缺失同一形态，`missing` 后是实际缺的模块名） | `pip install "heagent[http]"` |

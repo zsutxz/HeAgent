@@ -35,6 +35,7 @@ from heagent.network.origin import (
     probe_host,
     request_origin_violation,
 )
+from heagent.network.tls_identity import TlsIdentityError, cert_key_matches
 from heagent.network.ws_auth import AuthThrottle, make_authorizer
 from heagent.network.ws_protocol import (
     WS_MAX_FRAME_BYTES,
@@ -71,6 +72,29 @@ class WsConfigError(RuntimeError):
     失败」。入口层对前者给「怎么改配置」，对后者给「端口/依赖」诊断——混成一个异常会把两种修复
     路径混成一句无用的报错。
     """
+
+
+def _require_matching_pair(cert: str, key: str) -> None:
+    """``cert`` 与 ``key`` 必须同属一对；**读不出材料时**不在构造期失败。
+
+    后者是刻意的分工：文件缺失 / 非 PEM / 非 RSA 这类「材料本身坏掉」的问题，装配期
+    （``cli.http_config`` 的自检）与启动期（uvicorn 加载 ssl context）给出的错误更有指向性；
+    本校验只回答一个构造期就答得出的问题——「两份材料都读得出来，但它们配不上」。
+
+    不配对必须拒绝启动：wss 起得来但每次握手都失败，是这套方案里最难自查的静默故障。
+    """
+    try:
+        matched = cert_key_matches(cert, key)
+    except TlsIdentityError:
+        return
+    if matched:
+        return
+    raise ValueError(
+        "WS_TLS_CERT_FILE and WS_TLS_KEY_FILE are not a pair: the private key does not match the "
+        "certificate's public key, so every client handshake would fail. Point both keys at one set of "
+        "materials (cert.pem + key.pem from the same `heagent tls issue` run), or run `heagent tls verify` "
+        "to see which file is stale"
+    )
 
 
 class WsServerConfig(BaseModel):
@@ -149,7 +173,8 @@ class WsServerConfig(BaseModel):
         """认证与 TLS 的 fail-loud 组合校验。
 
         认证面：`external` 缺 token 拒绝构造（fail-closed）；`lan` 三条准入（只私有地址、
-        与 ``local_auth`` 互斥、回环绑定上无意义）。TLS 面：cert/key 成对，半配拒绝。
+        与 ``local_auth`` 互斥、回环绑定上无意义）。TLS 面：cert/key 成对，半配拒绝；
+        两份材料都读得出时还要求它们真的是同一对（:func:`_require_matching_pair`）。
         """
         if self.lan_no_auth:
             if self.local_auth:
@@ -177,6 +202,8 @@ class WsServerConfig(BaseModel):
             )
         if bool(self.tls_cert_file) != bool(self.tls_key_file):
             raise ValueError("WS TLS requires both WS_TLS_CERT_FILE and WS_TLS_KEY_FILE")
+        if self.tls_enabled and self.tls_cert_file is not None and self.tls_key_file is not None:
+            _require_matching_pair(self.tls_cert_file, self.tls_key_file)
         return self
 
 

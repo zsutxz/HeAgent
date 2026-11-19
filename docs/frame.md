@@ -160,7 +160,7 @@ AgentLoop.run(prompt)
 | `dialogs.py` | 服务端原生「选择目录」对话框（Story 50-8） | `cli_dialogs.py` |
 | `display.py` | 终端渲染辅助（CLI 与 GUI 共用） | `cli_display.py` |
 | `errors.py` | CLI 错误的统一出口：描述 + `Try:` 可用选项 + `Docs:` 文档锚点（Story 64.5） | 新增 |
-| `doctor.py` | `heagent doctor` 配置诊断（只读；11 组检查产出 25 个诊断码，Story 64.6） | 新增 |
+| `doctor.py` | `heagent doctor` 配置诊断（只读；11 组检查产出 30 个诊断码，Story 64.6 / 73.3 加 TLS 身份四项） | 新增 |
 | `cron_cmd.py` | `heagent cron status` 定时任务状态查询（只读 `jobs.json`：状态 / 最后与下次执行 / 失败原因，Story 64.10） | 新增 |
 | `audit_cmd.py` | `heagent audit list\|export\|verify`：审计 JSONL 的查询 / 导出 / 跨段哈希链校验（读 `<状态根>/audit/tool-audit.jsonl` 与归档段 `tool-audit.seg-NNN.jsonl`，Story 67.2 / 67.3；段轮转 A61） | 新增 |
 | `progress.py` | 进度原语：工具执行超 3s 的实时耗时行 + 大文件（>10MB）读写进度（Story 64.8 / 64.9） | 新增 |
@@ -1582,7 +1582,7 @@ src/heagent/
 │   ├── port_finder.py       # 监听端口顺延查找（preferred…preferred+9 内取空口；2026-09-27）
 │   ├── display.py           # 终端渲染辅助（CLI 与 GUI 共用；原 cli_display.py）
 │   ├── errors.py            # CLI 错误的统一出口（描述 + Try 选项 + Docs 锚点；Story 64.5）
-│   ├── doctor.py            # heagent doctor 配置诊断（只读，11 组检查 / 25 个诊断码；Story 64.6）
+│   ├── doctor.py            # heagent doctor 配置诊断（只读，11 组检查 / 30 个诊断码；Story 64.6 / 73.3）
 │   ├── cron_cmd.py          # heagent cron status：定时任务状态查询（只读 jobs.json；Story 64.10）
 │   ├── audit_cmd.py         # heagent audit list|export|verify：审计 JSONL 查询 / 导出 / 跨段哈希链校验（Story 67.2 / 67.3；段轮转 A61）
 │   ├── progress.py          # 工具执行耗时行 + 大文件读写进度（Story 64.8 / 64.9）

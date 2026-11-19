@@ -20,6 +20,7 @@ import json
 import logging
 import os
 import socket
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -27,15 +28,23 @@ from typing import TYPE_CHECKING
 import click
 from pydantic import BaseModel
 
+from heagent.cli.http_config import (
+    TLS_EXPIRY_WARNING_DAYS,
+    binds_every_interface,
+    format_not_after,
+    tls_remaining_days,
+)
 from heagent.config import GLOBAL_SETTING_FILE, Settings, get_settings
 from heagent.config.catalog import build_config_report
 from heagent.network.exposure import is_loopback_host, is_private_address
+from heagent.network.tls_identity import TlsIdentityError, certificate_info, san_covers, spki_sha256_base64
 from heagent.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import datetime
 
     from heagent.config.catalog import ConfigReport
 
@@ -356,6 +365,112 @@ def _lan_mode_findings(settings: Settings) -> list[Finding]:
     return findings
 
 
+def _check_ws_tls_identity(settings: Settings, *, now: datetime | None = None) -> list[Finding]:
+    """TLS 身份三项：pin 短指纹（INFO）、到期余量（< 7 天 WARNING）、``WS_HOST`` 是否在 SAN。
+
+    只在 cert 与 key **都配了**时产出——半配归 :func:`_check_ws` 的
+    ``doctor.ws_tls_half_configured``，一条问题只给一处结论。判据与阈值与启动自检同源
+    （:data:`~heagent.cli.http_config.TLS_EXPIRY_WARNING_DAYS`），不另写一套。
+    """
+    cert = (settings.ws_tls_cert_file or "").strip()
+    key = (settings.ws_tls_key_file or "").strip()
+    if not cert or not key:
+        return []
+    try:
+        info = certificate_info(cert)
+    except TlsIdentityError as exc:
+        # 材料坏掉时三条身份结论全部无从谈起，而启动必然被拒 ⇒ 一条 ERROR 说清，不静默跳过。
+        return [
+            Finding(
+                code="doctor.ws_tls_unreadable",
+                severity=Severity.ERROR,
+                message=f"WS_TLS_CERT_FILE={cert!r} could not be read as a certificate ({exc}); startup is refused.",
+                fix=(
+                    "point WS_TLS_CERT_FILE / WS_TLS_KEY_FILE at the cert.pem + key.pem pair under "
+                    ".heagent/tls, or re-issue them with `heagent tls issue`"
+                ),
+            )
+        ]
+    findings = [
+        Finding(
+            code="doctor.ws_tls_fingerprint",
+            severity=Severity.INFO,
+            message=(
+                f"WS TLS leaf certificate short fingerprint {info.short_fingerprint} "
+                f"(pin sha256/{spki_sha256_base64(cert)}); clients trust this value, so re-signing the leaf "
+                "does not change it."
+            ),
+            fix="install this pin in the client app; only `heagent tls rotate-key` changes it (double-pin rollout)",
+        )
+    ]
+    expires = format_not_after(info.not_after)
+    remaining = tls_remaining_days(info.not_after, now=now)
+    if remaining <= 0:
+        findings.append(
+            Finding(
+                code="doctor.ws_tls_expiry",
+                severity=Severity.WARNING,
+                message=f"WS TLS leaf certificate expired {abs(remaining):.1f} days ago (not_after {expires}).",
+                fix="re-sign the leaf with the same identity key: heagent tls issue (the pin does not change)",
+            )
+        )
+    elif remaining < TLS_EXPIRY_WARNING_DAYS:
+        findings.append(
+            Finding(
+                code="doctor.ws_tls_expiry",
+                severity=Severity.WARNING,
+                message=f"WS TLS leaf certificate expires in {remaining:.1f} days (not_after {expires}).",
+                fix="re-sign the leaf with the same identity key: heagent tls issue (the pin does not change)",
+            )
+        )
+    else:
+        findings.append(
+            Finding(
+                code="doctor.ws_tls_expiry",
+                severity=Severity.INFO,
+                message=f"WS TLS leaf certificate expires in {remaining:.0f} days (not_after {expires}).",
+                fix=f"no action needed now; re-sign before it lapses: heagent tls issue (warning under {TLS_EXPIRY_WARNING_DAYS} days)",
+            )
+        )
+    host = settings.ws_host.strip()
+    san_list = ", ".join(info.san) or "none"
+    if binds_every_interface(host):
+        # 通配绑定：客户端连的是某个具体地址，拿 0.0.0.0 去比 SAN 只会制造假告警。
+        findings.append(
+            Finding(
+                code="doctor.ws_tls_san",
+                severity=Severity.INFO,
+                message=(
+                    f"WS_HOST={host!r} binds every interface, so the certificate SAN cannot be checked against "
+                    f"it; the certificate covers: {san_list}."
+                ),
+                fix="confirm the address clients actually use appears above; if not: heagent tls issue --san <addr>",
+            )
+        )
+    elif san_covers(cert, host):
+        findings.append(
+            Finding(
+                code="doctor.ws_tls_san",
+                severity=Severity.INFO,
+                message=f"WS_HOST={host!r} is covered by the certificate SAN ({san_list}).",
+                fix="no action needed; after changing WS_HOST re-run doctor before restarting",
+            )
+        )
+    else:
+        findings.append(
+            Finding(
+                code="doctor.ws_tls_san",
+                severity=Severity.WARNING,
+                message=(
+                    f"WS_HOST={host!r} is not in the certificate SAN ({san_list}); clients connecting to that "
+                    "address fail the TLS handshake."
+                ),
+                fix=f"re-sign the leaf with that address and restart: heagent tls issue --san {host}",
+            )
+        )
+    return findings
+
+
 def _check_ws(settings: Settings) -> list[Finding]:
     findings: list[Finding] = []
     if not settings.ws_enabled:
@@ -403,6 +518,7 @@ def _check_ws(settings: Settings) -> list[Finding]:
                     fix=f"set both {label}_CERT_FILE and {label}_KEY_FILE, or neither",
                 )
             )
+    findings.extend(_check_ws_tls_identity(settings))
     return findings
 
 

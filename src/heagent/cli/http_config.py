@@ -7,6 +7,7 @@
 
 import logging
 import math
+from datetime import UTC, datetime
 from typing import Any
 
 import click
@@ -19,10 +20,35 @@ from heagent.network.http_server import (
     HttpServerConfig,
 )
 from heagent.network.notification_hub import NotificationHub
+from heagent.network.tls_identity import TlsIdentityError, certificate_info, san_covers
 from heagent.network.ws_host import WsConfigError, WsServer, WsServerConfig
 from heagent.pub.safe_logging import safe_log
 
 logger = logging.getLogger(__name__)
+
+#: 叶证书到期告警阈值（天）：余量小于它就在启动期 WARNING、在 doctor 里升为 WARNING。
+#: **唯一真源**——启动自检与 doctor 共用，别在别处再写这个字面量。
+TLS_EXPIRY_WARNING_DAYS = 7
+
+#: 通配绑定：客户端实际连的是某个具体地址，SAN 覆盖与否在这个地址上无从判定。
+_WILDCARD_BINDS = frozenset({"0.0.0.0", "::"})  # nosec B104 - 仅识别通配绑定，本模块不在此绑定 # noqa: S104
+
+_SECONDS_PER_DAY = 86400.0
+
+
+def binds_every_interface(host: str) -> bool:
+    """绑定地址是否「所有网卡」（``0.0.0.0`` / ``::``，含方括号写法）。"""
+    return host.strip().strip("[]").lower() in _WILDCARD_BINDS
+
+
+def format_not_after(moment: datetime) -> str:
+    """证书时刻的紧凑人读形态（``2026-12-19T21:03:00Z``）；日志与 doctor 文案共用。"""
+    return moment.astimezone(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def tls_remaining_days(not_after: datetime, *, now: datetime | None = None) -> float:
+    """叶证书余量（天，可为负 = 已过期）。``now`` 可注入，测试据此造余量而不现签短期证书。"""
+    return (not_after - (now or datetime.now(UTC))).total_seconds() / _SECONDS_PER_DAY
 
 
 def _reject_non_finite(ctx: click.Context, param: click.Parameter, value: float | None) -> float | None:
@@ -150,6 +176,53 @@ def _clean_path(value: str | None) -> str | None:
     return text or None
 
 
+def _check_tls_identity(settings: Settings, host: str, *, now: datetime | None = None) -> list[str]:
+    """启动期 TLS 身份自检：返回**应当 WARNING 的结论**（未启用 TLS 时返回空表）。
+
+    为什么住在入口层：``network/`` 不得 import ``config/``，而「读哪两个键、要不要喊」是配置面与
+    呈现面的判断；材料解析仍全部走 :mod:`heagent.network.tls_identity`（纯 stdlib，无子进程、无网络
+    请求，符合「启动期不做网络 IO」）。
+
+    三条结论的处置刻意不同：
+
+    - 到期余量 < :data:`TLS_EXPIRY_WARNING_DAYS` / SAN 不含绑定地址 ⇒ **只告警，不拒绝启动**
+      （内网地址漂移是常态，拒绝启动会让人无从自愈；两条文案都点名可执行命令）；
+    - 材料读不出来 ⇒ :class:`WsConfigError`（此时问题不是「还能用多久」，而是「根本用不了」）。
+
+    cert / key 配对与否不在这里判：那是 :class:`WsServerConfig` 构造期的 fail-loud 事实。
+    """
+    cert = _clean_path(settings.ws_tls_cert_file)
+    key = _clean_path(settings.ws_tls_key_file)
+    if cert is None or key is None:
+        # 未启用 TLS（含半配）⇒ 三条检查全跳过；半配由 WsServerConfig 与 doctor 的既有语义报。
+        return []
+    moment = now or datetime.now(UTC)
+    try:
+        info = certificate_info(cert)
+    except TlsIdentityError as exc:
+        raise WsConfigError(
+            f"WS TLS materials are unreadable ({exc}); startup is refused rather than serving a listener "
+            "clients cannot handshake with. Fix WS_TLS_CERT_FILE / WS_TLS_KEY_FILE (re-issue with "
+            "`heagent tls issue`, or point them at an existing cert.pem + key.pem pair)"
+        ) from exc
+    warnings: list[str] = []
+    remaining = tls_remaining_days(info.not_after, now=moment)
+    if remaining < TLS_EXPIRY_WARNING_DAYS:
+        state = f"expired {abs(remaining):.1f} days ago" if remaining <= 0 else f"expires in {remaining:.1f} days"
+        warnings.append(
+            f"WS TLS certificate {state} (not_after {format_not_after(info.not_after)}); clients start "
+            "failing the handshake the moment it lapses. Re-sign the leaf with the same identity key: "
+            "`heagent tls issue` (the client pin does not change)"
+        )
+    if not binds_every_interface(host) and not san_covers(cert, host):
+        warnings.append(
+            f"WS TLS certificate SAN does not cover the bind address {host!r} "
+            f"(SAN: {', '.join(info.san) or 'none'}); clients connecting to that address fail the "
+            f"handshake. Re-sign with `heagent tls issue --san {host}` and restart heagent"
+        )
+    return warnings
+
+
 def build_ws_servers(
     settings: Settings,
     *,
@@ -182,6 +255,9 @@ def build_ws_servers(
     :class:`NotificationHub` 挂到 listener（``WsServer.notification_hub``），经
     ``servers[0].notification_hub`` 取出交给服务单元；``lan`` listener 上它同样可见（客户端
     「三处对账」要求 ``PUSH_CONNECTED``），代价由 ``ws_host`` 的启动 WARNING 写明。
+
+    TLS 启用时（cert 与 key 都非空）顺带跑一次身份自检（``_check_tls_identity``）：到期余量不足、
+    SAN 不含绑定地址各记一条 WARNING（不阻断启动）；材料读不出来是 :class:`WsConfigError`。
     """
     if not (settings.ws_enabled if enabled is None else enabled):
         # WS_ENABLED=false（或 --no-ws）：不构造任何 WS listener（旁路中枢也无从挂载）。
@@ -194,6 +270,16 @@ def build_ws_servers(
         max_connections=max_connections,
         shutdown_timeout=shutdown_timeout,
     )
+    # TLS 身份自检在装配点跑**一次**（不随 listener 数量或多次读配置叠加），逐条 WARNING。
+    for message in _check_tls_identity(settings, primary.host):
+        safe_log(
+            logger,
+            logging.WARNING,
+            "ws event=tls_identity address=%s listener=%s %s",
+            primary.host,
+            primary.mode,
+            message,
+        )
     bypass_enabled = settings.ws_cli_bypass_enabled if cli_bypass is None else cli_bypass
     hub: CliEventHub | None = None
     if bypass_enabled:

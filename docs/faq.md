@@ -273,13 +273,14 @@ heagent doctor            # 人读：每条 finding 一行 severity/code + 一�
 heagent doctor --json     # 机器读：JSON 数组，每项含 code/severity/message/fix
 ```
 
-共 **25 个诊断码**（11 组检查）：无凭据、`ACTIVE_PROVIDER` 指向不存在或无凭据的条目、
+共 **30 个诊断码**（11 组检查）：无凭据、`ACTIVE_PROVIDER` 指向不存在或无凭据的条目、
 `OLLAMA_ENABLED` 缺模型、`MAX_OUTPUT_TOKENS` 不小于 `MAX_CONTEXT_TOKENS`、`ROUTING_POOLS`
 非法 JSON 或池条目无凭据、`.env` 缺失 / BOM / 重复键 / 空值键 / 未知键、非回环 listener
 缺 token、`WS_LOCAL_AUTH_ENABLED` 缺 token、`WS_LAN_NO_AUTH` 组合非法（非私有地址 / 与
 `WS_LOCAL_AUTH_ENABLED` 同开 / 绑回环）、退役的 `WS_EXTERNAL_*` 残留键（INFO）、
 TLS 半配、端口已被监听、`APPROVAL_TOOLS` 含未注册工具、`SAFETY_BLOCKED_TOOLS` 拦了 `shell`、
-docker 后端探不到 daemon、技能双根同名冲突。
+docker 后端探不到 daemon、技能双根同名冲突、WS TLS 身份四项（pin 短指纹 INFO、到期余量、
+`WS_HOST` 是否在 SAN、材料读不出来）。
 
 退出码：有 `error` 级 finding 时为 1，否则 0——可以直接进 CI 或启动脚本。
 

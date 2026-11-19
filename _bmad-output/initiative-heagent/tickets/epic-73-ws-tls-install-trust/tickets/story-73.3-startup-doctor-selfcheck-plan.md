@@ -3,7 +3,7 @@ title: 'Story 73.3 启动自检与 doctor 三项'
 type: feature
 ticket: 3
 created: '2026-11-19'
-status: ready-for-dev
+status: done
 baseline_revision: '7cc8baba'
 route: full
 route_source: auto
