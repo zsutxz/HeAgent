@@ -30,6 +30,15 @@ pip install -e ".[dev]"
 pip install heagent
 ```
 
+**需要 MCP 桥接时加装可选 extra**（`mcp` 自 0.10.0 起不在核心依赖里，基础安装不含 MCP SDK）：
+
+```bash
+pip install "heagent[mcp]"
+```
+
+缺这个 extra 只影响 MCP 能力：`import heagent` 与普通 CLI 照常，MCP 相关工具/子命令会给出上面这条安装提示
+（`E_TOOL_MCP_SDK_MISSING`）。HTTP 入口与终端 UI 同理：`pip install "heagent[http]"` / `pip install "heagent[gui]"`。
+
 ### 2. 配置 Provider
 
 复制配置模板后，至少填写一个 Provider 凭据。配置优先级是：系统环境变量 > 项目 `.env` > 用户 `~/.heagent/.env` > 默认值。

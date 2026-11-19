@@ -9,6 +9,9 @@ HeAgent 是 CLI 工具 + Python 库，**不是常驻 HTTP 服务**。部署即�
 ```bash
 pip install heagent
 
+# 需要 MCP 桥接时加装可选 extra（核心依赖不含 MCP SDK；缺它只影响 MCP 能力）
+pip install "heagent[mcp]"
+
 # 单次执行
 heagent "你的问题"
 

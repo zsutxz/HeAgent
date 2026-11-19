@@ -1,5 +1,7 @@
 site_name: HeAgent
 site_description: HeAgent —— 单进程异步 Python Agent 运行库的架构与运维文档
+# GitHub Pages 的规范地址（canonical 链接 / sitemap 的真源）；不配则部署照常但站点无规范 URL。
+site_url: https://zsutxz.github.io/HeAgent/
 docs_dir: docs
 # 构建产物落临时目录：`docs/` 是真源，`site/` 不入工作树（避免 `git status` 噪声与误提交）。
 site_dir: .heagent/tmp/mkdocs-site

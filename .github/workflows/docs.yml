@@ -7,9 +7,10 @@ name: Docs
 
 on:
   push:
-    # 本仓默认分支是 `master`（`ci.yml` 亦然）；`main` 保留给分支改名后的形态。
-    # 两者都列，避免「默认分支名与触发分支名不一致 ⇒ 部署永远不触发」这类静默失效。
-    branches: [main, master]
+    # 三个都列，避免「默认分支名与触发分支名不一致 ⇒ 部署永远不触发」这类静默失效：
+    # 远端默认分支是 `feat/module-integration`（`origin/HEAD` 指向它，`ci.yml` 的一等分支也是它），
+    # `master` 是本地主分支，`main` 保留给将来改名。
+    branches: [main, master, feat/module-integration]
     paths:
       - docs/** # 文档正文
       - mkdocs.yml # 站点结构与 validation 口径
@@ -62,8 +63,9 @@ jobs:
     # 独立 job + `needs`：构建失败时 artifact 不存在，部署不会启动（失败即不发布）。
     needs: build
     # 只在默认分支发布：`workflow_dispatch` 允许从功能分支手动触发，那条 ref 的文档不该上站点
-    # （Story 68.3 的边界「不在 PR 上部署、只在 main」）。分支名两个都认：本仓现为 `master`。
-    if: github.ref_name == 'master' || github.ref_name == 'main'
+    # （Story 68.3 的边界「不在 PR 上部署」）。三个分支与上面的 `push.branches` 保持一致——
+    # 两处不同步会让部署「构建跑了、发布被 if 静默跳过」（本次收口修的就是这类静默失效）。
+    if: github.ref_name == 'master' || github.ref_name == 'main' || github.ref_name == 'feat/module-integration'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

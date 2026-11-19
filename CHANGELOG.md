@@ -12,6 +12,17 @@
 
 ## [Unreleased]
 
+> 下一个版本的改动先写这里；发布时整体落成 `## [x.y.z] - YYYY-MM-DD` 节（版本两处真源同步 bump）。
+
+## [0.10.0] - 2026-11-18
+
+### Changed（破坏性）
+
+- **`mcp` 移出核心依赖**（Epic 67 / R16，破坏性安装变更）：核心 `dependencies` 7 → 6，
+  MCP 桥接改为可选 extra。升级影响：`pip install heagent` **不再带 MCP SDK** —— `import heagent`
+  与普通 CLI 照常，MCP 相关能力在缺包时给出 `pip install "heagent[mcp]"` 诊断
+  （`E_TOOL_MCP_SDK_MISSING`）。需要 MCP 的用户请显式安装该 extra；`dev` extra 仍含它（测试与 CI 不降级）。
+
 ### Changed
 
 - 日志装配收敛：CLI 与 GUI 的 `basicConfig(format=…)` 改为 `make_formatter(settings.log_format)`，行格式只在 `pub/log_config.py` 定义一次（默认 text 输出逐字不变）。
@@ -23,6 +34,42 @@
 - `sandbox_decision` 退出鸭子解析（A54 ③，行为保持型）：`EngineContainer.create_run_context` 把 `SandboxDecision` **模型本身**写进 `metadata`（不再 `model_dump()` 降级成裸 dict），`AgentLoop._bound_container_workdir` 改用 `SandboxDecision.model_validate(...)` 取 `effective_backend`，形状不合法仍是 `None`（不猜）。落盘侧不变——`RunSnapshot.model_dump(mode="json")` 把模型降级成等价 dict，读回经同一校验。
 
 ### Added
+
+- **聚合层元数据缓存**（Epic 66 / 66.1）：`providers/metadata_cache.py::ProviderMetadataCache`——`SwitchableProvider` /
+  `ProviderChain` / `RoutingProvider` / `KeyRotatingProvider` 的 `get_metadata()` 走进程内 LRU（默认 64 条，
+  活跃指针变化时显式 `invalidate`），带 `hits` / `misses` / `hit_rate` 观测面。
+- **技能匹配预计算与结果缓存**（66.2 / 66.3）：`skills/skill_catalog.py` 的 `SkillMatchCache`（LRU 32）与
+  `SkillMatchIndex`（按技能库指纹缓存，指纹 = 逐技能 `meta.yaml` / `SKILL.md` 的 `(mtime_ns, size)` 摘要）；
+  打分与排序口径逐字不变，M 技能 × N prompt 时 `store.parse()` 从 M×N 降到 M。
+- **provider SDK 延迟导入**（66.5）：`import heagent` 后 `openai` / `anthropic` 均不在 `sys.modules`，
+  冷启动省下两个 SDK 的导入代价（判据 = 干净子进程的比值基准，`-m benchmark`）。
+- **技能包索引期只读一次 entry**（66.4）：`SkillCatalog._index_package` 复用首次解析结果，单包 `scan()` 的
+  entry 读取 2 次 → 1 次。
+- **统一输入验证框架**（Epic 67 / 67.1）：`pub/validation.py`（`Rule` 链 + `collect_issues` / `validate` +
+  结构化 `InputValidationError`）；首个接入点 = 配置写入守卫 `config/write.py::guard_reason`，对外原因文案逐字不变。
+- **工具执行审计面**（67.2）：`pub/audit.py` 追加式 JSONL（`ts` / `operator` / `tool` / 脱敏 `args` / `status` /
+  `duration_ms` / `error_kind`）+ `heagent audit list|export|verify`；写入 fail-soft，不影响工具执行。
+- **敏感操作留痕（哈希链）**（67.3）：会话删除 / 技能删除归档 / 网页配置写入三类操作落 `prev` / `digest` 链，
+  `heagent audit verify` 报首个断链行（含行号与原因）。
+- **密钥轮换提醒与 keyring 读取**（67.4 / 67.5）：`KEY_ROTATION_REMIND_DAYS`（默认 90，0 关闭）在启动期按
+  `key_rotation.json` 的首次观测日期告警；`KEYRING_ENABLED=true` 时密钥解析（`Settings.secret()` 唯一收敛点）
+  先查系统 keyring 再回退字段值，缺 `keyring` 包只告警一次。
+- **端点安全覆盖表 + 沙箱逃逸向量**（67.7 / 67.8）：`tests/network/test_endpoint_security.py` 以
+  `transport_routes.json` 为真源做集合相等断言；`tests/test_sandbox_escape.py` 覆盖 7 个攻击向量
+  （3 例需 docker，标 `integration`）。
+- **依赖漏洞扫描报告导出**（67.6）：CI `lint` job 的 `pip-audit` 改 `--strict -r requirements.lock --format json
+  --output pip-audit.json` 并上传 artifact；本地 `python scripts/quality_gate.py --with-audit` 跑同一命令。
+- **依赖锁定**（67.10）：`requirements.lock`（102 行）+ `scripts/lock_requirements.py`（`--check` 验生成幂等）。
+- **文档一键构建与 Pages 部署**（Epic 68 / 68.1 / 68.3）：`scripts/build_docs.py`（`mkdocs build --strict` +
+  版本注入 + 缺 mkdocs 的安装诊断）、`.github/workflows/docs.yml`（默认分支 push 构建后发布 Pages）。
+- **公开 API docstring 判据**（68.2）：`tests/test_api_docstrings.py` 覆盖 12 个核心模块，99 处缺失补到 0；
+  入口层（`cli/`、`gui/`）不在范围内。
+- **异常层次与统一错误码**（Epic 69 / 69.1–69.3）：`pub/exceptions.py` 三层结构（根 → 6 个分类 → 具体异常），
+  每个类带 `code` / `description` / `suggestion`，`error_catalog()` 与 `error_code_of()` 可程序化解析；
+  `docs/errors.md` 第二节的码表由测试与代码逐条比对。收编 3 个原先游离在层次外的异常
+  （`InputValidationError` / `McpSdkMissingError` / `FactCompactConflictError`）⇒ 框架异常 **29** 类。
+- **benchmark job 去掉 `--benchmark-only`**（Epic 66 收口）：该旗标只跑使用 `benchmark` fixture 的用例，
+  会把「比值型」性能判据（技能匹配提速 >30%、冷启动省 >20%）整片跳过；现在 `-m benchmark` 内的普通用例照跑。
 
 - **结构化日志**（Epic 65 / R13）：`LOG_FORMAT=json` 时日志行改为单行 JSON——`timestamp`（带本地时区偏移、毫秒）/ `level` / `logger` / `message`，`extra=` 注入落 `context`，异常落 `exc_info`；实现单点 `pub/log_config.py`，CLI（stderr+文件）/ GUI（文件）/ HTTP（复用 CLI）三个装配点共用。默认 `text`，与历史输出逐字一致（`runtime_stats` 的按行解析不受影响）；非法取值在加载期失败（`Literal` 校验）。
 - **调试模式**（`DEBUG_MODE=true`）：日志级别强制 `DEBUG`（打开既有的入参与中间量插桩），CLI 错误出口在既有三段之后追加 `Traceback (DEBUG_MODE=true):` 段；无异常在飞时不追加假 traceback。默认关，不改任何安全面。
@@ -36,7 +83,18 @@
 - web_search 内建工具（Epic 61）：按主题检索发现新 URL。引擎可插拔（`WEB_SEARCH_ENGINE`，默认 Tavily）；无密钥工具常在、调用显性报错（`WEB_SEARCH_API_KEY`）；条数/摘要/title/url/汇总四层确定性预算 + `guard_content` 注入围栏；dreamer 与主 loop 同面开放。
 - `RunStore.close_stale_running`：把陈旧 running 快照收尾为 FAILED（崩溃进程遗留的 running 不再污染统计；`updated_at` 保持末次真实活动时刻，不回填时钟）。已接线：新 run 启动时自动触发一次（去重），阈值 `RUN_STALE_IDLE_HOURS`（默认 6h，0=禁用）。
 
+### Security
+
+- `KEYRING_ENABLED` 进 `EXCLUSION_GROUPS.credentials`（网页控制台不可远程改）；审计 `args` 脱敏复用
+  `pub/safe_logging`；`pip-audit --strict` 对高危依赖**阻塞** CI（报告作为 artifact 留证）。
+
 ### Fixed
+
+- `.github/workflows/docs.yml` 部署触发分支补 `master`：原 `if` 只认 `master` / `main`，而本仓默认分支是
+  `feat/module-integration`（`ci.yml` 也把它列为一等分支）⇒ 日常推送下 Pages 部署会**静默不触发**；
+  同步给 `mkdocs.yml` 补 `site_url`。
+- `RoutingProvider.get_metadata()` 每个叶 provider 只取一次元数据（原 model / streaming / tools 各取一次，
+  同一次组装里重复构造 3 次）；四个聚合层现在都能注入共享缓存实例。
 
 - `ProviderChain` / `KeyRotatingProvider` / `SwitchableProvider` 的 `send` 不再持锁跨网络 I/O（与 stream 同口径：锁内快照索引，调用不持锁），并发 LLM 调用不再被串行化。
 - `RunStore.build_run_tree` 改为单次线程卸载批量读取、只校验 `context`，万级快照下运行树查询不再逐个解析整份快照。
