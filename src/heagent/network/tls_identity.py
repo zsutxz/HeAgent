@@ -39,7 +39,9 @@ __all__ = [
     "spki_der",
     "spki_sha256",
     "spki_sha256_base64",
+    "spki_sha256_base64_of_der",
     "spki_sha256_of_der",
+    "short_fingerprint_of_der",
 ]
 
 # DER tag 常量（证书结构里出现的全部单字节 tag）。
@@ -233,24 +235,30 @@ def spki_sha256(cert: str | Path | bytes) -> str:
     return spki_sha256_of_der(spki_der(cert))
 
 
+def spki_sha256_base64_of_der(spki: bytes) -> str:
+    """SPKI 摘要的 base64 形态（OkHttp ``CertificatePinner`` 的 ``sha256/<base64>`` 载荷）。"""
+    return base64.b64encode(hashlib.sha256(spki).digest()).decode("ascii")
+
+
 def spki_sha256_base64(cert: str | Path | bytes) -> str:
-    """SPKI 的 SHA-256 按 base64 编码（OkHttp ``CertificatePinner`` 的 ``sha256/...`` 形态）。"""
-    return base64.b64encode(hashlib.sha256(spki_der(cert)).digest()).decode("ascii")
+    """证书对应 SPKI 摘要的 base64 形态（OkHttp ``sha256/...`` 的载荷部分）。"""
+    return spki_sha256_base64_of_der(spki_der(cert))
 
 
-def short_fingerprint(cert: str | Path | bytes) -> str:
+def short_fingerprint_of_der(spki: bytes) -> str:
     """人读短指纹：SHA-256 摘要前 10 字节的 base32 取前 12 字符，按 ``XXXX-XXXX-XXXX`` 分组。
 
     60 bit 足够「在两台设备上念一遍核对」，但**不是**安全边界——真正校验仍用完整
     :func:`spki_sha256`（客户端常量时间比较整段摘要）。
     """
-    digest = hashlib.sha256(spki_der(cert)).digest()
-    return _group(base64.b32encode(digest[:10]).decode("ascii"))
-
-
-def _group(encoded: str) -> str:
-    prefix = encoded[:_SHORT_FINGERPRINT_CHARS]
+    digest = hashlib.sha256(spki).digest()
+    prefix = base64.b32encode(digest[:10]).decode("ascii")[:_SHORT_FINGERPRINT_CHARS]
     return "-".join(prefix[index : index + 4] for index in range(0, _SHORT_FINGERPRINT_CHARS, 4))
+
+
+def short_fingerprint(cert: str | Path | bytes) -> str:
+    """证书对应 SPKI 的短指纹（:func:`short_fingerprint_of_der` 的证书入口）。"""
+    return short_fingerprint_of_der(spki_der(cert))
 
 
 # ---------------------------------------------------------------- 有效期
@@ -443,11 +451,11 @@ def cert_key_matches(cert: str | Path | bytes, key: str | Path | bytes) -> bool:
 def certificate_info(cert: str | Path | bytes) -> TlsCertificateInfo:
     """一次读取给出证书身份事实（SPKI 摘要、短指纹、有效期、SAN）——状态面与 CLI 共用这一个源。"""
     der = load_cert_der(cert)
-    digest = hashlib.sha256(spki_der(der)).digest()
+    spki = spki_der(der)
     not_before, not_after = _validity(der)
     return TlsCertificateInfo(
-        spki_sha256=digest.hex(),
-        short_fingerprint=_group(base64.b32encode(digest[:10]).decode("ascii")),
+        spki_sha256=spki_sha256_of_der(spki),
+        short_fingerprint=short_fingerprint_of_der(spki),
         not_before=not_before,
         not_after=not_after,
         san=tuple(san_entries(der)),

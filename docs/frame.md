@@ -164,6 +164,7 @@ AgentLoop.run(prompt)
 | `cron_cmd.py` | `heagent cron status` 定时任务状态查询（只读 `jobs.json`：状态 / 最后与下次执行 / 失败原因，Story 64.10） | 新增 |
 | `audit_cmd.py` | `heagent audit list\|export\|verify`：审计 JSONL 的查询 / 导出 / 跨段哈希链校验（读 `<状态根>/audit/tool-audit.jsonl` 与归档段 `tool-audit.seg-NNN.jsonl`，Story 67.2 / 67.3；段轮转 A61） | 新增 |
 | `progress.py` | 进度原语：工具执行超 3s 的实时耗时行 + 大文件（>10MB）读写进度（Story 64.8 / 64.9） | 新增 |
+| `tls_cmd.py` | `heagent tls init\|issue\|rotate-key\|fingerprint\|verify`：WS TLS 身份材料唯一入口（身份密钥长期固定 ⇒ 重签不改客户端 pin；Story 73.2） | 新增 |
 | `run_history.py` | 重启后的**读侧事件回放**（A35）：从 `<项目根>/.heagent/runs/<id>/rollout.jsonl` 读回引擎事件并映射成 SSE 负载（工具输出未落盘 ⇒ 如实标注；缺终态补 `cancelled` 说明）；run_id 过白名单 + 路径越界校验。入口层模块——它同时认识 `events` 与 `network` 模型，`network/` 自身不得导入运行栈 | 新增 |
 | `suggestions.py` | 错误场景 → ≥2 条**可执行命令**建议的声明式映射表（Story 64.13） | 新增 |
 | `wizard.py` | `heagent init --interactive` 配置向导主体（45 项常用键按 11 个面分组，推荐值取自 `Settings` 字段默认，Story 64.14） | 新增 |
@@ -1591,6 +1592,7 @@ src/heagent/
 │   ├── skill_merge.py       # /skill-merge 跨根同名技能交互收口（skills 双根，2026-10-10）
 │   ├── slash.py             # 交互模式斜杠命令注册与路由（2026-09-26 自顶层迁入）
 │   ├── terminal.py          # 终端键盘监听（Esc 暂停 / Enter 恢复 / 双击 Esc 打断；2026-09-26 自顶层迁入）
+│   ├── tls_cmd.py           # heagent tls init|issue|rotate-key|fingerprint|verify：WS TLS 身份材料的唯一入口（Story 73.2）
 │   └── wiring.py            # provider 呈现薄壳（规则在 providers/composition.py，2026-11-07 迁出）+ ensure_runtime_config / build_cron_job_runner（CLI/GUI 共用；2026-09-26 自顶层迁入）
 ├── web/                     # 内置网页资源包（HTML/CSS/JS，随 wheel 分发；经 importlib.resources 读取）
 ├── pub/                     # 公共层：零 heagent 运行栈依赖（任何层可依赖；`__init__.py` 零 import，2026-09-26）

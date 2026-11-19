@@ -3,7 +3,7 @@ title: 'Story 73.2 `heagent tls` 命令族'
 type: feature
 ticket: 2
 created: '2026-11-19'
-status: ready-for-dev
+status: done
 baseline_revision: '7cc8baba'
 route: full
 route_source: auto

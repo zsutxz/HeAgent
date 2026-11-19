@@ -520,6 +520,11 @@ from heagent.cli.audit_cmd import audit_cmd  # noqa: E402
 
 main.add_command(audit_cmd)
 
+# TLS 身份材料：签发 / 轮换 / 指纹 / 校验（只碰材料文件，不启服务、不导入运行栈）。
+from heagent.cli.tls_cmd import tls_cmd  # noqa: E402
+
+main.add_command(tls_cmd)
+
 
 # Set run as the default command (heagent "hello" -> run "hello")
 main.set_default_command("run")

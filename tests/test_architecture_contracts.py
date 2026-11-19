@@ -758,6 +758,7 @@ def test_cli_package_layout_is_pinned() -> None:
         "slash",
         "suggestions",
         "terminal",
+        "tls_cmd",
         "wiring",
         "wizard",
     ]
