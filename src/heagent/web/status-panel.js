@@ -21,6 +21,9 @@
 
   const STATUS_PATH = "/api/status";
   const POLL_MS = 5000;
+  // 单次取数的上界：连接半开（收到 SYN 后服务端再不回话）时 `fetch` 可以永不 settle，那种情况下
+  // `loading` 会一直为 true、后续每次取数都提前返回 ⇒ 面板永远停在「取数中」。超时按失败处理。
+  const REQUEST_TIMEOUT_MS = 4000;
   const UNAVAILABLE = "不可用";
 
   const el = {
@@ -134,6 +137,9 @@
   function dependencyRows(status) {
     const jobs = Array.isArray(status.cron_jobs) ? status.cron_jobs : [];
     const rows = [
+      // 范围先行：这三项报的是**本进程工作区**那一份（网页入口不启动调度器、也不知道前端选中的
+      // 项目），不标注会被读成「当前项目」。
+      ["统计范围", "本进程工作区"],
       ["启动时刻", panels.formatTime(status.started_at)],
       ["uptime", duration(status.uptime_seconds)],
       ["cron 作业", num(jobs.length) + " 条"],
@@ -330,7 +336,12 @@
     loading = true;
     let result;
     try {
-      result = await panels.request("GET", STATUS_PATH);
+      result = await Promise.race([
+        panels.request("GET", STATUS_PATH),
+        new Promise((_resolve, reject) => {
+          window.setTimeout(() => reject(new Error("status request timed out")), REQUEST_TIMEOUT_MS);
+        }),
+      ]);
     } catch (error) {
       loading = false;
       markOffline("无法连接到服务");

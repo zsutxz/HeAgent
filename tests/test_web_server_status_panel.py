@@ -139,6 +139,8 @@ class TestRenderingDiscipline:
         paths = {path.split("?", 1)[0].rstrip("/") for path in _QUOTED_PATH_RE.findall(_CODE)}
         assert {path for path in paths if path.startswith("/api")} == {"/api/status"}
         assert "window.HePanels" in _CODE, "取数必须经面板公共桥（同源 + HTTP 错误即结果）"
+        # 方法也要钉住：只改一个词（GET → POST）会让每次轮询拿 405、面板永久停在离线态。
+        assert 'panels.request("GET"' in _CODE
         assert "panels.request(" in _CODE
 
     def test_no_html_injection_sink(self) -> None:

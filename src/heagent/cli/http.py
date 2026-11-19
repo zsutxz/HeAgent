@@ -44,7 +44,7 @@ from heagent.cli.http_config import (
     build_ws_servers,
 )
 from heagent.cli.http_console import HttpAgentHandler, HttpProjectConsole
-from heagent.cli.http_status import bind_status_source, build_status_source
+from heagent.cli.http_status import _effective_sandbox_backend, bind_status_source, build_status_source
 from heagent.cli.run_history import run_history_source
 from heagent.cli.wiring import _build_provider, load_startup_settings
 from heagent.config import WS_AUTH_TOKEN_KEY, Settings
@@ -361,7 +361,9 @@ def build_http_service(
         run_service=run_service,
         task_registry=task_registry,
         settings=settings,
-        sandbox_backend=getattr(executor, "sandbox_backend", None),
+        # 生效档位优先：`executor` 建过引擎时以 `sandbox_decision.effective_backend` 为准
+        # （auto / daemon 不可用会降级成 passthrough），取不到才回落请求值。
+        sandbox_backend=_effective_sandbox_backend(executor) or getattr(executor, "sandbox_backend", None),
         provider=getattr(executor, "provider", None),
         workspace_root=str(workspace.root),
         enabled=http_on,
@@ -694,8 +696,9 @@ def http_server_cmd(
         run_service=run_service,
         task_registry=task_registry,
         settings=settings,
-        # 沙箱档位与 provider 都取**本次进程实际用的**：`--sandbox` 是命令行覆盖，配置里可能是 auto。
-        sandbox_backend=sandbox or settings.sandbox_backend,
+        # 沙箱档位与 provider 都取**本次进程实际用的**：`--sandbox` 是命令行覆盖、配置里可能是 auto，
+        # 而引擎构造期已把实际生效档位定进 `sandbox_decision`（不可用时降级 passthrough）。
+        sandbox_backend=_effective_sandbox_backend(handler) or sandbox or settings.sandbox_backend,
         provider=handler.provider,
         workspace_root=str(workspace.root),
         enabled=http_on,

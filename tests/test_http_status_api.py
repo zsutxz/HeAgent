@@ -113,6 +113,13 @@ class _BrokenSource:
         raise RuntimeError("C:/internal/secret/workspace")
 
 
+class _NotStatusResponseSource:
+    """``status()`` 正常返回、但不是协议模型：序列化失败同样要走固定 500 文案。"""
+
+    def status(self) -> Any:
+        return object()
+
+
 @contextlib.asynccontextmanager
 async def _client(source: Any, *, run_service: HttpRunService | None = None) -> AsyncIterator[httpx.AsyncClient]:
     app = build_http_app(_config(), version=_VERSION, run_service=run_service, status=source)
@@ -257,6 +264,30 @@ class TestRunCounts:
         }
         assert sum(payload["run_status"].values()) == payload["run_records"] == 1
 
+    async def test_failed_run_lands_in_the_failed_bucket(self) -> None:
+        """执行体抛错的运行必须落进 ``failed`` 桶：``failed`` / ``timed_out`` 错接时 ``sum`` 看不出来。"""
+
+        async def boom(prompt: str, publisher: Any) -> RunOutcome:  # noqa: ARG001 - executor 的固定签名
+            raise RuntimeError("boom")
+
+        service = HttpRunService(_config(), boom)
+        try:
+            async with _client(_source(run_service=service), run_service=service) as client:
+                await service.start_run("boom")
+                await _drain(service)
+                payload = (await client.get("/api/status")).json()
+        finally:
+            await service.close()
+
+        assert payload["run_status"] == {
+            "running": 0,
+            "completed": 0,
+            "failed": 1,
+            "cancelled": 0,
+            "timed_out": 0,
+        }
+        assert sum(payload["run_status"].values()) == payload["run_records"] == 1
+
 
 # ═══════════════════════════════════════════════════════════════════
 # 部署面：listener 事实与配置标量（Story 71.2）
@@ -360,7 +391,7 @@ class TestDeployment:
 
     async def test_a_pool_with_more_tiers_than_the_field_cap_does_not_break_status(self) -> None:
         """超量档位只截断，绝不因为一条配置让整条状态 500。"""
-        tiers = {f"tier{index:02d}": f"model-{index}" for index in range(17)}
+        tiers = {f"tier{index:02d}": f"model-{index}" for index in range(100)}
         settings = Settings(
             _env_file=None,
             routing_pools='{"openai": {"tiers": ' + __import__("json").dumps(tiers) + "}}",
@@ -382,6 +413,32 @@ class TestDeployment:
         )
 
         assert source.status().sandbox_backend == "docker"
+
+    def test_effective_sandbox_backend_is_read_from_the_engine_decision(self) -> None:
+        """``SANDBOX_BACKEND=auto`` / daemon 不可用时引擎降级成 ``passthrough``：状态必须报生效档位。"""
+        from heagent.cli.http_status import _effective_sandbox_backend
+
+        owner = SimpleNamespace(
+            engine=SimpleNamespace(sandbox_decision=SimpleNamespace(effective_backend="passthrough")),
+            sandbox_backend="auto",
+        )
+        assert _effective_sandbox_backend(owner) == "passthrough"
+        # 没建引擎（测试替身 / 只读形态）：返回 None，由装配点回落到请求档位。
+        assert _effective_sandbox_backend(SimpleNamespace(sandbox_backend="docker")) is None
+
+    def test_active_provider_is_the_live_instance_not_a_snapshot(self) -> None:
+        """``/provider`` 运行期切换后状态必须跟着变：装配期抄成字符串会一直报启动时那个名字。"""
+        provider = SimpleNamespace(active="claude")
+        source = HttpStatusSource(
+            version=_VERSION,
+            max_inflight_runs=1,
+            settings=Settings(_env_file=None, active_provider="openai"),
+            provider=provider,
+        )
+
+        assert source.status().active_provider == "claude"  # 实例优先于配置值
+        provider.active = "openai"
+        assert source.status().active_provider == "openai"
 
     async def test_pools_default_to_an_empty_list(self) -> None:
         async with _client(_deployed(settings=Settings(_env_file=None))) as client:
@@ -497,6 +554,15 @@ class TestDependencyState:
         assert response.status_code == 200
         assert response.json()["cron_jobs"] == []
 
+    async def test_corrupt_jobs_file_is_an_empty_list_not_an_error(self, tmp_path: Any) -> None:
+        """半截 / 改形的 ``jobs.json`` 只该让 cron 一栏为空，不许把整条状态拖成 500。"""
+        root = _workspace(tmp_path, jobs='[{"id": "job-1", "cron": "0 3 * * *"')
+        async with _client(self._source(root)) as client:
+            response = await client.get("/api/status")
+
+        assert response.status_code == 200
+        assert response.json()["cron_jobs"] == []
+
     async def test_naive_utc_last_run_is_reported_as_utc(self, tmp_path: Any) -> None:
         """``cron/jobs.py`` 落盘的时间戳是 naive UTC：原样下发会被客户端按本地时解释（差 8 小时）。"""
         root = _workspace(tmp_path, jobs=_JOBS.replace("2026-11-17T12:02:59+00:00", "2026-11-18T01:00:00"))
@@ -530,15 +596,22 @@ class TestDependencyState:
         assert payload["skill_count"] == 2
         assert payload["memory_facts"] == 3
 
-    async def test_dependency_reads_are_cached_for_a_short_window(self, tmp_path: Any) -> None:
-        """轮询不该每次都读盘：缓存窗口内盘上变化不反映，窗口过后才重新读。"""
+    async def test_dependency_reads_are_cached_for_a_short_window(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """轮询不该每次都读盘：窗口内盘上变化不反映，窗口**过后**才重新读（推进假时钟，不 sleep）。"""
+        from heagent.cli import http_status
+
+        clock = [1000.0]
+        monkeypatch.setattr(http_status.time, "monotonic", lambda: clock[0])
         root = _workspace(tmp_path, facts=1)
         source = self._source(root)
         first = source.status().memory_facts
 
         (root / ".heagent" / "memory" / "MEMORY.md").write_text("- a\n- b\n- c\n", encoding="utf-8")
+        clock[0] += 1.0  # 窗口内
         cached = source.status().memory_facts
-        source._dependency_cache = None  # 手动过期（窗口是 5 秒，测试里不 sleep）
+        clock[0] += http_status._DEPENDENCY_CACHE_SECONDS  # 越过有效窗
         refreshed = source.status().memory_facts
 
         assert (first, cached, refreshed) == (1, 1, 3)
@@ -560,6 +633,8 @@ class TestProcessResources:
             # 采样通路可用时数值必须真的送达状态面（映射处填 0 或漏传都该红）。
             assert payload["rss_bytes"] is not None and payload["rss_bytes"] > 0
             assert payload["cpu_seconds"] is not None and payload["cpu_seconds"] >= 0
+            # 线程数同样必须是**送达的数**：漏传（恒 null）与填 0 都该红。
+            assert payload["threads"] is not None and payload["threads"] > 0
 
     def test_sampler_reports_real_numbers(self) -> None:
         from heagent.network.proc_stats import read_process_stats
@@ -610,6 +685,51 @@ class TestRequestMetrics:
         assert metrics.status_class("4xx") == 1
         assert metrics.status_class("5xx") == 0
 
+    async def test_aborted_request_is_counted_without_making_the_middleware_raise(self) -> None:
+        """应用在 ``response.start`` 之前抛错（status=0）只计总数与延迟：中间件自己不许再抛。"""
+        from heagent.network.http_server.middleware import _AccessLogMiddleware
+        from heagent.network.http_server.metrics import RequestMetrics
+
+        async def boom(scope: Any, receive: Any, send: Any) -> None:  # noqa: ARG001 - ASGI 固定签名
+            raise RuntimeError("boom")
+
+        metrics = RequestMetrics()
+        middleware = _AccessLogMiddleware(boom, metrics)
+        with pytest.raises(RuntimeError):
+            await middleware({"type": "http", "method": "GET", "path": "/api/x"}, None, None)
+
+        # 原异常照旧穿透；计数只落总数（四个对外分桶不含 status=0）。
+        assert metrics.total == 1
+        assert sum(metrics.status_class(name) for name in ("2xx", "3xx", "4xx", "5xx")) == 0
+
+    async def test_streaming_response_is_counted_but_kept_out_of_the_latency_window(self) -> None:
+        """SSE 的耗时是连接寿命：只进总数与错误码，不进延迟窗口（否则一条长订阅独占 max）。"""
+        from heagent.network.http_server.middleware import _AccessLogMiddleware
+        from heagent.network.http_server.metrics import RequestMetrics
+
+        async def sse(scope: Any, receive: Any, send: Any) -> None:  # noqa: ARG001 - ASGI 固定签名
+            await send(
+                {
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [(b"content-type", b"text/event-stream; charset=utf-8")],
+                }
+            )
+            await send({"type": "http.response.body", "body": b"data: 1\n\n", "more_body": True})
+            await send({"type": "http.response.body", "body": b"data: 2\n\n", "more_body": False})
+
+        async def sink(message: Any) -> None:  # 外层 send：真实 ASGI 由服务器提供，这里只收不发
+            return None
+
+        metrics = RequestMetrics()
+        middleware = _AccessLogMiddleware(sse, metrics)
+        await middleware({"type": "http", "method": "GET", "path": "/api/runs/r1/events"}, None, sink)
+
+        assert metrics.total == 1
+        assert metrics.status_class("2xx") == 1
+        assert metrics.latency_p50_ms() == 0.0
+        assert metrics.latency_max_ms() == 0.0
+
     def test_latency_window_is_bounded_and_percentile_computable(self) -> None:
         from heagent.network.http_server.metrics import LATENCY_WINDOW, RequestMetrics
 
@@ -619,6 +739,43 @@ class TestRequestMetrics:
 
         assert len(metrics._latencies) == LATENCY_WINDOW
         assert metrics.latency_max_ms() > metrics.latency_p50_ms() > 0
+
+    def test_percentile_is_the_window_median_not_the_minimum(self) -> None:
+        """p50 必须是中位数：取 ``ordered[0]``（窗口最小值）也能满足上面的「max > p50 > 0」。"""
+        from heagent.network.http_server.metrics import RequestMetrics
+
+        metrics = RequestMetrics()
+        for value in (1.0, 2.0, 3.0):
+            metrics.record(status=200, elapsed_ms=value)
+        assert metrics.latency_p50_ms() == 2.0
+
+        metrics.record(status=200, elapsed_ms=40.0)
+        # 4 个样本时取上中位（``ordered[2]``）——偶数样本的口径钉在这里，改口径即红。
+        assert metrics.latency_p50_ms() == 3.0
+
+        single = RequestMetrics()
+        single.record(status=200, elapsed_ms=40.0)
+        assert single.latency_p50_ms() == single.latency_max_ms() == 40.0
+
+        assert RequestMetrics().latency_p50_ms() == 0.0
+
+    def test_error_codes_are_truncated_with_the_loudest_kept(self) -> None:
+        """超过 16 个错误码时按次数排序后截断：不截断会让整条 ``/api/status`` 校验失败变 500。"""
+        from heagent.cli.http_status import HttpStatusSource
+        from heagent.network.http_server.metrics import RequestMetrics
+
+        metrics = RequestMetrics()
+        for code in (f"code-{index:02d}" for index in range(20)):
+            metrics.record(status=400, elapsed_ms=1.0, error_code=code)
+        for _ in range(3):
+            metrics.record(status=400, elapsed_ms=1.0, error_code="run_conflict")
+
+        source = HttpStatusSource(version=_VERSION, max_inflight_runs=1)
+        source.attach_metrics(metrics)
+        codes = source.status().requests.error_codes
+
+        assert len(codes) == 16
+        assert codes[0].code == "run_conflict" and codes[0].count == 3
 
     def test_error_code_is_read_only_from_small_json_envelopes(self) -> None:
         from heagent.network.http_server.metrics import error_code_from_body
@@ -678,6 +835,29 @@ class TestAssembly:
 
         assert response.status_code == 200
         assert response.json()["version"] == _VERSION
+
+    @pytest.mark.embedded_http_service
+    def test_embedded_wiring_prefers_the_engine_effective_backend(
+        self, tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """内嵌入口同样报**生效**档位：``executor.engine.sandbox_decision`` 优先于请求档位。"""
+        from heagent.cli.http import build_http_service
+
+        monkeypatch.chdir(tmp_path)
+        settings = Settings(_env_file=None, sandbox_backend="auto")
+
+        async def executor(prompt: str, publisher: Any, *, session_id: str | None = None) -> RunOutcome:  # noqa: ARG001
+            raise AssertionError("本用例不发起运行")
+
+        executor.engine = SimpleNamespace(  # type: ignore[attr-defined]
+            sandbox_decision=SimpleNamespace(effective_backend="passthrough")
+        )
+        executor.sandbox_backend = "docker"  # type: ignore[attr-defined]
+
+        service = build_http_service(settings, executor=executor, http_enabled=True, ws_enabled=False)
+
+        assert service._http is not None and service._http.status is not None
+        assert service._http.status.status().sandbox_backend == "passthrough"
 
     @pytest.mark.embedded_http_service
     async def test_embedded_service_wires_the_source_and_late_binds_ws(
@@ -797,6 +977,23 @@ class TestSourceFailure:
         # 异常类名与内部路径绝不回吐（诊断只进服务端日志）。
         assert "RuntimeError" not in response.text
         assert "secret" not in response.text
+        failed = [record for record in caplog.records if "event=status_failed" in record.getMessage()]
+        assert failed, caplog.text
+
+    async def test_serialization_failure_takes_the_same_fixed_500(self, caplog: pytest.LogCaptureFixture) -> None:
+        """来源返回非协议模型时，``model_dump`` 抛错也必须收敛成同一条固定文案。
+
+        ``StatusSource`` 是结构化 Protocol，运行期拦不住手写适配器返回任意对象；这条用例钉住
+        「序列化失败与取数失败走同一出口」——否则它会穿透到全局异常处理、丢掉 ``event=status_failed``。
+        """
+        async with _client(_NotStatusResponseSource()) as client:
+            with caplog.at_level(logging.ERROR, logger="heagent.network.http_server"):
+                response = await client.get("/api/status")
+
+        assert response.status_code == 500
+        assert response.json() == {
+            "error": {"code": HttpErrorCode.SERVER_ERROR, "message": "request failed"},
+        }
         failed = [record for record in caplog.records if "event=status_failed" in record.getMessage()]
         assert failed, caplog.text
 

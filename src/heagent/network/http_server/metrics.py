@@ -5,6 +5,9 @@
 
 延迟样本是有界的（:data:`LATENCY_WINDOW`）；``p50`` 是窗口内的中位数（样本少时就是真实值，样本
 多时是近期值的近似）——状态面要的是量级判断，不是分位数库。
+
+**流式响应不进延迟窗口**：SSE（``text/event-stream``）的耗时是连接寿命而不是请求延迟，一条运行期
+订阅（可长达数分钟）会把 ``max`` 独占、把 ``p50`` 拉偏；这类请求只计入总数与错误码。
 """
 
 from __future__ import annotations
@@ -16,7 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-#: 延迟样本窗口（条）。512 条约几十 KB 的上界，够看「最近这批请求有多慢」。
+#: 延迟样本窗口（条）。256 条约几十 KB 的上界，够看「最近这批请求有多慢」。
 LATENCY_WINDOW = 256
 
 #: 只对非 2xx 的 JSON 错误信封做一次小体积解析（正常响应的 body 一律不看）。
@@ -34,13 +37,17 @@ class RequestMetrics:
         self._error_codes: dict[str, int] = {}
         self._latencies: deque[float] = deque(maxlen=LATENCY_WINDOW)
 
-    def record(self, *, status: int, elapsed_ms: float, error_code: str | None = None) -> None:
-        """记一条请求（热路径：整数自增 + 一次 append）。"""
+    def record(self, *, status: int, elapsed_ms: float, error_code: str | None = None, streamed: bool = False) -> None:
+        """记一条请求（热路径：整数自增 + 最多一次 append）。
+
+        ``streamed`` = 流式响应（SSE）：只计总数与错误码，不进延迟窗口（见模块 docstring）。
+        """
         self._total += 1
         bucket = f"{status // 100}xx" if status else ""
         if bucket in self._classes:  # 1xx / 0 等不落在四个对外分桶里：只计总数与延迟
             self._classes[bucket] += 1
-        self._latencies.append(max(elapsed_ms, 0.0))
+        if not streamed:
+            self._latencies.append(max(elapsed_ms, 0.0))
         if error_code:
             self._error_codes[error_code] = self._error_codes.get(error_code, 0) + 1
 
@@ -93,4 +100,12 @@ def error_code_from_body(body: bytes, raw_headers: Iterable[tuple[bytes, bytes]]
     return code if isinstance(code, str) and code else None
 
 
-__all__ = ["LATENCY_WINDOW", "RequestMetrics", "error_code_from_body"]
+def is_event_stream(raw_headers: Iterable[tuple[bytes, bytes]] | None) -> bool:
+    """响应头是否声明了 SSE（``text/event-stream``）——流式响应的耗时不是请求延迟。"""
+    for key, value in raw_headers or ():
+        if bytes(key).lower() == b"content-type":
+            return bytes(value).decode("latin-1").lower().startswith("text/event-stream")
+    return False
+
+
+__all__ = ["LATENCY_WINDOW", "RequestMetrics", "error_code_from_body", "is_event_stream"]

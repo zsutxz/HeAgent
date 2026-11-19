@@ -41,7 +41,9 @@ def read_process_stats() -> ProcessStats:
             return _read_procfs()
         if platform.startswith("win"):
             return _read_windows()
-    except (OSError, ValueError, RuntimeError):  # 采样失败不该影响状态面的其他字段
+    # 采样失败不该影响状态面的其他字段：``/proc`` 被截断/改形时会抛 ``IndexError``、``SC_CLK_TCK``
+    # 取到 0 时会抛 ``ZeroDivisionError``，两者同样属「采不到」而不是「端点该 500」。
+    except (OSError, ValueError, RuntimeError, IndexError, ZeroDivisionError):
         return ProcessStats()
     return ProcessStats()
 

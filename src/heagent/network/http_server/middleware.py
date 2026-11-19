@@ -17,7 +17,7 @@ from heagent.network.http_protocol import HttpErrorCode, error_envelope
 from heagent.network.origin import request_origin_violation
 from heagent.pub.safe_logging import safe_log
 
-from .metrics import _ERROR_BODY_LIMIT_BYTES, error_code_from_body
+from .metrics import _ERROR_BODY_LIMIT_BYTES, error_code_from_body, is_event_stream
 
 # 4xx/5xx 起算错误面：此后访问日志抬到 WARNING。
 _ERROR_STATUS_MIN = 400
@@ -124,12 +124,15 @@ class _AccessLogMiddleware:
         status = 0
         error_body = b""
         headers_seen: Any = ()
+        streamed = False
 
         async def send_with_headers(message: MutableMapping[str, Any]) -> None:
-            nonlocal status, error_body, headers_seen
+            nonlocal status, error_body, headers_seen, streamed
             if message.get("type") == "http.response.start":
                 status = int(message.get("status", 0))
                 headers_seen = message.get("headers") or []
+                # SSE 的耗时是连接寿命：只进总数/错误码，不进延迟窗口（`RequestMetrics.record`）。
+                streamed = is_event_stream(headers_seen)
                 raw = list(headers_seen)
                 raw.append((b"x-request-id", request_id.encode("ascii")))
                 message = {**message, "headers": raw}
@@ -158,6 +161,7 @@ class _AccessLogMiddleware:
                     status=status,
                     elapsed_ms=elapsed_ms,
                     error_code=error_code_from_body(error_body, headers_seen),
+                    streamed=streamed,
                 )
 
 

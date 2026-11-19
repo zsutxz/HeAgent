@@ -102,6 +102,18 @@ def test_http_server_command_wires_the_status_source(
     """
     monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
 
+    from heagent.cli import http as http_module
+
+    recorded: list[HttpAgentHandler] = []
+    real_handler = http_module.HttpAgentHandler
+
+    class _RecordingHandler(real_handler):  # type: ignore[misc, valid-type]
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            recorded.append(self)
+
+    monkeypatch.setattr(http_module, "HttpAgentHandler", _RecordingHandler)
+
     result = CliRunner().invoke(main, ["http-server", "--sandbox", "docker"])
 
     assert result.exit_code == 0, result.output
@@ -109,10 +121,14 @@ def test_http_server_command_wires_the_status_source(
     assert server.status is not None, "HttpServer(...) 未收到状态来源"
     snapshot = server.status.status()
     assert snapshot.max_inflight_runs >= 1
-    # 部署面必须来自真实装配：listener 首条是本 HTTP listener（漏传 http_server ⇒ 空列表），
-    # 沙箱档位取本次进程实际用的（漏传就是配置里的 auto）。
+    # 部署面必须来自真实装配：listener 首条是本 HTTP listener（漏传 http_server ⇒ 空列表）。
     assert [item.kind for item in snapshot.listeners][:1] == ["http"]
-    assert snapshot.sandbox_backend == "docker"
+    # 沙箱档位报**生效值**（`sandbox_decision.effective_backend`），不是 `--sandbox` 的请求值：
+    # daemon 不可用的机器上 `--sandbox docker` 会降级成 passthrough，状态面必须跟着降级。
+    assert recorded, "命令没有构造 HttpAgentHandler"
+    decision = recorded[0].engine.sandbox_decision
+    assert decision is not None
+    assert snapshot.sandbox_backend == decision.effective_backend
 
     node = server.app
     while not hasattr(node, "routes"):

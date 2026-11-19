@@ -110,6 +110,18 @@ def _provider_name(provider: Any | None) -> str:
     return _clip(getattr(provider, "active", None), _MAX_PROVIDER_CHARS)
 
 
+def _effective_sandbox_backend(owner: Any | None) -> str | None:
+    """本进程**实际生效**的沙箱档位（取自引擎构造期的 ``sandbox_decision``）。
+
+    ``--sandbox`` / ``SANDBOX_BACKEND`` 只是**请求**档位：``auto`` 或 daemon 不可用时引擎会降级成
+    ``passthrough``（``EngineContainer.default`` 在构造期就定下 ``effective_backend``）。状态面报
+    请求值会让人以为命令跑在沙箱里，因此有决策时一律报生效档位；取不到（注入替身 / 未建引擎）时
+    返回 ``None``，由调用点回落到请求值。
+    """
+    decision = getattr(getattr(owner, "engine", None), "sandbox_decision", None)
+    return _clip(getattr(decision, "effective_backend", None), _MAX_BACKEND_CHARS) or None
+
+
 def _deployment(
     settings: Settings,
     *,
@@ -204,6 +216,9 @@ class HttpStatusSource:
         self._http_server: Any | None = None
         self._ws_servers: tuple[Any, ...] = ()
         self._workspace_root = workspace_root
+        # provider 实例保留到运行期：``/provider`` 切换会改 ``SwitchableProvider.active``，装配期抄成
+        # 字符串会让状态面板一直报启动时那个名字。
+        self._provider = provider
         # 存储实例**只建一次**：``SkillStore`` 的「同名遮蔽」告警按实例去重，每次刷新新建一个
         # 会让全局根/项目根同名技能每 5 秒刷一批 WARNING。
         self._skills: Any | None = None
@@ -259,7 +274,7 @@ class HttpStatusSource:
             listeners=_listener_infos(self._http_server, self._ws_servers),
             sandbox_backend=self._sandbox_backend,
             config_write_enabled=self._config_write_enabled,
-            active_provider=self._active_provider,
+            active_provider=_provider_name(self._provider) or self._active_provider,
             routing_pools=list(self._routing_pools),
             started_at=self._started_at(),
             uptime_seconds=self._uptime_seconds(),
@@ -337,8 +352,9 @@ class HttpStatusSource:
         """
         try:
             jobs = JobStore(str(paths.cron_file)).list_jobs()
-            # 投影也在隔离内：``jobs.json`` 里的畸形条目（空 id / 空 cron）能被 ``JobStore`` 正常加载，
-            # 但过不了协议模型的最小长度校验——那种输入只该丢掉那一条，不该让整条状态变成 500。
+            # 先滤掉畸形条目（空 id / 空 cron 能被 ``JobStore`` 正常加载，但过不了协议模型的最小长度
+            # 校验）再截断：反过来会让排在前面的坏条目吃掉容量，把后面的**正常**作业挤掉。
+            valid = [job for job in jobs if str(job.id or "").strip() and str(job.cron or "").strip()]
             return [
                 CronJobInfo(
                     job_id=_clip(job.id, _MAX_JOB_ID),
@@ -346,8 +362,7 @@ class HttpStatusSource:
                     last_run=_parse_iso(job.last_run),
                     last_status=_clip(job.last_status, _MAX_STATUS_CHARS),
                 )
-                for job in jobs[:_MAX_CRON_JOBS]
-                if str(job.id or "").strip() and str(job.cron or "").strip()
+                for job in valid[:_MAX_CRON_JOBS]
             ]
         except Exception:  # noqa: BLE001 - 辅助信息：读失败降级为空列表并留 WARNING
             safe_log(logger, logging.WARNING, "status event=cron_read_failed root=%s", paths.root, exc_info=True)
