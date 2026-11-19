@@ -163,12 +163,15 @@ jobs:
       - name: Run benchmarks
         run: |
           # 基线取最近一次落盘（零填充序号 tail = 最新）；无基线（首次）只落盘不比较。
+          # **不加 `--benchmark-only`**：它只跑用了 `benchmark` fixture 的用例，会把「比值型」
+          # 性能判据整片跳过（66.2 的提速 >30%、66.5 的冷启动省 >20% 都不用 fixture）——
+          # 那样 Epic 66 的 Done when 在 CI 里实际无人执行。`-m benchmark` 已把范围收在性能面。
           BASELINE=$(find benchmark-data -name "*.json" 2>/dev/null | sort | tail -1)
           if [ -n "$BASELINE" ]; then
-            pytest --benchmark-only --benchmark-autosave --benchmark-storage=./benchmark-data/ \
+            pytest --benchmark-autosave --benchmark-storage=./benchmark-data/ \
               --benchmark-compare="$BASELINE" --benchmark-compare-fail=mean:10% -m benchmark
           else
-            pytest --benchmark-only --benchmark-autosave --benchmark-storage=./benchmark-data/ -m benchmark
+            pytest --benchmark-autosave --benchmark-storage=./benchmark-data/ -m benchmark
           fi
 
       - name: Upload benchmark data

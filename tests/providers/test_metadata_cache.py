@@ -14,9 +14,11 @@ import pytest
 
 from heagent.providers.base import ProviderMetadata
 from heagent.providers.chain import ProviderChain
+from heagent.providers.key_rotation import KeyRotatingProvider
 from heagent.providers.metadata_cache import ProviderMetadataCache
+from heagent.providers.router import HeuristicRouter, RoutingProvider
 from heagent.providers.switchable import SwitchableProvider
-from heagent.pub.exceptions import ProviderError
+from heagent.pub.exceptions import ProviderError, ProviderRateLimitError
 from heagent.pub.types import Message, ProviderResponse, Role, TokenUsage, ToolSchema
 
 if TYPE_CHECKING:
@@ -26,12 +28,15 @@ if TYPE_CHECKING:
 class _StubProvider:
     """最小 provider：metadata 可区分身份，可配置 send 是否失败（触发聚合层回退）。"""
 
-    def __init__(self, name: str, *, fail: bool = False) -> None:
+    def __init__(self, name: str, *, fail: bool = False, error: Exception | None = None) -> None:
         self._name = name
         self._fail = fail
+        self._error = error
         self.metadata_calls = 0
 
     async def send(self, messages: list[Message], *, tools: list[ToolSchema] | None = None) -> ProviderResponse:
+        if self._error is not None:
+            raise self._error
         if self._fail:
             raise ProviderError(f"{self._name} unavailable", status_code=503)
         return ProviderResponse(
@@ -258,3 +263,77 @@ def test_cache_max_size_is_configurable_through_wrapper() -> None:
     assert chain.metadata_cache is cache
     assert chain.metadata_cache.max_size == 1
     assert ProviderMetadataCache().max_size == 64
+
+
+# ---------------------------------------------------------------------------
+# Story 66.1 的另两处聚合层：RoutingProvider（静态池）与 KeyRotatingProvider（索引粘性）
+# ---------------------------------------------------------------------------
+
+
+def test_routing_provider_metadata_is_cached() -> None:
+    """路由池的组装结果不变 ⇒ 一次组装后全部命中（模型列表是 O(池) 的字符串拼接）。"""
+    fast, pro = _StubProvider("fast"), _StubProvider("pro")
+    routing = RoutingProvider({"fast": fast, "pro": pro}, HeuristicRouter(fast="fast", pro="pro"), default="fast")
+
+    first = routing.get_metadata()
+    assert (first.name, first.model) == ("routing", "fast:model-fast, pro:model-pro")
+    assert routing.get_metadata() is first  # 命中：同一对象
+    assert (routing.metadata_cache.hits, routing.metadata_cache.misses) == (1, 1)
+    # 叶 provider 各被读一次（组装时），不再随每次 get_metadata 重读
+    assert (fast.metadata_calls, pro.metadata_calls) == (1, 1)
+
+
+def test_routing_provider_force_does_not_invalidate_pool_metadata() -> None:
+    """``set_force`` 只改「当前模型」观测（``current_model``），池级 metadata 不含该状态 ⇒ 不失效。"""
+    routing = RoutingProvider(
+        {"fast": _StubProvider("fast"), "pro": _StubProvider("pro")},
+        HeuristicRouter(fast="fast", pro="pro"),
+        default="fast",
+    )
+    before = routing.get_metadata()
+    routing.set_force("pro")
+    assert routing.current_model == "model-pro"  # 观测面确实变了
+    assert routing.get_metadata() is before  # 但池级描述不变，缓存仍命中
+    assert routing.metadata_cache.misses == 1
+
+
+async def test_key_rotation_metadata_follows_index_change() -> None:
+    """密钥轮换成功后 ``get_metadata()`` 跟随新密钥实例（失效接线到索引写点）。"""
+    a = _StubProvider("a", error=ProviderRateLimitError("429"))
+    b = _StubProvider("b")
+    pool = KeyRotatingProvider([a, b])  # type: ignore[list-item]
+
+    assert pool.get_metadata().name == "a+keypool"
+    assert pool.get_metadata().name == "a+keypool"  # 命中
+    assert (pool.metadata_cache.hits, pool.metadata_cache.misses) == (1, 1)
+
+    await pool.send(_messages())
+    assert pool.get_metadata().name == "b+keypool"
+    assert (pool.metadata_cache.hits, pool.metadata_cache.misses) == (1, 2)
+
+
+async def test_key_rotation_success_keeps_cache_hit() -> None:
+    """首把密钥直接成功时索引不变 ⇒ 元数据缓存保持命中（无意义失效会被这条抓住）。"""
+    pool = KeyRotatingProvider([_StubProvider("a"), _StubProvider("b")])  # type: ignore[list-item]
+    pool.get_metadata()
+    await pool.send(_messages())
+    assert pool.get_metadata().name == "a+keypool"
+    assert (pool.metadata_cache.hits, pool.metadata_cache.misses) == (1, 1)
+
+
+def test_routing_and_key_rotation_accept_shared_cache() -> None:
+    """两个聚合层都可注入缓存实例（容量可配 + 观测面可共享），默认自建。"""
+    shared = ProviderMetadataCache(max_size=8)
+    routing = RoutingProvider(
+        {"fast": _StubProvider("fast")},
+        HeuristicRouter(fast="fast", pro="fast"),
+        default="fast",
+        metadata_cache=shared,
+    )
+    pool = KeyRotatingProvider([_StubProvider("a")], metadata_cache=shared)  # type: ignore[list-item]
+    assert routing.metadata_cache is shared
+    assert pool.metadata_cache is shared
+    default_cache = RoutingProvider(
+        {"fast": _StubProvider("fast")}, HeuristicRouter(fast="fast", pro="fast"), default="fast"
+    ).metadata_cache
+    assert default_cache.max_size == 64

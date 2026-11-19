@@ -54,6 +54,9 @@ python -m pytest -m benchmark -q --benchmark-storage=./benchmark-data \
 就多一个新编号，所以对比时要用**你要比的那一次的编号**，不能一直写 `0001`。
 
 - `benchmark` 标记在 `pyproject.toml` 的 `addopts` 里被 deselect ⇒ 普通 `pytest` 不跑它们。
+- **不要给 `-m benchmark` 加 `--benchmark-only`**：该旗标只跑使用 `benchmark` fixture 的用例，会把
+  「比值型」性能判据（`tests/test_skill_match_cache.py` 的提速 >30%、`tests/test_deferred_imports.py` 的
+  冷启动省 >20%）整片跳过——CI 的 `benchmark` job 因此按 `-m benchmark` 跑，不加该旗标。
 - `--benchmark-autosave` / `--benchmark-storage` / `--benchmark-compare` **只认命令行旗标**
   （pytest-benchmark 不从 `pyproject.toml` 读这些设置），写进配置不会生效。
 - 基线目录 `./benchmark-data/` 是本地产物、已在 `.gitignore` 里。

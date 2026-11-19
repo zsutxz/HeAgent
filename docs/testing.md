@@ -77,7 +77,7 @@ python scripts/verify_baseline.py tests/test_cli_http_lifecycle.py -q
 |---|---|---|
 | `embedded_http_service` | 用**真实** HTTP/WS 服务与随机端口（退出 `tests/conftest.py` 的默认替身） | 运行 |
 | `integration` | 真实外部依赖 E2E（需凭据 / 网络） | 不运行（`pytest -m integration` 显式） |
-| `benchmark` | 性能基准 | 不运行（`pytest -m benchmark --benchmark-autosave …`） |
+| `benchmark` | 性能基准（既有 `benchmark` fixture 用例，也有**比值型**判据：技能匹配提速 >30%、冷启动省 >20%） | 不运行（`pytest -m benchmark --benchmark-autosave …`） |
 | `no_auto_workspace` | 路径安全测试不自动设 workspace root | 运行 |
 
 写「端口已释放」类断言时用 **connect 判据**（未监听 ⇒ `ECONNREFUSED`），不要用 `bind`：服务关闭后

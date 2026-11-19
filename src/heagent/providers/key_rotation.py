@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from heagent.providers.base import BaseProvider, ProviderMetadata
 from heagent.providers.fallback_base import FallbackPolicy, raise_as_provider_error
+from heagent.providers.metadata_cache import ProviderMetadataCache
 from heagent.pub.exceptions import ConfigurationError, ProviderError
 
 if TYPE_CHECKING:
@@ -35,17 +36,44 @@ class KeyRotatingProvider:
         ])
     """
 
-    def __init__(self, providers: list[BaseProvider]) -> None:
+    def __init__(
+        self,
+        providers: list[BaseProvider],
+        *,
+        metadata_cache: ProviderMetadataCache | None = None,
+    ) -> None:
+        """初始化密钥池。
+
+        Args:
+            providers: 同一 provider 的多个实例，每个持不同 API key。
+            metadata_cache: 可选的元数据缓存实例（调容量 / 共享观测面用）；None 则自建默认容量。
+        """
         if not providers:
             raise ConfigurationError("KeyRotatingProvider requires at least one provider")
         self._providers = list(providers)
         self._current_index = 0
         self._lock = asyncio.Lock()  # 防并发索引漂移
+        self._metadata_cache = metadata_cache if metadata_cache is not None else ProviderMetadataCache()
 
     @property
     def current(self) -> BaseProvider:
         """当前活跃的 Provider 实例。"""
         return self._providers[self._current_index]
+
+    @property
+    def metadata_cache(self) -> ProviderMetadataCache:
+        """元数据缓存实例（观测面：``hits`` / ``misses`` / ``hit_rate``）。"""
+        return self._metadata_cache
+
+    def _set_current_index(self, index: int) -> None:
+        """写 ``_current_index`` 的**唯一入口**：值真的变了才失效元数据缓存。
+
+        ``get_metadata()`` 转发 ``current``，索引一变返回值就变（池内实例可能配不同模型）；
+        所有索引写入都必须走本方法，否则 ``get_metadata()`` 会继续返回轮换前的元数据。
+        """
+        if self._current_index != index:
+            self._current_index = index
+            self._metadata_cache.invalidate(self)
 
     @staticmethod
     def _is_rotation_error(error: Exception) -> bool:
@@ -79,12 +107,12 @@ class KeyRotatingProvider:
                 logger.warning("Key #%d failed (rotatable): %s", idx, e)
                 continue
             async with self._lock:
-                self._current_index = idx  # 粘性：停在生效的 key 上（原 _advance 后不复位）
+                self._set_current_index(idx)  # 粘性：停在生效的 key 上（原 _advance 后不复位）
             return resp
 
         # 恢复原始索引
         async with self._lock:
-            self._current_index = start
+            self._set_current_index(start)
         if last_error is not None:
             raise_as_provider_error(last_error)
         raise ProviderError("All keys exhausted")
@@ -118,25 +146,25 @@ class KeyRotatingProvider:
                     yield chunk
                 # 成功 → 锁内更新索引（粘性停留）
                 async with self._lock:
-                    self._current_index = idx
+                    self._set_current_index(idx)
                 return
             except Exception as e:
                 if delivered:
                     async with self._lock:
-                        self._current_index = start
+                        self._set_current_index(start)
                     raise_as_provider_error(e)
                 if not self._is_rotation_error(e):
                     raise_as_provider_error(e)
                 last_error = e
                 logger.warning("Key #%d stream failed (rotatable): %s", idx, e)
         async with self._lock:
-            self._current_index = start
+            self._set_current_index(start)
         if last_error is not None:
             raise_as_provider_error(last_error)
         raise ProviderError("All keys exhausted for stream")
 
-    def get_metadata(self) -> ProviderMetadata:
-        """返回当前活跃 Provider 的能力描述。"""
+    def _build_metadata(self) -> ProviderMetadata:
+        """组装当前活跃 Provider 的能力描述（``+keypool`` 后缀标明轮换层）。"""
         meta = self.current.get_metadata()
         return ProviderMetadata(
             name=f"{meta.name}+keypool",
@@ -144,3 +172,7 @@ class KeyRotatingProvider:
             supports_streaming=meta.supports_streaming,
             supports_tools=meta.supports_tools,
         )
+
+    def get_metadata(self) -> ProviderMetadata:
+        """返回当前活跃 Provider 的能力描述（经元数据缓存；索引变化后由缓存失效跟随）。"""
+        return self._metadata_cache.get(self, self._build_metadata)

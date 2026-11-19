@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from pydantic import BaseModel
 
 from heagent.providers.base import ProviderMetadata
+from heagent.providers.metadata_cache import ProviderMetadataCache
 from heagent.providers.retry import is_pool_fallback_error
 from heagent.pub.exceptions import ConfigurationError
 from heagent.pub.types import Role
@@ -312,6 +313,7 @@ class RoutingProvider:
         *,
         default: str,
         force: str | None = None,
+        metadata_cache: ProviderMetadataCache | None = None,
     ) -> None:
         """初始化智能路由 provider。
 
@@ -321,6 +323,7 @@ class RoutingProvider:
             default: Router 返回未知名称时的兜底 provider 名，必须在 providers 中。
             force: 可选；强制固定使用某个 provider 名（如 "pro"），None = 自动路由。
                 可在运行时用 ``set_force()`` 动态切换（对应 ``/model pro|fast|auto``）。
+            metadata_cache: 可选的元数据缓存实例（调容量 / 共享观测面用）；None 则自建默认容量。
         """
         if not providers:
             raise ConfigurationError("RoutingProvider requires at least one provider")
@@ -330,6 +333,7 @@ class RoutingProvider:
         self._router = router
         self._default = default
         self._force: str | None = None
+        self._metadata_cache = metadata_cache if metadata_cache is not None else ProviderMetadataCache()
         # last_decision 先于 set_force 初始化：set_force 会同步刷新决策（见其 docstring）。
         self.last_decision: RouteDecision | None = None
         if force is not None:
@@ -482,19 +486,34 @@ class RoutingProvider:
         async for chunk in iterator:
             yield chunk
 
-    def get_metadata(self) -> ProviderMetadata:
-        """返回路由池的能力描述：model 列出各 provider 的模型；能力取「全支持」交集。
+    @property
+    def metadata_cache(self) -> ProviderMetadataCache:
+        """元数据缓存实例（观测面：``hits`` / ``misses`` / ``hit_rate``）。"""
+        return self._metadata_cache
+
+    def _build_metadata(self) -> ProviderMetadata:
+        """组装路由池的能力描述：model 列出各 provider 的模型；能力取「全支持」交集。
 
         supports_streaming / supports_tools 取 ``all``（保守）：只有全部池内 provider
         都支持时才宣称支持，避免路由到不支持某能力的 provider 时上层误判。
         """
-        models = ", ".join(f"{k}:{p.get_metadata().model}" for k, p in self._providers.items())
+        # 每个叶 provider 只取一次元数据（旧写法 model / streaming / tools 各取一次 ⇒ 同一次组装
+        # 里重复构造 3 次）；顺序仍是池声明顺序。
+        metas = {name: provider.get_metadata() for name, provider in self._providers.items()}
         return ProviderMetadata(
             name="routing",
-            model=models,
-            supports_streaming=all(p.get_metadata().supports_streaming for p in self._providers.values()),
-            supports_tools=all(p.get_metadata().supports_tools for p in self._providers.values()),
+            model=", ".join(f"{name}:{meta.model}" for name, meta in metas.items()),
+            supports_streaming=all(meta.supports_streaming for meta in metas.values()),
+            supports_tools=all(meta.supports_tools for meta in metas.values()),
         )
+
+    def get_metadata(self) -> ProviderMetadata:
+        """返回路由池的能力描述（经元数据缓存）。
+
+        池结构在 ``__init__`` 固定、叶 provider 的元数据构造后不可变 ⇒ 组装结果也不变，
+        因此不需要任何失效点（与 Switchable / Chain 的活跃指针语义不同）。
+        """
+        return self._metadata_cache.get(self, self._build_metadata)
 
 
 def active_model(provider: object) -> str | None:
