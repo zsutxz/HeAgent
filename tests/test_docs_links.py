@@ -3,8 +3,7 @@
 为什么需要这层守卫：`docs/frame.md` 的大目录与跨文档引用都是**手写** Markdown 链接，而
 `mkdocs.yml` 的 `validation.links.anchors` 已 ignore（中文标题 + 反引号在 python-markdown 与
 GitHub 的 slug 算法下结果不同，站点侧必然报「no such anchor」）。于是「标题改了、TOC 没跟」
-这类漂移机器无从发现——2026-11-19 实测到 2 条 TOC 锚点（标题补了 ` 包` / `；Epic 56 迁至
-独立 server` 后缀）与 3 处 `README.md#goal-工作流`（相对路径落在 `docs/README.md` 上）失效。
+这类漂移机器无从发现：标题补后缀、跨文件链接的相对路径多写一层 `../`，链接都会静默失效。
 
 slug 口径按 GitHub（github-slugger）：小写 → 删除 ASCII 标点（保留 `-` `_`）与 Unicode 标点／
 全角区段（`、（）；：` 都在内）→ 空格转 `-`；中文与字母数字保留。仓库读者（GitHub、编辑器

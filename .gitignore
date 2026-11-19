@@ -17,7 +17,9 @@ venv/
 # ⚠ .heagent/ 整目录忽略，但有刻意跟踪的例外（commands/loop.md、skills/he-goal/*、skills/loop/*，
 # 共 14 件）：git add 误报 ignored 时用 `git add -f`。别按「忽略规则=全未跟踪」清理这个目录。
 .heagent/
-logs/
+# 只忽略仓库根的运行时日志目录（`/` 锚定）：无锚的 `logs/` 会连 `docs/logs/` 这类
+# 文档目录一起吞掉，导致已跟踪文件要 `git add -u`、新文件要 `-f`。
+/logs/
 
 # Tools
 .mypy_cache/

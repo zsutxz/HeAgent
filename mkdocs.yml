@@ -46,7 +46,7 @@ nav:
   - 首页: README.md
   - 架构: frame.md
   - 设计理念: design.md
-  - 日志: logs/iteration.md
+  - 迭代历程: iteration.md
   - 测试与门禁: testing.md
   - 常见问题: faq.md
   - 错误索引: errors.md

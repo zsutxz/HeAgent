@@ -16,7 +16,7 @@
 | 使用问答 | [faq.md](faq.md) | 常见问题提交者补充问答与命令；机制细节仍归 frame.md |
 | 错误索引 | [errors.md](errors.md) | 新增/改名错误码与常见报错时同步四张表；码的权威口径仍归 frame.md 4.17 |
 | 性能调优 | [performance.md](performance.md) | 基准/阈值/常用开关变更时同步方法、瓶颈与推荐值 |
-| 迁移与历史 | [迭代历程](logs/iteration.md)（§3.3 架构沿革与参考来源；docs/logs/ 为日志文档目录） | 实施者在修改边界前核验兼容性与迁移测试；架构变更提交者追加事实和来源 |
+| 迁移与历史 | [迭代历程](iteration.md)（§3.3 架构沿革与参考来源） | 实施者在修改边界前核验兼容性与迁移测试；架构变更提交者追加事实和来源 |
 | 外部资料 | [新闻归档](../news/news.md)（`news/` 与 `docs/news.md` 均已 gitignore，属本地运行时产物，克隆后可能不存在） | 资料提交者保留采集日期与来源，不作为项目实现依据 |
 | 观测 | [frame.md 事件契约](frame.md) | 事件字段/发射点变更提交者同步逐 kind 表与黄金测试 |
 | API 参考 | [docs/api/](api/)（12 个核心包的 docstring 自动生成：`::: heagent.<包>` + `show_submodules`） | 包内新增模块不用改；**新增/删除一级核心包**要同步页文件 + [mkdocs nav](../mkdocs.yml) + [api/index.md](api/index.md) 表（判据 `tests/test_api_docs_pages.py`） |
@@ -51,12 +51,12 @@
 | 网页控制台：多项目 / 会话 / 配置面板与写入 | [`frame.md`](frame.md) 的 4.18（工作区模型 / 项目注册表 / 会话持久化 / 四层配置来源 / 写通道 10 步 / 生效语义 / 安全立场与已知缺口） |
 | 如何新增 provider / tool / 技能包 | [项目协作规则](../AGENTS.md) 的「新增扩展点」章 |
 | GUI 如何连接 AgentLoop | [GUI 集成方案](../_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md) 与 `src/heagent/gui/` |
-| 历史为什么这样演进 | [`logs/iteration.md`](logs/iteration.md) 与 [`_bmad-output/`](../_bmad-output/README.md) |
+| 历史为什么这样演进 | [`iteration.md`](iteration.md) 与 [`_bmad-output/`](../_bmad-output/README.md) |
 
 ## 设计与维护
 
 - [设计说明](design.md)：项目定位、设计动机、非目标和成熟度判断。
-- [迭代指南](logs/iteration.md)：如何继续迭代，以及已完成周期的历史索引（日志文档，住 docs/logs/）。
+- [迭代指南](iteration.md)：如何继续迭代，以及已完成周期的历史索引。
 - [质量门禁脚本](../scripts/quality_gate.py)：冒烟、回归与覆盖率、lint、format 和类型检查的执行入口。
 - [文档站点构建](../scripts/build_docs.py)：`python scripts/build_docs.py` 一条命令跑 `mkdocs build --strict`（产物落 `.heagent/tmp/mkdocs-site`，页脚版本取自 `heagent.__version__`）；`docs/api/` 的 API 参考由 `mkdocstrings` 从 docstring 生成（构建期依赖：`pip install mkdocs "mkdocstrings[python]"`）。
 - [bmad/](bmad/) 与 [claude-updater/](claude-updater/)：外部方法论与外部工具更新的摘录归档（前者是 BMad 技能的中文适配与学习笔记，后者是 Claude 更新摘要）。参考资料，不参与「权威规则」的优先级。

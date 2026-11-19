@@ -103,7 +103,7 @@
 |------|------|
 | `docs/frame.md` | **架构权威**（活文档，随代码更新） |
 | `docs/design.md` | 产品愿景与理念 |
-| `docs/logs/iteration.md` | 迭代历程与流程（2026-11-15 迁入日志目录 `docs/logs/`） |
+| `docs/iteration.md` | 迭代历程与流程（2026-11-19 自 `docs/logs/` 迁回顶层，避免与运行时 `logs/` 撞名） |
 | `_bmad-output/epics/epic-25-28-GUI界面周期/gui-plan.md` | GUI 实现计划 |
 | `docs/README.md` | 文档索引 + 当前敏捷工作流维护说明（「Goal 工作流」章节，2026-09-20 自 workflow_intro.md 并入） |
 | `_bmad-output/README.md` | 产物地图（按周期） |

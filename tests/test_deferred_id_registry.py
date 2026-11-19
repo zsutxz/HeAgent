@@ -194,10 +194,9 @@ def test_epic_ledgers_without_id_sections_carry_a_no_active_marker() -> None:
 def test_active_count_declarations_match_the_ledger() -> None:
     """凡出现「活动…N 条」都必须等于活动台账（open-items.md）的实际行数。
 
-    旧口径只要求「文件里存在一处等于真值的声明、且不得声明 0」，于是同一文件里的
-    **陈旧计数**（如历史快照段的「活动 5 条」）能长期潜伏——2026-11-19 在
-    `_bmad-output/README.md` 里就同时存在「16 条」与「5 条」。现在改为逐处严格比对：
-    历史快照段要么随台账更新，要么改写成指向 `open-items.md` 的指针。
+    只要求「存在一处等于真值的声明、且不得声明 0」，会漏掉同一文件里的**陈旧计数**
+    （历史快照段与当前声明并存）。逐处比对强制两者一致：历史快照段要么随台账更新，
+    要么改写成指向 `open-items.md` 的指针。
     """
     actual = len(_active_rows())
     sites = (

@@ -28,7 +28,7 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 | 路径 | 用途 |
 |------|------|
 | `docs/design.md` | 功能设计与理念 |
-| `docs/logs/iteration.md` | 迭代历程（日志） |
+| `docs/iteration.md` | 迭代历程与迭代方法 |
 | `docs/testing.md` | 测试与门禁判读（红了怎么分诊、`verify_baseline.py` 用法、marker 口径、历史噪声记录） |
 | `docs/sandbox.md` | 沙箱机制导读——改沙箱后端/档位前先读 |
 | `docs/goal-workflow.md` | /goal 声明式工作流导读——改 `goal/` 或 `.heagent/skills/he-goal/` 前先读 |
