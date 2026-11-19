@@ -39,6 +39,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+#: 本进程已播报过的 ``auto`` 解析结果。:meth:`EngineContainer.default` 会被多次调用
+#: （CLI 主引擎 + 内嵌网页 handler 是刻意隔离的两个装配），同值重复播报只会让启动日志
+#: 看起来像「同一件事打了两遍」。
+_AUTO_BACKEND_REPORTED: set[str] = set()
+
+
+def _report_auto_backend(backend: str) -> None:
+    """``auto`` 档位的解析结果**每进程每值只播报一次**（解析值变化时仍会再报）。
+
+    只影响日志，不影响解析结果；竞态最多让同一值多打一条，不值得为它加锁。
+    """
+    if backend in _AUTO_BACKEND_REPORTED:
+        return
+    _AUTO_BACKEND_REPORTED.add(backend)
+    logger.info("sandbox backend 'auto' resolved to %r", backend)
+
 
 def _resolve_command_runner(
     settings: ResolvedRuntimeConfig, backend: str, workspace_root: str | None
@@ -333,7 +349,7 @@ class EngineContainer:
             import shutil as _shutil
 
             backend = "firejail" if _shutil.which(settings.sandbox_firejail_path) else "passthrough"
-            logger.info("sandbox backend 'auto' resolved to %r", backend)
+            _report_auto_backend(backend)
         command_runner = _resolve_command_runner(settings, backend, workspace_root)
 
         # 默认装配开启跨进程文件锁：CLI/GUI 可能多进程共享同一 .heagent/ 目录

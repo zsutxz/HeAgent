@@ -156,3 +156,52 @@ def test_build_loop_shares_engine_resolved_config():
     )
     assert scheduler is None
     assert loop._runtime is loop.engine.runtime_config
+
+
+# ---------------------------------------------------------------------------
+# ``auto`` 沙箱档位的解析播报：每进程每值一条（多装配不等于同一件事打两遍）
+# ---------------------------------------------------------------------------
+
+
+def _auto_settings() -> Settings:
+    return Settings(_env_file=None, sandbox_backend="auto")
+
+
+def test_auto_backend_resolution_is_reported_once_per_process(monkeypatch, caplog, tmp_path):
+    """同进程多次装配同值只播报一条 INFO：CLI 主引擎与内嵌网页 handler 是两个刻意隔离的装配。"""
+    import logging
+
+    from heagent.engine import container as container_module
+
+    monkeypatch.setattr(container_module, "_AUTO_BACKEND_REPORTED", set())
+    monkeypatch.setattr("shutil.which", lambda name: None)  # auto → passthrough
+    settings = _auto_settings()
+
+    with caplog.at_level(logging.INFO, logger="heagent.engine.container"):
+        EngineContainer.default(settings=settings, workspace_root=str(tmp_path))
+        EngineContainer.default(settings=settings, workspace_root=str(tmp_path))
+
+    lines = [r.getMessage() for r in caplog.records if "resolved to" in r.getMessage()]
+    assert lines == ["sandbox backend 'auto' resolved to 'passthrough'"]
+
+
+def test_auto_backend_reports_again_when_resolution_changes(monkeypatch, caplog, tmp_path):
+    """解析值变化时必须再播报（去重按值而非「本进程已说过」一刀切）。"""
+    import logging
+
+    from heagent.engine import container as container_module
+
+    monkeypatch.setattr(container_module, "_AUTO_BACKEND_REPORTED", set())
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    settings = _auto_settings()
+
+    with caplog.at_level(logging.INFO, logger="heagent.engine.container"):
+        EngineContainer.default(settings=settings, workspace_root=str(tmp_path))
+        monkeypatch.setattr("shutil.which", lambda name: "/usr/local/bin/firejail")
+        EngineContainer.default(settings=settings, workspace_root=str(tmp_path))
+
+    lines = [r.getMessage() for r in caplog.records if "resolved to" in r.getMessage()]
+    assert lines == [
+        "sandbox backend 'auto' resolved to 'passthrough'",
+        "sandbox backend 'auto' resolved to 'firejail'",
+    ]
