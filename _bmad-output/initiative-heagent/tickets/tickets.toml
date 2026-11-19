@@ -76,3 +76,10 @@ title = "Web 端服务器状态面板"
 description = "网页端可见服务器运行状态：经新只读端点 GET /api/status 暴露运行态（在途 run / 上限、run 终态分布、WS 连接数、后台任务）、部署面（绑定与模式、TLS、沙箱后端、写入闸门、provider 池档位名）、依赖态（uptime、cron 作业与 last_run、技能与记忆计数）、资源（RSS / 线程 / CPU，stdlib 采样）与请求计数（状态码分桶、延迟 p50/max、稳定错误码），前端以顶栏徽标 + 懒加载面板消费。"
 covers = ["R10", "R13"]
 
+
+[[epic]]
+id = 72
+slug = "epic-72-ws-lan-plaintext"
+title = "WS 内网明文接入（第一步）"
+description = "按 docs/tls-connect-guide.md 的第一步把 WS 入口变成「内网调试入口」：新增 lan 监听身份（绑私有 IPv4 + 显式 WS_LAN_NO_AUTH 免 token + 保留 Host/Origin 防线 + 每次启动告警），退役 9301 双监听与 WS_EXTERNAL_* 配置族，同步安全口径真源（frame §4.19）与派生副本、doctor 自检与端到端取证。"
+covers = []

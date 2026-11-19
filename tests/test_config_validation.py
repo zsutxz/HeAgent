@@ -127,11 +127,25 @@ class TestWsChecks:
         """默认配置（回环 + 无对外 listener）不要求 token——门控不触发的核心用例。"""
         assert _failed_checks(_settings(deepseek_api_key="sk-test")) == set()
 
-    def test_external_listener_requires_token(self) -> None:
-        issue = _issue(_settings(ws_external_host="192.168.2.226"), "ws_auth_token")
-        assert "WS_AUTH_TOKEN" in issue.message
-        assert "WS_EXTERNAL_HOST" in issue.message
+    def test_lan_mode_waives_the_token_requirement(self) -> None:
+        """`WS_LAN_NO_AUTH=true` + 私有地址是显式免认证 ⇒ 不再要求 token（否则第一步起不来）。"""
+        settings = _settings(ws_host="192.168.2.226", ws_lan_no_auth=True)
+        assert "ws_auth_token" not in _failed_checks(settings)
+
+    def test_lan_mode_rejects_a_wildcard_bind(self) -> None:
+        issue = _issue(_settings(ws_host="0.0.0.0", ws_lan_no_auth=True), "ws_lan_no_auth")
+        assert "private address literal" in issue.message
         assert issue.options
+
+    def test_lan_mode_rejects_loopback_and_auth_conflict(self) -> None:
+        loopback = _issue(_settings(ws_host="127.0.0.1", ws_lan_no_auth=True), "ws_lan_no_auth")
+        assert "no effect on a loopback bind" in loopback.message
+
+        conflict = _issue(
+            _settings(ws_host="192.168.2.226", ws_lan_no_auth=True, ws_local_auth_enabled=True),
+            "ws_lan_no_auth",
+        )
+        assert "mutually exclusive" in conflict.message
 
     def test_non_loopback_main_host_requires_token(self) -> None:
         issue = _issue(_settings(ws_host="0.0.0.0"), "ws_auth_token")
@@ -145,7 +159,7 @@ class TestWsChecks:
         setting_md = tmp_path / "setting.md"
         setting_md.write_text("---\nws_auth_token: test-token\n---\n", encoding="utf-8")
         monkeypatch.setattr(Settings, "_user_setting_file", setting_md)
-        settings = _settings(ws_external_host="192.168.2.226")
+        settings = _settings(ws_host="192.168.2.226")
         assert "ws_auth_token" not in _failed_checks(settings)
 
     def test_ws_disabled_skips_every_ws_check(self) -> None:
@@ -153,48 +167,27 @@ class TestWsChecks:
         settings = _settings(
             ws_enabled=False,
             ws_host="0.0.0.0",
-            ws_external_host="127.0.0.1",
+            ws_lan_no_auth=True,
             ws_local_auth_enabled=True,
             ws_tls_cert_file="/certs/only-cert.pem",
         )
         assert {name for name in _failed_checks(settings) if name.startswith("ws_")} == set()
-
-    def test_external_host_loopback_blocks(self) -> None:
-        settings = _settings(ws_external_host="127.0.0.1")
-        issue = _issue(settings, "ws_external_binding")
-        assert "WS_EXTERNAL_HOST" in issue.message
-        assert "loopback" in issue.message
-
-    def test_two_non_loopback_listeners_block(self) -> None:
-        settings = _settings(ws_host="0.0.0.0", ws_external_host="192.168.2.226")
-        issue = _issue(settings, "ws_external_binding")
-        assert "WS_HOST" in issue.message
 
     def test_tls_half_config_blocks(self) -> None:
         issue = _issue(_settings(ws_tls_cert_file="/certs/cert.pem"), "ws_tls_pair")
         assert "WS_TLS_KEY_FILE" in issue.message
         assert issue.options
 
-    def test_external_tls_half_config_blocks_only_when_external_listener_is_on(self) -> None:
-        """对外 listener 未启用时运行期不读这对键 ⇒ 残留半配不得拦住启动。"""
-        assert "ws_tls_pair" not in _failed_checks(_settings(ws_external_tls_key_file="/certs/key.pem"))
-
-        settings = _settings(ws_external_host="192.168.2.226", ws_external_tls_key_file="/certs/key.pem")
-        issue = _issue(settings, "ws_tls_pair")
-        assert "WS_EXTERNAL_TLS_CERT_FILE" in issue.message
-
     def test_tls_pair_passes(self) -> None:
         settings = _settings(
             ws_tls_cert_file="/certs/cert.pem",
             ws_tls_key_file="/certs/key.pem",
-            ws_external_tls_cert_file="/certs/ext-cert.pem",
-            ws_external_tls_key_file="/certs/ext-key.pem",
         )
         assert "ws_tls_pair" not in _failed_checks(settings)
 
     def test_gate_skips_user_setting_file_read(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """门控为假时**不读** ``setting.md``：文件坏掉也不该在 WS 关闭时拦住启动。"""
-        settings = _settings(deepseek_api_key="sk-test", ws_enabled=False, ws_external_host="192.168.2.226")
+        settings = _settings(deepseek_api_key="sk-test", ws_enabled=False, ws_host="192.168.2.226")
         broken = tmp_path / "setting.md"
         broken.write_text("no frontmatter here\n", encoding="utf-8")
         # 构造之后再指向坏文件：`Settings` 的构造会读用户层，这里只想让 token 属性去踩它。
@@ -203,7 +196,7 @@ class TestWsChecks:
 
     def test_broken_user_setting_file_surfaces_as_issue(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """``setting.md`` 语法错（读 token 时抛 SettingsError）必须转成阻断项，而不是无声跳过。"""
-        settings = _settings(ws_external_host="192.168.2.226")
+        settings = _settings(ws_host="192.168.2.226")
         broken = tmp_path / "setting.md"
         broken.write_text("no frontmatter here\n", encoding="utf-8")
         monkeypatch.setattr(Settings, "_user_setting_file", broken)
@@ -310,7 +303,7 @@ class TestPerformanceAndPurity:
     """票面 verify「验证耗时 <100ms」与「不探测」的静态约束。"""
 
     def test_validation_is_fast_steady_state(self) -> None:
-        settings = _settings(ws_external_host="192.168.2.226", sandbox_backend="docker")
+        settings = _settings(ws_host="192.168.2.226", sandbox_backend="docker")
         samples: list[float] = []
         for _ in range(200):
             started = time.perf_counter()

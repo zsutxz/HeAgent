@@ -203,31 +203,6 @@ def test_ws_config_documented_in_env_example() -> None:
     assert "HTTP_WS_MAX_CONNECTIONS" not in example
 
 
-def test_external_listener_keys_are_classified_as_read_only_listening_surface() -> None:
-    """期二 D8/约束 6：新增的 WS_EXTERNAL_* 落在既有的 `WS_*` 模式组里，无需改分类规则。"""
-    for key in (
-        "WS_EXTERNAL_HOST",
-        "WS_EXTERNAL_PORT",
-        "WS_EXTERNAL_TLS_CERT_FILE",
-        "WS_EXTERNAL_TLS_KEY_FILE",
-        "WS_EXTERNAL_READONLY",
-    ):
-        result = classify(key)
-        assert result.reason == "listening_surface", key
-        assert not result.writable, key
-        assert key not in whitelist(), key
-
-    example = Path(".env.example").read_text(encoding="utf-8")
-    for key in (
-        "WS_EXTERNAL_HOST=",
-        "WS_EXTERNAL_PORT=9301",
-        "WS_EXTERNAL_TLS_CERT_FILE=",
-        "WS_EXTERNAL_TLS_KEY_FILE=",
-        "WS_EXTERNAL_READONLY=",
-    ):
-        assert key in example, key
-
-
 def test_uvicorn_ws_options_moved_to_ws_host() -> None:
     """uvicorn WS 参数随 D1 迁移：ws_host 有、http_server 无（既有 54-2 契约换宿主）。"""
     ws_source = Path("src/heagent/network/ws_host.py").read_text(encoding="utf-8")
@@ -581,28 +556,6 @@ def test_readonly_app_registers_only_the_subscription_route() -> None:
     assert paths == ["/api/runs/{run_id}/ws"]
 
 
-def test_readonly_flag_reaches_the_external_listener_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """P2-A3：`WS_EXTERNAL_READONLY` / `external_readonly` 覆盖落到对外 listener，默认关。"""
-    from heagent.cli.http import build_ws_servers
-
-    monkeypatch.setattr(Settings, "_user_setting_file", _user_setting(tmp_path))
-    default_servers, _ = build_ws_servers(_fixed_settings(ws_external_host="0.0.0.0"), cli_bypass=False)
-    assert default_servers[1].config.readonly is False
-
-    readonly_servers, _ = build_ws_servers(
-        _fixed_settings(ws_external_host="0.0.0.0", ws_external_readonly=True), cli_bypass=False
-    )
-    assert readonly_servers[1].config.readonly is True
-
-    # CLI 覆盖是三态（None = 用设置值），可把设置里的 True 显式关掉。
-    override, _ = build_ws_servers(
-        _fixed_settings(ws_external_host="0.0.0.0", ws_external_readonly=True),
-        cli_bypass=False,
-        external_readonly=False,
-    )
-    assert override[1].config.readonly is False
-
-
 def test_local_mode_app_exposes_all_three_routes() -> None:
     from starlette.routing import WebSocketRoute
 
@@ -626,9 +579,9 @@ def test_build_ws_server_config_maps_settings_and_overrides(monkeypatch: pytest.
     setting = tmp_path / "setting.md"
     setting.write_text("---\nWS_AUTH_TOKEN: s3cret\n---\n", encoding="utf-8")
     monkeypatch.setattr(Settings, "_user_setting_file", setting)
-    external = build_ws_server_config(Settings(), host="0.0.0.0")
-    assert external.host == "0.0.0.0"
-    assert external.requires_auth is True
+    authenticated = build_ws_server_config(Settings(), host="0.0.0.0")
+    assert authenticated.host == "0.0.0.0"
+    assert authenticated.requires_auth is True
 
 
 def test_build_ws_server_config_autofind_starts_from_ws_port(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -733,104 +686,6 @@ def test_build_ws_servers_defaults_to_a_single_local_listener() -> None:
     assert hub is None
 
 
-def test_build_ws_servers_adds_a_second_external_listener(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """D8/D9：显式配对外地址 ⇒ 两个 listener，且对外那条**不挂** CLI 旁路。"""
-    from heagent.cli.http import build_ws_servers
-
-    monkeypatch.setattr(Settings, "_user_setting_file", _user_setting(tmp_path))
-    servers, hub = build_ws_servers(_fixed_settings(ws_external_host="0.0.0.0", ws_cli_bypass_enabled=True))
-
-    assert [server.config.mode for server in servers] == ["local", "external"]
-    assert servers[0].config.port == 9201
-    assert (servers[1].config.host, servers[1].config.port) == ("0.0.0.0", 9301)
-    # 旁路只挂本地 listener；对外 listener 的 cli_hub 恒为 None（终端内容不外溢）。
-    assert hub is not None
-    assert servers[0].cli_hub is hub
-    assert servers[1].cli_hub is None
-
-
-def test_external_listener_rejects_a_loopback_address() -> None:
-    """D8：回环地址已由主 listener 承担 ⇒ 对外键取回环值属配置错误。"""
-    from heagent.cli.http import build_ws_servers
-    from heagent.network.ws_host import WsConfigError
-
-    with pytest.raises(WsConfigError, match="non-loopback"):
-        build_ws_servers(_fixed_settings(ws_external_host="127.0.0.1"), cli_bypass=False)
-
-
-def test_external_listener_rejects_an_already_external_primary(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """D8：主 listener 已对外时再配对外 listener = 两个对外入口，显式拒绝。"""
-    from heagent.cli.http import build_ws_servers
-    from heagent.network.ws_host import WsConfigError
-
-    monkeypatch.setattr(Settings, "_user_setting_file", _user_setting(tmp_path))
-    with pytest.raises(WsConfigError, match="loopback primary"):
-        build_ws_servers(_fixed_settings(ws_host="0.0.0.0", ws_external_host="0.0.0.0"), cli_bypass=False)
-
-
-def test_external_listener_fails_closed_without_a_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """D5 沿用：对外 listener 缺 token ⇒ 构造期 fail-closed，绝不产出无认证对外配置。"""
-    from heagent.cli.http import build_ws_servers
-    from heagent.network.ws_host import WsConfigError
-
-    monkeypatch.setattr(Settings, "_user_setting_file", tmp_path / "missing.md")
-    with pytest.raises(WsConfigError, match="WS_AUTH_TOKEN"):
-        build_ws_servers(_fixed_settings(ws_external_host="0.0.0.0"), cli_bypass=False)
-
-
-def test_external_tls_files_must_be_set_as_a_pair(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """D10：只给 cert 不给 key ⇒ fail-loud（绝不 A 的证书配 B 的私钥）。"""
-    from heagent.cli.http import build_ws_servers
-    from heagent.network.ws_host import WsConfigError
-
-    monkeypatch.setattr(Settings, "_user_setting_file", _user_setting(tmp_path))
-    with pytest.raises(WsConfigError, match="set together"):
-        build_ws_servers(
-            _fixed_settings(ws_external_host="0.0.0.0", ws_external_tls_cert_file="only-cert.pem"),
-            cli_bypass=False,
-        )
-
-
-def test_external_listener_inherits_primary_tls_as_a_pair(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """D10：对外 TLS 不设 ⇒ 整对继承主 listener 的 WS_TLS_*。"""
-    from heagent.cli.http import build_ws_servers
-
-    monkeypatch.setattr(Settings, "_user_setting_file", _user_setting(tmp_path))
-    servers, _hub = build_ws_servers(
-        _fixed_settings(
-            ws_external_host="0.0.0.0",
-            ws_tls_cert_file="primary-cert.pem",
-            ws_tls_key_file="primary-key.pem",
-        ),
-        cli_bypass=False,
-    )
-
-    assert servers[1].config.tls_cert_file == "primary-cert.pem"
-    assert servers[1].config.tls_key_file == "primary-key.pem"
-    assert servers[1].config.tls_enabled is True
-
-
-def test_external_tls_pair_overrides_the_primary_pair(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """D10：对外自己配了 cert+key ⇒ 用自己那对；本地 listener 仍是主 listener 的那对。"""
-    from heagent.cli.http import build_ws_servers
-
-    monkeypatch.setattr(Settings, "_user_setting_file", _user_setting(tmp_path))
-    servers, _hub = build_ws_servers(
-        _fixed_settings(
-            ws_external_host="0.0.0.0",
-            ws_tls_cert_file="primary-cert.pem",
-            ws_tls_key_file="primary-key.pem",
-            ws_external_tls_cert_file="external-cert.pem",
-            ws_external_tls_key_file="external-key.pem",
-        ),
-        cli_bypass=False,
-    )
-
-    assert servers[0].config.tls_cert_file == "primary-cert.pem"
-    assert servers[1].config.tls_cert_file == "external-cert.pem"
-    assert servers[1].config.tls_key_file == "external-key.pem"
-
-
 def test_cli_bypass_is_skipped_on_an_external_primary_listener(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -848,21 +703,6 @@ def test_cli_bypass_is_skipped_on_an_external_primary_listener(
     assert hub is None
     assert servers[0].cli_hub is None
     assert "ws event=cli_bypass_skipped" in caplog.text
-
-
-def test_cli_bypass_stays_on_the_local_listener_when_both_are_enabled(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """双监听 + 旁路开：中枢挂本地 listener，公告据此指向 9201 而不是对外那条。"""
-    from heagent.cli.http import build_ws_servers
-
-    monkeypatch.setattr(Settings, "_user_setting_file", _user_setting(tmp_path))
-    servers, hub = build_ws_servers(_fixed_settings(ws_external_host="0.0.0.0", ws_cli_bypass_enabled=True))
-
-    assert hub is not None
-    hosts = [server for server in servers if server.cli_hub is hub]
-    assert len(hosts) == 1
-    assert hosts[0].config.mode == "local"
 
 
 async def test_embedded_service_rolls_back_every_listener_when_the_external_one_fails() -> None:

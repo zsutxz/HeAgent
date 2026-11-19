@@ -11,7 +11,7 @@
 | 架构 | [frame.md](frame.md) | 模块变更提交者同步依赖、接口和运行行为 |
 | 开发 | [项目协作规则](../AGENTS.md)、[上手说明](../README.md) | 工程维护者随命令、依赖和规范变更更新 |
 | 测试 | [testing.md](testing.md)（门禁红了的怎么分诊）、[质量门禁脚本](../scripts/quality_gate.py) | 各阶段实施者验证命令、结果、限制和待办 |
-| 部署 | [部署说明](../deploy/README.md) | 部署变更提交者同步环境前提 |
+| 部署 | [部署说明](../deploy/README.md) | 部署变更提交者同步环境前提并在 4 种部署姿态里核对监听身份 |
 | 产品设计 | [design.md](design.md) | 产品需求变更提交者同步目标与非目标 |
 | 使用问答 | [faq.md](faq.md) | 常见问题提交者补充问答与命令；机制细节仍归 frame.md |
 | 错误索引 | [errors.md](errors.md) | 新增/改名错误码与常见报错时同步四张表；码的权威口径仍归 frame.md 4.17 |
@@ -28,7 +28,7 @@
 - [常见问题](faq.md)：配置 / 使用 / 故障排查三栏问答；答案首句给结论、随后给命令，机制细节回指 frame.md。
 - [错误信息索引](errors.md)：传输层 35 码 + 框架 9 异常 + CLI 常见报错的「码 → 原因 → 修法」索引，附关键词跳转表。
 - [性能调优指南](performance.md)：三层分析方法、常见瓶颈判据、常用开关的推荐值与代价、benchmark 验证闭环。
-- [部署说明](../deploy/README.md)：部署资产的真实适用范围和限制。
+- [部署说明](../deploy/README.md)：部署资产的真实适用范围和限制，含 `local` / `lan` / `external` 三种监听姿态与各自代价。
 - [「Goal 工作流」专题](goal-workflow.md)：`/goal`、`workflow.md`、Epic/Story 和 checkpoint 的职责边界；v7 的 `/loop` 工作流（8 步、票树为规划真源）见 `.heagent/skills/loop/workflow.md`。
 - [「沙箱机制」专题](sandbox.md)：`CommandRunner` 四档后端、端到端调用链、会话层，以及 `container` 档（2026-10-21）相对旧形态的变化。
 

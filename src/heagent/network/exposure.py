@@ -72,4 +72,30 @@ def exposure_warning(host: str) -> str | None:
     return _NON_LOOPBACK_WARNING.format(host=host)
 
 
-__all__ = ["exposure_warning", "is_loopback_host"]
+def is_private_address(host: str) -> bool:
+    """该绑定地址是否为**局域网私有地址字面量**（内网免认证模式的准入判据）。
+
+    只认 IP 字面量（``192.168.0.0/16``、``10.0.0.0/8``、``172.16.0.0/12``、``fc00::/7``、
+    link-local），其余一律 ``False``：
+
+    - ``0.0.0.0`` / ``::``（通配 = 所有接口，等于把入口对整网开）、组播、未指定地址；
+    - 公网地址（``is_global``）：内网免认证模式**不允许**绑到公网地址上；
+    - 回环（归本地模式）与主机名（**不解析 DNS**，与 :func:`is_loopback_host` 同口径）；
+    - CGNAT 段（``100.64.0.0/10``）：既非 ``is_private`` 也非 ``is_global``，按「不是私有」处理。
+
+    这是准入白名单，不是安全边界——私有地址只说明「同一局域网内可见」，不说明对面可信
+    （边界地位见 ``docs/frame.md`` §4.19）。
+    """
+    candidate = _unbracket(host)
+    if not candidate:
+        return False
+    try:
+        address = ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    if address.is_loopback or address.is_unspecified or address.is_multicast or address.is_global:
+        return False
+    return address.is_private or address.is_link_local
+
+
+__all__ = ["exposure_warning", "is_loopback_host", "is_private_address"]

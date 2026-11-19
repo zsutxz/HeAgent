@@ -11,12 +11,12 @@ HeAgent 执行 `shell` / 读写文件 / 调外部 API，并可连接**外部 MCP
 
 1. **三层非边界**：`SafetyGuard` / `PolicyEngine` / sandbox 后端均非真正安全边界。
 2. **OS 级沙箱兜底**：容器档 Docker 后端默认未启用、启用也非绝对边界；MCP stdio 子进程在 `SANDBOX_BACKEND=docker` 且 daemon 可用时经同一镜像容器拉起（Epic 53 期二 53-5，D53-1 闭合），后端不可用时显性降级为宿主执行并每次 WARNING。
-3. **本地模式**（listener 绑回环，默认）：HTTP 与 WS 均无认证、无 TLS；回环绑定不等于可信；`Origin` / `Host` 校验只是入口层 defense-in-depth；WS 主 listener 可经 `WS_LOCAL_AUTH_ENABLED=true` 也强制 Bearer token（2026-11-04 D5 修订，默认关；开启时含旁路 `/api/cli/ws`、本机消费者都要带 token）。
-4. **对外模式**（WS listener 绑非回环，Epic 56 D5）：强制 `Authorization: Bearer <token>`（token 只读用户级 `~/.heagent/setting.md`，项目 `.env` 无效），缺 token 拒绝启动（fail-closed）；认证不是绝对边界；浏览器 WebSocket API 无法自定义请求头。
-5. **端点可见性**：HTTP listener 没有对外模式；终端旁路 `/api/cli/ws` 只挂本地 listener（`WS_EXTERNAL_HOST` 非空时的**双监听并存**下，对外 listener 恒不注册）；只读通知流 `/api/notifications/ws` 随 listener 注册，对外 listener 上同样可见（token 之后）——但仅在 `CRON_PUSH_ENABLED=true` 建起中枢时注册，默认关 ⇒ 路由不存在（客户端拿裸 403）。
+3. **本地模式**（listener 绑回环，默认）：HTTP 与 WS 均无认证、无 TLS；回环绑定不等于可信；`Origin` / `Host` 校验只是入口层 defense-in-depth；WS listener 可经 `WS_LOCAL_AUTH_ENABLED=true` 也强制 Bearer token（2026-11-04 D5 修订，默认关；开启时含旁路 `/api/cli/ws`、本机消费者都要带 token）；内网免认证档（`lan`）同样无认证、无 TLS，私有地址不等于同网段可信。
+4. **非回环绑定两档**（WS listener 绑非回环）：`external`（默认，Epic 56 D5）强制 `Authorization: Bearer <token>`（token 只读用户级 `~/.heagent/setting.md`，项目 `.env` 无效），缺 token 拒绝启动（fail-closed），认证不是绝对边界，浏览器 WebSocket API 无法自定义请求头；`lan`（须显式 `WS_LAN_NO_AUTH=true`，Epic 72）无认证、只接受私有地址字面量，同网段任何设备都能驱使代理，每次启动 WARNING，只能靠网络侧兜底。
+5. **端点可见性**：HTTP listener 没有对外模式；终端旁路 `/api/cli/ws` 只挂回环（`local`）listener，`lan` / `external` 恒不注册；只读通知流 `/api/notifications/ws` 随 listener 注册，`lan` / `external` 上同样可见（`external` 在 token 之后、`lan` 上无认证）——但仅在 `CRON_PUSH_ENABLED=true` 建起中枢时注册，默认关 ⇒ 路由不存在（客户端拿裸 403）。
 6. **已知缺口与台账**：清单落 `_bmad-output/open-items.md`（「活动（未闭合）条目」节；闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三），本节不复述。
 
-落点提示：端口 / provider / 认证 / TLS 键等机制细节见 `docs/frame.md` 4.17 与 4.17.1；对外能提交 run 时**强烈建议**启用容器沙箱档（`--sandbox docker`）。
+落点提示：端口 / provider / 认证 / TLS 键等机制细节见 `docs/frame.md` 4.17 与 4.17.1；非回环入口（`lan` / `external`）能提交 run 时**强烈建议**启用容器沙箱档（`--sandbox docker`）。
 
 <!-- bmad:context -->
 <!-- Verified 2026-11-03 against 31cf7cb. Managed by bmad-project-context; edits inside this block are replaced on refresh. Keep anything you want preserved outside the markers. -->

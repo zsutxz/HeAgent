@@ -38,7 +38,6 @@ from heagent.cli.errors import (
 )
 from heagent.cli.http_config import (
     _reject_non_finite,
-    build_external_ws_server_config,
     build_server_config,
     build_ws_server_config,
     build_ws_servers,
@@ -121,9 +120,9 @@ async def _serve_web(http_server: HttpServer | None, ws_servers: tuple[WsServer,
 class EmbeddedHttpService:
     """默认 CLI **内嵌**网页入口的生命周期（同进程、同一 asyncio 生命周期）。
 
-    Epic 56 D1 起入口 = **多 listener**：HTTP listener（9101，控制台 + REST/SSE）+ **1 或 2 个**
-    WS listener（期一：9201；期二双监听：9201 本地 + 9301 对外）。名字保留 ``EmbeddedHttpService``：
-    它仍是入口层那个「伴随 CLI 的网页服务」单元，只是自此拥有 N 条 listener、一个生命周期。
+    Epic 56 D1 起入口 = 多条 listener：HTTP listener（9101，控制台 + REST/SSE）+ **1 条** WS listener
+    （9201；Epic 72 起对外双监听已退役，非回环入口走 ``lan`` / ``external`` 单 listener）。名字保留
+    ``EmbeddedHttpService``：它仍是入口层那个「伴随 CLI 的网页服务」单元，拥有 N 条 listener、一个生命周期。
 
     - ``start()``：先 HTTP 后逐个 WS 绑定 + 就绪门禁（任一 WS 失败回滚已启动的全部）+ 后台 serve 任务 + stderr 公告；
     - ``close()``：幂等、全程有界，**HTTP 先**（排空运行到终态）**WS 后**（关订阅连接 + listener）；
@@ -335,7 +334,7 @@ def build_http_service(
     的 ``--no-http`` / ``--no-ws`` 使用：只影响本次装配，不写回配置文件、也不改 Settings 单例。
 
     默认 CLI **不提供** HTTP/WS 的绑定与限额选项（brief：不做含糊的参数透传），因此这里不带
-    地址/端口覆盖参数——绑定地址与限额全部来自 ``HTTP_*`` / ``WS_*`` / ``WS_EXTERNAL_*`` 设置；
+    地址/端口覆盖参数——绑定地址与限额全部来自 ``HTTP_*`` / ``WS_*`` 设置；
     需要覆盖时用显式 `heagent http-server`。
 
     ``executor`` 是运行入口（入口层的 :class:`HttpAgentHandler`）：为 ``None`` 时 HTTP 只提供健康
@@ -412,10 +411,46 @@ _WS_STARTUP_OPTIONS: tuple[str, ...] = (
     "pick another port: --ws-port <n> (two listeners shift independently)",
     "check the TLS files exist and form a complete cert/key pair",
 )
+
+
+def _announce_ws_listeners(ws_servers: tuple[Any, ...]) -> None:
+    """启动前把「谁能连、要不要 token、有没有加密」逐 listener 打到 stderr（三条独立事实）。
+
+    按 `mode` 分流而不是套用 `exposure_warning` 的统一文案：`external` 是 token 认证，套「no
+    authentication」会撒谎；`lan` 是「真没认证但有意为之」，必须写明代价。
+    """
+    for ws in ws_servers:
+        ws_config = ws.config
+        transport = "TLS" if ws_config.tls_enabled else "PLAINTEXT"
+        if ws_config.requires_auth:
+            label = "external mode" if ws_config.mode == "external" else "local mode (WS_LOCAL_AUTH_ENABLED)"
+            click.echo(
+                f"[ws] WARNING: exposed on {ws_config.host}:{ws_config.port} "
+                f"({label}; Bearer token required; {transport})",
+                err=True,
+            )
+        elif ws_config.mode == "lan":
+            click.echo(
+                f"[ws] WARNING: exposed on {ws_config.host}:{ws_config.port} "
+                f"(lan mode; NO authentication; {transport}); any device on this network can drive the agent",
+                err=True,
+            )
+        else:
+            ws_warning = exposure_warning(ws_config.host)
+            if ws_warning is not None:
+                click.echo(f"[ws] WARNING: {ws_warning}", err=True)
+    if any(ws.config.requires_auth and not ws.config.tls_enabled for ws in ws_servers):
+        click.echo(
+            "[ws] WARNING: auth-enforcing WS mode without TLS (plaintext); "
+            "configure WS_TLS_CERT_FILE and WS_TLS_KEY_FILE to serve wss",
+            err=True,
+        )
+
+
 _WS_CONFIG_OPTIONS: tuple[str, ...] = (
-    "expose a second listener instead of rebinding: WS_HOST=127.0.0.1 + WS_EXTERNAL_HOST=<lan-ip>",
+    "for a plaintext LAN entry bind a private IPv4 and opt in: WS_HOST=<lan-ip> + WS_LAN_NO_AUTH=true",
     "or keep WS_HOST on loopback (127.0.0.1) to stay in local mode",
-    "for external mode put WS_AUTH_TOKEN in ~/.heagent/setting.md (project .env is ignored)",
+    "for an auth-enforcing listener put WS_AUTH_TOKEN in ~/.heagent/setting.md (project .env is ignored)",
 )
 _DEPENDENCY_OPTIONS: tuple[str, ...] = (
     'install the extra: pip install "heagent[http]"',
@@ -513,24 +548,6 @@ def embedded_http_error_message(exc: BaseException) -> str | None:
     "default: WS_MAX_CONNECTIONS / 16)",
 )
 @click.option(
-    "--ws-external-host",
-    default=None,
-    help="Second WS listener for external clients (default: WS_EXTERNAL_HOST / disabled); must be "
-    "non-loopback and requires WS_AUTH_TOKEN in ~/.heagent/setting.md",
-)
-@click.option(
-    "--ws-external-port",
-    type=click.IntRange(min=1, max=65535),
-    default=None,
-    help="External WS listener port (default: WS_EXTERNAL_PORT / 9301)",
-)
-@click.option(
-    "--ws-external-readonly/--ws-external-writable",
-    default=None,
-    help="Make the external WS listener read-only (no run submission, cancel rejected); "
-    "default: WS_EXTERNAL_READONLY / off",
-)
-@click.option(
     "--max-inflight-runs",
     type=click.IntRange(min=1),
     default=None,
@@ -609,9 +626,6 @@ def http_server_cmd(
     ws_host: str | None,
     ws_port: int | None,
     ws_max_connections: int | None,
-    ws_external_host: str | None,
-    ws_external_port: int | None,
-    ws_external_readonly: bool | None,
     max_inflight_runs: int | None,
     max_total_inflight: int | None,
     max_request_bytes: int | None,
@@ -724,7 +738,7 @@ def http_server_cmd(
             status=status_source,
         )
     try:
-        # 主 listener + 可选对外 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
+        # 单 listener；`http-server` 没有终端轮次 ⇒ 不开旁路。
         # 本进程**没有 cron**（`enable_cron=False`），中枢建了也永远不会有帧 ⇒ 显式不建，
         # 免得客户端连上一条永不投递的「假可用」流。
         ws_servers, _hub = build_ws_servers(
@@ -736,12 +750,9 @@ def http_server_cmd(
             host=ws_host,
             port=ws_port,
             max_connections=ws_max_connections,
-            external_host=ws_external_host,
-            external_port=ws_external_port,
-            external_readonly=ws_external_readonly,
         )
     except WsConfigError as exc:
-        # 对外缺 token / 对外键取回环 / 主 listener 已对外 / TLS 半配：配置不成立，压根不该尝试绑定。
+        # 非回环缺 token / WS_LAN_NO_AUTH 组合非法 / TLS 半配：配置不成立，压根不该尝试绑定。
         exit_with_command_hints(
             f"WS server configuration is invalid: {exc}",
             options=_WS_CONFIG_OPTIONS,
@@ -755,26 +766,7 @@ def http_server_cmd(
         warning = exposure_warning(config.host)
         if warning is not None:
             click.echo(f"[http] WARNING: {warning}", err=True)
-    for ws in ws_servers:
-        ws_config = ws.config
-        if ws_config.requires_auth:
-            transport = "TLS" if ws_config.tls_enabled else "PLAINTEXT"
-            label = "external mode" if ws_config.mode == "external" else "local mode (WS_LOCAL_AUTH_ENABLED)"
-            click.echo(
-                f"[ws] WARNING: exposed on {ws_config.host}:{ws_config.port} "
-                f"({label}; Bearer token required; {transport})",
-                err=True,
-            )
-        else:
-            ws_warning = exposure_warning(ws_config.host)
-            if ws_warning is not None:
-                click.echo(f"[ws] WARNING: {ws_warning}", err=True)
-    if any(ws.config.requires_auth and not ws.config.tls_enabled for ws in ws_servers):
-        click.echo(
-            "[ws] WARNING: external WS mode without TLS (plaintext); "
-            "configure WS_TLS_CERT_FILE and WS_TLS_KEY_FILE (or the WS_EXTERNAL_TLS_* pair) to serve wss",
-            err=True,
-        )
+    _announce_ws_listeners(ws_servers)
     try:
         asyncio.run(_serve_web(server, ws_servers))
     except KeyboardInterrupt:
@@ -805,7 +797,6 @@ def http_server_cmd(
 __all__ = [
     "EmbeddedHttpService",
     "HttpAgentHandler",
-    "build_external_ws_server_config",
     "build_http_service",
     "build_server_config",
     "build_ws_server_config",

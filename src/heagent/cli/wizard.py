@@ -222,7 +222,7 @@ COMMON_KEY_GROUPS: tuple[CommonKeyGroup, ...] = (
     CommonKeyGroup(
         id="ws_entry",
         label="WS 入口",
-        keys=("WS_ENABLED", "WS_HOST", "WS_PORT", "WS_EXTERNAL_HOST", "WS_LOCAL_AUTH_ENABLED"),
+        keys=("WS_ENABLED", "WS_HOST", "WS_PORT", "WS_LAN_NO_AUTH", "WS_LOCAL_AUTH_ENABLED"),
     ),
     CommonKeyGroup(
         id="observability",
@@ -427,7 +427,7 @@ WIZARD_ITEMS: tuple[WizardItem, ...] = (
     WizardItem(
         key="HTTP_HOST",
         label="HTTP 绑定地址",
-        why="HTTP 入口没有对外模式（无认证、无 TLS），只供本机 / 内网直连；对外暴露请走 WS_EXTERNAL_HOST",
+        why="HTTP 入口没有对外模式（无认证、无 TLS），只供本机 / 内网直连；对外暴露请走 WS 入口（LAN 模式或 token）",
     ),
     WizardItem(
         key="HTTP_PORT",
@@ -449,7 +449,8 @@ WIZARD_ITEMS: tuple[WizardItem, ...] = (
     WizardItem(
         key="WS_HOST",
         label="WS 绑定地址",
-        why="回环 = 本地模式（无认证）；改成非回环即升格为对外 listener，强制 Bearer token、缺 token 拒绝启动",
+        why="回环 = 本地模式（无认证）；非回环默认升格为对外模式（强制 Bearer token、缺 token 拒绝启动），"
+        "配 WS_LAN_NO_AUTH=true + 私有 IPv4 则为内网免认证模式",
     ),
     WizardItem(
         key="WS_PORT",
@@ -457,10 +458,11 @@ WIZARD_ITEMS: tuple[WizardItem, ...] = (
         why="被占用时同 HTTP 口径顺延；实际监听地址以启动日志 ws event=started 为准",
     ),
     WizardItem(
-        key="WS_EXTERNAL_HOST",
-        label="对外 WS 地址（第二个 listener）",
-        why="留空 = 不起对外 listener；非空须非回环，强制 Bearer token（token 只认用户级 setting.md），"
-        "此时终端旁路 /api/cli/ws 不注册",
+        key="WS_LAN_NO_AUTH",
+        label="内网免认证 WS 接入",
+        why="true = 非回环绑定也不校验 token（内网调试入口，明文）；只接受私有地址字面量，"
+        "不得与 WS_LOCAL_AUTH_ENABLED 同开；同网段任何设备都能驱使代理",
+        kind=WizardKind.BOOL,
     ),
     WizardItem(
         key="WS_LOCAL_AUTH_ENABLED",

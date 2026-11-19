@@ -372,7 +372,8 @@ class Settings(BaseSettings):
     http_shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
 
     # ---- WS 入口（与 HTTP 完全分离的独立 server，唯一宿主所有 WS 能力） ----
-    # 回环 = 本地模式（无认证，Origin 只是入口层防线）；非回环 = 对外模式（Bearer token 强制、缺 token 拒绝启动）。
+    # 回环 = 本地模式（无认证，Origin 只是入口层防线）；非回环 = 对外模式（Bearer token 强制、缺 token
+    # 拒绝启动）——除非显式开 WS_LAN_NO_AUTH 走内网免认证模式（`lan`，只接受私有地址字面量）。
     ws_enabled: bool = Field(default=True)  # False = 不装配 WS listener（仅 HTTP 或全关）
     ws_host: str = Field(default="127.0.0.1", min_length=1)
     ws_port: int = Field(default=9201, ge=1, le=65535)
@@ -383,16 +384,6 @@ class Settings(BaseSettings):
     # PEM 证书/私钥：两者都给才启用 wss（半配 fail-loud）；对外不配 TLS 时启动告警但不拒绝。
     ws_tls_cert_file: str | None = None
     ws_tls_key_file: str | None = None
-    # ---- 第二个 WS listener（对外），与主 listener 并存 ----
-    # 空 = 不启用（默认）；非空即启用且必须非回环（回环归主 listener；主 listener 已非回环时再配同样 fail-loud）。
-    ws_external_host: str | None = None
-    # 对外 listener 端口，默认 9301；未显式指定时沿用端口顺延（与 HTTP / 主 WS 同口径）。
-    ws_external_port: int = Field(default=9301, ge=1, le=65535)
-    # 成对给才生效；都不给则整对继承 WS_TLS_*；只给一半 fail-loud（绝不 A 的证书配 B 的私钥）。
-    ws_external_tls_cert_file: str | None = None
-    ws_external_tls_key_file: str | None = None
-    # 只读旁观（默认关）：true 时对外 listener 不注册提交端点、cancel 回 invalid_request——给看不给下命令。
-    ws_external_readonly: bool = False
     # 对外模式的 token 不是 Settings 字段（见 user_ws_auth_token 属性）：凭证只认用户级 setting.md，
     # 做成字段会让项目 .env / 系统环境变量能够覆盖它。
     # CLI 旁路订阅：把终端那轮 run 的事件只读推给外部客户端；默认关——无认证，开了等于让能连上的
@@ -401,6 +392,11 @@ class Settings(BaseSettings):
     # **本地强制认证**：True 时回环主 WS listener 也强制 Bearer 认证——token
     # 真源仍是用户级 setting.md。默认 False = 回环免 token。
     ws_local_auth_enabled: bool = False
+    # **内网免认证模式**（`lan`）：非回环绑定也**不**强制 Bearer token，供局域网调试入口使用。
+    # 这是安全口径的显式放宽，因此三条 fail-loud 兜底（见 `WsServerConfig`）：只接受私有地址字面量
+    # （通配 / 公网 / 主机名一律拒绝）、不得与 `WS_LOCAL_AUTH_ENABLED` 同开、回环绑定上开了无意义。
+    # 默认 False：非回环绑定仍按对外模式强制 token（缺 token 拒绝启动）。
+    ws_lan_no_auth: bool = False
     # ---- 网页控制台的配置写入通道 ----
     # 默认关：关闭时配置面全只读，且网页无法通过任何请求打开它（不在白名单，写入通道改不到自己）。
     # 开启渠道 = 任何启动配置；开启时入口层打高亮告警：任何能连上的人都能改项目 .env。

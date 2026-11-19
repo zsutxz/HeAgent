@@ -139,7 +139,7 @@ class TestStartupErrors:
             (
                 WsConfigError("auth-enforcing listeners require WS_AUTH_TOKEN"),
                 "WS server configuration is invalid",
-                "WS_HOST=127.0.0.1",
+                "WS_LAN_NO_AUTH=true",
             ),
             (WsStartupError("could not bind"), "WS server failed to start", "--ws-port <n>"),
             (HttpDependencyError("missing 'aiohttp'"), "missing 'aiohttp'", "pip install"),

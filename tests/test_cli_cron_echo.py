@@ -137,28 +137,19 @@ class TestWiringJudge:
         assert [server.notification_hub for server in servers] == [None]
         assert NOTIFICATIONS_WS_PATH not in _paths(servers[0])
 
-    def test_push_on_shares_one_hub_across_listeners_and_registers_the_endpoint(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-    ) -> None:
+    def test_push_on_attaches_the_hub_to_the_listener(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         from heagent.cli.http import build_ws_servers
 
         monkeypatch.setattr(Settings, "_user_setting_file", _user_setting(tmp_path))
         servers, _cli_hub = build_ws_servers(
-            Settings(
-                http_port_auto_find_attempts=0,
-                cron_push_enabled=True,
-                ws_external_host="0.0.0.0",
-            ),
+            Settings(http_port_auto_find_attempts=0, cron_push_enabled=True),
             cli_bypass=False,
         )
 
-        assert [server.config.mode for server in servers] == ["local", "external"]
+        assert [server.config.mode for server in servers] == ["local"]
         hub = servers[0].notification_hub
         assert isinstance(hub, NotificationHub)
-        # 对外 listener 也挂——同一份中枢（seq / 游标是进程级语义，不能拆成两份）。
-        assert servers[1].notification_hub is hub
         assert NOTIFICATIONS_WS_PATH in _paths(servers[0])
-        assert NOTIFICATIONS_WS_PATH in _paths(servers[1])
 
     @pytest.mark.embedded_http_service
     def test_embedded_service_surfaces_the_hub_to_the_entry_layer(self) -> None:

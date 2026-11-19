@@ -15,7 +15,6 @@ from pydantic import SecretStr, ValidationError
 from heagent.cli.display import _current_version
 from heagent.config import Settings
 from heagent.network.cli_event_hub import CliEventHub
-from heagent.network.exposure import is_loopback_host
 from heagent.network.http_server import (
     HttpServerConfig,
 )
@@ -137,6 +136,7 @@ def build_ws_server_config(
         shutdown_timeout=settings.ws_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
         auth_token=SecretStr(token) if token else None,
         local_auth=settings.ws_local_auth_enabled,
+        lan_no_auth=settings.ws_lan_no_auth,
         tls_cert_file=settings.ws_tls_cert_file,
         tls_key_file=settings.ws_tls_key_file,
     )
@@ -150,75 +150,6 @@ def _clean_path(value: str | None) -> str | None:
     return text or None
 
 
-def _external_tls_files(settings: Settings) -> tuple[str | None, str | None]:
-    """对外 listener 的 TLS 文件对（Epic 56 D10）：**成对**独配，否则整对继承主 listener。
-
-    规则刻意只有两种合法形态：① 对外 cert/key 都不设 ⇒ 整对继承 ``WS_TLS_*``（期一单对外部署
-    的配置照旧生效）；② 都设 ⇒ 用它们。只设一半直接 fail-loud——混搭会让 A 的证书配 B 的私钥，
-    握手期才报一个难懂的错误。
-    """
-    cert = _clean_path(settings.ws_external_tls_cert_file)
-    key = _clean_path(settings.ws_external_tls_key_file)
-    if cert or key:
-        if not (cert and key):
-            raise WsConfigError(
-                "WS_EXTERNAL_TLS_CERT_FILE and WS_EXTERNAL_TLS_KEY_FILE must be set together "
-                "(set both to override the primary listener's TLS, or neither to inherit it)"
-            )
-        return cert, key
-    return _clean_path(settings.ws_tls_cert_file), _clean_path(settings.ws_tls_key_file)
-
-
-def build_external_ws_server_config(
-    settings: Settings,
-    *,
-    primary: WsServerConfig,
-    host: str | None = None,
-    port: int | None = None,
-    max_connections: int | None = None,
-    shutdown_timeout: float | None = None,
-    readonly: bool | None = None,
-) -> WsServerConfig | None:
-    """构造**对外** listener 的配置（Epic 56 期二 D8）；未启用返回 ``None``。
-
-    ``None`` 是默认形态（不配 ``WS_EXTERNAL_HOST`` ⇒ 与期一逐字等价）。启用时必须满足三条：
-
-    - 绑定地址**非回环**：回环客户端已由主 listener 服务（免 token，除非 `WS_LOCAL_AUTH_ENABLED=true`——
-      2026-11-04 D5 修订），再配一个回环对外 listener 只会让同一个本机客户端有两个入口；
-    - **主 listener 必须是本地模式**：主 listener 已经对外时再配一个对外 listener，等于两个对外
-      入口共享同一状态机，运维无从判断该连哪个 ⇒ 显式拒绝；
-    - token 必须存在（沿用 D5 fail-closed），TLS 半配同样拒绝（:func:`_external_tls_files`）。
-    """
-    raw_host = settings.ws_external_host if host is None else host
-    resolved_host = (raw_host or "").strip()
-    if not resolved_host:
-        if host is not None:
-            raise WsConfigError("--ws-external-host must not be empty (omit it to disable the external listener)")
-        return None
-    if is_loopback_host(resolved_host):
-        raise WsConfigError(
-            f"WS_EXTERNAL_HOST must be a non-loopback address (got {resolved_host!r}); "
-            "the primary listener already serves loopback clients"
-        )
-    if primary.mode != "local":
-        raise WsConfigError(
-            f"WS_EXTERNAL_HOST requires a loopback primary listener (WS_HOST={primary.host!r} is already "
-            "external); drop one of the two to keep a single external entry point"
-        )
-    token = settings.user_ws_auth_token
-    cert, key = _external_tls_files(settings)
-    return _ws_config(
-        host=resolved_host,
-        port=_resolve_listener_port(settings, resolved_host, port, default_port=settings.ws_external_port),
-        ws_max_connections=settings.ws_max_connections if max_connections is None else max_connections,
-        shutdown_timeout=settings.ws_shutdown_timeout if shutdown_timeout is None else shutdown_timeout,
-        auth_token=SecretStr(token) if token else None,
-        tls_cert_file=cert,
-        tls_key_file=key,
-        readonly=settings.ws_external_readonly if readonly is None else readonly,
-    )
-
-
 def build_ws_servers(
     settings: Settings,
     *,
@@ -229,16 +160,14 @@ def build_ws_servers(
     port: int | None = None,
     max_connections: int | None = None,
     shutdown_timeout: float | None = None,
-    external_host: str | None = None,
-    external_port: int | None = None,
-    external_readonly: bool | None = None,
     push_enabled: bool | None = None,
 ) -> tuple[tuple[WsServer, ...], CliEventHub | None]:
-    """构造 1–2 个 WS listener 与**实际挂载**的 CLI 旁路中枢（Epic 56 期二 D8/D9/D12）。
+    """构造 WS listener（恒 1 条）与**实际挂载**的 CLI 旁路中枢（D9/D12）。
 
-    返回 ``(servers, hub)``：``servers[0]`` 是主 listener（期一语义逐字不变），``servers[1]``
-    （若存在）是对外 listener。``hub`` 为 ``None`` 表示旁路未启用**或**因 listener 身份被跳过——
-    两种情况对入口层等价（没有可发布的通道）。
+    返回 ``(servers, hub)``：``servers[0]`` 是唯一的 listener，``hub`` 为 ``None`` 表示旁路未启用
+    **或**因 listener 身份被跳过——两种情况对入口层等价（没有可发布的通道）。
+    第二监听器（对外，端口 ``9301``）已随 Epic 72 退役：非回环入口只剩主 listener 一条，
+    走 ``lan``（内网免认证）或 ``external``（强制 Bearer）。
 
     ``enabled`` 缺省取 ``settings.ws_enabled``；默认 CLI 的 ``--no-ws`` 传 ``False``
     （只关本次进程的 WS 监听，不改配置文件、不改 Settings 单例）。
@@ -246,12 +175,13 @@ def build_ws_servers(
     ``cli_bypass`` 缺省取 ``settings.ws_cli_bypass_enabled``；``http-server`` 命令显式传 ``False``
     （它没有终端轮次可看，期一行为照旧）。
 
-    D9 连带收紧：旁路只在**本地模式**的主 listener 上挂载。期一允许「``WS_HOST=0.0.0.0`` +
-    ``WS_CLI_BYPASS_ENABLED=true``」把终端事件流推到对外 listener，期二起改为跳过并 WARNING。
+    D9 的边界不变且更严格：旁路只在**回环** listener 上挂载。``lan`` / ``external`` 绑定一律跳过并
+    WARNING（旁路内容包含终端里从未提交过的输入）。
 
     ``push_enabled``（Epic 58）缺省取 ``settings.cron_push_enabled``：为真时建一个
-    :class:`NotificationHub` 挂到**每个** listener（``WsServer.notification_hub``）——返回形状
-    因此保持不变（中枢由调用方经 ``servers[i].notification_hub`` 取出再交给服务单元）。
+    :class:`NotificationHub` 挂到 listener（``WsServer.notification_hub``），经
+    ``servers[0].notification_hub`` 取出交给服务单元；``lan`` listener 上它同样可见（客户端
+    「三处对账」要求 ``PUSH_CONNECTED``），代价由 ``ws_host`` 的启动 WARNING 写明。
     """
     if not (settings.ws_enabled if enabled is None else enabled):
         # WS_ENABLED=false（或 --no-ws）：不构造任何 WS listener（旁路中枢也无从挂载）。
@@ -264,15 +194,6 @@ def build_ws_servers(
         max_connections=max_connections,
         shutdown_timeout=shutdown_timeout,
     )
-    external = build_external_ws_server_config(
-        settings,
-        primary=primary,
-        host=external_host,
-        port=external_port,
-        max_connections=max_connections,
-        shutdown_timeout=shutdown_timeout,
-        readonly=external_readonly,
-    )
     bypass_enabled = settings.ws_cli_bypass_enabled if cli_bypass is None else cli_bypass
     hub: CliEventHub | None = None
     if bypass_enabled:
@@ -283,26 +204,18 @@ def build_ws_servers(
             safe_log(
                 logger,
                 logging.WARNING,
-                "ws event=cli_bypass_skipped reason=external_listener host=%s "
-                "hint=the CLI event stream is served only on a loopback listener",
+                "ws event=cli_bypass_skipped reason=non_loopback_listener host=%s listener=%s "
+                "hint=the CLI event stream is served only on a loopback listener (its content includes "
+                "terminal input that was never submitted)",
                 primary.host,
+                primary.mode,
             )
     # `CRON_PUSH_ENABLED=true` 才建中枢 ⇒ 否则 `/api/notifications/ws` 连路由都不注册
-    # （客户端拿 403，而不是「连上了但永远没帧」这种假可用）。中枢按 listener 数共用一份：
-    # seq / 环形缓冲 / 订阅者都是进程级状态，两条 listener 各建一份会把游标语义拆散。
+    # （客户端拿 403，而不是「连上了但永远没帧」这种假可用）。
     push = settings.cron_push_enabled if push_enabled is None else push_enabled
     notification_hub: NotificationHub | None = (
         NotificationHub(max_connections=primary.ws_max_connections) if push else None
     )
-    if notification_hub is not None and external is not None:
-        # 这个代价已接受，但必须可见：对外 listener 上送的是宿主 cron 的 LLM 输出。
-        safe_log(
-            logger,
-            logging.WARNING,
-            "ws event=cron_push_exposed host=%s hint=cron results are served on the external "
-            "listener too; keep CRON_PUSH_ENABLED=false or narrow WS_EXTERNAL_HOST to avoid it",
-            external.host,
-        )
     servers = [
         WsServer(
             primary,
@@ -312,17 +225,6 @@ def build_ws_servers(
             version=_current_version(),
         )
     ]
-    if external is not None:
-        # 对外 listener 永不带 CLI 旁路：即使主 listener 那条被跳过也一样。
-        # 通知中枢则相反——**每个** listener 都挂（对外已有 token 认证，不再叠模式判据）。
-        servers.append(
-            WsServer(
-                external,
-                run_service=run_service,
-                notification_hub=notification_hub,
-                version=_current_version(),
-            )
-        )
     return tuple(servers), hub
 
 

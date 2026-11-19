@@ -75,7 +75,7 @@ pub/ → config/ → providers · tools · context → engine/ → agent/ → cl
 
 ## 安全口径
 
-Canonical 在 `docs/frame.md` §4.19：`SafetyGuard`/`PolicyEngine`/sandbox 后端**均非真正安全边界**（三层非边界），OS 级容器沙箱兜底；本地模式（默认）HTTP/WS 无认证，对外模式（WS 绑非回环）强制 Bearer token 且缺 token 拒绝启动；**对外能提交 run 时强烈建议 `--sandbox docker`**。已知缺口台账：`_bmad-output/open-items.md`（「活动（未闭合）条目」节；闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
+Canonical 在 `docs/frame.md` §4.19：`SafetyGuard`/`PolicyEngine`/sandbox 后端**均非真正安全边界**（三层非边界），OS 级容器沙箱兜底；本地模式（默认）HTTP/WS 无认证；WS 绑非回环分两档——`external`（默认）强制 Bearer token 且缺 token 拒绝启动，`lan`（显式 `WS_LAN_NO_AUTH=true` + 私有地址）无认证、同网段可驱使代理、每次启动 WARNING；**非回环入口能提交 run 时强烈建议 `--sandbox docker`**。已知缺口台账：`_bmad-output/open-items.md`（「活动（未闭合）条目」节；闭合历史见 `_bmad-output/retrospective-all-cycles.md` §三）。
 
 ## Git
 

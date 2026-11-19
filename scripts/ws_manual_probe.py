@@ -8,7 +8,7 @@
   .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9201 cancel <run_id>
   .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9201 bad
   .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9201 handshake --origin http://127.0.0.1:9101
-  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9301 handshake --token "<你的 token>"
+  .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9201 ping --token "<你的 token>"
   .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py wss://127.0.0.1:9201 ping --insecure
   .venv\\Scripts\\python.exe scripts\\ws_manual_probe.py ws://127.0.0.1:9201 cli --seconds 5
 

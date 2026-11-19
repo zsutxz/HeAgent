@@ -72,7 +72,7 @@ ANSWERS: dict[str, str] = {
     "WS_ENABLED": "",
     "WS_HOST": "",
     "WS_PORT": "",
-    "WS_EXTERNAL_HOST": "",
+    "WS_LAN_NO_AUTH": "",
     "WS_LOCAL_AUTH_ENABLED": "",
     # ── 日志与事件 ──
     "LOG_LEVEL": "debug",  # Choice 不区分大小写 ⇒ 归一成 DEBUG

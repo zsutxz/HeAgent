@@ -1,0 +1,55 @@
+# 本 epic 的 entry，表顺序即构建顺序；id 永不复用。epic 72 为新能力 epic（非 v6 迁移），无 v6_key。
+[[entry]]
+id = 1
+type = "story"
+title = "局域网免认证监听模式（lan）"
+description = "让「绑私有 IPv4 + 免 token」这个组合能起来，且是显式选择而非默认。`network/exposure.py` 新增 `is_private_address(host)`（`ipaddress` 判定：必须是 IP 字面量且 `is_private` 或 `is_link_local`；`0.0.0.0` / `::` / 公网地址 / 主机名一律 False，不解析 DNS）。`WsServerConfig` 新增 `lan_no_auth: bool = False`：`mode` 改成三值（回环 `local` / 非回环且 `lan_no_auth` 为 `lan` / 其余非回环 `external`），`requires_auth` 只在 `mode == \"external\"`（或回环 + `local_auth`）时为真，`_validate_auth_and_tls` 增三条 fail-loud：`lan_no_auth` + 回环地址、+ 非私有地址、+ `local_auth=True` 同时开。`build_ws_app` 的「防线替换」判据从 `config.requires_auth` 改成 `config.mode == \"external\"`（`lan` 保留 Host/Origin 校验：无 `Origin` 的客户端照放行，Host 必须等于绑定地址）；免认证时 `authorize=None` 与现状一致。`Settings` 加 `ws_lan_no_auth: bool = False`（env `WS_LAN_NO_AUTH`），`cli/http_config.build_ws_server_config` 接线；`build_ws_servers` 的旁路分支按 `mode == \"local\"` 判定（`lan` 也跳过并 WARNING，reason 文案改成 `reason=non_loopback_listener`，保留「为什么没有这条流」的可读性）。`http_protocol.ListenerMode` 加 `LAN = \"lan\"`，`cli/http_status` 的 listener 投影按新值输出。每次启动一条 WARNING（`ws event=exposed mode=lan auth=none host=… port=… cron_push=…`），位置在 listener 起来之后、只打一次。"
+verify = "① 默认 `WS_HOST=127.0.0.1` 时 `mode == \"local\"`、`requires_auth` 为假、`/api/cli/ws` 照挂（既有用例保持绿，不改断言）；② `WS_HOST=192.168.2.226` 无开关 ⇒ `build_ws_server_config` 抛 `WsConfigError` 且消息含 `WS_LAN_NO_AUTH` 与「loopback」两个改法；③ 同 host + `WS_LAN_NO_AUTH=true` ⇒ 构造成功、`mode == \"lan\"`、`requires_auth` 为假；④ 四条非法组合各一条用例（`0.0.0.0` / `::` / `8.8.8.8` / `example.lan`）分别抛 `ValueError`（`WsServerConfig` 层）且 `WsConfigError`（装配层），消息点名键名；⑤ `lan` 模式下带 `Host: <bind>` 无 `Origin` 的真 TCP 握手拿到 `101`、无 `Authorization` 头；`Host: evil.example` 仍被拒（同一 listener 上两条断言，证明防线没被拆）；⑥ `WS_LAN_NO_AUTH=true` + `WS_LOCAL_AUTH_ENABLED=true` ⇒ 拒绝启动；⑦ `/api/status` 的 listeners 里该条 `mode == \"lan\"`；⑧ 启动日志恰有一条 `mode=lan auth=none` WARNING（用 `caplog` 数条数，不是「存在」）。"
+covers = []
+after = []
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 2
+type = "story"
+title = "退役对外 listener 与 WS_EXTERNAL_* 配置族"
+description = "按需求「`9301` 不再使用」，把第二条对外 listener 整族硬删除（无别名、无兼容层）。删除面清单：`Settings` 的 `ws_external_host` / `ws_external_port` / `ws_external_readonly` / `ws_external_tls_cert_file` / `ws_external_tls_key_file`；`cli/http_config.py` 的 `build_external_ws_server_config` 与 `_external_tls_files`，`build_ws_servers` 去掉 `external_host` / `external_port` / `external_readonly` 参数与「第二条 listener」装配分支（返回值形状仍是 `(servers, hub)`，只是恒 1 条）；`cli/http.py` 的三个 `--ws-external-*` 选项及其透传；`config/validation.py` 的 `_external_ws_host` / `_gate_ws_external_binding` / `_judge_ws_external_binding` 与 `_judge_ws_auth_token`、`_judge_ws_tls_pair` 里的对外分支（`REQUIRED_SETTING_KEYS` 同步删两项）；`cli/doctor.py` 的三条对外 findings 与端口候选里的 `WS_EXTERNAL_PORT`；`scripts/setup_ws_external.py` 与 `tests/test_setup_ws_external.py` 整体删除。**残留键可见性**：`doctor` 加一条 INFO finding——环境变量或项目 `.env` 里出现任一退役键（`WS_EXTERNAL_*`）且值非空时提示「已退役、被忽略，改 `WS_HOST` + `WS_LAN_NO_AUTH`」；`Settings` 的 `extra=\"ignore\"` 保持不动（老 `.env` 不炸）。`.env.example` 删 5 个键、加 `WS_LAN_NO_AUTH` 注释块；`CHANGELOG.md` 的 `## [Unreleased]` 写一条 `### Removed`（键与端口、迁移三条）。"
+verify = "① `rg \"WS_EXTERNAL|ws_external\" src/ scripts/` 只命中 `cli/doctor.py` 的退役键表与迁移文案（`_RETIRED_WS_EXTERNAL_KEYS`，设计如此）、`rg \"WS_EXTERNAL_HOST|ws_external_host\" src/` 零命中、`rg 9301 src/` 零命中；② `Settings.model_fields` 里无 `ws_external_*`，`REQUIRED_SETTING_KEYS` 与字段集一致（`tests/test_config_validation.py` 的 coverage 用例保持绿）；③ `heagent http-server --ws-external-host x` 报 usage error（未知选项），`--help` 输出不含 `ws-external`；④ 老 `.env` 夹具（含 `WS_EXTERNAL_HOST=192.168.2.226`）下 `Settings()` 不抛错，且 `doctor` 输出含一条 `doctor.retired_key` INFO 点名该键；⑤ `9301` 在 `src/` 内零字面量（`rg 9301 src/` 空）；⑥ 删除后 `pytest tests/network tests/test_cli_http.py tests/test_cli_doctor.py tests/test_config_validation.py tests/test_security_posture_contract.py` 绿；⑦ CHANGELOG 有 `### Removed` 且指名五键与 `9301`。"
+covers = []
+after = [1]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 3
+type = "story"
+title = "自检与排障面（doctor + 启动公告 + 排障指引）"
+description = "把 `lan` 组合的可错点做成启动前可见。`cli/doctor.py` 增三条：`doctor.ws_lan_without_flag`（`WS_HOST` 非回环且非私有地址、`WS_LAN_NO_AUTH` 未开 ⇒ ERROR，指出「会被强制 token 或拒绝启动」）、`doctor.ws_lan_host_not_private`（开了开关但 host 是通配/公网/主机名 ⇒ ERROR + 改法「填本机私有 IPv4，用 `ipconfig` / `ip -4 addr` 查」）、`doctor.ws_lan_auth_conflict`（与 `WS_LOCAL_AUTH_ENABLED=true` 同开 ⇒ ERROR）；已有的 `doctor.ws_main_external_without_token` 文案改成区分「未开 `WS_LAN_NO_AUTH`」与「已开但地址不合规」两种原因。启动公告统一成 `mode` 三值（`listener=local|lan|external`，`lan` 额外带 `auth=none cron_push=…`），`cli/http.py` 与 `cli/http_config.py` 的公告点同批改；拒绝启动的错误文案点名键名 + 两个可选改法（`WS_LAN_NO_AUTH=true` 走内网免认证 / 填 `WS_AUTH_TOKEN` 走对外）。`scripts/ws_manual_probe.py` 顶部用例补一条内网明文示例（`ws://192.168.2.226:9201 ping`，无 token）与「`--token` 只对 `external` 需要」的说明；`docs/faq.md` 与 `docs/errors.md` 的 WS 排障条目把 `9301` / `WS_EXTERNAL_*` 处置改写成 `10061`（未绑该地址）与 `403`（仍在校验 token / host 不在白名单）两条新判据。"
+verify = "① 四条 doctor 场景各一条用例：合法 `lan` 组合零 ERROR finding、缺开关/地址不合规/与 `WS_LOCAL_AUTH_ENABLED` 冲突各产出一条 ERROR 且 `code` 与 message 点名键名；② 退役键残留夹具只产 INFO（不阻断启动），已有 `test_cli_doctor.py` 的退出码语义不变；③ 启动公告断言按 `mode` 三值参数化（`local` / `lan` / `external` 各一条，`lan` 那条含 `auth=none`），且 `caplog` 计数恰为一次；④ 拒绝启动的 `CliRunner` 输出含 `WS_LAN_NO_AUTH` 与 `WS_AUTH_TOKEN` 两个改法、退出码 1、无 traceback；⑤ `scripts/ws_manual_probe.py --help` 与文件头示例含内网明文用法（静态断言即可，探针不真跑）；⑥ `docs/faq.md` / `docs/errors.md` 里 `9301` 零命中（改指 `WS_LAN_NO_AUTH`），`pytest tests/test_docs_links.py -q` 绿。"
+covers = []
+after = [2]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "安全口径 canonical 与派生副本同步"
+description = "口径改写（唯一真源 + 派生 + 守卫三者同批）：`docs/frame.md` §4.19 要素 4 从「非回环强制 Bearer、缺 token 拒绝启动」改成双档表述——`external`（非回环且未开 `WS_LAN_NO_AUTH`）仍强制 Bearer 且 fail-closed；`lan`（非回环 + 私有地址字面量 + 显式 `WS_LAN_NO_AUTH=true`）**无认证、无 TLS**，每次启动一条 WARNING，身份是内网调试入口、不得映射公网。要素 3 补「`lan` 绑定不等于可信、同网段任何设备可驱使代理」。要素 5 端点可见性改口径（`/api/cli/ws` 只挂 `local`；`/api/notifications/ws` 在 `local` 与 `lan` 都随中枢注册；对外 listener 概念退役）。§4.17.1 删「双监听并存」行与 `WS_EXTERNAL_*` 键表、监听模式行加 `lan`、`WS_EXTERNAL_READONLY` 行删除；§4.17 的「Epic 56 起该服务 = 双 server / 期二再加一条」段与命令行 help 文案同步。派生副本 `AGENTS.md`「⚠️ 安全声明」要素 3/4/5 与 `CLAUDE.md`「安全口径」同批改写（措辞可不同、要素不增不删）。`tests/test_security_posture_contract.py` 的 `FRAME_ELEMENT_PHRASES` / `AGENTS_ELEMENT_PHRASES` 更新短语集（保留正向包含风格：`WS_LAN_NO_AUTH`、`内网调试入口`、`fail-closed`），谓词分组去掉 `ws_external_*`、把 `ws_lan_no_auth` 归入「安全侧 = False」的 documented-bool（默认关才是安全侧）。`docs/tls-connect-guide.md` 定稿：状态行改「第一步已实施（服务端部分）」、服务端小节指向新键、附录 A 标题保留但注明 `9301` 已退役；`mkdocs.yml` nav 与 `docs/README.md` 索引登记该页（`--strict` 要求）。"
+verify = "① `pytest tests/test_security_posture_contract.py -q` 绿（要素号仍为 1..6、canonical 段只出现一次、两个文档短语齐全）；② 反向判据：把 §4.19 要素 4 的 `WS_LAN_NO_AUTH` 与 `fail-closed` 任一词删掉，该测试必须红（临时改动后还原，报告里留两次运行结果）；③ `rg \"WS_EXTERNAL|9301\" docs/frame.md` 零命中（若保留历史叙述必须改成「已退役」且不写成可用配置）；④ `mkdocs build --strict` 0 warning（`.heagent/tmp/py311-venv-linux/bin/python` 已装 mkdocs）；⑤ `pytest tests/test_docs_links.py -q` 绿（TOC 手写行与新标题一致）；⑥ `docs/tls-connect-guide.md` 的状态行与服务端小节与新代码一致（人工对读 + 报告留 diff 摘要）。"
+covers = []
+after = [3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "落地与端到端验收"
+description = "把第一步真正落到本机配置并取证。本机 `.env`：`WS_HOST=192.168.2.226`、新增 `WS_LAN_NO_AUTH=true`、删除 `WS_EXTERNAL_HOST` / `WS_EXTERNAL_PORT`、`WS_TLS_CERT_FILE` / `WS_TLS_KEY_FILE` 置空（第一步明文；文件路径保留成注释，供第二步恢复）、`WS_CLI_BYPASS_ENABLED` 按「lan 不挂旁路」写清注释、`CRON_PUSH_ENABLED` 保持 true。取证（宿主 + 容器两套判据都要有，容器用私有网卡地址代替 `192.168.2.226`）：① `netstat -ano | findstr :9201` 本地地址恰为 `<私有 IPv4>:9201`，无 `0.0.0.0:9201`、无 `127.0.0.1:9201`；② `netstat` 无 `9301` 监听；③ `scripts/ws_manual_probe.py ws://<私有 IPv4>:9201 ping` 拿到 `ack`（无 token）；④ `submit --prompt` 建 run + `sub <run_id>` 收到 `done` 全文；⑤ `/api/status` 的 listener 条目 `mode=lan`、`tls=false`；⑥ 启动日志有且只有一条 `mode=lan auth=none` WARNING 与一条旁路跳过的 WARNING；⑦ 回滚判据：恢复 `WS_HOST=127.0.0.1` + 删开关后重跑一遍 ①③，确认回到回环监听。报告写清「哪几条在宿主真机跑过、哪几条只能在容器里跑」，未跑过的项标「未实测」，不得用设计推断冒充实测。"
+verify = "① 上述七项判据各有可复制的命令与原始输出（`netstat` 行、探针 stdout、日志行、`curl /api/status` 片段）；② 宿主真机部分若本轮不可达，报告明确标 `未实测` 并给出用户可自行执行的命令清单（不含密钥回显）；③ `git status --porcelain` 里 `.env` 不进版本库（gitignore 生效实证）；④ 结束后 `pytest -q` 相对基线无新增失败（既有 6 条环境红不扩大，用 `scripts/verify_baseline.py` 判形）；⑤ 回滚判据实测（回环监听恢复），并在日志里核对没有再出现 `mode=lan`。"
+covers = []
+after = [4]
+hitl = true
+risk = "medium"

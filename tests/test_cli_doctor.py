@@ -30,11 +30,9 @@ _CLEAN: dict[str, object] = {
     "ollama_enabled": False,
     "routing_pools": "",
     "ws_host": "127.0.0.1",
-    "ws_external_host": None,
+    "ws_lan_no_auth": False,
     "ws_tls_cert_file": None,
     "ws_tls_key_file": None,
-    "ws_external_tls_cert_file": None,
-    "ws_external_tls_key_file": None,
     "sandbox_backend": "auto",
     "approval_tools": "",
     "safety_blocked_tools": [],
@@ -148,6 +146,16 @@ class TestEnvFile:
         assert item is not None and item.severity is Severity.INFO
 
 
+def _retired_unknown_keys() -> tuple[object, ...]:
+    """构造两条退役键的 ``unknown_keys`` 条目（doctor 只读 key+source，其余字段不参与）。"""
+    from heagent.config.catalog import ConfigSource, UnknownKeyReport
+
+    return tuple(
+        UnknownKeyReport(key=key, source=ConfigSource.PROJECT_ENV)
+        for key in ("WS_EXTERNAL_HOST", "WS_EXTERNAL_TLS_CERT_FILE")
+    )
+
+
 class TestWsAndPorts:
     def test_main_external_without_token_is_error(self, tmp_path: Path) -> None:
         settings = _settings(ws_host="0.0.0.0")
@@ -155,27 +163,48 @@ class TestWsAndPorts:
         assert "doctor.ws_main_external_without_token" in _codes(findings)
 
     def test_ws_disabled_skips_ws_checks(self, tmp_path: Path) -> None:
-        settings = _settings(ws_enabled=False, ws_host="0.0.0.0", ws_external_host="192.168.1.5")
+        settings = _settings(ws_enabled=False, ws_host="0.0.0.0")
         codes = _codes(_run(settings, _report(tmp_path)))
         assert not {code for code in codes if code.startswith("doctor.ws_")}
 
-    def test_external_listener_uses_its_own_code(self, tmp_path: Path) -> None:
-        settings = _settings(ws_external_host="192.168.1.5")
-        codes = _codes(_run(settings, _report(tmp_path)))
-        assert "doctor.ws_external_listener_without_token" in codes
-        assert "doctor.ws_main_external_without_token" not in codes
+    def test_lan_mode_without_token_is_not_an_error(self, tmp_path: Path) -> None:
+        """`lan` 是显式免认证：`WS_LAN_NO_AUTH=true` + 私有地址不该报「缺 token」。"""
+        settings = _settings(ws_host="192.168.2.226", ws_lan_no_auth=True)
+        assert "doctor.ws_main_external_without_token" not in _codes(_run(settings, _report(tmp_path)))
+
+    def test_lan_loopback_bind_is_error(self, tmp_path: Path) -> None:
+        """`WS_LAN_NO_AUTH=true` 绑回环没有意义（回环本就免认证）⇒ ERROR + 改法。"""
+        settings = _settings(ws_host="127.0.0.1", ws_lan_no_auth=True)
+        findings = _run(settings, _report(tmp_path))
+        assert "doctor.ws_lan_loopback" in _codes(findings)
+        assert "drop WS_LAN_NO_AUTH" in next(f.fix for f in findings if f.code == "doctor.ws_lan_loopback")
+
+    def test_lan_wildcard_bind_is_error(self, tmp_path: Path) -> None:
+        """通配绑定不是私有地址字面量：内网免认证必须绑具体网卡地址。"""
+        settings = _settings(ws_host="0.0.0.0", ws_lan_no_auth=True)
+        assert "doctor.ws_lan_host_not_private" in _codes(_run(settings, _report(tmp_path)))
+
+    def test_lan_auth_conflict_is_error(self, tmp_path: Path) -> None:
+        settings = _settings(ws_host="192.168.2.226", ws_lan_no_auth=True, ws_local_auth_enabled=True)
+        assert "doctor.ws_lan_auth_conflict" in _codes(_run(settings, _report(tmp_path)))
+
+    def test_valid_lan_config_produces_no_ws_errors(self, tmp_path: Path) -> None:
+        """合法 `lan` 组合零 ERROR：既不该报缺 token，也不该报三条准入。"""
+        settings = _settings(ws_host="192.168.2.226", ws_lan_no_auth=True)
+        findings = _run(settings, _report(tmp_path))
+        assert not [f for f in findings if f.severity.value == "error" and f.code.startswith("doctor.ws_")]
 
     def test_local_auth_without_token_is_error(self, tmp_path: Path) -> None:
         settings = _settings(ws_local_auth_enabled=True)
         assert "doctor.ws_local_auth_without_token" in _codes(_run(settings, _report(tmp_path)))
 
-    def test_main_and_external_both_non_loopback_conflict(self, tmp_path: Path) -> None:
-        settings = _settings(ws_host="0.0.0.0", ws_external_host="192.168.1.5")
-        assert "doctor.ws_external_host_conflict" in _codes(_run(settings, _report(tmp_path)))
-
-    def test_external_host_loopback_is_error(self, tmp_path: Path) -> None:
-        settings = _settings(ws_external_host="127.0.0.1")
-        assert "doctor.ws_external_host_loopback" in _codes(_run(settings, _report(tmp_path)))
+    def test_retired_external_keys_are_reported_as_info(self, tmp_path: Path) -> None:
+        """`WS_EXTERNAL_*` 退役后残留只提示（不阻断启动），且不混进通用未知键告警。"""
+        report = _report(tmp_path)
+        report = report.model_copy(update={"unknown_keys": (*report.unknown_keys, *_retired_unknown_keys())})
+        codes = _codes(_run(_settings(), report))
+        assert "doctor.retired_key" in codes
+        assert "doctor.env_unknown_keys" not in codes
 
     def test_tls_half_configured(self, tmp_path: Path) -> None:
         settings = _settings(ws_tls_cert_file="cert.pem")

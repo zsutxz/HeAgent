@@ -46,12 +46,10 @@ REQUIRED_SETTING_KEYS: frozenset[str] = frozenset(
         # WS 面：认证 / 绑定 / TLS 三条 fail-closed 判据挂在 WsServerConfig 的 model_validator 上
         "ws_enabled",
         "ws_host",
-        "ws_external_host",
         "ws_local_auth_enabled",
+        "ws_lan_no_auth",
         "ws_tls_cert_file",
         "ws_tls_key_file",
-        "ws_external_tls_cert_file",
-        "ws_external_tls_key_file",
         # 沙箱面：SANDBOX_BACKEND=docker 时镜像引用是每条命令的输入
         "sandbox_backend",
         "sandbox_docker_image",
@@ -157,9 +155,30 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
-def _external_ws_host(settings: Settings) -> str:
-    """``WS_EXTERNAL_HOST`` 的规范化取值（空串 = 未启用对外 listener）。"""
-    return (settings.ws_external_host or "").strip()
+def _is_private_address(host: str) -> bool:
+    """该绑定地址是否为私有地址字面量（语义同 :func:`heagent.network.exposure.is_private_address`）。
+
+    内网免认证模式（``WS_LAN_NO_AUTH``）的准入判据：``config/`` 不得依赖 ``network/``，故此处内联
+    一份纯 stdlib 等价实现，等价性由 ``tests/test_config_validation.py`` 交叉断言钉住。
+    """
+    candidate = host.strip()
+    if candidate.startswith("[") and candidate.endswith("]"):
+        inner = candidate[1:-1]
+        try:
+            ipaddress.IPv6Address(inner)
+        except ValueError:
+            pass
+        else:
+            candidate = inner
+    if not candidate:
+        return False
+    try:
+        address = ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    if address.is_loopback or address.is_unspecified or address.is_multicast or address.is_global:
+        return False
+    return address.is_private or address.is_link_local
 
 
 def _has_provider_credential(settings: Settings) -> bool:
@@ -182,20 +201,19 @@ def _judge_ollama_model(settings: Settings) -> str | None:
 
 
 def _gate_ws_auth(settings: Settings) -> bool:
-    """需要 Bearer token 的三条路径：非回环主 listener、对外 listener、本地强制认证。"""
+    """需要 Bearer token 的两条路径：非回环且未开内网免认证、本地强制认证。"""
     if not settings.ws_enabled:
         return False
-    return settings.ws_local_auth_enabled or not _is_loopback(settings.ws_host) or bool(_external_ws_host(settings))
+    main_needs_auth = not _is_loopback(settings.ws_host) and not settings.ws_lan_no_auth
+    return settings.ws_local_auth_enabled or main_needs_auth
 
 
 def _judge_ws_auth_token(settings: Settings) -> str | None:
     if settings.user_ws_auth_token:
         return None
     reasons: list[str] = []
-    if not _is_loopback(settings.ws_host):
+    if not _is_loopback(settings.ws_host) and not settings.ws_lan_no_auth:
         reasons.append(f"WS_HOST={settings.ws_host!r} is not loopback")
-    if _external_ws_host(settings):
-        reasons.append(f"WS_EXTERNAL_HOST={_external_ws_host(settings)!r} enables the external listener")
     if settings.ws_local_auth_enabled:
         reasons.append("WS_LOCAL_AUTH_ENABLED=true")
     return (
@@ -204,30 +222,33 @@ def _judge_ws_auth_token(settings: Settings) -> str | None:
     )
 
 
-def _gate_ws_external_binding(settings: Settings) -> bool:
-    return settings.ws_enabled and bool(_external_ws_host(settings))
+def _gate_ws_lan_no_auth(settings: Settings) -> bool:
+    return settings.ws_enabled and settings.ws_lan_no_auth
 
 
-def _judge_ws_external_binding(settings: Settings) -> str | None:
-    host = _external_ws_host(settings)
+def _judge_ws_lan_no_auth(settings: Settings) -> str | None:
+    """``WS_LAN_NO_AUTH`` 的三条准入：私有地址字面量、与本地强制认证互斥、回环上无意义。"""
+    host = settings.ws_host
+    if settings.ws_local_auth_enabled:
+        return (
+            "Error: WS_LAN_NO_AUTH=true and WS_LOCAL_AUTH_ENABLED=true are mutually exclusive; "
+            "one listener cannot be both unauthenticated and auth-enforcing."
+        )
     if _is_loopback(host):
         return (
-            f"Error: WS_EXTERNAL_HOST={host!r} is loopback; the external listener refuses to start "
-            "(loopback belongs to the main listener)."
+            f"Error: WS_LAN_NO_AUTH=true has no effect on a loopback bind (WS_HOST={host!r}); "
+            "loopback is already unauthenticated — drop the flag."
         )
-    if not _is_loopback(settings.ws_host):
+    if not _is_private_address(host):
         return (
-            f"Error: WS_HOST={settings.ws_host!r} and WS_EXTERNAL_HOST={host!r} are both non-loopback; "
-            "only one external listener is allowed."
+            f"Error: WS_LAN_NO_AUTH=true requires a private address literal (WS_HOST={host!r}); "
+            "wildcard binds (0.0.0.0 / ::), public addresses and hostnames are refused."
         )
     return None
 
 
 def _judge_ws_tls_pair(settings: Settings) -> str | None:
     pairs = [("WS_TLS", settings.ws_tls_cert_file, settings.ws_tls_key_file)]
-    # 对外 listener 未启用时运行期**不读** WS_EXTERNAL_TLS_*：残留的半配键不该拦住启动。
-    if _external_ws_host(settings):
-        pairs.append(("WS_EXTERNAL_TLS", settings.ws_external_tls_cert_file, settings.ws_external_tls_key_file))
     for label, cert, key in pairs:
         if bool(cert) == bool(key):
             continue
@@ -285,34 +306,30 @@ REQUIRED_CHECKS: tuple[RequiredCheck, ...] = (
     ),
     RequiredCheck(
         name="ws_auth_token",
-        covers=("ws_enabled", "ws_host", "ws_external_host", "ws_local_auth_enabled"),
+        covers=("ws_enabled", "ws_host", "ws_local_auth_enabled", "ws_lan_no_auth"),
         gate=_gate_ws_auth,
         judge=_judge_ws_auth_token,
         options=(
             "add a `WS_AUTH_TOKEN` entry to ~/.heagent/setting.md (the token is read only from the "
             "user-level file; project .env is ignored)",
-            "or keep every listener on loopback: WS_HOST=127.0.0.1 with WS_EXTERNAL_HOST unset",
+            "or bind a private LAN address with WS_LAN_NO_AUTH=true for a plaintext LAN entry",
+            "or keep the listener on loopback: WS_HOST=127.0.0.1",
         ),
     ),
     RequiredCheck(
-        name="ws_external_binding",
-        covers=("ws_enabled", "ws_host", "ws_external_host"),
-        gate=_gate_ws_external_binding,
-        judge=_judge_ws_external_binding,
+        name="ws_lan_no_auth",
+        covers=("ws_enabled", "ws_host", "ws_lan_no_auth", "ws_local_auth_enabled"),
+        gate=_gate_ws_lan_no_auth,
+        judge=_judge_ws_lan_no_auth,
         options=(
-            "set WS_EXTERNAL_HOST to a non-loopback address (e.g. the LAN IP), or unset it",
-            "keep WS_HOST on 127.0.0.1 so only one listener is exposed",
+            "set WS_HOST to this machine's private LAN IPv4 (e.g. 192.168.2.226) and keep WS_LAN_NO_AUTH=true",
+            "or set WS_LAN_NO_AUTH=false and use WS_HOST=127.0.0.1 for local mode / a WS_AUTH_TOKEN for an "
+            "auth-enforcing listener",
         ),
     ),
     RequiredCheck(
         name="ws_tls_pair",
-        covers=(
-            "ws_enabled",
-            "ws_tls_cert_file",
-            "ws_tls_key_file",
-            "ws_external_tls_cert_file",
-            "ws_external_tls_key_file",
-        ),
+        covers=("ws_enabled", "ws_tls_cert_file", "ws_tls_key_file"),
         gate=lambda settings: settings.ws_enabled,
         judge=_judge_ws_tls_pair,
         options=(

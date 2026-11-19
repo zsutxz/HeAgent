@@ -68,9 +68,9 @@ def test_post_create_installs_declared_extras_and_hooks() -> None:
 
 
 def test_forwarded_ports_match_listener_defaults() -> None:
-    """转发端口必须跟随 `Settings` 的三条 listener 默认端口（改默认值须同步 devcontainer）。"""
+    """转发端口必须跟随 `Settings` 的 listener 默认端口（改默认值须同步 devcontainer）。"""
     settings = Settings()
-    expected = {settings.http_port, settings.ws_port, settings.ws_external_port}
+    expected = {settings.http_port, settings.ws_port}
     forwarded = set(_devcontainer().get("forwardPorts", []))
     assert forwarded == expected, (
         "devcontainer forwardPorts drifted from Settings listener defaults: "

@@ -1188,11 +1188,13 @@ def test_notification_stream_is_registered_on_every_listener_but_never_carries_t
     ]
 
 
-def test_dual_listener_docs_stay_in_sync() -> None:
-    """期二 D14：用户可见的四份文档必须同时提到对外 listener 与它的端点可见性不变量。
+def test_ws_entry_docs_stay_in_sync() -> None:
+    """用户可见的四份文档必须同时反映「单 listener + 内网免认证模式」与端点可见性不变量。
 
     文档漂移是真实的运维风险（运维按 `deploy/README.md` 配环境；按 `AGENTS.md` 判断暴露面）。
-    这条判据只钉「关键事实在场」，不比较文案措辞——措辞自由，事实不许缺。
+    这条判据只钉「关键事实在场 / 退役事实不在场」，不比较文案措辞——措辞自由，事实不许缺。
+    第二 listener（`WS_EXTERNAL_*` / `9301`）已随 Epic 72 退役：文档里不得再把它当可用配置介绍
+    （`doctor` 的退役键表与迁移说明除外）。
     """
     frame = (TARGET_ROOT / "docs/frame.md").read_text(encoding="utf-8")
     agents = (TARGET_ROOT / "AGENTS.md").read_text(encoding="utf-8")
@@ -1200,13 +1202,16 @@ def test_dual_listener_docs_stay_in_sync() -> None:
     example = (TARGET_ROOT / ".env.example").read_text(encoding="utf-8")
 
     for name, text in (("docs/frame.md", frame), ("deploy/README.md", deploy), (".env.example", example)):
-        assert "WS_EXTERNAL_HOST" in text, name
-        assert "WS_EXTERNAL_TLS_CERT_FILE" in text, name
+        assert "WS_LAN_NO_AUTH" in text, name
+        # 退役键不得再被当作可用配置介绍（墓志铭式的「已退役」叙述可以提 `WS_EXTERNAL_*` 通配，
+        # 但完整键名出现在文档里就等于还在教用户去配它）。
+        assert "WS_EXTERNAL_HOST" not in text, name
+        assert "WS_EXTERNAL_TLS_CERT_FILE" not in text, name
     # 端点可见性不变量必须在「安全声明」与「部署说明」两处都写明（只写在代码注释里等于没写）。
     for name, text in (("AGENTS.md", agents), ("deploy/README.md", deploy), ("docs/frame.md", frame)):
         assert "/api/cli/ws" in text, name
-    assert "双监听并存" in agents
-    assert "只挂在本地 listener" in deploy or "只挂本地 listener" in deploy
+    assert "WS_LAN_NO_AUTH" in agents
+    assert "只挂" in deploy
 
 
 # 单文件行数上限（Epic 62 Outcome「单文件 ≤1000 行」的可执行化）。

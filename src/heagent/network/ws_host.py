@@ -9,9 +9,11 @@ run 订阅 ``/api/runs/{run_id}/ws`` 与 CLI 旁路 ``/api/cli/ws`` 自 HTTP app
 端点逻辑复用 ``ws_server.py`` 不重写，本模块只负责装配、监听器生命周期与 uvicorn WS 参数。
 
 WS listener 没有健康端点可打，就绪判据改为**真实 TCP 连通**（D1 接缝事实：共享的只有注入的进程内
-状态 ``HttpRunService`` / ``CliEventHub`` / ``NotificationHub`` 与 ``network/`` 同层协议模型）。监听模式按绑定地址切
-（D5）：回环 = 本地模式（Origin 防线、无认证，Epic 54/55 语义逐字保持）；非回环 = 对外模式
-（Bearer token 强制、token 缺失拒绝启动、Origin 不适用），TLS 可选（cert/key 配齐即 wss）。
+状态 ``HttpRunService`` / ``CliEventHub`` / ``NotificationHub`` 与 ``network/`` 同层协议模型）。监听身份按
+绑定地址与 ``WS_LAN_NO_AUTH`` 切三档（D5 + 内网免认证修订）：回环 = ``local``（Origin 防线、无认证，
+Epic 54/55 语义逐字保持）；非回环 + ``WS_LAN_NO_AUTH`` = ``lan``（同样无认证、Origin 防线**保留**、只接受
+私有地址字面量、每次启动一条 WARNING）；其余非回环 = ``external``（Bearer token 强制、token 缺失拒绝
+启动、Origin 不适用）。TLS 可选（cert/key 配齐即 wss）。
 认证的纯逻辑面在 ``ws_auth.py``，本模块只负责装配与生命周期。
 """
 
@@ -25,7 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
-from heagent.network.exposure import is_loopback_host
+from heagent.network.exposure import is_loopback_host, is_private_address
 from heagent.network.optional_deps import require_module as _require_module
 from heagent.network.origin import (
     allowed_hosts,
@@ -77,8 +79,9 @@ class WsServerConfig(BaseModel):
     ``port=0`` 允许（操作系统分配随机端口，仅程序化/测试用法）——CLI 与设置层限定 1..65535。
     超时禁 ``inf``/``nan``：``Inf`` 会让「有界关闭」静默变成无界等待（同 ``HttpServerConfig`` 口径）。
 
-    **监听模式由绑定地址决定**（D5）：回环 = 本地模式（Origin/Host 防线，无认证）；
-    非回环 = 对外模式（``auth_token`` 必填，缺失即 ``ValidationError``——fail-closed，绝不降级成
+    **监听身份由绑定地址 + ``lan_no_auth`` 决定**（D5）：回环 = ``local``（Origin/Host 防线，无认证）；
+    非回环 + ``lan_no_auth`` = ``lan``（同样无认证，但只接受私有地址字面量，且 Host/Origin 防线保留）；
+    其余非回环 = ``external``（``auth_token`` 必填，缺失即 ``ValidationError``——fail-closed，绝不降级成
     「无认证对外」）。``auth_token`` 用 :class:`~pydantic.SecretStr` 承载：repr / 序列化一律掩码。
 
     TLS（D4）可选：``tls_cert_file`` 与 ``tls_key_file`` **要么都给要么都不给**（配齐即 wss）。
@@ -99,23 +102,34 @@ class WsServerConfig(BaseModel):
     # **本地强制认证**：True 时回环绑定也强制 Bearer 认证。非回环绑定时冗余
     # （对外模式本就强制认证）。入口层键 ``WS_LOCAL_AUTH_ENABLED``；默认关。
     local_auth: bool = False
+    # **内网免认证**：非回环绑定也不强制 Bearer（`lan` 模式）。安全口径的显式放宽，故三条
+    # fail-loud：只接受私有地址字面量、不得与 ``local_auth`` 同开、回环绑定上开了无意义。
+    # 入口层键 ``WS_LAN_NO_AUTH``；默认关（非回环仍按对外模式 fail-closed）。
+    lan_no_auth: bool = False
     # TLS 证书 / 私钥路径（PEM）；二者同时给出才启用 wss。
     tls_cert_file: str | None = None
     tls_key_file: str | None = None
     # **只读旁观**：True 时这条 listener 不注册提交端点（`/api/runs/ws`），
     # 已订阅连接上的 `cancel` 回 `invalid_request`（不断连）——只能看，不能下命令。
-    # 与 listener 模式正交：本地/对外都可设，但入口层只为对外 listener 暴露配置键
-    # （`WS_EXTERNAL_READONLY`）；本地 listener 的只读需求目前没有产品场景。
+    # 与 listener 模式正交：三种模式都可设；入口层目前没有对应的配置键（对外双监听退役后
+    # 没有产品场景），仅供程序化装配与测试使用。
     readonly: bool = False
 
     @property
     def mode(self) -> str:
-        """``"local"``（回环绑定）或 ``"external"``（非回环绑定，认证强制，D5）。"""
-        return "local" if is_loopback_host(self.host) else "external"
+        """监听身份三值：``"local"``（回环）/ ``"lan"``（非回环 + 显式免认证）/ ``"external"``。
+
+        ``lan`` 是安全口径的显式放宽（`WS_LAN_NO_AUTH`），只对私有地址字面量成立，见
+        :func:`~heagent.network.exposure.is_private_address`；``external`` 仍强制 Bearer 且
+        缺 token 拒绝构造。
+        """
+        if is_loopback_host(self.host):
+            return "local"
+        return "lan" if self.lan_no_auth else "external"
 
     @property
     def requires_auth(self) -> bool:
-        """是否需要 Bearer 认证（对外绑定，或回环绑定 + 本地强制认证开关）。"""
+        """是否需要 Bearer 认证（``external`` 绑定，或回环绑定 + 本地强制认证开关）。"""
         return self.mode == "external" or self.local_auth
 
     @property
@@ -132,12 +146,34 @@ class WsServerConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_auth_and_tls(self) -> WsServerConfig:
-        """强制认证缺 token 直接拒绝构造（D5 fail-closed；2026-11-04 修订含本地开关）；TLS 半配同样拒绝（D4）。"""
-        if self.requires_auth and not self.auth_secret:
+        """认证与 TLS 的 fail-loud 组合校验。
+
+        认证面：`external` 缺 token 拒绝构造（fail-closed）；`lan` 三条准入（只私有地址、
+        与 ``local_auth`` 互斥、回环绑定上无意义）。TLS 面：cert/key 成对，半配拒绝。
+        """
+        if self.lan_no_auth:
+            if self.local_auth:
+                raise ValueError(
+                    "WS_LAN_NO_AUTH=true and WS_LOCAL_AUTH_ENABLED=true are mutually exclusive: "
+                    "one listener cannot be both unauthenticated and auth-enforcing"
+                )
+            if is_loopback_host(self.host):
+                raise ValueError(
+                    f"WS_LAN_NO_AUTH=true has no effect on a loopback bind (host={self.host!r}): "
+                    "loopback is already unauthenticated; drop the flag for local mode"
+                )
+            if not is_private_address(self.host):
+                raise ValueError(
+                    f"WS_LAN_NO_AUTH=true requires a private address literal (got {self.host!r}): "
+                    "wildcard binds (0.0.0.0 / ::), public addresses and hostnames are refused; "
+                    "bind the LAN IPv4 of this host instead"
+                )
+        elif self.requires_auth and not self.auth_secret:
             raise ValueError(
                 "auth-enforcing WS listeners require WS_AUTH_TOKEN in "
                 "~/.heagent/setting.md (a non-loopback bind or WS_LOCAL_AUTH_ENABLED=true on a "
-                "loopback bind are both fail-closed; use a loopback address without the flag for local mode)"
+                "loopback bind are both fail-closed; use a loopback address without the flag for local mode, "
+                "or WS_LAN_NO_AUTH=true with a private LAN address for a plaintext LAN entry)"
             )
         if bool(self.tls_cert_file) != bool(self.tls_key_file):
             raise ValueError("WS TLS requires both WS_TLS_CERT_FILE and WS_TLS_KEY_FILE")
@@ -379,11 +415,19 @@ class WsServer:
                 self.address,
             )
         if not self.config.requires_auth and self.config.auth_secret:
-            # 开关关时本地模式刻意不启用认证：token 配了也不生效，说清楚以免留下虚假安全感。
+            # 免认证的 listener 上 token 配了也不生效：说清楚以免留下虚假安全感。
+            reason = "lan_no_auth" if self.config.mode == "lan" else "loopback_bind"
+            hint = (
+                "auth is waived by WS_LAN_NO_AUTH; the LAN path has no authentication"
+                if self.config.mode == "lan"
+                else "auth is enforced only for non-loopback binds (or with WS_LOCAL_AUTH_ENABLED=true)"
+            )
             safe_log(
                 logger,
                 logging.WARNING,
-                "ws event=auth_token_ignored reason=loopback_bind hint=auth is enforced only for non-loopback binds",
+                "ws event=auth_token_ignored reason=%s hint=%s",
+                reason,
+                hint,
             )
         from heagent.network.exposure import exposure_warning
 
@@ -397,6 +441,20 @@ class WsServer:
                 self.config.host,
                 self.config.mode,
                 "wss" if self.config.tls_enabled else "ws",
+            )
+        elif self.config.mode == "lan":
+            # 内网免认证入口：每次启动一条，把「谁能连」与「看得见什么」写全。
+            safe_log(
+                logger,
+                logging.WARNING,
+                "ws event=exposed host=%s listener=lan auth=none tls=%s cron_push=%s hint=%s",
+                self.config.host,
+                "wss" if self.config.tls_enabled else "ws",
+                "on" if self.notification_hub is not None else "off",
+                (
+                    "any device on this LAN can drive the agent (run commands, read/write files) with no "
+                    "token; keep this bind address on a private network and never port-forward it"
+                ),
             )
         else:
             warning = exposure_warning(self.config.host)

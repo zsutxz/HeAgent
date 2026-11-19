@@ -9,11 +9,10 @@
 
   "postCreateCommand": "pip install -e \".[dev,gui,http]\" && pre-commit install",
 
-  "forwardPorts": [9101, 9201, 9301],
+  "forwardPorts": [9101, 9201],
   "portsAttributes": {
     "9101": { "label": "HTTP 网页入口", "onAutoForward": "silent" },
-    "9201": { "label": "WS 主 listener（本地模式）", "onAutoForward": "silent" },
-    "9301": { "label": "WS 对外 listener", "onAutoForward": "silent" }
+    "9201": { "label": "WS listener（本地 / lan / external 按 WS_HOST 切）", "onAutoForward": "silent" }
   },
 
   "customizations": {

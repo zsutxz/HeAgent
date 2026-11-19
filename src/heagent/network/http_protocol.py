@@ -380,9 +380,14 @@ class WsConnectionCounts(BaseModel):
 
 
 class ListenerMode(StrEnum):
-    """listener 的暴露模式：回环绑定 = ``local``，非回环 = ``external``（与 WS 侧同名同义）。"""
+    """listener 的暴露模式（与 WS 侧 ``WsServerConfig.mode`` 同名同义）。
+
+    ``local`` = 回环绑定（无认证）；``lan`` = 非回环 + ``WS_LAN_NO_AUTH``（内网免认证，只接受私有
+    地址字面量）；``external`` = 其余非回环绑定（强制 Bearer）。
+    """
 
     LOCAL = "local"
+    LAN = "lan"
     EXTERNAL = "external"
 
 

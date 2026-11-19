@@ -29,7 +29,7 @@ from pydantic import BaseModel
 
 from heagent.config import GLOBAL_SETTING_FILE, Settings, get_settings
 from heagent.config.catalog import build_config_report
-from heagent.network.exposure import is_loopback_host
+from heagent.network.exposure import is_loopback_host, is_private_address
 from heagent.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -224,6 +224,19 @@ def _check_routing_pools(settings: Settings) -> list[Finding]:
     return findings
 
 
+#: Epic 72 退役的 ``WS_EXTERNAL_*`` 键（老 ``.env`` 里残留时只提示、不阻断——``Settings`` 的
+#: ``extra="ignore"`` 保证它们不会炸启动，但「配了却不生效」必须可见）。
+_RETIRED_WS_EXTERNAL_KEYS: frozenset[str] = frozenset(
+    {
+        "WS_EXTERNAL_HOST",
+        "WS_EXTERNAL_PORT",
+        "WS_EXTERNAL_READONLY",
+        "WS_EXTERNAL_TLS_CERT_FILE",
+        "WS_EXTERNAL_TLS_KEY_FILE",
+    }
+)
+
+
 def _check_env_file(report: ConfigReport) -> list[Finding]:
     findings: list[Finding] = []
     env = report.env_file
@@ -264,14 +277,80 @@ def _check_env_file(report: ConfigReport) -> list[Finding]:
                 fix="comment the line out (prefix with #) instead of leaving `KEY=`",
             )
         )
-    if report.unknown_keys:
-        names = ", ".join(item.key for item in report.unknown_keys)
+    retired = sorted({item.key for item in report.unknown_keys if item.key in _RETIRED_WS_EXTERNAL_KEYS})
+    if retired:
+        findings.append(
+            Finding(
+                code="doctor.retired_key",
+                severity=Severity.INFO,
+                message=(
+                    f"{', '.join(retired)} retired in Epic 72 (the second WS listener is gone); the keys are ignored."
+                ),
+                fix=(
+                    "for a plaintext LAN entry set WS_HOST=<lan-ip> + WS_LAN_NO_AUTH=true; "
+                    "for an auth-enforcing listener set WS_HOST=<ip> and keep WS_AUTH_TOKEN. "
+                    "Then delete the WS_EXTERNAL_* lines"
+                ),
+            )
+        )
+    remaining = [item.key for item in report.unknown_keys if item.key not in _RETIRED_WS_EXTERNAL_KEYS]
+    if remaining:
         findings.append(
             Finding(
                 code="doctor.env_unknown_keys",
                 severity=Severity.WARNING,
-                message=f"Keys that match no setting (ignored): {names}.",
+                message=f"Keys that match no setting (ignored): {', '.join(remaining)}.",
                 fix="fix the spelling, or remove them (see .env.example for the full key list)",
+            )
+        )
+    return findings
+
+
+def _lan_mode_findings(settings: Settings) -> list[Finding]:
+    """`WS_LAN_NO_AUTH=true` 的三条准入（与 `WsServerConfig` / 启动校验同一口径，含改法）。
+
+    单独成一组是因为这三条的处置与「缺 token」完全不同：前者是「你开的开关和地址不匹配」，
+    后者是「你该给个 token」——混在一条 message 里会让人改错地方。
+    """
+    if not settings.ws_lan_no_auth:
+        return []
+    findings: list[Finding] = []
+    if settings.ws_local_auth_enabled:
+        findings.append(
+            Finding(
+                code="doctor.ws_lan_auth_conflict",
+                severity=Severity.ERROR,
+                message=(
+                    "WS_LAN_NO_AUTH=true and WS_LOCAL_AUTH_ENABLED=true are mutually exclusive; startup is refused."
+                ),
+                fix="keep one: WS_LAN_NO_AUTH for a plaintext LAN entry, WS_LOCAL_AUTH_ENABLED for token-enforcing loopback",
+            )
+        )
+    if is_loopback_host(settings.ws_host):
+        findings.append(
+            Finding(
+                code="doctor.ws_lan_loopback",
+                severity=Severity.ERROR,
+                message=(
+                    f"WS_LAN_NO_AUTH=true has no effect on a loopback bind (WS_HOST={settings.ws_host!r}); "
+                    "startup is refused."
+                ),
+                fix="drop WS_LAN_NO_AUTH to stay in local mode, or bind this machine's private LAN IPv4",
+            )
+        )
+    elif not is_private_address(settings.ws_host):
+        findings.append(
+            Finding(
+                code="doctor.ws_lan_host_not_private",
+                severity=Severity.ERROR,
+                message=(
+                    f"WS_LAN_NO_AUTH=true requires a private address literal (WS_HOST={settings.ws_host!r}); "
+                    "wildcard binds, public addresses and hostnames are refused at startup."
+                ),
+                fix=(
+                    "put the private IPv4 of this machine into WS_HOST (Windows: `ipconfig`, "
+                    "Linux: `ip -4 addr`), or drop WS_LAN_NO_AUTH and configure WS_AUTH_TOKEN"
+                ),
             )
         )
     return findings
@@ -282,54 +361,27 @@ def _check_ws(settings: Settings) -> list[Finding]:
     if not settings.ws_enabled:
         # 没有任何 WS listener：token / TLS / 绑定地址都无从生效，检查它们只会制造噪声。
         return findings
+    findings.extend(_lan_mode_findings(settings))
     token = settings.user_ws_auth_token
-    main_external = not is_loopback_host(settings.ws_host)
+    # 内网免认证模式（`lan`）不是 external：免 token 是显式开关的结果，不该报「缺 token 拒绝启动」。
+    main_external = not is_loopback_host(settings.ws_host) and not settings.ws_lan_no_auth
     if main_external and not token:
         findings.append(
             Finding(
                 code="doctor.ws_main_external_without_token",
                 severity=Severity.ERROR,
                 message=(
-                    f"WS_HOST={settings.ws_host!r} is not loopback, so the listener runs in external mode, "
-                    "but WS_AUTH_TOKEN is not set; startup is refused."
+                    f"WS_HOST={settings.ws_host!r} is not loopback, so it either needs a Bearer token "
+                    "(external mode) or the explicit WS_LAN_NO_AUTH=true waiver; WS_AUTH_TOKEN is not set "
+                    "and the waiver is off, so startup is refused."
                 ),
                 fix=(
-                    "add a WS_AUTH_TOKEN entry to the user-level setting file, "
+                    "add a WS_AUTH_TOKEN entry to the user-level setting file; "
+                    "or set WS_HOST=<lan-ip> + WS_LAN_NO_AUTH=true for a plaintext LAN entry; "
                     "or set WS_HOST=127.0.0.1 to stay in local mode"
                 ),
             )
         )
-    external_host = (settings.ws_external_host or "").strip()
-    if external_host:
-        if is_loopback_host(external_host):
-            findings.append(
-                Finding(
-                    code="doctor.ws_external_host_loopback",
-                    severity=Severity.ERROR,
-                    message=f"WS_EXTERNAL_HOST={external_host!r} is loopback; the external listener refuses to start.",
-                    fix="use a non-loopback address (e.g. the LAN IP), or unset WS_EXTERNAL_HOST",
-                )
-            )
-        if main_external:
-            findings.append(
-                Finding(
-                    code="doctor.ws_external_host_conflict",
-                    severity=Severity.ERROR,
-                    message="Both WS_HOST and WS_EXTERNAL_HOST are non-loopback; only one external listener is allowed.",
-                    fix="keep WS_HOST on 127.0.0.1 and use WS_EXTERNAL_HOST for the exposed listener",
-                )
-            )
-        if not token:
-            findings.append(
-                Finding(
-                    code="doctor.ws_external_listener_without_token",
-                    severity=Severity.ERROR,
-                    message=(
-                        "WS_EXTERNAL_HOST is set (external listener) but WS_AUTH_TOKEN is missing; startup is refused."
-                    ),
-                    fix="add a WS_AUTH_TOKEN entry to the user-level setting file",
-                )
-            )
     if settings.ws_local_auth_enabled and not token:
         findings.append(
             Finding(
@@ -341,10 +393,7 @@ def _check_ws(settings: Settings) -> list[Finding]:
                 fix=("add a WS_AUTH_TOKEN entry to the user-level setting file, or set WS_LOCAL_AUTH_ENABLED=false"),
             )
         )
-    for label, cert, key in (
-        ("WS_TLS", settings.ws_tls_cert_file, settings.ws_tls_key_file),
-        ("WS_EXTERNAL_TLS", settings.ws_external_tls_cert_file, settings.ws_external_tls_key_file),
-    ):
+    for label, cert, key in (("WS_TLS", settings.ws_tls_cert_file, settings.ws_tls_key_file),):
         if bool(cert) != bool(key):
             findings.append(
                 Finding(
@@ -364,8 +413,6 @@ def _check_ports(settings: Settings) -> list[Finding]:
         candidates.append(("HTTP_PORT", "HTTP listener", settings.http_port))
     if settings.ws_enabled:
         candidates.append(("WS_PORT", "WS listener", settings.ws_port))
-        if (settings.ws_external_host or "").strip():
-            candidates.append(("WS_EXTERNAL_PORT", "external WS listener", settings.ws_external_port))
     for key, label, port in candidates:
         if _port_in_use("127.0.0.1", port):
             findings.append(

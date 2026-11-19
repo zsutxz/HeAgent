@@ -14,8 +14,21 @@
 
 > 下一个版本的改动先写这里；发布时整体落成 `## [x.y.z] - YYYY-MM-DD` 节（版本两处真源同步 bump）。
 
+### Removed（破坏性）
+
+- **第二个 WS listener 退役**（Epic 72）：`WS_EXTERNAL_HOST` / `WS_EXTERNAL_PORT`（默认 `9301`）/
+  `WS_EXTERNAL_TLS_CERT_FILE` / `WS_EXTERNAL_TLS_KEY_FILE` / `WS_EXTERNAL_READONLY` 五个配置键与
+  `heagent http-server` 的 `--ws-external-*` 三个选项一并删除，`scripts/setup_ws_external.py` 移除。
+  残留键被忽略（`Settings` 的 `extra="ignore"`），`heagent doctor` 以 `doctor.retired_key` 提示。
+  迁移：非回环入口只剩主 listener —— 内网明文用 `WS_HOST=<私有 IPv4>` + `WS_LAN_NO_AUTH=true`，
+  需要认证则绑同一地址并配 `WS_AUTH_TOKEN`。
+
 ### Added
 
+- **内网免认证 WS 模式（`lan`）**（Epic 72）：`WS_LAN_NO_AUTH=true` + 私有 IPv4 绑定 ⇒ 非回环也免 token
+  （`docs/tls-connect-guide.md` 第一步的「内网调试入口」）。三条准入 fail-loud：只接受私有地址字面量
+  （通配 / 公网 / 主机名拒绝）、不得与 `WS_LOCAL_AUTH_ENABLED` 同开、回环绑定上开了无意义；Host/Origin
+  防线保留，每次启动一条 `listener=lan auth=none` WARNING。判据 `tests/test_ws_lan_mode.py`。
 - **API 参考站点页**（Epic 68 / 台账 A64）：`docs/api/` 13 页（索引 + 12 个核心包）由 `mkdocstrings` 从
   docstring 自动生成（`show_submodules` 展开包内公开子模块，`filters: ["!^_"]` 隐藏私有成员），
   `mkdocs.yml` 的 nav 增「API 参考」节。构建期依赖不进依赖树，安装口径为

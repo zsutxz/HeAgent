@@ -44,7 +44,7 @@ FRAME_ELEMENT_PHRASES: dict[int, tuple[str, ...]] = {
     1: ("SafetyGuard", "PolicyEngine", "defense-in-depth"),
     2: ("默认链路未启用", "MCP stdio"),
     3: ("无认证", "无 TLS", "回环绑定不等于可信"),
-    4: ("Authorization: Bearer", "fail-closed", "浏览器 WebSocket API"),
+    4: ("Authorization: Bearer", "fail-closed", "浏览器 WebSocket API", "WS_LAN_NO_AUTH"),
     5: ("/api/cli/ws", "/api/notifications/ws", "没有对外模式"),
     6: ("open-items.md",),
 }
@@ -54,7 +54,7 @@ AGENTS_ELEMENT_PHRASES: dict[int, tuple[str, ...]] = {
     1: ("SafetyGuard", "PolicyEngine", "sandbox 后端"),
     2: ("Docker 后端默认未启用", "MCP stdio", "D53-1"),
     3: ("无认证", "无 TLS", "回环绑定不等于可信"),
-    4: ("Authorization: Bearer", "fail-closed", "浏览器 WebSocket API"),
+    4: ("Authorization: Bearer", "fail-closed", "浏览器 WebSocket API", "WS_LAN_NO_AUTH"),
     5: ("/api/cli/ws", "/api/notifications/ws", "没有对外模式"),
     6: ("open-items.md",),
 }
@@ -205,18 +205,17 @@ _SAFETY_SIDE_BOOL: tuple[tuple[str, bool], ...] = (
 
 # 有记录的产品默认（不是「安全侧」断言）：只要求仍是显式布尔，防止退化成 None / 三态。
 _DOCUMENTED_BOOL_DEFAULTS: tuple[str, ...] = (
-    # 对外 listener 的只读旁观：True 更严，但显式选择「默认 False = 可提交」，
-    # 属已记录的产品能力（见 docs/frame.md 4.17.1）；本守卫只钉「口径被静默改掉」。
-    "ws_external_readonly",
     # 回环主 listener 也强制 Bearer 认证：True 更严，但显式选择「默认关」——
     # 本机消费者（含终端旁路）不必带 token，开启后全部端点统一要 token（见 docs/frame.md 4.19 要素 3）。
     "ws_local_auth_enabled",
+    # 非回环主 listener 免 token（内网免认证模式）：**默认关才是安全侧**（关 = 非回环强制 token、缺 token
+    # 拒绝启动）；开启须绑私有地址字面量，属显式选择（见 docs/frame.md 4.19 要素 4）。
+    "ws_lan_no_auth",
 )
 
 # 显式映射表：谓词组 → 字段。反射到的字段必须全部命中此处，差集非空即红（不 skip）。
 _PREDICATE_GROUPS: dict[str, tuple[str, ...]] = {
     "loopback-host": ("http_host", "ws_host"),
-    "optional-bind": ("ws_external_host",),
     "safety-bool": tuple(field_name for field_name, _ in _SAFETY_SIDE_BOOL),
     "documented-bool": _DOCUMENTED_BOOL_DEFAULTS,
     "bounded-positive": (
@@ -235,7 +234,6 @@ _PREDICATE_GROUPS: dict[str, tuple[str, ...]] = {
         "http_port",
         "http_port_auto_find_attempts",
         "ws_port",
-        "ws_external_port",
     ),
     # 0 = 不限：`http_max_total_inflight` 见 docs/frame.md 4.18 D9（有记录的显式选择），
     # 其余三项（请求超时 / 内存 / CPU 秒数 / 进程数）同理——**不是**安全默认，故只断言 >= 0。
@@ -246,12 +244,7 @@ _PREDICATE_GROUPS: dict[str, tuple[str, ...]] = {
         "sandbox_cpu_seconds",
         "sandbox_nproc_limit",
     ),
-    "tls-pair": (
-        "ws_tls_cert_file",
-        "ws_tls_key_file",
-        "ws_external_tls_cert_file",
-        "ws_external_tls_key_file",
-    ),
+    "tls-pair": ("ws_tls_cert_file", "ws_tls_key_file"),
     "sandbox-mode": ("sandbox_mode",),
     "sandbox-backend": ("sandbox_backend",),
     "retention-days": ("sandbox_dir_retention_days",),
@@ -318,13 +311,16 @@ def test_listeners_bind_to_loopback_by_default(field_name: str) -> None:
     )
 
 
-@pytest.mark.parametrize("field_name", _PREDICATE_GROUPS["optional-bind"])
-def test_external_listener_is_unset_or_loopback_by_default(field_name: str) -> None:
-    """守「对外 listener 默认不启用」：`ws_external_host` 默认 None；回环值等价于未对外开放。"""
-    value = _default(field_name)
-    assert value is None or _is_loopback_or_local(value), (
-        f"Settings.{field_name} 默认值 {value!r}：对外 listener 默认必须是 None 或回环，非回环即等于默认对外暴露"
-    )
+def test_retired_external_listener_keys_stay_gone() -> None:
+    """Epic 72：第二 listener 的五个键退役后不得回到 ``Settings``（回来了就等于口径倒退）。"""
+    retired = {
+        "ws_external_host",
+        "ws_external_port",
+        "ws_external_readonly",
+        "ws_external_tls_cert_file",
+        "ws_external_tls_key_file",
+    }
+    assert not (retired & set(Settings.model_fields)), sorted(retired & set(Settings.model_fields))
 
 
 @pytest.mark.parametrize(

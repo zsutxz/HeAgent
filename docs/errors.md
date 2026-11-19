@@ -119,7 +119,7 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 | `config_conflict` | 409 | 配置文件在读取后被改动（指纹冲突） | 两处同时改同一个 `.env` | 重新加载页面拿最新值再提交；写前备份、写后回读是既有行为 |
 | `config_write_failed` | 500 | 写入失败 | 磁盘只读、权限不足、写后回读不一致 | 检查项目目录写权限；搜日志 `http event=console_write_failed` |
 | `confirm_required` | 400 | 该操作需要显式确认 | 破坏性操作（如删除项目）缺确认字段 | 请求体带 `confirm=true` 重发 |
-| `loopback_required` | 403 | 该端点只接受回环请求 | 从非回环地址访问了本机专用端点 | 换回环境，或改用对外 listener 的端点（见 `WS_EXTERNAL_*`） |
+| `loopback_required` | 403 | 该端点只接受回环请求 | 从非回环地址访问了本机专用端点（HTTP listener 恒只绑回环） | 换回本机环境，或用 WS 入口（`WS_HOST` + `WS_LAN_NO_AUTH` / `WS_AUTH_TOKEN`） |
 
 > 码到状态码的映射单源在 `network/http_server/pipeline.py` 的 `_CONSOLE_ERROR_STATUS`：未列出的码
 > 按 400 处理，枚举里不存在的码降级为 500。契约快照

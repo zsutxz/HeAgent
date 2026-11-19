@@ -196,23 +196,32 @@ WS_ENABLED=false    # 两个都 false = 零监听，交互模式仍可用
 WS_AUTH_TOKEN: <一长串随机字符>
 ```
 
-推荐形态是**保留本机主 listener、另开一个对外 listener**（终端旁路不丢）：
+WS 只有**一条** listener（Epic 72 起第二 listener 退役），身份按绑定地址 + `WS_LAN_NO_AUTH` 三档切：
+
+| 档 | 绑定 | 认证 | 典型用法 |
+|---|---|---|---|
+| `local` | 回环（默认） | 无 | 单机自用；终端旁路可用 |
+| `lan` | 私有 IPv4 + `WS_LAN_NO_AUTH=true` | **无** | 内网调试入口（明文直连，同网段可驱使代理） |
+| `external` | 其余非回环 | 强制 Bearer | 对外 / 跨网，token 只认 `~/.heagent/setting.md` |
 
 ```dotenv
-WS_HOST=127.0.0.1                  # 主 listener 留回环：免 token，终端旁路可用
-WS_EXTERNAL_HOST=192.168.2.226     # 对外 listener（非空即启用，必须非回环）
-WS_EXTERNAL_PORT=9301
+# 内网明文直连（第一步形态）：客户端不必带 token / 证书
+WS_HOST=192.168.2.226
+WS_LAN_NO_AUTH=true
+```
+
+```dotenv
+# 需要认证（第二步形态）：同一地址，不开免认证开关，配 token + TLS
+WS_HOST=192.168.2.226
 WS_TLS_CERT_FILE=.heagent/tls/cert.pem
 WS_TLS_KEY_FILE=.heagent/tls/key.pem    # cert + key 成对配齐才走 wss
 ```
 
-把主 listener 直接改绑 `WS_HOST=0.0.0.0` 也能对外，但整机升格为对外模式：终端旁路
-`/api/cli/ws` 会被跳过（日志 `ws event=cli_bypass_skipped`），本机客户端也要带 token。
-
+- `WS_LAN_NO_AUTH=true` 只接受**私有地址字面量**：`0.0.0.0` / 公网地址 / 主机名一律拒绝启动。
 - token **只认** `~/.heagent/setting.md`；项目 `.env` 写 `WS_AUTH_TOKEN` 不生效并告警。
-- 缺 token ⇒ 拒绝启动（fail-closed），不会降级成「无认证对外」。
-- 端点可见性：对外 listener 恒**不注册** CLI 旁路 `/api/cli/ws`；通知流 `/api/notifications/ws`
-  在对外 listener 上同样可见，但只在 `CRON_PUSH_ENABLED=true` 建起中枢时才存在。
+- 非回环且未开免认证 ⇒ 缺 token 拒绝启动（fail-closed），不会降级成「无认证对外」。
+- 端点可见性：CLI 旁路 `/api/cli/ws` **只挂回环** listener；通知流 `/api/notifications/ws`
+  在 `lan` / `external` 上同样可见，但只在 `CRON_PUSH_ENABLED=true` 建起中枢时才存在。
 
 ## 二、使用
 
@@ -266,8 +275,9 @@ heagent doctor --json     # 机器读：JSON 数组，每项含 code/severity/me
 
 共 **25 个诊断码**（11 组检查）：无凭据、`ACTIVE_PROVIDER` 指向不存在或无凭据的条目、
 `OLLAMA_ENABLED` 缺模型、`MAX_OUTPUT_TOKENS` 不小于 `MAX_CONTEXT_TOKENS`、`ROUTING_POOLS`
-非法 JSON 或池条目无凭据、`.env` 缺失 / BOM / 重复键 / 空值键 / 未知键、WS 主/对外 listener
-缺 token、`WS_LOCAL_AUTH_ENABLED` 缺 token、`WS_EXTERNAL_HOST` 取回环或与主 listener 冲突、
+非法 JSON 或池条目无凭据、`.env` 缺失 / BOM / 重复键 / 空值键 / 未知键、非回环 listener
+缺 token、`WS_LOCAL_AUTH_ENABLED` 缺 token、`WS_LAN_NO_AUTH` 组合非法（非私有地址 / 与
+`WS_LOCAL_AUTH_ENABLED` 同开 / 绑回环）、退役的 `WS_EXTERNAL_*` 残留键（INFO）、
 TLS 半配、端口已被监听、`APPROVAL_TOOLS` 含未注册工具、`SAFETY_BLOCKED_TOOLS` 拦了 `shell`、
 docker 后端探不到 daemon、技能双根同名冲突。
 
@@ -391,7 +401,7 @@ heagent http-server        # 只起网页服务
 heagent http-server --port 9100 --ws-port 9201
 ```
 
-- 默认 HTTP `127.0.0.1:9101`、WS `127.0.0.1:9201`、对外 WS `9301`。
+- 默认 HTTP `127.0.0.1:9101`、WS `127.0.0.1:9201`（单 listener；非回环入口走 `lan` / `external`）。
 - 端口被占时会在 `preferred … preferred+9` 内顺延，以日志 `ws event=started address=…` 为准。
 - 网页控制台的配置写入通道默认**关**（`HTTP_CONSOLE_WRITE_ENABLED=false`）：开启后任何能连上该端口
   的人都能改项目 `.env`，属显式危险操作。
@@ -416,9 +426,9 @@ python -m heagent "…"       # 与 heagent 等价的入口，用来判断是 PA
 
 1. `provider_credentials` —— 一个凭据都没有（`OLLAMA_ENABLED=true` 时改判 `OLLAMA_MODEL` 是否为空）
 2. `ollama_model` —— 启用了 Ollama 但模型名为空
-3. `ws_auth_token` —— WS 启用且会落进对外/强制认证模式，但 `~/.heagent/setting.md` 里没有 `WS_AUTH_TOKEN`
-4. `ws_external_binding` —— `WS_EXTERNAL_HOST` 取了回环，或与 `WS_HOST` 同时非回环
-5. `ws_tls_pair` —— TLS 只配了一半（对外那对只在对外 listener 启用时才判）
+3. `ws_auth_token` —— WS 启用且会落进非回环强制认证模式，但 `~/.heagent/setting.md` 里没有 `WS_AUTH_TOKEN`
+4. `ws_lan_no_auth` —— `WS_LAN_NO_AUTH=true` 但绑的不是私有地址字面量 / 与 `WS_LOCAL_AUTH_ENABLED` 同开 / 绑回环
+5. `ws_tls_pair` —— TLS 只配了一半
 6. `sandbox_docker` —— `SANDBOX_BACKEND=docker` 但镜像名为空 / digest 不是 repo digest
 
 
@@ -492,20 +502,23 @@ token，仍回同一个 1008），先查客户端 token 来源与重连风暴。
 
 ### 把 `WS_HOST` 设成 `0.0.0.0` 后启动失败或终端旁路没了
 
-`0.0.0.0` 不算回环 ⇒ 主 listener 会落进对外模式：强制 Bearer、缺 token 直接拒绝启动，且
-CLI 旁路 `/api/cli/ws` 被跳过。
+`0.0.0.0` 不算回环也不算私有地址字面量 ⇒ 两条路都不通：不开 `WS_LAN_NO_AUTH` 会落进
+`external` 档（强制 Bearer、缺 token 直接拒绝启动）；开了则因为「通配不是私有地址」拒绝启动。
+两种情况 CLI 旁路 `/api/cli/ws` 都不会挂。
 
 ```dotenv
-WS_HOST=127.0.0.1    # 保住终端旁路：主 listener 回环
-# 确实要对外就另开一个 listener（见「配置」栏「WS 对外模式怎么配 token 与 TLS？」）
-WS_EXTERNAL_HOST=192.168.2.226
+WS_HOST=127.0.0.1        # 保住终端旁路：listener 回环（本地模式）
+# 确实要局域网直连就绑具体网卡地址（不要 0.0.0.0）
+# WS_HOST=192.168.2.226
+# WS_LAN_NO_AUTH=true
 ```
 
 ```bash
-grep -n "cli_bypass_skipped\|reason=external_listener" logs/heagent-*.log
+grep -n "cli_bypass_skipped" logs/heagent-*.log
 ```
 
-见到 `ws event=cli_bypass_skipped reason=external_listener host=0.0.0.0` 即这条，不是故障。
+见到 `ws event=cli_bypass_skipped reason=non_loopback_listener listener=lan host=192.168.2.226`
+即这条，不是故障——旁路内容包含终端里尚未提交的输入，刻意不外溢。
 
 ### docker 沙箱不起作用 / 启动时降级
 
