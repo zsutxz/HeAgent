@@ -212,3 +212,45 @@ async def test_result_without_start_is_ignored() -> None:
     await tracker.aclose()
     assert stream.getvalue() == ""
     assert tracker.reported_lines == 0
+
+
+def test_line_fits_terminal_width_and_keeps_elapsed_suffix() -> None:
+    """裁剪只能吃掉标签：毫秒/秒表等后缀必须完整保留（否则进度行失去意义）。"""
+    tracker = ToolProgress(enabled=False, stream=io.StringIO(), columns=40)
+    line = tracker._line("shell → " + "y" * 100, " 3.2s]")
+    assert len(line) == 40
+    assert line.startswith("[calling shell → y")
+    assert line.endswith(" 3.2s]")
+    assert "…" in line
+
+
+def test_line_stays_bounded_even_when_suffix_alone_overflows() -> None:
+    """后缀本身比终端还宽时仍不超宽（宁可只留省略号，也不留下会折行的残影）。"""
+    tracker = ToolProgress(enabled=False, stream=io.StringIO(), columns=10)
+    line = tracker._line("shell → " + "z" * 50, " done in 3.2s · " + "9" * 60 + "]")
+    assert len(line) <= max(10, 24)
+    assert line.endswith("…")
+
+
+async def test_long_command_progress_is_single_row_per_frame() -> None:
+    """长 shell 命令的每一帧都不超终端宽度：``\\r`` 才能真的覆盖同一行，不再堆成重复残片。"""
+    stream = _FakeStream(tty=True)
+    clock = _Clock()
+    tracker = ToolProgress(enabled=True, stream=stream, min_seconds=0.01, refresh_seconds=0.01, clock=clock, columns=60)
+
+    tracker.on_event(_call("shell", "x" * 300))
+    await asyncio.sleep(0.06)
+    frames = [frame for frame in stream.getvalue().split("\r") if frame]
+    assert frames  # 已刷新过至少一帧
+    assert all(len(frame) <= 60 for frame in frames)
+    assert frames[-1].startswith("[calling shell → x")
+    assert frames[-1].endswith("0.0s]")
+    assert "…" in frames[-1]
+
+    clock.now = 4.2
+    tracker.on_event(_result())
+    await asyncio.sleep(0)
+    final = stream.getvalue().rsplit("\r", 1)[-1].rstrip("\n")
+    assert len(final) <= 60
+    assert final.endswith("done in 4.2s]")
+    await tracker.aclose()
