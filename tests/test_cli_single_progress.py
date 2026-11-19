@@ -3,7 +3,8 @@
 票面 verify 的主场景：交互模式已经有的「超 3 秒出耗时行 + 大文件进度」，单次模式此前完全没有
 （非流式路径不发 ``StreamEvent``）。本文件钉死三件事：
 
-1. **阈值语义**：<3 秒零输出、>3 秒出耗时行（耗时段由注入的假时钟决定，不用真等 3 秒）；
+1. **阈值语义**：秒表行只给 ≥3 秒（``TOOL_PROGRESS_MIN_SECONDS``），完成行（``done in``）恒写不限
+   时长（耗时段由注入的假时钟决定，不用真等 3 秒）；
 2. **静默边界**：``--json`` / 非 tty / ``ANNOUNCE_PROGRESS=false`` 三种情形一个字节都不写；
 3. **收尾无残留**：作用域退出后引擎总线上的订阅者回到基线、无遗留 asyncio 任务。
 
@@ -106,8 +107,8 @@ def engine() -> _FakeEngine:
     return _FakeEngine()
 
 
-async def test_tool_below_threshold_prints_nothing(engine: _FakeEngine) -> None:
-    """3 秒以内的工具在单次模式下不产生任何进度输出（阈值是唯一的噪声闸门）。"""
+async def test_tool_below_threshold_writes_only_finish_line(engine: _FakeEngine) -> None:
+    """3 秒以内的工具没有秒表行，完成行恒写；同名两次调用各得一条（按计数配对）。"""
     stream = _FakeStream()
     clock = _Clock()
     tracker = _tracker(stream, clock)  # 阈值 = 生产常量 3.0s，假时钟走 2.9s
@@ -121,8 +122,10 @@ async def test_tool_below_threshold_prints_nothing(engine: _FakeEngine) -> None:
     await asyncio.sleep(0)
     await tracker.aclose()
 
-    assert stream.getvalue() == ""
-    assert tracker.reported_lines == 0
+    out = stream.getvalue()
+    assert out.count("done in 2.9s") == 2
+    assert "\r" not in out  # <3s：无秒表行、无原地刷新
+    assert tracker.reported_lines == 2
     assert tracker.task is None
 
 

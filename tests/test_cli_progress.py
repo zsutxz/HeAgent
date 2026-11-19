@@ -80,20 +80,21 @@ def test_label_comes_from_display_and_ignores_non_tool_events() -> None:
     assert tool_progress_label(StreamEvent(type="done", final_answer="ok")) is None
 
 
-async def test_tool_below_threshold_prints_nothing() -> None:
-    """<3 秒的工具不显示任何额外行，也不产生刷新任务。"""
+async def test_tool_below_threshold_writes_only_finish_line() -> None:
+    """<3 秒的工具没有秒表行与刷新任务，但完成行恒写。"""
     stream = _FakeStream(tty=True)
     clock = _Clock()
     tracker = _tracker(stream, clock, min_seconds=0.5)
 
     tracker.on_event(_call())
-    await asyncio.sleep(0.05)  # 真实耗时远短于阈值 ⇒ 刷新点尚未到达
+    await asyncio.sleep(0.05)  # 真实耗时远短于阈值 ⇒ 秒表刷新点尚未到达
     assert stream.getvalue() == ""
     assert tracker.reported_lines == 0
 
-    tracker.on_event(_result())  # 假时钟耗时仍为 0 < 阈值 ⇒ 连收尾摘要也不写
+    tracker.on_event(_result())  # 假时钟耗时仍为 0 < 阈值 ⇒ 无秒表行，完成行照写
     await asyncio.sleep(0)
-    assert stream.getvalue() == ""
+    assert "[calling shell → pytest -q done in 0.0s]" in stream.getvalue()
+    assert tracker.reported_lines == 1
     assert tracker.task is None
     await tracker.aclose()
 

@@ -3,8 +3,7 @@
 两个消费者共用本模块：
 
 - :class:`ToolProgress` —— 消费 ``StreamEvent``，对**超过 ``TOOL_PROGRESS_MIN_SECONDS``** 的工具
-  执行原地刷新一行耗时提示（``\\r`` 重写，不用 ANSI 光标序列）。未越阈值时**不产生任何任务与
-  输出**：这是「不影响性能」的结构保证，而非采样结论。
+  执行原地刷新一行耗时提示（``\\r`` 重写，不用 ANSI 光标序列）。**完成行（``done in``）恒写、不限时长**；未越阈值时**不产生刷新任务**：这是「不影响性能」的结构保证，而非采样结论。
 - :class:`FileProgressBridge` / :func:`format_file_progress` —— 接收
   ``tools/builtins/file.py`` 分块上报的 ``(已处理字节, 计划总量字节)``，渲染
   「已处理 / 总量 / 百分比 / 预计剩余时间」，由 :class:`ToolProgress` 拼到同一行行尾。
@@ -37,7 +36,7 @@ if TYPE_CHECKING:
 
     from heagent.engine.observability import EngineEvent
 
-#: 工具耗时阈值（**秒**）：低于此值的工具执行不显示任何进度行（避免噪声）。
+#: 秒表行阈值（**秒**）：低于此值不起原地刷新任务；完成行（``done in``）不受此限，恒打印。
 TOOL_PROGRESS_MIN_SECONDS: float = 3.0
 #: 进度行刷新间隔（**秒**）：限频即性能上界，一行最多每 0.5 秒重写一次。
 PROGRESS_REFRESH_SECONDS: float = 0.5
@@ -133,7 +132,7 @@ class ToolProgress:
     """工具执行的实时进度行（惰性任务 + 限频刷新 + 原地重写）。
 
     ``enabled=None`` 时按 ``ANNOUNCE_PROGRESS`` 与 ``stream.isatty()`` 推导；``enabled=True``
-    但流不是终端 ⇒ **降级模式**：不起任务、不刷新中间行，仅在工具耗时越过阈值时写一行收尾摘要。
+    但流不是终端 ⇒ **降级模式**：不起任务、不刷新中间行，仅在工具完成时写一行完成摘要。
     每一行都按终端宽度裁成单行（:meth:`_line`）：``\\r`` 只覆盖一行，超宽折行会留下残影。
     """
 
@@ -183,7 +182,7 @@ class ToolProgress:
             if record is None:
                 return
             elapsed = max(0.0, self._clock() - record.started)
-            if self._enabled and elapsed >= self._min:
+            if self._enabled:
                 self._finish_line(record, elapsed)
             if not self._active:
                 self._cancel_task()
