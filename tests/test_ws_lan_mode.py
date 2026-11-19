@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import socket
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -149,6 +150,50 @@ def test_lan_mode_rejects_invalid_combinations(kwargs: dict[str, Any], needle: s
     with pytest.raises(ValidationError) as exc:
         WsServerConfig(**kwargs)
     assert needle in str(exc.value), str(exc.value)
+
+
+TLS_CERT = str(Path(__file__).resolve().parent / "fixtures" / "ws_tls" / "cert.pem")
+TLS_KEY = str(Path(__file__).resolve().parent / "fixtures" / "ws_tls" / "key.pem")
+
+
+def test_tls_and_lan_no_auth_are_mutually_exclusive() -> None:
+    """第二步：加密了却不认证买不到任何东西 ⇒ ``wss`` + ``WS_LAN_NO_AUTH`` 构造期拒绝。"""
+    with pytest.raises(ValidationError) as exc:
+        WsServerConfig(
+            host=PRIVATE_HOST,
+            lan_no_auth=True,
+            tls_cert_file=TLS_CERT,
+            tls_key_file=TLS_KEY,
+        )
+    message = str(exc.value)
+    assert "WS_LAN_NO_AUTH" in message
+    assert "WS_TLS_CERT_FILE" in message and "WS_TLS_KEY_FILE" in message
+
+
+def test_assembly_layer_turns_the_tls_conflict_into_a_wscfg_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """命令级错误而不是 traceback：装配层把同一条拒绝翻成 ``WsConfigError``。"""
+    from heagent.cli.http_config import build_ws_server_config
+
+    monkeypatch.setenv("WS_HOST", PRIVATE_HOST)
+    monkeypatch.setenv("WS_LAN_NO_AUTH", "true")
+    monkeypatch.setenv("WS_TLS_CERT_FILE", TLS_CERT)
+    monkeypatch.setenv("WS_TLS_KEY_FILE", TLS_KEY)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    with pytest.raises(WsConfigError) as exc:
+        build_ws_server_config(settings)
+    assert "WS_LAN_NO_AUTH" in str(exc.value)
+
+
+def test_preflight_flags_the_tls_conflict_before_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """启动前就看得见：配置体检把同一组合报成 ``ws_lan_no_auth`` 问题（点名两族键）。"""
+    monkeypatch.setenv("WS_HOST", PRIVATE_HOST)
+    monkeypatch.setenv("WS_LAN_NO_AUTH", "true")
+    monkeypatch.setenv("WS_TLS_CERT_FILE", TLS_CERT)
+    monkeypatch.setenv("WS_TLS_KEY_FILE", TLS_KEY)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    issues = {issue.check: issue.message for issue in _validate(settings).issues}
+    assert "WS_LAN_NO_AUTH=true cannot be combined with WS TLS" in issues["ws_lan_no_auth"]
 
 
 def test_assembly_layer_turns_the_refusal_into_a_wscfg_error(monkeypatch: pytest.MonkeyPatch) -> None:

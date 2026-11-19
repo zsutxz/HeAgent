@@ -234,6 +234,25 @@ CLI/启动期仍是自由文本，按下面的原文片段检索。码的语义�
 用代码反射逐条校验（`heagent <sub>` 对 `console.main.commands`、`/<name>` 对
 `_build_slash_registry()` 的注册表、`--flag` 对该 click 命令的参数表），写错命令名测试即红。
 
+## 四、客户端 TLS 稳定错误码（`aihome-client`）
+
+服务端只保证「wss 起得来、token 生效」；**信任判定全在客户端**。客户端信任锚是服务端身份密钥
+公钥的 **SPKI-SHA256**（`heagent tls fingerprint --format pin` 输出的 `sha256/<base64>`），
+内网地址会漂移，因此**不校主机名**。下面三个码由客户端本地判定，服务端不产生：
+
+| 错误码 | 判据 | UI 要点 |
+| --- | --- | --- |
+| `pin_mismatch` | 叶证书公钥摘要不在 pin 集合 | 同时显示「期望 / 实际」两个短指纹；服务端换过身份密钥就走双 pin 过渡 |
+| `cert_expired` | `notAfter < now` | 显示到期日，并提示服务端执行 `heagent tls issue`（pin 不变） |
+| `cert_unreadable` | 链为空 / 解析失败 / 握手没拿到证书 | 先确认端点与端口指向的是 WS listener（wss），而不是 HTTP 端口 |
+
+三条硬约束（写进客户端代码，不是文档建议）：
+
+- pin 集合最多 **2** 个（old + new），超过即配置错误；轮换时序见 `heagent tls rotate-key` 的输出。
+- 自签证书过不了系统 trust store ⇒ 必须自定义 `X509TrustManager` 只认 pin；只加
+  `CertificatePinner` 会先死在「证书不受信」上。
+- 服务端**不提供**「跳过校验」开关：服务端不参与客户端的信任决策。
+
 ## 关键词跳转表
 
 | 你搜的关键词 | 去哪条 |

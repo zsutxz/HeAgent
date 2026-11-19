@@ -35,6 +35,7 @@ CERT = str(FIXTURES / "cert.pem")
 KEY = str(FIXTURES / "key.pem")
 OTHER_KEY = str(FIXTURES / "other-key.pem")
 NO_SAN_CERT = str(FIXTURES / "no-san-cert.pem")
+NO_SAN_KEY = str(FIXTURES / "no-san-key.pem")
 
 #: 夹具叶证书的到期时刻（固定材料 ⇒ 常量，见 ``tests/test_tls_identity.py`` 的 EXPECTED_NOT_AFTER）。
 NOT_AFTER = cert_not_after(CERT)
@@ -130,14 +131,15 @@ class TestExpiry:
 
 class TestSanCoverage:
     def test_uncovered_bind_address_warns_with_the_resign_command(self, caplog: pytest.LogCaptureFixture) -> None:
-        settings = _tls_settings(ws_host="192.168.2.99", ws_lan_no_auth=True)
+        """装配点确实把 SAN 缺失写成 WARNING（用无 SAN 的夹具证书走回环，避开认证档的 token 依赖）。"""
+        settings = _tls_settings(ws_host="127.0.0.1", ws_tls_cert_file=NO_SAN_CERT, ws_tls_key_file=NO_SAN_KEY)
         with caplog.at_level(logging.WARNING, logger=_LOGGER):
             servers, _hub = build_ws_servers(settings)
         # 不阻断启动：内网地址漂移是常态，只能告警 + 给命令。
         assert len(servers) == 1
         records = _tls_identity_records(caplog)
         assert len(records) == 1
-        assert "--san 192.168.2.99" in records[0]
+        assert "--san 127.0.0.1" in records[0]
 
     def test_covered_addresses_are_silent(self) -> None:
         assert _check_tls_identity(_tls_settings(), "127.0.0.1") == []

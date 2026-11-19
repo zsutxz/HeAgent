@@ -3,7 +3,7 @@ title: 'Story 73.5 wss listener + 恢复 Bearer token + 明文回收'
 type: feature
 ticket: 5
 created: '2026-11-19'
-status: ready-for-dev
+status: done
 baseline_revision: '7cc8baba'
 route: full
 route_source: auto

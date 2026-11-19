@@ -227,8 +227,14 @@ def _gate_ws_lan_no_auth(settings: Settings) -> bool:
 
 
 def _judge_ws_lan_no_auth(settings: Settings) -> str | None:
-    """``WS_LAN_NO_AUTH`` 的三条准入：私有地址字面量、与本地强制认证互斥、回环上无意义。"""
+    """``WS_LAN_NO_AUTH`` 的准入：不得与 TLS 同开、私有地址字面量、与本地强制认证互斥、回环上无意义。"""
     host = settings.ws_host
+    if settings.ws_tls_cert_file and settings.ws_tls_key_file:
+        return (
+            "Error: WS_LAN_NO_AUTH=true cannot be combined with WS TLS (WS_TLS_CERT_FILE + "
+            "WS_TLS_KEY_FILE); an encrypted listener must also authenticate clients. Set "
+            "WS_LAN_NO_AUTH=false and use WS_AUTH_TOKEN, or clear both WS_TLS_* keys."
+        )
     if settings.ws_local_auth_enabled:
         return (
             "Error: WS_LAN_NO_AUTH=true and WS_LOCAL_AUTH_ENABLED=true are mutually exclusive; "
@@ -318,7 +324,14 @@ REQUIRED_CHECKS: tuple[RequiredCheck, ...] = (
     ),
     RequiredCheck(
         name="ws_lan_no_auth",
-        covers=("ws_enabled", "ws_host", "ws_lan_no_auth", "ws_local_auth_enabled"),
+        covers=(
+            "ws_enabled",
+            "ws_host",
+            "ws_lan_no_auth",
+            "ws_local_auth_enabled",
+            "ws_tls_cert_file",
+            "ws_tls_key_file",
+        ),
         gate=_gate_ws_lan_no_auth,
         judge=_judge_ws_lan_no_auth,
         options=(

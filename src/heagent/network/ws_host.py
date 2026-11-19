@@ -13,7 +13,8 @@ WS listener 没有健康端点可打，就绪判据改为**真实 TCP 连通**�
 绑定地址与 ``WS_LAN_NO_AUTH`` 切三档（D5 + 内网免认证修订）：回环 = ``local``（Origin 防线、无认证，
 Epic 54/55 语义逐字保持）；非回环 + ``WS_LAN_NO_AUTH`` = ``lan``（同样无认证、Origin 防线**保留**、只接受
 私有地址字面量、每次启动一条 WARNING）；其余非回环 = ``external``（Bearer token 强制、token 缺失拒绝
-启动、Origin 不适用）。TLS 可选（cert/key 配齐即 wss）。
+启动、Origin 不适用）。TLS 可选（cert/key 配齐即 wss），但 **wss 必须与认证同开**：加密了却不认证
+买不到任何东西，`wss` + `WS_LAN_NO_AUTH=true` 在构造期就拒绝。
 认证的纯逻辑面在 ``ws_auth.py``，本模块只负责装配与生命周期。
 """
 
@@ -176,6 +177,13 @@ class WsServerConfig(BaseModel):
         与 ``local_auth`` 互斥、回环绑定上无意义）。TLS 面：cert/key 成对，半配拒绝；
         两份材料都读得出时还要求它们真的是同一对（:func:`_require_matching_pair`）。
         """
+        if self.tls_enabled and self.lan_no_auth:
+            raise ValueError(
+                "WS_LAN_NO_AUTH=true cannot be combined with WS TLS (WS_TLS_CERT_FILE + WS_TLS_KEY_FILE): "
+                "an encrypted listener must also authenticate clients, otherwise transport encryption "
+                "buys nothing. Set WS_LAN_NO_AUTH=false and give clients WS_AUTH_TOKEN, or clear both "
+                "WS_TLS_* keys to keep the plaintext LAN debug entry."
+            )
         if self.lan_no_auth:
             if self.local_auth:
                 raise ValueError(
@@ -417,10 +425,11 @@ class WsServer:
         safe_log(
             logger,
             logging.INFO,
-            "ws event=started address=%s listener=%s tls=%s",
+            "ws event=started address=%s listener=%s tls=%s auth=%s",
             self.address,
             self.config.mode,
             "wss" if self.config.tls_enabled else "ws",
+            "token" if self.config.requires_auth else "none",
         )
         if self.config.mode == "external" and not self.config.tls_enabled:
             # 对外明文跑必须日志可见（与 exposure 告警是两条独立信息：一条说「谁能连」，一条说「没加密」）。

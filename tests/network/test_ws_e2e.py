@@ -375,6 +375,48 @@ async def test_tls_listener_accepts_wss_and_rejects_plaintext() -> None:
 
 
 @pytest.mark.asyncio
+async def test_wss_also_requires_the_token() -> None:
+    """第二步：加密不等于认证——``wss`` 上无 token 仍 403，带对 token 才 101。"""
+    import ssl
+
+    executor = _Executor()
+    server, service, task = await _start_external(executor, tls=True)
+    record = await service.start_run("answer")
+    await executor.started.wait()
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    uri = f"wss://127.0.0.1:{server.port}/api/runs/{record.run_id}/ws"
+    try:
+        for headers in ([], [("authorization", "Bearer wrong")]):
+            with pytest.raises(websockets.exceptions.InvalidStatus) as rejected:
+                async with websockets.connect(uri, ssl=context, additional_headers=headers):
+                    pass
+            assert rejected.value.response.status_code == 403
+    finally:
+        executor.release.set()
+        await _stop(server, task)
+
+
+@pytest.mark.asyncio
+async def test_started_log_states_tls_and_auth(caplog: pytest.LogCaptureFixture) -> None:
+    """启动公告必须一眼看出「加密了没有、要不要 token」：``tls=wss auth=token``。"""
+    import logging
+
+    caplog.set_level(logging.INFO, logger="heagent.network.ws_host")
+    executor = _Executor()
+    server, _service, task = await _start_external(executor, tls=True)
+    try:
+        started = [record.getMessage() for record in caplog.records if "event=started" in record.getMessage()]
+        assert len(started) == 1, started
+        assert "tls=wss" in started[0]
+        assert "auth=token" in started[0]
+    finally:
+        executor.release.set()
+        await _stop(server, task)
+
+
+@pytest.mark.asyncio
 async def test_external_plaintext_and_ignored_token_are_logged(caplog: pytest.LogCaptureFixture) -> None:
     """D4/D5 的可观测性：对外明文必须有 WARNING；本地模式配了 token 必须说明它不生效。"""
     import logging
