@@ -33,7 +33,7 @@ heagent http-server                    # HTTP 127.0.0.1:9101 + WS 127.0.0.1:9201
 powershell scripts/start_heagent.ps1   # Windows 推荐：cwd 钉在仓库根再启动
 # ⚠ 必须在仓库根启动：workspace_root = 进程 cwd，从盘根启动会把整盘挂进容器沙箱
 
-mkdocs build --strict                  # CI 文档门：动 docs/ 后本地先 strict 构建（mkdocs 按需装）
+mkdocs build --strict                  # CI 文档门：动 docs/ 后本地先 strict 构建（按需 pip install mkdocs "mkdocstrings[python]"）
 ```
 
 ## 架构骨架

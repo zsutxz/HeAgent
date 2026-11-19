@@ -14,6 +14,14 @@
 
 > 下一个版本的改动先写这里；发布时整体落成 `## [x.y.z] - YYYY-MM-DD` 节（版本两处真源同步 bump）。
 
+### Added
+
+- **API 参考站点页**（Epic 68 / 台账 A64）：`docs/api/` 13 页（索引 + 12 个核心包）由 `mkdocstrings` 从
+  docstring 自动生成（`show_submodules` 展开包内公开子模块，`filters: ["!^_"]` 隐藏私有成员），
+  `mkdocs.yml` 的 nav 增「API 参考」节。构建期依赖不进依赖树，安装口径为
+  `pip install mkdocs "mkdocstrings[python]"`（`scripts/build_docs.py` 预检并给提示，CI 的 docs step 与
+  `docs.yml` 同步）；判据 `tests/test_api_docs_pages.py`（包页集合 == 非入口层包 + nav 登记 + 索引可达）。
+
 ## [0.10.0] - 2026-11-18
 
 ### Changed（破坏性）

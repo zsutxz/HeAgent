@@ -56,7 +56,7 @@
 - [设计说明](design.md)：项目定位、设计动机、非目标和成熟度判断。
 - [迭代指南](logs/iteration.md)：如何继续迭代，以及已完成周期的历史索引（日志文档，住 docs/logs/）。
 - [质量门禁脚本](../scripts/quality_gate.py)：冒烟、回归与覆盖率、lint、format 和类型检查的执行入口。
-- [文档站点构建](../scripts/build_docs.py)：`python scripts/build_docs.py` 一条命令跑 `mkdocs build --strict`（产物落 `.heagent/tmp/mkdocs-site`，页脚版本取自 `heagent.__version__`）。
+- [文档站点构建](../scripts/build_docs.py)：`python scripts/build_docs.py` 一条命令跑 `mkdocs build --strict`（产物落 `.heagent/tmp/mkdocs-site`，页脚版本取自 `heagent.__version__`）；`docs/api/` 的 API 参考由 `mkdocstrings` 从 docstring 生成（构建期依赖：`pip install mkdocs "mkdocstrings[python]"`）。
 
 ## 性能基准
 

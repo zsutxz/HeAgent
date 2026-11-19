@@ -35,8 +35,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 INIT_MODULE = REPO_ROOT / "src" / "heagent" / "__init__.py"
 MKDOCS_CONFIG = REPO_ROOT / "mkdocs.yml"
 
-#: 缺 mkdocs 时给出的**可执行**提示（mkdocs 是构建期工具，刻意不在依赖树里）。
-INSTALL_HINT = "pip install mkdocs"
+#: 缺构建依赖时给出的**可执行**提示（mkdocs / mkdocstrings 是构建期工具，刻意不在依赖树里）。
+INSTALL_HINT = 'pip install mkdocs "mkdocstrings[python]"'
+
+#: 构建期必需的工具模块：mkdocs 本体 + API 参考用的 mkdocstrings python handler。
+REQUIRED_MODULES = ("mkdocs", "mkdocstrings", "mkdocstrings_handlers.python")
 
 #: `site_dir` 是 `mkdocs.yml` 里的裸标量；只取该键字面值，不做完整 YAML 解析（`!ENV` 标签
 #: 会让 `SafeLoader` 报未知 tag，为一个路径引入自定义 loader 得不偿失）。
@@ -111,9 +114,10 @@ def main() -> int:
         print(f"{PREFIX} 读不到版本号或站点目录：{exc}", file=sys.stderr)
         return 2
 
-    if importlib.util.find_spec("mkdocs") is None:
+    missing = [name for name in REQUIRED_MODULES if importlib.util.find_spec(name) is None]
+    if missing:
         print(
-            f"{PREFIX} 缺少构建依赖 mkdocs（构建期工具，不在项目依赖树里）。\n  Try: {INSTALL_HINT}",
+            f"{PREFIX} 缺少构建依赖 {', '.join(missing)}（构建期工具，不在项目依赖树里）。\n  Try: {INSTALL_HINT}",
             file=sys.stderr,
         )
         return 2

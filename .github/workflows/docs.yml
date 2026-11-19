@@ -42,9 +42,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install mkdocs
-        # mkdocs 是构建期工具、不在依赖树里（`pyproject.toml` 亦然）；不必安装包本体
-        # ——版本号由 `scripts/build_docs.py` 用 AST 直接读 `src/heagent/__init__.py`。
-        run: pip install mkdocs
+        # mkdocs 与 mkdocstrings 都是构建期工具、不在依赖树里（`pyproject.toml` 亦然）；不必安装
+        # 包本体——版本号由 `scripts/build_docs.py` 用 AST 直接读 `src/heagent/__init__.py`。
+        # API 参考页需要 mkdocstrings 的 python handler（`docs/api/*.md` 只是 `:::` 壳）。
+        run: pip install mkdocs "mkdocstrings[python]"
 
       - name: Build docs (strict + version injected)
         # `--strict` 下未 ignore 的 warning 即失败（口径见 `mkdocs.yml` 的 `validation:`）；

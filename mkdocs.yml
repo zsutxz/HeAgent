@@ -21,6 +21,27 @@ theme:
   name: mkdocs
   locale: zh
 
+# API 参考由 docstring 自动生成（`mkdocstrings` 的 python handler + `show_submodules`）：
+# 每个 `docs/api/<包>.md` 只是 `::: heagent.<包>` 的壳，正文在源码 docstring 里 ⇒ API 文档与代码
+# 不存在「两份事实」。mkdocstrings 是**构建期工具**、不进依赖树（与 mkdocs 同档）：
+# `pip install mkdocs "mkdocstrings[python]"`，缺它时 `scripts/build_docs.py` 给安装提示。
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            # 只渲染公开成员（与 `tests/test_api_docstrings.py` 的「公开 API」口径一致）。
+            filters: ["!^_"]
+            # 本仓 docstring 是散文式 + 局部 `Args:` 段（mypy 之外唯一的说明面）。
+            docstring_style: google
+            # 不渲染源码（仓库读者直接看文件；站点读者要的是签名与说明）。
+            show_source: false
+            # 成员顺序按源码出现顺序，与阅读 `src/heagent/...` 的顺序一致。
+            members_order: source
+            show_root_heading: true
+            show_root_full_path: true
+
 nav:
   - 首页: README.md
   - 架构: frame.md
@@ -32,6 +53,20 @@ nav:
   - 性能调优: performance.md
   - 沙箱机制: sandbox.md
   - goal 工作流: goal-workflow.md
+  - API 参考:
+      - 索引: api/index.md
+      - heagent.agent: api/agent.md
+      - heagent.config: api/config.md
+      - heagent.context: api/context.md
+      - heagent.cron: api/cron.md
+      - heagent.engine: api/engine.md
+      - heagent.events: api/events.md
+      - heagent.memory: api/memory.md
+      - heagent.network: api/network.md
+      - heagent.providers: api/providers.md
+      - heagent.pub: api/pub.md
+      - heagent.skills: api/skills.md
+      - heagent.tools: api/tools.md
   - 附: bmad/bmad-architecture-SKILL.zh-CN.md
   - 附: bmad/learning_bmad.md
   - 附: claude-updater/latest.md

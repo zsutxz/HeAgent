@@ -170,7 +170,7 @@ WS 对外排障工具链（`scripts/`，细节见各脚本头注释）：`setup_
 
 ## 文档站与发版契约（块外手工区，2026-11-12 /init 核验补入）
 
-- **文档站**：`mkdocs.yml` 建站，CI 跑 `mkdocs build --strict`（mkdocs 是构建期工具、不在依赖树，按需 `pip install mkdocs`）；`--strict` = 未 ignore 的告警一律 fail，告警口径见 `mkdocs.yml` 注释。动 `docs/` 后本地先 strict 构建再提。
+- **文档站**：`mkdocs.yml` 建站，CI 跑 `mkdocs build --strict`（mkdocs 与 `mkdocstrings[python]` 是构建期工具、不在依赖树，按需 `pip install mkdocs "mkdocstrings[python]"`；`docs/api/` 的 API 参考页由 docstring 生成）；`--strict` = 未 ignore 的告警一律 fail，告警口径见 `mkdocs.yml` 注释。动 `docs/` 后本地先 strict 构建再提。
 - **发版契约**：版本真源唯一——`src/heagent/__init__.py` 的 `__version__` 必须与 `pyproject.toml` 一致且为纯 semver；`CHANGELOG.md` 必须保有 `## [Unreleased]` 节与当前版本条目（`## [x.y.z] - 日期` 格式）。以上由 `tests/test_release_workflow_contract.py` 钉死（另钉：release job 仅 tag/手动触发 + OIDC 发布、CI job 数量恒定）。发版 = 两处同步 bump + CHANGELOG 归节。
 
 ## BMAD v7 产物体系与读范围（块外手工区，2026-11-15 migration-1 后接线）
