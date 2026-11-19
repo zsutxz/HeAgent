@@ -3,7 +3,7 @@ title: 'Story 73.4 `/api/status` 暴露 TLS 身份面'
 type: feature
 ticket: 4
 created: '2026-11-19'
-status: ready-for-dev
+status: done
 baseline_revision: '7cc8baba'
 route: full
 route_source: auto

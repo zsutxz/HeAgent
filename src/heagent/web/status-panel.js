@@ -15,6 +15,10 @@
  * 比率渲染（两个项目各跑一个 run 时是 2 / 1，看起来像超卖）；徽标只报在途数，上限单独一行。
  *
  * 不可得即缺席：资源的 null 字段显示「不可用」而不是 0，`resource_source` 单独一行说明采样通路。
+ *
+ * TLS 身份面：listener 行只在 `tls.enabled` 时带 `TLS` 标记，紧跟一行 `wss · pin 短指纹 · 到期日`。
+ * 指纹与到期日由后端给值（前端只展示，绝不自算）；完整 SHA-256 与 SAN 不上面板 —— 排障要全量值就
+ * 在服务器上跑 `heagent tls fingerprint`（同一实现源，逐字一致）。
  */
 (() => {
   "use strict";
@@ -96,6 +100,18 @@
     );
   }
 
+  /** ISO 时间戳 → `YYYY-MM-DD`（到期只看那一天；形态不对就如实标不可用，不编日期）。 */
+  function dateOnly(value) {
+    if (typeof value !== "string" || value.length < 10) return UNAVAILABLE;
+    const day = value.slice(0, 10);
+    return day.charAt(4) === "-" && day.charAt(7) === "-" ? day : UNAVAILABLE;
+  }
+
+  /** TLS 身份行：`wss · pin 短指纹 · 到期日`（指纹由后端给值，前端绝不自算）。 */
+  function tlsRow(identity) {
+    return "wss · pin " + text(identity.short_fingerprint) + " · 到期 " + dateOnly(identity.not_after);
+  }
+
   function runRows(status) {
     const counts = status.run_status && typeof status.run_status === "object" ? status.run_status : {};
     const ws = status.ws_connections && typeof status.ws_connections === "object" ? status.ws_connections : {};
@@ -118,9 +134,13 @@
     const listeners = Array.isArray(status.listeners) ? status.listeners : [];
     for (const item of listeners) {
       if (!item || typeof item !== "object") continue;
+      const identity = item.tls && typeof item.tls === "object" ? item.tls : {};
       const parts = [text(item.kind) + " " + text(item.host) + ":" + num(item.port), text(item.mode)];
-      if (item.tls) parts.push("TLS");
+      if (identity.enabled) parts.push("TLS");
       rows.push([text(item.label), parts.join(" · ")]);
+      if (identity.enabled) {
+        rows.push(["TLS", tlsRow(identity)]);
+      }
     }
     rows.push(["沙箱后端", text(status.sandbox_backend)]);
     rows.push(["配置写入", status.config_write_enabled ? "允许" : "只读"]);

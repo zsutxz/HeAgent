@@ -50,6 +50,13 @@
     },
     {
       "bases": [
+        "RuntimeError"
+      ],
+      "module": "heagent.cli.tls_cmd",
+      "name": "TlsCommandError"
+    },
+    {
+      "bases": [
         "BaseModel"
       ],
       "module": "heagent.cli.wizard",
@@ -675,6 +682,13 @@
       ],
       "module": "heagent.network.http_protocol",
       "name": "StatusResponse"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "TlsIdentityInfo"
     },
     {
       "bases": [

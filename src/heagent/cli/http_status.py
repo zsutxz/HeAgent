@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from heagent.cron.jobs import JobStore
@@ -33,9 +34,11 @@ from heagent.network.http_protocol import (
     RoutingPoolInfo,
     RunStatusCounts,
     StatusResponse,
+    TlsIdentityInfo,
     WsConnectionCounts,
 )
 from heagent.network.proc_stats import read_process_stats
+from heagent.network.tls_identity import TlsIdentityError, certificate_info
 from heagent.pub.safe_logging import safe_log
 from heagent.pub.workspace import WorkspacePaths
 from heagent.skills.skill_store import SkillStore, default_skill_roots
@@ -154,11 +157,62 @@ def _deployment(
     )
 
 
-def _listener_infos(http_server: Any | None, ws_servers: Sequence[Any]) -> list[ListenerInfo]:
+class _TlsIdentityCache:
+    """按「材料路径 + mtime」缓存证书身份：状态端点可能每 5 秒被轮询一次，不能每次都读盘并解析。
+
+    失败同样入缓存（key 里的 mtime 缺失记 ``-1``）：材料不可读时只记**一次** WARNING，轮询不会把
+    日志刷满；材料被换掉（mtime 变）或文件出现，key 随之变化 ⇒ 下一次请求自动重试。
+    """
+
+    def __init__(self) -> None:
+        self._key: tuple[str, int] | None = None
+        self._info: TlsIdentityInfo = TlsIdentityInfo()
+
+    def info(self, cert_file: str) -> TlsIdentityInfo:
+        """材料没换就复用上次读数；换了（或首次）才读盘解析。"""
+        key = self._key_for(cert_file)
+        if key != self._key:
+            self._key, self._info = key, self._resolve(cert_file)
+        return self._info
+
+    @staticmethod
+    def _key_for(cert_file: str) -> tuple[str, int]:
+        try:
+            return (cert_file, Path(cert_file).stat().st_mtime_ns)
+        except OSError:
+            return (cert_file, -1)
+
+    @staticmethod
+    def _resolve(cert_file: str) -> TlsIdentityInfo:
+        """读一次身份；读不出来就降级为「未启用」，绝不把状态端点拖成 500。"""
+        try:
+            info = certificate_info(cert_file)
+        except (TlsIdentityError, OSError) as exc:
+            safe_log(
+                logger,
+                logging.WARNING,
+                "status event=tls_identity_unreadable cert=%s error=%s",
+                cert_file,
+                exc,
+            )
+            return TlsIdentityInfo()
+        return TlsIdentityInfo(
+            enabled=True,
+            spki_sha256=info.spki_sha256,
+            short_fingerprint=info.short_fingerprint,
+            not_after=info.not_after,
+            san=info.san,
+        )
+
+
+def _listener_infos(
+    http_server: Any | None, ws_servers: Sequence[Any], tls_cache: _TlsIdentityCache
+) -> list[ListenerInfo]:
     """已装配 listener 的事实列表：http 在前，ws 按装配顺序（主 listener 是第一条）。
 
     端口读**运行中的** listener（``port=0`` / 端口顺延后配置值不等于真实值）；HTTP listener 在本
-    产品里恒为明文（无 TLS 配置项），``tls`` 只对 WS 有意义。
+    产品里恒为明文（无 TLS 配置项），故其身份面恒为「未启用 + 四项 null」。WS 启用 TLS 时证书身份
+    由 :mod:`heagent.network.tls_identity` 解析，读数过 ``tls_cache``（材料不变就不重复读盘）。
     """
     infos: list[ListenerInfo] = []
     if http_server is not None:
@@ -170,11 +224,13 @@ def _listener_infos(http_server: Any | None, ws_servers: Sequence[Any]) -> list[
                 host=_clip(config.host, _MAX_HOST_CHARS),
                 port=int(http_server.port),
                 mode=ListenerMode(config.mode),
-                tls=False,
+                tls=TlsIdentityInfo(),
             )
         )
     for index, server in enumerate(ws_servers):
         config = server.config
+        # ``tls_enabled`` 本身就是「证书与私钥都配齐」的判定，故启用时证书路径必然存在。
+        identity = tls_cache.info(str(config.tls_cert_file)) if config.tls_enabled else TlsIdentityInfo()
         infos.append(
             ListenerInfo(
                 kind="ws",
@@ -182,7 +238,7 @@ def _listener_infos(http_server: Any | None, ws_servers: Sequence[Any]) -> list[
                 host=_clip(config.host, _MAX_HOST_CHARS),
                 port=int(server.port),
                 mode=ListenerMode(config.mode),
-                tls=bool(config.tls_enabled),
+                tls=identity,
             )
         )
     return infos
@@ -216,6 +272,8 @@ class HttpStatusSource:
         self._http_server: Any | None = None
         self._ws_servers: tuple[Any, ...] = ()
         self._workspace_root = workspace_root
+        # TLS 身份面的读数缓存：状态端点被轮询，材料不变就不该重复读盘解析。
+        self._tls_cache = _TlsIdentityCache()
         # provider 实例保留到运行期：``/provider`` 切换会改 ``SwitchableProvider.active``，装配期抄成
         # 字符串会让状态面板一直报启动时那个名字。
         self._provider = provider
@@ -271,7 +329,7 @@ class HttpStatusSource:
                 notifications=_connection_count(self._notification_hub),
             ),
             background_tasks=self._background_tasks(),
-            listeners=_listener_infos(self._http_server, self._ws_servers),
+            listeners=_listener_infos(self._http_server, self._ws_servers, self._tls_cache),
             sandbox_backend=self._sandbox_backend,
             config_write_enabled=self._config_write_enabled,
             active_provider=_provider_name(self._provider) or self._active_provider,

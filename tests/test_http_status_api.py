@@ -8,9 +8,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
+import shutil
 import time
 import contextlib
 import logging
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
@@ -21,9 +25,11 @@ pytest.importorskip("starlette")
 import httpx
 from datetime import UTC, datetime
 
+from click.testing import CliRunner
 from pydantic import SecretStr, ValidationError
 
 from heagent.cli.http_status import HttpStatusSource, bind_status_source
+from heagent.cli.tls_cmd import tls_cmd
 from heagent.config import Settings
 from heagent.network.cli_event_hub import CliEventHub
 from heagent.network.http_protocol import (
@@ -32,14 +38,17 @@ from heagent.network.http_protocol import (
     CronJobInfo,
     ErrorCodeCount,
     HttpErrorCode,
+    ListenerInfo,
     RequestMetricsSummary,
     RunOutcome,
     RunStatus,
     RunStatusCounts,
     StatusResponse,
+    TlsIdentityInfo,
     WsConnectionCounts,
 )
 from heagent.network.http_server import HttpRunService, HttpServerConfig, build_http_app
+from heagent.network.tls_identity import certificate_info
 from heagent.network.ws_host import WsServerConfig
 from heagent.network.notification_hub import NotificationHub
 
@@ -48,6 +57,12 @@ if TYPE_CHECKING:
 
 _VERSION = "9.9.9"
 _BASE_URL = "http://127.0.0.1:8766"
+
+# TLS 材料夹具（与 ``tests/test_tls_identity.py`` 同一份固定材料）：纯 stdlib 解析，无 openssl 也能跑。
+_TLS_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "tls"
+CERT = _TLS_FIXTURES / "cert.pem"
+#: 一张 CSR（不是证书）：用「文件在、内容不是证书」覆盖解析失败路径。
+NOT_A_CERT = _TLS_FIXTURES / "not-a-cert.pem"
 
 
 def _config(**overrides: Any) -> HttpServerConfig:
@@ -128,13 +143,21 @@ async def _client(source: Any, *, run_service: HttpRunService | None = None) -> 
         yield client
 
 
-def _ws_server(*, host: str = "127.0.0.1", port: int = 9201, tls: bool = False, hub: Any = None) -> Any:
+def _ws_server(
+    *,
+    host: str = "127.0.0.1",
+    port: int = 9201,
+    tls: bool = False,
+    tls_cert: Any = "c.pem",
+    hub: Any = None,
+) -> Any:
     """WS listener 替身：配置用**真实** ``WsServerConfig``（模式/TLS 判定不在这里复刻）。
 
     对外绑定是 fail-closed 的（缺 token 直接拒绝构造），所以替身一律带上 token —— 回环场景下
-    它不被使用，对外场景下它满足构造前提。
+    它不被使用，对外场景下它满足构造前提。``tls_cert`` 缺省是个**不存在**的路径：启用 TLS 却没给
+    材料即「身份读不出来」，那正是要覆盖的降级分支。
     """
-    extra: dict[str, Any] = {"tls_cert_file": "c.pem", "tls_key_file": "k.pem"} if tls else {}
+    extra: dict[str, Any] = {"tls_cert_file": str(tls_cert), "tls_key_file": "k.pem"} if tls else {}
     config = WsServerConfig(host=host, port=port, auth_token=SecretStr("token"), **extra)
     # 运行期端口刻意与配置值不同（真值是 ``port=0`` 绑定后才有的）：把两者写成同一个数会让
     # 「读运行中的 listener」与「抄配置」这对实现永远不可区分。
@@ -323,13 +346,14 @@ class TestDeployment:
         assert [item["label"] for item in payload["listeners"]] == ["http", "ws-primary"]
 
     async def test_external_listener_reports_mode_and_tls(self) -> None:
-        source = _deployed(ws_servers=(_ws_server(), _ws_server(host="0.0.0.0", port=9301, tls=True)))
+        source = _deployed(ws_servers=(_ws_server(), _ws_server(host="0.0.0.0", port=9301, tls=True, tls_cert=CERT)))
         async with _client(source) as client:
             payload = (await client.get("/api/status")).json()
 
         external = payload["listeners"][2]
-        assert (external["label"], external["mode"], external["tls"]) == ("ws-external", "external", True)
-        assert payload["listeners"][1]["tls"] is False
+        assert (external["label"], external["mode"]) == ("ws-external", "external")
+        assert external["tls"]["enabled"] is True
+        assert payload["listeners"][1]["tls"]["enabled"] is False
 
     async def test_http_listener_on_a_non_loopback_host_reports_external(self) -> None:
         """HTTP 侧也要有真实模式判定：写死 `local` 时这条红。
@@ -466,6 +490,143 @@ class TestDeployment:
         assert payload["sandbox_backend"] == "auto"
         assert payload["active_provider"] == ""
         assert payload["config_write_enabled"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════
+# TLS 身份面：listener 该 pin 什么、证书还能用多久（Story 73.4）
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _tls_deployed(cert: Any) -> HttpStatusSource:
+    """启用 TLS 的部署形态（WS 一条 wss listener + HTTP 明文档）。"""
+    return _deployed(ws_servers=(_ws_server(tls=True, tls_cert=cert),))
+
+
+_NULL_IDENTITY = {
+    "enabled": False,
+    "spki_sha256": None,
+    "short_fingerprint": None,
+    "not_after": None,
+    "san": None,
+}
+
+
+class TestTlsIdentitySurface:
+    """TLS_ON / TLS_OFF / FINGERPRINT_MATCH / EXTRA_FIELD / 降级与缓存。"""
+
+    async def test_enabled_listener_carries_the_full_identity(self) -> None:
+        info = certificate_info(CERT)
+        async with _client(_tls_deployed(CERT)) as client:
+            payload = (await client.get("/api/status")).json()
+
+        identity = payload["listeners"][1]["tls"]
+        assert identity["enabled"] is True
+        assert identity["spki_sha256"] == info.spki_sha256
+        assert identity["short_fingerprint"] == info.short_fingerprint
+        assert len(identity["short_fingerprint"]) == 14, "短指纹是 XXXX-XXXX-XXXX（14 字符）"
+        assert identity["not_after"] == info.not_after.isoformat().replace("+00:00", "Z")
+        assert identity["san"] == list(info.san)
+
+    async def test_plain_listener_reports_disabled_with_nulls(self) -> None:
+        """未启用 TLS 时四项必须是 ``null``——空串与空列表都会被读成「有身份但取不到」。"""
+        async with _client(_deployed(ws_servers=(_ws_server(),))) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["listeners"][1]["tls"] == _NULL_IDENTITY
+
+    async def test_http_listener_is_always_plaintext(self) -> None:
+        """同一部署里 WS 是 wss、HTTP 仍是明文：两条 listener 的身份面各自独立。"""
+        async with _client(_tls_deployed(CERT)) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["listeners"][0]["kind"] == "http"
+        assert payload["listeners"][0]["tls"] == _NULL_IDENTITY
+
+    async def test_matches_the_cli_fingerprint_verbatim(self, tmp_path: Path) -> None:
+        """与 ``heagent tls fingerprint --format json`` 逐字一致（同一个 ``tls_identity`` 实现源）。"""
+        materials = tmp_path / "tls"
+        materials.mkdir()
+        shutil.copy2(CERT, materials / "cert.pem")
+
+        result = CliRunner().invoke(tls_cmd, ["--dir", str(materials), "fingerprint", "--format", "json"])
+        assert result.exit_code == 0, result.output
+        cli = json.loads(result.output.strip().splitlines()[-1])
+
+        identity = _tls_deployed(materials / "cert.pem").status().listeners[1].tls
+        assert (identity.spki_sha256, identity.short_fingerprint) == (cli["spki_sha256"], cli["short_fingerprint"])
+        assert identity.not_after.isoformat().replace("+00:00", "Z") == cli["not_after"]
+        assert list(identity.san or ()) == cli["san"]
+
+    @pytest.mark.parametrize("material", ["not-a-cert", "missing"])
+    async def test_unreadable_material_degrades_without_500(
+        self, material: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """材料坏掉 / 不在：降级为「未启用」，端点仍 200，且只记一次 WARNING（轮询不刷日志）。"""
+        cert = NOT_A_CERT if material == "not-a-cert" else tmp_path / "absent.pem"
+        source = _tls_deployed(cert)
+        with caplog.at_level(logging.WARNING, logger="heagent.cli.http_status"):
+            async with _client(source) as client:
+                response = await client.get("/api/status")
+            source.status()  # 再轮询一次：缓存命中，不该再记一条
+
+        assert response.status_code == 200
+        identity = response.json()["listeners"][1]["tls"]
+        assert identity == _NULL_IDENTITY
+        warnings = [record for record in caplog.records if "tls_identity_unreadable" in record.getMessage()]
+        assert len(warnings) == 1, f"材料没变时只该记一次 WARNING，实际 {len(warnings)} 条"
+
+    def test_identity_is_read_once_until_the_material_changes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """轮询不该每次读盘解析：路径 + mtime 不变即复用；材料换掉（mtime 变）才重读。"""
+        from heagent.cli import http_status
+
+        cert = tmp_path / "cert.pem"
+        cert.write_bytes(CERT.read_bytes())
+        calls: list[str] = []
+        real = http_status.certificate_info
+
+        def _counting(path: Any) -> Any:
+            calls.append(str(path))
+            return real(path)
+
+        monkeypatch.setattr(http_status, "certificate_info", _counting)
+        source = _tls_deployed(cert)
+
+        first = source.status().listeners[1].tls
+        second = source.status().listeners[1].tls
+        assert len(calls) == 1, f"同一份材料被读了 {len(calls)} 次"
+        assert first == second and first.enabled is True
+
+        stat = cert.stat()
+        os.utime(cert, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000))
+        refreshed = source.status().listeners[1].tls
+        assert len(calls) == 2, "材料变更后必须重读（否则轮换证书后状态面永远报旧指纹）"
+        assert refreshed.enabled is True
+
+    def test_identity_model_is_field_closed_and_coherent(self) -> None:
+        """``extra="forbid"`` + 「启用 ⇔ 四项齐全」由模型钉死，不靠调用方自觉。"""
+        base = {"enabled": False, **_NULL_IDENTITY}
+        with pytest.raises(ValidationError):
+            TlsIdentityInfo.model_validate({**base, "cert_file": "C:/secret/cert.pem"})
+        # 半填状态（有值但 enabled=false / 缺项但 enabled=true）都算编造身份
+        with pytest.raises(ValidationError):
+            TlsIdentityInfo.model_validate({**base, "spki_sha256": "a" * 64})
+        with pytest.raises(ValidationError):
+            TlsIdentityInfo.model_validate({**base, "san": []})
+        with pytest.raises(ValidationError):
+            TlsIdentityInfo.model_validate({"enabled": True, "spki_sha256": "a" * 64})
+
+        listener = {
+            "kind": "ws",
+            "label": "ws-primary",
+            "host": "127.0.0.1",
+            "port": 9201,
+            "mode": "local",
+        }
+        with pytest.raises(ValidationError):
+            ListenerInfo.model_validate({**listener, "tls": {**base, "extra": 1}})
+        assert ListenerInfo.model_validate(listener).tls.enabled is False
 
 
 # ═══════════════════════════════════════════════════════════════════

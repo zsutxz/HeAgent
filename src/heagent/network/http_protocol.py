@@ -20,7 +20,7 @@ from datetime import datetime  # noqa: TC003 - pydantic 需要在运行期解析
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, overload
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
@@ -391,11 +391,44 @@ class ListenerMode(StrEnum):
     EXTERNAL = "external"
 
 
+class TlsIdentityInfo(BaseModel):
+    """一条 listener 的 TLS 身份面：客户端该 pin 什么、证书还能用多久。
+
+    值的唯一实现源是 :func:`heagent.network.tls_identity.certificate_info`（``heagent tls
+    fingerprint`` 打印的也是它），因此状态面与 CLI 逐字一致。
+
+    未启用 TLS：``enabled=false`` 且其余四项一律 ``null``——**不是空串、也不是空列表**。留空值
+    会让前端读成「有身份但取不到」，而事实是这条 listener 没有身份可谈（模型级校验钉死）。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    # 长度与 ``TlsCertificateInfo`` 同界（64 位小写 hex / `XXXX-XXXX-XXXX`）：值由 tls_identity
+    # 产出，这里只防畸形串进契约。
+    spki_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+    short_fingerprint: str | None = Field(default=None, min_length=14, max_length=14)
+    not_after: datetime | None = None
+    san: tuple[str, ...] | None = None
+
+    @model_validator(mode="after")
+    def _state_is_coherent(self) -> TlsIdentityInfo:
+        """「启用 ⇔ 四项齐全」是结构不变量，不靠调用方自觉（半填状态等于在状态面编造身份）。"""
+        values = (self.spki_sha256, self.short_fingerprint, self.not_after, self.san)
+        if not self.enabled:
+            if any(value is not None for value in values):
+                raise ValueError("disabled TLS must leave every identity field null")
+            return self
+        if any(value is None for value in values):
+            raise ValueError("enabled TLS requires spki_sha256 / short_fingerprint / not_after / san")
+        return self
+
+
 class ListenerInfo(BaseModel):
-    """一条已装配 listener 的事实（地址、实际端口、模式、是否 TLS）。
+    """一条已装配 listener 的事实（地址、实际端口、模式、TLS 身份面）。
 
     端口取**运行中的** listener（`port=0` 经顺延后只有绑定完成才知道真实值），因此这里不是
-    配置回显。``tls`` 只对 WS 有真值：HTTP listener 在产品里恒为明文。
+    配置回显。``tls`` 只对 WS 有真值：HTTP listener 在产品里恒为明文（身份面恒为未启用）。
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -405,7 +438,7 @@ class ListenerInfo(BaseModel):
     host: str = Field(min_length=1, max_length=255)
     port: int = Field(ge=0, le=65535)
     mode: ListenerMode
-    tls: bool = False
+    tls: TlsIdentityInfo = Field(default_factory=TlsIdentityInfo)
 
 
 class RoutingPoolInfo(BaseModel):
@@ -659,6 +692,7 @@ __all__ = [
     "SessionMessage",
     "SessionResponse",
     "StatusResponse",
+    "TlsIdentityInfo",
     "WsConnectionCounts",
     "clip_text",
     "cursor_out_of_window",

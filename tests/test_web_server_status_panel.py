@@ -36,6 +36,7 @@ from heagent.network.http_protocol import (
     RoutingPoolInfo,
     RunStatusCounts,
     StatusResponse,
+    TlsIdentityInfo,
     WsConnectionCounts,
 )
 from heagent.network.http_server import _WEB_ASSETS, read_web_asset
@@ -55,12 +56,23 @@ _QUOTED_PATH_RE = re.compile(r"""["'](/[^"'\n]*)["']""")
 _VERSION_LITERAL = re.compile(r"v?\d+\.\d+\.\d+")
 
 # 顶栏 `#service-meta` 已从 `/api/health` 展示服务身份，状态面板刻意不重复。
-_EXEMPT_FIELDS = frozenset({"service", "version", "schema_version"})
+_EXEMPT_FIELDS = frozenset(
+    {
+        "service",
+        "version",
+        "schema_version",
+        # TLS 身份面只上面板两项人读值（短指纹 + 到期日）：完整 SHA-256 与 SAN 留给
+        # `heagent tls fingerprint`（同一个实现源），侧栏 280px 里贴全量摘要只是噪声。
+        "spki_sha256",
+        "san",
+    }
+)
 _STATUS_MODELS: tuple[type[BaseModel], ...] = (
     StatusResponse,
     RunStatusCounts,
     WsConnectionCounts,
     ListenerInfo,
+    TlsIdentityInfo,
     RoutingPoolInfo,
     CronJobInfo,
     ErrorCodeCount,
@@ -246,6 +258,41 @@ class TestTabLayout:
 
     def test_tablist_is_built_once(self) -> None:
         assert "if (tablist !== null) return;" in _function_body("buildTabs")
+
+
+class TestTlsIdentityRow:
+    """Story 73.4：部署面多一行 `TLS: wss · pin XXXX-XXXX-XXXX · 到期 YYYY-MM-DD`。"""
+
+    def test_identity_row_exists_only_for_tls_listeners(self) -> None:
+        body = _function_body("deploymentRows")
+        assert "if (identity.enabled) {" in body, "未启用 TLS 的 listener 不该出身份行"
+        assert 'rows.push(["TLS", tlsRow(identity)]);' in body
+
+    def test_identity_row_shape(self) -> None:
+        """`wss · pin <短指纹> · 到期 <YYYY-MM-DD>`：值全部来自后端，前端只拼接与截日期。"""
+        body = _function_body("tlsRow")
+        assert '"wss · pin "' in body
+        assert '" · 到期 "' in body
+        assert "identity.short_fingerprint" in body
+        assert "dateOnly(identity.not_after)" in body
+
+    def test_expiry_is_a_plain_date_not_a_localized_stamp(self) -> None:
+        body = _function_body("dateOnly")
+        assert "slice(0, 10)" in body
+        assert "UNAVAILABLE" in body, "形态不对时如实标不可用，不编日期"
+
+    def test_deleting_the_identity_values_turns_the_guard_red(self) -> None:
+        """删除敏感性：删掉渲染短指纹与到期日的那一行，守卫必须点名这两项。
+
+        行的存在性由上面那条字面量断言兜住（删掉 ``rows.push(["TLS", …])`` 即红）；这里钉的是
+        「值真的被消费」——``identity.enabled`` 仍在 listener 行的标记位置上，故不该被点名。
+        """
+        pruned = _drop_lines_containing(_CODE, "identity.short_fingerprint")
+
+        assert _missing_fields((TlsIdentityInfo,), pruned) == [
+            "TlsIdentityInfo.short_fingerprint",
+            "TlsIdentityInfo.not_after",
+        ]
 
 
 class TestFailureSemantics:

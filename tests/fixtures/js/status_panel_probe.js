@@ -170,8 +170,28 @@ function statusPayload(overrides = {}) {
       ws_connections: { runs: 2, cli: 2, notifications: 1 },
       background_tasks: 4,
       listeners: [
-        { kind: "http", label: "HTTP", host: "127.0.0.1", port: 9101, mode: "local", tls: false },
-        { kind: "ws", label: "WS", host: "127.0.0.1", port: 9201, mode: "external", tls: true },
+        {
+          kind: "http",
+          label: "HTTP",
+          host: "127.0.0.1",
+          port: 9101,
+          mode: "local",
+          tls: { enabled: false, spki_sha256: null, short_fingerprint: null, not_after: null, san: null },
+        },
+        {
+          kind: "ws",
+          label: "WS",
+          host: "127.0.0.1",
+          port: 9201,
+          mode: "external",
+          tls: {
+            enabled: true,
+            spki_sha256: "d5af625c13e6bc95eac24f6c41f9e29c4ad06d97e48185bdeb80d635b95eacfb",
+            short_fingerprint: "2WXW-EXAT-426J",
+            not_after: "2036-11-16T13:40:49Z",
+            san: ["IP:127.0.0.1", "DNS:localhost"],
+          },
+        },
       ],
       sandbox_backend: "local",
       config_write_enabled: false,
@@ -310,6 +330,8 @@ function check(name, actual, expected) {
   observed.deploymentRows = rows();
   check("回环 HTTP listener 行", rowValue("HTTP"), "http 127.0.0.1:9101 · local");
   check("对外 WS listener 行带 TLS 标记", rowValue("WS"), "ws 127.0.0.1:9201 · external · TLS");
+  check("TLS 身份行：短指纹与到期日", rowValue("TLS"), "wss · pin 2WXW-EXAT-426J · 到期 2036-11-16");
+  check("明文 listener 不出身份行", labels().filter((label) => label === "TLS").length, 1);
   check("沙箱后端", rowValue("沙箱后端"), "local");
   check("配置写入关闭即「只读」", rowValue("配置写入"), "只读");
   check("当前 provider", rowValue("当前 provider"), "gpt");

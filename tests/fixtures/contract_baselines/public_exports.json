@@ -508,6 +508,7 @@
         "SessionMessage",
         "SessionResponse",
         "StatusResponse",
+        "TlsIdentityInfo",
         "WsConnectionCounts",
         "clip_text",
         "cursor_out_of_window",
@@ -552,6 +553,7 @@
         "SessionResponse",
         "StatusResponse",
         "TERMINAL_RUN_STATUSES",
+        "TlsIdentityInfo",
         "WsConnectionCounts",
         "_ABS_PATH_RE",
         "_MASKED_PATH",
@@ -573,6 +575,7 @@
         "annotations",
         "datetime",
         "field_validator",
+        "model_validator",
         "overload"
       ]
     },
