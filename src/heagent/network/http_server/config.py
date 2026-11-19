@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from heagent.network.exposure import is_loopback_host
 from heagent.network.http_protocol import MAX_REQUEST_BYTES_FOR_MAX_PROMPT
 
 __all__ = ["HttpServerConfig", "HttpStartupError"]
@@ -54,3 +55,13 @@ class HttpServerConfig(BaseModel):
     # 默认 1 小时——远高于任何真实工具调用，但让「永不返回的工具」不再无界占住在途名额。
     tool_inflight_timeout: float = Field(default=3600.0, ge=0, allow_inf_nan=False)
     shutdown_timeout: float = Field(default=5.0, gt=0, allow_inf_nan=False)
+
+    @property
+    def mode(self) -> str:
+        """``"local"``（回环绑定）或 ``"external"``（非回环绑定）。
+
+        与 :attr:`~heagent.network.ws_host.WsServerConfig.mode` 同义、同判定函数
+        （:func:`~heagent.network.exposure.is_loopback_host`）：两处各写一套「算不算本地」，漏报
+        暴露的那天就会得出两个结论。
+        """
+        return "local" if is_loopback_host(self.host) else "external"

@@ -18,9 +18,10 @@ import pytest
 pytest.importorskip("starlette")
 
 import httpx
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
-from heagent.cli.http_status import HttpStatusSource
+from heagent.cli.http_status import HttpStatusSource, bind_status_source
+from heagent.config import Settings
 from heagent.network.cli_event_hub import CliEventHub
 from heagent.network.http_protocol import (
     HTTP_SCHEMA_VERSION,
@@ -33,6 +34,7 @@ from heagent.network.http_protocol import (
     WsConnectionCounts,
 )
 from heagent.network.http_server import HttpRunService, HttpServerConfig, build_http_app
+from heagent.network.ws_host import WsServerConfig
 from heagent.network.notification_hub import NotificationHub
 
 if TYPE_CHECKING:
@@ -86,6 +88,19 @@ async def _client(source: Any, *, run_service: HttpRunService | None = None) -> 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url=_BASE_URL) as client:
         yield client
+
+
+def _ws_server(*, host: str = "127.0.0.1", port: int = 9201, tls: bool = False, hub: Any = None) -> Any:
+    """WS listener 替身：配置用**真实** ``WsServerConfig``（模式/TLS 判定不在这里复刻）。
+
+    对外绑定是 fail-closed 的（缺 token 直接拒绝构造），所以替身一律带上 token —— 回环场景下
+    它不被使用，对外场景下它满足构造前提。
+    """
+    extra: dict[str, Any] = {"tls_cert_file": "c.pem", "tls_key_file": "k.pem"} if tls else {}
+    config = WsServerConfig(host=host, port=port, auth_token=SecretStr("token"), **extra)
+    # 运行期端口刻意与配置值不同（真值是 ``port=0`` 绑定后才有的）：把两者写成同一个数会让
+    # 「读运行中的 listener」与「抄配置」这对实现永远不可区分。
+    return SimpleNamespace(config=config, port=port + 100, notification_hub=hub)
 
 
 def _source(
@@ -213,6 +228,141 @@ class TestRunCounts:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# 部署面：listener 事实与配置标量（Story 71.2）
+# ═══════════════════════════════════════════════════════════════════
+
+
+def _deployed(
+    *,
+    settings: Any = None,
+    http_port: int = 9101,
+    http_host: str = "127.0.0.1",
+    ws_servers: tuple[Any, ...] = (),
+) -> HttpStatusSource:
+    """装配形态的来源：http listener 用真实 ``HttpServerConfig``，端口按运行值给。"""
+    server = SimpleNamespace(config=HttpServerConfig(host=http_host, port=0), port=0)
+    source = HttpStatusSource(version=_VERSION, max_inflight_runs=1, settings=settings)
+    bind_status_source(source, ws_servers, http_server=server)
+    # 绑定之后端口才确定（``port=0``）：此后改运行期属性，读到的值必须跟着变。
+    server.port = http_port
+    return source
+
+
+class TestDeployment:
+    async def test_loopback_listeners_report_local_mode(self) -> None:
+        source = _deployed(ws_servers=(_ws_server(),))
+        async with _client(source) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert [(item["kind"], item["mode"]) for item in payload["listeners"]] == [
+            ("http", "local"),
+            ("ws", "local"),
+        ]
+        assert [item["label"] for item in payload["listeners"]] == ["http", "ws-primary"]
+
+    async def test_external_listener_reports_mode_and_tls(self) -> None:
+        source = _deployed(ws_servers=(_ws_server(), _ws_server(host="0.0.0.0", port=9301, tls=True)))
+        async with _client(source) as client:
+            payload = (await client.get("/api/status")).json()
+
+        external = payload["listeners"][2]
+        assert (external["label"], external["mode"], external["tls"]) == ("ws-external", "external", True)
+        assert payload["listeners"][1]["tls"] is False
+
+    async def test_http_listener_on_a_non_loopback_host_reports_external(self) -> None:
+        """HTTP 侧也要有真实模式判定：写死 `local` 时这条红。
+
+        通配绑定意味着「任何能连上该地址的人都能用这个无认证入口」，状态面必须如实标成 external。
+        """
+        async with _client(_deployed(http_host="0.0.0.0")) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["listeners"][0]["mode"] == "external"
+
+    async def test_without_ws_only_the_http_listener_is_reported(self) -> None:
+        async with _client(_deployed()) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert [item["kind"] for item in payload["listeners"]] == ["http"]
+
+    async def test_ports_come_from_the_running_listeners_not_the_config(self) -> None:
+        """``port=0`` 的部署里配置值恒为 0：真实端口只能在绑定之后从 listener 上读。"""
+        async with _client(_deployed(http_port=9123, ws_servers=(_ws_server(),))) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["listeners"][0]["port"] == 9123
+        assert payload["listeners"][0]["port"] != 0
+        # ws 替身的配置端口是 9201、运行期是 9301：读到 9201 就说明是抄配置而不是读 listener。
+        assert payload["listeners"][1]["port"] == 9301
+
+    async def test_deployment_scalars_come_from_settings(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            sandbox_backend="docker",
+            active_provider="openai",
+            http_console_write_enabled=True,
+            routing_pools='{"openai": {"tiers": {"fast": "sentinel-model-a", "pro": "sentinel-model-b"}}}',
+        )
+        async with _client(_deployed(settings=settings)) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["sandbox_backend"] == "docker"
+        assert payload["active_provider"] == "openai"
+        assert payload["config_write_enabled"] is True
+        assert payload["routing_pools"] == [{"pool": "openai", "tiers": ["fast", "pro"]}]
+
+    async def test_no_secret_or_model_name_leaks_into_the_status_body(self) -> None:
+        settings = Settings(
+            _env_file=None,
+            active_provider="openai",
+            openai_api_key="sk-sentinel-value",
+            routing_pools='{"openai": {"tiers": {"fast": "sentinel-model-a"}, "base_url": "http://sentinel.host"}}',
+        )
+        async with _client(_deployed(settings=settings, ws_servers=(_ws_server(),))) as client:
+            response = await client.get("/api/status")
+
+        assert "sk-sentinel-value" not in response.text
+        assert "sentinel-model-a" not in response.text
+        assert "sentinel.host" not in response.text
+        # 绝对路径形态（宿主目录结构）同样不该出现在状态面里。
+        assert "C:\\" not in response.text and "/home/" not in response.text
+
+    async def test_a_pool_with_more_tiers_than_the_field_cap_does_not_break_status(self) -> None:
+        """超量档位只截断，绝不因为一条配置让整条状态 500。"""
+        tiers = {f"tier{index:02d}": f"model-{index}" for index in range(17)}
+        settings = Settings(
+            _env_file=None,
+            routing_pools='{"openai": {"tiers": ' + __import__("json").dumps(tiers) + "}}",
+        )
+        async with _client(_deployed(settings=settings)) as client:
+            response = await client.get("/api/status")
+
+        assert response.status_code == 200
+        assert response.json()["routing_pools"] == [{"pool": "openai", "tiers": list(tiers)[:64]}]
+
+    async def test_effective_sandbox_backend_wins_over_the_configured_one(self) -> None:
+        """``--sandbox docker`` 这类命令行覆盖必须体现在状态里（配置里可能仍是 ``auto``）。"""
+        settings = Settings(_env_file=None, sandbox_backend="auto")
+        source = HttpStatusSource(
+            version=_VERSION,
+            max_inflight_runs=1,
+            settings=settings,
+            sandbox_backend="docker",
+        )
+
+        assert source.status().sandbox_backend == "docker"
+
+    async def test_pools_default_to_an_empty_list(self) -> None:
+        async with _client(_deployed(settings=Settings(_env_file=None))) as client:
+            payload = (await client.get("/api/status")).json()
+
+        assert payload["routing_pools"] == []
+        assert payload["sandbox_backend"] == "auto"
+        assert payload["active_provider"] == ""
+        assert payload["config_write_enabled"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════
 # 装配级：listener 透传与入口层接线（漏了就静默 404 / 计数恒 0）
 # ═══════════════════════════════════════════════════════════════════
 
@@ -239,7 +389,6 @@ class TestAssembly:
         漏调 ⇒ ``ws_connections.cli`` 恒 0。
         """
         from heagent.cli.http import build_http_service
-        from heagent.config import Settings
 
         monkeypatch.chdir(tmp_path)
         settings = Settings(_env_file=None, http_enabled=True, ws_enabled=True, ws_cli_bypass_enabled=True)
@@ -259,7 +408,12 @@ class TestAssembly:
         async with httpx.AsyncClient(transport=transport, base_url=base_url) as client:
             wired = await client.get("/api/status")
             assert wired.status_code == 200
-            assert wired.json()["max_inflight_runs"] >= 1
+            deployed = wired.json()
+            assert deployed["max_inflight_runs"] >= 1
+            # 部署面同样要经装配送达：漏传 http_server ⇒ listeners 为空；漏传 settings ⇒ 标量为空串。
+            assert [item["kind"] for item in deployed["listeners"]] == ["http", "ws"]
+            assert deployed["sandbox_backend"] == settings.sandbox_backend
+            assert deployed["routing_pools"] == []
 
             cli_hub.register_ws("c1", "run-1", object())
             try:
@@ -301,7 +455,7 @@ class TestWsConnectionCounts:
     async def test_notification_hub_is_taken_from_the_listeners_once(self) -> None:
         """同一份通知中枢挂在每个 listener 上：按 listener 逐个相加会把同一批连接重复计。"""
         hub = NotificationHub()
-        servers = (SimpleNamespace(notification_hub=hub), SimpleNamespace(notification_hub=hub))
+        servers = (_ws_server(hub=hub), _ws_server(host="0.0.0.0", port=9301, hub=hub))
         source = _source()
         source.bind_ws(servers)
 
@@ -314,7 +468,7 @@ class TestWsConnectionCounts:
         other = NotificationHub()
         other.register_ws("c1", "stream-1", object())
         source = _source()
-        source.bind_ws((SimpleNamespace(notification_hub=other),), notification_hub=explicit)
+        source.bind_ws((_ws_server(hub=other),), notification_hub=explicit)
 
         explicit.register_ws("c2", "stream-2", object())
 

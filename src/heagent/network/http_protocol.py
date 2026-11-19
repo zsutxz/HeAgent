@@ -378,6 +378,42 @@ class WsConnectionCounts(BaseModel):
     notifications: int = Field(default=0, ge=0)
 
 
+class ListenerMode(StrEnum):
+    """listener 的暴露模式：回环绑定 = ``local``，非回环 = ``external``（与 WS 侧同名同义）。"""
+
+    LOCAL = "local"
+    EXTERNAL = "external"
+
+
+class ListenerInfo(BaseModel):
+    """一条已装配 listener 的事实（地址、实际端口、模式、是否 TLS）。
+
+    端口取**运行中的** listener（`port=0` 经顺延后只有绑定完成才知道真实值），因此这里不是
+    配置回显。``tls`` 只对 WS 有真值：HTTP listener 在产品里恒为明文。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["http", "ws"]
+    label: str = Field(min_length=1, max_length=32)
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(ge=0, le=65535)
+    mode: ListenerMode
+    tls: bool = False
+
+
+class RoutingPoolInfo(BaseModel):
+    """一个路由池的档位名清单（池内名即 ``/model`` 接受的名字）。
+
+    **不含模型名与 base_url**：状态面只回答「有哪些档位」，不回答「档位指向哪个供应商 / 地址」。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    pool: str = Field(min_length=1, max_length=64)
+    tiers: list[str] = Field(default_factory=list, max_length=64)
+
+
 class StatusResponse(BaseModel):
     """``GET /api/status`` 的稳定响应：进程自身状态的只读聚合投影。
 
@@ -400,6 +436,12 @@ class StatusResponse(BaseModel):
     run_status: RunStatusCounts = Field(default_factory=RunStatusCounts)
     ws_connections: WsConnectionCounts = Field(default_factory=WsConnectionCounts)
     background_tasks: int = Field(default=0, ge=0)
+    # ---- 部署面（71.2）：只报名字与布尔，不含密钥值、base_url 与绝对路径 ----
+    listeners: list[ListenerInfo] = Field(default_factory=list, max_length=4)
+    sandbox_backend: str = Field(default="", max_length=32)
+    config_write_enabled: bool = False
+    active_provider: str = Field(default="", max_length=64)
+    routing_pools: list[RoutingPoolInfo] = Field(default_factory=list, max_length=16)
 
 
 def clip_text(value: str, *, limit: int = MAX_EVENT_TEXT_CHARS) -> str:
@@ -537,6 +579,9 @@ __all__ = [
     "HttpRunConflictError",
     "CronResultStatus",
     "HttpUsage",
+    "ListenerInfo",
+    "ListenerMode",
+    "RoutingPoolInfo",
     "NotificationKind",
     "NotificationPayload",
     "RunEventKind",

@@ -360,6 +360,9 @@ def build_http_service(
         max_inflight_runs=config.max_inflight_runs,
         run_service=run_service,
         task_registry=task_registry,
+        settings=settings,
+        sandbox_backend=getattr(executor, "sandbox_backend", None),
+        provider=getattr(executor, "provider", None),
         enabled=http_on,
     )
     http_server: HttpServer | None = None
@@ -390,7 +393,9 @@ def build_http_service(
     # 通知中枢的真源同样在 build_ws_servers（同一份挂到每个 listener）：这里只把它抬到服务单元，
     # 供入口层构造的 cron notifier 发布。没有任何 listener ⇒ 无中枢。
     notification_hub = ws_servers[0].notification_hub if ws_servers else None
-    bind_status_source(status_source, ws_servers, cli_hub=cli_hub, notification_hub=notification_hub)
+    bind_status_source(
+        status_source, ws_servers, http_server=http_server, cli_hub=cli_hub, notification_hub=notification_hub
+    )
     return EmbeddedHttpService(http_server, ws_servers, cli_hub=cli_hub, notification_hub=notification_hub)
 
 
@@ -687,6 +692,10 @@ def http_server_cmd(
         max_inflight_runs=config.max_inflight_runs,
         run_service=run_service,
         task_registry=task_registry,
+        settings=settings,
+        # 沙箱档位与 provider 都取**本次进程实际用的**：`--sandbox` 是命令行覆盖，配置里可能是 auto。
+        sandbox_backend=sandbox or settings.sandbox_backend,
+        provider=handler.provider,
         enabled=http_on,
     )
     server: HttpServer | None = None
@@ -734,7 +743,7 @@ def http_server_cmd(
             anchor=ANCHOR_CLI_ERRORS,
         )
     # 通知中枢从 listener 上取（本命令 `push_enabled=False` ⇒ 恒为 None，与 WS 侧的装配一致）。
-    bind_status_source(status_source, ws_servers, cli_hub=_hub)
+    bind_status_source(status_source, ws_servers, http_server=server, cli_hub=_hub)
     # 非回环绑定：启动前先向 stderr 打印一次明确告警。HTTP 侧固定「无认证」口径；WS 侧按 mode
     # 分流——对外模式是 token 认证，套用 exposure_warning 的「no authentication」文案会撒谎。
     if server is not None:

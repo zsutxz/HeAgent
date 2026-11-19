@@ -552,6 +552,20 @@
     },
     {
       "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "ListenerInfo"
+    },
+    {
+      "bases": [
+        "StrEnum"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "ListenerMode"
+    },
+    {
+      "bases": [
         "StrEnum"
       ],
       "module": "heagent.network.http_protocol",
@@ -563,6 +577,13 @@
       ],
       "module": "heagent.network.http_protocol",
       "name": "NotificationPayload"
+    },
+    {
+      "bases": [
+        "BaseModel"
+      ],
+      "module": "heagent.network.http_protocol",
+      "name": "RoutingPoolInfo"
     },
     {
       "bases": [

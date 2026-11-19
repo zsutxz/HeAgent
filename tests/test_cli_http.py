@@ -102,12 +102,17 @@ def test_http_server_command_wires_the_status_source(
     """
     monkeypatch.setenv("HTTP_PORT_AUTO_FIND_ATTEMPTS", "0")
 
-    result = CliRunner().invoke(main, ["http-server"])
+    result = CliRunner().invoke(main, ["http-server", "--sandbox", "docker"])
 
     assert result.exit_code == 0, result.output
     server = captured_server["server"]
     assert server.status is not None, "HttpServer(...) 未收到状态来源"
-    assert server.status.status().max_inflight_runs >= 1
+    snapshot = server.status.status()
+    assert snapshot.max_inflight_runs >= 1
+    # 部署面必须来自真实装配：listener 首条是本 HTTP listener（漏传 http_server ⇒ 空列表），
+    # 沙箱档位取本次进程实际用的（漏传就是配置里的 auto）。
+    assert [item.kind for item in snapshot.listeners][:1] == ["http"]
+    assert snapshot.sandbox_backend == "docker"
 
     node = server.app
     while not hasattr(node, "routes"):
